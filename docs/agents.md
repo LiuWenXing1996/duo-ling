@@ -96,7 +96,7 @@ CDP 的边界：需要应用在 dev 模式运行；只覆盖渲染进程；生�
   - 安装需在 `pnpm-workspace.yaml` 的 `allowBuilds` 加 `node-llama-cpp: true`；原生二进制在独立的平台包 `@node-llama-cpp/<平台>-<gpu>/bins/`（含 `llama-addon.node` 与 dylib/so），electron-builder 需 `asarUnpack: ['**/node_modules/@node-llama-cpp/**']`；
   - 该包是 ESM 且含顶层 await，CJS `require()` 会报 `ERR_REQUIRE_ASYNC_MODULE`，ESM 主进程 `import` 正常；
   - 验证二进制是否就绪：`node --input-type=module -e "import {getLlama} from 'node-llama-cpp'; const l = await getLlama(); console.log(l.gpu)"`；
-  - 模型目录约定：开发模式 `<项目根>/llm-models/`，打包后 `<userData>/models`（`app.getAppPath()` 在开发模式即项目根）；
+  - 模型目录约定：优先读取全局环境变量 `$LLM_MODELS`（未设置或该目录下无模型时回退），其次开发模式 `<项目根>/llm-models/`、打包后 `<userData>/models`（`app.getAppPath()` 在开发模式即项目根）；解析逻辑集中在 `src/main/model-path.ts`（纯函数，已配单测）；
   - `llama.gpu` 类型为 `LlamaGpuType`（可能为 boolean），写入 IPC 状态前需转成 string 或过滤。
 - **e2e 勿在模型加载中关闭应用**：聊天面板挂载即自动触发 `llama:init`（加载 1.15GB 模型是异步的），若 e2e 断言完直接 `close()`，会中途终止 llama.cpp 原生初始化 → 进程 `SIGABRT`，macOS 弹「Electron 意外退出」崩溃框。e2e 必须先轮询 `llama:status` 直到非 loading（`expect.poll` 等到 `ready`）再关闭；这一步同时补上了"模型能否成功加载"的端测覆盖。判断崩溃是否由它引起：看 `~/Library/Logs/DiagnosticReports/` 下 Electron 崩溃报告的 `signal: SIGABRT` 且栈含 llama/ggml 帧。
 - **开发环境 CDP 远程调试**：主进程在 `is.dev` 时自动 `app.commandLine.appendSwitch('remote-debugging-port', '9222')`，`pnpm dev` 即可用 `chrome://inspect` 或 `chromium.connectOverCDP('http://127.0.0.1:9222')` 远程调试渲染进程（Playwright 已安装，可直接写脚本 evaluate）。主进程另有常驻 IPC `window:getBounds`（preload 暴露 `window.api.window.getBounds()`），配合 CDP 可随时读窗口坐标。若跑构建产物做同样操作，启动时手动加 `--remote-debugging-port=9222` 即可。AppleScript(System Events) 读窗口位置会被 macOS 辅助功能权限拦截（-1743），优先用 CDP + IPC。

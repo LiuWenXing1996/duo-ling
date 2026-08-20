@@ -8,9 +8,8 @@ import {
   type Llama,
   type LlamaModel
 } from 'node-llama-cpp'
+import { MODEL_FILENAME, resolveModelDir } from './model-path'
 import type { ChatMessage } from './chat-store'
-
-export const MODEL_FILENAME = 'MiniCPM5-1B-Q8_0.gguf'
 
 export interface LlamaStatus {
   state: 'idle' | 'loading' | 'ready' | 'error'
@@ -20,11 +19,15 @@ export interface LlamaStatus {
   error?: string
 }
 
-// 模型目录：开发模式读项目根 llm-models/，打包后读 <userData>/models
+// 模型目录解析：优先使用全局环境变量 $LLM_MODELS，其次回退到
+// 开发模式项目根 llm-models/、打包后 <userData>/models（详见 model-path.ts）
 function getModelDir(): string {
-  return app.isPackaged
-    ? join(app.getPath('userData'), 'models')
-    : join(app.getAppPath(), 'llm-models')
+  return resolveModelDir({
+    envModels: process.env['LLM_MODELS'],
+    isPackaged: app.isPackaged,
+    userData: app.getPath('userData'),
+    appPath: app.getAppPath()
+  })
 }
 
 export function getModelPath(): string {
