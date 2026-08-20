@@ -147,7 +147,7 @@ async function removeAll() {
             <ui-button
               variant="ghost"
               size="icon"
-              class="size-7"
+              class="no-drag size-7"
               aria-label="新建会话"
               @click="createSession"
             >
@@ -165,7 +165,7 @@ async function removeAll() {
                 ref="deleteAllBtnRef"
                 variant="ghost"
                 size="icon"
-                class="size-7"
+                class="no-drag size-7"
                 :disabled="tasks.length === 0"
                 aria-label="删除全部任务"
               >

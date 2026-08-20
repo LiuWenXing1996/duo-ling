@@ -210,7 +210,7 @@ async function stopGeneration(): Promise<void> {
         <ui-button
           variant="ghost"
           size="sm"
-          class="h-7 px-2 text-xs"
+          class="no-drag h-7 px-2 text-xs"
           :disabled="status.state === 'loading' || status.state === 'ready'"
           @click="loadModel"
         >

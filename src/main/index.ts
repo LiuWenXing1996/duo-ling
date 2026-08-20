@@ -55,6 +55,18 @@ function createWindow(): void {
     height: DEFAULT_HEIGHT,
     minWidth: 800,
     minHeight: 600,
+    // 无标题栏：macOS 用 hiddenInset（隐藏标题栏、保留红绿灯），
+    // Windows/Linux 用 titleBarOverlay（隐藏标题栏、保留系统窗口按钮）
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    ...(process.platform !== 'darwin'
+      ? {
+          titleBarOverlay: {
+            color: '#ffffff',
+            symbolColor: '#52525b',
+            height: 32
+          }
+        }
+      : {}),
     // dev 藏角落：不在构造参数里传屏外坐标（macOS 会拉回屏内），改为显示后 setBounds
     show: false,
     autoHideMenuBar: true,

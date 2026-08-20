@@ -43,6 +43,9 @@
     flex: none;
     padding: 12px 16px;
     border-bottom: 1px solid var(--border);
+    // 无标题栏窗口的拖拽区：三栏各自 header 可拖动窗口（双击缩放由系统处理）
+    -webkit-app-region: drag;
+    user-select: none;
   }
 
   &-title {
@@ -62,4 +65,9 @@
     color: var(--muted-foreground);
     font-size: 13px;
   }
+}
+
+// 拖拽区内的可交互元素须排除拖拽，否则点击被窗口拖动吞掉
+.no-drag {
+  -webkit-app-region: no-drag;
 }
