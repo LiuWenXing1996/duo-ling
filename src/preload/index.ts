@@ -23,6 +23,14 @@ interface ChatMessageData {
   createdAt: string
 }
 
+interface ToolMetaData {
+  name: string
+  description: string
+  inputJsonSchema: Record<string, unknown>
+}
+
+type ToolRunResultData = { ok: true; output: Record<string, unknown> } | { ok: false; error: string }
+
 type ChatEventData =
   | { type: 'token'; taskId: number; token: string }
   | { type: 'done'; taskId: number; message: ChatMessageData }
@@ -43,6 +51,11 @@ const api = {
     getStatus: (): Promise<LlamaStatusData> => ipcRenderer.invoke('llama:status'),
     checkModel: (): Promise<{ exists: boolean; path: string }> =>
       ipcRenderer.invoke('llama:checkModel')
+  },
+  tools: {
+    list: (): Promise<ToolMetaData[]> => ipcRenderer.invoke('tools:list'),
+    run: (name: string, input: Record<string, unknown>): Promise<ToolRunResultData> =>
+      ipcRenderer.invoke('tools:run', name, input)
   },
   window: {
     getBounds: (): Promise<{ x: number; y: number; width: number; height: number } | null> =>

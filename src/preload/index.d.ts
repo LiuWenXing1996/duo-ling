@@ -31,6 +31,19 @@ declare global {
         }>
         checkModel: () => Promise<{ exists: boolean; path: string }>
       }
+      tools: {
+        list: () => Promise<
+          Array<{
+            name: string
+            description: string
+            inputJsonSchema: Record<string, unknown>
+          }>
+        >
+        run: (
+          name: string,
+          input: Record<string, unknown>
+        ) => Promise<{ ok: true; output: Record<string, unknown> } | { ok: false; error: string }>
+      }
       window: {
         getBounds: () => Promise<{
           x: number

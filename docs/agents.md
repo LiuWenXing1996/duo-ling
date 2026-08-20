@@ -112,6 +112,12 @@ CDP 的边界：需要应用在 dev 模式运行；只覆盖渲染进程；生�
   - **MiniCPM5-1B 是推理模型**，输出 `<think>...</think>` 思考块；UI 展示时用正则剥离，流式期间未闭合时显示"思考中…"。
   - 流式 IPC 模式：`chat:send` 里 `event.sender.send('chat:event', ...)` 推送 token/done/aborted/error，`AbortController` 中止，preload 用单例 listener 暴露 `onEvent/offEvent`（contextBridge 支持回调参数透传）。
   - 持久化用独立 electron-store 文件（`chat.json`，`sessions[taskId]` 数组），消息带 `{ id, role, content, createdAt }`；Schema 校验用 `additionalProperties` 校验会话字典。
+- **工具标准**（`src/main/tools/`）：
+  - 每个工具 = `{ name, description, inputSchema, outputSchema, run }`，输入/输出均为 JS object（空 = `z.object({})`），两侧都用 zod 约束；`run` 同步/异步皆可；
+  - 统一入口 `runTool(name, rawInput)`：`inputSchema.safeParse` → `run` → `outputSchema.safeParse`，任何失败返回 `{ ok: false, error }` 不抛异常；注册表 `registerTool` 禁止重名；
+  - 新增工具：建 `src/main/tools/tool-<名>.ts` 并在 `index.ts` 的 `registerBuiltinTools()` 注册；
+  - IPC 只暴露两个通用通道：`tools:list`（元数据 + 输入 JSON Schema）与 `tools:run`，preload 暴露 `api.tools`；UI 模式靠 `inputJsonSchema` 自动生成表单（`schema-form.vue` 递归渲染 string/number/integer/boolean/enum/array/object），无 UI 模式在主进程直接 `runTool`；
+  - **zod v4 自带 `schema.toJSONSchema()`**（draft 2020-12），不要用 `zod-to-json-schema`（3.25.2 与 zod v4 运行时不兼容，转换结果字段全丢）；zod v4 的 `_def` 结构大改（无 `typeName`，`def.type` 为字符串标识、object 的 shape 是对象、description 是公开 getter）。
 
 ## 工作流
 

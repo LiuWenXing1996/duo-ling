@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { listTasks, createTask, renameTask, saveTasks, type Task } from './store'
 import { checkModelExists, getModelStatus, initModel, isModelReady, generateChatReply } from './llama-service'
 import { listChatMessages, appendChatMessage, type ChatMessage } from './chat-store'
+import { runTool, listToolMetas, registerBuiltinTools } from './tools'
 
 // 端测等场景可通过环境变量指定 userData 目录，避免写入系统默认位置
 if (process.env['DUO_LING_USER_DATA_DIR']) {
@@ -124,6 +125,11 @@ app.whenReady().then(() => {
   ipcMain.handle('llama:init', () => initModel())
   ipcMain.handle('llama:status', () => getModelStatus())
   ipcMain.handle('llama:checkModel', () => checkModelExists())
+
+  // 工具标准：统一注册/执行，渲染层通过 tools:list（元数据+JSON Schema）与 tools:run（执行）访问
+  registerBuiltinTools()
+  ipcMain.handle('tools:list', () => listToolMetas())
+  ipcMain.handle('tools:run', (_event, name: string, input: unknown) => runTool(name, input))
 
   // 窗口信息：读取当前窗口位置/尺寸（用于开发调试与窗口状态管理）
   ipcMain.handle('window:getBounds', () => {
