@@ -4,6 +4,7 @@
     "vitest.config.*",
     "playwright.config.*",
     "e2e/**/*",
+    "scripts/**/*",
     "src/main/**/*",
     "src/preload/**/*"
   ],
