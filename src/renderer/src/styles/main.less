@@ -1,0 +1,65 @@
+// 三栏工作区布局样式
+// 约定：Tailwind 负责通用工具类；Less 负责复杂业务样式与复用性较高的局部样式
+.workspace {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+
+  &-panel {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+
+    &--grow {
+      flex: 1;
+    }
+  }
+
+  &-divider {
+    flex: none;
+    width: 8px;
+    cursor: col-resize;
+    background-color: var(--border);
+    transition: background-color 0.15s;
+
+    &:hover,
+    &.dragging {
+      background-color: var(--ring);
+    }
+  }
+}
+
+// 栏位通用占位样式（会话记录 / 对话框 / 会话详情）
+.panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+
+  &-header {
+    flex: none;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  &-title {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  &-body {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+
+  &-empty {
+    color: var(--muted-foreground);
+    font-size: 13px;
+  }
+}
