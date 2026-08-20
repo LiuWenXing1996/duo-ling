@@ -34,6 +34,13 @@ test('应用启动并渲染主界面', async () => {
   await expect(window.getByRole('heading', { name: '对话框' })).toBeVisible()
   await expect(window.getByRole('heading', { name: '会话详情' })).toBeVisible()
 
+  // 三栏标题栏高度一致（回归：各栏 header 内容不同，纯标题行高低于含按钮的行，高度曾由内容撑开而不一致）
+  const headerHeights = await window
+    .locator('header.panel-header')
+    .evaluateAll((els) => els.map((el) => el.offsetHeight))
+  expect(headerHeights.length).toBe(3)
+  expect(new Set(headerHeights).size).toBe(1)
+
   // IPC 通道可用：window.api.ping() 应返回 pong
   const ping = await window.evaluate(() =>
     (window as unknown as RendererWindow).api.ping()

@@ -40,8 +40,12 @@
   min-height: 0;
 
   &-header {
+    // 固定标题栏高度：三个栏位内容高度不同（纯标题 / 标题+按钮），统一由固定高度撑开，避免各行高度不一致
     flex: none;
-    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    height: 48px;
+    padding: 0 16px;
     border-bottom: 1px solid var(--border);
     // 无标题栏窗口的拖拽区：三栏各自 header 可拖动窗口（双击缩放由系统处理）
     -webkit-app-region: drag;
