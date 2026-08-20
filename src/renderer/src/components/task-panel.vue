@@ -187,13 +187,14 @@ async function removeAll() {
       </ui-popover>
     </header>
 
-    <div class="min-h-0 flex-1 overflow-y-auto">
+    <div class="min-h-0 flex-1 overflow-y-auto py-1">
       <ul v-if="tasks.length > 0" class="divide-y">
         <li
           v-for="task in tasks"
           :key="task.id"
-          class="group flex cursor-pointer items-center justify-between gap-2 px-4 py-2.5 transition-colors hover:bg-accent"
-          :class="{ 'bg-accent': props.activeTaskId === task.id }"
+          class="task-item group relative flex cursor-pointer items-center justify-between gap-2 px-3 py-2 transition-colors hover:bg-accent/50"
+          :class="{ 'bg-accent/60': props.activeTaskId === task.id }"
+          :aria-selected="props.activeTaskId === task.id"
           @click="emit('select', task.id)"
         >
           <div class="min-w-0">

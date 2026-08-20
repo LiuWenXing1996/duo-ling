@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import AppSidebar from '@/components/app-sidebar.vue'
 import TaskPanel from '@/components/task-panel.vue'
 import ChatPanel from '@/components/chat-panel.vue'
 import DetailPanel from '@/components/detail-panel.vue'
 
-// 栏位宽度约束（px）
+// 左侧图标导航栏宽度（固定，不可拖拽）
+const SIDEBAR_WIDTH = 48
+
+// 栏位宽度约束（px）：需扣除固定侧栏宽度
 const MIN_COL = 160
 const MAX_LEFT = 480
 const MAX_RIGHT = 520
@@ -34,7 +38,8 @@ function onDividerMousedown(side: 'left' | 'right', event: MouseEvent) {
 
 function onWindowMousemove(event: MouseEvent) {
   const dx = event.clientX - startX.value
-  const available = window.innerWidth
+  // 可用宽度需扣除固定侧栏
+  const available = window.innerWidth - SIDEBAR_WIDTH
   if (draggingSide.value === 'left') {
     const maxLeft = Math.min(MAX_LEFT, available - rightWidth.value - MIN_MIDDLE)
     leftWidth.value = clamp(startLeft.value + dx, MIN_COL, Math.max(MIN_COL, maxLeft))
@@ -63,6 +68,7 @@ function onSessionRenamed(): void {
 
 <template>
   <div class="workspace">
+    <app-sidebar />
     <section class="workspace-panel" :style="{ width: `${leftWidth}px` }">
       <task-panel
         :active-task-id="activeTaskId"
@@ -94,7 +100,7 @@ function onSessionRenamed(): void {
       @mousedown.prevent="onDividerMousedown('right', $event)"
     />
     <section class="workspace-panel" :style="{ width: `${rightWidth}px` }">
-      <detail-panel />
+      <detail-panel :active-task-id="activeTaskId" />
     </section>
   </div>
 </template>
