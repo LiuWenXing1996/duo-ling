@@ -1,0 +1,2 @@
+将下载的模型文件 MiniCPM5-1B-Q8_0.gguf 放入本目录（开发模式模型目录）。
+打包后的应用从 <userData>/models 目录读取。

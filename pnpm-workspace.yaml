@@ -1,0 +1,27 @@
+# pnpm 工作区配置（pnpm 11）
+# 说明：pnpm 11 从 pnpm-workspace.yaml 读取配置，.npmrc 中仅保留 auth/registry 设置
+
+# 使用 hoisted 布局，确保 Electron 及其原生依赖在 node_modules 根目录可被正确解析
+nodeLinker: hoisted
+
+# 允许以下包执行构建脚本（否则 electron 二进制不会被下载、esbuild 等原生包不可用）
+allowBuilds:
+  electron: true
+  esbuild: true
+  vue-demi: true
+  electron-winstaller: true
+  '@tailwindcss/oxide': true
+  oxc-resolver: true
+  node-llama-cpp: true
+
+minimumReleaseAgeExclude:
+  - '@lucide/vue@1.33.0'
+
+# 只安装当前平台（macOS arm64）的 optionalDependencies，
+# 避免 node-llama-cpp 把全平台二进制（含 135MB CUDA）都装下来。
+# 注意：之后若在 mac 上交叉打包 win/linux，需临时放开或按目标平台安装。
+supportedArchitectures:
+  os:
+    - darwin
+  cpu:
+    - arm64

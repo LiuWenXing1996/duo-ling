@@ -1,0 +1,21 @@
+node_modules
+dist
+out
+release
+*.log
+.DS_Store
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# testing
+test-results
+playwright-report
+blob-report
+playwright/.cache
+
+# 本地大模型文件（体积大，不入库；仅保留目录占位）
+llm-models/*
+!llm-models/.gitkeep

@@ -1,0 +1,26 @@
+appId: com.duo-ling.app
+productName: duo-ling
+directories:
+  output: release
+files:
+  - out/**
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!e2e/*'
+  - '!docs/*'
+  - '!{electron.vite.config.ts,tsconfig.json,tsconfig.node.json,tsconfig.web.json,vitest.config.ts,playwright.config.ts,components.json}'
+npmRebuild: false
+# node-llama-cpp 原生绑定（.node / .dylib）不能放进 asar，必须解包
+asarUnpack:
+  - '**/node_modules/@node-llama-cpp/**'
+mac:
+  category: public.app-category.utilities
+  target:
+    - dmg
+win:
+  target:
+    - nsis
+linux:
+  target:
+    - AppImage
+  category: Utility
