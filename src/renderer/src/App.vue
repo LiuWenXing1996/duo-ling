@@ -51,12 +51,24 @@ function onWindowMouseup() {
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
 }
+
+// 当前选中的会话（任务）：选中后右侧对话框展示其聊天记录
+const activeTaskId = ref<number | null>(null)
+// 会话列表版本：首条消息自动命名等变化时递增，通知左侧刷新
+const sessionsVersion = ref(0)
+function onSessionRenamed(): void {
+  sessionsVersion.value++
+}
 </script>
 
 <template>
   <div class="workspace">
     <section class="workspace-panel" :style="{ width: `${leftWidth}px` }">
-      <task-panel />
+      <task-panel
+        :active-task-id="activeTaskId"
+        :sessions-version="sessionsVersion"
+        @select="(id) => (activeTaskId = id)"
+      />
     </section>
     <div
       class="workspace-divider"
@@ -67,7 +79,11 @@ function onWindowMouseup() {
       @mousedown.prevent="onDividerMousedown('left', $event)"
     />
     <section class="workspace-panel workspace-panel--grow">
-      <chat-panel />
+      <chat-panel
+        :active-task-id="activeTaskId"
+        @select="(id) => (activeTaskId = id)"
+        @renamed="onSessionRenamed"
+      />
     </section>
     <div
       class="workspace-divider"

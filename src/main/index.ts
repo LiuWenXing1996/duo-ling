@@ -1,8 +1,9 @@
 import { app, shell, BrowserWindow, ipcMain, screen } from 'electron'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { listTasks, saveTasks, type Task } from './store'
-import { checkModelExists, getModelStatus, initModel } from './llama-service'
+import { listTasks, createTask, renameTask, saveTasks, type Task } from './store'
+import { checkModelExists, getModelStatus, initModel, isModelReady, generateChatReply } from './llama-service'
+import { listChatMessages, appendChatMessage, type ChatMessage } from './chat-store'
 
 // 端测等场景可通过环境变量指定 userData 目录，避免写入系统默认位置
 if (process.env['DUO_LING_USER_DATA_DIR']) {
@@ -16,6 +17,20 @@ if (is.dev) {
 }
 
 let currentWindow: BrowserWindow | undefined
+
+// 当前模型生成的中止控制器（模块级，供退出前中止使用）
+let chatAbortController: AbortController | undefined
+let quitConfirmed = false
+
+/** 是否正在生成回复 */
+function isGenerating(): boolean {
+  return chatAbortController != null
+}
+
+/** 中止当前生成 */
+function abortCurrentGeneration(): void {
+  chatAbortController?.abort()
+}
 
 const DEFAULT_WIDTH = 1100
 const DEFAULT_HEIGHT = 750
@@ -89,6 +104,8 @@ app.whenReady().then(() => {
 
   // 任务列表持久化：electron-store 读写 <userData>/tasks.json
   ipcMain.handle('tasks:list', () => listTasks())
+  ipcMain.handle('tasks:create', () => createTask())
+  ipcMain.handle('tasks:rename', (_event, taskId: number, title: string) => renameTask(taskId, title))
   ipcMain.handle('tasks:save', (_event, tasks: Task[]) => saveTasks(tasks))
 
   // 本地大模型：node-llama-cpp 加载 MiniCPM5-1B-Q8_0.gguf
@@ -104,11 +121,106 @@ app.whenReady().then(() => {
       : null
   })
 
+  // 对话：按任务（会话）读写历史，流式生成回复
+
+  ipcMain.handle('chat:history', (_event, taskId: number) => listChatMessages(taskId))
+
+  ipcMain.handle('chat:send', async (event, taskId: number, text: string) => {
+    if (typeof text !== 'string' || !text.trim()) {
+      throw new Error('消息不能为空')
+    }
+    if (!isModelReady()) {
+      throw new Error('模型尚未加载，请先点击「加载模型」')
+    }
+    if (chatAbortController) {
+      throw new Error('当前有正在生成的回复，请先停止')
+    }
+
+    const userMessage: ChatMessage = {
+      id: Date.now(),
+      role: 'user',
+      content: text,
+      createdAt: new Date().toISOString()
+    }
+    appendChatMessage(taskId, userMessage)
+
+    // 历史为当前用户消息之前的部分
+    const history = listChatMessages(taskId).slice(0, -1)
+
+    // 首条消息自动命名：标题仍是自动生成的「新会话*」时，用首条消息前缀替换
+    if (history.length === 0) {
+      const current = listTasks().find((task) => task.id === taskId)
+      if (current && current.title.startsWith('新会话')) {
+        renameTask(taskId, text.trim().slice(0, 15))
+      }
+    }
+
+    const abort = new AbortController()
+    chatAbortController = abort
+    let full = ''
+
+    try {
+      const reply = await generateChatReply(history, text, (token) => {
+        full += token
+        event.sender.send('chat:event', { type: 'token', taskId, token })
+      }, abort.signal)
+      const assistantMessage: ChatMessage = {
+        id: Date.now(),
+        role: 'assistant',
+        content: reply,
+        createdAt: new Date().toISOString()
+      }
+      appendChatMessage(taskId, assistantMessage)
+      event.sender.send('chat:event', { type: 'done', taskId, message: assistantMessage })
+      return assistantMessage
+    } catch (error) {
+      if (abort.signal.aborted) {
+        // 中止时保留已生成的部分回复
+        const content = full.trim()
+        const message = content
+          ? ({
+              id: Date.now(),
+              role: 'assistant',
+              content,
+              createdAt: new Date().toISOString()
+            } satisfies ChatMessage)
+          : null
+        if (message) appendChatMessage(taskId, message)
+        event.sender.send('chat:event', { type: 'aborted', taskId, message })
+        return message
+      }
+      const message = error instanceof Error ? error.message : String(error)
+      event.sender.send('chat:event', { type: 'error', taskId, error: message })
+      throw error
+    } finally {
+      if (chatAbortController === abort) chatAbortController = undefined
+    }
+  })
+
+  ipcMain.handle('chat:abort', () => {
+    chatAbortController?.abort()
+  })
+
   createWindow()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+// 退出前中止进行中的生成：避免 NAPI 工作线程在 Node 环境清理时抛异常导致崩溃
+app.on('before-quit', (event) => {
+  if (quitConfirmed || !isGenerating()) return
+  event.preventDefault()
+  abortCurrentGeneration()
+  const deadline = Date.now() + 2000
+  const timer = setInterval(() => {
+    if (!isGenerating() || Date.now() >= deadline) {
+      clearInterval(timer)
+      quitConfirmed = true
+      app.quit()
+    }
+  }, 100)
 })
 
 app.on('window-all-closed', () => {

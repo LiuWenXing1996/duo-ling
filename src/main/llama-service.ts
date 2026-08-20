@@ -1,7 +1,14 @@
 import { app } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { getLlama, type Llama, type LlamaModel } from 'node-llama-cpp'
+import {
+  getLlama,
+  LlamaChatSession,
+  ChatMLChatWrapper,
+  type Llama,
+  type LlamaModel
+} from 'node-llama-cpp'
+import type { ChatMessage } from './chat-store'
 
 export const MODEL_FILENAME = 'MiniCPM5-1B-Q8_0.gguf'
 
@@ -27,6 +34,10 @@ export function getModelPath(): string {
 let llama: Llama | undefined
 let model: LlamaModel | undefined
 let status: LlamaStatus = { state: 'idle', modelPath: null, modelExists: false }
+
+export function isModelReady(): boolean {
+  return status.state === 'ready'
+}
 
 export function checkModelExists(): { exists: boolean; path: string } {
   const modelPath = getModelPath()
@@ -72,4 +83,49 @@ export async function initModel(): Promise<LlamaStatus> {
     }
   }
   return status
+}
+
+let chatSession: LlamaChatSession | undefined
+
+async function getChatSession(): Promise<LlamaChatSession> {
+  if (!model) {
+    throw new Error('模型尚未加载，请先点击「加载模型」')
+  }
+  if (!chatSession) {
+    // MiniCPM 的 GGUF 自带 Jinja 模板与 JinjaTemplateChatWrapper 不兼容（渲染出的历史为空），
+    // 其模板本质是 ChatML 格式，因此改用内置 ChatMLChatWrapper
+    const context = await model.createContext({ contextSize: 4096 })
+    chatSession = new LlamaChatSession({
+      contextSequence: context.getSequence(),
+      chatWrapper: new ChatMLChatWrapper(),
+      systemPrompt: '你是 Duo Ling 的本地 AI 助手，请用中文回答。'
+    })
+  }
+  return chatSession
+}
+
+/**
+ * 生成回复。history 为当前用户消息之前的历史，流式回调 onToken 逐段输出。
+ * signal 中止时 prompt 会抛错（signal.reason）。
+ */
+export async function generateChatReply(
+  history: ChatMessage[],
+  userText: string,
+  onToken: (text: string) => void,
+  signal: AbortSignal
+): Promise<string> {
+  const session = await getChatSession()
+  // node-llama-cpp v3 的历史格式：user 用 { type:'user', text }，assistant 用 { type:'model', response }
+  session.setChatHistory(
+    history.map((m) =>
+      m.role === 'user'
+        ? { type: 'user' as const, text: m.content }
+        : { type: 'model' as const, response: [m.content] }
+    )
+  )
+  return await session.prompt(userText, {
+    maxTokens: 2048,
+    onTextChunk: onToken,
+    signal
+  })
 }
