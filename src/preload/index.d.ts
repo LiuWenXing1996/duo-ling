@@ -128,6 +128,21 @@ declare global {
           args: unknown
         ) => Promise<{ ok: true; result: unknown } | { ok: false; error: string }>
       }
+      tool: {
+        open: (input: {
+          name: string
+          title: string
+          description: string
+          html: string
+        }) => Promise<{ ok: boolean; error?: string }>
+        close: () => Promise<{ ok: boolean }>
+        setBounds: (bounds: {
+          x: number
+          y: number
+          width: number
+          height: number
+        }) => Promise<{ ok: boolean }>
+      }
       chat: {
         history: (
           taskId: number

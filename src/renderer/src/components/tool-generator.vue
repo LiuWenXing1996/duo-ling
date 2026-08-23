@@ -143,7 +143,7 @@ function continueAdjust(): void {
           <div class="max-w-md text-center">
             <p class="text-sm font-medium">用一句话描述你想做的工具</p>
             <p class="mt-1 text-xs text-muted-foreground">
-              AI 会追问澄清 → 判断现有能力能否覆盖 → 生成一个完整可运行的前端组件，并加入工作台。
+              AI 会追问澄清 → 判断现有能力能否覆盖 → 生成一份完整可打开的 HTML 工具页，并加入工作台。
             </p>
           </div>
         </div>
@@ -171,11 +171,8 @@ function continueAdjust(): void {
             </p>
             <p class="mt-0.5 text-xs text-muted-foreground">{{ activeDef.description }}</p>
 
-            <p class="mt-3 mb-1 font-mono text-[10px] text-muted-foreground">组件模板</p>
-            <pre class="max-h-40 overflow-auto whitespace-pre rounded bg-muted p-2.5 font-mono text-[10px] text-muted-foreground">{{ activeDef.template }}</pre>
-
-            <p class="mt-2 mb-1 font-mono text-[10px] text-muted-foreground">组件逻辑</p>
-            <pre class="max-h-40 overflow-auto whitespace-pre rounded bg-muted p-2.5 font-mono text-[10px] text-muted-foreground">{{ activeDef.setup }}</pre>
+            <p v-if="activeDef.html" class="mt-3 mb-1 font-mono text-[10px] text-muted-foreground">页面 HTML</p>
+            <pre class="max-h-40 overflow-auto whitespace-pre rounded bg-muted p-2.5 font-mono text-[10px] text-muted-foreground">{{ activeDef.html }}</pre>
 
             <p v-if="coverage && coverage.missing.length" class="mt-2 rounded bg-amber-500/15 px-2 py-1.5 text-xs text-amber-700">
               缺少能力：{{ coverage.missing.join('、') }}，暂时无法完整运行。可继续描述调整需求。

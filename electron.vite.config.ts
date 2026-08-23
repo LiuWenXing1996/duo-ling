@@ -18,7 +18,17 @@ export default defineConfig({
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()]
+    plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        input: {
+          // 主窗口 preload
+          index: resolve('src/preload/index.ts'),
+          // 工具页（WebContentsView）独立 preload，仅暴露 window.cap.run
+          tool: resolve('src/preload/tool.ts')
+        }
+      }
+    }
   },
   renderer: {
     resolve: {

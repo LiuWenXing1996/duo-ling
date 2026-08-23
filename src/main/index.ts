@@ -1,6 +1,9 @@
-import { app, shell, BrowserWindow, ipcMain, screen } from 'electron'
-import { join } from 'node:path'
+import { app, shell, BrowserWindow, WebContentsView, ipcMain, protocol, screen } from 'electron'
+import { join, normalize } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { writeToolPage, toolsRoot, type ToolPageInput } from './tool-page'
+import { runFrontendCapability } from './frontend-impls'
 import { listTasks, createTask, renameTask, saveTasks, type Task } from './store'
 import {
   deleteProfile,
@@ -37,6 +40,15 @@ if (is.dev) {
 }
 
 let currentWindow: BrowserWindow | undefined
+// 生成工具执行页：独立 WebContentsView（独立 webContents + 独立 preload），承载完整 HTML 工具页
+let toolView: WebContentsView | null = null
+
+/** 关闭并移除当前工具页视图 */
+function closeToolView(): void {
+  if (!toolView) return
+  currentWindow?.contentView.removeChildView(toolView)
+  toolView = null
+}
 
 // 当前模型生成的中止控制器（模块级，供退出前中止使用）
 let chatAbortController: AbortController | undefined
@@ -55,7 +67,7 @@ function abortCurrentGeneration(): void {
   generatorAbortController?.abort()
 }
 
-/** 生成器系统提示词：把当前能力清单喂给 LLM，让它在 setup 里用 cap.run 生成一个完整的前端组件 */
+/** 生成器系统提示词：把当前能力清单喂给 LLM，让它生成一份完整、可打开的前端 HTML 工具页 */
 function buildGeneratorSystemPrompt(): string {
   const caps = listCapabilitiesHandler()
   const list = caps
@@ -82,35 +94,57 @@ function buildGeneratorSystemPrompt(): string {
       ].join('\n')
     })
     .join('\n')
+  // 示例 HTML（读取本地 Markdown 文件并渲染预览）：用 JSON.stringify 生成，避免手写转义出错。
+  const exampleHtml = `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>body{font-family:sans-serif;padding:16px}textarea{width:100%;height:80px}button{margin-top:8px}</style>
+</head>
+<body>
+<h1>Markdown 文件预览</h1>
+<textarea id="path" placeholder="文件绝对路径"></textarea>
+<button id="run">渲染预览</button>
+<div id="out"></div>
+<script>
+document.getElementById('run').addEventListener('click', async () => {
+  const out = document.getElementById('out');
+  try {
+    const file = await cap.run('local.file.read', { path: document.getElementById('path').value });
+    const res = await cap.run('docs.markdown.render', { markdown: file.content });
+    out.innerHTML = res.html;
+  } catch (e) { out.textContent = String(e && e.message || e); }
+});
+</script>
+</body>
+</html>`
+  const example = JSON.stringify({
+    name: 'md-file-preview',
+    title: 'Markdown 文件预览',
+    description: '读取本地 Markdown 文件并渲染为 HTML',
+    html: exampleHtml
+  })
   return [
-    '你是 Duo Ling 的工具生成器：用户说一句话，你要生成一个「完整的前端组件」，创建一个新工具。',
-    `当前可用的原子能力如下（组件逻辑里用 cap.run('能力id', 参数对象) 调用，返回一个 Promise 对象）：\n${list}`,
+    '你是 Duo Ling 的工具生成器：用户说一句话，你要生成一份「能直接打开的完整 HTML 文档」，创建一个新工具。',
+    '界面形态：这个工具就是一份完整、自我包含的 HTML 文档（由独立 WebContentsView 承载），界面与交互用原生 HTML/CSS/JavaScript 编写，宿主已注入全局对象 cap（window.cap.run 调原子能力）。',
+    `当前可用的原子能力如下（页面逻辑里用 cap.run('能力id', 参数对象) 调用，返回一个 Promise 对象，resolve 值为结果对象）：\n${list}`,
     '请输出一个 JSON（用 ```json 代码块包裹，不要输出其它内容），结构如下：',
-    '{"name":"kebab-case-id","title":"工具名","description":"说明","template":"...","setup":"..."}',
+    '{"name":"kebab-case-id","title":"工具名","description":"说明","html":"<!doctype html>..."}',
     '其中：',
-    '1. template 是一个 Vue 3 模板字符串（含输入框 / 按钮 / 布局 / 结果展示），用双引号包裹，内部字符串用单引号或转义双引号（\\"），换行写成 \\n。',
-    '   - 输入字段用 v-model 绑定 setup 里用 ref() 定义的变量。',
-    '   - 点击按钮用 @click 绑定 setup 里定义的函数。',
-    '   - 结果用 {{ }} 插值或 v-html 展示。',
-    '2. setup 是一段组件逻辑源码，必须写成：export default function setup() { ... return { ... } }。',
-    '   - 响应式变量用 ref() / computed() 定义，生命周期可用 onMounted() / onUnmounted()（这些 API 已全局注入，直接使用，不要 import）。',
-    '   - cap.run(\'能力id\', 参数) 是能力调用入口，参数的字段名对照上面能力清单的入参，返回一个对象（如 { content }、{ html }）。',
-    '   - 把模板里用到的变量与函数全部 return 出去。',
-    '3. template 和 setup 里调用的能力 id 必须在上面清单内，不要伪造不存在的能力。',
-    '示例（读取本地 Markdown 文件并渲染预览，这是最典型的完整组件）：',
-    '{',
-    '  "name": "md-file-preview",',
-    '  "title": "Markdown 文件预览",',
-    '  "description": "读取本地 Markdown 文件并渲染为 HTML",',
-    '  "template": "<div class=\\"p-4 space-y-3\\">\\n  <div class=\\"flex gap-2\\">\\n    <input v-model=\\"path\\" placeholder=\\"文件绝对路径\\" class=\\"flex-1 rounded border border-input bg-transparent px-2 py-1 text-xs outline-none focus-visible:border-ring\\" />\\n    <button @click=\\"run\\" class=\\"rounded bg-primary px-3 py-1 text-xs text-primary-foreground\\">渲染预览</button>\\n  </div>\\n  <div v-if=\\"html\\" class=\\"prose-sm rounded-lg border border-border p-3\\" v-html=\\"html\\"></div>\\n  <p v-if=\\"error\\" class=\\"text-xs text-red-500\\">{{ error }}</p>\\n</div>",',
-    '  "setup": "export default function setup() {\\n  const path = ref(\'\');\\n  const html = ref(\'\');\\n  const error = ref(\'\');\\n  async function run() {\\n    error.value = \'\';\\n    try {\\n      const file = await cap.run(\'local.file.read\', { path: path.value });\\n      const rendered = await cap.run(\'docs.markdown.render\', { markdown: file.content });\\n      html.value = rendered.html;\\n    } catch (e) {\\n      error.value = e instanceof Error ? e.message : String(e);\\n    }\\n  }\\n  return { path, html, error, run };\\n}"',
-    '}',
+    '1. html 是一份完整 HTML 文档（含 <!doctype html><html><head><body>），CSS 写在 <style>，JS 写在 <script>，保持自我包含，不要依赖任何外部文件或 CDN（宿主已允许内联脚本、内联样式与内联事件）。',
+    '   - 交互逻辑用原生 JS，通过 cap.run(\'能力id\', 参数) 调用原子能力，参数对照能力清单入参，返回值形如 { content }、{ html }。',
+    '   - 用 addEventListener 绑定事件（或用 onclick 内联属性），结果写入页面 DOM。',
+    '   - 页面只使用原生 HTML 元素（div / input / button / pre / textarea 等）。',
+    '2. html 里调用的能力 id 必须在上面清单内，不要伪造不存在的能力。',
+    '3. 把 html 整体塞进 JSON 字符串，内部双引号要转义（\\"），换行写成 \\n。',
+    '示例（读取本地 Markdown 文件并渲染预览，这是最典型的完整工具页）：',
+    example,
     '交互规则：',
     '1. 目标明确 → 直接输出上面的 JSON，不要解释文字。',
     '2. 能力缺失 → 明确说明缺了什么能力，并用现有能力给出替代方案，或引导用户调整需求。',
     '3. 需求模糊 → 先追问澄清，再输出 JSON。',
-    '4. setup 里只能调用 cap.run 且能力 id 必须在上面清单内。',
-    '5. 组件只使用原生 HTML 元素（div / input / button 等）与内置指令，不要引入其它组件。'
+    '4. html 里只能调用 cap.run 且能力 id 必须在上面清单内。',
+    '5. 页面只使用原生 HTML 元素，不要依赖外部资源/CDN。'
   ].join('\n')
 }
 
@@ -193,6 +227,37 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  // 自定义 `tool://` 协议：把 <userData>/tools/<id>/… 作为工具页的同源根目录。
+  // 所有资源（index.html / tool.js / vendor）均走 tool://，CSP `script-src 'self'` 可放行本地脚本。
+  protocol.handle('tool', (request) => {
+    try {
+      const url = new URL(request.url)
+      const { host, pathname } = url
+      let filePath: string
+      if (pathname.startsWith('/vendor/')) {
+        filePath = join(toolsRoot(), 'vendor', pathname.replace(/^\/vendor\//, ''))
+      } else {
+        // pathname 以 / 开头，. 使其成为相对 host 目录的路径
+        filePath = join(toolsRoot(), host, '.' + pathname)
+      }
+      const root = normalize(toolsRoot())
+      const resolved = normalize(filePath)
+      // 防目录穿越：解析后的路径必须仍在工具根目录内
+      if (!resolved.startsWith(root)) {
+        return new Response('forbidden', { status: 403 })
+      }
+      const body = readFileSync(resolved)
+      const contentType = resolved.endsWith('.js')
+        ? 'application/javascript; charset=utf-8'
+        : 'text/html; charset=utf-8'
+      return new Response(body, {
+        headers: { 'content-type': contentType, 'cache-control': 'no-cache' }
+      })
+    } catch {
+      return new Response('not found', { status: 404 })
+    }
+  })
+
   // 示例 IPC：渲染进程通过 window.api.ping() 调用
   ipcMain.handle('app:ping', () => 'pong')
 
@@ -225,7 +290,7 @@ app.whenReady().then(() => {
   // 服务商预设列表（用于「添加模型」弹窗）
   ipcMain.handle('provider:list', (): ModelProvider[] => getProviders())
 
-  // 原子能力：清单查询 + 后端能力执行（前端能力由渲染层注入方法直接调用）
+  // 原子能力：清单查询 + 能力执行（backend 走 capability-runtime；frontend 走 frontend-impls，工具页也经此）
   ipcMain.handle('capability:list', (): Capability[] => listCapabilitiesHandler())
 
   ipcMain.handle(
@@ -242,8 +307,10 @@ app.whenReady().then(() => {
       if (!cap) {
         return { ok: false, error: `未知能力: ${id}` }
       }
-      if (cap.runtime !== 'backend') {
-        return { ok: false, error: `能力 ${id} 为 frontend 运行域，应经渲染层注入方法调用` }
+      if (cap.runtime === 'frontend') {
+        // 工具页由独立 WebContentsView 承载，无主窗口渲染层的注入方法，
+        // 因此 frontend 能力也统一收口到主进程执行（由 frontend-impls.ts 提供实现）
+        return runFrontendCapability(id, args)
       }
       try {
         return { ok: true, result: await runBackendCapability(id, args) }
@@ -438,6 +505,49 @@ app.whenReady().then(() => {
     }
   )
 
+  // —— 生成工具执行页：WebContentsView 承载完整 HTML 工具页 ——
+  // 渲染层在「添加到工作台」时，把 AI 生成的完整 HTML 文档交给主进程落盘，再由 WebContentsView 加载（零编译）。
+  ipcMain.handle(
+    'tool:open',
+    (_event, input: ToolPageInput): { ok: boolean; error?: string } => {
+      try {
+        closeToolView()
+        const { url } = writeToolPage(input)
+        const view = new WebContentsView({
+          webPreferences: {
+            preload: join(import.meta.dirname, '../preload/tool.mjs'),
+            contextIsolation: true,
+            sandbox: false
+          }
+        })
+        currentWindow?.contentView.addChildView(view)
+        // 初始尺寸由渲染层 tool:setBounds 精确测量后下发，这里先给个占位避免闪白
+        view.setBounds({ x: 0, y: 0, width: 100, height: 100 })
+        void view.webContents.loadURL(url)
+        toolView = view
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
+
+  ipcMain.handle('tool:close', (): { ok: boolean } => {
+    closeToolView()
+    return { ok: true }
+  })
+
+  ipcMain.handle(
+    'tool:setBounds',
+    (
+      _event,
+      bounds: { x: number; y: number; width: number; height: number }
+    ): { ok: boolean } => {
+      toolView?.setBounds(bounds)
+      return { ok: true }
+    }
+  )
+
   createWindow()
 
   app.on('activate', () => {
@@ -461,6 +571,7 @@ app.on('before-quit', (event) => {
 })
 
 app.on('window-all-closed', () => {
+  closeToolView()
   if (process.platform !== 'darwin') {
     app.quit()
   }

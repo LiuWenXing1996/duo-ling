@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, type Component } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Component } from 'vue'
 import { Button as UiButton } from '@/components/ui/button'
 import {
   FileCode as UiFileCode,
@@ -16,8 +16,7 @@ import {
 } from '@lucide/vue'
 import ToolPage, { type Tool } from './tool-page.vue'
 import ToolGenerator from './tool-generator.vue'
-import ToolGenerated from './tool-generated.vue'
-import type { GeneratedToolDef } from '@/lib/tool-generator'
+import { type GeneratedToolDef } from '@/lib/tool-generator'
 
 // 工具 id → 图标
 const TOOL_ICON: Record<string, Component> = {
@@ -135,7 +134,7 @@ const GENERATOR_TAB_ID = 'generator'
 type OpenTool = {
   id: string
   custom?: boolean
-  /** 由生成器产出的工具定义；存在时该标签页渲染生成工具执行页（tool-generated） */
+  /** 由生成器产出的工具定义；存在时该标签页由独立 WebContentsView 承载完整工具页 */
   generated?: GeneratedToolDef
 }
 const openTabs = ref<OpenTool[]>([
@@ -214,6 +213,67 @@ function onGenerated(def: GeneratedToolDef): void {
 function closeGenerator(): void {
   closeTab(GENERATOR_TAB_ID)
 }
+
+// 生成工具执行页容器：WebContentsView 是原生 overlay，需一个占位 div 精确定位
+const toolHostRef = ref<HTMLElement | null>(null)
+const toolError = ref('')
+let toolResizeObserver: ResizeObserver | null = null
+
+// 把生成工具打开为独立工具页：直接把 AI 生成的完整 HTML 交给主进程落盘，
+// 由 WebContentsView 加载。全程零模板编译、零 eval，天然通过 CSP。
+function openToolView(def: GeneratedToolDef): void {
+  toolError.value = ''
+  void window.api.tool
+    .open({
+      name: def.name,
+      title: def.title,
+      description: def.description,
+      html: def.html
+    })
+    .then((res) => {
+      if (!res.ok && res.error) toolError.value = res.error
+    })
+  void nextTick(syncToolBounds)
+}
+
+// 把工具页容器的实际屏幕位置/尺寸下发为主进程 WebContentsView 的 bounds（CSS px ≈ DIP）
+function syncToolBounds(): void {
+  const el = toolHostRef.value
+  if (!el || el.offsetWidth === 0 || el.offsetHeight === 0) return
+  const rect = el.getBoundingClientRect()
+  void window.api.tool.setBounds({
+    x: Math.round(rect.left),
+    y: Math.round(rect.top),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height)
+  })
+}
+
+// 切换标签：生成工具标签 → 打开 WebContentsView；否则关闭
+watch(
+  activeTab,
+  (tab) => {
+    if (tab?.generated) {
+      openToolView(tab.generated)
+    } else {
+      toolError.value = ''
+      void window.api.tool.close()
+    }
+  },
+  { immediate: true }
+)
+
+onMounted(() => {
+  // 监听容器尺寸变化（窗口缩放 / 布局变化）自动同步 view 尺寸
+  toolResizeObserver = new ResizeObserver(() => syncToolBounds())
+  if (toolHostRef.value) toolResizeObserver.observe(toolHostRef.value)
+})
+
+onUnmounted(() => {
+  toolResizeObserver?.disconnect()
+  toolResizeObserver = null
+  void window.api.tool.close()
+})
 
 // 未注册工具的占位实现
 function toPlaceholderTool(id: string): Tool {
@@ -304,17 +364,16 @@ function toPlaceholderTool(id: string): Tool {
 
     <!-- 当前工具页 -->
     <div class="min-h-0 flex-1">
-      <tool-generator
-        v-if="activeTab.id === GENERATOR_TAB_ID"
-        @generated="onGenerated"
-        @close="closeGenerator"
-      />
-      <tool-generated
-        v-else-if="activeTab.generated"
-        :key="activeTab.id"
-        :def="activeTab.generated"
-      />
-      <tool-page v-else :key="activeTab.id" :tool="activeTool" />
+      <!-- 生成工具执行页：原生 WebContentsView 覆盖在此占位容器上 -->
+      <div ref="toolHostRef" class="tool-host" v-show="Boolean(activeTab.generated)">
+        <p v-if="toolError" class="p-4 text-xs text-red-500">{{ toolError }}</p>
+      </div>
+      <template v-if="activeTab.id === GENERATOR_TAB_ID">
+        <tool-generator @generated="onGenerated" @close="closeGenerator" />
+      </template>
+      <template v-else-if="!activeTab.generated">
+        <tool-page :key="activeTab.id" :tool="activeTool" />
+      </template>
     </div>
   </div>
 </template>
@@ -330,6 +389,12 @@ function toPlaceholderTool(id: string): Tool {
   height: 100%;
   min-height: 0;
   background: var(--background);
+}
+
+// 生成工具执行页容器：为 WebContentsView（原生 overlay）提供精确占位与测量
+.tool-host {
+  width: 100%;
+  height: 100%;
 }
 
 .tool-topbar {

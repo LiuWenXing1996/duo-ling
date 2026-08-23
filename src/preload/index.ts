@@ -138,6 +138,21 @@ const api = {
     run: (id: string, args: unknown): Promise<CapabilityRunResponse> =>
       ipcRenderer.invoke('capability:run', id, args)
   },
+  tool: {
+    open: (input: {
+      name: string
+      title: string
+      description: string
+      html: string
+    }): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('tool:open', input),
+    close: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('tool:close'),
+    setBounds: (bounds: {
+      x: number
+      y: number
+      width: number
+      height: number
+    }): Promise<{ ok: boolean }> => ipcRenderer.invoke('tool:setBounds', bounds)
+  },
   chat: {
     history: (taskId: number): Promise<ChatMessageData[]> =>
       ipcRenderer.invoke('chat:history', taskId),

@@ -4,6 +4,13 @@ import ToolWorkspace from './tool-workspace.vue'
 
 describe('ToolWorkspace', () => {
   beforeEach(() => {
+    // jsdom 未实现 ResizeObserver，注入一个空实现（工具页尺寸同步在真实渲染进程由 WebContentsView 完成）
+    vi.stubGlobal('ResizeObserver', class ResizeObserver {
+      observe = vi.fn()
+      disconnect = vi.fn()
+      unobserve = vi.fn()
+    })
+
     // runCapability 分派依赖能力清单，façade 前端能力走注入方法（无需 IPC run）
     // 只注入 window.api，保留原生 window，避免破坏 @vue/test-utils 的 DOM 事件机制
     Object.defineProperty(window, 'api', {
@@ -23,6 +30,11 @@ describe('ToolWorkspace', () => {
             }
           ]),
           run: vi.fn()
+        },
+        tool: {
+          open: vi.fn().mockResolvedValue({ ok: true, error: '' }),
+          close: vi.fn().mockResolvedValue({ ok: true, error: '' }),
+          setBounds: vi.fn().mockResolvedValue({ ok: true, error: '' })
         }
       },
       configurable: true
@@ -30,6 +42,7 @@ describe('ToolWorkspace', () => {
   })
 
   afterEach(() => {
+    vi.unstubAllGlobals()
     delete (window as unknown as Record<string, unknown>).api
   })
 
