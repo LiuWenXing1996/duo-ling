@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Button as UiButton } from '@/components/ui/button'
+import { runCapability } from '@/lib/capability-runner'
 import {
   ChevronRight as UiChevronRight,
   ChevronsUpDown as UiChevronsUpDown,
@@ -53,6 +54,8 @@ export interface Tool {
   capabilities: string[]
   previewText: string
   costNote?: string
+  // 真实能力演示：Markdown 渲染器的默认输入内容（复用 `docs.markdown.render` 前端能力）
+  mdSource?: string
 }
 
 const props = defineProps<{ tool: Tool }>()
@@ -62,6 +65,23 @@ const sessions = ref<ToolSession[]>([...props.tool.sessions])
 const activeSessionId = ref(props.tool.sessions[0]?.id ?? '')
 const messages = ref<ToolChatMessage[]>([...props.tool.chat])
 const input = ref('')
+
+// 真实能力演示：复用 `docs.markdown.render` 前端能力，在工具页内直接渲染 Markdown
+const mdInput = ref(props.tool.mdSource ?? '# 小班\n\n输入 Markdown，点「运行」查看 HTML 预览。\n\n- 标题\n- 列表\n- 代码块')
+const mdHtml = ref('')
+const mdError = ref('')
+const mdRunning = computed(() => props.tool.capabilities.includes('docs.markdown.render'))
+
+async function runMarkdown(): Promise<void> {
+  mdError.value = ''
+  mdHtml.value = ''
+  const res = await runCapability('docs.markdown.render', { markdown: mdInput.value })
+  if (res.ok) {
+    mdHtml.value = (res.result as { html: string }).html
+  } else {
+    mdError.value = res.error
+  }
+}
 
 // 三栏宽度：左右两栏可通过分隔条拖拽调节
 const sessWidth = ref(300)
@@ -288,12 +308,25 @@ function send(): void {
             </div>
           </div>
 
+          <div v-if="mdRunning">
+            <p class="mb-1.5 text-[11px] text-muted-foreground">Markdown 输入</p>
+            <textarea
+              v-model="mdInput"
+              rows="6"
+              class="w-full resize-y rounded-md border border-input bg-transparent px-2.5 py-2 font-mono text-xs outline-none focus-visible:border-ring placeholder:text-muted-foreground"
+              placeholder="输入 Markdown…"
+            />
+            <p v-if="mdError" class="mt-2 text-xs text-red-500">{{ mdError }}</p>
+          </div>
+
           <div>
             <p class="mb-1.5 text-[11px] text-muted-foreground">结果预览</p>
             <div
               class="grid h-24 place-items-center rounded-md border border-dashed border-border text-xs text-muted-foreground"
+              :class="{ 'h-auto min-h-24 place-items-start p-3': mdHtml }"
             >
-              {{ tool.previewText }}
+              <span v-if="mdHtml" v-html="mdHtml" class="prose-sm w-full" />
+              <template v-else>{{ tool.previewText }}</template>
             </div>
           </div>
 
@@ -305,7 +338,7 @@ function send(): void {
             {{ tool.costNote }}
           </div>
 
-          <ui-button class="w-full justify-center">
+          <ui-button class="w-full justify-center" @click="mdRunning ? runMarkdown() : undefined">
             <ui-play class="size-4" />运行
           </ui-button>
         </div>

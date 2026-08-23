@@ -2,6 +2,7 @@
 import { computed, ref, type Component } from 'vue'
 import { Button as UiButton } from '@/components/ui/button'
 import {
+  FileCode as UiFileCode,
   FileText as UiFileText,
   Gem as UiGem,
   Globe as UiGlobe,
@@ -19,7 +20,8 @@ const TOOL_ICON: Record<string, Component> = {
   pdf: UiFileText,
   clean: UiTable,
   rename: UiPenLine,
-  web: UiGlobe
+  web: UiGlobe,
+  doc: UiFileCode
 }
 
 // 占位数据：真实实现会从后端注册表 / 会话历史加载
@@ -102,6 +104,25 @@ const TOOLS: Record<string, Tool> = {
     ],
     capabilities: ['local.folder.choose', 'fs.match', 'fs.preview'],
     previewText: '规则预览 · 23 个文件将被重命名'
+  },
+  md: {
+    id: 'md',
+    name: 'Markdown 渲染器',
+    taskLabel: '使用期 · 实时预览',
+    status: '就绪',
+    costTime: '<1s',
+    costMode: 'local',
+    modelName: '—',
+    inputTitle: '输入 Markdown 内容',
+    inputHint: '实时渲染为 HTML 预览 · 支持标题 / 列表 / 代码块',
+    sessions: [
+      { id: 'm1', status: 'doing', title: '初始草稿', meta: '本机 · 实时渲染' }
+    ],
+    chat: [],
+    capabilities: ['docs.markdown.render'],
+    previewText: '在左侧输入 Markdown，点「运行」查看实时渲染结果',
+    costNote: '纯本机渲染，不联网、不耗 token',
+    mdSource: '# 小班 · Markdown 渲染器\n\n输入 Markdown，点右下角「运行」查看 HTML 预览。\n\n## 能力演示\n\n- 一二三级标题\n- 无序列表\n- **粗体** · *斜体* · `行内代码`\n\n```\n// 代码块\nconst hello = "小班"\n```'
   }
 }
 
@@ -110,7 +131,8 @@ type OpenTool = { id: string; custom?: boolean }
 const openTabs = ref<OpenTool[]>([
   { id: 'pdf' },
   { id: 'clean' },
-  { id: 'rename' }
+  { id: 'rename' },
+  { id: 'md' }
 ])
 const activeTabId = ref('pdf')
 
