@@ -2,7 +2,24 @@ import { app, shell, BrowserWindow, ipcMain, screen } from 'electron'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { listTasks, createTask, renameTask, saveTasks, type Task } from './store'
-import { checkModelExists, getModelStatus, initModel, isModelReady, generateChatReply } from './llama-service'
+import {
+  deleteProfile,
+  generateReply,
+  getActiveProfileId,
+  getProfileApiKey,
+  getPublicProfiles,
+  getSystemPrompt,
+  isConfigured,
+  listModels,
+  saveProfile,
+  setActiveProfile,
+  setProfileEnabled,
+  setSystemPrompt,
+  testChatConnection,
+  type ModelProfile,
+  type ModelProfileInput
+} from './online-llm'
+import { getProviders, type ModelProvider } from './providers'
 import { listChatMessages, appendChatMessage, type ChatMessage } from './chat-store'
 
 // 端测等场景可通过环境变量指定 userData 目录，避免写入系统默认位置
@@ -120,10 +137,59 @@ app.whenReady().then(() => {
   ipcMain.handle('tasks:rename', (_event, taskId: number, title: string) => renameTask(taskId, title))
   ipcMain.handle('tasks:save', (_event, tasks: Task[]) => saveTasks(tasks))
 
-  // 本地大模型：node-llama-cpp 加载 MiniCPM5-1B-Q8_0.gguf
-  ipcMain.handle('llama:init', () => initModel())
-  ipcMain.handle('llama:status', () => getModelStatus())
-  ipcMain.handle('llama:checkModel', () => checkModelExists())
+  // 在线大模型：模型配置列表管理（OpenAI 兼容接口）
+  ipcMain.handle(
+    'model:list',
+    (): { profiles: ModelProfile[]; activeId: string } => ({
+      profiles: getPublicProfiles(),
+      activeId: getActiveProfileId()
+    })
+  )
+  ipcMain.handle('model:save', (_event, profile: ModelProfileInput): ModelProfile =>
+    saveProfile(profile)
+  )
+  ipcMain.handle('model:delete', (_event, id: string) => deleteProfile(id))
+  ipcMain.handle('model:setActive', (_event, id: string) => setActiveProfile(id))
+  // 启用/禁用模型（开关）
+  ipcMain.handle('model:toggle', (_event, id: string, enabled: boolean) =>
+    setProfileEnabled(id, enabled)
+  )
+  // 全局系统提示词：所有模型共用
+  ipcMain.handle('settings:getSystemPrompt', () => getSystemPrompt())
+  ipcMain.handle('settings:setSystemPrompt', (_event, value: string) => setSystemPrompt(value))
+  // 服务商预设列表（用于「添加模型」弹窗）
+  ipcMain.handle('provider:list', (): ModelProvider[] => getProviders())
+  // 测试连接：用传入的 baseUrl/apiKey（不落盘）拉取模型列表，验证 key/网络
+  ipcMain.handle(
+    'model:test',
+    async (
+      _event,
+      config: { baseUrl: string; apiKey: string }
+    ): Promise<{ ok: boolean; models?: string[]; error?: string }> => {
+      try {
+        return { ok: true, models: await listModels(config) }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
+  // 连通性测试：发一次「最小」chat 请求验证地址/Key/模型（会消耗极少量 Token）
+  ipcMain.handle(
+    'model:testChat',
+    async (
+      _event,
+      config: { baseUrl: string; apiKey: string; model: string; useFullUrl?: boolean; profileId?: string }
+    ): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        // 编辑态 Key 未回显：apiKey 为空时回退到该配置已保存的 Key
+        const apiKey = config.apiKey?.trim() || (config.profileId ? getProfileApiKey(config.profileId) : '')
+        await testChatConnection({ ...config, apiKey })
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
 
   // 窗口信息：读取当前窗口位置/尺寸（用于开发调试与窗口状态管理）
   ipcMain.handle('window:getBounds', () => {
@@ -141,8 +207,8 @@ app.whenReady().then(() => {
     if (typeof text !== 'string' || !text.trim()) {
       throw new Error('消息不能为空')
     }
-    if (!isModelReady()) {
-      throw new Error('模型尚未加载，请先点击「加载模型」')
+    if (!isConfigured()) {
+      throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
     }
     if (chatAbortController) {
       throw new Error('当前有正在生成的回复，请先停止')
@@ -172,7 +238,7 @@ app.whenReady().then(() => {
     let full = ''
 
     try {
-      const reply = await generateChatReply(history, text, (token) => {
+      const reply = await generateReply(history, text, (token) => {
         full += token
         event.sender.send('chat:event', { type: 'token', taskId, token })
       }, abort.signal)

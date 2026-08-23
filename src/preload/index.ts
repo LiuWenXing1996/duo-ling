@@ -8,12 +8,44 @@ interface TaskData {
   createdAt: string
 }
 
-interface LlamaStatusData {
-  state: 'idle' | 'loading' | 'ready' | 'error'
-  modelPath: string | null
-  modelExists: boolean
-  gpu?: string
-  error?: string
+interface ModelProfileData {
+  id: string
+  name: string
+  providerId: string
+  baseUrl: string
+  model: string
+  enabled: boolean
+  useFullUrl: boolean
+  apiFormat: 'openai'
+  hasApiKey: boolean
+  contextOutputToken?: number
+  temperature?: number
+  topP?: number
+  topK?: number
+}
+
+interface ModelProfileInputData {
+  id?: string
+  name: string
+  providerId?: string
+  baseUrl: string
+  apiKey: string
+  model: string
+  enabled?: boolean
+  useFullUrl?: boolean
+  contextOutputToken?: number
+  temperature?: number
+  topP?: number
+  topK?: number
+}
+
+interface ModelProviderData {
+  id: string
+  name: string
+  baseUrl: string
+  keyUrl: string
+  models: string[]
+  supported: boolean
 }
 
 interface ChatMessageData {
@@ -38,11 +70,32 @@ const api = {
   renameTask: (taskId: number, title: string): Promise<TaskData | null> =>
     ipcRenderer.invoke('tasks:rename', taskId, title),
   saveTasks: (tasks: TaskData[]): Promise<void> => ipcRenderer.invoke('tasks:save', tasks),
-  llama: {
-    init: (): Promise<LlamaStatusData> => ipcRenderer.invoke('llama:init'),
-    getStatus: (): Promise<LlamaStatusData> => ipcRenderer.invoke('llama:status'),
-    checkModel: (): Promise<{ exists: boolean; path: string }> =>
-      ipcRenderer.invoke('llama:checkModel')
+  model: {
+    list: (): Promise<{ profiles: ModelProfileData[]; activeId: string }> =>
+      ipcRenderer.invoke('model:list'),
+    save: (profile: ModelProfileInputData): Promise<ModelProfileData> =>
+      ipcRenderer.invoke('model:save', profile),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('model:delete', id),
+    setActive: (id: string): Promise<void> => ipcRenderer.invoke('model:setActive', id),
+    toggle: (id: string, enabled: boolean): Promise<void> =>
+      ipcRenderer.invoke('model:toggle', id, enabled),
+    test: (config: { baseUrl: string; apiKey: string }): Promise<{ ok: boolean; models?: string[]; error?: string }> =>
+      ipcRenderer.invoke('model:test', config),
+    testChat: (config: {
+      baseUrl: string
+      apiKey: string
+      model: string
+      useFullUrl?: boolean
+      profileId?: string
+    }): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('model:testChat', config)
+  },
+  provider: {
+    list: (): Promise<ModelProviderData[]> => ipcRenderer.invoke('provider:list')
+  },
+  settings: {
+    getSystemPrompt: (): Promise<string> => ipcRenderer.invoke('settings:getSystemPrompt'),
+    setSystemPrompt: (value: string): Promise<void> =>
+      ipcRenderer.invoke('settings:setSystemPrompt', value)
   },
   window: {
     getBounds: (): Promise<{ x: number; y: number; width: number; height: number } | null> =>

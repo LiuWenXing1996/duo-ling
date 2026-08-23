@@ -14,22 +14,84 @@ declare global {
       saveTasks: (
         tasks: Array<{ id: number; title: string; createdAt: string }>
       ) => Promise<void>
-      llama: {
-        init: () => Promise<{
-          state: 'idle' | 'loading' | 'ready' | 'error'
-          modelPath: string | null
-          modelExists: boolean
-          gpu?: string
+      model: {
+        list: () => Promise<{
+          profiles: Array<{
+            id: string
+            name: string
+            providerId: string
+            baseUrl: string
+            model: string
+            enabled: boolean
+            useFullUrl: boolean
+            apiFormat: 'openai'
+            hasApiKey: boolean
+            contextOutputToken?: number
+            temperature?: number
+            topP?: number
+            topK?: number
+          }>
+          activeId: string
+        }>
+        save: (profile: {
+          id?: string
+          name: string
+          providerId?: string
+          baseUrl: string
+          apiKey: string
+          model: string
+          enabled?: boolean
+          useFullUrl?: boolean
+          contextOutputToken?: number
+          temperature?: number
+          topP?: number
+          topK?: number
+        }) => Promise<{
+          id: string
+          name: string
+          providerId: string
+          baseUrl: string
+          model: string
+          enabled: boolean
+          useFullUrl: boolean
+          apiFormat: 'openai'
+          hasApiKey: boolean
+          contextOutputToken?: number
+          temperature?: number
+          topP?: number
+          topK?: number
+        }>
+        delete: (id: string) => Promise<void>
+        setActive: (id: string) => Promise<void>
+        toggle: (id: string, enabled: boolean) => Promise<void>
+        test: (config: { baseUrl: string; apiKey: string }) => Promise<{
+          ok: boolean
+          models?: string[]
           error?: string
         }>
-        getStatus: () => Promise<{
-          state: 'idle' | 'loading' | 'ready' | 'error'
-          modelPath: string | null
-          modelExists: boolean
-          gpu?: string
-          error?: string
-        }>
-        checkModel: () => Promise<{ exists: boolean; path: string }>
+        testChat: (config: {
+          baseUrl: string
+          apiKey: string
+          model: string
+          useFullUrl?: boolean
+          profileId?: string
+        }) => Promise<{ ok: boolean; error?: string }>
+      }
+      provider: {
+        list: () => Promise<
+          Array<{
+            id: string
+            name: string
+            baseUrl: string
+            keyUrl: string
+            models: string[]
+            supported: boolean
+          }>
+        >
+      }
+      settings: {
+        getSystemPrompt: () => Promise<string>
+        setSystemPrompt: (value: string) => Promise<void>
       }
       window: {
         getBounds: () => Promise<{

@@ -97,4 +97,58 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
   }
+
+  /* 统一的细滚动条：隐藏轨道，保留常驻细滑块，避免默认白色轨道形成「白边」。
+     注意：这里仅用 ::-webkit-scrollbar 定制（Electron 为 Chromium），
+     不要加 scrollbar-width/scrollbar-color —— 它们会覆盖 webkit 样式并退回 macOS 悬浮滚动条（不滚动就看不见）。 */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--muted-foreground);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--foreground);
+  }
+}
+
+/* 统一的滚动条「间隔」工具类：利用透明边框在滚动条与容器边缘之间留出空隙，避免滚动条贴边。
+   配合全局 ::-webkit-scrollbar 细滚动条一起使用；需要滚动的滚动容器加上 scroll-gap 即可。 */
+@utility scroll-gap {
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  border-right: 3px solid transparent;
+}
+
+/* reka-ui 会注入一段无层级的样式，把 Select 下拉的滚动条隐藏（scrollbar-width:none + webkit display:none）。
+   这里用 !important 覆盖它，恢复常驻细滚动条。 */
+[data-reka-select-viewport] {
+  scrollbar-width: auto !important;
+}
+
+[data-reka-select-viewport]::-webkit-scrollbar {
+  display: block !important;
+  width: 6px;
+  height: 6px;
+}
+
+[data-reka-select-viewport]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-reka-select-viewport]::-webkit-scrollbar-thumb {
+  background: var(--muted-foreground);
+  border-radius: 9999px;
+}
+
+[data-reka-select-viewport]::-webkit-scrollbar-thumb:hover {
+  background: var(--foreground);
 }

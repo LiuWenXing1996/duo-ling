@@ -187,7 +187,7 @@ async function removeAll() {
       </ui-popover>
     </header>
 
-    <div class="min-h-0 flex-1 overflow-y-auto">
+    <div class="min-h-0 flex-1 overflow-y-auto scroll-gap">
       <ul v-if="tasks.length > 0" class="divide-y">
         <li
           v-for="task in tasks"

@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Button as UiButton } from '@/components/ui/button'
-import { Badge as UiBadge } from '@/components/ui/badge'
-import { ChevronRight as UiChevronRight } from '@lucide/vue'
-
-interface LlamaStatus {
-  state: 'idle' | 'loading' | 'ready' | 'error'
-  modelPath: string | null
-  modelExists: boolean
-  gpu?: string
-  error?: string
-}
+import {
+  Popover as UiPopover,
+  PopoverContent as UiPopoverContent,
+  PopoverTrigger as UiPopoverTrigger
+} from '@/components/ui/popover'
+import {
+  Check as UiCheck,
+  ChevronRight as UiChevronRight,
+  ChevronsUpDown as UiChevronsUpDown,
+  Plus as UiPlus
+} from '@lucide/vue'
 
 interface ChatMessage {
   id: number
@@ -27,16 +28,11 @@ type ChatEvent =
 
 const props = defineProps<{ activeTaskId?: number | null }>()
 
-const emit = defineEmits<{ select: [taskId: number]; renamed: [] }>()
+const emit = defineEmits<{ select: [taskId: number]; renamed: []; openSettings: [] }>()
 
-const statusTextMap: Record<LlamaStatus['state'], string> = {
-  idle: '未加载',
-  loading: '加载中…',
-  ready: '就绪',
-  error: '加载失败'
-}
+// 在线模型状态：已配置（可直接对话）/ 未配置（需先设置）
+const status = ref<'configured' | 'unconfigured'>('unconfigured')
 
-const status = ref<LlamaStatus>({ state: 'idle', modelPath: null, modelExists: false })
 const messages = ref<ChatMessage[]>([])
 const input = ref('')
 const streaming = ref(false)
@@ -107,19 +103,74 @@ async function loadHistory(): Promise<void> {
 // immediate：挂载时若已有选中会话，立即加载历史
 watch(() => props.activeTaskId, loadHistory, { immediate: true })
 
+// —— 模型连接状态：默认模型已配置且可用时为「已连接」——
+interface ModelOption {
+  id: string
+  name: string
+  hasApiKey: boolean
+  enabled?: boolean
+}
+
+const profiles = ref<ModelOption[]>([])
+const activeModelId = ref('')
+// 模型下拉面板开关（常驻显示，点击触发按钮展开）
+const modelMenuOpen = ref(false)
+
+// 触发按钮显示的标签：未配置时显示「未配置」
+const activeModelName = computed(
+  () => profiles.value.find((p) => p.id === activeModelId.value)?.name ?? '未配置'
+)
+
+function refreshStatus(data: {
+  profiles: Array<{
+    id: string
+    name: string
+    baseUrl: string
+    model: string
+    hasApiKey: boolean
+    enabled?: boolean
+  }>
+  activeId: string
+}): void {
+  // 主进程已把 activeId 规范化为「当前真正生效的启用模型」，前端直接以其为唯一真源
+  const enabled = data.profiles.filter((p) => p.enabled !== false)
+  profiles.value = enabled
+  activeModelId.value = data.activeId
+  const active = enabled.find((p) => p.id === activeModelId.value)
+  status.value =
+    active && active.baseUrl && active.model && active.hasApiKey ? 'configured' : 'unconfigured'
+}
+
+// 下拉面板内「添加模型」：关闭面板并跳转到设置页
+function goToSettings(): void {
+  modelMenuOpen.value = false
+  emit('openSettings')
+}
+
+// 切换当前对话使用的模型（仅影响后续发送的请求）
+async function switchModel(id: string): Promise<void> {
+  if (!id || id === activeModelId.value) {
+    modelMenuOpen.value = false
+    return
+  }
+  try {
+    await window.api.model.setActive(id)
+    refreshStatus(await window.api.model.list())
+  } catch (error) {
+    console.error('切换模型失败：', error)
+  } finally {
+    modelMenuOpen.value = false
+  }
+}
+
 onMounted(async () => {
-  // 挂载后尝试自动加载模型（模型缺失时返回错误状态，引导用户放置模型文件）
-  status.value = await window.api.llama.init()
+  refreshStatus(await window.api.model.list())
   window.api.chat.onEvent(handleChatEvent)
 })
 
 onUnmounted(() => {
   window.api.chat.offEvent()
 })
-
-async function loadModel() {
-  status.value = await window.api.llama.init()
-}
 
 function handleChatEvent(payload: ChatEvent): void {
   if (payload.taskId !== props.activeTaskId) return
@@ -155,7 +206,7 @@ function handleChatEvent(payload: ChatEvent): void {
 
 async function sendMessage(): Promise<void> {
   const text = input.value.trim()
-  if (!text || streaming.value || status.value.state !== 'ready') return
+  if (!text || streaming.value || status.value !== 'configured') return
   // 提前清空输入框：连按回车/双击时第二次触发读到空文本直接返回，避免重复创建会话
   input.value = ''
   void nextTick(autoResizeInput)
@@ -203,24 +254,10 @@ async function stopGeneration(): Promise<void> {
   <section class="panel">
     <header class="panel-header flex items-center justify-between gap-2">
       <h2 class="panel-title">对话框</h2>
-      <div class="flex items-center gap-2">
-        <ui-badge :variant="status.state === 'ready' ? 'default' : 'secondary'">
-          {{ statusTextMap[status.state] }}
-        </ui-badge>
-        <ui-button
-          variant="ghost"
-          size="sm"
-          class="no-drag h-7 px-2 text-xs"
-          :disabled="status.state === 'loading' || status.state === 'ready'"
-          @click="loadModel"
-        >
-          加载模型
-        </ui-button>
-      </div>
     </header>
 
     <div class="flex min-h-0 flex-1 flex-col">
-      <div ref="scrollRef" class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+      <div ref="scrollRef" class="min-h-0 flex-1 space-y-3 overflow-y-auto scroll-gap px-4 py-3">
         <div v-if="!activeTaskId" class="flex h-full items-center justify-center">
           <p class="panel-empty">未选中会话，直接输入消息将自动新建</p>
         </div>
@@ -272,45 +309,92 @@ async function stopGeneration(): Promise<void> {
         <p v-if="errorText" class="text-destructive text-xs">{{ errorText }}</p>
       </div>
 
-      <div v-if="status.state === 'error'" class="border-t px-4 py-2 text-xs text-destructive">
-        {{ status.error }}
-      </div>
       <div
-        v-else-if="!status.modelExists"
+        v-if="status === 'unconfigured'"
         class="border-t px-4 py-2 text-xs text-muted-foreground"
       >
-        将 MiniCPM5-1B-Q8_0.gguf 放入 llm-models/ 目录后点击「加载模型」
+        未配置可用的在线模型，点击下方「未配置」，在列表中选择「添加模型」前往设置页
       </div>
 
       <div class="border-t p-3">
-        <div class="relative">
+        <div
+          class="rounded-md border border-input bg-transparent shadow-xs transition-[border,box-shadow] focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]"
+        >
           <textarea
             ref="inputRef"
             v-model="input"
             rows="1"
-            class="min-h-[78px] max-h-32 w-full resize-none overflow-y-auto rounded-md border border-input bg-transparent px-3 py-2 pr-32 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+            class="min-h-[78px] max-h-32 w-full resize-none overflow-y-auto scroll-gap bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
             placeholder="输入消息，回车发送，Shift+回车换行"
-            :disabled="streaming || status.state !== 'ready'"
+            :disabled="streaming || status !== 'configured'"
             @input="autoResizeInput"
             @keydown.enter.exact.prevent="sendMessage"
           />
-          <!-- 发送/停止按钮悬浮在输入框右下角内部（相对 textarea 定位，避免伸出框外） -->
-          <div class="absolute bottom-2 right-2 flex items-center gap-2">
-            <ui-button
-              v-if="streaming"
-              variant="outline"
-              size="sm"
-              @click="stopGeneration"
-            >
-              停止
-            </ui-button>
-            <ui-button
-              size="sm"
-              :disabled="streaming || status.state !== 'ready' || !input.trim()"
-              @click="sendMessage"
-            >
-              发送
-            </ui-button>
+          <!-- 底部工具栏：模型选择器 + 发送/停止按钮（右对齐，贴近参考图布局） -->
+          <div class="flex items-center justify-end gap-2 px-2 pb-2">
+            <ui-popover v-model:open="modelMenuOpen">
+              <ui-popover-trigger as-child>
+                <button
+                  type="button"
+                  class="flex h-7 max-w-[150px] items-center gap-1 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                  title="切换对话使用的模型"
+                  aria-label="切换模型"
+                >
+                  <span class="truncate">{{ activeModelName }}</span>
+                  <ui-chevrons-up-down class="size-3 shrink-0 text-muted-foreground" />
+                </button>
+              </ui-popover-trigger>
+              <ui-popover-content class="w-60 p-1.5" align="start">
+                <!-- 模型列表：有配置时逐条展示并支持勾选当前默认项 -->
+                <div v-if="profiles.length" class="flex flex-col gap-0.5">
+                  <button
+                    v-for="p in profiles"
+                    :key="p.id"
+                    type="button"
+                    class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60"
+                    @click="switchModel(p.id)"
+                  >
+                    <span class="truncate">
+                      {{ p.name }}{{ p.hasApiKey ? '' : '（缺 Key）' }}
+                    </span>
+                    <ui-check
+                      v-if="p.id === activeModelId"
+                      class="size-3.5 shrink-0 text-primary"
+                    />
+                  </button>
+                </div>
+                <!-- 未配置时：列表为空，仅显示空态提示 -->
+                <p v-else class="px-2 py-1.5 text-xs text-muted-foreground">未配置模型</p>
+                <!-- 底部「添加模型」：跳转到设置页自行添加 -->
+                <div class="mt-1 border-t border-muted pt-1">
+                  <button
+                    type="button"
+                    class="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60"
+                    @click="goToSettings"
+                  >
+                    <ui-plus class="size-3.5 shrink-0" />
+                    添加模型
+                  </button>
+                </div>
+              </ui-popover-content>
+            </ui-popover>
+            <div class="flex items-center gap-2">
+              <ui-button
+                v-if="streaming"
+                variant="outline"
+                size="sm"
+                @click="stopGeneration"
+              >
+                停止
+              </ui-button>
+              <ui-button
+                size="sm"
+                :disabled="streaming || status !== 'configured' || !input.trim()"
+                @click="sendMessage"
+              >
+                发送
+              </ui-button>
+            </div>
           </div>
         </div>
       </div>

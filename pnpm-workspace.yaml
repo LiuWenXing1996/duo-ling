@@ -12,7 +12,6 @@ allowBuilds:
   electron-winstaller: true
   '@tailwindcss/oxide': true
   oxc-resolver: true
-  node-llama-cpp: true
 
 minimumReleaseAgeExclude:
   - '@lucide/vue@1.33.0'

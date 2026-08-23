@@ -24,8 +24,7 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "electron-store": "^11.0.2",
-    "node-llama-cpp": "^3.20.0"
+    "electron-store": "^11.0.2"
   },
   "devDependencies": {
     "@lucide/vue": "^1.33.0",

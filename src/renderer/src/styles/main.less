@@ -6,6 +6,35 @@
   height: 100vh;
   overflow: hidden;
 
+  // 左侧图标导航栏（对话 / 设置）
+  &-nav {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 48px;
+    gap: 4px;
+    padding-top: 44px; // 避开 macOS 红绿灯
+    border-right: 1px solid var(--border);
+  }
+
+  &-nav-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    color: var(--muted-foreground);
+    transition: background-color 0.15s, color 0.15s;
+
+    &:hover,
+    &--active {
+      background-color: var(--accent);
+      color: var(--accent-foreground);
+    }
+  }
+
   &-panel {
     display: flex;
     min-width: 0;
