@@ -21,6 +21,8 @@ import {
 } from './online-llm'
 import { getProviders, type ModelProvider } from './providers'
 import { listChatMessages, appendChatMessage, type ChatMessage } from './chat-store'
+import { listCapabilitiesHandler, runBackendCapability } from './capability-runtime'
+import type { Capability } from './capability-registry'
 
 // 端测等场景可通过环境变量指定 userData 目录，避免写入系统默认位置
 if (process.env['DUO_LING_USER_DATA_DIR']) {
@@ -159,6 +161,34 @@ app.whenReady().then(() => {
   ipcMain.handle('settings:setSystemPrompt', (_event, value: string) => setSystemPrompt(value))
   // 服务商预设列表（用于「添加模型」弹窗）
   ipcMain.handle('provider:list', (): ModelProvider[] => getProviders())
+
+  // 原子能力：清单查询 + 后端能力执行（前端能力由渲染层注入方法直接调用）
+  ipcMain.handle('capability:list', (): Capability[] => listCapabilitiesHandler())
+
+  ipcMain.handle(
+    'capability:run',
+    async (
+      _event,
+      id: string,
+      args: unknown
+    ): Promise<{ ok: true; result: unknown } | { ok: false; error: string }> => {
+      if (typeof id !== 'string' || !id.trim()) {
+        return { ok: false, error: '能力 id 不能为空' }
+      }
+      const cap = listCapabilitiesHandler().find((c) => c.id === id)
+      if (!cap) {
+        return { ok: false, error: `未知能力: ${id}` }
+      }
+      if (cap.runtime !== 'backend') {
+        return { ok: false, error: `能力 ${id} 为 frontend 运行域，应经渲染层注入方法调用` }
+      }
+      try {
+        return { ok: true, result: await runBackendCapability(id, args) }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
   // 测试连接：用传入的 baseUrl/apiKey（不落盘）拉取模型列表，验证 key/网络
   ipcMain.handle(
     'model:test',

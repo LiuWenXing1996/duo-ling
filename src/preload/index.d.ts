@@ -101,6 +101,33 @@ declare global {
           height: number
         } | null>
       }
+      capability: {
+        list: () => Promise<
+          Array<{
+            id: string
+            name: string
+            description: string
+            inputSchema: {
+              type: string
+              description: string
+              fields?: Record<string, { type: string; description: string }>
+            }
+            outputSchema: {
+              type: string
+              description: string
+              fields?: Record<string, { type: string; description: string }>
+            }
+            sideEffect: 'read' | 'write' | 'notify' | 'destructive'
+            runtime: 'frontend' | 'backend'
+            cost: 'offline' | 'online'
+            scenario: { keywords: string[]; object: string }
+          }>
+        >
+        run: (
+          id: string,
+          args: unknown
+        ) => Promise<{ ok: true; result: unknown } | { ok: false; error: string }>
+      }
       chat: {
         history: (
           taskId: number

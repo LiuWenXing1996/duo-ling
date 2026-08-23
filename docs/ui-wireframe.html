@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>小班 · 主界面线框图</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@600;700;900&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --paper: #f2efe7;
+    --surf: #fbfaf5;
+    --surf-2: #f6f3ea;
+    --ink: #201d18;
+    --ink-soft: #565048;
+    --muted: #948b7d;
+    --line: #ddd5c6;
+    --line-strong: #c7bda9;
+    --accent: #2c5fd6;
+    --accent-soft: #e8eeff;
+    --live: #1f9d68;
+    --warn: #c7781f;
+    --danger: #cf3b3b;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+    --sans: "Noto Sans SC", system-ui, sans-serif;
+    --serif: "Noto Serif SC", serif;
+    --radius: 14px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    color: var(--ink);
+    background:
+      radial-gradient(1200px 700px at 85% -10%, rgba(44,95,214,.08), transparent 60%),
+      radial-gradient(900px 600px at -10% 110%, rgba(199,139,63,.08), transparent 55%),
+      var(--paper);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .stage { height: 100%; display: flex; align-items: stretch; justify-content: center; padding: 20px; }
+
+  /* ---- App window ---- */
+  .app {
+    width: 100%;
+    max-width: 1440px;
+    height: 100%;
+    display: grid;
+    grid-template-rows: 46px 1fr 34px;
+    background: var(--surf);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    box-shadow: 0 30px 70px -30px rgba(32,29,24,.35), 0 2px 0 #fff inset;
+    overflow: hidden;
+  }
+
+  /* ---- Top bar ---- */
+  .topbar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 14px;
+    background: linear-gradient(180deg, #fdfcf8, #f7f4ec);
+    border-bottom: 1px solid var(--line);
+  }
+  .traffic { display: flex; gap: 7px; margin-right: 6px; }
+  .traffic i { width: 12px; height: 12px; border-radius: 50%; display: block; border: 1px solid rgba(0,0,0,.08); }
+  .traffic i:nth-child(1){ background:#ff5f57; } .traffic i:nth-child(2){ background:#febc2e; } .traffic i:nth-child(3){ background:#28c840; }
+
+  .brand { display: flex; align-items: baseline; gap: 9px; }
+  .brand .logo { font-family: var(--serif); font-weight: 900; font-size: 20px; letter-spacing: .5px; }
+  .brand .logo b { color: var(--accent); }
+  .brand .tag { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+
+  .global-search {
+    flex: 1; max-width: 420px; display: flex; align-items: center; gap: 8px;
+    background: #fff; border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 12px; color: var(--muted); font-size: 13px;
+  }
+  .global-search span.k { font-family: var(--mono); font-size: 10px; border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; background: var(--surf-2); }
+
+  .topbar .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--sans); font-size: 13px; font-weight: 600;
+    padding: 7px 14px; border-radius: 10px; border: 1px solid var(--line-strong);
+    background: #fff; color: var(--ink); cursor: pointer; transition: .16s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .btn.icon { padding: 7px 9px; }
+  .btn:active { transform: translateY(1px); }
+
+  /* ---- Body grid ---- */
+  .body {
+    display: grid;
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .chip {
+    font-family: var(--mono); font-size: 9.5px; padding: 2px 7px; border-radius: 6px;
+    background: var(--surf-2); color: var(--ink-soft); border: 1px solid var(--line);
+  }
+  .chip.live { color: var(--live); border-color: rgba(31,157,104,.35); background: rgba(31,157,104,.08); }
+  .chip.offline { color: var(--ink-soft); }
+
+  /* Main center */
+  .center { display: block; min-width: 0; min-height: 0; }
+  .main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+
+  .tabbar {
+    display: flex; align-items: stretch; gap: 2px; height: 40px;
+    border-bottom: 1px solid var(--line); background: var(--surf-2);
+    padding: 0 8px; overflow-x: auto;
+  }
+  .tab {
+    display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+    padding: 0 14px; font-size: 12.5px; font-weight: 500; color: var(--ink-soft);
+    border-right: 1px solid var(--line); cursor: pointer; position: relative;
+  }
+  .tab .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .tab.active { color: var(--ink); background: var(--surf); }
+  .tab.active .dot { background: var(--live); box-shadow: 0 0 0 3px rgba(31,157,104,.15); }
+  .tab .x { color: var(--muted); font-size: 14px; line-height: 1; border-radius: 4px; padding: 1px 3px; }
+  .tab .x:hover { background: var(--line); color: var(--ink); }
+  .tab.add { color: var(--accent); padding: 0 12px; }
+
+  .toolhost { flex: 1; min-height: 0; position: relative; padding: 18px; }
+  .toolview { display: none; height: 100%; grid-template-columns: 212px 320px 1fr; gap: 14px; }
+  .toolview.active { display: grid; }
+
+  /* Session history (left, per tool) */
+  .sess { background: var(--surf-2); border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .sess-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 8px; }
+  .sess-head h3 { font-size: 12.5px; margin: 0; font-weight: 700; }
+  .mini { width: 22px; height: 22px; border-radius: 7px; border: 1px solid var(--line-strong); background: #fff; cursor: pointer; color: var(--ink-soft); }
+  .mini:hover { border-color: var(--accent); color: var(--accent); }
+  .sess-list { overflow: auto; padding: 4px 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .sess-item { border: 1px solid var(--line); background: #fff; border-radius: 9px; padding: 8px 9px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; transition: .14s; }
+  .sess-item:hover { border-color: var(--line-strong); }
+  .sess-item.active { border-color: var(--accent); box-shadow: 0 4px 16px -8px rgba(44,95,214,.45); }
+  .sess-item b { font-weight: 600; font-size: 12px; }
+  .sess-item small { color: var(--muted); font-size: 10px; }
+  .badge { font-family: var(--mono); font-size: 9px; padding: 2px 6px; border-radius: 999px; align-self: flex-start; white-space: nowrap; }
+  .badge.doing { background: rgba(44,95,214,.12); color: var(--accent); }
+  .badge.done { background: rgba(31,157,104,.12); color: var(--live); }
+  .badge.rollback { background: rgba(207,59,59,.12); color: var(--danger); }
+
+  /* Tool pane (WebContentsView host), inner 2-col: tool-ui + result */
+  .tool-pane { padding: 16px; display: grid; grid-template-columns: 1fr 240px; gap: 14px; overflow: auto; }
+
+  .wf {
+    border: 1px dashed var(--line-strong); border-radius: 12px; position: relative;
+    background: repeating-linear-gradient(45deg, rgba(0,0,0,.012) 0 8px, transparent 8px 16px),
+      var(--surf);
+  }
+  .wf > .tag {
+    position: absolute; top: -9px; left: 12px; font-family: var(--mono); font-size: 9.5px;
+    background: var(--paper); color: var(--muted); padding: 2px 8px; border-radius: 6px;
+    border: 1px solid var(--line); letter-spacing: .03em; z-index: 2;
+  }
+
+  /* Tool UI (WebContentsView host) */
+  .tool-ui { padding: 0; display: flex; flex-direction: column; gap: 14px; }
+  .tool-head { display: flex; align-items: center; gap: 10px; }
+  .tool-head h1 { font-size: 16px; margin: 0; font-weight: 700; }
+  .tool-head .status { font-family: var(--mono); font-size: 10px; color: var(--live); display: flex; align-items: center; gap: 5px; }
+  .tool-head .status::before { content:""; width: 7px; height: 7px; border-radius: 50%; background: var(--live); }
+  .cost-line { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+
+  .input-zone {
+    border: 2px dashed var(--line-strong); border-radius: 12px; padding: 28px;
+    text-align: center; color: var(--muted); background: #fff;
+  }
+  .input-zone .big { font-size: 30px; color: var(--accent); }
+  .input-zone p { margin: 10px 0 0; font-size: 13px; }
+  .input-zone p small { color: var(--muted); }
+
+  .files { display: flex; flex-direction: column; gap: 6px; }
+  .file {
+    display: flex; align-items: center; gap: 8px; font-size: 12px;
+    background: var(--surf-2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px;
+  }
+  .file .nm { font-family: var(--mono); font-size: 11px; }
+  .file .sz { margin-left: auto; color: var(--muted); font-size: 10.5px; }
+  .file.done { border-color: rgba(31,157,104,.4); background: rgba(31,157,104,.05); }
+  .file.done .nm { color: var(--live); }
+
+  .opt-row { display: grid; grid-template-columns: 90px 1fr; gap: 8px; align-items: center; font-size: 12px; }
+  .opt-row label { color: var(--ink-soft); }
+  .opt-row .field { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 7px 9px; font-size: 12px; color: var(--ink); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
+  .seg span { padding: 7px 12px; font-size: 12px; cursor: pointer; color: var(--ink-soft); }
+  .seg span.on { background: var(--accent); color: #fff; }
+
+  .tool-tree { border: 1px solid var(--line); border-radius: 9px; background: #fff; padding: 10px; }
+  .tool-tree .cap { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-bottom: 8px; }
+  .step { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; padding: 4px 0; }
+  .step i { width: 16px; height: 16px; border-radius: 5px; display: grid; place-items: center; font-style: normal; font-size: 9px; color: #fff; }
+  .step i.a { background: var(--accent); }
+
+  .result { display: flex; flex-direction: column; gap: 12px; }
+  .result .preview {
+    flex: 1; border: 1px solid var(--line); border-radius: 10px; min-height: 130px;
+    background: #fff; padding: 14px; font-size: 12px; color: var(--ink-soft);
+  }
+  .result .preview .pdf { height: 100%; border: 1px dashed var(--line); border-radius: 6px; display: grid; place-items: center; color: var(--muted); }
+  .costnote {
+    display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink-soft);
+    background: var(--warn); color: #fff; padding: 8px 10px; border-radius: 8px;
+  }
+
+  /* Chat (embedded in each tool page) */
+  .chat {
+    border: 1px solid var(--line); border-radius: 12px; background: var(--surf);
+    display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  }
+  .chat-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .chat-head h3 { font-size: 13px; margin: 0; font-weight: 600; }
+  .chat-head .mode { font-family: var(--mono); font-size: 9.5px; color: var(--accent); background: var(--accent-soft); padding: 2px 6px; border-radius: 6px; }
+  .chat-log { flex: 1; overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 88%; font-size: 12px; line-height: 1.5; border-radius: 12px; padding: 9px 11px; }
+  .msg.ai { align-self: flex-start; background: var(--surf-2); border: 1px solid var(--line); }
+  .msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
+  .msg .ver { font-family: var(--mono); font-size: 10px; margin-top: 6px; opacity: .75; }
+  .chat-input { border-top: 1px solid var(--line); padding: 12px 14px; }
+  .chat-input textarea { width: 100%; border: 1px solid var(--line); border-radius: 10px; background: #fff; resize: none; font-family: var(--sans); font-size: 12.5px; padding: 10px; height: 64px; }
+  .chat-input .row { display: flex; justify-content: flex-end; margin-top: 8px; }
+
+  /* Bottom cost bar */
+  .costbar {
+    display: flex; align-items: center; gap: 14px; padding: 0 14px;
+    border-top: 1px solid var(--line); background: var(--surf-2); font-size: 11.5px; color: var(--ink-soft);
+  }
+  .costbar .metric { display: flex; align-items: center; gap: 6px; }
+  .costbar .metric b { color: var(--ink); font-weight: 700; }
+  .costbar .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .pill { font-family: var(--mono); font-size: 10px; padding: 4px 9px; border-radius: 999px; background: #fff; border: 1px solid var(--line); cursor: pointer; }
+  .pill:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* legend */
+  .legend {
+    position: fixed; right: 24px; bottom: 78px; width: 224px;
+    background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+    font-size: 11px; color: var(--ink-soft); box-shadow: 0 12px 30px -18px rgba(0,0,0,.5);
+  }
+  .legend h4 { margin: 0 0 8px; font-size: 12px; color: var(--ink); }
+  .legend li { margin: 4px 0; }
+  .legend kbd { font-family: var(--mono); font-size: 10px; background: var(--surf-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="app">
+    <!-- ================= TOP BAR ================= -->
+    <div class="topbar">
+      <div class="traffic"><i></i><i></i><i></i></div>
+      <div class="brand">
+        <span class="logo">◆ 小<b>班</b></span>
+        <span class="tag">DUO-LING / APP-SHELL</span>
+      </div>
+      <div class="global-search">
+        ⧉ <span>全局搜索：工具 / 任务 / 版本…</span> <span class="k">⌘K</span>
+      </div>
+      <div class="actions">
+        <button class="btn primary" title="新建工具">＋ 新建工具</button>
+        <button class="btn icon" title="设置">⚙</button>
+      </div>
+    </div>
+
+    <!-- ================= BODY ================= -->
+    <div class="body">
+
+      <!-- ======== CENTER: tool tabs, each tool page embeds history + chat ======== -->
+      <div class="center" id="center">
+        <div class="main">
+          <div class="tabbar" id="tabbar">
+            <div class="tab active"><span class="dot"></span><span>PDF 合并器</span><span class="x" onclick="event.stopPropagation();">×</span></div>
+            <div class="tab" data-tool="clean"><span class="dot"></span><span>表格清洗</span><span class="x" onclick="event.stopPropagation();">×</span></div>
+            <div class="tab" data-tool="rename"><span class="dot"></span><span>批量重命名</span><span class="x" onclick="event.stopPropagation();">×</span></div>
+            <div class="tab add" title="新建工具标签页">＋</div>
+          </div>
+
+          <div class="toolhost">
+            <!-- ============ Tool 1: PDF ============ -->
+            <div class="toolview active" data-id="pdf">
+              <!-- 会话历史 -->
+              <aside class="sess">
+                <div class="sess-head"><h3>会话历史</h3><button class="mini">＋</button></div>
+                <div class="sess-list">
+                  <div class="sess-item active"><span class="badge doing">进行中</span><b>新增抽页合并</b><small>分支 feat/extract-page · 3 次 commit</small></div>
+                  <div class="sess-item"><span class="badge done">已固化</span><b>抽页合并 v1.3</b><small>标签 v1.3 · 08-20</small></div>
+                  <div class="sess-item"><span class="badge rollback">已回滚</span><b>排序规则优化</b><small>分支已丢弃 · 08-12</small></div>
+                  <div class="sess-item"><span class="badge done">已固化</span><b>初版合并器 v1.0</b><small>标签 v1.0 · 07-30</small></div>
+                </div>
+              </aside>
+
+              <!-- 对话（中间） -->
+              <div class="chat">
+                <div class="chat-head"><h3>对话 · 找 AI 改</h3><span class="mode">生成期 · 任务 T-1024</span></div>
+                <div class="chat-log">
+                  <div class="msg ai">已识别意图：把若干 PDF 的第 3 页抽出来，再合并成一个新 PDF。<div class="ver">via scenario: pdf.extract+merge</div></div>
+                  <div class="msg user">对，整份的不要，我要每个都抽第 3 页。</div>
+                  <div class="msg ai">明白。已在分支 feat/extract-page 上调好后端编排（能力 2/3），并补上前端「抽页合并」选项。要我把这版固化为 v1.4 吗？</div>
+                  <div class="msg user">先看看，别固化。</div>
+                  <div class="msg ai">好的，保留在分支上供你试运行。本任务共 3 次过程 commit，暂未产生正式版本。<div class="ver">用户裁决：不固化 → 仍为进行中</div></div>
+                </div>
+                <div class="chat-input">
+                  <textarea placeholder="向 AI 描述这个任务的调整…"></textarea>
+                  <div class="row"><button class="btn primary">发送</button></div>
+                </div>
+              </div>
+
+              <!-- 工具界面（WebContentsView 受控宿主） -->
+              <div class="tool-pane wf">
+                <span class="tag">工具界面 · WebContentsView（受控宿主）</span>
+                <div class="tool-ui">
+                  <div class="tool-head">
+                    <h1>PDF 合并器</h1>
+                    <span class="status">就绪</span>
+                    <div class="cost-line"><span class="chip offline">本机</span><span class="chip live"><5s</span></div>
+                  </div>
+                  <div class="input-zone"><div class="big">⤓</div>
+                    <p>将文件拖到这里，或 <b>点击选择</b></p>
+                    <p><small>支持 .pdf · 可多选 · 按顺序合并</small></p>
+                  </div>
+                  <div class="files">
+                    <div class="file done"><span>📄</span><span class="nm">周报_08.pdf</span><span class="sz">2.1 MB</span></div>
+                    <div class="file done"><span>📄</span><span class="nm">周报_15.pdf</span><span class="sz">1.9 MB</span></div>
+                    <div class="file"><span>📄</span><span class="nm">周报_22.pdf</span><span class="sz">——（待添加）</span></div>
+                  </div>
+                  <div class="opt-row"><label>合并模式</label>
+                    <div class="seg"><span>整份合并</span><span class="on">抽页合并</span></div>
+                  </div>
+                  <div class="opt-row"><label>输出目录</label>
+                    <div class="field">~/桌面/合并输出/ &nbsp;⌄</div>
+                  </div>
+                  <button class="btn primary" style="width:100%;justify-content:center">▶ 运行</button>
+                </div>
+                <div class="result">
+                  <div class="tool-tree">
+                    <div class="cap">组装计划 · 能力编排（backend registry）</div>
+                    <div class="step"><i class="a">1</i> local.file.choose</div>
+                    <div class="step"><i class="a">2</i> pdf.extract_page</div>
+                    <div class="step"><i class="a">3</i> pdf.merge</div>
+                    <div class="step"><i class="a">4</i> local.file.save</div>
+                  </div>
+                  <div class="preview"><span style="font-size:11px;color:var(--muted);display:block;margin-bottom:8px">结果预览</span>
+                    <div class="pdf">合并完成 · merged.pdf · 12 页 · 一键下载</div>
+                  </div>
+                  <div class="costnote">⚠ 该能力含联网 / 耗 token 步骤，需提前展示并确认</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ============ Tool 2: clean ============ -->
+            <div class="toolview" data-id="clean">
+              <aside class="sess">
+                <div class="sess-head"><h3>会话历史</h3><button class="mini">＋</button></div>
+                <div class="sess-list">
+                  <div class="sess-item active"><span class="badge doing">进行中</span><b>修复列去重误删</b><small>分支 fix/dedup · 2 次 commit</small></div>
+                  <div class="sess-item"><span class="badge done">已固化</span><b>去重规则 v0.9</b><small>标签 v0.9 · 08-18</small></div>
+                </div>
+              </aside>
+              <div class="chat">
+                <div class="chat-head"><h3>对话 · 找 AI 改</h3><span class="mode">维护期 · 任务 T-1031</span></div>
+                <div class="chat-log">
+                  <div class="msg ai">已定位：去重逻辑把「完全相同的行」也当成重复删掉了。是在分支 fix/dedup 上调策略，还是先看影响样本？</div>
+                  <div class="msg user">先看样本。</div>
+                  <div class="msg ai">已列出 23 行去重记录，其中 7 行可能是误删。要我按「非空列全相等才算重复」收紧吗？</div>
+                </div>
+                <div class="chat-input"><textarea placeholder="向 AI 描述这个任务的调整…"></textarea><div class="row"><button class="btn primary">发送</button></div></div>
+              </div>
+              <div class="tool-pane wf">
+                <span class="tag">工具界面 · WebContentsView（受控宿主）</span>
+                <div class="tool-ui">
+                  <div class="tool-head"><h1>表格清洗</h1><span class="status">就绪</span>
+                    <div class="cost-line"><span class="chip offline">本机</span><span class="chip live"><10s</span></div></div>
+                  <div class="input-zone"><div class="big">▦</div><p>拖入 CSV / xlsx 进行清洗</p><p><small>可多选 · 自动识别表头</small></p></div>
+                  <button class="btn primary" style="width:100%;justify-content:center">▶ 运行</button>
+                </div>
+                <div class="result">
+                  <div class="tool-tree"><div class="cap">能力编排</div>
+                    <div class="step"><i class="a">1</i> local.file.choose</div>
+                    <div class="step"><i class="a">2</i> data.load</div>
+                    <div class="step"><i class="a">3</i> data.clean</div></div>
+                  <div class="preview"><div class="pdf">清洗预览 · 去重 23 行</div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ============ Tool 3: rename ============ -->
+            <div class="toolview" data-id="rename">
+              <aside class="sess">
+                <div class="sess-head"><h3>会话历史</h3><button class="mini">＋</button></div>
+                <div class="sess-list">
+                  <div class="sess-item"><span class="badge done">已固化</span><b>支持正则 v2.1</b><small>标签 v2.1 · 08-15</small></div>
+                  <div class="sess-item active"><span class="badge doing">进行中</span><b>预览结果导出</b><small>分支 feat/preview · 进行中</small></div>
+                </div>
+              </aside>
+              <div class="chat">
+                <div class="chat-head"><h3>对话 · 找 AI 改</h3><span class="mode">生成期 · 任务 T-1040</span></div>
+                <div class="chat-log">
+                  <div class="msg ai">当前规则会重命名 23 个文件，其中 4 个会覆盖同名文件。需要我先给出覆盖清单吗？</div>
+                  <div class="msg user">要，列出来我确认。</div>
+                  <div class="msg ai">好——已列出 4 个冲突文件，等你确认后再写盘。这版要不要固化成 v2.2？</div>
+                </div>
+                <div class="chat-input"><textarea placeholder="向 AI 描述这个任务的调整…"></textarea><div class="row"><button class="btn primary">发送</button></div></div>
+              </div>
+              <div class="tool-pane wf">
+                <span class="tag">工具界面 · WebContentsView（受控宿主）</span>
+                <div class="tool-ui">
+                  <div class="tool-head"><h1>批量重命名</h1><span class="status">就绪</span>
+                    <div class="cost-line"><span class="chip offline">本机</span><span class="chip live"><3s</span></div></div>
+                  <div class="input-zone"><div class="big">✎</div><p>选择文件夹进行批量重命名</p><p><small>支持正则表达式</small></p></div>
+                  <button class="btn primary" style="width:100%;justify-content:center">▶ 运行</button>
+                </div>
+                <div class="result"><div class="preview"><div class="pdf">规则预览 · 23 个文件将被重命名</div></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= BOTTOM COST BAR ================= -->
+    <div class="costbar">
+      <div class="metric">上次运行成本 <b>¥0.12</b> · 本机操作 · <span style="color:var(--warn)">联网 1 项</span></div>
+      <div class="metric">运行记录 <b>3</b> 条</div>
+      <div class="right">
+        <span class="pill">💬 当前工具会话</span>
+        <span class="pill">📄 运行记录</span>
+        <span class="pill">⛭ 工具设置</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- legend -->
+<div class="legend">
+  <h4>可交互线框图 · 布局约定</h4>
+  <ul style="margin:0;padding-left:16px">
+    <li>顶栏：品牌 / 全局搜索 / 新建</li>
+    <li>主区：大尺寸多标签页并开，随点切换</li>
+    <li>每个工具页 = 左「会话历史」 + 中「对话」 + 右「工具界面」</li>
+    <li>会话历史：该工具的全部任务/会话（分支 / 版本 / 回滚）</li>
+    <li>对话随工具页定位（切到哪个工具，就是哪个工具的会话）</li>
+  </ul>
+</div>
+
+<script>
+  // tab switching across tool views (each embeds sess + chat + tool-pane)
+  document.querySelectorAll('.tab[data-tool]').forEach(t=>{
+    t.addEventListener('click',()=>activate(t.dataset.tool));
+  });
+  function activate(tool){
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.toolview').forEach(x=>x.classList.remove('active'));
+    const tab=[...document.querySelectorAll('.tab[data-tool]')].find(x=>x.dataset.tool===tool);
+    const view=document.querySelector('.toolview[data-id="'+tool+'"]');
+    if(tab) tab.classList.add('active');
+    if(view) view.classList.add('active');
+  }
+  function addTab(tool){
+    const names={clean:'表格清洗',rename:'批量重命名',web:'网页快照',pdf:'PDF 合并器'};
+    const bar=document.getElementById('tabbar');
+    const el=document.createElement('div');
+    el.className='tab'; el.dataset.tool=tool;
+    el.innerHTML='<span class="dot"></span><span>'+names[tool]+'</span><span class="x" onclick="event.stopPropagation();this.parentNode.remove();">×</span>';
+    el.addEventListener('click',()=>activate(tool));
+    bar.insertBefore(el,bar.querySelector('.add'));
+    let view=document.querySelector('.toolview[data-id="'+tool+'"]');
+    if(!view){
+      const v=document.createElement('div'); v.className='toolview active'; v.dataset.id=tool;
+      v.innerHTML='<div class="tool-pane wf"><span class="tag">工具界面 · WebContentsView（受控宿主）</span><div class="tool-ui"><h1>'+names[tool]+'</h1><p style="color:var(--muted);font-size:12px">工具尚未打开 / 正在加载</p></div></div>';
+      document.querySelector('.toolhost').appendChild(v);
+    }
+    activate(tool);
+  }
+  const addBtn=document.querySelector('.tab.add');
+  if(addBtn) addBtn.addEventListener('click',()=>addTab('web'));
+</script>
+</body>
+</html>

@@ -92,26 +92,10 @@ CDP 的边界：需要应用在 dev 模式运行；只覆盖渲染进程；生�
   - ESM preload 要求 `sandbox: false`（本项目已满足）；
   - 主进程代码里的 `__dirname` 改为 `import.meta.dirname`（Electron 43 / Node 22 原生支持）。
 - **主进程 store 惰性初始化**：electron-store 实例若在模块顶层创建，会早于 `app.setPath('userData')`（含 `DUO_LING_USER_DATA_DIR` 覆盖）执行而拿到错误目录。做法：store 模块导出业务函数（`listTasks/saveTasks`），内部用 `store ??= new Store(...)` 惰性创建，首次调用发生在 IPC 处理时（app 已就绪）。
-- **node-llama-cpp 集成**：
-  - 安装需在 `pnpm-workspace.yaml` 的 `allowBuilds` 加 `node-llama-cpp: true`；原生二进制在独立的平台包 `@node-llama-cpp/<平台>-<gpu>/bins/`（含 `llama-addon.node` 与 dylib/so），electron-builder 需 `asarUnpack: ['**/node_modules/@node-llama-cpp/**']`；
-  - 该包是 ESM 且含顶层 await，CJS `require()` 会报 `ERR_REQUIRE_ASYNC_MODULE`，ESM 主进程 `import` 正常；
-  - 验证二进制是否就绪：`node --input-type=module -e "import {getLlama} from 'node-llama-cpp'; const l = await getLlama(); console.log(l.gpu)"`；
-  - 模型目录约定：优先读取全局环境变量 `$LLM_MODELS`（未设置或该目录下无模型时回退），其次开发模式 `<项目根>/llm-models/`、打包后 `<userData>/models`（`app.getAppPath()` 在开发模式即项目根）；解析逻辑集中在 `src/main/model-path.ts`（纯函数，已配单测）；
-  - `llama.gpu` 类型为 `LlamaGpuType`（可能为 boolean），写入 IPC 状态前需转成 string 或过滤。
-- **e2e 勿在模型加载中关闭应用**：聊天面板挂载即自动触发 `llama:init`（加载 1.15GB 模型是异步的），若 e2e 断言完直接 `close()`，会中途终止 llama.cpp 原生初始化 → 进程 `SIGABRT`，macOS 弹「Electron 意外退出」崩溃框。e2e 必须先轮询 `llama:status` 直到非 loading（`expect.poll` 等到 `ready`）再关闭；这一步同时补上了"模型能否成功加载"的端测覆盖。判断崩溃是否由它引起：看 `~/Library/Logs/DiagnosticReports/` 下 Electron 崩溃报告的 `signal: SIGABRT` 且栈含 llama/ggml 帧。
 - **开发环境 CDP 远程调试**：主进程在 `is.dev` 时自动 `app.commandLine.appendSwitch('remote-debugging-port', '9222')`，`pnpm dev` 即可用 `chrome://inspect` 或 `chromium.connectOverCDP('http://127.0.0.1:9222')` 远程调试渲染进程（Playwright 已安装，可直接写脚本 evaluate）。主进程另有常驻 IPC `window:getBounds`（preload 暴露 `window.api.window.getBounds()`），配合 CDP 可随时读窗口坐标。若跑构建产物做同样操作，启动时手动加 `--remote-debugging-port=9222` 即可。AppleScript(System Events) 读窗口位置会被 macOS 辅助功能权限拦截（-1743），优先用 CDP + IPC。
 - **开发环境窗口默认位置（藏左下角）**：dev 时窗口主体藏在屏幕外，只露右上角一小块（右上角位于工作区左下角右上方 `DEV_CORNER_X/Y`，默认 100/100），避免启动弹窗打断操作。**坑①**：不要在 `BrowserWindow` 构造参数里传屏外 x/y，macOS 会把构造时的屏外坐标强制拉回屏内（如 `x=-1022` 会落地为 `x=0` 贴角）；**坑②**：手动拖拽可以把窗口拖到大部分屏外（此时 `getBounds()` 会返回屏幕外坐标），但这些坐标无法通过构造参数复现。**正解**：构造不传位置 → `ready-to-show` 后 `setOpacity(0)` + `showInactive()`（不抢焦点）→ `setBounds(屏外)` → `setImmediate` 恢复不透明，macOS 不会钳制显示后的 setBounds。窗口坐标实测：CDP 连上后读 `screenX/screenY` 或 `await window.api.window.getBounds()`（在 evaluate 里直接返回 Promise 会得到空对象，须用 `async () => await ...` 包一层）。
 - **AI 终端环境跑 dev 需禁沙箱**：在无 TCC 权限的 AI 终端里直接 `pnpm dev` 启动 Electron，会报 `sandbox initialization failed: Operation not permitted`，GPU/网络子进程反复崩溃，最终 `GPU process isn't usable. Goodbye.` FATAL 退出。**正解**：`ELECTRON_DISABLE_SANDBOX=1 pnpm dev -- --no-sandbox`（与 e2e `electron.launch` 已带的 `--no-sandbox` 同理）。普通用户终端有 TCC 权限，无需此参数。
 - **IPC 传参禁止 Vue 响应式 Proxy**：`ipcRenderer.invoke` 用结构化克隆序列化参数，Vue 的 `ref`/`reactive` 数组是 Proxy，直接传给主进程会抛 `An object could not be cloned`（错误会被渲染层 `try/catch` 静默吞掉，表现为**持久化从未生效**——删除全部后 UI 清空但 store 未写，旧数据残留、再创建新会话时不断叠加）。**修法**：发送前 `JSON.parse(JSON.stringify(x))` 转纯字面量。单测 mock 掉 IPC 测不出此问题，必须在 e2e 里**回读 store 断言持久化结果**（本项目的 e2e 在删除全部后 `listTasks()` 断言空数组，正是靠它抓到该 bug）。
-- **生成中途退出会崩溃**：模型回复生成中（llama 的 NAPI AsyncWorker 在跑）直接退出应用（Cmd+Q），Node 环境清理（`RunCleanup`）时工作线程完成并 `ThrowAsJavaScriptException` → ggml 未捕获异常处理 `abort()` → SIGABRT 崩溃。**修法**：`app.on('before-quit')` 里若正在生成则 `preventDefault()` → `abort()` → 轮询等生成停止（上限 2s）→ 再 `app.quit()`；`chatAbortController` 提为模块级并暴露 `isGenerating()`/`abortCurrentGeneration()`。崩溃特征：macOS 崩溃报告 `signal: SIGABRT`，栈含 `node::Environment::RunCleanup` → `Napi::AsyncWorker::OnWorkComplete` → `ggml_uncaught_exception`。
-- **对话功能（node-llama-cpp v3）要点**：
-  - **MiniCPM 的 GGUF 自带 Jinja 模板与 `JinjaTemplateChatWrapper` 不兼容**：`chatWrapper: 'auto'` 检测到的 Jinja wrapper 渲染出的历史是空的（消息内容全丢，只有空 `<|im_start|>user` 标签），表现为多轮对话完全失忆。其模板本质是 ChatML 格式，**改用 `new ChatMLChatWrapper()` 实例**（注意传字符串 `'chatML'` 不会自动解析，会报 `supportsSystemMessages` undefined）。
-  - **`prompt()` 默认 maxTokens 很小**，回复会被截断；需显式传 `maxTokens`（如 2048）。
-  - **v3 的 `ChatHistoryItem` 是 `{ type: 'user', text }` / `{ type: 'model', response: [...] }`**，不是 v2 的 `{ role, text }`；`setChatHistory` 会整体替换历史。
-  - 创建会话需要 `model.createContext()` → `context.getSequence()` → `new LlamaChatSession({ contextSequence, chatWrapper, systemPrompt })`（`model.createChatSession` 在 v3.20 不存在）。
-  - **MiniCPM5-1B 是推理模型**，输出 `<think>...</think>` 思考块；UI 展示时用正则剥离，流式期间未闭合时显示"思考中…"。
-  - 流式 IPC 模式：`chat:send` 里 `event.sender.send('chat:event', ...)` 推送 token/done/aborted/error，`AbortController` 中止，preload 用单例 listener 暴露 `onEvent/offEvent`（contextBridge 支持回调参数透传）。
-  - 持久化用独立 electron-store 文件（`chat.json`，`sessions[taskId]` 数组），消息带 `{ id, role, content, createdAt }`；Schema 校验用 `additionalProperties` 校验会话字典。
 
 ## 工作流
 

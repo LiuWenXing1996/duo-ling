@@ -61,6 +61,31 @@ type ChatEventData =
   | { type: 'aborted'; taskId: number; message: ChatMessageData | null }
   | { type: 'error'; taskId: number; error: string }
 
+interface CapabilitySchemaFieldData {
+  type: string
+  description: string
+}
+
+interface CapabilitySchemaData {
+  type: string
+  description: string
+  fields?: Record<string, CapabilitySchemaFieldData>
+}
+
+interface CapabilityData {
+  id: string
+  name: string
+  description: string
+  inputSchema: CapabilitySchemaData
+  outputSchema: CapabilitySchemaData
+  sideEffect: 'read' | 'write' | 'notify' | 'destructive'
+  runtime: 'frontend' | 'backend'
+  cost: 'offline' | 'online'
+  scenario: { keywords: string[]; object: string }
+}
+
+type CapabilityRunResponse = { ok: true; result: unknown } | { ok: false; error: string }
+
 let chatEventListener: ((_event: IpcRendererEvent, payload: ChatEventData) => void) | null = null
 
 const api = {
@@ -100,6 +125,11 @@ const api = {
   window: {
     getBounds: (): Promise<{ x: number; y: number; width: number; height: number } | null> =>
       ipcRenderer.invoke('window:getBounds')
+  },
+  capability: {
+    list: (): Promise<CapabilityData[]> => ipcRenderer.invoke('capability:list'),
+    run: (id: string, args: unknown): Promise<CapabilityRunResponse> =>
+      ipcRenderer.invoke('capability:run', id, args)
   },
   chat: {
     history: (taskId: number): Promise<ChatMessageData[]> =>

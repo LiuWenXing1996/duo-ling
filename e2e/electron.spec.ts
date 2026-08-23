@@ -1,23 +1,28 @@
 import { expect, test, _electron as electron } from '@playwright/test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
 type RendererWindow = {
   api: {
     ping: () => Promise<string>
     listTasks: () => Promise<Array<{ id: number; title: string; createdAt: string }>>
-    llama: {
-      getStatus: () => Promise<{
-        state: 'idle' | 'loading' | 'ready' | 'error'
-        modelPath: string | null
-        modelExists: boolean
-        gpu?: string
-        error?: string
-      }>
+    capability: {
+      list: () => Promise<
+        Array<{
+          id: string
+          runtime: 'frontend' | 'backend'
+        }>
+      >
+      run: (
+        id: string,
+        args: unknown
+      ) => Promise<{ ok: true; result: unknown } | { ok: false; error: string }>
     }
   }
 }
 
-test('应用启动并渲染主界面', async () => {
+test('应用启动并渲染工具工作台主界面', async () => {
   const electronApp = await electron.launch({
     args: ['.', '--no-sandbox'],
     env: {
@@ -28,18 +33,12 @@ test('应用启动并渲染主界面', async () => {
 
   const window = await electronApp.firstWindow()
 
-  // 三栏布局就位：会话记录 / 对话框 / 会话详情
-  await expect(window.getByRole('heading', { name: '会话记录' })).toBeVisible()
-  await expect(window.locator('text=暂无任务')).toBeVisible()
-  await expect(window.getByRole('heading', { name: '对话框' })).toBeVisible()
-  await expect(window.getByRole('heading', { name: '会话详情' })).toBeVisible()
+  // 顶栏就位：品牌标题 + 副标题
+  await expect(window.getByText('小班')).toBeVisible()
+  await expect(window.getByText('DUO-LING / TOOL-BENCH')).toBeVisible()
 
-  // 三栏标题栏高度一致（回归：各栏 header 内容不同，纯标题行高低于含按钮的行，高度曾由内容撑开而不一致）
-  const headerHeights = await window
-    .locator('header.panel-header')
-    .evaluateAll((els) => els.map((el) => el.offsetHeight))
-  expect(headerHeights.length).toBe(3)
-  expect(new Set(headerHeights).size).toBe(1)
+  // 标签栏默认展示首个工具页（PDF 合并器）
+  await expect(window.getByRole('tab', { name: 'PDF 合并器' })).toBeVisible()
 
   // IPC 通道可用：window.api.ping() 应返回 pong
   const ping = await window.evaluate(() =>
@@ -53,45 +52,48 @@ test('应用启动并渲染主界面', async () => {
   )
   expect(tasks).toEqual([])
 
-  // 模型加载：聊天面板挂载时已在后台触发 llama:init，
-  // 轮询状态直到加载完成（避免在加载中关闭应用导致原生崩溃），断言就绪
-  await expect
-    .poll(
-      () =>
-        window.evaluate(() =>
-          (window as unknown as RendererWindow).api.llama.getStatus().then((s) => s.state)
-        ),
-      { timeout: 120_000, intervals: [1000, 3000] }
+  // 原子能力最小切片：capability:list 应返回前后端双 registry 合并清单
+  const caps = await window.evaluate(() =>
+    (window as unknown as RendererWindow).api.capability.list()
+  )
+  expect(caps.some((c) => c.id === 'local.file.read' && c.runtime === 'backend')).toBe(true)
+  expect(caps.some((c) => c.id === 'docs.markdown.render' && c.runtime === 'frontend')).toBe(true)
+
+  // 完整进程隔离链路：renderer → IPC → main → utilityProcess → 读文件 → 返回
+  // 通过 capability.run('local.file.read') 真实读取临时文件，验证后端运行域
+  const dir = mkdtempSync(join(tmpdir(), 'duo-ling-cap-'))
+  const sample = '小班最小切片验证'
+  const filePath = join(dir, 'sample.txt')
+  writeFileSync(filePath, sample, 'utf-8')
+  try {
+    const readRes = await window.evaluate(
+      ({ id, path }: { id: string; path: string }) =>
+        (window as unknown as RendererWindow).api.capability.run(id, { path }),
+      { id: 'local.file.read', path: filePath }
     )
-    .toBe('ready')
+    expect(readRes.ok).toBe(true)
+    if (readRes.ok) {
+      expect((readRes.result as { content: string }).content).toBe(sample)
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 
-  const modelStatus = await window.evaluate(() =>
-    (window as unknown as RendererWindow).api.llama.getStatus()
+  // 前端运行域：capability.run 对 frontend 能力应拒绝在 IPC 层执行
+  const frontendRes = await window.evaluate(() =>
+    (window as unknown as RendererWindow).api.capability.run('docs.markdown.render', {
+      markdown: '# hi'
+    })
   )
-  expect(modelStatus.modelExists).toBe(true)
-  expect(modelStatus.gpu).toBeTruthy()
+  expect(frontendRes.ok).toBe(false)
 
-  // 新建会话 → 删除全部（真实浏览器验证 popover 确认弹窗可见）
-  await window.getByRole('button', { name: '新建会话' }).click()
-  await expect(window.locator('text=新会话').first()).toBeVisible()
-  await window.getByRole('button', { name: '删除全部任务' }).click()
-  await expect(window.locator('text=确认删除全部任务？')).toBeVisible()
-  await window.getByRole('button', { name: '删除', exact: true }).click()
-  await expect(window.locator('text=暂无任务')).toBeVisible()
+  // 标签切换：点击「表格清洗」后成为激活标签
+  await window.getByRole('tab', { name: '表格清洗' }).click()
+  await expect(window.getByRole('tab', { name: '表格清洗' })).toHaveAttribute('aria-selected', 'true')
 
-  // 确认删除全部已持久化（重新读取 store 应为空）
-  const tasksAfter = await window.evaluate(() =>
-    (window as unknown as RendererWindow).api.listTasks()
-  )
-  expect(tasksAfter).toEqual([])
-
-  // 多行输入框：输入两行内容不应出现垂直滚动条
-  // （回归：autoResize 曾把不含 border 的 scrollHeight 直接赋值，少算 2px 导致溢出滚动）
-  await window.getByRole('textbox').fill('第一行\n第二行')
-  const inputHasVScroll = await window
-    .locator('textarea')
-    .evaluate((el) => el.scrollHeight > el.clientHeight)
-  expect(inputHasVScroll).toBe(false)
+  // 添加占位工具：点击「＋」新增「网页快照」标签
+  await window.getByRole('button', { name: '添加工具' }).click()
+  await expect(window.getByRole('tab', { name: '网页快照' })).toBeVisible()
 
   await electronApp.close()
 })
