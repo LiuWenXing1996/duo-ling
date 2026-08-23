@@ -61,6 +61,12 @@ type ChatEventData =
   | { type: 'aborted'; taskId: number; message: ChatMessageData | null }
   | { type: 'error'; taskId: number; error: string }
 
+type GeneratorEventData =
+  | { type: 'token'; token: string }
+  | { type: 'done'; content: string }
+  | { type: 'aborted'; content: string }
+  | { type: 'error'; error: string }
+
 interface CapabilitySchemaFieldData {
   type: string
   description: string
@@ -87,6 +93,7 @@ interface CapabilityData {
 type CapabilityRunResponse = { ok: true; result: unknown } | { ok: false; error: string }
 
 let chatEventListener: ((_event: IpcRendererEvent, payload: ChatEventData) => void) | null = null
+let generatorEventListener: ((_event: IpcRendererEvent, payload: GeneratorEventData) => void) | null = null
 
 const api = {
   ping: (): Promise<string> => ipcRenderer.invoke('app:ping'),
@@ -146,6 +153,24 @@ const api = {
       if (chatEventListener) {
         ipcRenderer.removeListener('chat:event', chatEventListener)
         chatEventListener = null
+      }
+    }
+  },
+  generator: {
+    send: (
+      history: Array<{ role: 'user' | 'assistant'; content: string }>
+    ): Promise<{ ok: boolean; content?: string; error?: string }> =>
+      ipcRenderer.invoke('generator:send', history),
+    abort: (): Promise<void> => ipcRenderer.invoke('generator:abort'),
+    onEvent: (callback: (payload: GeneratorEventData) => void): void => {
+      if (generatorEventListener) ipcRenderer.removeListener('generator:event', generatorEventListener)
+      generatorEventListener = (_event, payload) => callback(payload)
+      ipcRenderer.on('generator:event', generatorEventListener)
+    },
+    offEvent: (): void => {
+      if (generatorEventListener) {
+        ipcRenderer.removeListener('generator:event', generatorEventListener)
+        generatorEventListener = null
       }
     }
   }

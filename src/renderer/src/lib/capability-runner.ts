@@ -6,6 +6,9 @@
 
 type CapabilityItem = Awaited<ReturnType<typeof window.api.capability.list>>[number]
 
+/** 供生成器 / 生成工具页使用的能力类型 */
+export type { CapabilityItem }
+
 /** frontend 注入的白名单方法：id → 实现（MVP 阶段为渲染层本地方法） */
 const frontendMethods: Record<string, (args: unknown) => unknown | Promise<unknown>> = {
   'docs.markdown.render': (args) => {

@@ -371,8 +371,23 @@ export async function testChatConnection(config: {
 /**
  * 流式生成回复（OpenAI 兼容 /chat/completions，SSE）。
  * token 逐段回调 onToken；signal 中止时 fetch 抛错，由上层按中止处理。
+ * 使用全局系统提示词。
  */
-export async function generateReply(
+export function generateReply(
+  history: ChatMessage[],
+  userText: string,
+  onToken: (text: string) => void,
+  signal: AbortSignal
+): Promise<string> {
+  return generateReplyWithSystemPrompt(getSystemPrompt(), history, userText, onToken, signal)
+}
+
+/**
+ * 流式生成回复，允许外部指定系统提示词（普通对话用全局提示词；生成器用能力清单提示词）。
+ * 其余逻辑与 generateReply 一致。
+ */
+export async function generateReplyWithSystemPrompt(
+  systemPrompt: string,
   history: ChatMessage[],
   userText: string,
   onToken: (text: string) => void,
@@ -391,9 +406,6 @@ export async function generateReply(
   if (!isConfigured()) {
     throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
   }
-
-  // 全局系统提示词：为空则不发送 system 消息
-  const systemPrompt = getSystemPrompt()
 
   const messages: Array<{ role: string; content: string }> = [
     ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),

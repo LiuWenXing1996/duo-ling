@@ -10,10 +10,14 @@ import {
   Plus as UiPlus,
   Search as UiSearch,
   Settings as UiSettings,
+  Sparkles as UiSparkles,
   Table as UiTable,
   X as UiX
 } from '@lucide/vue'
 import ToolPage, { type Tool } from './tool-page.vue'
+import ToolGenerator from './tool-generator.vue'
+import ToolGenerated from './tool-generated.vue'
+import type { GeneratedToolDef } from '@/lib/tool-generator'
 
 // 工具 id → 图标
 const TOOL_ICON: Record<string, Component> = {
@@ -126,8 +130,14 @@ const TOOLS: Record<string, Tool> = {
   }
 }
 
-// 打开的工具标签（含未定义的占位工具，如 web）
-type OpenTool = { id: string; custom?: boolean }
+// 打开的工具标签（含未定义的占位工具，如 web；以及生成器 / 生成工具）
+const GENERATOR_TAB_ID = 'generator'
+type OpenTool = {
+  id: string
+  custom?: boolean
+  /** 由生成器产出的工具定义；存在时该标签页渲染生成工具执行页（tool-generated） */
+  generated?: GeneratedToolDef
+}
 const openTabs = ref<OpenTool[]>([
   { id: 'pdf' },
   { id: 'clean' },
@@ -144,8 +154,15 @@ const emit = defineEmits<{ openSettings: [] }>()
 // 未注册（占位）工具的显示名，便于演示
 const UNREGISTERED_NAMES: Record<string, string> = { web: '网页快照' }
 
-function toolName(id: string): string {
-  return TOOLS[id]?.name ?? UNREGISTERED_NAMES[id] ?? id
+function toolName(tab: OpenTool): string {
+  if (tab.generated) return tab.generated.title
+  if (tab.id === GENERATOR_TAB_ID) return '创建工具'
+  return TOOLS[tab.id]?.name ?? UNREGISTERED_NAMES[tab.id] ?? tab.id
+}
+
+function tabIcon(tab: OpenTool): Component {
+  if (tab.generated || tab.id === GENERATOR_TAB_ID) return UiSparkles
+  return TOOL_ICON[tab.id] ?? UiFileText
 }
 
 function isToolDefined(id: string): boolean {
@@ -176,11 +193,33 @@ function addTab(): void {
   activate('web')
 }
 
+// 打开「创建工具」生成器标签（始终唯一：重复点击只切换过去）
+function openGenerator(): void {
+  if (openTabs.value.some((t) => t.id === GENERATOR_TAB_ID)) {
+    activate(GENERATOR_TAB_ID)
+    return
+  }
+  openTabs.value.push({ id: GENERATOR_TAB_ID })
+  activate(GENERATOR_TAB_ID)
+}
+
+// 生成器产出工具：关闭生成器标签，去重同名工具，再打开新的生成工具标签
+function onGenerated(def: GeneratedToolDef): void {
+  const tabId = `gen-${def.name}`
+  openTabs.value = openTabs.value.filter((t) => t.id !== GENERATOR_TAB_ID && t.id !== tabId)
+  openTabs.value.push({ id: tabId, generated: def })
+  activate(tabId)
+}
+
+function closeGenerator(): void {
+  closeTab(GENERATOR_TAB_ID)
+}
+
 // 未注册工具的占位实现
 function toPlaceholderTool(id: string): Tool {
   return {
     id,
-    name: toolName(id),
+    name: UNREGISTERED_NAMES[id] ?? id,
     taskLabel: '占位',
     status: '待接入',
     costTime: '—',
@@ -220,7 +259,7 @@ function toPlaceholderTool(id: string): Tool {
       </div>
 
       <div class="no-drag ml-auto flex items-center gap-2">
-        <ui-button size="sm" class="no-drag">
+        <ui-button size="sm" class="no-drag" @click="openGenerator">
           <ui-plus class="size-4" />新建工具
         </ui-button>
         <ui-button variant="ghost" size="icon" class="no-drag" aria-label="设置" @click="emit('openSettings')">
@@ -240,10 +279,10 @@ function toPlaceholderTool(id: string): Tool {
         :aria-selected="tab.id === activeTabId"
         @click="activate(tab.id)"
       >
-        <component :is="TOOL_ICON[tab.id] ?? UiFileText" class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
-        <span class="truncate">{{ toolName(tab.id) }}</span>
+        <component :is="tabIcon(tab)" class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
+        <span class="truncate">{{ toolName(tab) }}</span>
         <span
-          v-if="!isToolDefined(tab.id)"
+          v-if="!isToolDefined(tab.id) && tab.id !== GENERATOR_TAB_ID && !tab.generated"
           class="rounded bg-amber-500/15 px-1 text-[9px] text-amber-700"
           title="占位工具"
         >
@@ -265,7 +304,17 @@ function toPlaceholderTool(id: string): Tool {
 
     <!-- 当前工具页 -->
     <div class="min-h-0 flex-1">
-      <tool-page :key="activeTab.id" :tool="activeTool" />
+      <tool-generator
+        v-if="activeTab.id === GENERATOR_TAB_ID"
+        @generated="onGenerated"
+        @close="closeGenerator"
+      />
+      <tool-generated
+        v-else-if="activeTab.generated"
+        :key="activeTab.id"
+        :def="activeTab.generated"
+      />
+      <tool-page v-else :key="activeTab.id" :tool="activeTool" />
     </div>
   </div>
 </template>
@@ -274,6 +323,10 @@ function toPlaceholderTool(id: string): Tool {
 .tool-workspace {
   display: flex;
   flex-direction: column;
+  // 作为 .workspace-panel--grow（flex 行容器）的 item，必须 grow 才能填满宽度，
+  // 否则宽度会跟随内容：内容变窄时（如 Markdown 页）右侧留白
+  flex: 1;
+  min-width: 0;
   height: 100%;
   min-height: 0;
   background: var(--background);

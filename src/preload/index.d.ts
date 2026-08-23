@@ -148,6 +148,20 @@ declare global {
         ) => void
         offEvent: () => void
       }
+      generator: {
+        send: (
+          history: Array<{ role: 'user' | 'assistant'; content: string }>
+        ) => Promise<{ ok: boolean; content?: string; error?: string }>
+        abort: () => Promise<void>
+        onEvent: (
+          callback: (payload:
+            | { type: 'token'; token: string }
+            | { type: 'done'; content: string }
+            | { type: 'aborted'; content: string }
+            | { type: 'error'; error: string }) => void
+        ) => void
+        offEvent: () => void
+      }
     }
   }
 }
