@@ -1,0 +1,148 @@
+# 待办清单
+
+> 记录后续要做的功能事项，先在这里收敛方案，再动手实现。
+
+## 工具版本管理：版本预览 + 回滚一体（待做）
+
+**背景**：工具（每个工具一个本地 git 仓库，自动 commit `index.html` + `meta.json`）目前「版本历史」只是只读列表，缺少「查看某版本效果」和「恢复到旧版本」。已讨论确认：**不做分支管理**（本地单用户、无远程协作，分支复杂度高、收益低），改为做「**版本预览 + 回滚一体**」。
+
+**方案要点（已确认）**：
+- **预览**：每条提交提供「预览」入口，弹出该版本的渲染效果（复用工具详情的 `<webview>` 机制），用户回滚前先看清历史版本长什么样。
+  - 工具是完整可打开的单个 HTML（自包含、零编译），预览本质就是渲染某次 commit 的 `index.html`，技术成本低。
+- **回滚**：在预览浮层里提供「恢复到此版本」。回滚 = 把目标 commit 的文件内容写回工作区，并**产生一条新 commit**（message 形如「回滚到 `<shortOid>`」），**不直接 reset / 移动 HEAD**。
+  - 这样历史完整可逆，旧提交不丢，回滚动作本身也留痕，回错了可再回滚。
+- 不做 `reset`（会丢历史，对「后悔药」场景不可逆）。
+
+**实现步骤**：
+1. `src/main/tool-git.ts`：
+   - 新增 `rollbackTool(id, targetOid)`：读取目标 commit 的 `index.html` / `meta.json` → 写回工具目录 → `commitSnapshot(dir, '回滚到 <shortOid>')`。
+   - 新增 `loadToolSnapshot(id, oid)`：`readBlob` 读取目标 commit 的 `index.html` 内容，供预览渲染。
+2. preload / IPC 暴露 `tool.rollback` 与 `tool.snapshot`（参考现有 `tool.history` 通道）。
+3. `src/renderer/src/components/tool-history.vue`：每条提交加「预览」按钮 → 弹出该版本渲染效果（复用 `<webview>` / blob URL）→ 浮层内提供「恢复到此版本」按钮，恢复后刷新列表。
+
+**备注**：若后续要「多方案并行」，优先考虑「工具副本/快照」，而非 git 分支。**diff 暂缓**：工具多为 AI 整文件重写，行级 diff 可读性差；预览已能覆盖「看版本变化」，待预览/回滚落地后按需再评估最小 diff（仅 `index.html`、单栏）。
+
+---
+
+## 工具能力声明：meta.capabilities + 双层校验（待做）
+
+**背景**：工具目前由 `extractCapabilities` 用正则扫描 html 源码里的 `cap.run('id')` 来预判覆盖（见 `src/renderer/src/lib/tool-generator.ts`）。两个软肋：① 一旦支持 ESM 拆分，调用散落到 `.js` 子模块后正则扫不到 → 漏检；② 正则抓不住动态拼接（如 `` cap.run(`${id}`) ``）。已与用户确认改为**在 meta.json 中声明能力清单** + 双层校验，并适当放开 ESM 拆分。
+
+**方案要点（已确认）**：
+- `meta.json` 增加 `capabilities: string[]` 字段（当前仅 `id/name/title/description`，见 `src/main/tool-page.ts` 的 `ToolPageMeta` 与 `writeToolPage`）。AI 产出工具时必须声明用到的能力清单；meta 是权威来源，天然兼容 ESM 拆分（与文件数无关）。
+- **第一层 · 生成期校验（AI 自调试主战场）**：`buildCoverage` 改读 meta 声明，把「声明了不存在的能力 / 声明的能力缺失」从报告升级为**硬性拦截**。不用起 webview，AI 在自己的生成循环里第一手拿到报错并自修正。错误消息需带自诊断信息：报出的能力 id、当前清单里可用的能力、以及在 meta.capabilities 里补上或移除调用的明确二选一提示。
+- **第二层 · 运行时拦截（兜底）**：`cap.run(id, args)` 内检查 `id` 是否在 meta.capabilities 中，不在则拒绝并返回结构化错误 `{ ok:false, error }`（现有返回签名已支持，见 `src/preload/tool.ts`）。错误需沿两条路回传：① 给页面（AI 写的逻辑能 catch）；② 通过 IPC 上报给工具运行器，确保 AI「跑起来看输出」也能看见——即「AI 自调试能发现」的前提是运行时错误能回传到 AI 可见的输出，而不只是远端页面 console。
+- 错误消息规范是本方案的质量线，实现时需细化文案。
+
+**实现步骤**：
+1. `src/renderer/src/lib/tool-generator.ts`：`GeneratedToolDef` 加 `capabilities` 字段；`extractCapabilities` 由「扫 html」改为「读 meta」；`buildCoverage` 同步；生成期对「未知/缺失能力」硬拦截。
+2. `src/main/tool-page.ts`：`ToolPageInput` / `ToolPageMeta` / `writeToolPage` 增加并落盘 `capabilities`；工具创建/生成链路端到端透传。
+3. `src/preload/tool.ts`：`cap.run` 增加运行时拦截，对照 meta 声明的 allowlist；拒绝结果回传给工具运行器。
+4. 生成器系统提示词（`src/main/index.ts`）：引导 AI 在 meta 中准确声明能力清单；跑工具时若报「未声明能力」，AI 应能据此自修正。
+5. 与 ESM 拆分互相关联：放开 3 处 `ALLOWED_TOOL_FILES`/`TOOL_FILES` 白名单、git 遍历目录需动态化；能力检测因改读 meta 而天然适配。
+6. 测试：单测覆盖 `buildCoverage` 读 meta、运行时拦截返回结构化错误；提示词改动补充端测。
+
+**备注**：运行时拦截是安全边界，一旦启用，AI 声明错误会真实让工具跑挂——这正是让「AI 自调试 + 良好报错」能兜住的设计动机，故报错信息必须清晰到 AI 无需猜测即可修复。
+
+---
+
+## 工具页风格统一：与主应用 UI 一致（待讨论，未决定）
+
+**背景**：工具页由 AI 直接写原生 HTML（现为纯 CSS、无 Tailwind，见 `src/main/tool-page.ts` 的 `newToolScaffoldHtml`），导致工具页 UI 与主应用（shadcn-vue 风格）严重不搭。要让 AI 产出与主应用一致的界面。
+
+**已查实的关键事实**：
+- shadcn-vue 是**源码复制式**（`npx shadcn-vue add` 拷 `.vue` 源码进 `components/ui/`），**官方不发 dist 包**——「官方打包好的按钮/卡片」不存在；外观那层是源码 + Tailwind 类 + design tokens。
+- 有官方 dist 的是**底层库**：reka-ui（无头组件，ESM-only、依赖树重：vue peer + `@floating-ui/*`/`@vueuse/core`/`@tanstack/vue-virtual` 等，体积几十 KB 起）、@lucide/vue（有 UMD 全局产）。
+- reka-ui 是**无头**组件，**不带样式**（靠 `--reka-` 变量 / `data-reka-` 属性），**本身无法提供「shadcn 外观」**。
+
+**已讨论的方案档位（成本递增）**：
+- **档位A · 设计令牌 + 类名（倾向）**：与主应用共用一份 design tokens + 常用组件样式的 CSS 产物（放 vendor），AI 用原生标签 + 类名即得主应用风格。零依赖、零耦合、随主应用进化；代价是软约束、类名体系需维护。
+- **档位C · 折中基元**：只把 Button/Card/Input/Select/Tabs 等基元打进 vendor 当真组件，其余 tokens+类名兜底。需 Vue 运行时 + reka-ui 依赖 + CSP `unsafe-eval`。
+- **档位B · 整套组件库**：最完整但最重，性价比最低。
+
+**核心结论 / 决策点**：
+- 无论哪条路，「外观」都要靠自己定义 tokens/类名——reka-ui 只给无障碍交互，不解决风格问题。
+- 用官方 reka-ui dist **不能绕开依赖**（省了 Vite lib 打包，多了 ESM 依赖树 + Vue 运行时 + 体积）。
+- 性价比如下：**纯 A** 最优；**A 外观 + lucide 官方 UMD 图标 + 按需 reka-ui** 次之；默认给每个工具页装全套 reka-ui 亏。
+- **待确认**：工具页对「复杂交互」（下拉框/弹层/标签页等有状态交互）的真实需求。若工具多为表单/展示类，档位 A 就够；仅当多数工具需要这类交互时才值得引入 reka-ui。
+
+**状态**：尚未决定，倾向档位 A。待确认工具页复杂交互需求后再定，不予落地。
+
+---
+
+## 生成器审批模式：默认 auto（去掉手动审批）（已定方向）
+
+**结论**：把 `GeneratorApprovalMode` 的默认值从 `manual` 改成 `auto`，让 AI 变更工具清单直接落盘 + 自动 commit，不再每步都要用户确认。「去掉」仅作用于「AI 改单个工具内 index.html/meta.json」这条链路，不是删掉整套机制。
+
+**依据（为何现在能去手动审批）**：
+- 清单内天然低风险：`ToolChangeList` 只有 `write`/`patch`、作用于单个工具、白名单限 `index.html`/`meta.json`（见 `src/main/tool-page.ts` 的 `ToolChangeOp`/`ToolChangeList`）。AI 删不了数据、碰不了别的工具。
+- commit + 回滚兜底：改坏可回滚到上一版本，成本摊得平（`src/main/tool-git.ts` 的 `commitToolChanges`）。
+- 高副作用已被结构隔离：删工具走 `tool:delete`（`src/main/index.ts`），已有 UI 侧独立确认弹窗；碰电脑环境属于另一类系统动作，走安全边界确认，不在 `GeneratorApprovalMode` 管辖内。
+
+**前提（与能力声明配套才闭环）**：去掉 manual 后，AI 直接落盘，出错要靠「AI 自调试 + commit 回滚」兜底——即前面「工具能力声明」那条的**运行时拦截 + 报错自诊断**需先到位，否则 auto 出错 AI 不好自己修。故这两项应绑定实现。
+
+**注意 / 边界**：
+- 「删工具」的确认不属于 `GeneratorApprovalMode`，它属于 UI 主动删除动作，保留自身确认，不要因本项改动而一起去掉。
+- 改完后需同步设置面板 UI（`src/renderer/src/components/settings-panel.vue` 的审批模式选项），避免出现「选了 manual 却不能被触发」的悬挂状态；同时确认 `tool-page.vue` 读取 approvalMode 的分支逻辑随默认值正确表现。
+
+**涉及改动**：`src/main/online-llm.ts` 的 `DEFAULT_APPROVAL_MODE` 改为 `'auto'`；同步检查相关设置 UI 与渲染层分支。
+
+**状态**：方向已定为「默认 auto、去掉手动审批」，**待与「能力声明运行时拦截 + 报错自诊断」一并实现**，暂未落地。
+
+---
+
+## 工具数据管理：独立数据区 + 设置概览表格 + 详情页（已定方向）
+
+**背景**：工具目前无「产出数据持久化」能力（仅 `local.file.read` / `docs.markdown.render` 两个原子能力）。工具运行产出的数据、工具自身状态/草稿需要持久化。已确认用**独立数据区**而非塞进工具目录，与工具二进制/源码分离。
+
+**方案要点（已确认）**：
+- 独立数据区 `<userData>/tools-data/<id>/`，与工具目录分离（孤儿数据保留在此，删除工具不影响数据）。
+- 结构：每个工具一个 `manifest.json`（`{ title, createdAt, dataKeys[], sizeBytes }`）+ **按 key 一个 JSON 文件** `<key>.json`。`manifest.json` 用于面板「不开工具就能拿概览」（孤儿态时工具目录已无、只剩 data 目录）。
+- **删除工具二选一**：`tool-page.vue` 删除确认弹窗改为「保留数据 / 连带删除」；选保留则工具目录删除、数据留在 `tools-data/` 成孤儿。
+- **设置面板加「工具数据概览表格」**：列 = 工具名 · 数据量（条数/大小）· 最近使用 · 孤儿标记；点击某行 → 打开独立 `tool-data` tab 看详情。
+- **详情 tab**：新增 `tool-workspace.vue` 的 `OpenTool` kind `'tool-data'`（仿 `tool-history` 的 `openToolHistory` 用法）；新建 `tool-data-detail.vue` 展示 manifest 概览 + key 级明细（大小/修改时间）+ 操作「打开数据目录 / 清空」。
+- **孤儿数据**：设置表格中以 orphan 标记区分，提供清理入口（`tools-data:deleteOrphan`）。
+- **导出**：**本期不做**。先提供「打开数据目录」让用户自行拷贝；导出打包（zip）后续按需评估（仅在「单工具多 key 想一次性拿走」时值得做）。
+
+**实现步骤**：
+1. `src/main/` 新增 `tools-data` 模块：`listToolsData()`（扫 `tools-data/`、读 manifest 汇总）、`getToolDataDetail(id)`、`clearToolData(id)`、`deleteOrphanToolData(id)`、`openToolDataDir(id)`。
+2. 主进程注册 IPC：`tools-data:list` / `tools-data:detail` / `tools-data:clear` / `tools-data:deleteOrphan` / `tools-data:open`（仿 `src/main/index.ts` 现有 IPC 风格与异常返回 `{ ok, error }`）。
+3. `src/renderer/src/components/tool-workspace.vue`：`OpenTool` 增加 `kind: 'tool-data'`，新增 `openToolData(id)`（仿 `openToolHistory`，可复用 `toolId`/`toolTitle` 字段）。
+4. 新建 `src/renderer/src/components/tool-data-detail.vue`（仿 `tool-history.vue` 的 props 接收方式）：渲染详情 + 操作。
+5. `src/renderer/src/components/settings-panel.vue`：加「工具数据」区块表格，读 `tools-data:list`，点击行触发开 tab。
+6. `src/renderer/src/components/tool-page.vue` 删除链路：删除确认浮层加「保留数据 / 连带删除」二选一，选保留则数据落入 `tools-data/` 留孤儿。
+
+**前置依赖（待联动）**：工具要能**写/读** `tools-data/` 需要新的原子能力——当前只有 read 类能力、无写能力。该依赖与「工具能力声明（meta.capabilities）」联动，落地时一并接上，单独评估。
+
+**状态**：方向已定（含「导出后续做」），待实现。
+
+---
+
+## 工具图标：meta.icon（已定方向）
+
+**背景**：工具为 AI 生成的单个 HTML，目前无图标概念。主页网格 / 侧边条 / 工具详情页需要可区分的视觉标识。与「工具页风格统一」同源（图标风格需与主应用 shadcn-vue + lucide 一致）。
+
+**方案要点（已确认）**：
+- `meta.json` 增加可选 `icon` 字段，判别联合（缺省则自动兜底）：
+  `{ type: 'lucide', name: string }` / `{ type: 'emoji', emoji: string }` / `{ type: 'svg', svg: string }`。
+- **渲染优先级：lucide → emoji → svg → 自动兜底**（已确认顺序 1/3/2/4）。
+- **emoji 优先于 SVG** 的理由：渲染稳定、一眼可识别、零风格风险；SVG 为 AI 手绘、质量不可控，作为兜底前最后一档，整体倾向「稳、统一」。
+- **生成期校验**（复用「能力声明」的校验思路）：lucide `name` 需在白名单内，否则硬拦截让 AI 自修正；emoji 约束为单个字符；SVG 需过滤 `<script>`/事件属性。生成器提示词引导 AI 按 lucide → emoji → svg 顺序选取。
+- **渲染层统一组件**（如 `tool-icon.vue`）：主页网格 / 侧边条 / 详情页三处共用；全部发生在渲染层，**不新增文件、不动 git 白名单**（icon 就在 meta.json 这个白名单文本文件里）。
+
+**状态**：方向已定，待实现。
+
+---
+
+## 工具快捷方式：置顶/收藏（形态待定）
+
+**背景**：用户提出在左侧边条支持工具快捷方式。现状：侧边条为窄图标条（`src/renderer/src/App.vue` 的 `workspace-nav`，仅「新建工具」「设置」两项）；工具目前经主页网格 + 顶栏 ⌘K 全局搜索打开。
+
+**结论 / 决策点**：
+- 价值在「高频工具一键直达 / 入口更短」，但需**工具图标体系**（见上一条 meta.icon）作为区分度支撑。
+- 形态二选一，**尚未决定**：
+  - **A（轻量，倾向）· 主页网格加「常用/置顶」分组**：给工具加收藏，收藏的排在主页网格最前；复用现有卡片，最自然，不动侧边条。
+  - **B（较重）· 升级侧边条为置顶工具区**：把窄图标条扩成可放置顶工具的区域，每工具一个图标/首字母 + tooltip；图标区分度依赖图标体系，窄条信息密度低。
+- 两种形态均需：① 一个「标记收藏」交互（工具详情页或主页卡片上放 pin 按钮）；② 收藏列表持久化（settings 存一个 `tool id` 数组）。
+
+**状态**：形态 A/B 未定，待图标体系落地后选其一。与「工具图标 meta.icon」绑定。
