@@ -104,8 +104,9 @@ onUnmounted(() => {
   window.api.generator.offEvent()
 })
 
-// 会话 / 对话为本地占位状态：切换会话、新建会话仅在前端演示
-// 「当前会话」已接入生成器：消息发送 → LLM 产出工具 JSON → 写入当前工具 index.html + meta.json
+// 「当前会话」按工具内会话隔离：每个 session 有独立消息列表，切换会话时回显。
+// 会话与消息按工具 id 分桶持久化到 localStorage，切换/重启后不丢。
+// 「当前会话」已接入生成器：消息发送 → LLM 产出变更清单 → 写入当前工具 index.html + meta.json
 interface ToolSession {
   id: string
   status: 'doing' | 'done' | 'rollback'
@@ -121,9 +122,17 @@ interface ToolChatMessage {
 
 const emit = defineEmits<{ renamed: [id: string, title: string]; openSettings: [] }>()
 
+// 会话列表与其消息桶（以 sessionId 为键）
 const sessions = ref<ToolSession[]>([])
 const activeSessionId = ref('')
-const messages = ref<ToolChatMessage[]>([])
+const messagesBySession = ref<Record<string, ToolChatMessage[]>>({})
+// messages 是「当前激活会话」消息的视图：读跟随 activeSessionId，写回对应桶
+const messages = computed<ToolChatMessage[]>({
+  get: () => messagesBySession.value[activeSessionId.value] ?? [],
+  set: (v) => {
+    messagesBySession.value[activeSessionId.value] = v
+  }
+})
 const input = ref('')
 const streaming = ref(false)
 const draft = ref<ToolChatMessage | null>(null)
@@ -140,7 +149,15 @@ interface PendingChange {
   status: 'pending' | 'applied' | 'discarded'
   error?: string
 }
-const pendingChange = ref<PendingChange | null>(null)
+// 待审批的变更卡片按会话隔离：切换会话回显对应卡片的原状态（pending/applied/discarded）
+const pendingBySession = ref<Record<string, PendingChange | null>>({})
+// pendingChange 是「当前激活会话」待审批卡片的视图：读跟随 activeSessionId，写回对应桶
+const pendingChange = computed<PendingChange | null>({
+  get: () => pendingBySession.value[activeSessionId.value] ?? null,
+  set: (v) => {
+    pendingBySession.value[activeSessionId.value] = v ?? null
+  }
+})
 
 onMounted(async () => {
   startHeartbeatWatch()
@@ -151,6 +168,18 @@ onMounted(async () => {
   void window.api.model.list().then(refreshModelStatus)
   // 会话级审批模式默认取全局设置，之后再在会话内临时切换
   approvalMode.value = await window.api.settings.getGeneratorApprovalMode()
+  // 恢复本工具的会话历史（多会话：切换回显 + 本地持久化）
+  const saved = loadSessions()
+  if (saved) {
+    sessions.value = saved.sessions ?? []
+    messagesBySession.value = saved.messagesBySession ?? {}
+    pendingBySession.value = saved.pendingBySession ?? {}
+    activeSessionId.value = saved.activeSessionId ?? ''
+  }
+  // 无可用会话（首次进入或数据损坏）时自动新建，保证当前会话始终存在
+  if (!activeSessionId.value || !sessions.value.some((s) => s.id === activeSessionId.value)) {
+    newSession()
+  }
 })
 
 async function setApprovalMode(mode: ApprovalMode): Promise<void> {
@@ -240,16 +269,70 @@ function truncate(text: string, max = 40): string {
   return text.length > max ? `${text.slice(0, max)}` : text
 }
 
+// —— 会话持久化：按工具 id 分桶存 localStorage，切换/刷新/重启后回显 ——
+function storageKey(): string {
+  return `duo-ling:tool:sessions:${props.tool.id}`
+}
+
+interface SessionStore {
+  sessions: ToolSession[]
+  messagesBySession: Record<string, ToolChatMessage[]>
+  pendingBySession: Record<string, PendingChange | null>
+  activeSessionId: string
+}
+
+function loadSessions(): SessionStore | null {
+  try {
+    const raw = localStorage.getItem(storageKey())
+    return raw ? (JSON.parse(raw) as SessionStore) : null
+  } catch {
+    return null
+  }
+}
+
+function saveSessions(): void {
+  try {
+    localStorage.setItem(
+      storageKey(),
+      JSON.stringify({
+        sessions: sessions.value,
+        messagesBySession: messagesBySession.value,
+        pendingBySession: pendingBySession.value,
+        activeSessionId: activeSessionId.value
+      } satisfies SessionStore)
+    )
+  } catch (error) {
+    console.error('保存会话失败：', error)
+  }
+}
+
+// 切换到某会话：更新活动 id 即回显对应消息与待审批卡片；仅清掉流式草稿（草稿为临时态）
+function activateSession(id: string): void {
+  if (id === activeSessionId.value) return
+  activeSessionId.value = id
+  draft.value = null
+  saveSessions()
+}
+
+// 根据首条用户输入生成会话标题摘要，便于在「会话历史」中辨认
+function summarizeTitle(text: string): string {
+  const t = text.trim().replace(/\s+/g, ' ')
+  return t.length > 12 ? `${t.slice(0, 12)}…` : t
+}
+
 function newSession(): void {
   const id = `s-${Date.now()}`
   const session: ToolSession = {
     id,
     status: 'doing',
-    title: '未命名会话',
+    title: '新会话',
     meta: formatDate(new Date())
   }
   sessions.value.push(session)
+  messagesBySession.value[id] = []
   activeSessionId.value = id
+  pendingChange.value = null
+  saveSessions()
 }
 
 // 生成器流式 token：把增量累积到待生成的草稿消息（done/aborted/error 由 send 收尾，避免重复处理）
@@ -271,6 +354,12 @@ async function send(): Promise<void> {
   input.value = ''
 
   messages.value.push({ id: `u-${Date.now()}`, role: 'user', content: text })
+  // 首次提问用用户输入生成会话标题摘要，方便「会话历史」辨认
+  const curSession = sessions.value.find((s) => s.id === activeSessionId.value)
+  if (curSession && (curSession.title === '新会话' || curSession.title === '未命名会话')) {
+    curSession.title = summarizeTitle(text)
+  }
+  saveSessions()
   // 生成器要求最后一条为用户消息；把 ai 映射为 assistant
   const history = messages.value.map((m) => ({
     role: (m.role === 'ai' ? 'assistant' : 'user') as 'user' | 'assistant',
@@ -304,6 +393,7 @@ async function send(): Promise<void> {
   } finally {
     draft.value = null
     streaming.value = false
+    saveSessions()
   }
 }
 
@@ -332,6 +422,7 @@ async function applyChanges(messageId: string, changes: GeneratedChangeList): Pr
   if (updated.ok) {
     if (current && current.messageId === messageId) {
       current.status = 'applied'
+      saveSessions()
     }
     if (updated.title) emit('renamed', props.tool.id, updated.title)
     reloadFrame()
@@ -340,6 +431,7 @@ async function applyChanges(messageId: string, changes: GeneratedChangeList): Pr
     // 手动模式：在卡片里展示错误，并保留「应用/放弃」按钮供用户重试或放弃
     if (current && current.messageId === messageId) {
       current.error = err
+      saveSessions()
       return
     }
     // 自动模式（无卡片可挂载）：把错误回填到消息正文
@@ -359,6 +451,7 @@ function discardPending(messageId: string): void {
   const current = pendingChange.value
   if (current && current.messageId === messageId && current.status === 'pending') {
     current.status = 'discarded'
+    saveSessions()
   }
 }
 
@@ -428,7 +521,7 @@ function startResize(e: MouseEvent, side: 'sess' | 'detail'): void {
             :key="s.id"
             class="cursor-pointer px-4 py-2.5 transition-colors hover:bg-accent"
             :class="{ 'bg-accent': s.id === activeSessionId }"
-            @click="activeSessionId = s.id"
+            @click="activateSession(s.id)"
           >
             <p class="truncate text-sm">{{ s.title }}</p>
             <p class="text-muted-foreground text-xs">{{ s.meta }}</p>
