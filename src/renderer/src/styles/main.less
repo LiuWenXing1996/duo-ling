@@ -2,11 +2,32 @@
 // 约定：Tailwind 负责通用工具类；Less 负责复杂业务样式与复用性较高的局部样式
 .workspace {
   display: flex;
+  flex-direction: column;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
 
-  // 左侧图标导航栏（对话 / 设置）
+  // 全宽顶栏（拖拽区）：红绿灯所在的窗口标题栏，从窗口最顶开始横跨侧边条与内容区
+  &-topbar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    height: 46px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--border);
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+
+  // 顶栏之下：左侧图标导航栏 + 右侧内容区
+  &-main {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  // 左侧图标导航栏（新建工具 / 设置）：从顶栏下方开始，高度铺满剩余空间
   &-nav {
     flex: none;
     display: flex;
@@ -14,7 +35,7 @@
     align-items: center;
     width: 48px;
     gap: 4px;
-    padding-top: 44px; // 避开 macOS 红绿灯
+    padding-top: 12px;
     border-right: 1px solid var(--border);
   }
 
@@ -103,4 +124,41 @@
 // 拖拽区内的可交互元素须排除拖拽，否则点击被窗口拖动吞掉
 .no-drag {
   -webkit-app-region: no-drag;
+}
+
+// 全局搜索下拉：定位于搜索框之下，宽度与搜索框一致（渲染于全宽顶栏内）
+.tool-search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--popover);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16);
+}
+
+.tool-search-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  color: var(--foreground);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--muted);
+  }
+
+  &__desc {
+    flex: 1;
+    font-size: 11px;
+    color: var(--muted-foreground);
+  }
 }

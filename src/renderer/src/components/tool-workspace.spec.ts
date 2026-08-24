@@ -42,15 +42,11 @@ describe('ToolWorkspace', () => {
     delete (window as unknown as Record<string, unknown>).api
   })
 
-  it('渲染顶栏，且默认不展示任何演示/占位工具', () => {
+  it('默认不展示任何演示/占位工具', () => {
     const wrapper = mount(ToolWorkspace)
 
-    // 顶栏：品牌 / 新建工具
-    expect(wrapper.text()).toContain('小班')
-    expect(wrapper.text()).toContain('新建工具')
-
-    // 空工作台提示
-    expect(wrapper.text()).toContain('还没有工具，点击右上角「新建工具」创建')
+    // 空工作台提示：指向左侧导航栏「新建工具」
+    expect(wrapper.text()).toContain('还没有工具，点击左侧「新建工具」创建')
 
     // 不再渲染任何演示工具或占位标签
     expect(wrapper.text()).not.toContain('PDF 合并器')
@@ -71,8 +67,9 @@ describe('ToolWorkspace', () => {
     })
     const wrapper = mount(ToolWorkspace)
 
-    // 点击顶栏「新建工具」按钮
-    await wrapper.find('button').trigger('click')
+    // 顶栏「新建工具」按钮已迁移到根布局侧边栏（App.vue），
+    // 这里直接调用组件暴露的方法触发新建。
+    await (wrapper.vm as unknown as { createTool: () => Promise<void> }).createTool()
     await flushPromises()
     await wrapper.vm.$nextTick()
 
@@ -81,7 +78,7 @@ describe('ToolWorkspace', () => {
 
     // 标签栏出现新工具标签，且被激活，空工作台提示消失
     expect(wrapper.text()).toContain('新建工具')
-    expect(wrapper.text()).not.toContain('还没有工具，点击右上角「新建工具」创建')
+    expect(wrapper.text()).not.toContain('还没有工具，点击左侧「新建工具」创建')
 
     // 激活标签渲染三栏工具页：会话历史 / 当前会话 / 工具详情
     await wrapper.vm.$nextTick()

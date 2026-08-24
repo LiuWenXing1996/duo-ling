@@ -1,15 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { Button as UiButton } from '@/components/ui/button'
+import { computed, ref } from 'vue'
 import ToolPage, { type ToolPageMeta } from '@/components/tool-page.vue'
-import {
-  Gem as UiGem,
-  Plus as UiPlus,
-  Search as UiSearch,
-  Settings as UiSettings,
-  Sparkles as UiSparkles,
-  X as UiX
-} from '@lucide/vue'
+import { Sparkles as UiSparkles, X as UiX } from '@lucide/vue'
 
 // 打开的工具标签：每个标签对应一个「新建工具」创建的、落盘在工具根目录下的真实工具
 type OpenTool = {
@@ -45,39 +37,13 @@ function closeTab(id: string): void {
   }
 }
 
-// 全局搜索：从主进程读取所有已落盘工具元信息，在顶栏搜索框中筛选并下拉列出
+// 供根布局全宽顶栏搜索下拉点击打开：若该工具已打开则激活，否则新开标签
 type ToolMeta = { id: string; name: string; title: string; description: string }
-const allTools = ref<ToolMeta[]>([])
-const searchQuery = ref('')
-const searchFocused = ref(false)
-
-const filteredTools = computed<ToolMeta[]>(() => {
-  const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return allTools.value
-  return allTools.value.filter(
-    (t) =>
-      t.title.toLowerCase().includes(q) ||
-      t.name.toLowerCase().includes(q) ||
-      t.description.toLowerCase().includes(q)
-  )
-})
-
-onMounted(async () => {
-  try {
-    allTools.value = await window.api.tool.list()
-  } catch (error) {
-    console.error('加载工具列表失败', error)
-  }
-})
-
-// 点击下拉项：若该工具已打开则激活，否则新开标签
 function openTool(tool: ToolMeta): void {
   if (!openTabs.value.some((t) => t.id === tool.id)) {
     openTabs.value.push({ id: tool.id, title: tool.title })
   }
   activate(tool.id)
-  searchQuery.value = ''
-  searchFocused.value = false
 }
 
 // 工具页内生成器重写 index.html + meta.json 后，同步更新标签标题
@@ -101,63 +67,13 @@ async function createTool(): Promise<void> {
   openTabs.value.push(tab)
   activate(tab.id)
 }
+
+// 暴露给根布局：左侧导航栏「新建工具」、全宽顶栏搜索下拉「打开工具」
+defineExpose({ createTool, openTool })
 </script>
 
 <template>
   <div class="tool-workspace">
-    <!-- 顶栏：作为无边框窗口的拖拽区，可交互元素需 no-drag -->
-    <header class="tool-topbar">
-      <div class="flex items-baseline gap-2">
-        <span class="flex items-center gap-1.5 text-base font-semibold">
-          <ui-gem class="size-4 text-primary" />
-          小班
-        </span>
-        <span class="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
-          DUO-LING / TOOL-BENCH
-        </span>
-      </div>
-
-      <div class="no-drag relative flex max-w-md flex-1 items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 text-sm text-muted-foreground">
-        <ui-search class="size-4 shrink-0" />
-        <input
-          v-model="searchQuery"
-          class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          placeholder="全局搜索：工具 / 任务 / 版本…"
-          @focus="searchFocused = true"
-          @blur="searchFocused = false"
-          @keydown.esc="searchFocused = false"
-        />
-        <span class="rounded border border-border bg-muted px-1 font-mono text-[10px]">⌘K</span>
-
-        <ul
-          v-if="searchFocused && filteredTools.length"
-          class="tool-search-dropdown"
-          role="listbox"
-        >
-          <li
-            v-for="tool in filteredTools"
-            :key="tool.id"
-            class="tool-search-item"
-            role="option"
-            :data-selected="openTabs.some((t) => t.id === tool.id)"
-            @mousedown.prevent="openTool(tool)"
-          >
-            <span class="truncate">{{ tool.title }}</span>
-            <span class="tool-search-item__desc truncate">{{ tool.description }}</span>
-          </li>
-        </ul>
-      </div>
-
-      <div class="no-drag ml-auto flex items-center gap-2">
-        <ui-button size="sm" class="no-drag" @click="createTool">
-          <ui-plus class="size-4" />新建工具
-        </ui-button>
-        <ui-button variant="ghost" size="icon" class="no-drag" aria-label="设置" @click="emit('openSettings')">
-          <ui-settings class="size-4" />
-        </ui-button>
-      </div>
-    </header>
-
     <!-- 标签栏：每个已创建的工具一个标签 -->
     <nav v-if="openTabs.length" class="tool-tabbar" aria-label="工具标签">
       <div
@@ -191,9 +107,9 @@ async function createTool(): Promise<void> {
         @renamed="renameTab"
         @open-settings="emit('openSettings')"
       />
-      <!-- 空工作台：提示用户通过「新建工具」创建 -->
+      <!-- 空工作台：提示用户通过左侧导航栏「新建工具」创建 -->
       <div v-else class="tool-empty">
-        <p>{{ toolError || '还没有工具，点击右上角「新建工具」创建' }}</p>
+        <p>{{ toolError || '还没有工具，点击左侧「新建工具」创建' }}</p>
       </div>
     </div>
   </div>
@@ -221,55 +137,6 @@ async function createTool(): Promise<void> {
   justify-content: center;
   color: var(--muted-foreground);
   font-size: 13px;
-}
-
-.tool-topbar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  height: 46px;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--border);
-  -webkit-app-region: drag;
-  user-select: none;
-}
-
-// 全局搜索下拉：定位于搜索框之下，宽度与搜索框一致
-.tool-search-dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  z-index: 50;
-  max-height: 320px;
-  overflow-y: auto;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--popover);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16);
-}
-
-.tool-search-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  border-radius: 4px;
-  font-size: 12.5px;
-  color: var(--foreground);
-  cursor: pointer;
-
-  &:hover {
-    background: var(--muted);
-  }
-
-  &__desc {
-    flex: 1;
-    font-size: 11px;
-    color: var(--muted-foreground);
-  }
 }
 
 .tool-tabbar {
