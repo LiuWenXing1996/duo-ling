@@ -50,6 +50,10 @@ export interface ModelProfileInput {
 export const DEFAULT_BASE_URL = 'https://api.deepseek.com/v1'
 export const DEFAULT_SYSTEM_PROMPT = '你是 Duo Ling 的 AI 助手，请用中文回答。'
 
+/** 生成器审批模式：manual（AI 产出变更清单后由用户确认再应用）或 auto（直接应用） */
+export type GeneratorApprovalMode = 'manual' | 'auto'
+export const DEFAULT_APPROVAL_MODE: GeneratorApprovalMode = 'manual'
+
 interface ModelProfileState {
   id: string
   name: string
@@ -72,6 +76,8 @@ interface ModelStoreState {
   activeProfileId: string
   /** 全局系统提示词：所有模型共用；为空则不发送 system 消息 */
   systemPrompt: string
+  /** 生成器审批模式全局默认（manual / auto） */
+  generatorApprovalMode: GeneratorApprovalMode
 }
 
 const schema: Schema<ModelStoreState> = {
@@ -99,7 +105,8 @@ const schema: Schema<ModelStoreState> = {
     }
   },
   activeProfileId: { type: 'string' },
-  systemPrompt: { type: 'string' }
+  systemPrompt: { type: 'string' },
+  generatorApprovalMode: { type: 'string', enum: ['manual', 'auto'] }
 }
 
 let store: Store<ModelStoreState> | undefined
@@ -108,7 +115,12 @@ let store: Store<ModelStoreState> | undefined
 function getStore(): Store<ModelStoreState> {
   store ??= new Store<ModelStoreState>({
     name: 'model-profiles',
-    defaults: { profiles: [], activeProfileId: '', systemPrompt: DEFAULT_SYSTEM_PROMPT },
+    defaults: {
+      profiles: [],
+      activeProfileId: '',
+      systemPrompt: DEFAULT_SYSTEM_PROMPT,
+      generatorApprovalMode: DEFAULT_APPROVAL_MODE
+    },
     schema
   })
   return store
@@ -189,6 +201,16 @@ export function getSystemPrompt(): string {
 /** 设置全局系统提示词；传入空串表示清空（之后不再发送 system 消息） */
 export function setSystemPrompt(value: string): void {
   getStore().set('systemPrompt', value.trim())
+}
+
+/** 当前生成器审批模式的全局默认（manual / auto）；非法值回退为 manual */
+export function getGeneratorApprovalMode(): GeneratorApprovalMode {
+  return getStore().store.generatorApprovalMode === 'auto' ? 'auto' : 'manual'
+}
+
+/** 设置生成器审批模式的全局默认 */
+export function setGeneratorApprovalMode(mode: GeneratorApprovalMode): void {
+  getStore().set('generatorApprovalMode', mode === 'auto' ? 'auto' : 'manual')
 }
 
 /** 内部完整配置（含解密后的 apiKey），仅 main 进程使用 */
@@ -457,6 +479,23 @@ export async function generateReplyWithSystemPrompt(
   const decoder = new TextDecoder()
   let buffer = ''
   let full = ''
+  // 推理模型（如 DeepSeek-R1）先流式输出 reasoning_content 思考过程，正文 content 延迟到达。
+  // 把思考过程用 <think>...</think> 包裹后作为内容推送给前端，渲染层据此拆分展示。
+  let thinkingOpen = false
+  let thinkingClosed = false
+
+  const push = (text: string): void => {
+    if (text) {
+      full += text
+      onToken(text)
+    }
+  }
+  const closeThinking = (): void => {
+    if (thinkingOpen && !thinkingClosed) {
+      push('</think>')
+      thinkingClosed = true
+    }
+  }
 
   while (true) {
     const { done, value } = await reader.read()
@@ -467,21 +506,34 @@ export async function generateReplyWithSystemPrompt(
     for (const frame of frames) {
       const data = parseSseData(frame)
       if (data === null) continue
-      if (data === '[DONE]') return full
+      if (data === '[DONE]') {
+        closeThinking()
+        return full
+      }
       try {
         const json = JSON.parse(data) as {
-          choices?: Array<{ delta?: { content?: string } }>
+          choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>
         }
-        const token = json.choices?.[0]?.delta?.content
-        if (token) {
-          full += token
-          onToken(token)
+        const delta = json.choices?.[0]?.delta
+        const reasoning = delta?.reasoning_content
+        if (reasoning) {
+          // 思考过程：仅在首个 token 前写入 <think> 开标签
+          if (!thinkingOpen) push('<think>')
+          thinkingOpen = true
+          push(reasoning)
+        }
+        const content = delta?.content
+        if (content) {
+          // 从思考切换到正文：先闭合 <think>，再输出正文
+          closeThinking()
+          push(content)
         }
       } catch {
         // 忽略畸形帧，避免个别服务商混入的注释行中断流程
       }
     }
   }
+  closeThinking()
   return full
 }
 

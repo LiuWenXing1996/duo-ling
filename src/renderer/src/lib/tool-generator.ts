@@ -27,6 +27,87 @@ export interface CoverageReport {
   missing: string[]
 }
 
+// —— 「当前会话」code-agent 式改动：LLM 输出「变更清单」而非整页重写 ——
+
+/** 生成器输出的单个变更动作：整文件覆盖（write）或精确替换（patch） */
+export interface GeneratedToolChange {
+  op: 'write' | 'patch'
+  /** 工具目录内的相对文件名，白名单限 index.html / meta.json */
+  file: string
+  /** write：整文件内容（index.html 为字符串；meta.json 为 { name,title,description } 对象） */
+  content?: unknown
+  /** patch：需要被替换的精确查找串 */
+  find?: string
+  /** patch：查找串被替换成的目标串 */
+  replace?: string
+  /** patch：是否全局替换（默认 false，仅替换第一处） */
+  replace_all?: boolean
+}
+
+/** 生成器对当前工具的一次整体改动描述 */
+export interface GeneratedChangeList {
+  summary: string
+  actions: GeneratedToolChange[]
+}
+
+/** 允许被生成器修改的工具内文件白名单 */
+const ALLOWED_TOOL_FILES = ['index.html', 'meta.json'] as const
+
+/**
+ * 从 LLM 回复中解析「变更清单」（summary + actions）。
+ * 回复可能是「澄清追问 / 能力缺失说明」等普通文本，此时返回 null。
+ * 解析成功但动作为空/非法时返回 { changes, warning }，由渲染层提示但保留原文。
+ */
+export function parseGeneratedChanges(
+  content: string
+): { changes: GeneratedChangeList } | { changes: null; warning?: string } {
+  if (!content) return { changes: null }
+  const cleaned = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+  if (!cleaned) return { changes: null }
+  const block = cleaned.match(/```json\s*([\s\S]*?)```/i)
+  const jsonStr = (block ? block[1] : cleaned).trim()
+  try {
+    const obj = JSON.parse(jsonStr) as { summary?: unknown; actions?: unknown }
+    if (!obj || typeof obj !== 'object') return { changes: null }
+    if (!Array.isArray(obj.actions) || obj.actions.length === 0) return { changes: null }
+
+    const actions: GeneratedToolChange[] = []
+    for (const raw of obj.actions) {
+      if (!raw || typeof raw !== 'object') return { changes: null, warning: '存在非法变更项' }
+      const item = raw as Record<string, unknown>
+      const file = String(item.file ?? '')
+      if (!ALLOWED_TOOL_FILES.includes(file as (typeof ALLOWED_TOOL_FILES)[number])) {
+        return { changes: null, warning: `不允许修改文件：${file}` }
+      }
+      const op = item.op
+      if (op !== 'write' && op !== 'patch') {
+        return { changes: null, warning: `未知操作：${String(op)}` }
+      }
+      const action: GeneratedToolChange = {
+        op,
+        file,
+        content: item.content,
+        find: typeof item.find === 'string' ? item.find : undefined,
+        replace: typeof item.replace === 'string' ? item.replace : undefined,
+        replace_all: item.replace_all === true
+      }
+      if (op === 'write') {
+        // meta.json 需要对象；index.html 需要可用的字符串
+        if (file === 'index.html' && typeof item.content !== 'string') {
+          return { changes: null, warning: 'index.html 需要字符串内容' }
+        }
+      } else {
+        if (!action.find) return { changes: null, warning: 'patch 动作缺少 find' }
+      }
+      actions.push(action)
+    }
+
+    return { changes: { summary: String(obj.summary ?? ''), actions } }
+  } catch {
+    return { changes: null }
+  }
+}
+
 /**
  * 从 LLM 回复中解析 JSON 信封（内含 html）。
  * 回复可能是「澄清追问 / 能力缺失说明」等普通文本，此时返回 null。
@@ -34,8 +115,11 @@ export interface CoverageReport {
  */
 export function parseGeneratedTool(content: string): GeneratedToolDef | null {
   if (!content) return null
-  const block = content.match(/```json\s*([\s\S]*?)```/i)
-  const jsonStr = (block ? block[1] : content).trim()
+  // 推理模型在思考时可能输出 <think>...</think>（由主进程包裹下发），剥离后再解析 JSON 避免污染
+  const cleaned = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+  if (!cleaned) return null
+  const block = cleaned.match(/```json\s*([\s\S]*?)```/i)
+  const jsonStr = (block ? block[1] : cleaned).trim()
   try {
     const obj = JSON.parse(jsonStr) as {
       name?: unknown

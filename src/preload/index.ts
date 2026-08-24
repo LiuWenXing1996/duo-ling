@@ -90,6 +90,41 @@ interface CapabilityData {
   scenario: { keywords: string[]; object: string }
 }
 
+interface ToolPageMetaData {
+  id: string
+  name: string
+  title: string
+  description: string
+}
+
+// 生成器审批模式：manual（AI 产出变更清单后由用户确认再应用）或 auto（直接应用）
+type GeneratorApprovalMode = 'manual' | 'auto'
+
+// 生成器产出的单个变更动作
+interface ToolChangeAction {
+  op: 'write' | 'patch'
+  /** 工具目录内的相对文件名，白名单限 index.html / meta.json */
+  file: string
+  /** write：整文件内容（index.html 为字符串；meta.json 传 { name,title,description } 对象） */
+  content?: unknown
+  /** patch：被替换的精确查找串 */
+  find?: string
+  /** patch：替换成目标串 */
+  replace?: string
+  /** patch：是否全局替换（默认 false） */
+  replace_all?: boolean
+}
+
+// 生成器对当前工具的一次整体改动描述
+interface ToolChangeList {
+  summary: string
+  actions: ToolChangeAction[]
+}
+
+interface ToolPageUpdateInput extends ToolChangeList {
+  // 变更清单结构：{ summary, actions }
+}
+
 type CapabilityRunResponse = { ok: true; result: unknown } | { ok: false; error: string }
 
 let chatEventListener: ((_event: IpcRendererEvent, payload: ChatEventData) => void) | null = null
@@ -127,7 +162,11 @@ const api = {
   settings: {
     getSystemPrompt: (): Promise<string> => ipcRenderer.invoke('settings:getSystemPrompt'),
     setSystemPrompt: (value: string): Promise<void> =>
-      ipcRenderer.invoke('settings:setSystemPrompt', value)
+      ipcRenderer.invoke('settings:setSystemPrompt', value),
+    getGeneratorApprovalMode: (): Promise<GeneratorApprovalMode> =>
+      ipcRenderer.invoke('settings:getGeneratorApprovalMode'),
+    setGeneratorApprovalMode: (mode: GeneratorApprovalMode): Promise<void> =>
+      ipcRenderer.invoke('settings:setGeneratorApprovalMode', mode)
   },
   window: {
     getBounds: (): Promise<{ x: number; y: number; width: number; height: number } | null> =>
@@ -139,20 +178,17 @@ const api = {
       ipcRenderer.invoke('capability:run', id, args)
   },
   tool: {
-    open: (input: {
-      name: string
-      title: string
-      description: string
-      html: string
-    }): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('tool:open', input),
-    close: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('tool:close'),
-    setBounds: (bounds: {
-      x: number
-      y: number
-      width: number
-      height: number
-    }): Promise<{ ok: boolean }> => ipcRenderer.invoke('tool:setBounds', bounds)
-  },
+      create: (): Promise<{ ok: boolean; id?: string; title?: string; error?: string }> =>
+        ipcRenderer.invoke('tool:create'),
+      list: (): Promise<ToolPageMetaData[]> => ipcRenderer.invoke('tool:list'),
+      update: (
+        id: string,
+        changes: ToolPageUpdateInput
+      ): Promise<{ ok: boolean; title?: string; changedFiles?: string[]; error?: string }> =>
+        ipcRenderer.invoke('tool:update', id, changes),
+      // 工具页 <webview> 的 guest preload 绝对路径（用于注入 window.cap + 心跳）
+      getPreloadPath: (): Promise<string> => ipcRenderer.invoke('tool:getPreloadPath')
+    },
   chat: {
     history: (taskId: number): Promise<ChatMessageData[]> =>
       ipcRenderer.invoke('chat:history', taskId),

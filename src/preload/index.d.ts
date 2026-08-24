@@ -92,6 +92,8 @@ declare global {
       settings: {
         getSystemPrompt: () => Promise<string>
         setSystemPrompt: (value: string) => Promise<void>
+        getGeneratorApprovalMode: () => Promise<'manual' | 'auto'>
+        setGeneratorApprovalMode: (mode: 'manual' | 'auto') => Promise<void>
       }
       window: {
         getBounds: () => Promise<{
@@ -129,19 +131,25 @@ declare global {
         ) => Promise<{ ok: true; result: unknown } | { ok: false; error: string }>
       }
       tool: {
-        open: (input: {
-          name: string
-          title: string
-          description: string
-          html: string
-        }) => Promise<{ ok: boolean; error?: string }>
-        close: () => Promise<{ ok: boolean }>
-        setBounds: (bounds: {
-          x: number
-          y: number
-          width: number
-          height: number
-        }) => Promise<{ ok: boolean }>
+        create: () => Promise<{ ok: boolean; id?: string; title?: string; error?: string }>
+        list: () => Promise<
+          Array<{ id: string; name: string; title: string; description: string }>
+        >
+        update: (
+          id: string,
+          changes: {
+            summary: string
+            actions: Array<{
+              op: 'write' | 'patch'
+              file: string
+              content?: unknown
+              find?: string
+              replace?: string
+              replace_all?: boolean
+            }>
+          }
+        ) => Promise<{ ok: boolean; title?: string; changedFiles?: string[]; error?: string }>
+        getPreloadPath: () => Promise<string>
       }
       chat: {
         history: (

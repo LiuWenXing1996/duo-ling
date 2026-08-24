@@ -26,6 +26,12 @@ export default defineConfig({
           index: resolve('src/preload/index.ts'),
           // 工具页（WebContentsView）独立 preload，仅暴露 window.cap.run
           tool: resolve('src/preload/tool.ts')
+        },
+        // <webview> guest 是沙箱化渲染进程，其 preload 不支持 ESM 导入，
+        // 必须输出为 CJS（.cjs）才能在沙箱中加载（注入 window.cap + 心跳）。
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].cjs'
         }
       }
     }
@@ -36,7 +42,11 @@ export default defineConfig({
         '@': resolve('src/renderer/src')
       }
     },
-    plugins: [vue(), tailwindcss()],
+    plugins: [
+      // 把 <webview> 视为原生自定义元素（Electron 内嵌 webContents），避免 Vue 当作组件去解析
+      vue({ template: { compilerOptions: { isCustomElement: (tag) => tag === 'webview' } } }),
+      tailwindcss()
+    ],
     css: {
       preprocessorOptions: {
         less: {

@@ -1,179 +1,41 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Component } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Button as UiButton } from '@/components/ui/button'
+import ToolPage, { type ToolPageMeta } from '@/components/tool-page.vue'
 import {
-  FileCode as UiFileCode,
-  FileText as UiFileText,
   Gem as UiGem,
-  Globe as UiGlobe,
-  PenLine as UiPenLine,
   Plus as UiPlus,
   Search as UiSearch,
   Settings as UiSettings,
   Sparkles as UiSparkles,
-  Table as UiTable,
   X as UiX
 } from '@lucide/vue'
-import ToolPage, { type Tool } from './tool-page.vue'
-import ToolGenerator from './tool-generator.vue'
-import { type GeneratedToolDef } from '@/lib/tool-generator'
 
-// 工具 id → 图标
-const TOOL_ICON: Record<string, Component> = {
-  pdf: UiFileText,
-  clean: UiTable,
-  rename: UiPenLine,
-  web: UiGlobe,
-  doc: UiFileCode
-}
-
-// 占位数据：真实实现会从后端注册表 / 会话历史加载
-const TOOLS: Record<string, Tool> = {
-  pdf: {
-    id: 'pdf',
-    name: 'PDF 合并器',
-    taskLabel: '生成期 · 任务 T-1024',
-    status: '就绪',
-    costTime: '5s',
-    costMode: 'local',
-    modelName: 'deepseek-v4-flash',
-    inputTitle: '将文件拖到这里，或点击选择',
-    inputHint: '支持 .pdf · 可多选 · 按顺序合并',
-    files: [
-      { name: '周报_08.pdf', size: '2.1 MB', done: true },
-      { name: '周报_15.pdf', size: '1.9 MB', done: true },
-      { name: '周报_22.pdf', size: '——（待添加）', done: false }
-    ],
-    optLabel: '合并模式',
-    optOptions: ['整份合并', '抽页合并'],
-    optActive: '抽页合并',
-    outputLabel: '输出目录',
-    outputValue: '~/桌面/合并输出/',
-    sessions: [
-      { id: 's1', status: 'doing', title: '新增抽页合并', meta: '分支 feat/extract-page · 3 次 commit' },
-      { id: 's2', status: 'done', title: '抽页合并 v1.3', meta: '标签 v1.3 · 08-20' },
-      { id: 's3', status: 'rollback', title: '排序规则优化', meta: '分支已丢弃 · 08-12' },
-      { id: 's4', status: 'done', title: '初版合并器 v1.0', meta: '标签 v1.0 · 07-30' }
-    ],
-    chat: [
-      { id: 'a1', role: 'ai', content: '已识别意图：把若干 PDF 的第 3 页抽出来，再合并成一个新 PDF。', meta: 'via scenario: pdf.extract+merge' },
-      { id: 'u1', role: 'user', content: '对，整份的不要，我要每个都抽第 3 页。' },
-      { id: 'a2', role: 'ai', content: '明白。已在分支 feat/extract-page 上调好后端编排，并补上前端「抽页合并」选项。要我把这版固化为 v1.4 吗？' }
-    ],
-    capabilities: ['local.file.choose', 'pdf.extract_page', 'pdf.merge', 'local.file.save'],
-    previewText: '合并完成 · merged.pdf · 12 页 · 一键下载',
-    costNote: '该能力含联网 / 耗 token 步骤，需提前展示并确认'
-  },
-  clean: {
-    id: 'clean',
-    name: '表格清洗',
-    taskLabel: '维护期 · 任务 T-1031',
-    status: '就绪',
-    costTime: '10s',
-    costMode: 'local',
-    modelName: 'deepseek-v4-flash',
-    inputTitle: '拖入 CSV / xlsx 进行清洗',
-    inputHint: '可多选 · 自动识别表头',
-    sessions: [
-      { id: 'c1', status: 'doing', title: '修复列去重误删', meta: '分支 fix/dedup · 2 次 commit' },
-      { id: 'c2', status: 'done', title: '去重规则 v0.9', meta: '标签 v0.9 · 08-18' }
-    ],
-    chat: [
-      { id: 'a1', role: 'ai', content: '已定位：去重逻辑把「完全相同的行」也当成重复删掉了。是在分支 fix/dedup 上调策略，还是先看影响样本？', meta: 'via scenario: data.clean' },
-      { id: 'u1', role: 'user', content: '先看样本。' },
-      { id: 'a2', role: 'ai', content: '已列出 23 行去重记录，其中 7 行可能是误删。要我按「非空列全相等才算重复」收紧吗？' }
-    ],
-    capabilities: ['local.file.choose', 'data.load', 'data.clean'],
-    previewText: '清洗预览 · 去重 23 行'
-  },
-  rename: {
-    id: 'rename',
-    name: '批量重命名',
-    taskLabel: '生成期 · 任务 T-1040',
-    status: '就绪',
-    costTime: '3s',
-    costMode: 'local',
-    modelName: 'deepseek-v4-flash',
-    inputTitle: '选择文件夹进行批量重命名',
-    inputHint: '支持正则表达式',
-    sessions: [
-      { id: 'r1', status: 'done', title: '支持正则 v2.1', meta: '标签 v2.1 · 08-15' },
-      { id: 'r2', status: 'doing', title: '预览结果导出', meta: '分支 feat/preview · 进行中' }
-    ],
-    chat: [
-      { id: 'a1', role: 'ai', content: '当前规则会重命名 23 个文件，其中 4 个会覆盖同名文件。需要我先给出覆盖清单吗？', meta: 'via scenario: fs.rename' },
-      { id: 'u1', role: 'user', content: '要，列出来我确认。' },
-      { id: 'a2', role: 'ai', content: '好——已列出 4 个冲突文件，等你确认后再写盘。这版要不要固化成 v2.2？' }
-    ],
-    capabilities: ['local.folder.choose', 'fs.match', 'fs.preview'],
-    previewText: '规则预览 · 23 个文件将被重命名'
-  },
-  md: {
-    id: 'md',
-    name: 'Markdown 渲染器',
-    taskLabel: '使用期 · 实时预览',
-    status: '就绪',
-    costTime: '<1s',
-    costMode: 'local',
-    modelName: '—',
-    inputTitle: '输入 Markdown 内容',
-    inputHint: '实时渲染为 HTML 预览 · 支持标题 / 列表 / 代码块',
-    sessions: [
-      { id: 'm1', status: 'doing', title: '初始草稿', meta: '本机 · 实时渲染' }
-    ],
-    chat: [],
-    capabilities: ['docs.markdown.render'],
-    previewText: '在左侧输入 Markdown，点「运行」查看实时渲染结果',
-    costNote: '纯本机渲染，不联网、不耗 token',
-    mdSource: '# 小班 · Markdown 渲染器\n\n输入 Markdown，点右下角「运行」查看 HTML 预览。\n\n## 能力演示\n\n- 一二三级标题\n- 无序列表\n- **粗体** · *斜体* · `行内代码`\n\n```\n// 代码块\nconst hello = "小班"\n```'
-  }
-}
-
-// 打开的工具标签（含未定义的占位工具，如 web；以及生成器 / 生成工具）
-const GENERATOR_TAB_ID = 'generator'
+// 打开的工具标签：每个标签对应一个「新建工具」创建的、落盘在工具根目录下的真实工具
 type OpenTool = {
+  /** 工具唯一 ID（tool:// host 与工具文件夹名） */
   id: string
-  custom?: boolean
-  /** 由生成器产出的工具定义；存在时该标签页由独立 WebContentsView 承载完整工具页 */
-  generated?: GeneratedToolDef
+  title: string
 }
-const openTabs = ref<OpenTool[]>([
-  { id: 'pdf' },
-  { id: 'clean' },
-  { id: 'rename' },
-  { id: 'md' }
-])
-const activeTabId = ref('pdf')
+const openTabs = ref<OpenTool[]>([])
+const activeTabId = ref('')
 
-const activeTab = computed<OpenTool>(() => openTabs.value.find((t) => t.id === activeTabId.value) ?? openTabs.value[0])
-const activeTool = computed<Tool>(() => TOOLS[activeTab.value.id] ?? (toPlaceholderTool(activeTab.value.id) as Tool))
+const activeTab = computed<OpenTool | undefined>(
+  () => openTabs.value.find((t) => t.id === activeTabId.value) ?? openTabs.value[0]
+)
+
+// 当前激活工具的三栏页元信息（会话历史 / 当前会话 / 工具详情）
+const activeToolMeta = computed<ToolPageMeta | undefined>(() =>
+  activeTab.value ? { id: activeTab.value.id, title: activeTab.value.title } : undefined
+)
 
 const emit = defineEmits<{ openSettings: [] }>()
-
-// 未注册（占位）工具的显示名，便于演示
-const UNREGISTERED_NAMES: Record<string, string> = { web: '网页快照' }
-
-function toolName(tab: OpenTool): string {
-  if (tab.generated) return tab.generated.title
-  if (tab.id === GENERATOR_TAB_ID) return '创建工具'
-  return TOOLS[tab.id]?.name ?? UNREGISTERED_NAMES[tab.id] ?? tab.id
-}
-
-function tabIcon(tab: OpenTool): Component {
-  if (tab.generated || tab.id === GENERATOR_TAB_ID) return UiSparkles
-  return TOOL_ICON[tab.id] ?? UiFileText
-}
-
-function isToolDefined(id: string): boolean {
-  return Boolean(TOOLS[id])
-}
 
 function activate(id: string): void {
   activeTabId.value = id
 }
 
 function closeTab(id: string): void {
-  if (openTabs.value.length <= 1) return
   const idx = openTabs.value.findIndex((t) => t.id === id)
   if (idx === -1) return
   openTabs.value = openTabs.value.filter((t) => t.id !== id)
@@ -183,115 +45,61 @@ function closeTab(id: string): void {
   }
 }
 
-function addTab(): void {
-  if (openTabs.value.some((t) => t.id === 'web')) {
-    activate('web')
-    return
+// 全局搜索：从主进程读取所有已落盘工具元信息，在顶栏搜索框中筛选并下拉列出
+type ToolMeta = { id: string; name: string; title: string; description: string }
+const allTools = ref<ToolMeta[]>([])
+const searchQuery = ref('')
+const searchFocused = ref(false)
+
+const filteredTools = computed<ToolMeta[]>(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return allTools.value
+  return allTools.value.filter(
+    (t) =>
+      t.title.toLowerCase().includes(q) ||
+      t.name.toLowerCase().includes(q) ||
+      t.description.toLowerCase().includes(q)
+  )
+})
+
+onMounted(async () => {
+  try {
+    allTools.value = await window.api.tool.list()
+  } catch (error) {
+    console.error('加载工具列表失败', error)
   }
-  openTabs.value.push({ id: 'web', custom: true })
-  activate('web')
-}
+})
 
-// 打开「创建工具」生成器标签（始终唯一：重复点击只切换过去）
-function openGenerator(): void {
-  if (openTabs.value.some((t) => t.id === GENERATOR_TAB_ID)) {
-    activate(GENERATOR_TAB_ID)
-    return
+// 点击下拉项：若该工具已打开则激活，否则新开标签
+function openTool(tool: ToolMeta): void {
+  if (!openTabs.value.some((t) => t.id === tool.id)) {
+    openTabs.value.push({ id: tool.id, title: tool.title })
   }
-  openTabs.value.push({ id: GENERATOR_TAB_ID })
-  activate(GENERATOR_TAB_ID)
+  activate(tool.id)
+  searchQuery.value = ''
+  searchFocused.value = false
 }
 
-// 生成器产出工具：关闭生成器标签，去重同名工具，再打开新的生成工具标签
-function onGenerated(def: GeneratedToolDef): void {
-  const tabId = `gen-${def.name}`
-  openTabs.value = openTabs.value.filter((t) => t.id !== GENERATOR_TAB_ID && t.id !== tabId)
-  openTabs.value.push({ id: tabId, generated: def })
-  activate(tabId)
+// 工具页内生成器重写 index.html + meta.json 后，同步更新标签标题
+function renameTab(id: string, title: string): void {
+  const tab = openTabs.value.find((t) => t.id === id)
+  if (tab) tab.title = title
 }
 
-function closeGenerator(): void {
-  closeTab(GENERATOR_TAB_ID)
-}
-
-// 生成工具执行页容器：WebContentsView 是原生 overlay，需一个占位 div 精确定位
-const toolHostRef = ref<HTMLElement | null>(null)
 const toolError = ref('')
-let toolResizeObserver: ResizeObserver | null = null
 
-// 把生成工具打开为独立工具页：直接把 AI 生成的完整 HTML 交给主进程落盘，
-// 由 WebContentsView 加载。全程零模板编译、零 eval，天然通过 CSP。
-function openToolView(def: GeneratedToolDef): void {
+// 点击「新建工具」：由主进程立即创建一个工具文件夹（index.html + meta.json），
+// 随后在本工作台打开该工具的标签页（三栏工具页由激活标签驱动）。
+async function createTool(): Promise<void> {
   toolError.value = ''
-  void window.api.tool
-    .open({
-      name: def.name,
-      title: def.title,
-      description: def.description,
-      html: def.html
-    })
-    .then((res) => {
-      if (!res.ok && res.error) toolError.value = res.error
-    })
-  void nextTick(syncToolBounds)
-}
-
-// 把工具页容器的实际屏幕位置/尺寸下发为主进程 WebContentsView 的 bounds（CSS px ≈ DIP）
-function syncToolBounds(): void {
-  const el = toolHostRef.value
-  if (!el || el.offsetWidth === 0 || el.offsetHeight === 0) return
-  const rect = el.getBoundingClientRect()
-  void window.api.tool.setBounds({
-    x: Math.round(rect.left),
-    y: Math.round(rect.top),
-    width: Math.round(rect.width),
-    height: Math.round(rect.height)
-  })
-}
-
-// 切换标签：生成工具标签 → 打开 WebContentsView；否则关闭
-watch(
-  activeTab,
-  (tab) => {
-    if (tab?.generated) {
-      openToolView(tab.generated)
-    } else {
-      toolError.value = ''
-      void window.api.tool.close()
-    }
-  },
-  { immediate: true }
-)
-
-onMounted(() => {
-  // 监听容器尺寸变化（窗口缩放 / 布局变化）自动同步 view 尺寸
-  toolResizeObserver = new ResizeObserver(() => syncToolBounds())
-  if (toolHostRef.value) toolResizeObserver.observe(toolHostRef.value)
-})
-
-onUnmounted(() => {
-  toolResizeObserver?.disconnect()
-  toolResizeObserver = null
-  void window.api.tool.close()
-})
-
-// 未注册工具的占位实现
-function toPlaceholderTool(id: string): Tool {
-  return {
-    id,
-    name: UNREGISTERED_NAMES[id] ?? id,
-    taskLabel: '占位',
-    status: '待接入',
-    costTime: '—',
-    costMode: 'local',
-    modelName: 'deepseek-v4-flash',
-    inputTitle: '工具尚未打开 / 正在加载',
-    inputHint: '真实实现将挂载对应的 WebContentsView 界面',
-    sessions: [],
-    chat: [],
-    capabilities: [],
-    previewText: '暂无可预览内容'
+  const res = await window.api.tool.create()
+  if (!res.ok || !res.id) {
+    toolError.value = res.error ?? '新建工具失败'
+    return
   }
+  const tab: OpenTool = { id: res.id, title: res.title ?? '新建工具' }
+  openTabs.value.push(tab)
+  activate(tab.id)
 }
 </script>
 
@@ -309,17 +117,39 @@ function toPlaceholderTool(id: string): Tool {
         </span>
       </div>
 
-      <div class="no-drag flex max-w-md flex-1 items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 text-sm text-muted-foreground">
+      <div class="no-drag relative flex max-w-md flex-1 items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 text-sm text-muted-foreground">
         <ui-search class="size-4 shrink-0" />
         <input
+          v-model="searchQuery"
           class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           placeholder="全局搜索：工具 / 任务 / 版本…"
+          @focus="searchFocused = true"
+          @blur="searchFocused = false"
+          @keydown.esc="searchFocused = false"
         />
         <span class="rounded border border-border bg-muted px-1 font-mono text-[10px]">⌘K</span>
+
+        <ul
+          v-if="searchFocused && filteredTools.length"
+          class="tool-search-dropdown"
+          role="listbox"
+        >
+          <li
+            v-for="tool in filteredTools"
+            :key="tool.id"
+            class="tool-search-item"
+            role="option"
+            :data-selected="openTabs.some((t) => t.id === tool.id)"
+            @mousedown.prevent="openTool(tool)"
+          >
+            <span class="truncate">{{ tool.title }}</span>
+            <span class="tool-search-item__desc truncate">{{ tool.description }}</span>
+          </li>
+        </ul>
       </div>
 
       <div class="no-drag ml-auto flex items-center gap-2">
-        <ui-button size="sm" class="no-drag" @click="openGenerator">
+        <ui-button size="sm" class="no-drag" @click="createTool">
           <ui-plus class="size-4" />新建工具
         </ui-button>
         <ui-button variant="ghost" size="icon" class="no-drag" aria-label="设置" @click="emit('openSettings')">
@@ -328,8 +158,8 @@ function toPlaceholderTool(id: string): Tool {
       </div>
     </header>
 
-    <!-- 标签栏 -->
-    <nav class="tool-tabbar" aria-label="工具标签">
+    <!-- 标签栏：每个已创建的工具一个标签 -->
+    <nav v-if="openTabs.length" class="tool-tabbar" aria-label="工具标签">
       <div
         v-for="tab in openTabs"
         :key="tab.id"
@@ -339,15 +169,8 @@ function toPlaceholderTool(id: string): Tool {
         :aria-selected="tab.id === activeTabId"
         @click="activate(tab.id)"
       >
-        <component :is="tabIcon(tab)" class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
-        <span class="truncate">{{ toolName(tab) }}</span>
-        <span
-          v-if="!isToolDefined(tab.id) && tab.id !== GENERATOR_TAB_ID && !tab.generated"
-          class="rounded bg-amber-500/15 px-1 text-[9px] text-amber-700"
-          title="占位工具"
-        >
-          占位
-        </span>
+        <ui-sparkles class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
+        <span class="truncate">{{ tab.title }}</span>
         <button
           class="no-drag ml-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
           type="button"
@@ -357,23 +180,21 @@ function toPlaceholderTool(id: string): Tool {
           <ui-x class="size-3" />
         </button>
       </div>
-      <button type="button" class="tool-tab-add" aria-label="添加工具" @click="addTab">
-        <ui-plus class="size-4" />
-      </button>
     </nav>
 
-    <!-- 当前工具页 -->
-    <div class="min-h-0 flex-1">
-      <!-- 生成工具执行页：原生 WebContentsView 覆盖在此占位容器上 -->
-      <div ref="toolHostRef" class="tool-host" v-show="Boolean(activeTab.generated)">
-        <p v-if="toolError" class="p-4 text-xs text-red-500">{{ toolError }}</p>
+    <!-- 当前工具页：三栏（会话历史 / 当前会话 / 工具详情） -->
+    <div class="min-h-0 flex-1 relative">
+      <tool-page
+        v-if="activeToolMeta"
+        :key="activeToolMeta.id"
+        :tool="activeToolMeta"
+        @renamed="renameTab"
+        @open-settings="emit('openSettings')"
+      />
+      <!-- 空工作台：提示用户通过「新建工具」创建 -->
+      <div v-else class="tool-empty">
+        <p>{{ toolError || '还没有工具，点击右上角「新建工具」创建' }}</p>
       </div>
-      <template v-if="activeTab.id === GENERATOR_TAB_ID">
-        <tool-generator @generated="onGenerated" @close="closeGenerator" />
-      </template>
-      <template v-else-if="!activeTab.generated">
-        <tool-page :key="activeTab.id" :tool="activeTool" />
-      </template>
     </div>
   </div>
 </template>
@@ -391,10 +212,15 @@ function toPlaceholderTool(id: string): Tool {
   background: var(--background);
 }
 
-// 生成工具执行页容器：为 WebContentsView（原生 overlay）提供精确占位与测量
-.tool-host {
-  width: 100%;
-  height: 100%;
+// 空工作台：提示用户通过「新建工具」创建（覆盖在工具页容器之上）
+.tool-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-foreground);
+  font-size: 13px;
 }
 
 .tool-topbar {
@@ -407,6 +233,43 @@ function toPlaceholderTool(id: string): Tool {
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
   user-select: none;
+}
+
+// 全局搜索下拉：定位于搜索框之下，宽度与搜索框一致
+.tool-search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--popover);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16);
+}
+
+.tool-search-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  color: var(--foreground);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--muted);
+  }
+
+  &__desc {
+    flex: 1;
+    font-size: 11px;
+    color: var(--muted-foreground);
+  }
 }
 
 .tool-tabbar {
@@ -440,20 +303,6 @@ function toPlaceholderTool(id: string): Tool {
 
   &:hover {
     color: var(--foreground);
-  }
-}
-
-.tool-tab-add {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 0 10px;
-  color: var(--muted-foreground);
-  transition: color 0.15s;
-
-  &:hover {
-    color: var(--primary);
   }
 }
 </style>

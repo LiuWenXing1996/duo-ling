@@ -282,6 +282,33 @@ describe('generateReply（OpenAI 兼容流式）', () => {
     const body2 = JSON.parse((fetchMock.mock.calls[1]?.[1] as RequestInit).body as string)
     expect(body2.messages.every((m: { role: string }) => m.role !== 'system')).toBe(true)
   })
+
+  it('推理模型：reasoning_content 以 <think>...</think> 包裹流式下发，正文保持原样', async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse([
+        'data: {"choices":[{"delta":{"reasoning_content":"先分析"}}]}\n\n',
+        'data: {"choices":[{"delta":{"reasoning_content":"再推理"}}]}\n\n',
+        'data: {"choices":[{"delta":{"content":"结论"}}]}\n\n',
+        'data: [DONE]\n\n'
+      ])
+    )
+    const tokens: string[] = []
+    const reply = await generateReply([], '你好', (t) => tokens.push(t), new AbortController().signal)
+
+    expect(tokens).toEqual(['<think>', '先分析', '再推理', '</think>', '结论'])
+    expect(reply).toBe('<think>先分析再推理</think>结论')
+  })
+
+  it('推理模型：思考过程未闭合（仅思考无正文）时流结束自动补 </think>', async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse(['data: {"choices":[{"delta":{"reasoning_content":"思考中"}}]}\n\n', 'data: [DONE]\n\n'])
+    )
+    const tokens: string[] = []
+    const reply = await generateReply([], '你好', (t) => tokens.push(t), new AbortController().signal)
+
+    expect(tokens).toEqual(['<think>', '思考中', '</think>'])
+    expect(reply).toBe('<think>思考中</think>')
+  })
 })
 
 describe('listModels', () => {

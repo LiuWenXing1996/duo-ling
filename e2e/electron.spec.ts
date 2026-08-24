@@ -37,8 +37,8 @@ test('应用启动并渲染工具工作台主界面', async () => {
   await expect(window.getByText('小班')).toBeVisible()
   await expect(window.getByText('DUO-LING / TOOL-BENCH')).toBeVisible()
 
-  // 标签栏默认展示首个工具页（PDF 合并器）
-  await expect(window.getByRole('tab', { name: 'PDF 合并器' })).toBeVisible()
+  // 工作台默认无演示/占位工具：展示空状态提示
+  await expect(window.getByText('还没有工具，点击右上角「新建工具」创建')).toBeVisible()
 
   // IPC 通道可用：window.api.ping() 应返回 pong
   const ping = await window.evaluate(() =>
@@ -86,14 +86,6 @@ test('应用启动并渲染工具工作台主界面', async () => {
     })
   )
   expect(frontendRes.ok).toBe(false)
-
-  // 标签切换：点击「表格清洗」后成为激活标签
-  await window.getByRole('tab', { name: '表格清洗' }).click()
-  await expect(window.getByRole('tab', { name: '表格清洗' })).toHaveAttribute('aria-selected', 'true')
-
-  // 添加占位工具：点击「＋」新增「网页快照」标签
-  await window.getByRole('button', { name: '添加工具' }).click()
-  await expect(window.getByRole('tab', { name: '网页快照' })).toBeVisible()
 
   await electronApp.close()
 })

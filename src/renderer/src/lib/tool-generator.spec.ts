@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildCoverage, extractCapabilities, parseGeneratedTool } from './tool-generator'
+import {
+  buildCoverage,
+  extractCapabilities,
+  parseGeneratedChanges,
+  parseGeneratedTool
+} from './tool-generator'
 import type { CapabilityItem } from './capability-runner'
 
 const ALL_CAPS = [
@@ -92,6 +97,19 @@ describe('parseGeneratedTool（解析 LLM 输出的 JSON 信封，内含 html）
     expect(parseGeneratedTool('{"name":"x","title":"t","html":""}')).toBeNull()
     expect(parseGeneratedTool('{bad json')).toBeNull()
   })
+
+  it('剥离推理模型的 <think>...</think> 前缀后再解析（纯 JSON）', () => {
+    const content = `<think>先分析用户需求，需读取本地 Markdown 文件再渲染</think>\n${JSON_TOOL}`
+    const def = parseGeneratedTool(content)
+    expect(def?.name).toBe('md-file-preview')
+    expect(def?.html).toContain('<!doctype html>')
+  })
+
+  it('推理模型 think 前缀 + 代码块包裹也能正确解析', () => {
+    const content = `<think>思考构建方案</think>\n\`\`\`json\n${JSON_TOOL}\n\`\`\``
+    const def = parseGeneratedTool(content)
+    expect(def?.name).toBe('md-file-preview')
+  })
 })
 
 describe('extractCapabilities（从 html 源码提取能力依赖）', () => {
@@ -106,6 +124,64 @@ describe('extractCapabilities（从 html 源码提取能力依赖）', () => {
 
   it('无能力调用时返回空数组', () => {
     expect(extractCapabilities('<div>静态页</div>')).toEqual([])
+  })
+})
+
+describe('parseGeneratedChanges（解析 LLM 输出的变更清单）', () => {
+  const CHANGES = JSON.stringify({
+    summary: '把标题改成「Markdown 速览」，并给预览容器加上背景色。',
+    actions: [
+      {
+        op: 'patch',
+        file: 'index.html',
+        find: '<h1>Markdown 文件预览</h1>',
+        replace: '<h1>Markdown 速览</h1>'
+      },
+      {
+        op: 'write',
+        file: 'meta.json',
+        content: { name: 'md-file-preview', title: 'Markdown 速览', description: '读取本地 Markdown 文件并渲染为 HTML' }
+      }
+    ]
+  })
+
+  it('解析 ```json 代码块中的变更清单', () => {
+    const res = parseGeneratedChanges(['```json', CHANGES, '```'].join('\n'))
+    expect(res.changes?.summary).toContain('Markdown 速览')
+    expect(res.changes?.actions).toHaveLength(2)
+    expect(res.changes?.actions[0]).toMatchObject({ op: 'patch', file: 'index.html', find: '<h1>Markdown 文件预览</h1>' })
+    expect(res.changes?.actions[1]).toMatchObject({ op: 'write', file: 'meta.json' })
+  })
+
+  it('能直接从纯 JSON（无代码块）解析', () => {
+    const res = parseGeneratedChanges(CHANGES)
+    expect(res.changes?.actions[0].op).toBe('patch')
+  })
+
+  it('剥离推理模型的 <think>...</think> 前缀后再解析', () => {
+    const content = `<think>先分析需求，改标题并加背景色</think>\n${CHANGES}`
+    const res = parseGeneratedChanges(content)
+    expect(res.changes?.summary).toContain('Markdown 速览')
+  })
+
+  it('普通文本 / 非法输入返回 changes: null', () => {
+    expect(parseGeneratedChanges('')).toEqual({ changes: null })
+    expect(parseGeneratedChanges('我需要先了解你的需求')).toEqual({ changes: null })
+    expect(parseGeneratedChanges('{bad json')).toEqual({ changes: null })
+  })
+
+  it('没有可执行动作时返回 changes: null', () => {
+    expect(parseGeneratedChanges('{"summary":"无改动","actions":[]}')).toEqual({ changes: null })
+  })
+
+  it('非法文件 / 非法操作 / 缺 find 时带 warning 返回', () => {
+    expect(parseGeneratedChanges('{"actions":[{"op":"write","file":"config.js","content":"x"}]}').changes).toBeNull()
+    const badOp = parseGeneratedChanges('{"actions":[{"op":"move","file":"index.html"}]}')
+    expect(badOp.changes).toBeNull()
+    if (badOp.changes === null) expect(badOp.warning).toBeTruthy()
+    const noFind = parseGeneratedChanges('{"actions":[{"op":"patch","file":"index.html"}]}')
+    expect(noFind.changes).toBeNull()
+    if (noFind.changes === null) expect(noFind.warning).toBeTruthy()
   })
 })
 
