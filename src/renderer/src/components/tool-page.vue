@@ -965,7 +965,7 @@ async function stopGeneration(): Promise<void> {
   flex: 1;
   overflow: hidden;
   /* webview 层叠在居中拖拽条之上，会在右侧遮盖住拖拽条；留 2px 内边距让拖拽条外露，滚动条/边界不再被盖住 */
-  padding-right: 2px;
+  padding-left: 2px;
 }
 
 .tool-frame {
