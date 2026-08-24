@@ -170,8 +170,20 @@ describe('parseGeneratedChanges（解析 LLM 输出的变更清单）', () => {
     expect(parseGeneratedChanges('{bad json')).toEqual({ changes: null })
   })
 
-  it('没有可执行动作时返回 changes: null', () => {
-    expect(parseGeneratedChanges('{"summary":"无改动","actions":[]}')).toEqual({ changes: null })
+  it('无动作但含 summary（多为澄清追问）：返回人性化 summary，避免正文直出 JSON', () => {
+    expect(
+      parseGeneratedChanges('{"summary":"你好！请告诉我你想对这个工具做出什么修改。","actions":[]}')
+    ).toEqual({ changes: null, summary: '你好！请告诉我你想对这个工具做出什么修改。' })
+    // 代码块包裹的契约 JSON 同样剥离出 summary
+    expect(parseGeneratedChanges(['```json', '{"summary":"请说明修改点","actions":[]}', '```'].join('\n'))).toEqual({
+      changes: null,
+      summary: '请说明修改点'
+    })
+  })
+
+  it('无动作且无 summary：仍返回 changes: null', () => {
+    expect(parseGeneratedChanges('{"actions":[]}')).toEqual({ changes: null })
+    expect(parseGeneratedChanges('{"summary":"","actions":[]}')).toEqual({ changes: null })
   })
 
   it('非法文件 / 非法操作 / 缺 find 时带 warning 返回', () => {

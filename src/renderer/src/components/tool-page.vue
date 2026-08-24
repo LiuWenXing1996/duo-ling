@@ -12,7 +12,6 @@ import {
   ChevronRight as UiChevronRight,
   ChevronsUpDown as UiChevronsUpDown,
   ListTodo as UiListTodo,
-  PanelRightClose as UiPanelRightClose,
   Plus as UiPlus
 } from '@lucide/vue'
 
@@ -384,6 +383,10 @@ async function send(): Promise<void> {
         } else {
           pendingChange.value = { messageId: draftMsg.id, changes: parsed.changes, status: 'pending' }
         }
+      } else if (parsed.summary) {
+        // LLM 输出的是「无实际动作」的契约 JSON（多为澄清追问）：
+        // 把直出的原始 JSON 替换为人性化 summary，避免正文裸露 JSON 字符串。
+        draftMsg.content = parsed.summary
       }
     } else if (res.error) {
       messages.value = messages.value.filter((m) => m.id !== draftMsg.id)
@@ -509,9 +512,6 @@ function startResize(e: MouseEvent, side: 'sess' | 'detail'): void {
             <ui-plus class="size-4" />
           </ui-button>
         </div>
-        <ui-button variant="ghost" size="icon" class="no-drag size-7" aria-label="收起工具会话">
-          <ui-panel-right-close class="size-4" />
-        </ui-button>
       </header>
 
       <div class="min-h-0 flex-1 overflow-y-auto scroll-gap">

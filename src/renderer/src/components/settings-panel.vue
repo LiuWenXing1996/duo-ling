@@ -137,10 +137,6 @@ onMounted(loadData)
 
 <template>
   <section class="panel">
-    <header class="panel-header">
-      <h2 class="panel-title">模型</h2>
-    </header>
-
     <div class="min-h-0 flex-1 overflow-y-auto scroll-gap p-6">
       <p v-if="loadError" class="text-destructive mb-3 text-xs">{{ loadError }}</p>
 

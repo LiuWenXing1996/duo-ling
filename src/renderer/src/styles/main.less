@@ -97,8 +97,7 @@
     height: 48px;
     padding: 0 16px;
     border-bottom: 1px solid var(--border);
-    // 无标题栏窗口的拖拽区：三栏各自 header 可拖动窗口（双击缩放由系统处理）
-    -webkit-app-region: drag;
+    // 不设为拖拽区：拖动 header 不再移动窗口，控件可正常点击；窗口拖动由顶栏承担
     user-select: none;
   }
 

@@ -57,10 +57,14 @@ const ALLOWED_TOOL_FILES = ['index.html', 'meta.json'] as const
  * 从 LLM 回复中解析「变更清单」（summary + actions）。
  * 回复可能是「澄清追问 / 能力缺失说明」等普通文本，此时返回 null。
  * 解析成功但动作为空/非法时返回 { changes, warning }，由渲染层提示但保留原文。
+ * 当契约 JSON 可解析但 actions 为空（LLM 在澄清追问而非改代码）时返回
+ * { changes: null, summary }，供渲染层仅展示人性化 summary，避免直出原始 JSON。
  */
 export function parseGeneratedChanges(
   content: string
-): { changes: GeneratedChangeList } | { changes: null; warning?: string } {
+):
+  | { changes: GeneratedChangeList }
+  | { changes: null; warning?: string; summary?: string } {
   if (!content) return { changes: null }
   const cleaned = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
   if (!cleaned) return { changes: null }
@@ -69,7 +73,10 @@ export function parseGeneratedChanges(
   try {
     const obj = JSON.parse(jsonStr) as { summary?: unknown; actions?: unknown }
     if (!obj || typeof obj !== 'object') return { changes: null }
-    if (!Array.isArray(obj.actions) || obj.actions.length === 0) return { changes: null }
+    const summary = typeof obj.summary === 'string' ? obj.summary.trim() : ''
+    if (!Array.isArray(obj.actions) || obj.actions.length === 0) {
+      return summary ? { changes: null, summary } : { changes: null }
+    }
 
     const actions: GeneratedToolChange[] = []
     for (const raw of obj.actions) {
