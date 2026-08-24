@@ -6,6 +6,11 @@ import {
   PopoverContent as UiPopoverContent,
   PopoverTrigger as UiPopoverTrigger
 } from '@/components/ui/popover'
+import {
+  ResizableHandle as UiResizableHandle,
+  ResizablePanel as UiResizablePanel,
+  ResizablePanelGroup as UiResizablePanelGroup
+} from '@/components/ui/resizable'
 import { parseGeneratedChanges, type GeneratedChangeList } from '@/lib/tool-generator'
 import {
   Check as UiCheck,
@@ -621,46 +626,18 @@ function discardPending(messageId: string): void {
 async function stopGeneration(): Promise<void> {
   await window.api.generator.abort()
 }
-
-// 三栏宽度：左右两栏可通过分隔条拖拽调节
-const sessWidth = ref(260)
-const detailWidth = ref(380)
-const MIN_WIDTH = 200
-const MAX_WIDTH = 480
-
-function startResize(e: MouseEvent, side: 'sess' | 'detail'): void {
-  e.preventDefault()
-  const startX = e.clientX
-  const startWidth = side === 'sess' ? sessWidth.value : detailWidth.value
-  const onMove = (ev: MouseEvent): void => {
-    const dx = ev.clientX - startX
-    const next = side === 'sess' ? startWidth + dx : startWidth - dx
-    const clamped = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next))
-    if (side === 'sess') sessWidth.value = clamped
-    else detailWidth.value = clamped
-  }
-  const onUp = (): void => {
-    window.removeEventListener('mousemove', onMove)
-    window.removeEventListener('mouseup', onUp)
-    document.body.style.cursor = ''
-    document.body.style.userSelect = ''
-  }
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-  window.addEventListener('mousemove', onMove)
-  window.addEventListener('mouseup', onUp)
-}
 </script>
 
 <template>
-  <div class="tool-page">
+  <ui-resizable-panel-group direction="horizontal" class="tool-page h-full w-full">
     <!-- 会话历史 -->
-    <aside class="tool-sess panel" :style="{ width: sessWidth + 'px' }">
-      <header class="panel-header flex items-center justify-between gap-2">
-        <h2 class="panel-title flex items-center gap-2">
-          <ui-list-todo class="size-4" />
-          会话历史
-        </h2>
+    <ui-resizable-panel :default-size="20" :min-size="15" :max-size="40" class="min-w-0">
+      <aside class="tool-sess panel">
+        <header class="panel-header flex items-center justify-between gap-2">
+          <h2 class="panel-title flex items-center gap-2">
+            <ui-list-todo class="size-4" />
+            会话历史
+          </h2>
         <div class="flex items-center gap-1">
           <ui-button
             variant="ghost"
@@ -718,19 +695,15 @@ function startResize(e: MouseEvent, side: 'sess' | 'detail'): void {
         </div>
       </div>
     </aside>
+    </ui-resizable-panel>
 
-    <div
-      class="tool-divider"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="拖拽调整会话历史宽度"
-      @mousedown="startResize($event, 'sess')"
-    />
+    <ui-resizable-handle aria-label="拖拽调整会话历史宽度" />
 
     <!-- 当前会话 -->
-    <section class="tool-chat panel">
-      <header class="panel-header flex items-center justify-between gap-2">
-        <h2 class="panel-title">当前会话</h2>
+    <ui-resizable-panel :default-size="60" :min-size="20" :max-size="70" class="min-w-0">
+      <section class="tool-chat panel">
+        <header class="panel-header flex items-center justify-between gap-2">
+          <h2 class="panel-title">当前会话</h2>
         <!-- 审批模式：会话内可临时切换（全局默认在「设置」中配置） -->
         <div class="flex items-center gap-1 rounded-md border border-input p-0.5 text-xs">
           <button
@@ -914,18 +887,14 @@ function startResize(e: MouseEvent, side: 'sess' | 'detail'): void {
           </div>
         </div>
       </div>
-    </section>
+      </section>
+      </ui-resizable-panel>
 
-    <div
-      class="tool-divider"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="拖拽调整工具详情宽度"
-      @mousedown="startResize($event, 'detail')"
-    />
+      <ui-resizable-handle aria-label="拖拽调整工具详情宽度" />
 
-    <!-- 工具详情：嵌入工具自身 index.html（tool:// 协议承载） -->
-    <section class="tool-detail panel" :style="{ width: detailWidth + 'px' }">
+      <!-- 工具详情：嵌入工具自身 index.html（tool:// 协议承载） -->
+      <ui-resizable-panel :default-size="20" :min-size="15" :max-size="40" class="min-w-0">
+        <section class="tool-detail panel">
       <header class="panel-header flex items-center justify-between gap-2">
         <h2 class="panel-title">工具详情</h2>
         <ui-button
@@ -960,12 +929,13 @@ function startResize(e: MouseEvent, side: 'sess' | 'detail'): void {
           <p class="tool-frame-error__detail">{{ frameDetail }}</p>
           <ui-button size="sm" @click="reloadFrame">重新加载</ui-button>
         </div>
-      </div>
-    </section>
+        </div>
+        </section>
+        </ui-resizable-panel>
 
-    <!-- 删除确认浮层：跟随点击位置弹出，type 决定文案与删除目标（单个 / 全部） -->
-    <teleport to="body">
-      <div v-if="deleteConfirm" class="fixed inset-0 z-50" @click="cancelDelete">
+        <!-- 删除确认浮层：跟随点击位置弹出，type 决定文案与删除目标（单个 / 全部） -->
+        <teleport to="body">
+          <div v-if="deleteConfirm" class="fixed inset-0 z-50" @click="cancelDelete">
         <div
           class="bg-popover text-popover-foreground absolute w-56 rounded-md border p-3 shadow-md outline-none"
           :style="confirmStyle"
@@ -985,57 +955,17 @@ function startResize(e: MouseEvent, side: 'sess' | 'detail'): void {
         </div>
       </div>
     </teleport>
-  </div>
+  </ui-resizable-panel-group>
 </template>
 
 <style scoped lang="less">
-.tool-page {
-  display: flex;
-  height: 100%;
-  min-height: 0;
-}
-
-.tool-divider {
-  flex: none;
-  position: relative;
-  width: 6px;
-  cursor: col-resize;
-  background: transparent;
-
-  &::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 2.5px;
-    width: 1px;
-    background: var(--border);
-    transition: background-color 0.15s;
-  }
-
-  &:hover::after {
-    background: var(--primary);
-  }
-}
-
-.tool-sess,
-.tool-detail {
-  flex: none;
-  min-width: 0;
-  min-height: 0;
-}
-
-.tool-chat {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-}
-
 .tool-detail-body {
   position: relative;
   min-height: 0;
   flex: 1;
   overflow: hidden;
+  /* webview 层叠在居中拖拽条之上，会在右侧遮盖住拖拽条；留 2px 内边距让拖拽条外露，滚动条/边界不再被盖住 */
+  padding-right: 2px;
 }
 
 .tool-frame {
