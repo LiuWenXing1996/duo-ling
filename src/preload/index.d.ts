@@ -135,6 +135,7 @@ declare global {
         list: () => Promise<
           Array<{ id: string; name: string; title: string; description: string }>
         >
+        delete: (id: string) => Promise<{ ok: boolean; error?: string }>
         update: (
           id: string,
           changes: {

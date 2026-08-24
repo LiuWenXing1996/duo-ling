@@ -1,19 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
-import {
-  ArrowLeft as UiArrowLeft,
-  Plus as UiPlus,
-  Search as UiSearch,
-  Settings as UiSettings
-} from '@lucide/vue'
-import { Button as UiButton } from '@/components/ui/button'
-import SettingsPanel from '@/components/settings-panel.vue'
+import { computed, onMounted, ref } from 'vue'
+import { Plus as UiPlus, Search as UiSearch, Settings as UiSettings } from '@lucide/vue'
 import ToolWorkspace from '@/components/tool-workspace.vue'
 
-// 当前视图：工具多标签页（默认主页）/ 设置页
-const view = ref<'tools' | 'settings'>('tools')
-
-// 左侧导航栏「新建工具」：切回工具视图并调用工具工作台的创建逻辑
+// 左侧导航栏「新建工具」「设置」：调用工具工作台的对应方法
 const workspaceRef = ref<InstanceType<typeof ToolWorkspace> | null>(null)
 
 // 全局搜索：从主进程读取所有已落盘工具元信息，在顶栏搜索框中筛选并下拉列出
@@ -33,25 +23,24 @@ const filteredTools = computed<ToolMeta[]>(() => {
   )
 })
 
-onMounted(async () => {
+async function reloadTools(): Promise<void> {
   try {
     allTools.value = await window.api.tool.list()
   } catch (error) {
     console.error('加载工具列表失败', error)
   }
-})
+}
 
-// 点击下拉项：切回工具视图并打开对应工具标签
+onMounted(reloadTools)
+
+// 点击下拉项：打开对应工具标签
 function openTool(tool: ToolMeta): void {
-  view.value = 'tools'
   workspaceRef.value?.openTool(tool)
   searchQuery.value = ''
   searchFocused.value = false
 }
 
-async function handleCreateTool(): Promise<void> {
-  view.value = 'tools'
-  await nextTick()
+function handleCreateTool(): void {
   workspaceRef.value?.createTool()
 }
 </script>
@@ -105,39 +94,17 @@ async function handleCreateTool(): Promise<void> {
         </button>
         <button
           class="workspace-nav-item"
-          :class="{ 'workspace-nav-item--active': view === 'settings' }"
           type="button"
           aria-label="设置"
           title="设置"
-          @click="view = view === 'settings' ? 'tools' : 'settings'"
+          @click="workspaceRef?.openSettingsTab()"
         >
           <ui-settings class="size-5" />
         </button>
       </aside>
 
-      <section class="workspace-panel workspace-panel--grow" v-show="view === 'tools'">
-        <tool-workspace ref="workspaceRef" @open-settings="view = 'settings'" />
-      </section>
-
-      <section class="workspace-panel workspace-panel--grow" v-show="view === 'settings'">
-        <div class="flex h-full flex-col">
-          <header class="flex h-11 shrink-0 items-center gap-2 border-b px-3">
-            <ui-button
-              variant="ghost"
-              size="icon"
-              class="no-drag size-8"
-              aria-label="返回工具"
-              title="返回工具"
-              @click="view = 'tools'"
-            >
-              <ui-arrow-left class="size-4" />
-            </ui-button>
-            <h1 class="text-base font-semibold">设置</h1>
-          </header>
-          <div class="min-h-0 flex-1">
-            <settings-panel />
-          </div>
-        </div>
+      <section class="workspace-panel workspace-panel--grow">
+        <tool-workspace ref="workspaceRef" :tools="allTools" @tools-changed="reloadTools" />
       </section>
     </div>
   </div>

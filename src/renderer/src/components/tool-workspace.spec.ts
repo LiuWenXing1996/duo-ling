@@ -2,6 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ToolWorkspace from './tool-workspace.vue'
 
+// 弹窗内容被 Teleport 到 body，需直接操作 DOM
+function queryDialog(): HTMLElement {
+  const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null
+  expect(dialog, '未找到弹窗').toBeTruthy()
+  return dialog!
+}
+
+function buttonByText(root: HTMLElement | Document, text: string): HTMLButtonElement {
+  const button = [...root.querySelectorAll('button')].find(
+    (el) => el.textContent?.trim() === text
+  ) as HTMLButtonElement | undefined
+  expect(button, `未找到按钮：${text}`).toBeTruthy()
+  return button!
+}
+
 describe('ToolWorkspace', () => {
   beforeEach(() => {
     // 只注入 window.api，保留原生 window，避免破坏 @vue/test-utils 的 DOM 事件机制
@@ -14,6 +29,7 @@ describe('ToolWorkspace', () => {
             { id: 't-1', name: 'pdf-merge', title: 'PDF 合并器', description: '合并多个 PDF' }
           ]),
           update: vi.fn().mockResolvedValue({ ok: true }),
+          delete: vi.fn().mockResolvedValue({ ok: true }),
           getPreloadPath: vi.fn().mockResolvedValue('file:///preload/tool.cjs')
         },
         generator: {
@@ -25,6 +41,9 @@ describe('ToolWorkspace', () => {
         model: {
           list: vi.fn().mockResolvedValue({ profiles: [], activeId: '' }),
           setActive: vi.fn().mockResolvedValue(undefined)
+        },
+        provider: {
+          list: vi.fn().mockResolvedValue([])
         },
         settings: {
           getSystemPrompt: vi.fn().mockResolvedValue(''),
@@ -42,11 +61,14 @@ describe('ToolWorkspace', () => {
     delete (window as unknown as Record<string, unknown>).api
   })
 
-  it('默认不展示任何演示/占位工具', () => {
+  it('默认展示主页标签，且不展示任何演示/占位工具', () => {
     const wrapper = mount(ToolWorkspace)
 
-    // 空工作台提示：指向左侧导航栏「新建工具」
-    expect(wrapper.text()).toContain('还没有工具，点击左侧「新建工具」创建')
+    // 主页标签始终存在，为默认视图
+    expect(wrapper.text()).toContain('主页')
+
+    // 主页空状态：指向「新增工具」按钮
+    expect(wrapper.text()).toContain('还没有工具，点击右上角「新增工具」创建')
 
     // 不再渲染任何演示工具或占位标签
     expect(wrapper.text()).not.toContain('PDF 合并器')
@@ -67,8 +89,8 @@ describe('ToolWorkspace', () => {
     })
     const wrapper = mount(ToolWorkspace)
 
-    // 顶栏「新建工具」按钮已迁移到根布局侧边栏（App.vue），
-    // 这里直接调用组件暴露的方法触发新建。
+    // 主页网格里的「新增工具」与侧边栏按钮都调用组件暴露的方法，
+    // 这里直接通过方法触发新建。
     await (wrapper.vm as unknown as { createTool: () => Promise<void> }).createTool()
     await flushPromises()
     await wrapper.vm.$nextTick()
@@ -76,15 +98,111 @@ describe('ToolWorkspace', () => {
     // 调用主进程创建
     expect(window.api.tool.create).toHaveBeenCalledTimes(1)
 
-    // 标签栏出现新工具标签，且被激活，空工作台提示消失
+    // 标签栏出现新工具标签，且被激活，主页空状态提示消失
     expect(wrapper.text()).toContain('新建工具')
-    expect(wrapper.text()).not.toContain('还没有工具，点击左侧「新建工具」创建')
+    expect(wrapper.text()).not.toContain('还没有工具，点击右上角「新增工具」创建')
 
     // 激活标签渲染三栏工具页：会话历史 / 当前会话 / 工具详情
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('会话历史')
     expect(wrapper.text()).toContain('当前会话')
     expect(wrapper.text()).toContain('工具详情')
+
+    wrapper.unmount()
+  })
+
+  it('主页网格展示所有工具，点击卡片打开对应标签页', async () => {
+    const wrapper = mount(ToolWorkspace, {
+      props: {
+        tools: [
+          { id: 't-1', name: 'pdf-merge', title: 'PDF 合并器', description: '合并多个 PDF' }
+        ]
+      }
+    })
+    await wrapper.vm.$nextTick()
+
+    // 主页网格列出所有工具
+    expect(wrapper.text()).toContain('PDF 合并器')
+    expect(wrapper.text()).toContain('合并多个 PDF')
+
+    // 点击卡片打开对应工具标签
+    await wrapper.find('.tool-card').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('会话历史')
+    expect(wrapper.text()).toContain('当前会话')
+    expect(wrapper.text()).toContain('工具详情')
+
+    wrapper.unmount()
+  })
+
+  it('打开设置标签页：新开一个「设置」标签并渲染设置面板', async () => {
+    const wrapper = mount(ToolWorkspace)
+
+    // 调用暴露的方法打开设置标签
+    ;(wrapper.vm as unknown as { openSettingsTab: () => void }).openSettingsTab()
+    await wrapper.vm.$nextTick()
+
+    // 标签栏出现「设置」标签
+    expect(wrapper.text()).toContain('设置')
+
+    // 设置面板内容渲染（模型管理 / 系统提示词 / 审批）
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('模型管理')
+    expect(wrapper.text()).toContain('系统提示词')
+    expect(wrapper.text()).toContain('AI 改工具审批')
+
+    wrapper.unmount()
+  })
+
+  it('主页工具卡片删除按钮：打开确认弹窗，确认后删除并通知刷新', async () => {
+    const wrapper = mount(ToolWorkspace, {
+      attachTo: document.body,
+      props: {
+        tools: [
+          { id: 't-1', name: 'pdf-merge', title: 'PDF 合并器', description: '合并多个 PDF' }
+        ]
+      }
+    })
+    await flushPromises()
+
+    // 点击删除按钮：仅打开确认弹窗，不立即删除
+    await wrapper.find('.tool-card__delete').trigger('click')
+    await flushPromises()
+
+    const dialog = queryDialog()
+    expect(dialog.textContent).toContain('删除工具')
+    expect(dialog.textContent).toContain('PDF 合并器')
+
+    // 点击弹窗「删除」按钮执行删除
+    await buttonByText(dialog, '删除').click()
+    await flushPromises()
+
+    expect(window.api.tool.delete).toHaveBeenCalledWith('t-1')
+    expect(wrapper.emitted('toolsChanged')).toBeTruthy()
+
+    wrapper.unmount()
+  })
+
+  it('主页工具卡片删除：点击「取消」则不删除', async () => {
+    const wrapper = mount(ToolWorkspace, {
+      attachTo: document.body,
+      props: {
+        tools: [
+          { id: 't-1', name: 'pdf-merge', title: 'PDF 合并器', description: '合并多个 PDF' }
+        ]
+      }
+    })
+    await flushPromises()
+
+    await wrapper.find('.tool-card__delete').trigger('click')
+    await flushPromises()
+
+    const dialog = queryDialog()
+    await buttonByText(dialog, '取消').click()
+    await flushPromises()
+
+    expect(window.api.tool.delete).not.toHaveBeenCalled()
+    expect(wrapper.emitted('toolsChanged')).toBeFalsy()
 
     wrapper.unmount()
   })

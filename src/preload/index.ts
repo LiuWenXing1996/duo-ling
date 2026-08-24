@@ -181,6 +181,8 @@ const api = {
       create: (): Promise<{ ok: boolean; id?: string; title?: string; error?: string }> =>
         ipcRenderer.invoke('tool:create'),
       list: (): Promise<ToolPageMetaData[]> => ipcRenderer.invoke('tool:list'),
+      delete: (id: string): Promise<{ ok: boolean; error?: string }> =>
+        ipcRenderer.invoke('tool:delete', id),
       update: (
         id: string,
         changes: ToolPageUpdateInput

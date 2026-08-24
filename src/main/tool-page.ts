@@ -7,7 +7,7 @@
 // 页面交互用原生 JS 调用 window.cap.run（来自 <webview> 的 guest preload）执行原子能力；全程零模板编译、零 eval。
 
 import { app } from 'electron'
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, normalize } from 'node:path'
 
 /** 工具页面目录根：<userData>/tools/<id>/… */
@@ -73,6 +73,22 @@ export function listToolPages(): ToolPageMeta[] {
     }
   }
   return list
+}
+
+/**
+ * 删除指定工具：递归移除 <userData>/tools/<id>/ 整个目录。
+ * 为防止目录穿越，id 不允许包含路径分隔符或 `..`；目录不存在时视为删除成功（幂等）。
+ */
+export function deleteToolPage(id: string): { ok: true } | { ok: false; error: string } {
+  if (!id || typeof id !== 'string' || id.includes('..') || id.includes('/') || id.includes('\\')) {
+    return { ok: false, error: '非法工具 id' }
+  }
+  try {
+    rmSync(join(toolsRoot(), id), { recursive: true, force: true })
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 /** 新建工具的脚手架页：自我包含的完整 HTML（内联 <style>/<script>），可直接被 tool:// 加载。 */

@@ -3,7 +3,7 @@ import { join, normalize } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { writeToolPage, newToolScaffoldHtml, toolsRoot, listToolPages, applyToolChanges, type ToolChangeList } from './tool-page'
+import { writeToolPage, newToolScaffoldHtml, toolsRoot, listToolPages, applyToolChanges, deleteToolPage, type ToolChangeList } from './tool-page'
 import { runFrontendCapability } from './frontend-impls'
 import { listTasks, createTask, renameTask, saveTasks, type Task } from './store'
 import {
@@ -525,6 +525,15 @@ app.whenReady().then(() => {
 
   // 读取所有已落盘工具列表（供全局搜索下拉等场景使用）
   ipcMain.handle('tool:list', () => listToolPages())
+
+  // 删除指定工具：移除 <userData>/tools/<id>/ 目录（主页工具卡片删除按钮调用）
+  ipcMain.handle(
+    'tool:delete',
+    (_event, id: string): { ok: boolean; error?: string } => {
+      const result = deleteToolPage(id)
+      return result.ok ? { ok: true } : { ok: false, error: result.error }
+    }
+  )
 
   // 应用生成器产出的「变更清单」到当前工具：由主进程负责校验 + 落盘，而非放开 AI 直接碰磁盘。
   // 「当前会话」聊天驱动 AI 构建/修改工具时调用（手动审批用户确认后 / 自动审批直接触发）。
