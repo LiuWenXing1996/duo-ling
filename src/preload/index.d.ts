@@ -151,6 +151,15 @@ declare global {
           }
         ) => Promise<{ ok: boolean; title?: string; changedFiles?: string[]; error?: string }>
         getPreloadPath: () => Promise<string>
+        history: (
+          id: string
+        ) => Promise<
+          | {
+              ok: true
+              commits: Array<{ oid: string; message: string; author: string; timestamp: number }>
+            }
+          | { ok: false; error: string }
+        >
       }
       chat: {
         history: (

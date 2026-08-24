@@ -288,14 +288,14 @@ async function stopGeneration(): Promise<void> {
             <div
               v-show="expandedThink.has(m.id)"
               data-testid="think-body"
-              class="mt-1.5 whitespace-pre-wrap"
+              class="mt-1.5 whitespace-pre-wrap break-words"
             >
               {{ thinkOf(m) }}
             </div>
           </div>
           <!-- 消息气泡 -->
           <div
-            class="max-w-[80%] rounded-lg px-3 py-2 text-sm"
+            class="max-w-[80%] min-w-0 break-words rounded-lg px-3 py-2 text-sm"
             :class="
               m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
             "

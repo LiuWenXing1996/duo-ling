@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { writeToolPage, newToolScaffoldHtml, toolsRoot, listToolPages, applyToolChanges, deleteToolPage, type ToolChangeList } from './tool-page'
+import { initToolRepo, commitToolChanges, listToolHistory, type ToolCommit } from './tool-git'
 import { runFrontendCapability } from './frontend-impls'
 import { listTasks, createTask, renameTask, saveTasks, type Task } from './store'
 import {
@@ -505,11 +506,13 @@ app.whenReady().then(() => {
   // 点击「新建工具」：宿主分配唯一 ID，落盘脚手架 index.html 与 meta.json，返回后由渲染层打开该工具标签页。
   ipcMain.handle(
     'tool:create',
-    (): { ok: boolean; id?: string; title?: string; error?: string } => {
+    async (): Promise<{ ok: boolean; id?: string; title?: string; error?: string }> => {
       try {
         const id = createToolId()
         const title = '新建工具'
         writeToolPage({ id, name: 'new-tool', title, description: '', html: newToolScaffoldHtml(title) })
+        // 工具已落盘成功后为目录建仓并做「创建工具」首提；git 记录失败不阻断创建
+        await initToolRepo(id)
         return { ok: true, id, title }
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) }
@@ -526,6 +529,13 @@ app.whenReady().then(() => {
   // 读取所有已落盘工具列表（供全局搜索下拉等场景使用）
   ipcMain.handle('tool:list', () => listToolPages())
 
+  // 读取某工具的 git 提交历史（新在先；无仓库则空列表，供「版本历史」标签页使用）
+  ipcMain.handle(
+    'tool:history',
+    (_event, id: string): Promise<{ ok: true; commits: ToolCommit[] } | { ok: false; error: string }> =>
+      listToolHistory(id)
+  )
+
   // 删除指定工具：移除 <userData>/tools/<id>/ 目录（主页工具卡片删除按钮调用）
   ipcMain.handle(
     'tool:delete',
@@ -539,13 +549,17 @@ app.whenReady().then(() => {
   // 「当前会话」聊天驱动 AI 构建/修改工具时调用（手动审批用户确认后 / 自动审批直接触发）。
   ipcMain.handle(
     'tool:update',
-    (
+    async (
       _event,
       id: string,
       changes: ToolChangeList
-    ): { ok: boolean; title?: string; changedFiles?: string[]; error?: string } => {
+    ): Promise<{ ok: boolean; title?: string; changedFiles?: string[]; error?: string }> => {
       try {
         const result = applyToolChanges(id, changes)
+        // 变更清单成功落盘后自动提交一次（一次变更清单 = 一个 commit，message 用 summary）
+        if (result.ok) {
+          await commitToolChanges(id, changes.summary)
+        }
         return result
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) }

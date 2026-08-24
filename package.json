@@ -24,7 +24,8 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "electron-store": "^11.0.2"
+    "electron-store": "^11.0.2",
+    "isomorphic-git": "^1.41.9"
   },
   "devDependencies": {
     "@lucide/vue": "^1.33.0",

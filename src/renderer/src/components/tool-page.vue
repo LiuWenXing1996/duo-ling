@@ -11,8 +11,10 @@ import {
   Check as UiCheck,
   ChevronRight as UiChevronRight,
   ChevronsUpDown as UiChevronsUpDown,
+  GitBranch as UiGitBranch,
   ListTodo as UiListTodo,
-  Plus as UiPlus
+  Plus as UiPlus,
+  Trash2 as UiTrash2
 } from '@lucide/vue'
 
 // 一个工具标签页的标识：唯一 ID（决定 tool:// 源与工具文件夹名）+ 展示名
@@ -119,7 +121,11 @@ interface ToolChatMessage {
   content: string
 }
 
-const emit = defineEmits<{ renamed: [id: string, title: string]; openSettings: [] }>()
+const emit = defineEmits<{
+  renamed: [id: string, title: string]
+  openSettings: []
+  openHistory: [tool: ToolPageMeta]
+}>()
 
 // 会话列表与其消息桶（以 sessionId 为键）
 const sessions = ref<ToolSession[]>([])
@@ -148,15 +154,47 @@ interface PendingChange {
   status: 'pending' | 'applied' | 'discarded'
   error?: string
 }
-// 待审批的变更卡片按会话隔离：切换会话回显对应卡片的原状态（pending/applied/discarded）
-const pendingBySession = ref<Record<string, PendingChange | null>>({})
-// pendingChange 是「当前激活会话」待审批卡片的视图：读跟随 activeSessionId，写回对应桶
-const pendingChange = computed<PendingChange | null>({
-  get: () => pendingBySession.value[activeSessionId.value] ?? null,
-  set: (v) => {
-    pendingBySession.value[activeSessionId.value] = v ?? null
+// 待审批的变更卡片按「会话 + 消息」记录：同一会话内每条 AI 变更消息都保留独立卡片，
+// 已应用 / 已放弃的状态随卡片持久化，切换会话时回显原状态。
+const pendingBySession = ref<Record<string, Record<string, PendingChange>>>({})
+// 当前激活会话的卡片映射（messageId -> PendingChange），切换会话时随 activeSessionId 回显
+const pendingMap = computed<Record<string, PendingChange>>(
+  () => pendingBySession.value[activeSessionId.value] ?? {}
+)
+
+/** 取某条 AI 消息挂载的变更卡片（可能不存在，如自动模式或无变更） */
+function pendingOf(messageId: string): PendingChange | undefined {
+  return pendingMap.value[messageId]
+}
+
+// 兼容旧版本单例存储（Record<sessionId, PendingChange | null>）迁移为按消息分桶
+function normalizePendingStore(
+  store: unknown
+): Record<string, Record<string, PendingChange>> {
+  const out: Record<string, Record<string, PendingChange>> = {}
+  if (!store || typeof store !== 'object') return out
+  for (const [sid, val] of Object.entries(store as Record<string, unknown>)) {
+    if (!val || typeof val !== 'object') {
+      out[sid] = {}
+      continue
+    }
+    const v = val as Record<string, unknown>
+    // 旧结构：单个卡片（含 messageId）或 null；新结构：messageId -> 卡片的哈希
+    if (typeof v.messageId === 'string') {
+      const pc = val as unknown as PendingChange
+      out[sid] = typeof pc.messageId === 'string' ? { [pc.messageId]: pc } : {}
+    } else {
+      const map: Record<string, PendingChange> = {}
+      for (const [mid, card] of Object.entries(v)) {
+        if (card && typeof card === 'object' && (card as PendingChange).messageId) {
+          map[mid] = card as PendingChange
+        }
+      }
+      out[sid] = map
+    }
   }
-})
+  return out
+}
 
 onMounted(async () => {
   startHeartbeatWatch()
@@ -172,7 +210,7 @@ onMounted(async () => {
   if (saved) {
     sessions.value = saved.sessions ?? []
     messagesBySession.value = saved.messagesBySession ?? {}
-    pendingBySession.value = saved.pendingBySession ?? {}
+    pendingBySession.value = normalizePendingStore(saved.pendingBySession)
     activeSessionId.value = saved.activeSessionId ?? ''
   }
   // 无可用会话（首次进入或数据损坏）时自动新建，保证当前会话始终存在
@@ -187,17 +225,57 @@ async function setApprovalMode(mode: ApprovalMode): Promise<void> {
 }
 
 // —— 思考过程可视化：把 <think>...</think> 拆为「思考内容」与「答案」两部分 ——
+// 对称处理 think 标签：成对块进「思考内容」；只有 <think> 未闭合时也视为思考（吞到末尾）；
+// 孤立的 </think> 等散落标签则从「答案」中清掉，避免正文露出标签。
 function splitContent(content: string): { think: string; answer: string } {
-  const open = content.indexOf('<think>')
-  if (open === -1) return { think: '', answer: content.trim() }
-  const rest = content.slice(open + '<think>'.length)
-  const close = rest.indexOf('</think>')
-  if (close === -1) return { think: rest.trim(), answer: '' }
-  return { think: rest.slice(0, close).trim(), answer: rest.slice(close + '</think>'.length).trim() }
+  const thinkBlocks = content.match(/<think>[\s\S]*?(?:<\/think>|$)/gi) ?? []
+  const think = thinkBlocks
+    .map((t) => t.replace(/<\/?think>/gi, '').trim())
+    .filter(Boolean)
+    .join('\n\n')
+  const answer = content
+    .replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '')
+    .replace(/<\/?think>/gi, '')
+    .trim()
+  return { think, answer }
 }
 
 const thinkOf = (m: ToolChatMessage): string => splitContent(m.content).think
-const answerOf = (m: ToolChatMessage): string => splitContent(m.content).answer
+
+/** 流式草稿中正文是否仍是「生成工具的契约 JSON」（以 ```json 或 { 开头）。
+ * 是则用「正在思考…」遮挡，避免正文先把 JSON 逐字输出、完成后瞬间跳变 summary 的割裂感。 */
+function isContractAnswer(text: string): boolean {
+  const t = text.trim()
+  return t.startsWith('```json') || t.startsWith('{')
+}
+
+/** 打字机：记录各消息正文已显示的字符数（模拟流式逐字输出） */
+const typing = ref<Record<string, number>>({})
+
+/** 消息正文：已完成的非契约正文用打字机逐字显示；流式契约 JSON 用「正在思考…」遮挡 */
+function answerOf(m: ToolChatMessage): string {
+  const raw = splitContent(m.content).answer
+  if (isContractAnswer(raw)) return '正在思考…'
+  const n = typing.value[m.id]
+  return n != null ? raw.slice(0, n) : raw
+}
+
+/** 启动「假流式」：把正文按帧逐字追加直到完整。契约 JSON 不参与，避免解析失败时泄露原文。 */
+function runTyping(messageId: string, full: string): void {
+  if (!full || isContractAnswer(full)) return
+  let shown = 0
+  typing.value[messageId] = shown
+  const step = (): void => {
+    shown += 1
+    typing.value[messageId] = shown
+    if (shown >= full.length) {
+      delete typing.value[messageId]
+      return
+    }
+    setTimeout(step, 24)
+  }
+  setTimeout(step, 24)
+}
 
 // 折叠式思考过程：记录已展开的消息 id（默认折叠）
 const expandedThink = ref<Set<string>>(new Set())
@@ -276,7 +354,7 @@ function storageKey(): string {
 interface SessionStore {
   sessions: ToolSession[]
   messagesBySession: Record<string, ToolChatMessage[]>
-  pendingBySession: Record<string, PendingChange | null>
+  pendingBySession: Record<string, Record<string, PendingChange>>
   activeSessionId: string
 }
 
@@ -330,8 +408,74 @@ function newSession(): void {
   sessions.value.push(session)
   messagesBySession.value[id] = []
   activeSessionId.value = id
-  pendingChange.value = null
+  pendingBySession.value[id] = {}
   saveSessions()
+}
+
+// —— 删除会话：单个 / 全部，删除前用「跟随点击位置的确认浮层」确认 ——
+// 单一浮层实例：点击删除按钮时记录点击坐标与删除目标类型，浮层在点击处弹出。
+// 避免为每个按钮各自挂 Popover、在 v-for 中产生多个浮层实例导致定位/内容串扰（点单个却弹出「全部」文案）。
+const deleteConfirm = ref<
+  { type: 'session' | 'all'; id?: string; title?: string; x: number; y: number } | null
+>(null)
+
+function openSessionDelete(
+  s: { id: string; title: string },
+  e: MouseEvent
+): void {
+  e.stopPropagation()
+  deleteConfirm.value = { type: 'session', id: s.id, title: s.title, x: e.clientX, y: e.clientY }
+}
+
+function openDeleteAll(e: MouseEvent): void {
+  deleteConfirm.value = { type: 'all', x: e.clientX, y: e.clientY }
+}
+
+function cancelDelete(): void {
+  deleteConfirm.value = null
+}
+
+function confirmDelete(): void {
+  const t = deleteConfirm.value
+  if (!t) return
+  if (t.type === 'session' && t.id) deleteSession(t.id)
+  else deleteAllSessions()
+  deleteConfirm.value = null
+}
+
+// 确认浮层定位：跟随点击坐标，并钳制在视口内避免溢出
+const confirmStyle = computed(() => {
+  const t = deleteConfirm.value
+  if (!t) return {}
+  const x = Math.min(t.x + 8, window.innerWidth - 240)
+  const y = Math.min(t.y + 8, window.innerHeight - 140)
+  return { left: x + 'px', top: y + 'px' }
+})
+
+function deleteSession(id: string): void {
+  sessions.value = sessions.value.filter((s) => s.id !== id)
+  delete messagesBySession.value[id]
+  delete pendingBySession.value[id]
+  if (activeSessionId.value === id) {
+    activeSessionId.value = ''
+    // 仍有余下会话则激活第一个；否则新建空会话保证当前会话始终存在
+    if (sessions.value.length) {
+      activeSessionId.value = sessions.value[0].id
+    } else {
+      newSession()
+      return
+    }
+  }
+  saveSessions()
+}
+
+function deleteAllSessions(): void {
+  sessions.value = []
+  messagesBySession.value = {}
+  pendingBySession.value = {}
+  activeSessionId.value = ''
+  draft.value = null
+  newSession()
 }
 
 // 生成器流式 token：把增量累积到待生成的草稿消息（done/aborted/error 由 send 收尾，避免重复处理）
@@ -377,17 +521,32 @@ async function send(): Promise<void> {
       const parsed = parseGeneratedChanges(res.content)
       // changes 为 null：可视作 LLM 在澄清追问 / 能力缺失说明，保留原文作为普通回复
       if (parsed.changes) {
+        // 有实际改动：正文不再直出契约 JSON，改用 summary 作为人类可读回复
+        // （保留思考过程；卡片另展示 summary + 动作详情，避免正文裸露 JSON 字符串）。
+        const summary = parsed.changes.summary?.trim()
+          ? parsed.changes.summary
+          : '已生成对当前工具的改动，请在下方确认后应用'
+        const { think } = splitContent(draftMsg.content)
+        draftMsg.content = think ? `<think>${think}</think>\n\n${summary}` : summary
         if (approvalMode.value === 'auto') {
           // 自动审批：AI 改完直接落盘；失败错误由 applyChanges 回填到消息
           await applyChanges(draftMsg.id, parsed.changes)
         } else {
-          pendingChange.value = { messageId: draftMsg.id, changes: parsed.changes, status: 'pending' }
+          pendingMap.value[draftMsg.id] = {
+            messageId: draftMsg.id,
+            changes: parsed.changes,
+            status: 'pending'
+          }
         }
       } else if (parsed.summary) {
         // LLM 输出的是「无实际动作」的契约 JSON（多为澄清追问）：
-        // 把直出的原始 JSON 替换为人性化 summary，避免正文裸露 JSON 字符串。
-        draftMsg.content = parsed.summary
+        // 把直出的原始 JSON 替换为人性化 summary；同时保留思考过程，
+        // 避免用 summary 整体覆盖 content 导致完成后思考过程消失。
+        const { think } = splitContent(draftMsg.content)
+        draftMsg.content = think ? `<think>${think}</think>\n\n${parsed.summary}` : parsed.summary
       }
+      // 「假流式」：正文解析完成后逐字显示（契约 JSON 在 runTyping 内被排除）
+      runTyping(draftMsg.id, splitContent(draftMsg.content).answer)
     } else if (res.error) {
       messages.value = messages.value.filter((m) => m.id !== draftMsg.id)
     }
@@ -402,10 +561,11 @@ async function send(): Promise<void> {
 
 // 应用变更清单：调用主进程落盘，成功则同步标签名并刷新工具页
 async function applyChanges(messageId: string, changes: GeneratedChangeList): Promise<void> {
-  const current = pendingChange.value
+  // 按消息定位卡片；自动模式（无卡片）时 current 为 undefined，错误会回填到消息正文
+  const current = pendingMap.value[messageId]
   let updated: Awaited<ReturnType<typeof window.api.tool.update>>
   try {
-    // changes 可能来自响应式 ref（pendingChange.changes），实为 Vue 的 reactive Proxy，
+    // changes 可能来自响应式 ref（pendingOf().changes），实为 Vue 的 reactive Proxy，
     // 直接经 contextBridge 传给主进程会触发 structured clone 报「An object could not be cloned」。
     // 先做一次 JSON 深拷贝得到纯数据对象，再跨进程传递。
     const payload = JSON.parse(JSON.stringify(changes)) as GeneratedChangeList
@@ -444,14 +604,14 @@ async function applyChanges(messageId: string, changes: GeneratedChangeList): Pr
 }
 
 function applyPending(messageId: string): void {
-  const current = pendingChange.value
+  const current = pendingMap.value[messageId]
   if (current && current.messageId === messageId && current.status === 'pending') {
     void applyChanges(messageId, current.changes)
   }
 }
 
 function discardPending(messageId: string): void {
-  const current = pendingChange.value
+  const current = pendingMap.value[messageId]
   if (current && current.messageId === messageId && current.status === 'pending') {
     current.status = 'discarded'
     saveSessions()
@@ -497,16 +657,28 @@ function startResize(e: MouseEvent, side: 'sess' | 'detail'): void {
     <!-- 会话历史 -->
     <aside class="tool-sess panel" :style="{ width: sessWidth + 'px' }">
       <header class="panel-header flex items-center justify-between gap-2">
+        <h2 class="panel-title flex items-center gap-2">
+          <ui-list-todo class="size-4" />
+          会话历史
+        </h2>
         <div class="flex items-center gap-1">
-          <h2 class="panel-title flex items-center gap-2">
-            <ui-list-todo class="size-4" />
-            会话历史
-          </h2>
+          <ui-button
+            variant="ghost"
+            size="icon"
+            class="no-drag size-7"
+            aria-label="删除全部会话"
+            title="删除全部会话"
+            :disabled="!sessions.length"
+            @click="openDeleteAll"
+          >
+            <ui-trash2 class="size-4" />
+          </ui-button>
           <ui-button
             variant="ghost"
             size="icon"
             class="no-drag size-7"
             aria-label="新建会话"
+            title="新建会话"
             @click="newSession"
           >
             <ui-plus class="size-4" />
@@ -519,12 +691,26 @@ function startResize(e: MouseEvent, side: 'sess' | 'detail'): void {
           <li
             v-for="s in sessions"
             :key="s.id"
-            class="cursor-pointer px-4 py-2.5 transition-colors hover:bg-accent"
+            class="group cursor-pointer px-4 py-2.5 transition-colors hover:bg-accent"
             :class="{ 'bg-accent': s.id === activeSessionId }"
             @click="activateSession(s.id)"
           >
-            <p class="truncate text-sm">{{ s.title }}</p>
-            <p class="text-muted-foreground text-xs">{{ s.meta }}</p>
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <p class="truncate text-sm">{{ s.title }}</p>
+                <p class="text-muted-foreground text-xs">{{ s.meta }}</p>
+              </div>
+              <ui-button
+                variant="ghost"
+                size="icon"
+                class="size-6 shrink-0 text-muted-foreground transition-colors hover:text-destructive no-drag"
+                aria-label="删除该会话"
+                title="删除该会话"
+                @click="openSessionDelete(s, $event)"
+              >
+                <ui-trash2 class="size-3.5" />
+              </ui-button>
+            </div>
           </li>
         </ul>
         <div v-else class="panel-body">
@@ -597,14 +783,14 @@ function startResize(e: MouseEvent, side: 'sess' | 'detail'): void {
               <div
                 v-show="expandedThink.has(m.id)"
                 data-testid="think-body"
-                class="mt-1.5 whitespace-pre-wrap"
+                class="mt-1.5 whitespace-pre-wrap break-words"
               >
                 {{ thinkOf(m) }}
               </div>
             </div>
             <!-- 消息气泡 -->
             <div
-              class="max-w-[80%] rounded-lg px-3 py-2 text-sm"
+              class="max-w-[80%] min-w-0 break-words rounded-lg px-3 py-2 text-sm"
               :class="m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'"
             >
               <template v-if="m.role === 'user'">{{ m.content }}</template>
@@ -612,31 +798,31 @@ function startResize(e: MouseEvent, side: 'sess' | 'detail'): void {
                 {{ answerOf(m) || (draft && draft.id === m.id ? '正在思考…' : '') }}
               </template>
             </div>
-            <!-- 变更清单卡片：AI 产出改动后，手动模式下请用户确认是否应用 -->
+            <!-- 变更清单卡片：AI 产出改动后，手动模式下请用户确认是否应用；每条消息保留独立卡片 -->
             <div
-              v-if="m.role === 'ai' && pendingChange && pendingChange.messageId === m.id"
+              v-if="m.role === 'ai' && pendingOf(m.id)"
               class="max-w-[80%] rounded-lg border border-border bg-background/60 px-3 py-2"
               data-testid="change-card"
             >
               <p class="text-xs font-medium">
-                {{ pendingChange.changes.summary || 'AI 建议对当前工具做以下改动' }}
+                {{ pendingOf(m.id)?.changes.summary || 'AI 建议对当前工具做以下改动' }}
               </p>
               <ul class="mt-1.5 space-y-1 text-xs text-muted-foreground">
-                <li v-for="(a, i) in pendingChange.changes.actions" :key="i">
+                <li v-for="(a, i) in pendingOf(m.id)?.changes.actions ?? []" :key="i">
                   <span class="font-mono">{{ a.op }}</span> {{ a.file }}
                   <template v-if="a.op === 'patch' && a.find">：{{ truncate(a.find) }}…</template>
                 </li>
               </ul>
               <!-- 应用失败提示 -->
               <p
-                v-if="pendingChange.error"
+                v-if="pendingOf(m.id)?.error"
                 class="mt-1.5 text-xs text-destructive"
                 data-testid="change-error"
               >
-                {{ pendingChange.error }}
+                {{ pendingOf(m.id)?.error }}
               </p>
               <div class="mt-2 flex items-center gap-2">
-                <template v-if="pendingChange.status === 'pending'">
+                <template v-if="pendingOf(m.id)?.status === 'pending'">
                   <ui-button size="sm" @click="applyPending(m.id)">应用</ui-button>
                   <ui-button
                     size="sm"
@@ -647,7 +833,10 @@ function startResize(e: MouseEvent, side: 'sess' | 'detail'): void {
                     放弃
                   </ui-button>
                 </template>
-                <span v-else-if="pendingChange.status === 'applied'" class="text-xs text-green-600">
+                <span
+                  v-else-if="pendingOf(m.id)?.status === 'applied'"
+                  class="text-xs text-green-600"
+                >
                   已应用到当前工具
                 </span>
                 <span v-else class="text-xs text-muted-foreground">已放弃本次改动</span>
@@ -737,8 +926,18 @@ function startResize(e: MouseEvent, side: 'sess' | 'detail'): void {
 
     <!-- 工具详情：嵌入工具自身 index.html（tool:// 协议承载） -->
     <section class="tool-detail panel" :style="{ width: detailWidth + 'px' }">
-      <header class="panel-header">
+      <header class="panel-header flex items-center justify-between gap-2">
         <h2 class="panel-title">工具详情</h2>
+        <ui-button
+          variant="ghost"
+          size="icon"
+          class="no-drag size-7"
+          aria-label="查看版本历史"
+          title="查看版本历史"
+          @click="emit('openHistory', props.tool)"
+        >
+          <ui-git-branch class="size-4" />
+        </ui-button>
       </header>
 
       <div class="tool-detail-body">
@@ -763,6 +962,29 @@ function startResize(e: MouseEvent, side: 'sess' | 'detail'): void {
         </div>
       </div>
     </section>
+
+    <!-- 删除确认浮层：跟随点击位置弹出，type 决定文案与删除目标（单个 / 全部） -->
+    <teleport to="body">
+      <div v-if="deleteConfirm" class="fixed inset-0 z-50" @click="cancelDelete">
+        <div
+          class="bg-popover text-popover-foreground absolute w-56 rounded-md border p-3 shadow-md outline-none"
+          :style="confirmStyle"
+          @click.stop
+        >
+          <p class="text-xs">
+            {{
+              deleteConfirm.type === 'all'
+                ? '确定删除所有会话吗？删除后全部聊天记录将不可恢复。'
+                : `确定删除会话「${deleteConfirm.title}」吗？删除后聊天记录将不可恢复。`
+            }}
+          </p>
+          <div class="mt-2 flex items-center justify-end gap-2">
+            <ui-button variant="outline" size="sm" @click="cancelDelete">取消</ui-button>
+            <ui-button variant="destructive" size="sm" @click="confirmDelete">删除</ui-button>
+          </div>
+        </div>
+      </div>
+    </teleport>
   </div>
 </template>
 

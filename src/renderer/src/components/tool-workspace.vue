@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import type { PropType } from 'vue'
 import SettingsPanel from '@/components/settings-panel.vue'
 import ToolPage, { type ToolPageMeta } from '@/components/tool-page.vue'
+import ToolHistory from '@/components/tool-history.vue'
 import { Button as UiButton } from '@/components/ui/button'
 import {
   Dialog as UiDialog,
@@ -11,15 +12,18 @@ import {
   DialogFooter as UiDialogFooter,
   DialogTitle as UiDialogTitle
 } from '@/components/ui/dialog'
-import { Home as UiHome, Plus as UiPlus, Settings as UiSettings, Sparkles as UiSparkles, Trash2 as UiTrash, X as UiX } from '@lucide/vue'
+import { GitBranch as UiGitBranch, Home as UiHome, Plus as UiPlus, Settings as UiSettings, Sparkles as UiSparkles, Trash2 as UiTrash, X as UiX } from '@lucide/vue'
 
-// 打开的工作区标签：主页 / 工具 / 设置
+// 打开的工作区标签：主页 / 工具 / 设置 / 工具版本历史
 type OpenTool = {
-  /** 标签唯一标识：主页与设置固定，工具用工具 ID */
+  /** 标签唯一标识：主页与设置固定，工具用工具 ID，版本历史用「工具ID:history」 */
   id: string
   title: string
-  /** 标签种类：home 渲染工具主页，tool 渲染三栏工具页，settings 渲染设置面板 */
-  kind: 'home' | 'tool' | 'settings'
+  /** 标签种类：home 渲染工具主页，tool 渲染三栏工具页，settings 渲染设置面板，history 渲染版本历史 */
+  kind: 'home' | 'tool' | 'settings' | 'tool-history'
+  /** 仅 tool-history：对应的工具 ID 与标题（用于加载并展示该工具的 git 历史） */
+  toolId?: string
+  toolTitle?: string
 }
 
 // 工具元信息（来自主进程 tool.list）：主页网格与全局搜索共用
@@ -78,6 +82,21 @@ function openSettingsTab(): void {
     openTabs.value.push({ kind: 'settings', id: 'settings', title: '设置' })
   }
   activate('settings')
+}
+
+// 打开某工具的「版本历史」标签页：同一工具只有一个历史页，已打开则激活
+function openToolHistory(tool: ToolPageMeta): void {
+  const id = `${tool.id}:history`
+  if (!openTabs.value.some((t) => t.id === id)) {
+    openTabs.value.push({
+      kind: 'tool-history',
+      id,
+      title: `${tool.title} · 历史`,
+      toolId: tool.id,
+      toolTitle: tool.title
+    })
+  }
+  activate(id)
 }
 
 // 工具页内生成器重写 index.html + meta.json 后，同步更新标签标题
@@ -152,6 +171,7 @@ defineExpose({ createTool, openTool, openSettingsTab })
       >
         <ui-home v-if="tab.kind === 'home'" class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
         <ui-sparkles v-else-if="tab.kind === 'tool'" class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
+        <ui-git-branch v-else-if="tab.kind === 'tool-history'" class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
         <span class="truncate">{{ tab.title }}</span>
         <button
@@ -212,6 +232,13 @@ defineExpose({ createTool, openTool, openSettingsTab })
         :tool="activeToolMeta"
         @renamed="renameTab"
         @open-settings="openSettingsTab"
+        @open-history="openToolHistory"
+      />
+      <!-- 工具版本历史：展示该工具的 git 提交记录 -->
+      <tool-history
+        v-else-if="activeTab?.kind === 'tool-history'"
+        :tool-id="activeTab.toolId ?? ''"
+        :tool-title="activeTab.toolTitle ?? activeTab.title"
       />
       <!-- 设置标签：渲染设置面板 -->
       <settings-panel v-else-if="activeIsSettings" />

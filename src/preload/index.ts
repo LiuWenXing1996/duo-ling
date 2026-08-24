@@ -97,6 +97,14 @@ interface ToolPageMetaData {
   description: string
 }
 
+// 某工具的一次 git 提交快照（来自主进程 tool:history）
+interface ToolCommitData {
+  oid: string
+  message: string
+  author: string
+  timestamp: number
+}
+
 // 生成器审批模式：manual（AI 产出变更清单后由用户确认再应用）或 auto（直接应用）
 type GeneratorApprovalMode = 'manual' | 'auto'
 
@@ -189,7 +197,12 @@ const api = {
       ): Promise<{ ok: boolean; title?: string; changedFiles?: string[]; error?: string }> =>
         ipcRenderer.invoke('tool:update', id, changes),
       // 工具页 <webview> 的 guest preload 绝对路径（用于注入 window.cap + 心跳）
-      getPreloadPath: (): Promise<string> => ipcRenderer.invoke('tool:getPreloadPath')
+      getPreloadPath: (): Promise<string> => ipcRenderer.invoke('tool:getPreloadPath'),
+      // 读取某工具的 git 提交历史（新在先），供「版本历史」标签页使用
+      history: (
+        id: string
+      ): Promise<{ ok: true; commits: ToolCommitData[] } | { ok: false; error: string }> =>
+        ipcRenderer.invoke('tool:history', id)
     },
   chat: {
     history: (taskId: number): Promise<ChatMessageData[]> =>
