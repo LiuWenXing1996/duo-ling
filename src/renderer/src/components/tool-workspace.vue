@@ -12,6 +12,12 @@ import {
   DialogFooter as UiDialogFooter,
   DialogTitle as UiDialogTitle
 } from '@/components/ui/dialog'
+import {
+  Tabs as UiTabs,
+  TabsContent as UiTabsContent,
+  TabsList as UiTabsList,
+  TabsTrigger as UiTabsTrigger
+} from '@/components/ui/tabs'
 import { GitBranch as UiGitBranch, Home as UiHome, Plus as UiPlus, Settings as UiSettings, Sparkles as UiSparkles, Trash2 as UiTrash, X as UiX } from '@lucide/vue'
 
 // 打开的工作区标签：主页 / 工具 / 设置 / 工具版本历史
@@ -36,21 +42,7 @@ const emit = defineEmits<{ toolsChanged: [] }>()
 // 主页标签：始终存在且不可关闭，作为默认视图
 const HOME_TAB: OpenTool = { kind: 'home', id: 'home', title: '主页' }
 const openTabs = ref<OpenTool[]>([HOME_TAB])
-const activeTabId = ref('')
-
-const activeTab = computed<OpenTool | undefined>(
-  () => openTabs.value.find((t) => t.id === activeTabId.value) ?? openTabs.value[0]
-)
-
-// 当前激活标签是否为设置标签
-const activeIsSettings = computed(() => activeTab.value?.kind === 'settings')
-
-// 当前激活工具的三栏页元信息（会话历史 / 当前会话 / 工具详情）
-const activeToolMeta = computed<ToolPageMeta | undefined>(() => {
-  const tab = activeTab.value
-  if (!tab || tab.kind !== 'tool') return undefined
-  return { id: tab.id, title: tab.title }
-})
+const activeTabId = ref(HOME_TAB.id)
 
 function activate(id: string): void {
   activeTabId.value = id
@@ -158,91 +150,101 @@ defineExpose({ createTool, openTool, openSettingsTab })
 
 <template>
   <div class="tool-workspace">
-    <!-- 标签栏：主页 / 已打开工具 / 设置 -->
-    <nav v-if="openTabs.length" class="tool-tabbar" aria-label="工作区标签">
-      <div
+    <!-- 标签栏 + 内容面板：使用 shadcn Tabs（主页 / 已打开工具 / 设置 / 版本历史） -->
+    <ui-tabs
+      v-model="activeTabId"
+      :default-value="HOME_TAB.id"
+      activation-mode="manual"
+      class="flex min-h-0 flex-1 flex-col"
+    >
+      <ui-tabs-list v-if="openTabs.length" class="w-full justify-start gap-1 overflow-x-auto h-10 rounded-none border-b bg-muted" aria-label="工作区标签">
+        <ui-tabs-trigger
+          v-for="tab in openTabs"
+          :key="tab.id"
+          :value="tab.id"
+          as="div"
+          class="gap-1.5 text-[12.5px]"
+        >
+          <ui-home v-if="tab.kind === 'home'" class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
+          <ui-sparkles v-else-if="tab.kind === 'tool'" class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
+          <ui-git-branch v-else-if="tab.kind === 'tool-history'" class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
+          <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
+          <span class="truncate">{{ tab.title }}</span>
+          <button
+            v-if="tab.kind !== 'home'"
+            class="no-drag ml-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            type="button"
+            aria-label="关闭标签"
+            @mousedown.stop
+            @click.stop="closeTab(tab.id)"
+          >
+            <ui-x class="size-3" />
+          </button>
+        </ui-tabs-trigger>
+      </ui-tabs-list>
+
+      <ui-tabs-content
         v-for="tab in openTabs"
         :key="tab.id"
-        class="tool-tab"
-        :class="{ 'tool-tab--active': tab.id === activeTabId }"
-        role="tab"
-        :aria-selected="tab.id === activeTabId"
-        @click="activate(tab.id)"
+        :value="tab.id"
+        class="relative mt-0 min-h-0 flex-1"
       >
-        <ui-home v-if="tab.kind === 'home'" class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
-        <ui-sparkles v-else-if="tab.kind === 'tool'" class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
-        <ui-git-branch v-else-if="tab.kind === 'tool-history'" class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
-        <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === activeTabId ? 'text-primary' : ''" />
-        <span class="truncate">{{ tab.title }}</span>
-        <button
-          v-if="tab.kind !== 'home'"
-          class="no-drag ml-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-          type="button"
-          aria-label="关闭标签"
-          @click.stop="closeTab(tab.id)"
-        >
-          <ui-x class="size-3" />
-        </button>
-      </div>
-    </nav>
-
-    <div class="min-h-0 flex-1 relative">
-      <!-- 主页：所有工具网格 + 新增工具 -->
-      <div v-if="activeTab?.kind === 'home'" class="home-panel">
-        <header class="home-panel__header">
-          <h1 class="text-base font-semibold">主页</h1>
-          <button class="home-panel__new no-drag" type="button" @click="createTool">
-            <ui-plus class="size-4" />
-            <span>新增工具</span>
-          </button>
-        </header>
-        <p v-if="toolError" class="home-panel__error">{{ toolError }}</p>
-        <div class="home-panel__body">
-          <div
-            v-for="tool in props.tools"
-            :key="tool.id"
-            class="tool-card"
-            role="button"
-            tabindex="0"
-            @click="openTool(tool)"
-            @keydown.enter="openTool(tool)"
-          >
-            <button
-              class="tool-card__delete no-drag"
-              type="button"
-              aria-label="删除工具"
-              title="删除工具"
-              @click.stop="askDeleteTool(tool)"
-            >
-              <ui-trash class="size-3.5" />
+        <!-- 主页：所有工具网格 + 新增工具 -->
+        <div v-if="tab.kind === 'home'" class="home-panel">
+          <header class="home-panel__header">
+            <h1 class="text-base font-semibold">主页</h1>
+            <button class="home-panel__new no-drag" type="button" @click="createTool">
+              <ui-plus class="size-4" />
+              <span>新增工具</span>
             </button>
-            <span class="tool-card__icon">
-              <ui-sparkles class="size-4" />
-            </span>
-            <span class="tool-card__title">{{ tool.title }}</span>
-            <span class="tool-card__desc">{{ tool.description }}</span>
+          </header>
+          <p v-if="toolError" class="home-panel__error">{{ toolError }}</p>
+          <div class="home-panel__body">
+            <div
+              v-for="tool in props.tools"
+              :key="tool.id"
+              class="tool-card"
+              role="button"
+              tabindex="0"
+              @click="openTool(tool)"
+              @keydown.enter="openTool(tool)"
+            >
+              <button
+                class="tool-card__delete no-drag"
+                type="button"
+                aria-label="删除工具"
+                title="删除工具"
+                @click.stop="askDeleteTool(tool)"
+              >
+                <ui-trash class="size-3.5" />
+              </button>
+              <span class="tool-card__icon">
+                <ui-sparkles class="size-4" />
+              </span>
+              <span class="tool-card__title">{{ tool.title }}</span>
+              <span class="tool-card__desc">{{ tool.description }}</span>
+            </div>
+            <p v-if="!props.tools.length" class="home-panel__empty">还没有工具，点击右上角「新增工具」创建</p>
           </div>
-          <p v-if="!props.tools.length" class="home-panel__empty">还没有工具，点击右上角「新增工具」创建</p>
         </div>
-      </div>
-      <!-- 工具页：三栏（会话历史 / 当前会话 / 工具详情） -->
-      <tool-page
-        v-else-if="activeToolMeta"
-        :key="activeToolMeta.id"
-        :tool="activeToolMeta"
-        @renamed="renameTab"
-        @open-settings="openSettingsTab"
-        @open-history="openToolHistory"
-      />
-      <!-- 工具版本历史：展示该工具的 git 提交记录 -->
-      <tool-history
-        v-else-if="activeTab?.kind === 'tool-history'"
-        :tool-id="activeTab.toolId ?? ''"
-        :tool-title="activeTab.toolTitle ?? activeTab.title"
-      />
-      <!-- 设置标签：渲染设置面板 -->
-      <settings-panel v-else-if="activeIsSettings" />
-    </div>
+        <!-- 工具页：三栏（会话历史 / 当前会话 / 工具详情） -->
+        <tool-page
+          v-else-if="tab.kind === 'tool'"
+          :tool="{ id: tab.id, title: tab.title }"
+          @renamed="renameTab"
+          @open-settings="openSettingsTab"
+          @open-history="openToolHistory"
+        />
+        <!-- 工具版本历史：展示该工具的 git 提交记录 -->
+        <tool-history
+          v-else-if="tab.kind === 'tool-history'"
+          :tool-id="tab.toolId ?? ''"
+          :tool-title="tab.toolTitle ?? tab.title"
+        />
+        <!-- 设置标签：渲染设置面板 -->
+        <settings-panel v-else-if="tab.kind === 'settings'" />
+      </ui-tabs-content>
+    </ui-tabs>
 
     <!-- 删除工具确认弹窗：使用 UI 弹窗而非原生 confirm -->
     <ui-dialog v-model:open="deleteDialogOpen">
@@ -417,40 +419,6 @@ defineExpose({ createTool, openTool, openSettingsTab })
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-}
-
-.tool-tabbar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 40px;
-  padding: 0 8px;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--border);
-  background: var(--muted);
-}
-
-.tool-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  height: 100%;
-  padding: 0 10px 0 12px;
-  font-size: 12.5px;
-  color: var(--muted-foreground);
-  border-right: 1px solid var(--border);
-  transition: background-color 0.15s, color 0.15s;
-
-  &--active {
-    color: var(--foreground);
-    background: var(--card);
-  }
-
-  &:hover {
-    color: var(--foreground);
   }
 }
 </style>
