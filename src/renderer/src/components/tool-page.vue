@@ -12,6 +12,8 @@ import {
   ResizablePanelGroup as UiResizablePanelGroup
 } from '@/components/ui/resizable'
 import { parseGeneratedChanges, type GeneratedChangeList } from '@/lib/tool-generator'
+import { formatDate, truncate } from '@/lib/format'
+import { splitContent, isContractAnswer } from '@/lib/message-format'
 import ToolIcon from '@/components/tool-icon.vue'
 import ToolFrame from '@/components/tool-frame.vue'
 import {
@@ -147,29 +149,8 @@ onUnmounted(() => {
 // —— 思考过程可视化：把 <think>...</think> 拆为「思考内容」与「答案」两部分 ——
 // 对称处理 think 标签：成对块进「思考内容」；只有 <think> 未闭合时也视为思考（吞到末尾）；
 // 孤立的 </think> 等散落标签则从「答案」中清掉，避免正文露出标签。
-function splitContent(content: string): { think: string; answer: string } {
-  const thinkBlocks = content.match(/<think>[\s\S]*?(?:<\/think>|$)/gi) ?? []
-  const think = thinkBlocks
-    .map((t) => t.replace(/<\/?think>/gi, '').trim())
-    .filter(Boolean)
-    .join('\n\n')
-  const answer = content
-    .replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '')
-    .replace(/<\/?think>/gi, '')
-    .trim()
-  return { think, answer }
-}
-
 const thinkOf = (m: ToolChatMessage): string => splitContent(m.content).think
 
-/** 流式草稿中正文是否仍是「生成工具的契约 JSON」（以 ```json 或 { 开头）。
- * 是则用「正在思考…」遮挡，避免正文先把 JSON 逐字输出、完成后瞬间跳变 summary 的割裂感。 */
-function isContractAnswer(text: string): boolean {
-  const t = text.trim()
-  return t.startsWith('```json') || t.startsWith('{')
-}
-
-/** 打字机：记录各消息正文已显示的字符数（模拟流式逐字输出） */
 const typing = ref<Record<string, number>>({})
 
 /** 消息正文：已完成的非契约正文用打字机逐字显示；流式契约 JSON 用「正在思考…」遮挡 */
@@ -255,15 +236,6 @@ async function switchModel(id: string): Promise<void> {
 function goToSettings(): void {
   modelMenuOpen.value = false
   emit('openSettings')
-}
-
-function formatDate(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
-// 截断长文本，用于在变更卡片里展示 patch 的查找串摘要
-function truncate(text: string, max = 40): string {
-  return text.length > max ? `${text.slice(0, max)}` : text
 }
 
 // —— 会话持久化：按工具 id 分桶存 localStorage，切换/刷新/重启后回显 ——

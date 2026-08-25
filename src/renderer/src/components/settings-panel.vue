@@ -10,32 +10,8 @@ import {
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
+import type { ModelProfile, ModelProvider } from '@/types/model'
 import ModelFormDialog from './model-form-dialog.vue'
-
-interface ModelProfile {
-  id: string
-  name: string
-  providerId: string
-  baseUrl: string
-  model: string
-  enabled: boolean
-  useFullUrl: boolean
-  apiFormat: 'openai'
-  hasApiKey: boolean
-  contextOutputToken?: number
-  temperature?: number
-  topP?: number
-  topK?: number
-}
-
-interface ModelProvider {
-  id: string
-  name: string
-  baseUrl: string
-  keyUrl: string
-  models: string[]
-  supported: boolean
-}
 
 const profiles = ref<ModelProfile[]>([])
 const providers = ref<ModelProvider[]>([])

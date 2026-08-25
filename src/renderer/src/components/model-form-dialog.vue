@@ -30,31 +30,7 @@ import {
   X as UiX
 } from '@lucide/vue'
 import { cn } from '@/lib/utils'
-
-interface ModelProfile {
-  id: string
-  name: string
-  providerId: string
-  baseUrl: string
-  model: string
-  enabled: boolean
-  useFullUrl: boolean
-  apiFormat: 'openai'
-  hasApiKey: boolean
-  contextOutputToken?: number
-  temperature?: number
-  topP?: number
-  topK?: number
-}
-
-interface ModelProvider {
-  id: string
-  name: string
-  baseUrl: string
-  keyUrl: string
-  models: string[]
-  supported: boolean
-}
+import type { ModelProfile, ModelProvider } from '@/types/model'
 
 const props = defineProps<{
   open: boolean

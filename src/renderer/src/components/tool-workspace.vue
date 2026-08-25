@@ -4,6 +4,7 @@ import type { PropType } from 'vue'
 import SettingsPanel from '@/components/settings-panel.vue'
 import ToolPage, { type ToolPageMeta } from '@/components/tool-page.vue'
 import ToolHistory from '@/components/tool-history.vue'
+import type { ToolMeta } from '@/types/tool'
 import { Button as UiButton } from '@/components/ui/button'
 import { Input as UiInput } from '@/components/ui/input'
 import {
@@ -37,7 +38,6 @@ type OpenTool = {
 }
 
 // 工具元信息（来自主进程 tool.list）：主页网格与全局搜索共用
-type ToolMeta = { id: string; name: string; title: string; description: string; icon?: string }
 const props = defineProps({
   tools: { type: Array as PropType<ToolMeta[]>, default: () => [] }
 })

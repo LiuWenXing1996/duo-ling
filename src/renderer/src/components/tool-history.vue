@@ -17,6 +17,7 @@ import {
   RotateCcw as UiRotateCcw,
   X as UiX
 } from '@lucide/vue'
+import { formatTimestamp } from '@/lib/format'
 
 // 一次 git 提交的快照（来自主进程 tool:history）
 interface ToolCommit {
@@ -100,13 +101,6 @@ onMounted(() => {
 watch(() => props.toolId, load)
 
 // isomorphic-git 的 author.timestamp 为 Unix 秒；转为本地时间显示
-function formatDate(ts: number): string {
-  if (!ts) return ''
-  const d = new Date(ts * 1000)
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
 function shortOid(oid: string): string {
   return oid.slice(0, 8)
 }
@@ -234,7 +228,7 @@ async function rollback(oid: string): Promise<void> {
             <div class="tool-history__meta">
               <code class="tool-history__oid">{{ shortOid(c.oid) }}</code>
               <span class="tool-history__author">{{ c.author }}</span>
-              <span class="tool-history__date">{{ formatDate(c.timestamp) }}</span>
+              <span class="tool-history__date">{{ formatTimestamp(c.timestamp) }}</span>
               <label
                 class="tool-history__compare"
                 :title="compareSet.includes(c.oid) ? '取消对比' : '加入对比（最多选 2 个）'"
