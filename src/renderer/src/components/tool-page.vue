@@ -700,7 +700,7 @@ async function stopGeneration(): Promise<void> {
     <ui-resizable-handle aria-label="拖拽调整会话历史宽度" />
 
     <!-- 当前会话 -->
-    <ui-resizable-panel :default-size="60" :min-size="20" :max-size="70" class="min-w-0">
+    <ui-resizable-panel :default-size="30" :min-size="15" :max-size="40" class="min-w-0">
       <section class="tool-chat panel">
         <header class="panel-header flex items-center justify-between gap-2">
           <h2 class="panel-title">当前会话</h2>
@@ -893,7 +893,7 @@ async function stopGeneration(): Promise<void> {
       <ui-resizable-handle aria-label="拖拽调整工具详情宽度" />
 
       <!-- 工具详情：嵌入工具自身 index.html（tool:// 协议承载） -->
-      <ui-resizable-panel :default-size="20" :min-size="15" :max-size="40" class="min-w-0">
+      <ui-resizable-panel :default-size="50" :min-size="30" :max-size="60" class="min-w-0">
         <section class="tool-detail panel">
       <header class="panel-header flex items-center justify-between gap-2">
         <h2 class="panel-title">工具详情</h2>
