@@ -186,24 +186,41 @@ const api = {
       ipcRenderer.invoke('capability:run', id, args)
   },
   tool: {
-      create: (): Promise<{ ok: boolean; id?: string; title?: string; error?: string }> =>
-        ipcRenderer.invoke('tool:create'),
-      list: (): Promise<ToolPageMetaData[]> => ipcRenderer.invoke('tool:list'),
-      delete: (id: string): Promise<{ ok: boolean; error?: string }> =>
-        ipcRenderer.invoke('tool:delete', id),
-      update: (
-        id: string,
-        changes: ToolPageUpdateInput
-      ): Promise<{ ok: boolean; title?: string; changedFiles?: string[]; error?: string }> =>
-        ipcRenderer.invoke('tool:update', id, changes),
-      // 工具页 <webview> 的 guest preload 绝对路径（用于注入 window.cap + 心跳）
-      getPreloadPath: (): Promise<string> => ipcRenderer.invoke('tool:getPreloadPath'),
-      // 读取某工具的 git 提交历史（新在先），供「版本历史」标签页使用
-      history: (
-        id: string
-      ): Promise<{ ok: true; commits: ToolCommitData[] } | { ok: false; error: string }> =>
-        ipcRenderer.invoke('tool:history', id)
-    },
+    create: (): Promise<{ ok: boolean; id?: string; title?: string; error?: string }> =>
+      ipcRenderer.invoke('tool:create'),
+    list: (): Promise<ToolPageMetaData[]> => ipcRenderer.invoke('tool:list'),
+    delete: (id: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('tool:delete', id),
+    update: (
+      id: string,
+      changes: ToolPageUpdateInput
+    ): Promise<{ ok: boolean; title?: string; changedFiles?: string[]; error?: string }> =>
+      ipcRenderer.invoke('tool:update', id, changes),
+    // 工具页 <webview> 的 guest preload 绝对路径（用于注入 window.cap + 心跳）
+    getPreloadPath: (): Promise<string> => ipcRenderer.invoke('tool:getPreloadPath'),
+    // 读取某工具的 git 提交历史（新在先），供「版本历史」标签页使用
+    history: (
+      id: string
+    ): Promise<{ ok: true; commits: ToolCommitData[] } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('tool:history', id),
+    // 回滚工具到指定 commit：把该 commit 的文件写回工作区并生成新提交（「版本历史」预览浮层调用）
+    rollback: (id: string, oid: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('tool:rollback', id, oid),
+    // 打开版本预览：物化目标 commit 到缓存区，返回可渲染的 tool-preview:// URL（「版本历史」预览浮层调用）
+    preview: (
+      id: string,
+      oid: string
+    ): Promise<{ ok: true; url: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('tool:preview', id, oid)
+  },
+  toolsPreview: {
+    // 预览缓存概览：总占用与已物化版本数（设置面板「数据管理」展示）
+    list: (): Promise<{ ok: true; size: number; versions: number } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('tools-preview:list'),
+    // 一键清空预览缓存区（幂等，无孤儿兜底、用户手动触发）
+    clear: (): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('tools-preview:clear')
+  },
   chat: {
     history: (taskId: number): Promise<ChatMessageData[]> =>
       ipcRenderer.invoke('chat:history', taskId),

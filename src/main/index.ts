@@ -3,8 +3,17 @@ import { join, normalize } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { writeToolPage, newToolScaffoldHtml, toolsRoot, listToolPages, applyToolChanges, deleteToolPage, type ToolChangeList } from './tool-page'
-import { initToolRepo, commitToolChanges, listToolHistory, type ToolCommit } from './tool-git'
+import { writeToolPage, newToolScaffoldHtml, toolsRoot, previewRoot, listToolPages, applyToolChanges, deleteToolPage, type ToolChangeList } from './tool-page'
+import {
+  initToolRepo,
+  commitToolChanges,
+  listToolHistory,
+  materializeToolSnapshot,
+  listPreviewCache,
+  clearPreviewCache,
+  rollbackTool,
+  type ToolCommit
+} from './tool-git'
 import { runFrontendCapability } from './frontend-impls'
 import { listTasks, createTask, renameTask, saveTasks, type Task } from './store'
 import {
@@ -44,10 +53,11 @@ if (is.dev) {
   app.commandLine.appendSwitch('remote-debugging-port', '9222')
 }
 
-// 把 `tool://` 注册为标准安全 scheme：作为独立源被渲染层 iframe 嵌入工具详情栏，
+// 把 `tool://` 与 `tool-preview://` 注册为标准安全 scheme：作为独立源被渲染层 <webview> 嵌入工具详情栏/预览浮层，
 // 否则非标准 scheme 会被当作不透明源，CSP `'self'` 与同源语义失效
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'tool', privileges: { standard: true, secure: true, supportFetchAPI: true } }
+  { scheme: 'tool', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  { scheme: 'tool-preview', privileges: { standard: true, secure: true, supportFetchAPI: true } }
 ])
 
 let currentWindow: BrowserWindow | undefined
@@ -224,7 +234,7 @@ app.whenReady().then(() => {
 
   // 自定义 `tool://` 协议：把 <userData>/tools/<id>/… 作为工具页的同源根目录。
   // 所有资源（index.html / tool.js / vendor）均走 tool://，CSP `script-src 'self'` 可放行本地脚本。
-  protocol.handle('tool', (request) => {
+  protocol.handle('tool', async (request) => {
     try {
       const url = new URL(request.url)
       const { host, pathname } = url
@@ -238,6 +248,44 @@ app.whenReady().then(() => {
       const root = normalize(toolsRoot())
       const resolved = normalize(filePath)
       // 防目录穿越：解析后的路径必须仍在工具根目录内
+      if (!resolved.startsWith(root)) {
+        return new Response('forbidden', { status: 403 })
+      }
+      const body = readFileSync(resolved)
+      const contentType = resolved.endsWith('.js')
+        ? 'application/javascript; charset=utf-8'
+        : resolved.endsWith('.json')
+          ? 'application/json; charset=utf-8'
+          : 'text/html; charset=utf-8'
+      return new Response(body, {
+        headers: { 'content-type': contentType, 'cache-control': 'no-cache' }
+      })
+    } catch {
+      return new Response('not found', { status: 404 })
+    }
+  })
+
+  // 自定义 `tool-preview://` 协议：服务「历史版本预览」的物化缓存区 <userData>/tools-preview/<id>/<oid>/…。
+  // 与 tool:// 隔离：URL 形如 tool-preview://<id>/<oid>/...，host=工具 id、首段=commit oid、余下为目录内相对路径。
+  protocol.handle('tool-preview', async (request) => {
+    try {
+      const url = new URL(request.url)
+      const { host, pathname } = url
+      // 校验 host（工具 id）与首段 oid，防目录穿越 / 越权读取
+      if (!/^t-[0-9a-z]+$/.test(host)) {
+        return new Response('forbidden', { status: 403 })
+      }
+      const segments = pathname.replace(/^\/+/, '').split('/').filter(Boolean)
+      const [oid, ...rest] = segments
+      if (!/^[0-9a-f]{40}$/.test(oid)) {
+        return new Response('forbidden', { status: 403 })
+      }
+      const rel = rest.join('/')
+      if (!rel || rel.includes('..')) {
+        return new Response('forbidden', { status: 403 })
+      }
+      const root = normalize(join(previewRoot(), host, oid))
+      const resolved = normalize(join(root, rel))
       if (!resolved.startsWith(root)) {
         return new Response('forbidden', { status: 403 })
       }
@@ -535,6 +583,46 @@ app.whenReady().then(() => {
     (_event, id: string): Promise<{ ok: true; commits: ToolCommit[] } | { ok: false; error: string }> =>
       listToolHistory(id)
   )
+
+  // 回滚工具到指定 commit：把该 commit 的文件写回工作区并产生新提交，不 reset（「版本历史」预览浮层调用）。
+  ipcMain.handle(
+    'tool:rollback',
+    async (
+      _event,
+      id: string,
+      targetOid: string
+    ): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        const result = await rollbackTool(id, targetOid)
+        return result.ok ? { ok: true } : { ok: false, error: result.error }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
+
+  // 打开版本预览：把目标 commit 物化到 <tools-preview>/<id>/<oid>/，返回可渲染的 tool-preview:// URL。
+  // 预览文件视作缓存，不做实时清理（关闭浮层/删工具均不连带清），由设置面板「数据管理」手动清理。
+  ipcMain.handle(
+    'tool:preview',
+    async (
+      _event,
+      id: string,
+      oid: string
+    ): Promise<{ ok: true; url: string } | { ok: false; error: string }> => {
+      try {
+        return await materializeToolSnapshot(id, oid)
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
+
+  // 预览缓存概览：总占用与已物化版本数（设置面板「数据管理」展示）。
+  ipcMain.handle('tools-preview:list', () => listPreviewCache())
+
+  // 一键清空预览缓存区（幂等）。
+  ipcMain.handle('tools-preview:clear', () => clearPreviewCache())
 
   // 删除指定工具：移除 <userData>/tools/<id>/ 目录（主页工具卡片删除按钮调用）
   ipcMain.handle(

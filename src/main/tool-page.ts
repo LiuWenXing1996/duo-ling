@@ -15,6 +15,11 @@ export function toolsRoot(): string {
   return join(app.getPath('userData'), 'tools')
 }
 
+/** 工具版本预览缓存根：<userData>/tools-preview/<id>/<oid>/…（与 tools 兄弟目录天然隔离，进不了工具列表） */
+export function previewRoot(): string {
+  return join(app.getPath('userData'), 'tools-preview')
+}
+
 export interface ToolPageInput {
   /** 宿主分配的唯一工具 ID（也是 tool:// 协议的 host 与工具文件夹名） */
   id: string

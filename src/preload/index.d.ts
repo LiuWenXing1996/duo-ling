@@ -160,6 +160,18 @@ declare global {
             }
           | { ok: false; error: string }
         >
+        rollback: (id: string, oid: string) => Promise<{ ok: boolean; error?: string }>
+        preview: (
+          id: string,
+          oid: string
+        ) => Promise<{ ok: true; url: string } | { ok: false; error: string }>
+      }
+      toolsPreview: {
+        list: () => Promise<
+          | { ok: true; size: number; versions: number }
+          | { ok: false; error: string }
+        >
+        clear: () => Promise<{ ok: true } | { ok: false; error: string }>
       }
       chat: {
         history: (

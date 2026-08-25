@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import {
   Box as UiBox,
   ChevronRight as UiChevronRight,
+  HardDrive as UiHardDrive,
   Pencil as UiPencil,
   Plus as UiPlus,
   Trash2 as UiTrash2
@@ -57,6 +58,57 @@ const editing = ref<ModelProfile | null>(null)
 
 // 「自定义」分组折叠状态
 const customOpen = ref(true)
+
+// 预览缓存：工具版本预览物化出的缓存目录，仅在此手动清理
+const cacheSize = ref(0)
+const cacheVersions = ref(0)
+const cacheError = ref('')
+const clearingCache = ref(false)
+const cacheClearedAt = ref('')
+
+async function loadPreviewCache(): Promise<void> {
+  try {
+    const res = await window.api.toolsPreview.list()
+    if (res.ok) {
+      cacheSize.value = res.size
+      cacheVersions.value = res.versions
+      cacheError.value = ''
+    } else {
+      cacheError.value = res.error
+    }
+  } catch (error) {
+    cacheError.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function clearPreviewCache(): Promise<void> {
+  const label = `确定清空工具版本预览缓存吗？共 ${cacheVersions.value} 个版本、${formatBytes(cacheSize.value)}。`
+  if (!window.confirm(label)) return
+  clearingCache.value = true
+  try {
+    const res = await window.api.toolsPreview.clear()
+    if (res.ok) {
+      cacheSize.value = 0
+      cacheVersions.value = 0
+      cacheError.value = ''
+      cacheClearedAt.value = '已清理'
+      setTimeout(() => (cacheClearedAt.value = ''), 2000)
+    } else {
+      cacheError.value = res.error
+    }
+  } catch (error) {
+    cacheError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    clearingCache.value = false
+  }
+}
+
+// 字节数格式化：<1KB 显示 B，其余用 KB/MB 保留 1 位小数
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${bytes} B`
+}
 
 async function loadData(): Promise<void> {
   try {
@@ -132,7 +184,10 @@ async function onSaved(): Promise<void> {
   await loadData()
 }
 
-onMounted(loadData)
+onMounted(() => {
+  void loadData()
+  void loadPreviewCache()
+})
 </script>
 
 <template>
@@ -288,6 +343,24 @@ onMounted(loadData)
                 还没有模型配置，点击上方「添加模型」开始
               </p>
             </div>
+          </div>
+        </div>
+
+        <!-- 工具版本预览缓存 -->
+        <div class="mt-8">
+          <h3 class="text-base font-semibold">工具预览缓存</h3>
+          <p class="mt-1 text-xs text-muted-foreground">
+            版本预览时会把目标 commit 的整棵树物化到本地缓存。当前占用
+            <span class="font-medium text-foreground">{{ formatBytes(cacheSize) }}</span>，共
+            <span class="font-medium text-foreground">{{ cacheVersions }}</span> 个版本。
+          </p>
+          <div v-if="cacheError" class="mt-2 text-xs text-destructive">{{ cacheError }}</div>
+          <div class="mt-3 flex items-center gap-3">
+            <ui-button variant="outline" size="sm" :disabled="clearingCache" @click="clearPreviewCache">
+              <ui-hard-drive class="size-3.5" />
+              <span>{{ clearingCache ? '清理中…' : '清空预览缓存' }}</span>
+            </ui-button>
+            <span v-if="cacheClearedAt" class="text-xs text-primary">{{ cacheClearedAt }}</span>
           </div>
         </div>
       </div>
