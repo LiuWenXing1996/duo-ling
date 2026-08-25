@@ -17,6 +17,8 @@ export interface GeneratedToolDef {
   description: string
   /** 自我包含的完整 HTML 文档（内联 <style>/<script>，用 window.cap.run 调能力） */
   html: string
+  /** 本工具声明可调用的能力 id 白名单；缺省视为不声明任何能力 */
+  capabilities?: string[]
 }
 
 export interface CoverageReport {
@@ -133,6 +135,7 @@ export function parseGeneratedTool(content: string): GeneratedToolDef | null {
       title?: unknown
       description?: unknown
       html?: unknown
+      capabilities?: unknown
     }
     if (!obj || typeof obj !== 'object') return null
     // 必须有一段可打开的完整 HTML
@@ -142,7 +145,10 @@ export function parseGeneratedTool(content: string): GeneratedToolDef | null {
       name: String(obj.name ?? 'tool'),
       title: String(obj.title ?? '新工具'),
       description: String(obj.description ?? ''),
-      html: obj.html.trim()
+      html: obj.html.trim(),
+      ...(Array.isArray(obj.capabilities) && obj.capabilities.length
+        ? { capabilities: obj.capabilities.filter((c): c is string => typeof c === 'string') }
+        : {})
     }
   } catch {
     return null

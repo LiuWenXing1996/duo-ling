@@ -29,6 +29,8 @@ export interface ToolPageInput {
   description: string
   /** 单个字符图标（emoji / 任意单字符），可选；非法或空时由渲染层兜底为工具名首字符 */
   icon?: string
+  /** 本工具声明可调用的能力 id 白名单；缺省视为不声明任何能力 */
+  capabilities?: string[]
   /** AI 生成的、自我包含的完整 HTML 文档源码 */
   html: string
 }
@@ -54,7 +56,8 @@ export function writeToolPage(input: ToolPageInput): { url: string } {
         name: input.name,
         title: input.title,
         description: input.description,
-        icon: normalizeToolIcon(input.icon)
+        icon: normalizeToolIcon(input.icon),
+        ...(input.capabilities?.length ? { capabilities: input.capabilities } : {})
       },
       null,
       2
@@ -71,6 +74,8 @@ export interface ToolPageMeta {
   description: string
   /** 单个字符图标；空串表示未设置（渲染层兜底为工具名首字符） */
   icon?: string
+  /** 本工具声明可调用的能力 id 白名单；缺省/空数组视为不声明任何能力 */
+  capabilities?: string[]
 }
 
 /** 读取所有已落盘的工具元信息（遍历 <userData>/tools/<id>/meta.json），跳过无 meta.json 的残留目录。 */
@@ -94,13 +99,27 @@ export function listToolPages(): ToolPageMeta[] {
         name: meta.name ?? entry.name,
         title: meta.title ?? entry.name,
         description: meta.description ?? '',
-        icon: normalizeToolIcon(meta.icon)
+        icon: normalizeToolIcon(meta.icon),
+        ...(Array.isArray(meta.capabilities) ? { capabilities: meta.capabilities } : {})
       })
     } catch {
       // 目录缺失 meta.json 或 JSON 损坏时跳过，避免残留目录或异常文件阻断整个列表
     }
   }
   return list
+}
+
+/**
+ * 读取指定路径的工具 meta（正式页传 <userData>/tools/<id>/meta.json，预览页传 commit 物化出的 meta）。
+ * 用于主进程对 cap.run 的按工具/按版本能力白名单校验；文件缺失或损坏返回 null。
+ */
+export function readToolMetaAt(metaPath: string): ToolPageMeta | null {
+  try {
+    const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as Partial<ToolPageMeta>
+    return meta.id ? (meta as ToolPageMeta) : null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -211,7 +230,7 @@ export interface ToolChangeList {
 /** 允许被生成器修改的工具内文件白名单 */
 const ALLOWED_TOOL_FILES = ['index.html', 'meta.json'] as const
 
-const META_FIELDS = ['name', 'title', 'description', 'icon'] as const
+const META_FIELDS = ['name', 'title', 'description', 'icon', 'capabilities'] as const
 
 interface ToolPageMetaRaw {
   id: string
@@ -219,6 +238,7 @@ interface ToolPageMetaRaw {
   title?: string
   description?: string
   icon?: string
+  capabilities?: string[]
 }
 
 function readToolMeta(dir: string): ToolPageMetaRaw {
@@ -268,7 +288,9 @@ export function applyToolChanges(
     if (action.op === 'write') {
       if (file === 'meta.json') {
         const existing = readToolMeta(dir)
-        const payload = (action.content ?? {}) as Partial<Record<(typeof META_FIELDS)[number], string>>
+        const payload = (action.content ?? {}) as Partial<
+          Record<(typeof META_FIELDS)[number], unknown>
+        >
         plan.push({
           path: target,
           content: JSON.stringify(
@@ -281,7 +303,10 @@ export function applyToolChanges(
               icon:
                 typeof payload.icon === 'string'
                   ? normalizeToolIcon(payload.icon)
-                  : existing.icon ?? ''
+                  : existing.icon ?? '',
+              ...(Array.isArray(payload.capabilities) && payload.capabilities.length
+                ? { capabilities: payload.capabilities.filter((c): c is string => typeof c === 'string') }
+                : {})
             },
             null,
             2
