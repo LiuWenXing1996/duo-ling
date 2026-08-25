@@ -7,6 +7,7 @@
   "author": "duo-ling",
   "license": "MIT",
   "private": true,
+  "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -24,8 +25,14 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@vueuse/core": "^14.4.0",
+    "ai": "^7.0.77",
     "electron-store": "^11.0.2",
-    "isomorphic-git": "^1.41.9"
+    "isomorphic-git": "^1.41.9",
+    "motion-v": "^2.4.0",
+    "nanoid": "^6.0.1",
+    "vue-stick-to-bottom": "^1.0.1",
+    "vue-stream-markdown": "^1.0.4"
   },
   "devDependencies": {
     "@lucide/vue": "^1.33.0",

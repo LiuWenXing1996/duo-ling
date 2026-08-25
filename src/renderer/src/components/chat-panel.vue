@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 当前会话聊天区：消息气泡 + 思考过程折叠 + 变更清单留痕卡片 + 输入区 + 模型选择。
-// 发送 / 停止 / 应用 / 放弃由父组件执行（涉及跨面板的会话写回与工具页落盘），
-// 模型选择与打字机展示为纯本地面板逻辑，自含于此。
+// 发送 / 停止由父组件执行，AI 产出变更后纯自动落盘（卡片仅作留痕展示，无手动应用/放弃）；
+// 模型选择为纯本地面板逻辑，自含于此。
 import { computed, onMounted, ref } from 'vue'
 import {
   Check as UiCheck,
@@ -15,6 +15,29 @@ import {
   PopoverContent as UiPopoverContent,
   PopoverTrigger as UiPopoverTrigger
 } from '@/components/ui/popover'
+import {
+  Message as UiMessage,
+  MessageContent as UiMessageContent,
+  MessageResponse as UiMessageResponse
+} from '@/components/ai-elements/message'
+import {
+  Reasoning as UiReasoning,
+  ReasoningContent as UiReasoningContent,
+  ReasoningTrigger as UiReasoningTrigger
+} from '@/components/ai-elements/reasoning'
+import {
+  Conversation as UiConversation,
+  ConversationContent as UiConversationContent,
+  ConversationEmptyState as UiConversationEmptyState,
+  ConversationScrollButton as UiConversationScrollButton
+} from '@/components/ai-elements/conversation'
+import {
+  PromptInput as UiPromptInput,
+  PromptInputFooter as UiPromptInputFooter,
+  PromptInputSubmit as UiPromptInputSubmit,
+  PromptInputTextarea as UiPromptInputTextarea
+} from '@/components/ai-elements/prompt-input'
+import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import { truncate } from '@/lib/format'
 import { isContractAnswer, splitContent } from '@/lib/message-format'
 import type { PendingChange, ToolChatMessage } from '@/composables/use-tool-sessions'
@@ -22,20 +45,14 @@ import type { PendingChange, ToolChatMessage } from '@/composables/use-tool-sess
 const props = defineProps<{
   messages: ToolChatMessage[]
   pendingMap: Record<string, PendingChange>
-  typing: Record<string, number>
   streaming: boolean
   draft: ToolChatMessage | null
 }>()
 const emit = defineEmits<{
   send: [text: string]
   stop: []
-  applyPending: [messageId: string]
-  discardPending: [messageId: string]
   openSettings: []
 }>()
-
-// —— 发送输入：内容仅本面板使用，发送时由父组件执行生成 ——
-const input = ref('')
 
 // —— 对话模型选择：仅切换后续发送所用的模型 ——
 interface ModelOption {
@@ -95,21 +112,32 @@ onMounted(() => {
 // —— 思考过程可视化：把 <think>...</think> 拆为「思考内容」与「答案」两部分 ——
 const thinkOf = (m: ToolChatMessage): string => splitContent(m.content).think
 
-// 折叠式思考过程：记录已展开的消息 id（默认折叠）
+// 折叠式思考过程（ai-elements Reasoning 受控展开）：记录已展开的消息 id（默认折叠）
 const expandedThink = ref<Set<string>>(new Set())
-function toggleThink(id: string): void {
+function setThinkOpen(id: string, open: boolean): void {
   const next = new Set(expandedThink.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
+  if (open) next.add(id)
+  else next.delete(id)
   expandedThink.value = next
 }
 
-/** 消息正文：已完成的非契约正文用打字机逐字显示；流式契约 JSON 用「正在思考…」遮挡 */
+/** 消息正文：仅「正在流式生成中的契约 JSON」用「正在思考…」遮挡；其余原样展示。
+ * 完成后真契约已在 tool-page 归一化为 summary；普通 JSON / markdown 正文不再被误屏蔽。 */
 function answerOf(m: ToolChatMessage): string {
   const raw = splitContent(m.content).answer
-  if (isContractAnswer(raw)) return '正在思考…'
-  const n = props.typing[m.id]
-  return n != null ? raw.slice(0, n) : raw
+  // 仅当这条消息正是当前流式草稿、且内容像未归一化的契约 JSON 时遮挡
+  if (props.draft && props.draft.id === m.id && isContractAnswer(raw)) return '正在思考…'
+  return raw
+}
+
+/** 消息角色映射：ai-elements 的 Message 用 UIMessage['role']，项目内 AI 用 'ai' */
+function fromOf(m: ToolChatMessage): 'user' | 'assistant' {
+  return m.role === 'user' ? 'user' : 'assistant'
+}
+
+/** 消息正文：答案（含打字机/契约遮挡）+ 流式草稿兜底，供 MessageResponse 渲染 */
+function assistantText(m: ToolChatMessage): string {
+  return answerOf(m) || (props.draft && props.draft.id === m.id ? '正在思考…' : '')
 }
 
 /** 取某条 AI 消息挂载的变更卡片（可能不存在，如自动模式或无变更） */
@@ -117,10 +145,10 @@ function pendingOf(messageId: string): PendingChange | undefined {
   return props.pendingMap[messageId]
 }
 
-function onSend(): void {
-  const text = input.value.trim()
+/** 发送：由 PromptInput 表单提交触发，文本取自组件内部状态；发送由父组件执行生成 */
+function onPromptSubmit(payload: PromptInputMessage): void {
+  const text = payload.text.trim()
   if (!text || props.streaming) return
-  input.value = ''
   emit('send', text)
 }
 </script>
@@ -132,112 +160,105 @@ function onSend(): void {
     </header>
 
     <div class="flex min-h-0 flex-1 flex-col">
-      <div class="min-h-0 flex-1 space-y-3 overflow-y-auto scroll-gap px-4 py-3">
-        <div v-if="props.messages.length === 0" class="flex h-full items-center justify-center">
-          <p class="panel-empty">描述需求，AI 会重写这个工具页面</p>
-        </div>
-        <div
-          v-for="m in props.messages"
-          :key="m.id"
-          class="flex flex-col gap-1.5"
-          :class="m.role === 'user' ? 'items-end' : 'items-start'"
-        >
-          <!-- 思考过程：独立卡片，与回复气泡分开（仅 AI 且有实际思考内容时显示） -->
-          <div
-            v-if="m.role === 'ai' && thinkOf(m)"
-            class="max-w-[80%] rounded-lg border border-muted bg-background/60 px-3 py-2 text-xs text-muted-foreground"
-          >
-            <button class="flex items-center gap-0.5 text-xs text-muted-foreground" @click="toggleThink(m.id)">
-              <ui-chevron-right
-                class="size-3 transition-transform"
-                :class="{ 'rotate-90': expandedThink.has(m.id) }"
-              />
-              思考过程
-            </button>
+      <!-- 消息区：用 ai-elements Conversation 贴底滚动 + 滚动到底部按钮 -->
+      <ui-conversation class="min-h-0 flex-1" aria-label="当前会话消息">
+        <ui-conversation-content class="gap-3 px-4 py-3">
+          <ui-conversation-empty-state
+            v-if="props.messages.length === 0"
+            title="暂无消息"
+            description="描述需求，AI 会重写这个工具页面"
+          />
+          <template v-else>
             <div
-              v-show="expandedThink.has(m.id)"
-              data-testid="think-body"
-              class="mt-1.5 whitespace-pre-wrap break-words"
+              v-for="m in props.messages"
+              :key="m.id"
+              class="flex flex-col gap-1.5"
+              :class="m.role === 'user' ? 'items-end' : 'items-start'"
             >
-              {{ thinkOf(m) }}
-            </div>
-          </div>
-          <!-- 消息气泡 -->
-          <div
-            class="max-w-[80%] min-w-0 break-words rounded-lg px-3 py-2 text-sm"
-            :class="m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'"
-          >
-            <template v-if="m.role === 'user'">{{ m.content }}</template>
-            <template v-else>
-              {{ answerOf(m) || (props.draft && props.draft.id === m.id ? '正在思考…' : '') }}
-            </template>
-          </div>
-          <!-- 变更清单留痕卡片：AI 产出改动后落盘留痕，每条消息保留独立卡片 -->
-          <div
-            v-if="m.role === 'ai' && pendingOf(m.id)"
-            class="max-w-[80%] rounded-lg border border-border bg-background/60 px-3 py-2"
-            data-testid="change-card"
-          >
-            <p class="text-xs font-medium">
-              {{ pendingOf(m.id)?.changes.summary || 'AI 建议对当前工具做以下改动' }}
-            </p>
-            <ul class="mt-1.5 space-y-1 text-xs text-muted-foreground">
-              <li v-for="(a, i) in pendingOf(m.id)?.changes.actions ?? []" :key="i">
-                <span class="font-mono">{{ a.op }}</span> {{ a.file }}
-                <template v-if="a.op === 'patch' && a.find">：{{ truncate(a.find) }}…</template>
-              </li>
-            </ul>
-            <!-- 应用失败提示 -->
-            <p
-              v-if="pendingOf(m.id)?.error"
-              class="mt-1.5 text-xs text-destructive"
-              data-testid="change-error"
-            >
-              {{ pendingOf(m.id)?.error }}
-            </p>
-            <div class="mt-2 flex items-center gap-2">
-              <template v-if="pendingOf(m.id)?.status === 'pending'">
-                <ui-button size="sm" @click="emit('applyPending', m.id)">应用</ui-button>
-                <ui-button
-                  size="sm"
-                  variant="outline"
-                  :disabled="props.streaming"
-                  @click="emit('discardPending', m.id)"
+              <!-- 思考过程：用 ai-elements Reasoning 折叠展示（仅 AI 且有实际思考内容时显示） -->
+              <ui-reasoning
+                v-if="m.role === 'ai' && thinkOf(m)"
+                :open="expandedThink.has(m.id)"
+                :default-open="false"
+                class="mb-0 max-w-[80%] rounded-lg border border-muted bg-background/60 px-3 py-2 text-xs text-muted-foreground"
+                @update:open="setThinkOpen(m.id, $event)"
+              >
+                <ui-reasoning-trigger class="text-xs">
+                  <ui-chevron-right
+                    class="size-3 transition-transform"
+                    :class="{ 'rotate-90': expandedThink.has(m.id) }"
+                  />
+                  思考过程
+                </ui-reasoning-trigger>
+                <ui-reasoning-content :content="thinkOf(m)" data-testid="think-body" />
+              </ui-reasoning>
+              <!-- 消息气泡：用 ai-elements 的 Message / MessageContent / MessageResponse 渲染 -->
+              <ui-message :from="fromOf(m)">
+                <template v-if="m.role === 'user'">
+                  <ui-message-content>{{ m.content }}</ui-message-content>
+                </template>
+                <template v-else>
+                  <ui-message-content
+                    class="group-[.is-assistant]:rounded-lg group-[.is-assistant]:bg-muted group-[.is-assistant]:px-4 group-[.is-assistant]:py-3"
+                  >
+                    <ui-message-response :content="assistantText(m)" />
+                  </ui-message-content>
+                </template>
+              </ui-message>
+              <!-- 变更清单留痕卡片：AI 产出改动后自动落盘留痕，仅作展示（无手动应用/放弃） -->
+              <div
+                v-if="m.role === 'ai' && pendingOf(m.id)"
+                class="max-w-[80%] rounded-lg border border-border bg-background/60 px-3 py-2"
+                data-testid="change-card"
+              >
+                <p class="text-xs font-medium">
+                  {{ pendingOf(m.id)?.changes.summary || 'AI 建议对当前工具做以下改动' }}
+                </p>
+                <ul class="mt-1.5 space-y-1 text-xs text-muted-foreground">
+                  <li v-for="(a, i) in pendingOf(m.id)?.changes.actions ?? []" :key="i">
+                    <span class="font-mono">{{ a.op }}</span> {{ a.file }}
+                    <template v-if="a.op === 'patch' && a.find">：{{ truncate(a.find) }}…</template>
+                  </li>
+                </ul>
+                <!-- 应用失败提示 -->
+                <p
+                  v-if="pendingOf(m.id)?.error"
+                  class="mt-1.5 text-xs text-destructive"
+                  data-testid="change-error"
                 >
-                  放弃
-                </ui-button>
-              </template>
-              <span v-else-if="pendingOf(m.id)?.status === 'applied'" class="text-xs text-green-600">
-                已应用到当前工具
-              </span>
-              <span v-else class="text-xs text-muted-foreground">已放弃本次改动</span>
+                  {{ pendingOf(m.id)?.error }}
+                </p>
+                <!-- 自动落盘成功状态 -->
+                <p v-else class="mt-1.5 text-xs text-green-600">已自动应用到当前工具</p>
+              </div>
             </div>
-          </div>
-        </div>
-      </div>
+          </template>
+        </ui-conversation-content>
+        <ui-conversation-scroll-button />
+      </ui-conversation>
 
       <div class="border-t p-3">
-        <div class="rounded-md border border-input bg-transparent shadow-xs transition-[border,box-shadow] focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]">
-          <textarea
-            v-model="input"
-            rows="1"
-            class="min-h-[78px] max-h-32 w-full resize-none overflow-y-auto scroll-gap bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+        <ui-prompt-input class="bg-transparent" @submit="onPromptSubmit">
+          <ui-prompt-input-textarea
+            class="min-h-[78px] max-h-32"
             placeholder="例如：做一个能读取本地文件并用 Markdown 展示的工具"
             :disabled="props.streaming"
-            @keydown.enter.exact.prevent="onSend"
           />
-          <div class="flex items-center justify-end gap-2 px-2 pb-2">
+          <ui-prompt-input-footer>
+            <!-- 模型选择：保留富内容弹层（缺Key提示/空态/添加模型入口） -->
             <ui-popover v-model:open="modelMenuOpen">
               <ui-popover-trigger as-child>
-                <button
+                <ui-button
                   type="button"
-                  class="flex h-7 max-w-[150px] items-center gap-1 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                  variant="outline"
+                  size="xs"
+                  class="max-w-[150px]"
                   title="切换对话使用的模型"
                   aria-label="切换模型"
                 >
                   <span class="truncate">{{ activeModelName }}</span>
                   <ui-chevrons-up-down class="size-3 shrink-0 text-muted-foreground" />
-                </button>
+                </ui-button>
               </ui-popover-trigger>
               <ui-popover-content class="w-60 p-1.5" align="start">
                 <!-- 模型列表：有配置时逐条展示并支持勾选当前默认项 -->
@@ -270,14 +291,15 @@ function onSend(): void {
                 </div>
               </ui-popover-content>
             </ui-popover>
-            <ui-button v-if="props.streaming" variant="outline" size="sm" @click="emit('stop')">
-              停止
-            </ui-button>
-            <ui-button size="sm" :disabled="props.streaming || !input.trim()" @click="onSend">
-              发送
-            </ui-button>
-          </div>
-        </div>
+            <!-- 停止/发送：流式进行时显示停止按钮，提交按钮禁用避免误发 -->
+            <div class="flex items-center gap-2">
+              <ui-button v-if="props.streaming" type="button" variant="outline" size="sm" @click="emit('stop')">
+                停止
+              </ui-button>
+              <ui-prompt-input-submit size="sm" :disabled="props.streaming" />
+            </div>
+          </ui-prompt-input-footer>
+        </ui-prompt-input>
       </div>
     </div>
   </section>

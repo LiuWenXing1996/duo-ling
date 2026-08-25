@@ -16,11 +16,10 @@ export interface ToolChatMessage {
   content: string
 }
 
-// 自动审批：AI 产出变更清单后直接落盘（卡片仅作留痕展示）
+// 自动落盘留痕：AI 产出变更清单后直接应用，卡片仅作留痕展示（无手动应用/放弃）
 export interface PendingChange {
   messageId: string
   changes: GeneratedChangeList
-  status: 'pending' | 'applied' | 'discarded'
   error?: string
 }
 
@@ -69,8 +68,8 @@ export function useToolSessions(
   const sessions = ref<ToolSession[]>([])
   const activeSessionId = ref('')
   const messagesBySession = ref<Record<string, ToolChatMessage[]>>({})
-  // 待审批的变更卡片按「会话 + 消息」记录：同一会话内每条 AI 变更消息都保留独立卡片，
-  // 已应用 / 已放弃的状态随卡片持久化，切换会话时回显原状态。
+  // 变更留痕卡片按「会话 + 消息」记录：同一会话内每条 AI 变更消息都保留独立卡片，
+  // 成功/失败状态随卡片持久化，切换会话时回显原状态。
   const pendingBySession = ref<Record<string, Record<string, PendingChange>>>({})
 
   // messages 是「当前激活会话」消息的视图：读跟随 activeSessionId，写回对应桶

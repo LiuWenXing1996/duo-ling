@@ -6,7 +6,7 @@ import {
   ResizablePanelGroup as UiResizablePanelGroup
 } from '@/components/ui/resizable'
 import { parseGeneratedChanges, type GeneratedChangeList } from '@/lib/tool-generator'
-import { isContractAnswer, splitContent } from '@/lib/message-format'
+import { splitContent } from '@/lib/message-format'
 import { useToolSessions, type ToolChatMessage } from '@/composables/use-tool-sessions'
 import SessionHistoryPanel from '@/components/session-history-panel.vue'
 import ChatPanel from '@/components/chat-panel.vue'
@@ -31,8 +31,6 @@ const emit = defineEmits<{
 // —— 生成/发送状态（非会话持久化职责，留在本组件）——
 const streaming = ref(false)
 const draft = ref<ToolChatMessage | null>(null)
-// 「假流式」打字机进度：messageId -> 已显示字符数（由 send 完成后驱动）
-const typing = ref<Record<string, number>>({})
 
 // —— 工具详情栏 ref：生成器改动落盘后重载工具页 ——
 const detailRef = ref<InstanceType<typeof ToolDetailPanel> | null>(null)
@@ -48,8 +46,7 @@ const {
   activateSession,
   deleteSession,
   deleteAllSessions,
-  saveSessions,
-  pendingOf
+  saveSessions
 } = useToolSessions(() => props.tool.id, {
   clearDraft: () => {
     draft.value = null
@@ -65,23 +62,6 @@ onMounted(() => {
 onUnmounted(() => {
   window.api.generator.offEvent()
 })
-
-/** 启动「假流式」：把正文按帧逐字追加直到完整。契约 JSON 不参与，避免解析失败时泄露原文。 */
-function runTyping(messageId: string, full: string): void {
-  if (!full || isContractAnswer(full)) return
-  let shown = 0
-  typing.value[messageId] = shown
-  const step = (): void => {
-    shown += 1
-    typing.value[messageId] = shown
-    if (shown >= full.length) {
-      delete typing.value[messageId]
-      return
-    }
-    setTimeout(step, 24)
-  }
-  setTimeout(step, 24)
-}
 
 // 根据首条用户输入生成会话标题摘要，便于在「会话历史」中辨认
 function summarizeTitle(text: string): string {
@@ -147,8 +127,7 @@ async function send(text: string): Promise<void> {
         // 自动落盘：AI 改完直接应用；先把变更清单记入卡片作留痕，失败错误由 applyChanges 回填到卡片
         pendingMap.value[draftMsg.id] = {
           messageId: draftMsg.id,
-          changes: parsed.changes,
-          status: 'pending'
+          changes: parsed.changes
         }
         saveSessions()
         await applyChanges(draftMsg.id, parsed.changes)
@@ -159,8 +138,6 @@ async function send(text: string): Promise<void> {
         const { think } = splitContent(draftMsg.content)
         draftMsg.content = think ? `<think>${think}</think>\n\n${parsed.summary}` : parsed.summary
       }
-      // 「假流式」：正文解析完成后逐字显示（契约 JSON 在 runTyping 内被排除）
-      runTyping(draftMsg.id, splitContent(draftMsg.content).answer)
     } else if (res.error) {
       messages.value = messages.value.filter((m) => m.id !== draftMsg.id)
     }
@@ -197,15 +174,11 @@ async function applyChanges(messageId: string, changes: GeneratedChangeList): Pr
     return
   }
   if (updated.ok) {
-    if (current && current.messageId === messageId) {
-      current.status = 'applied'
-      saveSessions()
-    }
     if (updated.title) emit('renamed', props.tool.id, updated.title)
     detailRef.value?.reload()
   } else {
     const err = updated.error ?? '未知错误'
-    // 在留痕卡片里展示错误，并保留「应用/放弃」按钮供用户重试或放弃
+    // 在留痕卡片里展示错误（纯自动落盘，卡片仅作留痕展示）
     if (current && current.messageId === messageId) {
       current.error = err
       saveSessions()
@@ -214,21 +187,6 @@ async function applyChanges(messageId: string, changes: GeneratedChangeList): Pr
     // 无卡片可挂载时，把错误回填到消息正文
     const msg = messages.value.find((m) => m.id === messageId)
     if (msg) msg.content += `\n\n[写入工具失败] ${err}`
-  }
-}
-
-function applyPending(messageId: string): void {
-  const current = pendingOf(messageId)
-  if (current && current.messageId === messageId && current.status === 'pending') {
-    void applyChanges(messageId, current.changes)
-  }
-}
-
-function discardPending(messageId: string): void {
-  const current = pendingOf(messageId)
-  if (current && current.messageId === messageId && current.status === 'pending') {
-    current.status = 'discarded'
-    saveSessions()
   }
 }
 
@@ -257,13 +215,10 @@ async function stopGeneration(): Promise<void> {
       <chat-panel
         :messages="messages"
         :pending-map="pendingMap"
-        :typing="typing"
         :streaming="streaming"
         :draft="draft"
         @send="send"
         @stop="stopGeneration"
-        @apply-pending="applyPending"
-        @discard-pending="discardPending"
         @open-settings="$emit('openSettings')"
       />
     </ui-resizable-panel>

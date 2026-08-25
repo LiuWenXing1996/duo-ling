@@ -1,6 +1,10 @@
 # pnpm 工作区配置（pnpm 11）
 # 说明：pnpm 11 从 pnpm-workspace.yaml 读取配置，.npmrc 中仅保留 auth/registry 设置
 
+# 单项目：声明为空工作区，仅用于承载全局 pnpm 配置
+# 避免 pnpm add 在 workspace root 报错（packages field missing）
+packages: []
+
 # 使用 hoisted 布局，确保 Electron 及其原生依赖在 node_modules 根目录可被正确解析
 nodeLinker: hoisted
 
