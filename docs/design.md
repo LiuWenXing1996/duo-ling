@@ -60,6 +60,12 @@ src/
 
 路径别名：渲染进程内 `@` → `src/renderer/src`（见 `electron.vite.config.ts` 与 `tsconfig.web.json`）。
 
+**脚本 / 探针约定**：
+
+- 一次性补丁/迁移脚本放 `tmp/`（已 gitignore，不入库、用完即删）。
+- 可复用探针/调试工具放 `scripts/`，文件名以 `probe-` 开头（kebab-case），用 **TS 编写**（已纳入 `tsconfig.node.json`，`pnpm typecheck:node` 会检查），**不挂 npm script**，用 Node 22.6+ 直接 `node scripts/probe-<名称>.ts` 运行（type stripping，无需编译）；探针产生的输出（坐标、日志等）写 `tmp/`。
+- 分层：`probe-eval.ts` 是通用执行器（传表达式现查，临时排查用，不写文件）；高频固定能力沉淀为专用探针（如 `probe-window-bounds.ts`），复用走专用脚本。
+
 ## 4. IPC 设计
 
 - 通道命名：`<域>:<动作>`，如 `app:ping`。

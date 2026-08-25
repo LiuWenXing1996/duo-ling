@@ -62,4 +62,5 @@ duo-ling/
 
 - [docs/design.md](docs/design.md) — 架构设计说明
 - [docs/style.md](docs/style.md) — 代码风格规范
-- [docs/agents.md](docs/agents.md) — AI 代理协作指南
+- [docs/lessons.md](docs/lessons.md) — 踩坑记录
+- [AGENTS.md](AGENTS.md) — AI 代理协作指南
