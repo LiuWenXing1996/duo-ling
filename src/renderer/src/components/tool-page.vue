@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Button as UiButton } from '@/components/ui/button'
 import {
   Popover as UiPopover,
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/resizable'
 import { parseGeneratedChanges, type GeneratedChangeList } from '@/lib/tool-generator'
 import ToolIcon from '@/components/tool-icon.vue'
+import ToolFrame from '@/components/tool-frame.vue'
 import {
   Check as UiCheck,
   ChevronRight as UiChevronRight,
@@ -33,85 +34,8 @@ export interface ToolPageMeta {
 
 const props = defineProps<{ tool: ToolPageMeta }>()
 
-// 工具自身界面：由 tool:// 协议承载 <userData>/tools/<id>/index.html，嵌入「工具详情」栏
-const toolUrl = `tool://${props.tool.id}/index.html`
-
-// 工具详情 <webview> 运行状态：加载失败 / 崩溃 / 死循环无响应时显示错误覆盖层，并提供重载
-type FrameStatus = 'loading' | 'ok' | 'hang' | 'error' | 'crash'
-const frameStatus = ref<FrameStatus>('loading')
-const frameDetail = ref('')
-
-// <webview> 需指定的 guest preload（注入 window.cap + 心跳），该路径由主进程返回编译产物绝对路径
-const webviewRef = ref<HTMLElement & { reload: () => void } | null>(null)
-const preloadPath = ref('')
-
-// —— 心跳 watchdog：guest preload 通过 sendToHost 每 2s 报活 ——
-// 工具页若陷入死循环，事件循环被饿死、心跳停止，宿主据此判定卡死。
-const HEARTBEAT_TOKEN = '__duo_ling_heartbeat__'
-const HEARTBEAT_TIMEOUT_MS = 6000
-const HEARTBEAT_CHECK_MS = 2000
-
-let lastHeartbeat = 0
-let heartbeatTimer: number | undefined = undefined
-
-function onIpcMessage(e: Event): void {
-  const msg = e as Event & { channel?: unknown }
-  if (msg.channel !== HEARTBEAT_TOKEN) return
-  lastHeartbeat = Date.now()
-  if (frameStatus.value === 'hang' || frameStatus.value === 'loading') frameStatus.value = 'ok'
-}
-
-function onDidFailLoad(e: Event): void {
-  const ev = e as Event & { errorCode?: number; errorDescription?: string }
-  frameStatus.value = 'error'
-  frameDetail.value = ev.errorDescription || `加载失败(${ev.errorCode ?? '?'})`
-}
-
-function onRenderGone(e: Event): void {
-  const ev = e as Event & { reason?: string }
-  frameStatus.value = 'crash'
-  frameDetail.value = ev.reason || ''
-}
-
-function onDomReady(): void {
-  if (frameStatus.value !== 'error' && frameStatus.value !== 'crash') frameStatus.value = 'ok'
-}
-
-function startHeartbeatWatch(): void {
-  lastHeartbeat = Date.now()
-  window.clearInterval(heartbeatTimer)
-  heartbeatTimer = window.setInterval(() => {
-    if (frameStatus.value === 'error' || frameStatus.value === 'crash') return
-    if (Date.now() - lastHeartbeat > HEARTBEAT_TIMEOUT_MS) {
-      frameStatus.value = 'hang'
-      frameDetail.value = '工具页面无响应（可能陷入死循环）'
-    }
-  }, HEARTBEAT_CHECK_MS)
-}
-
-function reloadFrame(): void {
-  frameStatus.value = 'loading'
-  frameDetail.value = ''
-  lastHeartbeat = Date.now()
-  webviewRef.value?.reload()
-}
-
-// preloadPath 就绪后把 <webview> 挂进 DOM，再绑定 guest 事件（did-fail-load / crash / ipc-message）
-watch(preloadPath, async (p) => {
-  if (!p) return
-  await nextTick()
-  const wv = webviewRef.value
-  if (!wv) return
-  wv.addEventListener('ipc-message', onIpcMessage)
-  wv.addEventListener('did-fail-load', onDidFailLoad)
-  wv.addEventListener('render-process-gone', onRenderGone)
-  wv.addEventListener('dom-ready', onDomReady)
-})
-
-onUnmounted(() => {
-  window.clearInterval(heartbeatTimer)
-  window.api.generator.offEvent()
-})
+// 工具详情 <webview> 引用：改动落盘后经其 reload() 重载工具页
+const frameRef = ref<InstanceType<typeof ToolFrame> | null>(null)
 
 // 「当前会话」按工具内会话隔离：每个 session 有独立消息列表，切换会话时回显。
 // 会话与消息按工具 id 分桶持久化到 localStorage，切换/重启后不丢。
@@ -200,11 +124,7 @@ function normalizePendingStore(
 }
 
 onMounted(async () => {
-  startHeartbeatWatch()
   window.api.generator.onEvent(onGeneratorEvent)
-  void window.api.tool.getPreloadPath().then((p) => {
-    preloadPath.value = p
-  })
   void window.api.model.list().then(refreshModelStatus)
   // 恢复本工具的会话历史（多会话：切换回显 + 本地持久化）
   const saved = loadSessions()
@@ -218,6 +138,10 @@ onMounted(async () => {
   if (!activeSessionId.value || !sessions.value.some((s) => s.id === activeSessionId.value)) {
     newSession()
   }
+})
+
+onUnmounted(() => {
+  window.api.generator.offEvent()
 })
 
 // —— 思考过程可视化：把 <think>...</think> 拆为「思考内容」与「答案」两部分 ——
@@ -582,7 +506,7 @@ async function applyChanges(messageId: string, changes: GeneratedChangeList): Pr
       saveSessions()
     }
     if (updated.title) emit('renamed', props.tool.id, updated.title)
-    reloadFrame()
+    frameRef.value?.reload()
   } else {
     const err = updated.error ?? '未知错误'
     // 在留痕卡片里展示错误，并保留「应用/放弃」按钮供用户重试或放弃
@@ -880,27 +804,7 @@ async function stopGeneration(): Promise<void> {
         </ui-button>
       </header>
 
-      <div class="tool-detail-body">
-        <webview
-          v-if="preloadPath"
-          ref="webviewRef"
-          v-show="frameStatus !== 'error' && frameStatus !== 'crash' && frameStatus !== 'hang'"
-          class="tool-frame"
-          :src="toolUrl"
-          :preload="preloadPath"
-          :title="tool.title"
-        />
-        <div
-          v-if="frameStatus === 'error' || frameStatus === 'crash' || frameStatus === 'hang'"
-          class="tool-frame-error"
-        >
-          <p class="tool-frame-error__title">
-            {{ frameStatus === 'crash' ? '工具页面已崩溃' : frameStatus === 'hang' ? '工具页面无响应' : '工具页面加载失败' }}
-          </p>
-          <p class="tool-frame-error__detail">{{ frameDetail }}</p>
-          <ui-button size="sm" @click="reloadFrame">重新加载</ui-button>
-        </div>
-        </div>
+      <tool-frame ref="frameRef" :tool="props.tool" />
         </section>
         </ui-resizable-panel>
 
@@ -928,45 +832,3 @@ async function stopGeneration(): Promise<void> {
     </teleport>
   </ui-resizable-panel-group>
 </template>
-
-<style scoped lang="less">
-.tool-detail-body {
-  position: relative;
-  min-height: 0;
-  flex: 1;
-  overflow: hidden;
-  /* webview 层叠在居中拖拽条之上，会在右侧遮盖住拖拽条；留 2px 内边距让拖拽条外露，滚动条/边界不再被盖住 */
-  padding-left: 2px;
-}
-
-.tool-frame {
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: var(--background);
-}
-
-.tool-frame-error {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 24px;
-  text-align: center;
-  background: var(--background);
-}
-
-.tool-frame-error__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--foreground);
-}
-
-.tool-frame-error__detail {
-  font-size: 12px;
-  color: var(--muted-foreground);
-}
-</style>
