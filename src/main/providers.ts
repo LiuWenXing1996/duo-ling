@@ -159,7 +159,3 @@ export const PROVIDERS: ModelProvider[] = [
 export function getProviders(): ModelProvider[] {
   return PROVIDERS
 }
-
-export function findProvider(id: string): ModelProvider | undefined {
-  return PROVIDERS.find((p) => p.id === id)
-}

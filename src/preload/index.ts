@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 
 // 通过 contextBridge 暴露给渲染进程的自定义 API
 interface TaskData {
@@ -136,7 +135,6 @@ let chatEventListener: ((_event: IpcRendererEvent, payload: ChatEventData) => vo
 let generatorEventListener: ((_event: IpcRendererEvent, payload: GeneratorEventData) => void) | null = null
 
 const api = {
-  ping: (): Promise<string> => ipcRenderer.invoke('app:ping'),
   listTasks: (): Promise<TaskData[]> => ipcRenderer.invoke('tasks:list'),
   createTask: (): Promise<TaskData> => ipcRenderer.invoke('tasks:create'),
   renameTask: (taskId: number, title: string): Promise<TaskData | null> =>
@@ -151,8 +149,6 @@ const api = {
     setActive: (id: string): Promise<void> => ipcRenderer.invoke('model:setActive', id),
     toggle: (id: string, enabled: boolean): Promise<void> =>
       ipcRenderer.invoke('model:toggle', id, enabled),
-    test: (config: { baseUrl: string; apiKey: string }): Promise<{ ok: boolean; models?: string[]; error?: string }> =>
-      ipcRenderer.invoke('model:test', config),
     testChat: (config: {
       baseUrl: string
       apiKey: string
@@ -260,14 +256,11 @@ const api = {
 
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
   } catch (error) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
   // @ts-ignore (define in dts)
   window.api = api
 }

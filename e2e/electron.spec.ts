@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 
 type RendererWindow = {
   api: {
-    ping: () => Promise<string>
     listTasks: () => Promise<Array<{ id: number; title: string; createdAt: string }>>
     capability: {
       list: () => Promise<
@@ -39,12 +38,6 @@ test('应用启动并渲染工具工作台主界面', async () => {
 
   // 工作台默认无演示/占位工具：展示空状态提示
   await expect(window.getByText('还没有工具，点击右上角「新建工具」创建')).toBeVisible()
-
-  // IPC 通道可用：window.api.ping() 应返回 pong
-  const ping = await window.evaluate(() =>
-    (window as unknown as RendererWindow).api.ping()
-  )
-  expect(ping).toBe('pong')
 
   // 任务持久化可用：首次启动（空 userData）应返回空列表
   const tasks = await window.evaluate(() =>

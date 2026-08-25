@@ -8,8 +8,6 @@ import { utilityProcess, type UtilityProcess } from 'electron'
 import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  listCapabilities,
-  type Capability,
   type CapabilityRunRequest,
   type CapabilityRunResult
 } from './capability-registry'
@@ -52,11 +50,6 @@ function ensureWorker(): UtilityProcess {
 /** 净化参数：经 JSON 序列化剥离 Vue 响应式 Proxy 等不可克隆特性 */
 function clean<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
-}
-
-/** 渲染层查询能力清单：返回两个分域合并后的全部契约 */
-export function listCapabilitiesHandler(): Capability[] {
-  return listCapabilities()
 }
 
 /** 执行 backend 能力：转发给 capability-worker，等待回执 */

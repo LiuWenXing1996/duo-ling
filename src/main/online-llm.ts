@@ -47,7 +47,6 @@ export interface ModelProfileInput {
   topK?: number
 }
 
-export const DEFAULT_BASE_URL = 'https://api.deepseek.com/v1'
 export const DEFAULT_SYSTEM_PROMPT = '你是 Duo Ling 的 AI 助手，请用中文回答。'
 
 interface ModelProfileState {

@@ -254,8 +254,8 @@ async function save(): Promise<void> {
 </script>
 
 <template>
-  <UiDialog :open="open" @update:open="emit('update:open', $event)">
-    <UiDialogContent class="max-w-2xl max-h-[85vh] p-0 gap-0 overflow-hidden" :show-close-button="false">
+  <ui-dialog :open="open" @update:open="emit('update:open', $event)">
+    <ui-dialog-content class="max-w-2xl max-h-[85vh] p-0 gap-0 overflow-hidden" :show-close-button="false">
       <!-- 统一 header -->
       <div class="flex shrink-0 items-center justify-between border-b px-5 py-3">
         <ui-dialog-title class="text-base font-semibold">
@@ -578,6 +578,6 @@ async function save(): Promise<void> {
           </template>
         </div>
       </div>
-    </UiDialogContent>
-  </UiDialog>
+    </ui-dialog-content>
+    </ui-dialog>
 </template>

@@ -25,7 +25,6 @@ import {
   getPublicProfiles,
   getSystemPrompt,
   isConfigured,
-  listModels,
   saveProfile,
   setActiveProfile,
   setProfileEnabled,
@@ -36,8 +35,8 @@ import {
 } from './online-llm'
 import { getProviders, type ModelProvider } from './providers'
 import { listChatMessages, appendChatMessage, type ChatMessage } from './chat-store'
-import { listCapabilitiesHandler, runBackendCapability } from './capability-runtime'
-import type { Capability } from './capability-registry'
+import { runBackendCapability } from './capability-runtime'
+import { listCapabilities, type Capability } from './capability-registry'
 
 // 端测等场景可通过环境变量指定 userData 目录，避免写入系统默认位置
 if (process.env['DUO_LING_USER_DATA_DIR']) {
@@ -105,7 +104,7 @@ function abortCurrentGeneration(): void {
 
 /** 生成器系统提示词：把当前能力清单喂给 LLM，让它对当前工具输出「变更清单」 */
 function buildGeneratorSystemPrompt(): string {
-  const caps = listCapabilitiesHandler()
+  const caps = listCapabilities()
   const list = caps
     .map((c) => {
       const inFields = c.inputSchema?.fields
@@ -327,9 +326,6 @@ app.whenReady().then(() => {
     }
   })
 
-  // 示例 IPC：渲染进程通过 window.api.ping() 调用
-  ipcMain.handle('app:ping', () => 'pong')
-
   // 任务列表持久化：electron-store 读写 <userData>/tasks.json
   ipcMain.handle('tasks:list', () => listTasks())
   ipcMain.handle('tasks:create', () => createTask())
@@ -360,7 +356,7 @@ app.whenReady().then(() => {
   ipcMain.handle('provider:list', (): ModelProvider[] => getProviders())
 
   // 原子能力：清单查询 + 能力执行（backend 走 capability-runtime；frontend 走 frontend-impls，工具页也经此）
-  ipcMain.handle('capability:list', (): Capability[] => listCapabilitiesHandler())
+  ipcMain.handle('capability:list', (): Capability[] => listCapabilities())
 
   ipcMain.handle(
     'capability:run',
@@ -384,7 +380,7 @@ app.whenReady().then(() => {
           return { ok: false, error: `工具未声明能力: ${id}` }
         }
       }
-      const cap = listCapabilitiesHandler().find((c) => c.id === id)
+      const cap = listCapabilities().find((c) => c.id === id)
       if (!cap) {
         return { ok: false, error: `未知能力: ${id}` }
       }
@@ -395,20 +391,6 @@ app.whenReady().then(() => {
       }
       try {
         return { ok: true, result: await runBackendCapability(id, args) }
-      } catch (error) {
-        return { ok: false, error: error instanceof Error ? error.message : String(error) }
-      }
-    }
-  )
-  // 测试连接：用传入的 baseUrl/apiKey（不落盘）拉取模型列表，验证 key/网络
-  ipcMain.handle(
-    'model:test',
-    async (
-      _event,
-      config: { baseUrl: string; apiKey: string }
-    ): Promise<{ ok: boolean; models?: string[]; error?: string }> => {
-      try {
-        return { ok: true, models: await listModels(config) }
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) }
       }

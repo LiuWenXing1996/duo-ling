@@ -1,10 +1,6 @@
-import { ElectronAPI } from '@electron-toolkit/preload'
-
 declare global {
   interface Window {
-    electron: ElectronAPI
     api: {
-      ping: () => Promise<string>
       listTasks: () => Promise<Array<{ id: number; title: string; createdAt: string }>>
       createTask: () => Promise<{ id: number; title: string; createdAt: string }>
       renameTask: (
@@ -64,11 +60,6 @@ declare global {
         delete: (id: string) => Promise<void>
         setActive: (id: string) => Promise<void>
         toggle: (id: string, enabled: boolean) => Promise<void>
-        test: (config: { baseUrl: string; apiKey: string }) => Promise<{
-          ok: boolean
-          models?: string[]
-          error?: string
-        }>
         testChat: (config: {
           baseUrl: string
           apiKey: string
