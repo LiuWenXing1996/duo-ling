@@ -4,9 +4,13 @@
 // 模型选择为纯本地面板逻辑，自含于此。
 import { computed, onMounted, ref } from 'vue'
 import {
+  Brain as UiBrain,
   Check as UiCheck,
-  ChevronRight as UiChevronRight,
+  ChevronDown as UiChevronDown,
   ChevronsUpDown as UiChevronsUpDown,
+  CircleCheck as UiCircleCheck,
+  CircleX as UiCircleX,
+  LoaderCircle as UiLoaderCircle,
   Plus as UiPlus
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
@@ -35,11 +39,11 @@ import {
   PromptInput as UiPromptInput,
   PromptInputFooter as UiPromptInputFooter,
   PromptInputSubmit as UiPromptInputSubmit,
-  PromptInputTextarea as UiPromptInputTextarea
+  PromptInputTextarea as UiPromptInputTextarea,
+  PromptInputTools as UiPromptInputTools
 } from '@/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import { truncate } from '@/lib/format'
-import { isContractAnswer, splitContent } from '@/lib/message-format'
 import type { PendingChange, ToolChatMessage } from '@/composables/use-tool-sessions'
 
 const props = defineProps<{
@@ -109,8 +113,8 @@ onMounted(() => {
   void window.api.model.list().then(refreshModelStatus)
 })
 
-// —— 思考过程可视化：把 <think>...</think> 拆为「思考内容」与「答案」两部分 ——
-const thinkOf = (m: ToolChatMessage): string => splitContent(m.content).think
+// —— 思考过程可视化：思考与正文从一开始就分离存（reasoning / content），直接读取即可 ——
+const thinkOf = (m: ToolChatMessage): string => m.reasoning ?? ''
 
 // 折叠式思考过程（ai-elements Reasoning 受控展开）：记录已展开的消息 id（默认折叠）
 const expandedThink = ref<Set<string>>(new Set())
@@ -121,23 +125,14 @@ function setThinkOpen(id: string, open: boolean): void {
   expandedThink.value = next
 }
 
-/** 消息正文：仅「正在流式生成中的契约 JSON」用「正在思考…」遮挡；其余原样展示。
- * 完成后真契约已在 tool-page 归一化为 summary；普通 JSON / markdown 正文不再被误屏蔽。 */
-function answerOf(m: ToolChatMessage): string {
-  const raw = splitContent(m.content).answer
-  // 仅当这条消息正是当前流式草稿、且内容像未归一化的契约 JSON 时遮挡
-  if (props.draft && props.draft.id === m.id && isContractAnswer(raw)) return '正在思考…'
-  return raw
-}
-
 /** 消息角色映射：ai-elements 的 Message 用 UIMessage['role']，项目内 AI 用 'ai' */
 function fromOf(m: ToolChatMessage): 'user' | 'assistant' {
   return m.role === 'user' ? 'user' : 'assistant'
 }
 
-/** 消息正文：答案（含打字机/契约遮挡）+ 流式草稿兜底，供 MessageResponse 渲染 */
+/** 消息正文：直接读 m.content；流式草稿暂无正文时给一句占位，避免空白气泡。 */
 function assistantText(m: ToolChatMessage): string {
-  return answerOf(m) || (props.draft && props.draft.id === m.id ? '正在思考…' : '')
+  return m.content.trim() ? m.content : props.draft && props.draft.id === m.id ? '正在思考…' : '（无回复内容）'
 }
 
 /** 取某条 AI 消息挂载的变更卡片（可能不存在，如自动模式或无变更） */
@@ -145,10 +140,21 @@ function pendingOf(messageId: string): PendingChange | undefined {
   return props.pendingMap[messageId]
 }
 
-/** 发送：由 PromptInput 表单提交触发，文本取自组件内部状态；发送由父组件执行生成 */
+/** Agent 工具调用步骤的中文展示名（未识别的能力名直接回显） */
+function stepLabel(name: string): string {
+  if (name === 'agent_tools_list') return '查询工具列表'
+  if (name === 'agent_tools_open') return '打开工具'
+  return name
+}
+
+/** 发送/停止：由 PromptInput 表单提交触发；流式时视为停止，否则发送（执行由父组件负责） */
 function onPromptSubmit(payload: PromptInputMessage): void {
+  if (props.streaming) {
+    emit('stop')
+    return
+  }
   const text = payload.text.trim()
-  if (!text || props.streaming) return
+  if (!text) return
   emit('send', text)
 }
 </script>
@@ -162,7 +168,7 @@ function onPromptSubmit(payload: PromptInputMessage): void {
     <div class="flex min-h-0 flex-1 flex-col">
       <!-- 消息区：用 ai-elements Conversation 贴底滚动 + 滚动到底部按钮 -->
       <ui-conversation class="min-h-0 flex-1" aria-label="当前会话消息">
-        <ui-conversation-content class="gap-3 px-4 py-3">
+        <ui-conversation-content>
           <ui-conversation-empty-state
             v-if="props.messages.length === 0"
             title="暂无消息"
@@ -180,27 +186,58 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                 v-if="m.role === 'ai' && thinkOf(m)"
                 :open="expandedThink.has(m.id)"
                 :default-open="false"
-                class="mb-0 max-w-[80%] rounded-lg border border-muted bg-background/60 px-3 py-2 text-xs text-muted-foreground"
+                class="w-full min-w-0"
                 @update:open="setThinkOpen(m.id, $event)"
               >
-                <ui-reasoning-trigger class="text-xs">
-                  <ui-chevron-right
-                    class="size-3 transition-transform"
-                    :class="{ 'rotate-90': expandedThink.has(m.id) }"
-                  />
+                <ui-reasoning-trigger class="text-sm">
+                  <ui-brain class="size-4" />
                   思考过程
+                  <ui-chevron-down
+                    class="size-4 shrink-0 transition-transform"
+                    :class="{ 'rotate-180': expandedThink.has(m.id) }"
+                  />
                 </ui-reasoning-trigger>
                 <ui-reasoning-content :content="thinkOf(m)" data-testid="think-body" />
               </ui-reasoning>
               <!-- 消息气泡：用 ai-elements 的 Message / MessageContent / MessageResponse 渲染 -->
-              <ui-message :from="fromOf(m)">
+              <ui-message :from="fromOf(m)" class="max-w-full">
                 <template v-if="m.role === 'user'">
                   <ui-message-content>{{ m.content }}</ui-message-content>
                 </template>
                 <template v-else>
-                  <ui-message-content
-                    class="group-[.is-assistant]:rounded-lg group-[.is-assistant]:bg-muted group-[.is-assistant]:px-4 group-[.is-assistant]:py-3"
+                  <!-- Agent 工具调用步骤：AI 自主调用工具时逐步展示（查询/打开等） -->
+                  <ul
+                    v-if="m.steps?.length"
+                    class="w-full min-w-0 space-y-1.5"
+                    data-testid="agent-steps"
                   >
+                    <li
+                      v-for="s in m.steps"
+                      :key="s.id"
+                      class="flex items-start gap-2 rounded-lg border border-border bg-background/60 px-3 py-2 text-xs"
+                    >
+                      <ui-loader-circle
+                        v-if="s.status === 'running'"
+                        class="mt-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground"
+                      />
+                      <ui-circle-check
+                        v-else-if="s.status === 'done'"
+                        class="mt-0.5 size-3.5 shrink-0 text-green-600"
+                      />
+                      <ui-circle-x v-else class="mt-0.5 size-3.5 shrink-0 text-destructive" />
+                      <div class="min-w-0 flex-1">
+                        <p class="font-medium">{{ stepLabel(s.name) }}</p>
+                        <p
+                          v-if="s.arguments"
+                          class="mt-0.5 truncate font-mono text-muted-foreground"
+                        >
+                          {{ s.arguments }}
+                        </p>
+                        <p v-if="s.error" class="mt-0.5 text-destructive">{{ s.error }}</p>
+                      </div>
+                    </li>
+                  </ul>
+                  <ui-message-content class="w-full min-w-0">
                     <ui-message-response :content="assistantText(m)" />
                   </ui-message-content>
                 </template>
@@ -238,14 +275,14 @@ function onPromptSubmit(payload: PromptInputMessage): void {
       </ui-conversation>
 
       <div class="border-t p-3">
-        <ui-prompt-input class="bg-transparent" @submit="onPromptSubmit">
+        <ui-prompt-input @submit="onPromptSubmit">
           <ui-prompt-input-textarea
-            class="min-h-[78px] max-h-32"
             placeholder="例如：做一个能读取本地文件并用 Markdown 展示的工具"
             :disabled="props.streaming"
           />
           <ui-prompt-input-footer>
-            <!-- 模型选择：保留富内容弹层（缺Key提示/空态/添加模型入口） -->
+            <!-- 工具区：模型选择（保留富内容弹层：缺Key提示/空态/添加模型入口） -->
+            <ui-prompt-input-tools>
             <ui-popover v-model:open="modelMenuOpen">
               <ui-popover-trigger as-child>
                 <ui-button
@@ -291,13 +328,9 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                 </div>
               </ui-popover-content>
             </ui-popover>
-            <!-- 停止/发送：流式进行时显示停止按钮，提交按钮禁用避免误发 -->
-            <div class="flex items-center gap-2">
-              <ui-button v-if="props.streaming" type="button" variant="outline" size="sm" @click="emit('stop')">
-                停止
-              </ui-button>
-              <ui-prompt-input-submit size="sm" :disabled="props.streaming" />
-            </div>
+            </ui-prompt-input-tools>
+            <!-- 发送/停止：单个提交按钮，流式时依据 status 自动切换为停止图标 -->
+            <ui-prompt-input-submit :status="props.streaming ? 'streaming' : undefined" />
           </ui-prompt-input-footer>
         </ui-prompt-input>
       </div>

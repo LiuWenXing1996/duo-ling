@@ -6,8 +6,8 @@ import {
   ResizablePanelGroup as UiResizablePanelGroup
 } from '@/components/ui/resizable'
 import { parseGeneratedChanges, type GeneratedChangeList } from '@/lib/tool-generator'
-import { splitContent } from '@/lib/message-format'
 import { useToolSessions, type ToolChatMessage } from '@/composables/use-tool-sessions'
+import type { GeneratorEventData } from '../../../shared/types'
 import SessionHistoryPanel from '@/components/session-history-panel.vue'
 import ChatPanel from '@/components/chat-panel.vue'
 import ToolDetailPanel from '@/components/tool-detail-panel.vue'
@@ -75,16 +75,41 @@ function onDeleteSession(payload: { type: 'session' | 'all'; id?: string; title?
   else deleteAllSessions()
 }
 
-// 生成器流式 token：把增量累积到待生成的草稿消息（done/aborted/error 由 send 收尾，避免重复处理）
-function onGeneratorEvent(
-  payload:
-    | { type: 'token'; token: string }
-    | { type: 'done'; content: string }
-    | { type: 'aborted'; content: string }
-    | { type: 'error'; error: string }
-): void {
-  if (payload.type === 'token' && draft.value) {
+// 生成器流式事件：把增量累积到待生成的草稿消息，同时把 Agent Loop 的工具调用事件累积到草稿的 steps。
+// done/aborted/error 由 send 收尾，避免重复处理。
+function onGeneratorEvent(payload: GeneratorEventData): void {
+  if (!draft.value) return
+  if (payload.type === 'token') {
     draft.value.content += payload.token
+    return
+  }
+  // 思考流程：流式期间即时累积到草稿的 reasoning，思考卡片当轮即可显示，不需等下一轮 re-render
+  if (payload.type === 'reasoning') {
+    if (!draft.value.reasoning) draft.value.reasoning = ''
+    draft.value.reasoning += payload.text
+    return
+  }
+  // AI 自主调用工具：逐步累积到草稿的 steps，供渲染层展示「正在调用工具」步骤卡片
+  if (payload.type === 'tool_start') {
+    if (!draft.value.steps) draft.value.steps = []
+    draft.value.steps.push({
+      id: `t-${draft.value.steps.length}-${Date.now()}`,
+      name: payload.name,
+      arguments: payload.arguments,
+      status: 'running'
+    })
+    return
+  }
+  if (payload.type === 'tool_result') {
+    // 用最后一个「同名且仍在运行」的步骤配对结果（骨架期同名工具极少并发，足够可靠）
+    const target = [...(draft.value.steps ?? [])]
+      .reverse()
+      .find((s) => s.name === payload.name && s.status === 'running')
+    if (target) {
+      target.status = payload.ok ? 'done' : 'error'
+      target.result = payload.result
+      target.error = payload.error
+    }
   }
 }
 
@@ -112,18 +137,15 @@ async function send(text: string): Promise<void> {
 
   try {
     const res = await window.api.generator.send(history)
+    // 流式过程中 draftMsg.reasoning 已由 onGeneratorEvent 累积；send 返回的 reasoning 兜底回填
+    if (res.reasoning) draftMsg.reasoning = res.reasoning
     if (res.content) {
       draftMsg.content = res.content
       const parsed = parseGeneratedChanges(res.content)
       // changes 为 null：可视作 LLM 在澄清追问 / 能力缺失说明，保留原文作为普通回复
       if (parsed.changes) {
         // 有实际改动：正文不再直出契约 JSON，改用 summary 作为人类可读回复
-        // （保留思考过程；卡片另展示 summary + 动作详情，避免正文裸露 JSON 字符串）。
-        const summary = parsed.changes.summary?.trim()
-          ? parsed.changes.summary
-          : '已生成对当前工具的改动并应用'
-        const { think } = splitContent(draftMsg.content)
-        draftMsg.content = think ? `<think>${think}</think>\n\n${summary}` : summary
+        draftMsg.content = parsed.changes.summary?.trim() || '已生成对当前工具的改动并应用'
         // 自动落盘：AI 改完直接应用；先把变更清单记入卡片作留痕，失败错误由 applyChanges 回填到卡片
         pendingMap.value[draftMsg.id] = {
           messageId: draftMsg.id,
@@ -132,14 +154,17 @@ async function send(text: string): Promise<void> {
         saveSessions()
         await applyChanges(draftMsg.id, parsed.changes)
       } else if (parsed.summary) {
-        // LLM 输出的是「无实际动作」的契约 JSON（多为澄清追问）：
-        // 把直出的原始 JSON 替换为人性化 summary；同时保留思考过程，
-        // 避免用 summary 整体覆盖 content 导致完成后思考过程消失。
-        const { think } = splitContent(draftMsg.content)
-        draftMsg.content = think ? `<think>${think}</think>\n\n${parsed.summary}` : parsed.summary
+        // LLM 输出的是「无实际动作」的契约 JSON（多为澄清追问）：把直出的原始 JSON 替换为人性化 summary
+        draftMsg.content = parsed.summary
+      } else {
+        // 普通对话（打招呼/闲聊）：无可应用变更，正文非空则原样展示，空则兜底避免空白气泡
+        ensureNonEmptyAnswer(draftMsg)
       }
     } else if (res.error) {
       messages.value = messages.value.filter((m) => m.id !== draftMsg.id)
+    } else {
+      // 模型返回了空内容且无错误：同样兜底，避免渲染出空白气泡
+      ensureNonEmptyAnswer(draftMsg)
     }
   } catch (error) {
     messages.value = messages.value.filter((m) => m.id !== draftMsg.id)
@@ -188,6 +213,13 @@ async function applyChanges(messageId: string, changes: GeneratedChangeList): Pr
     const msg = messages.value.find((m) => m.id === messageId)
     if (msg) msg.content += `\n\n[写入工具失败] ${err}`
   }
+}
+
+// 兜底：模型只思考而无正文 / 返回空内容时，给消息补一段人类可读文案，避免空白气泡。
+// 思考过程已存于 msg.reasoning，正文缺失时仅追加说明，不拼接 <think> 标签。
+function ensureNonEmptyAnswer(msg: ToolChatMessage): void {
+  if (msg.content.trim()) return
+  msg.content = '（模型未生成回复内容，请重试或换个说法）'
 }
 
 async function stopGeneration(): Promise<void> {

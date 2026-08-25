@@ -26,12 +26,25 @@ export type ChatEventData =
   | { type: 'aborted'; taskId: number; message: ChatMessage | null }
   | { type: 'error'; taskId: number; error: string }
 
-// 生成器流式事件（主进程 → 渲染层，channel: generator:event）
+// 生成器流式事件（主进程 → 渲染层，channel: generator:event）。
+// 思考过程与正文从一开始就分离：reasoning 写 reasoning（text），content 写正文（token），
+// 渲染层无需再用 <think> 标签切分，与业界标准消息模型 { role, content, reasoning? } 一致。
+// tool_start / tool_result 由 Agent Loop 回调产生：AI 自主调用工具时逐步推给渲染层作步骤展示
 export type GeneratorEventData =
   | { type: 'token'; token: string }
-  | { type: 'done'; content: string }
-  | { type: 'aborted'; content: string }
+  | { type: 'reasoning'; text: string }
+  | { type: 'done'; content: string; reasoning?: string }
+  | { type: 'aborted'; content: string; reasoning?: string }
   | { type: 'error'; error: string }
+  | { type: 'tool_start'; name: string; arguments: string }
+  | { type: 'tool_result'; name: string; ok: boolean; result?: string; error?: string }
+
+// 主进程 → 渲染层「打开工具」命令（channel: tool:open-command）。
+// 由 agent.tools.open 触发：AI 决定打开某工具时，主进程广播命令，渲染层据此切换/新建工具标签页。
+export interface ToolOpenCommand {
+  toolId: string
+  title: string
+}
 
 /** 生成器对话历史的一项（仅 role + content，带 id/createdAt 的完整 ChatMessage 仅主进程内部需要） */
 export interface GeneratorMessage {
@@ -298,5 +311,6 @@ export type ToolsDataOpenResult = { ok: true } | { ok: false; error: string }
 export interface GeneratorSendResult {
   ok: boolean
   content?: string
+  reasoning?: string
   error?: string
 }

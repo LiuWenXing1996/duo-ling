@@ -341,39 +341,136 @@ export function generateReply(
   onToken: (text: string) => void,
   signal: AbortSignal
 ): Promise<string> {
-  return generateReplyWithSystemPrompt(getSystemPrompt(), history, userText, onToken, signal)
+  return generateReplyWithSystemPrompt(getSystemPrompt(), history, userText, onToken, signal).then(
+    (r) => r.content
+  )
 }
 
-/**
- * 流式生成回复，允许外部指定系统提示词（普通对话用全局提示词；生成器用能力清单提示词）。
- * 其余逻辑与 generateReply 一致。
- */
-export async function generateReplyWithSystemPrompt(
+// —— Agent Loop ——
+// 模型「思考 → 调用工具 → 拿结果 → 再思考 → … → 最终正文」的多轮循环。
+// 底层仍是单次 OpenAI 兼容流式请求（streamOnce），由 generateAgentReply 编排多轮：
+// 每轮若模型返回 tool_calls，则把结果以 role:'tool' 回传后再请求，直至模型给出最终 content。
+
+/** OpenAI 兼容的 function 定义（tools 数组每一项） */
+export type OpenAITool = {
+  type: 'function'
+  function: { name: string; description: string; parameters: Record<string, unknown> }
+}
+
+/** 一次工具调用（SSE 按 index 累积后归一化） */
+export interface AgentToolCall {
+  id: string
+  name: string
+  arguments: string
+}
+
+/** 工具执行结果（模型以 role:'tool' 收到的是其 JSON 字符串） */
+export interface AgentToolResult {
+  ok: boolean
+  result?: string
+  error?: string
+}
+
+export interface GenerateAgentOptions {
+  /** 可调用工具定义（buildAgentTools 产出），空数组则退化为单轮 */
+  tools: OpenAITool[]
+  /** 执行某能力/工具，产出的结果回传模型（异常统一收敛为 { ok:false }，不打断循环） */
+  executeTool: (name: string, argsJson: string) => Promise<AgentToolResult>
+  onToolStart?: (call: AgentToolCall) => void
+  onToolResult?: (name: string, result: AgentToolResult) => void
+  /** 推理模型思考过程增量：与正文分离推给调用方（对应 SSE 的 reasoning_content） */
+  onReasoning?: (text: string) => void
+  /** 最大循环轮数，默认 8 */
+  maxRounds?: number
+}
+
+/** Agent Loop 编排器：多次 streamOnce，直到模型不再请求工具而给出最终正文 */
+export async function generateAgentReply(
   systemPrompt: string,
   history: ChatMessage[],
   userText: string,
   onToken: (text: string) => void,
-  signal: AbortSignal
-): Promise<string> {
-  const {
-    baseUrl,
-    apiKey,
-    model,
-    useFullUrl,
-    contextOutputToken,
-    temperature,
-    topP,
-    topK
-  } = getActiveConfig()
+  signal: AbortSignal,
+  opts: GenerateAgentOptions
+): Promise<{ content: string; reasoning: string }> {
   if (!isConfigured()) {
     throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
   }
+  const config = getActiveConfig()
 
-  const messages: Array<{ role: string; content: string }> = [
+  // 消息集会随着工具调用的往返不断增长；此处直接用一个可变数组承载
+  const messages: Array<Record<string, unknown>> = [
     ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
     ...history.map((m) => ({ role: m.role, content: m.content })),
     { role: 'user', content: userText }
   ]
+
+  const maxRounds = opts.maxRounds ?? 8
+  // 累积所有轮次的内容（含中间轮思考）：onToken.onReasoning 已即时推送给前端用于实时显示，
+  // 此处把各轮拼接作为「最终完整回复」，避免中间轮思考在收尾覆盖时丢失。
+  let accContent = ''
+  let accReasoning = ''
+  for (let round = 0; round <= maxRounds; round++) {
+    const { content, reasoning, toolCalls } = await streamOnce(
+      config,
+      messages,
+      opts.tools,
+      onToken,
+      opts.onReasoning,
+      signal
+    )
+    accContent += content
+    accReasoning += reasoning
+
+    // 无工具调用 → 这是最终答案
+    if (toolCalls.length === 0) {
+      // 模型可能只输出了空内容（如对「你好呀」一类非工具请求无话可说），给一条兜底文案
+      const body = accContent.trim() ? accContent : '（模型未返回任何内容，请重试或换个说法）'
+      return { content: body, reasoning: accReasoning }
+    }
+
+    // 有工具调用：先把带 tool_calls 的 assistant 消息入列，再逐个执行并回传结果
+    messages.push({
+      role: 'assistant',
+      content,
+      tool_calls: toolCalls.map((c) => ({
+        id: c.id,
+        type: 'function',
+        function: { name: c.name, arguments: c.arguments }
+      }))
+    })
+    for (const call of toolCalls) {
+      if (signal.aborted) throw new Error('生成已中止')
+      opts.onToolStart?.(call)
+      const result = await opts.executeTool(call.name, call.arguments)
+      opts.onToolResult?.(call.name, result)
+      messages.push({
+        role: 'tool',
+        tool_call_id: call.id,
+        name: call.name,
+        content: result.ok ? result.result ?? '' : (result.error ?? '')
+      })
+    }
+  }
+
+  throw new Error(`已达到最大工具调用轮数（${maxRounds}）`)
+}
+
+/**
+ * 单轮 OpenAI 兼容流式请求（SSE）。
+ * 返回 { content, reasoning, toolCalls }：content 为最终正文（不含思考），reasoning 为思考过程，
+ * toolCalls 为模型请求调用的工具（可能为空）。思考与正文分离，onToken 只收正文、onReasoning 只收思考。
+ * 兼容不传 tools 或服务商忽略 tools 的情况。
+ */
+async function streamOnce(
+  config: ReturnType<typeof getActiveConfig>,
+  messages: Array<Record<string, unknown>>,
+  tools: OpenAITool[],
+  onToken: (text: string) => void,
+  onReasoning: ((text: string) => void) | undefined,
+  signal: AbortSignal
+): Promise<{ content: string; reasoning: string; toolCalls: AgentToolCall[] }> {
+  const { baseUrl, apiKey, model, useFullUrl, contextOutputToken, temperature, topP, topK } = config
 
   // useFullUrl 时为完整接口地址，否则补充 /chat/completions
   const url = useFullUrl ? baseUrl : `${baseUrl}/chat/completions`
@@ -387,6 +484,7 @@ export async function generateReplyWithSystemPrompt(
       model,
       messages,
       stream: true,
+      ...(tools.length ? { tools, tool_choice: 'auto' } : {}),
       ...(contextOutputToken != null ? { max_tokens: contextOutputToken } : {}),
       ...(temperature != null ? { temperature } : {}),
       ...(topP != null ? { top_p: topP } : {}),
@@ -404,38 +502,29 @@ export async function generateReplyWithSystemPrompt(
   }
 
   const contentType = res.headers.get('content-type') ?? ''
-  // 极少数服务商忽略 stream 选项返回完整 JSON：降级为一次性读取
+  // 极少数服务商忽略 stream 选项返回完整 JSON：降级为一次性读取（含 tool_calls）
   if (!contentType.includes('text/event-stream')) {
     const body = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>
+      choices?: Array<{ message?: { content?: string; reasoning_content?: string; tool_calls?: Array<SerializedToolCall> } }>
     }
-    const content = body.choices?.[0]?.message?.content ?? ''
+    const msg = body.choices?.[0]?.message
+    const content = msg?.content ?? ''
     if (content) onToken(content)
-    return content
+    return {
+      content,
+      reasoning: msg?.reasoning_content ?? '',
+      toolCalls: (msg?.tool_calls ?? []).map(mapSerializedToolCall)
+    }
   }
 
   // 标准 SSE：data: {...} 逐帧，data: [DONE] 结束
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
-  let full = ''
-  // 推理模型（如 DeepSeek-R1）先流式输出 reasoning_content 思考过程，正文 content 延迟到达。
-  // 把思考过程用 <think>...</think> 包裹后作为内容推送给前端，渲染层据此拆分展示。
-  let thinkingOpen = false
-  let thinkingClosed = false
-
-  const push = (text: string): void => {
-    if (text) {
-      full += text
-      onToken(text)
-    }
-  }
-  const closeThinking = (): void => {
-    if (thinkingOpen && !thinkingClosed) {
-      push('</think>')
-      thinkingClosed = true
-    }
-  }
+  let contentText = ''
+  let reasoningText = ''
+  // OpenAI 会把 tool_calls 按 index 分帧拆发 function.name / function.arguments，此处按 index 累积
+  const toolCallAcc = new Map<number, { id: string; name: string; arguments: string }>()
 
   while (true) {
     const { done, value } = await reader.read()
@@ -447,34 +536,85 @@ export async function generateReplyWithSystemPrompt(
       const data = parseSseData(frame)
       if (data === null) continue
       if (data === '[DONE]') {
-        closeThinking()
-        return full
+        return { content: contentText, reasoning: reasoningText, toolCalls: Array.from(toolCallAcc.values()) }
       }
       try {
         const json = JSON.parse(data) as {
-          choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>
+          choices?: Array<{
+            delta?: {
+              content?: string
+              reasoning_content?: string
+              tool_calls?: Array<{
+                index: number
+                id?: string
+                function?: { name?: string; arguments?: string }
+              }>
+            }
+          }>
         }
         const delta = json.choices?.[0]?.delta
+
+        for (const tc of delta?.tool_calls ?? []) {
+          const slot = toolCallAcc.get(tc.index) ?? { id: '', name: '', arguments: '' }
+          if (tc.id) slot.id += tc.id
+          if (tc.function?.name) slot.name += tc.function.name
+          if (tc.function?.arguments) slot.arguments += tc.function.arguments
+          toolCallAcc.set(tc.index, slot)
+        }
+
         const reasoning = delta?.reasoning_content
         if (reasoning) {
-          // 思考过程：仅在首个 token 前写入 <think> 开标签
-          if (!thinkingOpen) push('<think>')
-          thinkingOpen = true
-          push(reasoning)
+          reasoningText += reasoning
+          onReasoning?.(reasoning)
         }
         const content = delta?.content
         if (content) {
-          // 从思考切换到正文：先闭合 <think>，再输出正文
-          closeThinking()
-          push(content)
+          contentText += content
+          onToken(content)
         }
       } catch {
         // 忽略畸形帧，避免个别服务商混入的注释行中断流程
       }
     }
   }
-  closeThinking()
-  return full
+  return { content: contentText, reasoning: reasoningText, toolCalls: Array.from(toolCallAcc.values()) }
+}
+
+/** 非流式一次性请求里 message.tool_calls 的形状 */
+interface SerializedToolCall {
+  id?: string
+  type?: string
+  function?: { name?: string; arguments?: string }
+}
+
+function mapSerializedToolCall(c: SerializedToolCall): AgentToolCall {
+  return {
+    id: c.id ?? '',
+    name: c.function?.name ?? '',
+    arguments: c.function?.arguments ?? ''
+  }
+}
+
+/**
+ * 流式生成回复，允许外部指定系统提示词（普通对话用全局提示词；生成器用能力清单提示词）。
+ * 不传 tools，行为等同旧版单轮生成。如需 Agent Loop，请改用 generateAgentReply。
+ */
+export async function generateReplyWithSystemPrompt(
+  systemPrompt: string,
+  history: ChatMessage[],
+  userText: string,
+  onToken: (text: string) => void,
+  signal: AbortSignal
+): Promise<{ content: string; reasoning: string }> {
+  if (!isConfigured()) {
+    throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
+  }
+  const { content, reasoning } = await streamOnce(getActiveConfig(), [
+    ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+    ...history.map((m) => ({ role: m.role, content: m.content })),
+    { role: 'user', content: userText }
+  ], [], onToken, undefined, signal)
+  return { content, reasoning }
 }
 
 /** 从单个 SSE frame 中提取 data: 行的内容；无 data 行返回 null */

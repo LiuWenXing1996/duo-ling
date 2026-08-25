@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   deleteProfile,
   generateReply,
+  generateReplyWithSystemPrompt,
   getActiveProfileId,
   getPublicProfiles,
   getSystemPrompt,
@@ -283,7 +284,7 @@ describe('generateReply（OpenAI 兼容流式）', () => {
     expect(body2.messages.every((m: { role: string }) => m.role !== 'system')).toBe(true)
   })
 
-  it('推理模型：reasoning_content 以 <think>...</think> 包裹流式下发，正文保持原样', async () => {
+  it('推理模型：reasoning_content 与 content 分离，正文 token 流只含 content', async () => {
     fetchMock.mockResolvedValue(
       sseResponse([
         'data: {"choices":[{"delta":{"reasoning_content":"先分析"}}]}\n\n',
@@ -293,21 +294,36 @@ describe('generateReply（OpenAI 兼容流式）', () => {
       ])
     )
     const tokens: string[] = []
-    const reply = await generateReply([], '你好', (t) => tokens.push(t), new AbortController().signal)
+    const reply = await generateReplyWithSystemPrompt(
+      '',
+      [],
+      '你好',
+      (t) => tokens.push(t),
+      new AbortController().signal
+    )
 
-    expect(tokens).toEqual(['<think>', '先分析', '再推理', '</think>', '结论'])
-    expect(reply).toBe('<think>先分析再推理</think>结论')
+    // 思考与正文分离：onToken 只收正文 token，reasoning 单独返回，不再拼接 <think> 标签
+    expect(tokens).toEqual(['结论'])
+    expect(reply.content).toBe('结论')
+    expect(reply.reasoning).toBe('先分析再推理')
   })
 
-  it('推理模型：思考过程未闭合（仅思考无正文）时流结束自动补 </think>', async () => {
+  it('推理模型：仅思考无正文时 reasoning 保留、正文为空', async () => {
     fetchMock.mockResolvedValue(
       sseResponse(['data: {"choices":[{"delta":{"reasoning_content":"思考中"}}]}\n\n', 'data: [DONE]\n\n'])
     )
     const tokens: string[] = []
-    const reply = await generateReply([], '你好', (t) => tokens.push(t), new AbortController().signal)
+    const reply = await generateReplyWithSystemPrompt(
+      '',
+      [],
+      '你好',
+      (t) => tokens.push(t),
+      new AbortController().signal
+    )
 
-    expect(tokens).toEqual(['<think>', '思考中', '</think>'])
-    expect(reply).toBe('<think>思考中</think>')
+    expect(tokens).toEqual([])
+    expect(reply.content).toBe('')
+    expect(reply.reasoning).toBe('思考中')
   })
 })
 

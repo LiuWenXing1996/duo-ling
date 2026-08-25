@@ -4,7 +4,8 @@ import { ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { CH, EVENT_CH } from '../../shared/ipc'
 import type { ChatMessage, GeneratorEventData, GeneratorMessage } from '../../shared/types'
 import { listCapabilities } from '../capability-registry'
-import { generateReplyWithSystemPrompt, isConfigured } from '../online-llm'
+import { generateAgentReply, isConfigured } from '../online-llm'
+import { buildAgentTools, executeAgentTool } from '../agent-tools'
 import { getGeneratorAbortController, setGeneratorAbortController } from './state'
 
 /** 生成器系统提示词：把当前能力清单喂给 LLM，让它对当前工具输出「变更清单」 */
@@ -71,6 +72,7 @@ function buildGeneratorSystemPrompt(): string {
     '示例（把标题改成「Markdown 速览」并给预览容器加背景）：',
     example,
     '交互规则：',
+    '0. 用户只是在聊天（打招呼 / 闲聊 / 咨询），并非要求修改当前工具时：直接正常回应用户，不要输出 JSON。',
     '1. 目标明确 → 直接输出上面的 JSON，不要解释文字。',
     '2. 能力缺失 → 明确说明缺了什么能力，并用现有能力给出替代方案，或引导用户调整需求。',
     '3. 需求模糊 → 先追问澄清，再输出 JSON。',
@@ -94,7 +96,7 @@ export function registerGeneratorIpc(): void {
     async (
       event,
       history: GeneratorMessage[]
-    ): Promise<{ ok: boolean; content?: string; error?: string }> => {
+    ): Promise<{ ok: boolean; content?: string; reasoning?: string; error?: string }> => {
       if (!Array.isArray(history) || history.length === 0) {
         return { ok: false, error: '对话历史不能为空' }
       }
@@ -122,25 +124,57 @@ export function registerGeneratorIpc(): void {
       const abort = new AbortController()
       setGeneratorAbortController(abort)
       const systemPrompt = buildGeneratorSystemPrompt()
-      let full = ''
+      let content = ''
+      let reasoning = ''
 
       try {
-        const reply = await generateReplyWithSystemPrompt(
+        const reply = await generateAgentReply(
           systemPrompt,
           historyMsgs,
           last.content,
           (token) => {
-            full += token
+            content += token
             sendGeneratorEvent(event, { type: 'token', token })
           },
-          abort.signal
+          abort.signal,
+          {
+            // Agent Loop：给 LLM 声明可调用工具（本期：查工具 / 打开工具）
+            tools: buildAgentTools(),
+            // 推理模型思考过程：与正文分离，单独推给渲染层（对应业界标准 reasoning 字段）
+            onReasoning: (text) => {
+              reasoning += text
+              sendGeneratorEvent(event, { type: 'reasoning', text })
+            },
+            // 逐步把工具调用事件推给渲染层作步骤展示（对应 DeepSeek「搜索/引用」样式）
+            onToolStart: (call) => {
+              sendGeneratorEvent(event, {
+                type: 'tool_start',
+                name: call.name,
+                arguments: call.arguments
+              })
+            },
+            onToolResult: (name, result) => {
+              sendGeneratorEvent(event, {
+                type: 'tool_result',
+                name,
+                ok: result.ok,
+                result: result.result,
+                error: result.error
+              })
+            },
+            // 执行工具；「打开工具」的副作用经 event.sender 广播命令，让渲染层切换工具标签页
+            executeTool: (name, argsJson) =>
+              executeAgentTool(name, argsJson, {
+                onOpenTool: (cmd) => event.sender.send(EVENT_CH.toolOpenCommand, cmd)
+              })
+          }
         )
-        sendGeneratorEvent(event, { type: 'done', content: reply })
-        return { ok: true, content: reply }
+        sendGeneratorEvent(event, { type: 'done', content: reply.content, reasoning: reply.reasoning })
+        return { ok: true, content: reply.content, reasoning: reply.reasoning }
       } catch (error) {
         if (abort.signal.aborted) {
-          sendGeneratorEvent(event, { type: 'aborted', content: full })
-          return { ok: false, content: full }
+          sendGeneratorEvent(event, { type: 'aborted', content, reasoning })
+          return { ok: false, content, reasoning }
         }
         const message = error instanceof Error ? error.message : String(error)
         sendGeneratorEvent(event, { type: 'error', error: message })

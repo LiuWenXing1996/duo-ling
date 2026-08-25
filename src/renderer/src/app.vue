@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { Plus as UiPlus, Search as UiSearch, Settings as UiSettings } from '@lucide/vue'
+import type { ToolOpenCommand } from '../../shared/types'
 import {
   Combobox as UiCombobox,
   ComboboxAnchor as UiComboboxAnchor,
@@ -37,7 +38,26 @@ async function reloadTools(): Promise<void> {
   }
 }
 
-onMounted(reloadTools)
+function openToolFromCommand(cmd: ToolOpenCommand): void {
+  let tool = allTools.value.find((t) => t.id === cmd.toolId)
+  if (!tool) {
+    // 工具列表尚未刷新到该工具：用命令里的最小信息补占位元信息，仍能打开
+    tool = { id: cmd.toolId, name: cmd.toolId, title: cmd.title, description: '', icon: undefined }
+  }
+  workspaceRef.value?.openTool(tool)
+}
+
+let unsubscribeOpenCommand: (() => void) | null = null
+
+onMounted(() => {
+  reloadTools()
+  // Agent Loop 决定打开工具时（agent.tools.open），由主进程广播命令，此处切换/新建工具标签页
+  unsubscribeOpenCommand = window.api.tool.onOpenCommand(openToolFromCommand)
+})
+
+onUnmounted(() => {
+  unsubscribeOpenCommand?.()
+})
 
 function handleCreateTool(): void {
   workspaceRef.value?.createTool()

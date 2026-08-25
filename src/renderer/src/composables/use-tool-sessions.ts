@@ -10,10 +10,24 @@ export interface ToolSession {
   meta: string
 }
 
+/** AI 自主调用工具的一个步骤（Agent Loop 逐步展示，对应「搜索/引用」样式） */
+export interface ToolChatStep {
+  id: string
+  name: string
+  arguments: string
+  status: 'running' | 'done' | 'error'
+  result?: string
+  error?: string
+}
+
 export interface ToolChatMessage {
   id: string
   role: 'ai' | 'user'
   content: string
+  /** AI 的思考过程（reasoning），与 content 从一开始就分离存，不再拼 <think> 标签（可选，兼容旧存储） */
+  reasoning?: string
+  /** AI 自主调用工具的步骤列表（仅 AI 消息，由 tool_start/tool_result 事件累积；可选，兼容旧存储） */
+  steps?: ToolChatStep[]
 }
 
 // 自动落盘留痕：AI 产出变更清单后直接应用，卡片仅作留痕展示（无手动应用/放弃）
@@ -57,6 +71,23 @@ function normalizePendingStore(
     }
   }
   return out
+}
+
+/** 已迁移完成的消息按迁移前的旧结构。 */
+// 旧版本把思考过程与正文拼在 content 里（<think>...</think>），与业界标准模型不符。
+// 恢复历史时把成对的 <think> 块提取到 reasoning 字段、从 content 中清掉，使渲染层直接读 m.reasoning/m.content。
+function migrateMessage(m: ToolChatMessage): ToolChatMessage {
+  const blocks = m.content?.match(/<think>[\s\S]*?(?:<\/think>|$)/gi) ?? []
+  if (blocks.length === 0) return m
+  const reasoning = blocks
+    .map((t) => t.replace(/<\/?think>/gi, '').trim())
+    .filter(Boolean)
+    .join('\n\n')
+  const content = m.content
+    .replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '')
+    .replace(/<\/?think>/gi, '')
+    .trim()
+  return { ...m, reasoning: m.reasoning ?? reasoning, content }
 }
 
 /** 工具会话状态：按工具 id 分桶持久化到 localStorage，切换/重启后不丢。 */
@@ -168,7 +199,12 @@ export function useToolSessions(
     const saved = loadSessions()
     if (saved) {
       sessions.value = saved.sessions ?? []
-      messagesBySession.value = saved.messagesBySession ?? {}
+      messagesBySession.value = Object.fromEntries(
+        Object.entries(saved.messagesBySession ?? {}).map(([sid, msgs]) => [
+          sid,
+          msgs.map(migrateMessage)
+        ])
+      )
       pendingBySession.value = normalizePendingStore(saved.pendingBySession)
       activeSessionId.value = saved.activeSessionId ?? ''
     }

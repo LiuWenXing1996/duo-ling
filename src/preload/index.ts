@@ -3,7 +3,8 @@ import type {
   ChatEventData,
   GeneratorEventData,
   GeneratorMessage,
-  Task
+  Task,
+  ToolOpenCommand
 } from '../shared/types'
 import { CH, EVENT_CH, type InvokeMap, type PreloadApi } from '../shared/ipc'
 
@@ -12,6 +13,7 @@ import { CH, EVENT_CH, type InvokeMap, type PreloadApi } from '../shared/ipc'
 
 let chatEventListener: ((_event: IpcRendererEvent, payload: ChatEventData) => void) | null = null
 let generatorEventListener: ((_event: IpcRendererEvent, payload: GeneratorEventData) => void) | null = null
+let toolOpenCommandListener: ((_event: IpcRendererEvent, payload: ToolOpenCommand) => void) | null = null
 
 /** 类型化 invoke：通道与 args/result 由 InvokeMap 约束，主进程改签名时此处编译期报错 */
 function invoke<K extends keyof InvokeMap>(
@@ -57,7 +59,18 @@ const api: PreloadApi = {
     getPreloadPath: () => invoke(CH.toolGetPreloadPath),
     history: (id) => invoke(CH.toolHistory, id),
     rollback: (id, oid) => invoke(CH.toolRollback, id, oid),
-    preview: (id, oid) => invoke(CH.toolPreview, id, oid)
+    preview: (id, oid) => invoke(CH.toolPreview, id, oid),
+    onOpenCommand: (callback: (payload: ToolOpenCommand) => void): (() => void) => {
+      if (toolOpenCommandListener) ipcRenderer.removeListener(EVENT_CH.toolOpenCommand, toolOpenCommandListener)
+      toolOpenCommandListener = (_event, payload) => callback(payload)
+      ipcRenderer.on(EVENT_CH.toolOpenCommand, toolOpenCommandListener)
+      return () => {
+        if (toolOpenCommandListener) {
+          ipcRenderer.removeListener(EVENT_CH.toolOpenCommand, toolOpenCommandListener)
+          toolOpenCommandListener = null
+        }
+      }
+    }
   },
   toolsPreview: {
     list: () => invoke(CH.toolsPreviewList),

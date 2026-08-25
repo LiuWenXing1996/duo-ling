@@ -30,6 +30,7 @@ import type {
   ToolsDataDetailResult,
   ToolsDataListResult,
   ToolsDataOpenResult,
+  ToolOpenCommand,
   ToolUpdateMetaResult,
   ToolUpdateResult,
   ToolsPreviewClearResult,
@@ -81,7 +82,9 @@ export const CH = {
 /** 事件类通道名常量（主进程主动推送 → 渲染层） */
 export const EVENT_CH = {
   chat: 'chat:event',
-  generator: 'generator:event'
+  generator: 'generator:event',
+  /** 主进程通知渲染层打开某个工具（agent.tools.open 触发） */
+  toolOpenCommand: 'tool:open-command'
 } as const
 
 /** invoke 通道 → { args, result } 映射：preload invoke 与主进程 handle 的编译期契约 */
@@ -166,6 +169,8 @@ export interface PreloadApi {
     history: (id: string) => Promise<ToolHistoryResult>
     rollback: (id: string, oid: string) => Promise<ToolResult>
     preview: (id: string, oid: string) => Promise<ToolPreviewResult>
+    /** 监听主进程「打开工具」命令（agent.tools.open 触发），返回取消订阅函数 */
+    onOpenCommand: (callback: (payload: ToolOpenCommand) => void) => () => void
   }
   toolsPreview: {
     list: () => Promise<ToolsPreviewListResult>

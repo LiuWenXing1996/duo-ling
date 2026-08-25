@@ -22,7 +22,7 @@ afterEach(() => {
 
 const messages: ToolChatMessage[] = [
   { id: 'u1', role: 'user', content: '帮我重写这个工具' },
-  { id: 'a1', role: 'ai', content: '<think>先分析结构</think>已重写完成' }
+  { id: 'a1', role: 'ai', content: '已重写完成', reasoning: '先分析结构' }
 ]
 
 const pending: PendingChange = {

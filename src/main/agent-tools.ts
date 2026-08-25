@@ -1,0 +1,79 @@
+// Agent Loop 骨架：把「AI 可自主调用」的能力暴露为 OpenAI function 定义，并统一执行。
+//
+// 本期只做两个能力（最小闭环）：
+//   - agent_tools_list —— 查询已有工具
+//   - agent_tools_open —— 打开对应工具（真实切到工具标签页）
+// 其余（查原子能力、新建工具、查内置示例、放权 tool.data.*）后续作为「能力丰富」追加到此文件。
+//
+// 执行器通过 hooks 把「打开工具」的副作用交回调用方（ipc/generator.ts 用 event.sender 广播命令，
+// 渲染层 app.vue 监听后切换/新建工具标签页）。工具本身的本地读取直接复用 tool-page.listToolPages。
+
+import type { ToolPageMeta } from '../shared/types'
+import type { AgentToolResult, OpenAITool } from './online-llm'
+import { listToolPages } from './tool-page'
+
+/** 执行工具时暴露给上层钩子：open 工具的副作用放这，避免与 IPC 层耦合 */
+export interface AgentToolHooks {
+  /** AI 决定打开某个工具：由调用方广播命令，让渲染层切换到对应工具标签页 */
+  onOpenTool?: (payload: { toolId: string; title: string }) => void
+}
+
+/** 构建可给 LLM 的 function 定义（仅白名单能力，安全优先） */
+export function buildAgentTools(): OpenAITool[] {
+  return [
+    {
+      type: 'function',
+      function: {
+        name: 'agent_tools_list',
+        description:
+          '列出所有已存在的工具。返回数组，每项含 id / name / title / description。当用户想了解、打开或复用已有工具前，先调用此工具获取工具清单。',
+        parameters: { type: 'object', properties: {}, additionalProperties: false }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'agent_tools_open',
+        description:
+          '打开一个工具页，界面会切换到该工具的标签页。需要先用 agent_tools_list 拿到工具 id，再传入 toolId。',
+        parameters: {
+          type: 'object',
+          properties: {
+            toolId: { type: 'string', description: '工具 id（来自 agent_tools_list）' }
+          },
+          required: ['toolId'],
+          additionalProperties: false
+        }
+      }
+    }
+  ]
+}
+
+/** 执行一个 agent 工具：解析参数、执行、把结果收敛为 AgentToolResult（异常不抛出，回传错误给模型） */
+export async function executeAgentTool(
+  name: string,
+  argsJson: string,
+  hooks: AgentToolHooks
+): Promise<AgentToolResult> {
+  try {
+    const args = argsJson && argsJson.trim() ? (JSON.parse(argsJson) as Record<string, unknown>) : {}
+
+    if (name === 'agent_tools_list') {
+      const tools = listToolPages()
+      return { ok: true, result: JSON.stringify(tools) }
+    }
+
+    if (name === 'agent_tools_open') {
+      const toolId = typeof args.toolId === 'string' ? args.toolId.trim() : ''
+      if (!toolId) return { ok: false, error: '缺少 toolId 参数' }
+      const tool: ToolPageMeta | undefined = listToolPages().find((t) => t.id === toolId)
+      if (!tool) return { ok: false, error: `未找到工具：${toolId}` }
+      hooks.onOpenTool?.({ toolId: tool.id, title: tool.title })
+      return { ok: true, result: JSON.stringify({ opened: tool.title, toolId: tool.id }) }
+    }
+
+    return { ok: false, error: `未知工具：${name}` }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
