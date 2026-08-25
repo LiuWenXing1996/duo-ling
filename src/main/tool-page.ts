@@ -27,8 +27,18 @@ export interface ToolPageInput {
   name: string
   title: string
   description: string
+  /** 单个字符图标（emoji / 任意单字符），可选；非法或空时由渲染层兜底为工具名首字符 */
+  icon?: string
   /** AI 生成的、自我包含的完整 HTML 文档源码 */
   html: string
+}
+
+/** 图标归一化：仅接受「单个字符」（按码点计 1），返回原字符；其余（空/多字符/空白）一律返回 ''。 */
+export function normalizeToolIcon(icon: unknown): string {
+  if (typeof icon !== 'string') return ''
+  const t = icon.trim()
+  if (!t) return ''
+  return [...t].length === 1 ? t : ''
 }
 
 /** 把 AI 生成的完整 HTML 保存为工具页 index.html 并落盘 meta.json，返回 tool:// URL。 */
@@ -38,7 +48,17 @@ export function writeToolPage(input: ToolPageInput): { url: string } {
   writeFileSync(join(dir, 'index.html'), input.html, 'utf8')
   writeFileSync(
     join(dir, 'meta.json'),
-    JSON.stringify({ id: input.id, name: input.name, title: input.title, description: input.description }, null, 2),
+    JSON.stringify(
+      {
+        id: input.id,
+        name: input.name,
+        title: input.title,
+        description: input.description,
+        icon: normalizeToolIcon(input.icon)
+      },
+      null,
+      2
+    ),
     'utf8'
   )
   return { url: `tool://${input.id}/index.html` }
@@ -49,6 +69,8 @@ export interface ToolPageMeta {
   name: string
   title: string
   description: string
+  /** 单个字符图标；空串表示未设置（渲染层兜底为工具名首字符） */
+  icon?: string
 }
 
 /** 读取所有已落盘的工具元信息（遍历 <userData>/tools/<id>/meta.json），跳过无 meta.json 的残留目录。 */
@@ -71,13 +93,43 @@ export function listToolPages(): ToolPageMeta[] {
         id: meta.id,
         name: meta.name ?? entry.name,
         title: meta.title ?? entry.name,
-        description: meta.description ?? ''
+        description: meta.description ?? '',
+        icon: normalizeToolIcon(meta.icon)
       })
     } catch {
       // 目录缺失 meta.json 或 JSON 损坏时跳过，避免残留目录或异常文件阻断整个列表
     }
   }
   return list
+}
+
+/**
+ * 更新某工具的元信息：读现有 meta.json，仅合并传入的字段后落盘。
+ * - title 去除首尾空白，为空时保留原值（避免标签名被清空）
+ * - description 去除首尾空白，允许清空
+ * - icon 归一化为单个字符（非法/空则清空，由渲染层用工具名首字符兜底）
+ * meta.json 不存在或损坏时返回错误，不凭空创建残缺元信息。
+ */
+export function updateToolMeta(
+  id: string,
+  patch: { title?: string; description?: string; icon?: unknown }
+): { ok: true; title: string; icon: string } | { ok: false; error: string } {
+  if (!id || typeof id !== 'string') return { ok: false, error: '缺少工具 id' }
+  const dir = join(toolsRoot(), id)
+  try {
+    const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')) as Partial<ToolPageMeta>
+    const next: Partial<ToolPageMeta> = { ...meta }
+    if (typeof patch.title === 'string') {
+      const t = patch.title.trim()
+      if (t) next.title = t
+    }
+    if (typeof patch.description === 'string') next.description = patch.description.trim()
+    if ('icon' in patch) next.icon = normalizeToolIcon(patch.icon)
+    writeFileSync(join(dir, 'meta.json'), JSON.stringify({ ...next, id: meta.id ?? id }, null, 2), 'utf8')
+    return { ok: true, title: next.title ?? '', icon: next.icon ?? '' }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 /**
@@ -159,13 +211,14 @@ export interface ToolChangeList {
 /** 允许被生成器修改的工具内文件白名单 */
 const ALLOWED_TOOL_FILES = ['index.html', 'meta.json'] as const
 
-const META_FIELDS = ['name', 'title', 'description'] as const
+const META_FIELDS = ['name', 'title', 'description', 'icon'] as const
 
 interface ToolPageMetaRaw {
   id: string
   name?: string
   title?: string
   description?: string
+  icon?: string
 }
 
 function readToolMeta(dir: string): ToolPageMetaRaw {
@@ -224,7 +277,11 @@ export function applyToolChanges(
               name: typeof payload.name === 'string' ? payload.name : existing.name ?? 'tool',
               title: typeof payload.title === 'string' ? payload.title : existing.title ?? '新工具',
               description:
-                typeof payload.description === 'string' ? payload.description : existing.description ?? ''
+                typeof payload.description === 'string' ? payload.description : existing.description ?? '',
+              icon:
+                typeof payload.icon === 'string'
+                  ? normalizeToolIcon(payload.icon)
+                  : existing.icon ?? ''
             },
             null,
             2

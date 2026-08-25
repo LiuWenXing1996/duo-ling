@@ -133,9 +133,13 @@ declare global {
       tool: {
         create: () => Promise<{ ok: boolean; id?: string; title?: string; error?: string }>
         list: () => Promise<
-          Array<{ id: string; name: string; title: string; description: string }>
+          Array<{ id: string; name: string; title: string; description: string; icon?: string }>
         >
         delete: (id: string) => Promise<{ ok: boolean; error?: string }>
+        updateMeta: (
+          id: string,
+          patch: { title?: string; description?: string; icon?: string }
+        ) => Promise<{ ok: boolean; title?: string; icon?: string; error?: string }>
         update: (
           id: string,
           changes: {

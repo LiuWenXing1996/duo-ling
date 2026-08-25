@@ -12,6 +12,7 @@ import {
   ResizablePanelGroup as UiResizablePanelGroup
 } from '@/components/ui/resizable'
 import { parseGeneratedChanges, type GeneratedChangeList } from '@/lib/tool-generator'
+import ToolIcon from '@/components/tool-icon.vue'
 import {
   Check as UiCheck,
   ChevronRight as UiChevronRight,
@@ -26,6 +27,8 @@ import {
 export interface ToolPageMeta {
   id: string
   title: string
+  /** 工具图标（单个字符），可选；用于工具详情头部展示 */
+  icon?: string
 }
 
 const props = defineProps<{ tool: ToolPageMeta }>()
@@ -896,7 +899,10 @@ async function stopGeneration(): Promise<void> {
       <ui-resizable-panel :default-size="50" :min-size="30" :max-size="60" class="min-w-0">
         <section class="tool-detail panel">
       <header class="panel-header flex items-center justify-between gap-2">
-        <h2 class="panel-title">工具详情</h2>
+        <h2 class="panel-title">
+          <tool-icon :icon="props.tool.icon" :fallback="props.tool.title" class="text-sm" />
+          工具详情
+        </h2>
         <ui-button
           variant="ghost"
           size="icon"

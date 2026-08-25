@@ -10,12 +10,13 @@ import {
   ComboboxItem as UiComboboxItem
 } from '@/components/ui/combobox'
 import ToolWorkspace from '@/components/tool-workspace.vue'
+import ToolIcon from '@/components/tool-icon.vue'
 
 // 左侧导航栏「新建工具」「设置」：调用工具工作台的对应方法
 const workspaceRef = ref<InstanceType<typeof ToolWorkspace> | null>(null)
 
 // 全局搜索：从主进程读取所有已落盘工具元信息，在顶栏搜索框中筛选并下拉列出
-type ToolMeta = { id: string; name: string; title: string; description: string }
+type ToolMeta = { id: string; name: string; title: string; description: string; icon?: string }
 const allTools = ref<ToolMeta[]>([])
 // 当前选中的 tool.id：由 reka-ui Combobox 在选中下拉项时写入，触发打开工具后复位
 const selectedToolId = ref<string | null>(null)
@@ -69,6 +70,7 @@ function handleCreateTool(): void {
               :text-value="`${tool.title} ${tool.name} ${tool.description}`"
               :value="tool.id"
             >
+              <tool-icon :icon="tool.icon" :fallback="tool.title" class="shrink-0 text-sm" />
               <span class="truncate">{{ tool.title }}</span>
               <span class="truncate text-muted-foreground">{{ tool.description }}</span>
             </ui-combobox-item>

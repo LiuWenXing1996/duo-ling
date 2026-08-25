@@ -191,6 +191,12 @@ const api = {
     list: (): Promise<ToolPageMetaData[]> => ipcRenderer.invoke('tool:list'),
     delete: (id: string): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('tool:delete', id),
+    // 直接更新某工具的元信息（名称/描述/图标），主页工具卡片编辑弹窗调用
+    updateMeta: (
+      id: string,
+      patch: { title?: string; description?: string; icon?: string }
+    ): Promise<{ ok: boolean; title?: string; icon?: string; error?: string }> =>
+      ipcRenderer.invoke('tool:updateMeta', id, patch),
     update: (
       id: string,
       changes: ToolPageUpdateInput

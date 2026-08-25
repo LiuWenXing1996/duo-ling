@@ -30,6 +30,7 @@ describe('ToolWorkspace', () => {
           ]),
           update: vi.fn().mockResolvedValue({ ok: true }),
           delete: vi.fn().mockResolvedValue({ ok: true }),
+          updateMeta: vi.fn().mockResolvedValue({ ok: true, title: 'PDF 合并器', icon: 'P' }),
           getPreloadPath: vi.fn().mockResolvedValue('file:///preload/tool.cjs')
         },
         generator: {
@@ -166,7 +167,7 @@ describe('ToolWorkspace', () => {
     await flushPromises()
 
     // 点击删除按钮：仅打开确认弹窗，不立即删除
-    await wrapper.find('.tool-card__delete').trigger('click')
+    await wrapper.find('.tool-card__action--delete').trigger('click')
     await flushPromises()
 
     const dialog = queryDialog()
@@ -194,7 +195,7 @@ describe('ToolWorkspace', () => {
     })
     await flushPromises()
 
-    await wrapper.find('.tool-card__delete').trigger('click')
+    await wrapper.find('.tool-card__action--delete').trigger('click')
     await flushPromises()
 
     const dialog = queryDialog()
@@ -203,6 +204,51 @@ describe('ToolWorkspace', () => {
 
     expect(window.api.tool.delete).not.toHaveBeenCalled()
     expect(wrapper.emitted('toolsChanged')).toBeFalsy()
+
+    wrapper.unmount()
+  })
+
+  it('主页工具卡片编辑按钮：打开弹窗，保存名称/图标/描述并调用 updateMeta', async () => {
+    const wrapper = mount(ToolWorkspace, {
+      attachTo: document.body,
+      props: {
+        tools: [
+          { id: 't-1', name: 'pdf-merge', title: 'PDF 合并器', description: '合并多个 PDF' }
+        ]
+      }
+    })
+    await flushPromises()
+
+    // 点击编辑按钮：打开编辑弹窗，并回填当前元信息
+    await wrapper.find('.tool-card__action--edit').trigger('click')
+    await flushPromises()
+
+    const dialog = queryDialog()
+    expect(dialog.textContent).toContain('编辑工具')
+    const inputs = dialog.querySelectorAll('input')
+    expect(inputs).toHaveLength(3)
+    expect((inputs[0] as HTMLInputElement).value).toBe('PDF 合并器')
+    expect((inputs[1] as HTMLInputElement).value).toBe('')
+    expect((inputs[2] as HTMLInputElement).value).toBe('合并多个 PDF')
+
+    // 修改表单后保存：通过在原生 input 上派发 input 事件更新 v-model
+    const setInput = (el: Element, value: string): void => {
+      ;(el as HTMLInputElement).value = value
+      el.dispatchEvent(new Event('input'))
+    }
+    setInput(inputs[0]!, '新名称')
+    setInput(inputs[1]!, 'P')
+    setInput(inputs[2]!, '新描述')
+    await flushPromises()
+    await buttonByText(dialog, '保存').click()
+    await flushPromises()
+
+    expect(window.api.tool.updateMeta).toHaveBeenCalledWith('t-1', {
+      title: '新名称',
+      icon: 'P',
+      description: '新描述'
+    })
+    expect(wrapper.emitted('toolsChanged')).toBeTruthy()
 
     wrapper.unmount()
   })
