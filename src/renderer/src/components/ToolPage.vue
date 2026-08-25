@@ -8,9 +8,9 @@ import {
 import { parseGeneratedChanges, type GeneratedChangeList } from '@/lib/tool-generator'
 import { useToolSessions, type ToolChatMessage } from '@/composables/use-tool-sessions'
 import type { GeneratorEventData } from '../../../shared/types'
-import SessionHistoryPanel from '@/components/session-history-panel.vue'
-import ChatPanel from '@/components/chat-panel.vue'
-import ToolDetailPanel from '@/components/tool-detail-panel.vue'
+import SessionHistoryPanel from '@/components/SessionHistoryPanel.vue'
+import ChatPanel from '@/components/ChatPanel.vue'
+import ToolDetailPanel from '@/components/ToolDetailPanel.vue'
 
 // 一个工具标签页的标识：唯一 ID（决定 tool:// 源与工具文件夹名）+ 展示名
 export interface ToolPageMeta {

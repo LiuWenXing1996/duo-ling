@@ -10,8 +10,8 @@ import {
   ComboboxInput as UiComboboxInput,
   ComboboxItem as UiComboboxItem
 } from '@/components/ui/combobox'
-import ToolWorkspace from '@/components/tool-workspace.vue'
-import ToolIcon from '@/components/tool-icon.vue'
+import ToolWorkspace from '@/components/ToolWorkspace.vue'
+import ToolIcon from '@/components/ToolIcon.vue'
 import type { ToolMeta } from '@/types/tool'
 
 // 左侧导航栏「新建工具」「设置」：调用工具工作台的对应方法

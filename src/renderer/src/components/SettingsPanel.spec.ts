@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import SettingsPanel from './settings-panel.vue'
+import SettingsPanel from './SettingsPanel.vue'
 
 const modelApiMock = {
   list: vi.fn(),

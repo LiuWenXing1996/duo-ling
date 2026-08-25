@@ -2,10 +2,17 @@
 
 ## 1. 命名
 
-- **文件/目录命名：一律 kebab-case**。例如 `tool-flow.vue`、`api-client.ts`、`button-variants.ts`。
-- 组件文件名使用 kebab-case：`components/ui/button/button.vue`、`card-title.vue`。
+统一三条规则（自研区与 vendored 区共用）：
+
+- **目录（文件夹）→ kebab-case**：`components/ui/button-group/`、`components/tool-panel/`
+- **`.vue` 组件文件 → PascalCase**，与导入符号一致：`ButtonGroup.vue`、`ChatPanel.vue`（对齐 Vue 官方与 shadcn-vue）
+- **非组件 `.ts` → kebab-case**：`use-tool-sessions.ts`、`context.ts`、`types.ts`；`index.ts` 恒小写
+
+> vendored 区（`components/ui/`、`components/ai-elements/` 等由 CLI / registry 生成的组件）**跟随官方产物命名，不手动改名**，以保住 `npx shadcn-vue add --diff/--view` 的 registry 对比与更新能力。
+
 - 常量使用 UPPER_SNAKE_CASE，变量/函数使用 camelCase，类型/接口使用 PascalCase。
 - CSS 类名：以 Tailwind 工具类为主；自定义类名使用 kebab-case。
+- 组件文件名为磁盘物理命名；模板中使用组件的写法见 §3，两者属不同维度，可并存。
 
 ## 2. TypeScript
 
@@ -68,7 +75,8 @@
 - 单测文件命名 `*.spec.ts`，与被测模块同目录（`__tests__/`）。
 - 端测文件位于 `e2e/`，覆盖关键用户路径与 IPC 链路。
 - 单元测试聚焦纯逻辑与组件渲染，不启动 Electron。
-- **解决 bug 或完成需求后，尽量补充对应的单测与端测**，覆盖本次改动涉及的行为。
+- **测试覆盖（强制）**：凡是**需求改动**或 **bug 修复**，必须编写对应测试用例——**单测优先**（组件逻辑/工具函数），**端测尽量补充**（涉及跨进程链路、持久化、真实浏览器行为时必须有）。
+- **旧用例处置**：修改已有需求后跑旧用例，失败时需判断是「旧用例过期（应更新/删除）」还是「真实回归（应修 bug）」，不得静默绕过。
 - **过时的单测/端测要及时清理**：当功能变更导致测试不再反映真实行为时，同步更新或删除，避免"僵尸测试"误导后续排查。
 
 ## 7. 提交与协作

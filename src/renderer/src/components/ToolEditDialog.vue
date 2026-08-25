@@ -11,7 +11,7 @@ import {
   DialogFooter as UiDialogFooter,
   DialogTitle as UiDialogTitle
 } from '@/components/ui/dialog'
-import EmojiPicker from './emoji-picker.vue'
+import EmojiPicker from './EmojiPicker.vue'
 
 const props = defineProps<{
   open: boolean

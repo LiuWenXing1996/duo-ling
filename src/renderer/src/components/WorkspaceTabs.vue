@@ -6,7 +6,7 @@ import {
   TabsList as UiTabsList,
   TabsTrigger as UiTabsTrigger
 } from '@/components/ui/tabs'
-import ToolIcon from './tool-icon.vue'
+import ToolIcon from './ToolIcon.vue'
 
 const props = defineProps<{
   tabs: OpenTool[]

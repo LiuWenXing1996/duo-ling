@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import ChatPanel from './chat-panel.vue'
+import ChatPanel from './ChatPanel.vue'
 import type { PendingChange, ToolChatMessage } from '@/composables/use-tool-sessions'
 
 // chat-panel 在 onMounted 中拉取模型列表，注入最小 window.api

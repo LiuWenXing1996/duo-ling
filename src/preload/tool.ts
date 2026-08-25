@@ -8,7 +8,7 @@
 
 import { contextBridge, ipcRenderer } from 'electron'
 
-/** 心跳令牌：宿主（tool-page.vue）据它在 ipc-message 事件里识别报活消息 */
+/** 心跳令牌：宿主（ToolPage.vue）据它在 ipc-message 事件里识别报活消息 */
 const HEARTBEAT_TOKEN = '__duo_ling_heartbeat__'
 
 const cap = {

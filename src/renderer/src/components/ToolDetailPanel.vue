@@ -4,9 +4,9 @@
 import { ref } from 'vue'
 import { GitBranch as UiGitBranch } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
-import ToolFrame from '@/components/tool-frame.vue'
-import ToolIcon from '@/components/tool-icon.vue'
-import type { ToolPageMeta } from '@/components/tool-page.vue'
+import ToolFrame from '@/components/ToolFrame.vue'
+import ToolIcon from '@/components/ToolIcon.vue'
+import type { ToolPageMeta } from '@/components/ToolPage.vue'
 
 const props = defineProps<{ tool: ToolPageMeta }>()
 const emit = defineEmits<{ openHistory: [tool: ToolPageMeta] }>()

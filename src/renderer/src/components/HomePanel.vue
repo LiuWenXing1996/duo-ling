@@ -2,7 +2,7 @@
 // 主页面板：所有工具网格 + 新增工具。卡片点击打开对应工具标签，编辑/删除按钮由父组件处理弹窗。
 import type { ToolMeta } from '@/types/tool'
 import { Pencil as UiPencil, Plus as UiPlus, Trash2 as UiTrash } from '@lucide/vue'
-import ToolIcon from './tool-icon.vue'
+import ToolIcon from './ToolIcon.vue'
 
 const props = defineProps<{
   tools: ToolMeta[]

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import ToolWorkspace from './tool-workspace.vue'
+import ToolWorkspace from './ToolWorkspace.vue'
 
 // 弹窗内容被 Teleport 到 body，需直接操作 DOM
 function queryDialog(): HTMLElement {

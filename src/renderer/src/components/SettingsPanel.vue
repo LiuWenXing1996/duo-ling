@@ -14,7 +14,7 @@ import { Button as UiButton } from '@/components/ui/button'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import type { ModelProfile, ModelProvider } from '@/types/model'
 import type { ToolsDataOverview } from '../../../shared/types'
-import ModelFormDialog from './model-form-dialog.vue'
+import ModelFormDialog from './ModelFormDialog.vue'
 
 const emit = defineEmits<{ 'open-tool-data': [id: string, title: string] }>()
 
