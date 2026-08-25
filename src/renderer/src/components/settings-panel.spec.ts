@@ -17,9 +17,7 @@ const providerApiMock = {
 
 const settingsApiMock = {
   getSystemPrompt: vi.fn(),
-  setSystemPrompt: vi.fn(),
-  getGeneratorApprovalMode: vi.fn(),
-  setGeneratorApprovalMode: vi.fn()
+  setSystemPrompt: vi.fn()
 }
 
 const PROVIDERS = [
@@ -88,7 +86,6 @@ function stubApi(listData: unknown = LIST): void {
   modelApiMock.test.mockResolvedValue({ ok: true, models: ['deepseek-chat'] })
   providerApiMock.list.mockResolvedValue(PROVIDERS)
   settingsApiMock.getSystemPrompt.mockResolvedValue('')
-  settingsApiMock.getGeneratorApprovalMode.mockResolvedValue('manual')
   vi.stubGlobal('api', {
     model: modelApiMock,
     provider: providerApiMock,

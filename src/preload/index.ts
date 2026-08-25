@@ -105,9 +105,6 @@ interface ToolCommitData {
   timestamp: number
 }
 
-// 生成器审批模式：manual（AI 产出变更清单后由用户确认再应用）或 auto（直接应用）
-type GeneratorApprovalMode = 'manual' | 'auto'
-
 // 生成器产出的单个变更动作
 interface ToolChangeAction {
   op: 'write' | 'patch'
@@ -170,11 +167,7 @@ const api = {
   settings: {
     getSystemPrompt: (): Promise<string> => ipcRenderer.invoke('settings:getSystemPrompt'),
     setSystemPrompt: (value: string): Promise<void> =>
-      ipcRenderer.invoke('settings:setSystemPrompt', value),
-    getGeneratorApprovalMode: (): Promise<GeneratorApprovalMode> =>
-      ipcRenderer.invoke('settings:getGeneratorApprovalMode'),
-    setGeneratorApprovalMode: (mode: GeneratorApprovalMode): Promise<void> =>
-      ipcRenderer.invoke('settings:setGeneratorApprovalMode', mode)
+      ipcRenderer.invoke('settings:setSystemPrompt', value)
   },
   window: {
     getBounds: (): Promise<{ x: number; y: number; width: number; height: number } | null> =>

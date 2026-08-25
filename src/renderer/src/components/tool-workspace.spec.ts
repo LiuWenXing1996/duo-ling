@@ -48,9 +48,7 @@ describe('ToolWorkspace', () => {
         },
         settings: {
           getSystemPrompt: vi.fn().mockResolvedValue(''),
-          setSystemPrompt: vi.fn().mockResolvedValue(undefined),
-          getGeneratorApprovalMode: vi.fn().mockResolvedValue('manual'),
-          setGeneratorApprovalMode: vi.fn().mockResolvedValue(undefined)
+          setSystemPrompt: vi.fn().mockResolvedValue(undefined)
         }
       },
       configurable: true
@@ -146,11 +144,10 @@ describe('ToolWorkspace', () => {
     // 标签栏出现「设置」标签
     expect(wrapper.text()).toContain('设置')
 
-    // 设置面板内容渲染（模型管理 / 系统提示词 / 审批）
+    // 设置面板内容渲染（模型管理 / 系统提示词）
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('模型管理')
     expect(wrapper.text()).toContain('系统提示词')
-    expect(wrapper.text()).toContain('AI 改工具审批')
 
     wrapper.unmount()
   })

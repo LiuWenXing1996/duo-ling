@@ -50,10 +50,6 @@ export interface ModelProfileInput {
 export const DEFAULT_BASE_URL = 'https://api.deepseek.com/v1'
 export const DEFAULT_SYSTEM_PROMPT = '你是 Duo Ling 的 AI 助手，请用中文回答。'
 
-/** 生成器审批模式：manual（AI 产出变更清单后由用户确认再应用）或 auto（直接应用） */
-export type GeneratorApprovalMode = 'manual' | 'auto'
-export const DEFAULT_APPROVAL_MODE: GeneratorApprovalMode = 'manual'
-
 interface ModelProfileState {
   id: string
   name: string
@@ -76,8 +72,6 @@ interface ModelStoreState {
   activeProfileId: string
   /** 全局系统提示词：所有模型共用；为空则不发送 system 消息 */
   systemPrompt: string
-  /** 生成器审批模式全局默认（manual / auto） */
-  generatorApprovalMode: GeneratorApprovalMode
 }
 
 const schema: Schema<ModelStoreState> = {
@@ -105,8 +99,7 @@ const schema: Schema<ModelStoreState> = {
     }
   },
   activeProfileId: { type: 'string' },
-  systemPrompt: { type: 'string' },
-  generatorApprovalMode: { type: 'string', enum: ['manual', 'auto'] }
+  systemPrompt: { type: 'string' }
 }
 
 let store: Store<ModelStoreState> | undefined
@@ -118,8 +111,7 @@ function getStore(): Store<ModelStoreState> {
     defaults: {
       profiles: [],
       activeProfileId: '',
-      systemPrompt: DEFAULT_SYSTEM_PROMPT,
-      generatorApprovalMode: DEFAULT_APPROVAL_MODE
+      systemPrompt: DEFAULT_SYSTEM_PROMPT
     },
     schema
   })
@@ -201,16 +193,6 @@ export function getSystemPrompt(): string {
 /** 设置全局系统提示词；传入空串表示清空（之后不再发送 system 消息） */
 export function setSystemPrompt(value: string): void {
   getStore().set('systemPrompt', value.trim())
-}
-
-/** 当前生成器审批模式的全局默认（manual / auto）；非法值回退为 manual */
-export function getGeneratorApprovalMode(): GeneratorApprovalMode {
-  return getStore().store.generatorApprovalMode === 'auto' ? 'auto' : 'manual'
-}
-
-/** 设置生成器审批模式的全局默认 */
-export function setGeneratorApprovalMode(mode: GeneratorApprovalMode): void {
-  getStore().set('generatorApprovalMode', mode === 'auto' ? 'auto' : 'manual')
 }
 
 /** 内部完整配置（含解密后的 apiKey），仅 main 进程使用 */

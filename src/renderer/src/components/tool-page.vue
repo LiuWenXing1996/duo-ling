@@ -150,12 +150,7 @@ const input = ref('')
 const streaming = ref(false)
 const draft = ref<ToolChatMessage | null>(null)
 
-// —— 审批模式：全局默认来自设置（settings），当前会话内可在此临时切换 ——
-// manual：AI 产出变更清单后由用户点「应用/丢弃」；auto：AI 改完直接落盘。
-type ApprovalMode = 'manual' | 'auto'
-const approvalMode = ref<ApprovalMode>('manual')
-
-// 待审批的变更清单：绑定到某条 AI 消息上，用户确认后应用
+// 自动审批：AI 产出变更清单后直接落盘（卡片仅作留痕展示，不再触发手动确认）
 interface PendingChange {
   messageId: string
   changes: GeneratedChangeList
@@ -211,8 +206,6 @@ onMounted(async () => {
     preloadPath.value = p
   })
   void window.api.model.list().then(refreshModelStatus)
-  // 会话级审批模式默认取全局设置，之后再在会话内临时切换
-  approvalMode.value = await window.api.settings.getGeneratorApprovalMode()
   // 恢复本工具的会话历史（多会话：切换回显 + 本地持久化）
   const saved = loadSessions()
   if (saved) {
@@ -226,11 +219,6 @@ onMounted(async () => {
     newSession()
   }
 })
-
-async function setApprovalMode(mode: ApprovalMode): Promise<void> {
-  if (mode === approvalMode.value) return
-  approvalMode.value = mode
-}
 
 // —— 思考过程可视化：把 <think>...</think> 拆为「思考内容」与「答案」两部分 ——
 // 对称处理 think 标签：成对块进「思考内容」；只有 <think> 未闭合时也视为思考（吞到末尾）；
@@ -533,19 +521,17 @@ async function send(): Promise<void> {
         // （保留思考过程；卡片另展示 summary + 动作详情，避免正文裸露 JSON 字符串）。
         const summary = parsed.changes.summary?.trim()
           ? parsed.changes.summary
-          : '已生成对当前工具的改动，请在下方确认后应用'
+          : '已生成对当前工具的改动并应用'
         const { think } = splitContent(draftMsg.content)
         draftMsg.content = think ? `<think>${think}</think>\n\n${summary}` : summary
-        if (approvalMode.value === 'auto') {
-          // 自动审批：AI 改完直接落盘；失败错误由 applyChanges 回填到消息
-          await applyChanges(draftMsg.id, parsed.changes)
-        } else {
-          pendingMap.value[draftMsg.id] = {
-            messageId: draftMsg.id,
-            changes: parsed.changes,
-            status: 'pending'
-          }
+        // 自动落盘：AI 改完直接应用；先把变更清单记入卡片作留痕，失败错误由 applyChanges 回填到卡片
+        pendingMap.value[draftMsg.id] = {
+          messageId: draftMsg.id,
+          changes: parsed.changes,
+          status: 'pending'
         }
+        saveSessions()
+        await applyChanges(draftMsg.id, parsed.changes)
       } else if (parsed.summary) {
         // LLM 输出的是「无实际动作」的契约 JSON（多为澄清追问）：
         // 把直出的原始 JSON 替换为人性化 summary；同时保留思考过程，
@@ -569,7 +555,7 @@ async function send(): Promise<void> {
 
 // 应用变更清单：调用主进程落盘，成功则同步标签名并刷新工具页
 async function applyChanges(messageId: string, changes: GeneratedChangeList): Promise<void> {
-  // 按消息定位卡片；自动模式（无卡片）时 current 为 undefined，错误会回填到消息正文
+  // 按消息定位留痕卡片：存在则把结果（已应用/错误）回填到卡片，否则回填到消息正文
   const current = pendingMap.value[messageId]
   let updated: Awaited<ReturnType<typeof window.api.tool.update>>
   try {
@@ -599,13 +585,13 @@ async function applyChanges(messageId: string, changes: GeneratedChangeList): Pr
     reloadFrame()
   } else {
     const err = updated.error ?? '未知错误'
-    // 手动模式：在卡片里展示错误，并保留「应用/放弃」按钮供用户重试或放弃
+    // 在留痕卡片里展示错误，并保留「应用/放弃」按钮供用户重试或放弃
     if (current && current.messageId === messageId) {
       current.error = err
       saveSessions()
       return
     }
-    // 自动模式（无卡片可挂载）：把错误回填到消息正文
+    // 无卡片可挂载时，把错误回填到消息正文
     const msg = messages.value.find((m) => m.id === messageId)
     if (msg) msg.content += `\n\n[写入工具失败] ${err}`
   }
@@ -707,27 +693,6 @@ async function stopGeneration(): Promise<void> {
       <section class="tool-chat panel">
         <header class="panel-header flex items-center justify-between gap-2">
           <h2 class="panel-title">当前会话</h2>
-        <!-- 审批模式：会话内可临时切换（全局默认在「设置」中配置） -->
-        <div class="flex items-center gap-1 rounded-md border border-input p-0.5 text-xs">
-          <button
-            type="button"
-            class="rounded px-2 py-0.5 transition-colors"
-            :class="approvalMode === 'manual' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'"
-            :aria-pressed="approvalMode === 'manual'"
-            @click="setApprovalMode('manual')"
-          >
-            手动审批
-          </button>
-          <button
-            type="button"
-            class="rounded px-2 py-0.5 transition-colors"
-            :class="approvalMode === 'auto' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'"
-            :aria-pressed="approvalMode === 'auto'"
-            @click="setApprovalMode('auto')"
-          >
-            自动应用
-          </button>
-        </div>
       </header>
 
       <div class="flex min-h-0 flex-1 flex-col">
@@ -774,7 +739,7 @@ async function stopGeneration(): Promise<void> {
                 {{ answerOf(m) || (draft && draft.id === m.id ? '正在思考…' : '') }}
               </template>
             </div>
-            <!-- 变更清单卡片：AI 产出改动后，手动模式下请用户确认是否应用；每条消息保留独立卡片 -->
+            <!-- 变更清单留痕卡片：AI 产出改动后落盘留痕，每条消息保留独立卡片 -->
             <div
               v-if="m.role === 'ai' && pendingOf(m.id)"
               class="max-w-[80%] rounded-lg border border-border bg-background/60 px-3 py-2"

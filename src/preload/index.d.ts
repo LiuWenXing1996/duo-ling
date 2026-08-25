@@ -92,8 +92,6 @@ declare global {
       settings: {
         getSystemPrompt: () => Promise<string>
         setSystemPrompt: (value: string) => Promise<void>
-        getGeneratorApprovalMode: () => Promise<'manual' | 'auto'>
-        setGeneratorApprovalMode: (mode: 'manual' | 'auto') => Promise<void>
       }
       window: {
         getBounds: () => Promise<{

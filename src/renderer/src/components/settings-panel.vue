@@ -49,9 +49,6 @@ let systemPromptTimer: ReturnType<typeof setTimeout> | undefined
 // 仅首次加载时用持久化值填充输入框，之后刷新不覆盖正在编辑的内容
 let systemPromptInitialized = false
 
-// 生成器审批模式全局默认（manual / auto）：进「当前会话」时作为默认值
-const approvalMode = ref<'manual' | 'auto'>('manual')
-
 // 弹窗状态（新增/编辑共用）
 const dialogOpen = ref(false)
 const editing = ref<ModelProfile | null>(null)
@@ -112,11 +109,10 @@ function formatBytes(bytes: number): string {
 
 async function loadData(): Promise<void> {
   try {
-    const [modelData, providerData, savedSystemPrompt, savedApprovalMode] = await Promise.all([
+    const [modelData, providerData, savedSystemPrompt] = await Promise.all([
       window.api.model.list(),
       window.api.provider.list(),
-      window.api.settings.getSystemPrompt(),
-      window.api.settings.getGeneratorApprovalMode()
+      window.api.settings.getSystemPrompt()
     ])
     profiles.value = modelData.profiles
     providers.value = providerData
@@ -125,16 +121,10 @@ async function loadData(): Promise<void> {
       systemPrompt.value = savedSystemPrompt
       systemPromptInitialized = true
     }
-    approvalMode.value = savedApprovalMode
     loadError.value = ''
   } catch (error) {
     loadError.value = error instanceof Error ? error.message : String(error)
   }
-}
-
-function setApprovalMode(mode: 'manual' | 'auto'): void {
-  approvalMode.value = mode
-  void window.api.settings.setGeneratorApprovalMode(mode)
 }
 
 function saveSystemPrompt(): void {
@@ -214,34 +204,6 @@ onMounted(() => {
             <p class="mt-1 text-xs text-muted-foreground">
               失焦自动保存 <span v-if="systemPromptSavedAt" class="text-primary">{{ systemPromptSavedAt }}</span>
             </p>
-          </div>
-        </div>
-
-        <!-- 生成器审批模式全局默认 -->
-        <div class="mt-8">
-          <h3 class="text-base font-semibold">AI 改工具审批</h3>
-          <p class="mt-1 text-xs text-muted-foreground">
-            设置在「当前会话」驱动 AI 修改工具时的默认行为。会话内可临时切换。
-          </p>
-          <div class="mt-3 flex items-center gap-3">
-            <button
-              type="button"
-              class="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors"
-              :class="approvalMode === 'manual' ? 'border-primary text-primary' : 'border-input text-muted-foreground hover:bg-muted/60'"
-              @click="setApprovalMode('manual')"
-            >
-              手动审批
-              <span class="text-xs text-muted-foreground">AI 出改动清单，你确认后再应用</span>
-            </button>
-            <button
-              type="button"
-              class="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors"
-              :class="approvalMode === 'auto' ? 'border-primary text-primary' : 'border-input text-muted-foreground hover:bg-muted/60'"
-              @click="setApprovalMode('auto')"
-            >
-              自动应用
-              <span class="text-xs text-muted-foreground">AI 改完直接写入工具</span>
-            </button>
           </div>
         </div>
 

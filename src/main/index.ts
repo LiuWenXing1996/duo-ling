@@ -21,7 +21,6 @@ import {
   generateReply,
   generateReplyWithSystemPrompt,
   getActiveProfileId,
-  getGeneratorApprovalMode,
   getProfileApiKey,
   getPublicProfiles,
   getSystemPrompt,
@@ -29,11 +28,9 @@ import {
   listModels,
   saveProfile,
   setActiveProfile,
-  setGeneratorApprovalMode,
   setProfileEnabled,
   setSystemPrompt,
   testChatConnection,
-  type GeneratorApprovalMode,
   type ModelProfile,
   type ModelProfileInput
 } from './online-llm'
@@ -689,7 +686,7 @@ app.whenReady().then(() => {
   )
 
   // 应用生成器产出的「变更清单」到当前工具：由主进程负责校验 + 落盘，而非放开 AI 直接碰磁盘。
-  // 「当前会话」聊天驱动 AI 构建/修改工具时调用（手动审批用户确认后 / 自动审批直接触发）。
+  // 「当前会话」聊天驱动 AI 构建/修改工具时调用（AI 产出变更清单后自动落盘）。
   ipcMain.handle(
     'tool:update',
     async (
@@ -710,16 +707,7 @@ app.whenReady().then(() => {
     }
   )
 
-  // 读取生成器审批模式的全局默认（manual / auto）
-  ipcMain.handle('settings:getGeneratorApprovalMode', (): GeneratorApprovalMode => getGeneratorApprovalMode())
-
-  // 设置生成器审批模式的全局默认
-  ipcMain.handle('settings:setGeneratorApprovalMode', (_event, mode: GeneratorApprovalMode): void => {
-    setGeneratorApprovalMode(mode)
-  })
-
   createWindow()
-
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
