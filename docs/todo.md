@@ -8,19 +8,25 @@
 
 **方案要点（已确认）**：
 - **预览**：每条提交提供「预览」入口，弹出该版本的渲染效果（复用工具详情的 `<webview>` 机制），用户回滚前先看清历史版本长什么样。
-  - 工具是完整可打开的单个 HTML（自包含、零编译），预览本质就是渲染某次 commit 的 `index.html`，技术成本低。
+  - 预览采用**物化方案**：把目标 commit 的**整棵树**（含 index.html 引用的 ESM 子模块，而非仅白名单）物化到 `<userData>/tools-preview/<id>/<oid>/`，用独立 `tool-preview://` 协议渲染，规避原先 `?oid` 随 ESM 子请求丢失的问题。预览文件视为缓存，**不做自动删除**（无孤儿兜底、启动不清、删工具不连带清），仅由设置面板手动清理。
 - **回滚**：在预览浮层里提供「恢复到此版本」。回滚 = 把目标 commit 的文件内容写回工作区，并**产生一条新 commit**（message 形如「回滚到 `<shortOid>`」），**不直接 reset / 移动 HEAD**。
   - 这样历史完整可逆，旧提交不丢，回滚动作本身也留痕，回错了可再回滚。
-- 不做 `reset`（会丢历史，对「后悔药」场景不可逆）。
+- 不做 `reset`（会丢历史，对「后悔药」场景不可逆）。删除旧 `?oid` 协议分支。
 
 **实现步骤**：
 1. `src/main/tool-git.ts`：
+   - 新增 `materializeToolSnapshot(id, oid)`：`git.walk` 遍历目标 commit 树全部 blob → 写入临时目录 → 原子 `rename` 落位至 `tools-preview/<id>/<oid>/` → 返回 `tool-preview://<id>/<oid>/index.html`；已物化时幂等复用。
+   - 新增 `listPreviewCache()` / `clearPreviewCache()`：统计预览缓存占用（字节 + 版本数）/ 一键清空。
    - 新增 `rollbackTool(id, targetOid)`：读取目标 commit 的 `index.html` / `meta.json` → 写回工具目录 → `commitSnapshot(dir, '回滚到 <shortOid>')`。
-   - 新增 `loadToolSnapshot(id, oid)`：`readBlob` 读取目标 commit 的 `index.html` 内容，供预览渲染。
-2. preload / IPC 暴露 `tool.rollback` 与 `tool.snapshot`（参考现有 `tool.history` 通道）。
-3. `src/renderer/src/components/tool-history.vue`：每条提交加「预览」按钮 → 弹出该版本渲染效果（复用 `<webview>` / blob URL）→ 浮层内提供「恢复到此版本」按钮，恢复后刷新列表。
+   - 移除旧 `readToolSnapshotFile`。
+2. `src/main/index.ts`：注册 `tool-preview` scheme（`standard + secure + supportFetchAPI`）与协议 handler（校验 host=工具 id、首段 oid、防目录穿越）；新增 IPC `tool:preview` / `tools-preview:list` / `tools-preview:clear`；删除 `tool://?oid=` 快照分支。
+3. preload 暴露 `tool.preview` 与 `toolsPreview.list` / `toolsPreview.clear`。
+4. `src/renderer/src/components/tool-history.vue`：每条提交加「预览」→ `openPreview` 调 `tool.preview` 拿 `tool-preview://` URL 交给 `<webview>` 渲染 → 浮层内提供「恢复到此版本」（回滚后刷新列表）。
+5. `src/renderer/src/components/settings-panel.vue`：加「工具预览缓存」区块，显示占用 + 版本数 + 一键清理。
 
 **备注**：若后续要「多方案并行」，优先考虑「工具副本/快照」，而非 git 分支。**diff 暂缓**：工具多为 AI 整文件重写，行级 diff 可读性差；预览已能覆盖「看版本变化」，待预览/回滚落地后按需再评估最小 diff（仅 `index.html`、单栏）。
+
+**状态**：已实现。`src/main/tool-git.ts` 新增 `materializeToolSnapshot`（整树物化 + 幂等复用）、`listPreviewCache` / `clearPreviewCache`、`rollbackTool`（写回目标 commit 内容并产生「回滚到 `<shortOid>`」新提交，用 HEAD oid 对比避免空提交/stat 缓存漏判）；`src/main/index.ts` 注册 `tool-preview` 协议与 `tool:preview` / `tools-preview:*` IPC；preload 暴露 `tool.preview` 与 `toolsPreview`；`tool-history.vue` 每条提交加「预览」入口 → `<webview>` 渲染浮层 → 「恢复到此版本」；`settings-panel.vue` 加预览缓存清理区块。已通过 `pnpm test`（`src/main/tool-git.spec.ts` 单测更新为 7 条）。
 
 ---
 
@@ -118,19 +124,18 @@
 
 ---
 
-## 工具图标：meta.icon（已定方向）
+## 工具图标：meta.icon（已实现）
 
-**背景**：工具为 AI 生成的单个 HTML，目前无图标概念。主页网格 / 侧边条 / 工具详情页需要可区分的视觉标识。与「工具页风格统一」同源（图标风格需与主应用 shadcn-vue + lucide 一致）。
+**背景**：工具为 AI 生成的单个 HTML，目前无图标概念。主页网格 / 侧边条 / 工具详情页需要可区分的视觉标识。与「工具页风格统一」同源。
 
-**方案要点（已确认）**：
-- `meta.json` 增加可选 `icon` 字段，判别联合（缺省则自动兜底）：
-  `{ type: 'lucide', name: string }` / `{ type: 'emoji', emoji: string }` / `{ type: 'svg', svg: string }`。
-- **渲染优先级：lucide → emoji → svg → 自动兜底**（已确认顺序 1/3/2/4）。
-- **emoji 优先于 SVG** 的理由：渲染稳定、一眼可识别、零风格风险；SVG 为 AI 手绘、质量不可控，作为兜底前最后一档，整体倾向「稳、统一」。
-- **生成期校验**（复用「能力声明」的校验思路）：lucide `name` 需在白名单内，否则硬拦截让 AI 自修正；emoji 约束为单个字符；SVG 需过滤 `<script>`/事件属性。生成器提示词引导 AI 按 lucide → emoji → svg 顺序选取。
-- **渲染层统一组件**（如 `tool-icon.vue`）：主页网格 / 侧边条 / 详情页三处共用；全部发生在渲染层，**不新增文件、不动 git 白名单**（icon 就在 meta.json 这个白名单文本文件里）。
+**方案要点（实际落地，已相对原始构想简化）**：
+- `meta.json` 增加可选 `icon: string` 字段，**仅接受单个字符**（emoji / 字母 / 汉字等，按码点计 1）。
+- 主进程 `normalizeToolIcon(icon)`：非法（非单个码点）或为空时返回 `''`；渲染层 `tool-icon.vue` 为空时回退工具名首字符，两者皆空则用 `✨`。
+- **渲染层统一组件** `tool-icon.vue`：主页卡片 / 标签栏 / 搜索下拉 / 工具详情头部共用（4 处展示位）。
+- **手动编辑入口**：工具卡片右上角编辑按钮 → 编辑弹窗（名称 / 图标 / 描述）；图标字段旁提供常用**单码点** emoji 选择面板（避免 ❤️ / ⚙️ 这类带变体选择符 U+FE0F 的双码点 emoji 被归一化清空）。
+- **为何从三态简化为单字符**：最初方案为 lucide/emoji/svg 判别联合，后确认仅支持单字符，避免 lucide 全量映射的打包体积与 SVG 的 XSS 风险；校验也随之简化为「单码点」。
 
-**状态**：方向已定，待实现。
+**状态**：已实现。主进程 `tool-page.ts` 新增 `normalizeToolIcon` / `updateToolMeta`；`src/main/index.ts` 注册 `tool:updateMeta` IPC（替换原 `tool:setIcon`）；preload 暴露 `tool.updateMeta`；新增 `src/renderer/src/components/tool-icon.vue`；`tool-workspace.vue` 卡片右上角编辑弹窗（名称/图标/描述 + emoji 面板）、删除内联编辑；4 处展示位接入。单测覆盖 `updateToolMeta`（`src/main/__tests__/tool-page.spec.ts`）。
 
 ---
 
@@ -145,4 +150,4 @@
   - **B（较重）· 升级侧边条为置顶工具区**：把窄图标条扩成可放置顶工具的区域，每工具一个图标/首字母 + tooltip；图标区分度依赖图标体系，窄条信息密度低。
 - 两种形态均需：① 一个「标记收藏」交互（工具详情页或主页卡片上放 pin 按钮）；② 收藏列表持久化（settings 存一个 `tool id` 数组）。
 
-**状态**：形态 A/B 未定，待图标体系落地后选其一。与「工具图标 meta.icon」绑定。
+**状态**：形态 A/B 未定（图标体系已落地，可以此支撑从 A/B 中选定）。与「工具图标 meta.icon」绑定。
