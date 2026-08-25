@@ -1,0 +1,71 @@
+// 原子能力 IPC：清单查询 + 能力执行。
+// backend 走 capability-runtime；frontend 走 frontend-impls，工具页也经此。
+import { ipcMain } from 'electron'
+import { join } from 'node:path'
+import { CH } from '../../shared/ipc'
+import type { Capability, CapabilityRunResponse } from '../../shared/types'
+import { listCapabilities } from '../capability-registry'
+import { runBackendCapability } from '../capability-runtime'
+import { runFrontendCapability } from '../frontend-impls'
+import { readToolMetaAt, toolsRoot, previewRoot } from '../tool-page'
+
+/**
+ * 从「调用方 webContents 的 URL」解析出工具来源，用于 cap.run 的能力白名单校验。
+ * 只认工具页的两个协议，其余（宿主主窗口 file:// 或 dev 的 http://）返回 null（视为放行）。
+ *   - tool://<id>/…            → { toolId }
+ *   - tool-preview://<id>/<oid>/… → { toolId, oid }
+ */
+function parseToolSource(url: string): { toolId: string; oid?: string } | null {
+  try {
+    const u = new URL(url)
+    if (u.protocol === 'tool:') {
+      return /^t-[0-9a-z]+$/.test(u.host) ? { toolId: u.host } : null
+    }
+    if (u.protocol === 'tool-preview:') {
+      const [oid] = u.pathname.replace(/^\/+/, '').split('/').filter(Boolean)
+      return oid ? { toolId: u.host, oid } : null
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+export function registerCapabilityIpc(): void {
+  ipcMain.handle(CH.capabilityList, (): Capability[] => listCapabilities())
+
+  ipcMain.handle(
+    CH.capabilityRun,
+    async (event, id: string, args: unknown): Promise<CapabilityRunResponse> => {
+      if (typeof id !== 'string' || !id.trim()) {
+        return { ok: false, error: '能力 id 不能为空' }
+      }
+      // 工具页调用（tool:// / tool-preview://）：按来源工具（预览则按其版本）声明的 capabilities 白名单校验。
+      // 仅当调用方是工具页时校验；宿主主窗口（file:// / http://）返回 null，视为宿主自身调用，放行。
+      const source = parseToolSource(event.sender.getURL())
+      if (source) {
+        const metaPath = source.oid
+          ? join(previewRoot(), source.toolId, source.oid, 'meta.json')
+          : join(toolsRoot(), source.toolId, 'meta.json')
+        const allowed = readToolMetaAt(metaPath)?.capabilities ?? []
+        if (!allowed.includes(id)) {
+          return { ok: false, error: `工具未声明能力: ${id}` }
+        }
+      }
+      const cap = listCapabilities().find((c) => c.id === id)
+      if (!cap) {
+        return { ok: false, error: `未知能力: ${id}` }
+      }
+      if (cap.runtime === 'frontend') {
+        // 工具页为 <webview> guest，无主窗口渲染层的注入方法，
+        // 因此 frontend 能力也统一收口到主进程执行（由 frontend-impls.ts 提供实现）
+        return runFrontendCapability(id, args)
+      }
+      try {
+        return { ok: true, result: await runBackendCapability(id, args) }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
+}
