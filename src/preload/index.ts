@@ -51,7 +51,7 @@ const api: PreloadApi = {
   tool: {
     create: () => invoke(CH.toolCreate),
     list: () => invoke(CH.toolList),
-    delete: (id) => invoke(CH.toolDelete, id),
+    delete: (id, keepData) => invoke(CH.toolDelete, id, keepData),
     updateMeta: (id, patch) => invoke(CH.toolUpdateMeta, id, patch),
     update: (id, changes) => invoke(CH.toolUpdate, id, changes),
     getPreloadPath: () => invoke(CH.toolGetPreloadPath),
@@ -62,6 +62,13 @@ const api: PreloadApi = {
   toolsPreview: {
     list: () => invoke(CH.toolsPreviewList),
     clear: () => invoke(CH.toolsPreviewClear)
+  },
+  toolsData: {
+    list: () => invoke(CH.toolsDataList),
+    detail: (id) => invoke(CH.toolsDataDetail, id),
+    clear: (id) => invoke(CH.toolsDataClear, id),
+    deleteOrphan: () => invoke(CH.toolsDataDeleteOrphan),
+    open: (id) => invoke(CH.toolsDataOpen, id)
   },
   chat: {
     history: (taskId) => invoke(CH.chatHistory, taskId),

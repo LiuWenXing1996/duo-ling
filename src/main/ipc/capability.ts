@@ -8,6 +8,7 @@ import { listCapabilities } from '../capability-registry'
 import { runBackendCapability } from '../capability-runtime'
 import { runFrontendCapability } from '../frontend-impls'
 import { readToolMetaAt, toolsRoot, previewRoot } from '../tool-page'
+import { isToolsDataCapability, runToolsDataCapability } from '../tools-data'
 
 /**
  * 从「调用方 webContents 的 URL」解析出工具来源，用于 cap.run 的能力白名单校验。
@@ -55,6 +56,11 @@ export function registerCapabilityIpc(): void {
       const cap = listCapabilities().find((c) => c.id === id)
       if (!cap) {
         return { ok: false, error: `未知能力: ${id}` }
+      }
+      // 工具数据能力在主进程直接执行（需 fs + 调用方 toolId），不经过 backend 子进程/frontend 注入。
+      // 预览模式不拦截：预览页同样可读写真实工具数据区（与正式工具能力一致）。
+      if (isToolsDataCapability(id)) {
+        return runToolsDataCapability(id, source?.toolId ?? '', args)
       }
       if (cap.runtime === 'frontend') {
         // 工具页为 <webview> guest，无主窗口渲染层的注入方法，

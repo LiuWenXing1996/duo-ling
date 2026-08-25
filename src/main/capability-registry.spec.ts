@@ -1,16 +1,23 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   backendCapabilities,
   frontendCapabilities,
   listCapabilities,
   type Capability
 } from './capability-registry'
+import { toolsDataCapabilities } from './tools-data'
+
+// registry 现合并了 tools-data 分域，该模块传递引用 electron，需打桩避免测试环境解析失败
+vi.mock('electron', () => ({
+  app: { getPath: () => '/tmp' },
+  shell: { openPath: vi.fn() }
+}))
 
 describe('capability-registry（原子能力契约 + 双 registry）', () => {
-  it('listCapabilities 合并前后端两个分域清单', () => {
+  it('listCapabilities 合并前后端与工具数据三个分域清单', () => {
     const all = listCapabilities()
-    expect(all).toHaveLength(frontendCapabilities.length + backendCapabilities.length)
-    expect(all).toEqual([...frontendCapabilities, ...backendCapabilities])
+    expect(all).toHaveLength(frontendCapabilities.length + backendCapabilities.length + toolsDataCapabilities.length)
+    expect(all).toEqual([...frontendCapabilities, ...backendCapabilities, ...toolsDataCapabilities])
   })
 
   it('能力 id 全局唯一', () => {

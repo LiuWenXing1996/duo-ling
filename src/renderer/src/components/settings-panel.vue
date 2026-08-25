@@ -3,6 +3,8 @@ import { onMounted, ref } from 'vue'
 import {
   Box as UiBox,
   ChevronRight as UiChevronRight,
+  Database as UiDatabase,
+  FolderOpen as UiFolderOpen,
   HardDrive as UiHardDrive,
   Pencil as UiPencil,
   Plus as UiPlus,
@@ -11,7 +13,10 @@ import {
 import { Button as UiButton } from '@/components/ui/button'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import type { ModelProfile, ModelProvider } from '@/types/model'
+import type { ToolsDataOverview } from '../../../shared/types'
 import ModelFormDialog from './model-form-dialog.vue'
+
+const emit = defineEmits<{ 'open-tool-data': [id: string, title: string] }>()
 
 const profiles = ref<ModelProfile[]>([])
 const providers = ref<ModelProvider[]>([])
@@ -38,6 +43,67 @@ const cacheVersions = ref(0)
 const cacheError = ref('')
 const clearingCache = ref(false)
 const cacheClearedAt = ref('')
+
+// 工具数据概览：列出所有工具的数据区占用，支持打开详情、清空、孤儿清理
+const dataItems = ref<ToolsDataOverview[]>([])
+const dataError = ref('')
+const dataLoading = ref(false)
+const cleaningOrphan = ref(false)
+const orphanClearedAt = ref('')
+
+async function loadToolsData(): Promise<void> {
+  dataLoading.value = true
+  try {
+    const res = await window.api.toolsData.list()
+    if (res.ok) {
+      dataItems.value = res.items
+      dataError.value = ''
+    } else {
+      dataError.value = res.error
+    }
+  } catch (error) {
+    dataError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    dataLoading.value = false
+  }
+}
+
+function viewData(item: ToolsDataOverview): void {
+  emit('open-tool-data', item.id, item.title)
+}
+
+async function clearData(item: ToolsDataOverview): Promise<void> {
+  const label = `确定清空工具「${item.title}」的全部数据吗？共 ${item.keyCount} 个键、${formatBytes(item.sizeBytes)}。清空后不可恢复。`
+  if (!window.confirm(label)) return
+  const res = await window.api.toolsData.clear(item.id)
+  if (!res.ok) {
+    dataError.value = res.error ?? '清空失败'
+    return
+  }
+  await loadToolsData()
+}
+
+function orphanCount(): number {
+  return dataItems.value.filter((i) => i.orphan).length
+}
+
+async function cleanOrphans(): Promise<void> {
+  cleaningOrphan.value = true
+  try {
+    const res = await window.api.toolsData.deleteOrphan()
+    if (res.ok) {
+      orphanClearedAt.value = res.removed > 0 ? `已清理 ${res.removed} 个孤儿数据` : '无孤儿数据'
+      setTimeout(() => (orphanClearedAt.value = ''), 2500)
+      await loadToolsData()
+    } else {
+      dataError.value = res.error
+    }
+  } catch (error) {
+    dataError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    cleaningOrphan.value = false
+  }
+}
 
 async function loadPreviewCache(): Promise<void> {
   try {
@@ -153,11 +219,12 @@ async function onSaved(): Promise<void> {
 onMounted(() => {
   void loadData()
   void loadPreviewCache()
+  void loadToolsData()
 })
 </script>
 
 <template>
-  <section class="panel">
+  <section class="panel settings-panel">
     <div class="min-h-0 flex-1 overflow-y-auto scroll-gap p-6">
       <p v-if="loadError" class="text-destructive mb-3 text-xs">{{ loadError }}</p>
 
@@ -301,6 +368,84 @@ onMounted(() => {
             <span v-if="cacheClearedAt" class="text-xs text-primary">{{ cacheClearedAt }}</span>
           </div>
         </div>
+
+        <!-- 工具数据 -->
+        <div class="mt-8">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h3 class="text-base font-semibold">工具数据</h3>
+              <p class="mt-1 text-xs text-muted-foreground">
+                工具通过 tool.data.* 能力持久化的数据区，与工具源码分离存储。
+              </p>
+            </div>
+            <ui-button
+              variant="outline"
+              size="sm"
+              :disabled="cleaningOrphan || !orphanCount()"
+              @click="cleanOrphans"
+            >
+              <ui-trash2 class="size-3.5" />
+              <span>{{ cleaningOrphan ? '清理中…' : (orphanCount() ? `清理孤儿数据（${orphanCount()}）` : '清理孤儿数据') }}</span>
+            </ui-button>
+          </div>
+          <span v-if="orphanClearedAt" class="mt-2 block text-xs text-primary">{{ orphanClearedAt }}</span>
+          <div v-if="dataError" class="mt-2 text-xs text-destructive">{{ dataError }}</div>
+
+          <div class="mt-3 overflow-hidden rounded-md border">
+            <div class="grid grid-cols-[1fr_auto_auto] gap-4 border-b bg-muted/40 px-4 py-2.5 text-xs text-muted-foreground sm:grid-cols-[1fr_120px_80px_120px]">
+              <span>工具</span>
+              <span class="hidden text-right sm:block">数据大小</span>
+              <span class="text-right">键数</span>
+              <span class="text-right">操作</span>
+            </div>
+            <div v-if="dataLoading" class="px-4 py-8 text-center text-xs text-muted-foreground">加载中…</div>
+            <div v-else-if="!dataItems.length" class="px-4 py-8 text-center text-xs text-muted-foreground">
+              还没有工具持久化数据。
+            </div>
+            <div v-else class="divide-y divide-border">
+              <div
+                v-for="item in dataItems"
+                :key="item.id"
+                class="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-4 py-3 sm:grid-cols-[1fr_120px_80px_120px]"
+              >
+                <div class="flex min-w-0 items-center gap-2.5">
+                  <span class="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                    <ui-database class="size-4" />
+                  </span>
+                  <span class="truncate text-sm">{{ item.title }}</span>
+                  <span
+                    v-if="item.orphan"
+                    class="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive"
+                  >
+                    孤儿
+                  </span>
+                </div>
+                <span class="hidden text-right text-sm text-muted-foreground sm:block">{{ formatBytes(item.sizeBytes) }}</span>
+                <span class="text-right text-sm text-muted-foreground">{{ item.keyCount }}</span>
+                <div class="flex items-center justify-end gap-1">
+                  <ui-button
+                    variant="ghost"
+                    size="sm"
+                    class="size-8 p-0"
+                    title="查看"
+                    @click="viewData(item)"
+                  >
+                    <ui-folder-open class="size-4" />
+                  </ui-button>
+                  <ui-button
+                    variant="ghost"
+                    size="sm"
+                    class="size-8 p-0 text-destructive hover:text-destructive"
+                    title="清空数据"
+                    @click="clearData(item)"
+                  >
+                    <ui-trash2 class="size-4" />
+                  </ui-button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -314,3 +459,13 @@ onMounted(() => {
     />
   </section>
 </template>
+
+<style scoped lang="less">
+// 设置面板撑满 tab-content（tab-content 为 relative），否则内部滚动区高度为 auto 无法滚动。
+// 与 home-panel 的 absolute inset:0 定位方式保持一致。
+.settings-panel {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+</style>

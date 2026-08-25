@@ -4,6 +4,7 @@ import type { PropType } from 'vue'
 import SettingsPanel from '@/components/settings-panel.vue'
 import ToolPage, { type ToolPageMeta } from '@/components/tool-page.vue'
 import ToolHistory from '@/components/tool-history.vue'
+import ToolDataDetail from '@/components/tool-data-detail.vue'
 import HomePanel from '@/components/home-panel.vue'
 import WorkspaceTabs from '@/components/workspace-tabs.vue'
 import ToolEditDialog from '@/components/tool-edit-dialog.vue'
@@ -68,6 +69,21 @@ function openToolHistory(tool: ToolPageMeta): void {
       title: `${tool.title} · 历史`,
       toolId: tool.id,
       toolTitle: tool.title
+    })
+  }
+  activate(id)
+}
+
+// 打开某工具的「数据」标签页：同一工具只有一个数据页，已打开则激活
+function openToolData(toolId: string, toolTitle: string): void {
+  const id = `${toolId}:data`
+  if (!openTabs.value.some((t) => t.id === id)) {
+    openTabs.value.push({
+      kind: 'tool-data',
+      id,
+      title: `${toolTitle} · 数据`,
+      toolId,
+      toolTitle
     })
   }
   activate(id)
@@ -149,13 +165,13 @@ function askDeleteTool(tool: ToolMeta): void {
   deleteTarget.value = tool
 }
 
-// 用户在弹窗中确认删除：移除其落盘目录；若该工具标签已打开则一并关闭，随后刷新工具列表。
-async function confirmDeleteTool(): Promise<void> {
+// 用户在弹窗中确认删除：keepData 决定是否保留数据区；若该工具标签已打开则一并关闭，随后刷新工具列表。
+async function confirmDeleteTool(keepData: boolean): Promise<void> {
   const tool = deleteTarget.value
   if (!tool) return
   deleteTarget.value = null
   toolError.value = ''
-  const res = await window.api.tool.delete(tool.id)
+  const res = await window.api.tool.delete(tool.id, keepData)
   if (!res.ok) {
     toolError.value = res.error ?? '删除工具失败'
     return
@@ -215,8 +231,14 @@ defineExpose({ createTool, openTool, openSettingsTab })
           :tool-id="tab.toolId ?? ''"
           :tool-title="tab.toolTitle ?? tab.title"
         />
+        <!-- 工具数据详情：展示该工具的数据区（键 / 大小 / 时间） -->
+        <tool-data-detail
+          v-else-if="tab.kind === 'tool-data'"
+          :tool-id="tab.toolId ?? ''"
+          :tool-title="tab.toolTitle ?? tab.title"
+        />
         <!-- 设置标签：渲染设置面板 -->
-        <settings-panel v-else-if="tab.kind === 'settings'" />
+        <settings-panel v-else-if="tab.kind === 'settings'" @open-tool-data="openToolData" />
       </ui-tabs-content>
     </ui-tabs>
 

@@ -13,6 +13,11 @@ import type {
   ToolPageMeta,
   ToolPreviewResult,
   ToolResult,
+  ToolsDataClearResult,
+  ToolsDataDeleteOrphanResult,
+  ToolsDataDetailResult,
+  ToolsDataListResult,
+  ToolsDataOpenResult,
   ToolUpdateMetaResult,
   ToolUpdateResult,
   ToolsPreviewClearResult,
@@ -35,6 +40,13 @@ import {
   materializeToolSnapshot,
   rollbackTool
 } from '../tool-git'
+import {
+  clearToolsData,
+  deleteOrphanToolsData,
+  getToolsDataDetail,
+  listToolsData,
+  openToolsDataDir
+} from '../tools-data'
 
 /** 生成一个足够唯一的宿主工具 ID（时间戳 + 随机段），用于工具文件夹名与 tool:// host */
 function createToolId(): string {
@@ -103,11 +115,33 @@ export function registerToolIpc(): void {
   // 一键清空预览缓存区（幂等）。
   ipcMain.handle(CH.toolsPreviewClear, (): ToolsPreviewClearResult => clearPreviewCache())
 
-  // 删除指定工具：移除 <userData>/tools/<id>/ 目录（主页工具卡片删除按钮调用）
-  ipcMain.handle(CH.toolDelete, (_event, id: string): ToolResult => {
+  // 删除指定工具（主页工具卡片删除按钮调用）。
+  // keepData 为 true 时仅移除工具源码目录、保留数据区（后续可重新关联）；缺省 false 时连同数据一起删除。
+  ipcMain.handle(CH.toolDelete, (_event, id: string, keepData?: boolean): ToolResult => {
     const result = deleteToolPage(id)
-    return result.ok ? { ok: true } : { ok: false, error: result.error }
+    if (!result.ok) return { ok: false, error: result.error }
+    if (!keepData) {
+      const dataResult = clearToolsData(id)
+      if (!dataResult.ok) return { ok: false, error: dataResult.error }
+    }
+    return { ok: true }
   })
+
+  // —— 工具数据管理 ——
+  // 概览列表（设置面板「工具数据」表格）
+  ipcMain.handle(CH.toolsDataList, (): ToolsDataListResult => listToolsData())
+
+  // 详情（tool-data-detail 标签页）
+  ipcMain.handle(CH.toolsDataDetail, (_event, id: string): ToolsDataDetailResult => getToolsDataDetail(id))
+
+  // 清空某工具全部数据（详情页「清空」按钮）
+  ipcMain.handle(CH.toolsDataClear, (_event, id: string): ToolsDataClearResult => clearToolsData(id))
+
+  // 清理孤儿数据（对应工具已不存在的残留数据区，设置面板入口）
+  ipcMain.handle(CH.toolsDataDeleteOrphan, (): ToolsDataDeleteOrphanResult => deleteOrphanToolsData())
+
+  // 在系统文件管理器中打开数据目录（详情页「打开所在文件夹」按钮）
+  ipcMain.handle(CH.toolsDataOpen, (_event, id: string): ToolsDataOpenResult => openToolsDataDir(id))
 
   // 更新某工具的元信息：读 meta.json 仅合并传入字段（title/description/icon），主页卡片编辑弹窗调用。
   // 图标归一化为单个字符；title 去空白、为空时保留原值。

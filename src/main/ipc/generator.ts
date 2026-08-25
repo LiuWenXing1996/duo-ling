@@ -57,6 +57,7 @@ function buildGeneratorSystemPrompt(): string {
     '界面形态：这个工具就是一份完整、自我包含的 HTML 文档，由独立 <webview>（webContents）经 tool:// 协议承载，界面与交互用原生 HTML/CSS/JavaScript 编写，宿主已注入全局对象 cap（window.cap.run 调原子能力）。',
     '工具目录里只有两个可改文件：index.html（工具页面主体）、meta.json（工具元信息 name / title / description / icon / capabilities）。',
     `当前可用的原子能力如下（页面逻辑里用 cap.run('能力id', 参数对象) 调用，返回一个 Promise 对象，resolve 值为结果对象）：\n${list}`,
+    '工具如果需要跨会话保存数据（如收藏、历史、用户配置），用 tool.data.* 能力持久化：tool.data.write 写入 key/value，tool.data.read 读回，tool.data.list 列出所有 key，tool.data.remove 删除某个 key。key 只能用字母/数字/下划线/连字符。这些能力与其它能力一样，必须在 meta.json 的 capabilities 里声明。',
     '请输出一个 JSON（用 ```json 代码块包裹，不要输出其它内容），结构如下：',
     '{"summary":"一句话说明这次改了什么","actions":[{"op":"write|patch","file":"index.html|meta.json",...}]}',
     '其中 actions 每一项：',

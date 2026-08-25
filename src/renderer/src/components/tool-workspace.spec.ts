@@ -171,11 +171,11 @@ describe('ToolWorkspace', () => {
     expect(dialog.textContent).toContain('删除工具')
     expect(dialog.textContent).toContain('PDF 合并器')
 
-    // 点击弹窗「删除」按钮执行删除
-    await buttonByText(dialog, '删除').click()
+    // 点击弹窗「工具及数据一并删除」执行删除（keepData=false）
+    await buttonByText(dialog, '工具及数据一并删除').click()
     await flushPromises()
 
-    expect(window.api.tool.delete).toHaveBeenCalledWith('t-1')
+    expect(window.api.tool.delete).toHaveBeenCalledWith('t-1', false)
     expect(wrapper.emitted('toolsChanged')).toBeTruthy()
 
     wrapper.unmount()

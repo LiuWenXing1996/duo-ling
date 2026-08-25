@@ -240,6 +240,60 @@ export type ToolsPreviewListResult =
 
 export type ToolsPreviewClearResult = { ok: true } | { ok: false; error: string }
 
+// —— 工具数据 ——
+/** 单个 key 的数据文件信息（tool.data 能力落盘的 JSON） */
+export interface ToolsDataEntry {
+  /** 数据键，即 tool.data.write 传入的 key（白名单 [A-Za-z0-9_-]+） */
+  key: string
+  /** 该数据文件字节数 */
+  size: number
+  /** 最后写入时间（ISO 字符串） */
+  updatedAt: string
+}
+
+/** 工具数据概览：settings-panel 工具数据表格的一行 */
+export interface ToolsDataOverview {
+  /** 工具 id */
+  id: string
+  /** 工具标题；孤儿数据（对应工具已删除）回退为空串 */
+  title: string
+  createdAt: string
+  updatedAt: string
+  /** 各 key 文件总字节数 */
+  sizeBytes: number
+  /** key 个数 */
+  keyCount: number
+  /** 是否孤儿：对应 <userData>/tools/<id>/meta.json 不存在 */
+  orphan: boolean
+}
+
+/** 工具数据详情：tool-data-detail tab 展示 */
+export interface ToolsDataDetail {
+  /** 工具 id */
+  id: string
+  /** 工具标题；孤儿数据回退为空串 */
+  title: string
+  createdAt: string
+  updatedAt: string
+  sizeBytes: number
+  entries: ToolsDataEntry[]
+}
+
+/** 工具数据列表结果（channel: tools-data:list） */
+export type ToolsDataListResult = { ok: true; items: ToolsDataOverview[] } | { ok: false; error: string }
+
+/** 工具数据详情结果（channel: tools-data:detail） */
+export type ToolsDataDetailResult = { ok: true; detail: ToolsDataDetail } | { ok: false; error: string }
+
+/** 清空某工具全部数据结果（channel: tools-data:clear） */
+export type ToolsDataClearResult = { ok: true } | { ok: false; error: string }
+
+/** 清理孤儿数据结果（channel: tools-data:delete-orphan） */
+export type ToolsDataDeleteOrphanResult = { ok: true; removed: number } | { ok: false; error: string }
+
+/** 在系统文件管理器中打开数据目录结果（channel: tools-data:open） */
+export type ToolsDataOpenResult = { ok: true } | { ok: false; error: string }
+
 /** 生成器 send 的结果（channel: generator:send） */
 export interface GeneratorSendResult {
   ok: boolean

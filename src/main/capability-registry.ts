@@ -14,6 +14,7 @@ import type {
   CapabilityScenario,
   CapabilitySideEffect
 } from '../shared/types'
+import { toolsDataCapabilities } from './tools-data'
 
 export type {
   Capability,
@@ -83,7 +84,7 @@ export const frontendCapabilities: Capability[] = [
   }
 ]
 
-/** 合并两个分域清单：供 capability:list 返回生成器可读的能力全集 */
+/** 合并全部分域清单：供 capability:list 返回生成器可读的能力全集（含工具数据域） */
 export function listCapabilities(): Capability[] {
-  return [...frontendCapabilities, ...backendCapabilities]
+  return [...frontendCapabilities, ...backendCapabilities, ...toolsDataCapabilities]
 }

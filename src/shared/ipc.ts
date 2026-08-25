@@ -25,6 +25,11 @@ import type {
   ToolPageMeta,
   ToolPreviewResult,
   ToolResult,
+  ToolsDataClearResult,
+  ToolsDataDeleteOrphanResult,
+  ToolsDataDetailResult,
+  ToolsDataListResult,
+  ToolsDataOpenResult,
   ToolUpdateMetaResult,
   ToolUpdateResult,
   ToolsPreviewClearResult,
@@ -61,6 +66,11 @@ export const CH = {
   toolPreview: 'tool:preview',
   toolsPreviewList: 'tools-preview:list',
   toolsPreviewClear: 'tools-preview:clear',
+  toolsDataList: 'tools-data:list',
+  toolsDataDetail: 'tools-data:detail',
+  toolsDataClear: 'tools-data:clear',
+  toolsDataDeleteOrphan: 'tools-data:delete-orphan',
+  toolsDataOpen: 'tools-data:open',
   chatHistory: 'chat:history',
   chatSend: 'chat:send',
   chatAbort: 'chat:abort',
@@ -94,7 +104,7 @@ export interface InvokeMap {
   [CH.capabilityRun]: { args: [id: string, args: unknown]; result: CapabilityRunResponse }
   [CH.toolCreate]: { args: []; result: ToolCreateResult }
   [CH.toolList]: { args: []; result: ToolPageMeta[] }
-  [CH.toolDelete]: { args: [id: string]; result: ToolResult }
+  [CH.toolDelete]: { args: [id: string, keepData?: boolean]; result: ToolResult }
   [CH.toolUpdateMeta]: {
     args: [id: string, patch: { title?: string; description?: string; icon?: string }]
     result: ToolUpdateMetaResult
@@ -106,6 +116,11 @@ export interface InvokeMap {
   [CH.toolPreview]: { args: [id: string, oid: string]; result: ToolPreviewResult }
   [CH.toolsPreviewList]: { args: []; result: ToolsPreviewListResult }
   [CH.toolsPreviewClear]: { args: []; result: ToolsPreviewClearResult }
+  [CH.toolsDataList]: { args: []; result: ToolsDataListResult }
+  [CH.toolsDataDetail]: { args: [id: string]; result: ToolsDataDetailResult }
+  [CH.toolsDataClear]: { args: [id: string]; result: ToolsDataClearResult }
+  [CH.toolsDataDeleteOrphan]: { args: []; result: ToolsDataDeleteOrphanResult }
+  [CH.toolsDataOpen]: { args: [id: string]; result: ToolsDataOpenResult }
   [CH.chatHistory]: { args: [taskId: number]; result: ChatMessage[] }
   [CH.chatSend]: { args: [taskId: number, text: string]; result: ChatMessage | null }
   [CH.chatAbort]: { args: []; result: void }
@@ -144,7 +159,7 @@ export interface PreloadApi {
   tool: {
     create: () => Promise<ToolCreateResult>
     list: () => Promise<ToolPageMeta[]>
-    delete: (id: string) => Promise<ToolResult>
+    delete: (id: string, keepData?: boolean) => Promise<ToolResult>
     updateMeta: (id: string, patch: { title?: string; description?: string; icon?: string }) => Promise<ToolUpdateMetaResult>
     update: (id: string, changes: ToolChangeList) => Promise<ToolUpdateResult>
     getPreloadPath: () => Promise<string>
@@ -155,6 +170,13 @@ export interface PreloadApi {
   toolsPreview: {
     list: () => Promise<ToolsPreviewListResult>
     clear: () => Promise<ToolsPreviewClearResult>
+  }
+  toolsData: {
+    list: () => Promise<ToolsDataListResult>
+    detail: (id: string) => Promise<ToolsDataDetailResult>
+    clear: (id: string) => Promise<ToolsDataClearResult>
+    deleteOrphan: () => Promise<ToolsDataDeleteOrphanResult>
+    open: (id: string) => Promise<ToolsDataOpenResult>
   }
   chat: {
     history: (taskId: number) => Promise<ChatMessage[]>
