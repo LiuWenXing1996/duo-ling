@@ -238,7 +238,10 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                     </li>
                   </ul>
                   <ui-message-content class="w-full min-w-0">
-                    <ui-message-response :content="assistantText(m)" />
+                    <ui-message-response
+                      :content="assistantText(m)"
+                      class="[&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
+                    />
                   </ui-message-content>
                 </template>
               </ui-message>
