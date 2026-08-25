@@ -141,6 +141,27 @@
 
 ---
 
+## 会话与工具解耦：会话提升为一等公民（方案已写，待评审）
+
+**背景**：当前会话/对话强绑定工具，无法跨工具、无法在一次对话中修改多个工具。已与用户确认将「会话」提升为一等公民，与工具解耦；同一会话可改任意工具、可一次改多个，并支持多个 AI 会话并行思考 + 对同一工具串行写入。
+
+**方案要点（已确认）**：
+- **绑定下沉到 EditIntent**：`Conversation → Message → EditIntent { toolId, summary, actions[], status }`，会话从不拥有工具。`Conversation { id, title, createdAt, lastMessageAt }`、`Message { id, conversationId, role, content, createdAt }`、`Tool`（磁盘目录）独立于会话。
+- **多工具 manifest**：AI 输出 `{ intents: [{ toolId, summary, actions[] }] }`，天然支持一次改多个工具。
+- **无感确认 = 事后可逆而非事前阻塞**：靠 git 版本化 + `tool.rollback` 兜底；每个 EditIntent 一个 commit，撤销 = revert 到父 OID。
+- **单写者全局 per-tool 锁**：锁带持有者标识 `{ toolId, holder: { conversationId, messageId, intentId }, acquiredAt }`；查锁只读畅通、拿锁排他串行。
+- **执行管线（Plan B）**：待办清单只展示意图（intents），执行时逐工具持锁重读当前内容 + 重生成 + 落盘，避免覆盖用户手动修改、识别「已无需改动」；每改一个工具锁一个工具，支持锁前提示。
+- **多 AI 并发（B 方案）**：不做并发上限调度器（3-4 个 AI 是用户自然上限）。规划时 AI 先查锁，被锁则跳过+提示用户；执行时被锁则视为执行失败并告知原因 + 重试出口。
+- **中断**：执行期间禁发新消息 + 停止按钮；优雅中断 = 收尾当前项 → 释放锁 → 取消剩余 → 恢复输入。
+- **数据区**：`<userData>/tools-data/<id>/`，单 key 原子、AI 不写数据区、不锁数据区（用 schema 版本 + 读容错兜底语义漂移）。
+- **webview 重写**：停旧页 → 写文件 → 加载新页，用「过渡占位」而非遮罩/白屏；批量写 + 单次 reload。
+
+**详细文档**：见 [conversation-tool-decouple.md](./conversation-tool-decouple.md)。
+
+**状态**：方案已写入 docs，待评审。
+
+---
+
 ## 工具快捷方式：置顶/收藏（形态待定）
 
 **背景**：用户提出在左侧边条支持工具快捷方式。现状：侧边条为窄图标条（`src/renderer/src/App.vue` 的 `workspace-nav`，仅「新建工具」「设置」两项）；工具目前经主页网格 + 顶栏 ⌘K 全局搜索打开。
