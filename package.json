@@ -34,7 +34,6 @@
     "ai": "^7.0.77",
     "ansi-to-vue3": "^0.1.2",
     "electron-store": "^11.0.2",
-    "embla-carousel-vue": "^8.6.0",
     "isomorphic-git": "^1.41.9",
     "media-chrome": "^4.19.2",
     "motion-v": "^2.4.0",
