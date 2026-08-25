@@ -9,6 +9,9 @@ import git from 'isomorphic-git'
 import fs from 'node:fs'
 import { dirname, join, normalize } from 'node:path'
 import { toolsRoot, previewRoot } from './tool-page'
+import type { ToolCommit } from '../shared/types'
+
+export type { ToolCommit }
 
 /** 允许纳入版本控制的工具内文件（与 tool-page.ts 的白名单一致） */
 const TOOL_FILES = ['index.html', 'meta.json'] as const
@@ -86,14 +89,6 @@ export async function commitToolChanges(
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
-}
-
-/** 一次提交的快照（新提交在前） */
-export interface ToolCommit {
-  oid: string
-  message: string
-  author: string
-  timestamp: number
 }
 
 /**

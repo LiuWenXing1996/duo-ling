@@ -1,0 +1,248 @@
+// 跨进程共享 DTO：全应用类型的唯一来源（main / preload / renderer 三方共用）。
+// 收敛前各侧手写 interface 易 drift；此处统一定义后，各侧改为 re-export，
+// 避免同一数据模型在三处重复维护。
+
+// —— 任务（会话） ——
+export interface Task {
+  id: number
+  title: string
+  createdAt: string
+}
+
+// —— 聊天 ——
+export type ChatRole = 'user' | 'assistant'
+
+export interface ChatMessage {
+  id: number
+  role: ChatRole
+  content: string
+  createdAt: string
+}
+
+// 对话流式事件（主进程 → 渲染层，channel: chat:event）
+export type ChatEventData =
+  | { type: 'token'; taskId: number; token: string }
+  | { type: 'done'; taskId: number; message: ChatMessage }
+  | { type: 'aborted'; taskId: number; message: ChatMessage | null }
+  | { type: 'error'; taskId: number; error: string }
+
+// 生成器流式事件（主进程 → 渲染层，channel: generator:event）
+export type GeneratorEventData =
+  | { type: 'token'; token: string }
+  | { type: 'done'; content: string }
+  | { type: 'aborted'; content: string }
+  | { type: 'error'; error: string }
+
+/** 生成器对话历史的一项（仅 role + content，带 id/createdAt 的完整 ChatMessage 仅主进程内部需要） */
+export interface GeneratorMessage {
+  role: ChatRole
+  content: string
+}
+
+// —— 模型 ——
+/** 渲染进程可见的模型配置（apiKey 不回传明文，只暴露是否已设置） */
+export interface ModelProfile {
+  id: string
+  /** 模型展示名，如 DeepSeek-V3；未设置时回退为模型 ID */
+  name: string
+  /** 所属服务商（预设 id），自定义模型为空字符串 */
+  providerId: string
+  /** OpenAI 兼容接口地址，如 https://api.deepseek.com/v1 */
+  baseUrl: string
+  /** 模型 ID，如 deepseek-chat（请求时作为 model 字段） */
+  model: string
+  /** 是否已在模型列表中启用（开关） */
+  enabled: boolean
+  /** baseUrl 是否为完整接口地址：true 时不追加 /chat/completions */
+  useFullUrl: boolean
+  /** API 格式，目前仅支持 OpenAI Chat Completions */
+  apiFormat: 'openai'
+  hasApiKey: boolean
+  /** 上下文输出 Token（高级配置，作为请求 max_tokens） */
+  contextOutputToken?: number
+  /** 采样参数：Temperature（0~2） */
+  temperature?: number
+  /** 采样参数：Top P（0~1） */
+  topP?: number
+  /** 采样参数：Top K（1~100） */
+  topK?: number
+}
+
+/** 保存/新增模型配置的入参；apiKey 为空表示保留已有 Key（编辑时未重输） */
+export interface ModelProfileInput {
+  id?: string
+  name: string
+  providerId?: string
+  baseUrl: string
+  apiKey: string
+  model: string
+  enabled?: boolean
+  useFullUrl?: boolean
+  contextOutputToken?: number
+  temperature?: number
+  topP?: number
+  topK?: number
+}
+
+/** 连通性测试入参（model:testChat） */
+export interface ModelTestChatConfig {
+  baseUrl: string
+  apiKey: string
+  model: string
+  useFullUrl?: boolean
+  /** 编辑态 API Key 未回显时，回退到该已保存配置的 Key */
+  profileId?: string
+}
+
+/** 连通性测试结果 */
+export interface TestChatResult {
+  ok: boolean
+  error?: string
+}
+
+/** 在线大模型服务商预设 */
+export interface ModelProvider {
+  id: string
+  name: string
+  /** OpenAI 兼容接口地址（不强制以 /v1 结尾，多数加上 /chat/completions 即可） */
+  baseUrl: string
+  /** 服务商控制台获取 API Key 的链接 */
+  keyUrl: string
+  /** 预置常用模型 ID */
+  models: string[]
+  /** 是否可直接用 Bearer 鉴权添加 */
+  supported: boolean
+}
+
+// —— 原子能力 ——
+export type CapabilityRuntime = 'frontend' | 'backend'
+export type CapabilitySideEffect = 'read' | 'write' | 'notify' | 'destructive'
+export type CapabilityCost = 'offline' | 'online'
+
+export interface CapabilitySchemaField {
+  /** 字段类型：string/number/boolean 等基础类型，或 file/files/markdown 等语义类型 */
+  type: string
+  /** 字段说明，供工具界面推导表单/输入提示 */
+  description: string
+}
+
+export interface CapabilitySchema {
+  type: string
+  description: string
+  fields?: Record<string, CapabilitySchemaField>
+}
+
+/** 面向 AI 的检索元数据：用户意图 → scenario 命中确定能力 id */
+export interface CapabilityScenario {
+  keywords: string[]
+  object: string
+}
+
+/** 原子能力统一契约 */
+export interface Capability {
+  id: string
+  name: string
+  description: string
+  inputSchema: CapabilitySchema
+  outputSchema: CapabilitySchema
+  sideEffect: CapabilitySideEffect
+  runtime: CapabilityRuntime
+  cost: CapabilityCost
+  scenario: CapabilityScenario
+}
+
+/** cap.run 的执行结果（渲染层视角） */
+export type CapabilityRunResponse = { ok: true; result: unknown } | { ok: false; error: string }
+
+// —— 工具页面 ——
+/** 工具元信息：tool:list 返回、主页网格与全局搜索共用 */
+export interface ToolPageMeta {
+  id: string
+  name: string
+  title: string
+  description: string
+  /** 单个字符图标；空串表示未设置（渲染层兜底为工具名首字符） */
+  icon?: string
+  /** 本工具声明可调用的能力 id 白名单；缺省/空数组视为不声明任何能力 */
+  capabilities?: string[]
+}
+
+/** 生成器变更动作：整文件覆盖（write）或精确替换（patch） */
+export type ToolChangeOp = 'write' | 'patch'
+
+export interface ToolChangeAction {
+  op: ToolChangeOp
+  /** 工具目录内的相对文件名，白名单限 index.html / meta.json */
+  file: string
+  /** write：整文件内容（index.html 为字符串；meta.json 传 { name,title,description } 对象，会与现有元信息合并） */
+  content?: unknown
+  /** patch：需要被替换的精确查找串 */
+  find?: string
+  /** patch：查找串被替换成的目标串 */
+  replace?: string
+  /** patch：是否全局替换（默认 false，仅替换第一处） */
+  replace_all?: boolean
+}
+
+/** 生成器对当前工具的一次整体改动描述 */
+export interface ToolChangeList {
+  /** 一句话描述本次改动 */
+  summary: string
+  actions: ToolChangeAction[]
+}
+
+/** 一次提交的快照（新提交在前） */
+export interface ToolCommit {
+  oid: string
+  message: string
+  author: string
+  timestamp: number
+}
+
+// —— IPC 相关响应类型 ——
+export interface WindowBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface ToolCreateResult {
+  ok: boolean
+  id?: string
+  title?: string
+  error?: string
+}
+
+export type ToolResult = { ok: boolean; error?: string }
+
+export interface ToolUpdateMetaResult {
+  ok: boolean
+  title?: string
+  icon?: string
+  error?: string
+}
+
+export interface ToolUpdateResult {
+  ok: boolean
+  title?: string
+  changedFiles?: string[]
+  error?: string
+}
+
+export type ToolHistoryResult = { ok: true; commits: ToolCommit[] } | { ok: false; error: string }
+
+export type ToolPreviewResult = { ok: true; url: string } | { ok: false; error: string }
+
+export type ToolsPreviewListResult =
+  | { ok: true; size: number; versions: number }
+  | { ok: false; error: string }
+
+export type ToolsPreviewClearResult = { ok: true } | { ok: false; error: string }
+
+/** 生成器 send 的结果（channel: generator:send） */
+export interface GeneratorSendResult {
+  ok: boolean
+  content?: string
+  error?: string
+}

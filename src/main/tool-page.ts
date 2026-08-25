@@ -9,6 +9,19 @@
 import { app } from 'electron'
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, normalize } from 'node:path'
+import type {
+  ToolChangeAction,
+  ToolChangeList,
+  ToolChangeOp,
+  ToolPageMeta
+} from '../shared/types'
+
+export type {
+  ToolChangeAction,
+  ToolChangeList,
+  ToolChangeOp,
+  ToolPageMeta
+}
 
 /** 工具页面目录根：<userData>/tools/<id>/… */
 export function toolsRoot(): string {
@@ -65,17 +78,6 @@ export function writeToolPage(input: ToolPageInput): { url: string } {
     'utf8'
   )
   return { url: `tool://${input.id}/index.html` }
-}
-
-export interface ToolPageMeta {
-  id: string
-  name: string
-  title: string
-  description: string
-  /** 单个字符图标；空串表示未设置（渲染层兜底为工具名首字符） */
-  icon?: string
-  /** 本工具声明可调用的能力 id 白名单；缺省/空数组视为不声明任何能力 */
-  capabilities?: string[]
 }
 
 /** 读取所有已落盘的工具元信息（遍历 <userData>/tools/<id>/meta.json），跳过无 meta.json 的残留目录。 */
@@ -202,30 +204,8 @@ export function newToolScaffoldHtml(title: string): string {
 }
 
 // —— 变更清单（「当前会话」code-agent 式 AI 改工具）——
-
-/** 生成器输出的单个变更动作：整文件覆盖（write）或精确替换（patch） */
-export type ToolChangeOp = 'write' | 'patch'
-
-export interface ToolChangeAction {
-  op: ToolChangeOp
-  /** 工具目录内的相对文件名，白名单限 index.html / meta.json */
-  file: string
-  /** write：整文件内容（index.html 为字符串；meta.json 传 { name,title,description } 对象，会与现有元信息合并） */
-  content?: unknown
-  /** patch：需要被替换的精确查找串 */
-  find?: string
-  /** patch：查找串被替换成的目标串 */
-  replace?: string
-  /** patch：是否全局替换（默认 false，仅替换第一处） */
-  replace_all?: boolean
-}
-
-/** 生成器对当前工具的一次整体改动描述 */
-export interface ToolChangeList {
-  /** 一句话描述本次改动 */
-  summary: string
-  actions: ToolChangeAction[]
-}
+//
+// ToolChangeOp / ToolChangeAction / ToolChangeList 已收敛至 src/shared/types.ts（见文件顶部 re-export）。
 
 /** 允许被生成器修改的工具内文件白名单 */
 const ALLOWED_TOOL_FILES = ['index.html', 'meta.json'] as const

@@ -2,50 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { safeStorage } from 'electron'
 import Store, { type Schema } from 'electron-store'
 import type { ChatMessage } from './chat-store'
+import type { ModelProfile, ModelProfileInput } from '../shared/types'
 
-/** 渲染进程可见的模型配置（apiKey 不回传明文，只暴露是否已设置） */
-export interface ModelProfile {
-  id: string
-  /** 模型展示名，如 DeepSeek-V3；未设置时回退为模型 ID */
-  name: string
-  /** 所属服务商（预设 id），自定义模型为空字符串 */
-  providerId: string
-  /** OpenAI 兼容接口地址，如 https://api.deepseek.com/v1 */
-  baseUrl: string
-  /** 模型 ID，如 deepseek-chat（请求时作为 model 字段） */
-  model: string
-  /** 是否已在模型列表中启用（开关） */
-  enabled: boolean
-  /** baseUrl 是否为完整接口地址：true 时不追加 /chat/completions */
-  useFullUrl: boolean
-  /** API 格式，目前仅支持 OpenAI Chat Completions */
-  apiFormat: 'openai'
-  hasApiKey: boolean
-  /** 上下文输出 Token（高级配置，作为请求 max_tokens） */
-  contextOutputToken?: number
-  /** 采样参数：Temperature（0~2） */
-  temperature?: number
-  /** 采样参数：Top P（0~1） */
-  topP?: number
-  /** 采样参数：Top K（1~100） */
-  topK?: number
-}
-
-/** 保存/新增模型配置的入参；apiKey 为空表示保留已有 Key（编辑时未重输） */
-export interface ModelProfileInput {
-  id?: string
-  name: string
-  providerId?: string
-  baseUrl: string
-  apiKey: string
-  model: string
-  enabled?: boolean
-  useFullUrl?: boolean
-  contextOutputToken?: number
-  temperature?: number
-  topP?: number
-  topK?: number
-}
+export type { ModelProfile, ModelProfileInput }
 
 export const DEFAULT_SYSTEM_PROMPT = '你是 Duo Ling 的 AI 助手，请用中文回答。'
 

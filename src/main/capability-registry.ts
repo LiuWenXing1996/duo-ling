@@ -5,40 +5,24 @@
 // 登记来源（MVP 方案 A）：应用内置模块，代码硬编码能力清单。
 // 执行形态：全部进程隔离 —— backend 跑 utilityProcess，frontend 注入工具界面（见 capability-worker / capability-runtime / 渲染层 runner）。
 
-export type CapabilityRuntime = 'frontend' | 'backend'
-export type CapabilitySideEffect = 'read' | 'write' | 'notify' | 'destructive'
-export type CapabilityCost = 'offline' | 'online'
+import type {
+  Capability,
+  CapabilityCost,
+  CapabilityRuntime,
+  CapabilitySchema,
+  CapabilitySchemaField,
+  CapabilityScenario,
+  CapabilitySideEffect
+} from '../shared/types'
 
-export interface CapabilitySchemaField {
-  /** 字段类型：string/number/boolean 等基础类型，或 file/files/markdown 等语义类型 */
-  type: string
-  /** 字段说明，供工具界面推导表单/输入提示 */
-  description: string
-}
-
-export interface CapabilitySchema {
-  type: string
-  description: string
-  fields?: Record<string, CapabilitySchemaField>
-}
-
-/** 面向 AI 的检索元数据：用户意图 → scenario 命中确定能力 id（PRD §8.1） */
-export interface CapabilityScenario {
-  keywords: string[]
-  object: string
-}
-
-/** 原子能力统一契约（PRD §8.1） */
-export interface Capability {
-  id: string
-  name: string
-  description: string
-  inputSchema: CapabilitySchema
-  outputSchema: CapabilitySchema
-  sideEffect: CapabilitySideEffect
-  runtime: CapabilityRuntime
-  cost: CapabilityCost
-  scenario: CapabilityScenario
+export type {
+  Capability,
+  CapabilityCost,
+  CapabilityRuntime,
+  CapabilitySchema,
+  CapabilitySchemaField,
+  CapabilityScenario,
+  CapabilitySideEffect
 }
 
 /** 主进程 ↔ capability-worker 的运行请求 */

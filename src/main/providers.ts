@@ -4,18 +4,9 @@
  * - supported=true：用 Bearer 鉴权即可直接使用的服务商，一键添加
  * - supported=false：如 AWS Bedrock 走 Signature V4 鉴权，当前暂不支持一键添加（网格中置灰提示）
  */
-export interface ModelProvider {
-  id: string
-  name: string
-  /** OpenAI 兼容接口地址（不强制以 /v1 结尾，多数加上 /chat/completions 即可） */
-  baseUrl: string
-  /** 服务商控制台获取 API Key 的链接 */
-  keyUrl: string
-  /** 预置常用模型 ID（用户在「模型」下拉中可追加自定义） */
-  models: string[]
-  /** 是否可直接用 Bearer 鉴权添加 */
-  supported: boolean
-}
+import type { ModelProvider } from '../shared/types'
+
+export type { ModelProvider }
 
 export const PROVIDERS: ModelProvider[] = [
   {

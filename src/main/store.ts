@@ -1,10 +1,7 @@
 import Store, { type Schema } from 'electron-store'
+import type { Task } from '../shared/types'
 
-export interface Task {
-  id: number
-  title: string
-  createdAt: string
-}
+export type { Task }
 
 interface TaskState {
   tasks: Task[]
