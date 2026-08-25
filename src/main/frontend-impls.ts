@@ -1,8 +1,8 @@
 // 主进程侧的 frontend 运行域能力实现。
 //
 // 新架构中工具页由独立 WebContentsView（独立 webContents + 独立 preload）承载，
-// 它没有主窗口渲染层的注入方法（capability-runner.ts 的 frontendMethods），
-// 因此 frontend 能力的执行也统一收口到主进程 capability:run。
+// 它没有主窗口渲染层的注入方法，
+// 因此 frontend 能力的执行统一收口到主进程 capability:run。
 // 这里复制一份最小的 markdown 渲染，使工具页 cap.run('docs.markdown.render') 可经 IPC 直达主进程执行。
 
 export type FrontendRunResponse = { ok: true; result: unknown } | { ok: false; error: string }
@@ -98,7 +98,7 @@ const frontendImpls: Record<string, (args: unknown) => unknown | Promise<unknown
   }
 }
 
-/** 执行 frontend 能力：主进程本地实现，与 capability-runner.ts 的注入方法等价 */
+/** 执行 frontend 能力：主进程本地实现 */
 export async function runFrontendCapability(
   id: string,
   args: unknown

@@ -12,7 +12,8 @@ import {
   ResizablePanelGroup as UiResizablePanelGroup
 } from '@/components/ui/resizable'
 import { parseGeneratedChanges, type GeneratedChangeList } from '@/lib/tool-generator'
-import { formatDate, truncate } from '@/lib/format'
+import { truncate } from '@/lib/format'
+import { useToolSessions, type ToolChatMessage } from '@/composables/use-tool-sessions'
 import { splitContent, isContractAnswer } from '@/lib/message-format'
 import ToolIcon from '@/components/tool-icon.vue'
 import ToolFrame from '@/components/tool-frame.vue'
@@ -39,107 +40,41 @@ const props = defineProps<{ tool: ToolPageMeta }>()
 // 工具详情 <webview> 引用：改动落盘后经其 reload() 重载工具页
 const frameRef = ref<InstanceType<typeof ToolFrame> | null>(null)
 
-// 「当前会话」按工具内会话隔离：每个 session 有独立消息列表，切换会话时回显。
-// 会话与消息按工具 id 分桶持久化到 localStorage，切换/重启后不丢。
-// 「当前会话」已接入生成器：消息发送 → LLM 产出变更清单 → 写入当前工具 index.html + meta.json
-interface ToolSession {
-  id: string
-  status: 'doing' | 'done' | 'rollback'
-  title: string
-  meta: string
-}
-
-interface ToolChatMessage {
-  id: string
-  role: 'ai' | 'user'
-  content: string
-}
-
 const emit = defineEmits<{
   renamed: [id: string, title: string]
   openSettings: []
   openHistory: [tool: ToolPageMeta]
 }>()
 
-// 会话列表与其消息桶（以 sessionId 为键）
-const sessions = ref<ToolSession[]>([])
-const activeSessionId = ref('')
-const messagesBySession = ref<Record<string, ToolChatMessage[]>>({})
-// messages 是「当前激活会话」消息的视图：读跟随 activeSessionId，写回对应桶
-const messages = computed<ToolChatMessage[]>({
-  get: () => messagesBySession.value[activeSessionId.value] ?? [],
-  set: (v) => {
-    messagesBySession.value[activeSessionId.value] = v
-  }
-})
+// —— 生成/发送状态（非会话持久化职责，留在本组件）——
 const input = ref('')
 const streaming = ref(false)
 const draft = ref<ToolChatMessage | null>(null)
 
-// 自动审批：AI 产出变更清单后直接落盘（卡片仅作留痕展示，不再触发手动确认）
-interface PendingChange {
-  messageId: string
-  changes: GeneratedChangeList
-  status: 'pending' | 'applied' | 'discarded'
-  error?: string
-}
-// 待审批的变更卡片按「会话 + 消息」记录：同一会话内每条 AI 变更消息都保留独立卡片，
-// 已应用 / 已放弃的状态随卡片持久化，切换会话时回显原状态。
-const pendingBySession = ref<Record<string, Record<string, PendingChange>>>({})
-// 当前激活会话的卡片映射（messageId -> PendingChange），切换会话时随 activeSessionId 回显
-const pendingMap = computed<Record<string, PendingChange>>(
-  () => pendingBySession.value[activeSessionId.value] ?? {}
-)
-
-/** 取某条 AI 消息挂载的变更卡片（可能不存在，如自动模式或无变更） */
-function pendingOf(messageId: string): PendingChange | undefined {
-  return pendingMap.value[messageId]
-}
-
-// 兼容旧版本单例存储（Record<sessionId, PendingChange | null>）迁移为按消息分桶
-function normalizePendingStore(
-  store: unknown
-): Record<string, Record<string, PendingChange>> {
-  const out: Record<string, Record<string, PendingChange>> = {}
-  if (!store || typeof store !== 'object') return out
-  for (const [sid, val] of Object.entries(store as Record<string, unknown>)) {
-    if (!val || typeof val !== 'object') {
-      out[sid] = {}
-      continue
-    }
-    const v = val as Record<string, unknown>
-    // 旧结构：单个卡片（含 messageId）或 null；新结构：messageId -> 卡片的哈希
-    if (typeof v.messageId === 'string') {
-      const pc = val as unknown as PendingChange
-      out[sid] = typeof pc.messageId === 'string' ? { [pc.messageId]: pc } : {}
-    } else {
-      const map: Record<string, PendingChange> = {}
-      for (const [mid, card] of Object.entries(v)) {
-        if (card && typeof card === 'object' && (card as PendingChange).messageId) {
-          map[mid] = card as PendingChange
-        }
-      }
-      out[sid] = map
-    }
+// —— 会话状态：多会话列表 + 消息分桶 + 本地持久化（抽至 composable）——
+const {
+  sessions,
+  activeSessionId,
+  messages,
+  pendingMap,
+  restore,
+  newSession,
+  activateSession,
+  deleteSession,
+  deleteAllSessions,
+  saveSessions,
+  pendingOf
+} = useToolSessions(() => props.tool.id, {
+  clearDraft: () => {
+    draft.value = null
   }
-  return out
-}
+})
 
 onMounted(async () => {
   window.api.generator.onEvent(onGeneratorEvent)
   void window.api.model.list().then(refreshModelStatus)
-  // 恢复本工具的会话历史（多会话：切换回显 + 本地持久化）
-  const saved = loadSessions()
-  if (saved) {
-    sessions.value = saved.sessions ?? []
-    messagesBySession.value = saved.messagesBySession ?? {}
-    pendingBySession.value = normalizePendingStore(saved.pendingBySession)
-    activeSessionId.value = saved.activeSessionId ?? ''
-  }
-  // 无可用会话（首次进入或数据损坏）时自动新建，保证当前会话始终存在
-  if (!activeSessionId.value || !sessions.value.some((s) => s.id === activeSessionId.value)) {
-    newSession()
-  }
+  // 恢复本工具的会话历史（多会话：切换回显 + 本地持久化），无可用会话时自动新建
+  restore()
 })
 
 onUnmounted(() => {
@@ -187,7 +122,7 @@ function toggleThink(id: string): void {
   expandedThink.value = next
 }
 
-// —— 对话模型选择：与 chat-panel 一致，仅切换后续发送所用的模型 ——
+// —— 对话模型选择：仅切换后续发送所用的模型 ——
 interface ModelOption {
   id: string
   name: string
@@ -238,70 +173,10 @@ function goToSettings(): void {
   emit('openSettings')
 }
 
-// —— 会话持久化：按工具 id 分桶存 localStorage，切换/刷新/重启后回显 ——
-function storageKey(): string {
-  return `duo-ling:tool:sessions:${props.tool.id}`
-}
-
-interface SessionStore {
-  sessions: ToolSession[]
-  messagesBySession: Record<string, ToolChatMessage[]>
-  pendingBySession: Record<string, Record<string, PendingChange>>
-  activeSessionId: string
-}
-
-function loadSessions(): SessionStore | null {
-  try {
-    const raw = localStorage.getItem(storageKey())
-    return raw ? (JSON.parse(raw) as SessionStore) : null
-  } catch {
-    return null
-  }
-}
-
-function saveSessions(): void {
-  try {
-    localStorage.setItem(
-      storageKey(),
-      JSON.stringify({
-        sessions: sessions.value,
-        messagesBySession: messagesBySession.value,
-        pendingBySession: pendingBySession.value,
-        activeSessionId: activeSessionId.value
-      } satisfies SessionStore)
-    )
-  } catch (error) {
-    console.error('保存会话失败：', error)
-  }
-}
-
-// 切换到某会话：更新活动 id 即回显对应消息与待审批卡片；仅清掉流式草稿（草稿为临时态）
-function activateSession(id: string): void {
-  if (id === activeSessionId.value) return
-  activeSessionId.value = id
-  draft.value = null
-  saveSessions()
-}
-
 // 根据首条用户输入生成会话标题摘要，便于在「会话历史」中辨认
 function summarizeTitle(text: string): string {
   const t = text.trim().replace(/\s+/g, ' ')
   return t.length > 12 ? `${t.slice(0, 12)}…` : t
-}
-
-function newSession(): void {
-  const id = `s-${Date.now()}`
-  const session: ToolSession = {
-    id,
-    status: 'doing',
-    title: '新会话',
-    meta: formatDate(new Date())
-  }
-  sessions.value.push(session)
-  messagesBySession.value[id] = []
-  activeSessionId.value = id
-  pendingBySession.value[id] = {}
-  saveSessions()
 }
 
 // —— 删除会话：单个 / 全部，删除前用「跟随点击位置的确认浮层」确认 ——
@@ -343,32 +218,6 @@ const confirmStyle = computed(() => {
   const y = Math.min(t.y + 8, window.innerHeight - 140)
   return { left: x + 'px', top: y + 'px' }
 })
-
-function deleteSession(id: string): void {
-  sessions.value = sessions.value.filter((s) => s.id !== id)
-  delete messagesBySession.value[id]
-  delete pendingBySession.value[id]
-  if (activeSessionId.value === id) {
-    activeSessionId.value = ''
-    // 仍有余下会话则激活第一个；否则新建空会话保证当前会话始终存在
-    if (sessions.value.length) {
-      activeSessionId.value = sessions.value[0].id
-    } else {
-      newSession()
-      return
-    }
-  }
-  saveSessions()
-}
-
-function deleteAllSessions(): void {
-  sessions.value = []
-  messagesBySession.value = {}
-  pendingBySession.value = {}
-  activeSessionId.value = ''
-  draft.value = null
-  newSession()
-}
 
 // 生成器流式 token：把增量累积到待生成的草稿消息（done/aborted/error 由 send 收尾，避免重复处理）
 function onGeneratorEvent(
