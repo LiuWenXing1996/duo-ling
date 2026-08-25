@@ -1,31 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Button as UiButton } from '@/components/ui/button'
-import {
-  Popover as UiPopover,
-  PopoverContent as UiPopoverContent,
-  PopoverTrigger as UiPopoverTrigger
-} from '@/components/ui/popover'
+import { onMounted, onUnmounted, ref } from 'vue'
 import {
   ResizableHandle as UiResizableHandle,
   ResizablePanel as UiResizablePanel,
   ResizablePanelGroup as UiResizablePanelGroup
 } from '@/components/ui/resizable'
 import { parseGeneratedChanges, type GeneratedChangeList } from '@/lib/tool-generator'
-import { truncate } from '@/lib/format'
+import { isContractAnswer, splitContent } from '@/lib/message-format'
 import { useToolSessions, type ToolChatMessage } from '@/composables/use-tool-sessions'
-import { splitContent, isContractAnswer } from '@/lib/message-format'
-import ToolIcon from '@/components/tool-icon.vue'
-import ToolFrame from '@/components/tool-frame.vue'
-import {
-  Check as UiCheck,
-  ChevronRight as UiChevronRight,
-  ChevronsUpDown as UiChevronsUpDown,
-  GitBranch as UiGitBranch,
-  ListTodo as UiListTodo,
-  Plus as UiPlus,
-  Trash2 as UiTrash2
-} from '@lucide/vue'
+import SessionHistoryPanel from '@/components/session-history-panel.vue'
+import ChatPanel from '@/components/chat-panel.vue'
+import ToolDetailPanel from '@/components/tool-detail-panel.vue'
 
 // 一个工具标签页的标识：唯一 ID（决定 tool:// 源与工具文件夹名）+ 展示名
 export interface ToolPageMeta {
@@ -37,9 +22,6 @@ export interface ToolPageMeta {
 
 const props = defineProps<{ tool: ToolPageMeta }>()
 
-// 工具详情 <webview> 引用：改动落盘后经其 reload() 重载工具页
-const frameRef = ref<InstanceType<typeof ToolFrame> | null>(null)
-
 const emit = defineEmits<{
   renamed: [id: string, title: string]
   openSettings: []
@@ -47,9 +29,13 @@ const emit = defineEmits<{
 }>()
 
 // —— 生成/发送状态（非会话持久化职责，留在本组件）——
-const input = ref('')
 const streaming = ref(false)
 const draft = ref<ToolChatMessage | null>(null)
+// 「假流式」打字机进度：messageId -> 已显示字符数（由 send 完成后驱动）
+const typing = ref<Record<string, number>>({})
+
+// —— 工具详情栏 ref：生成器改动落盘后重载工具页 ——
+const detailRef = ref<InstanceType<typeof ToolDetailPanel> | null>(null)
 
 // —— 会话状态：多会话列表 + 消息分桶 + 本地持久化（抽至 composable）——
 const {
@@ -70,9 +56,8 @@ const {
   }
 })
 
-onMounted(async () => {
+onMounted(() => {
   window.api.generator.onEvent(onGeneratorEvent)
-  void window.api.model.list().then(refreshModelStatus)
   // 恢复本工具的会话历史（多会话：切换回显 + 本地持久化），无可用会话时自动新建
   restore()
 })
@@ -80,21 +65,6 @@ onMounted(async () => {
 onUnmounted(() => {
   window.api.generator.offEvent()
 })
-
-// —— 思考过程可视化：把 <think>...</think> 拆为「思考内容」与「答案」两部分 ——
-// 对称处理 think 标签：成对块进「思考内容」；只有 <think> 未闭合时也视为思考（吞到末尾）；
-// 孤立的 </think> 等散落标签则从「答案」中清掉，避免正文露出标签。
-const thinkOf = (m: ToolChatMessage): string => splitContent(m.content).think
-
-const typing = ref<Record<string, number>>({})
-
-/** 消息正文：已完成的非契约正文用打字机逐字显示；流式契约 JSON 用「正在思考…」遮挡 */
-function answerOf(m: ToolChatMessage): string {
-  const raw = splitContent(m.content).answer
-  if (isContractAnswer(raw)) return '正在思考…'
-  const n = typing.value[m.id]
-  return n != null ? raw.slice(0, n) : raw
-}
 
 /** 启动「假流式」：把正文按帧逐字追加直到完整。契约 JSON 不参与，避免解析失败时泄露原文。 */
 function runTyping(messageId: string, full: string): void {
@@ -113,111 +83,17 @@ function runTyping(messageId: string, full: string): void {
   setTimeout(step, 24)
 }
 
-// 折叠式思考过程：记录已展开的消息 id（默认折叠）
-const expandedThink = ref<Set<string>>(new Set())
-function toggleThink(id: string): void {
-  const next = new Set(expandedThink.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  expandedThink.value = next
-}
-
-// —— 对话模型选择：仅切换后续发送所用的模型 ——
-interface ModelOption {
-  id: string
-  name: string
-  hasApiKey: boolean
-  enabled?: boolean
-}
-
-const profiles = ref<ModelOption[]>([])
-const activeModelId = ref('')
-const modelMenuOpen = ref(false)
-const activeModelName = computed(
-  () => profiles.value.find((p) => p.id === activeModelId.value)?.name ?? '未配置'
-)
-
-function refreshModelStatus(data: {
-  profiles: Array<{
-    id: string
-    name: string
-    baseUrl: string
-    model: string
-    hasApiKey: boolean
-    enabled?: boolean
-  }>
-  activeId: string
-}): void {
-  const enabled = data.profiles.filter((p) => p.enabled !== false)
-  profiles.value = enabled
-  activeModelId.value = data.activeId
-}
-
-async function switchModel(id: string): Promise<void> {
-  if (!id || id === activeModelId.value) {
-    modelMenuOpen.value = false
-    return
-  }
-  try {
-    await window.api.model.setActive(id)
-    refreshModelStatus(await window.api.model.list())
-  } catch (error) {
-    console.error('切换模型失败：', error)
-  } finally {
-    modelMenuOpen.value = false
-  }
-}
-
-function goToSettings(): void {
-  modelMenuOpen.value = false
-  emit('openSettings')
-}
-
 // 根据首条用户输入生成会话标题摘要，便于在「会话历史」中辨认
 function summarizeTitle(text: string): string {
   const t = text.trim().replace(/\s+/g, ' ')
   return t.length > 12 ? `${t.slice(0, 12)}…` : t
 }
 
-// —— 删除会话：单个 / 全部，删除前用「跟随点击位置的确认浮层」确认 ——
-// 单一浮层实例：点击删除按钮时记录点击坐标与删除目标类型，浮层在点击处弹出。
-// 避免为每个按钮各自挂 Popover、在 v-for 中产生多个浮层实例导致定位/内容串扰（点单个却弹出「全部」文案）。
-const deleteConfirm = ref<
-  { type: 'session' | 'all'; id?: string; title?: string; x: number; y: number } | null
->(null)
-
-function openSessionDelete(
-  s: { id: string; title: string },
-  e: MouseEvent
-): void {
-  e.stopPropagation()
-  deleteConfirm.value = { type: 'session', id: s.id, title: s.title, x: e.clientX, y: e.clientY }
-}
-
-function openDeleteAll(e: MouseEvent): void {
-  deleteConfirm.value = { type: 'all', x: e.clientX, y: e.clientY }
-}
-
-function cancelDelete(): void {
-  deleteConfirm.value = null
-}
-
-function confirmDelete(): void {
-  const t = deleteConfirm.value
-  if (!t) return
-  if (t.type === 'session' && t.id) deleteSession(t.id)
+// —— 删除会话：单个 / 全部（删除确认浮层在 session-history-panel 内自含）——
+function onDeleteSession(payload: { type: 'session' | 'all'; id?: string; title?: string }): void {
+  if (payload.type === 'session' && payload.id) deleteSession(payload.id)
   else deleteAllSessions()
-  deleteConfirm.value = null
 }
-
-// 确认浮层定位：跟随点击坐标，并钳制在视口内避免溢出
-const confirmStyle = computed(() => {
-  const t = deleteConfirm.value
-  if (!t) return {}
-  const x = Math.min(t.x + 8, window.innerWidth - 240)
-  const y = Math.min(t.y + 8, window.innerHeight - 140)
-  return { left: x + 'px', top: y + 'px' }
-})
 
 // 生成器流式 token：把增量累积到待生成的草稿消息（done/aborted/error 由 send 收尾，避免重复处理）
 function onGeneratorEvent(
@@ -232,10 +108,9 @@ function onGeneratorEvent(
   }
 }
 
-async function send(): Promise<void> {
-  const text = input.value.trim()
+// 发送：加入用户消息 -> 流式调用生成器 -> 解析产出变更并应用（自动落盘）
+async function send(text: string): Promise<void> {
   if (!text || streaming.value) return
-  input.value = ''
 
   messages.value.push({ id: `u-${Date.now()}`, role: 'user', content: text })
   // 首次提问用用户输入生成会话标题摘要，方便「会话历史」辨认
@@ -327,7 +202,7 @@ async function applyChanges(messageId: string, changes: GeneratedChangeList): Pr
       saveSessions()
     }
     if (updated.title) emit('renamed', props.tool.id, updated.title)
-    frameRef.value?.reload()
+    detailRef.value?.reload()
   } else {
     const err = updated.error ?? '未知错误'
     // 在留痕卡片里展示错误，并保留「应用/放弃」按钮供用户重试或放弃
@@ -343,14 +218,14 @@ async function applyChanges(messageId: string, changes: GeneratedChangeList): Pr
 }
 
 function applyPending(messageId: string): void {
-  const current = pendingMap.value[messageId]
+  const current = pendingOf(messageId)
   if (current && current.messageId === messageId && current.status === 'pending') {
     void applyChanges(messageId, current.changes)
   }
 }
 
 function discardPending(messageId: string): void {
-  const current = pendingMap.value[messageId]
+  const current = pendingOf(messageId)
   if (current && current.messageId === messageId && current.status === 'pending') {
     current.status = 'discarded'
     saveSessions()
@@ -366,290 +241,42 @@ async function stopGeneration(): Promise<void> {
   <ui-resizable-panel-group direction="horizontal" class="tool-page h-full w-full">
     <!-- 会话历史 -->
     <ui-resizable-panel :default-size="20" :min-size="15" :max-size="40" class="min-w-0">
-      <aside class="tool-sess panel">
-        <header class="panel-header flex items-center justify-between gap-2">
-          <h2 class="panel-title flex items-center gap-2">
-            <ui-list-todo class="size-4" />
-            会话历史
-          </h2>
-        <div class="flex items-center gap-1">
-          <ui-button
-            variant="ghost"
-            size="icon"
-            class="no-drag size-7"
-            aria-label="删除全部会话"
-            title="删除全部会话"
-            :disabled="!sessions.length"
-            @click="openDeleteAll"
-          >
-            <ui-trash2 class="size-4" />
-          </ui-button>
-          <ui-button
-            variant="ghost"
-            size="icon"
-            class="no-drag size-7"
-            aria-label="新建会话"
-            title="新建会话"
-            @click="newSession"
-          >
-            <ui-plus class="size-4" />
-          </ui-button>
-        </div>
-      </header>
-
-      <div class="min-h-0 flex-1 overflow-y-auto scroll-gap">
-        <ul v-if="sessions.length" class="divide-y">
-          <li
-            v-for="s in sessions"
-            :key="s.id"
-            class="group cursor-pointer px-4 py-2.5 transition-colors hover:bg-accent"
-            :class="{ 'bg-accent': s.id === activeSessionId }"
-            @click="activateSession(s.id)"
-          >
-            <div class="flex items-start justify-between gap-2">
-              <div class="min-w-0">
-                <p class="truncate text-sm">{{ s.title }}</p>
-                <p class="text-muted-foreground text-xs">{{ s.meta }}</p>
-              </div>
-              <ui-button
-                variant="ghost"
-                size="icon"
-                class="size-6 shrink-0 text-muted-foreground transition-colors hover:text-destructive no-drag"
-                aria-label="删除该会话"
-                title="删除该会话"
-                @click="openSessionDelete(s, $event)"
-              >
-                <ui-trash2 class="size-3.5" />
-              </ui-button>
-            </div>
-          </li>
-        </ul>
-        <div v-else class="panel-body">
-          <p class="panel-empty">暂无会话</p>
-        </div>
-      </div>
-    </aside>
+      <session-history-panel
+        :sessions="sessions"
+        :active-session-id="activeSessionId"
+        @activate="activateSession"
+        @new="newSession"
+        @delete="onDeleteSession"
+      />
     </ui-resizable-panel>
 
     <ui-resizable-handle aria-label="拖拽调整会话历史宽度" />
 
     <!-- 当前会话 -->
     <ui-resizable-panel :default-size="30" :min-size="15" :max-size="40" class="min-w-0">
-      <section class="tool-chat panel">
-        <header class="panel-header flex items-center justify-between gap-2">
-          <h2 class="panel-title">当前会话</h2>
-      </header>
+      <chat-panel
+        :messages="messages"
+        :pending-map="pendingMap"
+        :typing="typing"
+        :streaming="streaming"
+        :draft="draft"
+        @send="send"
+        @stop="stopGeneration"
+        @apply-pending="applyPending"
+        @discard-pending="discardPending"
+        @open-settings="$emit('openSettings')"
+      />
+    </ui-resizable-panel>
 
-      <div class="flex min-h-0 flex-1 flex-col">
-        <div class="min-h-0 flex-1 space-y-3 overflow-y-auto scroll-gap px-4 py-3">
-          <div v-if="messages.length === 0" class="flex h-full items-center justify-center">
-            <p class="panel-empty">描述需求，AI 会重写这个工具页面</p>
-          </div>
-          <div
-            v-for="m in messages"
-            :key="m.id"
-            class="flex flex-col gap-1.5"
-            :class="m.role === 'user' ? 'items-end' : 'items-start'"
-          >
-            <!-- 思考过程：独立卡片，与回复气泡分开（仅 AI 且有实际思考内容时显示） -->
-            <div
-              v-if="m.role === 'ai' && thinkOf(m)"
-              class="max-w-[80%] rounded-lg border border-muted bg-background/60 px-3 py-2 text-xs text-muted-foreground"
-            >
-              <button
-                class="flex items-center gap-0.5 text-xs text-muted-foreground"
-                @click="toggleThink(m.id)"
-              >
-                <ui-chevron-right
-                  class="size-3 transition-transform"
-                  :class="{ 'rotate-90': expandedThink.has(m.id) }"
-                />
-                思考过程
-              </button>
-              <div
-                v-show="expandedThink.has(m.id)"
-                data-testid="think-body"
-                class="mt-1.5 whitespace-pre-wrap break-words"
-              >
-                {{ thinkOf(m) }}
-              </div>
-            </div>
-            <!-- 消息气泡 -->
-            <div
-              class="max-w-[80%] min-w-0 break-words rounded-lg px-3 py-2 text-sm"
-              :class="m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'"
-            >
-              <template v-if="m.role === 'user'">{{ m.content }}</template>
-              <template v-else>
-                {{ answerOf(m) || (draft && draft.id === m.id ? '正在思考…' : '') }}
-              </template>
-            </div>
-            <!-- 变更清单留痕卡片：AI 产出改动后落盘留痕，每条消息保留独立卡片 -->
-            <div
-              v-if="m.role === 'ai' && pendingOf(m.id)"
-              class="max-w-[80%] rounded-lg border border-border bg-background/60 px-3 py-2"
-              data-testid="change-card"
-            >
-              <p class="text-xs font-medium">
-                {{ pendingOf(m.id)?.changes.summary || 'AI 建议对当前工具做以下改动' }}
-              </p>
-              <ul class="mt-1.5 space-y-1 text-xs text-muted-foreground">
-                <li v-for="(a, i) in pendingOf(m.id)?.changes.actions ?? []" :key="i">
-                  <span class="font-mono">{{ a.op }}</span> {{ a.file }}
-                  <template v-if="a.op === 'patch' && a.find">：{{ truncate(a.find) }}…</template>
-                </li>
-              </ul>
-              <!-- 应用失败提示 -->
-              <p
-                v-if="pendingOf(m.id)?.error"
-                class="mt-1.5 text-xs text-destructive"
-                data-testid="change-error"
-              >
-                {{ pendingOf(m.id)?.error }}
-              </p>
-              <div class="mt-2 flex items-center gap-2">
-                <template v-if="pendingOf(m.id)?.status === 'pending'">
-                  <ui-button size="sm" @click="applyPending(m.id)">应用</ui-button>
-                  <ui-button
-                    size="sm"
-                    variant="outline"
-                    :disabled="streaming"
-                    @click="discardPending(m.id)"
-                  >
-                    放弃
-                  </ui-button>
-                </template>
-                <span
-                  v-else-if="pendingOf(m.id)?.status === 'applied'"
-                  class="text-xs text-green-600"
-                >
-                  已应用到当前工具
-                </span>
-                <span v-else class="text-xs text-muted-foreground">已放弃本次改动</span>
-              </div>
-            </div>
-          </div>
-        </div>
+    <ui-resizable-handle aria-label="拖拽调整工具详情宽度" />
 
-        <div class="border-t p-3">
-          <div
-            class="rounded-md border border-input bg-transparent shadow-xs transition-[border,box-shadow] focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]"
-          >
-            <textarea
-              v-model="input"
-              rows="1"
-              class="min-h-[78px] max-h-32 w-full resize-none overflow-y-auto scroll-gap bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
-              placeholder="例如：做一个能读取本地文件并用 Markdown 展示的工具"
-              :disabled="streaming"
-              @keydown.enter.exact.prevent="send"
-            />
-            <div class="flex items-center justify-end gap-2 px-2 pb-2">
-              <ui-popover v-model:open="modelMenuOpen">
-                <ui-popover-trigger as-child>
-                  <button
-                    type="button"
-                    class="flex h-7 max-w-[150px] items-center gap-1 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-                    title="切换对话使用的模型"
-                    aria-label="切换模型"
-                  >
-                    <span class="truncate">{{ activeModelName }}</span>
-                    <ui-chevrons-up-down class="size-3 shrink-0 text-muted-foreground" />
-                  </button>
-                </ui-popover-trigger>
-                <ui-popover-content class="w-60 p-1.5" align="start">
-                  <!-- 模型列表：有配置时逐条展示并支持勾选当前默认项 -->
-                  <div v-if="profiles.length" class="flex flex-col gap-0.5">
-                    <button
-                      v-for="p in profiles"
-                      :key="p.id"
-                      type="button"
-                      class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60"
-                      @click="switchModel(p.id)"
-                    >
-                      <span class="truncate">
-                        {{ p.name }}{{ p.hasApiKey ? '' : '（缺 Key）' }}
-                      </span>
-                      <ui-check
-                        v-if="p.id === activeModelId"
-                        class="size-3.5 shrink-0 text-primary"
-                      />
-                    </button>
-                  </div>
-                  <!-- 未配置时：列表为空，仅显示空态提示 -->
-                  <p v-else class="px-2 py-1.5 text-xs text-muted-foreground">未配置模型</p>
-                  <!-- 底部「添加模型」：跳转到设置页自行添加 -->
-                  <div class="mt-1 border-t border-muted pt-1">
-                    <button
-                      type="button"
-                      class="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60"
-                      @click="goToSettings"
-                    >
-                      <ui-plus class="size-3.5 shrink-0" />
-                      添加模型
-                    </button>
-                  </div>
-                </ui-popover-content>
-              </ui-popover>
-              <ui-button v-if="streaming" variant="outline" size="sm" @click="stopGeneration">
-                停止
-              </ui-button>
-              <ui-button size="sm" :disabled="streaming || !input.trim()" @click="send">
-                发送
-              </ui-button>
-            </div>
-          </div>
-        </div>
-      </div>
-      </section>
-      </ui-resizable-panel>
-
-      <ui-resizable-handle aria-label="拖拽调整工具详情宽度" />
-
-      <!-- 工具详情：嵌入工具自身 index.html（tool:// 协议承载） -->
-      <ui-resizable-panel :default-size="50" :min-size="30" :max-size="60" class="min-w-0">
-        <section class="tool-detail panel">
-      <header class="panel-header flex items-center justify-between gap-2">
-        <h2 class="panel-title">
-          <tool-icon :icon="props.tool.icon" :fallback="props.tool.title" class="text-sm" />
-          工具详情
-        </h2>
-        <ui-button
-          variant="ghost"
-          size="icon"
-          class="no-drag size-7"
-          aria-label="查看版本历史"
-          title="查看版本历史"
-          @click="emit('openHistory', props.tool)"
-        >
-          <ui-git-branch class="size-4" />
-        </ui-button>
-      </header>
-
-      <tool-frame ref="frameRef" :tool="props.tool" />
-        </section>
-        </ui-resizable-panel>
-
-        <!-- 删除确认浮层：跟随点击位置弹出，type 决定文案与删除目标（单个 / 全部） -->
-        <teleport to="body">
-          <div v-if="deleteConfirm" class="fixed inset-0 z-50" @click="cancelDelete">
-        <div
-          class="bg-popover text-popover-foreground absolute w-56 rounded-md border p-3 shadow-md outline-none"
-          :style="confirmStyle"
-          @click.stop
-        >
-          <p class="text-xs">
-            {{
-              deleteConfirm.type === 'all'
-                ? '确定删除所有会话吗？删除后全部聊天记录将不可恢复。'
-                : `确定删除会话「${deleteConfirm.title}」吗？删除后聊天记录将不可恢复。`
-            }}
-          </p>
-          <div class="mt-2 flex items-center justify-end gap-2">
-            <ui-button variant="outline" size="sm" @click="cancelDelete">取消</ui-button>
-            <ui-button variant="destructive" size="sm" @click="confirmDelete">删除</ui-button>
-          </div>
-        </div>
-      </div>
-    </teleport>
+    <!-- 工具详情 -->
+    <ui-resizable-panel :default-size="50" :min-size="30" :max-size="60" class="min-w-0">
+      <tool-detail-panel
+        ref="detailRef"
+        :tool="props.tool"
+        @open-history="$emit('openHistory', $event)"
+      />
+    </ui-resizable-panel>
   </ui-resizable-panel-group>
 </template>
