@@ -97,9 +97,12 @@ describe('ToolWorkspace', () => {
     // 调用主进程创建
     expect(window.api.tool.create).toHaveBeenCalledTimes(1)
 
-    // 标签栏出现新工具标签，且被激活，主页空状态提示消失
+    // 标签栏出现新工具标签，且被激活；主页标签虽保持挂载但已隐藏（关闭「切页即卸载」行为）
     expect(wrapper.text()).toContain('新建工具')
-    expect(wrapper.text()).not.toContain('还没有工具，点击右上角「新增工具」创建')
+    const toolPanels = wrapper.findAll('[role="tabpanel"]')
+    const homePanel = toolPanels.find((p) => p.text().includes('还没有工具'))
+    expect(homePanel).toBeTruthy()
+    expect(homePanel?.attributes('hidden')).toBeDefined()
 
     // 激活标签渲染三栏工具页：会话历史 / 当前会话 / 工具详情
     await wrapper.vm.$nextTick()

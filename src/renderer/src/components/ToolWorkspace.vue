@@ -191,6 +191,7 @@ defineExpose({ createTool, openTool, openSettingsTab })
       v-model="activeTabId"
       :default-value="HOME_TAB.id"
       activation-mode="manual"
+      :unmount-on-hide="false"
       class="flex min-h-0 flex-1 flex-col"
     >
       <workspace-tabs

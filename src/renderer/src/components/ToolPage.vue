@@ -31,6 +31,10 @@ const emit = defineEmits<{
 // —— 生成/发送状态（非会话持久化职责，留在本组件）——
 const streaming = ref(false)
 const draft = ref<ToolChatMessage | null>(null)
+// generator 事件监听器是 preload 里的全局单例（一次只有一个监听者）。
+// 因此不能按「挂载/卸载」注册，而要按「是否正在生成」归属：仅当前正在生成的页面持有，
+// 这样标签常挂载 + 切页时，正在生成的那个页面仍能持续收到 tool_result / token 等事件。
+let ownsGeneratorListener = false
 
 // —— 工具详情栏 ref：生成器改动落盘后重载工具页 ——
 const detailRef = ref<InstanceType<typeof ToolDetailPanel> | null>(null)
@@ -54,13 +58,16 @@ const {
 })
 
 onMounted(() => {
-  window.api.generator.onEvent(onGeneratorEvent)
   // 恢复本工具的会话历史（多会话：切换回显 + 本地持久化），无可用会话时自动新建
   restore()
 })
 
 onUnmounted(() => {
-  window.api.generator.offEvent()
+  // 仅当本页面仍持有 generator 监听器时移除，避免误清其它正在生成页面的监听。
+  if (ownsGeneratorListener) {
+    window.api.generator.offEvent()
+    ownsGeneratorListener = false
+  }
 })
 
 // 根据首条用户输入生成会话标题摘要，便于在「会话历史」中辨认
@@ -134,6 +141,10 @@ async function send(text: string): Promise<void> {
   messages.value.push(draftMsg)
   draft.value = draftMsg
   streaming.value = true
+  // 开始生成即接管全局单例监听器，生成结束（finally）时归还。
+  // 这样即便生成中途 agent_tools_open 触发了切页，本页仍能收到 tool_result / token 等事件。
+  window.api.generator.onEvent(onGeneratorEvent)
+  ownsGeneratorListener = true
 
   try {
     const res = await window.api.generator.send(history)
@@ -171,6 +182,10 @@ async function send(text: string): Promise<void> {
   } finally {
     draft.value = null
     streaming.value = false
+    if (ownsGeneratorListener) {
+      window.api.generator.offEvent()
+      ownsGeneratorListener = false
+    }
     saveSessions()
   }
 }

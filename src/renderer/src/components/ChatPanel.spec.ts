@@ -58,22 +58,64 @@ describe('ChatPanel 消息气泡（ai-elements 化）', () => {
     expect(wrapper.text()).toContain('已重写完成')
   })
 
-  it('思考过程默认折叠，点击后展开 think-body', async () => {
+  it('思考与执行过程默认展开，链首含说明且显示 reasoning 文字', () => {
     const wrapper = mountPanel({ attachTo: document.body })
-    const body = () => wrapper.find('[data-testid="think-body"]')
-    // reka CollapsibleContent 默认关闭时保持挂载（unmountOnHide=false），
-    // 仅以 hidden="until-found" + data-state="closed" 隐藏内容，而非卸载
-    expect(body().exists()).toBe(true)
-    expect(body().attributes('data-state')).toBe('closed')
+    const chain = wrapper.find('[data-testid="chain-of-thought"]')
+    expect(chain.exists()).toBe(true)
+    expect(chain.text()).toContain('思考与执行过程')
+    expect(chain.text()).toContain('先分析结构')
+    // ChainOfThought 默认展开：reka CollapsibleContent（unmountOnHide=false）
+    // 展开时无 hidden 属性，折叠时隐藏为 hidden="until-found"（首帧 data-state 因动画保护为 undefined，故用 hidden 判断）
+    const body = chain.find('[data-slot="collapsible-content"]')
+    expect(body.exists()).toBe(true)
+    expect(body.attributes('hidden')).toBeUndefined()
+  })
 
-    const toggle = wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('思考过程'))!
+  it('点击链首可折叠/展开思考与执行过程', async () => {
+    const wrapper = mountPanel({ attachTo: document.body })
+    const body = () =>
+      wrapper.find('[data-testid="chain-of-thought"] [data-slot="collapsible-content"]')
+    expect(body().exists()).toBe(true)
+    expect(body().attributes('hidden')).toBeUndefined()
+
+    const toggle = wrapper.findAll('button').find((b) => b.text().includes('思考与执行过程'))!
     await toggle.trigger('click')
     await wrapper.vm.$nextTick()
+    expect(body().attributes('hidden')).toBeDefined()
 
-    expect(body().attributes('data-state')).toBe('open')
-    expect(body().text()).toContain('先分析结构')
+    await toggle.trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(body().attributes('hidden')).toBeUndefined()
+  })
+
+  it('Agent 工具调用步骤以 ChainOfThoughtStep 逐步渲染（running→active，error 示错）', () => {
+    const wrapper = mountPanel({
+      messages: [
+        { id: 'u1', role: 'user', content: '帮我重写这个工具' },
+        {
+          id: 'a1',
+          role: 'ai',
+          content: '已重写完成',
+          steps: [
+            { id: 's1', name: 'agent_tools_list', arguments: '{"type":"all"}', status: 'done', result: '工具列表：MD 阅读器' },
+            { id: 's2', name: 'agent_tools_open', arguments: '{"path":"index.html"}', status: 'running' },
+            { id: 's3', name: 'agent_tools_bad', arguments: '', status: 'error', error: '打开失败' }
+          ]
+        }
+      ]
+    })
+    const chain = wrapper.find('[data-testid="chain-of-thought"]')
+    expect(chain.exists()).toBe(true)
+    expect(chain.text()).toContain('查询工具列表')
+    expect(chain.text()).toContain('打开工具')
+    // running → active：展示加载动画
+    expect(chain.find('.animate-spin').exists()).toBe(true)
+    // done 用绿色对勾、error 用 destructive 图标 + 错误文案
+    expect(chain.find('.text-green-600').exists()).toBe(true)
+    expect(chain.find('.text-destructive').exists()).toBe(true)
+    expect(chain.text()).toContain('打开失败')
+    // 出参 result（无 error 时）展示在步骤默认 slot
+    expect(chain.text()).toContain('工具列表：MD 阅读器')
   })
 
   it('完成后的普通 JSON / markdown 正文不再被误屏蔽为「正在思考…」', async () => {

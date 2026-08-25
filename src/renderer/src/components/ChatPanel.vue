@@ -4,9 +4,7 @@
 // 模型选择为纯本地面板逻辑，自含于此。
 import { computed, onMounted, ref } from 'vue'
 import {
-  Brain as UiBrain,
   Check as UiCheck,
-  ChevronDown as UiChevronDown,
   ChevronsUpDown as UiChevronsUpDown,
   CircleCheck as UiCircleCheck,
   CircleX as UiCircleX,
@@ -25,10 +23,18 @@ import {
   MessageResponse as UiMessageResponse
 } from '@/components/ai-elements/message'
 import {
-  Reasoning as UiReasoning,
-  ReasoningContent as UiReasoningContent,
-  ReasoningTrigger as UiReasoningTrigger
-} from '@/components/ai-elements/reasoning'
+  ChainOfThought as UiChainOfThought,
+  ChainOfThoughtContent as UiChainOfThoughtContent,
+  ChainOfThoughtHeader as UiChainOfThoughtHeader,
+  ChainOfThoughtStep as UiChainOfThoughtStep
+} from '@/components/ai-elements/chain-of-thought'
+import {
+  Tool as UiTool,
+  ToolContent as UiToolContent,
+  ToolHeader as UiToolHeader,
+  ToolInput as UiToolInput,
+  ToolOutput as UiToolOutput
+} from '@/components/ai-elements/tool'
 import {
   Conversation as UiConversation,
   ConversationContent as UiConversationContent,
@@ -44,7 +50,8 @@ import {
 } from '@/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import { truncate } from '@/lib/format'
-import type { PendingChange, ToolChatMessage } from '@/composables/use-tool-sessions'
+import type { PendingChange, ToolChatMessage, ToolChatStep } from '@/composables/use-tool-sessions'
+import type { ToolUIPart } from 'ai'
 
 const props = defineProps<{
   messages: ToolChatMessage[]
@@ -113,16 +120,45 @@ onMounted(() => {
   void window.api.model.list().then(refreshModelStatus)
 })
 
-// —— 思考过程可视化：思考与正文从一开始就分离存（reasoning / content），直接读取即可 ——
+// —— 思考与执行过程可视化：思考与正文从一开始就分离存（reasoning / content），直接读取即可 ——
 const thinkOf = (m: ToolChatMessage): string => m.reasoning ?? ''
 
-// 折叠式思考过程（ai-elements Reasoning 受控展开）：记录已展开的消息 id（默认折叠）
-const expandedThink = ref<Set<string>>(new Set())
-function setThinkOpen(id: string, open: boolean): void {
-  const next = new Set(expandedThink.value)
-  if (open) next.add(id)
-  else next.delete(id)
-  expandedThink.value = next
+/** Agent 工具调用步骤状态 → ChainOfThoughtStep 状态映射（error 视作已结束，用图标示错） */
+function cotStatus(status: ToolChatStep['status']): 'complete' | 'active' | 'pending' {
+  if (status === 'running') return 'active'
+  return 'complete'
+}
+
+/** Agent 步骤状态 → 官方 Tool 卡的 state 值（ToolStatusBadge 展示 Running/Completed/Error） */
+function toolState(status: ToolChatStep['status']): ToolUIPart['state'] {
+  if (status === 'running') return 'input-available'
+  if (status === 'error') return 'output-error'
+  return 'output-available'
+}
+
+/** 工具调用入参：JSON 字符串 → 对象（空/非法时返回 {}，避免 ToolInput 显示带引号的字符串） */
+function toolInput(argumentsJson: string): Record<string, unknown> {
+  if (!argumentsJson) return {}
+  try {
+    const parsed = JSON.parse(argumentsJson)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * 工具调用出参：JSON 字符串 → 对象（空时返回 undefined）。
+ * 解析成对象后 ToolOutput 会走多行格式化分支，避免超长 JSON 字符串在 pre 中单行不换行、撑开卡片宽度。
+ * 非法 JSON 回退为字符串原样展示。
+ */
+function toolOutput(result: string | undefined): unknown {
+  if (!result) return undefined
+  try {
+    return JSON.parse(result)
+  } catch {
+    return result
+  }
 }
 
 /** 消息角色映射：ai-elements 的 Message 用 UIMessage['role']，项目内 AI 用 'ai' */
@@ -181,62 +217,62 @@ function onPromptSubmit(payload: PromptInputMessage): void {
               class="flex flex-col gap-1.5"
               :class="m.role === 'user' ? 'items-end' : 'items-start'"
             >
-              <!-- 思考过程：用 ai-elements Reasoning 折叠展示（仅 AI 且有实际思考内容时显示） -->
-              <ui-reasoning
-                v-if="m.role === 'ai' && thinkOf(m)"
-                :open="expandedThink.has(m.id)"
-                :default-open="false"
+              <!-- 思考与执行过程：用 ai-elements ChainOfThought 融合成一条链（reasoning 链首描述 + steps 逐步），默认展开 -->
+              <ui-chain-of-thought
+                v-if="m.role === 'ai' && (thinkOf(m) || m.steps?.length)"
+                :default-open="true"
                 class="w-full min-w-0"
-                @update:open="setThinkOpen(m.id, $event)"
+                data-testid="chain-of-thought"
               >
-                <ui-reasoning-trigger class="text-sm">
-                  <ui-brain class="size-4" />
-                  思考过程
-                  <ui-chevron-down
-                    class="size-4 shrink-0 transition-transform"
-                    :class="{ 'rotate-180': expandedThink.has(m.id) }"
-                  />
-                </ui-reasoning-trigger>
-                <ui-reasoning-content :content="thinkOf(m)" data-testid="think-body" />
-              </ui-reasoning>
+                <ui-chain-of-thought-header>思考与执行过程</ui-chain-of-thought-header>
+                <ui-chain-of-thought-content>
+                  <p
+                    v-if="thinkOf(m)"
+                    class="text-sm leading-relaxed text-foreground/90"
+                  >
+                    {{ thinkOf(m) }}
+                  </p>
+                  <ui-chain-of-thought-step
+                    v-for="s in m.steps"
+                    :key="s.id"
+                    :label="stepLabel(s.name)"
+                    :status="cotStatus(s.status)"
+                  >
+                    <template #icon>
+                      <ui-loader-circle
+                        v-if="s.status === 'running'"
+                        class="size-4 shrink-0 animate-spin text-muted-foreground"
+                      />
+                      <ui-circle-check
+                        v-else-if="s.status === 'done'"
+                        class="size-4 shrink-0 text-green-600"
+                      />
+                      <ui-circle-x v-else class="size-4 shrink-0 text-destructive" />
+                    </template>
+                    <!-- 工具调用卡：完整使用官方 Tool 卡片（入参 ToolInput + 出参/报错 ToolOutput），整体嵌进链上这一环 -->
+                    <ui-tool class="min-w-0" :default-open="true">
+                      <ui-tool-header
+                        :title="stepLabel(s.name)"
+                        type="tool-invocation"
+                        :state="toolState(s.status)"
+                      />
+                      <ui-tool-content class="min-w-0">
+                        <ui-tool-input :input="toolInput(s.arguments)" />
+                        <ui-tool-output
+                          :output="toolOutput(s.result)"
+                          :error-text="s.error ?? undefined"
+                        />
+                      </ui-tool-content>
+                    </ui-tool>
+                  </ui-chain-of-thought-step>
+                </ui-chain-of-thought-content>
+              </ui-chain-of-thought>
               <!-- 消息气泡：用 ai-elements 的 Message / MessageContent / MessageResponse 渲染 -->
               <ui-message :from="fromOf(m)" class="max-w-full">
                 <template v-if="m.role === 'user'">
                   <ui-message-content>{{ m.content }}</ui-message-content>
                 </template>
                 <template v-else>
-                  <!-- Agent 工具调用步骤：AI 自主调用工具时逐步展示（查询/打开等） -->
-                  <ul
-                    v-if="m.steps?.length"
-                    class="w-full min-w-0 space-y-1.5"
-                    data-testid="agent-steps"
-                  >
-                    <li
-                      v-for="s in m.steps"
-                      :key="s.id"
-                      class="flex items-start gap-2 rounded-lg border border-border bg-background/60 px-3 py-2 text-xs"
-                    >
-                      <ui-loader-circle
-                        v-if="s.status === 'running'"
-                        class="mt-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground"
-                      />
-                      <ui-circle-check
-                        v-else-if="s.status === 'done'"
-                        class="mt-0.5 size-3.5 shrink-0 text-green-600"
-                      />
-                      <ui-circle-x v-else class="mt-0.5 size-3.5 shrink-0 text-destructive" />
-                      <div class="min-w-0 flex-1">
-                        <p class="font-medium">{{ stepLabel(s.name) }}</p>
-                        <p
-                          v-if="s.arguments"
-                          class="mt-0.5 truncate font-mono text-muted-foreground"
-                        >
-                          {{ s.arguments }}
-                        </p>
-                        <p v-if="s.error" class="mt-0.5 text-destructive">{{ s.error }}</p>
-                      </div>
-                    </li>
-                  </ul>
                   <ui-message-content class="w-full min-w-0">
                     <ui-message-response
                       :content="assistantText(m)"
