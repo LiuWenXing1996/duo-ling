@@ -30,14 +30,14 @@
 
 ---
 
-## 工具能力声明：meta.capabilities + 双层校验（待做）
+## 工具能力声明：meta.capabilities + 运行时拦截（已实现）
 
 **背景**：工具目前由 `extractCapabilities` 用正则扫描 html 源码里的 `cap.run('id')` 来预判覆盖（见 `src/renderer/src/lib/tool-generator.ts`）。两个软肋：① 一旦支持 ESM 拆分，调用散落到 `.js` 子模块后正则扫不到 → 漏检；② 正则抓不住动态拼接（如 `` cap.run(`${id}`) ``）。已与用户确认改为**在 meta.json 中声明能力清单** + 双层校验，并适当放开 ESM 拆分。
 
 **方案要点（已确认）**：
 - `meta.json` 增加 `capabilities: string[]` 字段（当前仅 `id/name/title/description`，见 `src/main/tool-page.ts` 的 `ToolPageMeta` 与 `writeToolPage`）。AI 产出工具时必须声明用到的能力清单；meta 是权威来源，天然兼容 ESM 拆分（与文件数无关）。
-- **第一层 · 生成期校验（AI 自调试主战场）**：`buildCoverage` 改读 meta 声明，把「声明了不存在的能力 / 声明的能力缺失」从报告升级为**硬性拦截**。不用起 webview，AI 在自己的生成循环里第一手拿到报错并自修正。错误消息需带自诊断信息：报出的能力 id、当前清单里可用的能力、以及在 meta.capabilities 里补上或移除调用的明确二选一提示。
-- **第二层 · 运行时拦截（兜底）**：`cap.run(id, args)` 内检查 `id` 是否在 meta.capabilities 中，不在则拒绝并返回结构化错误 `{ ok:false, error }`（现有返回签名已支持，见 `src/preload/tool.ts`）。错误需沿两条路回传：① 给页面（AI 写的逻辑能 catch）；② 通过 IPC 上报给工具运行器，确保 AI「跑起来看输出」也能看见——即「AI 自调试能发现」的前提是运行时错误能回传到 AI 可见的输出，而不只是远端页面 console。
+- **第一层 · 生成期校验（AI 自调试主战场）**：本期**不做**。用户确认「用户看不明白这个的」，生成期硬拦截先不加，聚焦运行时拦截。
+- **第二层 · 运行时拦截（兜底）**：`cap.run(id, args)` 内检查 `id` 是否在 meta.capabilities 中，不在则拒绝并返回结构化错误 `{ ok:false, error }`。拦截放主进程 `capability:run` handler，用 `event.sender.getURL()` 定位工具来源（`tool://` → `{toolId}`，`tool-preview://` → `{toolId, oid}`），preload 零改动；旧工具未声明 `capabilities` 时拒绝一切。
 - 错误消息规范是本方案的质量线，实现时需细化文案。
 
 **实现步骤**：
@@ -49,6 +49,8 @@
 6. 测试：单测覆盖 `buildCoverage` 读 meta、运行时拦截返回结构化错误；提示词改动补充端测。
 
 **备注**：运行时拦截是安全边界，一旦启用，AI 声明错误会真实让工具跑挂——这正是让「AI 自调试 + 良好报错」能兜住的设计动机，故报错信息必须清晰到 AI 无需猜测即可修复。
+
+**状态**：已实现（仅运行时拦截）。`meta.json` 落盘 `capabilities`；主进程 `capability:run` 用 `event.sender.getURL()` 定位来源并对未声明能力的工具拒绝；预览版走该 commit 物化出的 meta；生成器系统提示词加入能力声明要求。已提交 `d0634d3`。
 
 ---
 
@@ -76,7 +78,7 @@
 
 ---
 
-## 生成器审批模式：默认 auto（去掉手动审批）（已定方向）
+## 生成器审批模式：默认 auto（去掉手动审批）（已实现）
 
 **结论**：把 `GeneratorApprovalMode` 的默认值从 `manual` 改成 `auto`，让 AI 变更工具清单直接落盘 + 自动 commit，不再每步都要用户确认。「去掉」仅作用于「AI 改单个工具内 index.html/meta.json」这条链路，不是删掉整套机制。
 
@@ -93,7 +95,7 @@
 
 **涉及改动**：`src/main/online-llm.ts` 的 `DEFAULT_APPROVAL_MODE` 改为 `'auto'`；同步检查相关设置 UI 与渲染层分支。
 
-**状态**：方向已定为「默认 auto、去掉手动审批」，**待与「能力声明运行时拦截 + 报错自诊断」一并实现**，暂未落地。
+**状态**：已实现。直接移除 `manual/auto` 审批模式全套链路（类型、IPC、preload API、设置面板与会话页开关），AI 变更清单产出后固定自动落盘；变更清单卡片保留作留痕提示。已提交 `238dd3b`。
 
 ---
 
