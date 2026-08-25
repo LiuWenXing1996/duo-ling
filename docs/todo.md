@@ -122,7 +122,7 @@
 
 **前置依赖（待联动）**：工具要能**写/读** `tools-data/` 需要新的原子能力——当前只有 read 类能力、无写能力。该依赖与「工具能力声明（meta.capabilities）」联动，落地时一并接上，单独评估。
 
-**状态**：方向已定（含「导出后续做」），待实现。
+**状态**：已实现（本期不含「导出打包」，仅提供「打开数据目录」）。主进程 `src/main/tools-data.ts` 新增 `listToolsData` / `getToolsDataDetail` / `clearToolsData` / `deleteOrphanToolsData` / `openToolsDataDir`，并实现 `tool.data.write/read/list/remove` 四个原子能力（key 白名单 `[A-Za-z0-9_-]+` 防目录穿越）；`capability-registry` 合并该分域、`capability:run` 经 meta.capabilities 白名单校验后路由到主进程（预览不拦截）；`src/main/ipc/tool.ts` 注册 `tools-data:*` 五个 IPC 且 `tool:delete` 增加 `keepData` 参数；preload 暴露 `toolsData` 子对象，`tool.delete(id, keepData)`；生成器系统提示词补充 `tool.data.*` 说明；渲染层 `tab.ts` 新增 `tool-data` kind、`settings-panel.vue` 加「工具数据」概览表格与孤儿清理入口、新建 `tool-data-detail.vue` 详情 tab、`tool-delete-dialog.vue` 改为「保留数据 / 连带删除」二选一。测试覆盖 `src/main/tools-data.spec.ts`，`typecheck` / `test`（97 用例）/ `build` 均通过。已提交 `eae135e`。
 
 ---
 
