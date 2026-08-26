@@ -1,15 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   deleteProfile,
-  generateChat,
   getActiveProfileId,
   getPublicProfiles,
   isConfigured,
-  listModels,
   saveProfile,
   setActiveProfile,
   setProfileEnabled
-} from './online-llm'
+} from './model-store'
+import { listModels } from './openai-client'
 
 // electron 与 electron-store 均 mock：safeStorage 用明文编解码，store 用内存对象
 vi.mock('electron', () => ({
@@ -41,20 +40,6 @@ vi.mock('electron-store', () => {
 })
 
 const fetchMock = vi.fn()
-
-function sseResponse(frames: string[], contentType = 'text/event-stream'): Response {
-  const encoder = new TextEncoder()
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const frame of frames) controller.enqueue(encoder.encode(frame))
-      controller.close()
-    }
-  })
-  return new Response(stream, {
-    status: 200,
-    headers: { 'content-type': contentType }
-  })
-}
 
 /** 创建一条默认模型配置（第一条自动成为默认） */
 function seedProfile(): void {
@@ -181,124 +166,6 @@ describe('模型配置列表', () => {
     expect(getActiveProfileId()).toBe(second.id)
     // 禁用的是激活模型本身，其余模型保持启用
     expect(getPublicProfiles().find((p) => p.id === first)?.enabled).toBe(false)
-  })
-})
-
-describe('generateChat（空 tools 退化为单轮）', () => {
-  it('推理模型：reasoning_content 与 content 分离，正文 token 流只含 content', async () => {
-    fetchMock.mockResolvedValue(
-      sseResponse([
-        'data: {"choices":[{"delta":{"reasoning_content":"先分析"}}]}\n\n',
-        'data: {"choices":[{"delta":{"reasoning_content":"再推理"}}]}\n\n',
-        'data: {"choices":[{"delta":{"content":"结论"}}]}\n\n',
-        'data: [DONE]\n\n'
-      ])
-    )
-    const tokens: string[] = []
-    const reply = await generateChat(
-      '',
-      [],
-      '你好',
-      (t) => tokens.push(t),
-      new AbortController().signal,
-      { tools: [], executeTool: async () => ({ ok: true, result: '' }) }
-    )
-
-    // 思考与正文分离：onToken 只收正文 token，reasoning 单独返回，不再拼接 <think> 标签
-    expect(tokens).toEqual(['结论'])
-    expect(reply.content).toBe('结论')
-    expect(reply.reasoning).toBe('先分析再推理')
-  })
-
-  it('推理模型：仅思考无正文时 reasoning 保留、正文兜底', async () => {
-    fetchMock.mockResolvedValue(
-      sseResponse(['data: {"choices":[{"delta":{"reasoning_content":"思考中"}}]}\n\n', 'data: [DONE]\n\n'])
-    )
-    const tokens: string[] = []
-    const reply = await generateChat(
-      '',
-      [],
-      '你好',
-      (t) => tokens.push(t),
-      new AbortController().signal,
-      { tools: [], executeTool: async () => ({ ok: true, result: '' }) }
-    )
-
-    expect(tokens).toEqual([])
-    expect(reply.content).toBe('（模型未返回任何内容，请重试或换个说法）')
-    expect(reply.reasoning).toBe('思考中')
-  })
-
-  it('多轮工具调用：中间轮正文不进最终回复，只保留最终一轮正文', async () => {
-    // 第 1 轮：模型先输出正文再请求调用 agent_tools_create
-    fetchMock
-      .mockResolvedValueOnce(
-        sseResponse([
-          'data: {"choices":[{"delta":{"content":"我来帮你创建。"}}]}\n\n',
-          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t1","function":{"name":"agent_tools_create","arguments":"{}"}}]}}]}\n\n',
-          'data: [DONE]\n\n'
-        ])
-      )
-      // 第 2 轮：拿到工具结果后输出最终正文，不再请求工具
-      .mockResolvedValueOnce(
-        sseResponse([
-          'data: {"choices":[{"delta":{"content":"已创建完成，这是最终正文。"}}]}\n\n',
-          'data: [DONE]\n\n'
-        ])
-      )
-
-    const tokens: string[] = []
-    const executeTool = vi.fn().mockResolvedValue({ ok: true, result: '工具已创建' })
-    const reply = await generateChat('', [], '创建一个工具', (t) => tokens.push(t), new AbortController().signal, {
-      tools: [{ type: 'function', function: { name: 'agent_tools_create', description: '', parameters: {} } }],
-      executeTool
-    })
-
-    // 中间轮正文不再拼接进最终回复：reply.content 只含最终一轮正文
-    expect(reply.content).toBe('已创建完成，这是最终正文。')
-    // onToken 仍把每轮正文实时推给前端（供前端在 tool_start 时把中间轮抽出归入步骤）
-    expect(tokens).toEqual(['我来帮你创建。', '已创建完成，这是最终正文。'])
-    // 工具确实被执行一次，且以该轮正文作为 assistant 上下文回传模型
-    expect(executeTool).toHaveBeenCalledTimes(1)
-    expect(executeTool).toHaveBeenCalledWith('agent_tools_create', '{}')
-  })
-
-  it('多轮工具调用：中间轮思考不进最终回复，只保留最终一轮思考', async () => {
-    // 第 1 轮：模型先思考再输出正文并请求调用工具
-    fetchMock
-      .mockResolvedValueOnce(
-        sseResponse([
-          'data: {"choices":[{"delta":{"reasoning_content":"我先分析场景。"}}]}\n\n',
-          'data: {"choices":[{"delta":{"content":"我来帮你创建。"}}]}\n\n',
-          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t1","function":{"name":"agent_tools_create","arguments":"{}"}}]}}]}\n\n',
-          'data: [DONE]\n\n'
-        ])
-      )
-      // 第 2 轮：拿到工具结果后输出最终思考与正文，不再请求工具
-      .mockResolvedValueOnce(
-        sseResponse([
-          'data: {"choices":[{"delta":{"reasoning_content":"最终结论。"}}]}\n\n',
-          'data: {"choices":[{"delta":{"content":"已创建完成。"}}]}\n\n',
-          'data: [DONE]\n\n'
-        ])
-      )
-
-    const tokens: string[] = []
-    const reasoningSlices: string[] = []
-    const executeTool = vi.fn().mockResolvedValue({ ok: true, result: '工具已创建' })
-    const reply = await generateChat('', [], '创建一个工具', (t) => tokens.push(t), new AbortController().signal, {
-      tools: [{ type: 'function', function: { name: 'agent_tools_create', description: '', parameters: {} } }],
-      executeTool,
-      onReasoning: (text) => reasoningSlices.push(text)
-    })
-
-    // 中间轮思考不再拼接进最终回复：reply.reasoning 只含最终一轮思考
-    expect(reply.reasoning).toBe('最终结论。')
-    // onReasoning 仍把每轮思考实时推给前端（供前端在 tool_start 时把中间轮归档到 reasonings）
-    expect(reasoningSlices).toEqual(['我先分析场景。', '最终结论。'])
-    // 正文同样只保留最终轮，工具执行一次
-    expect(reply.content).toBe('已创建完成。')
-    expect(executeTool).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -1,8 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { UIMessage } from 'ai'
 import type {
-  AgentEventData,
-  AgentMessage,
   AgentStreamChunk,
   AgentStreamSendResult,
   AgentToolContext,
@@ -14,7 +12,6 @@ import { CH, EVENT_CH, type InvokeMap, type PreloadApi } from '../shared/ipc'
 // 通过 contextBridge 暴露给渲染进程的自定义 API。
 // 所有类型一律来自 src/shared（唯一来源），不再手写重复 interface，避免 drift。
 
-let agentEventListener: ((_event: IpcRendererEvent, payload: AgentEventData) => void) | null = null
 let agentStreamChunkListener: ((_event: IpcRendererEvent, payload: AgentStreamChunk) => void) | null = null
 let agentStreamEndListener: ((_event: IpcRendererEvent, payload: AgentStreamSendResult) => void) | null = null
 let toolOpenCommandListener: ((_event: IpcRendererEvent, payload: ToolOpenCommand) => void) | null = null
@@ -84,19 +81,7 @@ const api: PreloadApi = {
     open: (id) => invoke(CH.toolsDataOpen, id)
   },
   agent: {
-    send: (history: AgentMessage[], context) => invoke(CH.agentSend, history, context),
     abort: () => invoke(CH.agentAbort),
-    onEvent: (callback: (payload: AgentEventData) => void): void => {
-      if (agentEventListener) ipcRenderer.removeListener(EVENT_CH.agent, agentEventListener)
-      agentEventListener = (_event, payload) => callback(payload)
-      ipcRenderer.on(EVENT_CH.agent, agentEventListener)
-    },
-    offEvent: (): void => {
-      if (agentEventListener) {
-        ipcRenderer.removeListener(EVENT_CH.agent, agentEventListener)
-        agentEventListener = null
-      }
-    },
     // —— AI SDK 流式通道（方案 B 阶段 A）——
     // 主进程 consume toUIMessageStream，逐 chunk 经 EVENT_CH.agentStream 推送；
     // 这里收集为事件，渲染层 custom-chat-transport 据此重新组装出 AsyncIterable 喂给 @ai-sdk/vue useChat。

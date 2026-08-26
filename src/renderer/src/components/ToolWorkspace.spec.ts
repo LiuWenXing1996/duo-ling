@@ -34,10 +34,7 @@ describe('ToolWorkspace', () => {
           getPreloadPath: vi.fn().mockResolvedValue('file:///preload/tool.cjs')
         },
         agent: {
-          send: vi.fn().mockResolvedValue({ ok: true, content: '{}' }),
-          abort: vi.fn().mockResolvedValue(undefined),
-          onEvent: vi.fn(),
-          offEvent: vi.fn()
+          abort: vi.fn().mockResolvedValue(undefined)
         },
         model: {
           list: vi.fn().mockResolvedValue({ profiles: [], activeId: '' }),

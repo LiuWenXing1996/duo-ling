@@ -12,9 +12,6 @@ import type {
   ApplyIntentsResult,
   Capability,
   CapabilityRunResponse,
-  AgentEventData,
-  AgentMessage,
-  AgentSendResult,
   AgentStreamChunk,
   AgentStreamSendResult,
   AgentToolContext,
@@ -79,7 +76,6 @@ export const CH = {
   toolsDataClear: 'tools-data:clear',
   toolsDataDeleteOrphan: 'tools-data:delete-orphan',
   toolsDataOpen: 'tools-data:open',
-  agentSend: 'agent:send',
   agentAbort: 'agent:abort',
   /** AI SDK 流式通道：发起一次流式生成（主进程 consume toUIMessageStream 逐 chunk 推送） */
   agentStreamSend: 'agent:streamSend',
@@ -96,7 +92,6 @@ export const CH = {
 
 /** 事件类通道名常量（主进程主动推送 → 渲染层） */
 export const EVENT_CH = {
-  agent: 'agent:event',
   /** AI SDK 流式通道：主进程逐 chunk 推送的 UIMessageChunk（渲染层 transport 收集为流喂给 useChat） */
   agentStream: 'agent:stream',
   /** AI SDK 流式通道结束：主进程推送收尾状态（含汇总 content/reasoning），渲染层据此 close 流 */
@@ -140,10 +135,6 @@ export interface InvokeMap {
   [CH.toolsDataClear]: { args: [id: string]; result: ToolsDataClearResult }
   [CH.toolsDataDeleteOrphan]: { args: []; result: ToolsDataDeleteOrphanResult }
   [CH.toolsDataOpen]: { args: [id: string]; result: ToolsDataOpenResult }
-  [CH.agentSend]: {
-    args: [history: AgentMessage[], context?: AgentToolContext]
-    result: AgentSendResult
-  }
   [CH.agentStreamSend]: {
     args: [messages: UIMessage[], context?: AgentToolContext]
     result: AgentStreamSendResult
@@ -218,10 +209,7 @@ export interface PreloadApi {
     open: (id: string) => Promise<ToolsDataOpenResult>
   }
   agent: {
-    send: (history: AgentMessage[], context?: AgentToolContext) => Promise<AgentSendResult>
     abort: () => Promise<void>
-    onEvent: (callback: (payload: AgentEventData) => void) => void
-    offEvent: () => void
     /** AI SDK 流式通道：发起一次流式生成，流经由 onStreamChunk/onStreamEnd 推送到渲染层 */
     streamSend: (messages: UIMessage[], context?: AgentToolContext) => Promise<AgentStreamSendResult>
     /** 订阅主进程逐 chunk 推送的 UIMessageChunk，返回取消订阅函数 */

@@ -12,7 +12,6 @@
 import { tool, jsonSchema } from 'ai'
 import type { ToolSet } from 'ai'
 import type { UserToolMeta } from '../shared/types'
-import type { AgentToolResult, AgentTool } from './online-llm'
 import { createUserToolId, listUserTools, newUserToolScaffoldHtml, writeUserTool } from './tool-page'
 import { initToolRepo } from './tool-git'
 import { getToolLockStatus } from './tool-lock'
@@ -23,77 +22,11 @@ export interface AgentToolHooks {
   onOpenTool?: (payload: { toolId: string; title: string }) => void
 }
 
-/** 构建可给 LLM 的 function 定义（仅白名单能力，安全优先） */
-export function buildAgentTools(): AgentTool[] {
-  return [
-    {
-      type: 'function',
-      function: {
-        name: 'agent_tools_list',
-        description:
-          '列出所有已存在的工具。返回数组，每项含 id / name / title / description。当用户想了解、打开或复用已有工具前，先调用此工具获取工具清单。',
-        parameters: { type: 'object', properties: {}, additionalProperties: false }
-      }
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'agent_tools_open',
-        description:
-          '打开一个工具页，界面会切换到该工具的标签页。需要先用 agent_tools_list 拿到工具 id，再传入 toolId。',
-        parameters: {
-          type: 'object',
-          properties: {
-            toolId: { type: 'string', description: '工具 id（来自 agent_tools_list）' }
-          },
-          required: ['toolId'],
-          additionalProperties: false
-        }
-      }
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'agent_tools_create',
-        description:
-          '创建一个新工具。宿主会分配工具 id、落盘脚手架页面（index.html + meta.json等等）并建立版本仓库。',
-        parameters: {
-          type: 'object',
-          properties: {
-            title: { type: 'string', description: '工具标题（必填，用于标签与列表展示）' },
-            description: { type: 'string', description: '工具的一句话描述（可选）' },
-            name: {
-              type: 'string',
-              description: 'kebab-case 工具标识（可选，仅作归档/展示；非法时回退为 new-tool）'
-            },
-            capabilities: {
-              type: 'array',
-              items: { type: 'string' },
-              description: '本工具页面会调用的原子能力 id 白名单（可选，从生成器提示中的能力清单选取）'
-            }
-          },
-          required: ['title'],
-          additionalProperties: false
-        }
-      }
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'agent_tools_lock_status',
-        description:
-          '查询某个工具当前是否被其它会话只读锁定，避免并发编辑冲突。需要先用 agent_tools_list 拿到工具 id，再传入 toolId。',
-        parameters: {
-          type: 'object',
-          properties: {
-            toolId: { type: 'string', description: '工具 id（来自 agent_tools_list）' }
-          },
-          required: ['toolId'],
-          additionalProperties: false
-        }
-      }
-    }
-  ]
+/** 工具执行结果（模型以 tool 消息收到的是其 JSON 字符串） */
+export interface AgentToolResult {
+  ok: boolean
+  result?: string
+  error?: string
 }
 
 /** 执行一个 agent 工具：解析参数、执行、把结果收敛为 AgentToolResult（异常不抛出，回传错误给模型） */

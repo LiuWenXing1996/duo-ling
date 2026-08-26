@@ -8,9 +8,9 @@ import {
   getPublicProfiles,
   saveProfile,
   setActiveProfile,
-  setProfileEnabled,
-  testChatConnection
-} from '../online-llm'
+  setProfileEnabled
+} from '../model-store'
+import { testChatConnection } from '../openai-client'
 import { getProviders } from '../providers'
 
 export function registerModelIpc(): void {
