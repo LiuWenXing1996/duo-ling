@@ -14,9 +14,6 @@ importers:
       '@ai-sdk/vue':
         specifier: ^4.0.79
         version: 4.0.79(vue@3.5.41(typescript@5.9.3))(zod@4.4.3)
-      '@electron-toolkit/preload':
-        specifier: ^3.0.2
-        version: 3.0.2(electron@43.4.1)
       '@electron-toolkit/utils':
         specifier: ^4.0.0
         version: 4.0.0(electron@43.4.1)
@@ -329,11 +326,6 @@ packages:
   '@electron-internal/extract-zip@1.0.5':
     resolution: {integrity: sha512-+bqFCP98pLI0Tt0XQo1TmlXtwjWchISndDOxCkEcIuUgXWpBnLyRI+2DU+mesvnMMX6L1XDqYNA0lXNDHd/yiA==}
     engines: {node: '>=22.12.0'}
-
-  '@electron-toolkit/preload@3.0.2':
-    resolution: {integrity: sha512-TWWPToXd8qPRfSXwzf5KVhpXMfONaUuRAZJHsKthKgZR/+LqX1dZVSSClQ8OTAEduvLGdecljCsoT2jSshfoUg==}
-    peerDependencies:
-      electron: '>=13.0.0'
 
   '@electron-toolkit/utils@4.0.0':
     resolution: {integrity: sha512-qXSntwEzluSzKl4z5yFNBknmPGjPa3zFhE4mp9+h0cgokY5ornAeP+CJQDBhKsL1S58aOQfcwkD3NwLZCl+64g==}
@@ -4042,10 +4034,6 @@ snapshots:
   '@csstools/css-tokenizer@4.0.0': {}
 
   '@electron-internal/extract-zip@1.0.5': {}
-
-  '@electron-toolkit/preload@3.0.2(electron@43.4.1)':
-    dependencies:
-      electron: 43.4.1
 
   '@electron-toolkit/utils@4.0.0(electron@43.4.1)':
     dependencies:
