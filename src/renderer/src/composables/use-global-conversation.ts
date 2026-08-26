@@ -40,8 +40,13 @@ export function formatSessionTime(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/** 主进程 Message → 渲染层 UIMessage（role 归一化；reasoning 与原样带回显） */
+/** 主进程 Message → 渲染层 UIMessage。
+ * 新数据带完整 parts（reasoning/text/tool），直接还原分轮思考与工具卡；
+ * 旧数据无 parts，回退用 content+reasoning 重建（此时工具信息已在落盘时丢失，无法还原）。 */
 function toUiMessage(m: Message): UIMessage {
+  if (m.parts && m.parts.length) {
+    return { id: m.id, role: m.role, parts: [...m.parts] }
+  }
   const parts: UIMessage['parts'] = []
   if (m.reasoning) parts.push({ type: 'reasoning', text: m.reasoning })
   if (m.content) parts.push({ type: 'text', text: m.content })
@@ -188,17 +193,21 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
     await ensureActiveConversation()
   }
 
-  /** 把 AI 回复正文与思考过程写入主进程会话，返回落盘消息 id（供 EditIntent 挂载） */
+  /** 把 AI 回复正文、思考过程与完整 parts 写入主进程会话，返回落盘消息 id（供 EditIntent 挂载） */
   async function persistAssistant(
     conversationId: string,
     content: string,
-    reasoning?: string
+    reasoning?: string,
+    parts?: UIMessage['parts']
   ): Promise<string | null> {
+    // parts 可能来自响应式 message，直接经 contextBridge 传主进程不保险；先深拷贝为纯数据
+    const cleanParts = parts ? (JSON.parse(JSON.stringify(parts)) as UIMessage['parts']) : undefined
     const msg = await window.api.conversation.appendMessage(
       conversationId,
       'assistant',
       content,
-      reasoning
+      reasoning,
+      cleanParts
     )
     return msg?.id ?? null
   }
@@ -258,6 +267,10 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
     const conversationId = activeConversationId.value
     if (!conversationId) return
 
+    // 在 setAssistantText（会把气泡收敛为 summary，清空中间轮正文）之前，捕获完整 parts
+    // 作为落盘数据，保证回显时能还原分轮思考 / 工具卡 / 多段正文，而不是只剩压扁的正文。
+    const persistParts = JSON.parse(JSON.stringify(message.parts)) as UIMessage['parts']
+
     const reasoning = extractReasoning(message)
     const text = extractText(message)
 
@@ -286,8 +299,13 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
       setAssistantText(chat.messages, message, displayContent)
     }
 
-    // 正文定稿后落盘 assistant 消息（含思考过程，供会话回显）；若声明了编辑意图则逐工具应用
-    const assistantId = await persistAssistant(conversationId, displayContent, reasoning)
+    // 正文定稿后落盘 assistant 消息（含思考与完整 parts，供会话回显）；若声明了编辑意图则逐工具应用
+    const assistantId = await persistAssistant(
+      conversationId,
+      displayContent,
+      reasoning,
+      persistParts
+    )
     if (intents?.length) {
       await applyIntents(conversationId, message.id, assistantId ?? message.id, intents)
     }

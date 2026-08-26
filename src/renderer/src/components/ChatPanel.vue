@@ -321,9 +321,10 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                       <template #icon>
                         <ui-brain class="size-4 shrink-0 text-muted-foreground" />
                       </template>
-                      <p class="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
-                        {{ node.text }}
-                      </p>
+                      <ui-message-response
+                        :content="node.text"
+                        class="max-h-64 overflow-y-auto rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-sm leading-relaxed text-foreground/90 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
+                      />
                     </ui-chain-of-thought-step>
                     <!-- 工具调用节点：官方 Tool 卡片（入参 ToolInput + 出参/报错 ToolOutput）嵌进链上这一环 -->
                     <ui-chain-of-thought-step
@@ -355,7 +356,7 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                         </ui-tool-content>
                       </ui-tool>
                     </ui-chain-of-thought-step>
-                    <!-- 中间轮正文节点：模型在调用工具前后输出的叙述，作为链上独立一环（最终答案留主气泡） -->
+                    <!-- 正文步骤：中间轮叙述（非最终答案），作为链上独立一环，复用 Markdown 渲染 -->
                     <ui-chain-of-thought-step
                       v-else
                       :label="`步骤 ${node.round}`"
@@ -364,9 +365,10 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                       <template #icon>
                         <ui-file-text class="size-4 shrink-0 text-muted-foreground" />
                       </template>
-                      <p class="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
-                        {{ node.text }}
-                      </p>
+                      <ui-message-response
+                        :content="node.text"
+                        class="max-h-64 overflow-y-auto rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-sm leading-relaxed text-foreground/90 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
+                      />
                     </ui-chain-of-thought-step>
                   </template>
                 </ui-chain-of-thought-content>

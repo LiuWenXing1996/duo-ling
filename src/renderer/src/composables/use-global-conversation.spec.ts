@@ -123,8 +123,10 @@ describe('useGlobalConversation.send（AI SDK 流式链路）', () => {
     expect(ai.role).toBe('assistant')
     expect(extractText(ai)).toBe('这是最终正文。')
 
-    // 用户消息与 assistant 消息各落盘一次
-    expect(window.api.conversation.appendMessage).toHaveBeenCalledWith('c1', 'assistant', '这是最终正文。', '')
+    // 用户消息与 assistant 消息各落盘一次；assistant 落盘携带完整 parts（正文已收敛为 summary，parts 保留原始 text）
+    expect(window.api.conversation.appendMessage).toHaveBeenCalledWith('c1', 'assistant', '这是最终正文。', '', [
+      { type: 'text', state: 'done', text: '这是最终正文。' }
+    ])
     // 无编辑意图契约：不触发 applyIntents
     expect(window.api.conversation.applyIntents).not.toHaveBeenCalled()
   })
@@ -161,8 +163,11 @@ describe('useGlobalConversation.send（AI SDK 流式链路）', () => {
     expect(extractText(ai)).toBe('重写该工具')
     // 留痕卡片挂到该消息 id
     expect(conv.pendingMap.value['a-1']?.changes.summary).toBe('重写该工具')
-    // 落盘 assistant 消息：正文为 summary，思考过程保留
-    expect(window.api.conversation.appendMessage).toHaveBeenCalledWith('c1', 'assistant', '重写该工具', '我先分析。')
+    // 落盘 assistant 消息：正文为 summary，思考过程保留；parts 保留完整 reasoning + 原始契约 text
+    expect(window.api.conversation.appendMessage).toHaveBeenCalledWith('c1', 'assistant', '重写该工具', '我先分析。', [
+      { id: 'r-1', type: 'reasoning', state: 'done', text: '我先分析。' },
+      { type: 'text', state: 'done', text: contract }
+    ])
     // 逐工具应用意图（cardId=a-1，persistedId=m1）
     expect(window.api.conversation.applyIntents).toHaveBeenCalledWith({
       conversationId: 'c1',

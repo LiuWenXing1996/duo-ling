@@ -154,7 +154,13 @@ export interface InvokeMap {
   [CH.conversationRename]: { args: [id: string, title: string]; result: Conversation | null }
   [CH.conversationMessages]: { args: [conversationId: string]; result: Message[] }
   [CH.conversationAppendMessage]: {
-    args: [conversationId: string, role: MessageRole, content: string, reasoning?: string]
+    args: [
+      conversationId: string,
+      role: MessageRole,
+      content: string,
+      reasoning?: string,
+      parts?: UIMessage['parts']
+    ]
     result: Message | null
   }
   [CH.conversationApplyIntents]: { args: [input: ApplyIntentsInput]; result: ApplyIntentsResult }
@@ -228,8 +234,13 @@ export interface PreloadApi {
     create: () => Promise<Conversation>
     rename: (id: string, title: string) => Promise<Conversation | null>
     messages: (conversationId: string) => Promise<Message[]>
-    appendMessage: (conversationId: string, role: MessageRole, content: string, reasoning?: string) =>
-      Promise<Message | null>
+    appendMessage: (
+      conversationId: string,
+      role: MessageRole,
+      content: string,
+      reasoning?: string,
+      parts?: UIMessage['parts']
+    ) => Promise<Message | null>
     applyIntents: (input: ApplyIntentsInput) => Promise<ApplyIntentsResult>
     intents: (conversationId: string) => Promise<EditIntent[]>
     delete: (id: string) => Promise<void>

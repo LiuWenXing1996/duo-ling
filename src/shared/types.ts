@@ -2,7 +2,7 @@
 // 收敛前各侧手写 interface 易 drift；此处统一定义后，各侧改为 re-export，
 // 避免同一数据模型在三处重复维护。
 
-import type { UIMessageChunk } from 'ai'
+import type { UIMessage, UIMessageChunk } from 'ai'
 
 // —— 任务（会话） ——
 export interface Task {
@@ -39,6 +39,9 @@ export interface Message {
   content: string
   /** AI 思考过程（reasoning），与正文分离存储；仅 assistant 消息可能有 */
   reasoning?: string
+  /** 完整 UIMessage.parts（reasoning/text/tool）。
+   * 回读时据此还原分轮思考 / 工具卡 / 多段正文；兼容旧数据：无 parts 时回退用 content+reasoning。 */
+  parts?: UIMessage['parts']
   createdAt: string
 }
 

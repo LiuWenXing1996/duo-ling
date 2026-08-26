@@ -60,6 +60,8 @@ const schema: Schema<ConversationState> = {
           role: { type: 'string', enum: ['user', 'assistant'] },
           content: { type: 'string' },
           reasoning: { type: 'string' },
+          // 完整 UIMessage.parts；宽松校验（仅要求数组，不深入 items），兼容旧数据缺省
+          parts: { type: 'array' },
           createdAt: { type: 'string' }
         },
         additionalProperties: false
@@ -160,12 +162,13 @@ export function listConversationIntents(conversationId: string): EditIntent[] {
   return out
 }
 
-/** 追加一条消息并刷新会话 lastMessageAt；返回落库后的消息（reasoning 仅 assistant 消息传入） */
+/** 追加一条消息并刷新会话 lastMessageAt；返回落库后的消息（reasoning/parts 仅 assistant 消息传入） */
 export function appendMessage(
   conversationId: string,
   role: MessageRole,
   content: string,
-  reasoning?: string
+  reasoning?: string,
+  parts?: Message['parts']
 ): Message | null {
   const conversation = getConversation(conversationId)
   if (!conversation) return null
@@ -176,6 +179,7 @@ export function appendMessage(
     role,
     content,
     reasoning,
+    parts,
     createdAt: now
   }
   const messages = getStore().get('messages')

@@ -93,8 +93,9 @@ export function registerConversationIpc(): void {
       conversationId: string,
       role: MessageRole,
       content: string,
-      reasoning?: string
-    ): Message | null => appendMessage(conversationId, role, content, reasoning)
+      reasoning?: string,
+      parts?: Message['parts']
+    ): Message | null => appendMessage(conversationId, role, content, reasoning, parts)
   )
   ipcMain.handle(CH.conversationApplyIntents, (_event, input: ApplyIntentsInput) =>
     applyIntents(input)
