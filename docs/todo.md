@@ -141,7 +141,7 @@
 
 ---
 
-## 会话与工具解耦：会话提升为一等公民（方案已写，待评审）
+## 会话与工具解耦：会话提升为一等公民（实施中 · P1 基本落地）
 
 **背景**：当前会话/对话强绑定工具，无法跨工具、无法在一次对话中修改多个工具。已与用户确认将「会话」提升为一等公民，与工具解耦；同一会话可改任意工具、可一次改多个，并支持多个 AI 会话并行思考 + 对同一工具串行写入。
 
@@ -158,7 +158,14 @@
 
 **详细文档**：见 [conversation-tool-decouple.md](./conversation-tool-decouple.md)。
 
-**状态**：方案已写入 docs，待评审。
+**状态**：实施中（部分已落地，依据本次代码核查）：
+- **P1 解耦与契约 · 基本落地**：`EditIntent` 模型（含 `error` / `createdAt`）、多工具 manifest `intents[]`、`Conversation` 独立存储与会话解耦（零工具纯聊天 / 一次改多工具）、会话一等公民均已实现。只读锁查询 `tool.lock.status` 以 capability + `agent_tools_lock_status` 形式可用（无独立 IPC 通道，走通用 `capability:run`）。
+- **P2 执行管线 · 部分落地**：每个 `EditIntent` 一个 commit、移除弹窗确认（自动落盘留痕）已实现；但「每条 intent 独立撤销到父 OID」未打通（`EditIntent` 不存 commit oid）、待办清单（多条 intent + 每项可撤销）、锁前提示、持锁后重读重生成、优雅中断均未实现，且执行期不可打断（`streaming` 只覆盖 AI 生成，不覆盖落盘执行）。
+- **P3 并发协调 · 未实现**：per-tool 全局锁（带 holder + acquiredAt）纯只读占位，无 acquire / release，AI 落盘 / 回滚 / meta 编辑 / 直接文件编辑等写路径均未加锁；查-执行两步 + 失败重试未实现。
+- **数据区**：`tools-data`（key 白名单 / manifest / AI 不写数据区）已实现。
+- **webview 重写编排**：仅基础 `reload()`，无「停旧页 → 写文件 → 加载新页」、无过渡占位、非批量写 + 单次 reload。
+
+**关键缺口（按影响排序）**：① 写路径无任何锁（P3，安全边界）；② `EditIntent` 与 git commit 未打通（无法一键撤销到父 OID）；③ 执行期不可打断。
 
 ---
 
