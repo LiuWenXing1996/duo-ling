@@ -1,7 +1,11 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { UIMessage } from 'ai'
 import type {
   AgentEventData,
   AgentMessage,
+  AgentStreamChunk,
+  AgentStreamSendResult,
+  AgentToolContext,
   Task,
   ToolOpenCommand
 } from '../shared/types'
@@ -11,6 +15,8 @@ import { CH, EVENT_CH, type InvokeMap, type PreloadApi } from '../shared/ipc'
 // 所有类型一律来自 src/shared（唯一来源），不再手写重复 interface，避免 drift。
 
 let agentEventListener: ((_event: IpcRendererEvent, payload: AgentEventData) => void) | null = null
+let agentStreamChunkListener: ((_event: IpcRendererEvent, payload: AgentStreamChunk) => void) | null = null
+let agentStreamEndListener: ((_event: IpcRendererEvent, payload: AgentStreamSendResult) => void) | null = null
 let toolOpenCommandListener: ((_event: IpcRendererEvent, payload: ToolOpenCommand) => void) | null = null
 
 /** 类型化 invoke：通道与 args/result 由 InvokeMap 约束，主进程改签名时此处编译期报错 */
@@ -89,6 +95,33 @@ const api: PreloadApi = {
       if (agentEventListener) {
         ipcRenderer.removeListener(EVENT_CH.agent, agentEventListener)
         agentEventListener = null
+      }
+    },
+    // —— AI SDK 流式通道（方案 B 阶段 A）——
+    // 主进程 consume toUIMessageStream，逐 chunk 经 EVENT_CH.agentStream 推送；
+    // 这里收集为事件，渲染层 custom-chat-transport 据此重新组装出 AsyncIterable 喂给 @ai-sdk/vue useChat。
+    streamSend: (messages: UIMessage[], context?: AgentToolContext) =>
+      invoke(CH.agentStreamSend, messages, context),
+    onStreamChunk: (callback: (chunk: AgentStreamChunk) => void): (() => void) => {
+      if (agentStreamChunkListener) ipcRenderer.removeListener(EVENT_CH.agentStream, agentStreamChunkListener)
+      agentStreamChunkListener = (_event, payload) => callback(payload)
+      ipcRenderer.on(EVENT_CH.agentStream, agentStreamChunkListener)
+      return () => {
+        if (agentStreamChunkListener) {
+          ipcRenderer.removeListener(EVENT_CH.agentStream, agentStreamChunkListener)
+          agentStreamChunkListener = null
+        }
+      }
+    },
+    onStreamEnd: (callback: (result: AgentStreamSendResult) => void): (() => void) => {
+      if (agentStreamEndListener) ipcRenderer.removeListener(EVENT_CH.agentStreamEnd, agentStreamEndListener)
+      agentStreamEndListener = (_event, payload) => callback(payload)
+      ipcRenderer.on(EVENT_CH.agentStreamEnd, agentStreamEndListener)
+      return () => {
+        if (agentStreamEndListener) {
+          ipcRenderer.removeListener(EVENT_CH.agentStreamEnd, agentStreamEndListener)
+          agentStreamEndListener = null
+        }
       }
     }
   },

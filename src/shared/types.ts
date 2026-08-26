@@ -2,6 +2,8 @@
 // 收敛前各侧手写 interface 易 drift；此处统一定义后，各侧改为 re-export，
 // 避免同一数据模型在三处重复维护。
 
+import type { UIMessageChunk } from 'ai'
+
 // —— 任务（会话） ——
 export interface Task {
   id: number
@@ -380,6 +382,26 @@ export type ToolsDataOpenResult = { ok: true } | { ok: false; error: string }
 export interface AgentSendResult {
   ok: boolean
   content?: string
+  reasoning?: string
+  error?: string
+}
+
+// —— AI SDK 流式通道（方案 B 阶段 A）——
+// 渲染层用 @ai-sdk/vue useChat({ transport })，主进程用 streamText + toUIMessageStream。
+// 原生 ReadableStream 无法过 contextBridge（结构化克隆不支持），因此主进程消费
+// toUIMessageStream() 的 reader，逐 chunk 经 webContents.send 推给渲染层，渲染层 transport 收集为流再喂给 useChat。
+
+/** Agent 流式响应的单个 chunk（channel: agent:stream 逐条推送）。
+ * 直接复用 ai 的 UIMessageChunk：其字段均为纯 JSON 结构化数据，可安全通过 contextBridge 结构化克隆，
+ * 且渲染层无需再做形状转换即可喂给 useChat（内部由 readUIMessageStream 累积为 UIMessage.parts）。 */
+export type AgentStreamChunk = UIMessageChunk
+
+/** agent:streamSend 的收尾状态（流通过 EVENT_CH.agentStream 逐 chunk 推送，此处仅在流结束后汇总） */
+export interface AgentStreamSendResult {
+  ok: boolean
+  /** 已消费流后汇总的完整正文（供持久化/落盘使用） */
+  content?: string
+  /** 已消费流后汇总的完整思考过程 */
   reasoning?: string
   error?: string
 }

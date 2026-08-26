@@ -5,6 +5,8 @@
 //  3. PreloadApi 是 window.api 的权威形状，index.d.ts 由此派生，渲染层自动获得完整类型。
 // 本文件只含类型与字符串常量，不依赖 electron，因此可被 main / preload / renderer 三方共同引用。
 
+import type { UIMessage } from 'ai'
+
 import type {
   ApplyIntentsInput,
   ApplyIntentsResult,
@@ -13,6 +15,8 @@ import type {
   AgentEventData,
   AgentMessage,
   AgentSendResult,
+  AgentStreamChunk,
+  AgentStreamSendResult,
   AgentToolContext,
   Conversation,
   EditIntent,
@@ -77,6 +81,8 @@ export const CH = {
   toolsDataOpen: 'tools-data:open',
   agentSend: 'agent:send',
   agentAbort: 'agent:abort',
+  /** AI SDK 流式通道：发起一次流式生成（主进程 consume toUIMessageStream 逐 chunk 推送） */
+  agentStreamSend: 'agent:streamSend',
   conversationList: 'conversation:list',
   conversationCreate: 'conversation:create',
   conversationRename: 'conversation:rename',
@@ -91,6 +97,10 @@ export const CH = {
 /** 事件类通道名常量（主进程主动推送 → 渲染层） */
 export const EVENT_CH = {
   agent: 'agent:event',
+  /** AI SDK 流式通道：主进程逐 chunk 推送的 UIMessageChunk（渲染层 transport 收集为流喂给 useChat） */
+  agentStream: 'agent:stream',
+  /** AI SDK 流式通道结束：主进程推送收尾状态（含汇总 content/reasoning），渲染层据此 close 流 */
+  agentStreamEnd: 'agent:stream-end',
   /** 主进程通知渲染层打开某个工具（agent.tools.open 触发） */
   toolOpenCommand: 'tool:open-command'
 } as const
@@ -133,6 +143,10 @@ export interface InvokeMap {
   [CH.agentSend]: {
     args: [history: AgentMessage[], context?: AgentToolContext]
     result: AgentSendResult
+  }
+  [CH.agentStreamSend]: {
+    args: [messages: UIMessage[], context?: AgentToolContext]
+    result: AgentStreamSendResult
   }
   [CH.agentAbort]: { args: []; result: void }
   [CH.conversationList]: { args: []; result: Conversation[] }
@@ -202,6 +216,12 @@ export interface PreloadApi {
     abort: () => Promise<void>
     onEvent: (callback: (payload: AgentEventData) => void) => void
     offEvent: () => void
+    /** AI SDK 流式通道：发起一次流式生成，流经由 onStreamChunk/onStreamEnd 推送到渲染层 */
+    streamSend: (messages: UIMessage[], context?: AgentToolContext) => Promise<AgentStreamSendResult>
+    /** 订阅主进程逐 chunk 推送的 UIMessageChunk，返回取消订阅函数 */
+    onStreamChunk: (callback: (chunk: AgentStreamChunk) => void) => () => void
+    /** 订阅流结束状态（含汇总 content/reasoning），返回取消订阅函数 */
+    onStreamEnd: (callback: (result: AgentStreamSendResult) => void) => () => void
   }
   conversation: {
     list: () => Promise<Conversation[]>

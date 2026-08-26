@@ -1,13 +1,21 @@
 <script setup lang="ts">
-// 当前会话聊天区：消息气泡 + 思考过程折叠 + 变更清单留痕卡片 + 输入区 + 模型选择。
+// 当前会话聊天区：消息气泡 + 思考/工具过程折叠 + 变更清单留痕卡片 + 输入区 + 模型选择。
 // 发送 / 停止由父组件执行，AI 产出变更后纯自动落盘（卡片仅作留痕展示，无手动应用/放弃）；
 // 模型选择为纯本地面板逻辑，自含于此。
+//
+// 方案 B（切进 AI SDK 全家桶）后：消息模型为 UIMessage（parts），渲染按
+//   - text part      -> 消息气泡正文（MessageResponse）
+//   - reasoning part -> 思考与执行过程中的思考段落
+//   - tool part      -> 工具调用卡（ToolHeader + ToolInput + ToolOutput）
+// 按 parts 出现顺序交错成「思考与执行过程」链，移除旧 chainNodes / reasonings 结构。
 import { computed, onMounted, ref } from 'vue'
 import {
+  Brain as UiBrain,
   Check as UiCheck,
   ChevronsUpDown as UiChevronsUpDown,
   CircleCheck as UiCircleCheck,
   CircleX as UiCircleX,
+  FileText as UiFileText,
   LoaderCircle as UiLoaderCircle,
   Plus as UiPlus
 } from '@lucide/vue'
@@ -50,14 +58,21 @@ import {
 } from '@/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import { truncate } from '@/lib/format'
-import type { PendingChange, ToolChatMessage, ToolChatStep } from '@/composables/use-global-conversation'
-import type { ToolUIPart } from 'ai'
+import type { PendingChange } from '@/composables/use-global-conversation'
+import {
+  getToolName,
+  isReasoningUIPart,
+  isTextUIPart,
+  isToolUIPart,
+  type DynamicToolUIPart,
+  type ToolUIPart,
+  type UIMessage
+} from 'ai'
 
 const props = defineProps<{
-  messages: ToolChatMessage[]
+  messages: UIMessage[]
   pendingMap: Record<string, PendingChange>
   streaming: boolean
-  draft: ToolChatMessage | null
 }>()
 const emit = defineEmits<{
   send: [text: string]
@@ -120,87 +135,36 @@ onMounted(() => {
   void window.api.model.list().then(refreshModelStatus)
 })
 
-// —— 思考与执行过程可视化：思考与正文从一开始就分离存（reasoning / content）——
-const thinkOf = (m: ToolChatMessage): string => m.reasoning ?? ''
+// —— 消息渲染：UIMessage parts -> 气泡正文 / 思考与执行过程 ——
 
-/** 链上节点：thinking 是一段思考（按轮分段），step 是一次工具调用步骤（含中间轮正文说明） */
-interface ChainNode {
-  kind: 'thinking' | 'step'
-  key: string
-  text?: string
-  step?: ToolChatStep
+/** 把消息的 text parts 聚合为正文（流式多轮正文按出现顺序拼接） */
+function textOf(m: UIMessage): string {
+  return m.parts.filter(isTextUIPart).map((p) => p.text).join('')
 }
 
-/**
- * 把「思考轮次」与「工具步骤」按轮交错成链上节点：
- *   - 流式/新消息：reasonings[i] 对应 steps[i] 前的本轮思考；reasonings 末尾多出的那段是最终轮思考（无工具调用）。
- *   - 历史回显：reasonings 为空，回退用 reasoning 作为链首思考，再逐个挂步骤。
- */
-function chainNodes(m: ToolChatMessage): ChainNode[] {
-  const steps = m.steps ?? []
-  if (!m.reasonings || m.reasonings.length === 0) {
-    const nodes: ChainNode[] = []
-    if (m.reasoning?.trim()) nodes.push({ kind: 'thinking', key: 'r-0', text: m.reasoning })
-    steps.forEach((s, i) => nodes.push({ kind: 'step', key: `s-${i}`, step: s }))
-    return nodes
-  }
-  const nodes: ChainNode[] = []
-  const roundCount = Math.max(m.reasonings.length, steps.length)
-  for (let i = 0; i < roundCount; i++) {
-    const r = m.reasonings[i]
-    if (r?.trim()) nodes.push({ kind: 'thinking', key: `r-${i}`, text: r })
-    const s = steps[i]
-    if (s) nodes.push({ kind: 'step', key: `s-${i}`, step: s })
-  }
-  return nodes
+/** 用户消息正文：直接聚合 text parts 展示 */
+function userText(m: UIMessage): string {
+  return textOf(m)
 }
 
-/** Agent 工具调用步骤状态 → ChainOfThoughtStep 状态映射（error 视作已结束，用图标示错） */
-function cotStatus(status: ToolChatStep['status']): 'complete' | 'active' | 'pending' {
-  if (status === 'running') return 'active'
-  return 'complete'
-}
-
-/** Agent 步骤状态 → 官方 Tool 卡的 state 值（ToolStatusBadge 展示 Running/Completed/Error） */
-function toolState(status: ToolChatStep['status']): ToolUIPart['state'] {
-  if (status === 'running') return 'input-available'
-  if (status === 'error') return 'output-error'
-  return 'output-available'
-}
-
-/** 工具调用入参：JSON 字符串 → 对象（空/非法时返回 {}，避免 ToolInput 显示带引号的字符串） */
-function toolInput(argumentsJson: string): Record<string, unknown> {
-  if (!argumentsJson) return {}
-  try {
-    const parsed = JSON.parse(argumentsJson)
-    return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-/**
- * 工具调用出参：JSON 字符串 → 对象（空时返回 undefined）。
- * 解析成对象后 ToolOutput 会走多行格式化分支，避免超长 JSON 字符串在 pre 中单行不换行、撑开卡片宽度。
- * 非法 JSON 回退为字符串原样展示。
- */
-function toolOutput(result: string | undefined): unknown {
-  if (!result) return undefined
-  try {
-    return JSON.parse(result)
-  } catch {
-    return result
-  }
-}
-
-/** 消息角色映射：ai-elements 的 Message 用 UIMessage['role']，项目内 AI 用 'ai' */
-function fromOf(m: ToolChatMessage): 'user' | 'assistant' {
+/** 消息角色映射：ai-elements 的 Message 用 'user' | 'assistant' */
+function fromOf(m: UIMessage): 'user' | 'assistant' {
   return m.role === 'user' ? 'user' : 'assistant'
 }
 
-/** 消息正文：直接读 m.content；流式草稿暂无正文时给一句占位，避免空白气泡。 */
-function assistantText(m: ToolChatMessage): string {
-  return m.content.trim() ? m.content : props.draft && props.draft.id === m.id ? '正在思考…' : '（无回复内容）'
+const lastMessageId = computed(() => props.messages[props.messages.length - 1]?.id)
+
+/** 最终答案正文：最后一个 text part（中间轮正文已按步骤归入链，此处仅剩最终回复） */
+function finalText(m: UIMessage): string {
+  const textParts = m.parts.filter(isTextUIPart)
+  return textParts.length ? textParts[textParts.length - 1].text : ''
+}
+
+/** 消息正文：取最终 text part；流式且尚无正文时给占位，避免空白气泡 */
+function assistantText(m: UIMessage): string {
+  const t = finalText(m)
+  if (t.trim()) return t
+  return m.id === lastMessageId.value && props.streaming ? '正在思考…' : '（无回复内容）'
 }
 
 /** 取某条 AI 消息挂载的变更卡片（可能不存在，如自动模式或无变更） */
@@ -213,6 +177,95 @@ function stepLabel(name: string): string {
   if (name === 'agent_tools_list') return '查询工具列表'
   if (name === 'agent_tools_open') return '打开工具'
   return name
+}
+
+// —— 思考与执行过程：把 reasoning / tool parts 按序交错成链 ——
+type ToolState = ToolUIPart['state'] | DynamicToolUIPart['state']
+
+interface ThinkingNode {
+  kind: 'thinking'
+  key: string
+  /** 思考轮次序号（Agent Loop 中每轮调用工具前后的思考各占一段） */
+  round: number
+  text: string
+}
+interface ToolNode {
+  kind: 'tool'
+  key: string
+  /** 工具 part 的 type（本项目全部为静态 tool，形如 tool-agent_tools_list） */
+  partType: ToolUIPart['type']
+  state: ToolState
+  name: string
+  title: string
+  input: unknown
+  output: unknown
+  errorText?: string
+}
+interface TextNode {
+  kind: 'text'
+  key: string
+  /** 中间轮正文步骤序号（与思考/工具步骤连续编号，便于阅读） */
+  round: number
+  /** 中间轮正文：模型在调用工具前后输出的叙述，作为链上独立一环（最终答案留在主气泡） */
+  text: string
+}
+type ProcessNode = ThinkingNode | ToolNode | TextNode
+
+/** 从工具 output 提取错误文案：AI SDK 工具返回对象 { ok:false, error } 时归入 Error 分支 */
+function extractToolError(output: unknown): string | undefined {
+  if (output && typeof output === 'object' && !Array.isArray(output) && 'ok' in output) {
+    const rec = output as { ok?: unknown; error?: unknown }
+    if (rec.ok === false) return typeof rec.error === 'string' ? rec.error : '工具执行失败'
+  }
+  return undefined
+}
+
+/** 把工具 part 归一化为可渲染的节点（名称/标题/入参/出参/错误） */
+function buildToolNode(part: ToolUIPart | DynamicToolUIPart, key: string): ToolNode {
+  const name = getToolName(part)
+  return {
+    kind: 'tool',
+    key,
+    partType: part.type as ToolUIPart['type'],
+    state: part.state,
+    name,
+    title: part.title ?? stepLabel(name),
+    input: part.input,
+    output: part.output,
+    errorText: part.errorText ?? extractToolError(part.output)
+  }
+}
+
+/** 是否存在可折叠的「思考与执行过程」（至少一个 reasoning / tool / 中间轮正文 part；最终 text part 不算过程） */
+function hasProcess(m: UIMessage): boolean {
+  return processNodes(m).length > 0
+}
+
+/** 把推理与工具调用按 parts 顺序交错成链式节点（中间轮正文也作为独立一环） */
+function processNodes(m: UIMessage): ProcessNode[] {
+  const nodes: ProcessNode[] = []
+  let i = 0
+  let round = 0
+  let textRound = 0
+  const textParts = m.parts.filter(isTextUIPart)
+  const lastTextPart = textParts[textParts.length - 1]
+  for (const part of m.parts) {
+    if (isReasoningUIPart(part) && part.text.trim()) {
+      round += 1
+      nodes.push({ kind: 'thinking', key: `r-${i++}`, round, text: part.text })
+    } else if (isTextUIPart(part) && part !== lastTextPart && part.text.trim()) {
+      textRound += 1
+      nodes.push({ kind: 'text', key: `x-${i++}`, round: textRound, text: part.text })
+    } else if (isToolUIPart(part)) {
+      nodes.push(buildToolNode(part, `t-${i++}`))
+    }
+  }
+  return nodes
+}
+
+/** 工具步骤状态 → ChainOfThoughtStep 步骤状态（入参流式生成中视为 active，其余视为完成） */
+function stepStatus(state: ToolState): 'complete' | 'active' {
+  return state === 'input-streaming' ? 'active' : 'complete'
 }
 
 /** 发送/停止：由 PromptInput 表单提交触发；流式时视为停止，否则发送（执行由父组件负责） */
@@ -249,62 +302,71 @@ function onPromptSubmit(payload: PromptInputMessage): void {
               class="flex flex-col gap-1.5"
               :class="m.role === 'user' ? 'items-end' : 'items-start'"
             >
-              <!-- 思考与执行过程：用 ai-elements ChainOfThought 把「思考轮次」与「工具步骤」按轮交错成一条链，默认展开 -->
+              <!-- 思考与执行过程：思考段落与 tool 卡按 parts 顺序交错成链（每节点独立一环），默认展开 -->
               <ui-chain-of-thought
-                v-if="m.role === 'ai' && (thinkOf(m) || m.reasonings?.length || m.steps?.length)"
+                v-if="m.role === 'assistant' && hasProcess(m)"
                 :default-open="true"
                 class="w-full min-w-0"
                 data-testid="chain-of-thought"
               >
                 <ui-chain-of-thought-header>思考与执行过程</ui-chain-of-thought-header>
                 <ui-chain-of-thought-content>
-                  <template v-for="node in chainNodes(m)" :key="node.key">
-                    <!-- 思考节点：该轮模型在调用工具前后的思考，按轮单独展示，避免多轮聚合 -->
-                    <p
-                      v-if="node.kind === 'thinking'"
-                      class="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90"
-                    >
-                      {{ node.text }}
-                    </p>
-                    <!-- 工具步骤节点 -->
+                  <template v-for="node in processNodes(m)" :key="node.key">
+                    <!-- 思考节点：该轮模型在调用工具前后的思考，按轮单独一环展示 -->
                     <ui-chain-of-thought-step
-                      v-else
-                      :label="stepLabel(node.step!.name)"
-                      :status="cotStatus(node.step!.status)"
+                      v-if="node.kind === 'thinking'"
+                      :label="`思考 ${node.round}`"
+                      class="w-full min-w-0"
+                    >
+                      <template #icon>
+                        <ui-brain class="size-4 shrink-0 text-muted-foreground" />
+                      </template>
+                      <p class="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+                        {{ node.text }}
+                      </p>
+                    </ui-chain-of-thought-step>
+                    <!-- 工具调用节点：官方 Tool 卡片（入参 ToolInput + 出参/报错 ToolOutput）嵌进链上这一环 -->
+                    <ui-chain-of-thought-step
+                      v-else-if="node.kind === 'tool'"
+                      :label="node.title"
+                      :status="stepStatus(node.state)"
+                      class="w-full min-w-0"
                     >
                       <template #icon>
                         <ui-loader-circle
-                          v-if="node.step!.status === 'running'"
+                          v-if="node.state === 'input-streaming'"
                           class="size-4 shrink-0 animate-spin text-muted-foreground"
                         />
-                        <ui-circle-check
-                          v-else-if="node.step!.status === 'done'"
-                          class="size-4 shrink-0 text-green-600"
+                        <ui-circle-x
+                          v-else-if="node.errorText"
+                          class="size-4 shrink-0 text-destructive"
                         />
-                        <ui-circle-x v-else class="size-4 shrink-0 text-destructive" />
+                        <ui-circle-check v-else class="size-4 shrink-0 text-green-600" />
                       </template>
-                      <!-- 该轮正文：模型在调用工具前输出的中间轮正文，归入步骤而非主气泡 -->
-                      <p
-                        v-if="node.step!.content"
-                        class="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90"
-                      >
-                        {{ node.step!.content }}
-                      </p>
-                      <!-- 工具调用卡：完整使用官方 Tool 卡片（入参 ToolInput + 出参/报错 ToolOutput），整体嵌进链上这一环 -->
                       <ui-tool class="min-w-0" :default-open="true">
                         <ui-tool-header
-                          :title="stepLabel(node.step!.name)"
-                          type="tool-invocation"
-                          :state="toolState(node.step!.status)"
+                          :type="node.partType"
+                          :state="node.state"
+                          :title="node.title"
                         />
                         <ui-tool-content class="min-w-0">
-                          <ui-tool-input :input="toolInput(node.step!.arguments)" />
-                          <ui-tool-output
-                            :output="toolOutput(node.step!.result)"
-                            :error-text="node.step!.error ?? undefined"
-                          />
+                          <ui-tool-input v-if="node.input != null" :input="node.input" />
+                          <ui-tool-output :output="node.output" :error-text="node.errorText" />
                         </ui-tool-content>
                       </ui-tool>
+                    </ui-chain-of-thought-step>
+                    <!-- 中间轮正文节点：模型在调用工具前后输出的叙述，作为链上独立一环（最终答案留主气泡） -->
+                    <ui-chain-of-thought-step
+                      v-else
+                      :label="`步骤 ${node.round}`"
+                      class="w-full min-w-0"
+                    >
+                      <template #icon>
+                        <ui-file-text class="size-4 shrink-0 text-muted-foreground" />
+                      </template>
+                      <p class="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+                        {{ node.text }}
+                      </p>
                     </ui-chain-of-thought-step>
                   </template>
                 </ui-chain-of-thought-content>
@@ -312,7 +374,7 @@ function onPromptSubmit(payload: PromptInputMessage): void {
               <!-- 消息气泡：用 ai-elements 的 Message / MessageContent / MessageResponse 渲染 -->
               <ui-message :from="fromOf(m)" class="max-w-full">
                 <template v-if="m.role === 'user'">
-                  <ui-message-content>{{ m.content }}</ui-message-content>
+                  <ui-message-content>{{ userText(m) }}</ui-message-content>
                 </template>
                 <template v-else>
                   <ui-message-content class="w-full min-w-0">
@@ -325,7 +387,7 @@ function onPromptSubmit(payload: PromptInputMessage): void {
               </ui-message>
               <!-- 变更清单留痕卡片：AI 产出改动后自动落盘留痕，仅作展示（无手动应用/放弃） -->
               <div
-                v-if="m.role === 'ai' && pendingOf(m.id)"
+                v-if="m.role === 'assistant' && pendingOf(m.id)"
                 class="max-w-[80%] rounded-lg border border-border bg-background/60 px-3 py-2"
                 data-testid="change-card"
               >

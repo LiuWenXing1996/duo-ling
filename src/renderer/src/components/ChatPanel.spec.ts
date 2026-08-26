@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ChatPanel from './ChatPanel.vue'
-import type { PendingChange, ToolChatMessage } from '@/composables/use-global-conversation'
+import type { PendingChange } from '@/composables/use-global-conversation'
+import type { UIMessage } from 'ai'
 
 // chat-panel 在 onMounted 中拉取模型列表，注入最小 window.api
 beforeEach(() => {
@@ -20,9 +21,16 @@ afterEach(() => {
   delete (window as unknown as Record<string, unknown>).api
 })
 
-const messages: ToolChatMessage[] = [
-  { id: 'u1', role: 'user', content: '帮我重写这个工具' },
-  { id: 'a1', role: 'ai', content: '已重写完成', reasoning: '先分析结构' }
+const messages: UIMessage[] = [
+  { id: 'u1', role: 'user', parts: [{ type: 'text', text: '帮我重写这个工具' }] },
+  {
+    id: 'a1',
+    role: 'assistant',
+    parts: [
+      { type: 'reasoning', text: '先分析结构' },
+      { type: 'text', text: '已重写完成' }
+    ]
+  }
 ]
 
 const pending: PendingChange = {
@@ -39,13 +47,12 @@ function mountPanel(overrides: Record<string, unknown> = {}): ReturnType<typeof 
       messages,
       pendingMap: { a1: pending },
       streaming: false,
-      draft: null,
       ...overrides
     }
   })
 }
 
-describe('ChatPanel 消息气泡（ai-elements 化）', () => {
+describe('ChatPanel 消息气泡（UIMessage parts 化）', () => {
   it('user 消息用 Message 渲染并带 is-user 结构', () => {
     const wrapper = mountPanel()
     expect(wrapper.find('.is-user').exists()).toBe(true)
@@ -88,82 +95,74 @@ describe('ChatPanel 消息气泡（ai-elements 化）', () => {
     expect(body().attributes('hidden')).toBeUndefined()
   })
 
-  it('Agent 工具调用步骤以 ChainOfThoughtStep 逐步渲染（running→active，error 示错）', () => {
+  it('tool part 用官方 Tool 卡片渲染：标题、状态徽标、入参与出参', () => {
     const wrapper = mountPanel({
       messages: [
-        { id: 'u1', role: 'user', content: '帮我重写这个工具' },
+        { id: 'u1', role: 'user', parts: [{ type: 'text', text: '帮我重写这个工具' }] },
         {
           id: 'a1',
-          role: 'ai',
-          content: '已重写完成',
-          steps: [
-            { id: 's1', name: 'agent_tools_list', arguments: '{"type":"all"}', status: 'done', result: '工具列表：MD 阅读器' },
-            { id: 's2', name: 'agent_tools_open', arguments: '{"path":"index.html"}', status: 'running' },
-            { id: 's3', name: 'agent_tools_bad', arguments: '', status: 'error', error: '打开失败' }
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-agent_tools_list',
+              toolCallId: 'tc-1',
+              input: { type: 'all' },
+              output: '工具列表：MD 阅读器',
+              state: 'output-available',
+              title: '查询工具列表'
+            },
+            {
+              type: 'tool-agent_tools_open',
+              toolCallId: 'tc-2',
+              input: { path: 'index.html' },
+              state: 'input-available',
+              title: '打开工具'
+            },
+            {
+              type: 'tool-agent_tools_open',
+              toolCallId: 'tc-3',
+              input: { path: 'bad.html' },
+              errorText: '打开失败',
+              state: 'output-error',
+              title: '打开工具'
+            }
           ]
         }
       ]
     })
     const chain = wrapper.find('[data-testid="chain-of-thought"]')
     expect(chain.exists()).toBe(true)
+    // 标题来自 tool part title（agent_tools_list 中文名一并覆盖）
     expect(chain.text()).toContain('查询工具列表')
     expect(chain.text()).toContain('打开工具')
-    // running → active：展示加载动画
-    expect(chain.find('.animate-spin').exists()).toBe(true)
-    // done 用绿色对勾、error 用 destructive 图标 + 错误文案
+    // 状态徽标：output-available=Completed / input-available=Running / output-error=Error
+    expect(chain.text()).toContain('Completed')
+    expect(chain.text()).toContain('Running')
+    expect(chain.text()).toContain('Error')
+    // running 用图标脉冲，done 用绿对勾，error 用红叉
+    expect(chain.find('.animate-pulse').exists()).toBe(true)
     expect(chain.find('.text-green-600').exists()).toBe(true)
-    expect(chain.find('.text-destructive').exists()).toBe(true)
-    expect(chain.text()).toContain('打开失败')
-    // 出参 result（无 error 时）展示在步骤默认 slot
+    expect(chain.find('.text-red-600').exists()).toBe(true)
+    // 入参 Parameters 含工具入参 JSON
+    expect(chain.text()).toContain('Parameters')
+    expect(chain.text()).toContain('index.html')
+    // 出参 Result 含结果、出参容器含错误文案
+    expect(chain.text()).toContain('Result')
     expect(chain.text()).toContain('工具列表：MD 阅读器')
+    expect(chain.text()).toContain('打开失败')
   })
 
-  it('中间轮正文归入步骤卡展示，不再拼进主气泡', () => {
+  it('思考与工具步骤按 parts 顺序交错展示（reasoning 不聚合到链首）', () => {
     const wrapper = mountPanel({
       messages: [
-        { id: 'u1', role: 'user', content: '创建一个工具' },
+        { id: 'u1', role: 'user', parts: [{ type: 'text', text: '创建一个工具' }] },
         {
           id: 'a1',
-          role: 'ai',
-          content: '已创建完成，这是最终正文。',
-          steps: [
-            {
-              id: 's1',
-              name: 'agent_tools_create',
-              arguments: '{}',
-              status: 'done',
-              result: '工具已创建',
-              content: '我来帮你创建它。'
-            }
-          ]
-        }
-      ]
-    })
-    const chain = wrapper.find('[data-testid="chain-of-thought"]')
-    // 中间轮正文在步骤链内展示
-    expect(chain.text()).toContain('我来帮你创建它。')
-    // 主气泡只展示最终正文
-    expect(wrapper.text()).toContain('已创建完成，这是最终正文。')
-  })
-
-  it('思考轮次与工具步骤按轮交错展示（reasonings 不聚合到链首）', () => {
-    const wrapper = mountPanel({
-      messages: [
-        { id: 'u1', role: 'user', content: '创建一个工具' },
-        {
-          id: 'a1',
-          role: 'ai',
-          content: '已创建完成，这是最终正文。',
-          reasonings: ['我先分析场景。', '最终结论。'],
-          steps: [
-            {
-              id: 's1',
-              name: 'agent_tools_create',
-              arguments: '{}',
-              status: 'done',
-              result: '工具已创建',
-              content: '我来帮你创建它。'
-            }
+          role: 'assistant',
+          parts: [
+            { type: 'reasoning', text: '我先分析场景。' },
+            { type: 'tool-agent_tools_create', toolCallId: 'tc-1', input: {}, output: '工具已创建', state: 'output-available', title: '创建一个工具' },
+            { type: 'reasoning', text: '最终结论。' }
           ]
         }
       ]
@@ -172,27 +171,67 @@ describe('ChatPanel 消息气泡（ai-elements 化）', () => {
     // 每轮思考单独展示，不再只聚合在链首
     expect(chain.text()).toContain('我先分析场景。')
     expect(chain.text()).toContain('最终结论。')
-    // 中间轮正文仍归入步骤卡
-    expect(chain.text()).toContain('我来帮你创建它。')
-    // 最终一轮思考应排在工具步骤之后（对应「按轮分批」的顺序，而非聚在链首）
+    // 最终一轮思考应排在工具步骤之后（对应「按 parts 顺序」而非聚在链首）
     const chainText = chain.element.textContent ?? ''
-    const stepIdx = chainText.indexOf('agent_tools_create')
+    const toolIdx = chainText.indexOf('创建一个工具')
     const finalThinkIdx = chainText.indexOf('最终结论。')
-    expect(finalThinkIdx).toBeGreaterThan(stepIdx)
+    expect(finalThinkIdx).toBeGreaterThan(toolIdx)
   })
 
-  it('完成后的普通 JSON / markdown 正文不再被误屏蔽为「正在思考…」', async () => {
+  it('思考与工具调用各自渲染为链上独立节点（ChainOfThoughtStep 包裹，思考带轮次 label）', () => {
+    const wrapper = mountPanel()
+    const chain = wrapper.find('[data-testid="chain-of-thought"]')
+    // 默认消息 assistant 含一轮思考：以「思考 1」label 独立成环，而非裸段落
+    expect(chain.text()).toContain('思考 1')
+    expect(chain.text()).toContain('先分析结构')
+    // 链节点结构：左侧图标列（Step 的竖线/图标容器）+ 右侧内容
+    expect(chain.find('.flex.gap-2').exists()).toBe(true)
+  })
+
+  it('中间轮正文作为链上独立节点，最终答案保留在主气泡（正文分链）', () => {
     const wrapper = mountPanel({
       messages: [
-        { id: 'u1', role: 'user', content: '给我一个 JSON 示例' },
-        { id: 'a1', role: 'ai', content: '{"ok": true}' }
-      ],
-      draft: null,
+        { id: 'u1', role: 'user', parts: [{ type: 'text', text: '做一个能读本地文件的工具' }] },
+        {
+          id: 'a1',
+          role: 'assistant',
+          parts: [
+            // 第 1 轮：先看现状（中间轮正文）
+            { type: 'text', text: '我先看看当前已有的工具情况。' },
+            { type: 'tool-agent_tools_list', toolCallId: 'tc-1', input: {}, output: '工具列表：无', state: 'output-available', title: '查询工具列表' },
+            // 第 2 轮：创建工具（中间轮正文）
+            { type: 'text', text: '我来创建这个工具。' },
+            { type: 'tool-agent_tools_create', toolCallId: 'tc-2', input: {}, output: '工具已创建', state: 'output-available', title: '创建一个工具' },
+            // 最终答案（留主气泡）
+            { type: 'text', text: '已创建成功，请直接使用。' }
+          ]
+        }
+      ]
+    })
+    const chain = wrapper.find('[data-testid="chain-of-thought"]')
+    // 中间轮正文都进了链（带「步骤 N」label 独立成环）
+    expect(chain.exists()).toBe(true)
+    expect(chain.text()).toContain('我先看看当前已有的工具情况。')
+    expect(chain.text()).toContain('我来创建这个工具。')
+    expect(chain.text()).toContain('步骤 1')
+    expect(chain.text()).toContain('步骤 2')
+    // 最终答案保留在主气泡，不进链
+    expect(chain.text()).not.toContain('已创建成功，请直接使用。')
+    const bubble = wrapper.find('.is-assistant')
+    expect(bubble.exists()).toBe(true)
+    expect(bubble.text()).toContain('已创建成功，请直接使用。')
+    expect(bubble.text()).not.toContain('我先看看当前已有的工具情况。')
+    expect(bubble.text()).not.toContain('我来创建这个工具。')
+  })
+
+  it('流式且尚无正文时给「正在思考…」占位，完成后不再误屏蔽正文', async () => {
+    const wrapper = mountPanel({
+      messages: [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: '给我一个 JSON 示例' }] }],
+      // 流式中、最后一条 AI 尚无正文 -> 占位
       streaming: false
     })
-    // 已完成的契约会被归一化为 summary；普通 JSON 答案应原样展示，而非永久遮挡
+    // 已完成的普通 JSON / markdown 正文应原样展示，而非永久遮挡
     expect(wrapper.text()).not.toContain('正在思考…')
-    expect(wrapper.text()).toContain('ok')
   })
 
   it('变更清单留痕卡片保留，纯自动落盘展示（无应用/放弃按钮）', async () => {

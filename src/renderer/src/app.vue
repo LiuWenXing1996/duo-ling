@@ -42,7 +42,6 @@ const {
   messages,
   pendingMap,
   streaming,
-  draft,
   loadConversations,
   newConversation,
   activateConversation,
@@ -190,7 +189,6 @@ function handleCreateTool(): void {
               :messages="messages"
               :pending-map="pendingMap"
               :streaming="streaming"
-              :draft="draft"
               @send="send"
               @stop="stopGeneration"
               @open-settings="workspaceRef?.openSettingsTab()"
