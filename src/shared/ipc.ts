@@ -6,13 +6,18 @@
 // 本文件只含类型与字符串常量，不依赖 electron，因此可被 main / preload / renderer 三方共同引用。
 
 import type {
+  ApplyIntentsInput,
+  ApplyIntentsResult,
   Capability,
   CapabilityRunResponse,
-  ChatEventData,
-  ChatMessage,
-  GeneratorEventData,
-  GeneratorMessage,
-  GeneratorSendResult,
+  AgentEventData,
+  AgentMessage,
+  AgentSendResult,
+  AgentToolContext,
+  Conversation,
+  EditIntent,
+  Message,
+  MessageRole,
   ModelProfile,
   ModelProfileInput,
   ModelProvider,
@@ -22,7 +27,7 @@ import type {
   ToolChangeList,
   ToolCreateResult,
   ToolHistoryResult,
-  ToolPageMeta,
+  UserToolMeta,
   ToolPreviewResult,
   ToolResult,
   ToolsDataClearResult,
@@ -51,8 +56,6 @@ export const CH = {
   modelToggle: 'model:toggle',
   modelTestChat: 'model:testChat',
   providerList: 'provider:list',
-  settingsGetSystemPrompt: 'settings:getSystemPrompt',
-  settingsSetSystemPrompt: 'settings:setSystemPrompt',
   windowGetBounds: 'window:getBounds',
   capabilityList: 'capability:list',
   capabilityRun: 'capability:run',
@@ -72,17 +75,22 @@ export const CH = {
   toolsDataClear: 'tools-data:clear',
   toolsDataDeleteOrphan: 'tools-data:delete-orphan',
   toolsDataOpen: 'tools-data:open',
-  chatHistory: 'chat:history',
-  chatSend: 'chat:send',
-  chatAbort: 'chat:abort',
-  generatorSend: 'generator:send',
-  generatorAbort: 'generator:abort'
+  agentSend: 'agent:send',
+  agentAbort: 'agent:abort',
+  conversationList: 'conversation:list',
+  conversationCreate: 'conversation:create',
+  conversationRename: 'conversation:rename',
+  conversationMessages: 'conversation:messages',
+  conversationAppendMessage: 'conversation:appendMessage',
+  conversationApplyIntents: 'conversation:applyIntents',
+  conversationIntents: 'conversation:intents',
+  conversationDelete: 'conversation:delete',
+  conversationDeleteAll: 'conversation:delete-all'
 } as const
 
 /** 事件类通道名常量（主进程主动推送 → 渲染层） */
 export const EVENT_CH = {
-  chat: 'chat:event',
-  generator: 'generator:event',
+  agent: 'agent:event',
   /** 主进程通知渲染层打开某个工具（agent.tools.open 触发） */
   toolOpenCommand: 'tool:open-command'
 } as const
@@ -100,13 +108,11 @@ export interface InvokeMap {
   [CH.modelToggle]: { args: [id: string, enabled: boolean]; result: void }
   [CH.modelTestChat]: { args: [config: ModelTestChatConfig]; result: TestChatResult }
   [CH.providerList]: { args: []; result: ModelProvider[] }
-  [CH.settingsGetSystemPrompt]: { args: []; result: string }
-  [CH.settingsSetSystemPrompt]: { args: [value: string]; result: void }
   [CH.windowGetBounds]: { args: []; result: WindowBounds | null }
   [CH.capabilityList]: { args: []; result: Capability[] }
   [CH.capabilityRun]: { args: [id: string, args: unknown]; result: CapabilityRunResponse }
   [CH.toolCreate]: { args: []; result: ToolCreateResult }
-  [CH.toolList]: { args: []; result: ToolPageMeta[] }
+  [CH.toolList]: { args: []; result: UserToolMeta[] }
   [CH.toolDelete]: { args: [id: string, keepData?: boolean]; result: ToolResult }
   [CH.toolUpdateMeta]: {
     args: [id: string, patch: { title?: string; description?: string; icon?: string }]
@@ -124,11 +130,23 @@ export interface InvokeMap {
   [CH.toolsDataClear]: { args: [id: string]; result: ToolsDataClearResult }
   [CH.toolsDataDeleteOrphan]: { args: []; result: ToolsDataDeleteOrphanResult }
   [CH.toolsDataOpen]: { args: [id: string]; result: ToolsDataOpenResult }
-  [CH.chatHistory]: { args: [taskId: number]; result: ChatMessage[] }
-  [CH.chatSend]: { args: [taskId: number, text: string]; result: ChatMessage | null }
-  [CH.chatAbort]: { args: []; result: void }
-  [CH.generatorSend]: { args: [history: GeneratorMessage[]]; result: GeneratorSendResult }
-  [CH.generatorAbort]: { args: []; result: void }
+  [CH.agentSend]: {
+    args: [history: AgentMessage[], context?: AgentToolContext]
+    result: AgentSendResult
+  }
+  [CH.agentAbort]: { args: []; result: void }
+  [CH.conversationList]: { args: []; result: Conversation[] }
+  [CH.conversationCreate]: { args: []; result: Conversation }
+  [CH.conversationRename]: { args: [id: string, title: string]; result: Conversation | null }
+  [CH.conversationMessages]: { args: [conversationId: string]; result: Message[] }
+  [CH.conversationAppendMessage]: {
+    args: [conversationId: string, role: MessageRole, content: string, reasoning?: string]
+    result: Message | null
+  }
+  [CH.conversationApplyIntents]: { args: [input: ApplyIntentsInput]; result: ApplyIntentsResult }
+  [CH.conversationIntents]: { args: [conversationId: string]; result: EditIntent[] }
+  [CH.conversationDelete]: { args: [id: string]; result: void }
+  [CH.conversationDeleteAll]: { args: []; result: void }
 }
 
 /** window.api 的权威形状：由 index.d.ts 派生，渲染层直接获得完整类型 */
@@ -148,10 +166,6 @@ export interface PreloadApi {
   provider: {
     list: () => Promise<ModelProvider[]>
   }
-  settings: {
-    getSystemPrompt: () => Promise<string>
-    setSystemPrompt: (value: string) => Promise<void>
-  }
   window: {
     getBounds: () => Promise<WindowBounds | null>
   }
@@ -161,7 +175,7 @@ export interface PreloadApi {
   }
   tool: {
     create: () => Promise<ToolCreateResult>
-    list: () => Promise<ToolPageMeta[]>
+    list: () => Promise<UserToolMeta[]>
     delete: (id: string, keepData?: boolean) => Promise<ToolResult>
     updateMeta: (id: string, patch: { title?: string; description?: string; icon?: string }) => Promise<ToolUpdateMetaResult>
     update: (id: string, changes: ToolChangeList) => Promise<ToolUpdateResult>
@@ -183,17 +197,22 @@ export interface PreloadApi {
     deleteOrphan: () => Promise<ToolsDataDeleteOrphanResult>
     open: (id: string) => Promise<ToolsDataOpenResult>
   }
-  chat: {
-    history: (taskId: number) => Promise<ChatMessage[]>
-    send: (taskId: number, text: string) => Promise<ChatMessage | null>
+  agent: {
+    send: (history: AgentMessage[], context?: AgentToolContext) => Promise<AgentSendResult>
     abort: () => Promise<void>
-    onEvent: (callback: (payload: ChatEventData) => void) => void
+    onEvent: (callback: (payload: AgentEventData) => void) => void
     offEvent: () => void
   }
-  generator: {
-    send: (history: GeneratorMessage[]) => Promise<GeneratorSendResult>
-    abort: () => Promise<void>
-    onEvent: (callback: (payload: GeneratorEventData) => void) => void
-    offEvent: () => void
+  conversation: {
+    list: () => Promise<Conversation[]>
+    create: () => Promise<Conversation>
+    rename: (id: string, title: string) => Promise<Conversation | null>
+    messages: (conversationId: string) => Promise<Message[]>
+    appendMessage: (conversationId: string, role: MessageRole, content: string, reasoning?: string) =>
+      Promise<Message | null>
+    applyIntents: (input: ApplyIntentsInput) => Promise<ApplyIntentsResult>
+    intents: (conversationId: string) => Promise<EditIntent[]>
+    delete: (id: string) => Promise<void>
+    deleteAll: () => Promise<void>
   }
 }

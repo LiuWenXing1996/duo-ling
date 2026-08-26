@@ -6,10 +6,10 @@ import { GitBranch as UiGitBranch } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import ToolFrame from '@/components/ToolFrame.vue'
 import ToolIcon from '@/components/ToolIcon.vue'
-import type { ToolPageMeta } from '@/components/ToolPage.vue'
+import type { ToolDetailMeta } from '@/types/tab'
 
-const props = defineProps<{ tool: ToolPageMeta }>()
-const emit = defineEmits<{ openHistory: [tool: ToolPageMeta] }>()
+const props = defineProps<{ tool: ToolDetailMeta }>()
+const emit = defineEmits<{ openHistory: [tool: ToolDetailMeta] }>()
 
 const frameRef = ref<InstanceType<typeof ToolFrame> | null>(null)
 

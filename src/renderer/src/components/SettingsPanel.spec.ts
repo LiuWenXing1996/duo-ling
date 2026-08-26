@@ -15,11 +15,6 @@ const providerApiMock = {
   list: vi.fn()
 }
 
-const settingsApiMock = {
-  getSystemPrompt: vi.fn(),
-  setSystemPrompt: vi.fn()
-}
-
 const PROVIDERS = [
   {
     id: 'deepseek',
@@ -85,11 +80,9 @@ function stubApi(listData: unknown = LIST): void {
   modelApiMock.toggle.mockResolvedValue(undefined)
   modelApiMock.test.mockResolvedValue({ ok: true, models: ['deepseek-chat'] })
   providerApiMock.list.mockResolvedValue(PROVIDERS)
-  settingsApiMock.getSystemPrompt.mockResolvedValue('')
   vi.stubGlobal('api', {
     model: modelApiMock,
-    provider: providerApiMock,
-    settings: settingsApiMock
+    provider: providerApiMock
   })
 }
 

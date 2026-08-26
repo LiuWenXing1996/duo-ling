@@ -1,12 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { safeStorage } from 'electron'
 import Store, { type Schema } from 'electron-store'
-import type { ChatMessage } from './chat-store'
-import type { ModelProfile, ModelProfileInput } from '../shared/types'
+import type { ChatMessage, ModelProfile, ModelProfileInput } from '../shared/types'
 
 export type { ModelProfile, ModelProfileInput }
-
-export const DEFAULT_SYSTEM_PROMPT = '你是 Duo Ling 的 AI 助手，请用中文回答。'
 
 interface ModelProfileState {
   id: string
@@ -28,8 +25,6 @@ interface ModelProfileState {
 interface ModelStoreState {
   profiles: ModelProfileState[]
   activeProfileId: string
-  /** 全局系统提示词：所有模型共用；为空则不发送 system 消息 */
-  systemPrompt: string
 }
 
 const schema: Schema<ModelStoreState> = {
@@ -56,8 +51,7 @@ const schema: Schema<ModelStoreState> = {
       additionalProperties: false
     }
   },
-  activeProfileId: { type: 'string' },
-  systemPrompt: { type: 'string' }
+  activeProfileId: { type: 'string' }
 }
 
 let store: Store<ModelStoreState> | undefined
@@ -68,8 +62,7 @@ function getStore(): Store<ModelStoreState> {
     name: 'model-profiles',
     defaults: {
       profiles: [],
-      activeProfileId: '',
-      systemPrompt: DEFAULT_SYSTEM_PROMPT
+      activeProfileId: ''
     },
     schema
   })
@@ -141,16 +134,6 @@ function syncActiveProfileId(): void {
   if (!enabled.some((p) => p.id === state.activeProfileId)) {
     getStore().set('activeProfileId', enabled[0]?.id ?? '')
   }
-}
-
-/** 全局系统提示词：所有模型共用；为空则不发送 system 消息 */
-export function getSystemPrompt(): string {
-  return getStore().store.systemPrompt ?? ''
-}
-
-/** 设置全局系统提示词；传入空串表示清空（之后不再发送 system 消息） */
-export function setSystemPrompt(value: string): void {
-  getStore().set('systemPrompt', value.trim())
 }
 
 /** 内部完整配置（含解密后的 apiKey），仅 main 进程使用 */
@@ -330,29 +313,13 @@ export async function testChatConnection(config: {
   }
 }
 
-/**
- * 流式生成回复（OpenAI 兼容 /chat/completions，SSE）。
- * token 逐段回调 onToken；signal 中止时 fetch 抛错，由上层按中止处理。
- * 使用全局系统提示词。
- */
-export function generateReply(
-  history: ChatMessage[],
-  userText: string,
-  onToken: (text: string) => void,
-  signal: AbortSignal
-): Promise<string> {
-  return generateReplyWithSystemPrompt(getSystemPrompt(), history, userText, onToken, signal).then(
-    (r) => r.content
-  )
-}
-
 // —— Agent Loop ——
 // 模型「思考 → 调用工具 → 拿结果 → 再思考 → … → 最终正文」的多轮循环。
-// 底层仍是单次 OpenAI 兼容流式请求（streamOnce），由 generateAgentReply 编排多轮：
+// 底层仍是单次 OpenAI 兼容流式请求（streamOnce），由 generateChat 编排多轮：
 // 每轮若模型返回 tool_calls，则把结果以 role:'tool' 回传后再请求，直至模型给出最终 content。
 
 /** OpenAI 兼容的 function 定义（tools 数组每一项） */
-export type OpenAITool = {
+export type AgentTool = {
   type: 'function'
   function: { name: string; description: string; parameters: Record<string, unknown> }
 }
@@ -371,9 +338,9 @@ export interface AgentToolResult {
   error?: string
 }
 
-export interface GenerateAgentOptions {
+export interface GenerateChatOptions {
   /** 可调用工具定义（buildAgentTools 产出），空数组则退化为单轮 */
-  tools: OpenAITool[]
+  tools: AgentTool[]
   /** 执行某能力/工具，产出的结果回传模型（异常统一收敛为 { ok:false }，不打断循环） */
   executeTool: (name: string, argsJson: string) => Promise<AgentToolResult>
   onToolStart?: (call: AgentToolCall) => void
@@ -384,14 +351,17 @@ export interface GenerateAgentOptions {
   maxRounds?: number
 }
 
-/** Agent Loop 编排器：多次 streamOnce，直到模型不再请求工具而给出最终正文 */
-export async function generateAgentReply(
+/**
+ * AI 对话编排器：多次 streamOnce（Agent Loop），直到模型不再请求工具而给出最终正文。
+ * 不带 tools（空数组）时自然退化为单轮普通对话。
+ */
+export async function generateChat(
   systemPrompt: string,
   history: ChatMessage[],
   userText: string,
   onToken: (text: string) => void,
   signal: AbortSignal,
-  opts: GenerateAgentOptions
+  opts: GenerateChatOptions
 ): Promise<{ content: string; reasoning: string }> {
   if (!isConfigured()) {
     throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
@@ -406,8 +376,8 @@ export async function generateAgentReply(
   ]
 
   const maxRounds = opts.maxRounds ?? 8
-  // 累积所有轮次的内容（含中间轮思考）：onToken.onReasoning 已即时推送给前端用于实时显示，
-  // 此处把各轮拼接作为「最终完整回复」，避免中间轮思考在收尾覆盖时丢失。
+  // 累积最终回复：只有「无工具调用」的那一轮正文/思考才算最终答案，之前中间轮的不进回复
+  // （onToken/onReasoning 仍会把每轮正文与思考实时推给前端，前端在 tool_start 时把中间轮的正文与思考分别归入对应步骤）。
   let accContent = ''
   let accReasoning = ''
   for (let round = 0; round <= maxRounds; round++) {
@@ -419,17 +389,18 @@ export async function generateAgentReply(
       opts.onReasoning,
       signal
     )
-    accContent += content
-    accReasoning += reasoning
 
     // 无工具调用 → 这是最终答案
     if (toolCalls.length === 0) {
+      accContent += content
+      accReasoning += reasoning
       // 模型可能只输出了空内容（如对「你好呀」一类非工具请求无话可说），给一条兜底文案
       const body = accContent.trim() ? accContent : '（模型未返回任何内容，请重试或换个说法）'
       return { content: body, reasoning: accReasoning }
     }
 
     // 有工具调用：先把带 tool_calls 的 assistant 消息入列，再逐个执行并回传结果
+    // （该轮 content 仅作为该 step 的上下文回传模型，不进入最终回复）
     messages.push({
       role: 'assistant',
       content,
@@ -465,7 +436,7 @@ export async function generateAgentReply(
 async function streamOnce(
   config: ReturnType<typeof getActiveConfig>,
   messages: Array<Record<string, unknown>>,
-  tools: OpenAITool[],
+  tools: AgentTool[],
   onToken: (text: string) => void,
   onReasoning: ((text: string) => void) | undefined,
   signal: AbortSignal
@@ -593,28 +564,6 @@ function mapSerializedToolCall(c: SerializedToolCall): AgentToolCall {
     name: c.function?.name ?? '',
     arguments: c.function?.arguments ?? ''
   }
-}
-
-/**
- * 流式生成回复，允许外部指定系统提示词（普通对话用全局提示词；生成器用能力清单提示词）。
- * 不传 tools，行为等同旧版单轮生成。如需 Agent Loop，请改用 generateAgentReply。
- */
-export async function generateReplyWithSystemPrompt(
-  systemPrompt: string,
-  history: ChatMessage[],
-  userText: string,
-  onToken: (text: string) => void,
-  signal: AbortSignal
-): Promise<{ content: string; reasoning: string }> {
-  if (!isConfigured()) {
-    throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
-  }
-  const { content, reasoning } = await streamOnce(getActiveConfig(), [
-    ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-    ...history.map((m) => ({ role: m.role, content: m.content })),
-    { role: 'user', content: userText }
-  ], [], onToken, undefined, signal)
-  return { content, reasoning }
 }
 
 /** 从单个 SSE frame 中提取 data: 行的内容；无 data 行返回 null */

@@ -5,6 +5,8 @@
 // 因此 frontend 能力的执行统一收口到主进程 capability:run。
 // 这里复制一份最小的 markdown 渲染，使工具页 cap.run('docs.markdown.render') 可经 IPC 直达主进程执行。
 
+import { getToolLockStatus } from './tool-lock'
+
 export type FrontendRunResponse = { ok: true; result: unknown } | { ok: false; error: string }
 
 /** 转义 HTML，避免渲染注入 */
@@ -95,6 +97,10 @@ const frontendImpls: Record<string, (args: unknown) => unknown | Promise<unknown
   'docs.markdown.render': (args) => {
     const markdown = (args as { markdown?: string } | undefined)?.markdown ?? ''
     return { html: renderMarkdown(markdown) }
+  },
+  'tool.lock.status': (args) => {
+    const toolId = (args as { toolId?: string } | undefined)?.toolId ?? ''
+    return getToolLockStatus(toolId)
   }
 }
 

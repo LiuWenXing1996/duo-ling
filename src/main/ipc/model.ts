@@ -1,4 +1,4 @@
-// 在线大模型 IPC：模型配置列表管理（OpenAI 兼容接口）、全局系统提示词、服务商预设。
+// 在线大模型 IPC：模型配置列表管理（OpenAI 兼容接口）、服务商预设。
 import { ipcMain } from 'electron'
 import type { ModelProfile, ModelProfileInput, ModelProvider, ModelTestChatConfig, TestChatResult } from '../../shared/types'
 import {
@@ -6,11 +6,9 @@ import {
   getActiveProfileId,
   getProfileApiKey,
   getPublicProfiles,
-  getSystemPrompt,
   saveProfile,
   setActiveProfile,
   setProfileEnabled,
-  setSystemPrompt,
   testChatConnection
 } from '../online-llm'
 import { getProviders } from '../providers'
@@ -32,9 +30,6 @@ export function registerModelIpc(): void {
   ipcMain.handle('model:toggle', (_event, id: string, enabled: boolean) =>
     setProfileEnabled(id, enabled)
   )
-  // 全局系统提示词：所有模型共用
-  ipcMain.handle('settings:getSystemPrompt', () => getSystemPrompt())
-  ipcMain.handle('settings:setSystemPrompt', (_event, value: string) => setSystemPrompt(value))
   // 服务商预设列表（用于「添加模型」弹窗）
   ipcMain.handle('provider:list', (): ModelProvider[] => getProviders())
 

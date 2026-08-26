@@ -1,16 +1,19 @@
 // Agent Loop 骨架：把「AI 可自主调用」的能力暴露为 OpenAI function 定义，并统一执行。
 //
-// 本期只做两个能力（最小闭环）：
-//   - agent_tools_list —— 查询已有工具
-//   - agent_tools_open —— 打开对应工具（真实切到工具标签页）
-// 其余（查原子能力、新建工具、查内置示例、放权 tool.data.*）后续作为「能力丰富」追加到此文件。
+// 本期做三个能力：
+//   - agent_tools_list      —— 查询已有工具
+//   - agent_tools_open      —— 打开对应工具（真实切到工具标签页）
+//   - agent_tools_create    —— 创建新工具（脚手架落盘 + git 建仓 + 自动打开）
+// 其余（查原子能力、查内置示例、放权 tool.data.*）后续作为「能力丰富」追加到此文件。
 //
-// 执行器通过 hooks 把「打开工具」的副作用交回调用方（ipc/generator.ts 用 event.sender 广播命令，
-// 渲染层 app.vue 监听后切换/新建工具标签页）。工具本身的本地读取直接复用 tool-page.listToolPages。
+// 执行器通过 hooks 把「打开工具」的副作用交回调用方（ipc/agent.ts 用 event.sender 广播命令，
+// 渲染层 app.vue 监听后切换/新建工具标签页）。工具本身的本地读取直接复用 tool-page.listUserTools。
 
-import type { ToolPageMeta } from '../shared/types'
-import type { AgentToolResult, OpenAITool } from './online-llm'
-import { listToolPages } from './tool-page'
+import type { UserToolMeta } from '../shared/types'
+import type { AgentToolResult, AgentTool } from './online-llm'
+import { createUserToolId, listUserTools, newUserToolScaffoldHtml, writeUserTool } from './tool-page'
+import { initToolRepo } from './tool-git'
+import { getToolLockStatus } from './tool-lock'
 
 /** 执行工具时暴露给上层钩子：open 工具的副作用放这，避免与 IPC 层耦合 */
 export interface AgentToolHooks {
@@ -19,7 +22,7 @@ export interface AgentToolHooks {
 }
 
 /** 构建可给 LLM 的 function 定义（仅白名单能力，安全优先） */
-export function buildAgentTools(): OpenAITool[] {
+export function buildAgentTools(): AgentTool[] {
   return [
     {
       type: 'function',
@@ -45,6 +48,48 @@ export function buildAgentTools(): OpenAITool[] {
           additionalProperties: false
         }
       }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'agent_tools_create',
+        description:
+          '创建一个新工具。宿主会分配工具 id、落盘脚手架页面（index.html + meta.json等等）并建立版本仓库。',
+        parameters: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: '工具标题（必填，用于标签与列表展示）' },
+            description: { type: 'string', description: '工具的一句话描述（可选）' },
+            name: {
+              type: 'string',
+              description: 'kebab-case 工具标识（可选，仅作归档/展示；非法时回退为 new-tool）'
+            },
+            capabilities: {
+              type: 'array',
+              items: { type: 'string' },
+              description: '本工具页面会调用的原子能力 id 白名单（可选，从生成器提示中的能力清单选取）'
+            }
+          },
+          required: ['title'],
+          additionalProperties: false
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'agent_tools_lock_status',
+        description:
+          '查询某个工具当前是否被其它会话只读锁定，避免并发编辑冲突。需要先用 agent_tools_list 拿到工具 id，再传入 toolId。',
+        parameters: {
+          type: 'object',
+          properties: {
+            toolId: { type: 'string', description: '工具 id（来自 agent_tools_list）' }
+          },
+          required: ['toolId'],
+          additionalProperties: false
+        }
+      }
     }
   ]
 }
@@ -59,17 +104,45 @@ export async function executeAgentTool(
     const args = argsJson && argsJson.trim() ? (JSON.parse(argsJson) as Record<string, unknown>) : {}
 
     if (name === 'agent_tools_list') {
-      const tools = listToolPages()
+      const tools = listUserTools()
       return { ok: true, result: JSON.stringify(tools) }
     }
 
     if (name === 'agent_tools_open') {
       const toolId = typeof args.toolId === 'string' ? args.toolId.trim() : ''
       if (!toolId) return { ok: false, error: '缺少 toolId 参数' }
-      const tool: ToolPageMeta | undefined = listToolPages().find((t) => t.id === toolId)
+      const tool: UserToolMeta | undefined = listUserTools().find((t) => t.id === toolId)
       if (!tool) return { ok: false, error: `未找到工具：${toolId}` }
       hooks.onOpenTool?.({ toolId: tool.id, title: tool.title })
       return { ok: true, result: JSON.stringify({ opened: tool.title, toolId: tool.id }) }
+    }
+
+    if (name === 'agent_tools_create') {
+      const title = typeof args.title === 'string' ? args.title.trim() : ''
+      if (!title) return { ok: false, error: '缺少 title 参数' }
+      const rawName = typeof args.name === 'string' ? args.name.trim() : ''
+      // kebab-case 校验：仅字母/数字/连字符且非首尾连字符；非法时回退默认标识
+      const name = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(rawName) ? rawName : 'new-tool'
+      const description = typeof args.description === 'string' ? args.description : ''
+      const capabilities = Array.isArray(args.capabilities)
+        ? args.capabilities.filter((c): c is string => typeof c === 'string')
+        : []
+      // 与 UI「新建工具」同一链路：宿主分配 id → 脚手架落盘 → git 建仓首提（失败不阻断创建）
+      const id = createUserToolId()
+      writeUserTool({ id, name, title, description, capabilities, html: newUserToolScaffoldHtml(title) })
+      try {
+        await initToolRepo(id)
+      } catch (error) {
+        console.warn('[agent_tools_create] 建仓失败（不影响创建）：', error)
+      }
+      hooks.onOpenTool?.({ toolId: id, title })
+      return { ok: true, result: JSON.stringify({ id, title }) }
+    }
+
+    if (name === 'agent_tools_lock_status') {
+      const toolId = typeof args.toolId === 'string' ? args.toolId.trim() : ''
+      if (!toolId) return { ok: false, error: '缺少 toolId 参数' }
+      return { ok: true, result: JSON.stringify(getToolLockStatus(toolId)) }
     }
 
     return { ok: false, error: `未知工具：${name}` }

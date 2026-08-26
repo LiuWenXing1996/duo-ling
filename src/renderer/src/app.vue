@@ -10,12 +10,53 @@ import {
   ComboboxInput as UiComboboxInput,
   ComboboxItem as UiComboboxItem
 } from '@/components/ui/combobox'
+import {
+  ResizableHandle as UiResizableHandle,
+  ResizablePanel as UiResizablePanel,
+  ResizablePanelGroup as UiResizablePanelGroup
+} from '@/components/ui/resizable'
 import ToolWorkspace from '@/components/ToolWorkspace.vue'
 import ToolIcon from '@/components/ToolIcon.vue'
+import SessionHistoryPanel from '@/components/SessionHistoryPanel.vue'
+import ChatPanel from '@/components/ChatPanel.vue'
+import { useGlobalConversation } from '@/composables/use-global-conversation'
 import type { ToolMeta } from '@/types/tool'
 
 // 左侧导航栏「新建工具」「设置」：调用工具工作台的对应方法
 const workspaceRef = ref<InstanceType<typeof ToolWorkspace> | null>(null)
+
+// —— 全局会话（主进程 conversation-store 一等公民）：会话历史 / 当前会话 + 工具多标签三栏组合 ——
+const g = useGlobalConversation({
+  // 多工具意图应用成功后：刷新对应工具详情并同步标签标题
+  onToolApplied: (results) => {
+    for (const r of results) {
+      if (!r.ok) continue
+      workspaceRef.value?.reloadTool(r.toolId)
+      if (r.title) workspaceRef.value?.renameTool(r.toolId, r.title)
+    }
+  }
+})
+const {
+  conversations,
+  activeConversationId,
+  messages,
+  pendingMap,
+  streaming,
+  draft,
+  loadConversations,
+  newConversation,
+  activateConversation,
+  deleteConversation,
+  deleteAllConversations,
+  send,
+  stopGeneration
+} = g
+
+/** 删除会话：单个 / 全部（删除确认浮层在 session-history-panel 内自含） */
+function onDeleteConversation(payload: { type: 'session' | 'all'; id?: string; title?: string }): void {
+  if (payload.type === 'session' && payload.id) deleteConversation(payload.id)
+  else deleteAllConversations()
+}
 
 // 全局搜索：从主进程读取所有已落盘工具元信息，在顶栏搜索框中筛选并下拉列出
 const allTools = ref<ToolMeta[]>([])
@@ -51,6 +92,8 @@ let unsubscribeOpenCommand: (() => void) | null = null
 
 onMounted(() => {
   reloadTools()
+  // 首次进入：加载全局会话列表（有则激活第一个，无则新建）
+  void loadConversations()
   // Agent Loop 决定打开工具时（agent.tools.open），由主进程广播命令，此处切换/新建工具标签页
   unsubscribeOpenCommand = window.api.tool.onOpenCommand(openToolFromCommand)
 })
@@ -123,7 +166,44 @@ function handleCreateTool(): void {
       </aside>
 
       <section class="workspace-panel workspace-panel--grow">
-        <tool-workspace ref="workspaceRef" :tools="allTools" @tools-changed="reloadTools" />
+        <!-- 全局三栏：会话历史 | 当前会话 | 多标签页（工具详情 / 设置 / 版本历史） -->
+        <ui-resizable-panel-group
+          direction="horizontal"
+          class="global-layout flex h-full w-full min-w-0"
+        >
+          <!-- 会话历史：全局会话列表（主进程 conversation-store） -->
+          <ui-resizable-panel :default-size="18" :min-size="12" :max-size="36" class="min-w-0">
+            <session-history-panel
+              :conversations="conversations"
+              :active-conversation-id="activeConversationId"
+              @activate="activateConversation"
+              @new="newConversation"
+              @delete="onDeleteConversation"
+            />
+          </ui-resizable-panel>
+
+          <ui-resizable-handle aria-label="拖拽调整会话历史宽度" />
+
+          <!-- 当前会话：全局当前激活会话的聊天窗 -->
+          <ui-resizable-panel :default-size="26" :min-size="16" :max-size="40" class="min-w-0">
+            <chat-panel
+              :messages="messages"
+              :pending-map="pendingMap"
+              :streaming="streaming"
+              :draft="draft"
+              @send="send"
+              @stop="stopGeneration"
+              @open-settings="workspaceRef?.openSettingsTab()"
+            />
+          </ui-resizable-panel>
+
+          <ui-resizable-handle aria-label="拖拽调整当前会话宽度" />
+
+          <!-- 多标签页：工具详情 / 设置 / 版本历史 / 数据详情 -->
+          <ui-resizable-panel :default-size="56" :min-size="24" class="min-w-0">
+            <tool-workspace ref="workspaceRef" :tools="allTools" @tools-changed="reloadTools" />
+          </ui-resizable-panel>
+        </ui-resizable-panel-group>
       </section>
     </div>
   </div>

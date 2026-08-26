@@ -7,7 +7,7 @@ import type { Capability, CapabilityRunResponse } from '../../shared/types'
 import { listCapabilities } from '../capability-registry'
 import { runBackendCapability } from '../capability-runtime'
 import { runFrontendCapability } from '../frontend-impls'
-import { readToolMetaAt, toolsRoot, previewRoot } from '../tool-page'
+import { readUserToolMetaAt, toolsRoot, previewRoot } from '../tool-page'
 import { isToolsDataCapability, runToolsDataCapability } from '../tools-data'
 
 /**
@@ -48,7 +48,7 @@ export function registerCapabilityIpc(): void {
         const metaPath = source.oid
           ? join(previewRoot(), source.toolId, source.oid, 'meta.json')
           : join(toolsRoot(), source.toolId, 'meta.json')
-        const allowed = readToolMetaAt(metaPath)?.capabilities ?? []
+        const allowed = readUserToolMetaAt(metaPath)?.capabilities ?? []
         if (!allowed.includes(id)) {
           return { ok: false, error: `工具未声明能力: ${id}` }
         }

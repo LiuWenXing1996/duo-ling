@@ -2,14 +2,14 @@
 import { computed, ref } from 'vue'
 import type { PropType } from 'vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
-import ToolPage, { type ToolPageMeta } from '@/components/ToolPage.vue'
+import ToolDetailPanel from '@/components/ToolDetailPanel.vue'
 import ToolHistory from '@/components/ToolHistory.vue'
 import ToolDataDetail from '@/components/ToolDataDetail.vue'
 import HomePanel from '@/components/HomePanel.vue'
 import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
 import ToolEditDialog from '@/components/ToolEditDialog.vue'
 import ToolDeleteDialog from '@/components/ToolDeleteDialog.vue'
-import type { OpenTool } from '@/types/tab'
+import type { OpenTool, ToolDetailMeta } from '@/types/tab'
 import type { ToolMeta } from '@/types/tool'
 import {
   Tabs as UiTabs,
@@ -60,7 +60,7 @@ function openSettingsTab(): void {
 }
 
 // 打开某工具的「版本历史」标签页：同一工具只有一个历史页，已打开则激活
-function openToolHistory(tool: ToolPageMeta): void {
+function openToolHistory(tool: ToolDetailMeta): void {
   const id = `${tool.id}:history`
   if (!openTabs.value.some((t) => t.id === id)) {
     openTabs.value.push({
@@ -93,6 +93,19 @@ function openToolData(toolId: string, toolTitle: string): void {
 function renameTab(id: string, title: string): void {
   const tab = openTabs.value.find((t) => t.id === id)
   if (tab) tab.title = title
+}
+
+// —— 工具详情面板 ref 映射（tool 标签均保持挂载，切换标签不卸载）——
+const detailRefs = ref<Record<string, InstanceType<typeof ToolDetailPanel> | null>>({})
+
+/** 刷新某工具详情面板（生成器改动落盘后由全局会话的 onToolApplied 触发） */
+function reloadTool(id: string): void {
+  detailRefs.value[id]?.reload()
+}
+
+/** 同步某工具标签标题（生成器改动可能更新工具标题，由 onToolApplied 触发） */
+function renameTool(id: string, title: string): void {
+  renameTab(id, title)
 }
 
 const toolError = ref('')
@@ -180,8 +193,9 @@ async function confirmDeleteTool(keepData: boolean): Promise<void> {
   emit('toolsChanged')
 }
 
-// 暴露给根布局：左侧导航栏「新建工具」「设置」、全宽顶栏搜索下拉「打开工具」
-defineExpose({ createTool, openTool, openSettingsTab })
+// 暴露给根布局：左侧导航栏「新建工具」「设置」、全宽顶栏搜索下拉「打开工具」，
+// 以及全局会话应用多工具意图后刷新工具详情 / 同步标签标题
+defineExpose({ createTool, openTool, openSettingsTab, reloadTool, renameTool })
 </script>
 
 <template>
@@ -218,12 +232,11 @@ defineExpose({ createTool, openTool, openSettingsTab })
           @edit="askEditTool"
           @delete="askDeleteTool"
         />
-        <!-- 工具页：三栏（会话历史 / 当前会话 / 工具详情） -->
-        <tool-page
+        <!-- 工具详情：工具标签只渲染详情面板（会话历史/当前会话已上浮为全局三栏） -->
+        <tool-detail-panel
           v-else-if="tab.kind === 'tool'"
+          :ref="(el) => (detailRefs[tab.id] = el as InstanceType<typeof ToolDetailPanel> | null)"
           :tool="{ id: tab.id, title: tab.title, icon: tab.icon }"
-          @renamed="renameTab"
-          @open-settings="openSettingsTab"
           @open-history="openToolHistory"
         />
         <!-- 工具版本历史：展示该工具的 git 提交记录 -->

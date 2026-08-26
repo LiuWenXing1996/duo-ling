@@ -19,18 +19,47 @@ export interface ChatMessage {
   createdAt: string
 }
 
-// 对话流式事件（主进程 → 渲染层，channel: chat:event）
-export type ChatEventData =
-  | { type: 'token'; taskId: number; token: string }
-  | { type: 'done'; taskId: number; message: ChatMessage }
-  | { type: 'aborted'; taskId: number; message: ChatMessage | null }
-  | { type: 'error'; taskId: number; error: string }
+// —— 会话（解耦后的全局一等公民，主进程 conversation-store）——
+export interface Conversation {
+  id: string
+  title: string
+  createdAt: string
+  /** 最后一条消息时间（ISO），用于会话列表排序/展示 */
+  lastMessageAt: string
+}
 
-// 生成器流式事件（主进程 → 渲染层，channel: generator:event）。
+export type MessageRole = 'user' | 'assistant'
+
+export interface Message {
+  id: string
+  conversationId: string
+  role: MessageRole
+  content: string
+  /** AI 思考过程（reasoning），与正文分离存储；仅 assistant 消息可能有 */
+  reasoning?: string
+  createdAt: string
+}
+
+/** 一次「多工具改动」中单个工具的编辑意图（挂在某条 AI 消息下） */
+export type EditIntentStatus = 'pending' | 'applied' | 'failed' | 'rejected'
+
+export interface EditIntent {
+  id: string
+  messageId: string
+  toolId: string
+  summary: string
+  actions: ToolChangeAction[]
+  status: EditIntentStatus
+  /** 落盘失败时的错误信息（status = failed 时有值） */
+  error?: string
+  createdAt: string
+}
+
+// AI 对话流式事件（主进程 → 渲染层，channel: agent:event）。
 // 思考过程与正文从一开始就分离：reasoning 写 reasoning（text），content 写正文（token），
 // 渲染层无需再用 <think> 标签切分，与业界标准消息模型 { role, content, reasoning? } 一致。
 // tool_start / tool_result 由 Agent Loop 回调产生：AI 自主调用工具时逐步推给渲染层作步骤展示
-export type GeneratorEventData =
+export type AgentEventData =
   | { type: 'token'; token: string }
   | { type: 'reasoning'; text: string }
   | { type: 'done'; content: string; reasoning?: string }
@@ -46,8 +75,8 @@ export interface ToolOpenCommand {
   title: string
 }
 
-/** 生成器对话历史的一项（仅 role + content，带 id/createdAt 的完整 ChatMessage 仅主进程内部需要） */
-export interface GeneratorMessage {
+/** AI 对话历史的一项（仅 role + content，带 id/createdAt 的完整 ChatMessage 仅主进程内部需要） */
+export interface AgentMessage {
   role: ChatRole
   content: string
 }
@@ -169,7 +198,7 @@ export type CapabilityRunResponse = { ok: true; result: unknown } | { ok: false;
 
 // —— 工具页面 ——
 /** 工具元信息：tool:list 返回、主页网格与全局搜索共用 */
-export interface ToolPageMeta {
+export interface UserToolMeta {
   id: string
   name: string
   title: string
@@ -178,6 +207,13 @@ export interface ToolPageMeta {
   icon?: string
   /** 本工具声明可调用的能力 id 白名单；缺省/空数组视为不声明任何能力 */
   capabilities?: string[]
+}
+
+/** 工具只读锁查询结果（capability: tool.lock.status）。Phase 1 只读不写：恒为「未被持有」。 */
+export interface ToolLockStatus {
+  toolId: string
+  locked: boolean
+  holderId?: string
 }
 
 /** 生成器变更动作：整文件覆盖（write）或精确替换（patch） */
@@ -204,7 +240,40 @@ export interface ToolChangeList {
   actions: ToolChangeAction[]
 }
 
-/** 一次提交的快照（新提交在前） */
+/** 多工具契约：一次对话可声明的单个工具编辑意图（渲染层解析 `intents[]` 得到的形状） */
+export interface GeneratedIntent {
+  toolId: string
+  summary: string
+  actions: ToolChangeAction[]
+}
+
+/** conversation:applyIntents 的入参：对某条 AI 消息声明的一批工具意图 */
+export interface ApplyIntentsInput {
+  conversationId: string
+  messageId: string
+  intents: GeneratedIntent[]
+}
+
+/** 单个工具应用结果（conversation:applyIntents 返回） */
+export interface ApplyIntentEntryResult {
+  toolId: string
+  ok: boolean
+  /** 成功且工具标题可能更新时返回最新标题，供渲染层同步标签名 */
+  title?: string
+  error?: string
+}
+
+export type ApplyIntentsResult = { ok: boolean; results: ApplyIntentEntryResult[]; error?: string }
+
+/** agent:send 附带的工具上下文：告诉 AI「当前正在编辑哪个工具」，使 intents 默认指向它 */
+export interface AgentToolContext {
+  /** 用户当前正在查看/编辑的工具 id（intents 默认指向它） */
+  currentToolId: string
+  /** 当前打开的工具标题（标签名），仅用于提示文案 */
+  currentToolTitle?: string
+}
+
+// 一次提交的快照（新提交在前）
 export interface ToolCommit {
   oid: string
   message: string
@@ -307,8 +376,8 @@ export type ToolsDataDeleteOrphanResult = { ok: true; removed: number } | { ok: 
 /** 在系统文件管理器中打开数据目录结果（channel: tools-data:open） */
 export type ToolsDataOpenResult = { ok: true } | { ok: false; error: string }
 
-/** 生成器 send 的结果（channel: generator:send） */
-export interface GeneratorSendResult {
+/** AI 对话 send 的结果（channel: agent:send） */
+export interface AgentSendResult {
   ok: boolean
   content?: string
   reasoning?: string

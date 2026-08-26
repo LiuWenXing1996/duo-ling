@@ -1,16 +1,14 @@
-// 工具管理 IPC：新建、列表、删除、元信息更新、版本历史/回滚/预览、预览缓存管理。
-// 「当前会话」聊天驱动 AI 构建/修改工具时调用（AI 产出变更清单后自动落盘并提交）。
+/** 工具管理 IPC：新建、列表、删除、元信息更新、版本历史/回滚/预览、预览缓存管理。
+ * 「当前会话」聊天驱动 AI 构建/修改工具时调用（AI 产出变更清单后自动落盘并提交）。 */
 import { ipcMain } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import {
-  CH
-} from '../../shared/ipc'
+import { CH } from '../../shared/ipc'
 import type {
   ToolChangeList,
   ToolCreateResult,
   ToolHistoryResult,
-  ToolPageMeta,
+  UserToolMeta,
   ToolPreviewResult,
   ToolResult,
   ToolsDataClearResult,
@@ -25,11 +23,12 @@ import type {
 } from '../../shared/types'
 import {
   applyToolChanges,
-  deleteToolPage,
-  listToolPages,
-  newToolScaffoldHtml,
-  updateToolMeta,
-  writeToolPage
+  createUserToolId,
+  deleteUserTool,
+  listUserTools,
+  newUserToolScaffoldHtml,
+  updateUserToolMeta,
+  writeUserTool
 } from '../tool-page'
 import {
   clearPreviewCache,
@@ -48,11 +47,6 @@ import {
   openToolsDataDir
 } from '../tools-data'
 
-/** 生成一个足够唯一的宿主工具 ID（时间戳 + 随机段），用于工具文件夹名与 tool:// host */
-function createToolId(): string {
-  return `t-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
-}
-
 export function registerToolIpc(): void {
   // —— 新建工具 ——
   // 点击「新建工具」：宿主分配唯一 ID，落盘脚手架 index.html 与 meta.json，返回后由渲染层打开该工具标签页。
@@ -60,9 +54,9 @@ export function registerToolIpc(): void {
     CH.toolCreate,
     async (): Promise<ToolCreateResult> => {
       try {
-        const id = createToolId()
+        const id = createUserToolId()
         const title = '新建工具'
-        writeToolPage({ id, name: 'new-tool', title, description: '', html: newToolScaffoldHtml(title) })
+        writeUserTool({ id, name: 'new-tool', title, description: '', html: newUserToolScaffoldHtml(title) })
         // 工具已落盘成功后为目录建仓并做「创建工具」首提；git 记录失败不阻断创建
         await initToolRepo(id)
         return { ok: true, id, title }
@@ -79,7 +73,7 @@ export function registerToolIpc(): void {
   )
 
   // 读取所有已落盘工具列表（供全局搜索下拉等场景使用）
-  ipcMain.handle(CH.toolList, (): ToolPageMeta[] => listToolPages())
+  ipcMain.handle(CH.toolList, (): UserToolMeta[] => listUserTools())
 
   // 读取某工具的 git 提交历史（新在先；无仓库则空列表，供「版本历史」标签页使用）
   ipcMain.handle(CH.toolHistory, (_event, id: string): Promise<ToolHistoryResult> =>
@@ -118,7 +112,7 @@ export function registerToolIpc(): void {
   // 删除指定工具（主页工具卡片删除按钮调用）。
   // keepData 为 true 时仅移除工具源码目录、保留数据区（后续可重新关联）；缺省 false 时连同数据一起删除。
   ipcMain.handle(CH.toolDelete, (_event, id: string, keepData?: boolean): ToolResult => {
-    const result = deleteToolPage(id)
+    const result = deleteUserTool(id)
     if (!result.ok) return { ok: false, error: result.error }
     if (!keepData) {
       const dataResult = clearToolsData(id)
@@ -148,7 +142,7 @@ export function registerToolIpc(): void {
   ipcMain.handle(
     CH.toolUpdateMeta,
     (_event, id: string, patch: { title?: string; description?: string; icon?: string }): ToolUpdateMetaResult => {
-      const result = updateToolMeta(id, patch)
+      const result = updateUserToolMeta(id, patch)
       return result.ok
         ? { ok: true, title: result.title, icon: result.icon }
         : { ok: false, error: result.error }

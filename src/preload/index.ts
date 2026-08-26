@@ -1,8 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
-  ChatEventData,
-  GeneratorEventData,
-  GeneratorMessage,
+  AgentEventData,
+  AgentMessage,
   Task,
   ToolOpenCommand
 } from '../shared/types'
@@ -11,8 +10,7 @@ import { CH, EVENT_CH, type InvokeMap, type PreloadApi } from '../shared/ipc'
 // 通过 contextBridge 暴露给渲染进程的自定义 API。
 // 所有类型一律来自 src/shared（唯一来源），不再手写重复 interface，避免 drift。
 
-let chatEventListener: ((_event: IpcRendererEvent, payload: ChatEventData) => void) | null = null
-let generatorEventListener: ((_event: IpcRendererEvent, payload: GeneratorEventData) => void) | null = null
+let agentEventListener: ((_event: IpcRendererEvent, payload: AgentEventData) => void) | null = null
 let toolOpenCommandListener: ((_event: IpcRendererEvent, payload: ToolOpenCommand) => void) | null = null
 
 /** 类型化 invoke：通道与 args/result 由 InvokeMap 约束，主进程改签名时此处编译期报错 */
@@ -38,10 +36,6 @@ const api: PreloadApi = {
   },
   provider: {
     list: () => invoke(CH.providerList)
-  },
-  settings: {
-    getSystemPrompt: () => invoke(CH.settingsGetSystemPrompt),
-    setSystemPrompt: (value) => invoke(CH.settingsSetSystemPrompt, value)
   },
   window: {
     getBounds: () => invoke(CH.windowGetBounds)
@@ -83,36 +77,32 @@ const api: PreloadApi = {
     deleteOrphan: () => invoke(CH.toolsDataDeleteOrphan),
     open: (id) => invoke(CH.toolsDataOpen, id)
   },
-  chat: {
-    history: (taskId) => invoke(CH.chatHistory, taskId),
-    send: (taskId, text) => invoke(CH.chatSend, taskId, text),
-    abort: () => invoke(CH.chatAbort),
-    onEvent: (callback: (payload: ChatEventData) => void): void => {
-      if (chatEventListener) ipcRenderer.removeListener(EVENT_CH.chat, chatEventListener)
-      chatEventListener = (_event, payload) => callback(payload)
-      ipcRenderer.on(EVENT_CH.chat, chatEventListener)
+  agent: {
+    send: (history: AgentMessage[], context) => invoke(CH.agentSend, history, context),
+    abort: () => invoke(CH.agentAbort),
+    onEvent: (callback: (payload: AgentEventData) => void): void => {
+      if (agentEventListener) ipcRenderer.removeListener(EVENT_CH.agent, agentEventListener)
+      agentEventListener = (_event, payload) => callback(payload)
+      ipcRenderer.on(EVENT_CH.agent, agentEventListener)
     },
     offEvent: (): void => {
-      if (chatEventListener) {
-        ipcRenderer.removeListener(EVENT_CH.chat, chatEventListener)
-        chatEventListener = null
+      if (agentEventListener) {
+        ipcRenderer.removeListener(EVENT_CH.agent, agentEventListener)
+        agentEventListener = null
       }
     }
   },
-  generator: {
-    send: (history: GeneratorMessage[]) => invoke(CH.generatorSend, history),
-    abort: () => invoke(CH.generatorAbort),
-    onEvent: (callback: (payload: GeneratorEventData) => void): void => {
-      if (generatorEventListener) ipcRenderer.removeListener(EVENT_CH.generator, generatorEventListener)
-      generatorEventListener = (_event, payload) => callback(payload)
-      ipcRenderer.on(EVENT_CH.generator, generatorEventListener)
-    },
-    offEvent: (): void => {
-      if (generatorEventListener) {
-        ipcRenderer.removeListener(EVENT_CH.generator, generatorEventListener)
-        generatorEventListener = null
-      }
-    }
+  conversation: {
+    list: () => invoke(CH.conversationList),
+    create: () => invoke(CH.conversationCreate),
+    rename: (id, title) => invoke(CH.conversationRename, id, title),
+    messages: (conversationId) => invoke(CH.conversationMessages, conversationId),
+    appendMessage: (conversationId, role, content, reasoning) =>
+      invoke(CH.conversationAppendMessage, conversationId, role, content, reasoning),
+    applyIntents: (input) => invoke(CH.conversationApplyIntents, input),
+    intents: (conversationId) => invoke(CH.conversationIntents, conversationId),
+    delete: (id) => invoke(CH.conversationDelete, id),
+    deleteAll: () => invoke(CH.conversationDeleteAll)
   }
 }
 

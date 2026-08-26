@@ -50,7 +50,7 @@ import {
 } from '@/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import { truncate } from '@/lib/format'
-import type { PendingChange, ToolChatMessage, ToolChatStep } from '@/composables/use-tool-sessions'
+import type { PendingChange, ToolChatMessage, ToolChatStep } from '@/composables/use-global-conversation'
 import type { ToolUIPart } from 'ai'
 
 const props = defineProps<{
@@ -120,8 +120,40 @@ onMounted(() => {
   void window.api.model.list().then(refreshModelStatus)
 })
 
-// —— 思考与执行过程可视化：思考与正文从一开始就分离存（reasoning / content），直接读取即可 ——
+// —— 思考与执行过程可视化：思考与正文从一开始就分离存（reasoning / content）——
 const thinkOf = (m: ToolChatMessage): string => m.reasoning ?? ''
+
+/** 链上节点：thinking 是一段思考（按轮分段），step 是一次工具调用步骤（含中间轮正文说明） */
+interface ChainNode {
+  kind: 'thinking' | 'step'
+  key: string
+  text?: string
+  step?: ToolChatStep
+}
+
+/**
+ * 把「思考轮次」与「工具步骤」按轮交错成链上节点：
+ *   - 流式/新消息：reasonings[i] 对应 steps[i] 前的本轮思考；reasonings 末尾多出的那段是最终轮思考（无工具调用）。
+ *   - 历史回显：reasonings 为空，回退用 reasoning 作为链首思考，再逐个挂步骤。
+ */
+function chainNodes(m: ToolChatMessage): ChainNode[] {
+  const steps = m.steps ?? []
+  if (!m.reasonings || m.reasonings.length === 0) {
+    const nodes: ChainNode[] = []
+    if (m.reasoning?.trim()) nodes.push({ kind: 'thinking', key: 'r-0', text: m.reasoning })
+    steps.forEach((s, i) => nodes.push({ kind: 'step', key: `s-${i}`, step: s }))
+    return nodes
+  }
+  const nodes: ChainNode[] = []
+  const roundCount = Math.max(m.reasonings.length, steps.length)
+  for (let i = 0; i < roundCount; i++) {
+    const r = m.reasonings[i]
+    if (r?.trim()) nodes.push({ kind: 'thinking', key: `r-${i}`, text: r })
+    const s = steps[i]
+    if (s) nodes.push({ kind: 'step', key: `s-${i}`, step: s })
+  }
+  return nodes
+}
 
 /** Agent 工具调用步骤状态 → ChainOfThoughtStep 状态映射（error 视作已结束，用图标示错） */
 function cotStatus(status: ToolChatStep['status']): 'complete' | 'active' | 'pending' {
@@ -217,54 +249,64 @@ function onPromptSubmit(payload: PromptInputMessage): void {
               class="flex flex-col gap-1.5"
               :class="m.role === 'user' ? 'items-end' : 'items-start'"
             >
-              <!-- 思考与执行过程：用 ai-elements ChainOfThought 融合成一条链（reasoning 链首描述 + steps 逐步），默认展开 -->
+              <!-- 思考与执行过程：用 ai-elements ChainOfThought 把「思考轮次」与「工具步骤」按轮交错成一条链，默认展开 -->
               <ui-chain-of-thought
-                v-if="m.role === 'ai' && (thinkOf(m) || m.steps?.length)"
+                v-if="m.role === 'ai' && (thinkOf(m) || m.reasonings?.length || m.steps?.length)"
                 :default-open="true"
                 class="w-full min-w-0"
                 data-testid="chain-of-thought"
               >
                 <ui-chain-of-thought-header>思考与执行过程</ui-chain-of-thought-header>
                 <ui-chain-of-thought-content>
-                  <p
-                    v-if="thinkOf(m)"
-                    class="text-sm leading-relaxed text-foreground/90"
-                  >
-                    {{ thinkOf(m) }}
-                  </p>
-                  <ui-chain-of-thought-step
-                    v-for="s in m.steps"
-                    :key="s.id"
-                    :label="stepLabel(s.name)"
-                    :status="cotStatus(s.status)"
-                  >
-                    <template #icon>
-                      <ui-loader-circle
-                        v-if="s.status === 'running'"
-                        class="size-4 shrink-0 animate-spin text-muted-foreground"
-                      />
-                      <ui-circle-check
-                        v-else-if="s.status === 'done'"
-                        class="size-4 shrink-0 text-green-600"
-                      />
-                      <ui-circle-x v-else class="size-4 shrink-0 text-destructive" />
-                    </template>
-                    <!-- 工具调用卡：完整使用官方 Tool 卡片（入参 ToolInput + 出参/报错 ToolOutput），整体嵌进链上这一环 -->
-                    <ui-tool class="min-w-0" :default-open="true">
-                      <ui-tool-header
-                        :title="stepLabel(s.name)"
-                        type="tool-invocation"
-                        :state="toolState(s.status)"
-                      />
-                      <ui-tool-content class="min-w-0">
-                        <ui-tool-input :input="toolInput(s.arguments)" />
-                        <ui-tool-output
-                          :output="toolOutput(s.result)"
-                          :error-text="s.error ?? undefined"
+                  <template v-for="node in chainNodes(m)" :key="node.key">
+                    <!-- 思考节点：该轮模型在调用工具前后的思考，按轮单独展示，避免多轮聚合 -->
+                    <p
+                      v-if="node.kind === 'thinking'"
+                      class="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90"
+                    >
+                      {{ node.text }}
+                    </p>
+                    <!-- 工具步骤节点 -->
+                    <ui-chain-of-thought-step
+                      v-else
+                      :label="stepLabel(node.step!.name)"
+                      :status="cotStatus(node.step!.status)"
+                    >
+                      <template #icon>
+                        <ui-loader-circle
+                          v-if="node.step!.status === 'running'"
+                          class="size-4 shrink-0 animate-spin text-muted-foreground"
                         />
-                      </ui-tool-content>
-                    </ui-tool>
-                  </ui-chain-of-thought-step>
+                        <ui-circle-check
+                          v-else-if="node.step!.status === 'done'"
+                          class="size-4 shrink-0 text-green-600"
+                        />
+                        <ui-circle-x v-else class="size-4 shrink-0 text-destructive" />
+                      </template>
+                      <!-- 该轮正文：模型在调用工具前输出的中间轮正文，归入步骤而非主气泡 -->
+                      <p
+                        v-if="node.step!.content"
+                        class="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90"
+                      >
+                        {{ node.step!.content }}
+                      </p>
+                      <!-- 工具调用卡：完整使用官方 Tool 卡片（入参 ToolInput + 出参/报错 ToolOutput），整体嵌进链上这一环 -->
+                      <ui-tool class="min-w-0" :default-open="true">
+                        <ui-tool-header
+                          :title="stepLabel(node.step!.name)"
+                          type="tool-invocation"
+                          :state="toolState(node.step!.status)"
+                        />
+                        <ui-tool-content class="min-w-0">
+                          <ui-tool-input :input="toolInput(node.step!.arguments)" />
+                          <ui-tool-output
+                            :output="toolOutput(node.step!.result)"
+                            :error-text="node.step!.error ?? undefined"
+                          />
+                        </ui-tool-content>
+                      </ui-tool>
+                    </ui-chain-of-thought-step>
+                  </template>
                 </ui-chain-of-thought-content>
               </ui-chain-of-thought>
               <!-- 消息气泡：用 ai-elements 的 Message / MessageContent / MessageResponse 渲染 -->

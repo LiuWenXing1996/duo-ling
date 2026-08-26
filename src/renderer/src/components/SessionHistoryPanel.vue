@@ -11,11 +11,12 @@ import {
   DialogFooter as UiDialogFooter,
   DialogTitle as UiDialogTitle
 } from '@/components/ui/dialog'
-import type { ToolSession } from '@/composables/use-tool-sessions'
+import type { Conversation } from '../../../shared/types'
+import { formatSessionTime } from '@/composables/use-global-conversation'
 
 const props = defineProps<{
-  sessions: ToolSession[]
-  activeSessionId: string
+  conversations: Conversation[]
+  activeConversationId: string
 }>()
 const emit = defineEmits<{
   activate: [id: string]
@@ -58,7 +59,7 @@ function confirmDelete(): void {
           class="no-drag size-7"
           aria-label="删除全部会话"
           title="删除全部会话"
-          :disabled="!props.sessions.length"
+          :disabled="!props.conversations.length"
           @click.stop="openDelete({ type: 'all' })"
         >
           <ui-trash2 class="size-4" />
@@ -77,18 +78,18 @@ function confirmDelete(): void {
     </header>
 
     <div class="min-h-0 flex-1 overflow-y-auto scroll-gap">
-      <ul v-if="props.sessions.length" class="divide-y">
+      <ul v-if="props.conversations.length" class="divide-y">
         <li
-          v-for="s in props.sessions"
+          v-for="s in props.conversations"
           :key="s.id"
           class="group cursor-pointer px-4 py-2.5 transition-colors hover:bg-accent"
-          :class="{ 'bg-accent': s.id === props.activeSessionId }"
+          :class="{ 'bg-accent': s.id === props.activeConversationId }"
           @click="emit('activate', s.id)"
         >
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
               <p class="truncate text-sm">{{ s.title }}</p>
-              <p class="text-muted-foreground text-xs">{{ s.meta }}</p>
+              <p class="text-muted-foreground text-xs">{{ formatSessionTime(s.lastMessageAt) }}</p>
             </div>
             <ui-button
               variant="ghost"

@@ -1,0 +1,268 @@
+// 会话独立存储：把「会话」从工具会话（localStorage 分桶）提升为主进程一等公民。
+//
+// 数据模型（Phase 1·解耦与契约）：
+//   Conversation —— 全局唯一的会话元信息（唯一关联工具的点是 EditIntent.toolId，会话本身不绑工具）
+//   Message      —— 会话内一条消息（user/assistant）
+//   EditIntent   —— 挂在某条 AI 消息下、对「某个工具」的一次编辑意图（多工具契约的持久化载体）
+//
+// 存储为 electron-store，JSON Schema 校验拒绝畸形数据。惰性创建，首次调用发生在 IPC 处理时
+// （app 就绪且 userData 覆盖已生效之后），与 store.ts 保持一致。
+
+import Store, { type Schema } from 'electron-store'
+import type {
+  Conversation,
+  EditIntent,
+  EditIntentStatus,
+  Message,
+  MessageRole,
+  ToolChangeAction
+} from '../shared/types'
+
+export type { Conversation, EditIntent, EditIntentStatus, Message, MessageRole, ToolChangeAction }
+
+interface ConversationState {
+  conversations: Conversation[]
+  // 自增序号：用于新会话标题「新会话 N」（会话列表展示与旧 task 语义兼容）
+  nextSeq: number
+  // 按 conversationId 分桶的消息
+  messages: Record<string, Message[]>
+  // 按 messageId 分桶的 EditIntent（一条 AI 消息可声明多个工具意图）
+  intents: Record<string, EditIntent[]>
+}
+
+// JSON Schema 校验：拒绝畸形/被篡改的数据，防止损坏文件导致渲染层崩溃
+const schema: Schema<ConversationState> = {
+  conversations: {
+    type: 'array',
+    items: {
+      type: 'object',
+      required: ['id', 'title', 'createdAt', 'lastMessageAt'],
+      properties: {
+        id: { type: 'string' },
+        title: { type: 'string' },
+        createdAt: { type: 'string' },
+        lastMessageAt: { type: 'string' }
+      },
+      additionalProperties: false
+    }
+  },
+  nextSeq: { type: 'number' },
+  messages: {
+    type: 'object',
+    additionalProperties: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['id', 'conversationId', 'role', 'content', 'createdAt'],
+        properties: {
+          id: { type: 'string' },
+          conversationId: { type: 'string' },
+          role: { type: 'string', enum: ['user', 'assistant'] },
+          content: { type: 'string' },
+          reasoning: { type: 'string' },
+          createdAt: { type: 'string' }
+        },
+        additionalProperties: false
+      }
+    }
+  },
+  intents: {
+    type: 'object',
+    additionalProperties: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['id', 'messageId', 'toolId', 'summary', 'actions', 'status', 'createdAt'],
+        properties: {
+          id: { type: 'string' },
+          messageId: { type: 'string' },
+          toolId: { type: 'string' },
+          summary: { type: 'string' },
+          actions: { type: 'array' },
+          status: { type: 'string', enum: ['pending', 'applied', 'failed', 'rejected'] },
+          error: { type: 'string' },
+          createdAt: { type: 'string' }
+        },
+        additionalProperties: false
+      }
+    }
+  }
+}
+
+let store: Store<ConversationState> | undefined
+
+// 惰性创建：首次调用发生在 IPC 处理时（app 就绪且 userData 覆盖已生效之后）
+function getStore(): Store<ConversationState> {
+  store ??= new Store<ConversationState>({
+    name: 'conversations',
+    defaults: { conversations: [], nextSeq: 1, messages: {}, intents: {} },
+    schema
+  })
+  return store
+}
+
+/** 生成足够唯一的 ID（前缀 + 时间戳 + 随机段），会话/消息/意图三种实体复用 */
+function newId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+}
+
+/** 会话列表，按最后消息时间倒序（新在前）；无消息会话按创建时间倒序 */
+export function listConversations(): Conversation[] {
+  return [...getStore().get('conversations')].sort((a, b) =>
+    b.lastMessageAt.localeCompare(a.lastMessageAt)
+  )
+}
+
+export function getConversation(id: string): Conversation | null {
+  return getStore().get('conversations').find((c) => c.id === id) ?? null
+}
+
+export function createConversation(): Conversation {
+  const seq = getStore().get('nextSeq')
+  getStore().set('nextSeq', seq + 1)
+  const now = new Date().toISOString()
+  const conversation: Conversation = {
+    id: newId('c'),
+    title: `新会话 ${seq}`,
+    createdAt: now,
+    lastMessageAt: now
+  }
+  const list = getStore().get('conversations')
+  getStore().set('conversations', [...list, conversation])
+  return conversation
+}
+
+/** 重命名会话（手动改名或首条消息自动命名）；title 去空白，为空返回 null */
+export function renameConversation(id: string, title: string): Conversation | null {
+  const trimmed = title.trim()
+  if (!trimmed) return null
+  const list = getStore().get('conversations')
+  const index = list.findIndex((c) => c.id === id)
+  if (index === -1) return null
+  const next = [...list]
+  next[index] = { ...next[index], title: trimmed }
+  getStore().set('conversations', next)
+  return next[index]
+}
+
+export function listMessages(conversationId: string): Message[] {
+  return getStore().get('messages')[conversationId] ?? []
+}
+
+/** 取出某会话全部消息名下登记的编辑意图（重建变更卡片用） */
+export function listConversationIntents(conversationId: string): EditIntent[] {
+  const intents = getStore().get('intents')
+  const out: EditIntent[] = []
+  for (const m of listMessages(conversationId)) {
+    const list = intents[m.id]
+    if (list) out.push(...list)
+  }
+  return out
+}
+
+/** 追加一条消息并刷新会话 lastMessageAt；返回落库后的消息（reasoning 仅 assistant 消息传入） */
+export function appendMessage(
+  conversationId: string,
+  role: MessageRole,
+  content: string,
+  reasoning?: string
+): Message | null {
+  const conversation = getConversation(conversationId)
+  if (!conversation) return null
+  const now = new Date().toISOString()
+  const message: Message = {
+    id: newId('m'),
+    conversationId,
+    role,
+    content,
+    reasoning,
+    createdAt: now
+  }
+  const messages = getStore().get('messages')
+  const current = messages[conversationId] ?? []
+  getStore().set('messages', { ...messages, [conversationId]: [...current, message] })
+  // 刷新会话最后消息时间，保证会话列表排序正确
+  const list = getStore().get('conversations')
+  const index = list.findIndex((c) => c.id === conversationId)
+  if (index !== -1) {
+    const nextList = [...list]
+    nextList[index] = { ...nextList[index], lastMessageAt: now }
+    getStore().set('conversations', nextList)
+  }
+  return message
+}
+
+/** 取出某条 AI 消息下声明的全部编辑意图 */
+export function listIntents(messageId: string): EditIntent[] {
+  return getStore().get('intents')[messageId] ?? []
+}
+
+/** 为某条 AI 消息登记一个编辑意图，返回落库后的意图 */
+export function addIntent(
+  messageId: string,
+  toolId: string,
+  summary: string,
+  actions: ToolChangeAction[],
+  status: EditIntentStatus = 'pending'
+): EditIntent {
+  const intent: EditIntent = {
+    id: newId('i'),
+    messageId,
+    toolId,
+    summary,
+    actions,
+    status,
+    createdAt: new Date().toISOString()
+  }
+  const intents = getStore().get('intents')
+  const current = intents[messageId] ?? []
+  getStore().set('intents', { ...intents, [messageId]: [...current, intent] })
+  return intent
+}
+
+/** 更新某条编辑意图的状态（applied / failed / rejected）；不存在则忽略 */
+export function setIntentStatus(intentId: string, status: EditIntentStatus, error?: string): void {
+  const intents = getStore().get('intents')
+  const next: Record<string, EditIntent[]> = {}
+  let changed = false
+  for (const [messageId, list] of Object.entries(intents)) {
+    const idx = list.findIndex((i) => i.id === intentId)
+    if (idx === -1) {
+      next[messageId] = list
+      continue
+    }
+    const updated = [...list]
+    updated[idx] = { ...updated[idx], status, ...(error ? { error } : {}) }
+    next[messageId] = updated
+    changed = true
+  }
+  if (changed) getStore().set('intents', next)
+}
+
+/** 删除单个会话，并清理其消息桶与该会话下所有消息的意图桶 */
+export function deleteConversation(id: string): void {
+  const store = getStore()
+  const conversations = store.get('conversations').filter((c) => c.id !== id)
+  store.set('conversations', conversations)
+
+  const messages = store.get('messages')
+  const { [id]: _removedMessages, ...restMessages } = messages
+  if (messages[id]) store.set('messages', restMessages)
+
+  // 清理该会话所有消息名下登记的意图（intents 按 messageId 分桶，需逐个判断归属）
+  const messageIds = new Set((_removedMessages ?? []).map((m) => m.id))
+  const intents = store.get('intents')
+  const restIntents: Record<string, EditIntent[]> = {}
+  for (const [messageId, list] of Object.entries(intents)) {
+    if (!messageIds.has(messageId)) restIntents[messageId] = list
+  }
+  store.set('intents', restIntents)
+}
+
+/** 清空全部会话（连同消息与意图桶一并删除） */
+export function deleteAllConversations(): void {
+  const store = getStore()
+  store.set('conversations', [])
+  store.set('messages', {})
+  store.set('intents', {})
+}

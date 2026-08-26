@@ -23,13 +23,6 @@ const providers = ref<ModelProvider[]>([])
 const loadError = ref('')
 const activeId = ref('')
 
-// 全局系统提示词：所有模型共用，保存为持久化设置
-const systemPrompt = ref('')
-const systemPromptSavedAt = ref('')
-let systemPromptTimer: ReturnType<typeof setTimeout> | undefined
-// 仅首次加载时用持久化值填充输入框，之后刷新不覆盖正在编辑的内容
-let systemPromptInitialized = false
-
 // 弹窗状态（新增/编辑共用）
 const dialogOpen = ref(false)
 const editing = ref<ModelProfile | null>(null)
@@ -151,31 +144,17 @@ function formatBytes(bytes: number): string {
 
 async function loadData(): Promise<void> {
   try {
-    const [modelData, providerData, savedSystemPrompt] = await Promise.all([
+    const [modelData, providerData] = await Promise.all([
       window.api.model.list(),
-      window.api.provider.list(),
-      window.api.settings.getSystemPrompt()
+      window.api.provider.list()
     ])
     profiles.value = modelData.profiles
     providers.value = providerData
     activeId.value = modelData.activeId
-    if (!systemPromptInitialized) {
-      systemPrompt.value = savedSystemPrompt
-      systemPromptInitialized = true
-    }
     loadError.value = ''
   } catch (error) {
     loadError.value = error instanceof Error ? error.message : String(error)
   }
-}
-
-function saveSystemPrompt(): void {
-  void window.api.settings.setSystemPrompt(systemPrompt.value)
-  systemPromptSavedAt.value = '已保存'
-  clearTimeout(systemPromptTimer)
-  systemPromptTimer = setTimeout(() => {
-    systemPromptSavedAt.value = ''
-  }, 2000)
 }
 
 function providerName(id: string): string {
@@ -230,28 +209,8 @@ onMounted(() => {
 
       <!-- 模型管理 -->
       <div class="mx-auto max-w-3xl">
-        <!-- 全局系统提示词 -->
-        <div>
-          <h3 class="text-base font-semibold">系统提示词</h3>
-          <p class="mt-1 text-xs text-muted-foreground">
-            所有模型共用，作为每次对话的 system 消息。清空后不发送 system 消息。
-          </p>
-          <div class="mt-3">
-            <textarea
-              v-model="systemPrompt"
-              rows="3"
-              class="w-full resize-y rounded-md border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring"
-              placeholder="例如：你是 Duo Ling 的 AI 助手，请用中文回答。"
-              @blur="saveSystemPrompt"
-            />
-            <p class="mt-1 text-xs text-muted-foreground">
-              失焦自动保存 <span v-if="systemPromptSavedAt" class="text-primary">{{ systemPromptSavedAt }}</span>
-            </p>
-          </div>
-        </div>
-
         <!-- 模型管理 -->
-        <div class="mt-8">
+        <div>
           <h3 class="text-base font-semibold">模型管理</h3>
           <p class="mt-1 text-xs text-muted-foreground">
             配置 API key 添加更多可用模型，预置模型默认使用稳定版本。

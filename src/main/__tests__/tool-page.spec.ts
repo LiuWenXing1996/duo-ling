@@ -7,7 +7,7 @@ vi.mock('electron', () => ({
   app: { getPath: () => '/tmp/duo-ling-test' }
 }))
 
-import { normalizeToolIcon, updateToolMeta } from '../tool-page'
+import { normalizeToolIcon, updateUserToolMeta } from '../tool-page'
 
 describe('normalizeToolIcon', () => {
   it('接受单个 emoji', () => {
@@ -40,7 +40,7 @@ describe('normalizeToolIcon', () => {
   })
 })
 
-describe('updateToolMeta', () => {
+describe('updateUserToolMeta', () => {
   const base = '/tmp/duo-ling-test/tools'
   const ids: string[] = []
 
@@ -63,7 +63,7 @@ describe('updateToolMeta', () => {
     const id = `t-test-${Date.now()}-a`
     writeMeta(id, { id, name: 'ab', title: '旧名', description: '旧描述' })
 
-    const res = updateToolMeta(id, { title: ' 新名 ', description: ' 新描述 ', icon: '🗂' })
+    const res = updateUserToolMeta(id, { title: ' 新名 ', description: ' 新描述 ', icon: '🗂' })
 
     expect(res).toEqual({ ok: true, title: '新名', icon: '🗂' })
     const meta = readMeta(id)
@@ -74,7 +74,7 @@ describe('updateToolMeta', () => {
     const id = `t-test-${Date.now()}-b`
     writeMeta(id, { id, name: 'ab', title: 'AB', description: '' })
 
-    const res = updateToolMeta(id, { icon: '工具' })
+    const res = updateUserToolMeta(id, { icon: '工具' })
 
     expect(res).toEqual({ ok: true, title: 'AB', icon: '' })
     expect(readMeta(id).icon).toBe('')
@@ -84,7 +84,7 @@ describe('updateToolMeta', () => {
     const id = `t-test-${Date.now()}-c`
     writeMeta(id, { id, name: 'ab', title: 'AB', description: 'desc' })
 
-    const res = updateToolMeta(id, { title: '   ', description: '' })
+    const res = updateUserToolMeta(id, { title: '   ', description: '' })
 
     expect(res).toEqual({ ok: true, title: 'AB', icon: '' })
     expect(readMeta(id)).toMatchObject({ title: 'AB', description: '' })
@@ -92,7 +92,7 @@ describe('updateToolMeta', () => {
 
   it('meta.json 不存在时返回错误而非凭空创建', () => {
     const id = `t-test-${Date.now()}-missing`
-    const res = updateToolMeta(id, { title: 'x' })
+    const res = updateUserToolMeta(id, { title: 'x' })
     expect(res.ok).toBe(false)
     ids.push(id) // 确保清理（实际未创建目录）
   })

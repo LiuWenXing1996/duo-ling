@@ -81,6 +81,25 @@ export const frontendCapabilities: Capability[] = [
     runtime: 'frontend',
     cost: 'offline',
     scenario: { keywords: ['markdown', '预览', '渲染', 'md'], object: 'Markdown 文档' }
+  },
+  {
+    id: 'tool.lock.status',
+    name: '工具锁状态查询',
+    description: '查询某个工具当前是否被其它会话只读锁定。只读，不修改任何状态；Phase 1 恒为未锁定。',
+    inputSchema: {
+      type: 'object',
+      description: '查询参数',
+      fields: { toolId: { type: 'string', description: '工具 id' } }
+    },
+    outputSchema: {
+      type: 'object',
+      description: '查询结果',
+      fields: { locked: { type: 'boolean', description: '是否被锁' }, holderId: { type: 'string', description: '持锁者（未锁时缺省）' } }
+    },
+    sideEffect: 'read',
+    runtime: 'frontend',
+    cost: 'offline',
+    scenario: { keywords: ['锁', '锁定', '冲突', '占用', '编辑中'], object: '工具编辑锁' }
   }
 ]
 

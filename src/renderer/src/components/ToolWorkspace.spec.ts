@@ -33,7 +33,7 @@ describe('ToolWorkspace', () => {
           updateMeta: vi.fn().mockResolvedValue({ ok: true, title: 'PDF 合并器', icon: 'P' }),
           getPreloadPath: vi.fn().mockResolvedValue('file:///preload/tool.cjs')
         },
-        generator: {
+        agent: {
           send: vi.fn().mockResolvedValue({ ok: true, content: '{}' }),
           abort: vi.fn().mockResolvedValue(undefined),
           onEvent: vi.fn(),
@@ -104,10 +104,8 @@ describe('ToolWorkspace', () => {
     expect(homePanel).toBeTruthy()
     expect(homePanel?.attributes('hidden')).toBeDefined()
 
-    // 激活标签渲染三栏工具页：会话历史 / 当前会话 / 工具详情
+    // 激活标签只渲染工具详情面板（会话历史/当前会话已上浮为全局三栏）
     await wrapper.vm.$nextTick()
-    expect(wrapper.text()).toContain('会话历史')
-    expect(wrapper.text()).toContain('当前会话')
     expect(wrapper.text()).toContain('工具详情')
 
     wrapper.unmount()
@@ -127,11 +125,9 @@ describe('ToolWorkspace', () => {
     expect(wrapper.text()).toContain('PDF 合并器')
     expect(wrapper.text()).toContain('合并多个 PDF')
 
-    // 点击卡片打开对应工具标签
+    // 点击卡片打开对应工具标签（只渲染工具详情面板）
     await wrapper.find('.tool-card').trigger('click')
     await wrapper.vm.$nextTick()
-    expect(wrapper.text()).toContain('会话历史')
-    expect(wrapper.text()).toContain('当前会话')
     expect(wrapper.text()).toContain('工具详情')
 
     wrapper.unmount()
@@ -147,10 +143,9 @@ describe('ToolWorkspace', () => {
     // 标签栏出现「设置」标签
     expect(wrapper.text()).toContain('设置')
 
-    // 设置面板内容渲染（模型管理 / 系统提示词）
+    // 设置面板内容渲染（模型管理）
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('模型管理')
-    expect(wrapper.text()).toContain('系统提示词')
 
     wrapper.unmount()
   })

@@ -13,14 +13,14 @@ import type {
   ToolChangeAction,
   ToolChangeList,
   ToolChangeOp,
-  ToolPageMeta
+  UserToolMeta
 } from '../shared/types'
 
 export type {
   ToolChangeAction,
   ToolChangeList,
   ToolChangeOp,
-  ToolPageMeta
+  UserToolMeta
 }
 
 /** 工具页面目录根：<userData>/tools/<id>/… */
@@ -28,12 +28,17 @@ export function toolsRoot(): string {
   return join(app.getPath('userData'), 'tools')
 }
 
+/** 生成一个足够唯一的宿主工具 ID（时间戳 + 随机段），用于工具文件夹名与 tool:// host */
+export function createUserToolId(): string {
+  return `t-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+}
+
 /** 工具版本预览缓存根：<userData>/tools-preview/<id>/<oid>/…（与 tools 兄弟目录天然隔离，进不了工具列表） */
 export function previewRoot(): string {
   return join(app.getPath('userData'), 'tools-preview')
 }
 
-export interface ToolPageInput {
+export interface UserToolInput {
   /** 宿主分配的唯一工具 ID（也是 tool:// 协议的 host 与工具文件夹名） */
   id: string
   /** AI 生成的 kebab-case 工具标识（仅作归档/展示，不做文件夹名） */
@@ -57,7 +62,7 @@ export function normalizeToolIcon(icon: unknown): string {
 }
 
 /** 把 AI 生成的完整 HTML 保存为工具页 index.html 并落盘 meta.json，返回 tool:// URL。 */
-export function writeToolPage(input: ToolPageInput): { url: string } {
+export function writeUserTool(input: UserToolInput): { url: string } {
   const dir = join(toolsRoot(), input.id)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'index.html'), input.html, 'utf8')
@@ -81,7 +86,7 @@ export function writeToolPage(input: ToolPageInput): { url: string } {
 }
 
 /** 读取所有已落盘的工具元信息（遍历 <userData>/tools/<id>/meta.json），跳过无 meta.json 的残留目录。 */
-export function listToolPages(): ToolPageMeta[] {
+export function listUserTools(): UserToolMeta[] {
   const root = toolsRoot()
   let entries
   try {
@@ -89,12 +94,12 @@ export function listToolPages(): ToolPageMeta[] {
   } catch {
     return []
   }
-  const list: ToolPageMeta[] = []
+  const list: UserToolMeta[] = []
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
     const metaPath = join(root, entry.name, 'meta.json')
     try {
-      const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as Partial<ToolPageMeta>
+      const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as Partial<UserToolMeta>
       if (!meta.id) continue
       list.push({
         id: meta.id,
@@ -115,10 +120,10 @@ export function listToolPages(): ToolPageMeta[] {
  * 读取指定路径的工具 meta（正式页传 <userData>/tools/<id>/meta.json，预览页传 commit 物化出的 meta）。
  * 用于主进程对 cap.run 的按工具/按版本能力白名单校验；文件缺失或损坏返回 null。
  */
-export function readToolMetaAt(metaPath: string): ToolPageMeta | null {
+export function readUserToolMetaAt(metaPath: string): UserToolMeta | null {
   try {
-    const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as Partial<ToolPageMeta>
-    return meta.id ? (meta as ToolPageMeta) : null
+    const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as Partial<UserToolMeta>
+    return meta.id ? (meta as UserToolMeta) : null
   } catch {
     return null
   }
@@ -131,15 +136,15 @@ export function readToolMetaAt(metaPath: string): ToolPageMeta | null {
  * - icon 归一化为单个字符（非法/空则清空，由渲染层用工具名首字符兜底）
  * meta.json 不存在或损坏时返回错误，不凭空创建残缺元信息。
  */
-export function updateToolMeta(
+export function updateUserToolMeta(
   id: string,
   patch: { title?: string; description?: string; icon?: unknown }
 ): { ok: true; title: string; icon: string } | { ok: false; error: string } {
   if (!id || typeof id !== 'string') return { ok: false, error: '缺少工具 id' }
   const dir = join(toolsRoot(), id)
   try {
-    const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')) as Partial<ToolPageMeta>
-    const next: Partial<ToolPageMeta> = { ...meta }
+    const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')) as Partial<UserToolMeta>
+    const next: Partial<UserToolMeta> = { ...meta }
     if (typeof patch.title === 'string') {
       const t = patch.title.trim()
       if (t) next.title = t
@@ -157,7 +162,7 @@ export function updateToolMeta(
  * 删除指定工具：递归移除 <userData>/tools/<id>/ 整个目录。
  * 为防止目录穿越，id 不允许包含路径分隔符或 `..`；目录不存在时视为删除成功（幂等）。
  */
-export function deleteToolPage(id: string): { ok: true } | { ok: false; error: string } {
+export function deleteUserTool(id: string): { ok: true } | { ok: false; error: string } {
   if (!id || typeof id !== 'string' || id.includes('..') || id.includes('/') || id.includes('\\')) {
     return { ok: false, error: '非法工具 id' }
   }
@@ -170,7 +175,7 @@ export function deleteToolPage(id: string): { ok: true } | { ok: false; error: s
 }
 
 /** 新建工具的脚手架页：自我包含的完整 HTML（内联 <style>/<script>），可直接被 tool:// 加载。 */
-export function newToolScaffoldHtml(title: string): string {
+export function newUserToolScaffoldHtml(title: string): string {
   return `<!doctype html>
 <html lang="zh-CN">
   <head>
@@ -212,7 +217,7 @@ const ALLOWED_TOOL_FILES = ['index.html', 'meta.json'] as const
 
 const META_FIELDS = ['name', 'title', 'description', 'icon', 'capabilities'] as const
 
-interface ToolPageMetaRaw {
+interface UserToolMetaRaw {
   id: string
   name?: string
   title?: string
@@ -221,9 +226,9 @@ interface ToolPageMetaRaw {
   capabilities?: string[]
 }
 
-function readToolMeta(dir: string): ToolPageMetaRaw {
+function readUserToolMeta(dir: string): UserToolMetaRaw {
   try {
-    return JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')) as ToolPageMetaRaw
+    return JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')) as UserToolMetaRaw
   } catch {
     return { id: '' }
   }
@@ -267,7 +272,7 @@ export function applyToolChanges(
 
     if (action.op === 'write') {
       if (file === 'meta.json') {
-        const existing = readToolMeta(dir)
+        const existing = readUserToolMeta(dir)
         const payload = (action.content ?? {}) as Partial<
           Record<(typeof META_FIELDS)[number], unknown>
         >
@@ -314,6 +319,6 @@ export function applyToolChanges(
     writeFileSync(item.path, item.content, 'utf8')
   }
 
-  const meta = readToolMeta(dir)
+  const meta = readUserToolMeta(dir)
   return { ok: true, title: meta.title ?? '新工具', changedFiles: plan.map((p) => p.path) }
 }

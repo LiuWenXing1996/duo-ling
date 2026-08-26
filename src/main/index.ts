@@ -5,11 +5,11 @@ import { registerToolSchemes, registerToolProtocols } from './protocol'
 import { createWindow } from './windows'
 import { registerTasksIpc } from './ipc/tasks'
 import { registerModelIpc } from './ipc/model'
-import { registerChatIpc } from './ipc/chat'
-import { registerGeneratorIpc } from './ipc/generator'
+import { registerAgentIpc } from './ipc/agent'
 import { registerCapabilityIpc } from './ipc/capability'
 import { registerToolIpc } from './ipc/tool'
 import { registerWindowIpc } from './ipc/window'
+import { registerConversationIpc } from './ipc/conversation'
 import { abortCurrentGeneration, getQuitConfirmed, isGenerating, setQuitConfirmed } from './ipc/state'
 
 // 端测等场景可通过环境变量指定 userData 目录，避免写入系统默认位置
@@ -39,11 +39,11 @@ app.whenReady().then(() => {
   // 各领域 IPC handler
   registerTasksIpc()
   registerModelIpc()
-  registerChatIpc()
-  registerGeneratorIpc()
+  registerAgentIpc()
   registerCapabilityIpc()
   registerToolIpc()
   registerWindowIpc()
+  registerConversationIpc()
 
   createWindow()
   app.on('activate', () => {
