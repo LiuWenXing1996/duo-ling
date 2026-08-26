@@ -321,10 +321,14 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                       <template #icon>
                         <ui-brain class="size-4 shrink-0 text-muted-foreground" />
                       </template>
-                      <ui-message-response
-                        :content="node.text"
-                        class="max-h-64 overflow-y-auto rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-sm leading-relaxed text-foreground/90 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
-                      />
+                      <div
+                        class="w-fit max-h-64 overflow-y-auto rounded-md border border-border/60 bg-muted/40 px-3 py-2"
+                      >
+                        <ui-message-response
+                          :content="node.text"
+                          class="text-sm leading-relaxed text-foreground/90 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
+                        />
+                      </div>
                     </ui-chain-of-thought-step>
                     <!-- 工具调用节点：官方 Tool 卡片（入参 ToolInput + 出参/报错 ToolOutput）嵌进链上这一环 -->
                     <ui-chain-of-thought-step
@@ -365,10 +369,14 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                       <template #icon>
                         <ui-file-text class="size-4 shrink-0 text-muted-foreground" />
                       </template>
-                      <ui-message-response
-                        :content="node.text"
-                        class="max-h-64 overflow-y-auto rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-sm leading-relaxed text-foreground/90 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
-                      />
+                      <div
+                        class="w-fit max-h-64 overflow-y-auto rounded-md border border-border/60 bg-muted/40 px-3 py-2"
+                      >
+                        <ui-message-response
+                          :content="node.text"
+                          class="text-sm leading-relaxed text-foreground/90 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
+                        />
+                      </div>
                     </ui-chain-of-thought-step>
                   </template>
                 </ui-chain-of-thought-content>
