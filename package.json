@@ -47,6 +47,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@ai-sdk/devtools": "^1.0.13",
     "@lucide/vue": "^1.33.0",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "^4.3.3",

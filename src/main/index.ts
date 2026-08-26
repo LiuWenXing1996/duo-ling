@@ -1,6 +1,8 @@
 // 主进程入口：负责启动时序与跨领域串联，业务 handler 已按领域拆分到 ./ipc/* 与 ./protocol、./windows。
 import { app, BrowserWindow } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { registerTelemetry } from 'ai'
+import { DevToolsTelemetry } from '@ai-sdk/devtools'
 import { registerToolSchemes, registerToolProtocols } from './protocol'
 import { createWindow } from './windows'
 import { registerTasksIpc } from './ipc/tasks'
@@ -25,6 +27,13 @@ if (is.dev) {
 
 // 自定义协议 scheme 必须在 app ready 前注册（见 ./protocol）
 registerToolSchemes()
+
+// AI SDK DevTools（仅本地开发）：全局注册 telemetry 以捕获 streamText/generateText 等多步调用，
+// 用 `npx @ai-sdk/devtools@latest` 启动查看器（http://localhost:4983）逐帧检查 LLM 请求/响应/工具调用。
+// 明文数据写入 .devtools/generations.json（已被 .gitignore 忽略）；严禁用于生产或敏感数据。
+if (is.dev) {
+  registerTelemetry(DevToolsTelemetry())
+}
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.duo-ling.app')
