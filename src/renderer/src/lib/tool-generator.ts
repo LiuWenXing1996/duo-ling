@@ -32,68 +32,6 @@ export interface GeneratedChangeList {
 // 可写文件白名单见 src/shared/tool-files.ts（与主进程编辑链路、git 遍历保持一致）
 
 /**
- * 从 LLM 回复中解析「变更清单」（summary + actions）。
- * 回复可能是「澄清追问 / 能力缺失说明」等普通文本，此时返回 null。
- * 解析成功但动作为空/非法时返回 { changes, warning }，由渲染层提示但保留原文。
- * 当契约 JSON 可解析但 actions 为空（LLM 在澄清追问而非改代码）时返回
- * { changes: null, summary }，供渲染层仅展示人性化 summary，避免直出原始 JSON。
- */
-export function parseGeneratedChanges(
-  content: string
-):
-  | { changes: GeneratedChangeList }
-  | { changes: null; warning?: string; summary?: string } {
-  if (!content) return { changes: null }
-  const cleaned = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
-  if (!cleaned) return { changes: null }
-  const block = cleaned.match(/```json\s*([\s\S]*?)```/i)
-  const jsonStr = (block ? block[1] : cleaned).trim()
-  try {
-    const obj = JSON.parse(jsonStr) as { summary?: unknown; actions?: unknown }
-    if (!obj || typeof obj !== 'object') return { changes: null }
-    const summary = typeof obj.summary === 'string' ? obj.summary.trim() : ''
-    if (!Array.isArray(obj.actions) || obj.actions.length === 0) {
-      return summary ? { changes: null, summary } : { changes: null }
-    }
-
-    const actions: GeneratedToolChange[] = []
-    for (const raw of obj.actions) {
-      if (!raw || typeof raw !== 'object') return { changes: null, warning: '存在非法变更项' }
-      const item = raw as Record<string, unknown>
-      const file = String(item.file ?? '')
-      if (!isAllowedToolFile(file)) {
-        return { changes: null, warning: `不允许修改文件：${file}` }
-      }
-      const op = item.op
-      if (op !== 'write' && op !== 'patch') {
-        return { changes: null, warning: `未知操作：${String(op)}` }
-      }
-      const action: GeneratedToolChange = {
-        op,
-        file,
-        content: item.content,
-        find: typeof item.find === 'string' ? item.find : undefined,
-        replace: typeof item.replace === 'string' ? item.replace : undefined,
-        replace_all: item.replace_all === true
-      }
-      if (op === 'write') {
-        // meta.json 需要对象；index.html 需要可用的字符串
-        if (file === 'index.html' && typeof item.content !== 'string') {
-          return { changes: null, warning: 'index.html 需要字符串内容' }
-        }
-      } else {
-        if (!action.find) return { changes: null, warning: 'patch 动作缺少 find' }
-      }
-      actions.push(action)
-    }
-
-    return { changes: { summary: String(obj.summary ?? ''), actions } }
-  } catch {
-    return { changes: null }
-  }
-}
-
-/**
  * 从 LLM 回复中解析「多工具编辑意图清单」（{ intents: [{ toolId, summary, actions[] }] }）。
  * 回复可能是「澄清追问 / 能力缺失说明」等普通文本，此时返回 null。
  * 解析成功但某意图的 toolId 缺失/动作为空/非法时返回 { intents: null, warning }，由渲染层提示。

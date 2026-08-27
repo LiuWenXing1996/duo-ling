@@ -1,11 +1,14 @@
 // Agent Loop 骨架：把「AI 可自主调用」的能力暴露为 OpenAI function 定义，并统一执行。
 //
-// 本期做四个能力：
+// 当前提供八个能力：
 //   - agent_tools_list          —— 查询已有工具
 //   - agent_tools_open          —— 打开对应工具（真实切到工具标签页）
 //   - agent_tools_create        —— 创建新工具（脚手架落盘 + git 建仓 + 自动打开）
+//   - agent_tools_read          —— 读取工具完整源码（入口页 / 模块 / 样式 / 静态资源 / 元信息）
+//   - agent_tools_edit          —— 修改工具内容（write / patch，白名单限工具目录，落盘自动 git 提交）
+//   - agent_tools_lock_status   —— 查询工具是否被其它会话只读锁定
+//   - agent_workspace_tabs      —— 查询当前打开的工作区标签页
 //   - agent_capabilities_list   —— 查询宿主提供的全部原子能力清单
-// 其余（查内置示例、放权 tool.data.*）后续作为「能力丰富」追加到此文件。
 //
 // 执行器通过 hooks 把「打开工具」的副作用交回调用方（ipc/agent.ts 用 event.sender 广播命令，
 // 渲染层 app.vue 监听后切换/新建工具标签页）。工具本身的本地读取直接复用 tool-page.listUserTools。
@@ -56,7 +59,7 @@ interface WorkspaceTabSummary extends WorkspaceTabSnapshot {
 }
 
 /** 当前工作区 tab 页摘要：全部已打开标签（含中文 kind 标签）+ 当前激活标签 */
-export function getWorkspaceTabsSummary(): {
+function getWorkspaceTabsSummary(): {
   activeTab: WorkspaceTabSummary | null
   tabs: WorkspaceTabSummary[]
 } {
@@ -247,9 +250,6 @@ export function buildAgentTools(hooks: AgentToolHooks = {}) {
 
 /** Agent 工具集类型：返回对象键即工具名，`keyof AgentTools` 提供编译期约束 */
 export type AgentTools = ReturnType<typeof buildAgentTools>
-
-/** Agent 工具名（字面量联合）：引用不存在的工具名在编译期报错 */
-export type AgentToolName = keyof AgentTools
 
 /** 把 AI SDK ToolSet 转成 OpenAI function 风格的 JSON Schema 数组（供开发者界面展示 / 序列化转发） */
 export function agentToolsToJsonSchema(tools: ToolSet): AgentToolJsonSchema[] {

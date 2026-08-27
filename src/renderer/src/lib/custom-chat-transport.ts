@@ -1,11 +1,11 @@
-// AI SDK 流式通道（方案 B 阶段 A）的渲染层 transport。
+// AI SDK 流式通道的渲染层 transport。
 //
 // 主进程 streamText + toUIMessageStream 产出的原生 ReadableStream 无法过 contextBridge
 // （结构化克隆不支持原生流），因此主进程把它逐 chunk 经 EVENT_CH.agentStream 推送、
 // 结束再推 EVENT_CH.agentStreamEnd。本 transport 把「事件推流」重新封装成 useChat 期望的
 // ReadableStream<UIMessageChunk>，从而让渲染层 @ai-sdk/vue useChat({ transport }) 直接驱动整条链路。
 //
-// 阶段 A 只关注正文 + reasoning 透传，不接工具；reconnectToStream 暂不支持（返回 null）。
+// 正文 / reasoning / 工具调用 chunk 均透传；reconnectToStream 暂不支持（返回 null）。
 
 import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai'
 

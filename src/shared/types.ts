@@ -4,13 +4,6 @@
 
 import type { UIMessage, UIMessageChunk } from 'ai'
 
-// —— 任务（会话） ——
-export interface Task {
-  id: number
-  title: string
-  createdAt: string
-}
-
 // —— 会话（解耦后的全局一等公民，主进程 conversation-store）——
 export interface Conversation {
   id: string
@@ -238,14 +231,6 @@ export interface ApplyIntentEntryResult {
 }
 
 export type ApplyIntentsResult = { ok: boolean; results: ApplyIntentEntryResult[]; error?: string }
-
-/** agent:send 附带的工具上下文：告诉 AI「当前正在编辑哪个工具」，使 intents 默认指向它 */
-export interface AgentToolContext {
-  /** 用户当前正在查看/编辑的工具 id（intents 默认指向它） */
-  currentToolId: string
-  /** 当前打开的工具标题（标签名），仅用于提示文案 */
-  currentToolTitle?: string
-}
 
 /** Agent 工具的 OpenAI function 风格 JSON Schema 描述（agent-tools:list 返回，开发者界面展示用） */
 export interface AgentToolJsonSchema {

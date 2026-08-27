@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDate, formatTimestamp, truncate } from './format'
-
-describe('formatDate（Date 转 YYYY-MM-DD）', () => {
-  it('补零输出', () => {
-    expect(formatDate(new Date(2026, 0, 5))).toBe('2026-01-05')
-    expect(formatDate(new Date(2026, 11, 25))).toBe('2026-12-25')
-  })
-})
+import { formatTimestamp, truncate } from './format'
 
 describe('formatTimestamp（Unix 秒转 YYYY-MM-DD HH:mm）', () => {
   it('空值返回空串', () => {

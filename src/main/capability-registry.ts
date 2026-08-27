@@ -7,7 +7,7 @@
 // outputSchema 为 zod），出 IPC/AI（capability:list / agent_capabilities_list）
 // 时经 asSchema(zodSchema()) 序列化为标准 JSON Schema（纯字面量）。
 // 运行时参数校验（capability:run 边界）也复用同一份 zod schema。
-// 执行形态：全部进程隔离 —— backend 跑 utilityProcess，frontend 注入工具界面（见 capability-worker / capability-runtime / 渲染层 runner）。
+// 执行形态：backend 跑 utilityProcess（见 capability-worker / capability-runtime），frontend 走主进程本地实现（见 frontend-impls.ts）。
 
 import { z } from 'zod'
 import { asSchema, zodSchema } from 'ai'

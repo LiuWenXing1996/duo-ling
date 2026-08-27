@@ -1,31 +1,5 @@
-// 在线模型网络请求：拉取 /models 列表 + 连通性测试（非流式 chat）。
-// 职责边界：只做底层 fetch 请求，配置来源统一走 model-store 的 getActiveConfig / 外部入参。
-
-import { getActiveConfig } from './model-store'
-
-/**
- * 拉取服务商可用模型列表（GET /models），失败抛错由调用方包装。
- * overrides 提供时用其测试（不落盘），否则用当前默认模型配置。
- */
-export async function listModels(overrides?: {
-  baseUrl?: string
-  apiKey?: string
-}): Promise<string[]> {
-  const saved = getActiveConfig()
-  const baseUrl = (overrides?.baseUrl ?? saved.baseUrl).trim().replace(/\/+$/, '')
-  const apiKey = overrides?.apiKey?.trim() || saved.apiKey
-  if (!baseUrl) throw new Error('请先填写接口地址（baseUrl）')
-  if (!apiKey) throw new Error('请先填写 API Key')
-
-  const res = await fetch(`${baseUrl}/models`, {
-    headers: { Authorization: `Bearer ${apiKey}` }
-  })
-  if (!res.ok) {
-    throw new Error(`获取模型列表失败（${res.status}）：${(await res.text()).slice(0, 200)}`)
-  }
-  const body = (await res.json()) as { data?: Array<{ id: string }> }
-  return (body.data ?? []).map((m) => m.id).filter(Boolean)
-}
+// 在线模型网络请求：连通性测试（非流式 chat）。
+// 职责边界：只做底层 fetch 请求，配置来源统一走外部入参。
 
 /**
  * 连通性测试：用传入的配置发一次「最小」chat 请求（非流式），验证地址/Key/模型是否可用。

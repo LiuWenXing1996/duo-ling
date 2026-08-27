@@ -8,7 +8,7 @@ import type { ModelProvider } from '../shared/types'
 
 export type { ModelProvider }
 
-export const PROVIDERS: ModelProvider[] = [
+const PROVIDERS: ModelProvider[] = [
   {
     id: 'deepseek',
     name: 'DeepSeek',

@@ -8,7 +8,6 @@ import {
   setActiveProfile,
   setProfileEnabled
 } from './model-store'
-import { listModels } from './openai-client'
 
 // electron 与 electron-store 均 mock：safeStorage 用明文编解码，store 用内存对象
 vi.mock('electron', () => ({
@@ -166,33 +165,5 @@ describe('模型配置列表', () => {
     expect(getActiveProfileId()).toBe(second.id)
     // 禁用的是激活模型本身，其余模型保持启用
     expect(getPublicProfiles().find((p) => p.id === first)?.enabled).toBe(false)
-  })
-})
-
-describe('listModels', () => {
-  it('解析 /models 返回的 id 列表', async () => {
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ data: [{ id: 'model-a' }, { id: 'model-b' }] }), {
-        headers: { 'content-type': 'application/json' }
-      })
-    )
-    await expect(listModels()).resolves.toEqual(['model-a', 'model-b'])
-  })
-
-  it('失败时抛错（401）', async () => {
-    fetchMock.mockResolvedValue(new Response('unauthorized', { status: 401 }))
-    await expect(listModels()).rejects.toThrow('401')
-  })
-
-  it('未配置 apiKey 时直接抛错', async () => {
-    // 清空存储后添加一条没有 apiKey 的配置（校验顺序：baseUrl 已满足，报 API Key 缺失）
-    memory = { profiles: [], activeProfileId: '' }
-    saveProfile({
-      name: 'X',
-      baseUrl: 'https://x.example.com/v1',
-      apiKey: '',
-      model: 'm'
-    })
-    await expect(listModels()).rejects.toThrow('API Key')
   })
 })

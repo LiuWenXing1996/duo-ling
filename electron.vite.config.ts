@@ -24,7 +24,7 @@ export default defineConfig({
         input: {
           // 主窗口 preload
           index: resolve('src/preload/index.ts'),
-          // 工具页（WebContentsView）独立 preload，仅暴露 window.cap.run
+          // 工具页（<webview> guest）独立 preload，仅暴露 window.cap.run
           tool: resolve('src/preload/tool.ts')
         },
         // <webview> guest 是沙箱化渲染进程，其 preload 不支持 ESM 导入，

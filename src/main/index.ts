@@ -5,7 +5,6 @@ import { registerTelemetry } from 'ai'
 import { DevToolsTelemetry } from '@ai-sdk/devtools'
 import { registerToolSchemes, registerToolProtocols } from './protocol'
 import { createWindow } from './windows'
-import { registerTasksIpc } from './ipc/tasks'
 import { registerModelIpc } from './ipc/model'
 import { registerAgentIpc } from './ipc/agent'
 import { registerCapabilityIpc } from './ipc/capability'
@@ -46,7 +45,6 @@ app.whenReady().then(() => {
   registerToolProtocols()
 
   // 各领域 IPC handler
-  registerTasksIpc()
   registerModelIpc()
   registerAgentIpc()
   registerCapabilityIpc()

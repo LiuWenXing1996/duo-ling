@@ -1,9 +1,10 @@
-// 主进程侧：把「AI 生成的完整 HTML」保存为工具页的 index.html，并额外落盘 meta.json 元信息。
+// 主进程侧：把「AI 生成的工具页面」保存为工具目录（入口页 + 脚本/样式/静态资源），并额外落盘 meta.json 元信息。
 //
-// 新架构「工具 = 一份可打开的完整 HTML」：AI 产出自我包含的 HTML 文档（内联 <style>/<script>），
+// 新架构「工具 = 一个可打开的目录」：AI 产出入口页 index.html（可拆 js/ css/ assets/ 子目录），
 // 宿主直接落盘到 <userData>/tools/<id>/（<id> 为宿主分配的唯一 ID，与 name 无关），其中：
-//   - index.html —— 工具页主体，由 <webview> guest 经 tool:// 协议加载
-//   - meta.json —— 工具元信息（id / name / 标题 / 描述），供工具列表等场景读取
+//   - index.html —— 工具页入口，由 <webview> guest 经 tool:// 协议加载
+//   - js/ css/ assets/ —— 脚本 / 样式 / 静态资源子目录（可选）
+//   - meta.json —— 工具元信息（id / name / 标题 / 描述 / capabilities / icon），供工具列表等场景读取
 // 页面交互用原生 JS 调用 window.cap.run（来自 <webview> 的 guest preload）执行原子能力；全程零模板编译、零 eval。
 
 import { app } from 'electron'

@@ -3,8 +3,6 @@ import type { UIMessage } from 'ai'
 import type {
   AgentStreamChunk,
   AgentStreamSendResult,
-  AgentToolContext,
-  Task,
   ToolOpenCommand
 } from '../shared/types'
 import { CH, EVENT_CH, type InvokeMap, type PreloadApi } from '../shared/ipc'
@@ -25,10 +23,6 @@ function invoke<K extends keyof InvokeMap>(
 }
 
 const api: PreloadApi = {
-  listTasks: () => invoke(CH.tasksList),
-  createTask: () => invoke(CH.tasksCreate),
-  renameTask: (taskId, title) => invoke(CH.tasksRename, taskId, title),
-  saveTasks: (tasks: Task[]) => invoke(CH.tasksSave, tasks),
   model: {
     list: () => invoke(CH.modelList),
     save: (profile) => invoke(CH.modelSave, profile),
@@ -93,11 +87,11 @@ const api: PreloadApi = {
   },
   agent: {
     abort: () => invoke(CH.agentAbort),
-    // —— AI SDK 流式通道（方案 B 阶段 A）——
+    // —— AI SDK 流式通道 ——
     // 主进程 consume toUIMessageStream，逐 chunk 经 EVENT_CH.agentStream 推送；
-    // 这里收集为事件，渲染层 custom-chat-transport 据此重新组装出 AsyncIterable 喂给 @ai-sdk/vue useChat。
-    streamSend: (messages: UIMessage[], context?: AgentToolContext) =>
-      invoke(CH.agentStreamSend, messages, context),
+    // 这里收集为事件，渲染层 custom-chat-transport 据此重新组装出 ReadableStream 喂给 @ai-sdk/vue useChat。
+    streamSend: (messages: UIMessage[]) =>
+      invoke(CH.agentStreamSend, messages),
     onStreamChunk: (callback: (chunk: AgentStreamChunk) => void): (() => void) => {
       if (agentStreamChunkListener) ipcRenderer.removeListener(EVENT_CH.agentStream, agentStreamChunkListener)
       agentStreamChunkListener = (_event, payload) => callback(payload)

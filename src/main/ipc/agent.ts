@@ -2,7 +2,7 @@
 // 渲染层聊天/工具意图统一走此通道：主进程编排多轮、执行 Agent 工具、流式回推事件。
 import { ipcMain } from 'electron'
 import { CH, EVENT_CH } from '../../shared/ipc'
-import type { AgentStreamSendResult, AgentToolContext, AgentToolJsonSchema } from '../../shared/types'
+import type { AgentStreamSendResult, AgentToolJsonSchema } from '../../shared/types'
 import type { UIMessage } from 'ai'
 import { streamAisdkReply } from '../agent-orchestrator'
 import { buildAgentTools, agentToolsToJsonSchema, setWorkspaceTabsState } from '../agent-tools'
@@ -25,11 +25,7 @@ export function registerAgentIpc(): void {
 
   ipcMain.handle(
     CH.agentStreamSend,
-    async (
-      event,
-      messages: UIMessage[],
-      _context?: AgentToolContext
-    ): Promise<AgentStreamSendResult> => {
+    async (event, messages: UIMessage[]): Promise<AgentStreamSendResult> => {
       if (!Array.isArray(messages) || messages.length === 0) {
         return { ok: false, error: '对话消息不能为空' }
       }

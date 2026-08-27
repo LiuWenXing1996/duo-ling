@@ -11,10 +11,10 @@
 // 除此之外（含 .git/）一律不可写。
 
 /** 根级固定文件白名单 */
-export const TOOL_ROOT_FILES = ['index.html', 'meta.json', 'archive.md'] as const
+const TOOL_ROOT_FILES = ['index.html', 'meta.json', 'archive.md'] as const
 
 /** 允许的子目录白名单（其下任意文件均可） */
-export const TOOL_SUBDIRS = ['js', 'css', 'assets'] as const
+const TOOL_SUBDIRS = ['js', 'css', 'assets'] as const
 
 /**
  * 校验相对路径是否落在工具目录文件白名单内。

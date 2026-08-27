@@ -15,7 +15,6 @@ import type {
   CapabilityRunResponse,
   AgentStreamChunk,
   AgentStreamSendResult,
-  AgentToolContext,
   Conversation,
   ConversationSearchHit,
   EditIntent,
@@ -25,7 +24,6 @@ import type {
   ModelProfileInput,
   ModelProvider,
   ModelTestChatConfig,
-  Task,
   TestChatResult,
   ToolArchiveResult,
   ToolChangeList,
@@ -52,10 +50,6 @@ import type {
 
 /** invoke 类通道名常量 */
 export const CH = {
-  tasksList: 'tasks:list',
-  tasksCreate: 'tasks:create',
-  tasksRename: 'tasks:rename',
-  tasksSave: 'tasks:save',
   modelList: 'model:list',
   modelSave: 'model:save',
   modelDelete: 'model:delete',
@@ -117,10 +111,6 @@ export const EVENT_CH = {
 
 /** invoke 通道 → { args, result } 映射：preload invoke 与主进程 handle 的编译期契约 */
 export interface InvokeMap {
-  [CH.tasksList]: { args: []; result: Task[] }
-  [CH.tasksCreate]: { args: []; result: Task }
-  [CH.tasksRename]: { args: [taskId: number, title: string]; result: Task | null }
-  [CH.tasksSave]: { args: [tasks: Task[]]; result: void }
   [CH.modelList]: { args: []; result: { profiles: ModelProfile[]; activeId: string } }
   [CH.modelSave]: { args: [profile: ModelProfileInput]; result: ModelProfile }
   [CH.modelDelete]: { args: [id: string]; result: void }
@@ -156,7 +146,7 @@ export interface InvokeMap {
   [CH.toolsDataDeleteOrphan]: { args: []; result: ToolsDataDeleteOrphanResult }
   [CH.toolsDataOpen]: { args: [id: string]; result: ToolsDataOpenResult }
   [CH.agentStreamSend]: {
-    args: [messages: UIMessage[], context?: AgentToolContext]
+    args: [messages: UIMessage[]]
     result: AgentStreamSendResult
   }
   [CH.agentAbort]: { args: []; result: void }
@@ -184,10 +174,6 @@ export interface InvokeMap {
 
 /** window.api 的权威形状：由 index.d.ts 派生，渲染层直接获得完整类型 */
 export interface PreloadApi {
-  listTasks: () => Promise<Task[]>
-  createTask: () => Promise<Task>
-  renameTask: (taskId: number, title: string) => Promise<Task | null>
-  saveTasks: (tasks: Task[]) => Promise<void>
   model: {
     list: () => Promise<{ profiles: ModelProfile[]; activeId: string }>
     save: (profile: ModelProfileInput) => Promise<ModelProfile>
@@ -247,7 +233,7 @@ export interface PreloadApi {
   agent: {
     abort: () => Promise<void>
     /** AI SDK 流式通道：发起一次流式生成，流经由 onStreamChunk/onStreamEnd 推送到渲染层 */
-    streamSend: (messages: UIMessage[], context?: AgentToolContext) => Promise<AgentStreamSendResult>
+    streamSend: (messages: UIMessage[]) => Promise<AgentStreamSendResult>
     /** 订阅主进程逐 chunk 推送的 UIMessageChunk，返回取消订阅函数 */
     onStreamChunk: (callback: (chunk: AgentStreamChunk) => void) => () => void
     /** 订阅流结束状态（含汇总 content/reasoning），返回取消订阅函数 */

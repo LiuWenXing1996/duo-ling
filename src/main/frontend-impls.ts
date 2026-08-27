@@ -1,13 +1,11 @@
 // 主进程侧的 frontend 运行域能力实现。
 //
-// 新架构中工具页由独立 WebContentsView（独立 webContents + 独立 preload）承载，
+// 工具页由 <webview>（独立 webContents + 独立 guest preload）承载，
 // 它没有主窗口渲染层的注入方法，
 // 因此 frontend 能力的执行统一收口到主进程 capability:run。
 // 这里复制一份最小的 markdown 渲染，使工具页 cap.run('docs.markdown.render') 可经 IPC 直达主进程执行。
 
 import { getToolLockStatus } from './tool-lock'
-
-export type FrontendRunResponse = { ok: true; result: unknown } | { ok: false; error: string }
 
 /** 转义 HTML，避免渲染注入 */
 function escapeHtml(input: string): string {
@@ -108,7 +106,7 @@ const frontendImpls: Record<string, (args: unknown) => unknown | Promise<unknown
 export async function runFrontendCapability(
   id: string,
   args: unknown
-): Promise<FrontendRunResponse> {
+): Promise<{ ok: true; result: unknown } | { ok: false; error: string }> {
   const impl = frontendImpls[id]
   if (!impl) return { ok: false, error: `能力 ${id} 未注入主进程实现` }
   try {

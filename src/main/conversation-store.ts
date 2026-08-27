@@ -6,7 +6,7 @@
 //   EditIntent   —— 挂在某条 AI 消息下、对「某个工具」的一次编辑意图（多工具契约的持久化载体）
 //
 // 存储为 electron-store，JSON Schema 校验拒绝畸形数据。惰性创建，首次调用发生在 IPC 处理时
-// （app 就绪且 userData 覆盖已生效之后），与 store.ts 保持一致。
+// （app 就绪且 userData 覆盖已生效之后），与 model-store 保持一致。
 
 import Store, { type Schema } from 'electron-store'
 import type {
