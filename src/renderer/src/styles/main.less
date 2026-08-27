@@ -27,7 +27,7 @@
     overflow: hidden;
   }
 
-  // 左侧图标导航栏（新建工具 / 设置）：从顶栏下方开始，高度铺满剩余空间
+  // 左侧图标导航栏（置顶工具 / 新建工具 / 设置）：从顶栏下方开始，高度铺满剩余空间
   &-nav {
     flex: none;
     display: flex;
@@ -37,6 +37,24 @@
     gap: 4px;
     padding-top: 12px;
     border-right: 1px solid var(--border);
+    overflow-y: auto;
+  }
+
+  // 置顶工具区：置顶工具图标竖排 + 底部与功能按钮的分隔线
+  &-nav-pins {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    padding-bottom: 8px;
+
+    &__divider {
+      flex: none;
+      width: 24px;
+      height: 1px;
+      background: var(--border);
+    }
   }
 
   &-nav-item {

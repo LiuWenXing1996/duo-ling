@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   MessageSquare as UiMessageSquare,
+  MoreHorizontal as UiMoreHorizontal,
   Plus as UiPlus,
   Search as UiSearch,
   Settings as UiSettings,
@@ -20,6 +21,11 @@ import {
   ResizablePanel as UiResizablePanel,
   ResizablePanelGroup as UiResizablePanelGroup
 } from '@/components/ui/resizable'
+import {
+  Popover as UiPopover,
+  PopoverContent as UiPopoverContent,
+  PopoverTrigger as UiPopoverTrigger
+} from '@/components/ui/popover'
 import ToolWorkspace from '@/components/ToolWorkspace.vue'
 import ToolIcon from '@/components/ToolIcon.vue'
 import SessionHistoryPanel from '@/components/SessionHistoryPanel.vue'
@@ -176,6 +182,32 @@ async function reloadTools(): Promise<void> {
   }
 }
 
+// —— 工具置顶（用户独立配置）：左侧边条顶部置顶区（主页「常用」分区由 ToolWorkspace 内部维护）——
+const pinnedToolIds = ref<string[]>([])
+// 侧边条直显上限，超出部分收进「更多」浮层
+const PINNED_SIDEBAR_LIMIT = 8
+// 置顶工具（保持置顶顺序，仅收录仍存在于工具列表中的）
+const pinnedTools = computed<ToolMeta[]>(() =>
+  pinnedToolIds.value
+    .map((id) => allTools.value.find((t) => t.id === id))
+    .filter((t): t is ToolMeta => Boolean(t))
+)
+const visiblePinnedTools = computed(() => pinnedTools.value.slice(0, PINNED_SIDEBAR_LIMIT))
+const morePinnedTools = computed(() => pinnedTools.value.slice(PINNED_SIDEBAR_LIMIT))
+
+async function loadPins(): Promise<void> {
+  try {
+    pinnedToolIds.value = await window.api.tool.pin.list()
+  } catch (error) {
+    console.error('加载工具置顶失败', error)
+  }
+}
+
+/** 点击侧边条置顶图标：打开对应工具标签（已打开则激活） */
+function openPinnedTool(tool: ToolMeta): void {
+  workspaceRef.value?.openTool(tool)
+}
+
 function openToolFromCommand(cmd: ToolOpenCommand): void {
   let tool = allTools.value.find((t) => t.id === cmd.toolId)
   if (!tool) {
@@ -189,6 +221,7 @@ let unsubscribeOpenCommand: (() => void) | null = null
 
 onMounted(() => {
   reloadTools()
+  loadPins()
   // 首次进入：加载全局会话列表（有则激活第一个，无则新建）
   void loadConversations()
   // Agent Loop 决定打开工具时（agent.tools.open），由主进程广播命令，此处切换/新建工具标签页
@@ -300,6 +333,47 @@ function handleCreateTool(): void {
     <!-- 顶栏之下：左侧图标导航栏 + 右侧内容区 -->
     <div class="workspace-main">
       <aside class="workspace-nav">
+        <!-- 置顶工具区：置顶工具图标竖排一键直达；超过直显上限收进「更多」浮层 -->
+        <div v-if="pinnedTools.length" class="workspace-nav-pins">
+          <button
+            v-for="tool in visiblePinnedTools"
+            :key="tool.id"
+            class="workspace-nav-item"
+            type="button"
+            :aria-label="tool.title"
+            :title="tool.title"
+            @click="openPinnedTool(tool)"
+          >
+            <tool-icon :icon="tool.icon" :fallback="tool.title" class="text-sm leading-none" />
+          </button>
+          <ui-popover v-if="morePinnedTools.length">
+            <ui-popover-trigger as-child>
+              <button
+                class="workspace-nav-item"
+                type="button"
+                aria-label="更多置顶工具"
+                title="更多置顶工具"
+              >
+                <ui-more-horizontal class="size-5" />
+              </button>
+            </ui-popover-trigger>
+            <ui-popover-content class="w-56 p-1.5" align="start" side="right">
+              <div class="flex flex-col gap-0.5">
+                <button
+                  v-for="tool in morePinnedTools"
+                  :key="tool.id"
+                  type="button"
+                  class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60"
+                  @click="openPinnedTool(tool)"
+                >
+                  <tool-icon :icon="tool.icon" :fallback="tool.title" class="size-4 shrink-0 leading-none" />
+                  <span class="truncate">{{ tool.title }}</span>
+                </button>
+              </div>
+            </ui-popover-content>
+          </ui-popover>
+          <div class="workspace-nav-pins__divider" />
+        </div>
         <button
           class="workspace-nav-item"
           type="button"
@@ -364,7 +438,12 @@ function handleCreateTool(): void {
 
           <!-- 多标签页：工具详情 / 设置 / 版本历史 / 数据详情 -->
           <ui-resizable-panel :default-size="50" :min-size="24" class="min-w-0">
-            <tool-workspace ref="workspaceRef" :tools="allTools" @tools-changed="reloadTools" />
+            <tool-workspace
+              ref="workspaceRef"
+              :tools="allTools"
+              @tools-changed="reloadTools"
+              @pins-changed="(ids: string[]) => (pinnedToolIds = ids)"
+            />
           </ui-resizable-panel>
         </ui-resizable-panel-group>
       </section>

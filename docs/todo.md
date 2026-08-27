@@ -169,18 +169,19 @@
 
 ---
 
-## 工具快捷方式：置顶/收藏（形态待定）
+## 工具快捷方式：置顶/收藏（已实现）
 
-**背景**：用户提出在左侧边条支持工具快捷方式。现状：侧边条为窄图标条（`src/renderer/src/App.vue` 的 `workspace-nav`，仅「新建工具」「设置」两项）；工具目前经主页网格 + 顶栏 ⌘K 全局搜索打开。
+**背景**：用户提出在左侧边条支持工具快捷方式。现状：侧边条为窄图标条（`src/renderer/src/app.vue` 的 `workspace-nav`，仅「新建工具」「设置」「开发者」三项）；工具目前经主页网格 + 顶栏 ⌘K 全局搜索打开。已与用户确认：**形态 = 组合 A+B**（主页「常用」分区 + 侧边条顶部置顶图标区），**入口 = 主页卡片 pin 按钮 + 编辑弹窗「置顶」开关**。
 
-**结论 / 决策点**：
-- 价值在「高频工具一键直达 / 入口更短」，但需**工具图标体系**（见上一条 meta.icon）作为区分度支撑。
-- 形态二选一，**尚未决定**：
-  - **A（轻量，倾向）· 主页网格加「常用/置顶」分组**：给工具加收藏，收藏的排在主页网格最前；复用现有卡片，最自然，不动侧边条。
-  - **B（较重）· 升级侧边条为置顶工具区**：把窄图标条扩成可放置顶工具的区域，每工具一个图标/首字母 + tooltip；图标区分度依赖图标体系，窄条信息密度低。
-- 两种形态均需：① 一个「标记收藏」交互（工具详情页或主页卡片上放 pin 按钮）；② 收藏列表持久化（settings 存一个 `tool id` 数组）。
+**方案要点（已确认）**：
+- **持久化**：收藏是用户偏好，**不入 meta.json**（避免随 AI 改动/回滚漂移）。仿 `tool-group-store.ts` 新建 `src/main/tool-pin-store.ts`（electron-store，`pinned: string[]`），提供 `listPinnedToolIds` / `setToolPinned(toolId, pinned)` / `clearToolPin(toolId)`（幂等）。
+- **IPC**：新增 `tool-pin:list` / `tool-pin:set`（仿 `tool-group:list/set`）；`tool:delete` 同步清理 pin 映射（仿 `clearToolGroup`）。
+- **主页（HomePanel）**：sections 最前插固定「常用」分区（默认展开、排最前、可折叠），pinned 工具**在原分组保留**（不消失、不困惑）；卡片 hover 操作区（现有 edit/delete 旁）加 pin 按钮，激活态高亮。
+- **编辑弹窗（ToolEditDialog）**：加「置顶」开关，`saved` payload 带 `pinned`。
+- **侧边条（app.vue `workspace-nav`）**：顶部（分隔线之上）加置顶图标区，pinned 工具图标竖排（复用 `ToolIcon` + tooltip，点击开 tab）；超过 N 个（默认 8）截断 + 溢出「更多」浮层入口。
+- **删除工具**：`tool:delete` 里连带清理 pin 映射。
 
-**状态**：形态 A/B 未定（图标体系已落地，可以此支撑从 A/B 中选定）。与「工具图标 meta.icon」绑定。
+**状态**：已实现。主进程 `src/main/tool-pin-store.ts` 新增（`listPinnedToolIds` / `setToolPinned` / `clearToolPin`，electron-store 存 `pinned: string[]`）；`src/shared/ipc.ts` 新增 `tool-pin:list` / `tool-pin:set` 通道与类型映射、`tool` 类型加 `pin` 子对象；`src/main/ipc/tool.ts` 注册两 handler 且 `tool:delete` 连带 `clearToolPin`；preload 暴露 `tool.pin.list` / `tool.pin.set`；`HomePanel.vue` 「常用」分区排最前（置顶顺序、忽略不存在 id、原分组保留）+ 卡片 pin 按钮（激活态常显高亮）；`ToolEditDialog.vue` 加「置顶」开关；`ToolWorkspace.vue` 维护 `pinnedIds` 并透传，pin 变化后 emit `pinsChanged` 同步根布局；`app.vue` 侧边条顶部置顶图标区（直显上限 8、溢出「更多」popover 浮层、分隔线）。测试：`tool-pin-store.spec.ts`（5 条）+ `HomePanel.spec.ts`（5 条，覆盖常用分区排序/激活态/事件派发），`pnpm typecheck` / `pnpm test`（183 用例）通过。
 
 ---
 

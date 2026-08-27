@@ -2,13 +2,21 @@
 // 主页面板：工具按分组分区展示 + 新增工具。卡片点击打开对应工具标签，编辑/删除按钮由父组件处理弹窗。
 import { computed, ref } from 'vue'
 import type { ToolMeta } from '@/types/tool'
-import { ChevronDown as UiChevronDown, Pencil as UiPencil, Plus as UiPlus, Trash2 as UiTrash } from '@lucide/vue'
+import {
+  ChevronDown as UiChevronDown,
+  Pencil as UiPencil,
+  Pin as UiPin,
+  Plus as UiPlus,
+  Trash2 as UiTrash
+} from '@lucide/vue'
 import ToolIcon from './ToolIcon.vue'
 
 const props = defineProps<{
   tools: ToolMeta[]
   /** 工具分组映射：toolId → 分组名（用户独立配置） */
   groupMap: Record<string, string>
+  /** 置顶工具 id 列表（按置顶顺序，用户独立配置） */
+  pinnedIds: string[]
   error: string
 }>()
 const emit = defineEmits<{
@@ -16,9 +24,11 @@ const emit = defineEmits<{
   open: [tool: ToolMeta]
   edit: [tool: ToolMeta]
   delete: [tool: ToolMeta]
+  pin: [tool: ToolMeta]
 }>()
 
 const UNGROUPED = '__ungrouped__'
+const FAVORITES = '__favorites__'
 
 interface ToolSection {
   key: string
@@ -26,8 +36,17 @@ interface ToolSection {
   tools: ToolMeta[]
 }
 
-// 按分组归集：有名分组按首次出现顺序排在前面，「未分组」固定归尾
+// 按分组归集：置顶工具固定「常用」分区排最前（在原分组中保留，不消失）；
+// 有名分组按首次出现顺序排在后面，「未分组」固定归尾
 const sections = computed<ToolSection[]>(() => {
+  const result: ToolSection[] = []
+  // 常用分区：保持置顶顺序，仅收录仍存在于工具列表中的工具
+  const pinnedTools = props.pinnedIds
+    .map((id) => props.tools.find((t) => t.id === id))
+    .filter((t): t is ToolMeta => Boolean(t))
+  if (pinnedTools.length) {
+    result.push({ key: FAVORITES, title: '常用', tools: pinnedTools })
+  }
   const buckets: Record<string, ToolMeta[]> = {}
   const order: string[] = []
   for (const tool of props.tools) {
@@ -39,12 +58,16 @@ const sections = computed<ToolSection[]>(() => {
     }
     buckets[key].push(tool)
   }
-  const result: ToolSection[] = order.map((key) => ({ key, title: key, tools: buckets[key] }))
+  for (const key of order) result.push({ key, title: key, tools: buckets[key] })
   if (buckets[UNGROUPED]) {
     result.push({ key: UNGROUPED, title: '未分组', tools: buckets[UNGROUPED] })
   }
   return result
 })
+
+function isPinned(id: string): boolean {
+  return props.pinnedIds.includes(id)
+}
 
 // 各分区折叠状态（key 为分组名或 UNGROUPED）；默认全部展开
 const collapsed = ref<Record<string, boolean>>({})
@@ -90,7 +113,20 @@ function toggleCollapse(key: string): void {
             @click="emit('open', tool)"
             @keydown.enter="emit('open', tool)"
           >
-            <div class="tool-card__actions no-drag">
+            <div
+              class="tool-card__actions no-drag"
+              :class="{ 'tool-card__actions--visible': isPinned(tool.id) }"
+            >
+              <button
+                class="tool-card__action tool-card__action--pin"
+                :class="{ 'tool-card__action--pinned': isPinned(tool.id) }"
+                type="button"
+                :aria-label="isPinned(tool.id) ? '取消置顶' : '置顶工具'"
+                :title="isPinned(tool.id) ? '取消置顶' : '置顶工具'"
+                @click.stop="emit('pin', tool)"
+              >
+                <ui-pin class="size-3.5" />
+              </button>
               <button
                 class="tool-card__action tool-card__action--edit"
                 type="button"
@@ -277,7 +313,7 @@ function toggleCollapse(key: string): void {
     outline-offset: 2px;
   }
 
-  // 右上角操作按钮（编辑 / 删除）：默认隐藏，悬停卡片时显示
+  // 右上角操作按钮（编辑 / 删除 / 置顶）：默认隐藏，悬停卡片时显示；置顶激活时整组常显
   &__actions {
     position: absolute;
     top: 8px;
@@ -286,6 +322,10 @@ function toggleCollapse(key: string): void {
     gap: 4px;
     opacity: 0;
     transition: opacity 0.15s;
+
+    &--visible {
+      opacity: 1;
+    }
   }
 
   &__action {
@@ -302,6 +342,12 @@ function toggleCollapse(key: string): void {
     transition: color 0.15s, border-color 0.15s;
 
     &--edit:hover {
+      color: var(--primary);
+      border-color: var(--primary);
+    }
+
+    // 置顶激活态：常显高亮（依赖 actions--visible 保持整组可见）
+    &--pinned {
       color: var(--primary);
       border-color: var(--primary);
     }

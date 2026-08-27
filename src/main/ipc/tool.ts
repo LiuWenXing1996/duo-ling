@@ -30,6 +30,11 @@ import {
   setToolGroup
 } from '../tool-group-store'
 import {
+  clearToolPin,
+  listPinnedToolIds,
+  setToolPinned
+} from '../tool-pin-store'
+import {
   applyToolChanges,
   createUserToolId,
   deleteUserTool,
@@ -92,6 +97,14 @@ export function registerToolIpc(): void {
     setToolGroup(toolId, group)
   )
 
+  // 读取全部置顶工具 id（按置顶顺序）。置顶是用户独立配置，不落 meta.json。
+  ipcMain.handle(CH.toolPinList, (): string[] => listPinnedToolIds())
+
+  // 设置某工具的置顶状态：置顶追加到末尾/取消移除，返回更新后的置顶列表（编辑弹窗与主页卡片共用）。
+  ipcMain.handle(CH.toolPinSet, (_event, toolId: string, pinned: boolean): string[] =>
+    setToolPinned(toolId, pinned)
+  )
+
   // 读取某工具的 git 提交历史（新在先；无仓库则空列表，供「版本历史」标签页使用）
   ipcMain.handle(CH.toolHistory, (_event, id: string): Promise<ToolHistoryResult> =>
     listToolHistory(id)
@@ -147,8 +160,9 @@ export function registerToolIpc(): void {
   ipcMain.handle(CH.toolDelete, (_event, id: string, keepData?: boolean): ToolResult => {
     const result = deleteUserTool(id)
     if (!result.ok) return { ok: false, error: result.error }
-    // 工具已删除，同步清理其在分组映射中的条目（幂等，不影响后续）
+    // 工具已删除，同步清理其在分组/置顶映射中的条目（幂等，不影响后续）
     clearToolGroup(id)
+    clearToolPin(id)
     if (!keepData) {
       const dataResult = clearToolsData(id)
       if (!dataResult.ok) return { ok: false, error: dataResult.error }

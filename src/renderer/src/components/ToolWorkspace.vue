@@ -23,7 +23,11 @@ import {
 const props = defineProps({
   tools: { type: Array as PropType<ToolMeta[]>, default: () => [] }
 })
-const emit = defineEmits<{ toolsChanged: [] }>()
+const emit = defineEmits<{
+  toolsChanged: []
+  /** 置顶列表变化（主页卡片 / 编辑弹窗触发），根布局据此同步侧边条置顶区 */
+  pinsChanged: [ids: string[]]
+}>()
 
 // 主页标签：始终存在且不可关闭，作为默认视图
 const HOME_TAB: OpenTool = { kind: 'home', id: 'home', title: '主页' }
@@ -181,6 +185,27 @@ const existingGroups = computed(() => Array.from(new Set(Object.values(groupMap.
 
 onMounted(loadGroups)
 
+// —— 工具置顶（用户独立配置 / 不落 meta.json）——
+// 置顶 id 列表（按置顶顺序），由主进程 tool.pin 读写；主页「常用」分区与侧边条置顶区共用。
+const pinnedIds = ref<string[]>([])
+
+async function loadPins(): Promise<void> {
+  try {
+    pinnedIds.value = await window.api.tool.pin.list()
+  } catch (error) {
+    console.error('加载工具置顶失败', error)
+  }
+}
+
+/** 切换某工具置顶状态（主页卡片 pin 按钮）：成功后同步侧边条置顶区。 */
+async function togglePin(tool: ToolMeta): Promise<void> {
+  const pinned = !pinnedIds.value.includes(tool.id)
+  pinnedIds.value = await window.api.tool.pin.set(tool.id, pinned)
+  emit('pinsChanged', [...pinnedIds.value])
+}
+
+onMounted(loadPins)
+
 // —— 编辑工具弹窗：编辑名称 / 图标（单字符）/ 描述 / 分组，提交后落盘 meta.json 与分组映射并同步展示 ——
 const editTarget = ref<ToolMeta | null>(null)
 const editDialogOpen = computed({
@@ -195,8 +220,8 @@ function askEditTool(tool: ToolMeta): void {
   editTarget.value = tool
 }
 
-// 保存编辑：更新名称 / 图标 / 描述 / 分组，成功后同步已打开标签的标题与图标，并刷新工具列表。
-async function confirmEditTool(payload: { title: string; icon: string; description: string; group: string }): Promise<void> {
+// 保存编辑：更新名称 / 图标 / 描述 / 分组 / 置顶，成功后同步已打开标签的标题与图标，并刷新工具列表。
+async function confirmEditTool(payload: { title: string; icon: string; description: string; group: string; pinned: boolean }): Promise<void> {
   const tool = editTarget.value
   if (!tool) return
   editTarget.value = null
@@ -214,6 +239,12 @@ async function confirmEditTool(payload: { title: string; icon: string; descripti
   const currentGroup = groupMap.value[tool.id] ?? ''
   if (payload.group.trim() !== currentGroup) {
     groupMap.value = await window.api.tool.group.set(tool.id, payload.group)
+  }
+  // 置顶是用户独立配置，单独落盘；仅在置顶状态变化时写回
+  const currentPinned = pinnedIds.value.includes(tool.id)
+  if (payload.pinned !== currentPinned) {
+    pinnedIds.value = await window.api.tool.pin.set(tool.id, payload.pinned)
+    emit('pinsChanged', [...pinnedIds.value])
   }
   // 名称/图标变化时，同步已打开标签页展示
   const tab = openTabs.value.find((t) => t.id === tool.id)
@@ -303,11 +334,13 @@ defineExpose({ createTool, openTool, openSettingsTab, openDeveloperTab, reloadTo
           v-if="tab.kind === 'home'"
           :tools="props.tools"
           :group-map="groupMap"
+          :pinned-ids="pinnedIds"
           :error="toolError"
           @create="createTool"
           @open="openTool"
           @edit="askEditTool"
           @delete="askDeleteTool"
+          @pin="togglePin"
         />
         <!-- 工具详情：工具标签只渲染详情面板（会话历史/当前会话已上浮为全局三栏） -->
         <tool-detail-panel
@@ -357,11 +390,12 @@ defineExpose({ createTool, openTool, openSettingsTab, openDeveloperTab, reloadTo
       @confirmed="confirmDeleteTool"
     />
 
-    <!-- 编辑工具弹窗：修改名称 / 图标（单字符）/ 描述 -->
+    <!-- 编辑工具弹窗：修改名称 / 图标（单字符）/ 描述 / 分组 / 置顶 -->
     <tool-edit-dialog
       :open="editDialogOpen"
       :tool="editTarget"
       :group="editTarget ? (groupMap[editTarget.id] ?? '') : ''"
+      :pinned="editTarget ? pinnedIds.includes(editTarget.id) : false"
       :existing-groups="existingGroups"
       @update:open="(v) => (editDialogOpen = v)"
       @saved="confirmEditTool"

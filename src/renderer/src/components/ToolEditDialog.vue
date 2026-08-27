@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// 编辑工具弹窗：修改名称 / 图标（单字符）/ 描述；表单提交由父组件落地 meta.json 并同步展示。
+// 编辑工具弹窗：修改名称 / 图标（单字符）/ 描述 / 分组 / 置顶；表单提交由父组件落地 meta.json 并同步展示。
 import { ref, watch } from 'vue'
 import type { ToolMeta } from '@/types/tool'
 import { Button as UiButton } from '@/components/ui/button'
 import { Input as UiInput } from '@/components/ui/input'
+import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import {
   Dialog as UiDialog,
   DialogContent as UiDialogContent,
@@ -18,18 +19,21 @@ const props = defineProps<{
   tool: ToolMeta | null
   /** 当前工具所在分组名；空串/缺省表示未分组 */
   group?: string
+  /** 当前工具是否置顶 */
+  pinned?: boolean
   /** 已存在的分组名列表，用于「分组」输入框的 datalist 建议 */
   existingGroups?: string[]
 }>()
 const emit = defineEmits<{
   'update:open': [open: boolean]
-  saved: [payload: { title: string; icon: string; description: string; group: string }]
+  saved: [payload: { title: string; icon: string; description: string; group: string; pinned: boolean }]
 }>()
 
 const editTitle = ref('')
 const editIcon = ref('')
 const editDescription = ref('')
 const editGroup = ref('')
+const editPinned = ref(false)
 const emojiPanelOpen = ref(false)
 
 // 每次打开弹窗时回填当前元信息到表单
@@ -41,6 +45,7 @@ watch(
       editIcon.value = props.tool.icon ?? ''
       editDescription.value = props.tool.description ?? ''
       editGroup.value = props.group ?? ''
+      editPinned.value = props.pinned ?? false
       emojiPanelOpen.value = false
     }
   }
@@ -56,7 +61,8 @@ function save(): void {
     title: editTitle.value,
     icon: editIcon.value,
     description: editDescription.value,
-    group: editGroup.value
+    group: editGroup.value,
+    pinned: editPinned.value
   })
 }
 
@@ -109,6 +115,15 @@ function pickEmoji(emoji: string): void {
           <option v-for="name in existingGroups" :key="name" :value="name" />
         </datalist>
         <p class="edit-form__hint">输入已有分组名即可归入该组，留空表示未分组；输入新名称可创建分组。</p>
+        <label class="edit-form__label" for="edit-pinned">置顶</label>
+        <div class="edit-form__pin-row">
+          <ui-switch id="edit-pinned" :model-value="editPinned" @update:model-value="(v: boolean) => (editPinned = v)">
+            <ui-switch-thumb />
+          </ui-switch>
+          <span class="edit-form__hint edit-form__hint--inline">
+            置顶后显示在主页「常用」分区与左侧边条，一键直达。
+          </span>
+        </div>
       </div>
       <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
         <ui-button variant="ghost" size="sm" @click="cancel">
@@ -139,6 +154,19 @@ function pickEmoji(emoji: string): void {
     margin: -2px 0 4px;
     font-size: 11.5px;
     color: var(--muted-foreground);
+
+    &--inline {
+      margin: 0;
+      line-height: 1.4;
+    }
+  }
+
+  // 置顶行：开关 + 说明文案（并排）
+  &__pin-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 2px;
   }
 
   // 图标输入行：输入框 + emoji 切换按钮（并排）

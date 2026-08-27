@@ -67,6 +67,8 @@ export const CH = {
   toolDelete: 'tool:delete',
   toolGroupList: 'tool-group:list',
   toolGroupSet: 'tool-group:set',
+  toolPinList: 'tool-pin:list',
+  toolPinSet: 'tool-pin:set',
   toolUpdateMeta: 'tool:updateMeta',
   toolUpdate: 'tool:update',
   toolGetPreloadPath: 'tool:getPreloadPath',
@@ -127,6 +129,8 @@ export interface InvokeMap {
   [CH.toolDelete]: { args: [id: string, keepData?: boolean]; result: ToolResult }
   [CH.toolGroupList]: { args: []; result: ToolGroupMap }
   [CH.toolGroupSet]: { args: [toolId: string, group: string]; result: ToolGroupMap }
+  [CH.toolPinList]: { args: []; result: string[] }
+  [CH.toolPinSet]: { args: [toolId: string, pinned: boolean]; result: string[] }
   [CH.toolUpdateMeta]: {
     args: [id: string, patch: { title?: string; description?: string; icon?: string }]
     result: ToolUpdateMetaResult
@@ -215,6 +219,12 @@ export interface PreloadApi {
       list: () => Promise<ToolGroupMap>
       /** 设置某工具的分组名；传空串表示移除分组，返回更新后的全量映射 */
       set: (toolId: string, group: string) => Promise<ToolGroupMap>
+    }
+    pin: {
+      /** 读取全部置顶工具 id（按置顶顺序） */
+      list: () => Promise<string[]>
+      /** 设置某工具的置顶状态；置顶追加到末尾/取消移除，返回更新后的置顶列表 */
+      set: (toolId: string, pinned: boolean) => Promise<string[]>
     }
     /** 监听主进程「打开工具」命令（agent.tools.open 触发），返回取消订阅函数 */
     onOpenCommand: (callback: (payload: ToolOpenCommand) => void) => () => void

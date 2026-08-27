@@ -35,6 +35,10 @@ describe('ToolWorkspace', () => {
           group: {
             list: vi.fn().mockResolvedValue({}),
             set: vi.fn().mockResolvedValue({})
+          },
+          pin: {
+            list: vi.fn().mockResolvedValue([]),
+            set: vi.fn().mockResolvedValue([])
           }
         },
         agent: {

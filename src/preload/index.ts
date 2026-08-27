@@ -82,6 +82,10 @@ const api: PreloadApi = {
       list: () => invoke(CH.toolGroupList),
       set: (toolId, group) => invoke(CH.toolGroupSet, toolId, group)
     },
+    pin: {
+      list: () => invoke(CH.toolPinList),
+      set: (toolId, pinned) => invoke(CH.toolPinSet, toolId, pinned)
+    },
     onOpenCommand: (callback) => toolOpenCommandEvents.on(callback)
   },
   toolsPreview: {
