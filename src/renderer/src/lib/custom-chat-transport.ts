@@ -8,6 +8,7 @@
 // 正文 / reasoning / 工具调用 chunk 均透传；reconnectToStream 暂不支持（返回 null）。
 
 import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai'
+import type { AgentStreamSendResult, TokenUsage } from '../../../shared/types'
 
 type StreamItem = { chunk?: UIMessageChunk; done: boolean }
 
@@ -53,14 +54,24 @@ class AgentStreamQueue {
  */
 async function startAgentStream(
   messages: UIMessage[],
-  abortSignal: AbortSignal | undefined
+  abortSignal: AbortSignal | undefined,
+  onUsage?: (usage: TokenUsage | undefined) => void
 ): Promise<ReadableStream<UIMessageChunk>> {
   const queue = new AgentStreamQueue()
 
+  // 从收尾结果里取出本次生成用量，回调给 transport（供持久化与展示）
+  const emitUsage = (result: AgentStreamSendResult): void => {
+    if (result.ok) onUsage?.(result.usage)
+  }
+  const onEnd = (result: AgentStreamSendResult): void => {
+    emitUsage(result)
+    queue.close(result.ok ? undefined : result.error)
+  }
+
   // 主进程逐 chunk 推送 → 入队供消费端拉取
   const offChunk = window.api.agent.onStreamChunk((chunk) => queue.enqueue(chunk))
-  // 主进程流结束 → 补 error chunk（失败时）并关闭流
-  const offEnd = window.api.agent.onStreamEnd((result) => queue.close(result.ok ? undefined : result.error))
+  // 主进程流结束 → 透出 usage、补 error chunk（失败时）并关闭流
+  const offEnd = window.api.agent.onStreamEnd(onEnd)
 
   // 用户主动停止 / useChat 取消：通知主进程 abort，并把流收尾为「已停止」
   const onAbort = () => {
@@ -80,10 +91,7 @@ async function startAgentStream(
   // 整条流才 resolve，所有 chunk 一次性缓冲、消费端合并渲染（表现为「文字一起跳出来」）。
   void window.api.agent
     .streamSend(messages)
-    .then(
-      (result) => queue.close(result.ok ? undefined : result.error),
-      (error) => queue.close(error instanceof Error ? error.message : String(error))
-    )
+    .then(onEnd, (error) => queue.close(error instanceof Error ? error.message : String(error)))
     .finally(cleanup)
 
   return new ReadableStream<UIMessageChunk>({
@@ -105,6 +113,19 @@ async function startAgentStream(
  * 用法：useChat({ id, transport: new ElectronChatTransport() })
  */
 export class ElectronChatTransport implements ChatTransport<UIMessage> {
+  // 最近一次已结束流的 token 用量；由使用方在 onFinish 读取并清空
+  private lastUsage: TokenUsage | undefined = undefined
+
+  /** 读取最近一次生成消耗的 token（配合 onFinish/持久化使用） */
+  getLastUsage(): TokenUsage | undefined {
+    return this.lastUsage
+  }
+
+  /** 清空已读取的用量，避免下一条消息串到旧值 */
+  clearUsage(): void {
+    this.lastUsage = undefined
+  }
+
   async sendMessages(options: {
     trigger: 'submit-message' | 'regenerate-message'
     chatId: string
@@ -112,7 +133,11 @@ export class ElectronChatTransport implements ChatTransport<UIMessage> {
     messages: UIMessage[]
     abortSignal: AbortSignal | undefined
   }): Promise<ReadableStream<UIMessageChunk>> {
-    return startAgentStream(options.messages, options.abortSignal)
+    // 每次发起生成前清空上次用量，确保 onFinish 读到的属于本次流
+    this.lastUsage = undefined
+    return startAgentStream(options.messages, options.abortSignal, (usage) => {
+      this.lastUsage = usage
+    })
   }
 
   // 阶段 A 不做流重连；返回 null 表示无可用重连流

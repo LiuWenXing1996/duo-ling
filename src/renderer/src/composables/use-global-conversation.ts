@@ -20,7 +20,8 @@ import type {
   Conversation,
   EditIntent,
   GeneratedIntent,
-  Message
+  Message,
+  TokenUsage
 } from '../../../shared/types'
 
 /** 自动落盘留痕：AI 产出变更清单后直接应用，卡片仅作留痕展示（无手动应用/放弃） */
@@ -105,6 +106,8 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
   const activeConversationId = ref('')
   // —— 当前激活会话的变更卡片 ——
   const pendingMap = ref<Record<string, PendingChange>>({})
+  // —— 各消息本次消耗的 token（按 UIMessage.id 索引，供 ChatPanel 单条展示）——
+  const usageByMessageId = ref<Record<string, TokenUsage>>({})
 
   // —— useChat：单个稳定 VueChat 实例；切换会话时直接重置 messages（ShallowRef 可安全赋值）——
   const transport = new ElectronChatTransport()
@@ -134,6 +137,7 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
     activeConversationId.value = conv.id
     chat.messages.value = []
     pendingMap.value = {}
+    usageByMessageId.value = {}
     return conv.id
   }
 
@@ -147,6 +151,12 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
     ])
     chat.messages.value = msgs.map(toUiMessage)
     pendingMap.value = buildPendingMap(intents)
+    // 回读各消息已落盘的 token 用量，供单条展示（id 与 UIMessage.id 一致）
+    const usageMap: Record<string, TokenUsage> = {}
+    for (const m of msgs) {
+      if (m.usage) usageMap[m.id] = m.usage
+    }
+    usageByMessageId.value = usageMap
   }
 
   /** 初次加载会话列表：有则激活第一个，无则新建 */
@@ -168,6 +178,7 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
     activeConversationId.value = conv.id
     chat.messages.value = []
     pendingMap.value = {}
+    usageByMessageId.value = {}
   }
 
   /** 删除单个会话：删除后若活跃会话被移除，则激活剩余第一个（否则新建空会话） */
@@ -190,15 +201,17 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
     conversations.value = []
     activeConversationId.value = ''
     pendingMap.value = {}
+    usageByMessageId.value = {}
     await ensureActiveConversation()
   }
 
-  /** 把 AI 回复正文、思考过程与完整 parts 写入主进程会话，返回落盘消息 id（供 EditIntent 挂载） */
+  /** 把 AI 回复正文、思考过程、完整 parts 与 token 用量写入主进程会话，返回落盘消息 id（供 EditIntent 挂载） */
   async function persistAssistant(
     conversationId: string,
     content: string,
     reasoning?: string,
-    parts?: UIMessage['parts']
+    parts?: UIMessage['parts'],
+    usage?: TokenUsage
   ): Promise<string | null> {
     // parts 可能来自响应式 message，直接经 contextBridge 传主进程不保险；先深拷贝为纯数据
     const cleanParts = parts ? (JSON.parse(JSON.stringify(parts)) as UIMessage['parts']) : undefined
@@ -207,7 +220,8 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
       'assistant',
       content,
       reasoning,
-      cleanParts
+      cleanParts,
+      usage
     )
     return msg?.id ?? null
   }
@@ -267,6 +281,11 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
     const conversationId = activeConversationId.value
     if (!conversationId) return
 
+    // 读取本次生成的 token 用量（主进程 streamText onFinish 捕获，经 transport 透传到此）
+    const usage = transport.getLastUsage()
+    transport.clearUsage()
+    if (usage) usageByMessageId.value = { ...usageByMessageId.value, [message.id]: usage }
+
     // 在 setAssistantText（会把气泡收敛为 summary，清空中间轮正文）之前，捕获完整 parts
     // 作为落盘数据，保证回显时能还原分轮思考 / 工具卡 / 多段正文，而不是只剩压扁的正文。
     const persistParts = JSON.parse(JSON.stringify(message.parts)) as UIMessage['parts']
@@ -299,16 +318,21 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
       setAssistantText(chat.messages, message, displayContent)
     }
 
-    // 正文定稿后落盘 assistant 消息（含思考与完整 parts，供会话回显）；若声明了编辑意图则逐工具应用
+    // 正文定稿后落盘 assistant 消息（含思考、完整 parts 与 token 用量，供会话回显/累计展示）；
+    // 若声明了编辑意图则逐工具应用
     const assistantId = await persistAssistant(
       conversationId,
       displayContent,
       reasoning,
-      persistParts
+      persistParts,
+      usage
     )
     if (intents?.length) {
       await applyIntents(conversationId, message.id, assistantId ?? message.id, intents)
     }
+
+    // 刷新会话列表（重新计算 totalTokens / lastMessageAt 排序），保持历史侧栏累计值实时
+    conversations.value = await window.api.conversation.list()
   }
 
   /** 出错回调（useChat onError）：移除空副本站，避免残留空白气泡；恢复可输入 */
@@ -347,6 +371,8 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
     // 当前会话视图
     messages,
     pendingMap,
+    /** 各消息本次消耗的 token（按 UIMessage.id 索引，供单条展示） */
+    usageByMessageId,
     streaming,
     status,
     // 操作

@@ -11,6 +11,18 @@ export interface Conversation {
   createdAt: string
   /** 最后一条消息时间（ISO），用于会话列表排序/展示 */
   lastMessageAt: string
+  /** 会话累计消耗 token（由消息 usage 汇总，历史列表/标题辅助展示用）；旧数据可能缺省 */
+  totalTokens?: number
+}
+
+/** 一次模型生成消耗的 token 量（AI SDK LanguageModelUsage 的纯字面量透传，可安全过 IPC 与落盘） */
+export interface TokenUsage {
+  /** 输入侧 token（含工具结果回传、历史上下文） */
+  inputTokens?: number
+  /** 输出侧 token（模型生成的回复/思考） */
+  outputTokens?: number
+  /** 合计（input + output），多数场景以此为准 */
+  totalTokens?: number
 }
 
 /** conversation:search 的命中项：会话 + 命中的消息内容片段（空查询返回最近会话时 snippet 为空） */
@@ -31,6 +43,8 @@ export interface Message {
   /** 完整 UIMessage.parts（reasoning/text/tool）。
    * 回读时据此还原分轮思考 / 工具卡 / 多段正文；兼容旧数据：无 parts 时回退用 content+reasoning。 */
   parts?: UIMessage['parts']
+  /** 本次生成消耗的 token（仅 assistant 消息有值），持久化为会话累计与单条耗时的唯一来源 */
+  usage?: TokenUsage
   createdAt: string
 }
 
@@ -389,7 +403,8 @@ export type ToolsDataOpenResult = { ok: true } | { ok: false; error: string }
  * 且渲染层无需再做形状转换即可喂给 useChat（内部由 readUIMessageStream 累积为 UIMessage.parts）。 */
 export type AgentStreamChunk = UIMessageChunk
 
-/** agent:streamSend 的收尾状态（流通过 EVENT_CH.agentStream 逐 chunk 推送，此处仅在流结束后汇总） */
+/** agent:streamSend 的收尾状态（流通过 EVENT_CH.agentStream 逐 chunk 推送，此处仅在流结束后汇总）。
+ * usage 为本次生成消耗的 token（从主进程 streamText onFinish 捕获，供渲染层持久化与展示）。 */
 export type AgentStreamSendResult =
-  | { ok: true; content?: string; reasoning?: string }
+  | { ok: true; content?: string; reasoning?: string; usage?: TokenUsage }
   | { ok: false; content?: string; reasoning?: string; error: string }

@@ -62,6 +62,23 @@ describe('conversation-store（会话/消息/EditIntent 存储）', () => {
     expect(appendMessage('nope', 'user', 'x')).toBeNull()
   })
 
+  it('appendMessage 携带 usage 落库；listConversations 汇总出 totalTokens', () => {
+    const c = createConversation()
+    appendMessage(c.id, 'user', '需求')
+    appendMessage(c.id, 'assistant', '好的', undefined, undefined, {
+      inputTokens: 10,
+      outputTokens: 20,
+      totalTokens: 30
+    })
+    appendMessage(c.id, 'assistant', '再来', undefined, undefined, { totalTokens: 7 })
+
+    const messages = listMessages(c.id)
+    expect(messages[1].usage).toEqual({ inputTokens: 10, outputTokens: 20, totalTokens: 30 })
+    expect(messages[2].usage).toEqual({ totalTokens: 7 })
+    // 会话累计 = 各消息 totalTokens 之和（用户消息与无 usage 消息计 0）
+    expect(listConversations()[0].totalTokens).toBe(37)
+  })
+
   it('renameConversation 去空白并更新标题；空标题 / 不存在返回 null', () => {
     const c = createConversation()
     expect(renameConversation(c.id, '  重命名  ')?.title).toBe('重命名')

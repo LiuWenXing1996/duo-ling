@@ -9,7 +9,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { UIMessage } from 'ai'
 import { buildAgentTools, type AgentToolHooks } from './agent-tools'
 import { getActiveConfig, isConfigured } from './model-store'
-import type { AgentStreamChunk, AgentStreamSendResult } from '../shared/types'
+import type { AgentStreamChunk, AgentStreamSendResult, TokenUsage } from '../shared/types'
 
 export interface StreamAisdkReplyOptions {
   /** 每收到一个 UIMessageChunk 即回调（主进程据此 webContents.send 推给渲染层） */
@@ -46,6 +46,9 @@ export async function streamAisdkReply(
 
   const aisdkTools = buildAgentTools(opts.hooks)
 
+  // 捕获本次生成的 token 用量：AI SDK 的 LanguageModelUsage 聚合多步 Agent Loop 的全部消耗。
+  // 在 onFinish（GenerateTextOnEndCallback）里拿 usage，而非渲染层 useChat.onFinish（无 usage 字段）。
+  let usage: TokenUsage | undefined
   const result = streamText({
     model: provider.chatModel(config.model),
     messages: modelMessages,
@@ -57,7 +60,14 @@ export async function streamAisdkReply(
     stopWhen: isStepCount(8),
     ...(config.temperature != null ? { temperature: config.temperature } : {}),
     ...(config.topP != null ? { topP: config.topP } : {}),
-    ...(config.contextOutputToken != null ? { maxOutputTokens: config.contextOutputToken } : {})
+    ...(config.contextOutputToken != null ? { maxOutputTokens: config.contextOutputToken } : {}),
+    onFinish: ({ usage: u }) => {
+      usage = {
+        inputTokens: u?.inputTokens ?? undefined,
+        outputTokens: u?.outputTokens ?? undefined,
+        totalTokens: u?.totalTokens ?? undefined
+      }
+    }
     // 注：topK 对应的 providerOptions 在 @ai-sdk/openai-compatible 的 schema 中不存在（仅 user/reasoningEffort/
     // textVerbosity/strictJsonSchema），阶段 C 再决定是否用自定义 body 透传，这里暂不映射。
   })
@@ -87,5 +97,7 @@ export async function streamAisdkReply(
     error = e instanceof Error ? e.message : String(e)
   }
 
-  return error ? { ok: false, content, reasoning, error } : { ok: true, content, reasoning }
+  return error
+    ? { ok: false, content, reasoning, error }
+    : { ok: true, content, reasoning, usage }
 }

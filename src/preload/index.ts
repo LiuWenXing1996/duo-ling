@@ -118,8 +118,8 @@ const api: PreloadApi = {
     create: () => invoke(CH.conversationCreate),
     rename: (id, title) => invoke(CH.conversationRename, id, title),
     messages: (conversationId) => invoke(CH.conversationMessages, conversationId),
-    appendMessage: (conversationId, role, content, reasoning, parts) =>
-      invoke(CH.conversationAppendMessage, conversationId, role, content, reasoning, parts),
+    appendMessage: (conversationId, role, content, reasoning, parts, usage) =>
+      invoke(CH.conversationAppendMessage, conversationId, role, content, reasoning, parts, usage),
     applyIntents: (input) => invoke(CH.conversationApplyIntents, input),
     intents: (conversationId) => invoke(CH.conversationIntents, conversationId),
     delete: (id) => invoke(CH.conversationDelete, id),

@@ -71,6 +71,16 @@ const schema: Schema<ConversationState> = {
           reasoning: { type: 'string' },
           // 完整 UIMessage.parts；宽松校验（仅要求数组，不深入 items），兼容旧数据缺省
           parts: { type: 'array' },
+          // 本次生成消耗的 token 用量（仅 assistant 消息）；宽松校验，兼容旧数据缺省
+          usage: {
+            type: 'object',
+            properties: {
+              inputTokens: { type: 'number' },
+              outputTokens: { type: 'number' },
+              totalTokens: { type: 'number' }
+            },
+            additionalProperties: false
+          },
           createdAt: { type: 'string' }
         },
         additionalProperties: false
@@ -117,11 +127,19 @@ function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 }
 
-/** 会话列表，按最后消息时间倒序（新在前）；无消息会话按创建时间倒序 */
+/** 会话累计 token：汇总该会话全部消息 usage.totalTokens（旧数据无 usage 记 0） */
+function conversationTotalTokens(messages: Message[]): number {
+  return messages.reduce((sum, m) => sum + (m.usage?.totalTokens ?? 0), 0)
+}
+
+/** 会话列表，按最后消息时间倒序（新在前）；无消息会话按创建时间倒序。
+ * 每项附带 totalTokens（由消息 usage 汇总，仅用于历史列表展示，不落库）。 */
 export function listConversations(): Conversation[] {
-  return [...getStore().get('conversations')].sort((a, b) =>
-    b.lastMessageAt.localeCompare(a.lastMessageAt)
-  )
+  const store = getStore()
+  const messageMap = store.get('messages')
+  return [...store.get('conversations')]
+    .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt))
+    .map((c) => ({ ...c, totalTokens: conversationTotalTokens(messageMap[c.id] ?? []) }))
 }
 
 export function getConversation(id: string): Conversation | null {
@@ -205,13 +223,17 @@ export function listConversationIntents(conversationId: string): EditIntent[] {
   return out
 }
 
-/** 追加一条消息并刷新会话 lastMessageAt；返回落库后的消息（reasoning/parts 仅 assistant 消息传入） */
+/** appendMessage 的 usage 入参（兼容 Message.usage 片段，避免主进程与 store 强耦合到完整类型） */
+type AppendUsage = Message['usage']
+
+/** 追加一条消息并刷新会话 lastMessageAt；返回落库后的消息（reasoning/parts/usage 仅 assistant 消息传入） */
 export function appendMessage(
   conversationId: string,
   role: MessageRole,
   content: string,
   reasoning?: string,
-  parts?: Message['parts']
+  parts?: Message['parts'],
+  usage?: AppendUsage
 ): Message | null {
   const conversation = getConversation(conversationId)
   if (!conversation) return null
@@ -223,6 +245,7 @@ export function appendMessage(
     content,
     reasoning,
     parts,
+    usage,
     createdAt: now
   }
   const messages = getStore().get('messages')

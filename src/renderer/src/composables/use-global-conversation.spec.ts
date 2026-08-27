@@ -123,12 +123,47 @@ describe('useGlobalConversation.send（AI SDK 流式链路）', () => {
     expect(ai.role).toBe('assistant')
     expect(extractText(ai)).toBe('这是最终正文。')
 
-    // 用户消息与 assistant 消息各落盘一次；assistant 落盘携带完整 parts（正文已收敛为 summary，parts 保留原始 text）
+    // 用户消息与 assistant 消息各落盘一次；assistant 落盘携带完整 parts（正文已收敛为 summary，parts 保留原始 text）；本次无 usage
     expect(window.api.conversation.appendMessage).toHaveBeenCalledWith('c1', 'assistant', '这是最终正文。', '', [
       { type: 'text', state: 'done', text: '这是最终正文。' }
-    ])
+    ], undefined)
     // 无编辑意图契约：不触发 applyIntents
     expect(window.api.conversation.applyIntents).not.toHaveBeenCalled()
+  })
+
+  it('流结束后把本次 token 用量写入 usageByMessageId 并随 assistant 消息落盘', async () => {
+    const chunks: UIMessageChunk[] = [
+      { type: 'start', messageId: 'a-1' },
+      { type: 'text-start', id: 't-1' },
+      { type: 'text-delta', id: 't-1', delta: '好的。' },
+      { type: 'text-end', id: 't-1' },
+      { type: 'finish', finishReason: 'stop' }
+    ]
+    mockStream(chunks, {
+      ok: true,
+      content: '好的。',
+      reasoning: '',
+      usage: { inputTokens: 5, outputTokens: 8, totalTokens: 13 }
+    })
+
+    const conv = useGlobalConversation()
+    await conv.send('你好')
+
+    // 单条消息 token 展示层数据源：按 UIMessage.id 记录本次消耗
+    expect(conv.usageByMessageId.value['a-1']).toEqual({
+      inputTokens: 5,
+      outputTokens: 8,
+      totalTokens: 13
+    })
+    // assistant 落盘携带 usage，供会话累计 / 历史列表展示
+    expect(window.api.conversation.appendMessage).toHaveBeenCalledWith(
+      'c1',
+      'assistant',
+      '好的。',
+      '',
+      [{ type: 'text', state: 'done', text: '好的。' }],
+      { inputTokens: 5, outputTokens: 8, totalTokens: 13 }
+    )
   })
 
   it('契约 JSON：气泡收敛为 summary，落盘保留思考过程，并逐工具应用意图', async () => {
@@ -163,11 +198,11 @@ describe('useGlobalConversation.send（AI SDK 流式链路）', () => {
     expect(extractText(ai)).toBe('重写该工具')
     // 留痕卡片挂到该消息 id
     expect(conv.pendingMap.value['a-1']?.changes.summary).toBe('重写该工具')
-    // 落盘 assistant 消息：正文为 summary，思考过程保留；parts 保留完整 reasoning + 原始契约 text
+    // 落盘 assistant 消息：正文为 summary，思考过程保留；parts 保留完整 reasoning + 原始契约 text；本次无 usage
     expect(window.api.conversation.appendMessage).toHaveBeenCalledWith('c1', 'assistant', '重写该工具', '我先分析。', [
       { id: 'r-1', type: 'reasoning', state: 'done', text: '我先分析。' },
       { type: 'text', state: 'done', text: contract }
-    ])
+    ], undefined)
     // 逐工具应用意图（cardId=a-1，persistedId=m1）
     expect(window.api.conversation.applyIntents).toHaveBeenCalledWith({
       conversationId: 'c1',
@@ -221,11 +256,12 @@ describe('useGlobalConversation 消息视图（ChatPanel 渲染链路）', () =>
       setup: () => ({
         messages: g.messages,
         pendingMap: g.pendingMap,
+        usageByMessageId: g.usageByMessageId,
         streaming: g.streaming,
         onSend: (text: string) => g.send(text)
       }),
       template:
-        '<chat-panel :messages="messages" :pending-map="pendingMap" :streaming="streaming" @send="onSend" />'
+        '<chat-panel :messages="messages" :pending-map="pendingMap" :usage-by-message-id="usageByMessageId" :streaming="streaming" @send="onSend" />'
     })
     const wrapper = mount(Parent)
     expect(wrapper.text()).toContain('暂无消息')

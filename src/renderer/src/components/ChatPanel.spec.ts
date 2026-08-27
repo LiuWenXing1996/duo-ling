@@ -46,6 +46,7 @@ function mountPanel(overrides: Record<string, unknown> = {}): ReturnType<typeof 
     props: {
       messages,
       pendingMap: { a1: pending },
+      usageByMessageId: {},
       streaming: false,
       ...overrides
     }

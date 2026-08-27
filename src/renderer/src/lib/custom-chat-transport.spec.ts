@@ -20,7 +20,12 @@ const CHUNKS: UIMessageChunk[] = [
   { type: 'finish', finishReason: 'stop' }
 ]
 
-const RESULT: AgentStreamSendResult = { ok: true, content: '你好，世界', reasoning: '我在思考怎么做。' }
+const RESULT: AgentStreamSendResult = {
+  ok: true,
+  content: '你好，世界',
+  reasoning: '我在思考怎么做。',
+  usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 }
+}
 
 beforeEach(() => {
   chunkListener = null
@@ -106,5 +111,48 @@ describe('ElectronChatTransport（方案 B 阶段 A）', () => {
       received.push(value)
     }
     expect(received[received.length - 1]).toMatchObject({ type: 'error', errorText: '模型超时' })
+  })
+
+  it('流结束后 transport.getLastUsage() 返回本次生成消耗的 token', async () => {
+    const transport = new ElectronChatTransport()
+    const stream = await transport.sendMessages({
+      trigger: 'submit-message',
+      chatId: 'c-1',
+      messageId: undefined,
+      messages: [{ id: 'u-1', role: 'user', parts: [{ type: 'text', text: '你好' }] }],
+      abortSignal: undefined
+    })
+
+    const reader = stream.getReader()
+    for (;;) {
+      const { done } = await reader.read()
+      if (done) break
+    }
+
+    expect(transport.getLastUsage()).toEqual({ inputTokens: 10, outputTokens: 20, totalTokens: 30 })
+  })
+
+  it('主进程返回 error 时不写入 usage，getLastUsage 保持 undefined', async () => {
+    ;(window.api.agent.streamSend as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      endListener?.({ ok: false, error: '模型超时' })
+      return { ok: false, error: '模型超时' }
+    })
+
+    const transport = new ElectronChatTransport()
+    const stream = await transport.sendMessages({
+      trigger: 'submit-message',
+      chatId: 'c-1',
+      messageId: undefined,
+      messages: [{ id: 'u-1', role: 'user', parts: [{ type: 'text', text: '你好' }] }],
+      abortSignal: undefined
+    })
+
+    const reader = stream.getReader()
+    for (;;) {
+      const { done } = await reader.read()
+      if (done) break
+    }
+
+    expect(transport.getLastUsage()).toBeUndefined()
   })
 })

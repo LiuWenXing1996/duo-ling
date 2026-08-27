@@ -59,6 +59,7 @@ import {
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import { truncate } from '@/lib/format'
 import type { PendingChange } from '@/composables/use-global-conversation'
+import type { TokenUsage } from '../../../shared/types'
 import {
   getToolName,
   isReasoningUIPart,
@@ -72,6 +73,8 @@ import {
 const props = defineProps<{
   messages: UIMessage[]
   pendingMap: Record<string, PendingChange>
+  /** 各消息本次消耗的 token（按 UIMessage.id 索引），assistant 消息展示在气泡下方 */
+  usageByMessageId: Record<string, TokenUsage>
   streaming: boolean
 }>()
 const emit = defineEmits<{
@@ -170,6 +173,22 @@ function assistantText(m: UIMessage): string {
 /** 取某条 AI 消息挂载的变更卡片（可能不存在，如自动模式或无变更） */
 function pendingOf(messageId: string): PendingChange | undefined {
   return props.pendingMap[messageId]
+}
+
+/** 取某条消息本次消耗的 token（assistant 气泡下方展示） */
+function usageOf(messageId: string): TokenUsage | undefined {
+  return props.usageByMessageId[messageId]
+}
+
+/** 简短 token 展示：优先 totalTokens，回退到 input+output 之和；无数据返回空串 */
+function tokenLabel(usage: TokenUsage | undefined): string {
+  if (!usage) return ''
+  const total =
+    usage.totalTokens ??
+    (usage.inputTokens != null && usage.outputTokens != null
+      ? usage.inputTokens + usage.outputTokens
+      : undefined)
+  return total == null ? '' : `${total} tokens`
 }
 
 /** Agent 工具调用步骤的中文展示名（未识别的能力名直接回显） */
@@ -396,6 +415,15 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                   </ui-message-content>
                 </template>
               </ui-message>
+              <!-- 本次消耗 token：assistant 气泡下方展示（无 usage 时不渲染） -->
+              <p
+                v-if="m.role === 'assistant' && tokenLabel(usageOf(m.id))"
+                class="pl-1 text-xs text-muted-foreground/70"
+                title="本次回复消耗的 token"
+                data-testid="message-tokens"
+              >
+                {{ tokenLabel(usageOf(m.id)) }}
+              </p>
               <!-- 变更清单留痕卡片：AI 产出改动后自动落盘留痕，仅作展示（无手动应用/放弃） -->
               <div
                 v-if="m.role === 'assistant' && pendingOf(m.id)"

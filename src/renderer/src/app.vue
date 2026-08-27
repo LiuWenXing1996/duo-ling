@@ -55,6 +55,7 @@ const {
   activeConversationId,
   messages,
   pendingMap,
+  usageByMessageId,
   streaming,
   loadConversations,
   newConversation,
@@ -427,6 +428,7 @@ function handleCreateTool(): void {
             <chat-panel
               :messages="messages"
               :pending-map="pendingMap"
+              :usage-by-message-id="usageByMessageId"
               :streaming="streaming"
               @send="send"
               @stop="stopGeneration"

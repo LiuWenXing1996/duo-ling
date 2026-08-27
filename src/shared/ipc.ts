@@ -25,6 +25,7 @@ import type {
   ModelProvider,
   ModelTestChatConfig,
   TestChatResult,
+  TokenUsage,
   ToolArchiveResult,
   ToolChangeList,
   ToolCodeResult,
@@ -166,7 +167,8 @@ export interface InvokeMap {
       role: MessageRole,
       content: string,
       reasoning?: string,
-      parts?: UIMessage['parts']
+      parts?: UIMessage['parts'],
+      usage?: TokenUsage
     ]
     result: Message | null
   }
@@ -265,7 +267,8 @@ export interface PreloadApi {
       role: MessageRole,
       content: string,
       reasoning?: string,
-      parts?: UIMessage['parts']
+      parts?: UIMessage['parts'],
+      usage?: TokenUsage
     ) => Promise<Message | null>
     applyIntents: (input: ApplyIntentsInput) => Promise<ApplyIntentsResult>
     intents: (conversationId: string) => Promise<EditIntent[]>

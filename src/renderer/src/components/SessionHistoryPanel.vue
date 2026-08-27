@@ -89,7 +89,11 @@ function confirmDelete(): void {
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
               <p class="truncate text-sm">{{ s.title }}</p>
-              <p class="text-muted-foreground text-xs">{{ formatSessionTime(s.lastMessageAt) }}</p>
+              <p class="text-muted-foreground text-xs">
+                {{ formatSessionTime(s.lastMessageAt) }}<template v-if="s.totalTokens"
+                  ><span class="mx-1">·</span>{{ s.totalTokens }} tokens</template
+                >
+              </p>
             </div>
             <ui-button
               variant="ghost"
