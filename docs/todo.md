@@ -199,3 +199,40 @@
 **详细文档**：见 [tool-archive.md](./tool-archive.md)。
 
 **状态**：方案已写入 docs，待评审。
+
+---
+
+## webview 显式沙箱化：guest sandbox + preload 兼容验证（待办）
+
+**背景**：`docs/prd.md` 8.4 声明工具页 `<webview>` 为 `sandbox: true`，但实际 `src/renderer/src/components/tool-frame.vue` / `tool-history.vue` 的 `<webview>` 标签**未写 `sandbox` 属性**，而 Electron 中 webview 的 `sandbox` **默认不开启**（默认仅在开启 nodeintegration 时才沙箱）——设计与实现存在出入。当前工具页防线为「无 Node（nodeintegration 默认关）+ CSP + cap 白名单 + 独立进程」，已构成基本安全；补沙箱是让渲染进程获得 OS 级隔离（崩溃/越权被关在独立沙箱进程内），与 CSP 管「资源加载」互补、管「运行环境」。
+
+**方案要点（待确认）**：
+- 给 `<webview>`（`tool-frame.vue` / `tool-history.vue` 两处）显式加 `sandbox` 属性。
+- **关键前置验证**：`sandbox` 开启后 guest preload 变为 **sandboxed preload**（只能 `require` electron 受限子集），需确认现有 guest preload（注入 `window.cap` + 心跳 `sendToHost`）在沙箱环境下仍能工作；若受限，需将 preload 改为仅用 `ipcRenderer` / `postMessage` 等沙箱允许的 API。
+- 主窗口 `webPreferences.sandbox: false`（见 `src/main/windows.ts`）与 guest 沙箱互不影响，无需改动。
+- 顺带确认 `partition` 是否要引入（当前所有工具共享默认会话，存储未隔离；与沙箱化同属「webview 运行环境」加固，可一并评估）。
+
+**关联**：与「工具 ESM 拆分（折中：仅限工具目录内相对 import）」同一批 webview 安全加固；落地时验证 e2e 中工具页加载 / 心跳 / 能力调用不受影响。
+
+**状态**：待办。方向已确认（显式加 sandbox），guest preload 沙箱兼容性待验证。
+
+---
+
+## UserTool 文件结构与运行环境改造（待办）
+
+**背景**：`docs/tool-spec.md` 为「工具规范」权威契约，只描述目标形态、**不谈进度**；以下为落地 `tool-spec.md` 所需实现的改造项，统一登记于此（按 tool-spec 章节归组）。
+
+**方案要点（目标态见 tool-spec.md）**：
+1. **CSP 权威层（tool-spec §6.2/§6.3）**：
+   - `tool://` / `tool-preview://` 协议响应头统一下发 `content-security-policy`（权威兜底，不依赖生成端 AI 写 meta）；
+   - 脚手架 meta CSP 与 header 对齐或移除（避免双写交集不一致）。
+2. **`.css` MIME（tool-spec §3.3/§6.2）**：协议层扩展名→Content-Type 映射补充 `.css` → `text/css`。
+3. **文件白名单放开 + git 动态遍历（tool-spec §3.2/§5.2）**：
+   - 主进程编辑白名单、生成器侧文件白名单两处从「两文件」放开为「两个固定文件 + 三个目录 + 工具档案」；
+   - git 提交 / 回滚遍历从固定两文件改为动态遍历工具目录（排除 `.git/`），并防目录穿越。
+4. **脚手架改造为目录骨架（tool-spec §5.1 创建）**：新建 UserTool 从「自包含单文件」改为「入口页 + 脚本/样式目录 + 空静态资源目录」。
+5. **工具档案 `archive.md` 落地（tool-spec §3.2）**：档案读写链路、随 git 版本化、生成规则（详见 [tool-archive.md](./tool-archive.md) 方案）。
+6. **`local.file.choose`（tool-spec §4.2）**：系统文件选择框能力，建立「用户授权选文件」边界。
+7. **CSP violation 反馈闭环（tool-spec §6.3）**：把运行时 CSP violation 反馈给生成端 AI 自检（增量可选）。
+
+**关联**：与「webview 显式沙箱化」同一批运行环境加固；落地顺序可按依赖排（先 1/2/3，再 4/5，6/7 独立）。
