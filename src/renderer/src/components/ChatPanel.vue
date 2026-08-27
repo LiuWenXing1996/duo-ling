@@ -176,6 +176,7 @@ function pendingOf(messageId: string): PendingChange | undefined {
 function stepLabel(name: string): string {
   if (name === 'agent_tools_list') return '查询工具列表'
   if (name === 'agent_tools_open') return '打开工具'
+  if (name === 'agent_capabilities_list') return '查询能力清单'
   return name
 }
 

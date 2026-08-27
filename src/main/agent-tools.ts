@@ -1,10 +1,11 @@
 // Agent Loop 骨架：把「AI 可自主调用」的能力暴露为 OpenAI function 定义，并统一执行。
 //
-// 本期做三个能力：
-//   - agent_tools_list      —— 查询已有工具
-//   - agent_tools_open      —— 打开对应工具（真实切到工具标签页）
-//   - agent_tools_create    —— 创建新工具（脚手架落盘 + git 建仓 + 自动打开）
-// 其余（查原子能力、查内置示例、放权 tool.data.*）后续作为「能力丰富」追加到此文件。
+// 本期做四个能力：
+//   - agent_tools_list          —— 查询已有工具
+//   - agent_tools_open          —— 打开对应工具（真实切到工具标签页）
+//   - agent_tools_create        —— 创建新工具（脚手架落盘 + git 建仓 + 自动打开）
+//   - agent_capabilities_list   —— 查询宿主提供的全部原子能力清单
+// 其余（查内置示例、放权 tool.data.*）后续作为「能力丰富」追加到此文件。
 //
 // 执行器通过 hooks 把「打开工具」的副作用交回调用方（ipc/agent.ts 用 event.sender 广播命令，
 // 渲染层 app.vue 监听后切换/新建工具标签页）。工具本身的本地读取直接复用 tool-page.listUserTools。
@@ -12,6 +13,7 @@
 import { tool, jsonSchema } from 'ai'
 import type { ToolSet } from 'ai'
 import type { UserToolMeta } from '../shared/types'
+import { listCapabilities } from './capability-registry'
 import { createUserToolId, listUserTools, newUserToolScaffoldHtml, writeUserTool } from './tool-page'
 import { initToolRepo } from './tool-git'
 import { getToolLockStatus } from './tool-lock'
@@ -78,6 +80,10 @@ export async function executeAgentTool(
       const toolId = typeof args.toolId === 'string' ? args.toolId.trim() : ''
       if (!toolId) return { ok: false, error: '缺少 toolId 参数' }
       return { ok: true, result: JSON.stringify(getToolLockStatus(toolId)) }
+    }
+
+    if (name === 'agent_capabilities_list') {
+      return { ok: true, result: JSON.stringify(listCapabilities()) }
     }
 
     return { ok: false, error: `未知工具：${name}` }
@@ -150,6 +156,16 @@ export function buildAisdkTools(hooks: AgentToolHooks = {}): ToolSet {
         additionalProperties: false
       }),
       execute: async (input) => executeAgentTool('agent_tools_lock_status', JSON.stringify(input), hooks)
+    }),
+    agent_capabilities_list: tool({
+      description:
+        '列出宿主提供的全部原子能力清单。返回数组，每项含 id / name / description / inputSchema / outputSchema / sideEffect / runtime / cost。工具页内通过 window.cap.run(id, args) 调用这些能力；需要了解工具页能做什么、规划或创建工具前先调用此工具。',
+      inputSchema: jsonSchema({
+        type: 'object',
+        properties: {},
+        additionalProperties: false
+      }),
+      execute: async () => executeAgentTool('agent_capabilities_list', '', hooks)
     })
   }
 }
