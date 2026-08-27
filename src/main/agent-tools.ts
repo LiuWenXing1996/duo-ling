@@ -12,7 +12,13 @@
 
 import { tool, jsonSchema, asSchema } from 'ai'
 import type { ToolSet } from 'ai'
-import type { AgentToolJsonSchema, ToolChangeList, UserToolMeta } from '../shared/types'
+import type {
+  AgentToolJsonSchema,
+  ToolChangeList,
+  UserToolMeta,
+  WorkspaceTabSnapshot,
+  WorkspaceTabsState
+} from '../shared/types'
 import { listCapabilities } from './capability-registry'
 import {
   applyToolChanges,
@@ -24,18 +30,53 @@ import {
 import { commitToolChanges, initToolRepo } from './tool-git'
 import { getToolLockStatus } from './tool-lock'
 
+/** 工作区标签页状态：由渲染层经 IPC 上报，供 agent_workspace_tabs 查询 */
+let workspaceTabsState: WorkspaceTabsState = { tabs: [], activeTabId: '' }
+
+/** 渲染层上报当前打开的工作区标签页快照（ipc/agent.ts 注册的 handler 调用） */
+export function setWorkspaceTabsState(next: WorkspaceTabsState): void {
+  workspaceTabsState = next
+}
+
+/** tab kind → 中文展示名，让模型能直接理解「当前打开了哪个页面」 */
+const TAB_KIND_LABEL: Record<WorkspaceTabSnapshot['kind'], string> = {
+  home: '主页',
+  tool: '工具详情',
+  settings: '设置',
+  'tool-history': '版本历史',
+  'tool-archive': '工具档案',
+  'tool-code': '代码浏览',
+  'tool-data': '数据详情',
+  developer: '开发者界面'
+}
+
+/** 供 agent_workspace_tabs 返回的带中文标签的 tab 快照 */
+interface WorkspaceTabSummary extends WorkspaceTabSnapshot {
+  kindLabel: string
+}
+
+/** 当前工作区 tab 页摘要：全部已打开标签（含中文 kind 标签）+ 当前激活标签 */
+export function getWorkspaceTabsSummary(): {
+  activeTab: WorkspaceTabSummary | null
+  tabs: WorkspaceTabSummary[]
+} {
+  const summarize = (t: WorkspaceTabSnapshot): WorkspaceTabSummary => ({
+    ...t,
+    kindLabel: TAB_KIND_LABEL[t.kind] ?? t.kind
+  })
+  const tabs = workspaceTabsState.tabs.map(summarize)
+  const active = workspaceTabsState.tabs.find((t) => t.id === workspaceTabsState.activeTabId)
+  return { activeTab: active ? summarize(active) : null, tabs }
+}
+
 /** 执行工具时暴露给上层钩子：open 工具的副作用放这，避免与 IPC 层耦合 */
 export interface AgentToolHooks {
   /** AI 决定打开某个工具：由调用方广播命令，让渲染层切换到对应工具标签页 */
   onOpenTool?: (payload: { toolId: string; title: string }) => void
 }
 
-/** 工具执行结果（模型以 tool 消息收到的是其 JSON 字符串） */
-export interface AgentToolResult {
-  ok: boolean
-  result?: string
-  error?: string
-}
+/** 工具执行结果：成功时 result 为结构化对象（由 AI SDK 序列化为文本给模型），失败时 error 为文案 */
+export type AgentToolResult = { ok: true; result: unknown } | { ok: false; error: string }
 
 /** 执行一个 agent 工具：解析参数、执行、把结果收敛为 AgentToolResult（异常不抛出，回传错误给模型） */
 export async function executeAgentTool(
@@ -48,7 +89,7 @@ export async function executeAgentTool(
 
     if (name === 'agent_tools_list') {
       const tools = listUserTools()
-      return { ok: true, result: JSON.stringify(tools) }
+      return { ok: true, result: tools }
     }
 
     if (name === 'agent_tools_open') {
@@ -57,7 +98,7 @@ export async function executeAgentTool(
       const tool: UserToolMeta | undefined = listUserTools().find((t) => t.id === toolId)
       if (!tool) return { ok: false, error: `未找到工具：${toolId}` }
       hooks.onOpenTool?.({ toolId: tool.id, title: tool.title })
-      return { ok: true, result: JSON.stringify({ opened: tool.title, toolId: tool.id }) }
+      return { ok: true, result: { opened: tool.title, toolId: tool.id } }
     }
 
     if (name === 'agent_tools_create') {
@@ -79,7 +120,7 @@ export async function executeAgentTool(
         console.warn('[agent_tools_create] 建仓失败（不影响创建）：', error)
       }
       hooks.onOpenTool?.({ toolId: id, title })
-      return { ok: true, result: JSON.stringify({ id, title }) }
+      return { ok: true, result: { id, title } }
     }
 
     if (name === 'agent_tools_read') {
@@ -88,7 +129,7 @@ export async function executeAgentTool(
       const tool = listUserTools().find((t) => t.id === toolId)
       if (!tool) return { ok: false, error: `未找到工具：${toolId}` }
       const files = readUserToolTree(toolId)
-      return { ok: true, result: JSON.stringify({ toolId, title: tool.title, files }) }
+      return { ok: true, result: { toolId, title: tool.title, files } }
     }
 
     if (name === 'agent_tools_edit') {
@@ -110,22 +151,26 @@ export async function executeAgentTool(
       }
       return {
         ok: true,
-        result: JSON.stringify({
+        result: {
           toolId,
           title: applied.title,
           changedFiles: applied.changedFiles
-        })
+        }
       }
     }
 
     if (name === 'agent_tools_lock_status') {
       const toolId = typeof args.toolId === 'string' ? args.toolId.trim() : ''
       if (!toolId) return { ok: false, error: '缺少 toolId 参数' }
-      return { ok: true, result: JSON.stringify(getToolLockStatus(toolId)) }
+      return { ok: true, result: getToolLockStatus(toolId) }
+    }
+
+    if (name === 'agent_workspace_tabs') {
+      return { ok: true, result: getWorkspaceTabsSummary() }
     }
 
     if (name === 'agent_capabilities_list') {
-      return { ok: true, result: JSON.stringify(listCapabilities()) }
+      return { ok: true, result: listCapabilities() }
     }
 
     return { ok: false, error: `未知工具：${name}` }
@@ -244,6 +289,16 @@ export function buildAisdkTools(hooks: AgentToolHooks = {}): ToolSet {
         additionalProperties: false
       }),
       execute: async (input) => executeAgentTool('agent_tools_lock_status', JSON.stringify(input), hooks)
+    }),
+    agent_workspace_tabs: tool({
+      description:
+        '查询当前打开的工作区标签页（tab）清单。返回当前激活的标签（activeTab，含 id / title / kind / kindLabel）与全部已打开标签（tabs 数组，按打开顺序）。kindLabel 是页面类型的中文名（主页 / 工具详情 / 设置 / 版本历史 / 工具档案 / 代码浏览 / 数据详情 / 开发者界面）。当用户询问「当前打开了哪些页面 / 现在在哪个页面」时调用本工具。',
+      inputSchema: jsonSchema({
+        type: 'object',
+        properties: {},
+        additionalProperties: false
+      }),
+      execute: async () => executeAgentTool('agent_workspace_tabs', '', hooks)
     }),
     agent_capabilities_list: tool({
       description:

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildAisdkTools, agentToolsToJsonSchema, executeAgentTool } from './agent-tools'
+import { buildAisdkTools, agentToolsToJsonSchema, executeAgentTool, setWorkspaceTabsState } from './agent-tools'
 import { listCapabilities } from './capability-registry'
 
 // agent-tools 经 tool-page 依赖 electron（userData 路径），打桩避免测试环境解析失败
@@ -13,7 +13,7 @@ vi.mock('electron', () => ({
 }))
 
 describe('agent-tools（Agent 工具定义与执行）', () => {
-  it('buildAisdkTools 暴露七个 agent 工具，含查询能力清单', () => {
+  it('buildAisdkTools 暴露八个 agent 工具，含查询能力清单', () => {
     const tools = buildAisdkTools()
     expect(Object.keys(tools).sort()).toEqual(
       [
@@ -23,6 +23,7 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
         'agent_tools_read',
         'agent_tools_edit',
         'agent_tools_lock_status',
+        'agent_workspace_tabs',
         'agent_capabilities_list'
       ].sort()
     )
@@ -31,14 +32,40 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
   it('agent_capabilities_list 返回与 listCapabilities 一致的能力清单', async () => {
     const res = await executeAgentTool('agent_capabilities_list', '', {})
     expect(res.ok).toBe(true)
-    const caps = JSON.parse((res as { result: string }).result) as Array<{ id: string }>
+    if (!res.ok) throw new Error('应执行成功')
+    const caps = res.result as Array<{ id: string }>
     expect(caps.map((c) => c.id)).toEqual(listCapabilities().map((c) => c.id))
+  })
+
+  it('agent_workspace_tabs 返回渲染层上报的 tab 快照与当前激活标签（含中文 kindLabel）', async () => {
+    setWorkspaceTabsState({
+      tabs: [
+        { id: 'home', title: '主页', kind: 'home' },
+        { id: 't-abc', title: 'PDF 合并器', kind: 'tool', icon: 'P' },
+        { id: 'settings', title: '设置', kind: 'settings' }
+      ],
+      activeTabId: 't-abc'
+    })
+    const res = await executeAgentTool('agent_workspace_tabs', '', {})
+    expect(res.ok).toBe(true)
+    if (!res.ok) throw new Error('应执行成功')
+    const data = res.result as {
+      activeTab: { id: string; kind: string; kindLabel: string }
+      tabs: Array<{ id: string; kind: string; kindLabel: string; icon?: string }>
+    }
+    expect(data.activeTab.id).toBe('t-abc')
+    expect(data.activeTab.kindLabel).toBe('工具详情')
+    expect(data.tabs).toHaveLength(3)
+    expect(data.tabs[0]).toMatchObject({ id: 'home', kindLabel: '主页' })
+    expect(data.tabs[1]).toMatchObject({ id: 't-abc', kindLabel: '工具详情', icon: 'P' })
+    expect(data.tabs[2]).toMatchObject({ id: 'settings', kindLabel: '设置' })
   })
 
   it('未知工具名返回结构化错误而非抛出', async () => {
     const res = await executeAgentTool('agent_nonexistent', '{}', {})
     expect(res.ok).toBe(false)
-    expect((res as { error: string }).error).toContain('未知工具')
+    if (res.ok) throw new Error('应执行失败')
+    expect(res.error).toContain('未知工具')
   })
 
   it('agentToolsToJsonSchema 输出 OpenAI function 风格的 JSON Schema 且可序列化', () => {
@@ -79,7 +106,8 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
     it('read 返回工具整树源码（文本 utf8）', async () => {
       const res = await executeAgentTool('agent_tools_read', JSON.stringify({ toolId: 't-abc' }), {})
       expect(res.ok).toBe(true)
-      const data = JSON.parse((res as { result: string }).result) as {
+      if (!res.ok) throw new Error('应执行成功')
+      const data = res.result as {
         toolId: string
         title: string
         files: Array<{ path: string; content: string; encoding: string }>
@@ -109,7 +137,7 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
       )
       expect(res.ok).toBe(true)
       if (res.ok) {
-        const data = JSON.parse((res as { result: string }).result) as { changedFiles: string[] }
+        const data = res.result as { changedFiles: string[] }
         expect(data.changedFiles.some((f) => f.endsWith('js/main.js'))).toBe(true)
       }
       expect(readFileSync(join(tools(), 't-abc', 'js/main.js'), 'utf8')).toBe('console.log(1)')
