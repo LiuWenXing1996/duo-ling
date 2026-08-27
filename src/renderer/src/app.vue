@@ -110,6 +110,10 @@ function handleCreateTool(): void {
   <div class="workspace">
     <!-- 全宽顶栏：作为无边框窗口的拖拽区，含居中全局搜索框 -->
     <header class="workspace-topbar">
+      <div class="no-drag mr-4 flex shrink-0 items-baseline gap-2">
+        <span class="text-sm font-semibold">◆ 哆灵</span>
+        <span class="font-mono text-[10px] text-muted-foreground">DUO-LING / TOOL-BENCH</span>
+      </div>
       <div class="no-drag relative mx-auto flex w-full max-w-md flex-1">
         <ui-combobox v-model="selectedToolId" class="flex-1" open-on-focus open-on-click>
           <ui-combobox-anchor

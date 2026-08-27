@@ -33,11 +33,11 @@ test('应用启动并渲染工具工作台主界面', async () => {
   const window = await electronApp.firstWindow()
 
   // 顶栏就位：品牌标题 + 副标题
-  await expect(window.getByText('小班')).toBeVisible()
+  await expect(window.getByText('哆灵')).toBeVisible()
   await expect(window.getByText('DUO-LING / TOOL-BENCH')).toBeVisible()
 
   // 工作台默认无演示/占位工具：展示空状态提示
-  await expect(window.getByText('还没有工具，点击右上角「新建工具」创建')).toBeVisible()
+  await expect(window.getByText('还没有工具，点击右上角「新增工具」创建')).toBeVisible()
 
   // 任务持久化可用：首次启动（空 userData）应返回空列表
   const tasks = await window.evaluate(() =>
@@ -55,7 +55,7 @@ test('应用启动并渲染工具工作台主界面', async () => {
   // 完整进程隔离链路：renderer → IPC → main → utilityProcess → 读文件 → 返回
   // 通过 capability.run('local.file.read') 真实读取临时文件，验证后端运行域
   const dir = mkdtempSync(join(tmpdir(), 'duo-ling-cap-'))
-  const sample = '小班最小切片验证'
+  const sample = '哆灵最小切片验证'
   const filePath = join(dir, 'sample.txt')
   writeFileSync(filePath, sample, 'utf-8')
   try {
@@ -72,13 +72,16 @@ test('应用启动并渲染工具工作台主界面', async () => {
     rmSync(dir, { recursive: true, force: true })
   }
 
-  // 前端运行域：capability.run 对 frontend 能力应拒绝在 IPC 层执行
+  // 前端运行域：frontend 能力统一收口到主进程执行（工具页为 <webview>，无渲染层注入方法），应返回 ok + 渲染结果
   const frontendRes = await window.evaluate(() =>
     (window as unknown as RendererWindow).api.capability.run('docs.markdown.render', {
       markdown: '# hi'
     })
   )
-  expect(frontendRes.ok).toBe(false)
+  expect(frontendRes.ok).toBe(true)
+  if (frontendRes.ok) {
+    expect((frontendRes.result as { html: string }).html).toContain('<h1>hi</h1>')
+  }
 
   await electronApp.close()
 })

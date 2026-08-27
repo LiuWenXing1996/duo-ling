@@ -23,8 +23,8 @@ async function makeTempFile(content: string): Promise<string> {
 
 describe('capability-backend（backend 能力实现）', () => {
   it('local.file.read 读取指定路径文件内容', async () => {
-    const file = await makeTempFile('你好，小班')
-    await expect(readLocalFile({ path: file })).resolves.toEqual({ content: '你好，小班' })
+    const file = await makeTempFile('你好，小哆')
+    await expect(readLocalFile({ path: file })).resolves.toEqual({ content: '你好，小哆' })
   })
 
   it('缺 path 参数时报错', async () => {

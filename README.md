@@ -1,4 +1,4 @@
-# Duo Ling
+# 哆灵
 
 跨平台桌面应用脚手架，基于 **Electron + Vue3 + TypeScript**，UI 采用 **shadcn-vue + Tailwind CSS v4**，样式补充使用 **Less**，测试覆盖 **单测（Vitest）与端测（Playwright）**。
 

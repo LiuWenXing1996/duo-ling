@@ -1,5 +1,5 @@
 appId: com.duo-ling.app
-productName: duo-ling
+productName: 哆灵
 directories:
   output: release
 files:

@@ -48,7 +48,7 @@ export function createWindow(): void {
     // dev 藏角落：不在构造参数里传屏外坐标（macOS 会拉回屏内），改为显示后 setBounds
     show: false,
     autoHideMenuBar: true,
-    title: 'Duo Ling',
+    title: '哆灵',
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       sandbox: false,

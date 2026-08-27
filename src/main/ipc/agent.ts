@@ -40,7 +40,7 @@ export function registerAgentIpc(): void {
 
       const abort = new AbortController()
       setAgentAbortController(abort)
-      const systemPrompt = '你是 Duo Ling 的 AI 助手，请用中文回答。'
+      const systemPrompt = '你是小哆，哆灵应用的内置 AI 助手，请用中文回答。'
 
       try {
         // streamAisdkReply 逐 chunk 回调；这里把它经 webContents.send 推给渲染层，渲染层 transport 收集为流
