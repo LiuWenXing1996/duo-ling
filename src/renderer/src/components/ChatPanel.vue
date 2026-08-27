@@ -294,7 +294,7 @@ function onPromptSubmit(payload: PromptInputMessage): void {
           <ui-conversation-empty-state
             v-if="props.messages.length === 0"
             title="暂无消息"
-            description="描述需求，AI 会重写这个工具页面"
+            description="说点什么，开始对话吧"
           />
           <template v-else>
             <div
@@ -303,10 +303,10 @@ function onPromptSubmit(payload: PromptInputMessage): void {
               class="flex flex-col gap-1.5"
               :class="m.role === 'user' ? 'items-end' : 'items-start'"
             >
-              <!-- 思考与执行过程：思考段落与 tool 卡按 parts 顺序交错成链（每节点独立一环），默认展开 -->
+              <!-- 思考与执行过程：思考段落与 tool 卡按 parts 顺序交错成链（每节点独立一环），默认折叠 -->
               <ui-chain-of-thought
                 v-if="m.role === 'assistant' && hasProcess(m)"
-                :default-open="true"
+                :default-open="false"
                 class="w-full min-w-0"
                 data-testid="chain-of-thought"
               >

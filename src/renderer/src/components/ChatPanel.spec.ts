@@ -52,6 +52,13 @@ function mountPanel(overrides: Record<string, unknown> = {}): ReturnType<typeof 
   })
 }
 
+// 链默认折叠（reka Collapsible unmountOnHide 默认卸载内容），断言链内内容前先点击链首展开
+async function expandChain(wrapper: ReturnType<typeof mount>): Promise<void> {
+  const toggle = wrapper.findAll('button').find((b) => b.text().includes('思考与执行过程'))!
+  await toggle.trigger('click')
+  await wrapper.vm.$nextTick()
+}
+
 describe('ChatPanel 消息气泡（UIMessage parts 化）', () => {
   it('user 消息用 Message 渲染并带 is-user 结构', () => {
     const wrapper = mountPanel()
@@ -65,17 +72,21 @@ describe('ChatPanel 消息气泡（UIMessage parts 化）', () => {
     expect(wrapper.text()).toContain('已重写完成')
   })
 
-  it('思考与执行过程默认展开，链首含说明且显示 reasoning 文字', () => {
+  it('思考与执行过程默认折叠，点击链首后展开并显示 reasoning 文字', async () => {
     const wrapper = mountPanel({ attachTo: document.body })
     const chain = wrapper.find('[data-testid="chain-of-thought"]')
     expect(chain.exists()).toBe(true)
     expect(chain.text()).toContain('思考与执行过程')
-    expect(chain.text()).toContain('先分析结构')
-    // ChainOfThought 默认展开：reka CollapsibleContent（unmountOnHide=false）
-    // 展开时无 hidden 属性，折叠时隐藏为 hidden="until-found"（首帧 data-state 因动画保护为 undefined，故用 hidden 判断）
+    // 默认折叠：内容 hidden（reka CollapsibleContent unmountOnHide=false，折叠时隐藏为 hidden="until-found"）
     const body = chain.find('[data-slot="collapsible-content"]')
     expect(body.exists()).toBe(true)
+    expect(body.attributes('hidden')).toBeDefined()
+    // 点击链首展开后可见 reasoning 文字
+    const toggle = wrapper.findAll('button').find((b) => b.text().includes('思考与执行过程'))!
+    await toggle.trigger('click')
+    await wrapper.vm.$nextTick()
     expect(body.attributes('hidden')).toBeUndefined()
+    expect(chain.text()).toContain('先分析结构')
   })
 
   it('点击链首可折叠/展开思考与执行过程', async () => {
@@ -83,20 +94,22 @@ describe('ChatPanel 消息气泡（UIMessage parts 化）', () => {
     const body = () =>
       wrapper.find('[data-testid="chain-of-thought"] [data-slot="collapsible-content"]')
     expect(body().exists()).toBe(true)
-    expect(body().attributes('hidden')).toBeUndefined()
+    // 默认折叠
+    expect(body().attributes('hidden')).toBeDefined()
 
     const toggle = wrapper.findAll('button').find((b) => b.text().includes('思考与执行过程'))!
     await toggle.trigger('click')
     await wrapper.vm.$nextTick()
-    expect(body().attributes('hidden')).toBeDefined()
+    expect(body().attributes('hidden')).toBeUndefined()
 
     await toggle.trigger('click')
     await wrapper.vm.$nextTick()
-    expect(body().attributes('hidden')).toBeUndefined()
+    expect(body().attributes('hidden')).toBeDefined()
   })
 
-  it('tool part 用官方 Tool 卡片渲染：标题、状态徽标、入参与出参', () => {
+  it('tool part 用官方 Tool 卡片渲染：标题、状态徽标、入参与出参', async () => {
     const wrapper = mountPanel({
+      attachTo: document.body,
       messages: [
         { id: 'u1', role: 'user', parts: [{ type: 'text', text: '帮我重写这个工具' }] },
         {
@@ -130,6 +143,7 @@ describe('ChatPanel 消息气泡（UIMessage parts 化）', () => {
         }
       ]
     })
+    await expandChain(wrapper)
     const chain = wrapper.find('[data-testid="chain-of-thought"]')
     expect(chain.exists()).toBe(true)
     // 标题来自 tool part title（agent_tools_list 中文名一并覆盖）
@@ -152,8 +166,9 @@ describe('ChatPanel 消息气泡（UIMessage parts 化）', () => {
     expect(chain.text()).toContain('打开失败')
   })
 
-  it('思考与工具步骤按 parts 顺序交错展示（reasoning 不聚合到链首）', () => {
+  it('思考与工具步骤按 parts 顺序交错展示（reasoning 不聚合到链首）', async () => {
     const wrapper = mountPanel({
+      attachTo: document.body,
       messages: [
         { id: 'u1', role: 'user', parts: [{ type: 'text', text: '创建一个工具' }] },
         {
@@ -167,6 +182,7 @@ describe('ChatPanel 消息气泡（UIMessage parts 化）', () => {
         }
       ]
     })
+    await expandChain(wrapper)
     const chain = wrapper.find('[data-testid="chain-of-thought"]')
     // 每轮思考单独展示，不再只聚合在链首
     expect(chain.text()).toContain('我先分析场景。')
@@ -178,8 +194,9 @@ describe('ChatPanel 消息气泡（UIMessage parts 化）', () => {
     expect(finalThinkIdx).toBeGreaterThan(toolIdx)
   })
 
-  it('思考与工具调用各自渲染为链上独立节点（ChainOfThoughtStep 包裹，思考带轮次 label）', () => {
-    const wrapper = mountPanel()
+  it('思考与工具调用各自渲染为链上独立节点（ChainOfThoughtStep 包裹，思考带轮次 label）', async () => {
+    const wrapper = mountPanel({ attachTo: document.body })
+    await expandChain(wrapper)
     const chain = wrapper.find('[data-testid="chain-of-thought"]')
     // 默认消息 assistant 含一轮思考：以「思考 1」label 独立成环，而非裸段落
     expect(chain.text()).toContain('思考 1')
@@ -188,8 +205,9 @@ describe('ChatPanel 消息气泡（UIMessage parts 化）', () => {
     expect(chain.find('.flex.gap-2').exists()).toBe(true)
   })
 
-  it('中间轮正文作为链上独立节点，最终答案保留在主气泡（正文分链）', () => {
+  it('中间轮正文作为链上独立节点，最终答案保留在主气泡（正文分链）', async () => {
     const wrapper = mountPanel({
+      attachTo: document.body,
       messages: [
         { id: 'u1', role: 'user', parts: [{ type: 'text', text: '做一个能读本地文件的工具' }] },
         {
@@ -208,6 +226,7 @@ describe('ChatPanel 消息气泡（UIMessage parts 化）', () => {
         }
       ]
     })
+    await expandChain(wrapper)
     const chain = wrapper.find('[data-testid="chain-of-thought"]')
     // 中间轮正文都进了链（带「步骤 N」label 独立成环）
     expect(chain.exists()).toBe(true)
