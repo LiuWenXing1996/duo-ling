@@ -110,6 +110,9 @@ const api: PreloadApi = {
       }
     }
   },
+  agentTools: {
+    list: () => invoke(CH.agentToolsList)
+  },
   conversation: {
     list: () => invoke(CH.conversationList),
     create: () => invoke(CH.conversationCreate),

@@ -10,6 +10,7 @@ import type { UIMessage } from 'ai'
 import type {
   ApplyIntentsInput,
   ApplyIntentsResult,
+  AgentToolJsonSchema,
   Capability,
   CapabilityRunResponse,
   AgentStreamChunk,
@@ -79,6 +80,8 @@ export const CH = {
   agentAbort: 'agent:abort',
   /** AI SDK 流式通道：发起一次流式生成（主进程 consume toUIMessageStream 逐 chunk 推送） */
   agentStreamSend: 'agent:streamSend',
+  /** 列出全部 Agent 工具的 JSON Schema 描述（开发者界面展示用） */
+  agentToolsList: 'agent-tools:list',
   conversationList: 'conversation:list',
   conversationCreate: 'conversation:create',
   conversationRename: 'conversation:rename',
@@ -140,6 +143,7 @@ export interface InvokeMap {
     result: AgentStreamSendResult
   }
   [CH.agentAbort]: { args: []; result: void }
+  [CH.agentToolsList]: { args: []; result: AgentToolJsonSchema[] }
   [CH.conversationList]: { args: []; result: Conversation[] }
   [CH.conversationCreate]: { args: []; result: Conversation }
   [CH.conversationRename]: { args: [id: string, title: string]; result: Conversation | null }
@@ -216,6 +220,10 @@ export interface PreloadApi {
     onStreamChunk: (callback: (chunk: AgentStreamChunk) => void) => () => void
     /** 订阅流结束状态（含汇总 content/reasoning），返回取消订阅函数 */
     onStreamEnd: (callback: (result: AgentStreamSendResult) => void) => () => void
+  }
+  agentTools: {
+    /** 列出全部 Agent 工具的 JSON Schema 描述（开发者界面展示用） */
+    list: () => Promise<AgentToolJsonSchema[]>
   }
   conversation: {
     list: () => Promise<Conversation[]>

@@ -10,9 +10,9 @@
 // 执行器通过 hooks 把「打开工具」的副作用交回调用方（ipc/agent.ts 用 event.sender 广播命令，
 // 渲染层 app.vue 监听后切换/新建工具标签页）。工具本身的本地读取直接复用 tool-page.listUserTools。
 
-import { tool, jsonSchema } from 'ai'
+import { tool, jsonSchema, asSchema } from 'ai'
 import type { ToolSet } from 'ai'
-import type { UserToolMeta } from '../shared/types'
+import type { AgentToolJsonSchema, UserToolMeta } from '../shared/types'
 import { listCapabilities } from './capability-registry'
 import { createUserToolId, listUserTools, newUserToolScaffoldHtml, writeUserTool } from './tool-page'
 import { initToolRepo } from './tool-git'
@@ -168,4 +168,17 @@ export function buildAisdkTools(hooks: AgentToolHooks = {}): ToolSet {
       execute: async () => executeAgentTool('agent_capabilities_list', '', hooks)
     })
   }
+}
+
+/** 把 AI SDK ToolSet 转成 OpenAI function 风格的 JSON Schema 数组（供开发者界面展示 / 序列化转发） */
+export function agentToolsToJsonSchema(tools: ToolSet): AgentToolJsonSchema[] {
+  return Object.entries(tools).map(([name, toolDef]) => ({
+    type: 'function',
+    function: {
+      name,
+      // description 可能是函数（依赖工具上下文），仅透传字符串形式
+      ...(typeof toolDef.description === 'string' ? { description: toolDef.description } : {}),
+      parameters: asSchema(toolDef.inputSchema).jsonSchema as Record<string, unknown>
+    }
+  }))
 }

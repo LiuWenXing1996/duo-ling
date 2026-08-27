@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildAisdkTools, executeAgentTool } from './agent-tools'
+import { buildAisdkTools, agentToolsToJsonSchema, executeAgentTool } from './agent-tools'
 import { listCapabilities } from './capability-registry'
 
 // agent-tools 经 tool-page 依赖 electron（userData 路径），打桩避免测试环境解析失败
@@ -27,5 +27,22 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
     const res = await executeAgentTool('agent_nonexistent', '{}', {})
     expect(res.ok).toBe(false)
     expect((res as { error: string }).error).toContain('未知工具')
+  })
+
+  it('agentToolsToJsonSchema 输出 OpenAI function 风格的 JSON Schema 且可序列化', () => {
+    const tools = buildAisdkTools()
+    const schemas = agentToolsToJsonSchema(tools)
+
+    expect(schemas).toHaveLength(Object.keys(tools).length)
+    for (const schema of schemas) {
+      expect(schema.type).toBe('function')
+      expect(schema.function.name).toBeTruthy()
+      expect(schema.function.description).toBeTruthy()
+      // 输入参数是纯 JSON Schema，可安全序列化（IPC 返回纯字面量）
+      expect(() => JSON.stringify(schema.function.parameters)).not.toThrow()
+      expect(schema.function.parameters.type).toBe('object')
+    }
+    // 名字与 buildAisdkTools 的 key 一一对应
+    expect(schemas.map((s) => s.function.name).sort()).toEqual(Object.keys(tools).sort())
   })
 })

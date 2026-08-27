@@ -5,6 +5,7 @@ import SettingsPanel from '@/components/SettingsPanel.vue'
 import ToolDetailPanel from '@/components/ToolDetailPanel.vue'
 import ToolHistory from '@/components/ToolHistory.vue'
 import ToolDataDetail from '@/components/ToolDataDetail.vue'
+import DeveloperPanel from '@/components/DeveloperPanel.vue'
 import HomePanel from '@/components/HomePanel.vue'
 import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
 import ToolEditDialog from '@/components/ToolEditDialog.vue'
@@ -57,6 +58,14 @@ function openSettingsTab(): void {
     openTabs.value.push({ kind: 'settings', id: 'settings', title: '设置' })
   }
   activate('settings')
+}
+
+// 打开开发者标签页：若已打开则激活，否则新开一个
+function openDeveloperTab(): void {
+  if (!openTabs.value.some((t) => t.kind === 'developer')) {
+    openTabs.value.push({ kind: 'developer', id: 'developer', title: '开发者' })
+  }
+  activate('developer')
 }
 
 // 打开某工具的「版本历史」标签页：同一工具只有一个历史页，已打开则激活
@@ -195,7 +204,7 @@ async function confirmDeleteTool(keepData: boolean): Promise<void> {
 
 // 暴露给根布局：左侧导航栏「新建工具」「设置」、全宽顶栏搜索下拉「打开工具」，
 // 以及全局会话应用多工具意图后刷新工具详情 / 同步标签标题
-defineExpose({ createTool, openTool, openSettingsTab, reloadTool, renameTool })
+defineExpose({ createTool, openTool, openSettingsTab, openDeveloperTab, reloadTool, renameTool })
 </script>
 
 <template>
@@ -252,7 +261,9 @@ defineExpose({ createTool, openTool, openSettingsTab, reloadTool, renameTool })
           :tool-title="tab.toolTitle ?? tab.title"
         />
         <!-- 设置标签：渲染设置面板 -->
-        <settings-panel v-else-if="tab.kind === 'settings'" @open-tool-data="openToolData" />
+        <settings-panel v-else-if="tab.kind === 'settings'" @open-tool-data="openToolData" @open-developer="openDeveloperTab" />
+        <!-- 开发者界面：展示全部 Agent 工具介绍 -->
+        <developer-panel v-else-if="tab.kind === 'developer'" />
       </ui-tabs-content>
     </ui-tabs>
 

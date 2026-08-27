@@ -36,6 +36,9 @@ describe('ToolWorkspace', () => {
         agent: {
           abort: vi.fn().mockResolvedValue(undefined)
         },
+        agentTools: {
+          list: vi.fn().mockResolvedValue([])
+        },
         model: {
           list: vi.fn().mockResolvedValue({ profiles: [], activeId: '' }),
           setActive: vi.fn().mockResolvedValue(undefined)
@@ -143,6 +146,30 @@ describe('ToolWorkspace', () => {
     // 设置面板内容渲染（模型管理）
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('模型管理')
+
+    wrapper.unmount()
+  })
+
+  it('打开开发者标签页：新开一个「开发者」标签并渲染 Agent 工具介绍', async () => {
+    ;(window.api.agentTools.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        type: 'function',
+        function: {
+          name: 'agent_tools_list',
+          description: '列出所有已存在的工具。',
+          parameters: { type: 'object', properties: {}, additionalProperties: false }
+        }
+      }
+    ])
+    const wrapper = mount(ToolWorkspace)
+
+    ;(wrapper.vm as unknown as { openDeveloperTab: () => void }).openDeveloperTab()
+    await wrapper.vm.$nextTick()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('开发者')
+    expect(wrapper.text()).toContain('agent_tools_list')
+    expect(wrapper.text()).toContain('列出所有已存在的工具。')
 
     wrapper.unmount()
   })

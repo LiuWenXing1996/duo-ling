@@ -8,6 +8,7 @@ import {
   HardDrive as UiHardDrive,
   Pencil as UiPencil,
   Plus as UiPlus,
+  Terminal as UiTerminal,
   Trash2 as UiTrash2
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
@@ -16,7 +17,7 @@ import type { ModelProfile, ModelProvider } from '@/types/model'
 import type { ToolsDataOverview } from '../../../shared/types'
 import ModelFormDialog from './ModelFormDialog.vue'
 
-const emit = defineEmits<{ 'open-tool-data': [id: string, title: string] }>()
+const emit = defineEmits<{ 'open-tool-data': [id: string, title: string]; 'open-developer': [] }>()
 
 const profiles = ref<ModelProfile[]>([])
 const providers = ref<ModelProvider[]>([])
@@ -404,6 +405,18 @@ onMounted(() => {
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- 开发者入口 -->
+        <div class="mt-8">
+          <h3 class="text-base font-semibold">开发者</h3>
+          <p class="mt-1 text-xs text-muted-foreground">
+            查看宿主提供给 AI 的全部 Agent 工具说明与参数 Schema。
+          </p>
+          <ui-button class="mt-3" variant="outline" size="sm" @click="emit('open-developer')">
+            <ui-terminal class="size-3.5" />
+            打开开发者界面
+          </ui-button>
         </div>
       </div>
     </div>

@@ -225,4 +225,13 @@ describe('SettingsPanel', () => {
     expect(modelApiMock.list).toHaveBeenCalledTimes(2)
     wrapper.unmount()
   })
+
+  it('点击「打开开发者界面」发出 open-developer 事件', async () => {
+    const wrapper = mount(SettingsPanel, { attachTo: document.body })
+    await flushPromises()
+
+    await buttonByText(wrapper.element, '打开开发者界面').click()
+    expect(wrapper.emitted('open-developer')).toBeTruthy()
+    wrapper.unmount()
+  })
 })

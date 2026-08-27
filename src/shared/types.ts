@@ -249,6 +249,17 @@ export interface AgentToolContext {
   currentToolTitle?: string
 }
 
+/** Agent 工具的 OpenAI function 风格 JSON Schema 描述（agent-tools:list 返回，开发者界面展示用） */
+export interface AgentToolJsonSchema {
+  type: 'function'
+  function: {
+    name: string
+    description?: string
+    /** 输入参数的 JSON Schema（纯字面量，可序列化） */
+    parameters: Record<string, unknown>
+  }
+}
+
 // 一次提交的快照（新提交在前）
 export interface ToolCommit {
   oid: string

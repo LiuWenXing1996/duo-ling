@@ -2,9 +2,10 @@
 // 渲染层聊天/工具意图统一走此通道：主进程编排多轮、执行 Agent 工具、流式回推事件。
 import { ipcMain } from 'electron'
 import { CH, EVENT_CH } from '../../shared/ipc'
-import type { AgentStreamSendResult, AgentToolContext } from '../../shared/types'
+import type { AgentStreamSendResult, AgentToolContext, AgentToolJsonSchema } from '../../shared/types'
 import type { UIMessage } from 'ai'
 import { streamAisdkReply } from '../agent-orchestrator'
+import { buildAisdkTools, agentToolsToJsonSchema } from '../agent-tools'
 import { isConfigured } from '../model-store'
 import { getAgentAbortController, setAgentAbortController } from './state'
 
@@ -12,6 +13,9 @@ export function registerAgentIpc(): void {
   ipcMain.handle(CH.agentAbort, () => {
     getAgentAbortController()?.abort()
   })
+
+  // 开发者界面：返回全部 Agent 工具的 JSON Schema 描述（纯字面量）
+  ipcMain.handle(CH.agentToolsList, (): AgentToolJsonSchema[] => agentToolsToJsonSchema(buildAisdkTools()))
 
   ipcMain.handle(
     CH.agentStreamSend,
