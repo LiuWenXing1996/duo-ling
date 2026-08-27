@@ -1,6 +1,6 @@
 // Agent Loop 骨架：把「AI 可自主调用」的能力暴露为 OpenAI function 定义，并统一执行。
 //
-// 当前提供八个能力：
+// 当前提供九个能力：
 //   - agent_tools_list          —— 查询已有工具
 //   - agent_tools_open          —— 打开对应工具（真实切到工具标签页）
 //   - agent_tools_create        —— 创建新工具（脚手架落盘 + git 建仓 + 自动打开）
@@ -9,6 +9,7 @@
 //   - agent_tools_lock_status   —— 查询工具是否被其它会话只读锁定
 //   - agent_workspace_tabs      —— 查询当前打开的工作区标签页
 //   - agent_capabilities_list   —— 查询宿主提供的全部原子能力清单
+//   - agent_tool_spec           —— 获取《工具规范（Tool Spec）》全文，供生成/编辑工具时遵循
 //
 // 执行器通过 hooks 把「打开工具」的副作用交回调用方（ipc/agent.ts 用 event.sender 广播命令，
 // 渲染层 app.vue 监听后切换/新建工具标签页）。工具本身的本地读取直接复用 tool-page.listUserTools。
@@ -24,6 +25,7 @@ import type {
   WorkspaceTabsState
 } from '../shared/types'
 import { listCapabilities } from './capability-registry'
+import { AGENT_TOOL_SPEC } from './agent-tool-spec'
 import {
   applyToolChanges,
   createUserToolId,
@@ -245,6 +247,12 @@ export function buildAgentTools(hooks: AgentToolHooks = {}) {
         '列出宿主提供的全部原子能力清单。返回数组，每项含 id / name / description / inputSchema / outputSchema / sideEffect / runtime / cost。工具页内通过 window.cap.run(id, args) 调用这些能力；需要了解工具页能做什么、规划或创建工具前先调用此工具。',
       inputSchema: z.object({}).strict(),
       execute: () => safe(() => listCapabilities())
+    }),
+    agent_tool_spec: tool({
+      description:
+        '获取《工具规范（Tool Spec）》全文。该规范是 UserTool 形态的权威契约，定义文件结构、运行环境、资源边界、能力调用与生成规范。创建或修改工具前应先调用本工具获取规范全文，确保生成的工具符合规范（如目录结构、CSP、能力白名单、工具档案要求）。',
+      inputSchema: z.object({}).strict(),
+      execute: () => safe(() => ({ toolSpec: AGENT_TOOL_SPEC }))
     })
   }
 }
@@ -264,7 +272,8 @@ export const AGENT_TOOL_TEST_PROMPTS: Record<keyof AgentTools, string> = {
     '小哆，把「PDF 合并器」工具页的标题改成「PDF 合并与拆分」，并把页面上的「合并 PDF」按钮文字改成「开始合并」。',
   agent_tools_lock_status: '小哆，帮我看看「PDF 合并器」这个工具现在有没有被其他会话锁定？',
   agent_workspace_tabs: '小哆，我现在打开了哪些页面？当前停在哪个页面上？',
-  agent_capabilities_list: '小哆，工具页里可以调用哪些原子能力？把 id 和说明都列给我看看。'
+  agent_capabilities_list: '小哆，工具页里可以调用哪些原子能力？把 id 和说明都列给我看看。',
+  agent_tool_spec: '小哆，给我看一下工具规范，我要新建一个工具。'
 }
 
 /** Agent 工具的可选输出 JSON Schema（开发者面板「查看输出 Schema」展示；仅对返回结构固定的工具配置） */
@@ -406,6 +415,14 @@ export const AGENT_TOOL_OUTPUT_SCHEMAS: Partial<Record<keyof AgentTools, Record<
       },
       required: ['id', 'name', 'description', 'sideEffect', 'runtime', 'cost']
     }
+  },
+  agent_tool_spec: {
+    type: 'object',
+    description: '《工具规范（Tool Spec）》全文',
+    properties: {
+      toolSpec: { type: 'string', description: '工具规范全文（Markdown）' }
+    },
+    required: ['toolSpec']
   }
 }
 

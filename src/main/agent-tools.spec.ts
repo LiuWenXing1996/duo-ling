@@ -28,7 +28,7 @@ async function exec<K extends keyof AgentTools>(
 }
 
 describe('agent-tools（Agent 工具定义与执行）', () => {
-  it('buildAgentTools 暴露八个 agent 工具，含查询能力清单', () => {
+  it('buildAgentTools 暴露九个 agent 工具，含查询能力清单与工具规范', () => {
     const tools = buildAgentTools()
     expect(Object.keys(tools).sort()).toEqual(
       [
@@ -39,7 +39,8 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
         'agent_tools_edit',
         'agent_tools_lock_status',
         'agent_workspace_tabs',
-        'agent_capabilities_list'
+        'agent_capabilities_list',
+        'agent_tool_spec'
       ].sort()
     )
   })
@@ -50,6 +51,20 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
     if (!res.ok) throw new Error('应执行成功')
     const caps = res.result as Array<{ id: string }>
     expect(caps.map((c) => c.id)).toEqual(listCapabilities().map((c) => c.id))
+  })
+
+  it('agent_tool_spec 返回工具规范全文（含关键契约小节）', async () => {
+    const res = await exec('agent_tool_spec', {})
+    expect(res.ok).toBe(true)
+    if (!res.ok) throw new Error('应执行成功')
+    const { toolSpec } = res.result as { toolSpec: string }
+    // 非空长文本
+    expect(toolSpec.length).toBeGreaterThan(1000)
+    // 覆盖工具规范的关键契约点
+    expect(toolSpec).toContain('# 工具规范（Tool Spec）')
+    expect(toolSpec).toContain('## 3.2 文件结构')
+    expect(toolSpec).toContain('## 6.4 安全红线')
+    expect(toolSpec).toContain('## 7.2 生成检查清单')
   })
 
   it('agent_workspace_tabs 返回渲染层上报的 tab 快照与当前激活标签（含中文 kindLabel）', async () => {
@@ -97,8 +112,8 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
     const schemas = agentToolsToJsonSchema(buildAgentTools())
     const byName = Object.fromEntries(schemas.map((s) => [s.function.name, s.function]))
 
-    // 全部 8 个工具均配置了输出 Schema，且可序列化
-    expect(Object.keys(byName)).toHaveLength(8)
+    // 全部 9 个工具均配置了输出 Schema，且可序列化
+    expect(Object.keys(byName)).toHaveLength(9)
     for (const fn of Object.values(byName)) {
       expect(fn.outputSchema).toBeTruthy()
       expect(() => JSON.stringify(fn.outputSchema)).not.toThrow()
@@ -113,6 +128,10 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
     // agent_tools_open：对象 + 输出字段
     const open = byName['agent_tools_open'].outputSchema as { properties?: Record<string, unknown> }
     expect(Object.keys(open.properties ?? {})).toEqual(['opened', 'toolId'])
+
+    // agent_tool_spec：对象 + toolSpec 字段
+    const spec = byName['agent_tool_spec'].outputSchema as { properties?: Record<string, unknown> }
+    expect(Object.keys(spec.properties ?? {})).toEqual(['toolSpec'])
   })
 
   describe('agent_tools_open / read / edit（目录结构读写链路）', () => {
