@@ -26,6 +26,7 @@ import type {
   ModelTestChatConfig,
   Task,
   TestChatResult,
+  ToolArchiveResult,
   ToolChangeList,
   ToolCreateResult,
   ToolHistoryResult,
@@ -70,6 +71,8 @@ export const CH = {
   toolHistory: 'tool:history',
   toolRollback: 'tool:rollback',
   toolPreview: 'tool:preview',
+  toolArchiveRead: 'tool-archive:read',
+  toolArchiveWrite: 'tool-archive:write',
   toolsPreviewList: 'tools-preview:list',
   toolsPreviewClear: 'tools-preview:clear',
   toolsDataList: 'tools-data:list',
@@ -131,6 +134,8 @@ export interface InvokeMap {
   [CH.toolHistory]: { args: [id: string]; result: ToolHistoryResult }
   [CH.toolRollback]: { args: [id: string, oid: string]; result: ToolResult }
   [CH.toolPreview]: { args: [id: string, oid: string]; result: ToolPreviewResult }
+  [CH.toolArchiveRead]: { args: [id: string]; result: ToolArchiveResult }
+  [CH.toolArchiveWrite]: { args: [id: string, content: string]; result: ToolResult }
   [CH.toolsPreviewList]: { args: []; result: ToolsPreviewListResult }
   [CH.toolsPreviewClear]: { args: []; result: ToolsPreviewClearResult }
   [CH.toolsDataList]: { args: []; result: ToolsDataListResult }
@@ -198,6 +203,10 @@ export interface PreloadApi {
     history: (id: string) => Promise<ToolHistoryResult>
     rollback: (id: string, oid: string) => Promise<ToolResult>
     preview: (id: string, oid: string) => Promise<ToolPreviewResult>
+    archive: {
+      read: (id: string) => Promise<ToolArchiveResult>
+      write: (id: string, content: string) => Promise<ToolResult>
+    }
     /** 监听主进程「打开工具」命令（agent.tools.open 触发），返回取消订阅函数 */
     onOpenCommand: (callback: (payload: ToolOpenCommand) => void) => () => void
   }

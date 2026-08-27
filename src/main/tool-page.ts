@@ -275,6 +275,38 @@ export function readUserToolTree(
   return out
 }
 
+/** 档案内容上限（KB）：防超长文本拖垮面板渲染与 git 仓库 */
+const ARCHIVE_MAX_BYTES = 64 * 1024
+
+/** 读取工具档案 archive.md；无档案（未创建）时返回空串，便于面板展示「暂无档案」初态。 */
+export function readToolArchive(id: string): { ok: true; content: string } | { ok: false; error: string } {
+  try {
+    if (!id || typeof id !== 'string') return { ok: false, error: '缺少工具 id' }
+    const target = join(toolsRoot(), id, 'archive.md')
+    if (!existsSync(target)) return { ok: true, content: '' }
+    return { ok: true, content: readFileSync(target, 'utf8') }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** 写入工具档案 archive.md（纯文本 Markdown，带长度上限校验）。 */
+export function writeToolArchive(id: string, content: string): { ok: true } | { ok: false; error: string } {
+  try {
+    if (!id || typeof id !== 'string') return { ok: false, error: '缺少工具 id' }
+    if (typeof content !== 'string') return { ok: false, error: '档案内容需为字符串' }
+    if (Buffer.byteLength(content, 'utf8') > ARCHIVE_MAX_BYTES) {
+      return { ok: false, error: '档案内容过长' }
+    }
+    const target = join(toolsRoot(), id, 'archive.md')
+    mkdirSync(dirname(target), { recursive: true })
+    writeFileSync(target, content, 'utf8')
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
 /**
  * 应用生成器产出的变更清单到指定工具目录。
  * - 只允许写白名单内文件（根级 index.html / meta.json / archive.md + js/ css/ assets/ 子目录，见 shared/tool-files.ts）；

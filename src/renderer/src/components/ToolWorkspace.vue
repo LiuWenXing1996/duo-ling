@@ -4,6 +4,7 @@ import type { PropType } from 'vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import ToolDetailPanel from '@/components/ToolDetailPanel.vue'
 import ToolHistory from '@/components/ToolHistory.vue'
+import ToolArchivePanel from '@/components/ToolArchivePanel.vue'
 import ToolDataDetail from '@/components/ToolDataDetail.vue'
 import DeveloperPanel from '@/components/DeveloperPanel.vue'
 import HomePanel from '@/components/HomePanel.vue'
@@ -76,6 +77,21 @@ function openToolHistory(tool: ToolDetailMeta): void {
       kind: 'tool-history',
       id,
       title: `${tool.title} · 历史`,
+      toolId: tool.id,
+      toolTitle: tool.title
+    })
+  }
+  activate(id)
+}
+
+// 打开某工具的「档案」标签页：同一工具只有一个档案页，已打开则激活
+function openToolArchive(tool: ToolDetailMeta): void {
+  const id = `${tool.id}:archive`
+  if (!openTabs.value.some((t) => t.id === id)) {
+    openTabs.value.push({
+      kind: 'tool-archive',
+      id,
+      title: `${tool.title} · 档案`,
       toolId: tool.id,
       toolTitle: tool.title
     })
@@ -247,10 +263,17 @@ defineExpose({ createTool, openTool, openSettingsTab, openDeveloperTab, reloadTo
           :ref="(el) => (detailRefs[tab.id] = el as InstanceType<typeof ToolDetailPanel> | null)"
           :tool="{ id: tab.id, title: tab.title, icon: tab.icon }"
           @open-history="openToolHistory"
+          @open-archive="openToolArchive"
         />
         <!-- 工具版本历史：展示该工具的 git 提交记录 -->
         <tool-history
           v-else-if="tab.kind === 'tool-history'"
+          :tool-id="tab.toolId ?? ''"
+          :tool-title="tab.toolTitle ?? tab.title"
+        />
+        <!-- 工具档案：展示 / 编辑该工具的 archive.md -->
+        <tool-archive-panel
+          v-else-if="tab.kind === 'tool-archive'"
           :tool-id="tab.toolId ?? ''"
           :tool-title="tab.toolTitle ?? tab.title"
         />

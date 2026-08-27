@@ -274,6 +274,9 @@ export interface ToolCreateResult {
 
 export type ToolResult = { ok: boolean; error?: string }
 
+/** toolArchive:read 的结果：工具档案 archive.md 内容（无档案时 content 为空串） */
+export type ToolArchiveResult = { ok: true; content: string } | { ok: false; error: string }
+
 export interface ToolUpdateMetaResult {
   ok: boolean
   title?: string

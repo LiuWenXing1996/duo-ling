@@ -57,6 +57,10 @@ const api: PreloadApi = {
     history: (id) => invoke(CH.toolHistory, id),
     rollback: (id, oid) => invoke(CH.toolRollback, id, oid),
     preview: (id, oid) => invoke(CH.toolPreview, id, oid),
+    archive: {
+      read: (id) => invoke(CH.toolArchiveRead, id),
+      write: (id, content) => invoke(CH.toolArchiveWrite, id, content)
+    },
     onOpenCommand: (callback: (payload: ToolOpenCommand) => void): (() => void) => {
       if (toolOpenCommandListener) ipcRenderer.removeListener(EVENT_CH.toolOpenCommand, toolOpenCommandListener)
       toolOpenCommandListener = (_event, payload) => callback(payload)

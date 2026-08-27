@@ -201,7 +201,7 @@ export function buildAisdkTools(hooks: AgentToolHooks = {}): ToolSet {
     }),
     agent_tools_edit: tool({
       description:
-        '修改一个已有工具的内容（写/替换文件，或精确文本替换）。输入 toolId + summary + actions；actions 的 file 限定为工具目录内白名单（根级 index.html / meta.json / archive.md 与 js/ css/ assets/ 子目录），op 支持 write（整文件覆盖）与 patch（find/replace 精确替换，可选 replace_all）；写静态资源（assets/ 下）时 content 为 base64。成功落盘后自动产生一条 git 提交。修改前先调用 agent_tools_read 了解现状。',
+        '修改一个已有工具的内容（写/替换文件，或精确文本替换）。输入 toolId + summary + actions；actions 的 file 限定为工具目录内白名单（根级 index.html / meta.json / archive.md 与 js/ css/ assets/ 子目录），op 支持 write（整文件覆盖）与 patch（find/replace 精确替换，可选 replace_all）；写静态资源（assets/ 下）时 content 为 base64。成功落盘后自动产生一条 git 提交。修改前先调用 agent_tools_read 了解现状。档案规则：若本次改动触及工具的定位/关键决策/已知限制，且该工具尚无 archive.md（工具档案），应顺带 write 一份简短档案初稿（内容三段：一句话定位 / 关键决策 / 已知限制）；若已有档案且本次未触及上述内容，则不改档案。',
       inputSchema: jsonSchema({
         type: 'object',
         properties: {

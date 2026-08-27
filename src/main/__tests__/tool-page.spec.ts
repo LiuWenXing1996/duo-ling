@@ -14,6 +14,8 @@ import {
   newUserToolScaffoldHtml,
   userToolScaffoldFiles,
   writeUserToolScaffold,
+  readToolArchive,
+  writeToolArchive,
   TOOL_PAGE_CSP
 } from '../tool-page'
 
@@ -110,6 +112,43 @@ describe('updateUserToolMeta', () => {
     const res = updateUserToolMeta(id, { title: 'x' })
     expect(res.ok).toBe(false)
     ids.push(id) // 确保清理（实际未创建目录）
+  })
+})
+
+describe('readToolArchive / writeToolArchive（工具档案 archive.md）', () => {
+  const base = '/tmp/duo-ling-test/tools'
+  const ids: string[] = []
+
+  afterEach(() => {
+    for (const id of ids) rmSync(join(base, id), { recursive: true, force: true })
+    ids.length = 0
+  })
+
+  function scaffold(id: string): void {
+    ids.push(id)
+    writeUserToolScaffold({ id, name: 'new-tool', title: '骨架', description: '' })
+  }
+
+  it('无档案时 read 返回空串（不报错）', () => {
+    const id = `t-archive-none-${Date.now()}`
+    scaffold(id)
+    expect(readToolArchive(id)).toEqual({ ok: true, content: '' })
+  })
+
+  it('write 后 read 往返一致', () => {
+    const id = `t-archive-rw-${Date.now()}`
+    scaffold(id)
+    const md = '## 定位\n一句话。\n\n## 关键决策\n- 决策一'
+    expect(writeToolArchive(id, md)).toEqual({ ok: true })
+    expect(readToolArchive(id)).toEqual({ ok: true, content: md })
+  })
+
+  it('缺失 id / 超长内容被拒', () => {
+    expect(writeToolArchive('', 'x')).toEqual({ ok: false, error: '缺少工具 id' })
+    const id = `t-archive-long-${Date.now()}`
+    scaffold(id)
+    const tooLong = 'a'.repeat(64 * 1024 + 1)
+    expect(writeToolArchive(id, tooLong).ok).toBe(false)
   })
 })
 

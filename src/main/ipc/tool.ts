@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { CH } from '../../shared/ipc'
 import type {
+  ToolArchiveResult,
   ToolChangeList,
   ToolCreateResult,
   ToolHistoryResult,
@@ -26,7 +27,9 @@ import {
   createUserToolId,
   deleteUserTool,
   listUserTools,
+  readToolArchive,
   updateUserToolMeta,
+  writeToolArchive,
   writeUserToolScaffold
 } from '../tool-page'
 import {
@@ -100,6 +103,23 @@ export function registerToolIpc(): void {
     } catch (error) {
       return Promise.resolve({ ok: false, error: error instanceof Error ? error.message : String(error) })
     }
+  })
+
+  // 工具档案：读取 archive.md（无档案返回空串）——「工具档案」面板展示用。
+  ipcMain.handle(CH.toolArchiveRead, (_event, id: string): ToolArchiveResult => {
+    return readToolArchive(id)
+  })
+
+  // 工具档案：写回 archive.md 并触发一次 commit（用户把关纳入版本，message「更新工具档案」）。
+  ipcMain.handle(CH.toolArchiveWrite, async (_event, id: string, content: string): Promise<ToolResult> => {
+    const result = writeToolArchive(id, content)
+    if (!result.ok) return result
+    try {
+      await commitToolChanges(id, '更新工具档案')
+    } catch (error) {
+      console.warn('[toolArchiveWrite] 提交失败（不影响档案已落盘）：', error)
+    }
+    return { ok: true }
   })
 
   // 预览缓存概览：总占用与已物化版本数（设置面板「数据管理」展示）。

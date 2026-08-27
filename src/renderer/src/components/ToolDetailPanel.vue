@@ -1,15 +1,18 @@
 <script setup lang="ts">
-// 工具详情栏：内嵌工具自身界面（tool:// 协议 <webview>）+ 版本历史入口。
+// 工具详情栏：内嵌工具自身界面（tool:// 协议 <webview>）+ 版本历史 / 工具档案入口。
 // reload 暴露给父组件，在生成器改动落盘后重载工具页。
 import { ref } from 'vue'
-import { GitBranch as UiGitBranch } from '@lucide/vue'
+import { Archive as UiArchive, GitBranch as UiGitBranch } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import ToolFrame from '@/components/ToolFrame.vue'
 import ToolIcon from '@/components/ToolIcon.vue'
 import type { ToolDetailMeta } from '@/types/tab'
 
 const props = defineProps<{ tool: ToolDetailMeta }>()
-const emit = defineEmits<{ openHistory: [tool: ToolDetailMeta] }>()
+const emit = defineEmits<{
+  openHistory: [tool: ToolDetailMeta]
+  openArchive: [tool: ToolDetailMeta]
+}>()
 
 const frameRef = ref<InstanceType<typeof ToolFrame> | null>(null)
 
@@ -24,16 +27,28 @@ defineExpose({ reload: () => frameRef.value?.reload() })
         <tool-icon :icon="props.tool.icon" :fallback="props.tool.title" class="text-sm" />
         工具详情
       </h2>
-      <ui-button
-        variant="ghost"
-        size="icon"
-        class="no-drag size-7"
-        aria-label="查看版本历史"
-        title="查看版本历史"
-        @click="emit('openHistory', props.tool)"
-      >
-        <ui-git-branch class="size-4" />
-      </ui-button>
+      <div class="flex items-center gap-1">
+        <ui-button
+          variant="ghost"
+          size="icon"
+          class="no-drag size-7"
+          aria-label="查看工具档案"
+          title="查看工具档案"
+          @click="emit('openArchive', props.tool)"
+        >
+          <ui-archive class="size-4" />
+        </ui-button>
+        <ui-button
+          variant="ghost"
+          size="icon"
+          class="no-drag size-7"
+          aria-label="查看版本历史"
+          title="查看版本历史"
+          @click="emit('openHistory', props.tool)"
+        >
+          <ui-git-branch class="size-4" />
+        </ui-button>
+      </div>
     </header>
     <tool-frame ref="frameRef" :tool="{ id: props.tool.id, title: props.tool.title }" />
   </section>
