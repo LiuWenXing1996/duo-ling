@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 // tool-page.ts 依赖 electron 的 app 获取 userData 路径，测试时打桩以正常导入
@@ -7,7 +7,15 @@ vi.mock('electron', () => ({
   app: { getPath: () => '/tmp/duo-ling-test' }
 }))
 
-import { normalizeToolIcon, updateUserToolMeta, newUserToolScaffoldHtml, TOOL_PAGE_CSP } from '../tool-page'
+import {
+  applyToolChanges,
+  normalizeToolIcon,
+  updateUserToolMeta,
+  newUserToolScaffoldHtml,
+  userToolScaffoldFiles,
+  writeUserToolScaffold,
+  TOOL_PAGE_CSP
+} from '../tool-page'
 
 describe('normalizeToolIcon', () => {
   it('接受单个 emoji', () => {
@@ -102,5 +110,114 @@ describe('updateUserToolMeta', () => {
     const res = updateUserToolMeta(id, { title: 'x' })
     expect(res.ok).toBe(false)
     ids.push(id) // 确保清理（实际未创建目录）
+  })
+})
+
+describe('writeUserToolScaffold / 目录骨架', () => {
+  const base = '/tmp/duo-ling-test/tools'
+  const ids: string[] = []
+
+  afterEach(() => {
+    for (const id of ids) rmSync(join(base, id), { recursive: true, force: true })
+    ids.length = 0
+  })
+
+  it('创建 index.html + js/main.js + css/style.css + 空 assets/ + meta.json', () => {
+    const id = `t-scaffold-${Date.now()}`
+    ids.push(id)
+
+    const res = writeUserToolScaffold({ id, name: 'new-tool', title: '骨架', description: '' })
+    expect(res.url).toBe(`tool://${id}/index.html`)
+
+    expect(existsSync(join(base, id, 'index.html'))).toBe(true)
+    expect(existsSync(join(base, id, 'js/main.js'))).toBe(true)
+    expect(existsSync(join(base, id, 'css/style.css'))).toBe(true)
+    expect(existsSync(join(base, id, 'assets'))).toBe(true)
+    expect(existsSync(join(base, id, 'meta.json'))).toBe(true)
+
+    const html = readFileSync(join(base, id, 'index.html'), 'utf8')
+    expect(html).toContain('<link rel="stylesheet" href="./css/style.css" />')
+    expect(html).toContain('<script type="module" src="./js/main.js"></script>')
+  })
+
+  it('userToolScaffoldFiles：目录骨架文件集合与 HTML 引用一致', () => {
+    const files = userToolScaffoldFiles('X')
+    expect(files.map((f) => f.rel)).toEqual(['index.html', 'js/main.js', 'css/style.css'])
+  })
+})
+
+describe('applyToolChanges（目录结构白名单）', () => {
+  const base = '/tmp/duo-ling-test/tools'
+  const ids: string[] = []
+
+  afterEach(() => {
+    for (const id of ids) rmSync(join(base, id), { recursive: true, force: true })
+    ids.length = 0
+  })
+
+  function scaffold(id: string): void {
+    ids.push(id)
+    writeUserToolScaffold({ id, name: 'new-tool', title: '骨架', description: '' })
+  }
+
+  it('write 到 js/ 子目录文件成功落盘', () => {
+    const id = `t-apply-${Date.now()}`
+    scaffold(id)
+
+    const res = applyToolChanges(id, {
+      summary: '加脚本',
+      actions: [{ op: 'write', file: 'js/main.js', content: 'console.log("hi")' }]
+    })
+
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.changedFiles[0]).toContain(join(base, id, 'js', 'main.js'))
+    }
+    expect(readFileSync(join(base, id, 'js/main.js'), 'utf8')).toBe('console.log("hi")')
+  })
+
+  it('patch 子目录文件成功', () => {
+    const id = `t-apply-patch-${Date.now()}`
+    scaffold(id)
+
+    const res = applyToolChanges(id, {
+      summary: '改脚本',
+      actions: [
+        { op: 'patch', file: 'js/main.js', find: 'const capOk', replace: '// const capOk' }
+      ]
+    })
+
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(readFileSync(join(base, id, 'js/main.js'), 'utf8')).toContain('// const capOk')
+    }
+  })
+
+  it('拒绝 .git/ 与越界路径', () => {
+    const id = `t-apply-deny-${Date.now()}`
+    scaffold(id)
+
+    const gitRes = applyToolChanges(id, {
+      summary: '越权',
+      actions: [{ op: 'write', file: '.git/config', content: 'x' }]
+    })
+    expect(gitRes.ok).toBe(false)
+
+    const upRes = applyToolChanges(id, {
+      summary: '越权',
+      actions: [{ op: 'write', file: '../other/index.html', content: 'x' }]
+    })
+    expect(upRes.ok).toBe(false)
+  })
+
+  it('patch 不存在的子目录文件返回错误', () => {
+    const id = `t-apply-missing-${Date.now()}`
+    scaffold(id)
+
+    const res = applyToolChanges(id, {
+      summary: '改不存在文件',
+      actions: [{ op: 'patch', file: 'js/absent.js', find: 'x', replace: 'y' }]
+    })
+    expect(res.ok).toBe(false)
   })
 })

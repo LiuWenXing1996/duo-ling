@@ -26,9 +26,8 @@ import {
   createUserToolId,
   deleteUserTool,
   listUserTools,
-  newUserToolScaffoldHtml,
   updateUserToolMeta,
-  writeUserTool
+  writeUserToolScaffold
 } from '../tool-page'
 import {
   clearPreviewCache,
@@ -56,7 +55,7 @@ export function registerToolIpc(): void {
       try {
         const id = createUserToolId()
         const title = '新建工具'
-        writeUserTool({ id, name: 'new-tool', title, description: '', html: newUserToolScaffoldHtml(title) })
+        writeUserToolScaffold({ id, name: 'new-tool', title, description: '' })
         // 工具已落盘成功后为目录建仓并做「创建工具」首提；git 记录失败不阻断创建
         await initToolRepo(id)
         return { ok: true, id, title }

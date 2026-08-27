@@ -5,12 +5,13 @@
 //
 // 关键：全程零模板编译、零 new Function / eval —— AI 产出即浏览器可解析的原生 HTML，天然通过 CSP。
 
+import { isAllowedToolFile } from '../../../shared/tool-files'
 import type { GeneratedIntent } from '../../../shared/types'
 
 /** 生成器输出的单个变更动作：整文件覆盖（write）或精确替换（patch） */
 export interface GeneratedToolChange {
   op: 'write' | 'patch'
-  /** 工具目录内的相对文件名，白名单限 index.html / meta.json */
+  /** 工具目录内的相对文件路径，白名单限根级 index.html / meta.json / archive.md + js/ css/ assets/ 子目录 */
   file: string
   /** write：整文件内容（index.html 为字符串；meta.json 为 { name,title,description } 对象） */
   content?: unknown
@@ -28,8 +29,7 @@ export interface GeneratedChangeList {
   actions: GeneratedToolChange[]
 }
 
-/** 允许被生成器修改的工具内文件白名单 */
-const ALLOWED_TOOL_FILES = ['index.html', 'meta.json'] as const
+// 可写文件白名单见 src/shared/tool-files.ts（与主进程编辑链路、git 遍历保持一致）
 
 /**
  * 从 LLM 回复中解析「变更清单」（summary + actions）。
@@ -61,7 +61,7 @@ export function parseGeneratedChanges(
       if (!raw || typeof raw !== 'object') return { changes: null, warning: '存在非法变更项' }
       const item = raw as Record<string, unknown>
       const file = String(item.file ?? '')
-      if (!ALLOWED_TOOL_FILES.includes(file as (typeof ALLOWED_TOOL_FILES)[number])) {
+      if (!isAllowedToolFile(file)) {
         return { changes: null, warning: `不允许修改文件：${file}` }
       }
       const op = item.op
@@ -135,7 +135,7 @@ export function parseGeneratedIntents(
         }
         const a = rawAction as Record<string, unknown>
         const file = String(a.file ?? '')
-        if (!ALLOWED_TOOL_FILES.includes(file as (typeof ALLOWED_TOOL_FILES)[number])) {
+        if (!isAllowedToolFile(file)) {
           return { intents: null, warning: `不允许修改文件：${file}` }
         }
         const op = a.op

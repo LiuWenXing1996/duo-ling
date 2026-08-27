@@ -13,14 +13,27 @@ import type { ToolCommit } from '../shared/types'
 
 export type { ToolCommit }
 
-/** 允许纳入版本控制的工具内文件（与 tool-page.ts 的白名单一致） */
-const TOOL_FILES = ['index.html', 'meta.json'] as const
-
 /** commit 占位身份：git 要求每次提交都有合法 name/email，全空会被拒；后续可做成可配置 */
 const GIT_AUTHOR = { name: 'duo-ling', email: 'duo-ling@local' }
 
 function toolDir(id: string): string {
   return join(toolsRoot(), id)
+}
+
+/** 工具目录内相对路径（排除 .git/），供 git add / status / 回滚遍历——目录结构可扩展，不依赖固定文件清单 */
+function listToolFiles(dir: string): string[] {
+  const out: string[] = []
+  const walk = (cur: string, rel: string): void => {
+    for (const entry of fs.readdirSync(cur, { withFileTypes: true })) {
+      if (entry.name === '.git') continue
+      const relPath = rel ? `${rel}/${entry.name}` : entry.name
+      const abs = join(cur, entry.name)
+      if (entry.isDirectory()) walk(abs, relPath)
+      else out.push(relPath)
+    }
+  }
+  walk(dir, '')
+  return out
 }
 
 /** 仓库尚不存在时 init（幂等），返回工具目录 */
@@ -32,9 +45,12 @@ async function ensureRepo(id: string): Promise<string> {
   return dir
 }
 
-/** 暂存白名单文件并提交，返回 commit oid */
+/** 暂存工具目录全部文件（排除 .git）并提交，返回 commit oid；无文件时跳过 add */
 async function commitSnapshot(dir: string, message: string): Promise<string> {
-  await git.add({ fs, dir, filepath: [...TOOL_FILES] })
+  const files = listToolFiles(dir)
+  if (files.length > 0) {
+    await git.add({ fs, dir, filepath: files })
+  }
   return git.commit({ fs, dir, message, author: GIT_AUTHOR })
 }
 
@@ -48,7 +64,9 @@ async function hasToolChanges(dir: string): Promise<boolean> {
   }
   // 仓库尚无任何提交（如旧工具首次被改）：视为有变更，走首提
   if (!headExists) return true
-  const statuses = await Promise.all(TOOL_FILES.map((f) => git.status({ fs, dir, filepath: f })))
+  const files = listToolFiles(dir)
+  if (files.length === 0) return false
+  const statuses = await Promise.all(files.map((f) => git.status({ fs, dir, filepath: f })))
   return statuses.some((s) => s !== 'unmodified')
 }
 
@@ -240,8 +258,23 @@ async function currentHeadOid(dir: string): Promise<string | null> {
   }
 }
 
+/** 目标 commit 树中的全部 blob 文件相对路径（目录 / 子模块等非 blob 不计入） */
+async function listTreeFiles(dir: string, oid: string): Promise<string[]> {
+  const files: string[] = []
+  await git.walk({
+    fs,
+    dir,
+    trees: [git.TREE({ ref: oid })],
+    map: async (filepath, [entry]) => {
+      if (!entry) return
+      if ((await entry.type()) === 'blob') files.push(filepath)
+    }
+  })
+  return files
+}
+
 /**
- * 回滚工具到指定 commit：把该 commit 的 index.html / meta.json 写回工作区，并产生一条新提交
+ * 回滚工具到指定 commit：把该 commit 的全部文件（整树，排除 .git）写回工作区，并产生一条新提交
  * （message 形如「回滚到 <shortOid>」），不直接 reset / 移动 HEAD，历史完整可逆，回错了可再回滚。
  * 只有当目标 commit 不是当前 HEAD 时才真正产生回滚提交，避免空提交。
  * 注：用「目标 oid 是否等于 HEAD」判断是否产生提交，而非依赖 git.status 的 stat 缓存——
@@ -257,8 +290,8 @@ export async function rollbackTool(
     if ((await currentHeadOid(dir)) === targetOid) {
       return { ok: true, committed: false }
     }
-    // 读取目标 commit 的每个白名单文件内容，写回工作区（覆盖当前版本）
-    for (const file of TOOL_FILES) {
+    // 读取目标 commit 树的全部文件内容，写回工作区（覆盖当前版本）
+    for (const file of await listTreeFiles(dir, targetOid)) {
       const { blob } = await git.readBlob({ fs, dir, oid: targetOid, filepath: file })
       fs.writeFileSync(join(dir, file), Buffer.from(blob).toString('utf8'), 'utf8')
     }
