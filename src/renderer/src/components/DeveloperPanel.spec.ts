@@ -12,7 +12,20 @@ const TOOLS: AgentToolJsonSchema[] = [
     function: {
       name: 'agent_tools_list',
       description: '列出所有已存在的工具。',
-      parameters: { type: 'object', properties: {}, additionalProperties: false }
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+      testPrompt: '小哆，现在有哪些工具？帮我全部列出来，包括 id 和名称。',
+      outputSchema: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: '工具唯一 id' },
+            name: { type: 'string', description: 'kebab-case 工具标识' },
+            title: { type: 'string', description: '工具标题' },
+            description: { type: 'string', description: '工具的一句话描述' }
+          }
+        }
+      }
     }
   },
   {
@@ -25,6 +38,13 @@ const TOOLS: AgentToolJsonSchema[] = [
         properties: { toolId: { type: 'string', description: '工具 id' } },
         required: ['toolId'],
         additionalProperties: false
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          opened: { type: 'string', description: '已打开的工具标题' },
+          toolId: { type: 'string', description: '已打开的工具 id' }
+        }
       }
     }
   }
@@ -90,6 +110,35 @@ describe('DeveloperPanel', () => {
     wrapper.unmount()
   })
 
+  it('展示工具的「测试用的提示词」（有则显示，无则隐藏）', async () => {
+    const wrapper = mount(DeveloperPanel)
+    await flushPromises()
+
+    // agent_tools_list 带测试提示词：展示文案与复制按钮
+    expect(wrapper.text()).toContain('测试用的提示词')
+    expect(wrapper.text()).toContain('小哆，现在有哪些工具？帮我全部列出来，包括 id 和名称。')
+    // agent_tools_open 无测试提示词：不出现复制按钮
+    const copyButtons = wrapper.findAll('button[aria-label^="复制"]')
+    expect(copyButtons).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('点击复制按钮调用剪贴板并显示「已复制」反馈', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true
+    })
+    const wrapper = mount(DeveloperPanel)
+    await flushPromises()
+
+    await wrapper.find('button[aria-label^="复制"]').trigger('click')
+    await flushPromises()
+    expect(writeText).toHaveBeenCalledWith('小哆，现在有哪些工具？帮我全部列出来，包括 id 和名称。')
+    expect(wrapper.text()).toContain('已复制')
+    wrapper.unmount()
+  })
+
   it('点击组头可折叠/展开 Agent 工具分组，且不影响原子能力分组', async () => {
     const wrapper = mount(DeveloperPanel)
     await flushPromises()
@@ -105,18 +154,36 @@ describe('DeveloperPanel', () => {
     wrapper.unmount()
   })
 
-  it('点击「查看参数 Schema」展开 JSON，再点收起', async () => {
+  it('点击「查看输入/输出 Schema」展开 JSON，再点收起', async () => {
     const wrapper = mount(DeveloperPanel)
     await flushPromises()
 
     // 展开前不渲染参数 JSON
     expect(wrapper.text()).not.toContain('"toolId"')
-    // 第二个工具（agent_tools_open）的「查看参数 Schema」按钮（按文本查找，组头按钮不计入）
-    const toggles = wrapper.findAll('button').filter((b) => b.text().includes('查看参数 Schema'))
+    // 第二个工具（agent_tools_open）的「查看输入/输出 Schema」按钮（按文本查找，组头按钮不计入）
+    const toggles = wrapper.findAll('button').filter((b) => b.text().includes('查看输入/输出 Schema'))
     await toggles[1]!.trigger('click')
     expect(wrapper.text()).toContain('"toolId"')
     await toggles[1]!.trigger('click')
     expect(wrapper.text()).not.toContain('"toolId"')
+    wrapper.unmount()
+  })
+
+  it('展开 Agent 工具 Schema：输入与输出区块均展示', async () => {
+    const wrapper = mount(DeveloperPanel)
+    await flushPromises()
+
+    // agent_tools_list：展开后输入/输出两区块均出现
+    const toggles = wrapper.findAll('button').filter((b) => b.text().includes('查看输入/输出 Schema'))
+    await toggles[0]!.trigger('click')
+    expect(wrapper.text()).toContain('工具唯一 id')
+    expect(wrapper.text()).toContain('kebab-case 工具标识')
+    await toggles[0]!.trigger('click')
+
+    // agent_tools_open：展开后输入（toolId）与输出（opened）均出现
+    await toggles[1]!.trigger('click')
+    expect(wrapper.text()).toContain('"toolId"')
+    expect(wrapper.text()).toContain('已打开的工具标题')
     wrapper.unmount()
   })
 
@@ -138,10 +205,11 @@ describe('DeveloperPanel', () => {
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('"path"')
-    // 能力卡片按钮位于 Agent 工具按钮之后：全部按钮中能力区第一个展开按钮
+    // 全部「查看输入/输出 Schema」按钮：Agent 工具区（2 个）在前、原子能力区在后；
+    // 能力区第一个按钮对应 local.file.read（输入含 path 字段）
     const buttons = wrapper.findAll('button')
-    const capToggle = buttons.find((b) => b.text().includes('查看输入/输出 Schema'))
-    await capToggle!.trigger('click')
+    const capToggles = buttons.filter((b) => b.text().includes('查看输入/输出 Schema'))
+    await capToggles[2]!.trigger('click')
     expect(wrapper.text()).toContain('"path"')
     expect(wrapper.text()).toContain('输入')
     expect(wrapper.text()).toContain('输出')

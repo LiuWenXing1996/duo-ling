@@ -100,13 +100,13 @@ export function buildAgentTools(hooks: AgentToolHooks = {}) {
   return {
     agent_tools_list: tool({
       description:
-        '列出所有已存在的工具。返回数组，每项含 id / name / title / description。当用户想了解、打开或复用已有工具前，先调用此工具获取工具清单。',
+        '列出所有已存在的工具，返回工具清单（每项含 id / name / title / description）。需要查询已有工具信息时可调用。',
       inputSchema: z.object({}).strict(),
       execute: () => safe(() => listUserTools())
     }),
     agent_tools_open: tool({
       description:
-        '打开一个工具页，界面会切换到该工具的标签页。需要先用 agent_tools_list 拿到工具 id，再传入 toolId。',
+        '打开一个工具页，界面会切换到该工具的标签页。传入已存在的工具 id；若不确定工具 id，可先调用 agent_tools_list 查询。',
       inputSchema: z
         .object({
           toolId: z.string().describe('工具 id（来自 agent_tools_list）')
@@ -162,7 +162,7 @@ export function buildAgentTools(hooks: AgentToolHooks = {}) {
     }),
     agent_tools_read: tool({
       description:
-        '读取一个已有工具的完整源码（入口页 / 各模块 / 样式 / 静态资源 / 元信息），返回 { files: [{ path, content, encoding }] }。修改工具前先调用本工具了解现状；需要先用 agent_tools_list 拿到工具 id。',
+        '读取一个已有工具的完整源码（入口页 / 各模块 / 样式 / 静态资源 / 元信息），返回 { files: [{ path, content, encoding }] }。修改工具前先调用本工具了解现状。传入已存在的工具 id；若不确定工具 id，可先调用 agent_tools_list 查询。',
       inputSchema: z
         .object({
           toolId: z.string().describe('工具 id（来自 agent_tools_list）')
@@ -226,7 +226,7 @@ export function buildAgentTools(hooks: AgentToolHooks = {}) {
     }),
     agent_tools_lock_status: tool({
       description:
-        '查询某个工具当前是否被其它会话只读锁定，避免并发编辑冲突。需要先用 agent_tools_list 拿到工具 id，再传入 toolId。',
+        '查询某个工具当前是否被其它会话只读锁定，避免并发编辑冲突。传入已存在的工具 id；若不确定工具 id，可先调用 agent_tools_list 查询。',
       inputSchema: z
         .object({
           toolId: z.string().describe('工具 id（来自 agent_tools_list）')
@@ -252,15 +252,179 @@ export function buildAgentTools(hooks: AgentToolHooks = {}) {
 /** Agent 工具集类型：返回对象键即工具名，`keyof AgentTools` 提供编译期约束 */
 export type AgentTools = ReturnType<typeof buildAgentTools>
 
+/** 每个 Agent 工具的「测试用的提示词」：一段用户侧对话输入（直接复制进会话即可），
+ *  用于验证 AI 对该工具的调用是否符合预期。工具示例名用「PDF 合并器」等便于对号入座。 */
+export const AGENT_TOOL_TEST_PROMPTS: Record<keyof AgentTools, string> = {
+  agent_tools_list: '小哆，现在有哪些工具？帮我全部列出来，包括 id 和名称。',
+  agent_tools_open: '小哆，帮我把「PDF 合并器」这个工具打开，我看看它的页面。',
+  agent_tools_create:
+    '小哆，帮我新建一个工具：把 Markdown 转成 HTML，名称叫 markdown-to-html，描述写「将 Markdown 文本渲染为 HTML 页面」。',
+  agent_tools_read: '小哆，帮我读一下「PDF 合并器」这个工具的完整源码，我想看看它现在的实现。',
+  agent_tools_edit:
+    '小哆，把「PDF 合并器」工具页的标题改成「PDF 合并与拆分」，并把页面上的「合并 PDF」按钮文字改成「开始合并」。',
+  agent_tools_lock_status: '小哆，帮我看看「PDF 合并器」这个工具现在有没有被其他会话锁定？',
+  agent_workspace_tabs: '小哆，我现在打开了哪些页面？当前停在哪个页面上？',
+  agent_capabilities_list: '小哆，工具页里可以调用哪些原子能力？把 id 和说明都列给我看看。'
+}
+
+/** Agent 工具的可选输出 JSON Schema（开发者面板「查看输出 Schema」展示；仅对返回结构固定的工具配置） */
+export const AGENT_TOOL_OUTPUT_SCHEMAS: Partial<Record<keyof AgentTools, Record<string, unknown>>> = {
+  agent_tools_list: {
+    type: 'array',
+    description: '已存在的工具清单（每项为工具元信息）',
+    items: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '工具唯一 id' },
+        name: { type: 'string', description: 'kebab-case 工具标识' },
+        title: { type: 'string', description: '工具标题' },
+        description: { type: 'string', description: '工具的一句话描述' }
+      },
+      required: ['id', 'name', 'title', 'description']
+    }
+  },
+  agent_tools_open: {
+    type: 'object',
+    properties: {
+      opened: { type: 'string', description: '已打开的工具标题' },
+      toolId: { type: 'string', description: '已打开的工具 id' }
+    },
+    required: ['opened', 'toolId']
+  },
+  agent_tools_create: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: '新分配的工具 id' },
+      title: { type: 'string', description: '工具标题' }
+    },
+    required: ['id', 'title']
+  },
+  agent_tools_read: {
+    type: 'object',
+    properties: {
+      toolId: { type: 'string', description: '工具 id' },
+      title: { type: 'string', description: '工具标题' },
+      files: {
+        type: 'array',
+        description: '白名单源码文件（入口页 / 模块 / 样式 / 静态资源 / 元信息）',
+        items: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: '工具目录内相对路径' },
+            content: { type: 'string', description: '文件内容' },
+            encoding: { type: 'string', description: '文件编码（utf8 / base64）' }
+          },
+          required: ['path', 'content', 'encoding']
+        }
+      }
+    },
+    required: ['toolId', 'title', 'files']
+  },
+  agent_tools_edit: {
+    type: 'object',
+    properties: {
+      toolId: { type: 'string', description: '工具 id' },
+      title: { type: 'string', description: '工具标题' },
+      changedFiles: {
+        type: 'array',
+        description: '本次被改动的文件相对路径',
+        items: { type: 'string' }
+      }
+    },
+    required: ['toolId', 'title', 'changedFiles']
+  },
+  agent_tools_lock_status: {
+    type: 'object',
+    properties: {
+      toolId: { type: 'string', description: '工具 id' },
+      locked: { type: 'boolean', description: '是否被其它会话只读锁定' },
+      holderId: { type: 'string', description: '锁持有者标识（未锁定时不出现）' }
+    },
+    required: ['toolId', 'locked']
+  },
+  agent_workspace_tabs: {
+    type: 'object',
+    properties: {
+      activeTab: {
+        description: '当前激活的标签页（无则 null）',
+        anyOf: [
+          { type: 'null' },
+          {
+            type: 'object',
+            description: '当前激活的标签页',
+            properties: {
+              id: { type: 'string' },
+              title: { type: 'string' },
+              kind: { type: 'string' },
+              kindLabel: { type: 'string', description: '页面类型中文名' },
+              toolId: { type: 'string' },
+              toolTitle: { type: 'string' },
+              icon: { type: 'string' }
+            },
+            required: ['id', 'title', 'kind', 'kindLabel']
+          }
+        ]
+      },
+      tabs: {
+        type: 'array',
+        description: '全部已打开的标签页（按打开顺序）',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            title: { type: 'string' },
+            kind: { type: 'string' },
+            kindLabel: {
+              type: 'string',
+              description: '页面类型中文名（主页 / 工具详情 / 设置 / 版本历史 / 工具档案 / 代码浏览 / 数据详情 / 开发者界面）'
+            },
+            toolId: { type: 'string' },
+            toolTitle: { type: 'string' },
+            icon: { type: 'string' }
+          },
+          required: ['id', 'title', 'kind', 'kindLabel']
+        }
+      }
+    },
+    required: ['activeTab', 'tabs']
+  },
+  agent_capabilities_list: {
+    type: 'array',
+    description: '宿主提供的全部原子能力清单',
+    items: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '能力 id（如 local.file.read）' },
+        name: { type: 'string', description: '能力中文名' },
+        description: { type: 'string', description: '能力说明' },
+        inputSchema: { type: 'object', description: '输入参数 JSON Schema' },
+        outputSchema: { type: 'object', description: '输出参数 JSON Schema' },
+        sideEffect: { type: 'string', description: '副作用类别' },
+        runtime: { type: 'string', description: '运行域（backend / frontend）' },
+        cost: { type: 'string', description: '成本（offline / online）' },
+        scenario: { type: 'object', description: '能力适用场景' }
+      },
+      required: ['id', 'name', 'description', 'sideEffect', 'runtime', 'cost']
+    }
+  }
+}
+
 /** 把 AI SDK ToolSet 转成 OpenAI function 风格的 JSON Schema 数组（供开发者界面展示 / 序列化转发） */
 export function agentToolsToJsonSchema(tools: ToolSet): AgentToolJsonSchema[] {
-  return Object.entries(tools).map(([name, toolDef]) => ({
-    type: 'function',
-    function: {
-      name,
-      // description 可能是函数（依赖工具上下文），仅透传字符串形式
-      ...(typeof toolDef.description === 'string' ? { description: toolDef.description } : {}),
-      parameters: asSchema(toolDef.inputSchema).jsonSchema as Record<string, unknown>
+  return Object.entries(tools).map(([name, toolDef]) => {
+    const outputSchema = AGENT_TOOL_OUTPUT_SCHEMAS[name as keyof AgentTools]
+    return {
+      type: 'function',
+      function: {
+        name,
+        // description 可能是函数（依赖工具上下文），仅透传字符串形式
+        ...(typeof toolDef.description === 'string' ? { description: toolDef.description } : {}),
+        parameters: asSchema(toolDef.inputSchema).jsonSchema as Record<string, unknown>,
+        // 测试用的提示词：按工具名从静态表取（keyof AgentTools 保证覆盖全部工具）
+        testPrompt: AGENT_TOOL_TEST_PROMPTS[name as keyof AgentTools],
+        // 输出的 JSON Schema：仅对配置过的工具透传
+        ...(outputSchema ? { outputSchema } : {})
+      }
     }
-  }))
+  })
 }

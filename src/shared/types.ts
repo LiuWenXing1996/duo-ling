@@ -239,6 +239,10 @@ export interface AgentToolJsonSchema {
     description?: string
     /** 输入参数的 JSON Schema（纯字面量，可序列化） */
     parameters: Record<string, unknown>
+    /** 输出的 JSON Schema（纯字面量，可序列化；仅对返回结构固定的工具配置） */
+    outputSchema?: Record<string, unknown>
+    /** 测试用的提示词：一段用户侧对话输入，用于验证 AI 对该工具的调用 */
+    testPrompt?: string
   }
 }
 

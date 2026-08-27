@@ -93,6 +93,28 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
     expect(schemas.map((s) => s.function.name).sort()).toEqual(Object.keys(tools).sort())
   })
 
+  it('agentToolsToJsonSchema 为每个工具透传 outputSchema（结构与 execute 返回一致、可序列化）', () => {
+    const schemas = agentToolsToJsonSchema(buildAgentTools())
+    const byName = Object.fromEntries(schemas.map((s) => [s.function.name, s.function]))
+
+    // 全部 8 个工具均配置了输出 Schema，且可序列化
+    expect(Object.keys(byName)).toHaveLength(8)
+    for (const fn of Object.values(byName)) {
+      expect(fn.outputSchema).toBeTruthy()
+      expect(() => JSON.stringify(fn.outputSchema)).not.toThrow()
+    }
+
+    // agent_tools_list：数组 + 每项字段说明
+    const out = byName['agent_tools_list'].outputSchema as Record<string, unknown>
+    expect(out.type).toBe('array')
+    const items = (out.items ?? {}) as { properties?: Record<string, unknown> }
+    expect(Object.keys(items.properties ?? {})).toEqual(['id', 'name', 'title', 'description'])
+
+    // agent_tools_open：对象 + 输出字段
+    const open = byName['agent_tools_open'].outputSchema as { properties?: Record<string, unknown> }
+    expect(Object.keys(open.properties ?? {})).toEqual(['opened', 'toolId'])
+  })
+
   describe('agent_tools_open / read / edit（目录结构读写链路）', () => {
     const root = join(tmpdir(), `duo-ling-agent-tools-${Date.now()}`)
     const tools = () => join(root, 'tools')

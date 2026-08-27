@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { Box as UiBox, ChevronDown as UiChevronDown, Terminal as UiTerminal } from '@lucide/vue'
+import { Box as UiBox, Check as UiCheck, ChevronDown as UiChevronDown, Copy as UiCopy, Terminal as UiTerminal } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import type { AgentToolJsonSchema, Capability } from '../../../shared/types'
 
-// 开发者界面：展示宿主提供给 AI 的全部 Agent 工具 + 原子能力（名称 / 说明 / Schema）
+// 开发者界面：展示宿主提供给 AI 的全部 Agent 工具 + 原子能力（名称 / 说明 / Schema / 测试提示词）
 
 const tools = ref<AgentToolJsonSchema[]>([])
 const loading = ref(true)
 const error = ref('')
-// 已展开参数 Schema 的工具名集合
+// 已展开输入/输出 Schema 的工具名集合
 const expanded = ref<Set<string>>(new Set())
 // Agent 工具分组是否展开（默认展开）
 const toolsOpen = ref(true)
@@ -21,6 +21,24 @@ const capsError = ref('')
 const capsExpanded = ref<Set<string>>(new Set())
 // 原子能力分组是否展开（默认展开）
 const capsOpen = ref(true)
+
+// 最近复制成功的工具名（用于「已复制」反馈，1.6s 后复位）
+const copiedName = ref('')
+let copyTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 复制某工具的测试提示词到剪贴板 */
+async function copyTestPrompt(name: string, prompt: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(prompt)
+    copiedName.value = name
+    if (copyTimer) clearTimeout(copyTimer)
+    copyTimer = setTimeout(() => {
+      copiedName.value = ''
+    }, 1600)
+  } catch {
+    // 剪贴板不可用时静默忽略（复制按钮仅作便捷入口）
+  }
+}
 
 async function load(): Promise<void> {
   loading.value = true
@@ -106,17 +124,45 @@ onMounted(() => {
                   <p class="text-xs leading-relaxed text-muted-foreground">
                     {{ item.function.description || '（无描述）' }}
                   </p>
+                  <div
+                    v-if="item.function.testPrompt"
+                    class="mt-3 rounded-md border border-dashed px-3 py-2.5"
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="text-xs font-medium text-muted-foreground">测试用的提示词</span>
+                      <ui-button
+                        variant="ghost"
+                        size="sm"
+                        class="h-6 gap-1 px-1.5 text-xs"
+                        :aria-label="`复制 ${item.function.name} 的测试提示词`"
+                        @click="copyTestPrompt(item.function.name, item.function.testPrompt ?? '')"
+                      >
+                        <ui-check v-if="copiedName === item.function.name" class="size-3.5 text-primary" />
+                        <ui-copy v-else class="size-3.5" />
+                        {{ copiedName === item.function.name ? '已复制' : '复制' }}
+                      </ui-button>
+                    </div>
+                    <p class="mt-1 text-xs leading-relaxed text-foreground">
+                      {{ item.function.testPrompt }}
+                    </p>
+                  </div>
                   <ui-button variant="ghost" size="sm" class="mt-2 h-7 gap-1 px-2 text-xs" @click="toggle(item.function.name)">
                     <ui-chevron-down
                       class="size-3.5 text-muted-foreground transition-transform"
                       :class="{ 'rotate-180': expanded.has(item.function.name) }"
                     />
-                    {{ expanded.has(item.function.name) ? '收起参数 Schema' : '查看参数 Schema' }}
+                    {{ expanded.has(item.function.name) ? '收起输入/输出 Schema' : '查看输入/输出 Schema' }}
                   </ui-button>
-                  <pre
-                    v-if="expanded.has(item.function.name)"
-                    class="scroll-gap mt-2 overflow-x-auto rounded-md bg-muted/40 p-3 text-xs leading-relaxed"
-                  >{{ JSON.stringify(item.function.parameters, null, 2) }}</pre>
+                  <div v-if="expanded.has(item.function.name)" class="mt-2 space-y-2">
+                    <div>
+                      <p class="mb-1 text-xs font-medium text-muted-foreground">输入</p>
+                      <pre class="scroll-gap overflow-x-auto rounded-md bg-muted/40 p-3 text-xs leading-relaxed">{{ JSON.stringify(item.function.parameters, null, 2) }}</pre>
+                    </div>
+                    <div v-if="item.function.outputSchema">
+                      <p class="mb-1 text-xs font-medium text-muted-foreground">输出</p>
+                      <pre class="scroll-gap overflow-x-auto rounded-md bg-muted/40 p-3 text-xs leading-relaxed">{{ JSON.stringify(item.function.outputSchema, null, 2) }}</pre>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
