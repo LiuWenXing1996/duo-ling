@@ -31,7 +31,6 @@ import {
   readToolArchive,
   readUserToolTree,
   updateUserToolMeta,
-  writeToolArchive,
   writeUserToolScaffold
 } from '../tool-page'
 import {
@@ -59,7 +58,7 @@ export function registerToolIpc(): void {
     async (): Promise<ToolCreateResult> => {
       try {
         const id = createUserToolId()
-        const title = '新建工具'
+        const title = '新工具'
         writeUserToolScaffold({ id, name: 'new-tool', title, description: '' })
         // 工具已落盘成功后为目录建仓并做「创建工具」首提；git 记录失败不阻断创建
         await initToolRepo(id)
@@ -117,21 +116,10 @@ export function registerToolIpc(): void {
     }
   })
 
-  // 工具档案：读取 archive.md（无档案返回空串）——「工具档案」面板展示用。
+  // 工具档案：读取 archive.md（无档案返回空串）——「工具档案」面板只读展示用。
+  // 档案的写入由 AI 在对话中完成（走 applyToolChanges 的 archive.md 白名单），不提供手动写入通道。
   ipcMain.handle(CH.toolArchiveRead, (_event, id: string): ToolArchiveResult => {
     return readToolArchive(id)
-  })
-
-  // 工具档案：写回 archive.md 并触发一次 commit（用户把关纳入版本，message「更新工具档案」）。
-  ipcMain.handle(CH.toolArchiveWrite, async (_event, id: string, content: string): Promise<ToolResult> => {
-    const result = writeToolArchive(id, content)
-    if (!result.ok) return result
-    try {
-      await commitToolChanges(id, '更新工具档案')
-    } catch (error) {
-      console.warn('[toolArchiveWrite] 提交失败（不影响档案已落盘）：', error)
-    }
-    return { ok: true }
   })
 
   // 预览缓存概览：总占用与已物化版本数（设置面板「数据管理」展示）。

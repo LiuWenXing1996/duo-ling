@@ -14,9 +14,7 @@ import {
   newUserToolScaffoldHtml,
   userToolScaffoldFiles,
   writeUserToolScaffold,
-  readToolArchive,
-  writeToolArchive,
-  TOOL_PAGE_CSP
+  readToolArchive
 } from '../tool-page'
 
 describe('normalizeToolIcon', () => {
@@ -50,10 +48,10 @@ describe('normalizeToolIcon', () => {
   })
 })
 
-describe('newUserToolScaffoldHtml / TOOL_PAGE_CSP', () => {
-  it('脚手架 meta CSP 与 TOOL_PAGE_CSP 常量一致（防双写漂移）', () => {
+describe('newUserToolScaffoldHtml（CSP 仅由协议响应头权威下发）', () => {
+  it('脚手架 HTML 不内嵌 CSP meta（避免与响应头双写漂移）', () => {
     const html = newUserToolScaffoldHtml('测试工具')
-    expect(html).toContain(`content="${TOOL_PAGE_CSP}"`)
+    expect(html).not.toContain('Content-Security-Policy')
   })
 })
 
@@ -115,7 +113,7 @@ describe('updateUserToolMeta', () => {
   })
 })
 
-describe('readToolArchive / writeToolArchive（工具档案 archive.md）', () => {
+describe('readToolArchive（工具档案 archive.md）', () => {
   const base = '/tmp/duo-ling-test/tools'
   const ids: string[] = []
 
@@ -132,23 +130,9 @@ describe('readToolArchive / writeToolArchive（工具档案 archive.md）', () =
   it('无档案时 read 返回空串（不报错）', () => {
     const id = `t-archive-none-${Date.now()}`
     scaffold(id)
+    // 旧工具没有 archive.md（新建脚手架当前必带档案），删除它以模拟「无档案」场景，验证读取容错
+    rmSync(join(base, id, 'archive.md'), { force: true })
     expect(readToolArchive(id)).toEqual({ ok: true, content: '' })
-  })
-
-  it('write 后 read 往返一致', () => {
-    const id = `t-archive-rw-${Date.now()}`
-    scaffold(id)
-    const md = '## 定位\n一句话。\n\n## 关键决策\n- 决策一'
-    expect(writeToolArchive(id, md)).toEqual({ ok: true })
-    expect(readToolArchive(id)).toEqual({ ok: true, content: md })
-  })
-
-  it('缺失 id / 超长内容被拒', () => {
-    expect(writeToolArchive('', 'x')).toEqual({ ok: false, error: '缺少工具 id' })
-    const id = `t-archive-long-${Date.now()}`
-    scaffold(id)
-    const tooLong = 'a'.repeat(64 * 1024 + 1)
-    expect(writeToolArchive(id, tooLong).ok).toBe(false)
   })
 })
 
@@ -161,7 +145,7 @@ describe('writeUserToolScaffold / 目录骨架', () => {
     ids.length = 0
   })
 
-  it('创建 index.html + js/main.js + css/style.css + 空 assets/ + meta.json', () => {
+  it('创建 index.html + js/main.js + css/style.css + archive.md + 空 assets/ + meta.json', () => {
     const id = `t-scaffold-${Date.now()}`
     ids.push(id)
 
@@ -171,17 +155,35 @@ describe('writeUserToolScaffold / 目录骨架', () => {
     expect(existsSync(join(base, id, 'index.html'))).toBe(true)
     expect(existsSync(join(base, id, 'js/main.js'))).toBe(true)
     expect(existsSync(join(base, id, 'css/style.css'))).toBe(true)
+    expect(existsSync(join(base, id, 'archive.md'))).toBe(true)
     expect(existsSync(join(base, id, 'assets'))).toBe(true)
     expect(existsSync(join(base, id, 'meta.json'))).toBe(true)
 
     const html = readFileSync(join(base, id, 'index.html'), 'utf8')
     expect(html).toContain('<link rel="stylesheet" href="./css/style.css" />')
     expect(html).toContain('<script type="module" src="./js/main.js"></script>')
+
+    // 样式文件仅含引导注释，不预置任何演示样式，避免误导生成端 AI
+    const css = readFileSync(join(base, id, 'css/style.css'), 'utf8')
+    expect(css).toContain('工具样式写在这个文件里')
+    expect(css).not.toMatch(/body\s*\{|\.shell\s*\{/)
+
+    // 档案初始为三段式占位骨架（对齐 tool-spec §8 内容三段），新建时不预置具体内容，避免误导
+    const archive = readFileSync(join(base, id, 'archive.md'), 'utf8')
+    expect(archive).toContain('## 定位')
+    expect(archive).toContain('## 关键决策')
+    expect(archive).toContain('## 已知限制')
+    expect(archive).not.toContain('工具档案：记录本工具的定位、能力与演进')
   })
 
   it('userToolScaffoldFiles：目录骨架文件集合与 HTML 引用一致', () => {
     const files = userToolScaffoldFiles('X')
-    expect(files.map((f) => f.rel)).toEqual(['index.html', 'js/main.js', 'css/style.css'])
+    expect(files.map((f) => f.rel)).toEqual([
+      'index.html',
+      'js/main.js',
+      'css/style.css',
+      'archive.md'
+    ])
   })
 })
 
@@ -222,13 +224,13 @@ describe('applyToolChanges（目录结构白名单）', () => {
     const res = applyToolChanges(id, {
       summary: '改脚本',
       actions: [
-        { op: 'patch', file: 'js/main.js', find: 'const capOk', replace: '// const capOk' }
+        { op: 'patch', file: 'js/main.js', find: '工具入口脚本', replace: '改造后的工具入口脚本' }
       ]
     })
 
     expect(res.ok).toBe(true)
     if (res.ok) {
-      expect(readFileSync(join(base, id, 'js/main.js'), 'utf8')).toContain('// const capOk')
+      expect(readFileSync(join(base, id, 'js/main.js'), 'utf8')).toContain('改造后的工具入口脚本')
     }
   })
 

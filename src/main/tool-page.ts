@@ -136,7 +136,8 @@ export function deleteUserTool(id: string): { ok: true } | { ok: false; error: s
   }
 }
 
-/** 工具页 CSP 策略：作为 `tool://` / `tool-preview://` 响应头权威下发，同时与脚手架 meta 保持同一来源，防双写漂移。 */
+/** 工具页 CSP 策略：仅由 `tool://` / `tool-preview://` 响应头权威下发（页面无法修改/移除）。
+ *  不再在脚手架 <meta> 中重复声明——用户直接以 file:// 打开不属于宿主管辖，且生成端 AI 本可改写该行。 */
 export const TOOL_PAGE_CSP =
   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
 
@@ -146,15 +147,13 @@ export function newUserToolScaffoldHtml(title: string): string {
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="${TOOL_PAGE_CSP}" />
     <title>${title}</title>
     <link rel="stylesheet" href="./css/style.css" />
   </head>
   <body>
     <main class="shell">
       <h1>${title}</h1>
-      <p>这是一个新工具。编辑 <code>index.html</code> / <code>js/main.js</code> / <code>css/style.css</code> 即可开始开发，或用 <code>window.cap.run('能力id', 参数)</code> 调用原子能力。</p>
-      <p id="bridge">正在检测能力桥接…</p>
+      <p>跟 AI 对话即可开始修改工具。</p>
     </main>
     <script type="module" src="./js/main.js"></script>
   </body>
@@ -162,18 +161,23 @@ export function newUserToolScaffoldHtml(title: string): string {
 `
 }
 
-/** 工具入口脚本：能力桥接检测 + 后续可拆分模块（import './lib/util.js' 等） */
-const SCAFFOLD_MAIN_JS = `// 工具入口脚本：能力桥接检测；可继续拆分子模块（import './lib/util.js' 等）
-const capOk = window.cap && typeof window.cap.run === 'function'
-document.getElementById('bridge').textContent = capOk ? '✓ 能力桥接可用' : '✗ 能力桥接不可用'
+/** 工具入口脚本：可继续拆分子模块（import './lib/util.js' 等） */
+const SCAFFOLD_MAIN_JS = `// 工具入口脚本：可继续拆分子模块（import './lib/util.js' 等）
 `
 
-/** 工具样式：与脚手架页面配套 */
-const SCAFFOLD_STYLE_CSS = `* { box-sizing: border-box; }
-body { margin: 0; padding: 24px; font-family: -apple-system, "PingFang SC", sans-serif; color: #1f2937; }
-.shell { max-width: 640px; margin: 0 auto; }
-code { padding: 1px 5px; border-radius: 4px; background: #f3f4f6; font-family: ui-monospace, monospace; }
-#bridge { font-size: 13px; color: #6b7280; }
+/** 工具样式文件：空白骨架，仅以注释引导「样式写在这里」，不预置任何演示样式，避免误导生成端 AI。 */
+const SCAFFOLD_STYLE_CSS = `/* 工具样式写在这个文件里，入口页已通过 <link> 引用。 */
+`
+
+/** 工具档案初始骨架：三段式占位标题（对齐 tool-spec §8.2）。新建工具尚无设计结论，不预置具体内容，留待 AI 首次实质改动时按生成期初稿规则补写（tool-spec §8.3），避免误导使用者。 */
+const SCAFFOLD_ARCHIVE_MD = `## 定位
+（待填：这个工具是做什么的，帮用户解决什么。）
+
+## 关键决策
+（待填：为什么这么设计，关键取舍与技术选型的缘由。）
+
+## 已知限制
+（待填：目前做不到什么、有什么已知问题。）
 `
 
 /** 脚手架目录骨架文件集合（不含 meta.json，由 writeUserToolScaffold 统一落盘） */
@@ -181,11 +185,12 @@ export function userToolScaffoldFiles(title: string): { rel: string; content: st
   return [
     { rel: 'index.html', content: newUserToolScaffoldHtml(title) },
     { rel: 'js/main.js', content: SCAFFOLD_MAIN_JS },
-    { rel: 'css/style.css', content: SCAFFOLD_STYLE_CSS }
+    { rel: 'css/style.css', content: SCAFFOLD_STYLE_CSS },
+    { rel: 'archive.md', content: SCAFFOLD_ARCHIVE_MD }
   ]
 }
 
-/** 以目录骨架落盘一个新工具：index.html + js/ + css/ + 空 assets/ + meta.json，返回 tool:// URL。 */
+/** 以目录骨架落盘一个新工具：index.html + js/ + css/ + archive.md + 空 assets/ + meta.json，返回 tool:// URL。 */
 export function writeUserToolScaffold(input: {
   id: string
   name: string
@@ -275,33 +280,14 @@ export function readUserToolTree(
   return out
 }
 
-/** 档案内容上限（KB）：防超长文本拖垮面板渲染与 git 仓库 */
-const ARCHIVE_MAX_BYTES = 64 * 1024
-
-/** 读取工具档案 archive.md；无档案（未创建）时返回空串，便于面板展示「暂无档案」初态。 */
+/** 读取工具档案 archive.md；无档案（未创建）时返回空串，便于面板展示「暂无档案」初态。
+ *  档案由 AI 在对话中记录/更新（走 applyToolChanges 的 archive.md 白名单），面板只读展示，不提供手动写入通道。 */
 export function readToolArchive(id: string): { ok: true; content: string } | { ok: false; error: string } {
   try {
     if (!id || typeof id !== 'string') return { ok: false, error: '缺少工具 id' }
     const target = join(toolsRoot(), id, 'archive.md')
     if (!existsSync(target)) return { ok: true, content: '' }
     return { ok: true, content: readFileSync(target, 'utf8') }
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) }
-  }
-}
-
-/** 写入工具档案 archive.md（纯文本 Markdown，带长度上限校验）。 */
-export function writeToolArchive(id: string, content: string): { ok: true } | { ok: false; error: string } {
-  try {
-    if (!id || typeof id !== 'string') return { ok: false, error: '缺少工具 id' }
-    if (typeof content !== 'string') return { ok: false, error: '档案内容需为字符串' }
-    if (Buffer.byteLength(content, 'utf8') > ARCHIVE_MAX_BYTES) {
-      return { ok: false, error: '档案内容过长' }
-    }
-    const target = join(toolsRoot(), id, 'archive.md')
-    mkdirSync(dirname(target), { recursive: true })
-    writeFileSync(target, content, 'utf8')
-    return { ok: true }
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }

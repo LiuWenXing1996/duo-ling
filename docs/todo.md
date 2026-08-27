@@ -196,7 +196,7 @@
 - **AI 规则**：生成期首次实质改动且无档案时附初稿；维护期仅当改了定位/决策/限制才更新；动手前先读磁盘当前档案。
 - **回滚**：接受 git 语义，回滚到无档案版本档案即消失；存量工具惰性回填，不做全量。
 
-**详细文档**：见 [tool-archive.md](./tool-archive.md)。
+**权威规范**：见 [tool-spec.md](./tool-spec.md) §8 工具档案。
 
 **状态**：方案已写入 docs，待评审。
 
@@ -224,14 +224,14 @@
 
 **方案要点（目标态见 tool-spec.md）**：
 1. **CSP 权威层（tool-spec §6.2/§6.3）**：
-   - `tool://` / `tool-preview://` 协议响应头统一下发 `content-security-policy`（权威兜底，不依赖生成端 AI 写 meta）；
-   - 脚手架 meta CSP 与 header 对齐或移除（避免双写交集不一致）。
+   - `tool://` / `tool-preview://` 协议响应头统一下发 `content-security-policy`（权威兜底，不依赖生成端 AI 写 meta）——已落地；
+   - 脚手架 <meta> CSP 已移除（原「对齐或移除」选择「移除」，CSP 仅由响应头权威下发，避免双写交集不一致）。
 2. **`.css` MIME（tool-spec §3.3/§6.2）**：协议层扩展名→Content-Type 映射补充 `.css` → `text/css`。
 3. **文件白名单放开 + git 动态遍历（tool-spec §3.2/§5.2）**：
    - 主进程编辑白名单、生成器侧文件白名单两处从「两文件」放开为「两个固定文件 + 三个目录 + 工具档案」；
    - git 提交 / 回滚遍历从固定两文件改为动态遍历工具目录（排除 `.git/`），并防目录穿越。
 4. **脚手架改造为目录骨架（tool-spec §5.1 创建）**：新建 UserTool 从「自包含单文件」改为「入口页 + 脚本/样式目录 + 空静态资源目录」。
-5. **工具档案 `archive.md` 落地（tool-spec §3.2）**：档案读写链路、随 git 版本化、生成规则（详见 [tool-archive.md](./tool-archive.md) 方案）。
+5. **工具档案 `archive.md` 落地（tool-spec §8）**：档案读写链路、随 git 版本化、生成规则（详见 [tool-spec.md](./tool-spec.md) §8 工具档案）。
 6. **`local.file.choose`（tool-spec §4.2）**：系统文件选择框能力，建立「用户授权选文件」边界。
 7. **CSP violation 反馈闭环（tool-spec §6.3）**：把运行时 CSP violation 反馈给生成端 AI 自检（增量可选）。
 

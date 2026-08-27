@@ -198,7 +198,7 @@ async function createTool(): Promise<void> {
     toolError.value = res.error ?? '新建工具失败'
     return
   }
-  const tab: OpenTool = { kind: 'tool', id: res.id, title: res.title ?? '新建工具' }
+  const tab: OpenTool = { kind: 'tool', id: res.id, title: res.title ?? '新工具' }
   openTabs.value.push(tab)
   activate(tab.id)
   // 通知根布局刷新工具列表（主页网格 / 全局搜索）

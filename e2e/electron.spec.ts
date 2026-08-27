@@ -102,7 +102,7 @@ test('工具页在 sandboxed webview 下加载且能力桥接可用', async () =
   const webview = window.locator('webview')
   await expect(webview).toBeVisible({ timeout: 15000 })
 
-  // 等待 guest 文档就绪：从主进程读取 tool:// guest 的 body 文本，验证 sandboxed preload 注入的 cap 桥接可用
+  // 等待 guest 就绪：从主进程读取 tool:// guest，验证 sandboxed preload 注入的 cap.run 桥接可用
   await expect
     .poll(
       async () =>
@@ -110,12 +110,12 @@ test('工具页在 sandboxed webview 下加载且能力桥接可用', async () =
           const guest = webContents
             .getAllWebContents()
             .find((wc) => wc.getURL().startsWith('tool://'))
-          if (!guest) return ''
-          return (await guest.executeJavaScript('document.body ? document.body.innerText : ""')) as string
+          if (!guest) return false
+          return (await guest.executeJavaScript('typeof window.cap?.run === "function"')) as boolean
         }),
       { timeout: 15000 }
     )
-    .toContain('✓ 能力桥接可用')
+    .toBe(true)
 
   await electronApp.close()
 })

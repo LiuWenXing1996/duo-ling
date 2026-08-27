@@ -24,7 +24,7 @@ describe('ToolWorkspace', () => {
     Object.defineProperty(window, 'api', {
       value: {
         tool: {
-          create: vi.fn().mockResolvedValue({ ok: true, id: 't-init', title: '新建工具' }),
+          create: vi.fn().mockResolvedValue({ ok: true, id: 't-init', title: '新工具' }),
           list: vi.fn().mockResolvedValue([
             { id: 't-1', name: 'pdf-merge', title: 'PDF 合并器', description: '合并多个 PDF' }
           ]),
@@ -87,7 +87,7 @@ describe('ToolWorkspace', () => {
     ;(window.api.tool.create as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       id: 't-abc',
-      title: '新建工具'
+      title: '新工具'
     })
     const wrapper = mount(ToolWorkspace)
 
@@ -101,7 +101,7 @@ describe('ToolWorkspace', () => {
     expect(window.api.tool.create).toHaveBeenCalledTimes(1)
 
     // 标签栏出现新工具标签，且被激活；主页标签虽保持挂载但已隐藏（关闭「切页即卸载」行为）
-    expect(wrapper.text()).toContain('新建工具')
+    expect(wrapper.text()).toContain('新工具')
     const toolPanels = wrapper.findAll('[role="tabpanel"]')
     const homePanel = toolPanels.find((p) => p.text().includes('还没有工具'))
     expect(homePanel).toBeTruthy()
