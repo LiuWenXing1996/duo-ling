@@ -7,6 +7,7 @@ import { CH } from '../../shared/ipc'
 import type {
   ToolArchiveResult,
   ToolChangeList,
+  ToolCodeResult,
   ToolCreateResult,
   ToolHistoryResult,
   UserToolMeta,
@@ -28,6 +29,7 @@ import {
   deleteUserTool,
   listUserTools,
   readToolArchive,
+  readUserToolTree,
   updateUserToolMeta,
   writeToolArchive,
   writeUserToolScaffold
@@ -81,6 +83,16 @@ export function registerToolIpc(): void {
   ipcMain.handle(CH.toolHistory, (_event, id: string): Promise<ToolHistoryResult> =>
     listToolHistory(id)
   )
+
+  // 读取某工具白名单源码文件树（含内容），供「代码浏览」标签页展示。
+  ipcMain.handle(CH.toolCodeTree, (_event, id: string): ToolCodeResult => {
+    try {
+      if (!id || typeof id !== 'string') return { ok: false, error: '缺少工具 id' }
+      return { ok: true, files: readUserToolTree(id) }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
 
   // 回滚工具到指定 commit：把该 commit 的文件写回工作区并产生新提交，不 reset（「版本历史」预览浮层调用）。
   ipcMain.handle(

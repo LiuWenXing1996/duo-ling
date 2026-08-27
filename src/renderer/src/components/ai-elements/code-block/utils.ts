@@ -1,5 +1,9 @@
 import type { BundledLanguage, BundledTheme, HighlighterGeneric, ThemedToken } from 'shiki'
 import { createHighlighter } from 'shiki'
+import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
+
+// shiki 的「纯文本」特例语言（不产生任何高亮），BundledLanguage 未收录，这里显式并入。
+export type CodeLanguage = BundledLanguage | 'text' | 'plaintext' | 'txt' | 'plain'
 
 // Shiki uses bitflags for font styles: 1=italic, 2=bold, 4=underline
 export const isItalic = (fontStyle: number | undefined) => fontStyle && fontStyle & 1
@@ -26,13 +30,17 @@ const tokensCache = new Map<string, TokenizedCode>()
 // Subscribers for async token updates
 const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>()
 
-function getTokensCacheKey(code: string, language: BundledLanguage) {
+function getTokensCacheKey(code: string, language: CodeLanguage) {
   const start = code.slice(0, 100)
   const end = code.length > 100 ? code.slice(-100) : ''
   return `${language}:${code.length}:${start}:${end}`
 }
 
-function getHighlighter(language: BundledLanguage): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> {
+// 用纯 JS 正则引擎而非默认的 oniguruma(WASM)：renderer 的 CSP `script-src 'self'` 不允许 wasm 实例化，
+// 若走 WASM 引擎会导致 highlighter 加载失败、一直渲染无色 raw token。JS 引擎无需 wasm，产出的颜色一致。
+const sharedEngine = createJavaScriptRegexEngine()
+
+function getHighlighter(language: CodeLanguage): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> {
   const cached = highlighterCache.get(language)
   if (cached) {
     return cached
@@ -41,6 +49,7 @@ function getHighlighter(language: BundledLanguage): Promise<HighlighterGeneric<B
   const highlighterPromise = createHighlighter({
     themes: ['github-light', 'github-dark'],
     langs: [language],
+    engine: sharedEngine,
   })
 
   highlighterCache.set(language, highlighterPromise)
@@ -68,7 +77,7 @@ export function createRawTokens(code: string): TokenizedCode {
 // Synchronous highlight with callback for async results
 export function highlightCode(
   code: string,
-  language: BundledLanguage,
+  language: CodeLanguage,
   callback?: (result: TokenizedCode) => void,
 ): TokenizedCode | null {
   const tokensCacheKey = getTokensCacheKey(code, language)

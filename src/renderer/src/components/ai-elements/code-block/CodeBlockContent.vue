@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { BundledLanguage, ThemedToken } from 'shiki'
-import type { TokenizedCode } from './utils'
+import type { ThemedToken } from 'shiki'
+import type { CodeLanguage, TokenizedCode } from './utils'
 import { cn } from '@/lib/utils'
 import { computed, ref, watch } from 'vue'
 import { createRawTokens, highlightCode, isBold, isItalic, isUnderline } from './utils'
@@ -8,7 +8,7 @@ import { createRawTokens, highlightCode, isBold, isItalic, isUnderline } from '.
 const props = withDefaults(
   defineProps<{
     code: string
-    language: BundledLanguage
+    language: CodeLanguage
     showLineNumbers?: boolean
   }>(),
   {

@@ -28,6 +28,7 @@ import type {
   TestChatResult,
   ToolArchiveResult,
   ToolChangeList,
+  ToolCodeResult,
   ToolCreateResult,
   ToolHistoryResult,
   UserToolMeta,
@@ -69,6 +70,7 @@ export const CH = {
   toolUpdate: 'tool:update',
   toolGetPreloadPath: 'tool:getPreloadPath',
   toolHistory: 'tool:history',
+  toolCodeTree: 'tool:code-tree',
   toolRollback: 'tool:rollback',
   toolPreview: 'tool:preview',
   toolArchiveRead: 'tool-archive:read',
@@ -132,6 +134,7 @@ export interface InvokeMap {
   [CH.toolUpdate]: { args: [id: string, changes: ToolChangeList]; result: ToolUpdateResult }
   [CH.toolGetPreloadPath]: { args: []; result: string }
   [CH.toolHistory]: { args: [id: string]; result: ToolHistoryResult }
+  [CH.toolCodeTree]: { args: [id: string]; result: ToolCodeResult }
   [CH.toolRollback]: { args: [id: string, oid: string]; result: ToolResult }
   [CH.toolPreview]: { args: [id: string, oid: string]; result: ToolPreviewResult }
   [CH.toolArchiveRead]: { args: [id: string]; result: ToolArchiveResult }
@@ -201,6 +204,7 @@ export interface PreloadApi {
     update: (id: string, changes: ToolChangeList) => Promise<ToolUpdateResult>
     getPreloadPath: () => Promise<string>
     history: (id: string) => Promise<ToolHistoryResult>
+    codeTree: (id: string) => Promise<ToolCodeResult>
     rollback: (id: string, oid: string) => Promise<ToolResult>
     preview: (id: string, oid: string) => Promise<ToolPreviewResult>
     archive: {

@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import type { BundledLanguage } from 'shiki'
 import type { HTMLAttributes } from 'vue'
 import { computed, provide } from 'vue'
 import CodeBlockContainer from './CodeBlockContainer.vue'
 import CodeBlockContent from './CodeBlockContent.vue'
 import { CodeBlockKey } from './context'
+import type { CodeLanguage } from './utils'
 
 const props = withDefaults(
   defineProps<{
     code: string
-    language: BundledLanguage
+    language: CodeLanguage
     showLineNumbers?: boolean
     class?: HTMLAttributes['class']
   }>(),

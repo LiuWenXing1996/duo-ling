@@ -2,7 +2,7 @@
 // 工具详情栏：内嵌工具自身界面（tool:// 协议 <webview>）+ 版本历史 / 工具档案入口。
 // reload 暴露给父组件，在生成器改动落盘后重载工具页。
 import { ref } from 'vue'
-import { Archive as UiArchive, GitBranch as UiGitBranch } from '@lucide/vue'
+import { Archive as UiArchive, FileCode2 as UiFileCode, GitBranch as UiGitBranch } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import ToolFrame from '@/components/ToolFrame.vue'
 import ToolIcon from '@/components/ToolIcon.vue'
@@ -12,6 +12,7 @@ const props = defineProps<{ tool: ToolDetailMeta }>()
 const emit = defineEmits<{
   openHistory: [tool: ToolDetailMeta]
   openArchive: [tool: ToolDetailMeta]
+  openCode: [tool: ToolDetailMeta]
 }>()
 
 const frameRef = ref<InstanceType<typeof ToolFrame> | null>(null)
@@ -47,6 +48,16 @@ defineExpose({ reload: () => frameRef.value?.reload() })
           @click="emit('openHistory', props.tool)"
         >
           <ui-git-branch class="size-4" />
+        </ui-button>
+        <ui-button
+          variant="ghost"
+          size="icon"
+          class="no-drag size-7"
+          aria-label="查看工具源码"
+          title="查看工具源码"
+          @click="emit('openCode', props.tool)"
+        >
+          <ui-file-code class="size-4" />
         </ui-button>
       </div>
     </header>

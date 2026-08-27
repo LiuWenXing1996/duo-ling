@@ -55,6 +55,7 @@ const api: PreloadApi = {
     update: (id, changes) => invoke(CH.toolUpdate, id, changes),
     getPreloadPath: () => invoke(CH.toolGetPreloadPath),
     history: (id) => invoke(CH.toolHistory, id),
+    codeTree: (id) => invoke(CH.toolCodeTree, id),
     rollback: (id, oid) => invoke(CH.toolRollback, id, oid),
     preview: (id, oid) => invoke(CH.toolPreview, id, oid),
     archive: {

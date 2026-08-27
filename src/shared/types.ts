@@ -277,6 +277,15 @@ export type ToolResult = { ok: boolean; error?: string }
 /** toolArchive:read 的结果：工具档案 archive.md 内容（无档案时 content 为空串） */
 export type ToolArchiveResult = { ok: true; content: string } | { ok: false; error: string }
 
+/** 工具源码文件（tool:code-tree 返回；content 为 utf8 或 base64，encoding 标记解码方式） */
+export interface ToolCodeFile {
+  path: string
+  content: string
+  encoding: 'utf8' | 'base64'
+}
+
+export type ToolCodeResult = { ok: true; files: ToolCodeFile[] } | { ok: false; error: string }
+
 export interface ToolUpdateMetaResult {
   ok: boolean
   title?: string
