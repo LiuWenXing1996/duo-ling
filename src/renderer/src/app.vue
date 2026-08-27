@@ -171,7 +171,7 @@ function handleCreateTool(): void {
           class="global-layout flex h-full w-full min-w-0"
         >
           <!-- 会话历史：全局会话列表（主进程 conversation-store） -->
-          <ui-resizable-panel :default-size="18" :min-size="12" :max-size="36" class="min-w-0">
+          <ui-resizable-panel :default-size="20" :min-size="12" :max-size="36" class="min-w-0">
             <session-history-panel
               :conversations="conversations"
               :active-conversation-id="activeConversationId"
@@ -184,7 +184,7 @@ function handleCreateTool(): void {
           <ui-resizable-handle aria-label="拖拽调整会话历史宽度" />
 
           <!-- 当前会话：全局当前激活会话的聊天窗 -->
-          <ui-resizable-panel :default-size="26" :min-size="16" :max-size="40" class="min-w-0">
+          <ui-resizable-panel :default-size="30" :min-size="16" :max-size="40" class="min-w-0">
             <chat-panel
               :messages="messages"
               :pending-map="pendingMap"
@@ -198,7 +198,7 @@ function handleCreateTool(): void {
           <ui-resizable-handle aria-label="拖拽调整当前会话宽度" />
 
           <!-- 多标签页：工具详情 / 设置 / 版本历史 / 数据详情 -->
-          <ui-resizable-panel :default-size="56" :min-size="24" class="min-w-0">
+          <ui-resizable-panel :default-size="50" :min-size="24" class="min-w-0">
             <tool-workspace ref="workspaceRef" :tools="allTools" @tools-changed="reloadTools" />
           </ui-resizable-panel>
         </ui-resizable-panel-group>
