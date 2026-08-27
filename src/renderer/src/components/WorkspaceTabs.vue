@@ -26,7 +26,7 @@ const emit = defineEmits<{
 
 <template>
   <ui-tabs-list
-    class="w-full justify-start gap-1 overflow-x-auto h-10 rounded-none border-b bg-muted"
+    class="workspace-tabs w-full justify-start gap-1 overflow-x-auto h-10 rounded-none border-b bg-muted"
     aria-label="工作区标签"
   >
     <ui-tabs-trigger
@@ -55,3 +55,13 @@ const emit = defineEmits<{
     </ui-tabs-trigger>
   </ui-tabs-list>
 </template>
+
+<style scoped>
+/* 隐藏 tab 栏横向滚动条，但保留横向滚动能力 */
+.workspace-tabs {
+  scrollbar-width: none;
+}
+.workspace-tabs::-webkit-scrollbar {
+  display: none;
+}
+</style>
