@@ -60,7 +60,7 @@ async function startAgentStream(
   // 主进程逐 chunk 推送 → 入队供消费端拉取
   const offChunk = window.api.agent.onStreamChunk((chunk) => queue.enqueue(chunk))
   // 主进程流结束 → 补 error chunk（失败时）并关闭流
-  const offEnd = window.api.agent.onStreamEnd((result) => queue.close(result.error))
+  const offEnd = window.api.agent.onStreamEnd((result) => queue.close(result.ok ? undefined : result.error))
 
   // 用户主动停止 / useChat 取消：通知主进程 abort，并把流收尾为「已停止」
   const onAbort = () => {
@@ -81,7 +81,7 @@ async function startAgentStream(
   void window.api.agent
     .streamSend(messages)
     .then(
-      (result) => queue.close(result.error),
+      (result) => queue.close(result.ok ? undefined : result.error),
       (error) => queue.close(error instanceof Error ? error.message : String(error))
     )
     .finally(cleanup)

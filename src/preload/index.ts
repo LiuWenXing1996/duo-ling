@@ -10,9 +10,29 @@ import { CH, EVENT_CH, type InvokeMap, type PreloadApi } from '../shared/ipc'
 // 通过 contextBridge 暴露给渲染进程的自定义 API。
 // 所有类型一律来自 src/shared（唯一来源），不再手写重复 interface，避免 drift。
 
-let agentStreamChunkListener: ((_event: IpcRendererEvent, payload: AgentStreamChunk) => void) | null = null
-let agentStreamEndListener: ((_event: IpcRendererEvent, payload: AgentStreamSendResult) => void) | null = null
-let toolOpenCommandListener: ((_event: IpcRendererEvent, payload: ToolOpenCommand) => void) | null = null
+/** 主进程 → 渲染层事件订阅辅助：同一通道只保留一个监听器（重复订阅先移除旧的），返回取消订阅函数 */
+function makeChannelListener<P>(channel: string): {
+  on: (callback: (payload: P) => void) => () => void
+} {
+  let listener: ((_event: IpcRendererEvent, payload: P) => void) | null = null
+  return {
+    on(callback) {
+      if (listener) ipcRenderer.removeListener(channel, listener)
+      listener = (_event, payload) => callback(payload)
+      ipcRenderer.on(channel, listener)
+      return () => {
+        if (listener) {
+          ipcRenderer.removeListener(channel, listener)
+          listener = null
+        }
+      }
+    }
+  }
+}
+
+const toolOpenCommandEvents = makeChannelListener<ToolOpenCommand>(EVENT_CH.toolOpenCommand)
+const agentStreamChunkEvents = makeChannelListener<AgentStreamChunk>(EVENT_CH.agentStream)
+const agentStreamEndEvents = makeChannelListener<AgentStreamSendResult>(EVENT_CH.agentStreamEnd)
 
 /** 类型化 invoke：通道与 args/result 由 InvokeMap 约束，主进程改签名时此处编译期报错 */
 function invoke<K extends keyof InvokeMap>(
@@ -62,17 +82,7 @@ const api: PreloadApi = {
       list: () => invoke(CH.toolGroupList),
       set: (toolId, group) => invoke(CH.toolGroupSet, toolId, group)
     },
-    onOpenCommand: (callback: (payload: ToolOpenCommand) => void): (() => void) => {
-      if (toolOpenCommandListener) ipcRenderer.removeListener(EVENT_CH.toolOpenCommand, toolOpenCommandListener)
-      toolOpenCommandListener = (_event, payload) => callback(payload)
-      ipcRenderer.on(EVENT_CH.toolOpenCommand, toolOpenCommandListener)
-      return () => {
-        if (toolOpenCommandListener) {
-          ipcRenderer.removeListener(EVENT_CH.toolOpenCommand, toolOpenCommandListener)
-          toolOpenCommandListener = null
-        }
-      }
-    }
+    onOpenCommand: (callback) => toolOpenCommandEvents.on(callback)
   },
   toolsPreview: {
     list: () => invoke(CH.toolsPreviewList),
@@ -92,28 +102,8 @@ const api: PreloadApi = {
     // 这里收集为事件，渲染层 custom-chat-transport 据此重新组装出 ReadableStream 喂给 @ai-sdk/vue useChat。
     streamSend: (messages: UIMessage[]) =>
       invoke(CH.agentStreamSend, messages),
-    onStreamChunk: (callback: (chunk: AgentStreamChunk) => void): (() => void) => {
-      if (agentStreamChunkListener) ipcRenderer.removeListener(EVENT_CH.agentStream, agentStreamChunkListener)
-      agentStreamChunkListener = (_event, payload) => callback(payload)
-      ipcRenderer.on(EVENT_CH.agentStream, agentStreamChunkListener)
-      return () => {
-        if (agentStreamChunkListener) {
-          ipcRenderer.removeListener(EVENT_CH.agentStream, agentStreamChunkListener)
-          agentStreamChunkListener = null
-        }
-      }
-    },
-    onStreamEnd: (callback: (result: AgentStreamSendResult) => void): (() => void) => {
-      if (agentStreamEndListener) ipcRenderer.removeListener(EVENT_CH.agentStreamEnd, agentStreamEndListener)
-      agentStreamEndListener = (_event, payload) => callback(payload)
-      ipcRenderer.on(EVENT_CH.agentStreamEnd, agentStreamEndListener)
-      return () => {
-        if (agentStreamEndListener) {
-          ipcRenderer.removeListener(EVENT_CH.agentStreamEnd, agentStreamEndListener)
-          agentStreamEndListener = null
-        }
-      }
-    }
+    onStreamChunk: (callback) => agentStreamChunkEvents.on(callback),
+    onStreamEnd: (callback) => agentStreamEndEvents.on(callback)
   },
   agentTools: {
     list: () => invoke(CH.agentToolsList)
@@ -140,6 +130,6 @@ if (process.contextIsolated) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (define in dts)
+  // @ts-expect-error (define in dts)
   window.api = api
 }

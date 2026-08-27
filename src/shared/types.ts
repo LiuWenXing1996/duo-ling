@@ -112,10 +112,7 @@ export interface ModelTestChatConfig {
 }
 
 /** 连通性测试结果 */
-export interface TestChatResult {
-  ok: boolean
-  error?: string
-}
+export type TestChatResult = { ok: true } | { ok: false; error: string }
 
 /** 在线大模型服务商预设 */
 export interface ModelProvider {
@@ -230,7 +227,9 @@ export interface ApplyIntentEntryResult {
   error?: string
 }
 
-export type ApplyIntentsResult = { ok: boolean; results: ApplyIntentEntryResult[]; error?: string }
+export type ApplyIntentsResult =
+  | { ok: true; results: ApplyIntentEntryResult[] }
+  | { ok: false; results: ApplyIntentEntryResult[]; error: string }
 
 /** Agent 工具的 OpenAI function 风格 JSON Schema 描述（agent-tools:list 返回，开发者界面展示用） */
 export interface AgentToolJsonSchema {
@@ -243,11 +242,22 @@ export interface AgentToolJsonSchema {
   }
 }
 
+/** 工作区标签页种类（渲染层 tabs 与主进程 agent_workspace_tabs 共用） */
+export type WorkspaceTabKind =
+  | 'home'
+  | 'tool'
+  | 'settings'
+  | 'tool-history'
+  | 'tool-archive'
+  | 'tool-code'
+  | 'tool-data'
+  | 'developer'
+
 /** 工作区打开标签页快照（渲染层 → 主进程上报，供 Agent 工具查询当前打开的 tab 页） */
 export interface WorkspaceTabSnapshot {
   id: string
   title: string
-  kind: 'home' | 'tool' | 'settings' | 'tool-history' | 'tool-archive' | 'tool-code' | 'tool-data' | 'developer'
+  kind: WorkspaceTabKind
   toolId?: string
   toolTitle?: string
   icon?: string
@@ -275,12 +285,9 @@ export interface WindowBounds {
   height: number
 }
 
-export interface ToolCreateResult {
-  ok: boolean
-  id?: string
-  title?: string
-  error?: string
-}
+export type ToolCreateResult =
+  | { ok: true; id: string; title?: string }
+  | { ok: false; error: string }
 
 export type ToolResult = { ok: boolean; error?: string }
 
@@ -296,19 +303,13 @@ export interface ToolCodeFile {
 
 export type ToolCodeResult = { ok: true; files: ToolCodeFile[] } | { ok: false; error: string }
 
-export interface ToolUpdateMetaResult {
-  ok: boolean
-  title?: string
-  icon?: string
-  error?: string
-}
+export type ToolUpdateMetaResult =
+  | { ok: true; title?: string; icon?: string }
+  | { ok: false; error: string }
 
-export interface ToolUpdateResult {
-  ok: boolean
-  title?: string
-  changedFiles?: string[]
-  error?: string
-}
+export type ToolUpdateResult =
+  | { ok: true; title?: string; changedFiles?: string[] }
+  | { ok: false; error: string }
 
 export type ToolHistoryResult = { ok: true; commits: ToolCommit[] } | { ok: false; error: string }
 
@@ -385,11 +386,6 @@ export type ToolsDataOpenResult = { ok: true } | { ok: false; error: string }
 export type AgentStreamChunk = UIMessageChunk
 
 /** agent:streamSend 的收尾状态（流通过 EVENT_CH.agentStream 逐 chunk 推送，此处仅在流结束后汇总） */
-export interface AgentStreamSendResult {
-  ok: boolean
-  /** 已消费流后汇总的完整正文（供持久化/落盘使用） */
-  content?: string
-  /** 已消费流后汇总的完整思考过程 */
-  reasoning?: string
-  error?: string
-}
+export type AgentStreamSendResult =
+  | { ok: true; content?: string; reasoning?: string }
+  | { ok: false; content?: string; reasoning?: string; error: string }

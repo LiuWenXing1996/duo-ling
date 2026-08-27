@@ -183,7 +183,6 @@ export function registerToolIpc(): void {
         : { ok: false, error: result.error }
     }
   )
-
   // 应用生成器产出的「变更清单」到当前工具：由主进程负责校验 + 落盘，而非放开 AI 直接碰磁盘。
   ipcMain.handle(
     CH.toolUpdate,

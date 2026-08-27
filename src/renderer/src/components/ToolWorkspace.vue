@@ -207,7 +207,7 @@ async function confirmEditTool(payload: { title: string; icon: string; descripti
     icon: payload.icon
   })
   if (!res.ok) {
-    toolError.value = res.error ?? '保存失败'
+    toolError.value = res.error
     return
   }
   // 分组是用户独立配置，单独落盘；仅在分组名变化时写回
@@ -229,8 +229,8 @@ async function confirmEditTool(payload: { title: string; icon: string; descripti
 async function createTool(): Promise<void> {
   toolError.value = ''
   const res = await window.api.tool.create()
-  if (!res.ok || !res.id) {
-    toolError.value = res.error ?? '新建工具失败'
+  if (!res.ok) {
+    toolError.value = res.error
     return
   }
   const tab: OpenTool = { kind: 'tool', id: res.id, title: res.title ?? '新工具' }

@@ -44,7 +44,6 @@ async function applyIntents(input: ApplyIntentsInput): Promise<ApplyIntentsResul
   if (!Array.isArray(input.intents) || input.intents.length === 0) {
     return { ok: false, results: [], error: '没有可应用的意图' }
   }
-
   const results: ApplyIntentEntryResult[] = []
   for (const intent of input.intents) {
     // 先登记一个「待应用」的编辑意图作为留痕（失败会转 failed 并记录 error）
@@ -75,7 +74,10 @@ async function applyIntents(input: ApplyIntentsInput): Promise<ApplyIntentsResul
     }
   }
 
-  return { ok: results.every((r) => r.ok), results }
+  const allOk = results.every((r) => r.ok)
+  return allOk
+    ? { ok: true, results }
+    : { ok: false, results, error: '部分工具应用失败' }
 }
 
 export function registerConversationIpc(): void {

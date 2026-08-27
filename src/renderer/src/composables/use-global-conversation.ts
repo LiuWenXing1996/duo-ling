@@ -236,7 +236,7 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
       // 卡片主意图取 intents[0]（send 不再附当前工具上下文），失败/成功以第一条结果为准
       const entry = res.results[0]
       const failed =
-        entry && !entry.ok ? (entry.error ?? '未知错误') : res.ok ? null : (res.error ?? '未知错误')
+        entry && !entry.ok ? (entry.error ?? '未知错误') : res.ok ? null : res.error
       if (failed) {
         if (current) current.error = failed
         return

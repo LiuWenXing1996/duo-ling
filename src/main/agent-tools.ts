@@ -19,6 +19,7 @@ import type { ToolSet } from 'ai'
 import type {
   AgentToolJsonSchema,
   ToolChangeList,
+  WorkspaceTabKind,
   WorkspaceTabSnapshot,
   WorkspaceTabsState
 } from '../shared/types'
@@ -41,8 +42,8 @@ export function setWorkspaceTabsState(next: WorkspaceTabsState): void {
   workspaceTabsState = next
 }
 
-/** tab kind → 中文展示名，让模型能直接理解「当前打开了哪个页面」 */
-const TAB_KIND_LABEL: Record<WorkspaceTabSnapshot['kind'], string> = {
+/** tab kind → 中文展示名，让模型能直接理解「当前打开了哪个页面」；satisfies 保证覆盖全部 kind */
+const TAB_KIND_LABEL = {
   home: '主页',
   tool: '工具详情',
   settings: '设置',
@@ -51,7 +52,7 @@ const TAB_KIND_LABEL: Record<WorkspaceTabSnapshot['kind'], string> = {
   'tool-code': '代码浏览',
   'tool-data': '数据详情',
   developer: '开发者界面'
-}
+} satisfies Record<WorkspaceTabKind, string>
 
 /** 供 agent_workspace_tabs 返回的带中文标签的 tab 快照 */
 interface WorkspaceTabSummary extends WorkspaceTabSnapshot {
