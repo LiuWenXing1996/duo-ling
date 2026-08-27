@@ -90,17 +90,32 @@ describe('DeveloperPanel', () => {
     wrapper.unmount()
   })
 
+  it('点击组头可折叠/展开 Agent 工具分组，且不影响原子能力分组', async () => {
+    const wrapper = mount(DeveloperPanel)
+    await flushPromises()
+    expect(wrapper.text()).toContain('agent_tools_list')
+
+    const groupToggle = wrapper.find('button[aria-label="切换 Agent 工具分组"]')
+    await groupToggle.trigger('click')
+    expect(wrapper.text()).not.toContain('agent_tools_list')
+    expect(wrapper.text()).toContain('local.file.read')
+
+    await groupToggle.trigger('click')
+    expect(wrapper.text()).toContain('agent_tools_list')
+    wrapper.unmount()
+  })
+
   it('点击「查看参数 Schema」展开 JSON，再点收起', async () => {
     const wrapper = mount(DeveloperPanel)
     await flushPromises()
 
     // 展开前不渲染参数 JSON
     expect(wrapper.text()).not.toContain('"toolId"')
-    // 第二个工具（agent_tools_open）的展开按钮
-    const buttons = wrapper.findAll('button')
-    await buttons[1]!.trigger('click')
+    // 第二个工具（agent_tools_open）的「查看参数 Schema」按钮（按文本查找，组头按钮不计入）
+    const toggles = wrapper.findAll('button').filter((b) => b.text().includes('查看参数 Schema'))
+    await toggles[1]!.trigger('click')
     expect(wrapper.text()).toContain('"toolId"')
-    await buttons[1]!.trigger('click')
+    await toggles[1]!.trigger('click')
     expect(wrapper.text()).not.toContain('"toolId"')
     wrapper.unmount()
   })
