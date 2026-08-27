@@ -26,7 +26,7 @@ const emit = defineEmits<{
 
 <template>
   <ui-tabs-list
-    class="workspace-tabs w-full justify-start gap-1 overflow-x-auto h-10 rounded-none border-b bg-muted"
+    class="workspace-tabs w-full justify-start gap-1 overflow-x-auto h-12 rounded-none border-b bg-muted"
     aria-label="工作区标签"
   >
     <ui-tabs-trigger
