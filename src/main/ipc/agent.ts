@@ -5,7 +5,7 @@ import { CH, EVENT_CH } from '../../shared/ipc'
 import type { AgentStreamSendResult, AgentToolContext, AgentToolJsonSchema } from '../../shared/types'
 import type { UIMessage } from 'ai'
 import { streamAisdkReply } from '../agent-orchestrator'
-import { buildAisdkTools, agentToolsToJsonSchema, setWorkspaceTabsState } from '../agent-tools'
+import { buildAgentTools, agentToolsToJsonSchema, setWorkspaceTabsState } from '../agent-tools'
 import { isConfigured } from '../model-store'
 import { getAgentAbortController, setAgentAbortController } from './state'
 import type { WorkspaceTabsState } from '../../shared/types'
@@ -21,7 +21,7 @@ export function registerAgentIpc(): void {
   })
 
   // 开发者界面：返回全部 Agent 工具的 JSON Schema 描述（纯字面量）
-  ipcMain.handle(CH.agentToolsList, (): AgentToolJsonSchema[] => agentToolsToJsonSchema(buildAisdkTools()))
+  ipcMain.handle(CH.agentToolsList, (): AgentToolJsonSchema[] => agentToolsToJsonSchema(buildAgentTools()))
 
   ipcMain.handle(
     CH.agentStreamSend,

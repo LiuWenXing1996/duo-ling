@@ -5,7 +5,7 @@
 //
 // 方案 B（切进 AI SDK 全家桶）后的关键行为：
 //   - 用 @ai-sdk/vue useChat({ transport }) 驱动整条对话链路，消息模型为 UIMessage（parts）。
-//   - 主进程 streamText + toUIMessageStream 接入 buildAisdkTools()，开启多步 Agent Loop。
+//   - 主进程 streamText + toUIMessageStream 接入 buildAgentTools()，开启多步 Agent Loop。
 //   - 发送前用户消息落盘；回复完成后在 onFinish 解析多工具意图并逐工具落盘。
 //   - 会话历史、当前会话、多标签页三栏在 app.vue 组合；本 composable 只关心会话与聊天。
 

@@ -1,13 +1,13 @@
 // Agent 编排器：AI SDK 流式回复（方案 B）。
 // 用 streamText + toUIMessageStream 产出 UI message stream，渲染层经 @ai-sdk/vue useChat({ transport })
-// 消费。接入 buildAisdkTools 后开启多步 Agent Loop：模型可调用工具，execute 执行结果以 tool message
+// 消费。接入 buildAgentTools 后开启多步 Agent Loop：模型可调用工具，execute 执行结果以 tool message
 // 回传模型继续生成，直到 stopWhen 达到步数上限或模型给出最终正文。
 // 返回的 content/reasoning 来自对 UI 流的一次消费，供调用方持久化。
 
 import { convertToModelMessages, streamText, toUIMessageStream, isStepCount } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { UIMessage } from 'ai'
-import { buildAisdkTools, type AgentToolHooks } from './agent-tools'
+import { buildAgentTools, type AgentToolHooks } from './agent-tools'
 import { getActiveConfig, isConfigured } from './model-store'
 import type { AgentStreamChunk, AgentStreamSendResult } from '../shared/types'
 
@@ -15,7 +15,7 @@ export interface StreamAisdkReplyOptions {
   /** 每收到一个 UIMessageChunk 即回调（主进程据此 webContents.send 推给渲染层） */
   onChunk: (chunk: AgentStreamChunk) => void
   signal: AbortSignal
-  /** 工具执行钩子（如「打开工具」的副作用），透传给 buildAisdkTools */
+  /** 工具执行钩子（如「打开工具」的副作用），透传给 buildAgentTools */
   hooks?: AgentToolHooks
 }
 
@@ -44,7 +44,7 @@ export async function streamAisdkReply(
   // 渲染层 useChat 产出的 UIMessage[] 转成模型消息（reasoning part 默认不回传模型，避免污染历史）
   const modelMessages = await convertToModelMessages(messages)
 
-  const aisdkTools = buildAisdkTools(opts.hooks)
+  const aisdkTools = buildAgentTools(opts.hooks)
 
   const result = streamText({
     model: provider.chatModel(config.model),

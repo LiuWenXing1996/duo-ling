@@ -2,7 +2,13 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildAisdkTools, agentToolsToJsonSchema, executeAgentTool, setWorkspaceTabsState } from './agent-tools'
+import {
+  buildAgentTools,
+  agentToolsToJsonSchema,
+  setWorkspaceTabsState,
+  type AgentTools,
+  type AgentToolResult
+} from './agent-tools'
 import { listCapabilities } from './capability-registry'
 
 // agent-tools 经 tool-page 依赖 electron（userData 路径），打桩避免测试环境解析失败
@@ -12,9 +18,18 @@ vi.mock('electron', () => ({
   shell: { openPath: vi.fn() }
 }))
 
+// AI SDK 工具 execute 签名为 (input, options) 且返回类型含 AsyncIterable 变体；测试统一取其 Promise 分支
+async function exec<K extends keyof AgentTools>(
+  name: K,
+  input: unknown,
+  tools: AgentTools = buildAgentTools()
+): Promise<AgentToolResult> {
+  return (await tools[name].execute(input as never, {} as never)) as AgentToolResult
+}
+
 describe('agent-tools（Agent 工具定义与执行）', () => {
-  it('buildAisdkTools 暴露八个 agent 工具，含查询能力清单', () => {
-    const tools = buildAisdkTools()
+  it('buildAgentTools 暴露八个 agent 工具，含查询能力清单', () => {
+    const tools = buildAgentTools()
     expect(Object.keys(tools).sort()).toEqual(
       [
         'agent_tools_list',
@@ -30,7 +45,7 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
   })
 
   it('agent_capabilities_list 返回与 listCapabilities 一致的能力清单', async () => {
-    const res = await executeAgentTool('agent_capabilities_list', '', {})
+    const res = await exec('agent_capabilities_list', {})
     expect(res.ok).toBe(true)
     if (!res.ok) throw new Error('应执行成功')
     const caps = res.result as Array<{ id: string }>
@@ -46,7 +61,7 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
       ],
       activeTabId: 't-abc'
     })
-    const res = await executeAgentTool('agent_workspace_tabs', '', {})
+    const res = await exec('agent_workspace_tabs', {})
     expect(res.ok).toBe(true)
     if (!res.ok) throw new Error('应执行成功')
     const data = res.result as {
@@ -61,15 +76,8 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
     expect(data.tabs[2]).toMatchObject({ id: 'settings', kindLabel: '设置' })
   })
 
-  it('未知工具名返回结构化错误而非抛出', async () => {
-    const res = await executeAgentTool('agent_nonexistent', '{}', {})
-    expect(res.ok).toBe(false)
-    if (res.ok) throw new Error('应执行失败')
-    expect(res.error).toContain('未知工具')
-  })
-
   it('agentToolsToJsonSchema 输出 OpenAI function 风格的 JSON Schema 且可序列化', () => {
-    const tools = buildAisdkTools()
+    const tools = buildAgentTools()
     const schemas = agentToolsToJsonSchema(tools)
 
     expect(schemas).toHaveLength(Object.keys(tools).length)
@@ -81,11 +89,11 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
       expect(() => JSON.stringify(schema.function.parameters)).not.toThrow()
       expect(schema.function.parameters.type).toBe('object')
     }
-    // 名字与 buildAisdkTools 的 key 一一对应
+    // 名字与 buildAgentTools 的 key 一一对应
     expect(schemas.map((s) => s.function.name).sort()).toEqual(Object.keys(tools).sort())
   })
 
-  describe('agent_tools_read / agent_tools_edit（目录结构读写链路）', () => {
+  describe('agent_tools_open / read / edit（目录结构读写链路）', () => {
     const root = join(tmpdir(), `duo-ling-agent-tools-${Date.now()}`)
     const tools = () => join(root, 'tools')
 
@@ -103,8 +111,23 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
       rmSync(root, { recursive: true, force: true })
     })
 
+    it('open 打开已存在工具并触发 onOpenTool 副作用', async () => {
+      const onOpenTool = vi.fn()
+      const tools = buildAgentTools({ onOpenTool })
+      const res = await exec('agent_tools_open', { toolId: 't-abc' }, tools)
+      expect(res.ok).toBe(true)
+      expect(onOpenTool).toHaveBeenCalledWith({ toolId: 't-abc', title: '工具A' })
+      if (res.ok) expect(res.result).toEqual({ opened: '工具A', toolId: 't-abc' })
+    })
+
+    it('open 未找到工具返回错误', async () => {
+      const res = await exec('agent_tools_open', { toolId: 't-nope' })
+      expect(res.ok).toBe(false)
+      if (!res.ok) expect(res.error).toContain('未找到工具')
+    })
+
     it('read 返回工具整树源码（文本 utf8）', async () => {
-      const res = await executeAgentTool('agent_tools_read', JSON.stringify({ toolId: 't-abc' }), {})
+      const res = await exec('agent_tools_read', { toolId: 't-abc' })
       expect(res.ok).toBe(true)
       if (!res.ok) throw new Error('应执行成功')
       const data = res.result as {
@@ -120,21 +143,17 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
     })
 
     it('read 未找到工具返回错误', async () => {
-      const res = await executeAgentTool('agent_tools_read', JSON.stringify({ toolId: 't-nope' }), {})
+      const res = await exec('agent_tools_read', { toolId: 't-nope' })
       expect(res.ok).toBe(false)
       if (!res.ok) expect(res.error).toContain('未找到工具')
     })
 
     it('edit 写入子目录文件并落盘', async () => {
-      const res = await executeAgentTool(
-        'agent_tools_edit',
-        JSON.stringify({
-          toolId: 't-abc',
-          summary: '加脚本',
-          actions: [{ op: 'write', file: 'js/main.js', content: 'console.log(1)' }]
-        }),
-        {}
-      )
+      const res = await exec('agent_tools_edit', {
+        toolId: 't-abc',
+        summary: '加脚本',
+        actions: [{ op: 'write', file: 'js/main.js', content: 'console.log(1)' }]
+      })
       expect(res.ok).toBe(true)
       if (res.ok) {
         const data = res.result as { changedFiles: string[] }
@@ -145,30 +164,22 @@ describe('agent-tools（Agent 工具定义与执行）', () => {
 
     it('edit 写 assets/ 二进制（base64）', async () => {
       const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a])
-      const res = await executeAgentTool(
-        'agent_tools_edit',
-        JSON.stringify({
-          toolId: 't-abc',
-          summary: '加图',
-          actions: [{ op: 'write', file: 'assets/logo.png', content: png.toString('base64') }]
-        }),
-        {}
-      )
+      const res = await exec('agent_tools_edit', {
+        toolId: 't-abc',
+        summary: '加图',
+        actions: [{ op: 'write', file: 'assets/logo.png', content: png.toString('base64') }]
+      })
       expect(res.ok).toBe(true)
       const written = readFileSync(join(tools(), 't-abc', 'assets/logo.png'))
       expect(Buffer.compare(written, png)).toBe(0)
     })
 
     it('edit 越权路径被拒（不落盘）', async () => {
-      const res = await executeAgentTool(
-        'agent_tools_edit',
-        JSON.stringify({
-          toolId: 't-abc',
-          summary: '越权',
-          actions: [{ op: 'write', file: '.git/config', content: 'x' }]
-        }),
-        {}
-      )
+      const res = await exec('agent_tools_edit', {
+        toolId: 't-abc',
+        summary: '越权',
+        actions: [{ op: 'write', file: '.git/config', content: 'x' }]
+      })
       expect(res.ok).toBe(false)
       if (!res.ok) expect(res.error).toContain('不允许修改文件')
     })

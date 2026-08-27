@@ -16,7 +16,6 @@ import type { ToolSet } from 'ai'
 import type {
   AgentToolJsonSchema,
   ToolChangeList,
-  UserToolMeta,
   WorkspaceTabSnapshot,
   WorkspaceTabsState
 } from '../shared/types'
@@ -79,118 +78,27 @@ export interface AgentToolHooks {
 /** 工具执行结果：成功时 result 为结构化对象（由 AI SDK 序列化为文本给模型），失败时 error 为文案 */
 export type AgentToolResult = { ok: true; result: unknown } | { ok: false; error: string }
 
-/** 执行一个 agent 工具：解析参数、执行、把结果收敛为 AgentToolResult（异常不抛出，回传错误给模型） */
-export async function executeAgentTool(
-  name: string,
-  argsJson: string,
-  hooks: AgentToolHooks
-): Promise<AgentToolResult> {
+/** 把业务逻辑收敛为 AgentToolResult：异常统一转 { ok:false, error }，供各工具 execute 内联复用 */
+async function safe<T>(
+  fn: () => T | Promise<T>
+): Promise<{ ok: true; result: T } | { ok: false; error: string }> {
   try {
-    const args = argsJson && argsJson.trim() ? (JSON.parse(argsJson) as Record<string, unknown>) : {}
-
-    if (name === 'agent_tools_list') {
-      const tools = listUserTools()
-      return { ok: true, result: tools }
-    }
-
-    if (name === 'agent_tools_open') {
-      const toolId = typeof args.toolId === 'string' ? args.toolId.trim() : ''
-      if (!toolId) return { ok: false, error: '缺少 toolId 参数' }
-      const tool: UserToolMeta | undefined = listUserTools().find((t) => t.id === toolId)
-      if (!tool) return { ok: false, error: `未找到工具：${toolId}` }
-      hooks.onOpenTool?.({ toolId: tool.id, title: tool.title })
-      return { ok: true, result: { opened: tool.title, toolId: tool.id } }
-    }
-
-    if (name === 'agent_tools_create') {
-      const title = typeof args.title === 'string' ? args.title.trim() : ''
-      if (!title) return { ok: false, error: '缺少 title 参数' }
-      const rawName = typeof args.name === 'string' ? args.name.trim() : ''
-      // kebab-case 校验：仅字母/数字/连字符且非首尾连字符；非法时回退默认标识
-      const name = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(rawName) ? rawName : 'new-tool'
-      const description = typeof args.description === 'string' ? args.description : ''
-      const capabilities = Array.isArray(args.capabilities)
-        ? args.capabilities.filter((c): c is string => typeof c === 'string')
-        : []
-      // 与 UI「新建工具」同一链路：宿主分配 id → 脚手架目录骨架落盘 → git 建仓首提（失败不阻断创建）
-      const id = createUserToolId()
-      writeUserToolScaffold({ id, name, title, description, capabilities })
-      try {
-        await initToolRepo(id)
-      } catch (error) {
-        console.warn('[agent_tools_create] 建仓失败（不影响创建）：', error)
-      }
-      hooks.onOpenTool?.({ toolId: id, title })
-      return { ok: true, result: { id, title } }
-    }
-
-    if (name === 'agent_tools_read') {
-      const toolId = typeof args.toolId === 'string' ? args.toolId.trim() : ''
-      if (!toolId) return { ok: false, error: '缺少 toolId 参数' }
-      const tool = listUserTools().find((t) => t.id === toolId)
-      if (!tool) return { ok: false, error: `未找到工具：${toolId}` }
-      const files = readUserToolTree(toolId)
-      return { ok: true, result: { toolId, title: tool.title, files } }
-    }
-
-    if (name === 'agent_tools_edit') {
-      const toolId = typeof args.toolId === 'string' ? args.toolId.trim() : ''
-      const summary = typeof args.summary === 'string' ? args.summary.trim() : ''
-      const actions = Array.isArray(args.actions) ? (args.actions as ToolChangeList['actions']) : []
-      if (!toolId) return { ok: false, error: '缺少 toolId 参数' }
-      if (actions.length === 0) return { ok: false, error: '缺少可执行的变更 actions' }
-      const tool = listUserTools().find((t) => t.id === toolId)
-      if (!tool) return { ok: false, error: `未找到工具：${toolId}` }
-
-      const applied = applyToolChanges(toolId, { summary, actions })
-      if (!applied.ok) return applied
-      // 变更已落盘，git 记录失败不阻断（与 applyIntents 一致）
-      try {
-        await commitToolChanges(toolId, summary || `编辑工具：${applied.title}`)
-      } catch (error) {
-        console.warn('[agent_tools_edit] 提交失败（不影响改动已落盘）：', error)
-      }
-      return {
-        ok: true,
-        result: {
-          toolId,
-          title: applied.title,
-          changedFiles: applied.changedFiles
-        }
-      }
-    }
-
-    if (name === 'agent_tools_lock_status') {
-      const toolId = typeof args.toolId === 'string' ? args.toolId.trim() : ''
-      if (!toolId) return { ok: false, error: '缺少 toolId 参数' }
-      return { ok: true, result: getToolLockStatus(toolId) }
-    }
-
-    if (name === 'agent_workspace_tabs') {
-      return { ok: true, result: getWorkspaceTabsSummary() }
-    }
-
-    if (name === 'agent_capabilities_list') {
-      return { ok: true, result: listCapabilities() }
-    }
-
-    return { ok: false, error: `未知工具：${name}` }
+    return { ok: true, result: await fn() }
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 
-// —— AI SDK 工具定义（方案 B 阶段 B）——
-// AI SDK 的工具模型与 OpenAI function 定义不同：用 inputSchema（zod，AI SDK 自动转 JSON Schema）声明输入 + execute 执行业务。
-// 这里把全部 Agent 工具包装成 streamText 可直接使用的 ToolSet，execute 内部复用 executeAgentTool，
-// 并把「打开工具」等副作用经 AgentToolHooks 交回调用方（ipc/agent.ts 广播给渲染层）。
-export function buildAisdkTools(hooks: AgentToolHooks = {}): ToolSet {
+// —— AI SDK 工具定义 ——
+// 每个工具自包含：zod 输入 schema + 内联 execute（业务逻辑直接写在定义里，异常经 safe 收敛为
+// { ok:false, error }）；「打开工具」等副作用经 AgentToolHooks 注入（ipc/agent.ts 广播给渲染层）。
+export function buildAgentTools(hooks: AgentToolHooks = {}) {
   return {
     agent_tools_list: tool({
       description:
         '列出所有已存在的工具。返回数组，每项含 id / name / title / description。当用户想了解、打开或复用已有工具前，先调用此工具获取工具清单。',
       inputSchema: z.object({}).strict(),
-      execute: async () => executeAgentTool('agent_tools_list', '', hooks)
+      execute: () => safe(() => listUserTools())
     }),
     agent_tools_open: tool({
       description:
@@ -200,7 +108,13 @@ export function buildAisdkTools(hooks: AgentToolHooks = {}): ToolSet {
           toolId: z.string().describe('工具 id（来自 agent_tools_list）')
         })
         .strict(),
-      execute: async (input) => executeAgentTool('agent_tools_open', JSON.stringify(input), hooks)
+      execute: (input) =>
+        safe(() => {
+          const t = listUserTools().find((t) => t.id === input.toolId)
+          if (!t) throw new Error(`未找到工具：${input.toolId}`)
+          hooks.onOpenTool?.({ toolId: t.id, title: t.title })
+          return { opened: t.title, toolId: t.id }
+        })
     }),
     agent_tools_create: tool({
       description:
@@ -219,7 +133,28 @@ export function buildAisdkTools(hooks: AgentToolHooks = {}): ToolSet {
             .optional()
         })
         .strict(),
-      execute: async (input) => executeAgentTool('agent_tools_create', JSON.stringify(input), hooks)
+      execute: (input) =>
+        safe(async () => {
+          const rawName = typeof input.name === 'string' ? input.name.trim() : ''
+          // kebab-case 校验：仅字母/数字/连字符且非首尾连字符；非法时回退默认标识
+          const name = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(rawName) ? rawName : 'new-tool'
+          // 与 UI「新建工具」同一链路：宿主分配 id → 脚手架目录骨架落盘 → git 建仓首提（失败不阻断创建）
+          const id = createUserToolId()
+          writeUserToolScaffold({
+            id,
+            name,
+            title: input.title,
+            description: input.description ?? '',
+            capabilities: input.capabilities ?? []
+          })
+          try {
+            await initToolRepo(id)
+          } catch (error) {
+            console.warn('[agent_tools_create] 建仓失败（不影响创建）：', error)
+          }
+          hooks.onOpenTool?.({ toolId: id, title: input.title })
+          return { id, title: input.title }
+        })
     }),
     agent_tools_read: tool({
       description:
@@ -229,7 +164,12 @@ export function buildAisdkTools(hooks: AgentToolHooks = {}): ToolSet {
           toolId: z.string().describe('工具 id（来自 agent_tools_list）')
         })
         .strict(),
-      execute: async (input) => executeAgentTool('agent_tools_read', JSON.stringify(input), hooks)
+      execute: (input) =>
+        safe(() => {
+          const t = listUserTools().find((t) => t.id === input.toolId)
+          if (!t) throw new Error(`未找到工具：${input.toolId}`)
+          return { toolId: input.toolId, title: t.title, files: readUserToolTree(input.toolId) }
+        })
     }),
     agent_tools_edit: tool({
       description:
@@ -261,7 +201,24 @@ export function buildAisdkTools(hooks: AgentToolHooks = {}): ToolSet {
             .describe('本次要执行的变更操作列表')
         })
         .strict(),
-      execute: async (input) => executeAgentTool('agent_tools_edit', JSON.stringify(input), hooks)
+      execute: (input) =>
+        safe(async () => {
+          if (input.actions.length === 0) throw new Error('缺少可执行的变更 actions')
+          const t = listUserTools().find((t) => t.id === input.toolId)
+          if (!t) throw new Error(`未找到工具：${input.toolId}`)
+          const applied = applyToolChanges(input.toolId, {
+            summary: input.summary ?? '',
+            actions: input.actions as ToolChangeList['actions']
+          })
+          if (!applied.ok) throw new Error(applied.error ?? '应用变更失败')
+          // 变更已落盘，git 记录失败不阻断（与 applyIntents 一致）
+          try {
+            await commitToolChanges(input.toolId, input.summary ?? `编辑工具：${applied.title}`)
+          } catch (error) {
+            console.warn('[agent_tools_edit] 提交失败（不影响改动已落盘）：', error)
+          }
+          return { toolId: input.toolId, title: applied.title, changedFiles: applied.changedFiles }
+        })
     }),
     agent_tools_lock_status: tool({
       description:
@@ -271,22 +228,28 @@ export function buildAisdkTools(hooks: AgentToolHooks = {}): ToolSet {
           toolId: z.string().describe('工具 id（来自 agent_tools_list）')
         })
         .strict(),
-      execute: async (input) => executeAgentTool('agent_tools_lock_status', JSON.stringify(input), hooks)
+      execute: (input) => safe(() => getToolLockStatus(input.toolId))
     }),
     agent_workspace_tabs: tool({
       description:
         '查询当前打开的工作区标签页（tab）清单。返回当前激活的标签（activeTab，含 id / title / kind / kindLabel）与全部已打开标签（tabs 数组，按打开顺序）。kindLabel 是页面类型的中文名（主页 / 工具详情 / 设置 / 版本历史 / 工具档案 / 代码浏览 / 数据详情 / 开发者界面）。当用户询问「当前打开了哪些页面 / 现在在哪个页面」时调用本工具。',
       inputSchema: z.object({}).strict(),
-      execute: async () => executeAgentTool('agent_workspace_tabs', '', hooks)
+      execute: () => safe(() => getWorkspaceTabsSummary())
     }),
     agent_capabilities_list: tool({
       description:
         '列出宿主提供的全部原子能力清单。返回数组，每项含 id / name / description / inputSchema / outputSchema / sideEffect / runtime / cost。工具页内通过 window.cap.run(id, args) 调用这些能力；需要了解工具页能做什么、规划或创建工具前先调用此工具。',
       inputSchema: z.object({}).strict(),
-      execute: async () => executeAgentTool('agent_capabilities_list', '', hooks)
+      execute: () => safe(() => listCapabilities())
     })
   }
 }
+
+/** Agent 工具集类型：返回对象键即工具名，`keyof AgentTools` 提供编译期约束 */
+export type AgentTools = ReturnType<typeof buildAgentTools>
+
+/** Agent 工具名（字面量联合）：引用不存在的工具名在编译期报错 */
+export type AgentToolName = keyof AgentTools
 
 /** 把 AI SDK ToolSet 转成 OpenAI function 风格的 JSON Schema 数组（供开发者界面展示 / 序列化转发） */
 export function agentToolsToJsonSchema(tools: ToolSet): AgentToolJsonSchema[] {
