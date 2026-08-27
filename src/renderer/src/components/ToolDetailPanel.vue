@@ -53,3 +53,12 @@ defineExpose({ reload: () => frameRef.value?.reload() })
     <tool-frame ref="frameRef" :tool="{ id: props.tool.id, title: props.tool.title }" />
   </section>
 </template>
+
+<style scoped lang="less">
+.tool-detail {
+  // 父级 tabs-content 是 block 容器，.panel 的 flex:1 不生效；显式撑满高度，
+  // 否则 webview 塌缩为内容高度（header + 150px）导致「新建工具」页未铺满。
+  height: 100%;
+  min-height: 0;
+}
+</style>
