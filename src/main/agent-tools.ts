@@ -10,7 +10,8 @@
 // 执行器通过 hooks 把「打开工具」的副作用交回调用方（ipc/agent.ts 用 event.sender 广播命令，
 // 渲染层 app.vue 监听后切换/新建工具标签页）。工具本身的本地读取直接复用 tool-page.listUserTools。
 
-import { tool, jsonSchema, asSchema } from 'ai'
+import { tool, asSchema } from 'ai'
+import { z } from 'zod'
 import type { ToolSet } from 'ai'
 import type {
   AgentToolJsonSchema,
@@ -180,134 +181,108 @@ export async function executeAgentTool(
 }
 
 // —— AI SDK 工具定义（方案 B 阶段 B）——
-// AI SDK 的工具模型与 OpenAI function 定义不同：用 inputSchema（jsonSchema）声明输入 + execute 执行业务。
-// 这里把四个 Agent 工具包装成 streamText 可直接使用的 ToolSet，execute 内部复用 executeAgentTool，
+// AI SDK 的工具模型与 OpenAI function 定义不同：用 inputSchema（zod，AI SDK 自动转 JSON Schema）声明输入 + execute 执行业务。
+// 这里把全部 Agent 工具包装成 streamText 可直接使用的 ToolSet，execute 内部复用 executeAgentTool，
 // 并把「打开工具」等副作用经 AgentToolHooks 交回调用方（ipc/agent.ts 广播给渲染层）。
 export function buildAisdkTools(hooks: AgentToolHooks = {}): ToolSet {
   return {
     agent_tools_list: tool({
       description:
         '列出所有已存在的工具。返回数组，每项含 id / name / title / description。当用户想了解、打开或复用已有工具前，先调用此工具获取工具清单。',
-      inputSchema: jsonSchema({
-        type: 'object',
-        properties: {},
-        additionalProperties: false
-      }),
+      inputSchema: z.object({}).strict(),
       execute: async () => executeAgentTool('agent_tools_list', '', hooks)
     }),
     agent_tools_open: tool({
       description:
         '打开一个工具页，界面会切换到该工具的标签页。需要先用 agent_tools_list 拿到工具 id，再传入 toolId。',
-      inputSchema: jsonSchema({
-        type: 'object',
-        properties: {
-          toolId: { type: 'string', description: '工具 id（来自 agent_tools_list）' }
-        },
-        required: ['toolId'],
-        additionalProperties: false
-      }),
+      inputSchema: z
+        .object({
+          toolId: z.string().describe('工具 id（来自 agent_tools_list）')
+        })
+        .strict(),
       execute: async (input) => executeAgentTool('agent_tools_open', JSON.stringify(input), hooks)
     }),
     agent_tools_create: tool({
       description:
         '创建一个新工具。宿主会分配工具 id、落盘脚手架页面（index.html + meta.json等等）并建立版本仓库。',
-      inputSchema: jsonSchema({
-        type: 'object',
-        properties: {
-          title: { type: 'string', description: '工具标题（必填，用于标签与列表展示）' },
-          description: { type: 'string', description: '工具的一句话描述（可选）' },
-          name: {
-            type: 'string',
-            description: 'kebab-case 工具标识（可选，仅作归档/展示；非法时回退为 new-tool）'
-          },
-          capabilities: {
-            type: 'array',
-            items: { type: 'string' },
-            description: '本工具页面会调用的原子能力 id 白名单（可选，从生成器提示中的能力清单选取）'
-          }
-        },
-        required: ['title'],
-        additionalProperties: false
-      }),
+      inputSchema: z
+        .object({
+          title: z.string().describe('工具标题（必填，用于标签与列表展示）'),
+          description: z.string().describe('工具的一句话描述（可选）').optional(),
+          name: z
+            .string()
+            .describe('kebab-case 工具标识（可选，仅作归档/展示；非法时回退为 new-tool）')
+            .optional(),
+          capabilities: z
+            .array(z.string())
+            .describe('本工具页面会调用的原子能力 id 白名单（可选，从生成器提示中的能力清单选取）')
+            .optional()
+        })
+        .strict(),
       execute: async (input) => executeAgentTool('agent_tools_create', JSON.stringify(input), hooks)
     }),
     agent_tools_read: tool({
       description:
         '读取一个已有工具的完整源码（入口页 / 各模块 / 样式 / 静态资源 / 元信息），返回 { files: [{ path, content, encoding }] }。修改工具前先调用本工具了解现状；需要先用 agent_tools_list 拿到工具 id。',
-      inputSchema: jsonSchema({
-        type: 'object',
-        properties: {
-          toolId: { type: 'string', description: '工具 id（来自 agent_tools_list）' }
-        },
-        required: ['toolId'],
-        additionalProperties: false
-      }),
+      inputSchema: z
+        .object({
+          toolId: z.string().describe('工具 id（来自 agent_tools_list）')
+        })
+        .strict(),
       execute: async (input) => executeAgentTool('agent_tools_read', JSON.stringify(input), hooks)
     }),
     agent_tools_edit: tool({
       description:
         '修改一个已有工具的内容（写/替换文件，或精确文本替换）。输入 toolId + summary + actions；actions 的 file 限定为工具目录内白名单（根级 index.html / meta.json / archive.md 与 js/ css/ assets/ 子目录），op 支持 write（整文件覆盖）与 patch（find/replace 精确替换，可选 replace_all）；写静态资源（assets/ 下）时 content 为 base64。成功落盘后自动产生一条 git 提交。修改前先调用 agent_tools_read 了解现状。档案规则：若本次改动触及工具的定位/关键决策/已知限制，且该工具尚无 archive.md（工具档案），应顺带 write 一份简短档案初稿（内容三段：一句话定位 / 关键决策 / 已知限制）；若已有档案且本次未触及上述内容，则不改档案。',
-      inputSchema: jsonSchema({
-        type: 'object',
-        properties: {
-          toolId: { type: 'string', description: '工具 id（来自 agent_tools_list）' },
-          summary: { type: 'string', description: '本次改动的简述（作为 git 提交信息）' },
-          actions: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                op: { type: 'string', enum: ['write', 'patch'] },
-                file: {
-                  type: 'string',
-                  description: '工具目录内相对路径，如 index.html / js/main.js / css/style.css / assets/logo.png'
-                },
-                content: { description: 'write：整文件内容（文本为字符串；assets/ 下为 base64）' },
-                find: { type: 'string', description: 'patch：需要被替换的精确查找串' },
-                replace: { type: 'string', description: 'patch：替换成的目标串' },
-                replace_all: { type: 'boolean', description: 'patch：是否全局替换' }
-              },
-              required: ['op', 'file'],
-              additionalProperties: false
-            }
-          }
-        },
-        required: ['toolId', 'actions'],
-        additionalProperties: false
-      }),
+      inputSchema: z
+        .object({
+          toolId: z.string().describe('工具 id（来自 agent_tools_list）'),
+          summary: z.string().describe('本次改动的简述（作为 git 提交信息）').optional(),
+          actions: z
+            .array(
+              z
+                .object({
+                  op: z.enum(['write', 'patch']),
+                  file: z
+                    .string()
+                    .describe(
+                      '工具目录内相对路径，如 index.html / js/main.js / css/style.css / assets/logo.png'
+                    ),
+                  content: z
+                    .unknown()
+                    .describe('write：整文件内容（文本为字符串；assets/ 下为 base64）')
+                    .optional(),
+                  find: z.string().describe('patch：需要被替换的精确查找串').optional(),
+                  replace: z.string().describe('patch：替换成的目标串').optional(),
+                  replace_all: z.boolean().describe('patch：是否全局替换').optional()
+                })
+                .strict()
+            )
+            .describe('本次要执行的变更操作列表')
+        })
+        .strict(),
       execute: async (input) => executeAgentTool('agent_tools_edit', JSON.stringify(input), hooks)
     }),
     agent_tools_lock_status: tool({
       description:
         '查询某个工具当前是否被其它会话只读锁定，避免并发编辑冲突。需要先用 agent_tools_list 拿到工具 id，再传入 toolId。',
-      inputSchema: jsonSchema({
-        type: 'object',
-        properties: {
-          toolId: { type: 'string', description: '工具 id（来自 agent_tools_list）' }
-        },
-        required: ['toolId'],
-        additionalProperties: false
-      }),
+      inputSchema: z
+        .object({
+          toolId: z.string().describe('工具 id（来自 agent_tools_list）')
+        })
+        .strict(),
       execute: async (input) => executeAgentTool('agent_tools_lock_status', JSON.stringify(input), hooks)
     }),
     agent_workspace_tabs: tool({
       description:
         '查询当前打开的工作区标签页（tab）清单。返回当前激活的标签（activeTab，含 id / title / kind / kindLabel）与全部已打开标签（tabs 数组，按打开顺序）。kindLabel 是页面类型的中文名（主页 / 工具详情 / 设置 / 版本历史 / 工具档案 / 代码浏览 / 数据详情 / 开发者界面）。当用户询问「当前打开了哪些页面 / 现在在哪个页面」时调用本工具。',
-      inputSchema: jsonSchema({
-        type: 'object',
-        properties: {},
-        additionalProperties: false
-      }),
+      inputSchema: z.object({}).strict(),
       execute: async () => executeAgentTool('agent_workspace_tabs', '', hooks)
     }),
     agent_capabilities_list: tool({
       description:
         '列出宿主提供的全部原子能力清单。返回数组，每项含 id / name / description / inputSchema / outputSchema / sideEffect / runtime / cost。工具页内通过 window.cap.run(id, args) 调用这些能力；需要了解工具页能做什么、规划或创建工具前先调用此工具。',
-      inputSchema: jsonSchema({
-        type: 'object',
-        properties: {},
-        additionalProperties: false
-      }),
+      inputSchema: z.object({}).strict(),
       execute: async () => executeAgentTool('agent_capabilities_list', '', hooks)
     })
   }
