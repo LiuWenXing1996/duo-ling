@@ -46,7 +46,8 @@ import type {
   ToolUpdateResult,
   ToolsPreviewClearResult,
   ToolsPreviewListResult,
-  WindowBounds
+  WindowBounds,
+  WorkspaceTabsState
 } from './types'
 
 /** invoke 类通道名常量 */
@@ -63,6 +64,8 @@ export const CH = {
   modelTestChat: 'model:testChat',
   providerList: 'provider:list',
   windowGetBounds: 'window:getBounds',
+  /** 渲染层上报当前工作区打开标签页快照（供 Agent 工具查询当前打开的 tab 页） */
+  workspaceTabsChanged: 'workspace:tabs-changed',
   capabilityList: 'capability:list',
   capabilityRun: 'capability:run',
   toolCreate: 'tool:create',
@@ -126,6 +129,7 @@ export interface InvokeMap {
   [CH.modelTestChat]: { args: [config: ModelTestChatConfig]; result: TestChatResult }
   [CH.providerList]: { args: []; result: ModelProvider[] }
   [CH.windowGetBounds]: { args: []; result: WindowBounds | null }
+  [CH.workspaceTabsChanged]: { args: [state: WorkspaceTabsState]; result: void }
   [CH.capabilityList]: { args: []; result: Capability[] }
   [CH.capabilityRun]: { args: [id: string, args: unknown]; result: CapabilityRunResponse }
   [CH.toolCreate]: { args: []; result: ToolCreateResult }
@@ -197,6 +201,10 @@ export interface PreloadApi {
   }
   window: {
     getBounds: () => Promise<WindowBounds | null>
+  }
+  workspace: {
+    /** 上报当前工作区打开标签页快照（供 Agent 工具查询当前打开的 tab 页） */
+    tabsChanged: (state: WorkspaceTabsState) => Promise<void>
   }
   capability: {
     list: () => Promise<Capability[]>

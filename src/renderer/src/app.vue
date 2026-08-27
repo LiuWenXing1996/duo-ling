@@ -4,7 +4,8 @@ import {
   MessageSquare as UiMessageSquare,
   Plus as UiPlus,
   Search as UiSearch,
-  Settings as UiSettings
+  Settings as UiSettings,
+  Terminal as UiTerminal
 } from '@lucide/vue'
 import type { ConversationSearchHit, ToolOpenCommand } from '../../shared/types'
 import {
@@ -316,6 +317,15 @@ function handleCreateTool(): void {
           @click="workspaceRef?.openSettingsTab()"
         >
           <ui-settings class="size-5" />
+        </button>
+        <button
+          class="workspace-nav-item"
+          type="button"
+          aria-label="开发者"
+          title="开发者"
+          @click="workspaceRef?.openDeveloperTab()"
+        >
+          <ui-terminal class="size-5" />
         </button>
       </aside>
 

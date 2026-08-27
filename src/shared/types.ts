@@ -258,6 +258,22 @@ export interface AgentToolJsonSchema {
   }
 }
 
+/** 工作区打开标签页快照（渲染层 → 主进程上报，供 Agent 工具查询当前打开的 tab 页） */
+export interface WorkspaceTabSnapshot {
+  id: string
+  title: string
+  kind: 'home' | 'tool' | 'settings' | 'tool-history' | 'tool-archive' | 'tool-code' | 'tool-data' | 'developer'
+  toolId?: string
+  toolTitle?: string
+  icon?: string
+}
+
+/** 工作区标签页状态快照：全部已打开的标签（顺序）+ 当前激活标签 id */
+export interface WorkspaceTabsState {
+  tabs: WorkspaceTabSnapshot[]
+  activeTabId: string
+}
+
 // 一次提交的快照（新提交在前）
 export interface ToolCommit {
   oid: string

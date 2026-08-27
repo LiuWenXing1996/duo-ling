@@ -53,6 +53,9 @@ describe('ToolWorkspace', () => {
         provider: {
           list: vi.fn().mockResolvedValue([])
         },
+        workspace: {
+          tabsChanged: vi.fn().mockResolvedValue(undefined)
+        },
         settings: {
           getSystemPrompt: vi.fn().mockResolvedValue(''),
           setSystemPrompt: vi.fn().mockResolvedValue(undefined)

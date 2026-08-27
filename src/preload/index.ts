@@ -43,6 +43,9 @@ const api: PreloadApi = {
   window: {
     getBounds: () => invoke(CH.windowGetBounds)
   },
+  workspace: {
+    tabsChanged: (state) => invoke(CH.workspaceTabsChanged, state)
+  },
   capability: {
     list: () => invoke(CH.capabilityList),
     run: (id, args) => invoke(CH.capabilityRun, id, args)

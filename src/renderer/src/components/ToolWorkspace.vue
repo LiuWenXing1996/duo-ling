@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { PropType } from 'vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import ToolDetailPanel from '@/components/ToolDetailPanel.vue'
@@ -135,6 +135,19 @@ function renameTab(id: string, title: string): void {
   const tab = openTabs.value.find((t) => t.id === id)
   if (tab) tab.title = title
 }
+
+// 工作区 tab 状态上报主进程：agent_workspace_tabs 工具据此回答「当前打开了哪些页面」。
+// deep：renameTab / confirmEditTool 会就地改 tab.title；immediate：挂载即上报，避免查询时为空。
+watch(
+  [openTabs, activeTabId],
+  () => {
+    void window.api.workspace.tabsChanged({
+      tabs: openTabs.value.map((t) => ({ ...t })),
+      activeTabId: activeTabId.value
+    })
+  },
+  { deep: true, immediate: true }
+)
 
 // —— 工具详情面板 ref 映射（tool 标签均保持挂载，切换标签不卸载）——
 const detailRefs = ref<Record<string, InstanceType<typeof ToolDetailPanel> | null>>({})

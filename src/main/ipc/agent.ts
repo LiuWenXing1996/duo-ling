@@ -5,11 +5,17 @@ import { CH, EVENT_CH } from '../../shared/ipc'
 import type { AgentStreamSendResult, AgentToolContext, AgentToolJsonSchema } from '../../shared/types'
 import type { UIMessage } from 'ai'
 import { streamAisdkReply } from '../agent-orchestrator'
-import { buildAisdkTools, agentToolsToJsonSchema } from '../agent-tools'
+import { buildAisdkTools, agentToolsToJsonSchema, setWorkspaceTabsState } from '../agent-tools'
 import { isConfigured } from '../model-store'
 import { getAgentAbortController, setAgentAbortController } from './state'
+import type { WorkspaceTabsState } from '../../shared/types'
 
 export function registerAgentIpc(): void {
+  // 渲染层上报当前工作区打开标签页快照，供 agent_workspace_tabs 查询
+  ipcMain.handle(CH.workspaceTabsChanged, (_event, state: WorkspaceTabsState) => {
+    setWorkspaceTabsState(state)
+  })
+
   ipcMain.handle(CH.agentAbort, () => {
     getAgentAbortController()?.abort()
   })
