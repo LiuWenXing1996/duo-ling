@@ -19,6 +19,7 @@ import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/u
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger
 } from '@/components/ui/tooltip'
 import {
@@ -231,7 +232,8 @@ async function save(): Promise<void> {
 
 <template>
   <ui-dialog :open="open" @update:open="emit('update:open', $event)">
-    <ui-dialog-content class="max-w-2xl max-h-[85vh] p-0 gap-0 overflow-hidden" :show-close-button="false">
+    <ui-dialog-content class="flex max-w-2xl max-h-[85vh] flex-col p-0 gap-0 overflow-hidden" :show-close-button="false">
+      <ui-tooltip-provider>
       <!-- 统一 header -->
       <div class="flex shrink-0 items-center justify-between border-b px-5 py-3">
         <ui-dialog-title class="text-base font-semibold">
@@ -554,6 +556,7 @@ async function save(): Promise<void> {
           </template>
         </div>
       </div>
+      </ui-tooltip-provider>
     </ui-dialog-content>
     </ui-dialog>
 </template>
