@@ -123,6 +123,7 @@ const api: PreloadApi = {
   },
   conversation: {
     list: () => invoke(CH.conversationList),
+    search: (query) => invoke(CH.conversationSearch, query),
     create: () => invoke(CH.conversationCreate),
     rename: (id, title) => invoke(CH.conversationRename, id, title),
     messages: (conversationId) => invoke(CH.conversationMessages, conversationId),

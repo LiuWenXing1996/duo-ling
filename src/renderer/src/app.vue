@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
-import { Plus as UiPlus, Search as UiSearch, Settings as UiSettings } from '@lucide/vue'
-import type { ToolOpenCommand } from '../../shared/types'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import {
+  MessageSquare as UiMessageSquare,
+  Plus as UiPlus,
+  Search as UiSearch,
+  Settings as UiSettings
+} from '@lucide/vue'
+import type { ConversationSearchHit, ToolOpenCommand } from '../../shared/types'
 import {
   Combobox as UiCombobox,
   ComboboxAnchor as UiComboboxAnchor,
   ComboboxContent as UiComboboxContent,
-  ComboboxEmpty as UiComboboxEmpty,
   ComboboxInput as UiComboboxInput,
   ComboboxItem as UiComboboxItem
 } from '@/components/ui/combobox'
@@ -19,7 +23,10 @@ import ToolWorkspace from '@/components/ToolWorkspace.vue'
 import ToolIcon from '@/components/ToolIcon.vue'
 import SessionHistoryPanel from '@/components/SessionHistoryPanel.vue'
 import ChatPanel from '@/components/ChatPanel.vue'
-import { useGlobalConversation } from '@/composables/use-global-conversation'
+import {
+  formatSessionTime,
+  useGlobalConversation
+} from '@/composables/use-global-conversation'
 import type { ToolMeta } from '@/types/tool'
 
 // 左侧导航栏「新建工具」「设置」：调用工具工作台的对应方法
@@ -57,17 +64,107 @@ function onDeleteConversation(payload: { type: 'session' | 'all'; id?: string; t
   else deleteAllConversations()
 }
 
-// 全局搜索：从主进程读取所有已落盘工具元信息，在顶栏搜索框中筛选并下拉列出
+// 全局搜索：工具 + 会话记录双区下拉。
+// reka-ui Combobox 关闭内建过滤（ignore-filter），由本组件统一过滤：
+// 工具在本地按标题/名称/描述子串过滤；会话走主进程 conversation:search（标题+消息内容，带命中片段）。
 const allTools = ref<ToolMeta[]>([])
-// 当前选中的 tool.id：由 reka-ui Combobox 在选中下拉项时写入，触发打开工具后复位
-const selectedToolId = ref<string | null>(null)
+// 搜索框输入值：由 reka-ui ComboboxInput v-model 双向同步（选中后自动复位为空串）
+const searchQuery = ref('')
+// 当前选中的下拉项：带前缀的值，tool:<id> 打开工具、conv:<id> 激活会话；处理完成后复位
+const selectedId = ref<string | null>(null)
+// 下拉框开关：控制 reka-ui Combobox 的 open。默认由 reka-ui（点击/聚焦/外部点击）驱动；
+// 此处额外兜底处理「点击 Electron <webview>」这类跨文档区域——
+// 其 pointerdown 不会冒泡到宿主 document，focusin 也不会冒泡，reka-ui 的外部关闭监听从收不到，
+// 但输入框的 focusout 仍会冒泡到宿主 document，据此在焦点真正离开输入框时关闭。
+const searchOpen = ref(false)
 
-// reka-ui Combobox 内建了基于 textValue 的子串过滤，因此无需再手写 filteredTools
-watch(selectedToolId, (id) => {
+const SEARCH_INPUT_SELECTOR = 'input[role="combobox"]'
+
+/**
+ * 兜底关闭：当搜索输入框失焦且焦点没有回到输入框（如进入 webview、点击其它可聚焦元素）时，
+ * 关闭全局搜索下拉框。等待一帧后再判定，避免点下拉项/键盘导航时因短暂失焦而误关。
+ */
+function onSearchFocusOut(event: FocusEvent): void {
+  if (!searchOpen.value) return
+  const target = event.target
+  const input = document.querySelector<HTMLInputElement>(SEARCH_INPUT_SELECTOR)
+  if (!(target instanceof Node) || !input) return
+  if (target !== input && !input.contains(target)) return
+  // 焦点移入下拉列表([role="listbox"])内（如点击选项时的 mousedown 瞬间）：
+  // 此刻 click 尚未派发，若关闭下拉会把选项卸载导致 onSelect 收不到。交给选项自身的 click 去关闭。
+  const related = event.relatedTarget
+  if (related instanceof Element && related.closest('[role="listbox"]')) return
+  setTimeout(() => {
+    if (searchOpen.value && document.activeElement !== input) searchOpen.value = false
+  }, 0)
+}
+
+// 自应用挂载后监听输入框 focusout；销毁时移除
+function addSearchCloseGuard(): void {
+  document.addEventListener('focusout', onSearchFocusOut, true)
+}
+function removeSearchCloseGuard(): void {
+  document.removeEventListener('focusout', onSearchFocusOut, true)
+}
+
+const filteredTools = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return allTools.value
+  return allTools.value.filter((t) =>
+    [t.title, t.name, t.description].some((s) => s?.toLowerCase().includes(q))
+  )
+})
+
+// 会话命中：空关键词为最近会话（本地已加载列表）；非空为防抖后的主进程搜索结果
+const conversationHits = ref<ConversationSearchHit[]>([])
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+let searchSeq = 0
+
+async function runConversationSearch(query: string): Promise<void> {
+  const seq = ++searchSeq
+  try {
+    const hits = await window.api.conversation.search(query)
+    // 丢弃乱序/过期响应：仅当仍是本次查询时采纳
+    if (seq === searchSeq && searchQuery.value.trim() === query) conversationHits.value = hits
+  } catch (error) {
+    console.error('搜索会话失败', error)
+  }
+}
+
+watch(
+  searchQuery,
+  (query) => {
+    if (searchTimer) clearTimeout(searchTimer)
+    const q = query.trim()
+    if (!q) {
+      conversationHits.value = conversations.value
+        .slice(0, 10)
+        .map((c) => ({ conversation: c, snippet: '' }))
+      return
+    }
+    searchTimer = setTimeout(() => void runConversationSearch(q), 200)
+  },
+  { immediate: true }
+)
+
+// 会话列表加载/增删后，若输入框为空则同步刷新「最近会话」
+watch(conversations, () => {
+  if (!searchQuery.value.trim()) {
+    conversationHits.value = conversations.value
+      .slice(0, 10)
+      .map((c) => ({ conversation: c, snippet: '' }))
+  }
+})
+
+watch(selectedId, (id) => {
   if (!id) return
-  const tool = allTools.value.find((t) => t.id === id)
-  if (tool) workspaceRef.value?.openTool(tool)
-  selectedToolId.value = null
+  if (id.startsWith('tool:')) {
+    const tool = allTools.value.find((t) => t.id === id.slice(5))
+    if (tool) workspaceRef.value?.openTool(tool)
+  } else if (id.startsWith('conv:')) {
+    void activateConversation(id.slice(5))
+  }
+  selectedId.value = null
 })
 
 async function reloadTools(): Promise<void> {
@@ -95,10 +192,13 @@ onMounted(() => {
   void loadConversations()
   // Agent Loop 决定打开工具时（agent.tools.open），由主进程广播命令，此处切换/新建工具标签页
   unsubscribeOpenCommand = window.api.tool.onOpenCommand(openToolFromCommand)
+  // 兜底关闭：搜索下拉框处于打开态时，监听输入框 focusout 以处理 webview 等跨文档点击
+  addSearchCloseGuard()
 })
 
 onUnmounted(() => {
   unsubscribeOpenCommand?.()
+  removeSearchCloseGuard()
 })
 
 function handleCreateTool(): void {
@@ -111,31 +211,86 @@ function handleCreateTool(): void {
     <!-- 全宽顶栏：作为无边框窗口的拖拽区，含居中全局搜索框 -->
     <header class="workspace-topbar">
       <div class="no-drag relative mx-auto flex w-full max-w-md flex-1">
-        <ui-combobox v-model="selectedToolId" class="flex-1" open-on-focus open-on-click>
+        <ui-combobox
+          v-model="selectedId"
+          v-model:open="searchOpen"
+          class="flex-1"
+          open-on-focus
+          open-on-click
+          ignore-filter
+        >
           <ui-combobox-anchor
             class="flex items-center gap-2 rounded-md bg-muted px-2.5 py-1.5 text-sm text-muted-foreground"
           >
             <ui-search class="size-4 shrink-0" />
             <ui-combobox-input
+              v-model="searchQuery"
               :display-value="() => ''"
               class="min-w-0 flex-1"
-              placeholder="全局搜索：工具 / 任务 / 版本…"
+              placeholder="全局搜索：工具 / 会话记录…"
             />
             <span class="rounded bg-card px-1 font-mono text-[10px]">⌘K</span>
           </ui-combobox-anchor>
 
           <ui-combobox-content>
-            <ui-combobox-empty>未找到匹配工具</ui-combobox-empty>
-            <ui-combobox-item
-              v-for="tool in allTools"
-              :key="tool.id"
-              :text-value="`${tool.title} ${tool.name} ${tool.description}`"
-              :value="tool.id"
+            <div
+              v-if="!filteredTools.length && !conversationHits.length"
+              class="px-2.5 py-1.5 text-sm text-muted-foreground"
             >
-              <tool-icon :icon="tool.icon" :fallback="tool.title" class="shrink-0 text-sm" />
-              <span class="truncate">{{ tool.title }}</span>
-              <span class="truncate text-muted-foreground">{{ tool.description }}</span>
-            </ui-combobox-item>
+              未找到匹配项
+            </div>
+
+            <template v-if="filteredTools.length">
+              <div
+                class="px-2.5 pb-0.5 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                工具
+              </div>
+              <ui-combobox-item
+                v-for="tool in filteredTools"
+                :key="`tool:${tool.id}`"
+                :text-value="`${tool.title} ${tool.name} ${tool.description}`"
+                :value="`tool:${tool.id}`"
+              >
+                <div class="flex w-full min-w-0 items-start gap-2">
+                  <tool-icon
+                    :icon="tool.icon"
+                    :fallback="tool.title"
+                    class="mt-0.5 size-4 shrink-0 leading-none"
+                  />
+                  <div class="flex min-w-0 flex-1 flex-col">
+                    <span class="truncate">{{ tool.title }}</span>
+                    <span class="truncate text-muted-foreground">{{ tool.description }}</span>
+                  </div>
+                </div>
+              </ui-combobox-item>
+            </template>
+
+            <template v-if="conversationHits.length">
+              <div
+                class="px-2.5 pb-0.5 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                会话
+              </div>
+              <ui-combobox-item
+                v-for="hit in conversationHits"
+                :key="`conv:${hit.conversation.id}`"
+                :text-value="`${hit.conversation.title} ${hit.snippet}`"
+                :value="`conv:${hit.conversation.id}`"
+              >
+                <div class="flex w-full min-w-0 items-start gap-2">
+                  <ui-message-square
+                    class="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                  />
+                  <div class="flex min-w-0 flex-1 flex-col">
+                    <span class="truncate">{{ hit.conversation.title }}</span>
+                    <span class="truncate text-muted-foreground">
+                      {{ hit.snippet || formatSessionTime(hit.conversation.lastMessageAt) }}
+                    </span>
+                  </div>
+                </div>
+              </ui-combobox-item>
+            </template>
           </ui-combobox-content>
         </ui-combobox>
       </div>

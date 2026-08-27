@@ -20,6 +20,12 @@ export interface Conversation {
   lastMessageAt: string
 }
 
+/** conversation:search 的命中项：会话 + 命中的消息内容片段（空查询返回最近会话时 snippet 为空） */
+export interface ConversationSearchHit {
+  conversation: Conversation
+  snippet: string
+}
+
 export type MessageRole = 'user' | 'assistant'
 
 export interface Message {

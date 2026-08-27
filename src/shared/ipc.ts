@@ -17,6 +17,7 @@ import type {
   AgentStreamSendResult,
   AgentToolContext,
   Conversation,
+  ConversationSearchHit,
   EditIntent,
   Message,
   MessageRole,
@@ -90,6 +91,7 @@ export const CH = {
   /** 列出全部 Agent 工具的 JSON Schema 描述（开发者界面展示用） */
   agentToolsList: 'agent-tools:list',
   conversationList: 'conversation:list',
+  conversationSearch: 'conversation:search',
   conversationCreate: 'conversation:create',
   conversationRename: 'conversation:rename',
   conversationMessages: 'conversation:messages',
@@ -156,6 +158,7 @@ export interface InvokeMap {
   [CH.agentAbort]: { args: []; result: void }
   [CH.agentToolsList]: { args: []; result: AgentToolJsonSchema[] }
   [CH.conversationList]: { args: []; result: Conversation[] }
+  [CH.conversationSearch]: { args: [query: string]; result: ConversationSearchHit[] }
   [CH.conversationCreate]: { args: []; result: Conversation }
   [CH.conversationRename]: { args: [id: string, title: string]; result: Conversation | null }
   [CH.conversationMessages]: { args: [conversationId: string]; result: Message[] }
@@ -248,6 +251,8 @@ export interface PreloadApi {
   }
   conversation: {
     list: () => Promise<Conversation[]>
+    /** 搜索会话：匹配标题或消息内容；空查询返回最近会话（snippet 为空） */
+    search: (query: string) => Promise<ConversationSearchHit[]>
     create: () => Promise<Conversation>
     rename: (id: string, title: string) => Promise<Conversation | null>
     messages: (conversationId: string) => Promise<Message[]>

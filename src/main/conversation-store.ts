@@ -11,6 +11,7 @@
 import Store, { type Schema } from 'electron-store'
 import type {
   Conversation,
+  ConversationSearchHit,
   EditIntent,
   EditIntentStatus,
   Message,
@@ -18,7 +19,15 @@ import type {
   ToolChangeAction
 } from '../shared/types'
 
-export type { Conversation, EditIntent, EditIntentStatus, Message, MessageRole, ToolChangeAction }
+export type {
+  Conversation,
+  ConversationSearchHit,
+  EditIntent,
+  EditIntentStatus,
+  Message,
+  MessageRole,
+  ToolChangeAction
+}
 
 interface ConversationState {
   conversations: Conversation[]
@@ -117,6 +126,40 @@ export function listConversations(): Conversation[] {
 
 export function getConversation(id: string): Conversation | null {
   return getStore().get('conversations').find((c) => c.id === id) ?? null
+}
+
+/** 把消息正文压成单行片段（截断展示用） */
+function truncateSnippet(text: string, max = 100): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat
+}
+
+/**
+ * 搜索会话：空查询返回最近会话（limit 条，snippet 为空）；非空匹配会话标题或任意消息正文
+ * （大小写不敏感），snippet 取第一条命中消息的正文片段。
+ */
+export function searchConversations(query: string, limit = 20): ConversationSearchHit[] {
+  const q = query.trim().toLowerCase()
+  const sorted = listConversations()
+  if (!q) {
+    return sorted.slice(0, limit).map((conversation) => ({ conversation, snippet: '' }))
+  }
+  const messages = getStore().get('messages')
+  const out: ConversationSearchHit[] = []
+  for (const conversation of sorted) {
+    if (out.length >= limit) break
+    let snippet = ''
+    let hit = conversation.title.toLowerCase().includes(q)
+    for (const m of messages[conversation.id] ?? []) {
+      if (m.content && m.content.toLowerCase().includes(q)) {
+        snippet = m.content
+        hit = true
+        break
+      }
+    }
+    if (hit) out.push({ conversation, snippet: truncateSnippet(snippet) })
+  }
+  return out
 }
 
 export function createConversation(): Conversation {

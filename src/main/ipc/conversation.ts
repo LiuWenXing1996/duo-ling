@@ -30,6 +30,7 @@ import {
   listConversations,
   listMessages,
   renameConversation,
+  searchConversations,
   setIntentStatus
 } from '../conversation-store'
 import { applyToolChanges } from '../tool-page'
@@ -79,6 +80,7 @@ async function applyIntents(input: ApplyIntentsInput): Promise<ApplyIntentsResul
 
 export function registerConversationIpc(): void {
   ipcMain.handle(CH.conversationList, () => listConversations())
+  ipcMain.handle(CH.conversationSearch, (_event, query: string) => searchConversations(query))
   ipcMain.handle(CH.conversationCreate, () => createConversation())
   ipcMain.handle(CH.conversationRename, (_event, id: string, title: string) =>
     renameConversation(id, title)

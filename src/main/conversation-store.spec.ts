@@ -8,7 +8,9 @@ import {
   listIntents,
   listMessages,
   renameConversation,
-  setIntentStatus
+  searchConversations,
+  setIntentStatus,
+  type Conversation
 } from './conversation-store'
 
 // 与 online-llm.spec.ts 一致：electron-store 用内存对象打桩，规避测试环境对文件系统/electron 的依赖
@@ -90,5 +92,52 @@ describe('conversation-store（会话/消息/EditIntent 存储）', () => {
     // 未命中的 intentId 不改变现有意图状态
     setIntentStatus('nope', 'rejected')
     expect(listIntents(m.id)[0].status).toBe('failed')
+  })
+
+  it('searchConversations 空查询返回最近会话（snippet 为空，受 limit 限制）', () => {
+    const a = createConversation()
+    const b = createConversation()
+    // 直接改 lastMessageAt 保证排序确定（同毫秒创建时按创建顺序稳定排序）
+    memory.conversations = (memory.conversations as Conversation[]).map((c) =>
+      c.id === a.id ? { ...c, lastMessageAt: '2024-01-01T00:00:00.000Z' } : c
+    )
+    const hits = searchConversations('')
+    expect(hits).toHaveLength(2)
+    expect(hits[0].conversation.id).toBe(b.id)
+    expect(hits[0].snippet).toBe('')
+    expect(searchConversations('', 1)).toHaveLength(1)
+  })
+
+  it('searchConversations 按标题匹配，大小写不敏感', () => {
+    const c = createConversation()
+    renameConversation(c.id, 'Payment Debug')
+    const hits = searchConversations('payment')
+    expect(hits).toHaveLength(1)
+    expect(hits[0].conversation.id).toBe(c.id)
+    expect(hits[0].snippet).toBe('')
+  })
+
+  it('searchConversations 按消息内容匹配并返回命中片段', () => {
+    const c = createConversation()
+    appendMessage(c.id, 'user', '帮我修一下登录页面的 bug')
+    appendMessage(c.id, 'assistant', '好的，我看下登录报错日志')
+    const hits = searchConversations('登录报错')
+    expect(hits).toHaveLength(1)
+    expect(hits[0].conversation.id).toBe(c.id)
+    expect(hits[0].snippet).toContain('登录报错')
+  })
+
+  it('searchConversations 命中片段过长时截断并加省略号', () => {
+    const c = createConversation()
+    appendMessage(c.id, 'user', `前缀 ${'x'.repeat(200)} 后缀`)
+    const hits = searchConversations('前缀')
+    expect(hits).toHaveLength(1)
+    expect(hits[0].snippet.length).toBeLessThanOrEqual(101)
+    expect(hits[0].snippet.endsWith('…')).toBe(true)
+  })
+
+  it('searchConversations 无命中返回空数组', () => {
+    createConversation()
+    expect(searchConversations('不存在关键词')).toEqual([])
   })
 })
