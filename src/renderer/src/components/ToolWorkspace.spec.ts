@@ -39,6 +39,9 @@ describe('ToolWorkspace', () => {
         agentTools: {
           list: vi.fn().mockResolvedValue([])
         },
+        capability: {
+          list: vi.fn().mockResolvedValue([])
+        },
         model: {
           list: vi.fn().mockResolvedValue({ profiles: [], activeId: '' }),
           setActive: vi.fn().mockResolvedValue(undefined)

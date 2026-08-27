@@ -1,16 +1,22 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { ChevronDown as UiChevronDown, Terminal as UiTerminal } from '@lucide/vue'
+import { Box as UiBox, ChevronDown as UiChevronDown, Terminal as UiTerminal } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
-import type { AgentToolJsonSchema } from '../../../shared/types'
+import type { AgentToolJsonSchema, Capability } from '../../../shared/types'
 
-// 开发者界面：展示宿主提供给 AI 的全部 Agent 工具（名称 / 说明 / 参数 Schema）
+// 开发者界面：展示宿主提供给 AI 的全部 Agent 工具 + 原子能力（名称 / 说明 / Schema）
 
 const tools = ref<AgentToolJsonSchema[]>([])
 const loading = ref(true)
 const error = ref('')
 // 已展开参数 Schema 的工具名集合
 const expanded = ref<Set<string>>(new Set())
+
+const capabilities = ref<Capability[]>([])
+const capsLoading = ref(true)
+const capsError = ref('')
+// 已展开输入/输出 Schema 的能力 id 集合
+const capsExpanded = ref<Set<string>>(new Set())
 
 async function load(): Promise<void> {
   loading.value = true
@@ -31,8 +37,28 @@ function toggle(name: string): void {
   expanded.value = next
 }
 
+async function loadCaps(): Promise<void> {
+  capsLoading.value = true
+  capsError.value = ''
+  try {
+    capabilities.value = await window.api.capability.list()
+  } catch (e) {
+    capsError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    capsLoading.value = false
+  }
+}
+
+function toggleCap(id: string): void {
+  const next = new Set(capsExpanded.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  capsExpanded.value = next
+}
+
 onMounted(() => {
   void load()
+  void loadCaps()
 })
 </script>
 
@@ -40,6 +66,7 @@ onMounted(() => {
   <section class="panel developer-panel">
     <div class="min-h-0 flex-1 overflow-y-auto scroll-gap p-6">
       <div class="mx-auto max-w-3xl">
+        <!-- Agent 工具 -->
         <div>
           <h3 class="text-base font-semibold">开发者 · Agent 工具</h3>
           <p class="mt-1 text-xs text-muted-foreground">
@@ -79,6 +106,56 @@ onMounted(() => {
         </div>
 
         <p v-else class="mt-6 text-center text-xs text-muted-foreground">暂无 Agent 工具。</p>
+
+        <!-- 原子能力 -->
+        <div class="mt-8">
+          <h3 class="text-base font-semibold">开发者 · 原子能力</h3>
+          <p class="mt-1 text-xs text-muted-foreground">
+            工具页内通过 <code class="rounded bg-muted px-1 py-0.5">cap.run(id, args)</code> 调用的能力清单，共
+            <span class="font-medium text-foreground">{{ capabilities.length }}</span> 个。
+          </p>
+        </div>
+
+        <p v-if="capsError" class="text-destructive mt-3 text-xs">{{ capsError }}</p>
+        <p v-else-if="capsLoading" class="mt-6 text-center text-xs text-muted-foreground">加载中…</p>
+
+        <div v-else-if="capabilities.length" class="mt-4 space-y-3">
+          <div v-for="cap in capabilities" :key="cap.id" class="overflow-hidden rounded-md border">
+            <div class="flex items-center gap-2 border-b bg-muted/40 px-4 py-2.5">
+              <span class="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                <ui-box class="size-4" />
+              </span>
+              <code class="text-sm font-semibold">{{ cap.id }}</code>
+              <span class="ml-auto flex shrink-0 items-center gap-1.5">
+                <span class="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{{ cap.runtime }}</span>
+                <span class="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{{ cap.sideEffect }}</span>
+                <span class="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{{ cap.cost }}</span>
+              </span>
+            </div>
+            <div class="px-4 py-3">
+              <p class="text-xs leading-relaxed text-muted-foreground">{{ cap.description }}</p>
+              <ui-button variant="ghost" size="sm" class="mt-2 h-7 gap-1 px-2 text-xs" @click="toggleCap(cap.id)">
+                <ui-chevron-down
+                  class="size-3.5 text-muted-foreground transition-transform"
+                  :class="{ 'rotate-180': capsExpanded.has(cap.id) }"
+                />
+                {{ capsExpanded.has(cap.id) ? '收起输入/输出 Schema' : '查看输入/输出 Schema' }}
+              </ui-button>
+              <div v-if="capsExpanded.has(cap.id)" class="mt-2 space-y-2">
+                <div>
+                  <p class="mb-1 text-xs font-medium text-muted-foreground">输入</p>
+                  <pre class="scroll-gap overflow-x-auto rounded-md bg-muted/40 p-3 text-xs leading-relaxed">{{ JSON.stringify(cap.inputSchema, null, 2) }}</pre>
+                </div>
+                <div>
+                  <p class="mb-1 text-xs font-medium text-muted-foreground">输出</p>
+                  <pre class="scroll-gap overflow-x-auto rounded-md bg-muted/40 p-3 text-xs leading-relaxed">{{ JSON.stringify(cap.outputSchema, null, 2) }}</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p v-else class="mt-6 text-center text-xs text-muted-foreground">暂无原子能力。</p>
       </div>
     </div>
   </section>
