@@ -348,6 +348,7 @@ async function rollback(oid: string): Promise<void> {
               :src="item.url"
               :preload="preloadPath"
               class="tool-history__webview"
+              sandbox
               @did-fail-load="onPreviewDidFailLoad($event, item.oid)"
               @dom-ready="onPreviewDomReady(item.oid)"
             />

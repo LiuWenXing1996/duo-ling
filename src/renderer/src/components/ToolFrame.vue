@@ -109,6 +109,7 @@ defineExpose({ reload: reloadFrame })
       :src="toolUrl"
       :preload="preloadPath"
       :title="tool.title"
+      sandbox
     />
     <div
       v-if="frameStatus === 'error' || frameStatus === 'crash' || frameStatus === 'hang'"

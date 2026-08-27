@@ -174,16 +174,17 @@ export function deleteUserTool(id: string): { ok: true } | { ok: false; error: s
   }
 }
 
+/** 工具页 CSP 策略：作为 `tool://` / `tool-preview://` 响应头权威下发，同时与脚手架 meta 保持同一来源，防双写漂移。 */
+export const TOOL_PAGE_CSP =
+  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+
 /** 新建工具的脚手架页：自我包含的完整 HTML（内联 <style>/<script>），可直接被 tool:// 加载。 */
 export function newUserToolScaffoldHtml(title: string): string {
   return `<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
-    />
+    <meta http-equiv="Content-Security-Policy" content="${TOOL_PAGE_CSP}" />
     <title>${title}</title>
     <style>
       * { box-sizing: border-box; }

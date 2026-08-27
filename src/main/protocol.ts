@@ -3,7 +3,7 @@
 import { protocol } from 'electron'
 import { join, normalize } from 'node:path'
 import { readFileSync } from 'node:fs'
-import { toolsRoot, previewRoot } from './tool-page'
+import { toolsRoot, previewRoot, TOOL_PAGE_CSP } from './tool-page'
 
 // 把 `tool://` 与 `tool-preview://` 注册为标准安全 scheme：作为独立源被渲染层 <webview> 嵌入工具详情栏/预览浮层，
 // 否则非标准 scheme 会被当作不透明源，CSP `'self'` 与同源语义失效
@@ -19,7 +19,9 @@ function contentTypeFor(filePath: string): string {
     ? 'application/javascript; charset=utf-8'
     : filePath.endsWith('.json')
       ? 'application/json; charset=utf-8'
-      : 'text/html; charset=utf-8'
+      : filePath.endsWith('.css')
+        ? 'text/css; charset=utf-8'
+        : 'text/html; charset=utf-8'
 }
 
 /**
@@ -47,7 +49,11 @@ export function registerToolProtocols(): void {
       }
       const body = readFileSync(resolved)
       return new Response(body, {
-        headers: { 'content-type': contentTypeFor(resolved), 'cache-control': 'no-cache' }
+        headers: {
+          'content-type': contentTypeFor(resolved),
+          'content-security-policy': TOOL_PAGE_CSP,
+          'cache-control': 'no-cache'
+        }
       })
     } catch {
       return new Response('not found', { status: 404 })
@@ -80,7 +86,11 @@ export function registerToolProtocols(): void {
       }
       const body = readFileSync(resolved)
       return new Response(body, {
-        headers: { 'content-type': contentTypeFor(resolved), 'cache-control': 'no-cache' }
+        headers: {
+          'content-type': contentTypeFor(resolved),
+          'content-security-policy': TOOL_PAGE_CSP,
+          'cache-control': 'no-cache'
+        }
       })
     } catch {
       return new Response('not found', { status: 404 })

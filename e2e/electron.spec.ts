@@ -85,3 +85,37 @@ test('应用启动并渲染工具工作台主界面', async () => {
 
   await electronApp.close()
 })
+
+test('工具页在 sandboxed webview 下加载且能力桥接可用', async () => {
+  const electronApp = await electron.launch({
+    args: ['.', '--no-sandbox'],
+    env: {
+      ...process.env,
+      DUO_LING_USER_DATA_DIR: join(process.cwd(), 'test-results', 'user-data-sandbox')
+    }
+  })
+  const window = await electronApp.firstWindow()
+
+  // 空状态 → 点击「新增工具」→ 渲染层创建工具并打开工具 tab（<webview> 挂载，带 sandbox 属性）
+  await window.getByRole('button', { name: '新增工具' }).click()
+
+  const webview = window.locator('webview')
+  await expect(webview).toBeVisible({ timeout: 15000 })
+
+  // 等待 guest 文档就绪：从主进程读取 tool:// guest 的 body 文本，验证 sandboxed preload 注入的 cap 桥接可用
+  await expect
+    .poll(
+      async () =>
+        electronApp.evaluate(async ({ webContents }) => {
+          const guest = webContents
+            .getAllWebContents()
+            .find((wc) => wc.getURL().startsWith('tool://'))
+          if (!guest) return ''
+          return (await guest.executeJavaScript('document.body ? document.body.innerText : ""')) as string
+        }),
+      { timeout: 15000 }
+    )
+    .toContain('✓ 能力桥接可用')
+
+  await electronApp.close()
+})

@@ -7,7 +7,7 @@ vi.mock('electron', () => ({
   app: { getPath: () => '/tmp/duo-ling-test' }
 }))
 
-import { normalizeToolIcon, updateUserToolMeta } from '../tool-page'
+import { normalizeToolIcon, updateUserToolMeta, newUserToolScaffoldHtml, TOOL_PAGE_CSP } from '../tool-page'
 
 describe('normalizeToolIcon', () => {
   it('接受单个 emoji', () => {
@@ -37,6 +37,13 @@ describe('normalizeToolIcon', () => {
     expect(normalizeToolIcon('   ')).toBe('')
     expect(normalizeToolIcon(undefined)).toBe('')
     expect(normalizeToolIcon(123)).toBe('')
+  })
+})
+
+describe('newUserToolScaffoldHtml / TOOL_PAGE_CSP', () => {
+  it('脚手架 meta CSP 与 TOOL_PAGE_CSP 常量一致（防双写漂移）', () => {
+    const html = newUserToolScaffoldHtml('测试工具')
+    expect(html).toContain(`content="${TOOL_PAGE_CSP}"`)
   })
 })
 
