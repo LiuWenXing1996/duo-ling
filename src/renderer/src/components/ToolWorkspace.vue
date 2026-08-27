@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type { PropType } from 'vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import ToolDetailPanel from '@/components/ToolDetailPanel.vue'
@@ -151,7 +151,24 @@ function renameTool(id: string, title: string): void {
 
 const toolError = ref('')
 
-// —— 编辑工具弹窗：编辑名称 / 图标（单字符）/ 描述，提交后落盘 meta.json 并同步展示 ——
+// —— 工具分组（用户独立配置 / 不落 meta.json）——
+// 分组映射：toolId → 分组名，由主进程 tool.group 读写；主页网格按此分区展示。
+const groupMap = ref<Record<string, string>>({})
+
+async function loadGroups(): Promise<void> {
+  try {
+    groupMap.value = await window.api.tool.group.list()
+  } catch (error) {
+    console.error('加载工具分组失败', error)
+  }
+}
+
+// 已存在的分组名列表（编辑弹窗「分组」输入框的 datalist 建议）
+const existingGroups = computed(() => Array.from(new Set(Object.values(groupMap.value).filter(Boolean))))
+
+onMounted(loadGroups)
+
+// —— 编辑工具弹窗：编辑名称 / 图标（单字符）/ 描述 / 分组，提交后落盘 meta.json 与分组映射并同步展示 ——
 const editTarget = ref<ToolMeta | null>(null)
 const editDialogOpen = computed({
   get: () => !!editTarget.value,
@@ -165,8 +182,8 @@ function askEditTool(tool: ToolMeta): void {
   editTarget.value = tool
 }
 
-// 保存编辑：更新名称 / 图标 / 描述，成功后同步已打开标签的标题与图标，并刷新工具列表。
-async function confirmEditTool(payload: { title: string; icon: string; description: string }): Promise<void> {
+// 保存编辑：更新名称 / 图标 / 描述 / 分组，成功后同步已打开标签的标题与图标，并刷新工具列表。
+async function confirmEditTool(payload: { title: string; icon: string; description: string; group: string }): Promise<void> {
   const tool = editTarget.value
   if (!tool) return
   editTarget.value = null
@@ -179,6 +196,11 @@ async function confirmEditTool(payload: { title: string; icon: string; descripti
   if (!res.ok) {
     toolError.value = res.error ?? '保存失败'
     return
+  }
+  // 分组是用户独立配置，单独落盘；仅在分组名变化时写回
+  const currentGroup = groupMap.value[tool.id] ?? ''
+  if (payload.group.trim() !== currentGroup) {
+    groupMap.value = await window.api.tool.group.set(tool.id, payload.group)
   }
   // 名称/图标变化时，同步已打开标签页展示
   const tab = openTabs.value.find((t) => t.id === tool.id)
@@ -267,6 +289,7 @@ defineExpose({ createTool, openTool, openSettingsTab, openDeveloperTab, reloadTo
         <home-panel
           v-if="tab.kind === 'home'"
           :tools="props.tools"
+          :group-map="groupMap"
           :error="toolError"
           @create="createTool"
           @open="openTool"
@@ -325,6 +348,8 @@ defineExpose({ createTool, openTool, openSettingsTab, openDeveloperTab, reloadTo
     <tool-edit-dialog
       :open="editDialogOpen"
       :tool="editTarget"
+      :group="editTarget ? (groupMap[editTarget.id] ?? '') : ''"
+      :existing-groups="existingGroups"
       @update:open="(v) => (editDialogOpen = v)"
       @saved="confirmEditTool"
     />

@@ -1,11 +1,14 @@
 <script setup lang="ts">
-// 主页面板：所有工具网格 + 新增工具。卡片点击打开对应工具标签，编辑/删除按钮由父组件处理弹窗。
+// 主页面板：工具按分组分区展示 + 新增工具。卡片点击打开对应工具标签，编辑/删除按钮由父组件处理弹窗。
+import { computed, ref } from 'vue'
 import type { ToolMeta } from '@/types/tool'
-import { Pencil as UiPencil, Plus as UiPlus, Trash2 as UiTrash } from '@lucide/vue'
+import { ChevronDown as UiChevronDown, Pencil as UiPencil, Plus as UiPlus, Trash2 as UiTrash } from '@lucide/vue'
 import ToolIcon from './ToolIcon.vue'
 
 const props = defineProps<{
   tools: ToolMeta[]
+  /** 工具分组映射：toolId → 分组名（用户独立配置） */
+  groupMap: Record<string, string>
   error: string
 }>()
 const emit = defineEmits<{
@@ -14,6 +17,41 @@ const emit = defineEmits<{
   edit: [tool: ToolMeta]
   delete: [tool: ToolMeta]
 }>()
+
+const UNGROUPED = '__ungrouped__'
+
+interface ToolSection {
+  key: string
+  title: string
+  tools: ToolMeta[]
+}
+
+// 按分组归集：有名分组按首次出现顺序排在前面，「未分组」固定归尾
+const sections = computed<ToolSection[]>(() => {
+  const buckets: Record<string, ToolMeta[]> = {}
+  const order: string[] = []
+  for (const tool of props.tools) {
+    const group = (props.groupMap[tool.id] ?? '').trim()
+    const key = group || UNGROUPED
+    if (!buckets[key]) {
+      buckets[key] = []
+      if (key !== UNGROUPED) order.push(key)
+    }
+    buckets[key].push(tool)
+  }
+  const result: ToolSection[] = order.map((key) => ({ key, title: key, tools: buckets[key] }))
+  if (buckets[UNGROUPED]) {
+    result.push({ key: UNGROUPED, title: '未分组', tools: buckets[UNGROUPED] })
+  }
+  return result
+})
+
+// 各分区折叠状态（key 为分组名或 UNGROUPED）；默认全部展开
+const collapsed = ref<Record<string, boolean>>({})
+
+function toggleCollapse(key: string): void {
+  collapsed.value = { ...collapsed.value, [key]: !collapsed.value[key] }
+}
 </script>
 
 <template>
@@ -27,41 +65,59 @@ const emit = defineEmits<{
     </header>
     <p v-if="props.error" class="home-panel__error">{{ props.error }}</p>
     <div class="home-panel__body">
-      <div
-        v-for="tool in props.tools"
-        :key="tool.id"
-        class="tool-card"
-        role="button"
-        tabindex="0"
-        @click="emit('open', tool)"
-        @keydown.enter="emit('open', tool)"
+      <section
+        v-for="sec in sections"
+        :key="sec.key"
+        class="tool-section"
       >
-        <div class="tool-card__actions no-drag">
-          <button
-            class="tool-card__action tool-card__action--edit"
-            type="button"
-            aria-label="编辑工具"
-            title="编辑工具"
-            @click.stop="emit('edit', tool)"
+        <button
+          class="tool-section__header no-drag"
+          type="button"
+          :aria-expanded="!collapsed[sec.key]"
+          @click="toggleCollapse(sec.key)"
+        >
+          <ui-chevron-down class="tool-section__chevron" :class="{ 'tool-section__chevron--collapsed': collapsed[sec.key] }" />
+          <span class="tool-section__title">{{ sec.title }}</span>
+          <span class="tool-section__count">{{ sec.tools.length }}</span>
+        </button>
+        <div v-show="!collapsed[sec.key]" class="tool-section__grid">
+          <div
+            v-for="tool in sec.tools"
+            :key="tool.id"
+            class="tool-card"
+            role="button"
+            tabindex="0"
+            @click="emit('open', tool)"
+            @keydown.enter="emit('open', tool)"
           >
-            <ui-pencil class="size-3.5" />
-          </button>
-          <button
-            class="tool-card__action tool-card__action--delete"
-            type="button"
-            aria-label="删除工具"
-            title="删除工具"
-            @click.stop="emit('delete', tool)"
-          >
-            <ui-trash class="size-3.5" />
-          </button>
+            <div class="tool-card__actions no-drag">
+              <button
+                class="tool-card__action tool-card__action--edit"
+                type="button"
+                aria-label="编辑工具"
+                title="编辑工具"
+                @click.stop="emit('edit', tool)"
+              >
+                <ui-pencil class="size-3.5" />
+              </button>
+              <button
+                class="tool-card__action tool-card__action--delete"
+                type="button"
+                aria-label="删除工具"
+                title="删除工具"
+                @click.stop="emit('delete', tool)"
+              >
+                <ui-trash class="size-3.5" />
+              </button>
+            </div>
+            <span class="tool-card__icon">
+              <tool-icon :icon="tool.icon" :fallback="tool.title" class="text-base" />
+            </span>
+            <span class="tool-card__title">{{ tool.title }}</span>
+            <span class="tool-card__desc">{{ tool.description }}</span>
+          </div>
         </div>
-        <span class="tool-card__icon">
-          <tool-icon :icon="tool.icon" :fallback="tool.title" class="text-base" />
-        </span>
-        <span class="tool-card__title">{{ tool.title }}</span>
-        <span class="tool-card__desc">{{ tool.description }}</span>
-      </div>
+      </section>
       <p v-if="!props.tools.length" class="home-panel__empty">还没有工具，点击右上角「新增工具」创建</p>
     </div>
   </div>
@@ -115,20 +171,81 @@ const emit = defineEmits<{
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 12px;
-    align-content: start;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     padding: 16px;
   }
 
   &__empty {
-    grid-column: 1 / -1;
     margin: 0;
     color: var(--muted-foreground);
     font-size: 13px;
     text-align: center;
     padding-top: 48px;
+  }
+}
+
+// 分组分区：标题行（可折叠）+ 工具网格
+.tool-section {
+  &__header {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 6px 2px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted-foreground);
+    text-align: left;
+    background: none;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: color 0.15s;
+
+    &:hover {
+      color: var(--foreground);
+    }
+  }
+
+  &__chevron {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    transition: transform 0.15s;
+
+    &--collapsed {
+      transform: rotate(-90deg);
+    }
+  }
+
+  &__title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__count {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted-foreground);
+    background: var(--muted);
+    border-radius: 9px;
+  }
+
+  &__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+    align-content: start;
   }
 }
 

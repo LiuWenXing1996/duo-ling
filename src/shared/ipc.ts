@@ -30,6 +30,7 @@ import type {
   ToolChangeList,
   ToolCodeResult,
   ToolCreateResult,
+  ToolGroupMap,
   ToolHistoryResult,
   UserToolMeta,
   ToolPreviewResult,
@@ -66,6 +67,8 @@ export const CH = {
   toolCreate: 'tool:create',
   toolList: 'tool:list',
   toolDelete: 'tool:delete',
+  toolGroupList: 'tool-group:list',
+  toolGroupSet: 'tool-group:set',
   toolUpdateMeta: 'tool:updateMeta',
   toolUpdate: 'tool:update',
   toolGetPreloadPath: 'tool:getPreloadPath',
@@ -126,6 +129,8 @@ export interface InvokeMap {
   [CH.toolCreate]: { args: []; result: ToolCreateResult }
   [CH.toolList]: { args: []; result: UserToolMeta[] }
   [CH.toolDelete]: { args: [id: string, keepData?: boolean]; result: ToolResult }
+  [CH.toolGroupList]: { args: []; result: ToolGroupMap }
+  [CH.toolGroupSet]: { args: [toolId: string, group: string]; result: ToolGroupMap }
   [CH.toolUpdateMeta]: {
     args: [id: string, patch: { title?: string; description?: string; icon?: string }]
     result: ToolUpdateMetaResult
@@ -207,6 +212,12 @@ export interface PreloadApi {
     preview: (id: string, oid: string) => Promise<ToolPreviewResult>
     archive: {
       read: (id: string) => Promise<ToolArchiveResult>
+    }
+    group: {
+      /** 读取全部分组映射（toolId → 分组名） */
+      list: () => Promise<ToolGroupMap>
+      /** 设置某工具的分组名；传空串表示移除分组，返回更新后的全量映射 */
+      set: (toolId: string, group: string) => Promise<ToolGroupMap>
     }
     /** 监听主进程「打开工具」命令（agent.tools.open 触发），返回取消订阅函数 */
     onOpenCommand: (callback: (payload: ToolOpenCommand) => void) => () => void

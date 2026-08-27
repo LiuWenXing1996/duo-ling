@@ -16,15 +16,20 @@ import EmojiPicker from './EmojiPicker.vue'
 const props = defineProps<{
   open: boolean
   tool: ToolMeta | null
+  /** 当前工具所在分组名；空串/缺省表示未分组 */
+  group?: string
+  /** 已存在的分组名列表，用于「分组」输入框的 datalist 建议 */
+  existingGroups?: string[]
 }>()
 const emit = defineEmits<{
   'update:open': [open: boolean]
-  saved: [payload: { title: string; icon: string; description: string }]
+  saved: [payload: { title: string; icon: string; description: string; group: string }]
 }>()
 
 const editTitle = ref('')
 const editIcon = ref('')
 const editDescription = ref('')
+const editGroup = ref('')
 const emojiPanelOpen = ref(false)
 
 // 每次打开弹窗时回填当前元信息到表单
@@ -35,6 +40,7 @@ watch(
       editTitle.value = props.tool.title ?? ''
       editIcon.value = props.tool.icon ?? ''
       editDescription.value = props.tool.description ?? ''
+      editGroup.value = props.group ?? ''
       emojiPanelOpen.value = false
     }
   }
@@ -49,7 +55,8 @@ function save(): void {
   emit('saved', {
     title: editTitle.value,
     icon: editIcon.value,
-    description: editDescription.value
+    description: editDescription.value,
+    group: editGroup.value
   })
 }
 
@@ -90,6 +97,18 @@ function pickEmoji(emoji: string): void {
         <p class="edit-form__hint">支持任意单个字符（emoji / 字母 / 汉字），留空则显示名称首字符。</p>
         <label class="edit-form__label" for="edit-desc">描述</label>
         <ui-input id="edit-desc" v-model="editDescription" placeholder="工具描述" />
+        <label class="edit-form__label" for="edit-group">分组</label>
+        <ui-input
+          id="edit-group"
+          v-model="editGroup"
+          placeholder="未分组"
+          list="tool-group-options"
+          autocomplete="off"
+        />
+        <datalist id="tool-group-options">
+          <option v-for="name in existingGroups" :key="name" :value="name" />
+        </datalist>
+        <p class="edit-form__hint">输入已有分组名即可归入该组，留空表示未分组；输入新名称可创建分组。</p>
       </div>
       <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
         <ui-button variant="ghost" size="sm" @click="cancel">

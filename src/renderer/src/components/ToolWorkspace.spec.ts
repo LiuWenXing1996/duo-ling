@@ -31,7 +31,11 @@ describe('ToolWorkspace', () => {
           update: vi.fn().mockResolvedValue({ ok: true }),
           delete: vi.fn().mockResolvedValue({ ok: true }),
           updateMeta: vi.fn().mockResolvedValue({ ok: true, title: 'PDF 合并器', icon: 'P' }),
-          getPreloadPath: vi.fn().mockResolvedValue('file:///preload/tool.cjs')
+          getPreloadPath: vi.fn().mockResolvedValue('file:///preload/tool.cjs'),
+          group: {
+            list: vi.fn().mockResolvedValue({}),
+            set: vi.fn().mockResolvedValue({})
+          }
         },
         agent: {
           abort: vi.fn().mockResolvedValue(undefined)
@@ -248,10 +252,12 @@ describe('ToolWorkspace', () => {
     const dialog = queryDialog()
     expect(dialog.textContent).toContain('编辑工具')
     const inputs = dialog.querySelectorAll('input')
-    expect(inputs).toHaveLength(3)
+    expect(inputs).toHaveLength(4)
     expect((inputs[0] as HTMLInputElement).value).toBe('PDF 合并器')
     expect((inputs[1] as HTMLInputElement).value).toBe('')
     expect((inputs[2] as HTMLInputElement).value).toBe('合并多个 PDF')
+    // 第 4 个输入框是分组：当前未分组，故为空
+    expect((inputs[3] as HTMLInputElement).value).toBe('')
 
     // 修改表单后保存：通过在原生 input 上派发 input 事件更新 v-model
     const setInput = (el: Element, value: string): void => {
@@ -261,6 +267,7 @@ describe('ToolWorkspace', () => {
     setInput(inputs[0]!, '新名称')
     setInput(inputs[1]!, 'P')
     setInput(inputs[2]!, '新描述')
+    setInput(inputs[3]!, '办公')
     await flushPromises()
     await buttonByText(dialog, '保存').click()
     await flushPromises()
@@ -270,6 +277,45 @@ describe('ToolWorkspace', () => {
       icon: 'P',
       description: '新描述'
     })
+    // 分组变化时单独落盘分组映射
+    expect(window.api.tool.group.set).toHaveBeenCalledWith('t-1', '办公')
+    expect(wrapper.emitted('toolsChanged')).toBeTruthy()
+
+    wrapper.unmount()
+  })
+
+  it('编辑工具时分组未变，不重复落盘分组映射', async () => {
+    ;(window.api.tool.group.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      't-1': '办公'
+    })
+    const wrapper = mount(ToolWorkspace, {
+      attachTo: document.body,
+      props: {
+        tools: [
+          { id: 't-1', name: 'pdf-merge', title: 'PDF 合并器', description: '合并多个 PDF' }
+        ]
+      }
+    })
+    await flushPromises()
+
+    await wrapper.find('.tool-card__action--edit').trigger('click')
+    await flushPromises()
+
+    const dialog = queryDialog()
+    const inputs = dialog.querySelectorAll('input')
+    expect((inputs[3] as HTMLInputElement).value).toBe('办公')
+
+    // 分组保持「办公」不变，仅改名称
+    const setInput = (el: Element, value: string): void => {
+      ;(el as HTMLInputElement).value = value
+      el.dispatchEvent(new Event('input'))
+    }
+    setInput(inputs[0]!, '新名称')
+    await flushPromises()
+    await buttonByText(dialog, '保存').click()
+    await flushPromises()
+
+    expect(window.api.tool.group.set).not.toHaveBeenCalled()
     expect(wrapper.emitted('toolsChanged')).toBeTruthy()
 
     wrapper.unmount()

@@ -9,6 +9,7 @@ import type {
   ToolChangeList,
   ToolCodeResult,
   ToolCreateResult,
+  ToolGroupMap,
   ToolHistoryResult,
   UserToolMeta,
   ToolPreviewResult,
@@ -23,6 +24,11 @@ import type {
   ToolsPreviewClearResult,
   ToolsPreviewListResult
 } from '../../shared/types'
+import {
+  clearToolGroup,
+  getToolGroupMap,
+  setToolGroup
+} from '../tool-group-store'
 import {
   applyToolChanges,
   createUserToolId,
@@ -77,6 +83,14 @@ export function registerToolIpc(): void {
 
   // 读取所有已落盘工具列表（供全局搜索下拉等场景使用）
   ipcMain.handle(CH.toolList, (): UserToolMeta[] => listUserTools())
+
+  // 读取全部分组映射（toolId → 分组名）。分组是用户独立配置，不落 meta.json。
+  ipcMain.handle(CH.toolGroupList, (): ToolGroupMap => getToolGroupMap())
+
+  // 设置某工具的分组名：传空串移除分组，返回更新后的全量映射（编辑弹窗与主页卡片共用）。
+  ipcMain.handle(CH.toolGroupSet, (_event, toolId: string, group: string): ToolGroupMap =>
+    setToolGroup(toolId, group)
+  )
 
   // 读取某工具的 git 提交历史（新在先；无仓库则空列表，供「版本历史」标签页使用）
   ipcMain.handle(CH.toolHistory, (_event, id: string): Promise<ToolHistoryResult> =>
@@ -133,6 +147,8 @@ export function registerToolIpc(): void {
   ipcMain.handle(CH.toolDelete, (_event, id: string, keepData?: boolean): ToolResult => {
     const result = deleteUserTool(id)
     if (!result.ok) return { ok: false, error: result.error }
+    // 工具已删除，同步清理其在分组映射中的条目（幂等，不影响后续）
+    clearToolGroup(id)
     if (!keepData) {
       const dataResult = clearToolsData(id)
       if (!dataResult.ok) return { ok: false, error: dataResult.error }

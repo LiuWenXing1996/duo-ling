@@ -174,6 +174,9 @@ export interface UserToolMeta {
   capabilities?: string[]
 }
 
+/** 工具分组映射：toolId → 分组名。用户独立配置，不落 meta.json。 */
+export type ToolGroupMap = Record<string, string>
+
 /** 工具只读锁查询结果（capability: tool.lock.status）。Phase 1 只读不写：恒为「未被持有」。 */
 export interface ToolLockStatus {
   toolId: string
