@@ -137,32 +137,21 @@ export type CapabilityRuntime = 'frontend' | 'backend'
 export type CapabilitySideEffect = 'read' | 'write' | 'notify' | 'destructive'
 export type CapabilityCost = 'offline' | 'online'
 
-export interface CapabilitySchemaField {
-  /** 字段类型：string/number/boolean 等基础类型，或 file/files/markdown 等语义类型 */
-  type: string
-  /** 字段说明，供工具界面推导表单/输入提示 */
-  description: string
-}
-
-export interface CapabilitySchema {
-  type: string
-  description: string
-  fields?: Record<string, CapabilitySchemaField>
-}
-
 /** 面向 AI 的检索元数据：用户意图 → scenario 命中确定能力 id */
 export interface CapabilityScenario {
   keywords: string[]
   object: string
 }
 
-/** 原子能力统一契约 */
+/** 原子能力统一契约（inputSchema/outputSchema 为标准 JSON Schema，由注册表 zod schema 序列化而来） */
 export interface Capability {
   id: string
   name: string
   description: string
-  inputSchema: CapabilitySchema
-  outputSchema: CapabilitySchema
+  /** 输入参数的标准 JSON Schema（纯字面量，可序列化过 IPC） */
+  inputSchema: Record<string, unknown>
+  /** 输出参数的标准 JSON Schema（纯字面量，可序列化过 IPC） */
+  outputSchema: Record<string, unknown>
   sideEffect: CapabilitySideEffect
   runtime: CapabilityRuntime
   cost: CapabilityCost

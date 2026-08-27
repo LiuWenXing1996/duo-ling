@@ -4,7 +4,7 @@ import { ipcMain } from 'electron'
 import { join } from 'node:path'
 import { CH } from '../../shared/ipc'
 import type { Capability, CapabilityRunResponse } from '../../shared/types'
-import { listCapabilities } from '../capability-registry'
+import { getCapabilityDefinition, listCapabilities } from '../capability-registry'
 import { runBackendCapability } from '../capability-runtime'
 import { runFrontendCapability } from '../frontend-impls'
 import { readUserToolMetaAt, toolsRoot, previewRoot } from '../tool-page'
@@ -53,22 +53,31 @@ export function registerCapabilityIpc(): void {
           return { ok: false, error: `工具未声明能力: ${id}` }
         }
       }
-      const cap = listCapabilities().find((c) => c.id === id)
-      if (!cap) {
+      const def = getCapabilityDefinition(id)
+      if (!def) {
         return { ok: false, error: `未知能力: ${id}` }
       }
+      // zod 参数校验：capability:run 边界统一收口（工具页与宿主主窗口同源），拒绝非法入参
+      const parsed = def.inputSchema.safeParse(args)
+      if (!parsed.success) {
+        const detail = parsed.error.issues
+          .map((issue) => `${issue.path.length ? issue.path.join('.') : '参数'}: ${issue.message}`)
+          .join('; ')
+        return { ok: false, error: `参数校验失败: ${detail}` }
+      }
+      const validArgs = parsed.data
       // 工具数据能力在主进程直接执行（需 fs + 调用方 toolId），不经过 backend 子进程/frontend 注入。
       // 预览模式不拦截：预览页同样可读写真实工具数据区（与正式工具能力一致）。
       if (isToolsDataCapability(id)) {
-        return runToolsDataCapability(id, source?.toolId ?? '', args)
+        return runToolsDataCapability(id, source?.toolId ?? '', validArgs)
       }
-      if (cap.runtime === 'frontend') {
+      if (def.runtime === 'frontend') {
         // 工具页为 <webview> guest，无主窗口渲染层的注入方法，
         // 因此 frontend 能力也统一收口到主进程执行（由 frontend-impls.ts 提供实现）
-        return runFrontendCapability(id, args)
+        return runFrontendCapability(id, validArgs)
       }
       try {
-        return { ok: true, result: await runBackendCapability(id, args) }
+        return { ok: true, result: await runBackendCapability(id, validArgs) }
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) }
       }

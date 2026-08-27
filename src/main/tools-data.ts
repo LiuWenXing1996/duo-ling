@@ -9,8 +9,8 @@
 import { app, shell } from 'electron'
 import fs from 'node:fs'
 import { join } from 'node:path'
+import { z } from 'zod'
 import type {
-  Capability,
   CapabilityRunResponse,
   ToolsDataClearResult,
   ToolsDataDeleteOrphanResult,
@@ -21,6 +21,7 @@ import type {
   ToolsDataOpenResult,
   ToolsDataOverview
 } from '../shared/types'
+import type { CapabilityDefinition } from './capability-registry'
 import { toolsRoot } from './tool-page'
 
 /** 数据区根：<userData>/tools-data/<id>/… */
@@ -331,25 +332,20 @@ export function runToolsDataCapability(
   }
 }
 
-/** tool.data.* 能力清单（供 capability:list 返回生成器可读全集） */
-export const toolsDataCapabilities: Capability[] = [
+/** tool.data.* 能力清单（zod 权威定义，供 capability:list 返回生成器可读全集） */
+export const toolsDataCapabilities: CapabilityDefinition[] = [
   {
     id: 'tool.data.write',
     name: '工具数据写入',
     description: '为当前工具持久化一个键值对，写入工具数据区（key 白名单为字母/数字/下划线/连字符）',
-    inputSchema: {
-      type: 'object',
-      description: '写入参数',
-      fields: {
-        key: { type: 'string', description: '数据键，仅字母/数字/下划线/连字符' },
-        value: { type: 'any', description: '要持久化的任意 JSON 值' }
-      }
-    },
-    outputSchema: {
-      type: 'object',
-      description: '写入结果',
-      fields: { key: { type: 'string', description: '已写入的数据键' }, size: { type: 'number', description: '文件字节数' } }
-    },
+    inputSchema: z.object({
+      key: z.string().regex(KEY_RE).describe('数据键，仅字母/数字/下划线/连字符'),
+      value: z.unknown().describe('要持久化的任意 JSON 值')
+    }),
+    outputSchema: z.object({
+      key: z.string().describe('已写入的数据键'),
+      size: z.number().describe('文件字节数')
+    }),
     sideEffect: 'write',
     runtime: 'backend',
     cost: 'offline',
@@ -359,16 +355,13 @@ export const toolsDataCapabilities: Capability[] = [
     id: 'tool.data.read',
     name: '工具数据读取',
     description: '读取当前工具此前持久化的某个键值对',
-    inputSchema: {
-      type: 'object',
-      description: '读取参数',
-      fields: { key: { type: 'string', description: '要读取的数据键' } }
-    },
-    outputSchema: {
-      type: 'object',
-      description: '读取结果',
-      fields: { key: { type: 'string', description: '数据键' }, value: { type: 'any', description: '持久化的值' } }
-    },
+    inputSchema: z.object({
+      key: z.string().describe('要读取的数据键')
+    }),
+    outputSchema: z.object({
+      key: z.string().describe('数据键'),
+      value: z.unknown().describe('持久化的值')
+    }),
     sideEffect: 'read',
     runtime: 'backend',
     cost: 'offline',
@@ -378,12 +371,11 @@ export const toolsDataCapabilities: Capability[] = [
     id: 'tool.data.list',
     name: '工具数据列表',
     description: '列出当前工具已持久化的所有数据键',
-    inputSchema: { type: 'object', description: '无参数' },
-    outputSchema: {
-      type: 'object',
-      description: '列表结果',
-      fields: { keys: { type: 'array', description: '数据键列表' }, count: { type: 'number', description: '键个数' } }
-    },
+    inputSchema: z.object({}),
+    outputSchema: z.object({
+      keys: z.array(z.string()).describe('数据键列表'),
+      count: z.number().describe('键个数')
+    }),
     sideEffect: 'read',
     runtime: 'backend',
     cost: 'offline',
@@ -393,16 +385,13 @@ export const toolsDataCapabilities: Capability[] = [
     id: 'tool.data.remove',
     name: '工具数据删除',
     description: '删除当前工具此前持久化的某个数据键',
-    inputSchema: {
-      type: 'object',
-      description: '删除参数',
-      fields: { key: { type: 'string', description: '要删除的数据键' } }
-    },
-    outputSchema: {
-      type: 'object',
-      description: '删除结果',
-      fields: { key: { type: 'string', description: '已删除的数据键' }, removed: { type: 'boolean', description: '是否删除成功' } }
-    },
+    inputSchema: z.object({
+      key: z.string().describe('要删除的数据键')
+    }),
+    outputSchema: z.object({
+      key: z.string().describe('已删除的数据键'),
+      removed: z.boolean().describe('是否删除成功')
+    }),
     sideEffect: 'destructive',
     runtime: 'backend',
     cost: 'offline',
