@@ -116,7 +116,8 @@ function confirmRename(): void {
       </div>
     </header>
 
-    <div class="min-h-0 flex-1 overflow-y-auto scroll-gap">
+    <!-- 列表容器：scroll-gap 仅给右侧留 3px 空隙（滚动条贴边保护），这里补 border-l 与左侧对称 -->
+    <div class="min-h-0 flex-1 overflow-y-auto scroll-gap border-l-[3px] border-l-transparent">
       <ul v-if="props.conversations.length" class="divide-y">
         <li
           v-for="s in props.conversations"
