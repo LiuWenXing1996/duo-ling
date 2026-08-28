@@ -8,6 +8,7 @@ import ToolArchivePanel from '@/components/ToolArchivePanel.vue'
 import ToolCodeBrowser from '@/components/ToolCodeBrowser.vue'
 import ToolDataDetail from '@/components/ToolDataDetail.vue'
 import DeveloperPanel from '@/components/DeveloperPanel.vue'
+import UiTestPanel from '@/components/UiTestPanel.vue'
 import HomePanel from '@/components/HomePanel.vue'
 import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
 import ToolEditDialog from '@/components/ToolEditDialog.vue'
@@ -72,6 +73,14 @@ function openDeveloperTab(): void {
     openTabs.value.push({ kind: 'developer', id: 'developer', title: '开发者' })
   }
   activate('developer')
+}
+
+// 打开 UI 测试标签页：若已打开则激活，否则新开一个
+function openUiTestTab(): void {
+  if (!openTabs.value.some((t) => t.kind === 'ui-test')) {
+    openTabs.value.push({ kind: 'ui-test', id: 'ui-test', title: 'UI 测试' })
+  }
+  activate('ui-test')
 }
 
 // 打开某工具的「代码浏览」标签页：同一工具只有一个代码页，已打开则激活
@@ -302,7 +311,7 @@ async function confirmDeleteTool(keepData: boolean): Promise<void> {
 
 // 暴露给根布局：左侧导航栏「新建工具」「设置」、全宽顶栏搜索下拉「打开工具」，
 // 以及全局会话应用多工具意图后刷新工具详情 / 同步标签标题
-defineExpose({ createTool, openTool, openSettingsTab, openDeveloperTab, reloadTool, renameTool })
+defineExpose({ createTool, openTool, openSettingsTab, openDeveloperTab, openUiTestTab, reloadTool, renameTool })
 </script>
 
 <template>
@@ -379,6 +388,8 @@ defineExpose({ createTool, openTool, openSettingsTab, openDeveloperTab, reloadTo
         <settings-panel v-else-if="tab.kind === 'settings'" @open-tool-data="openToolData" @open-developer="openDeveloperTab" />
         <!-- 开发者界面：展示全部 Agent 工具介绍 -->
         <developer-panel v-else-if="tab.kind === 'developer'" />
+        <!-- UI 测试：mock 数据预览思考与执行过程展示方案 -->
+        <ui-test-panel v-else-if="tab.kind === 'ui-test'" />
       </ui-tabs-content>
     </ui-tabs>
 

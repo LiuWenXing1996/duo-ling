@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
+  FlaskConical as UiFlaskConical,
   MessageSquare as UiMessageSquare,
   MoreHorizontal as UiMoreHorizontal,
   Plus as UiPlus,
@@ -401,6 +402,15 @@ function handleCreateTool(): void {
           @click="workspaceRef?.openDeveloperTab()"
         >
           <ui-terminal class="size-5" />
+        </button>
+        <button
+          class="workspace-nav-item"
+          type="button"
+          aria-label="UI 测试"
+          title="UI 测试"
+          @click="workspaceRef?.openUiTestTab()"
+        >
+          <ui-flask-conical class="size-5" />
         </button>
       </aside>
 

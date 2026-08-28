@@ -53,7 +53,8 @@ const TAB_KIND_LABEL = {
   'tool-archive': '工具档案',
   'tool-code': '代码浏览',
   'tool-data': '数据详情',
-  developer: '开发者界面'
+  developer: '开发者界面',
+  'ui-test': 'UI 测试'
 } satisfies Record<WorkspaceTabKind, string>
 
 /** 供 agent_workspace_tabs 返回的带中文标签的 tab 快照 */
