@@ -16,9 +16,9 @@ import {
   CircleCheck as UiCircleCheck,
   CircleX as UiCircleX,
   FileText as UiFileText,
-  Lightbulb as UiLightbulb,
   LoaderCircle as UiLoaderCircle,
-  Plus as UiPlus
+  Plus as UiPlus,
+  Sparkle as UiSparkle
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import {
@@ -412,7 +412,7 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                       class="w-full min-w-0"
                     >
                       <template #icon>
-                        <ui-lightbulb class="size-4 shrink-0 text-muted-foreground" />
+                        <ui-sparkle class="size-4 shrink-0 text-muted-foreground" />
                       </template>
                       <div
                         :class="[

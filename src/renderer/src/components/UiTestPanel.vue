@@ -9,8 +9,8 @@ import {
   CircleCheck as UiCircleCheck,
   CircleX as UiCircleX,
   FileText as UiFileText,
-  Lightbulb as UiLightbulb,
-  LoaderCircle as UiLoaderCircle
+  LoaderCircle as UiLoaderCircle,
+  Sparkle as UiSparkle
 } from '@lucide/vue'
 import {
   ChainOfThought as UiChainOfThought,
@@ -345,7 +345,7 @@ function stepStatus(state: MockToolState): 'complete' | 'active' {
                   class="w-full min-w-0"
                 >
                   <template #icon>
-                    <ui-lightbulb class="size-4 shrink-0 text-muted-foreground" />
+                    <ui-sparkle class="size-4 shrink-0 text-muted-foreground" />
                   </template>
                   <!-- 长思考折叠：超过阈值高度的思考截断 + 「展开全部」；短思考直接全文显示 -->
                   <div
