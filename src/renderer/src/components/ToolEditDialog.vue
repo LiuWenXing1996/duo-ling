@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// 编辑工具弹窗：修改名称 / 图标（单字符）/ 描述 / 分组 / 置顶；表单提交由父组件落地 meta.json 并同步展示。
+// 编辑工具弹窗：修改名称 / 图标（单字符或 lucide）/ 描述 / 分组 / 置顶；表单提交由父组件落地 meta.json 并同步展示。
 import { ref, watch } from 'vue'
+import { Sparkle as UiSparkle } from '@lucide/vue'
 import type { ToolMeta } from '@/types/tool'
 import { Button as UiButton } from '@/components/ui/button'
 import { Input as UiInput } from '@/components/ui/input'
@@ -13,6 +14,7 @@ import {
   DialogTitle as UiDialogTitle
 } from '@/components/ui/dialog'
 import EmojiPicker from './EmojiPicker.vue'
+import LucideIconPicker from './LucideIconPicker.vue'
 
 const props = defineProps<{
   open: boolean
@@ -35,6 +37,7 @@ const editDescription = ref('')
 const editGroup = ref('')
 const editPinned = ref(false)
 const emojiPanelOpen = ref(false)
+const lucidePanelOpen = ref(false)
 
 // 每次打开弹窗时回填当前元信息到表单
 watch(
@@ -47,6 +50,7 @@ watch(
       editGroup.value = props.group ?? ''
       editPinned.value = props.pinned ?? false
       emojiPanelOpen.value = false
+      lucidePanelOpen.value = false
     }
   }
 )
@@ -66,9 +70,25 @@ function save(): void {
   })
 }
 
+// 两个图标面板互斥：打开其一则关闭另一个
+function toggleEmoji(): void {
+  emojiPanelOpen.value = !emojiPanelOpen.value
+  lucidePanelOpen.value = false
+}
+
+function toggleLucide(): void {
+  lucidePanelOpen.value = !lucidePanelOpen.value
+  emojiPanelOpen.value = false
+}
+
 function pickEmoji(emoji: string): void {
   editIcon.value = emoji
   emojiPanelOpen.value = false
+}
+
+function pickLucide(value: string): void {
+  editIcon.value = value
+  lucidePanelOpen.value = false
 }
 </script>
 
@@ -84,23 +104,44 @@ function pickEmoji(emoji: string): void {
         <ui-input id="edit-title" v-model="editTitle" placeholder="工具名称" />
         <label class="edit-form__label" for="edit-icon">图标</label>
         <div class="edit-form__icon-row">
-          <ui-input id="edit-icon" v-model="editIcon" placeholder="单个字符" class="flex-1" />
+          <ui-input
+            id="edit-icon"
+            v-model="editIcon"
+            placeholder="单个字符或 lucide:名称"
+            class="flex-1"
+          />
           <button
-            class="edit-form__emoji-toggle"
+            class="edit-form__icon-toggle"
+            type="button"
+            aria-label="选择 lucide 图标"
+            :aria-expanded="lucidePanelOpen"
+            @click="toggleLucide"
+          >
+            <ui-sparkle class="size-4" />
+          </button>
+          <button
+            class="edit-form__icon-toggle"
             type="button"
             aria-label="选择 emoji"
             :aria-expanded="emojiPanelOpen"
-            @click="emojiPanelOpen = !emojiPanelOpen"
+            @click="toggleEmoji"
           >
             😊
           </button>
         </div>
+        <lucide-icon-picker
+          :open="lucidePanelOpen"
+          :model-value="editIcon"
+          @select="pickLucide"
+        />
         <emoji-picker
           :open="emojiPanelOpen"
           :model-value="editIcon"
           @select="pickEmoji"
         />
-        <p class="edit-form__hint">支持任意单个字符（emoji / 字母 / 汉字），留空则显示名称首字符。</p>
+        <p class="edit-form__hint">
+          支持单个字符（emoji / 字母 / 汉字）或 lucide 图标（如 <code>lucide:sparkle</code>），留空则显示名称首字符。
+        </p>
         <label class="edit-form__label" for="edit-desc">描述</label>
         <ui-input id="edit-desc" v-model="editDescription" placeholder="工具描述" />
         <label class="edit-form__label" for="edit-group">分组</label>
@@ -169,14 +210,14 @@ function pickEmoji(emoji: string): void {
     padding-bottom: 2px;
   }
 
-  // 图标输入行：输入框 + emoji 切换按钮（并排）
+  // 图标输入行：输入框 + lucide / emoji 切换按钮（并排）
   &__icon-row {
     display: flex;
     align-items: center;
     gap: 6px;
   }
 
-  &__emoji-toggle {
+  &__icon-toggle {
     display: inline-flex;
     align-items: center;
     justify-content: center;

@@ -131,13 +131,14 @@
 **背景**：工具为 AI 生成的单个 HTML，目前无图标概念。主页网格 / 侧边条 / 工具详情页需要可区分的视觉标识。与「工具页风格统一」同源。
 
 **方案要点（实际落地，已相对原始构想简化）**：
-- `meta.json` 增加可选 `icon: string` 字段，**仅接受单个字符**（emoji / 字母 / 汉字等，按码点计 1）。
-- 主进程 `normalizeToolIcon(icon)`：非法（非单个码点）或为空时返回 `''`；渲染层 `tool-icon.vue` 为空时回退工具名首字符，两者皆空则用 `✨`。
-- **渲染层统一组件** `tool-icon.vue`：主页卡片 / 标签栏 / 搜索下拉 / 工具详情头部共用（4 处展示位）。
-- **手动编辑入口**：工具卡片右上角编辑按钮 → 编辑弹窗（名称 / 图标 / 描述）；图标字段旁提供常用**单码点** emoji 选择面板（避免 ❤️ / ⚙️ 这类带变体选择符 U+FE0F 的双码点 emoji 被归一化清空）。
-- **为何从三态简化为单字符**：最初方案为 lucide/emoji/svg 判别联合，后确认仅支持单字符，避免 lucide 全量映射的打包体积与 SVG 的 XSS 风险；校验也随之简化为「单码点」。
+- `meta.json` 增加可选 `icon: string` 字段，接受两种格式：**单个字符**（emoji / 字母 / 汉字等，按码点计 1）或 **`lucide:<名称>`**（kebab-case）。
+- 主进程 `normalizeToolIcon(icon)`：非法的单个字符 / lucide 名称返回 `''`；渲染层 `tool-icon.vue` 为空时回退工具名首字符，两者皆空则用 `✨`。
+- **渲染层统一组件** `tool-icon.vue`：主页卡片 / 标签栏 / 搜索下拉 / 工具详情头部共用（4 处展示位）；`lucide:` 前缀时按需动态加载允许列表内图标（见 `src/renderer/src/lib/lucide-icons.ts`），不在列表回退名称首字符。
+- **手动编辑入口**：工具卡片右上角编辑按钮 → 编辑弹窗（名称 / 图标 / 描述）；图标字段旁提供 **lucide 选择面板**（搜索 + 网格预览，与 emoji 面板互斥）。
+- **为何从三态简化为字符 + lucide 两种**：最初方案为 lucide/emoji/svg 判别联合，后确认不支持 SVG（XSS 风险）；lucide 采用**允许列表 + import.meta.glob 按需加载**（约 277 个常用），避免全量映射（3554 个）的打包体积。
+- **兼容性**：旧数据仅单字符，新格式 `lucide:*` 向后兼容；主进程只做宽松格式校验，名称是否可用由渲染层允许列表裁决。
 
-**状态**：已实现。主进程 `tool-page.ts` 新增 `normalizeToolIcon` / `updateToolMeta`；`src/main/index.ts` 注册 `tool:updateMeta` IPC（替换原 `tool:setIcon`）；preload 暴露 `tool.updateMeta`；新增 `src/renderer/src/components/tool-icon.vue`；`tool-workspace.vue` 卡片右上角编辑弹窗（名称/图标/描述 + emoji 面板）、删除内联编辑；4 处展示位接入。单测覆盖 `updateToolMeta`（`src/main/__tests__/tool-page.spec.ts`）。
+**状态**：已实现。主进程 `tool-page.ts` 新增 `normalizeToolIcon` / `updateToolMeta`；`src/main/index.ts` 注册 `tool:updateMeta` IPC（替换原 `tool:setIcon`）；preload 暴露 `tool.updateMeta`；新增 `src/renderer/src/components/tool-icon.vue`、`src/renderer/src/lib/lucide-icons.ts`、`src/renderer/src/components/lucide-icon-picker.vue`；`tool-workspace.vue` 卡片右上角编辑弹窗（名称/图标/描述 + emoji / lucide 面板）、删除内联编辑；4 处展示位接入。单测覆盖 `normalizeToolIcon` / `updateToolMeta`（`src/main/__tests__/tool-page.spec.ts`）与 `tool-icon.vue`（`src/renderer/src/components/tool-icon.spec.ts`）。
 
 ---
 

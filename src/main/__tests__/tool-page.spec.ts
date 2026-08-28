@@ -46,6 +46,21 @@ describe('normalizeToolIcon', () => {
     expect(normalizeToolIcon(undefined)).toBe('')
     expect(normalizeToolIcon(123)).toBe('')
   })
+
+  it('接受 lucide:<kebab 名称> 并小写化', () => {
+    expect(normalizeToolIcon('lucide:sparkle')).toBe('lucide:sparkle')
+    expect(normalizeToolIcon(' lucide:file-text ')).toBe('lucide:file-text')
+    expect(normalizeToolIcon('lucide:Settings')).toBe('lucide:settings')
+    expect(normalizeToolIcon('lucide:code-2')).toBe('lucide:code-2')
+  })
+
+  it('lucide: 前缀但名称为空或非法时回退为空串', () => {
+    expect(normalizeToolIcon('lucide:')).toBe('')
+    expect(normalizeToolIcon('lucide:  ')).toBe('')
+    expect(normalizeToolIcon('lucide: hello')).toBe('') // 前缀后残留空白
+    expect(normalizeToolIcon('lucide:hello world')).toBe('')
+    expect(normalizeToolIcon('lucide:Spark_le')).toBe('')
+  })
 })
 
 describe('newUserToolScaffoldHtml（CSP 仅由协议响应头权威下发）', () => {

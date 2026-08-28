@@ -40,11 +40,21 @@ export function previewRoot(): string {
   return join(app.getPath('userData'), 'tools-preview')
 }
 
-/** 图标归一化：仅接受「单个字符」（按码点计 1），返回原字符；其余（空/多字符/空白）一律返回 ''。 */
+/**
+ * 图标归一化，接受两种格式：
+ * - 单个字符（按码点计 1，emoji / 字母 / 汉字等），原样返回
+ * - `lucide:<名称>`（kebab-case，如 `lucide:sparkle`）：小写化后返回，渲染层按需动态加载 lucide 图标；
+ *   不在渲染层允许列表的名称不在此处校验，渲染层解析失败时回退名称首字符
+ * 其余（空 / 多字符 / 非法名称）一律返回 ''。
+ */
 export function normalizeToolIcon(icon: unknown): string {
   if (typeof icon !== 'string') return ''
   const t = icon.trim()
   if (!t) return ''
+  if (t.startsWith('lucide:')) {
+    const name = t.slice('lucide:'.length).toLowerCase()
+    return /^[a-z0-9-]+$/.test(name) ? `lucide:${name}` : ''
+  }
   return [...t].length === 1 ? t : ''
 }
 
