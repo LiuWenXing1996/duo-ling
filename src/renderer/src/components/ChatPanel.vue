@@ -342,7 +342,7 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                         <ui-brain class="size-4 shrink-0 text-muted-foreground" />
                       </template>
                       <div
-                        class="w-fit max-h-64 overflow-y-auto rounded-md border border-border/60 bg-muted/40 px-3 py-2"
+                        class="w-fit min-w-0 max-w-full max-h-64 overflow-y-auto overflow-x-auto rounded-md border border-border/60 bg-muted/40 px-3 py-2"
                       >
                         <ui-message-response
                           :content="node.text"
@@ -390,7 +390,7 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                         <ui-file-text class="size-4 shrink-0 text-muted-foreground" />
                       </template>
                       <div
-                        class="w-fit max-h-64 overflow-y-auto rounded-md border border-border/60 bg-muted/40 px-3 py-2"
+                        class="w-fit min-w-0 max-w-full max-h-64 overflow-y-auto overflow-x-auto rounded-md border border-border/60 bg-muted/40 px-3 py-2"
                       >
                         <ui-message-response
                           :content="node.text"
