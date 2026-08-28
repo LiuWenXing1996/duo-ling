@@ -3,13 +3,13 @@
 // 方案 C = 单层折叠（整条消息一个 ChainOfThought）+ 折叠内按 step 分组
 // （「第 N 步」小标题分隔，不嵌套折叠）+ 最终答案气泡。
 // 约定：所有 mock 数据与渲染逻辑集中在本组件内，便于快速调整预览。
-import { nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { onUnmounted, reactive, ref } from 'vue'
 import {
-  Brain as UiBrain,
   ChevronsDown as UiChevronsDown,
   CircleCheck as UiCircleCheck,
   CircleX as UiCircleX,
   FileText as UiFileText,
+  Lightbulb as UiLightbulb,
   LoaderCircle as UiLoaderCircle
 } from '@lucide/vue'
 import {
@@ -57,6 +57,7 @@ const LONG_THINKING = `先整体过一遍需求：用户想了解项目结构，
 
 结合以上对比，MD 阅读器最贴合，接下来需要确认它的内部实现：解析器如何把 Markdown 分词成块、渲染器如何处理嵌套列表与代码块、以及对外暴露了哪些接口。
 同时还要注意边界情况：空文件、超长行、非法标签分别会走到哪条分支，避免遗漏。
+补充：渲染侧的列表嵌套、代码高亮与增量更新策略也要一并确认，保证长文档在对话里也能流畅展示，不会卡住界面。
 （这段思考故意拉长，用于验证长思考内容在卡片内部滚动展示的效果。）`.trim()
 
 const mockParts: MockPart[] = [
@@ -153,46 +154,34 @@ function buildStepGroups(): Node[][] {
 
 const stepGroups = buildStepGroups()
 
-// —— 长思考折叠：思考超过阈值高度默认截断 + 「展开全部」按钮，可手动展开/收起 ——
-/** 思考折叠阈值高度（px） */
-const THINK_COLLAPSE_THRESHOLD = 160
+// —— 长内容折叠：思考 / 说明按字符数近似判定超长，截断 + 「展开全部」，可手动展开/收起 ——
+// 说明：与 ChatPanel 一致，不用 DOM 高度测量；此处按「已流式字符数」判定（流式中 chars 增长触发折叠）
+/** 折叠阈值（字符数） */
+const COLLAPSE_CHAR_THRESHOLD = 300
 
-/** 每个思考容器对应的 DOM 引用（用于测量实际内容高度） */
-const thinkEls = new Map<string, HTMLDivElement>()
-/** 被判定为「长思考」的节点 key 集合 */
-const longThinks = reactive(new Set<string>())
 /** 用户已手动展开的思考节点 key 集合 */
 const expandedThinks = reactive(new Set<string>())
+/** 用户已手动展开的说明节点 key 集合 */
+const expandedTexts = reactive(new Set<string>())
 
-/** 生成 ref 收集函数：元素挂载写入 Map，卸载移除 */
-function makeCollectRef(els: Map<string, HTMLDivElement>): (key: string) => (el: unknown) => void {
-  return (key: string) => (el: unknown) => {
-    if (el) els.set(key, el as HTMLDivElement)
-    else els.delete(key)
-  }
+/** 思考节点是否超长（按已流式字符数近似） */
+function isThinkLong(node: StreamNode): boolean {
+  return node.chars > COLLAPSE_CHAR_THRESHOLD
 }
 
-const collectThinkRef = makeCollectRef(thinkEls)
-
-/** 重新测量所有已渲染思考容器：超过阈值标记为「长思考」（已展开/已标记的跳过） */
-function measureThinks(): void {
-  for (const [key, el] of thinkEls) {
-    if (expandedThinks.has(key) || longThinks.has(key)) continue
-    // 测量时容器未加 max-h（未标记），scrollHeight 即全文高度
-    if (el.scrollHeight > THINK_COLLAPSE_THRESHOLD) longThinks.add(key)
-  }
+/** 说明节点是否超长（按已流式字符数近似） */
+function isTextLong(node: StreamNode): boolean {
+  return node.chars > COLLAPSE_CHAR_THRESHOLD
 }
 
-onMounted(() => {
-  void nextTick(() => {
-    measureThinks()
-    measureTexts()
-  })
-})
+/** 该思考是否处于折叠态（超长且未展开） */
+function thinkCollapsed(node: StreamNode): boolean {
+  return isThinkLong(node) && !expandedThinks.has(node.key)
+}
 
-/** 该思考是否处于折叠态（长思考且未展开） */
-function isThinkCollapsed(key: string): boolean {
-  return longThinks.has(key) && !expandedThinks.has(key)
+/** 该说明是否处于折叠态（超长且未展开） */
+function textCollapsed(node: StreamNode): boolean {
+  return isTextLong(node) && !expandedTexts.has(node.key)
 }
 
 /** 切换长思考的展开/收起 */
@@ -201,30 +190,7 @@ function toggleThink(key: string): void {
   else expandedThinks.add(key)
 }
 
-// —— 中间正文折叠：与思考一致，超过阈值截断 + 「展开全部」 ——
-/** 中间正文容器引用 */
-const textEls = new Map<string, HTMLDivElement>()
-/** 被判定为「长中间正文」的节点 key 集合 */
-const longTexts = reactive(new Set<string>())
-/** 用户已手动展开的中间正文节点 key 集合 */
-const expandedTexts = reactive(new Set<string>())
-
-const collectTextRef = makeCollectRef(textEls)
-
-/** 重新测量所有已渲染中间正文容器：超过阈值标记为「长内容」（已展开/已标记的跳过） */
-function measureTexts(): void {
-  for (const [key, el] of textEls) {
-    if (expandedTexts.has(key) || longTexts.has(key)) continue
-    if (el.scrollHeight > THINK_COLLAPSE_THRESHOLD) longTexts.add(key)
-  }
-}
-
-/** 该中间正文是否处于折叠态（长内容且未展开） */
-function isTextCollapsed(key: string): boolean {
-  return longTexts.has(key) && !expandedTexts.has(key)
-}
-
-/** 切换中间正文的展开/收起 */
+/** 切换长说明的展开/收起 */
 function toggleText(key: string): void {
   if (expandedTexts.has(key)) expandedTexts.delete(key)
   else expandedTexts.add(key)
@@ -295,9 +261,7 @@ let streamTimer: ReturnType<typeof setInterval> | undefined
 /** 从头开始模拟流式：重置全部节点进度与折叠状态，逐 tick 打字机推进 */
 function playStream(): void {
   for (const n of streamNodes) n.chars = 0
-  longThinks.clear()
   expandedThinks.clear()
-  longTexts.clear()
   expandedTexts.clear()
   if (streamTimer !== undefined) clearInterval(streamTimer)
   streaming.value = true
@@ -320,18 +284,6 @@ function stopStream(): void {
 }
 
 onUnmounted(stopStream)
-
-// 流式推进导致思考 / 中间正文文本变长 → 重新测量是否超阈值折叠
-watch(
-  streamNodes,
-  () => {
-    void nextTick(() => {
-      measureThinks()
-      measureTexts()
-    })
-  },
-  { deep: true }
-)
 
 // 最终答案：整条消息最后一段 text（方案 C 中即最后一个 step 的最后正文）
 const finalText = (() => {
@@ -383,7 +335,8 @@ function stepStatus(state: MockToolState): 'complete' | 'active' {
                   <template #icon>
                     <ui-chevrons-down class="size-4 shrink-0 text-muted-foreground" />
                   </template>
-                  <div class="text-sm leading-relaxed text-muted-foreground">接下来继续分析</div>
+                  <!-- 占位：保持节点有内容高度，左侧竖向连接线得以贯穿上下 -->
+                  <div class="h-4" />
                 </ui-chain-of-thought-step>
                 <!-- 思考节点 -->
                 <ui-chain-of-thought-step
@@ -392,14 +345,15 @@ function stepStatus(state: MockToolState): 'complete' | 'active' {
                   class="w-full min-w-0"
                 >
                   <template #icon>
-                    <ui-brain class="size-4 shrink-0 text-muted-foreground" />
+                    <ui-lightbulb class="size-4 shrink-0 text-muted-foreground" />
                   </template>
-                  <!-- 长思考折叠：超过阈值高度的思考截断 + 底部淡出遮罩 + 「展开全部」；短思考直接全文显示 -->
+                  <!-- 长思考折叠：超过阈值高度的思考截断 + 「展开全部」；短思考直接全文显示 -->
                   <div
-                    :ref="collectThinkRef(node.key)"
                     :class="[
                       'relative w-fit min-w-0 max-w-full',
-                      isThinkCollapsed(node.key) ? 'max-h-40 overflow-hidden' : '',
+                      thinkCollapsed(node)
+                        ? 'max-h-40 overflow-hidden'
+                        : 'overflow-x-auto',
                     ]"
                   >
                     <ui-message-response
@@ -408,17 +362,17 @@ function stepStatus(state: MockToolState): 'complete' | 'active' {
                     />
                     <!-- 折叠遮罩：底部淡出，营造内容被「盖住」的效果 -->
                     <div
-                      v-if="isThinkCollapsed(node.key)"
-                      class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-background from-40% to-transparent"
+                      v-if="thinkCollapsed(node)"
+                      class="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-background to-transparent"
                     />
                   </div>
                   <button
-                    v-if="longThinks.has(node.key)"
+                    v-if="isThinkLong(node)"
                     type="button"
                     class="mt-1 inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-foreground transition-colors hover:bg-muted/70"
                     @click="toggleThink(node.key)"
                   >
-                    {{ expandedThinks.has(node.key) ? '收起' : '展开全部' }}
+                    {{ expandedThinks.has(node.key) ? '收起' : '展开' }}
                   </button>
                 </ui-chain-of-thought-step>
                 <!-- 工具调用节点 -->
@@ -463,10 +417,11 @@ function stepStatus(state: MockToolState): 'complete' | 'active' {
                     <ui-file-text class="size-4 shrink-0 text-muted-foreground" />
                   </template>
                   <div
-                    :ref="collectTextRef(node.key)"
                     :class="[
                       'relative w-fit min-w-0 max-w-full',
-                      isTextCollapsed(node.key) ? 'max-h-40 overflow-hidden' : '',
+                      textCollapsed(node)
+                        ? 'max-h-40 overflow-hidden'
+                        : 'overflow-x-auto',
                     ]"
                   >
                     <ui-message-response
@@ -475,17 +430,17 @@ function stepStatus(state: MockToolState): 'complete' | 'active' {
                     />
                     <!-- 折叠遮罩：底部淡出，营造内容被「盖住」的效果 -->
                     <div
-                      v-if="isTextCollapsed(node.key)"
-                      class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-background from-40% to-transparent"
+                      v-if="textCollapsed(node)"
+                      class="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-background to-transparent"
                     />
                   </div>
                   <button
-                    v-if="longTexts.has(node.key)"
+                    v-if="isTextLong(node)"
                     type="button"
                     class="mt-1 inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-foreground transition-colors hover:bg-muted/70"
                     @click="toggleText(node.key)"
                   >
-                    {{ expandedTexts.has(node.key) ? '收起' : '展开全部' }}
+                    {{ expandedTexts.has(node.key) ? '收起' : '展开' }}
                   </button>
                 </ui-chain-of-thought-step>
               </template>
