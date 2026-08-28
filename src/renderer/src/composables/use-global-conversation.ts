@@ -194,7 +194,16 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
     }
   }
 
-  /** 清空全部会话：删除后新建一个空会话作为当前会话 */
+  /** 重命名会话：调主进程 rename，成功后就地更新列表项（返回更新后的 Conversation） */
+  async function renameConversation(id: string, title: string): Promise<void> {
+    const updated = await window.api.conversation.rename(id, title)
+    if (updated) {
+      const idx = conversations.value.findIndex((c) => c.id === id)
+      if (idx !== -1) conversations.value[idx] = updated
+    }
+  }
+
+  /** 清空全部会话：删除后列表为空、无活跃会话；下次发送时 send 会自动新建会话 */
   async function deleteAllConversations(): Promise<void> {
     chat.stop()
     await window.api.conversation.deleteAll()
@@ -202,7 +211,7 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
     activeConversationId.value = ''
     pendingMap.value = {}
     usageByMessageId.value = {}
-    await ensureActiveConversation()
+    chat.messages.value = []
   }
 
   /** 把 AI 回复正文、思考过程、完整 parts 与 token 用量写入主进程会话，返回落盘消息 id（供 EditIntent 挂载） */
@@ -349,6 +358,13 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
 
     const conversationId = await ensureActiveConversation()
 
+    // 首条用户消息自动命名：新建会话（默认「新会话 N」标题）且本地无消息时，用消息内容前 20 字同步标题
+    const conv = conversations.value.find((c) => c.id === conversationId)
+    if (conv && chat.messages.value.length === 0 && /^新会话 \d+$/.test(conv.title)) {
+      const t = text.trim()
+      if (t) conv.title = t.length > 20 ? `${t.slice(0, 20)}…` : t
+    }
+
     // 用户消息：主进程落盘（本地视图由 useChat 自动追加）
     await window.api.conversation.appendMessage(conversationId, 'user', text)
     await chat.sendMessage({ text })
@@ -381,6 +397,7 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
     activateConversation,
     deleteConversation,
     deleteAllConversations,
+    renameConversation,
     send,
     stopGeneration,
     pendingOf,

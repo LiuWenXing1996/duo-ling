@@ -1,8 +1,15 @@
 <script setup lang="ts">
-// 会话历史侧栏：工具内各会话的列表 + 新建 / 删除。删除确认使用 UI 弹窗（Dialog），
-// 由本组件自含单一实例，避免在父组件 v-for 下产生多个弹窗。
+// 会话历史侧栏：工具内各会话的列表 + 新建 / 会话操作（重命名 / 删除）。
+// 每项的「更多」下拉菜单包含重命名与删除；删除确认使用 UI 弹窗（Dialog），
+// 重命名使用独立 Dialog + 输入框，均由本组件自含单一实例。
 import { ref } from 'vue'
-import { ListTodo as UiListTodo, Plus as UiPlus, Trash2 as UiTrash2 } from '@lucide/vue'
+import {
+  ListTodo as UiListTodo,
+  MoreHorizontal as UiMoreHorizontal,
+  Pencil as UiPencil,
+  Plus as UiPlus,
+  Trash2 as UiTrash2
+} from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import {
   Dialog as UiDialog,
@@ -11,6 +18,14 @@ import {
   DialogFooter as UiDialogFooter,
   DialogTitle as UiDialogTitle
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu as UiDropdownMenu,
+  DropdownMenuContent as UiDropdownMenuContent,
+  DropdownMenuItem as UiDropdownMenuItem,
+  DropdownMenuSeparator as UiDropdownMenuSeparator,
+  DropdownMenuTrigger as UiDropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import { Input as UiInput } from '@/components/ui/input'
 import type { Conversation } from '../../../shared/types'
 import { formatSessionTime } from '@/composables/use-global-conversation'
 
@@ -22,6 +37,7 @@ const emit = defineEmits<{
   activate: [id: string]
   new: []
   delete: [payload: { type: 'session' | 'all'; id?: string; title?: string }]
+  rename: [payload: { id: string; title: string }]
 }>()
 
 // —— 删除确认弹窗：记录当前删除目标（单个会话 / 全部），弹窗开合由 deleteOpen 控制 ——
@@ -42,6 +58,29 @@ function confirmDelete(): void {
   if (!t) return
   emit('delete', { type: t.type, id: t.id, title: t.title })
   deleteOpen.value = false
+}
+
+// —— 重命名弹窗：输入框预填当前标题，确认后 emit rename ——
+const renameTarget = ref<{ id: string; title: string } | null>(null)
+const renameOpen = ref(false)
+const renameTitle = ref('')
+
+function openRename(conv: Conversation): void {
+  renameTarget.value = { id: conv.id, title: conv.title }
+  renameTitle.value = conv.title
+  renameOpen.value = true
+}
+
+function cancelRename(): void {
+  renameOpen.value = false
+}
+
+function confirmRename(): void {
+  const t = renameTarget.value
+  const title = renameTitle.value.trim()
+  if (!t || !title) return
+  emit('rename', { id: t.id, title })
+  renameOpen.value = false
 }
 </script>
 
@@ -95,16 +134,34 @@ function confirmDelete(): void {
                 >
               </p>
             </div>
-            <ui-button
-              variant="ghost"
-              size="icon"
-              class="size-6 shrink-0 text-muted-foreground transition-colors hover:text-destructive no-drag"
-              aria-label="删除该会话"
-              title="删除该会话"
-              @click.stop="openDelete({ type: 'session', id: s.id, title: s.title })"
-            >
-              <ui-trash2 class="size-3.5" />
-            </ui-button>
+            <ui-dropdown-menu>
+              <ui-dropdown-menu-trigger as-child>
+                <ui-button
+                  variant="ghost"
+                  size="icon"
+                  class="size-6 shrink-0 text-muted-foreground transition-colors no-drag"
+                  aria-label="会话操作"
+                  title="会话操作"
+                  @click.stop
+                >
+                  <ui-more-horizontal class="size-3.5" />
+                </ui-button>
+              </ui-dropdown-menu-trigger>
+              <ui-dropdown-menu-content align="end" class="min-w-[120px]">
+                <ui-dropdown-menu-item @click.stop="openRename(s)">
+                  <ui-pencil class="size-3.5" />
+                  重命名
+                </ui-dropdown-menu-item>
+                <ui-dropdown-menu-separator />
+                <ui-dropdown-menu-item
+                  class="text-destructive focus:text-destructive"
+                  @click.stop="openDelete({ type: 'session', id: s.id, title: s.title })"
+                >
+                  <ui-trash2 class="size-3.5" />
+                  删除
+                </ui-dropdown-menu-item>
+              </ui-dropdown-menu-content>
+            </ui-dropdown-menu>
           </div>
         </li>
       </ul>
@@ -112,6 +169,26 @@ function confirmDelete(): void {
         <p class="panel-empty">暂无会话</p>
       </div>
     </div>
+
+    <!-- 重命名会话弹窗：输入框预填当前标题 -->
+    <ui-dialog :open="renameOpen" @update:open="renameOpen = $event">
+      <ui-dialog-content class="max-w-sm">
+        <ui-dialog-title class="text-base font-semibold">重命名会话</ui-dialog-title>
+        <ui-dialog-description class="text-sm text-muted-foreground">
+          输入新的会话名称
+        </ui-dialog-description>
+        <ui-input
+          v-model="renameTitle"
+          class="mt-3"
+          placeholder="会话名称"
+          @keyup.enter="confirmRename"
+        />
+        <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
+          <ui-button variant="ghost" size="sm" @click="cancelRename">取消</ui-button>
+          <ui-button size="sm" @click="confirmRename">确定</ui-button>
+        </ui-dialog-footer>
+      </ui-dialog-content>
+    </ui-dialog>
 
     <!-- 删除确认弹窗：单个会话 / 全部，用 UI Dialog 承载 -->
     <ui-dialog :open="deleteOpen" @update:open="deleteOpen = $event">

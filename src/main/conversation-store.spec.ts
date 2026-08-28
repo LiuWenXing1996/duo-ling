@@ -3,6 +3,7 @@ import {
   addIntent,
   appendMessage,
   createConversation,
+  deleteAllConversations,
   getConversation,
   listConversations,
   listIntents,
@@ -60,6 +61,27 @@ describe('conversation-store（会话/消息/EditIntent 存储）', () => {
 
   it('appendMessage 对不存在的会话返回 null', () => {
     expect(appendMessage('nope', 'user', 'x')).toBeNull()
+  })
+
+  it('首条用户消息自动命名会话（默认标题时用消息内容）', () => {
+    const c = createConversation()
+    appendMessage(c.id, 'user', '帮我做一个读取本地文件的工具')
+    expect(getConversation(c.id)?.title).toBe('帮我做一个读取本地文件的工具')
+  })
+
+  it('超长首条消息自动命名截断到 20 字加省略号', () => {
+    const c = createConversation()
+    appendMessage(c.id, 'user', '这是一个非常长的首条消息，远远超过二十个字的截断长度，需要被截断处理。')
+    const title = getConversation(c.id)?.title ?? ''
+    expect(title.startsWith('这是一个非常长的首条消息')).toBe(true)
+    expect(title.length).toBe(21) // 20 字 + …
+  })
+
+  it('已手动重命名的会话不受首条消息自动命名影响', () => {
+    const c = createConversation()
+    renameConversation(c.id, '手动标题')
+    appendMessage(c.id, 'user', '内容')
+    expect(getConversation(c.id)?.title).toBe('手动标题')
   })
 
   it('appendMessage 携带 usage 落库；listConversations 汇总出 totalTokens', () => {
@@ -156,5 +178,19 @@ describe('conversation-store（会话/消息/EditIntent 存储）', () => {
   it('searchConversations 无命中返回空数组', () => {
     createConversation()
     expect(searchConversations('不存在关键词')).toEqual([])
+  })
+
+  it('deleteAllConversations 清空全部会话并将序号重置回 1', () => {
+    const a = createConversation()
+    const b = createConversation()
+    expect(b.title).toBe('新会话 2')
+
+    deleteAllConversations()
+    expect(listConversations()).toEqual([])
+    expect(listMessages(a.id)).toEqual([])
+
+    // 删除全部后新建会话序号重新从「新会话 1」开始
+    const c = createConversation()
+    expect(c.title).toBe('新会话 1')
   })
 })

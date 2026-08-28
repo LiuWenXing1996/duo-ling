@@ -24,9 +24,13 @@ beforeEach(() => {
       conversation: {
         create: vi.fn().mockResolvedValue(CONV),
         list: vi.fn().mockResolvedValue([]),
+        messages: vi.fn().mockResolvedValue([]),
         intents: vi.fn().mockResolvedValue([]),
         appendMessage: vi.fn().mockResolvedValue({ id: 'm1' }),
-        applyIntents: vi.fn().mockResolvedValue({ ok: true, results: [] })
+        applyIntents: vi.fn().mockResolvedValue({ ok: true, results: [] }),
+        delete: vi.fn(),
+        deleteAll: vi.fn(),
+        rename: vi.fn()
       },
       agent: {
         onStreamChunk: vi.fn((cb) => {
@@ -274,5 +278,89 @@ describe('useGlobalConversation 消息视图（ChatPanel 渲染链路）', () =>
     // 因此这里只断言 assistant 消息容器存在，正文回显由真实环境（切换会话/流式）覆盖。
     expect(wrapper.text()).toContain('你好啊')
     expect(wrapper.find('.is-assistant').exists()).toBe(true)
+  })
+})
+
+describe('useGlobalConversation 会话重命名', () => {
+  it('renameConversation 调主进程 rename 并就地更新列表项', async () => {
+    const updated = { id: 'c1', title: '新标题', createdAt: '', lastMessageAt: '' }
+    ;(window.api.conversation.rename as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(updated)
+    ;(window.api.conversation.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'c1', title: '旧标题', createdAt: '', lastMessageAt: '' }
+    ])
+
+    const conv = useGlobalConversation()
+    await conv.loadConversations()
+    expect(conv.conversations.value[0]?.title).toBe('旧标题')
+
+    await conv.renameConversation('c1', '新标题')
+    expect(window.api.conversation.rename).toHaveBeenCalledWith('c1', '新标题')
+    expect(conv.conversations.value[0]?.title).toBe('新标题')
+  })
+
+  it('rename 返回 null（标题为空被主进程拒绝）时列表保持不变', async () => {
+    ;(window.api.conversation.rename as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    ;(window.api.conversation.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'c1', title: '旧标题', createdAt: '', lastMessageAt: '' }
+    ])
+
+    const conv = useGlobalConversation()
+    await conv.loadConversations()
+
+    await conv.renameConversation('c1', '   ')
+    expect(conv.conversations.value[0]?.title).toBe('旧标题')
+  })
+})
+
+describe('useGlobalConversation 删除全部会话', () => {
+  it('deleteAllConversations 后列表为空、无活跃会话，不残留新会话', async () => {
+    const create = window.api.conversation.create as unknown as ReturnType<typeof vi.fn>
+    ;(window.api.conversation.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'c1', title: '旧会话', createdAt: '', lastMessageAt: '' }
+    ])
+
+    const conv = useGlobalConversation()
+    await conv.loadConversations()
+    expect(conv.conversations.value.length).toBe(1)
+
+    await conv.deleteAllConversations()
+    expect(window.api.conversation.deleteAll).toHaveBeenCalled()
+    // 列表为空、无活跃会话，且没有触发新建会话
+    expect(conv.conversations.value.length).toBe(0)
+    expect(conv.activeConversationId.value).toBe('')
+    expect(create).not.toHaveBeenCalled()
+  })
+})
+
+describe('useGlobalConversation 首条消息自动命名', () => {
+  function setupNewConversation(): void {
+    const created = { id: 'c1', title: '新会话 1', createdAt: '', lastMessageAt: '' }
+    ;(window.api.conversation.create as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(window.api.conversation.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([])
+    ;(window.api.conversation.appendMessage as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'm1' })
+    ;(window.api.agent.streamSend as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      content: '',
+      reasoning: ''
+    })
+  }
+
+  it('send 首条消息后会话标题自动命名为消息内容', async () => {
+    setupNewConversation()
+    const conv = useGlobalConversation()
+    await conv.loadConversations()
+    expect(conv.conversations.value[0]?.title).toBe('新会话 1')
+
+    await conv.send('帮我重写这个工具')
+    expect(conv.conversations.value[0]?.title).toBe('帮我重写这个工具')
+  })
+
+  it('send 首条超长消息自动命名截断到 20 字加省略号', async () => {
+    setupNewConversation()
+    const conv = useGlobalConversation()
+    await conv.loadConversations()
+
+    await conv.send('这是一个非常长的首条消息，远远超过二十个字的截断长度，需要被截断处理。')
+    expect(conv.conversations.value[0]?.title).toBe('这是一个非常长的首条消息，远远超过二十个…')
   })
 })

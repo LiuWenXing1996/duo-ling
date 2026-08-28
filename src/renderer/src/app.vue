@@ -63,6 +63,7 @@ const {
   activateConversation,
   deleteConversation,
   deleteAllConversations,
+  renameConversation,
   send,
   stopGeneration
 } = g
@@ -71,6 +72,11 @@ const {
 function onDeleteConversation(payload: { type: 'session' | 'all'; id?: string; title?: string }): void {
   if (payload.type === 'session' && payload.id) deleteConversation(payload.id)
   else deleteAllConversations()
+}
+
+/** 重命名会话：由 session-history-panel 的重命名弹窗触发 */
+function onRenameConversation(payload: { id: string; title: string }): void {
+  void renameConversation(payload.id, payload.title)
 }
 
 // 全局搜索：工具 + 会话记录双区下拉。
@@ -428,6 +434,7 @@ function handleCreateTool(): void {
               @activate="activateConversation"
               @new="newConversation"
               @delete="onDeleteConversation"
+              @rename="onRenameConversation"
             />
           </ui-resizable-panel>
 

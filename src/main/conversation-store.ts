@@ -256,7 +256,15 @@ export function appendMessage(
   const index = list.findIndex((c) => c.id === conversationId)
   if (index !== -1) {
     const nextList = [...list]
-    nextList[index] = { ...nextList[index], lastMessageAt: now }
+    const next = { ...nextList[index], lastMessageAt: now }
+    // 首条用户消息自动命名：标题仍为默认「新会话 N」时，用消息内容前 20 字作会话名
+    if (current.length === 0 && role === 'user' && /^新会话 \d+$/.test(next.title)) {
+      const trimmed = content.trim()
+      if (trimmed) {
+        next.title = trimmed.length > 20 ? `${trimmed.slice(0, 20)}…` : trimmed
+      }
+    }
+    nextList[index] = next
     getStore().set('conversations', nextList)
   }
   return message
@@ -329,10 +337,11 @@ export function deleteConversation(id: string): void {
   store.set('intents', restIntents)
 }
 
-/** 清空全部会话（连同消息与意图桶一并删除） */
+/** 清空全部会话（连同消息与意图桶一并删除），序号重置回 1，下次新建从「新会话 1」开始 */
 export function deleteAllConversations(): void {
   const store = getStore()
   store.set('conversations', [])
   store.set('messages', {})
   store.set('intents', {})
+  store.set('nextSeq', 1)
 }
