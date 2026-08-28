@@ -8,14 +8,15 @@
 //   - reasoning part -> 思考与执行过程中的思考段落
 //   - tool part      -> 工具调用卡（ToolHeader + ToolInput + ToolOutput）
 // 按 parts 出现顺序交错成「思考与执行过程」链，移除旧 chainNodes / reasonings 结构。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import {
-  Brain as UiBrain,
   Check as UiCheck,
+  ChevronsDown as UiChevronsDown,
   ChevronsUpDown as UiChevronsUpDown,
   CircleCheck as UiCircleCheck,
   CircleX as UiCircleX,
   FileText as UiFileText,
+  Lightbulb as UiLightbulb,
   LoaderCircle as UiLoaderCircle,
   Plus as UiPlus
 } from '@lucide/vue'
@@ -30,6 +31,7 @@ import {
   MessageContent as UiMessageContent,
   MessageResponse as UiMessageResponse
 } from '@/components/ai-elements/message'
+import { Shimmer as UiShimmer } from '@/components/ai-elements/shimmer'
 import {
   ChainOfThought as UiChainOfThought,
   ChainOfThoughtContent as UiChainOfThoughtContent,
@@ -66,6 +68,7 @@ import {
   isTextUIPart,
   isToolUIPart,
   type DynamicToolUIPart,
+  type TextUIPart,
   type ToolUIPart,
   type UIMessage
 } from 'ai'
@@ -157,17 +160,31 @@ function fromOf(m: UIMessage): 'user' | 'assistant' {
 
 const lastMessageId = computed(() => props.messages[props.messages.length - 1]?.id)
 
-/** 最终答案正文：最后一个 text part（中间轮正文已按步骤归入链，此处仅剩最终回复） */
-function finalText(m: UIMessage): string {
+/** 最终答案 text part：消息最后一段 text；若其后仍有任何后续内容（reasoning/tool/text/step-start）则视为尚未完成 */
+function finalTextPart(m: UIMessage): TextUIPart | undefined {
   const textParts = m.parts.filter(isTextUIPart)
-  return textParts.length ? textParts[textParts.length - 1].text : ''
+  if (!textParts.length) return undefined
+  const last = textParts[textParts.length - 1]
+  const lastIndex = m.parts.indexOf(last)
+  // 已过内容边界的 text 一定是中间正文：后面还有 reasoning/tool/text/新 step，
+  // 它不再是最终答案候选（避免中间正文在气泡中闪现）
+  const hasContentAfter = m.parts
+    .slice(lastIndex + 1)
+    .some((p) => isReasoningUIPart(p) || isToolUIPart(p) || isTextUIPart(p) || p.type === 'step-start')
+  return hasContentAfter ? undefined : last
 }
 
-/** 消息正文：取最终 text part；流式且尚无正文时给占位，避免空白气泡 */
+/** 最终答案正文：最后一个 text part（中间轮正文已按步骤归入链，此处仅剩最终回复） */
+function finalText(m: UIMessage): string {
+  return finalTextPart(m)?.text ?? ''
+}
+
+/** 消息正文：流式进行中不实时展示正文（避免中间正文闪现进气泡），结束后按最终答案展示 */
 function assistantText(m: UIMessage): string {
+  // 流式中的最后一条消息：正文可能仍是中间轮内容，先给占位，结束后才显示最终答案
+  if (m.id === lastMessageId.value && props.streaming) return '正在思考…'
   const t = finalText(m)
-  if (t.trim()) return t
-  return m.id === lastMessageId.value && props.streaming ? '正在思考…' : '（无回复内容）'
+  return t.trim() ? t : '（无回复内容）'
 }
 
 /** 取某条 AI 消息挂载的变更卡片（可能不存在，如自动模式或无变更） */
@@ -199,14 +216,12 @@ function stepLabel(name: string): string {
   return name
 }
 
-// —— 思考与执行过程：把 reasoning / tool parts 按序交错成链 ——
+// —— 思考与执行过程：把 reasoning / tool / 中间正文按 parts 顺序交错成链 ——
 type ToolState = ToolUIPart['state'] | DynamicToolUIPart['state']
 
 interface ThinkingNode {
   kind: 'thinking'
   key: string
-  /** 思考轮次序号（Agent Loop 中每轮调用工具前后的思考各占一段） */
-  round: number
   text: string
 }
 interface ToolNode {
@@ -224,12 +239,15 @@ interface ToolNode {
 interface TextNode {
   kind: 'text'
   key: string
-  /** 中间轮正文步骤序号（与思考/工具步骤连续编号，便于阅读） */
-  round: number
   /** 中间轮正文：模型在调用工具前后输出的叙述，作为链上独立一环（最终答案留在主气泡） */
   text: string
 }
-type ProcessNode = ThinkingNode | ToolNode | TextNode
+interface ContinueNode {
+  kind: 'continue'
+  key: string
+  /** step 边界提示节点：新 step 开始时的「继续流程」过渡 */
+}
+type ProcessNode = ThinkingNode | ToolNode | TextNode | ContinueNode
 
 /** 从工具 output 提取错误文案：AI SDK 工具返回对象 { ok:false, error } 时归入 Error 分支 */
 function extractToolError(output: unknown): string | undefined {
@@ -256,26 +274,24 @@ function buildToolNode(part: ToolUIPart | DynamicToolUIPart, key: string): ToolN
   }
 }
 
-/** 是否存在可折叠的「思考与执行过程」（至少一个 reasoning / tool / 中间轮正文 part；最终 text part 不算过程） */
+/** 是否存在可折叠的「思考过程」（至少一个 reasoning / tool / 中间轮正文 / step 边界；最终 text part 不算过程） */
 function hasProcess(m: UIMessage): boolean {
   return processNodes(m).length > 0
 }
 
-/** 把推理与工具调用按 parts 顺序交错成链式节点（中间轮正文也作为独立一环） */
+/** 把推理与工具调用按 parts 顺序交错成链式节点（step-start 处插入「继续流程」节点；链首 step-start 不渲染） */
 function processNodes(m: UIMessage): ProcessNode[] {
   const nodes: ProcessNode[] = []
   let i = 0
-  let round = 0
-  let textRound = 0
-  const textParts = m.parts.filter(isTextUIPart)
-  const lastTextPart = textParts[textParts.length - 1]
+  const final = finalTextPart(m)
   for (const part of m.parts) {
-    if (isReasoningUIPart(part) && part.text.trim()) {
-      round += 1
-      nodes.push({ kind: 'thinking', key: `r-${i++}`, round, text: part.text })
-    } else if (isTextUIPart(part) && part !== lastTextPart && part.text.trim()) {
-      textRound += 1
-      nodes.push({ kind: 'text', key: `x-${i++}`, round: textRound, text: part.text })
+    if (part.type === 'step-start') {
+      // 首个 step-start 是第一个 step 的开始（非 step 之间），不渲染「继续流程」
+      if (nodes.length > 0) nodes.push({ kind: 'continue', key: `c-${i++}` })
+    } else if (isReasoningUIPart(part) && part.text.trim()) {
+      nodes.push({ kind: 'thinking', key: `r-${i++}`, text: part.text })
+    } else if (isTextUIPart(part) && part !== final && part.text.trim()) {
+      nodes.push({ kind: 'text', key: `x-${i++}`, text: part.text })
     } else if (isToolUIPart(part)) {
       nodes.push(buildToolNode(part, `t-${i++}`))
     }
@@ -286,6 +302,51 @@ function processNodes(m: UIMessage): ProcessNode[] {
 /** 工具步骤状态 → ChainOfThoughtStep 步骤状态（入参流式生成中视为 active，其余视为完成） */
 function stepStatus(state: ToolState): 'complete' | 'active' {
   return state === 'input-streaming' ? 'active' : 'complete'
+}
+
+// —— 长内容折叠：思考 / 说明按字符数近似判定超长，截断 + 「展开全部」，可手动展开/收起 ——
+// 说明：不用 DOM 高度测量（外层「思考过程」折叠时内部不可见、scrollHeight 测不到），
+// 改用字符数近似，无可见性依赖、流式稳定。
+/** 折叠阈值（字符数）：超过即视为长内容（近似对应 160px 高度） */
+const COLLAPSE_CHAR_THRESHOLD = 300
+
+/** 用户已手动展开的思考节点 key 集合（key = `${messageId}:${node.key}`） */
+const expandedThinks = reactive(new Set<string>())
+/** 用户已手动展开的说明节点 key 集合 */
+const expandedTexts = reactive(new Set<string>())
+
+/** 思考节点是否超长（字符数近似） */
+function isThinkLong(node: ThinkingNode): boolean {
+  return node.text.length > COLLAPSE_CHAR_THRESHOLD
+}
+
+/** 说明节点是否超长（字符数近似） */
+function isTextLong(node: TextNode): boolean {
+  return node.text.length > COLLAPSE_CHAR_THRESHOLD
+}
+
+/** 该思考是否处于折叠态（超长且未展开） */
+function thinkCollapsed(m: UIMessage, node: ThinkingNode): boolean {
+  return isThinkLong(node) && !expandedThinks.has(`${m.id}:${node.key}`)
+}
+
+/** 该说明是否处于折叠态（超长且未展开） */
+function textCollapsed(m: UIMessage, node: TextNode): boolean {
+  return isTextLong(node) && !expandedTexts.has(`${m.id}:${node.key}`)
+}
+
+/** 切换长思考的展开/收起 */
+function toggleThink(m: UIMessage, node: ThinkingNode): void {
+  const key = `${m.id}:${node.key}`
+  if (expandedThinks.has(key)) expandedThinks.delete(key)
+  else expandedThinks.add(key)
+}
+
+/** 切换长说明的展开/收起 */
+function toggleText(m: UIMessage, node: TextNode): void {
+  const key = `${m.id}:${node.key}`
+  if (expandedTexts.has(key)) expandedTexts.delete(key)
+  else expandedTexts.add(key)
 }
 
 /** 发送/停止：由 PromptInput 表单提交触发；流式时视为停止，否则发送（执行由父组件负责） */
@@ -322,35 +383,65 @@ function onPromptSubmit(payload: PromptInputMessage): void {
               class="flex flex-col gap-1.5"
               :class="m.role === 'user' ? 'items-end' : 'items-start'"
             >
-              <!-- 思考与执行过程：思考段落与 tool 卡按 parts 顺序交错成链（每节点独立一环），默认折叠 -->
+              <!-- 思考过程：思考/说明/工具卡按 parts 顺序交错成链，默认折叠 -->
               <ui-chain-of-thought
                 v-if="m.role === 'assistant' && hasProcess(m)"
                 :default-open="false"
                 class="w-full min-w-0"
                 data-testid="chain-of-thought"
               >
-                <ui-chain-of-thought-header>思考与执行过程</ui-chain-of-thought-header>
-                <ui-chain-of-thought-content>
+                <ui-chain-of-thought-header>思考过程</ui-chain-of-thought-header>
+                <ui-chain-of-thought-content class="pl-4">
                   <template v-for="node in processNodes(m)" :key="node.key">
-                    <!-- 思考节点：该轮模型在调用工具前后的思考，按轮单独一环展示 -->
+                    <!-- step 边界「继续流程」节点 -->
                     <ui-chain-of-thought-step
-                      v-if="node.kind === 'thinking'"
-                      :label="`思考 ${node.round}`"
+                      v-if="node.kind === 'continue'"
+                      label="继续流程"
                       class="w-full min-w-0"
                     >
                       <template #icon>
-                        <ui-brain class="size-4 shrink-0 text-muted-foreground" />
+                        <ui-chevrons-down class="size-4 shrink-0 text-muted-foreground" />
+                      </template>
+                      <!-- 占位：保持节点有内容高度，左侧竖向连接线得以贯穿上下 -->
+                      <div class="h-4" />
+                    </ui-chain-of-thought-step>
+                    <!-- 思考节点：弱化灰 + 超长截断折叠（展开态 overflow-x-auto 防长代码撑宽） -->
+                    <ui-chain-of-thought-step
+                      v-else-if="node.kind === 'thinking'"
+                      label="思考"
+                      class="w-full min-w-0"
+                    >
+                      <template #icon>
+                        <ui-lightbulb class="size-4 shrink-0 text-muted-foreground" />
                       </template>
                       <div
-                        class="w-fit min-w-0 max-w-full max-h-64 overflow-y-auto overflow-x-auto rounded-md border border-border/60 bg-muted/40 px-3 py-2"
+                        :class="[
+                          'relative w-fit min-w-0 max-w-full',
+                          thinkCollapsed(m, node)
+                            ? 'max-h-40 overflow-hidden'
+                            : 'overflow-x-auto',
+                        ]"
                       >
                         <ui-message-response
                           :content="node.text"
-                          class="text-sm leading-relaxed text-foreground/90 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
+                          class="text-sm leading-relaxed text-muted-foreground/70! [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
+                        />
+                        <!-- 折叠遮罩：底部淡出，营造内容被「盖住」的效果 -->
+                        <div
+                          v-if="thinkCollapsed(m, node)"
+                          class="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-background to-transparent"
                         />
                       </div>
+                      <button
+                        v-if="isThinkLong(node)"
+                        type="button"
+                        class="mt-1 inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-foreground transition-colors hover:bg-muted/70"
+                        @click="toggleThink(m, node)"
+                      >
+                        {{ expandedThinks.has(`${m.id}:${node.key}`) ? '收起' : '展开' }}
+                      </button>
                     </ui-chain-of-thought-step>
-                    <!-- 工具调用节点：官方 Tool 卡片（入参 ToolInput + 出参/报错 ToolOutput）嵌进链上这一环 -->
+                    <!-- 工具调用节点：Tool 自带折叠（header 点击展开/收起），默认收起，展开后全文 -->
                     <ui-chain-of-thought-step
                       v-else-if="node.kind === 'tool'"
                       :label="node.title"
@@ -368,35 +459,53 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                         />
                         <ui-circle-check v-else class="size-4 shrink-0 text-green-600" />
                       </template>
-                      <ui-tool class="min-w-0" :default-open="true">
+                      <ui-tool class="min-w-0" :default-open="false">
                         <ui-tool-header
                           :type="node.partType"
                           :state="node.state"
                           :title="node.title"
                         />
-                        <ui-tool-content class="min-w-0">
+                        <ui-tool-content class="max-h-none min-w-0">
                           <ui-tool-input v-if="node.input != null" :input="node.input" />
                           <ui-tool-output :output="node.output" :error-text="node.errorText" />
                         </ui-tool-content>
                       </ui-tool>
                     </ui-chain-of-thought-step>
-                    <!-- 正文步骤：中间轮叙述（非最终答案），作为链上独立一环，复用 Markdown 渲染 -->
+                    <!-- 说明节点（中间轮正文）：与思考一致，弱化灰 + 超长截断折叠 -->
                     <ui-chain-of-thought-step
                       v-else
-                      :label="`步骤 ${node.round}`"
+                      label="说明"
                       class="w-full min-w-0"
                     >
                       <template #icon>
                         <ui-file-text class="size-4 shrink-0 text-muted-foreground" />
                       </template>
                       <div
-                        class="w-fit min-w-0 max-w-full max-h-64 overflow-y-auto overflow-x-auto rounded-md border border-border/60 bg-muted/40 px-3 py-2"
+                        :class="[
+                          'relative w-fit min-w-0 max-w-full',
+                          textCollapsed(m, node)
+                            ? 'max-h-40 overflow-hidden'
+                            : 'overflow-x-auto',
+                        ]"
                       >
                         <ui-message-response
                           :content="node.text"
-                          class="text-sm leading-relaxed text-foreground/90 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
+                          class="text-sm leading-relaxed text-muted-foreground/70! [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
+                        />
+                        <!-- 折叠遮罩：底部淡出，营造内容被「盖住」的效果 -->
+                        <div
+                          v-if="textCollapsed(m, node)"
+                          class="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-background to-transparent"
                         />
                       </div>
+                      <button
+                        v-if="isTextLong(node)"
+                        type="button"
+                        class="mt-1 inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-foreground transition-colors hover:bg-muted/70"
+                        @click="toggleText(m, node)"
+                      >
+                        {{ expandedTexts.has(`${m.id}:${node.key}`) ? '收起' : '展开' }}
+                      </button>
                     </ui-chain-of-thought-step>
                   </template>
                 </ui-chain-of-thought-content>
@@ -408,7 +517,15 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                 </template>
                 <template v-else>
                   <ui-message-content class="w-full min-w-0">
+                    <!-- 流式中：Shimmer 占位，不展示可能还会变化的正文（避免中间正文闪现） -->
+                    <ui-shimmer
+                      v-if="m.id === lastMessageId && props.streaming"
+                      class="text-sm"
+                    >
+                      正在思考…
+                    </ui-shimmer>
                     <ui-message-response
+                      v-else
                       :content="assistantText(m)"
                       class="[&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
                     />
