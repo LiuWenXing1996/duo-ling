@@ -150,19 +150,19 @@ describe('ChatPanel 消息气泡（UIMessage parts 化）', () => {
     // 标题来自 tool part title（agent_tools_list 中文名一并覆盖）
     expect(chain.text()).toContain('查询工具列表')
     expect(chain.text()).toContain('打开工具')
-    // 状态徽标：output-available=Completed / input-available=Running / output-error=Error
-    expect(chain.text()).toContain('Completed')
-    expect(chain.text()).toContain('Running')
-    expect(chain.text()).toContain('Error')
+    // 状态徽标：output-available=已完成 / input-available=执行中 / output-error=错误
+    expect(chain.text()).toContain('已完成')
+    expect(chain.text()).toContain('执行中')
+    expect(chain.text()).toContain('错误')
     // running 用图标脉冲，done 用绿对勾，error 用红叉
     expect(chain.find('.animate-pulse').exists()).toBe(true)
     expect(chain.find('.text-green-600').exists()).toBe(true)
     expect(chain.find('.text-red-600').exists()).toBe(true)
-    // 入参 Parameters 含工具入参 JSON
-    expect(chain.text()).toContain('Parameters')
+    // 入参「参数」含工具入参 JSON
+    expect(chain.text()).toContain('参数')
     expect(chain.text()).toContain('index.html')
-    // 出参 Result 含结果、出参容器含错误文案
-    expect(chain.text()).toContain('Result')
+    // 出参「结果」含结果、出参容器含错误文案
+    expect(chain.text()).toContain('结果')
     expect(chain.text()).toContain('工具列表：MD 阅读器')
     expect(chain.text()).toContain('打开失败')
   })
