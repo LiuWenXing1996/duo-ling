@@ -2,36 +2,44 @@
 
 本项目面向在本仓库内工作的 AI 代理（及协作者），约定任务执行方式与注意事项。
 
+> **本仓库 = 哆灵浏览器扩展工程本体**。原 Electron 桌面版已整体归档到 `legacy/`（只读参照，**不参与构建，不要在其中改代码**），迁移完成后删除。
+
 ## 项目速览
 
-- **架构**：electron-vite 三进程结构（main / preload / renderer）
-- **渲染层**：Vue 3.5 + TypeScript，`@` 别名指向 `src/renderer/src`
-- **UI**：shadcn-vue（`src/renderer/src/components/ui/`），基于 reka-ui
-- **样式**：Tailwind CSS v4（CSS-first）+ Less
-- **测试**：单测 Vitest（`src/**/*.spec.ts`），端测 Playwright（`e2e/`）
+- **形态**：Chrome MV3 扩展（background service worker + side panel + options）
+- **构建**：WXT 0.21（Vite 内核），`entrypoints/` 约定式入口，自动生成 `manifest.json`
+- **UI 层**：Vue 3.5 + TypeScript，`@` 别名指向 `src/`
+- **存储**：`lightning-fs`（IndexedDB 后端）+ `chrome.storage.local`（工具数据）
+- **版本管理**：`isomorphic-git`（纯 JS）
+- **工具页承载**：sandbox `iframe` + `srcdoc` + `window.cap` 桥接
+- **包管理**：npm（原 Electron 工程的 pnpm workspace 配置已随归档移入 `legacy/`）
+- **测试**：尚未建立（原 Vitest/Playwright 配置已归档）——补测试前先与用户确认方案
 
-> 项目介绍、安装与上手请读 [README.md](README.md)。
+> 项目介绍与手测步骤请读 [README.md](README.md)；迁移背景见 [docs/plugin-migration-plan.md](docs/plugin-migration-plan.md)。
 
 ## 常用命令
 
 | 命令 | 说明 |
 | --- | --- |
-| `pnpm dev` | 开发模式（热更新 + 自动打开 Electron） |
-| `pnpm build` | 构建产物到 `out/` |
-| `pnpm typecheck` | node 与 web 两侧类型检查 |
-| `pnpm test` | 运行 Vitest 单测 |
-| `pnpm test:e2e` | 构建后运行 Playwright 端测 |
-| `pnpm build:mac/win/linux` | electron-builder 打包 |
+| `npm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev` |
+| `npm run build` | 构建，产出 `.output/chrome-mv3` |
+| `npm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配见迁移方案 §5 风险 7） |
+
+> 无 typecheck / test 脚本：目前以 `npm run build` 作为交付前验证。补 typecheck（`tsc --noEmit`）需先与用户确认。
 
 ## 文档职责总表
 
 | 文档 | 职责 | 何时读 |
 | --- | --- | --- |
-| [docs/style.md](docs/style.md) | 代码风格规范：命名、TypeScript、Vue SFC、样式体系、shadcn-vue 组件、测试规范、提交与协作 | 写代码 / 改样式 / 补测试前 |
-| [docs/design.md](docs/design.md) | 架构设计：技术选型、进程模型、目录结构（含脚本/探针）、IPC 设计、安全基线、样式体系、测试策略、构建发布 | 涉及主进程 / preload / IPC / 安全 / 构建时 |
-| [docs/lessons.md](docs/lessons.md) | 踩坑记录：历史经验与避坑要点 | 报错 / 排查 / 新增同类功能前 |
+| [README.md](README.md) | 工程介绍、目录结构、命令、手测步骤、关键坑 | 上手 / 手测前 |
+| [docs/plugin-migration-plan.md](docs/plugin-migration-plan.md) | 迁移方案：架构映射、分层方案、风险清单、路线图 | 涉及架构 / 迁移范围时 |
 | [docs/prd.md](docs/prd.md) | 产品需求文档 | 了解功能背景与范围时 |
-| [docs/todo.md](docs/todo.md) | 待办与方案 | 了解遗留事项 / 方案评审时 |
+| [docs/tool-spec.md](docs/tool-spec.md) | 工具规范 | 新增 / 改动工具形态时 |
+| [docs/style.md](docs/style.md) | 代码风格规范（部分条目为 Electron 时期约定，按需取用） | 写代码 / 改样式前 |
+| [docs/lessons.md](docs/lessons.md) | 踩坑记录 | 报错 / 排查前 |
+| [docs/todo.md](docs/todo.md) | 待办与方案 | 了解遗留事项时 |
+| [docs/design.md](docs/design.md) | ⚠️ 描述的是**已归档的 Electron 架构**，待重写为扩展架构 | 仅作背景参考 |
+| `legacy/` | 原 Electron 实现归档（含 `docs` 未覆盖的代码事实） | 平移逻辑时对照 |
 
 ## 全局约束（强制）
 
@@ -41,46 +49,45 @@
 
 必须脱敏的信息：
 
-- **本机绝对路径** → 相对化/占位符（如 `<项目根>`、`<userData>`、`<用户配置目录>`）
+- **本机绝对路径** → 相对化/占位符（如 `<项目根>`、`<用户配置目录>`）
 - **用户名、邮箱、个人 ID** → `<用户名>` 等占位符
 - **token、密码、API key 等凭据** → 只写"在哪个配置项中配置"，**不写值**
 - **内网 IP / 主机名** → `<内网IP>` 等占位符
 - **带账号密码的代理/镜像 URL** → 隐藏凭据部分
 - **报错日志** → 保留错误类型、报错行号、项目内相对路径等诊断信息，删除路径/URL/环境变量中的隐私字段
 
-不属于隐私、可原样记录：
-
-- 项目内相对路径（`src/`、`out/`、`node_modules/` 等）
-- 错误类型与信息、依赖名称与版本、架构决策、命令本身
+不属于隐私、可原样记录：项目内相对路径、错误类型与信息、依赖名称与版本、架构决策、命令本身。
 
 ### 调试方法论
 
-> 接到 bug 后，**先判断 bug 在哪一层，再选最直接的工具**，不要默认只做静态分析或写探针。
+> 接到 bug 后，**先判断 bug 在哪一层，再选最直接的工具**，不要默认只做静态分析。
 
 | bug 层级 | 首选工具 | 说明 |
 | --- | --- | --- |
-| 渲染层（界面/交互/状态） | **CDP 复现 + Runtime.evaluate 观察** | dev 模式已开 9222 端口；直接读组件状态/DOM 真实文本（如某元素的 `textContent`），比读源码猜快 |
-| IPC 层（数据跨进程流转） | 主进程日志 + 单测 | 在 handler 边界打点，确认数据形状 |
-| 持久化/落盘 | 一次性探针读磁盘 JSON | 以落盘数据事实为准（放 `tmp/`，用完即删） |
-| 主进程/模型 | 主进程日志 + node 调试端口 | 断点看调用栈，或 `chrome://inspect` |
+| side panel UI（Vue 状态/交互） | 面板内右键 → 检查 → Console | 直接读组件状态与 DOM 真实文本 |
+| 工具页（sandbox iframe） | DevTools 的 frame 选择器切到该 iframe | 焦点/CSP/桥接问题都在这层暴露 |
+| background（能力运行时） | `chrome://extensions` → 该扩展的「Service Worker」→ Console | SW 报错不会出现在面板 Console |
+| 消息链路（工具页 → 面板 → background） | 三段各打一条日志，确认消息形状与 `toolId` | 跨上下文流转必须按边界验证 |
+| 持久化 | DevTools → Application → IndexedDB（`duoling`）/ chrome.storage | 以落盘数据事实为准 |
+| 构建/产物 | 直接查 `.output/chrome-mv3/manifest.json` 与产物 JS | manifest 权限错误只能在此确认 |
 
-CDP 的边界：需要应用在 dev 模式运行；只覆盖渲染进程；生成类时序 bug 需真实模型复现。
+边界：改了 `wxt.config.ts` 必须**重启 dev**（HMR 不重读配置），再到 `chrome://extensions` 点刷新图标重载扩展。
 
 ### 工作流
 
-1. 修改前先阅读相关文件，理解现有结构再动手。
-2. 完成代码后必须运行 `pnpm typecheck` 与 `pnpm test` 验证，全部通过再交付。
-3. **测试覆盖（强制）**：需求改动或 bug 修复必须补测试——单测优先（组件逻辑/工具函数），端测尽量补充（跨进程链路、持久化、真实浏览器行为必须有）；修改旧用例跑挂时判断「旧用例过期」还是「真实回归」，不得静默绕过。详见 [docs/style.md](docs/style.md) §6。
-4. 涉及新增依赖、修改构建配置或改变环境的行为，先与用户确认再执行。
+1. 修改前先阅读相关文件；涉及桌面版逻辑平移时对照 `legacy/` 中的原实现。
+2. 完成代码后必须运行 `npm run build` 验证通过再交付。
+3. **测试覆盖**：测试体系待建立；新增功能应尽量补最小验证（构建断言、探针脚本放 `tmp/`），方案先与用户确认。
+4. 涉及新增依赖、修改 `wxt.config.ts`、变更 manifest 权限或改变环境的行为，**先与用户确认再执行**。
 
 ## 项目硬性底线（速览）
 
-以下为不可违反的硬约束，细节与完整说明见对应专项文档：
-
 | 领域 | 一句话底线 | 详情 |
 | --- | --- | --- |
-| 命名 | 文件/目录 kebab-case；模板中组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | [docs/style.md](docs/style.md) §1/§3 |
-| IPC | 只在 `src/main/` 注册 `ipcMain.handle`，经 preload `api` 暴露；返回值仅纯字面量；新增通道同步更新类型 | [docs/design.md](docs/design.md) §4 |
-| 安全 | 渲染进程保持 `contextIsolation`，不关闭 `sandbox`，外部链接交 `shell.openExternal` | [docs/design.md](docs/design.md) §5 |
-| shadcn-vue | 优先 `npx shadcn-vue@latest add` 增量添加；手动创建需保持 `components.json` 别名与 `index.ts` 重导出结构一致 | [docs/style.md](docs/style.md) §5 |
-| 脚本分类 | 一次性脚本放 `tmp/`，可复用探针放 `scripts/probe-*.ts`（TS，不挂 npm script） | [docs/design.md](docs/design.md) §3 |
+| manifest 权限 | `sidePanel` 是 `chrome.sidePanel` 的**必需权限**（勿剔除）；所需权限之外的不要加（上架审查） | [README](README.md) 坑 1 |
+| SW 全局 | 引入依赖 Node 全局的库时，必须补 `src/polyfills.ts` 并在 `background.ts` **最前** import | [README](README.md) 坑 2 |
+| CSP / 沙箱 | 桥接脚本必须外置同源文件（禁内联 `<script>`）；**AI 生成的不可信工具页必须严格 sandbox（opaque origin）+ 双层 iframe 分层** | [迁移方案](docs/plugin-migration-plan.md) §4.6 |
+| 消息协议 | 工具页只能经 `window.cap` → side panel → background 调用能力，**不得直接访问 `chrome.*`** | [迁移方案](docs/plugin-migration-plan.md) §4.3 |
+| entrypoint | 不要同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [README](README.md) 坑 5 |
+| 命名 | 文件/目录 kebab-case；组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | [docs/style.md](docs/style.md) §1/§3 |
+| 归档 | `legacy/` 只读参照，不参与构建，不在此改代码 | 本文件顶部 |
