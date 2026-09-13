@@ -148,7 +148,10 @@ interface ScriptProject {
    // 外部依赖分两档：
    //   ① https:// 开头说明符：插件拦截 → UI 页 fetch（扩展页有 host 权限，免 CORS）→ 内容喂给 esbuild，
    //      并把远程源码**持久化进项目 files**（否则断网重构建失败），UI 提示「拉取了哪些远程依赖」；
-   //      一期只支持**单文件远程模块**（无相对子导入的 CDN ESM 文件）——递归解析包内依赖链成本高，后置
+   //      远程导入链按 URL 解析（2026-09-14 修订）：esm.sh 入口是「同源绝对路径转发」形态
+   //      （`export * from "/pkg@ver/es2022/x.mjs"`），按字面「单文件」实现会拒掉主流 CDN——
+   //      故 remote 命名空间内相对/绝对路径均 new URL(p, importer) 解析后逐条 fetch；
+   //      **仅拒绝裸包名说明符**（远程链内同样）；已持久化的远程文件重建时直接走 mem 不再发请求
    //   ② 裸 npm 说明符（`from 'lodash'`）与 `node:` 前缀：拦截并报友好错误「不支持 npm 包名，请改 CDN URL」
    // 入口约束：顶层 export 在 iife 格式下需 globalName——模板与文档约定「入口文件无顶层 export」
    // 需要时禁用 network（离线保存）可加开关

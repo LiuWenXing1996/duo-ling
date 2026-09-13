@@ -5,8 +5,9 @@
 // - MV3 extension_pages 最小 CSP 已含 'wasm-unsafe-eval'，无需改 manifest
 // - 远程依赖在 UI 页 fetch（扩展页有 host 权限，免 CORS），源码持久化进项目 files（断网可重构建）
 //
-// 一期边界（方案定稿）：远程模块仅支持单文件（https:// 说明符，无内部相对导入）；
-// 裸 npm 说明符 / node: 前缀拦截并报友好错误；入口文件约定无顶层 export（iife 格式限制）。
+// 一期边界（方案定稿 + 2026-09-14 修订）：远程模块 = URL 可解析的导入链（esm.sh 的同源
+// 绝对路径转发、包内相对导入均按 URL 解析，逐条 fetch 并持久化进项目 files）；仅拒绝
+// 裸 npm 说明符 / node: 前缀（报友好错误）；入口文件约定无顶层 export（iife 格式限制）。
 import type { Loader, Plugin } from 'esbuild-wasm'
 
 /** 构建成功产物：注入代码 + 回写的文件树（含新拉取的远程依赖源码） */
@@ -99,16 +100,27 @@ function createVfsPlugin(
     setup(build) {
       build.onResolve({ filter: /.*/ }, (args) => {
         const p = args.path
-        // 远程模块：一期仅单文件，其内部相对导入不支持
+        // 远程模块：URL 可解析即支持（esm.sh 入口的同源绝对路径转发、包内相对导入都按 URL 解析；
+        // 每条导入一次 fetch，链路自然有界）。仅拒绝裸包名说明符。
         if (p.startsWith('https://') || p.startsWith('http://')) {
-          return { path: p, namespace: 'remote' }
+          // 已持久化的远程文件直接走 mem（断网重构建的关键：不再发请求）
+          return { path: p, namespace: p in files ? 'mem' : 'remote' }
         }
         if (args.namespace === 'remote') {
-          return {
-            errors: [{
-              text: `远程模块「${args.importer}」内部还有相对导入（${p}）：一期仅支持单文件远程模块，请把依赖源码直接放进项目文件树`,
-            }],
+          if (!p.startsWith('.') && !p.startsWith('/')) {
+            return {
+              errors: [{
+                text: `远程模块「${args.importer}」引用了包名「${p}」：远程依赖链同样不支持 npm 包名，请改用完整 URL 的 CDN 构建`,
+              }],
+            }
           }
+          let abs: string
+          try {
+            abs = new URL(p, args.importer).href
+          } catch {
+            return { errors: [{ text: `远程模块内路径无法解析：${p}（来自 ${args.importer}）` }] }
+          }
+          return { path: abs, namespace: abs in files ? 'mem' : 'remote' }
         }
         // 裸 npm 说明符与 node: 前缀：明确拒绝（不是装不了，是不该悄悄装）
         if (p.startsWith('node:') || (!p.startsWith('.') && !p.startsWith('/'))) {
@@ -143,7 +155,7 @@ function createVfsPlugin(
           const text = await res.text()
           files[args.path] = text // 持久化进文件树：断网重构建不失败
           remoteFetched.push(args.path)
-          return { contents: text, loader: 'js', resolveDir: '' }
+          return { contents: text, loader: loaderFor(args.path), resolveDir: '' }
         } catch (e) {
           return { errors: [{ text: `远程依赖拉取异常：${args.path}（${e instanceof Error ? e.message : String(e)}）` }] }
         }
