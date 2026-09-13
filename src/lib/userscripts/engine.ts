@@ -57,10 +57,20 @@ export async function getUserScriptsStatus(): Promise<import('./types').UserScri
 
 /** 开启 messaging 专用通道（onUserScriptMessage）。csp 不被支持时降级为仅 messaging */
 export async function configureUserScriptsWorld(): Promise<void> {
+  // chrome.userScripts 仅在已开启「Allow User Scripts」（Chrome ≥138）/ 全局开发者模式
+  // （Chrome <138）/ 已授权 userScripts 权限（Firefox）时存在；configureWorld 也可能在某些
+  // 实现（如 Firefox 旧 API）上缺失。两者任一不可用则无法配置世界，直接优雅跳过，交由上层
+  // 可用性检测决定降级（UI 横幅引导开启），避免 SW 初始化崩溃。
+  if (!chrome.userScripts || typeof chrome.userScripts.configureWorld !== 'function') return
   try {
     await chrome.userScripts.configureWorld({ messaging: true, csp: US_WORLD_CSP })
   } catch {
-    await chrome.userScripts.configureWorld({ messaging: true })
+    // csp 参数不被当前版本接受时降级为仅 messaging（保持 GM 桥可用）
+    try {
+      await chrome.userScripts.configureWorld({ messaging: true })
+    } catch {
+      // 连 messaging-only 都失败则放弃世界配置（GM 桥不可用，但 SW 不崩）
+    }
   }
 }
 
@@ -207,6 +217,9 @@ function buildGmWrapper(meta: UserScriptMeta): string {
  */
 export async function registerScript(meta: UserScriptMeta): Promise<void> {
   if (!meta.enabled) return
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') {
+    throw new Error('userScripts 引擎不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限')
+  }
   if (!meta.matches?.length) {
     throw new Error('脚本缺少 @match，无法注册')
   }
@@ -230,6 +243,7 @@ export async function registerScript(meta: UserScriptMeta): Promise<void> {
 /** 注销指定 id（ids 为空直接跳过） */
 export async function unregisterScripts(ids: string[]): Promise<void> {
   if (!ids.length) return
+  if (!chrome.userScripts || typeof chrome.userScripts.unregister !== 'function') return
   await chrome.userScripts.unregister({ ids })
 }
 

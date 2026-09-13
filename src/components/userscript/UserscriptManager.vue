@@ -39,6 +39,10 @@ const SAMPLE = `// ==UserScript==
 // @match        *://*/*
 // @grant        GM_log
 // ==/UserScript==
+// 真正的视觉反馈：标题前加 ★(幂等,避免 SPA 重复注入时叠星)
+if (!document.title.includes('★')) {
+  document.title = '★ ' + document.title
+}
 console.log('[示例脚本] 已注入 →', location.href)
 GM_log('示例脚本运行', location.href)
 `

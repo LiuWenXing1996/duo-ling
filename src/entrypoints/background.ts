@@ -224,6 +224,16 @@ const handlers: {
 /** 用户脚本管理器启动：挂载 GM 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用脚本（设计文档 §4/§6） */
 async function initUserScripts(): Promise<void> {
   initGmBridge() // GM_* 后台桥（独立于 world 配置，只需注册一次）
+  // chrome.userScripts 仅在已开启「Allow User Scripts」（Chrome ≥138）或全局开发者模式
+  // （Chrome <138）/ 已授权 userScripts 权限（Firefox）时存在；否则为 undefined，
+  // 直接调用会令 SW 初始化崩溃。先判存在性，不可用则优雅跳过（UI 横幅会引导开启）。
+  if (!chrome.userScripts) {
+    console.warn(
+      '[duoling:userscript] chrome.userScripts 不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，' +
+        'Chrome <138 需开启全局「开发者模式」；Firefox 需授权 userScripts 权限。用户脚本功能已禁用。',
+    )
+    return
+  }
   await configureUserScriptsWorld()
   const ok = await isUserScriptsAvailable()
   if (!ok) {

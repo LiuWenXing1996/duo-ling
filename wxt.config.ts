@@ -41,9 +41,7 @@ export default defineConfig({
     // （Chrome 文档明确要求），同时覆盖 GM_xmlhttpRequest 的跨域可达范围。
     host_permissions: [...providerOrigins(), '<all_urls>'],
     // 每脚本独立 USER_SCRIPT 世界隔离（worldId）需 Chrome 133+ / Firefox 136+。
-    // 注意：WXT 透传 manifest 键名不改写，而 Chrome 规范字段是下划线 minimum_chrome_version，
-    // 驼峰键会被 Chrome 忽略（等于没声明下限）。故下划线键才是真正生效的，驼峰仅兼容 WXT 类型。
-    minimumChromeVersion: '133',
+    // Chrome 规范字段是下划线 minimum_chrome_version；驼峰键会被 Chrome 忽略并报 Unrecognized。
     'minimum_chrome_version': '133',
     action: {
       default_title: '打开哆灵',
