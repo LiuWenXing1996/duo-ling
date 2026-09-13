@@ -734,10 +734,10 @@ onMounted(refresh)
         </ul>
       </section>
 
-      <!-- 编辑器抽屉 -->
+      <!-- 编辑器抽屉（z-30：高于宿主全局「关闭管理器」按钮 z-20——否则它压住抽屉头部的历史/关闭钮；低于覆盖层 z-50） -->
       <div
         v-if="editing"
-        class="fixed inset-0 z-10 flex justify-end bg-black/40"
+        class="fixed inset-0 z-30 flex justify-end bg-black/40"
         @click.self="closeEditor"
       >
         <div class="flex h-full w-full max-w-3xl flex-col bg-zinc-50 dark:bg-zinc-900">
