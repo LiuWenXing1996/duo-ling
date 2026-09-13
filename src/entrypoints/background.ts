@@ -57,7 +57,7 @@ import {
   collectCspWarnings,
 } from '@/lib/userscripts/engine'
 import { initGmBridge } from '@/lib/userscripts/gm-bridge'
-import { listSummaries, getScript, saveScript, deleteScript, listUserScriptErrors, clearUserScriptErrors } from '@/lib/userscripts/store'
+import { listSummaries, getScript, saveScript, deleteScript, listUserScriptErrors, clearUserScriptErrors, appendUserScriptError } from '@/lib/userscripts/store'
 import { parseUserScriptMeta } from '@/lib/userscripts/parser'
 import type { UserScriptMeta, UserScriptsAvailability } from '@/lib/userscripts/types'
 

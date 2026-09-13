@@ -82,7 +82,8 @@ const MAX_ERRORS = 50
 
 /** 追加一条错误（自动补 id；time 缺省用当前时间） */
 export async function appendUserScriptError(
-  rec: Omit<UserScriptErrorRecord, 'id'> & { id?: string },
+  // time 由本函数兜底（rec.time || Date.now()），故对调用方可选
+  rec: Omit<UserScriptErrorRecord, 'id' | 'time'> & { id?: string; time?: number },
 ): Promise<void> {
   const existing = ((await chrome.storage.local.get(ERRORS_KEY))[ERRORS_KEY] as UserScriptErrorRecord[] | undefined) ?? []
   const next = existing.slice(-(MAX_ERRORS - 1))
