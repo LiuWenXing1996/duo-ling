@@ -136,8 +136,10 @@ export function initGmBridge(): void {
   if (initialized) return
   initialized = true
 
-  // onUserScriptMessage 的 listener 接收 (message, sender)，返回 Promise 即作为响应回传
-  chrome.runtime.onUserScriptMessage.addListener((raw, sender) => {
+  // 响应机制：Chrome 的 onUserScriptMessage 不支持「返回 Promise 作为响应」（返回值会被忽略，
+  // sendMessage 永远等不到响应而挂死）；必须调 sendResponse 并返回 true 保持通道打开。
+  // 该写法 Firefox 同样兼容（MDN：sendResponse + return true 是官方异步路径之一）。
+  chrome.runtime.onUserScriptMessage.addListener((raw, sender, sendResponse) => {
     // 运行期错误上报（Phase 4 错误日志面板）：与 GM 消息分流处理
     const errMsg = raw as UsErrorMessage
     if (errMsg && errMsg.__usError === true) {
@@ -149,21 +151,28 @@ export function initGmBridge(): void {
         stack: errMsg.stack,
         url: errMsg.url,
       }).catch(() => {})
-      return { ack: true }
+      return undefined // 仅记录，无需响应
     }
 
     const msg = raw as GmMessage
-    if (!msg || msg.__gm !== true) return { ok: false, error: '非 GM 消息' }
-
-    // 身份校验：消息里的 uuid 必须与脚本运行世界的 scriptId 一致
-    // （onUserScriptMessage 的 sender 运行时携带 userScript.scriptId，@types/chrome 未声明，故局部断言）
-    const scriptId = (sender as { userScript?: { scriptId?: string } }).userScript?.scriptId
-    if (scriptId && scriptId !== msg.uuid) {
-      return { ok: false, error: '脚本身份不匹配' }
+    if (!msg || msg.__gm !== true) {
+      sendResponse({ ok: false, error: '非 GM 消息' })
+      return undefined
     }
 
-    return dispatch(msg.uuid, msg.cmd, msg.args ?? [])
-      .then((data) => ({ ok: true, data }))
+    // 身份校验：消息里的 uuid 必须与脚本运行世界的 scriptId 一致
+    // （onUserScriptMessage 的 sender 运行时携带 userScript.scriptId，@types/chrome 未声明，故局部断言；
+    //   Chrome 实测 sender.userScript 可能缺省，缺省时跳过校验）
+    const scriptId = (sender as { userScript?: { scriptId?: string } }).userScript?.scriptId
+    if (scriptId && scriptId !== msg.uuid) {
+      sendResponse({ ok: false, error: '脚本身份不匹配' })
+      return undefined
+    }
+
+    void dispatch(msg.uuid, msg.cmd, msg.args ?? [])
+      .then((data) => {
+        sendResponse({ ok: true, data })
+      })
       .catch((e: unknown) => {
         const message = e instanceof Error ? e.message : String(e)
         // GM 桥调用失败也进错误日志（Phase 4 面板可见）
@@ -173,8 +182,9 @@ export function initGmBridge(): void {
           phase: 'gm-bridge',
           message,
         }).catch(() => {})
-        return { ok: false, error: message }
+        sendResponse({ ok: false, error: message })
       })
+    return true // 保持消息通道打开，dispatch 完成后经 sendResponse 回传
   })
 }
 

@@ -231,7 +231,17 @@ function buildGmWrapper(meta: UserScriptMeta): string {
   var GM_INFO = ${info}
   function __gmSend(cmd, args) {
     return new Promise(function (resolve, reject) {
+      // 超时兜底：后台无响应时不能让 GM 调用永久挂起（表现为「既不成功也不报错」，极难排查）
+      var settled = false
+      var timer = setTimeout(function () {
+        if (settled) return
+        settled = true
+        reject(new Error('GM 调用超时（后台 30s 无响应）：' + cmd))
+      }, 30000)
       chrome.runtime.sendMessage({ __gm: true, uuid: GM_INFO.uuid, cmd: cmd, args: args }, function (resp) {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
         var err = chrome.runtime.lastError
         if (err) return reject(new Error(err.message))
         if (!resp || !resp.ok) return reject(new Error((resp && resp.error) || 'GM 调用失败'))
@@ -395,6 +405,9 @@ export async function registerScript(meta: UserScriptMeta): Promise<void> {
     runAt: meta.runAt,
     allFrames: false,
   }
+  // 幂等保护：dev 重载 / SW 顶层 init 与 onInstalled(update) 并发时，同 ID 可能已注册，
+  // 直接 register 会抛 Duplicate script ID。先清旧再注册（不存在时 unregister 静默成功）。
+  await chrome.userScripts.unregister({ ids: [meta.uuid] }).catch(() => {})
   await chrome.userScripts.register([userScript])
 }
 
@@ -405,8 +418,18 @@ export async function unregisterScripts(ids: string[]): Promise<void> {
   await chrome.userScripts.unregister({ ids })
 }
 
-/** 从 storage 读回全部启用脚本重新注册（幂等：先清已注册再重注册） */
-export async function registerAllEnabled(): Promise<void> {
+// 串行化：dev 重载时 SW 顶层 init 与 onInstalled(update) 可能并发触发注册，
+// 两次 registerAllEnabled 交叠（各自 getScripts→unregister→register）会互相踩踏。
+let registerChain: Promise<void> = Promise.resolve()
+
+/** 从 storage 读回全部启用脚本重新注册（幂等：先清已注册再重注册；并发调用自动串行） */
+export function registerAllEnabled(): Promise<void> {
+  const run = registerChain.then(runRegisterAllEnabled)
+  registerChain = run.catch(() => {})
+  return run
+}
+
+async function runRegisterAllEnabled(): Promise<void> {
   const scripts = await listScripts()
   const enabled = scripts.filter((s) => s.enabled)
   try {
