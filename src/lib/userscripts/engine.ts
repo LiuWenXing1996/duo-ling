@@ -50,28 +50,63 @@ export async function getUserScriptsStatus(): Promise<import('./types').UserScri
       guideText = 'Chrome <138：在 chrome://extensions 开启全局「开发者模式」后即可使用。'
     }
   }
-  return { available, isFirefox, chromeMajor, guideText }
+  return { available, isFirefox, chromeMajor, guideText, cspPermissive: worldCspPermissive }
 }
 
 // —— 世界配置（一次性，扩展更新后需重配，设计文档 §4.1）——
 
-/** 开启 messaging 专用通道（onUserScriptMessage）。csp 不被支持时降级为仅 messaging */
-export async function configureUserScriptsWorld(): Promise<void> {
+/** USER_SCRIPT 世界是否成功放开了宽松 CSP。false 表示退回默认严 CSP，依赖 eval/内联的脚本可能失败。
+ * 由 configureUserScriptsWorld 写入，getUserScriptsStatus / 安装校验读取，供 UI 横幅与安装提示（Phase 4 钩子）。 */
+let worldCspPermissive = false
+
+/** USER_SCRIPT 世界当前是否放开了宽松 CSP（Phase 4：CSP 回退钩子） */
+export function isWorldCspPermissive(): boolean {
+  return worldCspPermissive
+}
+
+/** 开启 messaging 专用通道（onUserScriptMessage）。csp 不被支持时降级为仅 messaging 并标记未放开 */
+export async function configureUserScriptsWorld(): Promise<boolean> {
   // chrome.userScripts 仅在已开启「Allow User Scripts」（Chrome ≥138）/ 全局开发者模式
   // （Chrome <138）/ 已授权 userScripts 权限（Firefox）时存在；configureWorld 也可能在某些
   // 实现（如 Firefox 旧 API）上缺失。两者任一不可用则无法配置世界，直接优雅跳过，交由上层
   // 可用性检测决定降级（UI 横幅引导开启），避免 SW 初始化崩溃。
-  if (!chrome.userScripts || typeof chrome.userScripts.configureWorld !== 'function') return
+  if (!chrome.userScripts || typeof chrome.userScripts.configureWorld !== 'function') {
+    worldCspPermissive = false
+    return false
+  }
   try {
     await chrome.userScripts.configureWorld({ messaging: true, csp: US_WORLD_CSP })
+    worldCspPermissive = true
+    return true
   } catch {
-    // csp 参数不被当前版本接受时降级为仅 messaging（保持 GM 桥可用）
+    // csp 参数不被当前版本接受时降级为仅 messaging（保持 GM 桥可用），但世界退回严 CSP
     try {
       await chrome.userScripts.configureWorld({ messaging: true })
+      worldCspPermissive = false
+      return false
     } catch {
       // 连 messaging-only 都失败则放弃世界配置（GM 桥不可用，但 SW 不崩）
+      worldCspPermissive = false
+      return false
     }
   }
+}
+
+/**
+ * 安装/更新校验（Phase 4：CSP 回退钩子）。
+ * world CSP 未放开（旧版 Chrome）时，脚本若依赖 eval / new Function / @require 外部代码，
+ * 运行时可能被拦截。这里产出非阻塞警告，交给 UI 提示，而非让脚本静默失败。
+ */
+export function collectCspWarnings(meta: UserScriptMeta, cspPermissive: boolean): string[] {
+  if (cspPermissive) return []
+  const warnings: string[] = []
+  if (/\beval\s*\(|new\s+Function\s*\(/.test(meta.source)) {
+    warnings.push('当前环境 USER_SCRIPT 世界未放开宽松 CSP，脚本里的 eval / new Function 可能被拦截。')
+  }
+  if (meta.requires?.length) {
+    warnings.push('脚本含 @require，旧版 Chrome 下 world CSP 可能阻止外部代码执行。')
+  }
+  return warnings
 }
 
 // —— 后台特权抓取（install/update 时拉 @require / @resource）——

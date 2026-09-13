@@ -20,6 +20,7 @@ const availability = ref<UserScriptsAvailability | null>(null)
 const scripts = ref<UserScriptSummary[]>([])
 const loading = ref(false)
 const error = ref('')
+const warning = ref('')
 
 // 安装区
 const installMode = ref<'paste' | 'url'>('paste')
@@ -70,9 +71,11 @@ async function installFromPaste(): Promise<void> {
   if (!src) return
   installing.value = true
   error.value = ''
+  warning.value = ''
   try {
-    await userscriptClient.install(src)
+    const res = await userscriptClient.install(src)
     pasteSource.value = ''
+    warning.value = res.warnings?.join(' ') ?? ''
     await refresh()
   } catch (e) {
     error.value = '安装失败：' + (e instanceof Error ? e.message : String(e))
@@ -86,10 +89,12 @@ async function installFromUrl(): Promise<void> {
   if (!url) return
   installing.value = true
   error.value = ''
+  warning.value = ''
   try {
     const src = await userscriptClient.fetchUrl(url)
-    await userscriptClient.install(src)
+    const res = await userscriptClient.install(src)
     installUrl.value = ''
+    warning.value = res.warnings?.join(' ') ?? ''
     await refresh()
   } catch (e) {
     error.value = '从 URL 安装失败：' + (e instanceof Error ? e.message : String(e))
@@ -139,8 +144,10 @@ function closeEditor(): void {
 async function saveEdit(): Promise<void> {
   if (!editing.value) return
   error.value = ''
+  warning.value = ''
   try {
-    await userscriptClient.update(editing.value.uuid, { source: editSource.value })
+    const res = await userscriptClient.update(editing.value.uuid, { source: editSource.value })
+    warning.value = res.warnings?.join(' ') ?? ''
     await refresh()
     closeEditor()
   } catch (e) {
@@ -182,6 +189,12 @@ onMounted(refresh)
             <p v-else class="mt-0.5 opacity-80">
               脚本将按 @match 注入网页，经 GM_* 子集桥接扩展能力。
             </p>
+            <p
+              v-if="availability.available && !availability.cspPermissive"
+              class="mt-1 leading-relaxed text-amber-700 dark:text-amber-300"
+            >
+              ⚠ 当前环境未放开 USER_SCRIPT 世界 CSP，依赖 eval / 内联 / @require 的脚本可能运行失败（多见于旧版 Chrome）。
+            </p>
           </div>
         </div>
       </div>
@@ -196,6 +209,15 @@ onMounted(refresh)
       >
         <CircleX class="mt-0.5 size-4 shrink-0" />
         <span class="break-all">{{ error }}</span>
+      </div>
+
+      <!-- 非阻塞警告条（如 CSP 受限下的脚本兼容性提示） -->
+      <div
+        v-if="warning"
+        class="mb-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+      >
+        <AlertTriangle class="mt-0.5 size-4 shrink-0" />
+        <span class="break-all">{{ warning }}</span>
       </div>
 
       <!-- 安装区 -->

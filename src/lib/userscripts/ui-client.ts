@@ -41,15 +41,15 @@ export const userscriptClient = {
   getSource: (uuid: string): Promise<string | undefined> =>
     send({ kind: 'userscript:getSource', uuid }),
 
-  /** 安装：解析元数据 → 存 → 注册（含 @require/@resource 抓取） */
-  install: (source: string): Promise<{ uuid: string }> =>
+  /** 安装：解析元数据 → 存 → 注册（含 @require/@resource 抓取）。返回 uuid + 非阻塞 CSP 警告 */
+  install: (source: string): Promise<{ uuid: string; warnings?: string[] }> =>
     send({ kind: 'userscript:install', source }),
 
   /** 后台特权抓取 URL 文本（受 <all_urls> 豁免 CORS，渲染页直连会被拦） */
   fetchUrl: (url: string): Promise<string> => send({ kind: 'userscript:fetchUrl', url }),
 
-  /** 更新：改源码/元数据，或单独改启用态 */
-  update: (uuid: string, patch: { source?: string; enabled?: boolean }): Promise<void> =>
+  /** 更新：改源码/元数据，或单独改启用态。返回非阻塞 CSP 警告 */
+  update: (uuid: string, patch: { source?: string; enabled?: boolean }): Promise<{ warnings?: string[] }> =>
     send({ kind: 'userscript:update', uuid, ...patch }),
 
   /** 删除：注销 + 删存储 */

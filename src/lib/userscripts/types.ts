@@ -38,6 +38,8 @@ export interface UserScriptsAvailability {
   chromeMajor: number
   /** 不可用时的引导文案（按浏览器 / 版本分支） */
   guideText: string
+  /** USER_SCRIPT 世界是否放开了宽松 CSP；false 时依赖 eval/内联/@require 的脚本可能失败（Phase 4） */
+  cspPermissive: boolean
 }
 
 // —— 存储键约定 ——

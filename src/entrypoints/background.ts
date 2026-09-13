@@ -53,6 +53,8 @@ import {
   installProbe,
   removeProbe,
   fetchText,
+  isWorldCspPermissive,
+  collectCspWarnings,
 } from '@/lib/userscripts/engine'
 import { initGmBridge } from '@/lib/userscripts/gm-bridge'
 import { listSummaries, getScript, saveScript, deleteScript } from '@/lib/userscripts/store'
@@ -162,7 +164,7 @@ const handlers: {
   'userscript:getSource': async (msg): Promise<string | undefined> =>
     (await getScript(msg.uuid))?.source,
 
-  'userscript:install': async (msg): Promise<{ uuid: string }> => {
+  'userscript:install': async (msg): Promise<{ uuid: string; warnings?: string[] }> => {
     const { meta } = parseUserScriptMeta(msg.source)
     const full: UserScriptMeta = {
       ...meta,
@@ -175,10 +177,10 @@ const handlers: {
     const resolved = await resolveIncludes(full)
     await saveScript(resolved)
     await registerScript(resolved)
-    return { uuid: resolved.uuid }
+    return { uuid: resolved.uuid, warnings: collectCspWarnings(resolved, isWorldCspPermissive()) }
   },
 
-  'userscript:update': async (msg): Promise<void> => {
+  'userscript:update': async (msg): Promise<{ warnings?: string[] }> => {
     const existing = await getScript(msg.uuid)
     if (!existing) throw new Error('脚本不存在')
     let next: UserScriptMeta = { ...existing }
@@ -191,6 +193,7 @@ const handlers: {
     await saveScript(resolved)
     await unregisterScripts([resolved.uuid]).catch(() => {})
     if (resolved.enabled) await registerScript(resolved)
+    return { warnings: collectCspWarnings(resolved, isWorldCspPermissive()) }
   },
 
   'userscript:remove': async (msg): Promise<void> => {
