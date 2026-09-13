@@ -28,6 +28,15 @@ export type RuntimeRequest =
   | { kind: 'cap:run'; toolId: string; capId: string; input: Record<string, unknown> }
   | { kind: 'cap:list' }
   | { kind: 'git:commit'; toolId: string; message: string }
+  // 用户脚本管理器（设计文档 §8）
+  | { kind: 'userscript:list' }
+  | { kind: 'userscript:getSource'; uuid: string }
+  | { kind: 'userscript:install'; source: string }
+  | { kind: 'userscript:update'; uuid: string; source?: string; enabled?: boolean }
+  | { kind: 'userscript:remove'; uuid: string }
+  | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
+  | { kind: 'userscript:installProbe' }
+  | { kind: 'userscript:removeProbe' }
 
 /** 提交结果：无净变更时 committed=false（工具页据此提示「无变更」而非「已提交」） */
 export interface GitCommitResult {

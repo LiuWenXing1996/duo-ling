@@ -40,6 +40,21 @@ import type {
   UserToolMeta,
 } from '@/shared/types'
 
+// 用户脚本管理器（设计文档）：引擎 + 存储 + 解析 + 类型
+import {
+  configureUserScriptsWorld,
+  isUserScriptsAvailable,
+  registerAllEnabled,
+  recoverOnUpdate,
+  registerScript,
+  unregisterScripts,
+  installProbe,
+  removeProbe,
+} from '@/lib/userscripts/engine'
+import { listSummaries, getScript, saveScript, deleteScript } from '@/lib/userscripts/store'
+import { parseUserScriptMeta } from '@/lib/userscripts/parser'
+import type { UserScriptMeta } from '@/lib/userscripts/types'
+
 /** 初始示例工具：工具工厂开箱即用的一个工具，验证"生成 → 运行 → 提交 → 回滚"闭环 */
 const SAMPLE_TOOL_ID = 'markdown'
 
@@ -136,6 +151,77 @@ const handlers: {
 
   // 工具页「提交版本」：仅在有净变更时提交（对齐桌面版 commitToolChanges），无变更返回 committed:false
   'git:commit': async (msg): Promise<GitCommitResult> => commitIfChanged(msg.toolId, msg.message),
+
+  // —— 用户脚本管理器（设计文档 §8）——
+  'userscript:list': async (): Promise<unknown> => listSummaries(),
+
+  'userscript:getSource': async (msg): Promise<string | undefined> =>
+    (await getScript(msg.uuid))?.source,
+
+  'userscript:install': async (msg): Promise<{ uuid: string }> => {
+    const { meta } = parseUserScriptMeta(msg.source)
+    const full: UserScriptMeta = {
+      ...meta,
+      uuid: crypto.randomUUID(),
+      enabled: true,
+      source: msg.source,
+      injectInto: meta.injectInto || 'auto',
+    }
+    await saveScript(full)
+    await registerScript(full)
+    return { uuid: full.uuid }
+  },
+
+  'userscript:update': async (msg): Promise<void> => {
+    const existing = await getScript(msg.uuid)
+    if (!existing) throw new Error('脚本不存在')
+    const next: UserScriptMeta = { ...existing }
+    if (typeof msg.source === 'string') {
+      const { meta } = parseUserScriptMeta(msg.source)
+      Object.assign(next, meta, { source: msg.source })
+    }
+    if (typeof msg.enabled === 'boolean') next.enabled = msg.enabled
+    await saveScript(next)
+    await unregisterScripts([next.uuid]).catch(() => {})
+    if (next.enabled) await registerScript(next)
+  },
+
+  'userscript:remove': async (msg): Promise<void> => {
+    await unregisterScripts([msg.uuid]).catch(() => {})
+    await deleteScript(msg.uuid)
+  },
+
+  'userscript:toggle': async (msg): Promise<void> => {
+    const existing = await getScript(msg.uuid)
+    if (!existing) throw new Error('脚本不存在')
+    existing.enabled = msg.enabled
+    await saveScript(existing)
+    if (msg.enabled) await registerScript(existing)
+    else await unregisterScripts([msg.uuid]).catch(() => {})
+  },
+
+  'userscript:installProbe': async (): Promise<{ uuid: string }> => {
+    const uuid = await installProbe()
+    return { uuid }
+  },
+
+  'userscript:removeProbe': async (): Promise<void> => {
+    await removeProbe()
+  },
+}
+
+/** 用户脚本管理器启动：配置 USER_SCRIPT 世界 + 恢复已启用脚本（设计文档 §4） */
+async function initUserScripts(): Promise<void> {
+  await configureUserScriptsWorld()
+  const ok = await isUserScriptsAvailable()
+  if (!ok) {
+    console.warn(
+      '[duoling:userscript] userScripts 不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，' +
+        'Chrome <138 需开启全局「开发者模式」；Firefox 需授权 userScripts 权限',
+    )
+    return
+  }
+  await registerAllEnabled()
 }
 
 export default defineBackground(() => {
@@ -146,6 +232,16 @@ export default defineBackground(() => {
     .catch((e) => console.error('[duoling] setPanelBehavior failed', e))
 
   void ensureSampleTool().catch((e) => console.error('[duoling] init failed', e))
+
+  // 用户脚本管理器：启动配置世界并恢复已启用脚本（设计文档 §4）
+  void initUserScripts().catch((e) => console.error('[duoling:userscript] init failed', e))
+
+  // 扩展更新会清空 userScripts 注册与 world 配置，需在 update 分支重配重注册（设计文档 §4.4）
+  chrome.runtime.onInstalled.addListener((details) => {
+    if (details.reason === 'update') {
+      void recoverOnUpdate().catch((e) => console.error('[duoling:userscript] recover failed', e))
+    }
+  })
 
   chrome.runtime.onMessage.addListener((raw, _sender, sendResponse) => {
     const msg = raw as RuntimeRequest | undefined

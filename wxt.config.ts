@@ -33,11 +33,15 @@ export default defineConfig({
     description: '哆灵 AI 工具工厂 · 扩展版（侧边栏对话 + 标签页工作台）',
     // sidePanel 是使用 chrome.sidePanel API 的必需权限（Chrome 114+），不要剔除。
     // setPanelBehavior({openPanelOnActionClick:true}) 还需声明 action 键，点工具栏图标才会开面板。
-    permissions: ['storage', 'sidePanel'],
+    permissions: ['storage', 'sidePanel', 'userScripts'],
     // 在线模型走 OpenAI 兼容接口，需要扩展页跨域 fetch，必须声明对应 host 权限。
     // 由服务商预设表推导（src/lib/providers.ts），避免申请不必要的全域权限；
     // 自定义接口地址的按需授权后续用 optional_host_permissions 动态申请。
-    host_permissions: providerOrigins(),
+    // 用户脚本管理器（userscript-manager）：userScripts 注入目标网页需全域 host 权限
+    // （Chrome 文档明确要求），同时覆盖 GM_xmlhttpRequest 的跨域可达范围。
+    host_permissions: [...providerOrigins(), '<all_urls>'],
+    // 每脚本独立 USER_SCRIPT 世界隔离（worldId）需 Chrome 133+ / Firefox 136+。
+    minimumChromeVersion: '133',
     action: {
       default_title: '打开哆灵',
     },
