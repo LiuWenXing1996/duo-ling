@@ -1,8 +1,8 @@
 # 用户脚本 · 能力 API 规范
 
 > 2026-09-14 战略决策：**放弃油猴（GM_*）生态兼容**，脚本改为自有形态。
-> 本文档取代 `userscript-manager-design.md` §6（GM API 桥接层）中关于命名与同步语义的部分；
-> 该文档 §3–§5、§7–§8（架构、存储、UI、background 命令）仍然有效。
+> 本文档为能力 API 的权威规范，取代旧 GM 对齐设计中的 GM API 桥接层（原 `userscript-manager-design.md`
+> 已删除，git 历史可查）。
 
 ## 1. 设计原则
 

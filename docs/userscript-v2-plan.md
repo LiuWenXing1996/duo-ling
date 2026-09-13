@@ -4,8 +4,8 @@
 > 前置决策：见 `.workbuddy/memory/MEMORY.md`「用户脚本引擎 · 战略定位」——放弃油猴兼容，
 > 新形态四支柱：模块化管理 / 自有能力 API（DL，全 async）/ USER_SCRIPT 隔离环境 / 反向中继。
 > API 契约（已定型）：`src/lib/userscripts/api-contract.ts` + `docs/userscript-api.md`。
-> 与旧设计文档关系：`userscript-manager-design.md` §4（注入引擎）§5（存储）§6（GM 桥）按本方案改写，
-> §7–§8（管理 UI / background 命令）部分沿用。
+> 与旧设计文档关系：旧 GM 对齐设计（原 `userscript-manager-design.md`，已删除，git 历史可查）中
+> 注入引擎 / 存储 / GM 桥按本方案改写，管理 UI 与 background 命令面部分沿用。
 
 ---
 

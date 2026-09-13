@@ -25,7 +25,6 @@
 | 主题 | **跟随系统深浅色**（`src/lib/theme.ts` 按 `prefers-color-scheme` 驱动 `html.dark`） |
 
 - 迁移方案与风险清单：[docs/plugin-migration-plan.md](docs/plugin-migration-plan.md)
-- 可行性探针报告（popup 形态，已跑通核心闭环）：[docs/plugin-spike-report.md](docs/plugin-spike-report.md)
 
 > **当前状态：两个载体都已是复用桌面版的实现。** side panel 由 `ChatPanel` + `SessionHistoryPanel` 承载；工作台标签页由 `WorkbenchApp`（裁剪自桌面版 `app.vue`：顶栏搜索 + 左侧导航 + `ToolWorkspace`）承载，含工具详情 / 代码浏览 / 版本历史 / 数据 / 设置 / 开发者标签。`window.api` 由 `src/lib/window-api.ts` 按桌面版契约装配，**组件本体零改动**。**待办**：agent 编排（AI 自动生成工具）、不可信工具页的分层沙箱。
 

@@ -40,7 +40,6 @@
 | [docs/style.md](docs/style.md) | 代码风格规范（部分条目为 Electron 时期约定，按需取用） | 写代码 / 改样式前 |
 | [docs/lessons.md](docs/lessons.md) | 踩坑记录 | 报错 / 排查前 |
 | [docs/todo.md](docs/todo.md) | 待办与方案 | 了解遗留事项时 |
-| [docs/design.md](docs/design.md) | ⚠️ 描述的是**已归档的 Electron 架构**，待重写为扩展架构 | 仅作背景参考 |
 | `legacy/` | 原 Electron 实现归档（含 `docs` 未覆盖的代码事实） | 平移逻辑时对照 |
 
 ## 全局约束（强制）
