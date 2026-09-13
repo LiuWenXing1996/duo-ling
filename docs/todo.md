@@ -93,6 +93,17 @@
 
 ---
 
+## 用户脚本编辑器：CodeMirror 6 高亮（后置增强，待动工）
+
+**背景**：v2 用户脚本（docs/userscript-v2-plan.md）Phase 0–3 已落地，编辑器一期为裸 textarea（方案定稿：CodeMirror 6 作为独立增强后置）。2026-09-14 老大确认「等后面再说」，登记备查。
+
+**方案要点**：
+1. 依赖：`codemirror` + `@codemirror/lang-javascript`（js/ts/jsx/tsx 一包全覆盖）+ 深浅色主题（`@codemirror/theme-one-dark` 或 CSS 变量自适配，主题跟随系统）。**新增依赖，动工前与老大确认**。
+2. 改动面：仅编辑抽屉 textarea → CodeMirror 组件，v-model 接 `editFiles[activeFile]`；构建报错、保存流程、文件树零改动。
+3. 可选增强：构建失败行内错误标记（esbuild 的 file:line 映射到 CodeMirror lint/装饰器）。
+
+---
+
 ## 已完成（索引）
 
 > 以下方案已实现（部分在 Electron 时期完成、随迁移平移到扩展），方案细节与实现记录见对应提交与 git 历史。
