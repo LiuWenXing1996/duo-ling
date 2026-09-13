@@ -67,12 +67,10 @@ export type ApiRequest =
   // 系统能力
   | { c: 'notify'; message: string; title?: string; icon?: string }
   | { c: 'download'; url: string; name?: string }
-  | { c: 'clipboard.write'; text: string }
   | { c: 'tabs.open'; url: string; active?: boolean }
-  // Cookie（url 缺省时按当前页面 URL 处理）
-  | { c: 'cookie.get'; name: string; url?: string }
-  | { c: 'cookie.set'; name: string; value: string; url?: string; days?: number }
-  | { c: 'cookie.remove'; name: string; url?: string }
+  // 二期再定（2026-09-14 决策：cookie 挪二期，暂不加 cookies 权限）：
+  //   cookie.get / cookie.set / cookie.remove —— 实现时须给 manifest 加 `cookies` 权限，
+  //   且 url 缺省语义必须由 DL 包装层填 location.href（SW 里没有「当前页面」概念）。
   // 菜单（后台登记，点击时经 ApiEvent 回推脚本）
   | { c: 'menu.register'; id: string; title: string }
   | { c: 'menu.unregister'; id: string }
@@ -81,6 +79,19 @@ export type ApiRequest =
 export type ApiEvent =
   | { t: 'menu.click'; id: string }
   | { t: 'store.change'; key: string; value: Json }
+
+/**
+ * 脚本世界 → 后台 的单向事件（不等待响应，区别于 ApiRequest 的请求-响应）。
+ * 一期仅错误上报：DL 包装的 window.onerror / unhandledrejection 以
+ * `{ __dlEvent: true, event: DlEvent }` 信封发送，后台收进 us:errors。
+ */
+export type DlEvent = {
+  t: 'error'
+  phase: 'runtime'
+  message: string
+  stack?: string
+  url?: string
+}
 
 /** 桥响应信封 */
 export type ApiResponse =
@@ -141,6 +152,10 @@ export interface DuoLingApi {
   /** 触发下载 */
   download(url: string, name?: string): Promise<void>
 
+  /**
+   * 写剪贴板。2026-09-14 决策：世界内直写（navigator.clipboard.writeText），不走桥。
+   * 限制：需要用户手势 / 页面焦点，且页面 CSP 可能约束——失败时 reject 明确错误，不静默。
+   */
   clipboard: {
     write(text: string): Promise<void>
   }
@@ -149,11 +164,7 @@ export interface DuoLingApi {
     open(url: string, opts?: { active?: boolean }): Promise<void>
   }
 
-  cookie: {
-    get(name: string, url?: string): Promise<string | null>
-    set(name: string, value: string, opts?: { url?: string; days?: number }): Promise<void>
-    remove(name: string, url?: string): Promise<void>
-  }
+  // 二期再定（2026-09-14 决策）：cookie.* 挪二期，届时 manifest 加 `cookies` 权限。
 
   /** 在扩展菜单里注册命令，返回注销函数 */
   menu: {

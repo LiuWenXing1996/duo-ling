@@ -31,9 +31,8 @@ DL.store.watch(key, cb)          跨标签监听（阶段二）
 DL.fetch(url, init?)             免 CORS 请求
 DL.notify(message, opts?)        系统通知
 DL.download(url, name?)          下载
-DL.clipboard.write(text)         写剪贴板
+DL.clipboard.write(text)         写剪贴板（同步发起、本地直写，见 §3.3）
 DL.tabs.open(url, opts?)         开标签页（免弹窗拦截）
-DL.cookie.get/set/remove         Cookie 读写
 
 DL.menu.register(title, fn)      注册菜单命令（阶段二）
 DL.page.*                        反向中继访问页面世界（另立规范）
@@ -43,7 +42,7 @@ DL.page.*                        反向中继访问页面世界（另立规范�
 
 ### 3.1 存储
 
-- **键空间按脚本隔离**（`us:dl:<uuid>:<key>`），与页面 `localStorage` 完全无关。
+- **键空间按脚本隔离**（沿用既有键名 `us:gm:<uuid>:<key>`，不改名），与页面 `localStorage` 完全无关。
   这一点很关键：脚本世界与页面共享同源 `localStorage`，直接用它会被页面清掉、也会污染页面。
 - 值必须是 `Json`（`null | boolean | number | string | 数组 | 纯对象`）。函数、类实例、DOM 节点存不了。
 - `get(key, fallback)`：键不存在时返回 `fallback`；未传 `fallback` 时为 `undefined`。
@@ -80,9 +79,14 @@ img.arrayBuffer()
 DL.style('.foo { color: red }')   // 返回 HTMLStyleElement，同步
 DL.log('hello')                   // 输出 [脚本名] hello
 DL.info                           // { uuid, name, version }
+DL.clipboard.write('text')        // 世界内直写 navigator.clipboard.writeText，返回 Promise
 ```
 
-这三个不跨桥：脚本世界有 DOM 访问权，且我们的世界豁免页面 CSP，直接插 `<style>` 即可。
+这四个不跨桥：脚本世界有 DOM 访问权，且我们的世界豁免页面 CSP，直接插 `<style>` / 调本地剪贴板 API 即可。
+
+> `DL.clipboard.write` 的限制（2026-09-14 决策：世界内直写，失败报错不走桥）：
+> `navigator.clipboard.writeText` 需要用户手势 / 页面焦点，且严格 CSP 站点可能受限。
+> 失败时 reject 明确错误，不静默兜底；若实测发现场景覆盖不足，再评估 offscreen document 方案（需加 `offscreen` 权限）。
 
 ## 4. 错误处理
 
@@ -131,12 +135,15 @@ export type ApiRequest =
 
 **一期（无需长连接）**
 
-`info` · `style` · `log` · `store.{get,set,delete,keys,clear}` · `fetch` · `notify` ·
-`download` · `clipboard.write` · `tabs.open` · `cookie.*`
+`info` · `style` · `log` · `clipboard.write`（本地直写）· `store.{get,set,delete,keys,clear}` · `fetch` · `notify` · `download` · `tabs.open`
 
 **二期（需长连接 port）**
 
 `store.watch`（跨标签同步）· `menu.register`（点击回推脚本）
+
+**二期（需新增 `cookies` 权限，2026-09-14 决策挪期）**
+
+`cookie.*` —— 实现 url 缺省语义时由 DL 包装层填 `location.href`（SW 无「当前页面」概念）
 
 **另立规范**
 
@@ -165,6 +172,6 @@ export type ApiRequest =
 ## 8. 未决项
 
 - [ ] 脚本世界能否使用 `chrome.runtime.connect` 建立长连接（决定阶段二可行性）—— 待实测
-- [ ] `DL.cookie` 的 URL 作用域默认值（当前页面 URL？还是脚本 match 的第一个？）
 - [ ] 存储值体积上限（`chrome.storage.local` 配额 + 单次消息大小）
 - [ ] 是否提供 `DL.fetch` 的流式 / 进度回调（受限于跨桥，倾向不支持）
+- [ ] `DL.clipboard.write` 世界内直写的实际覆盖面（无手势场景 / 严格 CSP 站点）——待实测，不足再评估 offscreen

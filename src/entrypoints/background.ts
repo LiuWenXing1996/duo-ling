@@ -40,7 +40,7 @@ import type {
   UserToolMeta,
 } from '@/shared/types'
 
-// 用户脚本管理器（设计文档）：引擎 + 存储 + 解析 + 类型
+// 用户脚本管理器（v2 方案 docs/userscript-v2-plan.md Phase 0）：引擎 + 存储 + DL 桥 + 类型
 import {
   configureUserScriptsWorld,
   isUserScriptsAvailable,
@@ -49,17 +49,13 @@ import {
   recoverOnUpdate,
   registerScript,
   unregisterScripts,
-  resolveIncludes,
-  installProbe,
-  removeProbe,
-  fetchText,
   getEffectiveCspPermissive,
   collectCspWarnings,
 } from '@/lib/userscripts/engine'
-import { initGmBridge } from '@/lib/userscripts/gm-bridge'
-import { listSummaries, getScript, saveScript, deleteScript, listUserScriptErrors, clearUserScriptErrors, appendUserScriptError } from '@/lib/userscripts/store'
-import { parseUserScriptMeta } from '@/lib/userscripts/parser'
-import type { UserScriptMeta, UserScriptsAvailability } from '@/lib/userscripts/types'
+import { initDlBridge } from '@/lib/userscripts/dl-bridge'
+import { listSummaries, getProject, saveProject, deleteScript, listUserScriptErrors, clearUserScriptErrors, appendUserScriptError } from '@/lib/userscripts/store'
+import type { ScriptProject, UserScriptsAvailability } from '@/lib/userscripts/types'
+import { ENTRY_DEFAULT, defaultConfig } from '@/lib/userscripts/types'
 
 /** 初始示例工具：工具工厂开箱即用的一个工具，验证"生成 → 运行 → 提交 → 回滚"闭环 */
 const SAMPLE_TOOL_ID = 'markdown'
@@ -158,65 +154,68 @@ const handlers: {
   // 工具页「提交版本」：仅在有净变更时提交（对齐桌面版 commitToolChanges），无变更返回 committed:false
   'git:commit': async (msg): Promise<GitCommitResult> => commitIfChanged(msg.toolId, msg.message),
 
-  // —— 用户脚本管理器（设计文档 §8）——
+  // —— 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）——
   'userscript:list': async (): Promise<unknown> => listSummaries(),
 
   'userscript:getSource': async (msg): Promise<string | undefined> =>
-    (await getScript(msg.uuid))?.source,
+    (await getProject(msg.uuid))?.files[ENTRY_DEFAULT],
 
+  // 安装：单文件源码 → ScriptProject(v:1) 落盘 → 注册。
+  // v2 新形态无 metadata：名称与匹配规则由调用方显式给出（缺省给开发用默认值）。
   'userscript:install': async (msg): Promise<{ uuid: string; warnings?: string[] }> => {
-    const { meta } = parseUserScriptMeta(msg.source)
-    const full: UserScriptMeta = {
-      ...meta,
+    const now = Date.now()
+    const project: ScriptProject = {
+      v: 1,
       uuid: crypto.randomUUID(),
+      name: msg.name?.trim() || '未命名脚本',
       enabled: true,
-      source: msg.source,
-      injectInto: meta.injectInto || 'auto',
+      config: defaultConfig(msg.matches?.length ? msg.matches : ['*://*/*']),
+      files: { [ENTRY_DEFAULT]: msg.source },
+      entry: ENTRY_DEFAULT,
+      createdAt: now,
+      updatedAt: now,
     }
-    // 安装即抓取 @require / @resource（后台特权 fetch，受 <all_urls> 豁免 CORS）
-    const resolved = await resolveIncludes(full)
-    await saveScript(resolved)
+    await saveProject(project)
     try {
-      await registerScript(resolved)
+      await registerScript(project)
     } catch (e) {
-      // 注册失败既在 UI 错误条提示，也进错误日志（Phase 4 面板可见）
+      // 注册失败既在 UI 错误条提示，也进错误日志（面板可见）
       void appendUserScriptError({
-        uuid: resolved.uuid,
-        name: resolved.name,
+        uuid: project.uuid,
+        name: project.name,
         phase: 'register',
         message: e instanceof Error ? e.message : String(e),
       }).catch(() => {})
       throw e
     }
-    return { uuid: resolved.uuid, warnings: collectCspWarnings(resolved, await getEffectiveCspPermissive()) }
+    const code = project.files[ENTRY_DEFAULT] ?? ''
+    return { uuid: project.uuid, warnings: collectCspWarnings(code, await getEffectiveCspPermissive()) }
   },
 
+  // 更新：改入口源码或启用态。Phase 0 无构建，改源码直接回退 files[entry] 执行
   'userscript:update': async (msg): Promise<{ warnings?: string[] }> => {
-    const existing = await getScript(msg.uuid)
+    const existing = await getProject(msg.uuid)
     if (!existing) throw new Error('脚本不存在')
-    let next: UserScriptMeta = { ...existing }
-    if (typeof msg.source === 'string') {
-      const { meta } = parseUserScriptMeta(msg.source)
-      next = { ...next, ...meta, source: msg.source }
-    }
+    const next: ScriptProject = { ...existing, updatedAt: Date.now() }
+    if (typeof msg.source === 'string') next.files[ENTRY_DEFAULT] = msg.source
     if (typeof msg.enabled === 'boolean') next.enabled = msg.enabled
-    const resolved = await resolveIncludes(next)
-    await saveScript(resolved)
-    await unregisterScripts([resolved.uuid]).catch(() => {})
-    if (resolved.enabled) {
+    await saveProject(next)
+    await unregisterScripts([next.uuid]).catch(() => {})
+    if (next.enabled) {
       try {
-        await registerScript(resolved)
+        await registerScript(next)
       } catch (e) {
         void appendUserScriptError({
-          uuid: resolved.uuid,
-          name: resolved.name,
+          uuid: next.uuid,
+          name: next.name,
           phase: 'register',
           message: e instanceof Error ? e.message : String(e),
         }).catch(() => {})
         throw e
       }
     }
-    return { warnings: collectCspWarnings(resolved, await getEffectiveCspPermissive()) }
+    const code = next.bundle?.code ?? next.files[ENTRY_DEFAULT] ?? ''
+    return { warnings: collectCspWarnings(code, await getEffectiveCspPermissive()) }
   },
 
   'userscript:remove': async (msg): Promise<void> => {
@@ -225,26 +224,16 @@ const handlers: {
   },
 
   'userscript:toggle': async (msg): Promise<void> => {
-    const existing = await getScript(msg.uuid)
+    const existing = await getProject(msg.uuid)
     if (!existing) throw new Error('脚本不存在')
     existing.enabled = msg.enabled
-    await saveScript(existing)
+    existing.updatedAt = Date.now()
+    await saveProject(existing)
     if (msg.enabled) await registerScript(existing)
     else await unregisterScripts([msg.uuid]).catch(() => {})
   },
 
-  'userscript:installProbe': async (): Promise<{ uuid: string }> => {
-    const uuid = await installProbe()
-    return { uuid }
-  },
-
-  'userscript:removeProbe': async (): Promise<void> => {
-    await removeProbe()
-  },
-
   'userscript:availability': async (): Promise<UserScriptsAvailability> => getUserScriptsStatus(),
-
-  'userscript:fetchUrl': async (msg): Promise<string> => fetchText(msg.url),
 
   'userscript:errors': async (): Promise<ReturnType<typeof listUserScriptErrors>> => listUserScriptErrors(),
 
@@ -253,9 +242,9 @@ const handlers: {
   },
 }
 
-/** 用户脚本管理器启动：挂载 GM 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用脚本（设计文档 §4/§6） */
+/** 用户脚本管理器启动：挂载 DL 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用项目 */
 async function initUserScripts(): Promise<void> {
-  initGmBridge() // GM_* 后台桥（独立于 world 配置，只需注册一次）
+  initDlBridge() // DL 后台桥（独立于 world 配置，只需注册一次）
   // chrome.userScripts 仅在已开启「Allow User Scripts」（Chrome ≥138）或全局开发者模式
   // （Chrome <138）/ 已授权 userScripts 权限（Firefox）时存在；否则为 undefined，
   // 直接调用会令 SW 初始化崩溃。先判存在性，不可用则优雅跳过（UI 横幅会引导开启）。

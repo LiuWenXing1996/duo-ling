@@ -28,17 +28,14 @@ export type RuntimeRequest =
   | { kind: 'cap:run'; toolId: string; capId: string; input: Record<string, unknown> }
   | { kind: 'cap:list' }
   | { kind: 'git:commit'; toolId: string; message: string }
-  // 用户脚本管理器（设计文档 §8）
+  // 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）
   | { kind: 'userscript:list' }
   | { kind: 'userscript:getSource'; uuid: string }
-  | { kind: 'userscript:install'; source: string }
+  | { kind: 'userscript:install'; source: string; name?: string; matches?: string[] }
   | { kind: 'userscript:update'; uuid: string; source?: string; enabled?: boolean }
   | { kind: 'userscript:remove'; uuid: string }
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
-  | { kind: 'userscript:installProbe' }
-  | { kind: 'userscript:removeProbe' }
   | { kind: 'userscript:availability' }
-  | { kind: 'userscript:fetchUrl'; url: string }
   | { kind: 'userscript:errors' }
   | { kind: 'userscript:clearErrors' }
 

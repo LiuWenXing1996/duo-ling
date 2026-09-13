@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 用户脚本管理器（设计文档 §7）：列表 + 启停 + 安装(粘贴/URL) + 编辑器 + 元数据预览 + 状态横幅。
+// 用户脚本管理器（v2 方案 docs/userscript-v2-plan.md Phase 0）：
+// 列表 + 启停 + 新建（粘贴源码 + 名称/匹配规则） + 单文件编辑器 + 状态横幅 + 错误面板。
 // 经 src/lib/userscripts/ui-client.ts 与 background 的 userscript:* 命令组通信。
 import { ref, onMounted } from 'vue'
 import {
@@ -8,51 +9,55 @@ import {
   ChevronDown,
   CircleCheck,
   CircleX,
-  ExternalLink,
   Pencil,
   Plus,
   Trash2,
   X,
 } from '@lucide/vue'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
-import type { UserScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from '@/lib/userscripts/types'
+import type { ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from '@/lib/userscripts/types'
 
 const availability = ref<UserScriptsAvailability | null>(null)
-const scripts = ref<UserScriptSummary[]>([])
+const scripts = ref<ScriptSummary[]>([])
 const loading = ref(false)
 const error = ref('')
 const warning = ref('')
 
-// 错误日志面板（Phase 4）
+// 错误日志面板
 const errors = ref<UserScriptErrorRecord[]>([])
 const errorsOpen = ref(false)
 
-// 安装区
-const installMode = ref<'paste' | 'url'>('paste')
+// 新建区（v2 新形态：无 metadata 注释，名称与匹配规则显式填写）
+const newName = ref('')
+const newMatches = ref('*://*/*')
 const pasteSource = ref('')
-const installUrl = ref('')
 const installing = ref(false)
 
-// 编辑器（编辑某脚本源码 + 元数据预览）
-const editing = ref<UserScriptSummary | null>(null)
+// 编辑器（编辑某脚本入口源码）
+const editing = ref<ScriptSummary | null>(null)
 const editSource = ref('')
 
-/** 示例脚本：便于快速验证注入链路（装扩展后打开任意网页看 Console 的 [DuoProbe]） */
-const SAMPLE = `// ==UserScript==
-// @name         示例：页面标题加星标
-// @namespace    duoling
-// @version      1.0.0
-// @match        *://*/*
-// @grant        GM_log
-// @run-at       document-idle
-// ==/UserScript==
-// 真正的视觉反馈：标题前加 ★(幂等,避免 SPA 重复注入时叠星)
+/** 示例脚本：纯 JS（Phase 0 无构建），演示 DL.log 本地能力 */
+const SAMPLE = `// 哆灵用户脚本示例：页面标题加星标
 if (!document.title.includes('★')) {
   document.title = '★ ' + document.title
 }
 console.log('[示例脚本] 已注入 →', location.href)
-GM_log('示例脚本运行', location.href)
+DL.log('示例脚本运行', location.href)
 `
+
+/** 填入示例：源码 + 名称（名称为空时才补，不覆盖用户已输入的） */
+function fillSample(): void {
+  pasteSource.value = SAMPLE
+  if (!newName.value.trim()) newName.value = '示例脚本'
+}
+
+function parseMatches(input: string): string[] {
+  return input
+    .split(/[,\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
 
 async function refresh(): Promise<void> {
   loading.value = true
@@ -73,16 +78,16 @@ async function refresh(): Promise<void> {
   }
 }
 
-// —— 错误日志面板辅助（Phase 4）——
+// —— 错误日志面板辅助 ——
 const PHASE_LABEL: Record<UserScriptErrorRecord['phase'], string> = {
   runtime: '运行期',
   register: '注册',
-  'gm-bridge': 'GM 桥',
+  bridge: 'DL 桥',
 }
 const PHASE_BADGE: Record<UserScriptErrorRecord['phase'], string> = {
   runtime: 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300',
   register: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
-  'gm-bridge': 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300',
+  bridge: 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300',
 }
 function phaseLabel(p: UserScriptErrorRecord['phase']): string {
   return PHASE_LABEL[p]
@@ -116,12 +121,18 @@ async function clearErrors(): Promise<void> {
 async function installFromPaste(): Promise<void> {
   const src = pasteSource.value.trim()
   if (!src) return
+  const matches = parseMatches(newMatches.value)
+  if (!matches.length) {
+    error.value = '安装失败：至少填写一条匹配规则（match pattern）'
+    return
+  }
   installing.value = true
   error.value = ''
   warning.value = ''
   try {
-    const res = await userscriptClient.install(src)
+    const res = await userscriptClient.install(src, { name: newName.value, matches })
     pasteSource.value = ''
+    newName.value = ''
     warning.value = res.warnings?.join(' ') ?? ''
     await refresh()
   } catch (e) {
@@ -131,26 +142,8 @@ async function installFromPaste(): Promise<void> {
   }
 }
 
-async function installFromUrl(): Promise<void> {
-  const url = installUrl.value.trim()
-  if (!url) return
-  installing.value = true
-  error.value = ''
-  warning.value = ''
-  try {
-    const src = await userscriptClient.fetchUrl(url)
-    const res = await userscriptClient.install(src)
-    installUrl.value = ''
-    warning.value = res.warnings?.join(' ') ?? ''
-    await refresh()
-  } catch (e) {
-    error.value = '从 URL 安装失败：' + (e instanceof Error ? e.message : String(e))
-  } finally {
-    installing.value = false
-  }
-}
-
-async function toggleScript(s: UserScriptSummary): Promise<void> {
+async function toggleScript(s: ScriptSummary): Promise<void> {
+  if (s.deprecated) return
   error.value = ''
   try {
     await userscriptClient.toggle(s.uuid, !s.enabled)
@@ -160,7 +153,7 @@ async function toggleScript(s: UserScriptSummary): Promise<void> {
   }
 }
 
-async function removeScript(s: UserScriptSummary): Promise<void> {
+async function removeScript(s: ScriptSummary): Promise<void> {
   if (!confirm(`确认删除脚本「${s.name}」？此操作不可撤销。`)) return
   error.value = ''
   try {
@@ -172,7 +165,8 @@ async function removeScript(s: UserScriptSummary): Promise<void> {
   }
 }
 
-async function openEditor(s: UserScriptSummary): Promise<void> {
+async function openEditor(s: ScriptSummary): Promise<void> {
+  if (s.deprecated) return
   error.value = ''
   try {
     const src = await userscriptClient.getSource(s.uuid)
@@ -234,13 +228,13 @@ onMounted(refresh)
             <p v-else class="font-medium">用户脚本引擎不可用</p>
             <p v-if="!availability.available" class="mt-0.5 leading-relaxed">{{ availability.guideText }}</p>
             <p v-else class="mt-0.5 opacity-80">
-              脚本将按 @match 注入网页，经 GM_* 子集桥接扩展能力。
+              脚本将按匹配规则注入网页，经 DL API 桥接扩展能力（v2 新形态，不支持油猴脚本格式）。
             </p>
             <p
               v-if="availability.available && !availability.cspPermissive"
               class="mt-1 leading-relaxed text-amber-700 dark:text-amber-300"
             >
-              ⚠ 当前环境未放开 USER_SCRIPT 世界 CSP，依赖 eval / 内联 / @require 的脚本可能运行失败（多见于旧版 Chrome）。
+              ⚠ 当前环境未放开 USER_SCRIPT 世界 CSP，依赖 eval / 内联的脚本可能运行失败（多见于旧版 Chrome）。
             </p>
           </div>
         </div>
@@ -267,77 +261,56 @@ onMounted(refresh)
         <span class="break-all">{{ warning }}</span>
       </div>
 
-      <!-- 安装区 -->
+      <!-- 新建区 -->
       <section class="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800/60">
-        <div class="mb-3 flex gap-2 text-sm">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label class="block">
+            <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">脚本名称</span>
+            <input
+              v-model="newName"
+              type="text"
+              placeholder="未命名脚本"
+              class="w-full rounded-md border border-zinc-300 bg-zinc-50 p-2 text-sm text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+            />
+          </label>
+          <label class="block">
+            <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">匹配规则（match pattern，逗号或换行分隔）</span>
+            <input
+              v-model="newMatches"
+              type="text"
+              placeholder="*://*/*"
+              class="w-full rounded-md border border-zinc-300 bg-zinc-50 p-2 font-mono text-sm text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+            />
+          </label>
+        </div>
+        <textarea
+          v-model="pasteSource"
+          rows="8"
+          spellcheck="false"
+          placeholder="在此粘贴脚本源码（纯 JS，直接可执行；不支持 ==UserScript== 油猴格式）…"
+          class="mt-3 w-full resize-y rounded-md border border-zinc-300 bg-zinc-50 p-2 font-mono text-xs leading-relaxed text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+        />
+        <div class="mt-2 flex items-center gap-2">
           <button
             type="button"
-            class="rounded-md px-3 py-1.5 font-medium transition-colors"
-            :class="installMode === 'paste' ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900' : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-700'"
-            @click="installMode = 'paste'"
+            class="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+            :disabled="installing || !pasteSource.trim()"
+            @click="installFromPaste"
           >
-            粘贴源码
+            <Plus class="size-4" />
+            {{ installing ? '安装中…' : '新建脚本' }}
           </button>
           <button
             type="button"
-            class="rounded-md px-3 py-1.5 font-medium transition-colors"
-            :class="installMode === 'url' ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900' : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-700'"
-            @click="installMode = 'url'"
+            class="rounded-md px-2 py-1.5 text-xs text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
+            @click="fillSample"
           >
-            从 URL 安装
+            填入示例脚本
           </button>
         </div>
-
-        <template v-if="installMode === 'paste'">
-          <textarea
-            v-model="pasteSource"
-            rows="8"
-            spellcheck="false"
-            placeholder="在此粘贴用户脚本源码（含 ==UserScript== 元数据块）…"
-            class="w-full resize-y rounded-md border border-zinc-300 bg-zinc-50 p-2 font-mono text-xs leading-relaxed text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
-          />
-          <div class="mt-2 flex items-center gap-2">
-            <button
-              type="button"
-              class="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-              :disabled="installing || !pasteSource.trim()"
-              @click="installFromPaste"
-            >
-              <Plus class="size-4" />
-              {{ installing ? '安装中…' : '安装脚本' }}
-            </button>
-            <button
-              type="button"
-              class="rounded-md px-2 py-1.5 text-xs text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
-              @click="pasteSource = SAMPLE"
-            >
-              填入示例脚本
-            </button>
-          </div>
-        </template>
-
-        <template v-else>
-          <input
-            v-model="installUrl"
-            type="url"
-            placeholder="https://example.com/script.user.js"
-            class="w-full rounded-md border border-zinc-300 bg-zinc-50 p-2 text-sm text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
-          />
-          <div class="mt-2">
-            <button
-              type="button"
-              class="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-              :disabled="installing || !installUrl.trim()"
-              @click="installFromUrl"
-            >
-              <ExternalLink class="size-4" />
-              {{ installing ? '抓取中…' : '抓取并安装' }}
-            </button>
-          </div>
-        </template>
       </section>
 
-      <!-- 错误日志面板（Phase 4）：运行期 / 注册 / GM 桥失败汇总 -->
+      <!-- 错误日志面板：运行期 / 注册 / DL 桥失败汇总 -->
       <section class="mb-6 rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
         <div class="flex items-center justify-between px-4 py-3">
           <button
@@ -378,42 +351,48 @@ onMounted(refresh)
       <!-- 脚本列表 -->
       <section>
         <h2 class="mb-2 text-sm font-semibold text-zinc-500 dark:text-zinc-400">
-          已安装脚本（{{ scripts.length }}）
+          已安装脚本（{{ scripts.filter((s) => !s.deprecated).length }}）
         </h2>
 
         <p v-if="!loading && !scripts.length" class="rounded-lg border border-dashed border-zinc-300 px-3 py-6 text-center text-sm text-zinc-400 dark:border-zinc-600">
-          还没有脚本。粘贴源码或从 URL 安装一个吧。
+          还没有脚本。粘贴源码新建一个吧。
         </p>
 
         <ul class="flex flex-col gap-2">
           <li
             v-for="s in scripts"
             :key="s.uuid"
-            class="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-800/60"
+            class="rounded-lg border p-3"
+            :class="
+              s.deprecated
+                ? 'border-dashed border-zinc-300 bg-zinc-100/60 opacity-70 dark:border-zinc-700 dark:bg-zinc-800/30'
+                : 'border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60'
+            "
           >
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2">
                   <span class="truncate font-medium">{{ s.name }}</span>
                   <span
-                    v-if="s.injectInto === 'page'"
-                    class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"
-                    title="MAIN 世界桥接尚未实现，该脚本不会注入"
+                    v-if="s.deprecated"
+                    class="shrink-0 rounded bg-zinc-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
+                    title="旧油猴格式记录：不注册、不可编辑，仅保留数据，可删除"
                   >
-                    暂不支持 page
+                    旧格式 · 已弃用
                   </span>
                 </div>
                 <p class="mt-0.5 truncate font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                  {{ s.matches.join(', ') || '（无 @match）' }}
+                  {{ s.matches.join(', ') || '（无匹配规则）' }}
                 </p>
-                <p v-if="s.grants.length" class="mt-0.5 truncate text-xs text-zinc-400">
-                  grants: {{ s.grants.join(', ') }}
+                <p v-if="!s.deprecated" class="mt-0.5 text-xs text-zinc-400">
+                  {{ s.fileCount }} 个文件
                 </p>
               </div>
 
               <div class="flex shrink-0 items-center gap-1">
-                <!-- 启用开关 -->
+                <!-- 启用开关（已弃用记录不注册，禁用切换） -->
                 <button
+                  v-if="!s.deprecated"
                   type="button"
                   role="switch"
                   :aria-checked="s.enabled"
@@ -428,6 +407,7 @@ onMounted(refresh)
                   />
                 </button>
                 <button
+                  v-if="!s.deprecated"
                   type="button"
                   class="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
                   title="编辑"
@@ -460,7 +440,7 @@ onMounted(refresh)
           <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
             <div class="min-w-0">
               <h3 class="truncate font-semibold">编辑：{{ editing.name }}</h3>
-              <p v-if="editing.version" class="text-xs text-zinc-400">v{{ editing.version }}</p>
+              <p class="text-xs text-zinc-400">{{ editing.fileCount }} 个文件 · 入口 main.js</p>
             </div>
             <button
               type="button"
@@ -472,23 +452,13 @@ onMounted(refresh)
             </button>
           </div>
 
-          <!-- 元数据预览 -->
+          <!-- 配置预览（v2：配置来自表单字段，无 metadata 注释） -->
           <div class="grid grid-cols-2 gap-x-4 gap-y-1 border-b border-zinc-200 px-4 py-3 text-xs dark:border-zinc-700">
-            <div><span class="text-zinc-400">namespace</span> {{ editing.namespace || '—' }}</div>
-            <div><span class="text-zinc-400">run-at</span> {{ editing.runAt }}</div>
-            <div><span class="text-zinc-400">inject-into</span> {{ editing.injectInto }}</div>
-            <div>
-              <span class="text-zinc-400">matches</span>
-              <span class="break-all">{{ editing.matches.join(', ') || '—' }}</span>
-            </div>
+            <div><span class="text-zinc-400">注入时机</span> document_end（默认）</div>
+            <div><span class="text-zinc-400">iframe</span> 注入所有 frame（默认）</div>
             <div class="col-span-2">
-              <span class="text-zinc-400">grants</span> {{ editing.grants.join(', ') || '—' }}
-            </div>
-            <div v-if="editing.requires?.length" class="col-span-2">
-              <span class="text-zinc-400">@require</span> {{ editing.requires.join(', ') }}
-            </div>
-            <div v-if="editing.resources && Object.keys(editing.resources).length" class="col-span-2">
-              <span class="text-zinc-400">@resource</span> {{ Object.keys(editing.resources).join(', ') }}
+              <span class="text-zinc-400">matches</span>
+              <span class="break-all font-mono">{{ editing.matches.join(', ') || '—' }}</span>
             </div>
           </div>
 

@@ -66,6 +66,7 @@
 - `resolveIncludes`（`@require` / `@resource` 抓取）——被 ESM import + 构建期依赖替代
 - `buildGmWrapper` 全部 `GM_*` 挂载、`BUILTIN_PROBE_SOURCE`（探针改写为新形态示例脚本）
 - `collectCspWarnings` 中 `@require` 相关分支
+- `background.ts` 的 `userscript:fetchUrl` 命令（@require 抓取时代产物，随 resolveIncludes 一并删除）
 
 ## 3. 阶段划分
 
@@ -78,12 +79,13 @@
 改动：
 1. `dl-bridge.ts`（新）：`onUserScriptMessage` 监听 `{ __dl: true, req: ApiRequest }`，按 `c` 分发；保留 sender `userScript.scriptId` 白名单校验与 30s 超时兜底；错误也走 `ApiResponse { ok: false, code }`。
 2. `engine.ts` `buildDlWrapper`：
-   - 挂 `window.DL`，形态 = `DuoLingApi`（一期：store / fetch / notify / download / clipboard / tabs / cookie + 本地 style / log / info）；
+   - 挂 `window.DL`，形态 = `DuoLingApi`（一期走桥：store / fetch / notify / download / tabs；本地直写：style / log / info / clipboard）；
    - `DL.fetch` 后台回 `FetchPayload`，包装内补 `text()/json()/arrayBuffer()` 便捷方法；
-   - `menu` / `store.watch` 二期（契约已定义，包装内留 stub 并抛 `NOT_AVAILABLE`，不静默）；
-   - 错误上报：`window.onerror` / `unhandledrejection` → `ApiEvent` 风格消息（`{ __dlEvent: 'error', ... }`），后台收进 `us:errors`（phase 字段沿用）。
+   - `DL.clipboard.write` 世界内直写 `navigator.clipboard.writeText`（2026-09-14 决策，失败 reject 不静默，不走桥）；
+   - `menu` / `store.watch` / `cookie.*` 二期（契约已注明，包装内留 stub 并抛 `NOT_AVAILABLE`，不静默）；
+   - 错误上报：`window.onerror` / `unhandledrejection` → `{ __dlEvent: true, event: DlEvent }`（契约 `DlEvent`），后台收进 `us:errors`（phase 字段沿用）。
 3. `registerScript`：`js.push({ code: bundle })` 尾部拼 `\n//# sourceURL=duoling://script/<uuid>/<name>.js`（DevTools 显示真名 + 主世界时代错误过滤的预置位，零风险先加上）。
-4. `background.ts`：桥初始化换新文件；`userscript:install` 临时接受「无 metadata 裸 JS + 表单配置」。
+4. `background.ts`：桥初始化换新文件；`userscript:install` 直接以 **`ScriptProject`（v:1）单文件形状**落盘（`files = { [entry]: 源码 }`，`entry = 'main.js'`，配置来自表单）——**ScriptProject 类型定义提前到 Phase 0**，避免 Phase 0 产物缺 `v` 字段被 Phase 1 的 deprecated 判定误杀。
 
 验收：
 - 新建脚本（表单配 `matches`，源码 `DL.store.set('a', 1)` → 另一页面 `DL.store.get('a')`）往返成功；
@@ -123,9 +125,9 @@ interface ScriptProject {
 ```
 
 改动：
-1. `store.ts`：`us:script:<uuid>` 存 `ScriptProject`；读到无 `v` 字段的旧记录标记 `deprecated`（列表可见、不注册、提供一键清理），**不自动迁移**（自用存量少，转换无意义）。
+1. `store.ts`：`us:script:<uuid>` 存 `ScriptProject`；**deprecated 判定 = 记录含 GM metadata 特征字段**（`rawMeta` / `grants` / `requires` / `requireCodes` / `source` 等，Phase 0 起产物已是 `v:1` ScriptProject，不会误判），列表可见、不注册、提供一键清理，**不自动迁移**。
 2. `background.ts` IPC 面换为：`script:create` / `script:update`（全量保存）/ `script:delete` / `script:list` / `script:get` / `script:rebuild`（重注册单脚本）。
-3. `engine.ts` `registerScript(project)`：从 `project.bundle.code`（无 bundle 时回退 `files[entry]` 单文件直跑——**兼容 Phase 0 状态**）注册；`matches` 等直接取自 `config`。
+3. `engine.ts` `registerScript(project)`：从 `project.bundle.code`（无 bundle 时回退 `files[entry]` 单文件直跑——**回退守卫：仅 entry 为 .js/.mjs 且源码无 import/export 语法时才回退**，否则报「需先构建」而非注入语法错误源码）；`matches` 等直接取自 `config`。
 4. GM 值键空间 `us:gm:<uuid>:<key>` 保持不变（旧脚本的私有数据不丢）。
 
 验收：手工在 storage 写入一个两文件项目 + bundle，启停/匹配/排除（glob）/iframe（allFrames）行为正确；旧 GM 记录出现在「已弃用」分组。
@@ -143,7 +145,12 @@ interface ScriptProject {
    // entryPoints: [project.entry]
    // format: 'iife'，bundle: true，write: false
    // 虚拟文件：onLoad/onResolve 插件把 files map 喂给 esbuild（filter: /.*/，namespace: 'mem'）
-   // 外部依赖（https:// 开头的 import 说明符）：插件拦截 → UI 页 fetch（扩展页有 host 权限，免 CORS）→ 内容喂给 esbuild，并在 UI 提示「拉取了哪些远程依赖」
+   // 外部依赖分两档：
+   //   ① https:// 开头说明符：插件拦截 → UI 页 fetch（扩展页有 host 权限，免 CORS）→ 内容喂给 esbuild，
+   //      并把远程源码**持久化进项目 files**（否则断网重构建失败），UI 提示「拉取了哪些远程依赖」；
+   //      一期只支持**单文件远程模块**（无相对子导入的 CDN ESM 文件）——递归解析包内依赖链成本高，后置
+   //   ② 裸 npm 说明符（`from 'lodash'`）与 `node:` 前缀：拦截并报友好错误「不支持 npm 包名，请改 CDN URL」
+   // 入口约束：顶层 export 在 iife 格式下需 globalName——模板与文档约定「入口文件无顶层 export」
    // 需要时禁用 network（离线保存）可加开关
    ```
 3. 产物策略：**默认不 minify**（报错行号可读）；存 `bundle.code + builtAt`。sourcemap 可选后置（`sourceURL` 已保证 DevTools 可定位到 bundle；要映射回源文件再上 `sourcemap: 'inline'`）。
@@ -151,7 +158,7 @@ interface ScriptProject {
 5. `DL` 的引入方式：全局 `window.DL` 已由包装注入，模块代码直接用；附带提供 `.d.ts`（见 Phase 3）。后续可选增强：虚拟模块 `duoling`（`export const DL = window.DL`）获得 tree-shaking 与命名导入，**后置，不进本期**。
 6. `export`/TS 语法在构建期处理，注入的是纯 classic IIFE——运行期不存在「import 语法报错」类静默失败。
 
-验收：三文件项目（main.ts + 两个依赖模块，含一个 `import` 远程 ESM 库）保存后构建成功、注入生效；故意写语法错，编辑器显示文件名+行号；断网状态下纯本地项目仍可构建保存。
+验收：三文件项目（main.ts + 两个依赖模块，含一个 `import` 远程 ESM 单文件库）保存后构建成功、注入生效；故意写语法错，编辑器显示文件名+行号；写裸 npm 说明符得到友好报错；断网状态下纯本地项目仍可构建保存（含已持久化的远程依赖）。
 
 ### Phase 3 — 编辑器 UI + 导入导出
 
@@ -161,7 +168,7 @@ interface ScriptProject {
 2. 编辑器内核：一期 `textarea` + 等宽字体 + 保存时构建报错行内提示即可；CodeMirror 6（js/ts 高亮）作为独立增强项后置，不阻塞主链路。
 3. 配置表单：matches / excludeMatches / includeGlobs / excludeGlobs（数组编辑）、allFrames / runAt 下拉——**用户永远不接触注释语法**。
 4. 新建脚本项目模板：`main.js` + 空配置，预置一段带 `DL.log` 的示例代码（替代旧探针）。
-5. 导出/导入：**zip**（`project.json` + 源文件），文件树完整往返。
+5. 导出/导入：**zip**（`project.json` + 源文件），文件树完整往返。**前置**：需引入 zip 打包库（倾向 `fflate`，零依赖体量小）——属新增依赖，实施前与老大确认。
 6. `.d.ts` 交付：构建管线把 `DuoLingApi` 声明 + `declare const DL` 生成到导出 zip 里（或项目内 `dl.d.ts`），脚本作者有类型提示。
 7. （可选，默认不做）`.user.js` 导入转换器：解析 metadata → 表单配置、单文件 → 单文件项目。成本低价值存疑，老大要再开。
 
@@ -187,6 +194,8 @@ interface ScriptProject {
 | 模块化 | 保存时 esbuild-wasm 打包成 IIFE；运行时零打包逻辑 |
 | GM 私有数据 | 键空间 `us:gm:` 原样保留，旧数据不丢 |
 | minify | 默认关闭（可读报错优先） |
+| cookie | `DL.cookie.*` 挪二期（2026-09-14）：不加 `cookies` 权限，实现时才加，url 缺省由包装层填 `location.href` |
+| 剪贴板 | `DL.clipboard.write` 世界内直写（2026-09-14）：`navigator.clipboard.writeText`，失败 reject 不静默，不走桥 |
 
 ## 5. 风险与验证点
 
@@ -195,9 +204,11 @@ interface ScriptProject {
 | 1 | esbuild-wasm 10MB 拖慢扩展装载 | 放 `public/` 懒加载，只在打开编辑器且首次保存时 load；实测 workbench 首屏无回归 | P2 |
 | 2 | UI 页 fetch 远程依赖受 CSP/CORS 限制 | 扩展页有 `<all_urls>` host 权限应免 CORS；实测 jsdelivr / unpkg | P2 |
 | 3 | 大项目保存时构建卡 UI | wasm 在 worker？一期先同步构建 + loading 态，实测慢再迁 Web Worker | P2 |
-| 4 | bundle 内 `eval` / `new Function` 被 world CSP 拦 | 已有宽松 CSP 配置链；构建产物理论无 eval（esbuild 目标环境不含）；保留 `collectCspWarnings` 的 eval 检测挂到保存时 | P0 |
+| 4 | bundle 内 `eval` / `new Function` 被 world CSP 拦 | 已有宽松 CSP 配置链；构建产物理论无 eval（esbuild 目标环境不含）；保留 `collectCspWarnings` 的 eval 检测挂到保存时（检测对象用 `bundle.code` 而非源码） | P0 |
 | 5 | `sourceURL` 方案 DevTools 实际显示效果 | Phase 0 验收项 | P0 |
 | 6 | 旧脚本用户困惑（装 .user.js 无反应） | 安装入口明确提示「不支持油猴格式」+（可选）导入转换器 | P3 |
+| 7 | `DL.clipboard.write` 世界内直写受用户手势/CSP 限制 | 失败 reject 明确错误；实测覆盖面，不足再评估 offscreen document（需加 `offscreen` 权限） | P0 |
+| 8 | `chrome.storage.local` 默认 10MB 配额（项目记录含源码 + bundle 双份） | 自用脚本量级远小于配额；管理页显示项目体积，超限前预警即可 | P2 |
 
 ## 6. 明确不做
 
