@@ -33,7 +33,7 @@ export default defineConfig({
     description: '哆灵 AI 工具工厂 · 扩展版（侧边栏对话 + 标签页工作台）',
     // sidePanel 是使用 chrome.sidePanel API 的必需权限（Chrome 114+），不要剔除。
     // setPanelBehavior({openPanelOnActionClick:true}) 还需声明 action 键，点工具栏图标才会开面板。
-    permissions: ['storage', 'sidePanel', 'userScripts'],
+    permissions: ['storage', 'sidePanel', 'userScripts', 'notifications'],
     // 在线模型走 OpenAI 兼容接口，需要扩展页跨域 fetch，必须声明对应 host 权限。
     // 由服务商预设表推导（src/lib/providers.ts），避免申请不必要的全域权限；
     // 自定义接口地址的按需授权后续用 optional_host_permissions 动态申请。
@@ -41,7 +41,10 @@ export default defineConfig({
     // （Chrome 文档明确要求），同时覆盖 GM_xmlhttpRequest 的跨域可达范围。
     host_permissions: [...providerOrigins(), '<all_urls>'],
     // 每脚本独立 USER_SCRIPT 世界隔离（worldId）需 Chrome 133+ / Firefox 136+。
+    // 注意：WXT 透传 manifest 键名不改写，而 Chrome 规范字段是下划线 minimum_chrome_version，
+    // 驼峰键会被 Chrome 忽略（等于没声明下限）。故下划线键才是真正生效的，驼峰仅兼容 WXT 类型。
     minimumChromeVersion: '133',
+    'minimum_chrome_version': '133',
     action: {
       default_title: '打开哆灵',
     },

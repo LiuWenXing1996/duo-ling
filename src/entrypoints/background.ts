@@ -48,9 +48,11 @@ import {
   recoverOnUpdate,
   registerScript,
   unregisterScripts,
+  resolveIncludes,
   installProbe,
   removeProbe,
 } from '@/lib/userscripts/engine'
+import { initGmBridge } from '@/lib/userscripts/gm-bridge'
 import { listSummaries, getScript, saveScript, deleteScript } from '@/lib/userscripts/store'
 import { parseUserScriptMeta } from '@/lib/userscripts/parser'
 import type { UserScriptMeta } from '@/lib/userscripts/types'
@@ -167,23 +169,26 @@ const handlers: {
       source: msg.source,
       injectInto: meta.injectInto || 'auto',
     }
-    await saveScript(full)
-    await registerScript(full)
-    return { uuid: full.uuid }
+    // 安装即抓取 @require / @resource（后台特权 fetch，受 <all_urls> 豁免 CORS）
+    const resolved = await resolveIncludes(full)
+    await saveScript(resolved)
+    await registerScript(resolved)
+    return { uuid: resolved.uuid }
   },
 
   'userscript:update': async (msg): Promise<void> => {
     const existing = await getScript(msg.uuid)
     if (!existing) throw new Error('脚本不存在')
-    const next: UserScriptMeta = { ...existing }
+    let next: UserScriptMeta = { ...existing }
     if (typeof msg.source === 'string') {
       const { meta } = parseUserScriptMeta(msg.source)
-      Object.assign(next, meta, { source: msg.source })
+      next = { ...next, ...meta, source: msg.source }
     }
     if (typeof msg.enabled === 'boolean') next.enabled = msg.enabled
-    await saveScript(next)
-    await unregisterScripts([next.uuid]).catch(() => {})
-    if (next.enabled) await registerScript(next)
+    const resolved = await resolveIncludes(next)
+    await saveScript(resolved)
+    await unregisterScripts([resolved.uuid]).catch(() => {})
+    if (resolved.enabled) await registerScript(resolved)
   },
 
   'userscript:remove': async (msg): Promise<void> => {
@@ -210,8 +215,9 @@ const handlers: {
   },
 }
 
-/** 用户脚本管理器启动：配置 USER_SCRIPT 世界 + 恢复已启用脚本（设计文档 §4） */
+/** 用户脚本管理器启动：挂载 GM 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用脚本（设计文档 §4/§6） */
 async function initUserScripts(): Promise<void> {
+  initGmBridge() // GM_* 后台桥（独立于 world 配置，只需注册一次）
   await configureUserScriptsWorld()
   const ok = await isUserScriptsAvailable()
   if (!ok) {

@@ -2,7 +2,7 @@
 //
 // 主走 chrome.userScripts API：每脚本注册到独立 USER_SCRIPT 世界（worldId），
 // GM 包装作为 js 数组首条目先于用户源码定义 GM_*，脚本经 onUserScriptMessage 桥接后台
-// （GM 桥后台监听在 Phase 2；v1 的 GM_log / GM_addStyle / GM_info 在包装内本地实现，不依赖后台）。
+// （GM 桥后台监听在 gm-bridge.ts；v1 的 GM_log / GM_addStyle / GM_info 在包装内本地实现，不依赖后台）。
 import type { UserScriptMeta } from './types'
 import { listScripts, saveScript, deleteScript } from './store'
 import { parseUserScriptMeta } from './parser'
@@ -39,7 +39,50 @@ export async function configureUserScriptsWorld(): Promise<void> {
   }
 }
 
+// —— 后台特权抓取（install/update 时拉 @require / @resource）——
+//
+// 在 SW 内 fetch，受 manifest 的 host_permissions（<all_urls>）豁免 CORS，可抓任意目标，
+// 这是 GM_xhr / @require / @resource 能跨域取资源的基础（设计文档 §4 / §6）。
+
+/** 抓取文本内容（@require 的代码、@resource 的文本）。失败抛错，由调用方决定回退策略 */
+export async function fetchText(url: string): Promise<string> {
+  const resp = await fetch(url, { credentials: 'omit' })
+  if (!resp.ok) throw new Error(`fetch ${url} 失败：${resp.status} ${resp.statusText}`)
+  return await resp.text()
+}
+
+/**
+ * 安装/更新时解析依赖：把 @require URL 抓成代码、@resource URL 抓成文本（设计文档 §6）。
+ * 抓取结果写回 meta（requireCodes / resources=名称→文本），供 registerScript 拼接与 GM_getResourceText 读取。
+ * @require 任一失败即抛错（阻断安装，避免半残脚本）；@resource 失败则跳过该资源（warning 不阻断）。
+ */
+export async function resolveIncludes(meta: UserScriptMeta): Promise<UserScriptMeta> {
+  const next: UserScriptMeta = { ...meta }
+  if (meta.requires?.length) {
+    try {
+      next.requireCodes = await Promise.all(meta.requires.map((u) => fetchText(u)))
+    } catch (e) {
+      throw new Error('@require 抓取失败：' + (e instanceof Error ? e.message : String(e)))
+    }
+  }
+  if (meta.resources && Object.keys(meta.resources).length) {
+    const res: Record<string, string> = {}
+    for (const [name, url] of Object.entries(meta.resources)) {
+      try {
+        res[name] = await fetchText(url)
+      } catch (e) {
+        console.warn('[duoling:userscript] @resource 抓取失败，跳过', name, url, e)
+      }
+    }
+    next.resources = res
+  }
+  return next
+}
+
 // —— GM 包装（js 首条目，先于用户源码；设计文档 §4.2 / §6）——
+//
+// GM_* 调后台走 chrome.runtime.sendMessage —— 因世界已 configureWorld({messaging:true})，
+// USER_SCRIPT 世界的 sendMessage 会被路由到 runtime.onUserScriptMessage（非通用 onMessage）。
 
 function buildGmWrapper(meta: UserScriptMeta): string {
   const info = JSON.stringify({
@@ -76,9 +119,41 @@ function buildGmWrapper(meta: UserScriptMeta): string {
       return el
     },
     log: function () { console.log.apply(console, ['[GM]'].concat([].slice.call(arguments))) },
-    xmlhttpRequest: function (details) { return __gmSend('xmlhttpRequest', [details]) },
+    // 回调式：符合 GM 规范（用户脚本用 details.onload / details.onerror）
+    xmlhttpRequest: function (details) {
+      return __gmSend('xmlhttpRequest', [{
+        method: details.method, url: details.url, headers: details.headers,
+        data: details.data, responseType: details.responseType, overrideMimeType: details.overrideMimeType
+      }]).then(function (resp) {
+        if (details.onload) details.onload({
+          responseText: resp.responseText, status: resp.status,
+          statusText: resp.statusText, responseHeaders: resp.responseHeaders,
+          finalUrl: resp.finalUrl, response: resp.responseText, readyState: 4
+        })
+        return resp
+      }).catch(function (e) {
+        if (details.onerror) details.onerror({ error: String((e && e.message) || e) })
+        throw e
+      })
+    },
     openInTab: function (url, opts) { return __gmSend('openInTab', [url, opts]) },
     notification: function (text, title, image) { return __gmSend('notification', [text, title, image]) },
+    // 后台抓成 dataUrl 回传，本地 a[download] 触发下载（避免新增 downloads 权限）
+    download: function (details) {
+      var url = typeof details === 'string' ? details : details.url
+      var name = (typeof details === 'object' && details.name) || 'download'
+      return __gmSend('download', [url, name]).then(function (r) {
+        var a = document.createElement('a')
+        a.href = r.dataUrl; a.download = r.name
+        ;(document.body || document.documentElement).appendChild(a)
+        a.click(); a.remove()
+        if (details && details.onload) details.onload({})
+        return r
+      }).catch(function (e) {
+        if (details && details.onerror) details.onerror({ error: String((e && e.message) || e) })
+        throw e
+      })
+    },
     getResourceText: function (name) { return __gmSend('getResourceText', [name]) },
     getResourceURL: function (name) { return __gmSend('getResourceURL', [name]) }
   }
@@ -91,6 +166,7 @@ function buildGmWrapper(meta: UserScriptMeta): string {
   window.GM_xmlhttpRequest = window.GM.xmlhttpRequest
   window.GM_openInTab = window.GM.openInTab
   window.GM_notification = window.GM.notification
+  window.GM_download = window.GM.download
   window.GM_getResourceText = window.GM.getResourceText
   window.GM_getResourceURL = window.GM.getResourceURL
 })();
@@ -99,17 +175,21 @@ function buildGmWrapper(meta: UserScriptMeta): string {
 
 // —— 注册 / 注销（设计文档 §4.2）——
 
-/** 单条注册（仅 enabled 脚本才注入；matches 缺失直接抛错） */
+/**
+ * 单条注册（仅 enabled 脚本才注入；matches 缺失直接抛错）。
+ * js 顺序：GM 包装 → @require 代码（若有）→ 用户源码。
+ * @require 在源码前执行，可拿到 window.GM_*（符合油猴语义）。
+ */
 export async function registerScript(meta: UserScriptMeta): Promise<void> {
   if (!meta.enabled) return
   if (!meta.matches?.length) {
     throw new Error('脚本缺少 @match，无法注册')
   }
-  if (meta.requires?.length) {
-    // @require 前置拼接 js 留到 Phase 2；v1 先忽略并告警，不阻断安装
-    console.warn('[duoling:userscript] @require 暂未实现（Phase 2），已忽略：', meta.requires)
+  const js: chrome.userScripts.RegisteredUserScript['js'] = [{ code: buildGmWrapper(meta) }]
+  if (meta.requireCodes?.length) {
+    for (const code of meta.requireCodes) js.push({ code })
   }
-  const js = [{ code: buildGmWrapper(meta) }, { code: meta.source }]
+  js.push({ code: meta.source })
   const userScript: chrome.userScripts.RegisteredUserScript = {
     id: meta.uuid,
     worldId: 'us-' + meta.uuid, // 每脚本独立世界，实现全局隔离（要求 Chrome 133+）

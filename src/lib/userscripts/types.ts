@@ -16,8 +16,9 @@ export interface UserScriptMeta {
   // v1 仅实现 'content' / 'auto'（均 → USER_SCRIPT 世界）；'page'(MAIN) 暂不支持（设计文档 §4 风险）
   injectInto: 'page' | 'content' | 'auto'
   grants: string[]
-  requires?: string[] // @require（Phase 2 前置拼接为 js 条目）
-  resources?: Record<string, string> // @resource（Phase 2，GM_getResourceText 提供）
+  requires?: string[] // @require 原始 URL 列表（UI 展示 + 重新抓取依据）
+  requireCodes?: string[] // @require 抓取后的代码（注册时拼进 js，位于 GM 包装之后、源码之前）
+  resources?: Record<string, string> // @resource：安装后存「名称→文本」（GM_getResourceText 提供）
   source: string
   updateURL?: string
   homepage?: string
