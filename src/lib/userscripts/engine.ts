@@ -50,7 +50,10 @@ export async function getUserScriptsStatus(): Promise<import('./types').UserScri
       guideText = 'Chrome <138：在 chrome://extensions 开启全局「开发者模式」后即可使用。'
     }
   }
-  const cspPermissive = await getEffectiveCspPermissive()
+  // 自愈：引擎可用但状态标志未置（权限后开 / SW 重启归零）时，按需补配世界再取真实状态
+  let permissive = worldCspPermissive
+  if (available && !permissive) permissive = await ensureWorldsConfigured()
+  const cspPermissive = permissive ? !(await isCspForcedRestricted()) : false
   return { available, isFirefox, chromeMajor, guideText, cspPermissive }
 }
 
@@ -89,32 +92,68 @@ export async function getEffectiveCspPermissive(): Promise<boolean> {
   return !(await isCspForcedRestricted())
 }
 
-/** 开启 messaging 专用通道（onUserScriptMessage）。csp 不被支持时降级为仅 messaging 并标记未放开 */
-export async function configureUserScriptsWorld(): Promise<boolean> {
-  // chrome.userScripts 仅在已开启「Allow User Scripts」（Chrome ≥138）/ 全局开发者模式
-  // （Chrome <138）/ 已授权 userScripts 权限（Firefox）时存在；configureWorld 也可能在某些
-  // 实现（如 Firefox 旧 API）上缺失。两者任一不可用则无法配置世界，直接优雅跳过，交由上层
-  // 可用性检测决定降级（UI 横幅引导开启），避免 SW 初始化崩溃。
+/**
+ * 配置指定 USER_SCRIPT 世界：开启 messaging（+ 宽松 CSP，不被支持时降级为仅 messaging）。
+ * 返回是否成功放开宽松 CSP。
+ *
+ * 关键：worldId 省略时配置的是**默认世界**，而自定义 worldId 的世界**不会继承**默认世界的
+ * 配置。我们为每个脚本用独立世界（'us-<uuid>'，设计文档 §4.2 隔离目标），因此每个脚本的
+ * 世界都必须各自 configureWorld——否则该世界没有 chrome.runtime，GM 桥与错误上报全部失效
+ * （实测症状：runtime 可用=false，脚本报错无法上报）。
+ */
+async function configureWorld(worldId?: string): Promise<boolean> {
   if (!chrome.userScripts || typeof chrome.userScripts.configureWorld !== 'function') {
-    worldCspPermissive = false
     return false
   }
+  const base = worldId ? { worldId } : {}
   try {
-    await chrome.userScripts.configureWorld({ messaging: true, csp: US_WORLD_CSP })
-    worldCspPermissive = true
+    await chrome.userScripts.configureWorld({ ...base, messaging: true, csp: US_WORLD_CSP })
     return true
-  } catch {
-    // csp 参数不被当前版本接受时降级为仅 messaging（保持 GM 桥可用），但世界退回严 CSP
+  } catch (e) {
+    // 临时诊断：csp 被拒时打印真实原因（定位后会降级为静默+状态提示）
+    console.warn('[duoling:userscript] configureWorld 带 csp 失败', worldId ?? '(default)', e)
+    // csp 参数不被当前版本接受时降级为仅 messaging（保持 GM 桥与错误上报可用）
     try {
-      await chrome.userScripts.configureWorld({ messaging: true })
-      worldCspPermissive = false
+      await chrome.userScripts.configureWorld({ ...base, messaging: true })
       return false
-    } catch {
-      // 连 messaging-only 都失败则放弃世界配置（GM 桥不可用，但 SW 不崩）
-      worldCspPermissive = false
+    } catch (e2) {
+      console.warn('[duoling:userscript] configureWorld 仅 messaging 也失败', worldId ?? '(default)', e2)
+      // 连 messaging-only 都失败则放弃（该世界无 chrome.runtime，但 SW 不崩）
       return false
     }
   }
+}
+
+/** 配置默认 USER_SCRIPT 世界（启动 / 扩展更新恢复时调用） */
+export async function configureUserScriptsWorld(): Promise<boolean> {
+  worldCspPermissive = await configureWorld()
+  return worldCspPermissive
+}
+
+/**
+ * 确保全部世界配置就绪（自愈，幂等）：默认世界 + 已注册脚本的各自独立世界。
+ *
+ * 场景：「Allow User Scripts」在扩展加载**之后**才开启——initUserScripts 跑的时候
+ * chrome.userScripts 尚不存在（guard 直接跳过），worldCspPermissive 永远停在 false，
+ * 横幅误报 ⚠；MV3 SW 重启后模块级标志也会归零。横幅查询时发现标志为 false
+ * 就按需补配全部世界，再报告真实状态。
+ */
+export async function ensureWorldsConfigured(): Promise<boolean> {
+  await configureUserScriptsWorld()
+  if (!worldCspPermissive) return false
+  try {
+    const registered = await chrome.userScripts.getScripts()
+    const worldIds = [
+      ...new Set(registered.map((s) => s.worldId).filter((v): v is string => !!v)),
+    ]
+    for (const wid of worldIds) {
+      const ok = await configureWorld(wid)
+      if (!ok) console.warn('[duoling:userscript] 脚本世界配置失败（messaging/CSP）', wid)
+    }
+  } catch {
+    // getScripts 暂不可用（权限刚开启瞬间等）时忽略，下次查询再补
+  }
+  return worldCspPermissive
 }
 
 /**
@@ -269,18 +308,36 @@ function buildGmWrapper(meta: UserScriptMeta): string {
   // 经 onUserScriptMessage 转发到后台（世界已 configureWorld({messaging:true})）。
   function __usReportError(phase, message, stack, url) {
     try {
-      chrome.runtime.sendMessage({
-        __usError: true,
-        uuid: GM_INFO.uuid,
-        name: GM_INFO.name,
-        phase: phase,
-        message: message,
-        stack: stack,
-        url: url,
-      })
+      if (!chrome || !chrome.runtime || !chrome.runtime.sendMessage) {
+        console.warn('[duous:err] chrome.runtime.sendMessage 不可用，无法上报：' + message)
+        return
+      }
+      chrome.runtime.sendMessage(
+        {
+          __usError: true,
+          uuid: GM_INFO.uuid,
+          name: GM_INFO.name,
+          phase: phase,
+          message: message,
+          stack: stack,
+          url: url,
+        },
+        function () {
+          var le = chrome.runtime.lastError
+          if (le) console.warn('[duous:err] 上报失败：' + le.message)
+          else console.log('[duous:err] 已上报：' + message)
+        },
+      )
     } catch (e) {
-      void e
+      console.warn('[duous:err] 上报异常：' + ((e && e.message) || e))
     }
+  }
+  try {
+    console.log(
+      '[duous:err] 监听已注册，runtime 可用=' + !!(chrome && chrome.runtime && chrome.runtime.sendMessage),
+    )
+  } catch (e) {
+    void e
   }
   window.addEventListener('error', function (e) {
     var err = e.error || {}
@@ -314,9 +371,24 @@ export async function registerScript(meta: UserScriptMeta): Promise<void> {
     for (const code of meta.requireCodes) js.push({ code })
   }
   js.push({ code: meta.source })
+  const worldId = 'us-' + meta.uuid // 每脚本独立世界，实现全局隔离（要求 Chrome 133+）
+  // 该脚本的独立世界必须先单独开 messaging，否则世界内没有 chrome.runtime，
+  // GM 桥与运行期错误上报全部失效（自定义世界不继承默认世界配置）。
+  // 注意：不能覆盖全局 worldCspPermissive——那是**默认世界**的状态（供横幅展示）；
+  // 单世界失败只影响该脚本自身，记入错误日志而非污染全局标志。
+  const worldOk = await configureWorld(worldId)
+  if (!worldOk) {
+    console.warn('[duoling:userscript] 脚本世界配置失败（无 messaging，GM 桥不可用）', worldId)
+    void appendUserScriptError({
+      uuid: meta.uuid,
+      name: meta.name,
+      phase: 'register',
+      message: '独立世界配置失败：该脚本的 GM 桥与错误上报不可用（世界未开启 messaging）',
+    }).catch(() => {})
+  }
   const userScript: chrome.userScripts.RegisteredUserScript = {
     id: meta.uuid,
-    worldId: 'us-' + meta.uuid, // 每脚本独立世界，实现全局隔离（要求 Chrome 133+）
+    worldId,
     js,
     matches: meta.matches,
     excludeMatches: meta.excludeMatches,
