@@ -161,10 +161,10 @@ const handlers: {
   // 读完整项目（编辑器多文件用；管理页是可信扩展页，源码不过滤）
   'userscript:getProject': async (msg): Promise<ScriptProject | undefined> => getProject(msg.uuid),
 
-  // 更新文件树 + 入口（Phase 1 多文件编辑），保存后重注册（启用中才注入）。
-  // resolveInjectCode 的守卫在 registerScript 内兜底：未构建的多文件项目启用时会明确报「需先构建」。
+  // 更新文件树 + 入口 + 构建产物（Phase 2：UI 页构建成功后才调用），启用中则重注册。
+  // registerScript 已优先 bundle.code（零改动）；无 bundle 时 resolveInjectCode 守卫兜底。
   'userscript:updateFiles': async (msg): Promise<{ warnings?: string[] }> => {
-    const next = await updateProjectFiles(msg.uuid, msg.files, msg.entry)
+    const next = await updateProjectFiles(msg.uuid, msg.files, msg.entry, msg.bundle)
     await unregisterScripts([next.uuid]).catch(() => {})
     if (next.enabled) {
       try {

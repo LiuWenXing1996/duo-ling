@@ -41,9 +41,14 @@ export const userscriptClient = {
   getProject: (uuid: string): Promise<ScriptProject | undefined> =>
     send({ kind: 'userscript:getProject', uuid }),
 
-  /** 保存文件树 + 入口并重注册。返回非阻塞 CSP 警告（未构建多文件项目会在此抛「需先构建」） */
-  updateFiles: (uuid: string, files: Record<string, string>, entry: string): Promise<{ warnings?: string[] }> =>
-    send({ kind: 'userscript:updateFiles', uuid, files, entry }),
+  /** 保存文件树 + 入口 + 构建产物并重注册。返回非阻塞 CSP 警告（构建失败在 UI 页先行拦截） */
+  updateFiles: (
+    uuid: string,
+    files: Record<string, string>,
+    entry: string,
+    bundle?: { code: string; builtAt: number },
+  ): Promise<{ warnings?: string[] }> =>
+    send({ kind: 'userscript:updateFiles', uuid, files, entry, bundle }),
 
   /** 一键清理全部旧 GM 形态记录，返回清理条数 */
   clearDeprecated: (): Promise<{ removed: number }> => send({ kind: 'userscript:clearDeprecated' }),

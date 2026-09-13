@@ -15,6 +15,7 @@ import {
   X,
 } from '@lucide/vue'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
+import { buildProject, BuildError } from '@/lib/userscripts/builder'
 import type { ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from '@/lib/userscripts/types'
 
 const availability = ref<UserScriptsAvailability | null>(null)
@@ -39,6 +40,9 @@ const editFiles = ref<Record<string, string>>({})
 const editEntry = ref('')
 const activeFile = ref('')
 const editDirty = ref(false)
+// 构建状态（Phase 2：保存即构建；失败行内展示、不落盘）
+const building = ref(false)
+const buildIssues = ref<string[]>([])
 
 /** 示例脚本：纯 JS（Phase 0 无构建），演示 DL.log 本地能力 */
 const SAMPLE = `// 哆灵用户脚本示例：页面标题加星标
@@ -179,6 +183,7 @@ async function openEditor(s: ScriptSummary): Promise<void> {
     editEntry.value = project.entry
     activeFile.value = project.entry
     editDirty.value = false
+    buildIssues.value = []
   } catch (e) {
     error.value = '读取项目失败：' + (e instanceof Error ? e.message : String(e))
   }
@@ -238,17 +243,36 @@ function renameFile(name: string): void {
 }
 
 async function saveEdit(): Promise<void> {
-  if (!editing.value) return
+  if (!editing.value || building.value) return
   error.value = ''
   warning.value = ''
+  buildIssues.value = []
+  building.value = true
   try {
-    const res = await userscriptClient.updateFiles(editing.value.uuid, editFiles.value, editEntry.value)
-    warning.value = res.warnings?.join(' ') ?? ''
+    // 先构建：失败（BuildError）行内展示 文件:行:列，不落盘半成品
+    const outcome = await buildProject(editFiles.value, editEntry.value)
+    const res = await userscriptClient.updateFiles(
+      editing.value.uuid,
+      outcome.files,
+      editEntry.value,
+      { code: outcome.code, builtAt: Date.now() },
+    )
+    const notes: string[] = []
+    if (outcome.remoteFetched.length) notes.push(`已拉取远程依赖并持久化进文件树：${outcome.remoteFetched.join('、')}`)
+    if (res.warnings?.length) notes.push(...res.warnings)
+    warning.value = notes.join(' ')
+    editFiles.value = outcome.files
     editDirty.value = false
     await refresh()
     closeEditor()
   } catch (e) {
-    error.value = '保存失败：' + (e instanceof Error ? e.message : String(e))
+    if (e instanceof BuildError) {
+      buildIssues.value = e.issues
+    } else {
+      error.value = '保存失败：' + (e instanceof Error ? e.message : String(e))
+    }
+  } finally {
+    building.value = false
   }
 }
 
@@ -599,6 +623,22 @@ onMounted(refresh)
             </div>
           </div>
 
+          <!-- 构建错误（保存时构建失败：文件:行:列，不落盘） -->
+          <div
+            v-if="buildIssues.length"
+            class="border-b border-red-300 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-950/40"
+          >
+            <p class="mb-1 flex items-center gap-1 text-xs font-medium text-red-700 dark:text-red-300">
+              <CircleX class="size-3.5" />
+              构建失败（{{ buildIssues.length }} 处），未保存：
+            </p>
+            <ul class="flex max-h-40 flex-col gap-1 overflow-auto">
+              <li v-for="(msg, i) in buildIssues" :key="i" class="break-all font-mono text-[11px] leading-relaxed text-red-600 dark:text-red-400">
+                {{ msg }}
+              </li>
+            </ul>
+          </div>
+
           <!-- 源码编辑（当前选中文件） -->
           <textarea
             v-if="activeFile"
@@ -619,10 +659,11 @@ onMounted(refresh)
             </button>
             <button
               type="button"
-              class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+              :disabled="building"
+              class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
               @click="saveEdit"
             >
-              保存并重新注册
+              {{ building ? '构建中…' : '保存并重新注册' }}
             </button>
           </div>
         </div>

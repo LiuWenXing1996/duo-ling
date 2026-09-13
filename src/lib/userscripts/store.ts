@@ -112,17 +112,19 @@ export function validateFiles(files: Record<string, string>, entry: string): voi
   }
 }
 
-/** 更新项目文件树与入口（校验后整体替换 files，回写 updatedAt），返回更新后的项目 */
+/** 更新项目文件树与入口（校验后整体替换 files，回写 updatedAt），可携带新构建产物；返回更新后的项目 */
 export async function updateProjectFiles(
   uuid: string,
   files: Record<string, string>,
   entry: string,
+  bundle?: { code: string; builtAt: number },
 ): Promise<ScriptProject> {
   const project = await getProject(uuid)
   if (!project) throw new Error('脚本不存在或为已弃用旧记录')
   validateFiles(files, entry)
   project.files = files
   project.entry = entry
+  if (bundle) project.bundle = bundle
   project.updatedAt = Date.now()
   await saveProject(project)
   return project
