@@ -21,7 +21,7 @@
 | --- | --- | --- | --- |
 | `main` 进程（`src/main/index.ts` 窗口/IPC/系统能力） | **background service worker**（`background.ts`） | 中 | 无窗口概念；能力经 `chrome.runtime` 消息或 Offscreen Document 提供 |
 | `preload`（`src/preload/index.ts` 暴露 `api`/`electron`） | 无 preload；能力由 background 经 `chrome.runtime.sendMessage` / 注入脚本直接提供 | 中 | 渲染进程不再有 Node，能力全部走消息协议 |
-| `renderer` 主窗口 | **side panel**（`sidepanel.html`）+ **options 页** + **popup**（图标入口） | 小 | Vue 技术栈整体复用；建议 side panel 作主工作台（popup 仅 300×600 临时弹层，不适合长驻工具） |
+| `renderer` 主窗口 | **side panel**（`sidepanel.html`，AI 对话入口）+ **标签页工作区**（`workbench.html`） | 小 | Vue 技术栈整体复用。**产品定案**：side panel = 应用入口 = AI 对话界面；工具运行 / 代码 / 版本 / 设置等重界面开**独立标签页**（桌面版"工具工作区多标签"迁到这里），不用 options 页也不常驻面板 |
 | `<webview>` + `tool://` / `tool-preview://`（`protocol.ts` / `tool-page.ts`） | **sandbox `<iframe>`** + `chrome-extension://<id>/tool-frame.html` + `srcdoc` | 中 | 见 §4.2 |
 | `utilityProcess.fork` backend 能力（`capability-runtime.ts` / `capability-worker.ts`） | background 内直接执行，或 **Web Worker** 做软隔离 | 中 | 见 §4.3 |
 | `node:fs` 工具目录 `<userData>/tools/<id>/`（`tool-page.ts`） | **IndexedDB**（工具页 HTML 字符串 + meta） | 中 | 见 §4.4 |
@@ -145,11 +145,16 @@
 ## 4. 实施路线（分三期）
 
 **一期 · 核心闭环可达（MVP）**
-- 脚手架：WXT 工程 + manifest + **side panel 工作台** + options 入口。**一期直接以 side panel 为工作台形态，不用 popup**（spike 的 popup 仅作核心闭环验证产物、保留不动，不作为一期起点）。
-- ⚠️ **一期 side panel 配置要点（务必照做）**：
+- 脚手架：WXT 工程 + manifest + **side panel（对话入口）** + **workbench 标签页（工具工作区）**。一期不用 popup、也不用 options 页（spike 的 popup 仅作核心闭环验证产物，保留不动）。
+- **载体分工（产品定案）**：
+  1. **side panel = 应用入口 = AI 对话界面**：会话列表 / 消息流 / 输入区 / 模型选择。对话链路在扩展页直接 `fetch` OpenAI 兼容接口（SSE 流式），不经 background。
+  2. **`workbench.html` = 工具工作区（独立标签页）**：hash 路由 `#/tools`、`#/tool/<id>/<run|code|history>`、`#/settings`；承载原桌面版「工具工作区多标签」的全部内容。
+  3. 设置并入 workbench 的 `#/settings`（原 options 页取消）。
+- ⚠️ **一期载体配置要点（务必照做）**：
   1. manifest 用 `side_panel.default_path` 声明面板页，并在 `permissions` 声明 **`sidePanel`**（使用 `chrome.sidePanel` API 的必需权限，Chrome 114+）；同时声明 `action` 键（`default_title`）。**缺 `sidePanel` 权限则 `chrome.sidePanel` 不存在、点击图标不开面板**。（更正：早期误判 `sidePanel` 为"非法权限"是错的。）
   2. 在 background **顶层**调用 `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })` 控制点击图标打开面板（幂等，比只依赖 onInstalled 稳）；不要依赖 popup 入口。
-  3. 抽「工作台」为独立组件，side panel 与 options 共用（Firefox 侧再接 `sidebar_action`，见 §5 风险 7）。
+  3. 扩展页 `fetch` 模型接口必须声明 `host_permissions`（可由服务商预设表推导，见 `src/lib/providers.ts`），否则跨域请求被拦。
+  4. Firefox 侧三期再补 `sidebar_action`（见 §5 风险 7）：把「对话」与「工作台」都抽成独立组件，两套 API 共用组件、只分发打开方式，UI 零改。
 - 平移：shared 类型、capability-registry、UI 层、agent 编排。
 - 工具页承载：iframe + srcdoc + cap 桥接 + 心跳（§4.2）。
 - 持久化：IndexedDB 工具目录 + chrome.storage 工具数据（§4.4）。

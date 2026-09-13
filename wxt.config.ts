@@ -1,12 +1,25 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'wxt'
 import vue from '@vitejs/plugin-vue'
+import tailwindcss from '@tailwindcss/vite'
+import { providerOrigins } from './src/lib/providers'
 
-// 哆灵 · 浏览器插件版（一期 MVP）
+// 哆灵 · 浏览器扩展版（一期 MVP）
 // 不依赖已下架的 @wxt/vue，直接用 vite 的 vue 插件编译 .vue 组件。
-// 工作台形态：side panel（Chrome）+ sidebar_action（Firefox，见 docs 方案 §5 风险7）。
+//
+// 载体分工：
+//   side panel  → 应用入口 = AI 对话界面（entrypoints/sidepanel.html）
+//   标签页      → 工具工作区 = 运行 / 代码 / 版本 / 设置（entrypoints/workbench.html）
 export default defineConfig({
+  // 源码根设为 src：WXT 内置别名 `@` / `~` 硬编码指向 srcDir 且覆盖用户配置
+  // （见 wxt 的 resolve-config.mjs），只有把 srcDir 指到 src，平移代码里的 `@/...`
+  // （原指向桌面版的 src/renderer/src）才能正确解析到扩展侧的 src。
+  srcDir: 'src',
+  // WXT 的 publicDir 默认基于**项目根**（不是 srcDir），需显式指到 src 下，
+  // 否则 public/tool-bridge.js（工具页 sandbox iframe 的桥接脚本）不会进产物。
+  publicDir: 'src/public',
   vite: () => ({
-    plugins: [vue()],
+    plugins: [vue(), tailwindcss()],
     // service worker 里没有 Node 的 `global`，而 isomorphic-git/lightning-fs 的
     // 打包代码写的是 `global.TextEncoder`。构建期把 `global` 别名成原生 globalThis
     // （SW 里自带 TextEncoder/TextDecoder），否则加载即抛
@@ -17,15 +30,18 @@ export default defineConfig({
   }),
   manifest: {
     name: '哆灵',
-    description: '哆灵 AI 工具工厂 · 浏览器插件版（side panel 工作台）',
+    description: '哆灵 AI 工具工厂 · 扩展版（侧边栏对话 + 标签页工作台）',
     // sidePanel 是使用 chrome.sidePanel API 的必需权限（Chrome 114+），不要剔除。
     // setPanelBehavior({openPanelOnActionClick:true}) 还需声明 action 键，点工具栏图标才会开面板。
     permissions: ['storage', 'sidePanel'],
+    // 在线模型走 OpenAI 兼容接口，需要扩展页跨域 fetch，必须声明对应 host 权限。
+    // 由服务商预设表推导（src/lib/providers.ts），避免申请不必要的全域权限；
+    // 自定义接口地址的按需授权后续用 optional_host_permissions 动态申请。
+    host_permissions: providerOrigins(),
     action: {
       default_title: '打开哆灵',
     },
-    // 一期用 side panel 工作台。Chrome 用 side_panel key；Firefox 的 sidebar_action 在
-    // 三期跨端时再补（方案 §5 风险7）。
+    // Chrome 用 side_panel key；Firefox 的 sidebar_action 在三期跨端时再补（方案 §5 风险7）。
     side_panel: {
       default_path: 'sidepanel.html',
     },

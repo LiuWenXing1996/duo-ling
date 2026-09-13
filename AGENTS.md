@@ -6,9 +6,11 @@
 
 ## 项目速览
 
-- **形态**：Chrome MV3 扩展（background service worker + side panel + options）
-- **构建**：WXT 0.21（Vite 内核），`entrypoints/` 约定式入口，自动生成 `manifest.json`
-- **UI 层**：Vue 3.5 + TypeScript，`@` 别名指向 `src/`
+- **形态**：Chrome MV3 扩展（background service worker + side panel + 工作台标签页）
+- **构建**：WXT 0.21（Vite 内核），`srcDir: 'src'`（**不可改**，`@` 别名依赖它），入口在 `src/entrypoints/`，自动生成 `manifest.json`
+- **UI 层**：Vue 3.5 + TypeScript，`@` 别名指向 `src/`；样式 = Tailwind v4（CSS-first，`src/assets/main.css`）+ Less（`src/assets/main.less`）；主题**跟随系统**（`src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`，勿在 html 上硬写 `class="dark"`）
+- **手写桥接层（`src/lib/*.ts` 中非平移的那些）必须逐函数对照 legacy**：这类文件是重写而非平移，最容易丢桌面版里「默认值回退 / 入参守卫 / 先校验后落盘 / 无变化就不做」这四类不在类型里的语义（曾丢过：模型展示名回退、会话自动命名、空提交守卫、id 防穿越、服务商预设少 7 个）。对照工具：`scripts/compare-bridge.py <扩展文件> <legacy文件>`，按同名函数体 diff 只打差异。
+- **UI 复用（强制）**：两个载体的 UI 都是**从桌面版平移来的现成实现**（`src/components/`，闭包见 `legacy/src/renderer/src/`）—— side panel 用 `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `ToolWorkspace` 系列。它们靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，因此组件本体零改动（例外：`ToolFrame.vue` / `ToolHistory.vue` 的预览载体由 `<webview>` 改为 sandbox iframe，改动处均有注释）。**改 UI 前先查 legacy 是否已有实现，禁止照着界面重写**；需要平移新组件用 `scripts/port-legacy-ui.py`（改 `ENTRIES`；重跑会覆盖本地改过的 `use-global-conversation.ts` / `Shimmer.vue`，先备份）。
 - **存储**：`lightning-fs`（IndexedDB 后端）+ `chrome.storage.local`（工具数据）
 - **版本管理**：`isomorphic-git`（纯 JS）
 - **工具页承载**：sandbox `iframe` + `srcdoc` + `window.cap` 桥接
@@ -86,7 +88,8 @@
 | --- | --- | --- |
 | manifest 权限 | `sidePanel` 是 `chrome.sidePanel` 的**必需权限**（勿剔除）；所需权限之外的不要加（上架审查） | [README](README.md) 坑 1 |
 | SW 全局 | 引入依赖 Node 全局的库时，必须补 `src/polyfills.ts` 并在 `background.ts` **最前** import | [README](README.md) 坑 2 |
-| CSP / 沙箱 | 桥接脚本必须外置同源文件（禁内联 `<script>`）；**AI 生成的不可信工具页必须严格 sandbox（opaque origin）+ 双层 iframe 分层** | [迁移方案](docs/plugin-migration-plan.md) §4.6 |
+| CSP / 沙箱 | 桥接脚本必须外置同源文件（禁内联 `<script>`）；**AI 生成的不可信工具页必须严格 sandbox（opaque origin）+ 双层 iframe 分层**（现状仍是同源 sandbox，属待办） | [迁移方案](docs/plugin-migration-plan.md) §4.6 |
+| 主题 | 深浅色**跟随系统**（`theme.ts` → `html.dark`）；不要在 `.html` 写死 `class="dark"`，也不要在组件里硬编码主题色（用 `--background` 等主题变量） | [README](README.md) |
 | 消息协议 | 工具页只能经 `window.cap` → side panel → background 调用能力，**不得直接访问 `chrome.*`** | [迁移方案](docs/plugin-migration-plan.md) §4.3 |
 | entrypoint | 不要同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [README](README.md) 坑 5 |
 | 命名 | 文件/目录 kebab-case；组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | [docs/style.md](docs/style.md) §1/§3 |
