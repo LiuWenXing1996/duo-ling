@@ -112,12 +112,13 @@ export function validateFiles(files: Record<string, string>, entry: string): voi
   }
 }
 
-/** 更新项目文件树与入口（校验后整体替换 files，回写 updatedAt），可携带新构建产物；返回更新后的项目 */
+/** 更新项目文件树 / 入口 / 名称 / 配置 / 构建产物（校验后落盘，回写 updatedAt）；返回更新后的项目 */
 export async function updateProjectFiles(
   uuid: string,
   files: Record<string, string>,
   entry: string,
   bundle?: { code: string; builtAt: number },
+  opts?: { name?: string; config?: ScriptProject['config'] },
 ): Promise<ScriptProject> {
   const project = await getProject(uuid)
   if (!project) throw new Error('脚本不存在或为已弃用旧记录')
@@ -125,6 +126,15 @@ export async function updateProjectFiles(
   project.files = files
   project.entry = entry
   if (bundle) project.bundle = bundle
+  if (opts?.name !== undefined) {
+    const name = opts.name.trim()
+    if (!name) throw new Error('脚本名称不能为空')
+    project.name = name
+  }
+  if (opts?.config) {
+    if (!opts.config.matches?.length) throw new Error('匹配规则（matches）至少一条')
+    project.config = opts.config
+  }
   project.updatedAt = Date.now()
   await saveProject(project)
   return project

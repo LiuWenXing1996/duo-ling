@@ -164,7 +164,10 @@ const handlers: {
   // 更新文件树 + 入口 + 构建产物（Phase 2：UI 页构建成功后才调用），启用中则重注册。
   // registerScript 已优先 bundle.code（零改动）；无 bundle 时 resolveInjectCode 守卫兜底。
   'userscript:updateFiles': async (msg): Promise<{ warnings?: string[] }> => {
-    const next = await updateProjectFiles(msg.uuid, msg.files, msg.entry, msg.bundle)
+    const next = await updateProjectFiles(msg.uuid, msg.files, msg.entry, msg.bundle, {
+      name: msg.name,
+      config: msg.config,
+    })
     await unregisterScripts([next.uuid]).catch(() => {})
     if (next.enabled) {
       try {

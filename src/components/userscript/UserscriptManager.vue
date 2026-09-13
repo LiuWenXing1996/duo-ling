@@ -43,6 +43,14 @@ const editDirty = ref(false)
 // 构建状态（Phase 2：保存即构建；失败行内展示、不落盘）
 const building = ref(false)
 const buildIssues = ref<string[]>([])
+// 配置表单（Phase 3：数组字段用逗号/换行分隔的字符串承载，保存时解析）
+const editName = ref('')
+const editMatches = ref('')
+const editExcludeMatches = ref('')
+const editIncludeGlobs = ref('')
+const editExcludeGlobs = ref('')
+const editAllFrames = ref(true)
+const editRunAt = ref<'document_start' | 'document_end' | 'document_idle'>('document_end')
 
 /** 示例脚本：纯 JS（Phase 0 无构建），演示 DL.log 本地能力 */
 const SAMPLE = `// 哆灵用户脚本示例：页面标题加星标
@@ -182,6 +190,14 @@ async function openEditor(s: ScriptSummary): Promise<void> {
     editFiles.value = { ...project.files }
     editEntry.value = project.entry
     activeFile.value = project.entry
+    // 配置表单装载
+    editName.value = project.name
+    editMatches.value = project.config.matches.join(', ')
+    editExcludeMatches.value = (project.config.excludeMatches ?? []).join(', ')
+    editIncludeGlobs.value = (project.config.includeGlobs ?? []).join(', ')
+    editExcludeGlobs.value = (project.config.excludeGlobs ?? []).join(', ')
+    editAllFrames.value = project.config.allFrames
+    editRunAt.value = project.config.runAt
     editDirty.value = false
     buildIssues.value = []
   } catch (e) {
@@ -247,6 +263,24 @@ async function saveEdit(): Promise<void> {
   error.value = ''
   warning.value = ''
   buildIssues.value = []
+  // 配置表单解析（matches 必填在前端先拦一道）
+  const matches = parseMatches(editMatches.value)
+  if (!matches.length) {
+    error.value = '保存失败：匹配规则（matches）至少填写一条'
+    return
+  }
+  const optArr = (v: string): string[] | undefined => {
+    const arr = parseMatches(v)
+    return arr.length ? arr : undefined
+  }
+  const config = {
+    matches,
+    excludeMatches: optArr(editExcludeMatches.value),
+    includeGlobs: optArr(editIncludeGlobs.value),
+    excludeGlobs: optArr(editExcludeGlobs.value),
+    allFrames: editAllFrames.value,
+    runAt: editRunAt.value,
+  }
   building.value = true
   try {
     // 先构建：失败（BuildError）行内展示 文件:行:列，不落盘半成品
@@ -256,6 +290,7 @@ async function saveEdit(): Promise<void> {
       outcome.files,
       editEntry.value,
       { code: outcome.code, builtAt: Date.now() },
+      { name: editName.value, config },
     )
     const notes: string[] = []
     if (outcome.remoteFetched.length) notes.push(`已拉取远程依赖并持久化进文件树：${outcome.remoteFetched.join('、')}`)
@@ -553,14 +588,74 @@ onMounted(refresh)
             </button>
           </div>
 
-          <!-- 配置预览（v2：配置来自表单字段，无 metadata 注释） -->
-          <div class="grid grid-cols-2 gap-x-4 gap-y-1 border-b border-zinc-200 px-4 py-3 text-xs dark:border-zinc-700">
-            <div><span class="text-zinc-400">注入时机</span> document_end（默认）</div>
-            <div><span class="text-zinc-400">iframe</span> 注入所有 frame（默认）</div>
-            <div class="col-span-2">
-              <span class="text-zinc-400">matches</span>
-              <span class="break-all font-mono">{{ editing.matches.join(', ') || '—' }}</span>
-            </div>
+          <!-- 配置表单（Phase 3：用户不接触注释语法，全部表单化） -->
+          <div class="grid grid-cols-2 gap-x-3 gap-y-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+            <label class="block">
+              <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">脚本名称</span>
+              <input
+                v-model="editName"
+                type="text"
+                class="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 text-sm text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+                @input="editDirty = true"
+              />
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">注入时机（runAt）</span>
+              <select
+                v-model="editRunAt"
+                class="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 text-sm text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+                @change="editDirty = true"
+              >
+                <option value="document_start">document_start</option>
+                <option value="document_end">document_end（默认）</option>
+                <option value="document_idle">document_idle</option>
+              </select>
+            </label>
+            <label class="col-span-2 block">
+              <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">匹配规则 matches（必填，逗号或换行分隔）</span>
+              <input
+                v-model="editMatches"
+                type="text"
+                class="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 font-mono text-xs text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+                @input="editDirty = true"
+              />
+            </label>
+            <label class="col-span-2 block">
+              <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">排除规则 excludeMatches（选填，逗号分隔）</span>
+              <input
+                v-model="editExcludeMatches"
+                type="text"
+                class="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 font-mono text-xs text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+                @input="editDirty = true"
+              />
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">包含 glob（选填）</span>
+              <input
+                v-model="editIncludeGlobs"
+                type="text"
+                class="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 font-mono text-xs text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+                @input="editDirty = true"
+              />
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">排除 glob（选填）</span>
+              <input
+                v-model="editExcludeGlobs"
+                type="text"
+                class="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 font-mono text-xs text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+                @input="editDirty = true"
+              />
+            </label>
+            <label class="col-span-2 flex items-center gap-2 text-sm">
+              <input
+                v-model="editAllFrames"
+                type="checkbox"
+                class="size-4 accent-blue-600"
+                @change="editDirty = true"
+              />
+              <span class="text-zinc-600 dark:text-zinc-300">注入所有 iframe（allFrames，默认开启，靠排除规则关掉不需要的 frame）</span>
+            </label>
           </div>
 
           <!-- 文件标签行：切换编辑文件 + 入口标记 + 增删改 -->

@@ -31,7 +31,7 @@ export type RuntimeRequest =
   // 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）
   | { kind: 'userscript:list' }
   | { kind: 'userscript:getProject'; uuid: string }
-  | { kind: 'userscript:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle?: { code: string; builtAt: number } }
+  | { kind: 'userscript:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle?: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig }
   | { kind: 'userscript:clearDeprecated' }
   | { kind: 'userscript:install'; source: string; name?: string; matches?: string[] }
   | { kind: 'userscript:remove'; uuid: string }
