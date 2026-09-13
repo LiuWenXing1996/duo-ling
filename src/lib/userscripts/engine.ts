@@ -110,15 +110,14 @@ async function configureWorld(worldId?: string): Promise<boolean> {
     await chrome.userScripts.configureWorld({ ...base, messaging: true, csp: US_WORLD_CSP })
     return true
   } catch (e) {
-    // 临时诊断：csp 被拒时打印真实原因（定位后会降级为静默+状态提示）
-    console.warn('[duoling:userscript] configureWorld 带 csp 失败', worldId ?? '(default)', e)
-    // csp 参数不被当前版本接受时降级为仅 messaging（保持 GM 桥与错误上报可用）
+    // csp 不被当前版本接受（或 CSP 串非法）时降级为仅 messaging，保持 GM 桥与错误上报可用
+    console.warn('[duoling:userscript] world CSP 未放开，降级为默认严 CSP', worldId ?? '(默认世界)', e)
     try {
       await chrome.userScripts.configureWorld({ ...base, messaging: true })
       return false
     } catch (e2) {
-      console.warn('[duoling:userscript] configureWorld 仅 messaging 也失败', worldId ?? '(default)', e2)
-      // 连 messaging-only 都失败则放弃（该世界无 chrome.runtime，但 SW 不崩）
+      // 连 messaging-only 都失败则放弃（该世界无 chrome.runtime，GM 桥不可用，但 SW 不崩）
+      console.warn('[duoling:userscript] 世界配置失败，GM 桥不可用', worldId ?? '(默认世界)', e2)
       return false
     }
   }
@@ -319,7 +318,7 @@ function buildGmWrapper(meta: UserScriptMeta): string {
   function __usReportError(phase, message, stack, url) {
     try {
       if (!chrome || !chrome.runtime || !chrome.runtime.sendMessage) {
-        console.warn('[duous:err] chrome.runtime.sendMessage 不可用，无法上报：' + message)
+        console.warn('[duoling:userscript] 世界未开启 messaging，运行期错误无法上报：' + message)
         return
       }
       chrome.runtime.sendMessage(
@@ -334,20 +333,12 @@ function buildGmWrapper(meta: UserScriptMeta): string {
         },
         function () {
           var le = chrome.runtime.lastError
-          if (le) console.warn('[duous:err] 上报失败：' + le.message)
-          else console.log('[duous:err] 已上报：' + message)
+          if (le) console.warn('[duoling:userscript] 运行期错误上报失败：' + le.message)
         },
       )
     } catch (e) {
-      console.warn('[duous:err] 上报异常：' + ((e && e.message) || e))
+      console.warn('[duoling:userscript] 上报异常：' + ((e && e.message) || e))
     }
-  }
-  try {
-    console.log(
-      '[duous:err] 监听已注册，runtime 可用=' + !!(chrome && chrome.runtime && chrome.runtime.sendMessage),
-    )
-  } catch (e) {
-    void e
   }
   window.addEventListener('error', function (e) {
     var err = e.error || {}
