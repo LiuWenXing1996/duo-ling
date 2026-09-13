@@ -51,9 +51,10 @@ import {
   unregisterScripts,
   getEffectiveCspPermissive,
   collectCspWarnings,
+  resolveInjectCode,
 } from '@/lib/userscripts/engine'
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
-import { listSummaries, getProject, saveProject, deleteScript, listUserScriptErrors, clearUserScriptErrors, appendUserScriptError } from '@/lib/userscripts/store'
+import { listSummaries, getProject, saveProject, deleteScript, updateProjectFiles, clearDeprecatedScripts, listUserScriptErrors, clearUserScriptErrors, appendUserScriptError } from '@/lib/userscripts/store'
 import type { ScriptProject, UserScriptsAvailability } from '@/lib/userscripts/types'
 import { ENTRY_DEFAULT, defaultConfig } from '@/lib/userscripts/types'
 
@@ -157,8 +158,35 @@ const handlers: {
   // —— 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）——
   'userscript:list': async (): Promise<unknown> => listSummaries(),
 
-  'userscript:getSource': async (msg): Promise<string | undefined> =>
-    (await getProject(msg.uuid))?.files[ENTRY_DEFAULT],
+  // 读完整项目（编辑器多文件用；管理页是可信扩展页，源码不过滤）
+  'userscript:getProject': async (msg): Promise<ScriptProject | undefined> => getProject(msg.uuid),
+
+  // 更新文件树 + 入口（Phase 1 多文件编辑），保存后重注册（启用中才注入）。
+  // resolveInjectCode 的守卫在 registerScript 内兜底：未构建的多文件项目启用时会明确报「需先构建」。
+  'userscript:updateFiles': async (msg): Promise<{ warnings?: string[] }> => {
+    const next = await updateProjectFiles(msg.uuid, msg.files, msg.entry)
+    await unregisterScripts([next.uuid]).catch(() => {})
+    if (next.enabled) {
+      try {
+        await registerScript(next)
+      } catch (e) {
+        void appendUserScriptError({
+          uuid: next.uuid,
+          name: next.name,
+          phase: 'register',
+          message: e instanceof Error ? e.message : String(e),
+        }).catch(() => {})
+        throw e
+      }
+    }
+    return { warnings: collectCspWarnings(resolveInjectCode(next), await getEffectiveCspPermissive()) }
+  },
+
+  // 一键清理全部旧 GM 形态记录（含各自 DL.store 值）
+  'userscript:clearDeprecated': async (): Promise<{ removed: number }> => {
+    const removed = await clearDeprecatedScripts()
+    return { removed }
+  },
 
   // 安装：单文件源码 → ScriptProject(v:1) 落盘 → 注册。
   // v2 新形态无 metadata：名称与匹配规则由调用方显式给出（缺省给开发用默认值）。
@@ -190,32 +218,6 @@ const handlers: {
     }
     const code = project.files[ENTRY_DEFAULT] ?? ''
     return { uuid: project.uuid, warnings: collectCspWarnings(code, await getEffectiveCspPermissive()) }
-  },
-
-  // 更新：改入口源码或启用态。Phase 0 无构建，改源码直接回退 files[entry] 执行
-  'userscript:update': async (msg): Promise<{ warnings?: string[] }> => {
-    const existing = await getProject(msg.uuid)
-    if (!existing) throw new Error('脚本不存在')
-    const next: ScriptProject = { ...existing, updatedAt: Date.now() }
-    if (typeof msg.source === 'string') next.files[ENTRY_DEFAULT] = msg.source
-    if (typeof msg.enabled === 'boolean') next.enabled = msg.enabled
-    await saveProject(next)
-    await unregisterScripts([next.uuid]).catch(() => {})
-    if (next.enabled) {
-      try {
-        await registerScript(next)
-      } catch (e) {
-        void appendUserScriptError({
-          uuid: next.uuid,
-          name: next.name,
-          phase: 'register',
-          message: e instanceof Error ? e.message : String(e),
-        }).catch(() => {})
-        throw e
-      }
-    }
-    const code = next.bundle?.code ?? next.files[ENTRY_DEFAULT] ?? ''
-    return { warnings: collectCspWarnings(code, await getEffectiveCspPermissive()) }
   },
 
   'userscript:remove': async (msg): Promise<void> => {

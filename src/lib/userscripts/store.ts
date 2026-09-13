@@ -86,6 +86,57 @@ export async function deleteScript(uuid: string): Promise<void> {
   await clearGMValues(uuid)
 }
 
+// —— 文件树操作（Phase 1：多文件项目）——
+
+/**
+ * 文件树校验（保存前调用，非法直接抛错）：
+ * 非空、路径相对（禁开头 / 与 .. 段，防越权写）、内容必须是字符串、entry 必须存在。
+ */
+export function validateFiles(files: Record<string, string>, entry: string): void {
+  if (!files || typeof files !== 'object' || !Object.keys(files).length) {
+    throw new Error('文件树不能为空')
+  }
+  for (const p of Object.keys(files)) {
+    if (!p || p.startsWith('/') || p.split('/').includes('..')) {
+      throw new Error(`非法文件路径（须为相对路径，且不含 .. 段）：${p}`)
+    }
+    if (p.endsWith('/')) {
+      throw new Error(`非法文件路径（不能以 / 结尾）：${p}`)
+    }
+    if (typeof files[p] !== 'string') {
+      throw new Error(`文件内容必须是字符串：${p}`)
+    }
+  }
+  if (!(entry in files)) {
+    throw new Error(`入口文件在文件树中不存在：${entry}`)
+  }
+}
+
+/** 更新项目文件树与入口（校验后整体替换 files，回写 updatedAt），返回更新后的项目 */
+export async function updateProjectFiles(
+  uuid: string,
+  files: Record<string, string>,
+  entry: string,
+): Promise<ScriptProject> {
+  const project = await getProject(uuid)
+  if (!project) throw new Error('脚本不存在或为已弃用旧记录')
+  validateFiles(files, entry)
+  project.files = files
+  project.entry = entry
+  project.updatedAt = Date.now()
+  await saveProject(project)
+  return project
+}
+
+/** 一键清理全部旧 GM 形态记录（含各自的 DL.store 值），返回清理条数 */
+export async function clearDeprecatedScripts(): Promise<number> {
+  const legacy = await listLegacyScripts()
+  for (const m of legacy) {
+    await deleteScript(m.uuid)
+  }
+  return legacy.length
+}
+
 // —— DL.store 值存储（键空间 us:gm:<uuid>:<key> 沿用）——
 
 export async function getGMValue(uuid: string, key: string): Promise<unknown> {

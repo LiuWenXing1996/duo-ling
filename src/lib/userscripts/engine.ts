@@ -308,7 +308,7 @@ function buildDlWrapper(project: ScriptProject): string {
  * 回退守卫：仅入口为 .js/.mjs 且无 import/export 语法的纯 JS 才回退，否则明确报「需先构建」，
  * 绝不把 TS / 含模块语法的源码直接注入（那只会产生运行期语法错误）。
  */
-function resolveInjectCode(project: ScriptProject): string {
+export function resolveInjectCode(project: ScriptProject): string {
   if (project.bundle?.code) return project.bundle.code
   const src = project.files[project.entry]
   if (src == null) throw new Error(`入口文件缺失：${project.entry}`)

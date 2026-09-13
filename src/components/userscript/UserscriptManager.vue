@@ -33,9 +33,12 @@ const newMatches = ref('*://*/*')
 const pasteSource = ref('')
 const installing = ref(false)
 
-// 编辑器（编辑某脚本入口源码）
+// 编辑器（Phase 1 多文件：文件列表 + 选中编辑；完整文件树 UI 留给 Phase 3）
 const editing = ref<ScriptSummary | null>(null)
-const editSource = ref('')
+const editFiles = ref<Record<string, string>>({})
+const editEntry = ref('')
+const activeFile = ref('')
+const editDirty = ref(false)
 
 /** 示例脚本：纯 JS（Phase 0 无构建），演示 DL.log 本地能力 */
 const SAMPLE = `// 哆灵用户脚本示例：页面标题加星标
@@ -169,17 +172,69 @@ async function openEditor(s: ScriptSummary): Promise<void> {
   if (s.deprecated) return
   error.value = ''
   try {
-    const src = await userscriptClient.getSource(s.uuid)
+    const project = await userscriptClient.getProject(s.uuid)
+    if (!project) throw new Error('项目不存在或为已弃用旧记录')
     editing.value = s
-    editSource.value = src ?? ''
+    editFiles.value = { ...project.files }
+    editEntry.value = project.entry
+    activeFile.value = project.entry
+    editDirty.value = false
   } catch (e) {
-    error.value = '读取源码失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '读取项目失败：' + (e instanceof Error ? e.message : String(e))
   }
 }
 
 function closeEditor(): void {
+  if (editDirty.value && !confirm('有未保存的修改，确认丢弃？')) return
   editing.value = null
-  editSource.value = ''
+  editFiles.value = {}
+  editEntry.value = ''
+  activeFile.value = ''
+  editDirty.value = false
+}
+
+/** 新增文件（prompt 输入相对路径；重名拒绝） */
+function addFile(): void {
+  const name = prompt('新文件路径（相对项目根，如 utils/helpers.js）')
+  if (name == null) return
+  const p = name.trim()
+  if (!p) return
+  if (p in editFiles.value) {
+    error.value = `新增失败：文件已存在（${p}）`
+    return
+  }
+  editFiles.value[p] = ''
+  activeFile.value = p
+  editDirty.value = true
+}
+
+/** 删除文件（入口不可删；删当前文件后切回入口） */
+function removeFile(name: string): void {
+  if (name === editEntry.value) {
+    error.value = '入口文件不可删除（可先把入口切换到其他文件）'
+    return
+  }
+  if (!confirm(`删除文件「${name}」？`)) return
+  delete editFiles.value[name]
+  if (activeFile.value === name) activeFile.value = editEntry.value
+  editDirty.value = true
+}
+
+/** 重命名文件（入口跟随重命名；目标重名拒绝） */
+function renameFile(name: string): void {
+  const next = prompt('新路径', name)
+  if (next == null) return
+  const p = next.trim()
+  if (!p || p === name) return
+  if (p in editFiles.value) {
+    error.value = `重命名失败：目标文件已存在（${p}）`
+    return
+  }
+  editFiles.value[p] = editFiles.value[name]
+  delete editFiles.value[name]
+  if (editEntry.value === name) editEntry.value = p
+  if (activeFile.value === name) activeFile.value = p
+  editDirty.value = true
 }
 
 async function saveEdit(): Promise<void> {
@@ -187,12 +242,26 @@ async function saveEdit(): Promise<void> {
   error.value = ''
   warning.value = ''
   try {
-    const res = await userscriptClient.update(editing.value.uuid, { source: editSource.value })
+    const res = await userscriptClient.updateFiles(editing.value.uuid, editFiles.value, editEntry.value)
     warning.value = res.warnings?.join(' ') ?? ''
+    editDirty.value = false
     await refresh()
     closeEditor()
   } catch (e) {
     error.value = '保存失败：' + (e instanceof Error ? e.message : String(e))
+  }
+}
+
+/** 一键清理全部旧 GM 记录 */
+async function clearDeprecatedAll(): Promise<void> {
+  if (!confirm('清理全部旧格式（油猴）记录？其 DL 数据一并删除，不可恢复。')) return
+  error.value = ''
+  try {
+    const { removed } = await userscriptClient.clearDeprecated()
+    await refresh()
+    if (removed) warning.value = `已清理 ${removed} 条旧格式记录。`
+  } catch (e) {
+    error.value = '清理失败：' + (e instanceof Error ? e.message : String(e))
   }
 }
 
@@ -350,8 +419,16 @@ onMounted(refresh)
 
       <!-- 脚本列表 -->
       <section>
-        <h2 class="mb-2 text-sm font-semibold text-zinc-500 dark:text-zinc-400">
-          已安装脚本（{{ scripts.filter((s) => !s.deprecated).length }}）
+        <h2 class="mb-2 flex items-center justify-between text-sm font-semibold text-zinc-500 dark:text-zinc-400">
+          <span>已安装脚本（{{ scripts.filter((s) => !s.deprecated).length }}）</span>
+          <button
+            v-if="scripts.some((s) => s.deprecated)"
+            type="button"
+            class="rounded-md px-2 py-1 text-xs text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
+            @click="clearDeprecatedAll"
+          >
+            清理旧格式记录
+          </button>
         </h2>
 
         <p v-if="!loading && !scripts.length" class="rounded-lg border border-dashed border-zinc-300 px-3 py-6 text-center text-sm text-zinc-400 dark:border-zinc-600">
@@ -440,7 +517,7 @@ onMounted(refresh)
           <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
             <div class="min-w-0">
               <h3 class="truncate font-semibold">编辑：{{ editing.name }}</h3>
-              <p class="text-xs text-zinc-400">{{ editing.fileCount }} 个文件 · 入口 main.js</p>
+              <p class="text-xs text-zinc-400">{{ Object.keys(editFiles).length }} 个文件 · 入口 {{ editEntry }}</p>
             </div>
             <button
               type="button"
@@ -462,9 +539,71 @@ onMounted(refresh)
             </div>
           </div>
 
-          <!-- 源码编辑 -->
+          <!-- 文件标签行：切换编辑文件 + 入口标记 + 增删改 -->
+          <div class="flex flex-wrap items-center gap-1.5 border-b border-zinc-200 px-4 py-2 dark:border-zinc-700">
+            <button
+              v-for="(src, name) in editFiles"
+              :key="name"
+              type="button"
+              class="group inline-flex items-center gap-1 rounded-md px-2 py-1 font-mono text-xs transition-colors"
+              :class="
+                name === activeFile
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
+              "
+              @click="activeFile = name"
+            >
+              <span class="max-w-40 truncate">{{ name }}</span>
+              <span
+                v-if="name === editEntry"
+                class="rounded bg-emerald-500/20 px-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-300"
+                title="入口文件"
+              >
+                入口
+              </span>
+            </button>
+            <div class="ml-auto flex items-center gap-1">
+              <button
+                v-if="activeFile && activeFile !== editEntry"
+                type="button"
+                class="rounded px-1.5 py-1 text-[11px] text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
+                title="把当前文件设为入口"
+                @click="editEntry = activeFile; editDirty = true"
+              >
+                设为入口
+              </button>
+              <button
+                v-if="activeFile"
+                type="button"
+                class="rounded px-1.5 py-1 text-[11px] text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
+                @click="renameFile(activeFile)"
+              >
+                重命名
+              </button>
+              <button
+                v-if="activeFile && activeFile !== editEntry"
+                type="button"
+                class="rounded px-1.5 py-1 text-[11px] text-red-500 underline hover:text-red-600"
+                @click="removeFile(activeFile)"
+              >
+                删除
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center gap-0.5 rounded px-1.5 py-1 text-[11px] text-blue-600 underline hover:text-blue-700 dark:text-blue-400"
+                @click="addFile"
+              >
+                <Plus class="size-3" />
+                新文件
+              </button>
+            </div>
+          </div>
+
+          <!-- 源码编辑（当前选中文件） -->
           <textarea
-            v-model="editSource"
+            v-if="activeFile"
+            v-model="editFiles[activeFile]"
+            @input="editDirty = true"
             spellcheck="false"
             class="flex-1 resize-none border-0 bg-zinc-50 p-4 font-mono text-xs leading-relaxed text-zinc-800 outline-none dark:bg-zinc-900 dark:text-zinc-200"
           />

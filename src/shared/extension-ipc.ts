@@ -30,9 +30,10 @@ export type RuntimeRequest =
   | { kind: 'git:commit'; toolId: string; message: string }
   // 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）
   | { kind: 'userscript:list' }
-  | { kind: 'userscript:getSource'; uuid: string }
+  | { kind: 'userscript:getProject'; uuid: string }
+  | { kind: 'userscript:updateFiles'; uuid: string; files: Record<string, string>; entry: string }
+  | { kind: 'userscript:clearDeprecated' }
   | { kind: 'userscript:install'; source: string; name?: string; matches?: string[] }
-  | { kind: 'userscript:update'; uuid: string; source?: string; enabled?: boolean }
   | { kind: 'userscript:remove'; uuid: string }
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
   | { kind: 'userscript:availability' }

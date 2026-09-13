@@ -5,7 +5,7 @@
 // 这里复用与 window-api.ts 同构的 send 信封（统一解包 { ok, data|error }），
 // 直接发 userscript:* 命令组（v2 方案 docs/userscript-v2-plan.md Phase 0）。
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
-import type { ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
+import type { ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -37,17 +37,20 @@ export const userscriptClient = {
   /** 列出全部脚本（项目 + 已弃用旧记录，不含源码） */
   list: (): Promise<ScriptSummary[]> => send({ kind: 'userscript:list' }),
 
-  /** 读某脚本入口源码（编辑器用，仅新形态项目） */
-  getSource: (uuid: string): Promise<string | undefined> =>
-    send({ kind: 'userscript:getSource', uuid }),
+  /** 读完整项目（多文件编辑器用，含文件树 / 入口 / 配置） */
+  getProject: (uuid: string): Promise<ScriptProject | undefined> =>
+    send({ kind: 'userscript:getProject', uuid }),
+
+  /** 保存文件树 + 入口并重注册。返回非阻塞 CSP 警告（未构建多文件项目会在此抛「需先构建」） */
+  updateFiles: (uuid: string, files: Record<string, string>, entry: string): Promise<{ warnings?: string[] }> =>
+    send({ kind: 'userscript:updateFiles', uuid, files, entry }),
+
+  /** 一键清理全部旧 GM 形态记录，返回清理条数 */
+  clearDeprecated: (): Promise<{ removed: number }> => send({ kind: 'userscript:clearDeprecated' }),
 
   /** 安装：单文件源码 + 名称/匹配规则 → ScriptProject 落盘 → 注册。返回 uuid + 非阻塞 CSP 警告 */
   install: (source: string, opts?: { name?: string; matches?: string[] }): Promise<{ uuid: string; warnings?: string[] }> =>
     send({ kind: 'userscript:install', source, name: opts?.name, matches: opts?.matches }),
-
-  /** 更新：改入口源码，或单独改启用态。返回非阻塞 CSP 警告 */
-  update: (uuid: string, patch: { source?: string; enabled?: boolean }): Promise<{ warnings?: string[] }> =>
-    send({ kind: 'userscript:update', uuid, ...patch }),
 
   /** 删除：注销 + 删存储（新/旧形态通用） */
   remove: (uuid: string): Promise<void> => send({ kind: 'userscript:remove', uuid }),
