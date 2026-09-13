@@ -56,6 +56,7 @@ import {
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
 import { listSummaries, getProject, saveProject, deleteScript, updateProjectFiles, clearDeprecatedScripts, listUserScriptErrors, clearUserScriptErrors, appendUserScriptError } from '@/lib/userscripts/store'
 import type { ScriptProject, UserScriptsAvailability } from '@/lib/userscripts/types'
+import { snapshotProject, listHistory, readTreeAt, restoreToCommit, deleteRepo } from '@/lib/userscripts/us-git'
 import { ENTRY_DEFAULT, defaultConfig } from '@/lib/userscripts/types'
 
 /** 初始示例工具：工具工厂开箱即用的一个工具，验证"生成 → 运行 → 提交 → 回滚"闭环 */
@@ -182,6 +183,12 @@ const handlers: {
         throw e
       }
     }
+    // git 历史侧车：保存成功后快照（bundle 不入库）。失败只丢历史不丢脚本，不阻断保存。
+    try {
+      await snapshotProject(next, msg.note)
+    } catch (e) {
+      console.warn('[duoling:userscript] 历史快照失败（不影响保存）', e)
+    }
     return { warnings: collectCspWarnings(resolveInjectCode(next), await getEffectiveCspPermissive()) }
   },
 
@@ -226,6 +233,37 @@ const handlers: {
   'userscript:remove': async (msg): Promise<void> => {
     await unregisterScripts([msg.uuid]).catch(() => {})
     await deleteScript(msg.uuid)
+    // 历史不保留（拍板：删脚本即删历史仓）
+    await deleteRepo(msg.uuid).catch(() => {})
+  },
+
+  // —— git 历史侧车（docs/userscript-git-history.md）——
+  'userscript:history': async (msg): Promise<unknown> => listHistory(msg.uuid),
+
+  'userscript:historyTree': async (msg): Promise<unknown> => readTreeAt(msg.uuid, msg.oid),
+
+  // 恢复：物化项目落盘 + 重注册（enabled 保持当前值）；仓侧按需产生「回滚到 <oid>」新提交。
+  // bundle 已丢弃，由 UI 页 builder 重建后再 updateFiles（构建失败仅提示，源码已恢复）。
+  'userscript:restoreToCommit': async (msg): Promise<{ committed: boolean; project: ScriptProject }> => {
+    const current = await getProject(msg.uuid)
+    if (!current) throw new Error('脚本不存在或为已弃用旧记录')
+    const { committed, restored } = await restoreToCommit(current, msg.oid)
+    await saveProject(restored)
+    await unregisterScripts([restored.uuid]).catch(() => {})
+    if (restored.enabled) {
+      try {
+        await registerScript(restored)
+      } catch (e) {
+        void appendUserScriptError({
+          uuid: restored.uuid,
+          name: restored.name,
+          phase: 'register',
+          message: e instanceof Error ? e.message : String(e),
+        }).catch(() => {})
+        throw e
+      }
+    }
+    return { committed, project: restored }
   },
 
   'userscript:toggle': async (msg): Promise<void> => {

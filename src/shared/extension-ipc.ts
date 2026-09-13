@@ -31,7 +31,7 @@ export type RuntimeRequest =
   // 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）
   | { kind: 'userscript:list' }
   | { kind: 'userscript:getProject'; uuid: string }
-  | { kind: 'userscript:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle?: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig }
+  | { kind: 'userscript:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle?: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
   | { kind: 'userscript:clearDeprecated' }
   | { kind: 'userscript:install'; source: string; name?: string; matches?: string[] }
   | { kind: 'userscript:remove'; uuid: string }
@@ -39,6 +39,10 @@ export type RuntimeRequest =
   | { kind: 'userscript:availability' }
   | { kind: 'userscript:errors' }
   | { kind: 'userscript:clearErrors' }
+  // git 历史侧车（docs/userscript-git-history.md：storage 权威，git 只做历史浏览与恢复）
+  | { kind: 'userscript:history'; uuid: string }
+  | { kind: 'userscript:historyTree'; uuid: string; oid: string }
+  | { kind: 'userscript:restoreToCommit'; uuid: string; oid: string }
 
 /** 提交结果：无净变更时 committed=false（工具页据此提示「无变更」而非「已提交」） */
 export interface GitCommitResult {

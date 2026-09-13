@@ -6,6 +6,7 @@
 // 直接发 userscript:* 命令组（v2 方案 docs/userscript-v2-plan.md Phase 0）。
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
+import type { UsCommit, UsHistoryTree } from './us-git'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -41,15 +42,26 @@ export const userscriptClient = {
   getProject: (uuid: string): Promise<ScriptProject | undefined> =>
     send({ kind: 'userscript:getProject', uuid }),
 
-  /** 保存文件树 + 入口 + 名称/配置 + 构建产物并重注册。返回非阻塞 CSP 警告（构建失败在 UI 页先行拦截） */
+  /** 保存文件树 + 入口 + 名称/配置 + 构建产物并重注册；note 为可选提交备注（缺省自动计数）。返回非阻塞 CSP 警告 */
   updateFiles: (
     uuid: string,
     files: Record<string, string>,
     entry: string,
     bundle?: { code: string; builtAt: number },
-    opts?: { name?: string; config?: ScriptConfig },
+    opts?: { name?: string; config?: ScriptConfig; note?: string },
   ): Promise<{ warnings?: string[] }> =>
     send({ kind: 'userscript:updateFiles', uuid, files, entry, bundle, ...opts }),
+
+  /** git 历史侧车：提交列表（新在前） */
+  history: (uuid: string): Promise<UsCommit[]> => send({ kind: 'userscript:history', uuid }),
+
+  /** 某提交的完整快照（当时元信息 + 源码文件树） */
+  historyTree: (uuid: string, oid: string): Promise<UsHistoryTree> =>
+    send({ kind: 'userscript:historyTree', uuid, oid }),
+
+  /** 恢复到某提交（enabled 保持当前值；bundle 由 UI 重建） */
+  restoreToCommit: (uuid: string, oid: string): Promise<{ committed: boolean; project: ScriptProject }> =>
+    send({ kind: 'userscript:restoreToCommit', uuid, oid }),
 
   /** 一键清理全部旧 GM 形态记录，返回清理条数 */
   clearDeprecated: (): Promise<{ removed: number }> => send({ kind: 'userscript:clearDeprecated' }),
