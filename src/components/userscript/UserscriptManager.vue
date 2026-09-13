@@ -38,6 +38,7 @@ const SAMPLE = `// ==UserScript==
 // @version      1.0.0
 // @match        *://*/*
 // @grant        GM_log
+// @run-at       document-idle
 // ==/UserScript==
 // 真正的视觉反馈：标题前加 ★(幂等,避免 SPA 重复注入时叠星)
 if (!document.title.includes('★')) {

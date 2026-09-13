@@ -46,9 +46,9 @@ export function parseUserScriptMeta(source: string): { meta: SourceDerivedMeta; 
 }
 
 function normalizeRunAt(v: string): SourceDerivedMeta['runAt'] {
+  if (v === 'document-start') return 'document_start'
   if (v === 'document-end') return 'document_end'
-  if (v === 'document-idle') return 'document_idle'
-  return 'document_start' // 默认 document_start
+  return 'document_idle' // 默认 document_idle,与主流脚本管理器一致；document_start 时<title>常未解析
 }
 
 function normalizeInjectInto(v: string): SourceDerivedMeta['injectInto'] {
