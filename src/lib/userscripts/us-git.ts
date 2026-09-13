@@ -201,7 +201,8 @@ export async function snapshotProject(
   if (!changed) return { committed: false }
 
   await syncWorktree(project.uuid, contents)
-  const count = (await git.log({ fs, dir })).length
+  // 空仓（首提前）git.log 会抛 NotFoundError（Could not find refs/heads/main），按 0 计
+  const count = await listHistory(project.uuid).then((l) => l.length)
   const message = note?.trim() || `保存 #${count + 1}`
   const oid = await git.commit({ fs, dir, message, author: AUTHOR })
   return { committed: true, oid }
