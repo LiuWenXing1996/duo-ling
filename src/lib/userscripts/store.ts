@@ -5,10 +5,12 @@
 import {
   SCRIPT_KEY_PREFIX,
   GM_KEY_PREFIX,
+  ERRORS_KEY,
   scriptKey,
   gmKey,
   type UserScriptMeta,
   type UserScriptSummary,
+  type UserScriptErrorRecord,
 } from './types'
 
 /** 列出全部脚本记录（含源码）；启用在前、按名称排序，结果稳定 */
@@ -69,4 +71,32 @@ export async function listGMKeys(uuid: string): Promise<string[]> {
   return Object.keys(all)
     .filter((k) => k.startsWith(prefix))
     .map((k) => k.slice(prefix.length))
+}
+
+// —— 错误日志（Phase 4 错误日志面板）——
+//
+// 运行期错误经 GM 包装转发到 onUserScriptMessage 后被收集；注册/桥失败在后台直接收集。
+// 环形保留最近 N 条，避免无限增长。
+
+const MAX_ERRORS = 50
+
+/** 追加一条错误（自动补 id；time 缺省用当前时间） */
+export async function appendUserScriptError(
+  rec: Omit<UserScriptErrorRecord, 'id'> & { id?: string },
+): Promise<void> {
+  const existing = ((await chrome.storage.local.get(ERRORS_KEY))[ERRORS_KEY] as UserScriptErrorRecord[] | undefined) ?? []
+  const next = existing.slice(-(MAX_ERRORS - 1))
+  next.push({ ...rec, id: rec.id || crypto.randomUUID(), time: rec.time || Date.now() })
+  await chrome.storage.local.set({ [ERRORS_KEY]: next })
+}
+
+/** 列出全部错误（最新在前） */
+export async function listUserScriptErrors(): Promise<UserScriptErrorRecord[]> {
+  const r = (await chrome.storage.local.get(ERRORS_KEY))[ERRORS_KEY] as UserScriptErrorRecord[] | undefined
+  return (r ?? []).slice().reverse()
+}
+
+/** 清空错误日志 */
+export async function clearUserScriptErrors(): Promise<void> {
+  await chrome.storage.local.remove(ERRORS_KEY)
 }

@@ -57,7 +57,7 @@ import {
   collectCspWarnings,
 } from '@/lib/userscripts/engine'
 import { initGmBridge } from '@/lib/userscripts/gm-bridge'
-import { listSummaries, getScript, saveScript, deleteScript } from '@/lib/userscripts/store'
+import { listSummaries, getScript, saveScript, deleteScript, listUserScriptErrors, clearUserScriptErrors } from '@/lib/userscripts/store'
 import { parseUserScriptMeta } from '@/lib/userscripts/parser'
 import type { UserScriptMeta, UserScriptsAvailability } from '@/lib/userscripts/types'
 
@@ -176,7 +176,18 @@ const handlers: {
     // 安装即抓取 @require / @resource（后台特权 fetch，受 <all_urls> 豁免 CORS）
     const resolved = await resolveIncludes(full)
     await saveScript(resolved)
-    await registerScript(resolved)
+    try {
+      await registerScript(resolved)
+    } catch (e) {
+      // 注册失败既在 UI 错误条提示，也进错误日志（Phase 4 面板可见）
+      void appendUserScriptError({
+        uuid: resolved.uuid,
+        name: resolved.name,
+        phase: 'register',
+        message: e instanceof Error ? e.message : String(e),
+      }).catch(() => {})
+      throw e
+    }
     return { uuid: resolved.uuid, warnings: collectCspWarnings(resolved, await getEffectiveCspPermissive()) }
   },
 
@@ -192,7 +203,19 @@ const handlers: {
     const resolved = await resolveIncludes(next)
     await saveScript(resolved)
     await unregisterScripts([resolved.uuid]).catch(() => {})
-    if (resolved.enabled) await registerScript(resolved)
+    if (resolved.enabled) {
+      try {
+        await registerScript(resolved)
+      } catch (e) {
+        void appendUserScriptError({
+          uuid: resolved.uuid,
+          name: resolved.name,
+          phase: 'register',
+          message: e instanceof Error ? e.message : String(e),
+        }).catch(() => {})
+        throw e
+      }
+    }
     return { warnings: collectCspWarnings(resolved, await getEffectiveCspPermissive()) }
   },
 
@@ -222,6 +245,12 @@ const handlers: {
   'userscript:availability': async (): Promise<UserScriptsAvailability> => getUserScriptsStatus(),
 
   'userscript:fetchUrl': async (msg): Promise<string> => fetchText(msg.url),
+
+  'userscript:errors': async (): Promise<ReturnType<typeof listUserScriptErrors>> => listUserScriptErrors(),
+
+  'userscript:clearErrors': async (): Promise<void> => {
+    await clearUserScriptErrors()
+  },
 }
 
 /** 用户脚本管理器启动：挂载 GM 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用脚本（设计文档 §4/§6） */

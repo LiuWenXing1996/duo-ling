@@ -39,6 +39,8 @@ export type RuntimeRequest =
   | { kind: 'userscript:removeProbe' }
   | { kind: 'userscript:availability' }
   | { kind: 'userscript:fetchUrl'; url: string }
+  | { kind: 'userscript:errors' }
+  | { kind: 'userscript:clearErrors' }
 
 /** 提交结果：无净变更时 committed=false（工具页据此提示「无变更」而非「已提交」） */
 export interface GitCommitResult {

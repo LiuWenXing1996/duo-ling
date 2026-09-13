@@ -7,7 +7,8 @@
 // 安全性：消息来源天然是「不可信用户脚本」，故校验 sender.userScript.scriptId 与消息里的 uuid 一致，
 // 防止伪造身份调用其它脚本的 GM 存储。background 的 SW 内 fetch 受 <all_urls> host 权限豁免 CORS，
 // 这是 GM_xhr / @require / @resource 能跨域取资源的基础。
-import { getScript, getGMValue, setGMValue, deleteGMValue, listGMKeys } from './store'
+import { getScript, getGMValue, setGMValue, deleteGMValue, listGMKeys, appendUserScriptError } from './store'
+import type { UserScriptErrorRecord } from './types'
 
 /** 1x1 透明 PNG，用作通知兜底图标（避免依赖打包资源） */
 const FALLBACK_ICON =
@@ -137,6 +138,20 @@ export function initGmBridge(): void {
 
   // onUserScriptMessage 的 listener 接收 (message, sender)，返回 Promise 即作为响应回传
   chrome.runtime.onUserScriptMessage.addListener((raw, sender) => {
+    // 运行期错误上报（Phase 4 错误日志面板）：与 GM 消息分流处理
+    const errMsg = raw as UsErrorMessage
+    if (errMsg && errMsg.__usError === true) {
+      void appendUserScriptError({
+        uuid: errMsg.uuid ?? null,
+        name: errMsg.name || '未知脚本',
+        phase: (errMsg.phase as UserScriptErrorRecord['phase']) || 'runtime',
+        message: errMsg.message || '',
+        stack: errMsg.stack,
+        url: errMsg.url,
+      }).catch(() => {})
+      return { ack: true }
+    }
+
     const msg = raw as GmMessage
     if (!msg || msg.__gm !== true) return { ok: false, error: '非 GM 消息' }
 
@@ -149,9 +164,27 @@ export function initGmBridge(): void {
 
     return dispatch(msg.uuid, msg.cmd, msg.args ?? [])
       .then((data) => ({ ok: true, data }))
-      .catch((e: unknown) => ({
-        ok: false,
-        error: e instanceof Error ? e.message : String(e),
-      }))
+      .catch((e: unknown) => {
+        const message = e instanceof Error ? e.message : String(e)
+        // GM 桥调用失败也进错误日志（Phase 4 面板可见）
+        void appendUserScriptError({
+          uuid: msg.uuid,
+          name: msg.uuid,
+          phase: 'gm-bridge',
+          message,
+        }).catch(() => {})
+        return { ok: false, error: message }
+      })
   })
+}
+
+/** 运行期错误上报消息（与 GmMessage 经 __usError 区分） */
+interface UsErrorMessage {
+  __usError?: boolean
+  uuid?: string
+  name?: string
+  phase?: string
+  message?: string
+  stack?: string
+  url?: string
 }

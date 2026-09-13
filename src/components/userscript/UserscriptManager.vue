@@ -5,6 +5,7 @@ import { ref, onMounted } from 'vue'
 import {
   AlertTriangle,
   Braces,
+  ChevronDown,
   CircleCheck,
   CircleX,
   ExternalLink,
@@ -14,13 +15,17 @@ import {
   X,
 } from '@lucide/vue'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
-import type { UserScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
+import type { UserScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from '@/lib/userscripts/types'
 
 const availability = ref<UserScriptsAvailability | null>(null)
 const scripts = ref<UserScriptSummary[]>([])
 const loading = ref(false)
 const error = ref('')
 const warning = ref('')
+
+// 错误日志面板（Phase 4）
+const errors = ref<UserScriptErrorRecord[]>([])
+const errorsOpen = ref(false)
 
 // 安装区
 const installMode = ref<'paste' | 'url'>('paste')
@@ -53,16 +58,58 @@ async function refresh(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const [av, list] = await Promise.all([
+    const [av, list, errs] = await Promise.all([
       userscriptClient.availability(),
       userscriptClient.list(),
+      userscriptClient.errors(),
     ])
     availability.value = av
     scripts.value = list
+    errors.value = errs
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+  }
+}
+
+// —— 错误日志面板辅助（Phase 4）——
+const PHASE_LABEL: Record<UserScriptErrorRecord['phase'], string> = {
+  runtime: '运行期',
+  register: '注册',
+  'gm-bridge': 'GM 桥',
+}
+const PHASE_BADGE: Record<UserScriptErrorRecord['phase'], string> = {
+  runtime: 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300',
+  register: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
+  'gm-bridge': 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300',
+}
+function phaseLabel(p: UserScriptErrorRecord['phase']): string {
+  return PHASE_LABEL[p]
+}
+function phaseBadgeClass(p: UserScriptErrorRecord['phase']): string {
+  return PHASE_BADGE[p]
+}
+function formatTime(t: number): string {
+  return new Date(t).toLocaleString()
+}
+async function toggleErrors(): Promise<void> {
+  errorsOpen.value = !errorsOpen.value
+  if (errorsOpen.value) {
+    try {
+      errors.value = await userscriptClient.errors()
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    }
+  }
+}
+async function clearErrors(): Promise<void> {
+  error.value = ''
+  try {
+    await userscriptClient.clearErrors()
+    errors.value = []
+  } catch (e) {
+    error.value = '清空失败：' + (e instanceof Error ? e.message : String(e))
   }
 }
 
@@ -288,6 +335,44 @@ onMounted(refresh)
             </button>
           </div>
         </template>
+      </section>
+
+      <!-- 错误日志面板（Phase 4）：运行期 / 注册 / GM 桥失败汇总 -->
+      <section class="mb-6 rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
+        <div class="flex items-center justify-between px-4 py-3">
+          <button
+            type="button"
+            class="flex items-center gap-2 text-sm font-semibold"
+            @click="toggleErrors"
+          >
+            <AlertTriangle class="size-4 text-red-500" />
+            错误日志（{{ errors.length }}）
+            <ChevronDown class="size-4 transition-transform" :class="errorsOpen ? 'rotate-180' : ''" />
+          </button>
+          <button
+            v-if="errors.length"
+            type="button"
+            class="rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+            @click.stop="clearErrors"
+          >
+            清空
+          </button>
+        </div>
+        <div v-if="errorsOpen" class="border-t border-zinc-200 px-4 py-3 dark:border-zinc-700">
+          <p v-if="!errors.length" class="text-sm text-zinc-400">暂无错误。</p>
+          <ul v-else class="flex flex-col gap-3">
+            <li v-for="e in errors" :key="e.id" class="text-xs">
+              <div class="flex flex-wrap items-center gap-2">
+                <span :class="phaseBadgeClass(e.phase)" class="rounded px-1.5 py-0.5 text-[10px] font-medium">{{ phaseLabel(e.phase) }}</span>
+                <span class="font-medium">{{ e.name }}</span>
+                <span class="text-zinc-400">{{ formatTime(e.time) }}</span>
+              </div>
+              <p class="mt-1 break-all text-red-600 dark:text-red-400">{{ e.message }}</p>
+              <p v-if="e.url" class="mt-0.5 truncate text-zinc-400">{{ e.url }}</p>
+              <pre v-if="e.stack" class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-zinc-100 p-2 text-[11px] leading-relaxed text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">{{ e.stack }}</pre>
+            </li>
+          </ul>
+        </div>
       </section>
 
       <!-- 脚本列表 -->

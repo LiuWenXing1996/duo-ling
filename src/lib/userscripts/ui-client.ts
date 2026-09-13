@@ -5,7 +5,7 @@
 // 这里复用与 window-api.ts 同构的 send 信封（统一解包 { ok, data|error }），
 // 直接发 userscript:* 命令组（设计文档 §7 / §8）。
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
-import type { UserScriptSummary, UserScriptsAvailability } from './types'
+import type { UserScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -58,4 +58,10 @@ export const userscriptClient = {
   /** 启停：注册/注销 */
   toggle: (uuid: string, enabled: boolean): Promise<void> =>
     send({ kind: 'userscript:toggle', uuid, enabled }),
+
+  /** 错误日志：列出全部错误（最新在前） */
+  errors: (): Promise<UserScriptErrorRecord[]> => send({ kind: 'userscript:errors' }),
+
+  /** 清空错误日志 */
+  clearErrors: (): Promise<void> => send({ kind: 'userscript:clearErrors' }),
 }

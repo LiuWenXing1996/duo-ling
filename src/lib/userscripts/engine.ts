@@ -4,7 +4,7 @@
 // GM 包装作为 js 数组首条目先于用户源码定义 GM_*，脚本经 onUserScriptMessage 桥接后台
 // （GM 桥后台监听在 gm-bridge.ts；v1 的 GM_log / GM_addStyle / GM_info 在包装内本地实现，不依赖后台）。
 import type { UserScriptMeta } from './types'
-import { listScripts, saveScript, deleteScript } from './store'
+import { listScripts, saveScript, deleteScript, appendUserScriptError } from './store'
 import { parseUserScriptMeta } from './parser'
 
 /** configureWorld 的 CSP：宽松（开发工具可接受），后续可收紧（设计文档 §9） */
@@ -264,6 +264,32 @@ function buildGmWrapper(meta: UserScriptMeta): string {
   window.GM_download = window.GM.download
   window.GM_getResourceText = window.GM.getResourceText
   window.GM_getResourceURL = window.GM.getResourceURL
+
+  // 运行期错误收集（Phase 4 错误日志面板）：本世界的未捕获异常 / 未处理 Promise 拒绝
+  // 经 onUserScriptMessage 转发到后台（世界已 configureWorld({messaging:true})）。
+  function __usReportError(phase, message, stack, url) {
+    try {
+      chrome.runtime.sendMessage({
+        __usError: true,
+        uuid: GM_INFO.uuid,
+        name: GM_INFO.name,
+        phase: phase,
+        message: message,
+        stack: stack,
+        url: url,
+      })
+    } catch (e) {
+      void e
+    }
+  }
+  window.addEventListener('error', function (e) {
+    var err = e.error || {}
+    __usReportError('runtime', e.message || 'Script error', (err && err.stack) || '', location.href)
+  })
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = (e && e.reason) || {}
+    __usReportError('runtime', 'Unhandled rejection: ' + ((r && r.message) || String(e.reason)), (r && r.stack) || '', location.href)
+  })
 })();
 `
 }
@@ -322,6 +348,12 @@ export async function registerAllEnabled(): Promise<void> {
       await registerScript(meta)
     } catch (e) {
       console.error('[duoling:userscript] 注册失败', meta.uuid, e)
+      void appendUserScriptError({
+        uuid: meta.uuid,
+        name: meta.name,
+        phase: 'register',
+        message: e instanceof Error ? e.message : String(e),
+      }).catch(() => {})
     }
   }
 }

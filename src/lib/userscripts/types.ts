@@ -42,6 +42,19 @@ export interface UserScriptsAvailability {
   cspPermissive: boolean
 }
 
+/** 脚本错误记录（storage.local 键 us:errors；环形保留最近 N 条，供错误日志面板，Phase 4） */
+export interface UserScriptErrorRecord {
+  id: string
+  uuid: string | null // 运行期/注册错误有；部分桥错误可能无
+  name: string // 脚本名（便于展示，未知时占位）
+  /** 错误阶段：runtime=用户脚本运行期报错；register=后台注册失败；gm-bridge=GM 桥调用失败 */
+  phase: 'runtime' | 'register' | 'gm-bridge'
+  message: string
+  stack?: string
+  url?: string // 运行期错误所在页面
+  time: number // 时间戳
+}
+
 // —— 存储键约定 ——
 
 /** 脚本记录：us:script:<uuid> */
@@ -50,6 +63,8 @@ export const SCRIPT_KEY_PREFIX = 'us:script:'
 export const GM_KEY_PREFIX = 'us:gm:'
 /** 设置 / 黑名单：us:settings */
 export const SETTINGS_KEY = 'us:settings'
+/** 错误日志：us:errors（环形保留最近 N 条，Phase 4） */
+export const ERRORS_KEY = 'us:errors'
 
 export function scriptKey(uuid: string): string {
   return SCRIPT_KEY_PREFIX + uuid
