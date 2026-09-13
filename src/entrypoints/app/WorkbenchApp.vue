@@ -11,6 +11,7 @@
 //   · 工作区：ToolWorkspace（多标签页：工具详情 / 代码 / 版本历史 / 数据 / 设置 …）
 import { computed, onMounted, ref, watch } from 'vue'
 import {
+  Braces as UiBraces,
   FlaskConical as UiFlaskConical,
   MoreHorizontal as UiMoreHorizontal,
   Plus as UiPlus,
@@ -33,10 +34,14 @@ import {
 } from '@/components/ui/popover'
 import ToolWorkspace from '@/components/ToolWorkspace.vue'
 import ToolIcon from '@/components/ToolIcon.vue'
+import UserscriptManager from '@/components/userscript/UserscriptManager.vue'
 import type { ToolMeta } from '@/types/tool'
 
 // 左侧导航栏「新建工具」「设置」等：调用工具工作台的对应方法
 const workspaceRef = ref<InstanceType<typeof ToolWorkspace> | null>(null)
+
+// 用户脚本管理器：内嵌全屏面板（复用 workbench 单一 HTML 入口，规避多 HTML 入口在 rolldown-vite 下 plugin-vue compiler 未初始化）
+const showUserscriptManager = ref(false)
 
 // 全局搜索：工具在本地按标题/名称/描述子串过滤后直接打开
 const allTools = ref<ToolMeta[]>([])
@@ -115,6 +120,11 @@ onMounted(() => {
 
 function handleCreateTool(): void {
   workspaceRef.value?.createTool()
+}
+
+/** 切换用户脚本管理器面板（内嵌全屏覆盖层） */
+function openUserscriptManager(): void {
+  showUserscriptManager.value = true
 }
 </script>
 
@@ -260,6 +270,15 @@ function handleCreateTool(): void {
         >
           <ui-flask-conical class="size-5" />
         </button>
+        <button
+          class="workspace-nav-item"
+          type="button"
+          aria-label="用户脚本"
+          title="用户脚本管理器"
+          @click="openUserscriptManager"
+        >
+          <ui-braces class="size-5" />
+        </button>
       </aside>
 
       <section class="workspace-panel workspace-panel--grow">
@@ -273,4 +292,22 @@ function handleCreateTool(): void {
       </section>
     </div>
   </div>
+
+  <!-- 用户脚本管理器：内嵌全屏覆盖层（复用 workbench 单一 HTML 入口，规避多 HTML 入口在 rolldown-vite 下触发 plugin-vue compiler 未初始化） -->
+  <Teleport to="body">
+    <div
+      v-if="showUserscriptManager"
+      class="fixed inset-0 z-50 overflow-auto bg-zinc-50 dark:bg-zinc-900"
+    >
+      <button
+        type="button"
+        class="fixed right-4 top-4 z-20 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-600 shadow-sm hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+        title="关闭管理器"
+        @click="showUserscriptManager = false"
+      >
+        关闭 ✕
+      </button>
+      <UserscriptManager />
+    </div>
+  </Teleport>
 </template>

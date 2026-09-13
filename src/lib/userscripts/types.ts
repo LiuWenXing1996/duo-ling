@@ -28,6 +28,18 @@ export interface UserScriptMeta {
 /** 给 UI 列表用的精简视图（不含源码） */
 export type UserScriptSummary = Omit<UserScriptMeta, 'source'>
 
+/** 用户脚本引擎可用性状态（供管理页状态横幅，设计文档 §4.3） */
+export interface UserScriptsAvailability {
+  /** userScripts API 当前是否可用（getScripts 不抛错） */
+  available: boolean
+  /** 是否 Firefox（引导文案不同：Firefox 走 optional_permissions 授权） */
+  isFirefox: boolean
+  /** Chrome 大版本号（0 表示非 Chrome / 解析失败） */
+  chromeMajor: number
+  /** 不可用时的引导文案（按浏览器 / 版本分支） */
+  guideText: string
+}
+
 // —— 存储键约定 ——
 
 /** 脚本记录：us:script:<uuid> */

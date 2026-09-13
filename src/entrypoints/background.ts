@@ -44,6 +44,7 @@ import type {
 import {
   configureUserScriptsWorld,
   isUserScriptsAvailable,
+  getUserScriptsStatus,
   registerAllEnabled,
   recoverOnUpdate,
   registerScript,
@@ -51,11 +52,12 @@ import {
   resolveIncludes,
   installProbe,
   removeProbe,
+  fetchText,
 } from '@/lib/userscripts/engine'
 import { initGmBridge } from '@/lib/userscripts/gm-bridge'
 import { listSummaries, getScript, saveScript, deleteScript } from '@/lib/userscripts/store'
 import { parseUserScriptMeta } from '@/lib/userscripts/parser'
-import type { UserScriptMeta } from '@/lib/userscripts/types'
+import type { UserScriptMeta, UserScriptsAvailability } from '@/lib/userscripts/types'
 
 /** 初始示例工具：工具工厂开箱即用的一个工具，验证"生成 → 运行 → 提交 → 回滚"闭环 */
 const SAMPLE_TOOL_ID = 'markdown'
@@ -213,6 +215,10 @@ const handlers: {
   'userscript:removeProbe': async (): Promise<void> => {
     await removeProbe()
   },
+
+  'userscript:availability': async (): Promise<UserScriptsAvailability> => getUserScriptsStatus(),
+
+  'userscript:fetchUrl': async (msg): Promise<string> => fetchText(msg.url),
 }
 
 /** 用户脚本管理器启动：挂载 GM 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用脚本（设计文档 §4/§6） */

@@ -28,6 +28,31 @@ export function getChromeMajorVersion(): number {
   return m ? parseInt(m[1], 10) : 0
 }
 
+/**
+ * 引擎可用性状态（设计文档 §4.3）：结合 isUserScriptsAvailable + UA 分支，
+ * 返回结构化信息供管理页状态横幅展示。
+ * - Chrome ≥138：需在扩展详情页开启「Allow User Scripts」按扩展开关
+ * - Chrome <138：需开启全局「开发者模式」
+ * - Firefox：需授权 userScripts optional 权限
+ */
+export async function getUserScriptsStatus(): Promise<import('./types').UserScriptsAvailability> {
+  const ua = navigator.userAgent
+  const isFirefox = /Firefox\//.test(ua)
+  const chromeMajor = getChromeMajorVersion()
+  const available = await isUserScriptsAvailable()
+  let guideText = ''
+  if (!available) {
+    if (isFirefox) {
+      guideText = 'Firefox：在扩展管理页（about:addons → 哆灵 → 偏好）勾选「User Scripts」权限后即可使用。'
+    } else if (chromeMajor >= 138) {
+      guideText = 'Chrome ≥138：在扩展详情页开启「Allow User Scripts」开关（chrome://extensions/?id=本扩展id）后即可使用。'
+    } else {
+      guideText = 'Chrome <138：在 chrome://extensions 开启全局「开发者模式」后即可使用。'
+    }
+  }
+  return { available, isFirefox, chromeMajor, guideText }
+}
+
 // —— 世界配置（一次性，扩展更新后需重配，设计文档 §4.1）——
 
 /** 开启 messaging 专用通道（onUserScriptMessage）。csp 不被支持时降级为仅 messaging */

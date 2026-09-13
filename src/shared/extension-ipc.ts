@@ -37,6 +37,8 @@ export type RuntimeRequest =
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
   | { kind: 'userscript:installProbe' }
   | { kind: 'userscript:removeProbe' }
+  | { kind: 'userscript:availability' }
+  | { kind: 'userscript:fetchUrl'; url: string }
 
 /** 提交结果：无净变更时 committed=false（工具页据此提示「无变更」而非「已提交」） */
 export interface GitCommitResult {
