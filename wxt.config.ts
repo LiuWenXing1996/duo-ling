@@ -51,4 +51,15 @@ export default defineConfig({
       default_path: 'sidepanel.html',
     },
   },
+  // —— 开发期热重载（WXT dev server）——
+  // 固定 profile + keepProfileChanges：像「Allow User Scripts」这类必须手动开启的开关
+  // 只需开一次，变更会写回 profile，后续 dev 重启不必重新授权（userScripts 是每扩展开关，
+  // 换 profile / 换加载目录都会重置，这是开发期最大的重复成本）。
+  // 不想自动开浏览器时把 disabled 设为 true，改为手动加载 .output/chrome-mv3-dev + Alt+R 重载。
+  webExt: {
+    chromiumProfile: '.chrome-dev-profile',
+    keepProfileChanges: true,
+    // 打开即测试页，省去每次手动开页面验证脚本注入
+    startUrls: ['https://example.com'],
+  },
 })

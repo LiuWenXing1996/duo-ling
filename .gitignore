@@ -8,6 +8,9 @@ out/
 # 临时脚本 / 一次性产物
 tmp/
 
+# WXT dev 用的固定 Chrome profile（保留「Allow User Scripts」等设置，避免每次重开）
+.chrome-dev-profile/
+
 # AI 协作工作数据（本地记忆与日志，含本机路径，不入库）
 .workbuddy/
 
