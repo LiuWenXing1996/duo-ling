@@ -1,13 +1,12 @@
 {
-  "files": [],
-  "references": [
-    { "path": "./tsconfig.node.json" },
-    { "path": "./tsconfig.web.json" }
-  ],
+  "extends": "./.wxt/tsconfig.json",
   "compilerOptions": {
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/renderer/src/*"]
-    }
-  }
+      "@": ["./src"],
+      "@/*": ["./src/*"]
+    },
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["src/**/*", ".wxt/wxt.d.ts"],
+  "exclude": ["node_modules", ".output", "legacy", "tmp"]
 }

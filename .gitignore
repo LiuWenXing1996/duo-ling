@@ -1,27 +1,28 @@
-node_modules
-dist
-out
-release
+node_modules/
+.output/
+.wxt/
 *.log
 .DS_Store
 
-# editor
-.vscode/*
-!.vscode/extensions.json
-.idea
+# 临时脚本 / 一次性产物
+tmp/
 
-# testing
-test-results
-playwright-report
-blob-report
-playwright/.cache
+# AI 协作工作数据（本地记忆与日志，含本机路径，不入库）
+.workbuddy/
 
 # 本地大模型文件（体积大，不入库；仅保留目录占位）
 llm-models/*
 !llm-models/.gitkeep
 
-# 临时脚本（一次性产物，不入库）
-tmp/
+# 编辑器
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# 测试产物
+test-results
+playwright-report
+blob-report
 
 # AI SDK DevTools 本地调试数据（明文交互内容，不入库）
 .devtools/

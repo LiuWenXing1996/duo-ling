@@ -332,7 +332,15 @@ export type ToolUpdateResult =
 
 export type ToolHistoryResult = { ok: true; commits: ToolCommit[] } | { ok: false; error: string }
 
-export type ToolPreviewResult = { ok: true; url: string } | { ok: false; error: string }
+/**
+ * 版本预览结果。
+ * 桌面版：主进程把目标提交物化到磁盘，返回可被 webview 加载的 `tool-preview://` URL。
+ * 扩展版没有可渲染的文件 URL，改为把该提交下的工具页 HTML 一并返回（`html`），
+ * 由渲染层以 sandbox iframe 的 srcdoc 承载；此时 `url` 为空串。
+ */
+export type ToolPreviewResult =
+  | { ok: true; url: string; html?: string }
+  | { ok: false; error: string }
 
 export type ToolsPreviewListResult =
   | { ok: true; size: number; versions: number }
