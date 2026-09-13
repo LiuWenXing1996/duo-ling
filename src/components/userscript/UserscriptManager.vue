@@ -2,7 +2,7 @@
 // 用户脚本管理器（v2 方案 docs/userscript-v2-plan.md Phase 0）：
 // 列表 + 启停 + 新建（粘贴源码 + 名称/匹配规则） + 单文件编辑器 + 状态横幅 + 错误面板。
 // 经 src/lib/userscripts/ui-client.ts 与 background 的 userscript:* 命令组通信。
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import {
   AlertTriangle,
   Braces,
@@ -11,11 +11,15 @@ import {
   CircleX,
   Pencil,
   Plus,
+  Star,
   Trash2,
   X,
 } from '@lucide/vue'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import { buildProject, BuildError } from '@/lib/userscripts/builder'
+import { FileTree } from '@/components/ai-elements/file-tree'
+import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
+import { buildCodeTree, type CodeTreeNode } from '@/lib/tool-code-view'
 import type { ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from '@/lib/userscripts/types'
 
 const availability = ref<UserScriptsAvailability | null>(null)
@@ -51,6 +55,30 @@ const editIncludeGlobs = ref('')
 const editExcludeGlobs = ref('')
 const editAllFrames = ref(true)
 const editRunAt = ref<'document_start' | 'document_end' | 'document_idle'>('document_end')
+
+// 文件树（复用工具页 buildCodeTree + ai-elements FileTree；文件夹默认全展开）
+const editTree = computed<CodeTreeNode[]>(() =>
+  buildCodeTree(
+    Object.entries(editFiles.value).map(([path, content]) => ({ path, content, encoding: 'utf8' as const })),
+  ),
+)
+const treeExpanded = computed(() => {
+  const paths: string[] = []
+  const collect = (nodes: CodeTreeNode[]): void => {
+    for (const n of nodes) {
+      if (n.type === 'folder') {
+        paths.push(n.path)
+        collect(n.children)
+      }
+    }
+  }
+  collect(editTree.value)
+  return new Set(paths)
+})
+/** 点树：仅文件可选中（文件夹点击由 FileTreeFolder 自行展开/收起） */
+function onSelectTree(path: string): void {
+  if (path in editFiles.value) activeFile.value = path
+}
 
 /** 示例脚本：纯 JS（Phase 0 无构建），演示 DL.log 本地能力 */
 const SAMPLE = `// 哆灵用户脚本示例：页面标题加星标
@@ -571,7 +599,7 @@ onMounted(refresh)
         class="fixed inset-0 z-10 flex justify-end bg-black/40"
         @click.self="closeEditor"
       >
-        <div class="flex h-full w-full max-w-2xl flex-col bg-zinc-50 dark:bg-zinc-900">
+        <div class="flex h-full w-full max-w-3xl flex-col bg-zinc-50 dark:bg-zinc-900">
           <!-- 编辑器头 -->
           <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
             <div class="min-w-0">
@@ -658,90 +686,93 @@ onMounted(refresh)
             </label>
           </div>
 
-          <!-- 文件标签行：切换编辑文件 + 入口标记 + 增删改 -->
-          <div class="flex flex-wrap items-center gap-1.5 border-b border-zinc-200 px-4 py-2 dark:border-zinc-700">
-            <button
-              v-for="(src, name) in editFiles"
-              :key="name"
-              type="button"
-              class="group inline-flex items-center gap-1 rounded-md px-2 py-1 font-mono text-xs transition-colors"
-              :class="
-                name === activeFile
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
-              "
-              @click="activeFile = name"
-            >
-              <span class="max-w-40 truncate">{{ name }}</span>
-              <span
-                v-if="name === editEntry"
-                class="rounded bg-emerald-500/20 px-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-300"
-                title="入口文件"
+          <!-- 编辑区双栏：左文件树 + 右源码/构建错误（Phase 3：复用工具页文件树实现） -->
+          <div class="flex min-h-0 flex-1">
+            <!-- 左：文件树 -->
+            <div class="flex w-48 shrink-0 flex-col border-r border-zinc-200 dark:border-zinc-700">
+              <div class="flex items-center justify-between border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-700">
+                <span class="text-xs text-zinc-400">文件（{{ Object.keys(editFiles).length }}）</span>
+                <div class="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    class="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+                    title="新文件"
+                    @click="addFile"
+                  >
+                    <Plus class="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    :disabled="!activeFile"
+                    class="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-40 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+                    title="重命名当前文件"
+                    @click="renameFile(activeFile)"
+                  >
+                    <Pencil class="size-3.5" />
+                  </button>
+                  <button
+                    v-if="activeFile && activeFile !== editEntry"
+                    type="button"
+                    class="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+                    title="设为入口"
+                    @click="editEntry = activeFile; editDirty = true"
+                  >
+                    <Star class="size-3.5" />
+                  </button>
+                  <button
+                    v-if="activeFile && activeFile !== editEntry"
+                    type="button"
+                    class="rounded p-1 text-zinc-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+                    title="删除当前文件"
+                    @click="removeFile(activeFile)"
+                  >
+                    <Trash2 class="size-3.5" />
+                  </button>
+                </div>
+              </div>
+              <FileTree
+                class="min-h-0 flex-1 overflow-y-auto rounded-none border-0 bg-transparent font-mono text-xs"
+                :default-expanded="treeExpanded"
+                :selected-path="activeFile"
+                @update:selected-path="onSelectTree"
               >
-                入口
-              </span>
-            </button>
-            <div class="ml-auto flex items-center gap-1">
-              <button
-                v-if="activeFile && activeFile !== editEntry"
-                type="button"
-                class="rounded px-1.5 py-1 text-[11px] text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
-                title="把当前文件设为入口"
-                @click="editEntry = activeFile; editDirty = true"
+                <UserscriptTreeNode
+                  v-for="node in editTree"
+                  :key="node.path"
+                  :node="node"
+                  :entry="editEntry"
+                />
+              </FileTree>
+            </div>
+
+            <!-- 右：构建错误 + 源码 -->
+            <div class="flex min-w-0 flex-1 flex-col">
+              <!-- 构建错误（保存时构建失败：文件:行:列，不落盘） -->
+              <div
+                v-if="buildIssues.length"
+                class="border-b border-red-300 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-950/40"
               >
-                设为入口
-              </button>
-              <button
+                <p class="mb-1 flex items-center gap-1 text-xs font-medium text-red-700 dark:text-red-300">
+                  <CircleX class="size-3.5" />
+                  构建失败（{{ buildIssues.length }} 处），未保存：
+                </p>
+                <ul class="flex max-h-40 flex-col gap-1 overflow-auto">
+                  <li v-for="(msg, i) in buildIssues" :key="i" class="break-all font-mono text-[11px] leading-relaxed text-red-600 dark:text-red-400">
+                    {{ msg }}
+                  </li>
+                </ul>
+              </div>
+
+              <!-- 源码编辑（当前选中文件） -->
+              <textarea
                 v-if="activeFile"
-                type="button"
-                class="rounded px-1.5 py-1 text-[11px] text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
-                @click="renameFile(activeFile)"
-              >
-                重命名
-              </button>
-              <button
-                v-if="activeFile && activeFile !== editEntry"
-                type="button"
-                class="rounded px-1.5 py-1 text-[11px] text-red-500 underline hover:text-red-600"
-                @click="removeFile(activeFile)"
-              >
-                删除
-              </button>
-              <button
-                type="button"
-                class="inline-flex items-center gap-0.5 rounded px-1.5 py-1 text-[11px] text-blue-600 underline hover:text-blue-700 dark:text-blue-400"
-                @click="addFile"
-              >
-                <Plus class="size-3" />
-                新文件
-              </button>
+                v-model="editFiles[activeFile]"
+                @input="editDirty = true"
+                spellcheck="false"
+                class="flex-1 resize-none border-0 bg-zinc-50 p-4 font-mono text-xs leading-relaxed text-zinc-800 outline-none dark:bg-zinc-900 dark:text-zinc-200"
+              />
             </div>
           </div>
-
-          <!-- 构建错误（保存时构建失败：文件:行:列，不落盘） -->
-          <div
-            v-if="buildIssues.length"
-            class="border-b border-red-300 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-950/40"
-          >
-            <p class="mb-1 flex items-center gap-1 text-xs font-medium text-red-700 dark:text-red-300">
-              <CircleX class="size-3.5" />
-              构建失败（{{ buildIssues.length }} 处），未保存：
-            </p>
-            <ul class="flex max-h-40 flex-col gap-1 overflow-auto">
-              <li v-for="(msg, i) in buildIssues" :key="i" class="break-all font-mono text-[11px] leading-relaxed text-red-600 dark:text-red-400">
-                {{ msg }}
-              </li>
-            </ul>
-          </div>
-
-          <!-- 源码编辑（当前选中文件） -->
-          <textarea
-            v-if="activeFile"
-            v-model="editFiles[activeFile]"
-            @input="editDirty = true"
-            spellcheck="false"
-            class="flex-1 resize-none border-0 bg-zinc-50 p-4 font-mono text-xs leading-relaxed text-zinc-800 outline-none dark:bg-zinc-900 dark:text-zinc-200"
-          />
 
           <!-- 编辑器底栏 -->
           <div class="flex items-center justify-end gap-2 border-t border-zinc-200 px-4 py-3 dark:border-zinc-700">
