@@ -104,6 +104,58 @@
 
 ---
 
+## AI 生成用户脚本（已拍板，待实施）
+
+**背景**：用户脚本 v2 新形态（多文件项目 + DL 能力 API + esbuild 构建）四阶段已落地，下一步的自然延伸是「让 AI 写脚本」——在侧边栏说需求，AI 产出 `ScriptProject`（文件树 + 配置）、构建、落盘。
+
+**与「AI 生成工具」的关键差异**：工具的产物是自包含页面、AI 掌握全部上下文、无构建环节；脚本注入第三方页面、AI 只知 URL、**必须过 esbuild 构建**。由此得出主结论：脚本生成走 **Agent 工具链**而非单轮意图契约——esbuild 是廉价确定性验证器，把「写文件 + 构建」合成一个工具后，AI 能在一次会话内「写 → 编译 → 读错误 → 再写」自我收敛，这是单轮契约做不到的。
+
+**已拍板（2026-09-14）**：
+1. **编排形态**：Agent 工具链（`script_spec` / `script_read` / `script_apply`），不照搬工具的单轮意图契约；
+2. **生成入口**：**侧边栏**（只做「下指令 + 看进度」的观察者；执行与构建都在 offscreen，§4.1 / §4.8）；现成替代 `esbuild-standalone` 已核查**不采用**（它本身不带 esbuild、靠 CDN `importScripts` 拉，扩展 CSP 禁止；详见方案 §3.2）；
+3. **生效方式**：**先落盘不启用 + 一键启用**（落盘 `enabled: false` → 卡片给「启用并生效」按钮 → 复用现成的 `userscript:toggle`，零构建等待）；
+4. **工具侧**：本次不动，脚本链路与工具链路解耦（不共用 `parseGeneratedIntents`、不经 `applyIntents`）；
+5. **执行宿主 = 定位 B「下完单就走」**（老大 2026-09-14 拍板）：发起生成后**关掉侧边栏，任务照跑完、回来收结果** → **offscreen document 为一期必需，整条对话链路 + 构建一起搬进去**（方案 §4.8）。**只有一条对话链路**（老大同日纠正：全仓只有一个 `useChat` 实例、一处 `streamText` 调用，二者差别仅 `tools` 入参），而一次请求跑多久由模型运行时决定、用户不可预知 → **不按任务类型分流**（方案 §4.1）。技术上 B 无替代方案：搬 SW 有单次调用 5 分钟硬顶 + 空闲 30s 回收，搬 content script 随网页死，Dedicated Worker 随页面死。
+6. **页面上下文隐私边界**：**档 0（当前页 URL / 标题）+ 档 2（元素拾取器）**；档 1 可选、档 3 后置。即**只发「当前页 URL / 标题」与「用户主动点选的那一块」**，不自动抓整页 DOM（方案 §4.2 / §6.1 #8）。
+7. **新增 `"offscreen"` 权限**：**已批准**。定位 B 的硬前提；上架审查可见（方案 §6.1 #9）。
+
+**为什么 B 的代价比预想小（本次核查）**：
+- **SW 角色一字不改**：它的定位本来就是「能力运行时 + 唯一写入方」（`background.ts` 头注释），迁移只是**换个客户端调同一套 `userscript:*` 命令**；
+- **存储双轨的分界线恰好在 offscreen 的能力边界上**：IndexedDB（会话历史 `duoling-chat`、lightning-fs 库 `duoling`）**同源共享、offscreen 直连可用**（`conversation-store.ts` 注释已明写同源共享是既有事实）；`chrome.storage.local`（55 处）读不到——但那半边今天**也已经全部经 SW**；
+- **`chrome.userScripts` 本来就只在 SW 独占**（`background.ts` 导入 `engine.ts`）→ offscreen 拿不到，也无需搬。
+- **反而更省**：offscreen 有 `URL.createObjectURL` → esbuild 可用**默认 worker 模式**（不必 `worker: false`）；不被回收 → wasm 常驻，14MB 只编译一次。**§3.1「构建宿主选谁」的纠结一并消失。**
+
+**前置（9 条，按依赖顺序）**：
+
+*A. 容器与通道*
+1. **新增 `offscreen` entrypoint** + manifest 加 `"offscreen"` 权限（**老大 2026-09-14 已批准**）；`reason: ['BLOBS', 'WORKERS']`；
+2. **`ensureOffscreen()`**（SW 侧：`chrome.runtime.getContexts` + 在途 promise 防竞态），挂在**生成请求入口**处——Chrome 不会自动启动 offscreen，安装时 SW 未必有机会跑；
+3. **配置通道**：SW 新增 `model:getActiveProfile`（复用现成 `getActiveProfileState()`）+ `storage.onChanged` 转发给 offscreen（它收不到该事件）；
+4. **offscreen 侧桥接层**（新文件）：把「读配置 / createProject / toggle / 读脚本」封装为 runtime 消息；守住**模块归属规则**（`userscripts/store.ts`、`model-store.ts`、`fs-store.ts`、`engine.ts` 等**只许 SW import**——lightning-fs 有内存索引层，双实例会互相看不见写入）。
+
+*B. 编排与构建*
+5. **整条对话链路与构建搬进 offscreen**（**不做任务类型分流**——只有一条链路，§4.1）：`streamText` + `tools` + `stopWhen` + `maxSteps` 上限；`builder.ts` 随 offscreen 入口 import（wasm 懒加载 + 首次构建 loading 态）；
+6. **`reconnectToStream` 真实现 + 事件缓冲**：per-task 事件带 `eventId`，侧边栏按 `lastEventId` replay 后续订（B 的体验命门，现在是 `return null` 的桩）；
+7. **`userscript:createProject`**（收 name/config/files/entry/bundle，**支持 `enabled: false`**；顺带把 `userscript:install` 收敛为它的单文件快捷调用）；
+8. **Agent 工具三个**：`script_spec` / `script_read` / `script_apply`（在 offscreen 内构建，构建通过后由编排层经 SW 落盘）；
+9. **生成卡片 + 可恢复状态**：卡片（未启用 + 生效范围 + 「会做什么」+ 启用 / 编辑器 / 回滚）；**每步把文件树快照进 IndexedDB 任务记录（覆盖写、只留一份）**（只为「宿主被杀」后的续跑）+ **收尾一次 git 快照**（全链路唯一非幂等动作）+ 孤儿判定提示「继续 / 丢弃」；**失败那轮的产物就地留在对话历史里，不做「草稿」落盘**（方案 §4.5）；面板关闭期间的进度走 `chrome.notifications`。
+
+**可直接复用**：`builder.ts`（esbuild 管线，wasm 资产零新增）、`updateFiles`（全量落盘 + **仅在 enabled 时注册**，正好是「落盘不启用」要的语义 + 返回 CSP 警告）、`userscript:toggle`（一键启用零新增后端）、`us-git.ts`（`snapshotProject` **已支持 note → 提交信息**，正好回答 git 历史方案里待定的 commit message 格式；`restoreToCommit` 即回滚）、`us:errors`（二期运行期错误回喂）、**SW 现成的全部 `userscript:*` 命令面**（loop 换宿主后照旧调用）。
+
+**无待老大拍板项**（2026-09-14 清空）：
+
+1. ~~构建失败后的半成品怎么处置~~ → **已决：不做「草稿」**。老大追问「为什么需要草稿」后复核：失败产物的四个相关需求**各已有载体**——追溯 AI 试过什么 → 对话历史（`onFinish` 落盘含 tool 调用的完整 `parts`）；让 AI 接着改 → 在同一条对话里接着说；抗中断 → 每步任务快照；自己手改 → **成功路径收敛即自动落盘**（未启用，可进编辑器）。唯一残留窄缝（最后一次构建成功、但 `maxSteps` 提前收尾）**也不为它加按钮**：失败率量级未知，而入口一旦可点就会往管理页混入「AI 没做成的东西」；将来实测确有此需，补起来只是「一次命令调用 + 一个按钮」（`saveProject()` 本就是按 uuid 覆盖写的 upsert）。详见方案 §4.5 / §6.1 #10。
+
+> 原必答 ①「页面上下文档位」与 ②「`"offscreen"` 权限」**老大 2026-09-14 已拍板**，见上方「已拍板」第 6 / 7 条。
+
+**可代定（我按建议执行，老大否决即改）**：脚本档案 `notes`（加）/ 内置脚本（拾取器）放管理页「内置」分组 / `script_spec` 载荷形态（由 `userscript-api.md` + 方案 §8 拼一段注入文本）/ offscreen 退出条件（任务结束 + 面板关闭 + 空闲 N 分钟；N 待实测）/ `maxSteps` 沿用桌面版 8 / 任务进行中用户再发消息则排队。
+
+**详细文档**：见 [userscript-ai-generation.md](./userscript-ai-generation.md)（含 §3.1 esbuild 放 SW 的技术核查与宿主筛选表、§3.2 `esbuild-standalone` 外部对照、§4.8 定位 B 的三容器架构与「谁写什么」表、§8 `script_spec` 禁止事项清单）。
+
+**状态**：方案已拍板（含定位 B 与「整条链路搬」），**无待拍板项**，代码未动，前置 9 条待开工。
+
+---
+
 ## 已完成（索引）
 
 > 以下方案已实现（部分在 Electron 时期完成、随迁移平移到扩展），方案细节与实现记录见对应提交与 git 历史。

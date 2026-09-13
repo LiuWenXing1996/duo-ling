@@ -137,7 +137,8 @@ interface ScriptProject {
 **目标**：保存时把多文件源码（含 TS/JSX）打包成单 IIFE，注入链路零改动。
 
 设计要点：
-1. **esbuild-wasm 只在扩展 UI 页（workbench）运行**，不进 SW。`esbuild.wasm`（约 10MB）打包进扩展 `public/`，编辑器首次保存时懒加载一次，进程内复用（`esbuild.initialize({ wasmURL })`）。
+1. **esbuild-wasm 只在扩展 UI 页（workbench / side panel）运行**，不进 SW。`esbuild.wasm`（**实测 13.98MB**，2026-09-14 核实，早期稿写的「约 10MB」偏小）打包进扩展 `public/`，编辑器首次保存时懒加载一次，进程内复用（`esbuild.initialize({ wasmURL })`）。
+   - **为何不进 SW**（2026-09-14 核查 esbuild-wasm 0.28.2 源码）：技术上可行，但默认 Worker 模式走 `new Worker(URL.createObjectURL(blob))`，而 `URL.createObjectURL` 未暴露给 ServiceWorker，必须改成 `initialize({ worker: false })`；且 MV3 SW 空闲约 30s 被回收，每次冷启都要重付 wasm 获取 + 编译。详见 [userscript-ai-generation.md](./userscript-ai-generation.md) §3.1。
    - MV3 extension_pages 最小 CSP 已含 `'wasm-unsafe-eval'`，无需改 manifest（已查证）。
 2. 构建入口：
    ```ts
@@ -204,7 +205,7 @@ interface ScriptProject {
 
 | # | 风险 | 验证方式 | 阶段 |
 |---|---|---|---|
-| 1 | esbuild-wasm 10MB 拖慢扩展装载 | 放 `public/` 懒加载，只在打开编辑器且首次保存时 load；实测 workbench 首屏无回归 | P2 |
+| 1 | esbuild-wasm 约 14MB（实测 13.98MB）拖慢扩展装载 | 放 `public/` 懒加载，只在打开编辑器且首次保存时 load；实测 workbench 首屏无回归；side panel 侧的同款等待见 [userscript-ai-generation.md](./userscript-ai-generation.md) §7 风险 2 | P2 |
 | 2 | UI 页 fetch 远程依赖受 CSP/CORS 限制 | 扩展页有 `<all_urls>` host 权限应免 CORS；实测 jsdelivr / unpkg | P2 |
 | 3 | 大项目保存时构建卡 UI | wasm 在 worker？一期先同步构建 + loading 态，实测慢再迁 Web Worker | P2 |
 | 4 | bundle 内 `eval` / `new Function` 被 world CSP 拦 | 已有宽松 CSP 配置链；构建产物理论无 eval（esbuild 目标环境不含）；保留 `collectCspWarnings` 的 eval 检测挂到保存时（检测对象用 `bundle.code` 而非源码） | P0 |
