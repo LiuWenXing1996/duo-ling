@@ -50,7 +50,8 @@ export async function getUserScriptsStatus(): Promise<import('./types').UserScri
       guideText = 'Chrome <138：在 chrome://extensions 开启全局「开发者模式」后即可使用。'
     }
   }
-  return { available, isFirefox, chromeMajor, guideText, cspPermissive: worldCspPermissive }
+  const cspPermissive = await getEffectiveCspPermissive()
+  return { available, isFirefox, chromeMajor, guideText, cspPermissive }
 }
 
 // —— 世界配置（一次性，扩展更新后需重配，设计文档 §4.1）——
@@ -62,6 +63,30 @@ let worldCspPermissive = false
 /** USER_SCRIPT 世界当前是否放开了宽松 CSP（Phase 4：CSP 回退钩子） */
 export function isWorldCspPermissive(): boolean {
   return worldCspPermissive
+}
+
+// —— 调试覆盖（Phase 4：CSP 回退钩子本地验证用）——
+//
+// 当前 Chrome 基本都接受 configureWorld({ csp })，回退分支几乎不会触发，难以在真机看到
+// 横幅 ⚠ / 安装警告渲染。dev-only 的 storage 标志可强制把 cspPermissive 视为 false，
+// 在当前环境模拟「旧浏览器 world CSP 未放开」的降级表现，用来验证钩子消费端（UI）。
+// 默认关闭，对正式行为零影响；正式分发前可整段删除。
+const US_DEBUG_CSP_RESTRICTED_KEY = '__us_debug_csp_restricted'
+
+/** 读取调试覆盖标志（容错：读不到 / 异常时视为未开启） */
+async function isCspForcedRestricted(): Promise<boolean> {
+  try {
+    const r = (await chrome.storage.local.get(US_DEBUG_CSP_RESTRICTED_KEY)) as Record<string, unknown>
+    return r[US_DEBUG_CSP_RESTRICTED_KEY] === true
+  } catch {
+    return false
+  }
+}
+
+/** 实际生效的 cspPermissive：引擎放开 且 未被调试标志强制受限 */
+export async function getEffectiveCspPermissive(): Promise<boolean> {
+  if (!worldCspPermissive) return false
+  return !(await isCspForcedRestricted())
 }
 
 /** 开启 messaging 专用通道（onUserScriptMessage）。csp 不被支持时降级为仅 messaging 并标记未放开 */

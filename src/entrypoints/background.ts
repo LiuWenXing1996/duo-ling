@@ -53,7 +53,7 @@ import {
   installProbe,
   removeProbe,
   fetchText,
-  isWorldCspPermissive,
+  getEffectiveCspPermissive,
   collectCspWarnings,
 } from '@/lib/userscripts/engine'
 import { initGmBridge } from '@/lib/userscripts/gm-bridge'
@@ -177,7 +177,7 @@ const handlers: {
     const resolved = await resolveIncludes(full)
     await saveScript(resolved)
     await registerScript(resolved)
-    return { uuid: resolved.uuid, warnings: collectCspWarnings(resolved, isWorldCspPermissive()) }
+    return { uuid: resolved.uuid, warnings: collectCspWarnings(resolved, await getEffectiveCspPermissive()) }
   },
 
   'userscript:update': async (msg): Promise<{ warnings?: string[] }> => {
@@ -193,7 +193,7 @@ const handlers: {
     await saveScript(resolved)
     await unregisterScripts([resolved.uuid]).catch(() => {})
     if (resolved.enabled) await registerScript(resolved)
-    return { warnings: collectCspWarnings(resolved, isWorldCspPermissive()) }
+    return { warnings: collectCspWarnings(resolved, await getEffectiveCspPermissive()) }
   },
 
   'userscript:remove': async (msg): Promise<void> => {
