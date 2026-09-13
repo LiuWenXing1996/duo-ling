@@ -100,13 +100,15 @@ function createVfsPlugin(
     setup(build) {
       build.onResolve({ filter: /.*/ }, (args) => {
         const p = args.path
-        // 远程模块：URL 可解析即支持（esm.sh 入口的同源绝对路径转发、包内相对导入都按 URL 解析；
-        // 每条导入一次 fetch，链路自然有界）。仅拒绝裸包名说明符。
+        // 远程上下文判定看**引用方**（importer 是 URL 即远程模块内部导入），与命名空间无关：
+        // 已持久化的远程文件走 mem 命名空间，其内部导入同样要按 URL 解析。
+        const isRemoteImporter = args.importer.startsWith('http://') || args.importer.startsWith('https://')
         if (p.startsWith('https://') || p.startsWith('http://')) {
           // 已持久化的远程文件直接走 mem（断网重构建的关键：不再发请求）
           return { path: p, namespace: p in files ? 'mem' : 'remote' }
         }
-        if (args.namespace === 'remote') {
+        if (isRemoteImporter) {
+          // URL 可解析即支持（esm.sh 的同源绝对路径转发、包内相对导入）；仅拒绝裸包名说明符
           if (!p.startsWith('.') && !p.startsWith('/')) {
             return {
               errors: [{
