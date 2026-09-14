@@ -163,6 +163,8 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBro
           :uuid="tab.userscriptId ?? ''"
           @dirty="(v: boolean) => (dirtyTabs[tab.id] = v)"
         />
+        <!-- lfs 浏览：offscreen lightning-fs 整库只读文件树 -->
+        <lfs-browser-panel v-else-if="tab.kind === 'lfs-browser'" />
       </ui-tabs-content>
     </ui-tabs>
   </div>
