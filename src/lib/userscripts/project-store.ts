@@ -22,11 +22,10 @@ export function getProject(uuid: string): Promise<ScriptProject | undefined> {
   return readProject(uuid)
 }
 
-/** 生成不与现有项目重名的默认名称：「新建脚本」→「新建脚本 2」→「新建脚本 3」… */
-export async function nextScriptName(base = '新建脚本'): Promise<string> {
+/** 生成不与现有项目重名的默认名称：「新建的脚本 1」→「新建的脚本 2」→「新建的脚本 3」…（序号从 1 起，跳过已占用号） */
+export async function nextScriptName(base = '新建的脚本'): Promise<string> {
   const names = new Set((await listProjects()).map((p) => p.name))
-  if (!names.has(base)) return base
-  let n = 2
+  let n = 1
   while (names.has(`${base} ${n}`)) n += 1
   return `${base} ${n}`
 }

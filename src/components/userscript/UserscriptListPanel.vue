@@ -84,7 +84,7 @@ async function onToggle(s: ScriptSummary, next: boolean): Promise<void> {
 }
 
 /**
- * 新建脚本：零输入 —— background 侧自动命名（「新建脚本」/「新建脚本 2」…）、写入初始模板、
+ * 新建脚本：零输入 —— background 侧自动命名（「新建的脚本 1」/「新建的脚本 2」…）、写入初始模板、
  * 建好 git 仓（首次提交含 project.json 元数据）并注册启用。
  * 创建成功后直接打开该脚本的编辑器标签页（第 5 点「创建完去哪」的答案）。
  */
