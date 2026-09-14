@@ -7,7 +7,12 @@
 // 数据通道：userscriptClient。workbench 是可信扩展页，可直接 chrome.runtime.sendMessage，
 // 因此不走 window.api（那是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
 import { computed, onMounted, ref } from 'vue'
-import { Braces as UiBraces, RefreshCw as UiRefreshCw } from '@lucide/vue'
+import {
+  Braces as UiBraces,
+  LoaderCircle as UiLoaderCircle,
+  Plus as UiPlus,
+  RefreshCw as UiRefreshCw
+} from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import { formatTimestamp } from '@/lib/format'
@@ -19,6 +24,8 @@ const loading = ref(false)
 const error = ref('')
 /** 正在切换启停的脚本 uuid：避免连点造成重复注册/注销 */
 const toggling = ref<string | null>(null)
+/** 创建中：避免连点一次建出多个空脚本 */
+const creating = ref(false)
 
 /** 已弃用的旧 GM 形态记录不注册、不可编辑，参与不了启停 */
 const activeScripts = computed(() => scripts.value.filter((s) => !s.deprecated))
@@ -52,6 +59,25 @@ async function onToggle(s: ScriptSummary, next: boolean): Promise<void> {
   }
 }
 
+/**
+ * 新建脚本：零输入 —— background 侧自动命名（「新建脚本」/「新建脚本 2」…）、写入初始模板、
+ * 建好 git 仓（首次提交含 project.json 元数据）并注册启用。这里只负责触发 + 刷新列表。
+ * 创建成功后不跳转（「创建完去哪」待老大拍板，见项目日志）。
+ */
+async function onCreate(): Promise<void> {
+  if (creating.value) return
+  creating.value = true
+  error.value = ''
+  try {
+    await userscriptClient.create()
+    await refresh()
+  } catch (e) {
+    error.value = '创建失败：' + (e instanceof Error ? e.message : String(e))
+  } finally {
+    creating.value = false
+  }
+}
+
 /** updatedAt 是毫秒时间戳，而 formatTimestamp 收的是 Unix 秒，需换算 */
 function updatedAtLabel(ts: number): string {
   return ts ? formatTimestamp(Math.floor(ts / 1000)) : ''
@@ -73,16 +99,30 @@ onMounted(() => {
             <template v-if="activeScripts.length">· {{ enabledCount }} 个已启用</template>
             <template v-if="deprecatedCount">· 含 {{ deprecatedCount }} 个已弃用旧记录</template>
           </p>
-          <ui-button
-            variant="ghost"
-            size="icon"
-            class="size-7"
-            title="刷新列表"
-            :disabled="loading"
-            @click="refresh"
-          >
-            <ui-refresh-cw class="size-3.5" :class="{ 'animate-spin': loading }" />
-          </ui-button>
+          <div class="flex shrink-0 items-center gap-1">
+            <ui-button
+              variant="ghost"
+              size="icon"
+              class="size-7"
+              title="刷新列表"
+              :disabled="loading"
+              @click="refresh"
+            >
+              <ui-refresh-cw class="size-3.5" :class="{ 'animate-spin': loading }" />
+            </ui-button>
+            <!-- 添加脚本：零输入创建（自动命名 + 初始模板 + 建 git 仓 + 启用） -->
+            <ui-button
+              size="sm"
+              class="h-7 gap-1 px-2.5 text-xs"
+              title="添加脚本"
+              :disabled="creating"
+              @click="onCreate"
+            >
+              <ui-loader-circle v-if="creating" class="size-3.5 animate-spin" />
+              <ui-plus v-else class="size-3.5" />
+              添加脚本
+            </ui-button>
+          </div>
         </header>
 
         <p

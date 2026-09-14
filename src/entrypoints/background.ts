@@ -54,10 +54,10 @@ import {
   resolveInjectCode,
 } from '@/lib/userscripts/engine'
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
-import { listSummaries, getProject, saveProject, deleteScript, updateProjectFiles, clearDeprecatedScripts, listUserScriptErrors, clearUserScriptErrors, appendUserScriptError } from '@/lib/userscripts/store'
+import { listSummaries, getProject, saveProject, deleteScript, updateProjectFiles, clearDeprecatedScripts, listUserScriptErrors, clearUserScriptErrors, appendUserScriptError, nextScriptName } from '@/lib/userscripts/store'
 import type { ScriptProject, UserScriptsAvailability } from '@/lib/userscripts/types'
 import { snapshotProject, listHistory, readTreeAt, restoreToCommit, deleteRepo } from '@/lib/userscripts/us-git'
-import { ENTRY_DEFAULT, defaultConfig } from '@/lib/userscripts/types'
+import { ENTRY_DEFAULT, defaultConfig, defaultSource } from '@/lib/userscripts/types'
 
 /** 初始示例工具：工具工厂开箱即用的一个工具，验证"生成 → 运行 → 提交 → 回滚"闭环 */
 const SAMPLE_TOOL_ID = 'markdown'
@@ -196,6 +196,42 @@ const handlers: {
   'userscript:clearDeprecated': async (): Promise<{ removed: number }> => {
     const removed = await clearDeprecatedScripts()
     return { removed }
+  },
+
+  // 新建脚本（零输入）：自动命名 + 初始模板 + 建 git 仓（首次快照）+ 注册。
+  // 与下面的 install 的分工 —— install 由调用方提供源码与匹配规则（粘贴安装），这个全自动。
+  'userscript:create': async (): Promise<{ uuid: string; name: string; warnings?: string[] }> => {
+    const now = Date.now()
+    const name = await nextScriptName()
+    const project: ScriptProject = {
+      v: 1,
+      uuid: crypto.randomUUID(),
+      name,
+      // 新建即启用（2026-09-14 老大拍板）；初始源码无害，注入也安全
+      enabled: true,
+      config: defaultConfig(['*://*/*']),
+      files: { [ENTRY_DEFAULT]: defaultSource(name) },
+      entry: ENTRY_DEFAULT,
+      createdAt: now,
+      updatedAt: now,
+    }
+    await saveProject(project)
+    // 建仓 + 首次提交（project.json 元数据 + files/main.js），让新脚本一开始就有完整历史起点。
+    // 失败不阻断创建 —— 与保存链路同策略：仓损坏只丢历史，不丢脚本。
+    await snapshotProject(project, '创建脚本').catch(() => {})
+    try {
+      await registerScript(project)
+    } catch (e) {
+      void appendUserScriptError({
+        uuid: project.uuid,
+        name: project.name,
+        phase: 'register',
+        message: e instanceof Error ? e.message : String(e),
+      }).catch(() => {})
+      throw e
+    }
+    const code = project.files[ENTRY_DEFAULT] ?? ''
+    return { uuid: project.uuid, name: project.name, warnings: collectCspWarnings(code, await getEffectiveCspPermissive()) }
   },
 
   // 安装：单文件源码 → ScriptProject(v:1) 落盘 → 注册。

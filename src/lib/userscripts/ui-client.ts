@@ -66,6 +66,10 @@ export const userscriptClient = {
   /** 一键清理全部旧 GM 形态记录，返回清理条数 */
   clearDeprecated: (): Promise<{ removed: number }> => send({ kind: 'userscript:clearDeprecated' }),
 
+  /** 新建（零输入）：自动命名 + 初始模板 + 建 git 仓 + 注册。返回 uuid / name + 非阻塞 CSP 警告 */
+  create: (): Promise<{ uuid: string; name: string; warnings?: string[] }> =>
+    send({ kind: 'userscript:create' }),
+
   /** 安装：单文件源码 + 名称/匹配规则 → ScriptProject 落盘 → 注册。返回 uuid + 非阻塞 CSP 警告 */
   install: (source: string, opts?: { name?: string; matches?: string[] }): Promise<{ uuid: string; warnings?: string[] }> =>
     send({ kind: 'userscript:install', source, name: opts?.name, matches: opts?.matches }),

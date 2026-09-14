@@ -146,3 +146,20 @@ export function gmKey(uuid: string, key: string): string {
 export function defaultConfig(matches: string[]): ScriptConfig {
   return { matches, allFrames: true, runAt: 'document_end' }
 }
+
+/**
+ * 新建脚本的初始源码模板（零输入创建用）。
+ *
+ * 必须是可直接执行的纯 JS —— **不能含 import / export**，否则 engine 的 resolveInjectCode
+ * 会以「项目未构建」拒绝注册：新建这条路不跑 esbuild，只有编辑器保存才走构建管线。
+ */
+export function defaultSource(name: string): string {
+  return [
+    `// 哆灵用户脚本 · ${name}`,
+    '// 保存后按匹配规则注入页面；可用 DL.* 能力，例如 DL.log()。',
+    '// 注意：此处直接执行，暂不支持 import / export（需要多文件时在编辑器里构建）。',
+    '',
+    "console.log('[哆灵脚本] 已注入', location.href)",
+    '',
+  ].join('\n')
+}

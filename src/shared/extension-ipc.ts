@@ -33,6 +33,7 @@ export type RuntimeRequest =
   | { kind: 'userscript:getProject'; uuid: string }
   | { kind: 'userscript:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle?: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
   | { kind: 'userscript:clearDeprecated' }
+  | { kind: 'userscript:create' }
   | { kind: 'userscript:install'; source: string; name?: string; matches?: string[] }
   | { kind: 'userscript:remove'; uuid: string }
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }

@@ -63,6 +63,18 @@ export async function listSummaries(): Promise<ScriptSummary[]> {
   )
 }
 
+/**
+ * 生成不与现有脚本重名的默认名称：「新建脚本」→「新建脚本 2」→「新建脚本 3」…
+ * 命名空间取 listSummaries（新形态项目 + 已弃用旧记录），避免与旧记录撞名。
+ */
+export async function nextScriptName(base = '新建脚本'): Promise<string> {
+  const names = new Set((await listSummaries()).map((s) => s.name))
+  if (!names.has(base)) return base
+  let n = 2
+  while (names.has(`${base} ${n}`)) n += 1
+  return `${base} ${n}`
+}
+
 export async function getProject(uuid: string): Promise<ScriptProject | undefined> {
   const store = await chrome.storage.local.get(scriptKey(uuid))
   const v = store[scriptKey(uuid)] as ScriptProject | undefined
