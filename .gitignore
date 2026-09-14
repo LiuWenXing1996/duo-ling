@@ -15,10 +15,6 @@ tmp/
 # 项目通用日志另存 docs/dev-log/ —— 那里才随分支保留
 .workbuddy/
 
-# 本地大模型文件（体积大，不入库；仅保留目录占位）
-llm-models/*
-!llm-models/.gitkeep
-
 # 编辑器
 .vscode/*
 !.vscode/extensions.json
