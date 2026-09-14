@@ -1,9 +1,7 @@
 <script setup lang="ts">
-// 用户脚本列表标签页：列出已存在的全部用户脚本，支持启停；底部错误日志面板
-// 汇总运行期 / 注册 / DL 桥失败（us:errors，2026-09-15 自旧管理器迁入）。
-//
-// 与 UserscriptManager 是两个独立入口 —— 后者是左侧「用户脚本」按钮打开的全屏覆盖层
-// （粘贴安装 / 可用性横幅），本组件管「看列表 + 启停 + 错误日志」，不涉及编辑。
+// 用户脚本列表标签页：脚本管理的唯一入口 —— 列表 + 启停 + 零输入新建 +
+// 可用性横幅 + 错误日志面板（后两者 2026-09-15 自已删除的旧管理器 UserscriptManager 迁入；
+// 同日粘贴安装功能整体移除——UI、协议链与 installProject 一起删）。
 //
 // 数据通道：userscriptClient。workbench 是可信扩展页，可直接 chrome.runtime.sendMessage，
 // 因此不走 window.api（那是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
@@ -29,7 +27,7 @@ import {
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import { formatTimestamp } from '@/lib/format'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
-import type { ScriptSummary, UserScriptErrorRecord } from '@/lib/userscripts/types'
+import type { ScriptSummary, UserScriptErrorRecord, UserScriptsAvailability } from '@/lib/userscripts/types'
 
 const emit = defineEmits<{
   /** 请求打开该脚本的编辑器标签页（由 WorkspaceHost 接管） */
@@ -97,6 +95,10 @@ async function clearErrors(): Promise<void> {
 const activeScripts = computed(() => scripts.value.filter((s) => !s.deprecated))
 const enabledCount = computed(() => activeScripts.value.filter((s) => s.enabled).length)
 const deprecatedCount = computed(() => scripts.value.length - activeScripts.value.length)
+
+// —— 可用性横幅（自旧管理器迁入）——
+/** 引擎可用性；available 且 CSP 放开时不显示横幅（没有需要用户行动的信息） */
+const availability = ref<UserScriptsAvailability | null>(null)
 
 async function refresh(): Promise<void> {
   loading.value = true
@@ -197,6 +199,10 @@ function updatedAtLabel(ts: number): string {
 
 onMounted(() => {
   void refresh()
+  void userscriptClient
+    .availability()
+    .then((av) => (availability.value = av))
+    .catch(() => (availability.value = null)) // 横幅静默降级为不显示
 })
 </script>
 
@@ -237,6 +243,24 @@ onMounted(() => {
           </div>
         </header>
 
+        <!-- 可用性横幅：仅在引擎不可用或 CSP 未放开时显示（有需要用户行动的信息才占位） -->
+        <div
+          v-if="availability && !availability.available"
+          class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs"
+        >
+          <p class="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
+            <ui-alert-triangle class="size-3.5 shrink-0" />
+            用户脚本引擎不可用
+          </p>
+          <p class="mt-1 leading-relaxed text-muted-foreground">{{ availability.guideText }}</p>
+        </div>
+        <div
+          v-else-if="availability?.available && !availability.cspPermissive"
+          class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-600 dark:text-amber-400"
+        >
+          当前环境未放开 USER_SCRIPT 世界 CSP，依赖 eval / 内联的脚本可能运行失败（多见于旧版 Chrome）。
+        </div>
+
         <p
           v-if="error"
           class="rounded-md border border-destructive/40 px-3 py-2 text-xs text-destructive"
@@ -258,7 +282,7 @@ onMounted(() => {
           加载中…
         </p>
         <p v-else-if="!scripts.length" class="py-10 text-center text-xs text-muted-foreground">
-          还没有用户脚本。可在侧边栏让 AI 生成，或用左侧「用户脚本」打开管理器手动新建。
+          还没有用户脚本。可点上方「添加脚本」新建，也可在侧边栏让 AI 生成。
         </p>
 
         <div v-else class="space-y-2">

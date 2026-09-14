@@ -57,7 +57,7 @@
 | `types.ts` | `UserScriptMeta` → `ScriptProject`（文件树 + 配置 + bundle，见 §4） |
 | `store.ts` | 键空间沿用 `us:script:<uuid>` / `us:gm:<uuid>:<key>`（**GM 值键不改名，旧数据无损**）；schema 加 `v` 版本字段 |
 | `background.ts` | install/update 命令 → 项目 CRUD 命令；桥监听换 `dl-bridge` |
-| `UserscriptManager.vue` | 列表/启停/错误面板骨架保留，安装入口改「新建项目」 |
+| `UserscriptManager.vue` | ~~列表/启停/错误面板骨架保留，安装入口改「新建项目」~~ **2026-09-15 已删除**：可用性横幅 / 错误日志并入 `UserscriptListPanel.vue`（列表标签页是脚本管理唯一入口）；**粘贴安装功能整体移除**（UI、`userscript:install` / `state:install` 协议、`installProject` 一起删），装脚本只剩零输入新建与 AI 生成 |
 | `ui-client.ts` | IPC 封装跟着命令面走 |
 
 ### 删除
@@ -85,7 +85,7 @@
    - `menu` / `store.watch` / `cookie.*` 二期（契约已注明，包装内留 stub 并抛 `NOT_AVAILABLE`，不静默）；
    - 错误上报：`window.onerror` / `unhandledrejection` → `{ __dlEvent: true, event: DlEvent }`（契约 `DlEvent`），后台收进 `us:errors`（phase 字段沿用）。
 3. `registerScript`：`js.push({ code: bundle })` 尾部拼 `\n//# sourceURL=duoling://script/<uuid>/<name>.js`（DevTools 显示真名 + 主世界时代错误过滤的预置位，零风险先加上）。
-4. `background.ts`：桥初始化换新文件；`userscript:install` 直接以 **`ScriptProject`（v:1）单文件形状**落盘（`files = { [entry]: 源码 }`，`entry = 'main.js'`，配置来自表单）——**ScriptProject 类型定义提前到 Phase 0**，避免 Phase 0 产物缺 `v` 字段被 Phase 1 的 deprecated 判定误杀。
+4. `background.ts`：桥初始化换新文件；`userscript:install`（**2026-09-15 随粘贴安装功能整体移除**）以 **`ScriptProject`（v:1）单文件形状**落盘（`files = { [entry]: 源码 }`，`entry = 'main.js'`，配置来自表单）——**ScriptProject 类型定义提前到 Phase 0**，避免 Phase 0 产物缺 `v` 字段被 Phase 1 的 deprecated 判定误杀。
 
 验收：
 - 新建脚本（表单配 `matches`，源码 `DL.store.set('a', 1)` → 另一页面 `DL.store.get('a')`）往返成功；

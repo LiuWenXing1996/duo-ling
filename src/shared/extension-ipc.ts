@@ -17,7 +17,6 @@ export type RuntimeRequest =
   | { kind: 'userscript:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
   | { kind: 'userscript:clearDeprecated' }
   | { kind: 'userscript:create' }
-  | { kind: 'userscript:install'; source: string; name?: string; matches?: string[] }
   | { kind: 'userscript:remove'; uuid: string }
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
   | { kind: 'userscript:availability' }
@@ -58,7 +57,6 @@ export type RuntimeRequest =
   // 消除原先「SW 写 storage + IPC 让 offscreen commit」两次分离操作带来的偏差缝隙。
   // 读不进协议：SW 与扩展页直连 IDB（project-store），不经容器——注册链路不能押在容器存活上。
   | { kind: 'state:create' }
-  | { kind: 'state:install'; source: string; name?: string; matches?: string[] }
   | { kind: 'state:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
   | { kind: 'state:remove'; uuid: string }
   | { kind: 'state:toggle'; uuid: string; enabled: boolean }

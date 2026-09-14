@@ -93,10 +93,6 @@ export const userscriptClient = {
   create: (): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> =>
     send({ kind: 'userscript:create' }),
 
-  /** 安装：单文件源码 + 名称/匹配规则 → ScriptProject 落盘 → 注册。返回 uuid + 非阻塞警告与 registerError */
-  install: (source: string, opts?: { name?: string; matches?: string[] }): Promise<{ uuid: string; warnings?: string[]; registerError?: string }> =>
-    send({ kind: 'userscript:install', source, name: opts?.name, matches: opts?.matches }),
-
   /** 删除：注销 + 删存储（新/旧形态通用） */
   remove: (uuid: string): Promise<void> => send({ kind: 'userscript:remove', uuid }),
 

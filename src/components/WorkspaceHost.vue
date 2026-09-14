@@ -64,8 +64,7 @@ function openUiTestTab(): void {
 }
 
 // 打开脚本列表标签页：若已打开则激活，否则新开一个。
-// 注意与 UserscriptManager 区分 —— 那是左侧导航另一个按钮打开的全屏覆盖层（新建 / 编辑器），
-// 本标签页只做「看列表 + 启停」。
+// 2026-09-15 起这是脚本管理的唯一入口（旧管理器覆盖层已删除，能力全部并入本标签页）。
 function openUserscriptListTab(): void {
   if (!openTabs.value.some((t) => t.kind === 'userscript-list')) {
     openTabs.value.push({ kind: 'userscript-list', id: 'userscript-list', title: '脚本列表' })

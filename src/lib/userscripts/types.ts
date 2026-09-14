@@ -20,7 +20,7 @@ export interface ScriptConfig {
   runAt: 'document_start' | 'document_end' | 'document_idle'
 }
 
-/** 一个脚本 = 一个项目（v2 落盘形状，Phase 0 起 install 即按此形状写入） */
+/** 一个脚本 = 一个项目（v2 落盘形状，所有创建路径均按此形状写入） */
 export interface ScriptProject {
   /** schema 版本 */
   v: 1

@@ -9,8 +9,9 @@
 // 失败策略不变：commit 失败只丢历史不丢脚本（仓损坏可重建，状态库是权威），故快照异常只 warn。
 //
 // 2026-09-15 产物不变量（老大拍板：SW 只注册最终产物）：bundle 是注册的**必要条件**——
-// 新建 / 安装在本模块内先构建（同在 offscreen，直接调 builder，零新链路），构建失败即创建失败；
+// 新建在本模块内先构建（同在 offscreen，直接调 builder，零新链路），构建失败即创建失败；
 // updateProjectFiles 的 bundle 参数为必填（UI 只在构建成功后才调保存）。不存在「无产物被注册」的路径。
+// 同日粘贴安装（installProject 及整条协议链）移除：产品上不再提供「粘贴源码装脚本」入口。
 import { buildProject, BuildError } from './builder'
 import { getProject, nextScriptName, validateFiles } from './project-store'
 import { removeProject, writeProject } from './state-db'
@@ -60,23 +61,6 @@ export async function createProject(): Promise<ScriptProject> {
   const name = await nextScriptName()
   const project = nowProject(name, { [ENTRY_DEFAULT]: defaultSource(name) }, defaultConfig(['*://*/*']))
   project.bundle = await buildOutcome(project.files, project.entry)
-  await writeAndSnapshot(project)
-  return project
-}
-
-/** 安装：单文件源码 + 名称/匹配规则（缺省给开发用默认值）；同样**先构建**，失败带诊断抛出 */
-export async function installProject(
-  source: string,
-  opts?: { name?: string; matches?: string[] },
-): Promise<ScriptProject> {
-  const files = { [ENTRY_DEFAULT]: source }
-  const bundle = await buildOutcome(files, ENTRY_DEFAULT)
-  const project = nowProject(
-    opts?.name?.trim() || '未命名脚本',
-    files,
-    defaultConfig(opts?.matches?.length ? opts.matches : ['*://*/*']),
-  )
-  project.bundle = bundle
   await writeAndSnapshot(project)
   return project
 }

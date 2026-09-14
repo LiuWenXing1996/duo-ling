@@ -11,7 +11,6 @@ import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { listProjects } from './project-store'
 import {
   createProject,
-  installProject,
   removeProjectAndRepo,
   setProjectEnabled,
   updateProjectFiles,
@@ -28,8 +27,6 @@ export async function handleStateCommand(msg: StateRequest): Promise<unknown> {
   switch (msg.kind) {
     case 'state:create':
       return createProject()
-    case 'state:install':
-      return installProject(msg.source, { name: msg.name, matches: msg.matches })
     case 'state:updateFiles':
       return updateProjectFiles(msg.uuid, msg.files, msg.entry, msg.bundle, {
         name: msg.name,

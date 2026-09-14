@@ -124,7 +124,7 @@ async function writeViaOffscreen<T>(request: RuntimeRequest): Promise<T> {
 /**
  * 注册失败：记入错误日志面板，并返回错误文案给 UI 展示。
  *
- * **不 throw**——调用方（create / install / updateFiles / toggle）在注册前已完成数据写
+ * **不 throw**——调用方（create / updateFiles / toggle）在注册前已完成数据写
  * （状态库 + git 快照都落了盘），注册只是让脚本「生效」的最后一环。把注册失败判成整个
  * 命令失败，会让用户看到「创建失败」但列表刷新后脚本明明在（2026-09-15 实测，违背直觉）。
  * 故降级：命令成功 + registerError 警告字段，UI 决定怎么呈现。
@@ -207,31 +207,12 @@ const handlers: {
   },
 
   // 新建脚本（零输入）：命名 / 初始模板 / **构建产物** / 首次快照全在 offscreen 侧完成，SW 只负责注册。
-  // 与下面的 install 的分工 —— install 由调用方提供源码与匹配规则（粘贴安装），这个全自动。
   'userscript:create': async (): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
     const project = await writeViaOffscreen<ScriptProject>({ kind: 'state:create' })
     const registerError = await registerOrLog(project)
     return {
       uuid: project.uuid,
       name: project.name,
-      warnings: collectCspWarnings(resolveInjectCode(project), await getEffectiveCspPermissive()),
-      registerError,
-    }
-  },
-
-  // 安装：单文件源码 + 名称/匹配规则 → offscreen 构建产物 + 落状态库并快照 → SW 注册。
-  // v2 新形态无 metadata：名称与匹配规则由调用方显式给出（缺省给开发用默认值）。
-  // 安装源码构建失败会在 offscreen 侧带诊断抛出（整个 install 失败，不注册）。
-  'userscript:install': async (msg): Promise<{ uuid: string; warnings?: string[]; registerError?: string }> => {
-    const project = await writeViaOffscreen<ScriptProject>({
-      kind: 'state:install',
-      source: msg.source,
-      name: msg.name,
-      matches: msg.matches,
-    })
-    const registerError = await registerOrLog(project)
-    return {
-      uuid: project.uuid,
       warnings: collectCspWarnings(resolveInjectCode(project), await getEffectiveCspPermissive()),
       registerError,
     }
