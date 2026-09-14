@@ -3,6 +3,7 @@
 // 2026-09-14：workbench 原 46px 顶栏（存在的唯一理由是放全局搜索框）删除，搜索框改由右侧
 // #actions 插槽承载；同日工具链路移除（docs/tool-chain-removal-plan.md）后，该搜索框的数据源
 // tool.list() 消失，插槽连同搜索框一并删除，工具类标签（tool / tool-history / tool-code）分支同步摘除。
+import { onMounted, ref } from 'vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
   Home as UiHome,
@@ -34,16 +35,41 @@ declare global {
   }
 }
 
+function fmtBuildTime(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
 const buildInfo = (() => {
   const info = window.__BUILD_INFO__
   if (!info) return null
-  const d = new Date(info.time)
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return {
-    branch: info.branch,
-    time: `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`,
-  }
+  return { branch: info.branch, time: fmtBuildTime(info.time) }
 })()
+
+// SW 侧构建信息：SW 不是 HTML，define 注入的 __BUILD_INFO__ 页面看不见，经 sw:buildInfo 命令取回。
+// 发消息会唤醒休眠的 SW，拿到的总是「此刻 SW 上下文」的构建信息；dev 下它 = dev server 启动时刻，
+// 与上面页面加载时刻对比即可判断「SW 和页面是否来自同一次构建 / dev 会话」。
+// MV3 SW console 不回放历史日志（启动日志在打开 DevTools 前就打完了），这条通道才是可靠的自证方式。
+const swBuildInfo = ref<{ branch: string; time: string } | null>(null)
+
+onMounted(async () => {
+  try {
+    const res = await new Promise<{ ok: boolean; data?: { time: string; branch: string }; error?: string }>(
+      (resolve, reject) => {
+        chrome.runtime.sendMessage({ kind: 'sw:buildInfo' }, (r) => {
+          const lastError = chrome.runtime.lastError
+          if (lastError) return reject(new Error(lastError.message))
+          resolve(r)
+        })
+      },
+    )
+    if (!res?.ok || !res.data) return
+    swBuildInfo.value = { branch: res.data.branch, time: fmtBuildTime(res.data.time) }
+  } catch {
+    // SW 未响应（刚重载中 / 异常）：静默，页面自身的时间戳仍可用
+  }
+})
 </script>
 
 <template>
@@ -77,14 +103,29 @@ const buildInfo = (() => {
       </ui-tabs-trigger>
     </ui-tabs-list>
 
-    <!-- 构建 / 加载信息（分支 + 时间）：右对齐，muted 弱化不抢视线 -->
+    <!-- 构建 / 加载信息（分支 + 时间）：右对齐，muted 弱化不抢视线。
+         左列 = 页面自身（HTML 注入）；右列 = SW 经 sw:buildInfo 回报 -->
     <div
-      v-if="buildInfo"
-      class="ml-auto shrink-0 select-none px-3 text-right font-mono text-[10px] leading-tight text-muted-foreground"
-      title="分支 + 加载时刻（dev）或构建时刻（build），用来确认浏览器里跑的是不是最新代码"
+      v-if="buildInfo || swBuildInfo"
+      class="ml-auto flex shrink-0 select-none items-start gap-4 px-3 text-right font-mono text-[10px] leading-tight text-muted-foreground"
     >
-      <div class="truncate">{{ buildInfo.branch }}</div>
-      <div>{{ buildInfo.time }}</div>
+      <div
+        v-if="buildInfo"
+        title="页面：分支 + 加载时刻（dev，刷新即变）或构建时刻（build），确认页面代码新旧"
+      >
+        <div class="truncate">页面 {{ buildInfo.branch }}</div>
+        <div>{{ buildInfo.time }}</div>
+      </div>
+      <div
+        v-if="swBuildInfo"
+        title="SW：分支 + 构建时刻（dev = dev server 启动时刻，重启 dev 才变）。与页面时间对比可判断 SW 与页面是否同源；取不到 = SW 未响应"
+      >
+        <div class="truncate">SW {{ swBuildInfo.branch }}</div>
+        <div>{{ swBuildInfo.time }}</div>
+        <div v-if="swBuildInfo.time !== buildInfo?.time" class="text-amber-600 dark:text-amber-400">
+          与页面不同源
+        </div>
+      </div>
     </div>
   </div>
 </template>

@@ -66,6 +66,11 @@ export type RuntimeRequest =
   // 不是新增对外暴露面；但仍须「取一次、缓存、不写日志」。
   | { kind: 'model:getActiveProfile' }
 
+  // —— SW 自证（诊断）——
+  // SW 的 define 注入构建信息（wxt.config.ts）不是 HTML，页面看不见；UI 经此命令取回并展示。
+  // 发消息本身会把休眠的 SW 唤醒，故返回的总是「此刻 SW 上下文」的构建信息——正是想要的语义。
+  | { kind: 'sw:buildInfo' }
+
 /**
  * SW → offscreen 的单向推送（**不经 handlers 表** —— SW 不会收到自己发出的消息）。
  * offscreen 监听后自行决定是否回拉，例如收到 configChanged 就重新调 model:getActiveProfile。

@@ -67,7 +67,7 @@ const MODEL_PROFILES_KEY = 'modelProfiles'
  * 新增命令时若忘了登记前缀，该命令会静默无响应（而不是报「未知消息类型」）——
  * 这是刻意的：静默比一个假错误更诚实。
  */
-const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:'] as const
+const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:', 'sw:'] as const
 
 /**
  * SW 管辖的请求（由上面的前缀推导，两者必须同源）。
@@ -269,6 +269,10 @@ const handlers: {
   'userscript:clearErrors': async (): Promise<void> => {
     await clearUserScriptErrors()
   },
+
+  // SW 自证：把 define 注入的构建信息回给 UI（页面显示用，不依赖 SW DevTools 在场）。
+  // 消息本身会唤醒休眠的 SW，唤醒后执行的这段代码持有的就是当前生效的 __BUILD_INFO__。
+  'sw:buildInfo': async (): Promise<{ time: string; branch: string }> => __BUILD_INFO__,
 }
 
 /** 用户脚本管理器启动：挂载 DL 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用项目 */
