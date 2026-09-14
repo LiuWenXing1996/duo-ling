@@ -1,7 +1,12 @@
-// 用户脚本持久化（chrome.storage.local 单存储，v2 方案 docs/userscript-v2-plan.md）。
+// 用户脚本的 chrome.storage 侧持久化（docs/userscript-single-writer.md §4 边界）。
 //
-// 脚本记录：键 us:script:<uuid>，值为 ScriptProject（v:1）或旧 GM 形态记录（已弃用）。
-// DL.store 值：键 us:gm:<uuid>:<key>（键空间沿用旧 GM 键名，v2 决策不改名）。
+// 2026-09-15 单写方落地后，**项目数据（源码/配置/产物/enabled）已迁往 IndexedDB 状态库
+// duoling-state**（读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
+// 本文件只剩三类：旧 GM 形态记录的扫描与清理、DL.store 值（us:gm:*）、错误日志（us:errors）。
+//
+// 为什么后两类不一起迁：写入方是**注入页面里的用户脚本**（不受我们控制、可能被高频调用、
+// 且脚本崩溃时才上报错误），且它们不参与「脚本是什么」的判定——转 offscreen 只会多一跳、
+// 在最脆弱的时刻更容易丢。详见文档 §4。
 import {
   SCRIPT_KEY_PREFIX,
   GM_KEY_PREFIX,
@@ -15,16 +20,6 @@ import {
   type UserScriptMeta,
 } from './types'
 
-/** 列出全部新形态项目（含源码）；启用在前、按名称排序，结果稳定。旧 GM 记录不在此列 */
-export async function listProjects(): Promise<ScriptProject[]> {
-  const all = await chrome.storage.local.get()
-  return Object.entries(all)
-    .filter(([k]) => k.startsWith(SCRIPT_KEY_PREFIX))
-    .map(([, v]) => v as ScriptProject)
-    .filter((p) => p?.v === 1 && typeof p.files === 'object')
-    .sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name))
-}
-
 /** 列出全部旧 GM 形态记录（已弃用：不注册，仅供列表展示与清理） */
 export async function listLegacyScripts(): Promise<UserScriptMeta[]> {
   const all = await chrome.storage.local.get()
@@ -34,9 +29,12 @@ export async function listLegacyScripts(): Promise<UserScriptMeta[]> {
     .filter(isLegacyScriptRecord)
 }
 
-/** 列表视图：项目 + 已弃用旧记录（不含源码与构建产物），未弃用在前、启用在前 */
-export async function listSummaries(): Promise<ScriptSummary[]> {
-  const [projects, legacy] = await Promise.all([listProjects(), listLegacyScripts()])
+/**
+ * 列表视图：项目 + 已弃用旧记录（不含源码与构建产物），未弃用在前、启用在前。
+ * 项目由调用方传入（读自状态库，见 background.ts）——本文件已不再持有项目数据。
+ */
+export async function listSummaries(projects: ScriptProject[]): Promise<ScriptSummary[]> {
+  const legacy = await listLegacyScripts()
   const projectSummaries: ScriptSummary[] = projects.map((p) => ({
     uuid: p.uuid,
     name: p.name,
@@ -63,100 +61,13 @@ export async function listSummaries(): Promise<ScriptSummary[]> {
   )
 }
 
-/**
- * 生成不与现有脚本重名的默认名称：「新建脚本」→「新建脚本 2」→「新建脚本 3」…
- * 命名空间取 listSummaries（新形态项目 + 已弃用旧记录），避免与旧记录撞名。
- */
-export async function nextScriptName(base = '新建脚本'): Promise<string> {
-  const names = new Set((await listSummaries()).map((s) => s.name))
-  if (!names.has(base)) return base
-  let n = 2
-  while (names.has(`${base} ${n}`)) n += 1
-  return `${base} ${n}`
-}
-
-export async function getProject(uuid: string): Promise<ScriptProject | undefined> {
-  const store = await chrome.storage.local.get(scriptKey(uuid))
-  const v = store[scriptKey(uuid)] as ScriptProject | undefined
-  return v?.v === 1 ? v : undefined
-}
-
-/** 读旧 GM 形态记录（deprecated 展示用） */
-export async function getLegacyScript(uuid: string): Promise<UserScriptMeta | undefined> {
-  const store = await chrome.storage.local.get(scriptKey(uuid))
-  const v = store[scriptKey(uuid)]
-  return isLegacyScriptRecord(v) ? v : undefined
-}
-
-export async function saveProject(project: ScriptProject): Promise<void> {
-  await chrome.storage.local.set({ [scriptKey(project.uuid)]: project })
-}
-
-/** 删除脚本记录（新/旧形态通用），并清理其 DL.store 值（按前缀精确匹配 uuid） */
-export async function deleteScript(uuid: string): Promise<void> {
-  await chrome.storage.local.remove(scriptKey(uuid))
-  await clearGMValues(uuid)
-}
-
-// —— 文件树操作（Phase 1：多文件项目）——
-
-/**
- * 文件树校验（保存前调用，非法直接抛错）：
- * 非空、路径相对（禁开头 / 与 .. 段，防越权写）、内容必须是字符串、entry 必须存在。
- */
-export function validateFiles(files: Record<string, string>, entry: string): void {
-  if (!files || typeof files !== 'object' || !Object.keys(files).length) {
-    throw new Error('文件树不能为空')
-  }
-  for (const p of Object.keys(files)) {
-    if (!p || p.startsWith('/') || p.split('/').includes('..')) {
-      throw new Error(`非法文件路径（须为相对路径，且不含 .. 段）：${p}`)
-    }
-    if (p.endsWith('/')) {
-      throw new Error(`非法文件路径（不能以 / 结尾）：${p}`)
-    }
-    if (typeof files[p] !== 'string') {
-      throw new Error(`文件内容必须是字符串：${p}`)
-    }
-  }
-  if (!(entry in files)) {
-    throw new Error(`入口文件在文件树中不存在：${entry}`)
-  }
-}
-
-/** 更新项目文件树 / 入口 / 名称 / 配置 / 构建产物（校验后落盘，回写 updatedAt）；返回更新后的项目 */
-export async function updateProjectFiles(
-  uuid: string,
-  files: Record<string, string>,
-  entry: string,
-  bundle?: { code: string; builtAt: number },
-  opts?: { name?: string; config?: ScriptProject['config'] },
-): Promise<ScriptProject> {
-  const project = await getProject(uuid)
-  if (!project) throw new Error('脚本不存在或为已弃用旧记录')
-  validateFiles(files, entry)
-  project.files = files
-  project.entry = entry
-  if (bundle) project.bundle = bundle
-  if (opts?.name !== undefined) {
-    const name = opts.name.trim()
-    if (!name) throw new Error('脚本名称不能为空')
-    project.name = name
-  }
-  if (opts?.config) {
-    if (!opts.config.matches?.length) throw new Error('匹配规则（matches）至少一条')
-    project.config = opts.config
-  }
-  project.updatedAt = Date.now()
-  await saveProject(project)
-  return project
-}
-
 /** 一键清理全部旧 GM 形态记录（含各自的 DL.store 值），返回清理条数 */
 export async function clearDeprecatedScripts(): Promise<number> {
   const legacy = await listLegacyScripts()
+  const keys = legacy.map((m) => scriptKey(m.uuid))
+  if (keys.length) await chrome.storage.local.remove(keys)
   for (const m of legacy) {
-    await deleteScript(m.uuid)
+    await clearGMValues(m.uuid)
   }
   return legacy.length
 }

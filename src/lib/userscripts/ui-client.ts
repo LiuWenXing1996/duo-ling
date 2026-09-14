@@ -7,6 +7,7 @@
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
 import type { UsCommit, UsHistoryTree } from './us-git'
+import type { LfsNode } from './us-fs'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -37,7 +38,12 @@ function send<T>(request: RuntimeRequest): Promise<T> {
  * 但它**只在 AI 生成入口经 ensureOffscreen 创建**——编辑器读历史从不唤起它；且扩展重载 /
  * 崩溃 / 关窗会销毁容器。这些情况下 ai:* 无人响应会报
  * 「The message port closed before a response was received」。故失败时先经 SW 唤起容器
- * （同时触发其启动对账、注册监听），稍候重试，最多 3 次。
+ * （同时触发其启动对账、注册监听），再重试，最多 3 次。
+ *
+ * **就绪判据**：`offscreen:ensure` 现在会等到容器**真的能应答**才返回（SW 侧轮询 `ai:ping`，
+ * 见 docs/userscript-single-writer.md §5 前置项 1），故这里**不再需要固定 sleep 猜时间**——
+ * 原先的 `setTimeout(80)` 是在猜 offscreen 的 onMessage 有没有注册完，猜短了白重试、
+ * 猜长了每次都白等。
  */
 async function sendAi<T>(request: RuntimeRequest): Promise<T> {
   let lastErr: unknown
@@ -50,9 +56,8 @@ async function sendAi<T>(request: RuntimeRequest): Promise<T> {
       if (!/port closed|Receiving end does not exist|无响应/.test(msg)) throw e
       lastErr = e
     }
-    // 唤起容器（SW 处理 offscreen:ensure，offscreen 不在时新建；在则幂等），稍候其注册监听
+    // 唤起容器并等它可应答（SW 侧处理 offscreen:ensure，内部轮询 ai:ping 到就绪为止）
     await send({ kind: 'offscreen:ensure' }).catch(() => {})
-    await new Promise((r) => setTimeout(r, 80))
   }
   throw lastErr
 }
@@ -69,32 +74,34 @@ export const userscriptClient = {
   getProject: (uuid: string): Promise<ScriptProject | undefined> =>
     send({ kind: 'userscript:getProject', uuid }),
 
-  /** 保存文件树 + 入口 + 名称/配置 + 构建产物并重注册；note 为可选提交备注（缺省自动计数）。返回非阻塞 CSP 警告 */
+  /** 保存文件树 + 入口 + 名称/配置 + 构建产物并重注册；note 为可选提交备注（缺省自动计数）。
+   *  返回非阻塞警告与 registerError（数据已保存、仅注册失败时的警告文案） */
   updateFiles: (
     uuid: string,
     files: Record<string, string>,
     entry: string,
     bundle?: { code: string; builtAt: number },
     opts?: { name?: string; config?: ScriptConfig; note?: string },
-  ): Promise<{ warnings?: string[] }> =>
+  ): Promise<{ warnings?: string[]; registerError?: string }> =>
     send({ kind: 'userscript:updateFiles', uuid, files, entry, bundle, ...opts }),
 
   /** 一键清理全部旧 GM 形态记录，返回清理条数 */
   clearDeprecated: (): Promise<{ removed: number }> => send({ kind: 'userscript:clearDeprecated' }),
 
-  /** 新建（零输入）：自动命名 + 初始模板 + 建 git 仓 + 注册。返回 uuid / name + 非阻塞 CSP 警告 */
-  create: (): Promise<{ uuid: string; name: string; warnings?: string[] }> =>
+  /** 新建（零输入）：自动命名 + 初始模板 + 建 git 仓 + 注册。返回 uuid / name + 非阻塞警告
+   *  与 registerError（数据已创建、仅注册失败时的警告文案，如未开 Allow User Scripts） */
+  create: (): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> =>
     send({ kind: 'userscript:create' }),
 
-  /** 安装：单文件源码 + 名称/匹配规则 → ScriptProject 落盘 → 注册。返回 uuid + 非阻塞 CSP 警告 */
-  install: (source: string, opts?: { name?: string; matches?: string[] }): Promise<{ uuid: string; warnings?: string[] }> =>
+  /** 安装：单文件源码 + 名称/匹配规则 → ScriptProject 落盘 → 注册。返回 uuid + 非阻塞警告与 registerError */
+  install: (source: string, opts?: { name?: string; matches?: string[] }): Promise<{ uuid: string; warnings?: string[]; registerError?: string }> =>
     send({ kind: 'userscript:install', source, name: opts?.name, matches: opts?.matches }),
 
   /** 删除：注销 + 删存储（新/旧形态通用） */
   remove: (uuid: string): Promise<void> => send({ kind: 'userscript:remove', uuid }),
 
-  /** 启停：注册/注销 */
-  toggle: (uuid: string, enabled: boolean): Promise<void> =>
+  /** 启停：enabled 已落状态库后返回；注册失败不判整体失败，只带回 registerError 警告 */
+  toggle: (uuid: string, enabled: boolean): Promise<{ registerError?: string }> =>
     send({ kind: 'userscript:toggle', uuid, enabled }),
 
   /** 错误日志：列出全部错误（最新在前） */
@@ -121,6 +128,6 @@ export const aiFsClient = {
   restoreToCommit: (uuid: string, oid: string): Promise<{ committed: boolean; project: ScriptProject }> =>
     sendAi({ kind: 'ai:restoreToCommit', uuid, oid }),
 
-  /** 删除某脚本的 git 仓（历史不保留） */
-  deleteRepo: (uuid: string): Promise<void> => sendAi({ kind: 'ai:deleteRepo', uuid }),
+  /** 整库浏览（只读调试视图）：lfs 库的完整文件树（含 .git 内部） */
+  lfsTree: (): Promise<LfsNode> => sendAi({ kind: 'ai:lfsTree' }),
 }

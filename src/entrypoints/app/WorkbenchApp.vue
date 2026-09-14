@@ -14,6 +14,7 @@ import { ref } from 'vue'
 import {
   Braces as UiBraces,
   FlaskConical as UiFlaskConical,
+  FolderTree as UiFolderTree,
   List as UiList,
   Settings as UiSettings
 } from '@lucide/vue'
@@ -85,10 +86,19 @@ function onUserscriptEdit(uuid: string, title: string): void {
         >
           <ui-list class="size-5" />
         </button>
+        <button
+          class="workspace-nav-item"
+          type="button"
+          aria-label="lfs 浏览"
+          title="lfs 浏览（offscreen lightning-fs 整库只读视图）"
+          @click="workspaceRef?.openLfsBrowserTab()"
+        >
+          <ui-folder-tree class="size-5" />
+        </button>
       </aside>
 
       <section class="workspace-panel workspace-panel--grow">
-        <!-- 多标签页：主页（内容待定）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器 -->
+        <!-- 多标签页：主页（内容待定）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器 / lfs 浏览 -->
         <workspace-host ref="workspaceRef" />
       </section>
     </div>

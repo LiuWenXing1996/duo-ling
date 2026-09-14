@@ -11,6 +11,7 @@ import UiTestPanel from '@/components/UiTestPanel.vue'
 import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
 import UserscriptListPanel from '@/components/userscript/UserscriptListPanel.vue'
 import UserscriptEditorPanel from '@/components/userscript/UserscriptEditorPanel.vue'
+import LfsBrowserPanel from '@/components/userscript/LfsBrowserPanel.vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
   Tabs as UiTabs,
@@ -70,6 +71,14 @@ function openUserscriptListTab(): void {
   activate('userscript-list')
 }
 
+// 打开 lfs 浏览标签页：只读调试视图（offscreen 持有的 lightning-fs 库整库文件树），全局仅一个
+function openLfsBrowserTab(): void {
+  if (!openTabs.value.some((t) => t.kind === 'lfs-browser')) {
+    openTabs.value.push({ kind: 'lfs-browser', id: 'lfs-browser', title: 'lfs 浏览' })
+  }
+  activate('lfs-browser')
+}
+
 /** 打开某脚本的编辑器标签页：每脚本一个（id = us-edit:<uuid>），已打开则激活复用 */
 function openUserscriptEditor(uuid: string, title: string): void {
   const id = `us-edit:${uuid}`
@@ -107,8 +116,8 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「设置 / UI 测试 / 脚本列表」与脚本管理器的「编辑」入口
-defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openUserscriptEditor })
+// 暴露给根布局：左侧导航栏「设置 / UI 测试 / 脚本列表 / lfs 浏览」与脚本管理器的「编辑」入口
+defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBrowserTab, openUserscriptEditor })
 </script>
 
 <template>
@@ -154,6 +163,8 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openUsersc
           :uuid="tab.userscriptId ?? ''"
           @dirty="(v: boolean) => (dirtyTabs[tab.id] = v)"
         />
+        <!-- lfs 浏览：offscreen lightning-fs 整库只读文件树 -->
+        <lfs-browser-panel v-else-if="tab.kind === 'lfs-browser'" />
       </ui-tabs-content>
     </ui-tabs>
   </div>

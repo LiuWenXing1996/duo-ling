@@ -163,6 +163,79 @@
 
 ---
 
+## ~~用户脚本数据改由 offscreen 单写~~ → **已落地（2026-09-15）**
+
+> **2026-09-15 更新：主体已实现**，实现记录见
+> [userscript-single-writer.md §9](./userscript-single-writer.md)。
+>
+> - 项目数据（源码 / 配置 / 产物 / enabled）迁到独立 IndexedDB 库 **`duoling-state`**
+>   （`state-db.ts`）；**写只归 offscreen**（`project-write.ts` + `state:*` 命令面），
+>   写状态与 commit git 仓在同一个函数里完成，消除了「已保存但没 commit」的偏差缝隙；
+> - SW **直读** IDB 做注册（`engine.listProjects` / `userscript:list` / `getProject`），不经容器；
+>   写命令经 `writeViaOffscreen`（先 ensure 可应答、仅对「容器没接上」类错误重试一次）转发；
+> - **`chrome.storage.local` 只剩** `DL.store` 值（`us:gm:*`）、错误日志（`us:errors`）与旧 GM 记录的清理；
+> - 按老大指示**不做数据迁移**（无旧数据）；
+> - 顺带删掉随折叠变死的 `ai:snapshot` / `ai:deleteRepo`，`offscreenBridge` 收窄到只剩配置通道。
+>
+> **未做的残留项**：写失败的**可重试 UI 提示**——目前写失败会把错误冒泡到 UI 错误条，
+> 但没有「重试」按钮；等真出现保存失败再补，避免为没发生的失败设计交互。
+
+**详细文档**：见 [userscript-single-writer.md](./userscript-single-writer.md)（背景、方案、边界判据、
+代价复核、前置项、工作量、实现记录）。本条目只留「前置项 + 边界结论」的索引，以文档为准。
+
+> 2026-09-14 评审 `docs/userscript-draft.md` 时，由「为什么还需要 chrome.storage」追问出来的议题。
+> 老大要求先把前置项记下。**2026-09-15：三条前置项全部收口**——
+> - **前置项 1 已落地**：`sendAi` 里「ensure + `setTimeout(80)` 猜监听器注册」改为
+>   `offscreen:ensure` 内部轮询 `ai:ping`、**容器可应答才返回**（`waitForOffscreenReady` / `ensureOffscreenReady`，
+>   `src/lib/offscreen.ts`）。判据是「能应答」而非「文档存在」，无状态、SW 重启后也不失真。
+>   顺带：移除协议里已废弃、全仓无调用的 `userscript:history*` 三命令；SW 的 handlers 表类型
+>   收窄为 `SwRequest`（由 `SW_KIND_PREFIXES` 推导），不再为死命令补桩。
+>   **手测通过（2026-09-15，记录见 userscript-single-writer.md §5.3）**：`close` 后 `ensure`
+>   冷启 **58.4ms / ready:true**，稳态 **0.7ms**；`close` 后不走命令直接打开编辑器的 git 历史，
+>   提交列表正常、恢复版本成功。手测前务必 `chrome://extensions` 点刷新——首轮曾打到旧包，
+>   而 `offscreen:ensure/close` 要到 `9ac8c7e`（2026-09-14 17:43）才引入。
+> - 前置项 2（SW 冷启动期 IDB 可读）**通过**：浏览器冷启动、offscreen 尚未创建时，SW 已读到上一轮
+>   offscreen 写进 IDB 的数据（`ms: 0`）。计划外发现：**offscreen 每次浏览器启动都是重建的**，
+>   「SW 冷启动时没有 offscreen」是常态，正是读路径必须 IDB 直读的依据。
+> - 前置项 3（清站点数据的存活差异）**结论：两者都清不掉**——`browsingData.remove` 对本扩展 origin
+>   返回成功，但 IDB 与 `chrome.storage.local` 里的金丝雀都还在 → 抗清理能力一致，方案不受影响。
+>   附带实测：IDB 配额 ≈ **10 GiB**，而 `chrome.storage.local` 默认 **5 MiB**（本仓未声明 `unlimitedStorage`）。
+
+**详细文档**：见 [userscript-single-writer.md](./userscript-single-writer.md)（背景、方案、边界判据、
+代价复核、前置项、工作量）。本条目只留「前置项 + 边界结论」的索引，以文档为准。
+
+**背景**：`sendAi`（`ui-client.ts:42-58`）在 `ai:*` 命令失败后发 `offscreen:ensure` 唤起容器，
+然后 `await new Promise(r => setTimeout(r, 80))`——注释自己写着「稍候其注册监听」，
+**靠固定 sleep 猜 offscreen 的 onMessage 是否注册好了**，没有真正的就绪信号。
+
+**为何现在无妨**：`ai:*` 目前只跑 git 历史侧车（历史列表 / 快照 / 恢复），低频且失败可重试，
+猜错一次再试一次就是了。
+
+**为何成了前置项**：若「用户脚本项目数据改由 offscreen 单写」落地，**每一次保存都要走这条路**
+（写路径必经 offscreen），靠 80ms 猜时间不再可接受——猜短了写入失败，猜长了每次保存都白等。
+
+**做法（已按此落地，但判据换了）**：原计划复用 `offscreen:ready` 握手（等通知 + 超时降级回重试）。
+实际改成**把就绪判据定义成「容器能应答一条消息」**——新增 `ai:ping`，`offscreen:ensure` 内部
+轮询到有应答才返回（`ensureOffscreenReady()`，`src/lib/offscreen.ts`）。理由：握手通知要维护
+状态位，SW 重启后旧容器不会再通知一次、状态位会失真；而探测无状态，且测的正是在意的属性。
+
+**关联议题（已决并落地）**：「用户脚本项目数据（源码 / 配置 / 产物 / enabled）是否改由 offscreen 单写、
+SW 直读 IndexedDB 注册」→ **已做**（见本条目顶部）。讨论出的另两条待办状态：
+- 写失败要有**可重试的 UI 提示** → **未做**（见顶部「未做的残留项」）；
+- 边界划分：`DL.store` 值（`us:gm:<uuid>:<key>`）与错误日志 `us:errors` **是否也纳入单写方**。
+  2026-09-14 结论：**按判据划出去，不纳入**——判据不是「频率高不高」，而是
+  「写入方是否受我们控制」+「是否参与『脚本是什么』的真相判定」：
+  - 项目数据（源码 / 配置 / 产物 / enabled）由**用户点保存**触发，低频、可预期、可重试，且参与真相判定 → 单写；
+  - `DL.store` 由**注入页面的用户脚本**调 `set`，频率与时机完全不可控，且 `dl-bridge.ts:92-94`
+    是 `await` 的（写入失败会冒泡成脚本可见的错误）→ 留在 SW 直写；
+  - `us:errors` 由**脚本崩溃时**触发（爆发式，且恰恰是 offscreen 也可能不在的时刻），
+    实现还是「读 50 条 → 改 → 写回 50 条」的整块读改写（`store.ts:210-215`，`MAX_ERRORS = 50`）→ 留在 SW 直写。
+  两者都不参与「脚本是什么」的判定，划出去**不损害单写方的目标**（消灭源码/产物两份状态的偏差）。
+  附带发现：`appendUserScriptError` 的读改写现在就会 lost update（崩溃风暴时并发写互相覆盖），
+  与单写方无关，属独立缺陷，要修就先加串行化/批量合并。
+
+---
+
 ## 已完成（索引）
 
 > 以下方案已实现（部分在 Electron 时期完成、随迁移平移到扩展），方案细节与实现记录见对应提交与 git 历史。

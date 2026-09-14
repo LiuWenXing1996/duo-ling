@@ -23,19 +23,34 @@ export type RuntimeRequest =
   | { kind: 'userscript:availability' }
   | { kind: 'userscript:errors' }
   | { kind: 'userscript:clearErrors' }
-  // git 历史侧车（docs/userscript-git-history.md：storage 权威，git 只做历史浏览与恢复）
-  | { kind: 'userscript:history'; uuid: string }
-  | { kind: 'userscript:historyTree'; uuid: string; oid: string }
-  | { kind: 'userscript:restoreToCommit'; uuid: string; oid: string }
+  // 注：git 历史的 `userscript:history*` 三命令已随执行宿主迁 offscreen 而废弃（由 ai:* 取代），
+  // 全仓无调用方，2026-09-15 从协议中移除——留着只会让 SW 的 handlers 表被迫补死桩。
 
   // 用户脚本 git 历史（执行宿主迁 offscreen，见 docs/offscreen-fs-migration.md）。
   // UI / SW 经 chrome.runtime.sendMessage 共享总线直发 offscreen；SW 的 onMessage 对 ai: 前缀
   // return false 静默放行，由 offscreen 处理并按 { ok, data | error } 信封回传。
-  | { kind: 'ai:snapshot'; uuid: string; note?: string }
+  // 就绪探测：SW 用来确认容器**真的在应答**（而不仅是「文档已存在」）。
+  // 判据必须是「应答」而非「存在」——createDocument 返回时，offscreen 的 onMessage
+  // 未必已注册完，此时发业务命令会得到「port closed / Receiving end does not exist」。
+  | { kind: 'ai:ping' }
   | { kind: 'ai:history'; uuid: string }
   | { kind: 'ai:historyTree'; uuid: string; oid: string }
+  // 恢复：由快照物化出项目（不落状态库），提交一条「回滚」记录；落盘由调用方经
+  // userscript:updateFiles 完成（UI 侧先切编辑态、重建 bundle 再保存）。
   | { kind: 'ai:restoreToCommit'; uuid: string; oid: string }
-  | { kind: 'ai:deleteRepo'; uuid: string }
+  // 整库浏览（只读调试视图）：递归列出 lfs 库的文件树（含 .git 内部），工作台「lfs 浏览」标签页用
+  | { kind: 'ai:lfsTree' }
+
+  // —— 项目状态库的**写**命令面（docs/userscript-single-writer.md）——
+  // 项目数据（源码 / 配置 / 构建产物 / enabled）落在独立 IndexedDB 库 duoling-state，
+  // **写只归 offscreen**（单写方），写状态与 commit git 仓收在同一个上下文的同一个函数里，
+  // 消除原先「SW 写 storage + IPC 让 offscreen commit」两次分离操作带来的偏差缝隙。
+  // 读不进协议：SW 与扩展页直连 IDB（project-store），不经容器——注册链路不能押在容器存活上。
+  | { kind: 'state:create' }
+  | { kind: 'state:install'; source: string; name?: string; matches?: string[] }
+  | { kind: 'state:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle?: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
+  | { kind: 'state:remove'; uuid: string }
+  | { kind: 'state:toggle'; uuid: string; enabled: boolean }
 
   // —— offscreen document（AI 生成链路的执行宿主，方案 §4.8 定位 B）——
   // 容器**按需创建**（刻意不在 SW 启动时自动建，否则一启动就常驻，与退出条件相悖），
@@ -50,6 +65,11 @@ export type RuntimeRequest =
   // 返回值含 apiKey 明文：属同扩展内上下文之间的传递（offscreen 与 SW 信任级别等同），
   // 不是新增对外暴露面；但仍须「取一次、缓存、不写日志」。
   | { kind: 'model:getActiveProfile' }
+
+  // —— SW 自证（诊断）——
+  // SW 的 define 注入构建信息（wxt.config.ts）不是 HTML，页面看不见；UI 经此命令取回并展示。
+  // 发消息本身会把休眠的 SW 唤醒，故返回的总是「此刻 SW 上下文」的构建信息——正是想要的语义。
+  | { kind: 'sw:buildInfo' }
 
 /**
  * SW → offscreen 的单向推送（**不经 handlers 表** —— SW 不会收到自己发出的消息）。

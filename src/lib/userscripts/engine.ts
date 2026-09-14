@@ -4,7 +4,9 @@
 // DL 包装作为 js 数组首条目先于项目代码定义 window.DL，脚本经 onUserScriptMessage 桥接后台
 // （DL 桥后台监听在 dl-bridge.ts；style / log / info / clipboard 在包装内本地实现，不走桥）。
 import type { ScriptProject } from './types'
-import { listProjects, appendUserScriptError } from './store'
+// 项目读自状态库（IndexedDB，SW 与 offscreen 共用）：注册链路不能在 offscreen 存活上下注
+import { listProjects } from './project-store'
+import { appendUserScriptError } from './store'
 
 /** configureWorld 的 CSP：宽松（开发工具可接受），后续可收紧 */
 const US_WORLD_CSP = "script-src 'self' 'unsafe-inline' 'unsafe-eval' *"

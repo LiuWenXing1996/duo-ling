@@ -12,7 +12,6 @@
 // 注意：这里只用 `import type` 引类型（编译后消失，零运行时依赖）—— 引的 ScriptProject
 // 来自 userscripts/types.ts，那是纯类型 + 纯函数模块，不碰任何 chrome API。
 import type { ModelProfileState, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
-import type { ScriptProject, ScriptSummary } from '@/lib/userscripts/types'
 
 /** 向 SW 发一次请求，统一解包 { ok, data | error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -36,7 +35,13 @@ function send<T>(request: RuntimeRequest): Promise<T> {
   })
 }
 
-/** offscreen → SW 的能力调用面（一期 A 组只收拢已有命令，B 组按需扩展） */
+/**
+ * offscreen → SW 的能力调用面。
+ *
+ * 2026-09-15 单写方落地后，原先经本桥向 SW 取项目数据的 getProject / listSummaries / toggle
+ * 已全部删除：项目数据在 offscreen 本地的状态库里，读写都不再跨上下文
+ * （docs/userscript-single-writer.md）。本文件此后只管 offscreen 自己确实拿不到的东西。
+ */
 export const offscreenBridge = {
   /**
    * 当前生效的模型配置（含 apiKey 明文）。
@@ -44,15 +49,4 @@ export const offscreenBridge = {
    */
   getActiveProfile: (): Promise<ModelProfileState | undefined> =>
     send({ kind: 'model:getActiveProfile' }),
-
-  /** 读完整脚本项目（多文件编辑器 / 生成后落盘等场景） */
-  getProject: (uuid: string): Promise<ScriptProject | undefined> =>
-    send({ kind: 'userscript:getProject', uuid }),
-
-  /** 启停脚本（注册 / 注销由 SW 侧完成） */
-  toggle: (uuid: string, enabled: boolean): Promise<void> =>
-    send({ kind: 'userscript:toggle', uuid, enabled }),
-
-  /** 列出全部脚本概要（对账用：判断哪些仓需补建 / 清理；offscreen 无 chrome.storage 故经 SW 取） */
-  listSummaries: (): Promise<ScriptSummary[]> => send({ kind: 'userscript:list' }),
 }
