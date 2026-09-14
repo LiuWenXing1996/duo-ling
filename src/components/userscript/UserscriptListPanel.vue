@@ -1,14 +1,17 @@
 <script setup lang="ts">
-// 用户脚本列表标签页：列出已存在的全部用户脚本，支持启停。
+// 用户脚本列表标签页：列出已存在的全部用户脚本，支持启停；底部错误日志面板
+// 汇总运行期 / 注册 / DL 桥失败（us:errors，2026-09-15 自旧管理器迁入）。
 //
 // 与 UserscriptManager 是两个独立入口 —— 后者是左侧「用户脚本」按钮打开的全屏覆盖层
-// （新建 / 编辑器 / 错误面板），本组件只管「看列表 + 启停」，不涉及编辑。
+// （粘贴安装 / 可用性横幅），本组件管「看列表 + 启停 + 错误日志」，不涉及编辑。
 //
 // 数据通道：userscriptClient。workbench 是可信扩展页，可直接 chrome.runtime.sendMessage，
 // 因此不走 window.api（那是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
 import { computed, onMounted, ref } from 'vue'
 import {
+  AlertTriangle as UiAlertTriangle,
   Braces as UiBraces,
+  ChevronDown as UiChevronDown,
   LoaderCircle as UiLoaderCircle,
   Pencil as UiPencil,
   Plus as UiPlus,
@@ -26,7 +29,7 @@ import {
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import { formatTimestamp } from '@/lib/format'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
-import type { ScriptSummary } from '@/lib/userscripts/types'
+import type { ScriptSummary, UserScriptErrorRecord } from '@/lib/userscripts/types'
 
 const emit = defineEmits<{
   /** 请求打开该脚本的编辑器标签页（由 WorkspaceHost 接管） */
@@ -47,6 +50,49 @@ const creating = ref(false)
 /** 正在删除的脚本 uuid：避免连点重复发起 */
 const removing = ref<string | null>(null)
 
+// —— 错误日志面板（us:errors 环形日志，自旧管理器迁入）——
+const errors = ref<UserScriptErrorRecord[]>([])
+const errorsOpen = ref(false)
+
+const PHASE_LABEL: Record<UserScriptErrorRecord['phase'], string> = {
+  runtime: '运行期',
+  register: '注册',
+  bridge: 'DL 桥',
+}
+const PHASE_BADGE: Record<UserScriptErrorRecord['phase'], string> = {
+  runtime: 'bg-destructive/10 text-destructive',
+  register: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  bridge: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
+}
+function phaseLabel(p: UserScriptErrorRecord['phase']): string {
+  return PHASE_LABEL[p]
+}
+function phaseBadgeClass(p: UserScriptErrorRecord['phase']): string {
+  return PHASE_BADGE[p]
+}
+function formatTime(t: number): string {
+  return new Date(t).toLocaleString()
+}
+/** 展开面板时拉一次最新错误（折叠态靠 refresh 的计数就够） */
+async function toggleErrors(): Promise<void> {
+  errorsOpen.value = !errorsOpen.value
+  if (errorsOpen.value) {
+    try {
+      errors.value = await userscriptClient.errors()
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    }
+  }
+}
+async function clearErrors(): Promise<void> {
+  try {
+    await userscriptClient.clearErrors()
+    errors.value = []
+  } catch (e) {
+    error.value = '清空失败：' + (e instanceof Error ? e.message : String(e))
+  }
+}
+
 /** 已弃用的旧 GM 形态记录不注册、不可编辑，参与不了启停 */
 const activeScripts = computed(() => scripts.value.filter((s) => !s.deprecated))
 const enabledCount = computed(() => activeScripts.value.filter((s) => s.enabled).length)
@@ -56,7 +102,9 @@ async function refresh(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    scripts.value = await userscriptClient.list()
+    const [list, errs] = await Promise.all([userscriptClient.list(), userscriptClient.errors()])
+    scripts.value = list
+    errors.value = errs
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -282,6 +330,45 @@ onMounted(() => {
             </div>
           </div>
         </div>
+
+        <!-- 错误日志面板：运行期 / 注册 / DL 桥失败汇总（环形保留最近 N 条） -->
+        <section class="rounded-md border bg-card">
+          <div class="flex items-center justify-between px-3 py-2">
+            <button
+              type="button"
+              class="flex items-center gap-1.5 text-xs font-medium"
+              @click="toggleErrors"
+            >
+              <ui-alert-triangle class="size-3.5 text-destructive" />
+              错误日志（{{ errors.length }}）
+              <ui-chevron-down class="size-3.5 transition-transform" :class="{ 'rotate-180': errorsOpen }" />
+            </button>
+            <ui-button
+              v-if="errors.length"
+              variant="ghost"
+              size="sm"
+              class="h-6 px-2 text-xs"
+              @click="clearErrors"
+            >
+              清空
+            </ui-button>
+          </div>
+          <div v-if="errorsOpen" class="border-t px-3 py-2">
+            <p v-if="!errors.length" class="text-xs text-muted-foreground">暂无错误。</p>
+            <ul v-else class="flex flex-col gap-2">
+              <li v-for="e in errors" :key="e.id" class="text-xs">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span :class="phaseBadgeClass(e.phase)" class="rounded px-1.5 py-0.5 text-[10px] font-medium">{{ phaseLabel(e.phase) }}</span>
+                  <span class="font-medium">{{ e.name }}</span>
+                  <span class="text-muted-foreground">{{ formatTime(e.time) }}</span>
+                </div>
+                <p class="mt-1 break-all text-destructive">{{ e.message }}</p>
+                <p v-if="e.url" class="mt-0.5 truncate text-muted-foreground">{{ e.url }}</p>
+                <pre v-if="e.stack" class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-[11px] leading-relaxed">{{ e.stack }}</pre>
+              </li>
+            </ul>
+          </div>
+        </section>
       </div>
     </div>
 

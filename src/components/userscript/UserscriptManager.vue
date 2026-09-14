@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 用户脚本管理器（v2 方案 docs/userscript-v2-plan.md Phase 0）：
-// 列表 + 启停 + 新建（粘贴源码 + 名称/匹配规则） + 状态横幅 + 错误面板。
+// 可用性横幅 + 粘贴安装（新建脚本）+ 状态横幅。
+// 错误日志面板已于 2026-09-15 迁至 UserscriptListPanel.vue（列表标签页底部）。
 // 经 src/lib/userscripts/ui-client.ts 与 background 的 userscript:* 命令组通信。
 //
 // 2026-09-14：编辑器（编辑视图 + git 历史视图）已整体迁出为独立标签页
@@ -10,7 +11,6 @@ import { ref, onMounted } from 'vue'
 import {
   AlertTriangle,
   Braces,
-  ChevronDown,
   CircleCheck,
   CircleX,
   Pencil,
@@ -18,7 +18,7 @@ import {
   Trash2,
 } from '@lucide/vue'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
-import type { ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from '@/lib/userscripts/types'
+import type { ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
 
 const emit = defineEmits<{
   /** 请求在标签页里打开该脚本的编辑器（由 WorkbenchApp 接管：关覆盖层 + 开标签页） */
@@ -30,10 +30,6 @@ const scripts = ref<ScriptSummary[]>([])
 const loading = ref(false)
 const error = ref('')
 const warning = ref('')
-
-// 错误日志面板
-const errors = ref<UserScriptErrorRecord[]>([])
-const errorsOpen = ref(false)
 
 // 新建区（v2 新形态：无 metadata 注释，名称与匹配规则显式填写）
 const newName = ref('')
@@ -71,58 +67,13 @@ async function refresh(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const [av, list, errs] = await Promise.all([
-      userscriptClient.availability(),
-      userscriptClient.list(),
-      userscriptClient.errors(),
-    ])
+    const [av, list] = await Promise.all([userscriptClient.availability(), userscriptClient.list()])
     availability.value = av
     scripts.value = list
-    errors.value = errs
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
-  }
-}
-
-// —— 错误日志面板辅助 ——
-const PHASE_LABEL: Record<UserScriptErrorRecord['phase'], string> = {
-  runtime: '运行期',
-  register: '注册',
-  bridge: 'DL 桥',
-}
-const PHASE_BADGE: Record<UserScriptErrorRecord['phase'], string> = {
-  runtime: 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300',
-  register: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
-  bridge: 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300',
-}
-function phaseLabel(p: UserScriptErrorRecord['phase']): string {
-  return PHASE_LABEL[p]
-}
-function phaseBadgeClass(p: UserScriptErrorRecord['phase']): string {
-  return PHASE_BADGE[p]
-}
-function formatTime(t: number): string {
-  return new Date(t).toLocaleString()
-}
-async function toggleErrors(): Promise<void> {
-  errorsOpen.value = !errorsOpen.value
-  if (errorsOpen.value) {
-    try {
-      errors.value = await userscriptClient.errors()
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
-    }
-  }
-}
-async function clearErrors(): Promise<void> {
-  error.value = ''
-  try {
-    await userscriptClient.clearErrors()
-    errors.value = []
-  } catch (e) {
-    error.value = '清空失败：' + (e instanceof Error ? e.message : String(e))
   }
 }
 
@@ -309,44 +260,6 @@ onMounted(refresh)
           >
             填入示例脚本
           </button>
-        </div>
-      </section>
-
-      <!-- 错误日志面板：运行期 / 注册 / DL 桥失败汇总 -->
-      <section class="mb-6 rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
-        <div class="flex items-center justify-between px-4 py-3">
-          <button
-            type="button"
-            class="flex items-center gap-2 text-sm font-semibold"
-            @click="toggleErrors"
-          >
-            <AlertTriangle class="size-4 text-red-500" />
-            错误日志（{{ errors.length }}）
-            <ChevronDown class="size-4 transition-transform" :class="errorsOpen ? 'rotate-180' : ''" />
-          </button>
-          <button
-            v-if="errors.length"
-            type="button"
-            class="rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
-            @click.stop="clearErrors"
-          >
-            清空
-          </button>
-        </div>
-        <div v-if="errorsOpen" class="border-t border-zinc-200 px-4 py-3 dark:border-zinc-700">
-          <p v-if="!errors.length" class="text-sm text-zinc-400">暂无错误。</p>
-          <ul v-else class="flex flex-col gap-3">
-            <li v-for="e in errors" :key="e.id" class="text-xs">
-              <div class="flex flex-wrap items-center gap-2">
-                <span :class="phaseBadgeClass(e.phase)" class="rounded px-1.5 py-0.5 text-[10px] font-medium">{{ phaseLabel(e.phase) }}</span>
-                <span class="font-medium">{{ e.name }}</span>
-                <span class="text-zinc-400">{{ formatTime(e.time) }}</span>
-              </div>
-              <p class="mt-1 break-all text-red-600 dark:text-red-400">{{ e.message }}</p>
-              <p v-if="e.url" class="mt-0.5 truncate text-zinc-400">{{ e.url }}</p>
-              <pre v-if="e.stack" class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-zinc-100 p-2 text-[11px] leading-relaxed text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">{{ e.stack }}</pre>
-            </li>
-          </ul>
         </div>
       </section>
 
