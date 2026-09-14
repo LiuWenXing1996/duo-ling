@@ -296,7 +296,15 @@ async function initUserScripts(): Promise<void> {
   await registerAllEnabled()
 }
 
+// 非 HTML 入口的构建信息：由 wxt.config.ts 的 vite.define 在配置加载期（dev = server 启动 /
+// build = 构建开始）替换成字面量。SW 启动日志据此自证「跑的是哪次构建」——HTML 页面的
+// 时间戳每次刷新都会变，SW 的只在 dev 重启 / 重新构建时才变，两者语义见 wxt.config.ts 注释。
+declare const __BUILD_INFO__: { time: string; branch: string }
+
 export default defineBackground(() => {
+  // 启动自证：console 第一条就是构建信息，「SW 是不是新包」不用再靠猜
+  console.log(`[duoling:sw] SW 启动 · 构建 ${__BUILD_INFO__.time} · 分支 ${__BUILD_INFO__.branch}`)
+
   // 点击工具栏图标即打开 side panel。
   // 需 manifest 同时声明 sidePanel 权限 + action 键，否则 chrome.sidePanel 不存在、此调用静默失败。
   chrome.sidePanel

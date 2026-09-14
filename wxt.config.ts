@@ -24,22 +24,30 @@ const chromiumProfileDir = resolve(process.cwd(), '.chrome-dev-profile')
 mkdirSync(chromiumProfileDir, { recursive: true })
 
 /**
- * 构建信息注入（分支名 + 时间戳）：往每个 HTML 入口 head 里塞 `window.__BUILD_INFO__`，
- * 工作台标签栏右侧展示 —— 用来一眼判断「浏览器里跑的是不是最新代码」。
+ * 构建信息注入（分支名 + 时间戳），两个通道：
+ *   1. HTML 入口 —— buildInfoPlugin 往每个 HTML 的 head 塞 `window.__BUILD_INFO__`，
+ *      工作台标签栏右侧展示；
+ *   2. 非 HTML 入口（SW / offscreen）—— 下面的 vite.define 把裸标识符 `__BUILD_INFO__`
+ *      替换成同一份 JSON，SW 启动日志用它自证「跑的是哪次构建」。
  * dev 与 build 语义刻意不同：
- *   - dev（wxt）：Vite 中间件**每次响应 HTML 请求都现算** → 显示的是页面加载时刻，
+ *   - dev（wxt）：HTML 通道**每次响应 HTML 请求都现算** → 显示的是页面加载时刻，
  *     刷新页面即更新，正是诊断「dev server 供给是否活着」的探针；
- *   - build（wxt build）：构建期算一次定格 → 显示的是产物构建时刻。
+ *     define 通道在配置加载（= dev server 启动 / 构建开始）时算一次 → SW 日志时间
+ *     = 本次 dev 会话的启动时刻，重启 dev 才会变，用于识别「SW 是哪次会话喂进浏览器的」。
+ *   - build（wxt build）：两条通道都在构建期算一次定格 → 显示的是产物构建时刻。
  */
-function buildInfoPlugin(): import('vite').Plugin {
-  let branch = 'unknown'
+const buildInfoBranch = (() => {
   try {
-    branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: process.cwd() })
+    return execSync('git rev-parse --abbrev-ref HEAD', { cwd: process.cwd() })
       .toString()
       .trim()
   } catch {
     // 不在 git 仓 / git 不可用：降级为 unknown，不阻塞构建
+    return 'unknown'
   }
+})()
+
+function buildInfoPlugin(): import('vite').Plugin {
   return {
     name: 'duoling-build-info',
     transformIndexHtml() {
@@ -47,7 +55,7 @@ function buildInfoPlugin(): import('vite').Plugin {
       return [
         {
           tag: 'script',
-          children: `window.__BUILD_INFO__=${JSON.stringify({ time, branch })}`,
+          children: `window.__BUILD_INFO__=${JSON.stringify({ time, branch: buildInfoBranch })}`,
           injectTo: 'head-prepend',
         },
       ]
@@ -71,6 +79,9 @@ export default defineConfig({
     // "Cannot read properties of undefined (reading 'TextEncoder')"，连带 SW 注册失败。
     define: {
       global: 'globalThis',
+      // 裸标识符注入（HTML 入口走 buildInfoPlugin 的 window.__BUILD_INFO__，两通道互补）：
+      // SW / offscreen 不是 HTML 页面，只有 define 能把构建信息编译进去，供启动日志自证版本
+      __BUILD_INFO__: JSON.stringify({ time: new Date().toISOString(), branch: buildInfoBranch }),
     },
   }),
   manifest: {
