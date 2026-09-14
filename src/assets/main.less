@@ -77,11 +77,18 @@
   }
 }
 
-// 栏位通用占位样式（会话记录 / 对话框 / 会话详情）
+// 栏位通用样式（会话记录 / 对话框 / 会话详情 / 工作台各标签页面板）
+//
+// height: 100% 是必需的：本类现在也用于工作台标签页内容，而 ToolWorkspace 的 TabsContent
+// 是 block（不是 flex 容器），只靠 flex: 1 撑不开、会塌成内容高度 —— 表现为面板没能铺满、
+// 内部滚动区高度算成内容高度而无法滚动。
+// 项目里不用本类的面板（tool-history / tool-code-browser / tool-data-detail / ui-test-panel）
+// 也都是各自显式 height: 100% 或 position: absolute 撑满的，做法一致。
 .panel {
   display: flex;
   flex: 1;
   flex-direction: column;
+  height: 100%;
   min-width: 0;
   min-height: 0;
 
