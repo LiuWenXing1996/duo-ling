@@ -12,28 +12,27 @@
 //   3. 「关闭」= 关标签页，行为交给宿主（emit close）。
 //
 // 配色由硬编码 zinc / blue / red 换成语义 token（AGENTS.md：颜色一律用语义 token）。
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   CircleX as UiCircleX,
   History as UiHistory,
   Pencil as UiPencil,
   Plus as UiPlus,
-  RotateCcw as UiRotateCcw,
   Star as UiStar,
   Trash2 as UiTrash2
 } from '@lucide/vue'
 import { FileTree } from '@/components/ai-elements/file-tree'
-import { CodeBlock } from '@/components/ai-elements/code-block'
 import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
-import { buildCodeTree, inferLanguage, type CodeTreeNode } from '@/lib/code-view'
-import { buildProject, BuildError } from '@/lib/userscripts/builder'
-import { userscriptClient, aiFsClient } from '@/lib/userscripts/ui-client'
-import type { UsCommit, UsHistoryTree } from '@/lib/userscripts/us-git'
+import { buildCodeTree, type CodeTreeNode } from '@/lib/code-view'
+import { userscriptClient, aiBuildClient, aiFsClient } from '@/lib/userscripts/ui-client'
+import type { ScriptConfig, ScriptProject } from '@/lib/userscripts/types'
 
 const props = defineProps<{ uuid: string }>()
 const emit = defineEmits<{
   /** 未保存改动状态变化：宿主据此在关闭标签页前确认（关闭入口统一由标签栏承担） */
   dirty: [dirty: boolean]
+  /** 请求打开本脚本的历史标签页（历史浏览/恢复已整体迁出到 us-history:<uuid> 标签页） */
+  openHistory: [uuid: string, title: string]
 }>()
 
 const loading = ref(true)
@@ -60,14 +59,20 @@ const editRunAt = ref<'document_start' | 'document_end' | 'document_idle'>('docu
 // 保存备注（可选：填了记入历史，空则自动计数「保存 #n」）
 const saveNote = ref('')
 
-// —— 历史态 ——
-const view = ref<'edit' | 'history'>('edit')
-const historyCommits = ref<UsCommit[]>([])
-const historyLoading = ref(false)
-const histOid = ref('')
-const histTree = ref<UsHistoryTree | null>(null)
-const histActiveFile = ref('')
-const restoring = ref(false)
+// —— 历史已迁出：浏览与恢复都在独立的 us-history:<uuid> 标签页（UserscriptHistoryPanel），
+// 本组件只负责编辑 + 保存，历史按钮经 openHistory 事件请求宿主开历史标签页。
+
+// —— 草稿（docs/userscript-draft.md：草稿 = git 工作区的未提交改动，经 offscreen 纯 fs 写）——
+/** 打开编辑器时刻的已保存项目（状态库权威）：丢弃草稿的回滚目标、currentProject 的兜底字段 */
+const baseline = ref<ScriptProject | null>(null)
+/** 打开时恢复了工作区草稿 → 常驻提示条（含丢弃入口） */
+const draftRestored = ref(false)
+/** 草稿自动写失败弱提示（best-effort：不进 error、不打断编辑） */
+const draftWriteFailed = ref(false)
+const discardingDraft = ref(false)
+let draftTimer: number | undefined
+/** 草稿写串行化（§5.3）：IPC 异步，连续两次可能旧内容后到覆盖新内容——上一次完成才发下一次 */
+let draftInFlight: Promise<void> = Promise.resolve()
 
 const fileCount = computed(() => Object.keys(editFiles.value).length)
 
@@ -94,16 +99,6 @@ const editTree = computed<CodeTreeNode[]>(() =>
 )
 const treeExpanded = computed(() => new Set(collectFolders(editTree.value)))
 
-const histTreeNodes = computed<CodeTreeNode[]>(() =>
-  buildCodeTree(
-    (histTree.value?.files ?? []).map((f) => ({ path: f.path, content: f.content, encoding: 'utf8' as const })),
-  ),
-)
-const histExpanded = computed(() => new Set(collectFolders(histTreeNodes.value)))
-const histContent = computed(
-  () => histTree.value?.files.find((f) => f.path === histActiveFile.value)?.content ?? '',
-)
-
 /** 点树：仅文件可选中（文件夹点击由 FileTreeFolder 自行展开/收起） */
 function onSelectTree(path: string): void {
   if (path in editFiles.value) activeFile.value = path
@@ -116,30 +111,179 @@ function parseMatches(input: string): string[] {
     .filter(Boolean)
 }
 
-/** 装载项目（原 openEditor）：uuid 来自 prop，不再需要 ScriptSummary */
+/** 选填数组归一：空数组 → undefined（表单解析与状态库比对两侧共用，保证同构可比） */
+function optArr(v: string): string[] | undefined {
+  const arr = parseMatches(v)
+  return arr.length ? arr : undefined
+}
+
+/** 表单 → ScriptConfig（saveEdit 与草稿写共用；空数组归一为 undefined，方案 §4.4） */
+function currentConfig(): ScriptConfig {
+  return {
+    matches: parseMatches(editMatches.value),
+    excludeMatches: optArr(editExcludeMatches.value),
+    includeGlobs: optArr(editIncludeGlobs.value),
+    excludeGlobs: optArr(editExcludeGlobs.value),
+    allFrames: editAllFrames.value,
+    runAt: editRunAt.value,
+  }
+}
+
+/** 编辑态 → ScriptProject 形状：v/uuid/createdAt/enabled 由 baseline 兜（方案 §4.2） */
+function currentProject(): ScriptProject {
+  return {
+    ...(baseline.value ?? ({} as ScriptProject)),
+    uuid: props.uuid,
+    name: editName.value,
+    entry: editEntry.value,
+    config: currentConfig(),
+    files: { ...editFiles.value },
+  }
+}
+
+/** 把编辑态各表单/文件树整体置为 p 的内容（load 与丢弃草稿共用） */
+function applyProject(p: ScriptProject): void {
+  scriptName.value = p.name
+  editFiles.value = { ...p.files }
+  editEntry.value = p.entry
+  // activeFile 不能盲信 entry——草稿里入口可能指向已删文件，取不到回退第一个文件（方案 §4.3 #4）
+  activeFile.value = p.entry in p.files ? p.entry : (Object.keys(p.files)[0] ?? '')
+  editName.value = p.name
+  editMatches.value = p.config.matches.join(', ')
+  editExcludeMatches.value = (p.config.excludeMatches ?? []).join(', ')
+  editIncludeGlobs.value = (p.config.includeGlobs ?? []).join(', ')
+  editExcludeGlobs.value = (p.config.excludeGlobs ?? []).join(', ')
+  editAllFrames.value = p.config.allFrames
+  editRunAt.value = p.config.runAt
+}
+
+/** 装载项目 + 恢复草稿（docs/userscript-draft.md §4.3）：状态库为权威基准，工作区草稿静默恢复 */
 async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
     const project = await userscriptClient.getProject(props.uuid)
     if (!project) throw new Error('项目不存在或为已弃用旧记录')
-    scriptName.value = project.name
-    editFiles.value = { ...project.files }
-    editEntry.value = project.entry
-    activeFile.value = project.entry
-    editName.value = project.name
-    editMatches.value = project.config.matches.join(', ')
-    editExcludeMatches.value = (project.config.excludeMatches ?? []).join(', ')
-    editIncludeGlobs.value = (project.config.includeGlobs ?? []).join(', ')
-    editExcludeGlobs.value = (project.config.excludeGlobs ?? []).join(', ')
-    editAllFrames.value = project.config.allFrames
-    editRunAt.value = project.config.runAt
-    editDirty.value = false
+    baseline.value = project
+    // 草稿读必须 try/catch：失败/超时一律按无草稿处理，读不到不能挡住打开编辑器（best-effort）
+    let draft: Awaited<ReturnType<typeof aiFsClient.readDraft>> = null
+    try {
+      draft = await aiFsClient.readDraft(props.uuid)
+    } catch {
+      draft = null
+    }
+    // 有草稿（files 为空按 null 兜底）且与已保存不等 → 静默用草稿覆盖编辑态
+    if (draft && draft.files.length && !draftEquals(draft, project)) {
+      applyProject({
+        ...project,
+        name: draft.meta?.name ?? project.name,
+        entry: draft.meta?.entry ?? project.entry,
+        config: draft.meta?.config ?? project.config,
+        files: Object.fromEntries(draft.files.map((f) => [f.path, f.content])),
+      })
+      editDirty.value = true
+      draftRestored.value = true
+    } else {
+      applyProject(project)
+      editDirty.value = false
+      draftRestored.value = false
+    }
+    draftWriteFailed.value = false
     buildIssues.value = []
   } catch (e) {
     error.value = '读取项目失败：' + (e instanceof Error ? e.message : String(e))
   } finally {
     loading.value = false
+  }
+}
+
+/**
+ * 草稿与已保存内容是否相等（方案 §4.3 判据）。两侧 config 必须同构可比：
+ * 状态库里的空数组可能是 []，表单侧产出 undefined——都过 normConfig 归一后再比。
+ */
+function draftEquals(
+  draft: { meta?: { name: string; config: ScriptConfig; entry: string }; files: Array<{ path: string; content: string }> },
+  project: ScriptProject,
+): boolean {
+  if (!draft.meta) return false
+  if (draft.meta.name !== project.name || draft.meta.entry !== project.entry) return false
+  if (draft.files.length !== Object.keys(project.files).length) return false
+  for (const f of draft.files) {
+    if (project.files[f.path] !== f.content) return false
+  }
+  const norm = (c: ScriptConfig): ScriptConfig => {
+    const opt = (a?: string[]): string[] | undefined => (a && a.length ? a : undefined)
+    return { ...c, excludeMatches: opt(c.excludeMatches), includeGlobs: opt(c.includeGlobs), excludeGlobs: opt(c.excludeGlobs) }
+  }
+  return JSON.stringify(norm(draft.meta.config)) === JSON.stringify(norm(project.config))
+}
+
+/** 草稿写调度：debounce 500ms + 串行化。仅真实用户改动才落盘（无改动绝不写，§5.1） */
+function scheduleDraftWrite(): void {
+  if (draftTimer !== undefined) clearTimeout(draftTimer)
+  draftTimer = window.setTimeout(() => {
+    draftTimer = undefined
+    draftInFlight = draftInFlight
+      .then(() => aiFsClient.writeDraft(props.uuid, currentProject()))
+      .then(() => {
+        draftWriteFailed.value = false
+      })
+      .catch(() => {
+        // best-effort：静默失败，弱提示；绝不写 error、不打断编辑（评审 P0-3）
+        draftWriteFailed.value = true
+      })
+  }, 500)
+}
+
+watch(
+  [
+    editFiles,
+    editEntry,
+    editName,
+    editMatches,
+    editExcludeMatches,
+    editIncludeGlobs,
+    editExcludeGlobs,
+    editAllFrames,
+    editRunAt,
+  ],
+  () => {
+    // 无改动绝不写：load 整体赋值会触发本 watch，靠 editDirty 挡住（§5.1）；
+    // pending 回调在保存后 fire 时同样因 editDirty=false 跳过（§5.2 竞态）
+    if (!editDirty.value) return
+    scheduleDraftWrite()
+  },
+  { deep: true },
+)
+
+// 关标签页前 flush：debounce 500ms + lfs 自身 500ms，最后一段改动必然丢——
+// 卸载时把 pending 写立即发出（不 await，组件卸载后 Promise 仍会跑完；§4.4）
+onBeforeUnmount(() => {
+  if (draftTimer !== undefined) {
+    clearTimeout(draftTimer)
+    draftTimer = undefined
+    if (editDirty.value) {
+      void aiFsClient.writeDraft(props.uuid, currentProject()).catch(() => {})
+    }
+  }
+})
+
+/** 丢弃草稿：用 baseline（状态库已保存内容）重写工作区；先写成功再动编辑态（方案 §4.6） */
+async function discardDraft(): Promise<void> {
+  if (!baseline.value || discardingDraft.value) return
+  discardingDraft.value = true
+  try {
+    await aiFsClient.writeDraft(props.uuid, baseline.value)
+    applyProject(baseline.value)
+    editDirty.value = false
+    draftRestored.value = false
+    draftWriteFailed.value = false
+    notice.value = ''
+  } catch (e) {
+    // 工作区没回退就不能重置编辑态，两边会不一致——拦住并保留原状
+    error.value = '丢弃草稿失败，可稍后重试：' + (e instanceof Error ? e.message : String(e))
+  } finally {
+    discardingDraft.value = false
   }
 }
 
@@ -198,34 +342,31 @@ async function saveEdit(): Promise<void> {
   error.value = ''
   notice.value = ''
   buildIssues.value = []
-  // 配置表单解析（matches 必填在前端先拦一道）
+  // 配置表单解析（matches 必填在前端先拦一道）；config 拼装与草稿写共用 currentConfig()
   const matches = parseMatches(editMatches.value)
   if (!matches.length) {
     error.value = '保存失败：匹配规则（matches）至少填写一条'
     return
   }
-  const optArr = (v: string): string[] | undefined => {
-    const arr = parseMatches(v)
-    return arr.length ? arr : undefined
-  }
-  const config = {
-    matches,
-    excludeMatches: optArr(editExcludeMatches.value),
-    includeGlobs: optArr(editIncludeGlobs.value),
-    excludeGlobs: optArr(editExcludeGlobs.value),
-    allFrames: editAllFrames.value,
-    runAt: editRunAt.value,
-  }
   building.value = true
   try {
-    // 先构建：失败（BuildError）行内展示 文件:行:列，不落盘半成品
-    const outcome = await buildProject(editFiles.value, editEntry.value)
+    // 先构建（宿主在 offscreen）：buildError 行内展示 文件:行:列，不落盘半成品
+    const buildRes = await aiBuildClient.build(editFiles.value, editEntry.value)
+    if (buildRes.status === 'buildError') {
+      buildIssues.value = buildRes.issues
+      return
+    }
+    if (buildRes.status === 'error') {
+      error.value = '构建失败：' + buildRes.message
+      return
+    }
+    const outcome = buildRes.outcome
     const res = await userscriptClient.updateFiles(
       props.uuid,
       outcome.files,
       editEntry.value,
       { code: outcome.code, builtAt: Date.now() },
-      { name: editName.value, config, note: saveNote.value },
+      { name: editName.value, config: currentConfig(), note: saveNote.value },
     )
     // 数据已落库（保存必然成功才会走到这）；注册失败降级为提示，不判保存失败
     const notes: string[] = [res.registerError ? '已保存，但注册失败，脚本不会注入页面：' + res.registerError : '已保存并重新注册。']
@@ -235,110 +376,23 @@ async function saveEdit(): Promise<void> {
     editFiles.value = outcome.files
     // 头部显示名跟随表单（保存即改名）
     scriptName.value = editName.value
+    // baseline 必须跟着保存结果走（builder 可能改写文件树，如拉取远程依赖）——
+    // 否则之后「丢弃草稿」会退回到保存前的旧内容（方案 §4.5 #2）
+    baseline.value = {
+      ...currentProject(),
+      files: { ...outcome.files },
+      bundle: { code: outcome.code, builtAt: Date.now() },
+      updatedAt: Date.now(),
+    }
     editDirty.value = false
+    draftRestored.value = false
+    draftWriteFailed.value = false
     saveNote.value = ''
   } catch (e) {
-    if (e instanceof BuildError) {
-      buildIssues.value = e.issues
-    } else {
-      error.value = '保存失败：' + (e instanceof Error ? e.message : String(e))
-    }
+    // 构建失败已在上面的早退分支处理（buildError 行内展示）；这里只兜落盘与 IPC 层的意外
+    error.value = '保存失败：' + (e instanceof Error ? e.message : String(e))
   } finally {
     building.value = false
-  }
-}
-
-function relTime(t: number): string {
-  const m = Math.floor((Date.now() - t) / 60000)
-  if (m < 1) return '刚刚'
-  if (m < 60) return `${m} 分钟前`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h} 小时前`
-  const d = Math.floor(h / 24)
-  if (d < 30) return `${d} 天前`
-  return new Date(t).toLocaleDateString()
-}
-
-async function openHistory(): Promise<void> {
-  view.value = 'history'
-  historyLoading.value = true
-  error.value = ''
-  try {
-    historyCommits.value = await aiFsClient.history(props.uuid)
-    if (historyCommits.value.length) {
-      await selectCommit(historyCommits.value[0]!.oid)
-    } else {
-      histOid.value = ''
-      histTree.value = null
-      histActiveFile.value = ''
-    }
-  } catch (e) {
-    error.value = '读取历史失败：' + (e instanceof Error ? e.message : String(e))
-  } finally {
-    historyLoading.value = false
-  }
-}
-
-async function selectCommit(oid: string): Promise<void> {
-  error.value = ''
-  try {
-    histOid.value = oid
-    histTree.value = await aiFsClient.historyTree(props.uuid, oid)
-    histActiveFile.value = histTree.value.files[0]?.path ?? ''
-  } catch (e) {
-    error.value = '读取快照失败：' + (e instanceof Error ? e.message : String(e))
-  }
-}
-
-/** 恢复历史版本：物化项目 → 本地编辑态切换 → builder 重建 bundle → 落盘重注册 */
-async function restoreCommit(): Promise<void> {
-  if (!histOid.value || restoring.value) return
-  if (
-    !confirm(
-      '恢复到此版本？将同时恢复当时的名称与匹配规则（启用状态保持不变），并产生一条「回滚」记录。',
-    )
-  )
-    return
-  restoring.value = true
-  error.value = ''
-  notice.value = ''
-  try {
-    const { project } = await aiFsClient.restoreToCommit(props.uuid, histOid.value)
-    scriptName.value = project.name
-    editFiles.value = { ...project.files }
-    editEntry.value = project.entry
-    activeFile.value = project.entry
-    // 配置表单同步为当时的值
-    editName.value = project.name
-    editMatches.value = project.config.matches.join(', ')
-    editExcludeMatches.value = (project.config.excludeMatches ?? []).join(', ')
-    editIncludeGlobs.value = (project.config.includeGlobs ?? []).join(', ')
-    editExcludeGlobs.value = (project.config.excludeGlobs ?? []).join(', ')
-    editAllFrames.value = project.config.allFrames
-    editRunAt.value = project.config.runAt
-    editDirty.value = false
-    // bundle 已丢弃，重建（失败仅提示：源码已恢复，修复后再保存即可）
-    buildIssues.value = []
-    try {
-      const outcome = await buildProject(editFiles.value, editEntry.value)
-      await userscriptClient.updateFiles(
-        props.uuid,
-        outcome.files,
-        editEntry.value,
-        { code: outcome.code, builtAt: Date.now() },
-      )
-    } catch (e) {
-      if (e instanceof BuildError) buildIssues.value = e.issues
-      else throw e
-    }
-    notice.value = buildIssues.value.length
-      ? '已恢复源码与配置，但重建构建失败（见错误面板），修复后再保存。'
-      : '已恢复到历史版本并重新注册。'
-    view.value = 'edit'
-  } catch (e) {
-    error.value = '恢复失败：' + (e instanceof Error ? e.message : String(e))
-  } finally {
-    restoring.value = false
   }
 }
 
@@ -364,14 +418,9 @@ onMounted(() => {
         <div class="flex shrink-0 items-center gap-1">
           <button
             type="button"
-            class="rounded-md p-1.5 transition-colors"
-            :class="
-              view === 'history'
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-            "
-            title="历史版本"
-            @click="view === 'history' ? (view = 'edit') : openHistory()"
+            class="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            title="历史版本（打开历史标签页）"
+            @click="emit('openHistory', props.uuid, scriptName)"
           >
             <ui-history class="size-4" />
           </button>
@@ -392,9 +441,31 @@ onMounted(() => {
         {{ error }}
       </p>
 
+      <!-- 草稿提示条（琥珀弱警示：恢复 ≠ 已保存；丢弃按钮回滚到上次保存版本） -->
+      <div
+        v-if="draftRestored || draftWriteFailed"
+        class="flex shrink-0 items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-600 dark:text-amber-400"
+      >
+        <p class="min-w-0 flex-1">
+          {{
+            draftRestored
+              ? '检测到上次会话未保存的草稿，已自动恢复。改动需点「保存」才会进入历史。'
+              : '草稿自动保存失败（编辑不受影响），将随下次编辑自动重试。'
+          }}
+        </p>
+        <button
+          v-if="draftRestored"
+          type="button"
+          :disabled="discardingDraft"
+          class="shrink-0 rounded-md border border-amber-500/50 px-2 py-0.5 text-xs hover:bg-amber-500/15 disabled:opacity-50"
+          @click="discardDraft"
+        >
+          {{ discardingDraft ? '丢弃中…' : '丢弃草稿' }}
+        </button>
+      </div>
+
       <!-- 配置表单（用户不接触注释语法，全部表单化） -->
       <div
-        v-if="view === 'edit'"
         class="grid shrink-0 grid-cols-2 gap-x-3 gap-y-2 border-b border-border px-4 py-3"
       >
         <label class="block">
@@ -472,7 +543,7 @@ onMounted(() => {
       </div>
 
       <!-- 编辑视图：左文件树 + 右源码/构建错误 -->
-      <div v-if="view === 'edit'" class="flex min-h-0 flex-1">
+      <div class="flex min-h-0 flex-1">
         <div class="flex w-48 shrink-0 flex-col border-r border-border">
           <div class="flex items-center justify-between border-b border-border px-2 py-1.5">
             <span class="text-xs text-muted-foreground">文件（{{ fileCount }}）</span>
@@ -561,106 +632,14 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 历史视图：左时间线 + 右只读快照 -->
-      <div v-else class="flex min-h-0 flex-1">
-        <div class="flex w-56 shrink-0 flex-col border-r border-border">
-          <div class="border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
-            版本（{{ historyCommits.length }}）
-          </div>
-          <div class="min-h-0 flex-1 overflow-y-auto">
-            <p v-if="historyLoading" class="px-3 py-4 text-xs text-muted-foreground">加载中…</p>
-            <p
-              v-else-if="!historyCommits.length"
-              class="px-3 py-4 text-xs leading-relaxed text-muted-foreground"
-            >
-              暂无历史。保存后自动生成版本；本次编辑产生的改动会记为「保存 #1」。
-            </p>
-            <button
-              v-for="(c, i) in historyCommits"
-              :key="c.oid"
-              type="button"
-              class="block w-full border-b border-border/60 px-3 py-2 text-left transition-colors"
-              :class="c.oid === histOid ? 'bg-accent' : 'hover:bg-accent/60'"
-              @click="selectCommit(c.oid)"
-            >
-              <p class="truncate text-xs font-medium" :title="c.message">{{ c.message }}</p>
-              <p class="mt-0.5 text-[11px] text-muted-foreground">
-                {{ relTime(c.time) }}<template v-if="i === 0"> · 最新</template>
-              </p>
-              <p class="font-mono text-[10px] text-muted-foreground">{{ c.oid.slice(0, 8) }}</p>
-            </button>
-          </div>
-        </div>
-
-        <div class="flex min-w-0 flex-1 flex-col">
-          <!-- 当时的配置摘要 -->
-          <div
-            v-if="histTree?.meta"
-            class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2 text-xs text-muted-foreground"
-          >
-            <span class="font-medium text-foreground">{{ histTree.meta.name }}</span>
-            <span class="break-all font-mono">
-              {{ histTree.meta.config.matches.join(', ') || '（无匹配规则）' }}
-            </span>
-            <span>{{ histTree.meta.config.runAt }}</span>
-            <span v-if="histTree.meta.config.allFrames">allFrames</span>
-          </div>
-
-          <div class="flex min-h-0 flex-1">
-            <div class="w-48 shrink-0 overflow-y-auto border-r border-border">
-              <FileTree
-                class="min-h-0 rounded-none border-0 bg-transparent font-mono text-xs"
-                :default-expanded="histExpanded"
-                :selected-path="histActiveFile"
-                @update:selected-path="(p: string) => (histActiveFile = p)"
-              >
-                <UserscriptTreeNode
-                  v-for="node in histTreeNodes"
-                  :key="node.path"
-                  :node="node"
-                  :entry="histTree?.meta?.entry ?? ''"
-                />
-              </FileTree>
-            </div>
-            <div class="min-w-0 flex-1 overflow-auto">
-              <CodeBlock
-                v-if="histActiveFile"
-                :code="histContent"
-                :language="inferLanguage(histActiveFile)"
-                show-line-numbers
-                class="rounded-none"
-              />
-            </div>
-          </div>
-
-          <!-- 恢复 -->
-          <div class="flex items-center justify-between border-t border-border px-4 py-2">
-            <p class="text-[11px] text-muted-foreground">
-              恢复会保留当前启用状态，并产生一条「回滚」记录（可再恢复回来）。
-            </p>
-            <button
-              type="button"
-              :disabled="restoring || !histOid"
-              class="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              @click="restoreCommit"
-            >
-              <ui-rotate-ccw class="size-3.5" />
-              {{ restoring ? '恢复中…' : '恢复此版本' }}
-            </button>
-          </div>
-        </div>
-      </div>
-
       <!-- 底栏 -->
       <div class="flex shrink-0 items-center gap-2 border-t border-border px-4 py-3">
         <input
-          v-if="view === 'edit'"
           v-model="saveNote"
           type="text"
           placeholder="备注（可选，记入本次保存的历史版本）"
           class="mr-auto w-64 rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground outline-none focus:border-ring"
         />
-        <div v-else class="mr-auto" />
         <button
           type="button"
           :disabled="building"

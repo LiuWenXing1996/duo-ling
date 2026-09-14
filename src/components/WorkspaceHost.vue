@@ -12,6 +12,7 @@ import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
 import UserscriptListPanel from '@/components/userscript/UserscriptListPanel.vue'
 import UserscriptEditorPanel from '@/components/userscript/UserscriptEditorPanel.vue'
 import LfsBrowserPanel from '@/components/userscript/LfsBrowserPanel.vue'
+import UserscriptHistoryPanel from '@/components/userscript/UserscriptHistoryPanel.vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
   Tabs as UiTabs,
@@ -77,6 +78,39 @@ function openLfsBrowserTab(): void {
     openTabs.value.push({ kind: 'lfs-browser', id: 'lfs-browser', title: 'lfs 浏览' })
   }
   activate('lfs-browser')
+}
+
+// 打开脚本历史标签页：只读浏览（顶部下拉选脚本 → 提交列表 + 快照查看），全局仅一个
+function openScriptHistoryTab(): void {
+  if (!openTabs.value.some((t) => t.kind === 'script-history')) {
+    openTabs.value.push({ kind: 'script-history', id: 'script-history', title: '脚本历史' })
+  }
+  activate('script-history')
+}
+
+// 打开某脚本的历史标签页：每脚本一个（id = us-history:<uuid>），已打开则激活复用。
+// 编辑器顶栏的历史按钮经 @open-history 走到这里；浏览 + 恢复都在这个标签页里。
+function openUserscriptHistoryTab(uuid: string, title: string): void {
+  const id = `us-history:${uuid}`
+  if (!openTabs.value.some((t) => t.id === id)) {
+    openTabs.value.push({
+      kind: 'script-history',
+      id,
+      title: `${title || '脚本'} 历史`,
+      userscriptId: uuid
+    })
+  }
+  activate(id)
+}
+
+/** 恢复完成后的编辑器重载序号：key 变更强制 remount，重新拉取已恢复的项目数据 */
+const editorReloadTick = ref<Record<string, number>>({})
+
+function onHistoryRestored(uuid: string): void {
+  // 先清脏标记再重载 —— 恢复后编辑态里的未保存改动已无意义，不该再弹确认
+  const editId = `us-edit:${uuid}`
+  delete dirtyTabs.value[editId]
+  editorReloadTick.value[uuid] = (editorReloadTick.value[uuid] ?? 0) + 1
 }
 
 /** 打开某脚本的编辑器标签页：每脚本一个（id = us-edit:<uuid>），已打开则激活复用 */
@@ -156,15 +190,24 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBro
           @edit="openUserscriptEditor"
           @deleted="onUserscriptDeleted"
         />
-        <!-- 用户脚本编辑器：每脚本一个标签页；脏状态上报给 closeTab 做关闭前确认 -->
+        <!-- 用户脚本编辑器：每脚本一个标签页；脏状态上报给 closeTab 做关闭前确认；
+             历史按钮请求开历史标签页；恢复完成后 editorReloadTick 变更强制重载编辑态 -->
         <userscript-editor-panel
           v-else-if="tab.kind === 'userscript-edit'"
-          :key="tab.id"
+          :key="tab.id + ':' + (editorReloadTick[tab.userscriptId ?? ''] ?? 0)"
           :uuid="tab.userscriptId ?? ''"
           @dirty="(v: boolean) => (dirtyTabs[tab.id] = v)"
+          @open-history="openUserscriptHistoryTab"
         />
         <!-- lfs 浏览：offscreen lightning-fs 整库只读文件树 -->
         <lfs-browser-panel v-else-if="tab.kind === 'lfs-browser'" />
+        <!-- 脚本历史：每脚本一个标签页，浏览 + 恢复；恢复后重载对应编辑器 -->
+        <userscript-history-panel
+          v-else-if="tab.kind === 'script-history'"
+          :key="tab.id"
+          :uuid="tab.userscriptId ?? ''"
+          @restored="onHistoryRestored"
+        />
       </ui-tabs-content>
     </ui-tabs>
   </div>

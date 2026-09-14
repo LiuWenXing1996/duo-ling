@@ -8,6 +8,7 @@ import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
 import type { UsCommit, UsHistoryTree } from './us-git'
 import type { LfsNode } from './us-fs'
+import type { BuildResult } from './offscreen-build-commands'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -32,11 +33,9 @@ function send<T>(request: RuntimeRequest): Promise<T> {
 }
 
 /**
- * 向 offscreen 发 ai:* 命令（git 历史侧车宿主，docs/offscreen-fs-migration.md）。
- * 现状：offscreen 不会空闲自关（我们也没实现，那是方案 §6.2 #12 的规划退出条件；
- * 浏览器侧也只对 AUDIO_PLAYBACK 理由 30s 静音自关，我们用 BLOBS+WORKERS 不触发）。
- * 但它**只在 AI 生成入口经 ensureOffscreen 创建**——编辑器读历史从不唤起它；且扩展重载 /
- * 崩溃 / 关窗会销毁容器。这些情况下 ai:* 无人响应会报
+ * 向 offscreen 发 ai:* 命令（git 历史侧车 + 构建宿主，docs/offscreen-fs-migration.md）。
+ * 现状（2026-09-15）：offscreen 常驻——SW 冷启动即 ensureOffscreen，不空闲自关；
+ * 但扩展重载 / 崩溃 / 关窗会销毁容器，这些情况下 ai:* 无人响应会报
  * 「The message port closed before a response was received」。故失败时先经 SW 唤起容器
  * （同时触发其启动对账、注册监听），再重试，最多 3 次。
  *
@@ -124,10 +123,29 @@ export const aiFsClient = {
   historyTree: (uuid: string, oid: string): Promise<UsHistoryTree> =>
     sendAi({ kind: 'ai:historyTree', uuid, oid }),
 
-  /** 恢复到某提交（enabled 保持当前值；bundle 由 UI 重建，落盘 + 重注册由后续 updateFiles 完成） */
-  restoreToCommit: (uuid: string, oid: string): Promise<{ committed: boolean; project: ScriptProject }> =>
+  /** 恢复到某提交（enabled 保持当前值；bundle 由 UI 重建，落盘 + 重注册由后续 updateFiles 完成）。
+   *  返回 restored = 物化出的 ScriptProject（与 us-git.restoreToCommit 对齐） */
+  restoreToCommit: (uuid: string, oid: string): Promise<{ committed: boolean; restored: ScriptProject }> =>
     sendAi({ kind: 'ai:restoreToCommit', uuid, oid }),
 
   /** 整库浏览（只读调试视图）：lfs 库的完整文件树（含 .git 内部） */
   lfsTree: (): Promise<LfsNode> => sendAi({ kind: 'ai:lfsTree' }),
+
+  /** 草稿写：编辑态防抖写入 git 工作区（纯 fs、不动 index）。失败 throw——调用方必须 catch（best-effort） */
+  writeDraft: (uuid: string, project: ScriptProject): Promise<void> =>
+    sendAi({ kind: 'ai:writeDraft', uuid, project }),
+
+  /** 草稿读：工作区未提交改动；无草稿 / 损坏 / 半写 → null（us-git readWorktree 判据） */
+  readDraft: (uuid: string): Promise<UsHistoryTree | null> =>
+    sendAi({ kind: 'ai:readDraft', uuid }),
+}
+
+/**
+ * esbuild 构建命令通道（宿主收敛 offscreen，§3.1/§4.8）。
+ * 与 aiFsClient 同走 sendAi（唤起容器 + 重试）；wasm 在 offscreen 常驻，
+ * 整个浏览器会话只初始化一次——首次构建会慢（wasm 编译），之后接近瞬时。
+ */
+export const aiBuildClient = {
+  build: (files: Record<string, string>, entry: string): Promise<BuildResult> =>
+    sendAi({ kind: 'ai:build', files, entry }),
 }

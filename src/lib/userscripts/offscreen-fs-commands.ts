@@ -7,7 +7,7 @@
 // 不再经 offscreenBridge 向 SW 取（2026-09-15 单写方落地，见 docs/userscript-single-writer.md）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { getProject } from './project-store'
-import { listHistory, readTreeAt, restoreToCommit } from './us-git'
+import { listHistory, readTreeAt, restoreToCommit, ensureRepo, readWorktree, writeWorktree } from './us-git'
 import { readLfsTree } from './us-fs'
 
 /** 收窄 ai: 前缀的命令（供 onMessage 分发时类型化） */
@@ -31,5 +31,13 @@ export async function handleAiFsCommand(msg: AiFsRequest): Promise<unknown> {
     // 整库浏览（只读调试视图）：lfs 库的完整文件树，含 .git 内部
     case 'ai:lfsTree':
       return readLfsTree('/')
+    // 草稿（docs/userscript-draft.md）：编辑态 ↔ git 工作区。写失败会 throw，
+    // 由分发层包成 error 信封、UI 侧 catch（best-effort，不阻断编辑）
+    case 'ai:writeDraft':
+      await ensureRepo(msg.uuid)
+      await writeWorktree(msg.uuid, msg.project)
+      return { saved: true }
+    case 'ai:readDraft':
+      return readWorktree(msg.uuid) // 无草稿 / 损坏 → null
   }
 }

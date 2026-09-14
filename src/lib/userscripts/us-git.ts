@@ -313,3 +313,85 @@ export async function restoreToCommit(
   await git.commit({ fs, dir, message, author: AUTHOR })
   return { committed: true, restored }
 }
+
+/**
+ * 把工作区同步成草稿内容（docs/userscript-draft.md §4.1）：**纯 fs，不碰 index / HEAD**。
+ * 与 syncWorktree 的本质区别：绝不做 git.add / git.remove——index 必须停在 HEAD，
+ * 否则 statusMatrix 与提交语义被破坏（草稿会被误判成已暂存）。载荷是完整 ScriptProject，
+ * 内部经 buildContents 产出内容（bundle / enabled / updatedAt 本就被排除，不产生假变更）。
+ *
+ * 固定顺序（半写保护）：先整体清空 files/（顺带清残留空目录；files/ 不存在视为已清空），
+ * 再重写 files/**，**最后写 project.json**——它是「这批草稿写完了」的提交点，
+ * readWorktree 据此判草稿有效。中间态由保存时 syncWorktree 全量重写自然自愈。
+ */
+export async function writeWorktree(uuid: string, project: ScriptProject): Promise<void> {
+  assertSafeUuid(uuid)
+  await ensureRepo(uuid)
+  const contents = buildContents(project)
+  // 整体清空 files/ 后重写：简单且顺带清残留空目录。**绝不能碰 .git**
+  try {
+    await removeRecursive(`${usDir(uuid)}/files`)
+  } catch {
+    /* files/ 不存在，视为已清空 */
+  }
+  for (const [rel, content] of Object.entries(contents)) {
+    if (rel === META_FILE) continue
+    await writeRepoFile(uuid, rel, content)
+  }
+  // project.json 最后写
+  await writeRepoFile(uuid, META_FILE, contents[META_FILE]!)
+}
+
+/**
+ * 读工作区当前内容（草稿）；**无草稿返回 null**（docs/userscript-draft.md §4.1 P0 判据）。
+ * null 判据：project.json 读不出 / 解析失败 / 元信息不全 / files 为空——「有 .git 但工作区
+ * 是空的」是可达状态（ensureRepo 成功而 snapshotProject 失败过等），此时若返回
+ * { files: [] } 会被上层判成「与已保存不等」并拿空内容覆盖编辑态，直接清空用户脚本。
+ * 宁可当没草稿（best-effort）。
+ */
+export async function readWorktree(uuid: string): Promise<UsHistoryTree | null> {
+  assertSafeUuid(uuid)
+  // 元信息：草稿有效性的提交点
+  let metaRaw: string
+  try {
+    const buf = await pfs.readFile(`${usDir(uuid)}/${META_FILE}`)
+    metaRaw = new TextDecoder().decode(buf)
+  } catch {
+    return null
+  }
+  let meta: UsHistoryTree['meta']
+  try {
+    const parsed = JSON.parse(metaRaw) as { name?: string; config?: ScriptConfig; entry?: string }
+    if (!parsed.name || !parsed.config) return null
+    meta = { name: parsed.name, config: parsed.config, entry: parsed.entry ?? 'main.js' }
+  } catch {
+    return null
+  }
+  // 文件树：递归读 files/ 下全部文件
+  const files: UsHistoryTree['files'] = []
+  const walk = async (dir: string, rel: string): Promise<void> => {
+    let entries: string[]
+    try {
+      entries = (await pfs.readdir(dir)) as string[]
+    } catch {
+      return // 目录不存在 → 该分支为空
+    }
+    for (const name of entries) {
+      const abs = `${dir}/${name}`
+      const relPath = rel ? `${rel}/${name}` : name
+      const st = await pfs.stat(abs)
+      if (st.type === 'dir') {
+        await walk(abs, relPath)
+      } else {
+        files.push({ path: relPath, content: new TextDecoder().decode(await pfs.readFile(abs)) })
+      }
+    }
+  }
+  try {
+    await walk(`${usDir(uuid)}/files`, '')
+  } catch {
+    return null // 半写 / lfs 报错：按无草稿处理
+  }
+  if (!files.length) return null
+  return { meta, files }
+}

@@ -40,6 +40,15 @@ export type RuntimeRequest =
   | { kind: 'ai:restoreToCommit'; uuid: string; oid: string }
   // 整库浏览（只读调试视图）：递归列出 lfs 库的文件树（含 .git 内部），工作台「lfs 浏览」标签页用
   | { kind: 'ai:lfsTree' }
+  // esbuild 构建（宿主收敛 offscreen：唯一「能派生 Worker + 不被回收」的宿主，§3.1/§4.8）。
+  // 编辑器保存 / 历史恢复 / AI 生成 loop 共用 offscreen 常驻 wasm 实例。
+  // 失败不抛异常（过桥丢结构），返回可辨识联合 BuildResult（见 offscreen-build-commands.ts）
+  | { kind: 'ai:build'; files: Record<string, string>; entry: string }
+  // 草稿（docs/userscript-draft.md）：编辑态防抖写入 git 工作区（纯 fs、不动 index）。
+  // 载荷传完整 ScriptProject 形状——offscreen 侧 buildContents 需要 v/uuid/createdAt，
+  // UI 不能 import us-git 复用（会把 isomorphic-git 打进面板包，§4.2）
+  | { kind: 'ai:writeDraft'; uuid: string; project: import('@/lib/userscripts/types').ScriptProject }
+  | { kind: 'ai:readDraft'; uuid: string }
 
   // —— 项目状态库的**写**命令面（docs/userscript-single-writer.md）——
   // 项目数据（源码 / 配置 / 构建产物 / enabled）落在独立 IndexedDB 库 duoling-state，
