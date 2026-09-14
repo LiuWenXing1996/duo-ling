@@ -16,6 +16,7 @@ import ToolIcon from '@/components/ToolIcon.vue'
 import ToolEditDialog from '@/components/ToolEditDialog.vue'
 import ToolDeleteDialog from '@/components/ToolDeleteDialog.vue'
 import UserscriptListPanel from '@/components/userscript/UserscriptListPanel.vue'
+import UserscriptEditorPanel from '@/components/userscript/UserscriptEditorPanel.vue'
 import type { OpenTool, ToolDetailMeta } from '@/types/tab'
 import type { ToolMeta } from '@/types/tool'
 import {
@@ -49,12 +50,18 @@ function activate(id: string): void {
   activeTabId.value = id
 }
 
+/** 编辑器标签的未保存状态（key = 标签 id）。编辑器内容区不自带关闭按钮，关闭统一走标签栏，
+ *  因此「有未保存改动」的确认挪到这里，由编辑器通过 @dirty 上报。 */
+const dirtyTabs = ref<Record<string, boolean>>({})
+
 function closeTab(id: string): void {
   // 主页标签始终保留，不可关闭
   if (id === HOME_TAB.id) return
+  if (dirtyTabs.value[id] && !confirm('有未保存的修改，确认关闭？')) return
   const idx = openTabs.value.findIndex((t) => t.id === id)
   if (idx === -1) return
   openTabs.value = openTabs.value.filter((t) => t.id !== id)
+  delete dirtyTabs.value[id]
   if (activeTabId.value === id) {
     const next = openTabs.value[Math.max(0, idx - 1)] ?? openTabs.value[0]
     activeTabId.value = next?.id ?? ''
@@ -127,6 +134,20 @@ function openUserscriptListTab(): void {
     openTabs.value.push({ kind: 'userscript-list', id: 'userscript-list', title: '脚本列表' })
   }
   activate('userscript-list')
+}
+
+/** 打开某脚本的编辑器标签页：每脚本一个（id = us-edit:<uuid>），已打开则激活复用 */
+function openUserscriptEditor(uuid: string, title: string): void {
+  const id = `us-edit:${uuid}`
+  if (!openTabs.value.some((t) => t.id === id)) {
+    openTabs.value.push({
+      kind: 'userscript-edit',
+      id,
+      title: title || '脚本编辑',
+      userscriptId: uuid
+    })
+  }
+  activate(id)
 }
 
 // 打开某工具的「代码浏览」标签页：同一工具只有一个代码页，已打开则激活
@@ -357,7 +378,7 @@ async function confirmDeleteTool(keepData: boolean): Promise<void> {
 
 // 暴露给根布局：左侧导航栏「新建工具」「设置」、全宽顶栏搜索下拉「打开工具」，
 // 以及全局会话应用多工具意图后刷新工具详情 / 同步标签标题
-defineExpose({ createTool, openTool, openSettingsTab, openDeveloperTab, openUiTestTab, openUserscriptListTab, reloadTool, renameTool })
+defineExpose({ createTool, openTool, openSettingsTab, openDeveloperTab, openUiTestTab, openUserscriptListTab, openUserscriptEditor, reloadTool, renameTool })
 </script>
 
 <template>
@@ -492,8 +513,18 @@ defineExpose({ createTool, openTool, openSettingsTab, openDeveloperTab, openUiTe
         <developer-panel v-else-if="tab.kind === 'developer'" />
         <!-- UI 测试：mock 数据预览思考与执行过程展示方案 -->
         <ui-test-panel v-else-if="tab.kind === 'ui-test'" />
-        <!-- 脚本列表：列出全部用户脚本 + 启停（新建 / 编辑仍在 UserscriptManager 覆盖层里） -->
-        <userscript-list-panel v-else-if="tab.kind === 'userscript-list'" />
+        <!-- 脚本列表：列出全部用户脚本 + 启停；「编辑」开对应的编辑器标签页 -->
+        <userscript-list-panel
+          v-else-if="tab.kind === 'userscript-list'"
+          @edit="openUserscriptEditor"
+        />
+        <!-- 用户脚本编辑器：每脚本一个标签页；脏状态上报给 closeTab 做关闭前确认 -->
+        <userscript-editor-panel
+          v-else-if="tab.kind === 'userscript-edit'"
+          :key="tab.id"
+          :uuid="tab.userscriptId ?? ''"
+          @dirty="(v: boolean) => (dirtyTabs[tab.id] = v)"
+        />
       </ui-tabs-content>
     </ui-tabs>
 

@@ -10,6 +10,8 @@ export type OpenTool = {
   /** 仅 tool-history / tool-archive / tool-code / tool-data：对应的工具 ID 与标题（用于加载并展示该工具的 git 历史 / 档案 / 代码 / 数据区） */
   toolId?: string
   toolTitle?: string
+  /** 仅 userscript-edit：对应的用户脚本 uuid（编辑器标签页按它拉取项目；每脚本一个标签） */
+  userscriptId?: string
   /** 工具图标（单个字符），来自 meta.icon，labels 标签展示 */
   icon?: string
 }

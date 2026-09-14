@@ -10,6 +10,7 @@ import { computed, onMounted, ref } from 'vue'
 import {
   Braces as UiBraces,
   LoaderCircle as UiLoaderCircle,
+  Pencil as UiPencil,
   Plus as UiPlus,
   RefreshCw as UiRefreshCw
 } from '@lucide/vue'
@@ -18,6 +19,11 @@ import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/u
 import { formatTimestamp } from '@/lib/format'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import type { ScriptSummary } from '@/lib/userscripts/types'
+
+const emit = defineEmits<{
+  /** 请求打开该脚本的编辑器标签页（由 ToolWorkspace 接管） */
+  edit: [uuid: string, title: string]
+}>()
 
 const scripts = ref<ScriptSummary[]>([])
 const loading = ref(false)
@@ -61,16 +67,17 @@ async function onToggle(s: ScriptSummary, next: boolean): Promise<void> {
 
 /**
  * 新建脚本：零输入 —— background 侧自动命名（「新建脚本」/「新建脚本 2」…）、写入初始模板、
- * 建好 git 仓（首次提交含 project.json 元数据）并注册启用。这里只负责触发 + 刷新列表。
- * 创建成功后不跳转（「创建完去哪」待老大拍板，见项目日志）。
+ * 建好 git 仓（首次提交含 project.json 元数据）并注册启用。
+ * 创建成功后直接打开该脚本的编辑器标签页（第 5 点「创建完去哪」的答案）。
  */
 async function onCreate(): Promise<void> {
   if (creating.value) return
   creating.value = true
   error.value = ''
   try {
-    await userscriptClient.create()
+    const { uuid, name } = await userscriptClient.create()
     await refresh()
+    emit('edit', uuid, name)
   } catch (e) {
     error.value = '创建失败：' + (e instanceof Error ? e.message : String(e))
   } finally {
@@ -177,16 +184,27 @@ onMounted(() => {
               </p>
             </div>
 
-            <ui-switch
-              v-if="!s.deprecated"
-              class="mt-0.5 shrink-0"
-              :model-value="s.enabled"
-              :disabled="toggling === s.uuid"
-              :aria-label="`${s.name}：${s.enabled ? '已启用' : '已停用'}`"
-              @update:model-value="(v: boolean) => onToggle(s, v)"
-            >
-              <ui-switch-thumb />
-            </ui-switch>
+            <div class="mt-0.5 flex shrink-0 items-center gap-1">
+              <ui-switch
+                v-if="!s.deprecated"
+                :model-value="s.enabled"
+                :disabled="toggling === s.uuid"
+                :aria-label="`${s.name}：${s.enabled ? '已启用' : '已停用'}`"
+                @update:model-value="(v: boolean) => onToggle(s, v)"
+              >
+                <ui-switch-thumb />
+              </ui-switch>
+              <ui-button
+                v-if="!s.deprecated"
+                variant="ghost"
+                size="icon"
+                class="size-7"
+                title="编辑脚本"
+                @click="emit('edit', s.uuid, s.name)"
+              >
+                <ui-pencil class="size-3.5" />
+              </ui-button>
+            </div>
           </div>
         </div>
       </div>

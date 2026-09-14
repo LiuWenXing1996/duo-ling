@@ -9,6 +9,7 @@ import {
   GitBranch as UiGitBranch,
   Home as UiHome,
   List as UiList,
+  Pencil as UiPencil,
   Settings as UiSettings,
   X as UiX
 } from '@lucide/vue'
@@ -46,6 +47,7 @@ const emit = defineEmits<{
         <ui-git-branch v-else-if="tab.kind === 'tool-history'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-file-code v-else-if="tab.kind === 'tool-code'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-list v-else-if="tab.kind === 'userscript-list'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <ui-pencil v-else-if="tab.kind === 'userscript-edit'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <span class="truncate">{{ tab.title }}</span>
         <button

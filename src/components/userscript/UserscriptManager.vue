@@ -1,30 +1,29 @@
 <script setup lang="ts">
 // 用户脚本管理器（v2 方案 docs/userscript-v2-plan.md Phase 0）：
-// 列表 + 启停 + 新建（粘贴源码 + 名称/匹配规则） + 单文件编辑器 + 状态横幅 + 错误面板。
+// 列表 + 启停 + 新建（粘贴源码 + 名称/匹配规则） + 状态横幅 + 错误面板。
 // 经 src/lib/userscripts/ui-client.ts 与 background 的 userscript:* 命令组通信。
-import { ref, computed, onMounted } from 'vue'
+//
+// 2026-09-14：编辑器（编辑视图 + git 历史视图）已整体迁出为独立标签页
+// UserscriptEditorPanel.vue；本组件的「编辑」按钮改为 emit('edit', uuid, name)，
+// 由 WorkbenchApp 关掉本覆盖层并打开对应编辑器标签页。
+import { ref, onMounted } from 'vue'
 import {
   AlertTriangle,
   Braces,
   ChevronDown,
   CircleCheck,
   CircleX,
-  History,
   Pencil,
   Plus,
-  RotateCcw,
-  Star,
   Trash2,
-  X,
 } from '@lucide/vue'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
-import { buildProject, BuildError } from '@/lib/userscripts/builder'
-import { FileTree } from '@/components/ai-elements/file-tree'
-import { CodeBlock } from '@/components/ai-elements/code-block'
-import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
-import { buildCodeTree, inferLanguage, type CodeTreeNode } from '@/lib/tool-code-view'
 import type { ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from '@/lib/userscripts/types'
-import type { UsCommit, UsHistoryTree } from '@/lib/userscripts/us-git'
+
+const emit = defineEmits<{
+  /** 请求在标签页里打开该脚本的编辑器（由 WorkbenchApp 接管：关覆盖层 + 开标签页） */
+  edit: [uuid: string, title: string]
+}>()
 
 const availability = ref<UserScriptsAvailability | null>(null)
 const scripts = ref<ScriptSummary[]>([])
@@ -42,49 +41,9 @@ const newMatches = ref('*://*/*')
 const pasteSource = ref('')
 const installing = ref(false)
 
-// 编辑器（Phase 1 多文件：文件列表 + 选中编辑；完整文件树 UI 留给 Phase 3）
-const editing = ref<ScriptSummary | null>(null)
-const editFiles = ref<Record<string, string>>({})
-const editEntry = ref('')
-const activeFile = ref('')
-const editDirty = ref(false)
-// 构建状态（Phase 2：保存即构建；失败行内展示、不落盘）
-const building = ref(false)
-const buildIssues = ref<string[]>([])
-// 配置表单（Phase 3：数组字段用逗号/换行分隔的字符串承载，保存时解析）
-const editName = ref('')
-const editMatches = ref('')
-const editExcludeMatches = ref('')
-const editIncludeGlobs = ref('')
-const editExcludeGlobs = ref('')
-const editAllFrames = ref(true)
-const editRunAt = ref<'document_start' | 'document_end' | 'document_idle'>('document_end')
-// 保存备注（可选：填了记入历史，空则自动计数「保存 #n」）
-const saveNote = ref('')
-
-// 文件树（复用工具页 buildCodeTree + ai-elements FileTree；文件夹默认全展开）
-const editTree = computed<CodeTreeNode[]>(() =>
-  buildCodeTree(
-    Object.entries(editFiles.value).map(([path, content]) => ({ path, content, encoding: 'utf8' as const })),
-  ),
-)
-const treeExpanded = computed(() => {
-  const paths: string[] = []
-  const collect = (nodes: CodeTreeNode[]): void => {
-    for (const n of nodes) {
-      if (n.type === 'folder') {
-        paths.push(n.path)
-        collect(n.children)
-      }
-    }
-  }
-  collect(editTree.value)
-  return new Set(paths)
-})
-/** 点树：仅文件可选中（文件夹点击由 FileTreeFolder 自行展开/收起） */
-function onSelectTree(path: string): void {
-  if (path in editFiles.value) activeFile.value = path
-}
+// 编辑器（编辑态 + 历史态）已于 2026-09-14 整体抽为独立标签页 ——
+// 见 UserscriptEditorPanel.vue；本组件的「编辑」按钮改为 emit('edit', uuid, name)，
+// 由 WorkbenchApp 关掉本覆盖层并打开对应编辑器标签页。
 
 /** 示例脚本：纯 JS（Phase 0 无构建），演示 DL.log 本地能力 */
 const SAMPLE = `// 哆灵用户脚本示例：页面标题加星标
@@ -206,7 +165,6 @@ async function removeScript(s: ScriptSummary): Promise<void> {
   if (!confirm(`确认删除脚本「${s.name}」？此操作不可撤销。`)) return
   error.value = ''
   try {
-    if (editing.value?.uuid === s.uuid) closeEditor()
     await userscriptClient.remove(s.uuid)
     await refresh()
   } catch (e) {
@@ -214,272 +172,11 @@ async function removeScript(s: ScriptSummary): Promise<void> {
   }
 }
 
-async function openEditor(s: ScriptSummary): Promise<void> {
-  if (s.deprecated) return
-  error.value = ''
-  try {
-    const project = await userscriptClient.getProject(s.uuid)
-    if (!project) throw new Error('项目不存在或为已弃用旧记录')
-    editing.value = s
-    editFiles.value = { ...project.files }
-    editEntry.value = project.entry
-    activeFile.value = project.entry
-    // 配置表单装载
-    editName.value = project.name
-    editMatches.value = project.config.matches.join(', ')
-    editExcludeMatches.value = (project.config.excludeMatches ?? []).join(', ')
-    editIncludeGlobs.value = (project.config.includeGlobs ?? []).join(', ')
-    editExcludeGlobs.value = (project.config.excludeGlobs ?? []).join(', ')
-    editAllFrames.value = project.config.allFrames
-    editRunAt.value = project.config.runAt
-    editDirty.value = false
-    buildIssues.value = []
-  } catch (e) {
-    error.value = '读取项目失败：' + (e instanceof Error ? e.message : String(e))
-  }
-}
+// 编辑器函数（openEditor / closeEditor / addFile / removeFile / renameFile / saveEdit）
+// 已随编辑器一起迁至 UserscriptEditorPanel.vue。
 
-function closeEditor(): void {
-  if (editDirty.value && !confirm('有未保存的修改，确认丢弃？')) return
-  editing.value = null
-  editFiles.value = {}
-  editEntry.value = ''
-  activeFile.value = ''
-  editDirty.value = false
-  view.value = 'edit'
-  histTree.value = null
-  histOid.value = ''
-  saveNote.value = ''
-}
-
-/** 新增文件（prompt 输入相对路径；重名拒绝） */
-function addFile(): void {
-  const name = prompt('新文件路径（相对项目根，如 utils/helpers.js）')
-  if (name == null) return
-  const p = name.trim()
-  if (!p) return
-  if (p in editFiles.value) {
-    error.value = `新增失败：文件已存在（${p}）`
-    return
-  }
-  editFiles.value[p] = ''
-  activeFile.value = p
-  editDirty.value = true
-}
-
-/** 删除文件（入口不可删；删当前文件后切回入口） */
-function removeFile(name: string): void {
-  if (name === editEntry.value) {
-    error.value = '入口文件不可删除（可先把入口切换到其他文件）'
-    return
-  }
-  if (!confirm(`删除文件「${name}」？`)) return
-  delete editFiles.value[name]
-  if (activeFile.value === name) activeFile.value = editEntry.value
-  editDirty.value = true
-}
-
-/** 重命名文件（入口跟随重命名；目标重名拒绝） */
-function renameFile(name: string): void {
-  const next = prompt('新路径', name)
-  if (next == null) return
-  const p = next.trim()
-  if (!p || p === name) return
-  if (p in editFiles.value) {
-    error.value = `重命名失败：目标文件已存在（${p}）`
-    return
-  }
-  editFiles.value[p] = editFiles.value[name]
-  delete editFiles.value[name]
-  if (editEntry.value === name) editEntry.value = p
-  if (activeFile.value === name) activeFile.value = p
-  editDirty.value = true
-}
-
-async function saveEdit(): Promise<void> {
-  if (!editing.value || building.value) return
-  error.value = ''
-  warning.value = ''
-  buildIssues.value = []
-  // 配置表单解析（matches 必填在前端先拦一道）
-  const matches = parseMatches(editMatches.value)
-  if (!matches.length) {
-    error.value = '保存失败：匹配规则（matches）至少填写一条'
-    return
-  }
-  const optArr = (v: string): string[] | undefined => {
-    const arr = parseMatches(v)
-    return arr.length ? arr : undefined
-  }
-  const config = {
-    matches,
-    excludeMatches: optArr(editExcludeMatches.value),
-    includeGlobs: optArr(editIncludeGlobs.value),
-    excludeGlobs: optArr(editExcludeGlobs.value),
-    allFrames: editAllFrames.value,
-    runAt: editRunAt.value,
-  }
-  building.value = true
-  try {
-    // 先构建：失败（BuildError）行内展示 文件:行:列，不落盘半成品
-    const outcome = await buildProject(editFiles.value, editEntry.value)
-    const res = await userscriptClient.updateFiles(
-      editing.value.uuid,
-      outcome.files,
-      editEntry.value,
-      { code: outcome.code, builtAt: Date.now() },
-      { name: editName.value, config },
-    )
-    const notes: string[] = []
-    if (outcome.remoteFetched.length) notes.push(`已拉取远程依赖并持久化进文件树：${outcome.remoteFetched.join('、')}`)
-    if (res.warnings?.length) notes.push(...res.warnings)
-    warning.value = notes.join(' ')
-    editFiles.value = outcome.files
-    editDirty.value = false
-    await refresh()
-    closeEditor()
-  } catch (e) {
-    if (e instanceof BuildError) {
-      buildIssues.value = e.issues
-    } else {
-      error.value = '保存失败：' + (e instanceof Error ? e.message : String(e))
-    }
-  } finally {
-    building.value = false
-  }
-}
-
-// —— git 历史视图（docs/userscript-git-history.md）——
-const view = ref<'edit' | 'history'>('edit')
-const historyCommits = ref<UsCommit[]>([])
-const historyLoading = ref(false)
-const histOid = ref('')
-const histTree = ref<UsHistoryTree | null>(null)
-const histActiveFile = ref('')
-const restoring = ref(false)
-
-const histTreeNodes = computed<CodeTreeNode[]>(() =>
-  buildCodeTree(
-    (histTree.value?.files ?? []).map((f) => ({ path: f.path, content: f.content, encoding: 'utf8' as const })),
-  ),
-)
-const histExpanded = computed(() => {
-  const paths: string[] = []
-  const collect = (nodes: CodeTreeNode[]): void => {
-    for (const n of nodes) {
-      if (n.type === 'folder') {
-        paths.push(n.path)
-        collect(n.children)
-      }
-    }
-  }
-  collect(histTreeNodes.value)
-  return new Set(paths)
-})
-const histContent = computed(
-  () => histTree.value?.files.find((f) => f.path === histActiveFile.value)?.content ?? '',
-)
-
-function relTime(t: number): string {
-  const m = Math.floor((Date.now() - t) / 60000)
-  if (m < 1) return '刚刚'
-  if (m < 60) return `${m} 分钟前`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h} 小时前`
-  const d = Math.floor(h / 24)
-  if (d < 30) return `${d} 天前`
-  return new Date(t).toLocaleDateString()
-}
-
-async function openHistory(): Promise<void> {
-  if (!editing.value) return
-  view.value = 'history'
-  historyLoading.value = true
-  error.value = ''
-  try {
-    historyCommits.value = await userscriptClient.history(editing.value.uuid)
-    if (historyCommits.value.length) {
-      await selectCommit(historyCommits.value[0]!.oid)
-    } else {
-      histOid.value = ''
-      histTree.value = null
-      histActiveFile.value = ''
-    }
-  } catch (e) {
-    error.value = '读取历史失败：' + (e instanceof Error ? e.message : String(e))
-  } finally {
-    historyLoading.value = false
-  }
-}
-
-async function selectCommit(oid: string): Promise<void> {
-  if (!editing.value) return
-  error.value = ''
-  try {
-    histOid.value = oid
-    histTree.value = await userscriptClient.historyTree(editing.value.uuid, oid)
-    histActiveFile.value = histTree.value.files[0]?.path ?? ''
-  } catch (e) {
-    error.value = '读取快照失败：' + (e instanceof Error ? e.message : String(e))
-  }
-}
-
-/** 恢复历史版本：物化项目 → 本地编辑态切换 → builder 重建 bundle → 落盘重注册 */
-async function restoreCommit(): Promise<void> {
-  if (!editing.value || !histOid.value || restoring.value) return
-  if (
-    !confirm(
-      '恢复到此版本？将同时恢复当时的名称与匹配规则（启用状态保持不变），并产生一条「回滚」记录。',
-    )
-  )
-    return
-  restoring.value = true
-  error.value = ''
-  try {
-    const { project } = await userscriptClient.restoreToCommit(editing.value.uuid, histOid.value)
-    editing.value = {
-      ...editing.value,
-      name: project.name,
-      matches: project.config.matches,
-      updatedAt: project.updatedAt,
-    }
-    editFiles.value = { ...project.files }
-    editEntry.value = project.entry
-    activeFile.value = project.entry
-    // 配置表单同步为当时的值
-    editName.value = project.name
-    editMatches.value = project.config.matches.join(', ')
-    editExcludeMatches.value = (project.config.excludeMatches ?? []).join(', ')
-    editIncludeGlobs.value = (project.config.includeGlobs ?? []).join(', ')
-    editExcludeGlobs.value = (project.config.excludeGlobs ?? []).join(', ')
-    editAllFrames.value = project.config.allFrames
-    editRunAt.value = project.config.runAt
-    editDirty.value = false
-    // bundle 已丢弃，重建（失败仅提示：源码已恢复，修复后再保存即可）
-    buildIssues.value = []
-    try {
-      const outcome = await buildProject(editFiles.value, editEntry.value)
-      await userscriptClient.updateFiles(
-        editing.value.uuid,
-        outcome.files,
-        editEntry.value,
-        { code: outcome.code, builtAt: Date.now() },
-      )
-    } catch (e) {
-      if (e instanceof BuildError) buildIssues.value = e.issues
-      else throw e
-    }
-    warning.value = buildIssues.value.length
-      ? '已恢复源码与配置，但重建构建失败（见编辑视图错误面板），修复后再保存。'
-      : '已恢复到历史版本并重新注册。'
-    await refresh()
-    view.value = 'edit'
-  } catch (e) {
-    error.value = '恢复失败：' + (e instanceof Error ? e.message : String(e))
-  } finally {
-    restoring.value = false
-  }
-}
+// git 历史视图（view / historyCommits / histTree / openHistory / selectCommit / restoreCommit）
+// 已随编辑器一起迁至 UserscriptEditorPanel.vue。
 
 /** 一键清理全部旧 GM 记录 */
 async function clearDeprecatedAll(): Promise<void> {  if (!confirm('清理全部旧格式（油猴）记录？其 DL 数据一并删除，不可恢复。')) return
@@ -716,7 +413,7 @@ onMounted(refresh)
                   type="button"
                   class="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
                   title="编辑"
-                  @click="openEditor(s)"
+                  @click="emit('edit', s.uuid, s.name)"
                 >
                   <Pencil class="size-4" />
                 </button>
@@ -734,315 +431,8 @@ onMounted(refresh)
         </ul>
       </section>
 
-      <!-- 编辑器抽屉（z-30：高于宿主全局「关闭管理器」按钮 z-20——否则它压住抽屉头部的历史/关闭钮；低于覆盖层 z-50） -->
-      <div
-        v-if="editing"
-        class="fixed inset-0 z-30 flex justify-end bg-black/40"
-        @click.self="closeEditor"
-      >
-        <div class="flex h-full w-full max-w-3xl flex-col bg-zinc-50 dark:bg-zinc-900">
-          <!-- 编辑器头 -->
-          <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
-            <div class="min-w-0">
-              <h3 class="truncate font-semibold">编辑：{{ editing.name }}</h3>
-              <p class="text-xs text-zinc-400">{{ Object.keys(editFiles).length }} 个文件 · 入口 {{ editEntry }}</p>
-            </div>
-            <div class="flex shrink-0 items-center gap-1">
-              <button
-                type="button"
-                class="rounded-md p-1.5 transition-colors"
-                :class="
-                  view === 'history'
-                    ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300'
-                    : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-700 dark:hover:text-zinc-200'
-                "
-                title="历史版本"
-                @click="view === 'history' ? (view = 'edit') : openHistory()"
-              >
-                <History class="size-4.5" />
-              </button>
-              <button
-                type="button"
-                class="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-700"
-                title="关闭"
-                @click="closeEditor"
-              >
-                <X class="size-5" />
-              </button>
-            </div>
-          </div>
-
-          <!-- 配置表单（Phase 3：用户不接触注释语法，全部表单化） -->
-          <div v-if="view === 'edit'" class="grid grid-cols-2 gap-x-3 gap-y-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
-            <label class="block">
-              <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">脚本名称</span>
-              <input
-                v-model="editName"
-                type="text"
-                class="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 text-sm text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
-                @input="editDirty = true"
-              />
-            </label>
-            <label class="block">
-              <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">注入时机（runAt）</span>
-              <select
-                v-model="editRunAt"
-                class="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 text-sm text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
-                @change="editDirty = true"
-              >
-                <option value="document_start">document_start</option>
-                <option value="document_end">document_end（默认）</option>
-                <option value="document_idle">document_idle</option>
-              </select>
-            </label>
-            <label class="col-span-2 block">
-              <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">匹配规则 matches（必填，逗号或换行分隔）</span>
-              <input
-                v-model="editMatches"
-                type="text"
-                class="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 font-mono text-xs text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
-                @input="editDirty = true"
-              />
-            </label>
-            <label class="col-span-2 block">
-              <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">排除规则 excludeMatches（选填，逗号分隔）</span>
-              <input
-                v-model="editExcludeMatches"
-                type="text"
-                class="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 font-mono text-xs text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
-                @input="editDirty = true"
-              />
-            </label>
-            <label class="block">
-              <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">包含 glob（选填）</span>
-              <input
-                v-model="editIncludeGlobs"
-                type="text"
-                class="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 font-mono text-xs text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
-                @input="editDirty = true"
-              />
-            </label>
-            <label class="block">
-              <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">排除 glob（选填）</span>
-              <input
-                v-model="editExcludeGlobs"
-                type="text"
-                class="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 font-mono text-xs text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
-                @input="editDirty = true"
-              />
-            </label>
-            <label class="col-span-2 flex items-center gap-2 text-sm">
-              <input
-                v-model="editAllFrames"
-                type="checkbox"
-                class="size-4 accent-blue-600"
-                @change="editDirty = true"
-              />
-              <span class="text-zinc-600 dark:text-zinc-300">注入所有 iframe（allFrames，默认开启，靠排除规则关掉不需要的 frame）</span>
-            </label>
-          </div>
-
-          <!-- 编辑区双栏：左文件树 + 右源码/构建错误（Phase 3：复用工具页文件树实现） -->
-          <div v-if="view === 'edit'" class="flex min-h-0 flex-1">
-            <!-- 左：文件树 -->
-            <div class="flex w-48 shrink-0 flex-col border-r border-zinc-200 dark:border-zinc-700">
-              <div class="flex items-center justify-between border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-700">
-                <span class="text-xs text-zinc-400">文件（{{ Object.keys(editFiles).length }}）</span>
-                <div class="flex items-center gap-0.5">
-                  <button
-                    type="button"
-                    class="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
-                    title="新文件"
-                    @click="addFile"
-                  >
-                    <Plus class="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    :disabled="!activeFile"
-                    class="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-40 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
-                    title="重命名当前文件"
-                    @click="renameFile(activeFile)"
-                  >
-                    <Pencil class="size-3.5" />
-                  </button>
-                  <button
-                    v-if="activeFile && activeFile !== editEntry"
-                    type="button"
-                    class="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
-                    title="设为入口"
-                    @click="editEntry = activeFile; editDirty = true"
-                  >
-                    <Star class="size-3.5" />
-                  </button>
-                  <button
-                    v-if="activeFile && activeFile !== editEntry"
-                    type="button"
-                    class="rounded p-1 text-zinc-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-                    title="删除当前文件"
-                    @click="removeFile(activeFile)"
-                  >
-                    <Trash2 class="size-3.5" />
-                  </button>
-                </div>
-              </div>
-              <FileTree
-                class="min-h-0 flex-1 overflow-y-auto rounded-none border-0 bg-transparent font-mono text-xs"
-                :default-expanded="treeExpanded"
-                :selected-path="activeFile"
-                @update:selected-path="onSelectTree"
-              >
-                <UserscriptTreeNode
-                  v-for="node in editTree"
-                  :key="node.path"
-                  :node="node"
-                  :entry="editEntry"
-                />
-              </FileTree>
-            </div>
-
-            <!-- 右：构建错误 + 源码 -->
-            <div class="flex min-w-0 flex-1 flex-col">
-              <!-- 构建错误（保存时构建失败：文件:行:列，不落盘） -->
-              <div
-                v-if="buildIssues.length"
-                class="border-b border-red-300 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-950/40"
-              >
-                <p class="mb-1 flex items-center gap-1 text-xs font-medium text-red-700 dark:text-red-300">
-                  <CircleX class="size-3.5" />
-                  构建失败（{{ buildIssues.length }} 处），未保存：
-                </p>
-                <ul class="flex max-h-40 flex-col gap-1 overflow-auto">
-                  <li v-for="(msg, i) in buildIssues" :key="i" class="break-all font-mono text-[11px] leading-relaxed text-red-600 dark:text-red-400">
-                    {{ msg }}
-                  </li>
-                </ul>
-              </div>
-
-              <!-- 源码编辑（当前选中文件） -->
-              <textarea
-                v-if="activeFile"
-                v-model="editFiles[activeFile]"
-                @input="editDirty = true"
-                spellcheck="false"
-                class="flex-1 resize-none border-0 bg-zinc-50 p-4 font-mono text-xs leading-relaxed text-zinc-800 outline-none dark:bg-zinc-900 dark:text-zinc-200"
-              />
-            </div>
-          </div>
-
-          <div v-else class="flex min-h-0 flex-1">
-            <!-- 历史视图：左时间线 + 右只读快照（FileTree + CodeBlock，复用工具页组合） -->
-            <!-- 左：版本时间线 -->
-            <div class="flex w-56 shrink-0 flex-col border-r border-zinc-200 dark:border-zinc-700">
-              <div class="border-b border-zinc-200 px-3 py-1.5 text-xs text-zinc-400 dark:border-zinc-700">
-                版本（{{ historyCommits.length }}）
-              </div>
-              <div class="min-h-0 flex-1 overflow-y-auto">
-                <p v-if="historyLoading" class="px-3 py-4 text-xs text-zinc-400">加载中…</p>
-                <p v-else-if="!historyCommits.length" class="px-3 py-4 text-xs leading-relaxed text-zinc-400">
-                  暂无历史。保存后自动生成版本；本次编辑产生的改动会记为「保存 #1」。
-                </p>
-                <button
-                  v-for="(c, i) in historyCommits"
-                  :key="c.oid"
-                  type="button"
-                  class="block w-full border-b border-zinc-100 px-3 py-2 text-left transition-colors dark:border-zinc-800"
-                  :class="c.oid === histOid ? 'bg-blue-50 dark:bg-blue-950/40' : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/60'"
-                  @click="selectCommit(c.oid)"
-                >
-                  <p class="truncate text-xs font-medium" :title="c.message">{{ c.message }}</p>
-                  <p class="mt-0.5 text-[11px] text-zinc-400">
-                    {{ relTime(c.time) }}<template v-if="i === 0"> · 最新</template>
-                  </p>
-                  <p class="font-mono text-[10px] text-zinc-400">{{ c.oid.slice(0, 8) }}</p>
-                </button>
-              </div>
-            </div>
-
-            <!-- 右：快照浏览 -->
-            <div class="flex min-w-0 flex-1 flex-col">
-              <!-- 当时的配置摘要 -->
-              <div
-                v-if="histTree?.meta"
-                class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-zinc-200 px-4 py-2 text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400"
-              >
-                <span class="font-medium text-zinc-700 dark:text-zinc-200">{{ histTree.meta.name }}</span>
-                <span class="break-all font-mono">{{ histTree.meta.config.matches.join(', ') || '（无匹配规则）' }}</span>
-                <span>{{ histTree.meta.config.runAt }}</span>
-                <span v-if="histTree.meta.config.allFrames">allFrames</span>
-              </div>
-
-              <div class="flex min-h-0 flex-1">
-                <div class="w-48 shrink-0 overflow-y-auto border-r border-zinc-200 dark:border-zinc-700">
-                  <FileTree
-                    class="min-h-0 rounded-none border-0 bg-transparent font-mono text-xs"
-                    :default-expanded="histExpanded"
-                    :selected-path="histActiveFile"
-                    @update:selected-path="(p: string) => (histActiveFile = p)"
-                  >
-                    <UserscriptTreeNode
-                      v-for="node in histTreeNodes"
-                      :key="node.path"
-                      :node="node"
-                      :entry="histTree?.meta?.entry ?? ''"
-                    />
-                  </FileTree>
-                </div>
-                <div class="min-w-0 flex-1 overflow-auto">
-                  <CodeBlock
-                    v-if="histActiveFile"
-                    :code="histContent"
-                    :language="inferLanguage(histActiveFile)"
-                    show-line-numbers
-                    class="rounded-none"
-                  />
-                </div>
-              </div>
-
-              <!-- 恢复 -->
-              <div class="flex items-center justify-between border-t border-zinc-200 px-4 py-2 dark:border-zinc-700">
-                <p class="text-[11px] text-zinc-400">恢复会保留当前启用状态，并产生一条「回滚」记录（可再恢复回来）。</p>
-                <button
-                  type="button"
-                  :disabled="restoring || !histOid"
-                  class="inline-flex shrink-0 items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                  @click="restoreCommit"
-                >
-                  <RotateCcw class="size-3.5" />
-                  {{ restoring ? '恢复中…' : '恢复此版本' }}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 编辑器底栏 -->
-          <div class="flex items-center gap-2 border-t border-zinc-200 px-4 py-3 dark:border-zinc-700">
-            <input
-              v-if="view === 'edit'"
-              v-model="saveNote"
-              type="text"
-              placeholder="备注（可选，记入本次保存的历史版本）"
-              class="mr-auto w-64 rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1.5 text-xs text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
-            />
-            <div v-else class="mr-auto" />
-            <button
-              type="button"
-              class="rounded-md px-3 py-1.5 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-700"
-              @click="closeEditor"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              :disabled="building"
-              class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              @click="saveEdit"
-            >
-              {{ building ? '构建中…' : '保存并重新注册' }}
-            </button>
-          </div>
-        </div>
-      </div>
+      <!-- 编辑器抽屉已于 2026-09-14 迁移：点击列表的「编辑」按钮会关闭本覆盖层并打开
+           UserscriptEditorPanel 标签页（见 script 中的 emits.edit 注释） -->
     </div>
   </div>
 </template>

@@ -101,6 +101,15 @@ function handleCreateTool(): void {
 function openUserscriptManager(): void {
   showUserscriptManager.value = true
 }
+
+/**
+ * 管理器里点某个脚本的「编辑」：关掉覆盖层，改在工作区标签页里打开该脚本的编辑器。
+ * 编辑器实现只有一份（UserscriptEditorPanel），管理器那边不再内联编辑器。
+ */
+function onUserscriptEdit(uuid: string, title: string): void {
+  showUserscriptManager.value = false
+  workspaceRef.value?.openUserscriptEditor(uuid, title)
+}
 </script>
 
 <template>
@@ -237,7 +246,7 @@ function openUserscriptManager(): void {
       >
         关闭 ✕
       </button>
-      <UserscriptManager />
+      <UserscriptManager @edit="onUserscriptEdit" />
     </div>
   </Teleport>
 </template>
