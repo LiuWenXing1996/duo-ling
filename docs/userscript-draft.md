@@ -1,135 +1,163 @@
-# 用户脚本编辑器 · 草稿实时落盘方案
+# 用户脚本编辑器 · 草稿方案（工作区即草稿）
 
 > 状态：**方案（未实现）**。本文件只描述设计与判据，不落地代码。
-> 关联：`docs/offscreen-fs-migration.md` §7（构建搬 offscreen，草稿恢复后的自动验错依赖它）。
+> 关联：`docs/userscript-git-history.md`（git 侧车）、`docs/offscreen-fs-migration.md`（lfs 归 offscreen）。
+> 决策（2026-09-14 拍板）：**草稿 = git 工作区的未提交改动**，不新建独立草稿库。
 
 ## 1. 背景与目标
 
 编辑器 `UserscriptEditorPanel.vue` 当前的未保存改动只活在内存里：
 
 - 标签页关掉（即便用户点了「确认关闭」）或扩展崩溃，改动**直接丢失**；
-- 唯一的恢复手段是「历史版本」标签页，但那依赖**已落盘的 git 提交**——尚未保存的草稿不进历史，救不回来；
+- 唯一的恢复手段是「历史版本」标签页，但那依赖**已提交的 git 版本**——尚未保存的草稿不进历史，救不回来；
 - 已保存内容都在 `chrome.storage.local` 的 `us:script:<uuid>`，但「正在编辑、还没点保存」这一段没有持久化载体。
 
-目标：在**不引入后台中转、不碰 lightning-fs** 的前提下，让编辑态能自动、低延迟地落盘，并在下次打开时静默恢复，且不污染「已保存」的语义（恢复≠已保存，仍需用户主动保存才算数）。
+目标：让编辑态自动、低延迟落盘，并在下次打开时静默恢复，且不污染「已保存」的语义（恢复≠已保存，仍需用户主动保存才算数）。
 
-## 2. 存储选型判据
+## 2. 核心决策：草稿 = 工作区的未提交改动
 
-草稿的归属用一贯的判据定：**「谁读、读得多急、写多频繁、挂了连带什么」**，而非「这个介质能不能存」。
+`/uscripts/<uuid>/` **本身就是一个 isomorphic-git 仓**（`us-git.ts:85` `git.init({ fs, dir: usDir(uuid) })`）。因此直接沿用 git 的原生语义：
 
-| 数据 | 谁读 | 多急 | 写多频繁 | 挂了代价 | 结论 |
-|---|---|---|---|---|---|
-| 项目记录 + bundle | SW（注册） | 极急（冷启） | 每次保存 | 脚本失效 | `chrome.storage.local`，SW 直连 |
-| 草稿 | 编辑器所在 UI 页 | 不急（打开时一次性） | 很频繁（debounce） | 只丢草稿 | **裸 IndexedDB，UI 直连** |
+| git 概念 | 编辑器语义 |
+|---|---|
+| HEAD（已提交） | 上次保存的历史版本 |
+| 工作区（未提交改动） | **草稿** |
+| commit | 保存 |
+| 把工作区改回已保存内容 | 丢弃草稿 |
 
-据此排除三条看似顺手的路径：
+草稿因此不需要新的存储介质，也不需要与「已保存」不同的表示——工作区和已保存项目同为 `project.json + files/**`（`buildContents`，`us-git.ts:142`）。
 
-- **不走 `userscript:*` background 命令、不写 `chrome.storage.local`**：草稿写法像会话消息（高频、可丢失），与 `src/lib/conversation-store.ts` 头注释的判据完全一致——「写入频繁且体积增长快，IndexedDB 更适合；side panel 与 workbench 标签页同源，可直接共享该库，无需经 background 中转」。顺手写 storage 只是惯性，反而多出一层 IPC。
-- **绝不可放 lightning-fs（`duoling` 库）**：其文件树是内存索引层（`CacheFS._root` 是内存 Map，`activate()` 只加载一次、永不刷新，写入 debounce 500ms 落整份 superblock）。SW 持有该实例，UI 页若再开一份，两边 flush 的是整份 superblock，**后落盘者静默覆盖先落盘者**——这正是 lfs 只能单实例持有、且归 SW/offscreen 的原因。草稿若塞进去必坏。
-- **裸 IndexedDB 三上下文（SW / UI 页 / offscreen）都能直接访问、多实例共享无碍**，与 lightning-fs 相反。草稿只在 UI 页读写，但即便将来 offscreen 也要碰，也不冲突。
+### 2.1 被否掉的替代方案：独立 IndexedDB 草稿库
 
-## 3. 存储层设计（`src/lib/userscripts/draft-store.ts`，新建）
+早先设想新建 `duoling-userscript-drafts` 库（`draft-store.ts` + `ScriptDraft{v,uuid,name,entry,files,config,savedAt}`）。评审后否决：它带来三样额外负担，却换不来对等收益。
 
-独立库，不与 `duoling-chat`（会话）同库——同库会牵动它的 `DB_VERSION` 升级策略。
+- **多一套表示与转换**：草稿是 JSON blob，与项目的目录表示不同构，恢复时要来回转换；
+- **多一处清理时机**：保存 / 恢复 / 丢弃 / 删除脚本四处都要 `deleteDraft`，漏一处就留孤儿；
+- **多一套脆弱的 `editDirty` + `baseline` 机制**：脏状态靠 `@input` 手工置位、丢弃靠自存 baseline 重置。
 
-```
-DB_NAME    = 'duoling-userscript-drafts'
-DB_VERSION = 1
-STORE      = 'drafts'        // keyPath: 'uuid'
-```
+工作区方案把这三样都交给已有结构与 git 语义。
 
-照抄 `conversation-store.ts` 的模式：`indexedDB.open` + 缓存 `dbPromise`（单例，避免重复开库）、`tx()` 包裹事务、`onupgradeneeded` 里 `createObjectStore`。
+> 附：早期「绝不可放 lightning-fs」的结论已失效。那条结论针对的是**多实例**（UI 页另开一份 lfs，两边各持内存树、后 flush 者整棵覆盖 `"!root"`）。本方案只经 **offscreen 那一个实例**读写，单写方不变量成立，该风险不适用。
 
-**草稿结构**（只存可编辑文本，不存 `bundle`——保存时重建）：
+### 2.2 代价（已接受）
 
-```ts
-interface ScriptDraft {
-  v: 1
-  uuid: string
-  name: string
-  entry: string
-  files: Record<string, string>
-  config: ScriptConfig      // 与 ScriptProject.config 同构
-  savedAt: number
-}
-```
+1. **每次编辑都要走 IPC**：lfs 实例只在 offscreen（`us-fs.ts` 单实例约束），UI 改工作区必须 `send` 给 offscreen。这是结构性成本、无法规避；offscreen 常驻（`offscreen.ts:6-14`），不会因容器不在而失败。
+2. **草稿进入仓的爆炸半径**：仓被 `reconcileFs` 重建或目录损坏时，草稿随仓一起消失（与「删脚本即删历史」同理）。草稿是 best-effort 数据，接受。
+3. **编辑会持续触发 lfs 的 superblock 重写**：lightning-fs 在每个 mutating 操作后 debounce 500ms 把整棵目录树作为一条 `"!root"` 记录整体覆写（`DefaultBackend.js:13-17 / 80-85`、`IdbBackend.js` 的 `idb.set("!root", ...)`）。被重写的是**路径 + stat 元数据**（文件数据按 inode 单独存，不在此列），量级小；但须知它与 git 操作共用同一个 debounce 定时器。
 
-**三个 API**：
+## 3. 三处状态与基准
 
-```ts
-getDraft(uuid): Promise<ScriptDraft | null>
-putDraft(draft: ScriptDraft): Promise<void>
-deleteDraft(uuid: string): Promise<void>
-```
-
-体积很小（纯文本源码），无需分页/索引；`uuid` 即 key，天然一对一覆盖。
-
-## 4. 编辑器集成（`UserscriptEditorPanel.vue`）
-
-### 4.1 打开时恢复（`load()`）
-
-`load()` 拉到 `project` 后，**先记一份 `baseline`（可编辑字段的浅拷贝：name/entry/files/config），再查草稿**：
-
-- 若 `getDraft(uuid)` 为空，或草稿与 `baseline` 逐字段相等 → 正常用 `project` 填充编辑态，`editDirty = false`；
-- 若草稿与 `baseline` 不同 → **静默以草稿覆盖编辑态**，`editDirty = true`，并亮起常驻提示条（见 4.4）。
-
-「相等」判据：name/entry 字符串比较；files 按 `Object.keys` 集合 + 逐值比较（顺序无关）；config 用 `JSON.stringify` 比较（结构稳定，等价输入如 `a, b` vs `b, a` 判不同也无妨——最多多提示一次恢复）。
-
-> 选「静默恢复 + 提示条 + 丢弃按钮」（方案 B），而非「弹窗询问用草稿还是原版」（方案 A）：编辑器是标签页，弹窗打断编辑流、且「原版」需暂存两份状态，复杂度高；常驻提示条更轻，用户可随时「丢弃草稿」回到 `baseline`。
-
-### 4.2 编辑时写入（deep watch + debounce）
-
-监听 `[editFiles, editEntry, editName, editMatches, editExcludeMatches, editIncludeGlobs, editExcludeGlobs, editAllFrames, editRunAt]`（deep），debounce **500ms** 后 `putDraft(...)`。构造草稿时 `config` 由表单字段经 `parseMatches` / `optArr` 现拼（复用 `saveEdit` 里已存在的 `currentConfig()` 逻辑）。
-
-### 4.3 卸载补写（`onBeforeUnmount`）
-
-debounce 未触发时，关闭标签前立即 flush 一次当前编辑态（仅在 `editDirty` 为真时写），保证「关标签 = 草稿已落盘」。配合宿主 `ToolWorkspace.closeTab` 的「确认关闭」守卫：用户确认关闭 → 标签卸载 → `onBeforeUnmount` 补写；用户取消关闭 → 留在页内，草稿继续。
-
-### 4.4 常驻提示条 + 丢弃按钮
-
-草稿恢复后顶部显示一条常驻条：
-
-> 检测到上次未保存的草稿，已为你恢复。 ［丢弃草稿］
-
-「丢弃草稿」(`discardDraft`)：用 `baseline` 重置编辑态 → `editDirty = false` → `deleteDraft(uuid)`。丢弃不落盘项目记录，只是回到上次保存的版本。
-
-### 4.5 四处清理（删草稿的时机）
-
-| 时机 | 位置 | 动作 |
+| 状态 | 位置 | 语义 |
 |---|---|---|
-| ① 保存成功 | `saveEdit` 成功后 | `editDirty = false` + `deleteDraft(uuid)` + 隐藏提示条 |
-| ② 恢复历史版本 | `restoreCommit` 成功后 | 内容已落盘为新提交，`baseline` 同步更新为恢复后的 project；`editDirty = false` + `deleteDraft(uuid)`（否则旧草稿≠新 project 会再次误提示恢复） |
-| ③ 删除脚本 | `ToolWorkspace.onUserscriptDeleted(uuid)` | 脚本连 git 仓都删了，草稿也无意义，`deleteDraft(uuid)`（fire-and-forget） |
-| ④ 丢弃草稿 | `discardDraft` | 见 4.4 |
+| 已保存（**权威**） | `chrome.storage.local` 的 `us:script:<uuid>` | 注册 / 注入依据，含 bundle |
+| 已提交 | `/uscripts/<uuid>/.git` 的 HEAD | 历史版本 |
+| **草稿** | `/uscripts/<uuid>/{project.json, files/**}`（工作区） | 未保存的编辑态 |
 
-保存/恢复/丢弃三处都先置 `editDirty = false` 再 `deleteDraft`，正是为了**消解与 4.2 的竞态**——见 §5。
+**判定与回滚一律以 storage 为基准，不以 HEAD 为基准**：`snapshotProject` 失败不阻断保存主链路（`us-git.ts:4-5`），HEAD 可能落后于 storage。若以 HEAD 为基准，「已保存但未提交成功」会被误判成草稿，且丢弃会退到更旧的版本。
+
+## 4. 实现
+
+### 4.1 offscreen 侧：写工作区（纯 fs，不动 index）
+
+在 `us-git.ts` 新增并导出：
+
+```ts
+/** 把工作区同步成 contents 的形状（**纯 fs，不碰 index / HEAD**） */
+export async function writeWorktree(uuid: string, contents: Record<string, string>): Promise<void>
+/** 读工作区当前内容；仓不存在返回 null */
+export async function readWorktree(uuid: string): Promise<UsHistoryTree | null>
+```
+
+`writeWorktree` 与既有 `syncWorktree`（`us-git.ts:164`）只差一处但很关键：`syncWorktree` 会 `git.add` / `git.remove` 修改 index；**写草稿绝不能动 index**——index 必须停在 HEAD，`statusMatrix` 与提交语义才有意义。所以 `writeWorktree` 只做：
+
+- 写 `contents` 里每个文件（复用 `writeRepoFile`，`us-git.ts:64`）；
+- 删除工作区 `files/**` 中不在 `contents` 的文件（编辑器删掉的文件必须真的从工作区消失，否则提交时它还在 tracked 里）。
+
+两者都用 `buildContents(project)`（`us-git.ts:142`）产出 `contents`：它已排除 `bundle` / `enabled` / `updatedAt`，草稿写入不会产生「假变更」。
+
+### 4.2 命令面
+
+- `src/shared/extension-ipc.ts`：新增 `ai:writeDraft`（`uuid` + `name/entry/config` + `files`）与 `ai:readDraft`
+- `src/lib/userscripts/offscreen-fs-commands.ts`：新增 case，调 `writeWorktree` / `readWorktree`
+- `src/lib/userscripts/ui-client.ts` 的 `aiFsClient`：新增 `writeDraft` / `readDraft`
+
+### 4.3 打开时恢复（`load()`）
+
+1. `project = await userscriptClient.getProject(uuid)`（storage，权威）
+2. `draft = await aiFsClient.readDraft(uuid)`
+3. 判定（相等判据：name/entry 字符串比；files 按键集合 + 逐值比；config 比 `JSON.stringify`）：
+   - 仓不存在 / `draft == null` → 用 `project` 填充，`editDirty = false`
+   - `draft` 与 `project` 逐字段相等 → 用 `project` 填充，`editDirty = false`
+   - 不等 → **用 `draft` 静默覆盖编辑态**，`editDirty = true`，亮常驻提示条
+4. 记 `baseline = project`（丢弃用的回滚目标，**取自 storage**）
+
+> 选「静默恢复 + 提示条 + 丢弃按钮」而非弹窗：编辑器是标签页，弹窗打断编辑流。
+
+### 4.4 编辑时写入（deep watch + debounce）
+
+监听 `[editFiles, editEntry, editName, editMatches, editExcludeMatches, editIncludeGlobs, editExcludeGlobs, editAllFrames, editRunAt]`（deep），debounce **500ms** 后 `aiFsClient.writeDraft(...)`。
+
+构造入参时 config 由表单字段现拼——注意 `saveEdit` 里目前是**内联**拼装（`UserscriptEditorPanel.vue:200-220`，`parseMatches` / `optArr`），**并不存在 `currentConfig()` 函数**；实现时把它抽成 `currentConfig()`，供 `saveEdit` 与草稿写入共用。
+
+写入必须**串行化**（见 §5.3）。
+
+### 4.5 保存（`saveEdit`）
+
+现有流程不变：`buildProject` → `userscriptClient.updateFiles`（写 storage + 重建 bundle + 注册）→ `ai:snapshot`（`syncWorktree` + commit；工作区此时已等于编辑态）。
+
+成功后端只需 `editDirty = false` + 隐藏提示条——**不需要任何「删除草稿」的动作**：保存即提交，工作区此刻就是「已保存」的样子。
+
+### 4.6 丢弃草稿（`discardDraft`）
+
+用 `baseline`（= storage 的 `project`）重写工作区：
+
+```ts
+await aiFsClient.writeDraft(uuid, buildContents(baseline))   // 工作区回到上次保存
+用 baseline 重置编辑态 → editDirty = false → 隐藏提示条
+```
+
+**不用 `git checkout HEAD`**：HEAD 可能落后于 storage（§3），回滚到 HEAD 会退到更旧的版本。
+
+### 4.7 删除脚本
+
+**无需任何改动**：`deleteRepo(uuid)` 已整目录删除（`us-git.ts:92` → `removeRecursive(usDir(uuid))`），工作区草稿随仓一起清除。
+
+### 4.8 脏检测
+
+- **编辑期**：沿用现有同步的 `editDirty` ref 做即时 UI 反馈（`@input` / `addFile` / `removeFile` / `renameFile` 置位）——IPC 是异步的，不适合做即时反馈。
+- **打开时**：以 storage 为基准的内容比对（§4.3）给出权威判定。
+- 二者可能短暂不一致，保存 / 丢弃后归位。
 
 ## 5. 关键边界与坑
 
-1. **无改动时绝不写草稿**：`load()` 会整体赋值 `editFiles` 等，触发 deep watch。若 watch 回调无条件写，每次打开都会落一条「等于项目记录」的草稿，污染判据。解决：watch 回调里 `if (!editDirty.value) return`——只有用户真实改动（`@input` 或 `addFile`/`removeFile`/`renameFile` 置 `editDirty=true`）才落盘。
-
-2. **pending debounce 与保存成功的竞态**：用户改了内容（debounce 挂起）→ 立刻点保存。`saveEdit` 成功后 `editDirty=false` + `deleteDraft`，但挂起的 debounce 回调可能**在其后** fire，又写回一条旧草稿，让删除失效。解决：debounce 回调内部**再查一次 `if (!editDirty.value) return`**——保存/恢复/丢弃都先行把 `editDirty` 置 false，挂起回调 fire 时自然跳过。无需额外取消 timer 的逻辑。
-
-3. **双实例互不可见（lightning-fs 的坑，草稿已规避）**：重点复述，因为这是「为什么不用 lfs」的根。若放 lfs，UI 页第二实例与 SW 实例各持一份内存 superblock，互相覆盖且静默。裸 IndexedDB 无此问题。
-
-4. **草稿不存 bundle**：保存才 `buildProject` 重建。草稿只承载「文本编辑态」，恢复后用户仍需点保存才会触发构建+注册——这与「草稿≠已保存」的语义一致，也避免把构建产物塞进高频写的草稿库。
-
-5. **恢复后不自动验错**：草稿恢复只还原文本，不重建 `bundle`，故恢复后脚本仍基于旧的已注册 bundle 运行。若要「恢复草稿即提示构建能否通过」，需等构建搬 offscreen（见 `docs/offscreen-fs-migration.md` §7）后才能在那里跑 `buildProject` 做无副作用校验。当前方案**不依赖**该能力，提示条只说「已恢复」，不做编译级校验。
+1. **无改动时绝不写**：`load()` 整体赋值 `editFiles` 会触发 deep watch；watch 回调里 `if (!editDirty.value) return`，只有真实用户改动才落盘。
+2. **pending debounce 与保存的竞态**：用户改完立刻保存 → `editDirty = false`；挂起回调 fire 时因守卫跳过。无需额外取消 timer。
+3. **多次草稿写入会乱序（新增坑）**：草稿写是 IPC 异步，连续两次可能旧内容后到、覆盖新内容。必须**串行化**——维持一个 in-flight promise（上一次完成再发下一次），或带递增 `seq` 由 offscreen 丢弃过期写入。
+4. **写草稿绝不动 index**：`writeWorktree` 必须是纯 fs；误用 `syncWorktree`（含 `git.add` / `git.remove`）会让 index 跟上工作区，`statusMatrix` 就再也报不出「未提交改动」。
+5. **以 storage 而非 HEAD 为基准**（§3）：commit 失败不阻断保存，HEAD 可能落后。
+6. **lfs 单实例**：只在 offscreen 取实例（`us-fs.ts`），UI 侧不要 `new LightningFS`。
+7. **路径安全**：草稿路径由 uuid 派生，`assertSafeUuid`（`us-git.ts:32`）已拦 `/` `\` `..`。
+8. **草稿不存 bundle**：`buildContents` 已排除；bundle 仍由保存时 `buildProject` 重建。
 
 ## 6. 工作量
 
-约 **90 行 / 2 个文件**：
+约 **115 行 / 5 个文件**：
 
-- 新建 `src/lib/userscripts/draft-store.ts`（~45 行：开库 + 3 API + 类型）；
-- 改 `UserscriptEditorPanel.vue`（~40 行：load 恢复、watch+debounce、onBeforeUnmount、提示条+banner、discardDraft）；
-- 改 `ToolWorkspace.vue`（~5 行：删除脚本时 `deleteDraft`）。
+| 文件 | 改动 |
+|---|---|
+| `src/lib/userscripts/us-git.ts` | `writeWorktree` + `readWorktree`（~35 行） |
+| `src/shared/extension-ipc.ts` | `ai:writeDraft` / `ai:readDraft` 命令类型（~8 行） |
+| `src/lib/userscripts/offscreen-fs-commands.ts` | 新增 case（~12 行） |
+| `src/lib/userscripts/ui-client.ts` | `aiFsClient.writeDraft` / `readDraft`（~15 行） |
+| `src/components/userscript/UserscriptEditorPanel.vue` | load 恢复、watch+debounce+串行化、提示条、`discardDraft`、抽 `currentConfig()`（~45 行） |
 
-比早先「经 background 命令 + `us:draft:<uuid>` 写 storage.local」的旧设想（~130 行 / 7 文件）省掉 IPC 那一层，也更贴合既有存储分层。
+`WorkspaceHost.vue` 与删除链路**无需改动**（`deleteRepo` 已整目录删除）。
 
 ## 7. 验收
 
 - 打开脚本 → 改几行（不保存）→ 关标签 → 重开：编辑态被静默恢复，顶部提示条出现；
-- 提示条点「丢弃草稿」：回到上次保存版本，提示条消失，IndexedDB 中该 uuid 草稿被删；
-- 正常保存：提示条消失，草稿被删；
-- 列表页删除该脚本：IndexedDB 草稿一并清除（DevTools → Application → IndexedDB 可见 `duoling-userscript-drafts` 库）；
-- 崩溃/强杀扩展后重开：与「关标签」同效，草稿仍在。
+- DevTools 看 lfs：`/uscripts/<uuid>/files/**` 内容 = 编辑态，且 `git.log` 仍停在旧提交（**未产生新 commit**）；
+- 提示条点「丢弃草稿」：回到上次保存版本，提示条消失，工作区内容回到已保存状态；
+- 正常保存：产生新 commit，工作区 / HEAD / storage 三者一致；
+- 列表页删除该脚本：整仓目录消失（草稿随之清除）；
+- 快速连续编辑：不出现旧内容覆盖新内容（§5.3 串行化生效）。
