@@ -38,6 +38,8 @@ const emit = defineEmits<{
 const scripts = ref<ScriptSummary[]>([])
 const loading = ref(false)
 const error = ref('')
+/** 非阻塞警告（命令成功但注册失败等）：数据已生效，只是提示「没跑起来」及原因 */
+const warning = ref('')
 /** 正在切换启停的脚本 uuid：避免连点造成重复注册/注销 */
 const toggling = ref<string | null>(null)
 /** 创建中：避免连点一次建出多个空脚本 */
@@ -62,14 +64,18 @@ async function refresh(): Promise<void> {
   }
 }
 
-/** 启停：注册/注销成功后才更新本地状态（不做乐观更新 —— 注册失败必须如实反映） */
+/** 启停：数据写（enabled 落状态库）成功即更新开关；注册失败降级为警告，不回拨开关 */
 async function onToggle(s: ScriptSummary, next: boolean): Promise<void> {
   if (s.deprecated || toggling.value) return
   toggling.value = s.uuid
   error.value = ''
+  warning.value = ''
   try {
-    await userscriptClient.toggle(s.uuid, next)
+    const { registerError } = await userscriptClient.toggle(s.uuid, next)
     s.enabled = next
+    if (registerError) {
+      warning.value = `「${s.name}」已${next ? '启用' : '停用'}（数据已保存），但注册失败，脚本不会注入页面：${registerError}`
+    }
   } catch (e) {
     error.value = `「${s.name}」切换失败：` + (e instanceof Error ? e.message : String(e))
   } finally {
@@ -86,9 +92,14 @@ async function onCreate(): Promise<void> {
   if (creating.value) return
   creating.value = true
   error.value = ''
+  warning.value = ''
   try {
-    const { uuid, name } = await userscriptClient.create()
+    // 注册失败不算创建失败（数据已落库），警告照带、编辑器照开
+    const { uuid, name, registerError } = await userscriptClient.create()
     await refresh()
+    if (registerError) {
+      warning.value = `脚本已创建，但注册失败，不会注入页面：${registerError}`
+    }
     emit('edit', uuid, name)
   } catch (e) {
     error.value = '创建失败：' + (e instanceof Error ? e.message : String(e))
@@ -183,6 +194,13 @@ onMounted(() => {
           class="rounded-md border border-destructive/40 px-3 py-2 text-xs text-destructive"
         >
           {{ error }}
+        </p>
+
+        <p
+          v-if="warning"
+          class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400"
+        >
+          {{ warning }}
         </p>
 
         <p

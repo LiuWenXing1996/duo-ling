@@ -227,7 +227,8 @@ async function saveEdit(): Promise<void> {
       { code: outcome.code, builtAt: Date.now() },
       { name: editName.value, config, note: saveNote.value },
     )
-    const notes: string[] = ['已保存并重新注册。']
+    // 数据已落库（保存必然成功才会走到这）；注册失败降级为提示，不判保存失败
+    const notes: string[] = [res.registerError ? '已保存，但注册失败，脚本不会注入页面：' + res.registerError : '已保存并重新注册。']
     if (outcome.remoteFetched.length) notes.push(`已拉取远程依赖并持久化进文件树：${outcome.remoteFetched.join('、')}`)
     if (res.warnings?.length) notes.push(...res.warnings)
     notice.value = notes.join(' ')

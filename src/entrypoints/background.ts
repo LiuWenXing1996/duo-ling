@@ -121,18 +121,27 @@ async function writeViaOffscreen<T>(request: RuntimeRequest): Promise<T> {
   }
 }
 
-/** 注册失败：既让 UI 弹错误条（throw 冒泡），也进错误日志面板 */
-async function registerOrLog(project: ScriptProject): Promise<void> {
+/**
+ * 注册失败：记入错误日志面板，并返回错误文案给 UI 展示。
+ *
+ * **不 throw**——调用方（create / install / updateFiles / toggle）在注册前已完成数据写
+ * （状态库 + git 快照都落了盘），注册只是让脚本「生效」的最后一环。把注册失败判成整个
+ * 命令失败，会让用户看到「创建失败」但列表刷新后脚本明明在（2026-09-15 实测，违背直觉）。
+ * 故降级：命令成功 + registerError 警告字段，UI 决定怎么呈现。
+ */
+async function registerOrLog(project: ScriptProject): Promise<string | undefined> {
   try {
     await registerScript(project)
+    return undefined
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
     void appendUserScriptError({
       uuid: project.uuid,
       name: project.name,
       phase: 'register',
-      message: e instanceof Error ? e.message : String(e),
+      message,
     }).catch(() => {})
-    throw e
+    return message
   }
 }
 
@@ -172,7 +181,7 @@ const handlers: {
   // 更新文件树 + 入口 + 构建产物（Phase 2：UI 页构建成功后才调用），启用中则重注册。
   // registerScript 已优先 bundle.code（零改动）；无 bundle 时 resolveInjectCode 守卫兜底。
   // 写转 offscreen：状态落盘与 git 快照在同一处完成，不再有「已保存但没 commit」的缝隙。
-  'userscript:updateFiles': async (msg): Promise<{ warnings?: string[] }> => {
+  'userscript:updateFiles': async (msg): Promise<{ warnings?: string[]; registerError?: string }> => {
     const next = await writeViaOffscreen<ScriptProject>({
       kind: 'state:updateFiles',
       uuid: msg.uuid,
@@ -184,8 +193,11 @@ const handlers: {
       note: msg.note,
     })
     await unregisterScripts([next.uuid]).catch(() => {})
-    if (next.enabled) await registerOrLog(next)
-    return { warnings: collectCspWarnings(resolveInjectCode(next), await getEffectiveCspPermissive()) }
+    const registerError = next.enabled ? await registerOrLog(next) : undefined
+    return {
+      warnings: collectCspWarnings(resolveInjectCode(next), await getEffectiveCspPermissive()),
+      registerError,
+    }
   },
 
   // 一键清理全部旧 GM 形态记录（含各自 DL.store 值）
@@ -196,25 +208,34 @@ const handlers: {
 
   // 新建脚本（零输入）：命名 / 初始模板 / 首次快照全在 offscreen 侧完成，SW 只负责注册。
   // 与下面的 install 的分工 —— install 由调用方提供源码与匹配规则（粘贴安装），这个全自动。
-  'userscript:create': async (): Promise<{ uuid: string; name: string; warnings?: string[] }> => {
+  'userscript:create': async (): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
     const project = await writeViaOffscreen<ScriptProject>({ kind: 'state:create' })
-    await registerOrLog(project)
+    const registerError = await registerOrLog(project)
     const code = project.files[project.entry] ?? ''
-    return { uuid: project.uuid, name: project.name, warnings: collectCspWarnings(code, await getEffectiveCspPermissive()) }
+    return {
+      uuid: project.uuid,
+      name: project.name,
+      warnings: collectCspWarnings(code, await getEffectiveCspPermissive()),
+      registerError,
+    }
   },
 
   // 安装：单文件源码 + 名称/匹配规则 → offscreen 落状态库并快照 → SW 注册。
   // v2 新形态无 metadata：名称与匹配规则由调用方显式给出（缺省给开发用默认值）。
-  'userscript:install': async (msg): Promise<{ uuid: string; warnings?: string[] }> => {
+  'userscript:install': async (msg): Promise<{ uuid: string; warnings?: string[]; registerError?: string }> => {
     const project = await writeViaOffscreen<ScriptProject>({
       kind: 'state:install',
       source: msg.source,
       name: msg.name,
       matches: msg.matches,
     })
-    await registerOrLog(project)
+    const registerError = await registerOrLog(project)
     const code = project.files[project.entry] ?? ''
-    return { uuid: project.uuid, warnings: collectCspWarnings(code, await getEffectiveCspPermissive()) }
+    return {
+      uuid: project.uuid,
+      warnings: collectCspWarnings(code, await getEffectiveCspPermissive()),
+      registerError,
+    }
   },
 
   // 删除：注销 → offscreen 清状态库记录 + git 仓 → 清该脚本的 DL.store 值。
@@ -225,7 +246,9 @@ const handlers: {
     await clearGMValues(msg.uuid)
   },
 
-  'userscript:toggle': async (msg): Promise<void> => {
+  // 返回 registerError：enabled 已落状态库（数据写先于注册完成），注册失败只降级为警告，
+  // 不把启停整体判失败（否则 UI 不更新开关，与实际已生效的 enabled 状态背离）。
+  'userscript:toggle': async (msg): Promise<{ registerError?: string }> => {
     // 先读一次确认存在（状态库直读，不经容器），否则转发后才知道不存在、白搭一趟
     if (!(await getProject(msg.uuid))) throw new Error('脚本不存在')
     // enabled 不进 git 仓（buildContents 刻意排除），故只改状态库、不产生提交
@@ -234,8 +257,9 @@ const handlers: {
       uuid: msg.uuid,
       enabled: msg.enabled,
     })
-    if (msg.enabled) await registerOrLog(next)
-    else await unregisterScripts([msg.uuid]).catch(() => {})
+    if (msg.enabled) return { registerError: await registerOrLog(next) }
+    await unregisterScripts([msg.uuid]).catch(() => {})
+    return {}
   },
 
   'userscript:availability': async (): Promise<UserScriptsAvailability> => getUserScriptsStatus(),

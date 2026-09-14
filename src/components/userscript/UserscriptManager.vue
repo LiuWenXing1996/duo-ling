@@ -141,7 +141,10 @@ async function installFromPaste(): Promise<void> {
     const res = await userscriptClient.install(src, { name: newName.value, matches })
     pasteSource.value = ''
     newName.value = ''
-    warning.value = res.warnings?.join(' ') ?? ''
+    // 注册失败不算安装失败（数据已落库）：降级为警告，列表照常刷新
+    warning.value = [res.registerError ? `脚本已安装，但注册失败，不会注入页面：${res.registerError}` : '', ...(res.warnings ?? [])]
+      .filter(Boolean)
+      .join(' ')
     await refresh()
   } catch (e) {
     error.value = '安装失败：' + (e instanceof Error ? e.message : String(e))
@@ -153,9 +156,14 @@ async function installFromPaste(): Promise<void> {
 async function toggleScript(s: ScriptSummary): Promise<void> {
   if (s.deprecated) return
   error.value = ''
+  warning.value = ''
   try {
-    await userscriptClient.toggle(s.uuid, !s.enabled)
-    s.enabled = !s.enabled // 乐观更新
+    // enabled 已落状态库，切换即生效；注册失败只降级为警告，不回拨开关
+    const { registerError } = await userscriptClient.toggle(s.uuid, !s.enabled)
+    s.enabled = !s.enabled
+    if (registerError) {
+      warning.value = `「${s.name}」已${s.enabled ? '启用' : '停用'}（数据已保存），但注册失败，脚本不会注入页面：${registerError}`
+    }
   } catch (e) {
     error.value = '切换失败：' + (e instanceof Error ? e.message : String(e))
   }
