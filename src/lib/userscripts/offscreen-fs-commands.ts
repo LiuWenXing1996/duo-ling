@@ -8,7 +8,7 @@
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { getProject } from './project-store'
 import { listHistory, readTreeAt, restoreToCommit, ensureRepo, readWorktree, writeWorktree } from './us-git'
-import { readLfsTree } from './us-fs'
+import { readLfsFile, readLfsTree } from './us-fs'
 
 /** 收窄 ai: 前缀的命令（供 onMessage 分发时类型化） */
 export type AiFsRequest = Extract<RuntimeRequest, { kind: `ai:${string}` }>
@@ -39,5 +39,8 @@ export async function handleAiFsCommand(msg: AiFsRequest): Promise<unknown> {
       return { saved: true }
     case 'ai:readDraft':
       return readWorktree(msg.uuid) // 无草稿 / 损坏 → null
+    // 单文件预览：按完整路径读文件内容（含 .git 内部）
+    case 'ai:lfsReadFile':
+      return readLfsFile(msg.path)
   }
 }

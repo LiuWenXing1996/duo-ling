@@ -49,6 +49,8 @@ export type RuntimeRequest =
   // UI 不能 import us-git 复用（会把 isomorphic-git 打进面板包，§4.2）
   | { kind: 'ai:writeDraft'; uuid: string; project: import('@/lib/userscripts/types').ScriptProject }
   | { kind: 'ai:readDraft'; uuid: string }
+  // 单文件预览：按完整路径读 lfs 库内文件内容（含 .git 内部），「lfs 浏览」标签页点文件时拉取
+  | { kind: 'ai:lfsReadFile'; path: string }
 
   // —— 项目状态库的**写**命令面（docs/userscript-single-writer.md）——
   // 项目数据（源码 / 配置 / 构建产物 / enabled）落在独立 IndexedDB 库 duoling-state，
