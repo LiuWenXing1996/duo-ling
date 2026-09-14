@@ -31,8 +31,11 @@
 
 ---
 
-## 工具页风格统一：与主应用 UI 一致（待讨论，未决定）
+## 工具页风格统一：与主应用 UI 一致（⚠️ 已废弃）
 
+> ⚠️ **已废弃**：工具链路（UserTool 生成/管理：`tool:*` IPC、`tools-data`、`meta.capabilities`、`archive.md`）已在 68b70128 移除，`src` 内已无 UserTool 工具页代码、`tool-spec.md` 已删。本条描述的「AI 生成工具页风格」场景已无载体，故废弃。
+> 注：仍存在的 `kind:'tool'` 仅指 chat agent 的**函数调用**（LLM 在对话里调函数），与 UserTool 工具页无关，不在本条范围内。
+>
 > ⚠️ 本条按 Electron 时期撰写，落地前需按扩展架构（sandbox iframe + srcdoc 承载工具页）重写背景描述；档位决策本身仍有效。
 
 **背景**：工具页由 AI 直接写原生 HTML（纯 CSS、无 Tailwind），导致工具页 UI 与主应用（shadcn-vue 风格）严重不搭。要让 AI 产出与主应用一致的界面。
@@ -56,8 +59,10 @@
 
 ---
 
-## 工具页严格沙箱化：opaque origin + 双层 iframe（待办）
+## 工具页严格沙箱化：opaque origin + 双层 iframe（⚠️ 已废弃）
 
+> ⚠️ **已废弃**：同 UserTool 工具页，依赖已被移除的工具链路，场景已不存在。若未来 reintroduce 工具页再重新评估。
+>
 > ⚠️ 原条目「webview 显式沙箱化」为 Electron `<webview sandbox>` 形态，已按扩展架构改写为 iframe 沙箱议题（2026-09-14 清理时改写）。
 
 **背景**：AI 生成的不可信工具页经 sandbox iframe + srcdoc 承载，但**现状仍是同源 sandbox**（见 AGENTS.md「CSP / 沙箱」行），与「工具页只能经 `window.cap` 桥调用能力」的消息协议约束配合，构成当前防线；严格沙箱化（opaque origin + 双层 iframe 分层）是补上进程级隔离的待办。
@@ -74,7 +79,9 @@
 
 ---
 
-## UserTool 文件结构与运行环境改造（待办）
+## UserTool 文件结构与运行环境改造（⚠️ 已废弃）
+
+> ⚠️ **已废弃**：UserTool 工具链路已在 68b70128 移除，`tool-spec.md` 已删，本条目标态不复存在。
 
 **背景**：`docs/tool-spec.md` 为「工具规范」权威契约，只描述目标形态、**不谈进度**；以下为落地 `tool-spec.md` 所需实现的改造项，统一登记于此（按 tool-spec 章节归组）。
 
