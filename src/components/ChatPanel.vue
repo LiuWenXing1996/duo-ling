@@ -348,10 +348,6 @@ function onPromptSubmit(payload: PromptInputMessage): void {
 
 <template>
   <section class="tool-chat panel">
-    <header class="panel-header flex items-center justify-between gap-2">
-      <h2 class="panel-title">当前会话</h2>
-    </header>
-
     <div class="flex min-h-0 flex-1 flex-col">
       <!-- 消息区：用 ai-elements Conversation 贴底滚动 + 滚动到底部按钮 -->
       <ui-conversation class="min-h-0 flex-1" aria-label="当前会话消息">
