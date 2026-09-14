@@ -303,23 +303,18 @@ function buildDlWrapper(project: ScriptProject): string {
 `
 }
 
-// —— 注入代码解析（Phase 0：无构建管线，直接跑入口单文件；Phase 2 起优先用 bundle）——
+// —— 注入代码解析（产物不变量：SW 只注册最终产物，没有直跑源码的逻辑）——
 
 /**
- * 取实际注入的代码：优先 bundle.code；无 bundle 时回退 files[entry] 单文件直跑。
- * 回退守卫：仅入口为 .js/.mjs 且无 import/export 语法的纯 JS 才回退，否则明确报「需先构建」，
- * 绝不把 TS / 含模块语法的源码直接注入（那只会产生运行期语法错误）。
+ * 取实际注入的代码：**只认 bundle.code**。
+ * 无产物直接抛错（注册失败降级为 registerError 警告），绝不把未构建的源码注入页面——
+ * 新建 / 安装在写侧（project-write）已先构建出产物，能走到注册的项目必有 bundle。
  */
 export function resolveInjectCode(project: ScriptProject): string {
-  if (project.bundle?.code) return project.bundle.code
-  const src = project.files[project.entry]
-  if (src == null) throw new Error(`入口文件缺失：${project.entry}`)
-  const isPlainJs = /\.(js|mjs)$/.test(project.entry)
-  const hasModuleSyntax = /(^|\n)\s*(import|export)[\s{'"*]/.test(src)
-  if (!isPlainJs || hasModuleSyntax) {
-    throw new Error('项目未构建，且入口不是可直接执行的纯 JS（含 TS / 模块语法）：需先构建后再启用')
+  if (!project.bundle?.code) {
+    throw new Error('脚本没有构建产物：注入代码只来自构建（编辑器保存 / 历史恢复会自动构建）')
   }
-  return src
+  return project.bundle.code
 }
 
 /** DevTools 里的脚本显示名：duoling://script/<uuid>/<安全化的项目名>.js */
@@ -332,7 +327,7 @@ function sourceURLSuffix(project: ScriptProject): string {
 
 /**
  * 单条注册（仅 enabled 项目才注入；matches 缺失直接抛错）。
- * js 顺序：DL 包装 → 项目代码（bundle 或入口单文件）。
+ * js 顺序：DL 包装 → 构建产物（resolveInjectCode，无产物即抛错）。
  */
 export async function registerScript(project: ScriptProject): Promise<void> {
   if (!project.enabled) return

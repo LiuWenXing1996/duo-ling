@@ -178,8 +178,8 @@ const handlers: {
   // 读完整项目（编辑器多文件用；管理页是可信扩展页，源码不过滤）
   'userscript:getProject': async (msg): Promise<ScriptProject | undefined> => getProject(msg.uuid),
 
-  // 更新文件树 + 入口 + 构建产物（Phase 2：UI 页构建成功后才调用），启用中则重注册。
-  // registerScript 已优先 bundle.code（零改动）；无 bundle 时 resolveInjectCode 守卫兜底。
+  // 更新文件树 + 入口 + 构建产物（bundle 必填：UI 页构建成功后才调用），启用中则重注册。
+  // 产物不变量：注入代码只来自 bundle（resolveInjectCode 无源码回退）。
   // 写转 offscreen：状态落盘与 git 快照在同一处完成，不再有「已保存但没 commit」的缝隙。
   'userscript:updateFiles': async (msg): Promise<{ warnings?: string[]; registerError?: string }> => {
     const next = await writeViaOffscreen<ScriptProject>({
@@ -206,22 +206,22 @@ const handlers: {
     return { removed }
   },
 
-  // 新建脚本（零输入）：命名 / 初始模板 / 首次快照全在 offscreen 侧完成，SW 只负责注册。
+  // 新建脚本（零输入）：命名 / 初始模板 / **构建产物** / 首次快照全在 offscreen 侧完成，SW 只负责注册。
   // 与下面的 install 的分工 —— install 由调用方提供源码与匹配规则（粘贴安装），这个全自动。
   'userscript:create': async (): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
     const project = await writeViaOffscreen<ScriptProject>({ kind: 'state:create' })
     const registerError = await registerOrLog(project)
-    const code = project.files[project.entry] ?? ''
     return {
       uuid: project.uuid,
       name: project.name,
-      warnings: collectCspWarnings(code, await getEffectiveCspPermissive()),
+      warnings: collectCspWarnings(resolveInjectCode(project), await getEffectiveCspPermissive()),
       registerError,
     }
   },
 
-  // 安装：单文件源码 + 名称/匹配规则 → offscreen 落状态库并快照 → SW 注册。
+  // 安装：单文件源码 + 名称/匹配规则 → offscreen 构建产物 + 落状态库并快照 → SW 注册。
   // v2 新形态无 metadata：名称与匹配规则由调用方显式给出（缺省给开发用默认值）。
+  // 安装源码构建失败会在 offscreen 侧带诊断抛出（整个 install 失败，不注册）。
   'userscript:install': async (msg): Promise<{ uuid: string; warnings?: string[]; registerError?: string }> => {
     const project = await writeViaOffscreen<ScriptProject>({
       kind: 'state:install',
@@ -230,10 +230,9 @@ const handlers: {
       matches: msg.matches,
     })
     const registerError = await registerOrLog(project)
-    const code = project.files[project.entry] ?? ''
     return {
       uuid: project.uuid,
-      warnings: collectCspWarnings(code, await getEffectiveCspPermissive()),
+      warnings: collectCspWarnings(resolveInjectCode(project), await getEffectiveCspPermissive()),
       registerError,
     }
   },

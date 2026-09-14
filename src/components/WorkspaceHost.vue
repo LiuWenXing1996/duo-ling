@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 工作区多标签宿主：主页（内容待定）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器。
+// 工作区多标签宿主：主页（内容待定）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器 / 脚本历史 / 脚本产物。
 //
 // 2026-09-14：工具链路移除（docs/tool-chain-removal-plan.md）后，本文件从「工具标签总线」
 // 收窄为「脚本工作台」—— 原先的工具详情 / 代码 / 版本历史 / 档案 / 数据 五个标签页、主页工具网格、
@@ -13,6 +13,7 @@ import UserscriptListPanel from '@/components/userscript/UserscriptListPanel.vue
 import UserscriptEditorPanel from '@/components/userscript/UserscriptEditorPanel.vue'
 import LfsBrowserPanel from '@/components/userscript/LfsBrowserPanel.vue'
 import UserscriptHistoryPanel from '@/components/userscript/UserscriptHistoryPanel.vue'
+import UserscriptBundlePanel from '@/components/userscript/UserscriptBundlePanel.vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
   Tabs as UiTabs,
@@ -103,7 +104,7 @@ function openUserscriptHistoryTab(uuid: string, title: string): void {
   activate(id)
 }
 
-/** 恢复完成后的编辑器重载序号：key 变更强制 remount，重新拉取已恢复的项目数据 */
+/** 恢复完成后的编辑器/产物页重载序号：key 变更强制 remount，重新拉取已恢复的项目数据 */
 const editorReloadTick = ref<Record<string, number>>({})
 
 function onHistoryRestored(uuid: string): void {
@@ -127,14 +128,30 @@ function openUserscriptEditor(uuid: string, title: string): void {
   activate(id)
 }
 
+// 打开某脚本的产物标签页：每脚本一个（id = us-bundle:<uuid>），已打开则激活复用。
+// 只读展示构建产物（真正注入页面的 IIFE）；编辑器顶栏的产物按钮经 @open-bundle 走到这里。
+function openUserscriptBundleTab(uuid: string, title: string): void {
+  const id = `us-bundle:${uuid}`
+  if (!openTabs.value.some((t) => t.id === id)) {
+    openTabs.value.push({
+      kind: 'us-bundle',
+      id,
+      title: `${title || '脚本'} 产物`,
+      userscriptId: uuid
+    })
+  }
+  activate(id)
+}
+
 /**
- * 脚本被删除（列表页广播）：关掉它可能开着的编辑器标签。
+ * 脚本被删除（列表页广播）：关掉它可能开着的编辑器 / 产物标签页。
  * 先清脏标记再关 —— 脚本连 git 仓都被删了，未保存的改动已无处可存，不该再弹确认。
  */
 function onUserscriptDeleted(uuid: string): void {
-  const id = `us-edit:${uuid}`
-  delete dirtyTabs.value[id]
-  if (openTabs.value.some((t) => t.id === id)) closeTab(id)
+  for (const id of [`us-edit:${uuid}`, `us-bundle:${uuid}`]) {
+    delete dirtyTabs.value[id]
+    if (openTabs.value.some((t) => t.id === id)) closeTab(id)
+  }
 }
 
 // 工作区 tab 状态上报主进程：agent_workspace_tabs 工具据此回答「当前打开了哪些页面」。
@@ -198,6 +215,7 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBro
           :uuid="tab.userscriptId ?? ''"
           @dirty="(v: boolean) => (dirtyTabs[tab.id] = v)"
           @open-history="openUserscriptHistoryTab"
+          @open-bundle="openUserscriptBundleTab"
         />
         <!-- lfs 浏览：offscreen lightning-fs 整库只读文件树 -->
         <lfs-browser-panel v-else-if="tab.kind === 'lfs-browser'" />
@@ -207,6 +225,12 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBro
           :key="tab.id"
           :uuid="tab.userscriptId ?? ''"
           @restored="onHistoryRestored"
+        />
+        <!-- 脚本产物：每脚本一个标签页，只读展示构建产物（真正注入页面的代码） -->
+        <userscript-bundle-panel
+          v-else-if="tab.kind === 'us-bundle'"
+          :key="tab.id + ':' + (editorReloadTick[tab.userscriptId ?? ''] ?? 0)"
+          :uuid="tab.userscriptId ?? ''"
         />
       </ui-tabs-content>
     </ui-tabs>

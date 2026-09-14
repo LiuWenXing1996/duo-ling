@@ -14,7 +14,7 @@ export type RuntimeRequest =
   // 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）
   | { kind: 'userscript:list' }
   | { kind: 'userscript:getProject'; uuid: string }
-  | { kind: 'userscript:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle?: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
+  | { kind: 'userscript:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
   | { kind: 'userscript:clearDeprecated' }
   | { kind: 'userscript:create' }
   | { kind: 'userscript:install'; source: string; name?: string; matches?: string[] }
@@ -59,7 +59,7 @@ export type RuntimeRequest =
   // 读不进协议：SW 与扩展页直连 IDB（project-store），不经容器——注册链路不能押在容器存活上。
   | { kind: 'state:create' }
   | { kind: 'state:install'; source: string; name?: string; matches?: string[] }
-  | { kind: 'state:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle?: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
+  | { kind: 'state:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
   | { kind: 'state:remove'; uuid: string }
   | { kind: 'state:toggle'; uuid: string; enabled: boolean }
 

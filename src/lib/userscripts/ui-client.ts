@@ -74,12 +74,13 @@ export const userscriptClient = {
     send({ kind: 'userscript:getProject', uuid }),
 
   /** 保存文件树 + 入口 + 名称/配置 + 构建产物并重注册；note 为可选提交备注（缺省自动计数）。
+   *  bundle 必填：只在编辑器构建成功后调用（产物不变量，见 project-write.ts 文件头）。
    *  返回非阻塞警告与 registerError（数据已保存、仅注册失败时的警告文案） */
   updateFiles: (
     uuid: string,
     files: Record<string, string>,
     entry: string,
-    bundle?: { code: string; builtAt: number },
+    bundle: { code: string; builtAt: number },
     opts?: { name?: string; config?: ScriptConfig; note?: string },
   ): Promise<{ warnings?: string[]; registerError?: string }> =>
     send({ kind: 'userscript:updateFiles', uuid, files, entry, bundle, ...opts }),

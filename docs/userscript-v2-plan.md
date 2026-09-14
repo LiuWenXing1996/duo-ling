@@ -127,7 +127,7 @@ interface ScriptProject {
 改动：
 1. `store.ts`：`us:script:<uuid>` 存 `ScriptProject`；**deprecated 判定 = 记录含 GM metadata 特征字段**（`rawMeta` / `grants` / `requires` / `requireCodes` / `source` 等，Phase 0 起产物已是 `v:1` ScriptProject，不会误判），列表可见、不注册、提供一键清理，**不自动迁移**。
 2. `background.ts` IPC 面换为：`script:create` / `script:update`（全量保存）/ `script:delete` / `script:list` / `script:get` / `script:rebuild`（重注册单脚本）。
-3. `engine.ts` `registerScript(project)`：从 `project.bundle.code`（无 bundle 时回退 `files[entry]` 单文件直跑——**回退守卫：仅 entry 为 .js/.mjs 且源码无 import/export 语法时才回退**，否则报「需先构建」而非注入语法错误源码）；`matches` 等直接取自 `config`。
+3. `engine.ts` `registerScript(project)`：从 `project.bundle.code` 注入。~~无 bundle 时回退 `files[entry]` 单文件直跑~~ → **回退已删除（2026-09-15 产物不变量，老大拍板：SW 只注册最终产物，没有直跑源码的逻辑）**：新建 / 安装在写侧（`project-write`）先构建出产物再落盘，`updateProjectFiles` 的 bundle 必填，`resolveInjectCode` 无产物即抛错（注册降级为 registerError 警告）；`matches` 等直接取自 `config`。
 4. GM 值键空间 `us:gm:<uuid>:<key>` 保持不变（旧脚本的私有数据不丢）。
 
 验收：手工在 storage 写入一个两文件项目 + bundle，启停/匹配/排除（glob）/iframe（allFrames）行为正确；旧 GM 记录出现在「已弃用」分组。

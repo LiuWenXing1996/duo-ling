@@ -16,6 +16,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   CircleX as UiCircleX,
   History as UiHistory,
+  Package as UiPackage,
   Pencil as UiPencil,
   Plus as UiPlus,
   Star as UiStar,
@@ -33,6 +34,8 @@ const emit = defineEmits<{
   dirty: [dirty: boolean]
   /** 请求打开本脚本的历史标签页（历史浏览/恢复已整体迁出到 us-history:<uuid> 标签页） */
   openHistory: [uuid: string, title: string]
+  /** 请求打开本脚本的产物标签页（只读浏览构建产物，us-bundle:<uuid>） */
+  openBundle: [uuid: string, title: string]
 }>()
 
 const loading = ref(true)
@@ -416,6 +419,14 @@ onMounted(() => {
           </p>
         </div>
         <div class="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            class="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            title="构建产物（打开产物标签页，只读）"
+            @click="emit('openBundle', props.uuid, scriptName)"
+          >
+            <ui-package class="size-4" />
+          </button>
           <button
             type="button"
             class="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"

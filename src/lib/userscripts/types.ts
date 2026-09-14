@@ -150,8 +150,8 @@ export function defaultConfig(matches: string[]): ScriptConfig {
 /**
  * 新建脚本的初始源码模板（零输入创建用）。
  *
- * 必须是可直接执行的纯 JS —— **不能含 import / export**，否则 engine 的 resolveInjectCode
- * 会以「项目未构建」拒绝注册：新建这条路不跑 esbuild，只有编辑器保存才走构建管线。
+ * 新建即构建（project-write.createProject 内先 buildProject 再落盘，产物是注册的必要条件），
+ * 但模板保持极简纯 JS：无依赖、无模块语法，构建产物与源码几乎等价，首保存即被用户内容覆盖。
  */
 export function defaultSource(name: string): string {
   return [

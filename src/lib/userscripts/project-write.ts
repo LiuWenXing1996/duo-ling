@@ -7,6 +7,11 @@
 // 先落状态、紧接着快照提交，**不再有跨上下文的缝隙**。
 //
 // 失败策略不变：commit 失败只丢历史不丢脚本（仓损坏可重建，状态库是权威），故快照异常只 warn。
+//
+// 2026-09-15 产物不变量（老大拍板：SW 只注册最终产物）：bundle 是注册的**必要条件**——
+// 新建 / 安装在本模块内先构建（同在 offscreen，直接调 builder，零新链路），构建失败即创建失败；
+// updateProjectFiles 的 bundle 参数为必填（UI 只在构建成功后才调保存）。不存在「无产物被注册」的路径。
+import { buildProject, BuildError } from './builder'
 import { getProject, nextScriptName, validateFiles } from './project-store'
 import { removeProject, writeProject } from './state-db'
 import { deleteRepo, snapshotProject } from './us-git'
@@ -19,13 +24,24 @@ function nowProject(name: string, files: Record<string, string>, config: ScriptC
     v: 1,
     uuid: crypto.randomUUID(),
     name,
-    // 新建即启用（2026-09-14 老大拍板）；初始源码无害，注入也安全
+    // 新建即启用（2026-09-14 老大拍板）；初始模板先构建出产物才落盘，注册有产物可注入
     enabled: true,
     config,
     files,
     entry: ENTRY_DEFAULT,
     createdAt: ts,
     updatedAt: ts,
+  }
+}
+
+/** 构建并返回产物（bundle 必存在，注册的前置条件）；BuildError 格式化为可读多行错误 */
+async function buildOutcome(files: Record<string, string>, entry: string): Promise<{ code: string; builtAt: number }> {
+  try {
+    const outcome = await buildProject(files, entry)
+    return { code: outcome.code, builtAt: Date.now() }
+  } catch (e) {
+    if (e instanceof BuildError) throw new Error('构建失败：\n' + e.issues.join('\n'))
+    throw e
   }
 }
 
@@ -39,34 +55,39 @@ async function writeAndSnapshot(project: ScriptProject, note?: string): Promise<
   }
 }
 
-/** 新建（零输入）：自动命名 + 初始模板 */
+/** 新建（零输入）：自动命名 + 初始模板 + **先构建出产物再落盘**（构建失败即创建失败） */
 export async function createProject(): Promise<ScriptProject> {
   const name = await nextScriptName()
   const project = nowProject(name, { [ENTRY_DEFAULT]: defaultSource(name) }, defaultConfig(['*://*/*']))
+  project.bundle = await buildOutcome(project.files, project.entry)
   await writeAndSnapshot(project)
   return project
 }
 
-/** 安装：单文件源码 + 名称/匹配规则（缺省给开发用默认值） */
+/** 安装：单文件源码 + 名称/匹配规则（缺省给开发用默认值）；同样**先构建**，失败带诊断抛出 */
 export async function installProject(
   source: string,
   opts?: { name?: string; matches?: string[] },
 ): Promise<ScriptProject> {
+  const files = { [ENTRY_DEFAULT]: source }
+  const bundle = await buildOutcome(files, ENTRY_DEFAULT)
   const project = nowProject(
     opts?.name?.trim() || '未命名脚本',
-    { [ENTRY_DEFAULT]: source },
+    files,
     defaultConfig(opts?.matches?.length ? opts.matches : ['*://*/*']),
   )
+  project.bundle = bundle
   await writeAndSnapshot(project)
   return project
 }
 
-/** 更新文件树 + 入口 + 名称/配置 + 构建产物（读改写在同一处，不跨上下文） */
+/** 更新文件树 + 入口 + 名称/配置 + 构建产物（读改写在同一处，不跨上下文）。
+ *  bundle **必填**：调用方（编辑器保存 / 历史恢复）必须在构建成功后才能走到这里 */
 export async function updateProjectFiles(
   uuid: string,
   files: Record<string, string>,
   entry: string,
-  bundle?: { code: string; builtAt: number },
+  bundle: { code: string; builtAt: number },
   opts?: { name?: string; config?: ScriptConfig; note?: string },
 ): Promise<ScriptProject> {
   const project = await getProject(uuid)
@@ -74,7 +95,7 @@ export async function updateProjectFiles(
   validateFiles(files, entry)
   project.files = files
   project.entry = entry
-  if (bundle) project.bundle = bundle
+  project.bundle = bundle
   if (opts?.name !== undefined) {
     const name = opts.name.trim()
     if (!name) throw new Error('脚本名称不能为空')

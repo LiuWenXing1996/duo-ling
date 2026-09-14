@@ -134,6 +134,7 @@ export type WorkspaceTabKind =
   | 'userscript-list'
   | 'userscript-edit'
   | 'script-history'
+  | 'us-bundle'
   | 'lfs-browser'
 
 /** 工作区打开标签页快照（渲染层 → 主进程上报，供 Agent 工具查询当前打开的 tab 页） */
@@ -141,7 +142,7 @@ export interface WorkspaceTabSnapshot {
   id: string
   title: string
   kind: WorkspaceTabKind
-  /** 仅 userscript-edit：对应的用户脚本 uuid */
+  /** 仅 userscript-edit / script-history / us-bundle：对应的用户脚本 uuid */
   userscriptId?: string
 }
 
