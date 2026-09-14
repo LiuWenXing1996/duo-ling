@@ -61,6 +61,10 @@ export function useGlobalConversation() {
   const usageByMessageId = ref<Record<string, TokenUsage>>({})
   // —— 孤儿任务（offscreen 宿主被杀后遗留；供 ChatApp 横幅提示「继续 / 丢弃」）——
   const orphanTasks = ref<ChatOrphanRecord[]>([])
+  // —— 最近一次生成失败的错误文案（供 ChatPanel 展示；发新消息 / 切会话时清除）——
+  // 2026-09-15 手测教训：流中途报错（模型网络错误 / API 失败）原本全静默——
+  // 面板只摘掉空气泡，错误文案从不显示，用户看到的就是「发出去没回音、重开也没记录」。
+  const chatError = ref('')
 
   // —— useChat：单个稳定 VueChat 实例；切换会话时直接重置 messages（ShallowRef 可安全赋值）——
   const transport = new ExtensionChatTransport()
@@ -97,6 +101,7 @@ export function useGlobalConversation() {
   /** 加载某会话的消息并激活之；若该会话有进行中的任务则重连续流 */
   async function activateConversation(id: string): Promise<void> {
     chat.stop() // 本地断流（不发 chat:abort，offscreen 任务照跑；显式停止走 stopGeneration）
+    chatError.value = ''
     activeConversationId.value = id
     transport.setConversationId(id)
     const msgs = await window.api.conversation.messages(id)
@@ -211,8 +216,9 @@ export function useGlobalConversation() {
     }
   }
 
-  /** 出错回调（useChat onError）：移除空副本站，避免残留空白气泡；恢复可输入 */
-  function handleChatError(): void {
+  /** 出错回调（useChat onError）：错误文案透出到面板（chatError），并移除空副本站避免残留空白气泡 */
+  function handleChatError(error?: Error): void {
+    chatError.value = error?.message || '生成失败，请稍后重试'
     const last = chat.messages.value[chat.messages.value.length - 1]
     const lastParts = last?.parts ?? []
     const hasVisibleContent = lastParts.some(
@@ -230,6 +236,7 @@ export function useGlobalConversation() {
   /** 发送：落盘（用户消息）与执行都在 offscreen —— useChat 自动追加本地视图并触发 transport */
   async function send(text: string): Promise<void> {
     if (!text || streaming.value) return
+    chatError.value = ''
     await ensureActiveConversation()
     await chat.sendMessage({ text })
   }
@@ -250,6 +257,8 @@ export function useGlobalConversation() {
     activeConversationId,
     // 当前会话视图
     messages,
+    /** 最近一次生成失败的错误文案（空串 = 无错；展示归 ChatPanel） */
+    chatError,
     /** 各消息本次消耗的 token（按 UIMessage.id 索引，供单条展示） */
     usageByMessageId,
     /** offscreen 宿主被杀后遗留的进行中任务（供孤儿横幅） */

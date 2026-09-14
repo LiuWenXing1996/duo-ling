@@ -81,6 +81,8 @@ const props = defineProps<{
   /** 各消息本次消耗的 token（按 UIMessage.id 索引），assistant 消息展示在气泡下方 */
   usageByMessageId: Record<string, TokenUsage>
   streaming: boolean
+  /** 最近一次生成失败的错误文案（空串 = 无错）；渲染在消息区与输入框之间 */
+  errorText?: string
 }>()
 const emit = defineEmits<{
   send: [text: string]
@@ -692,6 +694,16 @@ function onPromptSubmit(payload: PromptInputMessage): void {
         </ui-conversation-content>
         <ui-conversation-scroll-button />
       </ui-conversation>
+
+      <!-- 生成失败警示条：错误文案必须用户可见（曾经全静默，只摘空气泡） -->
+      <p
+        v-if="props.errorText"
+        class="mx-3 mb-1 shrink-0 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs leading-relaxed text-destructive"
+        role="alert"
+        data-testid="chat-error"
+      >
+        {{ props.errorText }}
+      </p>
 
       <div class="border-t p-3">
         <ui-prompt-input @submit="onPromptSubmit">

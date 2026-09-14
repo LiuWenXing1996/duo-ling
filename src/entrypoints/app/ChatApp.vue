@@ -23,6 +23,7 @@ const {
   messages,
   usageByMessageId,
   orphanTasks,
+  chatError,
   streaming,
   loadConversations,
   newConversation,
@@ -162,6 +163,7 @@ onMounted(() => {
       :messages="messages"
       :usage-by-message-id="usageByMessageId"
       :streaming="streaming"
+      :error-text="chatError"
       @send="send"
       @stop="stopGeneration"
       @open-settings="openWorkbench('#/settings')"
