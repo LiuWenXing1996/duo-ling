@@ -75,14 +75,16 @@
 
 ---
 
-## 用户脚本编辑器：CodeMirror 6 高亮（后置增强，待动工）
+## ~~用户脚本编辑器：CodeMirror 6 高亮~~ → **已落地（2026-09-15）**
 
-**背景**：v2 用户脚本（docs/userscript-v2-plan.md）Phase 0–3 已落地，编辑器一期为裸 textarea（方案定稿：CodeMirror 6 作为独立增强后置）。2026-09-14 老大确认「等后面再说」，登记备查。
-
-**方案要点**：
-1. 依赖：`codemirror` + `@codemirror/lang-javascript`（js/ts/jsx/tsx 一包全覆盖）+ 深浅色主题（`@codemirror/theme-one-dark` 或 CSS 变量自适配，主题跟随系统）。**新增依赖，动工前与老大确认**。
-2. 改动面：仅编辑抽屉 textarea → CodeMirror 组件，v-model 接 `editFiles[activeFile]`；构建报错、保存流程、文件树零改动。
-3. 可选增强：构建失败行内错误标记（esbuild 的 file:line 映射到 CodeMirror lint/装饰器）。
+> 编辑抽屉（现为工作台标签页 `UserscriptEditorPanel.vue`）的 textarea 已换为 CodeMirror 6。
+> 依赖 `codemirror` + `@codemirror/lang-javascript`（js/ts/jsx/tsx 一包全覆盖；其余 CM 官方分包
+> 经顶层包依赖解析，不新增 package.json 条目）。v-model 接现有编辑态（`editFiles[activeFile]`），
+> 保存流程 / 文件树 / 协议层零改动；深浅色不引主题包——编辑器 chrome 直接引用语义 token
+> （`html.dark` 翻转即跟随），语法色用 class 型 HighlightStyle + 组件内 `--cm-*` 变量两套色板。
+> 可选增强一并做了：构建失败 issues（`文件:行:列  文本`）映射到行内 lint 波浪线 + 悬停提示
+> （入口报错 file 名为 `stdin`，按 entry 认领；越界行号 clamp）。
+> 切文件走 `EditorState` 整体重建（避免整文档替换事务污染撤销历史），同文件外部回写才替换 doc。
 
 ---
 
