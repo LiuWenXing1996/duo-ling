@@ -308,7 +308,7 @@ async function restoreCommit(): Promise<void> {
   error.value = ''
   notice.value = ''
   try {
-    const { project } = await aiFsClient.restoreToCommit(props.uuid, histOid.value)
+    const { restored: project } = await aiFsClient.restoreToCommit(props.uuid, histOid.value)
     scriptName.value = project.name
     editFiles.value = { ...project.files }
     editEntry.value = project.entry

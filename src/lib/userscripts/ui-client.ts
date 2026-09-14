@@ -125,8 +125,9 @@ export const aiFsClient = {
   historyTree: (uuid: string, oid: string): Promise<UsHistoryTree> =>
     sendAi({ kind: 'ai:historyTree', uuid, oid }),
 
-  /** 恢复到某提交（enabled 保持当前值；bundle 由 UI 重建，落盘 + 重注册由后续 updateFiles 完成） */
-  restoreToCommit: (uuid: string, oid: string): Promise<{ committed: boolean; project: ScriptProject }> =>
+  /** 恢复到某提交（enabled 保持当前值；bundle 由 UI 重建，落盘 + 重注册由后续 updateFiles 完成）。
+   *  返回 restored = 物化出的 ScriptProject（与 us-git.restoreToCommit 对齐） */
+  restoreToCommit: (uuid: string, oid: string): Promise<{ committed: boolean; restored: ScriptProject }> =>
     sendAi({ kind: 'ai:restoreToCommit', uuid, oid }),
 
   /** 整库浏览（只读调试视图）：lfs 库的完整文件树（含 .git 内部） */
