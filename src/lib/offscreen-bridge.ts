@@ -1,0 +1,55 @@
+// offscreen 侧的能力调用桥：凡 offscreen 自己拿不到的（chrome.storage / chrome.userScripts /
+// chrome.tabs），一律经 runtime 消息请 SW 代办。
+//
+// 为什么需要它（§4.8 模块归属规则）：offscreen 只允许 import builder.ts（纯 esbuild）、
+// extension-chat-transport.ts、ai SDK 与本文件。若直接 import store.ts / model-store.ts /
+// fs-store.ts，会在运行时报 `chrome.storage is undefined` —— 本文件就是那条规则的正门：
+// 把「需要 SW 的东西」收敛成一组显式调用，让违规 import 变成编译器/运行时都能抓住的错误。
+//
+// 与 UI 侧的 userscriptClient（src/lib/userscripts/ui-client.ts）同构：同一个 send 信封、
+// 同一条命令面。差别只在调用方是谁（那边是扩展页，这边是 offscreen document）。
+//
+// 注意：这里只用 `import type` 引类型（编译后消失，零运行时依赖）—— 引的 ScriptProject
+// 来自 userscripts/types.ts，那是纯类型 + 纯函数模块，不碰任何 chrome API。
+import type { ModelProfileState, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
+import type { ScriptProject } from '@/lib/userscripts/types'
+
+/** 向 SW 发一次请求，统一解包 { ok, data | error } */
+function send<T>(request: RuntimeRequest): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    chrome.runtime.sendMessage(request, (response: RuntimeResponse<T> | undefined) => {
+      const lastError = chrome.runtime.lastError
+      if (lastError) {
+        reject(new Error(lastError.message))
+        return
+      }
+      if (!response) {
+        reject(new Error('background 无响应'))
+        return
+      }
+      if (!response.ok) {
+        reject(new Error(response.error))
+        return
+      }
+      resolve(response.data as T)
+    })
+  })
+}
+
+/** offscreen → SW 的能力调用面（一期 A 组只收拢已有命令，B 组按需扩展） */
+export const offscreenBridge = {
+  /**
+   * 当前生效的模型配置（含 apiKey 明文）。
+   * ⚠️ 调用方必须「取一次、缓存、不写日志」—— 见 §4.8 配置通道关于 apiKey 的边界说明。
+   */
+  getActiveProfile: (): Promise<ModelProfileState | undefined> =>
+    send({ kind: 'model:getActiveProfile' }),
+
+  /** 读完整脚本项目（多文件编辑器 / 生成后落盘等场景） */
+  getProject: (uuid: string): Promise<ScriptProject | undefined> =>
+    send({ kind: 'userscript:getProject', uuid }),
+
+  /** 启停脚本（注册 / 注销由 SW 侧完成） */
+  toggle: (uuid: string, enabled: boolean): Promise<void> =>
+    send({ kind: 'userscript:toggle', uuid, enabled }),
+}

@@ -45,7 +45,11 @@ export default defineConfig({
     description: '哆灵 AI 工具工厂 · 扩展版（侧边栏对话 + 标签页工作台）',
     // sidePanel 是使用 chrome.sidePanel API 的必需权限（Chrome 114+），不要剔除。
     // setPanelBehavior({openPanelOnActionClick:true}) 还需声明 action 键，点工具栏图标才会开面板。
-    permissions: ['storage', 'sidePanel', 'userScripts', 'notifications'],
+    // offscreen 是 AI 生成链路的执行宿主（定位 B，docs/userscript-ai-generation.md §4.8）：
+    // 对话 loop 与 esbuild 构建都跑在 offscreen document 里，「用户发起生成后可关掉侧边栏、
+    // 任务照跑完」。没有该权限 chrome.offscreen 不存在，容器起不来（Chrome 109+ / 仅 MV3）。
+    // 老大 2026-09-14 已批准（方案文档 §6.1 #9）。
+    permissions: ['storage', 'sidePanel', 'userScripts', 'notifications', 'offscreen'],
     // 在线模型走 OpenAI 兼容接口，需要扩展页跨域 fetch，必须声明对应 host 权限。
     // 由服务商预设表推导（src/lib/providers.ts），避免申请不必要的全域权限；
     // 自定义接口地址的按需授权后续用 optional_host_permissions 动态申请。

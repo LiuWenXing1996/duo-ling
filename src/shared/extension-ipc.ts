@@ -45,6 +45,26 @@ export type RuntimeRequest =
   | { kind: 'userscript:historyTree'; uuid: string; oid: string }
   | { kind: 'userscript:restoreToCommit'; uuid: string; oid: string }
 
+  // —— offscreen document（AI 生成链路的执行宿主，方案 §4.8 定位 B）——
+  // 容器**按需创建**（刻意不在 SW 启动时自动建，否则一启动就常驻，与退出条件相悖），
+  // 故用显式命令控制；`offscreen:ready` 是 offscreen 侧启动后的握手通知。
+  | { kind: 'offscreen:ensure' }
+  | { kind: 'offscreen:close' }
+  | { kind: 'offscreen:status' }
+  | { kind: 'offscreen:ready' }
+
+  // —— 模型配置（offscreen 侧向 SW 拉取，方案 §4.8 配置通道）——
+  // offscreen 拿不到 chrome.storage，故在启动 / 收到变更推送时经此命令取一次并缓存。
+  // 返回值含 apiKey 明文：属同扩展内上下文之间的传递（offscreen 与 SW 信任级别等同），
+  // 不是新增对外暴露面；但仍须「取一次、缓存、不写日志」。
+  | { kind: 'model:getActiveProfile' }
+
+/**
+ * SW → offscreen 的单向推送（**不经 handlers 表** —— SW 不会收到自己发出的消息）。
+ * offscreen 监听后自行决定是否回拉，例如收到 configChanged 就重新调 model:getActiveProfile。
+ */
+export type OffscreenPush = { kind: 'offscreen:configChanged' }
+
 /** 提交结果：无净变更时 committed=false（工具页据此提示「无变更」而非「已提交」） */
 export interface GitCommitResult {
   committed: boolean

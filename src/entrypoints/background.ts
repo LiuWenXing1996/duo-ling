@@ -26,7 +26,7 @@ import {
 } from '@/fs-store'
 import { getCapability, listCapabilities } from '@/capabilities/registry'
 import { toolPageHtml } from '@/tool-page-template'
-import type { GitCommitResult, RuntimeRequest } from '@/shared/extension-ipc'
+import type { GitCommitResult, ModelProfileState, OffscreenPush, RuntimeRequest } from '@/shared/extension-ipc'
 import type {
   Capability,
   ToolArchiveResult,
@@ -59,6 +59,18 @@ import type { ScriptProject, UserScriptsAvailability } from '@/lib/userscripts/t
 import { snapshotProject, listHistory, readTreeAt, restoreToCommit, deleteRepo } from '@/lib/userscripts/us-git'
 import { ENTRY_DEFAULT, defaultConfig, defaultSource } from '@/lib/userscripts/types'
 
+// offscreen document 容器（AI 生成链路的执行宿主，方案 §4.8 定位 B）
+import { ensureOffscreen, closeOffscreen, isOffscreenReady } from '@/lib/offscreen'
+// 模型配置：offscreen 既收不到 storage.onChanged、也不该直连存储，一律由 SW 经命令 / 推送中转
+import { getActiveProfileState } from '@/lib/model-store'
+
+/**
+ * 模型配置在 chrome.storage.local 的键。
+ * 与 src/lib/model-store.ts 的 `KEY`、tool-prefs.ts 保留键清单里那个字符串是同一个值
+ * （键名是持久化契约，改名要迁数据，故各处并行硬编码、不互相 import）。
+ */
+const MODEL_PROFILES_KEY = 'modelProfiles'
+
 /** 初始示例工具：工具工厂开箱即用的一个工具，验证"生成 → 运行 → 提交 → 回滚"闭环 */
 const SAMPLE_TOOL_ID = 'markdown'
 
@@ -84,9 +96,41 @@ async function ensureSampleTool(): Promise<void> {
   }
 }
 
+/**
+ * SW 管辖的 kind 前缀（路由白名单，方案 §4.8「统一的 route」）。
+ *
+ * offscreen 与 SW 同时在监听 runtime 消息，而 sendResponse 对一条消息只有一次机会 ——
+ * SW 只应响应这里登记的前缀，其余（如将来 offscreen 的 ai: / chat: 指令）必须让路，
+ * 否则 SW 会抢答、把 offscreen 的响应挤掉。
+ *
+ * 新增命令时若忘了登记前缀，该命令会静默无响应（而不是报「未知消息类型」）——
+ * 这是刻意的：静默比一个假错误更诚实。
+ */
+const SW_KIND_PREFIXES = ['tool:', 'cap:', 'git:', 'userscript:', 'model:', 'offscreen:'] as const
+
 const handlers: {
   [K in RuntimeRequest['kind']]: (msg: Extract<RuntimeRequest, { kind: K }>) => Promise<unknown>
 } = {
+  // —— offscreen 容器（方案 §4.8 定位 B）——
+  // A 组只做容器与通道：这几个命令供手动 / 调试触发；B 组的生成入口会直接调 ensureOffscreen()。
+  'offscreen:ensure': async (): Promise<{ ready: boolean }> => {
+    await ensureOffscreen()
+    return { ready: await isOffscreenReady() }
+  },
+
+  'offscreen:close': async (): Promise<void> => closeOffscreen(),
+
+  'offscreen:status': async (): Promise<{ ready: boolean }> => ({ ready: await isOffscreenReady() }),
+
+  /** offscreen 启动握手（offscreen → SW）：容器自己报告已就绪，便于排查启动问题 */
+  'offscreen:ready': async (): Promise<void> => {
+    console.log('[duoling:offscreen] 容器已就绪')
+  },
+
+  // 模型配置：offscreen 拉取当前生效配置（含 apiKey）。复用现成的 getActiveProfileState()，
+  // SW 里本来就能调；offscreen 侧须「取一次、缓存、不写日志」（方案 §4.8 配置通道）。
+  'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> => getActiveProfileState(),
+
   // 工具列表：只列 meta.json 完整的工具（残留目录不进网格，对齐桌面版 listUserTools）
   'tool:list': async (): Promise<UserToolMeta[]> => listTools(),
 
@@ -365,9 +409,31 @@ export default defineBackground(() => {
     }
   })
 
+  // 模型配置变更 → 通知 offscreen 重新拉取（它只有 chrome.runtime，收不到 storage.onChanged）。
+  // 只发「变了」这个信号、**不推配置内容**：由 offscreen 主动回拉，apiKey 只在它取用时过界，
+  // 而不是被 SW 广播（方案 §4.8 配置通道）。容器不存在就直接跳过，不为一条通知唤醒上下文。
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !Object.prototype.hasOwnProperty.call(changes, MODEL_PROFILES_KEY)) {
+      return
+    }
+    void isOffscreenReady()
+      .then((ready) => {
+        if (!ready) return
+        const push: OffscreenPush = { kind: 'offscreen:configChanged' }
+        return chrome.runtime.sendMessage(push)
+      })
+      .catch(() => {
+        // 尽力而为：容器刚被关掉 / 无人监听时不阻断
+      })
+  })
+
   chrome.runtime.onMessage.addListener((raw, _sender, sendResponse) => {
     const msg = raw as RuntimeRequest | undefined
     if (!msg?.kind) return
+
+    // 路由：只响应归 SW 管辖的 kind，其余静默让路给 offscreen（见 SW_KIND_PREFIXES）
+    if (!SW_KIND_PREFIXES.some((p) => msg.kind.startsWith(p))) return false
+
     const handler = handlers[msg.kind] as ((m: RuntimeRequest) => Promise<unknown>) | undefined
     if (!handler) {
       sendResponse({ ok: false, error: `未知消息类型：${msg.kind}` })
