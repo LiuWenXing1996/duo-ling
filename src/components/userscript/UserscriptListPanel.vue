@@ -12,9 +12,17 @@ import {
   LoaderCircle as UiLoaderCircle,
   Pencil as UiPencil,
   Plus as UiPlus,
-  RefreshCw as UiRefreshCw
+  RefreshCw as UiRefreshCw,
+  Trash2 as UiTrash2
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
+import {
+  Dialog as UiDialog,
+  DialogContent as UiDialogContent,
+  DialogDescription as UiDialogDescription,
+  DialogFooter as UiDialogFooter,
+  DialogTitle as UiDialogTitle
+} from '@/components/ui/dialog'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import { formatTimestamp } from '@/lib/format'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
@@ -23,6 +31,8 @@ import type { ScriptSummary } from '@/lib/userscripts/types'
 const emit = defineEmits<{
   /** 请求打开该脚本的编辑器标签页（由 ToolWorkspace 接管） */
   edit: [uuid: string, title: string]
+  /** 脚本已删除：宿主据此关掉它的编辑器标签（项目已不存在） */
+  deleted: [uuid: string]
 }>()
 
 const scripts = ref<ScriptSummary[]>([])
@@ -32,6 +42,8 @@ const error = ref('')
 const toggling = ref<string | null>(null)
 /** 创建中：避免连点一次建出多个空脚本 */
 const creating = ref(false)
+/** 正在删除的脚本 uuid：避免连点重复发起 */
+const removing = ref<string | null>(null)
 
 /** 已弃用的旧 GM 形态记录不注册、不可编辑，参与不了启停 */
 const activeScripts = computed(() => scripts.value.filter((s) => !s.deprecated))
@@ -82,6 +94,40 @@ async function onCreate(): Promise<void> {
     error.value = '创建失败：' + (e instanceof Error ? e.message : String(e))
   } finally {
     creating.value = false
+  }
+}
+
+/** 待删除的脚本：非 null 即确认弹窗打开 */
+const pendingRemove = ref<ScriptSummary | null>(null)
+
+/**
+ * 点「删除」：开确认弹窗。
+ * 用 UI 弹窗而非原生 confirm —— 原生 confirm / prompt 是**同步阻塞**的，会冻结渲染
+ * （项目既有决定，见 ToolDeleteDialog 与 SessionHistoryPanel 的同款注释）。
+ */
+function askRemove(s: ScriptSummary): void {
+  pendingRemove.value = s
+}
+
+/**
+ * 弹窗里确认删除：注销 + 删存储 + **删 git 仓**（background 的 userscript:remove），不可撤销。
+ * 成功后广播 deleted，由 ToolWorkspace 关掉它可能开着的编辑器标签。
+ * 旧格式（deprecated）记录同样可删 —— 这里是它唯一的清理入口。
+ */
+async function confirmRemove(): Promise<void> {
+  const target = pendingRemove.value
+  if (!target || removing.value) return
+  pendingRemove.value = null
+  removing.value = target.uuid
+  error.value = ''
+  try {
+    await userscriptClient.remove(target.uuid)
+    emit('deleted', target.uuid)
+    await refresh()
+  } catch (e) {
+    error.value = `「${target.name}」删除失败：` + (e instanceof Error ? e.message : String(e))
+  } finally {
+    removing.value = null
   }
 }
 
@@ -204,10 +250,45 @@ onMounted(() => {
               >
                 <ui-pencil class="size-3.5" />
               </ui-button>
+              <!-- 删除不分 deprecated：旧格式记录也在这里清理 -->
+              <ui-button
+                variant="ghost"
+                size="icon"
+                class="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                title="删除脚本"
+                :disabled="removing === s.uuid"
+                @click="askRemove(s)"
+              >
+                <ui-trash2 class="size-3.5" />
+              </ui-button>
             </div>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- 删除确认弹窗：用 UI 弹窗替代原生 confirm（原生 confirm / prompt 是同步阻塞的，会冻结渲染） -->
+    <ui-dialog
+      :open="!!pendingRemove"
+      @update:open="(v: boolean) => { if (!v) pendingRemove = null }"
+    >
+      <ui-dialog-content class="max-w-md">
+        <ui-dialog-title class="text-base font-semibold">删除脚本</ui-dialog-title>
+        <ui-dialog-description class="text-sm text-muted-foreground">
+          确定删除脚本「{{ pendingRemove?.name }}」吗？此操作不可撤销，其 git 历史会一并删除。
+        </ui-dialog-description>
+        <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
+          <ui-button variant="ghost" size="sm" @click="pendingRemove = null">取消</ui-button>
+          <ui-button
+            variant="destructive"
+            size="sm"
+            :disabled="removing !== null"
+            @click="confirmRemove"
+          >
+            删除
+          </ui-button>
+        </ui-dialog-footer>
+      </ui-dialog-content>
+    </ui-dialog>
   </section>
 </template>

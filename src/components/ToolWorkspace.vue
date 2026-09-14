@@ -150,6 +150,16 @@ function openUserscriptEditor(uuid: string, title: string): void {
   activate(id)
 }
 
+/**
+ * 脚本被删除（列表页广播）：关掉它可能开着的编辑器标签。
+ * 先清脏标记再关 —— 脚本连 git 仓都被删了，未保存的改动已无处可存，不该再弹确认。
+ */
+function onUserscriptDeleted(uuid: string): void {
+  const id = `us-edit:${uuid}`
+  delete dirtyTabs.value[id]
+  if (openTabs.value.some((t) => t.id === id)) closeTab(id)
+}
+
 // 打开某工具的「代码浏览」标签页：同一工具只有一个代码页，已打开则激活
 function openToolCode(tool: ToolDetailMeta): void {
   const id = `${tool.id}:code`
@@ -517,6 +527,7 @@ defineExpose({ createTool, openTool, openSettingsTab, openDeveloperTab, openUiTe
         <userscript-list-panel
           v-else-if="tab.kind === 'userscript-list'"
           @edit="openUserscriptEditor"
+          @deleted="onUserscriptDeleted"
         />
         <!-- 用户脚本编辑器：每脚本一个标签页；脏状态上报给 closeTab 做关闭前确认 -->
         <userscript-editor-panel
