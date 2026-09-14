@@ -18,8 +18,11 @@ import {
   CircleX as UiCircleX,
   FileText as UiFileText,
   LoaderCircle as UiLoaderCircle,
+  Pencil as UiPencil,
+  Play as UiPlay,
   Plus as UiPlus,
-  Sparkle as UiSparkle
+  Sparkle as UiSparkle,
+  Trash2 as UiTrash2
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import {
@@ -61,6 +64,7 @@ import {
 } from '@/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import type { TokenUsage } from '@/shared/types'
+import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
   getToolName,
   isReasoningUIPart,
@@ -334,6 +338,82 @@ function toggleText(m: UIMessage, node: TextNode): void {
   else expandedTexts.add(key)
 }
 
+// —— 生成卡片（data-generation data part，docs/userscript-ai-generation.md §4.5）——
+// offscreen 收敛后经 SW 落盘（enabled:false），随流推送 data part、随消息落盘；
+// 卡片必须讲清三件事：① 尚未启用 ② 生效范围 ③ 脚本会做什么（bundle 静态扫描）。
+interface GenerationCardData {
+  uuid: string
+  name: string
+  enabled: boolean
+  matches: string[]
+  /** bundle 里扫描到的 DL.* 能力（「会做什么」展示级软审查） */
+  capabilities: string[]
+  summary: string
+  savedAt: number
+}
+
+/** 卡片状态覆盖：启用 / 删除后更新本地视图（data part 本身不可变，回读以管理页为准） */
+const cardEnabled = reactive(new Set<string>())
+const cardHidden = reactive(new Set<string>())
+const cardBusy = reactive(new Set<string>())
+
+function cardsOf(m: UIMessage): GenerationCardData[] {
+  return m.parts
+    .filter((p) => p.type === 'data-generation')
+    .map((p) => (p as { type: 'data-generation'; data: GenerationCardData }).data)
+    .filter((c) => c && c.uuid && !cardHidden.has(c.uuid))
+}
+
+function cardIsEnabled(card: GenerationCardData): boolean {
+  return card.enabled || cardEnabled.has(card.uuid)
+}
+
+const CAPABILITY_LABELS: Record<string, string> = {
+  info: '自省信息',
+  style: '注入样式',
+  log: '输出日志',
+  store: '读写私有存储',
+  fetch: '跨域请求',
+  notify: '系统通知',
+  download: '下载文件',
+  clipboard: '写剪贴板',
+  tabs: '开标签页'
+}
+
+function capabilityLabel(cap: string): string {
+  return CAPABILITY_LABELS[cap] ?? cap
+}
+
+async function enableCard(card: GenerationCardData): Promise<void> {
+  cardBusy.add(card.uuid)
+  try {
+    const { registerError } = await userscriptClient.toggle(card.uuid, true)
+    if (registerError) console.warn('[duoling] 启用脚本时注册失败：', registerError)
+    cardEnabled.add(card.uuid)
+  } catch (e) {
+    console.error('[duoling] 启用脚本失败：', e)
+  } finally {
+    cardBusy.delete(card.uuid)
+  }
+}
+
+async function removeCard(card: GenerationCardData): Promise<void> {
+  cardBusy.add(card.uuid)
+  try {
+    await userscriptClient.remove(card.uuid)
+    cardHidden.add(card.uuid)
+  } catch (e) {
+    console.error('[duoling] 删除脚本失败：', e)
+  } finally {
+    cardBusy.delete(card.uuid)
+  }
+}
+
+/** 进编辑器：打开工作台标签页（脚本列表可进入该脚本的编辑器） */
+function openWorkbench(): void {
+  void chrome.tabs.create({ url: chrome.runtime.getURL('workbench.html') })
+}
+
 /** 发送/停止：由 PromptInput 表单提交触发；流式时视为停止，否则发送（执行由父组件负责） */
 function onPromptSubmit(payload: PromptInputMessage): void {
   if (props.streaming) {
@@ -513,6 +593,76 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                   </ui-message-content>
                 </template>
               </ui-message>
+              <!-- 生成卡片：offscreen 收敛落盘后随消息推送/回读（尚未启用 · 生效范围 · 会做什么） -->
+              <div
+                v-for="card in m.role === 'assistant' ? cardsOf(m) : []"
+                :key="card.uuid"
+                class="w-full min-w-0 rounded-lg border border-border bg-card p-3 text-sm"
+                data-testid="generation-card"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="min-w-0 truncate font-medium" :title="card.name">{{ card.name }}</span>
+                  <span
+                    class="shrink-0 rounded-full px-2 py-0.5 text-xs"
+                    :class="cardIsEnabled(card) ? 'bg-green-600/15 text-green-600' : 'bg-amber-500/15 text-amber-600'"
+                  >
+                    {{ cardIsEnabled(card) ? '已启用' : '尚未启用' }}
+                  </span>
+                </div>
+                <dl class="mt-2 space-y-1 text-xs text-muted-foreground">
+                  <div class="flex min-w-0 gap-1.5">
+                    <dt class="shrink-0">生效范围</dt>
+                    <dd class="min-w-0 break-all" :title="card.matches.join('，')">
+                      {{ card.matches.join('，') || '（未指定）' }}
+                    </dd>
+                  </div>
+                  <div class="flex min-w-0 gap-1.5">
+                    <dt class="shrink-0">会做什么</dt>
+                    <dd class="min-w-0">
+                      {{ card.capabilities.length ? card.capabilities.map(capabilityLabel).join(' · ') : '页面 DOM 操作' }}
+                    </dd>
+                  </div>
+                  <div v-if="card.summary" class="flex min-w-0 gap-1.5">
+                    <dt class="shrink-0">摘要</dt>
+                    <dd class="min-w-0">{{ card.summary }}</dd>
+                  </div>
+                </dl>
+                <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
+                  <ui-button
+                    v-if="!cardIsEnabled(card)"
+                    type="button"
+                    size="xs"
+                    :disabled="cardBusy.has(card.uuid)"
+                    title="启用后脚本将在所有匹配页面自动注入生效"
+                    @click="enableCard(card)"
+                  >
+                    <ui-play class="size-3" />
+                    启用并生效
+                  </ui-button>
+                  <ui-button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    title="打开工作台查看 / 编辑脚本源码"
+                    @click="openWorkbench"
+                  >
+                    <ui-pencil class="size-3" />
+                    进编辑器看一眼
+                  </ui-button>
+                  <ui-button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    class="text-destructive hover:text-destructive"
+                    :disabled="cardBusy.has(card.uuid)"
+                    title="删除该脚本（含 git 历史）"
+                    @click="removeCard(card)"
+                  >
+                    <ui-trash-2 class="size-3" />
+                    删除
+                  </ui-button>
+                </div>
+              </div>
               <!-- 本次消耗 token：assistant 气泡下方展示（无 usage 时不渲染） -->
               <p
                 v-if="m.role === 'assistant' && tokenLabel(usageOf(m.id))"

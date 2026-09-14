@@ -9,7 +9,8 @@ import {
   ExternalLink as UiExternalLink,
   PanelLeft as UiPanelLeft,
   Plus as UiPlus,
-  Settings as UiSettings
+  Settings as UiSettings,
+  TriangleAlert as UiTriangleAlert
 } from '@lucide/vue'
 import ChatPanel from '@/components/ChatPanel.vue'
 import SessionHistoryPanel from '@/components/SessionHistoryPanel.vue'
@@ -21,6 +22,7 @@ const {
   activeConversationId,
   messages,
   usageByMessageId,
+  orphanTasks,
   streaming,
   loadConversations,
   newConversation,
@@ -28,6 +30,7 @@ const {
   deleteConversation,
   deleteAllConversations,
   renameConversation,
+  resolveOrphan,
   send,
   stopGeneration
 } = useGlobalConversation()
@@ -119,6 +122,40 @@ onMounted(() => {
         <ui-settings class="size-4" />
       </ui-button>
     </header>
+
+    <!-- 孤儿任务横幅：offscreen 宿主被杀后遗留的进行中任务（docs/userscript-ai-generation.md §4.8 机制 4） -->
+    <div
+      v-if="orphanTasks.length"
+      class="shrink-0 border-b border-border bg-amber-500/10 px-3 py-2 text-xs text-foreground"
+      data-testid="orphan-banner"
+    >
+      <div
+        v-for="task in orphanTasks"
+        :key="task.taskId"
+        class="flex items-center gap-2 py-0.5"
+      >
+        <ui-triangle-alert class="size-3.5 shrink-0 text-amber-600" />
+        <span class="min-w-0 flex-1 truncate">
+          上次脚本生成中断在第 {{ task.step }} 步，产物尚未保存
+        </span>
+        <ui-button
+          size="xs"
+          variant="outline"
+          :disabled="streaming"
+          @click="void resolveOrphan(task.taskId, 'continue')"
+        >
+          继续
+        </ui-button>
+        <ui-button
+          size="xs"
+          variant="ghost"
+          class="text-destructive hover:text-destructive"
+          @click="void resolveOrphan(task.taskId, 'discard')"
+        >
+          丢弃
+        </ui-button>
+      </div>
+    </div>
 
     <chat-panel
       class="min-h-0 flex-1"
