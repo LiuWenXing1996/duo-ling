@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
+import { mkdirSync } from 'node:fs'
 import { defineConfig } from 'wxt'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
@@ -11,6 +12,17 @@ import { providerOrigins } from './src/lib/providers'
 // 载体分工：
 //   side panel  → 应用入口 = AI 对话界面（entrypoints/sidepanel.html）
 //   标签页      → 工具工作区 = 运行 / 代码 / 版本 / 设置（entrypoints/workbench.html）
+// 开发期 Chrome profile 目录：必须用绝对路径 —— web-ext 对相对路径按 cwd 解析，
+// 换个目录启动 dev 就会拿到不同 profile，「Allow User Scripts」这类每扩展开关会被重置。
+//
+// 这里还得保证它存在：web-ext 在 keepProfileChanges 分支下只校验 userDataDir、不创建它
+// （见 web-ext/lib/extension-runners/chromium.js 的 getProfilePaths 之后那段），
+// 而 chrome-launcher 也只在自己造临时目录时才 mkdir：外部传入的路径它会直接
+// openSync 写 <profile>/chrome-out.log，目录不在就 ENOENT 启动失败。
+// 该目录是 gitignore 的本地产物，新 clone / 新建 git worktree 后必然缺失，故就近创建。
+const chromiumProfileDir = resolve(process.cwd(), '.chrome-dev-profile')
+mkdirSync(chromiumProfileDir, { recursive: true })
+
 export default defineConfig({
   // 源码根设为 src：WXT 内置别名 `@` / `~` 硬编码指向 srcDir 且覆盖用户配置
   // （见 wxt 的 resolve-config.mjs），只有把 srcDir 指到 src，平移代码里的 `@/...`
@@ -58,9 +70,7 @@ export default defineConfig({
   // 换 profile / 换加载目录都会重置，这是开发期最大的重复成本）。
   // 不想自动开浏览器时把 disabled 设为 true，改为手动加载 .output/chrome-mv3-dev + Alt+R 重载。
   webExt: {
-    // 用绝对路径：web-ext 对相对路径按 cwd 解析，从不同目录启动 dev 会拿到不同 profile，
-    // 「Allow User Scripts」这类每扩展开关就会被重置。
-    chromiumProfile: resolve(process.cwd(), '.chrome-dev-profile'),
+    chromiumProfile: chromiumProfileDir,
     keepProfileChanges: true,
     // 打开即测试页，省去每次手动开页面验证脚本注入
     startUrls: ['https://example.com'],
