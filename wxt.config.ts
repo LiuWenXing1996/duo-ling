@@ -1,4 +1,5 @@
 import { resolve } from 'node:path'
+import { execSync } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { defineConfig } from 'wxt'
 import vue from '@vitejs/plugin-vue'
@@ -22,6 +23,38 @@ import { providerOrigins } from './src/lib/providers'
 const chromiumProfileDir = resolve(process.cwd(), '.chrome-dev-profile')
 mkdirSync(chromiumProfileDir, { recursive: true })
 
+/**
+ * 构建信息注入（分支名 + 时间戳）：往每个 HTML 入口 head 里塞 `window.__BUILD_INFO__`，
+ * 工作台标签栏右侧展示 —— 用来一眼判断「浏览器里跑的是不是最新代码」。
+ * dev 与 build 语义刻意不同：
+ *   - dev（wxt）：Vite 中间件**每次响应 HTML 请求都现算** → 显示的是页面加载时刻，
+ *     刷新页面即更新，正是诊断「dev server 供给是否活着」的探针；
+ *   - build（wxt build）：构建期算一次定格 → 显示的是产物构建时刻。
+ */
+function buildInfoPlugin(): import('vite').Plugin {
+  let branch = 'unknown'
+  try {
+    branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: process.cwd() })
+      .toString()
+      .trim()
+  } catch {
+    // 不在 git 仓 / git 不可用：降级为 unknown，不阻塞构建
+  }
+  return {
+    name: 'duoling-build-info',
+    transformIndexHtml() {
+      const time = new Date().toISOString()
+      return [
+        {
+          tag: 'script',
+          children: `window.__BUILD_INFO__=${JSON.stringify({ time, branch })}`,
+          injectTo: 'head-prepend',
+        },
+      ]
+    },
+  }
+}
+
 export default defineConfig({
   // 源码根设为 src：WXT 内置别名 `@` / `~` 硬编码指向 srcDir 且覆盖用户配置
   // （见 wxt 的 resolve-config.mjs），只有把 srcDir 指到 src，平移代码里的 `@/...`
@@ -31,7 +64,7 @@ export default defineConfig({
   // 否则 src/public/esbuild.wasm（脚本构建用的 esbuild-wasm）不会进产物。
   publicDir: 'src/public',
   vite: () => ({
-    plugins: [vue(), tailwindcss()],
+    plugins: [vue(), tailwindcss(), buildInfoPlugin()],
     // service worker 里没有 Node 的 `global`，而 isomorphic-git/lightning-fs 的
     // 打包代码写的是 `global.TextEncoder`。构建期把 `global` 别名成原生 globalThis
     // （SW 里自带 TextEncoder/TextDecoder），否则加载即抛

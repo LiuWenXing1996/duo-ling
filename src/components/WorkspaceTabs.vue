@@ -24,6 +24,26 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [id: string]
 }>()
+
+// 构建信息（wxt.config.ts 的 buildInfoPlugin 注入）：标签栏右侧展示，用于一眼判断
+// 「浏览器里跑的是不是最新代码」。dev 模式下 time = 页面加载时刻（刷新即更新），
+// build 模式下 = 产物构建时刻。
+declare global {
+  interface Window {
+    __BUILD_INFO__?: { time: string; branch: string }
+  }
+}
+
+const buildInfo = (() => {
+  const info = window.__BUILD_INFO__
+  if (!info) return null
+  const d = new Date(info.time)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return {
+    branch: info.branch,
+    time: `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`,
+  }
+})()
 </script>
 
 <template>
@@ -56,6 +76,16 @@ const emit = defineEmits<{
         </button>
       </ui-tabs-trigger>
     </ui-tabs-list>
+
+    <!-- 构建 / 加载信息（分支 + 时间）：右对齐，muted 弱化不抢视线 -->
+    <div
+      v-if="buildInfo"
+      class="ml-auto shrink-0 select-none px-3 text-right font-mono text-[10px] leading-tight text-muted-foreground"
+      title="分支 + 加载时刻（dev）或构建时刻（build），用来确认浏览器里跑的是不是最新代码"
+    >
+      <div class="truncate">{{ buildInfo.branch }}</div>
+      <div>{{ buildInfo.time }}</div>
+    </div>
   </div>
 </template>
 
