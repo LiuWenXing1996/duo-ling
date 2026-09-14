@@ -137,13 +137,10 @@ onMounted(async () => {
       </div>
       <div
         v-else-if="swBuildInfo"
-        title="SW：分支 + 构建时刻（dev = dev server 启动时刻，重启 dev 才变）。与页面时间对比可判断 SW 与页面是否同源；取不到 = SW 未响应"
+        title="SW：分支 + 构建时刻（dev = dev server 启动时刻，重启 dev 才变）。它比页面时间早是常态（页面时间 = 加载时刻）；显示「未响应」才是旧包/挂了的信号"
       >
         <div class="truncate">SW {{ swBuildInfo.branch }}</div>
         <div>{{ swBuildInfo.time }}</div>
-        <div v-if="swBuildInfo.time !== buildInfo?.time" class="text-amber-600 dark:text-amber-400">
-          与页面不同源
-        </div>
       </div>
     </div>
   </div>
