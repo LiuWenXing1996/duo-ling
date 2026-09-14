@@ -52,6 +52,8 @@ const buildInfo = (() => {
 // 与上面页面加载时刻对比即可判断「SW 和页面是否来自同一次构建 / dev 会话」。
 // MV3 SW console 不回放历史日志（启动日志在打开 DevTools 前就打完了），这条通道才是可靠的自证方式。
 const swBuildInfo = ref<{ branch: string; time: string } | null>(null)
+/** 重试耗尽仍拿不到 → 显式展示「SW 未响应」，而不是把这一列静默藏掉（看不见 = 无法区分「正常」和「坏了」） */
+const swUnreachable = ref(false)
 
 function fetchSwBuildInfo(): Promise<{ time: string; branch: string }> {
   return new Promise((resolve, reject) => {
@@ -66,7 +68,8 @@ function fetchSwBuildInfo(): Promise<{ time: string; branch: string }> {
 
 onMounted(async () => {
   // 重试而非一次定生死：WXT 重载扩展时工作台页面会跟着重载，挂载瞬间的第一条请求
-    // 常撞上「旧 SW 已死、新 SW 监听器未注册完」的窗口（症状：SW 列永远空白，刷新才恢复）
+  // 常撞上「旧 SW 已死、新 SW 监听器未注册完」的窗口。
+  // 三次都失败则是另一回事：SW 是旧包（没有 sw: 命令）或整个挂了——如实显示「SW 未响应」。
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const data = await fetchSwBuildInfo()
@@ -76,6 +79,7 @@ onMounted(async () => {
       await new Promise((r) => setTimeout(r, 800))
     }
   }
+  swUnreachable.value = true
 })
 </script>
 
@@ -113,7 +117,7 @@ onMounted(async () => {
     <!-- 构建 / 加载信息（分支 + 时间）：右对齐，muted 弱化不抢视线。
          左列 = 页面自身（HTML 注入）；右列 = SW 经 sw:buildInfo 回报 -->
     <div
-      v-if="buildInfo || swBuildInfo"
+      v-if="buildInfo || swBuildInfo || swUnreachable"
       class="ml-auto flex shrink-0 select-none items-start gap-4 px-3 text-right font-mono text-[10px] leading-tight text-muted-foreground"
     >
       <div
@@ -124,7 +128,15 @@ onMounted(async () => {
         <div>{{ buildInfo.time }}</div>
       </div>
       <div
-        v-if="swBuildInfo"
+        v-if="swUnreachable"
+        class="text-amber-600 dark:text-amber-400"
+        title="sw:buildInfo 重试 3 次均无应答：浏览器里的 SW 多半是旧包（没有该命令）或已挂。去 chrome://extensions 重载扩展 / 重启 npm run dev，然后刷新本页"
+      >
+        <div>SW 未响应</div>
+        <div>SW 是旧包或已挂，重载扩展</div>
+      </div>
+      <div
+        v-else-if="swBuildInfo"
         title="SW：分支 + 构建时刻（dev = dev server 启动时刻，重启 dev 才变）。与页面时间对比可判断 SW 与页面是否同源；取不到 = SW 未响应"
       >
         <div class="truncate">SW {{ swBuildInfo.branch }}</div>
