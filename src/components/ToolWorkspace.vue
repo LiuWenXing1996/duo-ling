@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 工作区多标签宿主：主页（内容待定）/ 设置 / 开发者 / UI 测试 / 脚本列表 / 脚本编辑器。
+// 工作区多标签宿主：主页（内容待定）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器。
 //
 // 2026-09-14：工具链路移除（docs/tool-chain-removal-plan.md）后，本文件从「工具标签总线」
 // 收窄为「脚本工作台」—— 原先的工具详情 / 代码 / 版本历史 / 档案 / 数据 五个标签页、主页工具网格、
@@ -7,7 +7,6 @@
 // 这套骨架逐句保留，未重写。主页标签本身保留（决策 D），内容刻意留空待定。
 import { ref, watch } from 'vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
-import DeveloperPanel from '@/components/DeveloperPanel.vue'
 import UiTestPanel from '@/components/UiTestPanel.vue'
 import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
 import UserscriptListPanel from '@/components/userscript/UserscriptListPanel.vue'
@@ -51,14 +50,6 @@ function openSettingsTab(): void {
     openTabs.value.push({ kind: 'settings', id: 'settings', title: '设置' })
   }
   activate('settings')
-}
-
-// 打开开发者标签页：若已打开则激活，否则新开一个
-function openDeveloperTab(): void {
-  if (!openTabs.value.some((t) => t.kind === 'developer')) {
-    openTabs.value.push({ kind: 'developer', id: 'developer', title: '开发者' })
-  }
-  activate('developer')
 }
 
 // 打开 UI 测试标签页：若已打开则激活，否则新开一个
@@ -116,13 +107,13 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「设置 / 开发者 / UI 测试 / 脚本列表」与脚本管理器的「编辑」入口
-defineExpose({ openSettingsTab, openDeveloperTab, openUiTestTab, openUserscriptListTab, openUserscriptEditor })
+// 暴露给根布局：左侧导航栏「设置 / UI 测试 / 脚本列表」与脚本管理器的「编辑」入口
+defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openUserscriptEditor })
 </script>
 
 <template>
   <div class="tool-workspace">
-    <!-- 标签栏 + 内容面板：使用 shadcn Tabs（主页 / 设置 / 开发者 / UI 测试 / 脚本列表 / 脚本编辑器） -->
+    <!-- 标签栏 + 内容面板：使用 shadcn Tabs（主页 / 设置 / UI 测试 / 脚本列表 / 脚本编辑器） -->
     <ui-tabs
       v-model="activeTabId"
       :default-value="HOME_TAB.id"
@@ -147,9 +138,7 @@ defineExpose({ openSettingsTab, openDeveloperTab, openUiTestTab, openUserscriptL
         <!-- 主页：内容待定 —— 原工具网格已随工具链路移除，此处刻意留空，不渲染任何内容 -->
         <div v-if="tab.kind === 'home'" class="h-full" />
         <!-- 设置标签：渲染设置面板 -->
-        <settings-panel v-else-if="tab.kind === 'settings'" @open-developer="openDeveloperTab" />
-        <!-- 开发者界面：展示全部 Agent 工具介绍 -->
-        <developer-panel v-else-if="tab.kind === 'developer'" />
+        <settings-panel v-else-if="tab.kind === 'settings'" />
         <!-- UI 测试：mock 数据预览思考与执行过程展示方案 -->
         <ui-test-panel v-else-if="tab.kind === 'ui-test'" />
         <!-- 脚本列表：列出全部用户脚本 + 启停；「编辑」开对应的编辑器标签页 -->

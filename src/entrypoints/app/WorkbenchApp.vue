@@ -8,14 +8,14 @@
 // （会话历史 | 当前会话已移入 side panel），保留的分支逐句照搬，未重写。
 // 2026-09-14：原 46px 顶栏已删除（它存在的唯一理由就是承载那个居中的全局搜索框）；
 // 同日工具链路移除（docs/tool-chain-removal-plan.md）后，左侧导航的置顶工具区与
-// 「新建工具」按钮一并摘除，导航只剩：设置 / 开发者 / UI 测试 / 用户脚本管理器 / 脚本列表。
+// 「新建工具」按钮一并摘除；开发者界面（内容 100% 是工具能力面）同批删除，
+// 导航只剩：设置 / UI 测试 / 用户脚本管理器 / 脚本列表。
 import { ref } from 'vue'
 import {
   Braces as UiBraces,
   FlaskConical as UiFlaskConical,
   List as UiList,
-  Settings as UiSettings,
-  Terminal as UiTerminal,
+  Settings as UiSettings
 } from '@lucide/vue'
 import ToolWorkspace from '@/components/ToolWorkspace.vue'
 import UserscriptManager from '@/components/userscript/UserscriptManager.vue'
@@ -61,15 +61,6 @@ function onUserscriptEdit(uuid: string, title: string): void {
         <button
           class="workspace-nav-item"
           type="button"
-          aria-label="开发者"
-          title="开发者"
-          @click="workspaceRef?.openDeveloperTab()"
-        >
-          <ui-terminal class="size-5" />
-        </button>
-        <button
-          class="workspace-nav-item"
-          type="button"
           aria-label="UI 测试"
           title="UI 测试"
           @click="workspaceRef?.openUiTestTab()"
@@ -97,7 +88,7 @@ function onUserscriptEdit(uuid: string, title: string): void {
       </aside>
 
       <section class="workspace-panel workspace-panel--grow">
-        <!-- 多标签页：主页（内容待定）/ 设置 / 开发者 / UI 测试 / 脚本列表 / 脚本编辑器 -->
+        <!-- 多标签页：主页（内容待定）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器 -->
         <tool-workspace ref="workspaceRef" />
       </section>
     </div>
