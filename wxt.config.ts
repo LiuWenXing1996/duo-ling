@@ -10,7 +10,7 @@ import { providerOrigins } from './src/lib/providers'
 //
 // 载体分工：
 //   side panel  → 应用入口 = AI 对话界面（entrypoints/sidepanel.html）
-//   标签页      → 工具工作区 = 运行 / 代码 / 版本 / 设置（entrypoints/workbench.html）
+//   标签页      → 脚本工作区 = 脚本列表 / 编辑器 / 设置（entrypoints/workbench.html）
 // 开发期 Chrome profile 目录：必须用绝对路径 —— web-ext 对相对路径按 cwd 解析，
 // 换个目录启动 dev 就会拿到不同 profile，「Allow User Scripts」这类每扩展开关会被重置。
 //
@@ -28,7 +28,7 @@ export default defineConfig({
   // （原指向桌面版的 src/renderer/src）才能正确解析到扩展侧的 src。
   srcDir: 'src',
   // WXT 的 publicDir 默认基于**项目根**（不是 srcDir），需显式指到 src 下，
-  // 否则 public/tool-bridge.js（工具页 sandbox iframe 的桥接脚本）不会进产物。
+  // 否则 src/public/esbuild.wasm（脚本构建用的 esbuild-wasm）不会进产物。
   publicDir: 'src/public',
   vite: () => ({
     plugins: [vue(), tailwindcss()],
@@ -42,7 +42,7 @@ export default defineConfig({
   }),
   manifest: {
     name: '哆灵',
-    description: '哆灵 AI 工具工厂 · 扩展版（侧边栏对话 + 标签页工作台）',
+    description: '哆灵 AI 用户脚本工坊 · 扩展版（侧边栏对话 + 标签页工作台）',
     // sidePanel 是使用 chrome.sidePanel API 的必需权限（Chrome 114+），不要剔除。
     // setPanelBehavior({openPanelOnActionClick:true}) 还需声明 action 键，点工具栏图标才会开面板。
     // offscreen 是 AI 生成链路的执行宿主（定位 B，docs/userscript-ai-generation.md §4.8）：

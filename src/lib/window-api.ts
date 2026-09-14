@@ -1,7 +1,7 @@
 // 扩展侧的 `window.api` 适配层。
 //
 // 桌面版由 preload 经 contextBridge 暴露 window.api（Electron IPC 面，权威形状见 src/shared/ipc.ts
-// 的 PreloadApi）。扩展版没有 preload，但从桌面版平移来的 UI 组件（ChatPanel / ToolWorkspace /
+// 的 PreloadApi）。扩展版没有 preload，但从桌面版平移来的 UI 组件（ChatPanel / WorkspaceHost /
 // SettingsPanel …）一律直呼 `window.api.*`，故此处按 PreloadApi 契约装配一份实现，
 // 内部转接到扩展自己的数据层 —— 组件侧因此可以零改动复用：
 //
@@ -150,7 +150,7 @@ const provider: PreloadApi['provider'] = {
 
 /**
  * 工作区标签快照上报：桌面版由主进程收集、供 Agent 查询「当前打开了哪些 tab」。
- * 扩展版尚未平移 Agent Loop，故此处是空实现 —— 保留该调用点（ToolWorkspace 挂载即上报），
+ * 扩展版尚未平移 Agent Loop，故此处是空实现 —— 保留该调用点（WorkspaceHost 挂载即上报），
  * 待 Agent 编排落地后在此接上真实通道。不要改成抛错的 stub：它由 watch(immediate) 调用，
  * 抛错会在组件挂载时打断渲染。
  */

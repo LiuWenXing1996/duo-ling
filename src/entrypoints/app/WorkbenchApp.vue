@@ -17,11 +17,11 @@ import {
   List as UiList,
   Settings as UiSettings
 } from '@lucide/vue'
-import ToolWorkspace from '@/components/ToolWorkspace.vue'
+import WorkspaceHost from '@/components/WorkspaceHost.vue'
 import UserscriptManager from '@/components/userscript/UserscriptManager.vue'
 
 // 左侧导航栏「设置」「脚本列表」等：调用工作区的对应方法
-const workspaceRef = ref<InstanceType<typeof ToolWorkspace> | null>(null)
+const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
 
 // 用户脚本管理器：内嵌全屏面板（复用 workbench 单一 HTML 入口，规避多 HTML 入口在 rolldown-vite 下 plugin-vue compiler 未初始化）
 const showUserscriptManager = ref(false)
@@ -89,7 +89,7 @@ function onUserscriptEdit(uuid: string, title: string): void {
 
       <section class="workspace-panel workspace-panel--grow">
         <!-- 多标签页：主页（内容待定）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器 -->
-        <tool-workspace ref="workspaceRef" />
+        <workspace-host ref="workspaceRef" />
       </section>
     </div>
   </div>

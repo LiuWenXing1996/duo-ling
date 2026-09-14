@@ -94,7 +94,20 @@
 
 每阶段独立可交付；阶段末必须 `npm run build` + `npm run typecheck` 双绿，再做一次手测。
 
-> **进度（2026-09-14）**：Phase 0 ✅ 完成（`typecheck` 0 错、`build` 绿）；Phase 1 ✅ 改完并双绿（**待 Chrome 手测**）；Phase 2–4 未开始。
+> **进度（2026-09-14 更新）：Phase 0–4 全部完成并已提交。**
+>
+> | 阶段 | 提交 | 结果 |
+> | --- | --- | --- |
+> | Phase 0 拆地基 | `1cae9c6` | 抽 `lib/idb-fs.ts`、`tool-code-view` → `code-view`（+ 类型中立化） |
+> | Phase 1 摘 UI 入口 | `1cae9c6` | 7 文件 −975 行；**已 Chrome 手测通过** |
+> | Phase 2 删孤儿 | `0bf4d9a` | 16 文件 −2881 行（含开发者界面整体删除） |
+> | Phase 3 收窄协议与后端 | `5242897` | 19 文件 −1834 行（含 9 个模块文件删除） |
+> | Phase 4 文档与改名 | 待提交 | `ToolWorkspace` → `WorkspaceHost`；旧文档归档 `legacy/docs/`；README / AGENTS / prd 更新 |
+>
+> 四个阶段均 `typecheck` 0 错 + `build` 绿；manifest 权限集合**未变**（工具链路不占专属权限，无需 Chrome 重新授权）。
+> 实施中相对本方案的偏差：多删了 `src/lib/api.ts`（工具页补充门面，`extensionApi` 零消费者）与
+> `src/lib/storage.ts`（`tool.data.*` 封装，只服务工具数据区）；`HomePanel` 按决策 D 保留为空壳后
+> 又在 Phase 2 随工具网格一并删除，主页标签改由宿主直接渲染空 `div`。
 
 ### Phase 0 · 拆地基（无行为变化，先做才安全）
 

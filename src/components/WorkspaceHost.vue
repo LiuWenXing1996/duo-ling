@@ -112,7 +112,7 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openUsersc
 </script>
 
 <template>
-  <div class="tool-workspace">
+  <div class="workspace-host">
     <!-- 标签栏 + 内容面板：使用 shadcn Tabs（主页 / 设置 / UI 测试 / 脚本列表 / 脚本编辑器） -->
     <ui-tabs
       v-model="activeTabId"
@@ -160,7 +160,7 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openUsersc
 </template>
 
 <style scoped lang="less">
-.tool-workspace {
+.workspace-host {
   display: flex;
   flex-direction: column;
   // 作为 .workspace-panel--grow（flex 行容器）的 item，必须 grow 才能填满宽度，

@@ -145,7 +145,7 @@ async function load(): Promise<void> {
 
 /**
  * 未保存状态上报：内容区不再自带关闭按钮（关闭统一由标签栏的 X 承担），
- * 宿主 ToolWorkspace 据此在关标签前弹「有未保存的修改，确认关闭？」。
+ * 宿主 WorkspaceHost 据此在关标签前弹「有未保存的修改，确认关闭？」。
  */
 watch(editDirty, (v) => emit('dirty', v))
 

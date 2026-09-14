@@ -29,7 +29,7 @@ import { userscriptClient } from '@/lib/userscripts/ui-client'
 import type { ScriptSummary } from '@/lib/userscripts/types'
 
 const emit = defineEmits<{
-  /** 请求打开该脚本的编辑器标签页（由 ToolWorkspace 接管） */
+  /** 请求打开该脚本的编辑器标签页（由 WorkspaceHost 接管） */
   edit: [uuid: string, title: string]
   /** 脚本已删除：宿主据此关掉它的编辑器标签（项目已不存在） */
   deleted: [uuid: string]
@@ -111,7 +111,7 @@ function askRemove(s: ScriptSummary): void {
 
 /**
  * 弹窗里确认删除：注销 + 删存储 + **删 git 仓**（background 的 userscript:remove），不可撤销。
- * 成功后广播 deleted，由 ToolWorkspace 关掉它可能开着的编辑器标签。
+ * 成功后广播 deleted，由 WorkspaceHost 关掉它可能开着的编辑器标签。
  * 旧格式（deprecated）记录同样可删 —— 这里是它唯一的清理入口。
  */
 async function confirmRemove(): Promise<void> {
