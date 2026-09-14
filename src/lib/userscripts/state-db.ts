@@ -57,14 +57,39 @@ function request<T>(req: IDBRequest<T>): Promise<T> {
   })
 }
 
+/** 连接已死（被外部删库 / 强制关闭）：transaction() 会同步抛 InvalidStateError "The database connection is closing" */
+function isDeadConnection(e: unknown): boolean {
+  return e instanceof DOMException && e.name === 'InvalidStateError'
+}
+
+/**
+ * 开事务执行（含死连接兜底）。
+ * 外部删库（如 DevTools 面板强删）不触发 onversionchange，缓存的连接死后 dbPromise 永不重置，
+ * 之后每次 transaction 都报 "connection is closing"——故这里捕获后重置缓存、重开一次。
+ * 库被删本身无害：重新 open 时 onupgradeneeded 会把表建回来。
+ */
+async function runTx<T>(
+  mode: IDBTransactionMode,
+  run: (tx: IDBTransaction, store: IDBObjectStore) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    const db = await openDb()
+    try {
+      const tx = db.transaction(STORE, mode)
+      return await run(tx, tx.objectStore(STORE))
+    } catch (e) {
+      dbPromise = undefined
+      if (attempt < 2 && isDeadConnection(e)) continue
+      throw e
+    }
+  }
+}
+
 async function withStore<T>(
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
-  const db = await openDb()
-  const tx = db.transaction(STORE, mode)
-  const result = await request(run(tx.objectStore(STORE)))
-  return result
+  return runTx(mode, (_tx, store) => request(run(store)))
 }
 
 /** 读一个项目；不存在或形态不对（非 v:1）返回 undefined */
@@ -94,13 +119,12 @@ export async function removeProject(uuid: string): Promise<void> {
 /** 批量删除（同一事务，要么全成功要么全失败） */
 export async function removeProjects(uuids: string[]): Promise<void> {
   if (!uuids.length) return
-  const db = await openDb()
-  const tx = db.transaction(STORE, 'readwrite')
-  const store = tx.objectStore(STORE)
-  for (const uuid of uuids) store.delete(uuid)
-  await new Promise<void>((resolve, reject) => {
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error ?? new Error('批量删除失败'))
-    tx.onabort = () => reject(tx.error ?? new Error('批量删除被中止'))
+  await runTx('readwrite', (tx, store) => {
+    for (const uuid of uuids) store.delete(uuid)
+    return new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error ?? new Error('批量删除失败'))
+      tx.onabort = () => reject(tx.error ?? new Error('批量删除被中止'))
+    })
   })
 }
