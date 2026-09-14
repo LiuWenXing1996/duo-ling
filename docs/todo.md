@@ -148,7 +148,7 @@
 
 > 原必答 ①「页面上下文档位」与 ②「`"offscreen"` 权限」**老大 2026-09-14 已拍板**，见上方「已拍板」第 6 / 7 条。
 
-**可代定（我按建议执行，老大否决即改）**：脚本档案 `notes`（加）/ 内置脚本（拾取器）放管理页「内置」分组 / `script_spec` 载荷形态（由 `userscript-api.md` + 方案 §8 拼一段注入文本）/ offscreen 退出条件（任务结束 + 面板关闭 + 空闲 N 分钟；N 待实测）/ `maxSteps` 沿用桌面版 8 / 任务进行中用户再发消息则排队。
+**可代定（我按建议执行，老大否决即改）**：脚本档案 `notes`（加）/ 内置脚本（拾取器）放管理页「内置」分组 / `script_spec` 载荷形态（由 `userscript-api.md` + 方案 §8 拼一段注入文本）/ `maxSteps` 沿用桌面版 8 / 任务进行中用户再发消息则排队。
 
 **详细文档**：见 [userscript-ai-generation.md](./userscript-ai-generation.md)（含 §3.1 esbuild 放 SW 的技术核查与宿主筛选表、§3.2 `esbuild-standalone` 外部对照、§4.8 定位 B 的三容器架构与「谁写什么」表、§8 `script_spec` 禁止事项清单）。
 

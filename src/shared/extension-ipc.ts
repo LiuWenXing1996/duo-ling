@@ -28,6 +28,15 @@ export type RuntimeRequest =
   | { kind: 'userscript:historyTree'; uuid: string; oid: string }
   | { kind: 'userscript:restoreToCommit'; uuid: string; oid: string }
 
+  // 用户脚本 git 历史（执行宿主迁 offscreen，见 docs/offscreen-fs-migration.md）。
+  // UI / SW 经 chrome.runtime.sendMessage 共享总线直发 offscreen；SW 的 onMessage 对 ai: 前缀
+  // return false 静默放行，由 offscreen 处理并按 { ok, data | error } 信封回传。
+  | { kind: 'ai:snapshot'; uuid: string; note?: string }
+  | { kind: 'ai:history'; uuid: string }
+  | { kind: 'ai:historyTree'; uuid: string; oid: string }
+  | { kind: 'ai:restoreToCommit'; uuid: string; oid: string }
+  | { kind: 'ai:deleteRepo'; uuid: string }
+
   // —— offscreen document（AI 生成链路的执行宿主，方案 §4.8 定位 B）——
   // 容器**按需创建**（刻意不在 SW 启动时自动建，否则一启动就常驻，与退出条件相悖），
   // 故用显式命令控制；`offscreen:ready` 是 offscreen 侧启动后的握手通知。

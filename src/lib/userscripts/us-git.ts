@@ -7,7 +7,7 @@
 // 提交 = 全量写工作区 + add + commit；恢复 = 整树物化 + 产生「回滚到 <oid>」新提交，
 // 绝不 reset（历史不可变，回错可再回）。
 import git from 'isomorphic-git'
-import { fs, pfs } from '@/lib/idb-fs'
+import { fs, pfs } from './us-fs'
 import type { ScriptConfig, ScriptProject } from './types'
 
 const AUTHOR = { name: 'duoling', email: 'dev@duoling.local' }

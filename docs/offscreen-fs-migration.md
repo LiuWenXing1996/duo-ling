@@ -12,7 +12,7 @@
 
 - `/tools/*` 的文件数据、`tool:*` 命令组、工具相关 UI 全部下线
 - `lightning-fs` 的 `duoling` 库里只剩 `/uscripts/*`
-- `src/fs-store.ts`（工具文件与 git 的存储层）已随之删除或仅剩空壳
+- `src/lib/idb-fs.ts`（提供 `fs` / `pfs` 的 `lightning-fs` 实例，原同时服务于工具与脚本）现已**仅被 `us-git.ts` 引用**——工具移除后本库自然只剩脚本数据；迁移后它与 `us-git.ts` 一并归 offscreen，不再被 SW import
 
 **这个前提是本方案能成立的关键**——它一次省掉了原设想里的两大块工作（见 §0.3）。
 
@@ -25,7 +25,7 @@
 
 `docs/userscript-ai-generation.md` §4.8 把「文件树与 git 快照」的写入方定为 SW，理由有两条：
 
-1. **`fs-store.ts` 同时服务工具与脚本** —— 实例归属一动就牵动工具链路
+1. **`idb-fs.ts`（原 `fs-store.ts` 的存储层角色）同时服务工具与脚本** —— 实例归属一动就牵动工具链路
 2. **lightning-fs 有内存索引层，只允许一个写入方** —— 选出 SW 作为那一个
 
 工具移除后，第 1 条消失；第 2 条依然成立，只是写入方从 SW 换成 offscreen（仍然是唯一一个）。
@@ -65,8 +65,8 @@
   ```
 
 - `src/lib/userscripts/us-git.ts` 只改一行 import：
-  `import { fs, pfs } from '@/fs-store'` → `import { fs, pfs } from './us-fs'`
-- **模块归属规则更新**（§4.8 清单）：`us-git.ts` / `us-fs.ts` 从「仅允许 SW import」改为「**仅允许 offscreen import**」
+  `import { fs, pfs } from '@/lib/idb-fs'` → `import { fs, pfs } from './us-fs'`
+- **模块归属规则更新**（§4.8 清单）：`us-fs.ts`（即原 `idb-fs.ts` 的 `LightningFS('duoling')` 定义搬入；迁移后 `idb-fs.ts` 不再被任何文件引用，可删除，避免同库名双实例）/ `us-git.ts` 从「仅允许 SW import」改为「**仅允许 offscreen import**」
 
 ### 2.2 offscreen 入口
 
@@ -80,7 +80,9 @@
 
 ### 2.3 新增命令面
 
-前缀用 `ai:`——它**不在** SW 的 `SW_KIND_PREFIXES` 白名单里，所以 SW 收到会静默让路，由 offscreen 响应（该路由机制见 §4.8 与已实施的 A 组）。
+前缀用 `ai:`——它**不在** SW 的 `SW_KIND_PREFIXES`（`['userscript:','model:','offscreen:']`，见 `background.ts:53`）白名单里。SW 的 `onMessage` 监听器对不匹配前缀的消息 `return false`（`background.ts:308` 路由行），含义是「本上下文不处理、消息继续广播」，**不是转发**。
+
+因此 `ai:*` 必须走 `chrome.runtime.sendMessage` **共享总线**：UI 侧 `ui-client.ts` 的 `send()` 正是用这条总线发出（`chrome.runtime.sendMessage`）→ SW 静默放行（`return false`）、offscreen 经自己的 `chrome.runtime.onMessage` 监听器收到。**实现要求**（当前 offscreen 的监听器 `offscreen-main.ts:56` 只处理 `offscreen:configChanged`，需补 `ai:*` 分发分支），且响应须按统一信封 `{ ok, data | error }` 回传，与 `ui-client.send()` 的解包一致。路由机制详见 §4.8 与已实施的 A 组。
 
 | 命令 | 入参 | 出参 | 替代原来的 |
 | --- | --- | --- | --- |
@@ -94,16 +96,32 @@
 
 ### 2.4 SW 侧
 
-- `src/entrypoints/background.ts` 删除 `import { snapshotProject, ... } from '@/lib/userscripts/us-git'`
+`src/entrypoints/background.ts` 当前对 `us-git` 的全部引用（已 grep 核对，基于 `2d089cf`）：
+
+```ts
+import { snapshotProject, listHistory, readTreeAt, restoreToCommit, deleteRepo } from '@/lib/userscripts/us-git'  // line 28
+// userscript:updateFiles      → await snapshotProject(next, msg.note)      // line 107
+// userscript:create           → await snapshotProject(project, '创建脚本')  // line 140
+// userscript:remove           → await deleteRepo(msg.uuid)                // line 192
+// userscript:history          → listHistory(...)
+// userscript:historyTree      → readTreeAt(...)
+// userscript:restoreToCommit  → restoreToCommit(...)
+```
+
+处置（迁移后 SW 不再持有 fs 实例，**整行 import 删除**，五个符号全部失活）：
+
 - `userscript:updateFiles` handler 末尾的 `await snapshotProject(next, msg.note)` → 改为转发 `ai:snapshot`
   - **位置保持在注册之后**，保留既有语义「注册失败就不快照」
   - 仍然 try/catch 只 warn——「快照失败只丢历史，不阻断保存」
-- `userscript:history` / `userscript:historyTree` / `userscript:restoreToCommit` 三个 handler **删除**（改由 UI 直连 offscreen）
-- `userscript:remove` / `userscript:create` 里的仓操作 → 见 §2.5
+- `userscript:history` / `userscript:historyTree` / `userscript:restoreToCommit` 三个 handler **删除**（改由 UI 经 `ai:*` 直连 offscreen）
+- `userscript:create` 里的 `await snapshotProject(project, '创建脚本')` → **删除**（不再由 SW 建仓，改由 §2.5 对账补齐）
+- `userscript:remove` 里的 `await deleteRepo(msg.uuid)` → **删除**（不再由 SW 删仓，改由 §2.5 对账清理）
+
+> ⚠️ 若只删 import 而不删 line 140 / 192 的直调，会留死代码且编译不过；两处必须连同移除。
 
 ### 2.5 新建 / 删除脚本的仓操作：降级为最终一致
 
-**问题**：`userscript:create` 要建仓、`userscript:remove` 要删仓。若直接转发给 offscreen，那么**列表页点这两个按钮**也会依赖容器——而用户点它们时，offscreen 通常不在（还没有任何"生成请求"触发过 `ensureOffscreen`）。
+**问题**：`userscript:create` 要建仓、`userscript:remove` 要删仓（对应当前 `background.ts:140` 的 `snapshotProject(...)` 与 `:192` 的 `deleteRepo(...)`，迁移后已由 §2.4 删除）。若直接转发给 offscreen，那么**列表页点这两个按钮**也会依赖容器——而用户点它们时，offscreen 通常不在（还没有任何"生成请求"触发过 `ensureOffscreen`）。
 
 **设计**：让这两个操作**不依赖容器**：
 
@@ -125,8 +143,9 @@ listSummaries()（经 offscreen-bridge 向 SW 取）↔ 列出 /uscripts/* 目�
 
 ### 2.6 UI 侧
 
-- `src/lib/userscripts/ui-client.ts`：新增指向 `ai:*` 的调用方法（复用同一个 `send` 信封）
+- `src/lib/userscripts/ui-client.ts`：新增指向 `ai:*` 的调用方法（复用现有的 `send()` 信封——即 `chrome.runtime.sendMessage` 共享总线，详见 §2.3）
   - 调用前需确保容器在场：复用已实现的 `offscreen:ensure` 命令（幂等，已实测连跑两次安全）
+  - **失败重试**：offscreen 现为常驻（安装 / 启动 / SW 冷启动均 `ensureOffscreen`，见 offscreen.ts），但扩展重载 / 崩溃 / 关窗仍会销毁容器，且 Chrome 在**极端内存压力下**也可能关闭它。这些情况下 `ai:*` 无人响应会报 `The message port closed before a response was received`。故 `sendAi` 在「端口关闭 / Receiving end does not exist / 无响应」类错误时，先 `offscreen:ensure` 唤起容器、稍候其注册监听后重试（最多 3 次）；此举同时触发 offscreen 启动对账，首次读取即拿到补齐后的历史。非容器类错误（业务异常）直接抛出
 - `src/components/userscript/UserscriptEditorPanel.vue`：历史视图的三处调用改指向新方法
   - 该组件对 `us-git` **只做 `import type`**，所以类型层面不受影响
 
@@ -142,9 +161,8 @@ listSummaries()（经 offscreen-bridge 向 SW 取）↔ 列出 /uscripts/* 目�
 | --- | --- | --- |
 | 1 | offscreen 死了实例就没了，**且不会自愈**（SW 会——它由浏览器事件唤醒） | 所有 FS 操作前先 `ensureOffscreen()`；lfs 数据在 IndexedDB，重建实例即恢复（代价是重新加载 superblock） |
 | 2 | **同源死亡**：浏览器重启 / 扩展更新时，offscreen 与「需要 FS 的时刻」同时消失 | 快照转发放在注册**之后**且只 warn——保存不受影响；历史上限损失一次快照 |
-| 3 | offscreen 的「空闲 N 分钟自关」与「FS 会被频繁需要」冲突 | 重新校准退出条件（延长阈值）或改常驻；**N 待实测**（与 §6.2 #12 一并定） |
-| 4 | 跨进程 FS 操作难调试（offscreen 的 console 落在 SW inspector） | 保留 offscreen 侧操作日志；错误沿用现有错误面板（`appendUserScriptError`） |
-| 5 | 模块归属规则被放宽（offscreen 从此可 import `us-git`） | 同步更新 §4.8 清单，避免"谁都能 import"的滑坡 |
+| 3 | 跨进程 FS 操作难调试（offscreen 的 console 落在 SW inspector） | 保留 offscreen 侧操作日志；错误沿用现有错误面板（`appendUserScriptError`） |
+| 4 | 模块归属规则被放宽（offscreen 从此可 import `us-git`） | 同步更新 §4.8 清单，避免"谁都能 import"的滑坡 |
 
 ## 5. 验收
 

@@ -15,9 +15,10 @@
 //   · 不能聚焦；opener 恒为 null；URL 必须是打包进扩展的静态 HTML（即本文件对应的 offscreen.html）
 //
 // 模块归属（硬约束，§4.8）：本入口只允许 import builder.ts（纯 esbuild）、
-// extension-chat-transport.ts、ai SDK、offscreen-bridge.ts。一旦 import store.ts /
-// fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报 chrome.storage is undefined
-// —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
+// extension-chat-transport.ts、ai SDK、offscreen-bridge.ts，以及 offscreen-only 的
+// lib/userscripts/offscreen-fs-commands.ts（其内部只引 us-git / us-fs，均不碰 chrome.storage）。
+// 一旦 import store.ts / fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报
+// chrome.storage is undefined —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
 //
 // 生命周期：每扩展同时只能有一份；不主动关就一直活着，但**关窗口 / 扩展重载 / 浏览器崩溃
 // 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（§4.8 机制 4）。
@@ -25,8 +26,10 @@
 // 当前进度：一期 A 组（容器与通道）。本文件暂时只有就绪握手，真正的编排（streamText +
 // tools + esbuild 构建）在 B 组接入。
 
+import '@/polyfills'
 import { offscreenBridge } from '@/lib/offscreen-bridge'
-import type { ModelProfileState, OffscreenPush } from '@/shared/extension-ipc'
+import type { ModelProfileState, OffscreenPush, RuntimeRequest } from '@/shared/extension-ipc'
+import { handleAiFsCommand, reconcileFs, type AiFsRequest } from '@/lib/userscripts/offscreen-fs-commands'
 
 /** 当前模型配置（含 apiKey）：只驻内存，不写日志、不落盘（§4.8 配置通道的边界要求） */
 let activeProfile: ModelProfileState | undefined
@@ -52,11 +55,30 @@ export function getCachedProfile(): ModelProfileState | undefined {
   return activeProfile
 }
 
-// SW 的单向推送：offscreen 收不到 storage.onChanged，配置变更由 SW 转告后回拉
-chrome.runtime.onMessage.addListener((raw) => {
-  const msg = raw as OffscreenPush | undefined
-  if (msg?.kind === 'offscreen:configChanged') void refreshActiveProfile()
+// SW 的单向推送：offscreen 收不到 storage.onChanged，配置变更由 SW 转告后回拉。
+// ai:* 命令面：UI / SW 经 chrome.runtime.sendMessage 共享总线发来，offscreen 在此处理并回传。
+// 注意 return true —— 告诉 chrome.runtime 我们要异步 sendResponse（否则响应会被丢弃）。
+chrome.runtime.onMessage.addListener((raw, _sender, sendResponse): boolean => {
+  const msg = raw as RuntimeRequest | OffscreenPush | undefined
+  if (msg?.kind === 'offscreen:configChanged') {
+    void refreshActiveProfile()
+    return false
+  }
+  if (msg && typeof msg.kind === 'string' && msg.kind.startsWith('ai:')) {
+    void (async () => {
+      try {
+        const data = await handleAiFsCommand(msg as AiFsRequest)
+        sendResponse({ ok: true, data })
+      } catch (e) {
+        sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) })
+      }
+    })()
+    return true
+  }
+  return false
 })
 
 announceReady()
 void refreshActiveProfile()
+// 启动一次最终一致对账：补齐缺失仓、清理多余仓目录（幂等，失败不阻断）
+void reconcileFs()

@@ -7,7 +7,7 @@
 // 依赖随之删除），此处只剩用户脚本、offscreen 与模型配置三类命令。
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
-import type { ModelProfileState, OffscreenPush, RuntimeRequest } from '@/shared/extension-ipc'
+import type { ModelProfileState, OffscreenPush, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 
 // 用户脚本管理器（v2 方案 docs/userscript-v2-plan.md Phase 0）：引擎 + 存储 + DL 桥 + 类型
 import {
@@ -25,7 +25,6 @@ import {
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
 import { listSummaries, getProject, saveProject, deleteScript, updateProjectFiles, clearDeprecatedScripts, listUserScriptErrors, clearUserScriptErrors, appendUserScriptError, nextScriptName } from '@/lib/userscripts/store'
 import type { ScriptProject, UserScriptsAvailability } from '@/lib/userscripts/types'
-import { snapshotProject, listHistory, readTreeAt, restoreToCommit, deleteRepo } from '@/lib/userscripts/us-git'
 import { ENTRY_DEFAULT, defaultConfig, defaultSource } from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主，方案 §4.8 定位 B）
@@ -51,6 +50,28 @@ const MODEL_PROFILES_KEY = 'modelProfiles'
  * 这是刻意的：静默比一个假错误更诚实。
  */
 const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:'] as const
+
+/** SW → offscreen 的请求封装：转发 ai:* 命令面（用户脚本 git 历史已迁 offscreen，见 docs/offscreen-fs-migration.md）。统一信封解包。 */
+function sendToOffscreen<T>(request: RuntimeRequest): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    chrome.runtime.sendMessage(request, (response: RuntimeResponse<T> | undefined) => {
+      const lastError = chrome.runtime.lastError
+      if (lastError) {
+        reject(new Error(lastError.message))
+        return
+      }
+      if (!response) {
+        reject(new Error('offscreen 无响应'))
+        return
+      }
+      if (!response.ok) {
+        reject(new Error(response.error))
+        return
+      }
+      resolve(response.data as T)
+    })
+  })
+}
 
 const handlers: {
   [K in RuntimeRequest['kind']]: (msg: Extract<RuntimeRequest, { kind: K }>) => Promise<unknown>
@@ -102,9 +123,11 @@ const handlers: {
         throw e
       }
     }
-    // git 历史侧车：保存成功后快照（bundle 不入库）。失败只丢历史不丢脚本，不阻断保存。
+    // git 历史侧车：保存成功后转发 offscreen 快照（bundle 不入库）。
+    // offscreen 无 chrome.storage，project 由 offscreen 经 bridge 向 SW 取。
+    // 失败只丢历史不丢脚本，不阻断保存（offscreen 未起时 sendToOffscreen 会 reject）。
     try {
-      await snapshotProject(next, msg.note)
+      await sendToOffscreen({ kind: 'ai:snapshot', uuid: next.uuid, note: msg.note })
     } catch (e) {
       console.warn('[duoling:userscript] 历史快照失败（不影响保存）', e)
     }
@@ -135,9 +158,8 @@ const handlers: {
       updatedAt: now,
     }
     await saveProject(project)
-    // 建仓 + 首次提交（project.json 元数据 + files/main.js），让新脚本一开始就有完整历史起点。
-    // 失败不阻断创建 —— 与保存链路同策略：仓损坏只丢历史，不丢脚本。
-    await snapshotProject(project, '创建脚本').catch(() => {})
+    // 首次快照交给 offscreen 启动时的对账补齐（offscreen 未起时此处不建仓，避免硬依赖容器）。
+    // 仓损坏只丢历史不丢脚本，不阻断创建。
     try {
       await registerScript(project)
     } catch (e) {
@@ -188,37 +210,6 @@ const handlers: {
   'userscript:remove': async (msg): Promise<void> => {
     await unregisterScripts([msg.uuid]).catch(() => {})
     await deleteScript(msg.uuid)
-    // 历史不保留（拍板：删脚本即删历史仓）
-    await deleteRepo(msg.uuid).catch(() => {})
-  },
-
-  // —— git 历史侧车（docs/userscript-git-history.md）——
-  'userscript:history': async (msg): Promise<unknown> => listHistory(msg.uuid),
-
-  'userscript:historyTree': async (msg): Promise<unknown> => readTreeAt(msg.uuid, msg.oid),
-
-  // 恢复：物化项目落盘 + 重注册（enabled 保持当前值）；仓侧按需产生「回滚到 <oid>」新提交。
-  // bundle 已丢弃，由 UI 页 builder 重建后再 updateFiles（构建失败仅提示，源码已恢复）。
-  'userscript:restoreToCommit': async (msg): Promise<{ committed: boolean; project: ScriptProject }> => {
-    const current = await getProject(msg.uuid)
-    if (!current) throw new Error('脚本不存在或为已弃用旧记录')
-    const { committed, restored } = await restoreToCommit(current, msg.oid)
-    await saveProject(restored)
-    await unregisterScripts([restored.uuid]).catch(() => {})
-    if (restored.enabled) {
-      try {
-        await registerScript(restored)
-      } catch (e) {
-        void appendUserScriptError({
-          uuid: restored.uuid,
-          name: restored.name,
-          phase: 'register',
-          message: e instanceof Error ? e.message : String(e),
-        }).catch(() => {})
-        throw e
-      }
-    }
-    return { committed, project: restored }
   },
 
   'userscript:toggle': async (msg): Promise<void> => {
@@ -275,12 +266,21 @@ export default defineBackground(() => {
   // 用户脚本管理器：启动配置世界并恢复已启用脚本（设计文档 §4）
   void initUserScripts().catch((e) => console.error('[duoling:userscript] init failed', e))
 
-  // 扩展更新会清空 userScripts 注册与 world 配置，需在 update 分支重配重注册（设计文档 §4.4）
+  // offscreen 需「随时可用」：安装 / 更新 / 浏览器启动都立即确保容器在场。
+  // Chrome 不会自动启动 offscreen，且 idle 自关未实现，故改为常驻策略（与方案 §6.2 #12 的退出条件已冲突，见 offscreen.ts）。
   chrome.runtime.onInstalled.addListener((details) => {
+    void ensureOffscreen().catch((e) => console.error('[duoling:offscreen] ensure failed', e))
     if (details.reason === 'update') {
       void recoverOnUpdate().catch((e) => console.error('[duoling:userscript] recover failed', e))
     }
   })
+
+  chrome.runtime.onStartup.addListener(() => {
+    void ensureOffscreen().catch((e) => console.error('[duoling:offscreen] ensure failed', e))
+  })
+
+  // SW 冷启动即确保 offscreen 在场（与上面监听器互补：SW 被终止后重启时，首条事件会触发本回调）
+  void ensureOffscreen().catch((e) => console.error('[duoling:offscreen] ensure failed', e))
 
   // 模型配置变更 → 通知 offscreen 重新拉取（它只有 chrome.runtime，收不到 storage.onChanged）。
   // 只发「变了」这个信号、**不推配置内容**：由 offscreen 主动回拉，apiKey 只在它取用时过界，

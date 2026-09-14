@@ -27,7 +27,7 @@ import { CodeBlock } from '@/components/ai-elements/code-block'
 import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
 import { buildCodeTree, inferLanguage, type CodeTreeNode } from '@/lib/code-view'
 import { buildProject, BuildError } from '@/lib/userscripts/builder'
-import { userscriptClient } from '@/lib/userscripts/ui-client'
+import { userscriptClient, aiFsClient } from '@/lib/userscripts/ui-client'
 import type { UsCommit, UsHistoryTree } from '@/lib/userscripts/us-git'
 
 const props = defineProps<{ uuid: string }>()
@@ -263,7 +263,7 @@ async function openHistory(): Promise<void> {
   historyLoading.value = true
   error.value = ''
   try {
-    historyCommits.value = await userscriptClient.history(props.uuid)
+    historyCommits.value = await aiFsClient.history(props.uuid)
     if (historyCommits.value.length) {
       await selectCommit(historyCommits.value[0]!.oid)
     } else {
@@ -282,7 +282,7 @@ async function selectCommit(oid: string): Promise<void> {
   error.value = ''
   try {
     histOid.value = oid
-    histTree.value = await userscriptClient.historyTree(props.uuid, oid)
+    histTree.value = await aiFsClient.historyTree(props.uuid, oid)
     histActiveFile.value = histTree.value.files[0]?.path ?? ''
   } catch (e) {
     error.value = '读取快照失败：' + (e instanceof Error ? e.message : String(e))
@@ -302,7 +302,7 @@ async function restoreCommit(): Promise<void> {
   error.value = ''
   notice.value = ''
   try {
-    const { project } = await userscriptClient.restoreToCommit(props.uuid, histOid.value)
+    const { project } = await aiFsClient.restoreToCommit(props.uuid, histOid.value)
     scriptName.value = project.name
     editFiles.value = { ...project.files }
     editEntry.value = project.entry

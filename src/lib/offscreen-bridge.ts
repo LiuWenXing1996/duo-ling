@@ -12,7 +12,7 @@
 // 注意：这里只用 `import type` 引类型（编译后消失，零运行时依赖）—— 引的 ScriptProject
 // 来自 userscripts/types.ts，那是纯类型 + 纯函数模块，不碰任何 chrome API。
 import type { ModelProfileState, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
-import type { ScriptProject } from '@/lib/userscripts/types'
+import type { ScriptProject, ScriptSummary } from '@/lib/userscripts/types'
 
 /** 向 SW 发一次请求，统一解包 { ok, data | error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -52,4 +52,7 @@ export const offscreenBridge = {
   /** 启停脚本（注册 / 注销由 SW 侧完成） */
   toggle: (uuid: string, enabled: boolean): Promise<void> =>
     send({ kind: 'userscript:toggle', uuid, enabled }),
+
+  /** 列出全部脚本概要（对账用：判断哪些仓需补建 / 清理；offscreen 无 chrome.storage 故经 SW 取） */
+  listSummaries: (): Promise<ScriptSummary[]> => send({ kind: 'userscript:list' }),
 }

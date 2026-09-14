@@ -373,7 +373,7 @@ offscreen 侧只能 import：`builder.ts`（纯 esbuild，无 chrome API）、`e
 | `reconnectToStream` 从桩变真实现 | 它**不是新发明的入口**（`ChatTransport` 的既有方法，§4.1），但**事件缓冲与 replay 逻辑是全新增量**，也是 B 体验的命门 |
 | 进度对用户不可见 | 面板关闭期间用户看不到进度 → 用 `chrome.notifications`（权限已在）+ 可选 action 角标；由 SW 发 |
 | 谁来启动 / 重启它 | `ensureOffscreen()` + 在途 promise 防竞态（见上）；进程崩了需要看门狗 |
-| **泄漏是 MV3 内存膨胀第一大原因** | 官方与社区一致强调「用完必须 `closeDocument()`」。我们要它常驻＝**故意长活**，必须配明确的生命周期与退出条件（建议：任务结束 + 侧边栏关闭 + 空闲 N 分钟后自关；下次生成前 ensure 重建） |
+| **泄漏是 MV3 内存膨胀第一大原因** | 官方与社区一致强调「用完必须 `closeDocument()`」。我们要它常驻＝**故意长活**，故生命周期集中在 `offscreen.ts` 一个模块（ensure/close 均经此处），**不设退出条件**（空闲 / 任务结束 / 面板关闭均不自关，老大 2026-09-14 拍板）；仅在调试命令 `offscreen:close` 时主动关 |
 | 调试路径变化 | offscreen 的 `console` 落到 SW inspector，不再是面板 DevTools |
 | offscreen bundle 变肥 | 它要打进 `ai` SDK + `esbuild-wasm` 的 JS 部分（wasm 仍是外部资源），冷启动加载量上升（待实测） |
 
@@ -441,7 +441,7 @@ offscreen 侧只能 import：`builder.ts`（纯 esbuild，无 chrome API）、`e
 | 9 | 可代定 · 脚本档案（对齐工具 `archive.md`） | **加**，`notes` 字段起步 |
 | 10 | 可代定 · 内置脚本（拾取器等）放哪里 | 管理页「内置」分组，与用户脚本同构但不可编辑 / 不可删除 |
 | 11 | 可代定 · 首条 `script_spec` 规范载荷的形态 | 由 `docs/userscript-api.md` + §8 生成一段注入文本；`.d.ts` 留给脚本作者（v2 计划 P3 已列） |
-| 12 | 可代定 · offscreen 的退出条件 | 任务结束 + 侧边栏关闭 + 空闲 N 分钟后 `closeDocument()`；下次生成前 `ensureOffscreen` 重建。**N 待实测** |
+| 12 | ~~offscreen 的退出条件~~ **已撤销** | 老大 2026-09-14 拍板采用**常驻策略**：offscreen 在 install / startup / SW 冷启动即 `ensureOffscreen()`，不再设任何自关退出条件；极端内存压力下 Chrome 可能关闭它，由请求方 `ensure` 兜底重建 |
 | 13 | 可代定 · `maxSteps` 上限 | 先沿用桌面版的 8（`legacy/src/main/agent-orchestrator.ts:60` 的 `stopWhen: isStepCount(8)`）；实测后调 |
 | 14 | 可代定 · 任务进行中用户又发一条消息怎么办 | 建议**排队**（不并发同会话两条流），面板上显式提示「当前任务进行中，已排队」——避免同一会话两条流交错写入 |
 
@@ -456,7 +456,7 @@ offscreen 侧只能 import：`builder.ts`（纯 esbuild，无 chrome API）、`e
 | 5 | 生成物被遗忘在未启用状态 | 「先落盘不启用」的副作用 | 卡片主按钮为「启用」；管理页可对未启用项目加提示 |
 | 6 | AI 误用已作废概念 | 先验里有 `unsafeWindow` / `@grant` / 同步 `GM_getValue`，写出来的脚本跑不起来 | `script_spec` 明确列禁止事项（§8）；`script_apply` 的构建失败会当场纠正 |
 | 7 | 脚本越界影响面大 | 一旦启用即在所有匹配站生效 | 默认收窄 matches + 卡片展示范围 + git 一键回滚（「先不启用」已把默认风险降到零） |
-| 8 | **offscreen 泄漏 / 无人回收** | 官方与社区一致：offscreen 泄漏是 MV3 内存膨胀第一大原因。我们要它常驻 = 故意长活 | 明确退出条件（§6.2 #12）+ 生命周期集中在一个模块里，不散落 `createDocument` 调用 |
+| 8 | **offscreen 泄漏 / 无人回收** | 官方与社区一致：offscreen 泄漏是 MV3 内存膨胀第一大原因。我们要它常驻 = 故意长活 | 生命周期集中在 `offscreen.ts` 一个模块（ensure/close 均经此处，不散落 `createDocument` 调用）；**不设退出条件**（§6.2 #12 已撤销，老大 2026-09-14 拍板常驻） |
 | 9 | **offscreen 未创建 → 任务静默不启动** | Chrome 不会自动启动它；安装时 SW 未必有机会跑 | `ensureOffscreen()` 挂在**生成请求入口**（必然发生的时机），不只挂 `onStartup` / `onInstalled` |
 | 10 | **三层消息协议出错难查** | 侧边栏 ↔ offscreen ↔ SW，跨三个上下文 | 统一 route 字段 + 每条消息带 `taskId`；按 §调试方法论「三段各打一条日志」定位；offscreen 的日志在 SW inspector |
 | 11 | **模型 apiKey 跨进程** | 配置读取要从 SW 传给 offscreen | 取一次 + 内存缓存 + 不写日志；offscreen 与 SW 信任级别等同，非新增对外暴露面 |
