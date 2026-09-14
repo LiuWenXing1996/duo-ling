@@ -37,6 +37,7 @@
 | 文档 | 职责 | 何时读 |
 | --- | --- | --- |
 | [README.md](README.md) | 工程介绍、目录结构、命令、手测步骤、关键坑 | 上手 / 手测前 |
+| [docs/doc-management.md](docs/doc-management.md) | 文档管理规范：三区分层、头部元数据、索引维护、归档流程 | 新增 / 移动 / 归档 / 改文档状态前 |
 | [docs/plugin-migration-plan.md](docs/plugin-migration-plan.md) | 迁移方案：架构映射、分层方案、风险清单、路线图 | 涉及架构 / 迁移范围时 |
 | [docs/prd.md](docs/prd.md) | 产品需求文档（**主链路「一句话→工具」已下线，见文件头状态说明**） | 了解功能背景与范围时 |
 | [docs/userscript-ai-generation.md](docs/userscript-ai-generation.md) | AI 生成用户脚本方案（当前主方向） | 涉及生成链路时 |
