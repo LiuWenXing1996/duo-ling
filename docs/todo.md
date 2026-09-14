@@ -2,32 +2,7 @@
 
 > 记录后续要做的功能事项，先在这里收敛方案，再动手实现。
 > 2026-09-14 清理：已实现条目压缩为索引（详情见各自提交与 git 历史）；部分条目为 Electron 时期撰写，落地前需按扩展架构重写（已标 ⚠️）。
-
-## 会话与工具解耦（实施中 · P1 基本落地）
-
-**背景**：当前会话/对话强绑定工具，无法跨工具、无法在一次对话中修改多个工具。已与用户确认将「会话」提升为一等公民，与工具解耦；同一会话可改任意工具、可一次改多个，并支持多个 AI 会话并行思考 + 对同一工具串行写入。
-
-**方案要点（已确认）**：
-- **绑定下沉到 EditIntent**：`Conversation → Message → EditIntent { toolId, summary, actions[], status }`，会话从不拥有工具。`Conversation { id, title, createdAt, lastMessageAt }`、`Message { id, conversationId, role, content, createdAt }`、`Tool`（磁盘目录）独立于会话。
-- **多工具 manifest**：AI 输出 `{ intents: [{ toolId, summary, actions[] }] }`，天然支持一次改多个工具。
-- **无感确认 = 事后可逆而非事前阻塞**：靠 git 版本化 + 回滚兜底；每个 EditIntent 一个 commit，撤销 = revert 到父 OID。
-- **单写者全局 per-tool 锁**：锁带持有者标识 `{ toolId, holder: { conversationId, messageId, intentId }, acquiredAt }`；查锁只读畅通、拿锁排他串行。
-- **执行管线（Plan B）**：待办清单只展示意图（intents），执行时逐工具持锁重读当前内容 + 重生成 + 落盘，避免覆盖用户手动修改、识别「已无需改动」；每改一个工具锁一个工具，支持锁前提示。
-- **多 AI 并发（B 方案）**：不做并发上限调度器（3-4 个 AI 是用户自然上限）。规划时 AI 先查锁，被锁则跳过+提示用户；执行时被锁则视为执行失败并告知原因 + 重试出口。
-- **中断**：执行期间禁发新消息 + 停止按钮；优雅中断 = 收尾当前项 → 释放锁 → 取消剩余 → 恢复输入。
-- **数据区**：`tools-data/<id>/`，单 key 原子、AI 不写数据区、不锁数据区（用 schema 版本 + 读容错兜底语义漂移）。
-- **工具页重写编排**：停旧页 → 写文件 → 加载新页，用「过渡占位」而非遮罩/白屏；批量写 + 单次 reload。
-
-**详细文档**：见 [conversation-tool-decouple.md](./conversation-tool-decouple.md)。
-
-**状态**：实施中（部分已落地，依据 2026-09-14 代码核查）：
-- **P1 解耦与契约 · 基本落地**：`EditIntent` 模型（含 `error` / `createdAt`）、多工具 manifest `intents[]`、`Conversation` 独立存储与会话解耦（零工具纯聊天 / 一次改多工具）、会话一等公民均已实现。只读锁查询以 capability 形式可用（无独立 IPC 通道，走通用能力调用）。
-- **P2 执行管线 · 部分落地**：每个 `EditIntent` 一个 commit、移除弹窗确认（自动落盘留痕）已实现；但「每条 intent 独立撤销到父 OID」未打通（`EditIntent` 不存 commit oid）、待办清单（多条 intent + 每项可撤销）、锁前提示、持锁后重读重生成、优雅中断均未实现，且执行期不可打断（streaming 只覆盖 AI 生成，不覆盖落盘执行）。
-- **P3 并发协调 · 未实现**：per-tool 全局锁（带 holder + acquiredAt）纯只读占位，无 acquire / release，AI 落盘 / 回滚 / meta 编辑 / 直接文件编辑等写路径均未加锁；查-执行两步 + 失败重试未实现。
-- **数据区**：`tools-data`（key 白名单 / manifest / AI 不写数据区）已实现。
-- **工具页重写编排**：仅基础 `reload()`，无「停旧页 → 写文件 → 加载新页」、无过渡占位、非批量写 + 单次 reload。
-
-**关键缺口（按影响排序）**：① 写路径无任何锁（P3，安全边界）；② `EditIntent` 与 git commit 未打通（无法一键撤销到父 OID）；③ 执行期不可打断。
+> 2026-09-15 清理：「会话与工具解耦」条目删除——工具链路已在 68b70128 移除（EditIntent / applyIntents / tools-data / per-tool 锁的挂载实体全无，方案文档 conversation-tool-decouple.md 已删），未落地缺口随之失去载体；已落地部分（会话一等公民、独立存储）转入下方已完成索引。
 
 ---
 
@@ -242,6 +217,7 @@ SW 直读 IndexedDB 注册」→ **已做**（见本条目顶部）。讨论出�
 
 | 方案 | 结论 | 提交 |
 | --- | --- | --- |
+| 会话一等公民：与工具解耦 | `Conversation` 独立存储、零工具纯聊天可用（原「会话与工具解耦」P1；P2/P3 缺口随工具链路移除 68b70128 失去载体，条目 2026-09-15 删除） | — |
 | 工具版本管理：版本预览 + 回滚一体 | 整树物化预览 + 回滚产生「回滚到 `<shortOid>`」新 commit，不做 reset | — |
 | 工具能力声明：meta.capabilities + 运行时拦截 | meta 为权威来源，运行时按白名单拒绝未声明能力 | `d0634d3` |
 | 生成器审批模式：默认 auto | 移除 manual/auto 审批全套链路，变更清单自动落盘 | `238dd3b` |
