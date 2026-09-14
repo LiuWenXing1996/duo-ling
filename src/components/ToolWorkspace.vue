@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import type { PropType } from 'vue'
+import { Search as UiSearch } from '@lucide/vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import ToolDetailPanel from '@/components/ToolDetailPanel.vue'
 import ToolHistory from '@/components/ToolHistory.vue'
@@ -11,6 +12,7 @@ import DeveloperPanel from '@/components/DeveloperPanel.vue'
 import UiTestPanel from '@/components/UiTestPanel.vue'
 import HomePanel from '@/components/HomePanel.vue'
 import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
+import ToolIcon from '@/components/ToolIcon.vue'
 import ToolEditDialog from '@/components/ToolEditDialog.vue'
 import ToolDeleteDialog from '@/components/ToolDeleteDialog.vue'
 import type { OpenTool, ToolDetailMeta } from '@/types/tab'
@@ -19,6 +21,13 @@ import {
   Tabs as UiTabs,
   TabsContent as UiTabsContent
 } from '@/components/ui/tabs'
+import {
+  Combobox as UiCombobox,
+  ComboboxAnchor as UiComboboxAnchor,
+  ComboboxContent as UiComboboxContent,
+  ComboboxInput as UiComboboxInput,
+  ComboboxItem as UiComboboxItem
+} from '@/components/ui/combobox'
 
 // 工具元信息（来自主进程 tool.list）：主页网格与全局搜索共用
 const props = defineProps({
@@ -58,6 +67,32 @@ function openTool(tool: ToolMeta): void {
   }
   activate(tool.id)
 }
+
+// —— 全局工具搜索 ——
+// 2026-09-14：原 workbench 46px 顶栏（存在的唯一理由是放这个搜索框）已删除，
+// 搜索框移入标签栏右侧（WorkspaceTabs 的 #actions 插槽）。逻辑与模板原样平移自
+// WorkbenchApp 的 .workspace-topbar 段，未重写；打开工具直接复用上面的 openTool。
+const searchQuery = ref('')
+// 当前选中的下拉项：带 `tool:` 前缀的值，处理完成后复位
+const searchSelectedId = ref<string | null>(null)
+const searchOpen = ref(false)
+
+const filteredTools = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return props.tools
+  return props.tools.filter((t) =>
+    [t.title, t.name, t.description].some((s) => s?.toLowerCase().includes(q))
+  )
+})
+
+watch(searchSelectedId, (id) => {
+  if (!id) return
+  if (id.startsWith('tool:')) {
+    const tool = props.tools.find((t) => t.id === id.slice(5))
+    if (tool) openTool(tool)
+  }
+  searchSelectedId.value = null
+})
 
 // 打开设置标签页：若已打开则激活，否则新开一个
 function openSettingsTab(): void {
@@ -330,7 +365,63 @@ defineExpose({ createTool, openTool, openSettingsTab, openDeveloperTab, openUiTe
         :active-id="activeTabId"
         :home-tab-id="HOME_TAB.id"
         @close="closeTab"
-      />
+      >
+        <!-- 全局工具搜索：2026-09-14 由原 workbench 顶栏移入标签栏右侧（顶栏已删除），
+             模板与 WorkbenchApp 原 .workspace-topbar 段一致 -->
+        <template #actions>
+          <ui-combobox
+            v-model="searchSelectedId"
+            v-model:open="searchOpen"
+            class="w-56"
+            open-on-focus
+            open-on-click
+            ignore-filter
+          >
+            <ui-combobox-anchor
+              class="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm text-muted-foreground"
+            >
+              <ui-search class="size-4 shrink-0" />
+              <ui-combobox-input
+                v-model="searchQuery"
+                :display-value="() => ''"
+                class="min-w-0 flex-1"
+                placeholder="搜索工具…"
+              />
+            </ui-combobox-anchor>
+
+            <ui-combobox-content>
+              <div v-if="!filteredTools.length" class="px-2.5 py-1.5 text-sm text-muted-foreground">
+                未找到匹配项
+              </div>
+              <template v-else>
+                <div
+                  class="px-2.5 pb-0.5 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                >
+                  工具
+                </div>
+                <ui-combobox-item
+                  v-for="tool in filteredTools"
+                  :key="`tool:${tool.id}`"
+                  :text-value="`${tool.title} ${tool.name} ${tool.description}`"
+                  :value="`tool:${tool.id}`"
+                >
+                  <div class="flex w-full min-w-0 items-start gap-2">
+                    <tool-icon
+                      :icon="tool.icon"
+                      :fallback="tool.title"
+                      class="mt-0.5 size-4 shrink-0 leading-none"
+                    />
+                    <div class="flex min-w-0 flex-1 flex-col">
+                      <span class="truncate">{{ tool.title }}</span>
+                      <span class="truncate text-muted-foreground">{{ tool.description }}</span>
+                    </div>
+                  </div>
+                </ui-combobox-item>
+              </template>
+            </ui-combobox-content>
+          </ui-combobox>
+        </template>
+      </workspace-tabs>
 
       <ui-tabs-content
         v-for="tab in openTabs"

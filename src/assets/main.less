@@ -1,4 +1,4 @@
-// 三栏工作区布局样式
+// 工作区布局样式（左侧图标导航栏 + 右侧工作区；原全宽顶栏已于 2026-09-14 删除）
 // 约定：Tailwind 负责通用工具类；Less 负责复杂业务样式与复用性较高的局部样式
 .workspace {
   display: flex;
@@ -7,19 +7,10 @@
   height: 100vh;
   overflow: hidden;
 
-  // 全宽顶栏（拖拽区）：红绿灯所在的窗口标题栏，从窗口最顶开始横跨侧边条与内容区
-  &-topbar {
-    flex: none;
-    display: flex;
-    align-items: center;
-    height: 46px;
-    padding: 0 14px;
-    border-bottom: 1px solid var(--border);
-    -webkit-app-region: drag;
-    user-select: none;
-  }
-
-  // 顶栏之下：左侧图标导航栏 + 右侧内容区
+  // 2026-09-14：原 &-topbar（46px 全宽顶栏，桌面版是窗口拖拽区）已删除 —— 浏览器标签页
+  // 没有红绿灯，它存在的唯一理由是承载那个居中的全局搜索框，而搜索框已移入工作区标签栏右侧。
+  // 现在 &-main 直接从窗口顶部开始铺满。
+  // 左侧图标导航栏 + 右侧内容区
   &-main {
     display: flex;
     flex: 1;

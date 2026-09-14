@@ -4,29 +4,23 @@
 // 产品形态（用户 2026-09-13 定）：side panel = 应用入口 = AI 对话；工具 / 设置 / 版本这些重界面
 // 退到独立标签页 —— 本组件就是那个标签页。
 //
-// 结构平移自桌面版 app.vue 的「顶栏 + 左侧导航 + 工作区」三段，只裁掉两栏聊天
-// （会话历史 | 当前会话已移入 side panel），保留的分支逐句照搬，未重写：
-//   · 顶栏全局搜索：桌面版搜「工具 + 会话记录」，这里只搜工具（会话在侧边栏里搜）
-//   · 左侧导航：置顶工具 / 新建工具 / 设置 / 开发者 / UI 测试
-//   · 工作区：ToolWorkspace（多标签页：工具详情 / 代码 / 版本历史 / 数据 / 设置 …）
-import { computed, onMounted, ref, watch } from 'vue'
+// 结构平移自桌面版 app.vue 的「顶栏 + 左侧导航 + 工作区」，只裁掉两栏聊天
+// （会话历史 | 当前会话已移入 side panel），保留的分支逐句照搬，未重写。
+// 2026-09-14：原 46px 顶栏已删除（它存在的唯一理由就是承载那个居中的全局搜索框），
+// 现在是两段结构：
+//   · 左侧导航：置顶工具 / 新建工具 / 设置 / 开发者 / UI 测试 / 用户脚本
+//   · 工作区：ToolWorkspace（多标签页：工具详情 / 代码 / 版本历史 / 数据 / 设置 …），
+//     全局工具搜索框已移入其标签栏右侧（搜索逻辑也一并移入，见该文件搜索段注释）
+import { computed, onMounted, ref } from 'vue'
 import {
   Braces as UiBraces,
   FlaskConical as UiFlaskConical,
   MoreHorizontal as UiMoreHorizontal,
   Plus as UiPlus,
-  Search as UiSearch,
   Settings as UiSettings,
   Terminal as UiTerminal,
 } from '@lucide/vue'
 import type { ToolOpenCommand } from '@/shared/types'
-import {
-  Combobox as UiCombobox,
-  ComboboxAnchor as UiComboboxAnchor,
-  ComboboxContent as UiComboboxContent,
-  ComboboxInput as UiComboboxInput,
-  ComboboxItem as UiComboboxItem,
-} from '@/components/ui/combobox'
 import {
   Popover as UiPopover,
   PopoverContent as UiPopoverContent,
@@ -43,30 +37,10 @@ const workspaceRef = ref<InstanceType<typeof ToolWorkspace> | null>(null)
 // 用户脚本管理器：内嵌全屏面板（复用 workbench 单一 HTML 入口，规避多 HTML 入口在 rolldown-vite 下 plugin-vue compiler 未初始化）
 const showUserscriptManager = ref(false)
 
-// 全局搜索：工具在本地按标题/名称/描述子串过滤后直接打开
+// 工具列表：供左侧导航置顶区与右侧工作区使用
+// （原「全局搜索」的 query / selectedId / filteredTools / watch 已随 46px 顶栏一起
+//   移入 ToolWorkspace，此处不再持有）
 const allTools = ref<ToolMeta[]>([])
-// 搜索框输入值：由 reka-ui ComboboxInput v-model 双向同步（选中后自动复位为空串）
-const searchQuery = ref('')
-// 当前选中的下拉项：带 `tool:` 前缀的值，处理完成后复位
-const selectedId = ref<string | null>(null)
-const searchOpen = ref(false)
-
-const filteredTools = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return allTools.value
-  return allTools.value.filter((t) =>
-    [t.title, t.name, t.description].some((s) => s?.toLowerCase().includes(q))
-  )
-})
-
-watch(selectedId, (id) => {
-  if (!id) return
-  if (id.startsWith('tool:')) {
-    const tool = allTools.value.find((t) => t.id === id.slice(5))
-    if (tool) workspaceRef.value?.openTool(tool)
-  }
-  selectedId.value = null
-})
 
 async function reloadTools(): Promise<void> {
   try {
@@ -130,64 +104,10 @@ function openUserscriptManager(): void {
 
 <template>
   <div class="workspace">
-    <!-- 顶栏：桌面版是无边框窗口拖拽区（-webkit-app-region: drag），浏览器标签页里该属性无副作用 -->
-    <header class="workspace-topbar">
-      <div class="no-drag relative mx-auto flex w-full max-w-md flex-1">
-        <ui-combobox
-          v-model="selectedId"
-          v-model:open="searchOpen"
-          class="flex-1"
-          open-on-focus
-          open-on-click
-          ignore-filter
-        >
-          <ui-combobox-anchor
-            class="flex items-center gap-2 rounded-md bg-muted px-2.5 py-1.5 text-sm text-muted-foreground"
-          >
-            <ui-search class="size-4 shrink-0" />
-            <ui-combobox-input
-              v-model="searchQuery"
-              :display-value="() => ''"
-              class="min-w-0 flex-1"
-              placeholder="搜索工具…"
-            />
-          </ui-combobox-anchor>
+    <!-- 2026-09-14：原 46px 顶栏（存在的唯一理由是承载那个居中的全局搜索框）已删除，
+         搜索框移入工作区标签栏右侧 —— 见 ToolWorkspace 的 #actions 插槽与 WorkspaceTabs。 -->
 
-          <ui-combobox-content>
-            <div v-if="!filteredTools.length" class="px-2.5 py-1.5 text-sm text-muted-foreground">
-              未找到匹配项
-            </div>
-            <template v-else>
-              <div
-                class="px-2.5 pb-0.5 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
-              >
-                工具
-              </div>
-              <ui-combobox-item
-                v-for="tool in filteredTools"
-                :key="`tool:${tool.id}`"
-                :text-value="`${tool.title} ${tool.name} ${tool.description}`"
-                :value="`tool:${tool.id}`"
-              >
-                <div class="flex w-full min-w-0 items-start gap-2">
-                  <tool-icon
-                    :icon="tool.icon"
-                    :fallback="tool.title"
-                    class="mt-0.5 size-4 shrink-0 leading-none"
-                  />
-                  <div class="flex min-w-0 flex-1 flex-col">
-                    <span class="truncate">{{ tool.title }}</span>
-                    <span class="truncate text-muted-foreground">{{ tool.description }}</span>
-                  </div>
-                </div>
-              </ui-combobox-item>
-            </template>
-          </ui-combobox-content>
-        </ui-combobox>
-      </div>
-    </header>
-
-    <!-- 顶栏之下：左侧图标导航栏 + 右侧工作区 -->
+    <!-- 左侧图标导航栏 + 右侧工作区 -->
     <div class="workspace-main">
       <aside class="workspace-nav">
         <div v-if="pinnedTools.length" class="workspace-nav-pins">
