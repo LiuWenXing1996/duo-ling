@@ -8,6 +8,7 @@
 // + buildCodeTree + FileTree + CodeBlock。
 import { computed, onMounted, ref } from 'vue'
 import { RefreshCw as UiRefreshCw, RotateCcw as UiRotateCcw } from '@lucide/vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { FileTree } from '@/components/ai-elements/file-tree'
 import { CodeBlock } from '@/components/ai-elements/code-block'
 import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
@@ -90,15 +91,11 @@ async function selectCommit(o: string): Promise<void> {
   }
 }
 
-/** 恢复历史版本：物化项目 → offscreen 重建 bundle → 落盘重注册（原编辑器 restoreCommit 迁入） */
+/** 恢复确认弹窗（替代原生 confirm）：按钮只负责打开，真正的恢复在 onConfirmRestore */
+const confirmOpen = ref(false)
+
 async function restoreCommit(): Promise<void> {
   if (!oid.value || restoring.value) return
-  if (
-    !confirm(
-      '恢复到此版本？将同时恢复当时的名称与匹配规则（启用状态保持不变），并产生一条「回滚」记录。',
-    )
-  )
-    return
   restoring.value = true
   error.value = ''
   notice.value = ''
@@ -268,7 +265,7 @@ onMounted(() => {
             type="button"
             :disabled="restoring || !oid"
             class="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            @click="restoreCommit"
+            @click="confirmOpen = true"
           >
             <ui-rotate-ccw class="size-3.5" />
             {{ restoring ? '恢复中…' : '恢复此版本' }}
@@ -276,5 +273,14 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- 恢复确认 -->
+    <ConfirmDialog
+      v-model:open="confirmOpen"
+      title="恢复到此版本？"
+      description="将同时恢复当时的名称与匹配规则（启用状态保持不变），并产生一条「回滚」记录（可再恢复回来）。"
+      confirm-text="恢复"
+      @confirm="restoreCommit"
+    />
   </section>
 </template>
