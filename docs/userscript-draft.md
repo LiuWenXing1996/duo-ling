@@ -1,6 +1,6 @@
 # 用户脚本编辑器 · 草稿方案（工作区即草稿）
 
-> 状态：**方案（未实现）**。本文件只描述设计与判据，不落地代码。
+> 状态：**已实施（2026-09-15，随 offscreen 单写方一起落地）**。
 > 关联：`docs/userscript-git-history.md`（git 侧车）、`docs/offscreen-fs-migration.md`（lfs 归 offscreen）、
 > `docs/userscript-single-writer.md`（若存储层改由 offscreen 单写，本文「storage」即指项目数据所在处，论证不变）。
 > 决策（2026-09-14 拍板）：**草稿 = git 工作区的未提交改动**，不新建独立草稿库。
@@ -215,7 +215,7 @@ await aiFsClient.writeDraft(uuid, baseline)   // 载荷即项目形状，offscre
 9. **半写会留下残缺草稿**：写入顺序与 `readWorktree` 判据见 §4.1；兜底是「丢弃草稿」按钮。保存时
    `syncWorktree` 全量重写会自愈中间态。
 10. **恢复历史版本会整体覆盖工作区**（`us-git.ts:304`），等同丢弃草稿——见 §4.7。
-11. **删除脚本必须补 `ai:deleteRepo`**（§4.8），否则草稿滞留到下次 `reconcileFs`。
+11. ~~删除脚本必须补 `ai:deleteRepo`~~ **已随单写方落地解决（2026-09-15）**：`userscript:remove` 经 `state:remove` 在 offscreen 同一上下文里删状态库 + 整目录（含工作区草稿），草稿不再滞留，见 §4.8。
 12. **多标签同时编辑同一 uuid**：两个编辑器各写各的草稿，后写覆盖先写，打开时看到的是最后写的那份。
     best-effort 接受，不做锁（脚本编辑是单人场景）。
 
@@ -246,87 +246,7 @@ await aiFsClient.writeDraft(uuid, baseline)   // 载荷即项目形状，offscre
 - 草稿写失败（`chrome://extensions` 里手动关掉 offscreen）：编辑不中断、不弹红色错误条；
 - 有草稿时点「恢复此版本」：confirm 提示会覆盖草稿，确认后草稿提示条消失、`baseline` 指向新内容。
 
-## 8. 评审记录（2026-09-14）
+## 8. 评审记录
 
-评审范围：本方案全文，对照 `us-git.ts` / `offscreen-fs-commands.ts` / `ui-client.ts` /
-`UserscriptEditorPanel.vue` / `WorkspaceHost.vue` / `background.ts` 现状。
-
-**结论：方向成立（草稿 = 工作区未提交改动），可实施。** 但按现状直接照写会出 bug。
-
-> **2026-09-14 复审后：以下条目已全部并入 §4–§7 正文（含编号调整：删除脚本 §4.7 → §4.8，
-> 脏检测 §4.8 → §4.9，新增 §4.7 恢复历史版本）。本节省略留档，以正文为准。**
-
-### P0（必修，否则出 bug）
-
-1. **`readWorktree` 必须把「空工作区」判成「无草稿」，否则会清空用户编辑态。**
-   「有 `.git` + 工作区无文件」是可达状态（`ensureRepo` 成功但 `snapshotProject` 失败过、
-   `reconcileFs` 补仓失败、lfs 半途写坏）。按 §4.3 现有判据，`draft == { files: [] }`
-   与 project **不等** → 走进「用 draft 静默覆盖编辑态」分支 → 编辑态被清空、且 `editDirty = true`。
-   定案：`project.json` 不可读 **或** `files` 为空 → 返回 `null`（视为无草稿，走 project 填充分支）。
-   §4.3 第一条里再加一层「draft.files 为空 → 按 null 处理」的兜底。
-
-2. **命令载荷与 `buildContents` 对不上，且 UI 侧拿不到 `buildContents`。**
-   `buildContents(project)`（`us-git.ts:142`）需要完整 `ScriptProject`（`v` / `uuid` / `createdAt`），
-   而 §4.2 的载荷只有 `name/entry/config/files`；该函数在 offscreen 侧，UI **不能** import
-   （`us-git.ts` 顶部 `import git from 'isomorphic-git'` 会被打进面板包，现 UI 只用 `import type`）。
-   定案：**载荷直接传 `ScriptProject` 形状** —— UI 侧 `{ ...baseline, name: editName, entry: editEntry,
-   config: currentConfig(), files: editFiles }`（`v`/`uuid`/`createdAt`/`enabled` 由 baseline 兜），
-   offscreen 侧一行 `buildContents(project)` 即可。`saveEdit` / 草稿写 / `discardDraft` 三处共用同一个
-   `currentProject()`，也顺带消掉 §4.4 里「saveEdit 内联拼装」的重复。
-
-3. **草稿写失败必须吞掉。** `sendAi`（`ui-client.ts:42-58`）重试 3 次后 **throw**，
-   在 deep watch 回调里就是 unhandled rejection，还可能打断后续写入。草稿是 best-effort：
-   必须 `catch`，静默失败（至多在提示条示一个「草稿未保存」的弱提示），绝不能走 `error`。
-
-4. **半写保护 + 写入顺序。** 多文件写入随时可能中断（容器被杀 / lfs 报错），
-   残缺工作区会被下次 `readWorktree` 读出来填进编辑态。定案：`writeWorktree` 按
-   **写 files/ → 删多余 → 最后写 `project.json`** 的顺序，`readWorktree` 以 `project.json`
-   可读作为「草稿有效」的判据（与 P0-1 合并）；`project.json` 损坏 → 按无草稿处理。
-   另：保存时 `snapshotProject` 会 `syncWorktree` 全量重写工作区，中间态会自然自愈——写进文档。
-
-### P1（应补）
-
-1. **「恢复历史版本」与草稿的交互未定义。** `restoreCommit` → `restoreToCommit`
-   （`us-git.ts:304` `syncWorktree`）会用历史内容**整体覆盖工作区**，等于隐式丢弃草稿，
-   而方案 §4 一处未提。定案：恢复前若 `editDirty` 则 confirm 文案补「当前未保存的草稿将被覆盖」；
-   恢复成功后 `baseline` 更新为恢复后的 project、`editDirty = false`、提示条清掉
-   （工作区已由 `syncWorktree` 与恢复结果一致，无需再写一次）。
-
-2. **恢复草稿会让「打开后立刻关标签页」弹出关闭确认。** `editDirty` 转 true →
-   `emit('dirty')` → `WorkspaceHost.vue:36` 的 `confirm('有未保存的修改，确认关闭？')`。
-   语义上正确（确实有未保存改动），但是行为变化，必须在文档写明，别到时候当成 bug。
-
-3. **§4.7「删除脚本无需改动」不成立。** `userscript:remove`（`background.ts:210-213`）
-   只做 `unregisterScripts` + `deleteScript`，**从不调 `ai:deleteRepo`**；
-   `aiFsClient.deleteRepo` 目前**全仓无人调用**。仓与草稿实际只靠 `reconcileFs`
-   （offscreen 启动 + 每次 `ai:snapshot` 前）清。也就是说删完脚本，草稿会一直挂到
-   「下一次任意脚本保存 / 扩展重启」。要么在 `userscript:remove` 里补一次
-   `sendToOffscreen({ kind: 'ai:deleteRepo' })`（1 行，客户端已有），要么明确接受并改 §7 验收。
-   **推荐补**——顺带让那条一直没接上的 `ai:deleteRepo` 真正生效。
-
-4. **关标签页 / 切走时的 flush。** debounce 500ms + lfs 自身 500ms debounce（§2.2 #3），
-   最后一段改动必然丢。定案：`onBeforeUnmount`（及可选的 `visibilitychange`）里把 pending 写
-   立即发出（不 await），能救回一部分。
-
-5. **`writeWorktree` 的删除范围要说死。** 只递归删 `files/` 下的多余文件
-   （`pfs.readdir` 目录不存在要 catch），**绝不能碰 `.git`**；建议直接
-   `removeRecursive('/uscripts/<uuid>/files')` 后整体重写，顺带避免残留空目录
-   （删掉 `utils/x.js` 后 `files/utils/` 会留空，git 不跟踪空目录、不影响提交，但会越积越多）。
-
-### 事实修正
-
-1. §2.2 #1 关于「offscreen 常驻、不会因容器不在而失败」的表述与现状一致（`offscreen.ts` 顶部
-   2026-09-14 拍板：SW 冷启动即 `ensureOffscreen`，原 idle 自关已撤销），无需改。
-   但 `ui-client.ts:35-40` 那段「它只在 AI 生成入口经 ensureOffscreen 创建 / 编辑器读历史从不唤起它」
-   的注释**已过期**（现在常驻），实现时可顺手改掉——不影响本方案。
-2. **§6 行数偏乐观**：`writeWorktree`（含递归删 + 顺序写）+ `readWorktree` 约 50 行；
-   面板侧 load 判空、串行化、提示条、`discardDraft`、`currentProject()` 约 70 行。合计 ~150 行 / 5 文件。
-3. **§4.3 config 比对**要写明「两边都过 `currentConfig()` 的归一化」：`optArr` 空数组返回
-   `undefined`，`JSON.stringify` 会丢键，只有两边同构才比得准。另：填充编辑态时
-   `activeFile` 不能盲信 `draft.meta.entry`（可能指向已删文件），取不到就回退到第一个文件；
-   头部 `scriptName` 也要同步为 draft 的 name（现在 `load()` 只从 project 取）。
-
-### 已知接受项（写进文档即可，不改设计）
-
-- 多标签同时编辑同一 uuid：后写覆盖先写，best-effort。
-- 草稿写入失败 / 仓损坏：丢草稿不丢脚本，与「删脚本即删历史」同一档风险。
+2026-09-14 评审结论已全部并入 §4–§7 正文（含「草稿 = 工作区未提交改动」定案与各边界修正）。
+原留档的评审明细已随 2026-09-15 过时信息清理删除，git 历史可查。

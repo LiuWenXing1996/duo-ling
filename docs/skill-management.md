@@ -240,6 +240,7 @@ npm run verify:skills
 | 名称 | 类型 | 溯源（原 `skills-lock.json` 内容，删文件后迁到此处） | 状态 |
 | --- | --- | --- | --- |
 | `shadcn-vue` | 领域知识 | `unovue/shadcn-vue`（github）→ 仓库内 `skills/shadcn-vue/SKILL.md` | ✅ 完整（SKILL.md + cli.md + customization.md + mcp.md + rules/） |
+| `wxt` | 领域知识 | WXT 官方文档（`https://wxt.dev/knowledge/`）→ 仓库内 `.agents/skills/wxt/`（SKILL.md + references/official-kb.md） | ✅ 已装入并在 AGENTS.md 挂载 |
 
 > **更新 skill 时怎么找上游**：到 `https://github.com/unovue/shadcn-vue` 取 `skills/shadcn-vue/` 下最新文件覆盖本地，跟代码同 PR。
 > 历史 `computedHash`（npx skills 协议字段，**已失真，仅作考古参考**）：`99c23e506f7fa3a1b26dede8e837d067549ba2fbc339ea9030d1563c1f4badf2` —— 与本地文件实际 SHA256（`88b43308172f3dbaa31956b08998f68c3fd0a9fa9bc2cec680de62147b8e3737`）早已对不上，这也是删 lockfile 的直接原因。
@@ -248,10 +249,11 @@ npm run verify:skills
 
 | 名称 | 类型 | 说明 |
 | --- | --- | --- |
-| `wxt` | 领域知识 | WXT 框架配置/构建/调试，基于 `https://wxt.dev/knowledge/` 官方文档做底 |
-| `pre-push-checks` | 工作流 SOP | 推送前检查清单（typecheck + 受影响的 vitest 文件）|
+| `pre-push-checks` | 工作流 SOP | 推送前检查清单（typecheck + 受影响的测试文件）|
 | `wxt-build-debug` | 工作流 SOP | WXT 构建报错的常见原因对照表 |
 | `electron-migration` | 工作流 SOP | `legacy/` 平移到扩展版的决策与桥接层核对（参考 `scripts/port-legacy-ui.py`） |
+
+> 原「待装」首位的 `wxt` 已于 2026-09-14 装入并上移到「已装」表。
 
 ### 不装
 
@@ -462,7 +464,7 @@ mkdir -p .agents/notes/{proposed,implemented,rejected,archived}/{architecture,te
 | CLAUDE.md | symlink → AGENTS.md | **可选**（暂不需要） |
 | Skill 子结构 | SKILL.md + references/ + templates/ + scripts/ | **一致** |
 | frontmatter | 极简：name + description | **一致** |
-| AGENTS.md 引用 | ✅ 4 处 | **Phase 3 加** |
+| AGENTS.md 引用 | ✅ 4 处 | ✅ 已就地挂载（shadcn-vue + wxt） |
 | Git hooks | lefthook.yml（pre-commit/pre-push） | **未引入**（按需） |
 | `.agents/notes/` ADR | ✅ 4 状态 6主题 | **Phase 6 引入** |
 | lockfile | **不要** | **不要**（删 skills-lock.json） |

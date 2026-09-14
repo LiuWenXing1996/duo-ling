@@ -1,6 +1,6 @@
 # AI 生成用户脚本 · 实施方案
 
-> 状态：**已拍板（2026-09-14），未实施**，**无待拍板项**——十条主决策见 §6.1；剩余可代定项见 §6.2；前置 9 条见 §5。
+> 状态：**已拍板（2026-09-14），实施中**，**无待拍板项**——十条主决策见 §6.1；剩余可代定项见 §6.2；前置 9 条见 §5（A 组「容器与通道」1–4 已落地：offscreen entrypoint、`ensureOffscreenReady`、`model:getActiveProfile` + 配置转发、`offscreen-bridge.ts`；B 组「编排与构建」5–9 待开工）。存储底座已随单写方迁 `duoling-state`，见 [userscript-single-writer.md](./userscript-single-writer.md)。
 > 前置阅读：`docs/userscript-v2-plan.md`（新形态四阶段，Phase 0–3 已落地）、
 > `docs/userscript-api.md`（DL 能力 API 契约）、`docs/userscript-git-history.md`（每脚本一仓的 git 侧车）。
 > 与「AI 生成工具」的关系：**本次完全不碰工具链路**（老大决策）。脚本生成与工具生成走两条独立通道，
@@ -29,6 +29,13 @@
 3. **「生成即生效」的风险远高于工具**。工具生成了放着不用没影响；脚本一旦注册就在所有匹配页面跑起来——所以本方案把「生成」与「生效」拆开（§4.5）。
 
 ## 2. 现状事实核查（逐项对过代码）
+
+> ⚠️ 本节核查基于 2026-09-14 的代码现状。此后工具链路已移除（`68b70128`）、项目存储已迁独立
+> IndexedDB 库 `duoling-state`（[userscript-single-writer.md](./userscript-single-writer.md)）：
+> 文中引用的 `src/lib/api.ts`、`fs-store.ts`、`storage.ts`、`tools-data.ts`、`tool-prefs.ts`、
+> `tool-generator.ts` 及 `tool:*` 命令均已不存在；「存储双轨」一行的 chrome.storage 清单（offscreen
+> 已改为经消息中转）、§2.2 的「工具侧落盘链路」「意图契约解析器」两行、§2.3 缺口 2（offscreen 容器，
+> 已落地）随之失效或过时。模块归属现状见下文 §4.8 的归属规则（已修订）。
 
 ### 2.1 相关链路的真实状态
 
@@ -342,10 +349,11 @@
 
 > **注（2026-09-14 追加）**：工具链路移除后，上表「文件树与 git 快照」一行将变更——其归属从 SW 迁至 offscreen（lightning-fs 仍保持"唯一写入方"这条约束，只是换持有者）。方案见 [offscreen-fs-migration.md](./offscreen-fs-migration.md)。
 
-**模块归属规则（硬约束，写代码时按这条落）**：
-`src/lib/userscripts/store.ts`、`src/lib/model-store.ts`、`src/fs-store.ts`、`src/lib/userscripts/engine.ts`、`src/lib/storage.ts`、`src/lib/tools-data.ts`、`src/lib/tool-prefs.ts` —— **只允许被 `background.ts` 侧的 SW 代码 import**。
-offscreen 侧只能 import：`builder.ts`（纯 esbuild，无 chrome API）、`extension-chat-transport.ts`、`ai` SDK、以及一个新增的 **`offscreen-bridge.ts`**（把「读模型配置」「createProject」「toggle」「读脚本」等封装成 `chrome.runtime.sendMessage` 调用）。
-这条规则的价值：**它把「能不能在 offscreen 里跑」变成编译器可查的问题**——import 了 `fs-store` 就会在运行时报 `chrome.storage is undefined`，而不是等到某个冷门分支才暴露。
+**模块归属规则（硬约束，写代码时按这条落）**（2026-09-15 按单写方落地后的现状修订）：
+`src/lib/userscripts/store.ts`（`DL.store` 值与 `us:errors`，SW 直写）、`src/lib/model-store.ts`、`src/lib/userscripts/engine.ts` —— **只允许被 SW 代码 import**。
+项目数据走 `state-db.ts` / `project-store.ts`（读）与 `project-write.ts`（写，**只归 offscreen**）；`lightning-fs` 实例（`us-fs.ts`）只许 offscreen 持有。
+offscreen 侧只能 import：`builder.ts`（纯 esbuild，无 chrome API）、`extension-chat-transport.ts`、`ai` SDK、`state-db.ts` / `project-write.ts`，以及 **`offscreen-bridge.ts`**（把「读模型配置」等封装成 `chrome.runtime.sendMessage` 调用）。
+这条规则的价值：**它把「能不能在 offscreen 里跑」变成编译器可查的问题**——import 了只有 SW 能跑的模块就会在运行时报 `chrome.storage is undefined`，而不是等到某个冷门分支才暴露。
 
 **新增的四个机制**
 

@@ -1,7 +1,7 @@
 # 用户脚本 Git 历史浏览方案
 
 > 状态：**已实施（2026-09-14）**。复用现有工具版本管理体系的全部模式，新增代码量可控。
-> 前置阅读：`docs/userscript-v2-plan.md`（v2 新形态）、`src/fs-store.ts`（工具版本管理现状）。
+> 前置阅读：`docs/userscript-v2-plan.md`（v2 新形态）。§2 盘点的 `src/fs-store.ts`（工具版本管理）已随工具链路移除（68b70128），同名模式由 `src/lib/userscripts/us-git.ts` 重新实现。
 >
 > **拍板结论（2026-09-14）**：
 > 1. 提交 message = **自动计数为默认（`保存 #n`）+ 可选备注**——保存栏备注输入框填了就用备注，空则自动计数；
@@ -50,27 +50,26 @@ UI 侧：版本预览复用 `FileTree`（ai-elements）+ `CodeBlock`（只读高
 
 ## 4. 数据流
 
-**保存**（UI 页 → SW）：
+**保存**（UI 页 → SW → offscreen；2026-09-15 起「写状态库 + git 提交」在 offscreen 同一函数内完成，见 `docs/userscript-single-writer.md`）：
 ```
 编辑器保存
   → buildProject（现状）
-  → IPC userscript:updateFiles（现状：storage 落盘 + 重注册）
-  → SW 侧追加：usGit.snapshot(project)
+  → IPC userscript:updateFiles（现状：经 writeViaOffscreen 写状态库 + 重注册，提交同处完成）
       ① ensureRepo(/uscripts/<uuid>)
       ② 写 project.json + files/*
       ③ add + commitIfChanged
-         message: `保存 <n> 个文件改动` / `保存`（无文件名级 diff 可读时给简单计数）
+         message: 备注优先，空则自动计数（`保存 #n`）
 ```
 
-**浏览**（UI 页 → SW，只读）：
+**浏览**（UI 页 → offscreen，只读；原 `userscript:history*` 三命令已从协议删除）：
 ```
-userscript:history → listCommits
-userscript:historyTree(oid) → listTreeFiles + 每 blob 内容 → UI 渲染 FileTree + CodeBlock
+ai:history → listHistory
+ai:historyTree(oid) → readTreeAt + 每 blob 内容 → UI 渲染 FileTree + CodeBlock
 ```
 
-**恢复**（UI 页 → SW）：
+**恢复**（UI 页 → offscreen）：
 ```
-① SW: usGit.restoreToCommit(uuid, oid)
+① offscreen: us-git.restoreToCommit(uuid, oid)
    - listTreeFiles(oid) → 物化 project.json + files → 生成 ScriptProject
      （bundle 字段丢弃，updatedAt = now，enabled 保持当前值）
    - storage 落盘 + 重注册（复用 updateFiles 的落盘段）
@@ -80,15 +79,17 @@ userscript:historyTree(oid) → listTreeFiles + 每 blob 内容 → UI 渲染 Fi
    （构建失败仅提示，源码已恢复，下次保存再重建）
 ```
 
-## 5. IPC 面（新增 3 条，全在 background / SW 侧）
+## 5. IPC 面（2026-09-15 起为 `ai:*`，由 offscreen 响应）
+
+> 原 `userscript:history` / `userscript:historyTree` / `userscript:restoreToCommit` 三条 SW 命令已随单写方迁移为 `ai:*` 并从协议删除（见 `docs/userscript-single-writer.md`）。
 
 | 命令 | 入参 | 出参 |
 | --- | --- | --- |
-| `userscript:history` | uuid | `Array<{ oid, message, time }>`（时间倒序，对齐 ToolCommit 形状） |
-| `userscript:historyTree` | uuid, oid | `{ files: Array<{ path, content }> }`（project.json 解出 name/config 一并返回供 UI 展示「当时的配置」） |
-| `userscript:restoreToCommit` | uuid, oid | `{ ok, committed, project }`（恢复后的 ScriptProject，bundle 为空） |
+| `ai:history` | uuid | `UsCommit[]`（时间倒序） |
+| `ai:historyTree` | uuid, oid | `{ files: Array<{ path, content }> }`（project.json 解出 name/config 一并返回供 UI 展示「当时的配置」） |
+| `ai:restoreToCommit` | uuid, oid | `{ committed, project }`（恢复后的 ScriptProject，bundle 为空） |
 
-实现落点：新建 `src/lib/userscripts/us-git.ts`（SW 侧，包装 isomorphic-git 调用，模式照抄 fs-store 对应函数；**不改 fs-store 本身**，避免工具链路被牵动）。`polyfills` 已在 background 最前引入，无新增全局依赖。
+实现落点：`src/lib/userscripts/us-git.ts`（**offscreen 侧**，包装 isomorphic-git 调用）。`polyfills` 已在 offscreen 入口最前引入，无新增全局依赖。
 
 ## 6. UI 形态
 

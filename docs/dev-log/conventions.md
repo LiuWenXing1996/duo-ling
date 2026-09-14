@@ -32,14 +32,11 @@
 
 > **闭包是按 legacy 源码的 import 关系算的**，所以本地已改过的文件会被覆盖回来。跑之前先备份有手工改动的：`composables/use-global-conversation.ts`、`components/ai-elements/shimmer/Shimmer.vue`。`lib/custom-chat-transport.ts` 已列入脚本的 `DROP_AFTER_COPY`，重跑后自动删除。
 
-进度：对话层（ChatPanel / SessionHistoryPanel / ModelFormDialog）与工作台（ToolWorkspace 系列，带出 17 个业务组件 + `types/{tool,tab,model}` + `lib/*`）均已平移。宿主 `entrypoints/app/WorkbenchApp.vue` 是 legacy `app.vue` 的裁剪版。
+进度：对话层（ChatPanel / SessionHistoryPanel / ModelFormDialog）与工作台均已平移；`ToolWorkspace` 已随工具链路移除改名为 `WorkspaceHost`。宿主 `entrypoints/app/WorkbenchApp.vue` 是 legacy `app.vue` 的裁剪版。
 
-**平移组件的破例清单**（唯二改动本体）：
+**平移组件的破例清单**：
 
-- `ToolFrame.vue`：`<webview>` → srcdoc iframe + 宿主侧桥接路由
-- `ToolHistory.vue`：版本预览 `<webview>` → srcdoc iframe，预览结果多带 `html` 字段
-
-其余组件一字未改。
+- ~~`ToolFrame.vue` / `ToolHistory.vue`~~：两组件已随工具链路移除（`68b70128`），破例随之清空——现存的平移组件均零改动本体。
 
 ## 手写数据层必须逐条比对桌面版语义
 
@@ -73,4 +70,4 @@
 - `legacy/` = 原 Electron 归档：**只读参照 / 不参与构建 / 迁移完成后整目录删除**。必须入库（不可 ignore）——否则 git 会把移动判定为纯删除、丢掉历史关联。
 - 包管理用 **npm**。构建产物 `.output/`，开发 `npm run dev`。
 - 交付前验证：`npm run typecheck`（vue-tsc，对齐 legacy 严格度：`noUncheckedIndexedAccess: false`）+ `npm run build`。
-- 文档：根 `README.md`、`AGENTS.md`、[docs/plugin-migration-plan.md](plugin-migration-plan.md)。`docs/design.md` 仍是 Electron 架构描述，**待重写**。
+- 文档：根 `README.md`、`AGENTS.md`、[docs/plugin-migration-plan.md](plugin-migration-plan.md)。

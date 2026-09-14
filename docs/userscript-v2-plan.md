@@ -1,6 +1,6 @@
 # 用户脚本新形态 · 实施方案
 
-> 状态：方案稿 v1（2026-09-14，待老大评审）
+> 状态：**已实施**（Phase 0–3 已于 2026-09-14 落地；实施偏差与就地修订已并入正文）
 > 前置决策：见 `.workbuddy/memory/MEMORY.md`「用户脚本引擎 · 战略定位」——放弃油猴兼容，
 > 新形态四支柱：模块化管理 / 自有能力 API（DL，全 async）/ USER_SCRIPT 隔离环境 / 反向中继。
 > API 契约（已定型）：`src/lib/userscripts/api-contract.ts` + `docs/userscript-api.md`。

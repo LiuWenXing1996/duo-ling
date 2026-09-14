@@ -58,7 +58,7 @@
 | 原子样式、布局、间距、颜色 | Tailwind 工具类 |
 | 主题语义色 | shadcn 令牌（`--primary`、`--muted` 等），通过 `@theme inline` 映射 |
 | 组件变体 | `class-variance-authority`（cva），参考 `components/ui/button/index.ts` |
-| 复杂业务样式 / 复用片段 | Less（`src/renderer/src/styles/`） |
+| 复杂业务样式 / 复用片段 | Less（`src/assets/main.less`） |
 | 类名合并 | 统一使用 `cn()`（`@/lib/utils`） |
 
 - 禁止在模板内写内联 style 进行主题相关着色，使用语义令牌。
@@ -82,5 +82,5 @@
 ## 7. 提交与协作
 
 - 提交信息采用约定式提交前缀：`feat:` / `fix:` / `refactor:` / `docs:` / `test:` / `chore:`。
-- 提交前必须通过 `pnpm typecheck` 与 `pnpm test`。
+- 提交前必须通过 `npm run typecheck` 与 `npm run build`（测试体系建立后再加 `test`）。
 - 新增依赖、改动构建配置前先与用户确认。

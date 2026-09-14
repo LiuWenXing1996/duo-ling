@@ -1,77 +1,9 @@
 # 待办清单
 
 > 记录后续要做的功能事项，先在这里收敛方案，再动手实现。
-> 2026-09-14 清理：已实现条目压缩为索引（详情见各自提交与 git 历史）；部分条目为 Electron 时期撰写，落地前需按扩展架构重写（已标 ⚠️）。
+> 2026-09-14 清理：已实现条目压缩为索引（详情见各自提交与 git 历史）。
+> 2026-09-15 清理：删除三条「⚠️ 已废弃」条目（工具页风格统一 / 沙箱化 / UserTool 改造）——依赖的 UserTool 工具链路已在 68b70128 移除，场景无载体；原文 git 历史可查。
 > 2026-09-15 清理：「会话与工具解耦」条目删除——工具链路已在 68b70128 移除（EditIntent / applyIntents / tools-data / per-tool 锁的挂载实体全无，方案文档 conversation-tool-decouple.md 已删），未落地缺口随之失去载体；已落地部分（会话一等公民、独立存储）转入下方已完成索引。
-
----
-
-## 工具页风格统一：与主应用 UI 一致（⚠️ 已废弃）
-
-> ⚠️ **已废弃**：工具链路（UserTool 生成/管理：`tool:*` IPC、`tools-data`、`meta.capabilities`、`archive.md`）已在 68b70128 移除，`src` 内已无 UserTool 工具页代码、`tool-spec.md` 已删。本条描述的「AI 生成工具页风格」场景已无载体，故废弃。
-> 注：仍存在的 `kind:'tool'` 仅指 chat agent 的**函数调用**（LLM 在对话里调函数），与 UserTool 工具页无关，不在本条范围内。
->
-> ⚠️ 本条按 Electron 时期撰写，落地前需按扩展架构（sandbox iframe + srcdoc 承载工具页）重写背景描述；档位决策本身仍有效。
-
-**背景**：工具页由 AI 直接写原生 HTML（纯 CSS、无 Tailwind），导致工具页 UI 与主应用（shadcn-vue 风格）严重不搭。要让 AI 产出与主应用一致的界面。
-
-**已查实的关键事实**：
-- shadcn-vue 是**源码复制式**（`npx shadcn-vue add` 拷 `.vue` 源码进 `components/ui/`），**官方不发 dist 包**；外观那层是源码 + Tailwind 类 + design tokens。
-- 有官方 dist 的是**底层库**：reka-ui（无头组件，ESM-only、依赖树重，体积几十 KB 起）、@lucide/vue（有 UMD 全局产）。
-- reka-ui 是**无头**组件，**不带样式**，本身无法提供「shadcn 外观」。
-
-**已讨论的方案档位（成本递增）**：
-- **档位A · 设计令牌 + 类名（倾向）**：与主应用共用一份 design tokens + 常用组件样式的 CSS 产物（放 vendor），AI 用原生标签 + 类名即得主应用风格。零依赖、零耦合、随主应用进化；代价是软约束、类名体系需维护。
-- **档位C · 折中基元**：只把 Button/Card/Input/Select/Tabs 等基元打进 vendor 当真组件，其余 tokens+类名兜底。需 Vue 运行时 + reka-ui 依赖。
-- **档位B · 整套组件库**：最完整但最重，性价比最低。
-
-**核心结论 / 决策点**：
-- 无论哪条路，「外观」都要靠自己定义 tokens/类名——reka-ui 只给无障碍交互，不解决风格问题。
-- 性价比：**纯 A** 最优；**A 外观 + lucide 官方 UMD 图标 + 按需 reka-ui** 次之；默认给每个工具页装全套 reka-ui 亏。
-- **待确认**：工具页对「复杂交互」（下拉框/弹层/标签页等有状态交互）的真实需求。若工具多为表单/展示类，档位 A 就够；仅当多数工具需要这类交互时才值得引入 reka-ui。
-
-**状态**：尚未决定，倾向档位 A。待确认工具页复杂交互需求后再定，不予落地。
-
----
-
-## 工具页严格沙箱化：opaque origin + 双层 iframe（⚠️ 已废弃）
-
-> ⚠️ **已废弃**：同 UserTool 工具页，依赖已被移除的工具链路，场景已不存在。若未来 reintroduce 工具页再重新评估。
->
-> ⚠️ 原条目「webview 显式沙箱化」为 Electron `<webview sandbox>` 形态，已按扩展架构改写为 iframe 沙箱议题（2026-09-14 清理时改写）。
-
-**背景**：AI 生成的不可信工具页经 sandbox iframe + srcdoc 承载，但**现状仍是同源 sandbox**（见 AGENTS.md「CSP / 沙箱」行），与「工具页只能经 `window.cap` 桥调用能力」的消息协议约束配合，构成当前防线；严格沙箱化（opaque origin + 双层 iframe 分层）是补上进程级隔离的待办。
-
-**方案要点（待确认，按扩展形态重写后待评审）**：
-- 不可信工具页放**不透明 origin**（opaque origin）的 sandbox iframe，杜绝同源读写主应用存储。
-- **双层 iframe 分层**：外层受信壳（持有 `window.cap` 桥）+ 内层不可信内容（srcdoc 注入），中间以 `postMessage` 单通道转发，桥代码不暴露给不可信层。
-- 预览（版本预览）链路同步适用同一沙箱策略。
-- 落地时验证：工具页加载 / 心跳 / 能力调用不受影响。
-
-**关联**：与「UserTool 文件结构与运行环境改造」同一批运行环境加固。
-
-**状态**：待办。方向已确认（AGENTS.md 已登记），详细方案需按扩展架构重写后评审。
-
----
-
-## UserTool 文件结构与运行环境改造（⚠️ 已废弃）
-
-> ⚠️ **已废弃**：UserTool 工具链路已在 68b70128 移除，`tool-spec.md` 已删，本条目标态不复存在。
-
-**背景**：`docs/tool-spec.md` 为「工具规范」权威契约，只描述目标形态、**不谈进度**；以下为落地 `tool-spec.md` 所需实现的改造项，统一登记于此（按 tool-spec 章节归组）。
-
-> ⚠️ 子项完成状态以 Electron 时期记录为准，扩展侧现状（能力声明 / CSP / 档案链路已平移）需逐项核对后再动工。
-
-**方案要点（目标态见 tool-spec.md）**：
-1. **CSP 权威层（tool-spec §6.2/§6.3）**：协议层权威下发 CSP（不依赖生成端 AI 写 meta）——桌面版已落地；脚手架 `<meta>` CSP 已移除（避免双写交集不一致）。
-2. **`.css` MIME（tool-spec §3.3/§6.2）**：协议层扩展名→Content-Type 映射补充 `.css` → `text/css`。
-3. **文件白名单放开 + 版本管理动态遍历（tool-spec §3.2/§5.2）**：编辑白名单、生成器侧文件白名单从「两文件」放开为「两个固定文件 + 三个目录 + 工具档案」；git 提交/回滚遍历动态化（排除 `.git/`），防目录穿越。
-4. **脚手架改造为目录骨架（tool-spec §5.1 创建）**：新建 UserTool 从「自包含单文件」改为「入口页 + 脚本/样式目录 + 空静态资源目录」。
-5. **工具档案 `archive.md` 落地（tool-spec §8）**：桌面版已实现并平移（档案随 git 版本化，AI 主笔）。
-6. **`local.file.choose`（tool-spec §4.2）**：系统文件选择框能力，建立「用户授权选文件」边界。
-7. **CSP violation 反馈闭环（tool-spec §6.3）**：把运行时 CSP violation 反馈给生成端 AI 自检（增量可选）。
-
-**关联**：与「工具页严格沙箱化」同一批运行环境加固；落地顺序可按依赖排（先 2/3，再 4，6/7 独立）。
 
 ---
 
@@ -113,7 +45,7 @@
 1. **新增 `offscreen` entrypoint** + manifest 加 `"offscreen"` 权限（**老大 2026-09-14 已批准**）；`reason: ['BLOBS', 'WORKERS']`；
 2. **`ensureOffscreen()`**（SW 侧：`chrome.runtime.getContexts` + 在途 promise 防竞态），挂在**生成请求入口**处——Chrome 不会自动启动 offscreen，安装时 SW 未必有机会跑；
 3. **配置通道**：SW 新增 `model:getActiveProfile`（复用现成 `getActiveProfileState()`）+ `storage.onChanged` 转发给 offscreen（它收不到该事件）；
-4. **offscreen 侧桥接层**（新文件）：把「读配置 / createProject / toggle / 读脚本」封装为 runtime 消息；守住**模块归属规则**（`userscripts/store.ts`、`model-store.ts`、`fs-store.ts`、`engine.ts` 等**只许 SW import**——lightning-fs 有内存索引层，双实例会互相看不见写入）。
+4. **offscreen 侧桥接层**（新文件）：把「读配置 / createProject / toggle / 读脚本」封装为 runtime 消息；守住**模块归属规则**（`userscripts/store.ts`、`model-store.ts`、`engine.ts` 等**只许 SW import**；项目数据写只归 offscreen——lightning-fs 有内存索引层，双实例会互相看不见写入）。
 
 *B. 编排与构建*
 5. **整条对话链路与构建搬进 offscreen**（**不做任务类型分流**——只有一条链路，§4.1）：`streamText` + `tools` + `stopWhen` + `maxSteps` 上限；`builder.ts` 随 offscreen 入口 import（wasm 懒加载 + 首次构建 loading 态）；
@@ -134,7 +66,7 @@
 
 **详细文档**：见 [userscript-ai-generation.md](./userscript-ai-generation.md)（含 §3.1 esbuild 放 SW 的技术核查与宿主筛选表、§3.2 `esbuild-standalone` 外部对照、§4.8 定位 B 的三容器架构与「谁写什么」表、§8 `script_spec` 禁止事项清单）。
 
-**状态**：方案已拍板（含定位 B 与「整条链路搬」），**无待拍板项**，代码未动，前置 9 条待开工。
+**状态**：方案已拍板（含定位 B 与「整条链路搬」），**无待拍板项**。前置 **A 组（容器与通道，1–4）已落地**：offscreen entrypoint + `"offscreen"` 权限、`ensureOffscreenReady`（`src/lib/offscreen.ts`）、`model:getActiveProfile` + 配置转发（`background.ts`）、`offscreen-bridge.ts`；**B 组（编排与构建，5–9）待开工**。
 
 ---
 
