@@ -340,6 +340,8 @@
 | 任务运行时状态（进行中标记、事件缓冲） | **offscreen** | 侧边栏重开时读它、订阅它 |
 | 进度通知（面板关闭期间） | **SW** | `chrome.notifications`（`notifications` 权限已在）——offscreen 没有该 API，经消息请 SW 发 |
 
+> **注（2026-09-14 追加）**：工具链路移除后，上表「文件树与 git 快照」一行将变更——其归属从 SW 迁至 offscreen（lightning-fs 仍保持"唯一写入方"这条约束，只是换持有者）。方案见 [offscreen-fs-migration.md](./offscreen-fs-migration.md)。
+
 **模块归属规则（硬约束，写代码时按这条落）**：
 `src/lib/userscripts/store.ts`、`src/lib/model-store.ts`、`src/fs-store.ts`、`src/lib/userscripts/engine.ts`、`src/lib/storage.ts`、`src/lib/tools-data.ts`、`src/lib/tool-prefs.ts` —— **只允许被 `background.ts` 侧的 SW 代码 import**。
 offscreen 侧只能 import：`builder.ts`（纯 esbuild，无 chrome API）、`extension-chat-transport.ts`、`ai` SDK、以及一个新增的 **`offscreen-bridge.ts`**（把「读模型配置」「createProject」「toggle」「读脚本」等封装成 `chrome.runtime.sendMessage` 调用）。
