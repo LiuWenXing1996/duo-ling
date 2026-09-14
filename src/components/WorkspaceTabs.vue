@@ -53,21 +53,28 @@ const buildInfo = (() => {
 // MV3 SW console 不回放历史日志（启动日志在打开 DevTools 前就打完了），这条通道才是可靠的自证方式。
 const swBuildInfo = ref<{ branch: string; time: string } | null>(null)
 
+function fetchSwBuildInfo(): Promise<{ time: string; branch: string }> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ kind: 'sw:buildInfo' }, (r: { ok: boolean; data?: { time: string; branch: string }; error?: string }) => {
+      const lastError = chrome.runtime.lastError
+      if (lastError) return reject(new Error(lastError.message))
+      if (!r?.ok || !r.data) return reject(new Error(r?.error || 'SW 无应答'))
+      resolve(r.data)
+    })
+  })
+}
+
 onMounted(async () => {
-  try {
-    const res = await new Promise<{ ok: boolean; data?: { time: string; branch: string }; error?: string }>(
-      (resolve, reject) => {
-        chrome.runtime.sendMessage({ kind: 'sw:buildInfo' }, (r) => {
-          const lastError = chrome.runtime.lastError
-          if (lastError) return reject(new Error(lastError.message))
-          resolve(r)
-        })
-      },
-    )
-    if (!res?.ok || !res.data) return
-    swBuildInfo.value = { branch: res.data.branch, time: fmtBuildTime(res.data.time) }
-  } catch {
-    // SW 未响应（刚重载中 / 异常）：静默，页面自身的时间戳仍可用
+  // 重试而非一次定生死：WXT 重载扩展时工作台页面会跟着重载，挂载瞬间的第一条请求
+    // 常撞上「旧 SW 已死、新 SW 监听器未注册完」的窗口（症状：SW 列永远空白，刷新才恢复）
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const data = await fetchSwBuildInfo()
+      swBuildInfo.value = { branch: data.branch, time: fmtBuildTime(data.time) }
+      return
+    } catch {
+      await new Promise((r) => setTimeout(r, 800))
+    }
   }
 })
 </script>
