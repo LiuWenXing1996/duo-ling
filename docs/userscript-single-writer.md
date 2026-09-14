@@ -135,6 +135,29 @@
 是否也清不掉扩展数据，未实测——真跑会清掉本机真实站点的登录态，不做；
 有需要时另起一个临时 profile 再测。
 
+### 5.3 前置项 1 手测记录（2026-09-15）
+
+在**扩展页**（工作台标签页右键 → 检查）的 Console 里发 runtime 命令：
+
+| 步骤 | 实测 | 说明 |
+|---|---|---|
+| `offscreen:close` | `ok:true` | 文档真被关掉 |
+| `offscreen:status`（关后） | `ready:false` | 与下面的耗时差互为佐证 |
+| `offscreen:ensure` **冷启** | `ready:true`，**58.4ms** | 建容器 + 等到它应答才返回 |
+| `offscreen:ensure` **稳态** | `ready:true`，**0.7ms** | 容器已在，首轮 `ai:ping` 即命中 |
+
+**冷启 58.4ms vs 稳态 0.7ms** 的 80 倍差距是核心证据：若 `close` 没生效，`ensure` 冷启也会是亚毫秒；
+若没真等到可应答就返回，`ready` 不会是 `true`。
+
+**真实 UI 回归**（这条才是重点）：`close` 之后**不走命令**，直接点工作台「用户脚本」→ 脚本 → 编辑 →
+**git 历史**：提交列表正常列出；再点「恢复某版本」成功。说明 `sendAi` 删掉 `setTimeout(80)` 后
+第一轮即成，没有出现「The message port closed before a response was received」那类抢答失败。
+
+⚠️ **手测踩坑**：首轮命令返回「未知消息类型：offscreen:ensure」——浏览器里跑的是**旧包**。
+`offscreen:ensure` / `offscreen:close` 要到 `9ac8c7e`（2026-09-14 17:43）才引入，之前构建的包没有
+这两个 kind。**手测 runtime 命令前必须先到 `chrome://extensions` 点刷新**；产物 mtime 新 ≠ 浏览器里
+跑的是新包。确认新代码在跑的可靠信号：SW Console 出现 `[duoling:offscreen] 容器已就绪`。
+
 ## 6. 对既有方案的影响
 
 - `docs/userscript-draft.md`：**论述结构不变，只是「storage」换成「项目数据所在处」**。

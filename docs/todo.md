@@ -163,7 +163,7 @@
 
 ---
 
-## 用户脚本数据改由 offscreen 单写（方案未拍板）+ 前置项（1 已落地，2、3 已实测）
+## 用户脚本数据改由 offscreen 单写（方案未拍板）+ 前置项（1 已落地并手测通过，2、3 已实测）
 
 > 2026-09-14 评审 `docs/userscript-draft.md` 时，由「为什么还需要 chrome.storage」追问出来的议题。
 > 老大要求先把前置项记下。**2026-09-15：三条前置项全部收口**——
@@ -172,6 +172,10 @@
 >   `src/lib/offscreen.ts`）。判据是「能应答」而非「文档存在」，无状态、SW 重启后也不失真。
 >   顺带：移除协议里已废弃、全仓无调用的 `userscript:history*` 三命令；SW 的 handlers 表类型
 >   收窄为 `SwRequest`（由 `SW_KIND_PREFIXES` 推导），不再为死命令补桩。
+>   **手测通过（2026-09-15，记录见 userscript-single-writer.md §5.3）**：`close` 后 `ensure`
+>   冷启 **58.4ms / ready:true**，稳态 **0.7ms**；`close` 后不走命令直接打开编辑器的 git 历史，
+>   提交列表正常、恢复版本成功。手测前务必 `chrome://extensions` 点刷新——首轮曾打到旧包，
+>   而 `offscreen:ensure/close` 要到 `9ac8c7e`（2026-09-14 17:43）才引入。
 > - 前置项 2（SW 冷启动期 IDB 可读）**通过**：浏览器冷启动、offscreen 尚未创建时，SW 已读到上一轮
 >   offscreen 写进 IDB 的数据（`ms: 0`）。计划外发现：**offscreen 每次浏览器启动都是重建的**，
 >   「SW 冷启动时没有 offscreen」是常态，正是读路径必须 IDB 直读的依据。
@@ -192,8 +196,10 @@
 **为何成了前置项**：若「用户脚本项目数据改由 offscreen 单写」落地，**每一次保存都要走这条路**
 （写路径必经 offscreen），靠 80ms 猜时间不再可接受——猜短了写入失败，猜长了每次保存都白等。
 
-**做法**：复用已有的 `offscreen:ready` 握手命令（`extension-ipc.ts:46`，目前只有类型、无消费方），
-`ensure` 之后等这条握手（带超时，超时降级回现有重试），替掉固定 sleep。
+**做法（已按此落地，但判据换了）**：原计划复用 `offscreen:ready` 握手（等通知 + 超时降级回重试）。
+实际改成**把就绪判据定义成「容器能应答一条消息」**——新增 `ai:ping`，`offscreen:ensure` 内部
+轮询到有应答才返回（`ensureOffscreenReady()`，`src/lib/offscreen.ts`）。理由：握手通知要维护
+状态位，SW 重启后旧容器不会再通知一次、状态位会失真；而探测无状态，且测的正是在意的属性。
 
 **关联议题（未决）**：「用户脚本项目数据（源码 / 配置 / 产物 / enabled）是否改由 offscreen 单写、
 SW 直读 IndexedDB 注册」。该议题若不做，本条价值有限；若做，本条是开工前必须先落的一小块。
