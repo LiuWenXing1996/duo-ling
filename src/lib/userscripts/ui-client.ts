@@ -7,6 +7,7 @@
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
 import type { UsCommit, UsHistoryTree } from './us-git'
+import type { LfsNode } from './us-fs'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -124,4 +125,7 @@ export const aiFsClient = {
   /** 恢复到某提交（enabled 保持当前值；bundle 由 UI 重建，落盘 + 重注册由后续 updateFiles 完成） */
   restoreToCommit: (uuid: string, oid: string): Promise<{ committed: boolean; project: ScriptProject }> =>
     sendAi({ kind: 'ai:restoreToCommit', uuid, oid }),
+
+  /** 整库浏览（只读调试视图）：lfs 库的完整文件树（含 .git 内部） */
+  lfsTree: (): Promise<LfsNode> => sendAi({ kind: 'ai:lfsTree' }),
 }

@@ -38,6 +38,8 @@ export type RuntimeRequest =
   // 恢复：由快照物化出项目（不落状态库），提交一条「回滚」记录；落盘由调用方经
   // userscript:updateFiles 完成（UI 侧先切编辑态、重建 bundle 再保存）。
   | { kind: 'ai:restoreToCommit'; uuid: string; oid: string }
+  // 整库浏览（只读调试视图）：递归列出 lfs 库的文件树（含 .git 内部），工作台「lfs 浏览」标签页用
+  | { kind: 'ai:lfsTree' }
 
   // —— 项目状态库的**写**命令面（docs/userscript-single-writer.md）——
   // 项目数据（源码 / 配置 / 构建产物 / enabled）落在独立 IndexedDB 库 duoling-state，
