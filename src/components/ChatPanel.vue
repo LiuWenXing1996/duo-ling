@@ -356,6 +356,8 @@ interface GenerationCardData {
 const cardEnabled = reactive(new Set<string>())
 const cardHidden = reactive(new Set<string>())
 const cardBusy = reactive(new Set<string>())
+/** 启用失败的错误（registerError / 命令异常）：按 uuid 记，卡片上直接展示——注册失败绝不能静默 */
+const cardErrors = reactive(new Map<string, string>())
 
 function cardsOf(m: UIMessage): GenerationCardData[] {
   return m.parts
@@ -386,12 +388,18 @@ function capabilityLabel(cap: string): string {
 
 async function enableCard(card: GenerationCardData): Promise<void> {
   cardBusy.add(card.uuid)
+  cardErrors.delete(card.uuid)
   try {
     const { registerError } = await userscriptClient.toggle(card.uuid, true)
-    if (registerError) console.warn('[duoling] 启用脚本时注册失败：', registerError)
-    cardEnabled.add(card.uuid)
+    if (registerError) {
+      // 注册失败（典型：扩展详情页没开「允许用户脚本」/ 开发者模式）——错误留在卡片上，
+      // 且不把卡片标成已启用（数据已落盘，脚本实际没生效）
+      cardErrors.set(card.uuid, registerError)
+    } else {
+      cardEnabled.add(card.uuid)
+    }
   } catch (e) {
-    console.error('[duoling] 启用脚本失败：', e)
+    cardErrors.set(card.uuid, e instanceof Error ? e.message : String(e))
   } finally {
     cardBusy.delete(card.uuid)
   }
@@ -662,6 +670,13 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                     删除
                   </ui-button>
                 </div>
+                <p
+                  v-if="cardErrors.get(card.uuid)"
+                  class="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-xs leading-relaxed text-destructive"
+                  role="alert"
+                >
+                  启用失败：{{ cardErrors.get(card.uuid) }}
+                </p>
               </div>
               <!-- 本次消耗 token：assistant 气泡下方展示（无 usage 时不渲染） -->
               <p
