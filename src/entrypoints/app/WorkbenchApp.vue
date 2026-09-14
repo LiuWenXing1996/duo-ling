@@ -15,6 +15,7 @@ import { computed, onMounted, ref } from 'vue'
 import {
   Braces as UiBraces,
   FlaskConical as UiFlaskConical,
+  List as UiList,
   MoreHorizontal as UiMoreHorizontal,
   Plus as UiPlus,
   Settings as UiSettings,
@@ -198,6 +199,15 @@ function openUserscriptManager(): void {
           @click="openUserscriptManager"
         >
           <ui-braces class="size-5" />
+        </button>
+        <button
+          class="workspace-nav-item"
+          type="button"
+          aria-label="脚本列表"
+          title="脚本列表"
+          @click="workspaceRef?.openUserscriptListTab()"
+        >
+          <ui-list class="size-5" />
         </button>
       </aside>
 
