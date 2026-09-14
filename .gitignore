@@ -11,7 +11,8 @@ tmp/
 # WXT dev 用的固定 Chrome profile（保留「Allow User Scripts」等设置，避免每次重开）
 .chrome-dev-profile/
 
-# AI 协作工作数据（本地记忆与日志，含本机路径，不入库）
+# AI 协作工作数据（本机工作日志：含本机路径、会话过程与临时状态，不入库）
+# 项目通用日志另存 docs/dev-log/ —— 那里才随分支保留
 .workbuddy/
 
 # 本地大模型文件（体积大，不入库；仅保留目录占位）
