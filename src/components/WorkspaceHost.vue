@@ -12,6 +12,7 @@ import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
 import UserscriptListPanel from '@/components/userscript/UserscriptListPanel.vue'
 import UserscriptEditorPanel from '@/components/userscript/UserscriptEditorPanel.vue'
 import LfsBrowserPanel from '@/components/userscript/LfsBrowserPanel.vue'
+import UserscriptHistoryPanel from '@/components/userscript/UserscriptHistoryPanel.vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
   Tabs as UiTabs,
@@ -79,6 +80,14 @@ function openLfsBrowserTab(): void {
   activate('lfs-browser')
 }
 
+// 打开脚本历史标签页：只读浏览（顶部下拉选脚本 → 提交列表 + 快照查看），全局仅一个
+function openScriptHistoryTab(): void {
+  if (!openTabs.value.some((t) => t.kind === 'script-history')) {
+    openTabs.value.push({ kind: 'script-history', id: 'script-history', title: '脚本历史' })
+  }
+  activate('script-history')
+}
+
 /** 打开某脚本的编辑器标签页：每脚本一个（id = us-edit:<uuid>），已打开则激活复用 */
 function openUserscriptEditor(uuid: string, title: string): void {
   const id = `us-edit:${uuid}`
@@ -117,7 +126,7 @@ watch(
 )
 
 // 暴露给根布局：左侧导航栏「设置 / UI 测试 / 脚本列表 / lfs 浏览」与脚本管理器的「编辑」入口
-defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBrowserTab, openUserscriptEditor })
+defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBrowserTab, openScriptHistoryTab, openUserscriptEditor })
 </script>
 
 <template>
@@ -165,6 +174,8 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBro
         />
         <!-- lfs 浏览：offscreen lightning-fs 整库只读文件树 -->
         <lfs-browser-panel v-else-if="tab.kind === 'lfs-browser'" />
+        <!-- 脚本历史：任一脚本的 git 提交历史 + 快照只读浏览 -->
+        <userscript-history-panel v-else-if="tab.kind === 'script-history'" />
       </ui-tabs-content>
     </ui-tabs>
   </div>

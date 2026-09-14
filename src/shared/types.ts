@@ -131,6 +131,7 @@ export type WorkspaceTabKind =
   | 'ui-test'
   | 'userscript-list'
   | 'userscript-edit'
+  | 'script-history'
   | 'lfs-browser'
 
 /** 工作区打开标签页快照（渲染层 → 主进程上报，供 Agent 工具查询当前打开的 tab 页） */
