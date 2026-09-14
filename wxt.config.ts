@@ -1,4 +1,3 @@
-import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { defineConfig } from 'wxt'
