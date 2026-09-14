@@ -1,12 +1,9 @@
 <script setup lang="ts">
 // side panel 宿主：应用入口 = AI 对话界面。
 //
-// 本组件只做两件事：
-//   1. 装配 —— 把 useGlobalConversation 的状态接到复用自桌面版的 ChatPanel / SessionHistoryPanel；
-//   2. 载体适配 —— 顶栏入口、打开工作台标签页。
-// 消息渲染、思考过程折叠、工具调用卡、输入区、模型切换全部由平移组件提供，此处不重写任何对话 UI。
-//
-// 载体分工：工具代码 / 版本 / 设置这类重界面走独立标签页（entrypoints/workbench.html，hash 路由）。
+// 布局：顶栏最左侧一个「会话列表」按钮，点击后左侧滑出浮层抽屉（半透明遮罩 + 会话列表面板），
+//       聊天区不被挤窄；选中会话 / 点遮罩 / 面板内收起即关。
+// 会话列表走 SessionHistoryPanel（展开态）；消息渲染、模型切换等全部由平移组件提供，此处不重写对话 UI。
 import { computed, onMounted, ref } from 'vue'
 import {
   ExternalLink as UiExternalLink,
@@ -35,12 +32,15 @@ const {
   stopGeneration
 } = useGlobalConversation()
 
-/** 会话记录面板：side panel 宽度有限，做成覆盖式而非常驻栏 */
-const sessionsOpen = ref(false)
-
 const activeTitle = computed(
   () => conversations.value.find((c) => c.id === activeConversationId.value)?.title || '哆灵'
 )
+
+/** 侧边栏展开态：浮层抽屉（默认收起）；选中会话 / 点遮罩 / 面板内收起即关 */
+const sidebarExpanded = ref(false)
+function toggleSidebar(): void {
+  sidebarExpanded.value = !sidebarExpanded.value
+}
 
 /** 工作台是独立标签页，用 hash 指定初始落点（#/tools、#/tool/<id>/<tab>、#/settings） */
 function openWorkbench(hash = ''): void {
@@ -48,12 +48,11 @@ function openWorkbench(hash = ''): void {
 }
 
 function handleNew(): void {
-  sessionsOpen.value = false
   void newConversation()
 }
 
 function handleActivate(id: string): void {
-  sessionsOpen.value = false
+  sidebarExpanded.value = false
   void activateConversation(id)
 }
 
@@ -76,20 +75,22 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col bg-background text-foreground">
+  <div class="relative flex h-full min-h-0 flex-col bg-background text-foreground">
     <header class="flex h-11 shrink-0 items-center gap-0.5 border-b border-border px-2">
+      <!-- 会话列表入口：顶栏最左侧一个按钮，点开左侧浮层抽屉 -->
       <ui-button
         variant="ghost"
         size="icon"
         class="size-7 shrink-0"
-        title="会话记录"
-        @click="sessionsOpen = !sessionsOpen"
+        title="会话列表"
+        @click="toggleSidebar"
       >
         <ui-panel-left class="size-4" />
       </ui-button>
 
-      <div class="min-w-0 flex-1 truncate px-1 text-sm font-medium">{{ activeTitle }}</div>
-
+      <div class="min-w-0 flex-1 truncate px-1 text-sm font-medium" :title="activeTitle">
+        {{ activeTitle }}
+      </div>
       <ui-button
         variant="ghost"
         size="icon"
@@ -119,28 +120,35 @@ onMounted(() => {
       </ui-button>
     </header>
 
-    <div class="relative min-h-0 flex-1">
-      <!-- 会话记录：覆盖式面板，选中即收起 -->
-      <div v-if="sessionsOpen" class="absolute inset-0 z-10 bg-background">
-        <session-history-panel
-          class="h-full"
-          :conversations="conversations"
-          :active-conversation-id="activeConversationId"
-          @activate="handleActivate"
-          @new="handleNew"
-          @delete="onDeleteConversation"
-          @rename="onRenameConversation"
-        />
-      </div>
+    <chat-panel
+      class="min-h-0 flex-1"
+      :messages="messages"
+      :usage-by-message-id="usageByMessageId"
+      :streaming="streaming"
+      @send="send"
+      @stop="stopGeneration"
+      @open-settings="openWorkbench('#/settings')"
+    />
 
-      <chat-panel
-        class="h-full"
-        :messages="messages"
-        :usage-by-message-id="usageByMessageId"
-        :streaming="streaming"
-        @send="send"
-        @stop="stopGeneration"
-        @open-settings="openWorkbench('#/settings')"
+    <!-- 展开态浮层：半透明遮罩 + 左侧滑出抽屉；聊天区不被挤窄 -->
+    <div
+      class="absolute inset-0 z-20 bg-black/30 transition-opacity duration-200"
+      :class="sidebarExpanded ? 'opacity-100' : 'pointer-events-none opacity-0'"
+      @click="toggleSidebar"
+    />
+    <div
+      class="absolute left-0 top-0 z-30 flex h-full w-[280px] max-w-[85%] flex-col border-r border-border bg-background shadow-xl transition-all duration-200 ease-out"
+      :class="sidebarExpanded ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0'"
+    >
+      <session-history-panel
+        class="min-h-0 flex-1"
+        :conversations="conversations"
+        :active-conversation-id="activeConversationId"
+        @activate="handleActivate"
+        @new="handleNew"
+        @delete="onDeleteConversation"
+        @rename="onRenameConversation"
+        @close="toggleSidebar"
       />
     </div>
   </div>

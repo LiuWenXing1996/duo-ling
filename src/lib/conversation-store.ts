@@ -84,6 +84,17 @@ function sumTokens(messages: Message[] | undefined): number {
   return (messages ?? []).reduce((sum, m) => sum + (m.usage?.totalTokens ?? 0), 0)
 }
 
+/** 为会话派生列表展示字段：累计 token + 最近一条消息预览（取消息组最后一条正文截断） */
+function deriveConversation(c: Conversation, messages: Message[] | undefined): Conversation {
+  const list = messages ?? []
+  const last = list[list.length - 1]
+  return {
+    ...c,
+    totalTokens: sumTokens(list),
+    lastMessagePreview: last ? truncateSnippet(last.content, 80) : ''
+  }
+}
+
 /** 把消息正文压成单行片段（截断展示用） */
 function truncateSnippet(text: string, max = 100): string {
   const flat = text.replace(/\s+/g, ' ').trim()
@@ -100,12 +111,12 @@ async function takeNextSeq(): Promise<number> {
 
 // —— 会话 ——
 
-/** 会话列表，按最后消息时间倒序（新在前）；每项附带由消息派生的 totalTokens */
+/** 会话列表，按最后消息时间倒序（新在前）；每项附带由消息派生的 totalTokens / lastMessagePreview */
 export async function listConversations(): Promise<Conversation[]> {
   const { conversations, byConversation } = await readAll()
   return conversations
     .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt))
-    .map((c) => ({ ...c, totalTokens: sumTokens(byConversation.get(c.id)) }))
+    .map((c) => deriveConversation(c, byConversation.get(c.id)))
 }
 
 /** 新建会话，标题沿用桌面版的「新会话 N」格式（自动命名逻辑依赖该格式判断） */
@@ -205,7 +216,7 @@ export async function searchConversations(
   const { conversations, byConversation } = await readAll()
   const sorted = conversations
     .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt))
-    .map((c) => ({ ...c, totalTokens: sumTokens(byConversation.get(c.id)) }))
+    .map((c) => deriveConversation(c, byConversation.get(c.id)))
   if (!q) return sorted.slice(0, limit).map((conversation) => ({ conversation, snippet: '' }))
 
   const hits: ConversationSearchHit[] = []

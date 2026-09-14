@@ -17,6 +17,8 @@ export interface Conversation {
   lastMessageAt: string
   /** 会话累计消耗 token（由消息 usage 汇总，历史列表/标题辅助展示用）；旧数据可能缺省 */
   totalTokens?: number
+  /** 最近一条消息的正文预览（历史列表展示用，由消息派生、不落库）；无消息时缺省 */
+  lastMessagePreview?: string
 }
 
 /** 一次模型生成消耗的 token 量（AI SDK LanguageModelUsage 的纯字面量透传，可安全过 IPC 与落盘） */
