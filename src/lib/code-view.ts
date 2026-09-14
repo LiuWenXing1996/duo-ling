@@ -1,16 +1,24 @@
-// 工具代码浏览的纯函数：把主进程返回的扁平文件列表构建成树，并按后缀推断语法高亮语言。
+// 代码浏览的纯函数：把扁平文件列表构建成树，并按后缀推断语法高亮语言。
+// 消费者：用户脚本编辑器（userscript/UserscriptEditorPanel、UserscriptTreeNode）
+// 与工具代码浏览（ToolCodeBrowser，随工具链路移除）。
 import type { CodeLanguage } from '@/components/ai-elements/code-block/utils'
-import type { ToolCodeFile } from '@/shared/types'
 
-/** 代码树节点：folder 承载 children，file 携带原始 ToolCodeFile 供展示 */
+/** 代码浏览的文件条目：content 为 utf8 或 base64，encoding 标记解码方式 */
+export interface CodeFile {
+  path: string
+  content: string
+  encoding: 'utf8' | 'base64'
+}
+
+/** 代码树节点：folder 承载 children，file 携带原始 CodeFile 供展示 */
 export interface CodeTreeNode {
-  /** 相对工具目录的路径（file 为完整路径，folder 为其目录路径） */
+  /** 相对根目录的路径（file 为完整路径，folder 为其目录路径） */
   path: string
   /** 展示名：文件名或目录名 */
   name: string
   type: 'file' | 'folder'
   /** 仅 type === 'file' 时存在 */
-  file?: ToolCodeFile
+  file?: CodeFile
   /** 仅 type === 'folder' 时非空 */
   children: CodeTreeNode[]
 }
@@ -29,7 +37,7 @@ function ensureFolder(
 }
 
 /** 把扁平文件列表构建为树：目录在前、全按名称字典序，且目录优先于文件 */
-export function buildCodeTree(files: ToolCodeFile[]): CodeTreeNode[] {
+export function buildCodeTree(files: CodeFile[]): CodeTreeNode[] {
   const map = new Map<string, CodeTreeNode>()
 
   for (const file of files) {
@@ -107,6 +115,6 @@ export function inferLanguage(path: string): CodeLanguage {
 }
 
 /** 二进制文件（base64 存储）无法在代码浏览器里作为文本预览 */
-export function isBinary(file: ToolCodeFile): boolean {
+export function isBinary(file: CodeFile): boolean {
   return file.encoding === 'base64'
 }

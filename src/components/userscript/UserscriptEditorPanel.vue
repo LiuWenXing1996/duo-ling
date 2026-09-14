@@ -25,7 +25,7 @@ import {
 import { FileTree } from '@/components/ai-elements/file-tree'
 import { CodeBlock } from '@/components/ai-elements/code-block'
 import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
-import { buildCodeTree, inferLanguage, type CodeTreeNode } from '@/lib/tool-code-view'
+import { buildCodeTree, inferLanguage, type CodeTreeNode } from '@/lib/code-view'
 import { buildProject, BuildError } from '@/lib/userscripts/builder'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import type { UsCommit, UsHistoryTree } from '@/lib/userscripts/us-git'

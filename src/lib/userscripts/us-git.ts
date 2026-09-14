@@ -1,13 +1,13 @@
 // 用户脚本 git 历史侧车（方案 docs/userscript-git-history.md）。
 //
-// 每脚本一个 isomorphic-git 仓（/uscripts/<uuid>/，lightning-fs 复用工具链的 'duoling' 实例）。
+// 每脚本一个 isomorphic-git 仓（/uscripts/<uuid>/，lightning-fs 实例来自 lib/idb-fs）。
 // storage 为权威、git 为历史：保存成功后快照写穿（bundle 不入库，恢复后由 UI 页重建）；
 // 仓损坏只丢历史不丢脚本，所有失败都不阻断保存主链路。
 //
-// 模式照抄 src/fs-store.ts（工具版本管理）但不改它：提交 = 全量写工作区 + add + commit；
-// 恢复 = 整树物化 + 产生「回滚到 <oid>」新提交，绝不 reset（历史不可变，回错可再回）。
+// 提交 = 全量写工作区 + add + commit；恢复 = 整树物化 + 产生「回滚到 <oid>」新提交，
+// 绝不 reset（历史不可变，回错可再回）。
 import git from 'isomorphic-git'
-import { fs, pfs } from '@/fs-store'
+import { fs, pfs } from '@/lib/idb-fs'
 import type { ScriptConfig, ScriptProject } from './types'
 
 const AUTHOR = { name: 'duoling', email: 'dev@duoling.local' }

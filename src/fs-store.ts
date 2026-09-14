@@ -9,14 +9,11 @@
 //   ├── js/ css/ assets/   可嵌套的静态资源
 //
 // 注意：lightning-fs 只有异步 API（pfs），这是相对桌面版同步调用（readdirSync 等）的真实改造点。
-import LightningFS from '@isomorphic-git/lightning-fs'
 import git from 'isomorphic-git'
+import { fs, pfs } from './lib/idb-fs'
 import { isAllowedToolFile } from './shared/tool-files'
 import { scaffoldFiles } from './tool-page-template'
 import type { ToolChangeList, ToolCodeFile, ToolCommit, UserToolMeta } from './shared/types'
-
-export const fs = new LightningFS('duoling')
-export const pfs = fs.promises
 
 const AUTHOR = { name: 'duoling', email: 'dev@duoling.local' }
 const TOOLS_ROOT = '/tools'

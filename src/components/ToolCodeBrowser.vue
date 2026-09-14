@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { CodeBlock } from '@/components/ai-elements/code-block'
 import { FileTree } from '@/components/ai-elements/file-tree'
 import ToolCodeTreeNode from '@/components/ToolCodeTreeNode.vue'
-import { buildCodeTree, inferLanguage, isBinary, type CodeTreeNode } from '@/lib/tool-code-view'
+import { buildCodeTree, inferLanguage, isBinary, type CodeTreeNode } from '@/lib/code-view'
 import type { ToolCodeFile } from '@/shared/types'
 
 const props = defineProps<{ toolId: string; toolTitle: string }>()

@@ -4,7 +4,7 @@
 import { computed, h } from 'vue'
 import { StarIcon } from '@lucide/vue'
 import { FileTreeFile, FileTreeFolder } from '@/components/ai-elements/file-tree'
-import type { CodeTreeNode } from '@/lib/tool-code-view'
+import type { CodeTreeNode } from '@/lib/code-view'
 
 const props = defineProps<{ node: CodeTreeNode; entry: string }>()
 

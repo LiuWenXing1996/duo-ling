@@ -23,7 +23,6 @@ const {
   conversations,
   activeConversationId,
   messages,
-  pendingMap,
   usageByMessageId,
   streaming,
   loadConversations,
@@ -137,7 +136,6 @@ onMounted(() => {
       <chat-panel
         class="h-full"
         :messages="messages"
-        :pending-map="pendingMap"
         :usage-by-message-id="usageByMessageId"
         :streaming="streaming"
         @send="send"

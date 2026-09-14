@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// 当前会话聊天区：消息气泡 + 思考/工具过程折叠 + 变更清单留痕卡片 + 输入区 + 模型选择。
-// 发送 / 停止由父组件执行，AI 产出变更后纯自动落盘（卡片仅作留痕展示，无手动应用/放弃）；
-// 模型选择为纯本地面板逻辑，自含于此。
+// 当前会话聊天区：消息气泡 + 思考/工具过程折叠 + 输入区 + 模型选择。
+// 发送 / 停止由父组件执行；模型选择为纯本地面板逻辑，自含于此。
+// 2026-09-14：工具链路移除（docs/tool-chain-removal-plan.md）后，原「变更清单留痕卡片」
+// （AI 产出多工具意图 → 自动落盘留痕）整段摘除。
 //
 // 方案 B（切进 AI SDK 全家桶）后：消息模型为 UIMessage（parts），渲染按
 //   - text part      -> 消息气泡正文（MessageResponse）
@@ -59,8 +60,6 @@ import {
   PromptInputTools as UiPromptInputTools
 } from '@/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
-import { truncate } from '@/lib/format'
-import type { PendingChange } from '@/composables/use-global-conversation'
 import type { TokenUsage } from '@/shared/types'
 import {
   getToolName,
@@ -75,7 +74,6 @@ import {
 
 const props = defineProps<{
   messages: UIMessage[]
-  pendingMap: Record<string, PendingChange>
   /** 各消息本次消耗的 token（按 UIMessage.id 索引），assistant 消息展示在气泡下方 */
   usageByMessageId: Record<string, TokenUsage>
   streaming: boolean
@@ -187,11 +185,6 @@ function assistantText(m: UIMessage): string {
   return t.trim() ? t : '（无回复内容）'
 }
 
-/** 取某条 AI 消息挂载的变更卡片（可能不存在，如自动模式或无变更） */
-function pendingOf(messageId: string): PendingChange | undefined {
-  return props.pendingMap[messageId]
-}
-
 /** 取某条消息本次消耗的 token（assistant 气泡下方展示） */
 function usageOf(messageId: string): TokenUsage | undefined {
   return props.usageByMessageId[messageId]
@@ -206,14 +199,6 @@ function tokenLabel(usage: TokenUsage | undefined): string {
       ? usage.inputTokens + usage.outputTokens
       : undefined)
   return total == null ? '' : `${total} tokens`
-}
-
-/** Agent 工具调用步骤的中文展示名（未识别的能力名直接回显） */
-function stepLabel(name: string): string {
-  if (name === 'agent_tools_list') return '查询工具列表'
-  if (name === 'agent_tools_open') return '打开工具'
-  if (name === 'agent_capabilities_list') return '查询能力清单'
-  return name
 }
 
 // —— 思考与执行过程：把 reasoning / tool / 中间正文按 parts 顺序交错成链 ——
@@ -267,7 +252,7 @@ function buildToolNode(part: ToolUIPart | DynamicToolUIPart, key: string): ToolN
     partType: part.type as ToolUIPart['type'],
     state: part.state,
     name,
-    title: part.title ?? stepLabel(name),
+    title: part.title ?? name,
     input: part.input,
     output: part.output,
     errorText: part.errorText ?? extractToolError(part.output)
@@ -541,32 +526,6 @@ function onPromptSubmit(payload: PromptInputMessage): void {
               >
                 {{ tokenLabel(usageOf(m.id)) }}
               </p>
-              <!-- 变更清单留痕卡片：AI 产出改动后自动落盘留痕，仅作展示（无手动应用/放弃） -->
-              <div
-                v-if="m.role === 'assistant' && pendingOf(m.id)"
-                class="max-w-[80%] rounded-lg border border-border bg-background/60 px-3 py-2"
-                data-testid="change-card"
-              >
-                <p class="text-xs font-medium">
-                  {{ pendingOf(m.id)?.changes.summary || 'AI 建议对当前工具做以下改动' }}
-                </p>
-                <ul class="mt-1.5 space-y-1 text-xs text-muted-foreground">
-                  <li v-for="(a, i) in pendingOf(m.id)?.changes.actions ?? []" :key="i">
-                    <span class="font-mono">{{ a.op }}</span> {{ a.file }}
-                    <template v-if="a.op === 'patch' && a.find">：{{ truncate(a.find) }}…</template>
-                  </li>
-                </ul>
-                <!-- 应用失败提示 -->
-                <p
-                  v-if="pendingOf(m.id)?.error"
-                  class="mt-1.5 text-xs text-destructive"
-                  data-testid="change-error"
-                >
-                  {{ pendingOf(m.id)?.error }}
-                </p>
-                <!-- 自动落盘成功状态 -->
-                <p v-else class="mt-1.5 text-xs text-green-600">已自动应用到当前工具</p>
-              </div>
             </div>
           </template>
         </ui-conversation-content>
@@ -576,7 +535,7 @@ function onPromptSubmit(payload: PromptInputMessage): void {
       <div class="border-t p-3">
         <ui-prompt-input @submit="onPromptSubmit">
           <ui-prompt-input-textarea
-            placeholder="例如：做一个能读取本地文件并用 Markdown 展示的工具"
+            placeholder="输入消息…"
             :disabled="props.streaming"
           />
           <ui-prompt-input-footer>
