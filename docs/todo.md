@@ -88,6 +88,22 @@
 
 ---
 
+## 用户脚本 zip 导入导出（方案已定稿，待实施）
+
+> 2026-09-15 与老大讨论定稿，详见 [userscript-zip-transfer.md](./userscript-zip-transfer.md)。
+> v1 只做**分享**语义（备份/迁移含 DL.store 数据后置，zip 预留 `data/` 位）；每脚本一目录
+> （project.json + files 真实文件树展开），bundle/uuid/enabled 不进 zip。
+
+**已定默认值**：导入重生成 uuid / `nextScriptName` 自动补名 / `enabled: false`（先审后启）/
+matches 导入时提前校验 / 逐脚本独立容错（构建失败跳过带 esbuild 诊断）/ 单脚本 zip 导入成功直开编辑器。
+
+**依赖**：fflate（~8KB，唯一新增依赖，**待老大点头**）。
+
+**状态**：方案无待拍板项；**实施排队在 AI 生成主线合回之后**（导入需新增 `userscript:import` /
+`state:import` 协议命令，与主线独占文件重合）。导出无协议改动，可与主线并行但建议同批做。
+
+---
+
 ## AI 生成用户脚本（已拍板，待实施）
 
 **背景**：用户脚本 v2 新形态（多文件项目 + DL 能力 API + esbuild 构建）四阶段已落地，下一步的自然延伸是「让 AI 写脚本」——在侧边栏说需求，AI 产出 `ScriptProject`（文件树 + 配置）、构建、落盘。
