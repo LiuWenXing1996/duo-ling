@@ -83,10 +83,52 @@
    （`ui-client.ts:55` 注释自己写着「稍候其注册监听」）。历史侧车低频，猜错重试即可；
    **单写方落地后每次保存都走这条路，猜时间不再可接受**。已有 `offscreen:ready` 命令
    （`extension-ipc.ts:46`，目前无消费方），改为等握手 + 超时降级。
-2. **实测 SW 冷启动期间 IndexedDB 可读**——尤其是 SW 刚被唤醒、`initUserScripts` 全量注册那一刻。
-   理论上可用，但这是注册链路，不能靠理论。
-3. **实测清浏览数据时 IDB 与 `chrome.storage.local` 的存活差异**——两者都可能被清，
-   但若表现不同，会影响「丢了谁＝脚本没了」这条论证。**别拍脑袋，测了再写进文档。**
+2. ~~**实测 SW 冷启动期间 IndexedDB 可读**~~ → **已实测通过（2026-09-15，见 §5.1）**。
+3. ~~**实测清浏览数据时 IDB 与 `chrome.storage.local` 的存活差异**~~
+   → **已实测（2026-09-15，见 §5.2）：两者都清不掉，抗清理能力一致，方案不受影响。**
+
+### 5.1 前置项 2 实测记录（2026-09-15）
+
+探针：临时最小 MV3 扩展（`tmp/idb-probe/`，不入库），SW 启动时按序记日志——
+读 IDB → 写 IDB → 读配额 → 建 offscreen → offscreen 写后 SW 再读；金丝雀只在首轮写入。
+
+**操作**：加载探针 → 打开读数页（轮 1，空库）→ **⌘Q 完全退出 Chrome 再打开** → 再开读数页（轮 2）。
+
+**结果（轮 2 日志）**：
+
+| 观测点 | 实测值 | 结论 |
+|---|---|---|
+| `sw-read-before-offscreen` | `ok:true`，`value.by="offscreen"`，`ms:0` | **通过**：浏览器冷启动、offscreen 尚未创建时，SW 已读到上一轮 offscreen 写进 IDB 的数据 |
+| `sw-write-cold` | `ok:true`，`ms:0` | 冷启动期写 IDB 也无延迟 |
+| `canary-at-start` | idb / storage 均非 null | 重启后两边数据都存活 |
+| `quota` | `usage 10867 / quota 10737429107`（≈ **10 GiB**） | 对照 `chrome.storage.local` 默认 **5 MiB**（本仓未声明 `unlimitedStorage`） |
+
+**两个计划外发现**：
+
+- **offscreen 在浏览器重启后是重新创建的**（本轮 `offscreen.state = "created"`）。
+  即「SW 冷启动时还没有 offscreen」不是假设，而是每次启动都发生的真实现象——
+  这正是本方案读路径必须走 IDB 直读、不能依赖容器的直接依据。
+- 探针最初没注��� `onStartup`，重启后 SW 根本没被唤醒（MV3 只按事件拉起），
+  读数页显示的是上一轮的陈旧结果。真实扩展的启动链路挂在
+  `initUserScripts`（`background.ts:267`）上，同样依赖这一条。
+
+> 注：本机**无头 Chrome 不加载扩展**（`--load-extension` 被忽略），自动化跑不了，故改手工探针。
+
+### 5.2 前置项 3 实测记录（2026-09-15）
+
+调用 `chrome.browsingData.remove({ origins: ['chrome-extension://<id>'] },
+{ indexedDB, localStorage, cookies, cacheStorage, serviceWorkers, fileSystems })`：
+
+- 返回**成功**（`chrome.runtime.lastError` 为 null）；
+- 但金丝雀在 **IndexedDB 与 `chrome.storage.local` 两边都还在**。
+
+**结论**：扩展自己的数据**不在 `browsingData` 的清理范围内**——IDB 与 `chrome.storage.local`
+抗清理能力一致。所以「丢了谁＝脚本没了」这条论证（§1 / §4）**不因迁到 IDB 而变弱**：
+两者的存活边界相同，真正会一起没的场景是**扩展卸载**，那时丢哪个都一样。
+
+⚠️ **未覆盖**：只验证了「按 origin 定向清理」这一条路。用户在设置里做**全局**「清除浏览数据」
+是否也清不掉扩展数据，未实测——真跑会清掉本机真实站点的登录态，不做；
+有需要时另起一个临时 profile 再测。
 
 ## 6. 对既有方案的影响
 

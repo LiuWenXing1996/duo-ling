@@ -163,10 +163,17 @@
 
 ---
 
-## 用户脚本数据改由 offscreen 单写（方案未拍板）+ 前置项（未开工）
+## 用户脚本数据改由 offscreen 单写（方案未拍板）+ 前置项 1（未开工；2、3 已实测）
 
 > 2026-09-14 评审 `docs/userscript-draft.md` 时，由「为什么还需要 chrome.storage」追问出来的议题。
-> 老大要求先把前置项记下。
+> 老大要求先把前置项记下。**2026-09-15：前置项 2、3 已实测完成**（临时探针 `tmp/idb-probe/`，不入库），
+> 记录见 [userscript-single-writer.md](./userscript-single-writer.md) §5.1 / §5.2：
+> - 前置项 2（SW 冷启动期 IDB 可读）**通过**：浏览器冷启动、offscreen 尚未创建时，SW 已读到上一轮
+>   offscreen 写进 IDB 的数据（`ms: 0`）。计划外发现：**offscreen 每次浏览器启动都是重建的**，
+>   「SW 冷启动时没有 offscreen」是常态，正是读路径必须 IDB 直读的依据。
+> - 前置项 3（清站点数据的存活差异）**结论：两者都清不掉**——`browsingData.remove` 对本扩展 origin
+>   返回成功，但 IDB 与 `chrome.storage.local` 里的金丝雀都还在 → 抗清理能力一致，方案不受影响。
+>   附带实测：IDB 配额 ≈ **10 GiB**，而 `chrome.storage.local` 默认 **5 MiB**（本仓未声明 `unlimitedStorage`）。
 
 **详细文档**：见 [userscript-single-writer.md](./userscript-single-writer.md)（背景、方案、边界判据、
 代价复核、前置项、工作量）。本条目只留「前置项 + 边界结论」的索引，以文档为准。
