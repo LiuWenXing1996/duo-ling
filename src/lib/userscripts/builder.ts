@@ -1,9 +1,13 @@
 // 用户脚本构建管线（v2 方案 Phase 2，docs/userscript-v2-plan.md §Phase 2）。
 //
-// esbuild-wasm 只在扩展 UI 页（workbench）运行，不进 SW：
+// esbuild-wasm 只在 offscreen document 运行（2026-09-15 宿主收敛，§3.1/§4.8）：
+// - offscreen 是唯一「能派生 Worker（URL.createObjectURL）+ 不被回收」的宿主，
+//   编辑器保存 / 历史恢复 / AI 生成 loop 共用这里的一个常驻 wasm 实例（14MB 只编译一次）
 // - wasm 资产在 src/public/esbuild.wasm，经 chrome.runtime.getURL 引用，懒加载一次进程内复用
 // - MV3 extension_pages 最小 CSP 已含 'wasm-unsafe-eval'，无需改 manifest
-// - 远程依赖在 UI 页 fetch（扩展页有 host 权限，免 CORS），源码持久化进项目 files（断网可重构建）
+// - 远程依赖在 offscreen fetch（扩展 host 权限覆盖 offscreen，免 CORS），源码持久化进项目
+//   files（断网可重构建）
+// - UI 经 ai:build 命令调用（offscreen-build-commands.ts），本模块不 import 进 SW / 页面
 //
 // 一期边界（方案定稿 + 2026-09-14 修订）：远程模块 = URL 可解析的导入链（esm.sh 的同源
 // 绝对路径转发、包内相对导入均按 URL 解析，逐条 fetch 并持久化进项目 files）；仅拒绝

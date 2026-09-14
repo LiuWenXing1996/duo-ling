@@ -8,6 +8,7 @@ import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
 import type { UsCommit, UsHistoryTree } from './us-git'
 import type { LfsNode } from './us-fs'
+import type { BuildResult } from './offscreen-build-commands'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -130,4 +131,14 @@ export const aiFsClient = {
 
   /** 整库浏览（只读调试视图）：lfs 库的完整文件树（含 .git 内部） */
   lfsTree: (): Promise<LfsNode> => sendAi({ kind: 'ai:lfsTree' }),
+}
+
+/**
+ * esbuild 构建命令通道（宿主收敛 offscreen，§3.1/§4.8）。
+ * 与 aiFsClient 同走 sendAi（唤起容器 + 重试）；wasm 在 offscreen 常驻，
+ * 整个浏览器会话只初始化一次——首次构建会慢（wasm 编译），之后接近瞬时。
+ */
+export const aiBuildClient = {
+  build: (files: Record<string, string>, entry: string): Promise<BuildResult> =>
+    sendAi({ kind: 'ai:build', files, entry }),
 }

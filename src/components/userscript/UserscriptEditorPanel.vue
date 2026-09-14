@@ -26,8 +26,7 @@ import { FileTree } from '@/components/ai-elements/file-tree'
 import { CodeBlock } from '@/components/ai-elements/code-block'
 import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
 import { buildCodeTree, inferLanguage, type CodeTreeNode } from '@/lib/code-view'
-import { buildProject, BuildError } from '@/lib/userscripts/builder'
-import { userscriptClient, aiFsClient } from '@/lib/userscripts/ui-client'
+import { userscriptClient, aiFsClient, aiBuildClient } from '@/lib/userscripts/ui-client'
 import type { UsCommit, UsHistoryTree } from '@/lib/userscripts/us-git'
 
 const props = defineProps<{ uuid: string }>()
@@ -218,8 +217,17 @@ async function saveEdit(): Promise<void> {
   }
   building.value = true
   try {
-    // 先构建：失败（BuildError）行内展示 文件:行:列，不落盘半成品
-    const outcome = await buildProject(editFiles.value, editEntry.value)
+    // 先构建（宿主在 offscreen）：buildError 行内展示 文件:行:列，不落盘半成品
+    const buildRes = await aiBuildClient.build(editFiles.value, editEntry.value)
+    if (buildRes.status === 'buildError') {
+      buildIssues.value = buildRes.issues
+      return
+    }
+    if (buildRes.status === 'error') {
+      error.value = '构建失败：' + buildRes.message
+      return
+    }
+    const outcome = buildRes.outcome
     const res = await userscriptClient.updateFiles(
       props.uuid,
       outcome.files,
@@ -238,11 +246,8 @@ async function saveEdit(): Promise<void> {
     editDirty.value = false
     saveNote.value = ''
   } catch (e) {
-    if (e instanceof BuildError) {
-      buildIssues.value = e.issues
-    } else {
-      error.value = '保存失败：' + (e instanceof Error ? e.message : String(e))
-    }
+    // 构建失败已在上面的早退分支处理（buildError 行内展示）；这里只兜落盘与 IPC 层的意外
+    error.value = '保存失败：' + (e instanceof Error ? e.message : String(e))
   } finally {
     building.value = false
   }
@@ -319,17 +324,18 @@ async function restoreCommit(): Promise<void> {
     editDirty.value = false
     // bundle 已丢弃，重建（失败仅提示：源码已恢复，修复后再保存即可）
     buildIssues.value = []
-    try {
-      const outcome = await buildProject(editFiles.value, editEntry.value)
+    const buildRes = await aiBuildClient.build(editFiles.value, editEntry.value)
+    if (buildRes.status === 'buildError') {
+      buildIssues.value = buildRes.issues
+    } else if (buildRes.status === 'error') {
+      throw new Error(buildRes.message)
+    } else {
       await userscriptClient.updateFiles(
         props.uuid,
-        outcome.files,
+        buildRes.outcome.files,
         editEntry.value,
-        { code: outcome.code, builtAt: Date.now() },
+        { code: buildRes.outcome.code, builtAt: Date.now() },
       )
-    } catch (e) {
-      if (e instanceof BuildError) buildIssues.value = e.issues
-      else throw e
     }
     notice.value = buildIssues.value.length
       ? '已恢复源码与配置，但重建构建失败（见错误面板），修复后再保存。'

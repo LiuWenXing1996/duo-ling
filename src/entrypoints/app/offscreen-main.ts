@@ -25,14 +25,16 @@
 // 生命周期：每扩展同时只能有一份；不主动关就一直活着，但**关窗口 / 扩展重载 / 浏览器崩溃
 // 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（§4.8 机制 4）。
 //
-// 当前进度：一期 A 组（容器与通道）。本文件暂时只有就绪握手，真正的编排（streamText +
-// tools + esbuild 构建）在 B 组接入。
+// 当前进度：一期 A 组（容器与通道）+ 构建宿主收敛（ai:build）。编排 loop（streamText +
+// tools）仍是 B 组待接入；esbuild 构建已先行搬入——编辑器保存 / 历史恢复 / 将来的
+// 生成 loop 共用这里这一个常驻 wasm 实例。
 
 import '@/polyfills'
 import { offscreenBridge } from '@/lib/offscreen-bridge'
 import type { ModelProfileState, OffscreenPush, RuntimeRequest } from '@/shared/extension-ipc'
 import { handleAiFsCommand, type AiFsRequest } from '@/lib/userscripts/offscreen-fs-commands'
 import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
+import { handleBuildCommand, type BuildRequest } from '@/lib/userscripts/offscreen-build-commands'
 
 /** 当前模型配置（含 apiKey）：只驻内存，不写日志、不落盘（§4.8 配置通道的边界要求） */
 let activeProfile: ModelProfileState | undefined
@@ -71,6 +73,10 @@ chrome.runtime.onMessage.addListener((raw, _sender, sendResponse): boolean => {
   // 两者都 return true —— 告诉 chrome.runtime 我们要异步 sendResponse（否则响应会被丢弃）。
   const kind = msg?.kind
   if (kind && typeof kind === 'string') {
+    if (kind === 'ai:build') {
+      void respond(sendResponse, () => handleBuildCommand(msg as BuildRequest))
+      return true
+    }
     if (kind.startsWith('ai:')) {
       void respond(sendResponse, () => handleAiFsCommand(msg as AiFsRequest))
       return true
