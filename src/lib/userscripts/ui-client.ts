@@ -33,11 +33,9 @@ function send<T>(request: RuntimeRequest): Promise<T> {
 }
 
 /**
- * 向 offscreen 发 ai:* 命令（git 历史侧车宿主，docs/offscreen-fs-migration.md）。
- * 现状：offscreen 不会空闲自关（我们也没实现，那是方案 §6.2 #12 的规划退出条件；
- * 浏览器侧也只对 AUDIO_PLAYBACK 理由 30s 静音自关，我们用 BLOBS+WORKERS 不触发）。
- * 但它**只在 AI 生成入口经 ensureOffscreen 创建**——编辑器读历史从不唤起它；且扩展重载 /
- * 崩溃 / 关窗会销毁容器。这些情况下 ai:* 无人响应会报
+ * 向 offscreen 发 ai:* 命令（git 历史侧车 + 构建宿主，docs/offscreen-fs-migration.md）。
+ * 现状（2026-09-15）：offscreen 常驻——SW 冷启动即 ensureOffscreen，不空闲自关；
+ * 但扩展重载 / 崩溃 / 关窗会销毁容器，这些情况下 ai:* 无人响应会报
  * 「The message port closed before a response was received」。故失败时先经 SW 唤起容器
  * （同时触发其启动对账、注册监听），再重试，最多 3 次。
  *
@@ -132,6 +130,14 @@ export const aiFsClient = {
 
   /** 整库浏览（只读调试视图）：lfs 库的完整文件树（含 .git 内部） */
   lfsTree: (): Promise<LfsNode> => sendAi({ kind: 'ai:lfsTree' }),
+
+  /** 草稿写：编辑态防抖写入 git 工作区（纯 fs、不动 index）。失败 throw——调用方必须 catch（best-effort） */
+  writeDraft: (uuid: string, project: ScriptProject): Promise<void> =>
+    sendAi({ kind: 'ai:writeDraft', uuid, project }),
+
+  /** 草稿读：工作区未提交改动；无草稿 / 损坏 / 半写 → null（us-git readWorktree 判据） */
+  readDraft: (uuid: string): Promise<UsHistoryTree | null> =>
+    sendAi({ kind: 'ai:readDraft', uuid }),
 }
 
 /**

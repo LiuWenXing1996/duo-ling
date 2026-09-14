@@ -12,7 +12,7 @@
 //   3. 「关闭」= 关标签页，行为交给宿主（emit close）。
 //
 // 配色由硬编码 zinc / blue / red 换成语义 token（AGENTS.md：颜色一律用语义 token）。
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   CircleX as UiCircleX,
   History as UiHistory,
@@ -24,7 +24,8 @@ import {
 import { FileTree } from '@/components/ai-elements/file-tree'
 import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
 import { buildCodeTree, type CodeTreeNode } from '@/lib/code-view'
-import { userscriptClient, aiBuildClient } from '@/lib/userscripts/ui-client'
+import { userscriptClient, aiBuildClient, aiFsClient } from '@/lib/userscripts/ui-client'
+import type { ScriptConfig, ScriptProject } from '@/lib/userscripts/types'
 
 const props = defineProps<{ uuid: string }>()
 const emit = defineEmits<{
@@ -60,6 +61,18 @@ const saveNote = ref('')
 
 // —— 历史已迁出：浏览与恢复都在独立的 us-history:<uuid> 标签页（UserscriptHistoryPanel），
 // 本组件只负责编辑 + 保存，历史按钮经 openHistory 事件请求宿主开历史标签页。
+
+// —— 草稿（docs/userscript-draft.md：草稿 = git 工作区的未提交改动，经 offscreen 纯 fs 写）——
+/** 打开编辑器时刻的已保存项目（状态库权威）：丢弃草稿的回滚目标、currentProject 的兜底字段 */
+const baseline = ref<ScriptProject | null>(null)
+/** 打开时恢复了工作区草稿 → 常驻提示条（含丢弃入口） */
+const draftRestored = ref(false)
+/** 草稿自动写失败弱提示（best-effort：不进 error、不打断编辑） */
+const draftWriteFailed = ref(false)
+const discardingDraft = ref(false)
+let draftTimer: number | undefined
+/** 草稿写串行化（§5.3）：IPC 异步，连续两次可能旧内容后到覆盖新内容——上一次完成才发下一次 */
+let draftInFlight: Promise<void> = Promise.resolve()
 
 const fileCount = computed(() => Object.keys(editFiles.value).length)
 
@@ -98,30 +111,179 @@ function parseMatches(input: string): string[] {
     .filter(Boolean)
 }
 
-/** 装载项目（原 openEditor）：uuid 来自 prop，不再需要 ScriptSummary */
+/** 选填数组归一：空数组 → undefined（表单解析与状态库比对两侧共用，保证同构可比） */
+function optArr(v: string): string[] | undefined {
+  const arr = parseMatches(v)
+  return arr.length ? arr : undefined
+}
+
+/** 表单 → ScriptConfig（saveEdit 与草稿写共用；空数组归一为 undefined，方案 §4.4） */
+function currentConfig(): ScriptConfig {
+  return {
+    matches: parseMatches(editMatches.value),
+    excludeMatches: optArr(editExcludeMatches.value),
+    includeGlobs: optArr(editIncludeGlobs.value),
+    excludeGlobs: optArr(editExcludeGlobs.value),
+    allFrames: editAllFrames.value,
+    runAt: editRunAt.value,
+  }
+}
+
+/** 编辑态 → ScriptProject 形状：v/uuid/createdAt/enabled 由 baseline 兜（方案 §4.2） */
+function currentProject(): ScriptProject {
+  return {
+    ...(baseline.value ?? ({} as ScriptProject)),
+    uuid: props.uuid,
+    name: editName.value,
+    entry: editEntry.value,
+    config: currentConfig(),
+    files: { ...editFiles.value },
+  }
+}
+
+/** 把编辑态各表单/文件树整体置为 p 的内容（load 与丢弃草稿共用） */
+function applyProject(p: ScriptProject): void {
+  scriptName.value = p.name
+  editFiles.value = { ...p.files }
+  editEntry.value = p.entry
+  // activeFile 不能盲信 entry——草稿里入口可能指向已删文件，取不到回退第一个文件（方案 §4.3 #4）
+  activeFile.value = p.entry in p.files ? p.entry : (Object.keys(p.files)[0] ?? '')
+  editName.value = p.name
+  editMatches.value = p.config.matches.join(', ')
+  editExcludeMatches.value = (p.config.excludeMatches ?? []).join(', ')
+  editIncludeGlobs.value = (p.config.includeGlobs ?? []).join(', ')
+  editExcludeGlobs.value = (p.config.excludeGlobs ?? []).join(', ')
+  editAllFrames.value = p.config.allFrames
+  editRunAt.value = p.config.runAt
+}
+
+/** 装载项目 + 恢复草稿（docs/userscript-draft.md §4.3）：状态库为权威基准，工作区草稿静默恢复 */
 async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
     const project = await userscriptClient.getProject(props.uuid)
     if (!project) throw new Error('项目不存在或为已弃用旧记录')
-    scriptName.value = project.name
-    editFiles.value = { ...project.files }
-    editEntry.value = project.entry
-    activeFile.value = project.entry
-    editName.value = project.name
-    editMatches.value = project.config.matches.join(', ')
-    editExcludeMatches.value = (project.config.excludeMatches ?? []).join(', ')
-    editIncludeGlobs.value = (project.config.includeGlobs ?? []).join(', ')
-    editExcludeGlobs.value = (project.config.excludeGlobs ?? []).join(', ')
-    editAllFrames.value = project.config.allFrames
-    editRunAt.value = project.config.runAt
-    editDirty.value = false
+    baseline.value = project
+    // 草稿读必须 try/catch：失败/超时一律按无草稿处理，读不到不能挡住打开编辑器（best-effort）
+    let draft: Awaited<ReturnType<typeof aiFsClient.readDraft>> = null
+    try {
+      draft = await aiFsClient.readDraft(props.uuid)
+    } catch {
+      draft = null
+    }
+    // 有草稿（files 为空按 null 兜底）且与已保存不等 → 静默用草稿覆盖编辑态
+    if (draft && draft.files.length && !draftEquals(draft, project)) {
+      applyProject({
+        ...project,
+        name: draft.meta?.name ?? project.name,
+        entry: draft.meta?.entry ?? project.entry,
+        config: draft.meta?.config ?? project.config,
+        files: Object.fromEntries(draft.files.map((f) => [f.path, f.content])),
+      })
+      editDirty.value = true
+      draftRestored.value = true
+    } else {
+      applyProject(project)
+      editDirty.value = false
+      draftRestored.value = false
+    }
+    draftWriteFailed.value = false
     buildIssues.value = []
   } catch (e) {
     error.value = '读取项目失败：' + (e instanceof Error ? e.message : String(e))
   } finally {
     loading.value = false
+  }
+}
+
+/**
+ * 草稿与已保存内容是否相等（方案 §4.3 判据）。两侧 config 必须同构可比：
+ * 状态库里的空数组可能是 []，表单侧产出 undefined——都过 normConfig 归一后再比。
+ */
+function draftEquals(
+  draft: { meta?: { name: string; config: ScriptConfig; entry: string }; files: Array<{ path: string; content: string }> },
+  project: ScriptProject,
+): boolean {
+  if (!draft.meta) return false
+  if (draft.meta.name !== project.name || draft.meta.entry !== project.entry) return false
+  if (draft.files.length !== Object.keys(project.files).length) return false
+  for (const f of draft.files) {
+    if (project.files[f.path] !== f.content) return false
+  }
+  const norm = (c: ScriptConfig): ScriptConfig => {
+    const opt = (a?: string[]): string[] | undefined => (a && a.length ? a : undefined)
+    return { ...c, excludeMatches: opt(c.excludeMatches), includeGlobs: opt(c.includeGlobs), excludeGlobs: opt(c.excludeGlobs) }
+  }
+  return JSON.stringify(norm(draft.meta.config)) === JSON.stringify(norm(project.config))
+}
+
+/** 草稿写调度：debounce 500ms + 串行化。仅真实用户改动才落盘（无改动绝不写，§5.1） */
+function scheduleDraftWrite(): void {
+  if (draftTimer !== undefined) clearTimeout(draftTimer)
+  draftTimer = window.setTimeout(() => {
+    draftTimer = undefined
+    draftInFlight = draftInFlight
+      .then(() => aiFsClient.writeDraft(props.uuid, currentProject()))
+      .then(() => {
+        draftWriteFailed.value = false
+      })
+      .catch(() => {
+        // best-effort：静默失败，弱提示；绝不写 error、不打断编辑（评审 P0-3）
+        draftWriteFailed.value = true
+      })
+  }, 500)
+}
+
+watch(
+  [
+    editFiles,
+    editEntry,
+    editName,
+    editMatches,
+    editExcludeMatches,
+    editIncludeGlobs,
+    editExcludeGlobs,
+    editAllFrames,
+    editRunAt,
+  ],
+  () => {
+    // 无改动绝不写：load 整体赋值会触发本 watch，靠 editDirty 挡住（§5.1）；
+    // pending 回调在保存后 fire 时同样因 editDirty=false 跳过（§5.2 竞态）
+    if (!editDirty.value) return
+    scheduleDraftWrite()
+  },
+  { deep: true },
+)
+
+// 关标签页前 flush：debounce 500ms + lfs 自身 500ms，最后一段改动必然丢——
+// 卸载时把 pending 写立即发出（不 await，组件卸载后 Promise 仍会跑完；§4.4）
+onBeforeUnmount(() => {
+  if (draftTimer !== undefined) {
+    clearTimeout(draftTimer)
+    draftTimer = undefined
+    if (editDirty.value) {
+      void aiFsClient.writeDraft(props.uuid, currentProject()).catch(() => {})
+    }
+  }
+})
+
+/** 丢弃草稿：用 baseline（状态库已保存内容）重写工作区；先写成功再动编辑态（方案 §4.6） */
+async function discardDraft(): Promise<void> {
+  if (!baseline.value || discardingDraft.value) return
+  discardingDraft.value = true
+  try {
+    await aiFsClient.writeDraft(props.uuid, baseline.value)
+    applyProject(baseline.value)
+    editDirty.value = false
+    draftRestored.value = false
+    draftWriteFailed.value = false
+    notice.value = ''
+  } catch (e) {
+    // 工作区没回退就不能重置编辑态，两边会不一致——拦住并保留原状
+    error.value = '丢弃草稿失败，可稍后重试：' + (e instanceof Error ? e.message : String(e))
+  } finally {
+    discardingDraft.value = false
   }
 }
 
@@ -180,23 +342,11 @@ async function saveEdit(): Promise<void> {
   error.value = ''
   notice.value = ''
   buildIssues.value = []
-  // 配置表单解析（matches 必填在前端先拦一道）
+  // 配置表单解析（matches 必填在前端先拦一道）；config 拼装与草稿写共用 currentConfig()
   const matches = parseMatches(editMatches.value)
   if (!matches.length) {
     error.value = '保存失败：匹配规则（matches）至少填写一条'
     return
-  }
-  const optArr = (v: string): string[] | undefined => {
-    const arr = parseMatches(v)
-    return arr.length ? arr : undefined
-  }
-  const config = {
-    matches,
-    excludeMatches: optArr(editExcludeMatches.value),
-    includeGlobs: optArr(editIncludeGlobs.value),
-    excludeGlobs: optArr(editExcludeGlobs.value),
-    allFrames: editAllFrames.value,
-    runAt: editRunAt.value,
   }
   building.value = true
   try {
@@ -216,7 +366,7 @@ async function saveEdit(): Promise<void> {
       outcome.files,
       editEntry.value,
       { code: outcome.code, builtAt: Date.now() },
-      { name: editName.value, config, note: saveNote.value },
+      { name: editName.value, config: currentConfig(), note: saveNote.value },
     )
     // 数据已落库（保存必然成功才会走到这）；注册失败降级为提示，不判保存失败
     const notes: string[] = [res.registerError ? '已保存，但注册失败，脚本不会注入页面：' + res.registerError : '已保存并重新注册。']
@@ -226,7 +376,17 @@ async function saveEdit(): Promise<void> {
     editFiles.value = outcome.files
     // 头部显示名跟随表单（保存即改名）
     scriptName.value = editName.value
+    // baseline 必须跟着保存结果走（builder 可能改写文件树，如拉取远程依赖）——
+    // 否则之后「丢弃草稿」会退回到保存前的旧内容（方案 §4.5 #2）
+    baseline.value = {
+      ...currentProject(),
+      files: { ...outcome.files },
+      bundle: { code: outcome.code, builtAt: Date.now() },
+      updatedAt: Date.now(),
+    }
     editDirty.value = false
+    draftRestored.value = false
+    draftWriteFailed.value = false
     saveNote.value = ''
   } catch (e) {
     // 构建失败已在上面的早退分支处理（buildError 行内展示）；这里只兜落盘与 IPC 层的意外
@@ -280,6 +440,29 @@ onMounted(() => {
       >
         {{ error }}
       </p>
+
+      <!-- 草稿提示条（琥珀弱警示：恢复 ≠ 已保存；丢弃按钮回滚到上次保存版本） -->
+      <div
+        v-if="draftRestored || draftWriteFailed"
+        class="flex shrink-0 items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-600 dark:text-amber-400"
+      >
+        <p class="min-w-0 flex-1">
+          {{
+            draftRestored
+              ? '检测到上次会话未保存的草稿，已自动恢复。改动需点「保存」才会进入历史。'
+              : '草稿自动保存失败（编辑不受影响），将随下次编辑自动重试。'
+          }}
+        </p>
+        <button
+          v-if="draftRestored"
+          type="button"
+          :disabled="discardingDraft"
+          class="shrink-0 rounded-md border border-amber-500/50 px-2 py-0.5 text-xs hover:bg-amber-500/15 disabled:opacity-50"
+          @click="discardDraft"
+        >
+          {{ discardingDraft ? '丢弃中…' : '丢弃草稿' }}
+        </button>
+      </div>
 
       <!-- 配置表单（用户不接触注释语法，全部表单化） -->
       <div
