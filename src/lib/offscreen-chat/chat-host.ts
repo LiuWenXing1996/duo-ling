@@ -177,7 +177,9 @@ async function persistGeneratedProject(ws: TaskWorkspace): Promise<GenerationCar
   }
 }
 
-/** 从缓冲事件还原完整 UIMessage（收尾落盘用；缓冲含我们追加的 data parts） */
+/** 从缓冲事件还原完整 UIMessage（收尾落盘用；缓冲含我们追加的 data parts）。
+ * 内部 chunk 处理错误默认被 SDK 吞掉（只走 onError 回调），必须传 onError 记日志——
+ * 2026-09-15 手测：还原失败时 persisted=undefined，落盘被静默跳过，历史里只剩用户消息。 */
 async function buildFinalMessage(conversationId: string): Promise<UIMessage | undefined> {
   const { complete, events } = replaySince(conversationId, 0)
   if (!complete || !events.length) return undefined
@@ -188,7 +190,10 @@ async function buildFinalMessage(conversationId: string): Promise<UIMessage | un
     },
   })
   let last: UIMessage | undefined
-  for await (const msg of readUIMessageStream({ stream })) {
+  for await (const msg of readUIMessageStream({
+    stream,
+    onError: (e) => console.error('[duoling:chat] 消息还原 chunk 出错', e),
+  })) {
     last = msg
   }
   return last
@@ -309,7 +314,8 @@ async function runLoop(opts: {
       })
     }
 
-    // 2) 生成卡片 + token 用量（data part 随流推送，也随消息一起落盘，重开面板可还原）
+    // 2) 先把卡片 / usage 入缓冲（随消息落盘，重开面板可还原），**finish 押到最后**——
+    //    落盘若失败，error 块先于 finish 到达面板才能被 useChat onError 呈现
     const usage = await result.usage
     if (card) {
       pushChunk(conversationId, {
@@ -332,9 +338,10 @@ async function runLoop(opts: {
         data: usageData,
       })
     }
-    pushChunk(conversationId, finishChunk)
 
-    // 3) assistant 消息落盘（唯一写方 = offscreen；含完整 parts，供回读还原分轮思考 / 工具卡 / 卡片）
+    // 3) assistant 消息落盘（唯一写方 = offscreen；含完整 parts，供回读还原分轮思考 / 工具卡 / 卡片）。
+    //    两个失败口子都必须「响」：还原为空 / 写库异常原来分别静默跳过与只打日志，
+    //    历史里就只剩用户消息（2026-09-15 手测实测）。
     const persisted = await buildFinalMessage(conversationId)
     if (persisted) {
       await appendMessage({
@@ -348,8 +355,20 @@ async function runLoop(opts: {
         createdAt: new Date().toISOString(),
       }).catch((e) => {
         console.error('[duoling:chat] assistant 消息落盘失败', e)
+        pushChunk(conversationId, {
+          type: 'error',
+          errorText: `回复保存失败：${e instanceof Error ? e.message : String(e)}`,
+        })
+      })
+    } else {
+      const kinds = replaySince(conversationId, 0).events.map((e) => e.chunk.type).join(',')
+      console.error('[duoling:chat] 收尾还原消息为空（缓冲事件：', kinds, '）')
+      pushChunk(conversationId, {
+        type: 'error',
+        errorText: '回复保存失败：消息还原为空，详见 offscreen 控制台',
       })
     }
+    pushChunk(conversationId, finishChunk)
     cleanup()
   } catch (e) {
     // 循环异常（模型网络错误等）：推 error 块让 useChat onError 走起，记录清理
