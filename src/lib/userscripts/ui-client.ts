@@ -7,7 +7,7 @@
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
 import type { UsCommit, UsHistoryTree } from './us-git'
-import type { LfsNode } from './us-fs'
+import type { LfsNode, LfsFileContent } from './us-fs'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -130,4 +130,7 @@ export const aiFsClient = {
 
   /** 整库浏览（只读调试视图）：lfs 库的完整文件树（含 .git 内部） */
   lfsTree: (): Promise<LfsNode> => sendAi({ kind: 'ai:lfsTree' }),
+
+  /** 单文件预览：按完整路径读 lfs 库内文件内容（含 .git 内部） */
+  lfsReadFile: (path: string): Promise<LfsFileContent> => sendAi({ kind: 'ai:lfsReadFile', path }),
 }
