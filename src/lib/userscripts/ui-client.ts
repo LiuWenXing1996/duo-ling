@@ -37,7 +37,12 @@ function send<T>(request: RuntimeRequest): Promise<T> {
  * 但它**只在 AI 生成入口经 ensureOffscreen 创建**——编辑器读历史从不唤起它；且扩展重载 /
  * 崩溃 / 关窗会销毁容器。这些情况下 ai:* 无人响应会报
  * 「The message port closed before a response was received」。故失败时先经 SW 唤起容器
- * （同时触发其启动对账、注册监听），稍候重试，最多 3 次。
+ * （同时触发其启动对账、注册监听），再重试，最多 3 次。
+ *
+ * **就绪判据**：`offscreen:ensure` 现在会等到容器**真的能应答**才返回（SW 侧轮询 `ai:ping`，
+ * 见 docs/userscript-single-writer.md §5 前置项 1），故这里**不再需要固定 sleep 猜时间**——
+ * 原先的 `setTimeout(80)` 是在猜 offscreen 的 onMessage 有没有注册完，猜短了白重试、
+ * 猜长了每次都白等。
  */
 async function sendAi<T>(request: RuntimeRequest): Promise<T> {
   let lastErr: unknown
@@ -50,9 +55,8 @@ async function sendAi<T>(request: RuntimeRequest): Promise<T> {
       if (!/port closed|Receiving end does not exist|无响应/.test(msg)) throw e
       lastErr = e
     }
-    // 唤起容器（SW 处理 offscreen:ensure，offscreen 不在时新建；在则幂等），稍候其注册监听
+    // 唤起容器并等它可应答（SW 侧处理 offscreen:ensure，内部轮询 ai:ping 到就绪为止）
     await send({ kind: 'offscreen:ensure' }).catch(() => {})
-    await new Promise((r) => setTimeout(r, 80))
   }
   throw lastErr
 }

@@ -28,7 +28,7 @@ import type { ScriptProject, UserScriptsAvailability } from '@/lib/userscripts/t
 import { ENTRY_DEFAULT, defaultConfig, defaultSource } from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主，方案 §4.8 定位 B）
-import { ensureOffscreen, closeOffscreen, isOffscreenReady } from '@/lib/offscreen'
+import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady } from '@/lib/offscreen'
 // 模型配置：offscreen 既收不到 storage.onChanged、也不该直连存储，一律由 SW 经命令 / 推送中转
 import { getActiveProfileState } from '@/lib/model-store'
 
@@ -50,6 +50,14 @@ const MODEL_PROFILES_KEY = 'modelProfiles'
  * 这是刻意的：静默比一个假错误更诚实。
  */
 const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:'] as const
+
+/**
+ * SW 管辖的请求（由上面的前缀推导，两者必须同源）。
+ *
+ * handlers 表只登记这些 kind：`ai:*` 由 offscreen 应答，`userscript:history*` 是被 `ai:*`
+ * 取代后留在协议里的死命令（已移除）——它们都不是 SW 的职责，不该为凑齐类型而补死桩。
+ */
+type SwRequest = Extract<RuntimeRequest, { kind: `${(typeof SW_KIND_PREFIXES)[number]}${string}` }>
 
 /** SW → offscreen 的请求封装：转发 ai:* 命令面（用户脚本 git 历史已迁 offscreen，见 docs/offscreen-fs-migration.md）。统一信封解包。 */
 function sendToOffscreen<T>(request: RuntimeRequest): Promise<T> {
@@ -74,14 +82,16 @@ function sendToOffscreen<T>(request: RuntimeRequest): Promise<T> {
 }
 
 const handlers: {
-  [K in RuntimeRequest['kind']]: (msg: Extract<RuntimeRequest, { kind: K }>) => Promise<unknown>
+  [K in SwRequest['kind']]: (msg: Extract<SwRequest, { kind: K }>) => Promise<unknown>
 } = {
   // —— offscreen 容器（方案 §4.8 定位 B）——
   // A 组只做容器与通道：这几个命令供手动 / 调试触发；B 组的生成入口会直接调 ensureOffscreen()。
-  'offscreen:ensure': async (): Promise<{ ready: boolean }> => {
-    await ensureOffscreen()
-    return { ready: await isOffscreenReady() }
-  },
+  // 唤醒容器并**等到它真的能应答**才返回——调用方（aiFsClient）据此省掉了原先
+  // 「ensure 完 sleep 80ms 猜监听器注册好了没有」的兜底（docs/userscript-single-writer.md §5 前置项 1）。
+  // 常见路径几乎不等待：容器已在时第一次探测即成功。ready=false 表示超时未就绪，由调用方重试。
+  'offscreen:ensure': async (): Promise<{ ready: boolean }> => ({
+    ready: await ensureOffscreenReady(),
+  }),
 
   'offscreen:close': async (): Promise<void> => closeOffscreen(),
 
@@ -307,7 +317,10 @@ export default defineBackground(() => {
     // 路由：只响应归 SW 管辖的 kind，其余静默让路给 offscreen（见 SW_KIND_PREFIXES）
     if (!SW_KIND_PREFIXES.some((p) => msg.kind.startsWith(p))) return false
 
-    const handler = handlers[msg.kind] as ((m: RuntimeRequest) => Promise<unknown>) | undefined
+    // 走到这里 msg.kind 必属 SW 管辖（上面按 SW_KIND_PREFIXES 过滤过），故可安全收窄
+    const handler = handlers[msg.kind as SwRequest['kind']] as
+      | ((m: RuntimeRequest) => Promise<unknown>)
+      | undefined
     if (!handler) {
       sendResponse({ ok: false, error: `未知消息类型：${msg.kind}` })
       return false

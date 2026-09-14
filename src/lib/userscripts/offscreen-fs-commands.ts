@@ -22,6 +22,9 @@ export type AiFsRequest = Extract<RuntimeRequest, { kind: `ai:${string}` }>
 /** 处理一条 ai: 命令，返回应作为 RuntimeResponse.data 回传的值 */
 export async function handleAiFsCommand(msg: AiFsRequest): Promise<unknown> {
   switch (msg.kind) {
+    // 就绪探测（不触碰文件系统）：SW 用它确认本容器的 onMessage 已注册完毕
+    case 'ai:ping':
+      return { ready: true }
     case 'ai:snapshot': {
       // 每次快照前先对账（目录列举成本极低）：补齐缺失仓、清理多余仓
       await reconcileFs()

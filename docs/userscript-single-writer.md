@@ -78,11 +78,16 @@
 
 ## 5. 前置项（开工前必做）
 
-1. **`offscreen:ready` 握手替换 80ms 猜时**（已记 `docs/todo.md`）。
-   现在 `sendAi` 失败后发 `offscreen:ensure`，再 `setTimeout(80)` 猜监听器注册好了没有
-   （`ui-client.ts:55` 注释自己写着「稍候其注册监听」）。历史侧车低频，猜错重试即可；
-   **单写方落地后每次保存都走这条路，猜时间不再可接受**。已有 `offscreen:ready` 命令
-   （`extension-ipc.ts:46`，目前无消费方），改为等握手 + 超时降级。
+1. ~~**`offscreen:ready` 握手替换 80ms 猜时**~~ → **已落地（2026-09-15）**。
+   做法不是「等握手通知」，而是把就绪判据定义成**容器能应答一条消息**：
+   - 新增 `ai:ping` 命令（offscreen 侧 `handleAiFsCommand` 应答，不碰文件系统）；
+   - `src/lib/offscreen.ts` 新增 `waitForOffscreenReady()`（轮询 `ai:ping`，默认 2s 超时）
+     与 `ensureOffscreenReady()`（= ensure + 等可应答）；
+   - `offscreen:ensure` 改为走 `ensureOffscreenReady()`，**可应答才返回**；
+   - `ui-client.ts` 的 `sendAi` 删掉 `setTimeout(80)`——现在 ensure 返回即就绪。
+   选「探测能应答」而非「等 `offscreen:ready` 通知」的理由：通知要维护状态位，且 SW 重启后
+   旧容器不会再通知一次，状态位会失真；而「发一条消息看有没有人答」直接测的就是我们真正
+   关心的属性（onMessage 已注册），且无状态。
 2. ~~**实测 SW 冷启动期间 IndexedDB 可读**~~ → **已实测通过（2026-09-15，见 §5.1）**。
 3. ~~**实测清浏览数据时 IDB 与 `chrome.storage.local` 的存活差异**~~
    → **已实测（2026-09-15，见 §5.2）：两者都清不掉，抗清理能力一致，方案不受影响。**

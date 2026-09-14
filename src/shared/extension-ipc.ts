@@ -23,14 +23,16 @@ export type RuntimeRequest =
   | { kind: 'userscript:availability' }
   | { kind: 'userscript:errors' }
   | { kind: 'userscript:clearErrors' }
-  // git 历史侧车（docs/userscript-git-history.md：storage 权威，git 只做历史浏览与恢复）
-  | { kind: 'userscript:history'; uuid: string }
-  | { kind: 'userscript:historyTree'; uuid: string; oid: string }
-  | { kind: 'userscript:restoreToCommit'; uuid: string; oid: string }
+  // 注：git 历史的 `userscript:history*` 三命令已随执行宿主迁 offscreen 而废弃（由 ai:* 取代），
+  // 全仓无调用方，2026-09-15 从协议中移除——留着只会让 SW 的 handlers 表被迫补死桩。
 
   // 用户脚本 git 历史（执行宿主迁 offscreen，见 docs/offscreen-fs-migration.md）。
   // UI / SW 经 chrome.runtime.sendMessage 共享总线直发 offscreen；SW 的 onMessage 对 ai: 前缀
   // return false 静默放行，由 offscreen 处理并按 { ok, data | error } 信封回传。
+  // 就绪探测：SW 用来确认容器**真的在应答**（而不仅是「文档已存在」）。
+  // 判据必须是「应答」而非「存在」——createDocument 返回时，offscreen 的 onMessage
+  // 未必已注册完，此时发业务命令会得到「port closed / Receiving end does not exist」。
+  | { kind: 'ai:ping' }
   | { kind: 'ai:snapshot'; uuid: string; note?: string }
   | { kind: 'ai:history'; uuid: string }
   | { kind: 'ai:historyTree'; uuid: string; oid: string }

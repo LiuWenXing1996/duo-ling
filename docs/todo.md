@@ -163,11 +163,15 @@
 
 ---
 
-## 用户脚本数据改由 offscreen 单写（方案未拍板）+ 前置项 1（未开工；2、3 已实测）
+## 用户脚本数据改由 offscreen 单写（方案未拍板）+ 前置项（1 已落地，2、3 已实测）
 
 > 2026-09-14 评审 `docs/userscript-draft.md` 时，由「为什么还需要 chrome.storage」追问出来的议题。
-> 老大要求先把前置项记下。**2026-09-15：前置项 2、3 已实测完成**（临时探针 `tmp/idb-probe/`，不入库），
-> 记录见 [userscript-single-writer.md](./userscript-single-writer.md) §5.1 / §5.2：
+> 老大要求先把前置项记下。**2026-09-15：三条前置项全部收口**——
+> - **前置项 1 已落地**：`sendAi` 里「ensure + `setTimeout(80)` 猜监听器注册」改为
+>   `offscreen:ensure` 内部轮询 `ai:ping`、**容器可应答才返回**（`waitForOffscreenReady` / `ensureOffscreenReady`，
+>   `src/lib/offscreen.ts`）。判据是「能应答」而非「文档存在」，无状态、SW 重启后也不失真。
+>   顺带：移除协议里已废弃、全仓无调用的 `userscript:history*` 三命令；SW 的 handlers 表类型
+>   收窄为 `SwRequest`（由 `SW_KIND_PREFIXES` 推导），不再为死命令补桩。
 > - 前置项 2（SW 冷启动期 IDB 可读）**通过**：浏览器冷启动、offscreen 尚未创建时，SW 已读到上一轮
 >   offscreen 写进 IDB 的数据（`ms: 0`）。计划外发现：**offscreen 每次浏览器启动都是重建的**，
 >   「SW 冷启动时没有 offscreen」是常态，正是读路径必须 IDB 直读的依据。
