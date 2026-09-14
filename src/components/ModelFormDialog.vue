@@ -389,6 +389,9 @@ async function save(): Promise<void> {
                 <ui-eye v-else class="size-4" />
               </button>
             </div>
+            <p class="text-xs leading-relaxed text-muted-foreground">
+              Key 将加密存储在本机，但浏览器扩展无法做到绝对安全。建议使用单独或有限额的 Key。
+            </p>
           </div>
         </div>
 

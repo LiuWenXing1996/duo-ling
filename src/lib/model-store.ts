@@ -7,12 +7,17 @@
 //   2. **activeProfileId 始终指向一条「已启用」配置**，唯一出口是 syncActiveProfileId；
 //      读取时不做事后兜底（避免「界面显示的当前模型」与「实际发送用的模型」不一致）。
 //
-// ⚠️ 安全边界：浏览器扩展没有 safeStorage 等价物，apiKey 只能明文存于扩展本地存储。
-// 这部分声明在 manifest 中不作 sync，不会上传；但仍建议在设置页向用户明示该风险。
+// ⚠️ 安全边界：浏览器扩展没有 safeStorage 等价物，apiKey 经 AES-GCM 加密后落盘
+// （`key-cipher.ts`，随机密钥同存本机扩展存储）——属防扫描级，非保密级；
+// 真实降损靠引导用户使用子 Key + 额度上限 + 定期轮换。
 import type { ModelProfile, ModelProfileInput, ModelTestChatConfig } from '../shared/types'
 import type { ModelProfileState } from '../shared/extension-ipc'
+import { decryptApiKey, encryptApiKey, type EncPayload } from './key-cipher'
 
 const KEY = 'modelProfiles'
+
+/** 落盘形态：apiKey 不落明文，只存密文载荷（老数据的明文字段在读取时迁移） */
+type StoredProfile = Omit<ModelProfileState, 'apiKey'> & { apiKeyEnc?: EncPayload }
 
 interface ModelState {
   profiles: ModelProfileState[]
@@ -20,18 +25,49 @@ interface ModelState {
 }
 
 async function readState(): Promise<ModelState> {
-  const raw = (await chrome.storage.local.get(KEY))[KEY] as ModelState | undefined
-  const state = raw ?? { profiles: [], activeProfileId: '' }
+  const raw = (await chrome.storage.local.get(KEY))[KEY] as
+    | { profiles: StoredProfile[]; activeProfileId: string }
+    | undefined
+  const stored = raw ?? { profiles: [], activeProfileId: '' }
+  // 解密为内部形态；老数据（明文 apiKey 字段）在此顺带迁移为密文
+  let migrated = false
+  const profiles: ModelProfileState[] = await Promise.all(
+    stored.profiles.map(async (p) => {
+      const rest = p as Omit<ModelProfileState, 'apiKey'>
+      if (p.apiKeyEnc) {
+        let apiKey = ''
+        try {
+          apiKey = await decryptApiKey(p.apiKeyEnc)
+        } catch {
+          // 密钥丢失或载荷损坏：宁缺勿假，清空待用户重填
+        }
+        return { ...rest, apiKey }
+      }
+      const legacy = (p as Partial<ModelProfileState>).apiKey
+      if (typeof legacy === 'string' && legacy) {
+        migrated = true
+        return { ...rest, apiKey: legacy }
+      }
+      return { ...rest, apiKey: '' }
+    }),
+  )
+  const state: ModelState = { profiles, activeProfileId: stored.activeProfileId }
   // 自愈：扩展早期版本保存时未维护 activeProfileId（可能悬空或指向已停用项）。
   // 仅在确实不一致时回写一次；此后读路径不再兜底，保持「activeProfileId 即真源」的严格语义。
   const before = state.activeProfileId
   syncActiveProfileId(state)
-  if (state.activeProfileId !== before) await writeState(state)
+  if (migrated || state.activeProfileId !== before) await writeState(state)
   return state
 }
 
 async function writeState(state: ModelState): Promise<void> {
-  await chrome.storage.local.set({ [KEY]: state })
+  const profiles: StoredProfile[] = await Promise.all(
+    state.profiles.map(async (p) => {
+      const { apiKey, ...rest } = p
+      return apiKey ? { ...rest, apiKeyEnc: await encryptApiKey(apiKey) } : rest
+    }),
+  )
+  await chrome.storage.local.set({ [KEY]: { profiles, activeProfileId: state.activeProfileId } })
 }
 
 /**

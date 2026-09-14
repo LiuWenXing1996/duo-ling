@@ -73,9 +73,13 @@ function sendToOffscreen<T>(request: RuntimeRequest): Promise<T> {
   })
 }
 
-const handlers: {
+/**
+ * Partial 是刻意的：`ai:*` 与 `userscript:history*` 由 offscreen 接管（见 SW_KIND_PREFIXES
+ * 的让路规则），SW 只登记自己管的那部分；查不到 handler 时下面的分发会回「未知消息类型」。
+ */
+const handlers: Partial<{
   [K in RuntimeRequest['kind']]: (msg: Extract<RuntimeRequest, { kind: K }>) => Promise<unknown>
-} = {
+}> = {
   // —— offscreen 容器（方案 §4.8 定位 B）——
   // A 组只做容器与通道：这几个命令供手动 / 调试触发；B 组的生成入口会直接调 ensureOffscreen()。
   'offscreen:ensure': async (): Promise<{ ready: boolean }> => {

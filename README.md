@@ -25,7 +25,7 @@
 | 会话存储 | **IndexedDB**（`duoling-chat`）；两个入口同源共享，不经 background |
 | 脚本存储 | chrome.storage.local（项目权威）+ `lightning-fs`（IndexedDB，库名 `duoling`）存 git 历史 |
 | 版本管理 | `isomorphic-git`（纯 JS）；git 只做历史，storage 才是权威（可丢历史不丢脚本） |
-| 模型配置 | `chrome.storage.local`（⚠️ 无系统级加密，API Key 明文存于本机扩展存储） |
+| 模型配置 | `chrome.storage.local`（API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`；密钥同存本机，属防扫描级而非保密级） |
 | 主题 | **跟随系统深浅色**（`src/lib/theme.ts` 按 `prefers-color-scheme` 驱动 `html.dark`） |
 
 - 迁移方案与风险清单：[docs/plugin-migration-plan.md](docs/plugin-migration-plan.md)（含已下线的工具页承载章节，仅作历史参照）
@@ -77,6 +77,7 @@
 │  │  ├─ theme.ts                 # 主题：prefers-color-scheme → html.dark（跟随系统深浅色）
 │  │  ├─ conversation-store.ts    # 会话与消息（IndexedDB）
 │  │  ├─ model-store.ts           # 模型配置（chrome.storage.local + 连通性测试）
+│  │  ├─ key-cipher.ts           # API Key 落盘加密（AES-GCM，防扫描级）
 │  │  └─ providers.ts             # 服务商预设（host_permissions 由此推导）
 │  ├─ lib/userscripts/            # 脚本链路：引擎（userScripts 注册）/ 存储 / git 历史 / DL 桥 / 类型
 │  ├─ types/
