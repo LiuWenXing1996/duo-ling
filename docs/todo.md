@@ -163,7 +163,25 @@
 
 ---
 
-## 用户脚本数据改由 offscreen 单写（方案未拍板）+ 前置项（1 已落地并手测通过，2、3 已实测）
+## ~~用户脚本数据改由 offscreen 单写~~ → **已落地（2026-09-15）**
+
+> **2026-09-15 更新：主体已实现**，实现记录见
+> [userscript-single-writer.md §9](./userscript-single-writer.md)。
+>
+> - 项目数据（源码 / 配置 / 产物 / enabled）迁到独立 IndexedDB 库 **`duoling-state`**
+>   （`state-db.ts`）；**写只归 offscreen**（`project-write.ts` + `state:*` 命令面），
+>   写状态与 commit git 仓在同一个函数里完成，消除了「已保存但没 commit」的偏差缝隙；
+> - SW **直读** IDB 做注册（`engine.listProjects` / `userscript:list` / `getProject`），不经容器；
+>   写命令经 `writeViaOffscreen`（先 ensure 可应答、仅对「容器没接上」类错误重试一次）转发；
+> - **`chrome.storage.local` 只剩** `DL.store` 值（`us:gm:*`）、错误日志（`us:errors`）与旧 GM 记录的清理；
+> - 按老大指示**不做数据迁移**（无旧数据）；
+> - 顺带删掉随折叠变死的 `ai:snapshot` / `ai:deleteRepo`，`offscreenBridge` 收窄到只剩配置通道。
+>
+> **未做的残留项**：写失败的**可重试 UI 提示**——目前写失败会把错误冒泡到 UI 错误条，
+> 但没有「重试」按钮；等真出现保存失败再补，避免为没发生的失败设计交互。
+
+**详细文档**：见 [userscript-single-writer.md](./userscript-single-writer.md)（背景、方案、边界判据、
+代价复核、前置项、工作量、实现记录）。本条目只留「前置项 + 边界结论」的索引，以文档为准。
 
 > 2026-09-14 评审 `docs/userscript-draft.md` 时，由「为什么还需要 chrome.storage」追问出来的议题。
 > 老大要求先把前置项记下。**2026-09-15：三条前置项全部收口**——
@@ -201,10 +219,9 @@
 轮询到有应答才返回（`ensureOffscreenReady()`，`src/lib/offscreen.ts`）。理由：握手通知要维护
 状态位，SW 重启后旧容器不会再通知一次、状态位会失真；而探测无状态，且测的正是在意的属性。
 
-**关联议题（未决）**：「用户脚本项目数据（源码 / 配置 / 产物 / enabled）是否改由 offscreen 单写、
-SW 直读 IndexedDB 注册」。该议题若不做，本条价值有限；若做，本条是开工前必须先落的一小块。
-该议题讨论出的另两条待办一并记下：
-- 写失败要有**可重试的 UI 提示**（保存不再「几乎不失败」，失败面扩大到 offscreen 存活）；
+**关联议题（已决并落地）**：「用户脚本项目数据（源码 / 配置 / 产物 / enabled）是否改由 offscreen 单写、
+SW 直读 IndexedDB 注册」→ **已做**（见本条目顶部）。讨论出的另两条待办状态：
+- 写失败要有**可重试的 UI 提示** → **未做**（见顶部「未做的残留项」）；
 - 边界划分：`DL.store` 值（`us:gm:<uuid>:<key>`）与错误日志 `us:errors` **是否也纳入单写方**。
   2026-09-14 结论：**按判据划出去，不纳入**——判据不是「频率高不高」，而是
   「写入方是否受我们控制」+「是否参与『脚本是什么』的真相判定」：

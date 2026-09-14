@@ -11,8 +11,8 @@
 - **UI 层**：Vue 3.5 + TypeScript，`@` 别名指向 `src/`；样式 = Tailwind v4（CSS-first，`src/assets/main.css`）+ Less（`src/assets/main.less`）；主题**跟随系统**（`src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`，勿在 html 上硬写 `class="dark"`）
 - **手写桥接层（`src/lib/*.ts` 中非平移的那些）必须逐函数对照 legacy**：这类文件是重写而非平移，最容易丢桌面版里「默认值回退 / 入参守卫 / 先校验后落盘 / 无变化就不做」这四类不在类型里的语义（曾丢过：模型展示名回退、会话自动命名、空提交守卫、id 防穿越、服务商预设少 7 个）。对照工具：`scripts/compare-bridge.py <扩展文件> <legacy文件>`，按同名函数体 diff 只打差异。
 - **UI 复用（强制）**：两个载体的 UI 都是**从桌面版平移来的现成实现**（`src/components/`，闭包见 `legacy/src/renderer/src/`）—— side panel 用 `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列。它们靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，因此组件本体零改动。**改 UI 前先查 legacy 是否已有实现，禁止照着界面重写**；需要平移新组件用 `scripts/port-legacy-ui.py`（改 `ENTRIES`；重跑会覆盖本地改过的 `use-global-conversation.ts` / `Shimmer.vue`，先备份）。UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 规范走：先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，**不手写组件**；`class` 只用于布局，不覆盖组件配色与字体，颜色一律用语义 token（`bg-primary` / `text-muted-foreground`），不写 `space-x-*` / `space-y-*`、不手写 `dark:` 覆盖。
-- **存储**：`chrome.storage.local`（用户脚本项目，权威）+ `lightning-fs`（IndexedDB 后端，库名 `duoling`，只存脚本 git 历史与会话 `duoling-chat`）
-- **版本管理**：`isomorphic-git`（纯 JS）；**git 只是历史侧车**——脚本以 storage 为权威，仓损坏只丢历史不丢脚本，恢复走「产生新提交」而非 reset
+- **存储**：项目数据（源码/配置/产物/enabled）在**独立 IndexedDB 库 `duoling-state`**（`state-db.ts` / `project-store.ts` 读、`project-write.ts` 写，**写只归 offscreen**，见 `docs/userscript-single-writer.md`）；`chrome.storage.local` 只剩 `DL.store` 值（`us:gm:*`）与错误日志（`us:errors`）；`lightning-fs`（IndexedDB 后端，库名 `duoling`，**只许 offscreen 碰**）存脚本 git 历史与会话 `duoling-chat`
+- **版本管理**：`isomorphic-git`（纯 JS）；**git 只是历史侧车**——脚本以状态库为权威，仓损坏只丢历史不丢脚本，恢复走「产生新提交」而非 reset
 - **脚本注入**：`chrome.userScripts` + USER_SCRIPT 世界 + `window.DL` 桥接（`src/lib/userscripts/`）
 - **offscreen document**：AI 生成链路的执行宿主，按需创建（`src/lib/offscreen.ts`）
 - **包管理**：npm（原 Electron 工程的 pnpm workspace 配置已随归档移入 `legacy/`）

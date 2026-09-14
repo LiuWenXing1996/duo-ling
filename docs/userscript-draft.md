@@ -50,11 +50,11 @@
 
 | 状态 | 位置 | 语义 |
 |---|---|---|
-| 已保存（**权威**） | `chrome.storage.local` 的 `us:script:<uuid>` | 注册 / 注入依据，含 bundle |
+| 已保存（**权威**） | IndexedDB 库 `duoling-state`（2026-09-15 起；此前是 `chrome.storage.local` 的 `us:script:<uuid>`） | 注册 / 注入依据，含 bundle；**写只归 offscreen**，读由 SW / 扩展页直连 |
 | 已提交 | `/uscripts/<uuid>/.git` 的 HEAD | 历史版本 |
 | **草稿** | `/uscripts/<uuid>/{project.json, files/**}`（工作区） | 未保存的编辑态 |
 
-**判定与回滚一律以 storage 为基准，不以 HEAD 为基准**：`snapshotProject` 失败不阻断保存主链路（`us-git.ts:4-5`），HEAD 可能落后于 storage。若以 HEAD 为基准，「已保存但未提交成功」会被误判成草稿，且丢弃会退到更旧的版本。
+**判定与回滚一律以状态库为基准，不以 HEAD 为基准**：`snapshotProject` 失败不阻断保存主链路（`us-git.ts:4-5`），HEAD 可能落后于状态库。若以 HEAD 为基准，「已保存但未提交成功」会被误判成草稿，且丢弃会退到更旧的版本。
 
 ## 4. 实现
 
@@ -104,7 +104,7 @@ SW 无需改动：`ai:` 前缀由 `background.ts:52` 的 `SW_KIND_PREFIXES` 白�
 
 ### 4.3 打开时恢复（`load()`）
 
-1. `project = await userscriptClient.getProject(uuid)`（storage，权威）；**先记 `baseline = project`**（丢弃用的回滚目标，取自 storage）
+1. `project = await userscriptClient.getProject(uuid)`（状态库，权威）；**先记 `baseline = project`**（丢弃用的回滚目标，取自状态库）
 2. `draft = await aiFsClient.readDraft(uuid)`——**必须 try/catch**：失败／超时一律按「无草稿」处理，草稿是 best-effort，读不到不能挡住打开编辑器
 3. 判定（相等判据：`name` / `entry` 字符串比；`files` 按键集合 + 逐值比；`config` 比 `JSON.stringify`）：
    **两边必须用同一个归一化函数**（就是 `currentConfig()` 里那个 `optArr`：空数组 → `undefined`）。
@@ -180,6 +180,13 @@ await aiFsClient.writeDraft(uuid, baseline)   // 载荷即项目形状，offscre
 
 ### 4.8 删除脚本
 
+> **2026-09-15 更新：本条已随单写方落地自然解决，无需再补。**
+> `userscript:remove` 现在把 `state:remove` 转给 offscreen，后者在同一个上下文里
+> `removeProject()`（状态库）+ `deleteRepo()`（整目录，含工作区草稿）一步清干净；
+> 悬空的 `ai:deleteRepo` 命令已从协议移除。原先担心的「删完草稿滞留到下次对账」不再存在。
+
+（以下为当时的评审原貌，留档。）
+
 `deleteRepo(uuid)` 本身已整目录删除（`us-git.ts:92` → `removeRecursive(usDir(uuid))`），工作区草稿随仓一起清除——**但现状是它没被调用**：`userscript:remove`（`background.ts:210-213`）只做
 `unregisterScripts` + `deleteScript`，`aiFsClient.deleteRepo`（`ui-client.ts:125`）**全仓无人调用**。
 仓与草稿目前只靠 `reconcileFs`（offscreen 启动 + 每次 `ai:snapshot` 前）清理，也就是说**删完脚本，
@@ -191,7 +198,7 @@ await aiFsClient.writeDraft(uuid, baseline)   // 载荷即项目形状，offscre
 ### 4.9 脏检测
 
 - **编辑期**：沿用现有同步的 `editDirty` ref 做即时 UI 反馈（`@input` / `addFile` / `removeFile` / `renameFile` 置位）——IPC 是异步的，不适合做即时反馈。
-- **打开时**：以 storage 为基准的内容比对（§4.3）给出权威判定。
+- **打开时**：以状态库为基准的内容比对（§4.3）给出权威判定。
 - 二者可能短暂不一致，保存 / 丢弃后归位。
 
 ## 5. 关键边界与坑

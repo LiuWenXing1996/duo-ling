@@ -16,7 +16,9 @@
 //
 // 模块归属（硬约束，§4.8）：本入口只允许 import builder.ts（纯 esbuild）、
 // extension-chat-transport.ts、ai SDK、offscreen-bridge.ts，以及 offscreen-only 的
-// lib/userscripts/offscreen-fs-commands.ts（其内部只引 us-git / us-fs，均不碰 chrome.storage）。
+// lib/userscripts/offscreen-fs-commands.ts（git 历史）与 offscreen-state-commands.ts
+// （项目状态库的写侧，见 docs/userscript-single-writer.md）——其内部只引 project-store（裸 IndexedDB）、
+// project-write / us-git / us-fs，均不碰 chrome.storage。
 // 一旦 import store.ts / fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报
 // chrome.storage is undefined —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
 //
@@ -29,7 +31,8 @@
 import '@/polyfills'
 import { offscreenBridge } from '@/lib/offscreen-bridge'
 import type { ModelProfileState, OffscreenPush, RuntimeRequest } from '@/shared/extension-ipc'
-import { handleAiFsCommand, reconcileFs, type AiFsRequest } from '@/lib/userscripts/offscreen-fs-commands'
+import { handleAiFsCommand, type AiFsRequest } from '@/lib/userscripts/offscreen-fs-commands'
+import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
 
 /** 当前模型配置（含 apiKey）：只驻内存，不写日志、不落盘（§4.8 配置通道的边界要求） */
 let activeProfile: ModelProfileState | undefined
@@ -64,19 +67,33 @@ chrome.runtime.onMessage.addListener((raw, _sender, sendResponse): boolean => {
     void refreshActiveProfile()
     return false
   }
-  if (msg && typeof msg.kind === 'string' && msg.kind.startsWith('ai:')) {
-    void (async () => {
-      try {
-        const data = await handleAiFsCommand(msg as AiFsRequest)
-        sendResponse({ ok: true, data })
-      } catch (e) {
-        sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) })
-      }
-    })()
-    return true
+  // 异步应答的命令面前缀：ai: 是 git 历史，state: 是项目状态库的写侧（单写方）。
+  // 两者都 return true —— 告诉 chrome.runtime 我们要异步 sendResponse（否则响应会被丢弃）。
+  const kind = msg?.kind
+  if (kind && typeof kind === 'string') {
+    if (kind.startsWith('ai:')) {
+      void respond(sendResponse, () => handleAiFsCommand(msg as AiFsRequest))
+      return true
+    }
+    if (kind.startsWith('state:')) {
+      void respond(sendResponse, () => handleStateCommand(msg as StateRequest))
+      return true
+    }
   }
   return false
 })
+
+/** 统一异步应答：把结果包成 { ok, data | error } 信封 */
+async function respond(
+  sendResponse: (r: unknown) => void,
+  run: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    sendResponse({ ok: true, data: await run() })
+  } catch (e) {
+    sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) })
+  }
+}
 
 announceReady()
 void refreshActiveProfile()

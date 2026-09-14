@@ -33,11 +33,22 @@ export type RuntimeRequest =
   // 判据必须是「应答」而非「存在」——createDocument 返回时，offscreen 的 onMessage
   // 未必已注册完，此时发业务命令会得到「port closed / Receiving end does not exist」。
   | { kind: 'ai:ping' }
-  | { kind: 'ai:snapshot'; uuid: string; note?: string }
   | { kind: 'ai:history'; uuid: string }
   | { kind: 'ai:historyTree'; uuid: string; oid: string }
+  // 恢复：由快照物化出项目（不落状态库），提交一条「回滚」记录；落盘由调用方经
+  // userscript:updateFiles 完成（UI 侧先切编辑态、重建 bundle 再保存）。
   | { kind: 'ai:restoreToCommit'; uuid: string; oid: string }
-  | { kind: 'ai:deleteRepo'; uuid: string }
+
+  // —— 项目状态库的**写**命令面（docs/userscript-single-writer.md）——
+  // 项目数据（源码 / 配置 / 构建产物 / enabled）落在独立 IndexedDB 库 duoling-state，
+  // **写只归 offscreen**（单写方），写状态与 commit git 仓收在同一个上下文的同一个函数里，
+  // 消除原先「SW 写 storage + IPC 让 offscreen commit」两次分离操作带来的偏差缝隙。
+  // 读不进协议：SW 与扩展页直连 IDB（project-store），不经容器——注册链路不能押在容器存活上。
+  | { kind: 'state:create' }
+  | { kind: 'state:install'; source: string; name?: string; matches?: string[] }
+  | { kind: 'state:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle?: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
+  | { kind: 'state:remove'; uuid: string }
+  | { kind: 'state:toggle'; uuid: string; enabled: boolean }
 
   // —— offscreen document（AI 生成链路的执行宿主，方案 §4.8 定位 B）——
   // 容器**按需创建**（刻意不在 SW 启动时自动建，否则一启动就常驻，与退出条件相悖），

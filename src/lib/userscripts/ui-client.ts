@@ -124,7 +124,4 @@ export const aiFsClient = {
   /** 恢复到某提交（enabled 保持当前值；bundle 由 UI 重建，落盘 + 重注册由后续 updateFiles 完成） */
   restoreToCommit: (uuid: string, oid: string): Promise<{ committed: boolean; project: ScriptProject }> =>
     sendAi({ kind: 'ai:restoreToCommit', uuid, oid }),
-
-  /** 删除某脚本的 git 仓（历史不保留） */
-  deleteRepo: (uuid: string): Promise<void> => sendAi({ kind: 'ai:deleteRepo', uuid }),
 }

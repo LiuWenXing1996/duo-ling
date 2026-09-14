@@ -1,9 +1,9 @@
-# 用户脚本存储：改由 offscreen 单写（方案 · 未拍板）
+# 用户脚本存储：改由 offscreen 单写（已实现）
 
-> 状态：**方案（未实现）**。本文件只收敛设计，不落地代码。
+> 状态：**已实现（2026-09-15）**。实现记录见 §9；前置项 1/2/3 均已收口（§5）。
 > 出处：2026-09-14 评审 `docs/userscript-draft.md` 时，由「为什么还需要 chrome.storage」一路追问出来的议题。
 > 关联：`docs/userscript-draft.md`（草稿 = 工作区）、`docs/userscript-git-history.md`（git 侧车）、
-> `docs/offscreen-fs-migration.md`（lfs 归 offscreen）、`docs/todo.md`（前置项与边界待办）。
+> `docs/offscreen-fs-migration.md`（lfs 归 offscreen）、`docs/todo.md`（边界待办）。
 
 ## 1. 背景与动机
 
@@ -73,8 +73,11 @@
 
 - **失去 `storage.onChanged`**：现在 SW 靠它感知模型配置变更（`background.ts:290`）。项目数据搬走后，
   面板改完要自己发消息通知 SW 与其他面板——项目已有消息总线，可复用，但仍新增一处同步点。
-- **数据迁移**：现有 storage 里的项目要一次性搬到 IDB，需要迁移函数 + 幂等 + 回滚预案。
+  （实现时未触及：面板的写仍全部经 `userscript:*` → SW 转发，SW 是唯一对外入口，故暂无新同步点。）
+- ~~**数据迁移**：现有 storage 里的项目要一次性搬到 IDB。~~ → **不做**：2026-09-15 老大明确「没有旧数据」，
+  无需迁移函数。代价是升级后旧 `us:script:*` 记录不再被当项目（只作为已弃用旧记录展示，可一键清理）。
 - **库名与 schema 版本化**：IDB 库要自带 schema 版本号，为将来升级留口。
+  （已做：库名 `duoling-state`，`DB_VERSION = 1`，`onupgradeneeded` 里建 `projects` 对象仓。）
 
 ## 5. 前置项（开工前必做）
 
@@ -165,18 +168,21 @@
 - `docs/userscript-git-history.md`：「storage 权威、git 为历史」的表述同上。
 - 迁移本身**不新增 manifest 权限**，也不影响 WXT 构建。
 
-## 7. 工作量（粗估，未拆任务）
+## 7. 工作量（实际）
 
-约 **450 行 / 6–7 个文件**：
+约 **480 行 / 9 个文件**（2026-09-15 落地）：
 
 | 文件 | 改动 |
 |---|---|
-| 新增 `src/lib/userscripts/state-db.ts` | 独立 IDB 库封装（schema v1、读写 API）（~80 行） |
-| `src/lib/userscripts/offscreen-fs-commands.ts`（或新命令模块） | 项目数据的 `us:*` 写命令面（~120 行） |
-| `src/entrypoints/background.ts` | 注册改读 IDB；各 handler 写路径改走 offscreen；`DL.store` / `us:errors` 不动（~100 行） |
-| `src/lib/userscripts/ui-client.ts` | 读直读、写走 offscreen（~60 行） |
-| 新增迁移函数 | storage → IDB 一次性搬迁（幂等 + 回滚）（~50 行） |
-| `src/lib/userscripts/ui-client.ts` + offscreen 侧 | `offscreen:ready` 握手替换 80ms（前置项 1）（~30 行） |
+| 新增 `state-db.ts` | 独立 IDB 库 `duoling-state` 封装（schema v1、读 API + offscreen 专属写 API）（~105 行） |
+| 新增 `project-store.ts` | 读侧：listProjects / getProject / nextScriptName / validateFiles（~55 行） |
+| 新增 `project-write.ts` | 写侧：create / install / updateFiles / remove / toggle，写状态 + 快照提交合一（~115 行） |
+| 新增 `offscreen-state-commands.ts` | `state:*` 命令面 + `reconcileFs`（从 fs-commands 迁来）（~80 行） |
+| `background.ts` | 读改直连 IDB；写改 `writeViaOffscreen` 转发；`userscript:remove` 补清 DL.store 值（~120 行） |
+| `store.ts` | 删掉项目读写，只剩旧记录清理 / DL.store 值 / 错误日志（−120 行） |
+| `offscreen-fs-commands.ts` | 去掉经 SW 的 bridge 读，改直读 project-store；删 `ai:snapshot` / `ai:deleteRepo` |
+| `offscreen-bridge.ts` | 收窄到只剩 `getActiveProfile`（项目数据已本地化） |
+| `engine.ts` / `ui-client.ts` / `offscreen-main.ts` / `extension-ipc.ts` | import 换源、`state:` 路由、协议增删 |
 
 ## 8. 验收
 
@@ -184,5 +190,20 @@
 - 冷启动浏览器：offscreen 尚未就绪时，脚本仍能注册生效（读走 IDB 直读，不依赖容器）；
 - 手动 `offscreen:close` 后点保存：失败并给出**可重试**提示，重试后成功（不是静默失败）；
 - 用户脚本调 `DL.store.set` / 触发崩溃：行为与现状一致（不经 offscreen）；
-- 迁移：升级后原有脚本全部在，且历史版本可浏览；
+- ~~迁移：升级后原有脚本全部在~~ → **不做迁移**（无旧数据）；
 - 两个面板同时保存同一脚本：不出现半写状态（与现状持平即可，lost update 属既有问题）。
+
+## 9. 实现记录（2026-09-15）
+
+落地时相对方案的三处偏差：
+
+1. **写命令面用 `state:` 新前缀，而不是复用 `us:*`。**
+   `ai:*`（git 历史）与 `state:*`（状态库写侧）都由 offscreen 应答，SW 的 `SW_KIND_PREFIXES`
+   白名单不含这两个前缀，故天然静默让路。前缀分开让「谁应答」在路由处一眼可辨。
+2. **`reconcileFs` 从 offscreen-fs-commands 迁到 offscreen-state-commands，且只在启动时跑一次。**
+   原先每次 `ai:snapshot` 前都要对账一次，那是双写方时代的补偿；写与 commit 同处一地后没这个必要。
+3. **删掉 `ai:snapshot` 与 `ai:deleteRepo` 两条命令**（随折叠变死）：保存的快照由 `project-write`
+   内部直接调 `snapshotProject`，删仓由 `removeProjectAndRepo` 一步完成。
+
+一处刻意的保留：`userscript:*` 仍是 UI 的唯一入口，SW 是转发方而非绕过——
+这样「注册」这一只有 SW 能做的动作始终挂在写路径末尾，面板不需要知道 offscreen 的存在。
