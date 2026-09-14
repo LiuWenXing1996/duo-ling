@@ -11,15 +11,15 @@ import UiTestPanel from '@/components/UiTestPanel.vue'
 import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
 import UserscriptListPanel from '@/components/userscript/UserscriptListPanel.vue'
 import UserscriptEditorPanel from '@/components/userscript/UserscriptEditorPanel.vue'
-import type { OpenTool } from '@/types/tab'
+import type { WorkspaceTab } from '@/types/tab'
 import {
   Tabs as UiTabs,
   TabsContent as UiTabsContent
 } from '@/components/ui/tabs'
 
 // 主页标签：始终存在且不可关闭，作为默认视图。内容自 2026-09-14 起刻意留空（原为工具网格）
-const HOME_TAB: OpenTool = { kind: 'home', id: 'home', title: '主页' }
-const openTabs = ref<OpenTool[]>([HOME_TAB])
+const HOME_TAB: WorkspaceTab = { kind: 'home', id: 'home', title: '主页' }
+const openTabs = ref<WorkspaceTab[]>([HOME_TAB])
 const activeTabId = ref(HOME_TAB.id)
 
 function activate(id: string): void {

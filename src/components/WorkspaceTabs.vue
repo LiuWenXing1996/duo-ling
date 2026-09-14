@@ -3,7 +3,7 @@
 // 2026-09-14：workbench 原 46px 顶栏（存在的唯一理由是放全局搜索框）删除，搜索框改由右侧
 // #actions 插槽承载；同日工具链路移除（docs/tool-chain-removal-plan.md）后，该搜索框的数据源
 // tool.list() 消失，插槽连同搜索框一并删除，工具类标签（tool / tool-history / tool-code）分支同步摘除。
-import type { OpenTool } from '@/types/tab'
+import type { WorkspaceTab } from '@/types/tab'
 import {
   Home as UiHome,
   List as UiList,
@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/tabs'
 
 const props = defineProps<{
-  tabs: OpenTool[]
+  tabs: WorkspaceTab[]
   activeId: string
   homeTabId: string
 }>()
