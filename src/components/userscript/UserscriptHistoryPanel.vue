@@ -1,34 +1,38 @@
 <script setup lang="ts">
-// 独立的脚本 git 历史查看页（只读浏览版 v1）。
+// 每脚本一个的 git 历史标签页（us-history:<uuid>，WorkspaceTab.userscriptId 承载）。
 //
-// 与编辑器内嵌「历史」视图的区别：不依赖某个编辑器标签页开着——从工作台左侧导航直接进入，
-// 顶部下拉选脚本，任何脚本的历史随时可看。纯只读：只浏览（提交列表 + 快照文件树 + 代码查看），
-// 恢复操作仍留在编辑器里（那是「改代码」语义的一部分）。
-// 复用链路：aiFsClient.history / historyTree（offscreen 执行）+ buildCodeTree + FileTree + CodeBlock。
+// 2026-09-15：历史浏览 + 恢复从编辑器内嵌视图整体迁出——编辑器只管编辑 + 保存，
+// 历史按钮经 openHistory 事件让宿主打开本标签页。恢复在此完成后发 restored 事件，
+// 宿主据此重载该脚本的编辑器标签（若开着），避免编辑态与已恢复数据脱节。
+// 复用链路：aiFsClient.history / historyTree / restoreToCommit + aiBuildClient（offscreen 构建）
+// + buildCodeTree + FileTree + CodeBlock。
 import { computed, onMounted, ref } from 'vue'
-import { RefreshCw as UiRefreshCw } from '@lucide/vue'
+import { RefreshCw as UiRefreshCw, RotateCcw as UiRotateCcw } from '@lucide/vue'
 import { FileTree } from '@/components/ai-elements/file-tree'
 import { CodeBlock } from '@/components/ai-elements/code-block'
 import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
 import { buildCodeTree, inferLanguage, type CodeTreeNode } from '@/lib/code-view'
-import { userscriptClient, aiFsClient } from '@/lib/userscripts/ui-client'
-import type { ScriptSummary } from '@/lib/userscripts/types'
+import { userscriptClient, aiFsClient, aiBuildClient } from '@/lib/userscripts/ui-client'
 import type { UsCommit, UsHistoryTree } from '@/lib/userscripts/us-git'
 
-const scripts = ref<ScriptSummary[]>([])
-const scriptsLoading = ref(true)
-const selectedUuid = ref('')
+const props = defineProps<{ uuid: string }>()
+const emit = defineEmits<{
+  /** 恢复完成（含仅源码恢复、构建失败的情形）：宿主重载该脚本的编辑器标签 */
+  restored: [uuid: string]
+}>()
+
+const scriptName = ref('')
 const error = ref('')
+const notice = ref('')
 
 const commits = ref<UsCommit[]>([])
-const commitsLoading = ref(false)
+const commitsLoading = ref(true)
 const oid = ref('')
 const tree = ref<UsHistoryTree | null>(null)
 const activeFile = ref('')
+const restoring = ref(false)
 
-const selectedScript = computed(() => scripts.value.find((s) => s.uuid === selectedUuid.value))
-
-/** 递归收集全部文件夹路径（用于 FileTree 默认展开），同编辑器 */
+/** 递归收集全部文件夹路径（用于 FileTree 默认展开） */
 function collectFolders(nodes: CodeTreeNode[]): string[] {
   const paths: string[] = []
   const walk = (list: CodeTreeNode[]): void => {
@@ -53,36 +57,21 @@ const fileContent = computed(
   () => tree.value?.files.find((f) => f.path === activeFile.value)?.content ?? '',
 )
 
-async function loadScripts(): Promise<void> {
-  scriptsLoading.value = true
-  error.value = ''
-  try {
-    scripts.value = await userscriptClient.list()
-    // 已选中脚本被删时清空选择；否则保持当前查看进度
-    if (selectedUuid.value && !scripts.value.some((s) => s.uuid === selectedUuid.value)) {
-      selectedUuid.value = ''
-      commits.value = []
-      oid.value = ''
-      tree.value = null
-    }
-  } catch (e) {
-    error.value = '读取脚本列表失败：' + (e instanceof Error ? e.message : String(e))
-  } finally {
-    scriptsLoading.value = false
-  }
-}
-
-async function selectScript(uuid: string): Promise<void> {
-  selectedUuid.value = uuid
-  commits.value = []
-  oid.value = ''
-  tree.value = null
-  if (!uuid) return
+/** 装载脚本名 + 提交列表，默认选中最新一条 */
+async function load(): Promise<void> {
   commitsLoading.value = true
   error.value = ''
   try {
-    commits.value = await aiFsClient.history(uuid)
-    if (commits.value.length) await selectCommit(commits.value[0].oid)
+    const project = await userscriptClient.getProject(props.uuid)
+    if (!project) throw new Error('脚本不存在或为已弃用旧记录')
+    scriptName.value = project.name
+    commits.value = await aiFsClient.history(props.uuid)
+    if (commits.value.length) await selectCommit(commits.value[0]!.oid)
+    else {
+      oid.value = ''
+      tree.value = null
+      activeFile.value = ''
+    }
   } catch (e) {
     error.value = '读取历史失败：' + (e instanceof Error ? e.message : String(e))
   } finally {
@@ -94,10 +83,57 @@ async function selectCommit(o: string): Promise<void> {
   error.value = ''
   try {
     oid.value = o
-    tree.value = await aiFsClient.historyTree(selectedUuid.value, o)
+    tree.value = await aiFsClient.historyTree(props.uuid, o)
     activeFile.value = tree.value.files[0]?.path ?? ''
   } catch (e) {
     error.value = '读取快照失败：' + (e instanceof Error ? e.message : String(e))
+  }
+}
+
+/** 恢复历史版本：物化项目 → offscreen 重建 bundle → 落盘重注册（原编辑器 restoreCommit 迁入） */
+async function restoreCommit(): Promise<void> {
+  if (!oid.value || restoring.value) return
+  if (
+    !confirm(
+      '恢复到此版本？将同时恢复当时的名称与匹配规则（启用状态保持不变），并产生一条「回滚」记录。',
+    )
+  )
+    return
+  restoring.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const { restored: project } = await aiFsClient.restoreToCommit(props.uuid, oid.value)
+    // bundle 已丢弃，重建（失败仅提示：源码已恢复，修复后到编辑器保存即可）
+    let buildFailed = false
+    try {
+      const buildRes = await aiBuildClient.build(project.files, project.entry)
+      if (buildRes.status === 'buildError') {
+        buildFailed = true
+        error.value = '已恢复源码与配置，但重建构建失败：\n' + buildRes.issues.join('\n')
+      } else if (buildRes.status === 'error') {
+        buildFailed = true
+        error.value = '已恢复源码与配置，但重建构建失败：' + buildRes.message
+      } else {
+        await userscriptClient.updateFiles(
+          props.uuid,
+          buildRes.outcome.files,
+          project.entry,
+          { code: buildRes.outcome.code, builtAt: Date.now() },
+        )
+      }
+    } catch (e) {
+      buildFailed = true
+      error.value = '已恢复源码与配置，但落盘失败：' + (e instanceof Error ? e.message : String(e))
+    }
+    if (!buildFailed) notice.value = '已恢复到历史版本并重新注册。'
+    emit('restored', props.uuid)
+    // 恢复本身产生「回滚」提交，刷新时间线
+    commits.value = await aiFsClient.history(props.uuid)
+  } catch (e) {
+    error.value = '恢复失败：' + (e instanceof Error ? e.message : String(e))
+  } finally {
+    restoring.value = false
   }
 }
 
@@ -113,51 +149,49 @@ function relTime(t: number): string {
 }
 
 onMounted(() => {
-  void loadScripts()
+  void load()
 })
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col">
-    <!-- 顶部：脚本选择器 + 刷新 -->
-    <div class="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
-      <select
-        class="h-7 min-w-48 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none"
-        :value="selectedUuid"
-        @change="selectScript(($event.target as HTMLSelectElement).value)"
-      >
-        <option value="" disabled>{{ scriptsLoading ? '加载中…' : '选择脚本…' }}</option>
-        <option v-for="s in scripts" :key="s.uuid" :value="s.uuid">{{ s.name }}</option>
-      </select>
+  <section class="panel">
+    <!-- 头部：脚本名 + 刷新 -->
+    <div class="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+      <div class="min-w-0">
+        <h3 class="truncate text-sm font-semibold">{{ scriptName || '脚本' }} · 历史</h3>
+        <p class="text-xs text-muted-foreground">
+          {{ commits.length }} 个版本 · 只读浏览
+        </p>
+      </div>
       <button
         type="button"
-        class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-        title="重新加载脚本列表与当前历史"
-        @click="loadScripts(); selectedUuid && selectScript(selectedUuid)"
+        class="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        title="重新加载提交列表"
+        @click="load"
       >
         <ui-refresh-cw class="size-3.5" />
         刷新
       </button>
-      <p class="ml-auto text-[11px] text-muted-foreground">只读浏览 · 恢复请到编辑器的历史视图</p>
     </div>
 
     <p
+      v-if="notice"
+      class="shrink-0 border-b border-border bg-accent/50 px-4 py-2 text-xs text-accent-foreground"
+    >
+      {{ notice }}
+    </p>
+    <p
       v-if="error"
-      class="shrink-0 border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive"
+      class="shrink-0 whitespace-pre-line border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive"
     >
       {{ error }}
     </p>
 
-    <!-- 未选脚本 -->
-    <div v-if="!selectedUuid" class="flex min-h-0 flex-1 items-center justify-center">
-      <p class="text-xs text-muted-foreground">从上方选择一个脚本，查看它的提交历史与历史快照。</p>
-    </div>
-
-    <!-- 主体：左时间线 + 右只读快照（同编辑器历史视图的布局） -->
-    <div v-else class="flex min-h-0 flex-1">
+    <!-- 主体：左时间线 + 右只读快照 -->
+    <div class="flex min-h-0 flex-1">
       <div class="flex w-56 shrink-0 flex-col border-r border-border">
         <div class="border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
-          {{ selectedScript?.name }} · 版本（{{ commits.length }}）
+          版本时间线
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto">
           <p v-if="commitsLoading" class="px-3 py-4 text-xs text-muted-foreground">加载中…</p>
@@ -165,7 +199,7 @@ onMounted(() => {
             v-else-if="!commits.length"
             class="px-3 py-4 text-xs leading-relaxed text-muted-foreground"
           >
-            暂无历史。该脚本的 git 仓为空或尚未产生提交。
+            暂无历史。保存后自动生成版本；本次编辑产生的改动会记为「保存 #1」。
           </p>
           <button
             v-for="(c, i) in commits"
@@ -224,7 +258,23 @@ onMounted(() => {
             />
           </div>
         </div>
+
+        <!-- 恢复 -->
+        <div class="flex items-center justify-between border-t border-border px-4 py-2">
+          <p class="text-[11px] text-muted-foreground">
+            恢复会保留当前启用状态，并产生一条「回滚」记录（可再恢复回来）；开着编辑器标签会自动重载。
+          </p>
+          <button
+            type="button"
+            :disabled="restoring || !oid"
+            class="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            @click="restoreCommit"
+          >
+            <ui-rotate-ccw class="size-3.5" />
+            {{ restoring ? '恢复中…' : '恢复此版本' }}
+          </button>
+        </div>
       </div>
     </div>
-  </div>
+  </section>
 </template>

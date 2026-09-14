@@ -15,7 +15,6 @@ import {
   Braces as UiBraces,
   FlaskConical as UiFlaskConical,
   FolderTree as UiFolderTree,
-  History as UiHistory,
   List as UiList,
   Settings as UiSettings
 } from '@lucide/vue'
@@ -86,15 +85,6 @@ function onUserscriptEdit(uuid: string, title: string): void {
           @click="workspaceRef?.openUserscriptListTab()"
         >
           <ui-list class="size-5" />
-        </button>
-        <button
-          class="workspace-nav-item"
-          type="button"
-          aria-label="脚本历史"
-          title="脚本历史（git 提交历史 + 快照只读浏览）"
-          @click="workspaceRef?.openScriptHistoryTab()"
-        >
-          <ui-history class="size-5" />
         </button>
         <button
           class="workspace-nav-item"

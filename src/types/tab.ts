@@ -13,6 +13,6 @@ export interface WorkspaceTab {
   title: string
   /** 标签种类：决定内容面板渲染哪个组件 */
   kind: WorkspaceTabKind
-  /** 仅 userscript-edit：对应的用户脚本 uuid（编辑器标签页按它拉取项目；每脚本一个标签） */
+  /** 仅 userscript-edit / script-history：对应的用户脚本 uuid（两类标签都每脚本一个） */
   userscriptId?: string
 }
