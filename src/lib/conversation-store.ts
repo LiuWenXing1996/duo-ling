@@ -1,10 +1,16 @@
 // 会话与消息持久化（IndexedDB），替换桌面版主进程的 conversation-store。
 // 为什么不用 chrome.storage.local：会话消息写入频繁且体积增长快，IndexedDB 更适合；
-// 且 side panel 与 workbench 标签页同源，可直接共享该库，无需经 background 中转。
+// 且 side panel / workbench / offscreen 同源，可直接共享该库，无需经 background 中转。
+//
+// 2026-09-15（AI 生成用户脚本，docs/userscript-ai-generation.md §4.8）：整条对话链路搬进
+// offscreen 后，**会话历史的唯一写入方 = offscreen**（侧边栏只读 + 订阅，防双写）。
+// offscreen 只有 chrome.runtime，拿不到 chrome.storage —— 会话自增序号（SEQ）随之从
+// chrome.storage.local 迁入本库的 meta store，取号在一个 readwrite 事务内完成（原子自增）。
+// 首次取号时会尝试从旧 chrome.storage 键迁移存量序号（有 chrome.storage 的上下文里顺带做）。
 //
 // 语义对齐桌面版 `legacy/src/main/conversation-store.ts`：
 //   1. 新会话标题为「新会话 N」，N 来自**自增序号**（不是「当前会话数 + 1」，
-//      否则删掉一个会话再新建就会出现重号）；序号持久化在 chrome.storage.local。
+//      否则删掉一个会话再新建就会出现重号）；序号持久化在本库 meta store。
 //   2. **首条用户消息自动命名**：标题仍是默认「新会话 N」时，取消息内容前 20 字作标题。
 //      这段逻辑必须留在 appendMessage 里（桌面版就在此处），它是唯一的触发点。
 //   3. `renameConversation` trim 后为空则拒绝（不写空标题）。
@@ -13,11 +19,14 @@
 import type { Conversation, ConversationSearchHit, Message } from '../shared/types'
 
 const DB_NAME = 'duoling-chat'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const CONVERSATIONS = 'conversations'
 const MESSAGES = 'messages'
-/** 新会话序号（chrome.storage.local）：保证「新会话 N」不重号，清空会话时重置 */
-const SEQ_KEY = 'conversationSeq'
+const META = 'meta'
+/** 新会话序号（meta store 键）：保证「新会话 N」不重号，清空会话时重置 */
+const SEQ_META_KEY = 'conversationSeq'
+/** 旧版序号所在键（chrome.storage.local）——仅用于首次迁移，之后不再读写 */
+const LEGACY_SEQ_KEY = 'conversationSeq'
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -34,6 +43,9 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(MESSAGES)) {
         const store = db.createObjectStore(MESSAGES, { keyPath: 'id' })
         store.createIndex('conversationId', 'conversationId')
+      }
+      if (!db.objectStoreNames.contains(META)) {
+        db.createObjectStore(META)
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -101,12 +113,43 @@ function truncateSnippet(text: string, max = 100): string {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat
 }
 
-/** 下一个会话序号：自增并落盘（对应桌面版的 nextSeq） */
+/**
+ * 下一个会话序号：在**单个 readwrite 事务内**读旧值 + 写新值（原子自增，不靠跨事务读改写）。
+ * 唯一写方是 offscreen（对话链路宿主）；首次取号顺带从旧 chrome.storage 键迁移存量序号。
+ */
 async function takeNextSeq(): Promise<number> {
-  const raw = (await chrome.storage.local.get(SEQ_KEY))[SEQ_KEY] as number | undefined
-  const seq = typeof raw === 'number' && raw > 0 ? raw : 1
-  await chrome.storage.local.set({ [SEQ_KEY]: seq + 1 })
-  return seq
+  const db = await openDb()
+  return new Promise<number>((resolve, reject) => {
+    const tx = db.transaction(META, 'readwrite')
+    const store = tx.objectStore(META)
+    const req = store.get(SEQ_META_KEY)
+    req.onsuccess = () => {
+      let seq = typeof req.result === 'number' && req.result > 0 ? req.result : 1
+      store.put(seq + 1, SEQ_META_KEY)
+      // 一次性迁移：IDB 里还没有序号时，看旧 chrome.storage 键是否更大（有该 API 的上下文才试）
+      if (req.result === undefined) {
+        try {
+          if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+            void chrome.storage.local
+              .get(LEGACY_SEQ_KEY)
+              .then((items: Record<string, unknown>) => {
+                const legacy = items[LEGACY_SEQ_KEY]
+                if (typeof legacy === 'number' && legacy > seq) {
+                  // 只前进不回退：旧键更大说明期间在旧版上建过会话，接上它
+                  const fix = db.transaction(META, 'readwrite')
+                  fix.objectStore(META).put(legacy + 1, SEQ_META_KEY)
+                }
+              })
+              .catch(() => {})
+          }
+        } catch {
+          // offscreen 等无 chrome.storage 的上下文：跳过迁移
+        }
+      }
+      resolve(seq)
+    }
+    req.onerror = () => reject(req.error)
+  })
 }
 
 // —— 会话 ——
@@ -161,13 +204,13 @@ export async function deleteConversation(id: string): Promise<void> {
 export async function deleteAllConversations(): Promise<void> {
   const db = await openDb()
   await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction([CONVERSATIONS, MESSAGES], 'readwrite')
+    const transaction = db.transaction([CONVERSATIONS, MESSAGES, META], 'readwrite')
     transaction.objectStore(CONVERSATIONS).clear()
     transaction.objectStore(MESSAGES).clear()
+    transaction.objectStore(META).put(1, SEQ_META_KEY)
     transaction.oncomplete = () => resolve()
     transaction.onerror = () => reject(transaction.error)
   })
-  await chrome.storage.local.set({ [SEQ_KEY]: 1 })
 }
 
 // —— 消息 ——

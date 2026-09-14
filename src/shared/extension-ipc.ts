@@ -17,6 +17,8 @@ export type RuntimeRequest =
   | { kind: 'userscript:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
   | { kind: 'userscript:clearDeprecated' }
   | { kind: 'userscript:create' }
+  // AI 生成脚本落盘（SW 命令面，转发 offscreen 单写方；enabled 默认 false = 先落盘不启用）
+  | { kind: 'userscript:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; enabled: boolean; note?: string }
   | { kind: 'userscript:remove'; uuid: string }
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
   | { kind: 'userscript:availability' }
@@ -60,6 +62,28 @@ export type RuntimeRequest =
   | { kind: 'state:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
   | { kind: 'state:remove'; uuid: string }
   | { kind: 'state:toggle'; uuid: string; enabled: boolean }
+  // AI 生成脚本的落盘（docs/userscript-ai-generation.md §4.3/§4.5）：SW 的 userscript:createProject
+  // 转发到此（单写方），写状态库 + git 快照（note = AI summary），**不注册**（enabled:false 默认）。
+  | { kind: 'state:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; enabled: boolean; note?: string }
+
+  // —— 会话写侧（整条对话链路搬进 offscreen 后，会话历史唯一写入方 = offscreen，方案 §4.8）——
+  // UI（侧边栏 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 对 conv: 前缀静默让路。
+  | { kind: 'conv:create' }
+  | { kind: 'conv:rename'; id: string; title: string }
+  | { kind: 'conv:delete'; id: string }
+  | { kind: 'conv:deleteAll' }
+  | { kind: 'conv:append'; message: import('./types').Message }
+
+  // —— 对话链路（offscreen 执行宿主，定位 B「下完单就走」）——
+  // 侧边栏是「指令入口 + 观察者」：发起后可关面板，任务在 offscreen 照跑完；
+  // 事件经 OffscreenPush（chat:chunk）逐条推送，重开面板按 lastEventId replay（chat:resume）。
+  | { kind: 'chat:start'; conversationId: string; messages: import('ai').UIMessage[]; trigger: 'submit-message' | 'regenerate-message'; pageContext?: { url?: string; title?: string } }
+  | { kind: 'chat:abort'; conversationId: string }
+  // 重连：返回该会话任务的事件缓冲（seq > lastEventId 的部分）与运行状态
+  | { kind: 'chat:resume'; conversationId: string; lastEventId: number }
+  // 孤儿任务：宿主被杀后 status=running 且心跳过期的记录（供 UI 提示「继续 / 丢弃」）
+  | { kind: 'chat:orphans' }
+  | { kind: 'chat:orphanAction'; taskId: string; action: 'continue' | 'discard' }
 
   // —— offscreen document（AI 生成链路的执行宿主，方案 §4.8 定位 B）——
   // 容器**按需创建**（刻意不在 SW 启动时自动建，否则一启动就常驻，与退出条件相悖），
@@ -83,11 +107,36 @@ export type RuntimeRequest =
 /**
  * SW → offscreen 的单向推送（**不经 handlers 表** —— SW 不会收到自己发出的消息）。
  * offscreen 监听后自行决定是否回拉，例如收到 configChanged 就重新调 model:getActiveProfile。
+ *
+ * chat:chunk —— offscreen → 侧边栏（观察者）的事件流：每条带会话 id 与自增 seq，
+ * 侧边栏按 seq 去重、按 lastEventId replay（方案 §4.8 机制 3）。SW 不消费（前缀不在白名单）。
  */
-export type OffscreenPush = { kind: 'offscreen:configChanged' }
+export type OffscreenPush =
+  | { kind: 'offscreen:configChanged' }
+  | { kind: 'chat:chunk'; conversationId: string; seq: number; chunk: import('ai').UIMessageChunk }
 
 /** service worker → 渲染页的应答：统一信封，调用方据 ok 分支 */
 export type RuntimeResponse<T> = { ok: true; data: T } | { ok: false; error: string }
+
+/** chat:resume 的应答：idle = 无进行中任务（调用方以会话历史为准即可） */
+export type ChatResumeResult =
+  | { status: 'idle' }
+  | {
+      status: 'running'
+      taskId: string
+      /** seq > lastEventId 的事件（按 seq 升序），连同后续 chat:chunk 推送一起消费 */
+      events: Array<{ seq: number; chunk: import('ai').UIMessageChunk }>
+    }
+
+/** chat:orphans 的条目：宿主被杀后遗留的进行中任务（心跳过期） */
+export interface ChatOrphanRecord {
+  taskId: string
+  conversationId: string
+  /** 中断时的循环步数（提示「中断在第 N 步」用） */
+  step: number
+  /** 最后心跳（ms 时间戳），供 UI 展示中断发生时间 */
+  heartbeat: number
+}
 
 /**
  * 模型配置的内部完整态（含 apiKey 明文）。

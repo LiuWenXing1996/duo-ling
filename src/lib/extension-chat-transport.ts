@@ -1,33 +1,131 @@
-// AI SDK 流式通道的扩展版 transport。
+// AI SDK 流式通道的扩展版 transport（2026-09-15 起宿主收敛 offscreen，定位 B）。
 //
-// 与桌面版的差异（桌面版见 legacy/src/renderer/src/lib/custom-chat-transport.ts）：
-//   桌面版：主进程跑 streamText，逐 chunk 经 IPC 事件推给渲染层，渲染层再把「事件推流」
-//           重新封装成 ReadableStream<UIMessageChunk>（因为原生流无法过 contextBridge）。
-//   扩展版：没有 preload 这层限制。扩展页在 manifest 声明 host_permissions 后可直接跨域 fetch，
-//           于是在渲染层直接跑 streamText，把它的 fullStream 转成 UI message stream 返回。
-//           少一次中转，也摆脱了 service worker 生命周期对长连接的干扰。
+// 演进史（读代码前先看，避免按旧注释理解）：
+//   v1  渲染层直跑 streamText —— 少一次中转，但侧边栏一关流当场断。
+//   v2  整条对话链路搬进 offscreen（docs/userscript-ai-generation.md §4.8 定位 B）：
+//       本文件退回纯「观察者」角色——sendMessages 只是把指令 + 消息交给 offscreen
+//       （chat:start），随后把 offscreen 推回的事件（chat:chunk）收集成 ReadableStream
+//       喂给 useChat；reconnectToStream 第一次有了真实语义：按 lastEventId 重放
+//       offscreen 侧的 per-task 事件缓冲，实现「关面板任务照跑、重开面板接上」。
 //
-// 注意：本次仅接「纯对话」链路（无 Agent 工具）。桌面版 streamText 里的 tools / stopWhen
-// 多步循环属于 agent 编排，待 capability runtime 在扩展侧打通后再补。
+// 会话 id 的约定：useChat 实例是单例、内部 chatId 每次挂载随机生成，与本扩展的
+// conversationId 对不上。本 transport 自持 currentConversationId（由
+// use-global-conversation 在激活会话时设置），chat:* 命令一律以它为准。
 
-import { convertToModelMessages, streamText, toUIMessageStream } from 'ai'
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai'
-import type { TokenUsage } from '@/shared/types'
-import { getActiveProfileState } from './model-store'
+import type {
+  ChatResumeResult,
+  OffscreenPush,
+  RuntimeRequest,
+  RuntimeResponse,
+} from '@/shared/extension-ipc'
+
+/** 向 offscreen 发一次请求（共享总线，SW 对 chat: 前缀静默让路），统一解包信封 */
+function send<T>(request: RuntimeRequest): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    chrome.runtime.sendMessage(request, (response: RuntimeResponse<T> | undefined) => {
+      const lastError = chrome.runtime.lastError
+      if (lastError) {
+        reject(new Error(lastError.message))
+        return
+      }
+      if (!response) {
+        reject(new Error('offscreen 无响应'))
+        return
+      }
+      if (!response.ok) {
+        reject(new Error(response.error))
+        return
+      }
+      resolve(response.data as T)
+    })
+  })
+}
+
+/**
+ * 失败先唤起容器再重试（与 ui-client.sendAi 同构）：offscreen 被回收 / 扩展重载时，
+ * chat:* 无人应答报「port closed」类错误——ensure（SW 侧轮询 ai:ping 到可应答）后重试一次。
+ */
+async function sendChat<T>(request: RuntimeRequest): Promise<T> {
+  try {
+    return await send<T>(request)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (!/port closed|Receiving end does not exist|无响应/.test(msg)) throw e
+    await send({ kind: 'offscreen:ensure' }).catch(() => {})
+    return await send<T>(request)
+  }
+}
+
+// —— 事件消费登记表（模块级：offscreen 的推送与 transport 实例解耦） ——
+
+interface StreamConsumer {
+  controller: ReadableStreamDefaultController<UIMessageChunk>
+}
+
+const consumers = new Map<string, StreamConsumer>()
+/** 各会话已消费到的最大 seq（去重；重连时作为 lastEventId） */
+const lastSeq = new Map<string, number>()
+
+function isTerminalChunk(chunk: UIMessageChunk): boolean {
+  return chunk.type === 'finish' || chunk.type === 'abort'
+}
+
+/** 消费一条推送；返回是否为终止事件（调用方据此关流） */
+function consumeChunk(conversationId: string, seq: number, chunk: UIMessageChunk): boolean {
+  const consumer = consumers.get(conversationId)
+  if (!consumer) return false
+  const seen = lastSeq.get(conversationId) ?? 0
+  if (seq <= seen) return false // 去重：重连 replay 与实时推送可能短暂重叠
+  lastSeq.set(conversationId, seq)
+  consumer.controller.enqueue(chunk)
+  return isTerminalChunk(chunk)
+}
+
+function closeConsumer(conversationId: string): void {
+  const consumer = consumers.get(conversationId)
+  if (!consumer) return
+  consumers.delete(conversationId)
+  try {
+    consumer.controller.close()
+  } catch {
+    // useChat 停止时会 cancel 流，controller 可能已关
+  }
+}
+
+// 模块级订阅：只注册一次。offscreen → 侧边栏的事件推送都从这里进流。
+let pushListenerInstalled = false
+function installPushListener(): void {
+  if (pushListenerInstalled) return
+  pushListenerInstalled = true
+  chrome.runtime.onMessage.addListener((raw) => {
+    const push = raw as OffscreenPush | undefined
+    if (push?.kind !== 'chat:chunk') return
+    if (consumeChunk(push.conversationId, push.seq, push.chunk)) {
+      closeConsumer(push.conversationId)
+    }
+  })
+}
+
+/** 档 0 页面上下文（方案 §4.2）：侧边栏是扩展页，可直接读当前标签 URL / 标题
+ *  （host_permissions <all_urls> 已覆盖，无需 tabs 权限）；offscreen 没有 chrome.tabs */
+async function collectPageContext(): Promise<{ url?: string; title?: string } | undefined> {
+  try {
+    if (!chrome.tabs?.query) return undefined
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+    if (!tab?.url) return undefined
+    return { url: tab.url, ...(tab.title ? { title: tab.title } : {}) }
+  } catch {
+    return undefined
+  }
+}
 
 export class ExtensionChatTransport implements ChatTransport<UIMessage> {
-  // 最近一次已结束流的 token 用量；由使用方在 onFinish 读取并清空
-  private lastUsage: TokenUsage | undefined = undefined
+  /** 当前会话 id（由 use-global-conversation 在激活会话时设置；chat:* 命令以它为准） */
+  currentConversationId = ''
 
-  /** 读取最近一次生成消耗的 token（配合 onFinish/持久化使用） */
-  getLastUsage(): TokenUsage | undefined {
-    return this.lastUsage
-  }
-
-  /** 清空已读取的用量，避免下一条消息串到旧值 */
-  clearUsage(): void {
-    this.lastUsage = undefined
+  setConversationId(id: string): void {
+    this.currentConversationId = id
   }
 
   async sendMessages(options: {
@@ -37,57 +135,84 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
     messages: UIMessage[]
     abortSignal: AbortSignal | undefined
   }): Promise<ReadableStream<UIMessageChunk>> {
-    // 每次发起生成前清空上次用量，确保 onFinish 读到的属于本次流
-    this.lastUsage = undefined
+    installPushListener()
+    const conversationId = this.currentConversationId || options.chatId
 
-    const profile = await getActiveProfileState()
-    if (!profile) {
-      throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
-    }
-
-    // @ai-sdk/openai-compatible 固定会在 baseURL 后追加 /chat/completions；
-    // useFullUrl 时 baseUrl 已是完整接口地址（含 /chat/completions），先剥离避免重复拼接。
-    const baseURL = profile.useFullUrl
-      ? profile.baseUrl.replace(/\/chat\/completions\/?$/i, '')
-      : profile.baseUrl
-
-    const provider = createOpenAICompatible({
-      name: 'openaiCompatible',
-      baseURL,
-      apiKey: profile.apiKey || 'not-needed'
-    })
-
-    // 渲染层 useChat 产出的 UIMessage[] 转成模型消息（reasoning part 默认不回传模型，避免污染历史）
-    const modelMessages = await convertToModelMessages(options.messages)
-
-    const result = streamText({
-      model: provider.chatModel(profile.model),
-      messages: modelMessages,
-      abortSignal: options.abortSignal,
-      ...(profile.temperature != null ? { temperature: profile.temperature } : {}),
-      ...(profile.topP != null ? { topP: profile.topP } : {}),
-      ...(profile.contextOutputToken != null ? { maxOutputTokens: profile.contextOutputToken } : {}),
-      // AI SDK 的 usage 只在 streamText.onFinish 可得（useChat.onFinish 无该字段）
-      onFinish: ({ usage }) => {
-        this.lastUsage = {
-          inputTokens: usage?.inputTokens ?? undefined,
-          outputTokens: usage?.outputTokens ?? undefined,
-          totalTokens: usage?.totalTokens ?? undefined
+    const stream = new ReadableStream<UIMessageChunk>({
+      start: async (controller) => {
+        // 先登记消费者再发指令：offscreen 的首条推送可能早于 chat:start 的应答返回
+        consumers.set(conversationId, { controller })
+        try {
+          const pageContext = await collectPageContext()
+          await sendChat({
+            kind: 'chat:start',
+            conversationId,
+            messages: JSON.parse(JSON.stringify(options.messages)) as UIMessage[],
+            trigger: options.trigger,
+            ...(pageContext ? { pageContext } : {}),
+          })
+        } catch (e) {
+          consumers.delete(conversationId)
+          controller.enqueue({
+            type: 'error',
+            errorText: e instanceof Error ? e.message : String(e),
+          })
+          controller.enqueue({ type: 'abort' })
+          controller.close()
         }
-      }
+      },
+      cancel: () => {
+        // useChat 停止 / 切换会话时本地断流。注意：这里**不**发 chat:abort——
+        // 「切换会话」不该杀掉 offscreen 里照跑的任务；用户显式点停止由
+        // stopGeneration 经 abortCurrent() 通知（见 use-global-conversation）。
+        consumers.delete(conversationId)
+      },
     })
-
-    // 直接返回 UI message stream 供 useChat 消费（内部 readUIMessageStream 累积为 UIMessage.parts）
-    return toUIMessageStream({
-      stream: result.fullStream,
-      sendReasoning: true,
-      sendStart: true,
-      sendFinish: true
-    })
+    return stream
   }
 
-  // 暂不支持流重连；返回 null 表示无可用重连流
+  /** 用户显式停止（停止按钮）：通知 offscreen 终止任务。切换会话不调用此方法 */
+  abortCurrent(): void {
+    const conversationId = this.currentConversationId
+    if (!conversationId) return
+    void sendChat({ kind: 'chat:abort', conversationId }).catch(() => {})
+  }
+
+  /**
+   * 重连（面板重开 / 切回会话后由 useChat 的 resumeStream 触发）：
+   * offscreen 返回该会话进行中任务的事件缓冲（seq > lastEventId），随后实时推送继续进同一流。
+   * 无进行中任务返回 null（useChat 的既定语义），UI 以会话历史为准。
+   */
   async reconnectToStream(): Promise<ReadableStream<UIMessageChunk> | null> {
-    return null
+    installPushListener()
+    const conversationId = this.currentConversationId
+    if (!conversationId) return null
+
+    let res: ChatResumeResult
+    try {
+      res = await sendChat<ChatResumeResult>({
+        kind: 'chat:resume',
+        conversationId,
+        lastEventId: lastSeq.get(conversationId) ?? 0,
+      })
+    } catch {
+      return null // 容器不在 / 命令失败：按「无可重连」处理
+    }
+    if (res.status !== 'running' || !res.events.length) return null
+
+    return new ReadableStream<UIMessageChunk>({
+      start: (controller) => {
+        consumers.set(conversationId, { controller })
+        for (const event of res.events) {
+          if (consumeChunk(conversationId, event.seq, event.chunk)) {
+            closeConsumer(conversationId)
+            return
+          }
+        }
+      },
+      cancel: () => {
+        consumers.delete(conversationId)
+      },
+    })
   }
 }
