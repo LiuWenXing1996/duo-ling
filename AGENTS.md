@@ -26,8 +26,10 @@
 | `npm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev` |
 | `npm run build` | 构建，产出 `.output/chrome-mv3` |
 | `npm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配见迁移方案 §5 风险 7） |
+| `npm run typecheck` | 类型检查（`vue-tsc --noEmit`）；当前全仓零错误 |
+| `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 
-> 无 typecheck / test 脚本：目前以 `npm run build` 作为交付前验证。补 typecheck（`tsc --noEmit`）需先与用户确认。
+> **交付前验证**：`npm run typecheck` 与 `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
 
 ## 文档职责总表
 
@@ -77,7 +79,7 @@
 ### 工作流
 
 1. 修改前先阅读相关文件；涉及桌面版逻辑平移时对照 `legacy/` 中的原实现。
-2. 完成代码后必须运行 `npm run build` 验证通过再交付。
+2. 完成代码后必须运行 `npm run typecheck` 与 `npm run build`，均通过再交付。
 3. **测试覆盖**：测试体系待建立；新增功能应尽量补最小验证（构建断言、探针脚本放 `tmp/`），方案先与用户确认。
 4. 涉及新增依赖、修改 `wxt.config.ts`、变更 manifest 权限或改变环境的行为，**先与用户确认再执行**。
 
