@@ -39,6 +39,8 @@
 ## 基础设施
 
 - 依赖新增（**开工前与老大确认**）：`vitest`、`@playwright/test`（+ 一次性 `npx playwright install chromium`）；组件测试阶段再加 `@vue/test-utils`、`happy-dom`。`fake-indexeddb` 已在 devDependencies，**无需再装**；`WxtVitest()` 插件已顺带解决 `@` 别名与 `chrome.*` mock，不必手配 vitest alias。
+- **层1已落地（2026-09-15）**：`vitest` 已装（5.0.1），`vitest.config.ts` 用 `import { WxtVitest } from 'wxt/testing/vitest-plugin'`（**具名导出，无 default**），include 收窄到 `src/**/*.test.ts`（默认 include 会扫到 legacy 旧 spec）。用例隔离：chrome.storage 系用 `fakeBrowser.reset()`；IndexedDB 系用 `fake-indexeddb/auto` + 用例前后清库；offscreen 写侧（project-write）用 `vi.mock('./builder')` / `vi.mock('./us-git')` 隔离 esbuild-wasm 与 lightning-fs。
+- **mock `#imports` 的注意点**（官方文档）：源码 `import { x } from '#imports'` 在 vitest 预处理时被替换为真实路径（如 `wxt/utils/inject-script`），故 `vi.mock` 必须写**真实路径**而非 `'#imports'`；对照表在 `.wxt/types/imports-module.d.ts`（缺失先跑 `wxt prepare`）。
 - 测试文件**跟源码同目录**（`*.test.ts`，不进构建产物）；`npm run test` 独立命令，不并入 typecheck；
 - E2E 跑 `npm run build` 产物，不依赖 dev server（dev server 仍由老大自管）。
 
