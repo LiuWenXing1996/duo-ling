@@ -16,7 +16,7 @@
 - **脚本注入**：`chrome.userScripts` + USER_SCRIPT 世界 + `window.DL` 桥接（`src/lib/userscripts/`）
 - **offscreen document**：AI 生成链路的执行宿主，按需创建（`src/lib/offscreen.ts`）
 - **包管理**：npm（原 Electron 工程的 pnpm workspace 配置已随归档移入 `legacy/`）
-- **测试**：尚未建立（原 Vitest/Playwright 配置已归档）——补测试前先与用户确认方案
+- **测试**：Vitest（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`）+ Playwright E2E 已建立；五层分层 + 组件测试方案见 [docs/testing-plan.md](docs/testing-plan.md)，CI 快测门禁见 `.github/workflows/ci.yml`、独立 E2E 见 `e2e.yml`
 
 > 项目介绍与手测步骤请读 [README.md](README.md)；迁移背景见 [docs/plugin-migration-plan.md](docs/plugin-migration-plan.md)。
 
@@ -104,7 +104,25 @@
 6. 收尾：讨论出的结论和踩到的坑**由我落进 `docs/`**，不能只留在 `.workbuddy/`
 7. 发现跑偏、死链、过时内容、规范互相打架 → 直接说，不用等我问
 
-其他：修改前先阅读相关文件，涉及桌面版逻辑平移时对照 `legacy/` 原实现；测试体系待建立，新增功能尽量补最小验证（探针脚本放 `tmp/`），方案先与用户确认。
+其他：修改前先阅读相关文件，涉及桌面版逻辑平移时对照 `legacy/` 原实现；测试体系已建立（见 [docs/testing-plan.md](docs/testing-plan.md)），新增功能尽量补最小验证（探针脚本放 `tmp/`），方案先与用户确认。
+
+### 分支保护 / 合并流程（强制）
+
+> `main` 已开分支保护（团队标准，对所有人含 admin 生效）。**任何改动必须走 PR，禁止直推 main。**
+
+- **保护构成**：Ruleset（要求 PR + 禁强推 + 无人可绕过）+ 经典分支保护（`required_status_checks` = `Typecheck & Unit tests`、`strict: true`、约束 admin）。当前审核数 `required_approving_review_count: 0`（**不强制人工审核**，未来多人协作时再开）。
+- **合 main 标准流程**：
+  1. 基于最新 `origin/main` 起 kebab-case 功能分支（如 `feat/xxx`、`fix/xxx`、`test/xxx`）；不要在一个分支堆多件不相关的事
+  2. 本地开发，交付前 `npm run typecheck` + `npm run build` + `npm run test` 全过
+  3. `git push -u origin <功能分支>`（**只 push 分支，不触发 CI**——两个 workflow 的 `push` 都限 `branches: [main]`）
+  4. 开 PR（`base: main`），PR 触发 `ci.yml` 的 `pull_request` 门禁，**合并前置**跑 typecheck + 214 例测试
+  5. 等 CI 绿 → 网页点 Merge 或 `gh pr merge --merge`（生成 merge commit 进 main，**等价**）
+  6. 合并自动触发 push main → `ci.yml` + `e2e.yml` **双跑复验**
+- **铁律**：
+  - ❌ 严禁 `git push origin <x>:main`（含之前的 refspec 绕过法），会被 `GH006: Protected branch update failed` 拒
+  - ❌ 不要整分支 merge 把历史倒腾进 main（只会产生重复/冲突提交）；单一改动走上面的 PR 流
+  - ❌ E2E（Playwright）**故意不是 required status check**——`e2e.yml` 无 `pull_request` 触发器，PR 上永远不上报该状态，设了 PR 会卡死合不了
+- **即使改本文件 / CI 配置**，也走同样 PR 流（main 受保护，没有任何文件能直推）
 
 ## 项目硬性底线（速览）
 

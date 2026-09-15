@@ -36,5 +36,5 @@ jobs:
       - name: Typecheck (vue-tsc --noEmit)
         run: npm run typecheck
 
-      - name: Unit tests (vitest, 179 例)
+      - name: Unit tests (vitest, 214 例)
         run: npm run test
