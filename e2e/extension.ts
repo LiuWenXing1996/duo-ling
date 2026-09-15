@@ -123,7 +123,8 @@ export async function enableUserScripts(
   // —— ≥138 每扩展开关：进详情页点「允许运行用户脚本」cr-toggle（穿透 shadow DOM）——
   // 注意：直接 goto chrome://extensions/?id=<id> 在无头下不触发 SPA 路由切换（视图停在列表页），
   // 必须像真人一样点扩展卡片上的「详情」按钮（Playwright 定位器可穿透 open shadow DOM）。
-  await page.getByRole('button', { name: /^详情$/ }).first().click()
+  // 中英文 UI 通用：本机 WebUI 走中文（"详情"），CI runner 走英文（"Details"），locale 启动参数并不控制 WebUI 语言。
+  await page.getByRole('button', { name: /详情|Details/ }).first().click()
   await page.waitForSelector('extensions-detail-view', { timeout: 15_000 })
   const dom = await page.evaluate(() => {
     const rows: Array<{ label: string; wasChecked: boolean; nowChecked: boolean }> = []
