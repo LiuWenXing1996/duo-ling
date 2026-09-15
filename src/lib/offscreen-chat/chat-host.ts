@@ -37,7 +37,11 @@ import { getTask, listRunningTasks, putTask, removeTask, type ChatTaskRecord } f
 const MAX_STEPS = 8
 /** 心跳间隔 / 孤儿判定阈值：宿主活着时每 5s 跳一次；30s 无心跳即判孤儿 */
 const HEARTBEAT_MS = 5_000
-const ORPHAN_STALE_MS = 30_000
+/** 孤儿判定的最小保护窗：只为盖住 chat:start 落盘记录 → runLoop 注册内存表
+ *  之间的毫秒级竞态（此窗口内记录已存在但内存表还没有）。真正的误判防护是
+ *  内存表交叉核对——记录说 running 但内存表没有 = 宿主换代，必是孤儿，
+ *  无需等心跳过期（2026-09-15：原 30s 纯时间窗让用户白等，已弃用） */
+const ORPHAN_GRACE_MS = 5_000
 
 interface RunningTask {
   taskId: string
@@ -486,12 +490,15 @@ export function resumeChat(conversationId: string): ChatResumeResult {
   return { status: 'running', taskId: running.taskId, events }
 }
 
-/** chat:orphans：status=running 且心跳过期的任务（宿主被杀） */
+/** chat:orphans：status=running 但不在本代宿主内存表中（= 宿主被杀后遗留）的任务。
+ *  心跳年龄只作为覆盖落盘竞态的小保护窗，不再承担「等 30 秒才认孤儿」的职责 */
 export async function listOrphans(): Promise<ChatOrphanRecord[]> {
   const now = Date.now()
   const running = await listRunningTasks()
   return running
-    .filter((r) => now - r.heartbeat > ORPHAN_STALE_MS)
+    .filter(
+      (r) => !runningByConversation.has(r.conversationId) && now - r.heartbeat > ORPHAN_GRACE_MS,
+    )
     .map((r) => ({
       taskId: r.taskId,
       conversationId: r.conversationId,

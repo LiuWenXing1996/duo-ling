@@ -50,6 +50,9 @@ function usageOfParts(parts: UIMessage['parts']): TokenUsage | undefined {
   return part?.data
 }
 
+/** 孤儿横幅轮询的启动哨兵（composable 可能被多处调用，定时器只起一个） */
+let orphanPollStarted = false
+
 /**
  * 全局会话状态源。应在 app.vue 顶层调用一次，再把 state 下发给会话历史 / 当前会话两栏。
  */
@@ -128,13 +131,21 @@ export function useGlobalConversation() {
     void refreshOrphans()
   }
 
-  /** 孤儿任务：offscreen 宿主被杀后 status=running 且心跳过期的记录 */
+  /** 孤儿任务：offscreen 宿主被杀后遗留；供 ChatApp 横幅提示「继续 / 丢弃」 */
   async function refreshOrphans(): Promise<void> {
     try {
       orphanTasks.value = await chatClient.orphans()
     } catch {
       orphanTasks.value = []
     }
+  }
+
+  // 孤儿横幅自动浮现：检测原本只在面板挂载时跑一次——用户若在孤儿判定保护窗
+  // （5s）内就重开面板，横幅永远不会出现。轻轮询（15s，一条 sendMessage）兜住
+  // 「宿主被杀 → 面板开着」的时间差；轮询随 composable 首次调用启动（面板页单实例）。
+  if (!orphanPollStarted) {
+    orphanPollStarted = true
+    setInterval(() => void refreshOrphans(), 15_000)
   }
 
   /** 孤儿处理：继续（播种内存文件树后重跑循环）或丢弃（删任务记录）。失败须可见——
