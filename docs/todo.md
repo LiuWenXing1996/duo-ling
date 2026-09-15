@@ -149,7 +149,7 @@ SW 直读 IndexedDB 注册」→ **已做**（见本条目顶部）。讨论出�
 
 **详细文档**：见 [testing-plan.md](./testing-plan.md)（分层方案、E2E 关键结论与测试面映射、基础设施、顺序）。本条目只留状态索引，以文档为准。
 
-**状态**：方案已过稿（2026-09-15），待开工。开工前需确认依赖新增（vitest / fake-indexeddb / @playwright/test）。
+**状态**：**层 2 首批（协议一致性）已落地（2026-09-15）**：`vitest` 已入 devDependencies + `npm run test`（vitest.config.ts 用 `WxtVitest()` 插件 + node 环境）；两个测试文件与源码同目录——`src/shared/extension-ipc.test.ts`（kind 归属唯一性：`SW_KIND_PREFIXES` ∪ `OFFSCREEN_KIND_PREFIXES` 恰好覆盖 `RuntimeRequest` kind 全集，无两边都接/都不接，配类型层穷尽性闸）+ `src/lib/userscripts/offscreen-commands.test.ts`（offscreen 三个 handle\* 分发全覆盖 + `{ ok, data | error }` 信封形状，后者经 fakeBrowser 走 offscreen-main 真实监听器端到端触发）。为让测试拿到路由真相源，`SW_KIND_PREFIXES` 与 `OFFSCREEN_KIND_PREFIXES` 两常量加了 export（无行为改动）。其余各层（层 1 纯逻辑 / 构建冒烟 / 组件 / E2E）仍未开工。
 
 ---
 
