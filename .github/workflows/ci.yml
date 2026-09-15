@@ -1,0 +1,40 @@
+name: CI
+
+# PR 门禁：只跑快测（类型检查 + 单元测试），不碰 E2E。
+# E2E 见 e2e.yml（独立 workflow，手动 / nightly / push main 触发）。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同一分支多次 push/更新 PR 时取消进行中的旧跑，避免排队浪费
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck & Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # WXT 在 prepare/build 时才生成 .wxt/tsconfig.json（含 @ 别名、#imports 虚拟模块类型），
+      # vue-tsc 与 vitest(WxtVitest) 都依赖它；prepare 比 build 轻量，只生成类型不产出构建物。
+      # 缺失会报 "Failed to load tsconfig '.wxt/tsconfig.json'"，与本地首次跑测同坑。
+      - name: Generate WXT types (.wxt/tsconfig.json)
+        run: npx wxt prepare
+
+      - name: Typecheck (vue-tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Unit tests (vitest, 179 例)
+        run: npm run test
