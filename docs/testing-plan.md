@@ -14,7 +14,7 @@
 | 1. 纯逻辑单测 | `key-cipher.ts`（加解密往返）、`code-view.ts`、`lib/userscripts/` 解析/校验/兼容逻辑、store 层 | Vitest + `WxtVitest()` 插件（`wxt/testing/vitest-plugin`，内置 `@` 别名解析 / `extensionApiMock` / globals auto-import）+ `fake-indexeddb` + `fakeBrowser`（`wxt/testing/fake-browser`） | **首批** |
 | 2. 协议一致性 | SW 端 handlers 表已是 `[K in SwRequest['kind']]` 映射类型，typecheck 已保证全覆盖，无需重复遍历；测试靶心在 **offscreen 端前缀路由**（`offscreen-main.ts` 的 `kind.startsWith('ai:'/'state:')` + `as` 断言那层）、`SW_KIND_PREFIXES` 与 `RuntimeRequest` kind 全集的**归属一致性**（有无 kind 既归 SW 又归 offscreen、或两边都不接）、以及 `{ok, data\|error}` 信封形状 | 表驱动 + 前缀路由覆盖率断言 | **首批**（高且便宜） |
 | 3. 构建冒烟 | `builder.ts` 用 esbuild-wasm 构建最小项目出产物 | Vitest（wasm 代码按浏览器写，Node 下可能需小改加载方式） | ✅ **已完成**（2026-09-15，AI 生成 B 组开工前补齐；wasm 加载结论见下节） |
-| 4. 组件测试 | 仅改动频繁组件按需（如编辑器抽屉保存/关闭确认） | `@vue/test-utils` + `happy-dom` | 按需，不铺开（UI 是平移件、本体零改动，性价比低） |
+| 4. 组件测试 | 仅改动频繁组件按需（如编辑器抽屉保存/关闭确认） | `@vue/test-utils` + `happy-dom` | ✅ **已开工落地（2026-09-15，ConfirmDialog + UserscriptEditorPanel，见「层 4 实施结论」）** |
 | 5. E2E | 扩展整体行为 | Playwright 捆绑 Chromium 无头加载扩展（见下） | 基建先行：fixture + 一条冒烟跑通 |
 
 ## E2E 关键结论
@@ -38,8 +38,30 @@
 
 ## 基础设施
 
-- 依赖：`vitest`（5.0.1）、`fake-indexeddb`、`@playwright/test` 均已在 devDependencies；组件测试阶段再加 `@vue/test-utils`、`happy-dom`。`WxtVitest()` 插件已顺带解决 `@` 别名与 `chrome.*` mock，不必手配 vitest alias；E2E 需一次性 `npx playwright install chromium`（国内 CDN 限速，卡死可设 `PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/` 换镜像）。
-- **层 1 已落地（2026-09-15）**：`vitest.config.ts` 用 `import { WxtVitest } from 'wxt/testing/vitest-plugin'`（**具名导出，无 default**）+ `test.environment: 'node'`，include 收窄到 `src/**/*.test.ts`（默认 include 会扫到 legacy 旧 spec）。用例隔离：chrome.storage 系用 `fakeBrowser.reset()`；IndexedDB 系用 `fake-indexeddb/auto` + 用例前后清库；offscreen 写侧（project-write）用 `vi.mock('./builder')` / `vi.mock('./us-git')` 隔离 esbuild-wasm 与 lightning-fs。**层 3 也已落地（2026-09-15，`builder.test.ts` 3 例全绿，见「层 3 实施结论」）**。
+- 依赖：`vitest`（5.0.1）、`fake-indexeddb`、`@playwright/test`、`@vue/test-utils`、`happy-dom` 均已在 devDependencies。`WxtVitest()` 插件已顺带解决 `@` 别名与 `chrome.*` mock，不必手配 vitest alias；E2E 需一次性 `npx playwright install chromium`（国内 CDN 限速，卡死可设 `PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/` 换镜像）。
+- **层 1 已落地（2026-09-15）**：`vitest.config.ts` 用 `import { WxtVitest } from 'wxt/testing/vitest-plugin'`（**具名导出，无 default**）。用例隔离：chrome.storage 系用 `fakeBrowser.reset()`；IndexedDB 系用 `fake-indexeddb/auto` + 用例前后清库；offscreen 写侧（project-write）用 `vi.mock('./builder')` / `vi.mock('./us-git')` 隔离 esbuild-wasm 与 lightning-fs。**层 3 也已落地（2026-09-15，`builder.test.ts` 3 例全绿，见「层 3 实施结论」）**。
+- **层 4 已落地（2026-09-15）：vitest projects 双环境分离**——配置从单 `test` 块改为 `test.projects`：
+  - **project `logic`（层 1/2/3）**：`environment: 'node'`，include `src/**/*.test.ts`，exclude `src/**/*.component.test.ts`（防止组件测试在 node 环境重复跑挂）；
+  - **project `component`（层 4）**：`environment: 'happy-dom'`，include 仅 `src/**/*.component.test.ts`，plugins 额外挂 `@vitejs/plugin-vue`（.vue SFC 编译必需，已入 devDependencies）。
+  - **命名约定（强制）**：组件测试文件一律 `*.component.test.ts`，与纯逻辑 `*.test.ts` 并存不冲突；两个 project 的 include/exclude 共同保证互不重复收集。新增组件测试时照此命名，否则会被 logic project 在 node 环境误跑。
+  - **⚠️ projects 模式下顶层 `plugins` 不下传给各 project**（实测：WxtVitest 放顶层时 extensionApiMock 失效，`chrome is not defined` 全灭）——**WxtVitest() 必须在每个 project 的 `plugins` 里各放一份**。
+  - 新增 devDependencies：`@vue/test-utils`、`happy-dom`（除 `@vitejs/plugin-vue` 原有外无其他新增）。
+  - mock `#imports` 的注意点不变（见下）：`vi.mock` 写真实路径；组件自身 import 的 `@/...` 路径可直接 `vi.mock`（@ 别名由 tsconfigPaths 解析）。
+
+### 层 4 实施结论（2026-09-15，22 例全绿）
+
+覆盖组件与靶心（只验交互逻辑，不测样式/像素，组件源码零改动）：
+
+- `ConfirmDialog`（9 例）：确认/取消回调（confirm + `update:open: false`）、默认与自定义按钮文案、danger 形态、description 缺省。
+- `UserscriptEditorPanel`（13 例）：加载渲染与失败错误条、dirty 上报（宿主关标签前确认的依据）、保存链路（matches 必填前端拦截 / 构建失败 buildError 行内展示不落盘且 dirty 保持 / 保存成功 config 表单解析 + note 落 updateFiles + dirty 归零 + 备注清空）、构建中禁用保存按钮防双击、草稿恢复（不等才恢复 / draftEquals 相等不提示 / 读草稿失败 best-effort 不挡打开 / 丢弃草稿先用 baseline 重写工作区、失败不动编辑态）。
+
+组件测试写法要点（新写用例前必读）：
+
+- **reka-ui Dialog 系（ConfirmDialog 等）**：内容经 Portal teleport 到 body 且**异步挂载**——`mount` 后 `attachTo: document.body` + `await flushPromises()` 再查 `document.body`；**不能用 test-utils 的 `stubs: { teleport: true }`**（teleport-stub 会吞掉子内容，渲染出来是空的）。
+- **mock 粒度**：只 mock IPC 客户端（`@/lib/userscripts/ui-client`，三个 client 全 mock）与重组件子树（FileTree / UserscriptTreeNode）；**CodeMirror 6 用真实实现即可在 happy-dom 下跑**（EditorView 创建/销毁/替换 doc 均正常），不必 mock `@codemirror/*`——mock 它反而会连坐 `@codemirror/lint` 等内部 import。
+- `vi.hoisted` + `vi.mock` 工厂组合提 mock 函数（mock 必须在 import 求值前注册）；beforeEach 里 `mockResolvedValue` 重设、clearAllMocks 清调用。
+- 卸载路径（onBeforeUnmount flush 草稿）会真的调 `writeDraft`——beforeEach 必须给 `writeDraft.mockResolvedValue(undefined)`，否则 unmount 时报 `Cannot read properties of undefined (reading 'catch')`。
+- 编辑器组件卸载即触发草稿 flush：依赖卸载时序的断言放在 `afterEach` unmount 之前完成。
 - **mock `#imports` 的注意点**（官方文档）：源码 `import { x } from '#imports'` 在 vitest 预处理时被替换为真实路径（如 `wxt/utils/inject-script`），故 `vi.mock` 必须写**真实路径**而非 `'#imports'`；对照表在 `.wxt/types/imports-module.d.ts`（缺失先跑 `wxt prepare`）。
 - 测试文件**跟源码同目录**（`*.test.ts`，不进构建产物）；`npm run test`（vitest）独立命令，`npm run test:e2e`（playwright）分开；两者都不并入 typecheck。
 - E2E 跑 `npm run build` 产物，不依赖 dev server（dev server 仍由老大自管）。
