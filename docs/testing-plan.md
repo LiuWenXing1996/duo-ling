@@ -11,8 +11,8 @@
 
 | 层级 | 内容 | 工具 | 优先级 |
 | --- | --- | --- | --- |
-| 1. 纯逻辑单测 | `key-cipher.ts`（加解密往返）、`code-view.ts`、`lib/userscripts/` 解析/校验/兼容逻辑、store 层 | Vitest（Node 环境）+ `fake-indexeddb` + WXT `wxt/testing` 的 fakeBrowser | **首批** |
-| 2. 协议一致性 | `SwRequest` 命令面 ↔ background handlers ↔ `offscreen-bridge` ↔ `window-api` 三方对齐 | 表驱动测试：遍历命令表断言各端实现存在 | **首批**（高且便宜） |
+| 1. 纯逻辑单测 | `key-cipher.ts`（加解密往返）、`code-view.ts`、`lib/userscripts/` 解析/校验/兼容逻辑、store 层 | Vitest + `WxtVitest()` 插件（`wxt/testing/vitest-plugin`，内置 `@` 别名解析 / `extensionApiMock` / globals auto-import）+ `fake-indexeddb` + `fakeBrowser`（`wxt/testing/fake-browser`） | **首批** |
+| 2. 协议一致性 | SW 端 handlers 表已是 `[K in SwRequest['kind']]` 映射类型，typecheck 已保证全覆盖，无需重复遍历；测试靶心在 **offscreen 端前缀路由**（`offscreen-main.ts` 的 `kind.startsWith('ai:'/'state:')` + `as` 断言那层）、`SW_KIND_PREFIXES` 与 `RuntimeRequest` kind 全集的**归属一致性**（有无 kind 既归 SW 又归 offscreen、或两边都不接）、以及 `{ok, data\|error}` 信封形状 | 表驱动 + 前缀路由覆盖率断言 | **首批**（高且便宜） |
 | 3. 构建冒烟 | `builder.ts` 用 esbuild-wasm 构建最小项目出产物 | Vitest（wasm 代码按浏览器写，Node 下可能需小改加载方式） | 后置：AI 生成 B 组开工前补（届时构建是链路核心验证器） |
 | 4. 组件测试 | 仅改动频繁组件按需（如编辑器抽屉保存/关闭确认） | `@vue/test-utils` + `happy-dom` | 按需，不铺开（UI 是平移件、本体零改动，性价比低） |
 | 5. E2E | 扩展整体行为 | Playwright 捆绑 Chromium 无头加载扩展（见下） | 基建先行：fixture + 一条冒烟跑通 |
@@ -34,11 +34,11 @@
 | `workbench.html`（标签页） | `chrome-extension://<id>/workbench.html` 直接打开 → 脚本列表 / 编辑器 / 设置过 UI 断言 |
 | SW 行为 | `context.serviceWorkers()` 拿句柄 `evaluate()` → 验证 `userscript:*` 命令面、`offscreen:ensure` 就绪探测 |
 | 用户脚本注入 | 本地静态探针页 → 验证 `window.DL` 桥与脚本执行 |
-| side panel | 从 SW `evaluate` 调 `chrome.sidePanel.open()` → 检查目标 |
+| side panel | 面板页 `chrome-extension://<id>/sidepanel.html` 可加载 + `setOptions` 可配置即可；`sidePanel.open()` 需 user gesture 且无头 Chromium 无浏览器 UI，**改手测覆盖**，不进无头断言 |
 
 ## 基础设施
 
-- 依赖新增（**开工前与老大确认**）：`vitest`、`fake-indexeddb`、`@playwright/test`（+ 一次性 `npx playwright install chromium`）；组件测试阶段再加 `@vue/test-utils`、`happy-dom`；
+- 依赖新增（**开工前与老大确认**）：`vitest`、`@playwright/test`（+ 一次性 `npx playwright install chromium`）；组件测试阶段再加 `@vue/test-utils`、`happy-dom`。`fake-indexeddb` 已在 devDependencies，**无需再装**；`WxtVitest()` 插件已顺带解决 `@` 别名与 `chrome.*` mock，不必手配 vitest alias。
 - 测试文件**跟源码同目录**（`*.test.ts`，不进构建产物）；`npm run test` 独立命令，不并入 typecheck；
 - E2E 跑 `npm run build` 产物，不依赖 dev server（dev server 仍由老大自管）。
 
