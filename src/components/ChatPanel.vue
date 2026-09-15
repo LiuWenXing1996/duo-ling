@@ -16,6 +16,7 @@ import {
   ChevronsUpDown as UiChevronsUpDown,
   CircleCheck as UiCircleCheck,
   CircleX as UiCircleX,
+  Copy as UiCopy,
   FileText as UiFileText,
   LoaderCircle as UiLoaderCircle,
   Pencil as UiPencil,
@@ -419,9 +420,25 @@ async function removeCard(card: GenerationCardData): Promise<void> {
   }
 }
 
-/** 进编辑器：打开工作台标签页（脚本列表可进入该脚本的编辑器） */
-function openWorkbench(): void {
-  void chrome.tabs.create({ url: chrome.runtime.getURL('workbench.html') })
+/** 进编辑器：工作台 hash 深链直达该脚本的编辑器标签页（#/tool/<uuid>） */
+function openWorkbench(uuid: string): void {
+  void chrome.tabs.create({
+    url: `${chrome.runtime.getURL('workbench.html')}#/tool/${uuid}`,
+  })
+}
+
+// —— 单条消息复制：方便把消息直接粘给外部 AI 分析 ——
+/** 最近一次复制成功的消息 id（1.5s 后还原图标） */
+const copiedMessageId = ref('')
+
+async function copyMessage(m: UIMessage): Promise<void> {
+  const text = (m.role === 'user' ? userText(m) : finalText(m)).trim()
+  if (!text) return
+  await navigator.clipboard.writeText(text)
+  copiedMessageId.value = m.id
+  window.setTimeout(() => {
+    if (copiedMessageId.value === m.id) copiedMessageId.value = ''
+  }, 1500)
 }
 
 /** 发送/停止：由 PromptInput 表单提交触发；流式时视为停止，否则发送（执行由父组件负责） */
@@ -603,6 +620,18 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                   </ui-message-content>
                 </template>
               </ui-message>
+              <!-- 单条复制：流式占位中的最后一条不渲染（还没有正文可复制） -->
+              <button
+                v-if="!(m.id === lastMessageId && props.streaming)"
+                type="button"
+                class="-mt-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground"
+                :title="copiedMessageId === m.id ? '已复制' : '复制这条消息'"
+                data-testid="copy-message"
+                @click="copyMessage(m)"
+              >
+                <ui-check v-if="copiedMessageId === m.id" class="size-3.5 text-green-600" />
+                <ui-copy v-else class="size-3.5" />
+              </button>
               <!-- 生成卡片：offscreen 收敛落盘后随消息推送/回读（尚未启用 · 生效范围 · 会做什么） -->
               <div
                 v-for="card in m.role === 'assistant' ? cardsOf(m) : []"
@@ -653,8 +682,8 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                     type="button"
                     variant="outline"
                     size="xs"
-                    title="打开工作台查看 / 编辑脚本源码"
-                    @click="openWorkbench"
+                    title="打开工作台直达该脚本的编辑器"
+                    @click="openWorkbench(card.uuid)"
                   >
                     <ui-pencil class="size-3" />
                     进编辑器看一眼

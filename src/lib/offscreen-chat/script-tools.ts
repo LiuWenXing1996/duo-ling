@@ -58,10 +58,13 @@ export type ApplyConfigInput = z.infer<typeof applyConfigSchema>
 /**
  * 构建三个 Agent 工具。snapshot 回调由 chat-host 提供（每步 apply 成功后把文件树
  * 快照进 IndexedDB 任务记录——覆盖写，宿主被杀后「继续」才有东西可继续）。
+ * onFatal：硬停手回调——失败超阈值后模型仍再次 apply（无视 stop 提示）时中止整个
+ * 任务（2026-09-15 手测：stop 提示只是文案，模型会无视继续烧步数）。
  */
 export function buildScriptTools(
   ws: TaskWorkspace,
   snapshot: (ws: TaskWorkspace) => Promise<void>,
+  onFatal?: () => void,
 ) {
   const tools = {
     script_spec: tool({
@@ -109,6 +112,15 @@ export function buildScriptTools(
         entry: z.string().default('main.js').describe('入口文件路径，默认 main.js'),
       }),
       execute: async ({ summary, config, files, entry }) => {
+        // 硬停手：失败阈值已达后仍再次 apply = 模型无视了 stop 提示，直接中止任务
+        if (ws.applyFailures >= MAX_APPLY_FAILURES) {
+          onFatal?.()
+          return {
+            ok: false,
+            errors: [STOP_HINT],
+            stop: true,
+          }
+        }
         // 入参守卫先于构建：路径非法 / 入口缺失给出可读错误，不浪费一次构建
         try {
           validateFiles(files, entry)

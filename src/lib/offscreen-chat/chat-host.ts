@@ -252,7 +252,9 @@ async function runLoop(opts: {
       apiKey: profile.apiKey || 'not-needed',
     })
 
-    const tools = buildScriptTools(workspace, (ws) => snapshotWorkspace(ws))
+    const tools = buildScriptTools(workspace, (ws) => snapshotWorkspace(ws), () =>
+      abort.abort(),
+    )
 
     const result = streamText({
       model: provider.chatModel(profile.model),
