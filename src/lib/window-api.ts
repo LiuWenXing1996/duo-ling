@@ -5,7 +5,8 @@
 // SettingsPanel …）一律直呼 `window.api.*`，故此处按 PreloadApi 契约装配一份实现，
 // 内部转接到扩展自己的数据层 —— 组件侧因此可以零改动复用：
 //
-//   conversation.*  → IndexedDB（src/lib/conversation-store.ts）
+//   conversation.*  → 读：IndexedDB（src/lib/conversation-store.ts）；写：conv:* 命令路由 offscreen
+//                     （2026-09-15 起会话历史唯一写入方 = offscreen，见下方说明）
 //   model.*         → chrome.storage.local（src/lib/model-store.ts）
 //   provider.*      → 预设表（src/lib/providers.ts）
 //   window.*        → 扩展页没有无边框窗口，按「无窗口状态」应答
@@ -18,10 +19,9 @@
 // 仍未平移的能力（agent）由 Proxy 兜底：调用时抛出带完整路径的错误。
 // 这样比静默返回 undefined 更早暴露「这段界面还没接上」，也便于后续逐项替换成真实实现。
 
-import type { UIMessage } from 'ai'
 import type { PreloadApi } from '@/shared/ipc'
-import type { Message, MessageRole, TokenUsage } from '@/shared/types'
-import type { RuntimeRequest } from '@/shared/extension-ipc'
+import type { Message } from '@/shared/types'
+import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type {
   Conversation,
   ConversationSearchHit,
@@ -73,46 +73,75 @@ function createStubNamespace(path: string): unknown {
   })
 }
 
-// —— conversation：转接到 IndexedDB ——
+// —— conversation：读直连 IndexedDB；写路由 offscreen ——
+//
+// 2026-09-15（docs/userscript-ai-generation.md §4.8）：整条对话链路搬进 offscreen 后，
+// **会话历史唯一写入方 = offscreen**（防双写）。list / search / messages 是读，仍直连
+// 本地 IndexedDB（同源共享，注册链路同理不能押在容器存活上）；create / rename / delete /
+// deleteAll / appendMessage 是写，经 conv:* 命令交 offscreen 执行。
 
-/** 桌面版主进程负责生成消息 id 与时间戳，扩展侧在此补齐同等字段 */
-async function appendMessage(
-  conversationId: string,
-  role: MessageRole,
-  content: string,
-  reasoning?: string,
-  parts?: UIMessage['parts'],
-  usage?: TokenUsage
-): Promise<Message | null> {
-  const message: Message = {
-    id: crypto.randomUUID(),
-    conversationId,
-    role,
-    content,
-    createdAt: new Date().toISOString(),
-    ...(reasoning ? { reasoning } : {}),
-    ...(parts ? { parts } : {}),
-    ...(usage ? { usage } : {})
+/** 向 offscreen 发一次请求，统一解包 { ok, data|error }；「容器未响应」类错误先唤起再重试 */
+async function sendOffscreen<T>(request: RuntimeRequest): Promise<T> {
+  const sendOnce = () =>
+    new Promise<T>((resolve, reject) => {
+      chrome.runtime.sendMessage(request, (response: RuntimeResponse<T> | undefined) => {
+        const lastError = chrome.runtime.lastError
+        if (lastError) {
+          reject(new Error(lastError.message))
+          return
+        }
+        if (!response) {
+          reject(new Error('offscreen 无响应'))
+          return
+        }
+        if (!response.ok) {
+          reject(new Error(response.error))
+          return
+        }
+        resolve(response.data as T)
+      })
+    })
+  try {
+    return await sendOnce()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (!/port closed|Receiving end does not exist|无响应/.test(msg)) throw e
+    // 唤起容器并等它可应答（SW 侧处理 offscreen:ensure，内部轮询 ai:ping 到就绪为止）
+    await send({ kind: 'offscreen:ensure' }).catch(() => {})
+    return await sendOnce()
   }
-  // store 侧在会话不存在时返回 null（对齐桌面版），把该结果回传调用方
-  return conversationStore.appendMessage(message)
 }
 
+// —— conversation 命令面 ——
+
 const conversation: PreloadApi['conversation'] = {
+  // 读：直连 IndexedDB（同源共享）
   list: () => conversationStore.listConversations(),
   search: (query) => conversationStore.searchConversations(query),
-
-  // 「新会话 N」的序号由 store 自增维护（持久化在 chrome.storage.local），
-  // 不能用「当前会话数 + 1」——删掉一个会话再新建就会重号。
-  create: () => conversationStore.createConversation(),
-
-  rename: (id, title) => conversationStore.renameConversation(id, title),
-
   messages: (conversationId) => conversationStore.listMessages(conversationId),
-  appendMessage,
 
-  delete: (id) => conversationStore.deleteConversation(id),
-  deleteAll: () => conversationStore.deleteAllConversations()
+  // 写：路由 offscreen（唯一写方）。见文件头说明。
+  create: () => sendOffscreen({ kind: 'conv:create' }),
+
+  rename: (id, title) => sendOffscreen({ kind: 'conv:rename', id, title }),
+
+  appendMessage: (conversationId, role, content, reasoning, parts, usage) => {
+    const message: Message = {
+      id: crypto.randomUUID(),
+      conversationId,
+      role,
+      content,
+      createdAt: new Date().toISOString(),
+      ...(reasoning ? { reasoning } : {}),
+      ...(parts ? { parts } : {}),
+      ...(usage ? { usage } : {})
+    }
+    return sendOffscreen({ kind: 'conv:append', message })
+  },
+
+  delete: (id) => sendOffscreen({ kind: 'conv:delete', id }),
+
+  deleteAll: () => sendOffscreen({ kind: 'conv:deleteAll' })
 }
 
 // —— model：转接到 chrome.storage.local ——

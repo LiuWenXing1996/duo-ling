@@ -22,6 +22,28 @@ import {
   Star as UiStar,
   Trash2 as UiTrash2
 } from '@lucide/vue'
+// CodeMirror 6：顶层只装了老大批准的 codemirror + @codemirror/lang-javascript 两个包，
+// 下面按需引用的都是 codemirror 的直接依赖（官方分包），不新增 package.json 条目。
+import { EditorState, Compartment, type Extension } from '@codemirror/state'
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  drawSelection,
+  dropCursor,
+  rectangularSelection,
+  crosshairCursor,
+  type ViewUpdate
+} from '@codemirror/view'
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { HighlightStyle, syntaxHighlighting, indentOnInput, indentUnit, bracketMatching } from '@codemirror/language'
+import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete'
+import { searchKeymap } from '@codemirror/search'
+import { linter, setDiagnostics, lintKeymap, type Diagnostic } from '@codemirror/lint'
+import { tags as t } from '@lezer/highlight'
+import { javascript } from '@codemirror/lang-javascript'
 import { FileTree } from '@/components/ai-elements/file-tree'
 import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
 import { buildCodeTree, type CodeTreeNode } from '@/lib/code-view'
@@ -78,6 +100,208 @@ let draftTimer: number | undefined
 let draftInFlight: Promise<void> = Promise.resolve()
 
 const fileCount = computed(() => Object.keys(editFiles.value).length)
+
+// ============ CodeMirror 6 编辑器 ============
+//
+// 只吃现有编辑态，不引入新的数据面：
+//   - 单一事实源仍是 editFiles[activeFile]（草稿 watch / currentProject / 保存链路零改动）；
+//   - CM → 编辑态：updateListener 同步回 editFiles 并标 dirty（与原 textarea 的 v-model 等价）；
+//   - 编辑态 → CM：watch(currentContent) 程序性替换 doc（syncing 挡住，不算用户改动）；
+//   - 深浅色：编辑器 chrome 全部引用语义 token（--background 等），html.dark 翻转即自动跟随；
+//     语法色用 class 型 HighlightStyle，颜色落在组件样式里的 --cm-* 变量（.dark 一套覆盖）。
+// lint 装饰器：把保存时构建失败的 issues（「文件:行:列  文本」）映射到当前文件行内波浪线 +
+// 悬停提示；入口文件在构建里经 stdin 喂入，报错 file 名是 stdin，按 editEntry 认领。
+const cmHost = ref<HTMLDivElement | null>(null)
+let cmView: EditorView | null = null
+/** 程序性替换 doc 期间置 true：updateListener 不把回写当作用户改动 */
+let cmSyncing = false
+/** 编辑器当前承载的文件路径（切文件走 state 重建，同文件内容回写才走 doc 替换） */
+let cmCurrentFile = ''
+
+const CM_MONO_FONT = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace'
+
+/** 按扩展名取 JS 家族语言；其余类型（css/html/json…）不高亮，不扩依赖 */
+function cmLangFor(path: string): Extension {
+  const i = path.lastIndexOf('.')
+  const ext = i < 0 ? '' : path.slice(i + 1).toLowerCase()
+  switch (ext) {
+    case 'ts':
+    case 'mts':
+    case 'cts':
+      return javascript({ typescript: true })
+    case 'jsx':
+      return javascript({ jsx: true })
+    case 'tsx':
+      return javascript({ typescript: true, jsx: true })
+    case 'js':
+    case 'mjs':
+    case 'cjs':
+      return javascript()
+    default:
+      return []
+  }
+}
+
+/** 语法 token → CSS 类（颜色在组件样式里按深浅色定义，见 style 块的 --cm-* 变量） */
+const cmHighlight = HighlightStyle.define([
+  { tag: t.keyword, class: 'cm-tok-keyword' },
+  { tag: [t.string, t.special(t.string), t.regexp], class: 'cm-tok-string' },
+  { tag: [t.number, t.bool, t.null], class: 'cm-tok-number' },
+  { tag: [t.comment, t.meta], class: 'cm-tok-comment' },
+  { tag: [t.definition(t.variableName), t.function(t.variableName), t.function(t.propertyName)], class: 'cm-tok-fn' },
+  { tag: [t.typeName, t.className], class: 'cm-tok-type' },
+  { tag: t.propertyName, class: 'cm-tok-property' },
+  { tag: [t.operator, t.punctuation, t.bracket], class: 'cm-tok-operator' }
+])
+
+/** 编辑器 chrome 主题：只引用语义 token，深浅色跟随 html.dark 自动翻转，无 JS 参与切换 */
+const cmTheme = EditorView.theme({
+  '&': { height: '100%', fontSize: '12px', color: 'var(--foreground)', backgroundColor: 'var(--background)' },
+  '&.cm-focused': { outline: 'none' },
+  '.cm-scroller': { fontFamily: CM_MONO_FONT, lineHeight: '1.65', overflow: 'auto' },
+  '.cm-content': { caretColor: 'var(--foreground)', paddingBottom: '16px' },
+  '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--foreground)' },
+  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, & ::selection': {
+    backgroundColor: 'color-mix(in srgb, var(--primary) 18%, transparent)'
+  },
+  '.cm-gutters': {
+    backgroundColor: 'transparent',
+    color: 'var(--muted-foreground)',
+    border: 'none',
+    borderRight: '1px solid var(--border)'
+  },
+  '.cm-lineNumbers .cm-gutterElement': { padding: '0 8px 0 14px' },
+  '.cm-activeLine': { backgroundColor: 'var(--accent)' },
+  '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--foreground)' },
+  '.cm-panels': { backgroundColor: 'var(--background)', color: 'var(--foreground)', borderColor: 'var(--border)' },
+  '.cm-tooltip': {
+    border: '1px solid var(--border)',
+    backgroundColor: 'var(--background)',
+    color: 'var(--foreground)'
+  },
+  '.cm-tooltip-autocomplete ul li[aria-selected]': {
+    backgroundColor: 'var(--accent)',
+    color: 'var(--accent-foreground)'
+  },
+  '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, var(--primary) 22%, transparent)' }
+})
+
+/**
+ * issues → 当前文件的 lint Diagnostic。
+ * esbuild 的行号基于构建时的文件内容，编辑可能已使其越界：行/列一律 clamp 进文档，
+ * 越出标不了就丢（错误文本仍在上方构建错误列表里，不损失信息）。
+ */
+function cmParseBuildIssues(): Diagnostic[] {
+  const diags: Diagnostic[] = []
+  const file = activeFile.value
+  if (!cmView || !file || !buildIssues.value.length) return diags
+  const doc = cmView.state.doc
+  if (!doc.length) return diags
+  for (const issue of buildIssues.value) {
+    // builder 的格式固定为「文件:行:列␣␣文本」（行列可省），两空格分隔
+    const m = /^(.+?):(\d+)(?::(\d+))?\s\s(.*)$/.exec(issue)
+    if (!m) continue
+    const [, f, lineS, colS, text] = m
+    // stdin = 构建入口 stdin 喂入时的报错文件名，按当前文件是否为入口认领
+    const mine = f === 'stdin' ? file === editEntry.value : f === file
+    if (!mine) continue
+    const line = doc.line(Math.min(Number(lineS), doc.lines))
+    const from = line.from + Math.min(Math.max((colS ? Number(colS) : 1) - 1, 0), line.length)
+    let to = Math.min(from + 1, line.to)
+    if (to <= from) to = Math.min(from + 1, doc.length)
+    if (to <= from) continue
+    diags.push({ from, to, message: text, severity: 'error', source: 'esbuild' })
+  }
+  return diags
+}
+
+function cmUpdateListener(u: ViewUpdate): void {
+  if (!u.docChanged || cmSyncing) return
+  editFiles.value[activeFile.value] = u.state.doc.toString()
+  editDirty.value = true
+}
+
+function cmExtensions(path: string): Extension[] {
+  return [
+    lineNumbers(),
+    highlightActiveLine(),
+    highlightActiveLineGutter(),
+    history(),
+    drawSelection(),
+    dropCursor(),
+    rectangularSelection(),
+    crosshairCursor(),
+    indentOnInput(),
+    indentUnit.of('  '),
+    bracketMatching(),
+    closeBrackets(),
+    autocompletion(),
+    EditorState.allowMultipleSelections.of(true),
+    keymap.of([
+      ...closeBracketsKeymap,
+      ...defaultKeymap,
+      ...searchKeymap,
+      ...historyKeymap,
+      ...completionKeymap,
+      ...lintKeymap,
+      indentWithTab
+    ]),
+    cmTheme,
+    syntaxHighlighting(cmHighlight),
+    cmLangFor(path),
+    linter(cmParseBuildIssues, { delay: 300 }),
+    EditorView.updateListener.of(cmUpdateListener),
+    EditorView.lineWrapping
+  ]
+}
+
+function cmMakeState(path: string): EditorState {
+  return EditorState.create({
+    doc: editFiles.value[path] ?? '',
+    extensions: cmExtensions(path)
+  })
+}
+
+function cmCreateEditor(host: HTMLDivElement): EditorView {
+  cmCurrentFile = activeFile.value
+  return new EditorView({
+    state: cmMakeState(activeFile.value),
+    parent: host
+  })
+}
+
+// host 挂载（loading 结束后 template 才渲染出 host div）→ 创建编辑器
+watch(cmHost, (el) => {
+  if (el && !cmView) cmView = cmCreateEditor(el)
+})
+
+/** 切文件 → 整体重建 state：语言 / 撤销历史 / lint 一并干净（整文档替换会污染 undo 历史） */
+watch(activeFile, (path) => {
+  if (!cmView || path === cmCurrentFile) return
+  cmCurrentFile = path
+  cmView.setState(cmMakeState(path))
+  cmView.dispatch(setDiagnostics(cmView.state, cmParseBuildIssues()))
+})
+
+/**
+ * 同一文件被外部改写（保存回写 outcome.files / 丢弃草稿 / load）→ 程序性替换 doc。
+ * 切文件（currentContent 与 activeFile 同时变）不在这处理，由上面的 state 重建接管。
+ */
+const currentContent = computed(() => editFiles.value[activeFile.value] ?? '')
+watch(currentContent, (val) => {
+  if (!cmView || cmCurrentFile !== activeFile.value) return
+  if (cmView.state.doc.toString() === val) return
+  cmSyncing = true
+  cmView.dispatch({ changes: { from: 0, to: cmView.state.doc.length, insert: val } })
+  cmSyncing = false
+  cmView.dispatch(setDiagnostics(cmView.state, cmParseBuildIssues()))
+})
+
+/** 保存产生 / 清空构建错误 → 直接重设 lint（doc 没变时 linter 不会自跑） */
+watch(buildIssues, () => {
+  if (cmView) cmView.dispatch(setDiagnostics(cmView.state, cmParseBuildIssues()))
+})
+
 
 /** 递归收集全部文件夹路径（用于 FileTree 默认展开） */
 function collectFolders(nodes: CodeTreeNode[]): string[] {
@@ -262,6 +486,8 @@ watch(
 // 关标签页前 flush：debounce 500ms + lfs 自身 500ms，最后一段改动必然丢——
 // 卸载时把 pending 写立即发出（不 await，组件卸载后 Promise 仍会跑完；§4.4）
 onBeforeUnmount(() => {
+  cmView?.destroy()
+  cmView = null
   if (draftTimer !== undefined) {
     clearTimeout(draftTimer)
     draftTimer = undefined
@@ -632,14 +858,8 @@ onMounted(() => {
             </ul>
           </div>
 
-          <!-- 源码编辑（当前选中文件） -->
-          <textarea
-            v-if="activeFile"
-            v-model="editFiles[activeFile]"
-            spellcheck="false"
-            class="flex-1 resize-none border-0 bg-background p-4 font-mono text-xs leading-relaxed text-foreground outline-none"
-            @input="editDirty = true"
-          />
+          <!-- 源码编辑（当前选中文件，CodeMirror 6；v-show 保实例，切文件只换 doc） -->
+          <div v-show="activeFile" ref="cmHost" class="us-editor min-h-0 flex-1 overflow-hidden" />
         </div>
       </div>
 
@@ -663,3 +883,52 @@ onMounted(() => {
     </template>
   </section>
 </template>
+
+<style scoped>
+/* CodeMirror 语法色板：类名由 HighlightStyle 挂在 token 上，颜色走 --cm-* 变量；
+   编辑器 chrome（背景/行号/选区等）在 cmTheme 里直接用语义 token，此处只管语法层。
+   浅色取 GitHub Light 一系，深色取 One Dark 一系（html.dark 由 theme.ts 随系统切换）。 */
+.us-editor {
+  --cm-keyword: #cf222e;
+  --cm-string: #0a3069;
+  --cm-number: #0550ae;
+  --cm-comment: #6e7781;
+  --cm-fn: #8250df;
+  --cm-type: #953800;
+  --cm-property: #116329;
+}
+.dark .us-editor {
+  --cm-keyword: #c678dd;
+  --cm-string: #98c379;
+  --cm-number: #d19a66;
+  --cm-comment: #7f848e;
+  --cm-fn: #61afef;
+  --cm-type: #e5c07b;
+  --cm-property: #e06c75;
+}
+.us-editor :deep(.cm-tok-keyword) {
+  color: var(--cm-keyword);
+}
+.us-editor :deep(.cm-tok-string) {
+  color: var(--cm-string);
+}
+.us-editor :deep(.cm-tok-number) {
+  color: var(--cm-number);
+}
+.us-editor :deep(.cm-tok-comment) {
+  color: var(--cm-comment);
+  font-style: italic;
+}
+.us-editor :deep(.cm-tok-fn) {
+  color: var(--cm-fn);
+}
+.us-editor :deep(.cm-tok-type) {
+  color: var(--cm-type);
+}
+.us-editor :deep(.cm-tok-property) {
+  color: var(--cm-property);
+}
+.us-editor :deep(.cm-tok-operator) {
+  color: var(--muted-foreground);
+}
+</style>

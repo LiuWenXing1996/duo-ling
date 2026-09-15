@@ -65,6 +65,42 @@ export async function createProject(): Promise<ScriptProject> {
   return project
 }
 
+/**
+ * AI 生成脚本落盘（docs/userscript-ai-generation.md §4.5「先落盘不启用 + 一键启用」）：
+ * 收 name / config / files / entry / bundle（必填，构建已在 loop 内收敛通过）+ enabled（默认 false）。
+ * **不调用 registerScript**——「生成」与「生效」解耦，AI 产物默认零影响；
+ * git 快照 note = AI summary（us-git 已支持，正好是提交信息）。
+ */
+export async function createGeneratedProject(payload: {
+  name: string
+  config: ScriptConfig
+  files: Record<string, string>
+  entry: string
+  bundle: { code: string; builtAt: number }
+  enabled: boolean
+  note?: string
+}): Promise<ScriptProject> {
+  const name = payload.name.trim()
+  if (!name) throw new Error('脚本名称不能为空')
+  if (!payload.config.matches?.length) throw new Error('匹配规则（matches）至少一条')
+  validateFiles(payload.files, payload.entry)
+  const ts = Date.now()
+  const project: ScriptProject = {
+    v: 1,
+    uuid: crypto.randomUUID(),
+    name,
+    enabled: payload.enabled,
+    config: payload.config,
+    files: payload.files,
+    entry: payload.entry,
+    bundle: payload.bundle,
+    createdAt: ts,
+    updatedAt: ts,
+  }
+  await writeAndSnapshot(project, payload.note)
+  return project
+}
+
 /** 更新文件树 + 入口 + 名称/配置 + 构建产物（读改写在同一处，不跨上下文）。
  *  bundle **必填**：调用方（编辑器保存 / 历史恢复）必须在构建成功后才能走到这里 */
 export async function updateProjectFiles(

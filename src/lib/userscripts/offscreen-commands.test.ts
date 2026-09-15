@@ -30,6 +30,7 @@ vi.mock('@/lib/userscripts/project-store', () => ({
 }))
 vi.mock('@/lib/userscripts/project-write', () => ({
   createProject: vi.fn(),
+  createGeneratedProject: vi.fn(),
   removeProjectAndRepo: vi.fn(),
   setProjectEnabled: vi.fn(),
   updateProjectFiles: vi.fn(),
@@ -90,6 +91,7 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
   // union 成员清单：typecheck 闸——StateRequest 新增成员而未登记 → Exclude 非 never → 编译失败
   const STATE_KINDS = [
     'state:create',
+    'state:createProject',
     'state:updateFiles',
     'state:remove',
     'state:toggle',
@@ -104,6 +106,22 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
     { msg: StateRequest; backend: Mock; args: unknown[] }
   > = {
     'state:create': { msg: { kind: 'state:create' }, backend: vi.mocked(projectWrite.createProject), args: [] },
+    'state:createProject': {
+      msg: {
+        kind: 'state:createProject',
+        name: '脚本一',
+        config: PROJECT.config,
+        files: FILES,
+        entry: 'main.ts',
+        bundle: BUNDLE,
+        enabled: false,
+        note: 'AI 生成',
+      },
+      backend: vi.mocked(projectWrite.createGeneratedProject),
+      args: [
+        { name: '脚本一', config: PROJECT.config, files: FILES, entry: 'main.ts', bundle: BUNDLE, enabled: false, note: 'AI 生成' },
+      ],
+    },
     'state:updateFiles': {
       msg: { kind: 'state:updateFiles', uuid: 'u1', files: FILES, entry: 'main.ts', bundle: BUNDLE, name: '新名', note: '备注' },
       backend: vi.mocked(projectWrite.updateProjectFiles),
@@ -346,6 +364,7 @@ describe('(c) offscreen 应答信封 { ok, data | error }', () => {
   })
 
   it('未知 kind：不回包也不崩（静默比假错误诚实）', async () => {
-    await expect(reply({ kind: 'chat:unknown' })).resolves.toBeUndefined()
+    // 注意不能拿 chat:/conv:/ai:/state: 当未知样本——它们都是 offscreen 前缀（会得 error 信封）
+    await expect(reply({ kind: 'bogus:whatever' })).resolves.toBeUndefined()
   })
 })

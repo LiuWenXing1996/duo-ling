@@ -7,18 +7,36 @@
 
 ---
 
-## 用户脚本编辑器：CodeMirror 6 高亮（后置增强，待动工）
+## ~~用户脚本编辑器：CodeMirror 6 高亮~~ → **已落地（2026-09-15）**
 
-**背景**：v2 用户脚本（docs/userscript-v2-plan.md）Phase 0–3 已落地，编辑器一期为裸 textarea（方案定稿：CodeMirror 6 作为独立增强后置）。2026-09-14 老大确认「等后面再说」，登记备查。
-
-**方案要点**：
-1. 依赖：`codemirror` + `@codemirror/lang-javascript`（js/ts/jsx/tsx 一包全覆盖）+ 深浅色主题（`@codemirror/theme-one-dark` 或 CSS 变量自适配，主题跟随系统）。**新增依赖，动工前与老大确认**。
-2. 改动面：仅编辑抽屉 textarea → CodeMirror 组件，v-model 接 `editFiles[activeFile]`；构建报错、保存流程、文件树零改动。
-3. 可选增强：构建失败行内错误标记（esbuild 的 file:line 映射到 CodeMirror lint/装饰器）。
+> 编辑抽屉（现为工作台标签页 `UserscriptEditorPanel.vue`）的 textarea 已换为 CodeMirror 6。
+> 依赖 `codemirror` + `@codemirror/lang-javascript`（js/ts/jsx/tsx 一包全覆盖；其余 CM 官方分包
+> 经顶层包依赖解析，不新增 package.json 条目）。v-model 接现有编辑态（`editFiles[activeFile]`），
+> 保存流程 / 文件树 / 协议层零改动；深浅色不引主题包——编辑器 chrome 直接引用语义 token
+> （`html.dark` 翻转即跟随），语法色用 class 型 HighlightStyle + 组件内 `--cm-*` 变量两套色板。
+> 可选增强一并做了：构建失败 issues（`文件:行:列  文本`）映射到行内 lint 波浪线 + 悬停提示
+> （入口报错 file 名为 `stdin`，按 entry 认领；越界行号 clamp）。
+> 切文件走 `EditorState` 整体重建（避免整文档替换事务污染撤销历史），同文件外部回写才替换 doc。
 
 ---
 
-## AI 生成用户脚本（已拍板，待实施）
+## 用户脚本 zip 导入导出（方案已定稿，待实施）
+
+> 2026-09-15 与老大讨论定稿，详见 [userscript-zip-transfer.md](./userscript-zip-transfer.md)。
+> v1 只做**分享**语义（备份/迁移含 DL.store 数据后置，zip 预留 `data/` 位）；每脚本一目录
+> （project.json + files 真实文件树展开），bundle/uuid/enabled 不进 zip。
+
+**已定默认值**：导入重生成 uuid / `nextScriptName` 自动补名 / `enabled: false`（先审后启）/
+matches 导入时提前校验 / 逐脚本独立容错（构建失败跳过带 esbuild 诊断）/ 单脚本 zip 导入成功直开编辑器。
+
+**依赖**：fflate（~8KB，唯一新增依赖，**待老大点头**）。
+
+**状态**：方案无待拍板项；**实施排队在 AI 生成主线合回之后**（导入需新增 `userscript:import` /
+`state:import` 协议命令，与主线独占文件重合）。导出无协议改动，可与主线并行但建议同批做。
+
+---
+
+## AI 生成用户脚本（一期已落地，2026-09-15）
 
 **背景**：用户脚本 v2 新形态（多文件项目 + DL 能力 API + esbuild 构建）四阶段已落地，下一步的自然延伸是「让 AI 写脚本」——在侧边栏说需求，AI 产出 `ScriptProject`（文件树 + 配置）、构建、落盘。
 
@@ -66,7 +84,11 @@
 
 **详细文档**：见 [userscript-ai-generation.md](./userscript-ai-generation.md)（含 §3.1 esbuild 放 SW 的技术核查与宿主筛选表、§3.2 `esbuild-standalone` 外部对照、§4.8 定位 B 的三容器架构与「谁写什么」表、§8 `script_spec` 禁止事项清单）。
 
-**状态**：方案已拍板（含定位 B 与「整条链路搬」），**无待拍板项**。前置 **A 组（容器与通道，1–4）已落地**：offscreen entrypoint + `"offscreen"` 权限、`ensureOffscreenReady`（`src/lib/offscreen.ts`）、`model:getActiveProfile` + 配置转发（`background.ts`）、`offscreen-bridge.ts`；**B 组（编排与构建，5–9）待开工**。
+**状态**：**主体已实现（2026-09-15，一期前置 9 条全部落地）**，实现记录见
+[dev-log 2026-09-15](./dev-log/2026-09-15.md)。残留增强项：进度通知
+（chrome.notifications）、同会话消息排队（§6.2 #14）、工作台 hash 深链、
+regenerate 触发器、`chat:chunk` 推送性能实测（卡了再换 MessageChannel）；
+元素拾取器（档 2）按方案紧随主链路、单独排期。
 
 ---
 
@@ -149,7 +171,7 @@ SW 直读 IndexedDB 注册」→ **已做**（见本条目顶部）。讨论出�
 
 **详细文档**：见 [testing-plan.md](./testing-plan.md)（分层方案、E2E 关键结论与测试面映射、基础设施、顺序）。本条目只留状态索引，以文档为准。
 
-**状态**：层 1（纯逻辑单测）已落地（2026-09-15）：`vitest` 已入 devDependencies（`fake-indexeddb` 原有），`vitest.config.ts` 用 `WxtVitest()` 插件（0.21.4 具名导出 `import { WxtVitest } from 'wxt/testing/vitest-plugin'`，无 default；include 收窄 `src/**/*.test.ts` 防扫 legacy 旧 spec）。7 个测试文件 107 用例全绿，覆盖 key-cipher / code-view / userscripts 的 types、state-db（fake-indexeddb）、project-store、store（fakeBrowser）、project-write（mock builder 与 us-git 模拟 offscreen 上下文）。层 2（协议一致性）首批已落地（2026-09-15）：`src/shared/extension-ipc.test.ts`（kind 归属唯一性——`SW_KIND_PREFIXES` ∪ `OFFSCREEN_KIND_PREFIXES` 恰好覆盖 `RuntimeRequest` kind 全集，无两边都接/都不接）+ `src/lib/userscripts/offscreen-commands.test.ts`（offscreen 三个 handle\* 分发全覆盖 + `{ ok, data | error }` 信封形状，经 fakeBrowser 走 offscreen-main 真实监听器端到端触发）；为拿路由真相源 `SW_KIND_PREFIXES` / `OFFSCREEN_KIND_PREFIXES` 两常量加了 export（无行为改动）。层 3 构建冒烟已完成（2026-09-15，`builder.test.ts` 3 例全绿，wasm 加载结论见 testing-plan「层 3 实施结论」）。层 5（E2E）待开工；E2E 依赖 @playwright/test 未装。
+**状态**：层 1（纯逻辑单测）已落地（2026-09-15）：`vitest` 已入 devDependencies（`fake-indexeddb` 原有），`vitest.config.ts` 用 `WxtVitest()` 插件（0.21.4 具名导出 `import { WxtVitest } from 'wxt/testing/vitest-plugin'`，无 default；include 收窄 `src/**/*.test.ts` 防扫 legacy 旧 spec）。7 个测试文件 107 用例全绿，覆盖 key-cipher / code-view / userscripts 的 types、state-db（fake-indexeddb）、project-store、store（fakeBrowser）、project-write（mock builder 与 us-git 模拟 offscreen 上下文）。层 2（协议一致性）首批已落地（2026-09-15）：`src/shared/extension-ipc.test.ts`（kind 归属唯一性——`SW_KIND_PREFIXES` ∪ `OFFSCREEN_KIND_PREFIXES` 恰好覆盖 `RuntimeRequest` kind 全集，无两边都接/都不接）+ `src/lib/userscripts/offscreen-commands.test.ts`（offscreen 三个 handle\* 分发全覆盖 + `{ ok, data | error }` 信封形状，经 fakeBrowser 走 offscreen-main 真实监听器端到端触发）；为拿路由真相源 `SW_KIND_PREFIXES` / `OFFSCREEN_KIND_PREFIXES` 两常量加了 export（无行为改动）。层 3 构建冒烟已完成（2026-09-15，`builder.test.ts` 3 例全绿，wasm 加载结论见 testing-plan「层 3 实施结论」）。层 4 组件测试已开工落地（2026-09-15）：vitest 改 projects 双环境分离（logic=node / component=happy-dom），组件测试命名约定 `*.component.test.ts`，ConfirmDialog 9 例 + UserscriptEditorPanel 13 例全绿（实现与写法要点见 testing-plan「基础设施」与「层 4 实施结论」）。层 5（E2E）冒烟已开通（2026-09-15，`npm run test:e2e` 6/6 通过，见 testing-plan「E2E 已落地」）。
 
 ---
 

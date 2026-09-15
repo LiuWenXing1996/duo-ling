@@ -54,6 +54,7 @@ const ALL_KINDS = [
   { kind: 'userscript:updateFiles', side: 'sw' },
   { kind: 'userscript:clearDeprecated', side: 'sw' },
   { kind: 'userscript:create', side: 'sw' },
+  { kind: 'userscript:createProject', side: 'sw' },
   { kind: 'userscript:remove', side: 'sw' },
   { kind: 'userscript:toggle', side: 'sw' },
   { kind: 'userscript:availability', side: 'sw' },
@@ -71,6 +72,7 @@ const ALL_KINDS = [
   { kind: 'ai:lfsReadFile', side: 'offscreen' },
   // —— state:*（offscreen：项目状态库写侧，单写方）——
   { kind: 'state:create', side: 'offscreen' },
+  { kind: 'state:createProject', side: 'offscreen' },
   { kind: 'state:updateFiles', side: 'offscreen' },
   { kind: 'state:remove', side: 'offscreen' },
   { kind: 'state:toggle', side: 'offscreen' },
@@ -81,6 +83,18 @@ const ALL_KINDS = [
   { kind: 'offscreen:ready', side: 'sw' },
   // —— model:*（SW：配置中转）——
   { kind: 'model:getActiveProfile', side: 'sw' },
+  // —— conv:*（offscreen：会话写侧，唯一写方；SW 对前缀静默让路）——
+  { kind: 'conv:create', side: 'offscreen' },
+  { kind: 'conv:rename', side: 'offscreen' },
+  { kind: 'conv:delete', side: 'offscreen' },
+  { kind: 'conv:deleteAll', side: 'offscreen' },
+  { kind: 'conv:append', side: 'offscreen' },
+  // —— chat:*（offscreen：对话编排，发起 / 停止 / 重连 / 孤儿）——
+  { kind: 'chat:start', side: 'offscreen' },
+  { kind: 'chat:abort', side: 'offscreen' },
+  { kind: 'chat:resume', side: 'offscreen' },
+  { kind: 'chat:orphans', side: 'offscreen' },
+  { kind: 'chat:orphanAction', side: 'offscreen' },
   // —— sw:*（SW：自证）——
   { kind: 'sw:buildInfo', side: 'sw' },
 ] as const satisfies readonly OwnershipRow[]
