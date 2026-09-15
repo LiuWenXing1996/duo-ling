@@ -8,6 +8,7 @@
     "build": "wxt build",
     "build:firefox": "wxt build --browser firefox",
     "typecheck": "vue-tsc --noEmit",
+    "test:e2e": "playwright test",
     "verify:skills": "node scripts/verify-skills.mjs"
   },
   "dependencies": {
@@ -31,6 +32,7 @@
     "vue-stream-markdown": "^1.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/chrome": "^0.2.9",
     "@vitejs/plugin-vue": "6.0.8",

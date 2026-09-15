@@ -103,6 +103,20 @@ export default defineConfig({
     // 每脚本独立 USER_SCRIPT 世界隔离（worldId）需 Chrome 133+ / Firefox 136+。
     // Chrome 规范字段是下划线 minimum_chrome_version；驼峰键会被 Chrome 忽略并报 Unrecognized。
     'minimum_chrome_version': '133',
+    // MV3 默认 extension_pages CSP 是 `script-src 'self'`，**不含** 'wasm-unsafe-eval'——
+    // 生产产物（npm run build）里 offscreen 的 esbuild-wasm（脚本构建链路，
+    // docs/userscript-ai-generation.md §4.8）会被 CSP 拦（实测 Chromium 153 报 violates CSP）。
+    // 注意 WXT 只在 **dev**（command === 'serve'）自动注入含 'wasm-unsafe-eval' 的默认 CSP
+    // （wxt/dist/core/utils/manifest.mjs 的 addDevModeCsp），所以 dev 下构建一直正常、
+    // bug 只在生产产物暴露 —— 别用 dev 验证这个问题。此处显式声明以覆盖生产：
+    // 'wasm-unsafe-eval' 是 Chrome 103+ 为 wasm 场景提供的专用指令，不含 `unsafe-eval`
+    // 的 JS eval 语义，不影响上架审查。老大 2026-09-15 已批准。
+    // 真机复现（2026-09-15 晚，禁用修复的生产产物加载真机 Chrome）：新建脚本即报
+    // "WebAssembly.instantiateStreaming ... violates CSP: script-src 'self'"——生产下
+    // create 链路也走 esbuild，影响面比预想大。恢复修复后构建正常。
+    content_security_policy: {
+      extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+    },
     action: {
       default_title: '打开哆灵',
     },

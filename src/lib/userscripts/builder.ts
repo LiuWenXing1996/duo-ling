@@ -4,7 +4,8 @@
 // - offscreen 是唯一「能派生 Worker（URL.createObjectURL）+ 不被回收」的宿主，
 //   编辑器保存 / 历史恢复 / AI 生成 loop 共用这里的一个常驻 wasm 实例（14MB 只编译一次）
 // - wasm 资产在 src/public/esbuild.wasm，经 chrome.runtime.getURL 引用，懒加载一次进程内复用
-// - MV3 extension_pages 最小 CSP 已含 'wasm-unsafe-eval'，无需改 manifest
+// - MV3 默认 extension_pages CSP **不含** 'wasm-unsafe-eval'（此前注释误记为默认已含，
+//   E2E 冒烟实测证伪，2026-09-15）——已在 wxt.config.ts manifest 显式声明放开 wasm 编译
 // - 远程依赖在 offscreen fetch（扩展 host 权限覆盖 offscreen，免 CORS），源码持久化进项目
 //   files（断网可重构建）
 // - UI 经 ai:build 命令调用（offscreen-build-commands.ts），本模块不 import 进 SW / 页面
