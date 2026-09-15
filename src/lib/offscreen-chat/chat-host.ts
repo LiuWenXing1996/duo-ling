@@ -177,20 +177,18 @@ async function persistGeneratedProject(ws: TaskWorkspace): Promise<GenerationCar
   }
 }
 
-/** 从缓冲事件还原完整 UIMessage（收尾落盘用；缓冲含我们追加的 data parts）。
- * 内部 chunk 处理错误默认被 SDK 吞掉（只走 onError 回调），必须收集起来——
- * 2026-09-15 手测：还原失败时 persisted=undefined，落盘被静默跳过，历史里只剩用户消息。 */
-async function buildFinalMessage(
-  conversationId: string,
+/** 从完整 chunk 序列还原 assistant UIMessage（收尾落盘用）。
+ * 2026-09-15 手测教训：不能复用事件环形缓冲——它是为「进行中任务重连」设计的，
+ * 4000 条上限会被长回复（万级 text delta）截断，replaySince(0) 判「不完整」→
+ * 落盘被跳过、历史里只剩用户消息。落盘直接用泵流时收的完整序列，与缓冲解耦。 */
+async function buildFinalMessageFromChunks(
+  chunks: UIMessageChunk[],
 ): Promise<{ message?: UIMessage; errors: string[] }> {
-  const { complete, events } = replaySince(conversationId, 0)
-  if (!complete || !events.length) {
-    return { errors: [`缓冲不可用：complete=${complete}，events=${events.length}`] }
-  }
+  if (!chunks.length) return { errors: ['收尾事件序列为空'] }
   const errors: string[] = []
   const stream = new ReadableStream<UIMessageChunk>({
     start(controller) {
-      for (const e of events) controller.enqueue(e.chunk)
+      for (const chunk of chunks) controller.enqueue(chunk)
       controller.close()
     },
   })
@@ -269,8 +267,10 @@ async function runLoop(opts: {
       sendFinish: true,
     })
 
-    // 泵流：除 finish 外逐条入缓冲 + 推观察者；finish 押后——先落盘/造卡，再收尾
+    // 泵流：逐条入缓冲 + 推观察者；finish 只押后出**缓冲**（收尾时再入），
+    // 完整序列 allChunks 全收（含 finish）——落盘还原靠它，不靠环形缓冲（会被长回复截断）
     // （ReadableStream 在当前 TS lib 下没有 asyncIterator 声明，reader 手泵）
+    const allChunks: UIMessageChunk[] = []
     let finishChunk: UIMessageChunk | undefined
     let sawAbort = false
     const reader = ui.getReader()
@@ -278,6 +278,7 @@ async function runLoop(opts: {
       const { done, value } = await reader.read()
       if (done) break
       const chunk = value as UIMessageChunk
+      allChunks.push(chunk)
       if (chunk.type === 'start' && chunk.messageId) task.messageId = chunk.messageId
       if (chunk.type === 'start-step') {
         const rec = await getTask(taskId)
@@ -319,8 +320,7 @@ async function runLoop(opts: {
       })
     }
 
-    // 2) 先把卡片 / usage 入缓冲（随消息落盘，重开面板可还原），**finish 押到最后**——
-    //    落盘若失败，error 块先于 finish 到达面板才能被 useChat onError 呈现
+    // 2) 生成卡片 + token 用量（data part 随流推送，也随消息一起落盘，重开面板可还原）
     const usage = await result.usage
     if (card) {
       pushChunk(conversationId, {
@@ -345,9 +345,22 @@ async function runLoop(opts: {
     }
 
     // 3) assistant 消息落盘（唯一写方 = offscreen；含完整 parts，供回读还原分轮思考 / 工具卡 / 卡片）。
-    //    两个失败口子都必须「响」：还原为空 / 写库异常原来分别静默跳过与只打日志，
-    //    历史里就只剩用户消息（2026-09-15 手测实测）。
-    const { message: persisted, errors: restoreErrors } = await buildFinalMessage(conversationId)
+    //    还原序列 = 流内 chunk（finish 摘出押后）+ 卡片/usage data 块 + finish，卡片/usage 必须在
+    //    finish 前才进得了 parts。失败必须「响」——原来两个口子分别静默跳过与只打日志。
+    const cardChunk = card
+      ? ({ type: 'data-generation', id: `gen-${card.uuid}`, data: card } as UIMessageChunk)
+      : undefined
+    const usageChunk = usageData
+      ? ({ type: 'data-usage', id: `usage-${task.messageId}`, data: usageData } as UIMessageChunk)
+      : undefined
+    const restoreChunks = [
+      ...allChunks.filter((c) => c.type !== 'finish'),
+      ...(cardChunk ? [cardChunk] : []),
+      ...(usageChunk ? [usageChunk] : []),
+      ...(finishChunk ? [finishChunk] : []),
+    ]
+    const { message: persisted, errors: restoreErrors } =
+      await buildFinalMessageFromChunks(restoreChunks)
     if (persisted) {
       await appendMessage({
         id: persisted.id || task.messageId,
@@ -366,7 +379,7 @@ async function runLoop(opts: {
         })
       })
     } else {
-      const kinds = replaySince(conversationId, 0).events.map((e) => e.chunk.type).join(',')
+      const kinds = restoreChunks.map((c) => c.type).join(',')
       const detail = restoreErrors.length
         ? `${restoreErrors.slice(0, 3).join('；')}（事件：${kinds}）`
         : `还原产出为空，无 onError（事件：${kinds}）`

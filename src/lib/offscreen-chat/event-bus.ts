@@ -3,8 +3,11 @@
 // offscreen 为每个会话的进行中任务维护一份 UIMessageChunk 环形缓冲：
 //   · 每条事件带自增 seq（eventId）；
 //   · 侧边栏（观察者）按 seq 去重消费；面板重开 / 切回会话时按 lastEventId replay；
-//   · 任务结束后缓冲保留到同会话下一次 chat:start（重开面板还能拿到收尾状态）；
+//   · **只服务进行中任务的重连**：任务收尾（正常 / 中止 / 异常）即 dropBuffer——
+//     收尾后结果已在会话历史，保留缓冲只会让重开面板 replay 出重复消息；
 //   · offscreen 被杀则缓冲随之消失——那份兜底是 IndexedDB 任务快照 + 会话历史，不是这里。
+//   · ⚠️ 缓冲**不用于落盘还原**：4000 条上限会被长回复（万级 text delta）截断，
+//     落盘走 chat-host 泵流时自收的完整 chunk 序列（buildFinalMessageFromChunks）。
 //
 // 推送通道：chrome.runtime.sendMessage（offscreen → 侧边栏 + SW）。SW 不消费 chat: 前缀
 // （不在其路由白名单）；面板未开时 sendMessage 报「无人接收」，尽力而为、不阻断任务。
@@ -12,7 +15,7 @@
 import type { UIMessageChunk } from 'ai'
 import type { OffscreenPush } from '@/shared/extension-ipc'
 
-/** 单会话缓冲上限（条）。UIMessageChunk 都很小，4000 条足够覆盖 maxSteps=8 的长任务 */
+/** 单会话缓冲上限（条）。被截断时重连方按「缓冲不完整」处理（返回 idle，UI 回退到会话历史） */
 const MAX_EVENTS_PER_CHAT = 4000
 
 interface ChatBuffer {
