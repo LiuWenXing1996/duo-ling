@@ -71,6 +71,9 @@ function buildSystemPrompt(prompt: string, pageContext?: { url?: string; title?:
     '先用 script_spec 拿规范，再用 script_apply 提交文件树并构建验证（构建失败按诊断修改后整体重交），',
     '构建通过即收敛——落盘、生效与提交说明由系统处理，你不需要也无法自己保存脚本。',
     'matches 默认收窄到目标站点；改既有脚本前先 script_read 读出现有内容。',
+    '闲聊或与脚本无关的消息只正常回应，**不要**顺手继续此前被停止 / 中断的任务——',
+    '历史里可能出现中断的半截工具调用，那是用户主动停止留下的，不代表用户想要你续做；',
+    '只有用户新消息里明确要求（如「继续」「把脚本写完」）才继续未完成的脚本工作。',
   ]
   if (pageContext?.url) {
     lines.push(`\n当前页面：${pageContext.title ? `「${pageContext.title}」` : ''}${pageContext.url}`)
