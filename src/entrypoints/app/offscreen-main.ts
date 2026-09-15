@@ -116,7 +116,7 @@ async function handleChatCommand(msg: RuntimeRequest): Promise<unknown> {
     case 'chat:abort':
       return abortChat(msg.conversationId)
     case 'chat:resume':
-      return resumeChat(msg.conversationId, msg.lastEventId)
+      return resumeChat(msg.conversationId)
     case 'chat:orphans':
       return listOrphans()
     case 'chat:orphanAction':

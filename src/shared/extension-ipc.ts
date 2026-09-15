@@ -79,8 +79,8 @@ export type RuntimeRequest =
   // 事件经 OffscreenPush（chat:chunk）逐条推送，重开面板按 lastEventId replay（chat:resume）。
   | { kind: 'chat:start'; conversationId: string; messages: import('ai').UIMessage[]; trigger: 'submit-message' | 'regenerate-message'; pageContext?: { url?: string; title?: string } }
   | { kind: 'chat:abort'; conversationId: string }
-  // 重连：返回该会话任务的事件缓冲（seq > lastEventId 的部分）与运行状态
-  | { kind: 'chat:resume'; conversationId: string; lastEventId: number }
+  // 重连：返回该会话进行中任务的完整事件缓冲（从头回放；观察方本地视图可能刚从历史重建）
+  | { kind: 'chat:resume'; conversationId: string }
   // 孤儿任务：宿主被杀后 status=running 且心跳过期的记录（供 UI 提示「继续 / 丢弃」）
   | { kind: 'chat:orphans' }
   | { kind: 'chat:orphanAction'; taskId: string; action: 'continue' | 'discard' }
@@ -109,7 +109,7 @@ export type RuntimeRequest =
  * offscreen 监听后自行决定是否回拉，例如收到 configChanged 就重新调 model:getActiveProfile。
  *
  * chat:chunk —— offscreen → 侧边栏（观察者）的事件流：每条带会话 id 与自增 seq，
- * 侧边栏按 seq 去重、按 lastEventId replay（方案 §4.8 机制 3）。SW 不消费（前缀不在白名单）。
+ * 侧边栏按 seq 去重（重连回放与实时推送短暂重叠时防重）。SW 不消费（前缀不在白名单）。
  */
 export type OffscreenPush =
   | { kind: 'offscreen:configChanged' }
@@ -124,7 +124,7 @@ export type ChatResumeResult =
   | {
       status: 'running'
       taskId: string
-      /** seq > lastEventId 的事件（按 seq 升序），连同后续 chat:chunk 推送一起消费 */
+      /** 该任务缓冲的完整事件序列（按 seq 升序），连同后续 chat:chunk 推送一起消费 */
       events: Array<{ seq: number; chunk: import('ai').UIMessageChunk }>
     }
 

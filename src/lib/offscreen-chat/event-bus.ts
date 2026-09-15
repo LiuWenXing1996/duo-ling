@@ -1,8 +1,9 @@
 // 对话事件缓冲（方案 §4.8 机制 3，reconnectToStream 真实现的核心）。
 //
 // offscreen 为每个会话的进行中任务维护一份 UIMessageChunk 环形缓冲：
-//   · 每条事件带自增 seq（eventId）；
-//   · 侧边栏（观察者）按 seq 去重消费；面板重开 / 切回会话时按 lastEventId replay；
+//   · 每条事件带自增 seq（每轮任务从 1 重计）；
+//   · 侧边栏（观察者）按 seq 去重；重连（chat:resume）时**从头全量回放**——
+//     观察方本地视图可能刚从会话历史重建，按消费点续传会缺 start 类配对块；
 //   · **只服务进行中任务的重连**：任务收尾（正常 / 中止 / 异常）即 dropBuffer——
 //     收尾后结果已在会话历史，保留缓冲只会让重开面板 replay 出重复消息；
 //   · offscreen 被杀则缓冲随之消失——那份兜底是 IndexedDB 任务快照 + 会话历史，不是这里。
@@ -15,8 +16,10 @@
 import type { UIMessageChunk } from 'ai'
 import type { OffscreenPush } from '@/shared/extension-ipc'
 
-/** 单会话缓冲上限（条）。被截断时重连方按「缓冲不完整」处理（返回 idle，UI 回退到会话历史） */
-const MAX_EVENTS_PER_CHAT = 4000
+/** 单会话缓冲上限（条）。长回复按 ~1 delta/token 计，2.3 万 token ≈ 2.3 万条——
+ * 上限须按最坏 token 量论证（4000 条曾被 23013 token 的回复冲穿）。被截断时
+ * resume 按「缓冲不完整」处理（返回 idle，UI 回退到会话历史） */
+const MAX_EVENTS_PER_CHAT = 50_000
 
 interface ChatBuffer {
   seq: number
@@ -56,7 +59,7 @@ export function pushChunk(conversationId: string, chunk: UIMessageChunk): number
   const event = { seq: b.seq, chunk }
   b.events.push(event)
   if (b.events.length > MAX_EVENTS_PER_CHAT) {
-    // 环形：丢最老的。重连方 lastEventId 落在被丢弃区间时按「缓冲已不完整」处理（返回 idle）
+    // 环形：丢最老的。缓冲被截断时 resume（从头回放）判「不完整」返回 idle
     b.events.splice(0, b.events.length - MAX_EVENTS_PER_CHAT)
   }
   const push: OffscreenPush = { kind: 'chat:chunk', conversationId, seq: event.seq, chunk }

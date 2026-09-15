@@ -2,7 +2,7 @@
 //
 // 职责：
 //   · streamText + tools（script_spec / script_read / script_apply）+ stopWhen(maxSteps=8)；
-//   · 事件缓冲（event-bus）+ 观察者推送（chat:chunk）+ 按 lastEventId 重连（chat:resume）；
+//   · 事件缓冲（event-bus）+ 观察者推送（chat:chunk）+ 从头全量回放（chat:resume）；
 //   · 每步任务快照（task-store，覆盖写 + 心跳）→ 宿主被杀后可「继续 / 丢弃」；
 //   · 收敛后经 SW 落盘（userscript:createProject，单写方在 offscreen 侧的 state:createProject），
 //     git 快照 note = AI summary；生成卡片（data-generation data part）随流推送并随消息落盘；
@@ -470,13 +470,16 @@ export async function abortChat(conversationId: string): Promise<void> {
   task?.abort.abort()
 }
 
-/** chat:resume：侧边栏按 lastEventId 重连（面板重开 / 切回会话）。
- *  只对进行中任务回放——收尾即清缓冲，结束后 UI 一律以会话历史为准（防 replay 出重复消息） */
-export function resumeChat(conversationId: string, lastEventId: number): ChatResumeResult {
+/** chat:resume：侧边栏重连（面板重开 / 切回会话）。
+ *  **一律从头回放**：观察方切回时本地视图已从会话历史重建（不含进行中的半截
+ *  assistant 消息），按「上次消费点」续传会缺 reasoning-start / text-start 等
+ *  配对块，SDK 直接报「delta 先于 start」（2026-09-15 手测实测）。
+ *  收尾即清缓冲，结束后 UI 一律以会话历史为准（防 replay 出重复消息）。 */
+export function resumeChat(conversationId: string): ChatResumeResult {
   const running = runningByConversation.get(conversationId)
   if (!running) return { status: 'idle' }
-  const { complete, events } = replaySince(conversationId, lastEventId)
-  if (!complete) return { status: 'idle' } // 缓冲不完整：UI 稍后从会话历史拿收尾结果
+  const { complete, events } = replaySince(conversationId, 0)
+  if (!complete) return { status: 'idle' } // 缓冲被截断（超长回复）：UI 以会话历史兜底
   return { status: 'running', taskId: running.taskId, events }
 }
 

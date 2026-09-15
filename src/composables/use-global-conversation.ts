@@ -8,7 +8,7 @@
 //   · 落盘归 offscreen —— 用户消息在 chat:start 时落盘、assistant 消息在收尾时落盘
 //     （含完整 parts 与 token 用量）；侧边栏**不写**会话库，防双写。
 //   · 断线重连 —— 面板重开 / 切回会话时经 chat.resumeStream() → transport.reconnectToStream()
-//     按 lastEventId 接上 offscreen 里仍在进行中的任务；「下完单就走」由此成立。
+//     从头回放 offscreen 里仍在进行中任务的完整事件缓冲接上；「下完单就走」由此成立。
 //   · 孤儿任务 —— offscreen 宿主被杀后 status=running 的记录（心跳过期）在此提示「继续 / 丢弃」。
 //
 // 2026-09-14：工具链路移除（docs/tool-chain-removal-plan.md）后，原「多工具意图」分支

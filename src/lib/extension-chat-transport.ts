@@ -5,7 +5,7 @@
 //   v2  整条对话链路搬进 offscreen（docs/userscript-ai-generation.md §4.8 定位 B）：
 //       本文件退回纯「观察者」角色——sendMessages 只是把指令 + 消息交给 offscreen
 //       （chat:start），随后把 offscreen 推回的事件（chat:chunk）收集成 ReadableStream
-//       喂给 useChat；reconnectToStream 第一次有了真实语义：按 lastEventId 重放
+//       喂给 useChat；reconnectToStream 第一次有了真实语义：重连时从头全量回放
 //       offscreen 侧的 per-task 事件缓冲，实现「关面板任务照跑、重开面板接上」。
 //
 // 会话 id 的约定：useChat 实例是单例、内部 chatId 每次挂载随机生成，与本扩展的
@@ -64,7 +64,9 @@ interface StreamConsumer {
 }
 
 const consumers = new Map<string, StreamConsumer>()
-/** 各会话已消费到的最大 seq（去重；重连时作为 lastEventId） */
+/** 各会话已消费到的最大 seq（防回放与实时推送短暂重叠时重复入流；
+ * 新任务开始 / 重连回放前清零——offscreen 的 seq 每轮任务重计，且观察方
+ * 本地视图可能刚从历史重建） */
 const lastSeq = new Map<string, number>()
 
 function isTerminalChunk(chunk: UIMessageChunk): boolean {
@@ -140,7 +142,10 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
 
     const stream = new ReadableStream<UIMessageChunk>({
       start: async (controller) => {
-        // 先登记消费者再发指令：offscreen 的首条推送可能早于 chat:start 的应答返回
+        // 先登记消费者再发指令：offscreen 的首条推送可能早于 chat:start 的应答返回。
+        // 去重基线一并清掉：offscreen 的 seq 每轮任务从 1 重计，留着上一轮的基线
+        // 会把新一轮的开头（start / reasoning-start 等配对块）当重播丢掉。
+        lastSeq.delete(conversationId)
         consumers.set(conversationId, { controller })
         try {
           const pageContext = await collectPageContext()
@@ -182,8 +187,8 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
 
   /**
    * 重连（面板重开 / 切回会话后由 useChat 的 resumeStream 触发）：
-   * offscreen 返回该会话进行中任务的事件缓冲（seq > lastEventId），随后实时推送继续进同一流。
-   * 无进行中任务返回 null（useChat 的既定语义），UI 以会话历史为准。
+   * offscreen 返回该会话进行中任务的**完整**事件缓冲（从头回放，见 chat-host.resumeChat），
+   * 随后实时推送继续进同一流。无进行中任务返回 null（useChat 的既定语义），UI 以会话历史为准。
    */
   async reconnectToStream(): Promise<ReadableStream<UIMessageChunk> | null> {
     installPushListener()
@@ -192,15 +197,16 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
 
     let res: ChatResumeResult
     try {
-      res = await sendChat<ChatResumeResult>({
-        kind: 'chat:resume',
-        conversationId,
-        lastEventId: lastSeq.get(conversationId) ?? 0,
-      })
+      res = await sendChat<ChatResumeResult>({ kind: 'chat:resume', conversationId })
     } catch {
       return null // 容器不在 / 命令失败：按「无可重连」处理
     }
     if (res.status !== 'running' || !res.events.length) return null
+
+    // 去重基线清零后由回放事件重建：本地视图刚从历史重建（不含半截 assistant 消息），
+    // 旧的基线只会把回放开头的配对块（start / reasoning-start）当重播丢掉。
+    // 回放完基线停在缓冲尾，与后续实时推送自然衔接。
+    lastSeq.delete(conversationId)
 
     return new ReadableStream<UIMessageChunk>({
       start: (controller) => {
