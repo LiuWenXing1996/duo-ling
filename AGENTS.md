@@ -42,6 +42,7 @@
 | [legacy/docs/tool-spec.md](legacy/docs/tool-spec.md) | ~~工具规范~~（已随工具链路归档，仅历史参照） | 不读，除非考古 |
 | [docs/style.md](docs/style.md) | 代码风格规范（部分条目为 Electron 时期约定，按需取用） | 写代码 / 改样式前 |
 | [docs/lessons.md](docs/lessons.md) | 踩坑记录 | 报错 / 排查前 |
+| [docs/testing-plan.md](docs/testing-plan.md) | 测试方案（五层分层 + E2E 路由，待开工） | 补测试 / 动工测试前 |
 | [docs/todo.md](docs/todo.md) | 待办与方案 | 了解遗留事项时 |
 | `legacy/` | 原 Electron 实现归档（含 `docs` 未覆盖的代码事实） | 平移逻辑时对照 |
 
