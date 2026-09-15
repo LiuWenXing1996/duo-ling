@@ -11,7 +11,7 @@
 // 「新建工具」按钮一并摘除；开发者界面（内容 100% 是工具能力面）同批删除。
 // 2026-09-15：用户脚本管理器覆盖层删除（能力全部并入脚本列表标签页），导航只剩：
 // 设置 / UI 测试 / 脚本列表。
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import {
   FlaskConical as UiFlaskConical,
   FolderTree as UiFolderTree,
@@ -19,9 +19,24 @@ import {
   Settings as UiSettings
 } from '@lucide/vue'
 import WorkspaceHost from '@/components/WorkspaceHost.vue'
+import { getProject } from '@/lib/userscripts/project-store'
 
 // 左侧导航栏「设置」「脚本列表」等：调用工作区的对应方法
 const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
+
+// hash 深链（openWorkbench 的既定约定，2026-09-15 才真正实现）：
+//   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
+//   #/settings    → 打开设置标签页
+onMounted(() => {
+  const tool = location.hash.match(/^#\/tool\/([A-Za-z0-9-]+)/)
+  if (tool) {
+    void getProject(tool[1]).then((p) => {
+      workspaceRef.value?.openUserscriptEditor(tool[1], p?.name ?? '')
+    })
+    return
+  }
+  if (location.hash === '#/settings') workspaceRef.value?.openSettingsTab()
+})
 </script>
 
 <template>

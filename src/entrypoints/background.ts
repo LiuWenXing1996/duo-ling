@@ -218,6 +218,29 @@ const handlers: {
     }
   },
 
+  // AI 生成脚本落盘（方案 §4.5「先落盘不启用 + 一键启用」）：转发 offscreen 单写方
+  // （写状态库 + git 快照，note = AI summary），enabled 为真才注册——生成与生效解耦，
+  // AI 产物默认零影响；启用走现成的 userscript:toggle。
+  'userscript:createProject': async (msg): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
+    const project = await writeViaOffscreen<ScriptProject>({
+      kind: 'state:createProject',
+      name: msg.name,
+      config: msg.config,
+      files: msg.files,
+      entry: msg.entry,
+      bundle: msg.bundle,
+      enabled: msg.enabled,
+      note: msg.note,
+    })
+    const registerError = project.enabled ? await registerOrLog(project) : undefined
+    return {
+      uuid: project.uuid,
+      name: project.name,
+      warnings: collectCspWarnings(resolveInjectCode(project), await getEffectiveCspPermissive()),
+      registerError,
+    }
+  },
+
   // 删除：注销 → offscreen 清状态库记录 + git 仓 → 清该脚本的 DL.store 值。
   // 仓的删除原先只能靠 offscreen 启动对账兜（删完会滞留一阵），现在写侧同在 offscreen，一步清干净。
   'userscript:remove': async (msg): Promise<void> => {

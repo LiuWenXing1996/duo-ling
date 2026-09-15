@@ -12,6 +12,7 @@
 // 注意：这里只用 `import type` 引类型（编译后消失，零运行时依赖）—— 引的 ScriptProject
 // 来自 userscripts/types.ts，那是纯类型 + 纯函数模块，不碰任何 chrome API。
 import type { ModelProfileState, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
+import type { ScriptConfig } from '@/lib/userscripts/types'
 
 /** 向 SW 发一次请求，统一解包 { ok, data | error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -49,4 +50,20 @@ export const offscreenBridge = {
    */
   getActiveProfile: (): Promise<ModelProfileState | undefined> =>
     send({ kind: 'model:getActiveProfile' }),
+
+  /**
+   * AI 生成脚本落盘（经 SW：userscript:createProject → writeViaOffscreen → state:createProject）。
+   * 写状态库 + git 快照（note = AI summary）都在 offscreen 单写方完成，SW 负责注册（enabled 时）。
+   * 虽然写侧就在本上下文，仍走 SW 命令面——保持「落盘入口唯一」，与管理页/编辑器同一条路。
+   */
+  createProject: (payload: {
+    name: string
+    config: ScriptConfig
+    files: Record<string, string>
+    entry: string
+    bundle: { code: string; builtAt: number }
+    enabled: boolean
+    note?: string
+  }): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> =>
+    send({ kind: 'userscript:createProject', ...payload }),
 }

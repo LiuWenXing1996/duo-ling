@@ -10,6 +10,7 @@
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { listProjects } from './project-store'
 import {
+  createGeneratedProject,
   createProject,
   removeProjectAndRepo,
   setProjectEnabled,
@@ -38,6 +39,9 @@ export async function handleStateCommand(msg: StateRequest): Promise<unknown> {
       return undefined
     case 'state:toggle':
       return setProjectEnabled(msg.uuid, msg.enabled)
+    case 'state:createProject':
+      // AI 生成脚本落盘：写状态库 + git 快照（note = AI summary），不在此注册（enabled:false 默认）
+      return createGeneratedProject(msg)
   }
 }
 

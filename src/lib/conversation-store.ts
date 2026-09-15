@@ -1,10 +1,16 @@
 // 会话与消息持久化（IndexedDB），替换桌面版主进程的 conversation-store。
 // 为什么不用 chrome.storage.local：会话消息写入频繁且体积增长快，IndexedDB 更适合；
-// 且 side panel 与 workbench 标签页同源，可直接共享该库，无需经 background 中转。
+// 且 side panel / workbench / offscreen 同源，可直接共享该库，无需经 background 中转。
+//
+// 2026-09-15（AI 生成用户脚本，docs/userscript-ai-generation.md §4.8）：整条对话链路搬进
+// offscreen 后，**会话历史的唯一写入方 = offscreen**（侧边栏只读 + 订阅，防双写）。
+// offscreen 只有 chrome.runtime，拿不到 chrome.storage —— 会话自增序号（SEQ）随之从
+// chrome.storage.local 迁入本库的 meta store，取号在一个 readwrite 事务内完成（原子自增）。
+// 首次取号时会尝试从旧 chrome.storage 键迁移存量序号（有 chrome.storage 的上下文里顺带做）。
 //
 // 语义对齐桌面版 `legacy/src/main/conversation-store.ts`：
 //   1. 新会话标题为「新会话 N」，N 来自**自增序号**（不是「当前会话数 + 1」，
-//      否则删掉一个会话再新建就会出现重号）；序号持久化在 chrome.storage.local。
+//      否则删掉一个会话再新建就会出现重号）；序号持久化在本库 meta store。
 //   2. **首条用户消息自动命名**：标题仍是默认「新会话 N」时，取消息内容前 20 字作标题。
 //      这段逻辑必须留在 appendMessage 里（桌面版就在此处），它是唯一的触发点。
 //   3. `renameConversation` trim 后为空则拒绝（不写空标题）。
@@ -13,11 +19,14 @@
 import type { Conversation, ConversationSearchHit, Message } from '../shared/types'
 
 const DB_NAME = 'duoling-chat'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const CONVERSATIONS = 'conversations'
 const MESSAGES = 'messages'
-/** 新会话序号（chrome.storage.local）：保证「新会话 N」不重号，清空会话时重置 */
-const SEQ_KEY = 'conversationSeq'
+const META = 'meta'
+/** 新会话序号（meta store 键）：保证「新会话 N」不重号，清空会话时重置 */
+const SEQ_META_KEY = 'conversationSeq'
+/** 旧版序号所在键（chrome.storage.local）——仅用于首次迁移，之后不再读写 */
+const LEGACY_SEQ_KEY = 'conversationSeq'
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -34,6 +43,9 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(MESSAGES)) {
         const store = db.createObjectStore(MESSAGES, { keyPath: 'id' })
         store.createIndex('conversationId', 'conversationId')
+      }
+      if (!db.objectStoreNames.contains(META)) {
+        db.createObjectStore(META)
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -101,12 +113,43 @@ function truncateSnippet(text: string, max = 100): string {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat
 }
 
-/** 下一个会话序号：自增并落盘（对应桌面版的 nextSeq） */
+/**
+ * 下一个会话序号：在**单个 readwrite 事务内**读旧值 + 写新值（原子自增，不靠跨事务读改写）。
+ * 唯一写方是 offscreen（对话链路宿主）；首次取号顺带从旧 chrome.storage 键迁移存量序号。
+ */
 async function takeNextSeq(): Promise<number> {
-  const raw = (await chrome.storage.local.get(SEQ_KEY))[SEQ_KEY] as number | undefined
-  const seq = typeof raw === 'number' && raw > 0 ? raw : 1
-  await chrome.storage.local.set({ [SEQ_KEY]: seq + 1 })
-  return seq
+  const db = await openDb()
+  return new Promise<number>((resolve, reject) => {
+    const tx = db.transaction(META, 'readwrite')
+    const store = tx.objectStore(META)
+    const req = store.get(SEQ_META_KEY)
+    req.onsuccess = () => {
+      let seq = typeof req.result === 'number' && req.result > 0 ? req.result : 1
+      store.put(seq + 1, SEQ_META_KEY)
+      // 一次性迁移：IDB 里还没有序号时，看旧 chrome.storage 键是否更大（有该 API 的上下文才试）
+      if (req.result === undefined) {
+        try {
+          if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+            void chrome.storage.local
+              .get(LEGACY_SEQ_KEY)
+              .then((items: Record<string, unknown>) => {
+                const legacy = items[LEGACY_SEQ_KEY]
+                if (typeof legacy === 'number' && legacy > seq) {
+                  // 只前进不回退：旧键更大说明期间在旧版上建过会话，接上它
+                  const fix = db.transaction(META, 'readwrite')
+                  fix.objectStore(META).put(legacy + 1, SEQ_META_KEY)
+                }
+              })
+              .catch(() => {})
+          }
+        } catch {
+          // offscreen 等无 chrome.storage 的上下文：跳过迁移
+        }
+      }
+      resolve(seq)
+    }
+    req.onerror = () => reject(req.error)
+  })
 }
 
 // —— 会话 ——
@@ -161,13 +204,13 @@ export async function deleteConversation(id: string): Promise<void> {
 export async function deleteAllConversations(): Promise<void> {
   const db = await openDb()
   await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction([CONVERSATIONS, MESSAGES], 'readwrite')
+    const transaction = db.transaction([CONVERSATIONS, MESSAGES, META], 'readwrite')
     transaction.objectStore(CONVERSATIONS).clear()
     transaction.objectStore(MESSAGES).clear()
+    transaction.objectStore(META).put(1, SEQ_META_KEY)
     transaction.oncomplete = () => resolve()
     transaction.onerror = () => reject(transaction.error)
   })
-  await chrome.storage.local.set({ [SEQ_KEY]: 1 })
 }
 
 // —— 消息 ——
@@ -189,22 +232,41 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
  * 追加一条消息并刷新会话 lastMessageAt；会话不存在时返回 null（与桌面版一致）。
  * 顺带处理**首条用户消息自动命名**——桌面版把这段逻辑放在同一处，是唯一的触发点，
  * 拆出去（例如做成独立的 autoTitle 供外部调用）会因无人调用而静默失效。
+ *
+ * 必须在**单个 readwrite 事务**里完成读与写：旧实现拆成 3 个独立事务（查 existing →
+ * 写消息 → 读+写会话），两个 append 并发交错时，后提交的会用读到的旧标题覆盖
+ * 先完成的自动命名（2026-09-15 手测：部分会话标题停在「新会话 N」）。
+ * 命名条件也由此改为「该会话此前没有用户消息」（而非「没有任何消息」）——
+ * 异常收尾可能让 assistant 消息先落盘，按任意消息判断会让改名静默失效。
  */
 export async function appendMessage(message: Message): Promise<Message | null> {
-  const existing = await listMessages(message.conversationId)
-  await tx(MESSAGES, 'readwrite', (s) => s.put(message))
-  const conversation = await tx<Conversation | undefined>(CONVERSATIONS, 'readonly', (s) =>
-    s.get(message.conversationId),
-  )
-  if (!conversation) return null
+  const db = await openDb()
+  return new Promise<Message | null>((resolve, reject) => {
+    const transaction = db.transaction([CONVERSATIONS, MESSAGES], 'readwrite')
+    const messages = transaction.objectStore(MESSAGES)
+    const conversations = transaction.objectStore(CONVERSATIONS)
 
-  const next: Conversation = { ...conversation, lastMessageAt: message.createdAt }
-  if (existing.length === 0 && message.role === 'user' && /^新会话 \d+$/.test(next.title)) {
-    const trimmed = message.content.trim()
-    if (trimmed) next.title = trimmed.length > 20 ? `${trimmed.slice(0, 20)}…` : trimmed
-  }
-  await tx(CONVERSATIONS, 'readwrite', (s) => s.put(next))
-  return message
+    // 请求按发出顺序执行：先读会话与既有消息，回调里再做写入（同事务，不会提前提交）
+    const convReq = conversations.get(message.conversationId)
+    const listReq = messages.index('conversationId').getAll(message.conversationId)
+    listReq.onsuccess = () => {
+      const conversation = convReq.result as Conversation | undefined
+      if (!conversation) return // 会话不存在：不写任何东西，oncomplete 时 resolve null
+
+      messages.put(message)
+      const prior = listReq.result as Message[]
+      const next: Conversation = { ...conversation, lastMessageAt: message.createdAt }
+      const isFirstUserMessage = message.role === 'user' && !prior.some((m) => m.role === 'user')
+      if (isFirstUserMessage && /^新会话 \d+$/.test(next.title)) {
+        const trimmed = message.content.trim()
+        if (trimmed) next.title = trimmed.length > 20 ? `${trimmed.slice(0, 20)}…` : trimmed
+      }
+      conversations.put(next)
+    }
+    transaction.oncomplete = () => resolve(convReq.result ? message : null)
+    transaction.onerror = () => reject(transaction.error ?? new Error('appendMessage 事务失败'))
+    transaction.onabort = () => reject(transaction.error ?? new Error('appendMessage 事务中止'))
+  })
 }
 
 /** 会话检索：空查询返回最近 limit 条；非空匹配标题或任意消息正文（大小写不敏感） */
