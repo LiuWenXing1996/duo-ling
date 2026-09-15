@@ -54,6 +54,7 @@ const ALL_KINDS = [
   { kind: 'userscript:updateFiles', side: 'sw' },
   { kind: 'userscript:clearDeprecated', side: 'sw' },
   { kind: 'userscript:create', side: 'sw' },
+  { kind: 'userscript:createProject', side: 'sw' },
   { kind: 'userscript:remove', side: 'sw' },
   { kind: 'userscript:toggle', side: 'sw' },
   { kind: 'userscript:availability', side: 'sw' },
@@ -71,6 +72,7 @@ const ALL_KINDS = [
   { kind: 'ai:lfsReadFile', side: 'offscreen' },
   // —— state:*（offscreen：项目状态库写侧，单写方）——
   { kind: 'state:create', side: 'offscreen' },
+  { kind: 'state:createProject', side: 'offscreen' },
   { kind: 'state:updateFiles', side: 'offscreen' },
   { kind: 'state:remove', side: 'offscreen' },
   { kind: 'state:toggle', side: 'offscreen' },
