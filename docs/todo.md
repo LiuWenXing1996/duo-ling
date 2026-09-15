@@ -149,7 +149,7 @@ SW 直读 IndexedDB 注册」→ **已做**（见本条目顶部）。讨论出�
 
 **详细文档**：见 [testing-plan.md](./testing-plan.md)（分层方案、E2E 关键结论与测试面映射、基础设施、顺序）。本条目只留状态索引，以文档为准。
 
-**状态**：层1（纯逻辑单测）首批已落地（2026-09-15）：`vitest` 已入 devDependencies（`fake-indexeddb` 原有），`vitest.config.ts` 用 `WxtVitest()` 插件（注意 0.21.4 是**具名导出** `import { WxtVitest } from 'wxt/testing/vitest-plugin'`，无 default export；include 收窄到 `src/**/*.test.ts` 防止扫到 legacy 的旧 spec）。7 个测试文件 107 用例全绿，覆盖 key-cipher / code-view / userscripts 的 types、state-db（fake-indexeddb）、project-store、store（fakeBrowser）、project-write（mock builder 与 us-git 模拟 offscreen 上下文）。层2（协议一致性）待开工；E2E 依赖 @playwright/test 未装。
+**状态**：层 1（纯逻辑单测）首批已落地（2026-09-15）：`vitest` 已入 devDependencies（`fake-indexeddb` 原有），`vitest.config.ts` 用 `WxtVitest()` 插件（0.21.4 具名导出 `import { WxtVitest } from 'wxt/testing/vitest-plugin'`，无 default；include 收窄 `src/**/*.test.ts` 防扫 legacy 旧 spec）。7 个测试文件 107 用例全绿，覆盖 key-cipher / code-view / userscripts 的 types、state-db（fake-indexeddb）、project-store、store（fakeBrowser）、project-write（mock builder 与 us-git 模拟 offscreen 上下文）。层 3 构建冒烟已完成（2026-09-15，`builder.test.ts` 3 例全绿，wasm 加载结论见 testing-plan「层 3 实施结论」）。层 2（协议一致性）、层 5（E2E）待开工；E2E 依赖 @playwright/test 未装。
 
 ---
 
