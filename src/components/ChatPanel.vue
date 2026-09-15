@@ -16,10 +16,14 @@ import {
   ChevronsUpDown as UiChevronsUpDown,
   CircleCheck as UiCircleCheck,
   CircleX as UiCircleX,
+  Copy as UiCopy,
   FileText as UiFileText,
   LoaderCircle as UiLoaderCircle,
+  Pencil as UiPencil,
+  Play as UiPlay,
   Plus as UiPlus,
-  Sparkle as UiSparkle
+  Sparkle as UiSparkle,
+  Trash2 as UiTrash2
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import {
@@ -61,6 +65,7 @@ import {
 } from '@/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import type { TokenUsage } from '@/shared/types'
+import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
   getToolName,
   isReasoningUIPart,
@@ -77,6 +82,8 @@ const props = defineProps<{
   /** 各消息本次消耗的 token（按 UIMessage.id 索引），assistant 消息展示在气泡下方 */
   usageByMessageId: Record<string, TokenUsage>
   streaming: boolean
+  /** 最近一次生成失败的错误文案（空串 = 无错）；渲染在消息区与输入框之间 */
+  errorText?: string
 }>()
 const emit = defineEmits<{
   send: [text: string]
@@ -334,6 +341,106 @@ function toggleText(m: UIMessage, node: TextNode): void {
   else expandedTexts.add(key)
 }
 
+// —— 生成卡片（data-generation data part，docs/userscript-ai-generation.md §4.5）——
+// offscreen 收敛后经 SW 落盘（enabled:false），随流推送 data part、随消息落盘；
+// 卡片必须讲清三件事：① 尚未启用 ② 生效范围 ③ 脚本会做什么（bundle 静态扫描）。
+interface GenerationCardData {
+  uuid: string
+  name: string
+  enabled: boolean
+  matches: string[]
+  /** bundle 里扫描到的 DL.* 能力（「会做什么」展示级软审查） */
+  capabilities: string[]
+  summary: string
+  savedAt: number
+}
+
+/** 卡片状态覆盖：启用 / 删除后更新本地视图（data part 本身不可变，回读以管理页为准） */
+const cardEnabled = reactive(new Set<string>())
+const cardHidden = reactive(new Set<string>())
+const cardBusy = reactive(new Set<string>())
+/** 启用失败的错误（registerError / 命令异常）：按 uuid 记，卡片上直接展示——注册失败绝不能静默 */
+const cardErrors = reactive(new Map<string, string>())
+
+function cardsOf(m: UIMessage): GenerationCardData[] {
+  return m.parts
+    .filter((p) => p.type === 'data-generation')
+    .map((p) => (p as { type: 'data-generation'; data: GenerationCardData }).data)
+    .filter((c) => c && c.uuid && !cardHidden.has(c.uuid))
+}
+
+function cardIsEnabled(card: GenerationCardData): boolean {
+  return card.enabled || cardEnabled.has(card.uuid)
+}
+
+const CAPABILITY_LABELS: Record<string, string> = {
+  info: '自省信息',
+  style: '注入样式',
+  log: '输出日志',
+  store: '读写私有存储',
+  fetch: '跨域请求',
+  notify: '系统通知',
+  download: '下载文件',
+  clipboard: '写剪贴板',
+  tabs: '开标签页'
+}
+
+function capabilityLabel(cap: string): string {
+  return CAPABILITY_LABELS[cap] ?? cap
+}
+
+async function enableCard(card: GenerationCardData): Promise<void> {
+  cardBusy.add(card.uuid)
+  cardErrors.delete(card.uuid)
+  try {
+    const { registerError } = await userscriptClient.toggle(card.uuid, true)
+    if (registerError) {
+      // 注册失败（典型：扩展详情页没开「允许用户脚本」/ 开发者模式）——错误留在卡片上，
+      // 且不把卡片标成已启用（数据已落盘，脚本实际没生效）
+      cardErrors.set(card.uuid, registerError)
+    } else {
+      cardEnabled.add(card.uuid)
+    }
+  } catch (e) {
+    cardErrors.set(card.uuid, e instanceof Error ? e.message : String(e))
+  } finally {
+    cardBusy.delete(card.uuid)
+  }
+}
+
+async function removeCard(card: GenerationCardData): Promise<void> {
+  cardBusy.add(card.uuid)
+  try {
+    await userscriptClient.remove(card.uuid)
+    cardHidden.add(card.uuid)
+  } catch (e) {
+    console.error('[duoling] 删除脚本失败：', e)
+  } finally {
+    cardBusy.delete(card.uuid)
+  }
+}
+
+/** 进编辑器：工作台 hash 深链直达该脚本的编辑器标签页（#/tool/<uuid>） */
+function openWorkbench(uuid: string): void {
+  void chrome.tabs.create({
+    url: `${chrome.runtime.getURL('workbench.html')}#/tool/${uuid}`,
+  })
+}
+
+// —— 单条消息复制：方便把消息直接粘给外部 AI 分析 ——
+/** 最近一次复制成功的消息 id（1.5s 后还原图标） */
+const copiedMessageId = ref('')
+
+async function copyMessage(m: UIMessage): Promise<void> {
+  const text = (m.role === 'user' ? userText(m) : finalText(m)).trim()
+  if (!text) return
+  await navigator.clipboard.writeText(text)
+  copiedMessageId.value = m.id
+  window.setTimeout(() => {
+    if (copiedMessageId.value === m.id) copiedMessageId.value = ''
+  }, 1500)
+}
+
 /** 发送/停止：由 PromptInput 表单提交触发；流式时视为停止，否则发送（执行由父组件负责） */
 function onPromptSubmit(payload: PromptInputMessage): void {
   if (props.streaming) {
@@ -513,6 +620,95 @@ function onPromptSubmit(payload: PromptInputMessage): void {
                   </ui-message-content>
                 </template>
               </ui-message>
+              <!-- 单条复制：流式占位中的最后一条不渲染（还没有正文可复制） -->
+              <button
+                v-if="!(m.id === lastMessageId && props.streaming)"
+                type="button"
+                class="-mt-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground"
+                :title="copiedMessageId === m.id ? '已复制' : '复制这条消息'"
+                data-testid="copy-message"
+                @click="copyMessage(m)"
+              >
+                <ui-check v-if="copiedMessageId === m.id" class="size-3.5 text-green-600" />
+                <ui-copy v-else class="size-3.5" />
+              </button>
+              <!-- 生成卡片：offscreen 收敛落盘后随消息推送/回读（尚未启用 · 生效范围 · 会做什么） -->
+              <div
+                v-for="card in m.role === 'assistant' ? cardsOf(m) : []"
+                :key="card.uuid"
+                class="w-full min-w-0 rounded-lg border border-border bg-card p-3 text-sm"
+                data-testid="generation-card"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="min-w-0 truncate font-medium" :title="card.name">{{ card.name }}</span>
+                  <span
+                    class="shrink-0 rounded-full px-2 py-0.5 text-xs"
+                    :class="cardIsEnabled(card) ? 'bg-green-600/15 text-green-600' : 'bg-amber-500/15 text-amber-600'"
+                  >
+                    {{ cardIsEnabled(card) ? '已启用' : '尚未启用' }}
+                  </span>
+                </div>
+                <dl class="mt-2 space-y-1 text-xs text-muted-foreground">
+                  <div class="flex min-w-0 gap-1.5">
+                    <dt class="shrink-0">生效范围</dt>
+                    <dd class="min-w-0 break-all" :title="card.matches.join('，')">
+                      {{ card.matches.join('，') || '（未指定）' }}
+                    </dd>
+                  </div>
+                  <div class="flex min-w-0 gap-1.5">
+                    <dt class="shrink-0">会做什么</dt>
+                    <dd class="min-w-0">
+                      {{ card.capabilities.length ? card.capabilities.map(capabilityLabel).join(' · ') : '页面 DOM 操作' }}
+                    </dd>
+                  </div>
+                  <div v-if="card.summary" class="flex min-w-0 gap-1.5">
+                    <dt class="shrink-0">摘要</dt>
+                    <dd class="min-w-0">{{ card.summary }}</dd>
+                  </div>
+                </dl>
+                <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
+                  <ui-button
+                    v-if="!cardIsEnabled(card)"
+                    type="button"
+                    size="xs"
+                    :disabled="cardBusy.has(card.uuid)"
+                    title="启用后脚本将在所有匹配页面自动注入生效"
+                    @click="enableCard(card)"
+                  >
+                    <ui-play class="size-3" />
+                    启用并生效
+                  </ui-button>
+                  <ui-button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    title="打开工作台直达该脚本的编辑器"
+                    @click="openWorkbench(card.uuid)"
+                  >
+                    <ui-pencil class="size-3" />
+                    进编辑器看一眼
+                  </ui-button>
+                  <ui-button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    class="text-destructive hover:text-destructive"
+                    :disabled="cardBusy.has(card.uuid)"
+                    title="删除该脚本（含 git 历史）"
+                    @click="removeCard(card)"
+                  >
+                    <ui-trash-2 class="size-3" />
+                    删除
+                  </ui-button>
+                </div>
+                <p
+                  v-if="cardErrors.get(card.uuid)"
+                  class="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-xs leading-relaxed text-destructive"
+                  role="alert"
+                >
+                  启用失败：{{ cardErrors.get(card.uuid) }}
+                </p>
+              </div>
               <!-- 本次消耗 token：assistant 气泡下方展示（无 usage 时不渲染） -->
               <p
                 v-if="m.role === 'assistant' && tokenLabel(usageOf(m.id))"
@@ -527,6 +723,16 @@ function onPromptSubmit(payload: PromptInputMessage): void {
         </ui-conversation-content>
         <ui-conversation-scroll-button />
       </ui-conversation>
+
+      <!-- 生成失败警示条：错误文案必须用户可见（曾经全静默，只摘空气泡） -->
+      <p
+        v-if="props.errorText"
+        class="mx-3 mb-1 shrink-0 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs leading-relaxed text-destructive"
+        role="alert"
+        data-testid="chat-error"
+      >
+        {{ props.errorText }}
+      </p>
 
       <div class="border-t p-3">
         <ui-prompt-input @submit="onPromptSubmit">

@@ -6,11 +6,15 @@
 // 会话列表走 SessionHistoryPanel（展开态）；消息渲染、模型切换等全部由平移组件提供，此处不重写对话 UI。
 import { computed, onMounted, ref } from 'vue'
 import {
+  Check as UiCheck,
+  ClipboardList as UiClipboardList,
   ExternalLink as UiExternalLink,
   PanelLeft as UiPanelLeft,
   Plus as UiPlus,
-  Settings as UiSettings
+  Settings as UiSettings,
+  TriangleAlert as UiTriangleAlert
 } from '@lucide/vue'
+import type { UIMessage } from 'ai'
 import ChatPanel from '@/components/ChatPanel.vue'
 import SessionHistoryPanel from '@/components/SessionHistoryPanel.vue'
 import { Button as UiButton } from '@/components/ui/button'
@@ -21,6 +25,8 @@ const {
   activeConversationId,
   messages,
   usageByMessageId,
+  orphanTasks,
+  chatError,
   streaming,
   loadConversations,
   newConversation,
@@ -28,6 +34,7 @@ const {
   deleteConversation,
   deleteAllConversations,
   renameConversation,
+  resolveOrphan,
   send,
   stopGeneration
 } = useGlobalConversation()
@@ -49,6 +56,52 @@ function openWorkbench(hash = ''): void {
 
 function handleNew(): void {
   void newConversation()
+}
+
+// —— 整会话导出：一键复制为 markdown，方便整段粘贴给 AI 做分析 ——
+/** 单条消息的纯文本正文（用户与 AI 通用：聚合 text parts） */
+function messageText(m: UIMessage): string {
+  return m.parts
+    .filter((p) => p.type === 'text')
+    .map((p) => p.text)
+    .join('')
+    .trim()
+}
+
+/** 序列化当前会话：角色分节 + 每轮正文；assistant 附一行工具调用统计（分析时有用） */
+function serializeConversation(): string {
+  const lines: string[] = [`# 会话记录：${activeTitle.value}`, '']
+  for (const m of messages.value) {
+    if (m.role === 'user') {
+      lines.push('## 用户', '', messageText(m), '')
+      continue
+    }
+    lines.push('## AI', '', messageText(m))
+    const toolCounts = new Map<string, number>()
+    for (const p of m.parts) {
+      if (p.type.startsWith('tool-')) {
+        const name = p.type.slice('tool-'.length)
+        toolCounts.set(name, (toolCounts.get(name) ?? 0) + 1)
+      }
+    }
+    if (toolCounts.size) {
+      lines.push(
+        '',
+        `> 工具调用：${[...toolCounts].map(([n, c]) => `${n} ×${c}`).join('、')}`
+      )
+    }
+    lines.push('')
+  }
+  return lines.join('\n').trim() + '\n'
+}
+
+const conversationCopied = ref(false)
+async function copyConversation(): Promise<void> {
+  const text = serializeConversation()
+  if (!messages.value.length) return
+  await navigator.clipboard.writeText(text)
+  conversationCopied.value = true
+  window.setTimeout(() => (conversationCopied.value = false), 1500)
 }
 
 function handleActivate(id: string): void {
@@ -95,6 +148,18 @@ onMounted(() => {
         variant="ghost"
         size="icon"
         class="size-7 shrink-0"
+        title="复制整个会话记录（markdown）"
+        :disabled="!messages.length"
+        data-testid="copy-conversation"
+        @click="copyConversation"
+      >
+        <ui-check v-if="conversationCopied" class="size-4 text-green-600" />
+        <ui-clipboard-list v-else class="size-4" />
+      </ui-button>
+      <ui-button
+        variant="ghost"
+        size="icon"
+        class="size-7 shrink-0"
         title="新建会话"
         @click="handleNew"
       >
@@ -120,11 +185,46 @@ onMounted(() => {
       </ui-button>
     </header>
 
+    <!-- 孤儿任务横幅：offscreen 宿主被杀后遗留的进行中任务（docs/userscript-ai-generation.md §4.8 机制 4） -->
+    <div
+      v-if="orphanTasks.length"
+      class="shrink-0 border-b border-border bg-amber-500/10 px-3 py-2 text-xs text-foreground"
+      data-testid="orphan-banner"
+    >
+      <div
+        v-for="task in orphanTasks"
+        :key="task.taskId"
+        class="flex items-center gap-2 py-0.5"
+      >
+        <ui-triangle-alert class="size-3.5 shrink-0 text-amber-600" />
+        <span class="min-w-0 flex-1 truncate">
+          上次脚本生成中断在第 {{ task.step }} 步，产物尚未保存
+        </span>
+        <ui-button
+          size="xs"
+          variant="outline"
+          :disabled="streaming"
+          @click="void resolveOrphan(task.taskId, 'continue')"
+        >
+          继续
+        </ui-button>
+        <ui-button
+          size="xs"
+          variant="ghost"
+          class="text-destructive hover:text-destructive"
+          @click="void resolveOrphan(task.taskId, 'discard')"
+        >
+          丢弃
+        </ui-button>
+      </div>
+    </div>
+
     <chat-panel
       class="min-h-0 flex-1"
       :messages="messages"
       :usage-by-message-id="usageByMessageId"
       :streaming="streaming"
+      :error-text="chatError"
       @send="send"
       @stop="stopGeneration"
       @open-settings="openWorkbench('#/settings')"

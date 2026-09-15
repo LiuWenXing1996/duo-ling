@@ -111,15 +111,31 @@ export async function clearGMValues(uuid: string): Promise<void> {
 
 const MAX_ERRORS = 50
 
-/** 追加一条错误（自动补 id；time 缺省用当前时间） */
+// us:errors 是「读全量 → 改 → 写回整块」的 RMW，chrome.storage.local 没有原子写。
+// 脚本崩溃风暴时多个 append 并发执行会互相覆盖（lost update），必须按 key 串行化。
+// 进程内 promise 队列即可：写入方（用户脚本消息转发 / 后台兜底收集）都在本 SW 进程内。
+// clear 也排进同一队列——否则清空可能被排在前面的 append 用旧数据写回覆盖。
+let errorOpsQueue: Promise<unknown> = Promise.resolve()
+
+function enqueueErrorOp<T>(op: () => Promise<T>): Promise<T> {
+  const run = errorOpsQueue.then(op, op)
+  // 队列自身永不 reject，否则后续操作全部中断；错误由调用方拿到的 run 承接
+  errorOpsQueue = run.catch(() => {})
+  return run
+}
+
+/** 追加一条错误（自动补 id；time 缺省用当前时间）。并发安全：读改写按队列串行。 */
 export async function appendUserScriptError(
   // time 由本函数兜底（rec.time || Date.now()），故对调用方可选
   rec: Omit<UserScriptErrorRecord, 'id' | 'time'> & { id?: string; time?: number },
 ): Promise<void> {
-  const existing = ((await chrome.storage.local.get(ERRORS_KEY))[ERRORS_KEY] as UserScriptErrorRecord[] | undefined) ?? []
-  const next = existing.slice(-(MAX_ERRORS - 1))
-  next.push({ ...rec, id: rec.id || crypto.randomUUID(), time: rec.time || Date.now() })
-  await chrome.storage.local.set({ [ERRORS_KEY]: next })
+  return enqueueErrorOp(async () => {
+    const existing =
+      ((await chrome.storage.local.get(ERRORS_KEY))[ERRORS_KEY] as UserScriptErrorRecord[] | undefined) ?? []
+    const next = existing.slice(-(MAX_ERRORS - 1))
+    next.push({ ...rec, id: rec.id || crypto.randomUUID(), time: rec.time || Date.now() })
+    await chrome.storage.local.set({ [ERRORS_KEY]: next })
+  })
 }
 
 /** 列出全部错误（最新在前） */
@@ -128,7 +144,7 @@ export async function listUserScriptErrors(): Promise<UserScriptErrorRecord[]> {
   return (r ?? []).slice().reverse()
 }
 
-/** 清空错误日志 */
+/** 清空错误日志（与 append 同队列串行，避免清空被并发写回覆盖） */
 export async function clearUserScriptErrors(): Promise<void> {
-  await chrome.storage.local.remove(ERRORS_KEY)
+  return enqueueErrorOp(() => chrome.storage.local.remove(ERRORS_KEY))
 }

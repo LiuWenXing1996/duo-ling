@@ -172,7 +172,7 @@ interface ScriptProject {
 2. 编辑器内核：一期 `textarea` + 等宽字体 + 保存时构建报错行内提示即可；CodeMirror 6（js/ts 高亮）作为独立增强项后置，不阻塞主链路。
 3. 配置表单：matches / excludeMatches / includeGlobs / excludeGlobs（数组编辑）、allFrames / runAt 下拉——**用户永远不接触注释语法**。
 4. 新建脚本项目模板：`main.js` + 空配置，预置一段带 `DL.log` 的示例代码（替代旧探针）。
-5. 导出/导入：**zip**（`project.json` + 源文件），文件树完整往返。**前置**：需引入 zip 打包库（倾向 `fflate`，零依赖体量小）——属新增依赖，实施前与老大确认。
+5. 导出/导入：**zip**（`project.json` + 源文件），文件树完整往返。**前置**：需引入 zip 打包库（倾向 `fflate`，零依赖体量小）——属新增依赖，实施前与老大确认。**2026-09-15：方案已定稿**，见 [userscript-zip-transfer.md](./userscript-zip-transfer.md)，待实施。
 6. `.d.ts` 交付：构建管线把 `DuoLingApi` 声明 + `declare const DL` 生成到导出 zip 里（或项目内 `dl.d.ts`），脚本作者有类型提示。
 7. （可选，默认不做）`.user.js` 导入转换器：解析 metadata → 表单配置、单文件 → 单文件项目。成本低价值存疑，老大要再开。
 
