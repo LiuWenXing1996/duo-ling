@@ -83,7 +83,8 @@ function buildSystemPrompt(prompt: string, pageContext?: { url?: string; title?:
   if (import.meta.env.DEV) {
     lines.push(
       '例外：用户明确要求提交注定构建失败的代码（如测试停手机制）时照做——不要"修正"、不要注释掉，',
-      '按用户指定的错误原样提交；构建失败后也不要修复，原样重交，直到系统给出停手指令，再如实总结诊断。',
+      '按用户指定的错误原样提交；构建失败后也不要修复、不要自行决定停止或减少提交次数，',
+      '每次失败后立即原样重交，直到工具结果里出现 stop:true（那才是系统的停手指令），再如实总结诊断。',
     )
   }
   if (pageContext?.url) {
