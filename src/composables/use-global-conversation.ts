@@ -137,12 +137,18 @@ export function useGlobalConversation() {
     }
   }
 
-  /** 孤儿处理：继续（播种内存文件树后重跑循环）或丢弃（删任务记录） */
+  /** 孤儿处理：继续（播种内存文件树后重跑循环）或丢弃（删任务记录）。失败须可见——
+   *  调用方是 void，异常不接住就全静默（横幅消失但任务还在，用户不知情） */
   async function resolveOrphan(taskId: string, action: 'continue' | 'discard'): Promise<void> {
-    const { conversationId } = await chatClient.orphanAction(taskId, action)
-    orphanTasks.value = orphanTasks.value.filter((t) => t.taskId !== taskId)
-    if (action === 'continue') {
-      await activateConversation(conversationId)
+    try {
+      const { conversationId } = await chatClient.orphanAction(taskId, action)
+      orphanTasks.value = orphanTasks.value.filter((t) => t.taskId !== taskId)
+      if (action === 'continue') {
+        await activateConversation(conversationId)
+      }
+    } catch (e) {
+      chatError.value = `孤儿任务处理失败：${e instanceof Error ? e.message : String(e)}`
+      void refreshOrphans() // 重新拉一次：失败时横幅不该凭空消失
     }
   }
 

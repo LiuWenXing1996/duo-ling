@@ -186,7 +186,7 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
   }
 
   /**
-   * 重连（面板重开 / 切回会话后由 useChat 的 resumeStream 触发）：
+   * 重连（面板重开 / 切回会话 / 孤儿「继续」后由 useChat 的 resumeStream 触发）：
    * offscreen 返回该会话进行中任务的**完整**事件缓冲（从头回放，见 chat-host.resumeChat），
    * 随后实时推送继续进同一流。无进行中任务返回 null（useChat 的既定语义），UI 以会话历史为准。
    */
@@ -201,8 +201,13 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
     } catch {
       return null // 容器不在 / 命令失败：按「无可重连」处理
     }
-    if (res.status !== 'running' || !res.events.length) return null
+    if (res.status === 'idle') return null
 
+    // running 就必须挂上消费者——哪怕缓冲此刻还是空的：孤儿「继续」场景下
+    // resume 发出时循环刚起步（还在取历史 / 连模型），events 为空是常态，
+    // 若因此放弃 attach，后续实时推送会因无消费者全部落空（2026-09-15 手测实测：
+    // 点「继续」面板毫无反应，切走再切回才接上——那时缓冲已攒到事件）。
+    //
     // 去重基线清零后由回放事件重建：本地视图刚从历史重建（不含半截 assistant 消息），
     // 旧的基线只会把回放开头的配对块（start / reasoning-start）当重播丢掉。
     // 回放完基线停在缓冲尾，与后续实时推送自然衔接。
