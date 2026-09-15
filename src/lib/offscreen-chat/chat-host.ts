@@ -301,8 +301,10 @@ async function runLoop(opts: {
     }
 
     // —— 收尾分支 1：用户主动停止 / 流异常中断 ——
-    // 不落盘半截消息、不落盘产物；孤儿判定只认 running，记录即删
-    if (!finishChunk) {
+    // 不落盘半截消息、不落盘产物；孤儿判定只认 running，记录即删。
+    // ⚠️ abort 后 toUIMessageStream 仍会补发 finish（2026-09-15 手测实测），所以
+    // 分支 2 之前必须再看一眼 sawAbort / abortSignal——否则半截消息照常落盘。
+    if (!finishChunk || sawAbort || abort.signal.aborted) {
       if (!sawAbort) pushChunk(conversationId, { type: 'abort' })
       cleanup()
       return
@@ -392,8 +394,11 @@ async function runLoop(opts: {
     pushChunk(conversationId, finishChunk)
     cleanup()
   } catch (e) {
-    // 循环异常（模型网络错误等）：推 error 块让 useChat onError 走起，记录清理
+    // 循环异常（模型网络错误等）：推 error 块让 useChat onError 走起，记录清理。
+    // start 块先行：useChat 的流处理在未 start 时收到 error 块可能整体丢弃，
+    // 面板就会「没回音、状态卡 streaming、也不报错」（2026-09-15 手测实测）。
     console.error('[duoling:chat] 任务异常', taskId, e)
+    pushChunk(conversationId, { type: 'start', messageId: task.messageId })
     pushChunk(conversationId, {
       type: 'error',
       errorText: e instanceof Error ? e.message : String(e),

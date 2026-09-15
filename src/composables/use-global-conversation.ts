@@ -202,18 +202,18 @@ export function useGlobalConversation() {
     message: UIMessage
     isAbort: boolean
   }): Promise<void> {
-    if (isAbort) return
-    if (!chat.messages.value.some((m) => m.id === message.id)) return
-
-    const usage = usageOfParts(message.parts)
-    if (usage) usageByMessageId.value = { ...usageByMessageId.value, [message.id]: usage }
-
-    // 刷新会话列表（重新计算 totalTokens / lastMessageAt 排序），保持历史侧栏累计值实时
+    // abort 也刷新列表：标题改名发生在 chat:start（offscreen 侧），中止的会话
+    // 不刷新的话面板头部一直显示「新会话 N」旧标题（2026-09-15 手测实测）
     try {
       conversations.value = await window.api.conversation.list()
     } catch {
       // 列表刷新失败不影响主流程
     }
+    if (isAbort) return
+    if (!chat.messages.value.some((m) => m.id === message.id)) return
+
+    const usage = usageOfParts(message.parts)
+    if (usage) usageByMessageId.value = { ...usageByMessageId.value, [message.id]: usage }
   }
 
   /** 出错回调（useChat onError）：错误文案透出到面板（chatError），并移除空副本站避免残留空白气泡 */

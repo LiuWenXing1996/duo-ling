@@ -153,6 +153,8 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
           })
         } catch (e) {
           consumers.delete(conversationId)
+          // start 块先行：useChat 在未 start 时收到 error 块可能整体丢弃（不报错、状态卡 streaming）
+          controller.enqueue({ type: 'start', messageId: options.messageId })
           controller.enqueue({
             type: 'error',
             errorText: e instanceof Error ? e.message : String(e),
