@@ -29,6 +29,7 @@
 | `npm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配见迁移方案 §5 风险 7） |
 | `npm run typecheck` | 类型检查（`vue-tsc --noEmit`）；当前全仓零错误 |
 | `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
+| `npm run check:proposals` | 提案流程体检：状态与目录一致性、流转合法性、记录完整性（见 [docs/proposal-process.md](docs/proposal-process.md)） |
 
 > **交付前验证**：`npm run typecheck` 与 `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
 
@@ -41,6 +42,9 @@
 | [docs/userscript-ai-generation.md](docs/userscript-ai-generation.md) | AI 生成用户脚本方案（当前主方向） | 涉及生成链路时 |
 | [legacy/docs/tool-spec.md](legacy/docs/tool-spec.md) | ~~工具规范~~（已随工具链路归档，仅历史参照） | 不读，除非考古 |
 | [docs/style.md](docs/style.md) | 代码风格规范（部分条目为 Electron 时期约定，按需取用） | 写代码 / 改样式前 |
+| [docs/proposal-process.md](docs/proposal-process.md) | **提案流程**：五态状态机、流转记录、提案不可删。**所有变更走这套流程，无身份例外** | 想改任何东西之前 |
+| [docs/ideas.md](docs/ideas.md) | **想法收集箱**：只放问题（≤100 字），不写方案。与提案流程相互独立 | 攒需求 / 清理待办时 |
+| [docs/doc-standard.md](docs/doc-standard.md) | 文档规范：归属、状态块、归档、水文清单、字数上限 | 写文档 / review PR 前 |
 | [docs/lessons.md](docs/lessons.md) | 踩坑记录 | 报错 / 排查前 |
 | [docs/testing-plan.md](docs/testing-plan.md) | 测试方案（五层分层 + E2E 路由，待开工） | 补测试 / 动工测试前 |
 | [docs/todo.md](docs/todo.md) | 待办与方案 | 了解遗留事项时 |
@@ -96,7 +100,7 @@
 
 **我（AI）怎么干**：
 
-1. 动手前：读本文件 → 文档总表 → 相关文档 → 本机日志
+1. 动手前：读本文件 → 文档总表 → 相关文档 → 本机日志；**任何变更先判断要不要提案**（[docs/proposal-process.md](docs/proposal-process.md) 的「要求」与「豁免清单」两节），AI 自己也不例外——先有提案再动手
 2. 直接做：读代码、探索、改文档 / 注释 / 格式
 3. 先问再做：改行为或结构、加依赖、动 manifest、删文件、外部操作（push / 发布）
 4. 交付前：`npm run typecheck` + `npm run build` 必过；UI 不做额外视觉校验
@@ -115,13 +119,15 @@
   1. 基于最新 `origin/main` 起 kebab-case 功能分支（如 `feat/xxx`、`fix/xxx`、`test/xxx`）；不要在一个分支堆多件不相关的事
   2. 本地开发，交付前 `npm run typecheck` + `npm run build` + `npm run test` 全过
   3. `git push -u origin <功能分支>`（**只 push 分支，不触发 CI**——两个 workflow 的 `push` 都限 `branches: [main]`）
-  4. 开 PR（`base: main`），PR 触发 `ci.yml` 的 `pull_request` 门禁，**合并前置**跑 typecheck + 214 例测试
+  4. 开 PR（`base: main`），描述按 `.github/pull_request_template.md` 填（动机 / 变更 / 测试证据三段）；PR 触发 `ci.yml` 的 `pull_request` 门禁，**合并前置**跑 typecheck + 214 例测试
   5. 等 CI 绿 → 网页点 Merge 或 `gh pr merge --merge`（生成 merge commit 进 main，**等价**）
   6. 合并自动触发 push main → `ci.yml` + `e2e.yml` **双跑复验**
 - **铁律**：
   - ❌ 严禁 `git push origin <x>:main`（含之前的 refspec 绕过法），会被 `GH006: Protected branch update failed` 拒
   - ❌ 不要整分支 merge 把历史倒腾进 main（只会产生重复/冲突提交）；单一改动走上面的 PR 流
   - ❌ E2E（Playwright）**故意不是 required status check**——`e2e.yml` 无 `pull_request` 触发器，PR 上永远不上报该状态，设了 PR 会卡死合不了
+  - ✅ **PR 必须在描述里链到它实现的提案；状态流转（移到 `implementing/` 或 `done/`）与实现代码进同一个 PR，但单独一个 commit**——该 commit 只含「移动文件 + 流转记录加一行」，不夹带其他改动。分成两个 PR 会漏做，混进代码 commit 则看不出流转动作（流程与写法都见 [docs/proposal-process.md](docs/proposal-process.md)，该文件自包含）
+  - ✅ **提案不可删除**：换状态 = 移动文件 + 加流转记录。想删提案 = 想删掉「我们为什么这么定」，不允许
 - **即使改本文件 / CI 配置**，也走同样 PR 流（main 受保护，没有任何文件能直推）
 
 ## 项目硬性底线（速览）
