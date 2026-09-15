@@ -13,7 +13,7 @@
 | --- | --- | --- | --- |
 | 1. 纯逻辑单测 | `key-cipher.ts`（加解密往返）、`code-view.ts`、`lib/userscripts/` 解析/校验/兼容逻辑、store 层 | Vitest + `WxtVitest()` 插件（`wxt/testing/vitest-plugin`，内置 `@` 别名解析 / `extensionApiMock` / globals auto-import）+ `fake-indexeddb` + `fakeBrowser`（`wxt/testing/fake-browser`） | **首批** |
 | 2. 协议一致性 | SW 端 handlers 表已是 `[K in SwRequest['kind']]` 映射类型，typecheck 已保证全覆盖，无需重复遍历；测试靶心在 **offscreen 端前缀路由**（`offscreen-main.ts` 的 `kind.startsWith('ai:'/'state:')` + `as` 断言那层）、`SW_KIND_PREFIXES` 与 `RuntimeRequest` kind 全集的**归属一致性**（有无 kind 既归 SW 又归 offscreen、或两边都不接）、以及 `{ok, data\|error}` 信封形状 | 表驱动 + 前缀路由覆盖率断言 | **首批**（高且便宜） |
-| 3. 构建冒烟 | `builder.ts` 用 esbuild-wasm 构建最小项目出产物 | Vitest（wasm 代码按浏览器写，Node 下可能需小改加载方式） | 后置：AI 生成 B 组开工前补（届时构建是链路核心验证器） |
+| 3. 构建冒烟 | `builder.ts` 用 esbuild-wasm 构建最小项目出产物 | Vitest（wasm 代码按浏览器写，Node 下可能需小改加载方式） | ✅ **已完成**（2026-09-15，AI 生成 B 组开工前补齐；wasm 加载结论见下节） |
 | 4. 组件测试 | 仅改动频繁组件按需（如编辑器抽屉保存/关闭确认） | `@vue/test-utils` + `happy-dom` | 按需，不铺开（UI 是平移件、本体零改动，性价比低） |
 | 5. E2E | 扩展整体行为 | Playwright 捆绑 Chromium 无头加载扩展（见下） | 基建先行：fixture + 一条冒烟跑通 |
 
@@ -38,9 +38,47 @@
 
 ## 基础设施
 
-- 依赖新增（**开工前与老大确认**）：`vitest`、`@playwright/test`（+ 一次性 `npx playwright install chromium`）；组件测试阶段再加 `@vue/test-utils`、`happy-dom`。`fake-indexeddb` 已在 devDependencies，**无需再装**；`WxtVitest()` 插件已顺带解决 `@` 别名与 `chrome.*` mock，不必手配 vitest alias。
-- 测试文件**跟源码同目录**（`*.test.ts`，不进构建产物）；`npm run test` 独立命令，不并入 typecheck；
+- 依赖：`vitest`（5.0.1）、`fake-indexeddb`、`@playwright/test` 均已在 devDependencies；组件测试阶段再加 `@vue/test-utils`、`happy-dom`。`WxtVitest()` 插件已顺带解决 `@` 别名与 `chrome.*` mock，不必手配 vitest alias；E2E 需一次性 `npx playwright install chromium`（国内 CDN 限速，卡死可设 `PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/` 换镜像）。
+- **层 1 已落地（2026-09-15）**：`vitest.config.ts` 用 `import { WxtVitest } from 'wxt/testing/vitest-plugin'`（**具名导出，无 default**）+ `test.environment: 'node'`，include 收窄到 `src/**/*.test.ts`（默认 include 会扫到 legacy 旧 spec）。用例隔离：chrome.storage 系用 `fakeBrowser.reset()`；IndexedDB 系用 `fake-indexeddb/auto` + 用例前后清库；offscreen 写侧（project-write）用 `vi.mock('./builder')` / `vi.mock('./us-git')` 隔离 esbuild-wasm 与 lightning-fs。**层 3 也已落地（2026-09-15，`builder.test.ts` 3 例全绿，见「层 3 实施结论」）**。
+- **mock `#imports` 的注意点**（官方文档）：源码 `import { x } from '#imports'` 在 vitest 预处理时被替换为真实路径（如 `wxt/utils/inject-script`），故 `vi.mock` 必须写**真实路径**而非 `'#imports'`；对照表在 `.wxt/types/imports-module.d.ts`（缺失先跑 `wxt prepare`）。
+- 测试文件**跟源码同目录**（`*.test.ts`，不进构建产物）；`npm run test`（vitest）独立命令，`npm run test:e2e`（playwright）分开；两者都不并入 typecheck。
 - E2E 跑 `npm run build` 产物，不依赖 dev server（dev server 仍由老大自管）。
+
+## 层 3 实施结论：esbuild-wasm 在 Node 下的加载方式
+
+`builder.ts` 按浏览器写（wasmURL + 默认 worker 模式，offscreen 宿主），直接在 vitest node 环境跑不起来，三层原因：
+
+1. **Node 入口根本不是 wasm**：esbuild-wasm 无 exports 字段，Node/vitest 解析命中 `lib/main.js`（node 入口）——它不加载 wasm，而是 spawn 原生 esbuild 二进制，且 `initialize({ wasmURL })` 直接抛 `The "wasmURL" option only works in the browser`。真正的 wasm 实现在 `lib/browser.js`（package.json 的 browser 字段）。
+2. **worker 模式不可用**：browser.js 默认 worker 模式要 `Blob` + `URL.createObjectURL` + `Worker`（offscreen 有、node 没有）；`worker: false` 的主线程分支才是 node 可走的路，但其 wasm 引导代码会**从 `self` 原型链重建 globalThis**（纯浏览器假设，node 没有 `self`）→ 需 stub `self = globalThis`。
+3. **wasmURL fetch 不可用**：主线程分支经 `fetch(wasmURL)` 拿 wasm 字节，node 的 fetch 不支持 `file://` / `chrome-extension://` URL。
+
+**走通姿势**：`initialize({ wasmModule: new WebAssembly.Module(wasm 字节), worker: false })` + `self = globalThis`——wasmModule 直接传编译好的 Module 可同时绕开 fetch 与 `location.href`。测试侧用 `vi.mock('esbuild-wasm')` 拦截 initialize 完成这组转换，`builder.ts` 本体零改动，offscreen（有 Worker，`chrome.runtime.getURL` 可 fetch）行为不变。
+
+详见 `src/lib/userscripts/builder.test.ts` 头注释。
+
+### E2E 已落地（2026-09-15 冒烟开通，6/6 通过）
+
+- 依赖：`@playwright/test`（devDependencies）+ 捆绑 Chromium（一次性 `npx playwright install chromium`，装的是 Chrome for Testing 153.0.8010.12；国内 CDN 限速，下载 ~44 分钟属正常，卡死可设 `PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/` 换镜像）。
+- 命令：`npm run test:e2e`；配置在根 `playwright.config.ts`，用例在 `e2e/`（`extension.ts` fixture + `smoke.spec.ts` 冒烟，workers=1 串行）。
+- 加载方式：`chromium.launchPersistentContext(userDataDir, { channel: 'chromium', headless: true, args: ['--disable-extensions-except=<产物>', '--load-extension=<产物>'] })`；extensionId 从 `context.serviceWorkers()` 的 URL 解析；E2E 用一次性临时 profile，跑完即删。
+- 冒烟覆盖四条面：SW 命令面（`sw:buildInfo` / `userscript:list`）、`offscreen:ensure` 就绪、userScripts 可用性引导、workbench / sidepanel 页加载渲染、用户脚本注入 + `window.DL` 桥往返（含 `DL.store` 经 SW 落盘）。
+
+#### 实测结论：userScripts 在无头 Chromium 下的可用性
+
+**结论：可用，但必须程序化引导，且引导方式与文档普遍说法不同。** 全流程（无 UI、全无头）：
+
+1. **全局开发者模式**：`chrome.developerPrivate.updateProfileConfiguration({ inDeveloperMode: true })`（chrome://extensions 页的 WebUI 后端，无头下 `page.goto('chrome://extensions/')` 后 `page.evaluate` 可调）。
+2. **每扩展「允许运行用户脚本」开关（Chrome ≥138 的门槛）**：**不能走 `developerPrivate.updateExtensionConfiguration({ userScriptsEnabled: true })`** —— Chromium 153 实测报 `Unexpected property: 'userScriptsEnabled'`（该字段不存在，网上流传的 API 姿势过时/错误）。**可行姿势是操作 WebUI DOM**：Playwright 定位器穿透 open shadow DOM，在扩展详情页点「允许运行用户脚本」的 cr-toggle（`extensions-toggle-row`）。注意 `chrome://extensions/?id=<id>` 直达参数**在无头下不触发 SPA 路由切换**（视图停在列表页），必须像真人一样点卡片上的「详情」按钮再等 `extensions-detail-view` 渲染；开关文案跟随系统语言（`locale` 选项不影响 chrome:// 页），匹配用中英双正则。
+3. **重启扩展上下文后生效**：开关随 profile 持久化，同一 profile 重新 `launchPersistentContext`，`chrome.userScripts` 即从 `undefined` 变为可用（fixture 先跑 Phase A 引导、再 Phase B 重拉验证，全在 4s 内完成）。
+
+#### 冒烟过程发现并已修复的真 bug
+
+- **esbuild-wasm 被 MV3 默认 CSP 拦截**：`docs/userscript-v2-plan.md` 曾记载「extension_pages 默认 CSP 已含 `'wasm-unsafe-eval'`，无需改 manifest」——实测证伪（Chromium 153 的 offscreen document CSP 就是 `script-src 'self'`，`WebAssembly.instantiateStreaming` 直接报 violates CSP，脚本构建链路必挂）。已在 `wxt.config.ts` manifest 显式声明 `content_security_policy.extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"` 修复（仅放开 wasm 编译、不放开 JS eval；老大 2026-09-15 批准）。**这是 E2E 首跑就抓到的产品级 bug——真机上同样会炸。**
+
+#### fixture 层的两个坑（写用例前必读）
+
+- **SW 不能给自己发 runtime 消息**：`chrome.runtime.sendMessage` 不回环到发送者自身上下文（报 `Receiving end does not exist`）。命令面测试必须从另一个扩展上下文发——fixture 用 `openMessengerPage()` 开一个 sidepanel.html 当发送端，正好复现真实链路（扩展页 → background）。
+- 收尾 `context.close()` 偶发挂住：`afterAll` 每步独立 try/catch + 超时兜底（`e2e/smoke.spec.ts`），任何一步卡住不拖垮整个收尾。
 
 ## 顺序建议
 

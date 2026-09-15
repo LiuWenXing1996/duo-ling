@@ -56,6 +56,13 @@ function announceReady(): void {
 }
 
 // SW 的单向推送：offscreen 收不到 storage.onChanged，配置变更由 SW 转告后回拉。
+
+/**
+ * offscreen 应答的命令面前缀（与 SW 的 SW_KIND_PREFIXES 互补，两者并集须恰好覆盖
+ * RuntimeRequest 的 kind 全集——归属一致性由 extension-ipc.test.ts 表驱动断言）。
+ */
+export const OFFSCREEN_KIND_PREFIXES = ['ai:', 'state:', 'conv:', 'chat:'] as const
+
 // ai:* 命令面：UI / SW 经 chrome.runtime.sendMessage 共享总线发来，offscreen 在此处理并回传。
 // 注意 return true —— 告诉 chrome.runtime 我们要异步 sendResponse（否则响应会被丢弃）。
 chrome.runtime.onMessage.addListener((raw, _sender, sendResponse): boolean => {
@@ -64,17 +71,20 @@ chrome.runtime.onMessage.addListener((raw, _sender, sendResponse): boolean => {
     void refreshActiveProfile()
     return false
   }
+  // 异步应答的命令面前缀：ai: 是 git 历史（ai:build 单独走构建命令面），state: 是项目
+  // 状态库的写侧（单写方），conv:/chat: 是会话写侧与对话编排。这些都 return true ——
+  // 告诉 chrome.runtime 我们要异步 sendResponse（否则响应会被丢弃）。
   const kind = msg?.kind
   if (kind && typeof kind === 'string') {
     if (kind === 'ai:build') {
       void respond(sendResponse, () => handleBuildCommand(msg as BuildRequest))
       return true
     }
-    if (kind.startsWith('ai:')) {
+    if (kind.startsWith(OFFSCREEN_KIND_PREFIXES[0])) {
       void respond(sendResponse, () => handleAiFsCommand(msg as AiFsRequest))
       return true
     }
-    if (kind.startsWith('state:')) {
+    if (kind.startsWith(OFFSCREEN_KIND_PREFIXES[1])) {
       void respond(sendResponse, () => handleStateCommand(msg as StateRequest))
       return true
     }

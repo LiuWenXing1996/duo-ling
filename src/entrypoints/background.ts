@@ -66,8 +66,10 @@ const MODEL_PROFILES_KEY = 'modelProfiles'
  *
  * 新增命令时若忘了登记前缀，该命令会静默无响应（而不是报「未知消息类型」）——
  * 这是刻意的：静默比一个假错误更诚实。
+ *
+ * export 仅供协议一致性测试（extension-ipc.test.ts）做 kind 归属断言。
  */
-const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:', 'sw:'] as const
+export const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:', 'sw:'] as const
 
 /**
  * SW 管辖的请求（由上面的前缀推导，两者必须同源）。

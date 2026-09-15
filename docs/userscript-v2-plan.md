@@ -139,7 +139,7 @@ interface ScriptProject {
 设计要点：
 1. **esbuild-wasm 只在扩展 UI 页（workbench / side panel）运行**，不进 SW。`esbuild.wasm`（**实测 13.98MB**，2026-09-14 核实，早期稿写的「约 10MB」偏小）打包进扩展 `public/`，编辑器首次保存时懒加载一次，进程内复用（`esbuild.initialize({ wasmURL })`）。
    - **为何不进 SW**（2026-09-14 核查 esbuild-wasm 0.28.2 源码）：技术上可行，但默认 Worker 模式走 `new Worker(URL.createObjectURL(blob))`，而 `URL.createObjectURL` 未暴露给 ServiceWorker，必须改成 `initialize({ worker: false })`；且 MV3 SW 空闲约 30s 被回收，每次冷启都要重付 wasm 获取 + 编译。详见 [userscript-ai-generation.md](./userscript-ai-generation.md) §3.1。
-   - MV3 extension_pages 最小 CSP 已含 `'wasm-unsafe-eval'`，无需改 manifest（已查证）。
+   - ~~MV3 extension_pages 最小 CSP 已含 `'wasm-unsafe-eval'`，无需改 manifest（已查证）。~~ **此论断有误（2026-09-15 E2E 冒烟实测证伪）**：MV3 默认 CSP 就是 `script-src 'self'`，**不含** `'wasm-unsafe-eval'`，wasm 在 offscreen 会直接被拦。修法：`wxt.config.ts` manifest 显式声明 `content_security_policy.extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"`（仅放开 WebAssembly 编译，不含 `unsafe-eval` 的 JS eval 语义，老大已批准）。
 2. 构建入口：
    ```ts
    build(project): bundle
