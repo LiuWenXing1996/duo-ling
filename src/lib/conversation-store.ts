@@ -232,22 +232,41 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
  * 追加一条消息并刷新会话 lastMessageAt；会话不存在时返回 null（与桌面版一致）。
  * 顺带处理**首条用户消息自动命名**——桌面版把这段逻辑放在同一处，是唯一的触发点，
  * 拆出去（例如做成独立的 autoTitle 供外部调用）会因无人调用而静默失效。
+ *
+ * 必须在**单个 readwrite 事务**里完成读与写：旧实现拆成 3 个独立事务（查 existing →
+ * 写消息 → 读+写会话），两个 append 并发交错时，后提交的会用读到的旧标题覆盖
+ * 先完成的自动命名（2026-09-15 手测：部分会话标题停在「新会话 N」）。
+ * 命名条件也由此改为「该会话此前没有用户消息」（而非「没有任何消息」）——
+ * 异常收尾可能让 assistant 消息先落盘，按任意消息判断会让改名静默失效。
  */
 export async function appendMessage(message: Message): Promise<Message | null> {
-  const existing = await listMessages(message.conversationId)
-  await tx(MESSAGES, 'readwrite', (s) => s.put(message))
-  const conversation = await tx<Conversation | undefined>(CONVERSATIONS, 'readonly', (s) =>
-    s.get(message.conversationId),
-  )
-  if (!conversation) return null
+  const db = await openDb()
+  return new Promise<Message | null>((resolve, reject) => {
+    const transaction = db.transaction([CONVERSATIONS, MESSAGES], 'readwrite')
+    const messages = transaction.objectStore(MESSAGES)
+    const conversations = transaction.objectStore(CONVERSATIONS)
 
-  const next: Conversation = { ...conversation, lastMessageAt: message.createdAt }
-  if (existing.length === 0 && message.role === 'user' && /^新会话 \d+$/.test(next.title)) {
-    const trimmed = message.content.trim()
-    if (trimmed) next.title = trimmed.length > 20 ? `${trimmed.slice(0, 20)}…` : trimmed
-  }
-  await tx(CONVERSATIONS, 'readwrite', (s) => s.put(next))
-  return message
+    // 请求按发出顺序执行：先读会话与既有消息，回调里再做写入（同事务，不会提前提交）
+    const convReq = conversations.get(message.conversationId)
+    const listReq = messages.index('conversationId').getAll(message.conversationId)
+    listReq.onsuccess = () => {
+      const conversation = convReq.result as Conversation | undefined
+      if (!conversation) return // 会话不存在：不写任何东西，oncomplete 时 resolve null
+
+      messages.put(message)
+      const prior = listReq.result as Message[]
+      const next: Conversation = { ...conversation, lastMessageAt: message.createdAt }
+      const isFirstUserMessage = message.role === 'user' && !prior.some((m) => m.role === 'user')
+      if (isFirstUserMessage && /^新会话 \d+$/.test(next.title)) {
+        const trimmed = message.content.trim()
+        if (trimmed) next.title = trimmed.length > 20 ? `${trimmed.slice(0, 20)}…` : trimmed
+      }
+      conversations.put(next)
+    }
+    transaction.oncomplete = () => resolve(convReq.result ? message : null)
+    transaction.onerror = () => reject(transaction.error ?? new Error('appendMessage 事务失败'))
+    transaction.onabort = () => reject(transaction.error ?? new Error('appendMessage 事务中止'))
+  })
 }
 
 /** 会话检索：空查询返回最近 limit 条；非空匹配标题或任意消息正文（大小写不敏感） */
