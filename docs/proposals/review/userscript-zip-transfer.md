@@ -1,6 +1,6 @@
 # 用户脚本 zip 导入导出（分享语义）
 
-> 状态：草稿
+> 状态：评审中
 > 来源：[docs/proposals/done/ai-userscript-next-roadmap.md](../done/ai-userscript-next-roadmap.md)（提案 ③ #4）
 > 提案人：小涡（AI）
 
@@ -69,3 +69,4 @@
 | 日期 | 从 → 到 | 理由（一句） | 关联 PR / Issue |
 | --- | --- | --- | --- |
 | 2026-09-17 | 新提案 → 草稿 | 提案创建 | — |
+| 2026-09-17 | 草稿 → 评审中 | 提案写完，提交评审 | — |
