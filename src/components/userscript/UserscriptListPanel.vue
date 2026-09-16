@@ -9,14 +9,18 @@ import { computed, onMounted, ref } from 'vue'
 import {
   AlertTriangle as UiAlertTriangle,
   Braces as UiBraces,
+  Check as UiCheck,
   ChevronDown as UiChevronDown,
+  Download as UiDownload,
   LoaderCircle as UiLoaderCircle,
   MousePointerClick as UiMousePointerClick,
   Package as UiPackage,
   Pencil as UiPencil,
   Plus as UiPlus,
   RefreshCw as UiRefreshCw,
-  Trash2 as UiTrash2
+  Trash2 as UiTrash2,
+  Upload as UiUpload,
+  X as UiX
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import {
@@ -30,7 +34,16 @@ import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/u
 import { formatTimestamp } from '@/lib/format'
 import { BUILTIN_SCRIPTS } from '@/lib/userscripts/builtins'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
-import type { ScriptSummary, UserScriptErrorRecord, UserScriptsAvailability } from '@/lib/userscripts/types'
+import { buildScriptZip, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
+import type { ZipScriptPayload } from '@/lib/userscripts/zip-transfer'
+import type {
+  ImportItemOk,
+  ImportReport,
+  ScriptProject,
+  ScriptSummary,
+  UserScriptErrorRecord,
+  UserScriptsAvailability
+} from '@/lib/userscripts/types'
 
 const emit = defineEmits<{
   /** 请求打开该脚本的编辑器标签页（由 WorkspaceHost 接管） */
@@ -126,6 +139,7 @@ async function onToggle(s: ScriptSummary, next: boolean): Promise<void> {
   try {
     const { registerError } = await userscriptClient.toggle(s.uuid, next)
     s.enabled = next
+    if (next) justImported.value = justImported.value.filter((u) => u !== s.uuid) // 启用后摘掉「刚导入」标
     if (registerError) {
       warning.value = `「${s.name}」已${next ? '启用' : '停用'}（数据已保存），但注册失败，脚本不会注入页面：${registerError}`
     }
@@ -171,6 +185,117 @@ const pendingRemove = ref<ScriptSummary | null>(null)
  */
 function askRemove(s: ScriptSummary): void {
   pendingRemove.value = s
+}
+
+// —— zip 导入导出（docs/userscript-zip-transfer.md；提案 docs/proposals/draft/userscript-zip-transfer.md）——
+// 导出：ui-client 现成的 getProject / list 只读取数，zip 编码在本页（zip-transfer 纯函数），
+// 零新增协议。导入：zip 文件转 base64 走 userscript:import 命令对，offscreen 单写方落盘。
+
+/** 导出确认弹窗的待办目标：非 null 即弹窗打开（每行导出与全部导出共用，隐私文案只写一处） */
+const pendingExport = ref<null | { kind: 'single'; summary: ScriptSummary } | { kind: 'all' }>(null)
+/** 导出进行中（确认后的取数 + 打包 + 下载），防连点 */
+const exporting = ref(false)
+/** 导入进行中 */
+const importing = ref(false)
+/** 隐藏的 zip 文件选择器（file picker） */
+const importInput = ref<HTMLInputElement | null>(null)
+/** 最近的导入报告：非 null 即汇总弹窗打开（单脚本 zip 成功直接开编辑器，不弹报告） */
+const importReport = ref<ImportReport | null>(null)
+/** 刚导入的脚本 uuid：列表标「刚导入 · 未启用」，手动启用后即摘标 */
+const justImported = ref<string[]>([])
+
+function askExportSingle(s: ScriptSummary): void {
+  pendingExport.value = { kind: 'single', summary: s }
+}
+
+function askExportAll(): void {
+  pendingExport.value = { kind: 'all' }
+}
+
+/** 全部导出的文件名：duoling-scripts-<YYYYMMDD>.zip */
+function allExportFilename(): string {
+  const d = new Date()
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+  return `duoling-scripts-${ymd}.zip`
+}
+
+/** 确认导出：取数（只读命令）→ 本页打包 → 触发下载 */
+async function confirmExport(): Promise<void> {
+  const target = pendingExport.value
+  if (!target || exporting.value) return
+  pendingExport.value = null
+  exporting.value = true
+  error.value = ''
+  try {
+    let scripts: ZipScriptPayload[]
+    let filename: string
+    if (target.kind === 'single') {
+      const p = await userscriptClient.getProject(target.summary.uuid)
+      if (!p) throw new Error('脚本不存在（可能刚被删除）')
+      scripts = [{ name: p.name, config: p.config, entry: p.entry, files: p.files }]
+      filename = `${sanitizeDirName(p.name)}.zip`
+    } else {
+      // deprecated 旧记录不导出（格式不同、不可编辑，定稿 §4）
+      const list = (await userscriptClient.list()).filter((s) => !s.deprecated)
+      const projects = (
+        await Promise.all(list.map((s) => userscriptClient.getProject(s.uuid)))
+      ).filter((p): p is ScriptProject => !!p)
+      if (!projects.length) throw new Error('没有可导出的脚本')
+      scripts = projects.map((p) => ({ name: p.name, config: p.config, entry: p.entry, files: p.files }))
+      filename = allExportFilename()
+    }
+    const bytes = buildScriptZip(scripts, {
+      exporter: `duoling/${chrome.runtime.getManifest().version}`,
+    })
+    downloadZip(bytes, filename)
+  } catch (e) {
+    error.value = '导出失败：' + (e instanceof Error ? e.message : String(e))
+  } finally {
+    exporting.value = false
+  }
+}
+
+/** 触发浏览器下载（工作台是可信扩展页，Blob + <a download> 即可） */
+function downloadZip(bytes: Uint8Array, filename: string): void {
+  // 复制出独立 ArrayBuffer（BlobPart 类型不接受 ArrayBufferLike 视图）
+  const buffer = bytes.slice().buffer as ArrayBuffer
+  const url = URL.createObjectURL(new Blob([buffer], { type: 'application/zip' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+/**
+ * 选定 zip 文件后导入：读文件转 base64 → userscript:import（offscreen 解码 + 校验 + 构建 + 落盘）。
+ * 成功动线（定稿 §5.8）：单脚本 zip 成功直接开编辑器；其余弹汇总报告，新导入标「刚导入 · 未启用」。
+ */
+async function onImportFile(e: Event): Promise<void> {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = '' // 清空以允许重复选择同一个文件
+  if (!file || importing.value) return
+  importing.value = true
+  error.value = ''
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const report = await userscriptClient.importZip(bytesToBase64(bytes))
+    for (const r of report.results) {
+      if (r.status === 'ok') justImported.value = [...justImported.value, r.uuid]
+    }
+    await refresh()
+    const single = report.results.length === 1 ? report.results[0] : undefined
+    if (single && single.status === 'ok') {
+      emit('edit', single.uuid, single.name)
+    } else {
+      importReport.value = report
+    }
+  } catch (err) {
+    error.value = '导入失败：' + (err instanceof Error ? err.message : String(err))
+  } finally {
+    importing.value = false
+  }
 }
 
 /**
@@ -230,6 +355,38 @@ onMounted(() => {
               @click="refresh"
             >
               <ui-refresh-cw class="size-3.5" :class="{ 'animate-spin': loading }" />
+            </ui-button>
+            <!-- 导入 zip：file picker（拖拽导入后置），offscreen 单写方落盘后按成功动线分流 -->
+            <ui-button
+              variant="ghost"
+              size="sm"
+              class="h-7 gap-1 px-2.5 text-xs"
+              title="从 zip 导入脚本"
+              :disabled="importing"
+              @click="importInput?.click()"
+            >
+              <ui-loader-circle v-if="importing" class="size-3.5 animate-spin" />
+              <ui-upload v-else class="size-3.5" />
+              导入
+            </ui-button>
+            <input
+              ref="importInput"
+              type="file"
+              accept=".zip,application/zip"
+              class="hidden"
+              @change="onImportFile"
+            >
+            <!-- 全部导出：与每行导出共用确认弹窗（隐私提示只写一处） -->
+            <ui-button
+              variant="ghost"
+              size="sm"
+              class="h-7 gap-1 px-2.5 text-xs"
+              title="导出全部脚本"
+              :disabled="exporting || !activeScripts.length"
+              @click="askExportAll"
+            >
+              <ui-download class="size-3.5" />
+              全部导出
             </ui-button>
             <!-- 添加脚本：零输入创建（自动命名 + 初始模板 + 建 git 仓 + 启用） -->
             <ui-button
@@ -311,6 +468,12 @@ onMounted(() => {
                 >
                   旧格式 · 已弃用
                 </span>
+                <span
+                  v-else-if="justImported.includes(s.uuid) && !s.enabled"
+                  class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                >
+                  刚导入 · 未启用
+                </span>
               </div>
               <p class="mt-0.5 truncate font-mono text-xs text-muted-foreground">
                 {{ s.matches.join(', ') || '（无匹配规则）' }}
@@ -342,6 +505,18 @@ onMounted(() => {
                 @click="emit('edit', s.uuid, s.name)"
               >
                 <ui-pencil class="size-3.5" />
+              </ui-button>
+              <!-- 导出（非 deprecated）：确认弹窗统一带隐私提示 -->
+              <ui-button
+                v-if="!s.deprecated"
+                variant="ghost"
+                size="icon"
+                class="size-7"
+                title="导出脚本（zip）"
+                :disabled="exporting"
+                @click="askExportSingle(s)"
+              >
+                <ui-download class="size-3.5" />
               </ui-button>
               <!-- 删除不分 deprecated：旧格式记录也在这里清理 -->
               <ui-button
@@ -455,6 +630,76 @@ onMounted(() => {
           >
             删除
           </ui-button>
+        </ui-dialog-footer>
+      </ui-dialog-content>
+    </ui-dialog>
+
+    <!-- 导出确认弹窗：每行导出与全部导出共用；隐私提示固定在此（定稿 §4，文案只写一处） -->
+    <ui-dialog
+      :open="!!pendingExport"
+      @update:open="(v: boolean) => { if (!v) pendingExport = null }"
+    >
+      <ui-dialog-content class="max-w-md">
+        <ui-dialog-title class="text-base font-semibold">
+          {{ pendingExport?.kind === 'all' ? '导出全部脚本' : '导出脚本' }}
+        </ui-dialog-title>
+        <ui-dialog-description class="text-sm text-muted-foreground">
+          <template v-if="pendingExport?.kind === 'all'">
+            将把全部 {{ activeScripts.length }} 个脚本打包为一个 zip（不含已弃用旧记录）。
+          </template>
+          <template v-else>
+            将把「{{ pendingExport?.summary.name }}」打包为 zip（含全部源码文件）。
+          </template>
+          <span class="mt-2 block text-amber-600 dark:text-amber-400">
+            导出内容包含脚本源码明文，请注意其中是否有凭据。
+          </span>
+        </ui-dialog-description>
+        <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
+          <ui-button variant="ghost" size="sm" @click="pendingExport = null">取消</ui-button>
+          <ui-button size="sm" :disabled="exporting" @click="confirmExport">
+            导出
+          </ui-button>
+        </ui-dialog-footer>
+      </ui-dialog-content>
+    </ui-dialog>
+
+    <!-- 导入汇总报告：多脚本 / 有失败时展示（单脚本成功直接开编辑器，不经过这里） -->
+    <ui-dialog
+      :open="!!importReport"
+      @update:open="(v: boolean) => { if (!v) importReport = null }"
+    >
+      <ui-dialog-content class="max-w-lg">
+        <ui-dialog-title class="text-base font-semibold">
+          导入完成：成功 {{ importReport?.succeeded }} 个，失败 {{ importReport?.failed }} 个
+        </ui-dialog-title>
+        <ui-dialog-description class="text-sm text-muted-foreground">
+          新导入的脚本默认停用——审过源码后再手动启用。
+        </ui-dialog-description>
+        <ul class="mt-3 flex max-h-64 flex-col gap-2 overflow-y-auto">
+          <li
+            v-for="(r, i) in importReport?.results"
+            :key="i"
+            class="flex items-start gap-2 text-xs"
+          >
+            <ui-check
+              v-if="r.status === 'ok'"
+              class="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"
+            />
+            <ui-x v-else class="mt-0.5 size-3.5 shrink-0 text-destructive" />
+            <div class="min-w-0 flex-1">
+              <p class="font-medium">{{ r.name }}</p>
+              <p v-if="r.status === 'ok'" class="mt-0.5 text-muted-foreground">
+                已导入 · 未启用
+                <template v-if="r.duplicateOf">
+                  · 与现有脚本「{{ r.duplicateOf }}」内容相同（仍已导入）
+                </template>
+              </p>
+              <p v-else class="mt-0.5 break-all text-destructive">{{ r.reason }}</p>
+            </div>
+          </li>
+        </ul>
+        <ui-dialog-footer class="flex-none sm:justify-end">
+          <ui-button size="sm" @click="importReport = null">好的</ui-button>
         </ui-dialog-footer>
       </ui-dialog-content>
     </ui-dialog>
