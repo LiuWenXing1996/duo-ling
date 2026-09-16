@@ -100,38 +100,10 @@ def parse_transitions(text: str) -> list[tuple[str, str, str]]:
 
 
 def check_exemptions() -> int:
-    """豁免清单：条目数到 10 条提醒复核（docs/proposal-process.md「豁免清单」）。"""
-    path = ROOT / "docs" / "proposal-process.md"
-    if not path.is_file():
-        return 0
-    body = section(path.read_text(encoding="utf-8"), "豁免清单")
-    if not body:
-        return 0
-    rows = []
-    seen_header = False
-    for row in ROW_RE.finditer(body):
-        cells = [clean(c) for c in row.group(1).split("|")]
-        # 表头：表格第一行，按位置判定（不绑列数——本表列数会随改法变）
-        if not seen_header:
-            seen_header = True
-            continue
-        # 分隔行：| --- | --- |
-        if all(re.fullmatch(r"[:\-\s]*", c) for c in cells):
-            continue
-        if "暂无" in "".join(cells):
-            continue
-        rows.append(cells)
-    if rows:
-        print(f"\n豁免清单（{len(rows)}）")
-        for cells in rows:
-            print(f"  · {' —— '.join(cells)}")
-    elif "暂无" not in body:
-        # 章节在却一行都解析不出来 = 表格结构变了自己没察觉，报出来而不是静默空转
-        print("\n豁免清单：章节在，但一行都没解析出来（表格结构变了？）")
-        return 1
-    if len(rows) >= 10:
-        print("  ! 攒到 10 条了，该复核一遍：有没有被用成万能口子的条目")
-        return 1
+    """豁免清单检查：已随 2026-09-17「提案降级为可选」废止（清单不再是表格，保留会误报）。
+
+    提案成为可选项后「豁免」概念失去存在意义，此函数仅留档说明，不再参与体检。
+    """
     return 0
 
 
