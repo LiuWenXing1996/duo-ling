@@ -42,7 +42,7 @@
 | [docs/plugin-migration-plan.md](docs/plugin-migration-plan.md) | 迁移方案：架构映射、分层方案、风险清单、路线图 | 涉及架构 / 迁移范围时 |
 | [docs/userscript-ai-generation.md](docs/userscript-ai-generation.md) | AI 生成用户脚本 · 现状与用法 | 涉及生成链路时 |
 | [docs/style.md](docs/style.md) | 代码风格规范（部分条目为 Electron 时期约定，按需取用） | 写代码 / 改样式前 |
-| [docs/proposal-process.md](docs/proposal-process.md) | **提案流程**：五态状态机、流转记录、提案不可删。**所有变更走这套流程，无身份例外** | 想改任何东西之前 |
+| [docs/proposal-process.md](docs/proposal-process.md) | **提案流程**（2026-09-17 起降级为可选）：五态状态机、流转记录、提案不可删。**重大变更建议开提案做决策留痕；日常改动直接做，不开提案** | 结构 / 行为大改、需要多轮讨论的设计 |
 | [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**（有方案的走提案流程，见 [todo.md](docs/todo.md)）。与提案流程相互独立 | 攒需求 / 清理待办时 |
 | [docs/doc-standard.md](docs/doc-standard.md) | 文档规范：归属、状态块、归档、水文清单、字数上限 | 写文档 / review PR 前 |
 | [docs/lessons.md](docs/lessons.md) | 踩坑记录 | 报错 / 排查前 |
@@ -99,7 +99,7 @@
 
 **我（AI）怎么干**：
 
-1. 动手前：读本文件 → 文档总表 → 相关文档 → 本机日志；**任何变更先判断要不要提案**（[docs/proposal-process.md](docs/proposal-process.md) 的「要求」与「豁免清单」两节），AI 自己也不例外——先有提案再动手
+1. 动手前：读本文件 → 文档总表 → 相关文档 → 本机日志；**重大变更（结构 / 行为大改、需要决策留痕的设计）建议开提案**（[docs/proposal-process.md](docs/proposal-process.md)），日常改动直接做、不开提案
 2. 直接做：读代码、探索、改文档 / 注释 / 格式
 3. 先问再做：改行为或结构、加依赖、动 manifest、删文件、外部操作（push / 发布）
 4. 交付前：`npm run typecheck` + `npm run build` 必过；UI 不做额外视觉校验
