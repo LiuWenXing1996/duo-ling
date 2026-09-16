@@ -62,7 +62,7 @@
 - `vi.hoisted` + `vi.mock` 工厂组合提 mock 函数（mock 必须在 import 求值前注册）；beforeEach 里 `mockResolvedValue` 重设、clearAllMocks 清调用。
 - 卸载路径（onBeforeUnmount flush 草稿）会真的调 `writeDraft`——beforeEach 必须给 `writeDraft.mockResolvedValue(undefined)`，否则 unmount 时报 `Cannot read properties of undefined (reading 'catch')`。
 - 编辑器组件卸载即触发草稿 flush：依赖卸载时序的断言放在 `afterEach` unmount 之前完成。
-- **mock `#imports` 的注意点**（官方文档）：源码 `import { x } from '#imports'` 在 vitest 预处理时被替换为真实路径（如 `wxt/utils/inject-script`），故 `vi.mock` 必须写**真实路径**而非 `'#imports'`；对照表在 `.wxt/types/imports-module.d.ts`（缺失先跑 `wxt prepare`）。
+- **mock `#imports` 的注意点**（官方文档）：源码 `import { x } from '#imports'` 在 vitest 预处理时被替换为真实路径（如 `wxt/utils/inject-script`），故 `vi.mock` 必须写**真实路径**而非 `'#imports'`；对照表在 `.wxt/types/imports-module.d.ts`。恢复路径见 [lessons](lessons.md) 的「WXT / 扩展工程」现象族。
 - 测试文件**跟源码同目录**（`*.test.ts`，不进构建产物）；`npm run test`（vitest）独立命令，`npm run test:e2e`（playwright）分开；两者都不并入 typecheck。
 - E2E 跑 `npm run build` 产物，不依赖 dev server（dev server 仍由老大自管）。
 

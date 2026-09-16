@@ -18,7 +18,13 @@
 
 ## WXT / 扩展工程
 
-- **WXT dev 在全新 worktree / clone 下 ENOENT 起不来**：`npm run dev` 构建成功（685ms）后立刻退出，报 `ENOENT: no such file or directory, open '<项目根>/.chrome-dev-profile/chrome-out.log'`，栈顶在 `chrome-launcher.js:151` 的 `Launcher.prepare`。链条：`wxt.config.ts` 用绝对路径固定 `webExt.chromiumProfile` 且开 `keepProfileChanges: true`（为保住「Allow User Scripts」这类每扩展开关）→ `web-ext` 的 `ChromiumExtensionRunner.setupInstance`（`web-ext/lib/extension-runners/chromium.js:282-285`）在该分支**只校验 userDataDir、不创建它** → `chrome-launcher@1.2.0` 的 `Launcher.prepare()` 里 `this.userDataDir = this.userDataDir || this.makeTmpDir()` **只在自己造临时目录时才建目录**，外部传入的路径直接 `openSync(<dir>/chrome-out.log)`。该目录被 `.gitignore` 忽略，**新 clone / 新建 git worktree 必然缺失**（主仓库那份存在，所以在主仓库跑没事）。**已修**：`wxt.config.ts` 顶层 `const chromiumProfileDir = resolve(process.cwd(), '.chrome-dev-profile')` + `mkdirSync(chromiumProfileDir, { recursive: true })`，`webExt.chromiumProfile` 改用该常量。**排查手法（可复用）**：栈顶落在 node_modules 里的 ENOENT，直接读该处源码判断「谁该建目录 / 谁只读不建」，再用 `node -e` 构造最小复现（`new Launcher({ userDataDir }).prepare()`——只调 `prepare()`，不开浏览器、零副作用、秒级出结果），比反复跑整条 `npm run dev` 快且干净。
+- **缺本机生成目录/生成物 → 同根因族（已踩两次）**。判据见 [conventions](dev-log/conventions.md)。
+  - **① `.chrome-dev-profile/` 缺 → `npm run dev` ENOENT**：链条：`wxt.config.ts` 固定 `webExt.chromiumProfile` → `web-ext` `setupInstance`**只校验不创建** → `chrome-launcher` `Launcher.prepare()` **只自造临时目录时才建目录**，外部 `openSync` 报错。
+  - **② `.wxt/` 缺 → typecheck/test 假红**：`typecheck` 报 `TS5083: Cannot read file '.wxt/tsconfig.json'`；`test` 报 `Transform failed`（vitest）。成因：缺 base `skipLibCheck`/`target`/`lib`，112 条 node_modules `.d.ts` 连坐。
+  - **谁负责生成 / 本仓口径**：`.wxt/` 由 `npx wxt prepare` 生成（现 `postinstall` 自动跑；装依赖只用 `npm install`）；`.chrome-dev-profile/` 由 `wxt.config.ts` 顶层 `mkdirSync` 建。
+  - **反例**：`--omit=dev` 致 wxt 缺 `command not found` 中断；`--ignore-scripts` 跳过 postinstall 致 `.wxt/` 不生成、必红；`wxt prepare` 非零退出让 `npm install` 整体失败。
+  - **恢复 / 迁移**：手动删 `.wxt/` 或老 worktree 缺时，跑 `npx wxt prepare`（或 `npm install`）重建。
+  - **排查手法（可复用）**：栈顶落在 node_modules 里的 ENOENT，直接读该处源码判断「谁该建目录 / 谁只读不建」，再用 `node -e` 构造最小复现（`new Launcher({ userDataDir }).prepare()`——只调 `prepare()`，不开浏览器、零副作用、秒级出结果），比反复跑整条 `npm run dev` 快且干净。
 
 ## Vitest / 测试基建（层 2 协议一致性，2026-09-15 落地时踩到）
 

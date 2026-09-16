@@ -27,9 +27,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # WXT 在 prepare/build 时才生成 .wxt/tsconfig.json（含 @ 别名、#imports 虚拟模块类型），
-      # vue-tsc 与 vitest(WxtVitest) 都依赖它；prepare 比 build 轻量，只生成类型不产出构建物。
-      # 缺失会报 "Failed to load tsconfig '.wxt/tsconfig.json'"，与本地首次跑测同坑。
+      # .wxt/tsconfig.json 由 wxt prepare 生成（含 @ 别名与 #imports 虚拟模块类型），vue-tsc 与 vitest(WxtVitest) 都依赖它；
+      # 缺失报 "Failed to load tsconfig '.wxt/tsconfig.json'"；门禁不因缺 .wxt 假红——显式 prepare 兜底，防 postinstall 被跳过致 typecheck 假红。
       - name: Generate WXT types (.wxt/tsconfig.json)
         run: npx wxt prepare
 
