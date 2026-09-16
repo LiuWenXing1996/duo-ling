@@ -1,6 +1,6 @@
 # 哆灵 · 浏览器扩展（Chrome MV3）
 
-哆灵是 AI 用户脚本工坊。**本仓库即扩展工程本体**——原先的 Electron 桌面版已整体归档到 [`legacy/`](legacy/)（只读参照，迁移完成后删除）。
+哆灵是 AI 用户脚本工坊。**本仓库即扩展工程本体**（Chrome MV3 扩展）。
 
 > **2026-09-14 方向变更**：原「AI 生成**工具**」（工具页 + sandbox iframe + `window.cap` 能力桥）
 > 整条链路已移除，产品方向转为**用户脚本**（一句话生成脚本 → 注入第三方页面运行）。
@@ -48,7 +48,7 @@
 │  │     ├─ workbench-main.ts     # 入口脚本（→ WorkbenchApp）
 │  │     ├─ WorkbenchApp.vue      # 工作台根：左侧导航 + WorkspaceHost（裁剪自桌面版 app.vue）
 │  │     └─ offscreen-main.ts     # offscreen 入口脚本
-│  ├─ components/                 # 【平移自桌面版】UI 组件，改前先查 legacy 是否已有实现
+│  ├─ components/                 # UI 组件（改前先查现有实现，禁止照着界面重写）
 │  │  ├─ ChatPanel.vue            #   当前会话：消息气泡 / 思考过程折叠 / 工具卡 / 输入区 / 模型切换
 │  │  ├─ SessionHistoryPanel.vue  #   会话历史（搜索 / 重命名 / 删除确认）
 │  │  ├─ ModelFormDialog.vue      #   模型配置弹窗
@@ -84,9 +84,8 @@
 │  │  ├─ shims.d.ts               # 全局声明：process 模块 + window.api（须保持 ambient，勿加顶层 import）
 │  │  └─ tab.ts / model.ts        # 【平移】渲染层类型 re-export
 │  └─ public/esbuild.wasm         # 浏览器内构建脚本产物（esbuild-wasm）
-├─ scripts/port-legacy-ui.py      # 平移工具：按依赖闭包从 legacy 复制组件（改 ENTRIES 可平下一层）
-├─ docs/                          # 产品 / 迁移文档
-└─ legacy/                        # 原 Electron 桌面版归档（不参与构建；含已下线工具链路的旧文档 legacy/docs/）
+├─ scripts/                       # 仓库维护脚本（提案体检 / skill 校验）
+└─ docs/                          # 产品 / 迁移文档
 ```
 
 ## 命令
@@ -99,7 +98,7 @@ npm run typecheck        # vue-tsc 全量类型检查（含 .vue）
 npm run build:firefox    # 跨端构建（Firefox 侧；sidebar_action 适配见迁移方案）
 ```
 
-> 依赖用 **npm** 管理。（原 Electron 工程用 pnpm workspace，其配置已随归档移入 `legacy/`。）
+> 依赖用 **npm** 管理。
 
 ## 手测
 

@@ -18,7 +18,6 @@ description: Use when configuring, building, or debugging WXT 0.21 in this exten
 
 **本 skill 不管什么**（别越界）
 - Vue / UI 组件怎么写 → [shadcn-vue](../shadcn-vue/SKILL.md)
-- legacy 桌面版逻辑对照 → `scripts/compare-bridge.py` + AGENTS.md
 - Chrome 扩展 API 本身语义 → MDN / `node_modules/@types/chrome`
 - 工具页 sandbox iframe / `window.cap` 桥接 → AGENTS.md「工具页承载」
 

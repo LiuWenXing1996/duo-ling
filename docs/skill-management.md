@@ -155,7 +155,7 @@ Quick triage for WXT build failures. Read the failing command first, then locate
 
 ## Alias and source resolution
 
-`@` and `~` aliases are **hardcoded to `srcDir`** in WXT's `resolve-config`. Changing `srcDir` from default `./` breaks all `@/...` imports in legacy code ported from `src/renderer/src/`.
+`@` and `~` aliases are **hardcoded to `srcDir`** in WXT's `resolve-config`. Changing `srcDir` from default `./` breaks all `@/...` imports in the ported code.
 
 - Symptom: `Failed to resolve import "@/components/..."`
 - Fix: keep `srcDir: 'src'` in `wxt.config.ts`, do not change
@@ -251,7 +251,6 @@ npm run verify:skills
 | --- | --- | --- |
 | `pre-push-checks` | 工作流 SOP | 推送前检查清单（typecheck + 受影响的测试文件）|
 | `wxt-build-debug` | 工作流 SOP | WXT 构建报错的常见原因对照表 |
-| `electron-migration` | 工作流 SOP | `legacy/` 平移到扩展版的决策与桥接层核对（参考 `scripts/port-legacy-ui.py`） |
 
 > 原「待装」首位的 `wxt` 已于 2026-09-14 装入并上移到「已装」表。
 
@@ -353,7 +352,7 @@ git commit -m "chore(skills): remove npx skills lockfile — adopt deepseek-harn
 
 每个 note 文件名：`YYYY-MM-DD-topic.md`。
 
-**duo-ling 特别有用**：项目正在做 Electron→扩展迁移，关键决策可以沉淀：
+**duo-ling 特别有用**：关键决策可以沉淀：
 
 ```
 .agents/notes/implemented/architecture/2026-XX-XX-electron-to-extension-migration.md
@@ -430,13 +429,13 @@ git add .agents/skills/pre-push-checks
 git commit -m "feat(skills): add pre-push-checks skill"
 ```
 
-### Phase 6：ADR 体系（按需，建议在 Electron→扩展迁移决策时建）
+### Phase 6：ADR 体系（按需）
 
 ```bash
 mkdir -p .agents/notes/{proposed,implemented,rejected,archived}/{architecture,testing,feature,process,bug-fix,simplification}
 
-# 写第一条 note：迁移背景
-# .agents/notes/implemented/architecture/2026-XX-XX-electron-to-extension-migration.md
+# 写第一条 note
+# .agents/notes/implemented/architecture/2026-XX-XX-<标题>.md
 ```
 
 ---

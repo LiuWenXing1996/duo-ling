@@ -1,6 +1,6 @@
 // 模型配置存取（chrome.storage.local 替换桌面版的 electron-store + safeStorage）。
 //
-// 语义对齐桌面版 `legacy/src/main/model-store.ts`：
+// 语义对齐桌面版原实现（model-store）：
 //   1. **展示名为空时回退模型 ID**（契约见 `shared/types.ts` 的 `ModelProfile.name`）。
 //      ChatPanel 的模型 chip 与下拉只读 `name`、不做回退，因此回退必须在存储层完成，
 //      否则会渲染出空白项（桌面版正是在 toPublic / saveProfile 两处做的）。

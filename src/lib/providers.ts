@@ -1,11 +1,11 @@
-// 在线大模型服务商预设表，**逐条平移自桌面版 legacy/src/main/providers.ts**。
+// 在线大模型服务商预设表，**逐条平移自桌面版原实现**。
 // 统一按 OpenAI Chat Completions 兼容接口建模：
 // - supported=true：用 Bearer 鉴权即可直接使用的服务商，一键添加
 // - supported=false：如 AWS Bedrock 走 Signature V4 鉴权，当前暂不支持一键添加（网格中置灰提示）
 //
-// 维护提示：这张表是「数据」，改动应回到桌面版口径上去对齐 —— 一期手写时只挑了 10 个，
-// 导致「添加模型」弹窗少了 7 个服务商（海外 MiniMax / Kimi、小米 MiMo、BytePlus、AWS、ModelArk、PPIO），
-// 且 bigmodel / alibaba / tencent 的展示名与桌面版不一致。
+// 维护提示：这张表是「数据」，改动要逐个字段核对 —— 漏过一次：少了 7 个服务商
+// （海外 MiniMax / Kimi、小米 MiMo、BytePlus、AWS、ModelArk、PPIO），且 bigmodel /
+// alibaba / tencent 的展示名不一致。
 import type { ModelProvider } from '../shared/types'
 
 const PROVIDERS: ModelProvider[] = [

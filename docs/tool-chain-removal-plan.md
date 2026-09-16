@@ -103,7 +103,7 @@
 > | Phase 1 摘 UI 入口 | `1cae9c6` | 7 文件 −975 行；**已 Chrome 手测通过** |
 > | Phase 2 删孤儿 | `0bf4d9a` | 16 文件 −2881 行（含开发者界面整体删除） |
 > | Phase 3 收窄协议与后端 | `5242897` | 19 文件 −1834 行（含 9 个模块文件删除） |
-> | Phase 4 文档与改名 | `2d089cf` | `ToolWorkspace` → `WorkspaceHost`；旧文档归档 `legacy/docs/`；README / AGENTS / prd 更新 |
+> | Phase 4 文档与改名 | `2d089cf` | `ToolWorkspace` → `WorkspaceHost`；旧文档归档保留；README / AGENTS / prd 更新 |
 >
 > 四个阶段均 `typecheck` 0 错 + `build` 绿；manifest 权限集合**未变**（工具链路不占专属权限，无需 Chrome 重新授权）。
 > 实施中相对本方案的偏差：多删了 `src/lib/api.ts`（工具页补充门面，`extensionApi` 零消费者）与
@@ -170,15 +170,15 @@
 | --- | --- | --- | --- |
 | 1 | `UiTestPanel.vue`（474 行纯 mock 思考链预览） | **保留** | 零工具 API 依赖，与工具链路无关 —— 只删该删的 |
 | 2 | `DeveloperPanel.vue` | **删** | 内容 100% 是工具链路能力面（`agentTools.list` + `capability.list`），改造成不了非空壳 |
-| 3 | `ToolWorkspace.vue` 改名 | **改** `WorkspaceHost.vue` | 角色已变为「脚本 / 设置工作台」，留 Tool 前缀会复现 §02 坑 2 的同类误导；随其后单独一步做，同步更新 `scripts/port-legacy-ui.py` 的 ENTRIES |
-| 4 | 文档处置 | `tool-spec.md` / `conversation-tool-decouple.md` → **归档 `legacy/docs/`**（不删，可逆）；`prd.md` **本次不重写**，仅文首加一行状态说明，重写另开任务 | 归档优于删除（历史可查）；PRD 重写是产品级动作，不该夹在代码重构里 |
+| 3 | `ToolWorkspace.vue` 改名 | **改** `WorkspaceHost.vue` | 角色已变为「脚本 / 设置工作台」，留 Tool 前缀会复现 §02 坑 2 的同类误导；随其后单独一步做 |
+| 4 | 文档处置 | `tool-spec.md` / `conversation-tool-decouple.md` → **归档保留**（不删，可逆）；`prd.md` **本次不重写**，仅文首加一行状态说明，重写另开任务 | 归档优于删除（历史可查）；PRD 重写是产品级动作，不该夹在代码重构里 |
 | 5 | `home` 标签 | ~~删该 kind~~ → **改为决策 D**：保留 kind、内容置空 | 老大 2026-09-14 18:54 定 |
 | 6 | workbench 两套脚本列表入口（管理器全屏层 + 脚本列表标签页） | **本次不动** | 属可选简化，不属移除必需项，不夹带无关改动 |
 
 ## 07 影响与风险
 
 - **功能影响（已确认符合预期）**：侧边栏对话今天唯一的「动作」就是生成工具（`parseGeneratedIntents` → `applyIntents`）。删掉后到「AI 生成用户脚本」落地前，侧边栏**只剩纯聊天**。
-- **不动的**：manifest `permissions` 集合（`storage` / `sidePanel` / `userScripts` / `notifications` / `offscreen` 逐项都能追到脚本链路或基础设施，工具链路没占过专属权限 → **无需 Chrome 重新授权**）；`minimum_chrome_version`；IndexedDB 库名 `duoling`（改名会连带脚本数据一起失联）；`legacy/`（只读归档，等迁移收尾再一起删）。
+- **不动的**：manifest `permissions` 集合（`storage` / `sidePanel` / `userScripts` / `notifications` / `offscreen` 逐项都能追到脚本链路或基础设施，工具链路没占过专属权限 → **无需 Chrome 重新授权**）；`minimum_chrome_version`；IndexedDB 库名 `duoling`（改名会连带脚本数据一起失联）。
 - **风险**：① `background.ts` 一次删三处 import 块，漏一个就是 SW 启动即抛（Phase 3 单独一阶段就是为了让它可回滚）；② `fs-store.ts` 删除时漏了被脚本间接引用的工具函数（Phase 0 用 `grep -rn "fs-store" src/` 兜一遍）；③ 会话历史里的旧 `EditIntent` 数据反序列化失败（`conversation-store` 读取侧加容错）。
 - **量级**：约 3.3k 行纯删 + 约 5k 行外科手术。硬骨头三处：`ToolWorkspace.vue`（标签总线）、`ChatPanel.vue`（变更卡片）、`use-global-conversation.ts`（intents 段）。
 
@@ -188,4 +188,4 @@
 2. `chrome://extensions` 重载，SW Console 无报错。
 3. 侧边栏：发消息 / 流式 / 停止 / 会话切换 / 重命名 / 删除 / 模型切换，全部正常。
 4. 工作台：设置（模型增删改查 + 保存）、脚本列表（启停 / 删除）、脚本编辑器（改文件 / 构建 / 保存 / git 历史）、用户脚本管理器覆盖层，全部正常。
-5. 全仓 grep `tool`（排除 `legacy/`）不再命中工具链路符号：`window.cap`、`tools-data`、`applyIntents`、`EditIntent`、`tool-bridge`。
+5. 全仓 grep `tool` 不再命中工具链路符号：`window.cap`、`tools-data`、`applyIntents`、`EditIntent`、`tool-bridge`。

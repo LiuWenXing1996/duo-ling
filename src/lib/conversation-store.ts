@@ -8,7 +8,7 @@
 // chrome.storage.local 迁入本库的 meta store，取号在一个 readwrite 事务内完成（原子自增）。
 // 首次取号时会尝试从旧 chrome.storage 键迁移存量序号（有 chrome.storage 的上下文里顺带做）。
 //
-// 语义对齐桌面版 `legacy/src/main/conversation-store.ts`：
+// 语义对齐桌面版原实现（conversation-store）：
 //   1. 新会话标题为「新会话 N」，N 来自**自增序号**（不是「当前会话数 + 1」，
 //      否则删掉一个会话再新建就会出现重号）；序号持久化在本库 meta store。
 //   2. **首条用户消息自动命名**：标题仍是默认「新会话 N」时，取消息内容前 20 字作标题。

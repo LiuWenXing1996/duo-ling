@@ -1,6 +1,6 @@
 // 主题：跟随系统深浅色。
 //
-// 桌面版是 Electron 窗口，只跑浅色（legacy 的 index.html 没有 .dark 类，main.css 的 :root 即浅色），
+// 桌面版是 Electron 窗口，只跑浅色（其 index.html 没有 .dark 类，main.css 的 :root 即浅色），
 // 也无主题开关。扩展页面挂在浏览器里，跟随系统是更符合预期的行为，故在此显式补上：
 // 用 prefers-color-scheme 驱动 html 的 .dark 类 —— main.css 的暗色变量（.dark { --background: ... }）
 // 与组件里的 `dark:` 变体（@custom-variant dark (&:is(.dark *))）都挂在这个类下，
