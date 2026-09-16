@@ -1,4 +1,4 @@
-// 生成任务的运行时状态库（IndexedDB `duoling-chat-tasks`，方案 §4.8 机制 4）。
+// 生成任务的运行时状态库（IndexedDB `duoling-chat-tasks`，docs/userscript-ai-generation.md「机制·任务可恢复」）。
 //
 // 这不是 git 提交，只是任务运行时状态的 JSON——目的是「宿主被杀后有东西可继续」：
 //   · 每步把文件树快照进任务记录（覆盖写、只留最新一份，历史由对话 tool parts 承载，不双份存）；

@@ -1,4 +1,4 @@
-// 对话事件缓冲（方案 §4.8 机制 3，reconnectToStream 真实现的核心）。
+// 对话事件缓冲（docs/userscript-ai-generation.md「机制·事件缓冲与重连」，reconnectToStream 真实现的核心）。
 //
 // offscreen 为每个会话的进行中任务维护一份 UIMessageChunk 环形缓冲：
 //   · 每条事件带自增 seq（每轮任务从 1 重计）；

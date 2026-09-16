@@ -2,7 +2,7 @@
 //
 // 演进史（读代码前先看，避免按旧注释理解）：
 //   v1  渲染层直跑 streamText —— 少一次中转，但侧边栏一关流当场断。
-//   v2  整条对话链路搬进 offscreen（docs/userscript-ai-generation.md §4.8 定位 B）：
+//   v2  整条对话链路搬进 offscreen（docs/userscript-ai-generation.md「三容器职责与数据流」）：
 //       本文件退回纯「观察者」角色——sendMessages 只是把指令 + 消息交给 offscreen
 //       （chat:start），随后把 offscreen 推回的事件（chat:chunk）收集成 ReadableStream
 //       喂给 useChat；reconnectToStream 第一次有了真实语义：重连时从头全量回放
@@ -109,7 +109,7 @@ function installPushListener(): void {
   })
 }
 
-/** 档 0 页面上下文（方案 §4.2）：侧边栏是扩展页，可直接读当前标签 URL / 标题
+/** 档 0 页面上下文（docs/userscript-ai-generation.md「页面上下文档位」）：侧边栏是扩展页，可直接读当前标签 URL / 标题
  *  （host_permissions <all_urls> 已覆盖，无需 tabs 权限）；offscreen 没有 chrome.tabs */
 async function collectPageContext(): Promise<{ url?: string; title?: string } | undefined> {
   try {

@@ -75,7 +75,7 @@ function createStubNamespace(path: string): unknown {
 
 // —— conversation：读直连 IndexedDB；写路由 offscreen ——
 //
-// 2026-09-15（docs/userscript-ai-generation.md §4.8）：整条对话链路搬进 offscreen 后，
+// 2026-09-15（docs/userscript-ai-generation.md「消息路由」）：整条对话链路搬进 offscreen 后，
 // **会话历史唯一写入方 = offscreen**（防双写）。list / search / messages 是读，仍直连
 // 本地 IndexedDB（同源共享，注册链路同理不能押在容器存活上）；create / rename / delete /
 // deleteAll / appendMessage 是写，经 conv:* 命令交 offscreen 执行。

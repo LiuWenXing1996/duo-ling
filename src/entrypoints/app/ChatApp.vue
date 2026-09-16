@@ -185,7 +185,7 @@ onMounted(() => {
       </ui-button>
     </header>
 
-    <!-- 孤儿任务横幅：offscreen 宿主被杀后遗留的进行中任务（docs/userscript-ai-generation.md §4.8 机制 4） -->
+    <!-- 孤儿任务横幅：offscreen 宿主被杀后遗留的进行中任务（docs/userscript-ai-generation.md「机制·任务可恢复」） -->
     <div
       v-if="orphanTasks.length"
       class="shrink-0 border-b border-border bg-amber-500/10 px-3 py-2 text-xs text-foreground"
