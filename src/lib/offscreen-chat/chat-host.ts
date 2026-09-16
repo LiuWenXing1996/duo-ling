@@ -281,9 +281,12 @@ async function runLoop(opts: {
       apiKey: profile.apiKey || 'not-needed',
     })
 
-    const tools = buildScriptTools(workspace, (ws) => snapshotWorkspace(ws), () =>
-      abort.abort(),
+    const tools = buildScriptTools(
+      workspace,
+      (ws) => snapshotWorkspace(ws),
+      () => abort.abort(),
       promptContext?.element,
+      () => offscreenBridge.capturePageSnapshot(),
     )
 
     const result = streamText({

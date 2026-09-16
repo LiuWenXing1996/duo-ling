@@ -49,6 +49,8 @@ import type { ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/li
 import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady } from '@/lib/offscreen'
 // 模型配置：offscreen 既收不到 storage.onChanged、也不该直连存储，一律由 SW 经命令 / 推送中转
 import { getActiveProfileState } from '@/lib/model-store'
+// AI 工具支路：page_snapshot 工具经 SW 调 userScripts.execute（offscreen 不可达该 API）
+import { capturePageSnapshotFromTab } from '@/lib/element-picker-client'
 
 /**
  * 模型配置在 chrome.storage.local 的键。
@@ -69,7 +71,7 @@ const MODEL_PROFILES_KEY = 'modelProfiles'
  *
  * export 仅供协议一致性测试（extension-ipc.test.ts）做 kind 归属断言。
  */
-export const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:', 'sw:'] as const
+export const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:', 'sw:', 'page:'] as const
 
 /**
  * SW 管辖的请求（由上面的前缀推导，两者必须同源）。
@@ -171,6 +173,21 @@ const handlers: {
   // 模型配置：offscreen 拉取当前生效配置（含 apiKey）。复用现成的 getActiveProfileState()，
   // SW 里本来就能调；offscreen 侧须「取一次、缓存、不写日志」（docs/userscript-ai-generation.md「机制·配置通道」）。
   'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> => getActiveProfileState(),
+
+  // —— AI 工具支路 ——
+  // page_snapshot 工具（offscreen 经此命令请 SW 代办）：定位当前活动标签后执行拾取器快照模式。
+  // chrome.userScripts 在 SW 可用（与注册链路同源，138+ 逐扩展开关门控），offscreen 不可达。
+  // 快照 = AI 判断需要时才采集（提案 2026-09-17 改判：从用户显式按钮改为 AI 工具）。
+  'page:snapshot': async (): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
+    if (!chrome.tabs?.query) throw new Error('tabs API 不可用，无法定位目标标签页')
+    // SW 无窗口上下文：lastFocusedWindow 语义 = 用户最后聚焦的窗口（与侧边栏所在窗口一致的场景）
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+    if (!tab?.id) throw new Error('未找到活动标签页')
+    if (tab.url && /^(chrome|edge|about|devtools|view-source):/i.test(tab.url)) {
+      throw new Error('浏览器内置页面（chrome:// 等）无法注入拾取器，无法采集页面快照')
+    }
+    return capturePageSnapshotFromTab(tab.id)
+  },
 
   // —— 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）——
   // 列表视图：项目读自状态库（直连 IDB），已弃用旧记录仍在 chrome.storage，两边拼接后排序

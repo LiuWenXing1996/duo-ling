@@ -1,4 +1,4 @@
-// Agent 工具三件套：script_spec / script_read / script_apply（选型见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」，写法见 docs/userscript-ai-generation.md「写入契约」）。
+// Agent 工具：script 三件套（script_spec / script_read / script_apply，选型见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」，写法见 docs/userscript-ai-generation.md「写入契约」）+ element_read / page_snapshot（页面上下文，docs/proposals/implementing/element-picker.md）。
 //
 // 设计要点：
 //   · **script_apply 把「写」和「验证」合并成一步**：入参完整文件树 → esbuild 构建，
@@ -16,7 +16,7 @@ import { z } from 'zod'
 import { buildProject, BuildError } from '@/lib/userscripts/builder'
 import { getProject, validateFiles } from '@/lib/userscripts/project-store'
 import type { ScriptConfig } from '@/lib/userscripts/types'
-import type { ElementPickContext } from '@/shared/extension-ipc'
+import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
 /** 连续构建失败上限：达到即让模型停手、把诊断交给用户（阈值 6 见 docs/userscript-ai-generation.md「编排约束」，双闸理由见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」） */
@@ -59,17 +59,19 @@ const applyConfigSchema = z.object({
 export type ApplyConfigInput = z.infer<typeof applyConfigSchema>
 
 /**
- * 构建 Agent 工具（script 三件套 + element_read）。snapshot 回调由 chat-host 提供（每步 apply 成功后把文件树
+ * 构建 Agent 工具（script 三件套 + element_read + page_snapshot）。snapshot 回调由 chat-host 提供（每步 apply 成功后把文件树
  * 快照进 IndexedDB 任务记录——覆盖写，宿主被杀后「继续」才有东西可继续）。
  * onFatal：硬停手回调——失败超阈值后模型仍再次 apply（无视 stop 提示）时中止整个
  * 任务（2026-09-15 手测：stop 提示只是文案，模型会无视继续烧步数）。
  * elementContext：本请求携带的拾取元素快照（用户显式点选；undefined = 本次没有）。
+ * captureSnapshot：页面快照采集（经 SW 调 userScripts.execute，AI 判断需要时调用；未提供 = 工具返回不可用）。
  */
 export function buildScriptTools(
   ws: TaskWorkspace,
   snapshot: (ws: TaskWorkspace) => Promise<void>,
   onFatal?: () => void,
   elementContext?: ElementPickContext,
+  captureSnapshot?: () => Promise<PageSnapshotContext>,
 ) {
   const tools = {
     script_spec: tool({
@@ -212,6 +214,29 @@ export function buildScriptTools(
           ...(part === 'all' || part === 'attrs' ? { attrs: full.attrs } : {}),
           ...(part === 'all' || part === 'html' ? { outerHTML: full.outerHTML } : {}),
           ...(part === 'all' || part === 'parents' ? { parentChain: full.parentChain } : {}),
+        }
+      },
+    }),
+    page_snapshot: tool({
+      description:
+        '抓取当前页面的**渲染后 DOM** 快照（documentElement.outerHTML，截断 ~32KB，拾取时刻快照非实时）。' +
+        '需要了解页面整体结构、找脚本目标节点的上下文、或摘要信息不够用时调用。' +
+        '内置页（chrome:// 等）与非活动窗口不可采，返回 ok:false 带原因。',
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!captureSnapshot) {
+          return { ok: false, error: '页面快照采集不可用（当前环境未接入采集通道）' }
+        }
+        try {
+          const snap = await captureSnapshot()
+          return {
+            ok: true,
+            pageUrl: snap.pageUrl,
+            capturedAt: snap.capturedAt,
+            html: snap.html,
+          }
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) }
         }
       },
     }),

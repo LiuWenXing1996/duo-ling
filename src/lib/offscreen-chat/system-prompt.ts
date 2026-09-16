@@ -1,10 +1,11 @@
 // 系统提示组装（从 chat-host 抽出：纯函数、无运行时依赖，便于单测覆盖档位组合）。
 //
 // 组装顺序（每档独立成块，互不依赖）：
-//   基础规范 → dev 例外（仅 DEV 构建）→ 档 0 当前页面 → 档 2 元素拾取摘要 → 页面快照 → 续跑说明 → 用户需求。
+//   基础规范 → dev 例外（仅 DEV 构建）→ 档 0 当前页面 → 档 2 元素拾取摘要 → 续跑说明 → 会话内既有脚本 → 用户需求。
 // 摘要层（ElementPickSummary）≤2KB 常驻 prompt，同类计数（命中数）必须在内——
-// AI 自证选择器唯一性不该再花一次读取；全量层走 element_read 工具按需读
-// （docs/proposals/implementing/element-picker.md「拾取器交互与载荷形态」）。
+// AI 自证选择器唯一性不该再花一次读取；全量层走 element_read 工具按需读；
+// 页面整体结构走 page_snapshot 工具（AI 按需采集，不再常驻/回注 prompt）。
+// （docs/proposals/implementing/element-picker.md「拾取器交互与载荷形态」+ 决策记录 2026-09-17）
 
 import type { UIMessage } from 'ai'
 import type {
@@ -40,29 +41,18 @@ export function describePickedElement(el: ElementPickContext): string[] {
   return lines
 }
 
-/** 页面快照：渲染后 DOM 截断块 */
-export function describePageSnapshot(pc: PageContextInfo): string[] {
-  const snap = pc.snapshot
-  if (!snap) return []
-  return [
-    `\n页面快照（用户显式附上的渲染后 DOM，**截断** ${snap.html.length} 字符，可能与当前页面有差异）：`,
-    '```html',
-    snap.html,
-    '```',
-  ]
-}
-
 /**
- * 历史消息里**最近一次**随消息附上的拾取/快照（倒序扫 user 消息，找到即回）。
- * 只认 metadata.pageContext 形状、只取最近一份，不做语义匹配——
- * 跨轮指代（「再把字号调大一点」）、重开面板续聊、重新生成不丢上下文，都靠它。
+ * 历史消息里**最近一次**随消息附上的拾取元素（倒序扫 user 消息，找到即回）。
+ * 只认 metadata.pageContext.element、只取最近一份，不做语义匹配——
+ * 跨轮指代（「再把字号调大一点」）、重开面板续聊，都靠它。
+ * 快照已改 AI 工具采集（2026-09-17），不再认 metadata.snapshot（旧数据的 snapshot 字段直接忽略）。
  */
 export function mostRecentPageContext(messages: UIMessage[]): MessagePageContext | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i]
     if (m.role !== 'user') continue
     const ctx = (m.metadata as ChatMessageMetadata | undefined)?.pageContext
-    if (ctx?.element || ctx?.snapshot) return ctx
+    if (ctx?.element) return ctx
   }
   return undefined
 }
@@ -71,7 +61,7 @@ export function mostRecentPageContext(messages: UIMessage[]): MessagePageContext
  * 合并本请求的新鲜上下文（chat:start 带的）与历史最近一次附上的上下文：
  *   · 档 0（URL/标题）只认新鲜的——每轮实时取，历史里的 URL 会过时误导；
  *   · 元素拾取新鲜优先，缺位时回退历史最近一次（≤2KB 摘要，常驻可接受）；
- *   · 老快照**不回注**——32KB DOM 常驻每一轮会把 token 烧穿，快照只在用户当轮显式附上时注入。
+ *   · 快照不再走这条通道（AI 工具按需采集，工具结果只在当轮），一律剥掉。
  */
 export function mergePageContext(
   fresh: PageContextInfo | undefined,
@@ -81,9 +71,8 @@ export function mergePageContext(
   const element = fresh?.element ?? history?.element
   if (element) out.element = element
   else delete out.element
-  if (fresh?.snapshot) out.snapshot = fresh.snapshot
-  else delete out.snapshot
-  return out.url || out.title || out.element || out.snapshot ? out : undefined
+  delete out.snapshot
+  return out.url || out.title || out.element ? out : undefined
 }
 
 /** 会话内最近一次落盘脚本的身份（从历史 data-generation 卡片摘出，供「改既有脚本」指路） */
@@ -121,6 +110,7 @@ export function buildSystemPrompt(
     '先用 script_spec 拿规范，再用 script_apply 提交文件树并构建验证（构建失败按诊断修改后整体重交），',
     '构建通过即收敛——落盘、生效与提交说明由系统处理，你不需要也无法自己保存脚本。',
     'matches 默认收窄到目标站点；改既有脚本前先 script_read 读出现有内容。',
+    '需要页面整体结构或更多节点上下文时，用 page_snapshot 工具抓当前页面的渲染后 DOM（按需调用，不必每轮都抓）。',
     '闲聊或与脚本无关的消息只正常回应，**不要**顺手继续此前被停止 / 中断的任务——',
     '历史里可能出现中断的半截工具调用，那是用户主动停止留下的，不代表用户想要你续做；',
     '只有用户新消息里明确要求（如「继续」「把脚本写完」）才继续未完成的脚本工作。',
@@ -139,9 +129,6 @@ export function buildSystemPrompt(
   }
   if (pageContext?.element) {
     lines.push(...describePickedElement(pageContext.element))
-  }
-  if (pageContext?.snapshot) {
-    lines.push(...describePageSnapshot(pageContext))
   }
   if (continuing) {
     lines.push('\n注意：此前一次生成任务在浏览器中断了。任务的内存文件树已恢复，' +

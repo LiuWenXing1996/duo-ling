@@ -1,15 +1,15 @@
 // 页面上下文的**采集侧暂存**（侧边栏 / 扩展页上下文）：
-// 「点选元素」「附上页面快照」两个动作的产物在这里等下一条消息一起发出
+// 「点选元素」动作的产物在这里等下一条消息一起发出
 // （docs/proposals/implementing/element-picker.md「拾取器交互与载荷形态」）。
+// 页面快照已改 AI 工具采集（2026-09-17 决策），不再走用户暂存通道。
 //
 // 为什么是模块级单例而非组件状态：chat:start 的 pageContext 在
 // ExtensionChatTransport.collectPageContext 里组装（非组件树内），
 // store 必须与 transport、UI 双方可达；用最小 pub/sub 让 chip UI 订阅刷新。
 
-import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
+import type { ElementPickContext } from '@/shared/extension-ipc'
 
 let element: ElementPickContext | null = null
-let snapshot: PageSnapshotContext | null = null
 
 const listeners = new Set<() => void>()
 
@@ -28,20 +28,9 @@ export function getPickedElement(): ElementPickContext | null {
   return element
 }
 
-/** 当前暂存的页面快照（null = 无） */
-export function getPageSnapshot(): PageSnapshotContext | null {
-  return snapshot
-}
-
 /** 存入拾取结果（覆盖旧值；同一时刻至多一份） */
 export function setPickedElement(ctx: ElementPickContext): void {
   element = ctx
-  notify()
-}
-
-/** 存入页面快照（覆盖旧值） */
-export function setPageSnapshot(ctx: PageSnapshotContext): void {
-  snapshot = ctx
   notify()
 }
 
@@ -52,25 +41,14 @@ export function clearPickedElement(): void {
   notify()
 }
 
-/** 清除页面快照 */
-export function clearPageSnapshot(): void {
-  if (snapshot == null) return
-  snapshot = null
-  notify()
-}
-
-/** 组装进 chat:start 的 pageContext（与档 0 合并由 transport 负责）；有任一暂存才返回非空 element/snapshot 字段 */
-export function consumePendingPageContext(): { element?: ElementPickContext; snapshot?: PageSnapshotContext } {
-  const out: { element?: ElementPickContext; snapshot?: PageSnapshotContext } = {}
-  if (element) out.element = element
-  if (snapshot) out.snapshot = snapshot
-  return out
+/** 组装进 chat:start 的 pageContext（与档 0 合并由 transport 负责）；有暂存才返回非空 element 字段 */
+export function consumePendingPageContext(): { element?: ElementPickContext } {
+  return element ? { element } : {}
 }
 
 /** 发送完成后清空暂存（上下文随消息发出，chip 不应残留） */
 export function clearSentPageContext(): void {
-  const had = element != null || snapshot != null
+  if (element == null) return
   element = null
-  snapshot = null
-  if (had) notify()
+  notify()
 }

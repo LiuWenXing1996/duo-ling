@@ -18,7 +18,7 @@ import { computed, ref, shallowRef, watchEffect } from 'vue'
 import { useChat } from '@ai-sdk/vue'
 import { type ChatInit, type UIMessage } from 'ai'
 import { ExtensionChatTransport } from '@/lib/extension-chat-transport'
-import { getPageSnapshot, getPickedElement } from '@/lib/page-context-store'
+import { getPickedElement } from '@/lib/page-context-store'
 import type { ChatOrphanRecord, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { Conversation, Message, TokenUsage } from '@/shared/types'
 
@@ -260,23 +260,16 @@ export function useGlobalConversation() {
 
   /**
    * 发送：落盘（用户消息）与执行都在 offscreen —— useChat 自动追加本地视图并触发 transport。
-   * 暂存的拾取/快照以 metadata 随消息走：offscreen 据此落盘 pageContext 元数据，
+   * 暂存的拾取元素以 metadata 随消息走：offscreen 据此落盘 pageContext 元数据，
    * 本地视图也带上它（气泡 chip 立即可见，不必等重开会话）。
+   * 页面快照已改 AI 工具采集（2026-09-17），不走这条通道。
    */
   async function send(text: string): Promise<void> {
     if (!text || streaming.value) return
     chatError.value = ''
     await ensureActiveConversation()
     const element = getPickedElement()
-    const snapshot = getPageSnapshot()
-    const metadata = element || snapshot
-      ? {
-          pageContext: {
-            ...(element ? { element } : {}),
-            ...(snapshot ? { snapshot } : {}),
-          },
-        }
-      : undefined
+    const metadata = element ? { pageContext: { element } } : undefined
     await chat.sendMessage({ text, ...(metadata ? { metadata } : {}) })
   }
 

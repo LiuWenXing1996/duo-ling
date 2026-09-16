@@ -11,7 +11,7 @@
 //
 // 注意：这里只用 `import type` 引类型（编译后消失，零运行时依赖）—— 引的 ScriptProject
 // 来自 userscripts/types.ts，那是纯类型 + 纯函数模块，不碰任何 chrome API。
-import type { ModelProfileState, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
+import type { ModelProfileState, PageSnapshotContext, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { ScriptConfig } from '@/lib/userscripts/types'
 
 /** 向 SW 发一次请求，统一解包 { ok, data | error } */
@@ -80,4 +80,10 @@ export const offscreenBridge = {
     note?: string
   }): Promise<{ warnings?: string[]; registerError?: string }> =>
     send({ kind: 'userscript:updateFiles', ...payload }),
+
+  /**
+   * 页面快照（AI 的 page_snapshot 工具用）：SW 代为对当前活动标签执行拾取器快照模式。
+   * chrome.userScripts.execute 在 offscreen 不可达，必须经 SW（2026-09-17 快照改 AI 工具）。
+   */
+  capturePageSnapshot: (): Promise<PageSnapshotContext> => send({ kind: 'page:snapshot' }),
 }

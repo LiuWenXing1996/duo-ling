@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest'
 import {
   buildSystemPrompt,
   describePickedElement,
-  describePageSnapshot,
   mergePageContext,
   mostRecentGeneratedScript,
   mostRecentPageContext,
@@ -79,25 +78,13 @@ describe('describePickedElement（档 2 摘要层）', () => {
   })
 })
 
-describe('describePageSnapshot（页面快照块）', () => {
-  it('标注截断字符数并以 html 代码块呈现', () => {
-    const html = '<html><body>hi</body></html>'
-    const pc: PageContextInfo = {
+describe('describePageSnapshot（已移除：快照改 AI 工具采集，不再进 prompt）', () => {
+  it('prompt 中不出现页面快照块', () => {
+    const p = buildSystemPrompt('总结这个页面', {
       url: 'https://example.com',
-      snapshot: {
-        capturedAt: 1758000000000,
-        pageUrl: 'https://example.com',
-        html,
-      },
-    }
-    const text = describePageSnapshot(pc).join('\n')
-    expect(text).toContain(`截断** ${html.length} 字符`)
-    expect(text).toContain('```html')
-    expect(text).toContain('<html><body>hi</body></html>')
-  })
-
-  it('无快照返回空（不产生空块）', () => {
-    expect(describePageSnapshot({ url: 'https://example.com' })).toEqual([])
+      snapshot: { capturedAt: 1, pageUrl: 'https://example.com', html: '<html></html>' },
+    })
+    expect(p).not.toContain('页面快照（用户显式附上的渲染后 DOM')
   })
 })
 
@@ -120,20 +107,10 @@ describe('buildSystemPrompt 档位组合', () => {
     expect(p).toContain('#submit-btn（命中 1）')
   })
 
-  it('快照：渲染后 DOM 截断块随 prompt 进入', () => {
-    const p = buildSystemPrompt('总结这个页面的结构', {
-      url: 'https://example.com',
-      snapshot: { capturedAt: 1, pageUrl: 'https://example.com', html: '<html></html>' },
-    })
-    expect(p).toContain('页面快照（用户显式附上的渲染后 DOM')
-    expect(p).toContain('<html></html>')
-  })
-
   it('无页面上下文时不产生档位内容', () => {
     const p = buildSystemPrompt('你好')
-    expect(p).not.toContain('当前页面')
+    expect(p).not.toContain('当前页面：')
     expect(p).not.toContain('用户点选')
-    expect(p).not.toContain('页面快照')
   })
 
   it('续跑标记进入 prompt', () => {
@@ -188,6 +165,13 @@ describe('mostRecentPageContext（历史最近一次拾取）', () => {
     const msgs = [makeMsg('user', {})]
     expect(mostRecentPageContext(msgs)).toBeUndefined()
   })
+
+  it('只有快照的旧元数据不再命中（快照已改 AI 工具采集）', () => {
+    const msgs = [
+      makeMsg('user', { snapshot: { capturedAt: 1, pageUrl: 'https://example.com', html: '<html>old</html>' } }),
+    ]
+    expect(mostRecentPageContext(msgs)).toBeUndefined()
+  })
 })
 
 describe('mergePageContext（新鲜上下文 × 历史最近一次）', () => {
@@ -218,10 +202,15 @@ describe('mergePageContext（新鲜上下文 × 历史最近一次）', () => {
     expect(merged?.element?.pickedAt).toBe(1758000000000)
   })
 
-  it('新鲜快照原样保留（当轮显式附上照常注入）', () => {
+  it('快照不再回注 prompt（改 AI 工具采集后，新鲜/历史快照一律剥掉）', () => {
     const freshSnap = { capturedAt: 2, pageUrl: 'https://example.com', html: '<html>new</html>' }
-    const merged = mergePageContext({ url: 'https://example.com', snapshot: freshSnap }, history)
-    expect(merged?.snapshot?.html).toBe('<html>new</html>')
+    const merged = mergePageContext(
+      { url: 'https://example.com', snapshot: freshSnap },
+      history,
+    )
+    expect(merged?.snapshot).toBeUndefined()
+    // 档 0 是新鲜的，element 缺位仍回退历史
+    expect(merged?.element?.pickedAt).toBe(1)
   })
 
   it('两边都为空返回 undefined（不产生空档位）', () => {

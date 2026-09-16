@@ -50,13 +50,14 @@ function makeElement(): ElementPickContext {
   }
 }
 
-function makeTools(element?: ElementPickContext) {
+function makeTools(element?: ElementPickContext, captureSnapshot?: () => Promise<import('@/shared/extension-ipc').PageSnapshotContext>) {
   const ws = makeWorkspace()
   return buildScriptTools(
     ws,
     async () => {},
     undefined,
     element,
+    captureSnapshot,
   )
 }
 
@@ -118,10 +119,45 @@ describe('script 三件套不受影响（回归）', () => {
     const tools = makeTools(makeElement())
     expect(Object.keys(tools).sort()).toEqual([
       'element_read',
+      'page_snapshot',
       'script_apply',
       'script_read',
       'script_spec',
     ])
+  })
+})
+
+describe('page_snapshot（快照改 AI 工具采集）', () => {
+  const execOpts3 = execOpts as Parameters<
+    ReturnType<typeof buildScriptTools>['page_snapshot']['execute']
+  >[1]
+
+  it('采集回调正常时返回 pageUrl / capturedAt / html', async () => {
+    const tools = makeTools(makeElement(), async () => ({
+      capturedAt: 1758000000000,
+      pageUrl: 'https://example.com/page',
+      html: '<html><body>hi</body></html>',
+    }))
+    const out = (await tools.page_snapshot.execute({}, execOpts3)) as Record<string, unknown>
+    expect(out.ok).toBe(true)
+    expect(out.pageUrl).toBe('https://example.com/page')
+    expect(out.html).toContain('<body>hi</body>')
+  })
+
+  it('采集失败 → ok:false 带可读错误', async () => {
+    const tools = makeTools(makeElement(), async () => {
+      throw new Error('未找到活动标签页')
+    })
+    const out = (await tools.page_snapshot.execute({}, execOpts3)) as Record<string, unknown>
+    expect(out.ok).toBe(false)
+    expect(String(out.error)).toContain('未找到活动标签页')
+  })
+
+  it('未接入采集通道 → ok:false', async () => {
+    const tools = makeTools()
+    const out = (await tools.page_snapshot.execute({}, execOpts3)) as Record<string, unknown>
+    expect(out.ok).toBe(false)
+    expect(String(out.error)).toContain('不可用')
   })
 })
 

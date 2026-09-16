@@ -84,17 +84,12 @@ function partTypes(m: Message): string[] {
   return [...new Set((m.parts ?? []).map((p) => p.type))]
 }
 
-/** 随消息落盘的拾取/快照概览（排查 pageContext 是否真的进了库） */
+/** 随消息落盘的拾取概览（排查 pageContext 是否真的进了库）；快照已改 AI 工具，旧数据里的 snapshot 不再展示 */
 function pageContextLabel(m: Message): string {
   const ctx = m.pageContext
-  if (!ctx) return ''
-  const bits: string[] = []
-  if (ctx.element) {
-    const s = ctx.element.summary
-    bits.push(`已点选 <${s.tag}${s.id ? '#' + s.id : ''}>`)
-  }
-  if (ctx.snapshot) bits.push(`已附快照（${ctx.snapshot.html.length} 字符）`)
-  return bits.join(' · ')
+  if (!ctx?.element) return ''
+  const s = ctx.element.summary
+  return `已点选 <${s.tag}${s.id ? '#' + s.id : ''}>`
 }
 </script>
 
@@ -181,7 +176,7 @@ function pageContextLabel(m: Message): string {
               <span v-if="partTypes(m).length" class="min-w-0 truncate" :title="partTypes(m).join('，')">
                 · {{ partTypes(m).join('，') }}
               </span>
-              <!-- 拾取/快照落盘标记（本面板的核心排查点，有则高亮） -->
+              <!-- 拾取落盘标记（本面板的核心排查点，有则高亮） -->
               <span
                 v-if="pageContextLabel(m)"
                 class="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-600"
