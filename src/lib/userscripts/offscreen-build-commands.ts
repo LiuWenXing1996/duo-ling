@@ -1,4 +1,4 @@
-// offscreen 侧的 esbuild 构建命令面（docs/userscript-ai-generation.md §3.1 / §4.8）。
+// offscreen 侧的 esbuild 构建命令面（docs/userscript-ai-generation.md「执行宿主」）。
 //
 // 构建宿主收敛到 offscreen：它是唯一同时满足「能派生 Worker（URL.createObjectURL）+
 // 不会在任务中途被回收」的宿主。编辑器保存 / 历史恢复 / 将来的 AI 生成 loop 共用

@@ -344,7 +344,7 @@ function optArr(v: string): string[] | undefined {
   return arr.length ? arr : undefined
 }
 
-/** 表单 → ScriptConfig（saveEdit 与草稿写共用；空数组归一为 undefined，方案 §4.4） */
+/** 表单 → ScriptConfig（saveEdit 与草稿写共用；空数组归一为 undefined，docs/userscript-draft.md §4.4） */
 function currentConfig(): ScriptConfig {
   return {
     matches: parseMatches(editMatches.value),
@@ -356,7 +356,7 @@ function currentConfig(): ScriptConfig {
   }
 }
 
-/** 编辑态 → ScriptProject 形状：v/uuid/createdAt/enabled 由 baseline 兜（方案 §4.2） */
+/** 编辑态 → ScriptProject 形状：v/uuid/createdAt/enabled 由 baseline 兜（docs/userscript-draft.md §4.2） */
 function currentProject(): ScriptProject {
   return {
     ...(baseline.value ?? ({} as ScriptProject)),
@@ -373,7 +373,7 @@ function applyProject(p: ScriptProject): void {
   scriptName.value = p.name
   editFiles.value = { ...p.files }
   editEntry.value = p.entry
-  // activeFile 不能盲信 entry——草稿里入口可能指向已删文件，取不到回退第一个文件（方案 §4.3 #4）
+  // activeFile 不能盲信 entry——草稿里入口可能指向已删文件，取不到回退第一个文件（docs/userscript-draft.md §4.3 #4）
   activeFile.value = p.entry in p.files ? p.entry : (Object.keys(p.files)[0] ?? '')
   editName.value = p.name
   editMatches.value = p.config.matches.join(', ')
@@ -425,7 +425,7 @@ async function load(): Promise<void> {
 }
 
 /**
- * 草稿与已保存内容是否相等（方案 §4.3 判据）。两侧 config 必须同构可比：
+ * 草稿与已保存内容是否相等（docs/userscript-draft.md §4.3 判据）。两侧 config 必须同构可比：
  * 状态库里的空数组可能是 []，表单侧产出 undefined——都过 normConfig 归一后再比。
  */
 function draftEquals(
@@ -497,7 +497,7 @@ onBeforeUnmount(() => {
   }
 })
 
-/** 丢弃草稿：用 baseline（状态库已保存内容）重写工作区；先写成功再动编辑态（方案 §4.6） */
+/** 丢弃草稿：用 baseline（状态库已保存内容）重写工作区；先写成功再动编辑态（docs/userscript-draft.md §4.6） */
 async function discardDraft(): Promise<void> {
   if (!baseline.value || discardingDraft.value) return
   discardingDraft.value = true
@@ -606,7 +606,7 @@ async function saveEdit(): Promise<void> {
     // 头部显示名跟随表单（保存即改名）
     scriptName.value = editName.value
     // baseline 必须跟着保存结果走（builder 可能改写文件树，如拉取远程依赖）——
-    // 否则之后「丢弃草稿」会退回到保存前的旧内容（方案 §4.5 #2）
+    // 否则之后「丢弃草稿」会退回到保存前的旧内容（docs/userscript-draft.md §4.5 #2）
     baseline.value = {
       ...currentProject(),
       files: { ...outcome.files },

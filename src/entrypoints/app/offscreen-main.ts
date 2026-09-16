@@ -1,6 +1,6 @@
 // offscreen document 入口 —— AI 生成链路的执行宿主（定位 B）。
 //
-// 为什么需要这个容器（docs/userscript-ai-generation.md §4.8 三层宿主寿命对照）：
+// 为什么需要这个容器（宿主寿命对照与定位 B 论证见 docs/proposals/done/ai-userscript-phase1-archive.md「备选方案」）：
 //   · 侧边栏 / 工作台（document）：用户点 X 关面板即**立即销毁**，连保存现场的时机都没有
 //   · background SW：空闲 30s 即回收，且单次调用有 5 分钟硬顶（不可绕过，官方不鼓励保活）
 //   · offscreen document：**不主动关就一直活着**（唯一）

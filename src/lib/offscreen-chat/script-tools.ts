@@ -1,4 +1,4 @@
-// Agent 工具三件套：script_spec / script_read / script_apply（方案 §4.1 / §4.3 / §5 #8）。
+// Agent 工具三件套：script_spec / script_read / script_apply（选型见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」，写法见 docs/userscript-ai-generation.md「写入契约」）。
 //
 // 设计要点：
 //   · **script_apply 把「写」和「验证」合并成一步**：入参完整文件树 → esbuild 构建，
@@ -18,7 +18,7 @@ import { getProject, validateFiles } from '@/lib/userscripts/project-store'
 import type { ScriptConfig } from '@/lib/userscripts/types'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
-/** 连续构建失败上限：达到即让模型停手、把诊断交给用户（方案 §4.1「失败 N 次停手」） */
+/** 连续构建失败上限：达到即让模型停手、把诊断交给用户（阈值 6 见 docs/userscript-ai-generation.md「编排约束」，双闸理由见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」） */
 export const MAX_APPLY_FAILURES = 6
 
 /** 一次生成任务的内存工作区（chat-host 持有；「继续」时从任务快照播种） */
