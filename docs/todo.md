@@ -83,6 +83,7 @@ matches 导入时提前校验 / 逐脚本独立容错（构建失败跳过带 es
 **可代定（我按建议执行，老大否决即改）**：脚本档案 `notes`（加）/ 内置脚本（拾取器）放管理页「内置」分组 / `script_spec` 载荷形态（由 `userscript-api.md` + 方案 §8 拼一段注入文本）/ `maxSteps` 沿用桌面版 8 / 任务进行中用户再发消息则排队。
 
 **详细文档**：见 [userscript-ai-generation.md](./userscript-ai-generation.md)（含 §3.1 esbuild 放 SW 的技术核查与宿主筛选表、§3.2 `esbuild-standalone` 外部对照、§4.8 定位 B 的三容器架构与「谁写什么」表、§8 `script_spec` 禁止事项清单）。
+**后续路线图**：见 [userscript-ai-generation-next.md](./userscript-ai-generation-next.md)（八项未做项的归属与顺序索引）。
 
 **状态**：**主体已实现（2026-09-15，一期前置 9 条全部落地）**，实现记录见
 [dev-log 2026-09-15](./dev-log/2026-09-15.md)。残留增强项：进度通知
