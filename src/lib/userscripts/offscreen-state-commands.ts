@@ -12,6 +12,7 @@ import { listProjects } from './project-store'
 import {
   createGeneratedProject,
   createProject,
+  importScriptsZip,
   removeProjectAndRepo,
   setProjectEnabled,
   updateProjectFiles,
@@ -44,6 +45,9 @@ export async function handleStateCommand(msg: StateRequest): Promise<unknown> {
       const { kind: _kind, ...payload } = msg
       return createGeneratedProject(payload)
     }
+    case 'state:import':
+      // zip 导入（docs/userscript-zip-transfer.md）：解码 + 校验 + 构建 + 落盘全在本上下文（单写方）
+      return importScriptsZip(msg.zipBase64)
   }
 }
 

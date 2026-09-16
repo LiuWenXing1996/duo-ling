@@ -93,6 +93,10 @@ export type RuntimeRequest =
   | { kind: 'userscript:availability' }
   | { kind: 'userscript:errors' }
   | { kind: 'userscript:clearErrors' }
+  // zip 导入（docs/userscript-zip-transfer.md）：UI 读 zip 文件转 base64，SW 纯转发 offscreen
+  // 单写方（解码 + 校验 + 构建 + 落盘同处）。enabled 恒 false——先审后启，故无注册动作。
+  // 导出零新增协议：走现成 userscript:list / getProject 只读命令。
+  | { kind: 'userscript:import'; zipBase64: string }
   // 注：git 历史的 `userscript:history*` 三命令已随执行宿主迁 offscreen 而废弃（由 ai:* 取代），
   // 全仓无调用方，2026-09-15 从协议中移除——留着只会让 SW 的 handlers 表被迫补死桩。
 
@@ -134,6 +138,9 @@ export type RuntimeRequest =
   // AI 生成脚本的落盘（docs/userscript-ai-generation.md「写入契约」/「生成结果行为」）：SW 的 userscript:createProject
   // 转发到此（单写方），写状态库 + git 快照（note = AI summary），**不注册**（enabled:false 默认）。
   | { kind: 'state:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; enabled: boolean; note?: string }
+  // zip 导入的落点（SW 的 userscript:import 转发到此）：importScriptsZip 逐脚本
+  // 「构建 → 落盘 → 快照」，报告 ImportReport（types.ts）。
+  | { kind: 'state:import'; zipBase64: string }
 
   // —— 会话写侧（整条对话链路搬进 offscreen 后，会话历史唯一写入方 = offscreen，docs/userscript-ai-generation.md「谁写什么」）——
   // UI（侧边栏 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 对 conv: 前缀静默让路。

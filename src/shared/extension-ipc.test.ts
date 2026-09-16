@@ -60,6 +60,7 @@ const ALL_KINDS = [
   { kind: 'userscript:availability', side: 'sw' },
   { kind: 'userscript:errors', side: 'sw' },
   { kind: 'userscript:clearErrors', side: 'sw' },
+  { kind: 'userscript:import', side: 'sw' },
   // —— ai:*（offscreen：git 历史侧车 + 构建宿主）——
   { kind: 'ai:ping', side: 'offscreen' },
   { kind: 'ai:history', side: 'offscreen' },
@@ -76,6 +77,7 @@ const ALL_KINDS = [
   { kind: 'state:updateFiles', side: 'offscreen' },
   { kind: 'state:remove', side: 'offscreen' },
   { kind: 'state:toggle', side: 'offscreen' },
+  { kind: 'state:import', side: 'offscreen' },
   // —— offscreen:*（SW：容器管理）——
   { kind: 'offscreen:ensure', side: 'sw' },
   { kind: 'offscreen:close', side: 'sw' },

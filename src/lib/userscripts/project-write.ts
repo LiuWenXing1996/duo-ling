@@ -13,11 +13,13 @@
 // updateProjectFiles 的 bundle 参数为必填（UI 只在构建成功后才调保存）。不存在「无产物被注册」的路径。
 // 同日粘贴安装（installProject 及整条协议链）移除：产品上不再提供「粘贴源码装脚本」入口。
 import { buildProject, BuildError } from './builder'
-import { getProject, nextScriptName, validateFiles } from './project-store'
+import { getProject, listProjects, nextScriptName, validateFiles, validateMatchPatterns } from './project-store'
 import { removeProject, writeProject } from './state-db'
 import { deleteRepo, snapshotProject } from './us-git'
 import { ENTRY_DEFAULT, defaultConfig, defaultSource } from './types'
-import type { ScriptConfig, ScriptProject } from './types'
+import type { ImportItemResult, ImportReport, ScriptConfig, ScriptProject } from './types'
+import { base64ToBytes, filesFingerprint, parseScriptsZip } from './zip-transfer'
+import type { ZipScriptPayload } from './zip-transfer'
 
 function nowProject(name: string, files: Record<string, string>, config: ScriptConfig): ScriptProject {
   const ts = Date.now()
@@ -153,4 +155,76 @@ export async function setProjectEnabled(uuid: string, enabled: boolean): Promise
   project.updatedAt = Date.now()
   await writeProject(project)
   return project
+}
+
+// —— zip 导入（docs/userscript-zip-transfer.md §5）——
+
+/**
+ * zip 导入（state:import 的落点）：解码 → 解析 → 逐脚本独立容错导入。
+ *
+ * 与 createProject 同构的「先构建后落盘」不变量：每个脚本先构建出产物再落库，
+ * 构建失败（语法错 / TS 报错 / 远程依赖拉不到）只跳过该脚本，成功的照常落盘（§5.7），
+ * 报告给 esbuild 的 `文件:行:列`。导入默认值（§5.5）：uuid 重生成（createGeneratedProject
+ * 内 crypto.randomUUID）、enabled 恒 false（先审后启）、保留原名（2026-09-17 拍板：名字
+ * 不拦重复，uuid 才是标识）。解码与解析安全（zip slip 等）在 zip-transfer.parseScriptsZip，
+ * 这里的 validateFiles / validateMatchPatterns 是落盘前的第二道闸。
+ */
+export async function importScriptsZip(zipBase64: string): Promise<ImportReport> {
+  const parsed = parseScriptsZip(base64ToBytes(zipBase64))
+  const results: ImportItemResult[] = []
+  for (const script of parsed.scripts) {
+    results.push(await importOneScript(script))
+  }
+  for (const s of parsed.skipped) {
+    results.push({ status: 'failed', name: s.dirName, reason: s.reason })
+  }
+  return {
+    succeeded: results.filter((r) => r.status === 'ok').length,
+    failed: results.filter((r) => r.status === 'failed').length,
+    results,
+  }
+}
+
+/** 导入单个脚本：任一步失败只淘汰它自己（逐脚本独立容错），错误转成报告条目 */
+async function importOneScript(script: ZipScriptPayload): Promise<ImportItemResult> {
+  try {
+    validateMatchPatterns(script.config)
+    validateFiles(script.files, script.entry)
+    // 指纹去重提示（§5.6）：与现有项目（含本批先导入的——逐个落盘后立即可见）比对
+    const duplicateOf = await findContentDuplicate(script.entry, script.files)
+    const bundle = await buildOutcome(script.files, script.entry)
+    const project = await createGeneratedProject({
+      name: script.name,
+      config: script.config,
+      files: script.files,
+      entry: script.entry,
+      bundle,
+      enabled: false,
+      note: '从 zip 导入',
+    })
+    return {
+      status: 'ok',
+      uuid: project.uuid,
+      name: project.name,
+      // duplicateOf 仅在命中时出现（报告形状稳定，调用方不用判 undefined key）
+      ...(duplicateOf ? { duplicateOf } : {}),
+    }
+  } catch (e) {
+    return {
+      status: 'failed',
+      name: script.name,
+      reason: e instanceof Error ? e.message : String(e),
+    }
+  }
+}
+
+/** 内容指纹比对：返回内容相同的现有脚本名（无则 undefined）。比对成本 = O(库内脚本数)，可接受 */
+async function findContentDuplicate(entry: string, files: Record<string, string>): Promise<string | undefined> {
+  const fingerprint = await filesFingerprint(entry, files)
+  for (const p of await listProjects()) {
+    if ((await filesFingerprint(p.entry, p.files)) === fingerprint) {
+      return p.name
+    }
+  }
+  return undefined
 }

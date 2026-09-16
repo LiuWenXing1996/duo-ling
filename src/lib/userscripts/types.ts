@@ -134,6 +134,34 @@ export const ERRORS_KEY = 'us:errors'
 /** 默认入口文件名 */
 export const ENTRY_DEFAULT = 'main.js'
 
+// —— zip 导入报告（docs/userscript-zip-transfer.md §5.6/§5.7：逐脚本独立容错）——
+
+/** 导入成功的条目（uuid 为导入方新生成；enabled 恒 false） */
+export interface ImportItemOk {
+  status: 'ok'
+  uuid: string
+  name: string
+  /** 内容指纹与现有脚本一致时的原脚本名（仅提示，仍已导入——定稿 §5.6） */
+  duplicateOf?: string
+}
+
+/** 导入失败的条目（构建失败带 esbuild 诊断 / matches 非法 / schema 非法等） */
+export interface ImportItemFailed {
+  status: 'failed'
+  /** 真名（来自 project.json.name）；解析期跳过时为 zip 顶层目录名 */
+  name: string
+  reason: string
+}
+
+export type ImportItemResult = ImportItemOk | ImportItemFailed
+
+/** 一次 zip 导入的汇总报告 */
+export interface ImportReport {
+  succeeded: number
+  failed: number
+  results: ImportItemResult[]
+}
+
 export function scriptKey(uuid: string): string {
   return SCRIPT_KEY_PREFIX + uuid
 }

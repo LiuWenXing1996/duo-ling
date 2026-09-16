@@ -44,7 +44,7 @@ import {
   clearUserScriptErrors,
   appendUserScriptError,
 } from '@/lib/userscripts/store'
-import type { ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
+import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主，docs/userscript-ai-generation.md「三容器职责与数据流」）
 import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady } from '@/lib/offscreen'
@@ -290,6 +290,12 @@ const handlers: {
     await refreshPageStub().catch(() => {})
     return {}
   },
+
+  // zip 导入（docs/userscript-zip-transfer.md）：纯转发 offscreen 单写方（解码 + 校验 + 构建
+  // + 落盘同处）。导入恒 enabled:false——「先审后启」是产品原则，落盘后由用户手动启用
+  // （userscript:toggle），故此处**无注册动作**（与 create / toggle 不同：不调 registerOrLog）。
+  'userscript:import': async (msg): Promise<ImportReport> =>
+    writeViaOffscreen<ImportReport>({ kind: 'state:import', zipBase64: msg.zipBase64 }),
 
   'userscript:availability': async (): Promise<UserScriptsAvailability> => getUserScriptsStatus(),
 

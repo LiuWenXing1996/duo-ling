@@ -31,6 +31,7 @@ vi.mock('@/lib/userscripts/project-store', () => ({
 vi.mock('@/lib/userscripts/project-write', () => ({
   createProject: vi.fn(),
   createGeneratedProject: vi.fn(),
+  importScriptsZip: vi.fn(),
   removeProjectAndRepo: vi.fn(),
   setProjectEnabled: vi.fn(),
   updateProjectFiles: vi.fn(),
@@ -95,6 +96,7 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
     'state:updateFiles',
     'state:remove',
     'state:toggle',
+    'state:import',
   ] as const satisfies readonly StateRequest['kind'][]
   const _exhaustive: Expect<
     Exclude<StateRequest['kind'], (typeof STATE_KINDS)[number]> extends never ? true : false
@@ -136,6 +138,11 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
       msg: { kind: 'state:toggle', uuid: 'u1', enabled: true },
       backend: vi.mocked(projectWrite.setProjectEnabled),
       args: ['u1', true],
+    },
+    'state:import': {
+      msg: { kind: 'state:import', zipBase64: 'emlwLWJ5dGVz' },
+      backend: vi.mocked(projectWrite.importScriptsZip),
+      args: ['emlwLWJ5dGVz'],
     },
   }
 
