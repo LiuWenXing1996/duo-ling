@@ -24,6 +24,7 @@ AI 生成用户脚本的质量上限卡在页面上下文：目前只有档 0（
 - **世界选型结论不变**：`execute()` 原生带 `worldId`，仍用独立世界 `us-builtin-picker`；世界 messaging 默认 false 正好——本方案不走消息，连 `configureWorld` 都可省（默认 CSP 为 ISOLATED 级，拾取器不 eval）。
 - 排除 MAIN 世界的论据保留：它唯一收益（页面 JS 全局）对拾取器零需求，且无扩展 API、postMessage 中继可被页面伪造。
 - **连带收益**：无注册 → 无 `registerAllEnabled` 清扫冲突、无固定 id 管理、无版本残留、扩展更新不影响拾取器可用性（代码随扩展包分发，不依赖 userScripts 注册表）。
+- **运行开关检测（动工前置探针实测，2026-09-17）**：Chrome 138+ 新增逐扩展「允许运行用户脚本」开关（`userScriptsAccess`），**默认关闭**——关闭时 `chrome.userScripts` 命名空间在**所有上下文都不存在**（SW 与扩展页 alike），与「仅某上下文暴露」无关。侧边栏调用封装须先做可用性检测：命名空间不可用时给引导文案（chrome://extensions → 哆灵详情 → 打开「允许运行用户脚本」），不裸报错。这也解释了现有引擎在真机上依赖的隐含前提——该开关本就须处于开启状态。**前置验证结论：开关激活后 side panel 上下文 `chrome.userScripts.execute()` / `.register()` 均可用（无头探针实测），「SW 零改动」成立。**
 
 ### 回传通道：`execute()` 返回值，消息链路整体蒸发
 
@@ -104,7 +105,7 @@ AI 生成用户脚本的质量上限卡在页面上下文：目前只有档 0（
 
 ## 验收标准
 
-- [ ] **动工前置验证**：side panel 上下文可访问 `chrome.userScripts` API（`execute()` 由侧边栏发起；若该 API 仅 SW 暴露，则与「SW 零改动」冲突，回评审调整调用归属）
+- [x] **动工前置验证**：side panel 上下文可访问 `chrome.userScripts` API —— **PASS**（2026-09-17 无头探针：Playwright Chromium 153 + `--load-extension`，经 chrome://extensions 打开开发者模式与「允许运行用户脚本」开关后，sidepanel.html 上下文 `execute()` / `register()` 均可用；探针脚本 `tmp/probe-v4.mjs`）。连带发现 138+ 逐扩展开关的门控机制，见注入通道小节
 - [ ] `minimum_chrome_version` '133' → '135' 已入 manifest，不新增任何权限（拍板记录见决策记录）
 - [ ] 侧边栏点「点选元素」→ 已加载页面立即出现高亮拾取态，无需刷新；非拾取期间页面零哆灵代码（无预注入）
 - [ ] 载荷经 `execute()` 返回值拿回；拾取期间用户关闭 / 导航页面 → 60 秒超时视为取消并明确提示（超时逻辑单测覆盖）；注入失败走 `execute()` reject 的明确报错
