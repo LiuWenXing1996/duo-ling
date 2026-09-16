@@ -2,20 +2,20 @@
 
 本项目面向在本仓库内工作的 AI 代理（及协作者），约定任务执行方式与注意事项。
 
-> **本仓库 = 哆灵浏览器扩展工程本体**。原 Electron 桌面版已整体归档到 `legacy/`（只读参照，**不参与构建，不要在其中改代码**），迁移完成后删除。
+> **本仓库 = 哆灵浏览器扩展工程本体**（Chrome MV3 扩展）。原 Electron 桌面版实现已不在工作区，需要参照时从 git 历史取回。
 
 ## 项目速览
 
 - **形态**：Chrome MV3 扩展（background service worker + side panel + 工作台标签页）
 - **构建**：WXT 0.21（Vite 内核），`srcDir: 'src'`（**不可改**，`@` 别名依赖它），入口在 `src/entrypoints/`，自动生成 `manifest.json`。WXT 配置 / 构建 / entrypoint / manifest 相关改动按 [wxt](.agents/skills/wxt/SKILL.md) 规范走：**改 `wxt.config.ts` 必须重启 dev**（HMR 不重读配置）、不要把相关文件散放在 `entrypoints/` 根目录（会被当 entrypoint 构建报错）、`minimum_chrome_version` 用下划线（驼峰被 Chrome 报 Unrecognized）、SW 缺 `global` 时靠 `vite().define.global` 兜底、**不自行升级 WXT 版本或增删 manifest 权限**（需先与用户确认）
 - **UI 层**：Vue 3.5 + TypeScript，`@` 别名指向 `src/`；样式 = Tailwind v4（CSS-first，`src/assets/main.css`）+ Less（`src/assets/main.less`）；主题**跟随系统**（`src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`，勿在 html 上硬写 `class="dark"`）
-- **手写桥接层（`src/lib/*.ts` 中非平移的那些）必须逐函数对照 legacy**：这类文件是重写而非平移，最容易丢桌面版里「默认值回退 / 入参守卫 / 先校验后落盘 / 无变化就不做」这四类不在类型里的语义（曾丢过：模型展示名回退、会话自动命名、空提交守卫、id 防穿越、服务商预设少 7 个）。对照工具：`scripts/compare-bridge.py <扩展文件> <legacy文件>`，按同名函数体 diff 只打差异。
-- **UI 复用（强制）**：两个载体的 UI 都是**从桌面版平移来的现成实现**（`src/components/`，闭包见 `legacy/src/renderer/src/`）—— side panel 用 `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列。它们靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，因此组件本体零改动。**改 UI 前先查 legacy 是否已有实现，禁止照着界面重写**；需要平移新组件用 `scripts/port-legacy-ui.py`（改 `ENTRIES`；重跑会覆盖本地改过的 `use-global-conversation.ts` / `Shimmer.vue`，先备份）。UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 规范走：先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，**不手写组件**；`class` 只用于布局，不覆盖组件配色与字体，颜色一律用语义 token（`bg-primary` / `text-muted-foreground`），不写 `space-x-*` / `space-y-*`、不手写 `dark:` 覆盖。
+- **手写桥接层（`src/lib/*.ts` 中非平移的那些）必须逐函数自检四类语义**：这类文件是重写而非平移，最容易丢「默认值回退 / 入参守卫 / 先校验后落盘 / 无变化就不做」这四类不在类型里的语义（曾丢过：模型展示名回退、会话自动命名、空提交守卫、id 防穿越、服务商预设少 7 个）。这四类各补单测覆盖——靠测试兜，不靠人工对照。
+- **UI 复用（强制）**：两个载体的 UI 都是现成实现（`src/components/`）—— side panel 用 `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列。它们靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，因此组件本体零改动。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 规范走：先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，**不手写组件**；`class` 只用于布局，不覆盖组件配色与字体，颜色一律用语义 token（`bg-primary` / `text-muted-foreground`），不写 `space-x-*` / `space-y-*`、不手写 `dark:` 覆盖。
 - **存储**：项目数据（源码/配置/产物/enabled）在**独立 IndexedDB 库 `duoling-state`**（`state-db.ts` / `project-store.ts` 读、`project-write.ts` 写，**写只归 offscreen**，见 `docs/userscript-single-writer.md`）；`chrome.storage.local` 只剩 `DL.store` 值（`us:gm:*`）与错误日志（`us:errors`）；`lightning-fs`（IndexedDB 后端，库名 `duoling`，**只许 offscreen 碰**）存脚本 git 历史与会话 `duoling-chat`
 - **版本管理**：`isomorphic-git`（纯 JS）；**git 只是历史侧车**——脚本以状态库为权威，仓损坏只丢历史不丢脚本，恢复走「产生新提交」而非 reset
 - **脚本注入**：`chrome.userScripts` + USER_SCRIPT 世界 + `window.DL` 桥接（`src/lib/userscripts/`）
 - **offscreen document**：AI 生成链路的执行宿主，按需创建（`src/lib/offscreen.ts`）
-- **包管理**：npm（原 Electron 工程的 pnpm workspace 配置已随归档移入 `legacy/`）
+- **包管理**：npm
 - **测试**：Vitest（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`）+ Playwright E2E 已建立；五层分层 + 组件测试方案见 [docs/testing-plan.md](docs/testing-plan.md)，CI 快测门禁见 `.github/workflows/ci.yml`、独立 E2E 见 `e2e.yml`
 
 > 项目介绍与手测步骤请读 [README.md](README.md)；迁移背景见 [docs/plugin-migration-plan.md](docs/plugin-migration-plan.md)。
@@ -40,7 +40,6 @@
 | [README.md](README.md) | 工程介绍、目录结构、命令、手测步骤、关键坑 | 上手 / 手测前 |
 | [docs/plugin-migration-plan.md](docs/plugin-migration-plan.md) | 迁移方案：架构映射、分层方案、风险清单、路线图 | 涉及架构 / 迁移范围时 |
 | [docs/userscript-ai-generation.md](docs/userscript-ai-generation.md) | AI 生成用户脚本方案（当前主方向） | 涉及生成链路时 |
-| [legacy/docs/tool-spec.md](legacy/docs/tool-spec.md) | ~~工具规范~~（已随工具链路归档，仅历史参照） | 不读，除非考古 |
 | [docs/style.md](docs/style.md) | 代码风格规范（部分条目为 Electron 时期约定，按需取用） | 写代码 / 改样式前 |
 | [docs/proposal-process.md](docs/proposal-process.md) | **提案流程**：五态状态机、流转记录、提案不可删。**所有变更走这套流程，无身份例外** | 想改任何东西之前 |
 | [docs/ideas.md](docs/ideas.md) | **想法收集箱**：只放问题（≤100 字），不写方案。与提案流程相互独立 | 攒需求 / 清理待办时 |
@@ -48,7 +47,6 @@
 | [docs/lessons.md](docs/lessons.md) | 踩坑记录 | 报错 / 排查前 |
 | [docs/testing-plan.md](docs/testing-plan.md) | 测试方案（五层分层 + E2E 路由，待开工） | 补测试 / 动工测试前 |
 | [docs/todo.md](docs/todo.md) | 待办与方案 | 了解遗留事项时 |
-| `legacy/` | 原 Electron 实现归档（含 `docs` 未覆盖的代码事实） | 平移逻辑时对照 |
 
 ## 全局约束（强制）
 
@@ -108,7 +106,7 @@
 6. 收尾：讨论出的结论和踩到的坑**由我落进 `docs/`**，不能只留在 `.workbuddy/`
 7. 发现跑偏、死链、过时内容、规范互相打架 → 直接说，不用等我问
 
-其他：修改前先阅读相关文件，涉及桌面版逻辑平移时对照 `legacy/` 原实现；测试体系已建立（见 [docs/testing-plan.md](docs/testing-plan.md)），新增功能尽量补最小验证（探针脚本放 `tmp/`），方案先与用户确认。
+其他：修改前先阅读相关文件；需要桌面版旧实现参照时从 git 历史取回；测试体系已建立（见 [docs/testing-plan.md](docs/testing-plan.md)），新增功能尽量补最小验证（探针脚本放 `tmp/`），方案先与用户确认。
 
 ### 分支保护 / 合并流程（强制）
 
@@ -141,4 +139,3 @@
 | 消息协议 | 扩展页只能经 `window.api` → background 调用能力；用户脚本只能经 `window.DL` → background，**两者都不得直接访问 `chrome.*`** | [迁移方案](docs/plugin-migration-plan.md) §4.3 |
 | entrypoint | 不要同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [README](README.md) 坑 5 |
 | 命名 | 文件/目录 kebab-case；组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | [docs/style.md](docs/style.md) §1/§3 |
-| 归档 | `legacy/` 只读参照，不参与构建，不在此改代码 | 本文件顶部 |

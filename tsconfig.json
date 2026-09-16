@@ -8,5 +8,5 @@
     "noUncheckedIndexedAccess": false
   },
   "include": ["src/**/*", ".wxt/wxt.d.ts"],
-  "exclude": ["node_modules", ".output", "legacy", "tmp"]
+  "exclude": ["node_modules", ".output", "tmp"]
 }

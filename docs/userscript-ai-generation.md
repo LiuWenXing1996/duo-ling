@@ -198,7 +198,7 @@
 | 入口 | `sendMessages()` | **同一个** `sendMessages()`，不新增入口 |
 | 用户视角 | 一个对话框 | **同一个**对话框 |
 
-这不是「两条链」，是**同一条链的能力升级**。`extension-chat-transport.ts:10-11` 的注释就是原文：「本次仅接**纯对话**链路（无 Agent 工具）。桌面版 streamText 里的 tools / stopWhen 多步循环属于 agent 编排，**待 capability runtime 在扩展侧打通后再补**」——作者本意就是在**同一个位置补**，不是另起一条。桌面版同理也只有一条：`legacy/src/main/agent-orchestrator.ts:59-60` 的 `tools: aisdkTools` + `stopWhen: isStepCount(8)`，工具只是这条链里的一环。
+这不是「两条链」，是**同一条链的能力升级**。`extension-chat-transport.ts:10-11` 的注释就是原文：「本次仅接**纯对话**链路（无 Agent 工具）。桌面版 streamText 里的 tools / stopWhen 多步循环属于 agent 编排，**待 capability runtime 在扩展侧打通后再补**」——作者本意就是在**同一个位置补**，不是另起一条。桌面版同理也只有一条：`tools: aisdkTools` + `stopWhen: isStepCount(8)`，工具只是这条链里的一环。
 
 **这个纠正有实际后果，不是术语洁癖**：我此前用「两条链路被打断损失差一个量级」论证「一期只搬生成链路」，那个论证**建立在一个用户不可知的分界上**——用户说「帮我把这个页面的广告去掉」，模型可能只回一句话（秒级），也可能连续 `script_spec` → `script_apply` → 构建失败 → 再改 → 再构建（分钟级）。**跑多久由模型在运行时决定，用户和 UI 都无从预判。** 既然分界线不可知，就**不能按它裁剪搬谁**——否则体验变成「有时关面板没事、有时丢整个任务，而我事先不知道是哪种」，比「统一都会断」更糟。
 
@@ -450,7 +450,7 @@ offscreen 侧只能 import：`builder.ts`（纯 esbuild，无 chrome API）、`e
 | 10 | 可代定 · 内置脚本（拾取器等）放哪里 | 管理页「内置」分组，与用户脚本同构但不可编辑 / 不可删除 |
 | 11 | 可代定 · 首条 `script_spec` 规范载荷的形态 | 由 `docs/userscript-api.md` + §8 生成一段注入文本；`.d.ts` 留给脚本作者（v2 计划 P3 已列） |
 | 12 | ~~offscreen 的退出条件~~ **已撤销** | 老大 2026-09-14 拍板采用**常驻策略**：offscreen 在 install / startup / SW 冷启动即 `ensureOffscreen()`，不再设任何自关退出条件；极端内存压力下 Chrome 可能关闭它，由请求方 `ensure` 兜底重建 |
-| 13 | 可代定 · `maxSteps` 上限 | 先沿用桌面版的 8（`legacy/src/main/agent-orchestrator.ts:60` 的 `stopWhen: isStepCount(8)`）；实测后调 |
+| 13 | 可代定 · `maxSteps` 上限 | 先沿用桌面版的 8（`stopWhen: isStepCount(8)`）；实测后调 |
 | 14 | 可代定 · 任务进行中用户又发一条消息怎么办 | 建议**排队**（不并发同会话两条流），面板上显式提示「当前任务进行中，已排队」——避免同一会话两条流交错写入 |
 
 ## 7. 风险

@@ -65,8 +65,8 @@ function buildInfoPlugin(): import('vite').Plugin {
 
 export default defineConfig({
   // 源码根设为 src：WXT 内置别名 `@` / `~` 硬编码指向 srcDir 且覆盖用户配置
-  // （见 wxt 的 resolve-config.mjs），只有把 srcDir 指到 src，平移代码里的 `@/...`
-  // （原指向桌面版的 src/renderer/src）才能正确解析到扩展侧的 src。
+  // （见 wxt 的 resolve-config.mjs），只有把 srcDir 指到 src，代码里的 `@/...`
+  // 才能正确解析到扩展侧的 src。
   srcDir: 'src',
   // WXT 的 publicDir 默认基于**项目根**（不是 srcDir），需显式指到 src 下，
   // 否则 src/public/esbuild.wasm（脚本构建用的 esbuild-wasm）不会进产物。
