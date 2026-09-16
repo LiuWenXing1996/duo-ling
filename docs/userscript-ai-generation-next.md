@@ -6,16 +6,16 @@
 
 | # | 项 | 一句话问题 | 归属 | 依赖 / 依据 |
 | --- | --- | --- | --- | --- |
-| 1 | 元素拾取器（页面上下文档 2） | AI 只拿到当前标签 URL / 标题，选择器靠推测，命中率低——**当前最大的质量缺口** | 提案 ①「元素拾取器」 | 设计已存在（[userscript-ai-generation.md](userscript-ai-generation.md) 的页面上下文一节）；两个待定：载荷形态（选择器 / 文本 / 关键属性 / 局部结构 / 同类计数）、回传通道（DL 桥现无「向 UI 回传自定义数据」命令）；需一个内置项目承载 |
+| 1 | 元素拾取器（页面上下文档 2） | AI 只拿到当前标签 URL / 标题，选择器靠推测，命中率低——**当前最大的质量缺口** | 提案 ①「元素拾取器」 | 设计已存在（[userscript-ai-generation.md](userscript-ai-generation.md) 的「页面上下文与 `matches`」节，档位表在「页面上下文档位」）；两个待定：载荷形态（选择器 / 文本 / 关键属性 / 局部结构 / 同类计数）、回传通道（DL 桥现无「向 UI 回传自定义数据」命令）；需一个内置项目承载 |
 | 2 | 面板关闭期间的进度通知 | 面板一关就看不到进度 | 提案 ②「生成体验完善」 | `chrome.notifications` 权限已在；由 SW 发（offscreen 无此 API） |
-| 3 | 同会话消息排队 | 任务进行中再发消息，现以「拒绝 `chat:start`」兜底 | 提案 ② | [userscript-ai-generation.md](userscript-ai-generation.md) 的可代定项：建议排队 + 面板显式提示 |
+| 3 | 同会话消息排队 | 任务进行中再发消息，现以「拒绝 `chat:start`」兜底 | 提案 ② | 可代定项（一期收编时由原档 §6.2 移交本图）：建议排队 + 面板显式提示 |
 | 4 | zip 导入导出 | 脚本无法分享给别人 | 提案 ③「脚本资产流转」 | [userscript-zip-transfer.md](userscript-zip-transfer.md) 已是**方案定稿 v1**，无待定设计、**已可开工**；唯一卡点是 `fflate` 依赖**待用户点头**。即原档「脚本市场 / 分享」的**最小形态**，完整市场另议 |
 | 5 | 脚本 `notes` 档案 | 脚本后台静默生效，半年后用户只看到一串开关 | 提案 ③ | 可代定项：建议 `notes` 字段起步（对齐工具侧 `archive.md`） |
 | 6 | 内置脚本「内置」分组 | 内置脚本（拾取器等）没有承载位，会混进用户脚本列表 | 提案 ①「元素拾取器」（**定：切法 A**；两种切法与各自代价见下「#6『内置』分组的归属」） | 可代定项；**它是拾取器的前置**（#1 需要一个内置项目承载） |
 | 7 | regenerate 触发器 | 生成结果不满意，无法一键重来 | 提案 ② | `chat:start` 的 `trigger` 已含 `regenerate-message`，缺的是触发与落盘语义 |
-| 8 | `chat:chunk` 逐条推送性能实测 | 整条链路搬 offscreen 后每条事件多一次跨上下文跳转，流式观感可能变差 | 提案 ② | [userscript-ai-generation.md](userscript-ai-generation.md) 的风险 #14：量级微秒~毫秒、相对首 token 延迟可忽略；卡了再换 `MessageChannel` |
+| 8 | `chat:chunk` 逐条推送性能实测 | 整条链路搬 offscreen 后每条事件多一次跨上下文跳转，流式观感可能变差 | 提案 ② | [ai-userscript-phase1-archive.md](proposals/done/ai-userscript-phase1-archive.md) 的「风险与代价」中「每条消息多一次跨上下文跳转」一条：量级微秒~毫秒、相对首 token 延迟可忽略；卡了再换 `MessageChannel` |
 | 9 | 运行期反馈闭环（用户点「让 AI 修」） | 脚本跑起来后出错，用户能在 `us:errors` 看到日志，但**不能把错误记录一键带回会话让 AI 修** | 提案 ② | [userscript-ai-generation.md](userscript-ai-generation.md) 的「生成结果行为」段 + [ai-userscript-phase1-archive.md](proposals/done/ai-userscript-phase1-archive.md) 的「风险与代价」第 16 条：反馈**必须由用户触发**（用户点「让 AI 修」时才把错误记录 + 当前源码带进新会话），**不做后台自动改脚本**——静默修改会在所有 `matches` 站点生效，不可接受 |
-| 10 | 档 1 / 档 3 页面探针 | 档 0（URL / 标题）之外，AI 拿不到页面结构（档 2 拾取器只覆盖「用户主动点选的那一块」） | 提案 ①「元素拾取器」 | [userscript-ai-generation.md](userscript-ai-generation.md) §4.2 的页面上下文四档：档 1 = 扩展页直 `fetch` 目标 URL（对 SPA 基本无效，只能当零成本增强）；档 3 = 自动 DOM 摘要探针（会把整页结构送模型，**落地前必须显式告知**） |
+| 10 | 档 1 / 档 3 页面探针 | 档 0（URL / 标题）之外，AI 拿不到页面结构（档 2 拾取器只覆盖「用户主动点选的那一块」） | 提案 ①「元素拾取器」 | [userscript-ai-generation.md](userscript-ai-generation.md) 的「页面上下文档位」四档（档位取舍与「档 1 / 档 3 不做」的依据见 [ai-userscript-phase1-archive.md](proposals/done/ai-userscript-phase1-archive.md) 的「决策记录」）：档 1 = 扩展页直 `fetch` 目标 URL（对 SPA 基本无效，只能当零成本增强）；档 3 = 自动 DOM 摘要探针（会把整页结构送模型，**落地前必须显式告知**） |
 | 独立 | `DL.page` 反向中继 | 脚本看不到页面 JS 全局 | **不并入上述三案** | [userscript-page-relay.md](userscript-page-relay.md) 是规范稿 v1、**待评审**；实施排在 [userscript-v2-plan.md](userscript-v2-plan.md) 的 Phase 4 |
 
 ## 归属论证：为什么是三案
@@ -54,4 +54,4 @@
 - **不接管 [todo.md](todo.md) 的条目**：`todo.md` 的方向是最终移除，本图是它的承接去处之一、但不是它的副本——本图只记「有哪几件事 + 归属 + 顺序」，条目的原表述留在 `todo.md` 直到那次移除提案处理。`todo.md` 留**一行**指向本图的链接（只加链接、不加条目内容）。
 - **不写方案全文**：每项功能的方案写在各自提案或方案稿里；本图每项只给「问题一句话 + 归属 + 依赖 + 依据链接」。
 - **不承诺排期**：只给顺序建议与依赖，不给日期。
-- **原档「明确不做（本期）」清单里下列几项**属**有意不收**：**SW 化 esbuild**（§3.1 已否）、工具侧 `applyIntents` 链路（老大决策：不用管）——本图不列；**首条 `script_spec` 规范载荷的形态**（原 §6.2 #11）已由现状篇 §8「`script_spec` 该写什么」的约束清单落地（实现见 `src/lib/offscreen-chat/spec-text.ts`），不再列为未做项。
+- **原档「明确不做（本期）」清单里下列几项**属**有意不收**：**SW 化 esbuild**（原 §3.1 已否）、工具侧 `applyIntents` 链路（老大决策：不用管）——本图不列；**首条 `script_spec` 规范载荷的形态**（原 §6.2 #11）已由现状篇「`script_spec` 约束清单」落地（实现见 `src/lib/offscreen-chat/spec-text.ts`），不再列为未做项。
