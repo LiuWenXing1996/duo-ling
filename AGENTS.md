@@ -30,6 +30,7 @@
 | `npm run typecheck` | 类型检查（`vue-tsc --noEmit`）；当前全仓零错误 |
 | `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 | `npm run check:proposals` | 提案流程体检：状态与目录一致性、流转合法性、记录完整性（见 [docs/proposal-process.md](docs/proposal-process.md)） |
+| `npm run check:inbox` | 想法收件箱条目体检：单条 >100 字、总字数 >3000、「不办」条目缺理由、疑似重复（**整理 inbox 时跑**；与 `check:proposals` 平级互不依赖，提醒级不进 CI） |
 
 > **交付前验证**：`npm run typecheck` 与 `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
 
@@ -42,7 +43,7 @@
 | [docs/userscript-ai-generation.md](docs/userscript-ai-generation.md) | AI 生成用户脚本方案（当前主方向） | 涉及生成链路时 |
 | [docs/style.md](docs/style.md) | 代码风格规范（部分条目为 Electron 时期约定，按需取用） | 写代码 / 改样式前 |
 | [docs/proposal-process.md](docs/proposal-process.md) | **提案流程**：五态状态机、流转记录、提案不可删。**所有变更走这套流程，无身份例外** | 想改任何东西之前 |
-| [docs/ideas.md](docs/ideas.md) | **想法收集箱**：只放问题（≤100 字），不写方案。与提案流程相互独立 | 攒需求 / 清理待办时 |
+| [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**（有方案的走提案流程，见 [todo.md](docs/todo.md)）。与提案流程相互独立 | 攒需求 / 清理待办时 |
 | [docs/doc-standard.md](docs/doc-standard.md) | 文档规范：归属、状态块、归档、水文清单、字数上限 | 写文档 / review PR 前 |
 | [docs/lessons.md](docs/lessons.md) | 踩坑记录 | 报错 / 排查前 |
 | [docs/testing-plan.md](docs/testing-plan.md) | 测试方案（五层分层 + E2E 路由，待开工） | 补测试 / 动工测试前 |
