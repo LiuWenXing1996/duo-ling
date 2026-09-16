@@ -69,6 +69,7 @@ import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import type { TokenUsage } from '@/shared/types'
 import type { ChatMessageMetadata, ElementPickContext, MessagePageContext } from '@/shared/extension-ipc'
 import {
+  cancelPick,
   isUserScriptsApiAvailable,
   pickElement
 } from '@/lib/element-picker-client'
@@ -482,10 +483,12 @@ onMounted(() => {
   unsubscribeContext = subscribePageContext(() => {
     pickedElement.value = getPickedElement()
   })
+  window.addEventListener('keydown', onPanelKeydown)
 })
 onUnmounted(() => {
   unsubscribeContext?.()
   unsubscribeContext = null
+  window.removeEventListener('keydown', onPanelKeydown)
 })
 
 /** 正在拾取中（按钮转圈 + 防连点） */
@@ -519,6 +522,17 @@ async function onPickElement(): Promise<void> {
     contextError.value = e instanceof Error ? e.message : String(e)
   } finally {
     contextBusy.value = null
+  }
+}
+
+/**
+ * 拾取期间侧边栏里的 Esc 取消（cancelPick 补注入指令）。
+ * 拾取时键盘焦点在侧边栏，页面 document 收不到 keydown——页面内 Esc 监听只在
+ * 页面恰好持有焦点时兜底，主取消路径在这边。监听器全程挂载、回调里按状态放行。
+ */
+function onPanelKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && contextBusy.value === 'pick') {
+    void cancelPick()
   }
 }
 

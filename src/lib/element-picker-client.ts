@@ -22,6 +22,8 @@ const PICKER_WORLD_ID = 'us-builtin-picker'
 const PICKER_FILE = 'duoling-picker.js'
 /** 拾取超时：用户拾取中关页 / 导航会让注入 Promise 永不结算，兜底视为取消 */
 const PICK_TIMEOUT_MS = 60_000
+/** 进行中拾取的目标 tab（cancelPick 用；null = 无进行中的拾取）。同一时刻至多一个发起方 */
+let activePickTabId: number | null = null
 
 /** chrome.userScripts（含 execute）是否可用；不可用 = 138+ 逐扩展开关未开或开发者模式未开 */
 export function isUserScriptsApiAvailable(): boolean {
@@ -82,12 +84,41 @@ async function executePicker<T>(mode: 'pick' | 'snapshot', tabId: number): Promi
 
 /**
  * 点选元素：页面亮拾取态，用户点选后 resolve 元素载荷（侧边栏上下文调用，用户显式动作）。
- * 用户取消（Esc / 右键）返回 null（静默，不是错误）；超时 / 注入失败抛错（文案用户可读）。
+ * 用户取消（右键 / 侧边栏 Esc / 页面 Esc）返回 null（静默，不是错误）；超时 / 注入失败抛错。
  */
 export async function pickElement(): Promise<ElementPickContext | null> {
   ensureAvailable()
-  const p = executePicker<ElementPickContext>('pick', await getTargetTabId())
-  return withTimeout(p, PICK_TIMEOUT_MS, '拾取已取消：60 秒内未完成点选（页面可能已关闭或刷新）')
+  const tabId = await getTargetTabId()
+  activePickTabId = tabId
+  try {
+    const p = executePicker<ElementPickContext>('pick', tabId)
+    return await withTimeout(p, PICK_TIMEOUT_MS, '拾取已取消：60 秒内未完成点选（页面可能已关闭或刷新）')
+  } finally {
+    activePickTabId = null
+  }
+}
+
+/**
+ * 取消进行中的拾取（侧边栏 Esc 触发）。
+ *
+ * 为什么不能只靠页面里的 Esc 监听：拾取期间键盘焦点在侧边栏（发起按钮所在文档），
+ * keydown 不会到达页面 document——除非先点页面，而点击会被拾取拦截成「选中」。
+ * 所以取消的主路径在发起侧：向同一世界补注入一条 cancel 指令，世界全局
+ * `__duolingPickerActive` 跨注入持久（duoling-picker.js），旧 Promise resolve null，
+ * 正在等待的 pickElement() 随之以「用户取消」收场。
+ */
+export async function cancelPick(): Promise<void> {
+  const tabId = activePickTabId
+  if (tabId == null) return
+  try {
+    await chrome.userScripts.execute({
+      target: { tabId },
+      worldId: PICKER_WORLD_ID,
+      js: [{ code: 'window.__duolingPickerActive && window.__duolingPickerActive.cancel()' }],
+    })
+  } catch {
+    // 页面已关 / 已导航时补注入会失败：原 Promise 由超时兜底，这里静默
+  }
 }
 
 /**
