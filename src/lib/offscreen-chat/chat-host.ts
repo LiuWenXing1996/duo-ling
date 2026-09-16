@@ -430,13 +430,23 @@ export async function startChat(msg: Extract<RuntimeRequest, { kind: 'chat:start
   if (!profile) throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
 
   const lastMessage = msg.messages[msg.messages.length - 1]
-  // 新用户消息落盘（唯一写方=offscreen；自动命名逻辑在 store 的 appendMessage 里）
+  // 新用户消息落盘（唯一写方=offscreen；自动命名逻辑在 store 的 appendMessage 里）。
+  // 拾取/快照随消息落盘成 pageContext 元数据（档 0 URL/标题不落库，每轮实时取）——
+  // 历史气泡 chip 与后续轮次「最近一次拾取」prompt 注入都以这条记录为数据源。
   if (msg.trigger === 'submit-message' && lastMessage?.role === 'user') {
+    const attached: MessagePageContext | undefined =
+      msg.pageContext?.element || msg.pageContext?.snapshot
+        ? {
+            ...(msg.pageContext.element ? { element: msg.pageContext.element } : {}),
+            ...(msg.pageContext.snapshot ? { snapshot: msg.pageContext.snapshot } : {}),
+          }
+        : undefined
     await appendMessage({
       id: lastMessage.id,
       conversationId: msg.conversationId,
       role: 'user',
       content: textOf(lastMessage),
+      ...(attached ? { pageContext: attached } : {}),
       createdAt: new Date().toISOString(),
     })
   }
