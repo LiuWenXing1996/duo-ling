@@ -14,7 +14,8 @@
     3. 流转记录里出现非法流转（如「实施中 → 评审中」）
     4. 最后一条流转的「到」与当前状态不符
     5. 缺「决策记录」章节（可只留表头；有内容后只增不减）
-    6. --ideas：列出想法箱（GitHub Issues 标签 idea）待办条目
+    6. 豁免清单条目数到 10 条提醒复核；章节在却一条都解析不出时报出（防表格结构改动后静默空转）
+    7. --ideas：列出想法箱（GitHub Issues 标签 idea）待办条目
 
 退出码: 0 无问题, 1 有问题。只提醒，不阻断。
 """
@@ -106,12 +107,15 @@ def check_exemptions() -> int:
     if not body:
         return 0
     rows = []
+    seen_header = False
     for row in ROW_RE.finditer(body):
         cells = [clean(c) for c in row.group(1).split("|")]
-        if len(cells) < 4:
+        # 表头：表格第一行，按位置判定（不绑列数——本表列数会随改法变）
+        if not seen_header:
+            seen_header = True
             continue
-        head = cells[0]
-        if head in ("日期", "") or re.fullmatch(r"[:\-\s]+", head):
+        # 分隔行：| --- | --- |
+        if all(re.fullmatch(r"[:\-\s]*", c) for c in cells):
             continue
         if "暂无" in "".join(cells):
             continue
@@ -119,7 +123,11 @@ def check_exemptions() -> int:
     if rows:
         print(f"\n豁免清单（{len(rows)}）")
         for cells in rows:
-            print(f"  · {cells[0]} {cells[1]} —— {cells[2]}")
+            print(f"  · {' —— '.join(cells)}")
+    elif "暂无" not in body:
+        # 章节在却一行都解析不出来 = 表格结构变了自己没察觉，报出来而不是静默空转
+        print("\n豁免清单：章节在，但一行都没解析出来（表格结构变了？）")
+        return 1
     if len(rows) >= 10:
         print("  ! 攒到 10 条了，该复核一遍：有没有被用成万能口子的条目")
         return 1
