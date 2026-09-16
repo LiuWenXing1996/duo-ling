@@ -13,7 +13,8 @@
     2. 缺「流转记录」章节，或一条记录都没有（提案创建时应记「新提案 → 草稿」）
     3. 流转记录里出现非法流转（如「实施中 → 评审中」）
     4. 最后一条流转的「到」与当前状态不符
-    5. --ideas：列出想法箱（GitHub Issues 标签 idea）待办条目
+    5. 缺「决策记录」章节（可只留表头；有内容后只增不减）
+    6. --ideas：列出想法箱（GitHub Issues 标签 idea）待办条目
 
 退出码: 0 无问题, 1 有问题。只提醒，不阻断。
 """
@@ -176,6 +177,9 @@ def main() -> int:
             flags.append("缺状态块")
         elif doc_state != dir_state:
             flags.append(f"状态块「{doc_state}」与目录「{dir_state}」不一致（由人按提案内容判断如何对齐）")
+
+        if section(text, "决策记录") is None:
+            flags.append("缺「决策记录」章节（可只留表头）")
 
         trans = parse_transitions(text)
         if not trans:
