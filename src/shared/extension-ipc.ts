@@ -46,7 +46,7 @@ export interface ElementPickContext {
   full: ElementPickFull
 }
 
-/** 页面快照（渲染后 DOM，显式点击「附上页面快照」采集，不自动附带） */
+/** 页面快照（渲染后 DOM，拾取器快照模式静默采集；2026-09-17 起采集方 = AI 的 page_snapshot 工具经 SW 调 execute()，用户面按钮已移除） */
 export interface PageSnapshotContext {
   capturedAt: number
   pageUrl: string
@@ -60,6 +60,22 @@ export interface PageContextInfo {
   title?: string
   element?: ElementPickContext
   snapshot?: PageSnapshotContext
+}
+
+/**
+ * 随用户消息**持久化**的页面上下文（Message.pageContext / UIMessage.metadata.pageContext）。
+ * 现只存用户显式点选的元素；档 0（URL/标题）每轮实时取，不落库；快照已改 AI 工具采集
+ * （工具结果随 assistant 消息的 tool part 自然落盘，不再走这条元数据通道，snapshot 字段仅为旧数据兼容保留）。
+ * 用途：历史气泡 chip 渲染 + 后续轮次 prompt「最近一次拾取」注入（跨轮指代靠它接上）。
+ */
+export interface MessagePageContext {
+  element?: ElementPickContext
+  snapshot?: PageSnapshotContext
+}
+
+/** UIMessage.metadata 的约定形状（AI SDK 的 metadata 字段是 unknown，此处是全应用唯一合法形状） */
+export interface ChatMessageMetadata {
+  pageContext?: MessagePageContext
 }
 
 /** 渲染页 → service worker 的请求（kind 可辨识联合，background 按 kind 分发） */
@@ -151,6 +167,12 @@ export type RuntimeRequest =
   // 返回值含 apiKey 明文：属同扩展内上下文之间的传递（offscreen 与 SW 信任级别等同），
   // 不是新增对外暴露面；但仍须「取一次、缓存、不写日志」。
   | { kind: 'model:getActiveProfile' }
+
+  // —— AI 工具支路（offscreen 的 agent 工具经 SW 调 SW/扩展页才有的 chrome 能力）——
+  // page_snapshot 工具：SW 代为对当前活动标签执行拾取器快照模式（chrome.userScripts.execute
+  // 在 offscreen 不可达；2026-09-17 页面快照从用户按钮改判为 AI 工具，见提案决策记录）。
+  // 注意前缀：`chat:` 是「SW 静默让路给 offscreen」的保留前缀，SW 自答的命令不能用
+  | { kind: 'page:snapshot' }
 
   // —— SW 自证（诊断）——
   // SW 的 define 注入构建信息（wxt.config.ts）不是 HTML，页面看不见；UI 经此命令取回并展示。

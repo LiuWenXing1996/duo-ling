@@ -13,6 +13,7 @@
 // 设置 / UI 测试 / 脚本列表。
 import { onMounted, ref } from 'vue'
 import {
+  Database as UiDatabase,
   FlaskConical as UiFlaskConical,
   FolderTree as UiFolderTree,
   List as UiList,
@@ -82,6 +83,15 @@ onMounted(() => {
           @click="workspaceRef?.openLfsBrowserTab()"
         >
           <ui-folder-tree class="size-5" />
+        </button>
+        <button
+          class="workspace-nav-item"
+          type="button"
+          aria-label="会话数据"
+          title="会话数据（IndexedDB 会话库落盘原始记录，只读）"
+          @click="workspaceRef?.openChatDataTab()"
+        >
+          <ui-database class="size-5" />
         </button>
       </aside>
 

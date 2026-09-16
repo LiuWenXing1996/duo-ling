@@ -1,4 +1,4 @@
-// Agent 工具三件套：script_spec / script_read / script_apply（选型见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」，写法见 docs/userscript-ai-generation.md「写入契约」）。
+// Agent 工具：script 三件套（script_spec / script_read / script_apply，选型见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」，写法见 docs/userscript-ai-generation.md「写入契约」）+ element_read / page_snapshot（页面上下文，docs/proposals/implementing/element-picker.md）。
 //
 // 设计要点：
 //   · **script_apply 把「写」和「验证」合并成一步**：入参完整文件树 → esbuild 构建，
@@ -16,7 +16,7 @@ import { z } from 'zod'
 import { buildProject, BuildError } from '@/lib/userscripts/builder'
 import { getProject, validateFiles } from '@/lib/userscripts/project-store'
 import type { ScriptConfig } from '@/lib/userscripts/types'
-import type { ElementPickContext } from '@/shared/extension-ipc'
+import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
 /** 连续构建失败上限：达到即让模型停手、把诊断交给用户（阈值 6 见 docs/userscript-ai-generation.md「编排约束」，双闸理由见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」） */
@@ -34,6 +34,8 @@ export interface TaskWorkspace {
   /** 最近一次成功 apply 的 AI summary（git 快照 note） */
   summary: string
   applyFailures: number
+  /** 本次任务要更新的既有脚本 uuid（script_apply 带 updateUuid 时设置；不带则清空 = 生成新脚本）。落盘时据此走更新或新建 */
+  targetUuid?: string
   /** 最近一次构建成功的完整产物（收敛后由编排层落盘） */
   lastOk: {
     files: Record<string, string>
@@ -57,17 +59,19 @@ const applyConfigSchema = z.object({
 export type ApplyConfigInput = z.infer<typeof applyConfigSchema>
 
 /**
- * 构建 Agent 工具（script 三件套 + element_read）。snapshot 回调由 chat-host 提供（每步 apply 成功后把文件树
+ * 构建 Agent 工具（script 三件套 + element_read + page_snapshot）。snapshot 回调由 chat-host 提供（每步 apply 成功后把文件树
  * 快照进 IndexedDB 任务记录——覆盖写，宿主被杀后「继续」才有东西可继续）。
  * onFatal：硬停手回调——失败超阈值后模型仍再次 apply（无视 stop 提示）时中止整个
  * 任务（2026-09-15 手测：stop 提示只是文案，模型会无视继续烧步数）。
  * elementContext：本请求携带的拾取元素快照（用户显式点选；undefined = 本次没有）。
+ * captureSnapshot：页面快照采集（经 SW 调 userScripts.execute，AI 判断需要时调用；未提供 = 工具返回不可用）。
  */
 export function buildScriptTools(
   ws: TaskWorkspace,
   snapshot: (ws: TaskWorkspace) => Promise<void>,
   onFatal?: () => void,
   elementContext?: ElementPickContext,
+  captureSnapshot?: () => Promise<PageSnapshotContext>,
 ) {
   const tools = {
     script_spec: tool({
@@ -107,14 +111,19 @@ export function buildScriptTools(
     script_apply: tool({
       description:
         '提交（整文件写）脚本文件树并立即用 esbuild 构建验证。返回 ok=true 表示构建通过（任务收敛）；' +
-        '返回 ok=false 时 errors 为 file:line 诊断列表，按诊断修改后再次整体提交全部文件。',
+        '返回 ok=false 时 errors 为 file:line 诊断列表，按诊断修改后再次整体提交全部文件。' +
+        '修改既有脚本（本会话此前生成过的）时必须带 updateUuid，落盘才会原地更新该脚本；省略 = 生成一个全新脚本。',
       inputSchema: z.object({
         summary: z.string().describe('本轮改动的一句话摘要（将作为落盘时的提交说明）'),
         config: applyConfigSchema.describe('脚本配置：matches 必填（收窄到目标站点）'),
         files: z.record(z.string(), z.string()).describe('完整文件树：相对路径 → 源码'),
         entry: z.string().default('main.js').describe('入口文件路径，默认 main.js'),
+        updateUuid: z
+          .string()
+          .optional()
+          .describe('要原地更新的既有脚本 uuid（system prompt 会给出本会话已落盘脚本的身份）；省略 = 生成新脚本'),
       }),
-      execute: async ({ summary, config, files, entry }) => {
+      execute: async ({ summary, config, files, entry, updateUuid }) => {
         // 硬停手：失败阈值已达后仍再次 apply = 模型无视了 stop 提示，直接中止任务
         if (ws.applyFailures >= MAX_APPLY_FAILURES) {
           onFatal?.()
@@ -153,6 +162,8 @@ export function buildScriptTools(
           ws.config = scriptConfig
           ws.summary = summary
           ws.applyFailures = 0
+          // 更新意图逐次声明：本次带 updateUuid 就更新该脚本，不带就清空（同任务里改主意要新脚本也正确）
+          ws.targetUuid = updateUuid || undefined
           ws.lastOk = {
             files: outcome.files,
             entry,
@@ -203,6 +214,29 @@ export function buildScriptTools(
           ...(part === 'all' || part === 'attrs' ? { attrs: full.attrs } : {}),
           ...(part === 'all' || part === 'html' ? { outerHTML: full.outerHTML } : {}),
           ...(part === 'all' || part === 'parents' ? { parentChain: full.parentChain } : {}),
+        }
+      },
+    }),
+    page_snapshot: tool({
+      description:
+        '抓取当前页面的**渲染后 DOM** 快照（documentElement.outerHTML，截断 ~32KB，拾取时刻快照非实时）。' +
+        '需要了解页面整体结构、找脚本目标节点的上下文、或摘要信息不够用时调用。' +
+        '内置页（chrome:// 等）与非活动窗口不可采，返回 ok:false 带原因。',
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!captureSnapshot) {
+          return { ok: false, error: '页面快照采集不可用（当前环境未接入采集通道）' }
+        }
+        try {
+          const snap = await captureSnapshot()
+          return {
+            ok: true,
+            pageUrl: snap.pageUrl,
+            capturedAt: snap.capturedAt,
+            html: snap.html,
+          }
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) }
         }
       },
     }),

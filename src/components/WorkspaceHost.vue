@@ -14,6 +14,7 @@ import UserscriptEditorPanel from '@/components/userscript/UserscriptEditorPanel
 import LfsBrowserPanel from '@/components/userscript/LfsBrowserPanel.vue'
 import UserscriptHistoryPanel from '@/components/userscript/UserscriptHistoryPanel.vue'
 import UserscriptBundlePanel from '@/components/userscript/UserscriptBundlePanel.vue'
+import ChatDataPanel from '@/components/ChatDataPanel.vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
   Tabs as UiTabs,
@@ -78,6 +79,14 @@ function openLfsBrowserTab(): void {
     openTabs.value.push({ kind: 'lfs-browser', id: 'lfs-browser', title: 'lfs 浏览' })
   }
   activate('lfs-browser')
+}
+
+// 打开会话数据标签页：只读调试视图（IndexedDB 会话库落盘原始记录），全局仅一个
+function openChatDataTab(): void {
+  if (!openTabs.value.some((t) => t.kind === 'chat-data')) {
+    openTabs.value.push({ kind: 'chat-data', id: 'chat-data', title: '会话数据' })
+  }
+  activate('chat-data')
 }
 
 // 打开脚本历史标签页：只读浏览（顶部下拉选脚本 → 提交列表 + 快照查看），全局仅一个
@@ -166,8 +175,8 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「设置 / UI 测试 / 脚本列表 / lfs 浏览」与脚本管理器的「编辑」入口
-defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBrowserTab, openUserscriptEditor })
+// 暴露给根布局：左侧导航栏「设置 / UI 测试 / 脚本列表 / lfs 浏览 / 会话数据」与脚本管理器的「编辑」入口
+defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBrowserTab, openChatDataTab, openUserscriptEditor })
 </script>
 
 <template>
@@ -218,6 +227,8 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBro
         />
         <!-- lfs 浏览：offscreen lightning-fs 整库只读文件树 -->
         <lfs-browser-panel v-else-if="tab.kind === 'lfs-browser'" />
+        <!-- 会话数据：IndexedDB 会话库落盘原始记录（只读调试视图） -->
+        <chat-data-panel v-else-if="tab.kind === 'chat-data'" />
         <!-- 脚本历史：每脚本一个标签页，浏览 + 恢复；恢复后重载对应编辑器 -->
         <userscript-history-panel
           v-else-if="tab.kind === 'script-history'"

@@ -18,6 +18,7 @@ import { computed, ref, shallowRef, watchEffect } from 'vue'
 import { useChat } from '@ai-sdk/vue'
 import { type ChatInit, type UIMessage } from 'ai'
 import { ExtensionChatTransport } from '@/lib/extension-chat-transport'
+import { getPickedElement } from '@/lib/page-context-store'
 import type { ChatOrphanRecord, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { Conversation, Message, TokenUsage } from '@/shared/types'
 
@@ -31,15 +32,22 @@ export function formatSessionTime(iso: string): string {
 
 /** 主进程 Message → 渲染层 UIMessage。
  * 新数据带完整 parts（reasoning/text/tool/data），直接还原分轮思考与工具卡；
- * 旧数据无 parts，回退用 content+reasoning 重建（此时工具信息已在落盘时丢失，无法还原）。 */
+ * 旧数据无 parts，回退用 content+reasoning 重建（此时工具信息已在落盘时丢失，无法还原）。
+ * pageContext 元数据挂回 metadata：气泡 chip 与「最近一次拾取」prompt 注入都认它。 */
 function toUiMessage(m: Message): UIMessage {
+  const metadata = m.pageContext ? { pageContext: m.pageContext } : undefined
   if (m.parts && m.parts.length) {
-    return { id: m.id, role: m.role, parts: [...m.parts] }
+    return {
+      id: m.id,
+      role: m.role,
+      parts: [...m.parts],
+      ...(metadata ? { metadata } : {}),
+    }
   }
   const parts: UIMessage['parts'] = []
   if (m.reasoning) parts.push({ type: 'reasoning', text: m.reasoning })
   if (m.content) parts.push({ type: 'text', text: m.content })
-  return { id: m.id, role: m.role, parts }
+  return { id: m.id, role: m.role, parts, ...(metadata ? { metadata } : {}) }
 }
 
 /** 从消息 parts 里取 offscreen 推送的 token 用量（data-usage data part） */
@@ -250,12 +258,19 @@ export function useGlobalConversation() {
     }
   }
 
-  /** 发送：落盘（用户消息）与执行都在 offscreen —— useChat 自动追加本地视图并触发 transport */
+  /**
+   * 发送：落盘（用户消息）与执行都在 offscreen —— useChat 自动追加本地视图并触发 transport。
+   * 暂存的拾取元素以 metadata 随消息走：offscreen 据此落盘 pageContext 元数据，
+   * 本地视图也带上它（气泡 chip 立即可见，不必等重开会话）。
+   * 页面快照已改 AI 工具采集（2026-09-17），不走这条通道。
+   */
   async function send(text: string): Promise<void> {
     if (!text || streaming.value) return
     chatError.value = ''
     await ensureActiveConversation()
-    await chat.sendMessage({ text })
+    const element = getPickedElement()
+    const metadata = element ? { pageContext: { element } } : undefined
+    await chat.sendMessage({ text, ...(metadata ? { metadata } : {}) })
   }
 
   /**

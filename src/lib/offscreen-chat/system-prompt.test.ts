@@ -1,8 +1,19 @@
 // buildSystemPrompt 的档位组装测试（docs/proposals/implementing/element-picker.md 验收：
 // 「摘要层随生成请求进 system prompt（单测覆盖 prompt 组装）」「快照 prompt 组装单测」）。
 import { describe, expect, it } from 'vitest'
-import { buildSystemPrompt, describePickedElement, describePageSnapshot } from './system-prompt'
-import type { ElementPickContext, PageContextInfo } from '@/shared/extension-ipc'
+import {
+  buildSystemPrompt,
+  describePickedElement,
+  mergePageContext,
+  mostRecentGeneratedScript,
+  mostRecentPageContext,
+} from './system-prompt'
+import type { UIMessage } from 'ai'
+import type {
+  ElementPickContext,
+  MessagePageContext,
+  PageContextInfo,
+} from '@/shared/extension-ipc'
 
 function makeElement(overrides?: Partial<ElementPickContext>): ElementPickContext {
   return {
@@ -67,25 +78,13 @@ describe('describePickedElement（档 2 摘要层）', () => {
   })
 })
 
-describe('describePageSnapshot（页面快照块）', () => {
-  it('标注截断字符数并以 html 代码块呈现', () => {
-    const html = '<html><body>hi</body></html>'
-    const pc: PageContextInfo = {
+describe('describePageSnapshot（已移除：快照改 AI 工具采集，不再进 prompt）', () => {
+  it('prompt 中不出现页面快照块', () => {
+    const p = buildSystemPrompt('总结这个页面', {
       url: 'https://example.com',
-      snapshot: {
-        capturedAt: 1758000000000,
-        pageUrl: 'https://example.com',
-        html,
-      },
-    }
-    const text = describePageSnapshot(pc).join('\n')
-    expect(text).toContain(`截断** ${html.length} 字符`)
-    expect(text).toContain('```html')
-    expect(text).toContain('<html><body>hi</body></html>')
-  })
-
-  it('无快照返回空（不产生空块）', () => {
-    expect(describePageSnapshot({ url: 'https://example.com' })).toEqual([])
+      snapshot: { capturedAt: 1, pageUrl: 'https://example.com', html: '<html></html>' },
+    })
+    expect(p).not.toContain('页面快照（用户显式附上的渲染后 DOM')
   })
 })
 
@@ -108,24 +107,176 @@ describe('buildSystemPrompt 档位组合', () => {
     expect(p).toContain('#submit-btn（命中 1）')
   })
 
-  it('快照：渲染后 DOM 截断块随 prompt 进入', () => {
-    const p = buildSystemPrompt('总结这个页面的结构', {
-      url: 'https://example.com',
-      snapshot: { capturedAt: 1, pageUrl: 'https://example.com', html: '<html></html>' },
-    })
-    expect(p).toContain('页面快照（用户显式附上的渲染后 DOM')
-    expect(p).toContain('<html></html>')
-  })
-
   it('无页面上下文时不产生档位内容', () => {
     const p = buildSystemPrompt('你好')
-    expect(p).not.toContain('当前页面')
+    expect(p).not.toContain('当前页面：')
     expect(p).not.toContain('用户点选')
-    expect(p).not.toContain('页面快照')
   })
 
   it('续跑标记进入 prompt', () => {
     const p = buildSystemPrompt('继续', undefined, true)
     expect(p).toContain('此前一次生成任务在浏览器中断了')
+  })
+})
+
+// —— 拾取上下文随消息落盘（提案①「拾取上下文随消息落盘」决策） ——
+
+/** 构造一条带/不带 pageContext 元数据的 user/assistant 消息 */
+function makeMsg(
+  role: 'user' | 'assistant',
+  pageContext?: MessagePageContext,
+): UIMessage {
+  return {
+    id: crypto.randomUUID(),
+    role,
+    parts: [{ type: 'text', text: role === 'user' ? '帮我改' : '好的' }],
+    ...(pageContext ? { metadata: { pageContext } } : {}),
+  }
+}
+
+describe('mostRecentPageContext（历史最近一次拾取）', () => {
+  it('倒序扫描命中最近一条带元数据的 user 消息', () => {
+    const oldEl = makeElement({ pickedAt: 1 })
+    const newEl = makeElement({ pickedAt: 2 })
+    const msgs = [
+      makeMsg('user', { element: oldEl }),
+      makeMsg('assistant'),
+      makeMsg('user', { element: newEl }),
+      makeMsg('assistant'),
+    ]
+    expect(mostRecentPageContext(msgs)?.element?.pickedAt).toBe(2)
+  })
+
+  it('跳过 assistant 消息与无元数据的 user 消息', () => {
+    const msgs = [
+      makeMsg('assistant'),
+      makeMsg('user', { element: makeElement() }),
+      makeMsg('user'),
+    ]
+    expect(mostRecentPageContext(msgs)?.element?.pickedAt).toBe(1758000000000)
+  })
+
+  it('没有任何拾取时返回 undefined', () => {
+    expect(mostRecentPageContext([makeMsg('user'), makeMsg('assistant')])).toBeUndefined()
+    expect(mostRecentPageContext([])).toBeUndefined()
+  })
+
+  it('元数据里 element / snapshot 都缺位视为无拾取', () => {
+    const msgs = [makeMsg('user', {})]
+    expect(mostRecentPageContext(msgs)).toBeUndefined()
+  })
+
+  it('只有快照的旧元数据不再命中（快照已改 AI 工具采集）', () => {
+    const msgs = [
+      makeMsg('user', { snapshot: { capturedAt: 1, pageUrl: 'https://example.com', html: '<html>old</html>' } }),
+    ]
+    expect(mostRecentPageContext(msgs)).toBeUndefined()
+  })
+})
+
+describe('mergePageContext（新鲜上下文 × 历史最近一次）', () => {
+  const history: MessagePageContext = {
+    element: makeElement({ pickedAt: 1 }),
+    snapshot: { capturedAt: 1, pageUrl: 'https://example.com', html: '<html>old</html>' },
+  }
+
+  it('本请求没有任何页面上下文时回退历史最近一次的 element', () => {
+    const merged = mergePageContext(undefined, { element: history.element })
+    expect(merged?.element?.pickedAt).toBe(1)
+    expect(merged?.snapshot).toBeUndefined()
+  })
+
+  it('老快照不回注 prompt（32KB DOM 不能常驻每一轮）', () => {
+    const merged = mergePageContext({ url: 'https://example.com/now' }, history)
+    expect(merged?.url).toBe('https://example.com/now')
+    expect(merged?.snapshot).toBeUndefined()
+    // 档 0 是新鲜的，element 缺位仍回退历史
+    expect(merged?.element?.pickedAt).toBe(1)
+  })
+
+  it('新鲜拾取优先于历史拾取', () => {
+    const merged = mergePageContext(
+      { url: 'https://example.com', element: makeElement() },
+      { element: makeElement({ pickedAt: 999 }) },
+    )
+    expect(merged?.element?.pickedAt).toBe(1758000000000)
+  })
+
+  it('快照不再回注 prompt（改 AI 工具采集后，新鲜/历史快照一律剥掉）', () => {
+    const freshSnap = { capturedAt: 2, pageUrl: 'https://example.com', html: '<html>new</html>' }
+    const merged = mergePageContext(
+      { url: 'https://example.com', snapshot: freshSnap },
+      history,
+    )
+    expect(merged?.snapshot).toBeUndefined()
+    // 档 0 是新鲜的，element 缺位仍回退历史
+    expect(merged?.element?.pickedAt).toBe(1)
+  })
+
+  it('两边都为空返回 undefined（不产生空档位）', () => {
+    expect(mergePageContext(undefined, undefined)).toBeUndefined()
+    expect(mergePageContext({}, {})).toBeUndefined()
+  })
+})
+
+// —— 会话内改既有脚本（script_apply updateUuid 落盘分流的前提：模型知道 uuid） ——
+
+/** 构造一条带 data-generation 卡片的 assistant 消息 */
+function makeCardMsg(uuid: string, name: string): UIMessage {
+  return {
+    id: crypto.randomUUID(),
+    role: 'assistant',
+    parts: [
+      { type: 'text', text: '脚本已生成' },
+      { type: 'data-generation', id: `gen-${uuid}`, data: { uuid, name } },
+    ],
+  } as UIMessage
+}
+
+describe('mostRecentGeneratedScript（历史最近一张生成卡片）', () => {
+  it('倒序命中最近的卡片', () => {
+    const msgs = [
+      makeCardMsg('uuid-old', '旧脚本'),
+      makeMsg('user'),
+      makeCardMsg('uuid-new', '新脚本'),
+    ]
+    expect(mostRecentGeneratedScript(msgs)).toEqual({ uuid: 'uuid-new', name: '新脚本' })
+  })
+
+  it('跳过无卡片的 assistant 消息与 user 消息', () => {
+    const msgs = [makeCardMsg('uuid-1', '脚本一'), makeMsg('user'), makeMsg('assistant')]
+    expect(mostRecentGeneratedScript(msgs)?.uuid).toBe('uuid-1')
+  })
+
+  it('没有卡片返回 undefined', () => {
+    expect(mostRecentGeneratedScript([makeMsg('user'), makeMsg('assistant')])).toBeUndefined()
+    expect(mostRecentGeneratedScript([])).toBeUndefined()
+  })
+
+  it('卡片缺 uuid 视为无效继续找', () => {
+    const empty = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      parts: [{ type: 'data-generation', id: 'gen-x', data: {} }],
+    } as UIMessage
+    const msgs = [empty, makeCardMsg('uuid-ok', '有效脚本')]
+    expect(mostRecentGeneratedScript(msgs)?.uuid).toBe('uuid-ok')
+  })
+})
+
+describe('buildSystemPrompt 会话内既有脚本指路', () => {
+  it('注入 uuid 与 script_read / updateUuid 用法', () => {
+    const p = buildSystemPrompt('把字号调大一点', undefined, false, {
+      uuid: 'uuid-abc',
+      name: '字号放大器',
+    })
+    expect(p).toContain('「字号放大器」（uuid=uuid-abc）')
+    expect(p).toContain('script_read 该 uuid')
+    expect(p).toContain('updateUuid=该 uuid')
+  })
+
+  it('无既有脚本时不产生该档位', () => {
+    const p = buildSystemPrompt('帮我写个脚本')
+    expect(p).not.toContain('本会话此前落盘过脚本')
   })
 })

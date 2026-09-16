@@ -9,9 +9,15 @@
  *
  * 两个模式（由调用方的 epilogue code 指定）：
  *   pick     —— 拾取模式：亮高亮框 + 拦截点击，用户点选后 resolve 元素载荷；
- *               Esc / 右键取消（resolve null）。返回「点选时才 resolve」的 Promise。
+ *               右键取消（resolve null）。Esc 取消挂在页面 document 上，只在页面
+ *               恰好持有焦点时生效——拾取由侧边栏发起时焦点在侧边栏，主取消路径
+ *               是侧边栏监听 Esc 后经 cancelPick() 补注入 cancel 指令（见
+ *               element-picker-client.ts）。返回「点选时才 resolve」的 Promise。
  *   snapshot —— 快照模式：不亮任何 UI，静默抓渲染后 documentElement.outerHTML
  *               （截断 ~32KB）resolve 回去。
+ *
+ * 取消指令（补注入）：`window.__duolingPickerActive.cancel()`——世界全局跨注入持久，
+ * 双重注入守卫（再次 runPick 收掉旧拾取）走同一通路。
  *
  * 消息通道：不需要（载荷全走 execute() 返回值），世界 messaging 默认 false 正合适。
  * 结构约定与 src/shared/extension-ipc.ts 的 ElementPickContext / PageSnapshotContext 对齐，

@@ -1,6 +1,6 @@
 # 元素拾取器 · 页面上下文增强（提案 ①）
 
-> 状态：实施中
+> 状态：实施完成
 > 来源：[AI 生成用户脚本 · 后续功能路线图](../userscript-ai-generation-next.md) #1 / #6 / #10
 > 提案人：
 
@@ -55,14 +55,14 @@ AI 生成用户脚本的质量上限卡在页面上下文：目前只有档 0（
 - **同类计数留在摘要层**：AI 自证选择器唯一性不需要额外读一次，命中数必须常驻可见。
 - **「按需读」读的是拾取那一刻的快照，不是活页面**。AI 没有回查活 DOM 的通道，页面也随时可能变化——拾取时用户所指的那一块，以快照为准。全量层 = 快照的完整部分，不是实时查询。
 
-### 页面快照（原档 1）：`execute()` 的第二种模式
+### 页面快照（原档 1）：`execute()` 的第二种模式（2026-09-17 二改：改 AI 工具采集）
 
-原设想的「扩展页 `fetch` 目标 URL 拿源码」**弃用**：源码对 SPA 无效，且与渲染后 DOM 有差异时会误导选择器；而 MV3 下监听页面网络请求拿响应体是死路（`webRequest` 拿不到 body），自动附源码还让每条请求背上固定 token 开销。改为：
+原设想的「扩展页 `fetch` 目标 URL 拿源码」**弃用**：源码对 SPA 无效，且与渲染后 DOM 有差异时会误导选择器；而 MV3 下监听页面网络请求拿响应体是死路（`webRequest` 拿不到 body），自动附源码还让每条请求背上固定 token 开销。先改为「用户显式点击『附上页面快照』按钮」，手测后**再次改判为 AI 工具**（决策记录「页面快照改 AI 工具」）：
 
-- **「附上页面快照」动作**：与「点选元素」同为一次 `execute()`，快照模式**不亮任何 UI**，静默抓取渲染后的 `documentElement.outerHTML`，截断 ~32KB 从返回值带回，显示为输入框上方 chip，随下一条消息进 `pageContext`。
+- **AI 的 `page_snapshot` 工具**：模型判断需要页面整体结构时自己调（经 offscreen → SW `page:snapshot` → `userScripts.execute()` 快照模式），静默抓渲染后的 `documentElement.outerHTML` 截断 ~32KB，作为工具结果返回——只在当轮上下文，不落 pageContext 元数据、不回注后续轮次。
+- **用户面入口移除**：「附上页面快照」按钮与两类「已附页面快照」chip 全部撤掉（老大反馈：chip 太技术，普通用户看不懂）；「点选元素」按钮与 chip 保留。
 - **快照即渲染后 DOM**——AI 拿到的就是选择器实际要跑的那个 DOM，服务端渲染内容也在其中（渲染 DOM 是源码的超集），SPA 同样覆盖，无源码误导问题。
-- **两个动作都是用户显式点击**：页面内容只在用户说「给」的时候才离开页面，隐私语义与档 2 完全一致，不需要档 3 式的「自动读取需显式告知」设计。
-- offscreen `buildSystemPrompt` 组装时标注「渲染后页面快照（截断）」。
+- 隐私语义变化：从「用户显式给」放宽为「AI 判断需要时采」——`page:snapshot` 命令只在对话任务里由模型触发，无自动轮询/旁路采集。
 
 ### 档 3：本案不做
 
@@ -82,12 +82,15 @@ AI 生成用户脚本的质量上限卡在页面上下文：目前只有档 0（
 - 侧边栏调用封装：新模块，`execute()` 调用 + 60 秒超时兜底 + 失败报错（`worldId: 'us-builtin-picker'`）
 - `src/shared/extension-ipc.ts` + `src/shared/types.ts`：`pageContext` 扩展可选字段（快照 HTML、元素摘要 + 全量快照）
 - `src/lib/extension-chat-transport.ts`：`collectPageContext` 随带已采集的快照 / 元素上下文
-- `src/lib/offscreen-chat/chat-host.ts`：`buildSystemPrompt` 组装新档位（档 2 只进摘要层）
-- `src/lib/offscreen-chat/script-tools.ts`：新增 `element_read` 工具（读拾取快照全量层）
-- 侧边栏 `ChatPanel`：两个动作按钮 + chip + 超时 / 失败提示
+- `src/composables/use-global-conversation.ts`：发送时暂存上下文以 metadata 随消息走，历史重建时挂回（气泡 chip 渲染源）
+- `src/lib/offscreen-chat/chat-host.ts`：`buildSystemPrompt` 组装新档位（档 2 只进摘要层）；用户消息落盘附 pageContext 元数据；prompt 上下文 = 新鲜优先、缺位回退历史最近一次；落盘按 `updateUuid` 分流更新 / 新建
+- `src/lib/offscreen-chat/script-tools.ts`：新增 `element_read` 工具（读拾取快照全量层）与 `page_snapshot` 工具（经 SW 采集页面快照）；`script_apply` 增可选 `updateUuid`（改既有脚本声明更新意图）
+- `src/lib/offscreen-chat/system-prompt.ts`：`mostRecentGeneratedScript` 从历史生成卡片摘出本会话最近落盘脚本身份注入 prompt（模型由此拿到 uuid，改既有脚本才有入口）
+- `src/entrypoints/background.ts`：`page:snapshot` 命令（定位活动标签 + 调 `capturePageSnapshotFromTab`）——SW 从「零改动」变为**仅加这一条命令**
+- 侧边栏 `ChatPanel`：拾取按钮 + chip + 超时 / 失败提示（快照按钮与快照 chip 已随 2026-09-17 改判移除）
 - 管理页列表：内置分组（只读）
 - `wxt.config.ts`：`minimum_chrome_version` '133' → '135'（不新增任何权限）
-- SW 与 DL 桥：**零改动**
+- DL 桥：零改动；SW 仅加 `page:snapshot` 一条命令（AI 工具支路）
 
 ## 备选方案
 
@@ -106,16 +109,18 @@ AI 生成用户脚本的质量上限卡在页面上下文：目前只有档 0（
 ## 验收标准
 
 - [x] **动工前置验证**：side panel 上下文可访问 `chrome.userScripts` API —— **PASS**（2026-09-17 无头探针：Playwright Chromium 153 + `--load-extension`，经 chrome://extensions 打开开发者模式与「允许运行用户脚本」开关后，sidepanel.html 上下文 `execute()` / `register()` 均可用；探针脚本 `tmp/probe-v4.mjs`）。连带发现 138+ 逐扩展开关的门控机制，见注入通道小节
-- [ ] `minimum_chrome_version` '133' → '135' 已入 manifest，不新增任何权限（拍板记录见决策记录）
-- [ ] 侧边栏点「点选元素」→ 已加载页面立即出现高亮拾取态，无需刷新；非拾取期间页面零哆灵代码（无预注入）
-- [ ] 载荷经 `execute()` 返回值拿回；拾取期间用户关闭 / 导航页面 → 60 秒超时视为取消并明确提示（超时逻辑单测覆盖）；注入失败走 `execute()` reject 的明确报错
-- [ ] 点击选中后面板出现 chip；Esc / 右键可取消；页面自身在拾取期间不响应点击
-- [ ] 摘要层（≤2KB）随生成请求进 system prompt：选择器候选（≤3 条）× 命中数 + 关键属性 + 截断 HTML / 文本（单测覆盖 prompt 组装）
-- [ ] 全量快照随 `pageContext` 到达 offscreen（≤32KB 上限），`element_read` 工具可拉全量属性 / outerHTML / parent 链（单测覆盖工具）
-- [ ] 「附上页面快照」：静默抓渲染后 outerHTML 截断 ~32KB 显示为 chip，随下一条消息进上下文；prompt 标注「渲染后页面快照（截断）」（单测覆盖 prompt 组装；SPA 页面同样可用）
-- [ ] 管理页出现「内置」只读分组，展示拾取器，无编辑 / 删除 / 启用控件
-- [ ] DL 桥契约文件（`api-contract.ts` / `dl-bridge.ts`）与 background SW 零改动
-- [ ] `npm run typecheck` + `npm run build` + `npm run test` 全过
+- [x] `minimum_chrome_version` '133' → '135' 已入 manifest，不新增任何权限（拍板记录见决策记录）
+- [x] 侧边栏点「点选元素」→ 已加载页面立即出现高亮拾取态，无需刷新；非拾取期间页面零哆灵代码（无预注入）（2026-09-17 老大手测 #7）
+- [x] 载荷经 `execute()` 返回值拿回；拾取期间用户关闭 / 导航页面 → 60 秒超时视为取消并明确提示（超时逻辑单测覆盖）；注入失败走 `execute()` reject 的明确报错
+- [x] 点击选中后面板出现 chip；Esc / 右键可取消；页面自身在拾取期间不响应点击（2026-09-17 老大手测 #7/#8；Esc 取消主路径经决策记录「拾取取消主路径移到侧边栏」补全后复测通过）
+- [x] 摘要层（≤2KB）随生成请求进 system prompt：选择器候选（≤3 条）× 命中数 + 关键属性 + 截断 HTML / 文本（单测覆盖 prompt 组装）
+- [x] 全量快照随 `pageContext` 到达 offscreen（≤32KB 上限），`element_read` 工具可拉全量属性 / outerHTML / parent 链（单测覆盖工具）
+- [x] `page_snapshot` 工具：AI 说「总结这个页面 / 给我页面结构」类需求时自行调用，返回渲染后 outerHTML 截断 ~32KB（工具结果只在当轮）；侧边栏无快照按钮、气泡无快照 chip；内置页报可读错误（2026-09-17 老大手测 #5'）
+- [x] 管理页出现「内置」只读分组，展示拾取器，无编辑 / 删除 / 启用控件
+- [x] 拾取随用户消息落盘：历史气泡带 chip（重开会话仍在）；后续轮次「再把字号调大一点」类指代不丢上下文（单测覆盖合并逻辑）（2026-09-17 老大手测 #1/#2/#3；落盘缺陷见决策记录，修复后复测通过）
+- [x] 会话内改既有脚本：第一轮生成脚本后，第二轮说「改一下它」→ 模型 `script_read` 该脚本修改并带 `updateUuid` apply，落盘原地更新（管理页脚本数不增、uuid 不变）；要新脚本时仍新建（2026-09-17 老大手测 #3）
+- [x] DL 桥契约文件（`api-contract.ts` / `dl-bridge.ts`）零改动；SW 仅 `page:snapshot` 一条新命令（AI 工具支路）
+- [x] `npm run typecheck` + `npm run build` + `npm run test` 全过（2026-09-17：260 例）
 
 ## 不做的事
 
@@ -145,6 +150,10 @@ AI 生成用户脚本的质量上限卡在页面上下文：目前只有档 0（
 | 2026-09-17 | 注入通道（二改） | **改为 `chrome.userScripts.execute()`（Chrome 135+）按需注入**，`minimum_chrome_version` 133 → 135；推翻同日「常驻休眠」结论 | 评审打回指出备选清单漏了 `execute()`；核实官方文档确认：按 tabId 注入已加载页面、无新权限、原生 `worldId`、脚本 Promise 结算值直接带回调用方。以「最低版本 +2、FF 延后」消掉常驻休眠全部三项代价（全站常驻 / 版本残留 / 投递探针赌注）与三段回传链路。老大拍板接受版本号改动 |
 | 2026-09-17 | 回传通道（二修正） | 消息回传链路**整体蒸发**：载荷走 `execute()` 返回值；身份校验随消息链路消失（扩展自注入代码无伪造面） | `execute()` 对 Promise 求值结果的官方语义；「不经 DL 桥」结论更彻底——连消息都不发。前两稿（SW 中转 / ISOLATED 直达）按「只增不减」保留 |
 | 2026-09-17 | 世界归属（修正） | 独立世界 `us-builtin-picker` 结论不变，落地方式改为 `execute()` 的 `worldId` 参数；`configureWorld` 可省（世界 messaging 默认 false 正合适——本方案不走消息；默认 CSP 够用，拾取器不 eval） | 结论与机制同步简化；「复用 registerScript 辅助函数」的措辞随之作废（评审第 4 点指出的不准确处，现已无注册动作可复用） |
+| 2026-09-17 | 拾取上下文随消息落盘 | 拾取 / 快照随发送的**用户消息**持久化（`Message.pageContext` 元数据）：历史气泡渲染 chip；后续轮次 prompt 注入**历史最近一次**的元素摘要（新鲜拾取优先）；老快照不回注 | 手测发现的体验缺陷：上下文只活在当轮任务记录里，会话历史看不到、跨轮指代（「再调大一点」）与重新生成全丢。落库数据源 = offscreen 落盘用户消息时摘走 `chat:start` pageContext 里两样显式采集物；档 0 URL 每轮实时取、不落库（历史 URL 会过时误导）。token 闸：摘要 ≤2KB 常驻可接受，32KB 快照常驻每一轮会烧穿，只在当轮显式附上时注入。只取「最近一次」，不做语义匹配 |
+| 2026-09-17 | 会话内改既有脚本（updateUuid 落盘分流） | `script_apply` 增可选 `updateUuid`：模型要改既有脚本时声明其 uuid，落盘走 `state:updateFiles` 原地更新（同 uuid，不复活已删脚本）；省略 = 照旧新建。prompt 注入本会话最近落盘脚本身义（从历史 `data-generation` 卡片摘 uuid） | 手测第 3 项（跨轮指代）暴露的既有缺口：元素上下文正常到达，但模型仍新建脚本——两层原因：① 模型永远拿不到脚本 uuid（`script_apply` 不回传、生成卡片是 data part 不进模型、无枚举工具），想改也无入口；② 落盘无条件 `createProject`，就算改了也变成新脚本。更新意图由模型**逐次声明**而非编排层自动沿用，避免同会话后续「要个新脚本」被误覆盖；uuid 数据源复用随消息落盘的生成卡片，不新增存储 |
+| 2026-09-17 | 页面快照改 AI 工具 | 用户面「附上页面快照」按钮与两类快照 chip 全部移除；新增 `page_snapshot` agent 工具（offscreen → SW `page:snapshot` → `userScripts.execute()` 快照模式），AI 判断需要时自己采，工具结果只在当轮、不进 pageContext 元数据 | 老大手测反馈：「已附页面快照」chip 太技术，普通用户看不懂。保留采集能力但把发起权交给 AI——用户不再面对技术概念，AI 按需取用也更省 token（不再有「用户误附 32KB 快照随消息常驻」的问题）。隐私语义从「用户显式给」放宽为「AI 判断需要时采」，`page:snapshot` 命令仅对话任务内模型触发、无自动采集兜底；SW 由「零改动」变为加这一条命令 |
+| 2026-09-17 | 拾取取消主路径移到侧边栏（Esc 补注入） | 侧边栏全程监听 Esc，拾取进行中按下即 `cancelPick()`：向同一世界补注入 `__duolingPickerActive.cancel()` 指令，旧 Promise resolve null（= 用户取消）。页面内 Esc / 右键监听保留作兜底 | 手测第 8 项发现 Esc 无效：拾取由侧边栏发起，键盘焦点在侧边栏，页面 document 收不到 keydown；而点击页面会被拾取拦截成「选中」，页面侧 Esc 实际永远够不着——设计漏洞。取消指令依赖世界全局跨注入持久（同 `worldId` 的 execute 共享世界状态），不需要开世界 messaging |
 
 ## 流转记录
 
@@ -157,3 +166,4 @@ AI 生成用户脚本的质量上限卡在页面上下文：目前只有档 0（
 | 2026-09-17 | 评审中 → 实施中 | 状态流转操作失误（见下一行退回说明） | #18 |
 | 2026-09-17 | 实施中 → 评审中 | 误转退回：评审「改完即可进实施」的前提是 execute() 对比后仍输；实际改选了 execute()、注入通道实质性变更，应回评审等确认后再转实施，不应由提案人自行判定满足 | #18 |
 | 2026-09-17 | 评审中 → 实施中 | 评审人复核通过（三项残留均判非阻塞、实施时顺带处理），残留意见已消化，老大明确发话「转实施吧」 | #18 |
+| 2026-09-17 | 实施中 → 实施完成 | 老大手测全项通过（拾取交互 / 取消 / chip 落盘还原 / 跨轮指代 / 会话内改原脚本 / page_snapshot 工具 / 开关未开引导），验收标准全勾 | #18 |
