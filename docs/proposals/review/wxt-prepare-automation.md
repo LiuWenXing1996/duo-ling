@@ -17,7 +17,7 @@
 - **`npm run dev` 起不来**：`.chrome-dev-profile/` 目录在新 worktree 必然缺失（`wxt.config.ts` 用绝对路径固定了 chromiumProfile），修法是代码里 `mkdirSync` 自动建
 - **`.wxt/types` 缺失**：`typecheck` / `test` 假红，目前只能靠文档提醒
 
-而这个提醒散落在多处，没有一处完整：`.github/workflows/ci.yml:30-32` 的三行注释、`docs/testing-plan.md:65` 的半句、`docs/lessons.md`「WXT / 扩展工程」节里同族的另一条。也没有任何判据能让人预见第三处缺口。
+而这个提醒散落在多处，没有一处完整：`.github/workflows/ci.yml:30-32` 的三行注释、`docs/testing-plan.md` 的半句、`docs/lessons.md`「WXT / 扩展工程」节里同族的另一条。也没有任何判据能让人预见第三处缺口。
 
 ## 方案
 
@@ -31,16 +31,18 @@
 
 这是 WXT 官方给的写法（官方安装文档的 From Scratch 模板与 auto-imports 一节都是 `"postinstall": "wxt prepare"`）。选它而不选另两个（见备选方案）：`prepare` 会额外在 `npm publish`、被当 git 依赖安装时跑，本项目 private 用不上；`pretypecheck` 只盖 `typecheck` 一条路径，盖不住 `test`、`dev` 和编辑器。
 
-**`package-lock.json` 会随之新增 `"hasInstallScript": true`**（`npm install` 自动写入）——这行必须与 `package.json` 进同一个 commit，不能漏。
+**`package-lock.json` 会随之新增 `"hasInstallScript": true`**（`npm install` 自动写入）——它必须与 `package.json` 进同一个 commit，这是卫生实践。实测漏提交不会让 `npm ci` 失败、也不会漏跑 postinstall（`npm ci` 根 scripts 读 `package.json`、不读 lock）；后果只是 lock 与 manifest 元数据漂移，下次 `npm install` 会补写回、工作区变脏。
+
+注意覆盖边界：postinstall 只在跑过 `npm install` / `npm ci` 后生效。新 clone 没跑过任何 npm 命令就直接开编辑器、或 worktree 里 `cp -R` / 软链复用别人的 `node_modules` 时，`.wxt/` 仍不存在，编辑器照样报 `TS5083`——这两种场景本次不治（存量 worktree 见验收标准新增条目）。
 
 ### 2. 判据放 `docs/dev-log/conventions.md`，现象族放 `docs/lessons.md`
 
 - **`conventions.md`**：记一条仍生效的约定——「本机生成物与目录优先让工具自生成，不靠文档提醒」。第三处缺口出现时先问这句。
-- **`lessons.md`「WXT / 扩展工程」节**：把两次实例合并成一条现象族（缺什么、报什么错、谁负责生成），链到上面那条约定。同一族里再补两种反例——`--omit=dev` 会因 wxt 缺失中断安装、`--ignore-scripts` 会跳过 postinstall 使 `.wxt/` 不生成——并写明本仓口径：装依赖只用 `npm install`。保留现有条目里的「排查手法（可复用）」——那是提炼结果。
+- **`lessons.md`「WXT / 扩展工程」节**：把两次实例合并成一条现象族（缺什么、报什么错、谁负责生成），链到上面那条约定。同一族里再补两种反例——`--omit=dev` 会因 wxt 缺失中断安装、`--ignore-scripts` 会跳过 postinstall 使 `.wxt/` 不生成——并写明本仓口径：装依赖只用 `npm install`。现象族里写明恢复命令：手动删了 `.wxt/` 而没重装依赖时，跑 `npx wxt prepare`（或重跑 `npm install`）即可重建。保留现有条目里的「排查手法（可复用）」——那是提炼结果。
 
-### 3. `docs/testing-plan.md:65` 删掉过时半句
+### 3. `docs/testing-plan.md` 删掉过时半句并补链接
 
-「（缺失先跑 `wxt prepare`）」删去；该条其余部分独立成立。注意 postinstall 只在 `npm install` 时跑，**手动删了 `.wxt/` 而不重装**时缺口仍在——这条恢复路径由上面的 lessons 条目承载，不再在 testing-plan 复述。
+「（缺失先跑 `wxt prepare`）」删去；该条其余部分独立成立。注意 postinstall 只在 `npm install` 时跑，**手动删了 `.wxt/` 而不重装**时缺口仍在——这条恢复路径由上面的 lessons 条目承载，因此同处补一条指向 [`docs/lessons.md`](../../lessons.md)「WXT / 扩展工程」现象族的链接，不再在 testing-plan 复述。
 
 ### 4. `ci.yml` 注释改写法，显式步骤保留
 
@@ -53,18 +55,24 @@
 - **只保 CI 显式步骤，本地不管**：CI 一直是绿的，问题只出在本地。但假红恰好发生在人最需要信任工具的时候（第一次上手、开 PR 前自查），把成本留给本地不划算。
 - **用 `prepare` 代替 `postinstall`**：本地 install 同样会跑。但它额外在 `npm publish`、被当 git 依赖安装时触发，本项目 private、只多副作用面无收益，且 `--ignore-scripts` 一样跳过。
 - **用 `pretypecheck` 代替 `postinstall`**：只盖 `typecheck`。实测缺 `.wxt` 时 `test` 也红（12 文件），`dev` 与编辑器更盖不到——要盖就得挂两处以上，不如一个 postinstall。
+- **用 `postinstall` 但软化（`wxt prepare || true`）**：让安装永不被 prepare 失败阻断。但会掩盖真实失败——prepare 报错被吞，装出来的依赖看似正常、实则 `.wxt` 缺失；还让 CI 的负向断言（`--ignore-scripts` 下 `typecheck` 必红）彻底失效，自动修退化成 best-effort，本次要根治的东西反而没了判据。
 
 ## 验收标准
 
-- [ ] `package.json` 已加 `"postinstall": "wxt prepare"`，`package-lock.json` 的 `"hasInstallScript": true` 随同一 commit 提交
-- [ ] 正向断言：`rm -rf .wxt node_modules && npm install` 后 `.wxt/tsconfig.json` 自动重建，`npm run typecheck` 与 `npm run test` **双绿**
-- [ ] 负向断言：`npm ci --ignore-scripts && npm run typecheck` **必须红**（若绿说明别处偷偷生成了 `.wxt`，那 CI 那步的正向验证就是幻觉）
-- [ ] `.github/workflows/ci.yml` 的显式 `npx wxt prepare` 步骤保留，注释改为两行并写明保留理由
-- [ ] `docs/dev-log/conventions.md` 已加「本机生成物与目录优先让工具自生成」一条
-- [ ] `docs/lessons.md` 的 WXT 节已把两次实例合并成一条现象族，并链到上面那条约定
-- [ ] 同一现象族里已写明 `--omit=dev` 与 `--ignore-scripts` 两种反例，以及本仓口径「装依赖只用 `npm install`」
-- [ ] `docs/testing-plan.md:65` 的「缺失先跑 `wxt prepare`」已删
-- [ ] `npm run check:proposals` 通过
+- [ ] `package.json` 加 `"postinstall": "wxt prepare"`，lock 的 `hasInstallScript: true` 同一 commit。判据：`node -p "require('./package.json').scripts.postinstall==='wxt prepare'"` 为真；`npm install` 后 `git status --porcelain` 不含 `package-lock.json`
+- [ ] **npm install 路径**：`rm -rf .wxt node_modules && npm install` 后 `.wxt/tsconfig.json` 重建，`npm run typecheck` exit 0、且 `npm run test` exit 0 **且通过数 ≥214**
+- [ ] **npm ci 路径**（CI 用 `npm ci`、且 ci.yml 有显式 prepare 兜底，只验 install 证明不了 postinstall 生效）：`rm -rf .wxt node_modules && npm ci` 后 `.wxt/tsconfig.json` 重建、`npm run typecheck` 绿
+- [ ] **负向断言（修正版）**：先 `rm -rf .wxt`，再 `npm ci --ignore-scripts && npm run typecheck` **必须红，且失败原因含 `.wxt/tsconfig.json`**（只红不算）。验证后必须恢复工作区：`npm install` 回全绿、`git status --porcelain` 干净——**恢复步骤本身写进验收**
+- [ ] `npm run build` 必过并产出 `.output/chrome-mv3/manifest.json`（CI 门禁只跑 typecheck + test，不跑 build，这条是漏网）
+- [ ] `ci.yml` 显式 `npx wxt prepare` 保留、注释两行含理由与错误串锚点
+- [ ] `conventions.md` 已加约定
+- [ ] `lessons.md` 现象族合并 + 链接 + 两种反例 + 本仓口径 + **恢复命令**，且 **`docs/lessons.md` 总字数不高于改动前**（改动前 5479 字，超出说明没合并干净）
+- [ ] `testing-plan.md` 那半句已删且同处有指向 `lessons.md` 的链接（判据用内容 grep，别用行号，行号会漂移）
+- [ ] **存量 worktree 迁移**（新增）：已有 node_modules 的老 worktree 不会重装、仍缺 `.wxt`——现象族里写明「老 worktree 跑一次 `npm install`（或 `npx wxt prepare`）」
+- [ ] 反例未被误用：`--omit=dev` / `--ignore-scripts` 不出现在 `.github/`、`scripts/`、`AGENTS.md`、`README.md`
+- [ ] 人工核对（新增，因 `check:proposals` 只查状态块 / 流转 / 决策记录，不查章节与标题）：七章齐全 + 标题 ≤50 字 + `npm run check:proposals` 通过
+- [ ] **状态流转 commit 约束**（新增）：评审中 → 实施中、实施中 → 实施完成各为单独 commit、不夹带，后者为 PR 最后一个 commit，PR 禁止 squash
+- [ ] **干净 worktree 下 `npm install` 退出码 0**（新增：postinstall 失败会阻断安装，这是本次改动引入的新失败模式，要有正向验证）
 
 ## 不做的事
 
@@ -72,6 +80,7 @@
 - 不改 `wxt.config.ts`（`.chrome-dev-profile` 那次已经自动建了）
 - 不动 `tsconfig.json` 的 `extends`——它是真相源头，配置即事实
 - 不为 `--omit=dev` 加兜底：wxt 是 devDependency，那种装法下 postinstall 会以 `command not found` 失败并阻断安装。本仓不支持 `--omit=dev`，这条限制写进 `lessons.md` 的 WXT 现象族（这是本次唯一的负向代价，见决策记录）
+- 不用 `|| true` 软化 postinstall（理由见备选方案「软化」那条）：prepare 失败就该阻断安装，否则 `.wxt` 缺失被静默放过、CI 负向断言失效，本次要根治的假红反而被藏起来
 
 ## 决策记录
 
@@ -86,6 +95,10 @@
 | 2026-09-16 | CI 显式步骤 | 保留，理由升级为「门禁不假红」 | 实测 `--ignore-scripts` 下 `typecheck` 必红，而 CI 是 PR 门禁、一红堵全员；它还自带文档性 |
 | 2026-09-16 | 判据与现象族分家 | 判据进 `conventions.md`，现象族进 `lessons.md` | 判据属「仍生效的约定」，超出 §1 给 `lessons.md` 的踩坑记录定位；两处各留一条不重复 |
 | 2026-09-16 | `package-lock.json` 的 `hasInstallScript` | 随同一 commit 提交 | `npm install` 自动写入，漏了会让 lock 与 manifest 不一致 |
+| 2026-09-16 | 提案人字段依据更正 | 沿用 `docs/proposals/done/idea-inbox.md:138` 既有结论（保留用户名） | 原引的 `docs/inbox.md` 待办条目实际不存在（inbox 待办 / 不办两区皆空），真实结论在 `docs/proposals/done/idea-inbox.md:138`；规范打架（proposal-process.md 允许用户名 vs AGENTS.md 要求占位符）另走流程，不夹带本提案 |
+| 2026-09-16 | postinstall 失败是否软化 | 接受 prepare 失败即阻断安装，不用 `|| true` | 软化会掩盖真实失败并使 CI 负向断言失效；本仓无 `--omit=dev` / `--ignore-scripts` 调用点（已 grep 确认） |
+| 2026-09-16 | hasInstallScript 漏提交的后果 | 同 commit 提交保留，理由降级为防 lock 元数据漂移 | 实测漏提交不影响 `npm ci` 与 postinstall 执行，仅 lock 漂移 + 工作区脏 |
+| 2026-09-16 | 编辑器覆盖范围 | 限定为「经 `npm install` 装依赖后自动覆盖」 | 新 clone 未跑 npm 命令直接开编辑器、或复用他人 node_modules 时 `.wxt/` 仍缺失 |
 
 ## 流转记录
 
