@@ -20,7 +20,7 @@
 
 | 维度 | 方案 |
 | --- | --- |
-| 对话链路 | 扩展页直跑 AI SDK（`streamText` + `toUIMessageStream`），跨域由 `host_permissions` 授权 |
+| 对话链路 | 侧边栏只做指令入口与观察；整条链路（`streamText` + tools）跑在 offscreen document，侧边栏经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权 |
 | 脚本运行时 | background **service worker**（`chrome.userScripts` 注册 + 写命令的转发方） |
 | 会话存储 | **IndexedDB**（`duoling-chat`）；两个入口同源共享，不经 background |
 | 脚本存储 | 项目数据在**独立 IndexedDB 库 `duoling-state`**（权威；**写只归 offscreen**，读由 SW / 扩展页直连——`docs/userscript-single-writer.md`）；`chrome.storage.local` 只剩 `DL.store` 值（`us:gm:*`）与错误日志（`us:errors`）；`lightning-fs`（库名 `duoling`，只有 offscreen 能碰）存 git 历史 |
@@ -30,7 +30,7 @@
 
 - 迁移方案与风险清单：[docs/plugin-migration-plan.md](docs/plugin-migration-plan.md)（含已下线的工具页承载章节，仅作历史参照）
 
-> **当前状态：两个载体都已是复用桌面版的实现。** side panel 由 `ChatPanel` + `SessionHistoryPanel` 承载；工作台标签页由 `WorkbenchApp`（裁剪自桌面版 `app.vue`：左侧导航 + `WorkspaceHost`）承载，含主页（内容待定）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器标签。`window.api` 由 `src/lib/window-api.ts` 按桌面版契约装配，**组件本体零改动**。**待办**：AI 生成用户脚本（方案见 [docs/userscript-ai-generation.md](docs/userscript-ai-generation.md)）、主页内容填充。
+> **当前状态：两个载体都已是复用桌面版的实现。** side panel 由 `ChatPanel` + `SessionHistoryPanel` 承载；工作台标签页由 `WorkbenchApp`（裁剪自桌面版 `app.vue`：左侧导航 + `WorkspaceHost`）承载，含主页（内容待定）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器标签。`window.api` 由 `src/lib/window-api.ts` 按桌面版契约装配，**组件本体零改动**。**待办**：主页内容填充。
 
 ## 目录结构
 
@@ -58,7 +58,7 @@
 │  │  ├─ ui/                      #   shadcn-vue 基础组件（reka-ui）
 │  │  └─ ai-elements/             #   对话元素（message / conversation / prompt-input / chain-of-thought / tool / code-block…）
 │  ├─ composables/
-│  │  └─ use-global-conversation.ts  # 【平移】会话中枢：useChat + 流式 + 落盘
+│  │  └─ use-global-conversation.ts  # 【平移】会话中枢：useChat + 流式（只读，落盘在 offscreen）
 │  ├─ assets/
 │  │  ├─ main.css                 # 【平移】Tailwind v4 主题变量 + 全局滚动条 + 扩展载体适配
 │  │  └─ main.less                # 【平移】业务样式（.panel 等，ChatPanel 布局依赖）
@@ -70,16 +70,22 @@
 │  │  └─ extension-ipc.ts         # 扩展专有：渲染页 ⇄ SW 消息协议、ModelProfileState
 │  ├─ lib/
 │  │  ├─ window-api.ts            # 按 PreloadApi 装配 window.api（会话→IndexedDB / 模型→storage / 其余按需兜底）
-│  │  ├─ idb-fs.ts                # lightning-fs 单例（fs / pfs，库名 duoling），脚本 git 仓与文件树共用
 │  │  ├─ code-view.ts             # 代码树构建 + 语法高亮语言推断（脚本编辑器与文件树共用）
-│  │  ├─ extension-chat-transport.ts  # AI SDK ChatTransport：渲染层 streamText + toUIMessageStream
+│  │  ├─ extension-chat-transport.ts  # AI SDK ChatTransport：向 offscreen 发 `chat:start` 并订阅事件流
+│  │  ├─ offscreen-chat/          # offscreen 侧对话链路：整条 `streamText` + tools 与构建都在这里（常驻）
+│  │  │  ├─ chat-host.ts          #   对话编排宿主（agent loop + 构建）
+│  │  │  ├─ script-tools.ts       #   `script_spec` / `script_read` / `script_apply` 工具面
+│  │  │  ├─ spec-text.ts          #   `script_spec` 的规范载荷
+│  │  │  ├─ event-bus.ts          #   对话事件缓冲（重连从头全量回放，收尾即删）
+│  │  │  ├─ task-store.ts         #   生成任务快照（宿主被杀后可继续）
+│  │  │  └─ profile-cache.ts      #   模型配置缓存（offscreen 侧）
 │  │  ├─ offscreen.ts / offscreen-bridge.ts  # offscreen 容器管理与桥接
 │  │  ├─ theme.ts                 # 主题：prefers-color-scheme → html.dark（跟随系统深浅色）
 │  │  ├─ conversation-store.ts    # 会话与消息（IndexedDB）
 │  │  ├─ model-store.ts           # 模型配置（chrome.storage.local + 连通性测试）
 │  │  ├─ key-cipher.ts           # API Key 落盘加密（AES-GCM，防扫描级）
 │  │  └─ providers.ts             # 服务商预设（host_permissions 由此推导）
-│  ├─ lib/userscripts/            # 脚本链路：引擎（userScripts 注册）/ 存储 / git 历史 / DL 桥 / 类型
+│  ├─ lib/userscripts/            # 脚本链路：引擎（userScripts 注册）/ 存储 / git 历史 / DL 桥 / 类型；`us-fs.ts` 是 lightning-fs 单例（库名 `duoling`，**只许 offscreen 持有**）
 │  ├─ types/
 │  │  ├─ shims.d.ts               # 全局声明：process 模块 + window.api（须保持 ambient，勿加顶层 import）
 │  │  └─ tab.ts / model.ts        # 【平移】渲染层类型 re-export
@@ -110,12 +116,12 @@ npm run build:firefox    # 跨端构建（Firefox 侧；sidebar_action 适配见
 6. **新建脚本**：工作台左侧导航「用户脚本」→ 新建 → 自动建 git 仓并启用；或「脚本列表」标签页看全部脚本与启停
 7. **编辑与构建**：脚本列表点「编辑」开编辑器标签页 → 改文件后构建（esbuild-wasm）→ 保存；未保存时关标签应弹确认
 8. **历史**：编辑器内 git 历史 → 看提交记录 / 恢复某次提交（恢复产生新提交，历史不可变）
+9. **AI 生成脚本**：面板里描述需求 → 看进度流（工具卡：`script_spec` / `script_read` / `script_apply`）→ 生成卡片出现（未启用徽标 + 生效范围 + 会做什么）→ 点「启用并生效」→ 打开目标页确认脚本已生效
 
 **改代码后**：WXT 自动重建；回 `chrome://extensions` 点扩展卡片的刷新图标重载。**改 `wxt.config.ts` 必须重启 dev**（HMR 不重读配置）。
 
 ## 后续接入
 
-- **AI 生成用户脚本**：把对话从"纯聊天"接到"生成脚本"，方案见 [docs/userscript-ai-generation.md](docs/userscript-ai-generation.md)（执行宿主定为 offscreen document）。
 - **用户脚本可用性引导**：`chrome.userScripts` 在 Chrome ≥138 需在扩展详情页开「Allow User Scripts」、<138 需全局开发者模式，管理页状态横幅已能引导。
 - **自定义接口地址**：目前 `host_permissions` 只覆盖预设服务商，自定义 baseUrl 需用 `optional_host_permissions` 动态申请。
 
