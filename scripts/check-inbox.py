@@ -19,6 +19,8 @@
 
 解析口径（inbox 会长歪，这几条是踩出来的）：
     - 代码块围栏（``` / ~~~）里的假列表项不算条目——顶部贴格式示例时最高危
+    - 围栏到文件尾还没闭合会让后面的真条目全被吞：这时报「未闭合」后停止四项检查，
+      不打印那些明摆着是残缺的结论（它本来会把存在的 `## 不办` 误报成「缺分区」）
     - `<!-- -->` 注释先剥掉，注释里的假条目不算
     - 嵌套列表只认缩进 0 的 `-` / `*` / `- [ ]`，缩进项并入上一条一起计字
       否则把长条目换行写就永远查不出超字数
@@ -116,21 +118,28 @@ def strip_comments(lines: list[str]) -> list[str]:
     return out
 
 
-def code_flags(lines: list[str]) -> list[bool]:
-    """逐行维护围栏开关：True 表示该行在代码块里，不当正文看。"""
+def code_flags(lines: list[str]) -> tuple[list[bool], int | None]:
+    """逐行维护围栏开关：True 表示该行在代码块里，不当正文看。
+
+    顺带返回到文件尾仍未闭合的围栏起始行号（正常闭合则 None）——未闭合会把后面的
+    真条目全吞掉，这是脚本自己的解析事故，得报给人，不能闷着。
+    """
     flags = [False] * len(lines)
     fence = ""
+    start = 0
     for i, line in enumerate(lines):
         m = FENCE_RE.match(line)
         if not fence:
             if m:
                 fence = m.group(1)
+                start = i + 1
                 flags[i] = True
             continue
         flags[i] = True
         if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
             fence = ""
-    return flags
+            start = 0
+    return flags, start or None
 
 
 def find_sections(lines: list[str], flags: list[bool]) -> dict[str, tuple[int, int]]:
@@ -202,12 +211,20 @@ def main() -> int:
         return 0
 
     lines = strip_comments(path.read_text(encoding="utf-8").splitlines())
-    flags = code_flags(lines)
+    flags, open_fence = code_flags(lines)
     spans = find_sections(lines, flags)
     total = count_words("\n".join(lines))
     sections = {name: collect_items(lines, flags, spans[name]) for name in SECTIONS if name in spans}
 
     print(f"想法收件箱体检（{display}）")
+
+    # 围栏没关时后面全是瞎的，此时还去报「缺分区」等于指着没病的地方开刀，故到此为止
+    if open_fence is not None:
+        print(f"\n代码块围栏未闭合，`{display}:{open_fence}` 之后的内容全部跳过")
+        print("  后面的条目与分区都查不了，先把漏掉的收尾围栏补上再跑")
+        print()
+        return 1
+
     head = "，".join(f"{name} {len(items)} 条" for name, items in sections.items()) or "无分区"
     print(f"  {head}，全文 {total} 字（软上限 {TOTAL_MAX}）")
 
