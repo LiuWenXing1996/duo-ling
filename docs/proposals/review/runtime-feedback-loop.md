@@ -27,7 +27,7 @@
 | 注入通道 | SW 监听 `tabs.onUpdated` → 用匹配工具判断「该页有 enabled 脚本命中」→ `chrome.userScripts.execute()` 注入（独立世界 `worldId`，复用拾取器验证过的通道与「按需注入」语义——不注册、无清扫冲突、`minimum_chrome_version` 135 已就位零改动） |
 | 防重 | `window` 标志幂等：同页 SPA 软导航重复触发 `onUpdated` 时不重复注入 |
 | 注入数据 | 本页脚本清单（uuid / 名称 / 是否有错）+ 错误计数在 **SW 侧算好、随 `execute()` args 带进**；浮窗纯展示 + 跳转，v1 不需要任何上行消息 |
-| 实时性 | 给浮窗所在世界开 `messaging`：SW 在 `appendUserScriptError` 落盘时向该 tab 推一条「错误变了」，浮窗重渲染徽章。就这一条下行推送——不做的话「启用后盯着页面验证」这个核心场景里徽章永远不亮 |
+| 实时性 | 脚本运行报错落盘时（`dl-bridge` 的 `onUserScriptMessage` 路径，`sender.tab.id` 可定位出错 tab），SW 向该 tab **补注入一条更新指令** `__duolingStatusUpdate(data)`（`userScripts.execute()` 同 worldId 世界全局跨注入持久——拾取器取消机制 `cancelPick` 已验证的同款套路），浮窗就地重渲染徽章。**评审修正**：官方文档确认 userScripts API 无「SW → userScript 世界」发消息方法（messaging 只有 userScript → 扩展单向），原稿「开世界 messaging 推送」不成立；改走 execute 补注入后连 `configureWorld` 都可省 |
 | 错误口径 | 浮窗错误计数 = `runtime` + `register` 阶段（register 失败直接解释「匹配了但没跑」）；`bridge` 阶段噪音大且与脚本代码无关，不计。与工作台错误日志分组口径一致 |
 | 跳转 | `chrome.tabs.create` / 聚焦工作台 `workbench.html#/tools`，hash 带目标脚本 uuid；工作台错误日志配合做「按脚本过滤 + 深链定位」的小改动 |
 | 样式 | vanilla JS + Shadow DOM（样式天然隔离），固定角落、可折叠成点；「彻底隐藏」偏好不做（折叠已够克制） |
@@ -79,15 +79,16 @@ offscreen 任务收尾 → 新推送 chat:finished → SW 监听
 
 | 文件 / 模块 | 改动 |
 | --- | --- |
-| 页面浮窗 | 新模块（vanilla + Shadow DOM，扩展包内文件）：胶囊 / 展开列表 / 错误徽章 / 跳转 / 下行推送监听 |
-| SW（`background.ts`） | `tabs.onUpdated` 监听 + 注入决策；`appendUserScriptError` 时向对应 tab 推送；`chat:finished` 监听 + 徽章点亮；面板端口断开感知；`sidePanel.onOpened` 清徽章；`errors:read` 命令 |
+| 页面浮窗 | 新模块（vanilla + Shadow DOM，扩展包内文件 `duoling-status.js` + 发起侧 `status-bubble-client.ts`）：胶囊 / 展开列表 / 错误徽章 / 跳转 / 暴露 `__duolingStatusUpdate` 世界全局供 SW 补注入更新 |
+| SW（`background.ts`） | `tabs.onUpdated` 监听 + 注入决策；`chat:finished` 观察（badge 点亮，`chat:` 前缀按既有约定静默让路 offscreen，观察不消费）；面板端口断开感知；`sidePanel.onOpened` 清徽章；`userscript:errorRead` 命令 |
 | 匹配工具 | 新 `match-pattern.ts`：`@match` 规则 URL 匹配 + 单测 |
-| `src/lib/userscripts/store.ts` | 错误记录加短 ID（append 时生成） |
-| 工作台错误日志 | 按脚本分组 + 每条显示短 ID / 复制按钮 + hash 深链定位展开 |
-| `src/lib/offscreen-bridge.ts` + `src/shared/extension-ipc.ts` | `errors:read(id)` 只读命令 |
-| `src/lib/offscreen-chat/script-tools.ts` | 新增 `error_read` 工具 |
-| `src/lib/offscreen-chat/chat-host.ts` | 任务收尾发 `chat:finished` 推送 |
-| 侧边栏 / ChatPanel | **零改动** |
+| `src/lib/userscripts/dl-bridge.ts` | runtime 错误落盘后回调浮窗更新（`sender.tab.id` 定位）——错误记录形状零改动 |
+| `src/lib/userscripts/store.ts` | 加查询函数 `findUserScriptError(id)`（精确 / 唯一前缀）；append 逻辑零改动 |
+| 工作台错误日志 | 按脚本分组 + 每条显示短形态 id / 复制完整 id 按钮 + `#/errors/<uuid>` 深链定位展开 |
+| `src/lib/offscreen-bridge.ts` + `src/shared/extension-ipc.ts` | `userscript:errorRead(id)` 只读命令 + `chat:finished` 推送变体 |
+| `src/lib/offscreen-chat/script-tools.ts` | 新增 `error_read` 工具（`script_read` 的 uuid 直读已存在，零改动） |
+| `src/lib/offscreen-chat/chat-host.ts` | 任务收尾（正常 / 异常两分支）发 `chat:finished` 推送 |
+| 侧边栏 / ChatPanel | 仅加一条面板存活端口连接（`runtime.connect`，数行）；其余零改动 |
 | DL 桥契约 / `wxt.config.ts` | **零改动**（无新权限，`notifications` 权限本期用不上） |
 
 ## 备选方案
@@ -136,9 +137,9 @@ offscreen 任务收尾 → 新推送 chat:finished → SW 监听
 | 2026-09-17 | #9 问题重构 | 「让 AI 修」拆成两段：错误可见性（第一环）+ 修复入口（第二环），合成一个闭环设计 | 老大指出真实链路：用户生成后去页面验证，不知道去哪看错误——「看」断了「修」无从谈起，原决策清单跳步 |
 | 2026-09-17 | 可见性位置（迭代） | 工作台错误面板 → 侧边栏卡片错误条 → 侧边栏状态视图（标签/通知栏/底栏/抽屉四形态）→ **目标页面浮窗**（终案） | 逐轮否定的关键事实：① 用户验证时不在工作台；② 侧边栏窗口唯一而脚本列表每页一份，per-page 信息放 window-global 容器位置错；③ 侧边栏塞状态职责 = 往聊天界面压交互。最终由老大定向「目标页面加简单浮窗引导」 |
 | 2026-09-17 | 浮窗职责边界 | 浮窗只引导（脚本清单 + 错误提示 + 跳工作台），不做管理面板 | 管控动作归工作台；克制保住注入足迹与交互面的最小化 |
-| 2026-09-17 | 浮窗实时推送 | 保留：世界 messaging 开启 + `appendUserScriptError` 时 SW 向该 tab 推一条 | 「启用后盯着页面验证」是核心场景，静态浮窗在此场景徽章永不亮；一条下行推送成本可控 |
-| 2026-09-17 | 「让 AI 修」交互形态 | 错误 ID 复制 + `error_read` 工具按需查询，取代自动发送桥 | 老大提出：给用户一个可复制的错误 ID，发不发、发到哪个会话由他自己定。跨页桥（暂存 + `sidePanel.open` + 自动发送）、消息组装、会话归属三个复杂度整体蒸发；低频动作多两步手动可接受 |
-| 2026-09-17 | 错误 ID 形态 | 8 位短 ID，`appendUserScriptError` 时生成落进记录 | 现记录无自身 ID（uuid 是脚本的）；8 位够在环形 50 条内唯一且口播友好 |
+| 2026-09-17 | 浮窗实时推送 | 保留：脚本运行报错落盘时 SW 向出错 tab 补注入更新指令 | 「启用后盯着页面验证」是核心场景，静态浮窗在此场景徽章永不亮；一条下行推送成本可控 |
+| 2026-09-17 | 错误 ID 形态 | 复用现有记录 `id`（crypto.randomUUID）：展示前 8 位、复制完整 id，`error_read` 精确 / 唯一前缀匹配 | 评审修正：id 字段已存在，原稿「无自身 ID 需新生成」不实；复制交互下完整 id 无口播负担，store 零改动 |
+| 2026-09-17 | 浮窗下行通道（评审改判） | 世界 messaging 推送 → **`execute()` 补注入** `__duolingStatusUpdate(data)` | 官方文档核实 userScripts 无「SW → userScript 世界」发消息方法（messaging 单向）；同 worldId 世界全局跨注入持久是拾取器 `cancelPick` 已验证的机制，同款套路零新机制 |
 | 2026-09-17 | AI 读错误 / 源码的通道 | `error_read(id)` 经 offscreen-bridge 让 SW 代读 `us:errors`（唯一新协议面）；源码走 `script_read(uuid)` 按需读 | offscreen 拿不到 chrome.storage 是架构铁律；修复链 = 提案 ① 现成机制组合（`script_read` + `script_apply(updateUuid)`），一个环都不新发明 |
 | 2026-09-17 | #3 消息排队撤出 | 现状已防并发：`streaming` 驱动输入禁用 + `send()` 入口拦截；offscreen 拒绝只是竞态防御 | 老大两连问「排队解决什么」「发送不了哪来丢字」后代码验证属实——排队与「保文字」都在解不存在的问题 |
 | 2026-09-17 | #7 regenerate 撤出 | 记入 inbox，不在本案 | 老大拍板「先不做」；按钮虽是纯 UI 接线，但落盘语义真空（无删消息命令）必须一并设计才完整，复杂度超出收益 |
