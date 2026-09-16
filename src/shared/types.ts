@@ -51,6 +51,9 @@ export interface Message {
   parts?: UIMessage['parts']
   /** 本次生成消耗的 token（仅 assistant 消息有值），持久化为会话累计与单条耗时的唯一来源 */
   usage?: TokenUsage
+  /** 随本条用户消息附上的页面上下文（元素拾取 / 页面快照，用户显式采集；docs/proposals/implementing/element-picker.md「拾取上下文随消息落盘」）。
+   * 气泡 chip 与后续轮次「最近一次拾取」prompt 注入的数据源；旧数据 / 未附上下文时缺省。 */
+  pageContext?: import('./extension-ipc').MessagePageContext
   createdAt: string
 }
 

@@ -30,12 +30,13 @@ import { ENTRY_DEFAULT } from '@/lib/userscripts/types'
 import type {
   ChatOrphanRecord,
   ChatResumeResult,
+  MessagePageContext,
   PageContextInfo,
   RuntimeRequest,
 } from '@/shared/extension-ipc'
 import { dropBuffer, pushChunk, replaySince, resetBuffer } from './event-bus'
 import { getActiveProfile } from './profile-cache'
-import { buildSystemPrompt } from './system-prompt'
+import { buildSystemPrompt, mergePageContext, mostRecentPageContext } from './system-prompt'
 import { buildScriptTools, type TaskWorkspace } from './script-tools'
 import { getTask, listRunningTasks, putTask, removeTask, type ChatTaskRecord } from './task-store'
 
@@ -218,12 +219,27 @@ async function runLoop(opts: {
     const profile = getActiveProfile()
     if (!profile) throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
 
-    // 历史消息：新任务用调用方带来的；续跑从会话库现取（含此前完整上下文）
+    // 历史消息：新任务用调用方带来的；续跑从会话库现取（含此前完整上下文）。
+    // 会话库重建时把 pageContext 元数据挂回 metadata（气泡 chip 与「最近一次拾取」都认它）
     const uiMessages = opts.messages ?? (await listMessages(conversationId)).map((m) =>
       m.parts?.length
-        ? ({ id: m.id, role: m.role, parts: [...m.parts] } as UIMessage)
-        : ({ id: m.id, role: m.role, parts: [ ...(m.reasoning ? [{ type: 'reasoning' as const, text: m.reasoning }] : []), { type: 'text' as const, text: m.content } ] } as UIMessage),
+        ? ({
+            id: m.id,
+            role: m.role,
+            parts: [...m.parts],
+            ...(m.pageContext ? { metadata: { pageContext: m.pageContext } } : {}),
+          } as UIMessage)
+        : ({
+            id: m.id,
+            role: m.role,
+            parts: [ ...(m.reasoning ? [{ type: 'reasoning' as const, text: m.reasoning }] : []), { type: 'text' as const, text: m.content } ],
+            ...(m.pageContext ? { metadata: { pageContext: m.pageContext } } : {}),
+          } as UIMessage),
     )
+
+    // prompt 用的页面上下文：本请求的新鲜拾取优先，缺位回退历史里最近一次随消息附上的
+    // （跨轮指代 / 重新生成 / 重开面板续聊都靠它接上；老快照不回注，见 mergePageContext）
+    const promptContext = mergePageContext(pageContext, mostRecentPageContext(uiMessages))
 
     const baseURL = profile.useFullUrl
       ? profile.baseUrl.replace(/\/chat\/completions\/?$/i, '')
@@ -236,7 +252,7 @@ async function runLoop(opts: {
 
     const tools = buildScriptTools(workspace, (ws) => snapshotWorkspace(ws), () =>
       abort.abort(),
-      pageContext?.element,
+      promptContext?.element,
     )
 
     const result = streamText({
@@ -245,7 +261,7 @@ async function runLoop(opts: {
       messages: await convertToModelMessages(stripDataParts(uiMessages)),
       tools,
       stopWhen: stepCountIs(MAX_STEPS),
-      system: buildSystemPrompt(prompt, pageContext, continuing),
+      system: buildSystemPrompt(prompt, promptContext, continuing),
       abortSignal: abort.signal,
       ...(profile.temperature != null ? { temperature: profile.temperature } : {}),
       ...(profile.topP != null ? { topP: profile.topP } : {}),

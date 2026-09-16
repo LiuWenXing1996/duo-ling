@@ -62,6 +62,21 @@ export interface PageContextInfo {
   snapshot?: PageSnapshotContext
 }
 
+/**
+ * 随用户消息**持久化**的页面上下文（Message.pageContext / UIMessage.metadata.pageContext）。
+ * 只存用户显式采集的两样；档 0（URL/标题）每轮实时取，不落库。
+ * 用途：历史气泡 chip 渲染 + 后续轮次 prompt「最近一次拾取」注入（重新生成 / 跨轮指代靠它接上）。
+ */
+export interface MessagePageContext {
+  element?: ElementPickContext
+  snapshot?: PageSnapshotContext
+}
+
+/** UIMessage.metadata 的约定形状（AI SDK 的 metadata 字段是 unknown，此处是全应用唯一合法形状） */
+export interface ChatMessageMetadata {
+  pageContext?: MessagePageContext
+}
+
 /** 渲染页 → service worker 的请求（kind 可辨识联合，background 按 kind 分发） */
 export type RuntimeRequest =
   // 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）

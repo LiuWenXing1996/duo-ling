@@ -68,7 +68,7 @@ import {
 } from '@/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import type { TokenUsage } from '@/shared/types'
-import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
+import type { ChatMessageMetadata, ElementPickContext, MessagePageContext, PageSnapshotContext } from '@/shared/extension-ipc'
 import {
   capturePageSnapshot,
   isUserScriptsApiAvailable,
@@ -175,6 +175,12 @@ function textOf(m: UIMessage): string {
 /** 用户消息正文：直接聚合 text parts 展示 */
 function userText(m: UIMessage): string {
   return textOf(m)
+}
+
+/** 随本条消息附上的页面上下文（气泡 chip 渲染源；无则 undefined） */
+function messagePageContext(m: UIMessage): MessagePageContext | undefined {
+  const ctx = (m.metadata as ChatMessageMetadata | undefined)?.pageContext
+  return ctx?.element || ctx?.snapshot ? ctx : undefined
 }
 
 /** 消息角色映射：ai-elements 的 Message 用 'user' | 'assistant' */
@@ -698,6 +704,30 @@ function userScriptsUnavailableMessageSafe(): string {
               <!-- 消息气泡：用 ai-elements 的 Message / MessageContent / MessageResponse 渲染 -->
               <ui-message :from="fromOf(m)" class="max-w-full">
                 <template v-if="m.role === 'user'">
+                  <!-- 随消息附上的拾取/快照 chip：落盘元数据还原，重开会话仍在；纯展示（删除 = 删整条消息） -->
+                  <div
+                    v-if="messagePageContext(m)"
+                    class="mb-1 flex flex-wrap justify-end gap-1"
+                    data-testid="message-page-context"
+                  >
+                    <span
+                      v-if="messagePageContext(m)!.element"
+                      class="inline-flex max-w-full items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs"
+                      :title="messagePageContext(m)!.element!.summary.htmlSample"
+                    >
+                      <ui-mouse-pointer-click class="size-3 shrink-0 text-muted-foreground" />
+                      <span class="truncate">
+                        已点选：{{ elementChipLabel(messagePageContext(m)!.element!) }}
+                      </span>
+                    </span>
+                    <span
+                      v-if="messagePageContext(m)!.snapshot"
+                      class="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs"
+                    >
+                      <ui-camera class="size-3 shrink-0 text-muted-foreground" />
+                      已附页面快照
+                    </span>
+                  </div>
                   <ui-message-content>{{ userText(m) }}</ui-message-content>
                 </template>
                 <template v-else>

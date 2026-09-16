@@ -1,8 +1,19 @@
 // buildSystemPrompt 的档位组装测试（docs/proposals/implementing/element-picker.md 验收：
 // 「摘要层随生成请求进 system prompt（单测覆盖 prompt 组装）」「快照 prompt 组装单测」）。
 import { describe, expect, it } from 'vitest'
-import { buildSystemPrompt, describePickedElement, describePageSnapshot } from './system-prompt'
-import type { ElementPickContext, PageContextInfo } from '@/shared/extension-ipc'
+import {
+  buildSystemPrompt,
+  describePickedElement,
+  describePageSnapshot,
+  mergePageContext,
+  mostRecentPageContext,
+} from './system-prompt'
+import type { UIMessage } from 'ai'
+import type {
+  ElementPickContext,
+  MessagePageContext,
+  PageContextInfo,
+} from '@/shared/extension-ipc'
 
 function makeElement(overrides?: Partial<ElementPickContext>): ElementPickContext {
   return {
@@ -127,5 +138,93 @@ describe('buildSystemPrompt 档位组合', () => {
   it('续跑标记进入 prompt', () => {
     const p = buildSystemPrompt('继续', undefined, true)
     expect(p).toContain('此前一次生成任务在浏览器中断了')
+  })
+})
+
+// —— 拾取上下文随消息落盘（提案①「拾取上下文随消息落盘」决策） ——
+
+/** 构造一条带/不带 pageContext 元数据的 user/assistant 消息 */
+function makeMsg(
+  role: 'user' | 'assistant',
+  pageContext?: MessagePageContext,
+): UIMessage {
+  return {
+    id: crypto.randomUUID(),
+    role,
+    parts: [{ type: 'text', text: role === 'user' ? '帮我改' : '好的' }],
+    ...(pageContext ? { metadata: { pageContext } } : {}),
+  }
+}
+
+describe('mostRecentPageContext（历史最近一次拾取）', () => {
+  it('倒序扫描命中最近一条带元数据的 user 消息', () => {
+    const oldEl = makeElement({ pickedAt: 1 })
+    const newEl = makeElement({ pickedAt: 2 })
+    const msgs = [
+      makeMsg('user', { element: oldEl }),
+      makeMsg('assistant'),
+      makeMsg('user', { element: newEl }),
+      makeMsg('assistant'),
+    ]
+    expect(mostRecentPageContext(msgs)?.element?.pickedAt).toBe(2)
+  })
+
+  it('跳过 assistant 消息与无元数据的 user 消息', () => {
+    const msgs = [
+      makeMsg('assistant'),
+      makeMsg('user', { element: makeElement() }),
+      makeMsg('user'),
+    ]
+    expect(mostRecentPageContext(msgs)?.element?.pickedAt).toBe(1758000000000)
+  })
+
+  it('没有任何拾取时返回 undefined', () => {
+    expect(mostRecentPageContext([makeMsg('user'), makeMsg('assistant')])).toBeUndefined()
+    expect(mostRecentPageContext([])).toBeUndefined()
+  })
+
+  it('元数据里 element / snapshot 都缺位视为无拾取', () => {
+    const msgs = [makeMsg('user', {})]
+    expect(mostRecentPageContext(msgs)).toBeUndefined()
+  })
+})
+
+describe('mergePageContext（新鲜上下文 × 历史最近一次）', () => {
+  const history: MessagePageContext = {
+    element: makeElement({ pickedAt: 1 }),
+    snapshot: { capturedAt: 1, pageUrl: 'https://example.com', html: '<html>old</html>' },
+  }
+
+  it('本请求没有任何页面上下文时回退历史最近一次的 element', () => {
+    const merged = mergePageContext(undefined, { element: history.element })
+    expect(merged?.element?.pickedAt).toBe(1)
+    expect(merged?.snapshot).toBeUndefined()
+  })
+
+  it('老快照不回注 prompt（32KB DOM 不能常驻每一轮）', () => {
+    const merged = mergePageContext({ url: 'https://example.com/now' }, history)
+    expect(merged?.url).toBe('https://example.com/now')
+    expect(merged?.snapshot).toBeUndefined()
+    // 档 0 是新鲜的，element 缺位仍回退历史
+    expect(merged?.element?.pickedAt).toBe(1)
+  })
+
+  it('新鲜拾取优先于历史拾取', () => {
+    const merged = mergePageContext(
+      { url: 'https://example.com', element: makeElement() },
+      { element: makeElement({ pickedAt: 999 }) },
+    )
+    expect(merged?.element?.pickedAt).toBe(1758000000000)
+  })
+
+  it('新鲜快照原样保留（当轮显式附上照常注入）', () => {
+    const freshSnap = { capturedAt: 2, pageUrl: 'https://example.com', html: '<html>new</html>' }
+    const merged = mergePageContext({ url: 'https://example.com', snapshot: freshSnap }, history)
+    expect(merged?.snapshot?.html).toBe('<html>new</html>')
+  })
+
+  it('两边都为空返回 undefined（不产生空档位）', () => {
+    expect(mergePageContext(undefined, undefined)).toBeUndefined()
+    expect(mergePageContext({}, {})).toBeUndefined()
   })
 })

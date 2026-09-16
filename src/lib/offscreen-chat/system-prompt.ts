@@ -6,7 +6,13 @@
 // AI 自证选择器唯一性不该再花一次读取；全量层走 element_read 工具按需读
 // （docs/proposals/implementing/element-picker.md「拾取器交互与载荷形态」）。
 
-import type { ElementPickContext, PageContextInfo } from '@/shared/extension-ipc'
+import type { UIMessage } from 'ai'
+import type {
+  ChatMessageMetadata,
+  ElementPickContext,
+  MessagePageContext,
+  PageContextInfo,
+} from '@/shared/extension-ipc'
 
 /** 档 2 摘要层：用户点选元素的摘要（选择器候选 × 命中数 / 关键属性 / 截断样本） */
 export function describePickedElement(el: ElementPickContext): string[] {
@@ -44,6 +50,40 @@ export function describePageSnapshot(pc: PageContextInfo): string[] {
     snap.html,
     '```',
   ]
+}
+
+/**
+ * 历史消息里**最近一次**随消息附上的拾取/快照（倒序扫 user 消息，找到即回）。
+ * 只认 metadata.pageContext 形状、只取最近一份，不做语义匹配——
+ * 跨轮指代（「再把字号调大一点」）、重开面板续聊、重新生成不丢上下文，都靠它。
+ */
+export function mostRecentPageContext(messages: UIMessage[]): MessagePageContext | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m.role !== 'user') continue
+    const ctx = (m.metadata as ChatMessageMetadata | undefined)?.pageContext
+    if (ctx?.element || ctx?.snapshot) return ctx
+  }
+  return undefined
+}
+
+/**
+ * 合并本请求的新鲜上下文（chat:start 带的）与历史最近一次附上的上下文：
+ *   · 档 0（URL/标题）只认新鲜的——每轮实时取，历史里的 URL 会过时误导；
+ *   · 元素拾取新鲜优先，缺位时回退历史最近一次（≤2KB 摘要，常驻可接受）；
+ *   · 老快照**不回注**——32KB DOM 常驻每一轮会把 token 烧穿，快照只在用户当轮显式附上时注入。
+ */
+export function mergePageContext(
+  fresh: PageContextInfo | undefined,
+  history: MessagePageContext | undefined,
+): PageContextInfo | undefined {
+  const out: PageContextInfo = { ...(fresh ?? {}) }
+  const element = fresh?.element ?? history?.element
+  if (element) out.element = element
+  else delete out.element
+  if (fresh?.snapshot) out.snapshot = fresh.snapshot
+  else delete out.snapshot
+  return out.url || out.title || out.element || out.snapshot ? out : undefined
 }
 
 export function buildSystemPrompt(
