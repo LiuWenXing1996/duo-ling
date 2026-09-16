@@ -59,21 +59,21 @@ AGENTS.md 里「手写桥接层逐函数对照桌面版」这条常青规则，�
 
 ## 验收标准
 
-- [ ] `legacy/` 目录不存在，`git log --full-history --diff-filter=D --all -- legacy/` 能看到删除提交
-- [ ] `components.json` 在仓库根，且 `tailwind.css` 指向 `src/assets/main.css`
-- [ ] `scripts/port-legacy-ui.py`、`scripts/compare-bridge.py` 已删除
-- [ ] 全仓检索「路径型引用」（`legacy/` 这类路径形态，排除 `node_modules`、`.git`）不再命中；允许的命中白名单只有：`package-lock.json`（依赖名 `character-entities-legacy`）、`docs/dev-log/`（时序日志，按「不做的事」保留原表述）、`docs/proposals/`（提案自身）、`src/` 中指旧数据形态的符号（`isLegacyScriptRecord` / `listLegacyScripts` / `LEGACY_SEQ_KEY`）
-- [ ] `AGENTS.md`、`README.md` 无 `legacy/` 目录说明，文档总表无对应行，且两者与本提案内的相对链接均可解析（无死链）
-- [ ] `docs/todo.md` 里 vitest include 收窄的理由不再以 legacy 为依据
-- [ ] `docs/dev-log/conventions.md` 无归档条目与两个脚本的用法段落；取回姿势与删除提交 hash 记在 `docs/dev-log/` 当日流水
-- [ ] `AGENTS.md` 的桥接层规则已改为「自检四类语义 + 单测覆盖」
-- [ ] `tsconfig.json` 的 exclude 不含 `legacy`
-- [ ] `npm run typecheck` 零错误
-- [ ] `npm run build` 通过
-- [ ] `npm run test` 全绿
-- [ ] `npm run check:proposals` 通过
-- [ ] `npm run verify:skills` 通过
-- [ ] 运行时代码零改动，故 E2E 只在最终状态跑一次留证据（`npm run test:e2e`）
+- [x] `legacy/` 目录不存在，`git log --full-history --diff-filter=D --all -- legacy/` 能看到删除提交
+- [x] `components.json` 在仓库根，且 `tailwind.css` 指向 `src/assets/main.css`
+- [x] `scripts/port-legacy-ui.py`、`scripts/compare-bridge.py` 已删除
+- [x] 全仓检索「路径型引用」（`legacy/` 这类路径形态，排除 `node_modules`、`.git`）不再命中；允许的命中白名单只有：`package-lock.json`（依赖名 `character-entities-legacy`）、`docs/dev-log/`（时序日志，按「不做的事」保留原表述）、`docs/proposals/`（提案自身）、`src/` 中指旧数据形态的符号（`isLegacyScriptRecord` / `listLegacyScripts` / `LEGACY_SEQ_KEY`）
+- [x] `AGENTS.md`、`README.md` 无 `legacy/` 目录说明，文档总表无对应行，且两者与本提案内的相对链接均可解析（无死链）
+- [x] `docs/todo.md` 里 vitest include 收窄的理由不再以 legacy 为依据
+- [x] `docs/dev-log/conventions.md` 无归档条目与两个脚本的用法段落；取回姿势与删除提交 hash 记在 `docs/dev-log/` 当日流水
+- [x] `AGENTS.md` 的桥接层规则已改为「自检四类语义 + 单测覆盖」
+- [x] `tsconfig.json` 的 exclude 不含 `legacy`
+- [x] `npm run typecheck` 零错误
+- [x] `npm run build` 通过
+- [x] `npm run test` 全绿
+- [x] `npm run check:proposals` 通过
+- [x] `npm run verify:skills` 通过
+- [x] 运行时代码零改动，故 E2E 只在最终状态跑一次留证据（`npm run test:e2e`）
 
 ## 不做的事
 
