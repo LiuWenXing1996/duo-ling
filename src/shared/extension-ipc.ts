@@ -9,6 +9,59 @@
 
 import type { ModelProfile } from './types'
 
+// —— 页面上下文档位（docs/proposals/implementing/element-picker.md）——
+// 拾取器（src/public/duoling-picker.js，USER_SCRIPT 世界经 execute() 注入）的载荷形状。
+// ⚠️ 与拾取器的 vanilla JS 手写对齐，改形状必须两边同步。
+
+/** 拾取元素的摘要层（≤2KB，随 chat:start 常驻 system prompt；同类计数必须在内——AI 自证选择器唯一性不该再花一次读取） */
+export interface ElementPickSummary {
+  tag: string
+  id?: string
+  classes: string[]
+  /** 白名单关键属性（name/type/placeholder/aria-label/role/href/title/alt/for/action，值截断） */
+  attrs: Record<string, string>
+  /** 候选选择器（≤3 条：id 优先 → tag+class 组合 → nth-of-type 路径），每条附当前 document 命中数 */
+  selectors: Array<{ selector: string; hitCount: number }>
+  /** textContent 样本（空白折叠，~200 字符） */
+  textSample: string
+  /** outerHTML 截断（~500 字符） */
+  htmlSample: string
+}
+
+/** 拾取元素的全量层（`element_read` 工具按需读；读的是拾取那一刻的快照，不是活页面） */
+export interface ElementPickFull {
+  /** 全部属性（值截断） */
+  attrs: Record<string, string>
+  /** 完整 outerHTML（宽松上限 ~32KB，防极端节点） */
+  outerHTML: string
+  /** 祖先链（不含自身，最近 6 层：tag/id/classes） */
+  parentChain: Array<{ tag: string; id?: string; classes: string[] }>
+}
+
+/** 一次元素拾取的完整快照（用户显式点选产生，一次至多一份） */
+export interface ElementPickContext {
+  pickedAt: number
+  pageUrl: string
+  summary: ElementPickSummary
+  full: ElementPickFull
+}
+
+/** 页面快照（渲染后 DOM，显式点击「附上页面快照」采集，不自动附带） */
+export interface PageSnapshotContext {
+  capturedAt: number
+  pageUrl: string
+  /** 渲染后 documentElement.outerHTML，截断 ~32KB */
+  html: string
+}
+
+/** chat:start 的页面上下文：档 0（URL/标题）+ 可选的档 2 元素拾取 / 页面快照 */
+export interface PageContextInfo {
+  url?: string
+  title?: string
+  element?: ElementPickContext
+  snapshot?: PageSnapshotContext
+}
+
 /** 渲染页 → service worker 的请求（kind 可辨识联合，background 按 kind 分发） */
 export type RuntimeRequest =
   // 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）
@@ -77,7 +130,7 @@ export type RuntimeRequest =
   // —— 对话链路（offscreen 执行宿主，定位 B「下完单就走」）——
   // 侧边栏是「指令入口 + 观察者」：发起后可关面板，任务在 offscreen 照跑完；
   // 事件经 OffscreenPush（chat:chunk）逐条推送，重开面板按 lastEventId replay（chat:resume）。
-  | { kind: 'chat:start'; conversationId: string; messages: import('ai').UIMessage[]; trigger: 'submit-message' | 'regenerate-message'; pageContext?: { url?: string; title?: string } }
+  | { kind: 'chat:start'; conversationId: string; messages: import('ai').UIMessage[]; trigger: 'submit-message' | 'regenerate-message'; pageContext?: PageContextInfo }
   | { kind: 'chat:abort'; conversationId: string }
   // 重连：返回该会话进行中任务的完整事件缓冲（从头回放；观察方本地视图可能刚从历史重建）
   | { kind: 'chat:resume'; conversationId: string }

@@ -11,6 +11,8 @@ import {
   Braces as UiBraces,
   ChevronDown as UiChevronDown,
   LoaderCircle as UiLoaderCircle,
+  MousePointerClick as UiMousePointerClick,
+  Package as UiPackage,
   Pencil as UiPencil,
   Plus as UiPlus,
   RefreshCw as UiRefreshCw,
@@ -26,6 +28,7 @@ import {
 } from '@/components/ui/dialog'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import { formatTimestamp } from '@/lib/format'
+import { BUILTIN_SCRIPTS } from '@/lib/userscripts/builtins'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import type { ScriptSummary, UserScriptErrorRecord, UserScriptsAvailability } from '@/lib/userscripts/types'
 
@@ -354,6 +357,42 @@ onMounted(() => {
             </div>
           </div>
         </div>
+
+        <!-- 内置分组：随扩展包分发的只读内置件（不进状态库、无启停 / 编辑 / 删除，docs/proposals/implementing/element-picker.md「内置脚本承载」） -->
+        <section
+          v-if="BUILTIN_SCRIPTS.length"
+          class="rounded-md border bg-card"
+          data-testid="builtin-scripts"
+        >
+          <div class="border-b px-3 py-2">
+            <p class="flex items-center gap-1.5 text-xs font-medium">
+              <ui-package class="size-3.5 text-muted-foreground" />
+              内置
+              <span class="font-normal text-muted-foreground">随扩展分发 · 只读</span>
+            </p>
+          </div>
+          <div
+            v-for="b in BUILTIN_SCRIPTS"
+            :key="b.id"
+            class="flex items-start gap-3 px-3 py-2.5"
+          >
+            <span
+              class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+            >
+              <ui-mouse-pointer-click class="size-3.5" />
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium">{{ b.name }}</p>
+              <p class="mt-0.5 text-xs leading-relaxed text-muted-foreground">{{ b.description }}</p>
+            </div>
+            <span
+              class="mt-0.5 shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+              title="内置件按需注入、无启用概念，也没有编辑 / 删除"
+            >
+              常驻可用
+            </span>
+          </div>
+        </section>
 
         <!-- 错误日志面板：运行期 / 注册 / DL 桥失败汇总（环形保留最近 N 条） -->
         <section class="rounded-md border bg-card">

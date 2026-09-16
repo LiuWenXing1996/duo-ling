@@ -16,6 +16,7 @@ import { z } from 'zod'
 import { buildProject, BuildError } from '@/lib/userscripts/builder'
 import { getProject, validateFiles } from '@/lib/userscripts/project-store'
 import type { ScriptConfig } from '@/lib/userscripts/types'
+import type { ElementPickContext } from '@/shared/extension-ipc'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
 /** 连续构建失败上限：达到即让模型停手、把诊断交给用户（阈值 6 见 docs/userscript-ai-generation.md「编排约束」，双闸理由见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」） */
@@ -56,15 +57,17 @@ const applyConfigSchema = z.object({
 export type ApplyConfigInput = z.infer<typeof applyConfigSchema>
 
 /**
- * 构建三个 Agent 工具。snapshot 回调由 chat-host 提供（每步 apply 成功后把文件树
+ * 构建 Agent 工具（script 三件套 + element_read）。snapshot 回调由 chat-host 提供（每步 apply 成功后把文件树
  * 快照进 IndexedDB 任务记录——覆盖写，宿主被杀后「继续」才有东西可继续）。
  * onFatal：硬停手回调——失败超阈值后模型仍再次 apply（无视 stop 提示）时中止整个
  * 任务（2026-09-15 手测：stop 提示只是文案，模型会无视继续烧步数）。
+ * elementContext：本请求携带的拾取元素快照（用户显式点选；undefined = 本次没有）。
  */
 export function buildScriptTools(
   ws: TaskWorkspace,
   snapshot: (ws: TaskWorkspace) => Promise<void>,
   onFatal?: () => void,
+  elementContext?: ElementPickContext,
 ) {
   const tools = {
     script_spec: tool({
@@ -173,6 +176,33 @@ export function buildScriptTools(
             errors,
             ...(ws.applyFailures >= MAX_APPLY_FAILURES ? { stop: STOP_HINT } : {}),
           }
+        }
+      },
+    }),
+    element_read: tool({
+      description:
+        '读取用户点选元素的完整快照（system prompt 里只有摘要层）。' +
+        '摘要层有不确定处时调用：返回全部属性、完整 outerHTML（拾取时刻截断快照，非活页面）、祖先链。' +
+        '本次请求没有点选元素时返回 ok:false。',
+      inputSchema: z.object({
+        part: z
+          .enum(['attrs', 'html', 'parents', 'all'])
+          .default('all')
+          .describe('只取一部分省 token；默认 all'),
+      }),
+      execute: async ({ part }) => {
+        if (!elementContext) {
+          return { ok: false, error: '本次请求没有点选元素（用户未使用「点选元素」按钮）' }
+        }
+        const full = elementContext.full
+        return {
+          ok: true,
+          pickedAt: elementContext.pickedAt,
+          pageUrl: elementContext.pageUrl,
+          summaryTag: elementContext.summary.tag,
+          ...(part === 'all' || part === 'attrs' ? { attrs: full.attrs } : {}),
+          ...(part === 'all' || part === 'html' ? { outerHTML: full.outerHTML } : {}),
+          ...(part === 'all' || part === 'parents' ? { parentChain: full.parentChain } : {}),
         }
       },
     }),

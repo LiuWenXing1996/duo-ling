@@ -100,9 +100,10 @@ export default defineConfig({
     // 用户脚本管理器（userscript-manager）：userScripts 注入目标网页需全域 host 权限
     // （Chrome 文档明确要求），同时覆盖 GM_xmlhttpRequest 的跨域可达范围。
     host_permissions: [...providerOrigins(), '<all_urls>'],
-    // 每脚本独立 USER_SCRIPT 世界隔离（worldId）需 Chrome 133+ / Firefox 136+。
+    // 135 = chrome.userScripts.execute()（元素拾取器/页面快照的按需注入通道，
+    // docs/proposals/implementing/element-picker.md）+ 每脚本独立 USER_SCRIPT 世界隔离（worldId，133+）。
     // Chrome 规范字段是下划线 minimum_chrome_version；驼峰键会被 Chrome 忽略并报 Unrecognized。
-    'minimum_chrome_version': '133',
+    'minimum_chrome_version': '135',
     // MV3 默认 extension_pages CSP 是 `script-src 'self'`，**不含** 'wasm-unsafe-eval'——
     // 生产产物（npm run build）里 offscreen 的 esbuild-wasm（脚本构建链路，
     // docs/userscript-ai-generation.md「执行宿主」）会被 CSP 拦（实测 Chromium 153 报 violates CSP）。

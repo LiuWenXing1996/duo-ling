@@ -27,9 +27,15 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { appendMessage, listMessages } from '@/lib/conversation-store'
 import { offscreenBridge } from '@/lib/offscreen-bridge'
 import { ENTRY_DEFAULT } from '@/lib/userscripts/types'
-import type { ChatOrphanRecord, ChatResumeResult, RuntimeRequest } from '@/shared/extension-ipc'
+import type {
+  ChatOrphanRecord,
+  ChatResumeResult,
+  PageContextInfo,
+  RuntimeRequest,
+} from '@/shared/extension-ipc'
 import { dropBuffer, pushChunk, replaySince, resetBuffer } from './event-bus'
 import { getActiveProfile } from './profile-cache'
+import { buildSystemPrompt } from './system-prompt'
 import { buildScriptTools, type TaskWorkspace } from './script-tools'
 import { getTask, listRunningTasks, putTask, removeTask, type ChatTaskRecord } from './task-store'
 
@@ -66,38 +72,6 @@ const heartbeatTimer: unknown = setInterval(() => {
   }
 }, HEARTBEAT_MS)
 ;(heartbeatTimer as { unref?: () => void })?.unref?.()
-
-// —— 系统提示 ——
-
-function buildSystemPrompt(prompt: string, pageContext?: { url?: string; title?: string }, continuing = false): string {
-  const lines = [
-    '你是「哆灵」浏览器扩展的用户脚本助手。除日常对话外，你可以为网页编写用户脚本：',
-    '先用 script_spec 拿规范，再用 script_apply 提交文件树并构建验证（构建失败按诊断修改后整体重交），',
-    '构建通过即收敛——落盘、生效与提交说明由系统处理，你不需要也无法自己保存脚本。',
-    'matches 默认收窄到目标站点；改既有脚本前先 script_read 读出现有内容。',
-    '闲聊或与脚本无关的消息只正常回应，**不要**顺手继续此前被停止 / 中断的任务——',
-    '历史里可能出现中断的半截工具调用，那是用户主动停止留下的，不代表用户想要你续做；',
-    '只有用户新消息里明确要求（如「继续」「把脚本写完」）才继续未完成的脚本工作。',
-  ]
-  // 测试豁免只进 dev 构建（手测停手机制用），prod 构建里静态消除
-  if (import.meta.env.DEV) {
-    lines.push(
-      '例外：用户明确要求提交注定构建失败的代码（如测试停手机制）时照做——不要"修正"、不要注释掉，',
-      '按用户指定的错误原样提交；构建失败后也不要修复、不要自行决定停止或减少提交次数，',
-      '每次失败后立即原样重交，直到工具结果里出现 stop:true（那才是系统的停手指令），再如实总结诊断。',
-    )
-  }
-  if (pageContext?.url) {
-    lines.push(`\n当前页面：${pageContext.title ? `「${pageContext.title}」` : ''}${pageContext.url}`)
-    lines.push('用户很可能在说这个页面；选择器以此站点的真实结构为准，不要凭空猜。')
-  }
-  if (continuing) {
-    lines.push('\n注意：此前一次生成任务在浏览器中断了。任务的内存文件树已恢复，' +
-      '先 script_read（不带参数）查看已有文件，再决定继续修改还是重写。')
-  }
-  lines.push(`\n用户需求：${prompt}`)
-  return lines.join('\n')
-}
 
 // —— 工具 ——
 
@@ -225,7 +199,7 @@ async function runLoop(opts: {
   /** 续跑 = null（历史从会话库现取）；新任务 = 调用方带来的完整 messages */
   messages: UIMessage[] | null
   prompt: string
-  pageContext?: { url?: string; title?: string }
+  pageContext?: PageContextInfo
   workspace: TaskWorkspace
   continuing: boolean
 }): Promise<void> {
@@ -262,6 +236,7 @@ async function runLoop(opts: {
 
     const tools = buildScriptTools(workspace, (ws) => snapshotWorkspace(ws), () =>
       abort.abort(),
+      pageContext?.element,
     )
 
     const result = streamText({

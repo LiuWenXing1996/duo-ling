@@ -16,9 +16,11 @@ import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai'
 import type {
   ChatResumeResult,
   OffscreenPush,
+  PageContextInfo,
   RuntimeRequest,
   RuntimeResponse,
 } from '@/shared/extension-ipc'
+import { consumePendingPageContext, clearSentPageContext } from '@/lib/page-context-store'
 
 /** 向 offscreen 发一次请求（共享总线，SW 对 chat: 前缀静默让路），统一解包信封 */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -109,14 +111,23 @@ function installPushListener(): void {
   })
 }
 
-/** 档 0 页面上下文（docs/userscript-ai-generation.md「页面上下文档位」）：侧边栏是扩展页，可直接读当前标签 URL / 标题
- *  （host_permissions <all_urls> 已覆盖，无需 tabs 权限）；offscreen 没有 chrome.tabs */
-async function collectPageContext(): Promise<{ url?: string; title?: string } | undefined> {
+/** 档 0 页面上下文 + 档 2（拾取元素 / 页面快照，docs/proposals/implementing/element-picker.md）：
+ *  侧边栏是扩展页，可直接读当前标签 URL / 标题（host_permissions <all_urls> 已覆盖，无需 tabs 权限）；
+ *  offscreen 没有 chrome.tabs。拾取 / 快照由用户显式动作采集，暂存在 page-context-store，
+ *  随**下一条消息**发出（不自动附带）。 */
+async function collectPageContext(): Promise<PageContextInfo | undefined> {
   try {
     if (!chrome.tabs?.query) return undefined
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
     if (!tab?.url) return undefined
-    return { url: tab.url, ...(tab.title ? { title: tab.title } : {}) }
+    const pending = consumePendingPageContext()
+    const ctx: PageContextInfo = {
+      url: tab.url,
+      ...(tab.title ? { title: tab.title } : {}),
+      ...(pending.element ? { element: pending.element } : {}),
+      ...(pending.snapshot ? { snapshot: pending.snapshot } : {}),
+    }
+    return ctx
   } catch {
     return undefined
   }
@@ -156,6 +167,8 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
             trigger: options.trigger,
             ...(pageContext ? { pageContext } : {}),
           })
+          // 发送成功即清空暂存：上下文已随消息发出，chip 不应残留
+          clearSentPageContext()
         } catch (e) {
           consumers.delete(conversationId)
           // start 块先行：useChat 在未 start 时收到 error 块可能整体丢弃（不报错、状态卡 streaming）

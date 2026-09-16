@@ -9,8 +9,9 @@
 //   - reasoning part -> 思考与执行过程中的思考段落
 //   - tool part      -> 工具调用卡（ToolHeader + ToolInput + ToolOutput）
 // 按 parts 出现顺序交错成「思考与执行过程」链，移除旧 chainNodes / reasonings 结构。
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import {
+  Camera as UiCamera,
   Check as UiCheck,
   ChevronsDown as UiChevronsDown,
   ChevronsUpDown as UiChevronsUpDown,
@@ -19,11 +20,13 @@ import {
   Copy as UiCopy,
   FileText as UiFileText,
   LoaderCircle as UiLoaderCircle,
+  MousePointerClick as UiMousePointerClick,
   Pencil as UiPencil,
   Play as UiPlay,
   Plus as UiPlus,
   Sparkle as UiSparkle,
-  Trash2 as UiTrash2
+  Trash2 as UiTrash2,
+  X as UiX
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import {
@@ -65,6 +68,22 @@ import {
 } from '@/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import type { TokenUsage } from '@/shared/types'
+import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
+import {
+  capturePageSnapshot,
+  isUserScriptsApiAvailable,
+  pickElement,
+  userScriptsUnavailableMessage
+} from '@/lib/element-picker-client'
+import {
+  clearPageSnapshot,
+  clearPickedElement,
+  getPageSnapshot,
+  getPickedElement,
+  setPageSnapshot,
+  setPickedElement,
+  subscribePageContext
+} from '@/lib/page-context-store'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
   getToolName,
@@ -451,6 +470,84 @@ function onPromptSubmit(payload: PromptInputMessage): void {
   if (!text) return
   emit('send', text)
 }
+
+// —— 元素拾取 / 页面快照（docs/proposals/implementing/element-picker.md）——
+// 产物暂存 page-context-store（模块级，transport 的 collectPageContext 组装进下一条消息），
+// 发送成功后 transport 清空，chip 经订阅自动消失。两个动作都是显式点击，页面内容不自动附带。
+const pickedElement = ref<ElementPickContext | null>(getPickedElement())
+const pageSnapshot = ref<PageSnapshotContext | null>(getPageSnapshot())
+let unsubscribeContext: (() => void) | null = null
+
+onMounted(() => {
+  unsubscribeContext = subscribePageContext(() => {
+    pickedElement.value = getPickedElement()
+    pageSnapshot.value = getPageSnapshot()
+  })
+})
+onUnmounted(() => {
+  unsubscribeContext?.()
+  unsubscribeContext = null
+})
+
+/** 正在拾取 / 采集中（按钮转圈 + 防连点） */
+const contextBusy = ref<'pick' | 'snapshot' | null>(null)
+/** 拾取/快照失败文案（用户行动可读；区别于聊天错误条，展示在 chip 区） */
+const contextError = ref('')
+
+/** chip 上的元素简述：tag#id（文本摘要取前 12 字） */
+function elementChipLabel(ctx: ElementPickContext): string {
+  const s = ctx.summary
+  const text = s.textSample ? ' ' + s.textSample.slice(0, 12) : ''
+  return `<${s.tag}${s.id ? '#' + s.id : ''}>${text}`
+}
+
+async function onPickElement(): Promise<void> {
+  if (contextBusy.value) return
+  contextError.value = ''
+  if (!isUserScriptsApiAvailable()) {
+    // 开关没开：不发起注入，直接给引导文案（探针结论：命名空间不存在时 execute 调用即失败）
+    contextError.value = userScriptsUnavailableMessageSafe()
+    return
+  }
+  contextBusy.value = 'pick'
+  try {
+    const ctx = await pickElement()
+    if (ctx) {
+      setPickedElement(ctx)
+    }
+    // null = 用户取消（Esc / 右键）：静默
+  } catch (e) {
+    contextError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    contextBusy.value = null
+  }
+}
+
+async function onPageSnapshot(): Promise<void> {
+  if (contextBusy.value) return
+  contextError.value = ''
+  if (!isUserScriptsApiAvailable()) {
+    contextError.value = userScriptsUnavailableMessage()
+    return
+  }
+  contextBusy.value = 'snapshot'
+  try {
+    setPageSnapshot(await capturePageSnapshot())
+  } catch (e) {
+    contextError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    contextBusy.value = null
+  }
+}
+
+/** 可用性检测失败时统一给引导文案（client 的 pick/snapshot 也会抛同文案，此处是免注入的前置短路） */
+function userScriptsUnavailableMessageSafe(): string {
+  // 引导文案与 client 内部一致；单独 import 会造成循环依赖风险，故内联一份
+  return (
+    '拾取器不可用：请到 chrome://extensions → 哆灵 → 详情，打开「允许运行用户脚本」开关' +
+    '（并确认已开启右上角「开发者模式」），然后重试。'
+  )
+}
 </script>
 
 <template>
@@ -735,14 +832,91 @@ function onPromptSubmit(payload: PromptInputMessage): void {
       </p>
 
       <div class="border-t p-3">
+        <!-- 拾取 / 快照 chip：随下一条消息发出的暂存上下文，× 可清除；发送成功后自动消失 -->
+        <div
+          v-if="pickedElement || pageSnapshot || contextError"
+          class="mb-2 flex flex-wrap items-center gap-1.5"
+          data-testid="page-context-chips"
+        >
+          <span
+            v-if="pickedElement"
+            class="inline-flex max-w-full items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs"
+          >
+            <ui-mouse-pointer-click class="size-3 shrink-0 text-muted-foreground" />
+            <span class="truncate" :title="pickedElement.summary.htmlSample">
+              已点选：{{ elementChipLabel(pickedElement) }}
+            </span>
+            <button
+              type="button"
+              class="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+              aria-label="清除已点选元素"
+              data-testid="clear-picked-element"
+              @click="clearPickedElement()"
+            >
+              <ui-x class="size-3" />
+            </button>
+          </span>
+          <span
+            v-if="pageSnapshot"
+            class="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs"
+          >
+            <ui-camera class="size-3 shrink-0 text-muted-foreground" />
+            已附页面快照
+            <button
+              type="button"
+              class="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+              aria-label="清除页面快照"
+              data-testid="clear-page-snapshot"
+              @click="clearPageSnapshot()"
+            >
+              <ui-x class="size-3" />
+            </button>
+          </span>
+        </div>
+        <p
+          v-if="contextError"
+          class="mb-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs leading-relaxed text-destructive"
+          role="alert"
+          data-testid="context-error"
+        >
+          {{ contextError }}
+        </p>
         <ui-prompt-input @submit="onPromptSubmit">
           <ui-prompt-input-textarea
             placeholder="输入消息…"
             :disabled="props.streaming"
           />
           <ui-prompt-input-footer>
-            <!-- 工具区：模型选择（保留富内容弹层：缺Key提示/空态/添加模型入口） -->
+            <!-- 工具区：页面拾取 / 快照 + 模型选择 -->
             <ui-prompt-input-tools>
+              <ui-button
+                type="button"
+                variant="outline"
+                size="xs"
+                :disabled="contextBusy !== null"
+                title="在当前页面点选一个元素，随下一条消息发给 AI"
+                aria-label="点选元素"
+                data-testid="pick-element-button"
+                @click="onPickElement"
+              >
+                <ui-loader-circle v-if="contextBusy === 'pick'" class="size-3 animate-spin" />
+                <ui-mouse-pointer-click v-else class="size-3" />
+                点选元素
+              </ui-button>
+              <ui-button
+                type="button"
+                variant="outline"
+                size="xs"
+                :disabled="contextBusy !== null"
+                title="静默抓取当前页面的渲染后 HTML，随下一条消息发给 AI"
+                aria-label="附上页面快照"
+                data-testid="page-snapshot-button"
+                @click="onPageSnapshot"
+              >
+                <ui-loader-circle v-if="contextBusy === 'snapshot'" class="size-3 animate-spin" />
+                <ui-camera v-else class="size-3" />
+                页面快照
+              </ui-button>
             <ui-popover v-model:open="modelMenuOpen">
               <ui-popover-trigger as-child>
                 <ui-button
