@@ -45,6 +45,12 @@
 - 交付前验证：`npm run typecheck`（vue-tsc，`noUncheckedIndexedAccess: false`）+ `npm run build`。
 - 文档：根 `README.md`、`AGENTS.md`、[docs/plugin-migration-plan.md](../plugin-migration-plan.md)。
 
+## 生成物与目录：优先让工具自生成
+
+本机生成物与目录（如 `.wxt/`、`node_modules/`）优先让工具在装依赖时自己生成，**不靠文档提醒**人去跑准备命令。
+
+同族坑已踩两次（`.chrome-dev-profile/` 缺致 dev ENOENT、`.wxt/` 缺致 typecheck/test 假红），两次的可靠修法都是「让工具自己做」；文档提醒依赖人读过并记住，靠不住。新出现第三处「缺目录/缺生成物」的缺口时，先问这句：能不能让工具自生成，而不是再加一条文档提醒？详见 [踩坑记录](../lessons.md) 的 WXT 现象族。
+
 ## 已否决方案
 
 讨论过但**决定不做**的方向。记在这里的唯一目的：避免同一个问题被重新提出、再讨论一遍。
