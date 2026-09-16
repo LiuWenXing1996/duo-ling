@@ -9,7 +9,7 @@
 //   - reasoning part -> 思考与执行过程中的思考段落
 //   - tool part      -> 工具调用卡（ToolHeader + ToolInput + ToolOutput）
 // 按 parts 出现顺序交错成「思考与执行过程」链，移除旧 chainNodes / reasonings 结构。
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import {
   Check as UiCheck,
   ChevronsDown as UiChevronsDown,
@@ -19,11 +19,13 @@ import {
   Copy as UiCopy,
   FileText as UiFileText,
   LoaderCircle as UiLoaderCircle,
+  MousePointerClick as UiMousePointerClick,
   Pencil as UiPencil,
   Play as UiPlay,
   Plus as UiPlus,
   Sparkle as UiSparkle,
-  Trash2 as UiTrash2
+  Trash2 as UiTrash2,
+  X as UiX
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import {
@@ -65,6 +67,18 @@ import {
 } from '@/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import type { TokenUsage } from '@/shared/types'
+import type { ChatMessageMetadata, ElementPickContext, MessagePageContext } from '@/shared/extension-ipc'
+import {
+  cancelPick,
+  isUserScriptsApiAvailable,
+  pickElement
+} from '@/lib/element-picker-client'
+import {
+  clearPickedElement,
+  getPickedElement,
+  setPickedElement,
+  subscribePageContext
+} from '@/lib/page-context-store'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
   getToolName,
@@ -156,6 +170,12 @@ function textOf(m: UIMessage): string {
 /** 用户消息正文：直接聚合 text parts 展示 */
 function userText(m: UIMessage): string {
   return textOf(m)
+}
+
+/** 随本条消息附上的页面上下文（气泡 chip 渲染源；只认元素拾取，快照已改 AI 工具不再进元数据） */
+function messagePageContext(m: UIMessage): MessagePageContext | undefined {
+  const ctx = (m.metadata as ChatMessageMetadata | undefined)?.pageContext
+  return ctx?.element ? ctx : undefined
 }
 
 /** 消息角色映射：ai-elements 的 Message 用 'user' | 'assistant' */
@@ -451,6 +471,79 @@ function onPromptSubmit(payload: PromptInputMessage): void {
   if (!text) return
   emit('send', text)
 }
+
+// —— 元素拾取（docs/proposals/implementing/element-picker.md）——
+// 产物暂存 page-context-store（模块级，transport 的 collectPageContext 组装进下一条消息），
+// 发送成功后 transport 清空，chip 经订阅自动消失。显式点击才采集，页面内容不自动附带。
+// 页面快照已改 AI 工具采集（2026-09-17 决策），无用户面入口。
+const pickedElement = ref<ElementPickContext | null>(getPickedElement())
+let unsubscribeContext: (() => void) | null = null
+
+onMounted(() => {
+  unsubscribeContext = subscribePageContext(() => {
+    pickedElement.value = getPickedElement()
+  })
+  window.addEventListener('keydown', onPanelKeydown)
+})
+onUnmounted(() => {
+  unsubscribeContext?.()
+  unsubscribeContext = null
+  window.removeEventListener('keydown', onPanelKeydown)
+})
+
+/** 正在拾取中（按钮转圈 + 防连点） */
+const contextBusy = ref<'pick' | null>(null)
+/** 拾取失败文案（用户行动可读；区别于聊天错误条，展示在 chip 区） */
+const contextError = ref('')
+
+/** chip 上的元素简述：tag#id（文本摘要取前 12 字） */
+function elementChipLabel(ctx: ElementPickContext): string {
+  const s = ctx.summary
+  const text = s.textSample ? ' ' + s.textSample.slice(0, 12) : ''
+  return `<${s.tag}${s.id ? '#' + s.id : ''}>${text}`
+}
+
+async function onPickElement(): Promise<void> {
+  if (contextBusy.value) return
+  contextError.value = ''
+  if (!isUserScriptsApiAvailable()) {
+    // 开关没开：不发起注入，直接给引导文案（探针结论：命名空间不存在时 execute 调用即失败）
+    contextError.value = userScriptsUnavailableMessageSafe()
+    return
+  }
+  contextBusy.value = 'pick'
+  try {
+    const ctx = await pickElement()
+    if (ctx) {
+      setPickedElement(ctx)
+    }
+    // null = 用户取消（Esc / 右键）：静默
+  } catch (e) {
+    contextError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    contextBusy.value = null
+  }
+}
+
+/**
+ * 拾取期间侧边栏里的 Esc 取消（cancelPick 补注入指令）。
+ * 拾取时键盘焦点在侧边栏，页面 document 收不到 keydown——页面内 Esc 监听只在
+ * 页面恰好持有焦点时兜底，主取消路径在这边。监听器全程挂载、回调里按状态放行。
+ */
+function onPanelKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && contextBusy.value === 'pick') {
+    void cancelPick()
+  }
+}
+
+/** 可用性检测失败时统一给引导文案（client 的 pick 也会抛同文案，此处是免注入的前置短路） */
+function userScriptsUnavailableMessageSafe(): string {
+  // 引导文案与 client 内部一致；单独 import 会造成循环依赖风险，故内联一份
+  return (
+    '拾取器不可用：请到 chrome://extensions → 哆灵 → 详情，打开「允许运行用户脚本」开关' +
+    '（并确认已开启右上角「开发者模式」），然后重试。'
+  )
+}
 </script>
 
 <template>
@@ -601,6 +694,23 @@ function onPromptSubmit(payload: PromptInputMessage): void {
               <!-- 消息气泡：用 ai-elements 的 Message / MessageContent / MessageResponse 渲染 -->
               <ui-message :from="fromOf(m)" class="max-w-full">
                 <template v-if="m.role === 'user'">
+                  <!-- 随消息附上的拾取 chip：落盘元数据还原，重开会话仍在；纯展示（删除 = 删整条消息） -->
+                  <div
+                    v-if="messagePageContext(m)"
+                    class="mb-1 flex flex-wrap justify-end gap-1"
+                    data-testid="message-page-context"
+                  >
+                    <span
+                      v-if="messagePageContext(m)!.element"
+                      class="inline-flex max-w-full items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs"
+                      :title="messagePageContext(m)!.element!.summary.htmlSample"
+                    >
+                      <ui-mouse-pointer-click class="size-3 shrink-0 text-muted-foreground" />
+                      <span class="truncate">
+                        已点选：{{ elementChipLabel(messagePageContext(m)!.element!) }}
+                      </span>
+                    </span>
+                  </div>
                   <ui-message-content>{{ userText(m) }}</ui-message-content>
                 </template>
                 <template v-else>
@@ -735,14 +845,61 @@ function onPromptSubmit(payload: PromptInputMessage): void {
       </p>
 
       <div class="border-t p-3">
+        <!-- 拾取 chip：随下一条消息发出的暂存上下文，× 可清除；发送成功后自动消失 -->
+        <div
+          v-if="pickedElement || contextError"
+          class="mb-2 flex flex-wrap items-center gap-1.5"
+          data-testid="page-context-chips"
+        >
+          <span
+            v-if="pickedElement"
+            class="inline-flex max-w-full items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs"
+          >
+            <ui-mouse-pointer-click class="size-3 shrink-0 text-muted-foreground" />
+            <span class="truncate" :title="pickedElement.summary.htmlSample">
+              已点选：{{ elementChipLabel(pickedElement) }}
+            </span>
+            <button
+              type="button"
+              class="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+              aria-label="清除已点选元素"
+              data-testid="clear-picked-element"
+              @click="clearPickedElement()"
+            >
+              <ui-x class="size-3" />
+            </button>
+          </span>
+        </div>
+        <p
+          v-if="contextError"
+          class="mb-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs leading-relaxed text-destructive"
+          role="alert"
+          data-testid="context-error"
+        >
+          {{ contextError }}
+        </p>
         <ui-prompt-input @submit="onPromptSubmit">
           <ui-prompt-input-textarea
             placeholder="输入消息…"
             :disabled="props.streaming"
           />
           <ui-prompt-input-footer>
-            <!-- 工具区：模型选择（保留富内容弹层：缺Key提示/空态/添加模型入口） -->
+            <!-- 工具区：页面拾取 + 模型选择（页面快照已改 AI 工具采集，无用户面入口） -->
             <ui-prompt-input-tools>
+              <ui-button
+                type="button"
+                variant="outline"
+                size="xs"
+                :disabled="contextBusy !== null"
+                title="在当前页面点选一个元素，随下一条消息发给 AI"
+                aria-label="点选元素"
+                data-testid="pick-element-button"
+                @click="onPickElement"
+              >
+                <ui-loader-circle v-if="contextBusy === 'pick'" class="size-3 animate-spin" />
+                <ui-mouse-pointer-click v-else class="size-3" />
+                点选元素
+              </ui-button>
             <ui-popover v-model:open="modelMenuOpen">
               <ui-popover-trigger as-child>
                 <ui-button

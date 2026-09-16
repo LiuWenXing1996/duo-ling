@@ -26,10 +26,23 @@ import {
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { appendMessage, listMessages } from '@/lib/conversation-store'
 import { offscreenBridge } from '@/lib/offscreen-bridge'
+import { getProject } from '@/lib/userscripts/project-store'
 import { ENTRY_DEFAULT } from '@/lib/userscripts/types'
-import type { ChatOrphanRecord, ChatResumeResult, RuntimeRequest } from '@/shared/extension-ipc'
+import type {
+  ChatOrphanRecord,
+  ChatResumeResult,
+  MessagePageContext,
+  PageContextInfo,
+  RuntimeRequest,
+} from '@/shared/extension-ipc'
 import { dropBuffer, pushChunk, replaySince, resetBuffer } from './event-bus'
 import { getActiveProfile } from './profile-cache'
+import {
+  buildSystemPrompt,
+  mergePageContext,
+  mostRecentGeneratedScript,
+  mostRecentPageContext,
+} from './system-prompt'
 import { buildScriptTools, type TaskWorkspace } from './script-tools'
 import { getTask, listRunningTasks, putTask, removeTask, type ChatTaskRecord } from './task-store'
 
@@ -66,38 +79,6 @@ const heartbeatTimer: unknown = setInterval(() => {
   }
 }, HEARTBEAT_MS)
 ;(heartbeatTimer as { unref?: () => void })?.unref?.()
-
-// —— 系统提示 ——
-
-function buildSystemPrompt(prompt: string, pageContext?: { url?: string; title?: string }, continuing = false): string {
-  const lines = [
-    '你是「哆灵」浏览器扩展的用户脚本助手。除日常对话外，你可以为网页编写用户脚本：',
-    '先用 script_spec 拿规范，再用 script_apply 提交文件树并构建验证（构建失败按诊断修改后整体重交），',
-    '构建通过即收敛——落盘、生效与提交说明由系统处理，你不需要也无法自己保存脚本。',
-    'matches 默认收窄到目标站点；改既有脚本前先 script_read 读出现有内容。',
-    '闲聊或与脚本无关的消息只正常回应，**不要**顺手继续此前被停止 / 中断的任务——',
-    '历史里可能出现中断的半截工具调用，那是用户主动停止留下的，不代表用户想要你续做；',
-    '只有用户新消息里明确要求（如「继续」「把脚本写完」）才继续未完成的脚本工作。',
-  ]
-  // 测试豁免只进 dev 构建（手测停手机制用），prod 构建里静态消除
-  if (import.meta.env.DEV) {
-    lines.push(
-      '例外：用户明确要求提交注定构建失败的代码（如测试停手机制）时照做——不要"修正"、不要注释掉，',
-      '按用户指定的错误原样提交；构建失败后也不要修复、不要自行决定停止或减少提交次数，',
-      '每次失败后立即原样重交，直到工具结果里出现 stop:true（那才是系统的停手指令），再如实总结诊断。',
-    )
-  }
-  if (pageContext?.url) {
-    lines.push(`\n当前页面：${pageContext.title ? `「${pageContext.title}」` : ''}${pageContext.url}`)
-    lines.push('用户很可能在说这个页面；选择器以此站点的真实结构为准，不要凭空猜。')
-  }
-  if (continuing) {
-    lines.push('\n注意：此前一次生成任务在浏览器中断了。任务的内存文件树已恢复，' +
-      '先 script_read（不带参数）查看已有文件，再决定继续修改还是重写。')
-  }
-  lines.push(`\n用户需求：${prompt}`)
-  return lines.join('\n')
-}
 
 // —— 工具 ——
 
@@ -169,9 +150,32 @@ interface GenerationCardData {
   savedAt: number
 }
 
-/** 收敛成功 → 经 SW 落盘（单写方），返回卡片数据；失败抛错由调用方决定怎么呈现 */
+/** 收敛成功 → 经 SW 落盘（单写方），返回卡片数据；失败抛错由调用方决定怎么呈现。
+ * 更新意图（script_apply 带 updateUuid）且目标脚本仍在时走原地更新（同 uuid），
+ * 目标已被用户删除则回退新建——不复活已删脚本。 */
 async function persistGeneratedProject(ws: TaskWorkspace): Promise<GenerationCardData | null> {
   if (!ws.lastOk || !ws.config) return null
+  if (ws.targetUuid) {
+    const existing = await getProject(ws.targetUuid).catch(() => undefined)
+    if (existing) {
+      await offscreenBridge.updateProjectFiles({
+        uuid: ws.targetUuid,
+        files: ws.lastOk.files,
+        entry: ws.lastOk.entry,
+        bundle: ws.lastOk.bundle,
+        note: ws.summary || undefined,
+      })
+      return {
+        uuid: ws.targetUuid,
+        name: existing.name, // 更新不改名：脚本名在管理页的辨识度保持稳定
+        enabled: existing.enabled,
+        matches: ws.config.matches,
+        capabilities: scanCapabilities(ws.lastOk.bundle.code),
+        summary: ws.summary,
+        savedAt: Date.now(),
+      }
+    }
+  }
   const res = await offscreenBridge.createProject({
     name: ws.summary ? ws.summary.slice(0, 40) : 'AI 生成的脚本',
     config: ws.config,
@@ -225,7 +229,7 @@ async function runLoop(opts: {
   /** 续跑 = null（历史从会话库现取）；新任务 = 调用方带来的完整 messages */
   messages: UIMessage[] | null
   prompt: string
-  pageContext?: { url?: string; title?: string }
+  pageContext?: PageContextInfo
   workspace: TaskWorkspace
   continuing: boolean
 }): Promise<void> {
@@ -244,12 +248,29 @@ async function runLoop(opts: {
     const profile = getActiveProfile()
     if (!profile) throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
 
-    // 历史消息：新任务用调用方带来的；续跑从会话库现取（含此前完整上下文）
+    // 历史消息：新任务用调用方带来的；续跑从会话库现取（含此前完整上下文）。
+    // 会话库重建时把 pageContext 元数据挂回 metadata（气泡 chip 与「最近一次拾取」都认它）
     const uiMessages = opts.messages ?? (await listMessages(conversationId)).map((m) =>
       m.parts?.length
-        ? ({ id: m.id, role: m.role, parts: [...m.parts] } as UIMessage)
-        : ({ id: m.id, role: m.role, parts: [ ...(m.reasoning ? [{ type: 'reasoning' as const, text: m.reasoning }] : []), { type: 'text' as const, text: m.content } ] } as UIMessage),
+        ? ({
+            id: m.id,
+            role: m.role,
+            parts: [...m.parts],
+            ...(m.pageContext ? { metadata: { pageContext: m.pageContext } } : {}),
+          } as UIMessage)
+        : ({
+            id: m.id,
+            role: m.role,
+            parts: [ ...(m.reasoning ? [{ type: 'reasoning' as const, text: m.reasoning }] : []), { type: 'text' as const, text: m.content } ],
+            ...(m.pageContext ? { metadata: { pageContext: m.pageContext } } : {}),
+          } as UIMessage),
     )
+
+    // prompt 用的页面上下文：本请求的新鲜拾取优先，缺位回退历史里最近一次随消息附上的
+    // （跨轮指代 / 重新生成 / 重开面板续聊都靠它接上；老快照不回注，见 mergePageContext）
+    const promptContext = mergePageContext(pageContext, mostRecentPageContext(uiMessages))
+    // 本会话最近落盘的脚本身份（来自历史生成卡片）：给模型指路「改既有脚本」用
+    const prevScript = mostRecentGeneratedScript(uiMessages)
 
     const baseURL = profile.useFullUrl
       ? profile.baseUrl.replace(/\/chat\/completions\/?$/i, '')
@@ -260,8 +281,12 @@ async function runLoop(opts: {
       apiKey: profile.apiKey || 'not-needed',
     })
 
-    const tools = buildScriptTools(workspace, (ws) => snapshotWorkspace(ws), () =>
-      abort.abort(),
+    const tools = buildScriptTools(
+      workspace,
+      (ws) => snapshotWorkspace(ws),
+      () => abort.abort(),
+      promptContext?.element,
+      () => offscreenBridge.capturePageSnapshot(),
     )
 
     const result = streamText({
@@ -270,7 +295,7 @@ async function runLoop(opts: {
       messages: await convertToModelMessages(stripDataParts(uiMessages)),
       tools,
       stopWhen: stepCountIs(MAX_STEPS),
-      system: buildSystemPrompt(prompt, pageContext, continuing),
+      system: buildSystemPrompt(prompt, promptContext, continuing, prevScript),
       abortSignal: abort.signal,
       ...(profile.temperature != null ? { temperature: profile.temperature } : {}),
       ...(profile.topP != null ? { topP: profile.topP } : {}),
@@ -439,13 +464,23 @@ export async function startChat(msg: Extract<RuntimeRequest, { kind: 'chat:start
   if (!profile) throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
 
   const lastMessage = msg.messages[msg.messages.length - 1]
-  // 新用户消息落盘（唯一写方=offscreen；自动命名逻辑在 store 的 appendMessage 里）
+  // 新用户消息落盘（唯一写方=offscreen；自动命名逻辑在 store 的 appendMessage 里）。
+  // 拾取/快照随消息落盘成 pageContext 元数据（档 0 URL/标题不落库，每轮实时取）——
+  // 历史气泡 chip 与后续轮次「最近一次拾取」prompt 注入都以这条记录为数据源。
   if (msg.trigger === 'submit-message' && lastMessage?.role === 'user') {
+    const attached: MessagePageContext | undefined =
+      msg.pageContext?.element || msg.pageContext?.snapshot
+        ? {
+            ...(msg.pageContext.element ? { element: msg.pageContext.element } : {}),
+            ...(msg.pageContext.snapshot ? { snapshot: msg.pageContext.snapshot } : {}),
+          }
+        : undefined
     await appendMessage({
       id: lastMessage.id,
       conversationId: msg.conversationId,
       role: 'user',
       content: textOf(lastMessage),
+      ...(attached ? { pageContext: attached } : {}),
       createdAt: new Date().toISOString(),
     })
   }

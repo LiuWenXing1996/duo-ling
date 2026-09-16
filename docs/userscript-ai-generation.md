@@ -98,13 +98,20 @@ offscreen 侧只能 import：`builder.ts`（纯 esbuild，无 chrome API）、`e
 - 脚本用**整文件写**，不用 patch：文件小、多文件之间要一致、改完必须整体重构建，patch 产生的中间态没有意义。
 - **`script_apply` 把「写」和「验证」合并成一步**：入参 `{ target: uuid | null, summary, config, files, entry }`，返回 `{ ok: true }` 或 `{ ok: false, errors: [{ file, line, column, text }] }`。拆成「写」「构建」两个工具的话，AI 会在写完后以为已经成功。
 - **`script_apply` 只写 offscreen 的内存文件树并构建，不落盘**：构建通过后由编排层经 `userscript:createProject` 落盘（写归 offscreen 单写方）+ git 快照（note = AI summary），**不由 AI 显式调用保存**，避免「AI 忘了存」。
-- Agent 工具三件套：`script_spec`（拉规范全文）/ `script_read`（读当前任务内存文件树，或带 uuid 读已保存项目）/ `script_apply`（写内存 + 构建 + 返回诊断）。
+- Agent 工具三件套 + 拾取快照读取：`script_spec`（拉规范全文）/ `script_read`（读当前任务内存文件树，或带 uuid 读已保存项目）/ `script_apply`（写内存 + 构建 + 返回诊断）/ `element_read`（读用户点选元素的完整快照，part 可选 attrs/html/parents/all 省 token）。
 
 ## 页面上下文与 `matches`
 
 ### 页面上下文档位
 
-只发当前页 URL / 标题（档 0，由侧边栏采集后随指令发给 offscreen）与用户主动点选的那一块（档 2，元素拾取器），**不自动抓整页 DOM**。档 1（扩展页直接 `fetch` 目标 URL）只作零成本增强（对客户端渲染的 SPA 基本无效）；档 3（自动 DOM 摘要探针）后置。
+只发当前页 URL / 标题（档 0，由侧边栏采集后随指令发给 offscreen）、用户主动点选的那一块（档 2，元素拾取器）与用户显式附上的页面快照（渲染后 DOM 截断 ~32KB），**不自动抓整页 DOM**（页面内容只在用户点「点选元素 / 页面快照」时采集，隐私语义两者一致）。旧「档 1（fetch 源码）」已弃：渲染后快照是源码超集且无误导（SPA 可用），fetch 无存留价值；档 3（自动 DOM 摘要探针）后置。
+
+档 2 / 快照的实现（element-picker 提案，docs/proposals/implementing/element-picker.md）：
+
+- 拾取器 = `src/public/duoling-picker.js`（vanilla JS 随包分发，**不进状态库、不常驻注册**）。侧边栏经 `chrome.userScripts.execute()`（Chrome 135+，`minimum_chrome_version` 已随之升 135）按 tabId 注入独立世界 `us-builtin-picker`，注入脚本返回「点选时才 resolve」的 Promise，**载荷从 execute() 返回值带回**——无消息回传链、SW 与 DL 桥零改动。
+- 载荷两层消费：摘要层（≤2KB：选择器候选 × 命中数 / 关键属性 / 截断样本）进 system prompt；全量层（全部属性 / 完整 outerHTML / 祖先链）由 agent 工具 `element_read` 按需读（读的是拾取时刻快照，非活页面）。暂存在 `src/lib/page-context-store.ts`，随**下一条消息**发出后清空。
+- 运行前提：Chrome 138+ 的逐扩展「允许运行用户脚本」开关 + 开发者模式（开关关闭时 `chrome.userScripts` 命名空间在所有上下文都不存在，探针实测）；侧边栏调用封装（`element-picker-client.ts`）先做可用性检测，不可用给引导文案；拾取 60 秒超时兜底（用户拾取中关页 → 注入 Promise 永不结算）。
+- 管理页「内置」分组从 `src/lib/userscripts/builtins.ts` 只读渲染（内置件无启停 / 编辑 / 删除）。
 
 档位取舍与取证边界的完整论证见 `da8e13d` 原档 §4.2。
 

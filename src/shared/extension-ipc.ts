@@ -9,6 +9,75 @@
 
 import type { ModelProfile } from './types'
 
+// —— 页面上下文档位（docs/proposals/implementing/element-picker.md）——
+// 拾取器（src/public/duoling-picker.js，USER_SCRIPT 世界经 execute() 注入）的载荷形状。
+// ⚠️ 与拾取器的 vanilla JS 手写对齐，改形状必须两边同步。
+
+/** 拾取元素的摘要层（≤2KB，随 chat:start 常驻 system prompt；同类计数必须在内——AI 自证选择器唯一性不该再花一次读取） */
+export interface ElementPickSummary {
+  tag: string
+  id?: string
+  classes: string[]
+  /** 白名单关键属性（name/type/placeholder/aria-label/role/href/title/alt/for/action，值截断） */
+  attrs: Record<string, string>
+  /** 候选选择器（≤3 条：id 优先 → tag+class 组合 → nth-of-type 路径），每条附当前 document 命中数 */
+  selectors: Array<{ selector: string; hitCount: number }>
+  /** textContent 样本（空白折叠，~200 字符） */
+  textSample: string
+  /** outerHTML 截断（~500 字符） */
+  htmlSample: string
+}
+
+/** 拾取元素的全量层（`element_read` 工具按需读；读的是拾取那一刻的快照，不是活页面） */
+export interface ElementPickFull {
+  /** 全部属性（值截断） */
+  attrs: Record<string, string>
+  /** 完整 outerHTML（宽松上限 ~32KB，防极端节点） */
+  outerHTML: string
+  /** 祖先链（不含自身，最近 6 层：tag/id/classes） */
+  parentChain: Array<{ tag: string; id?: string; classes: string[] }>
+}
+
+/** 一次元素拾取的完整快照（用户显式点选产生，一次至多一份） */
+export interface ElementPickContext {
+  pickedAt: number
+  pageUrl: string
+  summary: ElementPickSummary
+  full: ElementPickFull
+}
+
+/** 页面快照（渲染后 DOM，拾取器快照模式静默采集；2026-09-17 起采集方 = AI 的 page_snapshot 工具经 SW 调 execute()，用户面按钮已移除） */
+export interface PageSnapshotContext {
+  capturedAt: number
+  pageUrl: string
+  /** 渲染后 documentElement.outerHTML，截断 ~32KB */
+  html: string
+}
+
+/** chat:start 的页面上下文：档 0（URL/标题）+ 可选的档 2 元素拾取 / 页面快照 */
+export interface PageContextInfo {
+  url?: string
+  title?: string
+  element?: ElementPickContext
+  snapshot?: PageSnapshotContext
+}
+
+/**
+ * 随用户消息**持久化**的页面上下文（Message.pageContext / UIMessage.metadata.pageContext）。
+ * 现只存用户显式点选的元素；档 0（URL/标题）每轮实时取，不落库；快照已改 AI 工具采集
+ * （工具结果随 assistant 消息的 tool part 自然落盘，不再走这条元数据通道，snapshot 字段仅为旧数据兼容保留）。
+ * 用途：历史气泡 chip 渲染 + 后续轮次 prompt「最近一次拾取」注入（跨轮指代靠它接上）。
+ */
+export interface MessagePageContext {
+  element?: ElementPickContext
+  snapshot?: PageSnapshotContext
+}
+
+/** UIMessage.metadata 的约定形状（AI SDK 的 metadata 字段是 unknown，此处是全应用唯一合法形状） */
+export interface ChatMessageMetadata {
+  pageContext?: MessagePageContext
+}
+
 /** 渲染页 → service worker 的请求（kind 可辨识联合，background 按 kind 分发） */
 export type RuntimeRequest =
   // 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）
@@ -77,7 +146,7 @@ export type RuntimeRequest =
   // —— 对话链路（offscreen 执行宿主，定位 B「下完单就走」）——
   // 侧边栏是「指令入口 + 观察者」：发起后可关面板，任务在 offscreen 照跑完；
   // 事件经 OffscreenPush（chat:chunk）逐条推送，重开面板按 lastEventId replay（chat:resume）。
-  | { kind: 'chat:start'; conversationId: string; messages: import('ai').UIMessage[]; trigger: 'submit-message' | 'regenerate-message'; pageContext?: { url?: string; title?: string } }
+  | { kind: 'chat:start'; conversationId: string; messages: import('ai').UIMessage[]; trigger: 'submit-message' | 'regenerate-message'; pageContext?: PageContextInfo }
   | { kind: 'chat:abort'; conversationId: string }
   // 重连：返回该会话进行中任务的完整事件缓冲（从头回放；观察方本地视图可能刚从历史重建）
   | { kind: 'chat:resume'; conversationId: string }
@@ -98,6 +167,12 @@ export type RuntimeRequest =
   // 返回值含 apiKey 明文：属同扩展内上下文之间的传递（offscreen 与 SW 信任级别等同），
   // 不是新增对外暴露面；但仍须「取一次、缓存、不写日志」。
   | { kind: 'model:getActiveProfile' }
+
+  // —— AI 工具支路（offscreen 的 agent 工具经 SW 调 SW/扩展页才有的 chrome 能力）——
+  // page_snapshot 工具：SW 代为对当前活动标签执行拾取器快照模式（chrome.userScripts.execute
+  // 在 offscreen 不可达；2026-09-17 页面快照从用户按钮改判为 AI 工具，见提案决策记录）。
+  // 注意前缀：`chat:` 是「SW 静默让路给 offscreen」的保留前缀，SW 自答的命令不能用
+  | { kind: 'page:snapshot' }
 
   // —— SW 自证（诊断）——
   // SW 的 define 注入构建信息（wxt.config.ts）不是 HTML，页面看不见；UI 经此命令取回并展示。

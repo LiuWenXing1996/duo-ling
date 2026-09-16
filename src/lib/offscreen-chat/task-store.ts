@@ -26,8 +26,8 @@ export interface ChatTaskRecord {
   entry: string
   /** 首条需求摘要（用户消息），「继续」时回给模型 */
   prompt: string
-  /** 页面上下文（档 0，chat:start 随指令带来） */
-  pageContext?: { url?: string; title?: string }
+  /** 页面上下文（档 0 + 可选档 2，chat:start 随指令带来；形状见 extension-ipc.PageContextInfo） */
+  pageContext?: import('@/shared/extension-ipc').PageContextInfo
   createdAt: number
   updatedAt: number
   /** 心跳（ms 时间戳），chat-host 每 5s 刷新；过期 = 孤儿 */

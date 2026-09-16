@@ -83,6 +83,8 @@ const ALL_KINDS = [
   { kind: 'offscreen:ready', side: 'sw' },
   // —— model:*（SW：配置中转）——
   { kind: 'model:getActiveProfile', side: 'sw' },
+  // —— page:*（SW：AI 工具支路，page_snapshot 经 SW 调 userScripts.execute）——
+  { kind: 'page:snapshot', side: 'sw' },
   // —— conv:*（offscreen：会话写侧，唯一写方；SW 对前缀静默让路）——
   { kind: 'conv:create', side: 'offscreen' },
   { kind: 'conv:rename', side: 'offscreen' },

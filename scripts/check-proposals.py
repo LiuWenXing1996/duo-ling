@@ -50,6 +50,7 @@ ALLOWED = {
     ("评审中", "实施中"),
     ("评审中", "拒绝"),
     ("实施中", "实施完成"),
+    ("实施中", "评审中"),  # 误转退回：仅限纠正未经批准的采纳流转（见 proposal-process.md 流转示例）
 }
 
 TERMINAL = {"实施完成", "拒绝"}
@@ -83,7 +84,7 @@ def section(text: str, name: str) -> str | None:
     return None
 
 
-def parse_transitions(text: str) -> list[tuple[str, str]]:
+def parse_transitions(text: str) -> list[tuple[str, str, str]]:
     body = section(text, "流转记录")
     if not body:
         return []
@@ -94,7 +95,7 @@ def parse_transitions(text: str) -> list[tuple[str, str]]:
             continue
         m = TRANS_RE.search(cells[1])
         if m and m.group(1) in STATES and m.group(2) in STATES:
-            out.append((m.group(1), m.group(2)))
+            out.append((m.group(1), m.group(2), row.group(0)))
     return out
 
 
@@ -193,9 +194,14 @@ def main() -> int:
         if not trans:
             flags.append("缺流转记录")
         else:
-            for src, dst in trans:
+            for src, dst, row in trans:
                 if (src, dst) not in ALLOWED:
                     flags.append(f"非法流转：{src} → {dst}")
+                if (src, dst) == ("实施中", "评审中") and "误转退回" not in row:
+                    flags.append(
+                        "「实施中 → 评审中」流转缺「误转退回」标记"
+                        "（该路径仅限纠正误转，见 proposal-process.md 流转示例）"
+                    )
             last_dst = trans[-1][1]
             if dir_state and last_dst != dir_state:
                 flags.append(f"最后一条流转到「{last_dst}」，但当前是「{dir_state}」")
