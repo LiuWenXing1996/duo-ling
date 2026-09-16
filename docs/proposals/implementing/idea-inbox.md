@@ -106,14 +106,14 @@
 
 ## 验收标准
 
-- [ ] `docs/inbox.md` 已创建：开头是规则与「改完跑 `npm run check:inbox`」的提示，下面是「待办」「不办」两个分区
+- [ ] `docs/inbox.md` 已创建：开头是规则与「改动后跑 `npm run check:inbox`」的提示，下面是「待办」「不办」两个分区
 - [ ] 「待办」分区的初始条目为空
 - [ ] 「不办」分区的初始条目为空
-- [ ] `AGENTS.md` 文档总表新增一行指向 `docs/inbox.md`，文案写明「这里没有方案、不承诺要做」
+- [ ] `AGENTS.md` 文档总表新增一行指向 `docs/inbox.md`，文案写明「没有方案、也不承诺要做」
 - [ ] `scripts/check-inbox.py` 已新增，`npm run check:inbox` 可跑：报出 >100 字的条目、总字数超 3000、缺「理由：」前缀的「不办」条目、疑似重复条目
 - [ ] 三处 `ideas.md` 死链已改指向 `inbox.md`（`AGENTS.md` 文档总表 1 处、`doc-standard.md` 开头与归属表各 1 处）
 - [ ] `doc-standard.md` 开头那句在改链接的同时，已删掉「与这两份都只在『提案来源』一个字段上碰头」半句
-- [ ] `doc-standard.md` 软上限表新增 `docs/inbox.md` 3000 字一行，并注明「由 `check:inbox` 查」
+- [ ] `doc-standard.md` 软上限表新增 `docs/inbox.md` 3000 字一行，并注明「由 `npm run check:inbox` 查」
 - [ ] `AGENTS.md` 常用命令表新增 `check:inbox` 一行，注明「整理 inbox 时跑」
 - [ ] `npm run check:proposals` 通过（本提案状态标记与目录一致）
 
