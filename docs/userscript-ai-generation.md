@@ -35,7 +35,7 @@
 └──────────────────────────────────────────────────────┘
 ```
 
-数据流（生成一次脚本）：需求 + 页面上下文 → offscreen 的 loop 反复 `script_apply`（构建自收敛）→ 构建通过 → 经 `userscript:createProject(enabled: false)` 落盘（写归 offscreen 单写方，note = AI summary）→ 事件流回推侧边栏 → 卡片：尚未启用 · 生效范围 · 会做什么 ·「启用并生效」/「进编辑器」/「删除」→ 用户点启用（`userscript:toggle`，零构建等待）→ SW 注册 → 命中页面注入 →（二期）运行期异常进 `us:errors` 供 AI 自修。
+数据流（生成一次脚本）：需求 + 页面上下文 → offscreen 的 loop 反复 `script_apply`（构建自收敛）→ 构建通过 → 经 `userscript:createProject(enabled: false)` 落盘（写归 offscreen 单写方，note = AI summary）→ 事件流回推侧边栏 → 卡片：尚未启用 · 生效范围 · 会做什么 ·「启用并生效」/「进编辑器」/「删除」→ 用户点启用（`userscript:toggle`，零构建等待）→ SW 注册 → 命中页面注入 →（二期）运行期异常进 `us:errors`，由用户点「让 AI 修」触发。
 
 ### 谁写什么
 
@@ -106,6 +106,8 @@ offscreen 侧只能 import：`builder.ts`（纯 esbuild，无 chrome API）、`e
 
 只发当前页 URL / 标题（档 0，由侧边栏采集后随指令发给 offscreen）与用户主动点选的那一块（档 2，元素拾取器），**不自动抓整页 DOM**。档 1（扩展页直接 `fetch` 目标 URL）只作零成本增强（对客户端渲染的 SPA 基本无效）；档 3（自动 DOM 摘要探针）后置。
 
+档位取舍与取证边界的完整论证见 `da8e13d` 原档 §4.2。
+
 ### `matches`：权限而非配置
 
 浏览器不给脚本侧白名单机制（`window.DL` 全量可用），所以只能做「可见 + 可撤回」：
@@ -122,6 +124,7 @@ offscreen 侧只能 import：`builder.ts`（纯 esbuild，无 chrome API）、`e
 - **撤销**：回滚走管理页 git 历史（`restoreToCommit`，整树物化 + 新提交），卡片不设回滚按钮，也不做 reset——回滚能力已在管理页，缺的只是卡片入口。
 - **代价（接受）**：用户可能忘了启用，管理页里堆一批关着的脚本。缓解：卡片主按钮就是「启用」。
 - **额外收益**：未启用 = 未注册 = 不注入，用户能在启用前读一遍源码——比「自动生效 + 事后回滚」稳得多。
+- **运行期（二期）反馈必须由用户触发**：`us:errors` 已有页面 URL + `duoling://` sourceURL 堆栈，用户点「让 AI 修」时才把错误记录 + 当前源码带进新会话。**不做后台自动改脚本**——静默修改在所有匹配站生效的代码，不可接受。
 
 **失败产物不留「草稿」，它本来就在对话记录里。** loop 期间 AI 生成的是普通的 `ScriptProject` 文件树（入口 `.ts` / 被 import 的模块 / 构建产物 `bundle`），与用户手写的脚本同一种结构：loop 期间只在 offscreen 的内存文件树里，收敛成功才一次性落盘（`enabled: false`）。失败那一份不必另存——`Message.parts` 存的是完整 `UIMessage.parts`（reasoning / text / tool），回复完成时（`onFinish`）整条 assistant 消息连同 parts 落盘；`script_apply` 的入参（完整文件树）与返回（构建诊断）本就随对话保存，用户在对话里能看到 AI 试过哪些文件、卡在什么错误上。要「接着改」就在同一条对话里继续说，`useChat` 会把整条 messages（含工具调用历史）带回模型。
 
