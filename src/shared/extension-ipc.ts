@@ -78,6 +78,26 @@ export interface ChatMessageMetadata {
   pageContext?: MessagePageContext
 }
 
+// —— 页面脚本状态浮窗载荷（docs/proposals/implementing/runtime-feedback-loop.md）——
+// ⚠️ 与 src/public/duoling-status.js 的 vanilla JS 手写对齐，改形状必须两边同步。
+
+/** 浮窗的一条脚本行 */
+export interface StatusBubbleScript {
+  uuid: string
+  name: string
+  /** 该脚本 runtime + register 阶段的环形错误条数（bridge 阶段噪音大，不计） */
+  errorCount: number
+  /** 最新一条错误摘要（message 截断 ~120 字符，展示用）；无错误省略 */
+  lastError?: { message: string; time: number }
+}
+
+/** 浮窗数据：注入 args 与更新指令共用同一形状；scripts 为空 = 浮窗自隐藏 */
+export interface StatusBubbleData {
+  /** 页面 host（展示用） */
+  host: string
+  scripts: StatusBubbleScript[]
+}
+
 /** 渲染页 → service worker 的请求（kind 可辨识联合，background 按 kind 分发） */
 export type RuntimeRequest =
   // 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）
@@ -93,6 +113,9 @@ export type RuntimeRequest =
   | { kind: 'userscript:availability' }
   | { kind: 'userscript:errors' }
   | { kind: 'userscript:clearErrors' }
+  // 错误 ID 修复闭环（提案② runtime-feedback-loop.md）：AI 的 error_read 工具经 SW 代查
+  // us:errors（offscreen 拿不到 chrome.storage）。id = 完整记录 id 或唯一 8 位前缀
+  | { kind: 'userscript:errorRead'; id: string }
   // 注：git 历史的 `userscript:history*` 三命令已随执行宿主迁 offscreen 而废弃（由 ai:* 取代），
   // 全仓无调用方，2026-09-15 从协议中移除——留着只会让 SW 的 handlers 表被迫补死桩。
 
@@ -185,10 +208,15 @@ export type RuntimeRequest =
  *
  * chat:chunk —— offscreen → 侧边栏（观察者）的事件流：每条带会话 id 与自增 seq，
  * 侧边栏按 seq 去重（重连回放与实时推送短暂重叠时防重）。SW 不消费（前缀不在白名单）。
+ *
+ * chat:finished —— offscreen → SW（观察者）：任务收尾（正常 / 异常）通知，SW 据此在
+ * 「面板关着」时点亮扩展图标完成徽章（提案② #2）。面板开着时 SW 不做任何事。
+ * 注意 `chat:` 前缀对 RuntimeRequest 是 offscreen 保留前缀；OffscreenPush 不进命令面，不受此限。
  */
 export type OffscreenPush =
   | { kind: 'offscreen:configChanged' }
   | { kind: 'chat:chunk'; conversationId: string; seq: number; chunk: import('ai').UIMessageChunk }
+  | { kind: 'chat:finished'; conversationId: string; /** true = 正常收敛；false = 停止 / 异常（徽章同亮，不区分色） */ ok: boolean }
 
 /** service worker → 渲染页的应答：统一信封，调用方据 ok 分支 */
 export type RuntimeResponse<T> = { ok: true; data: T } | { ok: false; error: string }

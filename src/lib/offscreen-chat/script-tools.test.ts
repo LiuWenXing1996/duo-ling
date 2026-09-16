@@ -50,7 +50,11 @@ function makeElement(): ElementPickContext {
   }
 }
 
-function makeTools(element?: ElementPickContext, captureSnapshot?: () => Promise<import('@/shared/extension-ipc').PageSnapshotContext>) {
+function makeTools(
+  element?: ElementPickContext,
+  captureSnapshot?: () => Promise<import('@/shared/extension-ipc').PageSnapshotContext>,
+  readError?: (id: string) => Promise<import('@/lib/userscripts/store').UserScriptErrorLookup>,
+) {
   const ws = makeWorkspace()
   return buildScriptTools(
     ws,
@@ -58,6 +62,7 @@ function makeTools(element?: ElementPickContext, captureSnapshot?: () => Promise
     undefined,
     element,
     captureSnapshot,
+    readError,
   )
 }
 
@@ -115,16 +120,66 @@ describe('element_read', () => {
 })
 
 describe('script 三件套不受影响（回归）', () => {
-  it('script_spec / script_read / script_apply 仍然在工具表里', () => {
+  it('script_spec / script_read / script_apply / error_read 仍然在工具表里', () => {
     const tools = makeTools(makeElement())
     expect(Object.keys(tools).sort()).toEqual([
       'element_read',
+      'error_read',
       'page_snapshot',
       'script_apply',
       'script_read',
       'script_spec',
     ])
   })
+})
+
+describe('error_read（错误 ID 查询，提案②）', () => {
+  const rec = {
+    id: 'abcdef1234567890',
+    uuid: 'u1',
+    name: '脚本A',
+    phase: 'runtime' as const,
+    message: 'boom',
+    stack: 'at x',
+    url: 'https://example.com/',
+    time: 123,
+  }
+
+  it('精确 id / 唯一前缀：返回错误详情 + 脚本 uuid', async () => {
+    for (const q of [rec.id, rec.id.slice(0, 8)]) {
+      const tools = makeTools(undefined, undefined, async () => ({ found: true, record: rec }))
+      const out = await execTool(tools, q)
+      expect(out.ok).toBe(true)
+      expect(out.errorId).toBe(rec.id)
+      expect(out.scriptUuid).toBe('u1')
+      expect(out.message).toBe('boom')
+      expect(out.stack).toBe('at x')
+      expect(out.pageUrl).toBe(rec.url)
+    }
+  })
+
+  it('未接查询通道：ok=false 带可读错误', async () => {
+    const tools = makeTools()
+    const out = await execTool(tools, rec.id)
+    expect(out.ok).toBe(false)
+    expect(String(out.error)).toContain('不可用')
+  })
+
+  it('前缀多命中 / 不存在：ok=false 带指引文案', async () => {
+    const ambiguous = makeTools(undefined, undefined, async () => ({ found: false, reason: 'ambiguous' }))
+    const outA = await execTool(ambiguous, rec.id.slice(0, 8))
+    expect(outA.ok).toBe(false)
+    expect(String(outA.error)).toContain('命中多条')
+
+    const missing = makeTools(undefined, undefined, async () => ({ found: false, reason: 'not-found' }))
+    const outB = await execTool(missing, rec.id)
+    expect(outB.ok).toBe(false)
+    expect(String(outB.error)).toContain('不存在')
+  })
+
+  function execTool(tools: ReturnType<typeof buildScriptTools>, id: string) {
+    return tools.error_read.execute({ id }, execOpts as never) as Promise<Record<string, unknown>>
+  }
 })
 
 describe('page_snapshot（快照改 AI 工具采集）', () => {

@@ -35,7 +35,7 @@ import type {
   PageContextInfo,
   RuntimeRequest,
 } from '@/shared/extension-ipc'
-import { dropBuffer, pushChunk, replaySince, resetBuffer } from './event-bus'
+import { dropBuffer, notifyChatFinished, pushChunk, replaySince, resetBuffer } from './event-bus'
 import { getActiveProfile } from './profile-cache'
 import {
   buildSystemPrompt,
@@ -287,6 +287,7 @@ async function runLoop(opts: {
       () => abort.abort(),
       promptContext?.element,
       () => offscreenBridge.capturePageSnapshot(),
+      (id) => offscreenBridge.readError(id),
     )
 
     const result = streamText({
@@ -335,11 +336,13 @@ async function runLoop(opts: {
     }
 
     // 任务收尾：删运行时记录 + 丢事件缓冲（缓冲只为进行中任务的重连服务；
-    // 收尾后结果已在会话历史，保留缓冲反而会让重开面板 replay 出重复消息）
-    const cleanup = () => {
+    // 收尾后结果已在会话历史，保留缓冲反而会让重开面板 replay 出重复消息）。
+    // ok 顺路推 chat:finished（提案② #2）：SW 旁听后视面板存活点亮完成徽章。
+    const cleanup = (ok: boolean) => {
       runningByConversation.delete(conversationId)
       void removeTask(taskId).catch(() => {})
       dropBuffer(conversationId)
+      notifyChatFinished(conversationId, ok)
     }
 
     // —— 收尾分支 1：用户主动停止 / 流异常中断 ——
@@ -348,7 +351,7 @@ async function runLoop(opts: {
     // 分支 2 之前必须再看一眼 sawAbort / abortSignal——否则半截消息照常落盘。
     if (!finishChunk || sawAbort || abort.signal.aborted) {
       if (!sawAbort) pushChunk(conversationId, { type: 'abort' })
-      cleanup()
+      cleanup(false)
       return
     }
 
@@ -434,7 +437,7 @@ async function runLoop(opts: {
       })
     }
     pushChunk(conversationId, finishChunk)
-    cleanup()
+    cleanup(true)
   } catch (e) {
     // 循环异常（模型网络错误等）：推 error 块让 useChat onError 走起，记录清理。
     // start 块先行：useChat 的流处理在未 start 时收到 error 块可能整体丢弃，
@@ -448,6 +451,7 @@ async function runLoop(opts: {
     pushChunk(conversationId, { type: 'abort' })
     await removeTask(taskId).catch(() => {})
     dropBuffer(conversationId)
+    notifyChatFinished(conversationId, false)
   } finally {
     runningByConversation.delete(conversationId)
   }

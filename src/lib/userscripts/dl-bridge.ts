@@ -11,6 +11,8 @@
 // 防止伪造身份读写其它脚本的私有存储。background 的 SW 内 fetch 受 <all_urls> host 权限豁免 CORS，
 // 这是 DL.fetch 免 CORS 的基础（Chrome 官方明文：内容脚本中的跨源请求始终按跨源处理）。
 import type { ApiErrorCode, ApiRequest, ApiResponse, DlEvent, FetchInit, FetchPayload, Json } from './api-contract'
+// 浮窗实时更新（提案②）：runtime 错误落盘后通知出错 tab 上的浮窗（同目录模块，无环）
+import { refreshStatusBubbleAfterError } from './status-bubble'
 import {
   getGMValue,
   setGMValue,
@@ -152,7 +154,15 @@ export function initDlBridge(): void {
         message: evt.event?.message || '',
         stack: evt.event?.stack,
         url: evt.event?.url,
-      }).catch(() => {})
+      })
+        .then(() => {
+          // 浮窗实时更新（提案②）：错误落盘后让出错 tab 上的浮窗徽章变亮。
+          // sender.tab 定位出错页面（userScript 世界消息 sender 带 tab）；拿不到就跳过
+          // （浮窗下次导航时按最新数据注入）。
+          const tabId = sender.tab?.id
+          if (tabId != null) void refreshStatusBubbleAfterError(tabId)
+        })
+        .catch(() => {})
       return undefined // 仅记录，无需响应
     }
 

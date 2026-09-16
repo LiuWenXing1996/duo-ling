@@ -148,3 +148,23 @@ export async function listUserScriptErrors(): Promise<UserScriptErrorRecord[]> {
 export async function clearUserScriptErrors(): Promise<void> {
   return enqueueErrorOp(() => chrome.storage.local.remove(ERRORS_KEY))
 }
+
+/**
+ * 按 id 查一条错误（提案②「错误 ID 修复闭环」）：精确 id，或至少 8 位的前缀唯一匹配。
+ * 前缀下限 8 位：工作台展示的就是前 8 位（复制的是完整 id），前缀太短碰撞概率失控。
+ * 多命中 = 前缀不唯一（ambiguous），调用方让用户复制完整 ID，绝不猜。
+ */
+export type UserScriptErrorLookup =
+  | { found: true; record: UserScriptErrorRecord }
+  | { found: false; reason: 'not-found' | 'ambiguous' }
+
+export async function findUserScriptError(id: string): Promise<UserScriptErrorLookup> {
+  const list = await listUserScriptErrors()
+  const exact = list.find((e) => e.id === id)
+  if (exact) return { found: true, record: exact }
+  if (id.length < 8) return { found: false, reason: 'not-found' }
+  const matches = list.filter((e) => e.id.startsWith(id))
+  if (matches.length === 1) return { found: true, record: matches[0]! }
+  if (matches.length > 1) return { found: false, reason: 'ambiguous' }
+  return { found: false, reason: 'not-found' }
+}

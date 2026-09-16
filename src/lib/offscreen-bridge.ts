@@ -13,6 +13,7 @@
 // 来自 userscripts/types.ts，那是纯类型 + 纯函数模块，不碰任何 chrome API。
 import type { ModelProfileState, PageSnapshotContext, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { ScriptConfig } from '@/lib/userscripts/types'
+import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 
 /** 向 SW 发一次请求，统一解包 { ok, data | error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -86,4 +87,11 @@ export const offscreenBridge = {
    * chrome.userScripts.execute 在 offscreen 不可达，必须经 SW（2026-09-17 快照改 AI 工具）。
    */
   capturePageSnapshot: (): Promise<PageSnapshotContext> => send({ kind: 'page:snapshot' }),
+
+  /**
+   * 按错误 ID 查一条错误记录（提案②「错误 ID 修复闭环」）：us:errors 在 chrome.storage，
+   * offscreen 拿不到，SW 代查。id = 完整记录 id 或唯一 8 位前缀（多命中返回 ambiguous）。
+   */
+  readError: (id: string): Promise<UserScriptErrorLookup> =>
+    send({ kind: 'userscript:errorRead', id }),
 }

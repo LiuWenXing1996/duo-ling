@@ -5,11 +5,13 @@
 //
 // 数据通道：userscriptClient。workbench 是可信扩展页，可直接 chrome.runtime.sendMessage，
 // 因此不走 window.api（那是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   AlertTriangle as UiAlertTriangle,
   Braces as UiBraces,
+  Check as UiCheck,
   ChevronDown as UiChevronDown,
+  Copy as UiCopy,
   LoaderCircle as UiLoaderCircle,
   MousePointerClick as UiMousePointerClick,
   Package as UiPackage,
@@ -39,6 +41,10 @@ const emit = defineEmits<{
   deleted: [uuid: string]
 }>()
 
+// 深链定位（提案②）：浮窗「点击脚本行」→ workbench.html#/errors/<uuid> → 宿主传入。
+// 语义 = 打开错误日志、按该脚本过滤（带清除入口），不是一次性跳转后遗忘。
+const props = defineProps<{ focusErrorUuid?: string | null }>()
+
 const scripts = ref<ScriptSummary[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -54,6 +60,67 @@ const removing = ref<string | null>(null)
 // —— 错误日志面板（us:errors 环形日志，自旧管理器迁入）——
 const errors = ref<UserScriptErrorRecord[]>([])
 const errorsOpen = ref(false)
+/** 深链过滤：只看某脚本的错误（浮窗跳转 / 手动清除） */
+const errorFilterUuid = ref<string | null>(null)
+
+watch(
+  () => props.focusErrorUuid,
+  async (uuid) => {
+    if (!uuid) return
+    errorFilterUuid.value = uuid
+    errorsOpen.value = true
+    try {
+      errors.value = await userscriptClient.errors()
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    }
+  },
+  { immediate: true },
+)
+
+/** 错误按脚本分组（保持最新优先的组序；无 uuid 的记录按名称归组） */
+interface ErrorGroup {
+  key: string
+  uuid: string | null
+  name: string
+  items: UserScriptErrorRecord[]
+}
+const filteredErrors = computed(() =>
+  errorFilterUuid.value ? errors.value.filter((e) => e.uuid === errorFilterUuid.value) : errors.value,
+)
+const groupedErrors = computed<ErrorGroup[]>(() => {
+  const groups: ErrorGroup[] = []
+  const byKey = new Map<string, ErrorGroup>()
+  for (const e of filteredErrors.value) {
+    const key = e.uuid ?? `name:${e.name}`
+    let g = byKey.get(key)
+    if (!g) {
+      g = { key, uuid: e.uuid, name: e.name, items: [] }
+      byKey.set(key, g)
+      groups.push(g)
+    }
+    g.items.push(e)
+  }
+  return groups
+})
+const filterTargetName = computed(
+  () => scripts.value.find((s) => s.uuid === errorFilterUuid.value)?.name ?? errorFilterUuid.value ?? '',
+)
+
+/** 错误 ID 展示短形态（前 8 位；复制按钮复制完整 id，提案②） */
+function shortErrorId(id: string): string {
+  return id.slice(0, 8)
+}
+const copiedErrorId = ref('')
+async function copyErrorId(id: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(id)
+    copiedErrorId.value = id
+    window.setTimeout(() => (copiedErrorId.value = ''), 1500)
+  } catch (e) {
+    error.value = '复制失败：' + (e instanceof Error ? e.message : String(e))
+  }
+}
 
 const PHASE_LABEL: Record<UserScriptErrorRecord['phase'], string> = {
   runtime: '运行期',
@@ -417,19 +484,48 @@ onMounted(() => {
             </ui-button>
           </div>
           <div v-if="errorsOpen" class="border-t px-3 py-2">
-            <p v-if="!errors.length" class="text-xs text-muted-foreground">暂无错误。</p>
-            <ul v-else class="flex flex-col gap-2">
-              <li v-for="e in errors" :key="e.id" class="text-xs">
-                <div class="flex flex-wrap items-center gap-1.5">
-                  <span :class="phaseBadgeClass(e.phase)" class="rounded px-1.5 py-0.5 text-[10px] font-medium">{{ phaseLabel(e.phase) }}</span>
-                  <span class="font-medium">{{ e.name }}</span>
-                  <span class="text-muted-foreground">{{ formatTime(e.time) }}</span>
-                </div>
-                <p class="mt-1 break-all text-destructive">{{ e.message }}</p>
-                <p v-if="e.url" class="mt-0.5 truncate text-muted-foreground">{{ e.url }}</p>
-                <pre v-if="e.stack" class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-[11px] leading-relaxed">{{ e.stack }}</pre>
-              </li>
-            </ul>
+            <div class="flex items-center justify-between">
+              <p v-if="!filteredErrors.length" class="text-xs text-muted-foreground">
+                {{ errorFilterUuid ? '该脚本暂无错误。' : '暂无错误。' }}
+              </p>
+              <ui-button
+                v-if="errorFilterUuid"
+                variant="ghost"
+                size="sm"
+                class="h-6 px-2 text-xs"
+                title="清除过滤，显示全部"
+                @click="errorFilterUuid = null"
+              >
+                只看：{{ filterTargetName }} ×
+              </ui-button>
+            </div>
+            <div v-for="g in groupedErrors" :key="g.key" class="mt-1.5">
+              <p class="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                <span class="truncate">{{ g.name }}</span>
+                <span class="shrink-0">（{{ g.items.length }}）</span>
+              </p>
+              <ul class="mt-1 flex flex-col gap-2">
+                <li v-for="e in g.items" :key="e.id" class="text-xs">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <span :class="phaseBadgeClass(e.phase)" class="rounded px-1.5 py-0.5 text-[10px] font-medium">{{ phaseLabel(e.phase) }}</span>
+                    <span class="text-muted-foreground">{{ formatTime(e.time) }}</span>
+                    <button
+                      type="button"
+                      class="ml-auto flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted"
+                      :title="`复制完整错误 ID（发给 AI 可自动查询修复）：${e.id}`"
+                      @click="copyErrorId(e.id)"
+                    >
+                      <ui-check v-if="copiedErrorId === e.id" class="size-3 text-green-600" />
+                      <ui-copy v-else class="size-3" />
+                      {{ shortErrorId(e.id) }}
+                    </button>
+                  </div>
+                  <p class="mt-1 break-all text-destructive">{{ e.message }}</p>
+                  <p v-if="e.url" class="mt-0.5 truncate text-muted-foreground">{{ e.url }}</p>
+                  <pre v-if="e.stack" class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-[11px] leading-relaxed">{{ e.stack }}</pre>
+                </li>
+              </ul>
+            </div>
           </div>
         </section>
       </div>

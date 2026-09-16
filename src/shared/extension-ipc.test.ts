@@ -59,6 +59,7 @@ const ALL_KINDS = [
   { kind: 'userscript:toggle', side: 'sw' },
   { kind: 'userscript:availability', side: 'sw' },
   { kind: 'userscript:errors', side: 'sw' },
+  { kind: 'userscript:errorRead', side: 'sw' },
   { kind: 'userscript:clearErrors', side: 'sw' },
   // —— ai:*（offscreen：git 历史侧车 + 构建宿主）——
   { kind: 'ai:ping', side: 'offscreen' },
