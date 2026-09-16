@@ -66,4 +66,18 @@ export const offscreenBridge = {
     note?: string
   }): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> =>
     send({ kind: 'userscript:createProject', ...payload }),
+
+  /**
+   * AI 改既有脚本落盘（经 SW：userscript:updateFiles → state:updateFiles）。
+   * 与编辑器保存同一条命令：状态库 + git 快照（note = AI summary）在 offscreen 单写方完成，
+   * SW 负责启用中脚本的注销重注册（AI 产物 enabled:false，通常为 no-op）。
+   */
+  updateProjectFiles: (payload: {
+    uuid: string
+    files: Record<string, string>
+    entry: string
+    bundle: { code: string; builtAt: number }
+    note?: string
+  }): Promise<{ warnings?: string[]; registerError?: string }> =>
+    send({ kind: 'userscript:updateFiles', ...payload }),
 }

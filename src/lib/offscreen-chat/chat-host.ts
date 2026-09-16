@@ -26,6 +26,7 @@ import {
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { appendMessage, listMessages } from '@/lib/conversation-store'
 import { offscreenBridge } from '@/lib/offscreen-bridge'
+import { getProject } from '@/lib/userscripts/project-store'
 import { ENTRY_DEFAULT } from '@/lib/userscripts/types'
 import type {
   ChatOrphanRecord,
@@ -36,7 +37,12 @@ import type {
 } from '@/shared/extension-ipc'
 import { dropBuffer, pushChunk, replaySince, resetBuffer } from './event-bus'
 import { getActiveProfile } from './profile-cache'
-import { buildSystemPrompt, mergePageContext, mostRecentPageContext } from './system-prompt'
+import {
+  buildSystemPrompt,
+  mergePageContext,
+  mostRecentGeneratedScript,
+  mostRecentPageContext,
+} from './system-prompt'
 import { buildScriptTools, type TaskWorkspace } from './script-tools'
 import { getTask, listRunningTasks, putTask, removeTask, type ChatTaskRecord } from './task-store'
 
@@ -144,9 +150,32 @@ interface GenerationCardData {
   savedAt: number
 }
 
-/** 收敛成功 → 经 SW 落盘（单写方），返回卡片数据；失败抛错由调用方决定怎么呈现 */
+/** 收敛成功 → 经 SW 落盘（单写方），返回卡片数据；失败抛错由调用方决定怎么呈现。
+ * 更新意图（script_apply 带 updateUuid）且目标脚本仍在时走原地更新（同 uuid），
+ * 目标已被用户删除则回退新建——不复活已删脚本。 */
 async function persistGeneratedProject(ws: TaskWorkspace): Promise<GenerationCardData | null> {
   if (!ws.lastOk || !ws.config) return null
+  if (ws.targetUuid) {
+    const existing = await getProject(ws.targetUuid).catch(() => undefined)
+    if (existing) {
+      await offscreenBridge.updateProjectFiles({
+        uuid: ws.targetUuid,
+        files: ws.lastOk.files,
+        entry: ws.lastOk.entry,
+        bundle: ws.lastOk.bundle,
+        note: ws.summary || undefined,
+      })
+      return {
+        uuid: ws.targetUuid,
+        name: existing.name, // 更新不改名：脚本名在管理页的辨识度保持稳定
+        enabled: existing.enabled,
+        matches: ws.config.matches,
+        capabilities: scanCapabilities(ws.lastOk.bundle.code),
+        summary: ws.summary,
+        savedAt: Date.now(),
+      }
+    }
+  }
   const res = await offscreenBridge.createProject({
     name: ws.summary ? ws.summary.slice(0, 40) : 'AI 生成的脚本',
     config: ws.config,
@@ -240,6 +269,8 @@ async function runLoop(opts: {
     // prompt 用的页面上下文：本请求的新鲜拾取优先，缺位回退历史里最近一次随消息附上的
     // （跨轮指代 / 重新生成 / 重开面板续聊都靠它接上；老快照不回注，见 mergePageContext）
     const promptContext = mergePageContext(pageContext, mostRecentPageContext(uiMessages))
+    // 本会话最近落盘的脚本身份（来自历史生成卡片）：给模型指路「改既有脚本」用
+    const prevScript = mostRecentGeneratedScript(uiMessages)
 
     const baseURL = profile.useFullUrl
       ? profile.baseUrl.replace(/\/chat\/completions\/?$/i, '')
@@ -261,7 +292,7 @@ async function runLoop(opts: {
       messages: await convertToModelMessages(stripDataParts(uiMessages)),
       tools,
       stopWhen: stepCountIs(MAX_STEPS),
-      system: buildSystemPrompt(prompt, promptContext, continuing),
+      system: buildSystemPrompt(prompt, promptContext, continuing, prevScript),
       abortSignal: abort.signal,
       ...(profile.temperature != null ? { temperature: profile.temperature } : {}),
       ...(profile.topP != null ? { topP: profile.topP } : {}),

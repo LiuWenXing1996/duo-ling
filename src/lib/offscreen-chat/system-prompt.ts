@@ -86,10 +86,35 @@ export function mergePageContext(
   return out.url || out.title || out.element || out.snapshot ? out : undefined
 }
 
+/** 会话内最近一次落盘脚本的身份（从历史 data-generation 卡片摘出，供「改既有脚本」指路） */
+export interface PrevGeneratedScript {
+  uuid: string
+  name: string
+}
+
+/**
+ * 历史消息里**最近一张**生成卡片的脚本身份（倒序扫 assistant 消息的 data-generation parts）。
+ * 卡片随消息落盘且 uuid 唯一，天然就是「本会话生成过哪些脚本」的记录——
+ * 没有它，模型拿不到脚本 uuid（script_apply 不回传、卡片是 data part 不进模型），只能新建。
+ */
+export function mostRecentGeneratedScript(messages: UIMessage[]): PrevGeneratedScript | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m.role !== 'assistant') continue
+    for (const p of m.parts) {
+      if (p.type !== 'data-generation') continue
+      const data = (p as { data?: { uuid?: string; name?: string } }).data
+      if (data?.uuid) return { uuid: data.uuid, name: data.name || data.uuid }
+    }
+  }
+  return undefined
+}
+
 export function buildSystemPrompt(
   prompt: string,
   pageContext?: PageContextInfo,
   continuing = false,
+  prevScript?: PrevGeneratedScript,
 ): string {
   const lines = [
     '你是「哆灵」浏览器扩展的用户脚本助手。除日常对话外，你可以为网页编写用户脚本：',
@@ -121,6 +146,14 @@ export function buildSystemPrompt(
   if (continuing) {
     lines.push('\n注意：此前一次生成任务在浏览器中断了。任务的内存文件树已恢复，' +
       '先 script_read（不带参数）查看已有文件，再决定继续修改还是重写。')
+  }
+  if (prevScript) {
+    lines.push(
+      `\n本会话此前落盘过脚本：「${prevScript.name}」（uuid=${prevScript.uuid}）。`,
+      '用户要求修改 / 继续调整这个脚本时：先 script_read 该 uuid 读出现有内容再改，' +
+        'script_apply 时带 updateUuid=该 uuid（落盘会原地更新它，不产生新脚本）；' +
+        '只有用户明确想要另一个新脚本时才省略 updateUuid。',
+    )
   }
   lines.push(`\n用户需求：${prompt}`)
   return lines.join('\n')

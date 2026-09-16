@@ -34,6 +34,8 @@ export interface TaskWorkspace {
   /** 最近一次成功 apply 的 AI summary（git 快照 note） */
   summary: string
   applyFailures: number
+  /** 本次任务要更新的既有脚本 uuid（script_apply 带 updateUuid 时设置；不带则清空 = 生成新脚本）。落盘时据此走更新或新建 */
+  targetUuid?: string
   /** 最近一次构建成功的完整产物（收敛后由编排层落盘） */
   lastOk: {
     files: Record<string, string>
@@ -107,14 +109,19 @@ export function buildScriptTools(
     script_apply: tool({
       description:
         '提交（整文件写）脚本文件树并立即用 esbuild 构建验证。返回 ok=true 表示构建通过（任务收敛）；' +
-        '返回 ok=false 时 errors 为 file:line 诊断列表，按诊断修改后再次整体提交全部文件。',
+        '返回 ok=false 时 errors 为 file:line 诊断列表，按诊断修改后再次整体提交全部文件。' +
+        '修改既有脚本（本会话此前生成过的）时必须带 updateUuid，落盘才会原地更新该脚本；省略 = 生成一个全新脚本。',
       inputSchema: z.object({
         summary: z.string().describe('本轮改动的一句话摘要（将作为落盘时的提交说明）'),
         config: applyConfigSchema.describe('脚本配置：matches 必填（收窄到目标站点）'),
         files: z.record(z.string(), z.string()).describe('完整文件树：相对路径 → 源码'),
         entry: z.string().default('main.js').describe('入口文件路径，默认 main.js'),
+        updateUuid: z
+          .string()
+          .optional()
+          .describe('要原地更新的既有脚本 uuid（system prompt 会给出本会话已落盘脚本的身份）；省略 = 生成新脚本'),
       }),
-      execute: async ({ summary, config, files, entry }) => {
+      execute: async ({ summary, config, files, entry, updateUuid }) => {
         // 硬停手：失败阈值已达后仍再次 apply = 模型无视了 stop 提示，直接中止任务
         if (ws.applyFailures >= MAX_APPLY_FAILURES) {
           onFatal?.()
@@ -153,6 +160,8 @@ export function buildScriptTools(
           ws.config = scriptConfig
           ws.summary = summary
           ws.applyFailures = 0
+          // 更新意图逐次声明：本次带 updateUuid 就更新该脚本，不带就清空（同任务里改主意要新脚本也正确）
+          ws.targetUuid = updateUuid || undefined
           ws.lastOk = {
             files: outcome.files,
             entry,

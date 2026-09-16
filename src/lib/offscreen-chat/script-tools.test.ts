@@ -1,8 +1,18 @@
 // element_read 工具测试（docs/proposals/implementing/element-picker.md 验收：
 // 「`element_read` 工具可拉全量属性 / outerHTML / parent 链（单测覆盖工具）」）。
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { buildScriptTools, type TaskWorkspace } from './script-tools'
 import type { ElementPickContext } from '@/shared/extension-ipc'
+
+// 真构建依赖 esbuild-wasm + chrome.runtime.getURL，单测环境不可用 → mock 掉（本文件不测构建本身）
+vi.mock('@/lib/userscripts/builder', () => ({
+  BuildError: class BuildError extends Error {},
+  buildProject: vi.fn(async (files: Record<string, string>) => ({
+    code: '/* bundle */',
+    files,
+    remoteFetched: [],
+  })),
+}))
 
 function makeWorkspace(): TaskWorkspace {
   return {
@@ -112,5 +122,36 @@ describe('script 三件套不受影响（回归）', () => {
       'script_read',
       'script_spec',
     ])
+  })
+})
+
+describe('script_apply 更新意图（updateUuid → ws.targetUuid）', () => {
+  const files = { 'main.js': "DL.log('hi')\n" }
+  const config = { matches: ['*://example.com/*'], allFrames: true, runAt: 'document_end' as const }
+  const execOpts2 = execOpts as Parameters<
+    ReturnType<typeof buildScriptTools>['script_apply']['execute']
+  >[1]
+
+  it('带 updateUuid 构建成功 → ws.targetUuid 记下更新目标', async () => {
+    const ws = makeWorkspace()
+    const tools = buildScriptTools(ws, async () => {})
+    const out = (await tools.script_apply.execute(
+      { summary: '改字号', config, files, entry: 'main.js', updateUuid: 'uuid-target' },
+      execOpts2,
+    )) as Record<string, unknown>
+    expect(out.ok).toBe(true)
+    expect(ws.targetUuid).toBe('uuid-target')
+  })
+
+  it('不带 updateUuid → 清空更新意图（生成新脚本）', async () => {
+    const ws = makeWorkspace()
+    ws.targetUuid = 'uuid-stale'
+    const tools = buildScriptTools(ws, async () => {})
+    const out = (await tools.script_apply.execute(
+      { summary: '新脚本', config, files, entry: 'main.js' },
+      execOpts2,
+    )) as Record<string, unknown>
+    expect(out.ok).toBe(true)
+    expect(ws.targetUuid).toBeUndefined()
   })
 })

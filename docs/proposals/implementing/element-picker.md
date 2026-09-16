@@ -83,8 +83,9 @@ AI 生成用户脚本的质量上限卡在页面上下文：目前只有档 0（
 - `src/shared/extension-ipc.ts` + `src/shared/types.ts`：`pageContext` 扩展可选字段（快照 HTML、元素摘要 + 全量快照）
 - `src/lib/extension-chat-transport.ts`：`collectPageContext` 随带已采集的快照 / 元素上下文
 - `src/composables/use-global-conversation.ts`：发送时暂存上下文以 metadata 随消息走，历史重建时挂回（气泡 chip 渲染源）
-- `src/lib/offscreen-chat/chat-host.ts`：`buildSystemPrompt` 组装新档位（档 2 只进摘要层）；用户消息落盘附 pageContext 元数据；prompt 上下文 = 新鲜优先、缺位回退历史最近一次
-- `src/lib/offscreen-chat/script-tools.ts`：新增 `element_read` 工具（读拾取快照全量层）
+- `src/lib/offscreen-chat/chat-host.ts`：`buildSystemPrompt` 组装新档位（档 2 只进摘要层）；用户消息落盘附 pageContext 元数据；prompt 上下文 = 新鲜优先、缺位回退历史最近一次；落盘按 `updateUuid` 分流更新 / 新建
+- `src/lib/offscreen-chat/script-tools.ts`：新增 `element_read` 工具（读拾取快照全量层）；`script_apply` 增可选 `updateUuid`（改既有脚本声明更新意图）
+- `src/lib/offscreen-chat/system-prompt.ts`：`mostRecentGeneratedScript` 从历史生成卡片摘出本会话最近落盘脚本身份注入 prompt（模型由此拿到 uuid，改既有脚本才有入口）
 - 侧边栏 `ChatPanel`：两个动作按钮 + chip + 超时 / 失败提示
 - 管理页列表：内置分组（只读）
 - `wxt.config.ts`：`minimum_chrome_version` '133' → '135'（不新增任何权限）
@@ -116,6 +117,7 @@ AI 生成用户脚本的质量上限卡在页面上下文：目前只有档 0（
 - [ ] 「附上页面快照」：静默抓渲染后 outerHTML 截断 ~32KB 显示为 chip，随下一条消息进上下文；prompt 标注「渲染后页面快照（截断）」（单测覆盖 prompt 组装；SPA 页面同样可用）
 - [ ] 管理页出现「内置」只读分组，展示拾取器，无编辑 / 删除 / 启用控件
 - [ ] 拾取 / 快照随用户消息落盘：历史气泡带 chip（重开会话仍在）；后续轮次「再把字号调大一点」类指代不丢上下文；重新生成带上下文；老快照不回注后续轮次（单测覆盖合并逻辑）
+- [ ] 会话内改既有脚本：第一轮生成脚本后，第二轮说「改一下它」→ 模型 `script_read` 该脚本修改并带 `updateUuid` apply，落盘原地更新（管理页脚本数不增、uuid 不变）；要新脚本时仍新建
 - [ ] DL 桥契约文件（`api-contract.ts` / `dl-bridge.ts`）与 background SW 零改动
 - [ ] `npm run typecheck` + `npm run build` + `npm run test` 全过
 
@@ -148,6 +150,7 @@ AI 生成用户脚本的质量上限卡在页面上下文：目前只有档 0（
 | 2026-09-17 | 回传通道（二修正） | 消息回传链路**整体蒸发**：载荷走 `execute()` 返回值；身份校验随消息链路消失（扩展自注入代码无伪造面） | `execute()` 对 Promise 求值结果的官方语义；「不经 DL 桥」结论更彻底——连消息都不发。前两稿（SW 中转 / ISOLATED 直达）按「只增不减」保留 |
 | 2026-09-17 | 世界归属（修正） | 独立世界 `us-builtin-picker` 结论不变，落地方式改为 `execute()` 的 `worldId` 参数；`configureWorld` 可省（世界 messaging 默认 false 正合适——本方案不走消息；默认 CSP 够用，拾取器不 eval） | 结论与机制同步简化；「复用 registerScript 辅助函数」的措辞随之作废（评审第 4 点指出的不准确处，现已无注册动作可复用） |
 | 2026-09-17 | 拾取上下文随消息落盘 | 拾取 / 快照随发送的**用户消息**持久化（`Message.pageContext` 元数据）：历史气泡渲染 chip；后续轮次 prompt 注入**历史最近一次**的元素摘要（新鲜拾取优先）；老快照不回注 | 手测发现的体验缺陷：上下文只活在当轮任务记录里，会话历史看不到、跨轮指代（「再调大一点」）与重新生成全丢。落库数据源 = offscreen 落盘用户消息时摘走 `chat:start` pageContext 里两样显式采集物；档 0 URL 每轮实时取、不落库（历史 URL 会过时误导）。token 闸：摘要 ≤2KB 常驻可接受，32KB 快照常驻每一轮会烧穿，只在当轮显式附上时注入。只取「最近一次」，不做语义匹配 |
+| 2026-09-17 | 会话内改既有脚本（updateUuid 落盘分流） | `script_apply` 增可选 `updateUuid`：模型要改既有脚本时声明其 uuid，落盘走 `state:updateFiles` 原地更新（同 uuid，不复活已删脚本）；省略 = 照旧新建。prompt 注入本会话最近落盘脚本身义（从历史 `data-generation` 卡片摘 uuid） | 手测第 3 项（跨轮指代）暴露的既有缺口：元素上下文正常到达，但模型仍新建脚本——两层原因：① 模型永远拿不到脚本 uuid（`script_apply` 不回传、生成卡片是 data part 不进模型、无枚举工具），想改也无入口；② 落盘无条件 `createProject`，就算改了也变成新脚本。更新意图由模型**逐次声明**而非编排层自动沿用，避免同会话后续「要个新脚本」被误覆盖；uuid 数据源复用随消息落盘的生成卡片，不新增存储 |
 
 ## 流转记录
 

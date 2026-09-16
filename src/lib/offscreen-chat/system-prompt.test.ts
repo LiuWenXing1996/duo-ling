@@ -6,6 +6,7 @@ import {
   describePickedElement,
   describePageSnapshot,
   mergePageContext,
+  mostRecentGeneratedScript,
   mostRecentPageContext,
 } from './system-prompt'
 import type { UIMessage } from 'ai'
@@ -226,5 +227,67 @@ describe('mergePageContext（新鲜上下文 × 历史最近一次）', () => {
   it('两边都为空返回 undefined（不产生空档位）', () => {
     expect(mergePageContext(undefined, undefined)).toBeUndefined()
     expect(mergePageContext({}, {})).toBeUndefined()
+  })
+})
+
+// —— 会话内改既有脚本（script_apply updateUuid 落盘分流的前提：模型知道 uuid） ——
+
+/** 构造一条带 data-generation 卡片的 assistant 消息 */
+function makeCardMsg(uuid: string, name: string): UIMessage {
+  return {
+    id: crypto.randomUUID(),
+    role: 'assistant',
+    parts: [
+      { type: 'text', text: '脚本已生成' },
+      { type: 'data-generation', id: `gen-${uuid}`, data: { uuid, name } },
+    ],
+  } as UIMessage
+}
+
+describe('mostRecentGeneratedScript（历史最近一张生成卡片）', () => {
+  it('倒序命中最近的卡片', () => {
+    const msgs = [
+      makeCardMsg('uuid-old', '旧脚本'),
+      makeMsg('user'),
+      makeCardMsg('uuid-new', '新脚本'),
+    ]
+    expect(mostRecentGeneratedScript(msgs)).toEqual({ uuid: 'uuid-new', name: '新脚本' })
+  })
+
+  it('跳过无卡片的 assistant 消息与 user 消息', () => {
+    const msgs = [makeCardMsg('uuid-1', '脚本一'), makeMsg('user'), makeMsg('assistant')]
+    expect(mostRecentGeneratedScript(msgs)?.uuid).toBe('uuid-1')
+  })
+
+  it('没有卡片返回 undefined', () => {
+    expect(mostRecentGeneratedScript([makeMsg('user'), makeMsg('assistant')])).toBeUndefined()
+    expect(mostRecentGeneratedScript([])).toBeUndefined()
+  })
+
+  it('卡片缺 uuid 视为无效继续找', () => {
+    const empty = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      parts: [{ type: 'data-generation', id: 'gen-x', data: {} }],
+    } as UIMessage
+    const msgs = [empty, makeCardMsg('uuid-ok', '有效脚本')]
+    expect(mostRecentGeneratedScript(msgs)?.uuid).toBe('uuid-ok')
+  })
+})
+
+describe('buildSystemPrompt 会话内既有脚本指路', () => {
+  it('注入 uuid 与 script_read / updateUuid 用法', () => {
+    const p = buildSystemPrompt('把字号调大一点', undefined, false, {
+      uuid: 'uuid-abc',
+      name: '字号放大器',
+    })
+    expect(p).toContain('「字号放大器」（uuid=uuid-abc）')
+    expect(p).toContain('script_read 该 uuid')
+    expect(p).toContain('updateUuid=该 uuid')
+  })
+
+  it('无既有脚本时不产生该档位', () => {
+    const p = buildSystemPrompt('帮我写个脚本')
+    expect(p).not.toContain('本会话此前落盘过脚本')
   })
 })
