@@ -10,7 +10,7 @@
 
 检查项:
     1. 状态块缺失、取值非法、与所在目录不一致（不一致时由人按提案内容判断如何对齐）
-    2. 缺「流转记录」章节
+    2. 缺「流转记录」章节，或一条记录都没有（提案创建时应记「新提案 → 草稿」）
     3. 流转记录里出现非法流转（如「实施中 → 评审中」）
     4. 最后一条流转的「到」与当前状态不符
     5. --ideas：列出想法箱（GitHub Issues 标签 idea）待办条目
@@ -38,8 +38,10 @@ DIR_STATE = {
     "rejected": "拒绝",
 }
 
-# 合法流转（docs/proposal-process.md「提案状态」）
+# 合法流转（docs/proposal-process.md「提案状态」的流转图）
+# 「新提案」是起点，只能作源：从 0 到 1 也是一次流转，故提案创建时第一条记录为「新提案 → 草稿」
 ALLOWED = {
+    ("新提案", "草稿"),
     ("草稿", "评审中"),
     ("草稿", "拒绝"),
     ("评审中", "草稿"),
@@ -49,7 +51,7 @@ ALLOWED = {
 }
 
 TERMINAL = {"实施完成", "拒绝"}
-STATES = set(DIR_STATE.values())
+STATES = set(DIR_STATE.values()) | {"新提案"}
 
 STATE_BLOCK_RE = re.compile(r"^>\s*状态[:：]\s*(.+?)\s*$", re.M)
 HEADING_RE = re.compile(r"^(#{1,6})\s*(.+?)\s*$", re.M)
@@ -173,7 +175,7 @@ def main() -> int:
         elif doc_state is None:
             flags.append("缺状态块")
         elif doc_state != dir_state:
-            flags.append(f"状态块「{doc_state}」与目录「{dir_state}」不一致（以目录为准）")
+            flags.append(f"状态块「{doc_state}」与目录「{dir_state}」不一致（由人按提案内容判断如何对齐）")
 
         trans = parse_transitions(text)
         if not trans:
