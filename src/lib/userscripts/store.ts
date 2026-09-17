@@ -26,7 +26,6 @@ export async function listSummaries(projects: ScriptProject[]): Promise<ScriptSu
     name: p.name,
     enabled: p.enabled,
     matches: p.config.matches ?? [],
-    deprecated: false,
     fileCount: Object.keys(p.files).length,
     updatedAt: p.updatedAt,
   }))

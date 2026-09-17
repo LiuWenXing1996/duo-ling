@@ -43,7 +43,6 @@ describe('listSummaries', () => {
       name: '项目一',
       enabled: true,
       matches: ['*://a.com/*'],
-      deprecated: false,
       fileCount: 2,
       updatedAt: 42,
     })

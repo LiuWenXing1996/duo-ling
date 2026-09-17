@@ -45,11 +45,7 @@ export interface ScriptSummary {
   uuid: string
   name: string
   enabled: boolean
-  /** matches（deprecated 记录来自旧 meta） */
   matches: string[]
-  /** true = 旧 GM 形态记录：不注册、不可编辑，仅展示 + 一键清理 */
-  deprecated: boolean
-  /** 文件数（deprecated 记录为 0） */
   fileCount: number
   updatedAt: number
 }
