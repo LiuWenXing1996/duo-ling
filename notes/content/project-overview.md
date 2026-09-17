@@ -10,13 +10,7 @@
 - 2026-09-14 方向变更：移除「AI 生成工具」整条链路，转为「用户脚本」（一句话生成 → 注入第三方页运行）。
 - 两个载体均已复用桌面版实现（`ChatPanel` / `WorkspaceHost`），组件本体零改动，`window.api` 按桌面版契约装配。
 
-## 待做
-
-- 工作台主页内容填充。
-- Firefox `sidebar_action` 三期适配。
-- 自定义 baseUrl 的 `optional_host_permissions` 动态申请。
-
-## 不做
+## 本文档不包括什么
 
 - 工具页承载（已随工具链移除）。
 - 系统文件夹浏览（`shell.openPath` 无 Web 对应物，已删）。

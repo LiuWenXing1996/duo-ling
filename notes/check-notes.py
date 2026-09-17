@@ -2,13 +2,14 @@
 """notes 规范检查器。
 
 遍历 notes/ 下全部笔记，按 notes/README.md 的规范体检：
-  - 结构四段齐全（现状 / 待做 / 不做 / 决策记录）
+  - 结构三段齐全（现状 / 本文档不包括什么 / 决策记录）
   - 标题 ≤30 字、一句话 ≤50 字
   - 现状 ≤1500 字（清单或段落皆可）
-  - 待做 / 不做必须为清单式，且各字段 ≤100 字
+  - 「本文档不包括什么」必须为清单式，每条「事 ≤100 字：理由 ≤100 字」
   - 决策记录：决策点 / 结论 / 依据各 ≤100 字，决策时间格式合法（可空）
 
 纯标准库，无第三方依赖。全部通过退出码 0，有偏离退出码 1。
+（决策记录「只增不减」为变更纪律，需比对历史，脚本不校验。）
 """
 from __future__ import annotations
 
@@ -66,8 +67,8 @@ def check_note(path: Path) -> list[str]:
         if n > 50:
             errors.append(f"一句话超 50 字：{n}")
 
-    # 四段齐全
-    for sec in ("现状", "待做", "不做", "决策记录"):
+    # 三段齐全
+    for sec in ("现状", "本文档不包括什么", "决策记录"):
         if section_text(md, sec) is None:
             errors.append(f"缺『## {sec}』段")
 
@@ -78,34 +79,22 @@ def check_note(path: Path) -> list[str]:
         if n > 1500:
             errors.append(f"现状超 1500 字：{n}")
 
-    # 待做：清单式 + 每条 ≤100 字
-    td = section_text(md, "待做")
-    if td is not None:
-        items = [ln for ln in td.splitlines() if ln.strip().startswith("- ")]
-        if not items:
-            errors.append("待做非清单式（无 - 条目）")
-        for it in items:
-            body = it.strip()[2:].strip()
-            n = count_chars(body)
-            if n > 100:
-                errors.append(f"待做条超 100 字：{body[:18]}…（{n}）")
-
-    # 不做：清单式 + 每条 不做≤100 : 理由≤100
-    nd = section_text(md, "不做")
+    # 本文档不包括什么：清单式 + 每条 事≤100 : 理由≤100
+    nd = section_text(md, "本文档不包括什么")
     if nd is not None:
         items = [ln for ln in nd.splitlines() if ln.strip().startswith("- ")]
         if not items:
-            errors.append("不做非清单式（无 - 条目）")
+            errors.append("『本文档不包括什么』非清单式（无 - 条目）")
         for it in items:
             body = it.strip()[2:].strip()
             if (":" not in body) and ("：" not in body):
-                errors.append(f"不做条缺理由冒号：{body[:18]}…")
+                errors.append(f"『不包括』条缺理由冒号：{body[:18]}…")
                 continue
             thing, reason = re.split(r"[:：]", body, maxsplit=1)
             if count_chars(thing) > 100:
-                errors.append(f"不做-事超 100 字：{thing[:18]}…")
+                errors.append(f"『不包括』事超 100 字：{thing[:18]}…")
             if count_chars(reason) > 100:
-                errors.append(f"不做-理由超 100 字：{reason[:18]}…")
+                errors.append(f"『不包括』理由超 100 字：{reason[:18]}…")
 
     # 决策记录表：决策点/结论/依据各 ≤100；时间格式合法（可空）
     dr = section_text(md, "决策记录")

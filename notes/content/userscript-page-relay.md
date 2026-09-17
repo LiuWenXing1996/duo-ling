@@ -11,12 +11,7 @@
 - 通道同帧 `window.postMessage`；stub 是纯固定逻辑机器（无 `new Function`）；握手挑战应答（`stubSecret` 闭包内、FNV 认证级）；`sid` 隔离多脚本多帧。
 - 能力天花板：全 async、不承诺对象同一性、不逐帧高频、不传函数/DOM 过桥。
 
-## 待做
-
-- eval 与句柄体系（一期验证后单独立项）；XHR/WebSocket 等 hook 逐个立项。
-- 跨帧聚合（未决）；`stubSecret` 是否 per 脚本（倾向共享）。
-
-## 不做
+## 本文档不包括什么
 
 - 任何同步形态页面访问；页面→脚本方向调用；泛化 hook 框架；stub 内持久业务逻辑。
 

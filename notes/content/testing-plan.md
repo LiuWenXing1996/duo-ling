@@ -10,12 +10,7 @@
 - 关键结论：E2E 必须用 Playwright 捆绑 Chromium（本机 branded Chrome 已删 side-load flag，加载不了外部扩展）。
 - 命名强制：组件测试 `*.component.test.ts`，否则被 logic project 在 node 环境误跑。
 
-## 待做
-
-- 层 5 扩面：覆盖更多跨上下文链路与真实浏览器行为。
-- 更多组件测试按需补（仅改动频繁组件）。
-
-## 不做
+## 本文档不包括什么
 
 - side panel 无头断言（需 user gesture，改手测覆盖）。
 - 单测/端测并入 `typecheck`。

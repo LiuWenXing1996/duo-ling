@@ -10,12 +10,7 @@
 - 三个坑已处理：抽 `idb-fs.ts` 承接共享 lfs 实例；`tool-code-view`→`code-view` 保留；`window-api.ts` 必留只摘 `tool` 命名空间。
 - 存量数据（`/tools/*`、`toolPrefs.*`、工具 id 键）原地留置、不清理（惰性字节、不在读路径）；`home` 标签 kind 保留、内容置空待填。
 
-## 待做
-
-- 工作台主页（`home` 标签）内容填充。
-- PRD 重写（产品级动作，另开任务，不夹在重构里）。
-
-## 不做
+## 本文档不包括什么
 
 - 存量数据清理逻辑 / 按钮（老大定「不管」）。
 - `DeveloperPanel`（已删）、workbench 双脚本列表入口简化（本次不动）。

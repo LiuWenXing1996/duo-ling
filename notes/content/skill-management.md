@@ -10,12 +10,7 @@
 - 删 `skills-lock.json`（与 deepseek-harness「Git 即包管理器」哲学冲突）；frontmatter 极简，description 须具体（建议 "Use when …"）。
 - 三层分工：发现 = symlink 宿主扫描；调度强制 = AGENTS.md 挂载句；深层规范 = SKILL.md 全文（按需现读）。
 
-## 待做
-
-- 装 `pre-push-checks`、`wxt-build-debug`（工作流 SOP）。
-- 按需引入 `.agents/notes/` ADR 体系（非平凡改动同 PR 带 note）。
-
-## 不做
+## 本文档不包括什么
 
 - `npx skills` CLI / lockfile / 给 skill 加版本号。
 - 照搬 13 个 dsh-* skill；Windows symlink 断裂暂不影响（团队 macOS）。

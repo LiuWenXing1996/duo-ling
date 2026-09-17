@@ -10,11 +10,7 @@
 - 写工作区纯 fs 不动 index（`writeWorktree`）；打开时 `readWorktree` 判 null 防清空用户脚本；deep watch + debounce 500ms + 串行化 + 关标签前 flush。
 - 保存即提交、`baseline` 更新；丢弃用 `baseline` 重写工作区（不用 `git checkout HEAD`）；恢复历史版本整体覆盖工作区 = 隐式丢弃草稿。
 
-## 待做
-
-- 无（已实施）。
-
-## 不做
+## 本文档不包括什么
 
 - 独立 IndexedDB 草稿库（`draft-store.ts`）；`git checkout HEAD` 回滚（HEAD 可能落后 storage）。
 

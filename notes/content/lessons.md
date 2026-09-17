@@ -9,11 +9,7 @@
 - WXT/扩展工程：缺生成目录（`.wxt/`、`.chrome-dev-profile/`）同根因族；`chrome.userScripts.register` 无 `persistAcrossSessions` 字段——**不给平台 API 手写类型补齐**，运行时用 TypeError 还债。
 - Vitest/测试基建：import 链带到 `us-fs.ts` 必须 `vi.mock`（连 `us-git`）；协议一致性穷尽三件套 = `as const satisfies` + `Exclude` 类型闸 + 运行时 XOR 断言。
 
-## 待做
-
-- 持续追加新踩坑，以符号名定位（文件:行号随重构漂移）。
-
-## 不做
+## 本文档不包括什么
 
 - 经验写入 IDE 的 project_memory（一律记本仓库，随 git 分发）。
 

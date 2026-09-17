@@ -11,11 +11,7 @@
 - 构建：esbuild-wasm 在扩展 UI 页（后迁 offscreen）；远程依赖持久化进 files；裸 npm 包名报错；默认不 minify（报错行号可读）。
 - 2026-09-15 修订：SW 只注册最终产物（无直跑源码回退）；粘贴安装功能整体移除（装脚本只剩零输入新建 + AI 生成）。
 
-## 待做
-
-- Phase 4 反向中继 `DL.page`（规范稿 v2 待评审）；CodeMirror 6 高亮（后置）；`.user.js` 导入转换器（可选）。
-
-## 不做
+## 本文档不包括什么
 
 - `GM_*` 兼容 / shim；运行时打包（blob/import maps）；手动 `<script>` 注入；popup 脚本菜单；脚本自动更新。
 

@@ -10,12 +10,7 @@
 - `DL.store` 按脚本隔离（`us:gm:<uuid>:<key>`），值须 Json；`DL.fetch` 后台发、免 CORS、回传纯数据；失败 reject Error 不吞。
 - 一期已覆盖；二期 `store.watch`/`menu.register` 需长连接 port；`cookie.*` 挪期（需 `cookies` 权限）；`DL.page.*` 另立规范。
 
-## 待做
-
-- 阶段二长连接能力（store.watch / menu.register）。
-- `DL.page.*` 反向中继访问页面世界规范；未决项实测（长连接可行性、存储体积上限、流式回调）。
-
-## 不做
+## 本文档不包括什么
 
 - GM_* 兼容（资源改模块化 import 承担）。
 - 跨桥同步伪造（不做 VM/TM 式预载快照）。

@@ -11,11 +11,7 @@
 - 前置项实测通过：SW 冷启动可读 IDB；清浏览数据两边抗清理一致；`offscreen:ensure` 冷启 58ms / 稳态 0.7ms。
 - 实现偏差：新增 `state:*` 命令面；`reconcileFs` 仅启动跑一次；删 `ai:snapshot`/`ai:deleteRepo`。
 
-## 待做
-
-- 无（已实现）。
-
-## 不做
+## 本文档不包括什么
 
 - 数据迁移（老大明确无旧数据）。
 - `DL.store` / `us:errors` 纳入单写方。
