@@ -1,4 +1,4 @@
-// 反向中继 · 脚本侧客户端源码模板（docs/userscript-page-relay.md v2 §4 / §6）。
+// 反向中继 · 脚本侧客户端源码模板（notes/content/userscript-page-relay.md）。
 //
 // buildPageClientSource(pageSecret) 返回的字符串由 engine.ts 的 buildDlWrapper 内联到
 // DL 包装里（USER_SCRIPT 世界），运行结果赋给 DL.page。与 page-stub.ts 成对：

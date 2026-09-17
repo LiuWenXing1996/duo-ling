@@ -240,7 +240,7 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
     for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i)
     return buf.buffer
   }
-  // —— 反向中继客户端（docs/userscript-page-relay.md v2）——
+  // —— 反向中继客户端（notes/content/userscript-page-relay.md）——
   var __dlPageApi = ${clientSource}
 
   var DL = {
@@ -356,7 +356,7 @@ function sourceURLSuffix(project: ScriptProject): string {
   return `\n//# sourceURL=duoling://script/${project.uuid}/${safeName}.js`
 }
 
-// —— 反向中继 stub 注册（docs/userscript-page-relay.md v2 §5.2）——
+// —— 反向中继 stub 注册（notes/content/userscript-page-relay.md）——
 
 /** MAIN 世界共享桩的注册 ID：一个扩展一份，不是每脚本一份 */
 export const PAGE_STUB_ID = 'dl-page-stub'

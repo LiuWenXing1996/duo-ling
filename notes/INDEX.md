@@ -32,7 +32,7 @@
 | [脚本文件树迁 offscreen](content/offscreen-fs-migration.md) | [docs/offscreen-fs-migration.md](../docs/offscreen-fs-migration.md) | lfs + isomorphic-git 归 offscreen（§2.3–2.5 已被单写方取代） |
 | [编辑器草稿](content/userscript-draft.md) | —（已并入 notes） | 草稿 = 工作区未提交改动，自动落盘、重开恢复 |
 | [脚本 Git 历史浏览](content/userscript-git-history.md) | —（已并入 notes） | 每脚本一仓、状态库权威 git 为侧车，保存自动版本 |
-| [页面世界反向中继（DL.page）](content/userscript-page-relay.md) | [docs/userscript-page-relay.md](../docs/userscript-page-relay.md) | 一期 listen + hook('fetch')；eval 与句柄后置 |
+| [页面世界反向中继（DL.page）](content/userscript-page-relay.md) | —（已并入 notes） | 一期 listen + hook('fetch')；eval 与句柄后置 |
 | [脚本 zip 导入导出](content/userscript-zip-transfer.md) | [docs/userscript-zip-transfer.md](../docs/userscript-zip-transfer.md) | 分享闭环：导出 zip、导入尽量导入、恒停用态 |
 
 ## 测试与踩坑

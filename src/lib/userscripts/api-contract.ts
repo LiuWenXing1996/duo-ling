@@ -183,7 +183,7 @@ export interface DuoLingApi {
   log(...args: unknown[]): void
 
   /**
-   * 反向中继 · 页面世界访问（docs/userscript-page-relay.md v2，一期 listen + hook('fetch')）。
+   * 反向中继 · 页面世界访问（notes/content/userscript-page-relay.md，一期 listen + hook('fetch')）。
    * 对全部脚本开放（无 pageAccess 门禁）。
    */
   page: DlPageApi

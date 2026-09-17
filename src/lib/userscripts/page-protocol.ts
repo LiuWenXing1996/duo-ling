@@ -1,4 +1,4 @@
-// 反向中继共享协议常量（docs/userscript-page-relay.md v2）。
+// 反向中继共享协议常量（notes/content/userscript-page-relay.md）。
 //
 // page-stub.ts（MAIN 世界桩）与 page-client.ts（USER_SCRIPT 世界客户端）是两段
 // 字符串模板源码，无法 import 共享——digest 等必须逐字节一致的片段在这里以
