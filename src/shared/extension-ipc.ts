@@ -78,7 +78,7 @@ export interface ChatMessageMetadata {
   pageContext?: MessagePageContext
 }
 
-// —— 页面脚本状态浮窗载荷（docs/proposals/implementing/runtime-feedback-loop.md）——
+// —— 页面脚本状态浮窗载荷（docs/proposals/done/runtime-feedback-loop.md）——
 // ⚠️ 与 src/public/duoling-status.js 的 vanilla JS 手写对齐，改形状必须两边同步。
 
 /** 浮窗的一条脚本行 */
