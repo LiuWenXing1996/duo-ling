@@ -1,4 +1,4 @@
-// Agent 工具：script 三件套（script_spec / script_read / script_apply，选型见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」，写法见 docs/userscript-ai-generation.md「写入契约」）+ element_read / page_snapshot（页面上下文，docs/proposals/done/element-picker.md）。
+// Agent 工具：script 三件套（script_spec / script_read / script_apply，选型见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」，写法见 docs/userscript-ai-generation.md「写入契约」）+ element_read / page_snapshot（页面上下文，docs/proposals/done/element-picker.md）+ error_read（错误 ID 查询，docs/proposals/done/runtime-feedback-loop.md）。
 //
 // 设计要点：
 //   · **script_apply 把「写」和「验证」合并成一步**：入参完整文件树 → esbuild 构建，
@@ -15,7 +15,8 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import { buildProject, BuildError } from '@/lib/userscripts/builder'
 import { getProject, validateFiles } from '@/lib/userscripts/project-store'
-import type { ScriptConfig } from '@/lib/userscripts/types'
+import type { ScriptConfig, UserScriptErrorRecord } from '@/lib/userscripts/types'
+import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
@@ -72,6 +73,7 @@ export function buildScriptTools(
   onFatal?: () => void,
   elementContext?: ElementPickContext,
   captureSnapshot?: () => Promise<PageSnapshotContext>,
+  readError?: (id: string) => Promise<UserScriptErrorLookup>,
 ) {
   const tools = {
     script_spec: tool({
@@ -237,6 +239,47 @@ export function buildScriptTools(
           }
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) }
+        }
+      },
+    }),
+    error_read: tool({
+      description:
+        '按错误 ID 查询一条脚本错误记录。用户可能直接粘贴一个错误 ID（脚本运行出错后，' +
+        '工作台错误日志里每条错误旁都展示，前 8 位短形态）要求修复。返回错误详情（message / stack / ' +
+        '报错页面 url）与脚本 uuid——uuid 可直接交给 script_read 读源码，改完带 updateUuid 调 script_apply 原地更新。',
+      inputSchema: z.object({
+        id: z.string().describe('错误 ID：完整 id，或至少 8 位的前缀（多命中会报不唯一）'),
+      }),
+      execute: async ({ id }) => {
+        if (!readError) {
+          return { ok: false, error: '错误查询通道不可用（当前环境未接入）' }
+        }
+        let r: UserScriptErrorLookup
+        try {
+          r = await readError(id)
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+        }
+        if (!r.found) {
+          return {
+            ok: false,
+            error:
+              r.reason === 'ambiguous'
+                ? '该前缀命中多条错误记录，请让用户复制完整错误 ID（工作台错误日志的复制按钮）'
+                : '错误记录不存在（环形日志只保留最近 50 条，可能已被挤出；请让用户确认 ID）',
+          }
+        }
+        const rec: UserScriptErrorRecord = r.record
+        return {
+          ok: true,
+          errorId: rec.id,
+          scriptUuid: rec.uuid,
+          scriptName: rec.name,
+          phase: rec.phase,
+          message: rec.message,
+          ...(rec.stack ? { stack: rec.stack } : {}),
+          ...(rec.url ? { pageUrl: rec.url } : {}),
+          time: rec.time,
         }
       },
     }),

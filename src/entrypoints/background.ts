@@ -27,7 +27,7 @@ import {
   recoverOnUpdate,
   registerScript,
   unregisterScripts,
-  refreshPageStub,
+  refreshBuiltinScripts,
   getEffectiveCspPermissive,
   collectCspWarnings,
   resolveInjectCode,
@@ -42,7 +42,14 @@ import {
   listUserScriptErrors,
   clearUserScriptErrors,
   appendUserScriptError,
+  findUserScriptError,
 } from '@/lib/userscripts/store'
+// 页面脚本状态浮窗（提案②）：数据推送 / 端口登记 / 跳工作台深链（SW 侧逻辑）
+import {
+  forgetStatusBubbleTab,
+  initStatusBubblePorts,
+  pushStatusBubble,
+} from '@/lib/userscripts/status-bubble'
 import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主，docs/userscript-ai-generation.md「三容器职责与数据流」）
@@ -135,8 +142,8 @@ async function writeViaOffscreen<T>(request: RuntimeRequest): Promise<T> {
  */
 async function registerOrLog(project: ScriptProject): Promise<string | undefined> {
   try {
-    // 先同步 MAIN 桩（启用脚本集合可能变化），再注册脚本——保证桩与包装密钥同代
-    await refreshPageStub().catch(() => {})
+    // 先同步内置注册（MAIN 桩 + 状态浮窗，启用脚本集合可能变化），再注册脚本——保证桩与包装密钥同代
+    await refreshBuiltinScripts().catch(() => {})
     await registerScript(project)
     return undefined
   } catch (e) {
@@ -260,8 +267,8 @@ const handlers: {
   // 仓的删除原先只能靠 offscreen 启动对账兜（删完会滞留一阵），现在写侧同在 offscreen，一步清干净。
   'userscript:remove': async (msg): Promise<void> => {
     await unregisterScripts([msg.uuid]).catch(() => {})
-    // 该脚本对桩并集的贡献随之消失，桩可能需要注销
-    await refreshPageStub().catch(() => {})
+    // 该脚本对内置并集的贡献随之消失，MAIN 桩 / 状态浮窗可能需要注销
+    await refreshBuiltinScripts().catch(() => {})
     await writeViaOffscreen<void>({ kind: 'state:remove', uuid: msg.uuid })
     await clearGMValues(msg.uuid)
   },
@@ -298,8 +305,8 @@ const handlers: {
     })
     if (msg.enabled) return { registerError: await registerOrLog(next) }
     await unregisterScripts([msg.uuid]).catch(() => {})
-    // 关停后桩并集可能缩小，桩可能需要注销
-    await refreshPageStub().catch(() => {})
+    // 关停后内置并集可能缩小，MAIN 桩 / 状态浮窗可能需要注销
+    await refreshBuiltinScripts().catch(() => {})
     return {}
   },
 
@@ -312,6 +319,11 @@ const handlers: {
   'userscript:availability': async (): Promise<UserScriptsAvailability> => getUserScriptsStatus(),
 
   'userscript:errors': async (): Promise<ReturnType<typeof listUserScriptErrors>> => listUserScriptErrors(),
+
+  // 错误 ID 修复闭环（提案②）：AI 的 error_read 工具经 offscreenBridge 到此代查。
+  // 精确 id 或唯一 8 位前缀；多命中 / 不存在由信封里的 reason 区分（调用方给可读文案）
+  'userscript:errorRead': async (msg): Promise<ReturnType<typeof findUserScriptError>> =>
+    findUserScriptError(msg.id),
 
   'userscript:clearErrors': async (): Promise<void> => {
     await clearUserScriptErrors()
@@ -352,6 +364,61 @@ async function initUserScripts(): Promise<void> {
 // 时间戳每次刷新都会变，SW 的只在 dev 重启 / 重新构建时才变，两者语义见 wxt.config.ts 注释。
 declare const __BUILD_INFO__: { time: string; branch: string }
 
+// —— 生成完成徽章（提案② #2）——
+// 面板存活感知：侧边栏打开时连一条端口长连接（ChatApp 挂载时 connect），断开 = 面板关了。
+// 任务收尾推送 chat:finished 到达时：面板开着 → 不做任何事；面板关着 → 图标角标亮 '1'。
+// 角标是「你不在时有事发生了」的信号：不计数、失败同亮同色、面板一开即清零。
+const panelPorts = new Set<chrome.runtime.Port>()
+
+function setFinishedBadge(): void {
+  chrome.action.setBadgeBackgroundColor({ color: '#d93025' }).catch(() => {})
+  chrome.action.setBadgeText({ text: '1' }).catch(() => {})
+}
+
+function clearFinishedBadge(): void {
+  chrome.action.setBadgeText({ text: '' }).catch(() => {})
+}
+
+/** chat:finished 观察（offscreen 推送，chat: 前缀按约定不进命令路由，这里只旁听） */
+function handleChatFinishedPush(ok: boolean): void {
+  if (panelPorts.size === 0) setFinishedBadge()
+  void ok
+}
+
+// —— 页面脚本状态浮窗 + 完成徽章的事件挂载（提案②）——
+// ⚠️ 全部 addListener 必须留在 defineBackground 回调内（与既有监听器同惯例）：
+// 本文件会被协议一致性测试 import（取 SW_KIND_PREFIXES），模块顶层挂监听会在
+// Node/fakeBrowser 下炸（runtime.onConnect 未实现）——之前踩过。
+function mountProposal2Listeners(): void {
+  // 浮窗：导航后把「本页脚本 + 错误」推给该 tab 的浮窗端口（注入本身由 register 声明式完成，
+  // 这里只管数据；complete 覆盖普通导航，url 变化兜住 SPA 软导航）
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status !== 'complete' && !changeInfo.url) return
+    const url = changeInfo.url ?? tab.url
+    if (!url) return
+    void pushStatusBubble(tabId, url)
+  })
+
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    forgetStatusBubbleTab(tabId)
+  })
+
+  // 面板存活端口 + 徽章清零
+  chrome.runtime.onConnect.addListener((port) => {
+    if (port.name !== 'duoling:panel') return
+    panelPorts.add(port)
+    clearFinishedBadge() // 用户回来了：信号完成使命
+    port.onDisconnect.addListener(() => panelPorts.delete(port))
+  })
+
+  chrome.sidePanel.onOpened.addListener(() => {
+    clearFinishedBadge()
+  })
+
+  // 浮窗端口（上行：跳工作台深链 / 重连后拉数据）
+  initStatusBubblePorts()
+}
+
 export default defineBackground(() => {
   // 启动自证：console 第一条就是构建信息，「SW 是不是新包」不用再靠猜
   console.log(`[duoling:sw] SW 启动 · 构建 ${__BUILD_INFO__.time} · 分支 ${__BUILD_INFO__.branch}`)
@@ -364,6 +431,9 @@ export default defineBackground(() => {
 
   // 用户脚本管理器：启动配置世界并恢复已启用脚本（设计文档 §4）
   void initUserScripts().catch((e) => console.error('[duoling:userscript] init failed', e))
+
+  // 提案②监听器：浮窗注入 / 面板端口 / 完成徽章 / 深链跳转
+  mountProposal2Listeners()
 
   // offscreen 需「随时可用」：安装 / 更新 / 浏览器启动都立即确保容器在场。
   // Chrome 不会自动启动 offscreen，且 idle 自关未实现，故改为常驻策略（与 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」的退出条件已冲突，见 offscreen.ts）。
@@ -402,6 +472,13 @@ export default defineBackground(() => {
   chrome.runtime.onMessage.addListener((raw, _sender, sendResponse) => {
     const msg = raw as RuntimeRequest | undefined
     if (!msg?.kind) return
+
+    // 旁听 offscreen 推送（chat:finished：任务收尾）。chat: 前缀对命令面是 offscreen 保留
+    // 前缀，SW 静默让路；这里只观察不响应（推送方对响应本就尽力而为）。
+    if ((msg as { kind: string }).kind === 'chat:finished') {
+      handleChatFinishedPush((msg as { ok?: boolean }).ok === true)
+      return false
+    }
 
     // 路由：只响应归 SW 管辖的 kind，其余静默让路给 offscreen（见 SW_KIND_PREFIXES）
     if (!SW_KIND_PREFIXES.some((p) => msg.kind.startsWith(p))) return false

@@ -7,6 +7,7 @@ import {
   clearGMValues,
   clearUserScriptErrors,
   deleteGMValue,
+  findUserScriptError,
   getGMValue,
   listGMKeys,
   listSummaries,
@@ -151,5 +152,42 @@ describe('错误日志（us:errors 环形保留）', () => {
     await appendUserScriptError({ uuid: null, name: 's', phase: 'runtime', message: 'x' })
     await clearUserScriptErrors()
     await expect(listUserScriptErrors()).resolves.toEqual([])
+  })
+
+  describe('findUserScriptError（错误 ID 查询，提案②）', () => {
+    it('精确 id 命中（优先于前缀匹配）', async () => {
+      await appendUserScriptError({
+        id: 'aaaaaaaa-1111',
+        uuid: 'u1',
+        name: 's',
+        phase: 'runtime',
+        message: 'm1',
+      })
+      const r = await findUserScriptError('aaaaaaaa-1111')
+      expect(r).toEqual({ found: true, record: expect.objectContaining({ message: 'm1' }) })
+    })
+
+    it('唯一 8 位前缀命中', async () => {
+      await appendUserScriptError({ id: '11111111aaaa', uuid: 'u1', name: 's', phase: 'runtime', message: 'm1' })
+      await appendUserScriptError({ id: '22222222bbbb', uuid: 'u2', name: 's', phase: 'runtime', message: 'm2' })
+      const r = await findUserScriptError('11111111')
+      expect(r).toEqual({ found: true, record: expect.objectContaining({ message: 'm1' }) })
+    })
+
+    it('前缀多命中 → ambiguous（绝不猜）', async () => {
+      await appendUserScriptError({ id: '33333333aaaa', uuid: 'u1', name: 's', phase: 'runtime', message: 'm1' })
+      await appendUserScriptError({ id: '33333333bbbb', uuid: 'u2', name: 's', phase: 'runtime', message: 'm2' })
+      expect(await findUserScriptError('33333333')).toEqual({ found: false, reason: 'ambiguous' })
+      expect(await findUserScriptError('33333333a')).toEqual({
+        found: true,
+        record: expect.objectContaining({ message: 'm1' }),
+      })
+    })
+
+    it('短于 8 位的前缀直接 not-found；不存在的 id → not-found', async () => {
+      await appendUserScriptError({ id: '44444444aaaa', uuid: 'u1', name: 's', phase: 'runtime', message: 'm1' })
+      expect(await findUserScriptError('4444')).toEqual({ found: false, reason: 'not-found' })
+      expect(await findUserScriptError('99999999')).toEqual({ found: false, reason: 'not-found' })
+    })
   })
 })

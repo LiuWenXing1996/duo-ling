@@ -79,3 +79,13 @@ export function replaySince(
   if (since < oldest - 1) return { complete: false, events: [] }
   return { complete: true, events: b.events.filter((e) => e.seq > since) }
 }
+
+/**
+ * 任务收尾推送（chat:finished，提案② #2）：SW 旁听后在「面板关着」时点亮完成徽章。
+ * ok = 是否正常收敛（停止 / 异常为 false；徽章同亮同色，不区分）。
+ * 尽力而为：SW 未起 / 无接收方都会 reject，任务收尾不受影响。
+ */
+export function notifyChatFinished(conversationId: string, ok: boolean): void {
+  const push: OffscreenPush = { kind: 'chat:finished', conversationId, ok }
+  void chrome.runtime.sendMessage(push).catch(() => {})
+}

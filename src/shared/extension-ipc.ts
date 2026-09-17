@@ -78,6 +78,55 @@ export interface ChatMessageMetadata {
   pageContext?: MessagePageContext
 }
 
+// —— 页面脚本状态浮窗载荷（docs/proposals/done/runtime-feedback-loop.md）——
+// ⚠️ 与 src/public/duoling-status.js 的 vanilla JS 手写对齐，改形状必须两边同步。
+
+/** 浮窗的一条脚本行 */
+export interface StatusBubbleScript {
+  uuid: string
+  name: string
+  /**
+   * 该脚本 runtime + register 阶段的错误（最新在前；bridge 阶段噪音大，不计）。
+   * **SW 不做「本次运行」过滤**——runId 指针在浮窗侧，故这里原样透传，浮窗按自持 runId 集合过滤后计数。
+   * 环形日志上限 50 条，故整个载荷天然有界。
+   */
+  errors: StatusBubbleErrorItem[]
+}
+
+/** 浮窗行内展示的一条错误（message 已在 SW 侧截断） */
+export interface StatusBubbleErrorItem {
+  message: string
+  time: number
+  /** 一次页面加载 = 一个 runId；register 阶段错误无运行上下文，为 null */
+  runId: string | null
+  /** register 错误无页面/运行上下文，浮窗里**恒显**（不被 run 轴误杀） */
+  phase: 'runtime' | 'register'
+}
+
+/** 浮窗数据：脚本行列表；scripts 为空 = 浮窗自隐藏 */
+export interface StatusBubbleData {
+  /** 页面 host（展示用） */
+  host: string
+  scripts: StatusBubbleScript[]
+}
+
+/**
+ * SW → 浮窗的端口推送（浮窗经 `runtime.connect({name:'duoling:status'})` 建连，
+ * SW 侧 `runtime.onUserScriptConnect` 拿到**双向 Port**，可主动 postMessage）。
+ * ⚠️ 与 src/public/duoling-status.js 的 vanilla JS 手写对齐，改形状必须两边同步。
+ */
+export type StatusBubblePush =
+  | { t: 'data'; data: StatusBubbleData | null }
+  /** 脚本注入即广播的运行标识：**浮窗据此自持「当前运行」指针**（SW 只转发、不存储） */
+  | { t: 'runstart'; uuid: string; runId: string }
+
+/** 浮窗 → SW 的端口上行 */
+export type StatusBubbleUp =
+  /** 点击脚本行 → 打开/聚焦工作台并深链到该脚本的错误 */
+  | { t: 'openErrors'; uuid: string }
+  /** 重连后主动拉一次（补上断连期间少收的推送） */
+  | { t: 'refresh' }
+
 /** 渲染页 → service worker 的请求（kind 可辨识联合，background 按 kind 分发） */
 export type RuntimeRequest =
   // 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）
@@ -96,6 +145,9 @@ export type RuntimeRequest =
   | { kind: 'userscript:availability' }
   | { kind: 'userscript:errors' }
   | { kind: 'userscript:clearErrors' }
+  // 错误 ID 修复闭环（提案② runtime-feedback-loop.md）：AI 的 error_read 工具经 SW 代查
+  // us:errors（offscreen 拿不到 chrome.storage）。id = 完整记录 id 或唯一 8 位前缀
+  | { kind: 'userscript:errorRead'; id: string }
   // zip 导入（docs/userscript-zip-transfer.md）：UI 读 zip 文件转 base64，SW 纯转发 offscreen
   // 单写方（解码 + 校验 + 构建 + 落盘同处）。enabled 恒 false——先审后启，故无注册动作。
   // 导出零新增协议：走现成 userscript:list / getProject 只读命令。
@@ -198,10 +250,15 @@ export type RuntimeRequest =
  *
  * chat:chunk —— offscreen → 侧边栏（观察者）的事件流：每条带会话 id 与自增 seq，
  * 侧边栏按 seq 去重（重连回放与实时推送短暂重叠时防重）。SW 不消费（前缀不在白名单）。
+ *
+ * chat:finished —— offscreen → SW（观察者）：任务收尾（正常 / 异常）通知，SW 据此在
+ * 「面板关着」时点亮扩展图标完成徽章（提案② #2）。面板开着时 SW 不做任何事。
+ * 注意 `chat:` 前缀对 RuntimeRequest 是 offscreen 保留前缀；OffscreenPush 不进命令面，不受此限。
  */
 export type OffscreenPush =
   | { kind: 'offscreen:configChanged' }
   | { kind: 'chat:chunk'; conversationId: string; seq: number; chunk: import('ai').UIMessageChunk }
+  | { kind: 'chat:finished'; conversationId: string; /** true = 正常收敛；false = 停止 / 异常（徽章同亮，不区分色） */ ok: boolean }
 
 /** service worker → 渲染页的应答：统一信封，调用方据 ok 分支 */
 export type RuntimeResponse<T> = { ok: true; data: T } | { ok: false; error: string }

@@ -10,6 +10,11 @@ import { appendUserScriptError } from './store'
 import { buildPageStubSource } from './page-stub'
 import { buildPageClientSource } from './page-client'
 import { generatePageSecret } from './page-protocol'
+// 内置注入脚本共用：匹配并集与「未变则跳过」比对
+import { enabledMatchUnion, sameMatchSet } from './match-union'
+// 浮窗是第二份内置注册（userScripts.register + USER_SCRIPT 世界），与 MAIN 桩同链同步；
+// 只 import 不反向依赖（本模块不 import status-bubble 的其它能力），无环
+import { STATUS_BUBBLE_ID, syncStatusBubbleRegister } from './status-bubble'
 
 /** configureWorld 的 CSP：宽松（开发工具可接受），后续可收紧 */
 const US_WORLD_CSP = "script-src 'self' 'unsafe-inline' 'unsafe-eval' *"
@@ -170,7 +175,8 @@ export function collectCspWarnings(code: string, cspPermissive: boolean): string
 //
 // DL 调后台走 chrome.runtime.sendMessage —— 因世界已 configureWorld({messaging:true})，
 // USER_SCRIPT 世界的 sendMessage 会被路由到 runtime.onUserScriptMessage（非通用 onMessage）。
-// 协议信封见 api-contract.ts：请求 { __dl, uuid, req } / 错误上报 { __dlEvent, uuid, name, event }。
+// 协议信封见 api-contract.ts：请求 { __dl, uuid, req } / 错误上报 { __dlEvent, uuid, name, event } /
+// 运行标识广播 { __dlRunStart, uuid, runId }（提案②：浮窗据此只显「本次运行」的错误）。
 
 function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
   const info = JSON.stringify({ uuid: project.uuid, name: project.name })
@@ -179,6 +185,24 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
   return `
 ;(function () {
   var DL_INFO = ${info}
+  // 运行标识：**一次页面加载 = 一次运行**。注入即执行时 mint，随错误记录一起上报，
+  // 并立刻广播给 SW（SW 只转发给该页浮窗当「当前运行指针」，不落盘、SW 无状态）。
+  var __dlRunId = (function () {
+    try { return crypto.randomUUID() }
+    catch (e) { return 'r-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10) }
+  })()
+  function __dlAnnounceRun() {
+    try {
+      if (!chrome || !chrome.runtime || !chrome.runtime.sendMessage) return
+      chrome.runtime.sendMessage({ __dlRunStart: true, uuid: DL_INFO.uuid, runId: __dlRunId }, function () {
+        void chrome.runtime.lastError
+      })
+    } catch (e) { /* 世界未开 messaging：静默（与错误上报同款兜底） */ }
+  }
+  __dlAnnounceRun()
+  // load 时补播一次：浮窗在 document_start 建端口监听，但脚本可能被配成 document_start，
+  // 广播早于浮窗挂好监听时靠这次补救（浮窗侧记 runId 是幂等的）
+  if (document.readyState !== 'complete') window.addEventListener('load', __dlAnnounceRun)
   function __dlSend(req) {
     return new Promise(function (resolve, reject) {
       // 超时兜底：后台无响应时不能让 DL 调用永久挂起（表现为「既不成功也不报错」，极难排查）
@@ -290,7 +314,7 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
         return
       }
       chrome.runtime.sendMessage(
-        { __dlEvent: true, uuid: DL_INFO.uuid, name: DL_INFO.name, event: { t: 'error', phase: 'runtime', message: message, stack: stack, url: url } },
+        { __dlEvent: true, uuid: DL_INFO.uuid, name: DL_INFO.name, event: { t: 'error', phase: 'runtime', message: message, stack: stack, url: url, runId: __dlRunId } },
         function () {
           var le = chrome.runtime.lastError
           if (le) console.warn('[duoling:userscript] 运行期错误上报失败：' + le.message)
@@ -371,50 +395,15 @@ export async function rotatePageSecret(): Promise<void> {
   await chrome.storage.local.set({ [PAGE_SECRET_KEY]: pageSecretCache }).catch(() => {})
 }
 
-/** 启用脚本的四字段匹配并集（桩注入面）；无启用脚本返回 null */
-function pageStubUnion(projects: ScriptProject[]): {
-  matches: string[]
-  excludeMatches?: string[]
-  includeGlobs?: string[]
-  excludeGlobs?: string[]
-} | null {
-  const pageProjects = projects.filter((p) => p.enabled)
-  if (!pageProjects.length) return null
-  const merge = (get: (c: ScriptProject) => string[] | undefined): string[] | undefined => {
-    const all = [...new Set(pageProjects.flatMap((p) => get(p) ?? []))]
-    return all.length ? all : undefined
-  }
-  return {
-    matches: merge((p) => p.config.matches) ?? [],
-    excludeMatches: merge((p) => p.config.excludeMatches),
-    includeGlobs: merge((p) => p.config.includeGlobs),
-    excludeGlobs: merge((p) => p.config.excludeGlobs),
-  }
-}
-
-function sameMatchSet(
-  a: { matches?: string[]; excludeMatches?: string[]; includeGlobs?: string[]; excludeGlobs?: string[] },
-  b: { matches?: string[]; excludeMatches?: string[]; includeGlobs?: string[]; excludeGlobs?: string[] },
-): boolean {
-  const norm = (v?: string[]) => JSON.stringify([...(v ?? [])].sort())
-  return (
-    norm(a.matches) === norm(b.matches) &&
-    norm(a.excludeMatches) === norm(b.excludeMatches) &&
-    norm(a.includeGlobs) === norm(b.includeGlobs) &&
-    norm(a.excludeGlobs) === norm(b.excludeGlobs)
-  )
-}
-
 /**
  * 按并集维护 MAIN 世界共享桩（幂等可重入；调用方负责串行化）。
  * 匹配并集未变且桩已在位时跳过重注册——重注册会换注入源码，已加载页面要到下次导航才换新，
  * 无谓重注册只会扩大「桩与脚本包装密钥不同代」的窗口。
- * 并集为空 → 注销桩。注意：并集取的是四字段的并（exclude 取并意味着桩注入面可能略大于
- * 单脚本需求），桩无特权、无会话则无事发生，宁可多注入不可漏注入。
+ * 并集为空 → 注销桩。并集算法与比对在 match-union.ts（与状态浮窗共用同一份口径）。
  */
 async function syncPageStubUnion(projects: ScriptProject[]): Promise<void> {
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
-  const union = pageStubUnion(projects)
+  const union = enabledMatchUnion(projects)
   let existing: chrome.userScripts.RegisteredUserScript | undefined
   try {
     existing = (await chrome.userScripts.getScripts()).find((s) => s.id === PAGE_STUB_ID)
@@ -456,11 +445,17 @@ async function syncPageStubUnion(projects: ScriptProject[]): Promise<void> {
   }
 }
 
-/** 重算桩注册（挂 registerChain 串行队列）：脚本增删改/启停/删除后由 background 调用 */
-export function refreshPageStub(): Promise<void> {
+/**
+ * 重算**内置注入脚本**的注册（挂 registerChain 串行队列）：脚本增删改 / 启停 / 删除后由 background 调用。
+ * 两份内置注册同链同步，顺序固定为先桩后浮窗（都幂等）：
+ *   · DL.page MAIN 桩（world: 'MAIN'，页面世界能力代理）
+ *   · 页面状态浮窗（worldId: us-builtin-status，UI）
+ */
+export function refreshBuiltinScripts(): Promise<void> {
   const run = registerChain.then(async () => {
     const projects = await listProjects()
     await syncPageStubUnion(projects)
+    await syncStatusBubbleRegister(projects)
   })
   registerChain = run.catch(() => {})
   return run
@@ -543,13 +538,15 @@ export function registerAllEnabled(): Promise<void> {
 
 async function runRegisterAllEnabled(): Promise<void> {
   const projects = await listProjects()
-  // 先同步 MAIN 桩（启用脚本集合可能变化），再重注册脚本——同一遍里保持桩与包装密钥一致
+  // 先同步内置注册（启用脚本集合可能变化），再重注册脚本——同一遍里保持桩与包装密钥一致
   await syncPageStubUnion(projects).catch(() => {})
+  await syncStatusBubbleRegister(projects).catch(() => {})
   const enabled = projects.filter((p) => p.enabled)
   try {
     const existing = await chrome.userScripts.getScripts()
-    // 全量重注册只清用户脚本——MAIN 桩在上一行刚按并集同步过，不能被这把误清
-    const stale = existing.filter((s) => s.id !== PAGE_STUB_ID)
+    // 全量重注册只清用户脚本——内置注册（MAIN 桩 / 状态浮窗）在上一行刚按并集同步过，
+    // 不能被这把误清（清了浮窗就再也不出现了，且不会再有人给它重注册）
+    const stale = existing.filter((s) => s.id !== PAGE_STUB_ID && s.id !== STATUS_BUBBLE_ID)
     if (stale.length) await unregisterScripts(stale.map((s) => s.id))
   } catch {
     // 可用性未恢复时 getScripts 抛错，忽略（上层已检测）

@@ -66,7 +66,10 @@ function openUiTestTab(): void {
 
 // 打开脚本列表标签页：若已打开则激活，否则新开一个。
 // 2026-09-15 起这是脚本管理的唯一入口（旧管理器覆盖层已删除，能力全部并入本标签页）。
-function openUserscriptListTab(): void {
+// focusErrorUuid（提案②）：浮窗深链 #/errors/<uuid> 进来时顺带把错误日志定位到该脚本。
+const errorFocusUuid = ref<string | null>(null)
+function openUserscriptListTab(focusErrorUuid?: string): void {
+  errorFocusUuid.value = focusErrorUuid ?? null
   if (!openTabs.value.some((t) => t.kind === 'userscript-list')) {
     openTabs.value.push({ kind: 'userscript-list', id: 'userscript-list', title: '脚本列表' })
   }
@@ -212,6 +215,7 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBro
         <!-- 脚本列表：列出全部用户脚本 + 启停；「编辑」开对应的编辑器标签页 -->
         <userscript-list-panel
           v-else-if="tab.kind === 'userscript-list'"
+          :focus-error-uuid="errorFocusUuid"
           @edit="openUserscriptEditor"
           @deleted="onUserscriptDeleted"
         />

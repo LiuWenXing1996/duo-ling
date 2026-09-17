@@ -124,7 +124,20 @@ function onRenameConversation(payload: { id: string; title: string }): void {
 
 onMounted(() => {
   void loadConversations()
+  // 面板存活端口（提案② #2）：长连接给 SW 做「面板开着没」的判定（onDisconnect = 面板关了），
+  // SW 据此决定生成完成时是否亮图标角标。连接须持有引用防 GC——断开由 SW 侧 onDisconnect 感知。
+  connectKeepAlive()
 })
+
+/** 面板存活端口；模块级持有，面板文档存续期间不断开 */
+let panelPort: chrome.runtime.Port | null = null
+function connectKeepAlive(): void {
+  try {
+    panelPort = chrome.runtime.connect({ name: 'duoling:panel' })
+  } catch {
+    // SW 尚未起等场景：尽力而为，badge 判定退化为「面板关着」也无大碍
+  }
+}
 </script>
 
 <template>

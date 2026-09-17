@@ -34,3 +34,8 @@
 - **端到端测 offscreen 的 onMessage 处理器不用捕获监听器**：`fakeBrowser.runtime.sendMessage(msg)` 会触发全部已注册监听器——监听器 `return true` 并 `sendResponse` → promise resolve 该包；`return false` 让路 → resolve `undefined`；无任何监听器 → throw「No listeners available」。信封测试全靠它。注意 fakeBrowser 事件对象无 `resetState` 之外的监听器枚举口，**别在 import offscreen-main 之后调 `fakeBrowser.runtime.resetState()`**（会把监听器清空）。
 - **`vi.clearAllMocks()` 只清调用记录、不清 mock 实现**（`mockResolvedValue` 会残留到后续用例）——要重置实现用 `mockReset` / `mockResolvedValue(undefined)` 显式覆盖，或改用 `vi.restoreAllMocks`。
 - **协议一致性测试的穷尽性三件套**（新增 RuntimeRequest kind 时不改测试就会挂）：① `as const satisfies readonly RuntimeRequest['kind'][]` 防「表里混进不存在的 kind」；② `Exclude<RuntimeRequest['kind'], (typeof 表)[number]> extends never` 的类型闸防「union 新增 kind 漏登记」（typecheck 阶段即报错）；③ 运行时 `it.each` + 归属 XOR 断言。`Record<Kind, Case>` 键控表可以让「少一个 case」直接变成编译错误。
+
+## Node http 起流式 mock 服务（探针 / 测试脚本）
+
+- **SSE mock 一行都吐不出 / 客户端永远挂起：清理别挂 `req.on('close')`**。新版 Node 的 `IncomingMessage` `close` 事件在**请求体读完时**即触发（不再等底层连接断开），`req.on('close', () => clearInterval(timer))` 会在流刚开始前一瞬把推送计时器清掉——客户端只收到响应头（最多加同步写出的首包），此后永远等待且无任何报错。清理挂 `res.on('close')`（响应结束 / 连接断开都会触发，end 后重复 clear 无害）。判据：服务端日志只见请求、`res.write` 后的日志一条不出，而同代码用 curl 短测「看似正常」（同步首包骗过的）——用长测 + 数 data 行数复验。
+- **扩展内 fetch 打本机 mock 的前置**：`wxt.config.ts` manifest 需 `host_permissions: ['<all_urls>']`（已有）；mock 服务监听 `127.0.0.1` 随机端口即可，无需证书。
