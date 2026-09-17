@@ -31,8 +31,7 @@ matches 导入时提前校验 / 逐脚本独立容错（构建失败跳过带 es
 
 **依赖**：fflate（~8KB，唯一新增依赖，**待老大点头**）。
 
-**状态**：方案无待拍板项；**实施排队在 AI 生成主线合回之后**（导入需新增 `userscript:import` /
-`state:import` 协议命令，与主线独占文件重合）。导出无协议改动，可与主线并行但建议同批做。
+**状态**：方案无待拍板项；**已于 2026-09-17 开工并落地主体**（import/export 后端、全部删除、旧数据清理，见 [dev-log 2026-09-17](./dev-log/2026-09-17.md)），残余项（notes 档案 / 拖拽导入 / 多选批量导出 / `data/` 备份语义 / 脚本市场）不在本批。
 
 ---
 
@@ -88,8 +87,8 @@ matches 导入时提前校验 / 逐脚本独立容错（构建失败跳过带 es
 **状态**：**主体已实现（2026-09-15，一期前置 9 条全部落地）**，实现记录见
 [dev-log 2026-09-15](./dev-log/2026-09-15.md)。残留增强项：进度通知
 （chrome.notifications）、同会话消息排队（§6.2 #14）、
-regenerate 触发器、`chat:chunk` 推送性能实测（卡了再换 MessageChannel）；
-元素拾取器（档 2）按方案紧随主链路、单独排期。
+regenerate 触发器、`chat:chunk` 推送性能实测（卡了再换 MessageChannel）。
+~~元素拾取器（档 2）：原排期紧随主链路，已于 2026-09-17 随提案①「元素拾取器」落地（见 [`proposals/done/element-picker.md`](./proposals/done/element-picker.md)），从本残留清单移除。~~
 
 ---
 
