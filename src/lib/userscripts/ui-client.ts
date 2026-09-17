@@ -96,6 +96,10 @@ export const userscriptClient = {
   /** 删除：注销 + 删存储（新/旧形态通用） */
   remove: (uuid: string): Promise<void> => send({ kind: 'userscript:remove', uuid }),
 
+  /** 删除全部用户脚本（不含已弃用旧记录与内置件）：注销全部 + 清状态库项目与各自 git 仓。
+   *  返回删除条数；不可撤销，调用方必须先经确认弹窗 */
+  removeAll: (): Promise<{ removed: number }> => send({ kind: 'userscript:removeAll' }),
+
   /** zip 导入（docs/userscript-zip-transfer.md）：payload 为 zip 文件内容的 base64。
    *  逐脚本独立容错，返回汇总报告（导入恒 enabled:false，注册由用户手动启用时发生） */
   importZip: (zipBase64: string): Promise<ImportReport> =>

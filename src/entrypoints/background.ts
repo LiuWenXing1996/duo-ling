@@ -273,6 +273,25 @@ const handlers: {
     await clearGMValues(msg.uuid)
   },
 
+  // 删除全部用户脚本（「全部删除」按钮）：注销全部 → offscreen 清状态库 + 各仓 → 清各脚本
+  // 的 DL.store 值。范围 = 新形态用户脚本；已弃用旧记录（chrome.storage）与内置件不在内，
+  // 故这里**不碰** us:script:* 旧键，也不调 clearDeprecatedScripts。
+  // uuid 由 SW 直读状态库（不经容器，与 userscript:list 同源），用于注销与清 GM 值。
+  'userscript:removeAll': async (): Promise<{ removed: number }> => {
+    const uuids = (await listProjects()).map((p) => p.uuid)
+    await unregisterScripts(uuids).catch(() => {})
+    try {
+      const removed = await writeViaOffscreen<number>({ kind: 'state:removeAll' })
+      for (const uuid of uuids) await clearGMValues(uuid)
+      return { removed }
+    } catch (e) {
+      // 注销在前、落盘在后，落盘失败会留下「记录还标 enabled、实际已注销」的偏差
+      // （删了一部分时更明显）——按状态库重新对齐注册，再抛出真实错误
+      await registerAllEnabled().catch(() => {})
+      throw e
+    }
+  },
+
   // 返回 registerError：enabled 已落状态库（数据写先于注册完成），注册失败只降级为警告，
   // 不把启停整体判失败（否则 UI 不更新开关，与实际已生效的 enabled 状态背离）。
   'userscript:toggle': async (msg): Promise<{ registerError?: string }> => {

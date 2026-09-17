@@ -64,6 +64,10 @@ const toggling = ref<string | null>(null)
 const creating = ref(false)
 /** 正在删除的脚本 uuid：避免连点重复发起 */
 const removing = ref<string | null>(null)
+/** 「全部删除」确认弹窗是否打开 */
+const removeAllOpen = ref(false)
+/** 全部删除进行中：避免连点重复发起 */
+const removingAll = ref(false)
 
 // —— 错误日志面板（us:errors 环形日志，自旧管理器迁入）——
 const errors = ref<UserScriptErrorRecord[]>([])
@@ -270,7 +274,8 @@ function downloadZip(bytes: Uint8Array, filename: string): void {
 
 /**
  * 选定 zip 文件后导入：读文件转 base64 → userscript:import（offscreen 解码 + 校验 + 构建 + 落盘）。
- * 成功动线（定稿 §5.8）：单脚本 zip 成功直接开编辑器；其余弹汇总报告，新导入标「刚导入 · 未启用」。
+ * 成功动线（定稿 §5.8）：导入后**不自动进编辑器**，统一弹汇总报告（成功 / 失败 + 未导入文件），
+ * 新导入的脚本在列表行标「刚导入 · 未启用」，由用户按需手动启用或点编辑。
  */
 async function onImportFile(e: Event): Promise<void> {
   const input = e.target as HTMLInputElement
@@ -315,6 +320,29 @@ async function confirmRemove(): Promise<void> {
     error.value = `「${target.name}」删除失败：` + (e instanceof Error ? e.message : String(e))
   } finally {
     removing.value = null
+  }
+}
+
+/**
+ * 弹窗里确认「全部删除」：一条命令走完注销 → 清状态库项目 + 各仓 → 清 GM 值，不可撤销。
+ * 范围 = 新形态用户脚本（activeScripts）；已弃用旧记录与内置件不在内（弹窗里已明示）。
+ * 先记下 uuid 列表，删完逐个广播 deleted，宿主据此关掉它们开着的编辑器 / 产物标签。
+ */
+async function confirmRemoveAll(): Promise<void> {
+  if (removingAll.value) return
+  removeAllOpen.value = false
+  const uuids = activeScripts.value.map((s) => s.uuid)
+  if (!uuids.length) return
+  removingAll.value = true
+  error.value = ''
+  try {
+    await userscriptClient.removeAll()
+    for (const uuid of uuids) emit('deleted', uuid)
+    await refresh()
+  } catch (e) {
+    error.value = '删除全部脚本失败：' + (e instanceof Error ? e.message : String(e))
+  } finally {
+    removingAll.value = false
   }
 }
 
@@ -385,6 +413,19 @@ onMounted(() => {
             >
               <ui-download class="size-3.5" />
               全部导出
+            </ui-button>
+            <!-- 全部删除：破坏性操作，二次确认弹窗明示条数（范围 = 用户脚本，不含旧记录 / 内置件） -->
+            <ui-button
+              variant="ghost"
+              size="sm"
+              class="h-7 gap-1 px-2.5 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              title="删除全部脚本"
+              :disabled="removingAll || !activeScripts.length"
+              @click="removeAllOpen = true"
+            >
+              <ui-loader-circle v-if="removingAll" class="size-3.5 animate-spin" />
+              <ui-trash-2 v-else class="size-3.5" />
+              全部删除
             </ui-button>
             <!-- 添加脚本：零输入创建（自动命名 + 初始模板 + 建 git 仓 + 启用） -->
             <ui-button
@@ -607,6 +648,34 @@ onMounted(() => {
         </section>
       </div>
     </div>
+
+    <!-- 全部删除确认弹窗：破坏性操作，明示条数与「不可撤销」，并说清不受影响的范围 -->
+    <ui-dialog
+      :open="removeAllOpen"
+      @update:open="(v: boolean) => { if (!v) removeAllOpen = false }"
+    >
+      <ui-dialog-content class="max-w-md">
+        <ui-dialog-title class="text-base font-semibold">删除全部脚本</ui-dialog-title>
+        <ui-dialog-description class="text-sm text-muted-foreground">
+          确定删除全部 {{ activeScripts.length }} 个脚本吗？各自的 git 历史会一并删除。
+          <span class="mt-2 block text-destructive">此操作不可撤销。</span>
+          <span class="mt-1 block text-xs">
+            已弃用旧记录与内置脚本不受影响。
+          </span>
+        </ui-dialog-description>
+        <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
+          <ui-button variant="ghost" size="sm" @click="removeAllOpen = false">取消</ui-button>
+          <ui-button
+            variant="destructive"
+            size="sm"
+            :disabled="removingAll"
+            @click="confirmRemoveAll"
+          >
+            删除全部
+          </ui-button>
+        </ui-dialog-footer>
+      </ui-dialog-content>
+    </ui-dialog>
 
     <!-- 删除确认弹窗：用 UI 弹窗替代原生 confirm（原生 confirm / prompt 是同步阻塞的，会冻结渲染） -->
     <ui-dialog

@@ -89,6 +89,10 @@ export type RuntimeRequest =
   // AI 生成脚本落盘（SW 命令面，转发 offscreen 单写方；enabled 默认 false = 先落盘不启用）
   | { kind: 'userscript:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; enabled: boolean; note?: string }
   | { kind: 'userscript:remove'; uuid: string }
+  // 删除全部用户脚本（2026-09-17）：范围 = 新形态用户脚本（状态库项目 + 各自 git 仓），
+  // **不含**已弃用旧 GM 记录（chrome.storage，另有逐行删除与 clearDeprecated 两条路径）
+  // 与内置件（随扩展包分发）。SW 注销全部 → 转发 state:removeAll → 清各脚本 DL.store 值。
+  | { kind: 'userscript:removeAll' }
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
   | { kind: 'userscript:availability' }
   | { kind: 'userscript:errors' }
@@ -134,6 +138,9 @@ export type RuntimeRequest =
   | { kind: 'state:create' }
   | { kind: 'state:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
   | { kind: 'state:remove'; uuid: string }
+  // 清空全部项目记录 + 各自仓（SW 的 userscript:removeAll 转发到此）；返回删除条数。
+  // 与 state:remove 同处一地的好处：记录与仓的删除不跨上下文，不留无主仓。
+  | { kind: 'state:removeAll' }
   | { kind: 'state:toggle'; uuid: string; enabled: boolean }
   // AI 生成脚本的落盘（docs/userscript-ai-generation.md「写入契约」/「生成结果行为」）：SW 的 userscript:createProject
   // 转发到此（单写方），写状态库 + git 快照（note = AI summary），**不注册**（enabled:false 默认）。

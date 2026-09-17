@@ -2,7 +2,8 @@
 // 与 us-git（lightning-fs）模拟 offscreen 上下文——这两个模块在真实环境里分别依赖
 // chrome.runtime.getURL 拉起的 wasm 与 lightning-fs，均非层1靶心。
 // 被测重点是写侧自身的语义：bundle 必要条件（新建/保存路径）、守卫校验、快照失败不阻断、
-// 启停不产生提交，以及 zip 导入「尽量导入」语义（2026-09-17 修订：非原则项不淘汰）。
+// 启停不产生提交、删除全部（记录批量清 + 仓整目录清一次），以及 zip 导入「尽量导入」语义
+// （2026-09-17 修订：非原则项不淘汰）。
 import 'fake-indexeddb/auto'
 import { strToU8, zipSync } from 'fflate'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -29,23 +30,26 @@ vi.mock('./builder', () => {
 vi.mock('./us-git', () => ({
   snapshotProject: vi.fn(async () => {}),
   deleteRepo: vi.fn(async () => {}),
+  deleteAllRepos: vi.fn(async () => 0),
 }))
 
 import { buildProject } from './builder'
 import {
   createProject,
   importScriptsZip,
+  removeAllProjects,
   removeProjectAndRepo,
   setProjectEnabled,
   updateProjectFiles,
 } from './project-write'
 import { readAllProjects, removeProjects } from './state-db'
 import { bytesToBase64 } from './zip-transfer'
-import { deleteRepo, snapshotProject } from './us-git'
+import { deleteAllRepos, deleteRepo, snapshotProject } from './us-git'
 import type { ScriptProject } from './types'
 
 const mockSnapshot = vi.mocked(snapshotProject)
 const mockDeleteRepo = vi.mocked(deleteRepo)
+const mockDeleteAllRepos = vi.mocked(deleteAllRepos)
 const mockBuild = vi.mocked(buildProject)
 
 function validFiles(): Record<string, string> {
@@ -191,6 +195,26 @@ describe('removeProjectAndRepo', () => {
     await expect(readAllProjects()).resolves.toEqual([])
     expect(warn).toHaveBeenCalledOnce()
     warn.mockRestore()
+  })
+})
+
+describe('removeAllProjects', () => {
+  it('批量删除：状态库清空 + 整目录清一次仓，返回删除条数', async () => {
+    await createProject()
+    await createProject()
+    expect(await readAllProjects()).toHaveLength(2)
+
+    await expect(removeAllProjects()).resolves.toBe(2)
+    await expect(readAllProjects()).resolves.toEqual([])
+    // 逐个 deleteRepo 是重复劳动（随后整目录一并清），此路径只走整目录清一次
+    expect(mockDeleteAllRepos).toHaveBeenCalledOnce()
+    expect(mockDeleteRepo).not.toHaveBeenCalled()
+  })
+
+  it('空库调用：返回 0，不抛错（幂等，可重试）', async () => {
+    await expect(removeAllProjects()).resolves.toBe(0)
+    await expect(readAllProjects()).resolves.toEqual([])
+    expect(mockDeleteRepo).not.toHaveBeenCalled()
   })
 })
 
