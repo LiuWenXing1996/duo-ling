@@ -31,7 +31,7 @@ export async function handleAiFsCommand(msg: AiFsRequest): Promise<unknown> {
     // 整库浏览（只读调试视图）：lfs 库的完整文件树，含 .git 内部
     case 'ai:lfsTree':
       return readLfsTree('/')
-    // 草稿（docs/userscript-draft.md）：编辑态 ↔ git 工作区。写失败会 throw，
+    // 草稿（notes/content/userscript-draft.md）：编辑态 ↔ git 工作区。写失败会 throw，
     // 由分发层包成 error 信封、UI 侧 catch（best-effort，不阻断编辑）
     case 'ai:writeDraft':
       await ensureRepo(msg.uuid)

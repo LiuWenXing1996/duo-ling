@@ -1,6 +1,6 @@
 // 用户脚本 git 历史侧车（方案 docs/userscript-git-history.md）。
 //
-// 每脚本一个 isomorphic-git 仓（/uscripts/<uuid>/，lightning-fs 实例来自 lib/idb-fs）。
+// 每脚本一个 isomorphic-git 仓（/uscripts/<uuid>/，lightning-fs 实例来自 us-fs）。
 // storage 为权威、git 为历史：保存成功后快照写穿（bundle 不入库，恢复后由 UI 页重建）；
 // 仓损坏只丢历史不丢脚本，所有失败都不阻断保存主链路。
 //
@@ -337,7 +337,7 @@ export async function restoreToCommit(
 }
 
 /**
- * 把工作区同步成草稿内容（docs/userscript-draft.md §4.1）：**纯 fs，不碰 index / HEAD**。
+ * 把工作区同步成草稿内容（notes/content/userscript-draft.md）：**纯 fs，不碰 index / HEAD**。
  * 与 syncWorktree 的本质区别：绝不做 git.add / git.remove——index 必须停在 HEAD，
  * 否则 statusMatrix 与提交语义被破坏（草稿会被误判成已暂存）。载荷是完整 ScriptProject，
  * 内部经 buildContents 产出内容（bundle / enabled / updatedAt 本就被排除，不产生假变更）。
@@ -365,7 +365,7 @@ export async function writeWorktree(uuid: string, project: ScriptProject): Promi
 }
 
 /**
- * 读工作区当前内容（草稿）；**无草稿返回 null**（docs/userscript-draft.md §4.1 P0 判据）。
+ * 读工作区当前内容（草稿）；**无草稿返回 null**（notes/content/userscript-draft.md）。
  * null 判据：project.json 读不出 / 解析失败 / 元信息不全 / files 为空——「有 .git 但工作区
  * 是空的」是可达状态（ensureRepo 成功而 snapshotProject 失败过等），此时若返回
  * { files: [] } 会被上层判成「与已保存不等」并拿空内容覆盖编辑态，直接清空用户脚本。

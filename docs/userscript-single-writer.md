@@ -1,8 +1,8 @@
 # 用户脚本存储：改由 offscreen 单写（已实现）
 
 > 状态：**已实现（2026-09-15）**。实现记录见 §9；前置项 1/2/3 均已收口（§5）。
-> 出处：2026-09-14 评审 `docs/userscript-draft.md` 时，由「为什么还需要 chrome.storage」一路追问出来的议题。
-> 关联：`docs/userscript-draft.md`（草稿 = 工作区）、`docs/userscript-git-history.md`（git 侧车）、
+> 出处：2026-09-14 评审编辑器草稿方案时，由「为什么还需要 chrome.storage」一路追问出来的议题。
+> 关联：[编辑器草稿](../notes/content/userscript-draft.md)（草稿 = 工作区）、`docs/userscript-git-history.md`（git 侧车）、
 > `docs/offscreen-fs-migration.md`（lfs 归 offscreen）。
 
 ## 1. 背景与动机
@@ -17,7 +17,7 @@
 
 **问题不在「有两处存储」，而在「一次保存是两次分离的操作」**：SW 写 storage、再 IPC 让 offscreen 写仓
 （`background.ts:129` 的 `ai:snapshot`）。任一步失败就产生偏差，且偏差是单向的（只有保存才 commit，
-故 HEAD 不可能领先 storage）——这正是 `userscript-draft.md` §3「以 storage 为基准」要绕开的坑，**它的根源就是双写方**。
+故 HEAD 不可能领先 storage）——这正是草稿笔记里「以状态库为基准」要绕开的坑，**它的根源就是双写方**。
 
 **目标**：让 **offscreen 统一持有项目数据（含构建产物）**，变成单写方。一次保存 = 在同一处先写状态库、
 再 commit 仓，失败可重试可回滚，偏差面直接塌掉。
@@ -163,7 +163,7 @@
 
 ## 6. 对既有方案的影响
 
-- `docs/userscript-draft.md`：**论述结构不变，只是「storage」换成「项目数据所在处」**。
+- 编辑器草稿笔记：**论述结构不变，只是「storage」换成「项目数据所在处」**。
   §3「以 storage 为基准」的论证（单向领先、HEAD 不可能领先）在单写下依然成立且更强。
 - `docs/userscript-git-history.md`：「storage 权威、git 为历史」的表述同上。
 - 迁移本身**不新增 manifest 权限**，也不影响 WXT 构建。
