@@ -1,5 +1,6 @@
-// zip-transfer.ts 单测：编解码纯函数（zip 格式、zip slip 防护、schema 校验、目录去重、指纹）。
-// docs/userscript-zip-transfer.md §3/§5.2/§5.6 的层 1 覆盖；node 环境直跑（本模块零 chrome API）。
+// zip-transfer.ts 单测：编解码纯函数（zip 格式、路径过滤、字段兜底、目录去重、指纹）。
+// 2026-09-17 修订后解码侧「只拦原则项、尽量导入」，覆盖见 docs/userscript-zip-transfer.md §5.2。
+// node 环境直跑（本模块零 chrome API）。
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import {
@@ -97,43 +98,57 @@ describe('buildScriptZip + parseScriptsZip 往返', () => {
   })
 })
 
-describe('parseScriptsZip 解析安全（定稿 §5.2）', () => {
-  it('v 大于本实现 → 跳过并提示升级', () => {
-    const { scripts, skipped } = parseScriptsZip(validSingleZip({ v: 2 }))
-    expect(scripts).toEqual([])
-    expect(skipped).toEqual([{ dirName: '示例脚本', reason: expect.stringContaining('升级') }])
-  })
-
-  it('v 缺失 / 非 number → 跳过带原因', () => {
-    for (const v of [undefined, '1', null]) {
-      const over: Record<string, unknown> = { v }
-      const { scripts, skipped } = parseScriptsZip(validSingleZip(over))
-      expect(scripts).toEqual([])
-      expect(skipped[0].reason).toContain('schema 版本')
+describe('parseScriptsZip 解析（尽量导入：只拦原则项，2026-09-17 修订）', () => {
+  it('版本 v 任意值都放行（开发期无版本规范）', () => {
+    for (const v of [2, 99, undefined, '1', null]) {
+      const { scripts, skipped } = parseScriptsZip(validSingleZip({ v }))
+      expect(skipped).toEqual([])
+      expect(scripts).toHaveLength(1)
+      expect(scripts[0].name).toBe('示例脚本')
     }
   })
 
-  it('缺 project.json → 跳过', () => {
+  it('缺 project.json → 跳过（无 manifest 就构造不出记录，唯一原则项）', () => {
     const { scripts, skipped } = parseScriptsZip(makeZip({ '孤儿目录/files/main.js': 'x' }))
     expect(scripts).toEqual([])
     expect(skipped).toEqual([{ dirName: '孤儿目录', reason: expect.stringContaining('project.json') }])
   })
 
-  it('name / entry / config.matches 缺失或非法 → 各自跳过带原因', () => {
-    const cases: Array<[Record<string, unknown>, string]> = [
-      [{ name: '' }, 'name'],
-      [{ entry: '' }, 'entry'],
-      [{ config: { matches: [], allFrames: true, runAt: 'document_end' } }, 'matches'],
-      [{ config: null }, 'matches'],
-    ]
-    for (const [over, keyword] of cases) {
-      const { scripts, skipped } = parseScriptsZip(validSingleZip(over))
-      expect(scripts).toEqual([])
-      expect(skipped[0].reason).toContain(keyword)
-    }
+  it('project.json 非合法 JSON / 非对象 → 跳过（同属原则项）', () => {
+    const badJson = parseScriptsZip(makeZip({ 'a/project.json': '{不是 json', 'a/files/main.js': 'x' }))
+    expect(badJson.scripts).toEqual([])
+    expect(badJson.skipped[0].reason).toContain('合法 JSON')
+
+    const notObj = parseScriptsZip(makeZip({ 'b/project.json': '[1,2]', 'b/files/main.js': 'x' }))
+    expect(notObj.scripts).toEqual([])
+    expect(notObj.skipped[0].reason).toContain('不是对象')
   })
 
-  it('zip slip：files 内含 .. 段 / 绝对路径 / 盘符的脚本整目录拒绝', () => {
+  it('name / entry / config 缺失 → 补默认值导入 + notes 说明，不阻断', () => {
+    const { scripts, skipped } = parseScriptsZip(
+      makeZip({ 'my-dir/project.json': JSON.stringify({}), 'my-dir/files/main.js': 'x' }),
+    )
+    expect(skipped).toEqual([])
+    expect(scripts).toHaveLength(1)
+    // name ← 目录名；entry ← 默认入口；matches ← 空（留给编辑器补）
+    expect(scripts[0]).toMatchObject({ name: 'my-dir', entry: 'main.js' })
+    expect(scripts[0].config.matches).toEqual([])
+    const notes = (scripts[0].notes ?? []).join(' ')
+    expect(notes).toContain('目录名')
+    expect(notes).toContain('入口')
+    expect(notes).toContain('matches')
+  })
+
+  it('config 逐字段兜底：合法的 matches 保留，仅缺项补默认（合法 manifest 无 notes）', () => {
+    const { scripts } = parseScriptsZip(validSingleZip({ config: { matches: ['*://a.com/*'] } }))
+    expect(scripts[0].config).toEqual({ matches: ['*://a.com/*'], allFrames: true, runAt: 'document_end' })
+    expect(scripts[0].notes).toBeUndefined()
+
+    const clean = parseScriptsZip(validSingleZip())
+    expect(clean.scripts[0].notes).toBeUndefined()
+  })
+
+  it('zip slip：只过滤不安全路径的文件，脚本其余文件照常导入', () => {
     const evil = [
       'evil/files/../pwn.js',
       'evil/files//abs/x.js',
@@ -141,15 +156,21 @@ describe('parseScriptsZip 解析安全（定稿 §5.2）', () => {
       'evil/files/lib\\win.js',
     ]
     for (const p of evil) {
-      const { scripts, skipped } = parseScriptsZip(
-        makeZip({ 'evil/project.json': manifestJson({ name: 'evil' }), [p]: 'x' }),
+      const { scripts, skipped, ignored } = parseScriptsZip(
+        makeZip({
+          'evil/project.json': manifestJson({ name: 'evil' }),
+          'evil/files/main.js': 'ok',
+          [p]: 'x',
+        }),
       )
-      expect(scripts).toEqual([])
-      expect(skipped[0].reason).toContain('zip slip')
+      expect(skipped).toEqual([]) // 脚本本身不再被拒
+      expect(scripts).toHaveLength(1)
+      expect(scripts[0].files).toEqual({ 'main.js': 'ok' }) // 不安全文件挡在 files 之外
+      expect(ignored).toEqual([{ path: p, reason: expect.stringContaining('路径不安全') }])
     }
   })
 
-  it('files/ 之外的条目（data/ 预留位、顶层散文件）忽略不报错，并汇进 ignored 报告', () => {
+  it('files/ 之外的条目（data/ 预留位、顶层散文件）未导入并汇进 ignored 报告', () => {
     const zip = makeZip({
       '示例脚本/project.json': manifestJson(),
       '示例脚本/files/main.js': 'console.log(1)',
@@ -178,27 +199,26 @@ describe('parseScriptsZip 解析安全（定稿 §5.2）', () => {
     expect(ignored).toEqual([{ path: 'loose.txt', reason: expect.stringContaining('顶层散文件') }])
   })
 
-  it('entry 不在 files 中 → 跳过；files 为空 → 跳过', () => {
+  it('entry 不在 files / files 为空 → 仍导入（构建期失败留给写侧容忍 + 编辑器修）', () => {
     const missEntry = parseScriptsZip(
       makeZip({
         'a/project.json': manifestJson({ name: 'a', entry: 'index.js' }),
         'a/files/main.js': 'x',
       }),
     )
-    expect(missEntry.scripts).toEqual([])
-    expect(missEntry.skipped[0].reason).toContain('入口文件')
+    expect(missEntry.skipped).toEqual([])
+    expect(missEntry.scripts[0]).toMatchObject({ name: 'a', entry: 'index.js', files: { 'main.js': 'x' } })
 
     const empty = parseScriptsZip(makeZip({ 'b/project.json': manifestJson({ name: 'b' }) }))
-    expect(empty.scripts).toEqual([])
-    expect(empty.skipped[0].reason).toContain('files 为空')
+    expect(empty.skipped).toEqual([])
+    expect(empty.scripts[0].files).toEqual({})
   })
 
-  it('多脚本 zip：合法与非法混排时逐脚本独立判定（互不牵连）', () => {
+  it('多脚本 zip：原则项（缺 manifest）与可导入者互不牵连', () => {
     const zip = makeZip({
       '好的/project.json': manifestJson({ name: '好的' }),
       '好的/files/main.js': '// ok',
-      '坏的/project.json': manifestJson({ name: '坏的', v: 99 }),
-      '坏的/files/main.js': '// nope',
+      '坏的/files/main.js': '// 没有 manifest',
     })
     const { scripts, skipped } = parseScriptsZip(zip)
     expect(scripts.map((s) => s.name)).toEqual(['好的'])

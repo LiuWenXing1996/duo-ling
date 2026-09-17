@@ -200,7 +200,7 @@ const exporting = ref(false)
 const importing = ref(false)
 /** 隐藏的 zip 文件选择器（file picker） */
 const importInput = ref<HTMLInputElement | null>(null)
-/** 最近的导入报告：非 null 即汇总弹窗打开（单脚本 zip 成功直接开编辑器，不弹报告） */
+/** 最近的导入报告：非 null 即汇总弹窗打开（导入统一走报告，成功/失败/被忽略都列出） */
 const importReport = ref<ImportReport | null>(null)
 /** 刚导入的脚本 uuid：列表标「刚导入 · 未启用」，手动启用后即摘标 */
 const justImported = ref<string[]>([])
@@ -661,7 +661,7 @@ onMounted(() => {
       </ui-dialog-content>
     </ui-dialog>
 
-    <!-- 导入汇总报告：导入后统一展示（含成功 / 失败 / 被忽略未导入的文件） -->
+    <!-- 导入汇总报告：导入后统一展示（成功 / 失败 + 提示，以及未导入的文件） -->
     <ui-dialog
       :open="!!importReport"
       @update:open="(v: boolean) => { if (!v) importReport = null }"
@@ -669,7 +669,7 @@ onMounted(() => {
       <ui-dialog-content class="max-w-lg">
         <ui-dialog-title class="text-base font-semibold">
           导入完成：成功 {{ importReport?.succeeded }} 个，失败 {{ importReport?.failed }} 个
-          <template v-if="importReport?.ignored.length">，忽略 {{ importReport?.ignored.length }} 个文件</template>
+          <template v-if="importReport?.ignored.length">，未导入 {{ importReport?.ignored.length }} 个文件</template>
         </ui-dialog-title>
         <ui-dialog-description class="text-sm text-muted-foreground">
           新导入的脚本默认停用——审过源码后再手动启用。
@@ -694,12 +694,26 @@ onMounted(() => {
                 </template>
               </p>
               <p v-else class="mt-0.5 break-all text-destructive">{{ r.reason }}</p>
+              <!-- 导入期提示：构建失败可修 / 字段缺失已补默认（不阻断导入） -->
+              <ul
+                v-if="r.status === 'ok' && r.notes?.length"
+                class="mt-1 flex flex-col gap-1"
+              >
+                <li
+                  v-for="(n, ni) in r.notes"
+                  :key="ni"
+                  class="flex items-start gap-1 text-amber-600 dark:text-amber-400"
+                >
+                  <ui-alert-triangle class="mt-px size-3 shrink-0" />
+                  <span class="min-w-0 whitespace-pre-wrap break-words">{{ n }}</span>
+                </li>
+              </ul>
             </div>
           </li>
         </ul>
         <template v-if="importReport?.ignored.length">
           <p class="mt-3 border-t pt-3 text-xs font-medium text-muted-foreground">
-            以下文件被忽略（未导入）
+            以下文件未导入
           </p>
           <ul class="mt-2 flex max-h-40 flex-col gap-2 overflow-y-auto">
             <li

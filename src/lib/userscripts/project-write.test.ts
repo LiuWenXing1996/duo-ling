@@ -1,7 +1,8 @@
 // project-write.ts 单测（offscreen 写侧）：测试直调写 API，通过 mock builder（esbuild-wasm）
 // 与 us-git（lightning-fs）模拟 offscreen 上下文——这两个模块在真实环境里分别依赖
 // chrome.runtime.getURL 拉起的 wasm 与 lightning-fs，均非层1靶心。
-// 被测重点是写侧自身的语义：bundle 必要条件、守卫校验、快照失败不阻断、启停不产生提交。
+// 被测重点是写侧自身的语义：bundle 必要条件（新建/保存路径）、守卫校验、快照失败不阻断、
+// 启停不产生提交，以及 zip 导入「尽量导入」语义（2026-09-17 修订：非原则项不淘汰）。
 import 'fake-indexeddb/auto'
 import { strToU8, zipSync } from 'fflate'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -267,46 +268,65 @@ describe('importScriptsZip', () => {
     await expect(readAllProjects()).resolves.toHaveLength(2)
   })
 
-  it('构建失败逐脚本独立容错：失败者带 esbuild 诊断出局，成功者照常落盘（定稿 §5.7）', async () => {
-    mockBuild.mockRejectedValueOnce(
-      new (await import('./builder')).BuildError(['main.js:1:1 语法错误']),
-    )
+  it('构建失败不淘汰：脚本仍导入（bundle 缺省）+ note 带 esbuild 诊断', async () => {
+    mockBuild.mockRejectedValueOnce(new (await import('./builder')).BuildError(['main.js:1:1 语法错误']))
     const report = await importScriptsZip(
       makeZipBase64([
         { dir: 'bad', name: '坏脚本', files: { 'main.js': 'syntax error here' } },
         { dir: 'good', name: '好脚本', files: { 'main.js': 'console.log(1)' } },
       ]),
     )
-    expect(report.succeeded).toBe(1)
-    expect(report.failed).toBe(1)
-    const failed = report.results.find((r) => r.status === 'failed')
-    expect(failed).toMatchObject({ name: '坏脚本', reason: expect.stringContaining('main.js:1:1') })
+    expect(report.succeeded).toBe(2) // 两个都导入
+    expect(report.failed).toBe(0)
+    const bad = report.results.find((r) => r.name === '坏脚本') as { status: string; notes?: string[] }
+    expect(bad.status).toBe('ok')
+    expect((bad.notes ?? []).join(' ')).toContain('main.js:1:1')
     const stored = await readAllProjects()
-    expect(stored.map((p) => p.name)).toEqual(['好脚本'])
+    expect(stored.map((p) => p.name).sort()).toEqual(['坏脚本', '好脚本'])
+    expect(stored.find((p) => p.name === '坏脚本')!.bundle).toBeUndefined() // 无产物落盘
+    expect(stored.find((p) => p.name === '好脚本')!.bundle).toBeDefined()
   })
 
-  it('matches 非法：导入时即拦下（含规则名），不落库也不触发构建（定稿 §5.4）', async () => {
-    mockBuild.mockClear()
+  it('matches 非法不拦：照常导入并原样落库（报错留给启用时 registerScript）', async () => {
     const report = await importScriptsZip(
       makeZipBase64([{ dir: 'bad', name: '规则坏', files: { 'main.js': 'x' }, matches: ['bad-rule'] }]),
     )
-    expect(report.succeeded).toBe(0)
-    expect(report.results[0]).toMatchObject({
-      status: 'failed',
-      name: '规则坏',
-      reason: expect.stringContaining('bad-rule'),
-    })
-    expect(mockBuild).not.toHaveBeenCalled()
-    await expect(readAllProjects()).resolves.toEqual([])
+    expect(report.succeeded).toBe(1)
+    expect(report.failed).toBe(0)
+    const stored = await readAllProjects()
+    expect(stored.map((p) => p.name)).toEqual(['规则坏'])
+    expect(stored[0]!.config.matches).toEqual(['bad-rule'])
   })
 
-  it('zip slip / v 超版等解析期问题：转为失败条目，不落库', async () => {
+  it('v 超版不再阻断：照常导入（开发期无版本规范）', async () => {
     const report = await importScriptsZip(
       makeZipBase64([{ dir: 'newer', name: '新版脚本', files: { 'main.js': 'x' }, v: 2 }]),
     )
-    expect(report.failed).toBe(1)
-    expect(report.results[0]).toMatchObject({ status: 'failed', reason: expect.stringContaining('升级') })
-    await expect(readAllProjects()).resolves.toEqual([])
+    expect(report.succeeded).toBe(1)
+    expect(report.failed).toBe(0)
+    await expect(readAllProjects()).resolves.toHaveLength(1)
+  })
+
+  it('未导入的文件（顶层散文件 / 非 files/ 条目）汇进报告 ignored，不影响成功计数', async () => {
+    const entries: Record<string, Uint8Array> = {
+      'demo/project.json': strToU8(
+        JSON.stringify({
+          v: 1,
+          name: '演示',
+          config: { matches: ['*://*/*'], allFrames: true, runAt: 'document_end' },
+          entry: 'main.js',
+          exportedAt: 0,
+        }),
+      ),
+      'demo/files/main.js': strToU8('console.log(1)'),
+      'demo/data/x.json': strToU8('{}'),
+      'loose.txt': strToU8('x'),
+    }
+    const report = await importScriptsZip(bytesToBase64(zipSync(entries)))
+    expect(report.succeeded).toBe(1)
+    expect(report.failed).toBe(0)
+    expect(report.ignored.map((i) => i.path).sort()).toEqual(['demo/data/x.json', 'loose.txt'])
+    expect(report.ignored.every((i) => i.status === 'ignored')).toBe(true)
   })
 
   it('非 zip 内容：整体报错（调用方 UI 展示错误）', async () => {

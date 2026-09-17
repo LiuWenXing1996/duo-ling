@@ -13,13 +13,13 @@
 // updateProjectFiles 的 bundle 参数为必填（UI 只在构建成功后才调保存）。不存在「无产物被注册」的路径。
 // 同日粘贴安装（installProject 及整条协议链）移除：产品上不再提供「粘贴源码装脚本」入口。
 import { buildProject, BuildError } from './builder'
-import { getProject, listProjects, nextScriptName, validateFiles, validateMatchPatterns } from './project-store'
+import { getProject, listProjects, nextScriptName, validateFiles } from './project-store'
 import { removeProject, writeProject } from './state-db'
 import { deleteRepo, snapshotProject } from './us-git'
 import { ENTRY_DEFAULT, defaultConfig, defaultSource } from './types'
 import type { ImportItemResult, ImportReport, ScriptConfig, ScriptProject } from './types'
 import { base64ToBytes, filesFingerprint, parseScriptsZip } from './zip-transfer'
-import type { ZipScriptPayload } from './zip-transfer'
+import type { ParsedScript } from './zip-transfer'
 
 function nowProject(name: string, files: Record<string, string>, config: ScriptConfig): ScriptProject {
   const ts = Date.now()
@@ -160,14 +160,15 @@ export async function setProjectEnabled(uuid: string, enabled: boolean): Promise
 // —— zip 导入（docs/userscript-zip-transfer.md §5）——
 
 /**
- * zip 导入（state:import 的落点）：解码 → 解析 → 逐脚本独立容错导入。
+ * zip 导入（state:import 的落点）：解码 → 逐脚本**尽量导入**。
  *
- * 与 createProject 同构的「先构建后落盘」不变量：每个脚本先构建出产物再落库，
- * 构建失败（语法错 / TS 报错 / 远程依赖拉不到）只跳过该脚本，成功的照常落盘（§5.7），
- * 报告给 esbuild 的 `文件:行:列`。导入默认值（§5.5）：uuid 重生成（createGeneratedProject
- * 内 crypto.randomUUID）、enabled 恒 false（先审后启）、保留原名（2026-09-17 拍板：名字
- * 不拦重复，uuid 才是标识）。解码与解析安全（zip slip 等）在 zip-transfer.parseScriptsZip，
- * 这里的 validateFiles / validateMatchPatterns 是落盘前的第二道闸。
+ * 2026-09-17 语义修订（老大拍板「不是原则项的阻断，尽量导入脚本，剩余走编辑器修」）：
+ * 导入侧不再是「校验 + 淘汰」，而是「尽量落盘 + 报告说明」——
+ *  · 解码层已放行版本 / 字段缺失 / 路径不安全（后者只过滤该文件），只剩「无 project.json」跳过；
+ *  · matches 非法、文件树非法：不在这里拦（启用时 registerScript 会以中文报错，导入后可在编辑器改）；
+ *  · 构建失败：**仍导入**，只是不写 bundle；报告 note 带 esbuild 诊断，用户去编辑器改到能构建。
+ *    （无产物注册会被 resolveInjectCode 拦下并记 register 警告，绝不会把未构建源码注入页面。）
+ * 导入默认值（§5.5）：uuid 重生成、enabled 恒 false（先审后启）、保留原名（名字不拦重复，uuid 才是标识）。
  */
 export async function importScriptsZip(zipBase64: string): Promise<ImportReport> {
   const parsed = parseScriptsZip(base64ToBytes(zipBase64))
@@ -187,26 +188,32 @@ export async function importScriptsZip(zipBase64: string): Promise<ImportReport>
 }
 
 /**
- * 导入单个脚本：任一步失败只淘汰它自己（逐脚本独立容错），错误转成报告条目。
+ * 导入单个脚本：只做「尽量落盘」，非原则项一律不淘汰它。
  *
  * 落盘顺序（2026-09-17 拍板「先写 lfs」）：
- *   ① 构建（buildOutcome，已有流程，读内存 Record）—— 产物不变量前置，构建失败
- *      即整脚本失败，此时 lfs / 状态库都不碰（不破坏「构建失败不落盘」）；
+ *   ① 构建（buildOutcome，已有流程，读内存 Record）—— 成功即带产物落盘；**失败不淘汰**，
+ *      只记 note 并以「无 bundle」落盘，等用户在编辑器修好重建产物；
  *   ② 先写 lfs（snapshotProject）：把真实文件树物化进 lfs 工作树 + 首提交，作为导入
  *      **首要落点**，早于状态库；lfs 写入失败只 warn 不阻断状态库落盘（仓坏只丢历史
  *      不丢脚本的不变量保留）；
  *   ③ 再写状态库（state-DB 仍为权威：SW 注册读 bundle、编辑器基准读 files 均不变）。
  * 构建不必读 lfs（builder 仍收内存 Record），故 lfs 写入对构建无依赖，仅表达落盘优先级。
  */
-async function importOneScript(script: ZipScriptPayload): Promise<ImportItemResult> {
+async function importOneScript(script: ParsedScript): Promise<ImportItemResult> {
+  // 解码期的兜底提示（字段缺失已补默认等）先收进来，再叠加构建期提示
+  const notes = [...(script.notes ?? [])]
   try {
-    validateMatchPatterns(script.config)
-    validateFiles(script.files, script.entry)
     // 指纹去重提示（§5.6）：与现有项目（含本批先导入的——逐个落盘后立即可见）比对
     const duplicateOf = await findContentDuplicate(script.entry, script.files)
-    const bundle = await buildOutcome(script.files, script.entry) // ① 已有构建流程（读内存 Record）
-    const name = script.name.trim()
-    if (!name) throw new Error('脚本名称不能为空')
+    let bundle: { code: string; builtAt: number } | undefined
+    try {
+      bundle = await buildOutcome(script.files, script.entry) // ① 已有构建流程（读内存 Record）
+    } catch (e) {
+      notes.push(
+        '构建失败（已导入，可在编辑器修复后保存）：' + (e instanceof Error ? e.message : String(e)),
+      )
+    }
+    const name = script.name.trim() || 'script'
     const ts = Date.now()
     const project: ScriptProject = {
       v: 1,
@@ -216,7 +223,8 @@ async function importOneScript(script: ZipScriptPayload): Promise<ImportItemResu
       config: script.config,
       files: script.files,
       entry: script.entry,
-      bundle,
+      // 构建失败的脚本也导入：只留 files/entry，bundle 缺省（可注册性由启用时的报错兜底）
+      ...(bundle ? { bundle } : {}),
       createdAt: ts,
       updatedAt: ts,
     }
@@ -232,8 +240,9 @@ async function importOneScript(script: ZipScriptPayload): Promise<ImportItemResu
       status: 'ok',
       uuid: project.uuid,
       name: project.name,
-      // duplicateOf 仅在命中时出现（报告形状稳定，调用方不用判 undefined key）
+      // duplicateOf / notes 仅在命中时出现（报告形状稳定，调用方不用判 undefined key）
       ...(duplicateOf ? { duplicateOf } : {}),
+      ...(notes.length ? { notes } : {}),
     }
   } catch (e) {
     return {
