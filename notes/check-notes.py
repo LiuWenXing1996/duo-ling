@@ -2,7 +2,7 @@
 """notes 规范检查器。
 
 遍历 notes/ 下全部笔记，按 notes/README.md 的规范体检：
-  - 结构三段齐全（现状 / 本文档不包括什么 / 决策记录）
+  - 章节标题白名单：`##` 只允许三段（现状 / 本文档不包括什么 / 决策记录），`###` 可在三段内分节，多余 `##` 或顺序不符即非法
   - 标题 ≤30 字、一句话 ≤50 字
   - 现状 ≤1500 字（清单或段落皆可）
   - 「本文档不包括什么」必须为清单式，每条「事 ≤100 字：理由 ≤100 字」
@@ -24,6 +24,10 @@ EXCLUDE_FILES = {"README.md", "INDEX.md"}  # 体系规范与总索引，非笔�
 _CHAR_RE = re.compile(r"[\u4e00-\u9fff\u3000-\u303f\uff00-\uffefA-Za-z0-9]")
 # 决策时间格式：YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS，可空
 _TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$")
+# 允许的章节标题（白名单）：规范只定义这三段，其余标题一律视为非法
+ALLOWED_SECTIONS = ("现状", "本文档不包括什么", "决策记录")
+# 代码围栏（标题 / 章节统计需跳过其中的 `#` 行）
+_FENCE_RE = re.compile(r"^\s*(```|~~~)")
 
 
 def count_chars(text: str) -> int:
@@ -49,13 +53,30 @@ def check_note(path: Path) -> list[str]:
     errors: list[str] = []
     md = path.read_text(encoding="utf-8")
 
-    # 标题
-    m = re.search(r"^#\s+(.+)", md, re.M)
-    if not m:
+    # 标题：首个非空行、唯一 H1、非空、单行、≤30 字
+    lines = md.splitlines()
+    h1s, in_fence = [], False
+    for ln in lines:
+        if _FENCE_RE.match(ln):
+            in_fence = not in_fence
+            continue
+        if not in_fence and re.match(r"^#\s", ln):
+            h1s.append(ln)
+
+    first = next((ln for ln in lines if ln.strip()), "")
+    if not h1s:
         errors.append("缺 # 标题")
-    else:
-        n = count_chars(m.group(1))
-        if n > 30:
+    elif not re.match(r"^#\s+\S", first):
+        errors.append(f"标题须为文件首个非空行（当前首行：{first.strip()[:24]!r}）")
+    if len(h1s) > 1:
+        errors.append(f"H1 标题不唯一（{len(h1s)} 个）：{[h.strip()[:20] for h in h1s[1:]]}")
+
+    if h1s:
+        title = h1s[0][1:].strip()
+        n = count_chars(title)
+        if n == 0:
+            errors.append("标题为空")
+        elif n > 30:
             errors.append(f"标题超 30 字：{n}")
 
     # 一句话
@@ -67,10 +88,39 @@ def check_note(path: Path) -> list[str]:
         if n > 50:
             errors.append(f"一句话超 50 字：{n}")
 
-    # 三段齐全
-    for sec in ("现状", "本文档不包括什么", "决策记录"):
-        if section_text(md, sec) is None:
+    # 章节标题白名单：规范只允许三段，任何其它 ## / ### 标题都非法
+    heads: list[tuple[int, int, str]] = []  # (行号, 级别, 文本)
+    in_fence = False
+    for i, ln in enumerate(lines, 1):
+        if _FENCE_RE.match(ln):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = re.match(r"^(#{2,6})\s+(.*?)\s*$", ln)
+        if m:
+            heads.append((i, len(m.group(1)), m.group(2)))
+
+    # `##` 层只允许白名单三段；`###` 及更深允许，但必须落在三段之内
+    cur_h2: str | None = None
+    for i, lvl, txt in heads:
+        if lvl == 2:
+            cur_h2 = txt
+            if txt not in ALLOWED_SECTIONS:
+                errors.append(f"非法标题（第 {i} 行）：## {txt}")
+        elif cur_h2 is None:
+            errors.append(f"非法标题（第 {i} 行，三段之外）：{'#' * lvl} {txt}")
+
+    h2 = [txt for _, lvl, txt in heads if lvl == 2]
+    for sec in ALLOWED_SECTIONS:
+        c = h2.count(sec)
+        if c == 0:
             errors.append(f"缺『## {sec}』段")
+        elif c > 1:
+            errors.append(f"『## {sec}』段重复 {c} 次")
+    present = [s for s in h2 if s in ALLOWED_SECTIONS]
+    if present != [s for s in ALLOWED_SECTIONS if s in present]:
+        errors.append(f"三段顺序不符（应为 {' / '.join(ALLOWED_SECTIONS)}）")
 
     # 现状字数
     st = section_text(md, "现状")
