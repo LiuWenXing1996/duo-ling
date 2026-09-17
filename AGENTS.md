@@ -16,7 +16,7 @@
 - **脚本注入**：`chrome.userScripts` + USER_SCRIPT 世界 + `window.DL` 桥接（`src/lib/userscripts/`）
 - **offscreen document**：AI 生成链路的执行宿主，按需创建（`src/lib/offscreen.ts`）
 - **包管理**：npm
-- **测试**：Vitest（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`）+ Playwright E2E 已建立；单测 / 端测方案见 [notes/content/testing-plan.md](notes/content/testing-plan.md)，CI 快测门禁见 `.github/workflows/ci.yml`、独立 E2E 见 `e2e.yml`
+- **测试**：Vitest（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`）+ Playwright E2E 已建立；单测 / 端测方案见 [notes/content/test-guide.md](notes/content/test-guide.md)，CI 快测门禁见 `.github/workflows/ci.yml`、独立 E2E 见 `e2e.yml`
 
 > 项目介绍与手测步骤请读 [README.md](README.md)。
 
@@ -41,11 +41,11 @@
 | --- | --- | --- |
 | [README.md](README.md) | 工程介绍、目录结构、命令、手测步骤、关键坑 | 上手 / 手测前 |
 | [docs/userscript-ai-generation.md](docs/userscript-ai-generation.md) | AI 生成用户脚本 · 现状与用法 | 涉及生成链路时 |
-| [notes/content/style.md](notes/content/style.md) | 代码风格规范（命名/TS/Vue/样式/shadcn/测试/提交） | 写代码 / 改样式前 |
+| [notes/content/code-style.md](notes/content/code-style.md) | 代码风格规范（命名/TS/Vue/样式/shadcn/测试/提交） | 写代码 / 改样式前 |
 | [docs/proposal-process.md](docs/proposal-process.md) | **提案流程**（2026-09-17 起降级为可选）：五态状态机、流转记录、提案不可删。**重大变更建议开提案做决策留痕；日常改动直接做，不开提案** | 结构 / 行为大改、需要多轮讨论的设计 |
 | [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**（有方案的走提案流程）。与提案流程相互独立 | 攒需求 / 清理待办时 |
 | [docs/lessons.md](docs/lessons.md) | 踩坑记录 | 报错 / 排查前 |
-| [notes/content/testing-plan.md](notes/content/testing-plan.md) | 测试方案：单测 / 端测各自的命令、写法、如何 mock、覆盖范围与注意事项 | 补测试 / 动工测试前 |
+| [notes/content/test-guide.md](notes/content/test-guide.md) | 测试方案：单测 / 端测各自的命令、写法、如何 mock、覆盖范围与注意事项 | 补测试 / 动工测试前 |
 | [notes/](notes/README.md) | **笔记体系**：`docs/` 的替换（唯一权威来源），人和 AI 都读；写作规范与结构见 [notes/README.md](notes/README.md)、总表见 [notes/INDEX.md](notes/INDEX.md) | 速览某主题 / 找对应源文档前 |
 
 
@@ -111,7 +111,7 @@
 6. 收尾：讨论出的结论和踩到的坑**由我落进 `docs/`**，不能只留在 `.workbuddy/`
 7. 发现跑偏、死链、过时内容、规范互相打架 → 直接说，不用等我问
 
-其他：修改前先阅读相关文件；需要桌面版旧实现参照时从 git 历史取回；测试体系已建立（见 [notes/content/testing-plan.md](notes/content/testing-plan.md)），新增功能尽量补最小验证（探针脚本放 `tmp/`），方案先与用户确认。
+其他：修改前先阅读相关文件；需要桌面版旧实现参照时从 git 历史取回；测试体系已建立（见 [notes/content/test-guide.md](notes/content/test-guide.md)），新增功能尽量补最小验证（探针脚本放 `tmp/`），方案先与用户确认。
 
 ### 分支保护 / 合并流程（强制）
 
@@ -143,4 +143,4 @@
 | 主题 | 深浅色**跟随系统**（`theme.ts` → `html.dark`）；不要在 `.html` 写死 `class="dark"`，也不要在组件里硬编码主题色（用 `--background` 等主题变量） | [README](README.md) |
 | 消息协议 | 扩展页只能经 `window.api` → background 调用能力；用户脚本只能经 `window.DL` → background，**两者都不得直接访问 `chrome.*`** | [src/lib/window-api.ts](src/lib/window-api.ts) |
 | entrypoint | 不要同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [README](README.md) 坑 5 |
-| 命名 | 文件/目录 kebab-case；组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | [notes/content/style.md](notes/content/style.md) §命名/§Vue |
+| 命名 | 文件/目录 kebab-case；组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | [notes/content/code-style.md](notes/content/code-style.md) §命名/§Vue |

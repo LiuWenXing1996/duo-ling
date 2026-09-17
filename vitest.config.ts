@@ -2,7 +2,7 @@ import { defineConfig, defaultExclude } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import { WxtVitest } from 'wxt/testing/vitest-plugin'
 
-// 测试基建（见 notes/content/testing-plan.md）：
+// 测试基建（见 notes/content/test-guide.md）：
 // - WxtVitest() 是 vite 层插件（`@` 别名解析 / #imports 虚拟模块 / chrome.* mock（extensionApiMock）/
 //   wxt+vitest globals auto-import），不要在此手配 alias。
 //   ⚠️ vitest projects 模式下顶层 plugins **不下传**给各 project（实测 chrome mock 全灭），
