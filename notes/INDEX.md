@@ -40,7 +40,7 @@
 | 笔记 | 源文档 | 一句话现状 |
 | --- | --- | --- |
 | [测试指南](content/test-guide.md) | —（已并入 notes） | 单测 + 端测各自的命令、写法、如何 mock、覆盖范围与注意事项 |
-| [踩坑记录](content/lessons.md) | [docs/lessons.md](../docs/lessons.md) | 项目经验随仓库分发；动手前先读 |
+| [踩坑记录](content/lessons.md) | —（已并入 notes） | 项目经验随仓库分发；动手前先读 |
 
 ## 动态清单（不入 notes 正文，索引指向）
 
