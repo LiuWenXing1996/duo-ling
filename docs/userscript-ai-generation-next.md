@@ -16,7 +16,7 @@
 | 8 | `chat:chunk` 逐条推送性能实测 | 整条链路搬 offscreen 后每条事件多一次跨上下文跳转，流式观感可能变差 | 提案 ② | [ai-userscript-phase1-archive.md](proposals/done/ai-userscript-phase1-archive.md) 的「风险与代价」中「每条消息多一次跨上下文跳转」一条：量级微秒~毫秒、相对首 token 延迟可忽略；卡了再换 `MessageChannel` |
 | 9 | 运行期反馈闭环（用户点「让 AI 修」） | 脚本跑起来后出错，用户能在 `us:errors` 看到日志，但**不能把错误记录一键带回会话让 AI 修** | 提案 ② | [userscript-ai-generation.md](userscript-ai-generation.md) 的「生成结果行为」段 + [ai-userscript-phase1-archive.md](proposals/done/ai-userscript-phase1-archive.md) 的「风险与代价」第 16 条：反馈**必须由用户触发**（用户点「让 AI 修」时才把错误记录 + 当前源码带进新会话），**不做后台自动改脚本**——静默修改会在所有 `matches` 站点生效，不可接受 |
 | 10 | 档 1 / 档 3 页面探针 | 档 0（URL / 标题）之外，AI 拿不到页面结构（档 2 拾取器只覆盖「用户主动点选的那一块」） | 提案 ①「元素拾取器」 | [userscript-ai-generation.md](userscript-ai-generation.md) 的「页面上下文档位」四档（档位取舍与「档 1 / 档 3 不做」的依据见 [ai-userscript-phase1-archive.md](proposals/done/ai-userscript-phase1-archive.md) 的「决策记录」）：档 1 = 扩展页直 `fetch` 目标 URL（对 SPA 基本无效，只能当零成本增强）；档 3 = 自动 DOM 摘要探针（会把整页结构送模型，**落地前必须显式告知**） |
-| 独立 | `DL.page` 反向中继 | 脚本看不到页面 JS 全局 | **不并入上述三案** | [userscript-page-relay.md](userscript-page-relay.md) 是规范稿 v1、**待评审**；实施排在 [userscript-v2-plan.md](userscript-v2-plan.md) 的 Phase 4 |
+| 独立 | `DL.page` 反向中继 | 脚本看不到页面 JS 全局 | **不并入上述三案** | [userscript-page-relay.md](userscript-page-relay.md) 是规范稿 v2（2026-09-17：一期只做 `listen` + `hook('fetch')`，eval 与句柄体系后置）、**待评审**；实施排在 [userscript-v2-plan.md](userscript-v2-plan.md) 的 Phase 4 |
 
 ## 归属论证：为什么是三案
 
