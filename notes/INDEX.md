@@ -17,7 +17,6 @@
 
 | 笔记 | 源文档 | 一句话现状 |
 | --- | --- | --- |
-| [工具链路移除方案](content/tool-chain-removal-plan.md) | [docs/tool-chain-removal-plan.md](../docs/tool-chain-removal-plan.md) | 工具整条链路已移除，扩展只留脚本 + 对话 |
 | [代码风格规范](content/style.md) | —（已并入 notes） | 命名 / TS / Vue / 样式 / shadcn / 测试 / 提交 约定 |
 | [Skill 管理方案](content/skill-management.md) | [docs/skill-management.md](../docs/skill-management.md) | Git 当包管理器 + symlink + AGENTS 就地挂载，弃 lockfile |
 

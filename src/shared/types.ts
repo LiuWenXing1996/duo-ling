@@ -2,7 +2,7 @@
 // 收敛前各侧手写 interface 易 drift；此处统一定义后，各侧改为 re-export，
 // 避免同一数据模型在三处重复维护。
 //
-// 2026-09-14：工具链路移除（docs/tool-chain-removal-plan.md）后，EditIntent / 工具元信息 /
+// 2026-09-14：工具链路移除后，EditIntent / 工具元信息 /
 // 工具变更契约 / 原子能力 / 工具数据 / 工具版本等类型整体摘除；WorkspaceTabKind 收窄为
 // 脚本工作台实际存在的五种。
 

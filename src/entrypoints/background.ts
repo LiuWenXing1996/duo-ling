@@ -11,7 +11,7 @@
 // 仍在 chrome.storage 的只有两类：DL.store 值（us:gm:*）与错误日志（us:errors）——
 // 写入方是用户脚本本身、不受控，且不参与「脚本是什么」的判定，故留在 SW 直写（文档 §4 边界）。
 //
-// 2026-09-14：工具链路移除（docs/tool-chain-removal-plan.md）后，原「工具文件与 git 操作的
+// 2026-09-14：工具链路移除后，原「工具文件与 git 操作的
 // 唯一写入方 + 原子能力执行」职责整体摘除（fs-store / tool-page-template / capabilities 三个
 // 依赖随之删除），此处只剩用户脚本、offscreen 与模型配置三类命令。
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用

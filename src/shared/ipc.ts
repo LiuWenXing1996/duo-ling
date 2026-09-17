@@ -5,7 +5,7 @@
 //  3. PreloadApi 是 window.api 的权威形状，index.d.ts 由此派生，渲染层自动获得完整类型。
 // 本文件只含类型与字符串常量，不依赖 electron，因此可被 main / preload / renderer 三方共同引用。
 //
-// 2026-09-14：工具链路移除（docs/tool-chain-removal-plan.md）后，工具类通道
+// 2026-09-14：工具链路移除后，工具类通道
 // （tool:* / tool-group:* / tool-pin:* / tool-archive:* / tools-preview:* / tools-data:*）、
 // 能力面（capability:*）、开发者界面（agent-tools:*）与工具落盘的 intents 通道
 // （conversation:applyIntents / conversation:intents）整体摘除。

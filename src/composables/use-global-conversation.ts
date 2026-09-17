@@ -11,7 +11,7 @@
 //     从头回放 offscreen 里仍在进行中任务的完整事件缓冲接上；「下完单就走」由此成立。
 //   · 孤儿任务 —— offscreen 宿主被杀后 status=running 的记录（心跳过期）在此提示「继续 / 丢弃」。
 //
-// 2026-09-14：工具链路移除（docs/tool-chain-removal-plan.md）后，原「多工具意图」分支
+// 2026-09-14：工具链路移除后，原「多工具意图」分支
 // （parseGeneratedIntents / applyIntents / 变更卡片 pendingMap / onToolApplied）整体摘除。
 
 import { computed, ref, shallowRef, watchEffect } from 'vue'

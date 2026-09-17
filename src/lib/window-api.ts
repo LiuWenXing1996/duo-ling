@@ -12,7 +12,7 @@
 //   window.*        → 扩展页没有无边框窗口，按「无窗口状态」应答
 //   workspace.*     → 标签快照上报（Agent 编排未平移，空实现）
 //
-// 2026-09-14：工具链路移除（docs/tool-chain-removal-plan.md）后，tool.* / toolsPreview.* /
+// 2026-09-14：工具链路移除后，tool.* / toolsPreview.* /
 // toolsData.* / capability.* / agentTools.* 五个命名空间整体摘除 —— 它们全部只服务工具页与
 // 开发者界面。本文件仍是 window.api 的唯一装配点，两个 main 入口都调 installWindowApi()，故必留。
 //

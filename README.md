@@ -4,7 +4,6 @@
 
 > **2026-09-14 方向变更**：原「AI 生成**工具**」（工具页 + sandbox iframe + `window.cap` 能力桥）
 > 整条链路已移除，产品方向转为**用户脚本**（一句话生成脚本 → 注入第三方页面运行）。
-> 移除范围与实施步骤见 [docs/tool-chain-removal-plan.md](docs/tool-chain-removal-plan.md)。
 > 现存功能：AI 对话 + 用户脚本（多文件项目 / esbuild 构建 / git 历史 / 启停管理）。
 
 ## 载体分工

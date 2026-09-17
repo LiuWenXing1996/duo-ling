@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // 工作区多标签宿主：主页（内容待定）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器 / 脚本历史 / 脚本产物。
 //
-// 2026-09-14：工具链路移除（docs/tool-chain-removal-plan.md）后，本文件从「工具标签总线」
+// 2026-09-14：工具链路移除后，本文件从「工具标签总线」
 // 收窄为「脚本工作台」—— 原先的工具详情 / 代码 / 版本历史 / 档案 / 数据 五个标签页、主页工具网格、
 // 全局工具搜索框、编辑与删除弹窗、分组与置顶全部摘除；标签页宿主、dirtyTab 与 tabsChanged 上报
-// 这套骨架逐句保留，未重写。主页标签本身保留（决策 D），内容刻意留空待定。
+// 这套骨架逐句保留，未重写。主页标签本身保留，内容刻意留空待定。
 import { ref, watch } from 'vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import UiTestPanel from '@/components/UiTestPanel.vue'
