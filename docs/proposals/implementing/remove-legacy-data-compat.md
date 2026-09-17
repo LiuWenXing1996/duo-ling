@@ -45,11 +45,11 @@
 
 ## 验收标准
 
-- [ ] `npm run typecheck` 零错误
-- [ ] `npm run build` 通过
-- [ ] `npm run test` 全绿（含 `use-global-conversation` / `model-store` / `conversation-store` / `userscripts` 相关单测）
-- [ ] `npm run check:proposals` 通过
-- [ ] 全仓检索 `LEGACY_SEQ_KEY` / `isLegacyScriptRecord` / `listLegacyScripts` / `clearDeprecatedScripts` / `clearDeprecated` / `UserScriptMeta` / `migrated` / `deprecated` / `activeScripts` 不再命中（注：`SEQ_META_KEY` 与新数据 `conversationSeq` 键保留，非检索目标）
+- [x] `npm run typecheck` 零错误
+- [x] `npm run build` 通过
+- [x] `npm run test` 全绿（含 `use-global-conversation` / `model-store` / `conversation-store` / `userscripts` 相关单测）
+- [x] `npm run check:proposals` 通过
+- [x] 全仓检索 `LEGACY_SEQ_KEY` / `isLegacyScriptRecord` / `listLegacyScripts` / `clearDeprecatedScripts` / `clearDeprecated` / `UserScriptMeta` / `migrated` / `deprecated` / `activeScripts` 不再命中（注：`SEQ_META_KEY` 与新数据 `conversationSeq` 键保留，非检索目标）
 - [ ] 功能回归：① 新建会话序号不重号（连续删除再建仍递增）② 模型配置增改 / 启用停用 / 切换默认正常，apiKey 密文读写正常 ③ assistant 消息（思考 / 工具卡 / 正文）渲染正常 ④ 用户脚本列表无旧 GM 清理入口、无 GM 旧记录展示
 
 ## 不做的事
