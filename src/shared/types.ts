@@ -47,7 +47,7 @@ export interface Message {
   /** AI 思考过程（reasoning），与正文分离存储；仅 assistant 消息可能有 */
   reasoning?: string
   /** 完整 UIMessage.parts（reasoning/text/tool）。
-   * 回读时据此还原分轮思考 / 工具卡 / 多段正文；兼容旧数据：无 parts 时回退用 content+reasoning。 */
+   * 回读时据此还原分轮思考 / 工具卡 / 多段正文；新数据均带 parts。 */
   parts?: UIMessage['parts']
   /** 本次生成消耗的 token（仅 assistant 消息有值），持久化为会话累计与单条耗时的唯一来源 */
   usage?: TokenUsage

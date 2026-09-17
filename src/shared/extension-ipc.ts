@@ -84,7 +84,6 @@ export type RuntimeRequest =
   | { kind: 'userscript:list' }
   | { kind: 'userscript:getProject'; uuid: string }
   | { kind: 'userscript:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
-  | { kind: 'userscript:clearDeprecated' }
   | { kind: 'userscript:create' }
   // AI 生成脚本落盘（SW 命令面，转发 offscreen 单写方；enabled 默认 false = 先落盘不启用）
   | { kind: 'userscript:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; enabled: boolean; note?: string }

@@ -112,10 +112,7 @@ async function clearErrors(): Promise<void> {
   }
 }
 
-/** 已弃用的旧 GM 形态记录不注册、不可编辑，参与不了启停 */
-const activeScripts = computed(() => scripts.value.filter((s) => !s.deprecated))
-const enabledCount = computed(() => activeScripts.value.filter((s) => s.enabled).length)
-const deprecatedCount = computed(() => scripts.value.length - activeScripts.value.length)
+const enabledCount = computed(() => scripts.value.filter((s) => s.enabled).length)
 
 // —— 可用性横幅（自旧管理器迁入）——
 /** 引擎可用性；available 且 CSP 放开时不显示横幅（没有需要用户行动的信息） */
@@ -137,7 +134,7 @@ async function refresh(): Promise<void> {
 
 /** 启停：数据写（enabled 落状态库）成功即更新开关；注册失败降级为警告，不回拨开关 */
 async function onToggle(s: ScriptSummary, next: boolean): Promise<void> {
-  if (s.deprecated || toggling.value) return
+  if (toggling.value) return
   toggling.value = s.uuid
   error.value = ''
   warning.value = ''
@@ -240,8 +237,7 @@ async function confirmExport(): Promise<void> {
       scripts = [{ name: p.name, config: p.config, entry: p.entry, files: p.files }]
       filename = `${sanitizeDirName(p.name)}.zip`
     } else {
-      // deprecated 旧记录不导出（格式不同、不可编辑，定稿 §4）
-      const list = (await userscriptClient.list()).filter((s) => !s.deprecated)
+      const list = await userscriptClient.list()
       const projects = (
         await Promise.all(list.map((s) => userscriptClient.getProject(s.uuid)))
       ).filter((p): p is ScriptProject => !!p)
@@ -304,7 +300,6 @@ async function onImportFile(e: Event): Promise<void> {
 /**
  * 弹窗里确认删除：注销 + 删存储 + **删 git 仓**（background 的 userscript:remove），不可撤销。
  * 成功后广播 deleted，由 WorkspaceHost 关掉它可能开着的编辑器标签。
- * 旧格式（deprecated）记录同样可删 —— 这里是它唯一的清理入口。
  */
 async function confirmRemove(): Promise<void> {
   const target = pendingRemove.value
@@ -325,13 +320,13 @@ async function confirmRemove(): Promise<void> {
 
 /**
  * 弹窗里确认「全部删除」：一条命令走完注销 → 清状态库项目 + 各仓 → 清 GM 值，不可撤销。
- * 范围 = 新形态用户脚本（activeScripts）；已弃用旧记录与内置件不在内（弹窗里已明示）。
+ * 范围 = 列表全部用户脚本；内置件不在内（弹窗里已明示）。
  * 先记下 uuid 列表，删完逐个广播 deleted，宿主据此关掉它们开着的编辑器 / 产物标签。
  */
 async function confirmRemoveAll(): Promise<void> {
   if (removingAll.value) return
   removeAllOpen.value = false
-  const uuids = activeScripts.value.map((s) => s.uuid)
+  const uuids = scripts.value.map((s) => s.uuid)
   if (!uuids.length) return
   removingAll.value = true
   error.value = ''
@@ -368,8 +363,7 @@ onMounted(() => {
         <header class="flex items-center justify-between gap-2">
           <p class="text-xs text-muted-foreground">
             共 {{ scripts.length }} 个脚本
-            <template v-if="activeScripts.length">· {{ enabledCount }} 个已启用</template>
-            <template v-if="deprecatedCount">· 含 {{ deprecatedCount }} 个已弃用旧记录</template>
+            <template v-if="scripts.length">· {{ enabledCount }} 个已启用</template>
           </p>
           <div class="flex shrink-0 items-center gap-1">
             <ui-button
@@ -408,7 +402,7 @@ onMounted(() => {
               size="sm"
               class="h-7 gap-1 px-2.5 text-xs"
               title="导出全部脚本"
-              :disabled="exporting || !activeScripts.length"
+              :disabled="exporting || !scripts.length"
               @click="askExportAll"
             >
               <ui-download class="size-3.5" />
@@ -420,7 +414,7 @@ onMounted(() => {
               size="sm"
               class="h-7 gap-1 px-2.5 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
               title="删除全部脚本"
-              :disabled="removingAll || !activeScripts.length"
+              :disabled="removingAll || !scripts.length"
               @click="removeAllOpen = true"
             >
               <ui-loader-circle v-if="removingAll" class="size-3.5 animate-spin" />
@@ -489,7 +483,6 @@ onMounted(() => {
             v-for="s in scripts"
             :key="s.uuid"
             class="flex items-start gap-3 rounded-md border bg-card p-3"
-            :class="{ 'opacity-60': s.deprecated }"
           >
             <span
               class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
@@ -501,14 +494,7 @@ onMounted(() => {
               <div class="flex items-center gap-2">
                 <span class="truncate text-sm font-medium">{{ s.name }}</span>
                 <span
-                  v-if="s.deprecated"
-                  class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-                  title="旧油猴格式记录：不注册、不可编辑，仅保留数据"
-                >
-                  旧格式 · 已弃用
-                </span>
-                <span
-                  v-else-if="justImported.includes(s.uuid) && !s.enabled"
+                  v-if="justImported.includes(s.uuid) && !s.enabled"
                   class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
                 >
                   刚导入 · 未启用
@@ -518,16 +504,15 @@ onMounted(() => {
                 {{ s.matches.join(', ') || '（无匹配规则）' }}
               </p>
               <p class="mt-0.5 text-xs text-muted-foreground">
-                <template v-if="!s.deprecated">{{ s.fileCount }} 个文件</template>
+                {{ s.fileCount }} 个文件
                 <template v-if="updatedAtLabel(s.updatedAt)">
-                  <span v-if="!s.deprecated"> · </span>{{ updatedAtLabel(s.updatedAt) }}
+                  · {{ updatedAtLabel(s.updatedAt) }}
                 </template>
               </p>
             </div>
 
             <div class="mt-0.5 flex shrink-0 items-center gap-1">
               <ui-switch
-                v-if="!s.deprecated"
                 :model-value="s.enabled"
                 :disabled="toggling === s.uuid"
                 :aria-label="`${s.name}：${s.enabled ? '已启用' : '已停用'}`"
@@ -536,7 +521,6 @@ onMounted(() => {
                 <ui-switch-thumb />
               </ui-switch>
               <ui-button
-                v-if="!s.deprecated"
                 variant="ghost"
                 size="icon"
                 class="size-7"
@@ -545,9 +529,8 @@ onMounted(() => {
               >
                 <ui-pencil class="size-3.5" />
               </ui-button>
-              <!-- 导出（非 deprecated）：确认弹窗统一带隐私提示 -->
+              <!-- 导出（zip）：确认弹窗统一带隐私提示 -->
               <ui-button
-                v-if="!s.deprecated"
                 variant="ghost"
                 size="icon"
                 class="size-7"
@@ -557,7 +540,6 @@ onMounted(() => {
               >
                 <ui-download class="size-3.5" />
               </ui-button>
-              <!-- 删除不分 deprecated：旧格式记录也在这里清理 -->
               <ui-button
                 variant="ghost"
                 size="icon"
@@ -657,10 +639,10 @@ onMounted(() => {
       <ui-dialog-content class="max-w-md">
         <ui-dialog-title class="text-base font-semibold">删除全部脚本</ui-dialog-title>
         <ui-dialog-description class="text-sm text-muted-foreground">
-          确定删除全部 {{ activeScripts.length }} 个脚本吗？各自的 git 历史会一并删除。
+          确定删除全部 {{ scripts.length }} 个脚本吗？各自的 git 历史会一并删除。
           <span class="mt-2 block text-destructive">此操作不可撤销。</span>
           <span class="mt-1 block text-xs">
-            已弃用旧记录与内置脚本不受影响。
+            内置脚本不受影响。
           </span>
         </ui-dialog-description>
         <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
@@ -712,7 +694,7 @@ onMounted(() => {
         </ui-dialog-title>
         <ui-dialog-description class="text-sm text-muted-foreground">
           <template v-if="pendingExport?.kind === 'all'">
-            将把全部 {{ activeScripts.length }} 个脚本打包为一个 zip（不含已弃用旧记录）。
+            将把全部 {{ scripts.length }} 个脚本打包为一个 zip。
           </template>
           <template v-else>
             将把「{{ pendingExport?.summary.name }}」打包为 zip（含全部源码文件）。
