@@ -12,6 +12,7 @@ import {
   Check as UiCheck,
   ChevronDown as UiChevronDown,
   Download as UiDownload,
+  FileQuestion as UiFileQuestion,
   LoaderCircle as UiLoaderCircle,
   MousePointerClick as UiMousePointerClick,
   Package as UiPackage,
@@ -660,7 +661,7 @@ onMounted(() => {
       </ui-dialog-content>
     </ui-dialog>
 
-    <!-- 导入汇总报告：多脚本 / 有失败时展示（单脚本成功直接开编辑器，不经过这里） -->
+    <!-- 导入汇总报告：导入后统一展示（含成功 / 失败 / 被忽略未导入的文件） -->
     <ui-dialog
       :open="!!importReport"
       @update:open="(v: boolean) => { if (!v) importReport = null }"
@@ -668,6 +669,7 @@ onMounted(() => {
       <ui-dialog-content class="max-w-lg">
         <ui-dialog-title class="text-base font-semibold">
           导入完成：成功 {{ importReport?.succeeded }} 个，失败 {{ importReport?.failed }} 个
+          <template v-if="importReport?.ignored.length">，忽略 {{ importReport?.ignored.length }} 个文件</template>
         </ui-dialog-title>
         <ui-dialog-description class="text-sm text-muted-foreground">
           新导入的脚本默认停用——审过源码后再手动启用。
@@ -695,6 +697,26 @@ onMounted(() => {
             </div>
           </li>
         </ul>
+        <template v-if="importReport?.ignored.length">
+          <p class="mt-3 border-t pt-3 text-xs font-medium text-muted-foreground">
+            以下文件被忽略（未导入）
+          </p>
+          <ul class="mt-2 flex max-h-40 flex-col gap-2 overflow-y-auto">
+            <li
+              v-for="(f, i) in importReport?.ignored"
+              :key="i"
+              class="flex items-start gap-2 text-xs"
+            >
+              <ui-file-question
+                class="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400"
+              />
+              <div class="min-w-0 flex-1">
+                <p class="break-all font-medium">{{ f.path }}</p>
+                <p class="mt-0.5 break-all text-muted-foreground">{{ f.reason }}</p>
+              </div>
+            </li>
+          </ul>
+        </template>
         <ui-dialog-footer class="flex-none sm:justify-end">
           <ui-button size="sm" @click="importReport = null">好的</ui-button>
         </ui-dialog-footer>

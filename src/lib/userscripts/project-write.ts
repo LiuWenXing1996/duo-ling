@@ -182,6 +182,7 @@ export async function importScriptsZip(zipBase64: string): Promise<ImportReport>
     succeeded: results.filter((r) => r.status === 'ok').length,
     failed: results.filter((r) => r.status === 'failed').length,
     results,
+    ignored: parsed.ignored.map((f) => ({ status: 'ignored' as const, ...f })),
   }
 }
 

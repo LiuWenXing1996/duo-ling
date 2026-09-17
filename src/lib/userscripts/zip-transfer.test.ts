@@ -149,17 +149,33 @@ describe('parseScriptsZip 解析安全（定稿 §5.2）', () => {
     }
   })
 
-  it('files/ 之外的条目（data/ 预留位、顶层散文件）忽略不报错', () => {
+  it('files/ 之外的条目（data/ 预留位、顶层散文件）忽略不报错，并汇进 ignored 报告', () => {
     const zip = makeZip({
       '示例脚本/project.json': manifestJson(),
       '示例脚本/files/main.js': 'console.log(1)',
       '示例脚本/data/whatever.json': '{}', // 备份语义预留位：v1 忽略
       'loose.txt': '顶层散文件',
     })
-    const { scripts, skipped } = parseScriptsZip(zip)
+    const { scripts, skipped, ignored } = parseScriptsZip(zip)
     expect(skipped).toEqual([])
     expect(scripts).toHaveLength(1)
     expect(scripts[0].files).toEqual({ 'main.js': 'console.log(1)' })
+    expect(ignored).toEqual([
+      { path: 'loose.txt', reason: expect.stringContaining('顶层散文件') },
+      { path: '示例脚本/data/whatever.json', reason: expect.stringContaining('非 files/') },
+    ])
+  })
+
+  it('目录占位条目（path 以 / 结尾）不计入 ignored（与已导入脚本目录重名会误导）', () => {
+    const zip = makeZip({
+      '示例脚本/project.json': manifestJson(),
+      '示例脚本/files/main.js': 'console.log(1)',
+      '示例脚本/': '', // 机械目录占位
+      'loose.txt': 'x', // 这条应被计入 ignored
+    })
+    const { scripts, ignored } = parseScriptsZip(zip)
+    expect(scripts).toHaveLength(1)
+    expect(ignored).toEqual([{ path: 'loose.txt', reason: expect.stringContaining('顶层散文件') }])
   })
 
   it('entry 不在 files 中 → 跳过；files 为空 → 跳过', () => {

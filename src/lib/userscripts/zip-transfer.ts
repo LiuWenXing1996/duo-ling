@@ -45,9 +45,17 @@ export interface ParsedSkip {
   reason: string
 }
 
+/** 解码时被容忍忽略的文件（顶层散文件 / 非 files/ 条目 / 目录占位；定稿 §5.2 不报错，仅展示） */
+export interface ParsedIgnored {
+  /** zip 内原始路径 */
+  path: string
+  reason: string
+}
+
 export interface ScriptsZipParse {
   scripts: ParsedScript[]
   skipped: ParsedSkip[]
+  ignored: ParsedIgnored[]
 }
 
 // —— 编码（导出侧） ——
@@ -136,13 +144,19 @@ export function parseScriptsZip(bytes: Uint8Array): ScriptsZipParse {
   const unzipped = unzipSync(bytes)
   const scripts: ParsedScript[] = []
   const skipped: ParsedSkip[] = []
+  // 被容忍忽略的文件（仅展示，不计入成功/失败）：顶层散文件 + 脚本目录内的非 files/ 条目。
+  // 目录占位条目（path 以 / 结尾）不计入——它只是机械目录项，且与已导入的脚本目录重名会误导。
+  const ignored: ParsedIgnored[] = []
 
   // 按顶层目录分组：path 去掉首个段后按目录归堆（目录占位条目与顶层散文件忽略）
   const groups = new Map<string, Map<string, Uint8Array>>()
   for (const [path, content] of Object.entries(unzipped)) {
     if (path.endsWith('/')) continue
     const slash = path.indexOf('/')
-    if (slash <= 0) continue
+    if (slash <= 0) {
+      ignored.push({ path, reason: '顶层散文件（非脚本条目，已忽略）' })
+      continue
+    }
     const top = path.slice(0, slash)
     const rest = path.slice(slash + 1)
     if (!groups.has(top)) groups.set(top, new Map())
@@ -200,7 +214,12 @@ export function parseScriptsZip(bytes: Uint8Array): ScriptsZipParse {
     const files: Record<string, string> = {}
     let hasBadPath = false
     for (const [rest, content] of filesByDir) {
-      if (!rest.startsWith('files/')) continue
+      if (!rest.startsWith('files/')) {
+        if (rest !== 'project.json') {
+          ignored.push({ path: `${top}/${rest}`, reason: '脚本目录内的非 files/ 条目（如 data/ 预留位，已忽略）' })
+        }
+        continue
+      }
       const rel = rest.slice('files/'.length)
       if (!rel || rel.endsWith('/')) continue
       if (!isSafeRelPath(rel)) {
@@ -224,7 +243,7 @@ export function parseScriptsZip(bytes: Uint8Array): ScriptsZipParse {
     scripts.push({ name: manifest.name, config: cfg, entry: manifest.entry, files })
   }
 
-  return { scripts, skipped }
+  return { scripts, skipped, ignored }
 }
 
 // —— 传输与指纹（两侧共用的小工具） ——
