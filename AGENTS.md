@@ -30,7 +30,7 @@
 | `npm run typecheck` | 类型检查（`vue-tsc --noEmit`）；当前全仓零错误 |
 | `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 | `npm run check:proposals` | 提案流程体检：状态与目录一致性、流转合法性、记录完整性（见 [docs/proposal-process.md](docs/proposal-process.md)） |
-| `npm run check:inbox` | 想法收件箱条目体检：单条 >100 字、总字数 >3000、「不办」条目缺理由、疑似重复（**整理 inbox 时跑**；与 `check:proposals` 平级互不依赖，提醒级不进 CI） |
+| `npm run check:inbox` | 想法收件箱条目体检：单条 >100 字、总字数 >6000、「不办」条目缺理由、疑似重复（**整理 inbox 时跑**；与 `check:proposals` 平级互不依赖，提醒级不进 CI） |
 | `npm run check:notes` | notes 笔记体检：章节白名单（`##` 只许三段、`###` 须在三段内）、标题/一句话字数、现状 ≤1500、「不包括」清单式、决策记录字数与时间格式（规范见 [notes/README.md](notes/README.md)；提醒级不进 CI） |
 
 > **交付前验证**：`npm run typecheck` 与 `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。

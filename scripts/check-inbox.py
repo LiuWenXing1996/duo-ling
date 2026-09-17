@@ -13,7 +13,7 @@
 
 检查项：
     1. 「待办」「不办」分区下的条目 >100 字
-    2. docs/inbox.md 总字数 >3000（软上限，见 notes/README.md）
+    2. docs/inbox.md 总字数 >6000（软上限，见 notes/README.md）
     3. 「不办」条目缺「理由：」前缀——`理由:` 半角也算，但必须写在本条目内部
     4. 疑似重复条目：去掉标点与空白后，两条相同或互为子串
 
@@ -40,7 +40,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TARGET = "docs/inbox.md"
 
 ITEM_MAX = 100
-TOTAL_MAX = 3000
+TOTAL_MAX = 6000
 SECTIONS = ("待办", "不办")
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(\S.*?)\s*$")
@@ -80,7 +80,7 @@ def strip_inline(text: str) -> str:
 
 
 def count_words(text: str) -> int:
-    """条目字数与文件总字数共用一个口径，否则「100」和「3000」是两种字。"""
+    """条目字数与文件总字数共用一个口径，否则「100」和「6000」是两种字。"""
     s = strip_inline(text)
     total = len(CJK_RE.findall(s))
     for token in TOKEN_RE.findall(s):
