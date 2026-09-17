@@ -285,12 +285,9 @@ async function onImportFile(e: Event): Promise<void> {
       if (r.status === 'ok') justImported.value = [...justImported.value, r.uuid]
     }
     await refresh()
-    const single = report.results.length === 1 ? report.results[0] : undefined
-    if (single && single.status === 'ok') {
-      emit('edit', single.uuid, single.name)
-    } else {
-      importReport.value = report
-    }
+    // 导入不自动进编辑器：统一走汇总报告（含成功 N / 失败 M + 原因 + 指纹重复提示）；
+    // 「刚导入·未启用」标已通过 justImported 在列表行体现，用户按需手动点编辑
+    importReport.value = report
   } catch (err) {
     error.value = '导入失败：' + (err instanceof Error ? err.message : String(err))
   } finally {
