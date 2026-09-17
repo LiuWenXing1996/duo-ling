@@ -1,4 +1,4 @@
-// 层5 E2E 冒烟（docs/testing-plan.md「E2E 测试面映射」）。
+// 层5 E2E 冒烟（见 notes/content/testing-plan.md）。
 // 覆盖四条面：workbench 页 / SW 命令面 + offscreen 就绪 / 用户脚本注入（window.DL 桥）/ sidepanel 页。
 // sidePanel.open() 需 user gesture 且无头无浏览器 UI，不进无头断言（手测覆盖）。
 import { test, expect, type BrowserContext, type Page, type Worker } from '@playwright/test'

@@ -1,4 +1,4 @@
-// 协议一致性测试（层 2，docs/testing-plan.md）—— kind 归属唯一性。
+// 协议一致性测试（层 2，见 notes/content/testing-plan.md）—— kind 归属唯一性。
 //
 // RuntimeRequest 的 kind 是可辨识联合（本文件 = 唯一真相源 src/shared/extension-ipc.ts），
 // 但「每个 kind 恰被一端处理」是**类型盲区**：

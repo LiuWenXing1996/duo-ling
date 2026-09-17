@@ -16,7 +16,7 @@
 - **脚本注入**：`chrome.userScripts` + USER_SCRIPT 世界 + `window.DL` 桥接（`src/lib/userscripts/`）
 - **offscreen document**：AI 生成链路的执行宿主，按需创建（`src/lib/offscreen.ts`）
 - **包管理**：npm
-- **测试**：Vitest（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`）+ Playwright E2E 已建立；五层分层 + 组件测试方案见 [docs/testing-plan.md](docs/testing-plan.md)，CI 快测门禁见 `.github/workflows/ci.yml`、独立 E2E 见 `e2e.yml`
+- **测试**：Vitest（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`）+ Playwright E2E 已建立；单测 / 端测方案见 [notes/content/testing-plan.md](notes/content/testing-plan.md)，CI 快测门禁见 `.github/workflows/ci.yml`、独立 E2E 见 `e2e.yml`
 
 > 项目介绍与手测步骤请读 [README.md](README.md)；迁移背景见 [docs/plugin-migration-plan.md](docs/plugin-migration-plan.md)。
 
@@ -46,7 +46,7 @@
 | [docs/proposal-process.md](docs/proposal-process.md) | **提案流程**（2026-09-17 起降级为可选）：五态状态机、流转记录、提案不可删。**重大变更建议开提案做决策留痕；日常改动直接做，不开提案** | 结构 / 行为大改、需要多轮讨论的设计 |
 | [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**（有方案的走提案流程）。与提案流程相互独立 | 攒需求 / 清理待办时 |
 | [docs/lessons.md](docs/lessons.md) | 踩坑记录 | 报错 / 排查前 |
-| [docs/testing-plan.md](docs/testing-plan.md) | 测试方案（五层分层 + E2E 路由，待开工） | 补测试 / 动工测试前 |
+| [notes/content/testing-plan.md](notes/content/testing-plan.md) | 测试方案：单测 / 端测各自的命令、写法、如何 mock、覆盖范围与注意事项 | 补测试 / 动工测试前 |
 | [notes/](notes/README.md) | **笔记体系**：`docs/` 的替换（唯一权威来源），人和 AI 都读；写作规范与结构见 [notes/README.md](notes/README.md)、总表见 [notes/INDEX.md](notes/INDEX.md) | 速览某主题 / 找对应源文档前 |
 
 
@@ -112,7 +112,7 @@
 6. 收尾：讨论出的结论和踩到的坑**由我落进 `docs/`**，不能只留在 `.workbuddy/`
 7. 发现跑偏、死链、过时内容、规范互相打架 → 直接说，不用等我问
 
-其他：修改前先阅读相关文件；需要桌面版旧实现参照时从 git 历史取回；测试体系已建立（见 [docs/testing-plan.md](docs/testing-plan.md)），新增功能尽量补最小验证（探针脚本放 `tmp/`），方案先与用户确认。
+其他：修改前先阅读相关文件；需要桌面版旧实现参照时从 git 历史取回；测试体系已建立（见 [notes/content/testing-plan.md](notes/content/testing-plan.md)），新增功能尽量补最小验证（探针脚本放 `tmp/`），方案先与用户确认。
 
 ### 分支保护 / 合并流程（强制）
 
