@@ -193,14 +193,14 @@ export type RuntimeRequest =
   // 与 state:remove 同处一地的好处：记录与仓的删除不跨上下文，不留无主仓。
   | { kind: 'state:removeAll' }
   | { kind: 'state:toggle'; uuid: string; enabled: boolean }
-  // AI 生成脚本的落盘（docs/userscript-ai-generation.md「写入契约」/「生成结果行为」）：SW 的 userscript:createProject
+  // AI 生成脚本的落盘（notes/content/userscript-ai-generation.md/「生成结果行为」）：SW 的 userscript:createProject
   // 转发到此（单写方），写状态库 + git 快照（note = AI summary），**不注册**（enabled:false 默认）。
   | { kind: 'state:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; enabled: boolean; note?: string }
   // zip 导入的落点（SW 的 userscript:import 转发到此）：importScriptsZip 逐脚本
   // 「构建 → 落盘 → 快照」，报告 ImportReport（types.ts）。
   | { kind: 'state:import'; zipBase64: string }
 
-  // —— 会话写侧（整条对话链路搬进 offscreen 后，会话历史唯一写入方 = offscreen，docs/userscript-ai-generation.md「谁写什么」）——
+  // —— 会话写侧（整条对话链路搬进 offscreen 后，会话历史唯一写入方 = offscreen，notes/content/userscript-ai-generation.md）——
   // UI（侧边栏 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 对 conv: 前缀静默让路。
   | { kind: 'conv:create' }
   | { kind: 'conv:rename'; id: string; title: string }
@@ -219,7 +219,7 @@ export type RuntimeRequest =
   | { kind: 'chat:orphans' }
   | { kind: 'chat:orphanAction'; taskId: string; action: 'continue' | 'discard' }
 
-  // —— offscreen document（AI 生成链路的执行宿主，docs/userscript-ai-generation.md「三容器职责与数据流」）——
+  // —— offscreen document（AI 生成链路的执行宿主，notes/content/userscript-ai-generation.md）——
   // 容器**按需创建**（刻意不在 SW 启动时自动建，否则一启动就常驻，与退出条件相悖），
   // 故用显式命令控制；`offscreen:ready` 是 offscreen 侧启动后的握手通知。
   | { kind: 'offscreen:ensure' }
@@ -227,7 +227,7 @@ export type RuntimeRequest =
   | { kind: 'offscreen:status' }
   | { kind: 'offscreen:ready' }
 
-  // —— 模型配置（offscreen 侧向 SW 拉取，docs/userscript-ai-generation.md「机制·配置通道」）——
+  // —— 模型配置（offscreen 侧向 SW 拉取，notes/content/userscript-ai-generation.md）——
   // offscreen 拿不到 chrome.storage，故在启动 / 收到变更推送时经此命令取一次并缓存。
   // 返回值含 apiKey 明文：属同扩展内上下文之间的传递（offscreen 与 SW 信任级别等同），
   // 不是新增对外暴露面；但仍须「取一次、缓存、不写日志」。

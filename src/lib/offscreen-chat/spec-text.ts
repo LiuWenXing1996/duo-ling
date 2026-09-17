@@ -1,6 +1,6 @@
-// script_spec 的规范载荷（docs/userscript-ai-generation.md「script_spec 约束」）。
+// script_spec 的规范载荷（notes/content/userscript-ai-generation.md）。
 //
-// 来源：notes/content/userscript-api.md（DL 能力 API 权威规范）+ docs/userscript-ai-generation.md「script_spec 约束」的禁止事项清单。
+// 来源：notes/content/userscript-api.md（DL 能力 API 权威规范）+ notes/content/userscript-ai-generation.md的禁止事项清单。
 // 按 §6.2 #11 拍板：由文档拼一段注入文本即可，.d.ts 留给脚本作者（v2 计划 P3）。
 // 放在独立模块（纯字符串常量），chat-host 与工具实现都不必关心内容。
 

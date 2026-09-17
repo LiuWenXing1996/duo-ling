@@ -8,7 +8,7 @@
 
 | # | 项 | 一句话问题 | 归属 | 依赖 / 依据 |
 | --- | --- | --- | --- | --- |
-| 1 | 元素拾取器（页面上下文档 2） | ~~AI 只拿到当前标签 URL / 标题，选择器靠推测，命中率低~~ **[已落地]**：经 `chrome.userScripts.execute()` 注入 + `execute()` 返回值回传，AI 拿到真实选择器与同类计数 | 提案 ①「元素拾取器」—— **[已落地]**（2026-09-17，见 [`proposals/done/element-picker.md`](proposals/done/element-picker.md)） | 设计见 [userscript-ai-generation.md](userscript-ai-generation.md)；两个待定已决：载荷形态（摘要层 ≤2KB + `element_read` 按需读全量）、回传通道（走 `execute()` 返回值，不经 DL 桥）；内置项目承载 = #6 已实现 |
+| 1 | 元素拾取器（页面上下文档 2） | ~~AI 只拿到当前标签 URL / 标题，选择器靠推测，命中率低~~ **[已落地]**：经 `chrome.userScripts.execute()` 注入 + `execute()` 返回值回传，AI 拿到真实选择器与同类计数 | 提案 ①「元素拾取器」—— **[已落地]**（2026-09-17，见 [`proposals/done/element-picker.md`](proposals/done/element-picker.md)） | 设计见 [userscript-ai-generation.md](../notes/content/userscript-ai-generation.md)；两个待定已决：载荷形态（摘要层 ≤2KB + `element_read` 按需读全量）、回传通道（走 `execute()` 返回值，不经 DL 桥）；内置项目承载 = #6 已实现 |
 | 2 | 面板关闭期间的进度通知 | 面板一关就看不到进度 | 提案 ②「生成体验完善」 | `chrome.notifications` 权限已在；由 SW 发（offscreen 无此 API） |
 | 3 | 同会话消息排队 | 任务进行中再发消息，现以「拒绝 `chat:start`」兜底 | 提案 ② | 可代定项（一期收编时由原档 §6.2 移交本图）：建议排队 + 面板显式提示 |
 | 4 | zip 导入导出 | 脚本无法分享给别人 | 提案 ③「脚本资产流转」—— **[已落地]（主体）**（2026-09-17，见 [`proposals/done/userscript-zip-transfer.md`](proposals/done/userscript-zip-transfer.md) + dev-log：import/export 后端、全部删除、旧数据清理均落地） | [userscript-zip-transfer.md](userscript-zip-transfer.md) 方案定稿 v1 已实施；残余项（notes 档案 / 拖拽导入 / 多选批量导出 / `data/` 备份语义 / 脚本市场）不在本批，见 #5 与正文 |
@@ -16,7 +16,7 @@
 | 6 | 内置脚本「内置」分组 | 内置脚本（拾取器等）没有承载位，会混进用户脚本列表 | 提案 ①「元素拾取器」—— **[已落地]**（随 #1 一并实施，管理页只读分组已就位） | 切法 A 已落地；内置清单 `builtins.ts` 构建期生成，管理页只读渲染，无编辑 / 删除 / 启用控件 |
 | 7 | regenerate 触发器 | 生成结果不满意，无法一键重来 | 提案 ② | `chat:start` 的 `trigger` 已含 `regenerate-message`，缺的是触发与落盘语义 |
 | 8 | `chat:chunk` 逐条推送性能实测 | 整条链路搬 offscreen 后每条事件多一次跨上下文跳转，流式观感可能变差 | 提案 ② | [ai-userscript-phase1-archive.md](proposals/done/ai-userscript-phase1-archive.md) 的「风险与代价」中「每条消息多一次跨上下文跳转」一条：量级微秒~毫秒、相对首 token 延迟可忽略；卡了再换 `MessageChannel` |
-| 9 | 运行期反馈闭环（用户点「让 AI 修」）**[已落地]** | 脚本跑起来后出错，用户能在 `us:errors` 看到日志，但**不能把错误记录一键带回会话让 AI 修** | 提案 ② | [userscript-ai-generation.md](userscript-ai-generation.md) 的「生成结果行为」段 + [ai-userscript-phase1-archive.md](proposals/done/ai-userscript-phase1-archive.md) 的「风险与代价」第 16 条：反馈**必须由用户触发**（用户点「让 AI 修」时才把错误记录 + 当前源码带进新会话），**不做后台自动改脚本**——静默修改会在所有 `matches` 站点生效，不可接受 |
+| 9 | 运行期反馈闭环（用户点「让 AI 修」）**[已落地]** | 脚本跑起来后出错，用户能在 `us:errors` 看到日志，但**不能把错误记录一键带回会话让 AI 修** | 提案 ② | [userscript-ai-generation.md](../notes/content/userscript-ai-generation.md) 的「生成结果行为」段 + [ai-userscript-phase1-archive.md](proposals/done/ai-userscript-phase1-archive.md) 的「风险与代价」第 16 条：反馈**必须由用户触发**（用户点「让 AI 修」时才把错误记录 + 当前源码带进新会话），**不做后台自动改脚本**——静默修改会在所有 `matches` 站点生效，不可接受 |
 | 10 | 档 1 / 档 3 页面探针 | 档 0（URL / 标题）之外 AI 拿不到页面结构 | 提案 ①「元素拾取器」—— **档 1 [已落地]**（改判为 `page_snapshot` AI 工具）；**档 3 [不做]**（留后续提案） | 档 1 原「fetch 源码」已弃用，改为 `page_snapshot` agent 工具（offscreen → SW `page:snapshot` → `execute()` 快照模式，返回渲染后 outerHTML ~32KB）；档 3 自动全页 DOM 摘要探针明确不做、落地前须显式告知用户 |
 | 独立 | `DL.page` 反向中继 | 脚本看不到页面 JS 全局 | **不并入上述三案** | [userscript-page-relay.md](userscript-page-relay.md) 是规范稿 v2（2026-09-17：一期只做 `listen` + `hook('fetch')`，eval 与句柄体系后置）、**待评审**；实施排在 [userscript-v2-plan.md](userscript-v2-plan.md) 的 Phase 4 |
 

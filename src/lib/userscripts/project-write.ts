@@ -68,7 +68,7 @@ export async function createProject(): Promise<ScriptProject> {
 }
 
 /**
- * AI 生成脚本落盘（docs/userscript-ai-generation.md「生成结果行为」）：
+ * AI 生成脚本落盘（notes/content/userscript-ai-generation.md）：
  * 收 name / config / files / entry / bundle（必填，构建已在 loop 内收敛通过）+ enabled（默认 false）。
  * **不调用 registerScript**——「生成」与「生效」解耦，AI 产物默认零影响；
  * git 快照 note = AI summary（us-git 已支持，正好是提交信息）。

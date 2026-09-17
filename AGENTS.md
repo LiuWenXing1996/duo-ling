@@ -40,7 +40,7 @@
 | 文档 | 职责 | 何时读 |
 | --- | --- | --- |
 | [README.md](README.md) | 工程介绍、目录结构、命令、手测步骤、关键坑 | 上手 / 手测前 |
-| [docs/userscript-ai-generation.md](docs/userscript-ai-generation.md) | AI 生成用户脚本 · 现状与用法 | 涉及生成链路时 |
+| [notes/content/userscript-ai-generation.md](notes/content/userscript-ai-generation.md) | AI 生成用户脚本 · 现状与用法 | 涉及生成链路时 |
 | [notes/content/code-style.md](notes/content/code-style.md) | 代码风格（命名/TS/Vue/样式/shadcn/测试/提交） | 写代码 / 改样式前 |
 | [notes/content/proposal-process.md](notes/content/proposal-process.md) | **提案流程**（2026-09-17 起降级为可选）：五态状态机、流转记录、提案不可删。**重大变更建议开提案做决策留痕；日常改动直接做，不开提案** | 结构 / 行为大改、需要多轮讨论的设计 |
 | [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**（有方案的走提案流程）。与提案流程相互独立 | 攒需求 / 清理待办时 |

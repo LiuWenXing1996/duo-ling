@@ -3,7 +3,7 @@
 // 布局上对应全局三栏中的「会话历史 + 当前会话」两栏：会话列表读自 IndexedDB（同源共享），
 // 消息全部持久化在 IndexedDB，此处只维护「当前激活会话」的视图与流式过程中的临时态。
 //
-// 2026-09-15（docs/userscript-ai-generation.md「谁写什么」）：整条对话链路搬进 offscreen 后，
+// 2026-09-15（notes/content/userscript-ai-generation.md）：整条对话链路搬进 offscreen 后，
 // 本 composable 的定位收敛为「指令入口 + 观察者」：
 //   · 落盘归 offscreen —— 用户消息在 chat:start 时落盘、assistant 消息在收尾时落盘
 //     （含完整 parts 与 token 用量）；侧边栏**不写**会话库，防双写。

@@ -1,4 +1,4 @@
-// 对话编排宿主（docs/userscript-ai-generation.md「三容器职责与数据流」：整条对话链路跑在 offscreen，不做任务类型分流）。
+// 对话编排宿主（notes/content/userscript-ai-generation.md：整条对话链路跑在 offscreen，不做任务类型分流）。
 //
 // 职责：
 //   · streamText + tools（script_spec / script_read / script_apply）+ stopWhen(maxSteps=8)；
@@ -46,7 +46,7 @@ import {
 import { buildScriptTools, type TaskWorkspace } from './script-tools'
 import { getTask, listRunningTasks, putTask, removeTask, type ChatTaskRecord } from './task-store'
 
-/** maxSteps 上限：沿用桌面版 agent-orchestrator 的 8（值见 docs/userscript-ai-generation.md「编排约束」，来源见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」） */
+/** maxSteps 上限：沿用桌面版 agent-orchestrator 的 8（值见 notes/content/userscript-ai-generation.md，来源见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」） */
 const MAX_STEPS = 8
 /** 心跳间隔 / 孤儿判定阈值：宿主活着时每 5s 跳一次；30s 无心跳即判孤儿 */
 const HEARTBEAT_MS = 5_000
@@ -64,7 +64,7 @@ interface RunningTask {
   messageId: string
 }
 
-/** 会话 → 进行中任务（同会话同时只允许一条流、不并发，见 docs/userscript-ai-generation.md「编排约束」） */
+/** 会话 → 进行中任务（同会话同时只允许一条流、不并发，见 notes/content/userscript-ai-generation.md） */
 const runningByConversation = new Map<string, RunningTask>()
 
 /** 全局心跳：给所有 running 任务续命（宿主被杀则心跳停 → 孤儿判定成立） */
@@ -100,7 +100,7 @@ function stripDataParts(messages: UIMessage[]): UIMessage[] {
   }))
 }
 
-/** 静态扫描 bundle 里的 DL.* 用法（生成卡片「会做什么」展示级软审查，docs/userscript-ai-generation.md「生成结果行为」） */
+/** 静态扫描 bundle 里的 DL.* 用法（生成卡片「会做什么」展示级软审查，notes/content/userscript-ai-generation.md） */
 function scanCapabilities(code: string): string[] {
   const hits = new Set<string>()
   for (const m of code.matchAll(/DL\.(info|style|log|store|fetch|notify|download|clipboard|tabs)/g)) {
