@@ -3,6 +3,7 @@
 
 遍历 notes/ 下全部笔记，按 notes/README.md 的规范体检：
   - 章节标题白名单：`##` 只允许三段（现状 / 本文档不包括什么 / 决策记录），`###` 可在三段内分节，多余 `##` 或顺序不符即非法
+  - 子标题（`###` 及更深）同一父节下不得重名（按完整路径判重；不同父节下的同名子节合法）
   - 标题 ≤30 字、一句话 ≤50 字
   - 现状 ≤1500 字（清单或段落皆可）
   - 「本文档不包括什么」必须为清单式，每条「事 ≤100 字：理由 ≤100 字」
@@ -110,6 +111,24 @@ def check_note(path: Path) -> list[str]:
                 errors.append(f"非法标题（第 {i} 行）：## {txt}")
         elif cur_h2 is None:
             errors.append(f"非法标题（第 {i} 行，三段之外）：{'#' * lvl} {txt}")
+
+    # 子标题（### 及更深）不得重名：按「完整路径」判，不同父节下的同名子节合法
+    # （如「现状 / 单测 / 命令」与「现状 / 端测 / 命令」是两个不同的节）
+    seen_sub: dict[tuple[str, ...], int] = {}
+    ancestors: dict[int, str] = {}  # 级别 -> 该级别当前生效的标题
+    for i, lvl, txt in heads:
+        path = tuple(ancestors.get(l, "") for l in range(2, lvl)) + (txt,)
+        if lvl >= 3:
+            if path in seen_sub:
+                errors.append(
+                    f"子标题重复（第 {i} 行，首次在第 {seen_sub[path]} 行）："
+                    f"{'#' * lvl} {txt}（同属 {'/'.join(path[:-1]) or '（顶层）'}）"
+                )
+            else:
+                seen_sub[path] = i
+        for l in [l for l in ancestors if l >= lvl]:
+            del ancestors[l]
+        ancestors[lvl] = txt
 
     h2 = [txt for _, lvl, txt in heads if lvl == 2]
     for sec in ALLOWED_SECTIONS:

@@ -41,7 +41,7 @@
 
 | 笔记 | 源文档 | 一句话现状 |
 | --- | --- | --- |
-| [测试方案](content/testing-plan.md) | [docs/testing-plan.md](../docs/testing-plan.md) | 五层分层；层 1/3/4 + E2E 冒烟已落地 |
+| [测试方案](content/testing-plan.md) | [docs/testing-plan.md](../docs/testing-plan.md) | 单测 + 端测各自的命令、写法、如何 mock、覆盖范围与注意事项 |
 | [踩坑记录](content/lessons.md) | [docs/lessons.md](../docs/lessons.md) | 项目经验随仓库分发；动手前先读 |
 
 ## 动态清单（不入 notes 正文，索引指向）
