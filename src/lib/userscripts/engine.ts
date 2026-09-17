@@ -5,7 +5,7 @@
 // （DL 桥后台监听在 dl-bridge.ts；style / log / info / clipboard 在包装内本地实现，不走桥）。
 import type { ScriptProject } from './types'
 // 项目读自状态库（IndexedDB，SW 与 offscreen 共用）：注册链路不能在 offscreen 存活上下注
-import { listProjects } from './project-store'
+import { listProjects, validateMatchPatterns } from './project-store'
 import { appendUserScriptError } from './store'
 import { buildPageStubSource } from './page-stub'
 import { buildPageClientSource } from './page-client'
@@ -480,6 +480,9 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   if (!project.config.matches?.length) {
     throw new Error('脚本缺少匹配规则（matches），无法注册')
   }
+  // match pattern 合法性（docs/userscript-zip-transfer.md §5.4）：与导入路径共用同一校验器，
+  // 非法值在此以中文报错拦下，不再拖到 chrome.userScripts.register 才以英文异常冒出
+  validateMatchPatterns(project.config)
   const code = resolveInjectCode(project) + sourceURLSuffix(project)
   // 密钥取自持久层（与 MAIN 桩同源）：单脚本注册路径（create/updateFiles/toggle）也可能
   // 在 SW 刚唤醒、尚未跑过 registerAllEnabled 时发生，必须能独立取到当前密钥。

@@ -98,6 +98,28 @@ export async function deleteRepo(uuid: string): Promise<void> {
   }
 }
 
+/**
+ * 删除 /uscripts 下的**全部**仓目录（删除全部脚本时的收尾）。
+ *
+ * 与逐个 deleteRepo 的分工：逐个删只清调用方点名的 uuid，若历史遗留（对账兜住之前中断的删除、
+ * 目录名非法等）有无人认领的目录，会一直躺在 lfs 里。删除全部之后状态库已空，此时
+ * /uscripts 下存在的任何目录都是无主仓，故整目录清一遍——判据与启动对账
+ * （offscreen-state-commands.reconcileFs）同源。单写方约束下只有 offscreen 会调它。
+ * 返回删除的目录数；目录不存在视为已清空。
+ */
+export async function deleteAllRepos(): Promise<number> {
+  let entries: string[] = []
+  try {
+    entries = (await pfs.readdir(US_ROOT)) as string[]
+  } catch {
+    return 0 // 根目录不存在 = 本来就没有仓
+  }
+  for (const uuid of entries) {
+    await deleteRepo(uuid).catch(() => {})
+  }
+  return entries.length
+}
+
 /** HEAD 提交 oid（无任何提交时 undefined） */
 async function headOid(uuid: string): Promise<string | undefined> {
   try {

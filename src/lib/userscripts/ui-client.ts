@@ -5,7 +5,7 @@
 // 这里复用与 window-api.ts 同构的 send 信封（统一解包 { ok, data|error }），
 // 直接发 userscript:* 命令组（v2 方案 docs/userscript-v2-plan.md Phase 0）。
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
-import type { ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
+import type { ImportReport, ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
 import type { UsCommit, UsHistoryTree } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
 import type { BuildResult } from './offscreen-build-commands'
@@ -95,6 +95,15 @@ export const userscriptClient = {
 
   /** 删除：注销 + 删存储（新/旧形态通用） */
   remove: (uuid: string): Promise<void> => send({ kind: 'userscript:remove', uuid }),
+
+  /** 删除全部用户脚本（不含已弃用旧记录与内置件）：注销全部 + 清状态库项目与各自 git 仓。
+   *  返回删除条数；不可撤销，调用方必须先经确认弹窗 */
+  removeAll: (): Promise<{ removed: number }> => send({ kind: 'userscript:removeAll' }),
+
+  /** zip 导入（docs/userscript-zip-transfer.md）：payload 为 zip 文件内容的 base64。
+   *  逐脚本独立容错，返回汇总报告（导入恒 enabled:false，注册由用户手动启用时发生） */
+  importZip: (zipBase64: string): Promise<ImportReport> =>
+    send({ kind: 'userscript:import', zipBase64 }),
 
   /** 启停：enabled 已落状态库后返回；注册失败不判整体失败，只带回 registerError 警告 */
   toggle: (uuid: string, enabled: boolean): Promise<{ registerError?: string }> =>

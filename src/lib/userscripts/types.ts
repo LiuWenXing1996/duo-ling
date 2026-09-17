@@ -32,7 +32,11 @@ export interface ScriptProject {
   files: Record<string, string>
   /** 入口文件路径，默认 'main.js' */
   entry: string
-  /** 最近一次构建产物（Phase 2 esbuild 管线写入；Phase 0 无构建则缺省） */
+  /**
+   * 最近一次构建产物，正常路径必有（先构建后落盘）。
+   * **可缺省**：zip 导入构建失败时仍落盘（老大拍板「尽量导入」）——
+   * 此时注册会被 resolveInjectCode 拦下并记 register 警告，用户去编辑器改到能构建即可。
+   */
   bundle?: { code: string; builtAt: number }
   createdAt: number
   updatedAt: number
@@ -133,6 +137,50 @@ export const ERRORS_KEY = 'us:errors'
 
 /** 默认入口文件名 */
 export const ENTRY_DEFAULT = 'main.js'
+
+// —— zip 导入报告（docs/userscript-zip-transfer.md §5.6/§5.7）——
+//
+// 2026-09-17 语义修订（老大拍板「不是原则项的阻断，尽量导入脚本」）：导入只拦原则项，
+// 其余一律导入并说明，留给脚本编辑器修。故 ok 条目可带 notes（构建失败 / 字段兜底提示），
+// failed 只剩结构性原因（无 project.json / 非合法 JSON）。
+
+/** 导入成功的条目（uuid 为导入方新生成；enabled 恒 false） */
+export interface ImportItemOk {
+  status: 'ok'
+  uuid: string
+  name: string
+  /** 内容指纹与现有脚本一致时的原脚本名（仅提示，仍已导入——定稿 §5.6） */
+  duplicateOf?: string
+  /** 导入期需要告知用户的提示：构建失败（可在编辑器修）/ 字段缺失已补默认 等 */
+  notes?: string[]
+}
+
+/** 导入失败的条目——**只剩原则项**（没有可解析的 manifest，构造不出记录） */
+export interface ImportItemFailed {
+  status: 'failed'
+  /** 解析期跳过时为 zip 顶层目录名 */
+  name: string
+  reason: string
+}
+
+export type ImportItemResult = ImportItemOk | ImportItemFailed
+
+/** 导入时未导入的文件（顶层散文件 / 非 files/ 条目 / 路径不安全被过滤；仅展示） */
+export interface ImportItemIgnored {
+  status: 'ignored'
+  /** zip 内原始路径 */
+  path: string
+  reason: string
+}
+
+/** 一次 zip 导入的汇总报告 */
+export interface ImportReport {
+  succeeded: number
+  failed: number
+  results: ImportItemResult[]
+  /** 未导入的文件（非脚本项 / 路径不安全被过滤），仅展示、不影响成功/失败计数 */
+  ignored: ImportItemIgnored[]
+}
 
 export function scriptKey(uuid: string): string {
   return SCRIPT_KEY_PREFIX + uuid
