@@ -1,4 +1,4 @@
-// 用户脚本项目状态库的 offscreen 侧命令面（docs/userscript-single-writer.md）。
+// 用户脚本项目状态库的 offscreen 侧命令面（notes/content/userscript-single-writer.md）。
 //
 // 本模块是本方案的落点：项目数据（源码 / 配置 / 构建产物 / enabled）与 git 仓都在 offscreen
 // 本地，**写**收敛到这一处。原先一次保存是「SW 写 chrome.storage」+「IPC 让 offscreen commit」

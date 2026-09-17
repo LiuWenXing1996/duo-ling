@@ -181,7 +181,7 @@ export type RuntimeRequest =
   // 单文件预览：按完整路径读 lfs 库内文件内容（含 .git 内部），「lfs 浏览」标签页点文件时拉取
   | { kind: 'ai:lfsReadFile'; path: string }
 
-  // —— 项目状态库的**写**命令面（docs/userscript-single-writer.md）——
+  // —— 项目状态库的**写**命令面（notes/content/userscript-single-writer.md）——
   // 项目数据（源码 / 配置 / 构建产物 / enabled）落在独立 IndexedDB 库 duoling-state，
   // **写只归 offscreen**（单写方），写状态与 commit git 仓收在同一个上下文的同一个函数里，
   // 消除原先「SW 写 storage + IPC 让 offscreen commit」两次分离操作带来的偏差缝隙。

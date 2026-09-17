@@ -33,7 +33,7 @@
 UI 侧：版本预览复用 `FileTree`（ai-elements）+ `CodeBlock`（只读高亮）的组合已在工具代码浏览里跑通。
 
 **关键差异**：用户脚本项目的权威数据在**独立 IndexedDB 库 `duoling-state`**（2026-09-15 起，
-见 `docs/userscript-single-writer.md`；此前在 `chrome.storage.local` 的 `us:script:<uuid>`），
+见 `../notes/content/userscript-single-writer.md`；此前在 `chrome.storage.local` 的 `us:script:<uuid>`），
 不在文件系统。git 仓定位为**历史侧车**，不是运行时数据源。
 
 ## 3. 架构决策
@@ -41,7 +41,7 @@ UI 侧：版本预览复用 `FileTree`（ai-elements）+ `CodeBlock`（只读高
 | # | 决策 | 理由 |
 | --- | --- | --- |
 | 1 | **每脚本一个仓**，根 `/uscripts/<uuid>/` | 对齐工具模式；脚本删除 = 删目录，互不污染 |
-| 2 | **状态库为权威，git 为历史侧车**：保存时写穿透到仓并提交（2026-09-15 起两者同在 offscreen 一处完成，见 `docs/userscript-single-writer.md`） | 运行时注册链路（engine/registerScript）零改动；仓损坏只丢历史不丢脚本 |
+| 2 | **状态库为权威，git 为历史侧车**：保存时写穿透到仓并提交（2026-09-15 起两者同在 offscreen 一处完成，见 `../notes/content/userscript-single-writer.md`） | 运行时注册链路（engine/registerScript）零改动；仓损坏只丢历史不丢脚本 |
 | 3 | **提交内容**：`project.json`（v/uuid/name/config/entry）+ `files/<相对路径>` | 元数据与源码同仓，恢复才能完整还原 |
 | 4 | **不提交 bundle**（可派生产物） | 免仓库膨胀；恢复后由 UI 页 builder 自动重建（构建失败则标记「需构建」，不阻塞） |
 | 5 | **提交节奏 = 每次成功保存一次**，`commitIfChanged` 语义（无变更不产生空提交） | 对齐工具侧；message 自动生成（见 §5） |
@@ -50,7 +50,7 @@ UI 侧：版本预览复用 `FileTree`（ai-elements）+ `CodeBlock`（只读高
 
 ## 4. 数据流
 
-**保存**（UI 页 → SW → offscreen；2026-09-15 起「写状态库 + git 提交」在 offscreen 同一函数内完成，见 `docs/userscript-single-writer.md`）：
+**保存**（UI 页 → SW → offscreen；2026-09-15 起「写状态库 + git 提交」在 offscreen 同一函数内完成，见 `../notes/content/userscript-single-writer.md`）：
 ```
 编辑器保存
   → buildProject（现状）
@@ -81,7 +81,7 @@ ai:historyTree(oid) → readTreeAt + 每 blob 内容 → UI 渲染 FileTree + Co
 
 ## 5. IPC 面（2026-09-15 起为 `ai:*`，由 offscreen 响应）
 
-> 原 `userscript:history` / `userscript:historyTree` / `userscript:restoreToCommit` 三条 SW 命令已随单写方迁移为 `ai:*` 并从协议删除（见 `docs/userscript-single-writer.md`）。
+> 原 `userscript:history` / `userscript:historyTree` / `userscript:restoreToCommit` 三条 SW 命令已随单写方迁移为 `ai:*` 并从协议删除（见 `../notes/content/userscript-single-writer.md`）。
 
 | 命令 | 入参 | 出参 |
 | --- | --- | --- |

@@ -1,4 +1,4 @@
-// 用户脚本的 chrome.storage 侧持久化（docs/userscript-single-writer.md §4 边界）。
+// 用户脚本的 chrome.storage 侧持久化（notes/content/userscript-single-writer.md）。
 //
 // 2026-09-15 单写方落地后，**项目数据（源码/配置/产物/enabled）已迁往 IndexedDB 状态库
 // duoling-state**（读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。

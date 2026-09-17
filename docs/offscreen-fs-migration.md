@@ -1,7 +1,7 @@
 # 用户脚本文件树迁移至 offscreen document
 
 > 状态：**已实施（2026-09-14）**——`us-fs.ts` 落地、`idb-fs.ts` 删除，SW 不再持有 lfs 实例。
-> ⚠️ 2026-09-15 起 §2.3–2.5 的命令面已被 [userscript-single-writer.md](./userscript-single-writer.md)
+> ⚠️ 2026-09-15 起 §2.3–2.5 的命令面已被 [userscript-single-writer.md](../notes/content/userscript-single-writer.md)
 > 取代：`ai:snapshot` / `ai:deleteRepo` 已从协议删除，「写状态库与 git 提交」在 offscreen 同一函数内完成，
 > 对账 `reconcileFs` 只在 offscreen 启动时跑。其余部分作为当时的方案记录保留。
 > 前提：**工具链路已移除**。
@@ -27,7 +27,7 @@
 
 ### 0.3 为什么这件事一直没做，以及为什么现在能做了
 
-文件树与 git 快照的写入方归属（单写方 = offscreen）见 `docs/userscript-single-writer.md`。原判定理由有两条：
+文件树与 git 快照的写入方归属（单写方 = offscreen）见 `../notes/content/userscript-single-writer.md`。原判定理由有两条：
 
 1. **`idb-fs.ts`（原 `fs-store.ts` 的存储层角色）同时服务工具与脚本** —— 实例归属一动就牵动工具链路
 2. **lightning-fs 有内存索引层，只允许一个写入方** —— 选出 SW 作为那一个

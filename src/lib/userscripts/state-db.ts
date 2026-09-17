@@ -5,9 +5,9 @@
 // 所以 SW / 扩展页根本读不到 lfs 里的内容——这也是当前「项目数据只能放 chrome.storage」的根因。
 // 裸 IndexedDB 是真正的共享存储：SW / offscreen / 扩展页打开同一个库名，看到的是同一份数据。
 // 已实测：浏览器冷启动、offscreen 尚未创建时，SW 已能读到上一轮 offscreen 写进 IDB 的内容
-// （docs/userscript-single-writer.md §5.1）。
+// （notes/content/userscript-single-writer.md）。
 //
-// 单写方约定（本方案的核心，docs/userscript-single-writer.md）：
+// 单写方约定（本方案的核心，notes/content/userscript-single-writer.md）：
 //   **写 API 只许 offscreen 调用**；SW 与扩展页只许读。
 // 这不是技术限制（技术上谁都能写），是刻意的收敛——一次保存只有一个写方，
 // 「写了状态但没 commit」「已保存但没 commit」这类偏差就没有产生的缝隙。

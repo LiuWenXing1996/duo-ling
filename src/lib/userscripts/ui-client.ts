@@ -40,7 +40,7 @@ function send<T>(request: RuntimeRequest): Promise<T> {
  * （同时触发其启动对账、注册监听），再重试，最多 3 次。
  *
  * **就绪判据**：`offscreen:ensure` 现在会等到容器**真的能应答**才返回（SW 侧轮询 `ai:ping`，
- * 见 docs/userscript-single-writer.md §5 前置项 1），故这里**不再需要固定 sleep 猜时间**——
+ * 见 notes/content/userscript-single-writer.md），故这里**不再需要固定 sleep 猜时间**——
  * 原先的 `setTimeout(80)` 是在猜 offscreen 的 onMessage 有没有注册完，猜短了白重试、
  * 猜长了每次都白等。
  */

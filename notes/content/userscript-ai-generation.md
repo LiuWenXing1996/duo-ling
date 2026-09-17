@@ -40,7 +40,7 @@
 
 ## 本文档不包括什么
 
-- lfs／会话历史／任务状态的写入方细节：归 `userscript-single-writer.md`（本文只记「offscreen 是唯一写方」结论）。
+- lfs／会话历史／任务状态的写入方细节：归 `notes/content/userscript-single-writer.md`（本文只记「offscreen 是唯一写方」结论）。
 - 阶段二能力（`store.watch` / `menu` / `cookie.*` / `DL.page.*` 句柄）：归后续实现，本文只记一期已落地形态。
 - `DL.*` 能力 API 全集：归 `userscript-api.md`；本文只讲生成链路如何调用。
 

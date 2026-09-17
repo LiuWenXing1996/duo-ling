@@ -4,7 +4,7 @@
 // 对话、模型配置不走这里（分别直连 IndexedDB 与 chrome.storage.local）。
 //
 // 项目数据（源码 / 配置 / 构建产物 / enabled）的权威在独立 IndexedDB 库 duoling-state，
-// **写只归 offscreen**（单写方，docs/userscript-single-writer.md）：
+// **写只归 offscreen**（单写方，notes/content/userscript-single-writer.md）：
 //   · 读 —— 本文件直连 project-store，**不经容器**。注册链路不能押在 offscreen 存活上，
 //     否则容器一挂所有脚本都不生效。
 //   · 写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
@@ -164,7 +164,7 @@ const handlers: {
   // —— offscreen 容器（notes/content/userscript-ai-generation.md）——
   // A 组只做容器与通道：这几个命令供手动 / 调试触发；B 组的生成入口会直接调 ensureOffscreen()。
   // 唤醒容器并**等到它真的能应答**才返回——调用方（aiFsClient）据此省掉了原先
-  // 「ensure 完 sleep 80ms 猜监听器注册好了没有」的兜底（docs/userscript-single-writer.md §5 前置项 1）。
+  // 「ensure 完 sleep 80ms 猜监听器注册好了没有」的兜底（notes/content/userscript-single-writer.md）。
   // 常见路径几乎不等待：容器已在时第一次探测即成功。ready=false 表示超时未就绪，由调用方重试。
   'offscreen:ensure': async (): Promise<{ ready: boolean }> => ({
     ready: await ensureOffscreenReady(),
