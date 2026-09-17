@@ -24,13 +24,21 @@
 
 | 环节 | 方案 |
 | --- | --- |
-| 注入通道 | SW 监听 `tabs.onUpdated` → 用匹配工具判断「该页有 enabled 脚本命中」→ `chrome.userScripts.execute()` 注入（独立世界 `worldId`，复用拾取器验证过的通道与「按需注入」语义——不注册、无清扫冲突、`minimum_chrome_version` 135 已就位零改动） |
-| 防重 | `window` 标志幂等：同页 SPA 软导航重复触发 `onUpdated` 时不重复注入 |
-| 注入数据 | 本页脚本清单（uuid / 名称 / 是否有错）+ 错误计数在 **SW 侧算好、随 `execute()` args 带进**；浮窗纯展示 + 跳转，v1 不需要任何上行消息 |
-| 实时性 | 脚本运行报错落盘时（`dl-bridge` 的 `onUserScriptMessage` 路径，`sender.tab.id` 可定位出错 tab），SW 向该 tab **补注入一条更新指令** `__duolingStatusUpdate(data)`（`userScripts.execute()` 同 worldId 世界全局跨注入持久——拾取器取消机制 `cancelPick` 已验证的同款套路），浮窗就地重渲染徽章。**评审修正**：官方文档确认 userScripts API 无「SW → userScript 世界」发消息方法（messaging 只有 userScript → 扩展单向），原稿「开世界 messaging 推送」不成立；改走 execute 补注入后连 `configureWorld` 都可省 |
-| 错误口径 | 浮窗错误计数 = `runtime` + `register` 阶段（register 失败直接解释「匹配了但没跑」）；`bridge` 阶段噪音大且与脚本代码无关，不计。与工作台错误日志分组口径一致 |
+| 注入通道 | `chrome.userScripts.register` **持久注册**（世界 `worldId: us-builtin-status`，matches = 全部启用脚本的 matches 并集，`runAt: document_start`，主 frame）：声明式注入、免每导航 execute、与 DL.page MAIN 桩同构，且**过 Firefox**（`userScripts.execute` 在 Firefox 稳定版不支持，正是旧方案的死穴）。并集为空 → 注销（保住「没有命中脚本的页面零注入」的隐私边界）；并集未变 → 跳过重注册 |
+| 防重 | 声明式注册天然「每文档一次」，无需 `window` 标志；SPA 软导航不重新注入（数据变化走端口推送） |
+| 注入数据 | 本页脚本清单（uuid / 名称）+ **该脚本 runtime + register 阶段的原始错误记录**（含 `runId` / `phase`）由 SW 算好、经**端口**推给浮窗；浮窗负责「本次运行」的过滤与计数（见下） |
+| 下行通道 | **端口**：浮窗 `runtime.connect({ name: 'duoling:status' })`，SW 侧 `runtime.onUserScriptConnect` 拿到的是**双向 `Port`**，可 `port.postMessage` 主动推（Chrome 115+ / Firefox 136+）。**评审再修正**：原稿「userScripts 没有 SW → 世界通道、只能 execute 补注入」只对「不开端口」的写法成立——`runtime.connect` 就是官方给 USER_SCRIPT 世界的双向通道（需 `configureWorld({ messaging: true })`），既解决 Firefox 兼容，也让 SW 能主动推 |
+| 实时性 | 脚本运行报错落盘时（`dl-bridge` 的 `onUserScriptMessage` 路径，`sender.tab.id` 定位出错 tab）→ SW 重算并 `port.postMessage` 推给该 tab 的浮窗 |
+| 错误口径 | 浮窗计数 = `runtime` + `register` 阶段（register 失败直接解释「匹配了但没跑」）；`bridge` 阶段噪音大且与脚本代码无关，不计。与工作台错误日志分组口径一致。**且 runtime 错误只算「本次运行」的**（见下） |
 | 跳转 | `chrome.tabs.create` / 聚焦工作台 `workbench.html#/tools`，hash 带目标脚本 uuid；工作台错误日志配合做「按脚本过滤 + 深链定位」的小改动 |
 | 样式 | vanilla JS + Shadow DOM（样式天然隔离），固定角落、可折叠成点；「彻底隐藏」偏好不做（折叠已够克制） |
+
+**只显「本次运行」的错误**：`us:errors` 是全量环形日志（历次运行混存），浮窗若按 uuid 计数，就会出现「改了脚本、刷新页面，旧错误的角标还在」。
+
+- **运行标识**：DL 包装（`js` 首条目）注入即 mint `runId = crypto.randomUUID()`——**一次页面加载 = 一次运行**；随错误记录一起上报（`event.runId`），并立刻以 `{ __dlRunStart }` 广播给 SW。
+- **指针归浮窗，不归 SW**：SW 只把 runId **转发**给该 tab 的浮窗，自己不存（SW 无指针状态，重启不丢）。浮窗自持 `uuid → { runId… }` 集合并本地过滤：`register` 阶段错误恒显（它没有运行上下文），`runtime` 错误只认集合里命中的 runId。
+- **淘汰机制**：浮窗是 **per-document 实例**（声明式注册，每个文档新建），集合只装本文档收到的广播 → 真刷新 = 新实例 + 脚本重新 mint runId → 旧 runId 天然出局 → **角标自动清零**，不需要任何显式清理动作。
+- **为什么不要第二根「页面」轴**：`e.url === 当前页面 url` 这一轴在「浮窗 per-document」下已由架构保证（跨页串味在结构上不可能发生）；而 `allFrames` 默认 true（`types.ts` 的新建默认配置）意味着脚本在子帧也跑、也报错，错误记录的 `url` 是**子帧 URL**，加这一轴会把子帧错误**整条误杀**。故本期只做 runId 单轴；SPA 软导航（document 不重建、runId 不变）若将来要求「跳转即清」，单独议并同时处理子帧。
 
 **注入判定用静态匹配口径**：`enabled === true` 且 `config.matches` 命中页面 URL 即算「本页脚本」——回答的是「将在此页运行」。需要新写一个 match-pattern 匹配工具函数（现无自研匹配器，脚本匹配全靠 `userScripts` API 原生做），约 40 行 + 单测。注册失败（`registerError`）的脚本匹配但没跑，由错误徽章间接呈现。
 
@@ -79,10 +87,12 @@ offscreen 任务收尾 → 新推送 chat:finished → SW 监听
 
 | 文件 / 模块 | 改动 |
 | --- | --- |
-| 页面浮窗 | 新模块（vanilla + Shadow DOM，扩展包内文件 `duoling-status.js` + 发起侧 `status-bubble-client.ts`）：胶囊 / 展开列表 / 错误徽章 / 跳转 / 暴露 `__duolingStatusUpdate` 世界全局供 SW 补注入更新 |
-| SW（`background.ts`） | `tabs.onUpdated` 监听 + 注入决策；`chat:finished` 观察（badge 点亮，`chat:` 前缀按既有约定静默让路 offscreen，观察不消费）；面板端口断开感知；`sidePanel.onOpened` 清徽章；`userscript:errorRead` 命令 |
-| 匹配工具 | 新 `match-pattern.ts`：`@match` 规则 URL 匹配 + 单测 |
-| `src/lib/userscripts/dl-bridge.ts` | runtime 错误落盘后回调浮窗更新（`sender.tab.id` 定位）——错误记录形状零改动 |
+| 页面浮窗 | 新模块（vanilla JS + Shadow DOM，扩展包内文件 `duoling-status.js`，WXT 原样拷进产物根）：胶囊 / 展开列表 / 错误徽章 / 跳转；**自持 `uuid → { runId… }` 集合作「本次运行」过滤**，数据与动作都走端口 |
+| SW（`background.ts` / `status-bubble.ts`） | 浮窗注册同步（`register` + matches 并集，与 MAIN 桩同链）；端口登记（`onUserScriptConnect`）与推送（`postMessage`）；`tabs.onUpdated` 只推数据（注入由声明式注册负责）；`tabs.onRemoved` 清端口；`chat:finished` 观察（badge 点亮，`chat:` 前缀按既有约定静默让路 offscreen，观察不消费）；面板端口断开感知；`sidePanel.onOpened` 清徽章；`userscript:errorRead` 命令 |
+| 匹配工具 | 新 `match-pattern.ts`：`@match` 规则 URL 匹配 + 单测；新 `match-union.ts`：启用脚本的 matches 并集 + 「未变则跳过」比对（从 `engine.ts` 抽出，MAIN 桩与浮窗共用） |
+| `src/lib/userscripts/engine.ts` | DL 包装 mint `runId` + 注入即广播 + 错误事件带 `runId`；`refreshPageStub` → `refreshBuiltinScripts`（桩 + 浮窗同链同步，全量重注册时都不得误清） |
+| `src/lib/userscripts/dl-bridge.ts` | runtime 错误落盘带 `runId`；新增 `__dlRunStart` 转发分支（只转给浮窗，不落盘） |
+| `src/lib/userscripts/types.ts` + `api-contract.ts` | 错误记录加 `runId`（缺省 = 无运行上下文）；`DlEvent` 加 `runId`，并补 `__dlRunStart` 信封说明 |
 | `src/lib/userscripts/store.ts` | 加查询函数 `findUserScriptError(id)`（精确 / 唯一前缀）；append 逻辑零改动 |
 | 工作台错误日志 | 按脚本分组 + 每条显示短形态 id / 复制完整 id 按钮 + `#/errors/<uuid>` 深链定位展开 |
 | `src/lib/offscreen-bridge.ts` + `src/shared/extension-ipc.ts` | `userscript:errorRead(id)` 只读命令 + `chat:finished` 推送变体 |
@@ -105,11 +115,19 @@ offscreen 任务收尾 → 新推送 chat:finished → SW 监听
 | #7 regenerate | `useChat.regenerate()` 虽现成，但落盘语义真空（协议无删消息命令），完整方案 = 按钮 + 删消息语义两层改动，收益低；记入 inbox 另议 |
 | 浮窗静态不接实时推送 | 「启用后盯着页面验证」时徽章不亮，核心场景瞎了；一条下行推送的成本换场景成立，值 |
 | 浮窗做管理面板（启停 / 详情 / 修复） | 管控动作归工作台，浮窗只做引导——职责分离保住「简单浮窗」的克制，也避免在不可信环境里做交互面 |
+| 浮窗用 `userScripts.execute` 按需注入 + 补注入更新（原稿方案） | 依赖 `execute`——它在 **Firefox 稳定版不支持**（浮窗跨端就卡这里）；且要 SW 每导航重注入 + 内存记「哪些 tab 注过」。改声明式 `register` + 端口后两者都不需要 |
+| runId 指针存 SW（`Map<tabId, Map<uuid, runId>>`） | 指针本可归数据归属方（浮窗）。存 SW 连带引入三件事：SW 重启丢指针、需要 tabId 分区键、需要「覆盖写」淘汰旧值。归浮窗后 SW 无状态，淘汰由「per-document 实例」天然完成 |
+| 过滤加「页面 URL」第二轴 | 页面轴在「浮窗 per-document 实例」下已由架构保证；而 `allFrames` 默认 true 时错误 `url` 是**子帧 URL**，加这轴会把子帧错误整条误杀 |
+| 导航时间戳当运行阈值（替代 runId） | 省掉 `runId` 字段与广播，但同一秒内的两次重载、同 URL 多标签页会互相污染；工作台也无法标注「第几次运行」 |
+| 顺带把拾取器也迁 `register` | 超出本案范围（拾取器「按需注入」本身是产品语义），单独立项 |
 
 ## 验收标准
 
 - [ ] 有启用脚本命中的页面出现浮窗胶囊（显示脚本数）；无命中 / 内置页（`chrome://` 等）不出现
 - [ ] 脚本运行报错后浮窗徽章变化（实时推送实测），错误计数口径 = runtime + register
+- [ ] **改了脚本 → 刷新页面 → 角标自动清零**（旧运行的错误不再计入，无需手动清）；子帧里脚本报的错仍计入
+- [ ] 浮窗不再依赖 `userScripts.execute`（全仓无该调用）——扫清 Firefox 跨端唯一的已知障碍
+- [ ] SW 空闲被回收后，浮窗端口自动重连、后续推送仍能到达（页面不刷新的前提下）
 - [ ] 点击浮窗脚本行 → 工作台错误日志定位到该脚本（深链 + 分组展开）
 - [ ] SPA 软导航重复触发不重复注入（幂等）；Shadow DOM 样式不被宿主页污染
 - [ ] 错误记录带 8 位短 ID；工作台日志每条可复制 ID（单测覆盖 ID 生成与环形保留）
@@ -127,7 +145,7 @@ offscreen 任务收尾 → 新推送 chat:finished → SW 监听
 - **`DL.log` 普通日志收集**：涉及新存储面 + 页面侧高频写入，量级与隐私面单独立项；本期只做错误
 - **「没报错但没效果」的场景**：选择器 / matches 不对的质量问题，无错误可亮，属拾取器已解决的范畴
 - **后台自动改脚本**：铁律不变，修复必须由用户显式发送错误 ID 触发
-- **iframe 内脚本的状态呈现**：只处理主 frame，`allFrames` 后置
+- **iframe 内的独立呈现**：浮窗只画在主 frame；但子帧脚本的错误**照常计入**主 frame 浮窗（runId 集合按 tab 的全帧收集），子帧粒度分开呈现后置
 - **侧边栏任何改动**：纯聊天定位不动
 
 ## 决策记录
@@ -145,6 +163,11 @@ offscreen 任务收尾 → 新推送 chat:finished → SW 监听
 | 2026-09-17 | #7 regenerate 撤出 | 记入 inbox，不在本案 | 老大拍板「先不做」；按钮虽是纯 UI 接线，但落盘语义真空（无删消息命令）必须一并设计才完整，复杂度超出收益 |
 | 2026-09-17 | #2 完成提示形态 | 系统通知 → **扩展图标角标**（setBadgeText，面板开着不发、onOpened 清零、失败同亮、不计数） | 老大判系统通知太重；徽章零打扰、实现缩到几行、不依赖 OS 通知设置。生成失败也亮（同色），回面板自然看到错误条 |
 | 2026-09-17 | #8 定位 | 纯实测项：探针放 `tmp/`，结论允许「不用改」 | 路线图原意即实测；有数据再决定是否立项改批量推送 |
+| 2026-09-17 | 浮窗注入方式（实施期改判） | `execute()` 按需注入 → **`userScripts.register` 持久注册**（`worldId: us-builtin-status` + matches 并集 + `runAt: document_start`） | 老大定向「用 register」；`userScripts` 的 `world` 只有 `USER_SCRIPT`/`MAIN`（**没有 ISOLATED**，查实 Chrome 文档 + MDN），「放隔离世界」= 用自定义 `worldId`。「隔离世界 + register」两个诉求由它同时满足，且 Firefox 136+ 可用、与 DL.page MAIN 桩同构 |
+| 2026-09-17 | 浮窗下行通道（评审再修正） | `execute()` 补注入 → **端口**（浮窗 `runtime.connect` / SW `runtime.onUserScriptConnect`，**双向 Port**） | 原「messaging 单向、只能 execute 补注入」的结论只对「不开端口」的写法成立：官方文档明确 USER_SCRIPT 世界可用 `runtime.connect`，SW 侧拿到的是双向 `Port`（Chrome 115+/Firefox 136+）。这是浮窗跨 Firefox 的正解（`execute` 在 Firefox 稳定版不支持） |
+| 2026-09-17 | 「当前运行指针」归属 | SW（`Map<tabId, Map<uuid, runId>>`）→ **浮窗自持** | 老大拍板「浮窗存」。指针归数据归属方后 SW 无状态（重启不丢），且不需要 tabId 分区键与覆盖写淘汰——浮窗是 per-document 实例，真刷新即新实例、旧 runId 天然出局 |
+| 2026-09-17 | 运行过滤轴 | 计划两轴（pageUrl + runId）→ **只做 runId 单轴** | 「按页面分」已由「浮窗 per-document 实例」保证；而 `allFrames` 默认 true 使错误 `url` 可能是子帧 URL，加 URL 轴会误杀子帧错误。SPA 软导航的「跳转即清」诉求后置 |
+| 2026-09-17 | 拾取器是否同期迁移 | **不并入本期** | 拾取器「按需注入」本身是产品语义，且老大明确「不要动它」；单独立项 |
 
 ## 流转记录
 
