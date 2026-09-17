@@ -106,7 +106,7 @@ offscreen 侧只能 import：`builder.ts`（纯 esbuild，无 chrome API）、`e
 
 只发当前页 URL / 标题（档 0，由侧边栏采集后随指令发给 offscreen）、用户主动点选的那一块（档 2，元素拾取器）与用户显式附上的页面快照（渲染后 DOM 截断 ~32KB），**不自动抓整页 DOM**（页面内容只在用户点「点选元素 / 页面快照」时采集，隐私语义两者一致）。旧「档 1（fetch 源码）」已弃：渲染后快照是源码超集且无误导（SPA 可用），fetch 无存留价值；档 3（自动 DOM 摘要探针）后置。
 
-档 2 / 快照的实现（element-picker 提案，docs/proposals/implementing/element-picker.md）：
+档 2 / 快照的实现（element-picker 提案，docs/proposals/done/element-picker.md）：
 
 - 拾取器 = `src/public/duoling-picker.js`（vanilla JS 随包分发，**不进状态库、不常驻注册**）。侧边栏经 `chrome.userScripts.execute()`（Chrome 135+，`minimum_chrome_version` 已随之升 135）按 tabId 注入独立世界 `us-builtin-picker`，注入脚本返回「点选时才 resolve」的 Promise，**载荷从 execute() 返回值带回**——无消息回传链、SW 与 DL 桥零改动。
 - 载荷两层消费：摘要层（≤2KB：选择器候选 × 命中数 / 关键属性 / 截断样本）进 system prompt；全量层（全部属性 / 完整 outerHTML / 祖先链）由 agent 工具 `element_read` 按需读（读的是拾取时刻快照，非活页面）。暂存在 `src/lib/page-context-store.ts`，随**下一条消息**发出后清空。

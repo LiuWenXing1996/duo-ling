@@ -1,7 +1,7 @@
 # 元素拾取器 · 页面上下文增强（提案 ①）
 
 > 状态：实施完成
-> 来源：[AI 生成用户脚本 · 后续功能路线图](../userscript-ai-generation-next.md) #1 / #6 / #10
+> 来源：[AI 生成用户脚本 · 后续功能路线图](../../userscript-ai-generation-next.md) #1 / #6 / #10
 > 提案人：
 
 ## 问题

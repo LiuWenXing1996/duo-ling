@@ -1,6 +1,6 @@
 // 页面上下文的**采集侧暂存**（侧边栏 / 扩展页上下文）：
 // 「点选元素」动作的产物在这里等下一条消息一起发出
-// （docs/proposals/implementing/element-picker.md「拾取器交互与载荷形态」）。
+// （docs/proposals/done/element-picker.md「拾取器交互与载荷形态」）。
 // 页面快照已改 AI 工具采集（2026-09-17 决策），不再走用户暂存通道。
 //
 // 为什么是模块级单例而非组件状态：chat:start 的 pageContext 在

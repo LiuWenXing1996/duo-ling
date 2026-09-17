@@ -1,4 +1,4 @@
-// 元素拾取 / 页面快照的**发起侧**封装（侧边栏与 SW 两个上下文共用，docs/proposals/implementing/element-picker.md）。
+// 元素拾取 / 页面快照的**发起侧**封装（侧边栏与 SW 两个上下文共用，docs/proposals/done/element-picker.md）。
 //
 // 链路：chrome.userScripts.execute() 按 tabId 向**已加载页面**注入拾取器
 // （src/public/duoling-picker.js，独立世界 us-builtin-picker），注入脚本返回
