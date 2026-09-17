@@ -50,7 +50,7 @@ export async function handleStateCommand(msg: StateRequest): Promise<unknown> {
       return createGeneratedProject(payload)
     }
     case 'state:import':
-      // zip 导入（docs/userscript-zip-transfer.md）：解码 + 校验 + 构建 + 落盘全在本上下文（单写方）
+      // zip 导入（notes/content/userscript-zip-transfer.md）：解码 + 校验 + 构建 + 落盘全在本上下文（单写方）
       return importScriptsZip(msg.zipBase64)
   }
 }

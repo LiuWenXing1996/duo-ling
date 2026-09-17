@@ -1,7 +1,6 @@
 # 脚本 zip 导入导出
 
 > 一句话：分享语义闭环——导出项目 zip、导入尽量导入（只拦原则项），导入恒为停用态。
-> 源文档：[docs/userscript-zip-transfer.md](../../docs/userscript-zip-transfer.md)
 
 ## 现状
 
@@ -13,7 +12,8 @@
 
 ## 本文档不包括什么
 
-- 油猴 `==UserScript==` 格式兼容；脚本自动更新 / `.meta.js` 检查。
+- 油猴 `==UserScript==` 格式兼容：自有 zip 格式 v1，不互转油猴头。
+- 脚本自动更新 / `.meta.js` 检查：分享语义不含自动更新通道。
 
 ## 决策记录
 

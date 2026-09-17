@@ -255,7 +255,7 @@ function askRemove(s: ScriptSummary): void {
   pendingRemove.value = s
 }
 
-// —— zip 导入导出（docs/userscript-zip-transfer.md；提案 docs/proposals/done/userscript-zip-transfer.md）——
+// —— zip 导入导出（notes/content/userscript-zip-transfer.md；提案 docs/proposals/done/userscript-zip-transfer.md）——
 // 导出：ui-client 现成的 getProject / list 只读取数，zip 编码在本页（zip-transfer 纯函数），
 // 零新增协议。导入：zip 文件转 base64 走 userscript:import 命令对，offscreen 单写方落盘。
 

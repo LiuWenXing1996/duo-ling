@@ -148,7 +148,7 @@ export type RuntimeRequest =
   // 错误 ID 修复闭环（提案② runtime-feedback-loop.md）：AI 的 error_read 工具经 SW 代查
   // us:errors（offscreen 拿不到 chrome.storage）。id = 完整记录 id 或唯一 8 位前缀
   | { kind: 'userscript:errorRead'; id: string }
-  // zip 导入（docs/userscript-zip-transfer.md）：UI 读 zip 文件转 base64，SW 纯转发 offscreen
+  // zip 导入（notes/content/userscript-zip-transfer.md）：UI 读 zip 文件转 base64，SW 纯转发 offscreen
   // 单写方（解码 + 校验 + 构建 + 落盘同处）。enabled 恒 false——先审后启，故无注册动作。
   // 导出零新增协议：走现成 userscript:list / getProject 只读命令。
   | { kind: 'userscript:import'; zipBase64: string }

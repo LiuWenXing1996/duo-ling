@@ -310,7 +310,7 @@ const handlers: {
     return {}
   },
 
-  // zip 导入（docs/userscript-zip-transfer.md）：纯转发 offscreen 单写方（解码 + 校验 + 构建
+  // zip 导入（notes/content/userscript-zip-transfer.md）：纯转发 offscreen 单写方（解码 + 校验 + 构建
   // + 落盘同处）。导入恒 enabled:false——「先审后启」是产品原则，落盘后由用户手动启用
   // （userscript:toggle），故此处**无注册动作**（与 create / toggle 不同：不调 registerOrLog）。
   'userscript:import': async (msg): Promise<ImportReport> =>

@@ -101,7 +101,7 @@ export const ERRORS_KEY = 'us:errors'
 /** 默认入口文件名 */
 export const ENTRY_DEFAULT = 'main.js'
 
-// —— zip 导入报告（docs/userscript-zip-transfer.md §5.6/§5.7）——
+// —— zip 导入报告（notes/content/userscript-zip-transfer.md）——
 //
 // 2026-09-17 语义修订（老大拍板「不是原则项的阻断，尽量导入脚本」）：导入只拦原则项，
 // 其余一律导入并说明，留给脚本编辑器修。故 ok 条目可带 notes（构建失败 / 字段兜底提示），

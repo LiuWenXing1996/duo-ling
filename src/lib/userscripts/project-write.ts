@@ -177,7 +177,7 @@ export async function setProjectEnabled(uuid: string, enabled: boolean): Promise
   return project
 }
 
-// —— zip 导入（docs/userscript-zip-transfer.md §5）——
+// —— zip 导入（notes/content/userscript-zip-transfer.md）——
 
 /**
  * zip 导入（state:import 的落点）：解码 → 逐脚本**尽量导入**。

@@ -232,7 +232,7 @@ describe('快照失败策略', () => {
   })
 })
 
-// —— zip 导入（docs/userscript-zip-transfer.md §5；提案决策：保留原名 / enabled false / 单写方落盘）——
+// —— zip 导入（notes/content/userscript-zip-transfer.md；提案决策：保留原名 / enabled false / 单写方落盘）——
 
 /** 构造一个 zip 的 base64：scripts 为顶层目录 → files 映射 */
 function makeZipBase64(

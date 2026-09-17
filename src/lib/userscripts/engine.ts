@@ -475,7 +475,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   if (!project.config.matches?.length) {
     throw new Error('脚本缺少匹配规则（matches），无法注册')
   }
-  // match pattern 合法性（docs/userscript-zip-transfer.md §5.4）：与导入路径共用同一校验器，
+  // match pattern 合法性（notes/content/userscript-zip-transfer.md）：与导入路径共用同一校验器，
   // 非法值在此以中文报错拦下，不再拖到 chrome.userScripts.register 才以英文异常冒出
   validateMatchPatterns(project.config)
   const code = resolveInjectCode(project) + sourceURLSuffix(project)
