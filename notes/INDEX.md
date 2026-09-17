@@ -18,7 +18,7 @@
 | 笔记 | 源文档 | 一句话现状 |
 | --- | --- | --- |
 | [代码风格规范](content/style.md) | —（已并入 notes） | 命名 / TS / Vue / 样式 / shadcn / 测试 / 提交 约定 |
-| [Skill 管理方案](content/skill-management.md) | [docs/skill-management.md](../docs/skill-management.md) | Git 当包管理器 + symlink + AGENTS 就地挂载，弃 lockfile |
+| [Skill 管理方案](content/skill-management.md) | —（已并入 notes） | Git 当包管理器 + symlink + AGENTS 就地挂载，弃 lockfile |
 
 ## 用户脚本链路
 

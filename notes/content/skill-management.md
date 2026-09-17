@@ -1,7 +1,6 @@
 # Skill 管理方案
 
 > 一句话：Git 当包管理器 + symlink 多宿主入口，AGENTS.md 就地挂载、弃 lockfile。
-> 源文档：[docs/skill-management.md](../../docs/skill-management.md)
 
 ## 现状
 
