@@ -18,7 +18,7 @@
 - **包管理**：npm
 - **测试**：Vitest（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`）+ Playwright E2E 已建立；单测 / 端测方案见 [notes/content/testing-plan.md](notes/content/testing-plan.md)，CI 快测门禁见 `.github/workflows/ci.yml`、独立 E2E 见 `e2e.yml`
 
-> 项目介绍与手测步骤请读 [README.md](README.md)；迁移背景见 [docs/plugin-migration-plan.md](docs/plugin-migration-plan.md)。
+> 项目介绍与手测步骤请读 [README.md](README.md)。
 
 ## 常用命令
 
@@ -26,7 +26,7 @@
 | --- | --- |
 | `npm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev` |
 | `npm run build` | 构建，产出 `.output/chrome-mv3` |
-| `npm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配见迁移方案 §5 风险 7） |
+| `npm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
 | `npm run typecheck` | 类型检查（`vue-tsc --noEmit`）；当前全仓零错误 |
 | `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 | `npm run check:proposals` | 提案流程体检：状态与目录一致性、流转合法性、记录完整性（见 [docs/proposal-process.md](docs/proposal-process.md)） |
@@ -40,7 +40,6 @@
 | 文档 | 职责 | 何时读 |
 | --- | --- | --- |
 | [README.md](README.md) | 工程介绍、目录结构、命令、手测步骤、关键坑 | 上手 / 手测前 |
-| [docs/plugin-migration-plan.md](docs/plugin-migration-plan.md) | 迁移方案：架构映射、分层方案、风险清单、路线图 | 涉及架构 / 迁移范围时 |
 | [docs/userscript-ai-generation.md](docs/userscript-ai-generation.md) | AI 生成用户脚本 · 现状与用法 | 涉及生成链路时 |
 | [notes/content/style.md](notes/content/style.md) | 代码风格规范（命名/TS/Vue/样式/shadcn/测试/提交） | 写代码 / 改样式前 |
 | [docs/proposal-process.md](docs/proposal-process.md) | **提案流程**（2026-09-17 起降级为可选）：五态状态机、流转记录、提案不可删。**重大变更建议开提案做决策留痕；日常改动直接做，不开提案** | 结构 / 行为大改、需要多轮讨论的设计 |
@@ -140,8 +139,8 @@
 | --- | --- | --- |
 | manifest 权限 | `sidePanel` 是 `chrome.sidePanel` 的**必需权限**（勿剔除）；所需权限之外的不要加（上架审查） | [README](README.md) 坑 1 |
 | SW 全局 | 引入依赖 Node 全局的库时，必须补 `src/polyfills.ts` 并在 `background.ts` **最前** import | [README](README.md) 坑 2 |
-| CSP / 沙箱 | 扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**跑在 USER_SCRIPT 世界、注入第三方页面：**不受扩展 CSP 约束，但也不享有扩展 API**（只能经 `window.DL` 桥接） | [迁移方案](docs/plugin-migration-plan.md) §4.6 |
+| CSP / 沙箱 | 扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**跑在 USER_SCRIPT 世界、注入第三方页面：**不受扩展 CSP 约束，但也不享有扩展 API**（只能经 `window.DL` 桥接） | [wxt.config.ts](wxt.config.ts) `content_security_policy` |
 | 主题 | 深浅色**跟随系统**（`theme.ts` → `html.dark`）；不要在 `.html` 写死 `class="dark"`，也不要在组件里硬编码主题色（用 `--background` 等主题变量） | [README](README.md) |
-| 消息协议 | 扩展页只能经 `window.api` → background 调用能力；用户脚本只能经 `window.DL` → background，**两者都不得直接访问 `chrome.*`** | [迁移方案](docs/plugin-migration-plan.md) §4.3 |
+| 消息协议 | 扩展页只能经 `window.api` → background 调用能力；用户脚本只能经 `window.DL` → background，**两者都不得直接访问 `chrome.*`** | [src/lib/window-api.ts](src/lib/window-api.ts) |
 | entrypoint | 不要同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [README](README.md) 坑 5 |
 | 命名 | 文件/目录 kebab-case；组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | [notes/content/style.md](notes/content/style.md) §命名/§Vue |

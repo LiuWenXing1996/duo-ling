@@ -121,7 +121,7 @@ export default defineConfig({
     action: {
       default_title: '打开哆灵',
     },
-    // Chrome 用 side_panel key；Firefox 的 sidebar_action 在三期跨端时再补（docs/plugin-migration-plan.md §5 风险 7）。
+    // Chrome 用 side_panel key；Firefox 的 sidebar_action 在三期跨端时再补。
     side_panel: {
       default_path: 'sidepanel.html',
     },

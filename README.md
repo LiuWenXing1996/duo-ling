@@ -28,8 +28,6 @@
 | 模型配置 | `chrome.storage.local`（API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`；密钥同存本机，属防扫描级而非保密级） |
 | 主题 | **跟随系统深浅色**（`src/lib/theme.ts` 按 `prefers-color-scheme` 驱动 `html.dark`） |
 
-- 迁移方案与风险清单：[docs/plugin-migration-plan.md](docs/plugin-migration-plan.md)（含已下线的工具页承载章节，仅作历史参照）
-
 > **当前状态：两个载体都已是复用桌面版的实现。** side panel 由 `ChatPanel` + `SessionHistoryPanel` 承载；工作台标签页由 `WorkbenchApp`（裁剪自桌面版 `app.vue`：左侧导航 + `WorkspaceHost`）承载，含主页（内容待定）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器标签。`window.api` 由 `src/lib/window-api.ts` 按桌面版契约装配，**组件本体零改动**。**待办**：主页内容填充。
 
 ## 目录结构

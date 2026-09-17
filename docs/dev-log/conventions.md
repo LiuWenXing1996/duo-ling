@@ -43,7 +43,7 @@
 - **`srcDir: 'src'` 是必须的**：WXT 内置 `@`/`~` 别名硬编码指向 srcDir 且**覆盖用户 alias**（`wxt/dist/core/resolve-config.mjs`），而平移来的组件全用 `@/...` 引用。同理 `publicDir` 默认基于项目根而非 srcDir，必须显式 `publicDir: 'src/public'`，否则 `tool-bridge.js` 不进产物。
 - 包管理用 **npm**。构建产物 `.output/`，开发 `npm run dev`。
 - 交付前验证：`npm run typecheck`（vue-tsc，`noUncheckedIndexedAccess: false`）+ `npm run build`。
-- 文档：根 `README.md`、`AGENTS.md`、[docs/plugin-migration-plan.md](../plugin-migration-plan.md)。
+- 文档：根 `README.md`、`AGENTS.md`、[notes/](../notes/README.md)。
 
 ## 生成物与目录：优先让工具自生成
 

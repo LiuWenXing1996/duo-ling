@@ -1,4 +1,4 @@
-// background = 桌面版 main 进程的能力运行时（对应 docs/plugin-migration-plan.md §4.3）。
+// background = 桌面版 main 进程的能力运行时。
 // 职责：用户脚本的**注册与运行时**（chrome.userScripts）+ 项目状态库写命令的转发方
 // + offscreen 容器管理 + 模型配置中转。
 // 对话、模型配置不走这里（分别直连 IndexedDB 与 chrome.storage.local）。
