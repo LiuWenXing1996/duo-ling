@@ -1,4 +1,4 @@
-// 用户脚本 git 历史的 offscreen 侧命令面（docs/offscreen-fs-migration.md）。
+// 用户脚本 git 历史的 offscreen 侧命令面（notes/content/offscreen-fs-migration.md）。
 //
 // 执行宿主从 SW 迁到 offscreen：UI / SW 经 chrome.runtime.sendMessage 共享总线发 `ai:*` 命令，
 // 本模块在 offscreen 上下文里处理，结果按 { ok, data | error } 信封回传。

@@ -33,7 +33,7 @@ function send<T>(request: RuntimeRequest): Promise<T> {
 }
 
 /**
- * 向 offscreen 发 ai:* 命令（git 历史侧车 + 构建宿主，docs/offscreen-fs-migration.md）。
+ * 向 offscreen 发 ai:* 命令（git 历史侧车 + 构建宿主，notes/content/offscreen-fs-migration.md）。
  * 现状（2026-09-15）：offscreen 常驻——SW 冷启动即 ensureOffscreen，不空闲自关；
  * 但扩展重载 / 崩溃 / 关窗会销毁容器，这些情况下 ai:* 无人响应会报
  * 「The message port closed before a response was received」。故失败时先经 SW 唤起容器
@@ -114,7 +114,7 @@ export const userscriptClient = {
 }
 
 /**
- * 用户脚本 git 历史命令面（执行宿主已迁 offscreen，见 docs/offscreen-fs-migration.md）。
+ * 用户脚本 git 历史命令面（执行宿主已迁 offscreen，见 notes/content/offscreen-fs-migration.md）。
  * 经 chrome.runtime.sendMessage 共享总线直发 offscreen，由后者处理并按 { ok, data | error } 回传。
  * 与 userscriptClient 的区别：后者走 SW 管辖的 userscript:* 命令组；本对象的 ai:* 命令 SW 静默让路。
  */

@@ -155,7 +155,7 @@ export type RuntimeRequest =
   // 注：git 历史的 `userscript:history*` 三命令已随执行宿主迁 offscreen 而废弃（由 ai:* 取代），
   // 全仓无调用方，2026-09-15 从协议中移除——留着只会让 SW 的 handlers 表被迫补死桩。
 
-  // 用户脚本 git 历史（执行宿主迁 offscreen，见 docs/offscreen-fs-migration.md）。
+  // 用户脚本 git 历史（执行宿主迁 offscreen，见 notes/content/offscreen-fs-migration.md）。
   // UI / SW 经 chrome.runtime.sendMessage 共享总线直发 offscreen；SW 的 onMessage 对 ai: 前缀
   // return false 静默放行，由 offscreen 处理并按 { ok, data | error } 信封回传。
   // 就绪探测：SW 用来确认容器**真的在应答**（而不仅是「文档已存在」）。

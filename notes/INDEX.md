@@ -29,7 +29,7 @@
 | [AI 生成用户脚本（现状）](content/userscript-ai-generation.md) | —（已并入 notes） | 三容器链路：sidepanel / offscreen loop / SW 注册 |
 | [AI 生成后续路线图](content/userscript-ai-generation-next.md) | —（已并入 notes） | 十项未做归三提案，定开工顺序；只记归属不写方案 |
 | [脚本存储单写方](content/userscript-single-writer.md) | —（已并入 notes） | 项目数据迁 offscreen 单写，统一进 `duoling-state` |
-| [脚本文件树迁 offscreen](content/offscreen-fs-migration.md) | [docs/offscreen-fs-migration.md](../docs/offscreen-fs-migration.md) | lfs + isomorphic-git 归 offscreen（§2.3–2.5 已被单写方取代） |
+| [脚本文件树迁 offscreen](content/offscreen-fs-migration.md) | —（已并入 notes） | lfs + isomorphic-git 归 offscreen（§2.3–2.5 已被单写方取代） |
 | [编辑器草稿](content/userscript-draft.md) | —（已并入 notes） | 草稿 = 工作区未提交改动，自动落盘、重开恢复 |
 | [脚本 Git 历史浏览](content/userscript-git-history.md) | —（已并入 notes） | 每脚本一仓、状态库权威 git 为侧车，保存自动版本 |
 | [页面世界反向中继（DL.page）](content/userscript-page-relay.md) | —（已并入 notes） | 一期 listen + hook('fetch')；eval 与句柄后置 |

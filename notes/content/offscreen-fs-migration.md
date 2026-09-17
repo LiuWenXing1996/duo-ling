@@ -1,7 +1,6 @@
 # 脚本文件树迁 offscreen
 
-> 一句话：lightning-fs + isomorphic-git 的归属从 SW 迁到 offscreen（已实施 2026-09-14）。
-> 源文档：[docs/offscreen-fs-migration.md](../../docs/offscreen-fs-migration.md)
+> 一句话：lfs 与 git 仓的归属从 SW 迁到 offscreen（2026-09-14 已实施）。
 
 ## 现状
 
@@ -12,8 +11,8 @@
 
 ## 本文档不包括什么
 
-- 拆独立 lfs 库 / 迁移 `/uscripts/*`（工具移除后无需）。
-- SW 再持有 fs 实例（lfs 内存索引层只许一个写入方）。
+- 拆独立 lfs 库 / 迁移 `/uscripts/*`：工具移除后 `duoling` 库已为脚本专用，无需拆库或迁数据。
+- SW 再持有 fs 实例：lfs 内存索引层只许一个写入方，offscreen 已是唯一那一个。
 
 ## 决策记录
 
