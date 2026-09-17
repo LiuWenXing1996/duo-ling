@@ -572,7 +572,7 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- 内置分组：随扩展包分发的只读内置件（不进状态库、无启停 / 编辑 / 删除，docs/proposals/implementing/element-picker.md「内置脚本承载」） -->
+        <!-- 内置分组：随扩展包分发的只读内置件（不进状态库、无启停 / 编辑 / 删除，docs/proposals/done/element-picker.md「内置脚本承载」） -->
         <section
           v-if="BUILTIN_SCRIPTS.length"
           class="rounded-md border bg-card"

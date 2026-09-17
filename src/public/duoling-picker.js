@@ -1,5 +1,5 @@
 /**
- * 哆灵 · 页面元素拾取器 / 页面快照采集器（docs/proposals/implementing/element-picker.md）。
+ * 哆灵 · 页面元素拾取器 / 页面快照采集器（docs/proposals/done/element-picker.md）。
  *
  * 运行位置：目标标签页的独立 USER_SCRIPT 世界 `us-builtin-picker`（经
  * chrome.userScripts.execute() 按需注入——点按钮那一刻才进页面，平时零注入足迹）。

@@ -9,7 +9,7 @@
 
 import type { ModelProfile } from './types'
 
-// —— 页面上下文档位（docs/proposals/implementing/element-picker.md）——
+// —— 页面上下文档位（docs/proposals/done/element-picker.md）——
 // 拾取器（src/public/duoling-picker.js，USER_SCRIPT 世界经 execute() 注入）的载荷形状。
 // ⚠️ 与拾取器的 vanilla JS 手写对齐，改形状必须两边同步。
 
