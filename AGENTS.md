@@ -125,7 +125,7 @@
   - ❌ 严禁 `git push origin <x>:main`（含之前的 refspec 绕过法），会被 `GH006: Protected branch update failed` 拒
   - ❌ 不要整分支 merge 把历史倒腾进 main（只会产生重复/冲突提交）；单一改动走上面的 PR 流
   - ❌ E2E（Playwright）**故意不是 required status check**——`e2e.yml` 无 `pull_request` 触发器，PR 上永远不上报该状态，设了 PR 会卡死合不了
-  - ✅ **PR 必须在描述里链到它实现的提案；状态流转（移到 `implementing/` 或 `done/`）与实现代码进同一个 PR，但单独一个 commit**——该 commit 只含「移动文件 + 流转记录加一行」，不夹带其他改动。分成两个 PR 会漏做，混进代码 commit 则看不出流转动作（流程与写法都见 [docs/proposal-process.md](docs/proposal-process.md)，该文件自包含）
+  - ✅ **PR 必须在描述里链到它实现的提案；状态流转（移到 `implementing/` 或 `done/`）与实现代码进同一个 PR**——流转动作 = 移动文件 + 流转记录加一行，commit 怎么划分不作要求，流转记录表是权威留痕。分成两个 PR 会漏做（流程与写法都见 [docs/proposal-process.md](docs/proposal-process.md)，该文件自包含）
   - ✅ **提案不可删除**：换状态 = 移动文件 + 加流转记录。想删提案 = 想删掉「我们为什么这么定」，不允许
 - **即使改本文件 / CI 配置**，也走同样 PR 流（main 受保护，没有任何文件能直推）
 
