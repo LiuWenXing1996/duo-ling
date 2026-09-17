@@ -1,4 +1,4 @@
-// 层 4 组件测试：ConfirmDialog.vue（关闭确认弹窗）。
+// UI 组件测试：ConfirmDialog.vue（关闭确认弹窗）。
 // 只验证交互逻辑（确认/取消回调、update:open、文案渲染、danger 形态），不测样式像素。
 // reka-ui Dialog 经 Portal teleport 到 body 且异步挂载 —— mount 时 attachTo: document.body +
 // flushPromises 后直接查 document.body（test-utils 的 teleport stub 会吞掉子内容，不能用）。

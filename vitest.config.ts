@@ -8,8 +8,8 @@ import { WxtVitest } from 'wxt/testing/vitest-plugin'
 //   ⚠️ vitest projects 模式下顶层 plugins **不下传**给各 project（实测 chrome mock 全灭），
 //   必须在每个 project 的 plugins 里各放一份。
 // - projects 双环境分离：
-//   · logic（层 1/2/3）：node 环境，收 `src/**/*.test.ts`，exclude 掉组件测试避免重复跑；
-//   · component（层 4）：happy-dom 环境，只收组件测试文件。
+//   · logic（纯逻辑测试）：node 环境，收 `src/**/*.test.ts`，exclude 掉组件测试避免重复跑；
+//   · component（UI 组件测试）：happy-dom 环境，只收组件测试文件。
 // - 命名约定：组件测试文件一律 `*.component.test.ts`，与纯逻辑 `*.test.ts` 并存不冲突
 //   （该约定由两个 project 的 include/exclude 共同保证）。
 export default defineConfig({

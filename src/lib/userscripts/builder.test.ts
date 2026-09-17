@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { BuildError, buildProject } from './builder'
 
-// —— esbuild-wasm 在 Node 下的加载适配（层 3 冒烟的关键，结论见 notes/content/testing-plan.md）——
+// —— esbuild-wasm 在 Node 下的加载适配（构建冒烟的关键，结论见 notes/content/testing-plan.md）——
 //
 // builder.ts 按浏览器写（wasmURL + 默认 worker 模式），直接在 vitest node 环境跑不起来：
 // 1) Node 解析 esbuild-wasm 命中 lib/main.js（node 入口）：它不加载 wasm，而是 spawn 原生

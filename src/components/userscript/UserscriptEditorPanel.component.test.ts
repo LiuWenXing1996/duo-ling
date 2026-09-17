@@ -1,4 +1,4 @@
-// 层 4 组件测试：UserscriptEditorPanel.vue（编辑器标签页的保存 / 关闭确认逻辑）。
+// UI 组件测试：UserscriptEditorPanel.vue（编辑器标签页的保存 / 关闭确认逻辑）。
 // 只验证交互逻辑，不测样式：加载渲染、dirty 上报（宿主关标签前确认的依据）、
 // 保存链路（matches 必填拦截 / 构建失败不落盘 / 保存成功回写 baseline）、草稿恢复与丢弃。
 // 边界 mock：ui-client（IPC 客户端）、文件树子组件；CodeMirror 用真实实现（happy-dom 可跑）。
