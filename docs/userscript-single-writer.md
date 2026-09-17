@@ -3,7 +3,7 @@
 > 状态：**已实现（2026-09-15）**。实现记录见 §9；前置项 1/2/3 均已收口（§5）。
 > 出处：2026-09-14 评审 `docs/userscript-draft.md` 时，由「为什么还需要 chrome.storage」一路追问出来的议题。
 > 关联：`docs/userscript-draft.md`（草稿 = 工作区）、`docs/userscript-git-history.md`（git 侧车）、
-> `docs/offscreen-fs-migration.md`（lfs 归 offscreen）、`docs/todo.md`（边界待办）。
+> `docs/offscreen-fs-migration.md`（lfs 归 offscreen）。
 
 ## 1. 背景与动机
 

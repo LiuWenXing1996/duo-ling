@@ -43,11 +43,10 @@
 | [docs/userscript-ai-generation.md](docs/userscript-ai-generation.md) | AI 生成用户脚本 · 现状与用法 | 涉及生成链路时 |
 | [docs/style.md](docs/style.md) | 代码风格规范（部分条目为 Electron 时期约定，按需取用） | 写代码 / 改样式前 |
 | [docs/proposal-process.md](docs/proposal-process.md) | **提案流程**（2026-09-17 起降级为可选）：五态状态机、流转记录、提案不可删。**重大变更建议开提案做决策留痕；日常改动直接做，不开提案** | 结构 / 行为大改、需要多轮讨论的设计 |
-| [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**（有方案的走提案流程，见 [todo.md](docs/todo.md)）。与提案流程相互独立 | 攒需求 / 清理待办时 |
+| [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**（有方案的走提案流程）。与提案流程相互独立 | 攒需求 / 清理待办时 |
 | [docs/doc-standard.md](docs/doc-standard.md) | 文档规范：归属、状态块、归档、水文清单、字数上限 | 写文档 / review PR 前 |
 | [docs/lessons.md](docs/lessons.md) | 踩坑记录 | 报错 / 排查前 |
 | [docs/testing-plan.md](docs/testing-plan.md) | 测试方案（五层分层 + E2E 路由，待开工） | 补测试 / 动工测试前 |
-| [docs/todo.md](docs/todo.md) | 待办与方案 | 了解遗留事项时 |
 
 ## 全局约束（强制）
 
