@@ -27,6 +27,7 @@ import {
   recoverOnUpdate,
   registerScript,
   unregisterScripts,
+  refreshPageStub,
   getEffectiveCspPermissive,
   collectCspWarnings,
   resolveInjectCode,
@@ -135,6 +136,8 @@ async function writeViaOffscreen<T>(request: RuntimeRequest): Promise<T> {
  */
 async function registerOrLog(project: ScriptProject): Promise<string | undefined> {
   try {
+    // 先同步 MAIN 桩（启用脚本集合可能变化），再注册脚本——保证桩与包装密钥同代
+    await refreshPageStub().catch(() => {})
     await registerScript(project)
     return undefined
   } catch (e) {
@@ -264,6 +267,8 @@ const handlers: {
   // 仓的删除原先只能靠 offscreen 启动对账兜（删完会滞留一阵），现在写侧同在 offscreen，一步清干净。
   'userscript:remove': async (msg): Promise<void> => {
     await unregisterScripts([msg.uuid]).catch(() => {})
+    // 该脚本对桩并集的贡献随之消失，桩可能需要注销
+    await refreshPageStub().catch(() => {})
     await writeViaOffscreen<void>({ kind: 'state:remove', uuid: msg.uuid })
     await clearGMValues(msg.uuid)
   },
@@ -281,6 +286,8 @@ const handlers: {
     })
     if (msg.enabled) return { registerError: await registerOrLog(next) }
     await unregisterScripts([msg.uuid]).catch(() => {})
+    // 关停后桩并集可能缩小，桩可能需要注销
+    await refreshPageStub().catch(() => {})
     return {}
   },
 

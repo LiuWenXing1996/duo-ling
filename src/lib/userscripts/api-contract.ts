@@ -176,4 +176,62 @@ export interface DuoLingApi {
 
   /** 带脚本前缀的控制台输出。纯本地实现 */
   log(...args: unknown[]): void
+
+  /**
+   * 反向中继 · 页面世界访问（docs/userscript-page-relay.md v2，一期 listen + hook('fetch')）。
+   * 对全部脚本开放（无 pageAccess 门禁）。
+   */
+  page: DlPageApi
+}
+
+// ————————————————————— 反向中继 DL.page（一期）—————————————————————
+
+/** DL.page 自有错误码（不走 SW 桥的 ApiErrorCode，规范 §6.2） */
+export type PageErrorCode =
+  | 'PAGE_STUB_UNAVAILABLE'
+  | 'HANDSHAKE_FAILED'
+  | 'TIMEOUT'
+  | 'PERMISSION_DENIED'
+
+/** 页面事件摘要（stub 转发，只含可克隆字段；detail 克隆失败置 null） */
+export interface PageEventSummary {
+  type: string
+  /** 键盘事件的 key，非键盘事件缺省 */
+  key?: string
+  detail: Json | null
+  timeStamp: number
+}
+
+/** 页面 fetch 调用摘要（hook('fetch') 转发；body 仅文本化尝试，失败置 null） */
+export interface PageFetchSummary {
+  url: string
+  method: string
+  /** 可克隆部分（Headers 实例尝试摊平，失败为空对象） */
+  headers: Record<string, string>
+  body: string | null
+}
+
+/** 脚本对 hook('fetch') 的裁决：透传原调用，或由 stub 构造 Response 返回页面 */
+export type PageFetchAction =
+  | { action: 'passthrough' }
+  | { action: 'respond'; status: number; headers?: Record<string, string>; body?: string }
+
+export interface PageListenOptions {
+  /** 只转发 target 命中该选择器（或其祖先命中）的事件 */
+  selector?: string
+  /** 命中一次后自动注销 */
+  once?: boolean
+}
+
+/** DL.page 一期 API 面（规范 §4.1：就这两个入口，均返回 off()） */
+export interface DlPageApi {
+  listen(
+    type: string,
+    handler: (ev: PageEventSummary) => void,
+    opts?: PageListenOptions,
+  ): Promise<() => void>
+  hook(
+    name: 'fetch',
+    handler: (call: PageFetchSummary) => PageFetchAction | Promise<PageFetchAction>,
+  ): Promise<() => void>
 }

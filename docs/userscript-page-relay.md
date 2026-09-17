@@ -1,15 +1,17 @@
 # 用户脚本 · 页面世界反向中继（`DL.page`）规范
 
-> 状态：规范稿 v2（2026-09-17 修订，待评审；实施排在 [userscript-v2-plan.md](./userscript-v2-plan.md) Phase 4）
+> 状态：v2.1（2026-09-17 修订；Phase 4 已实施）
 > 修订记录：
 > - v1（2026-09-15）：首发，API 面 = eval / listen / hook + 句柄体系。
 > - v2（2026-09-17）：**eval 与句柄体系整体后置**，一期 API 面收敛为 `listen` + `hook('fetch')`。
 >   理由：句柄的唯一数据来源是 eval，eval 后置则句柄无来源，二者必须同进退；eval 是唯一依赖
 >   `new Function` 的能力，后置后 v1 最大的未决项（严格 CSP 站点实测）不复存在，stub 成为纯
 >   固定逻辑机器，风险面大幅缩小。一期先用 listen / hook 验证通道价值，不够用再立项 eval。
+> - v2.1（2026-09-17，实施时修订）：**去掉 pageAccess 门禁**——`DL.page` 对全部脚本开放，
+>   stub 注册并集 = 全部启用脚本的 matches；`ScriptConfig` 不再加字段，编辑器不加开关。
 > 输入：v2 方案 §Phase 4 设计输入；同步动态判断 / 对象同一性 / 逐帧高频不可行；
 > stub 注册进 MAIN 世界走 `chrome.userScripts.register({ world: 'MAIN' })`，
-> 按「有脚本声明了 page 访问」动态注册/注销；握手防伪。
+> 按「存在启用脚本」动态注册/注销；握手防伪。
 > 本文档只定协议与语义，不含实现代码。契约位：`userscript-api.md` §2 已列 `DL.page.*`；
 > 类型定义实施时补进 `src/lib/userscripts/api-contract.ts`（`DuoLingApi` 加 `page` 命名空间）。
 
@@ -46,7 +48,7 @@
 
 ```
 ┌─ Background SW ─────────────────────────────────────────────┐
-│ 计算「已启用且 config.pageAccess=true」脚本的 matches 并集    │
+ 计算「已启用」脚本的 matches 并集                              │
 │ chrome.userScripts.register({ id:'dl-page-stub',            │
 │   world:'MAIN', matches:并集, runAt:'document_start',       │
 │   allFrames:true, js:[stub 源] })                            │
@@ -108,15 +110,14 @@ v1 设计过的 `DL.page.eval(source, args?)`（在 MAIN 世界执行一段源�
 
 ## 5. stub 的动态注册 / 注销与握手防伪
 
-### 5.1 声明位
+### 5.1 开放范围
 
-`ScriptConfig` 增加布尔字段 **`pageAccess`**（默认 `false`，配置表单加开关「页面世界访问」）。
-只有声明了的脚本：① 其 matches 计入 stub 注册并集；② 其 DL 包装挂载可用的 `DL.page`。
-未声明却调用 → `PERMISSION_DENIED`，报错文案指路配置开关（不做静默 stub）。
+`DL.page` 对**全部脚本**开放（无配置门禁）：任何启用脚本的 matches 计入 stub 注册并集，
+其 DL 包装都挂载可用的 `DL.page`。
 
 ### 5.2 注册 / 注销算法（SW 侧）
 
-- **数据源**：全部 `enabled && config.pageAccess` 的 ScriptProject 的 config 四字段
+- **数据源**：全部 `enabled` 的 ScriptProject 的 config 四字段
   （matches / excludeMatches / includeGlobs / excludeGlobs）。
 - **时机**：script:create / update / delete / 启停、扩展 install/update 恢复完成后重算。
 - **动作**：
@@ -124,12 +125,13 @@ v1 设计过的 `DL.page.eval(source, args?)`（在 MAIN 世界执行一段源�
   - 并集非空 → `register`（不存在时）或先 unregister 再 register（matches 变化时）——
     幂等可重入，与既有 `registerChain` 的串行化共用队列，避免并发注册踩踏。
 - **stub 参数**：`world: 'MAIN'`、`runAt: 'document_start'`（必须早于脚本默认的
-  document_end 握手窗口）、`allFrames: true`、`persistAcrossSessions: true`。
+  document_end 握手窗口）、`allFrames: true`（userScripts API 无 `persistAcrossSessions`
+  字段，注册本身即跨会话持久——传了会被 Chrome 拒收）。
 - **密钥生成与持久化（实施修订 2026-09-17）**：`stubSecret` 由 SW 生成后持久化于
   chrome.storage.local（键 `us:page:secret`）——MV3 SW 随时休眠，模块变量会归零，单脚本注册
   路径（create / updateFiles / toggle）必须能独立取到与在位桩一致的密钥。轮换时机收敛为
   **扩展 install/update 恢复时**（`recoverOnUpdate`）：轮换后 `registerAllEnabled` 把桩与全部
-  pageAccess 脚本包装在同一遍里带上新密钥。日常注册期不轮换，避免桩与包装密钥错代。
+  启用脚本包装在同一遍里带上新密钥。日常注册期不轮换，避免桩与包装密钥错代。
 
 ### 5.3 握手协议（挑战应答）
 
@@ -185,7 +187,7 @@ stub 只应答四类业务操作：`listen` / `unlisten` / `hook` / `unhook`（+
 - `event`（stub → 脚本，事件摘要）与 `hookcall` / `hookreply`（fetch 钩子的双向调用，
   见 §8）不占 seq 配对，各自携带会话内自增序号。
 - 错误码自有小组（不走 SW 桥的 `ApiErrorCode`）：`PAGE_STUB_UNAVAILABLE` / `HANDSHAKE_FAILED` /
-  `TIMEOUT` / `PERMISSION_DENIED`（未声明 pageAccess）。
+  `TIMEOUT` / `PERMISSION_DENIED`（hook 参数非法）。
 - 所有错误 **reject Error、不静默**——沿用能力 API 的总则（userscript-api.md §4）。
 
 ## 7. 事件转发
@@ -219,11 +221,9 @@ stub 只应答四类业务操作：`listen` / `unlisten` / `hook` / `unhook`（+
 | 位置 | 改动 |
 |---|---|
 | `src/lib/userscripts/api-contract.ts` | `DuoLingApi` 加 `page` 命名空间类型（`listen` / `hook` / `off` / 事件摘要 / fetch 摘要）；信封与错误码类型 |
-| `types.ts` `ScriptConfig` | 加 `pageAccess: boolean`（默认 false） |
-| `engine.ts` `buildDlWrapper` | 按 `pageAccess` 决定是否挂载 `DL.page` 客户端与 `stubSecret` |
+| `engine.ts` `buildDlWrapper` | 内联 `DL.page` 客户端与 `stubSecret` |
 | SW 注册逻辑 | §5.2 的并集维护算法，挂在既有 `registerChain` 串行队列上 |
 | 新文件（建议）`page-stub.ts` / `page-client.ts` | stub 源（字符串模板，随注册注入）与脚本侧客户端 |
-| 编辑器配置表单 | 「页面世界访问」开关 + 说明文案（指向本规范 §1 / §3） |
 
 ## 10. 明确不做
 
@@ -241,7 +241,7 @@ stub 只应答四类业务操作：`listen` / `unlisten` / `hook` / `unhook`（+
 
 - [ ] `hook('fetch')` 的 `respond` 是否需要支持流式 / `FetchPayload` 形状复用
 - [ ] 跨帧需求（iframe 内页面事件 / fetch 钩子的统一聚合）是否立项
-- [ ] `stubSecret` 轮换粒度：目前 per 注册（全部 pageAccess 脚本共享），是否需要 per 脚本
+- [ ] `stubSecret` 轮换粒度：目前 per 注册（全部启用脚本共享），是否需要 per 脚本
       （需拆成多个 MAIN 注册，成本是 stub 副本数增加——倾向不做，维持共享）
 - [ ] `listen` 的 selector 摘要（`key` 字段的取法）具体形状，实施时定
 - [ ] eval 立项的触发条件（一期 listen / hook 覆盖不了哪些真实需求时启动）——待一期用后复盘

@@ -183,7 +183,7 @@ interface ScriptProject {
 - 契约中预留 `DL.page` 命名空间；协议独立成 `docs/userscript-page-relay.md` 再实施。
 - **一期 API 面收敛（2026-09-17）**：`listen`（事件转发）+ `hook('fetch')` 两个入口；eval 与句柄体系整体后置（句柄来源依赖 eval，同进退；eval 的 CSP 实测项随其后置一并取消）。
 - 已知天花板（设计输入）：同步动态判断 / 对象同一性 / 逐帧高频不可行；一期不跨越结构化克隆限制（只转发可克隆摘要）。
-- stub 注册进 MAIN 世界用 `chrome.userScripts.register({ world: 'MAIN' })`，按「有脚本声明了 page 访问」动态注册/注销。
+- stub 注册进 MAIN 世界用 `chrome.userScripts.register({ world: 'MAIN' })`，按「存在启用脚本」动态注册/注销。
 - **不在本期承诺**，前三阶段跑稳后单独立项。
 
 ## 4. 已定决策汇总（本方案不再讨论）
