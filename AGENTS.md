@@ -123,7 +123,7 @@
   1. 基于最新 `origin/main` 起 kebab-case 功能分支（如 `feat/xxx`、`fix/xxx`、`test/xxx`）；不要在一个分支堆多件不相关的事
   2. 本地开发，交付前 `npm run typecheck` + `npm run build` + `npm run test` 全过
   3. `git push -u origin <功能分支>`（**只 push 分支，不触发 CI**——两个 workflow 的 `push` 都限 `branches: [main]`）
-  4. 开 PR（`base: main`），描述按 `.github/pull_request_template.md` 填（动机 / 变更 / 测试证据三段）；PR 触发 `ci.yml` 的 `pull_request` 门禁，**合并前置**跑 typecheck + 214 例测试
+  4. 开 PR（`base: main`），描述按 `.github/pull_request_template.md` 填（动机 / 变更 / 测试证据三段）；PR 触发 `ci.yml` 的 `pull_request` 门禁，**合并前置**跑 typecheck + 全部单测
   5. 等 CI 绿 → 网页点 Merge 或 `gh pr merge --merge`（生成 merge commit 进 main，**等价**）
   6. 合并自动触发 push main → `ci.yml` + `e2e.yml` **双跑复验**
 - **铁律**：
