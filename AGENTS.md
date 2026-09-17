@@ -96,7 +96,7 @@
 | 踩坑记录 | `notes/content/lessons.md` |
 | 待办（问题） | `inbox`（不写方案）；方案全文走提案 |
 | 今天干了啥、做到一半的结论、待拍板 | `docs/dev-log/YYYY-MM-DD.md` 按日追加 |
-| 仍生效约定 / 为什么这么定 | `docs/dev-log/conventions.md` |
+| 仍生效约定 / 为什么这么定 | `notes/content/conventions.md` |
 | 本机环境、会话过程、临时状态 | `.workbuddy/memory/`（不入库）——**会话结束前必须析出到上面两处** |
 
 同一件事只写一处：决策理由写进日志或 conventions，**不复述第二遍**；代码注释里不写变更史（"原本…现在已移除"这类留给 git）。
