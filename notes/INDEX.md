@@ -11,7 +11,7 @@
 | [Agent 协作指南](content/agent-guide.md) | [AGENTS.md](../AGENTS.md) | 怎么干 / 写哪 / 分支保护；main 受保护须走 PR |
 | [项目约定决策](content/conventions.md) | [docs/dev-log/conventions.md](../docs/dev-log/conventions.md) | 仍生效架构约定 + 已否决方案表；改前先读 |
 | [写作规范](README.md) | （已并入 notes/README） | 笔记结构 / 字数 / 水文清单 / 隐私；归属导航见 AGENTS.md |
-| [提案流程规范](content/proposal-process.md) | [docs/proposal-process.md](../docs/proposal-process.md) | 可选工具；五态状态机 + 流转记录 + 不可删 |
+| [提案流程规范](content/proposal-process.md) | —（已并入 notes） | 可选工具；五态状态机 + 流转记录 + 不可删 |
 
 ## 架构与迁移
 
