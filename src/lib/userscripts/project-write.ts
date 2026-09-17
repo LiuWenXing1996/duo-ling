@@ -185,23 +185,48 @@ export async function importScriptsZip(zipBase64: string): Promise<ImportReport>
   }
 }
 
-/** 导入单个脚本：任一步失败只淘汰它自己（逐脚本独立容错），错误转成报告条目 */
+/**
+ * 导入单个脚本：任一步失败只淘汰它自己（逐脚本独立容错），错误转成报告条目。
+ *
+ * 落盘顺序（2026-09-17 拍板「先写 lfs」）：
+ *   ① 构建（buildOutcome，已有流程，读内存 Record）—— 产物不变量前置，构建失败
+ *      即整脚本失败，此时 lfs / 状态库都不碰（不破坏「构建失败不落盘」）；
+ *   ② 先写 lfs（snapshotProject）：把真实文件树物化进 lfs 工作树 + 首提交，作为导入
+ *      **首要落点**，早于状态库；lfs 写入失败只 warn 不阻断状态库落盘（仓坏只丢历史
+ *      不丢脚本的不变量保留）；
+ *   ③ 再写状态库（state-DB 仍为权威：SW 注册读 bundle、编辑器基准读 files 均不变）。
+ * 构建不必读 lfs（builder 仍收内存 Record），故 lfs 写入对构建无依赖，仅表达落盘优先级。
+ */
 async function importOneScript(script: ZipScriptPayload): Promise<ImportItemResult> {
   try {
     validateMatchPatterns(script.config)
     validateFiles(script.files, script.entry)
     // 指纹去重提示（§5.6）：与现有项目（含本批先导入的——逐个落盘后立即可见）比对
     const duplicateOf = await findContentDuplicate(script.entry, script.files)
-    const bundle = await buildOutcome(script.files, script.entry)
-    const project = await createGeneratedProject({
-      name: script.name,
+    const bundle = await buildOutcome(script.files, script.entry) // ① 已有构建流程（读内存 Record）
+    const name = script.name.trim()
+    if (!name) throw new Error('脚本名称不能为空')
+    const ts = Date.now()
+    const project: ScriptProject = {
+      v: 1,
+      uuid: crypto.randomUUID(),
+      name,
+      enabled: false, // 先审后启
       config: script.config,
       files: script.files,
       entry: script.entry,
       bundle,
-      enabled: false,
-      note: '从 zip 导入',
-    })
+      createdAt: ts,
+      updatedAt: ts,
+    }
+    // ② 先写 lfs（导入首要目标）：真实文件树物化进 lfs 工作树 + 首提交，早于状态库
+    try {
+      await snapshotProject(project, '从 zip 导入')
+    } catch (e) {
+      console.warn('[duoling:userscript] 导入快照失败（不影响状态库落盘）', project.uuid, e)
+    }
+    // ③ 再写状态库（权威仍 state-DB）
+    await writeProject(project)
     return {
       status: 'ok',
       uuid: project.uuid,
