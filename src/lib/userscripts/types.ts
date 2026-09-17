@@ -155,11 +155,21 @@ export interface ImportItemFailed {
 
 export type ImportItemResult = ImportItemOk | ImportItemFailed
 
+/** 导入时被容忍忽略的文件（顶层散文件 / 非 files/ 条目 / 目录占位；定稿 §5.2 不报错） */
+export interface ImportItemIgnored {
+  status: 'ignored'
+  /** zip 内原始路径 */
+  path: string
+  reason: string
+}
+
 /** 一次 zip 导入的汇总报告 */
 export interface ImportReport {
   succeeded: number
   failed: number
   results: ImportItemResult[]
+  /** 被容忍忽略的文件（非脚本项），仅展示、不影响成功/失败计数 */
+  ignored: ImportItemIgnored[]
 }
 
 export function scriptKey(uuid: string): string {
