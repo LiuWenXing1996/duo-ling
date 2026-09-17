@@ -31,23 +31,17 @@ export function formatSessionTime(iso: string): string {
 }
 
 /** 主进程 Message → 渲染层 UIMessage。
- * 新数据带完整 parts（reasoning/text/tool/data），直接还原分轮思考与工具卡；
- * 旧数据无 parts，回退用 content+reasoning 重建（此时工具信息已在落盘时丢失，无法还原）。
+ * 消息持久化时均带完整 parts（reasoning/text/tool/data），直接还原分轮思考与工具卡；
+ * parts 缺失时按空处理（前提：写入层保证 parts 必填，见 offscreen chat-host 持久化）。
  * pageContext 元数据挂回 metadata：气泡 chip 与「最近一次拾取」prompt 注入都认它。 */
 function toUiMessage(m: Message): UIMessage {
   const metadata = m.pageContext ? { pageContext: m.pageContext } : undefined
-  if (m.parts && m.parts.length) {
-    return {
-      id: m.id,
-      role: m.role,
-      parts: [...m.parts],
-      ...(metadata ? { metadata } : {}),
-    }
+  return {
+    id: m.id,
+    role: m.role,
+    parts: m.parts ?? [],
+    ...(metadata ? { metadata } : {}),
   }
-  const parts: UIMessage['parts'] = []
-  if (m.reasoning) parts.push({ type: 'reasoning', text: m.reasoning })
-  if (m.content) parts.push({ type: 'text', text: m.content })
-  return { id: m.id, role: m.role, parts, ...(metadata ? { metadata } : {}) }
 }
 
 /** 从消息 parts 里取 offscreen 推送的 token 用量（data-usage data part） */

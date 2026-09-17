@@ -29,8 +29,7 @@ async function readState(): Promise<ModelState> {
     | { profiles: StoredProfile[]; activeProfileId: string }
     | undefined
   const stored = raw ?? { profiles: [], activeProfileId: '' }
-  // 解密为内部形态；老数据（明文 apiKey 字段）在此顺带迁移为密文
-  let migrated = false
+  // 解密为内部形态
   const profiles: ModelProfileState[] = await Promise.all(
     stored.profiles.map(async (p) => {
       const rest = p as Omit<ModelProfileState, 'apiKey'>
@@ -43,11 +42,6 @@ async function readState(): Promise<ModelState> {
         }
         return { ...rest, apiKey }
       }
-      const legacy = (p as Partial<ModelProfileState>).apiKey
-      if (typeof legacy === 'string' && legacy) {
-        migrated = true
-        return { ...rest, apiKey: legacy }
-      }
       return { ...rest, apiKey: '' }
     }),
   )
@@ -56,7 +50,7 @@ async function readState(): Promise<ModelState> {
   // 仅在确实不一致时回写一次；此后读路径不再兜底，保持「activeProfileId 即真源」的严格语义。
   const before = state.activeProfileId
   syncActiveProfileId(state)
-  if (migrated || state.activeProfileId !== before) await writeState(state)
+  if (state.activeProfileId !== before) await writeState(state)
   return state
 }
 

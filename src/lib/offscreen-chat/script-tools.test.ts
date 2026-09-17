@@ -1,4 +1,4 @@
-// element_read 工具测试（docs/proposals/implementing/element-picker.md 验收：
+// element_read 工具测试（docs/proposals/done/element-picker.md 验收：
 // 「`element_read` 工具可拉全量属性 / outerHTML / parent 链（单测覆盖工具）」）。
 import { describe, expect, it, vi } from 'vitest'
 import { buildScriptTools, type TaskWorkspace } from './script-tools'

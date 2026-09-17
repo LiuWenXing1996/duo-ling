@@ -12,6 +12,8 @@ import { listProjects } from './project-store'
 import {
   createGeneratedProject,
   createProject,
+  importScriptsZip,
+  removeAllProjects,
   removeProjectAndRepo,
   setProjectEnabled,
   updateProjectFiles,
@@ -37,6 +39,9 @@ export async function handleStateCommand(msg: StateRequest): Promise<unknown> {
     case 'state:remove':
       await removeProjectAndRepo(msg.uuid)
       return undefined
+    case 'state:removeAll':
+      // 删除全部用户脚本（返删除条数）：记录与仓都在本上下文，不留无主仓
+      return removeAllProjects()
     case 'state:toggle':
       return setProjectEnabled(msg.uuid, msg.enabled)
     case 'state:createProject': {
@@ -44,6 +49,9 @@ export async function handleStateCommand(msg: StateRequest): Promise<unknown> {
       const { kind: _kind, ...payload } = msg
       return createGeneratedProject(payload)
     }
+    case 'state:import':
+      // zip 导入（docs/userscript-zip-transfer.md）：解码 + 校验 + 构建 + 落盘全在本上下文（单写方）
+      return importScriptsZip(msg.zipBase64)
   }
 }
 

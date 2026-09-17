@@ -1,4 +1,4 @@
-// Agent 工具：script 三件套（script_spec / script_read / script_apply，选型见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」，写法见 docs/userscript-ai-generation.md「写入契约」）+ element_read / page_snapshot（页面上下文，docs/proposals/implementing/element-picker.md）+ error_read（错误 ID 查询，docs/proposals/implementing/runtime-feedback-loop.md）。
+// Agent 工具：script 三件套（script_spec / script_read / script_apply，选型见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」，写法见 docs/userscript-ai-generation.md「写入契约」）+ element_read / page_snapshot（页面上下文，docs/proposals/done/element-picker.md）+ error_read（错误 ID 查询，docs/proposals/implementing/runtime-feedback-loop.md）。
 //
 // 设计要点：
 //   · **script_apply 把「写」和「验证」合并成一步**：入参完整文件树 → esbuild 构建，

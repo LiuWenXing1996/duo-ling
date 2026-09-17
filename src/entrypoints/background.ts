@@ -35,11 +35,10 @@ import {
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listProjects } from '@/lib/userscripts/project-store'
-// chrome.storage 侧：只剩 DL.store 值、错误日志与旧 GM 记录的扫描清理
+// chrome.storage 侧：只剩 DL.store 值与错误日志
 import {
   listSummaries,
   clearGMValues,
-  clearDeprecatedScripts,
   listUserScriptErrors,
   clearUserScriptErrors,
   appendUserScriptError,
@@ -51,7 +50,7 @@ import {
   initStatusBubblePorts,
   pushStatusBubble,
 } from '@/lib/userscripts/status-bubble'
-import type { ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
+import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主，docs/userscript-ai-generation.md「三容器职责与数据流」）
 import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady } from '@/lib/offscreen'
@@ -200,7 +199,7 @@ const handlers: {
   },
 
   // —— 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）——
-  // 列表视图：项目读自状态库（直连 IDB），已弃用旧记录仍在 chrome.storage，两边拼接后排序
+  // 列表视图：项目读自状态库（直连 IDB）
   'userscript:list': async (): Promise<ScriptSummary[]> =>
     listSummaries(await listProjects()),
 
@@ -227,12 +226,6 @@ const handlers: {
       warnings: collectCspWarnings(resolveInjectCode(next), await getEffectiveCspPermissive()),
       registerError,
     }
-  },
-
-  // 一键清理全部旧 GM 形态记录（含各自 DL.store 值）
-  'userscript:clearDeprecated': async (): Promise<{ removed: number }> => {
-    const removed = await clearDeprecatedScripts()
-    return { removed }
   },
 
   // 新建脚本（零输入）：命名 / 初始模板 / **构建产物** / 首次快照全在 offscreen 侧完成，SW 只负责注册。
@@ -280,6 +273,25 @@ const handlers: {
     await clearGMValues(msg.uuid)
   },
 
+  // 删除全部用户脚本（「全部删除」按钮）：注销全部 → offscreen 清状态库 + 各仓 → 清各脚本
+  // 的 DL.store 值。范围 = 新形态用户脚本；已弃用旧记录（chrome.storage）与内置件不在内，
+  // 故这里**不碰** us:script:* 旧键，也不调 clearDeprecatedScripts。
+  // uuid 由 SW 直读状态库（不经容器，与 userscript:list 同源），用于注销与清 GM 值。
+  'userscript:removeAll': async (): Promise<{ removed: number }> => {
+    const uuids = (await listProjects()).map((p) => p.uuid)
+    await unregisterScripts(uuids).catch(() => {})
+    try {
+      const removed = await writeViaOffscreen<number>({ kind: 'state:removeAll' })
+      for (const uuid of uuids) await clearGMValues(uuid)
+      return { removed }
+    } catch (e) {
+      // 注销在前、落盘在后，落盘失败会留下「记录还标 enabled、实际已注销」的偏差
+      // （删了一部分时更明显）——按状态库重新对齐注册，再抛出真实错误
+      await registerAllEnabled().catch(() => {})
+      throw e
+    }
+  },
+
   // 返回 registerError：enabled 已落状态库（数据写先于注册完成），注册失败只降级为警告，
   // 不把启停整体判失败（否则 UI 不更新开关，与实际已生效的 enabled 状态背离）。
   'userscript:toggle': async (msg): Promise<{ registerError?: string }> => {
@@ -297,6 +309,12 @@ const handlers: {
     await refreshBuiltinScripts().catch(() => {})
     return {}
   },
+
+  // zip 导入（docs/userscript-zip-transfer.md）：纯转发 offscreen 单写方（解码 + 校验 + 构建
+  // + 落盘同处）。导入恒 enabled:false——「先审后启」是产品原则，落盘后由用户手动启用
+  // （userscript:toggle），故此处**无注册动作**（与 create / toggle 不同：不调 registerOrLog）。
+  'userscript:import': async (msg): Promise<ImportReport> =>
+    writeViaOffscreen<ImportReport>({ kind: 'state:import', zipBase64: msg.zipBase64 }),
 
   'userscript:availability': async (): Promise<UserScriptsAvailability> => getUserScriptsStatus(),
 

@@ -1,8 +1,11 @@
 // project-write.ts 单测（offscreen 写侧）：测试直调写 API，通过 mock builder（esbuild-wasm）
 // 与 us-git（lightning-fs）模拟 offscreen 上下文——这两个模块在真实环境里分别依赖
 // chrome.runtime.getURL 拉起的 wasm 与 lightning-fs，均非层1靶心。
-// 被测重点是写侧自身的语义：bundle 必要条件、守卫校验、快照失败不阻断、启停不产生提交。
+// 被测重点是写侧自身的语义：bundle 必要条件（新建/保存路径）、守卫校验、快照失败不阻断、
+// 启停不产生提交、删除全部（记录批量清 + 仓整目录清一次），以及 zip 导入「尽量导入」语义
+// （2026-09-17 修订：非原则项不淘汰）。
 import 'fake-indexeddb/auto'
+import { strToU8, zipSync } from 'fflate'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./builder', () => {
@@ -27,21 +30,26 @@ vi.mock('./builder', () => {
 vi.mock('./us-git', () => ({
   snapshotProject: vi.fn(async () => {}),
   deleteRepo: vi.fn(async () => {}),
+  deleteAllRepos: vi.fn(async () => 0),
 }))
 
 import { buildProject } from './builder'
 import {
   createProject,
+  importScriptsZip,
+  removeAllProjects,
   removeProjectAndRepo,
   setProjectEnabled,
   updateProjectFiles,
 } from './project-write'
 import { readAllProjects, removeProjects } from './state-db'
-import { deleteRepo, snapshotProject } from './us-git'
+import { bytesToBase64 } from './zip-transfer'
+import { deleteAllRepos, deleteRepo, snapshotProject } from './us-git'
 import type { ScriptProject } from './types'
 
 const mockSnapshot = vi.mocked(snapshotProject)
 const mockDeleteRepo = vi.mocked(deleteRepo)
+const mockDeleteAllRepos = vi.mocked(deleteAllRepos)
 const mockBuild = vi.mocked(buildProject)
 
 function validFiles(): Record<string, string> {
@@ -190,6 +198,26 @@ describe('removeProjectAndRepo', () => {
   })
 })
 
+describe('removeAllProjects', () => {
+  it('批量删除：状态库清空 + 整目录清一次仓，返回删除条数', async () => {
+    await createProject()
+    await createProject()
+    expect(await readAllProjects()).toHaveLength(2)
+
+    await expect(removeAllProjects()).resolves.toBe(2)
+    await expect(readAllProjects()).resolves.toEqual([])
+    // 逐个 deleteRepo 是重复劳动（随后整目录一并清），此路径只走整目录清一次
+    expect(mockDeleteAllRepos).toHaveBeenCalledOnce()
+    expect(mockDeleteRepo).not.toHaveBeenCalled()
+  })
+
+  it('空库调用：返回 0，不抛错（幂等，可重试）', async () => {
+    await expect(removeAllProjects()).resolves.toBe(0)
+    await expect(readAllProjects()).resolves.toEqual([])
+    expect(mockDeleteRepo).not.toHaveBeenCalled()
+  })
+})
+
 describe('快照失败策略', () => {
   it('updateProjectFiles：快照失败只 warn，状态照常落盘（commit 失败只丢历史不丢脚本）', async () => {
     const p = await createProject()
@@ -201,5 +229,131 @@ describe('快照失败策略', () => {
     ).resolves.toMatchObject({ files: validFiles() })
     expect(warn).toHaveBeenCalledOnce()
     warn.mockRestore()
+  })
+})
+
+// —— zip 导入（docs/userscript-zip-transfer.md §5；提案决策：保留原名 / enabled false / 单写方落盘）——
+
+/** 构造一个 zip 的 base64：scripts 为顶层目录 → files 映射 */
+function makeZipBase64(
+  scripts: Array<{
+    dir: string
+    name: string
+    files: Record<string, string>
+    matches?: string[]
+    v?: number
+    entry?: string
+  }>,
+): string {
+  const entries: Record<string, Uint8Array> = {}
+  for (const s of scripts) {
+    entries[`${s.dir}/project.json`] = strToU8(
+      JSON.stringify({
+        v: s.v ?? 1,
+        name: s.name,
+        config: { matches: s.matches ?? ['*://*/*'], allFrames: true, runAt: 'document_end' },
+        entry: s.entry ?? 'main.js',
+        exportedAt: 1726000000000,
+      }),
+    )
+    for (const [p, content] of Object.entries(s.files)) {
+      entries[`${s.dir}/files/${p}`] = strToU8(content)
+    }
+  }
+  return bytesToBase64(zipSync(entries))
+}
+
+describe('importScriptsZip', () => {
+  it('单脚本导入成功：enabled 恒 false / uuid 重生成 / 快照 note = 「从 zip 导入」/ 保留原名', async () => {
+    const report = await importScriptsZip(
+      makeZipBase64([{ dir: 'demo', name: '演示脚本', files: { 'main.js': 'console.log(1)' } }]),
+    )
+    expect(report.succeeded).toBe(1)
+    expect(report.failed).toBe(0)
+    const item = report.results[0]!
+    expect(item.status).toBe('ok')
+    const stored = (await readAllProjects()).find((p) => p.uuid === (item as { uuid: string }).uuid)
+    expect(stored).toBeDefined()
+    expect(stored!.enabled).toBe(false)
+    expect(stored!.name).toBe('演示脚本')
+    expect(stored!.bundle).toBeDefined() // 先构建后落盘（产物不变量）
+    expect(mockSnapshot).toHaveBeenCalledOnce()
+    expect(mockSnapshot.mock.calls[0]![1]).toBe('从 zip 导入')
+  })
+
+  it('重复导入同一内容：仍导入为独立副本，报告带 duplicateOf 提示（定稿 §5.6）', async () => {
+    const zip = makeZipBase64([{ dir: 'demo', name: '演示', files: { 'main.js': 'console.log(1)' } }])
+    const first = await importScriptsZip(zip)
+    expect(first.results[0]).toMatchObject({ status: 'ok' })
+    expect(first.results[0]).not.toHaveProperty('duplicateOf')
+    const second = await importScriptsZip(zip)
+    expect(second.succeeded).toBe(1)
+    expect(second.results[0]).toMatchObject({ status: 'ok', duplicateOf: '演示' })
+    await expect(readAllProjects()).resolves.toHaveLength(2)
+  })
+
+  it('构建失败不淘汰：脚本仍导入（bundle 缺省）+ note 带 esbuild 诊断', async () => {
+    mockBuild.mockRejectedValueOnce(new (await import('./builder')).BuildError(['main.js:1:1 语法错误']))
+    const report = await importScriptsZip(
+      makeZipBase64([
+        { dir: 'bad', name: '坏脚本', files: { 'main.js': 'syntax error here' } },
+        { dir: 'good', name: '好脚本', files: { 'main.js': 'console.log(1)' } },
+      ]),
+    )
+    expect(report.succeeded).toBe(2) // 两个都导入
+    expect(report.failed).toBe(0)
+    const bad = report.results.find((r) => r.name === '坏脚本') as { status: string; notes?: string[] }
+    expect(bad.status).toBe('ok')
+    expect((bad.notes ?? []).join(' ')).toContain('main.js:1:1')
+    const stored = await readAllProjects()
+    expect(stored.map((p) => p.name).sort()).toEqual(['坏脚本', '好脚本'])
+    expect(stored.find((p) => p.name === '坏脚本')!.bundle).toBeUndefined() // 无产物落盘
+    expect(stored.find((p) => p.name === '好脚本')!.bundle).toBeDefined()
+  })
+
+  it('matches 非法不拦：照常导入并原样落库（报错留给启用时 registerScript）', async () => {
+    const report = await importScriptsZip(
+      makeZipBase64([{ dir: 'bad', name: '规则坏', files: { 'main.js': 'x' }, matches: ['bad-rule'] }]),
+    )
+    expect(report.succeeded).toBe(1)
+    expect(report.failed).toBe(0)
+    const stored = await readAllProjects()
+    expect(stored.map((p) => p.name)).toEqual(['规则坏'])
+    expect(stored[0]!.config.matches).toEqual(['bad-rule'])
+  })
+
+  it('v 超版不再阻断：照常导入（开发期无版本规范）', async () => {
+    const report = await importScriptsZip(
+      makeZipBase64([{ dir: 'newer', name: '新版脚本', files: { 'main.js': 'x' }, v: 2 }]),
+    )
+    expect(report.succeeded).toBe(1)
+    expect(report.failed).toBe(0)
+    await expect(readAllProjects()).resolves.toHaveLength(1)
+  })
+
+  it('未导入的文件（顶层散文件 / 非 files/ 条目）汇进报告 ignored，不影响成功计数', async () => {
+    const entries: Record<string, Uint8Array> = {
+      'demo/project.json': strToU8(
+        JSON.stringify({
+          v: 1,
+          name: '演示',
+          config: { matches: ['*://*/*'], allFrames: true, runAt: 'document_end' },
+          entry: 'main.js',
+          exportedAt: 0,
+        }),
+      ),
+      'demo/files/main.js': strToU8('console.log(1)'),
+      'demo/data/x.json': strToU8('{}'),
+      'loose.txt': strToU8('x'),
+    }
+    const report = await importScriptsZip(bytesToBase64(zipSync(entries)))
+    expect(report.succeeded).toBe(1)
+    expect(report.failed).toBe(0)
+    expect(report.ignored.map((i) => i.path).sort()).toEqual(['demo/data/x.json', 'loose.txt'])
+    expect(report.ignored.every((i) => i.status === 'ignored')).toBe(true)
+  })
+
+  it('非 zip 内容：整体报错（调用方 UI 展示错误）', async () => {
+    await expect(importScriptsZip(bytesToBase64(new Uint8Array([1, 2, 3, 4])))).rejects.toThrow()
   })
 })
