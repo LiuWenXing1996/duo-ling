@@ -15,7 +15,10 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
 1. 入口文件**不得有顶层 \`export\`**（iife 格式约束）。
 2. 依赖只能 \`import 'https://…'\`（CDN 完整 URL，如 https://esm.sh/lodash-es@4）；**裸包名 \`from 'lodash'\` 会报错**；不支持 \`node:\` 前缀。
 3. \`DL\` **全 async**——所有 DL API 返回 Promise，必须 await；存储值必须是 Json（null/boolean/number/string/数组/纯对象）。
-4. \`DL.page.*\` **尚未可用**：脚本能操作 DOM，但**看不到页面 JS 全局**（框架实例、页面变量），不要写依赖它们的代码。
+4. \`DL.page.*\` 反向中继（规范 docs/userscript-page-relay.md）：提供 \`DL.page.listen(type, handler, opts?)\`
+   （监听页面事件，摘要 { type, key?, detail, timeStamp }）与 \`DL.page.hook('fetch', fn)\`
+   （拦截页面 fetch，fn 收 { url, method, headers, body }，回 { action: 'passthrough' } 或
+   { action: 'respond', status, headers?, body? }）。脚本仍**看不到页面 JS 全局**（框架实例、页面变量），不要写依赖它们的代码。
 5. \`allFrames\` 默认 true：脚本可能在同页多个 frame 各跑一次，初始化逻辑要幂等。
 6. 生成的脚本**不会自动生效**——先落盘为未启用状态，由用户确认后启用。不要假设「已经跑起来了」。
 

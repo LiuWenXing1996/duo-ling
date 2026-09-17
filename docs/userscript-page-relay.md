@@ -1,21 +1,32 @@
 # 用户脚本 · 页面世界反向中继（`DL.page`）规范
 
-> 状态：规范稿 v1（2026-09-15，待评审；实施排在 [userscript-v2-plan.md](./userscript-v2-plan.md) Phase 4）
-> 输入：v2 方案 §Phase 4 设计输入 —— 结构化克隆限制 → 句柄方案；同步动态判断 / 对象同一性 /
-> 逐帧高频不可行；stub 注册进 MAIN 世界走 `chrome.userScripts.register({ world: 'MAIN' })`，
-> 按「有脚本声明了 page 访问」动态注册/注销；握手防伪。
+> 状态：v2.1（2026-09-17 修订；Phase 4 已实施）
+> 修订记录：
+> - v1（2026-09-15）：首发，API 面 = eval / listen / hook + 句柄体系。
+> - v2（2026-09-17）：**eval 与句柄体系整体后置**，一期 API 面收敛为 `listen` + `hook('fetch')`。
+>   理由：句柄的唯一数据来源是 eval，eval 后置则句柄无来源，二者必须同进退；eval 是唯一依赖
+>   `new Function` 的能力，后置后 v1 最大的未决项（严格 CSP 站点实测）不复存在，stub 成为纯
+>   固定逻辑机器，风险面大幅缩小。一期先用 listen / hook 验证通道价值，不够用再立项 eval。
+> - v2.1（2026-09-17，实施时修订）：**去掉 pageAccess 门禁**——`DL.page` 对全部脚本开放，
+>   stub 注册并集 = 全部启用脚本的 matches；`ScriptConfig` 不再加字段，编辑器不加开关。
+> 输入：v2 方案 §Phase 4 设计输入；同步动态判断 / 对象同一性 / 逐帧高频不可行；
+> stub 注册进 MAIN 世界走 `chrome.userScripts.register({ world: 'MAIN' })`，
+> 按「存在启用脚本」动态注册/注销；握手防伪。
 > 本文档只定协议与语义，不含实现代码。契约位：`userscript-api.md` §2 已列 `DL.page.*`；
 > 类型定义实施时补进 `src/lib/userscripts/api-contract.ts`（`DuoLingApi` 加 `page` 命名空间）。
 
 ## 1. 目标与威胁模型
 
 **目标**：USER_SCRIPT 世界的脚本与页面 JS（MAIN 世界）是两个隔离的 JS realm，互相拿不到
-对方对象。`DL.page` 提供一条受控通道，让脚本能**执行页面世界代码、引用页面对象、监听页面事件、
-钩住页面全局函数**——这些在隔离世界里原生做不到（隔离世界的 `window.fetch` 是自己的副本，
-钩了也不影响页面）。
+对方对象。`DL.page` 提供一条受控通道，让脚本能**监听页面事件、钩住页面全局函数**——这些在
+隔离世界里原生做不到（隔离世界的 `window.fetch` 是自己的副本，钩了也不影响页面；
+`addEventListener` 挂的也是自己世界的事件通路）。
 
 **方向**：单向反透——脚本 → 页面。页面拿不到脚本世界的任何东西（这正是隔离世界的价值），
 规范不提供也不考虑「页面调用脚本」的能力。
+
+**一期不提供「执行页面世界代码 / 引用页面对象」**（eval 与句柄体系，后置，见 §4）——
+一期只验证事件转发与 fetch 钩子两条链路。
 
 **威胁模型（全篇的边界）**：
 
@@ -37,7 +48,7 @@
 
 ```
 ┌─ Background SW ─────────────────────────────────────────────┐
-│ 计算「已启用且 config.pageAccess=true」脚本的 matches 并集    │
+ 计算「已启用」脚本的 matches 并集                              │
 │ chrome.userScripts.register({ id:'dl-page-stub',            │
 │   world:'MAIN', matches:并集, runAt:'document_start',       │
 │   allFrames:true, js:[stub 源] })                            │
@@ -57,6 +68,8 @@
 - **stub 不含任何扩展 API**：MAIN 世界的 userScript 没有 `chrome.*`，通信只靠 window 通道；
   这也意味着 stub 被页面完全攻破的收益为零（没有可偷的特权）。
 - **stub 是共享基础设施**：一个扩展一份注册，不是每脚本一份。多脚本会话靠 `sid` 隔离（§5.4）。
+- **stub 是纯固定逻辑机器**：一期不含 `new Function`、不拼源码，只做事件监听转发与
+  fetch 包装两个固定职责（§7 / §8），不存在页面特定业务逻辑。
 
 ## 3. 能力天花板（规范层面直接排除，不接受「想办法实现」）
 
@@ -65,58 +78,46 @@
 | 不可行项 | 原因 | 规范态度 |
 |---|---|---|
 | 同步动态判断 | 跨世界只有异步消息通道，无同步等待原语 | `DL.page` 全 async；不支持任何同步取值形式 |
-| 对象同一性 | 每次跨世界引用都产生**新句柄 id**；结构化克隆的值更是各自副本 | 不承诺 `===` / 引用相等；需要同一性判断时用 `DL.page.eval` 在页面内比较、回传布尔 |
-| 逐帧高频（rAF 级读写、mousemove 类） | 每次往返一个消息循环开销（毫秒级），60fps 逐帧调用不可行 | 不提供逐帧 API；这类需求**整段下沉**：`DL.page.eval` 一段自包含循环在页面里跑，只回传低频结果 |
-| 传函数 / DOM 节点 / 类实例过桥 | 结构化克隆不支持 | 一律句柄化（§4）或序列化为源码（§6.1） |
-| 跨帧直接访问 | 每帧 stub 只应答本帧 | 句柄绑定发起帧；跨帧需求后置（未决项 §11） |
+| 对象同一性 | 跨世界无法共享对象引用 | 不承诺 `===` / 引用相等；一期没有跨世界对象表示法（句柄随 eval 后置） |
+| 逐帧高频（rAF 级读写、mousemove 类） | 每次往返一个消息循环开销（毫秒级），60fps 逐帧调用不可行 | 不提供逐帧 API；`listen` 不承诺逐帧送达（§7） |
+| 传函数 / DOM 节点 / 类实例过桥 | 结构化克隆不支持 | 一期不跨越：listen 只转发**可克隆摘要**，hook 只转发文本化尝试（§7 / §8） |
+| 跨帧直接访问 | 每帧 stub 只应答本帧 | 句柄/事件绑定发起帧；跨帧需求后置（未决项 §11） |
 
-## 4. 句柄方案
+## 4. 一期能力面与后置能力
 
-跨世界值的唯一表示法：
-
-- **可克隆值**（`Json` 范畴）→ 原样过桥，脚本直接拿到裸值。
-- **不可克隆值**（DOM 节点、函数、Window、Document、类实例等）→ stub 端登记进句柄表，
-  回传 `{ __dlHandle: true, hid, type }`；脚本侧得到一个 `PageHandle` 引用对象。
-
-### 4.1 脚本侧 API 形态
+### 4.1 一期 API（全部）
 
 ```
-DL.page.eval(source, args?)          在 MAIN 世界执行一段代码（§6.1）
-DL.page.listen(type, opts?)          订阅页面事件（§7）
-DL.page.hook(name, handler)          钩住页面全局函数（§8）
-
-handle.get(prop)                     读属性 → Promise<值 | PageHandle>
-handle.call(prop, args?)             调方法/取函数再调用 → Promise<值 | PageHandle>
-handle.free()                        释放句柄（stub 端出表）
+DL.page.listen(type, handler, opts?)  订阅页面事件（§7），handler 收事件摘要，返回 off()
+DL.page.hook(name, handler)          钩住页面全局函数，一期仅 'fetch'（§8），返回 off()
 ```
 
-- **一期只做显式 `get/call/free`**，不做 Proxy 语法糖（`await el.textContent` 这种）——
-  Proxy get 拦截无法区分「取属性」与「取出来调用」，要么引入 thenable+callable 混合体这种魔法，
-  要么语义含糊。糖后置（未决项）。
-- 嵌套引用：`handle.get('firstChild')` 返回新句柄，链条合法；句柄即引用，无深度限制。
-- **句柄绑定会话与帧**：句柄只属于发起它的 `sid`（§5.4）与所在 frame；别的脚本会话、别的帧
-  拿到 `hid` 也无法操作（stub 校验拒绝）。`hid` 是名字不是能力。
+就这两个。回调全 async，错误一律 reject 不静默（§6.2 错误码组）。
 
-### 4.2 句柄生命周期
+### 4.2 后置：eval 与句柄体系（整体后置，非砍掉）
 
-- **登记**：stub 端 `Map<hid, { value }>`，hid 为递增 id + 会话前缀。
-- **释放**：① 脚本显式 `free()`（规范要求用完即释放，脚本侧包装在 Promise reject 路径上也应
-  释放已产生的句柄）；② 文档卸载自然清空（stub 随之重置）。
-- **无 GC 联动**：脚本侧引用被回收时 stub 感知不到——这是 postMessage 通道的固有缺陷，
-  不做 WeakRef/FinalizationRegistry 补偿（跨世界不可达）。泄漏上限 = 一次文档会话。
-- **悬空**：对已释放 / 已随导航失效的 hid 操作 → `HANDLE_RELEASED` 错误，不静默重取。
+v1 设计过的 `DL.page.eval(source, args?)`（在 MAIN 世界执行一段源码）与句柄方案
+（不可克隆值登记进 stub 句柄表、回传 `{ __dlHandle, hid }` 引用，脚本侧 `get/call/free`）
+**整体后置**，本版规范不展开其协议细节。
+
+- **为什么一起后置**：句柄的唯一产生途径是 eval 的返回值登记，eval 不做则句柄无来源，
+  单独保留句柄协议是死代码。
+- **为什么不砍掉**：listen / hook 覆盖不了「读页面 JS 全局、执行页面逻辑」的需求，
+  这是反向中继的终极形态；一期用下来确认通道有价值，再单独立项补 eval。
+- **后置时必须一并做的事**：v1 的 CSP 实测项（严格 CSP 站点 MAIN 世界 `new Function`
+  是否可用）随 eval 立项重新生效；不可用的回退预案 = stub 内置受限操作函数表
+  （querySelector / getAttribute / callMethod…）。
 
 ## 5. stub 的动态注册 / 注销与握手防伪
 
-### 5.1 声明位
+### 5.1 开放范围
 
-`ScriptConfig` 增加布尔字段 **`pageAccess`**（默认 `false`，配置表单加开关「页面世界访问」）。
-只有声明了的脚本：① 其 matches 计入 stub 注册并集；② 其 DL 包装挂载可用的 `DL.page`。
-未声明却调用 → `PERMISSION_DENIED`，报错文案指路配置开关（不做静默 stub）。
+`DL.page` 对**全部脚本**开放（无配置门禁）：任何启用脚本的 matches 计入 stub 注册并集，
+其 DL 包装都挂载可用的 `DL.page`。
 
 ### 5.2 注册 / 注销算法（SW 侧）
 
-- **数据源**：全部 `enabled && config.pageAccess` 的 ScriptProject 的 config 四字段
+- **数据源**：全部 `enabled` 的 ScriptProject 的 config 四字段
   （matches / excludeMatches / includeGlobs / excludeGlobs）。
 - **时机**：script:create / update / delete / 启停、扩展 install/update 恢复完成后重算。
 - **动作**：
@@ -124,9 +125,13 @@ handle.free()                        释放句柄（stub 端出表）
   - 并集非空 → `register`（不存在时）或先 unregister 再 register（matches 变化时）——
     幂等可重入，与既有 `registerChain` 的串行化共用队列，避免并发注册踩踏。
 - **stub 参数**：`world: 'MAIN'`、`runAt: 'document_start'`（必须早于脚本默认的
-  document_end 握手窗口）、`allFrames: true`、`persistAcrossSessions: true`。
-- **密钥生成**：每次（重）注册时 SW 生成随机 `stubSecret`，同时编入 stub 源与
-  **全部 pageAccess 脚本**的包装源（`buildDlWrapper` 注入）。重注册即轮换密钥。
+  document_end 握手窗口）、`allFrames: true`（userScripts API 无 `persistAcrossSessions`
+  字段，注册本身即跨会话持久——传了会被 Chrome 拒收）。
+- **密钥生成与持久化（实施修订 2026-09-17）**：`stubSecret` 由 SW 生成后持久化于
+  chrome.storage.local（键 `us:page:secret`）——MV3 SW 随时休眠，模块变量会归零，单脚本注册
+  路径（create / updateFiles / toggle）必须能独立取到与在位桩一致的密钥。轮换时机收敛为
+  **扩展 install/update 恢复时**（`recoverOnUpdate`）：轮换后 `registerAllEnabled` 把桩与全部
+  启用脚本包装在同一遍里带上新密钥。日常注册期不轮换，避免桩与包装密钥错代。
 
 ### 5.3 握手协议（挑战应答）
 
@@ -151,42 +156,38 @@ stub → 脚本 : { __dlPage:1, kind:'hello_ack', sid,
   旧会话消息天然失效。
 - **诚实声明（写进文档给脚本作者看）**：握手证明「应答方持有本次注册注入的密钥」，
   即「对面是本扩展注册的 stub、不是别人抢注的假 stub」；它**不能**阻止页面读取 stub 的
-  一切行为、篡改 stub 的返回值（stub 本就活在页面的 realm 里）。凡脚本经 `DL.page` 送入
-  页面世界的参数，视为已向页面公开。
+  一切行为、篡改 stub 的返回值（stub 本就活在页面的 realm 里）。凡脚本经 `DL.page`
+  交给页面的数据，视为已向页面公开。
 
 ### 5.4 多脚本 / 多帧隔离
 
 - 每个脚本 × 每个 frame = 一个独立会话（各自 `sid`）。stub 端维护 `sid → 会话状态`
-  （含该会话的句柄表），跨 sid 的句柄操作与消息一律拒答。
-- 页面可见 `sid` 明文（传输公理），故 sid 隔离防的是**无意串扰**（A 脚本的句柄误被 B 用），
+  （含该会话的监听注册与 hook 状态），跨 sid 的消息一律拒答。
+- 页面可见 `sid` 明文（传输公理），故 sid 隔离防的是**无意串扰**（A 脚本的事件被 B 收到），
   不防页面蓄意冒充——同 §5.3 边界，页面冒充脚本会话无能力升级。
 
 ## 6. RPC 协议
 
-### 6.1 `DL.page.eval(source, args?)`
+### 6.1 一期操作集
 
-- `source`：**字符串形式的 JS 源码**（脚本侧通常写 `fn.toString()` 传入函数），
-  stub 端 `new Function(...args)` 执行；`args` 仅限 `Json`。
-- 返回值按 §4 规则：可克隆 → 裸值；不可克隆 → 句柄；页内抛错 → `PAGE_EVAL_ERROR`
-  （携带 error.message，不带页内 stack——那是页面的东西，长度也不可控）。
-- **CSP 验证点**：userScripts 走浏览器注入通道，预期不受页面 CSP 约束（含 MAIN 世界），
-  `new Function` 可用。实施时在严格 CSP 站点实测；若发现例外，回退方案 = stub 内置
-  常用操作函数表（querySelector / getAttribute / callMethod…），`eval` 降级为受限 API。
+stub 只应答四类业务操作：`listen` / `unlisten` / `hook` / `unhook`（+ 握手 `hello` / `hello_ack`）。
+无 eval、无句柄操作——一期 stub 不执行任何脚本下发的源码。
 
 ### 6.2 消息信封
 
 ```
 { __dlPage: 1, kind, sid, seq?, ... }
-  kind ∈ hello | hello_ack | call | reply | event | error
-  call : { op: 'eval'|'get'|'call'|'free'|'listen'|'unlisten'|'hook', ... }
-  reply: { seq, ok, value? | { handle? } | error: { code, message } }
+  kind ∈ hello | hello_ack | call | reply | event | hookcall | hookreply
+  call : { op: 'listen'|'unlisten'|'hook'|'unhook', ... }
+  reply: { seq, ok, value? | error: { code, message } }
 ```
 
-- `seq` 由脚本侧分配，reply 原样带回；脚本侧超时（默认 5s，`eval` 可传 `timeout` 覆盖）
-  reject `TIMEOUT`，超时的 reply 到达后丢弃（按 seq 匹配）。
+- `seq` 由脚本侧分配，reply 原样带回；脚本侧超时（默认 5s）reject `TIMEOUT`，
+  超时的 reply 到达后丢弃（按 seq 匹配）。
+- `event`（stub → 脚本，事件摘要）与 `hookcall` / `hookreply`（fetch 钩子的双向调用，
+  见 §8）不占 seq 配对，各自携带会话内自增序号。
 - 错误码自有小组（不走 SW 桥的 `ApiErrorCode`）：`PAGE_STUB_UNAVAILABLE` / `HANDSHAKE_FAILED` /
-  `PAGE_EVAL_ERROR` / `CLONE_UNSUPPORTED`（返回值既不可克隆也不可句柄化）/ `HANDLE_RELEASED` /
-  `TIMEOUT` / `PERMISSION_DENIED`（未声明 pageAccess）。
+  `TIMEOUT` / `PERMISSION_DENIED`（hook 参数非法）。
 - 所有错误 **reject Error、不静默**——沿用能力 API 的总则（userscript-api.md §4）。
 
 ## 7. 事件转发
@@ -197,6 +198,8 @@ stub → 脚本 : { __dlPage:1, kind:'hello_ack', sid,
 - 返回 `off()` 注销函数（发 `unlisten`）。
 - **回调是异步分发**：事件到达 ≠ 实时；高频事件（mouse-move / 滚动 / rAF 驱动）不承诺
   每帧送达，节流与合批是脚本自己的责任。规范明确不支持对同一事件类型的逐帧保证。
+- 一期脚本触及页面元素的唯一方式是 listen 的 `selector`——没有句柄浏览能力，
+  stub 不为脚本做任意 DOM 查询。
 
 ## 8. 预置 hook
 
@@ -217,28 +220,28 @@ stub → 脚本 : { __dlPage:1, kind:'hello_ack', sid,
 
 | 位置 | 改动 |
 |---|---|
-| `src/lib/userscripts/api-contract.ts` | `DuoLingApi` 加 `page` 命名空间类型；新增 `PageHandle` / 信封 / 错误码类型 |
-| `types.ts` `ScriptConfig` | 加 `pageAccess: boolean`（默认 false） |
-| `engine.ts` `buildDlWrapper` | 按 `pageAccess` 决定是否挂载 `DL.page` 客户端与 `stubSecret` |
+| `src/lib/userscripts/api-contract.ts` | `DuoLingApi` 加 `page` 命名空间类型（`listen` / `hook` / `off` / 事件摘要 / fetch 摘要）；信封与错误码类型 |
+| `engine.ts` `buildDlWrapper` | 内联 `DL.page` 客户端与 `stubSecret` |
 | SW 注册逻辑 | §5.2 的并集维护算法，挂在既有 `registerChain` 串行队列上 |
 | 新文件（建议）`page-stub.ts` / `page-client.ts` | stub 源（字符串模板，随注册注入）与脚本侧客户端 |
-| 编辑器配置表单 | 「页面世界访问」开关 + 说明文案（指向本规范 §1 / §3） |
 
 ## 10. 明确不做
 
+- **eval 与句柄体系**（一期不实现，后置非砍掉，见 §4.2；降级函数表也只在 eval 立项时才讨论）
 - **任何同步形态**的页面访问（含「看起来同步」的取值糖）
 - **对象同一性**承诺、跨世界 `===` 语义
 - **逐帧高频通道**（rAF 循环、mousemove 逐事件转发）
+- stub 为脚本做任意 DOM 查询（一期脚本触及元素的唯一入口是 listen 的 selector）
 - 页面 → 脚本方向的调用能力（反向中继只中继到页面，不开放反向入口）
 - 泛化 hook 框架（只逐个立项：一期 fetch）
 - 跨帧句柄 / 跨帧事件聚合
-- stub 内持久业务逻辑（stub 只做协议机器，页面特定逻辑一律由脚本经 eval 下发）
+- stub 内持久业务逻辑（stub 只做协议机器，页面特定逻辑一律等 eval 立项后经 eval 下发）
 
 ## 11. 未决项
 
-- [ ] MAIN 世界 userScript 对页面 CSP 的豁免范围实测（严格 CSP 站点 `new Function`）→ 决定 §6.1 回退方案是否需要
-- [ ] Proxy 语法糖（`await handle.prop`）的形态——若做，取值/调用歧义怎么解
-- [ ] hook `fetch` 的 `respond` 是否需要支持流式 / `FetchPayload` 形状复用
-- [ ] 跨帧需求（iframe 内页面元素的统一句柄空间）是否立项
-- [ ] `stubSecret` 轮换粒度：目前 per 注册（全部 pageAccess 脚本共享），是否需要 per 脚本
+- [ ] `hook('fetch')` 的 `respond` 是否需要支持流式 / `FetchPayload` 形状复用
+- [ ] 跨帧需求（iframe 内页面事件 / fetch 钩子的统一聚合）是否立项
+- [ ] `stubSecret` 轮换粒度：目前 per 注册（全部启用脚本共享），是否需要 per 脚本
       （需拆成多个 MAIN 注册，成本是 stub 副本数增加——倾向不做，维持共享）
+- [ ] `listen` 的 selector 摘要（`key` 字段的取法）具体形状，实施时定
+- [ ] eval 立项的触发条件（一期 listen / hook 覆盖不了哪些真实需求时启动）——待一期用后复盘
