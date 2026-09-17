@@ -33,19 +33,19 @@
 
 ## 验收标准
 
-- [ ] fflate 进 package.json，除它之外零新增依赖
-- [ ] 每行「导出」+ header「全部导出」可用，确认弹窗固定含隐私提示文案
-- [ ] 导入**只拦原则项**：唯一跳过 = 无可解析的 `project.json`（缺失 / 非合法 JSON / 非对象）；其余一律导入
-- [ ] 路径不安全的**文件**被过滤（进报告「未导入的文件」），脚本其余文件照常导入
-- [ ] 构建失败**不淘汰**：仍落盘（`bundle` 缺省）+ 报告提示带 esbuild 诊断
-- [ ] `name` / `entry` / `config` 缺失 → 补默认值导入 + 报告提示
-- [ ] `matches` 非法 / `files` 为空 / `entry` 不在 `files` / 版本 `v` → **不阻断**（报错留给启用路径与编辑器）
-- [ ] 导入默认值生效：uuid 重生成、`enabled: false`、保留原名
-- [ ] `engine.registerScript` 保留 match pattern 校验（启用时中文报错，用户据此去编辑器改）
-- [ ] 导入后不自动进编辑器：统一停在列表页 + 汇总报告（成功 N / 失败 M + 原因 + 提示），新导入脚本标「刚导入·未启用」
-- [ ] 重复导入同一 zip 得到独立副本，报告含指纹重复提示
-- [ ] deprecated 旧记录与内置分组（builtins）不参与导入导出
-- [ ] `npm run typecheck` + `npm run test` + `npm run build` 全过；`npm run check:proposals` 通过
+- [x] fflate 进 package.json，除它之外零新增依赖
+- [x] 每行「导出」+ header「全部导出」可用，确认弹窗固定含隐私提示文案
+- [x] 导入**只拦原则项**：唯一跳过 = 无可解析的 `project.json`（缺失 / 非合法 JSON / 非对象）；其余一律导入
+- [x] 路径不安全的**文件**被过滤（进报告「未导入的文件」），脚本其余文件照常导入
+- [x] 构建失败**不淘汰**：仍落盘（`bundle` 缺省）+ 报告提示带 esbuild 诊断
+- [x] `name` / `entry` / `config` 缺失 → 补默认值导入 + 报告提示
+- [x] `matches` 非法 / `files` 为空 / `entry` 不在 `files` / 版本 `v` → **不阻断**（报错留给启用路径与编辑器）
+- [x] 导入默认值生效：uuid 重生成、`enabled: false`、保留原名
+- [x] `engine.registerScript` 保留 match pattern 校验（启用时中文报错，用户据此去编辑器改）
+- [x] 导入后不自动进编辑器：统一停在列表页 + 汇总报告（成功 N / 失败 M + 原因 + 提示），新导入脚本标「刚导入·未启用」
+- [x] 重复导入同一 zip 得到独立副本，报告含指纹重复提示
+- [x] deprecated 旧记录与内置分组（builtins）不参与导入导出
+- [x] `npm run typecheck` + `npm run test` + `npm run build` 全过；`npm run check:proposals` 通过
 
 ## 不做的事
 
