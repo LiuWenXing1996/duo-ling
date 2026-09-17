@@ -178,7 +178,7 @@ describe('error_read（错误 ID 查询，提案②）', () => {
   })
 
   function execTool(tools: ReturnType<typeof buildScriptTools>, id: string) {
-    return tools.error_read.execute({ id }, execOpts as never) as Promise<Record<string, unknown>>
+    return tools.error_read.execute({ id }, execOpts as never) as unknown as Promise<Record<string, unknown>>
   }
 })
 
