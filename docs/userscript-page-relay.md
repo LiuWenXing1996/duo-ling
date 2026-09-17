@@ -12,7 +12,7 @@
 > 输入：v2 方案 §Phase 4 设计输入；同步动态判断 / 对象同一性 / 逐帧高频不可行；
 > stub 注册进 MAIN 世界走 `chrome.userScripts.register({ world: 'MAIN' })`，
 > 按「存在启用脚本」动态注册/注销；握手防伪。
-> 本文档只定协议与语义，不含实现代码。契约位：`userscript-api.md` §2 已列 `DL.page.*`；
+> 本文档只定协议与语义，不含实现代码。契约位：`notes/content/userscript-api.md` 已列 `DL.page.*`；
 > 类型定义实施时补进 `src/lib/userscripts/api-contract.ts`（`DuoLingApi` 加 `page` 命名空间）。
 
 ## 1. 目标与威胁模型
@@ -188,7 +188,7 @@ stub 只应答四类业务操作：`listen` / `unlisten` / `hook` / `unhook`（+
   见 §8）不占 seq 配对，各自携带会话内自增序号。
 - 错误码自有小组（不走 SW 桥的 `ApiErrorCode`）：`PAGE_STUB_UNAVAILABLE` / `HANDSHAKE_FAILED` /
   `TIMEOUT` / `PERMISSION_DENIED`（hook 参数非法）。
-- 所有错误 **reject Error、不静默**——沿用能力 API 的总则（userscript-api.md §4）。
+- 所有错误 **reject Error、不静默**——沿用能力 API 的总则（notes/content/userscript-api.md）。
 
 ## 7. 事件转发
 

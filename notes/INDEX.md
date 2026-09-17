@@ -25,7 +25,7 @@
 | 笔记 | 源文档 | 一句话现状 |
 | --- | --- | --- |
 | [用户脚本新形态（v2）](content/userscript-v2-plan.md) | —（已并入 notes） | 放弃油猴，自有 DL API + 模块化 + 隔离；Phase 0–3 已实施 |
-| [用户脚本能力 API](content/userscript-api.md) | [docs/userscript-api.md](../docs/userscript-api.md) | 脚本经 `window.DL` 桥接，全 async、强类型、弃 GM_* |
+| [用户脚本能力 API](content/userscript-api.md) | —（已并入 notes） | 脚本经 `window.DL` 桥接，全 async、强类型、弃 GM_* |
 | [AI 生成用户脚本（现状）](content/userscript-ai-generation.md) | [docs/userscript-ai-generation.md](../docs/userscript-ai-generation.md) | 三容器链路：sidepanel / offscreen loop / SW 注册 |
 | [AI 生成后续路线图](content/userscript-ai-generation-next.md) | [docs/userscript-ai-generation-next.md](../docs/userscript-ai-generation-next.md) | 十项未做归三提案，定开工顺序；只记归属不写方案 |
 | [脚本存储单写方](content/userscript-single-writer.md) | [docs/userscript-single-writer.md](../docs/userscript-single-writer.md) | 项目数据迁 offscreen 单写，统一进 `duoling-state` |
