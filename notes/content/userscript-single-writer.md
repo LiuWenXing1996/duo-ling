@@ -15,7 +15,7 @@
 
 - 数据迁移：老大明确无旧数据，升级后旧 `us:script:*` 只当已弃用旧记录展示、可一键清理。
 - `DL.store` / `us:errors` 纳入单写方：二者写入不受控、不参与「脚本是什么」的真相判定，故划出 SW 直写 storage。
-- git 历史与草稿的 lfs 写入方：归 `userscript-git-history.md`；本文只记「项目数据归 offscreen 单写」结论。
+- git 历史与草稿的 lfs 写入方：归 `notes/content/userscript-git-history.md`；本文只记「项目数据归 offscreen 单写」结论。
 
 ## 决策记录
 

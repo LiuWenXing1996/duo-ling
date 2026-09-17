@@ -1,4 +1,4 @@
-// 用户脚本 git 历史侧车（方案 docs/userscript-git-history.md）。
+// 用户脚本 git 历史侧车（方案 notes/content/userscript-git-history.md）。
 //
 // 每脚本一个 isomorphic-git 仓（/uscripts/<uuid>/，lightning-fs 实例来自 us-fs）。
 // storage 为权威、git 为历史：保存成功后快照写穿（bundle 不入库，恢复后由 UI 页重建）；
