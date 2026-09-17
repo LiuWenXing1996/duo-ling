@@ -44,10 +44,9 @@
 | [notes/content/style.md](notes/content/style.md) | 代码风格规范（命名/TS/Vue/样式/shadcn/测试/提交） | 写代码 / 改样式前 |
 | [docs/proposal-process.md](docs/proposal-process.md) | **提案流程**（2026-09-17 起降级为可选）：五态状态机、流转记录、提案不可删。**重大变更建议开提案做决策留痕；日常改动直接做，不开提案** | 结构 / 行为大改、需要多轮讨论的设计 |
 | [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**（有方案的走提案流程）。与提案流程相互独立 | 攒需求 / 清理待办时 |
-| [docs/doc-standard.md](docs/doc-standard.md) | 文档规范：归属、状态块、归档、水文清单、字数上限 | 写文档 / review PR 前 |
 | [docs/lessons.md](docs/lessons.md) | 踩坑记录 | 报错 / 排查前 |
 | [docs/testing-plan.md](docs/testing-plan.md) | 测试方案（五层分层 + E2E 路由，待开工） | 补测试 / 动工测试前 |
-| [notes/](notes/README.md) | **笔记体系**：全部文档的要点蒸馏（短标题 / 一句话 / 现状 / 待做 / 不做 / 决策记录秒级），人和 AI 都读；规范见 [notes/README.md](notes/README.md)、总表见 [notes/INDEX.md](notes/INDEX.md) | 速览某主题 / 找对应源文档前 |
+| [notes/](notes/README.md) | **笔记体系**：`docs/` 的替换（唯一权威来源），人和 AI 都读；写作规范与结构见 [notes/README.md](notes/README.md)、总表见 [notes/INDEX.md](notes/INDEX.md) | 速览某主题 / 找对应源文档前 |
 
 
 ## 全局约束（强制）
@@ -91,9 +90,13 @@
 
 | 要记的 | 写哪 |
 | --- | --- |
-| 现在怎么做（规范、用法） | `docs/` 下对应常青篇，就地改 |
-| 今天干了啥、做到一半的结论、待拍板 | `docs/dev-log/YYYY-MM-DD.md`，按日追加 |
-| 仍然生效的约定 / 为什么这么定 | `docs/dev-log/conventions.md` |
+| 现在怎么做（规范、用法） | `notes/` 常青篇，就地改 |
+| 想法（只描述问题） | `inbox`（docs/inbox.md） |
+| 提案（重大变更留痕） | `docs/proposals/<状态>/`，不可删；被拒 → `rejected/` |
+| 踩坑记录 | `notes/content/lessons.md` |
+| 待办（问题） | `inbox`（不写方案）；方案全文走提案 |
+| 今天干了啥、做到一半的结论、待拍板 | `docs/dev-log/YYYY-MM-DD.md` 按日追加 |
+| 仍生效约定 / 为什么这么定 | `docs/dev-log/conventions.md` |
 | 本机环境、会话过程、临时状态 | `.workbuddy/memory/`（不入库）——**会话结束前必须析出到上面两处** |
 
 同一件事只写一处：决策理由写进日志或 conventions，**不复述第二遍**；代码注释里不写变更史（"原本…现在已移除"这类留给 git）。

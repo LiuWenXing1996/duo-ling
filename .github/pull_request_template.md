@@ -38,5 +38,5 @@
 ---
 
 - 提交前 `npm run typecheck` + `npm run build` + `npm run test` 均须通过
-- 文档改动对照 [docs/doc-standard.md](../docs/doc-standard.md) 的水文清单自查
+- 文档改动对照 [notes/README.md](../notes/README.md) 的规范自查（结构 / 字数 / 水文清单）
 - 隐私与脱敏规则见 AGENTS.md「全局约束」
