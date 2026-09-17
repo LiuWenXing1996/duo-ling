@@ -81,9 +81,12 @@ export type ApiEvent =
   | { t: 'store.change'; key: string; value: Json }
 
 /**
- * 脚本世界 → 后台 的单向事件（不等待响应，区别于 ApiRequest 的请求-响应）。
- * 一期仅错误上报：DL 包装的 window.onerror / unhandledrejection 以
- * `{ __dlEvent: true, event: DlEvent }` 信封发送，后台收进 us:errors。
+ * 脚本世界 → 后台 的单向事件（不等待响应，区别于 ApiRequest 的请求-响应）。两种信封：
+ *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报：DL 包装的
+ *     window.onerror / unhandledrejection 收进 us:errors；
+ *   · `{ __dlRunStart: true, uuid, runId }` —— 运行标识广播（提案②）：包装注入即 mint 一次
+ *     「一次页面加载 = 一次运行」的 runId。SW **只转发**给该 tab 的浮窗（浮窗自持「当前运行」
+ *     指针），不落盘、不进错误日志——所以这里没有对应的类型别名，信封见 status-bubble.relayRunStart。
  */
 export type DlEvent = {
   t: 'error'
@@ -91,6 +94,8 @@ export type DlEvent = {
   message: string
   stack?: string
   url?: string
+  /** 本次运行的标识（一次页面加载 mint 一个）；浮窗据此只显本次运行的错误 */
+  runId?: string
 }
 
 /** 桥响应信封 */

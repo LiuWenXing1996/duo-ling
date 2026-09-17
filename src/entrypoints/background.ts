@@ -27,7 +27,7 @@ import {
   recoverOnUpdate,
   registerScript,
   unregisterScripts,
-  refreshPageStub,
+  refreshBuiltinScripts,
   getEffectiveCspPermissive,
   collectCspWarnings,
   resolveInjectCode,
@@ -45,12 +45,11 @@ import {
   appendUserScriptError,
   findUserScriptError,
 } from '@/lib/userscripts/store'
-// 页面脚本状态浮窗（提案②）：注入 / 更新 / 跳工作台深链（SW 侧逻辑）
+// 页面脚本状态浮窗（提案②）：数据推送 / 端口登记 / 跳工作台深链（SW 侧逻辑）
 import {
   forgetStatusBubbleTab,
-  initStatusBubbleNav,
-  refreshStatusBubbleAfterError,
-  refreshStatusBubbleForTab,
+  initStatusBubblePorts,
+  pushStatusBubble,
 } from '@/lib/userscripts/status-bubble'
 import type { ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
 
@@ -144,8 +143,8 @@ async function writeViaOffscreen<T>(request: RuntimeRequest): Promise<T> {
  */
 async function registerOrLog(project: ScriptProject): Promise<string | undefined> {
   try {
-    // 先同步 MAIN 桩（启用脚本集合可能变化），再注册脚本——保证桩与包装密钥同代
-    await refreshPageStub().catch(() => {})
+    // 先同步内置注册（MAIN 桩 + 状态浮窗，启用脚本集合可能变化），再注册脚本——保证桩与包装密钥同代
+    await refreshBuiltinScripts().catch(() => {})
     await registerScript(project)
     return undefined
   } catch (e) {
@@ -275,8 +274,8 @@ const handlers: {
   // 仓的删除原先只能靠 offscreen 启动对账兜（删完会滞留一阵），现在写侧同在 offscreen，一步清干净。
   'userscript:remove': async (msg): Promise<void> => {
     await unregisterScripts([msg.uuid]).catch(() => {})
-    // 该脚本对桩并集的贡献随之消失，桩可能需要注销
-    await refreshPageStub().catch(() => {})
+    // 该脚本对内置并集的贡献随之消失，MAIN 桩 / 状态浮窗可能需要注销
+    await refreshBuiltinScripts().catch(() => {})
     await writeViaOffscreen<void>({ kind: 'state:remove', uuid: msg.uuid })
     await clearGMValues(msg.uuid)
   },
@@ -294,8 +293,8 @@ const handlers: {
     })
     if (msg.enabled) return { registerError: await registerOrLog(next) }
     await unregisterScripts([msg.uuid]).catch(() => {})
-    // 关停后桩并集可能缩小，桩可能需要注销
-    await refreshPageStub().catch(() => {})
+    // 关停后内置并集可能缩小，MAIN 桩 / 状态浮窗可能需要注销
+    await refreshBuiltinScripts().catch(() => {})
     return {}
   },
 
@@ -373,12 +372,13 @@ function handleChatFinishedPush(ok: boolean): void {
 // 本文件会被协议一致性测试 import（取 SW_KIND_PREFIXES），模块顶层挂监听会在
 // Node/fakeBrowser 下炸（runtime.onConnect 未实现）——之前踩过。
 function mountProposal2Listeners(): void {
-  // 浮窗：导航刷新（complete 覆盖普通导航；url 变化兜住 SPA 软导航）
+  // 浮窗：导航后把「本页脚本 + 错误」推给该 tab 的浮窗端口（注入本身由 register 声明式完成，
+  // 这里只管数据；complete 覆盖普通导航，url 变化兜住 SPA 软导航）
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status !== 'complete' && !changeInfo.url) return
     const url = changeInfo.url ?? tab.url
     if (!url) return
-    void refreshStatusBubbleForTab(tabId, url)
+    void pushStatusBubble(tabId, url)
   })
 
   chrome.tabs.onRemoved.addListener((tabId) => {
@@ -397,8 +397,8 @@ function mountProposal2Listeners(): void {
     clearFinishedBadge()
   })
 
-  // 浮窗上行监听（点击脚本行 → 工作台错误日志深链）
-  initStatusBubbleNav()
+  // 浮窗端口（上行：跳工作台深链 / 重连后拉数据）
+  initStatusBubblePorts()
 }
 
 export default defineBackground(() => {

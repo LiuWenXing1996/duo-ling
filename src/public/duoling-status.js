@@ -1,17 +1,32 @@
 // 哆灵 · 页面脚本状态浮窗（提案② runtime-feedback-loop.md）。
-// 由 SW 经 chrome.userScripts.execute() 注入到独立世界 us-builtin-status（仅注入文件本体，
-// 数据经入口指令 __duolingStatus(data) 传入；实时更新经补注入 __duolingStatusUpdate(data)）。
+// 由 SW 经 chrome.userScripts.register 持久注册到独立世界 us-builtin-status（声明式注入，
+// 不再每导航 execute）；脚本自己连一条端口回 SW 拿数据、发动作。
 //
-// ⚠️ 数据形状与 src/shared/extension-ipc.ts 的 StatusBubbleData 手写对齐，改形状必须两边同步。
+// ⚠️ 数据形状与 src/shared/extension-ipc.ts 的 StatusBubbleData / StatusBubblePush /
+// StatusBubbleUp 手写对齐，改形状必须两边同步。
 //
-// 定位：只做「引导」——本页在跑哪些脚本、有没有报错、点击跳工作台错误日志。
-// 没有启停、没有详情、没有修复动作（管控归工作台）；无命中脚本时浮窗自隐藏（null 数据）。
+// 本文件是**有状态**的一方（2026-09-17 决策：「当前运行指针」归浮窗，不归 SW）：
+//   · runs = { uuid: { runId: true } }  —— 本文档收到的脚本运行标识（脚本注入即广播，经 SW 转发）；
+//   · 过滤口径：register 阶段错误恒显；runtime 错误只认「runId 命中 runs[uuid]」的那些。
+//   · 为什么这样就够：浮窗是 per-document 实例（每个文档新建），runs 只装本文档的广播 →
+//     真刷新 = 新实例 + 脚本重新 mint runId → 旧运行错误天然不再命中（角标自动清零）。
+//   · SW 不做这个过滤（它不持有指针），故推下来的 errors 是全量，由本文件筛。
+//
+// 定位：只做「引导」——本页在跑哪些脚本、本次运行有没有报错、点击跳工作台错误日志。
+// 没有启停、没有详情、没有修复动作（管控归工作台）；无命中脚本时浮窗自隐藏（data 为 null）。
 ;
 (function () {
   'use strict'
-  if (window.__duolingStatus) return // 幂等：重复 execute 只换数据，不重建
+  if (window.__duolingStatusMounted) return // 幂等：Chrome 重复注入只当一次
 
-  var state = { data: null, expanded: false }
+  var PORT_NAME = 'duoling:status'
+  // SW 空闲被回收会断开端口；重连本身会唤醒 SW。延迟递增（封顶 15s）：
+  // 既让「刚加载页面盯着验证」这个核心场景保持实时，又避免无限高频敲醒 SW。
+  var RECONNECT_DELAYS = [500, 1000, 2000, 4000, 8000, 15000]
+  var attempt = 0
+  var port = null
+
+  var state = { data: null, expanded: false, runs: {} }
   var root = null
   var shadow = null
 
@@ -21,16 +36,31 @@
     })
   }
 
+  /** 该脚本在「本次运行」里的错误（register 恒显；runtime 需 runId 命中） */
+  function mineErrors(s) {
+    var list = s.errors || []
+    var set = state.runs[s.uuid] || {}
+    var out = []
+    for (var i = 0; i < list.length; i++) {
+      var e = list[i]
+      if (e.phase === 'register') out.push(e)
+      else if (e.phase === 'runtime' && e.runId && set[e.runId]) out.push(e)
+    }
+    return out
+  }
+
   function totalErrors() {
     var d = state.data
     if (!d) return 0
-    return d.scripts.reduce(function (n, s) { return n + (s.errorCount || 0) }, 0)
+    var n = 0
+    for (var i = 0; i < d.scripts.length; i++) n += mineErrors(d.scripts[i]).length
+    return n
   }
 
   function render() {
     if (!shadow) return
     var d = state.data
-    if (!d || !d.scripts.length) {
+    if (!d || !d.scripts || !d.scripts.length) {
       root.style.display = 'none'
       return
     }
@@ -52,10 +82,11 @@
       html += '<div class="rows">'
       for (var i = 0; i < d.scripts.length; i++) {
         var s = d.scripts[i]
-        html += '<button class="row' + (s.errorCount ? ' has-err' : '') + '" data-uuid="' + esc(s.uuid) + '">' +
+        var mine = mineErrors(s)
+        html += '<button class="row' + (mine.length ? ' has-err' : '') + '" data-uuid="' + esc(s.uuid) + '">' +
           '<span class="nm">' + esc(s.name) + '</span>' +
-          (s.errorCount
-            ? '<span class="ebadge" title="最新：' + esc(s.lastError ? s.lastError.message : '') + '">⚠ ' + esc(s.errorCount) + '</span>'
+          (mine.length
+            ? '<span class="ebadge" title="最新：' + esc(mine[0].message) + '">⚠ ' + esc(mine.length) + '</span>'
             : '<span class="ok">运行中</span>') +
           '</button>'
       }
@@ -82,12 +113,10 @@
       if (uuid) {
         e.preventDefault()
         e.stopPropagation()
-        // 上行跳转：messaging 已对本世界开启；SW 收到后打开 / 聚焦工作台深链
-        try {
-          chrome.runtime.sendMessage({ __duolingStatusNav: true, uuid: uuid }, function () {
-            void chrome.runtime.lastError // 尽力而为：无人应答也不在页面里报错
-          })
-        } catch (err) { /* 世界未开 messaging 等场景：静默 */ }
+        // 上行跳转：端口另端（SW）收到后打开 / 聚焦工作台深链
+        if (port) {
+          try { port.postMessage({ t: 'openErrors', uuid: uuid }) } catch (err) { /* 端口已断：静默 */ }
+        }
         state.expanded = false
         render()
         return
@@ -125,24 +154,64 @@
     root.style.display = 'none'
     shadow = root.attachShadow({ mode: 'closed' })
     shadow.addEventListener('click', onClick, true)
-    ;(document.documentElement || document.body).appendChild(root)
-  }
-
-  /** 注入入口（随浮窗文件一起 execute）：创建（如未建）+ 更新数据 */
-  window.__duolingStatus = function (data) {
-    if (!root) mount()
-    state.data = data
-    state.expanded = false // 新导航 / 数据刷新回到收起态
-    render()
-  }
-
-  /** 更新入口（SW 补注入）：null = 隐藏；浮窗不在场时 no-op */
-  window.__duolingStatusUpdate = function (data) {
-    if (!root) {
-      if (!data) return
-      mount()
+    var attach = function () {
+      if (root.parentNode) return
+      var host = document.documentElement || document.body
+      if (host) host.appendChild(root)
     }
-    state.data = data
-    render()
+    if (!document.documentElement && !document.body) {
+      // document_start 极早期兜底：等解析出 <html> 再挂（浮窗不参与页面布局，晚一帧无感）
+      document.addEventListener('DOMContentLoaded', attach)
+      document.addEventListener('readystatechange', attach)
+      return
+    }
+    attach()
   }
+
+  /** 端口消息：data = 全量数据（本文件负责过滤）；runstart = 记录本次运行标识 */
+  function onMessage(raw) {
+    var msg = raw
+    if (!msg) return
+    if (msg.t === 'data') {
+      state.data = msg.data
+      if (!msg.data) state.expanded = false
+      render()
+      return
+    }
+    if (msg.t === 'runstart' && msg.uuid && msg.runId) {
+      var set = state.runs[msg.uuid] || (state.runs[msg.uuid] = {})
+      if (!set[msg.runId]) {
+        set[msg.runId] = true
+        render()
+      }
+    }
+  }
+
+  function scheduleReconnect() {
+    var delay = RECONNECT_DELAYS[Math.min(attempt, RECONNECT_DELAYS.length - 1)]
+    attempt++
+    window.setTimeout(connect, delay)
+  }
+
+  function connect() {
+    try {
+      // messaging 由 SW 在注册世界时开启（configureWorld）；未开时本调用会抛，退避重试
+      port = chrome.runtime.connect({ name: PORT_NAME })
+      port.onMessage.addListener(onMessage)
+      port.onDisconnect.addListener(function () {
+        port = null
+        scheduleReconnect()
+      })
+      // 连上即拉一次：补上「断连期间少收的推送」（首帧由 SW 在连接时主动推，这里是二道保险）
+      try { port.postMessage({ t: 'refresh' }) } catch (err) { /* 刚断：交给 onDisconnect */ }
+    } catch (e) {
+      port = null
+      scheduleReconnect()
+    }
+  }
+
+  window.__duolingStatusMounted = true
+  mount()
+  render()
+  connect()
 })()

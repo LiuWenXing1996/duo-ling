@@ -85,18 +85,47 @@ export interface ChatMessageMetadata {
 export interface StatusBubbleScript {
   uuid: string
   name: string
-  /** 该脚本 runtime + register 阶段的环形错误条数（bridge 阶段噪音大，不计） */
-  errorCount: number
-  /** 最新一条错误摘要（message 截断 ~120 字符，展示用）；无错误省略 */
-  lastError?: { message: string; time: number }
+  /**
+   * 该脚本 runtime + register 阶段的错误（最新在前；bridge 阶段噪音大，不计）。
+   * **SW 不做「本次运行」过滤**——runId 指针在浮窗侧，故这里原样透传，浮窗按自持 runId 集合过滤后计数。
+   * 环形日志上限 50 条，故整个载荷天然有界。
+   */
+  errors: StatusBubbleErrorItem[]
 }
 
-/** 浮窗数据：注入 args 与更新指令共用同一形状；scripts 为空 = 浮窗自隐藏 */
+/** 浮窗行内展示的一条错误（message 已在 SW 侧截断） */
+export interface StatusBubbleErrorItem {
+  message: string
+  time: number
+  /** 一次页面加载 = 一个 runId；register 阶段错误无运行上下文，为 null */
+  runId: string | null
+  /** register 错误无页面/运行上下文，浮窗里**恒显**（不被 run 轴误杀） */
+  phase: 'runtime' | 'register'
+}
+
+/** 浮窗数据：脚本行列表；scripts 为空 = 浮窗自隐藏 */
 export interface StatusBubbleData {
   /** 页面 host（展示用） */
   host: string
   scripts: StatusBubbleScript[]
 }
+
+/**
+ * SW → 浮窗的端口推送（浮窗经 `runtime.connect({name:'duoling:status'})` 建连，
+ * SW 侧 `runtime.onUserScriptConnect` 拿到**双向 Port**，可主动 postMessage）。
+ * ⚠️ 与 src/public/duoling-status.js 的 vanilla JS 手写对齐，改形状必须两边同步。
+ */
+export type StatusBubblePush =
+  | { t: 'data'; data: StatusBubbleData | null }
+  /** 脚本注入即广播的运行标识：**浮窗据此自持「当前运行」指针**（SW 只转发、不存储） */
+  | { t: 'runstart'; uuid: string; runId: string }
+
+/** 浮窗 → SW 的端口上行 */
+export type StatusBubbleUp =
+  /** 点击脚本行 → 打开/聚焦工作台并深链到该脚本的错误 */
+  | { t: 'openErrors'; uuid: string }
+  /** 重连后主动拉一次（补上断连期间少收的推送） */
+  | { t: 'refresh' }
 
 /** 渲染页 → service worker 的请求（kind 可辨识联合，background 按 kind 分发） */
 export type RuntimeRequest =
