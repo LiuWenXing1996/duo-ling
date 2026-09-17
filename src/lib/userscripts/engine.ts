@@ -1,4 +1,4 @@
-// 用户脚本注册引擎（v2 方案 docs/userscript-v2-plan.md Phase 0）。
+// 用户脚本注册引擎（v2 方案 notes/content/userscript-v2-plan.md）。
 //
 // 主走 chrome.userScripts API：每脚本注册到独立 USER_SCRIPT 世界（worldId），
 // DL 包装作为 js 数组首条目先于项目代码定义 window.DL，脚本经 onUserScriptMessage 桥接后台

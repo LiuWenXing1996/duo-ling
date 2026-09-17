@@ -18,7 +18,7 @@ import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process �
 import { defineBackground } from '#imports'
 import type { ModelProfileState, OffscreenPush, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 
-// 用户脚本管理器（v2 方案 docs/userscript-v2-plan.md Phase 0）：引擎 + 存储 + DL 桥 + 类型
+// 用户脚本管理器（v2 方案 notes/content/userscript-v2-plan.md）：引擎 + 存储 + DL 桥 + 类型
 import {
   configureUserScriptsWorld,
   isUserScriptsAvailable,

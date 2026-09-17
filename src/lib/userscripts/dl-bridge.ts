@@ -1,4 +1,4 @@
-// DL 后台桥（v2 方案 docs/userscript-v2-plan.md Phase 0；协议契约 src/lib/userscripts/api-contract.ts）。
+// DL 后台桥（v2 方案 notes/content/userscript-v2-plan.md；协议契约 src/lib/userscripts/api-contract.ts）。
 //
 // USER_SCRIPT 世界的 DL 包装经 chrome.runtime.sendMessage 发来的消息，因世界已
 // configureWorld({messaging:true})，被路由到本文件的 runtime.onUserScriptMessage（而非通用 onMessage）。

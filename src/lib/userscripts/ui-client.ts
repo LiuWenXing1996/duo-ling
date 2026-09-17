@@ -3,7 +3,7 @@
 // 管理页是 duo-ling 的可信扩展页（独立 WXT 入口），可直接 chrome.runtime.sendMessage，
 // 因此不依赖 window.api 全局（window.api 是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
 // 这里复用与 window-api.ts 同构的 send 信封（统一解包 { ok, data|error }），
-// 直接发 userscript:* 命令组（v2 方案 docs/userscript-v2-plan.md Phase 0）。
+// 直接发 userscript:* 命令组（v2 方案 notes/content/userscript-v2-plan.md）。
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { ImportReport, ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
 import type { UsCommit, UsHistoryTree } from './us-git'
