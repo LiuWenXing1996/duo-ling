@@ -445,7 +445,7 @@ function draftEquals(
   return JSON.stringify(norm(draft.meta.config)) === JSON.stringify(norm(project.config))
 }
 
-/** 草稿写调度：debounce 500ms + 串行化。仅真实用户改动才落盘（无改动绝不写，§5.1） */
+/** 草稿写调度：debounce 500ms + 串行化。仅真实用户改动才落盘，见 notes/content/userscript-draft.md。 */
 function scheduleDraftWrite(): void {
   if (draftTimer !== undefined) clearTimeout(draftTimer)
   draftTimer = window.setTimeout(() => {
