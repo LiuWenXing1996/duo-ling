@@ -1,0 +1,28 @@
+# 项目总览（哆灵扩展）
+
+> 一句话：Chrome MV3 扩展，AI 对话 + 用户脚本工坊；两个载体复用桌面版实现。
+> 源文档：[README.md](../../README.md)
+
+## 现状
+
+- 形态：Chrome MV3 扩展（background SW + side panel + workbench 标签页），WXT 0.21 构建，`srcDir: src`。
+- 载体分工：side panel = AI 对话入口；workbench 标签页 = 脚本列表/编辑器/设置。
+- 2026-09-14 方向变更：移除「AI 生成工具」整条链路，转为「用户脚本」（一句话生成 → 注入第三方页运行）。
+- 两个载体均已复用桌面版实现（`ChatPanel` / `WorkspaceHost`），组件本体零改动，`window.api` 按桌面版契约装配。
+
+## 待做
+
+- 工作台主页内容填充。
+- Firefox `sidebar_action` 三期适配。
+- 自定义 baseUrl 的 `optional_host_permissions` 动态申请。
+
+## 不做
+
+- 工具页承载（已随工具链移除）。
+- 系统文件夹浏览（`shell.openPath` 无 Web 对应物，已删）。
+
+## 决策记录
+
+| 决策时间 | 决策点 | 结论 | 依据（一句） |
+| --- | --- | --- | --- |
+| 2026-09-14 | 产品方向 | 移除工具链，转用户脚本 | 一句话生成脚本注入第三方页运行，更贴合扩展形态 |

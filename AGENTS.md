@@ -47,6 +47,8 @@
 | [docs/doc-standard.md](docs/doc-standard.md) | 文档规范：归属、状态块、归档、水文清单、字数上限 | 写文档 / review PR 前 |
 | [docs/lessons.md](docs/lessons.md) | 踩坑记录 | 报错 / 排查前 |
 | [docs/testing-plan.md](docs/testing-plan.md) | 测试方案（五层分层 + E2E 路由，待开工） | 补测试 / 动工测试前 |
+| [notes/](notes/README.md) | **笔记体系**：全部文档的要点蒸馏（短标题 / 一句话 / 现状 / 待做 / 不做 / 决策记录秒级），人和 AI 都读；规范见 [notes/README.md](notes/README.md)、总表见 [notes/INDEX.md](notes/INDEX.md) | 速览某主题 / 找对应源文档前 |
+
 
 ## 全局约束（强制）
 
