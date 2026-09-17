@@ -17,7 +17,7 @@
 
 | 笔记 | 源文档 | 一句话现状 |
 | --- | --- | --- |
-| [代码风格规范](content/code-style.md) | —（已并入 notes） | 命名 / TS / Vue / 样式 / shadcn / 测试 / 提交 约定 |
+| [代码风格](content/code-style.md) | —（已并入 notes） | 命名 / TS / Vue / 样式 / shadcn / 测试 / 提交 约定 |
 | [Skill 管理方案](content/skill-management.md) | —（已并入 notes） | Git 当包管理器 + symlink + AGENTS 就地挂载，弃 lockfile |
 
 ## 用户脚本链路
@@ -39,7 +39,7 @@
 
 | 笔记 | 源文档 | 一句话现状 |
 | --- | --- | --- |
-| [测试方案](content/test-guide.md) | —（已并入 notes） | 单测 + 端测各自的命令、写法、如何 mock、覆盖范围与注意事项 |
+| [测试指南](content/test-guide.md) | —（已并入 notes） | 单测 + 端测各自的命令、写法、如何 mock、覆盖范围与注意事项 |
 | [踩坑记录](content/lessons.md) | [docs/lessons.md](../docs/lessons.md) | 项目经验随仓库分发；动手前先读 |
 
 ## 动态清单（不入 notes 正文，索引指向）

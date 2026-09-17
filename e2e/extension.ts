@@ -1,4 +1,4 @@
-// E2E 扩展加载 fixture（notes/content/test-guide.md「端测 · 写法」的落地实现）。
+// E2E 扩展加载 fixture（见 notes/content/test-guide.md）。
 //
 // 加载方式：launchPersistentContext + Playwright 捆绑 Chromium（channel: 'chromium'）+
 // 全程无头 + --load-extension/--disable-extensions-except（branded Chrome 已删此 flag，
