@@ -1,21 +1,19 @@
-// store.ts 单测：chrome.storage 侧的旧记录扫描清理 / DL.store 值 / 错误日志环形保留。
+// store.ts 单测：chrome.storage 侧的 DL.store 值 / 错误日志环形保留。
 // chrome 由 WxtVitest 插件 stub 成 fakeBrowser；用例间 resetState 保证隔离。
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import {
   appendUserScriptError,
-  clearDeprecatedScripts,
   clearGMValues,
   clearUserScriptErrors,
   deleteGMValue,
   getGMValue,
   listGMKeys,
-  listLegacyScripts,
   listSummaries,
   listUserScriptErrors,
   setGMValue,
 } from './store'
-import { scriptKey, type ScriptProject } from './types'
+import { type ScriptProject } from './types'
 
 beforeEach(() => {
   fakeBrowser.reset()
@@ -36,29 +34,6 @@ function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {
   }
 }
 
-describe('listLegacyScripts', () => {
-  it('只返回带 GM 特征字段的 us:script:* 记录', async () => {
-    const legacy = {
-      uuid: 'old1',
-      name: '旧脚本',
-      enabled: true,
-      matches: ['*://*/*'],
-      runAt: 'document_end',
-      injectInto: 'page',
-      grants: ['GM_getValue'],
-      source: '// old',
-    }
-    await chrome.storage.local.set({
-      [scriptKey('old1')]: legacy,
-      [scriptKey('newish')]: { v: 1, files: {}, name: '新形态残留' },
-      unrelated: { source: 'x' }, // 非 us:script: 前缀，即使有特征字段也不算
-    })
-    const result = await listLegacyScripts()
-    expect(result).toHaveLength(1)
-    expect(result[0].uuid).toBe('old1')
-  })
-})
-
 describe('listSummaries', () => {
   it('项目摘要不含源码字段，fileCount 正确', async () => {
     const summaries = await listSummaries([makeProject()])
@@ -75,81 +50,14 @@ describe('listSummaries', () => {
     expect('files' in summaries[0]).toBe(false)
   })
 
-  it('旧记录摘要：deprecated true、不注册、fileCount 0', async () => {
-    await chrome.storage.local.set({
-      [scriptKey('old1')]: {
-        uuid: 'old1',
-        name: '旧脚本',
-        enabled: true,
-        matches: ['*://old/*'],
-        runAt: 'document_end',
-        injectInto: 'page',
-        grants: [],
-        source: '// old',
-      },
-    })
-    const summaries = await listSummaries([])
-    expect(summaries).toHaveLength(1)
-    expect(summaries[0]).toMatchObject({
-      uuid: 'old1',
-      enabled: false,
-      deprecated: true,
-      fileCount: 0,
-      updatedAt: 0,
-    })
-  })
-
-  it('排序：非弃用在前 → 启用在前 → 名称字典序', async () => {
-    await chrome.storage.local.set({
-      [scriptKey('old1')]: {
-        uuid: 'old1',
-        name: 'aaa旧',
-        matches: [],
-        runAt: 'document_end',
-        injectInto: 'page',
-        grants: [],
-        source: '',
-      },
-    })
+  it('排序：启用在前 → 名称字典序', async () => {
     const projects = [
       makeProject({ uuid: 'p-off', name: 'b停用', enabled: false }),
       makeProject({ uuid: 'p-z', name: 'z启用', enabled: true }),
       makeProject({ uuid: 'p-a', name: 'a启用', enabled: true }),
     ]
     const summaries = await listSummaries(projects)
-    expect(summaries.map((s) => `${s.deprecated ? 'x' : ''}${s.name}`)).toEqual([
-      'a启用',
-      'z启用',
-      'b停用',
-      'xaaa旧',
-    ])
-  })
-})
-
-describe('clearDeprecatedScripts', () => {
-  it('清掉旧记录与其 DL.store 值，返回条数；新记录不受影响', async () => {
-    await chrome.storage.local.set({
-      [scriptKey('old1')]: {
-        uuid: 'old1',
-        name: '旧脚本',
-        matches: [],
-        runAt: 'document_end',
-        injectInto: 'page',
-        grants: [],
-        source: '',
-      },
-      [scriptKey('keep')]: { v: 1, files: {} },
-      'us:gm:old1:token': 't',
-      'us:gm:keep:token': 't2',
-    })
-    const count = await clearDeprecatedScripts()
-    expect(count).toBe(1)
-    const rest = await chrome.storage.local.get(null)
-    expect(Object.keys(rest).sort()).toEqual(['us:gm:keep:token', scriptKey('keep')])
-  })
-
-  it('没有旧记录时返回 0 且不报错', async () => {
-    await expect(clearDeprecatedScripts()).resolves.toBe(0)
+    expect(summaries.map((s) => s.name)).toEqual(['a启用', 'z启用', 'b停用'])
   })
 })
 

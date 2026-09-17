@@ -52,7 +52,6 @@ const ALL_KINDS = [
   { kind: 'userscript:list', side: 'sw' },
   { kind: 'userscript:getProject', side: 'sw' },
   { kind: 'userscript:updateFiles', side: 'sw' },
-  { kind: 'userscript:clearDeprecated', side: 'sw' },
   { kind: 'userscript:create', side: 'sw' },
   { kind: 'userscript:createProject', side: 'sw' },
   { kind: 'userscript:remove', side: 'sw' },

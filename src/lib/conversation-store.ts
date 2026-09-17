@@ -25,8 +25,6 @@ const MESSAGES = 'messages'
 const META = 'meta'
 /** 新会话序号（meta store 键）：保证「新会话 N」不重号，清空会话时重置 */
 const SEQ_META_KEY = 'conversationSeq'
-/** 旧版序号所在键（chrome.storage.local）——仅用于首次迁移，之后不再读写 */
-const LEGACY_SEQ_KEY = 'conversationSeq'
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -115,7 +113,7 @@ function truncateSnippet(text: string, max = 100): string {
 
 /**
  * 下一个会话序号：在**单个 readwrite 事务内**读旧值 + 写新值（原子自增，不靠跨事务读改写）。
- * 唯一写方是 offscreen（对话链路宿主）；首次取号顺带从旧 chrome.storage 键迁移存量序号。
+ * 唯一写方是 offscreen（对话链路宿主）。
  */
 async function takeNextSeq(): Promise<number> {
   const db = await openDb()
@@ -126,26 +124,6 @@ async function takeNextSeq(): Promise<number> {
     req.onsuccess = () => {
       let seq = typeof req.result === 'number' && req.result > 0 ? req.result : 1
       store.put(seq + 1, SEQ_META_KEY)
-      // 一次性迁移：IDB 里还没有序号时，看旧 chrome.storage 键是否更大（有该 API 的上下文才试）
-      if (req.result === undefined) {
-        try {
-          if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-            void chrome.storage.local
-              .get(LEGACY_SEQ_KEY)
-              .then((items: Record<string, unknown>) => {
-                const legacy = items[LEGACY_SEQ_KEY]
-                if (typeof legacy === 'number' && legacy > seq) {
-                  // 只前进不回退：旧键更大说明期间在旧版上建过会话，接上它
-                  const fix = db.transaction(META, 'readwrite')
-                  fix.objectStore(META).put(legacy + 1, SEQ_META_KEY)
-                }
-              })
-              .catch(() => {})
-          }
-        } catch {
-          // offscreen 等无 chrome.storage 的上下文：跳过迁移
-        }
-      }
       resolve(seq)
     }
     req.onerror = () => reject(req.error)

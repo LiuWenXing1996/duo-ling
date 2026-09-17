@@ -2,8 +2,6 @@
 //
 // 全量复用 chrome.storage.local（单存储，含项目源码 + DL 值 + 设置），不另起 IndexedDB。
 // v2 新形态：一个脚本 = 一个项目（ScriptProject），配置直接映射 chrome.userScripts 原生字段。
-// 旧 GM 形态记录（UserScriptMeta）保留类型仅用于识别「已弃用」记录（按 GM 特征字段判定，
-// 见 docs/userscript-v2-plan.md Phase 1 —— 不按「无 v 字段」判定，避免误杀 Phase 0 产物）。
 
 /** 脚本配置：全部直接映射 chrome.userScripts 原生注册字段，无 metadata 中间层 */
 export interface ScriptConfig {
@@ -54,45 +52,6 @@ export interface ScriptSummary {
   /** 文件数（deprecated 记录为 0） */
   fileCount: number
   updatedAt: number
-}
-
-// —— 旧 GM 形态（v1 遗留，仅用于 deprecated 识别与摘要展示，不再新建） ——
-
-/** 单个用户脚本记录（storage.local 键 `us:script:<uuid>`，含源码） */
-export interface UserScriptMeta {
-  uuid: string
-  name: string
-  namespace?: string
-  version?: string
-  enabled: boolean
-  matches: string[]
-  excludeMatches?: string[]
-  runAt: 'document_start' | 'document_end' | 'document_idle'
-  injectInto: 'page' | 'content' | 'auto'
-  grants: string[]
-  requires?: string[]
-  requireCodes?: string[]
-  resources?: Record<string, string>
-  source: string
-  updateURL?: string
-  homepage?: string
-  rawMeta?: string
-}
-
-/**
- * 判定 storage 里的旧记录是否为「旧 GM 形态」：含 GM metadata 特征字段（rawMeta / grants /
- * requires / source）即视为 legacy。ScriptProject(v:1) 不含这些字段，不会误判。
- */
-export function isLegacyScriptRecord(value: unknown): value is UserScriptMeta {
-  if (typeof value !== 'object' || value === null) return false
-  const v = value as Record<string, unknown>
-  if (v.v === 1 && typeof v.files === 'object') return false // 新形态
-  return (
-    typeof v.source === 'string' ||
-    Array.isArray(v.grants) ||
-    Array.isArray(v.requires) ||
-    typeof v.rawMeta === 'string'
-  )
 }
 
 /** 用户脚本引擎可用性状态（供管理页状态横幅） */

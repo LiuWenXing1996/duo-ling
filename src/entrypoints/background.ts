@@ -35,11 +35,10 @@ import {
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listProjects } from '@/lib/userscripts/project-store'
-// chrome.storage 侧：只剩 DL.store 值、错误日志与旧 GM 记录的扫描清理
+// chrome.storage 侧：只剩 DL.store 值与错误日志
 import {
   listSummaries,
   clearGMValues,
-  clearDeprecatedScripts,
   listUserScriptErrors,
   clearUserScriptErrors,
   appendUserScriptError,
@@ -193,7 +192,7 @@ const handlers: {
   },
 
   // —— 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）——
-  // 列表视图：项目读自状态库（直连 IDB），已弃用旧记录仍在 chrome.storage，两边拼接后排序
+  // 列表视图：项目读自状态库（直连 IDB）
   'userscript:list': async (): Promise<ScriptSummary[]> =>
     listSummaries(await listProjects()),
 
@@ -220,12 +219,6 @@ const handlers: {
       warnings: collectCspWarnings(resolveInjectCode(next), await getEffectiveCspPermissive()),
       registerError,
     }
-  },
-
-  // 一键清理全部旧 GM 形态记录（含各自 DL.store 值）
-  'userscript:clearDeprecated': async (): Promise<{ removed: number }> => {
-    const removed = await clearDeprecatedScripts()
-    return { removed }
   },
 
   // 新建脚本（零输入）：命名 / 初始模板 / **构建产物** / 首次快照全在 offscreen 侧完成，SW 只负责注册。

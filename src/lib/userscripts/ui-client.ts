@@ -85,9 +85,6 @@ export const userscriptClient = {
   ): Promise<{ warnings?: string[]; registerError?: string }> =>
     send({ kind: 'userscript:updateFiles', uuid, files, entry, bundle, ...opts }),
 
-  /** 一键清理全部旧 GM 形态记录，返回清理条数 */
-  clearDeprecated: (): Promise<{ removed: number }> => send({ kind: 'userscript:clearDeprecated' }),
-
   /** 新建（零输入）：自动命名 + 初始模板 + 建 git 仓 + 注册。返回 uuid / name + 非阻塞警告
    *  与 registerError（数据已创建、仅注册失败时的警告文案，如未开 Allow User Scripts） */
   create: (): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> =>

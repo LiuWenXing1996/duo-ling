@@ -2,39 +2,25 @@
 //
 // 2026-09-15 单写方落地后，**项目数据（源码/配置/产物/enabled）已迁往 IndexedDB 状态库
 // duoling-state**（读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
-// 本文件只剩三类：旧 GM 形态记录的扫描与清理、DL.store 值（us:gm:*）、错误日志（us:errors）。
+// 本文件只剩两类：DL.store 值（us:gm:*）、错误日志（us:errors）。
 //
-// 为什么后两类不一起迁：写入方是**注入页面里的用户脚本**（不受我们控制、可能被高频调用、
+// 为什么这两类不一起迁：写入方是**注入页面里的用户脚本**（不受我们控制、可能被高频调用、
 // 且脚本崩溃时才上报错误），且它们不参与「脚本是什么」的判定——转 offscreen 只会多一跳、
 // 在最脆弱的时刻更容易丢。详见文档 §4。
 import {
-  SCRIPT_KEY_PREFIX,
   GM_KEY_PREFIX,
   ERRORS_KEY,
-  scriptKey,
   gmKey,
-  isLegacyScriptRecord,
   type ScriptProject,
   type ScriptSummary,
   type UserScriptErrorRecord,
-  type UserScriptMeta,
 } from './types'
 
-/** 列出全部旧 GM 形态记录（已弃用：不注册，仅供列表展示与清理） */
-export async function listLegacyScripts(): Promise<UserScriptMeta[]> {
-  const all = await chrome.storage.local.get()
-  return Object.entries(all)
-    .filter(([k]) => k.startsWith(SCRIPT_KEY_PREFIX))
-    .map(([, v]) => v)
-    .filter(isLegacyScriptRecord)
-}
-
 /**
- * 列表视图：项目 + 已弃用旧记录（不含源码与构建产物），未弃用在前、启用在前。
+ * 列表视图：项目摘要（不含源码与构建产物），未启用在后、启用在前。
  * 项目由调用方传入（读自状态库，见 background.ts）——本文件已不再持有项目数据。
  */
 export async function listSummaries(projects: ScriptProject[]): Promise<ScriptSummary[]> {
-  const legacy = await listLegacyScripts()
   const projectSummaries: ScriptSummary[] = projects.map((p) => ({
     uuid: p.uuid,
     name: p.name,
@@ -44,32 +30,9 @@ export async function listSummaries(projects: ScriptProject[]): Promise<ScriptSu
     fileCount: Object.keys(p.files).length,
     updatedAt: p.updatedAt,
   }))
-  const legacySummaries: ScriptSummary[] = legacy.map((m) => ({
-    uuid: m.uuid,
-    name: m.name,
-    enabled: false, // 旧记录一律不注册
-    matches: m.matches ?? [],
-    deprecated: true,
-    fileCount: 0,
-    updatedAt: 0,
-  }))
-  return [...projectSummaries, ...legacySummaries].sort(
-    (a, b) =>
-      Number(a.deprecated) - Number(b.deprecated) ||
-      Number(b.enabled) - Number(a.enabled) ||
-      a.name.localeCompare(b.name),
+  return [...projectSummaries].sort(
+    (a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name),
   )
-}
-
-/** 一键清理全部旧 GM 形态记录（含各自的 DL.store 值），返回清理条数 */
-export async function clearDeprecatedScripts(): Promise<number> {
-  const legacy = await listLegacyScripts()
-  const keys = legacy.map((m) => scriptKey(m.uuid))
-  if (keys.length) await chrome.storage.local.remove(keys)
-  for (const m of legacy) {
-    await clearGMValues(m.uuid)
-  }
-  return legacy.length
 }
 
 // —— DL.store 值存储（键空间 us:gm:<uuid>:<key> 沿用）——

@@ -1,4 +1,4 @@
-// types.ts 单测：旧 GM 形态判别 + 存储键 / 默认值约定。
+// types.ts 单测：存储键 / 默认值约定。
 import { describe, expect, it } from 'vitest'
 import {
   ENTRY_DEFAULT,
@@ -7,36 +7,8 @@ import {
   defaultConfig,
   defaultSource,
   gmKey,
-  isLegacyScriptRecord,
   scriptKey,
 } from './types'
-
-describe('isLegacyScriptRecord', () => {
-  it('v:1 新形态（含 files）不算 legacy', () => {
-    const rec = { v: 1, uuid: 'u', files: { 'main.js': '' }, name: 'x', enabled: true }
-    expect(isLegacyScriptRecord(rec)).toBe(false)
-  })
-
-  it('含 GM 特征字段即判 legacy', () => {
-    expect(isLegacyScriptRecord({ source: '// code' })).toBe(true)
-    expect(isLegacyScriptRecord({ rawMeta: '==UserScript==' })).toBe(true)
-    expect(isLegacyScriptRecord({ grants: ['GM_getValue'] })).toBe(true)
-    expect(isLegacyScriptRecord({ requires: ['https://cdn/x.js'] })).toBe(true)
-  })
-
-  it('无特征字段的普通对象不算 legacy（避免误杀）', () => {
-    expect(isLegacyScriptRecord({})).toBe(false)
-    expect(isLegacyScriptRecord({ name: 'x', enabled: true })).toBe(false)
-  })
-
-  it('非对象输入为 false', () => {
-    expect(isLegacyScriptRecord(null)).toBe(false)
-    expect(isLegacyScriptRecord(undefined)).toBe(false)
-    expect(isLegacyScriptRecord('str')).toBe(false)
-    expect(isLegacyScriptRecord(42)).toBe(false)
-    expect(isLegacyScriptRecord([])).toBe(false)
-  })
-})
 
 describe('存储键约定', () => {
   it('scriptKey / gmKey 拼接格式', () => {
