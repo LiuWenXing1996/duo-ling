@@ -25,9 +25,9 @@
   - **反例**：`--omit=dev` 致 wxt 缺 `command not found` 中断；`--ignore-scripts` 跳过 postinstall 致 `.wxt/` 不生成、必红；`wxt prepare` 非零退出让 `npm install` 整体失败。
   - **恢复 / 迁移**：手动删 `.wxt/` 或老 worktree 缺时，跑 `npx wxt prepare`（或 `npm install`）重建。
   - **排查手法（可复用）**：栈顶落在 node_modules 里的 ENOENT，直接读该处源码判断「谁该建目录 / 谁只读不建」，再用 `node -e` 构造最小复现（`new Launcher({ userDataDir }).prepare()`——只调 `prepare()`，不开浏览器、零副作用、秒级出结果），比反复跑整条 `npm run dev` 快且干净。
+- **`chrome.userScripts.register` 没有 `persistAcrossSessions` 字段（2026-09-17 踩到）**：那是 `contentScripts` API 的属性；userScripts 注册传了直接报 `Unexpected property: 'persistAcrossSessions'` 且整个 register 拒收。userScripts 注册本身即跨 SW 会话持久，只有扩展更新后需重注册（走 recoverOnUpdate）。`@types/chrome` 对此报错无提示（字段缺了类型层反而安全），但手写交叉类型补齐会绕过这层保护——**不要给平台 API 类型手写「补齐」扩展**，运行时会用 TypeError 还债。
 
 ## Vitest / 测试基建（层 2 协议一致性，2026-09-15 落地时踩到）
-
 - **vitest 5 与本项目 vite 8 兼容**（peer `^6 || ^7 || ^8`），直接 `npm i -D vitest` 即可；`vitest.config.ts` 只需 `plugins: [WxtVitest()]` + `test.include: ['src/**/*.test.ts']`。`fake-indexeddb` 虽在 devDependencies，协议测试用 mock 层挡住了 IDB 依赖，暂未用到。
 - **任何 import 链会带到 `us-fs.ts` 的测试都必须 `vi.mock` 掉它（连带 `us-git`）**：`us-fs.ts` 模块顶层 `new LightningFS('duoling')`，Node 下无 `indexedDB` 时构造出的实例在异步 init 阶段抛未处理 rejection（能直接炸掉 vitest 进程，且报错点在 `@isomorphic-git/idb-keyval` 内部、与业务代码无关，极难定位）。同理 mock `builder` 可避免 import 链拉进 esbuild-wasm（13MB，纯拖慢收集）。
 - **import 入口文件是安全的**：`defineBackground()` 只包装不执行（返回 `{ main }`），offscreen-main 的启动自证（announceReady / refreshActiveProfile / reconcileFs）全部尽力而为 + catch——协议测试可直接 `import { SW_KIND_PREFIXES } from '@/entrypoints/background'`、动态 `import('@/entrypoints/app/offscreen-main')`。`#imports` 虚拟模块在 WxtVitest 下由 unimport 插件解析，无需手配。

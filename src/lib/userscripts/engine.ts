@@ -7,6 +7,9 @@ import type { ScriptProject } from './types'
 // 项目读自状态库（IndexedDB，SW 与 offscreen 共用）：注册链路不能在 offscreen 存活上下注
 import { listProjects } from './project-store'
 import { appendUserScriptError } from './store'
+import { buildPageStubSource } from './page-stub'
+import { buildPageClientSource } from './page-client'
+import { generatePageSecret } from './page-protocol'
 
 /** configureWorld 的 CSP：宽松（开发工具可接受），后续可收紧 */
 const US_WORLD_CSP = "script-src 'self' 'unsafe-inline' 'unsafe-eval' *"
@@ -169,8 +172,10 @@ export function collectCspWarnings(code: string, cspPermissive: boolean): string
 // USER_SCRIPT 世界的 sendMessage 会被路由到 runtime.onUserScriptMessage（非通用 onMessage）。
 // 协议信封见 api-contract.ts：请求 { __dl, uuid, req } / 错误上报 { __dlEvent, uuid, name, event }。
 
-function buildDlWrapper(project: ScriptProject): string {
+function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
   const info = JSON.stringify({ uuid: project.uuid, name: project.name })
+  // DL.page 客户端对全部脚本开放（无 pageAccess 门禁）：直接内联客户端与握手密钥
+  const clientSource = buildPageClientSource(pageSecret)
   return `
 ;(function () {
   var DL_INFO = ${info}
@@ -211,6 +216,9 @@ function buildDlWrapper(project: ScriptProject): string {
     for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i)
     return buf.buffer
   }
+  // —— 反向中继客户端（docs/userscript-page-relay.md v2）——
+  var __dlPageApi = ${clientSource}
+
   var DL = {
     info: Object.freeze(DL_INFO),
     store: {
@@ -268,7 +276,8 @@ function buildDlWrapper(project: ScriptProject): string {
     },
     log: function () {
       console.log.apply(console, ['[DL:' + DL_INFO.name + ']'].concat([].slice.call(arguments)))
-    }
+    },
+    page: __dlPageApi
   }
   window.DL = DL
 
@@ -323,6 +332,140 @@ function sourceURLSuffix(project: ScriptProject): string {
   return `\n//# sourceURL=duoling://script/${project.uuid}/${safeName}.js`
 }
 
+// —— 反向中继 stub 注册（docs/userscript-page-relay.md v2 §5.2）——
+
+/** MAIN 世界共享桩的注册 ID：一个扩展一份，不是每脚本一份 */
+export const PAGE_STUB_ID = 'dl-page-stub'
+/** stubSecret 持久化键：MV3 SW 随时休眠，模块变量会归零，密钥必须落 storage */
+const PAGE_SECRET_KEY = 'us:page:secret'
+
+/** 密钥模块缓存（SW 存活期内复用，避免每次注册都读 storage） */
+let pageSecretCache = ''
+
+async function getOrCreatePageSecret(): Promise<string> {
+  if (pageSecretCache) return pageSecretCache
+  try {
+    const r = (await chrome.storage.local.get(PAGE_SECRET_KEY)) as Record<string, unknown>
+    if (typeof r[PAGE_SECRET_KEY] === 'string' && r[PAGE_SECRET_KEY]) {
+      pageSecretCache = r[PAGE_SECRET_KEY] as string
+      return pageSecretCache
+    }
+  } catch {
+    // storage 不可用则退化为一次性密钥（仅本次 SW 存活期有效）
+  }
+  pageSecretCache = generatePageSecret()
+  try {
+    await chrome.storage.local.set({ [PAGE_SECRET_KEY]: pageSecretCache })
+  } catch {
+    // 写不进就只用缓存值：SW 重启后会换新密钥，脚本与桩在同一遍注册里仍保持一致
+  }
+  return pageSecretCache
+}
+
+/**
+ * 轮换密钥（扩展 install/update 恢复时调用，规范 §5.2「重注册即轮换」的落点）。
+ * 轮换后必须紧跟着 registerAllEnabled：桩与全部启用脚本包装在同一遍里带上新密钥。
+ */
+export async function rotatePageSecret(): Promise<void> {
+  pageSecretCache = generatePageSecret()
+  await chrome.storage.local.set({ [PAGE_SECRET_KEY]: pageSecretCache }).catch(() => {})
+}
+
+/** 启用脚本的四字段匹配并集（桩注入面）；无启用脚本返回 null */
+function pageStubUnion(projects: ScriptProject[]): {
+  matches: string[]
+  excludeMatches?: string[]
+  includeGlobs?: string[]
+  excludeGlobs?: string[]
+} | null {
+  const pageProjects = projects.filter((p) => p.enabled)
+  if (!pageProjects.length) return null
+  const merge = (get: (c: ScriptProject) => string[] | undefined): string[] | undefined => {
+    const all = [...new Set(pageProjects.flatMap((p) => get(p) ?? []))]
+    return all.length ? all : undefined
+  }
+  return {
+    matches: merge((p) => p.config.matches) ?? [],
+    excludeMatches: merge((p) => p.config.excludeMatches),
+    includeGlobs: merge((p) => p.config.includeGlobs),
+    excludeGlobs: merge((p) => p.config.excludeGlobs),
+  }
+}
+
+function sameMatchSet(
+  a: { matches?: string[]; excludeMatches?: string[]; includeGlobs?: string[]; excludeGlobs?: string[] },
+  b: { matches?: string[]; excludeMatches?: string[]; includeGlobs?: string[]; excludeGlobs?: string[] },
+): boolean {
+  const norm = (v?: string[]) => JSON.stringify([...(v ?? [])].sort())
+  return (
+    norm(a.matches) === norm(b.matches) &&
+    norm(a.excludeMatches) === norm(b.excludeMatches) &&
+    norm(a.includeGlobs) === norm(b.includeGlobs) &&
+    norm(a.excludeGlobs) === norm(b.excludeGlobs)
+  )
+}
+
+/**
+ * 按并集维护 MAIN 世界共享桩（幂等可重入；调用方负责串行化）。
+ * 匹配并集未变且桩已在位时跳过重注册——重注册会换注入源码，已加载页面要到下次导航才换新，
+ * 无谓重注册只会扩大「桩与脚本包装密钥不同代」的窗口。
+ * 并集为空 → 注销桩。注意：并集取的是四字段的并（exclude 取并意味着桩注入面可能略大于
+ * 单脚本需求），桩无特权、无会话则无事发生，宁可多注入不可漏注入。
+ */
+async function syncPageStubUnion(projects: ScriptProject[]): Promise<void> {
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
+  const union = pageStubUnion(projects)
+  let existing: chrome.userScripts.RegisteredUserScript | undefined
+  try {
+    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === PAGE_STUB_ID)
+  } catch {
+    return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
+  }
+  if (!union) {
+    console.log('[duoling:sw] 桩并集为空，注销 MAIN 桩')
+    if (existing) await chrome.userScripts.unregister({ ids: [PAGE_STUB_ID] }).catch(() => {})
+    return
+  }
+  if (existing && sameMatchSet(existing, union)) {
+    console.log('[duoling:sw] MAIN 桩已在位且并集未变，跳过')
+    return
+  }
+  const secret = await getOrCreatePageSecret()
+  await chrome.userScripts.unregister({ ids: [PAGE_STUB_ID] }).catch(() => {})
+  const stub: chrome.userScripts.RegisteredUserScript = {
+    id: PAGE_STUB_ID,
+    world: 'MAIN',
+    js: [{ code: buildPageStubSource(secret) }],
+    matches: union.matches,
+    excludeMatches: union.excludeMatches,
+    includeGlobs: union.includeGlobs,
+    excludeGlobs: union.excludeGlobs,
+    // document_start：必须早于脚本默认的 document_end 握手窗口（规范 §5.2）
+    runAt: 'document_start',
+    allFrames: true,
+    // userScripts API 无 persistAcrossSessions（那是 contentScripts 的字段，Chrome 会报
+    // Unexpected property）；userScripts 注册本身即跨 SW 会话持久，仅扩展更新后需重注册
+    // （recoverOnUpdate 已覆盖）。
+  }
+  try {
+    await chrome.userScripts.register([stub])
+    console.log('[duoling:sw] MAIN 桩注册成功：', JSON.stringify(union.matches))
+  } catch (e) {
+    console.warn('[duoling:sw] MAIN 桩注册失败：', e)
+    throw e
+  }
+}
+
+/** 重算桩注册（挂 registerChain 串行队列）：脚本增删改/启停/删除后由 background 调用 */
+export function refreshPageStub(): Promise<void> {
+  const run = registerChain.then(async () => {
+    const projects = await listProjects()
+    await syncPageStubUnion(projects)
+  })
+  registerChain = run.catch(() => {})
+  return run
+}
+
 // —— 注册 / 注销 ——
 
 /**
@@ -338,7 +481,13 @@ export async function registerScript(project: ScriptProject): Promise<void> {
     throw new Error('脚本缺少匹配规则（matches），无法注册')
   }
   const code = resolveInjectCode(project) + sourceURLSuffix(project)
-  const js: chrome.userScripts.RegisteredUserScript['js'] = [{ code: buildDlWrapper(project) }, { code }]
+  // 密钥取自持久层（与 MAIN 桩同源）：单脚本注册路径（create/updateFiles/toggle）也可能
+  // 在 SW 刚唤醒、尚未跑过 registerAllEnabled 时发生，必须能独立取到当前密钥。
+  const pageSecret = await getOrCreatePageSecret()
+  const js: chrome.userScripts.RegisteredUserScript['js'] = [
+    { code: buildDlWrapper(project, pageSecret) },
+    { code },
+  ]
   const worldId = 'us-' + project.uuid // 每脚本独立世界，实现全局隔离（要求 Chrome 133+）
   // 该脚本的独立世界必须先单独开 messaging，否则世界内没有 chrome.runtime，
   // DL 桥与运行期错误上报全部失效（自定义世界不继承默认世界配置）。
@@ -391,10 +540,14 @@ export function registerAllEnabled(): Promise<void> {
 
 async function runRegisterAllEnabled(): Promise<void> {
   const projects = await listProjects()
+  // 先同步 MAIN 桩（启用脚本集合可能变化），再重注册脚本——同一遍里保持桩与包装密钥一致
+  await syncPageStubUnion(projects).catch(() => {})
   const enabled = projects.filter((p) => p.enabled)
   try {
     const existing = await chrome.userScripts.getScripts()
-    if (existing.length) await unregisterScripts(existing.map((s) => s.id))
+    // 全量重注册只清用户脚本——MAIN 桩在上一行刚按并集同步过，不能被这把误清
+    const stale = existing.filter((s) => s.id !== PAGE_STUB_ID)
+    if (stale.length) await unregisterScripts(stale.map((s) => s.id))
   } catch {
     // 可用性未恢复时 getScripts 抛错，忽略（上层已检测）
   }
@@ -419,5 +572,8 @@ async function runRegisterAllEnabled(): Promise<void> {
  */
 export async function recoverOnUpdate(): Promise<void> {
   await configureUserScriptsWorld()
+  // 扩展 install/update：轮换握手密钥（旧注册已被浏览器清空），随后的 registerAllEnabled
+  // 会把桩与全部启用脚本包装在同一遍里带上新密钥（规范 §5.2「重注册即轮换」）
+  await rotatePageSecret().catch(() => {})
   await registerAllEnabled()
 }
