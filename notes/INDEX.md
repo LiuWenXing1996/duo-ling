@@ -27,7 +27,7 @@
 | [用户脚本新形态（v2）](content/userscript-v2-plan.md) | —（已并入 notes） | 放弃油猴，自有 DL API + 模块化 + 隔离；Phase 0–3 已实施 |
 | [用户脚本能力 API](content/userscript-api.md) | —（已并入 notes） | 脚本经 `window.DL` 桥接，全 async、强类型、弃 GM_* |
 | [AI 生成用户脚本（现状）](content/userscript-ai-generation.md) | —（已并入 notes） | 三容器链路：sidepanel / offscreen loop / SW 注册 |
-| [AI 生成后续路线图](content/userscript-ai-generation-next.md) | [docs/userscript-ai-generation-next.md](../docs/userscript-ai-generation-next.md) | 十项未做归三提案，定开工顺序；只记归属不写方案 |
+| [AI 生成后续路线图](content/userscript-ai-generation-next.md) | —（已并入 notes） | 十项未做归三提案，定开工顺序；只记归属不写方案 |
 | [脚本存储单写方](content/userscript-single-writer.md) | [docs/userscript-single-writer.md](../docs/userscript-single-writer.md) | 项目数据迁 offscreen 单写，统一进 `duoling-state` |
 | [脚本文件树迁 offscreen](content/offscreen-fs-migration.md) | [docs/offscreen-fs-migration.md](../docs/offscreen-fs-migration.md) | lfs + isomorphic-git 归 offscreen（§2.3–2.5 已被单写方取代） |
 | [编辑器草稿](content/userscript-draft.md) | —（已并入 notes） | 草稿 = 工作区未提交改动，自动落盘、重开恢复 |
