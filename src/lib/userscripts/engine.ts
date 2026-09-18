@@ -521,6 +521,9 @@ async function runRegisterAllEnabled(): Promise<void> {
   } catch {
     // 可用性未恢复时 getScripts 抛错，忽略（上层已检测）
   }
+  // 环境 / 权限不可用：全员注册必然失败，但那不属于任何脚本本身的错，
+  // 不要给每个脚本写一条 register 错误（会误导成「所有脚本都有问题」）；环境状态由列表页横幅兜底
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
   for (const project of enabled) {
     try {
       await registerScript(project)

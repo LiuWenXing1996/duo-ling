@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // 用户脚本列表标签页：脚本管理的唯一入口 —— 列表 + 启停 + 零输入新建 + 可用性横幅
 // （后两者 2026-09-15 自已删除的旧管理器 UserscriptManager 迁入；同日粘贴安装功能整体移除——
-// UI、协议链与 installProject 一起删）。2026-09-18：内嵌的错误日志面板抽成独立标签页
-// （UserscriptErrorLogPanel.vue），本页只留「错误日志（N）」入口。
+// UI、协议链与 installProject 一起删）。错误日志是历史信息，由独立「错误日志」标签页承载
+// （左侧导航进入），本页不展示任何脚本报错 —— 环境级问题仅靠下方 availability 横幅兜底。
 //
 // 数据通道：userscriptClient。workbench 是可信扩展页，可直接 chrome.runtime.sendMessage，
 // 因此不走 window.api（那是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
@@ -42,7 +42,6 @@ import type {
   ImportReport,
   ScriptProject,
   ScriptSummary,
-  UserScriptErrorRecord,
   UserScriptsAvailability
 } from '@/lib/userscripts/types'
 
@@ -51,17 +50,13 @@ const emit = defineEmits<{
   edit: [uuid: string, title: string]
   /** 脚本已删除：宿主据此关掉它的编辑器标签（项目已不存在） */
   deleted: [uuid: string]
-  /** 请求打开错误日志标签页（由 WorkspaceHost 接管）；带 uuid 表示同时定位到该脚本 */
-  'open-error-log': [uuid?: string]
-  /** 需要开权限（横幅 / 注册失败警告）：请宿主切到引导标签页 */
+  /** 需要开权限（横幅）：请宿主切到引导标签页 */
   openGuide: []
 }>()
 
 const scripts = ref<ScriptSummary[]>([])
 const loading = ref(false)
 const error = ref('')
-/** 非阻塞警告（命令成功但注册失败等）：数据已生效，只是提示「没跑起来」及原因 */
-const warning = ref('')
 /** 正在切换启停的脚本 uuid：避免连点造成重复注册/注销 */
 const toggling = ref<string | null>(null)
 /** 创建中：避免连点一次建出多个空脚本 */
@@ -73,12 +68,8 @@ const removeAllOpen = ref(false)
 /** 全部删除进行中：避免连点重复发起 */
 const removingAll = ref(false)
 
-// —— 错误日志入口（2026-09-18 变更）——
-// 原先此处内嵌着完整的错误日志折叠面板（按脚本分组 / 清空 / 深链过滤），同日已抽成独立标签页
-// UserscriptErrorLogPanel.vue（错误一多，折叠面板放不下），列表页只留一个入口按钮。
-// 故这里仍拉一次 errors —— **仅用于入口上的计数徽标**，不再承载任何日志 UI。
-const errors = ref<UserScriptErrorRecord[]>([])
-
+// 脚本列表不展示错误日志：报错属于历史信息，由独立「错误日志」标签页承载（左侧导航进入）。
+// 环境级问题（如引擎不可用）由下方 availability 横幅统一兜底，不按脚本逐条复述。
 const enabledCount = computed(() => scripts.value.filter((s) => s.enabled).length)
 
 // —— 可用性横幅（自旧管理器迁入）——
@@ -89,9 +80,7 @@ async function refresh(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const [list, errs] = await Promise.all([userscriptClient.list(), userscriptClient.errors()])
-    scripts.value = list
-    errors.value = errs
+    scripts.value = await userscriptClient.list()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -99,19 +88,18 @@ async function refresh(): Promise<void> {
   }
 }
 
-/** 启停：数据写（enabled 落状态库）成功即更新开关；注册失败降级为警告，不回拨开关 */
+/**
+ * 启停：数据写（enabled 落状态库）成功即更新开关，注册失败不回拨开关。
+ * 注册失败的原因由 background 写进错误日志（独立标签页查看），本页不展示脚本报错。
+ */
 async function onToggle(s: ScriptSummary, next: boolean): Promise<void> {
   if (toggling.value) return
   toggling.value = s.uuid
   error.value = ''
-  warning.value = ''
   try {
-    const { registerError } = await userscriptClient.toggle(s.uuid, next)
+    await userscriptClient.toggle(s.uuid, next)
     s.enabled = next
     if (next) justImported.value = justImported.value.filter((u) => u !== s.uuid) // 启用后摘掉「刚导入」标
-    if (registerError) {
-      warning.value = `「${s.name}」已${next ? '启用' : '停用'}（数据已保存），但注册失败，脚本不会注入页面：${registerError}`
-    }
   } catch (e) {
     error.value = `「${s.name}」切换失败：` + (e instanceof Error ? e.message : String(e))
   } finally {
@@ -128,14 +116,11 @@ async function onCreate(): Promise<void> {
   if (creating.value) return
   creating.value = true
   error.value = ''
-  warning.value = ''
   try {
-    // 注册失败不算创建失败（数据已落库），警告照带、编辑器照开
-    const { uuid, name, registerError } = await userscriptClient.create()
+    // 注册失败不算创建失败（数据已落库），编辑器照开；报错由 background 写进错误日志，
+    // 用户可在独立「错误日志」标签页查看（脚本列表不承载报错展示）
+    const { uuid, name } = await userscriptClient.create()
     await refresh()
-    if (registerError) {
-      warning.value = `脚本已创建，但注册失败，不会注入页面：${registerError}`
-    }
     emit('edit', uuid, name)
   } catch (e) {
     error.value = '创建失败：' + (e instanceof Error ? e.message : String(e))
@@ -328,24 +313,10 @@ onMounted(() => {
       <div class="mx-auto max-w-3xl space-y-3">
         <!-- 不设面板标题：当前标签名已经标明这是脚本列表 -->
         <header class="flex items-center justify-between gap-2">
-          <div class="flex min-w-0 items-center gap-2">
-            <p class="shrink-0 text-xs text-muted-foreground">
-              共 {{ scripts.length }} 个脚本
-              <template v-if="scripts.length">· {{ enabledCount }} 个已启用</template>
-            </p>
-            <!-- 错误日志入口：有错误才出现（无错误时左侧导航栏仍有常驻入口，此处不占位制造噪音） -->
-            <ui-button
-              v-if="errors.length"
-              variant="ghost"
-              size="sm"
-              class="h-6 shrink-0 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10"
-              title="打开错误日志标签页（按脚本分类：运行期报错 / 注册失败 / DL 桥失败）"
-              @click="emit('open-error-log')"
-            >
-              <ui-alert-triangle class="size-3.5" />
-              错误日志 {{ errors.length }}
-            </ui-button>
-          </div>
+          <p class="text-xs text-muted-foreground">
+            共 {{ scripts.length }} 个脚本
+            <template v-if="scripts.length">· {{ enabledCount }} 个已启用</template>
+          </p>
           <div class="flex shrink-0 items-center gap-1">
             <ui-button
               variant="ghost"
@@ -447,24 +418,6 @@ onMounted(() => {
           {{ error }}
         </p>
 
-        <div
-          v-if="warning"
-          class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400"
-        >
-          <p>{{ warning }}</p>
-          <!-- 注册失败的排查（权限开关 / 世界配置）写在引导页，此处只给入口（文案不重复一份） -->
-          <ui-button
-            type="button"
-            variant="outline"
-            size="xs"
-            class="mt-1.5"
-            data-testid="warning-open-guide"
-            @click="emit('openGuide')"
-          >
-            查看开启引导
-          </ui-button>
-        </div>
-
         <p
           v-if="loading && !scripts.length"
           class="py-10 text-center text-xs text-muted-foreground"
@@ -500,11 +453,13 @@ onMounted(() => {
               <p class="mt-0.5 truncate font-mono text-xs text-muted-foreground">
                 {{ s.matches.join(', ') || '（无匹配规则）' }}
               </p>
-              <p class="mt-0.5 text-xs text-muted-foreground">
-                {{ s.fileCount }} 个文件
-                <template v-if="updatedAtLabel(s.updatedAt)">
-                  · {{ updatedAtLabel(s.updatedAt) }}
-                </template>
+              <p class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                <span>
+                  {{ s.fileCount }} 个文件
+                  <template v-if="updatedAtLabel(s.updatedAt)">
+                    · {{ updatedAtLabel(s.updatedAt) }}
+                  </template>
+                </span>
               </p>
             </div>
 

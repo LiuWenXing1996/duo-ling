@@ -98,6 +98,11 @@ function openUserscriptListTab(): void {
  */
 const errorLogFocus = ref<{ uuid: string; seq: number } | null>(null)
 let errorLogFocusSeq = 0
+/**
+ * 错误日志重拉信号：脚本被删除后其报错记录已在后台一并清掉，但标签页常驻不重挂，
+ * 不通知就还显示着「已删脚本」的旧分组。自增即让面板重新拉一次。
+ */
+const errorLogReloadSeq = ref(0)
 function openErrorLogTab(focusUuid?: string | null): void {
   if (focusUuid) errorLogFocus.value = { uuid: focusUuid, seq: ++errorLogFocusSeq }
   if (!openTabs.value.some((t) => t.kind === 'error-log')) {
@@ -187,12 +192,14 @@ function openUserscriptBundleTab(uuid: string, title: string): void {
 /**
  * 脚本被删除（列表页广播）：关掉它可能开着的编辑器 / 产物标签页。
  * 先清脏标记再关 —— 脚本连 git 仓都被删了，未保存的改动已无处可存，不该再弹确认。
+ * 同时让错误日志标签页重拉：该脚本的报错记录已随删除清掉，不重拉页面上还留着它的分组。
  */
 function onUserscriptDeleted(uuid: string): void {
   for (const id of [`us-edit:${uuid}`, `us-bundle:${uuid}`]) {
     delete dirtyTabs.value[id]
     if (openTabs.value.some((t) => t.id === id)) closeTab(id)
   }
+  errorLogReloadSeq.value++
 }
 
 // 工作区 tab 状态上报主进程：agent_workspace_tabs 工具据此回答「当前打开了哪些页面」。
@@ -242,13 +249,11 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
         <settings-panel v-else-if="tab.kind === 'settings'" />
         <!-- UI 测试：mock 数据预览思考与执行过程展示方案 -->
         <ui-test-panel v-else-if="tab.kind === 'ui-test'" />
-        <!-- 脚本列表：列出全部用户脚本 + 启停；「编辑」开对应的编辑器标签页；
-             错误日志已抽成独立标签页，此处只留入口（@open-error-log） -->
+        <!-- 脚本列表：列出全部用户脚本 + 启停；「编辑」开对应的编辑器标签页 -->
         <userscript-list-panel
           v-else-if="tab.kind === 'userscript-list'"
           @edit="openUserscriptEditor"
           @deleted="onUserscriptDeleted"
-          @open-error-log="(uuid?: string) => openErrorLogTab(uuid)"
           @open-guide="openGuideTab"
         />
         <!-- 错误日志：三类用户脚本错误的按脚本分类视图（全局仅一个标签页） -->
@@ -256,6 +261,7 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
           v-else-if="tab.kind === 'error-log'"
           :focus-uuid="errorLogFocus?.uuid ?? null"
           :focus-seq="errorLogFocus?.seq ?? 0"
+          :reload-seq="errorLogReloadSeq"
         />
         <!-- 用户脚本编辑器：每脚本一个标签页；脏状态上报给 closeTab 做关闭前确认；
              历史按钮请求开历史标签页；恢复完成后 editorReloadTick 变更强制重载编辑态 -->

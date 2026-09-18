@@ -1,6 +1,7 @@
 // UI 组件测试：UserscriptErrorLogPanel.vue 的「按脚本分类」行为。
-// 覆盖四类易回归语义：分组与排序（含未归属恒末位）、左栏选中切换右栏范围、
-// 清空范围跟随选中项（全部 / 该脚本 / 未归属三态）、深链定位（命中与落空两条路）。
+// 覆盖五类易回归语义：分组与排序（含未归属恒末位）、左栏选中切换右栏范围、
+// 清空范围跟随选中项（全部 / 该脚本 / 未归属三态）、深链定位（命中与落空两条路）、
+// 宿主要求重拉（脚本被删后 reloadSeq 变，含「正在看的分组消失要回落全部」）。
 // 边界 mock：ui-client（IPC 客户端）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
@@ -157,6 +158,44 @@ describe('UserscriptErrorLogPanel 按脚本分类', () => {
 
     await wrapper.setProps({ focusSeq: 2 })
     await flushPromises()
+    expect(wrapper.text()).toContain('来自A')
+    expect(wrapper.text()).not.toContain('来自B')
+  })
+
+  it('reloadSeq 变（脚本被删）→ 重拉，已消失的分组不再显示', async () => {
+    // 显式 time：左栏按最近错误时间倒序（A 更新 → 在 B 前）
+    errors.mockResolvedValue([
+      rec({ uuid: 'u1', name: '脚本A', message: '来自A', time: 200 }),
+      rec({ uuid: 'u2', name: '脚本B', message: '来自B', time: 100 }),
+    ])
+    wrapper = await mountPanel()
+    expect(navNames()).toEqual(['全部错误', '脚本A', '脚本B'])
+
+    // 后台已随删除清掉 u2 的报错记录：重拉只应看到 u1
+    errors.mockResolvedValue([rec({ uuid: 'u1', name: '脚本A', message: '来自A' })])
+    await wrapper.setProps({ reloadSeq: 1 })
+    await flushPromises()
+
+    expect(errors).toHaveBeenCalledTimes(2)
+    expect(navNames()).toEqual(['全部错误', '脚本A'])
+    expect(wrapper.text()).not.toContain('脚本B')
+  })
+
+  it('reloadSeq 变后正在看的分组已消失 → 回落「全部」，不停在空视图', async () => {
+    errors.mockResolvedValue([
+      rec({ uuid: 'u1', name: '脚本A', message: '来自A' }),
+      rec({ uuid: 'u2', name: '脚本B', message: '来自B' }),
+    ])
+    wrapper = await mountPanel()
+    await clickNav('脚本B')
+    expect(wrapper.text()).toContain('来自B')
+
+    // 正在看的「脚本B」被删了 → 它的记录一并消失
+    errors.mockResolvedValue([rec({ uuid: 'u1', name: '脚本A', message: '来自A' })])
+    await wrapper.setProps({ reloadSeq: 1 })
+    await flushPromises()
+
+    // 视点回落到「全部」：看到剩下这组，而不是空标题 + 空明细
     expect(wrapper.text()).toContain('来自A')
     expect(wrapper.text()).not.toContain('来自B')
   })

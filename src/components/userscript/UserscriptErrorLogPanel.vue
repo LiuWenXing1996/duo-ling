@@ -22,8 +22,9 @@ import { ERROR_LOG_MAX, type UserScriptErrorRecord } from '@/lib/userscripts/typ
 
 /** 深链定位：浮窗「点击脚本行」→ workbench.html#/errors/<uuid> → 宿主传入。
  *  带 focusSeq（宿主每次定位请求递增）：标签页常驻不重挂，对同一脚本再点一次时
- *  focusUuid 不变，只靠 uuid 无法触发 watch —— seq 是「这次请求」的标识。 */
-const props = defineProps<{ focusUuid?: string | null; focusSeq?: number }>()
+ *  focusUuid 不变，只靠 uuid 无法触发 watch —— seq 是「这次请求」的标识。
+ *  reloadSeq 同理由宿主递增（脚本被删除后要求重拉），见文件末 watch。 */
+const props = defineProps<{ focusUuid?: string | null; focusSeq?: number; reloadSeq?: number }>()
 
 /** 「全部」伪分组 key：不是一个真实脚本，仅表示「按时间看全部」 */
 const ALL_KEY = '__all__'
@@ -198,14 +199,22 @@ async function nameOf(uuid: string): Promise<string> {
   }
 }
 
+/**
+ * 重拉后的收尾：正在看的分组已经不存在（被清空 / 脚本被删）时回落「全部」。
+ * 不做这一步会停在空视图上 —— 标题为空、明细区空白，像是页面坏了。
+ */
+function fallbackSelectionIfGone(): void {
+  if (selectedKey.value !== ALL_KEY && !groups.value.some((g) => g.key === selectedKey.value)) {
+    selectedKey.value = ALL_KEY
+  }
+}
+
 /** 清空当前视图：按 clearTarget 的三态决定范围，清完重新拉取并把消失的分组回落「全部」 */
 async function onClear(): Promise<void> {
   try {
     await userscriptClient.clearErrors(clearTarget.value)
     await load()
-    if (selectedKey.value !== ALL_KEY && !groups.value.some((g) => g.key === selectedKey.value)) {
-      selectedKey.value = ALL_KEY
-    }
+    fallbackSelectionIfGone()
   } catch (e) {
     error.value = '清空失败：' + (e instanceof Error ? e.message : String(e))
   }
@@ -230,6 +239,16 @@ watch(
     focusMissName.value = await nameOf(uuid)
   },
   { immediate: true }
+)
+
+// 宿主请求重拉（脚本被删除后递增 reloadSeq）：该脚本的报错记录已随删除在后台清掉，
+// 但本标签页常驻不重挂，不重拉就还显示着它的旧分组。
+watch(
+  () => props.reloadSeq,
+  async () => {
+    await load()
+    fallbackSelectionIfGone()
+  }
 )
 
 onMounted(() => {

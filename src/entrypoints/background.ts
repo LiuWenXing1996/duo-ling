@@ -140,6 +140,12 @@ async function writeViaOffscreen<T>(request: RuntimeRequest): Promise<T> {
  * 故降级：命令成功 + registerError 警告字段，UI 决定怎么呈现。
  */
 async function registerOrLog(project: ScriptProject): Promise<string | undefined> {
+  // 环境 / 权限不可用（Chrome ≥138 未开「Allow User Scripts」等）：注册必然失败，
+  // 但这**不是脚本本身的错**——不能写成该脚本的 register 错误（否则误导成「每个脚本都有问题」）。
+  // 环境状态由列表页 availability 横幅统一兜底，这里只把原因回传调用方，不落 per-script 记录。
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') {
+    return 'userScripts 引擎不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限'
+  }
   try {
     // 先同步内置注册（MAIN 桩 + 状态浮窗，启用脚本集合可能变化），再注册脚本——保证桩与包装密钥同代
     await refreshBuiltinScripts().catch(() => {})
@@ -147,6 +153,7 @@ async function registerOrLog(project: ScriptProject): Promise<string | undefined
     return undefined
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
+    // 到这里仍是脚本自身缺陷（缺 matches / match 非法 / 构建产物无效 / 世界配置失败等），属该脚本，写记录
     void appendUserScriptError({
       uuid: project.uuid,
       name: project.name,
@@ -263,7 +270,7 @@ const handlers: {
     }
   },
 
-  // 删除：注销 → offscreen 清状态库记录 + git 仓 → 清该脚本的 DL.store 值。
+  // 删除：注销 → offscreen 清状态库记录 + git 仓 → 清该脚本的 DL.store 值 + 报错记录。
   // 仓的删除原先只能靠 offscreen 启动对账兜（删完会滞留一阵），现在写侧同在 offscreen，一步清干净。
   'userscript:remove': async (msg): Promise<void> => {
     await unregisterScripts([msg.uuid]).catch(() => {})
@@ -271,18 +278,23 @@ const handlers: {
     await refreshBuiltinScripts().catch(() => {})
     await writeViaOffscreen<void>({ kind: 'state:remove', uuid: msg.uuid })
     await clearGMValues(msg.uuid)
+    // 报错记录同属该脚本的残留：不清就会在错误日志里留下一个已删脚本的孤儿分组
+    // （按 uuid 清，不碰「未归属」那种本就没有脚本上下文的记录）
+    await clearUserScriptErrors(msg.uuid)
   },
 
   // 删除全部用户脚本（「全部删除」按钮）：注销全部 → offscreen 清状态库 + 各仓 → 清各脚本
-  // 的 DL.store 值。范围 = 新形态用户脚本；已弃用旧记录（chrome.storage）与内置件不在内，
+  // 的 DL.store 值与报错记录。范围 = 新形态用户脚本；已弃用旧记录（chrome.storage）与内置件不在内，
   // 故这里**不碰** us:script:* 旧键，也不调 clearDeprecatedScripts。
-  // uuid 由 SW 直读状态库（不经容器，与 userscript:list 同源），用于注销与清 GM 值。
+  // uuid 由 SW 直读状态库（不经容器，与 userscript:list 同源），用于注销与清残留。
   'userscript:removeAll': async (): Promise<{ removed: number }> => {
     const uuids = (await listProjects()).map((p) => p.uuid)
     await unregisterScripts(uuids).catch(() => {})
     try {
       const removed = await writeViaOffscreen<number>({ kind: 'state:removeAll' })
       for (const uuid of uuids) await clearGMValues(uuid)
+      // 报错记录逐 uuid 清（与单删同一条语义：删脚本 = 清该脚本名下的一切）
+      for (const uuid of uuids) await clearUserScriptErrors(uuid)
       return { removed }
     } catch (e) {
       // 注销在前、落盘在后，落盘失败会留下「记录还标 enabled、实际已注销」的偏差
