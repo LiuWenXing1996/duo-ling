@@ -162,6 +162,7 @@ npm run pack:uscripts    # 把仓库根 uscript-samples/ 打成可导入的用�
 10. **首屏静态图只放「打开就能看到」的依赖**：入口 HTML 的 `modulepreload` 链就是首帧要执行的代码，它的体积 ≈ 首开白屏时长。2026-09-18 实测侧边栏首屏 1420KB，其中 markdown 渲染链路（micromark/mdast + shiki + katex）约 600KB、AI SDK（`ai` 核心 + zod）约 360KB —— 而打开面板那一刻两者都用不上（历史消息走 IndexedDB 直读）。已全部改为按需加载：
    - markdown：`MessageResponse.vue` 用 `defineAsyncComponent` + `<Suspense>`（加载期间用纯文本兜底）拉 `vue-stream-markdown`（组件与 CSS 一起 await）；shiki 在 `code-block/utils.ts` 首次高亮时动态 import（该文件本就是「先出无色 token、高亮结果异步补上」的形状）。
    - AI SDK：`useChat` 收进 `use-global-conversation.ts` 的 `ensureChat()` 动态加载（已核实 `@ai-sdk/vue` 的 `useChat` 不依赖组件实例，setup 作用域外调用成立）；客户端加载前 `messages` 由本地承担真相源，加载时整体移交。
+11. **「import 了但没接线」typecheck 与分层单测都不报**：跨层接线（如 background handlers 组装 `store` / `project-store` 的函数）漏调时，未使用的 import 不触发 `vue-tsc` 报错（仓库未开 `noUnusedLocals`），单测又只覆盖各层函数自身——运行统计曾因此静默漏接 `withRunStats`，靠手测才暴露。规避：新增跨层链路时自查「写侧函数是否有对应读侧消费」，条件允许时手测点一眼端到端表现。
    - **`ai` 的 4 个 part 判定 helper 本地实现在 `src/lib/ui-message-parts.ts`**：`import { isTextUIPart } from 'ai'` 这种一行函数的静态导入会把整块 360KB 拉进首屏（`ai` 根入口与 `ai/internal` 都静态依赖 `@ai-sdk/gateway` / zod，`sideEffects:false` 也摇不掉）。上游改了判定要跟着改。
    - 复核：`node tmp/first-paint-size.mjs .output/chrome-mv3 sidepanel.html`（量首屏字节）、`node tmp/first-paint-graph.mjs src/entrypoints/app/sidepanel-main.ts`（列静态图里的包；`.vue` 里的动态 import 不计入）。
    - 结果：1420KB → 534KB。
