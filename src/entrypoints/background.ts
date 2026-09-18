@@ -45,12 +45,6 @@ import {
   appendUserScriptError,
   findUserScriptError,
 } from '@/lib/userscripts/store'
-// 页面脚本状态浮窗：数据推送 / 端口登记 / 跳工作台深链（SW 侧逻辑）
-import {
-  forgetStatusBubbleTab,
-  initStatusBubblePorts,
-  pushStatusBubble,
-} from '@/lib/userscripts/status-bubble'
 // 侧边栏页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口
 import {
   forgetPageTab,
@@ -156,7 +150,7 @@ async function registerOrLog(project: ScriptProject): Promise<string | undefined
     return 'userScripts 引擎不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限'
   }
   try {
-    // 先同步内置注册（MAIN 桩 + 状态浮窗，启用脚本集合可能变化），再注册脚本——保证桩与包装密钥同代
+    // 先同步内置注册（MAIN 桩，启用脚本集合可能变化），再注册脚本——保证桩与包装密钥同代
     await refreshBuiltinScripts().catch(() => {})
     await registerScript(project)
     return undefined
@@ -293,7 +287,7 @@ const handlers: {
   // 仓的删除原先只能靠 offscreen 启动对账兜（删完会滞留一阵），现在写侧同在 offscreen，一步清干净。
   'userscript:remove': async (msg): Promise<void> => {
     await unregisterScripts([msg.uuid]).catch(() => {})
-    // 该脚本对内置并集的贡献随之消失，MAIN 桩 / 状态浮窗可能需要注销
+    // 该脚本对内置并集的贡献随之消失，MAIN 桩可能需要注销
     await refreshBuiltinScripts().catch(() => {})
     await writeViaOffscreen<void>({ kind: 'state:remove', uuid: msg.uuid })
     await clearGMValues(msg.uuid)
@@ -336,7 +330,7 @@ const handlers: {
     })
     if (msg.enabled) return { registerError: await registerOrLog(next) }
     await unregisterScripts([msg.uuid]).catch(() => {})
-    // 关停后内置并集可能缩小，MAIN 桩 / 状态浮窗可能需要注销
+    // 关停后内置并集可能缩小，MAIN 桩可能需要注销
     await refreshBuiltinScripts().catch(() => {})
     return {}
   },
@@ -422,20 +416,11 @@ function handleChatFinishedPush(ok: boolean): void {
   void ok
 }
 
-// —— 页面脚本状态浮窗 + 完成徽章的事件挂载 ——
+// —— 侧边栏监控 + 完成徽章的事件挂载 ——
 // ⚠️ 全部 addListener 必须留在 defineBackground 回调内（与既有监听器同惯例）：
 // 本文件会被协议一致性测试 import（取 SW_KIND_PREFIXES），模块顶层挂监听会在
 // Node/fakeBrowser 下炸（runtime.onConnect 未实现）——之前踩过。
 function mountProposal2Listeners(): void {
-  // 浮窗：导航后把「本页脚本 + 错误」推给该 tab 的浮窗端口（注入本身由 register 声明式完成，
-  // 这里只管数据；complete 覆盖普通导航，url 变化兜住 SPA 软导航）
-  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (changeInfo.status !== 'complete' && !changeInfo.url) return
-    const url = changeInfo.url ?? tab.url
-    if (!url) return
-    void pushStatusBubble(tabId, url)
-  })
-
   // 侧边栏监控：新文档导航开始 = 旧文档销毁，该 tab 的运行集清零。
   // 刻意用 status=loading（文档替换的准确时点），SPA 软导航只改 url、不换文档，不清。
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -443,7 +428,6 @@ function mountProposal2Listeners(): void {
   })
 
   chrome.tabs.onRemoved.addListener((tabId) => {
-    forgetStatusBubbleTab(tabId)
     forgetPageTab(tabId)
   })
 
@@ -458,9 +442,6 @@ function mountProposal2Listeners(): void {
   chrome.sidePanel.onOpened.addListener(() => {
     clearFinishedBadge()
   })
-
-  // 浮窗端口（上行：跳工作台深链 / 重连后拉数据）
-  initStatusBubblePorts()
 
   // 侧边栏监控端口（复用 'duoling:panel' 连接：上行快照请求 + 推送寻址）
   initPageMonitorPorts()
@@ -496,7 +477,7 @@ export default defineBackground(() => {
     void chrome.runtime.sendMessage(push).catch(() => {})
   })
 
-  // 浮窗注入 / 面板端口 / 完成徽章 / 深链跳转的监听器
+  // 侧边栏监控 / 面板端口 / 完成徽章 / 深链跳转的监听器
   mountProposal2Listeners()
 
   // offscreen 需「随时可用」：安装 / 更新 / 浏览器启动都立即确保容器在场。

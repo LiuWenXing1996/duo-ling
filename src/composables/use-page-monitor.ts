@@ -6,7 +6,7 @@
 //      只保留当前 active tab 的切片；切 tab 时向 SW 拉一次快照补齐。
 //
 // 口径：显示的是「这个文档里实际启动过哪些脚本」（runstart 广播）+ 其 runtime 错误，
-// 不是「按 matches 计算会注入哪些」（那是静态口径，浮窗的 computeBubbleData 负责）。
+// 不是「按 matches 计算会注入哪些」（那是静态口径，由原生 userScripts.register 决定）。
 //
 // 已知边界：SW 重启会清空其按 tab 的运行登记（广播即发即弃、不重放），
 // 此窗口期内面板显示为空，页面一刷新即恢复——详见 page-monitor.ts 文件头。
@@ -183,7 +183,7 @@ export function usePageMonitor() {
     return errors.value.filter((e) => e.uuid === uuid)
   }
 
-  /** 点击脚本行：经端口上行，由 SW 打开/聚焦工作台并深链到该脚本的错误（与浮窗行点击同语义） */
+  /** 点击脚本行：经端口上行，由 SW 打开/聚焦工作台并深链到该脚本的错误 */
   function openErrors(uuid: string): void {
     try {
       monitorPort?.postMessage({ t: 'page:openErrors', uuid })

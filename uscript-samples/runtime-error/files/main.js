@@ -1,6 +1,6 @@
-// 运行期报错：验证错误链路（us:errors，phase=runtime）与页面状态浮窗。
+// 运行期报错：验证错误链路（us:errors，phase=runtime）与侧边栏灵动岛监控。
 // 效果：先写标记 WILL_THROW，随后故意抛错 —— 脚本列表「错误日志」应出现一条运行期错误，
-// 页面右下角浮窗应把该脚本标为出错（浮窗只认本次运行，刷新页面才会重新 mint runId）。
+// 侧边栏灵动岛应把该脚本标为出错（错误按 runId 归属到本次运行，刷新页面会重新 mint runId）。
 ;(function () {
   var ID = 'dl-test-runtime-error'
   var el = document.getElementById(ID)

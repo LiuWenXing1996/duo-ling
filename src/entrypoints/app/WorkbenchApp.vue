@@ -25,7 +25,7 @@ const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
 
 // hash 深链（openWorkbench 的约定）：
 //   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
-//   #/errors/<uuid> → 打开错误日志标签页并定位到该脚本（页面浮窗点击脚本行跳转）
+//   #/errors/<uuid> → 打开错误日志标签页并定位到该脚本（侧边栏灵动岛点击脚本行跳转）
 //   #/settings    → 打开设置标签页
 //   #/guide       → 打开引导标签页（侧边栏「查看开启引导」跳这里）
 function handleHash(): void {
@@ -50,7 +50,7 @@ function handleHash(): void {
 
 onMounted(() => {
   handleHash()
-  // 已打开的工作台被再次深链时，浮窗走的是 chrome.tabs.update 只改 hash（文档不重载），
+  // 已打开的工作台被再次深链时，SW 走的是 chrome.tabs.update 只改 hash（文档不重载），
   // 只靠 onMounted 会「点了没反应」——必须接住 hashchange。
   window.addEventListener('hashchange', handleHash)
 })

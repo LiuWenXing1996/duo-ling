@@ -14,13 +14,10 @@ import { buildPageClientSource } from './page-client'
 import { generatePageSecret } from './page-protocol'
 // 内置注入脚本共用：匹配并集与「未变则跳过」比对
 import { enabledMatchUnion, sameMatchSet } from './match-union'
-// 浮窗是第二份内置注册（userScripts.register + USER_SCRIPT 世界），与 MAIN 桩同链同步；
-// 只 import 不反向依赖（本模块不 import status-bubble 的其它能力），无环
-import { STATUS_BUBBLE_ID, syncStatusBubbleRegister } from './status-bubble'
 
 // 不给脚本世界配置 csp：即**不放开** eval / new Function。脚本世界因此回落浏览器默认 CSP，
 // 动态执行字符串代码被禁。理由：AI 生成的脚本不可控，不额外给「执行任意字符串」的能力。
-// 注入链路自身零 eval —— DL 包装 / 页面中继 / 浮窗 / MAIN 桩均不含，
+// 注入链路自身零 eval —— DL 包装 / 页面中继 / MAIN 桩均不含，
 // esbuild 打 IIFE 也不产 eval，故引擎不受影响；真正受影响的只有内部用 new Function 做
 // codegen 的依赖库（如 ajv 编译校验器 / Vue runtime 编译器 / handlebars 运行时模板），
 // 由 collectCspWarnings 在保存时提前提示。
@@ -148,7 +145,7 @@ export function collectCspWarnings(code: string): string[] {
 // DL 调后台走 chrome.runtime.sendMessage —— 因世界已 configureWorld({messaging:true})，
 // USER_SCRIPT 世界的 sendMessage 会被路由到 runtime.onUserScriptMessage（非通用 onMessage）。
 // 协议信封见 api-contract.ts：请求 { __dl, uuid, req } / 错误上报 { __dlEvent, uuid, name, event } /
-// 运行标识广播 { __dlRunStart, uuid, runId }（浮窗据此只显「本次运行」的错误）。
+// 运行标识广播 { __dlRunStart, uuid, runId }（侧边栏页面监控据此按 tab 登记运行）。
 
 function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
   const info = JSON.stringify({ uuid: project.uuid, name: project.name })
@@ -158,7 +155,7 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
 ;(function () {
   var DL_INFO = ${info}
   // 运行标识：**一次页面加载 = 一次运行**。注入即执行时 mint，随错误记录一起上报，
-  // 并立刻广播给 SW（SW 只转发给该页浮窗当「当前运行指针」，不落盘、SW 无状态）。
+  // 并立刻广播给 SW（侧边栏页面监控据此按 tab 登记运行）。
   var __dlRunId = (function () {
     try { return crypto.randomUUID() }
     catch (e) { return 'r-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10) }
@@ -172,8 +169,8 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
     } catch (e) { /* 世界未开 messaging：静默（与错误上报同款兜底） */ }
   }
   __dlAnnounceRun()
-  // load 时补播一次：浮窗在 document_start 建端口监听，但脚本可能被配成 document_start，
-  // 广播早于浮窗挂好监听时靠这次补救（浮窗侧记 runId 是幂等的）
+  // load 时补播一次：脚本可能被配成 document_start，注入极早期的广播可能赶在
+  // SW 唤醒 / 消息通道就绪前发出而丢失，靠这次补救（登记按 runId 覆盖，重复广播无害）
   if (document.readyState !== 'complete') window.addEventListener('load', __dlAnnounceRun)
   function __dlSend(req) {
     return new Promise(function (resolve, reject) {
@@ -371,7 +368,7 @@ export async function rotatePageSecret(): Promise<void> {
  * 按并集维护 MAIN 世界共享桩（幂等可重入；调用方负责串行化）。
  * 匹配并集未变且桩已在位时跳过重注册——重注册会换注入源码，已加载页面要到下次导航才换新，
  * 无谓重注册只会扩大「桩与脚本包装密钥不同代」的窗口。
- * 并集为空 → 注销桩。并集算法与比对在 match-union.ts（与状态浮窗共用同一份口径）。
+ * 并集为空 → 注销桩。并集算法与比对在 match-union.ts。
  */
 async function syncPageStubUnion(projects: ScriptProject[]): Promise<void> {
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
@@ -419,15 +416,12 @@ async function syncPageStubUnion(projects: ScriptProject[]): Promise<void> {
 
 /**
  * 重算**内置注入脚本**的注册（挂 registerChain 串行队列）：脚本增删改 / 启停 / 删除后由 background 调用。
- * 两份内置注册同链同步，顺序固定为先桩后浮窗（都幂等）：
- *   · DL.page MAIN 桩（world: 'MAIN'，页面世界能力代理）
- *   · 页面状态浮窗（worldId: us-builtin-status，UI）
+ * 当前唯一一份内置注册：DL.page MAIN 桩（world: 'MAIN'，页面世界能力代理）。
  */
 export function refreshBuiltinScripts(): Promise<void> {
   const run = registerChain.then(async () => {
     const projects = await listProjects()
     await syncPageStubUnion(projects)
-    await syncStatusBubbleRegister(projects)
   })
   registerChain = run.catch(() => {})
   return run
@@ -512,13 +506,11 @@ async function runRegisterAllEnabled(): Promise<void> {
   const projects = await listProjects()
   // 先同步内置注册（启用脚本集合可能变化），再重注册脚本——同一遍里保持桩与包装密钥一致
   await syncPageStubUnion(projects).catch(() => {})
-  await syncStatusBubbleRegister(projects).catch(() => {})
   const enabled = projects.filter((p) => p.enabled)
   try {
     const existing = await chrome.userScripts.getScripts()
-    // 全量重注册只清用户脚本——内置注册（MAIN 桩 / 状态浮窗）在上一行刚按并集同步过，
-    // 不能被这把误清（清了浮窗就再也不出现了，且不会再有人给它重注册）
-    const stale = existing.filter((s) => s.id !== PAGE_STUB_ID && s.id !== STATUS_BUBBLE_ID)
+    // 全量重注册只清用户脚本——内置注册（MAIN 桩）在上一行刚按并集同步过，不能被这把误清
+    const stale = existing.filter((s) => s.id !== PAGE_STUB_ID)
     if (stale.length) await unregisterScripts(stale.map((s) => s.id))
   } catch {
     // 可用性未恢复时 getScripts 抛错，忽略（上层已检测）
