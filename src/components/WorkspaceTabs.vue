@@ -1,12 +1,11 @@
 <script setup lang="ts">
-// 工作区标签栏：主页 / 设置 / 开发者 / UI 测试 / 脚本列表 / 脚本编辑器。主页标签始终存在且不可关闭。
+// 工作区标签栏：设置 / 开发者 / UI 测试 / 脚本列表 / 脚本编辑器。基础标签（脚本列表）不可关闭。
 // 2026-09-14：workbench 原 46px 顶栏（存在的唯一理由是放全局搜索框）删除，搜索框改由右侧
 // #actions 插槽承载；同日工具链路移除后，该搜索框的数据源
 // tool.list() 消失，插槽连同搜索框一并删除，工具类标签（tool / tool-history / tool-code）分支同步摘除。
 import { onMounted, ref } from 'vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
-  Home as UiHome,
   List as UiList,
   Pencil as UiPencil,
   Settings as UiSettings,
@@ -20,7 +19,8 @@ import {
 const props = defineProps<{
   tabs: WorkspaceTab[]
   activeId: string
-  homeTabId: string
+  /** 基础标签 id：始终存在、不可关闭（移除「主页」后由脚本列表担任） */
+  pinnedTabId: string
 }>()
 const emit = defineEmits<{
   close: [id: string]
@@ -96,13 +96,12 @@ onMounted(async () => {
         as="div"
         class="gap-1.5 text-[12.5px]"
       >
-        <ui-home v-if="tab.kind === 'home'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
-        <ui-list v-else-if="tab.kind === 'userscript-list'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <ui-list v-if="tab.kind === 'userscript-list'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-pencil v-else-if="tab.kind === 'userscript-edit'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <span class="truncate">{{ tab.title }}</span>
         <button
-          v-if="tab.kind !== 'home'"
+          v-if="tab.id !== props.pinnedTabId"
           class="no-drag ml-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
           type="button"
           aria-label="关闭标签"
