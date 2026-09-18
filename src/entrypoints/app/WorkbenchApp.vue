@@ -9,7 +9,7 @@
 // 导航项：设置 / UI 测试 / 脚本列表。
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
-  AlertTriangle as UiAlertTriangle,
+  History as UiHistory,
   Compass as UiCompass,
   Database as UiDatabase,
   FlaskConical as UiFlaskConical,
@@ -109,7 +109,7 @@ onUnmounted(() => window.removeEventListener('hashchange', handleHash))
           title="运行日志（按时间：每次运行一条，报错挂在对应运行下）"
           @click="workspaceRef?.openErrorLogTab()"
         >
-          <ui-alert-triangle class="size-5" />
+          <ui-history class="size-5" />
         </button>
         <button
           class="workspace-nav-item"
