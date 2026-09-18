@@ -1,4 +1,4 @@
-// 打开的工作区标签：主页 / 设置 / UI 测试 / 脚本列表 / 脚本编辑器 / 脚本历史 / 脚本产物 / lfs 浏览
+// 打开的工作区标签：设置 / UI 测试 / 脚本列表 / 脚本编辑器 / 脚本历史 / 脚本产物 / lfs 浏览 / 会话数据 / 错误日志
 import type { WorkspaceTabKind } from '@/shared/types'
 
 /**

@@ -325,8 +325,10 @@ const handlers: {
   'userscript:errorRead': async (msg): Promise<ReturnType<typeof findUserScriptError>> =>
     findUserScriptError(msg.id),
 
-  'userscript:clearErrors': async (): Promise<void> => {
-    await clearUserScriptErrors()
+  // 清错误日志。三态必须靠「字段在不在」区分（`!msg.uuid` 会把「未归属」误判成「全部」）：
+  //   字段缺失 = 清全部；string = 只清该脚本；null = 只清「未归属」记录
+  'userscript:clearErrors': async (msg): Promise<void> => {
+    await clearUserScriptErrors('uuid' in msg ? (msg.uuid ?? null) : undefined)
   },
 
   // SW 自证：把 define 注入的构建信息回给 UI（页面显示用，不依赖 SW DevTools 在场）。

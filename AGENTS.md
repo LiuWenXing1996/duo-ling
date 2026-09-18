@@ -67,7 +67,7 @@
 | bug 层级 | 首选工具 | 说明 |
 | --- | --- | --- |
 | side panel UI（Vue 状态/交互） | 面板内右键 → 检查 → Console | 直接读组件状态与 DOM 真实文本 |
-| 用户脚本（注入第三方页面） | 目标页 DevTools Console + 管理页「错误」列表（`us:errors` 环形日志） | 脚本崩了不影响扩展，错误只进日志 |
+| 用户脚本（注入第三方页面） | 目标页 DevTools Console + 工作台「错误日志」标签页（`us:errors` 环形日志，按脚本分类） | 脚本崩了不影响扩展，错误只进日志 |
 | background（能力运行时） | `chrome://extensions` → 该扩展的「Service Worker」→ Console | SW 报错不会出现在面板 Console |
 | 消息链路（扩展页 → background → offscreen） | 三段各打一条日志，确认消息形状与 `uuid` | 跨上下文流转必须按边界验证 |
 | 持久化 | DevTools → Application → IndexedDB（`duoling`）/ chrome.storage | 以落盘数据事实为准 |

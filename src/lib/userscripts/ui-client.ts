@@ -108,8 +108,10 @@ export const userscriptClient = {
   /** 错误日志：列出全部错误（最新在前） */
   errors: (): Promise<UserScriptErrorRecord[]> => send({ kind: 'userscript:errors' }),
 
-  /** 清空错误日志 */
-  clearErrors: (): Promise<void> => send({ kind: 'userscript:clearErrors' }),
+  /** 清空错误日志：缺省清全部；传 uuid 只清该脚本；传 null 只清「未归属」记录（uuid 为 null 的）。
+   *  「清全部」必须**省略字段**而非传 undefined——undefined 值在部分序列化路径下与字段缺失无法区分。 */
+  clearErrors: (uuid?: string | null): Promise<void> =>
+    send(uuid === undefined ? { kind: 'userscript:clearErrors' } : { kind: 'userscript:clearErrors', uuid }),
 }
 
 /**

@@ -154,6 +154,39 @@ describe('错误日志（us:errors 环形保留）', () => {
     await expect(listUserScriptErrors()).resolves.toEqual([])
   })
 
+  it('clearUserScriptErrors(uuid) 只清该脚本，其余保留', async () => {
+    await appendUserScriptError({ uuid: 'u1', name: 'a', phase: 'runtime', message: 'u1-1', time: 1 })
+    await appendUserScriptError({ uuid: 'u2', name: 'b', phase: 'runtime', message: 'u2-1', time: 2 })
+    await appendUserScriptError({ uuid: 'u1', name: 'a', phase: 'register', message: 'u1-2', time: 3 })
+    await clearUserScriptErrors('u1')
+    await expect(listUserScriptErrors()).resolves.toEqual([
+      expect.objectContaining({ message: 'u2-1' }),
+    ])
+  })
+
+  it('clearUserScriptErrors(null) 只清「未归属」记录（不清 string uuid 的）', async () => {
+    await appendUserScriptError({ uuid: null, name: 's', phase: 'register', message: 'orphan-1', time: 1 })
+    await appendUserScriptError({ uuid: 'u1', name: 'a', phase: 'runtime', message: 'u1-1', time: 2 })
+    await appendUserScriptError({ uuid: null, name: 's', phase: 'bridge', message: 'orphan-2', time: 3 })
+    await clearUserScriptErrors(null)
+    await expect(listUserScriptErrors()).resolves.toEqual([
+      expect.objectContaining({ message: 'u1-1' }),
+    ])
+  })
+
+  it('按脚本清空：无该脚本记录时不误伤其他脚本', async () => {
+    await appendUserScriptError({ uuid: 'u2', name: 'b', phase: 'runtime', message: 'u2-1', time: 1 })
+    await clearUserScriptErrors('不存在')
+    await expect(listUserScriptErrors()).resolves.toHaveLength(1)
+  })
+
+  it('按脚本清空最后一条后，整个键被移除（不留空数组）', async () => {
+    await appendUserScriptError({ uuid: 'u1', name: 'a', phase: 'runtime', message: 'm', time: 1 })
+    await clearUserScriptErrors('u1')
+    await expect(listUserScriptErrors()).resolves.toEqual([])
+    expect(await fakeBrowser.storage.local.get('us:errors')).toEqual({})
+  })
+
   describe('findUserScriptError（错误 ID 查询）', () => {
     it('精确 id 命中（优先于前缀匹配）', async () => {
       await appendUserScriptError({

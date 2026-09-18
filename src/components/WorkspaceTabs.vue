@@ -6,6 +6,7 @@
 import { onMounted, ref } from 'vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
+  AlertTriangle as UiAlertTriangle,
   List as UiList,
   Pencil as UiPencil,
   Settings as UiSettings,
@@ -97,6 +98,7 @@ onMounted(async () => {
         class="gap-1.5 text-[12.5px]"
       >
         <ui-list v-if="tab.kind === 'userscript-list'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <ui-alert-triangle v-else-if="tab.kind === 'error-log'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-pencil v-else-if="tab.kind === 'userscript-edit'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <span class="truncate">{{ tab.title }}</span>

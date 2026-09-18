@@ -1,17 +1,16 @@
 <script setup lang="ts">
-// 用户脚本列表标签页：脚本管理的唯一入口 —— 列表 + 启停 + 零输入新建 +
-// 可用性横幅 + 错误日志面板（后两者 2026-09-15 自已删除的旧管理器 UserscriptManager 迁入；
-// 同日粘贴安装功能整体移除——UI、协议链与 installProject 一起删）。
+// 用户脚本列表标签页：脚本管理的唯一入口 —— 列表 + 启停 + 零输入新建 + 可用性横幅
+// （后两者 2026-09-15 自已删除的旧管理器 UserscriptManager 迁入；同日粘贴安装功能整体移除——
+// UI、协议链与 installProject 一起删）。2026-09-18：内嵌的错误日志面板抽成独立标签页
+// （UserscriptErrorLogPanel.vue），本页只留「错误日志（N）」入口。
 //
 // 数据通道：userscriptClient。workbench 是可信扩展页，可直接 chrome.runtime.sendMessage，
 // 因此不走 window.api（那是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   AlertTriangle as UiAlertTriangle,
   Braces as UiBraces,
   Check as UiCheck,
-  ChevronDown as UiChevronDown,
-  Copy as UiCopy,
   Download as UiDownload,
   FileQuestion as UiFileQuestion,
   LoaderCircle as UiLoaderCircle,
@@ -52,11 +51,9 @@ const emit = defineEmits<{
   edit: [uuid: string, title: string]
   /** 脚本已删除：宿主据此关掉它的编辑器标签（项目已不存在） */
   deleted: [uuid: string]
+  /** 请求打开错误日志标签页（由 WorkspaceHost 接管）；带 uuid 表示同时定位到该脚本 */
+  'open-error-log': [uuid?: string]
 }>()
-
-// 深链定位：浮窗「点击脚本行」→ workbench.html#/errors/<uuid> → 宿主传入。
-// 语义 = 打开错误日志、按该脚本过滤（带清除入口），不是一次性跳转后遗忘。
-const props = defineProps<{ focusErrorUuid?: string | null }>()
 
 const scripts = ref<ScriptSummary[]>([])
 const loading = ref(false)
@@ -74,109 +71,11 @@ const removeAllOpen = ref(false)
 /** 全部删除进行中：避免连点重复发起 */
 const removingAll = ref(false)
 
-// —— 错误日志面板（us:errors 环形日志，自旧管理器迁入）——
+// —— 错误日志入口（2026-09-18 变更）——
+// 原先此处内嵌着完整的错误日志折叠面板（按脚本分组 / 清空 / 深链过滤），同日已抽成独立标签页
+// UserscriptErrorLogPanel.vue（错误一多，折叠面板放不下），列表页只留一个入口按钮。
+// 故这里仍拉一次 errors —— **仅用于入口上的计数徽标**，不再承载任何日志 UI。
 const errors = ref<UserScriptErrorRecord[]>([])
-const errorsOpen = ref(false)
-/** 深链过滤：只看某脚本的错误（浮窗跳转 / 手动清除） */
-const errorFilterUuid = ref<string | null>(null)
-
-watch(
-  () => props.focusErrorUuid,
-  async (uuid) => {
-    if (!uuid) return
-    errorFilterUuid.value = uuid
-    errorsOpen.value = true
-    try {
-      errors.value = await userscriptClient.errors()
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
-    }
-  },
-  { immediate: true },
-)
-
-/** 错误按脚本分组（保持最新优先的组序；无 uuid 的记录按名称归组） */
-interface ErrorGroup {
-  key: string
-  uuid: string | null
-  name: string
-  items: UserScriptErrorRecord[]
-}
-const filteredErrors = computed(() =>
-  errorFilterUuid.value ? errors.value.filter((e) => e.uuid === errorFilterUuid.value) : errors.value,
-)
-const groupedErrors = computed<ErrorGroup[]>(() => {
-  const groups: ErrorGroup[] = []
-  const byKey = new Map<string, ErrorGroup>()
-  for (const e of filteredErrors.value) {
-    const key = e.uuid ?? `name:${e.name}`
-    let g = byKey.get(key)
-    if (!g) {
-      g = { key, uuid: e.uuid, name: e.name, items: [] }
-      byKey.set(key, g)
-      groups.push(g)
-    }
-    g.items.push(e)
-  }
-  return groups
-})
-const filterTargetName = computed(
-  () => scripts.value.find((s) => s.uuid === errorFilterUuid.value)?.name ?? errorFilterUuid.value ?? '',
-)
-
-/** 错误 ID 展示短形态（前 8 位；复制按钮复制完整 id） */
-function shortErrorId(id: string): string {
-  return id.slice(0, 8)
-}
-const copiedErrorId = ref('')
-async function copyErrorId(id: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(id)
-    copiedErrorId.value = id
-    window.setTimeout(() => (copiedErrorId.value = ''), 1500)
-  } catch (e) {
-    error.value = '复制失败：' + (e instanceof Error ? e.message : String(e))
-  }
-}
-
-const PHASE_LABEL: Record<UserScriptErrorRecord['phase'], string> = {
-  runtime: '运行期',
-  register: '注册',
-  bridge: 'DL 桥',
-}
-const PHASE_BADGE: Record<UserScriptErrorRecord['phase'], string> = {
-  runtime: 'bg-destructive/10 text-destructive',
-  register: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  bridge: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
-}
-function phaseLabel(p: UserScriptErrorRecord['phase']): string {
-  return PHASE_LABEL[p]
-}
-function phaseBadgeClass(p: UserScriptErrorRecord['phase']): string {
-  return PHASE_BADGE[p]
-}
-function formatTime(t: number): string {
-  return new Date(t).toLocaleString()
-}
-/** 展开面板时拉一次最新错误（折叠态靠 refresh 的计数就够） */
-async function toggleErrors(): Promise<void> {
-  errorsOpen.value = !errorsOpen.value
-  if (errorsOpen.value) {
-    try {
-      errors.value = await userscriptClient.errors()
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
-    }
-  }
-}
-async function clearErrors(): Promise<void> {
-  try {
-    await userscriptClient.clearErrors()
-    errors.value = []
-  } catch (e) {
-    error.value = '清空失败：' + (e instanceof Error ? e.message : String(e))
-  }
-}
 
 const enabledCount = computed(() => scripts.value.filter((s) => s.enabled).length)
 
@@ -427,10 +326,24 @@ onMounted(() => {
       <div class="mx-auto max-w-3xl space-y-3">
         <!-- 不设面板标题：当前标签名已经标明这是脚本列表 -->
         <header class="flex items-center justify-between gap-2">
-          <p class="text-xs text-muted-foreground">
-            共 {{ scripts.length }} 个脚本
-            <template v-if="scripts.length">· {{ enabledCount }} 个已启用</template>
-          </p>
+          <div class="flex min-w-0 items-center gap-2">
+            <p class="shrink-0 text-xs text-muted-foreground">
+              共 {{ scripts.length }} 个脚本
+              <template v-if="scripts.length">· {{ enabledCount }} 个已启用</template>
+            </p>
+            <!-- 错误日志入口：有错误才出现（无错误时左侧导航栏仍有常驻入口，此处不占位制造噪音） -->
+            <ui-button
+              v-if="errors.length"
+              variant="ghost"
+              size="sm"
+              class="h-6 shrink-0 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10"
+              title="打开错误日志标签页（按脚本分类：运行期报错 / 注册失败 / DL 桥失败）"
+              @click="emit('open-error-log')"
+            >
+              <ui-alert-triangle class="size-3.5" />
+              错误日志 {{ errors.length }}
+            </ui-button>
+          </div>
           <div class="flex shrink-0 items-center gap-1">
             <ui-button
               variant="ghost"
@@ -656,73 +569,6 @@ onMounted(() => {
           </div>
         </section>
 
-        <!-- 错误日志面板：运行期 / 注册 / DL 桥失败汇总（环形保留最近 N 条） -->
-        <section class="rounded-md border bg-card">
-          <div class="flex items-center justify-between px-3 py-2">
-            <button
-              type="button"
-              class="flex items-center gap-1.5 text-xs font-medium"
-              @click="toggleErrors"
-            >
-              <ui-alert-triangle class="size-3.5 text-destructive" />
-              错误日志（{{ errors.length }}）
-              <ui-chevron-down class="size-3.5 transition-transform" :class="{ 'rotate-180': errorsOpen }" />
-            </button>
-            <ui-button
-              v-if="errors.length"
-              variant="ghost"
-              size="sm"
-              class="h-6 px-2 text-xs"
-              @click="clearErrors"
-            >
-              清空
-            </ui-button>
-          </div>
-          <div v-if="errorsOpen" class="border-t px-3 py-2">
-            <div class="flex items-center justify-between">
-              <p v-if="!filteredErrors.length" class="text-xs text-muted-foreground">
-                {{ errorFilterUuid ? '该脚本暂无错误。' : '暂无错误。' }}
-              </p>
-              <ui-button
-                v-if="errorFilterUuid"
-                variant="ghost"
-                size="sm"
-                class="h-6 px-2 text-xs"
-                title="清除过滤，显示全部"
-                @click="errorFilterUuid = null"
-              >
-                只看：{{ filterTargetName }} ×
-              </ui-button>
-            </div>
-            <div v-for="g in groupedErrors" :key="g.key" class="mt-1.5">
-              <p class="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
-                <span class="truncate">{{ g.name }}</span>
-                <span class="shrink-0">（{{ g.items.length }}）</span>
-              </p>
-              <ul class="mt-1 flex flex-col gap-2">
-                <li v-for="e in g.items" :key="e.id" class="text-xs">
-                  <div class="flex flex-wrap items-center gap-1.5">
-                    <span :class="phaseBadgeClass(e.phase)" class="rounded px-1.5 py-0.5 text-[10px] font-medium">{{ phaseLabel(e.phase) }}</span>
-                    <span class="text-muted-foreground">{{ formatTime(e.time) }}</span>
-                    <button
-                      type="button"
-                      class="ml-auto flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted"
-                      :title="`复制完整错误 ID（发给 AI 可自动查询修复）：${e.id}`"
-                      @click="copyErrorId(e.id)"
-                    >
-                      <ui-check v-if="copiedErrorId === e.id" class="size-3 text-green-600" />
-                      <ui-copy v-else class="size-3" />
-                      {{ shortErrorId(e.id) }}
-                    </button>
-                  </div>
-                  <p class="mt-1 break-all text-destructive">{{ e.message }}</p>
-                  <p v-if="e.url" class="mt-0.5 truncate text-muted-foreground">{{ e.url }}</p>
-                  <pre v-if="e.stack" class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-[11px] leading-relaxed">{{ e.stack }}</pre>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </section>
       </div>
     </div>
 
