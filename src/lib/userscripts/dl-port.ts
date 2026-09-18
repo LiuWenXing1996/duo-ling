@@ -224,7 +224,10 @@ export function initDlPort(): void {
   // 不走通用 onConnect（与 onUserScriptMessage 同理，官方文档明文）。挂 onConnect 永远收不到
   // 脚本世界的连接（实测症状：SW 无任何 Port 日志、脚本侧 port.ready 超时）。
   const onScriptConnect = chrome.runtime.onUserScriptConnect
-  if (typeof onScriptConnect?.addListener !== 'function') return
+  if (typeof onScriptConnect?.addListener !== 'function') {
+    console.warn('[duoling:dl] runtime.onUserScriptConnect 不可用，DL Port 未挂载（下行事件全失效）')
+    return
+  }
   const registry = getDlPortRegistry()
 
   // Port 建立与清理
