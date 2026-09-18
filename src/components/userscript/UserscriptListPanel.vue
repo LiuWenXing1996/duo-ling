@@ -52,6 +52,8 @@ const emit = defineEmits<{
   edit: [uuid: string, title: string]
   /** 脚本已删除：宿主据此关掉它的编辑器标签（项目已不存在） */
   deleted: [uuid: string]
+  /** 需要开权限（横幅 / 注册失败警告）：请宿主切到引导标签页 */
+  openGuide: []
 }>()
 
 // 深链定位：浮窗「点击脚本行」→ workbench.html#/errors/<uuid> → 宿主传入。
@@ -502,7 +504,7 @@ onMounted(() => {
           </div>
         </header>
 
-        <!-- 可用性横幅：仅在引擎不可用或 CSP 未放开时显示（有需要用户行动的信息才占位） -->
+        <!-- 可用性横幅：仅在引擎不可用时显示（有需要用户行动的信息才占位） -->
         <div
           v-if="availability && !availability.available"
           class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs"
@@ -512,12 +514,17 @@ onMounted(() => {
             用户脚本引擎不可用
           </p>
           <p class="mt-1 leading-relaxed text-muted-foreground">{{ availability.guideText }}</p>
-        </div>
-        <div
-          v-else-if="availability?.available && !availability.cspPermissive"
-          class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-600 dark:text-amber-400"
-        >
-          当前环境未放开 USER_SCRIPT 世界 CSP，依赖 eval / 内联的脚本可能运行失败（多见于旧版 Chrome）。
+          <!-- 引导入口：完整步骤与「打开扩展管理页」按钮都在引导标签页，本页只留一句提示 -->
+          <ui-button
+            type="button"
+            variant="outline"
+            size="xs"
+            class="mt-2"
+            data-testid="open-guide"
+            @click="emit('openGuide')"
+          >
+            查看开启引导
+          </ui-button>
         </div>
 
         <p
@@ -527,12 +534,23 @@ onMounted(() => {
           {{ error }}
         </p>
 
-        <p
+        <div
           v-if="warning"
           class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400"
         >
-          {{ warning }}
-        </p>
+          <p>{{ warning }}</p>
+          <!-- 注册失败的排查（权限开关 / 世界配置）写在引导页，此处只给入口（文案不重复一份） -->
+          <ui-button
+            type="button"
+            variant="outline"
+            size="xs"
+            class="mt-1.5"
+            data-testid="warning-open-guide"
+            @click="emit('openGuide')"
+          >
+            查看开启引导
+          </ui-button>
+        </div>
 
         <p
           v-if="loading && !scripts.length"

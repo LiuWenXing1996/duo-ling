@@ -58,11 +58,15 @@ const emit = defineEmits<{
   openHistory: [uuid: string, title: string]
   /** 请求打开本脚本的产物标签页（只读浏览构建产物，us-bundle:<uuid>） */
   openBundle: [uuid: string, title: string]
+  /** 保存后注册失败（多半是没开权限）：请宿主切到引导标签页 */
+  openGuide: []
 }>()
 
 const loading = ref(true)
 const error = ref('')
 const notice = ref('')
+/** 本条 notice 是否属「去开权限」类（保存时注册失败）：决定是否附带引导入口 */
+const noticeNeedsGuide = ref(false)
 
 // —— 编辑态 ——
 const scriptName = ref('')
@@ -570,6 +574,7 @@ async function saveEdit(): Promise<void> {
   if (building.value) return
   error.value = ''
   notice.value = ''
+  noticeNeedsGuide.value = false
   buildIssues.value = []
   // 配置表单解析（matches 必填在前端先拦一道）；config 拼装与草稿写共用 currentConfig()
   const matches = parseMatches(editMatches.value)
@@ -664,13 +669,22 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 提示条（保存成功 / CSP 警告 / 恢复结果） -->
-      <p
+      <!-- 提示条（保存成功 / CSP 警告 / 恢复结果）；注册失败时附带引导入口 -->
+      <div
         v-if="notice"
         class="shrink-0 border-b border-border bg-accent/50 px-4 py-2 text-xs text-accent-foreground"
       >
-        {{ notice }}
-      </p>
+        <p>{{ notice }}</p>
+        <button
+          v-if="noticeNeedsGuide"
+          type="button"
+          class="mt-1.5 shrink-0 rounded-md border border-border bg-background px-2 py-0.5 text-xs hover:bg-accent"
+          data-testid="notice-open-guide"
+          @click="emit('openGuide')"
+        >
+          查看开启引导
+        </button>
+      </div>
       <p
         v-if="error"
         class="shrink-0 border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive"

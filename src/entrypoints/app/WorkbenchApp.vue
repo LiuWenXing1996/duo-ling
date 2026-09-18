@@ -29,6 +29,7 @@ const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
 //   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
 //   #/errors/<uuid> → 打开脚本列表并把错误日志定位到该脚本（页面浮窗点击脚本行跳转）
 //   #/settings    → 打开设置标签页
+//   #/guide       → 打开引导标签页（侧边栏「查看开启引导」跳这里）
 onMounted(() => {
   const tool = location.hash.match(/^#\/tool\/([A-Za-z0-9-]+)/)
   if (tool) {
@@ -40,6 +41,10 @@ onMounted(() => {
   const err = location.hash.match(/^#\/errors\/([A-Za-z0-9-]+)/)
   if (err) {
     workspaceRef.value?.openUserscriptListTab(err[1])
+    return
+  }
+  if (location.hash === '#/guide') {
+    workspaceRef.value?.openGuideTab()
     return
   }
   if (location.hash === '#/settings') workspaceRef.value?.openSettingsTab()
@@ -54,6 +59,16 @@ onMounted(() => {
     <!-- 左侧图标导航栏 + 右侧工作区 -->
     <div class="workspace-main">
       <aside class="workspace-nav">
+        <!-- 引导：需要用户去浏览器里开权限/开关的集中说明页，各处「查看开启引导」都落这里 -->
+        <button
+          class="workspace-nav-item"
+          type="button"
+          aria-label="引导"
+          title="引导（开启运行用户脚本等权限）"
+          @click="workspaceRef?.openGuideTab()"
+        >
+          <ui-compass class="size-5" />
+        </button>
         <button
           class="workspace-nav-item"
           type="button"
@@ -102,7 +117,7 @@ onMounted(() => {
       </aside>
 
       <section class="workspace-panel workspace-panel--grow">
-        <!-- 多标签页：主页（脚本工作台概览）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器 / lfs 浏览 -->
+        <!-- 多标签页容器：左侧导航各项各自开标签，默认落脚本列表（不可关闭） -->
         <workspace-host ref="workspaceRef" />
       </section>
     </div>

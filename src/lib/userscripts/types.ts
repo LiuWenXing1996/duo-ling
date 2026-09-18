@@ -60,8 +60,6 @@ export interface UserScriptsAvailability {
   chromeMajor: number
   /** 不可用时的引导文案（按浏览器 / 版本分支） */
   guideText: string
-  /** USER_SCRIPT 世界是否放开了宽松 CSP；false 时依赖 eval/内联的脚本可能失败 */
-  cspPermissive: boolean
 }
 
 /** 脚本错误记录（storage.local 键 us:errors；环形保留最近 N 条，供错误日志面板） */
