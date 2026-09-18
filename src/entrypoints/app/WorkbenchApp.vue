@@ -9,7 +9,7 @@
 // 导航项：设置 / UI 测试 / 脚本列表。
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
-  AlertTriangle as UiAlertTriangle,
+  History as UiHistory,
   Compass as UiCompass,
   Database as UiDatabase,
   FlaskConical as UiFlaskConical,
@@ -18,6 +18,12 @@ import {
   Settings as UiSettings
 } from '@lucide/vue'
 import WorkspaceHost from '@/components/WorkspaceHost.vue'
+import {
+  Tooltip as UiTooltip,
+  TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider,
+  TooltipTrigger as UiTooltipTrigger
+} from '@/components/ui/tooltip'
 import { getProject } from '@/lib/userscripts/project-store'
 
 // 左侧导航栏「设置」「脚本列表」等：调用工作区的对应方法
@@ -25,7 +31,7 @@ const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
 
 // hash 深链（openWorkbench 的约定）：
 //   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
-//   #/errors/<uuid> → 打开错误日志标签页并定位到该脚本（侧边栏灵动岛点击脚本行跳转）
+//   #/errors/<uuid> → 打开运行日志标签页并定位到该脚本（侧边栏灵动岛点击脚本行跳转）
 //   #/settings    → 打开设置标签页
 //   #/guide       → 打开引导标签页（侧边栏「查看开启引导」跳这里）
 function handleHash(): void {
@@ -65,70 +71,112 @@ onUnmounted(() => window.removeEventListener('hashchange', handleHash))
     <!-- 左侧图标导航栏 + 右侧工作区 -->
     <div class="workspace-main">
       <aside class="workspace-nav">
-        <!-- 引导：需要用户去浏览器里开权限/开关的集中说明页，各处「查看开启引导」都落这里 -->
-        <button
-          class="workspace-nav-item"
-          type="button"
-          aria-label="引导"
-          title="引导（开启运行用户脚本等权限）"
-          @click="workspaceRef?.openGuideTab()"
-        >
-          <ui-compass class="size-5" />
-        </button>
-        <button
-          class="workspace-nav-item"
-          type="button"
-          aria-label="设置"
-          title="设置"
-          @click="workspaceRef?.openSettingsTab()"
-        >
-          <ui-settings class="size-5" />
-        </button>
-        <button
-          class="workspace-nav-item"
-          type="button"
-          aria-label="UI 测试"
-          title="UI 测试"
-          @click="workspaceRef?.openUiTestTab()"
-        >
-          <ui-flask-conical class="size-5" />
-        </button>
-        <button
-          class="workspace-nav-item"
-          type="button"
-          aria-label="脚本列表"
-          title="脚本列表"
-          @click="workspaceRef?.openUserscriptListTab()"
-        >
-          <ui-list class="size-5" />
-        </button>
-        <button
-          class="workspace-nav-item"
-          type="button"
-          aria-label="错误日志"
-          title="错误日志（按脚本分类：运行期报错 / 注册失败 / DL 桥失败）"
-          @click="workspaceRef?.openErrorLogTab()"
-        >
-          <ui-alert-triangle class="size-5" />
-        </button>
-        <button
-          class="workspace-nav-item"
-          type="button"
-          aria-label="lfs 浏览"
-          title="lfs 浏览（offscreen lightning-fs 整库只读视图）"
-          @click="workspaceRef?.openLfsBrowserTab()"
-        >
-          <ui-folder-tree class="size-5" />
-        </button>
-        <button
-          class="workspace-nav-item"
-          type="button"
-          aria-label="会话数据"
-          title="会话数据（IndexedDB 会话库落盘原始记录，只读）"
-          @click="workspaceRef?.openChatDataTab()"
-        >
-          <ui-database class="size-5" />
-        </button>
+        <ui-tooltip-provider>
+          <!-- 引导：需要用户去浏览器里开权限/开关的集中说明页，各处「查看开启引导」都落这里 -->
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <button
+                class="workspace-nav-item"
+                type="button"
+                aria-label="引导"
+                @click="workspaceRef?.openGuideTab()"
+              >
+                <ui-compass class="size-5" />
+              </button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content side="right">引导</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <button
+                class="workspace-nav-item"
+                type="button"
+                aria-label="设置"
+                @click="workspaceRef?.openSettingsTab()"
+              >
+                <ui-settings class="size-5" />
+              </button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content side="right">设置</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <button
+                class="workspace-nav-item"
+                type="button"
+                aria-label="UI 测试"
+                @click="workspaceRef?.openUiTestTab()"
+              >
+                <ui-flask-conical class="size-5" />
+              </button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content side="right">UI 测试</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <button
+                class="workspace-nav-item"
+                type="button"
+                aria-label="脚本列表"
+                @click="workspaceRef?.openUserscriptListTab()"
+              >
+                <ui-list class="size-5" />
+              </button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content side="right">脚本列表</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <button
+                class="workspace-nav-item"
+                type="button"
+                aria-label="运行日志"
+                @click="workspaceRef?.openErrorLogTab()"
+              >
+                <ui-history class="size-5" />
+              </button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content side="right">运行日志</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <button
+                class="workspace-nav-item"
+                type="button"
+                aria-label="lfs 浏览"
+                @click="workspaceRef?.openLfsBrowserTab()"
+              >
+                <ui-folder-tree class="size-5" />
+              </button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content side="right">lfs 浏览</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <button
+                class="workspace-nav-item"
+                type="button"
+                aria-label="会话数据"
+                @click="workspaceRef?.openChatDataTab()"
+              >
+                <ui-database class="size-5" />
+              </button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content side="right">会话数据</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
       </aside>
 
       <section class="workspace-panel workspace-panel--grow">

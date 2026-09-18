@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 用户脚本列表标签页：脚本管理的唯一入口 —— 列表 + 启停 + 零输入新建 + 可用性横幅。
-// 错误日志是历史信息，由独立「错误日志」标签页承载（左侧导航进入），本页不展示任何脚本报错
+// 错误日志是历史信息，由独立「运行日志」标签页承载（左侧导航进入），本页不展示任何脚本报错
 // —— 环境级问题仅靠下方 availability 横幅兜底。
 //
 // 数据通道：userscriptClient。workbench 是可信扩展页，可直接 chrome.runtime.sendMessage，
@@ -97,7 +97,7 @@ const removingAll = ref(false)
 /** 批量启停进行中：避免连点重复发起（与单条 toggling 互不阻塞，但入口都置灰） */
 const batchToggling = ref(false)
 
-// 脚本列表不展示错误日志：报错属于历史信息，由独立「错误日志」标签页承载（左侧导航进入）。
+// 脚本列表不展示错误日志：报错属于历史信息，由独立「运行日志」标签页承载（左侧导航进入）。
 // 环境级问题（如引擎不可用）由下方 availability 横幅统一兜底，不按脚本逐条复述。
 const enabledCount = computed(() => scripts.value.filter((s) => s.enabled).length)
 const failedCount = computed(() => scripts.value.filter((s) => !s.buildOk).length)
@@ -193,7 +193,7 @@ async function onToggle(s: ScriptSummary, next: boolean): Promise<void> {
  * 批量启停：列表页本地循环复用单条 toggle（不新增后端批量命令——命令面保持最小）。
  * 只对状态待变的脚本发起；逐条容错，任一失败不中断，最后汇总报错。
  * 与单条 onToggle 的「数据写成功即更新开关」语义一致：注册失败不回拨开关，
- * 原因归错误日志标签页，这里只报传输层失败。
+ * 原因归运行日志标签页，这里只报传输层失败。
  */
 async function onToggleAll(next: boolean): Promise<void> {
   if (batchToggling.value) return
@@ -232,7 +232,7 @@ async function onCreate(): Promise<void> {
   error.value = ''
   try {
     // 注册失败不算创建失败（数据已落库），行标照打、人在列表里按需进编辑器。
-    // **不在这里报注册失败**：报错属历史信息，由独立「错误日志」标签页承载；环境级失败
+    // **不在这里报注册失败**：报错属历史信息，由独立「运行日志」标签页承载；环境级失败
     // （userScripts 未授权）由上方 availability 横幅兜底——在列表再说一遍就是同一件事两次。
     const { uuid } = await userscriptClient.create()
     justCreated.value = [...justCreated.value, uuid]
@@ -453,6 +453,10 @@ useDataSync('script', (push) => {
   return refresh()
 })
 
+// 运行统计（us:run-stats:*）在 SW 侧随脚本注入 / 运行期错误落盘后广播 `runstats` 域，
+// 这里接住回拉，运行计数与「上次运行」时刻不必手动刷新
+useDataSync('runstats', () => refresh())
+
 /** 状态标的悬停提示：最近一次构建的时刻（成败共用） */
 function lastBuildLabel(s: ScriptSummary): string {
   return s.lastBuildAt ? `最近构建：${updatedAtLabel(s.lastBuildAt)}` : '最近构建'
@@ -471,16 +475,23 @@ function lastBuildLabel(s: ScriptSummary): string {
             <template v-if="isFiltering">· 筛选显示 {{ visibleScripts.length }} 个</template>
           </p>
           <div class="flex shrink-0 items-center gap-1">
-            <ui-button
-              variant="ghost"
-              size="icon"
-              class="size-7"
-              title="刷新列表"
-              :disabled="loading"
-              @click="refresh"
-            >
-              <ui-refresh-cw class="size-3.5" :class="{ 'animate-spin': loading }" />
-            </ui-button>
+            <ui-tooltip-provider>
+              <ui-tooltip>
+                <ui-tooltip-trigger as-child>
+                  <ui-button
+                    variant="ghost"
+                    size="icon"
+                    class="size-7"
+                    aria-label="刷新列表"
+                    :disabled="loading"
+                    @click="refresh"
+                  >
+                    <ui-refresh-cw class="size-3.5" :class="{ 'animate-spin': loading }" />
+                  </ui-button>
+                </ui-tooltip-trigger>
+                <ui-tooltip-content>刷新列表</ui-tooltip-content>
+              </ui-tooltip>
+            </ui-tooltip-provider>
             <!-- 导入 zip：file picker（拖拽导入后置），offscreen 单写方落盘后按成功动线分流 -->
             <ui-button
               variant="ghost"
@@ -743,6 +754,17 @@ function lastBuildLabel(s: ScriptSummary): string {
                     · {{ updatedAtLabel(s.updatedAt) }}
                   </template>
                 </span>
+                <!-- 运行统计（us:run-stats:*，有统计才渲染；runstats 域广播驱动实时回拉） -->
+                <span v-if="s.runCount !== undefined" class="shrink-0" data-testid="run-stats">
+                  · 运行 {{ s.runCount }} 次<template v-if="s.lastRunAt">，上次 {{ updatedAtLabel(s.lastRunAt) }}</template>
+                </span>
+                <span
+                  v-if="s.lastRunErrors"
+                  class="shrink-0 text-destructive"
+                  title="最近一次运行捕获的运行期错误数（详见运行日志标签页）"
+                >
+                  · 上次运行 {{ s.lastRunErrors }} 个错误
+                </span>
               </div>
             </div>
 
@@ -755,36 +777,57 @@ function lastBuildLabel(s: ScriptSummary): string {
               >
                 <ui-switch-thumb />
               </ui-switch>
-              <ui-button
-                variant="ghost"
-                size="icon"
-                class="size-7"
-                title="编辑脚本"
-                @click="openEditor(s)"
-              >
-                <ui-pencil class="size-3.5" />
-              </ui-button>
+              <ui-tooltip-provider>
+                <ui-tooltip>
+                  <ui-tooltip-trigger as-child>
+                    <ui-button
+                      variant="ghost"
+                      size="icon"
+                      class="size-7"
+                      aria-label="编辑脚本"
+                      @click="openEditor(s)"
+                    >
+                      <ui-pencil class="size-3.5" />
+                    </ui-button>
+                  </ui-tooltip-trigger>
+                  <ui-tooltip-content>编辑脚本</ui-tooltip-content>
+                </ui-tooltip>
+              </ui-tooltip-provider>
               <!-- 导出（zip）：确认弹窗统一带隐私提示 -->
-              <ui-button
-                variant="ghost"
-                size="icon"
-                class="size-7"
-                title="导出脚本（zip）"
-                :disabled="exporting"
-                @click="askExportSingle(s)"
-              >
-                <ui-download class="size-3.5" />
-              </ui-button>
-              <ui-button
-                variant="ghost"
-                size="icon"
-                class="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                title="删除脚本"
-                :disabled="removing === s.uuid"
-                @click="askRemove(s)"
-              >
-                <ui-trash2 class="size-3.5" />
-              </ui-button>
+              <ui-tooltip-provider>
+                <ui-tooltip>
+                  <ui-tooltip-trigger as-child>
+                    <ui-button
+                      variant="ghost"
+                      size="icon"
+                      class="size-7"
+                      aria-label="导出脚本（zip）"
+                      :disabled="exporting"
+                      @click="askExportSingle(s)"
+                    >
+                      <ui-download class="size-3.5" />
+                    </ui-button>
+                  </ui-tooltip-trigger>
+                  <ui-tooltip-content>导出脚本（zip）</ui-tooltip-content>
+                </ui-tooltip>
+              </ui-tooltip-provider>
+              <ui-tooltip-provider>
+                <ui-tooltip>
+                  <ui-tooltip-trigger as-child>
+                    <ui-button
+                      variant="ghost"
+                      size="icon"
+                      class="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      aria-label="删除脚本"
+                      :disabled="removing === s.uuid"
+                      @click="askRemove(s)"
+                    >
+                      <ui-trash2 class="size-3.5" />
+                    </ui-button>
+                  </ui-tooltip-trigger>
+                  <ui-tooltip-content>删除脚本</ui-tooltip-content>
+                </ui-tooltip>
+              </ui-tooltip-provider>
             </div>
           </div>
         </div>

@@ -65,7 +65,7 @@ const HEADER_H = 28
 
         <!-- 展开面板：常驻挂载，靠 motion 的 height auto↔HEADER_H 形变 + overflow-hidden 裁切。
              行结构：脚本名 + 右侧状态（运行中 / ⚠ N），
-             错误详情挂 hover title，行可点 → 工作台错误日志 -->
+             错误详情挂 hover title，行可点 → 工作台运行日志 -->
         <div class="max-h-44 shrink-0 overflow-y-auto border-t border-background/15 px-3 py-1">
           <div v-if="host" class="truncate py-1 text-xs font-semibold opacity-80">{{ host }}</div>
           <button
@@ -94,7 +94,7 @@ const HEADER_H = 28
           </div>
         </div>
         <div class="shrink-0 border-t border-background/15 bg-background/5 px-3 py-1 text-[10px] opacity-50">
-          点击脚本 → 工作台错误日志
+          点击脚本 → 工作台运行日志
         </div>
       </motion.div>
     </MotionConfig>

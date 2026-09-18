@@ -101,8 +101,10 @@ export type RuntimeRequest =
   // 引擎保活应答（offscreen → SW，5s 一次）：offscreen 心跳的**唯一职责是给 SW 保活**
   // （重置 30s 空闲计时），不做任何检测——检测在 SW 自身的轮询（availability-watch.ts）。
   | { kind: 'userscript:healthCheck' }
-  | { kind: 'userscript:errors' }
-  // 清错误日志。三态靠「字段在不在」区分，**不可用 falsy 判定**：
+  // 运行日志时间线：运行行（us:run-log）+ 无法归属的错误行按时间倒序混排（listRunTimeline）
+  | { kind: 'userscript:runlog' }
+  // 清错误日志（us:errors；「全部/该脚本」范围同时清 us:run-log 对应条目）。三态靠「字段在不在」区分，**不可用 falsy 判定**：
+  //   不带该字段 = 清全部；uuid: string = 只清该脚本；uuid: null = 只清「未归属」错误记录（run-log 不动）。
   //   不带该字段 = 清全部；uuid: string = 只清该脚本；uuid: null = 只清「未归属」记录。
   // unassigned 用显式 null 而非 undefined：结构化克隆会保留 null，而 undefined 值在部分
   // 序列化路径下与「字段缺失」无法区分（Firefox / JSON 回退），故调用方必须省略字段而非传 undefined。
@@ -242,6 +244,8 @@ export type DataDomain =
   | 'model'
   /** 用户脚本错误日志（us:errors） */
   | 'error'
+  /** 用户脚本运行统计（us:run-stats:*，按脚本聚合计数） */
+  | 'runstats'
 
 /**
  * 一次落盘的变更通知：**只带「哪个域的哪条变了」，不带数据本身**。

@@ -5,7 +5,7 @@
 // 这里复用与 window-api.ts 同构的 send 信封（统一解包 { ok, data|error }），
 // 直接发 userscript:* 命令组（v2 方案）。
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
-import type { ImportReport, ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
+import type { ImportReport, ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptRunLogRow } from './types'
 import type { SourceTree, UsCommit, UsHistoryTree } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
 
@@ -119,11 +119,13 @@ export const userscriptClient = {
   toggle: (uuid: string, enabled: boolean): Promise<{ registerError?: string }> =>
     send({ kind: 'userscript:toggle', uuid, enabled }),
 
-  /** 错误日志：列出全部错误（最新在前） */
-  errors: (): Promise<UserScriptErrorRecord[]> => send({ kind: 'userscript:errors' }),
+  /** 运行日志时间线：运行行 + 孤儿错误行按时间倒序混排（运行日志标签页） */
+  runlog: (): Promise<UserScriptRunLogRow[]> => send({ kind: 'userscript:runlog' }),
 
-  /** 清空错误日志：缺省清全部；传 uuid 只清该脚本；传 null 只清「未归属」记录（uuid 为 null 的）。
-   *  「清全部」必须**省略字段**而非传 undefined——undefined 值在部分序列化路径下与字段缺失无法区分。 */
+  /** 清空错误日志（us:errors；「全部/该脚本」范围连带清运行日志 us:run-log 对应条目）。
+   *  缺省清全部；传 uuid 只清该脚本；传 null 只清「未归属」错误记录（us:errors 里 uuid 为 null 的，
+   *  run-log 条目必带 uuid，此形态下不动）。「清全部」必须**省略字段**而非传 undefined——
+   *  undefined 值在部分序列化路径下与字段缺失无法区分。 */
   clearErrors: (uuid?: string | null): Promise<void> =>
     send(uuid === undefined ? { kind: 'userscript:clearErrors' } : { kind: 'userscript:clearErrors', uuid }),
 }

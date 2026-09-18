@@ -6,7 +6,7 @@
 // 消息分流（契约定义）：
 //   { __dl: true, uuid, req: ApiRequest }        —— 请求-响应，按 req.c 强类型分发（穷尽性检查）
 //   { __dlEvent: true, uuid, name, event: DlEvent } —— 单向错误上报，收进 us:errors
-//   { __dlRunStart: true, uuid, runId }          —— 运行标识广播：交侧边栏监控按 tab 登记，不落盘
+//   { __dlRunStart: true, uuid, name, runId }    —— 运行标识广播：交侧边栏监控按 tab 登记
 //
 // 安全性：消息来源天然是「不可信用户脚本」，故校验 sender.userScript.scriptId 与消息里的 uuid 一致，
 // 防止伪造身份读写其它脚本的私有存储。background 的 SW 内 fetch 受 <all_urls> host 权限豁免 CORS，
@@ -29,6 +29,7 @@ import {
   listGMKeys,
   clearGMValues,
   appendUserScriptError,
+  recordRunStart,
 } from './store'
 
 /** 通知兜底图标（打包资源）。MV3 的 notifications.create 不接受 data: URL 图标
@@ -235,14 +236,19 @@ export function initDlBridge(): void {
   // 并返回 true 保持通道打开（沿用旧 GM 桥已验证的写法）。
   chrome.runtime.onUserScriptMessage.addListener((raw, sender, sendResponse) => {
     // 运行标识广播（DL 包装注入即发）：交侧边栏监控按 tab 登记。
-    const run = raw as { __dlRunStart?: true; uuid?: string; runId?: string }
+    const run = raw as { __dlRunStart?: true; uuid?: string; name?: string; runId?: string }
     if (run && run.__dlRunStart === true) {
       const tabId = sender.tab?.id
       if (tabId != null && run.uuid && run.runId) {
         // 侧边栏监控（跨文档观察者）：SW 侧按 tab 登记运行集，面板切 tab 时靠它出快照
         noteRunStart(tabId, run.uuid, run.runId)
       }
-      return undefined // 仅登记，无需响应、不落盘
+      // 运行统计 + 运行日志（us:run-stats:* / us:run-log，按脚本聚合落盘）：与 tab 无关，
+      // 有无 tabId 都记；同一 runId 的 load 补播在写侧按 lastRunId 去重。失败不影响监控登记。
+      if (run.uuid && run.runId) {
+        void recordRunStart(run.uuid, run.runId, run.name).catch(() => {})
+      }
+      return undefined // 仅登记，无需响应
     }
 
     // 单向错误上报（DL 包装的 window.onerror / unhandledrejection）

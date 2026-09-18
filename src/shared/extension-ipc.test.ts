@@ -60,7 +60,7 @@ const ALL_KINDS = [
   { kind: 'userscript:toggle', side: 'sw' },
   { kind: 'userscript:availability', side: 'sw' },
   { kind: 'userscript:healthCheck', side: 'sw' },
-  { kind: 'userscript:errors', side: 'sw' },
+  { kind: 'userscript:runlog', side: 'sw' },
   { kind: 'userscript:errorRead', side: 'sw' },
   { kind: 'userscript:clearErrors', side: 'sw' },
   { kind: 'userscript:import', side: 'sw' },

@@ -11,6 +11,12 @@
 import { onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import { Database as UiDatabase, RefreshCw as UiRefreshCw } from '@lucide/vue'
+import {
+  Tooltip as UiTooltip,
+  TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider,
+  TooltipTrigger as UiTooltipTrigger
+} from '@/components/ui/tooltip'
 import * as conversationStore from '@/lib/conversation-store'
 import type { Conversation, Message } from '@/shared/types'
 
@@ -109,16 +115,23 @@ function pageContextLabel(m: Message): string {
           <ui-database class="size-4 text-muted-foreground" />
           会话库（{{ conversations.length }}）
         </div>
-        <button
-          type="button"
-          class="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          :disabled="loading"
-          title="重新读取"
-          data-testid="chat-data-refresh"
-          @click="refresh()"
-        >
-          <ui-refresh-cw class="size-4" :class="{ 'animate-spin': loading }" />
-        </button>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <button
+                type="button"
+                class="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                :disabled="loading"
+                aria-label="重新读取"
+                data-testid="chat-data-refresh"
+                @click="refresh()"
+              >
+                <ui-refresh-cw class="size-4" :class="{ 'animate-spin': loading }" />
+              </button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content>重新读取</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
       </header>
       <p v-if="error" class="m-2 rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive" role="alert">
         {{ error }}

@@ -184,15 +184,22 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
 
   // —————————————————————— 删除脚本的连带清理 ——————————————————————
 
-  test('删除脚本连带清掉它的报错记录（错误日志不留已删脚本的孤儿分组）', async () => {
+  test('删除脚本连带清掉它的报错记录（运行日志不留已删脚本的孤儿行）', async () => {
     test.skip(!userScriptsAvailable, 'chrome.userScripts 在无头 Chromium 下不可用（引导失败），转手测')
 
-    /** 错误日志里当前出现过的脚本 uuid（经 SW 读命令；信封异常时回空数组，由断言兜底） */
+    /** 运行日志时间线里当前出现过的脚本 uuid（运行行取 uuid，错误行取 record.uuid；
+     *  经 SW 读命令；信封异常时回空数组，由断言兜底） */
     const errorUuids = async (): Promise<string[]> => {
-      const res = await sendToSw<Array<{ uuid: string | null }>>(messenger!, { kind: 'userscript:errors' })
-      return res.ok ? res.data.map((e) => e.uuid).filter((u): u is string => u !== null) : []
+      const res = await sendToSw<Array<{ kind: string; uuid?: string; record?: { uuid: string | null } }>>(
+        messenger!,
+        { kind: 'userscript:runlog' },
+      )
+      if (!res.ok) return []
+      return res.data
+        .map((r) => (r.kind === 'run' ? r.uuid : (r.record?.uuid ?? null)))
+        .filter((u): u is string => u !== null)
     }
-    expect((await sendToSw<unknown[]>(messenger!, { kind: 'userscript:errors' })).ok, 'userscript:errors 应可读').toBe(true)
+    expect((await sendToSw<unknown[]>(messenger!, { kind: 'userscript:runlog' })).ok, 'userscript:runlog 应可读').toBe(true)
 
     // 1. 建脚本（create 默认 enabled）
     const created = await sendToSw<{ uuid: string; name: string }>(messenger!, { kind: 'userscript:create' })
@@ -216,9 +223,9 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     // 注册失败写记录是 fire-and-forget（后台不 await），故轮询等它落盘
     await expect.poll(errorUuids, { timeout: 15_000 }).toContain(uuid)
 
-    // 3. 删除脚本：它的报错记录必须一并消失，否则错误日志留下一个已删脚本的孤儿分组
+    // 3. 删除脚本：它的报错记录必须一并消失，否则运行日志留下一个已删脚本的孤儿行
     const removed = await sendToSw<void>(messenger!, { kind: 'userscript:remove', uuid })
     expect(removed.ok, `userscript:remove 失败：${removed.ok ? '' : removed.error}`).toBe(true)
-    expect(await errorUuids(), '错误日志不该留下已删脚本的记录').not.toContain(uuid)
+    expect(await errorUuids(), '运行日志不该留下已删脚本的记录').not.toContain(uuid)
   })
 })
