@@ -7,7 +7,7 @@
 //   1. SW 模块冷启动（background.ts 顶层 void ensureOffscreen()）
 //   2. chrome.runtime.onInstalled（安装 / 更新）
 //   3. chrome.runtime.onStartup（浏览器启动）
-// 另：AI 生成入口与 aiFsClient 在发起请求前也会先 ensure，作为兜底。
+// 另：AI 生成入口与 fsClient 在发起请求前也会先 ensure，作为兜底。
 //
 // 说明：Chrome 不会自动启动 offscreen，必须显式 createDocument。策略是常驻：offscreen 不自关，
 // 仅在 `offscreen:close` 调试命令下主动关。
@@ -75,7 +75,7 @@ const PING_INTERVAL_MS = 50
  *
  * `createDocument` resolve 只说明文档建好了，其 onMessage 未必注册完——此时发业务命令会得到
  * 「The message port closed before a response was received」。故就绪判据必须是「能应答一条消息」。
- * 用 `ai:ping`（不触碰文件系统），由 offscreen 侧 handleAiFsCommand 应答。
+ * 用 `fs:ping`（不触碰文件系统），由 offscreen 侧 handleFsCommand 应答。
  */
 function pingOffscreen(): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
@@ -83,7 +83,7 @@ function pingOffscreen(): Promise<boolean> {
     // 超时兜底：sendResponse 永不回调的情况（容器刚被销毁）不能把 promise 挂死
     const timer = setTimeout(() => done(false), PING_TIMEOUT_MS)
     try {
-      chrome.runtime.sendMessage({ kind: 'ai:ping' }, (response) => {
+      chrome.runtime.sendMessage({ kind: 'fs:ping' }, (response) => {
         clearTimeout(timer)
         // 不读 chrome.runtime.lastError：无响应本身就判未就绪，不需要区分原因
         done(response?.ok === true)
@@ -96,7 +96,7 @@ function pingOffscreen(): Promise<boolean> {
 }
 
 /**
- * 等容器进入「可应答」状态（轮询 ai:ping，默认最多 2s）。
+ * 等容器进入「可应答」状态（轮询 fs:ping，默认最多 2s）。
  *
  * 常见路径几乎不等待：容器已在时第一次 ping 即成功。只有刚创建 / 刚重载才会轮询几轮。
  * 返回 false 表示超时仍未就绪——调用方可据此重试或降级，**不要**再退回到固定 sleep 猜时间。

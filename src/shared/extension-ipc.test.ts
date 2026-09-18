@@ -31,12 +31,13 @@ vi.mock('@/lib/userscripts/us-fs', () => ({
 vi.mock('@/lib/userscripts/us-git', () => ({
   ensureRepo: vi.fn(),
   deleteRepo: vi.fn(),
-  snapshotProject: vi.fn(),
+  deleteAllRepos: vi.fn(),
   listHistory: vi.fn(),
   readTreeAt: vi.fn(),
   restoreToCommit: vi.fn(),
-  writeWorktree: vi.fn(),
-  readWorktree: vi.fn(),
+  writeSourceTree: vi.fn(),
+  commitSource: vi.fn(),
+  readSourceTree: vi.fn(),
 }))
 // 启动对账会在 import 期真碰 fs/IDB，与本测试无关——保留其余真实导出
 vi.mock('@/lib/userscripts/offscreen-state-commands', async (importOriginal) => {
@@ -51,7 +52,7 @@ const ALL_KINDS = [
   // —— userscript:*（SW）——
   { kind: 'userscript:list', side: 'sw' },
   { kind: 'userscript:getProject', side: 'sw' },
-  { kind: 'userscript:updateFiles', side: 'sw' },
+  { kind: 'userscript:save', side: 'sw' },
   { kind: 'userscript:create', side: 'sw' },
   { kind: 'userscript:createProject', side: 'sw' },
   { kind: 'userscript:remove', side: 'sw' },
@@ -63,20 +64,19 @@ const ALL_KINDS = [
   { kind: 'userscript:errorRead', side: 'sw' },
   { kind: 'userscript:clearErrors', side: 'sw' },
   { kind: 'userscript:import', side: 'sw' },
-  // —— ai:*（offscreen：git 历史侧车 + 构建宿主）——
-  { kind: 'ai:ping', side: 'offscreen' },
-  { kind: 'ai:history', side: 'offscreen' },
-  { kind: 'ai:historyTree', side: 'offscreen' },
-  { kind: 'ai:restoreToCommit', side: 'offscreen' },
-  { kind: 'ai:lfsTree', side: 'offscreen' },
-  { kind: 'ai:build', side: 'offscreen' },
-  { kind: 'ai:writeDraft', side: 'offscreen' },
-  { kind: 'ai:readDraft', side: 'offscreen' },
-  { kind: 'ai:lfsReadFile', side: 'offscreen' },
+  // —— fs:*（offscreen：源码库 duoling-fs 命令面，SW 静默让路）——
+  { kind: 'fs:ping', side: 'offscreen' },
+  { kind: 'fs:readTree', side: 'offscreen' },
+  { kind: 'fs:history', side: 'offscreen' },
+  { kind: 'fs:historyTree', side: 'offscreen' },
+  { kind: 'fs:restoreToCommit', side: 'offscreen' },
+  { kind: 'fs:exportZip', side: 'offscreen' },
+  { kind: 'fs:lfsTree', side: 'offscreen' },
+  { kind: 'fs:lfsReadFile', side: 'offscreen' },
   // —— state:*（offscreen：项目状态库写侧，单写方）——
   { kind: 'state:create', side: 'offscreen' },
   { kind: 'state:createProject', side: 'offscreen' },
-  { kind: 'state:updateFiles', side: 'offscreen' },
+  { kind: 'state:save', side: 'offscreen' },
   { kind: 'state:remove', side: 'offscreen' },
   { kind: 'state:removeAll', side: 'offscreen' },
   { kind: 'state:toggle', side: 'offscreen' },

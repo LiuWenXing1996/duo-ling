@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// 「lfs 浏览」标签页：以文件树形式展示 offscreen 持有的 lightning-fs 库（'duoling'）。
-// 只读调试视图 —— 源码工作区、git 历史、.git 内部对象都在这一个库里，
+// 「lfs 浏览」标签页：以文件树形式展示 offscreen 持有的 lightning-fs 库（'duoling-fs'，
+// 用户脚本源码的唯一来源）。只读调试视图 —— 源码工作区、git 历史、.git 内部对象都在这一个库里，
 // 想看真实落盘形状（而不是各面板的逻辑视图）时用它。
-// 数据经 ai:lfsTree（offscreen 应答，含 .git 内部）；容器不在时 sendAi 会先唤起再取。
-// 点文件经 ai:lfsReadFile 拉内容，右栏预览（shiki 高亮，二进制提示不可预览，可复制）。
+// 数据经 fs:lfsTree（offscreen 应答，含 .git 内部）；容器不在时 sendAi 会先唤起再取。
+// 点文件经 fs:lfsReadFile 拉内容，右栏预览（shiki 高亮，二进制提示不可预览，可复制）。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import { Check as UiCheck, Copy as UiCopy, FileText as UiFileText, FolderTree as UiFolderTree, RefreshCw as UiRefreshCw } from '@lucide/vue'
@@ -11,7 +11,7 @@ import { CodeBlockContent } from '@/components/ai-elements/code-block'
 import { inferLanguage } from '@/lib/code-view'
 import { FileTree } from '@/components/ai-elements/file-tree'
 import LfsTreeNode from './LfsTreeNode.vue'
-import { aiFsClient, userscriptClient } from '@/lib/userscripts/ui-client'
+import { fsClient, userscriptClient } from '@/lib/userscripts/ui-client'
 import type { LfsNode, LfsFileContent } from '@/lib/userscripts/us-fs'
 
 const loading = ref(false)
@@ -77,7 +77,7 @@ watch(selectedPath, async (path) => {
   previewError.value = ''
   preview.value = null
   try {
-    preview.value = await aiFsClient.lfsReadFile(path)
+    preview.value = await fsClient.lfsReadFile(path)
   } catch (e) {
     previewError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -89,7 +89,7 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const [t] = await Promise.all([aiFsClient.lfsTree(), loadScriptNames()])
+    const [t] = await Promise.all([fsClient.lfsTree(), loadScriptNames()])
     tree.value = t
     if (tree.value) buildTypeMap(tree.value)
   } catch (e) {
@@ -154,7 +154,7 @@ useDataSync('script', () => load())
     <!-- 头部：说明 + 概览 + 刷新 -->
     <div class="flex items-center gap-2 border-b border-border px-4 py-2.5">
       <ui-folder-tree class="size-4 text-muted-foreground" />
-      <span class="text-sm font-medium">lfs 库（duoling）</span>
+      <span class="text-sm font-medium">lfs 库</span>
       <span v-if="tree" class="text-xs text-muted-foreground">
         {{ fileCount }} 个文件 · 含 .git 内部 · 只读
       </span>

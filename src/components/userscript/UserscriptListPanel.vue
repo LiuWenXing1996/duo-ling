@@ -31,16 +31,22 @@ import {
   DialogTitle as UiDialogTitle
 } from '@/components/ui/dialog'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
+import {
+  Tooltip as UiTooltip,
+  TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider,
+  TooltipTrigger as UiTooltipTrigger
+} from '@/components/ui/tooltip'
 import { formatTimestamp } from '@/lib/format'
 import { useDataSync } from '@/composables/use-data-sync'
 import { BUILTIN_SCRIPTS } from '@/lib/userscripts/builtins'
-import { userscriptClient, subscribeAvailability } from '@/lib/userscripts/ui-client'
-import { buildScriptZip, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
+import { fsClient, subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
+import { base64ToBytes, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
 import type { ZipScriptPayload } from '@/lib/userscripts/zip-transfer'
+import type { BuildPhase } from '@/shared/extension-ipc'
 import type {
   ImportItemOk,
   ImportReport,
-  ScriptProject,
   ScriptSummary,
   UserScriptsAvailability
 } from '@/lib/userscripts/types'
@@ -168,8 +174,8 @@ function askRemove(s: ScriptSummary): void {
 }
 
 // —— zip 导入导出——
-// 导出：ui-client 现成的 getProject / list 只读取数，zip 编码在本页（zip-transfer 纯函数），
-// 零新增协议。导入：zip 文件转 base64 走 userscript:import 命令对，offscreen 单写方落盘。
+// 导出：fs:exportZip 命令（offscreen 侧读源码并打包，大源码树不过消息桥），本页只触发下载。
+// 导入：zip 文件转 base64 走 userscript:import 命令对，offscreen 单写方落盘。
 
 /** 导出确认弹窗的待办目标：非 null 即弹窗打开（每行导出与全部导出共用，隐私文案只写一处） */
 const pendingExport = ref<null | { kind: 'single'; summary: ScriptSummary } | { kind: 'all' }>(null)
@@ -199,7 +205,7 @@ function allExportFilename(): string {
   return `duoling-scripts-${ymd}.zip`
 }
 
-/** 确认导出：取数（只读命令）→ 本页打包 → 触发下载 */
+/** 确认导出：fs:exportZip（offscreen 侧读源码打包）→ base64 解码 → 触发下载 */
 async function confirmExport(): Promise<void> {
   const target = pendingExport.value
   if (!target || exporting.value) return
@@ -207,26 +213,25 @@ async function confirmExport(): Promise<void> {
   exporting.value = true
   error.value = ''
   try {
-    let scripts: ZipScriptPayload[]
+    let uuids: string[]
     let filename: string
     if (target.kind === 'single') {
-      const p = await userscriptClient.getProject(target.summary.uuid)
-      if (!p) throw new Error('脚本不存在（可能刚被删除）')
-      scripts = [{ name: p.name, config: p.config, entry: p.entry, files: p.files }]
-      filename = `${sanitizeDirName(p.name)}.zip`
+      uuids = [target.summary.uuid]
+      filename = `${sanitizeDirName(target.summary.name)}.zip`
     } else {
       const list = await userscriptClient.list()
-      const projects = (
-        await Promise.all(list.map((s) => userscriptClient.getProject(s.uuid)))
-      ).filter((p): p is ScriptProject => !!p)
-      if (!projects.length) throw new Error('没有可导出的脚本')
-      scripts = projects.map((p) => ({ name: p.name, config: p.config, entry: p.entry, files: p.files }))
+      if (!list.length) throw new Error('没有可导出的脚本')
+      uuids = list.map((s) => s.uuid)
       filename = allExportFilename()
     }
-    const bytes = buildScriptZip(scripts, {
+    const { zipBase64, name } = await fsClient.exportZip(uuids, {
       exporter: `duoling/${chrome.runtime.getManifest().version}`,
     })
-    downloadZip(bytes, filename)
+    if (target.kind === 'single') {
+      // 单脚本文件名以 offscreen 读到的真实名称为准（目录名安全化同一套规则）
+      filename = `${sanitizeDirName(name ?? target.summary.name)}.zip`
+    }
+    downloadZip(base64ToBytes(zipBase64), filename)
   } catch (e) {
     error.value = '导出失败：' + (e instanceof Error ? e.message : String(e))
   } finally {
@@ -337,9 +342,32 @@ onUnmounted(() => {
   unsubscribeAvailability?.()
 })
 
+// —— 构建状态标 ——
+// 终态（构建成功 / 失败）随 ScriptSummary.buildOk 落库返回；瞬态（保存中 / 构建中）由
+// 保存链广播驱动：SW 转发 userscript:save 时广播 saving，offscreen 进构建时广播 building，
+// 收尾的落库广播（无 phase）切终态。瞬态只改转圈、不回拉——链路还没落库，拉了也是旧数据。
+const buildPhase = ref<Record<string, BuildPhase>>({})
+
 // 别处的脚本写操作（保存 / 启停 / 新建 / 删除 / 导入）落盘后已广播 `script` 域，
 // 这里接住并自动回拉列表——多窗口、多标签、侧边栏之间不必各自手动刷新
-useDataSync('script', () => refresh())
+useDataSync('script', (push) => {
+  if (push.phase && push.uuid) {
+    buildPhase.value = { ...buildPhase.value, [push.uuid]: push.phase }
+    return
+  }
+  if (push.uuid) {
+    const { [push.uuid]: _done, ...rest } = buildPhase.value
+    buildPhase.value = rest
+  } else {
+    buildPhase.value = {} // uuid 缺省 = 全量变化（导入 / 全部删除等），瞬态一并清空
+  }
+  return refresh()
+})
+
+/** 状态标的悬停提示：最近一次构建的时刻（成败共用） */
+function lastBuildLabel(s: ScriptSummary): string {
+  return s.lastBuildAt ? `最近构建：${updatedAtLabel(s.lastBuildAt)}` : '最近构建'
+}
 </script>
 
 <template>
@@ -477,20 +505,54 @@ useDataSync('script', () => refresh())
 
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <span class="truncate text-sm font-medium">{{ s.name }}</span>
-                <span
-                  v-if="justImported.includes(s.uuid) && !s.enabled"
-                  class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-                >
-                  刚导入 · 未启用
-                </span>
-                <!-- 刚由「添加脚本」建成：新建不跳编辑器，靠这个标告诉人哪个是刚建的 -->
-                <span
-                  v-else-if="justCreated.includes(s.uuid)"
-                  class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-                >
-                  刚新建
-                </span>
+                <!-- TooltipProvider：状态标悬停时刻用 shadcn Tooltip（原生 title 有 ~1s 浏览器
+                     延时）；Provider 默认 0ms 即显，包在名字行——TooltipRoot 必须有 Provider 上下文 -->
+                <ui-tooltip-provider>
+                  <span class="truncate text-sm font-medium">{{ s.name }}</span>
+                  <span
+                    v-if="justImported.includes(s.uuid) && !s.enabled"
+                    class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                  >
+                    刚导入 · 未启用
+                  </span>
+                  <!-- 刚由「添加脚本」建成：新建不跳编辑器，靠这个标告诉人哪个是刚建的 -->
+                  <span
+                    v-else-if="justCreated.includes(s.uuid)"
+                    class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                  >
+                    刚新建
+                  </span>
+                  <!-- 构建状态标：保存链瞬态（转圈）→ 落库终态（成功 / 失败） -->
+                  <span
+                    v-if="buildPhase[s.uuid]"
+                    class="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  >
+                    <ui-loader-circle class="size-3 animate-spin" />
+                    {{ buildPhase[s.uuid] === 'saving' ? '保存中' : '构建中' }}
+                  </span>
+                  <ui-tooltip v-else-if="s.buildOk">
+                    <ui-tooltip-trigger as-child>
+                      <span
+                        class="inline-flex shrink-0 cursor-default items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
+                      >
+                        <ui-check class="size-3" />
+                        构建成功
+                      </span>
+                    </ui-tooltip-trigger>
+                    <ui-tooltip-content>{{ lastBuildLabel(s) }}</ui-tooltip-content>
+                  </ui-tooltip>
+                  <ui-tooltip v-else>
+                    <ui-tooltip-trigger as-child>
+                      <span
+                        class="inline-flex shrink-0 cursor-default items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
+                      >
+                        <ui-x class="size-3" />
+                        构建失败
+                      </span>
+                    </ui-tooltip-trigger>
+                    <ui-tooltip-content>{{ lastBuildLabel(s) }}</ui-tooltip-content>
+                  </ui-tooltip>
+                </ui-tooltip-provider>
               </div>
               <p class="mt-0.5 truncate font-mono text-xs text-muted-foreground">
                 {{ s.matches.join(', ') || '（无匹配规则）' }}

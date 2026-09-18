@@ -22,8 +22,8 @@
 | 对话链路 | 侧边栏只做指令入口与观察；整条链路（`streamText` + tools）跑在 offscreen document，侧边栏经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权 |
 | 脚本运行时 | background **service worker**（`chrome.userScripts` 注册 + 状态库写命令的转发方） |
 | 会话存储 | **IndexedDB `duoling-chat`**（唯一写方 = offscreen，侧边栏只读订阅）；生成任务快照另存 `duoling-chat-tasks`（宿主被杀后可续） |
-| 脚本存储 | 项目数据在**独立 IndexedDB 库 `duoling-state`**（权威共享存储：同时持源码 `files` 与产物 `bundle`+配置+enabled；**写只归 offscreen**，读由 SW / 扩展页直连）；`chrome.storage.local` 只剩 `DL.store` 值（`us:gm:*`）与错误日志（`us:errors`）；`lightning-fs`（库名 `duoling`，只有 offscreen 能碰）每脚本一仓 `/uscripts/<uuid>/`：git 历史（仅侧车）+ 当前文件工作树（状态库派生）+ 草稿（工作树未提交改动，best-effort） |
-| 版本管理 | `isomorphic-git`（纯 JS），仓在 lfs：git 历史仅侧车（可丢历史不丢脚本）；lfs 工作树=当前文件物化、草稿=工作树未提交改动（非侧车）；状态库 `duoling-state` 才是注册/注入/编辑器基准的权威 |
+| 脚本存储 | 源码唯一来源在 **`duoling-fs`**（lightning-fs，只有 offscreen 能碰）：每脚本一仓 `/uscripts/<uuid>/`，工作树 `files/` 即当前源码（未提交改动 = 草稿）；SW/扩展页读不到 lfs，源码读写一律走 `fs:*` 命令向 offscreen 取。注册态在**独立 IndexedDB 库 `duoling-state`**（产物 `bundle` + 元数据 + enabled，**不含源码**；**写只归 offscreen**，读由 SW / 扩展页直连，注册链路不依赖 offscreen 存活）；`chrome.storage.local` 只剩 `DL.store` 值（`us:gm:*`）与错误日志（`us:errors`） |
+| 版本管理 | `isomorphic-git`（纯 JS），仓在 duoling-fs：每次保存 = 一次提交（「保存 #n」/ 备注回滚记录），恢复走「产生新提交」而非 reset，历史不可变；仓损坏只丢历史，源码就在工作树里 |
 | 模型配置 | `chrome.storage.local`（API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`；密钥同存本机，属防扫描级而非保密级） |
 | 页面上下文 | 点选元素：`chrome.userScripts.execute()` 按需注入内置拾取器，产物暂存后随下一条消息发出；页面快照：AI 侧 `page_snapshot` 工具经 SW 采集 |
 | 主题 | **跟随系统深浅色**（`src/lib/theme.ts` 按 `prefers-color-scheme` 驱动 `html.dark`） |
@@ -88,8 +88,8 @@
 │  │  ├─ theme.ts / code-view.ts / format.ts / utils.ts
 │  │  └─ userscripts/             # 脚本链路：引擎 / 存储 / git / DL 桥 / 匹配规则 / 状态浮窗
 │  │     ├─ engine.ts             #   chrome.userScripts 注册：每脚本一 USER_SCRIPT 世界 + MAIN 桩 + 状态浮窗
-│  │     ├─ state-db.ts / project-store.ts / project-write.ts  # 权威状态库 `duoling-state`（写只归 offscreen）
-│  │     ├─ us-fs.ts / us-git.ts  #   lightning-fs 单例（库名 `duoling`，只许 offscreen）+ isomorphic-git
+│  │     ├─ state-db.ts / project-store.ts / project-write.ts  # 注册态库 `duoling-state`（bundle+元数据，写只归 offscreen）
+│  │     ├─ us-fs.ts / us-git.ts  #   lightning-fs 单例（库名 `duoling-fs`，只许 offscreen）+ isomorphic-git：源码唯一来源
 │  │     ├─ dl-bridge.ts / api-contract.ts  # 注入脚本 ⇄ SW 桥（DL.store / DL.fetch / DL.page 契约）
 │  │     ├─ page-stub.ts / page-client.ts / page-protocol.ts  # DL.page 反向中继（MAIN 桩 + USER_SCRIPT 客户端）
 │  │     ├─ status-bubble.ts / match-pattern.ts / match-union.ts  # 页面状态浮窗 + 匹配规则与并集
@@ -154,7 +154,7 @@ npm run pack:uscripts    # 把仓库根 uscript-samples/ 打成可导入的用�
 3. **entrypoint 同名冲突**：不要同时存在 `sidepanel.html` 与 `sidepanel.ts`（WXT 会判定两个同名 entrypoint）。入口脚本用非约定名（如 `app/sidepanel-main.ts`）由 html 引用。
 4. **跨域 fetch 需 host 权限**：扩展页 `fetch` 模型接口会被 CORS 拦，必须在 manifest 声明对应 `host_permissions`（模型服务商由 `src/lib/providers.ts` 推导，用户脚本另需 `<all_urls>`）。
 5. **userScripts 可用性前置**：`chrome.userScripts` 未开启时不存在，直接调用会让 SW 初始化崩溃；引擎每条入口都先判存在性（`isUserScriptsAvailable()` / `typeof chrome.userScripts.register === 'function'`）再优雅跳过，并把开启引导交给工作台「引导」标签页（各处只给「查看开启引导」入口，不各写一套步骤）。
-6. **git 只是历史侧车**：脚本以 `duoling-state` 状态库为权威，git 仓损坏只丢历史不丢脚本；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护）。
+6. **git 不存产物、也不存权威副本之外的东西**：源码唯一来源 = duoling-fs 工作树，git 提交是其版本历史；产物 `bundle` 只进注册态库（git 侧显式排除，防「假变更」撑爆历史）；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护）
 7. **生产产物的 CSP 与 wasm**：MV3 默认 `script-src 'self'` **不含** `'wasm-unsafe-eval'`，offscreen 的 esbuild-wasm 在 `npm run build` 产物里会被拦（dev 下 WXT 自动注入宽松 CSP，**别用 dev 验证这个**）；已在 `wxt.config.ts` 显式声明覆盖。
 8. **注入不了「非普通网页」**：`host_permissions` 的 `<all_urls>` **不覆盖 `chrome-extension://` scheme**，往扩展页注入（`userScripts.execute` / `scripting.executeScript`）必失败并抛 Chrome 原话 `Cannot access contents of url … must request permission to access this host` —— **连本扩展自己的页面也一样**（活动标签是工作台时点「点选元素」即命中）。不是漏配权限，加 host 权限也解决不了，只能在注入前拦；`file://` 未开「允许访问文件网址」报的是同一句。故 `element-picker-client.ts` 两处兜底：判据 `pageInjectionBlockReason`（拾取与 SW 快照共用）+ 归一 `friendlyInjectError`。**平台英文报错不直达用户**：能判的判掉，判不掉的翻译成用户的下一步动作（「切到要操作的网页后重试」）。
 9. **扩展自己可以打开 `chrome://extensions`**：`chrome.tabs.create({ url: 'chrome://extensions/?id=' + chrome.runtime.id })` 可用且**免权限**（属 tabs API 免权限方法）—— 文档「chrome:// URLs are not linkable」约束的是超链接（`<a href>`），不约束 tabs API。分支要点：≥138 的开关在扩展详情页（用 `?id=` 深链），<138 要开的是整页右上角的全局「开发者模式」（退到列表页）。反例：Firefox 的 `about:addons` 属特权 about: URL，`tabs.create` 会拒绝，别给该入口。

@@ -23,7 +23,6 @@ function project(overrides: Partial<ScriptProject>): ScriptProject {
       allFrames: true,
       runAt: 'document_end',
     },
-    files: {},
     entry: 'main.js',
     createdAt: 0,
     updatedAt: 0,

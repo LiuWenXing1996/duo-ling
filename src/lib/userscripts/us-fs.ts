@@ -1,18 +1,18 @@
-// 用户脚本文件树与 git 仓的底层文件系统（lightning-fs 单例），**offscreen-only**。
+// 用户脚本源码与 git 仓的底层文件系统（lightning-fs 单例），**offscreen-only**。
 //
-// 从原 lib/idb-fs.ts 搬来：lfs 实例归属从 SW 迁到 offscreen。
-// 现在全仓只有 us-git.ts 引用本文件，且 us-git 已归 offscreen，故 SW 侧不再持有 lfs 实例，
-// 双实例互不可见的老问题不会复发（单写方不变量）。
+// 这就是「duoling-fs」库——源码的唯一权威来源（见 AGENTS.md「存储」与 types.ts 的
+// ScriptProject 注释）：每个脚本的源码文件树与 git 历史都落在 `/uscripts/<uuid>/` 下，
+// 由 offscreen 独占读写；SW 与扩展页要读源码，一律经 fs:* 命令向 offscreen 取。
 //
 // ⚠️ 单实例约束：lightning-fs 带内存索引层，同库多实例会互相看不见写入。
 // 全仓只允许从这里取实例，不要在别处 new LightningFS。
 import LightningFS from '@isomorphic-git/lightning-fs'
 
-/** 库名沿用 'duoling'：/uscripts/<uuid>/ 与旧的 /tools/<id>/ 同库，改名会让脚本历史一起失联 */
-export const fs = new LightningFS('duoling')
+/** 库名 duoling-fs：源码唯一来源（与注册态库 duoling-state 分离） */
+export const fs = new LightningFS('duoling-fs')
 export const pfs = fs.promises
 
-// —— 整库浏览（只读调试视图，ai:lfsTree 的数据源）——
+// —— 整库浏览（只读调试视图，fs:lfsTree 的数据源）——
 
 /** lfs 树节点：目录含 children，文件含 size */
 export interface LfsNode {
@@ -58,10 +58,10 @@ export async function readLfsTree(root = '/'): Promise<LfsNode> {
     )
     return { path: dir, name, type: 'folder', children }
   }
-  return walk(root, 'duoling（lfs 根）')
+  return walk(root, 'lfs 根')
 }
 
-// —— 单文件预览（只读调试视图，ai:lfsReadFile 的数据源）——
+// —— 单文件预览（只读调试视图，fs:lfsReadFile 的数据源）——
 
 /** 单文件读取结果：文本走 utf8，二进制走 base64 + binary 标记 */
 export interface LfsFileContent {

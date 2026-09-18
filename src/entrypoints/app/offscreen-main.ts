@@ -17,22 +17,23 @@
 // 模块归属（硬约束）：本入口只允许 import builder.ts（纯 esbuild）、
 // extension-chat-transport.ts、ai SDK、offscreen-bridge.ts、offscreen-chat/（对话编排，
 // 内部只引裸 IndexedDB 模块），以及 offscreen-only 的 lib/userscripts/offscreen-fs-commands.ts
-// （git 历史）与 offscreen-state-commands.ts（项目状态库的写侧）。
+// （源码库 duoling-fs 的 fs:* 命令面）与 offscreen-state-commands.ts（注册态库的写侧）。
 // 一旦 import store.ts / fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报
 // chrome.storage is undefined —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
 //
 // 生命周期：每扩展同时只能有一份；不主动关就一直活着，但**关窗口 / 扩展重载 / 浏览器崩溃
 // 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（→ offscreen-chat/task-store.ts）。
 //
-// 命令面：ai:*（git 历史）/ state:*（状态库写侧）/ conv:*（会话写侧，唯一写方）/ chat:*（对话编排）。
+// 命令面：fs:*（源码库 duoling-fs 的读写）/ state:*（注册态库写侧）/
+// conv:*（会话写侧，唯一写方）/ chat:*（对话编排，2026-09-15 整条链路搬入）。
 
 import '@/polyfills'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
-import { handleAiFsCommand, type AiFsRequest } from '@/lib/userscripts/offscreen-fs-commands'
+import { handleFsCommand, type FsRequest } from '@/lib/userscripts/offscreen-fs-commands'
 import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
-import { handleBuildCommand, type BuildRequest } from '@/lib/userscripts/offscreen-build-commands'
 // 读侧项目列表（IndexedDB 同源直读，project-store 明确标注 offscreen 可用）：
-// 心跳的条件门——没有启用脚本就不 ping SW
+// 心跳的条件门——没有启用脚本就不 ping SW（上游 #45 保活心跳；不引 handleBuildCommand——
+// ai:build 命令面已被统一保存语义删除，见 project-write.saveSource）
 import { listProjects } from '@/lib/userscripts/project-store'
 import {
   abortChat,
@@ -63,9 +64,17 @@ function announceReady(): void {
  * offscreen 应答的命令面前缀（与 SW 的 SW_KIND_PREFIXES 互补，两者并集须恰好覆盖
  * RuntimeRequest 的 kind 全集——归属一致性由 extension-ipc.test.ts 表驱动断言）。
  */
-export const OFFSCREEN_KIND_PREFIXES = ['ai:', 'state:', 'conv:', 'chat:'] as const
+export const OFFSCREEN_KIND_PREFIXES = ['fs:', 'state:', 'conv:', 'chat:'] as const
 
-// ai:* 命令面：UI / SW 经 chrome.runtime.sendMessage 共享总线发来，offscreen 在此处理并回传。
+/** 前缀 → 处理器（与 OFFSCREEN_KIND_PREFIXES 一一对应） */
+const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: RuntimeRequest) => Promise<unknown> } = {
+  'fs:': (msg) => handleFsCommand(msg as FsRequest),
+  'state:': (msg) => handleStateCommand(msg as StateRequest),
+  'conv:': (msg) => handleConvCommand(msg),
+  'chat:': (msg) => handleChatCommand(msg),
+}
+
+// 命令面：UI / SW 经 chrome.runtime.sendMessage 共享总线发来，offscreen 在此处理并回传。
 // 注意 return true —— 告诉 chrome.runtime 我们要异步 sendResponse（否则响应会被丢弃）。
 chrome.runtime.onMessage.addListener((raw, _sender, sendResponse): boolean => {
   const msg = raw as RuntimeRequest | { kind: string } | undefined
@@ -73,29 +82,11 @@ chrome.runtime.onMessage.addListener((raw, _sender, sendResponse): boolean => {
     void refreshActiveProfile()
     return false
   }
-  // 异步应答的命令面前缀：ai: 是 git 历史（ai:build 单独走构建命令面），state: 是项目
-  // 状态库的写侧（单写方），conv:/chat: 是会话写侧与对话编排。这些都 return true ——
-  // 告诉 chrome.runtime 我们要异步 sendResponse（否则响应会被丢弃）。
   const kind = msg?.kind
   if (kind && typeof kind === 'string') {
-    if (kind === 'ai:build') {
-      void respond(sendResponse, () => handleBuildCommand(msg as BuildRequest))
-      return true
-    }
-    if (kind.startsWith(OFFSCREEN_KIND_PREFIXES[0])) {
-      void respond(sendResponse, () => handleAiFsCommand(msg as AiFsRequest))
-      return true
-    }
-    if (kind.startsWith(OFFSCREEN_KIND_PREFIXES[1])) {
-      void respond(sendResponse, () => handleStateCommand(msg as StateRequest))
-      return true
-    }
-    if (kind.startsWith('conv:')) {
-      void respond(sendResponse, () => handleConvCommand(msg as RuntimeRequest))
-      return true
-    }
-    if (kind.startsWith('chat:')) {
-      void respond(sendResponse, () => handleChatCommand(msg as RuntimeRequest))
+    const prefix = OFFSCREEN_KIND_PREFIXES.find((p) => kind.startsWith(p))
+    if (prefix) {
+      void respond(sendResponse, () => FS_HANDLERS[prefix](msg as RuntimeRequest))
       return true
     }
   }

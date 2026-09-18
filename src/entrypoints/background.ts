@@ -3,11 +3,13 @@
 // + offscreen 容器管理 + 模型配置中转。
 // 对话、模型配置不走这里（分别直连 IndexedDB 与 chrome.storage.local）。
 //
-// 项目数据（源码 / 配置 / 构建产物 / enabled）的权威在独立 IndexedDB 库 duoling-state，
-// **写只归 offscreen**（单写方）：
-//   · 读 —— 本文件直连 project-store，**不经容器**。注册链路不能押在 offscreen 存活上，
-//     否则容器一挂所有脚本都不生效。
-//   · 写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
+// 存储分工（2026-09-19 源码迁入 duoling-fs 后）：
+//   · 注册态（bundle + 元数据 + enabled）—— 权威在独立 IndexedDB 库 duoling-state，
+//     **写只归 offscreen**（单写方）：读 —— 本文件直连 project-store，**不经容器**，
+//     注册链路不能押在 offscreen 存活上，否则容器一挂所有脚本都不生效；
+//     写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
+//   · 源码 —— 唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
+//     SW 读不到 lfs，源码读写一律走 fs:* 命令向 offscreen 取（见 offscreen-fs-commands.ts）。
 // 仍在 chrome.storage 的只有两类：DL.store 值（us:gm:*）与错误日志（us:errors）——
 // 写入方是用户脚本本身、不受控，且不参与「脚本是什么」的判定，故留在 SW 直写。
 
@@ -62,7 +64,7 @@ import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady
 // 模型配置：offscreen 既收不到 storage.onChanged、也不该直连存储，一律由 SW 经命令 / 推送中转
 import { getActiveProfileState } from '@/lib/model-store'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
-import { broadcastDataChange } from '@/lib/data-broadcast'
+import { broadcastBuildPhase, broadcastDataChange } from '@/lib/data-broadcast'
 // AI 工具支路：page_snapshot 工具经 SW 调 userScripts.execute（offscreen 不可达该 API）
 import { capturePageSnapshotFromTab, pageInjectionBlockReason } from '@/lib/element-picker-client'
 
@@ -121,7 +123,7 @@ function sendToOffscreen<T>(request: RuntimeRequest): Promise<T> {
  * 写路径：项目数据的写只归 offscreen（单写方），SW 一律转发。
  *
  * 先 `ensureOffscreenReady` 再发命令：容器刚被回收 / 扩展重载时会重建，
- * 就绪判据是「能应答 ai:ping」而不是「文档已存在」。
+ * 就绪判据是「能应答 fs:ping」而不是「文档已存在」。
  *
  * 重试只对「容器没接上」类错误：业务异常（脚本不存在、文件树非法…）重试一次也是同样的错，
  * 只会让用户多等一轮。写命令都是读改写，重复执行一次不会产生第二份数据。
@@ -176,7 +178,7 @@ const handlers: {
 } = {
   // —— offscreen 容器——
   // A 组只做容器与通道：这几个命令供手动 / 调试触发；B 组的生成入口会直接调 ensureOffscreen()。
-  // 唤醒容器并**等到它真的能应答**才返回——调用方（aiFsClient）据此省掉了原先
+  // 唤醒容器并**等到它真的能应答**才返回——调用方（fsClient 等）据此省掉了原先
   // 「ensure 完 sleep 80ms 猜监听器注册好了没有」的兜底。
   // 常见路径几乎不等待：容器已在时第一次探测即成功。ready=false 表示超时未就绪，由调用方重试。
   'offscreen:ensure': async (): Promise<{ ready: boolean }> => ({
@@ -217,27 +219,37 @@ const handlers: {
   'userscript:list': async (): Promise<ScriptSummary[]> =>
     listSummaries(await listProjects()),
 
-  // 读完整项目（编辑器多文件用；管理页是可信扩展页，源码不过滤）
+  // 读注册态记录（元数据 + bundle；**不含源码**——源码在 duoling-fs，编辑器经 fs:readTree 取）
   'userscript:getProject': async (msg): Promise<ScriptProject | undefined> => getProject(msg.uuid),
 
-  // 更新文件树 + 入口 + 构建产物（bundle 必填：UI 页构建成功后才调用），启用中则重注册。
-  // 产物不变量：注入代码只来自 bundle（resolveInjectCode 无源码回退）。
-  // 写转 offscreen：状态落盘与 git 快照在同一处完成，不再有「已保存但没 commit」的缝隙。
-  'userscript:updateFiles': async (msg): Promise<{ warnings?: string[]; registerError?: string }> => {
-    const next = await writeViaOffscreen<ScriptProject>({
-      kind: 'state:updateFiles',
+  // 保存源码（唯一保存入口）：转 offscreen 统一保存（写 fs + git 提交 + 构建 + 落库），
+  // 落库后启用中则重注册。**保存恒成功**（保存不依赖构建），构建失败产物置空：
+  // unregister 先行（旧产物立即失效——2026-09-19 老大拍板），无产物时注册被 resolveInjectCode
+  // 拦下、registerError 带原因。返回 buildOk + issues 供 UI 展示诊断。
+  'userscript:save': async (
+    msg,
+  ): Promise<{ buildOk: boolean; issues: string[]; files: Record<string, string>; warnings?: string[]; registerError?: string }> => {
+    // 转发前先广播「保存中」瞬态：列表行立即转圈（offscreen 进构建时会再广播「构建中」，
+    // 链路收尾的落库广播负责切终态——见 extension-ipc.ts DataChangedPush.phase 说明）
+    broadcastBuildPhase('script', msg.uuid, 'saving')
+    const outcome = await writeViaOffscreen<import('@/lib/userscripts/project-write').SaveOutcome>({
+      kind: 'state:save',
       uuid: msg.uuid,
       files: msg.files,
       entry: msg.entry,
-      bundle: msg.bundle,
       name: msg.name,
       config: msg.config,
       note: msg.note,
     })
+    const next = outcome.project
     await unregisterScripts([next.uuid]).catch(() => {})
     const registerError = next.enabled ? await registerOrLog(next) : undefined
     return {
-      warnings: collectCspWarnings(resolveInjectCode(next)),
+      buildOk: outcome.buildOk,
+      issues: outcome.issues,
+      files: outcome.files,
+      // 无产物时 resolveInjectCode 会抛，CSP 警告只在有产物时有意义
+      warnings: next.bundle ? collectCspWarnings(resolveInjectCode(next)) : undefined,
       registerError,
     }
   },
@@ -264,15 +276,15 @@ const handlers: {
       config: msg.config,
       files: msg.files,
       entry: msg.entry,
-      bundle: msg.bundle,
       enabled: msg.enabled,
       note: msg.note,
     })
-    const registerError = project.enabled ? await registerOrLog(project) : undefined
+    const registerError = project.enabled && project.bundle ? await registerOrLog(project) : undefined
     return {
       uuid: project.uuid,
       name: project.name,
-      warnings: collectCspWarnings(resolveInjectCode(project)),
+      // 无产物（构建失败）时 resolveInjectCode 会抛，CSP 警告只在有产物时有意义
+      warnings: project.bundle ? collectCspWarnings(resolveInjectCode(project)) : undefined,
       registerError,
     }
   },

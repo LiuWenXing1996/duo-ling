@@ -1,12 +1,12 @@
 // 用户脚本项目状态库的 offscreen 侧命令面。
 //
-// 本模块是本方案的落点：项目数据（源码 / 配置 / 构建产物 / enabled）与 git 仓都在 offscreen
-// 本地，**写**收敛到这一处。原先一次保存是「SW 写 chrome.storage」+「IPC 让 offscreen commit」
-// 两次分离操作、两个写方，任一步失败就产生「已保存但没 commit」的偏差；现在状态落盘与快照
-// 提交在同一个函数、同一个上下文里完成（project-write.ts），没有跨上下文的缝隙。
+// 本模块是本方案的落点：注册态数据（bundle / 元数据 / enabled）与源码库（duoling-fs，带 git）
+// 都在 offscreen 本地，**写**收敛到这一处。原先一次保存是「SW 写 chrome.storage」+「IPC 让 offscreen commit」
+// 两次分离操作、两个写方，任一步失败就产生「已保存但没 commit」的偏差；现在落盘与提交
+// 在同一个函数、同一个上下文里完成（project-write.ts），没有跨上下文的缝隙。
 //
 // 只有**写**命令进协议：读由 SW 与扩展页直连 IndexedDB（project-store），不经容器——
-// 「脚本生不生效」不能押在 offscreen 存活上。
+// 「脚本生不生效」不能押在 offscreen 存活上（源码读取例外：走 fs:* 命令，见 offscreen-fs-commands.ts）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { broadcastDataChange } from '@/lib/data-broadcast'
 import { listProjects } from './project-store'
@@ -16,12 +16,12 @@ import {
   importScriptsZip,
   removeAllProjects,
   removeProjectAndRepo,
+  saveExisting,
   setProjectEnabled,
-  updateProjectFiles,
 } from './project-write'
 import type { ScriptProject } from './types'
 import { pfs } from './us-fs'
-import { deleteRepo, snapshotProject } from './us-git'
+import { deleteRepo } from './us-git'
 
 /** 收窄 state: 前缀的命令（供 onMessage 分发时类型化） */
 export type StateRequest = Extract<RuntimeRequest, { kind: `state:${string}` }>
@@ -44,8 +44,9 @@ async function runStateCommand(msg: StateRequest): Promise<unknown> {
   switch (msg.kind) {
     case 'state:create':
       return createProject()
-    case 'state:updateFiles':
-      return updateProjectFiles(msg.uuid, msg.files, msg.entry, msg.bundle, {
+    case 'state:save':
+      // 统一保存：写 duoling-fs + git 提交 + 构建（失败产物置空）+ 写状态库，见 project-write.saveSource
+      return saveExisting(msg.uuid, msg.files, msg.entry, {
         name: msg.name,
         config: msg.config,
         note: msg.note,
@@ -70,12 +71,10 @@ async function runStateCommand(msg: StateRequest): Promise<unknown> {
 }
 
 /**
- * 最终一致对账：状态库有、仓没有 → 补建仓（对当前内容做一次快照）；
- * 仓有、状态库没有 → 清理多余仓目录。幂等，失败不阻断。
- * 触发点：offscreen 启动一次（offscreen-main.ts）。
- *
- * 原先每次 ai:snapshot 前都要对账一次（那是双写方时代的补偿）；现在写与 commit 同处一地，
- * 启动对账一次即可——目录列举成本极低，但也没必要挂在每次保存上。
+ * 最终一致对账：只清**孤儿仓**（仓有、状态库没有 → 删多余仓目录）。
+ * 反方向（状态库有、仓没有）不补建——源码唯一来源就是 duoling-fs，仓没了源码就没了，
+ * 没有可补建的材料（2026-09-19 源码迁入 duoling-fs 后不再有「状态库权威副本」可回种）。
+ * 幂等，失败不阻断。触发点：offscreen 启动一次（offscreen-main.ts）。
  */
 export async function reconcileFs(): Promise<void> {
   try {
@@ -86,12 +85,6 @@ export async function reconcileFs(): Promise<void> {
       repos = (await pfs.readdir('/uscripts')) as string[]
     } catch {
       repos = []
-    }
-
-    for (const project of projects) {
-      if (!repos.includes(project.uuid)) {
-        await snapshotProject(project).catch(() => {})
-      }
     }
     for (const uuid of repos) {
       if (!uuidsInStore.has(uuid)) {

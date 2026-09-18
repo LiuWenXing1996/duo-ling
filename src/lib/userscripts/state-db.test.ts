@@ -21,7 +21,7 @@ function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {
     name: `脚本${seq}`,
     enabled: false,
     config: { matches: ['*://*/*'], allFrames: true, runAt: 'document_end' },
-    files: { 'main.js': 'console.log(1)' },
+    fileCount: 1,
     entry: 'main.js',
     createdAt: 1000,
     updatedAt: 1000,

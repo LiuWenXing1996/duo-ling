@@ -1,24 +1,23 @@
 // UI 组件测试：UserscriptEditorPanel.vue（编辑器标签页的保存 / 关闭确认逻辑）。
 // 只验证交互逻辑，不测样式：加载渲染、dirty 上报（宿主关标签前确认的依据）、
-// 保存链路（matches 必填拦截 / 构建失败不落盘 / 保存成功回写 baseline）、草稿恢复与丢弃。
+// 统一保存链路（matches 必填拦截 / 构建失败产物置空但源码已保存 / 保存成功回写）。
 // 边界 mock：ui-client（IPC 客户端）、文件树子组件；CodeMirror 用真实实现（happy-dom 可跑）。
+// 数据流（2026-09-19 统一保存后）：元数据走 userscriptClient.getProject（状态库），
+// 源码走 fsClient.readTree（duoling-fs 工作树）；编辑内容只活在页面内存，不落盘；
+// 保存走 userscriptClient.save（唯一入口：提交 + 构建 + 落库 + 重注册一条龙）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DOMWrapper, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import UserscriptEditorPanel from './UserscriptEditorPanel.vue'
 import type { ScriptProject } from '@/lib/userscripts/types'
-import type { BuildResult } from '@/lib/userscripts/offscreen-build-commands'
-import type { UsHistoryTree } from '@/lib/userscripts/us-git'
+import type { SourceTree } from '@/lib/userscripts/us-git'
 
 const getProject = vi.hoisted(() => vi.fn())
-const updateFiles = vi.hoisted(() => vi.fn())
-const build = vi.hoisted(() => vi.fn())
-const readDraft = vi.hoisted(() => vi.fn())
-const writeDraft = vi.hoisted(() => vi.fn())
+const save = vi.hoisted(() => vi.fn())
+const readTree = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/userscripts/ui-client', () => ({
-  userscriptClient: { getProject, updateFiles },
-  aiFsClient: { readDraft, writeDraft },
-  aiBuildClient: { build },
+  userscriptClient: { getProject, save },
+  fsClient: { readTree },
 }))
 
 vi.mock('@/components/ai-elements/file-tree', () => ({
@@ -43,16 +42,24 @@ const project: ScriptProject = {
   name: '测试脚本',
   enabled: true,
   config: { matches: ['https://a.example/*'], allFrames: true, runAt: 'document_end' },
-  files: { 'main.js': 'console.log(1)' },
   entry: 'main.js',
+  fileCount: 1,
   createdAt: 0,
   updatedAt: 0,
 }
 
-const buildOutcome = (files: Record<string, string> = project.files) => ({
-  status: 'ok',
-  outcome: { code: 'compiled-code', files, remoteFetched: [] },
-}) satisfies BuildResult
+/** 已保存源码树（fs:readTree 的应答；保存后工作树与 HEAD 一致，无草稿概念） */
+const headTree: SourceTree = {
+  meta: { name: project.name, config: project.config, entry: 'main.js', createdAt: 0 },
+  files: { 'main.js': 'console.log(1)' },
+}
+
+const saveOk = (files: Record<string, string> = headTree.files) => ({
+  buildOk: true,
+  issues: [],
+  files,
+  remoteFetched: [],
+})
 
 let wrapper: VueWrapper
 
@@ -68,13 +75,13 @@ const inputs = (): DOMWrapper<HTMLInputElement>[] =>
     (el) => new DOMWrapper<HTMLInputElement>(el as HTMLInputElement),
   )
 
+const saveBtn = () => wrapper.findAll('button').find((b) => b.text() === '保存并重新注册')!
+
 beforeEach(() => {
   vi.clearAllMocks()
   getProject.mockResolvedValue(project)
-  readDraft.mockResolvedValue(null)
-  writeDraft.mockResolvedValue(undefined)
-  updateFiles.mockResolvedValue({})
-  build.mockResolvedValue(buildOutcome())
+  readTree.mockResolvedValue(headTree)
+  save.mockResolvedValue(saveOk())
 })
 
 afterEach(() => {
@@ -90,9 +97,15 @@ describe('UserscriptEditorPanel 加载与渲染', () => {
   })
 
   it('getProject 失败时展示错误条', async () => {
-    getProject.mockRejectedValue(new Error('项目不存在或为已弃用旧记录'))
+    getProject.mockRejectedValue(new Error('脚本不存在'))
     wrapper = await mountEditor()
-    expect(wrapper.text()).toContain('读取项目失败：项目不存在或为已弃用旧记录')
+    expect(wrapper.text()).toContain('读取项目失败：脚本不存在')
+  })
+
+  it('源码读取失败（fs:readTree 抛错）展示「源码库不可用」，不挡渲染', async () => {
+    readTree.mockRejectedValue(new Error('ipc down'))
+    wrapper = await mountEditor()
+    expect(wrapper.text()).toContain('读取项目失败：源码库不可用')
   })
 })
 
@@ -108,42 +121,29 @@ describe('UserscriptEditorPanel dirty 上报（宿主关标签前确认的依据
   })
 })
 
-describe('UserscriptEditorPanel 保存链路', () => {
-  it('matches 为空时前端拦截：显示错误、不触发构建与落盘', async () => {
+describe('UserscriptEditorPanel 统一保存链路', () => {
+  it('matches 为空时前端拦截：显示错误、不触发保存（正确定位保存按钮）', async () => {
     wrapper = await mountEditor()
-    await inputs()[1]!.setValue('')
-    await wrapper.find('button[type="button"]:not([disabled])').trigger('click') // 找到保存按钮见下
-  })
-
-  it('matches 为空时前端拦截：显示错误、不触发构建与落盘（正确定位保存按钮）', async () => {
-    wrapper = await mountEditor()
-    const saveBtn = wrapper.findAll('button').find((b) => b.text() === '保存并重新注册')!
     await inputs()[1]!.setValue('   ')
-    await saveBtn.trigger('click')
+    await saveBtn().trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('保存失败：匹配规则（matches）至少填写一条')
-    expect(build).not.toHaveBeenCalled()
-    expect(updateFiles).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
   })
 
-  it('保存成功：构建 → updateFiles（config 表单解析 + note）→ 提示条 → dirty 归零', async () => {
+  it('保存成功：save（config 表单解析 + note）→ 提示条含刷新提示 → dirty 归零', async () => {
     wrapper = await mountEditor()
     await inputs()[0]!.setValue('新名字')
     await inputs()[1]!.setValue('https://b.example/*, https://c.example/*')
     await inputs()[5]!.setValue('第一次改')
-    const saveBtn = wrapper.findAll('button').find((b) => b.text() === '保存并重新注册')!
-    await saveBtn.trigger('click')
+    await saveBtn().trigger('click')
     await flushPromises()
 
-    expect(build).toHaveBeenCalledWith(project.files, 'main.js')
-    expect(updateFiles).toHaveBeenCalledTimes(1)
-    const [uuid, files, entry, bundle, opts] = updateFiles.mock.calls[0] as unknown as Parameters<
-      typeof updateFiles
-    >
+    expect(save).toHaveBeenCalledTimes(1)
+    const [uuid, files, entry, opts] = save.mock.calls[0] as unknown as Parameters<typeof save>
     expect(uuid).toBe(UUID)
-    expect(files).toEqual(project.files)
+    expect(files).toEqual(headTree.files)
     expect(entry).toBe('main.js')
-    expect(bundle).toEqual({ code: 'compiled-code', builtAt: expect.any(Number) })
     expect(opts).toEqual({
       name: '新名字',
       config: {
@@ -153,7 +153,7 @@ describe('UserscriptEditorPanel 保存链路', () => {
       },
       note: '第一次改',
     })
-    expect(wrapper.text()).toContain('已保存并重新注册。')
+    expect(wrapper.text()).toContain('已保存并重新注册。目标页面刷新后生效。')
     // dirty 归零（宿主可无确认关标签）+ 头部显示名跟随表单 + 备注清空
     expect(wrapper.emitted('dirty')!.at(-1)).toEqual([false])
     expect(wrapper.text()).not.toContain('有未保存改动')
@@ -161,97 +161,35 @@ describe('UserscriptEditorPanel 保存链路', () => {
     expect(inputs()[5]!.element.value).toBe('')
   })
 
-  it('构建失败（buildError）：issues 行内展示、不落盘、保持 dirty', async () => {
+  it('构建失败：源码已保存（dirty 归零）但产物未生成，issues 行内展示', async () => {
     wrapper = await mountEditor()
-    // 先制造一次真实编辑（dirty=true），保存被构建拦下后 dirty 必须仍在
     await inputs()[0]!.setValue('改过名')
-    build.mockResolvedValue({ status: 'buildError', issues: ['main.js:1:1  Unexpected token'] })
-    const saveBtn = wrapper.findAll('button').find((b) => b.text() === '保存并重新注册')!
-    await saveBtn.trigger('click')
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('构建失败（1 处），未保存：')
-    expect(wrapper.text()).toContain('main.js:1:1  Unexpected token')
-    expect(updateFiles).not.toHaveBeenCalled()
-    expect(wrapper.emitted('dirty')!.at(-1)).toEqual([true])
-  })
-
-  it('构建中禁用保存按钮（防双击重复提交）', async () => {
-    let resolveBuild!: (r: BuildResult) => void
-    build.mockReturnValue(new Promise<BuildResult>((r) => (resolveBuild = r)))
-    wrapper = await mountEditor()
-    const saveBtn = wrapper.findAll('button').find((b) => b.text() === '保存并重新注册')!
-    await saveBtn.trigger('click')
-    expect(wrapper.text()).toContain('构建中…')
-    expect(saveBtn.attributes('disabled')).toBeDefined()
-    resolveBuild(buildOutcome())
-    await flushPromises()
-  })
-})
-
-describe('UserscriptEditorPanel 草稿恢复与丢弃', () => {
-  const draft: UsHistoryTree = {
-    meta: {
-      name: '草稿名',
-      config: { matches: ['https://a.example/*'], allFrames: true, runAt: 'document_end' },
-      entry: 'main.js',
-    },
-    files: [{ path: 'main.js', content: 'draft content' }],
-  }
-
-  it('有草稿且与已保存不等：静默恢复 + 琥珀提示条 + dirty true', async () => {
-    readDraft.mockResolvedValue(draft)
-    wrapper = await mountEditor()
-    expect(wrapper.text()).toContain('检测到上次会话未保存的草稿，已自动恢复。')
-    expect(wrapper.text()).toContain('有未保存改动')
-    expect(wrapper.emitted('dirty')!.at(-1)).toEqual([true])
-  })
-
-  it('草稿与已保存一致时不提示（draftEquals 判据）', async () => {
-    readDraft.mockResolvedValue({
-      meta: { name: project.name, config: project.config, entry: project.entry },
-      files: [{ path: 'main.js', content: project.files['main.js']! }],
+    save.mockResolvedValue({
+      buildOk: false,
+      issues: ['main.js:1:1  Unexpected token'],
+      files: headTree.files,
+      remoteFetched: [],
     })
-    wrapper = await mountEditor()
-    expect(wrapper.text()).not.toContain('已自动恢复')
-    expect(wrapper.emitted('dirty')).toBeUndefined()
-  })
-
-  it('读草稿失败按无草稿处理（best-effort，不挡打开）', async () => {
-    readDraft.mockRejectedValue(new Error('timeout'))
-    wrapper = await mountEditor()
-    expect(wrapper.text()).toContain('测试脚本')
-    expect(wrapper.emitted('dirty')).toBeUndefined()
-  })
-
-  it('丢弃草稿：先用 baseline 重写工作区，成功后才回滚编辑态并清除 dirty', async () => {
-    readDraft.mockResolvedValue(draft)
-    wrapper = await mountEditor()
-    writeDraft.mockClear()
-
-    const discardBtn = wrapper.findAll('button').find((b) => b.text() === '丢弃草稿')!
-    await discardBtn.trigger('click')
+    await saveBtn().trigger('click')
     await flushPromises()
 
-    // 写工作区用 baseline（状态库已保存内容），不是当前编辑态
-    expect(writeDraft).toHaveBeenCalledWith(UUID, project)
-    expect(wrapper.text()).not.toContain('已自动恢复')
+    expect(wrapper.text()).toContain('构建失败（1 处），产物未生成：')
+    expect(wrapper.text()).toContain('main.js:1:1  Unexpected token')
+    expect(wrapper.text()).toContain('源码已保存并记入历史版本，但构建失败，产物未生成')
+    // 保存恒成功：源码已保存 → dirty 归零（宿主可关标签，不丢内容）
     expect(wrapper.emitted('dirty')!.at(-1)).toEqual([false])
-    expect(wrapper.text()).not.toContain('有未保存改动')
   })
 
-  it('丢弃草稿失败：工作区没回退就不动编辑态，错误条提示可重试', async () => {
-    readDraft.mockResolvedValue(draft)
+  it('保存中禁用保存按钮（防双击重复提交）', async () => {
+    let resolveSave!: (r: unknown) => void
+    save.mockReturnValue(new Promise((r) => (resolveSave = r)))
     wrapper = await mountEditor()
-    writeDraft.mockClear()
-    writeDraft.mockRejectedValue(new Error('ipc down'))
-
-    const discardBtn = wrapper.findAll('button').find((b) => b.text() === '丢弃草稿')!
-    await discardBtn.trigger('click')
+    await saveBtn().trigger('click')
+    expect(wrapper.text()).toContain('构建中…')
+    // building 期间按钮文字变为「构建中…」，按新文字定位并断言禁用
+    const buildingBtn = wrapper.findAll('button').find((b) => b.text() === '构建中…')!
+    expect(buildingBtn.attributes('disabled')).toBeDefined()
+    resolveSave(saveOk())
     await flushPromises()
-
-    expect(wrapper.text()).toContain('丢弃草稿失败，可稍后重试：ipc down')
-    // 编辑态仍是草稿内容 → dirty 保持 true，不欺骗宿主
-    expect(wrapper.emitted('dirty')!.at(-1)).toEqual([true])
   })
 })

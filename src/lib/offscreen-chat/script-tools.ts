@@ -8,13 +8,15 @@
 //     userscript:createProject 完成（不由 AI 显式保存，避免「AI 忘了存」）。
 //   · 连续构建失败超阈值就停手：返回明确文案让模型把诊断抛给用户（防无限自修循环）。
 //
-// 模块归属：本文件只 import builder（纯 esbuild）与 project-store（裸 IndexedDB 读侧），
-// 可安全跑在 offscreen；不碰 chrome.storage / chrome.userScripts。
+// 模块归属：本文件只 import builder（纯 esbuild）、project-store（裸 IndexedDB 读侧）与
+// us-git（duoling-fs 源码库，offscreen-only），可安全跑在 offscreen；不碰 chrome.storage /
+// chrome.userScripts。
 
 import { tool } from 'ai'
 import { z } from 'zod'
 import { buildProject, BuildError } from '@/lib/userscripts/builder'
 import { getProject, validateFiles } from '@/lib/userscripts/project-store'
+import { readSourceTree } from '@/lib/userscripts/us-git'
 import type { ScriptConfig, UserScriptErrorRecord } from '@/lib/userscripts/types'
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
@@ -98,14 +100,21 @@ export function buildScriptTools(
         }
         const project = await getProject(uuid)
         if (!project) return { ok: false, error: `脚本不存在：${uuid}` }
+        // 源码唯一来源 = duoling-fs（本文件同在 offscreen，直读零 IPC）。
+        // 先读已提交版本（AI 不该看到用户未保存的半成品草稿），无提交再退工作区
+        // （zip 导入构建失败等场景只有工作区、没有提交）
+        const tree =
+          (await readSourceTree(uuid, true).catch(() => null)) ??
+          (await readSourceTree(uuid).catch(() => null))
+        if (!tree) return { ok: false, error: '源码库不可用或已损坏' }
         return {
           ok: true,
           uuid: project.uuid,
           name: project.name,
           enabled: project.enabled,
-          entry: project.entry,
-          config: project.config,
-          files: project.files,
+          entry: tree.meta.entry,
+          config: tree.meta.config,
+          files: tree.files,
         }
       },
     }),

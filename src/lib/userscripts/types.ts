@@ -18,7 +18,14 @@ export interface ScriptConfig {
   runAt: 'document_start' | 'document_end' | 'document_idle'
 }
 
-/** 一个脚本 = 一个项目（v2 落盘形状，所有创建路径均按此形状写入） */
+/**
+ * 一个脚本 = 一个项目（落盘形状，所有创建路径均按此形状写入）。
+ *
+ * **源码已迁出到 duoling-fs 库**（offscreen 独占的 lightning-fs 实例，带 git 版本化），
+ * 不在此处保存——dl 单写方约束下 SW / 扩展页读不到 lfs，故源码的唯一权威副本在
+ * duoling-fs；本记录退化为「注册态库」：只保留注册脚本所需的元数据与产物。
+ * 改这份形状时务必同步 offscreen-fs-commands / us-git / project-write / ui-client / 各面板。
+ */
 export interface ScriptProject {
   /** schema 版本 */
   v: 1
@@ -26,8 +33,6 @@ export interface ScriptProject {
   name: string
   enabled: boolean
   config: ScriptConfig
-  /** 虚拟文件树：路径（相对项目根）→ 源码 */
-  files: Record<string, string>
   /** 入口文件路径，默认 'main.js' */
   entry: string
   /**
@@ -36,8 +41,26 @@ export interface ScriptProject {
    * 此时注册会被 resolveInjectCode 拦下并记 register 警告，用户去编辑器改到能构建即可。
    */
   bundle?: { code: string; builtAt: number }
+  /**
+   * 最近一次构建的终态（统一保存每次都构建，故保存路径恒写入）。
+   * 与 bundle 有无同义但显式：失败时 bundle 已置空，没有这个字段就连「失败于何时」都丢了。
+   * 旧记录（加字段前落盘）缺省，读侧按 bundle 有无兜底推导。
+   */
+  buildOk?: boolean
+  /** 最近一次构建的完成时刻（ms）；成败都记 */
+  lastBuildAt?: number
+  /** 文件数缓存：列表展示用，避免 SW 为拿数量回源读 duoling-fs（SW 读不到它）。落盘时算好写入 */
+  fileCount?: number
   createdAt: number
   updatedAt: number
+}
+
+/** 源码的元数据（并行写入 duoling-fs 的 project.json，与状态库记录同源保存） */
+export interface ScriptMeta {
+  name: string
+  config: ScriptConfig
+  entry: string
+  createdAt: number
 }
 
 /** 给 UI 列表用的精简视图（不含源码与构建产物） */
@@ -48,6 +71,10 @@ export interface ScriptSummary {
   matches: string[]
   fileCount: number
   updatedAt: number
+  /** 最近一次构建终态（旧记录缺省时按 bundle 有无推导，见 ScriptProject.buildOk） */
+  buildOk: boolean
+  /** 最近一次构建完成时刻（ms）；缺省 = 旧记录没记过 */
+  lastBuildAt?: number
 }
 
 /** 用户脚本引擎可用性状态（供管理页状态横幅） */

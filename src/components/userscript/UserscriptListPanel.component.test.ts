@@ -43,6 +43,7 @@ const summary = (uuid: string, name: string): ScriptSummary => ({
   matches: ['https://a.example/*'],
   fileCount: 1,
   updatedAt: 0,
+  buildOk: true,
 })
 
 const OK_AVAILABILITY: UserScriptsAvailability = {

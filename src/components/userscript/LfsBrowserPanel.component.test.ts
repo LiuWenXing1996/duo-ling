@@ -12,7 +12,7 @@ const lfsTree = vi.hoisted(() => vi.fn())
 const list = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/userscripts/ui-client', () => ({
-  aiFsClient: { lfsTree, lfsReadFile: vi.fn() },
+  fsClient: { lfsTree, lfsReadFile: vi.fn() },
   userscriptClient: { list },
 }))
 
@@ -36,7 +36,7 @@ vi.mock('@/components/ai-elements/code-block', () => ({
 /** 最小树：一个命名的脚本仓 + 一个已无项目记录的孤儿仓（只有 uuid） */
 const tree: LfsNode = {
   path: '/',
-  name: 'duoling（lfs 根）',
+  name: 'lfs 根',
   type: 'folder',
   children: [
     {
@@ -58,6 +58,7 @@ const summary = (uuid: string, name: string): ScriptSummary => ({
   matches: [],
   fileCount: 0,
   updatedAt: 0,
+  buildOk: true,
 })
 
 let wrapper: VueWrapper

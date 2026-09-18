@@ -28,8 +28,12 @@ export async function listSummaries(projects: ScriptProject[]): Promise<ScriptSu
     name: p.name,
     enabled: p.enabled,
     matches: p.config.matches ?? [],
-    fileCount: Object.keys(p.files).length,
+    // 文件数来自状态库缓存（源码在 duoling-fs，SW 读不到，故落盘时算好存于此）
+    fileCount: p.fileCount ?? 0,
     updatedAt: p.updatedAt,
+    // 构建终态：新记录显式存于 buildOk；旧记录（加字段前落盘）按产物有无兜底推导
+    buildOk: p.buildOk ?? p.bundle !== undefined,
+    ...(p.lastBuildAt !== undefined ? { lastBuildAt: p.lastBuildAt } : {}),
   }))
   return [...projectSummaries].sort(
     (a, b) => Number(b.enabled) - Number(a.enabled) || b.updatedAt - a.updatedAt,

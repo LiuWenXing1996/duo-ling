@@ -162,7 +162,6 @@ async function persistGeneratedProject(ws: TaskWorkspace): Promise<GenerationCar
         uuid: ws.targetUuid,
         files: ws.lastOk.files,
         entry: ws.lastOk.entry,
-        bundle: ws.lastOk.bundle,
         note: ws.summary || undefined,
       })
       return {
@@ -181,7 +180,6 @@ async function persistGeneratedProject(ws: TaskWorkspace): Promise<GenerationCar
     config: ws.config,
     files: ws.lastOk.files,
     entry: ws.lastOk.entry,
-    bundle: ws.lastOk.bundle,
     enabled: false, // 先落盘不启用：启用由用户在卡片 / 管理页操作
     note: ws.summary || undefined,
   })

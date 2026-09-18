@@ -131,11 +131,15 @@ export type StatusBubbleUp =
 export type RuntimeRequest =
   // 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）
   | { kind: 'userscript:list' }
+  // 读注册态记录（元数据 + bundle；**不含源码**——源码在 duoling-fs，编辑器经 fs:readTree 取）
   | { kind: 'userscript:getProject'; uuid: string }
-  | { kind: 'userscript:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
+  // 保存源码（唯一保存入口）：传源码与元数据，**构建在 offscreen 内跟随**——保存恒成功
+  // （提交 git 版本即保存），构建失败产物置空；返回 buildOk + issues 供 UI 展示诊断。
+  // 启用中脚本由 SW 落库后重注册（无产物时注册被拦下，registerError 带原因）。
+  | { kind: 'userscript:save'; uuid: string; files: Record<string, string>; entry: string; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
   | { kind: 'userscript:create' }
   // AI 生成脚本落盘（SW 命令面，转发 offscreen 单写方；enabled 默认 false = 先落盘不启用）
-  | { kind: 'userscript:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; enabled: boolean; note?: string }
+  | { kind: 'userscript:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; enabled: boolean; note?: string }
   | { kind: 'userscript:remove'; uuid: string }
   // 删除全部用户脚本：范围 = 新形态用户脚本（状态库项目 + 各自 git 仓），
   // **不含**已弃用旧 GM 记录（chrome.storage，另有逐行删除与 clearDeprecated 两条路径）
@@ -160,31 +164,31 @@ export type RuntimeRequest =
   // 导出零新增协议：走现成 userscript:list / getProject 只读命令。
   | { kind: 'userscript:import'; zipBase64: string }
 
-  // 用户脚本 git 历史（执行宿主迁 offscreen）。
-  // UI / SW 经 chrome.runtime.sendMessage 共享总线直发 offscreen；SW 的 onMessage 对 ai: 前缀
-  // return false 静默放行，由 offscreen 处理并按 { ok, data | error } 信封回传。
+  // —— 用户脚本源码库命令面（fs:*，执行宿主 = offscreen）——
+  // 源码唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库，带 git 版本化，
+  // 见 us-fs.ts / us-git.ts）。SW 与扩展页读不到 lfs，**源码的一切读写都经这组命令
+  // 向 offscreen 取**。SW 的 onMessage 对 fs: 前缀静默让路（不在 SW_KIND_PREFIXES）。
   // 就绪探测：SW 用来确认容器**真的在应答**（而不仅是「文档已存在」）。
   // 判据必须是「应答」而非「存在」——createDocument 返回时，offscreen 的 onMessage
   // 未必已注册完，此时发业务命令会得到「port closed / Receiving end does not exist」。
-  | { kind: 'ai:ping' }
-  | { kind: 'ai:history'; uuid: string }
-  | { kind: 'ai:historyTree'; uuid: string; oid: string }
-  // 恢复：由快照物化出项目（不落状态库），提交一条「回滚」记录；落盘由调用方经
-  // userscript:updateFiles 完成（UI 侧先切编辑态、重建 bundle 再保存）。
-  | { kind: 'ai:restoreToCommit'; uuid: string; oid: string }
+  | { kind: 'fs:ping' }
+  // 读源码树（工作树；每次保存后工作树与 HEAD 一致，无草稿概念）。无源码（仓损坏 / 从未保存）返回 null
+  | { kind: 'fs:readTree'; uuid: string }
+  // git 历史：提交列表（新在前）/ 某提交完整快照
+  | { kind: 'fs:history'; uuid: string }
+  | { kind: 'fs:historyTree'; uuid: string; oid: string }
+  // 恢复到某提交：目标树物化回工作区（= 当前源码）+ 提交一条「回滚」记录；
+  // 随后调用方经 userscript:save 保存（commit 为空提交守卫拦下，不重复提交；构建 + 落库 + 重注册）。
+  // 返回恢复出的源码树（meta + files）
+  | { kind: 'fs:restoreToCommit'; uuid: string; oid: string }
+  // 导出 zip：**在 offscreen 侧打包**（读各脚本工作区源码 → buildScriptZip），
+  // 只回传 base64——避免把全部源码树过大消息桥。单脚本时附带 name（UI 定文件名用）；
+  // exporter = 导出方标识（写入 zip manifest 排障用）
+  | { kind: 'fs:exportZip'; uuids: string[]; exporter?: string }
   // 整库浏览（只读调试视图）：递归列出 lfs 库的文件树（含 .git 内部），工作台「lfs 浏览」标签页用
-  | { kind: 'ai:lfsTree' }
-  // esbuild 构建（宿主收敛 offscreen：唯一「能派生 Worker + 不被回收」的宿主）。
-  // 编辑器保存 / 历史恢复 / AI 生成 loop 共用 offscreen 常驻 wasm 实例。
-  // 失败不抛异常（过桥丢结构），返回可辨识联合 BuildResult（见 offscreen-build-commands.ts）
-  | { kind: 'ai:build'; files: Record<string, string>; entry: string }
-  // 草稿：编辑态防抖写入 git 工作区（纯 fs、不动 index）。
-  // 载荷传完整 ScriptProject 形状——offscreen 侧 buildContents 需要 v/uuid/createdAt，
-  // UI 不能 import us-git 复用（会把 isomorphic-git 打进面板包）
-  | { kind: 'ai:writeDraft'; uuid: string; project: import('@/lib/userscripts/types').ScriptProject }
-  | { kind: 'ai:readDraft'; uuid: string }
+  | { kind: 'fs:lfsTree' }
   // 单文件预览：按完整路径读 lfs 库内文件内容（含 .git 内部），「lfs 浏览」标签页点文件时拉取
-  | { kind: 'ai:lfsReadFile'; path: string }
+  | { kind: 'fs:lfsReadFile'; path: string }
 
   // —— 项目状态库的**写**命令面——
   // 项目数据（源码 / 配置 / 构建产物 / enabled）落在独立 IndexedDB 库 duoling-state，
@@ -192,7 +196,7 @@ export type RuntimeRequest =
   // 消除原先「SW 写 storage + IPC 让 offscreen commit」两次分离操作带来的偏差缝隙。
   // 读不进协议：SW 与扩展页直连 IDB（project-store），不经容器——注册链路不能押在容器存活上。
   | { kind: 'state:create' }
-  | { kind: 'state:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
+  | { kind: 'state:save'; uuid: string; files: Record<string, string>; entry: string; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
   | { kind: 'state:remove'; uuid: string }
   // 清空全部项目记录 + 各自仓（SW 的 userscript:removeAll 转发到此）；返回删除条数。
   // 与 state:remove 同处一地的好处：记录与仓的删除不跨上下文，不留无主仓。
@@ -200,7 +204,7 @@ export type RuntimeRequest =
   | { kind: 'state:toggle'; uuid: string; enabled: boolean }
   // AI 生成脚本的落盘：SW 的 userscript:createProject
   // 转发到此（单写方），写状态库 + git 快照（note = AI summary），**不注册**（enabled:false 默认）。
-  | { kind: 'state:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; enabled: boolean; note?: string }
+  | { kind: 'state:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; enabled: boolean; note?: string }
   // zip 导入的落点（SW 的 userscript:import 转发到此）：importScriptsZip 逐脚本
   // 「构建 → 落盘 → 快照」，报告 ImportReport（types.ts）。
   | { kind: 'state:import'; zipBase64: string }
@@ -294,6 +298,10 @@ export type DataDomain =
  *
  * `uuid` 缺省 = 该域整体起了变化（新建 / 删除 / 批量改动），接收方一律全量重拉；
  * 有值时接收方可自行判断「是不是我正在看的那条」，从而跳过无关重拉。
+ *
+ * `phase` = 保存链的**瞬态**阶段通知（不落库、不回拉）：script 域统一保存链上，
+ * SW 收到 `userscript:save` 即广播 `saving`，offscreen 进入构建即广播 `building`，
+ * 链路收尾仍是常规的落库广播（无 phase）——接收方据此切终态、清瞬态。
  */
 export type DataChangedPush = {
   kind: 'data:changed'
@@ -301,7 +309,12 @@ export type DataChangedPush = {
   uuid?: string
   /** 发送时刻（ms） */
   at: number
+  /** 瞬态阶段（仅保存链中途广播）；缺省 = 落库完成的终态通知 */
+  phase?: BuildPhase
 }
+
+/** 统一保存链的瞬态阶段（前端列表据此显示「保存中 / 构建中」转圈） */
+export type BuildPhase = 'saving' | 'building'
 
 // —— 页面脚本监控（侧边栏 · 运行时口径）——
 // 信号源与浮窗同源：DL 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。
