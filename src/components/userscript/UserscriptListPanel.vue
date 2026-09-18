@@ -37,6 +37,7 @@ import { BUILTIN_SCRIPTS } from '@/lib/userscripts/builtins'
 import { fsClient, userscriptClient } from '@/lib/userscripts/ui-client'
 import { base64ToBytes, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
 import type { ZipScriptPayload } from '@/lib/userscripts/zip-transfer'
+import type { BuildPhase } from '@/shared/extension-ipc'
 import type {
   ImportItemOk,
   ImportReport,
@@ -318,9 +319,32 @@ onMounted(() => {
     .catch(() => (availability.value = null)) // 横幅静默降级为不显示
 })
 
+// —— 构建状态标 ——
+// 终态（构建成功 / 失败）随 ScriptSummary.buildOk 落库返回；瞬态（保存中 / 构建中）由
+// 保存链广播驱动：SW 转发 userscript:save 时广播 saving，offscreen 进构建时广播 building，
+// 收尾的落库广播（无 phase）切终态。瞬态只改转圈、不回拉——链路还没落库，拉了也是旧数据。
+const buildPhase = ref<Record<string, BuildPhase>>({})
+
 // 别处的脚本写操作（保存 / 启停 / 新建 / 删除 / 导入）落盘后已广播 `script` 域，
 // 这里接住并自动回拉列表——多窗口、多标签、侧边栏之间不必各自手动刷新
-useDataSync('script', () => refresh())
+useDataSync('script', (push) => {
+  if (push.phase && push.uuid) {
+    buildPhase.value = { ...buildPhase.value, [push.uuid]: push.phase }
+    return
+  }
+  if (push.uuid) {
+    const { [push.uuid]: _done, ...rest } = buildPhase.value
+    buildPhase.value = rest
+  } else {
+    buildPhase.value = {} // uuid 缺省 = 全量变化（导入 / 全部删除等），瞬态一并清空
+  }
+  return refresh()
+})
+
+/** 状态标的悬停提示：最近一次构建的时刻（成败共用） */
+function lastBuildLabel(s: ScriptSummary): string {
+  return s.lastBuildAt ? `最近构建：${updatedAtLabel(s.lastBuildAt)}` : '最近构建'
+}
 </script>
 
 <template>
@@ -471,6 +495,30 @@ useDataSync('script', () => refresh())
                   class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
                 >
                   刚新建
+                </span>
+                <!-- 构建状态标：保存链瞬态（转圈）→ 落库终态（成功 / 失败） -->
+                <span
+                  v-if="buildPhase[s.uuid]"
+                  class="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                >
+                  <ui-loader-circle class="size-3 animate-spin" />
+                  {{ buildPhase[s.uuid] === 'saving' ? '保存中' : '构建中' }}
+                </span>
+                <span
+                  v-else-if="s.buildOk"
+                  class="inline-flex shrink-0 items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
+                  :title="lastBuildLabel(s)"
+                >
+                  <ui-check class="size-3" />
+                  构建成功
+                </span>
+                <span
+                  v-else
+                  class="inline-flex shrink-0 items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
+                  :title="lastBuildLabel(s)"
+                >
+                  <ui-x class="size-3" />
+                  构建失败
                 </span>
               </div>
               <p class="mt-0.5 truncate font-mono text-xs text-muted-foreground">

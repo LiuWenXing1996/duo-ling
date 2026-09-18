@@ -148,6 +148,8 @@ describe('saveExisting', () => {
     expect(outcome.buildOk).toBe(true)
     expect(outcome.project.name).toBe('改名') // 名称去空白
     expect(outcome.project.bundle!.code).toBe('//c2') // bundle 来自保存时的构建
+    expect(outcome.project.buildOk).toBe(true) // 终态落库
+    expect(outcome.project.lastBuildAt).toBeGreaterThan(0)
     expect(outcome.project.enabled).toBe(false)
     expect(outcome.project.updatedAt).toBeGreaterThanOrEqual(p.updatedAt)
     expect(mockWriteSourceTree).toHaveBeenCalledOnce()
@@ -166,6 +168,8 @@ describe('saveExisting', () => {
     expect(outcome.buildOk).toBe(false)
     expect(outcome.issues).toEqual(['main.js:1:1 语法错误'])
     expect(outcome.project.bundle).toBeUndefined()
+    expect(outcome.project.buildOk).toBe(false) // 终态落库：失败也记
+    expect(outcome.project.lastBuildAt).toBeGreaterThan(0)
     await expect(readAllProjects()).resolves.toHaveLength(1) // 同 uuid 原地更新
   })
 

@@ -295,6 +295,10 @@ export type DataDomain =
  *
  * `uuid` 缺省 = 该域整体起了变化（新建 / 删除 / 批量改动），接收方一律全量重拉；
  * 有值时接收方可自行判断「是不是我正在看的那条」，从而跳过无关重拉。
+ *
+ * `phase` = 保存链的**瞬态**阶段通知（不落库、不回拉）：script 域统一保存链上，
+ * SW 收到 `userscript:save` 即广播 `saving`，offscreen 进入构建即广播 `building`，
+ * 链路收尾仍是常规的落库广播（无 phase）——接收方据此切终态、清瞬态。
  */
 export type DataChangedPush = {
   kind: 'data:changed'
@@ -302,7 +306,12 @@ export type DataChangedPush = {
   uuid?: string
   /** 发送时刻（ms） */
   at: number
+  /** 瞬态阶段（仅保存链中途广播）；缺省 = 落库完成的终态通知 */
+  phase?: BuildPhase
 }
+
+/** 统一保存链的瞬态阶段（前端列表据此显示「保存中 / 构建中」转圈） */
+export type BuildPhase = 'saving' | 'building'
 
 // —— 页面脚本监控（侧边栏 · 运行时口径）——
 // 信号源与浮窗同源：DL 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。

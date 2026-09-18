@@ -31,7 +31,7 @@ function rec(over: Partial<UserScriptErrorRecord> & { message: string }): UserSc
 }
 
 function summary(uuid: string, name: string): ScriptSummary {
-  return { uuid, name, enabled: true, matches: [], fileCount: 1, updatedAt: 0 }
+  return { uuid, name, enabled: true, matches: [], fileCount: 1, updatedAt: 0, buildOk: true }
 }
 
 let wrapper: VueWrapper

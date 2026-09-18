@@ -19,7 +19,7 @@
 // 谁 import 本模块都不会引入 chrome.storage / chrome.tabs 之类的专属 API，
 // 所以 SW / offscreen / 扩展页三处都能用（与 project-store.ts 同一个道理）。
 
-import type { DataChangedPush, DataDomain } from '@/shared/extension-ipc'
+import type { BuildPhase, DataChangedPush, DataDomain } from '@/shared/extension-ipc'
 
 /** 频道名（同一扩展内唯一即可；跨扩展不会串，因为 origin 含扩展 id） */
 const CHANNEL_NAME = 'duoling:data'
@@ -99,8 +99,18 @@ export function broadcastDataChange(domain: DataDomain, uuid?: string): void {
   )
 }
 
-/** 订阅数据变更；返回取消订阅的函数（组件卸载时调用） */
-export function subscribeDataChange(listener: (push: DataChangedPush) => void): () => void {
+/**
+ * 广播一次保存链的瞬态阶段（`saving` / `building`）。
+ *
+ * 与 broadcastDataChange 的区别：**立即发、不进合并窗口**——瞬态就是给用户看进度的，
+ * 被 100ms 窗口吞掉后到达顺序错乱（如 saving 被并发的完成通知合并掉），转圈会闪跳。
+ * 阶段通知不带数据、不触发回拉，收尾终态仍由常规落库广播负责。
+ */
+export function broadcastBuildPhase(domain: DataDomain, uuid: string, phase: BuildPhase): void {
+  emit({ kind: 'data:changed', domain, uuid, at: Date.now(), phase })
+}
+
+/** 订阅数据变更；返回取消订阅的函数（组件卸载时调用） */export function subscribeDataChange(listener: (push: DataChangedPush) => void): () => void {
   const channel = openChannel('rx')
   if (channel) {
     const onMessage = (event: MessageEvent): void => {

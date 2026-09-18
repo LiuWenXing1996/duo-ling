@@ -37,7 +37,9 @@ function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {
 
 describe('listSummaries', () => {
   it('项目摘要不含源码字段，fileCount 正确', async () => {
-    const summaries = await listSummaries([makeProject()])
+    const summaries = await listSummaries([
+      makeProject({ buildOk: true, lastBuildAt: 99, bundle: { code: 'x', builtAt: 99 } }),
+    ])
     expect(summaries).toHaveLength(1)
     expect(summaries[0]).toEqual({
       uuid: 'p1',
@@ -46,8 +48,20 @@ describe('listSummaries', () => {
       matches: ['*://a.com/*'],
       fileCount: 2,
       updatedAt: 42,
+      buildOk: true,
+      lastBuildAt: 99,
     })
     expect('files' in summaries[0]).toBe(false)
+    expect('bundle' in summaries[0]).toBe(false)
+  })
+
+  it('构建终态：旧记录（无 buildOk）按 bundle 有无兜底推导', async () => {
+    const [okLegacy, failedLegacy] = await listSummaries([
+      makeProject({ uuid: 'ok', bundle: { code: 'x', builtAt: 1 } }),
+      makeProject({ uuid: 'failed' }), // 旧记录：产物置空即构建失败
+    ])
+    expect(okLegacy.buildOk).toBe(true)
+    expect(failedLegacy.buildOk).toBe(false)
   })
 
   it('排序：启用在前，组内按更新时间倒序', async () => {

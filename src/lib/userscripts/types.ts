@@ -41,6 +41,14 @@ export interface ScriptProject {
    * 此时注册会被 resolveInjectCode 拦下并记 register 警告，用户去编辑器改到能构建即可。
    */
   bundle?: { code: string; builtAt: number }
+  /**
+   * 最近一次构建的终态（统一保存每次都构建，故保存路径恒写入）。
+   * 与 bundle 有无同义但显式：失败时 bundle 已置空，没有这个字段就连「失败于何时」都丢了。
+   * 旧记录（加字段前落盘）缺省，读侧按 bundle 有无兜底推导。
+   */
+  buildOk?: boolean
+  /** 最近一次构建的完成时刻（ms）；成败都记 */
+  lastBuildAt?: number
   /** 文件数缓存：列表展示用，避免 SW 为拿数量回源读 duoling-fs（SW 读不到它）。落盘时算好写入 */
   fileCount?: number
   createdAt: number
@@ -63,6 +71,10 @@ export interface ScriptSummary {
   matches: string[]
   fileCount: number
   updatedAt: number
+  /** 最近一次构建终态（旧记录缺省时按 bundle 有无推导，见 ScriptProject.buildOk） */
+  buildOk: boolean
+  /** 最近一次构建完成时刻（ms）；缺省 = 旧记录没记过 */
+  lastBuildAt?: number
 }
 
 /** 用户脚本引擎可用性状态（供管理页状态横幅） */

@@ -6,11 +6,13 @@
 //
 // 保存语义（2026-09-19 老大拍板）：**保存恒成功，构建跟随**——源码提交即保存，不再以构建
 // 成功为落盘前提；构建失败则**产物置空**（bundle=undefined），脚本立即停止注入（旧产物不兜底，
-// 刷新目标页后不生效），直到用户改到能构建。产物有无本身就是构建状态，无需另记字段。
+// 刷新目标页后不生效），直到用户改到能构建。构建终态另记 buildOk / lastBuildAt（列表状态标
+// 与「失败于何时」用；bundle 有无本身也是同一事实，但失败时没有时间戳可看）。
 //
 // 失败策略：git 提交失败只丢历史不丢源码？不——duoling-fs 就是源码唯一来源，提交失败时
 // 工作树仍持有本次内容，故只 warn（下次保存再提交）；写工作树失败才是真保存失败（源码没落地）。
 import { buildProject, BuildError } from './builder'
+import { broadcastBuildPhase } from '../data-broadcast'
 import { getProject, listProjects, nextScriptName, validateFiles } from './project-store'
 import { removeProject, writeProject } from './state-db'
 import { deleteAllRepos, deleteRepo, writeSourceTree, commitSource, readSourceTree } from './us-git'
@@ -27,11 +29,26 @@ function makeState(
   config: ScriptConfig,
   entry: string,
   bundle: { code: string; builtAt: number } | undefined,
+  buildOk: boolean,
+  lastBuildAt: number,
   fileCount: number,
   createdAt: number,
   updatedAt: number,
 ): ScriptProject {
-  return { v: 1, uuid, name, enabled, config, entry, bundle, fileCount, createdAt, updatedAt }
+  return {
+    v: 1,
+    uuid,
+    name,
+    enabled,
+    config,
+    entry,
+    bundle,
+    buildOk,
+    lastBuildAt,
+    fileCount,
+    createdAt,
+    updatedAt,
+  }
 }
 
 // —— 构建结果（可辨识联合，不抛异常：构建失败是**正常业务态**，不是错误） ——
@@ -82,6 +99,9 @@ export async function saveSource(
     // 工作树已落地，提交失败只丢历史版本（下次保存会补提交），不判保存失败
     console.warn('[duoling:userscript] git 提交失败（不影响保存）', uuid, e)
   }
+  // 进构建前广播瞬态阶段：列表行切「构建中」转圈（写工作树 / git 提交阶段由 SW 的
+  // userscript:save 转发侧广播「保存中」覆盖；offscreen 侧广播覆盖新建 / 导入这类不经转发的路径）
+  broadcastBuildPhase('script', uuid, 'building')
   const build = await runBuild(files, meta.entry)
   let finalFiles = files
   if (build.ok) {
@@ -96,13 +116,16 @@ export async function saveSource(
       }
     }
   }
+  const builtAt = Date.now()
   const project = makeState(
     uuid,
     meta.name,
     opts.enabled,
     meta.config,
     meta.entry,
-    build.ok ? { code: build.code, builtAt: Date.now() } : undefined, // 构建失败产物置空
+    build.ok ? { code: build.code, builtAt } : undefined, // 构建失败产物置空
+    build.ok,
+    builtAt,
     Object.keys(finalFiles).length,
     opts.createdAt,
     Date.now(),

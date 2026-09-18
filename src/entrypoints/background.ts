@@ -61,7 +61,7 @@ import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady
 // 模型配置：offscreen 既收不到 storage.onChanged、也不该直连存储，一律由 SW 经命令 / 推送中转
 import { getActiveProfileState } from '@/lib/model-store'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
-import { broadcastDataChange } from '@/lib/data-broadcast'
+import { broadcastBuildPhase, broadcastDataChange } from '@/lib/data-broadcast'
 // AI 工具支路：page_snapshot 工具经 SW 调 userScripts.execute（offscreen 不可达该 API）
 import { capturePageSnapshotFromTab, pageInjectionBlockReason } from '@/lib/element-picker-client'
 
@@ -226,6 +226,9 @@ const handlers: {
   'userscript:save': async (
     msg,
   ): Promise<{ buildOk: boolean; issues: string[]; files: Record<string, string>; warnings?: string[]; registerError?: string }> => {
+    // 转发前先广播「保存中」瞬态：列表行立即转圈（offscreen 进构建时会再广播「构建中」，
+    // 链路收尾的落库广播负责切终态——见 extension-ipc.ts DataChangedPush.phase 说明）
+    broadcastBuildPhase('script', msg.uuid, 'saving')
     const outcome = await writeViaOffscreen<import('@/lib/userscripts/project-write').SaveOutcome>({
       kind: 'state:save',
       uuid: msg.uuid,
