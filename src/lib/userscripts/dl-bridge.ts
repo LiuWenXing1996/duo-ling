@@ -31,9 +31,9 @@ import {
   appendUserScriptError,
 } from './store'
 
-/** 1x1 透明 PNG，用作通知兜底图标（避免依赖打包资源） */
-const FALLBACK_ICON =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC'
+/** 通知兜底图标（打包资源）。MV3 的 notifications.create 不接受 data: URL 图标
+ * （报 "Unable to download all specified images."），必须用扩展内资源或 http(s) 图 */
+const FALLBACK_ICON = 'notify-icon.png' // 相对扩展根，即 src/public/notify-icon.png
 
 /** 带 ApiErrorCode 的错误：dispatch 抛出后由监听器写入响应信封的 code 字段 */
 class ApiError extends Error {
