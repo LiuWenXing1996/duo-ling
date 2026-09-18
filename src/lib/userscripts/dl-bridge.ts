@@ -16,6 +16,8 @@ import type { ApiErrorCode, ApiRequest, ApiResponse, DlEvent, FetchInit, FetchPa
 // 浮窗实时更新：runtime 错误落盘后通知出错 tab 上的浮窗；运行标识广播只转发
 // （同目录模块，无环）
 import { refreshStatusBubbleAfterError, relayRunStart } from './status-bubble'
+// 侧边栏页面脚本监控（运行时口径）：runstart 登记 + 错误实时推送（跨文档观察者，SW 按 tab 登记）
+import { notePageError, noteRunStart } from './page-monitor'
 import {
   getGMValue,
   setGMValue,
@@ -152,7 +154,11 @@ export function initDlBridge(): void {
     const run = raw as { __dlRunStart?: true; uuid?: string; runId?: string }
     if (run && run.__dlRunStart === true) {
       const tabId = sender.tab?.id
-      if (tabId != null && run.uuid && run.runId) relayRunStart(tabId, run.uuid, run.runId)
+      if (tabId != null && run.uuid && run.runId) {
+        relayRunStart(tabId, run.uuid, run.runId)
+        // 侧边栏监控（跨文档观察者）：SW 侧按 tab 登记运行集，面板切 tab 时靠它出快照
+        noteRunStart(tabId, run.uuid, run.runId)
+      }
       return undefined // 仅转发，无需响应、不落盘
     }
 
@@ -174,7 +180,16 @@ export function initDlBridge(): void {
           // sender.tab 定位出错页面（userScript 世界消息 sender 带 tab）；拿不到就跳过
           // （浮窗下次导航时按最新数据注入）。
           const tabId = sender.tab?.id
-          if (tabId != null) void refreshStatusBubbleAfterError(tabId)
+          if (tabId != null) {
+            void refreshStatusBubbleAfterError(tabId)
+            // 侧边栏监控：错误行随推送走（落盘记录无 tabId，面板按 tab 归属只能靠这条实时通道）
+            notePageError(tabId, {
+              uuid: evt.uuid ?? null,
+              name: evt.name || '未知脚本',
+              message: evt.event?.message || '',
+              runId: typeof evt.event?.runId === 'string' ? evt.event.runId : null,
+            })
+          }
         })
         .catch(() => {})
       return undefined // 仅记录，无需响应
