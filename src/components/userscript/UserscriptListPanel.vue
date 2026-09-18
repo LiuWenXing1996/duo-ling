@@ -54,7 +54,7 @@ const emit = defineEmits<{
   deleted: [uuid: string]
 }>()
 
-// 深链定位（提案②）：浮窗「点击脚本行」→ workbench.html#/errors/<uuid> → 宿主传入。
+// 深链定位：浮窗「点击脚本行」→ workbench.html#/errors/<uuid> → 宿主传入。
 // 语义 = 打开错误日志、按该脚本过滤（带清除入口），不是一次性跳转后遗忘。
 const props = defineProps<{ focusErrorUuid?: string | null }>()
 
@@ -124,7 +124,7 @@ const filterTargetName = computed(
   () => scripts.value.find((s) => s.uuid === errorFilterUuid.value)?.name ?? errorFilterUuid.value ?? '',
 )
 
-/** 错误 ID 展示短形态（前 8 位；复制按钮复制完整 id，提案②） */
+/** 错误 ID 展示短形态（前 8 位；复制按钮复制完整 id） */
 function shortErrorId(id: string): string {
   return id.slice(0, 8)
 }
@@ -255,7 +255,7 @@ function askRemove(s: ScriptSummary): void {
   pendingRemove.value = s
 }
 
-// —— zip 导入导出（notes/content/userscript-zip-transfer.md；提案 docs/proposals/done/userscript-zip-transfer.md）——
+// —— zip 导入导出（notes/content/userscript-zip-transfer.md）——
 // 导出：ui-client 现成的 getProject / list 只读取数，zip 编码在本页（zip-transfer 纯函数），
 // 零新增协议。导入：zip 文件转 base64 走 userscript:import 命令对，offscreen 单写方落盘。
 
@@ -620,7 +620,7 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- 内置分组：随扩展包分发的只读内置件（不进状态库、无启停 / 编辑 / 删除，docs/proposals/done/element-picker.md「内置脚本承载」） -->
+        <!-- 内置分组：随扩展包分发的只读内置件（不进状态库、无启停 / 编辑 / 删除，内置脚本承载设计） -->
         <section
           v-if="BUILTIN_SCRIPTS.length"
           class="rounded-md border bg-card"

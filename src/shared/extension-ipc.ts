@@ -9,7 +9,7 @@
 
 import type { ModelProfile } from './types'
 
-// —— 页面上下文档位（docs/proposals/done/element-picker.md）——
+// —— 页面上下文档位 ——
 // 拾取器（src/public/duoling-picker.js，USER_SCRIPT 世界经 execute() 注入）的载荷形状。
 // ⚠️ 与拾取器的 vanilla JS 手写对齐，改形状必须两边同步。
 
@@ -78,7 +78,7 @@ export interface ChatMessageMetadata {
   pageContext?: MessagePageContext
 }
 
-// —— 页面脚本状态浮窗载荷（docs/proposals/done/runtime-feedback-loop.md）——
+// —— 页面脚本状态浮窗载荷 ——
 // ⚠️ 与 src/public/duoling-status.js 的 vanilla JS 手写对齐，改形状必须两边同步。
 
 /** 浮窗的一条脚本行 */
@@ -145,7 +145,7 @@ export type RuntimeRequest =
   | { kind: 'userscript:availability' }
   | { kind: 'userscript:errors' }
   | { kind: 'userscript:clearErrors' }
-  // 错误 ID 修复闭环（提案② runtime-feedback-loop.md）：AI 的 error_read 工具经 SW 代查
+  // 错误 ID 修复闭环：AI 的 error_read 工具经 SW 代查
   // us:errors（offscreen 拿不到 chrome.storage）。id = 完整记录 id 或唯一 8 位前缀
   | { kind: 'userscript:errorRead'; id: string }
   // zip 导入（notes/content/userscript-zip-transfer.md）：UI 读 zip 文件转 base64，SW 纯转发 offscreen
@@ -235,7 +235,7 @@ export type RuntimeRequest =
 
   // —— AI 工具支路（offscreen 的 agent 工具经 SW 调 SW/扩展页才有的 chrome 能力）——
   // page_snapshot 工具：SW 代为对当前活动标签执行拾取器快照模式（chrome.userScripts.execute
-  // 在 offscreen 不可达；2026-09-17 页面快照从用户按钮改判为 AI 工具，见提案决策记录）。
+  // 在 offscreen 不可达；2026-09-17 页面快照从用户按钮改判为 AI 工具）。
   // 注意前缀：`chat:` 是「SW 静默让路给 offscreen」的保留前缀，SW 自答的命令不能用
   | { kind: 'page:snapshot' }
 
@@ -252,7 +252,7 @@ export type RuntimeRequest =
  * 侧边栏按 seq 去重（重连回放与实时推送短暂重叠时防重）。SW 不消费（前缀不在白名单）。
  *
  * chat:finished —— offscreen → SW（观察者）：任务收尾（正常 / 异常）通知，SW 据此在
- * 「面板关着」时点亮扩展图标完成徽章（提案② #2）。面板开着时 SW 不做任何事。
+ * 「面板关着」时点亮扩展图标完成徽章。面板开着时 SW 不做任何事。
  * 注意 `chat:` 前缀对 RuntimeRequest 是 offscreen 保留前缀；OffscreenPush 不进命令面，不受此限。
  */
 export type OffscreenPush =

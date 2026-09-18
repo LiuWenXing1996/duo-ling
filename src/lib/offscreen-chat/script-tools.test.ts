@@ -1,4 +1,4 @@
-// element_read 工具测试（docs/proposals/done/element-picker.md 验收：
+// element_read 工具测试（验收：
 // 「`element_read` 工具可拉全量属性 / outerHTML / parent 链（单测覆盖工具）」）。
 import { describe, expect, it, vi } from 'vitest'
 import { buildScriptTools, type TaskWorkspace } from './script-tools'
@@ -133,7 +133,7 @@ describe('script 三件套不受影响（回归）', () => {
   })
 })
 
-describe('error_read（错误 ID 查询，提案②）', () => {
+describe('error_read（错误 ID 查询）', () => {
   const rec = {
     id: 'abcdef1234567890',
     uuid: 'u1',

@@ -1,4 +1,4 @@
-// 元素拾取发起侧封装的纯函数测试（docs/proposals/done/element-picker.md 验收：
+// 元素拾取发起侧封装的纯函数测试（验收：
 // 「拾取期间用户关闭 / 导航页面 → 60 秒超时视为取消并明确提示（超时逻辑单测覆盖）」）。
 // chrome.* 相关分支依赖真机环境，不在 node 单测覆盖（前置探针 tmp/probe-v4.mjs 已实机验证）。
 import { describe, expect, it } from 'vitest'

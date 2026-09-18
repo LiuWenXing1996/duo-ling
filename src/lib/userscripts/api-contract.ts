@@ -84,7 +84,7 @@ export type ApiEvent =
  * 脚本世界 → 后台 的单向事件（不等待响应，区别于 ApiRequest 的请求-响应）。两种信封：
  *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报：DL 包装的
  *     window.onerror / unhandledrejection 收进 us:errors；
- *   · `{ __dlRunStart: true, uuid, runId }` —— 运行标识广播（提案②）：包装注入即 mint 一次
+ *   · `{ __dlRunStart: true, uuid, runId }` —— 运行标识广播：包装注入即 mint 一次
  *     「一次页面加载 = 一次运行」的 runId。SW **只转发**给该 tab 的浮窗（浮窗自持「当前运行」
  *     指针），不落盘、不进错误日志——所以这里没有对应的类型别名，信封见 status-bubble.relayRunStart。
  */

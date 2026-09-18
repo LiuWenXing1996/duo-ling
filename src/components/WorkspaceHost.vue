@@ -68,7 +68,7 @@ function openUiTestTab(): void {
 
 // 打开脚本列表标签页：若已打开则激活，否则新开一个。
 // 2026-09-15 起这是脚本管理的唯一入口（旧管理器覆盖层已删除，能力全部并入本标签页）。
-// focusErrorUuid（提案②）：浮窗深链 #/errors/<uuid> 进来时顺带把错误日志定位到该脚本。
+// focusErrorUuid：浮窗深链 #/errors/<uuid> 进来时顺带把错误日志定位到该脚本。
 const errorFocusUuid = ref<string | null>(null)
 function openUserscriptListTab(focusErrorUuid?: string): void {
   errorFocusUuid.value = focusErrorUuid ?? null

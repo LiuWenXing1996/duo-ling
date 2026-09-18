@@ -29,8 +29,7 @@
 | `npm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
 | `npm run typecheck` | 类型检查（`vue-tsc --noEmit`）；当前全仓零错误 |
 | `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
-| `npm run check:proposals` | 提案流程体检：状态与目录一致性、流转合法性、记录完整性（见 [notes/content/proposal-process.md](notes/content/proposal-process.md)） |
-| `npm run check:inbox` | 想法收件箱条目体检：单条 >100 字、总字数 >6000、「不办」条目缺理由、疑似重复（**整理 inbox 时跑**；与 `check:proposals` 平级互不依赖，提醒级不进 CI） |
+| `npm run check:inbox` | 想法收件箱条目体检：单条 >100 字、总字数 >6000、「不办」条目缺理由、疑似重复（**整理 inbox 时跑**，提醒级不进 CI） |
 | `npm run check:notes` | notes 笔记体检：章节白名单（`##` 只许三段、`###` 须在三段内）、标题/一句话字数、现状 ≤1500、「不包括」清单式、决策记录字数与时间格式（规范见 [notes/README.md](notes/README.md)；提醒级不进 CI） |
 
 > **交付前验证**：`npm run typecheck` 与 `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
@@ -42,8 +41,7 @@
 | [README.md](README.md) | 工程介绍、目录结构、命令、手测步骤、关键坑 | 上手 / 手测前 |
 | [notes/content/userscript-ai-generation.md](notes/content/userscript-ai-generation.md) | AI 生成用户脚本 · 现状与用法 | 涉及生成链路时 |
 | [notes/content/code-style.md](notes/content/code-style.md) | 代码风格（命名/TS/Vue/样式/shadcn/测试/提交） | 写代码 / 改样式前 |
-| [notes/content/proposal-process.md](notes/content/proposal-process.md) | **提案流程**（2026-09-17 起降级为可选）：五态状态机、流转记录、提案不可删。**重大变更建议开提案做决策留痕；日常改动直接做，不开提案** | 结构 / 行为大改、需要多轮讨论的设计 |
-| [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**（有方案的走提案流程）。与提案流程相互独立 | 攒需求 / 清理待办时 |
+| [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**。轻量想法收集 | 攒需求 / 清理待办时 |
 | [notes/content/lessons.md](notes/content/lessons.md) | 踩坑记录 | 报错 / 排查前 |
 | [notes/content/test-guide.md](notes/content/test-guide.md) | 测试指南：单测 / 端测各自的命令、写法、如何 mock、覆盖范围与注意事项 | 补测试 / 动工测试前 |
 | [notes/](notes/README.md) | **笔记体系**：`docs/` 的替换（唯一权威来源），人和 AI 都读；写作规范与结构见 [notes/README.md](notes/README.md)、总表见 [notes/INDEX.md](notes/INDEX.md) | 速览某主题 / 找对应源文档前 |
@@ -92,9 +90,8 @@
 | --- | --- |
 | 现在怎么做（规范、用法） | `notes/` 常青篇，就地改 |
 | 想法（只描述问题） | `inbox`（docs/inbox.md） |
-| 提案（重大变更留痕） | `docs/proposals/<状态>/`，不可删；被拒 → `rejected/` |
 | 踩坑记录 | `notes/content/lessons.md` |
-| 待办（问题） | `inbox`（不写方案）；方案全文走提案 |
+| 待办（问题） | `inbox`（只描述问题，不写方案） |
 | 今天干了啥、做到一半的结论、待拍板 | `docs/dev-log/YYYY-MM-DD.md` 按日追加 |
 | 仍生效约定 / 为什么这么定 | `notes/content/conventions.md` |
 | 本机环境、会话过程、临时状态 | `.workbuddy/memory/`（不入库）——**会话结束前必须析出到上面两处** |
@@ -103,7 +100,7 @@
 
 **我（AI）怎么干**：
 
-1. 动手前：读本文件 → 文档总表 → 相关文档 → 本机日志；**重大变更（结构 / 行为大改、需要决策留痕的设计）建议开提案**（[notes/content/proposal-process.md](notes/content/proposal-process.md)），日常改动直接做、不开提案
+1. 动手前：读本文件 → 文档总表 → 相关文档 → 本机日志；重大变更的决策理由记进 `notes/content/conventions.md`；日常改动直接做
 2. 直接做：读代码、探索、改文档 / 注释 / 格式
 3. 先问再做：改行为或结构、加依赖、动 manifest、删文件、外部操作（push / 发布）
 4. 交付前：`npm run typecheck` + `npm run build` 必过；UI 不做额外视觉校验
@@ -129,8 +126,6 @@
   - ❌ 严禁 `git push origin <x>:main`（含之前的 refspec 绕过法），会被 `GH006: Protected branch update failed` 拒
   - ❌ 不要整分支 merge 把历史倒腾进 main（只会产生重复/冲突提交）；单一改动走上面的 PR 流
   - ❌ E2E（Playwright）**故意不是 required status check**——`e2e.yml` 无 `pull_request` 触发器，PR 上永远不上报该状态，设了 PR 会卡死合不了
-  - ✅ **PR 必须在描述里链到它实现的提案；状态流转（移到 `implementing/` 或 `done/`）与实现代码进同一个 PR**——流转动作 = 移动文件 + 流转记录加一行，commit 怎么划分不作要求，流转记录表是权威留痕。分成两个 PR 会漏做（流程与写法都见 [notes/content/proposal-process.md](notes/content/proposal-process.md)，该文件自包含）
-  - ✅ **提案不可删除**：换状态 = 移动文件 + 加流转记录。想删提案 = 想删掉「我们为什么这么定」，不允许
 - **即使改本文件 / CI 配置**，也走同样 PR 流（main 受保护，没有任何文件能直推）
 
 ## 项目硬性底线（速览）

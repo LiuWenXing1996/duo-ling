@@ -87,7 +87,7 @@
 │  │  ├─ shims.d.ts               # 全局声明：process 模块 + window.api（须保持 ambient，勿加顶层 import）
 │  │  └─ tab.ts / model.ts        # 【平移】渲染层类型 re-export
 │  └─ public/esbuild.wasm         # 浏览器内构建脚本产物（esbuild-wasm）
-├─ scripts/                       # 仓库维护脚本（提案体检 / skill 校验）
+├─ scripts/                       # 仓库维护脚本（skill 校验）
 └─ docs/                          # 产品 / 迁移文档
 ```
 

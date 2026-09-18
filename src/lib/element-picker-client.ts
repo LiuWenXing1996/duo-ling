@@ -1,9 +1,9 @@
-// 元素拾取 / 页面快照的**发起侧**封装（侧边栏与 SW 两个上下文共用，docs/proposals/done/element-picker.md）。
+// 元素拾取 / 页面快照的**发起侧**封装（侧边栏与 SW 两个上下文共用）。
 //
 // 链路：chrome.userScripts.execute() 按 tabId 向**已加载页面**注入拾取器
 // （src/public/duoling-picker.js，独立世界 us-builtin-picker），注入脚本返回
 // 「点选时才 resolve」的 Promise，浏览器等结算后把载荷从 execute() 的返回值带回——
-// 无消息回传链、无 SW 参与（前置探针已验证扩展页可访问该 API，见提案「动工前置验证」）。
+// 无消息回传链、无 SW 参与（前置探针已验证扩展页可访问该 API）。
 //
 // 采集方归属（2026-09-17 改判）：点选 = 用户在侧边栏点按钮（用户显式）；
 // 快照 = AI 的 page_snapshot 工具经 SW 调 capturePageSnapshotFromTab（SW 定位活动标签）。
@@ -16,7 +16,7 @@
 
 import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
 
-/** 拾取器世界：独立世界（与每脚本一世界惯例一致，提案「世界归属」决策） */
+/** 拾取器世界：独立世界（与每脚本一世界惯例一致） */
 const PICKER_WORLD_ID = 'us-builtin-picker'
 /** 拾取器文件（src/public/ 随包分发到产物根目录） */
 const PICKER_FILE = 'duoling-picker.js'

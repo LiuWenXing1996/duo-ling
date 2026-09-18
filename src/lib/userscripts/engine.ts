@@ -176,7 +176,7 @@ export function collectCspWarnings(code: string, cspPermissive: boolean): string
 // DL 调后台走 chrome.runtime.sendMessage —— 因世界已 configureWorld({messaging:true})，
 // USER_SCRIPT 世界的 sendMessage 会被路由到 runtime.onUserScriptMessage（非通用 onMessage）。
 // 协议信封见 api-contract.ts：请求 { __dl, uuid, req } / 错误上报 { __dlEvent, uuid, name, event } /
-// 运行标识广播 { __dlRunStart, uuid, runId }（提案②：浮窗据此只显「本次运行」的错误）。
+// 运行标识广播 { __dlRunStart, uuid, runId }（浮窗据此只显「本次运行」的错误）。
 
 function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
   const info = JSON.stringify({ uuid: project.uuid, name: project.name })

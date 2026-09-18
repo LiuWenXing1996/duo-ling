@@ -44,7 +44,7 @@ import {
   appendUserScriptError,
   findUserScriptError,
 } from '@/lib/userscripts/store'
-// 页面脚本状态浮窗（提案②）：数据推送 / 端口登记 / 跳工作台深链（SW 侧逻辑）
+// 页面脚本状态浮窗：数据推送 / 端口登记 / 跳工作台深链（SW 侧逻辑）
 import {
   forgetStatusBubbleTab,
   initStatusBubblePorts,
@@ -186,7 +186,7 @@ const handlers: {
   // —— AI 工具支路 ——
   // page_snapshot 工具（offscreen 经此命令请 SW 代办）：定位当前活动标签后执行拾取器快照模式。
   // chrome.userScripts 在 SW 可用（与注册链路同源，138+ 逐扩展开关门控），offscreen 不可达。
-  // 快照 = AI 判断需要时才采集（提案 2026-09-17 改判：从用户显式按钮改为 AI 工具）。
+  // 快照 = AI 判断需要时才采集（2026-09-17 改判：从用户显式按钮改为 AI 工具）。
   'page:snapshot': async (): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
     if (!chrome.tabs?.query) throw new Error('tabs API 不可用，无法定位目标标签页')
     // SW 无窗口上下文：lastFocusedWindow 语义 = 用户最后聚焦的窗口（与侧边栏所在窗口一致的场景）
@@ -320,7 +320,7 @@ const handlers: {
 
   'userscript:errors': async (): Promise<ReturnType<typeof listUserScriptErrors>> => listUserScriptErrors(),
 
-  // 错误 ID 修复闭环（提案②）：AI 的 error_read 工具经 offscreenBridge 到此代查。
+  // 错误 ID 修复闭环：AI 的 error_read 工具经 offscreenBridge 到此代查。
   // 精确 id 或唯一 8 位前缀；多命中 / 不存在由信封里的 reason 区分（调用方给可读文案）
   'userscript:errorRead': async (msg): Promise<ReturnType<typeof findUserScriptError>> =>
     findUserScriptError(msg.id),
@@ -364,7 +364,7 @@ async function initUserScripts(): Promise<void> {
 // 时间戳每次刷新都会变，SW 的只在 dev 重启 / 重新构建时才变，两者语义见 wxt.config.ts 注释。
 declare const __BUILD_INFO__: { time: string; branch: string }
 
-// —— 生成完成徽章（提案② #2）——
+// —— 生成完成徽章 ——
 // 面板存活感知：侧边栏打开时连一条端口长连接（ChatApp 挂载时 connect），断开 = 面板关了。
 // 任务收尾推送 chat:finished 到达时：面板开着 → 不做任何事；面板关着 → 图标角标亮 '1'。
 // 角标是「你不在时有事发生了」的信号：不计数、失败同亮同色、面板一开即清零。
@@ -385,7 +385,7 @@ function handleChatFinishedPush(ok: boolean): void {
   void ok
 }
 
-// —— 页面脚本状态浮窗 + 完成徽章的事件挂载（提案②）——
+// —— 页面脚本状态浮窗 + 完成徽章的事件挂载 ——
 // ⚠️ 全部 addListener 必须留在 defineBackground 回调内（与既有监听器同惯例）：
 // 本文件会被协议一致性测试 import（取 SW_KIND_PREFIXES），模块顶层挂监听会在
 // Node/fakeBrowser 下炸（runtime.onConnect 未实现）——之前踩过。
@@ -432,11 +432,11 @@ export default defineBackground(() => {
   // 用户脚本管理器：启动配置世界并恢复已启用脚本（设计文档 §4）
   void initUserScripts().catch((e) => console.error('[duoling:userscript] init failed', e))
 
-  // 提案②监听器：浮窗注入 / 面板端口 / 完成徽章 / 深链跳转
+  // 浮窗注入 / 面板端口 / 完成徽章 / 深链跳转的监听器
   mountProposal2Listeners()
 
   // offscreen 需「随时可用」：安装 / 更新 / 浏览器启动都立即确保容器在场。
-  // Chrome 不会自动启动 offscreen，且 idle 自关未实现，故改为常驻策略（与 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」的退出条件已冲突，见 offscreen.ts）。
+  // Chrome 不会自动启动 offscreen，且 idle 自关未实现，故改为常驻策略（与一期收编决策记录的退出条件已冲突，见 offscreen.ts）。
   chrome.runtime.onInstalled.addListener((details) => {
     void ensureOffscreen().catch((e) => console.error('[duoling:offscreen] ensure failed', e))
     if (details.reason === 'update') {

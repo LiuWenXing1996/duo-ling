@@ -5,7 +5,7 @@
 // 摘要层（ElementPickSummary）≤2KB 常驻 prompt，同类计数（命中数）必须在内——
 // AI 自证选择器唯一性不该再花一次读取；全量层走 element_read 工具按需读；
 // 页面整体结构走 page_snapshot 工具（AI 按需采集，不再常驻/回注 prompt）。
-// （docs/proposals/done/element-picker.md「拾取器交互与载荷形态」+ 决策记录 2026-09-17）
+// （拾取器交互与载荷形态，2026-09-17 定稿）
 
 import type { UIMessage } from 'ai'
 import type {

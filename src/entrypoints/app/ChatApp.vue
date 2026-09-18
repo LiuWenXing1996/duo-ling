@@ -124,7 +124,7 @@ function onRenameConversation(payload: { id: string; title: string }): void {
 
 onMounted(() => {
   void loadConversations()
-  // 面板存活端口（提案② #2）：长连接给 SW 做「面板开着没」的判定（onDisconnect = 面板关了），
+  // 面板存活端口：长连接给 SW 做「面板开着没」的判定（onDisconnect = 面板关了），
   // SW 据此决定生成完成时是否亮图标角标。连接须持有引用防 GC——断开由 SW 侧 onDisconnect 感知。
   connectKeepAlive()
 })

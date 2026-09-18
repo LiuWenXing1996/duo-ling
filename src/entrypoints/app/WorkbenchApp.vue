@@ -27,7 +27,7 @@ const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
 
 // hash 深链（openWorkbench 的既定约定，2026-09-15 才真正实现）：
 //   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
-//   #/errors/<uuid> → 打开脚本列表并把错误日志定位到该脚本（提案②：页面浮窗点击脚本行跳转）
+//   #/errors/<uuid> → 打开脚本列表并把错误日志定位到该脚本（页面浮窗点击脚本行跳转）
 //   #/settings    → 打开设置标签页
 onMounted(() => {
   const tool = location.hash.match(/^#\/tool\/([A-Za-z0-9-]+)/)
