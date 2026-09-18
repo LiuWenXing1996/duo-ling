@@ -47,31 +47,85 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(binary)
 }
 
+/** 把 base64 解回二进制（fetch 二进制请求体信封的 SW 侧解码） */
+function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(new ArrayBuffer(bin.length))
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return bytes
+}
+
+/** 判定请求体是否为包装侧生成的二进制信封（非此形状的对象一律拒绝，不静默吞） */
+function isBinaryBody(v: unknown): v is { __dlBinaryBody: true; base64: string } {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    (v as { __dlBinaryBody?: unknown }).__dlBinaryBody === true &&
+    typeof (v as { base64?: unknown }).base64 === 'string'
+  )
+}
+
 /**
  * DL.fetch 的后台实现：SW 内特权请求，豁免 CORS。
  * 与旧 GM 版不同：非 2xx 不抛错——HTTP 状态属于正常响应内容，由 FetchPayload.ok 承载。
+ *
+ * timeout：毫秒，0 / 不传不限。用 AbortController 在到点时中止请求（响应体读取同样受
+ * 信号约束，慢响应读到一半也会被掐断）；中止后统一报 BRIDGE_TIMEOUT，不让脚本调用挂死。
  */
 async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
   const method = (init?.method || 'GET').toUpperCase()
   const headers = new Headers()
   for (const [k, v] of Object.entries(init?.headers ?? {})) headers.set(k, String(v))
   const req: RequestInit = { method, headers }
-  if (init?.body != null && method !== 'GET' && method !== 'HEAD') req.body = init.body
-  const resp = await fetch(url, { credentials: 'omit', ...req })
-  const responseHeaders: Record<string, string> = {}
-  resp.headers.forEach((v, k) => (responseHeaders[k] = v))
-  const responseType = init?.responseType === 'arraybuffer' ? 'arraybuffer' : 'text'
-  // 二进制无法结构化克隆过桥，转 base64（包装侧 arrayBuffer() 解码）
-  const body =
-    responseType === 'arraybuffer' ? arrayBufferToBase64(await resp.arrayBuffer()) : await resp.text()
-  return {
-    ok: resp.ok,
-    status: resp.status,
-    statusText: resp.statusText,
-    headers: responseHeaders,
-    url: resp.url, // 跟随重定向后的最终 URL
-    body,
-    responseType,
+  if (init?.body != null && method !== 'GET' && method !== 'HEAD') {
+    if (typeof init.body === 'string') {
+      req.body = init.body
+    } else if (isBinaryBody(init.body)) {
+      req.body = base64ToBytes(init.body.base64)
+    } else {
+      throw new ApiError('INVALID_ARG', 'DL.fetch：body 仅支持字符串或 DL 包装生成的二进制信封')
+    }
+  }
+  const timeout = init?.timeout
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  if (timeout && timeout > 0) {
+    timer = setTimeout(
+      () => controller.abort(new ApiError('BRIDGE_TIMEOUT', `DL.fetch 请求超时（${timeout}ms）：${url}`)),
+      timeout,
+    )
+  }
+  try {
+    const resp = await fetch(url, {
+      credentials: 'omit',
+      ...req,
+      signal: controller.signal,
+    })
+    const responseHeaders: Record<string, string> = {}
+    resp.headers.forEach((v, k) => (responseHeaders[k] = v))
+    const responseType = init?.responseType === 'arraybuffer' ? 'arraybuffer' : 'text'
+    // 二进制无法结构化克隆过桥，转 base64（包装侧 arrayBuffer() 解码）
+    const body =
+      responseType === 'arraybuffer' ? arrayBufferToBase64(await resp.arrayBuffer()) : await resp.text()
+    return {
+      ok: resp.ok,
+      status: resp.status,
+      statusText: resp.statusText,
+      headers: responseHeaders,
+      url: resp.url, // 跟随重定向后的最终 URL
+      body,
+      responseType,
+    }
+  } catch (e: unknown) {
+    // 超时中止：若 abort 携带的 ApiError 原样抛出就直接用，否则兜一层（防御浏览器包装）
+    if (controller.signal.aborted) {
+      throw e instanceof ApiError
+        ? e
+        : new ApiError('BRIDGE_TIMEOUT', `DL.fetch 请求超时（${timeout ?? 0}ms）：${url}`)
+    }
+    throw e
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
 
@@ -119,7 +173,19 @@ async function dispatch(uuid: string, req: ApiRequest): Promise<unknown> {
     case 'download':
       return doDownload(req.url, req.name || 'download')
     case 'tabs.open': {
-      await chrome.tabs.create({ url: req.url, active: req.active !== false })
+      const tab = await chrome.tabs.create({ url: req.url, active: req.active !== false })
+      if (tab?.id == null) throw new ApiError('INTERNAL', 'tabs.open 未返回 tabId')
+      return tab.id
+    }
+    case 'tabs.close':
+      await chrome.tabs.remove(req.tabId)
+      return undefined
+    case 'tabs.focus': {
+      // 激活标签页 + 聚焦其所在窗口（跨窗口 focus 语义才完整）；窗口聚焦失败不拖垮整体
+      const tab = await chrome.tabs.update(req.tabId, { active: true })
+      if (tab?.windowId != null) {
+        await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {})
+      }
       return undefined
     }
     // 二期（需长连接 port 回推脚本事件）：包装层 stub 已拦，此处兜底防直达调用
