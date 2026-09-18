@@ -157,15 +157,17 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
   } catch (e) { mark('DL_FAIL:' + ((e && e.message) || e)) }
 })()
 `
-    const updated = await sendToSw<{ registerError?: string; warnings?: string[] }>(messenger!, {
-      kind: 'userscript:updateFiles',
+    // 统一保存语义（2026-09-19）：保存恒成功，offscreen 侧写 duoling-fs + git 提交 + esbuild
+    // 构建 + 落库，SW 侧重注册——不再传 bundle（产物由构建产生），探针代码经真构建出产物
+    const updated = await sendToSw<{ buildOk: boolean; issues: string[]; registerError?: string; warnings?: string[] }>(messenger!, {
+      kind: 'userscript:save',
       uuid,
       files: { 'main.js': probeCode },
       entry: 'main.js',
-      bundle: { code: probeCode, builtAt: Date.now() },
     })
-    expect(updated.ok, `userscript:updateFiles 失败：${updated.ok ? '' : updated.error}`).toBe(true)
+    expect(updated.ok, `userscript:save 失败：${updated.ok ? '' : updated.error}`).toBe(true)
     if (updated.ok) {
+      expect(updated.data.buildOk, `探针脚本构建失败：${updated.data.issues.join('；')}`).toBe(true)
       expect(updated.data.registerError, '重注册不应报错').toBeUndefined()
     }
 
@@ -200,15 +202,15 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
 
     // 2. 塞一条非法 match pattern：这是**脚本自身缺陷**，注册当场失败 → 应写一条该脚本的 register 记录。
     //    确定性造错（不必开页面等运行期错误），同时也验证了 register 阶段的记录同样随删除清理。
-    const bad = await sendToSw<{ registerError?: string }>(messenger!, {
-      kind: 'userscript:updateFiles',
+    //    统一保存语义下 config 由 save 传入并落库，构建恒成功（源码本身合法），失败发生在注册。
+    const bad = await sendToSw<{ buildOk: boolean; registerError?: string }>(messenger!, {
+      kind: 'userscript:save',
       uuid,
       files: { 'main.js': "console.log('e2e')" },
       entry: 'main.js',
-      bundle: { code: "console.log('e2e')", builtAt: Date.now() },
       config: { matches: ['not-a-match-pattern'], allFrames: true, runAt: 'document_end' },
     })
-    expect(bad.ok, `userscript:updateFiles 失败：${bad.ok ? '' : bad.error}`).toBe(true)
+    expect(bad.ok, `userscript:save 失败：${bad.ok ? '' : bad.error}`).toBe(true)
     if (bad.ok) expect(bad.data.registerError, '非法 matches 应触发注册失败').toBeTruthy()
 
     // 注册失败写记录是 fire-and-forget（后台不 await），故轮询等它落盘
