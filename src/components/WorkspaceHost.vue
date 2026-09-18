@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// 工作区多标签宿主：主页（内容待定）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器 / 脚本历史 / 脚本产物。
+// 工作区多标签宿主：设置 / UI 测试 / 脚本列表 / 脚本编辑器 / 脚本历史 / 脚本产物。
 //
 // 2026-09-14：工具链路移除后，本文件从「工具标签总线」
 // 收窄为「脚本工作台」—— 原先的工具详情 / 代码 / 版本历史 / 档案 / 数据 五个标签页、主页工具网格、
 // 全局工具搜索框、编辑与删除弹窗、分组与置顶全部摘除；标签页宿主、dirtyTab 与 tabsChanged 上报
-// 这套骨架逐句保留，未重写。主页标签本身保留，内容刻意留空待定。
+// 这套骨架逐句保留，未重写。2026-09-18：移除「主页」标签，工作台默认落脚本列表（基础标签不可关闭）。
 import { ref, watch } from 'vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import UiTestPanel from '@/components/UiTestPanel.vue'
@@ -21,10 +21,12 @@ import {
   TabsContent as UiTabsContent
 } from '@/components/ui/tabs'
 
-// 主页标签：始终存在且不可关闭，作为默认视图。内容自 2026-09-14 起刻意留空（原为工具网格）
-const HOME_TAB: WorkspaceTab = { kind: 'home', id: 'home', title: '主页' }
-const openTabs = ref<WorkspaceTab[]>([HOME_TAB])
-const activeTabId = ref(HOME_TAB.id)
+// 默认标签页：脚本列表（脚本管理唯一入口）。2026-09-18 移除「主页」标签后，工作台默认落脚本列表；
+// 该基础标签不可关闭，保证工作台始终有落点。
+const LIST_TAB_ID = 'userscript-list'
+const DEFAULT_TAB: WorkspaceTab = { kind: 'userscript-list', id: LIST_TAB_ID, title: '脚本列表' }
+const openTabs = ref<WorkspaceTab[]>([DEFAULT_TAB])
+const activeTabId = ref(LIST_TAB_ID)
 
 function activate(id: string): void {
   activeTabId.value = id
@@ -35,8 +37,8 @@ function activate(id: string): void {
 const dirtyTabs = ref<Record<string, boolean>>({})
 
 function closeTab(id: string): void {
-  // 主页标签始终保留，不可关闭
-  if (id === HOME_TAB.id) return
+  // 基础标签（脚本列表）始终保留，不可关闭
+  if (id === LIST_TAB_ID) return
   if (dirtyTabs.value[id] && !confirm('有未保存的修改，确认关闭？')) return
   const idx = openTabs.value.findIndex((t) => t.id === id)
   if (idx === -1) return
@@ -187,7 +189,7 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBro
     <!-- 标签栏 + 内容面板：使用 shadcn Tabs（主页 / 设置 / UI 测试 / 脚本列表 / 脚本编辑器） -->
     <ui-tabs
       v-model="activeTabId"
-      :default-value="HOME_TAB.id"
+      :default-value="LIST_TAB_ID"
       activation-mode="manual"
       :unmount-on-hide="false"
       class="flex min-h-0 flex-1 flex-col"
@@ -196,7 +198,7 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBro
         v-if="openTabs.length"
         :tabs="openTabs"
         :active-id="activeTabId"
-        :home-tab-id="HOME_TAB.id"
+        :pinned-tab-id="LIST_TAB_ID"
         @close="closeTab"
       />
 
@@ -206,10 +208,8 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBro
         :value="tab.id"
         class="relative mt-0 min-h-0 flex-1"
       >
-        <!-- 主页：内容待定 —— 原工具网格已随工具链路移除，此处刻意留空，不渲染任何内容 -->
-        <div v-if="tab.kind === 'home'" class="h-full" />
         <!-- 设置标签：渲染设置面板 -->
-        <settings-panel v-else-if="tab.kind === 'settings'" />
+        <settings-panel v-if="tab.kind === 'settings'" />
         <!-- UI 测试：mock 数据预览思考与执行过程展示方案 -->
         <ui-test-panel v-else-if="tab.kind === 'ui-test'" />
         <!-- 脚本列表：列出全部用户脚本 + 启停；「编辑」开对应的编辑器标签页 -->
