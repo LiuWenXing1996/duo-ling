@@ -136,4 +136,5 @@
 | 脚本世界 CSP | **不给 USER_SCRIPT 世界配 `csp`**：回落浏览器默认的严 CSP（禁 `eval` / `new Function`）。AI 生成的脚本不可控，不额外给「执行任意字符串」的能力；受影响的只有内部靠 `new Function` 做 codegen 的依赖库，靠保存警告（`collectCspWarnings`）+ 生成提示词 / `script_spec` 明令避开兜住 | [README](README.md)「后续接入」 |
 | 错误文案 | **平台英文报错不直达用户**：扩展 API 的原话（注入失败 / 访问被拒等）必须先归一成用户的下一步动作（典型「切到要操作的网页后重试」），能在调用前判掉的就在判据里判掉——错误条里躺一句 manifest 术语等于没提示；同类失败面（内置页 / 扩展页 / 未授权）文案保持一致 | [README](README.md) 坑 8 |
 | entrypoint | 不要同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [README](README.md) 坑 5 |
+| 首屏体积 | 打开面板要执行的就是入口 HTML 的静态图：markdown 渲染链路 / AI SDK 等重依赖一律动态 import，摇不掉的（如 `ai` 的一行 helper）本地实现；首帧底色靠 `#app` 内的内联加载态、不靠 JS | [README](README.md) 坑 10/11 |
 | 命名 | 文件/目录 kebab-case；组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | 本表即约定，无独立文档 |

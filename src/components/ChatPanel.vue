@@ -81,16 +81,10 @@ import {
   subscribePageContext
 } from '@/lib/page-context-store'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
-import {
-  getToolName,
-  isReasoningUIPart,
-  isTextUIPart,
-  isToolUIPart,
-  type DynamicToolUIPart,
-  type TextUIPart,
-  type ToolUIPart,
-  type UIMessage
-} from 'ai'
+import type { DynamicToolUIPart, TextUIPart, ToolUIPart, UIMessage } from 'ai'
+// 这几个 part 判定 helper 走本地实现：静态 import 'ai' 会把整块 ~360KB 的核心
+// （含 gateway / zod）钉进侧边栏首屏静态图。详见该文件头部说明。
+import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart } from '@/lib/ui-message-parts'
 
 const props = defineProps<{
   messages: UIMessage[]

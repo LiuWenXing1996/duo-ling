@@ -15,8 +15,8 @@
 // （parseGeneratedIntents / applyIntents / 变更卡片 pendingMap / onToolApplied）整体摘除。
 
 import { computed, ref, shallowRef, watchEffect } from 'vue'
-import { useChat } from '@ai-sdk/vue'
-import { type ChatInit, type UIMessage } from 'ai'
+import type { UseChatHelpers } from '@ai-sdk/vue'
+import type { ChatInit, ChatStatus, UIMessage } from 'ai'
 import { ExtensionChatTransport } from '@/lib/extension-chat-transport'
 import { getPickedElement } from '@/lib/page-context-store'
 import type { ChatOrphanRecord, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
@@ -52,6 +52,9 @@ function usageOfParts(parts: UIMessage['parts']): TokenUsage | undefined {
   return part?.data
 }
 
+/** useChat 实例句柄：按需加载得来，类型取自 @ai-sdk/vue 的导出（仅类型，不进产物） */
+type ChatInstance = UseChatHelpers<UIMessage>
+
 /** 孤儿横幅轮询的启动哨兵（composable 可能被多处调用，定时器只起一个） */
 let orphanPollStarted = false
 
@@ -71,24 +74,64 @@ export function useGlobalConversation() {
   // 面板只摘掉空气泡，错误文案从不显示，用户看到的就是「发出去没回音、重开也没记录」。
   const chatError = ref('')
 
-  // —— useChat：单个稳定 VueChat 实例；切换会话时直接重置 messages（ShallowRef 可安全赋值）——
+  // —— 对话客户端：AI SDK 全家桶按需加载 ——
+  //
+  // useChat 连带 ai 核心 + zod，生产产物合计约 360KB，是侧边栏 / 工作台首屏最大的一块。
+  // 但打开面板要做的事（列会话、读历史消息）全部走 IndexedDB 直读，用不到它 ——
+  // 真正需要流式接收的只有「发送」与「续上未完成任务」。故改为首次需要时动态加载：
+  // 首帧不再等它，面板立刻可画（首开白屏的主因之一）。
+  // 前提已核实：@ai-sdk/vue 的 useChat 不依赖组件实例（无 getCurrentInstance /
+  // onScopeDispose 一类钩子），在 setup 作用域之外调用同样成立。
   const transport = new ExtensionChatTransport()
   const chatInit = ref<ChatInit<UIMessage>>({
     transport,
     onError: handleChatError,
     onFinish: handleChatFinish
   })
-  const chat = useChat(chatInit)
+  const chat = shallowRef<ChatInstance | null>(null)
+  let chatLoading: Promise<ChatInstance> | undefined
+
   // useChat 对 messages 是「原地 push + triggerRef」（数组引用不变），而 ChatPanel 通过 props
   // 接收消息：Vue 对引用不变的 props 会跳过子组件更新，导致发送后新消息不显示（切换会话时
   // 是整数组重新赋值、引用变化，故正常）。这里用 watchEffect 把消息同步为「内容变化即新引用」
   // 的视图源，保证传给 ChatPanel 的 props 引用随之变化。
+  //
+  // messages 同时是「对话客户端尚未加载」时的消息真相源：历史消息由 IndexedDB 直读后直接落在
+  // 这里，加载客户端时再整体移交（见 ensureChat），因此首屏渲染不依赖 AI SDK。
   const messages = shallowRef<UIMessage[]>([])
+
+  /** 取对话客户端；首次调用才发起动态加载（发送 / 续流等真正要用流式能力时再调） */
+  function ensureChat(): Promise<ChatInstance> {
+    chatLoading ??= import('@ai-sdk/vue').then(({ useChat }) => {
+      const instance = useChat(chatInit)
+      // 把面板已经读出来的消息交给它当起点，避免流式侧从空列表开始
+      instance.messages.value = [...messages.value]
+      chat.value = instance
+      return instance
+    })
+    return chatLoading
+  }
+
   watchEffect(() => {
-    messages.value = chat.messages.value ? [...chat.messages.value] : []
+    const instance = chat.value
+    if (!instance) return
+    messages.value = instance.messages.value ? [...instance.messages.value] : []
   })
-  const status = chat.status
-  /** 是否正在生成（驱动输入禁用与发送/停止切换） */
+
+  /** 重置当前会话的消息视图：messages 是真相源，客户端已加载时同步给它（它才是流式写入方） */
+  function setMessages(next: UIMessage[]): void {
+    messages.value = next
+    if (chat.value) chat.value.messages.value = next
+  }
+
+  /** 读取当前消息列表：客户端已加载时直接读它（流式写入方，免去 watchEffect 的一帧延迟），
+   *  否则读视图源。仅供 useChat 回调内部判定用（那些回调只可能由已加载的客户端触发）。 */
+  function currentMessages(): UIMessage[] {
+    return chat.value ? chat.value.messages.value : messages.value
+  }
+
+  /** 是否正在生成（驱动输入禁用与发送/停止切换）；客户端未加载时必然不在生成 */
+  const status = computed<ChatStatus>(() => chat.value?.status.value ?? 'ready')
   const streaming = computed(() => status.value === 'submitted' || status.value === 'streaming')
 
   /** 确保有当前激活会话：无则新建一个（首次进入 / 全部删除后）。返回会话 id。 */
@@ -98,27 +141,28 @@ export function useGlobalConversation() {
     conversations.value = [conv, ...conversations.value]
     activeConversationId.value = conv.id
     transport.setConversationId(conv.id)
-    chat.messages.value = []
+    setMessages([])
     usageByMessageId.value = {}
     return conv.id
   }
 
   /** 加载某会话的消息并激活之；若该会话有进行中的任务则重连续流 */
   async function activateConversation(id: string): Promise<void> {
-    chat.stop() // 本地断流（不发 chat:abort，offscreen 任务照跑；显式停止走 stopGeneration）
+    chat.value?.stop() // 本地断流（不发 chat:abort，offscreen 任务照跑；显式停止走 stopGeneration）
     chatError.value = ''
     activeConversationId.value = id
     transport.setConversationId(id)
     const msgs = await window.api.conversation.messages(id)
-    chat.messages.value = msgs.map(toUiMessage)
+    setMessages(msgs.map(toUiMessage))
     // 回读各消息已落盘的 token 用量，供单条展示（id 与 UIMessage.id 一致）
     const usageMap: Record<string, TokenUsage> = {}
     for (const m of msgs) {
       if (m.usage) usageMap[m.id] = m.usage
     }
     usageByMessageId.value = usageMap
-    // 有进行中的任务就接上（transport 内部先 resume replay、再续实时推送）
-    void chat.resumeStream()
+    // 有进行中的任务就接上（transport 内部先 resume replay、再续实时推送）。
+    // 这一步会触发对话客户端动态加载；不阻塞首帧 —— 首帧早已画完。
+    void ensureChat().then((instance) => instance.resumeStream())
   }
 
   /** 初次加载会话列表：有则激活第一个，无则新建；顺带拉一次孤儿任务 */
@@ -167,12 +211,12 @@ export function useGlobalConversation() {
 
   /** 新建会话：立即在 offscreen 创建并激活，清空当前视图 */
   async function newConversation(): Promise<void> {
-    chat.stop()
+    chat.value?.stop()
     const conv = await window.api.conversation.create()
     conversations.value = [{ ...conv }, ...conversations.value]
     activeConversationId.value = conv.id
     transport.setConversationId(conv.id)
-    chat.messages.value = []
+    setMessages([])
     usageByMessageId.value = {}
   }
 
@@ -200,13 +244,13 @@ export function useGlobalConversation() {
 
   /** 清空全部会话：删除后列表为空、无活跃会话；下次发送时 send 会自动新建会话 */
   async function deleteAllConversations(): Promise<void> {
-    chat.stop()
+    chat.value?.stop()
     await window.api.conversation.deleteAll()
     conversations.value = []
     activeConversationId.value = ''
     transport.setConversationId('')
     usageByMessageId.value = {}
-    chat.messages.value = []
+    setMessages([])
   }
 
   /**
@@ -229,7 +273,7 @@ export function useGlobalConversation() {
       // 列表刷新失败不影响主流程
     }
     if (isAbort) return
-    if (!chat.messages.value.some((m) => m.id === message.id)) return
+    if (!currentMessages().some((m) => m.id === message.id)) return
 
     const usage = usageOfParts(message.parts)
     if (usage) usageByMessageId.value = { ...usageByMessageId.value, [message.id]: usage }
@@ -238,7 +282,8 @@ export function useGlobalConversation() {
   /** 出错回调（useChat onError）：错误文案透出到面板（chatError），并移除空副本站避免残留空白气泡 */
   function handleChatError(error?: Error): void {
     chatError.value = error?.message || '生成失败，请稍后重试'
-    const last = chat.messages.value[chat.messages.value.length - 1]
+    const list = currentMessages()
+    const last = list[list.length - 1]
     const lastParts = last?.parts ?? []
     const hasVisibleContent = lastParts.some(
       (p) =>
@@ -248,7 +293,7 @@ export function useGlobalConversation() {
         p.type.startsWith('data-'),
     )
     if (last && last.role === 'assistant' && !hasVisibleContent) {
-      chat.messages.value = chat.messages.value.slice(0, -1)
+      setMessages(list.slice(0, -1))
     }
   }
 
@@ -264,7 +309,8 @@ export function useGlobalConversation() {
     await ensureActiveConversation()
     const element = getPickedElement()
     const metadata = element ? { pageContext: { element } } : undefined
-    await chat.sendMessage({ text, ...(metadata ? { metadata } : {}) })
+    const instance = await ensureChat()
+    await instance.sendMessage({ text, ...(metadata ? { metadata } : {}) })
   }
 
   /**
@@ -273,7 +319,7 @@ export function useGlobalConversation() {
    * 只有用户显式点停止才发 chat:abort。
    */
   function stopGeneration(): void {
-    chat.stop()
+    chat.value?.stop()
     transport.abortCurrent()
   }
 
