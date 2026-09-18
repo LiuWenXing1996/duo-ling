@@ -211,9 +211,9 @@ const handlers: {
   },
 
   // —— 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）——
-  // 列表视图：项目读自状态库（直连 IDB）
+  // 列表视图：项目读自状态库（直连 IDB）；运行统计（us:run-stats:*）在 chrome.storage，这里挂上
   'userscript:list': async (): Promise<ScriptSummary[]> =>
-    listSummaries(await listProjects()),
+    withRunStats(await listSummaries(await listProjects())),
 
   // 读注册态记录（元数据 + bundle；**不含源码**——源码在 duoling-fs，编辑器经 fs:readTree 取）
   'userscript:getProject': async (msg): Promise<ScriptProject | undefined> => getProject(msg.uuid),
@@ -296,6 +296,8 @@ const handlers: {
     // 报错记录同属该脚本的残留：不清就会在错误日志里留下一个已删脚本的孤儿分组
     // （按 uuid 清，不碰「未归属」那种本就没有脚本上下文的记录）
     await clearUserScriptErrors(msg.uuid)
+    // 运行统计同理：不清就会在重建同名脚本时继承旧计数
+    await clearRunStats(msg.uuid)
   },
 
   // 删除全部用户脚本（「全部删除」按钮）：注销全部 → offscreen 清状态库 + 各仓 → 清各脚本
