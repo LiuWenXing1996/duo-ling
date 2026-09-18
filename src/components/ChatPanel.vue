@@ -71,7 +71,6 @@ import {
   isUserScriptsApiAvailable,
   pickElement
 } from '@/lib/element-picker-client'
-import { openOwnExtensionPage } from '@/lib/extension-page'
 import {
   clearPickedElement,
   getPickedElement,

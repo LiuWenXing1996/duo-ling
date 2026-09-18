@@ -134,6 +134,8 @@ let panelPort: chrome.runtime.Port | null = null
 function connectKeepAlive(): void {
   try {
     panelPort = chrome.runtime.connect({ name: 'duoling:panel' })
+    // 仅持有引用防 GC（见上注释），无读取方——显式消费以免 noUnusedLocals 报错
+    void panelPort
   } catch {
     // SW 尚未起等场景：尽力而为，badge 判定退化为「面板关着」也无大碍
   }

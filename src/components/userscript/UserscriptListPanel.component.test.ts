@@ -149,6 +149,89 @@ describe('UserscriptListPanel 横幅自动刷新', () => {
   })
 })
 
+describe('UserscriptListPanel 搜索 / 筛选 / 排序', () => {
+  const searchInput = () => wrapper.find('input[placeholder="搜索名称或匹配规则…"]')
+
+  it('按名称过滤行，计数行显示「筛选显示 N 个」', async () => {
+    list.mockResolvedValue([summary('u1', '脚本A'), summary('u2', '脚本B')])
+    wrapper = await mountPanel()
+    expect(wrapper.findAll('button[title="编辑脚本"]')).toHaveLength(2)
+
+    await searchInput().setValue('脚本A')
+    expect(wrapper.findAll('button[title="编辑脚本"]')).toHaveLength(1)
+    expect(rowText(0)).toContain('脚本A')
+    expect(wrapper.text()).toContain('筛选显示 1 个')
+  })
+
+  it('按匹配规则也能搜到（搜索域含 matches）', async () => {
+    list.mockResolvedValue([summary('u1', '脚本A'), summary('u2', '脚本B')])
+    wrapper = await mountPanel()
+    await searchInput().setValue('a.example')
+    expect(wrapper.findAll('button[title="编辑脚本"]')).toHaveLength(2)
+  })
+
+  it('状态筛选「已停用」只显示停用脚本', async () => {
+    const disabled = { ...summary('u1', '脚本A'), enabled: false }
+    list.mockResolvedValue([summary('u2', '脚本B'), disabled])
+    wrapper = await mountPanel()
+
+    const chip = wrapper.findAll('button').find((b) => b.text().includes('已停用'))!
+    await chip.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('button[title="编辑脚本"]')).toHaveLength(1)
+    expect(rowText(0)).toContain('脚本A')
+  })
+
+  it('搜索 / 筛选滤空时提示调整条件，而非误导为「还没有脚本」', async () => {
+    wrapper = await mountPanel()
+    await searchInput().setValue('不存在的脚本')
+    expect(wrapper.text()).toContain('没有匹配的脚本')
+    expect(wrapper.text()).not.toContain('还没有用户脚本')
+  })
+
+  it('默认按更新时间新在前（createdAt 同值时保持原序）', async () => {
+    const older = { ...summary('u1', '旧脚本'), updatedAt: 100 }
+    const newer = { ...summary('u2', '新脚本'), updatedAt: 200 }
+    list.mockResolvedValue([older, newer])
+    wrapper = await mountPanel()
+    expect(rowText(0)).toContain('新脚本')
+    expect(rowText(1)).toContain('旧脚本')
+  })
+})
+
+describe('UserscriptListPanel 批量启停', () => {
+  it('全部停用：只对启用中的脚本逐条 toggle，已停用的不动', async () => {
+    const disabled = { ...summary('u1', '脚本A'), enabled: false }
+    list.mockResolvedValue([summary('u2', '脚本B'), disabled])
+    wrapper = await mountPanel()
+
+    // reka-ui 的菜单在 happy-dom 里只认键盘开（trigger 上发 ArrowDown），内容 portal 到 body —— 去 document 上找菜单项
+    await wrapper.find('button[title="批量启用 / 停用"]').trigger('keydown', { key: 'ArrowDown' })
+    await flushPromises()
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) =>
+      el.textContent?.includes('全部停用'),
+    )!
+    expect(item).toBeDefined()
+    item.click()
+    await flushPromises()
+
+    expect(toggle).toHaveBeenCalledTimes(1)
+    expect(toggle).toHaveBeenCalledWith('u2', false)
+    expect(toggle).not.toHaveBeenCalledWith('u1', false)
+  })
+})
+
+describe('UserscriptListPanel 行紧凑化', () => {
+  it('文件数与更新时间收进匹配规则同一行（元信息是 span，与 matches 同容器）', async () => {
+    const s = { ...summary('u1', '脚本A'), updatedAt: 1758200000000 }
+    list.mockResolvedValue([s])
+    wrapper = await mountPanel()
+    const meta = wrapper.findAll('span').find((el) => el.text().includes('1 个文件'))!
+    expect(meta.element.parentElement?.textContent).toContain('a.example')
+  })
+})
+
 describe('UserscriptListPanel 新建脚本', () => {
   it('新建后不跳编辑器，且该行标「刚新建」（其他行不标）', async () => {
     wrapper = await mountPanel()

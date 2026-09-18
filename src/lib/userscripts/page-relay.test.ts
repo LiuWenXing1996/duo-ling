@@ -63,8 +63,6 @@ function runClient(src: string, win: ReturnType<typeof createFakeWindow>): {
   return new Function('window', `var __api = ${src}; return __api`)(win)
 }
 
-const flush = () => new Promise<void>((r) => setTimeout(r, 0))
-
 describe('page relay 协议（stub + client 真源码对跑）', () => {
   beforeEach(() => {
     vi.useFakeTimers()

@@ -12,7 +12,6 @@ import type { UIMessage } from 'ai'
 import type {
   ElementPickContext,
   MessagePageContext,
-  PageContextInfo,
 } from '@/shared/extension-ipc'
 
 function makeElement(overrides?: Partial<ElementPickContext>): ElementPickContext {

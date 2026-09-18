@@ -19,11 +19,7 @@
 import type { PreloadApi } from '@/shared/ipc'
 import type { Message } from '@/shared/types'
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
-import type {
-  Conversation,
-  ConversationSearchHit,
-  ModelProfileInput
-} from '@/shared/types'
+import type { ModelProfileInput } from '@/shared/types'
 import { getProviders } from './providers'
 import * as conversationStore from './conversation-store'
 import * as modelStore from './model-store'
