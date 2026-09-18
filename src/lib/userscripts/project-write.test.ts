@@ -61,8 +61,6 @@ function validFiles(): Record<string, string> {
   return { 'main.js': 'console.log(1)' }
 }
 
-const VALID_BUNDLE = { code: '//b', builtAt: 1 }
-
 beforeEach(async () => {
   vi.clearAllMocks()
   mockCommitSource.mockResolvedValue({ committed: true })

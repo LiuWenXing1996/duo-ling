@@ -5,7 +5,8 @@
       "@": ["./src"],
       "@/*": ["./src/*"]
     },
-    "noUncheckedIndexedAccess": false
+    "noUncheckedIndexedAccess": false,
+    "noUnusedLocals": true
   },
   "include": ["src/**/*", ".wxt/wxt.d.ts"],
   "exclude": ["node_modules", ".output", "tmp"]
