@@ -19,7 +19,7 @@ import {
 const props = defineProps<{
   tabs: WorkspaceTab[]
   activeId: string
-  /** 基础标签 id：始终存在、不可关闭（移除「主页」后由脚本列表担任） */
+  /** 基础标签 id：始终存在、不可关闭（当前为脚本列表） */
   pinnedTabId: string
 }>()
 const emit = defineEmits<{

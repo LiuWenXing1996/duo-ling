@@ -15,7 +15,7 @@
 | **side panel** | 应用入口（常驻侧边栏） | **AI 对话界面**：会话列表、消息流、输入区、模型选择 |
 | **标签页 `workbench.html`** | 重界面工作区（按需打开） | 脚本列表 / 脚本编辑器 / 设置 / UI 测试 |
 
-主流程：在侧边栏对话里描述需求 → 到工作台标签页管理脚本（新建 / 编辑 / 启停 / 看 git 历史）。标签页从侧边栏顶栏的 ⧉ 按钮打开。
+主流程：在侧边栏对话里描述需求 → 到工作台标签页管理脚本（新建 / 编辑 / 启停 / 看 git 历史）。标签页从侧边栏顶栏的「打开工作台」按钮打开。
 
 | 维度 | 方案 |
 | --- | --- |
@@ -27,7 +27,7 @@
 | 模型配置 | `chrome.storage.local`（API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`；密钥同存本机，属防扫描级而非保密级） |
 | 主题 | **跟随系统深浅色**（`src/lib/theme.ts` 按 `prefers-color-scheme` 驱动 `html.dark`） |
 
-> **当前状态：两个载体都已是复用桌面版的实现。** side panel 由 `ChatPanel` + `SessionHistoryPanel` 承载；工作台标签页由 `WorkbenchApp`（裁剪自桌面版 `app.vue`：左侧导航 + `WorkspaceHost`）承载，含主页（内容待定）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器标签。`window.api` 由 `src/lib/window-api.ts` 按桌面版契约装配，**组件本体零改动**。**待办**：主页内容填充。
+> **当前状态：两个载体都已是复用桌面版的实现。** side panel 由 `ChatPanel` + `SessionHistoryPanel` 承载；工作台标签页由 `WorkbenchApp`（裁剪自桌面版 `app.vue`：左侧导航 + `WorkspaceHost`）承载，左侧导航为设置 / UI 测试 / 脚本列表 / lfs 浏览 / 会话数据，标签页默认落脚本列表（该标签不可关闭）。`window.api` 由 `src/lib/window-api.ts` 按桌面版契约装配，**组件本体零改动**。
 
 ## 目录结构
 
@@ -49,7 +49,7 @@
 │  │  ├─ ChatPanel.vue            #   当前会话：消息气泡 / 思考过程折叠 / 工具卡 / 输入区 / 模型切换
 │  │  ├─ SessionHistoryPanel.vue  #   会话历史（搜索 / 重命名 / 删除确认）
 │  │  ├─ ModelFormDialog.vue      #   模型配置弹窗
-│  │  ├─ WorkspaceHost.vue        #   工作区多标签容器（主页 / 设置 / UI 测试 / 脚本列表 / 脚本编辑器）
+│  │  ├─ WorkspaceHost.vue        #   工作区多标签容器（默认脚本列表；设置 / UI 测试 / 编辑器 / lfs 浏览 / 会话数据等按需打开）
 │  │  ├─ SettingsPanel.vue / UiTestPanel.vue / WorkspaceTabs.vue …
 │  │  ├─ userscript/              #   脚本链路：管理器 / 列表 / 编辑器 / 文件树节点
 │  │  ├─ ui/                      #   shadcn-vue 基础组件（reka-ui）
@@ -108,7 +108,7 @@ npm run build:firefox    # 跨端构建（Firefox 侧；sidebar_action 适配见
 1. **加载扩展**：`npm run build` → Chrome 打开 `chrome://extensions` → 开「开发者模式」→「加载已解压的扩展程序」→ 选 `.output/chrome-mv3`
 2. **打开面板**：点工具栏哆灵图标 → 自动打开右侧 side panel（兜底：窗口右上角「侧边栏」按钮）
 3. **主题**：随系统深浅色 —— 切 macOS 外观为深色，面板与工作台应立刻跟着变（无需重载；`html.dark` 由 `src/lib/theme.ts` 驱动）
-4. **配模型**：面板顶栏打开工作台（⧉）→ 左侧导航「设置」→ 添加模型（选服务商 / 填 API Key / 模型 ID）→ 「测试连接」→ 保存
+4. **配模型**：面板顶栏打开工作台 → 左侧导航「设置」→ 添加模型（选服务商 / 填 API Key / 模型 ID）→ 「测试连接」→ 保存
 5. **对话**：面板内输入一句话发送 → 应流式吐字（模型有 `reasoning_content` 时另存「查看思考」）
 6. **新建脚本**：工作台左侧导航「用户脚本」→ 新建 → 自动建 git 仓并启用；或「脚本列表」标签页看全部脚本与启停
 7. **编辑与构建**：脚本列表点「编辑」开编辑器标签页 → 改文件后构建（esbuild-wasm）→ 保存；未保存时关标签应弹确认

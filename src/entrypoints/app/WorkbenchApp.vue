@@ -102,7 +102,7 @@ onMounted(() => {
       </aside>
 
       <section class="workspace-panel workspace-panel--grow">
-        <!-- 多标签页：主页（脚本工作台概览）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器 / lfs 浏览 -->
+        <!-- 多标签页容器：左侧导航各项各自开标签，默认落脚本列表（不可关闭） -->
         <workspace-host ref="workspaceRef" />
       </section>
     </div>

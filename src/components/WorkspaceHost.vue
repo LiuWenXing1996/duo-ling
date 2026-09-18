@@ -186,7 +186,7 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBro
 
 <template>
   <div class="workspace-host">
-    <!-- 标签栏 + 内容面板：使用 shadcn Tabs（主页 / 设置 / UI 测试 / 脚本列表 / 脚本编辑器） -->
+    <!-- 标签栏 + 内容面板：使用 shadcn Tabs（脚本列表 / 设置 / UI 测试 / 脚本编辑器 / 版本历史 / 构建产物 / lfs 浏览 / 会话数据） -->
     <ui-tabs
       v-model="activeTabId"
       :default-value="LIST_TAB_ID"
