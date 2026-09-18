@@ -1,4 +1,4 @@
-// 用户脚本构建管线（v2 方案 Phase 2，docs/userscript-v2-plan.md §Phase 2）。
+// 用户脚本构建管线（v2 方案，notes/content/userscript-v2-plan.md）。
 //
 // esbuild-wasm 只在 offscreen document 运行（2026-09-15 宿主收敛，§3.1/§4.8）：
 // - offscreen 是唯一「能派生 Worker（URL.createObjectURL）+ 不被回收」的宿主，

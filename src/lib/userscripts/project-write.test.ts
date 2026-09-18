@@ -1,6 +1,6 @@
 // project-write.ts 单测（offscreen 写侧）：测试直调写 API，通过 mock builder（esbuild-wasm）
 // 与 us-git（lightning-fs）模拟 offscreen 上下文——这两个模块在真实环境里分别依赖
-// chrome.runtime.getURL 拉起的 wasm 与 lightning-fs，均非层1靶心。
+// chrome.runtime.getURL 拉起的 wasm 与 lightning-fs，均非被测靶心。
 // 被测重点是写侧自身的语义：bundle 必要条件（新建/保存路径）、守卫校验、快照失败不阻断、
 // 启停不产生提交、删除全部（记录批量清 + 仓整目录清一次），以及 zip 导入「尽量导入」语义
 // （2026-09-17 修订：非原则项不淘汰）。
@@ -232,7 +232,7 @@ describe('快照失败策略', () => {
   })
 })
 
-// —— zip 导入（docs/userscript-zip-transfer.md §5；提案决策：保留原名 / enabled false / 单写方落盘）——
+// —— zip 导入（notes/content/userscript-zip-transfer.md；提案决策：保留原名 / enabled false / 单写方落盘）——
 
 /** 构造一个 zip 的 base64：scripts 为顶层目录 → files 映射 */
 function makeZipBase64(

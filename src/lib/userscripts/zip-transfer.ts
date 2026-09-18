@@ -1,4 +1,4 @@
-// 用户脚本 zip 导入导出的纯函数编解码层（docs/userscript-zip-transfer.md §3/§5.2）。
+// 用户脚本 zip 导入导出的纯函数编解码层（notes/content/userscript-zip-transfer.md）。
 //
 // 编码在 UI 导出侧（工作台标签页，userscript:getProject 只读命令取数后打包），
 // 解码在 offscreen 导入侧（单写方，state:import → project-write.importScriptsZip），

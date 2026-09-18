@@ -42,7 +42,7 @@ function send<T>(request: RuntimeRequest): Promise<T> {
  *
  * 2026-09-15 单写方落地后，原先经本桥向 SW 取项目数据的 getProject / listSummaries / toggle
  * 已全部删除：项目数据在 offscreen 本地的状态库里，读写都不再跨上下文
- * （docs/userscript-single-writer.md）。本文件此后只管 offscreen 自己确实拿不到的东西。
+ * （notes/content/userscript-single-writer.md）。本文件此后只管 offscreen 自己确实拿不到的东西。
  */
 export const offscreenBridge = {
   /**

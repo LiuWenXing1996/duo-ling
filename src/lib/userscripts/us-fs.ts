@@ -1,6 +1,6 @@
 // 用户脚本文件树与 git 仓的底层文件系统（lightning-fs 单例），**offscreen-only**。
 //
-// 从原 lib/idb-fs.ts 搬来：lfs 实例归属从 SW 迁到 offscreen（docs/offscreen-fs-migration.md）。
+// 从原 lib/idb-fs.ts 搬来：lfs 实例归属从 SW 迁到 offscreen（notes/content/offscreen-fs-migration.md）。
 // 现在全仓只有 us-git.ts 引用本文件，且 us-git 已归 offscreen，故 SW 侧不再持有 lfs 实例，
 // 双实例互不可见的老问题不会复发（单写方不变量）。
 //

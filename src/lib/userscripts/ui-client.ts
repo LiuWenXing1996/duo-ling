@@ -3,7 +3,7 @@
 // 管理页是 duo-ling 的可信扩展页（独立 WXT 入口），可直接 chrome.runtime.sendMessage，
 // 因此不依赖 window.api 全局（window.api 是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
 // 这里复用与 window-api.ts 同构的 send 信封（统一解包 { ok, data|error }），
-// 直接发 userscript:* 命令组（v2 方案 docs/userscript-v2-plan.md Phase 0）。
+// 直接发 userscript:* 命令组（v2 方案 notes/content/userscript-v2-plan.md）。
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { ImportReport, ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
 import type { UsCommit, UsHistoryTree } from './us-git'
@@ -33,14 +33,14 @@ function send<T>(request: RuntimeRequest): Promise<T> {
 }
 
 /**
- * 向 offscreen 发 ai:* 命令（git 历史侧车 + 构建宿主，docs/offscreen-fs-migration.md）。
+ * 向 offscreen 发 ai:* 命令（git 历史侧车 + 构建宿主，notes/content/offscreen-fs-migration.md）。
  * 现状（2026-09-15）：offscreen 常驻——SW 冷启动即 ensureOffscreen，不空闲自关；
  * 但扩展重载 / 崩溃 / 关窗会销毁容器，这些情况下 ai:* 无人响应会报
  * 「The message port closed before a response was received」。故失败时先经 SW 唤起容器
  * （同时触发其启动对账、注册监听），再重试，最多 3 次。
  *
  * **就绪判据**：`offscreen:ensure` 现在会等到容器**真的能应答**才返回（SW 侧轮询 `ai:ping`，
- * 见 docs/userscript-single-writer.md §5 前置项 1），故这里**不再需要固定 sleep 猜时间**——
+ * 见 notes/content/userscript-single-writer.md），故这里**不再需要固定 sleep 猜时间**——
  * 原先的 `setTimeout(80)` 是在猜 offscreen 的 onMessage 有没有注册完，猜短了白重试、
  * 猜长了每次都白等。
  */
@@ -97,7 +97,7 @@ export const userscriptClient = {
    *  返回删除条数；不可撤销，调用方必须先经确认弹窗 */
   removeAll: (): Promise<{ removed: number }> => send({ kind: 'userscript:removeAll' }),
 
-  /** zip 导入（docs/userscript-zip-transfer.md）：payload 为 zip 文件内容的 base64。
+  /** zip 导入（notes/content/userscript-zip-transfer.md）：payload 为 zip 文件内容的 base64。
    *  逐脚本独立容错，返回汇总报告（导入恒 enabled:false，注册由用户手动启用时发生） */
   importZip: (zipBase64: string): Promise<ImportReport> =>
     send({ kind: 'userscript:import', zipBase64 }),
@@ -114,7 +114,7 @@ export const userscriptClient = {
 }
 
 /**
- * 用户脚本 git 历史命令面（执行宿主已迁 offscreen，见 docs/offscreen-fs-migration.md）。
+ * 用户脚本 git 历史命令面（执行宿主已迁 offscreen，见 notes/content/offscreen-fs-migration.md）。
  * 经 chrome.runtime.sendMessage 共享总线直发 offscreen，由后者处理并按 { ok, data | error } 回传。
  * 与 userscriptClient 的区别：后者走 SW 管辖的 userscript:* 命令组；本对象的 ai:* 命令 SW 静默让路。
  */

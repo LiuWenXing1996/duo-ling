@@ -3,7 +3,7 @@
 
 只负责**报出不一致**，不负责判断该往哪边对齐——那要按提案内容由人决定。
 
-规则见 docs/proposal-process.md。
+规则见 notes/content/proposal-process.md。
 
 用法:
     python3 scripts/check-proposals.py [--ideas]
@@ -40,7 +40,7 @@ DIR_STATE = {
     "rejected": "拒绝",
 }
 
-# 合法流转（docs/proposal-process.md「提案状态」的流转图）
+# 合法流转（notes/content/proposal-process.md「提案状态」的流转图）
 # 「新提案」是起点，只能作源：从 0 到 1 也是一次流转，故提案创建时第一条记录为「新提案 → 草稿」
 ALLOWED = {
     ("新提案", "草稿"),
@@ -50,7 +50,7 @@ ALLOWED = {
     ("评审中", "实施中"),
     ("评审中", "拒绝"),
     ("实施中", "实施完成"),
-    ("实施中", "评审中"),  # 误转退回：仅限纠正未经批准的采纳流转（见 proposal-process.md 流转示例）
+    ("实施中", "评审中"),  # 误转退回：仅限纠正未经批准的采纳流转（见 notes/content/proposal-process.md）
 }
 
 TERMINAL = {"实施完成", "拒绝"}
@@ -172,7 +172,7 @@ def main() -> int:
                 if (src, dst) == ("实施中", "评审中") and "误转退回" not in row:
                     flags.append(
                         "「实施中 → 评审中」流转缺「误转退回」标记"
-                        "（该路径仅限纠正误转，见 proposal-process.md 流转示例）"
+                        "（该路径仅限纠正误转，见 notes/content/proposal-process.md）"
                     )
             last_dst = trans[-1][1]
             if dir_state and last_dst != dir_state:
@@ -198,7 +198,7 @@ def main() -> int:
 
     print()
     if problems:
-        print(f"{problems} 项待处理 —— 规则见 docs/proposal-process.md")
+        print(f"{problems} 项待处理 —— 规则见 notes/content/proposal-process.md")
         return 1
     print("提案流程体检通过")
     return 0

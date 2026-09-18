@@ -12,7 +12,7 @@
 //   window.*        → 扩展页没有无边框窗口，按「无窗口状态」应答
 //   workspace.*     → 标签快照上报（Agent 编排未平移，空实现）
 //
-// 2026-09-14：工具链路移除（docs/tool-chain-removal-plan.md）后，tool.* / toolsPreview.* /
+// 2026-09-14：工具链路移除后，tool.* / toolsPreview.* /
 // toolsData.* / capability.* / agentTools.* 五个命名空间整体摘除 —— 它们全部只服务工具页与
 // 开发者界面。本文件仍是 window.api 的唯一装配点，两个 main 入口都调 installWindowApi()，故必留。
 //
@@ -75,7 +75,7 @@ function createStubNamespace(path: string): unknown {
 
 // —— conversation：读直连 IndexedDB；写路由 offscreen ——
 //
-// 2026-09-15（docs/userscript-ai-generation.md「消息路由」）：整条对话链路搬进 offscreen 后，
+// 2026-09-15（notes/content/userscript-ai-generation.md）：整条对话链路搬进 offscreen 后，
 // **会话历史唯一写入方 = offscreen**（防双写）。list / search / messages 是读，仍直连
 // 本地 IndexedDB（同源共享，注册链路同理不能押在容器存活上）；create / rename / delete /
 // deleteAll / appendMessage 是写，经 conv:* 命令交 offscreen 执行。

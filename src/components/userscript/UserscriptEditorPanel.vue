@@ -87,7 +87,7 @@ const saveNote = ref('')
 // —— 历史已迁出：浏览与恢复都在独立的 us-history:<uuid> 标签页（UserscriptHistoryPanel），
 // 本组件只负责编辑 + 保存，历史按钮经 openHistory 事件请求宿主开历史标签页。
 
-// —— 草稿（docs/userscript-draft.md：草稿 = git 工作区的未提交改动，经 offscreen 纯 fs 写）——
+// —— 草稿（notes/content/userscript-draft.md：草稿 = git 工作区的未提交改动，经 offscreen 纯 fs 写）——
 /** 打开编辑器时刻的已保存项目（状态库权威）：丢弃草稿的回滚目标、currentProject 的兜底字段 */
 const baseline = ref<ScriptProject | null>(null)
 /** 打开时恢复了工作区草稿 → 常驻提示条（含丢弃入口） */
@@ -96,7 +96,7 @@ const draftRestored = ref(false)
 const draftWriteFailed = ref(false)
 const discardingDraft = ref(false)
 let draftTimer: number | undefined
-/** 草稿写串行化（§5.3）：IPC 异步，连续两次可能旧内容后到覆盖新内容——上一次完成才发下一次 */
+/** 草稿写串行化：IPC 异步，连续两次可能旧内容后到覆盖新内容——上一次完成才发下一次 */
 let draftInFlight: Promise<void> = Promise.resolve()
 
 const fileCount = computed(() => Object.keys(editFiles.value).length)
@@ -344,7 +344,7 @@ function optArr(v: string): string[] | undefined {
   return arr.length ? arr : undefined
 }
 
-/** 表单 → ScriptConfig（saveEdit 与草稿写共用；空数组归一为 undefined，docs/userscript-draft.md §4.4） */
+/** 表单 → ScriptConfig（saveEdit 与草稿写共用；空数组归一为 undefined，notes/content/userscript-draft.md） */
 function currentConfig(): ScriptConfig {
   return {
     matches: parseMatches(editMatches.value),
@@ -356,7 +356,7 @@ function currentConfig(): ScriptConfig {
   }
 }
 
-/** 编辑态 → ScriptProject 形状：v/uuid/createdAt/enabled 由 baseline 兜（docs/userscript-draft.md §4.2） */
+/** 编辑态 → ScriptProject 形状：v/uuid/createdAt/enabled 由 baseline 兜（notes/content/userscript-draft.md） */
 function currentProject(): ScriptProject {
   return {
     ...(baseline.value ?? ({} as ScriptProject)),
@@ -373,7 +373,7 @@ function applyProject(p: ScriptProject): void {
   scriptName.value = p.name
   editFiles.value = { ...p.files }
   editEntry.value = p.entry
-  // activeFile 不能盲信 entry——草稿里入口可能指向已删文件，取不到回退第一个文件（docs/userscript-draft.md §4.3 #4）
+  // activeFile 不能盲信 entry——草稿里入口可能指向已删文件，取不到回退第一个文件（notes/content/userscript-draft.md）
   activeFile.value = p.entry in p.files ? p.entry : (Object.keys(p.files)[0] ?? '')
   editName.value = p.name
   editMatches.value = p.config.matches.join(', ')
@@ -384,7 +384,7 @@ function applyProject(p: ScriptProject): void {
   editRunAt.value = p.config.runAt
 }
 
-/** 装载项目 + 恢复草稿（docs/userscript-draft.md §4.3）：状态库为权威基准，工作区草稿静默恢复 */
+/** 装载项目 + 恢复草稿（notes/content/userscript-draft.md）：状态库为权威基准，工作区草稿静默恢复 */
 async function load(): Promise<void> {
   loading.value = true
   error.value = ''
@@ -425,7 +425,7 @@ async function load(): Promise<void> {
 }
 
 /**
- * 草稿与已保存内容是否相等（docs/userscript-draft.md §4.3 判据）。两侧 config 必须同构可比：
+ * 草稿与已保存内容是否相等（notes/content/userscript-draft.md）。两侧 config 必须同构可比：
  * 状态库里的空数组可能是 []，表单侧产出 undefined——都过 normConfig 归一后再比。
  */
 function draftEquals(
@@ -445,7 +445,7 @@ function draftEquals(
   return JSON.stringify(norm(draft.meta.config)) === JSON.stringify(norm(project.config))
 }
 
-/** 草稿写调度：debounce 500ms + 串行化。仅真实用户改动才落盘（无改动绝不写，§5.1） */
+/** 草稿写调度：debounce 500ms + 串行化。仅真实用户改动才落盘，见 notes/content/userscript-draft.md。 */
 function scheduleDraftWrite(): void {
   if (draftTimer !== undefined) clearTimeout(draftTimer)
   draftTimer = window.setTimeout(() => {
@@ -475,8 +475,8 @@ watch(
     editRunAt,
   ],
   () => {
-    // 无改动绝不写：load 整体赋值会触发本 watch，靠 editDirty 挡住（§5.1）；
-    // pending 回调在保存后 fire 时同样因 editDirty=false 跳过（§5.2 竞态）
+    // 无改动绝不写：load 整体赋值会触发本 watch，靠 editDirty 挡住；
+    // pending 回调在保存后 fire 时同样因 editDirty=false 跳过（竞态）
     if (!editDirty.value) return
     scheduleDraftWrite()
   },
@@ -484,7 +484,7 @@ watch(
 )
 
 // 关标签页前 flush：debounce 500ms + lfs 自身 500ms，最后一段改动必然丢——
-// 卸载时把 pending 写立即发出（不 await，组件卸载后 Promise 仍会跑完；§4.4）
+// 卸载时把 pending 写立即发出（不 await，组件卸载后 Promise 仍会跑完）
 onBeforeUnmount(() => {
   cmView?.destroy()
   cmView = null
@@ -497,7 +497,7 @@ onBeforeUnmount(() => {
   }
 })
 
-/** 丢弃草稿：用 baseline（状态库已保存内容）重写工作区；先写成功再动编辑态（docs/userscript-draft.md §4.6） */
+/** 丢弃草稿：用 baseline（状态库已保存内容）重写工作区；先写成功再动编辑态（notes/content/userscript-draft.md） */
 async function discardDraft(): Promise<void> {
   if (!baseline.value || discardingDraft.value) return
   discardingDraft.value = true
@@ -606,7 +606,7 @@ async function saveEdit(): Promise<void> {
     // 头部显示名跟随表单（保存即改名）
     scriptName.value = editName.value
     // baseline 必须跟着保存结果走（builder 可能改写文件树，如拉取远程依赖）——
-    // 否则之后「丢弃草稿」会退回到保存前的旧内容（docs/userscript-draft.md §4.5 #2）
+    // 否则之后「丢弃草稿」会退回到保存前的旧内容（notes/content/userscript-draft.md）
     baseline.value = {
       ...currentProject(),
       files: { ...outcome.files },

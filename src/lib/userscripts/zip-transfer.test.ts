@@ -1,5 +1,5 @@
 // zip-transfer.ts 单测：编解码纯函数（zip 格式、路径过滤、字段兜底、目录去重、指纹）。
-// 2026-09-17 修订后解码侧「只拦原则项、尽量导入」，覆盖见 docs/userscript-zip-transfer.md §5.2。
+// 2026-09-17 修订后解码侧「只拦原则项、尽量导入」，覆盖见 notes/content/userscript-zip-transfer.md。
 // node 环境直跑（本模块零 chrome API）。
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'

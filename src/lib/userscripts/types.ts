@@ -1,4 +1,4 @@
-// 用户脚本管理器的类型与存储键约定（v2 方案 docs/userscript-v2-plan.md §Phase 1）。
+// 用户脚本管理器的类型与存储键约定（v2 方案 notes/content/userscript-v2-plan.md）。
 //
 // 全量复用 chrome.storage.local（单存储，含项目源码 + DL 值 + 设置），不另起 IndexedDB。
 // v2 新形态：一个脚本 = 一个项目（ScriptProject），配置直接映射 chrome.userScripts 原生字段。
@@ -101,7 +101,7 @@ export const ERRORS_KEY = 'us:errors'
 /** 默认入口文件名 */
 export const ENTRY_DEFAULT = 'main.js'
 
-// —— zip 导入报告（docs/userscript-zip-transfer.md §5.6/§5.7）——
+// —— zip 导入报告（notes/content/userscript-zip-transfer.md）——
 //
 // 2026-09-17 语义修订（老大拍板「不是原则项的阻断，尽量导入脚本」）：导入只拦原则项，
 // 其余一律导入并说明，留给脚本编辑器修。故 ok 条目可带 notes（构建失败 / 字段兜底提示），

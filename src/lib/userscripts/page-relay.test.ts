@@ -1,4 +1,4 @@
-// 反向中继协议全链路测试（docs/userscript-page-relay.md v2）。
+// 反向中继协议全链路测试（notes/content/userscript-page-relay.md）。
 //
 // page-stub / page-client 都是字符串模板（分别注入 MAIN / USER_SCRIPT 世界），
 // 这里用最小假 frame（事件表 + 同步 postMessage）把两端接在同一"窗口"上跑真源码，

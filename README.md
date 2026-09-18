@@ -4,7 +4,6 @@
 
 > **2026-09-14 方向变更**：原「AI 生成**工具**」（工具页 + sandbox iframe + `window.cap` 能力桥）
 > 整条链路已移除，产品方向转为**用户脚本**（一句话生成脚本 → 注入第三方页面运行）。
-> 移除范围与实施步骤见 [docs/tool-chain-removal-plan.md](docs/tool-chain-removal-plan.md)。
 > 现存功能：AI 对话 + 用户脚本（多文件项目 / esbuild 构建 / git 历史 / 启停管理）。
 
 ## 载体分工
@@ -23,12 +22,10 @@
 | 对话链路 | 侧边栏只做指令入口与观察；整条链路（`streamText` + tools）跑在 offscreen document，侧边栏经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权 |
 | 脚本运行时 | background **service worker**（`chrome.userScripts` 注册 + 写命令的转发方） |
 | 会话存储 | **IndexedDB**（`duoling-chat`）；两个入口同源共享，不经 background |
-| 脚本存储 | 项目数据在**独立 IndexedDB 库 `duoling-state`**（权威；**写只归 offscreen**，读由 SW / 扩展页直连——`docs/userscript-single-writer.md`）；`chrome.storage.local` 只剩 `DL.store` 值（`us:gm:*`）与错误日志（`us:errors`）；`lightning-fs`（库名 `duoling`，只有 offscreen 能碰）存 git 历史 |
+| 脚本存储 | 项目数据在**独立 IndexedDB 库 `duoling-state`**（权威；**写只归 offscreen**，读由 SW / 扩展页直连——`notes/content/userscript-single-writer.md`）；`chrome.storage.local` 只剩 `DL.store` 值（`us:gm:*`）与错误日志（`us:errors`）；`lightning-fs`（库名 `duoling`，只有 offscreen 能碰）存 git 历史 |
 | 版本管理 | `isomorphic-git`（纯 JS）；git 只做历史，状态库才是权威（可丢历史不丢脚本） |
 | 模型配置 | `chrome.storage.local`（API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`；密钥同存本机，属防扫描级而非保密级） |
 | 主题 | **跟随系统深浅色**（`src/lib/theme.ts` 按 `prefers-color-scheme` 驱动 `html.dark`） |
-
-- 迁移方案与风险清单：[docs/plugin-migration-plan.md](docs/plugin-migration-plan.md)（含已下线的工具页承载章节，仅作历史参照）
 
 > **当前状态：两个载体都已是复用桌面版的实现。** side panel 由 `ChatPanel` + `SessionHistoryPanel` 承载；工作台标签页由 `WorkbenchApp`（裁剪自桌面版 `app.vue`：左侧导航 + `WorkspaceHost`）承载，含主页（内容待定）/ 设置 / UI 测试 / 脚本列表 / 脚本编辑器标签。`window.api` 由 `src/lib/window-api.ts` 按桌面版契约装配，**组件本体零改动**。**待办**：主页内容填充。
 
@@ -133,4 +130,4 @@ npm run build:firefox    # 跨端构建（Firefox 侧；sidebar_action 适配见
 3. **entrypoint 同名冲突**：不要同时存在 `sidepanel.html` 与 `sidepanel.ts`（WXT 会判定两个同名 entrypoint）。入口脚本用非约定名（如 `app/sidepanel-main.ts`）由 html 引用。
 4. **跨域 fetch 需 host 权限**：扩展页 `fetch` 模型接口会被 CORS 拦，必须在 manifest 声明对应 `host_permissions`（本工程由 `src/lib/providers.ts` 推导）。
 5. **userScripts 可用性前置**：`chrome.userScripts` 未开启时为 `undefined`，直接调用会让 SW 初始化崩溃；`initUserScripts()` 先判存在性再优雅跳过。
-6. **git 只是历史侧车**：脚本以 `duoling-state` 状态库为权威，git 仓损坏只丢历史不丢脚本；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护，见 `docs/userscript-single-writer.md`）。
+6. **git 只是历史侧车**：脚本以 `duoling-state` 状态库为权威，git 仓损坏只丢历史不丢脚本；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护，见 `notes/content/userscript-single-writer.md`）。

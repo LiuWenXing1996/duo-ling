@@ -1,4 +1,4 @@
-// 协议一致性测试（层 2，docs/testing-plan.md）—— offscreen 端命令分发与应答信封。
+// 协议一致性测试（见 notes/content/test-guide.md）—— offscreen 端命令分发与应答信封。
 //
 // 断言 (b)：offscreen 三个 handle*（state / ai-fs / build）对其 Request union 成员**全覆盖**。
 // offscreen-main 的路由是 `kind.startsWith('ai:'/'state:')` + `as` 断言，union 新增成员而

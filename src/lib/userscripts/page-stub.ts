@@ -1,4 +1,4 @@
-// 反向中继 · MAIN 世界桩源码模板（docs/userscript-page-relay.md v2 §2 / §6）。
+// 反向中继 · MAIN 世界桩源码模板（notes/content/userscript-page-relay.md）。
 //
 // buildPageStubSource(secret) 返回的字符串由 engine.ts 在注册 dl-page-stub 时
 // 注入页面 MAIN 世界（world: 'MAIN'）。设计硬边界（规范 §10）：

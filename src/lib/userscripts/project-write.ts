@@ -1,6 +1,6 @@
 // 用户脚本项目数据的**写侧**（⚠️ offscreen 专属，见 state-db.ts 文件头的单写方约定）。
 //
-// 这里是本方案（docs/userscript-single-writer.md）的落点：
+// 这里是本方案（notes/content/userscript-single-writer.md）的落点：
 // 原先一次保存是「SW 写 chrome.storage」+「IPC 让 offscreen commit git 仓」两次分离操作、
 // 两个写方，任一步失败就产生「已保存但没 commit」的偏差。
 // 现在状态库与 git 仓都在 offscreen 本地，写状态与 commit 收进同一个函数、同一个上下文里：
@@ -68,7 +68,7 @@ export async function createProject(): Promise<ScriptProject> {
 }
 
 /**
- * AI 生成脚本落盘（docs/userscript-ai-generation.md「生成结果行为」）：
+ * AI 生成脚本落盘（notes/content/userscript-ai-generation.md）：
  * 收 name / config / files / entry / bundle（必填，构建已在 loop 内收敛通过）+ enabled（默认 false）。
  * **不调用 registerScript**——「生成」与「生效」解耦，AI 产物默认零影响；
  * git 快照 note = AI summary（us-git 已支持，正好是提交信息）。
@@ -177,7 +177,7 @@ export async function setProjectEnabled(uuid: string, enabled: boolean): Promise
   return project
 }
 
-// —— zip 导入（docs/userscript-zip-transfer.md §5）——
+// —— zip 导入（notes/content/userscript-zip-transfer.md）——
 
 /**
  * zip 导入（state:import 的落点）：解码 → 逐脚本**尽量导入**。

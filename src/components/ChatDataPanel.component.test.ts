@@ -1,4 +1,4 @@
-// 层 4 组件测试：ChatDataPanel.vue（会话库落盘原始视图，只读调试面板）。
+// UI 组件测试：ChatDataPanel.vue（会话库落盘原始视图，只读调试面板）。
 // mock conversation-store（IndexedDB 在 happy-dom 下不可用），验证：
 // 会话列表渲染、选中拉消息、pageContext 落盘标记、原始 JSON 展开/收起。
 import { afterEach, describe, expect, it, vi } from 'vitest'

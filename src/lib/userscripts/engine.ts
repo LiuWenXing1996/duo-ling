@@ -1,4 +1,4 @@
-// 用户脚本注册引擎（v2 方案 docs/userscript-v2-plan.md Phase 0）。
+// 用户脚本注册引擎（v2 方案 notes/content/userscript-v2-plan.md）。
 //
 // 主走 chrome.userScripts API：每脚本注册到独立 USER_SCRIPT 世界（worldId），
 // DL 包装作为 js 数组首条目先于项目代码定义 window.DL，脚本经 onUserScriptMessage 桥接后台
@@ -240,7 +240,7 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
     for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i)
     return buf.buffer
   }
-  // —— 反向中继客户端（docs/userscript-page-relay.md v2）——
+  // —— 反向中继客户端（notes/content/userscript-page-relay.md）——
   var __dlPageApi = ${clientSource}
 
   var DL = {
@@ -356,7 +356,7 @@ function sourceURLSuffix(project: ScriptProject): string {
   return `\n//# sourceURL=duoling://script/${project.uuid}/${safeName}.js`
 }
 
-// —— 反向中继 stub 注册（docs/userscript-page-relay.md v2 §5.2）——
+// —— 反向中继 stub 注册（notes/content/userscript-page-relay.md）——
 
 /** MAIN 世界共享桩的注册 ID：一个扩展一份，不是每脚本一份 */
 export const PAGE_STUB_ID = 'dl-page-stub'
@@ -475,7 +475,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   if (!project.config.matches?.length) {
     throw new Error('脚本缺少匹配规则（matches），无法注册')
   }
-  // match pattern 合法性（docs/userscript-zip-transfer.md §5.4）：与导入路径共用同一校验器，
+  // match pattern 合法性（notes/content/userscript-zip-transfer.md）：与导入路径共用同一校验器，
   // 非法值在此以中文报错拦下，不再拖到 chrome.userScripts.register 才以英文异常冒出
   validateMatchPatterns(project.config)
   const code = resolveInjectCode(project) + sourceURLSuffix(project)

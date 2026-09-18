@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 当前会话聊天区：消息气泡 + 思考/工具过程折叠 + 输入区 + 模型选择。
 // 发送 / 停止由父组件执行；模型选择为纯本地面板逻辑，自含于此。
-// 2026-09-14：工具链路移除（docs/tool-chain-removal-plan.md）后，原「变更清单留痕卡片」
+// 2026-09-14：工具链路移除后，原「变更清单留痕卡片」
 // （AI 产出多工具意图 → 自动落盘留痕）整段摘除。
 //
 // 方案 B（切进 AI SDK 全家桶）后：消息模型为 UIMessage（parts），渲染按
@@ -361,7 +361,7 @@ function toggleText(m: UIMessage, node: TextNode): void {
   else expandedTexts.add(key)
 }
 
-// —— 生成卡片（data-generation data part，docs/userscript-ai-generation.md「生成结果行为」，三出口 = 启用 / 编辑器 / 删除）——
+// —— 生成卡片（data-generation data part，notes/content/userscript-ai-generation.md，三出口 = 启用 / 编辑器 / 删除）——
 // offscreen 收敛后经 SW 落盘（enabled:false），随流推送 data part、随消息落盘；
 // 卡片必须讲清三件事：① 尚未启用 ② 生效范围 ③ 脚本会做什么（bundle 静态扫描）。
 interface GenerationCardData {
