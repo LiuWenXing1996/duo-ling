@@ -19,7 +19,6 @@ const base: UserScriptsAvailability = {
   isFirefox: false,
   chromeMajor: 142,
   guideText: '（引导页不复用这句话，仅类型占位）',
-  cspPermissive: true,
 }
 
 async function mountPanel(av: UserScriptsAvailability | Error): Promise<VueWrapper> {
@@ -64,12 +63,6 @@ describe('GuidePanel 状态分支', () => {
     expect(text(w)).toContain('状态检测失败')
     expect(text(w)).toContain('background 无响应')
     expect(w.find('[data-testid="guide-userscripts"]').exists()).toBe(false)
-  })
-
-  it('CSP 未放开时给出说明（该项无开关可开，不是引导项而是信息项）', async () => {
-    const w = await mountPanel({ ...base, cspPermissive: false })
-    expect(text(w)).toContain('未放开')
-    expect(button(w, 'guide-open-extension-page').exists()).toBe(true)
   })
 })
 

@@ -18,8 +18,12 @@ import { enabledMatchUnion, sameMatchSet } from './match-union'
 // 只 import 不反向依赖（本模块不 import status-bubble 的其它能力），无环
 import { STATUS_BUBBLE_ID, syncStatusBubbleRegister } from './status-bubble'
 
-/** configureWorld 的 CSP：宽松（开发工具可接受），后续可收紧 */
-const US_WORLD_CSP = "script-src 'self' 'unsafe-inline' 'unsafe-eval' *"
+// 不给脚本世界配置 csp：即**不放开** eval / new Function。脚本世界因此回落浏览器默认 CSP，
+// 动态执行字符串代码被禁。理由：AI 生成的脚本不可控，不额外给「执行任意字符串」的能力
+// （用户 2026-09-18 定）。注入链路自身零 eval —— DL 包装 / 页面中继 / 浮窗 / MAIN 桩均不含，
+// esbuild 打 IIFE 也不产 eval，故引擎不受影响；真正受影响的只有内部用 new Function 做
+// codegen 的依赖库（如 ajv 编译校验器 / Vue runtime 编译器 / handlebars 运行时模板），
+// 由 collectCspWarnings 在保存时提前提示。
 
 // —— 可用性检测 / 版本分支 ——
 
@@ -54,45 +58,21 @@ export async function getUserScriptsStatus(): Promise<import('./types').UserScri
       guideText = 'Chrome <138：在 chrome://extensions 开启全局「开发者模式」后即可使用。'
     }
   }
-  // 自愈：引擎可用但状态标志未置（权限后开 / SW 重启归零）时，按需补配世界再取真实状态
-  let permissive = worldCspPermissive
-  if (available && !permissive) permissive = await ensureWorldsConfigured()
-  const cspPermissive = permissive ? !(await isCspForcedRestricted()) : false
-  return { available, isFirefox, chromeMajor, guideText, cspPermissive }
+  // 自愈：引擎可用但世界未配（权限后开 / SW 重启归零）时，按需补配世界（messaging）
+  if (available && !worldsConfigured) await ensureWorldsConfigured()
+  return { available, isFirefox, chromeMajor, guideText }
 }
 
 // —— 世界配置（一次性，扩展更新后需重配）——
 
-/** USER_SCRIPT 世界是否成功放开了宽松 CSP。false 表示退回默认严 CSP，依赖 eval/内联的脚本可能失败。 */
-let worldCspPermissive = false
-
-// —— 调试覆盖（CSP 回退钩子本地验证用）——
-//
-// 当前 Chrome 基本都接受 configureWorld({ csp })，回退分支几乎不会触发，难以在真机看到
-// 横幅 ⚠ / 安装警告渲染。dev-only 的 storage 标志可强制把 cspPermissive 视为 false，
-// 在当前环境模拟「旧浏览器 world CSP 未放开」的降级表现，用来验证钩子消费端（UI）。
-// 默认关闭，对正式行为零影响；正式分发前可整段删除。
-const US_DEBUG_CSP_RESTRICTED_KEY = '__us_debug_csp_restricted'
-
-/** 读取调试覆盖标志（容错：读不到 / 异常时视为未开启） */
-async function isCspForcedRestricted(): Promise<boolean> {
-  try {
-    const r = (await chrome.storage.local.get(US_DEBUG_CSP_RESTRICTED_KEY)) as Record<string, unknown>
-    return r[US_DEBUG_CSP_RESTRICTED_KEY] === true
-  } catch {
-    return false
-  }
-}
-
-/** 实际生效的 cspPermissive：引擎放开 且 未被调试标志强制受限 */
-export async function getEffectiveCspPermissive(): Promise<boolean> {
-  if (!worldCspPermissive) return false
-  return !(await isCspForcedRestricted())
-}
+/** 默认 USER_SCRIPT 世界是否已配置成功（messaging 已开，DL 桥可用） */
+let worldsConfigured = false
 
 /**
- * 配置指定 USER_SCRIPT 世界：开启 messaging（+ 宽松 CSP，不被支持时降级为仅 messaging）。
- * 返回是否成功放开宽松 CSP。
+ * 配置指定 USER_SCRIPT 世界的 messaging —— DL 桥与错误上报的前提。
+ * 返回是否配置成功；false 表示该世界没有 chrome.runtime（脚本侧 DL 调用会 reject，SW 不崩）。
+ *
+ * 不传 csp：脚本世界保持浏览器默认的严 CSP（禁止 eval / new Function），理由见文件头。
  *
  * 关键：worldId 省略时配置的是**默认世界**，而自定义 worldId 的世界**不会继承**默认世界的
  * 配置。我们为每个脚本用独立世界（'us-<uuid>'），因此每个脚本的世界都必须各自
@@ -105,39 +85,32 @@ async function configureWorld(worldId?: string): Promise<boolean> {
   }
   const base = worldId ? { worldId } : {}
   try {
-    await chrome.userScripts.configureWorld({ ...base, messaging: true, csp: US_WORLD_CSP })
+    await chrome.userScripts.configureWorld({ ...base, messaging: true })
     return true
   } catch (e) {
-    // csp 不被当前版本接受（或 CSP 串非法）时降级为仅 messaging，保持 DL 桥与错误上报可用
-    console.warn('[duoling:userscript] world CSP 未放开，降级为默认严 CSP', worldId ?? '(默认世界)', e)
-    try {
-      await chrome.userScripts.configureWorld({ ...base, messaging: true })
-      return false
-    } catch (e2) {
-      // 连 messaging-only 都失败则放弃（该世界无 chrome.runtime，DL 桥不可用，但 SW 不崩）
-      console.warn('[duoling:userscript] 世界配置失败，DL 桥不可用', worldId ?? '(默认世界)', e2)
-      return false
-    }
+    // 配置失败：该世界无 chrome.runtime，DL 桥不可用，但 SW 不崩（脚本侧调用会 reject）
+    console.warn('[duoling:userscript] 世界配置失败，DL 桥不可用', worldId ?? '(默认世界)', e)
+    return false
   }
 }
 
 /** 配置默认 USER_SCRIPT 世界（启动 / 扩展更新恢复时调用） */
 export async function configureUserScriptsWorld(): Promise<boolean> {
-  worldCspPermissive = await configureWorld()
-  return worldCspPermissive
+  worldsConfigured = await configureWorld()
+  return worldsConfigured
 }
 
 /**
  * 确保全部世界配置就绪（自愈，幂等）：默认世界 + 已注册脚本的各自独立世界。
  *
- * 场景：「Allow User Scripts」在扩展加载**之后**才开启——initUserScripts 跑的时候
- * chrome.userScripts 尚不存在（guard 直接跳过），worldCspPermissive 永远停在 false，
- * 横幅误报 ⚠；MV3 SW 重启后模块级标志也会归零。横幅查询时发现标志为 false
- * 就按需补配全部世界，再报告真实状态。
+ * 场景：「允许运行用户脚本」在扩展加载**之后**才开启——initUserScripts 跑的时候
+ * chrome.userScripts 尚不存在（guard 直接跳过），各脚本世界从未 configureWorld，
+ * DL 桥与错误上报全失效；MV3 SW 重启后模块级标志也会归零。故查询可用性时
+ * 发现标志为 false 就按需补配全部世界。
  */
 export async function ensureWorldsConfigured(): Promise<boolean> {
   await configureUserScriptsWorld()
-  if (!worldCspPermissive) return false
+  if (!worldsConfigured) return false
   try {
     const registered = await chrome.userScripts.getScripts()
     const worldIds = [
@@ -145,24 +118,25 @@ export async function ensureWorldsConfigured(): Promise<boolean> {
     ]
     for (const wid of worldIds) {
       const ok = await configureWorld(wid)
-      if (!ok) console.warn('[duoling:userscript] 脚本世界配置失败（messaging/CSP）', wid)
+      if (!ok) console.warn('[duoling:userscript] 脚本世界配置失败（messaging）', wid)
     }
   } catch {
     // getScripts 暂不可用（权限刚开启瞬间等）时忽略，下次查询再补
   }
-  return worldCspPermissive
+  return worldsConfigured
 }
 
 /**
- * 安装/保存校验（CSP 回退钩子）。
- * world CSP 未放开（旧版 Chrome）时，脚本若依赖 eval / new Function，运行时可能被拦截。
+ * 安装/保存校验：脚本世界用浏览器默认的严 CSP（禁止动态执行字符串代码），
+ * 注入代码里若出现 eval / new Function，运行时会被拦截。
  * 这里产出非阻塞警告，交给 UI 提示，而非让脚本静默失败。检测对象是**注入代码**（有 bundle 用
  * bundle.code，无 bundle 用入口源码），不是项目里所有文件。
  */
-export function collectCspWarnings(code: string, cspPermissive: boolean): string[] {
-  if (cspPermissive) return []
+export function collectCspWarnings(code: string): string[] {
   if (/\beval\s*\(|new\s+Function\s*\(/.test(code)) {
-    return ['当前环境 USER_SCRIPT 世界未放开宽松 CSP，脚本里的 eval / new Function 可能被拦截。']
+    return [
+      '脚本世界默认禁止动态执行代码：脚本里的 eval / new Function 会被拦截，请改用不含它们的写法。',
+    ]
   }
   return []
 }
@@ -485,7 +459,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   const worldId = 'us-' + project.uuid // 每脚本独立世界，实现全局隔离（要求 Chrome 133+）
   // 该脚本的独立世界必须先单独开 messaging，否则世界内没有 chrome.runtime，
   // DL 桥与运行期错误上报全部失效（自定义世界不继承默认世界配置）。
-  // 注意：不能覆盖全局 worldCspPermissive——那是**默认世界**的状态（供横幅展示）；
+  // 注意：不能覆盖全局 worldsConfigured——那是**默认世界**的状态（供可用性查询自愈判断）；
   // 单世界失败只影响该脚本自身，记入错误日志而非污染全局标志。
   const worldOk = await configureWorld(worldId)
   if (!worldOk) {

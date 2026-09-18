@@ -36,7 +36,7 @@
 
 ### script_spec 约束
 
-- 无 `==UserScript==` / `@grant` / `@require` / `unsafeWindow`；入口无顶层 `export`；依赖只 `import 'https://…'`（裸包名报错）；`DL` 全 async、值须 Json；`DL.page.*` 尚未可用；`allFrames` 默认 `true` 须幂等；落盘为未启用。
+- 无 `==UserScript==` / `@grant` / `@require` / `unsafeWindow`；入口无顶层 `export`；依赖只 `import 'https://…'`（裸包名报错）；`DL` 全 async、值须 Json；`DL.page.*` 尚未可用；`allFrames` 默认 `true` 须幂等；落盘为未启用；运行世界用浏览器默认严 CSP——禁 `eval` / `new Function`（也不许引入内部靠它们 codegen 的库）。
 
 ## 本文档不包括什么
 
@@ -52,3 +52,4 @@
 | 2026-09-14 | matches 默认值 | 默认收窄当前 host | 全量 `*://*/*` 仅用户明说时用并高亮 |
 | 2026-09-14 | 执行宿主 | 定 offscreen document | SW 会被回收、loop 活在停顿点被杀 |
 | 2026-09-15 | 对话链路搬 offscreen | 会话写侧／历史唯一写方 = offscreen | 同源共享，侧边栏只读订阅 |
+| 2026-09-18 | 脚本世界 CSP | 不配 `csp`，禁 `eval` / `new Function` | AI 脚本不可控，不给动态执行能力 |

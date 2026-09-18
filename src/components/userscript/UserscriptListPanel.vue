@@ -504,7 +504,7 @@ onMounted(() => {
           </div>
         </header>
 
-        <!-- 可用性横幅：仅在引擎不可用或 CSP 未放开时显示（有需要用户行动的信息才占位） -->
+        <!-- 可用性横幅：仅在引擎不可用时显示（有需要用户行动的信息才占位） -->
         <div
           v-if="availability && !availability.available"
           class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs"
@@ -526,12 +526,6 @@ onMounted(() => {
             查看开启引导
           </ui-button>
         </div>
-        <div
-          v-else-if="availability?.available && !availability.cspPermissive"
-          class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-600 dark:text-amber-400"
-        >
-          当前环境未放开 USER_SCRIPT 世界 CSP，依赖 eval / 内联的脚本可能运行失败（多见于旧版 Chrome）。
-        </div>
 
         <p
           v-if="error"
@@ -545,7 +539,7 @@ onMounted(() => {
           class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400"
         >
           <p>{{ warning }}</p>
-          <!-- 注册失败 / CSP 拦截的可能性都写在引导页，此处只给入口（文案不重复一份） -->
+          <!-- 注册失败的排查（权限开关 / 世界配置）写在引导页，此处只给入口（文案不重复一份） -->
           <ui-button
             type="button"
             variant="outline"

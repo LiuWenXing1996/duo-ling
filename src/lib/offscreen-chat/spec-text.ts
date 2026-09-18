@@ -21,6 +21,9 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
    { action: 'respond', status, headers?, body? }）。脚本仍**看不到页面 JS 全局**（框架实例、页面变量），不要写依赖它们的代码。
 5. \`allFrames\` 默认 true：脚本可能在同页多个 frame 各跑一次，初始化逻辑要幂等。
 6. 生成的脚本**不会自动生效**——先落盘为未启用状态，由用户确认后启用。不要假设「已经跑起来了」。
+7. 运行环境（USER_SCRIPT 隔离世界）用浏览器默认的严 CSP：**禁止 \`eval\` / \`new Function\`**，
+   也不要引入内部靠它们动态生成代码的库（如 ajv 的编译校验器、Vue 运行时模板编译器）——
+   被拦下的代码只在目标页静默失败，排查成本极高。
 
 ## 能力清单（一期）
 - \`DL.info\` —— { uuid, name, version }（同步）

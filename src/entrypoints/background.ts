@@ -28,7 +28,6 @@ import {
   registerScript,
   unregisterScripts,
   refreshBuiltinScripts,
-  getEffectiveCspPermissive,
   collectCspWarnings,
   resolveInjectCode,
 } from '@/lib/userscripts/engine'
@@ -223,7 +222,7 @@ const handlers: {
     await unregisterScripts([next.uuid]).catch(() => {})
     const registerError = next.enabled ? await registerOrLog(next) : undefined
     return {
-      warnings: collectCspWarnings(resolveInjectCode(next), await getEffectiveCspPermissive()),
+      warnings: collectCspWarnings(resolveInjectCode(next)),
       registerError,
     }
   },
@@ -235,7 +234,7 @@ const handlers: {
     return {
       uuid: project.uuid,
       name: project.name,
-      warnings: collectCspWarnings(resolveInjectCode(project), await getEffectiveCspPermissive()),
+      warnings: collectCspWarnings(resolveInjectCode(project)),
       registerError,
     }
   },
@@ -258,7 +257,7 @@ const handlers: {
     return {
       uuid: project.uuid,
       name: project.name,
-      warnings: collectCspWarnings(resolveInjectCode(project), await getEffectiveCspPermissive()),
+      warnings: collectCspWarnings(resolveInjectCode(project)),
       registerError,
     }
   },

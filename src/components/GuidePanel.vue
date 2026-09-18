@@ -6,6 +6,10 @@
 // 开发者模式 / Firefox 授权 optional 权限」的版本分支。现在本页是唯一权威说明处，各处只留
 // 一句提示 + 一个「查看开启引导」入口；「打开扩展管理页」的一键直达也收在这里。
 //
+// 收录范围（用户 2026-09-18 定）：**只放需要用户动手的项**。无需操作的说明（如「脚本世界用默认严
+// CSP、禁 eval」）不在此页——那是实现细节，用户看不懂也无从操作，写了只是噪音；这类信息由保存时
+// 的警告与错误日志在恰当时机给出。
+//
 // 数据通道：与脚本列表同走 userscriptClient（工作台是可信扩展页，直接 runtime.sendMessage）。
 // 状态不缓存、不订阅——引导页的价值就是「我按步骤开完了，来这看一眼对不对」，故只给
 // 「重新检测」按钮手动刷新，让用户明确知道看到的是刚查的。
@@ -91,7 +95,7 @@ onMounted(() => void detect())
           检测中…
         </p>
 
-        <!-- —— ① 运行用户脚本：唯一需要用户动手的开关 —— -->
+        <!-- 运行用户脚本：当前唯一需要用户动手的开关 -->
         <div v-if="availability" class="rounded-md border bg-card" data-testid="guide-userscripts">
           <div class="flex items-center gap-2 border-b border-border px-4 py-3">
             <ui-check v-if="availability.available" class="size-4 shrink-0 text-primary" />
@@ -154,34 +158,6 @@ onMounted(() => void detect())
                 打开扩展管理页失败：{{ openError }}
               </p>
             </template>
-          </div>
-        </div>
-
-        <!-- —— ② 用户脚本世界的 CSP：浏览器能力差异，无开关可开，仅作说明 —— -->
-        <div v-if="availability" class="rounded-md border bg-card" data-testid="guide-csp">
-          <div class="flex items-center gap-2 border-b border-border px-4 py-3">
-            <ui-check v-if="availability.cspPermissive" class="size-4 shrink-0 text-primary" />
-            <ui-triangle-alert v-else class="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-            <span class="text-sm font-medium">脚本运行环境（宽松 CSP）</span>
-            <span
-              class="ml-auto text-xs"
-              :class="
-                availability.cspPermissive ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-400'
-              "
-            >
-              {{ availability.cspPermissive ? '已放开' : '未放开' }}
-            </span>
-          </div>
-          <div class="space-y-2 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-            <p v-if="availability.cspPermissive">
-              当前环境已放开，依赖 eval / 内联代码的脚本可以正常运行。
-            </p>
-            <p v-else>
-              当前浏览器未接受自定义脚本世界的 CSP，依赖
-              <code class="rounded bg-muted px-1 py-0.5">eval</code> /
-              <code class="rounded bg-muted px-1 py-0.5">new Function</code>
-              的脚本可能被拦截（多见于旧版 Chrome）。这不是开关，升级浏览器可解决；普通脚本不受影响。
-            </p>
           </div>
         </div>
       </div>
