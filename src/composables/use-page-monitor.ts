@@ -1,9 +1,11 @@
 // 侧边栏「页面脚本监控」面板侧（运行时口径）。
 //
-// 职责两件：
+// 职责三件：
 //   ① 跟踪本窗口的 active tab（侧边栏按窗口挂载，currentWindow 语义 = 自己所在窗口）；
 //   ② 经 'duoling:panel' 端口接收 SW 推送（runstart / 错误 / 新文档清零 / 快照），
-//      只保留当前 active tab 的切片；切 tab 时向 SW 拉一次快照补齐。
+//      只保留当前 active tab 的切片；切 tab 时向 SW 拉一次快照补齐；
+//   ③ 补齐运行项的脚本名（runstart 只带 uuid）：首拉 + 运行集出现未知 uuid 时补拉 +
+//      订阅 script 域数据广播跟随增删改——名字表是快照，必须自愈。
 //
 // 口径：显示的是「这个文档里实际启动过哪些脚本」（runstart 广播）+ 其 runtime 错误，
 // 不是「按 matches 计算会注入哪些」（那是静态口径，由原生 userScripts.register 决定）。
@@ -14,6 +16,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { PageErrorItem, PageRunItem, PanelMonitorPush } from '@/shared/extension-ipc'
 import type { ScriptSummary } from '@/lib/userscripts/types'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
+import { useDataSync } from './use-data-sync'
 
 /** 面板保留的错误行上限（环形日志本身 50 条，这里再兜一层） */
 const MAX_ERRORS = 50
@@ -28,6 +31,32 @@ export function usePageMonitor() {
   const errors = ref<PageErrorItem[]>([])
   /** uuid → 脚本名（来自 userscript:list；运行项只带 uuid，名字这里补） */
   const nameByUuid = ref<Record<string, string>>({})
+
+  // —— 名字补齐（自愈）——
+  // 运行项只带 uuid，名字靠 userscript:list 补。列表是**挂载时拉一次的快照**，
+  // 之后导入 / 启用新脚本、改名，或首拉恰好失败（SW 冷启动竞态），都会出现
+  // 「运行集里有 uuid、名字表里没有」→ 展示退化为 uuid 前 8 位。三个补齐入口共用
+  // 一个去重调度器：在途只记「待补跑」，结束补一次，防推送风暴打爆 userscript:list。
+  let namesRefreshing = false
+  let namesRefreshQueued = false
+  function scheduleNameRefresh(): void {
+    if (namesRefreshing) {
+      namesRefreshQueued = true
+      return
+    }
+    namesRefreshing = true
+    void refreshNames().finally(() => {
+      namesRefreshing = false
+      if (namesRefreshQueued) {
+        namesRefreshQueued = false
+        scheduleNameRefresh()
+      }
+    })
+  }
+  /** 运行集里出现名字表没有的 uuid（面板打开在先、脚本导入/启用在后等）→ 补拉一次名字 */
+  function ensureNamesFor(list: PageRunItem[]): void {
+    if (list.some((r) => nameByUuid.value[r.uuid] == null)) scheduleNameRefresh()
+  }
 
   /** 展示 host（解析不出的 URL 不硬显示） */
   const host = computed(() => {
@@ -85,6 +114,7 @@ export function usePageMonitor() {
         const next = runs.value.filter((r) => r.uuid !== msg.run.uuid)
         next.unshift(msg.run)
         runs.value = next
+        ensureNamesFor([msg.run])
         break
       }
       case 'page:error':
@@ -96,6 +126,7 @@ export function usePageMonitor() {
       case 'page:snapshot':
         runs.value = [...msg.runs].sort((a, b) => b.startedAt - a.startedAt)
         errors.value = msg.errors.slice(0, MAX_ERRORS)
+        ensureNamesFor(msg.runs)
         break
     }
   }
@@ -140,9 +171,13 @@ export function usePageMonitor() {
     }
   }
 
+  // 脚本增删改（导入 / 启停 / 改名 / 删除）→ 重拉名字表：改名即时生效，
+  // 导入的新脚本名字也能跟上（useDataSync 自带在途合并，重拉失败不断链）
+  useDataSync('script', () => refreshNames())
+
   onMounted(() => {
     void trackActiveTab()
-    void refreshNames()
+    scheduleNameRefresh()
     // 本窗口 id：只跟踪自己所在窗口的 active tab
     void chrome.windows
       .getCurrent()
