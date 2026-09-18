@@ -210,7 +210,7 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
   })()
   var __dlPort = null
   var __dlPortReady = false
-  var __dlPendingRegs = []       // port.ready 前收到的注册动作（ready 后 flush）
+  var __dlReadyWaiters = []     // 等 port.ready 的 waiter（每个含 resolve；8s 超时自拒）
   var __dlActiveMenus = {}       // 活跃菜单注册清单（重放用）：menuId -> title
   var __dlActiveWatches = {}     // 活跃订阅清单（重放用）：key -> true
   var __dlMenuHandlers = {}      // menuId -> handler
@@ -271,18 +271,34 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
       setTimeout(__dlConnect, 100)
     })
   }
-  function __dlFlushRegs() {
-    var reqs = __dlPendingRegs.splice(0)
-    for (var mid in __dlActiveMenus) reqs.push({ c: 'menu.register', id: mid, title: __dlActiveMenus[mid] })
-    for (var wkey in __dlActiveWatches) reqs.push({ c: 'store.watch', key: wkey, connId: __dlConnId })
-    for (var i = 0; i < reqs.length; i++) __dlSend(reqs[i]).catch(function () {})
+  // 注册动作统一入口：Port 就绪立即发（真等 SW 响应）；未就绪等 port.ready 后再发
+  // （消除 connect→onConnect 竞态）。MENU_OK / WATCH_OK = SW 真确认，失败/超时如实上抛。
+  function __dlWaitReady() {
+    if (__dlPortReady && __dlPort) return Promise.resolve()
+    __dlConnect()
+    return new Promise(function (resolve, reject) {
+      var done = false
+      var timer = setTimeout(function () {
+        if (done) return
+        done = true
+        var i = __dlReadyWaiters.indexOf(w)
+        if (i >= 0) __dlReadyWaiters.splice(i, 1)
+        reject(new Error('DL Port 连接超时（8s 未就绪），去 SW Console 看「Port 已连接」日志'))
+      }, 8000)
+      var w = {
+        resolve: function () {
+          if (done) return
+          done = true
+          clearTimeout(timer)
+          resolve()
+        }
+      }
+      __dlReadyWaiters.push(w)
+    })
   }
-  // 注册动作统一入口：Port 就绪立即发；未就绪入队，等 port.ready 后 flush（消除 connect→onConnect 竞态）
   function __dlRegSend(req) {
     if (__dlPortReady && __dlPort) return __dlSend(req)
-    __dlConnect()
-    __dlPendingRegs.push(req)
-    return Promise.resolve()
+    return __dlWaitReady().then(function () { return __dlSend(req) })
   }
   function __base64ToArrayBuffer(b64) {
     var bin = atob(b64)
@@ -409,11 +425,13 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
         var t = typeof title === 'string' && title ? title : '菜单项'
         __dlMenuHandlers[id] = handler
         __dlActiveMenus[id] = t
-        __dlRegSend({ c: 'menu.register', id: id, title: t })
-        return Promise.resolve(function () {
-          delete __dlMenuHandlers[id]
-          delete __dlActiveMenus[id]
-          __dlRegSend({ c: 'menu.unregister', id: id })
+        // 等 SW 真建好菜单才 resolve——MENU_OK 必须代表菜单已在位
+        return __dlRegSend({ c: 'menu.register', id: id, title: t }).then(function () {
+          return function () {
+            delete __dlMenuHandlers[id]
+            delete __dlActiveMenus[id]
+            __dlRegSend({ c: 'menu.unregister', id: id }).catch(function () {})
+          }
         })
       }
     },
