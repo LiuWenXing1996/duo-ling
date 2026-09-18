@@ -32,6 +32,22 @@ function send<T>(request: RuntimeRequest): Promise<T> {
 }
 
 /**
+ * 订阅 SW 的引擎可用性变化广播（userscript:availabilityChanged，见 extension-ipc.SwPush）。
+ * 回调收到的是**完整可用性**（SW 广播时已带上），UI 无需回查。返回退订函数。
+ */
+export function subscribeAvailability(
+  callback: (availability: UserScriptsAvailability) => void,
+): () => void {
+  const listener = (raw: unknown): void => {
+    const msg = raw as { kind?: string; availability?: UserScriptsAvailability }
+    if (msg?.kind !== 'userscript:availabilityChanged' || !msg.availability) return
+    callback(msg.availability)
+  }
+  chrome.runtime.onMessage.addListener(listener)
+  return () => chrome.runtime.onMessage.removeListener(listener)
+}
+
+/**
  * 向 offscreen 发 ai:* 命令（git 历史侧车 + 构建宿主）。
  * offscreen 常驻（SW 冷启动即 ensureOffscreen，不空闲自关）；但扩展重载 / 崩溃 / 关窗会销毁
  * 容器，这些情况下 ai:* 无人响应会报

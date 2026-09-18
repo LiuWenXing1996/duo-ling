@@ -20,6 +20,7 @@ import type { ModelProfileState, OffscreenPush, RuntimeRequest, RuntimeResponse 
 // 用户脚本管理器（v2 方案）：引擎 + 存储 + DL 桥 + 类型
 import {
   configureUserScriptsWorld,
+  ensureWorldsConfigured,
   isUserScriptsAvailable,
   getUserScriptsStatus,
   registerAllEnabled,
@@ -30,6 +31,8 @@ import {
   collectCspWarnings,
   resolveInjectCode,
 } from '@/lib/userscripts/engine'
+// 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
+import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/availability-watch'
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listProjects } from '@/lib/userscripts/project-store'
@@ -346,6 +349,10 @@ const handlers: {
 
   'userscript:availability': async (): Promise<UserScriptsAvailability> => getUserScriptsStatus(),
 
+  // 引擎保活应答（offscreen 心跳 5s 一次）：只证明「SW 活着」并重置空闲计时，
+  // **不做任何检测**——检测在 SW 自身的轮询（startAvailabilityWatch），职责分离见 availability-watch.ts
+  'userscript:healthCheck': async (): Promise<{ alive: true }> => ({ alive: true }),
+
   'userscript:errors': async (): Promise<ReturnType<typeof listUserScriptErrors>> => listUserScriptErrors(),
 
   // 错误 ID 修复闭环：AI 的 error_read 工具经 offscreenBridge 到此代查。
@@ -471,6 +478,23 @@ export default defineBackground(() => {
 
   // 用户脚本管理器：启动配置世界并恢复已启用脚本
   void initUserScripts().catch((e) => console.error('[duoling:userscript] init failed', e))
+
+  // 引擎可用性监视（检测层）：SW 被保活的前提下自行轮询「运行用户脚本」开关（Chrome 对
+  // 开关变化无事件），状态变化时经订阅回调通知。这里挂两个消费方（事件消费层）：
+  //   ① 进程内自愈：不可用 → 可用（用户在扩展管理页开完开关）时补注册全部启用脚本——
+  //      开关关闭期间启用的脚本只落库未注册，无人补注册就永远不生效；
+  //   ② 广播给扩展页：横幅 / 引导页订阅 availabilityChanged 更新显示（不再各自打补丁）。
+  startAvailabilityWatch()
+  onAvailabilityChange(({ previous, current }) => {
+    if (!previous && current.available) {
+      void ensureWorldsConfigured()
+        .then(() => registerAllEnabled())
+        .catch((e) => console.error('[duoling:userscript] 可用性翻转补注册失败', e))
+    }
+    // SW 收不到自己发的消息，广播只到扩展页；无接收方（没开任何页面）属常态，静默
+    const push = { kind: 'userscript:availabilityChanged' as const, availability: current, changedAt: Date.now() }
+    void chrome.runtime.sendMessage(push).catch(() => {})
+  })
 
   // 浮窗注入 / 面板端口 / 完成徽章 / 深链跳转的监听器
   mountProposal2Listeners()

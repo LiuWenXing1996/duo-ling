@@ -11,9 +11,10 @@
 // 的警告与错误日志在恰当时机给出。
 //
 // 数据通道：与脚本列表同走 userscriptClient（工作台是可信扩展页，直接 runtime.sendMessage）。
-// 状态不缓存、不订阅——引导页的价值就是「我按步骤开完了，来这看一眼对不对」，故只给
-// 「重新检测」按钮手动刷新，让用户明确知道看到的是刚查的。
-import { computed, onMounted, ref } from 'vue'
+// 可用性显示走订阅：SW 轮询发现「运行用户脚本」开关变化后广播 availabilityChanged（检测
+// 与广播都在 SW，见 availability-watch.ts），本页只消费——不用自己盯 visibilitychange。
+// 挂载查一次给初值；「重新检测」按钮保留，给想立即确认的场景。
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   Check as UiCheck,
   ExternalLink as UiExternalLink,
@@ -22,7 +23,7 @@ import {
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import { openOwnExtensionPage, userScriptsGuideSteps } from '@/lib/extension-page'
-import { userscriptClient } from '@/lib/userscripts/ui-client'
+import { subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
 import type { UserScriptsAvailability } from '@/lib/userscripts/types'
 
 const availability = ref<UserScriptsAvailability | null>(null)
@@ -61,7 +62,20 @@ async function openExtensionPage(): Promise<void> {
   }
 }
 
-onMounted(() => void detect())
+let unsubscribeAvailability: (() => void) | null = null
+
+onMounted(() => {
+  void detect()
+  unsubscribeAvailability = subscribeAvailability((av) => {
+    // 广播带的是完整可用性，直接替换状态（探测失败的报错随有效读数一并清除）
+    availability.value = av
+    detectError.value = ''
+  })
+})
+
+onUnmounted(() => {
+  unsubscribeAvailability?.()
+})
 </script>
 
 <template>
@@ -114,7 +128,8 @@ onMounted(() => void detect())
           <div class="space-y-3 px-4 py-3">
             <p class="text-xs leading-relaxed text-muted-foreground">
               脚本注入网页依赖浏览器提供的用户脚本接口。未开启时脚本不会生效，但新建 / 编辑 /
-              保存都不受影响（数据照常落库，开开关后启用即生效）。
+              保存都不受影响（数据照常落库）。开关打开后，已启用的脚本会在数秒内自动注册，
+              刷新目标页面即可生效。
             </p>
 
             <!-- 已开启：无需行动，不给步骤（避免读一屏用不上的说明） -->

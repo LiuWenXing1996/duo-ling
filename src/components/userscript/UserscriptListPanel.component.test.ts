@@ -16,6 +16,9 @@ const errors = vi.hoisted(() => vi.fn())
 const availability = vi.hoisted(() => vi.fn())
 const create = vi.hoisted(() => vi.fn())
 const toggle = vi.hoisted(() => vi.fn())
+const subscribeAvailability = vi.hoisted(() =>
+  vi.fn((cb: (a: UserScriptsAvailability) => void) => vi.fn()),
+)
 
 vi.mock('@/lib/userscripts/ui-client', () => ({
   userscriptClient: {
@@ -30,6 +33,7 @@ vi.mock('@/lib/userscripts/ui-client', () => ({
     importZip: vi.fn(),
     clearErrors: vi.fn(),
   },
+  subscribeAvailability,
 }))
 
 const summary = (uuid: string, name: string): ScriptSummary => ({
@@ -121,6 +125,27 @@ describe('UserscriptListPanel 不承载报错展示', () => {
 
     expect(wrapper.text()).toContain('用户脚本引擎不可用')
     expect(errorChips()).toHaveLength(0)
+  })
+})
+
+describe('UserscriptListPanel 横幅自动刷新', () => {
+  it('订阅广播：SW 推送 availabilityChanged 时横幅直接更新（无需手动重查）', async () => {
+    availability.mockResolvedValue(ENGINE_OFF)
+    wrapper = await mountPanel()
+    expect(wrapper.text()).toContain('用户脚本引擎不可用')
+
+    // 用户在扩展管理页开了开关 → SW 轮询发现并广播 → 横幅自动消掉
+    const cb = subscribeAvailability.mock.calls.at(-1)![0] as (a: UserScriptsAvailability) => void
+    cb(OK_AVAILABILITY)
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('用户脚本引擎不可用')
+  })
+
+  it('卸载时退订广播', async () => {
+    wrapper = await mountPanel()
+    const unsub = subscribeAvailability.mock.results.at(-1)!.value as ReturnType<typeof vi.fn>
+    wrapper.unmount()
+    expect(unsub).toHaveBeenCalled()
   })
 })
 
