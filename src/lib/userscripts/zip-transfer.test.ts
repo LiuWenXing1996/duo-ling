@@ -1,5 +1,5 @@
 // zip-transfer.ts 单测：编解码纯函数（zip 格式、路径过滤、字段兜底、目录去重、指纹）。
-// 2026-09-17 修订后解码侧「只拦原则项、尽量导入」，覆盖见 notes/content/userscript-zip-transfer.md。
+// 2026-09-17 修订后解码侧「只拦原则项、尽量导入」。
 // node 环境直跑（本模块零 chrome API）。
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
@@ -59,7 +59,7 @@ describe('buildScriptZip + parseScriptsZip 往返', () => {
     expect(scripts[0].files).toEqual({ 'main.js': 'console.log(1)' })
   })
 
-  it('project.json 含 v/name/config/entry/exportedAt/exporter，不含 uuid/enabled/bundle（定稿 §3）', () => {
+  it('project.json 含 v/name/config/entry/exportedAt/exporter，不含 uuid/enabled/bundle', () => {
     const zip = buildScriptZip(
       [{ name: 'A', config: validConfig(), entry: 'main.js', files: { 'main.js': 'x' } }],
       { exporter: 'duoling/9.9.9', exportedAt: 123 },

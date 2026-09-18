@@ -255,7 +255,7 @@ function askRemove(s: ScriptSummary): void {
   pendingRemove.value = s
 }
 
-// —— zip 导入导出（notes/content/userscript-zip-transfer.md）——
+// —— zip 导入导出——
 // 导出：ui-client 现成的 getProject / list 只读取数，zip 编码在本页（zip-transfer 纯函数），
 // 零新增协议。导入：zip 文件转 base64 走 userscript:import 命令对，offscreen 单写方落盘。
 
@@ -336,7 +336,7 @@ function downloadZip(bytes: Uint8Array, filename: string): void {
 
 /**
  * 选定 zip 文件后导入：读文件转 base64 → userscript:import（offscreen 解码 + 校验 + 构建 + 落盘）。
- * 成功动线（定稿 §5.8）：导入后**不自动进编辑器**，统一弹汇总报告（成功 / 失败 + 未导入文件），
+ * 成功动线：导入后**不自动进编辑器**，统一弹汇总报告（成功 / 失败 + 未导入文件），
  * 新导入的脚本在列表行标「刚导入 · 未启用」，由用户按需手动启用或点编辑。
  */
 async function onImportFile(e: Event): Promise<void> {
@@ -778,7 +778,7 @@ onMounted(() => {
       </ui-dialog-content>
     </ui-dialog>
 
-    <!-- 导出确认弹窗：每行导出与全部导出共用；隐私提示固定在此（定稿 §4，文案只写一处） -->
+    <!-- 导出确认弹窗：每行导出与全部导出共用；隐私提示固定在此（文案只写一处） -->
     <ui-dialog
       :open="!!pendingExport"
       @update:open="(v: boolean) => { if (!v) pendingExport = null }"

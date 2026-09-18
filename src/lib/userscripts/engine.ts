@@ -1,4 +1,4 @@
-// 用户脚本注册引擎（v2 方案 notes/content/userscript-v2-plan.md）。
+// 用户脚本注册引擎（v2 方案）。
 //
 // 主走 chrome.userScripts API：每脚本注册到独立 USER_SCRIPT 世界（worldId），
 // DL 包装作为 js 数组首条目先于项目代码定义 window.DL，脚本经 onUserScriptMessage 桥接后台
@@ -240,7 +240,7 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
     for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i)
     return buf.buffer
   }
-  // —— 反向中继客户端（notes/content/userscript-page-relay.md）——
+  // —— 反向中继客户端——
   var __dlPageApi = ${clientSource}
 
   var DL = {
@@ -356,7 +356,7 @@ function sourceURLSuffix(project: ScriptProject): string {
   return `\n//# sourceURL=duoling://script/${project.uuid}/${safeName}.js`
 }
 
-// —— 反向中继 stub 注册（notes/content/userscript-page-relay.md）——
+// —— 反向中继 stub 注册——
 
 /** MAIN 世界共享桩的注册 ID：一个扩展一份，不是每脚本一份 */
 export const PAGE_STUB_ID = 'dl-page-stub'
@@ -387,7 +387,7 @@ async function getOrCreatePageSecret(): Promise<string> {
 }
 
 /**
- * 轮换密钥（扩展 install/update 恢复时调用，规范 §5.2「重注册即轮换」的落点）。
+ * 轮换密钥（扩展 install/update 恢复时调用，「重注册即轮换」的落点）。
  * 轮换后必须紧跟着 registerAllEnabled：桩与全部启用脚本包装在同一遍里带上新密钥。
  */
 export async function rotatePageSecret(): Promise<void> {
@@ -429,7 +429,7 @@ async function syncPageStubUnion(projects: ScriptProject[]): Promise<void> {
     excludeMatches: union.excludeMatches,
     includeGlobs: union.includeGlobs,
     excludeGlobs: union.excludeGlobs,
-    // document_start：必须早于脚本默认的 document_end 握手窗口（规范 §5.2）
+    // document_start：必须早于脚本默认的 document_end 握手窗口
     runAt: 'document_start',
     allFrames: true,
     // userScripts API 无 persistAcrossSessions（那是 contentScripts 的字段，Chrome 会报
@@ -475,7 +475,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   if (!project.config.matches?.length) {
     throw new Error('脚本缺少匹配规则（matches），无法注册')
   }
-  // match pattern 合法性（notes/content/userscript-zip-transfer.md）：与导入路径共用同一校验器，
+  // match pattern 合法性：与导入路径共用同一校验器，
   // 非法值在此以中文报错拦下，不再拖到 chrome.userScripts.register 才以英文异常冒出
   validateMatchPatterns(project.config)
   const code = resolveInjectCode(project) + sourceURLSuffix(project)
@@ -573,7 +573,7 @@ async function runRegisterAllEnabled(): Promise<void> {
 export async function recoverOnUpdate(): Promise<void> {
   await configureUserScriptsWorld()
   // 扩展 install/update：轮换握手密钥（旧注册已被浏览器清空），随后的 registerAllEnabled
-  // 会把桩与全部启用脚本包装在同一遍里带上新密钥（规范 §5.2「重注册即轮换」）
+  // 会把桩与全部启用脚本包装在同一遍里带上新密钥（重注册即轮换）
   await rotatePageSecret().catch(() => {})
   await registerAllEnabled()
 }

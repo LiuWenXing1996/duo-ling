@@ -1,13 +1,13 @@
-// 反向中继 · MAIN 世界桩源码模板（notes/content/userscript-page-relay.md）。
+// 反向中继 · MAIN 世界桩源码模板。
 //
 // buildPageStubSource(secret) 返回的字符串由 engine.ts 在注册 dl-page-stub 时
-// 注入页面 MAIN 世界（world: 'MAIN'）。设计硬边界（规范 §10）：
+// 注入页面 MAIN 世界（world: 'MAIN'）。设计硬边界：
 //   - 无 chrome.*（MAIN 世界 userScript 本就没有），只靠同帧 window.postMessage；
 //   - 无 new Function、不执行脚本下发的源码——纯固定逻辑机器；
 //   - 与页面同级、无特权：页面看得见它做的一切，防伪只靠闭包里的 secret。
 //
 // 职责（一期三件）：握手应答 / listen 事件摘要转发 / hook('fetch') 调用摘要与代答。
-// 每脚本 × 每帧 = 一个会话（sid），会话状态（监听表、钩子）互相隔离（规范 §5.4）。
+// 每脚本 × 每帧 = 一个会话（sid），会话状态（监听表、钩子）互相隔离。
 
 import {
   PAGE_CALL_TIMEOUT,
@@ -30,7 +30,7 @@ export function buildPageStubSource(secret: string): string {
   ${PAGE_DIGEST_SNIPPET}
 
   // 会话表：sid -> { listeners: {lid: {type, fn}}, hook: {wrapper, prev} | null, hseq }
-  // 文档卸载时本 IIFE 随 realm 消亡，无需清理（规范 §4.2 的自然清空原则）。
+  // 文档卸载时本 IIFE 随 realm 消亡，无需清理（自然清空原则）。
   var sessions = {}
   function sess(sid) {
     return sessions[sid] || (sessions[sid] = { listeners: {}, hook: null, hseq: 0 })
@@ -49,7 +49,7 @@ export function buildPageStubSource(secret: string): string {
     reply(sid, seq, false, { message: String((message && message.message) || message) })
   }
 
-  // —— 事件摘要（规范 §7：只转发可克隆字段，detail 克隆失败置 null）——
+  // —— 事件摘要（只转发可克隆字段，detail 克隆失败置 null）——
   function summarizeEvent(e) {
     var ev = { type: e.type, timeStamp: e.timeStamp || 0 }
     if (typeof e.key === 'string') ev.key = e.key
@@ -71,7 +71,7 @@ export function buildPageStubSource(secret: string): string {
     try { return t.matches(selector) || !!(t.closest && t.closest(selector)) } catch (_) { return false }
   }
 
-  // —— fetch 钩子链（规范 §8）：多会话按后进先出叠 wrapper；unhook 只许从栈顶摘 ——
+  // —— fetch 钩子链：多会话按后进先出叠 wrapper；unhook 只许从栈顶摘 ——
   var hookStack = [] // { sid, wrapper, prev }
   var origFetch = window.fetch
 
@@ -115,7 +115,7 @@ export function buildPageStubSource(secret: string): string {
         clearTimeout(timer)
         try { resolve(next.apply(window, args)) } catch (e) { resolve(Promise.reject(e)) }
       }
-      timer = setTimeout(passthrough, HOOK_TIMEOUT) // 超时放行：宁可失效不可阻塞（规范 §8 最高优先级约束）
+      timer = setTimeout(passthrough, HOOK_TIMEOUT) // 超时放行：宁可失效不可阻塞（最高优先级约束）
       // pendingHook 必须先于 send 挂好：消息投递可能同步到达，回包不能被丢。
       // 注意 settled 置位只在这两处入口各自完成，不得先置位再委托 passthrough（会自锁）。
       session.pendingHook = function (action) {
@@ -144,7 +144,7 @@ export function buildPageStubSource(secret: string): string {
 
   // —— 消息入口 ——
   window.addEventListener('message', function (e) {
-    if (e.source !== window) return // 只应答本帧（规范 §2）
+    if (e.source !== window) return // 只应答本帧
     var d = e.data
     if (!d || d[TAG] !== TAG_VALUE) return
 
@@ -160,7 +160,7 @@ export function buildPageStubSource(secret: string): string {
     }
 
     if (d.kind === 'hello') {
-      // 任何人都能收到 hello_ack——但 proof 只有持密者算得出，验方在客户端（规范 §5.3）
+      // 任何人都能收到 hello_ack——但 proof 只有持密者算得出，验方在客户端
       send({ kind: 'hello_ack', sid: d.sid, proof: __dlDigest(SECRET, String(d.challenge || '')), v: VERSION })
       return
     }

@@ -198,7 +198,7 @@ function connectKeepAlive(): void {
       </ui-button>
     </header>
 
-    <!-- 孤儿任务横幅：offscreen 宿主被杀后遗留的进行中任务（notes/content/userscript-ai-generation.md） -->
+    <!-- 孤儿任务横幅：offscreen 宿主被杀后遗留的进行中任务 -->
     <div
       v-if="orphanTasks.length"
       class="shrink-0 border-b border-border bg-amber-500/10 px-3 py-2 text-xs text-foreground"

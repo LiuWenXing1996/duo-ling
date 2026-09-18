@@ -2,7 +2,7 @@
 //
 // 演进史（读代码前先看，避免按旧注释理解）：
 //   v1  渲染层直跑 streamText —— 少一次中转，但侧边栏一关流当场断。
-//   v2  整条对话链路搬进 offscreen（notes/content/userscript-ai-generation.md）：
+//   v2  整条对话链路搬进 offscreen：
 //       本文件退回纯「观察者」角色——sendMessages 只是把指令 + 消息交给 offscreen
 //       （chat:start），随后把 offscreen 推回的事件（chat:chunk）收集成 ReadableStream
 //       喂给 useChat；reconnectToStream 第一次有了真实语义：重连时从头全量回放

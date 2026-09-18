@@ -148,14 +148,14 @@ export type RuntimeRequest =
   // 错误 ID 修复闭环：AI 的 error_read 工具经 SW 代查
   // us:errors（offscreen 拿不到 chrome.storage）。id = 完整记录 id 或唯一 8 位前缀
   | { kind: 'userscript:errorRead'; id: string }
-  // zip 导入（notes/content/userscript-zip-transfer.md）：UI 读 zip 文件转 base64，SW 纯转发 offscreen
+  // zip 导入：UI 读 zip 文件转 base64，SW 纯转发 offscreen
   // 单写方（解码 + 校验 + 构建 + 落盘同处）。enabled 恒 false——先审后启，故无注册动作。
   // 导出零新增协议：走现成 userscript:list / getProject 只读命令。
   | { kind: 'userscript:import'; zipBase64: string }
   // 注：git 历史的 `userscript:history*` 三命令已随执行宿主迁 offscreen 而废弃（由 ai:* 取代），
   // 全仓无调用方，2026-09-15 从协议中移除——留着只会让 SW 的 handlers 表被迫补死桩。
 
-  // 用户脚本 git 历史（执行宿主迁 offscreen，见 notes/content/offscreen-fs-migration.md）。
+  // 用户脚本 git 历史（执行宿主迁 offscreen）。
   // UI / SW 经 chrome.runtime.sendMessage 共享总线直发 offscreen；SW 的 onMessage 对 ai: 前缀
   // return false 静默放行，由 offscreen 处理并按 { ok, data | error } 信封回传。
   // 就绪探测：SW 用来确认容器**真的在应答**（而不仅是「文档已存在」）。
@@ -169,19 +169,19 @@ export type RuntimeRequest =
   | { kind: 'ai:restoreToCommit'; uuid: string; oid: string }
   // 整库浏览（只读调试视图）：递归列出 lfs 库的文件树（含 .git 内部），工作台「lfs 浏览」标签页用
   | { kind: 'ai:lfsTree' }
-  // esbuild 构建（宿主收敛 offscreen：唯一「能派生 Worker + 不被回收」的宿主，§3.1/§4.8）。
+  // esbuild 构建（宿主收敛 offscreen：唯一「能派生 Worker + 不被回收」的宿主）。
   // 编辑器保存 / 历史恢复 / AI 生成 loop 共用 offscreen 常驻 wasm 实例。
   // 失败不抛异常（过桥丢结构），返回可辨识联合 BuildResult（见 offscreen-build-commands.ts）
   | { kind: 'ai:build'; files: Record<string, string>; entry: string }
-  // 草稿（notes/content/userscript-draft.md）：编辑态防抖写入 git 工作区（纯 fs、不动 index）。
+  // 草稿：编辑态防抖写入 git 工作区（纯 fs、不动 index）。
   // 载荷传完整 ScriptProject 形状——offscreen 侧 buildContents 需要 v/uuid/createdAt，
-  // UI 不能 import us-git 复用（会把 isomorphic-git 打进面板包，§4.2）
+  // UI 不能 import us-git 复用（会把 isomorphic-git 打进面板包）
   | { kind: 'ai:writeDraft'; uuid: string; project: import('@/lib/userscripts/types').ScriptProject }
   | { kind: 'ai:readDraft'; uuid: string }
   // 单文件预览：按完整路径读 lfs 库内文件内容（含 .git 内部），「lfs 浏览」标签页点文件时拉取
   | { kind: 'ai:lfsReadFile'; path: string }
 
-  // —— 项目状态库的**写**命令面（notes/content/userscript-single-writer.md）——
+  // —— 项目状态库的**写**命令面——
   // 项目数据（源码 / 配置 / 构建产物 / enabled）落在独立 IndexedDB 库 duoling-state，
   // **写只归 offscreen**（单写方），写状态与 commit git 仓收在同一个上下文的同一个函数里，
   // 消除原先「SW 写 storage + IPC 让 offscreen commit」两次分离操作带来的偏差缝隙。
@@ -193,14 +193,14 @@ export type RuntimeRequest =
   // 与 state:remove 同处一地的好处：记录与仓的删除不跨上下文，不留无主仓。
   | { kind: 'state:removeAll' }
   | { kind: 'state:toggle'; uuid: string; enabled: boolean }
-  // AI 生成脚本的落盘（notes/content/userscript-ai-generation.md/「生成结果行为」）：SW 的 userscript:createProject
+  // AI 生成脚本的落盘：SW 的 userscript:createProject
   // 转发到此（单写方），写状态库 + git 快照（note = AI summary），**不注册**（enabled:false 默认）。
   | { kind: 'state:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; enabled: boolean; note?: string }
   // zip 导入的落点（SW 的 userscript:import 转发到此）：importScriptsZip 逐脚本
   // 「构建 → 落盘 → 快照」，报告 ImportReport（types.ts）。
   | { kind: 'state:import'; zipBase64: string }
 
-  // —— 会话写侧（整条对话链路搬进 offscreen 后，会话历史唯一写入方 = offscreen，notes/content/userscript-ai-generation.md）——
+  // —— 会话写侧（整条对话链路搬进 offscreen 后，会话历史唯一写入方 = offscreen）——
   // UI（侧边栏 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 对 conv: 前缀静默让路。
   | { kind: 'conv:create' }
   | { kind: 'conv:rename'; id: string; title: string }
@@ -219,7 +219,7 @@ export type RuntimeRequest =
   | { kind: 'chat:orphans' }
   | { kind: 'chat:orphanAction'; taskId: string; action: 'continue' | 'discard' }
 
-  // —— offscreen document（AI 生成链路的执行宿主，notes/content/userscript-ai-generation.md）——
+  // —— offscreen document（AI 生成链路的执行宿主）——
   // 容器**按需创建**（刻意不在 SW 启动时自动建，否则一启动就常驻，与退出条件相悖），
   // 故用显式命令控制；`offscreen:ready` 是 offscreen 侧启动后的握手通知。
   | { kind: 'offscreen:ensure' }
@@ -227,7 +227,7 @@ export type RuntimeRequest =
   | { kind: 'offscreen:status' }
   | { kind: 'offscreen:ready' }
 
-  // —— 模型配置（offscreen 侧向 SW 拉取，notes/content/userscript-ai-generation.md）——
+  // —— 模型配置（offscreen 侧向 SW 拉取）——
   // offscreen 拿不到 chrome.storage，故在启动 / 收到变更推送时经此命令取一次并缓存。
   // 返回值含 apiKey 明文：属同扩展内上下文之间的传递（offscreen 与 SW 信任级别等同），
   // 不是新增对外暴露面；但仍须「取一次、缓存、不写日志」。

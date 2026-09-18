@@ -1,4 +1,4 @@
-// offscreen 侧的模型配置缓存（notes/content/userscript-ai-generation.md）。
+// offscreen 侧的模型配置缓存。
 //
 // offscreen 拿不到 chrome.storage，配置只能从 SW 经 model:getActiveProfile 取一次并缓存；
 // 变更由 SW 推 offscreen:configChanged、这里回拉。apiKey 属同扩展内上下文之间的传递
