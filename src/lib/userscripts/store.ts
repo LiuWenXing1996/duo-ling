@@ -11,7 +11,6 @@ import {
   GM_KEY_PREFIX,
   ERRORS_KEY,
   ERROR_LOG_MAX,
-  RUN_STATS_KEY_PREFIX,
   gmKey,
   runStatsKey,
   type ScriptProject,
