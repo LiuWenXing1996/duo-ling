@@ -52,6 +52,8 @@ import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailabilit
 import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady } from '@/lib/offscreen'
 // 模型配置：offscreen 既收不到 storage.onChanged、也不该直连存储，一律由 SW 经命令 / 推送中转
 import { getActiveProfileState } from '@/lib/model-store'
+// 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
+import { broadcastDataChange } from '@/lib/data-broadcast'
 // AI 工具支路：page_snapshot 工具经 SW 调 userScripts.execute（offscreen 不可达该 API）
 import { capturePageSnapshotFromTab, pageInjectionBlockReason } from '@/lib/element-picker-client'
 
@@ -468,6 +470,9 @@ export default defineBackground(() => {
     if (area !== 'local' || !Object.prototype.hasOwnProperty.call(changes, MODEL_PROFILES_KEY)) {
       return
     }
+    // 顺带通知前端：chrome.storage 的 onChanged 只是「存储变了」的信号，
+    // 各扩展页的视图不会因此自己刷新——别的窗口的设置页、侧边栏的模型选择器都得靠这条广播。
+    broadcastDataChange('model')
     void isOffscreenReady()
       .then((ready) => {
         if (!ready) return

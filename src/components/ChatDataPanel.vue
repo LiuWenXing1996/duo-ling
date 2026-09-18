@@ -9,6 +9,7 @@
 // 读走 conversation-store 直连 IndexedDB（与 window-api 同款姿势，工作台是扩展页同源可读）；
 // 本面板**只读**，写入仍唯一归 offscreen。
 import { onMounted, ref, watch } from 'vue'
+import { useDataSync } from '@/composables/use-data-sync'
 import { Database as UiDatabase, RefreshCw as UiRefreshCw } from '@lucide/vue'
 import * as conversationStore from '@/lib/conversation-store'
 import type { Conversation, Message } from '@/shared/types'
@@ -58,6 +59,12 @@ watch(selectedId, (id) => {
 })
 
 onMounted(() => void refresh())
+
+// 别处增删改会话 / 消息落盘：回拉列表，并刷新当前选中会话的消息（调试视图要照见最新落盘）
+useDataSync('conversation', () => {
+  void refresh()
+  if (selectedId.value) void loadMessages(selectedId.value)
+})
 
 function toggleRaw(id: string): void {
   const next = new Set(expanded.value)

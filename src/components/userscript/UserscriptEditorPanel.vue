@@ -10,6 +10,7 @@
 //
 // 配色一律用语义 token（AGENTS.md：颜色一律用语义 token）。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useDataSync } from '@/composables/use-data-sync'
 import {
   CircleX as UiCircleX,
   History as UiHistory,
@@ -71,6 +72,8 @@ const editFiles = ref<Record<string, string>>({})
 const editEntry = ref('')
 const activeFile = ref('')
 const editDirty = ref(false)
+/** 当前脚本在别处被修改（收到 `script` 广播但本地有未保存改动，故未自动重载） */
+const remoteChanged = ref(false)
 // 构建状态（保存即构建；失败行内展示、不落盘）
 const building = ref(false)
 const buildIssues = ref<string[]>([])
@@ -628,6 +631,19 @@ async function saveEdit(): Promise<void> {
 }
 
 onMounted(() => {
+  void load()
+})
+
+// 别处保存 / 启停了「我正在编辑的这个脚本」会广播 `script` 域：
+//   · 本地无未保存改动 → 直接重载，照见别处的最新内容；
+//   · 本地有未保存改动 → 不抢加载（否则会吃掉正在写的草稿），仅提示用户手动处理。
+useDataSync('script', (push) => {
+  if (push.uuid && push.uuid !== props.uuid) return
+  if (editDirty.value) {
+    remoteChanged.value = true
+    return
+  }
+  remoteChanged.value = false
   void load()
 })
 </script>

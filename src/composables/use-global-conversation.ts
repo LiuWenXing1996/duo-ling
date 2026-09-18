@@ -11,6 +11,7 @@
 //   · 孤儿任务 —— offscreen 宿主被杀后 status=running 的记录（心跳过期）在此提示「继续 / 丢弃」。
 
 import { computed, ref, shallowRef, watchEffect } from 'vue'
+import { useDataSync } from '@/composables/use-data-sync'
 import type { UseChatHelpers } from '@ai-sdk/vue'
 import type { ChatInit, ChatStatus, UIMessage } from 'ai'
 import { ExtensionChatTransport } from '@/lib/extension-chat-transport'
@@ -189,6 +190,17 @@ export function useGlobalConversation() {
     orphanPollStarted = true
     setInterval(() => void refreshOrphans(), 15_000)
   }
+
+  // 别处增删改会话（新建 / 删除 / 重命名）落盘后已广播 `conversation` 域：
+  // 回拉列表即可，不动当前激活会话的消息（避免打断进行中的对话）。本 composable 在
+  // app 顶层调用一次，订阅随 app 生命周期存活。
+  useDataSync('conversation', async () => {
+    try {
+      conversations.value = await window.api.conversation.list()
+    } catch {
+      // 列表刷新失败不影响主流程
+    }
+  })
 
   /** 孤儿处理：继续（播种内存文件树后重跑循环）或丢弃（删任务记录）。失败须可见——
    *  调用方是 void，异常不接住就全静默（横幅消失但任务还在，用户不知情） */

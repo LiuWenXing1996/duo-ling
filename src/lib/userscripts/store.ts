@@ -16,6 +16,7 @@ import {
   type ScriptSummary,
   type UserScriptErrorRecord,
 } from './types'
+import { broadcastDataChange } from '../data-broadcast'
 
 /**
  * 列表视图：项目摘要（不含源码与构建产物），未启用在后、启用在前，组内按更新时间倒序。
@@ -97,6 +98,10 @@ export async function appendUserScriptError(
     const next = existing.slice(-(MAX_ERRORS - 1))
     next.push({ ...rec, id: rec.id || crypto.randomUUID(), time: rec.time || Date.now() })
     await chrome.storage.local.set({ [ERRORS_KEY]: next })
+    // 广播埋在这里而不是各个调用点：错误有 4 个上报入口（background 的注册兜底、
+    // engine 两处、dl-bridge 的脚本消息转发），这里是唯一汇合点。
+    // 崩溃风暴的高频 append 由广播侧的合并窗口（100ms）兜住，前端不会被打爆。
+    broadcastDataChange('error', rec.uuid ?? undefined)
   })
 }
 
@@ -117,6 +122,7 @@ export async function clearUserScriptErrors(uuid?: string | null): Promise<void>
   return enqueueErrorOp(async () => {
     if (uuid === undefined) {
       await chrome.storage.local.remove(ERRORS_KEY)
+      broadcastDataChange('error') // 全量清空
       return
     }
     const existing =
@@ -126,9 +132,11 @@ export async function clearUserScriptErrors(uuid?: string | null): Promise<void>
     if (kept.length === existing.length) return
     if (!kept.length) {
       await chrome.storage.local.remove(ERRORS_KEY)
-      return
+    } else {
+      await chrome.storage.local.set({ [ERRORS_KEY]: kept })
     }
-    await chrome.storage.local.set({ [ERRORS_KEY]: kept })
+    // null（未归属）没有单条 uuid 可指，按全量通知
+    broadcastDataChange('error', uuid ?? undefined)
   })
 }
 

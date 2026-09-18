@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/dialog'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import { formatTimestamp } from '@/lib/format'
+import { useDataSync } from '@/composables/use-data-sync'
 import { BUILTIN_SCRIPTS } from '@/lib/userscripts/builtins'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import { buildScriptZip, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
@@ -318,6 +319,10 @@ onMounted(() => {
     .then((av) => (availability.value = av))
     .catch(() => (availability.value = null)) // 横幅静默降级为不显示
 })
+
+// 别处的脚本写操作（保存 / 启停 / 新建 / 删除 / 导入）落盘后已广播 `script` 域，
+// 这里接住并自动回拉列表——多窗口、多标签、侧边栏之间不必各自手动刷新
+useDataSync('script', () => refresh())
 </script>
 
 <template>

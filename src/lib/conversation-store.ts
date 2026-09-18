@@ -14,7 +14,12 @@
 //   3. `renameConversation` trim 后为空则拒绝（不写空标题）。
 //   4. conversation.totalTokens 由消息 usage **派生**，不落库（桌面版同样"仅用于列表展示"）。
 //      派生而非累加：老数据、重新生成、消息删除都不会让显示值漂移。
+//
+// 变更广播：本文件的写函数是会话的**唯一写入口**（offscreen 的 conv:* 命令与 chat 链路的
+// 落盘最终都汇到这里），所以广播埋在这里而不是埋在命令出口 —— 埋在 conv:* 命令出口会漏掉
+// chat-host 直接调 appendMessage 的那条路径（而它恰恰是最常见的：AI 回复落盘）。
 import type { Conversation, ConversationSearchHit, Message } from '../shared/types'
+import { broadcastDataChange } from './data-broadcast'
 
 const DB_NAME = 'duoling-chat'
 const DB_VERSION = 2
@@ -149,6 +154,7 @@ export async function createConversation(): Promise<Conversation> {
     lastMessageAt: now,
   }
   await tx(CONVERSATIONS, 'readwrite', (s) => s.put(conversation))
+  broadcastDataChange('conversation', conversation.id)
   return conversation
 }
 
@@ -160,6 +166,7 @@ export async function renameConversation(id: string, title: string): Promise<Con
   if (!conversation) return null
   const next = { ...conversation, title: trimmed }
   await tx(CONVERSATIONS, 'readwrite', (s) => s.put(next))
+  broadcastDataChange('conversation', id)
   return next
 }
 
@@ -174,6 +181,7 @@ export async function deleteConversation(id: string): Promise<void> {
     transaction.oncomplete = () => resolve()
     transaction.onerror = () => reject(transaction.error)
   })
+  broadcastDataChange('conversation', id)
 }
 
 /** 清空全部会话与消息，并把序号重置回 1（下次新建从「新会话 1」开始） */
@@ -187,6 +195,7 @@ export async function deleteAllConversations(): Promise<void> {
     transaction.oncomplete = () => resolve()
     transaction.onerror = () => reject(transaction.error)
   })
+  broadcastDataChange('conversation') // 无 uuid = 全量变化
 }
 
 // —— 消息 ——
@@ -239,7 +248,12 @@ export async function appendMessage(message: Message): Promise<Message | null> {
       }
       conversations.put(next)
     }
-    transaction.oncomplete = () => resolve(convReq.result ? message : null)
+    transaction.oncomplete = () => {
+      const existed = Boolean(convReq.result)
+      // 会话不存在时上面什么都没写，不该让前端白拉一次——只在真的落盘后才广播
+      if (existed) broadcastDataChange('conversation', message.conversationId)
+      resolve(existed ? message : null)
+    }
     transaction.onerror = () => reject(transaction.error ?? new Error('appendMessage 事务失败'))
     transaction.onabort = () => reject(transaction.error ?? new Error('appendMessage 事务中止'))
   })

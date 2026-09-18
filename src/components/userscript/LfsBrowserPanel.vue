@@ -5,6 +5,7 @@
 // 数据经 ai:lfsTree（offscreen 应答，含 .git 内部）；容器不在时 sendAi 会先唤起再取。
 // 点文件经 ai:lfsReadFile 拉内容，右栏预览（shiki 高亮，二进制提示不可预览，可复制）。
 import { computed, onMounted, ref, watch } from 'vue'
+import { useDataSync } from '@/composables/use-data-sync'
 import { Check as UiCheck, Copy as UiCopy, FileText as UiFileText, FolderTree as UiFolderTree, RefreshCw as UiRefreshCw } from '@lucide/vue'
 import { CodeBlockContent } from '@/components/ai-elements/code-block'
 import { inferLanguage } from '@/lib/code-view'
@@ -142,6 +143,9 @@ async function copyPreview(): Promise<void> {
 }
 
 onMounted(load)
+
+// lfs 浏览列的是全部脚本仓：任一脚本在别处保存 / 构建（写工作树 + 提交）都回拉整棵树与名称
+useDataSync('script', () => load())
 </script>
 
 <template>

@@ -262,6 +262,44 @@ export type OffscreenPush =
   | { kind: 'chat:chunk'; conversationId: string; seq: number; chunk: import('ai').UIMessageChunk }
   | { kind: 'chat:finished'; conversationId: string; /** true = 正常收敛；false = 停止 / 异常（徽章同亮，不区分色） */ ok: boolean }
 
+// —— 数据变更广播（写侧 → 全部前端实例）——
+//
+// 为什么要有这条：项目状态库与会话都落在 IndexedDB，而 **IDB 没有变更通知**
+// （chrome.storage 有 onChanged，IDB 没有），所以「别处改了数据、这个页面还显示旧的」
+// 是结构性的必然，不是 bug。补的就是这条通知线。
+//
+// 与 OffscreenPush 的区别：那是「一个特定接收方」的点对点推送（SW→offscreen 等）；
+// 这是**多播**——同一工作台的其他标签页、另一个浏览器窗口的工作台、侧边栏，全都要收到。
+//
+// ⚠️ 刻意**不进 RuntimeRequest**：那里面全是「请求-应答」的命令，而广播没有应答方，
+// 塞进去会污染 extension-ipc.test.ts 的 kind 归属断言（每个 kind 恰被一端处理）。
+
+/** 数据域（与持久化分区一一对应） */
+export type DataDomain =
+  /** 项目状态库：源码 / 配置 / 构建产物 / enabled */
+  | 'script'
+  /** 会话与消息（duoling-chat） */
+  | 'conversation'
+  /** 模型配置（chrome.storage.local） */
+  | 'model'
+  /** 用户脚本错误日志（us:errors） */
+  | 'error'
+
+/**
+ * 一次落盘的变更通知：**只带「哪个域的哪条变了」，不带数据本身**。
+ * 接收方自己去权威存储回拉——读侧仍是直连 IDB，不新增数据通道，也就没有第二份真相。
+ *
+ * `uuid` 缺省 = 该域整体起了变化（新建 / 删除 / 批量改动），接收方一律全量重拉；
+ * 有值时接收方可自行判断「是不是我正在看的那条」，从而跳过无关重拉。
+ */
+export type DataChangedPush = {
+  kind: 'data:changed'
+  domain: DataDomain
+  uuid?: string
+  /** 发送时刻（ms） */
+  at: number
+}
+
 /** service worker → 渲染页的应答：统一信封，调用方据 ok 分支 */
 export type RuntimeResponse<T> = { ok: true; data: T } | { ok: false; error: string }
 
