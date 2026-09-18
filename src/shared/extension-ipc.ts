@@ -304,7 +304,45 @@ export type DataChangedPush = {
   at: number
 }
 
-/** service worker → 渲染页的应答：统一信封，调用方据 ok 分支 */
+// —— 页面脚本监控（侧边栏 · 运行时口径）——
+// 信号源与浮窗同源：DL 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。
+// 侧边栏跟踪本窗口 active tab，SW 侧按 tab 登记运行集并经 'duoling:panel' 端口推送。
+
+/** 当前 tab 的一次运行（一次页面加载 = 一个 runId；SPA 软导航不换文档、runId 不变） */
+export interface PageRunItem {
+  uuid: string
+  runId: string
+  startedAt: number
+}
+
+/** 面板展示的错误行（只含与本 tab 运行集相关的 runtime 错误；message 已截断） */
+export interface PageErrorItem {
+  uuid: string | null
+  name: string
+  message: string
+  time: number
+  runId: string | null
+}
+
+/** SW → 侧边栏的监控推送（侧边栏经 `runtime.connect({ name: 'duoling:panel' })` 建连） */
+export type PanelMonitorPush =
+  /** 脚本注入即广播：登记一次运行 */
+  | { t: 'page:runstart'; tabId: number; run: PageRunItem }
+  /** 运行时错误落盘后同步推送 */
+  | { t: 'page:error'; tabId: number; error: PageErrorItem }
+  /** 新文档导航开始：该 tab 的运行集清零（SPA 软导航不触发——不换文档） */
+  | { t: 'page:reset'; tabId: number }
+  /** 快照应答：该 tab 的运行集 + 关联错误（面板切 tab / 建连时拉取） */
+  | { t: 'page:snapshot'; tabId: number; runs: PageRunItem[]; errors: PageErrorItem[] }
+
+/** 侧边栏 → SW 的监控上行（同端口） */
+export type PanelMonitorUp =
+  /** 按当前 active tab 拉快照（切 tab / 面板刚打开时） */
+  | { t: 'page:snapshot'; tabId: number }
+  /** 点击脚本行 → SW 打开/聚焦工作台并深链到该脚本的错误（与浮窗 openErrors 同语义） */
+  | { t: 'page:openErrors'; uuid: string }
+
+/** 渲染页 → service worker 的应答：统一信封，调用方据 ok 分支 */
 export type RuntimeResponse<T> = { ok: true; data: T } | { ok: false; error: string }
 
 /** chat:resume 的应答：idle = 无进行中任务（调用方以会话历史为准即可） */

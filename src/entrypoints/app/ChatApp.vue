@@ -15,6 +15,7 @@ import {
 } from '@lucide/vue'
 import type { UIMessage } from 'ai'
 import ChatPanel from '@/components/ChatPanel.vue'
+import PageScriptsMonitor from '@/components/PageScriptsMonitor.vue'
 import SessionHistoryPanel from '@/components/SessionHistoryPanel.vue'
 import { Button as UiButton } from '@/components/ui/button'
 import { useGlobalConversation } from '@/composables/use-global-conversation'
@@ -221,6 +222,9 @@ function connectKeepAlive(): void {
         </ui-button>
       </div>
     </div>
+
+    <!-- 页面脚本监控 · 灵动岛：左侧当前页实际运行的脚本，悬浮胶囊（无事不渲染） -->
+    <page-scripts-monitor />
 
     <chat-panel
       class="min-h-0 flex-1"

@@ -48,6 +48,12 @@ import {
   initStatusBubblePorts,
   pushStatusBubble,
 } from '@/lib/userscripts/status-bubble'
+// 侧边栏页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口
+import {
+  forgetPageTab,
+  initPageMonitorPorts,
+  resetPageRuns,
+} from '@/lib/userscripts/page-monitor'
 import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主）
@@ -420,8 +426,15 @@ function mountProposal2Listeners(): void {
     void pushStatusBubble(tabId, url)
   })
 
+  // 侧边栏监控：新文档导航开始 = 旧文档销毁，该 tab 的运行集清零。
+  // 刻意用 status=loading（文档替换的准确时点），SPA 软导航只改 url、不换文档，不清。
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo.status === 'loading') resetPageRuns(tabId)
+  })
+
   chrome.tabs.onRemoved.addListener((tabId) => {
     forgetStatusBubbleTab(tabId)
+    forgetPageTab(tabId)
   })
 
   // 面板存活端口 + 徽章清零
@@ -438,6 +451,9 @@ function mountProposal2Listeners(): void {
 
   // 浮窗端口（上行：跳工作台深链 / 重连后拉数据）
   initStatusBubblePorts()
+
+  // 侧边栏监控端口（复用 'duoling:panel' 连接：上行快照请求 + 推送寻址）
+  initPageMonitorPorts()
 }
 
 export default defineBackground(() => {
