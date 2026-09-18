@@ -288,7 +288,11 @@ const handlers: {
   // 删除：注销 → offscreen 清状态库记录 + git 仓 → 清该脚本的 DL.store 值 + 报错记录。
   // 仓的删除原先只能靠 offscreen 启动对账兜（删完会滞留一阵），现在写侧同在 offscreen，一步清干净。
   'userscript:remove': async (msg): Promise<void> => {
-    await unregisterScripts([msg.uuid]).catch(() => {})
+    // 注销失败不能纯静默：状态库删掉后这条 uuid 不再出现在任何对账清单里，
+    // 幽灵注册会一直注入到下次 SW 冷启动（registerAllEnabled 全量对账）才被清
+    await unregisterScripts([msg.uuid]).catch((e) =>
+      console.warn('[duoling:sw] 删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
+    )
     // 该脚本对内置并集的贡献随之消失，MAIN 桩可能需要注销
     await refreshBuiltinScripts().catch(() => {})
     await writeViaOffscreen<void>({ kind: 'state:remove', uuid: msg.uuid })
@@ -331,7 +335,10 @@ const handlers: {
       enabled: msg.enabled,
     })
     if (msg.enabled) return { registerError: await registerOrLog(next) }
-    await unregisterScripts([msg.uuid]).catch(() => {})
+    // 同 userscript:remove：关停注销失败别静默，否则开关显示已关、页面里还在注入
+    await unregisterScripts([msg.uuid]).catch((e) =>
+      console.warn('[duoling:sw] 关停注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
+    )
     // 关停后内置并集可能缩小，MAIN 桩可能需要注销
     await refreshBuiltinScripts().catch(() => {})
     return {}
