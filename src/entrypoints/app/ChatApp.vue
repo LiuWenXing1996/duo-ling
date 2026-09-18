@@ -8,10 +8,9 @@ import { computed, onMounted, ref } from 'vue'
 import {
   Check as UiCheck,
   ClipboardList as UiClipboardList,
-  ExternalLink as UiExternalLink,
+  LayoutDashboard as UiLayoutDashboard,
   PanelLeft as UiPanelLeft,
   Plus as UiPlus,
-  Settings as UiSettings,
   TriangleAlert as UiTriangleAlert
 } from '@lucide/vue'
 import type { UIMessage } from 'ai'
@@ -185,16 +184,7 @@ function connectKeepAlive(): void {
         title="打开工作台"
         @click="openWorkbench()"
       >
-        <ui-external-link class="size-4" />
-      </ui-button>
-      <ui-button
-        variant="ghost"
-        size="icon"
-        class="size-7 shrink-0"
-        title="设置"
-        @click="openWorkbench('#/settings')"
-      >
-        <ui-settings class="size-4" />
+        <ui-layout-dashboard class="size-4" />
       </ui-button>
     </header>
 
@@ -241,6 +231,7 @@ function connectKeepAlive(): void {
       @send="send"
       @stop="stopGeneration"
       @open-settings="openWorkbench('#/settings')"
+      @open-guide="openWorkbench('#/guide')"
     />
 
     <!-- 展开态浮层：半透明遮罩 + 左侧滑出抽屉；聊天区不被挤窄 -->

@@ -13,9 +13,9 @@
 | 载体 | 角色 | 承载内容 |
 | --- | --- | --- |
 | **side panel** | 应用入口（常驻侧边栏） | **AI 对话界面**：会话列表（浮层抽屉）、消息流、输入区（含元素拾取 chip）、模型选择 |
-| **标签页 `workbench.html`** | 重界面工作区（按需打开） | 脚本列表（默认落点、不可关闭）/ 错误日志 / 脚本编辑器 / 脚本历史 / 脚本产物 / lfs 浏览 / 会话数据 / 设置 / UI 测试 |
+| **标签页 `workbench.html`** | 重界面工作区（按需打开） | 引导 / 脚本列表（默认落点、不可关闭）/ 错误日志 / 脚本编辑器 / 脚本历史 / 脚本产物 / lfs 浏览 / 会话数据 / 设置 / UI 测试 |
 
-主流程：在侧边栏对话里描述需求 → 到工作台标签页管理脚本（新建 / 编辑 / 启停 / 看 git 历史）。标签页从侧边栏顶栏的 ⧉ 按钮打开，支持 hash 深链：`#/tool/<uuid>` 直达该脚本编辑器、`#/errors/<uuid>` 打开错误日志标签页并定位到该脚本、`#/settings` 开设置。
+主流程：在侧边栏对话里描述需求 → 到工作台标签页管理脚本（新建 / 编辑 / 启停 / 看 git 历史）。标签页从侧边栏顶栏的「打开工作台」按钮打开，支持 hash 深链：`#/guide` 开引导、`#/tool/<uuid>` 直达该脚本编辑器、`#/errors/<uuid>` 打开错误日志标签页并定位到该脚本、`#/settings` 开设置。
 
 | 维度 | 方案 |
 | --- | --- |
@@ -28,7 +28,7 @@
 | 页面上下文 | 点选元素：`chrome.userScripts.execute()` 按需注入内置拾取器，产物暂存后随下一条消息发出；页面快照：AI 侧 `page_snapshot` 工具经 SW 采集 |
 | 主题 | **跟随系统深浅色**（`src/lib/theme.ts` 按 `prefers-color-scheme` 驱动 `html.dark`） |
 
-> **UI 复用**：两个载体的界面都是现成实现 —— side panel 由 `ChatApp.vue` 装配 `ChatPanel` + `SessionHistoryPanel`；工作台由 `WorkbenchApp.vue`（左侧图标导航 + `WorkspaceHost` 多标签宿主）承载。平移来的组件经 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，**组件本体零改动**；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`，不经 `window.api`。
+> **UI 复用**：两个载体的界面都是现成实现 —— side panel 由 `ChatApp.vue` 装配 `ChatPanel` + `SessionHistoryPanel`；工作台由 `WorkbenchApp.vue`（左侧图标导航：引导 / 设置 / UI 测试 / 脚本列表 / lfs 浏览 / 会话数据 + `WorkspaceHost` 多标签宿主）承载。平移来的组件经 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，**组件本体零改动**；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`，不经 `window.api`。
 
 ## 目录结构
 
@@ -54,6 +54,7 @@
 │  │  ├─ SessionHistoryPanel.vue  #   会话列表（搜索 / 重命名 / 删除确认）
 │  │  ├─ WorkspaceHost.vue        #   工作区多标签宿主（标签开合 / 脏标记 / 历史恢复后重载）
 │  │  ├─ WorkspaceTabs.vue        #   标签栏 + 构建信息（页面与 SW 的分支/时刻，判断跑的是哪次构建）
+│  │  ├─ GuidePanel.vue           #   引导标签页：需用户开启的开关（运行用户脚本）状态自检 + 分步指引 + 直达扩展管理页
 │  │  ├─ SettingsPanel.vue / UiTestPanel.vue / ChatDataPanel.vue / ConfirmDialog.vue / ModelFormDialog.vue
 │  │  ├─ userscript/              #   脚本链路面板：列表 / 编辑器 / 历史 / 产物 / lfs 浏览 + 文件树节点
 │  │  ├─ ui/                      #   shadcn-vue 基础组件（reka-ui）
@@ -123,21 +124,23 @@ npm run check:inbox      # 想法收件箱体检（整理 inbox 时跑）
 1. **加载扩展**：`npm run build` → Chrome 打开 `chrome://extensions` → 开「开发者模式」→「加载已解压的扩展程序」→ 选 `.output/chrome-mv3`
 2. **打开面板**：点工具栏哆灵图标 → 自动打开右侧 side panel（兜底：窗口右上角「侧边栏」按钮）
 3. **主题**：随系统深浅色 —— 切 macOS 外观为深色，面板与工作台应立刻跟着变（无需重载；`html.dark` 由 `src/lib/theme.ts` 驱动）
-4. **配模型**：面板顶栏「设置」→ 添加模型（选服务商 / 填 API Key / 模型 ID）→「测试连接」→ 保存
-5. **对话**：面板内输入一句话发送 → 应流式吐字（模型有 `reasoning_content` 时折叠成「查看思考」）；顶栏还有整会话导出（复制为 markdown）
-6. **元素拾取**：任意页面 → 面板输入区点拾取按钮 → 页面里点选目标元素 → 面板出现拾取 chip（随下一条消息发出，可 × 清除）
-7. **脚本列表**：面板顶栏 ⧉ 开工作台 → 默认落「脚本列表」（可关掉别的标签，这个不可关）→ 新建（零输入）/ 启停 / 导入 zip / 导出 / 看可用性横幅；有错误时顶栏出现红色「错误日志 N」入口
-8. **编辑与构建**：列表行点「编辑」开编辑器标签页 → 改文件后构建（esbuild-wasm）→ 保存；顶栏可切「产物」标签看真正注入页面的 IIFE；有未保存改动时关标签应弹确认
-9. **历史**：编辑器内 git 历史 → 看提交记录 / 恢复某次提交（恢复产生新提交，历史不可变；**已知缺口**：有未保存草稿时恢复会直接覆盖草稿、事先无提示）
-10. **AI 生成脚本**：面板里描述需求 → 看进度流（工具卡：`script_spec` / `script_read` / `script_apply` / `page_snapshot`）→ 生成卡片出现（未启用徽标 + 生效范围 + 会做什么）→ 点「启用并生效」→ 打开目标页确认脚本已生效
-11. **页面浮窗与角标**：在命中脚本的页面上，右下角状态浮窗应列出本页生效的脚本（点脚本行跳工作台错误日志）；生成过程中关掉面板，完成后工具栏图标应亮红色角标 `1`，重开面板即清零
-12. **错误日志标签页**：左侧导航栏点「错误日志」（或脚本列表顶栏的红色入口 / 浮窗点脚本行深链）→ 左栏按脚本分类（各脚本带错误数徽标，hover 看「运行期 / 注册 / DL 桥」拆解），右栏看该脚本明细；点右上的「清空该脚本」只清当前选中的这一组，不误伤别的脚本
+4. **引导**：工作台左侧导航「引导」→ 看「运行用户脚本」状态自检；未开启时按步骤开完回本页点「重新检测」，状态应转为已开启（该页只放需要用户动手的项，不放无需操作的说明）
+5. **配模型**：面板顶栏「打开工作台」→ 左侧导航「设置」→ 添加模型（选服务商 / 填 API Key / 模型 ID）→「测试连接」→ 保存
+6. **对话**：面板内输入一句话发送 → 应流式吐字（模型有 `reasoning_content` 时折叠成「查看思考」）；顶栏还有整会话导出（复制为 markdown）
+7. **元素拾取**：任意页面 → 面板输入区点拾取按钮 → 页面里点选目标元素 → 面板出现拾取 chip（随下一条消息发出，可 × 清除）
+8. **脚本列表**：面板顶栏「打开工作台」→ 默认落「脚本列表」（可关掉别的标签，这个不可关）→ 新建（零输入）/ 启停 / 导入 zip / 导出 / 看可用性横幅；有错误时顶栏出现红色「错误日志 N」入口
+9. **编辑与构建**：列表行点「编辑」开编辑器标签页 → 改文件后构建（esbuild-wasm）→ 保存；顶栏可切「产物」标签看真正注入页面的 IIFE；有未保存改动时关标签应弹确认
+10. **历史**：编辑器内 git 历史 → 看提交记录 / 恢复某次提交（恢复产生新提交，历史不可变；**已知缺口**：有未保存草稿时恢复会直接覆盖草稿、事先无提示）
+11. **AI 生成脚本**：面板里描述需求 → 看进度流（工具卡：`script_spec` / `script_read` / `script_apply` / `page_snapshot`）→ 生成卡片出现（未启用徽标 + 生效范围 + 会做什么）→ 点「启用并生效」→ 打开目标页确认脚本已生效
+12. **页面浮窗与角标**：在命中脚本的页面上，右下角状态浮窗应列出本页生效的脚本（点脚本行跳工作台错误日志）；生成过程中关掉面板，完成后工具栏图标应亮红色角标 `1`，重开面板即清零
+13. **错误日志标签页**：左侧导航栏点「错误日志」（或脚本列表顶栏的红色入口 / 浮窗点脚本行深链）→ 左栏按脚本分类（各脚本带错误数徽标，hover 看「运行期 / 注册 / DL 桥」拆解），右栏看该脚本明细；点右上的「清空该脚本」只清当前选中的这一组，不误伤别的脚本
 
 **改代码后**：WXT 自动重建；回 `chrome://extensions` 点扩展卡片的刷新图标重载。**改 `wxt.config.ts` 必须重启 dev**（HMR 不重读配置）。
 
 ## 后续接入
 
-- **用户脚本可用性引导**：Chrome ≥138 需在扩展详情页开「Allow User Scripts」逐扩展开关、<138 需全局开发者模式，Firefox 需授权 userScripts 权限；脚本列表的可用性横幅已按 UA 分支给出引导。
+- **权限引导**：需用户开启的开关已由工作台「引导」标签页统一承载 —— 状态自检 + 分步指引 + 直达扩展管理页（Chrome ≥138 直落本扩展详情页深链，<138 退列表页开全局开发者模式，Firefox 的 `about:addons` 打不开故不给入口）；后续新增需授权的权限一并并入该页，各处只留「查看开启引导」入口。
+- **脚本世界 CSP**：不配 `csp`，脚本世界用浏览器默认的严 CSP（禁 `eval` / `new Function`）；生成提示词与 `script_spec` 明令避开，保存时由 `collectCspWarnings` 对含 `eval` 的注入代码给非阻塞警告。
 - **自定义接口地址**：目前 `host_permissions` 只覆盖预设服务商（+ 用户脚本所需的 `<all_urls>`），自定义 baseUrl 需用 `optional_host_permissions` 动态申请。
 - **Firefox 跨端**：`build:firefox` 可构建，`sidebar_action` 适配待三期。
 
@@ -147,6 +150,8 @@ npm run check:inbox      # 想法收件箱体检（整理 inbox 时跑）
 2. **SW 缺 `global` / `Buffer` / `process`**：`isomorphic-git`/`lightning-fs` 依赖 Node 全局，SW 没有。`vite.define` 别名 `global: 'globalThis'` + `polyfills.ts`（含 `polyfill-process`）在 `background.ts` 最前 import 兜底；漏掉会以「`global.TextEncoder` 读不到」这类形式炸在加载期。
 3. **entrypoint 同名冲突**：不要同时存在 `sidepanel.html` 与 `sidepanel.ts`（WXT 会判定两个同名 entrypoint）。入口脚本用非约定名（如 `app/sidepanel-main.ts`）由 html 引用。
 4. **跨域 fetch 需 host 权限**：扩展页 `fetch` 模型接口会被 CORS 拦，必须在 manifest 声明对应 `host_permissions`（模型服务商由 `src/lib/providers.ts` 推导，用户脚本另需 `<all_urls>`）。
-5. **userScripts 可用性前置**：`chrome.userScripts` 未开启时不存在，直接调用会让 SW 初始化崩溃；引擎每条入口都先判存在性（`isUserScriptsAvailable()` / `typeof chrome.userScripts.register === 'function'`）再优雅跳过，并把引导文案交给可用性横幅。
+5. **userScripts 可用性前置**：`chrome.userScripts` 未开启时不存在，直接调用会让 SW 初始化崩溃；引擎每条入口都先判存在性（`isUserScriptsAvailable()` / `typeof chrome.userScripts.register === 'function'`）再优雅跳过，并把开启引导交给工作台「引导」标签页（各处只给「查看开启引导」入口，不各写一套步骤）。
 6. **git 只是历史侧车**：脚本以 `duoling-state` 状态库为权威，git 仓损坏只丢历史不丢脚本；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护）。
 7. **生产产物的 CSP 与 wasm**：MV3 默认 `script-src 'self'` **不含** `'wasm-unsafe-eval'`，offscreen 的 esbuild-wasm 在 `npm run build` 产物里会被拦（dev 下 WXT 自动注入宽松 CSP，**别用 dev 验证这个**）；已在 `wxt.config.ts` 显式声明覆盖。
+8. **注入不了「非普通网页」**：`host_permissions` 的 `<all_urls>` **不覆盖 `chrome-extension://` scheme**，往扩展页注入（`userScripts.execute` / `scripting.executeScript`）必失败并抛 Chrome 原话 `Cannot access contents of url … must request permission to access this host` —— **连本扩展自己的页面也一样**（活动标签是工作台时点「点选元素」即命中）。不是漏配权限，加 host 权限也解决不了，只能在注入前拦；`file://` 未开「允许访问文件网址」报的是同一句。故 `element-picker-client.ts` 两处兜底：判据 `pageInjectionBlockReason`（拾取与 SW 快照共用）+ 归一 `friendlyInjectError`。**平台英文报错不直达用户**：能判的判掉，判不掉的翻译成用户的下一步动作（「切到要操作的网页后重试」）。
+9. **扩展自己可以打开 `chrome://extensions`**：`chrome.tabs.create({ url: 'chrome://extensions/?id=' + chrome.runtime.id })` 可用且**免权限**（属 tabs API 免权限方法）—— 文档「chrome:// URLs are not linkable」约束的是超链接（`<a href>`），不约束 tabs API。分支要点：≥138 的开关在扩展详情页（用 `?id=` 深链），<138 要开的是整页右上角的全局「开发者模式」（退到列表页）。反例：Firefox 的 `about:addons` 属特权 about: URL，`tabs.create` 会拒绝，别给该入口。

@@ -132,6 +132,7 @@ export interface ModelProvider {
 /** 工作区标签页种类（渲染层 tabs 与主进程 agent_workspace_tabs 共用） */
 export type WorkspaceTabKind =
   | 'settings'
+  | 'guide'
   | 'ui-test'
   | 'userscript-list'
   | 'userscript-edit'

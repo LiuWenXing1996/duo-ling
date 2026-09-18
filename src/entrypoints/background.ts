@@ -28,7 +28,6 @@ import {
   registerScript,
   unregisterScripts,
   refreshBuiltinScripts,
-  getEffectiveCspPermissive,
   collectCspWarnings,
   resolveInjectCode,
 } from '@/lib/userscripts/engine'
@@ -57,7 +56,7 @@ import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady
 // 模型配置：offscreen 既收不到 storage.onChanged、也不该直连存储，一律由 SW 经命令 / 推送中转
 import { getActiveProfileState } from '@/lib/model-store'
 // AI 工具支路：page_snapshot 工具经 SW 调 userScripts.execute（offscreen 不可达该 API）
-import { capturePageSnapshotFromTab } from '@/lib/element-picker-client'
+import { capturePageSnapshotFromTab, pageInjectionBlockReason } from '@/lib/element-picker-client'
 
 /**
  * 模型配置在 chrome.storage.local 的键。
@@ -192,9 +191,10 @@ const handlers: {
     // SW 无窗口上下文：lastFocusedWindow 语义 = 用户最后聚焦的窗口（与侧边栏所在窗口一致的场景）
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
     if (!tab?.id) throw new Error('未找到活动标签页')
-    if (tab.url && /^(chrome|edge|about|devtools|view-source):/i.test(tab.url)) {
-      throw new Error('浏览器内置页面（chrome:// 等）无法注入拾取器，无法采集页面快照')
-    }
+    // 内置页 / 扩展页拦在注入前（判据与拾取器共用，见 pageInjectionBlockReason——扩展页连自己
+    // 的也不行，<all_urls> 不覆盖 chrome-extension scheme）
+    const blocked = pageInjectionBlockReason(tab.url)
+    if (blocked) throw new Error(`${blocked}，无法采集页面快照`)
     return capturePageSnapshotFromTab(tab.id)
   },
 
@@ -223,7 +223,7 @@ const handlers: {
     await unregisterScripts([next.uuid]).catch(() => {})
     const registerError = next.enabled ? await registerOrLog(next) : undefined
     return {
-      warnings: collectCspWarnings(resolveInjectCode(next), await getEffectiveCspPermissive()),
+      warnings: collectCspWarnings(resolveInjectCode(next)),
       registerError,
     }
   },
@@ -235,7 +235,7 @@ const handlers: {
     return {
       uuid: project.uuid,
       name: project.name,
-      warnings: collectCspWarnings(resolveInjectCode(project), await getEffectiveCspPermissive()),
+      warnings: collectCspWarnings(resolveInjectCode(project)),
       registerError,
     }
   },
@@ -258,7 +258,7 @@ const handlers: {
     return {
       uuid: project.uuid,
       name: project.name,
-      warnings: collectCspWarnings(resolveInjectCode(project), await getEffectiveCspPermissive()),
+      warnings: collectCspWarnings(resolveInjectCode(project)),
       registerError,
     }
   },

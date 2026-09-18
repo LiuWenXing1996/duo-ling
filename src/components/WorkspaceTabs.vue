@@ -7,6 +7,7 @@ import { onMounted, ref } from 'vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
   AlertTriangle as UiAlertTriangle,
+  Compass as UiCompass,
   List as UiList,
   Pencil as UiPencil,
   Settings as UiSettings,
@@ -20,7 +21,7 @@ import {
 const props = defineProps<{
   tabs: WorkspaceTab[]
   activeId: string
-  /** 基础标签 id：始终存在、不可关闭（移除「主页」后由脚本列表担任） */
+  /** 基础标签 id：始终存在、不可关闭（当前为脚本列表） */
   pinnedTabId: string
 }>()
 const emit = defineEmits<{
@@ -100,6 +101,7 @@ onMounted(async () => {
         <ui-list v-if="tab.kind === 'userscript-list'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-alert-triangle v-else-if="tab.kind === 'error-log'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-pencil v-else-if="tab.kind === 'userscript-edit'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <ui-compass v-else-if="tab.kind === 'guide'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <span class="truncate">{{ tab.title }}</span>
         <button

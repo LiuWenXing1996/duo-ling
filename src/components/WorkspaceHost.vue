@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 工作区多标签宿主：设置 / UI 测试 / 脚本列表 / 脚本编辑器 / 脚本历史 / 脚本产物。
+// 工作区多标签宿主：引导 / 设置 / UI 测试 / 脚本列表 / 脚本编辑器 / 脚本历史 / 脚本产物。
 //
 // 2026-09-14：工具链路移除后，本文件从「工具标签总线」
 // 收窄为「脚本工作台」—— 原先的工具详情 / 代码 / 版本历史 / 档案 / 数据 五个标签页、主页工具网格、
@@ -7,6 +7,7 @@
 // 这套骨架逐句保留，未重写。2026-09-18：移除「主页」标签，工作台默认落脚本列表（基础标签不可关闭）。
 import { ref, watch } from 'vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
+import GuidePanel from '@/components/GuidePanel.vue'
 import UiTestPanel from '@/components/UiTestPanel.vue'
 import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
 import UserscriptListPanel from '@/components/userscript/UserscriptListPanel.vue'
@@ -49,6 +50,16 @@ function closeTab(id: string): void {
     const next = openTabs.value[Math.max(0, idx - 1)] ?? openTabs.value[0]
     activeTabId.value = next?.id ?? ''
   }
+}
+
+// 打开引导标签页：若已打开则激活，否则新开一个（全局仅一个）。
+// 这是「需要开权限」类提示的统一去处——脚本列表横幅、编辑器保存警告、侧边栏错误条都指向它，
+// 完整步骤与「打开扩展管理页」按钮只此一份（文案见 lib/extension-page.ts）。
+function openGuideTab(): void {
+  if (!openTabs.value.some((t) => t.kind === 'guide')) {
+    openTabs.value.push({ kind: 'guide', id: 'guide', title: '引导' })
+  }
+  activate('guide')
 }
 
 // 打开设置标签页：若已打开则激活，否则新开一个
@@ -197,13 +208,13 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「设置 / UI 测试 / 脚本列表 / 错误日志 / lfs 浏览 / 会话数据」与脚本管理器的「编辑」入口
-defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorLogTab, openLfsBrowserTab, openChatDataTab, openUserscriptEditor })
+// 暴露给根布局：左侧导航栏「引导 / 设置 / UI 测试 / 脚本列表 / 错误日志 / lfs 浏览 / 会话数据」与脚本管理器的「编辑」入口
+defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorLogTab, openLfsBrowserTab, openChatDataTab, openUserscriptEditor })
 </script>
 
 <template>
   <div class="workspace-host">
-    <!-- 标签栏 + 内容面板：使用 shadcn Tabs（主页 / 设置 / UI 测试 / 脚本列表 / 脚本编辑器） -->
+    <!-- 标签栏 + 内容面板：使用 shadcn Tabs（脚本列表 / 设置 / UI 测试 / 脚本编辑器 / 版本历史 / 构建产物 / lfs 浏览 / 会话数据） -->
     <ui-tabs
       v-model="activeTabId"
       :default-value="LIST_TAB_ID"
@@ -225,8 +236,10 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorL
         :value="tab.id"
         class="relative mt-0 min-h-0 flex-1"
       >
+        <!-- 引导标签：需要用户去浏览器里开权限/开关的说明与直达入口（全局唯一） -->
+        <guide-panel v-if="tab.kind === 'guide'" />
         <!-- 设置标签：渲染设置面板 -->
-        <settings-panel v-if="tab.kind === 'settings'" />
+        <settings-panel v-else-if="tab.kind === 'settings'" />
         <!-- UI 测试：mock 数据预览思考与执行过程展示方案 -->
         <ui-test-panel v-else-if="tab.kind === 'ui-test'" />
         <!-- 脚本列表：列出全部用户脚本 + 启停；「编辑」开对应的编辑器标签页；
@@ -236,6 +249,7 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorL
           @edit="openUserscriptEditor"
           @deleted="onUserscriptDeleted"
           @open-error-log="(uuid?: string) => openErrorLogTab(uuid)"
+          @open-guide="openGuideTab"
         />
         <!-- 错误日志：三类用户脚本错误的按脚本分类视图（全局仅一个标签页） -->
         <userscript-error-log-panel
@@ -252,6 +266,7 @@ defineExpose({ openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorL
           @dirty="(v: boolean) => (dirtyTabs[tab.id] = v)"
           @open-history="openUserscriptHistoryTab"
           @open-bundle="openUserscriptBundleTab"
+          @open-guide="openGuideTab"
         />
         <!-- lfs 浏览：offscreen lightning-fs 整库只读文件树 -->
         <lfs-browser-panel v-else-if="tab.kind === 'lfs-browser'" />

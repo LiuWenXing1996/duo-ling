@@ -132,5 +132,8 @@
 | CSP / 沙箱 | 扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**跑在 USER_SCRIPT 世界、注入第三方页面：**不受扩展 CSP 约束，但也不享有扩展 API**（只能经 `window.DL` 桥接） | [wxt.config.ts](wxt.config.ts) `content_security_policy` |
 | 主题 | 深浅色**跟随系统**（`theme.ts` → `html.dark`）；不要在 `.html` 写死 `class="dark"`，也不要在组件里硬编码主题色（用 `--background` 等主题变量） | [README](README.md) |
 | 消息协议 | 扩展页只能经 `window.api` → background 调用能力；用户脚本只能经 `window.DL` → background，**两者都不得直接访问 `chrome.*`** | [src/lib/window-api.ts](src/lib/window-api.ts) |
+| 权限引导 | 需用户在浏览器里开启的开关（当前只有「运行用户脚本」）统一由工作台**「引导」标签页**承载：状态自检 + 分步指引 + 直达扩展管理页（版本分支文案只有 `src/lib/extension-page.ts` 一份）；各处（脚本列表横幅 / 编辑器保存警告 / 侧边栏错误条）只给「查看开启引导」入口，不各写一套步骤。**该页只放需要用户动手的项**——无需操作的实现细节（如脚本世界禁 `eval`）不写进去，用户看不懂也无从操作，这类信息由保存警告与错误日志在恰当时机给出 | [README](README.md) 手测第 4 步 |
+| 脚本世界 CSP | **不给 USER_SCRIPT 世界配 `csp`**：回落浏览器默认的严 CSP（禁 `eval` / `new Function`）。AI 生成的脚本不可控，不额外给「执行任意字符串」的能力；受影响的只有内部靠 `new Function` 做 codegen 的依赖库，靠保存警告（`collectCspWarnings`）+ 生成提示词 / `script_spec` 明令避开兜住 | [README](README.md)「后续接入」 |
+| 错误文案 | **平台英文报错不直达用户**：扩展 API 的原话（注入失败 / 访问被拒等）必须先归一成用户的下一步动作（典型「切到要操作的网页后重试」），能在调用前判掉的就在判据里判掉——错误条里躺一句 manifest 术语等于没提示；同类失败面（内置页 / 扩展页 / 未授权）文案保持一致 | [README](README.md) 坑 8 |
 | entrypoint | 不要同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [README](README.md) 坑 5 |
 | 命名 | 文件/目录 kebab-case；组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | 本表即约定，无独立文档 |
