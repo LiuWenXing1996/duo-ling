@@ -67,7 +67,6 @@ vi.mock('@/lib/userscripts/offscreen-state-commands', async (importOriginal) => 
 })
 
 type Expect<T extends true> = T
-type AnyMock = Mock
 
 const FILES = { 'main.ts': 'console.log(1)' }
 const BUNDLE = { code: '/* bundle */', builtAt: 1 }

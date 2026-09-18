@@ -22,7 +22,7 @@ import {
 } from '@lucide/vue'
 // CodeMirror 6：顶层只装了老大批准的 codemirror + @codemirror/lang-javascript 两个包，
 // 下面按需引用的都是 codemirror 的直接依赖（官方分包），不新增 package.json 条目。
-import { EditorState, Compartment, type Extension } from '@codemirror/state'
+import { EditorState, type Extension } from '@codemirror/state'
 import {
   EditorView,
   keymap,
@@ -49,7 +49,7 @@ import { Dialog as UiDialog, DialogContent as UiDialogContent, DialogDescription
 import { Input as UiInput } from '@/components/ui/input'
 import { buildCodeTree, type CodeTreeNode } from '@/lib/code-view'
 import { userscriptClient, fsClient } from '@/lib/userscripts/ui-client'
-import type { ScriptConfig, ScriptMeta } from '@/lib/userscripts/types'
+import type { ScriptConfig } from '@/lib/userscripts/types'
 import type { SourceTree } from '@/lib/userscripts/us-git'
 
 const props = defineProps<{ uuid: string }>()
@@ -353,16 +353,6 @@ function currentConfig(): ScriptConfig {
     excludeGlobs: optArr(editExcludeGlobs.value),
     allFrames: editAllFrames.value,
     runAt: editRunAt.value,
-  }
-}
-
-/** 编辑态 → 保存元数据（userscript:save 的 name/config/entry；createdAt 沿用创建时间——不可改） */
-function currentMeta(): ScriptMeta {
-  return {
-    name: editName.value,
-    config: currentConfig(),
-    entry: editEntry.value,
-    createdAt: projectCreatedAt.value,
   }
 }
 

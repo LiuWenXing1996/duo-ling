@@ -59,10 +59,8 @@ import { useDataSync } from '@/composables/use-data-sync'
 import { BUILTIN_SCRIPTS } from '@/lib/userscripts/builtins'
 import { fsClient, subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
 import { base64ToBytes, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
-import type { ZipScriptPayload } from '@/lib/userscripts/zip-transfer'
 import type { BuildPhase } from '@/shared/extension-ipc'
 import type {
-  ImportItemOk,
   ImportReport,
   ScriptSummary,
   UserScriptsAvailability
