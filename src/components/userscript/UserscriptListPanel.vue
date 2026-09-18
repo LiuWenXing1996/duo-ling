@@ -473,16 +473,23 @@ function lastBuildLabel(s: ScriptSummary): string {
             <template v-if="isFiltering">· 筛选显示 {{ visibleScripts.length }} 个</template>
           </p>
           <div class="flex shrink-0 items-center gap-1">
-            <ui-button
-              variant="ghost"
-              size="icon"
-              class="size-7"
-              title="刷新列表"
-              :disabled="loading"
-              @click="refresh"
-            >
-              <ui-refresh-cw class="size-3.5" :class="{ 'animate-spin': loading }" />
-            </ui-button>
+            <ui-tooltip-provider>
+              <ui-tooltip>
+                <ui-tooltip-trigger as-child>
+                  <ui-button
+                    variant="ghost"
+                    size="icon"
+                    class="size-7"
+                    aria-label="刷新列表"
+                    :disabled="loading"
+                    @click="refresh"
+                  >
+                    <ui-refresh-cw class="size-3.5" :class="{ 'animate-spin': loading }" />
+                  </ui-button>
+                </ui-tooltip-trigger>
+                <ui-tooltip-content>刷新列表</ui-tooltip-content>
+              </ui-tooltip>
+            </ui-tooltip-provider>
             <!-- 导入 zip：file picker（拖拽导入后置），offscreen 单写方落盘后按成功动线分流 -->
             <ui-button
               variant="ghost"
@@ -757,36 +764,57 @@ function lastBuildLabel(s: ScriptSummary): string {
               >
                 <ui-switch-thumb />
               </ui-switch>
-              <ui-button
-                variant="ghost"
-                size="icon"
-                class="size-7"
-                title="编辑脚本"
-                @click="openEditor(s)"
-              >
-                <ui-pencil class="size-3.5" />
-              </ui-button>
+              <ui-tooltip-provider>
+                <ui-tooltip>
+                  <ui-tooltip-trigger as-child>
+                    <ui-button
+                      variant="ghost"
+                      size="icon"
+                      class="size-7"
+                      aria-label="编辑脚本"
+                      @click="openEditor(s)"
+                    >
+                      <ui-pencil class="size-3.5" />
+                    </ui-button>
+                  </ui-tooltip-trigger>
+                  <ui-tooltip-content>编辑脚本</ui-tooltip-content>
+                </ui-tooltip>
+              </ui-tooltip-provider>
               <!-- 导出（zip）：确认弹窗统一带隐私提示 -->
-              <ui-button
-                variant="ghost"
-                size="icon"
-                class="size-7"
-                title="导出脚本（zip）"
-                :disabled="exporting"
-                @click="askExportSingle(s)"
-              >
-                <ui-download class="size-3.5" />
-              </ui-button>
-              <ui-button
-                variant="ghost"
-                size="icon"
-                class="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                title="删除脚本"
-                :disabled="removing === s.uuid"
-                @click="askRemove(s)"
-              >
-                <ui-trash2 class="size-3.5" />
-              </ui-button>
+              <ui-tooltip-provider>
+                <ui-tooltip>
+                  <ui-tooltip-trigger as-child>
+                    <ui-button
+                      variant="ghost"
+                      size="icon"
+                      class="size-7"
+                      aria-label="导出脚本（zip）"
+                      :disabled="exporting"
+                      @click="askExportSingle(s)"
+                    >
+                      <ui-download class="size-3.5" />
+                    </ui-button>
+                  </ui-tooltip-trigger>
+                  <ui-tooltip-content>导出脚本（zip）</ui-tooltip-content>
+                </ui-tooltip>
+              </ui-tooltip-provider>
+              <ui-tooltip-provider>
+                <ui-tooltip>
+                  <ui-tooltip-trigger as-child>
+                    <ui-button
+                      variant="ghost"
+                      size="icon"
+                      class="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      aria-label="删除脚本"
+                      :disabled="removing === s.uuid"
+                      @click="askRemove(s)"
+                    >
+                      <ui-trash2 class="size-3.5" />
+                    </ui-button>
+                  </ui-tooltip-trigger>
+                  <ui-tooltip-content>删除脚本</ui-tooltip-content>
+                </ui-tooltip>
+              </ui-tooltip-provider>
             </div>
           </div>
         </div>

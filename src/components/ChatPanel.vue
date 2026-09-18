@@ -32,6 +32,12 @@ import {
   PopoverTrigger as UiPopoverTrigger
 } from '@/components/ui/popover'
 import {
+  Tooltip as UiTooltip,
+  TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider,
+  TooltipTrigger as UiTooltipTrigger
+} from '@/components/ui/tooltip'
+import {
   Message as UiMessage,
   MessageContent as UiMessageContent,
   MessageResponse as UiMessageResponse
@@ -732,17 +738,26 @@ function userScriptsUnavailableMessageSafe(): string {
                 </template>
               </ui-message>
               <!-- 单条复制：流式占位中的最后一条不渲染（还没有正文可复制） -->
-              <button
-                v-if="!(m.id === lastMessageId && props.streaming)"
-                type="button"
-                class="-mt-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground"
-                :title="copiedMessageId === m.id ? '已复制' : '复制这条消息'"
-                data-testid="copy-message"
-                @click="copyMessage(m)"
-              >
-                <ui-check v-if="copiedMessageId === m.id" class="size-3.5 text-green-600" />
-                <ui-copy v-else class="size-3.5" />
-              </button>
+              <ui-tooltip-provider>
+                <ui-tooltip>
+                  <ui-tooltip-trigger as-child>
+                    <button
+                      v-if="!(m.id === lastMessageId && props.streaming)"
+                      type="button"
+                      class="-mt-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground"
+                      aria-label="复制这条消息"
+                      data-testid="copy-message"
+                      @click="copyMessage(m)"
+                    >
+                      <ui-check v-if="copiedMessageId === m.id" class="size-3.5 text-green-600" />
+                      <ui-copy v-else class="size-3.5" />
+                    </button>
+                  </ui-tooltip-trigger>
+                  <ui-tooltip-content>
+                    {{ copiedMessageId === m.id ? '已复制' : '复制这条消息' }}
+                  </ui-tooltip-content>
+                </ui-tooltip>
+              </ui-tooltip-provider>
               <!-- 生成卡片：offscreen 收敛落盘后随消息推送/回读（尚未启用 · 生效范围 · 会做什么） -->
               <div
                 v-for="card in m.role === 'assistant' ? cardsOf(m) : []"

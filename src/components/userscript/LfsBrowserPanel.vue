@@ -10,6 +10,12 @@ import { Check as UiCheck, Copy as UiCopy, FileText as UiFileText, FolderTree as
 import { CodeBlockContent } from '@/components/ai-elements/code-block'
 import { inferLanguage } from '@/lib/code-view'
 import { FileTree } from '@/components/ai-elements/file-tree'
+import {
+  Tooltip as UiTooltip,
+  TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider,
+  TooltipTrigger as UiTooltipTrigger
+} from '@/components/ui/tooltip'
 import LfsTreeNode from './LfsTreeNode.vue'
 import { fsClient, userscriptClient } from '@/lib/userscripts/ui-client'
 import type { LfsNode, LfsFileContent } from '@/lib/userscripts/us-fs'
@@ -208,16 +214,22 @@ useDataSync('script', () => load())
             {{ formatSize(preview.size) }}
             <template v-if="preview.truncated">（预览前 {{ formatSize(preview.read) }}）</template>
           </span>
-          <button
-            v-if="preview && !preview.binary"
-            type="button"
-            class="flex shrink-0 items-center rounded-md border border-border px-1.5 py-1 text-muted-foreground transition-colors hover:bg-muted/50"
-            title="复制内容"
-            @click="copyPreview"
-          >
-            <ui-check v-if="copied" class="size-3.5 text-green-600" />
-            <ui-copy v-else class="size-3.5" />
-          </button>
+          <ui-tooltip-provider v-if="preview && !preview.binary">
+            <ui-tooltip>
+              <ui-tooltip-trigger as-child>
+                <button
+                  type="button"
+                  class="flex shrink-0 items-center rounded-md border border-border px-1.5 py-1 text-muted-foreground transition-colors hover:bg-muted/50"
+                  aria-label="复制内容"
+                  @click="copyPreview"
+                >
+                  <ui-check v-if="copied" class="size-3.5 text-green-600" />
+                  <ui-copy v-else class="size-3.5" />
+                </button>
+              </ui-tooltip-trigger>
+              <ui-tooltip-content>复制内容</ui-tooltip-content>
+            </ui-tooltip>
+          </ui-tooltip-provider>
         </div>
 
         <!-- 预览体 -->
