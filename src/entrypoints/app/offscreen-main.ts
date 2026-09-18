@@ -24,14 +24,13 @@
 // 生命周期：每扩展同时只能有一份；不主动关就一直活着，但**关窗口 / 扩展重载 / 浏览器崩溃
 // 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（→ offscreen-chat/task-store.ts）。
 //
-// 命令面：fs:*（源码库 duoling-fs 的读写）/ ai:build（esbuild 构建）/ state:*（注册态库写侧）/
+// 命令面：fs:*（源码库 duoling-fs 的读写）/ state:*（注册态库写侧）/
 // conv:*（会话写侧，唯一写方）/ chat:*（对话编排，2026-09-15 整条链路搬入）。
 
 import '@/polyfills'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { handleFsCommand, type FsRequest } from '@/lib/userscripts/offscreen-fs-commands'
 import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
-import { handleBuildCommand, type BuildRequest } from '@/lib/userscripts/offscreen-build-commands'
 import {
   abortChat,
   listOrphans,
@@ -60,23 +59,15 @@ function announceReady(): void {
 /**
  * offscreen 应答的命令面前缀（与 SW 的 SW_KIND_PREFIXES 互补，两者并集须恰好覆盖
  * RuntimeRequest 的 kind 全集——归属一致性由 extension-ipc.test.ts 表驱动断言）。
- * `ai:` 前缀只剩 ai:build（构建宿主）；源码库命令面已归 `fs:`。
  */
-export const OFFSCREEN_KIND_PREFIXES = ['ai:', 'fs:', 'state:', 'conv:', 'chat:'] as const
+export const OFFSCREEN_KIND_PREFIXES = ['fs:', 'state:', 'conv:', 'chat:'] as const
 
-/** 前缀 → 处理器（与 OFFSCREEN_KIND_PREFIXES 一一对应；ai:build 在下面单独抢先分发） */
+/** 前缀 → 处理器（与 OFFSCREEN_KIND_PREFIXES 一一对应） */
 const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: RuntimeRequest) => Promise<unknown> } = {
-  'ai:': (msg) => handleAiBuildCompat(msg),
   'fs:': (msg) => handleFsCommand(msg as FsRequest),
   'state:': (msg) => handleStateCommand(msg as StateRequest),
   'conv:': (msg) => handleConvCommand(msg),
   'chat:': (msg) => handleChatCommand(msg),
-}
-
-/** ai: 前缀的兜底分发：现只有 ai:build，未知 ai:* 命令给出可读错误 */
-async function handleAiBuildCompat(msg: RuntimeRequest): Promise<unknown> {
-  if (msg.kind === 'ai:build') return handleBuildCommand(msg as BuildRequest)
-  throw new Error(`未知构建命令：${msg.kind}`)
 }
 
 // 命令面：UI / SW 经 chrome.runtime.sendMessage 共享总线发来，offscreen 在此处理并回传。

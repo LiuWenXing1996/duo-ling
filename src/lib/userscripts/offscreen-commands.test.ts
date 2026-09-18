@@ -1,6 +1,6 @@
 // 协议一致性测试 —— offscreen 端命令分发与应答信封。
 //
-// 断言 (b)：offscreen 三个 handle*（state / ai-fs / build）对其 Request union 成员**全覆盖**。
+// 断言 (b)：offscreen 两个 handle*（state / fs）对其 Request union 成员**全覆盖**。
 // offscreen-main 的路由是 `kind.startsWith('ai:'/'state:')` + `as` 断言，union 新增成员而
 // 分发处漏接 switch case 时编译器不报错（函数返回 Promise<unknown>，漏接 = 静默 undefined）
 // ——用「类型层穷尽性校验 + 表驱动派发 + 后端 mock 被触达」三道闸钉死。
@@ -13,11 +13,9 @@ import type { RuntimeRequest } from '@/shared/extension-ipc'
 import type { ScriptMeta, ScriptProject } from './types'
 import { handleStateCommand, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
 import { handleFsCommand, type FsRequest } from '@/lib/userscripts/offscreen-fs-commands'
-import { handleBuildCommand, type BuildRequest } from '@/lib/userscripts/offscreen-build-commands'
 import * as projectWrite from '@/lib/userscripts/project-write'
 import * as usGit from '@/lib/userscripts/us-git'
 import * as usFs from '@/lib/userscripts/us-fs'
-import * as builder from '@/lib/userscripts/builder'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 
 // —— 依赖 mock：offscreen 命令面的全部后端（fs / git / IDB / esbuild 一律不真碰）——
@@ -34,7 +32,7 @@ vi.mock('@/lib/userscripts/project-write', () => ({
   removeAllProjects: vi.fn(),
   removeProjectAndRepo: vi.fn(),
   setProjectEnabled: vi.fn(),
-  updateProjectFiles: vi.fn(),
+  saveExisting: vi.fn(),
 }))
 vi.mock('@/lib/userscripts/us-fs', () => ({
   fs: {},
@@ -53,7 +51,7 @@ vi.mock('@/lib/userscripts/us-git', () => ({
   commitSource: vi.fn(),
   readSourceTree: vi.fn(),
 }))
-// BuildError 是真类（handleBuildCommand 用 instanceof 分流），mock 里给出实现
+// builder 是真类依赖（chat-host → script-tools 传递引入），mock 掉避免顶层 wasm 依赖
 vi.mock('@/lib/userscripts/builder', () => {
   class BuildError extends Error {
     constructor(readonly issues: string[]) {
@@ -100,7 +98,7 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
   const STATE_KINDS = [
     'state:create',
     'state:createProject',
-    'state:updateFiles',
+    'state:save',
     'state:remove',
     'state:removeAll',
     'state:toggle',
@@ -123,19 +121,18 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
         config: PROJECT.config,
         files: FILES,
         entry: 'main.ts',
-        bundle: BUNDLE,
         enabled: false,
         note: 'AI 生成',
       },
       backend: vi.mocked(projectWrite.createGeneratedProject),
       args: [
-        { name: '脚本一', config: PROJECT.config, files: FILES, entry: 'main.ts', bundle: BUNDLE, enabled: false, note: 'AI 生成' },
+        { name: '脚本一', config: PROJECT.config, files: FILES, entry: 'main.ts', enabled: false, note: 'AI 生成' },
       ],
     },
-    'state:updateFiles': {
-      msg: { kind: 'state:updateFiles', uuid: 'u1', files: FILES, entry: 'main.ts', bundle: BUNDLE, name: '新名', note: '备注' },
-      backend: vi.mocked(projectWrite.updateProjectFiles),
-      args: ['u1', FILES, 'main.ts', BUNDLE, { name: '新名', config: undefined, note: '备注' }],
+    'state:save': {
+      msg: { kind: 'state:save', uuid: 'u1', files: FILES, entry: 'main.ts', name: '新名', note: '备注' },
+      backend: vi.mocked(projectWrite.saveExisting),
+      args: ['u1', FILES, 'main.ts', { name: '新名', config: undefined, note: '备注' }],
     },
     'state:remove': {
       msg: { kind: 'state:remove', uuid: 'u1' },
@@ -180,7 +177,6 @@ describe('(b) handleFsCommand 分发全覆盖', () => {
   const FS_KINDS = [
     'fs:ping',
     'fs:readTree',
-    'fs:writeFiles',
     'fs:history',
     'fs:historyTree',
     'fs:restoreToCommit',
@@ -191,14 +187,6 @@ describe('(b) handleFsCommand 分发全覆盖', () => {
   const _exhaustive: Expect<
     Exclude<FsRequest['kind'], (typeof FS_KINDS)[number]> extends never ? true : false
   > = true
-  // BuildRequest 与联合成员保持同一形状（它是独立声明的第二真相源，任一侧漂移在此暴露）
-  const _buildReqMatchesUnion: Expect<
-    BuildRequest extends Extract<RuntimeRequest, { kind: 'ai:build' }> ? true : false
-  > = true
-  const _unionMatchesBuildReq: Expect<
-    Extract<RuntimeRequest, { kind: 'ai:build' }> extends BuildRequest ? true : false
-  > = true
-
   const CASES: Record<
     (typeof FS_KINDS)[number],
     { msg: FsRequest; backend?: Mock; args?: unknown[]; result?: unknown; setup?: () => void }
@@ -211,13 +199,7 @@ describe('(b) handleFsCommand 分发全覆盖', () => {
     'fs:readTree': {
       msg: { kind: 'fs:readTree', uuid: 'u1' },
       backend: vi.mocked(usGit.readSourceTree),
-      args: ['u1', false],
-    },
-    'fs:writeFiles': {
-      msg: { kind: 'fs:writeFiles', uuid: 'u1', files: FILES, meta: META },
-      backend: vi.mocked(usGit.writeSourceTree),
-      args: ['u1', FILES, META],
-      result: { saved: true },
+      args: ['u1'],
     },
     'fs:history': { msg: { kind: 'fs:history', uuid: 'u1' }, backend: vi.mocked(usGit.listHistory), args: ['u1'] },
     'fs:historyTree': {
@@ -249,8 +231,6 @@ describe('(b) handleFsCommand 分发全覆盖', () => {
 
   it('union 穷尽性闸就位（新增 fs:* 成员而漏登记时 typecheck 先失败）', () => {
     expect(_exhaustive).toBe(true)
-    expect(_buildReqMatchesUnion).toBe(true)
-    expect(_unionMatchesBuildReq).toBe(true)
   })
 
   it.each(Object.entries(CASES))('%s → 分发正确', async (kind, c) => {
@@ -274,30 +254,6 @@ describe('(b) handleFsCommand 分发全覆盖', () => {
     await expect(handleFsCommand({ kind: 'fs:restoreToCommit', uuid: 'u1', oid: 'o1' })).rejects.toThrow(
       '历史版本不存在或已损坏',
     )
-  })
-})
-
-describe('(b) handleBuildCommand 分发与「不跨 IPC 抛」契约', () => {
-  beforeEach(() => vi.clearAllMocks())
-
-  it('ai:build → buildProject(files, entry)，成功包成 { status: ok }', async () => {
-    const outcome = { code: '/* built */', warnings: [] }
-    vi.mocked(builder.buildProject).mockResolvedValue(outcome as never)
-    const result = await handleBuildCommand({ kind: 'ai:build', files: FILES, entry: 'main.ts' })
-    expect(builder.buildProject).toHaveBeenCalledWith(FILES, 'main.ts')
-    expect(result).toEqual({ status: 'ok', outcome })
-  })
-
-  it('BuildError → { status: buildError, issues }（issues 不丢，编辑器行内展示依赖它）', async () => {
-    vi.mocked(builder.buildProject).mockRejectedValue(new builder.BuildError(['main.ts:1:1 oops']))
-    const result = await handleBuildCommand({ kind: 'ai:build', files: FILES, entry: 'main.ts' })
-    expect(result).toEqual({ status: 'buildError', issues: ['main.ts:1:1 oops'] })
-  })
-
-  it('其它异常 → { status: error, message }（自身不抛，全部进结果联合）', async () => {
-    vi.mocked(builder.buildProject).mockRejectedValue(new Error('wasm 挂了'))
-    const result = await handleBuildCommand({ kind: 'ai:build', files: FILES, entry: 'main.ts' })
-    expect(result).toEqual({ status: 'error', message: 'wasm 挂了' })
   })
 })
 
@@ -334,16 +290,14 @@ describe('(c) offscreen 应答信封 { ok, data | error }', () => {
   const OFFSCREEN_MSGS: RuntimeRequest[] = [
     { kind: 'fs:ping' },
     { kind: 'fs:readTree', uuid: 'u1' },
-    { kind: 'fs:writeFiles', uuid: 'u1', files: FILES, meta: META },
     { kind: 'fs:history', uuid: 'u1' },
     { kind: 'fs:historyTree', uuid: 'u1', oid: 'o1' },
     { kind: 'fs:restoreToCommit', uuid: 'u1', oid: 'o1' },
     { kind: 'fs:exportZip', uuids: ['u1'] },
     { kind: 'fs:lfsTree' },
     { kind: 'fs:lfsReadFile', path: '/uscripts/u1/files/main.ts' },
-    { kind: 'ai:build', files: FILES, entry: 'main.ts' },
     { kind: 'state:create' },
-    { kind: 'state:updateFiles', uuid: 'u1', files: FILES, entry: 'main.ts', bundle: BUNDLE },
+    { kind: 'state:save', uuid: 'u1', files: FILES, entry: 'main.ts' },
     { kind: 'state:remove', uuid: 'u1' },
     { kind: 'state:toggle', uuid: 'u1', enabled: true },
   ]

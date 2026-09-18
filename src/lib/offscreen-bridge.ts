@@ -52,33 +52,31 @@ export const offscreenBridge = {
 
   /**
    * AI 生成脚本落盘（经 SW：userscript:createProject → writeViaOffscreen → state:createProject）。
-   * 写状态库 + git 快照（note = AI summary）都在 offscreen 单写方完成，SW 负责注册（enabled 时）。
-   * 虽然写侧就在本上下文，仍走 SW 命令面——保持「落盘入口唯一」，与管理页/编辑器同一条路。
+   * 统一保存：写 fs + git 提交（note = AI summary）+ 构建 + 落库都在 offscreen 单写方完成，
+   * SW 负责注册（enabled 时）。虽然写侧就在本上下文，仍走 SW 命令面——保持「落盘入口唯一」。
    */
   createProject: (payload: {
     name: string
     config: ScriptConfig
     files: Record<string, string>
     entry: string
-    bundle: { code: string; builtAt: number }
     enabled: boolean
     note?: string
   }): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> =>
     send({ kind: 'userscript:createProject', ...payload }),
 
   /**
-   * AI 改既有脚本落盘（经 SW：userscript:updateFiles → state:updateFiles）。
-   * 与编辑器保存同一条命令：状态库 + git 快照（note = AI summary）在 offscreen 单写方完成，
+   * AI 改既有脚本落盘（经 SW：userscript:save → state:save）。
+   * 与编辑器保存同一条命令：统一保存（fs + git 提交 + 构建 + 落库）在 offscreen 单写方完成，
    * SW 负责启用中脚本的注销重注册（AI 产物 enabled:false，通常为 no-op）。
    */
   updateProjectFiles: (payload: {
     uuid: string
     files: Record<string, string>
     entry: string
-    bundle: { code: string; builtAt: number }
     note?: string
   }): Promise<{ warnings?: string[]; registerError?: string }> =>
-    send({ kind: 'userscript:updateFiles', ...payload }),
+    send({ kind: 'userscript:save', ...payload }),
 
   /**
    * 页面快照（AI 的 page_snapshot 工具用）：SW 代为对当前活动标签执行拾取器快照模式。

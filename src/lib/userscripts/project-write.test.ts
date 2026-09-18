@@ -1,9 +1,9 @@
 // project-write.ts 单测（offscreen 写侧）：测试直调写 API，通过 mock builder（esbuild-wasm）
 // 与 us-git（lightning-fs + isomorphic-git）模拟 offscreen 上下文——这两个模块在真实环境里分别
 // 依赖 chrome.runtime.getURL 拉起的 wasm 与 lightning-fs，均非被测靶心。
-// 被测重点是写侧自身的语义：bundle 必要条件（新建/保存路径）、守卫校验、提交失败不阻断、
-// 启停不产生提交、删除全部（记录批量清 + 仓整目录清一次），以及 zip 导入「尽量导入」语义
-// （2026-09-17 修订：非原则项不淘汰）。
+// 被测重点是写侧自身的语义：**保存恒成功、构建跟随**（2026-09-19 老大拍板：构建失败产物置空）、
+// 守卫校验、提交失败不阻断、启停不产生提交、删除全部（记录批量清 + 仓整目录清一次），
+// 以及 zip 导入「尽量导入」语义（2026-09-17 修订：非原则项不淘汰）。
 // 存储分工（2026-09-19 重构后）：源码写 duoling-fs（writeSourceTree + commitSource），
 // 状态库只存注册态（bundle + 元数据，无 files 字段）。
 import 'fake-indexeddb/auto'
@@ -44,7 +44,7 @@ import {
   removeAllProjects,
   removeProjectAndRepo,
   setProjectEnabled,
-  updateProjectFiles,
+  saveExisting,
 } from './project-write'
 import { readAllProjects, removeProjects } from './state-db'
 import { bytesToBase64 } from './zip-transfer'
@@ -105,66 +105,81 @@ describe('createProject', () => {
     expect(p.fileCount).toBe(1) // 文件数缓存在状态库记录上
   })
 
-  it('构建失败即创建失败，且不落盘', async () => {
+  it('构建失败仍创建成功：产物置空（保存恒成功语义）', async () => {
     mockBuild.mockRejectedValueOnce(
       new (await import('./builder')).BuildError(['main.js:1:1 语法错误']),
     )
-    await expect(createProject()).rejects.toThrow('构建失败：')
-    await expect(readAllProjects()).resolves.toEqual([])
-    expect(mockWriteSourceTree).not.toHaveBeenCalled()
+    const p = await createProject()
+    expect(p.bundle).toBeUndefined() // 产物置空
+    await expect(readAllProjects()).resolves.toHaveLength(1) // 记录照常落库
+    expect(mockWriteSourceTree).toHaveBeenCalledOnce() // 源码照常落 duoling-fs
+    expect(mockCommitSource).toHaveBeenCalledOnce() // 版本照常提交
   })
 })
 
-describe('updateProjectFiles', () => {
+describe('saveExisting', () => {
   it('脚本不存在抛错', async () => {
-    await expect(
-      updateProjectFiles('ghost', validFiles(), 'main.js', VALID_BUNDLE),
-    ).rejects.toThrow('脚本不存在')
+    await expect(saveExisting('ghost', validFiles(), 'main.js')).rejects.toThrow('脚本不存在')
   })
 
   it('文件树校验失败抛错且不写', async () => {
     const p = await createProject()
     mockWriteSourceTree.mockClear()
-    await expect(
-      updateProjectFiles(p.uuid, {}, 'main.js', VALID_BUNDLE),
-    ).rejects.toThrow('文件树不能为空')
+    await expect(saveExisting(p.uuid, {}, 'main.js')).rejects.toThrow('文件树不能为空')
     expect(mockWriteSourceTree).not.toHaveBeenCalled()
   })
 
-  it('更新文件 / 产物 / updatedAt，提交带 note；enabled 保持原值', async () => {
+  it('保存恒成功：构建跟随产生 bundle，提交带 note；enabled 保持原值', async () => {
     const p = await createProject()
     await setProjectEnabled(p.uuid, false)
     mockWriteSourceTree.mockClear()
     mockCommitSource.mockClear()
-    const next = await updateProjectFiles(
+    mockBuild.mockImplementationOnce(async (files: Record<string, string>) => ({
+      code: '//c2',
+      files,
+      remoteFetched: [],
+    }))
+    const outcome = await saveExisting(
       p.uuid,
       { 'main.js': '// v2', 'lib/a.js': 'x' },
       'main.js',
-      { code: '//c2', builtAt: 999 },
       { name: '  改名  ', note: '第一次保存' },
     )
-    expect(next.name).toBe('改名') // 名称去空白
-    expect(next.bundle).toEqual({ code: '//c2', builtAt: 999 })
-    expect(next.enabled).toBe(false)
-    expect(next.updatedAt).toBeGreaterThanOrEqual(p.updatedAt)
+    expect(outcome.buildOk).toBe(true)
+    expect(outcome.project.name).toBe('改名') // 名称去空白
+    expect(outcome.project.bundle!.code).toBe('//c2') // bundle 来自保存时的构建
+    expect(outcome.project.enabled).toBe(false)
+    expect(outcome.project.updatedAt).toBeGreaterThanOrEqual(p.updatedAt)
     expect(mockWriteSourceTree).toHaveBeenCalledOnce()
     expect(mockWriteSourceTree.mock.calls[0]![1]).toEqual({ 'main.js': '// v2', 'lib/a.js': 'x' })
     expect(mockCommitSource).toHaveBeenCalledOnce()
     expect(mockCommitSource.mock.calls[0]![2]).toBe('第一次保存')
-    expect(next.fileCount).toBe(2)
+    expect(outcome.project.fileCount).toBe(2)
+  })
+
+  it('构建失败：产物置空 + issues 返回（不抛异常，保存仍成功）', async () => {
+    const p = await createProject()
+    mockBuild.mockRejectedValueOnce(
+      new (await import('./builder')).BuildError(['main.js:1:1 语法错误']),
+    )
+    const outcome = await saveExisting(p.uuid, validFiles(), 'main.js')
+    expect(outcome.buildOk).toBe(false)
+    expect(outcome.issues).toEqual(['main.js:1:1 语法错误'])
+    expect(outcome.project.bundle).toBeUndefined()
+    await expect(readAllProjects()).resolves.toHaveLength(1) // 同 uuid 原地更新
   })
 
   it('名称全空白抛错', async () => {
     const p = await createProject()
-    await expect(
-      updateProjectFiles(p.uuid, validFiles(), 'main.js', VALID_BUNDLE, { name: '   ' }),
-    ).rejects.toThrow('脚本名称不能为空')
+    await expect(saveExisting(p.uuid, validFiles(), 'main.js', { name: '   ' })).rejects.toThrow(
+      '脚本名称不能为空',
+    )
   })
 
   it('config.matches 为空抛错', async () => {
     const p = await createProject()
     await expect(
-      updateProjectFiles(p.uuid, validFiles(), 'main.js', VALID_BUNDLE, {
+      saveExisting(p.uuid, validFiles(), 'main.js', {
         config: { matches: [], allFrames: true, runAt: 'document_end' },
       }),
     ).rejects.toThrow('匹配规则（matches）至少一条')
@@ -172,9 +187,25 @@ describe('updateProjectFiles', () => {
 
   it('不传 name / config 时保持原值', async () => {
     const p = await createProject()
-    const next = await updateProjectFiles(p.uuid, validFiles(), 'main.js', VALID_BUNDLE)
-    expect(next.name).toBe(p.name)
-    expect(next.config).toEqual(p.config)
+    const outcome = await saveExisting(p.uuid, validFiles(), 'main.js')
+    expect(outcome.project.name).toBe(p.name)
+    expect(outcome.project.config).toEqual(p.config)
+  })
+
+  it('构建补拉远程依赖：改写后的文件树再落盘 + 追加提交，fileCount 以最终树为准', async () => {
+    const p = await createProject()
+    mockWriteSourceTree.mockClear()
+    mockCommitSource.mockClear()
+    mockBuild.mockImplementationOnce(async () => ({
+      code: '//with-dep',
+      files: { 'main.js': 'console.log(1)', 'dep.js': 'fetched' },
+      remoteFetched: ['dep.js'],
+    }))
+    const outcome = await saveExisting(p.uuid, validFiles(), 'main.js')
+    expect(outcome.remoteFetched).toEqual(['dep.js'])
+    expect(mockWriteSourceTree).toHaveBeenCalledTimes(2) // 首写 + 远程依赖回写
+    expect(mockCommitSource).toHaveBeenCalledTimes(2) // 首提交 + 追加提交
+    expect(outcome.project.fileCount).toBe(2)
   })
 })
 
@@ -235,14 +266,12 @@ describe('removeAllProjects', () => {
 })
 
 describe('提交失败策略', () => {
-  it('updateProjectFiles：提交失败只 warn，状态照常落盘（commit 失败只丢历史不丢脚本）', async () => {
+  it('saveExisting：提交失败只 warn，状态照常落盘（工作树已落地，下次保存补提交）', async () => {
     const p = await createProject()
     mockCommitSource.mockClear()
     mockCommitSource.mockRejectedValueOnce(new Error('git 崩了'))
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    await expect(
-      updateProjectFiles(p.uuid, validFiles(), 'main.js', VALID_BUNDLE),
-    ).resolves.toMatchObject({ bundle: VALID_BUNDLE })
+    await expect(saveExisting(p.uuid, validFiles(), 'main.js')).resolves.toMatchObject({ buildOk: true })
     expect(warn).toHaveBeenCalledOnce()
     warn.mockRestore()
   })
@@ -292,7 +321,7 @@ describe('importScriptsZip', () => {
     expect(stored).toBeDefined()
     expect(stored!.enabled).toBe(false)
     expect(stored!.name).toBe('演示脚本')
-    expect(stored!.bundle).toBeDefined() // 先构建后落盘（产物不变量）
+    expect(stored!.bundle).toBeDefined() // 构建跟随保存产生产物
     expect(mockWriteSourceTree).toHaveBeenCalledOnce() // 源码落 duoling-fs（导入首要落点）
     expect(mockCommitSource).toHaveBeenCalledOnce()
     expect(mockCommitSource.mock.calls[0]![2]).toBe('从 zip 导入')
@@ -303,10 +332,10 @@ describe('importScriptsZip', () => {
     const first = await importScriptsZip(zip)
     expect(first.results[0]).toMatchObject({ status: 'ok' })
     expect(first.results[0]).not.toHaveProperty('duplicateOf')
-    // 指纹去重读既有脚本的已提交源码树：mock 返回与导入内容一致的第一份记录
+    // 指纹去重读既有脚本的源码树：mock 返回与导入内容一致的第一份记录
     const firstUuid = (first.results[0] as { uuid: string }).uuid
-    mockReadSourceTree.mockImplementation(async (uuid: string, committed?: boolean) =>
-      uuid === firstUuid && committed
+    mockReadSourceTree.mockImplementation(async (uuid: string) =>
+      uuid === firstUuid
         ? {
             meta: { name: '演示', config: { matches: ['*://*/*'], allFrames: true, runAt: 'document_end' }, entry: 'main.js', createdAt: 0 },
             files: { 'main.js': 'console.log(1)' },
@@ -319,7 +348,7 @@ describe('importScriptsZip', () => {
     await expect(readAllProjects()).resolves.toHaveLength(2)
   })
 
-  it('构建失败不淘汰：脚本仍导入（bundle 缺省）+ note 带 esbuild 诊断，且不产生提交', async () => {
+  it('构建失败不淘汰：脚本仍导入（产物置空）+ note 带 esbuild 诊断，版本照常提交', async () => {
     mockBuild.mockRejectedValueOnce(new (await import('./builder')).BuildError(['main.js:1:1 语法错误']))
     const report = await importScriptsZip(
       makeZipBase64([
@@ -334,11 +363,11 @@ describe('importScriptsZip', () => {
     expect((bad.notes ?? []).join(' ')).toContain('main.js:1:1')
     const stored = await readAllProjects()
     expect(stored.map((p) => p.name).sort()).toEqual(['坏脚本', '好脚本'])
-    expect(stored.find((p) => p.name === '坏脚本')!.bundle).toBeUndefined() // 无产物落盘
+    expect(stored.find((p) => p.name === '坏脚本')!.bundle).toBeUndefined() // 产物置空
     expect(stored.find((p) => p.name === '好脚本')!.bundle).toBeDefined()
-    // 源码照常写工作区；只有构建成功的脚本才提交
+    // 源码照常写工作区；构建失败不再跳过提交（统一保存语义）
     expect(mockWriteSourceTree).toHaveBeenCalledTimes(2)
-    expect(mockCommitSource).toHaveBeenCalledTimes(1)
+    expect(mockCommitSource).toHaveBeenCalledTimes(2)
   })
 
   it('matches 非法不拦：照常导入并原样落库（报错留给启用时 registerScript）', async () => {

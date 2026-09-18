@@ -45,7 +45,7 @@ import { javascript } from '@codemirror/lang-javascript'
 import { FileTree } from '@/components/ai-elements/file-tree'
 import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
 import { buildCodeTree, type CodeTreeNode } from '@/lib/code-view'
-import { userscriptClient, aiBuildClient, fsClient } from '@/lib/userscripts/ui-client'
+import { userscriptClient, fsClient } from '@/lib/userscripts/ui-client'
 import type { ScriptConfig, ScriptMeta } from '@/lib/userscripts/types'
 import type { SourceTree } from '@/lib/userscripts/us-git'
 
@@ -92,17 +92,9 @@ const saveNote = ref('')
 // —— 历史已迁出：浏览与恢复都在独立的 us-history:<uuid> 标签页（UserscriptHistoryPanel），
 // 本组件只负责编辑 + 保存，历史按钮经 openHistory 事件请求宿主开历史标签页。
 
-// —— 草稿（草稿 = git 工作区相对 HEAD 的未提交改动，经 fs:writeFiles 纯 fs 写、不提交）——
-/** 打开编辑器时刻的已保存源码树（HEAD；无提交时 = 工作区现状）：丢弃草稿的回滚目标 */
-const baseline = ref<SourceTree | null>(null)
-/** 打开时恢复了工作区草稿 → 常驻提示条（含丢弃入口） */
-const draftRestored = ref(false)
-/** 草稿自动写失败弱提示（best-effort：不进 error、不打断编辑） */
-const draftWriteFailed = ref(false)
-const discardingDraft = ref(false)
-let draftTimer: number | undefined
-/** 草稿写串行化：IPC 异步，连续两次可能旧内容后到覆盖新内容——上一次完成才发下一次 */
-let draftInFlight: Promise<void> = Promise.resolve()
+// —— 编辑态基准 ——
+/** 项目创建时间（不可改；保存时拼进 ScriptMeta 用） */
+const projectCreatedAt = ref(Date.now())
 
 const fileCount = computed(() => Object.keys(editFiles.value).length)
 
@@ -361,22 +353,22 @@ function currentConfig(): ScriptConfig {
   }
 }
 
-/** 编辑态 → 草稿元数据（fs:writeFiles 载荷；createdAt 沿用 baseline——创建时间不可改） */
+/** 编辑态 → 保存元数据（userscript:save 的 name/config/entry；createdAt 沿用创建时间——不可改） */
 function currentMeta(): ScriptMeta {
   return {
     name: editName.value,
     config: currentConfig(),
     entry: editEntry.value,
-    createdAt: baseline.value?.meta.createdAt ?? Date.now(),
+    createdAt: projectCreatedAt.value,
   }
 }
 
-/** 把编辑态各表单/文件树整体置为 tree 的内容（load 与丢弃草稿共用） */
+/** 把编辑态各表单/文件树整体置为 tree 的内容（load 用） */
 function applyTree(tree: SourceTree): void {
   scriptName.value = tree.meta.name
   editFiles.value = { ...tree.files }
   editEntry.value = tree.meta.entry
-  // activeFile 不能盲信 entry——草稿里入口可能指向已删文件，取不到回退第一个文件
+  // activeFile 不能盲信 entry——入口可能指向已删文件，取不到回退第一个文件
   activeFile.value = tree.meta.entry in tree.files ? tree.meta.entry : (Object.keys(tree.files)[0] ?? '')
   editName.value = tree.meta.name
   editMatches.value = tree.meta.config.matches.join(', ')
@@ -388,8 +380,8 @@ function applyTree(tree: SourceTree): void {
 }
 
 /**
- * 装载：注册态记录（状态库）管元数据兜底与存在性，源码一律读 duoling-fs 工作区。
- * 工作区相对 HEAD 有差异 = 有未保存草稿，静默用工作区覆盖编辑态并常驻提示。
+ * 装载：注册态记录（状态库）管元数据兜底、存在性与 createdAt，源码读 duoling-fs 工作树
+ * （每次保存后工作树与 HEAD 一致；编辑内容只活在页面内存，不落盘——2026-09-19 老大拍板）。
  */
 async function load(): Promise<void> {
   loading.value = true
@@ -397,27 +389,17 @@ async function load(): Promise<void> {
   try {
     const project = await userscriptClient.getProject(props.uuid)
     if (!project) throw new Error('脚本不存在')
-    // 两个读取都 try/catch：offscreen 不在等失败按无源码处理（best-effort，不挡住打开编辑器）
-    let head: SourceTree | null = null
-    let worktree: SourceTree | null = null
+    projectCreatedAt.value = project.createdAt
+    // 源码读取 try/catch：offscreen 不在等失败按无源码处理（best-effort，不挡住打开编辑器）
+    let tree: SourceTree | null = null
     try {
-      head = await fsClient.readTree(props.uuid, true)
-      worktree = await fsClient.readTree(props.uuid)
+      tree = await fsClient.readTree(props.uuid)
     } catch {
-      worktree = null
+      tree = null
     }
-    if (!worktree) throw new Error('源码库不可用或已损坏')
-    baseline.value = head ?? worktree
-    if (head && !treeEquals(worktree, head)) {
-      applyTree(worktree)
-      editDirty.value = true
-      draftRestored.value = true
-    } else {
-      applyTree(worktree)
-      editDirty.value = false
-      draftRestored.value = false
-    }
-    draftWriteFailed.value = false
+    if (!tree) throw new Error('源码库不可用或已损坏')
+    applyTree(tree)
+    editDirty.value = false
     buildIssues.value = []
   } catch (e) {
     error.value = '读取项目失败：' + (e instanceof Error ? e.message : String(e))
@@ -426,96 +408,12 @@ async function load(): Promise<void> {
   }
 }
 
-/**
- * 两棵源码树是否逐字段相等（工作区 vs HEAD，判「有无未保存草稿」）。
- * 两侧 config 必须同构可比：仓里的空数组可能是 []，表单侧产出 undefined——
- * 都过 normConfig 归一后再比。
- */
-function treeEquals(a: SourceTree, b: SourceTree): boolean {
-  if (a.meta.name !== b.meta.name || a.meta.entry !== b.meta.entry) return false
-  const aFiles = a.files
-  const bFiles = b.files
-  if (Object.keys(aFiles).length !== Object.keys(bFiles).length) return false
-  for (const [p, content] of Object.entries(aFiles)) {
-    if (bFiles[p] !== content) return false
-  }
-  const norm = (c: ScriptConfig): ScriptConfig => {
-    const opt = (x?: string[]): string[] | undefined => (x && x.length ? x : undefined)
-    return { ...c, excludeMatches: opt(c.excludeMatches), includeGlobs: opt(c.includeGlobs), excludeGlobs: opt(c.excludeGlobs) }
-  }
-  return JSON.stringify(norm(a.meta.config)) === JSON.stringify(norm(b.meta.config))
-}
+// 关标签页确认的依据是 editDirty（见下方 watch）；未保存改动不落盘，关掉即丢——由宿主弹确认。
 
-/** 草稿写调度：debounce 500ms + 串行化。仅真实用户改动才落盘。 */
-function scheduleDraftWrite(): void {
-  if (draftTimer !== undefined) clearTimeout(draftTimer)
-  draftTimer = window.setTimeout(() => {
-    draftTimer = undefined
-    draftInFlight = draftInFlight
-      .then(() => fsClient.writeFiles(props.uuid, { ...editFiles.value }, currentMeta()))
-      .then(() => {
-        draftWriteFailed.value = false
-      })
-      .catch(() => {
-        // best-effort：静默失败，弱提示；绝不写 error、不打断编辑（评审 P0-3）
-        draftWriteFailed.value = true
-      })
-  }, 500)
-}
-
-watch(
-  [
-    editFiles,
-    editEntry,
-    editName,
-    editMatches,
-    editExcludeMatches,
-    editIncludeGlobs,
-    editExcludeGlobs,
-    editAllFrames,
-    editRunAt,
-  ],
-  () => {
-    // 无改动绝不写：load 整体赋值会触发本 watch，靠 editDirty 挡住；
-    // pending 回调在保存后 fire 时同样因 editDirty=false 跳过（竞态）
-    if (!editDirty.value) return
-    scheduleDraftWrite()
-  },
-  { deep: true },
-)
-
-// 关标签页前 flush：debounce 500ms + lfs 自身 500ms，最后一段改动必然丢——
-// 卸载时把 pending 写立即发出（不 await，组件卸载后 Promise 仍会跑完）
 onBeforeUnmount(() => {
   cmView?.destroy()
   cmView = null
-  if (draftTimer !== undefined) {
-    clearTimeout(draftTimer)
-    draftTimer = undefined
-    if (editDirty.value) {
-      void fsClient.writeFiles(props.uuid, { ...editFiles.value }, currentMeta()).catch(() => {})
-    }
-  }
 })
-
-/** 丢弃草稿：用 baseline（HEAD 已保存内容）重写工作区；先写成功再动编辑态 */
-async function discardDraft(): Promise<void> {
-  if (!baseline.value || discardingDraft.value) return
-  discardingDraft.value = true
-  try {
-    await fsClient.writeFiles(props.uuid, { ...baseline.value.files }, baseline.value.meta)
-    applyTree(baseline.value)
-    editDirty.value = false
-    draftRestored.value = false
-    draftWriteFailed.value = false
-    notice.value = ''
-  } catch (e) {
-    // 工作区没回退就不能重置编辑态，两边会不一致——拦住并保留原状
-    error.value = '丢弃草稿失败，可稍后重试：' + (e instanceof Error ? e.message : String(e))
-  } finally {
-    discardingDraft.value = false
-  }
-}
 
 /**
  * 未保存状态上报：内容区不再自带关闭按钮（关闭统一由标签栏的 X 承担），
@@ -581,41 +479,33 @@ async function saveEdit(): Promise<void> {
   }
   building.value = true
   try {
-    // 先构建（宿主在 offscreen）：buildError 行内展示 文件:行:列，不落盘半成品
-    const buildRes = await aiBuildClient.build(editFiles.value, editEntry.value)
-    if (buildRes.status === 'buildError') {
-      buildIssues.value = buildRes.issues
-      return
-    }
-    if (buildRes.status === 'error') {
-      error.value = '构建失败：' + buildRes.message
-      return
-    }
-    const outcome = buildRes.outcome
-    const res = await userscriptClient.updateFiles(
-      props.uuid,
-      outcome.files,
-      editEntry.value,
-      { code: outcome.code, builtAt: Date.now() },
-      { name: editName.value, config: currentConfig(), note: saveNote.value },
-    )
-    // 数据已落库（保存必然成功才会走到这）；注册失败降级为提示，不判保存失败
-    const notes: string[] = [res.registerError ? '已保存，但注册失败，脚本不会注入页面：' + res.registerError : '已保存并重新注册。']
-    if (outcome.remoteFetched.length) notes.push(`已拉取远程依赖并持久化进文件树：${outcome.remoteFetched.join('、')}`)
-    if (res.warnings?.length) notes.push(...res.warnings)
-    notice.value = notes.join(' ')
-    editFiles.value = outcome.files
+    // 统一保存（唯一入口）：写 fs + git 提交 + 构建 + 落库 + 重注册一条龙。
+    // 保存恒成功（提交即保存）；构建失败产物置空，诊断在 buildIssues 行内展示。
+    const res = await userscriptClient.save(props.uuid, { ...editFiles.value }, editEntry.value, {
+      name: editName.value,
+      config: currentConfig(),
+      note: saveNote.value,
+    })
+    // 构建结果回填编辑态（构建可能补拉远程依赖改写文件树）
+    editFiles.value = { ...res.files }
     // 头部显示名跟随表单（保存即改名）
     scriptName.value = editName.value
-    // baseline 必须跟着保存结果走（builder 可能改写文件树，如拉取远程依赖）——
-    // 否则之后「丢弃草稿」会退回到保存前的旧内容
-    baseline.value = { meta: currentMeta(), files: { ...outcome.files } }
     editDirty.value = false
-    draftRestored.value = false
-    draftWriteFailed.value = false
     saveNote.value = ''
+    if (!res.buildOk) {
+      // 诊断展示 + 行内波浪线；源码已保存（版本已记录），产物未生成
+      buildIssues.value = res.issues
+      const notes = ['源码已保存并记入历史版本，但构建失败，产物未生成——目标页面不再注入此脚本，修复后重新保存即可。']
+      if (res.registerError) notes.push('注册失败：' + res.registerError)
+      notice.value = notes.join(' ')
+      return
+    }
+    const notes: string[] = [res.registerError ? '已保存，但注册失败，脚本不会注入页面：' + res.registerError : '已保存并重新注册。目标页面刷新后生效。']
+    if (res.remoteFetched?.length) notes.push(`已拉取远程依赖并持久化进文件树：${res.remoteFetched.join('、')}`)
+    if (res.warnings?.length) notes.push(...res.warnings)
+    notice.value = notes.join(' ')
   } catch (e) {
-    // 构建失败已在上面的早退分支处理（buildError 行内展示）；这里只兜落盘与 IPC 层的意外
+    // 构建失败不进这里（buildOk=false 正常返回）；这里只兜写盘与 IPC 层的意外
     error.value = '保存失败：' + (e instanceof Error ? e.message : String(e))
   } finally {
     building.value = false
@@ -696,29 +586,6 @@ useDataSync('script', (push) => {
       >
         {{ error }}
       </p>
-
-      <!-- 草稿提示条（琥珀弱警示：恢复 ≠ 已保存；丢弃按钮回滚到上次保存版本） -->
-      <div
-        v-if="draftRestored || draftWriteFailed"
-        class="flex shrink-0 items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-600 dark:text-amber-400"
-      >
-        <p class="min-w-0 flex-1">
-          {{
-            draftRestored
-              ? '检测到上次会话未保存的草稿，已自动恢复。改动需点「保存」才会进入历史。'
-              : '草稿自动保存失败（编辑不受影响），将随下次编辑自动重试。'
-          }}
-        </p>
-        <button
-          v-if="draftRestored"
-          type="button"
-          :disabled="discardingDraft"
-          class="shrink-0 rounded-md border border-amber-500/50 px-2 py-0.5 text-xs hover:bg-amber-500/15 disabled:opacity-50"
-          @click="discardDraft"
-        >
-          {{ discardingDraft ? '丢弃中…' : '丢弃草稿' }}
-        </button>
-      </div>
 
       <!-- 配置表单（用户不接触注释语法，全部表单化） -->
       <div
@@ -857,14 +724,14 @@ useDataSync('script', (push) => {
         </div>
 
         <div class="flex min-w-0 flex-1 flex-col">
-          <!-- 构建错误（保存时构建失败：文件:行:列，不落盘） -->
+          <!-- 构建错误（保存后构建失败：文件:行:列；源码已保存，产物未生成） -->
           <div
             v-if="buildIssues.length"
             class="border-b border-destructive/40 bg-destructive/10 px-4 py-3"
           >
             <p class="mb-1 flex items-center gap-1 text-xs font-medium text-destructive">
               <ui-circle-x class="size-3.5" />
-              构建失败（{{ buildIssues.length }} 处），未保存：
+              构建失败（{{ buildIssues.length }} 处），产物未生成：
             </p>
             <ul class="flex max-h-40 flex-col gap-1 overflow-auto">
               <li

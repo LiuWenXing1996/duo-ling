@@ -52,7 +52,7 @@ const ALL_KINDS = [
   // —— userscript:*（SW）——
   { kind: 'userscript:list', side: 'sw' },
   { kind: 'userscript:getProject', side: 'sw' },
-  { kind: 'userscript:updateFiles', side: 'sw' },
+  { kind: 'userscript:save', side: 'sw' },
   { kind: 'userscript:create', side: 'sw' },
   { kind: 'userscript:createProject', side: 'sw' },
   { kind: 'userscript:remove', side: 'sw' },
@@ -66,19 +66,16 @@ const ALL_KINDS = [
   // —— fs:*（offscreen：源码库 duoling-fs 命令面，SW 静默让路）——
   { kind: 'fs:ping', side: 'offscreen' },
   { kind: 'fs:readTree', side: 'offscreen' },
-  { kind: 'fs:writeFiles', side: 'offscreen' },
   { kind: 'fs:history', side: 'offscreen' },
   { kind: 'fs:historyTree', side: 'offscreen' },
   { kind: 'fs:restoreToCommit', side: 'offscreen' },
   { kind: 'fs:exportZip', side: 'offscreen' },
   { kind: 'fs:lfsTree', side: 'offscreen' },
   { kind: 'fs:lfsReadFile', side: 'offscreen' },
-  // —— ai:*（offscreen：构建宿主，前缀只剩 ai:build）——
-  { kind: 'ai:build', side: 'offscreen' },
   // —— state:*（offscreen：项目状态库写侧，单写方）——
   { kind: 'state:create', side: 'offscreen' },
   { kind: 'state:createProject', side: 'offscreen' },
-  { kind: 'state:updateFiles', side: 'offscreen' },
+  { kind: 'state:save', side: 'offscreen' },
   { kind: 'state:remove', side: 'offscreen' },
   { kind: 'state:removeAll', side: 'offscreen' },
   { kind: 'state:toggle', side: 'offscreen' },

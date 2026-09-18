@@ -16,8 +16,8 @@ import {
   importScriptsZip,
   removeAllProjects,
   removeProjectAndRepo,
+  saveExisting,
   setProjectEnabled,
-  updateProjectFiles,
 } from './project-write'
 import type { ScriptProject } from './types'
 import { pfs } from './us-fs'
@@ -44,8 +44,9 @@ async function runStateCommand(msg: StateRequest): Promise<unknown> {
   switch (msg.kind) {
     case 'state:create':
       return createProject()
-    case 'state:updateFiles':
-      return updateProjectFiles(msg.uuid, msg.files, msg.entry, msg.bundle, {
+    case 'state:save':
+      // 统一保存：写 duoling-fs + git 提交 + 构建（失败产物置空）+ 写状态库，见 project-write.saveSource
+      return saveExisting(msg.uuid, msg.files, msg.entry, {
         name: msg.name,
         config: msg.config,
         note: msg.note,

@@ -133,10 +133,13 @@ export type RuntimeRequest =
   | { kind: 'userscript:list' }
   // 读注册态记录（元数据 + bundle；**不含源码**——源码在 duoling-fs，编辑器经 fs:readTree 取）
   | { kind: 'userscript:getProject'; uuid: string }
-  | { kind: 'userscript:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
+  // 保存源码（唯一保存入口）：传源码与元数据，**构建在 offscreen 内跟随**——保存恒成功
+  // （提交 git 版本即保存），构建失败产物置空；返回 buildOk + issues 供 UI 展示诊断。
+  // 启用中脚本由 SW 落库后重注册（无产物时注册被拦下，registerError 带原因）。
+  | { kind: 'userscript:save'; uuid: string; files: Record<string, string>; entry: string; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
   | { kind: 'userscript:create' }
   // AI 生成脚本落盘（SW 命令面，转发 offscreen 单写方；enabled 默认 false = 先落盘不启用）
-  | { kind: 'userscript:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; enabled: boolean; note?: string }
+  | { kind: 'userscript:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; enabled: boolean; note?: string }
   | { kind: 'userscript:remove'; uuid: string }
   // 删除全部用户脚本：范围 = 新形态用户脚本（状态库项目 + 各自 git 仓），
   // **不含**已弃用旧 GM 记录（chrome.storage，另有逐行删除与 clearDeprecated 两条路径）
@@ -166,18 +169,14 @@ export type RuntimeRequest =
   // 判据必须是「应答」而非「存在」——createDocument 返回时，offscreen 的 onMessage
   // 未必已注册完，此时发业务命令会得到「port closed / Receiving end does not exist」。
   | { kind: 'fs:ping' }
-  // 读源码树：默认 = 工作区（含未提交草稿），committed = HEAD 已保存版本（丢弃草稿的基准）。
-  // 无源码（仓损坏 / 从未保存）返回 null
-  | { kind: 'fs:readTree'; uuid: string; committed?: boolean }
-  // 草稿写：编辑态防抖写入工作区（files/** + project.json 元数据，**不提交**）。
-  // 草稿 = 工作区相对 HEAD 的未提交改动；失败 throw，由调用方 catch（best-effort）
-  | { kind: 'fs:writeFiles'; uuid: string; files: Record<string, string>; meta: import('@/lib/userscripts/types').ScriptMeta }
+  // 读源码树（工作树；每次保存后工作树与 HEAD 一致，无草稿概念）。无源码（仓损坏 / 从未保存）返回 null
+  | { kind: 'fs:readTree'; uuid: string }
   // git 历史：提交列表（新在前）/ 某提交完整快照
   | { kind: 'fs:history'; uuid: string }
   | { kind: 'fs:historyTree'; uuid: string; oid: string }
   // 恢复到某提交：目标树物化回工作区（= 当前源码）+ 提交一条「回滚」记录；
-  // 产物由调用方重建后经 userscript:updateFiles 落盘（写状态库 + 重注册）。
-  // 返回恢复出的源码树（meta + files），由调用方构建
+  // 随后调用方经 userscript:save 保存（commit 为空提交守卫拦下，不重复提交；构建 + 落库 + 重注册）。
+  // 返回恢复出的源码树（meta + files）
   | { kind: 'fs:restoreToCommit'; uuid: string; oid: string }
   // 导出 zip：**在 offscreen 侧打包**（读各脚本工作区源码 → buildScriptZip），
   // 只回传 base64——避免把全部源码树过大消息桥。单脚本时附带 name（UI 定文件名用）；
@@ -188,19 +187,13 @@ export type RuntimeRequest =
   // 单文件预览：按完整路径读 lfs 库内文件内容（含 .git 内部），「lfs 浏览」标签页点文件时拉取
   | { kind: 'fs:lfsReadFile'; path: string }
 
-  // esbuild 构建（宿主收敛 offscreen：唯一「能派生 Worker + 不被回收」的宿主）。
-  // 编辑器保存 / 历史恢复 / AI 生成 loop 共用 offscreen 常驻 wasm 实例。
-  // 失败不抛异常（过桥丢结构），返回可辨识联合 BuildResult（见 offscreen-build-commands.ts）。
-  // ai: 前缀只剩这一个命令（历史与源码命令面已归 fs:*）
-  | { kind: 'ai:build'; files: Record<string, string>; entry: string }
-
   // —— 项目状态库的**写**命令面——
   // 项目数据（源码 / 配置 / 构建产物 / enabled）落在独立 IndexedDB 库 duoling-state，
   // **写只归 offscreen**（单写方），写状态与 commit git 仓收在同一个上下文的同一个函数里，
   // 消除原先「SW 写 storage + IPC 让 offscreen commit」两次分离操作带来的偏差缝隙。
   // 读不进协议：SW 与扩展页直连 IDB（project-store），不经容器——注册链路不能押在容器存活上。
   | { kind: 'state:create' }
-  | { kind: 'state:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
+  | { kind: 'state:save'; uuid: string; files: Record<string, string>; entry: string; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
   | { kind: 'state:remove'; uuid: string }
   // 清空全部项目记录 + 各自仓（SW 的 userscript:removeAll 转发到此）；返回删除条数。
   // 与 state:remove 同处一地的好处：记录与仓的删除不跨上下文，不留无主仓。
@@ -208,7 +201,7 @@ export type RuntimeRequest =
   | { kind: 'state:toggle'; uuid: string; enabled: boolean }
   // AI 生成脚本的落盘：SW 的 userscript:createProject
   // 转发到此（单写方），写状态库 + git 快照（note = AI summary），**不注册**（enabled:false 默认）。
-  | { kind: 'state:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; enabled: boolean; note?: string }
+  | { kind: 'state:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; enabled: boolean; note?: string }
   // zip 导入的落点（SW 的 userscript:import 转发到此）：importScriptsZip 逐脚本
   // 「构建 → 落盘 → 快照」，报告 ImportReport（types.ts）。
   | { kind: 'state:import'; zipBase64: string }

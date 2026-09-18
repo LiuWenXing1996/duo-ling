@@ -4,7 +4,7 @@
 // 2026-09-15：历史浏览 + 恢复从编辑器内嵌视图整体迁出——编辑器只管编辑 + 保存，
 // 历史按钮经 openHistory 事件让宿主打开本标签页。恢复在此完成后发 restored 事件，
 // 宿主据此重载该脚本的编辑器标签（若开着），避免编辑态与已恢复数据脱节。
-// 复用链路：fsClient.history / historyTree / restoreToCommit + aiBuildClient（offscreen 构建）
+// 复用链路：fsClient.history / historyTree / restoreToCommit + userscriptClient.save（统一保存）
 // + buildCodeTree + FileTree + CodeBlock。
 import { computed, onMounted, ref } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
@@ -14,7 +14,7 @@ import { FileTree } from '@/components/ai-elements/file-tree'
 import { CodeBlock } from '@/components/ai-elements/code-block'
 import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
 import { buildCodeTree, inferLanguage, type CodeTreeNode } from '@/lib/code-view'
-import { userscriptClient, fsClient, aiBuildClient } from '@/lib/userscripts/ui-client'
+import { userscriptClient, fsClient } from '@/lib/userscripts/ui-client'
 import type { UsCommit, UsHistoryTree } from '@/lib/userscripts/us-git'
 
 const props = defineProps<{ uuid: string }>()
@@ -102,31 +102,21 @@ async function restoreCommit(): Promise<void> {
   notice.value = ''
   try {
     const { tree: restored } = await fsClient.restoreToCommit(props.uuid, oid.value)
-    // 源码与元信息已物化回工作区并提交「回滚」记录；bundle 已丢弃，重建（失败仅提示：
-    // 源码已恢复，修复后到编辑器保存即可）。name/config 显式回写状态库——与恢复弹窗承诺一致
-    let buildFailed = false
-    try {
-      const buildRes = await aiBuildClient.build(restored.files, restored.meta.entry)
-      if (buildRes.status === 'buildError') {
-        buildFailed = true
-        error.value = '已恢复源码与配置，但重建构建失败：\n' + buildRes.issues.join('\n')
-      } else if (buildRes.status === 'error') {
-        buildFailed = true
-        error.value = '已恢复源码与配置，但重建构建失败：' + buildRes.message
-      } else {
-        await userscriptClient.updateFiles(
-          props.uuid,
-          buildRes.outcome.files,
-          restored.meta.entry,
-          { code: buildRes.outcome.code, builtAt: Date.now() },
-          { name: restored.meta.name, config: restored.meta.config },
-        )
-      }
-    } catch (e) {
-      buildFailed = true
-      error.value = '已恢复源码与配置，但落盘失败：' + (e instanceof Error ? e.message : String(e))
+    // 源码与元信息已物化回工作区并提交「回滚」记录；随后走统一保存：
+    // commit 对相同内容是空提交守卫拦下（不重复提交），构建 + 落库 + 重注册一条龙。
+    // 构建失败仅提示（产物置空，脚本停止注入；源码已恢复，修复后重新保存即可）。
+    const res = await userscriptClient.save(props.uuid, restored.files, restored.meta.entry, {
+      name: restored.meta.name,
+      config: restored.meta.config,
+      note: '恢复到历史版本',
+    })
+    if (res.buildOk) {
+      notice.value = res.registerError
+        ? '已恢复到历史版本，但注册失败：' + res.registerError
+        : '已恢复到历史版本并重新注册。目标页面刷新后生效。'
+    } else {
+      error.value = '已恢复源码与配置（已记入历史），但构建失败，产物未生成：\n' + res.issues.join('\n')
     }
-    if (!buildFailed) notice.value = '已恢复到历史版本并重新注册。'
     emit('restored', props.uuid)
     // 恢复本身产生「回滚」提交，刷新时间线
     commits.value = await fsClient.history(props.uuid)

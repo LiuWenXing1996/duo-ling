@@ -2,9 +2,9 @@
 //
 // 源码唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化，见 us-fs / us-git），
 // SW 与扩展页读不到 lfs，源码的一切读写都经 fs:* 命令向本模块取，按 { ok, data | error } 信封回传。
-// 构建另走 ai:build（offscreen-build-commands）；状态库写侧另走 state:*（offscreen-state-commands）。
+// 源码的**写**（统一保存）另走 state:save（offscreen-state-commands → project-write.saveSource）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
-import { listHistory, readSourceTree, readTreeAt, restoreToCommit, writeSourceTree } from './us-git'
+import { listHistory, readSourceTree, readTreeAt, restoreToCommit } from './us-git'
 import { readLfsFile, readLfsTree } from './us-fs'
 import { buildScriptZip, bytesToBase64 } from './zip-transfer'
 
@@ -17,20 +17,15 @@ export async function handleFsCommand(msg: FsRequest): Promise<unknown> {
     // 就绪探测（不触碰文件系统）：SW 用它确认本容器的 onMessage 已注册完毕
     case 'fs:ping':
       return { ready: true }
-    // 读源码树：默认工作区（含未提交草稿），committed = HEAD 已保存版本
+    // 读源码树（工作树；每次保存后与 HEAD 一致，无草稿概念）。无源码返回 null
     case 'fs:readTree':
-      return readSourceTree(msg.uuid, msg.committed === true)
-    // 草稿写：files/** + project.json 写入工作区，不提交（草稿 = 工作区相对 HEAD 的未提交改动）。
-    // 写失败会 throw，由分发层包成 error 信封、UI 侧 catch（best-effort，不阻断编辑）
-    case 'fs:writeFiles':
-      await writeSourceTree(msg.uuid, msg.files, msg.meta)
-      return { saved: true }
+      return readSourceTree(msg.uuid)
     case 'fs:history':
       return listHistory(msg.uuid)
     case 'fs:historyTree':
       return readTreeAt(msg.uuid, msg.oid)
-    // 恢复：目标树物化回工作区 + 提交「回滚」记录；返回恢复出的源码树，由调用方构建
-    // 后经 userscript:updateFiles 落盘（写状态库 + 重注册）
+    // 恢复：目标树物化回工作区 + 提交「回滚」记录；返回恢复出的源码树，
+    // 随后调用方经 userscript:save 走统一保存（commit 为空提交守卫拦下，不重复提交）
     case 'fs:restoreToCommit':
       return restoreToCommit(msg.uuid, msg.oid)
     // 导出 zip：读各脚本工作区源码，在 offscreen 侧打包，只回传 base64（大源码树不过桥）

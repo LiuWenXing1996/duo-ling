@@ -213,24 +213,31 @@ const handlers: {
   // 读注册态记录（元数据 + bundle；**不含源码**——源码在 duoling-fs，编辑器经 fs:readTree 取）
   'userscript:getProject': async (msg): Promise<ScriptProject | undefined> => getProject(msg.uuid),
 
-  // 更新文件树 + 入口 + 构建产物（bundle 必填：UI 页构建成功后才调用），启用中则重注册。
-  // 产物不变量：注入代码只来自 bundle（resolveInjectCode 无源码回退）。
-  // 写转 offscreen：状态落盘与 git 快照在同一处完成，不再有「已保存但没 commit」的缝隙。
-  'userscript:updateFiles': async (msg): Promise<{ warnings?: string[]; registerError?: string }> => {
-    const next = await writeViaOffscreen<ScriptProject>({
-      kind: 'state:updateFiles',
+  // 保存源码（唯一保存入口）：转 offscreen 统一保存（写 fs + git 提交 + 构建 + 落库），
+  // 落库后启用中则重注册。**保存恒成功**（保存不依赖构建），构建失败产物置空：
+  // unregister 先行（旧产物立即失效——2026-09-19 老大拍板），无产物时注册被 resolveInjectCode
+  // 拦下、registerError 带原因。返回 buildOk + issues 供 UI 展示诊断。
+  'userscript:save': async (
+    msg,
+  ): Promise<{ buildOk: boolean; issues: string[]; files: Record<string, string>; warnings?: string[]; registerError?: string }> => {
+    const outcome = await writeViaOffscreen<import('@/lib/userscripts/project-write').SaveOutcome>({
+      kind: 'state:save',
       uuid: msg.uuid,
       files: msg.files,
       entry: msg.entry,
-      bundle: msg.bundle,
       name: msg.name,
       config: msg.config,
       note: msg.note,
     })
+    const next = outcome.project
     await unregisterScripts([next.uuid]).catch(() => {})
     const registerError = next.enabled ? await registerOrLog(next) : undefined
     return {
-      warnings: collectCspWarnings(resolveInjectCode(next)),
+      buildOk: outcome.buildOk,
+      issues: outcome.issues,
+      files: outcome.files,
+      // 无产物时 resolveInjectCode 会抛，CSP 警告只在有产物时有意义
+      warnings: next.bundle ? collectCspWarnings(resolveInjectCode(next)) : undefined,
       registerError,
     }
   },
@@ -257,15 +264,15 @@ const handlers: {
       config: msg.config,
       files: msg.files,
       entry: msg.entry,
-      bundle: msg.bundle,
       enabled: msg.enabled,
       note: msg.note,
     })
-    const registerError = project.enabled ? await registerOrLog(project) : undefined
+    const registerError = project.enabled && project.bundle ? await registerOrLog(project) : undefined
     return {
       uuid: project.uuid,
       name: project.name,
-      warnings: collectCspWarnings(resolveInjectCode(project)),
+      // 无产物（构建失败）时 resolveInjectCode 会抛，CSP 警告只在有产物时有意义
+      warnings: project.bundle ? collectCspWarnings(resolveInjectCode(project)) : undefined,
       registerError,
     }
   },

@@ -5,10 +5,9 @@
 // 这里复用与 window-api.ts 同构的 send 信封（统一解包 { ok, data|error }），
 // 直接发 userscript:* 命令组（v2 方案）。
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
-import type { ImportReport, ScriptConfig, ScriptMeta, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
+import type { ImportReport, ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
 import type { SourceTree, UsCommit, UsHistoryTree } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
-import type { BuildResult } from './offscreen-build-commands'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -72,17 +71,16 @@ export const userscriptClient = {
   getProject: (uuid: string): Promise<ScriptProject | undefined> =>
     send({ kind: 'userscript:getProject', uuid }),
 
-  /** 保存文件树 + 入口 + 名称/配置 + 构建产物并重注册；note 为可选提交备注（缺省自动计数）。
-   *  bundle 必填：只在编辑器构建成功后调用（产物不变量，见 project-write.ts 文件头）。
-   *  返回非阻塞警告与 registerError（数据已保存、仅注册失败时的警告文案） */
-  updateFiles: (
+  /** 保存源码（唯一保存入口）：写 fs + git 提交 + 构建 + 落库 + 重注册一条龙。
+   *  **保存恒成功**（提交即保存）；构建失败产物置空，返回 buildOk=false + issues 诊断。
+   *  另返回非阻塞 warnings 与 registerError（仅注册失败时的警告文案） */
+  save: (
     uuid: string,
     files: Record<string, string>,
     entry: string,
-    bundle: { code: string; builtAt: number },
     opts?: { name?: string; config?: ScriptConfig; note?: string },
-  ): Promise<{ warnings?: string[]; registerError?: string }> =>
-    send({ kind: 'userscript:updateFiles', uuid, files, entry, bundle, ...opts }),
+  ): Promise<{ buildOk: boolean; issues: string[]; files: Record<string, string>; remoteFetched: string[]; warnings?: string[]; registerError?: string }> =>
+    send({ kind: 'userscript:save', uuid, files, entry, ...opts }),
 
   /** 新建（零输入）：自动命名 + 初始模板 + 建 git 仓 + 注册。返回 uuid / name + 非阻塞警告
    *  与 registerError（数据已创建、仅注册失败时的警告文案，如未开 Allow User Scripts） */
@@ -124,13 +122,8 @@ export const fsClient = {
   /** 就绪探测（一般不直接用；offscreen:ensure 的就绪轮询内部即 fs:ping） */
   ping: (): Promise<{ ready: boolean }> => sendAi({ kind: 'fs:ping' }),
 
-  /** 读源码树：默认工作区（含未提交草稿），committed = HEAD 已保存版本。无源码返回 null */
-  readTree: (uuid: string, committed = false): Promise<SourceTree | null> =>
-    sendAi({ kind: 'fs:readTree', uuid, ...(committed ? { committed: true } : {}) }),
-
-  /** 草稿写：编辑态防抖写入工作区（不提交）。失败 throw——调用方必须 catch（best-effort） */
-  writeFiles: (uuid: string, files: Record<string, string>, meta: ScriptMeta): Promise<void> =>
-    sendAi({ kind: 'fs:writeFiles', uuid, files, meta }).then(() => undefined),
+  /** 读源码树（工作树；每次保存后与 HEAD 一致，无草稿概念）。无源码返回 null */
+  readTree: (uuid: string): Promise<SourceTree | null> => sendAi({ kind: 'fs:readTree', uuid }),
 
   /** git 历史：提交列表（新在前） */
   history: (uuid: string): Promise<UsCommit[]> => sendAi({ kind: 'fs:history', uuid }),
@@ -140,7 +133,7 @@ export const fsClient = {
     sendAi({ kind: 'fs:historyTree', uuid, oid }),
 
   /** 恢复到某提交：目标树物化回工作区 + 提交「回滚」记录。
-   *  返回恢复出的源码树；产物由调用方重建后经 userscriptClient.updateFiles 落盘重注册 */
+   *  返回恢复出的源码树；随后经 userscriptClient.save 走统一保存（构建 + 落库 + 重注册） */
   restoreToCommit: (uuid: string, oid: string): Promise<{ committed: boolean; tree: SourceTree }> =>
     sendAi({ kind: 'fs:restoreToCommit', uuid, oid }),
 
@@ -153,14 +146,4 @@ export const fsClient = {
 
   /** 单文件预览：按完整路径读 lfs 库内文件内容（含 .git 内部） */
   lfsReadFile: (path: string): Promise<LfsFileContent> => sendAi({ kind: 'fs:lfsReadFile', path }),
-}
-
-/**
- * esbuild 构建命令通道（宿主收敛 offscreen）。
- * 与 fsClient 同走 sendAi（唤起容器 + 重试）；wasm 在 offscreen 常驻，
- * 整个浏览器会话只初始化一次——首次构建会慢（wasm 编译），之后接近瞬时。
- */
-export const aiBuildClient = {
-  build: (files: Record<string, string>, entry: string): Promise<BuildResult> =>
-    sendAi({ kind: 'ai:build', files, entry }),
 }

@@ -8,7 +8,7 @@
 //   已在 wxt.config.ts manifest 显式声明放开 wasm 编译
 // - 远程依赖在 offscreen fetch（扩展 host 权限覆盖 offscreen，免 CORS），源码持久化进项目
 //   files（断网可重构建）
-// - UI 经 ai:build 命令调用（offscreen-build-commands.ts），本模块不 import 进 SW / 页面
+// - offscreen 内直调（统一保存 saveSource / AI 生成 loop），本模块不 import 进 SW / 页面
 //
 // 一期边界：远程模块 = URL 可解析的导入链（esm.sh 的同源
 // 绝对路径转发、包内相对导入均按 URL 解析，逐条 fetch 并持久化进项目 files）；仅拒绝
