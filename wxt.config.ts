@@ -93,7 +93,9 @@ export default defineConfig({
     // 对话 loop 与 esbuild 构建都跑在 offscreen document 里，「用户发起生成后可关掉侧边栏、
     // 任务照跑完」。没有该权限 chrome.offscreen 不存在，容器起不来（Chrome 109+ / 仅 MV3）。
     // 老大 2026-09-14 已批准。
-    permissions: ['storage', 'sidePanel', 'userScripts', 'notifications', 'offscreen'],
+    // contextMenus = DL.menu（用户脚本扩展菜单，二期 DL Port 事件底座）的载体 API，
+    // 未来项目自身菜单也走它。老大 2026-09-19 已批准。
+    permissions: ['storage', 'sidePanel', 'userScripts', 'notifications', 'offscreen', 'contextMenus'],
     // 在线模型走 OpenAI 兼容接口，需要扩展页跨域 fetch，必须声明对应 host 权限。
     // 由服务商预设表推导（src/lib/providers.ts），避免申请不必要的全域权限；
     // 自定义接口地址的按需授权后续用 optional_host_permissions 动态申请。

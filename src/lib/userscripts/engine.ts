@@ -197,11 +197,83 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
       })
     })
   }
-  // 二期能力 stub：显式抛错，不静默（契约见 api-contract.ts）
-  function __notAvailable(name) {
-    return function () {
-      return Promise.reject(new Error('NOT_AVAILABLE：' + name + ' 属二期能力，本期未实现'))
+  // —— DL Port 事件底座（二期）——
+  // 控制面（注册 / 订阅）走 sendMessage 请求-响应（__dlRegSend）；Port 只收下行推送帧。
+  // lazy 连接：首次 menu.register / store.watch / notify(onClick) 时才 connect。
+  // SW 注册表随 SW 冷启动归零：重连（onDisconnect → 重连 → port.ready）后重放全部活跃
+  // 注册（__dlActiveMenus / __dlActiveWatches）；contextMenus 本身持久于浏览器会话，
+  // 重放撞 duplicate id 由 SW 侧按成功处理（幂等）。notify 点击归属不重放（SW 内存态，
+  // 重启窗口内点击丢失——拍板 ③ 接受）。
+  var __dlConnId = (function () {
+    try { return crypto.randomUUID() }
+    catch (e) { return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10) }
+  })()
+  var __dlPort = null
+  var __dlPortReady = false
+  var __dlPendingRegs = []       // port.ready 前收到的注册动作（ready 后 flush）
+  var __dlActiveMenus = {}       // 活跃菜单注册清单（重放用）：menuId -> title
+  var __dlActiveWatches = {}     // 活跃订阅清单（重放用）：key -> true
+  var __dlMenuHandlers = {}      // menuId -> handler
+  var __dlWatchHandlers = {}     // key -> [cb]
+  var __dlNotifyHandlers = {}    // notificationId -> onClick
+  function __dlMintId(p) {
+    return p + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10)
+  }
+  function __dlHandleEvent(ev) {
+    if (ev.t === 'menu.click') {
+      var mh = __dlMenuHandlers[ev.id]
+      if (mh) { try { mh() } catch (e) { console.error('[DL:' + DL_INFO.name + '] menu 回调异常', e) } }
+    } else if (ev.t === 'store.change') {
+      // 删除语义（契约）：key 被 delete 后 value 置 null，与「值恰为 null」不可区分
+      var cbs = __dlWatchHandlers[ev.key]
+      if (cbs) for (var i = 0; i < cbs.length; i++) {
+        try { cbs[i](ev.value) } catch (e) { console.error('[DL:' + DL_INFO.name + '] watch 回调异常', e) }
+      }
+    } else if (ev.t === 'notify.click') {
+      var nh = __dlNotifyHandlers[ev.id]
+      if (nh) { try { nh() } catch (e) { console.error('[DL:' + DL_INFO.name + '] notify 回调异常', e) } }
     }
+  }
+  function __dlConnect() {
+    if (__dlPort || !chrome || !chrome.runtime || !chrome.runtime.connect) return
+    var p
+    try {
+      p = chrome.runtime.connect({ name: 'duoling:dl:' + DL_INFO.uuid + ':' + __dlConnId })
+    } catch (e) {
+      // 扩展重载后 context 失效：connect 直接抛错，放弃重试（刷新页面才是正路）
+      console.warn('[DL:' + DL_INFO.name + '] Port 连接失败：' + ((e && e.message) || e))
+      return
+    }
+    __dlPort = p
+    p.onMessage.addListener(function (m) {
+      if (!m || m.__dlApiEvent !== true || !m.ev) return
+      if (m.ev.t === 'port.ready') {
+        __dlPortReady = true
+        __dlFlushRegs()
+        return
+      }
+      __dlHandleEvent(m.ev)
+    })
+    p.onDisconnect.addListener(function () {
+      __dlPort = null
+      __dlPortReady = false
+      // SW 保活常驻（拍板前提），断开只在 SW 冷启动 / 扩展重载时发生；
+      // 重连本身会唤醒 SW，port.ready 回来后重放全部活跃注册，无需 SW 唤醒重连逻辑
+      setTimeout(__dlConnect, 100)
+    })
+  }
+  function __dlFlushRegs() {
+    var reqs = __dlPendingRegs.splice(0)
+    for (var mid in __dlActiveMenus) reqs.push({ c: 'menu.register', id: mid, title: __dlActiveMenus[mid] })
+    for (var wkey in __dlActiveWatches) reqs.push({ c: 'store.watch', key: wkey, connId: __dlConnId })
+    for (var i = 0; i < reqs.length; i++) __dlSend(reqs[i]).catch(function () {})
+  }
+  // 注册动作统一入口：Port 就绪立即发；未就绪入队，等 port.ready 后 flush（消除 connect→onConnect 竞态）
+  function __dlRegSend(req) {
+    if (__dlPortReady && __dlPort) return __dlSend(req)
+    __dlConnect()
+    __dlPendingRegs.push(req)
+    return Promise.resolve()
   }
   function __base64ToArrayBuffer(b64) {
     var bin = atob(b64)
@@ -220,7 +292,23 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
       delete: function (key) { return __dlSend({ c: 'store.delete', key: key }) },
       keys: function () { return __dlSend({ c: 'store.keys' }) },
       clear: function () { return __dlSend({ c: 'store.clear' }) },
-      watch: __notAvailable('DL.store.watch') // 二期：需长连接 port
+      // 跨标签 / 跨页面监听：订阅走控制面，变化经 DL Port 推回（删除时 value 为 null）
+      watch: function (key, cb) {
+        if (!__dlWatchHandlers[key]) __dlWatchHandlers[key] = []
+        __dlWatchHandlers[key].push(cb)
+        __dlActiveWatches[key] = true
+        __dlRegSend({ c: 'store.watch', key: key, connId: __dlConnId })
+        return Promise.resolve(function () {
+          var arr = __dlWatchHandlers[key] || []
+          var i = arr.indexOf(cb)
+          if (i >= 0) arr.splice(i, 1)
+          if (!arr.length) {
+            delete __dlWatchHandlers[key]
+            delete __dlActiveWatches[key]
+            __dlRegSend({ c: 'store.unwatch', key: key, connId: __dlConnId })
+          }
+        })
+      }
     },
     // 免 CORS 请求：后台 SW 发起，不受页面 CSP 与同源策略限制；非 2xx 不抛错，看 r.ok
     fetch: function (url, init) {
@@ -237,8 +325,12 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
         }
       })
     },
+    // 系统通知。带 onClick 时按响应里的通知 id 挂回调，点击经 DL Port 回推
     notify: function (message, opts) {
-      return __dlSend({ c: 'notify', message: message, title: opts && opts.title, icon: opts && opts.icon })
+      return __dlSend({ c: 'notify', message: message, title: opts && opts.title, icon: opts && opts.icon }).then(function (r) {
+        if (opts && opts.onClick && r && r.id) __dlNotifyHandlers[r.id] = opts.onClick
+        return undefined
+      })
     },
     download: function (url, name) {
       return __dlSend({ c: 'download', url: url, name: name }).then(function (r) {
@@ -259,7 +351,21 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
     tabs: {
       open: function (url, opts) { return __dlSend({ c: 'tabs.open', url: url, active: !!(opts && opts.active) }) }
     },
-    menu: { register: __notAvailable('DL.menu.register') }, // 二期：需长连接 port
+    // 扩展菜单（contextMenus）：后台登记，点击经 DL Port 回推（只推点击所在 tab）
+    menu: {
+      register: function (title, handler) {
+        var id = __dlMintId('m')
+        var t = typeof title === 'string' && title ? title : '菜单项'
+        __dlMenuHandlers[id] = handler
+        __dlActiveMenus[id] = t
+        __dlRegSend({ c: 'menu.register', id: id, title: t })
+        return Promise.resolve(function () {
+          delete __dlMenuHandlers[id]
+          delete __dlActiveMenus[id]
+          __dlRegSend({ c: 'menu.unregister', id: id })
+        })
+      }
+    },
     // 本地能力（不跨桥）
     style: function (css) {
       var el = document.createElement('style')

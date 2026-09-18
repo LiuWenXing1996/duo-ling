@@ -34,6 +34,8 @@ import {
 // 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
 import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/availability-watch'
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
+// DL Port 事件底座（二期）：脚本世界 ↔ SW 长连接下行通道 + 三事件源接入
+import { initDlPort } from '@/lib/userscripts/dl-port'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listProjects } from '@/lib/userscripts/project-store'
 // chrome.storage 侧：只剩 DL.store 值与错误日志
@@ -368,6 +370,7 @@ const handlers: {
 /** 用户脚本管理器启动：挂载 DL 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用项目 */
 async function initUserScripts(): Promise<void> {
   initDlBridge() // DL 后台桥（独立于 world 配置，只需注册一次）
+  initDlPort() // DL Port 事件底座（菜单点击 / 存储变更 / 通知点击的下行回推，同上只挂一次）
   // chrome.userScripts 仅在已开启「Allow User Scripts」（Chrome ≥138）或全局开发者模式
   // （Chrome <138）/ 已授权 userScripts 权限（Firefox）时存在；否则为 undefined，
   // 直接调用会令 SW 初始化崩溃。先判存在性，不可用则优雅跳过（UI 横幅会引导开启）。

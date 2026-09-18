@@ -12,6 +12,14 @@
 // 防止伪造身份读写其它脚本的私有存储。background 的 SW 内 fetch 受 <all_urls> host 权限豁免 CORS，
 // 这是 DL.fetch 免 CORS 的基础（Chrome 官方明文：内容脚本中的跨源请求始终按跨源处理）。
 import type { ApiErrorCode, ApiRequest, ApiResponse, DlEvent, FetchInit, FetchPayload, Json } from './api-contract'
+// DL Port 事件底座（二期）：控制面实现（菜单登记 / store 订阅 / 通知归属）
+import {
+  registerScriptMenu,
+  unregisterScriptMenu,
+  attachScriptWatch,
+  detachScriptWatch,
+  mintNotification,
+} from './dl-port'
 // 侧边栏页面脚本监控（运行时口径）：runstart 登记 + 错误实时推送（跨文档观察者，SW 按 tab 登记）
 import { notePageError, noteRunStart } from './page-monitor'
 import {
@@ -108,13 +116,15 @@ async function dispatch(uuid: string, req: ApiRequest): Promise<unknown> {
       return doFetch(req.url, req.init)
     // 系统能力
     case 'notify': {
-      await chrome.notifications.create('', {
+      // mint 通知 id 并登记归属：点击事件经 DL Port 回推（包装层按 id 挂 onClick）
+      const id = mintNotification(uuid)
+      await chrome.notifications.create(id, {
         type: 'basic',
         iconUrl: req.icon || FALLBACK_ICON,
         title: req.title || '哆灵用户脚本',
         message: req.message || '',
       })
-      return undefined
+      return { id }
     }
     case 'download':
       return doDownload(req.url, req.name || 'download')
@@ -122,10 +132,23 @@ async function dispatch(uuid: string, req: ApiRequest): Promise<unknown> {
       await chrome.tabs.create({ url: req.url, active: req.active !== false })
       return undefined
     }
-    // 二期（需长连接 port 回推脚本事件）：包装层 stub 已拦，此处兜底防直达调用
+    // 二期（DL Port 事件底座）：菜单登记 + store 订阅（控制面，经 Port 回推见 dl-port.ts）
     case 'menu.register':
+      await registerScriptMenu(uuid, req.id, req.title)
+      return undefined
     case 'menu.unregister':
-      throw new ApiError('NOT_AVAILABLE', `DL.menu 属二期能力，本期未实现：${req.c}`)
+      await unregisterScriptMenu(uuid, req.id)
+      return undefined
+    case 'store.watch': {
+      // Port 未就绪属竞态防御（正常流程包装层等 port.ready 后才发）
+      if (!attachScriptWatch(uuid, req.connId, req.key)) {
+        throw new ApiError('INTERNAL', 'DL Port 未就绪，订阅未生效（请重试）')
+      }
+      return undefined
+    }
+    case 'store.unwatch':
+      detachScriptWatch(uuid, req.connId, req.key)
+      return undefined
     default: {
       // 穷尽性检查：ApiRequest 加新命令时这里会编译报错提醒补 dispatch
       const unreachable: never = req
