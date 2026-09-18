@@ -138,14 +138,6 @@ function openChatDataTab(): void {
   activate('chat-data')
 }
 
-// 打开脚本历史标签页：只读浏览（顶部下拉选脚本 → 提交列表 + 快照查看），全局仅一个
-function openScriptHistoryTab(): void {
-  if (!openTabs.value.some((t) => t.kind === 'script-history')) {
-    openTabs.value.push({ kind: 'script-history', id: 'script-history', title: '脚本历史' })
-  }
-  activate('script-history')
-}
-
 // 打开某脚本的历史标签页：每脚本一个（id = us-history:<uuid>），已打开则激活复用。
 // 编辑器顶栏的历史按钮经 @open-history 走到这里；浏览 + 恢复都在这个标签页里。
 function openUserscriptHistoryTab(uuid: string, title: string): void {

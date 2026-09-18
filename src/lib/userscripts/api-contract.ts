@@ -20,13 +20,20 @@ export interface ScriptInfo {
 
 // ————————————————————————————— 网络 —————————————————————————————
 
+/** 二进制请求体信封：包装侧把 ArrayBuffer / TypedArray 转 base64 打包，SW 侧解码后发请求 */
+export interface FetchBinaryBody {
+  __dlBinaryBody: true
+  base64: string
+}
+
 export interface FetchInit {
   method?: string
   headers?: Record<string, string>
-  body?: string
+  /** 文本体直接传字符串；二进制体（ArrayBuffer / TypedArray / DataView）由 DL 包装转成 FetchBinaryBody 信封 */
+  body?: string | FetchBinaryBody
   /** 'arraybuffer' 时响应 body 为 base64 字符串（二进制无法跨桥） */
   responseType?: 'text' | 'arraybuffer'
-  /** 毫秒；0 或不传表示不限 */
+  /** 毫秒；0 或不传表示不限。到点后台中止请求，报 BRIDGE_TIMEOUT */
   timeout?: number
 }
 
@@ -67,6 +74,8 @@ export type ApiRequest =
   | { c: 'notify'; message: string; title?: string; icon?: string }
   | { c: 'download'; url: string; name?: string }
   | { c: 'tabs.open'; url: string; active?: boolean }
+  | { c: 'tabs.close'; tabId: number }
+  | { c: 'tabs.focus'; tabId: number }
   // 未实现（暂不加 cookies 权限）：
   //   cookie.get / cookie.set / cookie.remove —— 实现时须给 manifest 加 `cookies` 权限，
   //   且 url 缺省语义必须由 DL 包装层填 location.href（SW 里没有「当前页面」概念）。
@@ -187,7 +196,12 @@ export interface DuoLingApi {
   }
 
   tabs: {
-    open(url: string, opts?: { active?: boolean }): Promise<void>
+    /** 打开标签页，返回新标签页的 tabId（可续接 tabs.close / tabs.focus） */
+    open(url: string, opts?: { active?: boolean }): Promise<number>
+    /** 关闭指定标签页 */
+    close(tabId: number): Promise<void>
+    /** 激活指定标签页（并聚焦其所在窗口） */
+    focus(tabId: number): Promise<void>
   }
 
   // 未实现：cookie.*，届时 manifest 需加 `cookies` 权限。

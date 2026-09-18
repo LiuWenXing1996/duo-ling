@@ -290,6 +290,24 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
     for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i)
     return buf.buffer
   }
+  // 二进制请求体 → base64（分块 apply，防大数组参数超限爆栈）
+  function __arrayBufferToBase64(bytes) {
+    var chunk = 0x8000
+    var bin = ''
+    for (var i = 0; i < bytes.length; i += chunk) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+    }
+    return btoa(bin)
+  }
+  // 二进制请求体 → base64 信封（契约 FetchBinaryBody）：二进制无法结构化克隆过桥
+  function __bytesToBase64(bytes) {
+    var s = ''
+    var chunk = 0x8000
+    for (var i = 0; i < bytes.length; i += chunk) {
+      s += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+    }
+    return btoa(s)
+  }
   // —— 反向中继客户端——
   var __dlPageApi = ${clientSource}
 
@@ -320,9 +338,30 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
         return __dlRegSend({ c: 'store.watch', key: key, connId: __dlConnId }).then(function () { return off })
       }
     },
-    // 免 CORS 请求：后台 SW 发起，不受页面 CSP 与同源策略限制；非 2xx 不抛错，看 r.ok
+    // 免 CORS 请求：后台 SW 发起，不受页面 CSP 与同源策略限制；非 2xx 不抛错，看 r.ok。
+    // 二进制体：ArrayBuffer / TypedArray / DataView 转 base64 信封再过桥——二进制没法直接
+    // 跨桥，转字符串发又会被 UTF-8 编码破坏字节；信封由 SW 侧解码为 Uint8Array 发请求。
     fetch: function (url, init) {
-      return __dlSend({ c: 'fetch', url: url, init: init }).then(function (p) {
+      var sendInit = init || {}
+      var raw = sendInit.body
+      if (raw && typeof raw === 'object') {
+        var bytes
+        if (raw instanceof ArrayBuffer) {
+          bytes = new Uint8Array(raw)
+        } else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(raw)) {
+          // TypedArray / DataView：只取视图自己的字节段（大 buffer 上的局部视图不整个发）
+          bytes = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)
+        } else {
+          return Promise.reject(new Error('DL.fetch：body 仅支持字符串 / ArrayBuffer / TypedArray / DataView'))
+        }
+        var copy = {}
+        for (var k in sendInit) {
+          if (Object.prototype.hasOwnProperty.call(sendInit, k)) copy[k] = sendInit[k]
+        }
+        copy.body = { __dlBinaryBody: true, base64: __arrayBufferToBase64(bytes) }
+        sendInit = copy
+      }
+      return __dlSend({ c: 'fetch', url: url, init: sendInit }).then(function (p) {
         return {
           ok: p.ok,
           status: p.status,
@@ -359,7 +398,9 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
       }
     },
     tabs: {
-      open: function (url, opts) { return __dlSend({ c: 'tabs.open', url: url, active: !!(opts && opts.active) }) }
+      open: function (url, opts) { return __dlSend({ c: 'tabs.open', url: url, active: !!(opts && opts.active) }) },
+      close: function (tabId) { return __dlSend({ c: 'tabs.close', tabId: tabId }) },
+      focus: function (tabId) { return __dlSend({ c: 'tabs.focus', tabId: tabId }) }
     },
     // 扩展菜单（contextMenus）：后台登记，点击经 DL Port 回推（只推点击所在 tab）
     menu: {

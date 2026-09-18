@@ -10,14 +10,17 @@ import {
   AlertTriangle as UiAlertTriangle,
   Braces as UiBraces,
   Check as UiCheck,
+  ChevronDown as UiChevronDown,
   Download as UiDownload,
   FileQuestion as UiFileQuestion,
+  ListFilter as UiListFilter,
   LoaderCircle as UiLoaderCircle,
   MousePointerClick as UiMousePointerClick,
   Package as UiPackage,
   Pencil as UiPencil,
   Plus as UiPlus,
   RefreshCw as UiRefreshCw,
+  Search as UiSearch,
   Trash2 as UiTrash2,
   Upload as UiUpload,
   X as UiX
@@ -30,6 +33,20 @@ import {
   DialogFooter as UiDialogFooter,
   DialogTitle as UiDialogTitle
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu as UiDropdownMenu,
+  DropdownMenuContent as UiDropdownMenuContent,
+  DropdownMenuItem as UiDropdownMenuItem,
+  DropdownMenuTrigger as UiDropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import { Input as UiInput } from '@/components/ui/input'
+import {
+  Select as UiSelect,
+  SelectContent as UiSelectContent,
+  SelectItem as UiSelectItem,
+  SelectTrigger as UiSelectTrigger,
+  SelectValue as UiSelectValue
+} from '@/components/ui/select'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import {
   Tooltip as UiTooltip,
@@ -42,10 +59,8 @@ import { useDataSync } from '@/composables/use-data-sync'
 import { BUILTIN_SCRIPTS } from '@/lib/userscripts/builtins'
 import { fsClient, subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
 import { base64ToBytes, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
-import type { ZipScriptPayload } from '@/lib/userscripts/zip-transfer'
 import type { BuildPhase } from '@/shared/extension-ipc'
 import type {
-  ImportItemOk,
   ImportReport,
   ScriptSummary,
   UserScriptsAvailability
@@ -79,10 +94,53 @@ const removing = ref<string | null>(null)
 const removeAllOpen = ref(false)
 /** 全部删除进行中：避免连点重复发起 */
 const removingAll = ref(false)
+/** 批量启停进行中：避免连点重复发起（与单条 toggling 互不阻塞，但入口都置灰） */
+const batchToggling = ref(false)
 
 // 脚本列表不展示错误日志：报错属于历史信息，由独立「错误日志」标签页承载（左侧导航进入）。
 // 环境级问题（如引擎不可用）由下方 availability 横幅统一兜底，不按脚本逐条复述。
 const enabledCount = computed(() => scripts.value.filter((s) => s.enabled).length)
+const failedCount = computed(() => scripts.value.filter((s) => !s.buildOk).length)
+
+// —— 搜索 / 筛选 / 排序（脚本多了之后的管理入口，纯前端过滤，不改后端命令面）——
+/** 搜索关键词：按名称 / 匹配规则实时过滤（大小写不敏感） */
+const query = ref('')
+/** 状态筛选 */
+type StatusFilter = 'all' | 'enabled' | 'disabled' | 'failed'
+const statusFilter = ref<StatusFilter>('all')
+/** 排序：默认按更新时间新在前 */
+type SortKey = 'updatedAt' | 'name'
+const sortKey = ref<SortKey>('updatedAt')
+
+/** 是否处于筛选态（搜索或状态筛选生效中），用于计数行提示与空态文案分流 */
+const isFiltering = computed(() => query.value.trim() !== '' || statusFilter.value !== 'all')
+
+const statusFilters = computed(() => [
+  { key: 'all' as StatusFilter, label: '全部', count: scripts.value.length },
+  { key: 'enabled' as StatusFilter, label: '已启用', count: enabledCount.value },
+  { key: 'disabled' as StatusFilter, label: '已停用', count: scripts.value.length - enabledCount.value },
+  { key: 'failed' as StatusFilter, label: '构建失败', count: failedCount.value }
+])
+
+/** 列表实际渲染的脚本：搜索 + 状态过滤后排序（不 mutating 原数组） */
+const visibleScripts = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  let list = scripts.value
+  if (q) {
+    list = list.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.matches.some((m) => m.toLowerCase().includes(q))
+    )
+  }
+  if (statusFilter.value === 'enabled') list = list.filter((s) => s.enabled)
+  else if (statusFilter.value === 'disabled') list = list.filter((s) => !s.enabled)
+  else if (statusFilter.value === 'failed') list = list.filter((s) => !s.buildOk)
+  const sorted = [...list]
+  if (sortKey.value === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'))
+  else sorted.sort((a, b) => b.updatedAt - a.updatedAt)
+  return sorted
+})
 
 // —— 可用性横幅（自旧管理器迁入）——
 /** 引擎可用性；available 且 CSP 放开时不显示横幅（没有需要用户行动的信息） */
@@ -128,6 +186,37 @@ async function onToggle(s: ScriptSummary, next: boolean): Promise<void> {
     error.value = `「${s.name}」切换失败：` + (e instanceof Error ? e.message : String(e))
   } finally {
     toggling.value = null
+  }
+}
+
+/**
+ * 批量启停：列表页本地循环复用单条 toggle（不新增后端批量命令——命令面保持最小）。
+ * 只对状态待变的脚本发起；逐条容错，任一失败不中断，最后汇总报错。
+ * 与单条 onToggle 的「数据写成功即更新开关」语义一致：注册失败不回拨开关，
+ * 原因归错误日志标签页，这里只报传输层失败。
+ */
+async function onToggleAll(next: boolean): Promise<void> {
+  if (batchToggling.value) return
+  const targets = scripts.value.filter((s) => s.enabled !== next)
+  if (!targets.length) return
+  batchToggling.value = true
+  error.value = ''
+  try {
+    const failures: string[] = []
+    for (const s of targets) {
+      try {
+        await userscriptClient.toggle(s.uuid, next)
+        s.enabled = next
+        if (next) justImported.value = justImported.value.filter((u) => u !== s.uuid) // 启用后摘掉「刚导入」标
+      } catch (e) {
+        failures.push(`「${s.name}」：` + (e instanceof Error ? e.message : String(e)))
+      }
+    }
+    if (failures.length) {
+      error.value = `批量${next ? '启用' : '停用'}部分失败：` + failures.join('；')
+    }
+  } finally {
+    batchToggling.value = false
   }
 }
 
@@ -379,6 +468,7 @@ function lastBuildLabel(s: ScriptSummary): string {
           <p class="text-xs text-muted-foreground">
             共 {{ scripts.length }} 个脚本
             <template v-if="scripts.length">· {{ enabledCount }} 个已启用</template>
+            <template v-if="isFiltering">· 筛选显示 {{ visibleScripts.length }} 个</template>
           </p>
           <div class="flex shrink-0 items-center gap-1">
             <ui-button
@@ -451,6 +541,87 @@ function lastBuildLabel(s: ScriptSummary): string {
           </div>
         </header>
 
+        <!-- 工具行：搜索 + 状态筛选 + 排序 + 批量启停（脚本多了之后的管理入口；有脚本才显示） -->
+        <div v-if="scripts.length" class="flex flex-wrap items-center gap-2">
+          <!-- 搜索：按名称 / 匹配规则；有关键词时显示一键清空 -->
+          <div class="relative min-w-0 flex-1 basis-48">
+            <ui-search
+              class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            />
+            <ui-input
+              v-model="query"
+              placeholder="搜索名称或匹配规则…"
+              class="h-7 pr-7 pl-8 text-xs"
+            />
+            <button
+              v-if="query"
+              type="button"
+              class="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              title="清空搜索"
+              @click="query = ''"
+            >
+              <ui-x class="size-3.5" />
+            </button>
+          </div>
+
+          <!-- 状态筛选 chips：带计数，点击切换 -->
+          <div class="flex items-center gap-1" role="group" aria-label="按状态筛选">
+            <button
+              v-for="f in statusFilters"
+              :key="f.key"
+              type="button"
+              class="h-7 rounded-full px-2.5 text-xs transition-colors"
+              :class="
+                statusFilter === f.key
+                  ? 'bg-primary/10 font-medium text-primary'
+                  : 'text-muted-foreground hover:bg-muted'
+              "
+              :aria-pressed="statusFilter === f.key"
+              @click="statusFilter = f.key"
+            >
+              {{ f.label }}
+              <span class="ml-0.5 tabular-nums opacity-70">{{ f.count }}</span>
+            </button>
+          </div>
+
+          <!-- 排序 -->
+          <ui-select v-model="sortKey">
+            <ui-select-trigger class="h-7 w-[104px] text-xs" aria-label="排序方式">
+              <ui-select-value />
+            </ui-select-trigger>
+            <ui-select-content>
+              <ui-select-item value="updatedAt">按更新时间</ui-select-item>
+              <ui-select-item value="name">按名称</ui-select-item>
+            </ui-select-content>
+          </ui-select>
+
+          <!-- 批量启停：循环复用单条 toggle，逐条容错 -->
+          <ui-dropdown-menu>
+            <ui-dropdown-menu-trigger as-child>
+              <ui-button
+                variant="ghost"
+                size="sm"
+                class="h-7 gap-1 px-2.5 text-xs"
+                title="批量启用 / 停用"
+                :disabled="batchToggling"
+              >
+                <ui-loader-circle v-if="batchToggling" class="size-3.5 animate-spin" />
+                <ui-list-filter v-else class="size-3.5" />
+                批量
+                <ui-chevron-down class="size-3 opacity-60" />
+              </ui-button>
+            </ui-dropdown-menu-trigger>
+            <ui-dropdown-menu-content align="end">
+              <ui-dropdown-menu-item :disabled="!enabledCount" @click="onToggleAll(false)">
+                全部停用
+              </ui-dropdown-menu-item>
+              <ui-dropdown-menu-item :disabled="enabledCount === scripts.length" @click="onToggleAll(true)">
+                全部启用
+              </ui-dropdown-menu-item>
+            </ui-dropdown-menu-content>
+          </ui-dropdown-menu>
+        </div>
+
         <!-- 可用性横幅：仅在引擎不可用时显示（有需要用户行动的信息才占位） -->
         <div
           v-if="availability && !availability.available"
@@ -490,10 +661,17 @@ function lastBuildLabel(s: ScriptSummary): string {
         <p v-else-if="!scripts.length" class="py-10 text-center text-xs text-muted-foreground">
           还没有用户脚本。可点上方「添加脚本」新建，也可在侧边栏让 AI 生成。
         </p>
+        <!-- 有脚本但被搜索 / 筛选滤空：提示调整条件，而非误导为「没有脚本」 -->
+        <p
+          v-else-if="!visibleScripts.length"
+          class="py-10 text-center text-xs text-muted-foreground"
+        >
+          没有匹配的脚本。试试调整搜索关键词或筛选条件。
+        </p>
 
         <div v-else class="space-y-2">
           <div
-            v-for="s in scripts"
+            v-for="s in visibleScripts"
             :key="s.uuid"
             class="flex items-start gap-3 rounded-md border bg-card p-3"
           >
@@ -554,17 +732,18 @@ function lastBuildLabel(s: ScriptSummary): string {
                   </ui-tooltip>
                 </ui-tooltip-provider>
               </div>
-              <p class="mt-0.5 truncate font-mono text-xs text-muted-foreground">
-                {{ s.matches.join(', ') || '（无匹配规则）' }}
-              </p>
-              <p class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                <span>
+              <!-- 紧凑行：匹配规则占主体，文件数 / 更新时间收进同一行右侧（脚本多了行高越矮越好翻） -->
+              <div class="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                <p class="min-w-0 flex-1 truncate font-mono">
+                  {{ s.matches.join(', ') || '（无匹配规则）' }}
+                </p>
+                <span class="shrink-0 tabular-nums">
                   {{ s.fileCount }} 个文件
                   <template v-if="updatedAtLabel(s.updatedAt)">
                     · {{ updatedAtLabel(s.updatedAt) }}
                   </template>
                 </span>
-              </p>
+              </div>
             </div>
 
             <div class="mt-0.5 flex shrink-0 items-center gap-1">
