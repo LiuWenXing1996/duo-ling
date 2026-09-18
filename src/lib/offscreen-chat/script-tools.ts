@@ -106,7 +106,7 @@ export function buildScriptTools(
         const tree =
           (await readSourceTree(uuid, true).catch(() => null)) ??
           (await readSourceTree(uuid).catch(() => null))
-        if (!tree) return { ok: false, error: '源码缺失（duoling-fs 仓不可用或已损坏）' }
+        if (!tree) return { ok: false, error: '源码库不可用或已损坏' }
         return {
           ok: true,
           uuid: project.uuid,

@@ -406,7 +406,7 @@ async function load(): Promise<void> {
     } catch {
       worktree = null
     }
-    if (!worktree) throw new Error('源码缺失（duoling-fs 仓不可用或已损坏）')
+    if (!worktree) throw new Error('源码库不可用或已损坏')
     baseline.value = head ?? worktree
     if (head && !treeEquals(worktree, head)) {
       applyTree(worktree)

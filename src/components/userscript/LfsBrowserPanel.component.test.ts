@@ -36,7 +36,7 @@ vi.mock('@/components/ai-elements/code-block', () => ({
 /** 最小树：一个命名的脚本仓 + 一个已无项目记录的孤儿仓（只有 uuid） */
 const tree: LfsNode = {
   path: '/',
-  name: 'duoling（lfs 根）',
+  name: 'lfs 根',
   type: 'folder',
   children: [
     {

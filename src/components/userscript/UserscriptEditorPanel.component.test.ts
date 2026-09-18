@@ -107,7 +107,7 @@ describe('UserscriptEditorPanel 加载与渲染', () => {
   it('源码读取失败（fs:readTree 抛错）展示「源码缺失」，不挡渲染', async () => {
     readTree.mockRejectedValue(new Error('ipc down'))
     wrapper = await mountEditor()
-    expect(wrapper.text()).toContain('读取项目失败：源码缺失')
+    expect(wrapper.text()).toContain('读取项目失败：源码库不可用')
   })
 })
 

@@ -58,7 +58,7 @@ export async function readLfsTree(root = '/'): Promise<LfsNode> {
     )
     return { path: dir, name, type: 'folder', children }
   }
-  return walk(root, 'duoling-fs（lfs 根）')
+  return walk(root, 'lfs 根')
 }
 
 // —— 单文件预览（只读调试视图，fs:lfsReadFile 的数据源）——
