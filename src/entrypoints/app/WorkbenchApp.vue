@@ -9,7 +9,7 @@
 // 导航项：设置 / UI 测试 / 脚本列表。
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
-  AlertTriangle as UiAlertTriangle,
+  History as UiHistory,
   Compass as UiCompass,
   Database as UiDatabase,
   FlaskConical as UiFlaskConical,
@@ -31,7 +31,7 @@ const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
 
 // hash 深链（openWorkbench 的约定）：
 //   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
-//   #/errors/<uuid> → 打开错误日志标签页并定位到该脚本（侧边栏灵动岛点击脚本行跳转）
+//   #/errors/<uuid> → 打开运行日志标签页并定位到该脚本（侧边栏灵动岛点击脚本行跳转）
 //   #/settings    → 打开设置标签页
 //   #/guide       → 打开引导标签页（侧边栏「查看开启引导」跳这里）
 function handleHash(): void {
@@ -138,13 +138,13 @@ onUnmounted(() => window.removeEventListener('hashchange', handleHash))
               <button
                 class="workspace-nav-item"
                 type="button"
-                aria-label="错误日志"
+                aria-label="运行日志"
                 @click="workspaceRef?.openErrorLogTab()"
               >
-                <ui-alert-triangle class="size-5" />
+                <ui-history class="size-5" />
               </button>
             </ui-tooltip-trigger>
-            <ui-tooltip-content side="right">错误日志</ui-tooltip-content>
+            <ui-tooltip-content side="right">运行日志</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
         <ui-tooltip-provider>

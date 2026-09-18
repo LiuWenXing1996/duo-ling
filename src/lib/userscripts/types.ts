@@ -75,6 +75,12 @@ export interface ScriptSummary {
   buildOk: boolean
   /** 最近一次构建完成时刻（ms）；缺省 = 旧记录没记过 */
   lastBuildAt?: number
+  /** 累计运行次数（一次页面加载 = 一次）；缺省 = 还没有运行统计 */
+  runCount?: number
+  /** 最近一次运行时刻（ms）；与 runCount 同源，有统计即有值 */
+  lastRunAt?: number
+  /** 最近一次运行捕获的运行期错误数；缺省 = 0 或无统计（UI 只在 >0 时展示） */
+  lastRunErrors?: number
 }
 
 /** 用户脚本引擎可用性状态（供管理页状态横幅） */
@@ -121,9 +127,65 @@ export const GM_KEY_PREFIX = 'us:gm:'
 export const SETTINGS_KEY = 'us:settings'
 /** 错误日志：us:errors（环形保留最近 N 条） */
 export const ERRORS_KEY = 'us:errors'
+/** 运行统计：us:run-stats:<uuid>（按脚本聚合的计数器） */
+export const RUN_STATS_KEY_PREFIX = 'us:run-stats:'
+/** 运行日志：us:run-log（全局环形，按时间记「哪次运行发生了」，错误明细仍在 us:errors 按 runId 关联） */
+export const RUN_LOG_KEY = 'us:run-log'
 /** 错误日志环形上限：超过后只留最近 N 条。
  *  写侧（store.ts）裁剪、UI 文案（错误日志标签页）都读这里 —— 上限只写一处，避免文案与实现漂移。 */
 export const ERROR_LOG_MAX = 50
+/** 运行日志环形上限：全局混存（跨脚本按时间排），超过后只留最近 N 条 */
+export const RUN_LOG_MAX = 500
+
+/**
+ * 脚本运行统计（storage.local 键 us:run-stats:<uuid>；写侧 store.ts，SW 独占）。
+ *
+ * 聚合计数器（总次数 / 最后运行时间 / 最近一次运行的错误数），与运行日志（us:run-log）
+ * **并进同一次 RMW 写入**——每次页面加载仍只付一次存储事务，写放大不因逐条日志翻倍。
+ * 「最近错误数」口径 = 最近一次运行（runId 相同）捕获的运行期错误数：新运行开始时清零，
+ * 旧运行的迟到错误（runId 对不上）不计入（运行日志里按 runId 关联展示）。
+ */
+export interface UserScriptRunStats {
+  /** 累计运行次数（一次页面加载 = 一次；runstart 的 load 补播按 runId 去重） */
+  totalRuns: number
+  /** 最近一次运行时刻（ms） */
+  lastRunAt: number
+  /** 最近一次运行的 runId：既用于补播去重，也用于把 runtime 错误归属到「最近一次运行」 */
+  lastRunId?: string
+  /** 最近一次运行捕获的运行期错误数（新运行开始即清零） */
+  lastRunErrors?: number
+}
+
+/**
+ * 运行日志条目（us:run-log，全局环形按时间排；写侧 store.ts，SW 独占）。
+ * 只记「一次运行发生了」——错误明细不复制进这里，仍在 us:errors 按 runId 关联；
+ * name 是落盘时的快照（脚本删除后日志条目仍可读）。
+ */
+export interface UserScriptRunLogEntry {
+  runId: string
+  uuid: string
+  /** 脚本名快照（落盘时刻） */
+  name: string
+  /** 运行开始时刻（ms） */
+  time: number
+}
+
+/**
+ * 运行日志时间线的一行（listRunTimeline 的产物，UI 直接渲染）。
+ * 运行行 = us:run-log 的一次运行，其运行期错误按 runId 挂在 errors 上（可展开看明细）；
+ * 错误行 = 无法归属到时间线内任何一次运行的错误（无 runId 的注册/桥错误，
+ * 或该 runId 的运行已滑出环形）——单独成行，不丢。
+ */
+export type UserScriptRunLogRow =
+  | {
+      kind: 'run'
+      runId: string
+      uuid: string
+      name: string
+      time: number
+      errors: UserScriptErrorRecord[]
+    }
+  | { kind: 'error'; record: UserScriptErrorRecord }
 
 /** 默认入口文件名 */
 export const ENTRY_DEFAULT = 'main.js'
@@ -177,6 +239,11 @@ export function scriptKey(uuid: string): string {
 
 export function gmKey(uuid: string, key: string): string {
   return `${GM_KEY_PREFIX}${uuid}:${key}`
+}
+
+/** 运行统计键：us:run-stats:<uuid> */
+export function runStatsKey(uuid: string): string {
+  return RUN_STATS_KEY_PREFIX + uuid
 }
 
 /** 新建项目的默认配置：allFrames true / runAt document_end（v2 决策表） */
