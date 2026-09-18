@@ -249,7 +249,16 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
       if (!m || m.__dlApiEvent !== true || !m.ev) return
       if (m.ev.t === 'port.ready') {
         __dlPortReady = true
-        __dlFlushRegs()
+        var ws = __dlReadyWaiters.splice(0)
+        for (var wi = 0; wi < ws.length; wi++) ws[wi].resolve()
+        // SW 冷启动重放：注册表归零 → 重发全部活跃注册（菜单撞 id 幂等由 SW 侧处理）。
+        // 与挂起的 waiter 无关：waiter 是本次连接的首发，重放是历次连接的存量
+        var rreqs = []
+        for (var mid in __dlActiveMenus) rreqs.push({ c: 'menu.register', id: mid, title: __dlActiveMenus[mid] })
+        for (var wkey in __dlActiveWatches) rreqs.push({ c: 'store.watch', key: wkey, connId: __dlConnId })
+        for (var ri = 0; ri < rreqs.length; ri++) {
+          __dlSend(rreqs[ri]).catch(function (e) { console.warn('[DL:' + DL_INFO.name + '] 重放注册失败', e) })
+        }
         return
       }
       __dlHandleEvent(m.ev)
@@ -297,17 +306,18 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
         if (!__dlWatchHandlers[key]) __dlWatchHandlers[key] = []
         __dlWatchHandlers[key].push(cb)
         __dlActiveWatches[key] = true
-        __dlRegSend({ c: 'store.watch', key: key, connId: __dlConnId })
-        return Promise.resolve(function () {
+        var off = function () {
           var arr = __dlWatchHandlers[key] || []
           var i = arr.indexOf(cb)
           if (i >= 0) arr.splice(i, 1)
           if (!arr.length) {
             delete __dlWatchHandlers[key]
             delete __dlActiveWatches[key]
-            __dlRegSend({ c: 'store.unwatch', key: key, connId: __dlConnId })
+            __dlRegSend({ c: 'store.unwatch', key: key, connId: __dlConnId }).catch(function () {})
           }
-        })
+        }
+        // 等 SW 真挂上订阅才 resolve——WATCH_OK 必须代表订阅已生效
+        return __dlRegSend({ c: 'store.watch', key: key, connId: __dlConnId }).then(function () { return off })
       }
     },
     // 免 CORS 请求：后台 SW 发起，不受页面 CSP 与同源策略限制；非 2xx 不抛错，看 r.ok

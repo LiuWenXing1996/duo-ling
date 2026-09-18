@@ -174,8 +174,15 @@ export function registerScriptMenu(uuid: string, menuId: string, title: string):
       { id: `us:${uuid}:${menuId}`, title, contexts: ['page', 'frame'] },
       () => {
         const err = chrome.runtime.lastError
-        if (!err) return resolve()
-        if (/duplicate/i.test(err.message ?? '')) return resolve() // 幂等：菜单已在位
+        if (!err) {
+          console.log('[duoling:dl] 菜单已登记：', `us:${uuid}:${menuId}`)
+          return resolve()
+        }
+        if (/duplicate/i.test(err.message ?? '')) {
+          console.log('[duoling:dl] 菜单已在位（重放幂等）：', `us:${uuid}:${menuId}`)
+          return resolve() // 幂等：菜单已在位
+        }
+        console.warn('[duoling:dl] 菜单登记失败：', `us:${uuid}:${menuId}`, err.message)
         reject(new Error(`菜单登记失败：${err.message}`))
       },
     )
