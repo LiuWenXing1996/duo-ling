@@ -5,7 +5,7 @@
 //
 // 数据通道：userscriptClient。workbench 是可信扩展页，可直接 chrome.runtime.sendMessage，
 // 因此不走 window.api（那是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   AlertTriangle as UiAlertTriangle,
   Braces as UiBraces,
@@ -34,7 +34,7 @@ import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/u
 import { formatTimestamp } from '@/lib/format'
 import { useDataSync } from '@/composables/use-data-sync'
 import { BUILTIN_SCRIPTS } from '@/lib/userscripts/builtins'
-import { userscriptClient } from '@/lib/userscripts/ui-client'
+import { userscriptClient, subscribeAvailability } from '@/lib/userscripts/ui-client'
 import { buildScriptZip, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
 import type { ZipScriptPayload } from '@/lib/userscripts/zip-transfer'
 import type {
@@ -91,6 +91,18 @@ async function refresh(): Promise<void> {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+  }
+}
+
+/**
+ * 重查引擎可用性（横幅状态源）。纯查询、无副作用——「开关变化」的实时更新走
+ * subscribeAvailability 订阅（SW 检测到变化后广播），这里只负责挂载时取初值。
+ */
+async function detectAvailability(): Promise<void> {
+  try {
+    availability.value = await userscriptClient.availability()
+  } catch {
+    availability.value = null // 横幅静默降级为不显示
   }
 }
 
@@ -312,12 +324,17 @@ function updatedAtLabel(ts: number): string {
   return ts ? formatTimestamp(Math.floor(ts / 1000)) : ''
 }
 
+let unsubscribeAvailability: (() => void) | null = null
+
 onMounted(() => {
   void refresh()
-  void userscriptClient
-    .availability()
-    .then((av) => (availability.value = av))
-    .catch(() => (availability.value = null)) // 横幅静默降级为不显示
+  void detectAvailability()
+  // 可用性变化由 SW 广播（availabilityChanged），横幅被动更新，不自己盯 visibilitychange
+  unsubscribeAvailability = subscribeAvailability((av) => (availability.value = av))
+})
+
+onUnmounted(() => {
+  unsubscribeAvailability?.()
 })
 
 // 别处的脚本写操作（保存 / 启停 / 新建 / 删除 / 导入）落盘后已广播 `script` 域，
