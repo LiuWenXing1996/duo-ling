@@ -216,8 +216,13 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
   var __dlMenuHandlers = {}      // menuId -> handler
   var __dlWatchHandlers = {}     // key -> [cb]
   var __dlNotifyHandlers = {}    // notificationId -> onClick
-  function __dlMintId(p) {
-    return p + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10)
+  // 菜单 id：按「脚本 uuid + 标题」确定性生成（djb2）。菜单注册持久于浏览器会话，
+  // 若用随机 id，每次页面刷新都会造新 id → 菜单无限累积；确定性 id 使同标题注册
+  // 永远同 id，重放 / 重复注册撞 id 由 SW 按成功处理 → 天然去重（油猴同款语义）
+  function __dlMenuId(title) {
+    var h = 5381
+    for (var i = 0; i < title.length; i++) h = (((h << 5) + h) + title.charCodeAt(i)) | 0
+    return 'm-' + (h >>> 0).toString(36)
   }
   function __dlHandleEvent(ev) {
     if (ev.t === 'menu.click') {
@@ -421,8 +426,8 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
     // 扩展菜单（contextMenus）：后台登记，点击经 DL Port 回推（只推点击所在 tab）
     menu: {
       register: function (title, handler) {
-        var id = __dlMintId('m')
         var t = typeof title === 'string' && title ? title : '菜单项'
+        var id = __dlMenuId(t)
         __dlMenuHandlers[id] = handler
         __dlActiveMenus[id] = t
         // 等 SW 真建好菜单才 resolve——MENU_OK 必须代表菜单已在位
