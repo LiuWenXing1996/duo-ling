@@ -1,15 +1,19 @@
 name: E2E
 
-# 独立 E2E workflow：与 PR 门禁(ci.yml)分离，不阻塞日常合并。
+# 独立 E2E workflow。
 # - 手动触发（workflow_dispatch）：想在哪跑就在哪跑
 # - 每日北京时间 02:00（UTC 18:00）定时跑全量冒烟，抓产品级回归（如 CSP / 注入链路）
 # - push main 时跑一遍，merge 后即验证
+# - pull_request 时也跑（2026-09-19 起）：E2E spec 不在 typecheck 覆盖内，命令面改动
+#   只有端测能兜住（updateFiles 被删那次就是 PR 绿灯、合入 main 才红）。跑得快（~1 分钟），
+#   同 PR 连推由 concurrency 自动取消旧 run，只跑最新 commit。
 on:
   workflow_dispatch:
   schedule:
     - cron: '0 18 * * *'
   push:
     branches: [main]
+  pull_request:
 
 concurrency:
   group: e2e-${{ github.ref }}
