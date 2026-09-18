@@ -31,6 +31,12 @@ import {
   DialogTitle as UiDialogTitle
 } from '@/components/ui/dialog'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
+import {
+  Tooltip as UiTooltip,
+  TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider,
+  TooltipTrigger as UiTooltipTrigger
+} from '@/components/ui/tooltip'
 import { formatTimestamp } from '@/lib/format'
 import { useDataSync } from '@/composables/use-data-sync'
 import { BUILTIN_SCRIPTS } from '@/lib/userscripts/builtins'
@@ -482,44 +488,54 @@ function lastBuildLabel(s: ScriptSummary): string {
 
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <span class="truncate text-sm font-medium">{{ s.name }}</span>
-                <span
-                  v-if="justImported.includes(s.uuid) && !s.enabled"
-                  class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-                >
-                  刚导入 · 未启用
-                </span>
-                <!-- 刚由「添加脚本」建成：新建不跳编辑器，靠这个标告诉人哪个是刚建的 -->
-                <span
-                  v-else-if="justCreated.includes(s.uuid)"
-                  class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-                >
-                  刚新建
-                </span>
-                <!-- 构建状态标：保存链瞬态（转圈）→ 落库终态（成功 / 失败） -->
-                <span
-                  v-if="buildPhase[s.uuid]"
-                  class="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-                >
-                  <ui-loader-circle class="size-3 animate-spin" />
-                  {{ buildPhase[s.uuid] === 'saving' ? '保存中' : '构建中' }}
-                </span>
-                <span
-                  v-else-if="s.buildOk"
-                  class="inline-flex shrink-0 items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
-                  :title="lastBuildLabel(s)"
-                >
-                  <ui-check class="size-3" />
-                  构建成功
-                </span>
-                <span
-                  v-else
-                  class="inline-flex shrink-0 items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
-                  :title="lastBuildLabel(s)"
-                >
-                  <ui-x class="size-3" />
-                  构建失败
-                </span>
+                <!-- TooltipProvider：状态标悬停时刻用 shadcn Tooltip（原生 title 有 ~1s 浏览器
+                     延时）；Provider 默认 0ms 即显，包在名字行——TooltipRoot 必须有 Provider 上下文 -->
+                <ui-tooltip-provider>
+                  <span class="truncate text-sm font-medium">{{ s.name }}</span>
+                  <span
+                    v-if="justImported.includes(s.uuid) && !s.enabled"
+                    class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                  >
+                    刚导入 · 未启用
+                  </span>
+                  <!-- 刚由「添加脚本」建成：新建不跳编辑器，靠这个标告诉人哪个是刚建的 -->
+                  <span
+                    v-else-if="justCreated.includes(s.uuid)"
+                    class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                  >
+                    刚新建
+                  </span>
+                  <!-- 构建状态标：保存链瞬态（转圈）→ 落库终态（成功 / 失败） -->
+                  <span
+                    v-if="buildPhase[s.uuid]"
+                    class="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  >
+                    <ui-loader-circle class="size-3 animate-spin" />
+                    {{ buildPhase[s.uuid] === 'saving' ? '保存中' : '构建中' }}
+                  </span>
+                  <ui-tooltip v-else-if="s.buildOk">
+                    <ui-tooltip-trigger as-child>
+                      <span
+                        class="inline-flex shrink-0 cursor-default items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
+                      >
+                        <ui-check class="size-3" />
+                        构建成功
+                      </span>
+                    </ui-tooltip-trigger>
+                    <ui-tooltip-content>{{ lastBuildLabel(s) }}</ui-tooltip-content>
+                  </ui-tooltip>
+                  <ui-tooltip v-else>
+                    <ui-tooltip-trigger as-child>
+                      <span
+                        class="inline-flex shrink-0 cursor-default items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
+                      >
+                        <ui-x class="size-3" />
+                        构建失败
+                      </span>
+                    </ui-tooltip-trigger>
+                    <ui-tooltip-content>{{ lastBuildLabel(s) }}</ui-tooltip-content>
+                  </ui-tooltip>
+                </ui-tooltip-provider>
               </div>
               <p class="mt-0.5 truncate font-mono text-xs text-muted-foreground">
                 {{ s.matches.join(', ') || '（无匹配规则）' }}
