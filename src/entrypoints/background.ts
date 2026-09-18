@@ -10,10 +10,7 @@
 //   · 写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
 // 仍在 chrome.storage 的只有两类：DL.store 值（us:gm:*）与错误日志（us:errors）——
 // 写入方是用户脚本本身、不受控，且不参与「脚本是什么」的判定，故留在 SW 直写。
-//
-// 2026-09-14：工具链路移除后，原「工具文件与 git 操作的
-// 唯一写入方 + 原子能力执行」职责整体摘除（fs-store / tool-page-template / capabilities 三个
-// 依赖随之删除），此处只剩用户脚本、offscreen 与模型配置三类命令。
+
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
 import type { ModelProfileState, OffscreenPush, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
@@ -84,7 +81,6 @@ export const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:', 'sw:', '
  *
  * handlers 表只登记这些 kind：`ai:*`（git 历史）与 `state:*`（项目状态库写侧）都由 offscreen
  * 应答——它们不是 SW 的职责，不该为凑齐类型而塞进 handlers 表补死桩。
- * （`userscript:history*` 是被 `ai:*` 取代的死命令，2026-09-15 已从协议移除。）
  */
 type SwRequest = Extract<RuntimeRequest, { kind: `${(typeof SW_KIND_PREFIXES)[number]}${string}` }>
 
@@ -136,7 +132,7 @@ async function writeViaOffscreen<T>(request: RuntimeRequest): Promise<T> {
  *
  * **不 throw**——调用方（create / updateFiles / toggle）在注册前已完成数据写
  * （状态库 + git 快照都落了盘），注册只是让脚本「生效」的最后一环。把注册失败判成整个
- * 命令失败，会让用户看到「创建失败」但列表刷新后脚本明明在（2026-09-15 实测，违背直觉）。
+ * 命令失败，会让用户看到「创建失败」但列表刷新后脚本明明在（违背直觉）。
  * 故降级：命令成功 + registerError 警告字段，UI 决定怎么呈现。
  */
 async function registerOrLog(project: ScriptProject): Promise<string | undefined> {
@@ -192,7 +188,7 @@ const handlers: {
   // —— AI 工具支路 ——
   // page_snapshot 工具（offscreen 经此命令请 SW 代办）：定位当前活动标签后执行拾取器快照模式。
   // chrome.userScripts 在 SW 可用（与注册链路同源，138+ 逐扩展开关门控），offscreen 不可达。
-  // 快照 = AI 判断需要时才采集（2026-09-17 改判：从用户显式按钮改为 AI 工具）。
+  // 快照 = AI 判断需要时才采集。
   'page:snapshot': async (): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
     if (!chrome.tabs?.query) throw new Error('tabs API 不可用，无法定位目标标签页')
     // SW 无窗口上下文：lastFocusedWindow 语义 = 用户最后聚焦的窗口（与侧边栏所在窗口一致的场景）

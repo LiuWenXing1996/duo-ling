@@ -45,7 +45,7 @@ describe('userScripts 不可用引导文案', () => {
   })
 })
 
-// —— 不可注入页面的前置判据（2026-09-18：活动标签是工作台时点「点选元素」，Chrome 的英文报错
+// —— 不可注入页面的前置判据（活动标签是工作台时点「点选元素」，Chrome 的英文报错
 //    「Extension manifest must request permission to access this host」原样漏给了用户）——
 describe('pageInjectionBlockReason（可注入性前置判据）', () => {
   it('普通网页：可注入（null）', () => {

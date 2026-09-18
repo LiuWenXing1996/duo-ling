@@ -2,11 +2,9 @@
 // 为什么不用 chrome.storage.local：会话消息写入频繁且体积增长快，IndexedDB 更适合；
 // 且 side panel / workbench / offscreen 同源，可直接共享该库，无需经 background 中转。
 //
-// 2026-09-15（AI 生成用户脚本）：整条对话链路搬进
-// offscreen 后，**会话历史的唯一写入方 = offscreen**（侧边栏只读 + 订阅，防双写）。
-// offscreen 只有 chrome.runtime，拿不到 chrome.storage —— 会话自增序号（SEQ）随之从
-// chrome.storage.local 迁入本库的 meta store，取号在一个 readwrite 事务内完成（原子自增）。
-// 首次取号时会尝试从旧 chrome.storage 键迁移存量序号（有 chrome.storage 的上下文里顺带做）。
+// **会话历史的唯一写入方 = offscreen**（侧边栏只读 + 订阅，防双写）。
+// offscreen 只有 chrome.runtime，拿不到 chrome.storage —— 会话自增序号（SEQ）因此落在
+// 本库的 meta store，取号在一个 readwrite 事务内完成（原子自增）。
 //
 // 语义对齐桌面版原实现（conversation-store）：
 //   1. 新会话标题为「新会话 N」，N 来自**自增序号**（不是「当前会话数 + 1」，
@@ -211,9 +209,9 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
  * 顺带处理**首条用户消息自动命名**——桌面版把这段逻辑放在同一处，是唯一的触发点，
  * 拆出去（例如做成独立的 autoTitle 供外部调用）会因无人调用而静默失效。
  *
- * 必须在**单个 readwrite 事务**里完成读与写：旧实现拆成 3 个独立事务（查 existing →
- * 写消息 → 读+写会话），两个 append 并发交错时，后提交的会用读到的旧标题覆盖
- * 先完成的自动命名（2026-09-15 手测：部分会话标题停在「新会话 N」）。
+ * 必须在**单个 readwrite 事务**里完成读与写：拆成多个独立事务（查 existing → 写消息 →
+ * 读+写会话）时，两个 append 并发交错会让后提交的用读到的旧标题覆盖先完成的自动命名
+ * （部分会话标题会停在「新会话 N」）。
  * 命名条件也由此改为「该会话此前没有用户消息」（而非「没有任何消息」）——
  * 异常收尾可能让 assistant 消息先落盘，按任意消息判断会让改名静默失效。
  */

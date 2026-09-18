@@ -1,7 +1,6 @@
 // 用户脚本「能力 API」契约 —— 脚本侧包装与后台桥共用的唯一真相源。
 //
-// 背景：2026-09-14 战略决策 —— 放弃油猴（GM_*）生态兼容，改自有形态。
-// 因此本文件不再追求与 VM/TM 的命名或同步语义一致，改为：
+// 定位：自有形态，不追求与油猴（VM/TM）的命名或同步语义一致：
 //   ① 全 async（无准同步预载，语义单一、可预期）
 //   ② 强类型桥（取代原先 `cmd: string; args: unknown[]` 的弱类型分发）
 //   ③ 可导出为 .d.ts 供脚本作者获得智能提示
@@ -68,7 +67,7 @@ export type ApiRequest =
   | { c: 'notify'; message: string; title?: string; icon?: string }
   | { c: 'download'; url: string; name?: string }
   | { c: 'tabs.open'; url: string; active?: boolean }
-  // 二期再定（2026-09-14 决策：cookie 挪二期，暂不加 cookies 权限）：
+  // 未实现（暂不加 cookies 权限）：
   //   cookie.get / cookie.set / cookie.remove —— 实现时须给 manifest 加 `cookies` 权限，
   //   且 url 缺省语义必须由 DL 包装层填 location.href（SW 里没有「当前页面」概念）。
   // 菜单（后台登记，点击时经 ApiEvent 回推脚本）
@@ -130,7 +129,7 @@ export interface DlFetchResult {
 /**
  * 脚本里通过全局 `DL` 访问的能力集合。
  *
- * 全部方法返回 Promise（2026-09-14 决策：全 async，不做准同步预载）。
+ * 全部方法返回 Promise（全 async，不做准同步预载）。
  * 例外是纯本地能力（style / log / info），它们不跨桥，保持同步。
  */
 export interface DuoLingApi {
@@ -158,7 +157,7 @@ export interface DuoLingApi {
   download(url: string, name?: string): Promise<void>
 
   /**
-   * 写剪贴板。2026-09-14 决策：世界内直写（navigator.clipboard.writeText），不走桥。
+   * 写剪贴板。世界内直写（navigator.clipboard.writeText），不走桥。
    * 限制：需要用户手势 / 页面焦点，且页面 CSP 可能约束——失败时 reject 明确错误，不静默。
    */
   clipboard: {
@@ -169,7 +168,7 @@ export interface DuoLingApi {
     open(url: string, opts?: { active?: boolean }): Promise<void>
   }
 
-  // 二期再定（2026-09-14 决策）：cookie.* 挪二期，届时 manifest 加 `cookies` 权限。
+  // 未实现：cookie.*，届时 manifest 需加 `cookies` 权限。
 
   /** 在扩展菜单里注册命令，返回注销函数 */
   menu: {

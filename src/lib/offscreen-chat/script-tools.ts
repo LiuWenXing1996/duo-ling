@@ -63,7 +63,7 @@ export type ApplyConfigInput = z.infer<typeof applyConfigSchema>
  * 构建 Agent 工具（script 三件套 + element_read + page_snapshot）。snapshot 回调由 chat-host 提供（每步 apply 成功后把文件树
  * 快照进 IndexedDB 任务记录——覆盖写，宿主被杀后「继续」才有东西可继续）。
  * onFatal：硬停手回调——失败超阈值后模型仍再次 apply（无视 stop 提示）时中止整个
- * 任务（2026-09-15 手测：stop 提示只是文案，模型会无视继续烧步数）。
+ * 任务（stop 提示只是文案，模型会无视继续烧步数）。
  * elementContext：本请求携带的拾取元素快照（用户显式点选；undefined = 本次没有）。
  * captureSnapshot：页面快照采集（经 SW 调 userScripts.execute，AI 判断需要时调用；未提供 = 工具返回不可用）。
  */

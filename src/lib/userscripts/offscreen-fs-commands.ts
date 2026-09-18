@@ -4,7 +4,7 @@
 // 本模块在 offscreen 上下文里处理，结果按 { ok, data | error } 信封回传。
 //
 // 数据来源：项目状态库与 git 仓都在 offscreen 本地，故 project 直读 project-store，
-// 不再经 offscreenBridge 向 SW 取（2026-09-15 单写方落地）。
+// 不再经 offscreenBridge 向 SW 取。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { getProject } from './project-store'
 import { listHistory, readTreeAt, restoreToCommit, ensureRepo, readWorktree, writeWorktree } from './us-git'

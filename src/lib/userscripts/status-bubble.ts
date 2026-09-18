@@ -5,7 +5,7 @@
 //   ② 维护浮窗**端口**（每 tab 一条），把「本页脚本 + 错误记录」推给浮窗；
 //   ③ 把脚本注入时广播的 runId **转发**给浮窗；④ 浮窗点击 → 工作台错误日志深链。
 //
-// 三个机制事实（2026-09-17 修订；此前几版注释在此写错过，勿回退）：
+// 三个机制事实（此前注释在此写错过，勿回退）：
 //   · **注册用 `userScripts.register` + `worldId`**（世界 `us-builtin-status`）：声明式持久挂载、
 //     免每导航注入、Firefox 136+ 支持。userScripts 的 `world` 只有 `USER_SCRIPT` / `MAIN`，
 //     **没有 ISOLATED**——「放隔离世界」= 这里用自定义 `worldId` 的 USER_SCRIPT 世界（与页面隔离）。

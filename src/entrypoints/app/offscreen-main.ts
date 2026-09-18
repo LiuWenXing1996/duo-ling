@@ -24,8 +24,7 @@
 // 生命周期：每扩展同时只能有一份；不主动关就一直活着，但**关窗口 / 扩展重载 / 浏览器崩溃
 // 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（→ offscreen-chat/task-store.ts）。
 //
-// 命令面：ai:*（git 历史）/ state:*（状态库写侧）/ conv:*（会话写侧，唯一写方）/
-// chat:*（对话编排，2026-09-15 整条链路搬入）。
+// 命令面：ai:*（git 历史）/ state:*（状态库写侧）/ conv:*（会话写侧，唯一写方）/ chat:*（对话编排）。
 
 import '@/polyfills'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
