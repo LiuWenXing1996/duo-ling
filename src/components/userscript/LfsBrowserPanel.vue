@@ -154,7 +154,7 @@ useDataSync('script', () => load())
     <!-- 头部：说明 + 概览 + 刷新 -->
     <div class="flex items-center gap-2 border-b border-border px-4 py-2.5">
       <ui-folder-tree class="size-4 text-muted-foreground" />
-      <span class="text-sm font-medium">lfs 库（duoling）</span>
+      <span class="text-sm font-medium">lfs 库（duoling-fs）</span>
       <span v-if="tree" class="text-xs text-muted-foreground">
         {{ fileCount }} 个文件 · 含 .git 内部 · 只读
       </span>

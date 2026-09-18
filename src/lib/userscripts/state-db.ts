@@ -1,4 +1,4 @@
-// 用户脚本项目数据的底层存储：独立 IndexedDB 库（**与 lightning-fs 的 'duoling' 库分开**）。
+// 用户脚本项目数据的底层存储：独立 IndexedDB 库（**与 lightning-fs 的 'duoling-fs' 库分开**）。
 //
 // 为什么另起一个库：
 // lfs 自带内存索引层，同库多实例会互相看不见写入（见 us-fs.ts 顶部的单实例约束），
