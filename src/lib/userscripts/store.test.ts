@@ -1,23 +1,25 @@
 // store.ts 单测：chrome.storage 侧的 DL.store 值 / 错误日志环形保留 / 运行统计。
 // chrome 由 WxtVitest 插件 stub 成 fakeBrowser；用例间 resetState 保证隔离。
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import {
   appendUserScriptError,
   clearGMValues,
+  clearRunLog,
   clearRunStats,
   clearUserScriptErrors,
   deleteGMValue,
   findUserScriptError,
   getGMValue,
   listGMKeys,
+  listRunTimeline,
   listSummaries,
   listUserScriptErrors,
   recordRunStart,
   setGMValue,
   withRunStats,
 } from './store'
-import { type ScriptProject } from './types'
+import { RUN_LOG_MAX, type ScriptProject } from './types'
 
 beforeEach(() => {
   fakeBrowser.reset()
@@ -308,5 +310,81 @@ describe('运行统计（us:run-stats:*，按脚本聚合计数）', () => {
     expect(a!.runCount).toBeUndefined()
     expect(b!.runCount).toBe(1)
     expect(await fakeBrowser.storage.local.get('us:run-stats:u1')).toEqual({})
+  })
+})
+
+describe('运行日志（us:run-log 环形 + listRunTimeline 时间线）', () => {
+  it('每次运行记一条日志（含名字快照）；补播去重不重复记', async () => {
+    await recordRunStart('u1', 'r1', '脚本甲')
+    await recordRunStart('u2', 'r9', '脚本乙')
+    await recordRunStart('u1', 'r1', '脚本甲') // load 补播：整体 no-op
+    const rows = await listRunTimeline()
+    const runs = rows.filter((r) => r.kind === 'run')
+    expect(runs).toHaveLength(2)
+    expect(runs.find((r) => r.runId === 'r1')).toMatchObject({ uuid: 'u1', name: '脚本甲' })
+  })
+
+  it('时间线按时间倒序；runtime 错误按 runId 挂到所属运行行', async () => {
+    // 同毫秒内多次写入会让排序不稳定：mock Date.now 给每个事件可区分的时刻
+    const nowSpy = vi.spyOn(Date, 'now')
+    nowSpy.mockReturnValue(1000)
+    await recordRunStart('u1', 'r1', '甲')
+    nowSpy.mockReturnValue(1001)
+    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'boom', runId: 'r1' })
+    nowSpy.mockReturnValue(1002)
+    await recordRunStart('u1', 'r2', '甲')
+    nowSpy.mockRestore()
+    await flushStats()
+    const rows = await listRunTimeline()
+    expect(rows.map((r) => (r.kind === 'run' ? r.runId : 'err'))).toEqual(['r2', 'r1']) // 最新在前
+    const r1 = rows.find((r) => r.kind === 'run' && r.runId === 'r1')
+    const r2 = rows.find((r) => r.kind === 'run' && r.runId === 'r2')
+    if (!r1 || r1.kind !== 'run' || !r2 || r2.kind !== 'run') throw new Error('运行行缺失')
+    expect(r1.errors).toHaveLength(1)
+    expect(r1.errors[0]!.message).toBe('boom')
+    expect(r2.errors).toHaveLength(0)
+  })
+
+  it('无 runId 的错误（注册/桥）单独成行；runId 落空（运行滑出环形）的错误也单独成行', async () => {
+    await recordRunStart('u1', 'r1', '甲')
+    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'register', message: 'reg', time: 2001 })
+    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'late', runId: 'gone', time: 2002 })
+    await flushStats()
+    const rows = await listRunTimeline()
+    const loose = rows.filter((r) => r.kind === 'error')
+    expect(loose).toHaveLength(2)
+    expect(loose.map((r) => (r.kind === 'error' ? r.record.message : ''))).toEqual(['late', 'reg']) // 倒序
+  })
+
+  it('环形裁剪：超过 RUN_LOG_MAX 只留最近 N 条', async () => {
+    for (let i = 0; i < RUN_LOG_MAX + 10; i++) {
+      await recordRunStart('u1', `r${i}`, '甲')
+    }
+    const rows = await listRunTimeline()
+    expect(rows).toHaveLength(RUN_LOG_MAX)
+    expect(rows.some((r) => r.kind === 'run' && r.runId === 'r0')).toBe(false) // 最老的被挤出
+    expect(rows.some((r) => r.kind === 'run' && r.runId === `r${RUN_LOG_MAX + 9}`)).toBe(true)
+  })
+
+  it('clearRunLog：缺省清全部；带 uuid 只清该脚本；null 不动', async () => {
+    await recordRunStart('u1', 'r1', '甲')
+    await recordRunStart('u2', 'r2', '乙')
+    await clearRunLog('u1')
+    let rows = await listRunTimeline()
+    expect(rows.some((r) => r.kind === 'run' && r.runId === 'r1')).toBe(false)
+    expect(rows.some((r) => r.kind === 'run' && r.runId === 'r2')).toBe(true)
+    await clearRunLog(null) // 未归属范围：run-log 不动
+    expect(await listRunTimeline()).toHaveLength(1)
+    await clearRunLog()
+    expect(await listRunTimeline()).toHaveLength(0)
+  })
+
+  it('clearRunStats 连带清该脚本的日志条目（删脚本 = 清该脚本名下的一切）', async () => {
+    await recordRunStart('u1', 'r1', '甲')
+    await recordRunStart('u2', 'r2', '乙')
+    await clearRunStats('u1')
+    const rows = await listRunTimeline()
+    expect(rows.some((r) => r.kind === 'run' && r.uuid === 'u1')).toBe(false)
+    expect(rows.some((r) => r.kind === 'run' && r.uuid === 'u2')).toBe(true)
   })
 })

@@ -163,7 +163,7 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
   function __dlAnnounceRun() {
     try {
       if (!chrome || !chrome.runtime || !chrome.runtime.sendMessage) return
-      chrome.runtime.sendMessage({ __dlRunStart: true, uuid: DL_INFO.uuid, runId: __dlRunId }, function () {
+      chrome.runtime.sendMessage({ __dlRunStart: true, uuid: DL_INFO.uuid, name: DL_INFO.name, runId: __dlRunId }, function () {
         void chrome.runtime.lastError
       })
     } catch (e) { /* 世界未开 messaging：静默（与错误上报同款兜底） */ }

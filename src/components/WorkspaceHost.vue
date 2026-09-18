@@ -6,7 +6,7 @@ import GuidePanel from '@/components/GuidePanel.vue'
 import UiTestPanel from '@/components/UiTestPanel.vue'
 import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
 import UserscriptListPanel from '@/components/userscript/UserscriptListPanel.vue'
-import UserscriptErrorLogPanel from '@/components/userscript/UserscriptErrorLogPanel.vue'
+import UserscriptRunLogPanel from '@/components/userscript/UserscriptRunLogPanel.vue'
 import UserscriptEditorPanel from '@/components/userscript/UserscriptEditorPanel.vue'
 import LfsBrowserPanel from '@/components/userscript/LfsBrowserPanel.vue'
 import UserscriptHistoryPanel from '@/components/userscript/UserscriptHistoryPanel.vue'
@@ -99,7 +99,7 @@ function openUserscriptListTab(): void {
 }
 
 /**
- * 打开错误日志标签页：全局仅一个（错误日志是全局视图，每脚本开一个没有意义）。
+ * 打开运行日志标签页：全局仅一个（运行日志是全局视图，每脚本开一个没有意义）。
  * focusUuid：灵动岛深链 #/errors/<uuid> / 列表页入口进来时按该脚本定位；
  * 传 null（或不传）则保持用户当前选择，不强行跳分组。
  *
@@ -110,14 +110,14 @@ function openUserscriptListTab(): void {
 const errorLogFocus = ref<{ uuid: string; seq: number } | null>(null)
 let errorLogFocusSeq = 0
 /**
- * 错误日志重拉信号：脚本被删除后其报错记录已在后台一并清掉，但标签页常驻不重挂，
+ * 运行日志重拉信号：脚本被删除后其报错记录已在后台一并清掉，但标签页常驻不重挂，
  * 不通知就还显示着「已删脚本」的旧分组。自增即让面板重新拉一次。
  */
 const errorLogReloadSeq = ref(0)
 function openErrorLogTab(focusUuid?: string | null): void {
   if (focusUuid) errorLogFocus.value = { uuid: focusUuid, seq: ++errorLogFocusSeq }
   if (!openTabs.value.some((t) => t.kind === 'error-log')) {
-    openTabs.value.push({ kind: 'error-log', id: 'error-log', title: '错误日志' })
+    openTabs.value.push({ kind: 'error-log', id: 'error-log', title: '运行日志' })
   }
   activate('error-log')
 }
@@ -195,7 +195,7 @@ function openUserscriptBundleTab(uuid: string, title: string): void {
 /**
  * 脚本被删除（列表页广播）：关掉它可能开着的编辑器 / 产物标签页。
  * 先清脏标记再关 —— 脚本连 git 仓都被删了，未保存的改动已无处可存，不该再弹确认。
- * 同时让错误日志标签页重拉：该脚本的报错记录已随删除清掉，不重拉页面上还留着它的分组。
+ * 同时让运行日志标签页重拉：该脚本的报错记录已随删除清掉，不重拉页面上还留着它的分组。
  */
 function onUserscriptDeleted(uuid: string): void {
   for (const id of [`us-edit:${uuid}`, `us-bundle:${uuid}`]) {
@@ -259,8 +259,8 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
           @deleted="onUserscriptDeleted"
           @open-guide="openGuideTab"
         />
-        <!-- 错误日志：三类用户脚本错误的按脚本分类视图（全局仅一个标签页） -->
-        <userscript-error-log-panel
+        <!-- 运行日志：按时间的运行流水视图（全局仅一个标签页） -->
+        <userscript-run-log-panel
           v-else-if="tab.kind === 'error-log'"
           :focus-uuid="errorLogFocus?.uuid ?? null"
           :focus-seq="errorLogFocus?.seq ?? 0"

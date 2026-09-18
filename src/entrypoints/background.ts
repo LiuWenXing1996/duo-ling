@@ -42,10 +42,11 @@ import {
   withRunStats,
   clearGMValues,
   clearRunStats,
-  listUserScriptErrors,
   clearUserScriptErrors,
   appendUserScriptError,
   findUserScriptError,
+  listRunTimeline,
+  clearRunLog,
 } from '@/lib/userscripts/store'
 // 侧边栏页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口
 import {
@@ -352,17 +353,22 @@ const handlers: {
   // **不做任何检测**——检测在 SW 自身的轮询（startAvailabilityWatch），职责分离见 availability-watch.ts
   'userscript:healthCheck': async (): Promise<{ alive: true }> => ({ alive: true }),
 
-  'userscript:errors': async (): Promise<ReturnType<typeof listUserScriptErrors>> => listUserScriptErrors(),
+  // 运行日志时间线：运行行 + 孤儿错误行混排（运行日志标签页）
+  'userscript:runlog': async (): Promise<ReturnType<typeof listRunTimeline>> => listRunTimeline(),
 
   // 错误 ID 修复闭环：AI 的 error_read 工具经 offscreenBridge 到此代查。
   // 精确 id 或唯一 8 位前缀；多命中 / 不存在由信封里的 reason 区分（调用方给可读文案）
   'userscript:errorRead': async (msg): Promise<ReturnType<typeof findUserScriptError>> =>
     findUserScriptError(msg.id),
 
-  // 清错误日志。三态必须靠「字段在不在」区分（`!msg.uuid` 会把「未归属」误判成「全部」）：
-  //   字段缺失 = 清全部；string = 只清该脚本；null = 只清「未归属」记录
+  // 清错误日志（us:errors；「全部/该脚本」范围连带清运行日志 us:run-log 的对应条目——
+  // 时间线上「清空」应一条语义清两个键，否则运行行清不掉）。三态必须靠「字段在不在」区分
+  // （`!msg.uuid` 会把「未归属」误判成「全部」）：
+  //   字段缺失 = 清全部；string = 只清该脚本；null = 只清「未归属」错误记录（run-log 无此形态，不动）
   'userscript:clearErrors': async (msg): Promise<void> => {
-    await clearUserScriptErrors('uuid' in msg ? (msg.uuid ?? null) : undefined)
+    const target = 'uuid' in msg ? (msg.uuid ?? null) : undefined
+    await clearUserScriptErrors(target)
+    await clearRunLog(target)
   },
 
   // SW 自证：把 define 注入的构建信息回给 UI（页面显示用，不依赖 SW DevTools 在场）。

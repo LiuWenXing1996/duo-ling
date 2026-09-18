@@ -25,7 +25,7 @@ const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
 
 // hash 深链（openWorkbench 的约定）：
 //   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
-//   #/errors/<uuid> → 打开错误日志标签页并定位到该脚本（侧边栏灵动岛点击脚本行跳转）
+//   #/errors/<uuid> → 打开运行日志标签页并定位到该脚本（侧边栏灵动岛点击脚本行跳转）
 //   #/settings    → 打开设置标签页
 //   #/guide       → 打开引导标签页（侧边栏「查看开启引导」跳这里）
 function handleHash(): void {
@@ -105,8 +105,8 @@ onUnmounted(() => window.removeEventListener('hashchange', handleHash))
         <button
           class="workspace-nav-item"
           type="button"
-          aria-label="错误日志"
-          title="错误日志（按脚本分类：运行期报错 / 注册失败 / DL 桥失败）"
+          aria-label="运行日志"
+          title="运行日志（按时间：每次运行一条，报错挂在对应运行下）"
           @click="workspaceRef?.openErrorLogTab()"
         >
           <ui-alert-triangle class="size-5" />

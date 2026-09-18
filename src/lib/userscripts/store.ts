@@ -2,20 +2,25 @@
 //
 // 项目数据（源码/配置/产物/enabled）的权威在 IndexedDB 状态库 duoling-state
 // （读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
-// 本文件剩三类：DL.store 值（us:gm:*）、错误日志（us:errors）、运行统计（us:run-stats:*）。
+// 本文件剩四类：DL.store 值（us:gm:*）、错误日志（us:errors）、运行统计（us:run-stats:*）、
+// 运行日志（us:run-log）。
 //
-// 为什么这三类不一起迁：写入方是**注入页面里的用户脚本**（不受我们控制、可能被高频调用、
+// 为什么这些不一起迁：写入方是**注入页面里的用户脚本**（不受我们控制、可能被高频调用、
 // 且脚本崩溃时才上报错误），且它们不参与「脚本是什么」的判定——转 offscreen 只会多一跳、
 // 在最脆弱的时刻更容易丢（见 src/lib/userscripts/state-db.ts）。
 import {
   GM_KEY_PREFIX,
   ERRORS_KEY,
   ERROR_LOG_MAX,
+  RUN_LOG_KEY,
+  RUN_LOG_MAX,
   gmKey,
   runStatsKey,
   type ScriptProject,
   type ScriptSummary,
   type UserScriptErrorRecord,
+  type UserScriptRunLogEntry,
+  type UserScriptRunLogRow,
   type UserScriptRunStats,
 } from './types'
 import { broadcastDataChange } from '../data-broadcast'
@@ -168,13 +173,13 @@ export async function findUserScriptError(id: string): Promise<UserScriptErrorLo
   return { found: false, reason: 'not-found' }
 }
 
-// —— 运行统计（us:run-stats:<uuid>，按脚本聚合计数）——
+// —— 运行统计（us:run-stats:<uuid>）与运行日志（us:run-log）——
 //
-// 防写放大：不逐条落环形日志，每脚本只维护一个小计数器对象（总次数 / 最后运行时间 /
-// 最近一次运行的错误数），一次页面加载只付一次小对象读改写。
-// RMW 与错误日志同款风险（chrome.storage.local 无原子写）：写方都在本 SW 进程内，
-// 按独立队列串行化；与错误队列分开——统计写失败不能拖住错误记录的落盘，反之亦然。
-// 「无变化不落盘」：补播去重 / 旧运行迟到错误两类情况直接 return，不写回。
+// 统计 = 每脚本一个小计数器对象；日志 = 全局环形按时间记「哪次运行发生了」。
+// 两者**并进同一次 RMW 写入**（一次 set 写两个键）：每次页面加载只付一次存储事务，
+// 逐条日志不额外放大写入。RMW 与错误日志同款风险（chrome.storage.local 无原子写）：
+// 写方都在本 SW 进程内，按独立队列串行化；与错误队列分开——统计/日志写失败不能拖住
+// 错误记录的落盘，反之亦然。「无变化不落盘」：补播去重 / 旧运行迟到错误直接 return。
 let statsOpsQueue: Promise<unknown> = Promise.resolve()
 
 function enqueueStatsOp<T>(op: () => Promise<T>): Promise<T> {
@@ -184,24 +189,42 @@ function enqueueStatsOp<T>(op: () => Promise<T>): Promise<T> {
   return run
 }
 
+/** 读运行日志环形（落盘顺序 = 时间正序） */
+async function readRunLog(): Promise<UserScriptRunLogEntry[]> {
+  const r = (await chrome.storage.local.get(RUN_LOG_KEY))[RUN_LOG_KEY] as
+    | UserScriptRunLogEntry[]
+    | undefined
+  return r ?? []
+}
+
 /**
  * 登记一次运行开始（dl-bridge 收到 __dlRunStart 广播时调用，有无 tabId 都记）。
  * 同一 runId 的重复广播（engine 的 load 补救补播）按 lastRunId 去重，是 no-op——
- * 补播若重置 lastRunErrors 会抹掉两次广播之间已上报的错误，故去重必须整体跳过。
+ * 补播若重置 lastRunErrors 会抹掉两次广播之间已上报的错误，故去重必须整体跳过
+ * （运行日志条目也随之不重复追加）。
  */
-export function recordRunStart(uuid: string, runId: string): Promise<void> {
+export function recordRunStart(uuid: string, runId: string, name?: string): Promise<void> {
   return enqueueStatsOp(async () => {
     const key = runStatsKey(uuid)
-    const cur = (await chrome.storage.local.get(key))[key] as UserScriptRunStats | undefined
-    if (cur?.lastRunId === runId) return // 同一次运行的补播：不重复计数、不清错误数
+    const [cur, log] = await Promise.all([
+      chrome.storage.local.get(key).then((r) => r[key] as UserScriptRunStats | undefined),
+      readRunLog(),
+    ])
+    if (cur?.lastRunId === runId) return // 同一次运行的补播：不重复计数、不清错误数、不重复记日志
+    // name 快照由调用方传（dl-bridge 手上有注册表）；没传就留空，UI 回退短 uuid
+    const logNext: UserScriptRunLogEntry[] = [
+      ...log.slice(-(RUN_LOG_MAX - 1)),
+      { runId, uuid, name: name ?? '', time: Date.now() },
+    ]
     const next: UserScriptRunStats = {
       totalRuns: (cur?.totalRuns ?? 0) + 1,
       lastRunAt: Date.now(),
       lastRunId: runId,
       lastRunErrors: 0,
     }
-    await chrome.storage.local.set({ [key]: next })
-    // 管理页的运行统计列靠这条广播实时回拉（合并窗口防导航风暴）
+    // 一次 set 写两个键：统计与日志同事务，写放大不翻倍
+    await chrome.storage.local.set({ [key]: next, [RUN_LOG_KEY]: logNext })
+    // 管理页的运行统计列与运行日志标签页靠这条广播实时回拉（合并窗口防导航风暴）
     broadcastDataChange('runstats', uuid)
   })
 }
@@ -247,7 +270,63 @@ export async function withRunStats(summaries: ScriptSummary[]): Promise<ScriptSu
   })
 }
 
-/** 删除脚本时清掉它的运行统计（与 clearGMValues / clearUserScriptErrors 同一条删除语义） */
-export async function clearRunStats(uuid: string): Promise<void> {
-  await chrome.storage.local.remove(runStatsKey(uuid))
+/**
+ * 运行日志时间线：运行行（us:run-log）+ 无法归属的错误行（us:errors 里 runId 落空 /
+ * 无 runId 的记录）按时间倒序混排。运行期错误按 runId 挂到所属运行行上（不复制明细）。
+ */
+export async function listRunTimeline(): Promise<UserScriptRunLogRow[]> {
+  const [log, errors] = await Promise.all([readRunLog(), listUserScriptErrors()])
+  const runIds = new Set(log.map((r) => r.runId))
+  const byRun = new Map<string, UserScriptErrorRecord[]>()
+  const loose: UserScriptErrorRecord[] = []
+  for (const e of errors) {
+    if (e.runId && runIds.has(e.runId)) {
+      const bucket = byRun.get(e.runId)
+      if (bucket) bucket.push(e)
+      else byRun.set(e.runId, [e])
+    } else {
+      loose.push(e)
+    }
+  }
+  const rows: UserScriptRunLogRow[] = [
+    ...log.map((r) => ({
+      kind: 'run' as const,
+      runId: r.runId,
+      uuid: r.uuid,
+      name: r.name,
+      time: r.time,
+      errors: byRun.get(r.runId) ?? [],
+    })),
+    ...loose.map((e) => ({ kind: 'error' as const, record: e })),
+  ]
+  return rows.sort((a, b) => (b.kind === 'run' ? b.time : b.record.time) - (a.kind === 'run' ? a.time : a.record.time))
+}
+
+/**
+ * 清运行日志（与统计同队列串行，避免 RMW 互相覆盖）。
+ * @param uuid 缺省 = 清全部；字符串 = 只清该脚本的条目；null = no-op
+ *   （日志条目必带 uuid，「未归属」只存在于 us:errors，由 clearUserScriptErrors 管）。
+ */
+export function clearRunLog(uuid?: string | null): Promise<void> {
+  if (uuid === null) return Promise.resolve()
+  return enqueueStatsOp(async () => {
+    if (uuid === undefined) {
+      await chrome.storage.local.remove(RUN_LOG_KEY)
+    } else {
+      const log = await readRunLog()
+      const kept = log.filter((r) => r.uuid !== uuid)
+      if (kept.length === log.length) return // 无该脚本条目：不写回
+      if (kept.length) await chrome.storage.local.set({ [RUN_LOG_KEY]: kept })
+      else await chrome.storage.local.remove(RUN_LOG_KEY)
+    }
+    broadcastDataChange('runstats')
+  })
+}
+
+/** 删除脚本时清掉它的运行统计与运行日志条目（与 clearGMValues / clearUserScriptErrors 同一条删除语义） */
+export function clearRunStats(uuid: string): Promise<void> {
+  return Promise.all([
+    chrome.storage.local.remove(runStatsKey(uuid)),
+    clearRunLog(uuid),
+  ]).then(() => {})
 }
