@@ -11,6 +11,12 @@ import {
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
+import {
+  Tooltip as UiTooltip,
+  TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider,
+  TooltipTrigger as UiTooltipTrigger
+} from '@/components/ui/tooltip'
 import type { ModelProfile, ModelProvider } from '@/types/model'
 import ModelFormDialog from './ModelFormDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -169,24 +175,38 @@ onMounted(() => {
 
                 <!-- 操作 -->
                 <div class="flex items-center justify-end gap-1">
-                  <ui-button
-                    variant="ghost"
-                    size="sm"
-                    class="size-8 p-0"
-                    title="编辑"
-                    @click="openEdit(profile)"
-                  >
-                    <ui-pencil class="size-4" />
-                  </ui-button>
-                  <ui-button
-                    variant="ghost"
-                    size="sm"
-                    class="size-8 p-0 text-destructive hover:text-destructive"
-                    title="删除"
-                    @click="removeModel(profile)"
-                  >
-                    <ui-trash2 class="size-4" />
-                  </ui-button>
+                  <ui-tooltip-provider>
+                    <ui-tooltip>
+                      <ui-tooltip-trigger as-child>
+                        <ui-button
+                          variant="ghost"
+                          size="sm"
+                          class="size-8 p-0"
+                          aria-label="编辑"
+                          @click="openEdit(profile)"
+                        >
+                          <ui-pencil class="size-4" />
+                        </ui-button>
+                      </ui-tooltip-trigger>
+                      <ui-tooltip-content>编辑</ui-tooltip-content>
+                    </ui-tooltip>
+                  </ui-tooltip-provider>
+                  <ui-tooltip-provider>
+                    <ui-tooltip>
+                      <ui-tooltip-trigger as-child>
+                        <ui-button
+                          variant="ghost"
+                          size="sm"
+                          class="size-8 p-0 text-destructive hover:text-destructive"
+                          aria-label="删除"
+                          @click="removeModel(profile)"
+                        >
+                          <ui-trash2 class="size-4" />
+                        </ui-button>
+                      </ui-tooltip-trigger>
+                      <ui-tooltip-content>删除</ui-tooltip-content>
+                    </ui-tooltip>
+                  </ui-tooltip-provider>
                   <ui-switch :model-value="profile.enabled" aria-label="启用模型" @update:model-value="toggleEnabled(profile)">
                     <ui-switch-thumb />
                   </ui-switch>
