@@ -13,6 +13,8 @@
 // 设置 / UI 测试 / 脚本列表。
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
+  AlertTriangle as UiAlertTriangle,
+  Compass as UiCompass,
   Database as UiDatabase,
   FlaskConical as UiFlaskConical,
   FolderTree as UiFolderTree,
@@ -27,10 +29,10 @@ const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
 
 // hash 深链（openWorkbench 的既定约定，2026-09-15 才真正实现）：
 //   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
-//   #/errors/<uuid> → 打开脚本列表并把错误日志定位到该脚本（页面浮窗点击脚本行跳转）
+//   #/errors/<uuid> → 打开错误日志标签页并定位到该脚本（页面浮窗点击脚本行跳转）
 //   #/settings    → 打开设置标签页
 //   #/guide       → 打开引导标签页（侧边栏「查看开启引导」跳这里）
-onMounted(() => {
+function handleHash(): void {
   const tool = location.hash.match(/^#\/tool\/([A-Za-z0-9-]+)/)
   if (tool) {
     void getProject(tool[1]).then((p) => {
@@ -40,7 +42,7 @@ onMounted(() => {
   }
   const err = location.hash.match(/^#\/errors\/([A-Za-z0-9-]+)/)
   if (err) {
-    workspaceRef.value?.openUserscriptListTab(err[1])
+    workspaceRef.value?.openErrorLogTab(err[1])
     return
   }
   if (location.hash === '#/guide') {
@@ -48,7 +50,15 @@ onMounted(() => {
     return
   }
   if (location.hash === '#/settings') workspaceRef.value?.openSettingsTab()
+}
+
+onMounted(() => {
+  handleHash()
+  // 已打开的工作台被再次深链时，浮窗走的是 chrome.tabs.update 只改 hash（文档不重载），
+  // 只靠 onMounted 会「点了没反应」——必须接住 hashchange。
+  window.addEventListener('hashchange', handleHash)
 })
+onUnmounted(() => window.removeEventListener('hashchange', handleHash))
 </script>
 
 <template>
@@ -95,6 +105,15 @@ onMounted(() => {
           @click="workspaceRef?.openUserscriptListTab()"
         >
           <ui-list class="size-5" />
+        </button>
+        <button
+          class="workspace-nav-item"
+          type="button"
+          aria-label="错误日志"
+          title="错误日志（按脚本分类：运行期报错 / 注册失败 / DL 桥失败）"
+          @click="workspaceRef?.openErrorLogTab()"
+        >
+          <ui-alert-triangle class="size-5" />
         </button>
         <button
           class="workspace-nav-item"

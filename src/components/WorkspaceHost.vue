@@ -11,6 +11,7 @@ import GuidePanel from '@/components/GuidePanel.vue'
 import UiTestPanel from '@/components/UiTestPanel.vue'
 import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
 import UserscriptListPanel from '@/components/userscript/UserscriptListPanel.vue'
+import UserscriptErrorLogPanel from '@/components/userscript/UserscriptErrorLogPanel.vue'
 import UserscriptEditorPanel from '@/components/userscript/UserscriptEditorPanel.vue'
 import LfsBrowserPanel from '@/components/userscript/LfsBrowserPanel.vue'
 import UserscriptHistoryPanel from '@/components/userscript/UserscriptHistoryPanel.vue'
@@ -79,14 +80,35 @@ function openUiTestTab(): void {
 
 // 打开脚本列表标签页：若已打开则激活，否则新开一个。
 // 2026-09-15 起这是脚本管理的唯一入口（旧管理器覆盖层已删除，能力全部并入本标签页）。
-// focusErrorUuid：浮窗深链 #/errors/<uuid> 进来时顺带把错误日志定位到该脚本。
-const errorFocusUuid = ref<string | null>(null)
-function openUserscriptListTab(focusErrorUuid?: string): void {
-  errorFocusUuid.value = focusErrorUuid ?? null
+function openUserscriptListTab(): void {
   if (!openTabs.value.some((t) => t.kind === 'userscript-list')) {
     openTabs.value.push({ kind: 'userscript-list', id: 'userscript-list', title: '脚本列表' })
   }
   activate('userscript-list')
+}
+
+/**
+ * 打开错误日志标签页：全局仅一个（错误日志是全局视图，每脚本开一个没有意义）。
+ * focusUuid：浮窗深链 #/errors/<uuid> / 列表页入口进来时按该脚本定位；
+ * 传 null（或不传）则保持用户当前选择，不强行跳分组。
+ *
+ * 定位请求用对象包一层（seq 递增）而不是直接存 uuid 字符串：标签页常驻不重挂
+ * （ui-tabs 的 unmount-on-hide=false），若只存字符串，对**同一个脚本**再点一次时值不变、
+ * 面板的 watch 不触发，表现成「点了没反应」。
+ */
+const errorLogFocus = ref<{ uuid: string; seq: number } | null>(null)
+let errorLogFocusSeq = 0
+/**
+ * 错误日志重拉信号：脚本被删除后其报错记录已在后台一并清掉，但标签页常驻不重挂，
+ * 不通知就还显示着「已删脚本」的旧分组。自增即让面板重新拉一次。
+ */
+const errorLogReloadSeq = ref(0)
+function openErrorLogTab(focusUuid?: string | null): void {
+  if (focusUuid) errorLogFocus.value = { uuid: focusUuid, seq: ++errorLogFocusSeq }
+  if (!openTabs.value.some((t) => t.kind === 'error-log')) {
+    openTabs.value.push({ kind: 'error-log', id: 'error-log', title: '错误日志' })
+  }
+  activate('error-log')
 }
 
 // 打开 lfs 浏览标签页：只读调试视图（offscreen 持有的 lightning-fs 库整库文件树），全局仅一个
@@ -170,12 +192,14 @@ function openUserscriptBundleTab(uuid: string, title: string): void {
 /**
  * 脚本被删除（列表页广播）：关掉它可能开着的编辑器 / 产物标签页。
  * 先清脏标记再关 —— 脚本连 git 仓都被删了，未保存的改动已无处可存，不该再弹确认。
+ * 同时让错误日志标签页重拉：该脚本的报错记录已随删除清掉，不重拉页面上还留着它的分组。
  */
 function onUserscriptDeleted(uuid: string): void {
   for (const id of [`us-edit:${uuid}`, `us-bundle:${uuid}`]) {
     delete dirtyTabs.value[id]
     if (openTabs.value.some((t) => t.id === id)) closeTab(id)
   }
+  errorLogReloadSeq.value++
 }
 
 // 工作区 tab 状态上报主进程：agent_workspace_tabs 工具据此回答「当前打开了哪些页面」。
@@ -191,8 +215,8 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「引导 / 设置 / UI 测试 / 脚本列表 / lfs 浏览 / 会话数据」与脚本管理器的「编辑」入口
-defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListTab, openLfsBrowserTab, openChatDataTab, openUserscriptEditor })
+// 暴露给根布局：左侧导航栏「引导 / 设置 / UI 测试 / 脚本列表 / 错误日志 / lfs 浏览 / 会话数据」与脚本管理器的「编辑」入口
+defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorLogTab, openLfsBrowserTab, openChatDataTab, openUserscriptEditor })
 </script>
 
 <template>
@@ -228,10 +252,16 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
         <!-- 脚本列表：列出全部用户脚本 + 启停；「编辑」开对应的编辑器标签页 -->
         <userscript-list-panel
           v-else-if="tab.kind === 'userscript-list'"
-          :focus-error-uuid="errorFocusUuid"
           @edit="openUserscriptEditor"
           @deleted="onUserscriptDeleted"
           @open-guide="openGuideTab"
+        />
+        <!-- 错误日志：三类用户脚本错误的按脚本分类视图（全局仅一个标签页） -->
+        <userscript-error-log-panel
+          v-else-if="tab.kind === 'error-log'"
+          :focus-uuid="errorLogFocus?.uuid ?? null"
+          :focus-seq="errorLogFocus?.seq ?? 0"
+          :reload-seq="errorLogReloadSeq"
         />
         <!-- 用户脚本编辑器：每脚本一个标签页；脏状态上报给 closeTab 做关闭前确认；
              历史按钮请求开历史标签页；恢复完成后 editorReloadTick 变更强制重载编辑态 -->

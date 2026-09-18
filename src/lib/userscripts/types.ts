@@ -95,6 +95,9 @@ export const GM_KEY_PREFIX = 'us:gm:'
 export const SETTINGS_KEY = 'us:settings'
 /** 错误日志：us:errors（环形保留最近 N 条） */
 export const ERRORS_KEY = 'us:errors'
+/** 错误日志环形上限：超过后只留最近 N 条。
+ *  写侧（store.ts）裁剪、UI 文案（错误日志标签页）都读这里 —— 上限只写一处，避免文案与实现漂移。 */
+export const ERROR_LOG_MAX = 50
 
 /** 默认入口文件名 */
 export const ENTRY_DEFAULT = 'main.js'

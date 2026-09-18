@@ -1,11 +1,15 @@
-// UI 组件测试：UserscriptListPanel.vue 的「新建脚本」动线。
-// 只验证一条规则：新建**不**跳编辑器（不 emit edit），改为在该行标「刚新建」，
-// 点该行「编辑」进过一次即摘标。不测样式。
+// UI 组件测试：UserscriptListPanel.vue 的两组易回归语义。
+//
+// A. **列表不承载报错展示**（2026-09-18 设计结论）：报错属历史信息，由独立「错误日志」标签页承载，
+//    脚本列表本身不展示任何脚本报错 —— 环境级问题（引擎不可用）只靠 availability 横幅一处兜底。
+// B. **新建脚本动线**（PR #37）：新建**不**跳编辑器（不 emit edit），改为在该行标「刚新建」，
+//    点该行「编辑」进过一次即摘标。
+//    注：A 与 B 在「注册失败要不要告不告诉用户」上交过锋 —— 结论是**不告**（见下方 B 组第 3 条）。
 // 边界 mock：ui-client（IPC 客户端）；按钮 / 弹窗 / 开关用真实 shadcn 组件。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import UserscriptListPanel from './UserscriptListPanel.vue'
-import type { ScriptSummary } from '@/lib/userscripts/types'
+import type { ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
 
 const list = vi.hoisted(() => vi.fn())
 const errors = vi.hoisted(() => vi.fn())
@@ -37,10 +41,24 @@ const summary = (uuid: string, name: string): ScriptSummary => ({
   updatedAt: 0,
 })
 
+const OK_AVAILABILITY: UserScriptsAvailability = {
+  available: true,
+  isFirefox: false,
+  chromeMajor: 140,
+  guideText: '',
+}
+const ENGINE_OFF: UserScriptsAvailability = {
+  available: false,
+  isFirefox: false,
+  chromeMajor: 140,
+  guideText: 'Chrome ≥138：在扩展详情页开启「Allow User Scripts」开关后即可使用。',
+}
+
 let wrapper: VueWrapper
 
 async function mountPanel(): Promise<VueWrapper> {
   const w = mount(UserscriptListPanel)
+  await flushPromises()
   await flushPromises()
   return w
 }
@@ -53,22 +71,56 @@ function rowText(i: number): string {
 
 const buttonByText = (text: string) => wrapper.findAll('button').find((b) => b.text() === text)!
 
+/** 行内报错入口（旧行为；新设计不应出现） */
+const errorChips = () => wrapper.findAll('button').filter((b) => b.text().includes('条报错'))
+
 beforeEach(() => {
   vi.clearAllMocks()
   list.mockResolvedValue([summary('u1', '已有脚本')])
   errors.mockResolvedValue([])
-  availability.mockResolvedValue({
-    available: true,
-    isFirefox: false,
-    chromeMajor: 138,
-    guideText: '',
-  })
+  availability.mockResolvedValue(OK_AVAILABILITY)
   create.mockResolvedValue({ uuid: 'u2', name: '新建的脚本 1' })
   toggle.mockResolvedValue({})
 })
 
 afterEach(() => {
   wrapper?.unmount()
+})
+
+describe('UserscriptListPanel 不承载报错展示', () => {
+  it('挂载后不调用 userscriptClient.errors()（报错展示已迁出列表）', async () => {
+    list.mockResolvedValue([summary('u1', '脚本A')])
+    wrapper = await mountPanel()
+    expect(errors).not.toHaveBeenCalled()
+  })
+
+  it('有报错的脚本行也不显示行内入口（报错不按脚本逐条复述，归独立标签页）', async () => {
+    list.mockResolvedValue([summary('u1', '脚本A'), summary('u2', '脚本B')])
+    wrapper = await mountPanel()
+    expect(errorChips()).toHaveLength(0)
+  })
+
+  it('启停返回 registerError 时列表不出现 per-script 报错提示', async () => {
+    list.mockResolvedValue([summary('u1', '脚本A')])
+    toggle.mockResolvedValue({ registerError: 'userScripts 引擎不可用：…' })
+    wrapper = await mountPanel()
+    expect(errorChips()).toHaveLength(0)
+
+    await wrapper.findComponent({ name: 'SwitchRoot' }).vm.$emit('update:modelValue', false)
+    await flushPromises()
+
+    expect(toggle).toHaveBeenCalledWith('u1', false)
+    expect(errorChips()).toHaveLength(0)
+  })
+
+  it('引擎不可用时只显示 availability 横幅，不为每个脚本挂报错入口', async () => {
+    availability.mockResolvedValue(ENGINE_OFF)
+    list.mockResolvedValue([summary('u1', '脚本A'), summary('u2', '脚本B')])
+    wrapper = await mountPanel()
+
+    expect(wrapper.text()).toContain('用户脚本引擎不可用')
+    expect(errorChips()).toHaveLength(0)
+  })
 })
 
 describe('UserscriptListPanel 新建脚本', () => {
@@ -98,7 +150,10 @@ describe('UserscriptListPanel 新建脚本', () => {
     expect(rowText(0)).not.toContain('刚新建')
   })
 
-  it('注册失败仍标「刚新建」并给出警告（数据已建，只是没跑起来）', async () => {
+  // 与上游同名的用例不同：上游断言「列表页弹出注册失败警告」，这里断言相反 ——
+  // 注册失败**不在列表页报错**（报错属历史信息，归错误日志标签页；环境态由 availability 横幅兜底，
+  // 在列表再说一遍是同一件事两次）。数据已落库这一点由「仍然标刚新建」体现。
+  it('注册失败仍标「刚新建」，但不在列表页报错（归错误日志标签页）', async () => {
     wrapper = await mountPanel()
     list.mockResolvedValue([summary('u2', '新建的脚本 1'), summary('u1', '已有脚本')])
     create.mockResolvedValue({ uuid: 'u2', name: '新建的脚本 1', registerError: '未开启 Allow User Scripts' })
@@ -107,7 +162,7 @@ describe('UserscriptListPanel 新建脚本', () => {
 
     expect(wrapper.emitted('edit')).toBeUndefined()
     expect(rowText(0)).toContain('刚新建')
-    expect(wrapper.text()).toContain('不会注入页面：未开启 Allow User Scripts')
+    expect(wrapper.text()).not.toContain('不会注入页面')
   })
 
   it('刷新列表不摘标（会话内标记，刷新重算的是数据不是这个标）', async () => {

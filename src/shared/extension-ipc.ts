@@ -144,7 +144,11 @@ export type RuntimeRequest =
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
   | { kind: 'userscript:availability' }
   | { kind: 'userscript:errors' }
-  | { kind: 'userscript:clearErrors' }
+  // 清错误日志。三态靠「字段在不在」区分，**不可用 falsy 判定**：
+  //   不带该字段 = 清全部；uuid: string = 只清该脚本；uuid: null = 只清「未归属」记录。
+  // unassigned 用显式 null 而非 undefined：结构化克隆会保留 null，而 undefined 值在部分
+  // 序列化路径下与「字段缺失」无法区分（Firefox / JSON 回退），故调用方必须省略字段而非传 undefined。
+  | { kind: 'userscript:clearErrors'; uuid?: string | null }
   // 错误 ID 修复闭环：AI 的 error_read 工具经 SW 代查
   // us:errors（offscreen 拿不到 chrome.storage）。id = 完整记录 id 或唯一 8 位前缀
   | { kind: 'userscript:errorRead'; id: string }
