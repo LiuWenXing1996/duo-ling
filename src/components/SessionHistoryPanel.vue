@@ -29,6 +29,12 @@ import {
   DropdownMenuSeparator as UiDropdownMenuSeparator,
   DropdownMenuTrigger as UiDropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import {
+  Tooltip as UiTooltip,
+  TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider,
+  TooltipTrigger as UiTooltipTrigger
+} from '@/components/ui/tooltip'
 import { Input as UiInput } from '@/components/ui/input'
 import type { Conversation, ConversationSearchHit } from '@/shared/types'
 import { formatSessionTime } from '@/composables/use-global-conversation'
@@ -194,37 +200,55 @@ function confirmRename(): void {
         >
       </h2>
       <div class="flex items-center gap-1">
-        <ui-button
-          variant="ghost"
-          size="icon"
-          class="no-drag size-7"
-          aria-label="删除全部会话"
-          title="删除全部会话"
-          :disabled="!props.conversations.length"
-          @click.stop="openDelete({ type: 'all' })"
-        >
-          <ui-trash2 class="size-4" />
-        </ui-button>
-        <ui-button
-          variant="ghost"
-          size="icon"
-          class="no-drag size-7"
-          aria-label="新建会话"
-          title="新建会话"
-          @click="emit('new')"
-        >
-          <ui-plus class="size-4" />
-        </ui-button>
-        <ui-button
-          variant="ghost"
-          size="icon"
-          class="no-drag size-7"
-          aria-label="收起"
-          title="收起"
-          @click="emit('close')"
-        >
-          <ui-chevron-left class="size-4" />
-        </ui-button>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <ui-button
+                variant="ghost"
+                size="icon"
+                class="no-drag size-7"
+                aria-label="删除全部会话"
+                :disabled="!props.conversations.length"
+                @click.stop="openDelete({ type: 'all' })"
+              >
+                <ui-trash2 class="size-4" />
+              </ui-button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content>删除全部会话</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <ui-button
+                variant="ghost"
+                size="icon"
+                class="no-drag size-7"
+                aria-label="新建会话"
+                @click="emit('new')"
+              >
+                <ui-plus class="size-4" />
+              </ui-button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content>新建会话</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <ui-button
+                variant="ghost"
+                size="icon"
+                class="no-drag size-7"
+                aria-label="收起"
+                @click="emit('close')"
+              >
+                <ui-chevron-left class="size-4" />
+              </ui-button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content>收起</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
       </div>
     </header>
 
@@ -272,6 +296,9 @@ function confirmRename(): void {
               </p>
             </div>
             <ui-dropdown-menu>
+              <!-- ⚠️ 此按钮暂不套 shadcn Tooltip：TooltipTrigger as-child 夹在 DropdownMenu
+                   与按钮之间会让 reka-ui 的 menu popper 失去定位（内容渲染到视口外，
+                   translate(0,-200%) 兜底），详见 AGENTS.md「Tooltip 组合约束」 -->
               <ui-dropdown-menu-trigger as-child>
                 <ui-button
                   variant="ghost"

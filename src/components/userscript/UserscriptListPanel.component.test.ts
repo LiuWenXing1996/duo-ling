@@ -70,7 +70,7 @@ async function mountPanel(): Promise<VueWrapper> {
 
 /** 列表行（编辑按钮 → 行容器）：取行内文本 */
 function rowText(i: number): string {
-  const btn = wrapper.findAll('button[title="编辑脚本"]')[i]
+  const btn = wrapper.findAll('button[aria-label="编辑脚本"]')[i]
   return btn?.element.closest('.bg-card')?.textContent ?? ''
 }
 
@@ -155,10 +155,10 @@ describe('UserscriptListPanel 搜索 / 筛选 / 排序', () => {
   it('按名称过滤行，计数行显示「筛选显示 N 个」', async () => {
     list.mockResolvedValue([summary('u1', '脚本A'), summary('u2', '脚本B')])
     wrapper = await mountPanel()
-    expect(wrapper.findAll('button[title="编辑脚本"]')).toHaveLength(2)
+    expect(wrapper.findAll('button[aria-label="编辑脚本"]')).toHaveLength(2)
 
     await searchInput().setValue('脚本A')
-    expect(wrapper.findAll('button[title="编辑脚本"]')).toHaveLength(1)
+    expect(wrapper.findAll('button[aria-label="编辑脚本"]')).toHaveLength(1)
     expect(rowText(0)).toContain('脚本A')
     expect(wrapper.text()).toContain('筛选显示 1 个')
   })
@@ -167,7 +167,7 @@ describe('UserscriptListPanel 搜索 / 筛选 / 排序', () => {
     list.mockResolvedValue([summary('u1', '脚本A'), summary('u2', '脚本B')])
     wrapper = await mountPanel()
     await searchInput().setValue('a.example')
-    expect(wrapper.findAll('button[title="编辑脚本"]')).toHaveLength(2)
+    expect(wrapper.findAll('button[aria-label="编辑脚本"]')).toHaveLength(2)
   })
 
   it('状态筛选「已停用」只显示停用脚本', async () => {
@@ -179,7 +179,7 @@ describe('UserscriptListPanel 搜索 / 筛选 / 排序', () => {
     await chip.trigger('click')
     await flushPromises()
 
-    expect(wrapper.findAll('button[title="编辑脚本"]')).toHaveLength(1)
+    expect(wrapper.findAll('button[aria-label="编辑脚本"]')).toHaveLength(1)
     expect(rowText(0)).toContain('脚本A')
   })
 
@@ -254,7 +254,7 @@ describe('UserscriptListPanel 新建脚本', () => {
     await buttonByText('添加脚本').trigger('click')
     await flushPromises()
 
-    await wrapper.findAll('button[title="编辑脚本"]')[0]!.trigger('click')
+    await wrapper.findAll('button[aria-label="编辑脚本"]')[0]!.trigger('click')
     expect(wrapper.emitted('edit')).toEqual([['u2', '新建的脚本 1']])
     expect(rowText(0)).not.toContain('刚新建')
   })
@@ -280,7 +280,7 @@ describe('UserscriptListPanel 新建脚本', () => {
     await buttonByText('添加脚本').trigger('click')
     await flushPromises()
 
-    await wrapper.find('button[title="刷新列表"]').trigger('click')
+    await wrapper.find('button[aria-label="刷新列表"]').trigger('click')
     await flushPromises()
 
     expect(rowText(0)).toContain('刚新建')

@@ -18,6 +18,12 @@ import ChatPanel from '@/components/ChatPanel.vue'
 import PageScriptsMonitor from '@/components/PageScriptsMonitor.vue'
 import SessionHistoryPanel from '@/components/SessionHistoryPanel.vue'
 import { Button as UiButton } from '@/components/ui/button'
+import {
+  Tooltip as UiTooltip,
+  TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider,
+  TooltipTrigger as UiTooltipTrigger
+} from '@/components/ui/tooltip'
 import { useGlobalConversation } from '@/composables/use-global-conversation'
 
 const {
@@ -146,49 +152,77 @@ function connectKeepAlive(): void {
   <div class="relative flex h-full min-h-0 flex-col bg-background text-foreground">
     <header class="flex h-11 shrink-0 items-center gap-0.5 border-b border-border px-2">
       <!-- 会话列表入口：顶栏最左侧一个按钮，点开左侧浮层抽屉 -->
-      <ui-button
-        variant="ghost"
-        size="icon"
-        class="size-7 shrink-0"
-        title="会话列表"
-        @click="toggleSidebar"
-      >
-        <ui-panel-left class="size-4" />
-      </ui-button>
+      <ui-tooltip-provider>
+        <ui-tooltip>
+          <ui-tooltip-trigger as-child>
+            <ui-button
+              variant="ghost"
+              size="icon"
+              class="size-7 shrink-0"
+              aria-label="会话列表"
+              @click="toggleSidebar"
+            >
+              <ui-panel-left class="size-4" />
+            </ui-button>
+          </ui-tooltip-trigger>
+          <ui-tooltip-content>会话列表</ui-tooltip-content>
+        </ui-tooltip>
+      </ui-tooltip-provider>
 
       <div class="min-w-0 flex-1 truncate px-1 text-sm font-medium" :title="activeTitle">
         {{ activeTitle }}
       </div>
-      <ui-button
-        variant="ghost"
-        size="icon"
-        class="size-7 shrink-0"
-        title="复制整个会话记录（markdown）"
-        :disabled="!messages.length"
-        data-testid="copy-conversation"
-        @click="copyConversation"
-      >
-        <ui-check v-if="conversationCopied" class="size-4 text-green-600" />
-        <ui-clipboard-list v-else class="size-4" />
-      </ui-button>
-      <ui-button
-        variant="ghost"
-        size="icon"
-        class="size-7 shrink-0"
-        title="新建会话"
-        @click="handleNew"
-      >
-        <ui-plus class="size-4" />
-      </ui-button>
-      <ui-button
-        variant="ghost"
-        size="icon"
-        class="size-7 shrink-0"
-        title="打开工作台"
-        @click="openWorkbench()"
-      >
-        <ui-layout-dashboard class="size-4" />
-      </ui-button>
+      <ui-tooltip-provider>
+        <ui-tooltip>
+          <ui-tooltip-trigger as-child>
+            <ui-button
+              variant="ghost"
+              size="icon"
+              class="size-7 shrink-0"
+              aria-label="复制整个会话记录（markdown）"
+              :disabled="!messages.length"
+              data-testid="copy-conversation"
+              @click="copyConversation"
+            >
+              <ui-check v-if="conversationCopied" class="size-4 text-green-600" />
+              <ui-clipboard-list v-else class="size-4" />
+            </ui-button>
+          </ui-tooltip-trigger>
+          <ui-tooltip-content>复制整个会话记录（markdown）</ui-tooltip-content>
+        </ui-tooltip>
+      </ui-tooltip-provider>
+      <ui-tooltip-provider>
+        <ui-tooltip>
+          <ui-tooltip-trigger as-child>
+            <ui-button
+              variant="ghost"
+              size="icon"
+              class="size-7 shrink-0"
+              aria-label="新建会话"
+              @click="handleNew"
+            >
+              <ui-plus class="size-4" />
+            </ui-button>
+          </ui-tooltip-trigger>
+          <ui-tooltip-content>新建会话</ui-tooltip-content>
+        </ui-tooltip>
+      </ui-tooltip-provider>
+      <ui-tooltip-provider>
+        <ui-tooltip>
+          <ui-tooltip-trigger as-child>
+            <ui-button
+              variant="ghost"
+              size="icon"
+              class="size-7 shrink-0"
+              aria-label="打开工作台"
+              @click="openWorkbench()"
+            >
+              <ui-layout-dashboard class="size-4" />
+            </ui-button>
+          </ui-tooltip-trigger>
+          <ui-tooltip-content>打开工作台</ui-tooltip-content>
+        </ui-tooltip>
+      </ui-tooltip-provider>
     </header>
 
     <!-- 孤儿任务横幅：offscreen 宿主被杀后遗留的进行中任务 -->

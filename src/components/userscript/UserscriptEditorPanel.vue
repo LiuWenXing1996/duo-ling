@@ -20,6 +20,12 @@ import {
   Star as UiStar,
   Trash2 as UiTrash2
 } from '@lucide/vue'
+import {
+  Tooltip as UiTooltip,
+  TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider,
+  TooltipTrigger as UiTooltipTrigger
+} from '@/components/ui/tooltip'
 // CodeMirror 6：顶层只装了老大批准的 codemirror + @codemirror/lang-javascript 两个包，
 // 下面按需引用的都是 codemirror 的直接依赖（官方分包），不新增 package.json 条目。
 import { EditorState, type Extension } from '@codemirror/state'
@@ -590,22 +596,36 @@ useDataSync('script', (push) => {
           </p>
         </div>
         <div class="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            class="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-            title="构建产物（打开产物标签页，只读）"
-            @click="emit('openBundle', props.uuid, scriptName)"
-          >
-            <ui-package class="size-4" />
-          </button>
-          <button
-            type="button"
-            class="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-            title="历史版本（打开历史标签页）"
-            @click="emit('openHistory', props.uuid, scriptName)"
-          >
-            <ui-history class="size-4" />
-          </button>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <button
+                type="button"
+                class="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                aria-label="构建产物（打开产物标签页，只读）"
+                @click="emit('openBundle', props.uuid, scriptName)"
+              >
+                <ui-package class="size-4" />
+              </button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content>构建产物（打开产物标签页，只读）</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <button
+                type="button"
+                class="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                aria-label="历史版本（打开历史标签页）"
+                @click="emit('openHistory', props.uuid, scriptName)"
+              >
+                <ui-history class="size-4" />
+              </button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content>历史版本（打开历史标签页）</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
         </div>
       </div>
 
@@ -716,41 +736,69 @@ useDataSync('script', (push) => {
           <div class="flex items-center justify-between border-b border-border px-2 py-1.5">
             <span class="text-xs text-muted-foreground">文件（{{ fileCount }}）</span>
             <div class="flex items-center gap-0.5">
-              <button
-                type="button"
-                class="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                title="新文件"
-                @click="addFile"
-              >
-                <ui-plus class="size-3.5" />
-              </button>
-              <button
-                type="button"
-                :disabled="!activeFile"
-                class="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-40"
-                title="重命名当前文件"
-                @click="renameFile(activeFile)"
-              >
-                <ui-pencil class="size-3.5" />
-              </button>
-              <button
-                v-if="activeFile && activeFile !== editEntry"
-                type="button"
-                class="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                title="设为入口"
-                @click="((editEntry = activeFile), (editDirty = true))"
-              >
-                <ui-star class="size-3.5" />
-              </button>
-              <button
-                v-if="activeFile && activeFile !== editEntry"
-                type="button"
-                class="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                title="删除当前文件"
-                @click="removeFile(activeFile)"
-              >
-                <ui-trash2 class="size-3.5" />
-              </button>
+            <ui-tooltip-provider>
+              <ui-tooltip>
+                <ui-tooltip-trigger as-child>
+                  <button
+                    type="button"
+                    class="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                    aria-label="新文件"
+                    @click="addFile"
+                  >
+                    <ui-plus class="size-3.5" />
+                  </button>
+                </ui-tooltip-trigger>
+                <ui-tooltip-content>新文件</ui-tooltip-content>
+              </ui-tooltip>
+            </ui-tooltip-provider>
+            <ui-tooltip-provider>
+              <ui-tooltip>
+                <ui-tooltip-trigger as-child>
+                  <button
+                    type="button"
+                    :disabled="!activeFile"
+                    class="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-40"
+                    aria-label="重命名当前文件"
+                    @click="renameFile(activeFile)"
+                  >
+                    <ui-pencil class="size-3.5" />
+                  </button>
+                </ui-tooltip-trigger>
+                <ui-tooltip-content>重命名当前文件</ui-tooltip-content>
+              </ui-tooltip>
+            </ui-tooltip-provider>
+            <ui-tooltip-provider>
+              <ui-tooltip>
+                <ui-tooltip-trigger as-child>
+                  <button
+                    v-if="activeFile && activeFile !== editEntry"
+                    type="button"
+                    class="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                    aria-label="设为入口"
+                    @click="((editEntry = activeFile), (editDirty = true))"
+                  >
+                    <ui-star class="size-3.5" />
+                  </button>
+                </ui-tooltip-trigger>
+                <ui-tooltip-content>设为入口</ui-tooltip-content>
+              </ui-tooltip>
+            </ui-tooltip-provider>
+            <ui-tooltip-provider>
+              <ui-tooltip>
+                <ui-tooltip-trigger as-child>
+                  <button
+                    v-if="activeFile && activeFile !== editEntry"
+                    type="button"
+                    class="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    aria-label="删除当前文件"
+                    @click="removeFile(activeFile)"
+                  >
+                    <ui-trash2 class="size-3.5" />
+                  </button>
+                </ui-tooltip-trigger>
+                <ui-tooltip-content>删除当前文件</ui-tooltip-content>
+              </ui-tooltip>
+            </ui-tooltip-provider>
             </div>
           </div>
           <FileTree
