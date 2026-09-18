@@ -209,6 +209,15 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
     for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i)
     return buf.buffer
   }
+  // 二进制请求体 → base64 信封（契约 FetchBinaryBody）：二进制无法结构化克隆过桥
+  function __bytesToBase64(bytes) {
+    var s = ''
+    var chunk = 0x8000
+    for (var i = 0; i < bytes.length; i += chunk) {
+      s += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+    }
+    return btoa(s)
+  }
   // —— 反向中继客户端——
   var __dlPageApi = ${clientSource}
 
@@ -257,7 +266,9 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
       }
     },
     tabs: {
-      open: function (url, opts) { return __dlSend({ c: 'tabs.open', url: url, active: !!(opts && opts.active) }) }
+      open: function (url, opts) { return __dlSend({ c: 'tabs.open', url: url, active: !!(opts && opts.active) }) },
+      close: function (tabId) { return __dlSend({ c: 'tabs.close', tabId: tabId }) },
+      focus: function (tabId) { return __dlSend({ c: 'tabs.focus', tabId: tabId }) }
     },
     menu: { register: __notAvailable('DL.menu.register') }, // 二期：需长连接 port
     // 本地能力（不跨桥）
