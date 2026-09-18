@@ -47,6 +47,8 @@ export async function getUserScriptsStatus(): Promise<import('./types').UserScri
   const ua = navigator.userAgent
   const isFirefox = /Firefox\//.test(ua)
   const chromeMajor = getChromeMajorVersion()
+  // 纯查询、无副作用：「开关被打开后补注册」的自愈在消费层（availability-watch → background），
+  // 不藏在查询里——查询方（横幅 / 引导页 / 监视器）各自语义单一。
   const available = await isUserScriptsAvailable()
   let guideText = ''
   if (!available) {

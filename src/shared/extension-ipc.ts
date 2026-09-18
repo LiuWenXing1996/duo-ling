@@ -143,6 +143,9 @@ export type RuntimeRequest =
   | { kind: 'userscript:removeAll' }
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
   | { kind: 'userscript:availability' }
+  // 引擎保活应答（offscreen → SW，5s 一次）：offscreen 心跳的**唯一职责是给 SW 保活**
+  // （重置 30s 空闲计时），不做任何检测——检测在 SW 自身的轮询（availability-watch.ts）。
+  | { kind: 'userscript:healthCheck' }
   | { kind: 'userscript:errors' }
   // 清错误日志。三态靠「字段在不在」区分，**不可用 falsy 判定**：
   //   不带该字段 = 清全部；uuid: string = 只清该脚本；uuid: null = 只清「未归属」记录。
@@ -337,6 +340,16 @@ export type PanelMonitorUp =
   | { t: 'page:snapshot'; tabId: number }
   /** 点击脚本行 → SW 打开/聚焦工作台并深链到该脚本的错误（与浮窗 openErrors 同语义） */
   | { t: 'page:openErrors'; uuid: string }
+
+/**
+ * SW → 扩展页的单向广播。SW 不会收到自己发出的 sendMessage，故 SW 侧自身的消费
+ * （可用性翻转补注册）走进程内订阅（availability-watch.onAvailabilityChange），不经消息总线。
+ *
+ * userscript:availabilityChanged —— 「运行用户脚本」开关状态变化（SW 轮询发现，Chrome 对
+ * 开关变化无事件）。横幅 / 引导页订阅此广播更新显示；载荷带完整可用性（UI 无需回查）。
+ */
+export type SwPush =
+  | { kind: 'userscript:availabilityChanged'; availability: import('@/lib/userscripts/types').UserScriptsAvailability; changedAt: number }
 
 /** 渲染页 → service worker 的应答：统一信封，调用方据 ok 分支 */
 export type RuntimeResponse<T> = { ok: true; data: T } | { ok: false; error: string }

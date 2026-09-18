@@ -8,8 +8,12 @@ import GuidePanel from './GuidePanel.vue'
 import type { UserScriptsAvailability } from '@/lib/userscripts/types'
 
 const availability = vi.hoisted(() => vi.fn())
+const subscribeAvailability = vi.hoisted(() =>
+  vi.fn((cb: (a: UserScriptsAvailability) => void) => vi.fn()),
+)
 vi.mock('@/lib/userscripts/ui-client', () => ({
   userscriptClient: { availability },
+  subscribeAvailability,
 }))
 
 const create = vi.hoisted(() => vi.fn(async () => undefined))
@@ -21,10 +25,15 @@ const base: UserScriptsAvailability = {
   guideText: '（引导页不复用这句话，仅类型占位）',
 }
 
+/** 跨用例追踪已挂载实例：GuidePanel 会订阅可用性广播，用例结束不 unmount 的话
+ * mock 调用记录会跨用例串味（calls.at(-1) 取到的是历史用例的订阅） */
+const wrappers: VueWrapper[] = []
+
 async function mountPanel(av: UserScriptsAvailability | Error): Promise<VueWrapper> {
   if (av instanceof Error) availability.mockRejectedValueOnce(av)
   else availability.mockResolvedValueOnce(av)
   const w = mount(GuidePanel)
+  wrappers.push(w)
   await flushPromises()
   return w
 }
@@ -33,6 +42,8 @@ const text = (w: VueWrapper): string => w.text()
 const button = (w: VueWrapper, testid: string) => w.find(`[data-testid="${testid}"]`)
 
 afterEach(() => {
+  for (const w of wrappers) w.unmount()
+  wrappers.length = 0
   vi.unstubAllGlobals()
   vi.clearAllMocks()
 })
@@ -91,5 +102,23 @@ describe('GuidePanel 交互', () => {
     await flushPromises()
     expect(availability).toHaveBeenCalledTimes(2)
     expect(text(w)).toContain('已开启')
+  })
+
+  it('订阅广播：SW 推送 availabilityChanged 时状态直接更新（无需手动重查）', async () => {
+    const w = await mountPanel(base)
+    expect(text(w)).toContain('未开启')
+
+    const cb = subscribeAvailability.mock.calls.at(-1)![0] as (a: UserScriptsAvailability) => void
+    cb({ ...base, available: true })
+    await flushPromises()
+    expect(text(w)).toContain('已开启')
+    expect(text(w)).not.toContain('允许运行用户脚本')
+  })
+
+  it('卸载时退订广播', async () => {
+    const w = await mountPanel(base)
+    const unsub = subscribeAvailability.mock.results.at(-1)!.value as ReturnType<typeof vi.fn>
+    w.unmount()
+    expect(unsub).toHaveBeenCalled()
   })
 })
