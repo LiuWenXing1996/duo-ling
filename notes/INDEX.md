@@ -46,8 +46,3 @@
 | 清单 | 源文档 | 说明 |
 | --- | --- | --- |
 | 想法收件箱 | [docs/inbox.md](../docs/inbox.md) | 只放问题（≤100 字），无方案、不承诺做；待办已收编入此 |
-
-## 不入 notes 的内容
-
-- **dev-log 日更**（`docs/dev-log/YYYY-MM-DD.md`）：时序流水，不入 notes；生效约定见 `conventions.md`。
-- **dev-log README**：元说明，不入 notes。

@@ -88,7 +88,7 @@
 │  │  └─ tab.ts / model.ts        # 【平移】渲染层类型 re-export
 │  └─ public/esbuild.wasm         # 浏览器内构建脚本产物（esbuild-wasm）
 ├─ scripts/                       # 仓库维护脚本（skill 校验）
-└─ docs/                          # 产品 / 迁移文档
+└─ docs/                          # 想法收件箱（inbox.md）
 ```
 
 ## 命令

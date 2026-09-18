@@ -12,7 +12,6 @@ tmp/
 .chrome-dev-profile/
 
 # AI 协作工作数据（本机工作日志：含本机路径、会话过程与临时状态，不入库）
-# 项目通用日志另存 docs/dev-log/ —— 那里才随分支保留
 .workbuddy/
 
 # 编辑器
