@@ -1,10 +1,10 @@
-// 反向中继 · 脚本侧客户端源码模板（notes/content/userscript-page-relay.md）。
+// 反向中继 · 脚本侧客户端源码模板。
 //
 // buildPageClientSource(pageSecret) 返回的字符串由 engine.ts 的 buildDlWrapper 内联到
 // DL 包装里（USER_SCRIPT 世界），运行结果赋给 DL.page。与 page-stub.ts 成对：
 // 两端共享 page-protocol.ts 的常量与 digest 片段，密钥同源（SW 注册时同一把写入）。
 //
-// 行为（规范 §5.3 / §6.2）：首次调用惰性握手（1s 超时）；请求按 seq 配对 reply（5s 超时）；
+// 行为：首次调用惰性握手（1s 超时）；请求按 seq 配对 reply（5s 超时）；
 // 事件按 lid 分发；hookcall 调脚本裁决后回 hookreply（脚本异常一律按 passthrough 兜底）。
 
 import {
@@ -31,7 +31,7 @@ export function buildPageClientSource(pageSecret: string): string {
   ${PAGE_DIGEST_SNIPPET}
   ${PAGE_RANDOM_SNIPPET}
 
-  // 每次文档加载一个新会话（sid 随本 IIFE 生成，规范 §5.3 防重放）
+  // 每次文档加载一个新会话（sid 随本 IIFE 生成，防重放）
   var sid = __dlRandom()
   var seqCounter = 0
   var pending = {} // seq -> { resolve, reject, timer }
@@ -51,7 +51,7 @@ export function buildPageClientSource(pageSecret: string): string {
     try { window.postMessage(msg, window.location.origin) } catch (e) { /* 页面卸载中 */ }
   }
 
-  // —— 惰性握手（规范 §5.3）：挑战应答，验证 proof 与协议版本 ——
+  // —— 惰性握手：挑战应答，验证 proof 与协议版本 ——
   function handshake() {
     if (handshakePromise) return handshakePromise
     handshakePromise = new Promise(function (resolve, reject) {
@@ -85,7 +85,7 @@ export function buildPageClientSource(pageSecret: string): string {
   }
   var handshakeAck = null
 
-  // —— seq 配对的 call（规范 §6.2）——
+  // —— seq 配对的 call ——
   function call(op, extra) {
     var seq = ++seqCounter
     return new Promise(function (resolve, reject) {
@@ -99,7 +99,7 @@ export function buildPageClientSource(pageSecret: string): string {
   }
 
   window.addEventListener('message', function (e) {
-    if (e.source !== window) return // 只收本帧（规范 §2）
+    if (e.source !== window) return // 只收本帧
     var d = e.data
     if (!d || d[TAG] !== TAG_VALUE || d.sid !== sid) return
     if (d.kind === 'hello_ack') {
@@ -108,7 +108,7 @@ export function buildPageClientSource(pageSecret: string): string {
     }
     if (d.kind === 'reply') {
       var p = pending[d.seq]
-      if (!p) return // 超时后迟到的 reply：按 seq 丢弃（规范 §6.2）
+      if (!p) return // 超时后迟到的 reply：按 seq 丢弃
       delete pending[d.seq]
       clearTimeout(p.timer)
       if (d.ok) p.resolve(d.value)
@@ -148,7 +148,7 @@ export function buildPageClientSource(pageSecret: string): string {
       })
     },
     hook: function (name, handler) {
-      if (name !== 'fetch') return Promise.reject(err('PERMISSION_DENIED', 'DL.page.hook 一期仅支持 fetch（规范 §8）'))
+      if (name !== 'fetch') return Promise.reject(err('PERMISSION_DENIED', 'DL.page.hook 一期仅支持 fetch'))
       if (typeof handler !== 'function') return Promise.reject(err('PERMISSION_DENIED', 'DL.page.hook 需要裁决函数'))
       return handshake().then(function () {
         hookHandler = handler

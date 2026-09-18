@@ -1,6 +1,6 @@
 // offscreen document 的 SW 侧容器管理（ensure / close）。
 //
-// 模块归属（§4.8 模块归属规则）：本文件用 chrome.offscreen，属 **SW 专属** ——
+// 模块归属（模块归属规则）：本文件用 chrome.offscreen，属 **SW 专属** ——
 // 只允许被 src/entrypoints/background.ts 侧 import。offscreen 自己不能创建自己。
 //
 // 触发点：offscreen 需「随时可用」，故在以下时机均确保容器在场（ensureOffscreen 幂等，重复调用无副作用）：
@@ -11,7 +11,7 @@
 //
 // 说明：Chrome 不会自动启动 offscreen，必须显式 createDocument。早期设计曾「刻意不在启动时创建」、
 // 计划配合「空闲 N 分钟自关」做常驻退出；现改为常驻策略（老大 2026-09-14 拍板），
-// 原 §6.2 #12 的 idle 自关**已撤销**，offscreen 不再自关，仅在 `offscreen:close` 调试命令下主动关。
+// idle 自关**已撤销**，offscreen 不再自关，仅在 `offscreen:close` 调试命令下主动关。
 
 /** 与 src/entrypoints/offscreen.html 对应 */
 const OFFSCREEN_PATH = 'offscreen.html'

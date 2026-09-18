@@ -11,12 +11,12 @@
 - **UI 层**：Vue 3.5 + TypeScript，`@` 别名指向 `src/`；样式 = Tailwind v4（CSS-first，`src/assets/main.css`）+ Less（`src/assets/main.less`）；主题**跟随系统**（`src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`，勿在 html 上硬写 `class="dark"`）
 - **手写桥接层（`src/lib/*.ts` 中非平移的那些）必须逐函数自检四类语义**：这类文件是重写而非平移，最容易丢「默认值回退 / 入参守卫 / 先校验后落盘 / 无变化就不做」这四类不在类型里的语义（曾丢过：模型展示名回退、会话自动命名、空提交守卫、id 防穿越、服务商预设少 7 个）。这四类各补单测覆盖——靠测试兜，不靠人工对照。
 - **UI 复用（强制）**：两个载体的 UI 都是现成实现（`src/components/`）—— side panel 用 `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列。它们靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，因此组件本体零改动。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 规范走：先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，**不手写组件**；`class` 只用于布局，不覆盖组件配色与字体，颜色一律用语义 token（`bg-primary` / `text-muted-foreground`），不写 `space-x-*` / `space-y-*`、不手写 `dark:` 覆盖。
-- **存储（双库）**：① **状态库 `duoling-state`**（独立 IndexedDB，`state-db.ts` / `project-store.ts` 读、`project-write.ts` 写，**写只归 offscreen**，见 `notes/content/userscript-single-writer.md`）= 权威共享存储，同时持源码 `files` 与产物 `bundle`+配置+enabled——SW 注册读 `bundle`、编辑器基准读 `files` 都从它取（lfs 单实例不可被 SW/扩展页直读，故源码权威副本也在此）；② `lightning-fs`（IndexedDB 后端，库名 `duoling`，**只许 offscreen 碰**）：每脚本一仓 `/uscripts/<uuid>/`，三角色——git 历史（**仅侧车**，可丢可重建）/ 当前文件工作树（`files/`，状态库派生物化）/ 草稿（工作树未提交改动，best-effort、随仓消失）；`chrome.storage.local` 只剩 `DL.store` 值（`us:gm:*`）与错误日志（`us:errors`）
+- **存储（双库）**：① **状态库 `duoling-state`**（独立 IndexedDB，`state-db.ts` / `project-store.ts` 读、`project-write.ts` 写，**写只归 offscreen**）= 权威共享存储，同时持源码 `files` 与产物 `bundle`+配置+enabled——SW 注册读 `bundle`、编辑器基准读 `files` 都从它取（lfs 单实例不可被 SW/扩展页直读，故源码权威副本也在此）；② `lightning-fs`（IndexedDB 后端，库名 `duoling`，**只许 offscreen 碰**）：每脚本一仓 `/uscripts/<uuid>/`，三角色——git 历史（**仅侧车**，可丢可重建）/ 当前文件工作树（`files/`，状态库派生物化）/ 草稿（工作树未提交改动，best-effort、随仓消失）；`chrome.storage.local` 只剩 `DL.store` 值（`us:gm:*`）与错误日志（`us:errors`）
 - **版本管理**：`isomorphic-git`（纯 JS），仓在 lfs——**git 历史仅侧车**（仓损坏只丢历史不丢脚本，恢复走「产生新提交」而非 reset）；lfs 工作树=当前文件物化、草稿=工作树未提交改动（非侧车）。脚本以状态库 `duoling-state` 为权威（注册/注入/编辑器基准）
 - **脚本注入**：`chrome.userScripts` + USER_SCRIPT 世界 + `window.DL` 桥接（`src/lib/userscripts/`）
 - **offscreen document**：AI 生成链路的执行宿主，按需创建（`src/lib/offscreen.ts`）
 - **包管理**：npm
-- **测试**：Vitest（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`）+ Playwright E2E 已建立；单测 / 端测方案见 [notes/content/test-guide.md](notes/content/test-guide.md)，CI 快测门禁见 `.github/workflows/ci.yml`、独立 E2E 见 `e2e.yml`
+- **测试**：Vitest（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`）+ Playwright E2E 已建立；CI 快测门禁见 `.github/workflows/ci.yml`、独立 E2E 见 `e2e.yml`
 
 > 项目介绍与手测步骤请读 [README.md](README.md)。
 
@@ -30,7 +30,6 @@
 | `npm run typecheck` | 类型检查（`vue-tsc --noEmit`）；当前全仓零错误 |
 | `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 | `npm run check:inbox` | 想法收件箱条目体检：单条 >100 字、总字数 >6000、「不办」条目缺理由、疑似重复（**整理 inbox 时跑**，提醒级不进 CI） |
-| `npm run check:notes` | notes 笔记体检：章节白名单（`##` 只许三段、`###` 须在三段内）、标题/一句话字数、现状 ≤1500、「不包括」清单式、决策记录字数与时间格式（规范见 [notes/README.md](notes/README.md)；提醒级不进 CI） |
 
 > **交付前验证**：`npm run typecheck` 与 `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
 
@@ -39,12 +38,7 @@
 | 文档 | 职责 | 何时读 |
 | --- | --- | --- |
 | [README.md](README.md) | 工程介绍、目录结构、命令、手测步骤、关键坑 | 上手 / 手测前 |
-| [notes/content/userscript-ai-generation.md](notes/content/userscript-ai-generation.md) | AI 生成用户脚本 · 现状与用法 | 涉及生成链路时 |
-| [notes/content/code-style.md](notes/content/code-style.md) | 代码风格（命名/TS/Vue/样式/shadcn/测试/提交） | 写代码 / 改样式前 |
 | [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**。轻量想法收集 | 攒需求 / 清理待办时 |
-| [notes/content/lessons.md](notes/content/lessons.md) | 踩坑记录 | 报错 / 排查前 |
-| [notes/content/test-guide.md](notes/content/test-guide.md) | 测试指南：单测 / 端测各自的命令、写法、如何 mock、覆盖范围与注意事项 | 补测试 / 动工测试前 |
-| [notes/](notes/README.md) | **笔记体系**：`docs/` 的替换（唯一权威来源），人和 AI 都读；写作规范与结构见 [notes/README.md](notes/README.md)、总表见 [notes/INDEX.md](notes/INDEX.md) | 速览某主题 / 找对应源文档前 |
 
 
 ## 全局约束（强制）
@@ -87,28 +81,29 @@
 
 | 要记的 | 写哪 |
 | --- | --- |
-| 现在怎么做（规范、用法） | `notes/` 常青篇，就地改 |
+| 工程介绍 / 命令 / 手测步骤 / 关键坑 | `README.md`，就地改 |
+| 协作约定 / 全局约束 / 硬性底线 | `AGENTS.md`（本文件），就地改 |
 | 想法（只描述问题） | `inbox`（docs/inbox.md） |
-| 踩坑记录 | `notes/content/lessons.md` |
+| 踩坑记录 | `README.md`「关键坑与规避」 |
 | 待办（问题） | `inbox`（只描述问题，不写方案） |
-| 仍生效约定 / 为什么这么定 | `notes/content/conventions.md` |
+| 仍生效约定 / 为什么这么定 | `AGENTS.md` 对应小节 |
 | 本机环境、会话过程、临时状态 | `.workbuddy/memory/`（不入库）——**不承载项目知识**，结论成形后按上表归位 |
 
 过程记录不落盘：没有长期价值的（今天干了啥、做到一半的猜想、待拍板）不写进仓库；确需给下一轮会话留上下文才放 `.workbuddy/memory/`。
 
-同一件事只写一处：决策理由写进 conventions 或对应常青篇，**不复述第二遍**；代码注释里不写变更史（"原本…现在已移除"这类留给 git）。
+同一件事只写一处：决策理由写进本文件对应小节，**不复述第二遍**；代码注释里不写变更史（"原本…现在已移除"这类留给 git）。
 
 **我（AI）怎么干**：
 
-1. 动手前：读本文件 → 文档总表 → 相关文档 → `.workbuddy/memory/`（本机上下文，不入库）；重大变更的决策理由记进 `notes/content/conventions.md`；日常改动直接做
+1. 动手前：读本文件 → 文档总表 → 相关文档 → `.workbuddy/memory/`（本机上下文，不入库）；重大变更的决策理由记进本文件对应小节；日常改动直接做
 2. 直接做：读代码、探索、改文档 / 注释 / 格式
 3. 先问再做：改行为或结构、加依赖、动 manifest、删文件、外部操作（push / 发布）
 4. 交付前：`npm run typecheck` + `npm run build` 必过；UI 不做额外视觉校验
 5. 提交：我可以提交，但提交前说清改了什么；你随时可叫停
-6. 收尾：讨论出的结论和踩到的坑**由我落进 `notes/`**（约定 → `conventions.md`、坑 → `lessons.md`、问题 → `inbox`），不能只留在 `.workbuddy/`
+6. 收尾：讨论出的结论和踩到的坑**由我落进仓库**（约定与决策理由 → 本文件对应小节、坑 → `README.md`「关键坑与规避」、问题 → `inbox`），不能只留在 `.workbuddy/`
 7. 发现跑偏、死链、过时内容、规范互相打架 → 直接说，不用等我问
 
-其他：修改前先阅读相关文件；需要桌面版旧实现参照时从 git 历史取回；测试体系已建立（见 [notes/content/test-guide.md](notes/content/test-guide.md)），新增功能尽量补最小验证（探针脚本放 `tmp/`），方案先与用户确认。
+其他：修改前先阅读相关文件；需要桌面版旧实现参照时从 git 历史取回；测试体系已建立，新增功能尽量补最小验证（探针脚本放 `tmp/`），方案先与用户确认。
 
 ### 分支保护 / 合并流程（强制）
 
@@ -138,4 +133,4 @@
 | 主题 | 深浅色**跟随系统**（`theme.ts` → `html.dark`）；不要在 `.html` 写死 `class="dark"`，也不要在组件里硬编码主题色（用 `--background` 等主题变量） | [README](README.md) |
 | 消息协议 | 扩展页只能经 `window.api` → background 调用能力；用户脚本只能经 `window.DL` → background，**两者都不得直接访问 `chrome.*`** | [src/lib/window-api.ts](src/lib/window-api.ts) |
 | entrypoint | 不要同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [README](README.md) 坑 5 |
-| 命名 | 文件/目录 kebab-case；组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | [notes/content/code-style.md](notes/content/code-style.md) §命名/§Vue |
+| 命名 | 文件/目录 kebab-case；组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | 本表即约定，无独立文档 |

@@ -1,4 +1,4 @@
-// 用户脚本 zip 导入导出的纯函数编解码层（notes/content/userscript-zip-transfer.md）。
+// 用户脚本 zip 导入导出的纯函数编解码层。
 //
 // 编码在 UI 导出侧（工作台标签页，userscript:getProject 只读命令取数后打包），
 // 解码在 offscreen 导入侧（单写方，state:import → project-write.importScriptsZip），
@@ -23,7 +23,7 @@ export const ZIP_SCHEMA_VERSION = 1
 /** zip 目录名长度上限（超长截断，防极端名称撑爆解压路径） */
 const DIR_NAME_MAX = 64
 
-/** project.json（zip 内）的形状：定稿 §3——bundle/uuid/enabled/createdAt 不进 zip */
+/** project.json（zip 内）的形状：bundle/uuid/enabled/createdAt 不进 zip */
 export interface ZipManifest {
   v: number
   name: string
@@ -72,7 +72,7 @@ export interface ScriptsZipParse {
 
 /**
  * 把若干脚本打成 zip。每脚本一个平级目录（project.json + files/ 真实文件树展开）；
- * 目录名 = 脚本名安全化，重名加 -2 后缀（定稿 §3）；data/ 预留位 v1 恒不写入。
+ * 目录名 = 脚本名安全化，重名加 -2 后缀；data/ 预留位 v1 恒不写入。
  * files 里的路径在写侧已校验过，这里对非法键兜底跳过（不阻断导出）。
  */
 export function buildScriptZip(
@@ -110,7 +110,7 @@ export function sanitizeDirName(name: string): string {
   return cleaned || 'script'
 }
 
-/** 重名目录去重：`x` 已占用 → `x-2` → `x-3` …（定稿 §3 的 -2 后缀规则） */
+/** 重名目录去重：`x` 已占用 → `x-2` → `x-3` …（-2 后缀规则） */
 function uniqueDirName(base: string, used: Set<string>): string {
   if (!used.has(base)) {
     used.add(base)
@@ -289,7 +289,7 @@ export function base64ToBytes(b64: string): Uint8Array {
 }
 
 /**
- * 内容指纹（定稿 §5.6 重复导入提示用）：entry + files（键排序后）整体 SHA-256。
+ * 内容指纹（重复导入提示用）：entry + files（键排序后）整体 SHA-256。
  * 只提示不拦截——重复导入 = 独立副本是合理场景。
  */
 export async function filesFingerprint(entry: string, files: Record<string, string>): Promise<string> {

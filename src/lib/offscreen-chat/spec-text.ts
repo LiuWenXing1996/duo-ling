@@ -1,7 +1,7 @@
-// script_spec 的规范载荷（notes/content/userscript-ai-generation.md）。
+// script_spec 的规范载荷。
 //
-// 来源：notes/content/userscript-api.md（DL 能力 API 权威规范）+ notes/content/userscript-ai-generation.md的禁止事项清单。
-// 按 §6.2 #11 拍板：由文档拼一段注入文本即可，.d.ts 留给脚本作者（v2 计划 P3）。
+// 来源：DL 能力 API 权威规范（src/lib/userscripts/api-contract.ts）+ 生成脚本的禁止事项清单。
+// 由文档拼一段注入文本即可，.d.ts 留给脚本作者。
 // 放在独立模块（纯字符串常量），chat-host 与工具实现都不必关心内容。
 
 export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必读）
@@ -15,7 +15,7 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
 1. 入口文件**不得有顶层 \`export\`**（iife 格式约束）。
 2. 依赖只能 \`import 'https://…'\`（CDN 完整 URL，如 https://esm.sh/lodash-es@4）；**裸包名 \`from 'lodash'\` 会报错**；不支持 \`node:\` 前缀。
 3. \`DL\` **全 async**——所有 DL API 返回 Promise，必须 await；存储值必须是 Json（null/boolean/number/string/数组/纯对象）。
-4. \`DL.page.*\` 反向中继（规范 notes/content/userscript-page-relay.md）：提供 \`DL.page.listen(type, handler, opts?)\`
+4. \`DL.page.*\` 反向中继：提供 \`DL.page.listen(type, handler, opts?)\`
    （监听页面事件，摘要 { type, key?, detail, timeStamp }）与 \`DL.page.hook('fetch', fn)\`
    （拦截页面 fetch，fn 收 { url, method, headers, body }，回 { action: 'passthrough' } 或
    { action: 'respond', status, headers?, body? }）。脚本仍**看不到页面 JS 全局**（框架实例、页面变量），不要写依赖它们的代码。

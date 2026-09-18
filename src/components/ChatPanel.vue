@@ -364,7 +364,7 @@ function toggleText(m: UIMessage, node: TextNode): void {
   else expandedTexts.add(key)
 }
 
-// —— 生成卡片（data-generation data part，notes/content/userscript-ai-generation.md，三出口 = 启用 / 编辑器 / 删除）——
+// —— 生成卡片（data-generation data part，三出口 = 启用 / 编辑器 / 删除）——
 // offscreen 收敛后经 SW 落盘（enabled:false），随流推送 data part、随消息落盘；
 // 卡片必须讲清三件事：① 尚未启用 ② 生效范围 ③ 脚本会做什么（bundle 静态扫描）。
 interface GenerationCardData {

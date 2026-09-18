@@ -115,7 +115,7 @@ describe('validateFiles', () => {
   })
 })
 
-describe('validateMatchPatterns（zip 导入与启用路径共用，notes/content/userscript-zip-transfer.md）', () => {
+describe('validateMatchPatterns（zip 导入与启用路径共用）', () => {
   const config = (matches: string[], excludeMatches?: string[]) => ({
     matches,
     ...(excludeMatches ? { excludeMatches } : {}),

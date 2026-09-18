@@ -232,7 +232,7 @@ describe('快照失败策略', () => {
   })
 })
 
-// —— zip 导入（notes/content/userscript-zip-transfer.md；保留原名 / enabled false / 单写方落盘）——
+// —— zip 导入（保留原名 / enabled false / 单写方落盘）——
 
 /** 构造一个 zip 的 base64：scripts 为顶层目录 → files 映射 */
 function makeZipBase64(
@@ -281,7 +281,7 @@ describe('importScriptsZip', () => {
     expect(mockSnapshot.mock.calls[0]![1]).toBe('从 zip 导入')
   })
 
-  it('重复导入同一内容：仍导入为独立副本，报告带 duplicateOf 提示（定稿 §5.6）', async () => {
+  it('重复导入同一内容：仍导入为独立副本，报告带 duplicateOf 提示', async () => {
     const zip = makeZipBase64([{ dir: 'demo', name: '演示', files: { 'main.js': 'console.log(1)' } }])
     const first = await importScriptsZip(zip)
     expect(first.results[0]).toMatchObject({ status: 'ok' })

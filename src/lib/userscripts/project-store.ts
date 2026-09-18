@@ -54,7 +54,7 @@ export function validateFiles(files: Record<string, string>, entry: string): voi
   }
 }
 
-// —— match pattern 校验（notes/content/userscript-zip-transfer.md）——
+// —— match pattern 校验——
 // 导入路径（project-write.importScriptsZip）与启用路径（engine.registerScript）共用：
 // 非法值在导入 / 启用当场拦下并指明哪条不合法，不拖到注册时才以 Chrome 的英文异常冒出。
 

@@ -91,7 +91,7 @@ const saveNote = ref('')
 // —— 历史已迁出：浏览与恢复都在独立的 us-history:<uuid> 标签页（UserscriptHistoryPanel），
 // 本组件只负责编辑 + 保存，历史按钮经 openHistory 事件请求宿主开历史标签页。
 
-// —— 草稿（notes/content/userscript-draft.md：草稿 = git 工作区的未提交改动，经 offscreen 纯 fs 写）——
+// —— 草稿（草稿 = git 工作区的未提交改动，经 offscreen 纯 fs 写）——
 /** 打开编辑器时刻的已保存项目（状态库权威）：丢弃草稿的回滚目标、currentProject 的兜底字段 */
 const baseline = ref<ScriptProject | null>(null)
 /** 打开时恢复了工作区草稿 → 常驻提示条（含丢弃入口） */
@@ -348,7 +348,7 @@ function optArr(v: string): string[] | undefined {
   return arr.length ? arr : undefined
 }
 
-/** 表单 → ScriptConfig（saveEdit 与草稿写共用；空数组归一为 undefined，notes/content/userscript-draft.md） */
+/** 表单 → ScriptConfig（saveEdit 与草稿写共用；空数组归一为 undefined） */
 function currentConfig(): ScriptConfig {
   return {
     matches: parseMatches(editMatches.value),
@@ -360,7 +360,7 @@ function currentConfig(): ScriptConfig {
   }
 }
 
-/** 编辑态 → ScriptProject 形状：v/uuid/createdAt/enabled 由 baseline 兜（notes/content/userscript-draft.md） */
+/** 编辑态 → ScriptProject 形状：v/uuid/createdAt/enabled 由 baseline 兜 */
 function currentProject(): ScriptProject {
   return {
     ...(baseline.value ?? ({} as ScriptProject)),
@@ -377,7 +377,7 @@ function applyProject(p: ScriptProject): void {
   scriptName.value = p.name
   editFiles.value = { ...p.files }
   editEntry.value = p.entry
-  // activeFile 不能盲信 entry——草稿里入口可能指向已删文件，取不到回退第一个文件（notes/content/userscript-draft.md）
+  // activeFile 不能盲信 entry——草稿里入口可能指向已删文件，取不到回退第一个文件
   activeFile.value = p.entry in p.files ? p.entry : (Object.keys(p.files)[0] ?? '')
   editName.value = p.name
   editMatches.value = p.config.matches.join(', ')
@@ -388,7 +388,7 @@ function applyProject(p: ScriptProject): void {
   editRunAt.value = p.config.runAt
 }
 
-/** 装载项目 + 恢复草稿（notes/content/userscript-draft.md）：状态库为权威基准，工作区草稿静默恢复 */
+/** 装载项目 + 恢复草稿：状态库为权威基准，工作区草稿静默恢复 */
 async function load(): Promise<void> {
   loading.value = true
   error.value = ''
@@ -429,7 +429,7 @@ async function load(): Promise<void> {
 }
 
 /**
- * 草稿与已保存内容是否相等（notes/content/userscript-draft.md）。两侧 config 必须同构可比：
+ * 草稿与已保存内容是否相等。两侧 config 必须同构可比：
  * 状态库里的空数组可能是 []，表单侧产出 undefined——都过 normConfig 归一后再比。
  */
 function draftEquals(
@@ -449,7 +449,7 @@ function draftEquals(
   return JSON.stringify(norm(draft.meta.config)) === JSON.stringify(norm(project.config))
 }
 
-/** 草稿写调度：debounce 500ms + 串行化。仅真实用户改动才落盘，见 notes/content/userscript-draft.md。 */
+/** 草稿写调度：debounce 500ms + 串行化。仅真实用户改动才落盘。 */
 function scheduleDraftWrite(): void {
   if (draftTimer !== undefined) clearTimeout(draftTimer)
   draftTimer = window.setTimeout(() => {
@@ -501,7 +501,7 @@ onBeforeUnmount(() => {
   }
 })
 
-/** 丢弃草稿：用 baseline（状态库已保存内容）重写工作区；先写成功再动编辑态（notes/content/userscript-draft.md） */
+/** 丢弃草稿：用 baseline（状态库已保存内容）重写工作区；先写成功再动编辑态 */
 async function discardDraft(): Promise<void> {
   if (!baseline.value || discardingDraft.value) return
   discardingDraft.value = true
@@ -611,7 +611,7 @@ async function saveEdit(): Promise<void> {
     // 头部显示名跟随表单（保存即改名）
     scriptName.value = editName.value
     // baseline 必须跟着保存结果走（builder 可能改写文件树，如拉取远程依赖）——
-    // 否则之后「丢弃草稿」会退回到保存前的旧内容（notes/content/userscript-draft.md）
+    // 否则之后「丢弃草稿」会退回到保存前的旧内容
     baseline.value = {
       ...currentProject(),
       files: { ...outcome.files },
