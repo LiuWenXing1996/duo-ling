@@ -472,7 +472,7 @@ function onPromptSubmit(payload: PromptInputMessage): void {
   emit('send', text)
 }
 
-// —— 元素拾取（docs/proposals/done/element-picker.md）——
+// —— 元素拾取 ——
 // 产物暂存 page-context-store（模块级，transport 的 collectPageContext 组装进下一条消息），
 // 发送成功后 transport 清空，chip 经订阅自动消失。显式点击才采集，页面内容不自动附带。
 // 页面快照已改 AI 工具采集（2026-09-17 决策），无用户面入口。

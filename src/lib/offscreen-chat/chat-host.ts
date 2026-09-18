@@ -46,7 +46,7 @@ import {
 import { buildScriptTools, type TaskWorkspace } from './script-tools'
 import { getTask, listRunningTasks, putTask, removeTask, type ChatTaskRecord } from './task-store'
 
-/** maxSteps 上限：沿用桌面版 agent-orchestrator 的 8（值见 notes/content/userscript-ai-generation.md，来源见 docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」） */
+/** maxSteps 上限：沿用桌面版 agent-orchestrator 的 8（值见 notes/content/userscript-ai-generation.md） */
 const MAX_STEPS = 8
 /** 心跳间隔 / 孤儿判定阈值：宿主活着时每 5s 跳一次；30s 无心跳即判孤儿 */
 const HEARTBEAT_MS = 5_000
@@ -337,7 +337,7 @@ async function runLoop(opts: {
 
     // 任务收尾：删运行时记录 + 丢事件缓冲（缓冲只为进行中任务的重连服务；
     // 收尾后结果已在会话历史，保留缓冲反而会让重开面板 replay 出重复消息）。
-    // ok 顺路推 chat:finished（提案② #2）：SW 旁听后视面板存活点亮完成徽章。
+    // ok 顺路推 chat:finished：SW 旁听后视面板存活点亮完成徽章。
     const cleanup = (ok: boolean) => {
       runningByConversation.delete(conversationId)
       void removeTask(taskId).catch(() => {})

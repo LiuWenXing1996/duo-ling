@@ -11,7 +11,6 @@
 | [Agent 协作指南](content/agent-guide.md) | [AGENTS.md](../AGENTS.md) | 怎么干 / 写哪 / 分支保护；main 受保护须走 PR |
 | [项目约定决策](content/conventions.md) | —（已并入 notes） | 仍生效架构约定 + 已否决方案表；改前先读 |
 | [写作规范](README.md) | （已并入 notes/README） | 笔记结构 / 字数 / 水文清单 / 隐私；归属导航见 AGENTS.md |
-| [提案流程规范](content/proposal-process.md) | —（已并入 notes） | 可选工具；五态状态机 + 流转记录 + 不可删 |
 
 ## 架构与迁移
 
@@ -27,7 +26,7 @@
 | [用户脚本新形态（v2）](content/userscript-v2-plan.md) | —（已并入 notes） | 放弃油猴，自有 DL API + 模块化 + 隔离；Phase 0–3 已实施 |
 | [用户脚本能力 API](content/userscript-api.md) | —（已并入 notes） | 脚本经 `window.DL` 桥接，全 async、强类型、弃 GM_* |
 | [AI 生成用户脚本（现状）](content/userscript-ai-generation.md) | —（已并入 notes） | 三容器链路：sidepanel / offscreen loop / SW 注册 |
-| [AI 生成后续路线图](content/userscript-ai-generation-next.md) | —（已并入 notes） | 十项未做归三提案，定开工顺序；只记归属不写方案 |
+| [AI 生成后续路线图](content/userscript-ai-generation-next.md) | —（已并入 notes） | 十项未做分三批，定开工顺序；只记归属不写方案 |
 | [脚本存储单写方](content/userscript-single-writer.md) | —（已并入 notes） | 项目数据迁 offscreen 单写，统一进 `duoling-state` |
 | [脚本文件树迁 offscreen](content/offscreen-fs-migration.md) | —（已并入 notes） | lfs + isomorphic-git 归 offscreen（§2.3–2.5 已被单写方取代） |
 | [编辑器草稿](content/userscript-draft.md) | —（已并入 notes） | 草稿 = 工作区未提交改动，自动落盘、重开恢复 |
@@ -50,6 +49,5 @@
 
 ## 不入 notes 的内容
 
-- **提案**（`docs/proposals/<状态>/`）：独立生命周期 + 决策记录，自带权威留痕，不进 notes；结论沉淀进对应常青笔记的「决策记录」。
 - **dev-log 日更**（`docs/dev-log/YYYY-MM-DD.md`）：时序流水，不入 notes；生效约定见 `conventions.md`。
 - **dev-log README**：元说明，不入 notes。

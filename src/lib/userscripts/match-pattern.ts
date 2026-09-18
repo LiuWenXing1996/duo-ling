@@ -1,4 +1,4 @@
-// @match 规则（Chrome match pattern）的 URL 匹配器（提案② runtime-feedback-loop.md「静态匹配口径」）。
+// @match 规则（Chrome match pattern）的 URL 匹配器（静态匹配口径）。
 //
 // 为什么自己写：脚本页面的匹配目前全靠 chrome.userScripts 原生做，扩展侧从来没有
 // 匹配器；浮窗的「本页脚本」判定（enabled + matches 命中页面 URL）需要在 SW 侧

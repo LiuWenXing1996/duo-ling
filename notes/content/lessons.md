@@ -34,7 +34,7 @@
 
 - 架构约定与已否决方案：归 `conventions.md`（本文只记实现层踩坑，不记架构决策理由）。
 - 测试怎么写、mock 怎么配的通则：归 `test-guide.md`（本文只点具体踩坑，不重复测试体系总览）。
-- 提案 / 需求 / 变更流程：归 `proposal-process.md` 与 `inbox`。
+- 需求 / 变更流程：归 `inbox` 与 notes/content/conventions.md。
 
 ## 决策记录
 

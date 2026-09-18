@@ -1,4 +1,4 @@
-// 哆灵 · 页面脚本状态浮窗（提案② runtime-feedback-loop.md）。
+// 哆灵 · 页面脚本状态浮窗。
 // 由 SW 经 chrome.userScripts.register 持久注册到独立世界 us-builtin-status（声明式注入，
 // 不再每导航 execute）；脚本自己连一条端口回 SW 拿数据、发动作。
 //

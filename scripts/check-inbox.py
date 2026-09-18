@@ -274,7 +274,7 @@ def main() -> int:
     if total > TOTAL_MAX:
         problems += 1
         print(f"\n全文超软上限：{total} 字 > {TOTAL_MAX} 字")
-        print("  按「清掉已升级成提案的条目 → 合并重复条目 → 提额」的顺序处理，不直接提额")
+        print("  按「清掉已了结的条目 → 合并重复条目 → 提额」的顺序处理，不直接提额")
 
     print()
     if problems:

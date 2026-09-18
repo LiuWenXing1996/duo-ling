@@ -1,4 +1,4 @@
-// 内置脚本清单（docs/proposals/done/element-picker.md「内置脚本承载」）。
+// 内置脚本清单（内置脚本承载设计）。
 //
 // 内置脚本**不进状态库**（写只归 offscreen 是红线；内置件没有用户可改状态），
 // 也不注册进 userScripts 注册表——拾取器经 execute() 按需注入，无「启用」概念。

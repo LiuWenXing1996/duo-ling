@@ -154,7 +154,7 @@ describe('错误日志（us:errors 环形保留）', () => {
     await expect(listUserScriptErrors()).resolves.toEqual([])
   })
 
-  describe('findUserScriptError（错误 ID 查询，提案②）', () => {
+  describe('findUserScriptError（错误 ID 查询）', () => {
     it('精确 id 命中（优先于前缀匹配）', async () => {
       await appendUserScriptError({
         id: 'aaaaaaaa-1111',

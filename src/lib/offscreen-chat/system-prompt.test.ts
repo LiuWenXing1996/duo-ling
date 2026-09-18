@@ -1,4 +1,4 @@
-// buildSystemPrompt 的档位组装测试（docs/proposals/done/element-picker.md 验收：
+// buildSystemPrompt 的档位组装测试（验收：
 // 「摘要层随生成请求进 system prompt（单测覆盖 prompt 组装）」「快照 prompt 组装单测」）。
 import { describe, expect, it } from 'vitest'
 import {
@@ -119,7 +119,7 @@ describe('buildSystemPrompt 档位组合', () => {
   })
 })
 
-// —— 拾取上下文随消息落盘（提案①「拾取上下文随消息落盘」决策） ——
+// —— 拾取上下文随消息落盘 ——
 
 /** 构造一条带/不带 pageContext 元数据的 user/assistant 消息 */
 function makeMsg(

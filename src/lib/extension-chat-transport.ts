@@ -111,7 +111,7 @@ function installPushListener(): void {
   })
 }
 
-/** 档 0 页面上下文 + 档 2（拾取元素，docs/proposals/done/element-picker.md）：
+/** 档 0 页面上下文 + 档 2（拾取元素）：
  *  侧边栏是扩展页，可直接读当前标签 URL / 标题（host_permissions <all_urls> 已覆盖，无需 tabs 权限）；
  *  offscreen 没有 chrome.tabs。拾取由用户显式动作采集，暂存在 page-context-store，
  *  随**下一条消息**发出（不自动附带）。页面快照已改 AI 工具采集（2026-09-17），不走这条通道。 */

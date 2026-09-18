@@ -1,4 +1,4 @@
-// status-bubble.ts 浮窗数据内核单测（提案②）：computeBubbleData 纯函数。
+// status-bubble.ts 浮窗数据内核单测：computeBubbleData 纯函数。
 // chrome 侧依赖（project-store / store）全部 mock——本文件只验证
 // 「enabled + matches 命中」的判定与「错误原样透传（含 runId / phase）」两件事。
 //

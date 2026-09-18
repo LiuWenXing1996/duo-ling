@@ -1,4 +1,4 @@
-// 页面脚本状态浮窗的 SW 侧逻辑（提案② runtime-feedback-loop.md「页面脚本状态浮窗」）。
+// 页面脚本状态浮窗的 SW 侧逻辑。
 //
 // 职责四件：
 //   ① 按「启用脚本 matches 并集」**持久注册**浮窗（`userScripts.register`，不再每导航 execute）；

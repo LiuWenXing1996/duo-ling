@@ -10,7 +10,7 @@
 // 另：AI 生成入口与 aiFsClient 在发起请求前也会先 ensure，作为兜底。
 //
 // 说明：Chrome 不会自动启动 offscreen，必须显式 createDocument。早期设计曾「刻意不在启动时创建」、
-// 计划配合「空闲 N 分钟自关」（docs/proposals/done/ai-userscript-phase1-archive.md「决策记录」）做常驻退出；现改为常驻策略（老大 2026-09-14 拍板），
+// 计划配合「空闲 N 分钟自关」做常驻退出；现改为常驻策略（老大 2026-09-14 拍板），
 // 原 §6.2 #12 的 idle 自关**已撤销**，offscreen 不再自关，仅在 `offscreen:close` 调试命令下主动关。
 
 /** 与 src/entrypoints/offscreen.html 对应 */
