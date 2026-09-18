@@ -152,7 +152,7 @@ describe('UserscriptErrorLogPanel 按脚本分类', () => {
     wrapper = await mountPanel({ focusUuid: 'u1', focusSeq: 1 })
     expect(wrapper.text()).toContain('来自A')
 
-    // 标签页常驻：用户手动切到别的脚本，浮窗又点了同一个脚本行 → seq 变，必须重新定位
+    // 标签页常驻：用户手动切到别的脚本，灵动岛又点了同一个脚本行 → seq 变，必须重新定位
     await clickNav('脚本B')
     expect(wrapper.text()).not.toContain('来自A')
 

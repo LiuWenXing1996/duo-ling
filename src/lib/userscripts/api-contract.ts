@@ -84,8 +84,8 @@ export type ApiEvent =
  *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报：DL 包装的
  *     window.onerror / unhandledrejection 收进 us:errors；
  *   · `{ __dlRunStart: true, uuid, runId }` —— 运行标识广播：包装注入即 mint 一次
- *     「一次页面加载 = 一次运行」的 runId。SW **只转发**给该 tab 的浮窗（浮窗自持「当前运行」
- *     指针），不落盘、不进错误日志——所以这里没有对应的类型别名，信封见 status-bubble.relayRunStart。
+ *     「一次页面加载 = 一次运行」的 runId。SW 交侧边栏页面监控按 tab 登记，不落盘、
+ *     不进错误日志——所以这里没有对应的类型别名。
  */
 export type DlEvent = {
   t: 'error'
@@ -93,7 +93,7 @@ export type DlEvent = {
   message: string
   stack?: string
   url?: string
-  /** 本次运行的标识（一次页面加载 mint 一个）；浮窗据此只显本次运行的错误 */
+  /** 本次运行的标识（一次页面加载 mint 一个）；侧边栏监控据此把错误归属到对应运行 */
   runId?: string
 }
 

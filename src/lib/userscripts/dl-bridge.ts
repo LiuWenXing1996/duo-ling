@@ -6,16 +6,12 @@
 // 消息分流（契约定义）：
 //   { __dl: true, uuid, req: ApiRequest }        —— 请求-响应，按 req.c 强类型分发（穷尽性检查）
 //   { __dlEvent: true, uuid, name, event: DlEvent } —— 单向错误上报，收进 us:errors
-//   { __dlRunStart: true, uuid, runId }          —— 运行标识广播：**只转发**给浮窗，不落盘
-//                                                   （浮窗自持「当前运行」指针，SW 无状态）
+//   { __dlRunStart: true, uuid, runId }          —— 运行标识广播：交侧边栏监控按 tab 登记，不落盘
 //
 // 安全性：消息来源天然是「不可信用户脚本」，故校验 sender.userScript.scriptId 与消息里的 uuid 一致，
 // 防止伪造身份读写其它脚本的私有存储。background 的 SW 内 fetch 受 <all_urls> host 权限豁免 CORS，
 // 这是 DL.fetch 免 CORS 的基础（Chrome 官方明文：内容脚本中的跨源请求始终按跨源处理）。
 import type { ApiErrorCode, ApiRequest, ApiResponse, DlEvent, FetchInit, FetchPayload, Json } from './api-contract'
-// 浮窗实时更新：runtime 错误落盘后通知出错 tab 上的浮窗；运行标识广播只转发
-// （同目录模块，无环）
-import { refreshStatusBubbleAfterError, relayRunStart } from './status-bubble'
 // 侧边栏页面脚本监控（运行时口径）：runstart 登记 + 错误实时推送（跨文档观察者，SW 按 tab 登记）
 import { notePageError, noteRunStart } from './page-monitor'
 import {
@@ -149,17 +145,15 @@ export function initDlBridge(): void {
   // 响应机制：onUserScriptMessage 不支持「返回 Promise 作为响应」，必须调 sendResponse
   // 并返回 true 保持通道打开（沿用旧 GM 桥已验证的写法）。
   chrome.runtime.onUserScriptMessage.addListener((raw, sender, sendResponse) => {
-    // 运行标识广播（DL 包装注入即发）：转给该 tab 的浮窗当「当前运行指针」。
-    // SW **不存储**——浮窗是 per-document 实例，指针随文档重建，SW 重启不影响它。
+    // 运行标识广播（DL 包装注入即发）：交侧边栏监控按 tab 登记。
     const run = raw as { __dlRunStart?: true; uuid?: string; runId?: string }
     if (run && run.__dlRunStart === true) {
       const tabId = sender.tab?.id
       if (tabId != null && run.uuid && run.runId) {
-        relayRunStart(tabId, run.uuid, run.runId)
         // 侧边栏监控（跨文档观察者）：SW 侧按 tab 登记运行集，面板切 tab 时靠它出快照
         noteRunStart(tabId, run.uuid, run.runId)
       }
-      return undefined // 仅转发，无需响应、不落盘
+      return undefined // 仅登记，无需响应、不落盘
     }
 
     // 单向错误上报（DL 包装的 window.onerror / unhandledrejection）
@@ -172,16 +166,13 @@ export function initDlBridge(): void {
         message: evt.event?.message || '',
         stack: evt.event?.stack,
         url: evt.event?.url,
-        // 本次运行标识：浮窗据此只显「本次运行」的错误（缺省视作非本次）
+        // 本次运行标识：侧边栏监控据此把错误归属到对应 tab 的运行（缺省视作非本次）
         runId: typeof evt.event?.runId === 'string' ? evt.event.runId : null,
       })
         .then(() => {
-          // 浮窗实时更新：错误落盘后让出错 tab 上的浮窗徽章变亮。
           // sender.tab 定位出错页面（userScript 世界消息 sender 带 tab）；拿不到就跳过
-          // （浮窗下次导航时按最新数据注入）。
           const tabId = sender.tab?.id
           if (tabId != null) {
-            void refreshStatusBubbleAfterError(tabId)
             // 侧边栏监控：错误行随推送走（落盘记录无 tabId，面板按 tab 归属只能靠这条实时通道）
             notePageError(tabId, {
               uuid: evt.uuid ?? null,

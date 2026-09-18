@@ -82,7 +82,7 @@ function openUserscriptListTab(): void {
 
 /**
  * 打开错误日志标签页：全局仅一个（错误日志是全局视图，每脚本开一个没有意义）。
- * focusUuid：浮窗深链 #/errors/<uuid> / 列表页入口进来时按该脚本定位；
+ * focusUuid：灵动岛深链 #/errors/<uuid> / 列表页入口进来时按该脚本定位；
  * 传 null（或不传）则保持用户当前选择，不强行跳分组。
  *
  * 定位请求用对象包一层（seq 递增）而不是直接存 uuid 字符串：标签页常驻不重挂

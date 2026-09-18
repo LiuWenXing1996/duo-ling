@@ -1,7 +1,6 @@
 // 侧边栏「页面脚本监控」的 SW 侧逻辑（运行时口径）。
 //
-// 与状态浮窗（status-bubble.ts）同源不同面：浮窗是 per-document 实例、自持 runId 指针，
-// SW 无状态；侧边栏是**跨文档观察者**（跟随 active tab 切换），必须有一个地方替它记住
+// 侧边栏灵动岛是**跨文档观察者**（跟随 active tab 切换），必须有一个地方替它记住
 // 「每个 tab 当前文档里跑着哪些脚本」——就是这个按 tab 的运行登记表。
 //
 // 数据流（三个信号源，全部已在 dl-bridge / background 里存在，这里只是多接一根线）：
@@ -15,7 +14,7 @@
 //
 // 已知边界（刻意接受）：SW 被杀重启后登记表清空，且历史 runstart 不会重放
 // （广播是即发即弃的）——面板在「SW 重启后、页面未重新导航」的窗口里会显示为空。
-// 页面一刷新即恢复；这与浮窗「重启后靠重连拉全量」不同，因为 SW 本就没存 runId。
+// 页面一刷新即恢复。
 
 import type {
   PageErrorItem,
@@ -25,8 +24,6 @@ import type {
 } from '@/shared/extension-ipc'
 import type { UserScriptErrorRecord } from './types'
 import { listUserScriptErrors } from './store'
-// 复用浮窗的跳转实现（同目录模块，status-bubble 不反向依赖本模块，无环）
-import { openWorkbenchErrors } from './status-bubble'
 
 /** 面板端口名（复用面板存活端口：ChatApp 建连时用同一个名字，SW 侧两个监听者各取所需） */
 const PANEL_PORT_NAME = 'duoling:panel'
@@ -121,7 +118,7 @@ export async function snapshotFor(tabId: number): Promise<{
 /**
  * 监控端口监听（SW 启动时挂一次）：登记 / 断开清理 / 上行快照请求。
  *
- * ⚠️ 必须由 defineBackground 调用（与 status-bubble 同惯例）：本模块会被单测间接触达，
+ * ⚠️ 必须由 defineBackground 调用：本模块会被单测间接触达，
  * 测试环境没有完整 runtime.onConnect，顶层挂载会炸。
  */
 export function initPageMonitorPorts(): void {
@@ -145,8 +142,25 @@ export function initPageMonitorPorts(): void {
           .catch(() => {})
         return
       }
-      // 点击脚本行 → 打开/聚焦工作台错误日志（与浮窗行点击同一落地）
+      // 点击脚本行 → 打开/聚焦工作台错误日志
       if (msg.t === 'page:openErrors' && msg.uuid) void openWorkbenchErrors(msg.uuid).catch(() => {})
     })
   })
+}
+
+/**
+ * 上行：点击脚本行 → 打开 / 聚焦工作台并深链定位到该脚本的错误（workbench.html#/errors/<uuid>）。
+ * 已打开工作台时更新 hash 并激活（hash 变化不重载页面，WorkbenchApp 的 hash 处理器接管）。
+ */
+export async function openWorkbenchErrors(uuid: string): Promise<void> {
+  const base = chrome.runtime.getURL('workbench.html')
+  const url = `${base}#/errors/${encodeURIComponent(uuid)}`
+  const tabs = await chrome.tabs.query({ url: `${base}*` })
+  const existing = tabs.find((t) => t.id != null)
+  if (existing?.id != null) {
+    await chrome.tabs.update(existing.id, { url, active: true })
+    if (existing.windowId != null) await chrome.windows.update(existing.windowId, { focused: true }).catch(() => {})
+  } else {
+    await chrome.tabs.create({ url })
+  }
 }

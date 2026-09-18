@@ -20,7 +20,7 @@ import { Button as UiButton } from '@/components/ui/button'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import { ERROR_LOG_MAX, type UserScriptErrorRecord } from '@/lib/userscripts/types'
 
-/** 深链定位：浮窗「点击脚本行」→ workbench.html#/errors/<uuid> → 宿主传入。
+/** 深链定位：侧边栏灵动岛「点击脚本行」→ workbench.html#/errors/<uuid> → 宿主传入。
  *  带 focusSeq（宿主每次定位请求递增）：标签页常驻不重挂，对同一脚本再点一次时
  *  focusUuid 不变，只靠 uuid 无法触发 watch —— seq 是「这次请求」的标识。
  *  reloadSeq 同理由宿主递增（脚本被删除后要求重拉），见文件末 watch。 */
@@ -222,7 +222,7 @@ async function onClear(): Promise<void> {
 
 // 深链定位：宿主传入 focusUuid 时选中该脚本分组；该脚本当前没有错误则落「全部」并说明一句。
 // immediate + watch 而非只 onMounted：工作台标签页常驻（unmount-on-hide=false），
-// 同一页面内浮窗再次跳转会只改 prop、不重挂组件，必须靠 watch 接住；
+// 同一页面内灵动岛再次跳转会只改 prop、不重挂组件，必须靠 watch 接住；
 // focusSeq 一并监听，保证「对同一脚本再点一次」也重新定位 + 拉最新。
 watch(
   [() => props.focusUuid, () => props.focusSeq],

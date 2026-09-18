@@ -102,10 +102,9 @@ export interface UserScriptErrorRecord {
   time: number // 时间戳
   /**
    * 运行标识：**一次页面加载 = 一个 runId**（DL 包装注入即 mint，见 engine.buildDlWrapper）。
-   * 用途：日志是全量环形（历次运行混存），浮窗只认「本次运行」的错误——
-   * 它自持 `uuid → 当前 runId 集合`（runId 由脚本经 SW 转达），按 runId 成员判定过滤，**不看 SW**。
-   * `register`（注册失败）与 `bridge`（桥调用失败）没有页面/运行上下文，恒为 null / 缺省；
-   * register 阶段错误在浮窗里恒显（不被 run 轴误杀）。
+   * 用途：日志是全量环形（历次运行混存），侧边栏页面监控只显「本次运行」的错误——
+   * 按当前 tab 登记的运行集里有没有该 runId 来判定。
+   * `register`（注册失败）与 `bridge`（桥调用失败）没有页面/运行上下文，恒为 null / 缺省。
    */
   runId?: string | null
 }

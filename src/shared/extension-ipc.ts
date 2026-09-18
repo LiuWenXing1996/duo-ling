@@ -78,55 +78,6 @@ export interface ChatMessageMetadata {
   pageContext?: MessagePageContext
 }
 
-// —— 页面脚本状态浮窗载荷 ——
-// ⚠️ 与 src/public/duoling-status.js 的 vanilla JS 手写对齐，改形状必须两边同步。
-
-/** 浮窗的一条脚本行 */
-export interface StatusBubbleScript {
-  uuid: string
-  name: string
-  /**
-   * 该脚本 runtime + register 阶段的错误（最新在前；bridge 阶段噪音大，不计）。
-   * **SW 不做「本次运行」过滤**——runId 指针在浮窗侧，故这里原样透传，浮窗按自持 runId 集合过滤后计数。
-   * 环形日志上限 50 条，故整个载荷天然有界。
-   */
-  errors: StatusBubbleErrorItem[]
-}
-
-/** 浮窗行内展示的一条错误（message 已在 SW 侧截断） */
-export interface StatusBubbleErrorItem {
-  message: string
-  time: number
-  /** 一次页面加载 = 一个 runId；register 阶段错误无运行上下文，为 null */
-  runId: string | null
-  /** register 错误无页面/运行上下文，浮窗里**恒显**（不被 run 轴误杀） */
-  phase: 'runtime' | 'register'
-}
-
-/** 浮窗数据：脚本行列表；scripts 为空 = 浮窗自隐藏 */
-export interface StatusBubbleData {
-  /** 页面 host（展示用） */
-  host: string
-  scripts: StatusBubbleScript[]
-}
-
-/**
- * SW → 浮窗的端口推送（浮窗经 `runtime.connect({name:'duoling:status'})` 建连，
- * SW 侧 `runtime.onUserScriptConnect` 拿到**双向 Port**，可主动 postMessage）。
- * ⚠️ 与 src/public/duoling-status.js 的 vanilla JS 手写对齐，改形状必须两边同步。
- */
-export type StatusBubblePush =
-  | { t: 'data'; data: StatusBubbleData | null }
-  /** 脚本注入即广播的运行标识：**浮窗据此自持「当前运行」指针**（SW 只转发、不存储） */
-  | { t: 'runstart'; uuid: string; runId: string }
-
-/** 浮窗 → SW 的端口上行 */
-export type StatusBubbleUp =
-  /** 点击脚本行 → 打开/聚焦工作台并深链到该脚本的错误 */
-  | { t: 'openErrors'; uuid: string }
-  /** 重连后主动拉一次（补上断连期间少收的推送） */
-  | { t: 'refresh' }
-
 /** 渲染页 → service worker 的请求（kind 可辨识联合，background 按 kind 分发） */
 export type RuntimeRequest =
   // 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）
@@ -317,7 +268,7 @@ export type DataChangedPush = {
 export type BuildPhase = 'saving' | 'building'
 
 // —— 页面脚本监控（侧边栏 · 运行时口径）——
-// 信号源与浮窗同源：DL 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。
+// 信号源：DL 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。
 // 侧边栏跟踪本窗口 active tab，SW 侧按 tab 登记运行集并经 'duoling:panel' 端口推送。
 
 /** 当前 tab 的一次运行（一次页面加载 = 一个 runId；SPA 软导航不换文档、runId 不变） */
@@ -351,7 +302,7 @@ export type PanelMonitorPush =
 export type PanelMonitorUp =
   /** 按当前 active tab 拉快照（切 tab / 面板刚打开时） */
   | { t: 'page:snapshot'; tabId: number }
-  /** 点击脚本行 → SW 打开/聚焦工作台并深链到该脚本的错误（与浮窗 openErrors 同语义） */
+  /** 点击脚本行 → SW 打开/聚焦工作台并深链到该脚本的错误 */
   | { t: 'page:openErrors'; uuid: string }
 
 /**

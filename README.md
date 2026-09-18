@@ -86,17 +86,17 @@
 │  │  ├─ element-picker-client.ts # 元素拾取 / 页面快照的发起侧（按需注入拾取器，失败有可读文案）
 │  │  ├─ page-context-store.ts    # 点选产物的采集侧暂存（等下一条消息一起发）
 │  │  ├─ theme.ts / code-view.ts / format.ts / utils.ts
-│  │  └─ userscripts/             # 脚本链路：引擎 / 存储 / git / DL 桥 / 匹配规则 / 状态浮窗
-│  │     ├─ engine.ts             #   chrome.userScripts 注册：每脚本一 USER_SCRIPT 世界 + MAIN 桩 + 状态浮窗
+│  │  └─ userscripts/             # 脚本链路：引擎 / 存储 / git / DL 桥 / 匹配规则
+│  │     ├─ engine.ts             #   chrome.userScripts 注册：每脚本一 USER_SCRIPT 世界 + MAIN 桩
 │  │     ├─ state-db.ts / project-store.ts / project-write.ts  # 注册态库 `duoling-state`（bundle+元数据，写只归 offscreen）
 │  │     ├─ us-fs.ts / us-git.ts  #   lightning-fs 单例（库名 `duoling-fs`，只许 offscreen）+ isomorphic-git：源码唯一来源
 │  │     ├─ dl-bridge.ts / api-contract.ts  # 注入脚本 ⇄ SW 桥（DL.store / DL.fetch / DL.page 契约）
 │  │     ├─ page-stub.ts / page-client.ts / page-protocol.ts  # DL.page 反向中继（MAIN 桩 + USER_SCRIPT 客户端）
-│  │     ├─ status-bubble.ts / match-pattern.ts / match-union.ts  # 页面状态浮窗 + 匹配规则与并集
+│  │     ├─ match-union.ts        #   内置注册（MAIN 桩）的匹配并集与「未变则跳过」比对
 │  │     └─ builder.ts / zip-transfer.ts / builtins.ts / store.ts / ui-client.ts / types.ts
 │  ├─ types/                      # shims.d.ts（process 模块 + window.api 全局声明）+ tab.ts / model.ts re-export
 │  ├─ polyfill-process.ts / polyfills.ts  # SW 兜底：process / global / Buffer（须在 background.ts 最前 import）
-│  └─ public/                     # duoling-picker.js（元素拾取器）/ duoling-status.js（页面状态浮窗）/ esbuild.wasm
+│  └─ public/                     # duoling-picker.js（元素拾取器）/ esbuild.wasm
 ├─ scripts/                       # 仓库维护脚本：verify-skills.mjs（skill 合规）/ check-inbox.py（inbox 体检）/ pack-uscripts.mjs（打用户脚本测试包）
 ├─ uscript-samples/               # pack-uscripts 的源目录（跟 git）：未压缩的测试脚本源码，注入探针 / DL 桥往返 / 多文件构建 / 运行期报错 / 构建失败
 ├─ docs/inbox.md                  # 想法收件箱（只装问题，不写方案）
@@ -134,8 +134,8 @@ npm run pack:uscripts    # 把仓库根 uscript-samples/ 打成可导入的用�
 9. **编辑与构建**：列表行点「编辑」开编辑器标签页 → 改文件后构建（esbuild-wasm）→ 保存；顶栏可切「产物」标签看真正注入页面的 IIFE；有未保存改动时关标签应弹确认
 10. **历史**：编辑器内 git 历史 → 看提交记录 / 恢复某次提交（恢复产生新提交，历史不可变；**已知缺口**：有未保存草稿时恢复会直接覆盖草稿、事先无提示）
 11. **AI 生成脚本**：面板里描述需求 → 看进度流（工具卡：`script_spec` / `script_read` / `script_apply` / `page_snapshot`）→ 生成卡片出现（未启用徽标 + 生效范围 + 会做什么）→ 点「启用并生效」→ 打开目标页确认脚本已生效
-12. **页面浮窗与角标**：在命中脚本的页面上，右下角状态浮窗应列出本页生效的脚本（点脚本行跳工作台错误日志）；生成过程中关掉面板，完成后工具栏图标应亮红色角标 `1`，重开面板即清零
-13. **错误日志标签页**：左侧导航栏点「错误日志」（或浮窗点脚本行深链 `#/errors/<uuid>`）→ 左栏按脚本分类（各脚本带错误数徽标，hover 看「运行期 / 注册 / DL 桥」拆解），右栏看该脚本明细；点右上的「清空该脚本」只清当前选中的这一组，不误伤别的脚本
+12. **页面脚本灵动岛与角标**：在命中脚本的页面上，侧边栏灵动岛应列出本页在跑的脚本与报错（点脚本行跳工作台错误日志）；生成过程中关掉面板，完成后工具栏图标应亮红色角标 `1`，重开面板即清零
+13. **错误日志标签页**：左侧导航栏点「错误日志」（或灵动岛点脚本行深链 `#/errors/<uuid>`）→ 左栏按脚本分类（各脚本带错误数徽标，hover 看「运行期 / 注册 / DL 桥」拆解），右栏看该脚本明细；点右上的「清空该脚本」只清当前选中的这一组，不误伤别的脚本
 14. **删除的连带清理**：删掉一个脚本（单删 / 「全部删除」都算）→ 状态库记录、它的 git 仓、`DL.store` 值、**以及它的报错记录**一并清掉；已打开的错误日志标签页会自动重拉，不该再留下这个脚本的分组
 
 **改代码后**：WXT 自动重建；回 `chrome://extensions` 点扩展卡片的刷新图标重载。**改 `wxt.config.ts` 必须重启 dev**（HMR 不重读配置）。
