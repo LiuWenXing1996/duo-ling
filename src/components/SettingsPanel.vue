@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 设置面板：模型管理。
 import { onMounted, ref } from 'vue'
+import { useDataSync } from '@/composables/use-data-sync'
 import {
   Box as UiBox,
   ChevronRight as UiChevronRight,
@@ -77,6 +78,8 @@ async function removeModel(profile: ModelProfile): Promise<void> {
 async function onSaved(): Promise<void> {
   await loadData()
 }
+
+useDataSync('model', () => loadData())
 
 onMounted(() => {
   void loadData()

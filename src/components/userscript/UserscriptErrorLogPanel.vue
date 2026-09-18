@@ -7,6 +7,7 @@
 // 数据通道：userscriptClient（workbench 是可信扩展页，可直接 chrome.runtime.sendMessage，
 // 不走 window.api —— 那是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
 import { computed, onMounted, ref, watch } from 'vue'
+import { useDataSync } from '@/composables/use-data-sync'
 import {
   AlertTriangle as UiAlertTriangle,
   Check as UiCheck,
@@ -249,6 +250,13 @@ watch(
     fallbackSelectionIfGone()
   }
 )
+
+// 写侧落盘后已广播 `error` 域（append / 三态 clear），这里接住自动回拉，
+// 不必等手动刷新；清掉当前正看的分组时按既有逻辑回落「全部」
+useDataSync('error', async () => {
+  await load()
+  fallbackSelectionIfGone()
+})
 
 onMounted(() => {
   // 带深链进来时 watch 已负责首次加载，避免重复拉一次
