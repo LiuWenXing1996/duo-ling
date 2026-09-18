@@ -220,11 +220,15 @@ export function mintNotification(uuid: string): string {
  * 因此只允许在 SW 初始化路径调用一次——与 initDlBridge 同惯例）。
  */
 export function initDlPort(): void {
-  if (typeof chrome.runtime?.onConnect?.addListener !== 'function') return
+  // 关键坑：userScripts 世界的 connect() 触发的是**专用事件** runtime.onUserScriptConnect，
+  // 不走通用 onConnect（与 onUserScriptMessage 同理，官方文档明文）。挂 onConnect 永远收不到
+  // 脚本世界的连接（实测症状：SW 无任何 Port 日志、脚本侧 port.ready 超时）。
+  const onScriptConnect = chrome.runtime.onUserScriptConnect
+  if (typeof onScriptConnect?.addListener !== 'function') return
   const registry = getDlPortRegistry()
 
   // Port 建立与清理
-  chrome.runtime.onConnect.addListener((port) => {
+  onScriptConnect.addListener((port) => {
     const parsed = parseDlPortName(port.name)
     if (!parsed) return // 非 DL Port（panel 等各自的监听器处理）
     // 身份校验：与 dl-bridge 同款 —— sender.userScript 缺省时跳过（沿用旧 GM 桥实测结论）
