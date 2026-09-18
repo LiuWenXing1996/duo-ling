@@ -69,6 +69,12 @@ const warning = ref('')
 const toggling = ref<string | null>(null)
 /** 创建中：避免连点一次建出多个空脚本 */
 const creating = ref(false)
+/**
+ * 刚新建的脚本 uuid：行上标「刚新建」，点该行「编辑」进过一次即摘标。
+ * 与 justImported 同性质 —— 只记本轮会话内「刚刚发生的动作」，刷新列表不重算、不做持久化
+ * （关掉工作台标签页就没了，符合「刚」的时效语义；脚本被删了行也没了，无需额外清理）。
+ */
+const justCreated = ref<string[]>([])
 /** 正在删除的脚本 uuid：避免连点重复发起 */
 const removing = ref<string | null>(null)
 /** 「全部删除」确认弹窗是否打开 */
@@ -223,7 +229,8 @@ async function onToggle(s: ScriptSummary, next: boolean): Promise<void> {
 /**
  * 新建脚本：零输入 —— background 侧自动命名（「新建的脚本 1」/「新建的脚本 2」…）、写入初始模板、
  * 建好 git 仓（首次提交含 project.json 元数据）并注册启用。
- * 创建成功后直接打开该脚本的编辑器标签页（第 5 点「创建完去哪」的答案）。
+ * 创建后**不跳编辑器**（新建时被抢走当前标签页很烦，尤其连建多个），改为在该行标「刚新建」，
+ * 人点该行「编辑」进过一次即摘标。与导入动线一致：产物落在列表里，何时进编辑器由用户定。
  */
 async function onCreate(): Promise<void> {
   if (creating.value) return
@@ -231,18 +238,24 @@ async function onCreate(): Promise<void> {
   error.value = ''
   warning.value = ''
   try {
-    // 注册失败不算创建失败（数据已落库），警告照带、编辑器照开
-    const { uuid, name, registerError } = await userscriptClient.create()
+    // 注册失败不算创建失败（数据已落库），警告照带、行标照打
+    const { uuid, registerError } = await userscriptClient.create()
+    justCreated.value = [...justCreated.value, uuid]
     await refresh()
     if (registerError) {
       warning.value = `脚本已创建，但注册失败，不会注入页面：${registerError}`
     }
-    emit('edit', uuid, name)
   } catch (e) {
     error.value = '创建失败：' + (e instanceof Error ? e.message : String(e))
   } finally {
     creating.value = false
   }
+}
+
+/** 点某行「编辑」：开编辑器标签页，同时摘掉该行的「刚新建」标（人进去看过了） */
+function openEditor(s: ScriptSummary): void {
+  justCreated.value = justCreated.value.filter((u) => u !== s.uuid)
+  emit('edit', s.uuid, s.name)
 }
 
 /** 待删除的脚本：非 null 即确认弹窗打开 */
@@ -583,6 +596,13 @@ onMounted(() => {
                 >
                   刚导入 · 未启用
                 </span>
+                <!-- 刚由「添加脚本」建成：新建不跳编辑器，靠这个标告诉人哪个是刚建的 -->
+                <span
+                  v-else-if="justCreated.includes(s.uuid)"
+                  class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                >
+                  刚新建
+                </span>
               </div>
               <p class="mt-0.5 truncate font-mono text-xs text-muted-foreground">
                 {{ s.matches.join(', ') || '（无匹配规则）' }}
@@ -609,7 +629,7 @@ onMounted(() => {
                 size="icon"
                 class="size-7"
                 title="编辑脚本"
-                @click="emit('edit', s.uuid, s.name)"
+                @click="openEditor(s)"
               >
                 <ui-pencil class="size-3.5" />
               </ui-button>
