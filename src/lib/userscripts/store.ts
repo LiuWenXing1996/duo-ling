@@ -17,7 +17,7 @@ import {
 } from './types'
 
 /**
- * 列表视图：项目摘要（不含源码与构建产物），未启用在后、启用在前。
+ * 列表视图：项目摘要（不含源码与构建产物），未启用在后、启用在前，组内按更新时间倒序。
  * 项目由调用方传入（读自状态库，见 background.ts）——本文件已不再持有项目数据。
  */
 export async function listSummaries(projects: ScriptProject[]): Promise<ScriptSummary[]> {
@@ -30,7 +30,7 @@ export async function listSummaries(projects: ScriptProject[]): Promise<ScriptSu
     updatedAt: p.updatedAt,
   }))
   return [...projectSummaries].sort(
-    (a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name),
+    (a, b) => Number(b.enabled) - Number(a.enabled) || b.updatedAt - a.updatedAt,
   )
 }
 
