@@ -117,7 +117,7 @@ const profiles = ref<ModelOption[]>([])
 const activeModelId = ref('')
 const modelMenuOpen = ref(false)
 const activeModelName = computed(
-  () => profiles.value.find((p) => p.id === activeModelId.value)?.name ?? '未配置'
+  () => profiles.value.find((p) => p.id === activeModelId.value)?.name ?? '未选中模型'
 )
 
 function refreshModelStatus(data: {
@@ -930,9 +930,9 @@ function userScriptsUnavailableMessageSafe(): string {
                     <ui-check v-if="p.id === activeModelId" class="size-3.5 shrink-0 text-primary" />
                   </button>
                 </div>
-                <!-- 未配置时：列表为空，仅显示空态提示 -->
-                <p v-else class="px-2 py-1.5 text-xs text-muted-foreground">未配置模型</p>
-                <!-- 底部「添加模型」：跳转到设置页自行添加 -->
+                <!-- 无可用模型时：列表为空，仅显示空态提示 -->
+                <p v-else class="px-2 py-1.5 text-xs text-muted-foreground">模型列表为空</p>
+                <!-- 底部「去添加模型」：跳转到设置页自行添加 -->
                 <div class="mt-1 border-t border-muted pt-1">
                   <button
                     type="button"
@@ -940,7 +940,7 @@ function userScriptsUnavailableMessageSafe(): string {
                     @click="goToSettings"
                   >
                     <ui-plus class="size-3.5 shrink-0" />
-                    添加模型
+                    去添加模型
                   </button>
                 </div>
               </ui-popover-content>
