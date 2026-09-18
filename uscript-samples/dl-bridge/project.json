@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "name": "DL 桥往返",
+  "config": {
+    "matches": ["*://*/*"],
+    "allFrames": false,
+    "runAt": "document_end"
+  },
+  "entry": "main.js"
+}

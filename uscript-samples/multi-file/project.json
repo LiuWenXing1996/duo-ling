@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "name": "多文件构建",
+  "config": {
+    "matches": ["*://*/*"],
+    "allFrames": false,
+    "runAt": "document_end"
+  },
+  "entry": "main.js"
+}

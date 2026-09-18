@@ -97,7 +97,8 @@
 │  ├─ types/                      # shims.d.ts（process 模块 + window.api 全局声明）+ tab.ts / model.ts re-export
 │  ├─ polyfill-process.ts / polyfills.ts  # SW 兜底：process / global / Buffer（须在 background.ts 最前 import）
 │  └─ public/                     # duoling-picker.js（元素拾取器）/ duoling-status.js（页面状态浮窗）/ esbuild.wasm
-├─ scripts/                       # 仓库维护脚本：verify-skills.mjs（skill 合规）/ check-inbox.py（inbox 体检）
+├─ scripts/                       # 仓库维护脚本：verify-skills.mjs（skill 合规）/ check-inbox.py（inbox 体检）/ pack-uscripts.mjs（打用户脚本测试包）
+├─ uscript-samples/               # pack-uscripts 的源目录（跟 git）：未压缩的测试脚本源码，注入探针 / DL 桥往返 / 多文件构建 / 运行期报错 / 构建失败
 ├─ docs/inbox.md                  # 想法收件箱（只装问题，不写方案）
 ├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟四链路）
 └─ .github/workflows/             # ci.yml（PR 门禁：typecheck + 单测）/ e2e.yml（手动 / nightly / push main）
@@ -115,6 +116,7 @@ npm run test:e2e         # Playwright 端测（跑 build 产物，无头 Chromiu
 npm run build:firefox    # 跨端构建（Firefox 侧；sidebar_action 适配待三期）
 npm run verify:skills    # 校验 .agents/skills/ 合规（结构错误退出码 1）
 npm run check:inbox      # 想法收件箱体检（整理 inbox 时跑）
+npm run pack:uscripts    # 把仓库根 uscript-samples/ 打成可导入的用户脚本 zip → tmp/（测试用脚本不用手搓）
 ```
 
 > 依赖用 **npm** 管理。PR 门禁由 `ci.yml` 跑 typecheck + 全部单测；E2E 是独立 workflow（`e2e.yml`），**故意不作 required status check**。
@@ -128,7 +130,7 @@ npm run check:inbox      # 想法收件箱体检（整理 inbox 时跑）
 5. **配模型**：面板顶栏「打开工作台」→ 左侧导航「设置」→ 添加模型（选服务商 / 填 API Key / 模型 ID）→「测试连接」→ 保存
 6. **对话**：面板内输入一句话发送 → 应流式吐字（模型有 `reasoning_content` 时折叠成「查看思考」）；顶栏还有整会话导出（复制为 markdown）
 7. **元素拾取**：任意页面 → 面板输入区点拾取按钮 → 页面里点选目标元素 → 面板出现拾取 chip（随下一条消息发出，可 × 清除）
-8. **脚本列表**：面板顶栏「打开工作台」→ 默认落「脚本列表」（可关掉别的标签，这个不可关）→ 新建（零输入，**建完停在列表不跳编辑器**，该行标「刚新建」，点该行「编辑」进过一次即摘标）/ 启停 / 导入 zip / 导出 / 删除 / 看可用性横幅。列表本身**不展示脚本报错**（报错属历史信息，归独立的「错误日志」标签页；引擎不可用这类环境级问题只在本页横幅提一次，不按脚本逐条复述）
+8. **脚本列表**：面板顶栏「打开工作台」→ 默认落「脚本列表」（可关掉别的标签，这个不可关）→ 新建（零输入，**建完停在列表不跳编辑器**，该行标「刚新建」，点该行「编辑」进过一次即摘标）/ 启停 / 导入 zip（测试包用 `npm run pack:uscripts` 生成，落在 `tmp/`，内含注入探针 / DL 桥 / 多文件 / 故意报错等有具体行为的脚本）/ 导出 / 删除 / 看可用性横幅。列表本身**不展示脚本报错**（报错属历史信息，归独立的「错误日志」标签页；引擎不可用这类环境级问题只在本页横幅提一次，不按脚本逐条复述）
 9. **编辑与构建**：列表行点「编辑」开编辑器标签页 → 改文件后构建（esbuild-wasm）→ 保存；顶栏可切「产物」标签看真正注入页面的 IIFE；有未保存改动时关标签应弹确认
 10. **历史**：编辑器内 git 历史 → 看提交记录 / 恢复某次提交（恢复产生新提交，历史不可变；**已知缺口**：有未保存草稿时恢复会直接覆盖草稿、事先无提示）
 11. **AI 生成脚本**：面板里描述需求 → 看进度流（工具卡：`script_spec` / `script_read` / `script_apply` / `page_snapshot`）→ 生成卡片出现（未启用徽标 + 生效范围 + 会做什么）→ 点「启用并生效」→ 打开目标页确认脚本已生效
