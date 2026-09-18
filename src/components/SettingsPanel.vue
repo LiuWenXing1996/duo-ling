@@ -13,6 +13,7 @@ import { Button as UiButton } from '@/components/ui/button'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import type { ModelProfile, ModelProvider } from '@/types/model'
 import ModelFormDialog from './ModelFormDialog.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 const profiles = ref<ModelProfile[]>([])
 const providers = ref<ModelProvider[]>([])
@@ -64,9 +65,18 @@ async function toggleEnabled(profile: ModelProfile): Promise<void> {
   }
 }
 
-async function removeModel(profile: ModelProfile): Promise<void> {
-  const label = profile.name || profile.model
-  if (!window.confirm(`确定删除模型「${label}」吗？`)) return
+// 删除模型确认弹窗（ConfirmDialog 替代原生 window.confirm）
+const removeConfirmOpen = ref(false)
+const pendingRemove = ref<ModelProfile | null>(null)
+
+function removeModel(profile: ModelProfile): void {
+  pendingRemove.value = profile
+  removeConfirmOpen.value = true
+}
+
+async function confirmRemoveModel(): Promise<void> {
+  const profile = pendingRemove.value
+  if (!profile) return
   try {
     await window.api.model.delete(profile.id)
     await loadData()
@@ -203,6 +213,16 @@ onMounted(() => {
       :providers="providers"
       @update:open="dialogOpen = $event"
       @saved="onSaved"
+    />
+
+    <!-- 删除模型确认弹窗 -->
+    <ConfirmDialog
+      v-model:open="removeConfirmOpen"
+      title="删除模型？"
+      :description="pendingRemove ? `确定删除模型「${pendingRemove.name || pendingRemove.model}」吗？` : ''"
+      confirm-text="删除"
+      danger
+      @confirm="confirmRemoveModel"
     />
   </section>
 </template>
