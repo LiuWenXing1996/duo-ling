@@ -3,7 +3,7 @@
 // chrome.runtime.getURL 拉起的 wasm 与 lightning-fs，均非被测靶心。
 // 被测重点是写侧自身的语义：bundle 必要条件（新建/保存路径）、守卫校验、快照失败不阻断、
 // 启停不产生提交、删除全部（记录批量清 + 仓整目录清一次），以及 zip 导入「尽量导入」语义
-// （2026-09-17 修订：非原则项不淘汰）。
+// 非原则项不淘汰。
 import 'fake-indexeddb/auto'
 import { strToU8, zipSync } from 'fflate'
 import { beforeEach, describe, expect, it, vi } from 'vitest'

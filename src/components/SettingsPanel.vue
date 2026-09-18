@@ -1,8 +1,5 @@
 <script setup lang="ts">
 // 设置面板：模型管理。
-// 2026-09-14：工具链路移除后，原「工具版本预览缓存」与
-// 「工具数据」两段（数据源 toolsPreview.* / toolsData.*）已整体摘除；同批摘掉
-// 开发者入口（其界面内容 100% 是工具能力面）。
 import { onMounted, ref } from 'vue'
 import {
   Box as UiBox,

@@ -1,10 +1,5 @@
 <script setup lang="ts">
 // 工作区多标签宿主：引导 / 设置 / UI 测试 / 脚本列表 / 脚本编辑器 / 脚本历史 / 脚本产物。
-//
-// 2026-09-14：工具链路移除后，本文件从「工具标签总线」
-// 收窄为「脚本工作台」—— 原先的工具详情 / 代码 / 版本历史 / 档案 / 数据 五个标签页、主页工具网格、
-// 全局工具搜索框、编辑与删除弹窗、分组与置顶全部摘除；标签页宿主、dirtyTab 与 tabsChanged 上报
-// 这套骨架逐句保留，未重写。2026-09-18：移除「主页」标签，工作台默认落脚本列表（基础标签不可关闭）。
 import { ref, watch } from 'vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import GuidePanel from '@/components/GuidePanel.vue'
@@ -23,8 +18,7 @@ import {
   TabsContent as UiTabsContent
 } from '@/components/ui/tabs'
 
-// 默认标签页：脚本列表（脚本管理唯一入口）。2026-09-18 移除「主页」标签后，工作台默认落脚本列表；
-// 该基础标签不可关闭，保证工作台始终有落点。
+// 默认标签页：脚本列表（脚本管理唯一入口）。该基础标签不可关闭，保证工作台始终有落点。
 const LIST_TAB_ID = 'userscript-list'
 const DEFAULT_TAB: WorkspaceTab = { kind: 'userscript-list', id: LIST_TAB_ID, title: '脚本列表' }
 const openTabs = ref<WorkspaceTab[]>([DEFAULT_TAB])
@@ -79,7 +73,6 @@ function openUiTestTab(): void {
 }
 
 // 打开脚本列表标签页：若已打开则激活，否则新开一个。
-// 2026-09-15 起这是脚本管理的唯一入口（旧管理器覆盖层已删除，能力全部并入本标签页）。
 function openUserscriptListTab(): void {
   if (!openTabs.value.some((t) => t.kind === 'userscript-list')) {
     openTabs.value.push({ kind: 'userscript-list', id: 'userscript-list', title: '脚本列表' })

@@ -1,7 +1,7 @@
 // 用户脚本的 chrome.storage 侧持久化。
 //
-// 2026-09-15 单写方落地后，**项目数据（源码/配置/产物/enabled）已迁往 IndexedDB 状态库
-// duoling-state**（读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
+// 项目数据（源码/配置/产物/enabled）的权威在 IndexedDB 状态库 duoling-state
+// （读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
 // 本文件只剩两类：DL.store 值（us:gm:*）、错误日志（us:errors）。
 //
 // 为什么这两类不一起迁：写入方是**注入页面里的用户脚本**（不受我们控制、可能被高频调用、

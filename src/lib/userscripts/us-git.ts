@@ -89,7 +89,7 @@ export async function ensureRepo(uuid: string): Promise<void> {
   }
 }
 
-/** 删除脚本的整棵 git 仓（历史不保留——2026-09-14 拍板：删脚本即删历史） */
+/** 删除脚本的整棵 git 仓（历史不保留：删脚本即删历史） */
 export async function deleteRepo(uuid: string): Promise<void> {
   assertSafeUuid(uuid)
   try {
@@ -200,7 +200,7 @@ async function syncWorktree(uuid: string, contents: Record<string, string>): Pro
 
 /**
  * 快照（保存成功后调用）：内容与 HEAD 逐字节一致则不提交（无空提交）；
- * message = 备注优先，否则自动计数「保存 #n」（2026-09-14 拍板）。
+ * message = 备注优先，否则自动计数「保存 #n」。
  */
 export async function snapshotProject(
   project: ScriptProject,

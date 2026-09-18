@@ -1,18 +1,14 @@
-// 全局会话 composable：把「会话」从工具分桶（localStorage）提升为一等公民的渲染层状态源。
+// 全局会话 composable：渲染层的会话状态源。
 //
 // 布局上对应全局三栏中的「会话历史 + 当前会话」两栏：会话列表读自 IndexedDB（同源共享），
 // 消息全部持久化在 IndexedDB，此处只维护「当前激活会话」的视图与流式过程中的临时态。
 //
-// 2026-09-15：整条对话链路搬进 offscreen 后，
-// 本 composable 的定位收敛为「指令入口 + 观察者」：
+// 定位是「指令入口 + 观察者」（对话链路的执行宿主是 offscreen）：
 //   · 落盘归 offscreen —— 用户消息在 chat:start 时落盘、assistant 消息在收尾时落盘
 //     （含完整 parts 与 token 用量）；侧边栏**不写**会话库，防双写。
 //   · 断线重连 —— 面板重开 / 切回会话时经 chat.resumeStream() → transport.reconnectToStream()
 //     从头回放 offscreen 里仍在进行中任务的完整事件缓冲接上；「下完单就走」由此成立。
 //   · 孤儿任务 —— offscreen 宿主被杀后 status=running 的记录（心跳过期）在此提示「继续 / 丢弃」。
-//
-// 2026-09-14：工具链路移除后，原「多工具意图」分支
-// （parseGeneratedIntents / applyIntents / 变更卡片 pendingMap / onToolApplied）整体摘除。
 
 import { computed, ref, shallowRef, watchEffect } from 'vue'
 import type { UseChatHelpers } from '@ai-sdk/vue'
@@ -70,8 +66,8 @@ export function useGlobalConversation() {
   // —— 孤儿任务（offscreen 宿主被杀后遗留；供 ChatApp 横幅提示「继续 / 丢弃」）——
   const orphanTasks = ref<ChatOrphanRecord[]>([])
   // —— 最近一次生成失败的错误文案（供 ChatPanel 展示；发新消息 / 切会话时清除）——
-  // 2026-09-15 手测教训：流中途报错（模型网络错误 / API 失败）原本全静默——
-  // 面板只摘掉空气泡，错误文案从不显示，用户看到的就是「发出去没回音、重开也没记录」。
+  // 流中途报错（模型网络错误 / API 失败）必须在此留文案：只摘空气泡而不显示错误的话，
+  // 用户看到的就是「发出去没回音、重开也没记录」。
   const chatError = ref('')
 
   // —— 对话客户端：AI SDK 全家桶按需加载 ——
@@ -266,7 +262,7 @@ export function useGlobalConversation() {
     isAbort: boolean
   }): Promise<void> {
     // abort 也刷新列表：标题改名发生在 chat:start（offscreen 侧），中止的会话
-    // 不刷新的话面板头部一直显示「新会话 N」旧标题（2026-09-15 手测实测）
+    // 不刷新的话面板头部一直显示「新会话 N」旧标题
     try {
       conversations.value = await window.api.conversation.list()
     } catch {
@@ -301,7 +297,7 @@ export function useGlobalConversation() {
    * 发送：落盘（用户消息）与执行都在 offscreen —— useChat 自动追加本地视图并触发 transport。
    * 暂存的拾取元素以 metadata 随消息走：offscreen 据此落盘 pageContext 元数据，
    * 本地视图也带上它（气泡 chip 立即可见，不必等重开会话）。
-   * 页面快照已改 AI 工具采集（2026-09-17），不走这条通道。
+   * 页面快照走 AI 工具采集，不走这条通道。
    */
   async function send(text: string): Promise<void> {
     if (!text || streaming.value) return

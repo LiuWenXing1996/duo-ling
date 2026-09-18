@@ -46,7 +46,7 @@ export interface ElementPickContext {
   full: ElementPickFull
 }
 
-/** 页面快照（渲染后 DOM，拾取器快照模式静默采集；2026-09-17 起采集方 = AI 的 page_snapshot 工具经 SW 调 execute()，用户面按钮已移除） */
+/** 页面快照（渲染后 DOM，拾取器快照模式静默采集；采集方 = AI 的 page_snapshot 工具经 SW 调 execute()） */
 export interface PageSnapshotContext {
   capturedAt: number
   pageUrl: string
@@ -137,7 +137,7 @@ export type RuntimeRequest =
   // AI 生成脚本落盘（SW 命令面，转发 offscreen 单写方；enabled 默认 false = 先落盘不启用）
   | { kind: 'userscript:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; enabled: boolean; note?: string }
   | { kind: 'userscript:remove'; uuid: string }
-  // 删除全部用户脚本（2026-09-17）：范围 = 新形态用户脚本（状态库项目 + 各自 git 仓），
+  // 删除全部用户脚本：范围 = 新形态用户脚本（状态库项目 + 各自 git 仓），
   // **不含**已弃用旧 GM 记录（chrome.storage，另有逐行删除与 clearDeprecated 两条路径）
   // 与内置件（随扩展包分发）。SW 注销全部 → 转发 state:removeAll → 清各脚本 DL.store 值。
   | { kind: 'userscript:removeAll' }
@@ -156,8 +156,6 @@ export type RuntimeRequest =
   // 单写方（解码 + 校验 + 构建 + 落盘同处）。enabled 恒 false——先审后启，故无注册动作。
   // 导出零新增协议：走现成 userscript:list / getProject 只读命令。
   | { kind: 'userscript:import'; zipBase64: string }
-  // 注：git 历史的 `userscript:history*` 三命令已随执行宿主迁 offscreen 而废弃（由 ai:* 取代），
-  // 全仓无调用方，2026-09-15 从协议中移除——留着只会让 SW 的 handlers 表被迫补死桩。
 
   // 用户脚本 git 历史（执行宿主迁 offscreen）。
   // UI / SW 经 chrome.runtime.sendMessage 共享总线直发 offscreen；SW 的 onMessage 对 ai: 前缀
@@ -238,8 +236,8 @@ export type RuntimeRequest =
   | { kind: 'model:getActiveProfile' }
 
   // —— AI 工具支路（offscreen 的 agent 工具经 SW 调 SW/扩展页才有的 chrome 能力）——
-  // page_snapshot 工具：SW 代为对当前活动标签执行拾取器快照模式（chrome.userScripts.execute
-  // 在 offscreen 不可达；2026-09-17 页面快照从用户按钮改判为 AI 工具）。
+  // page_snapshot 工具：SW 代为对当前活动标签执行拾取器快照模式
+  // （chrome.userScripts.execute 在 offscreen 不可达）。
   // 注意前缀：`chat:` 是「SW 静默让路给 offscreen」的保留前缀，SW 自答的命令不能用
   | { kind: 'page:snapshot' }
 

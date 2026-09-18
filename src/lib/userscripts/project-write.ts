@@ -1,17 +1,14 @@
 // 用户脚本项目数据的**写侧**（⚠️ offscreen 专属，见 state-db.ts 文件头的单写方约定）。
 //
-// 这里是本方案的落点：
-// 原先一次保存是「SW 写 chrome.storage」+「IPC 让 offscreen commit git 仓」两次分离操作、
-// 两个写方，任一步失败就产生「已保存但没 commit」的偏差。
-// 现在状态库与 git 仓都在 offscreen 本地，写状态与 commit 收进同一个函数、同一个上下文里：
-// 先落状态、紧接着快照提交，**不再有跨上下文的缝隙**。
+// 这里是本方案的落点：状态库与 git 仓都在 offscreen 本地，写状态与 commit 收进同一个函数、
+// 同一个上下文里：先落状态、紧接着快照提交，**没有跨上下文的缝隙**
+// （否则任一步失败就会产生「已保存但没 commit」的偏差）。
 //
-// 失败策略不变：commit 失败只丢历史不丢脚本（仓损坏可重建，状态库是权威），故快照异常只 warn。
+// 失败策略：commit 失败只丢历史不丢脚本（仓损坏可重建，状态库是权威），故快照异常只 warn。
 //
-// 2026-09-15 产物不变量（老大拍板：SW 只注册最终产物）：bundle 是注册的**必要条件**——
-// 新建在本模块内先构建（同在 offscreen，直接调 builder，零新链路），构建失败即创建失败；
-// updateProjectFiles 的 bundle 参数为必填（UI 只在构建成功后才调保存）。不存在「无产物被注册」的路径。
-// 同日粘贴安装（installProject 及整条协议链）移除：产品上不再提供「粘贴源码装脚本」入口。
+// 产物不变量：bundle 是注册的**必要条件**——新建在本模块内先构建（同在 offscreen，直接调
+// builder，零新链路），构建失败即创建失败；updateProjectFiles 的 bundle 参数为必填
+// （UI 只在构建成功后才调保存）。不存在「无产物被注册」的路径。
 import { buildProject, BuildError } from './builder'
 import { getProject, listProjects, nextScriptName, validateFiles } from './project-store'
 import { removeProject, writeProject } from './state-db'
@@ -27,7 +24,7 @@ function nowProject(name: string, files: Record<string, string>, config: ScriptC
     v: 1,
     uuid: crypto.randomUUID(),
     name,
-    // 新建即启用（2026-09-14 老大拍板）；初始模板先构建出产物才落盘，注册有产物可注入
+    // 新建即启用；初始模板先构建出产物才落盘，注册有产物可注入
     enabled: true,
     config,
     files,
@@ -147,7 +144,7 @@ export async function removeProjectAndRepo(uuid: string): Promise<void> {
 /**
  * 删除全部用户脚本（「全部删除」按钮的落点），返回删除条数。
  *
- * 范围（2026-09-17 老大拍板）：只有新形态用户脚本——状态库项目 + 各自 git 仓。
+ * 范围：只有新形态用户脚本——状态库项目 + 各自 git 仓。
  * **不含**已弃用旧 GM 记录（它在 chrome.storage，不是项目形态，另有逐行删除与
  * clearDeprecated 两条清理路径）与内置件（随扩展包分发，不在状态库）。
  *
@@ -182,8 +179,7 @@ export async function setProjectEnabled(uuid: string, enabled: boolean): Promise
 /**
  * zip 导入（state:import 的落点）：解码 → 逐脚本**尽量导入**。
  *
- * 2026-09-17 语义修订（老大拍板「不是原则项的阻断，尽量导入脚本，剩余走编辑器修」）：
- * 导入侧不再是「校验 + 淘汰」，而是「尽量落盘 + 报告说明」——
+ * 导入侧不是「校验 + 淘汰」，而是「尽量落盘 + 报告说明」——
  *  · 解码层已放行版本 / 字段缺失 / 路径不安全（后者只过滤该文件），只剩「无 project.json」跳过；
  *  · matches 非法、文件树非法：不在这里拦（启用时 registerScript 会以中文报错，导入后可在编辑器改）；
  *  · 构建失败：**仍导入**，只是不写 bundle；报告 note 带 esbuild 诊断，用户去编辑器改到能构建。
@@ -210,7 +206,7 @@ export async function importScriptsZip(zipBase64: string): Promise<ImportReport>
 /**
  * 导入单个脚本：只做「尽量落盘」，非原则项一律不淘汰它。
  *
- * 落盘顺序（2026-09-17 拍板「先写 lfs」）：
+ * 落盘顺序（先写 lfs）：
  *   ① 构建（buildOutcome，已有流程，读内存 Record）—— 成功即带产物落盘；**失败不淘汰**，
  *      只记 note 并以「无 bundle」落盘，等用户在编辑器修好重建产物；
  *   ② 先写 lfs（snapshotProject）：把真实文件树物化进 lfs 工作树 + 首提交，作为导入

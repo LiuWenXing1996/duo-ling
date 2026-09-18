@@ -5,7 +5,7 @@
 // ⚠️ 数据形状与 src/shared/extension-ipc.ts 的 StatusBubbleData / StatusBubblePush /
 // StatusBubbleUp 手写对齐，改形状必须两边同步。
 //
-// 本文件是**有状态**的一方（2026-09-17 决策：「当前运行指针」归浮窗，不归 SW）：
+// 本文件是**有状态**的一方（「当前运行指针」归浮窗，不归 SW）：
 //   · runs = { uuid: { runId: true } }  —— 本文档收到的脚本运行标识（脚本注入即广播，经 SW 转发）；
 //   · 过滤口径：register 阶段错误恒显；runtime 错误只认「runId 命中 runs[uuid]」的那些。
 //   · 为什么这样就够：浮窗是 per-document 实例（每个文档新建），runs 只装本文档的广播 →

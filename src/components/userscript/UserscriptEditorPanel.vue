@@ -1,17 +1,14 @@
 <script setup lang="ts">
-// 用户脚本编辑器（工作台标签页形态）。
-//
-// 2026-09-14 从 UserscriptManager（旧管理器覆盖层，2026-09-15 已整体删除）的编辑抽屉抽出：
-// 编辑器**只此一份实现**，列表页的「编辑」按钮改为打开本标签页。
+// 用户脚本编辑器（工作台标签页形态）：编辑器**只此一份实现**，列表页的「编辑」按钮打开本标签页。
 //
 // 自包含：只吃 uuid，内部自行 getProject 拉项目、管理编辑态与历史态。
 //
-// 与原抽屉实现的三处差异（载体从抽屉换成标签页使然）：
-//   1. 容器由「fixed inset-0 遮罩 + max-w-3xl 抽屉」改为「标签页铺满」（section.panel）。
-//   2. 保存成功后不再自动关闭 —— 原来关抽屉回列表，标签页里关掉反而要重开，改为顶部提示条。
+// 形态要点（标签页载体使然）：
+//   1. 容器铺满标签页（section.panel）。
+//   2. 保存成功后不自动关闭 —— 关掉反而要重开，改为顶部提示条。
 //   3. 「关闭」= 关标签页，行为交给宿主（emit close）。
 //
-// 配色由硬编码 zinc / blue / red 换成语义 token（AGENTS.md：颜色一律用语义 token）。
+// 配色一律用语义 token（AGENTS.md：颜色一律用语义 token）。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   CircleX as UiCircleX,

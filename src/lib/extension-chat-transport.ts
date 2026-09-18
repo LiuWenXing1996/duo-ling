@@ -1,12 +1,9 @@
-// AI SDK 流式通道的扩展版 transport（2026-09-15 起宿主收敛 offscreen，定位 B）。
+// AI SDK 流式通道的扩展版 transport（对话链路的执行宿主是 offscreen）。
 //
-// 演进史（读代码前先看，避免按旧注释理解）：
-//   v1  渲染层直跑 streamText —— 少一次中转，但侧边栏一关流当场断。
-//   v2  整条对话链路搬进 offscreen：
-//       本文件退回纯「观察者」角色——sendMessages 只是把指令 + 消息交给 offscreen
-//       （chat:start），随后把 offscreen 推回的事件（chat:chunk）收集成 ReadableStream
-//       喂给 useChat；reconnectToStream 第一次有了真实语义：重连时从头全量回放
-//       offscreen 侧的 per-task 事件缓冲，实现「关面板任务照跑、重开面板接上」。
+// 本文件是纯「观察者」角色：sendMessages 只是把指令 + 消息交给 offscreen（chat:start），
+// 随后把 offscreen 推回的事件（chat:chunk）收集成 ReadableStream 喂给 useChat；
+// reconnectToStream 重连时从头全量回放 offscreen 侧的 per-task 事件缓冲，
+// 实现「关面板任务照跑、重开面板接上」。
 //
 // 会话 id 的约定：useChat 实例是单例、内部 chatId 每次挂载随机生成，与本扩展的
 // conversationId 对不上。本 transport 自持 currentConversationId（由
@@ -114,7 +111,7 @@ function installPushListener(): void {
 /** 档 0 页面上下文 + 档 2（拾取元素）：
  *  侧边栏是扩展页，可直接读当前标签 URL / 标题（host_permissions <all_urls> 已覆盖，无需 tabs 权限）；
  *  offscreen 没有 chrome.tabs。拾取由用户显式动作采集，暂存在 page-context-store，
- *  随**下一条消息**发出（不自动附带）。页面快照已改 AI 工具采集（2026-09-17），不走这条通道。 */
+ *  随**下一条消息**发出（不自动附带）。页面快照走 AI 工具采集，不走这条通道。 */
 async function collectPageContext(): Promise<PageContextInfo | undefined> {
   try {
     if (!chrome.tabs?.query) return undefined
@@ -217,11 +214,11 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
 
     // running 就必须挂上消费者——哪怕缓冲此刻还是空的：孤儿「继续」场景下
     // resume 发出时循环刚起步（还在取历史 / 连模型），events 为空是常态，
-    // 若因此放弃 attach，后续实时推送会因无消费者全部落空（2026-09-15 手测实测：
-    // 点「继续」面板毫无反应，切走再切回才接上——那时缓冲已攒到事件）。
+    // 若因此放弃 attach，后续实时推送会因无消费者全部落空（点「继续」面板毫无反应，
+    // 切走再切回才接上——那时缓冲已攒到事件）。
     //
     // 去重基线清零后由回放事件重建：本地视图刚从历史重建（不含半截 assistant 消息），
-    // 旧的基线只会把回放开头的配对块（start / reasoning-start）当重播丢掉。
+    // 基线只会把回放开头的配对块（start / reasoning-start）当重播丢掉。
     // 回放完基线停在缓冲尾，与后续实时推送自然衔接。
     lastSeq.delete(conversationId)
 

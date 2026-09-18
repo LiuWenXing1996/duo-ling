@@ -7,7 +7,7 @@
 //   · Chrome ≥138：逐扩展的「允许运行用户脚本」开关在**扩展详情页**，用 ?id= 深链直达；
 //   · Chrome <138：需要的是**整页右上角**的全局「开发者模式」，详情页没有该开关，故退到列表页。
 //
-// 可行性（2026-09-18 无头 Chromium 实测）：chrome.tabs.create 能打开 chrome://extensions
+// 可行性（无头 Chromium 实测）：chrome.tabs.create 能打开 chrome://extensions
 // 与 ?id= 深链（create() 成功后标签确实停在该 URL）。Chrome 文档那句
 // 「chrome:// URLs are not linkable」约束的是超链接（<a href>），不约束 tabs API；
 // 且 tabs.create 属免权限方法，不需要额外 manifest 权限。

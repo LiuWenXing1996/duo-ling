@@ -1,16 +1,12 @@
 <script setup lang="ts">
 // 工作台标签页宿主。
 //
-// 产品形态（用户 2026-09-13 定）：side panel = 应用入口 = AI 对话；设置 / 脚本这些重界面
-// 退到独立标签页 —— 本组件就是那个标签页。
+// 产品形态：side panel = 应用入口 = AI 对话；设置 / 脚本这些重界面退到独立标签页
+// —— 本组件就是那个标签页。
 //
 // 结构平移自桌面版 app.vue 的「顶栏 + 左侧导航 + 工作区」，只裁掉两栏聊天
 // （会话历史 | 当前会话已移入 side panel），保留的分支逐句照搬，未重写。
-// 2026-09-14：原 46px 顶栏已删除（它存在的唯一理由就是承载那个居中的全局搜索框）；
-// 同日工具链路移除后，左侧导航的置顶工具区与
-// 「新建工具」按钮一并摘除；开发者界面（内容 100% 是工具能力面）同批删除。
-// 2026-09-15：用户脚本管理器覆盖层删除（能力全部并入脚本列表标签页），导航只剩：
-// 设置 / UI 测试 / 脚本列表。
+// 导航项：设置 / UI 测试 / 脚本列表。
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
   AlertTriangle as UiAlertTriangle,
@@ -27,7 +23,7 @@ import { getProject } from '@/lib/userscripts/project-store'
 // 左侧导航栏「设置」「脚本列表」等：调用工作区的对应方法
 const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
 
-// hash 深链（openWorkbench 的既定约定，2026-09-15 才真正实现）：
+// hash 深链（openWorkbench 的约定）：
 //   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
 //   #/errors/<uuid> → 打开错误日志标签页并定位到该脚本（页面浮窗点击脚本行跳转）
 //   #/settings    → 打开设置标签页

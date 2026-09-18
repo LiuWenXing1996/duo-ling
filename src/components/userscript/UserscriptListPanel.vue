@@ -1,8 +1,7 @@
 <script setup lang="ts">
-// 用户脚本列表标签页：脚本管理的唯一入口 —— 列表 + 启停 + 零输入新建 + 可用性横幅
-// （后两者 2026-09-15 自已删除的旧管理器 UserscriptManager 迁入；同日粘贴安装功能整体移除——
-// UI、协议链与 installProject 一起删）。错误日志是历史信息，由独立「错误日志」标签页承载
-// （左侧导航进入），本页不展示任何脚本报错 —— 环境级问题仅靠下方 availability 横幅兜底。
+// 用户脚本列表标签页：脚本管理的唯一入口 —— 列表 + 启停 + 零输入新建 + 可用性横幅。
+// 错误日志是历史信息，由独立「错误日志」标签页承载（左侧导航进入），本页不展示任何脚本报错
+// —— 环境级问题仅靠下方 availability 横幅兜底。
 //
 // 数据通道：userscriptClient。workbench 是可信扩展页，可直接 chrome.runtime.sendMessage，
 // 因此不走 window.api（那是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。

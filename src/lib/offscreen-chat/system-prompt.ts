@@ -4,8 +4,7 @@
 //   基础规范 → dev 例外（仅 DEV 构建）→ 档 0 当前页面 → 档 2 元素拾取摘要 → 续跑说明 → 会话内既有脚本 → 用户需求。
 // 摘要层（ElementPickSummary）≤2KB 常驻 prompt，同类计数（命中数）必须在内——
 // AI 自证选择器唯一性不该再花一次读取；全量层走 element_read 工具按需读；
-// 页面整体结构走 page_snapshot 工具（AI 按需采集，不再常驻/回注 prompt）。
-// （拾取器交互与载荷形态，2026-09-17 定稿）
+// 页面整体结构走 page_snapshot 工具（AI 按需采集，不再常驻 / 回注 prompt）。
 
 import type { UIMessage } from 'ai'
 import type {
@@ -45,7 +44,7 @@ export function describePickedElement(el: ElementPickContext): string[] {
  * 历史消息里**最近一次**随消息附上的拾取元素（倒序扫 user 消息，找到即回）。
  * 只认 metadata.pageContext.element、只取最近一份，不做语义匹配——
  * 跨轮指代（「再把字号调大一点」）、重开面板续聊，都靠它。
- * 快照已改 AI 工具采集（2026-09-17），不再认 metadata.snapshot（旧数据的 snapshot 字段直接忽略）。
+ * 快照走 AI 工具采集，不再认 metadata.snapshot（旧数据里的 snapshot 字段直接忽略）。
  */
 export function mostRecentPageContext(messages: UIMessage[]): MessagePageContext | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {

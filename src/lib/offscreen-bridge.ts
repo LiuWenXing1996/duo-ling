@@ -40,9 +40,7 @@ function send<T>(request: RuntimeRequest): Promise<T> {
 /**
  * offscreen → SW 的能力调用面。
  *
- * 2026-09-15 单写方落地后，原先经本桥向 SW 取项目数据的 getProject / listSummaries / toggle
- * 已全部删除：项目数据在 offscreen 本地的状态库里，读写都不再跨上下文
- * 本文件此后只管 offscreen 自己确实拿不到的东西。
+ * 只管 offscreen 自己确实拿不到的东西：项目数据在 offscreen 本地的状态库里，读写都不跨上下文。
  */
 export const offscreenBridge = {
   /**
@@ -84,7 +82,7 @@ export const offscreenBridge = {
 
   /**
    * 页面快照（AI 的 page_snapshot 工具用）：SW 代为对当前活动标签执行拾取器快照模式。
-   * chrome.userScripts.execute 在 offscreen 不可达，必须经 SW（2026-09-17 快照改 AI 工具）。
+   * chrome.userScripts.execute 在 offscreen 不可达，必须经 SW。
    */
   capturePageSnapshot: (): Promise<PageSnapshotContext> => send({ kind: 'page:snapshot' }),
 
