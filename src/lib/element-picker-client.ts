@@ -11,7 +11,7 @@
 // 失败语义（都有明确文案，不静默）：
 //   · chrome.userScripts 不可用 —— 138+ 逐扩展「允许运行用户脚本」开关未开 /
 //     开发者模式未开，给引导文案（探针实测：开关关闭时该命名空间在所有上下文都不存在）；
-//   · 内置页（chrome:// 等）不可注入；
+//   · 内置页（chrome:// 等）与扩展页（chrome-extension://）不可注入；
 //   · 快照：页面关闭 / 导航 → 60 秒超时兜底。
 
 import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
@@ -41,14 +41,56 @@ function ensureAvailable(): void {
   if (!isUserScriptsApiAvailable()) throw new Error(userScriptsUnavailableMessage())
 }
 
+/**
+ * 页面不可注入的原因（null = 可注入）；调用方自行接「无法…」的后半句。
+ *
+ * 判据来自 Chrome 注入失败的原话：`Cannot access contents of url "…". Extension manifest must
+ * request permission to access this host.` —— 能触发它的页面有两类：
+ *   · 浏览器内置页（chrome:// / about: 等）：任何扩展都进不去；
+ *   · 扩展页（chrome-extension://）：**连本扩展自己的页面也不行** —— host_permissions 里的
+ *     `<all_urls>` 不覆盖 chrome-extension 这个 scheme。
+ *     （2026-09-18 真机复现：活动标签是工作台时点「点选元素」，侧边栏就显示那句英文原话。）
+ *
+ * 在前置判据里拦住，比让 Chrome 把英文报错漏给用户好；而且这两类页面本来也不该被拾取。
+ */
+export function pageInjectionBlockReason(url: string | undefined): string | null {
+  if (!url) return null
+  if (/^chrome-extension:|^moz-extension:/i.test(url)) {
+    // 本扩展自己的页面单独说清——否则用户只会觉得「莫名其妙，我啥也没干」
+    const ownPrefix =
+      typeof chrome !== 'undefined' && chrome.runtime?.getURL ? chrome.runtime.getURL('') : ''
+    return ownPrefix && url.startsWith(ownPrefix)
+      ? '当前标签页是哆灵自己的页面（工作台等）'
+      : '当前标签页是其他扩展的页面'
+  }
+  if (/^(chrome|edge|about|devtools|view-source):/i.test(url)) {
+    return '当前标签页是浏览器内置页面（chrome:// 等）'
+  }
+  return null
+}
+
+/**
+ * 注入失败的错误归一化：Chrome 的英文原话换成用户可读文案，其余原样上抛。
+ * 覆盖前置判据拦不住的漏网情形（典型：file:// 页面未开「允许访问文件网址」，报的是同一句）。
+ * 导出便于单测（同 withTimeout）。
+ */
+export function friendlyInjectError(e: unknown): Error {
+  const raw = e instanceof Error ? e.message : String(e)
+  if (/must request permission to access this host|Cannot access contents of url/i.test(raw)) {
+    return new Error(
+      '当前页面不允许扩展注入（浏览器内置页 / 扩展页，或未开启「允许访问文件网址」），请切到普通网页后重试'
+    )
+  }
+  return e instanceof Error ? e : new Error(raw)
+}
+
 /** 目标标签页：与档 0（collectPageContext）同语义——当前窗口的活动标签 */
 async function getTargetTabId(): Promise<number> {
   if (!chrome.tabs?.query) throw new Error('tabs API 不可用，无法定位目标标签页')
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
   if (!tab?.id) throw new Error('未找到活动标签页')
-  if (tab.url && /^(chrome|edge|about|devtools|view-source):/i.test(tab.url)) {
-    throw new Error('浏览器内置页面（chrome:// 等）无法注入拾取器，请切到普通网页后重试')
-  }
+  const reason = pageInjectionBlockReason(tab.url)
+  if (reason) throw new Error(`${reason}，无法注入拾取器，请切到要操作的网页后重试`)
   return tab.id
 }
 
@@ -69,13 +111,22 @@ export function withTimeout<T>(p: Promise<T>, ms: number, message: string): Prom
   })
 }
 
+/** chrome.userScripts.execute 的薄封装：注入失败时把 Chrome 的英文原话归一成用户可读文案 */
+async function executeInPickerWorld<T>(mode: 'pick' | 'snapshot', tabId: number) {
+  try {
+    return await chrome.userScripts.execute<T>({
+      target: { tabId },
+      worldId: PICKER_WORLD_ID,
+      js: [{ file: PICKER_FILE }, { code: `__duolingPicker(${JSON.stringify(mode)})` }],
+    })
+  } catch (e) {
+    throw friendlyInjectError(e)
+  }
+}
+
 /** 注入并执行拾取器（js 数组顺序执行，返回值取最后一段 code 的补全值——即运行器返回的 Promise） */
 async function executePicker<T>(mode: 'pick' | 'snapshot', tabId: number): Promise<T | null> {
-  const results = await chrome.userScripts.execute<T>({
-    target: { tabId },
-    worldId: PICKER_WORLD_ID,
-    js: [{ file: PICKER_FILE }, { code: `__duolingPicker(${JSON.stringify(mode)})` }],
-  })
+  const results = await executeInPickerWorld<T>(mode, tabId)
   // execute 返回数组按注入目标各一项（我们只注入单个 tab），result 为注入脚本 Promise 的结算值
   const first = results[0]
   return (first?.result ?? null) as T | null
