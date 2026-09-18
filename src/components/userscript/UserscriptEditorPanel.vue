@@ -9,7 +9,7 @@
 //   3. 「关闭」= 关标签页，行为交给宿主（emit close）。
 //
 // 配色一律用语义 token（AGENTS.md：颜色一律用语义 token）。
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import {
   CircleX as UiCircleX,
@@ -44,6 +44,9 @@ import { tags as t } from '@lezer/highlight'
 import { javascript } from '@codemirror/lang-javascript'
 import { FileTree } from '@/components/ai-elements/file-tree'
 import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { Dialog as UiDialog, DialogContent as UiDialogContent, DialogDescription as UiDialogDescription, DialogFooter as UiDialogFooter, DialogHeader as UiDialogHeader, DialogTitle as UiDialogTitle } from '@/components/ui/dialog'
+import { Input as UiInput } from '@/components/ui/input'
 import { buildCodeTree, type CodeTreeNode } from '@/lib/code-view'
 import { userscriptClient, fsClient } from '@/lib/userscripts/ui-client'
 import type { ScriptConfig, ScriptMeta } from '@/lib/userscripts/types'
@@ -421,19 +424,42 @@ onBeforeUnmount(() => {
  */
 watch(editDirty, (v) => emit('dirty', v))
 
-/** 新增文件（prompt 输入相对路径；重名拒绝） */
+// —— 文件操作弹窗（ConfirmDialog / Dialog 替代原生 confirm / prompt）——
+
+/** 删除文件确认弹窗 */
+const removeFileConfirmOpen = ref(false)
+const pendingRemoveFile = ref('')
+
+/** 新建 / 重命名共用路径输入弹窗（原生 prompt 替代） */
+const pathDialogOpen = ref(false)
+const pathDialogMode = ref<'add' | 'rename'>('add')
+const pathDialogValue = ref('')
+/** rename 模式下的原路径 */
+const pathDialogTarget = ref('')
+/** 路径弹窗内联错误（重名/为空）：显示在弹窗内部，不落面板级 error（会被遮罩挡住且无处关闭） */
+const pathDialogError = ref('')
+const pathInputRef = ref<InstanceType<typeof UiInput> | null>(null)
+
+/** 输入变化即清除内联错误 */
+watch(pathDialogValue, () => {
+  if (pathDialogError.value) pathDialogError.value = ''
+})
+
+/** 打开弹窗时聚焦输入框（Dialog 挂载后手动 focus） */
+watch(pathDialogOpen, async (open) => {
+  if (!open) return
+  await nextTick()
+  pathInputRef.value?.$el?.focus()
+  pathInputRef.value?.$el?.select()
+})
+
+/** 新增文件（弹窗输入相对路径；重名拒绝） */
 function addFile(): void {
-  const name = prompt('新文件路径（相对项目根，如 utils/helpers.js）')
-  if (name == null) return
-  const p = name.trim()
-  if (!p) return
-  if (p in editFiles.value) {
-    error.value = `新增失败：文件已存在（${p}）`
-    return
-  }
-  editFiles.value[p] = ''
-  activeFile.value = p
-  editDirty.value = true
+  pathDialogMode.value = 'add'
+  pathDialogValue.value = ''
+  pathDialogTarget.value = ''
+  pathDialogError.value = ''
+  pathDialogOpen.value = true
 }
 
 /** 删除文件（入口不可删；删当前文件后切回入口） */
@@ -442,7 +468,13 @@ function removeFile(name: string): void {
     error.value = '入口文件不可删除（可先把入口切换到其他文件）'
     return
   }
-  if (!confirm(`删除文件「${name}」？`)) return
+  pendingRemoveFile.value = name
+  removeFileConfirmOpen.value = true
+}
+
+function confirmRemoveFile(): void {
+  const name = pendingRemoveFile.value
+  if (!name || !(name in editFiles.value)) return
   delete editFiles.value[name]
   if (activeFile.value === name) activeFile.value = editEntry.value
   editDirty.value = true
@@ -450,19 +482,42 @@ function removeFile(name: string): void {
 
 /** 重命名文件（入口跟随重命名；目标重名拒绝） */
 function renameFile(name: string): void {
-  const next = prompt('新路径', name)
-  if (next == null) return
-  const p = next.trim()
-  if (!p || p === name) return
-  if (p in editFiles.value) {
-    error.value = `重命名失败：目标文件已存在（${p}）`
+  pathDialogMode.value = 'rename'
+  pathDialogValue.value = name
+  pathDialogTarget.value = name
+  pathDialogError.value = ''
+  pathDialogOpen.value = true
+}
+
+function confirmPathDialog(): void {
+  const p = pathDialogValue.value.trim()
+  if (!p) {
+    pathDialogError.value = '路径不能为空'
     return
   }
-  editFiles.value[p] = editFiles.value[name]
-  delete editFiles.value[name]
-  if (editEntry.value === name) editEntry.value = p
-  if (activeFile.value === name) activeFile.value = p
-  editDirty.value = true
+  if (pathDialogMode.value === 'add') {
+    if (p in editFiles.value) {
+      pathDialogError.value = `文件已存在（${p}）`
+      return
+    }
+    editFiles.value[p] = ''
+    activeFile.value = p
+    editDirty.value = true
+  } else {
+    const name = pathDialogTarget.value
+    if (p !== name) {
+      if (p in editFiles.value) {
+        pathDialogError.value = `目标文件已存在（${p}）`
+        return
+      }
+      editFiles.value[p] = editFiles.value[name]
+      delete editFiles.value[name]
+      if (editEntry.value === name) editEntry.value = p
+      if (activeFile.value === name) activeFile.value = p
+      editDirty.value = true
+    }
+  }
+  pathDialogOpen.value = false
 }
 
 async function saveEdit(): Promise<void> {
@@ -767,6 +822,56 @@ useDataSync('script', (push) => {
         </button>
       </div>
     </template>
+
+    <!-- 删除文件确认弹窗 -->
+    <ConfirmDialog
+      v-model:open="removeFileConfirmOpen"
+      title="删除文件？"
+      :description="pendingRemoveFile ? `将删除「${pendingRemoveFile}」（保存后生效）。` : ''"
+      confirm-text="删除"
+      danger
+      @confirm="confirmRemoveFile"
+    />
+
+    <!-- 新增 / 重命名文件：路径输入弹窗 -->
+    <UiDialog :open="pathDialogOpen" @update:open="(v: boolean) => (pathDialogOpen = v)">
+      <UiDialogContent class="sm:max-w-md">
+        <UiDialogHeader>
+          <UiDialogTitle>{{ pathDialogMode === 'add' ? '新增文件' : '重命名文件' }}</UiDialogTitle>
+          <UiDialogDescription>
+            {{ pathDialogMode === 'add'
+              ? '输入相对项目根的路径，如 utils/helpers.js'
+              : `修改「${pathDialogTarget}」的路径` }}
+          </UiDialogDescription>
+        </UiDialogHeader>
+        <UiInput
+          ref="pathInputRef"
+          v-model="pathDialogValue"
+          placeholder="utils/helpers.js"
+          class="font-mono text-xs"
+          :aria-invalid="pathDialogError ? true : undefined"
+          @keydown.enter.prevent="confirmPathDialog"
+        />
+        <!-- 校验错误就显示在弹窗内（重名/为空），不落面板级 error -->
+        <p v-if="pathDialogError" class="text-destructive text-xs">{{ pathDialogError }}</p>
+        <UiDialogFooter class="gap-2">
+          <button
+            type="button"
+            class="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            @click="pathDialogOpen = false"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            @click="confirmPathDialog"
+          >
+            {{ pathDialogMode === 'add' ? '新增' : '重命名' }}
+          </button>
+        </UiDialogFooter>
+      </UiDialogContent>
+    </UiDialog>
   </section>
 </template>
 

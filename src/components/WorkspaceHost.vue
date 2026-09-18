@@ -11,6 +11,7 @@ import UserscriptEditorPanel from '@/components/userscript/UserscriptEditorPanel
 import LfsBrowserPanel from '@/components/userscript/LfsBrowserPanel.vue'
 import UserscriptHistoryPanel from '@/components/userscript/UserscriptHistoryPanel.vue'
 import UserscriptBundlePanel from '@/components/userscript/UserscriptBundlePanel.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import ChatDataPanel from '@/components/ChatDataPanel.vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
@@ -32,10 +33,23 @@ function activate(id: string): void {
  *  因此「有未保存改动」的确认挪到这里，由编辑器通过 @dirty 上报。 */
 const dirtyTabs = ref<Record<string, boolean>>({})
 
+/** 关闭前确认弹窗（有未保存改动的标签先弹，确认后才真正关闭） */
+const closeConfirmOpen = ref(false)
+const pendingCloseId = ref('')
+
 function closeTab(id: string): void {
   // 基础标签（脚本列表）始终保留，不可关闭
   if (id === LIST_TAB_ID) return
-  if (dirtyTabs.value[id] && !confirm('有未保存的修改，确认关闭？')) return
+  // 有未保存改动：先弹确认弹窗，确认后才关闭
+  if (dirtyTabs.value[id]) {
+    pendingCloseId.value = id
+    closeConfirmOpen.value = true
+    return
+  }
+  doCloseTab(id)
+}
+
+function doCloseTab(id: string): void {
   const idx = openTabs.value.findIndex((t) => t.id === id)
   if (idx === -1) return
   openTabs.value = openTabs.value.filter((t) => t.id !== id)
@@ -44,6 +58,10 @@ function closeTab(id: string): void {
     const next = openTabs.value[Math.max(0, idx - 1)] ?? openTabs.value[0]
     activeTabId.value = next?.id ?? ''
   }
+}
+
+function confirmCloseTab(): void {
+  if (pendingCloseId.value) doCloseTab(pendingCloseId.value)
 }
 
 // 打开引导标签页：若已打开则激活，否则新开一个（全局仅一个）。
@@ -286,6 +304,16 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
         />
       </ui-tabs-content>
     </ui-tabs>
+
+    <!-- 关闭有未保存改动标签页前的确认弹窗 -->
+    <ConfirmDialog
+      v-model:open="closeConfirmOpen"
+      title="有未保存的修改"
+      description="关闭后未保存的修改将丢失，确认关闭？"
+      confirm-text="关闭"
+      danger
+      @confirm="confirmCloseTab"
+    />
   </div>
 </template>
 
