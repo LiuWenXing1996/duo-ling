@@ -1,6 +1,6 @@
-// 用户脚本构建管线（v2 方案，notes/content/userscript-v2-plan.md）。
+// 用户脚本构建管线（v2 方案）。
 //
-// esbuild-wasm 只在 offscreen document 运行（2026-09-15 宿主收敛，§3.1/§4.8）：
+// esbuild-wasm 只在 offscreen document 运行（2026-09-15 宿主收敛）：
 // - offscreen 是唯一「能派生 Worker（URL.createObjectURL）+ 不被回收」的宿主，
 //   编辑器保存 / 历史恢复 / AI 生成 loop 共用这里的一个常驻 wasm 实例（14MB 只编译一次）
 // - wasm 资产在 src/public/esbuild.wasm，经 chrome.runtime.getURL 引用，懒加载一次进程内复用

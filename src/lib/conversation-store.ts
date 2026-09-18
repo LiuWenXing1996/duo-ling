@@ -2,7 +2,7 @@
 // 为什么不用 chrome.storage.local：会话消息写入频繁且体积增长快，IndexedDB 更适合；
 // 且 side panel / workbench / offscreen 同源，可直接共享该库，无需经 background 中转。
 //
-// 2026-09-15（AI 生成用户脚本，notes/content/userscript-ai-generation.md）：整条对话链路搬进
+// 2026-09-15（AI 生成用户脚本）：整条对话链路搬进
 // offscreen 后，**会话历史的唯一写入方 = offscreen**（侧边栏只读 + 订阅，防双写）。
 // offscreen 只有 chrome.runtime，拿不到 chrome.storage —— 会话自增序号（SEQ）随之从
 // chrome.storage.local 迁入本库的 meta store，取号在一个 readwrite 事务内完成（原子自增）。

@@ -1,4 +1,4 @@
-// Agent 工具：script 三件套（script_spec / script_read / script_apply，写法见 notes/content/userscript-ai-generation.md）+ element_read / page_snapshot（页面上下文）+ error_read（错误 ID 查询）。
+// Agent 工具：script 三件套（script_spec / script_read / script_apply）+ element_read / page_snapshot（页面上下文）+ error_read（错误 ID 查询）。
 //
 // 设计要点：
 //   · **script_apply 把「写」和「验证」合并成一步**：入参完整文件树 → esbuild 构建，
@@ -20,7 +20,7 @@ import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
-/** 连续构建失败上限：达到即让模型停手、把诊断交给用户（阈值 6 见 notes/content/userscript-ai-generation.md） */
+/** 连续构建失败上限：达到即让模型停手、把诊断交给用户（阈值 6） */
 export const MAX_APPLY_FAILURES = 6
 
 /** 一次生成任务的内存工作区（chat-host 持有；「继续」时从任务快照播种） */

@@ -89,10 +89,10 @@ export default defineConfig({
     description: '哆灵 AI 用户脚本工坊 · 扩展版（侧边栏对话 + 标签页工作台）',
     // sidePanel 是使用 chrome.sidePanel API 的必需权限（Chrome 114+），不要剔除。
     // setPanelBehavior({openPanelOnActionClick:true}) 还需声明 action 键，点工具栏图标才会开面板。
-    // offscreen 是 AI 生成链路的执行宿主（定位 B，notes/content/userscript-ai-generation.md）：
+    // offscreen 是 AI 生成链路的执行宿主（定位 B）：
     // 对话 loop 与 esbuild 构建都跑在 offscreen document 里，「用户发起生成后可关掉侧边栏、
     // 任务照跑完」。没有该权限 chrome.offscreen 不存在，容器起不来（Chrome 109+ / 仅 MV3）。
-    // 老大 2026-09-14 已批准（方案文档 §6.1 #9）。
+    // 老大 2026-09-14 已批准。
     permissions: ['storage', 'sidePanel', 'userScripts', 'notifications', 'offscreen'],
     // 在线模型走 OpenAI 兼容接口，需要扩展页跨域 fetch，必须声明对应 host 权限。
     // 由服务商预设表推导（src/lib/providers.ts），避免申请不必要的全域权限；
@@ -105,8 +105,8 @@ export default defineConfig({
     // Chrome 规范字段是下划线 minimum_chrome_version；驼峰键会被 Chrome 忽略并报 Unrecognized。
     'minimum_chrome_version': '135',
     // MV3 默认 extension_pages CSP 是 `script-src 'self'`，**不含** 'wasm-unsafe-eval'——
-    // 生产产物（npm run build）里 offscreen 的 esbuild-wasm（脚本构建链路，
-    // notes/content/userscript-ai-generation.md）会被 CSP 拦（实测 Chromium 153 报 violates CSP）。
+    // 生产产物（npm run build）里 offscreen 的 esbuild-wasm（脚本构建链路）会被 CSP 拦
+    // （实测 Chromium 153 报 violates CSP）。
     // 注意 WXT 只在 **dev**（command === 'serve'）自动注入含 'wasm-unsafe-eval' 的默认 CSP
     // （wxt/dist/core/utils/manifest.mjs 的 addDevModeCsp），所以 dev 下构建一直正常、
     // bug 只在生产产物暴露 —— 别用 dev 验证这个问题。此处显式声明以覆盖生产：

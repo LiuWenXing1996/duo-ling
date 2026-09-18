@@ -4,12 +4,12 @@
 // 对话、模型配置不走这里（分别直连 IndexedDB 与 chrome.storage.local）。
 //
 // 项目数据（源码 / 配置 / 构建产物 / enabled）的权威在独立 IndexedDB 库 duoling-state，
-// **写只归 offscreen**（单写方，notes/content/userscript-single-writer.md）：
+// **写只归 offscreen**（单写方）：
 //   · 读 —— 本文件直连 project-store，**不经容器**。注册链路不能押在 offscreen 存活上，
 //     否则容器一挂所有脚本都不生效。
 //   · 写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
 // 仍在 chrome.storage 的只有两类：DL.store 值（us:gm:*）与错误日志（us:errors）——
-// 写入方是用户脚本本身、不受控，且不参与「脚本是什么」的判定，故留在 SW 直写（文档 §4 边界）。
+// 写入方是用户脚本本身、不受控，且不参与「脚本是什么」的判定，故留在 SW 直写。
 //
 // 2026-09-14：工具链路移除后，原「工具文件与 git 操作的
 // 唯一写入方 + 原子能力执行」职责整体摘除（fs-store / tool-page-template / capabilities 三个
@@ -18,7 +18,7 @@ import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process �
 import { defineBackground } from '#imports'
 import type { ModelProfileState, OffscreenPush, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 
-// 用户脚本管理器（v2 方案 notes/content/userscript-v2-plan.md）：引擎 + 存储 + DL 桥 + 类型
+// 用户脚本管理器（v2 方案）：引擎 + 存储 + DL 桥 + 类型
 import {
   configureUserScriptsWorld,
   isUserScriptsAvailable,
@@ -52,7 +52,7 @@ import {
 } from '@/lib/userscripts/status-bubble'
 import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
 
-// offscreen document 容器（AI 生成链路的执行宿主，notes/content/userscript-ai-generation.md）
+// offscreen document 容器（AI 生成链路的执行宿主）
 import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady } from '@/lib/offscreen'
 // 模型配置：offscreen 既收不到 storage.onChanged、也不该直连存储，一律由 SW 经命令 / 推送中转
 import { getActiveProfileState } from '@/lib/model-store'
@@ -67,7 +67,7 @@ import { capturePageSnapshotFromTab } from '@/lib/element-picker-client'
 const MODEL_PROFILES_KEY = 'modelProfiles'
 
 /**
- * SW 管辖的 kind 前缀（路由白名单，notes/content/userscript-ai-generation.md）。
+ * SW 管辖的 kind 前缀（路由白名单）。
  *
  * offscreen 与 SW 同时在监听 runtime 消息，而 sendResponse 对一条消息只有一次机会 ——
  * SW 只应响应这里登记的前缀，其余（如将来 offscreen 的 ai: / chat: 指令）必须让路，
@@ -115,7 +115,7 @@ function sendToOffscreen<T>(request: RuntimeRequest): Promise<T> {
  * 写路径：项目数据的写只归 offscreen（单写方），SW 一律转发。
  *
  * 先 `ensureOffscreenReady` 再发命令：容器刚被回收 / 扩展重载时会重建，
- * 就绪判据是「能应答 ai:ping」而不是「文档已存在」（前置项 1，文档 §5.3）。
+ * 就绪判据是「能应答 ai:ping」而不是「文档已存在」。
  *
  * 重试只对「容器没接上」类错误：业务异常（脚本不存在、文件树非法…）重试一次也是同样的错，
  * 只会让用户多等一轮。写命令都是读改写，重复执行一次不会产生第二份数据。
@@ -161,10 +161,10 @@ async function registerOrLog(project: ScriptProject): Promise<string | undefined
 const handlers: {
   [K in SwRequest['kind']]: (msg: Extract<SwRequest, { kind: K }>) => Promise<unknown>
 } = {
-  // —— offscreen 容器（notes/content/userscript-ai-generation.md）——
+  // —— offscreen 容器——
   // A 组只做容器与通道：这几个命令供手动 / 调试触发；B 组的生成入口会直接调 ensureOffscreen()。
   // 唤醒容器并**等到它真的能应答**才返回——调用方（aiFsClient）据此省掉了原先
-  // 「ensure 完 sleep 80ms 猜监听器注册好了没有」的兜底（notes/content/userscript-single-writer.md）。
+  // 「ensure 完 sleep 80ms 猜监听器注册好了没有」的兜底。
   // 常见路径几乎不等待：容器已在时第一次探测即成功。ready=false 表示超时未就绪，由调用方重试。
   'offscreen:ensure': async (): Promise<{ ready: boolean }> => ({
     ready: await ensureOffscreenReady(),
@@ -180,7 +180,7 @@ const handlers: {
   },
 
   // 模型配置：offscreen 拉取当前生效配置（含 apiKey）。复用现成的 getActiveProfileState()，
-  // SW 里本来就能调；offscreen 侧须「取一次、缓存、不写日志」（notes/content/userscript-ai-generation.md）。
+  // SW 里本来就能调；offscreen 侧须「取一次、缓存、不写日志」。
   'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> => getActiveProfileState(),
 
   // —— AI 工具支路 ——
@@ -240,7 +240,7 @@ const handlers: {
     }
   },
 
-  // AI 生成脚本落盘（notes/content/userscript-ai-generation.md）：转发 offscreen 单写方
+  // AI 生成脚本落盘：转发 offscreen 单写方
   // （写状态库 + git 快照，note = AI summary），enabled 为真才注册——生成与生效解耦，
   // AI 产物默认零影响；启用走现成的 userscript:toggle。
   'userscript:createProject': async (msg): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
@@ -310,7 +310,7 @@ const handlers: {
     return {}
   },
 
-  // zip 导入（notes/content/userscript-zip-transfer.md）：纯转发 offscreen 单写方（解码 + 校验 + 构建
+  // zip 导入：纯转发 offscreen 单写方（解码 + 校验 + 构建
   // + 落盘同处）。导入恒 enabled:false——「先审后启」是产品原则，落盘后由用户手动启用
   // （userscript:toggle），故此处**无注册动作**（与 create / toggle 不同：不调 registerOrLog）。
   'userscript:import': async (msg): Promise<ImportReport> =>
@@ -429,7 +429,7 @@ export default defineBackground(() => {
     .setPanelBehavior({ openPanelOnActionClick: true })
     .catch((e) => console.error('[duoling] setPanelBehavior failed', e))
 
-  // 用户脚本管理器：启动配置世界并恢复已启用脚本（设计文档 §4）
+  // 用户脚本管理器：启动配置世界并恢复已启用脚本
   void initUserScripts().catch((e) => console.error('[duoling:userscript] init failed', e))
 
   // 浮窗注入 / 面板端口 / 完成徽章 / 深链跳转的监听器
@@ -453,7 +453,7 @@ export default defineBackground(() => {
 
   // 模型配置变更 → 通知 offscreen 重新拉取（它只有 chrome.runtime，收不到 storage.onChanged）。
   // 只发「变了」这个信号、**不推配置内容**：由 offscreen 主动回拉，apiKey 只在它取用时过界，
-  // 而不是被 SW 广播（notes/content/userscript-ai-generation.md）。容器不存在就直接跳过，不为一条通知唤醒上下文。
+  // 而不是被 SW 广播。容器不存在就直接跳过，不为一条通知唤醒上下文。
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local' || !Object.prototype.hasOwnProperty.call(changes, MODEL_PROFILES_KEY)) {
       return

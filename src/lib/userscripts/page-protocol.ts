@@ -1,4 +1,4 @@
-// 反向中继共享协议常量（notes/content/userscript-page-relay.md）。
+// 反向中继共享协议常量。
 //
 // page-stub.ts（MAIN 世界桩）与 page-client.ts（USER_SCRIPT 世界客户端）是两段
 // 字符串模板源码，无法 import 共享——digest 等必须逐字节一致的片段在这里以
@@ -11,16 +11,16 @@ export const PAGE_MSG_TAG_VALUE = 1
 /** 协议版本：hello_ack 携带，客户端校验 */
 export const PAGE_PROTOCOL_VERSION = 1
 
-/** 握手超时（ms，规范 §5.3） */
+/** 握手超时（ms） */
 export const PAGE_HANDSHAKE_TIMEOUT = 1000
-/** call 应答超时（ms，规范 §6.2） */
+/** call 应答超时（ms） */
 export const PAGE_CALL_TIMEOUT = 5000
-/** fetch 钩子裁决超时（ms，规范 §8：宁可失效不可阻塞） */
+/** fetch 钩子裁决超时（ms，宁可失效不可阻塞） */
 export const PAGE_HOOK_TIMEOUT = 500
 
 /**
  * 同步小哈希（FNV-1a 变体）：stub 与客户端各自内嵌一份，逐字节一致。
- * 定位是认证级不是密码学级（规范 §5.3）；不依赖 crypto.subtle——HTTP 页面无 secure context。
+ * 定位是认证级不是密码学级；不依赖 crypto.subtle——HTTP 页面无 secure context。
  * 必须是表达式级自包含函数（两端都是模板插值，无 import）。
  */
 export const PAGE_DIGEST_SNIPPET = `

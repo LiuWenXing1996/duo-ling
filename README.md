@@ -22,7 +22,7 @@
 | 对话链路 | 侧边栏只做指令入口与观察；整条链路（`streamText` + tools）跑在 offscreen document，侧边栏经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权 |
 | 脚本运行时 | background **service worker**（`chrome.userScripts` 注册 + 写命令的转发方） |
 | 会话存储 | **IndexedDB**（`duoling-chat`）；两个入口同源共享，不经 background |
-| 脚本存储 | 项目数据在**独立 IndexedDB 库 `duoling-state`**（权威共享存储：同时持源码 `files` 与产物 `bundle`+配置+enabled；**写只归 offscreen**，读由 SW / 扩展页直连——`notes/content/userscript-single-writer.md`）；`chrome.storage.local` 只剩 `DL.store` 值（`us:gm:*`）与错误日志（`us:errors`）；`lightning-fs`（库名 `duoling`，只有 offscreen 能碰）每脚本一仓 `/uscripts/<uuid>/`：git 历史（仅侧车）+ 当前文件工作树（状态库派生）+ 草稿（工作树未提交改动，best-effort） |
+| 脚本存储 | 项目数据在**独立 IndexedDB 库 `duoling-state`**（权威共享存储：同时持源码 `files` 与产物 `bundle`+配置+enabled；**写只归 offscreen**，读由 SW / 扩展页直连）；`chrome.storage.local` 只剩 `DL.store` 值（`us:gm:*`）与错误日志（`us:errors`）；`lightning-fs`（库名 `duoling`，只有 offscreen 能碰）每脚本一仓 `/uscripts/<uuid>/`：git 历史（仅侧车）+ 当前文件工作树（状态库派生）+ 草稿（工作树未提交改动，best-effort） |
 | 版本管理 | `isomorphic-git`（纯 JS），仓在 lfs：git 历史仅侧车（可丢历史不丢脚本）；lfs 工作树=当前文件物化、草稿=工作树未提交改动（非侧车）；状态库 `duoling-state` 才是注册/注入/编辑器基准的权威 |
 | 模型配置 | `chrome.storage.local`（API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`；密钥同存本机，属防扫描级而非保密级） |
 | 主题 | **跟随系统深浅色**（`src/lib/theme.ts` 按 `prefers-color-scheme` 驱动 `html.dark`） |
@@ -130,4 +130,4 @@ npm run build:firefox    # 跨端构建（Firefox 侧；sidebar_action 适配见
 3. **entrypoint 同名冲突**：不要同时存在 `sidepanel.html` 与 `sidepanel.ts`（WXT 会判定两个同名 entrypoint）。入口脚本用非约定名（如 `app/sidepanel-main.ts`）由 html 引用。
 4. **跨域 fetch 需 host 权限**：扩展页 `fetch` 模型接口会被 CORS 拦，必须在 manifest 声明对应 `host_permissions`（本工程由 `src/lib/providers.ts` 推导）。
 5. **userScripts 可用性前置**：`chrome.userScripts` 未开启时为 `undefined`，直接调用会让 SW 初始化崩溃；`initUserScripts()` 先判存在性再优雅跳过。
-6. **git 只是历史侧车**：脚本以 `duoling-state` 状态库为权威，git 仓损坏只丢历史不丢脚本；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护，见 `notes/content/userscript-single-writer.md`）。
+6. **git 只是历史侧车**：脚本以 `duoling-state` 状态库为权威，git 仓损坏只丢历史不丢脚本；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护）。

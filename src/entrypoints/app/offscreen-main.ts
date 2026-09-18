@@ -14,7 +14,7 @@
 //   · console 输出落在 **SW 的 inspector**（chrome://extensions → Service Worker），不在面板 DevTools
 //   · 不能聚焦；opener 恒为 null；URL 必须是打包进扩展的静态 HTML（即本文件对应的 offscreen.html）
 //
-// 模块归属（硬约束，§4.8）：本入口只允许 import builder.ts（纯 esbuild）、
+// 模块归属（硬约束）：本入口只允许 import builder.ts（纯 esbuild）、
 // extension-chat-transport.ts、ai SDK、offscreen-bridge.ts、offscreen-chat/（对话编排，
 // 内部只引裸 IndexedDB 模块），以及 offscreen-only 的 lib/userscripts/offscreen-fs-commands.ts
 // （git 历史）与 offscreen-state-commands.ts（项目状态库的写侧）。
@@ -22,7 +22,7 @@
 // chrome.storage is undefined —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
 //
 // 生命周期：每扩展同时只能有一份；不主动关就一直活着，但**关窗口 / 扩展重载 / 浏览器崩溃
-// 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（§4.8 机制 4 → offscreen-chat/task-store.ts）。
+// 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（→ offscreen-chat/task-store.ts）。
 //
 // 命令面：ai:*（git 历史）/ state:*（状态库写侧）/ conv:*（会话写侧，唯一写方）/
 // chat:*（对话编排，2026-09-15 整条链路搬入）。

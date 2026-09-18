@@ -183,7 +183,7 @@ export interface DuoLingApi {
   log(...args: unknown[]): void
 
   /**
-   * 反向中继 · 页面世界访问（notes/content/userscript-page-relay.md，一期 listen + hook('fetch')）。
+   * 反向中继 · 页面世界访问（一期 listen + hook('fetch')）。
    * 对全部脚本开放（无 pageAccess 门禁）。
    */
   page: DlPageApi
@@ -191,7 +191,7 @@ export interface DuoLingApi {
 
 // ————————————————————— 反向中继 DL.page（一期）—————————————————————
 
-/** DL.page 自有错误码（不走 SW 桥的 ApiErrorCode，规范 §6.2） */
+/** DL.page 自有错误码（不走 SW 桥的 ApiErrorCode） */
 export type PageErrorCode =
   | 'PAGE_STUB_UNAVAILABLE'
   | 'HANDSHAKE_FAILED'
@@ -228,7 +228,7 @@ export interface PageListenOptions {
   once?: boolean
 }
 
-/** DL.page 一期 API 面（规范 §4.1：就这两个入口，均返回 off()） */
+/** DL.page 一期 API 面（就这两个入口，均返回 off()） */
 export interface DlPageApi {
   listen(
     type: string,

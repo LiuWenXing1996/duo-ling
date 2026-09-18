@@ -1,4 +1,4 @@
-// 用户脚本的 chrome.storage 侧持久化（notes/content/userscript-single-writer.md）。
+// 用户脚本的 chrome.storage 侧持久化。
 //
 // 2026-09-15 单写方落地后，**项目数据（源码/配置/产物/enabled）已迁往 IndexedDB 状态库
 // duoling-state**（读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
@@ -6,7 +6,7 @@
 //
 // 为什么这两类不一起迁：写入方是**注入页面里的用户脚本**（不受我们控制、可能被高频调用、
 // 且脚本崩溃时才上报错误），且它们不参与「脚本是什么」的判定——转 offscreen 只会多一跳、
-// 在最脆弱的时刻更容易丢。详见文档 §4。
+// 在最脆弱的时刻更容易丢（见 src/lib/userscripts/state-db.ts）。
 import {
   GM_KEY_PREFIX,
   ERRORS_KEY,

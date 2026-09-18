@@ -1,4 +1,4 @@
-// 用户脚本项目状态库的 offscreen 侧命令面（notes/content/userscript-single-writer.md）。
+// 用户脚本项目状态库的 offscreen 侧命令面。
 //
 // 本模块是本方案的落点：项目数据（源码 / 配置 / 构建产物 / enabled）与 git 仓都在 offscreen
 // 本地，**写**收敛到这一处。原先一次保存是「SW 写 chrome.storage」+「IPC 让 offscreen commit」
@@ -50,7 +50,7 @@ export async function handleStateCommand(msg: StateRequest): Promise<unknown> {
       return createGeneratedProject(payload)
     }
     case 'state:import':
-      // zip 导入（notes/content/userscript-zip-transfer.md）：解码 + 校验 + 构建 + 落盘全在本上下文（单写方）
+      // zip 导入：解码 + 校验 + 构建 + 落盘全在本上下文（单写方）
       return importScriptsZip(msg.zipBase64)
   }
 }

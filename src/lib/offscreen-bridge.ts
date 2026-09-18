@@ -1,7 +1,7 @@
 // offscreen 侧的能力调用桥：凡 offscreen 自己拿不到的（chrome.storage / chrome.userScripts /
 // chrome.tabs），一律经 runtime 消息请 SW 代办。
 //
-// 为什么需要它（§4.8 模块归属规则）：offscreen 只允许 import builder.ts（纯 esbuild）、
+// 为什么需要它（模块归属规则）：offscreen 只允许 import builder.ts（纯 esbuild）、
 // extension-chat-transport.ts、ai SDK 与本文件。若直接 import store.ts / model-store.ts /
 // fs-store.ts，会在运行时报 `chrome.storage is undefined` —— 本文件就是那条规则的正门：
 // 把「需要 SW 的东西」收敛成一组显式调用，让违规 import 变成编译器/运行时都能抓住的错误。
@@ -42,12 +42,12 @@ function send<T>(request: RuntimeRequest): Promise<T> {
  *
  * 2026-09-15 单写方落地后，原先经本桥向 SW 取项目数据的 getProject / listSummaries / toggle
  * 已全部删除：项目数据在 offscreen 本地的状态库里，读写都不再跨上下文
- * （notes/content/userscript-single-writer.md）。本文件此后只管 offscreen 自己确实拿不到的东西。
+ * 本文件此后只管 offscreen 自己确实拿不到的东西。
  */
 export const offscreenBridge = {
   /**
    * 当前生效的模型配置（含 apiKey 明文）。
-   * ⚠️ 调用方必须「取一次、缓存、不写日志」—— 见 §4.8 配置通道关于 apiKey 的边界说明。
+   * ⚠️ 调用方必须「取一次、缓存、不写日志」。
    */
   getActiveProfile: (): Promise<ModelProfileState | undefined> =>
     send({ kind: 'model:getActiveProfile' }),
