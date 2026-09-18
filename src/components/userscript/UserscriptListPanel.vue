@@ -364,6 +364,10 @@ useDataSync('script', (push) => {
   return refresh()
 })
 
+// 运行统计（us:run-stats:*）在 SW 侧随脚本注入 / 运行期错误落盘后广播 `runstats` 域，
+// 这里接住回拉，运行计数与「上次运行」时刻不必手动刷新
+useDataSync('runstats', () => refresh())
+
 /** 状态标的悬停提示：最近一次构建的时刻（成败共用） */
 function lastBuildLabel(s: ScriptSummary): string {
   return s.lastBuildAt ? `最近构建：${updatedAtLabel(s.lastBuildAt)}` : '最近构建'
@@ -563,6 +567,17 @@ function lastBuildLabel(s: ScriptSummary): string {
                   <template v-if="updatedAtLabel(s.updatedAt)">
                     · {{ updatedAtLabel(s.updatedAt) }}
                   </template>
+                </span>
+                <!-- 运行统计（us:run-stats:*，有统计才渲染；runstats 域广播驱动实时回拉） -->
+                <span v-if="s.runCount !== undefined" data-testid="run-stats">
+                  · 运行 {{ s.runCount }} 次<template v-if="s.lastRunAt">，上次 {{ updatedAtLabel(s.lastRunAt) }}</template>
+                </span>
+                <span
+                  v-if="s.lastRunErrors"
+                  class="text-destructive"
+                  title="最近一次运行捕获的运行期错误数（详见错误日志标签页）"
+                >
+                  · 上次运行 {{ s.lastRunErrors }} 个错误
                 </span>
               </p>
             </div>

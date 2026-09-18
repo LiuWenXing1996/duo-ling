@@ -2,19 +2,22 @@
 //
 // 项目数据（源码/配置/产物/enabled）的权威在 IndexedDB 状态库 duoling-state
 // （读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
-// 本文件只剩两类：DL.store 值（us:gm:*）、错误日志（us:errors）。
+// 本文件剩三类：DL.store 值（us:gm:*）、错误日志（us:errors）、运行统计（us:run-stats:*）。
 //
-// 为什么这两类不一起迁：写入方是**注入页面里的用户脚本**（不受我们控制、可能被高频调用、
+// 为什么这三类不一起迁：写入方是**注入页面里的用户脚本**（不受我们控制、可能被高频调用、
 // 且脚本崩溃时才上报错误），且它们不参与「脚本是什么」的判定——转 offscreen 只会多一跳、
 // 在最脆弱的时刻更容易丢（见 src/lib/userscripts/state-db.ts）。
 import {
   GM_KEY_PREFIX,
   ERRORS_KEY,
   ERROR_LOG_MAX,
+  RUN_STATS_KEY_PREFIX,
   gmKey,
+  runStatsKey,
   type ScriptProject,
   type ScriptSummary,
   type UserScriptErrorRecord,
+  type UserScriptRunStats,
 } from './types'
 import { broadcastDataChange } from '../data-broadcast'
 
@@ -106,6 +109,8 @@ export async function appendUserScriptError(
     // engine 两处、dl-bridge 的脚本消息转发），这里是唯一汇合点。
     // 崩溃风暴的高频 append 由广播侧的合并窗口（100ms）兜住，前端不会被打爆。
     broadcastDataChange('error', rec.uuid ?? undefined)
+    // 运行期错误同步计入该脚本的「最近一次运行」错误数（独立队列，失败不影响错误记录本身）
+    void noteRunError(rec.uuid ?? null, typeof rec.runId === 'string' ? rec.runId : null).catch(() => {})
   })
 }
 
@@ -162,4 +167,88 @@ export async function findUserScriptError(id: string): Promise<UserScriptErrorLo
   if (matches.length === 1) return { found: true, record: matches[0]! }
   if (matches.length > 1) return { found: false, reason: 'ambiguous' }
   return { found: false, reason: 'not-found' }
+}
+
+// —— 运行统计（us:run-stats:<uuid>，按脚本聚合计数）——
+//
+// 防写放大：不逐条落环形日志，每脚本只维护一个小计数器对象（总次数 / 最后运行时间 /
+// 最近一次运行的错误数），一次页面加载只付一次小对象读改写。
+// RMW 与错误日志同款风险（chrome.storage.local 无原子写）：写方都在本 SW 进程内，
+// 按独立队列串行化；与错误队列分开——统计写失败不能拖住错误记录的落盘，反之亦然。
+// 「无变化不落盘」：补播去重 / 旧运行迟到错误两类情况直接 return，不写回。
+let statsOpsQueue: Promise<unknown> = Promise.resolve()
+
+function enqueueStatsOp<T>(op: () => Promise<T>): Promise<T> {
+  const run = statsOpsQueue.then(op, op)
+  // 队列自身永不 reject，否则后续操作全部中断；错误由调用方拿到的 run 承接
+  statsOpsQueue = run.catch(() => {})
+  return run
+}
+
+/**
+ * 登记一次运行开始（dl-bridge 收到 __dlRunStart 广播时调用，有无 tabId 都记）。
+ * 同一 runId 的重复广播（engine 的 load 补救补播）按 lastRunId 去重，是 no-op——
+ * 补播若重置 lastRunErrors 会抹掉两次广播之间已上报的错误，故去重必须整体跳过。
+ */
+export function recordRunStart(uuid: string, runId: string): Promise<void> {
+  return enqueueStatsOp(async () => {
+    const key = runStatsKey(uuid)
+    const cur = (await chrome.storage.local.get(key))[key] as UserScriptRunStats | undefined
+    if (cur?.lastRunId === runId) return // 同一次运行的补播：不重复计数、不清错误数
+    const next: UserScriptRunStats = {
+      totalRuns: (cur?.totalRuns ?? 0) + 1,
+      lastRunAt: Date.now(),
+      lastRunId: runId,
+      lastRunErrors: 0,
+    }
+    await chrome.storage.local.set({ [key]: next })
+    // 管理页的运行统计列靠这条广播实时回拉（合并窗口防导航风暴）
+    broadcastDataChange('runstats', uuid)
+  })
+}
+
+/**
+ * 运行期错误计入「最近一次运行」的错误数（appendUserScriptError 的汇合点调用）。
+ * 仅当错误带 uuid + runId 且 runId 与最近一次运行一致才计数——旧运行的迟到错误、
+ * register/bridge 类无运行上下文的错误都不算（后者不是「脚本运行挂了」）。
+ */
+export function noteRunError(uuid: string | null, runId: string | null): Promise<void> {
+  if (!uuid || !runId) return Promise.resolve()
+  return enqueueStatsOp(async () => {
+    const key = runStatsKey(uuid)
+    const cur = (await chrome.storage.local.get(key))[key] as UserScriptRunStats | undefined
+    // 从未登记过运行（runstart 丢失 / 尚未处理）或错误属于更早的运行：不计
+    if (!cur || cur.lastRunId !== runId) return
+    const next: UserScriptRunStats = { ...cur, lastRunErrors: (cur.lastRunErrors ?? 0) + 1 }
+    await chrome.storage.local.set({ [key]: next })
+    broadcastDataChange('runstats', uuid)
+  })
+}
+
+/** 给列表摘要挂上运行统计（无统计的脚本保持缺省，UI 据此不渲染该列） */
+export async function withRunStats(summaries: ScriptSummary[]): Promise<ScriptSummary[]> {
+  if (!summaries.length) return summaries
+  const all = await chrome.storage.local.get()
+  const byUuid = new Map<string, UserScriptRunStats>()
+  for (const s of summaries) {
+    const st = all[runStatsKey(s.uuid)] as UserScriptRunStats | undefined
+    if (st) byUuid.set(s.uuid, st)
+  }
+  if (!byUuid.size) return summaries
+  return summaries.map((s) => {
+    const st = byUuid.get(s.uuid)
+    if (!st) return s
+    return {
+      ...s,
+      runCount: st.totalRuns,
+      ...(st.lastRunAt ? { lastRunAt: st.lastRunAt } : {}),
+      // 只在有错误时带出：UI 的「最近错误」标只在 >0 时渲染，语义单一
+      ...(st.lastRunErrors ? { lastRunErrors: st.lastRunErrors } : {}),
+    }
+  })
+}
+
+/** 删除脚本时清掉它的运行统计（与 clearGMValues / clearUserScriptErrors 同一条删除语义） */
+export async function clearRunStats(uuid: string): Promise<void> {
+  await chrome.storage.local.remove(runStatsKey(uuid))
 }

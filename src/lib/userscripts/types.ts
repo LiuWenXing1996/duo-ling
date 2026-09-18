@@ -75,6 +75,12 @@ export interface ScriptSummary {
   buildOk: boolean
   /** 最近一次构建完成时刻（ms）；缺省 = 旧记录没记过 */
   lastBuildAt?: number
+  /** 累计运行次数（一次页面加载 = 一次）；缺省 = 还没有运行统计 */
+  runCount?: number
+  /** 最近一次运行时刻（ms）；与 runCount 同源，有统计即有值 */
+  lastRunAt?: number
+  /** 最近一次运行捕获的运行期错误数；缺省 = 0 或无统计（UI 只在 >0 时展示） */
+  lastRunErrors?: number
 }
 
 /** 用户脚本引擎可用性状态（供管理页状态横幅） */
@@ -121,9 +127,29 @@ export const GM_KEY_PREFIX = 'us:gm:'
 export const SETTINGS_KEY = 'us:settings'
 /** 错误日志：us:errors（环形保留最近 N 条） */
 export const ERRORS_KEY = 'us:errors'
+/** 运行统计：us:run-stats:<uuid>（按脚本聚合的计数器，一行一脚本，不逐条落日志） */
+export const RUN_STATS_KEY_PREFIX = 'us:run-stats:'
 /** 错误日志环形上限：超过后只留最近 N 条。
  *  写侧（store.ts）裁剪、UI 文案（错误日志标签页）都读这里 —— 上限只写一处，避免文案与实现漂移。 */
 export const ERROR_LOG_MAX = 50
+
+/**
+ * 脚本运行统计（storage.local 键 us:run-stats:<uuid>；写侧 store.ts，SW 独占）。
+ *
+ * 防写放大：**只存聚合计数器，不逐条落环形日志**——每次页面加载只做一次小对象读改写。
+ * 「最近错误数」口径 = 最近一次运行（runId 相同）捕获的运行期错误数：新运行开始时清零，
+ * 旧运行的迟到错误（runId 对不上）不计入（环形日志里仍可按 runId 反查）。
+ */
+export interface UserScriptRunStats {
+  /** 累计运行次数（一次页面加载 = 一次；runstart 的 load 补播按 runId 去重） */
+  totalRuns: number
+  /** 最近一次运行时刻（ms） */
+  lastRunAt: number
+  /** 最近一次运行的 runId：既用于补播去重，也用于把 runtime 错误归属到「最近一次运行」 */
+  lastRunId?: string
+  /** 最近一次运行捕获的运行期错误数（新运行开始即清零） */
+  lastRunErrors?: number
+}
 
 /** 默认入口文件名 */
 export const ENTRY_DEFAULT = 'main.js'
@@ -177,6 +203,11 @@ export function scriptKey(uuid: string): string {
 
 export function gmKey(uuid: string, key: string): string {
   return `${GM_KEY_PREFIX}${uuid}:${key}`
+}
+
+/** 运行统计键：us:run-stats:<uuid> */
+export function runStatsKey(uuid: string): string {
+  return RUN_STATS_KEY_PREFIX + uuid
 }
 
 /** 新建项目的默认配置：allFrames true / runAt document_end（v2 决策表） */

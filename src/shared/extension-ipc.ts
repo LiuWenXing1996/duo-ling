@@ -242,6 +242,8 @@ export type DataDomain =
   | 'model'
   /** 用户脚本错误日志（us:errors） */
   | 'error'
+  /** 用户脚本运行统计（us:run-stats:*，按脚本聚合计数） */
+  | 'runstats'
 
 /**
  * 一次落盘的变更通知：**只带「哪个域的哪条变了」，不带数据本身**。

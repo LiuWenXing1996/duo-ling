@@ -1,10 +1,11 @@
-// store.ts 单测：chrome.storage 侧的 DL.store 值 / 错误日志环形保留。
+// store.ts 单测：chrome.storage 侧的 DL.store 值 / 错误日志环形保留 / 运行统计。
 // chrome 由 WxtVitest 插件 stub 成 fakeBrowser；用例间 resetState 保证隔离。
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import {
   appendUserScriptError,
   clearGMValues,
+  clearRunStats,
   clearUserScriptErrors,
   deleteGMValue,
   findUserScriptError,
@@ -12,13 +13,20 @@ import {
   listGMKeys,
   listSummaries,
   listUserScriptErrors,
+  recordRunStart,
   setGMValue,
+  withRunStats,
 } from './store'
 import { type ScriptProject } from './types'
 
 beforeEach(() => {
   fakeBrowser.reset()
 })
+
+/** appendUserScriptError 内部的运行统计记账是 void 后台异步（独立队列），等它排干再断言 */
+async function flushStats(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 0))
+}
 
 function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {
   return {
@@ -237,5 +245,68 @@ describe('错误日志（us:errors 环形保留）', () => {
       expect(await findUserScriptError('4444')).toEqual({ found: false, reason: 'not-found' })
       expect(await findUserScriptError('99999999')).toEqual({ found: false, reason: 'not-found' })
     })
+  })
+})
+
+describe('运行统计（us:run-stats:*，按脚本聚合计数）', () => {
+  it('recordRunStart 累计次数并记录最后运行时刻；withRunStats 挂到摘要上', async () => {
+    await recordRunStart('u1', 'r1')
+    await recordRunStart('u1', 'r2')
+    const [s] = await withRunStats(await listSummaries([makeProject({ uuid: 'u1' })]))
+    expect(s!.runCount).toBe(2)
+    expect(s!.lastRunAt).toBeGreaterThan(0)
+  })
+
+  it('同一 runId 的补播去重：不重复计数、不抹掉已计的错误数', async () => {
+    await recordRunStart('u1', 'r1')
+    await appendUserScriptError({ uuid: 'u1', name: 's', phase: 'runtime', message: 'boom', runId: 'r1' })
+    await flushStats()
+    await recordRunStart('u1', 'r1') // engine 的 load 补救补播
+    const [s] = await withRunStats(await listSummaries([makeProject({ uuid: 'u1' })]))
+    expect(s!.runCount).toBe(1)
+    expect(s!.lastRunErrors).toBe(1)
+  })
+
+  it('runtime 错误只计入最近一次运行；旧运行的迟到错误不计', async () => {
+    await recordRunStart('u1', 'r1')
+    await recordRunStart('u1', 'r2')
+    await appendUserScriptError({ uuid: 'u1', name: 's', phase: 'runtime', message: 'late', runId: 'r1' })
+    await appendUserScriptError({ uuid: 'u1', name: 's', phase: 'runtime', message: 'boom', runId: 'r2' })
+    await flushStats()
+    const [s] = await withRunStats(await listSummaries([makeProject({ uuid: 'u1' })]))
+    expect(s!.runCount).toBe(2)
+    expect(s!.lastRunErrors).toBe(1)
+  })
+
+  it('register / bridge 错误（无 runId）不影响运行统计', async () => {
+    await recordRunStart('u1', 'r1')
+    await appendUserScriptError({ uuid: 'u1', name: 's', phase: 'register', message: 'reg' })
+    await appendUserScriptError({ uuid: 'u1', name: 's', phase: 'bridge', message: 'bridge' })
+    await flushStats()
+    const [s] = await withRunStats(await listSummaries([makeProject({ uuid: 'u1' })]))
+    expect(s!.runCount).toBe(1)
+    expect(s!.lastRunErrors).toBeUndefined()
+  })
+
+  it('多脚本互不串数；无统计的脚本保持缺省（不渲染该列）', async () => {
+    await recordRunStart('u1', 'r1')
+    const [a, b] = await withRunStats(
+      await listSummaries([makeProject({ uuid: 'u1' }), makeProject({ uuid: 'u2' })]),
+    )
+    expect(a!.runCount).toBe(1)
+    expect(b!.runCount).toBeUndefined()
+    expect('lastRunAt' in b!).toBe(false)
+  })
+
+  it('clearRunStats 清掉该脚本的统计（删脚本时调用）', async () => {
+    await recordRunStart('u1', 'r1')
+    await recordRunStart('u2', 'r9')
+    await clearRunStats('u1')
+    const [a, b] = await withRunStats(
+      await listSummaries([makeProject({ uuid: 'u1' }), makeProject({ uuid: 'u2' })]),
+    )
+    expect(a!.runCount).toBeUndefined()
+    expect(b!.runCount).toBe(1)
+    expect(await fakeBrowser.storage.local.get('us:run-stats:u1')).toEqual({})
   })
 })

@@ -36,10 +36,12 @@ import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listProjects } from '@/lib/userscripts/project-store'
-// chrome.storage 侧：只剩 DL.store 值与错误日志
+// chrome.storage 侧：DL.store 值、错误日志、运行统计
 import {
   listSummaries,
+  withRunStats,
   clearGMValues,
+  clearRunStats,
   listUserScriptErrors,
   clearUserScriptErrors,
   appendUserScriptError,
@@ -308,6 +310,7 @@ const handlers: {
       for (const uuid of uuids) await clearGMValues(uuid)
       // 报错记录逐 uuid 清（与单删同一条语义：删脚本 = 清该脚本名下的一切）
       for (const uuid of uuids) await clearUserScriptErrors(uuid)
+      for (const uuid of uuids) await clearRunStats(uuid)
       return { removed }
     } catch (e) {
       // 注销在前、落盘在后，落盘失败会留下「记录还标 enabled、实际已注销」的偏差

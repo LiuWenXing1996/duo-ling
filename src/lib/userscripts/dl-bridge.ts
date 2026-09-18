@@ -21,6 +21,7 @@ import {
   listGMKeys,
   clearGMValues,
   appendUserScriptError,
+  recordRunStart,
 } from './store'
 
 /** 1x1 透明 PNG，用作通知兜底图标（避免依赖打包资源） */
@@ -153,7 +154,12 @@ export function initDlBridge(): void {
         // 侧边栏监控（跨文档观察者）：SW 侧按 tab 登记运行集，面板切 tab 时靠它出快照
         noteRunStart(tabId, run.uuid, run.runId)
       }
-      return undefined // 仅登记，无需响应、不落盘
+      // 运行统计（us:run-stats:*，按脚本聚合落盘）：与 tab 无关，有无 tabId 都记；
+      // 同一 runId 的 load 补播在写侧按 lastRunId 去重。失败不影响监控登记。
+      if (run.uuid && run.runId) {
+        void recordRunStart(run.uuid, run.runId).catch(() => {})
+      }
+      return undefined // 仅登记，无需响应、不逐条落日志
     }
 
     // 单向错误上报（DL 包装的 window.onerror / unhandledrejection）
