@@ -95,7 +95,7 @@ describe('DlPortRegistry', () => {
 
   it('detachWatch 只摘对应 connId 的订阅', () => {
     const reg = new DlPortRegistry()
-    const p1 = addPort(reg, 'u1', 'c1', 11)
+    addPort(reg, 'u1', 'c1', 11)
     addPort(reg, 'u1', 'c2', 11)
     reg.attachWatch('u1', 'c1', 'k')
     reg.attachWatch('u1', 'c2', 'k')
