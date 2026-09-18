@@ -1,6 +1,4 @@
 import type { BundledLanguage, BundledTheme, HighlighterGeneric, ThemedToken } from 'shiki'
-import { createHighlighter } from 'shiki'
-import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 
 // shiki 的「纯文本」特例语言（不产生任何高亮），BundledLanguage 未收录，这里显式并入。
 export type CodeLanguage = BundledLanguage | 'text' | 'plaintext' | 'txt' | 'plain'
@@ -36,9 +34,31 @@ function getTokensCacheKey(code: string, language: CodeLanguage) {
   return `${language}:${code.length}:${start}:${end}`
 }
 
-// 用纯 JS 正则引擎而非默认的 oniguruma(WASM)：renderer 的 CSP `script-src 'self'` 不允许 wasm 实例化，
-// 若走 WASM 引擎会导致 highlighter 加载失败、一直渲染无色 raw token。JS 引擎无需 wasm，产出的颜色一致。
-const sharedEngine = createJavaScriptRegexEngine()
+/** shiki 运行时（引擎 + 正则引擎，生产产物约 200KB）的按需加载入口。
+ *
+ * 这里刻意不用顶层静态 import：shiki 只在「真正要渲染代码块」时才用得上，而打开侧边栏 /
+ * 工作台的那一刻可能一条消息、一个代码块都没有 —— 静态 import 会把它钉进首屏静态图，
+ * 直接拉长首开白屏。改为首次高亮时动态 import，模块级 Promise 缓存保证只加载一次。
+ *
+ * 用纯 JS 正则引擎而非默认的 oniguruma(WASM)：renderer 的 CSP `script-src 'self'` 不允许 wasm 实例化，
+ * 若走 WASM 引擎会导致 highlighter 加载失败、一直渲染无色 raw token。JS 引擎无需 wasm，产出的颜色一致。
+ */
+type ShikiRuntime = {
+  createHighlighter: typeof import('shiki').createHighlighter
+  engine: ReturnType<typeof import('shiki/engine/javascript').createJavaScriptRegexEngine>
+}
+
+let shikiRuntime: Promise<ShikiRuntime> | undefined
+
+function loadShikiRuntime(): Promise<ShikiRuntime> {
+  shikiRuntime ??= Promise.all([import('shiki'), import('shiki/engine/javascript')]).then(
+    ([shiki, engineModule]) => ({
+      createHighlighter: shiki.createHighlighter,
+      engine: engineModule.createJavaScriptRegexEngine(),
+    }),
+  )
+  return shikiRuntime
+}
 
 function getHighlighter(language: CodeLanguage): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> {
   const cached = highlighterCache.get(language)
@@ -46,11 +66,13 @@ function getHighlighter(language: CodeLanguage): Promise<HighlighterGeneric<Bund
     return cached
   }
 
-  const highlighterPromise = createHighlighter({
-    themes: ['github-light', 'github-dark'],
-    langs: [language],
-    engine: sharedEngine,
-  })
+  const highlighterPromise = loadShikiRuntime().then(({ createHighlighter, engine }) =>
+    createHighlighter({
+      themes: ['github-light', 'github-dark'],
+      langs: [language],
+      engine,
+    }),
+  )
 
   highlighterCache.set(language, highlighterPromise)
   return highlighterPromise
