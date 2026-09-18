@@ -30,7 +30,6 @@
 | `npm run typecheck` | 类型检查（`vue-tsc --noEmit`）；当前全仓零错误 |
 | `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 | `npm run check:inbox` | 想法收件箱条目体检：单条 >100 字、总字数 >6000、「不办」条目缺理由、疑似重复（**整理 inbox 时跑**，提醒级不进 CI） |
-| `npm run check:notes` | notes 笔记体检：章节白名单（`##` 只许三段、`###` 须在三段内）、标题/一句话字数、现状 ≤1500、「不包括」清单式、决策记录字数与时间格式（规范见 [notes/README.md](notes/README.md)；提醒级不进 CI） |
 
 > **交付前验证**：`npm run typecheck` 与 `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
 
@@ -44,7 +43,7 @@
 | [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**。轻量想法收集 | 攒需求 / 清理待办时 |
 | [notes/content/lessons.md](notes/content/lessons.md) | 踩坑记录 | 报错 / 排查前 |
 | [notes/content/test-guide.md](notes/content/test-guide.md) | 测试指南：单测 / 端测各自的命令、写法、如何 mock、覆盖范围与注意事项 | 补测试 / 动工测试前 |
-| [notes/](notes/README.md) | **笔记体系**：`docs/` 的替换（唯一权威来源），人和 AI 都读；写作规范与结构见 [notes/README.md](notes/README.md)、总表见 [notes/INDEX.md](notes/INDEX.md) | 速览某主题 / 找对应源文档前 |
+| [notes/](notes/INDEX.md) | **笔记体系**：`docs/` 的替换（唯一权威来源），人和 AI 都读；总表见 [notes/INDEX.md](notes/INDEX.md) | 速览某主题 / 找对应源文档前 |
 
 
 ## 全局约束（强制）

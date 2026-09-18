@@ -1,7 +1,6 @@
 # 笔记总索引（Index）
 
 > notes 体系的唯一事实来源。每篇笔记对应一份（或一组）源文档的要点蒸馏；新增笔记必须在此登记。
-> 体系规范见 [README.md](README.md)。
 
 ## 总览与协作
 
@@ -10,7 +9,6 @@
 | [项目总览](content/project-overview.md) | [README.md](../README.md) | Chrome MV3 扩展，AI 对话 + 用户脚本；两个载体复用桌面版实现 |
 | [Agent 协作指南](content/agent-guide.md) | [AGENTS.md](../AGENTS.md) | 怎么干 / 写哪 / 分支保护；main 受保护须走 PR |
 | [项目约定决策](content/conventions.md) | —（已并入 notes） | 仍生效架构约定 + 已否决方案表；改前先读 |
-| [写作规范](README.md) | （已并入 notes/README） | 笔记结构 / 字数 / 水文清单 / 隐私；归属导航见 AGENTS.md |
 
 ## 架构与迁移
 
