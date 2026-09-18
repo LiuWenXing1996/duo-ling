@@ -50,13 +50,14 @@ describe('listSummaries', () => {
     expect('files' in summaries[0]).toBe(false)
   })
 
-  it('排序：启用在前 → 名称字典序', async () => {
+  it('排序：启用在前，组内按更新时间倒序', async () => {
     const projects = [
-      makeProject({ uuid: 'p-off', name: 'b停用', enabled: false }),
-      makeProject({ uuid: 'p-z', name: 'z启用', enabled: true }),
-      makeProject({ uuid: 'p-a', name: 'a启用', enabled: true }),
+      makeProject({ uuid: 'p-off', name: 'b停用', enabled: false, updatedAt: 100 }),
+      makeProject({ uuid: 'p-z', name: 'z启用', enabled: true, updatedAt: 300 }),
+      makeProject({ uuid: 'p-a', name: 'a启用', enabled: true, updatedAt: 400 }),
     ]
     const summaries = await listSummaries(projects)
+    // 启用组按 updatedAt 降序：p-a(400) > p-z(300)，均排在未启用 p-off(100) 之前
     expect(summaries.map((s) => s.name)).toEqual(['a启用', 'z启用', 'b停用'])
   })
 })

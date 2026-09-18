@@ -33,16 +33,17 @@ beforeEach(async () => {
 })
 
 describe('listProjects 排序', () => {
-  // 用 ASCII 名断言排序，避免 localeCompare 受运行时 locale 影响（Node 与浏览器 zh 环境的
-  // 中文排序结果不同——排序语义本身由 localeCompare 定义，这里只钉「启用在前 + 组内字典序」）
-  it('启用在前，同组内按名称排序', async () => {
-    await writeProject(makeProject({ name: 'beta', enabled: false }))
-    await writeProject(makeProject({ name: 'delta', enabled: true }))
-    await writeProject(makeProject({ name: 'alpha', enabled: false }))
-    await writeProject(makeProject({ name: 'gamma', enabled: true }))
+  // 钉「启用在前 + 组内按更新时间倒序（最近更新的在最上面）」；updatedAt 用显式数值断言，
+  // 不再依赖 localeCompare（旧实现按名称排序时的 locale 隐患已无关）
+  it('启用在前，同组内按更新时间倒序（最近更新在最上）', async () => {
+    await writeProject(makeProject({ name: 'beta', enabled: false, updatedAt: 100 }))
+    await writeProject(makeProject({ name: 'delta', enabled: true, updatedAt: 300 }))
+    await writeProject(makeProject({ name: 'alpha', enabled: false, updatedAt: 200 }))
+    await writeProject(makeProject({ name: 'gamma', enabled: true, updatedAt: 400 }))
 
     const list = await listProjects()
-    expect(list.map((p) => p.name)).toEqual(['delta', 'gamma', 'alpha', 'beta'])
+    // 启用组按 updatedAt 降序：gamma(400) > delta(300)；未启用组：alpha(200) > beta(100)
+    expect(list.map((p) => p.name)).toEqual(['gamma', 'delta', 'alpha', 'beta'])
   })
 })
 
