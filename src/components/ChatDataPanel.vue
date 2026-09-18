@@ -1,14 +1,15 @@
 <script setup lang="ts">
 // 「会话数据」标签页：会话库（IndexedDB duoling-chat）的落盘原始视图，只读调试用。
 //
-// 动机（2026-09-17 手测拾取上下文随消息落盘时发现）：侧边栏只有逻辑视图（气泡 / chip），
-// 落盘真相（Message 对象里有没有 pageContext / parts / usage）无处可看——切会话 chip 丢失
-// 这类 bug 需要直接对照库里的记录。本面板 = lfs 浏览的会话库版：左栏会话列表，右栏
-// 该会话全部消息的落盘字段（含拾取上下文、token、parts 类型），每条可展开看原始 JSON。
+// 动机：侧边栏只有逻辑视图（气泡 / chip），落盘真相（Message 对象里有没有 pageContext /
+// parts / usage）无处可看——切会话 chip 丢失这类 bug 需要直接对照库里的记录。本面板 =
+// lfs 浏览的会话库版：左栏会话列表，右栏该会话全部消息的落盘字段（含拾取上下文、token、
+// parts 类型），每条可展开看原始 JSON。
 //
 // 读走 conversation-store 直连 IndexedDB（与 window-api 同款姿势，工作台是扩展页同源可读）；
 // 本面板**只读**，写入仍唯一归 offscreen。
 import { onMounted, ref, watch } from 'vue'
+import { useDataSync } from '@/composables/use-data-sync'
 import { Database as UiDatabase, RefreshCw as UiRefreshCw } from '@lucide/vue'
 import * as conversationStore from '@/lib/conversation-store'
 import type { Conversation, Message } from '@/shared/types'
@@ -59,6 +60,12 @@ watch(selectedId, (id) => {
 
 onMounted(() => void refresh())
 
+// 别处增删改会话 / 消息落盘：回拉列表，并刷新当前选中会话的消息（调试视图要照见最新落盘）
+useDataSync('conversation', () => {
+  void refresh()
+  if (selectedId.value) void loadMessages(selectedId.value)
+})
+
 function toggleRaw(id: string): void {
   const next = new Set(expanded.value)
   if (next.has(id)) next.delete(id)
@@ -84,7 +91,7 @@ function partTypes(m: Message): string[] {
   return [...new Set((m.parts ?? []).map((p) => p.type))]
 }
 
-/** 随消息落盘的拾取概览（排查 pageContext 是否真的进了库）；快照已改 AI 工具，旧数据里的 snapshot 不再展示 */
+/** 随消息落盘的拾取概览（排查 pageContext 是否真的进了库）；旧数据里的 snapshot 字段不再展示 */
 function pageContextLabel(m: Message): string {
   const ctx = m.pageContext
   if (!ctx?.element) return ''

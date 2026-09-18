@@ -13,6 +13,7 @@
 - **UI 复用（强制）**：两个载体的 UI 都是现成实现（`src/components/`）—— side panel 用 `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列。它们靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，因此组件本体零改动。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 规范走：先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，**不手写组件**；`class` 只用于布局，不覆盖组件配色与字体，颜色一律用语义 token（`bg-primary` / `text-muted-foreground`），不写 `space-x-*` / `space-y-*`、不手写 `dark:` 覆盖。
 - **存储（源码库 + 注册态库，2026-09-19 重构）**：① **源码唯一来源 `duoling-fs`**（lightning-fs，IndexedDB 后端，**只许 offscreen 碰**，`us-fs.ts` 单例）：每脚本一仓 `/uscripts/<uuid>/`——工作树 `files/` 即当前源码（未提交改动 = 草稿），git 历史 = 每次保存的版本（`us-git.ts`，仓损坏只丢历史不丢脚本）；SW/扩展页读不到 lfs，**源码读写一律走 `fs:*` 命令向 offscreen 取**（`offscreen-fs-commands.ts`）。② **注册态库 `duoling-state`**（独立 IndexedDB，`state-db.ts`/`project-store.ts` 读、`project-write.ts` 写，**写只归 offscreen**）= 每脚本一条 `ScriptProject`：只存产物 `bundle` + 元数据 + enabled + `fileCount` 缓存，**不含源码**——SW 注册直读 `bundle`，注册链路对 offscreen 存活零依赖（既定不变量）。`chrome.storage.local` 只剩 `DL.store` 值（`us:gm:*`）与错误日志（`us:errors`）。
 - **版本管理**：`isomorphic-git`（纯 JS），仓在 duoling-fs——每次保存/导入/回滚 = 一次提交（恢复走「产生新提交」而非 reset，历史不可变）；仓损坏只丢历史，源码在工作树里。注册/注入以状态库 `duoling-state` 的 `bundle` 为准，编辑器以 duoling-fs 工作树为基准
+- **数据变更广播（跨页面同步）**：IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 `src/lib/data-broadcast.ts` 补——写侧落盘成功后 `broadcastDataChange(域, uuid?)` 发一条**只含域+uuid、不带数据**的通知（BroadcastChannel 同源多播，不唤醒休眠 SW；无 BC 降级 `runtime.sendMessage`），读侧组件用 `useDataSync(域, reload)` 订阅后自行回拉权威存储（同 `domain+uuid` 100ms 合并防风暴）。广播埋在写出口：offscreen `handleStateCommand`（`script` 域）、`conversation-store` 写函数（`conversation`）、`userscripts/store.ts`（`error`）、SW 模型配置 `storage.onChanged` 钩子（`model`）。**新增写路径必须同步埋广播**；前端新面板按域接 `useDataSync`，不再靠手动刷新兜底。编辑器有未保存改动时不自动重载，只提示「已在别处被修改」
 - **脚本注入**：`chrome.userScripts` + USER_SCRIPT 世界 + `window.DL` 桥接（`src/lib/userscripts/`）
 - **offscreen document**：AI 生成链路的执行宿主，按需创建（`src/lib/offscreen.ts`）
 - **包管理**：npm
@@ -30,6 +31,7 @@
 | `npm run typecheck` | 类型检查（`vue-tsc --noEmit`）；当前全仓零错误 |
 | `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 | `npm run check:inbox` | 想法收件箱条目体检：单条 >100 字、总字数 >6000、「不办」条目缺理由、疑似重复（**整理 inbox 时跑**，提醒级不进 CI） |
+| `npm run pack:uscripts` | 生成用户脚本测试包：把仓库根 `uscript-samples/` 打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；测脚本行为别手搓，改样例目录再打） |
 
 > **交付前验证**：`npm run typecheck` 与 `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
 
@@ -67,7 +69,7 @@
 | bug 层级 | 首选工具 | 说明 |
 | --- | --- | --- |
 | side panel UI（Vue 状态/交互） | 面板内右键 → 检查 → Console | 直接读组件状态与 DOM 真实文本 |
-| 用户脚本（注入第三方页面） | 目标页 DevTools Console + 管理页「错误」列表（`us:errors` 环形日志） | 脚本崩了不影响扩展，错误只进日志 |
+| 用户脚本（注入第三方页面） | 目标页 DevTools Console + 工作台「错误日志」标签页（`us:errors` 环形日志，按脚本分类） | 脚本崩了不影响扩展，错误只进日志 |
 | background（能力运行时） | `chrome://extensions` → 该扩展的「Service Worker」→ Console | SW 报错不会出现在面板 Console |
 | 消息链路（扩展页 → background → offscreen） | 三段各打一条日志，确认消息形状与 `uuid` | 跨上下文流转必须按边界验证 |
 | 持久化 | DevTools → Application → IndexedDB（`duoling`）/ chrome.storage | 以落盘数据事实为准 |
@@ -136,4 +138,5 @@
 | 脚本世界 CSP | **不给 USER_SCRIPT 世界配 `csp`**：回落浏览器默认的严 CSP（禁 `eval` / `new Function`）。AI 生成的脚本不可控，不额外给「执行任意字符串」的能力；受影响的只有内部靠 `new Function` 做 codegen 的依赖库，靠保存警告（`collectCspWarnings`）+ 生成提示词 / `script_spec` 明令避开兜住 | [README](README.md)「后续接入」 |
 | 错误文案 | **平台英文报错不直达用户**：扩展 API 的原话（注入失败 / 访问被拒等）必须先归一成用户的下一步动作（典型「切到要操作的网页后重试」），能在调用前判掉的就在判据里判掉——错误条里躺一句 manifest 术语等于没提示；同类失败面（内置页 / 扩展页 / 未授权）文案保持一致 | [README](README.md) 坑 8 |
 | entrypoint | 不要同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [README](README.md) 坑 5 |
+| 首屏体积 | 打开面板要执行的就是入口 HTML 的静态图：markdown 渲染链路 / AI SDK 等重依赖一律动态 import，摇不掉的（如 `ai` 的一行 helper）本地实现；首帧底色靠 `#app` 内的内联加载态、不靠 JS | [README](README.md) 坑 10/11 |
 | 命名 | 文件/目录 kebab-case；组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | 本表即约定，无独立文档 |

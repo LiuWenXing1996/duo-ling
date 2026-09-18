@@ -179,4 +179,44 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     const removed = await sendToSw<void>(messenger!, { kind: 'userscript:remove', uuid })
     expect(removed.ok, `userscript:remove 失败：${removed.ok ? '' : removed.error}`).toBe(true)
   })
+
+  // —————————————————————— 删除脚本的连带清理 ——————————————————————
+
+  test('删除脚本连带清掉它的报错记录（错误日志不留已删脚本的孤儿分组）', async () => {
+    test.skip(!userScriptsAvailable, 'chrome.userScripts 在无头 Chromium 下不可用（引导失败），转手测')
+
+    /** 错误日志里当前出现过的脚本 uuid（经 SW 读命令；信封异常时回空数组，由断言兜底） */
+    const errorUuids = async (): Promise<string[]> => {
+      const res = await sendToSw<Array<{ uuid: string | null }>>(messenger!, { kind: 'userscript:errors' })
+      return res.ok ? res.data.map((e) => e.uuid).filter((u): u is string => u !== null) : []
+    }
+    expect((await sendToSw<unknown[]>(messenger!, { kind: 'userscript:errors' })).ok, 'userscript:errors 应可读').toBe(true)
+
+    // 1. 建脚本（create 默认 enabled）
+    const created = await sendToSw<{ uuid: string; name: string }>(messenger!, { kind: 'userscript:create' })
+    expect(created.ok, `userscript:create 失败：${created.ok ? '' : created.error}`).toBe(true)
+    if (!created.ok) return
+    const { uuid } = created.data
+
+    // 2. 塞一条非法 match pattern：这是**脚本自身缺陷**，注册当场失败 → 应写一条该脚本的 register 记录。
+    //    确定性造错（不必开页面等运行期错误），同时也验证了 register 阶段的记录同样随删除清理。
+    const bad = await sendToSw<{ registerError?: string }>(messenger!, {
+      kind: 'userscript:updateFiles',
+      uuid,
+      files: { 'main.js': "console.log('e2e')" },
+      entry: 'main.js',
+      bundle: { code: "console.log('e2e')", builtAt: Date.now() },
+      config: { matches: ['not-a-match-pattern'], allFrames: true, runAt: 'document_end' },
+    })
+    expect(bad.ok, `userscript:updateFiles 失败：${bad.ok ? '' : bad.error}`).toBe(true)
+    if (bad.ok) expect(bad.data.registerError, '非法 matches 应触发注册失败').toBeTruthy()
+
+    // 注册失败写记录是 fire-and-forget（后台不 await），故轮询等它落盘
+    await expect.poll(errorUuids, { timeout: 15_000 }).toContain(uuid)
+
+    // 3. 删除脚本：它的报错记录必须一并消失，否则错误日志留下一个已删脚本的孤儿分组
+    const removed = await sendToSw<void>(messenger!, { kind: 'userscript:remove', uuid })
+    expect(removed.ok, `userscript:remove 失败：${removed.ok ? '' : removed.error}`).toBe(true)
+    expect(await errorUuids(), '错误日志不该留下已删脚本的记录').not.toContain(uuid)
+  })
 })

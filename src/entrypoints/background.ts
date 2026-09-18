@@ -12,10 +12,7 @@
 //     SW 读不到 lfs，源码读写一律走 fs:* 命令向 offscreen 取（见 offscreen-fs-commands.ts）。
 // 仍在 chrome.storage 的只有两类：DL.store 值（us:gm:*）与错误日志（us:errors）——
 // 写入方是用户脚本本身、不受控，且不参与「脚本是什么」的判定，故留在 SW 直写。
-//
-// 2026-09-14：工具链路移除后，原「工具文件与 git 操作的
-// 唯一写入方 + 原子能力执行」职责整体摘除（fs-store / tool-page-template / capabilities 三个
-// 依赖随之删除），此处只剩用户脚本、offscreen 与模型配置三类命令。
+
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
 import type { ModelProfileState, OffscreenPush, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
@@ -57,6 +54,8 @@ import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailabilit
 import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady } from '@/lib/offscreen'
 // 模型配置：offscreen 既收不到 storage.onChanged、也不该直连存储，一律由 SW 经命令 / 推送中转
 import { getActiveProfileState } from '@/lib/model-store'
+// 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
+import { broadcastDataChange } from '@/lib/data-broadcast'
 // AI 工具支路：page_snapshot 工具经 SW 调 userScripts.execute（offscreen 不可达该 API）
 import { capturePageSnapshotFromTab, pageInjectionBlockReason } from '@/lib/element-picker-client'
 
@@ -86,7 +85,6 @@ export const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:', 'sw:', '
  *
  * handlers 表只登记这些 kind：`ai:*`（git 历史）与 `state:*`（项目状态库写侧）都由 offscreen
  * 应答——它们不是 SW 的职责，不该为凑齐类型而塞进 handlers 表补死桩。
- * （`userscript:history*` 是被 `ai:*` 取代的死命令，2026-09-15 已从协议移除。）
  */
 type SwRequest = Extract<RuntimeRequest, { kind: `${(typeof SW_KIND_PREFIXES)[number]}${string}` }>
 
@@ -138,10 +136,16 @@ async function writeViaOffscreen<T>(request: RuntimeRequest): Promise<T> {
  *
  * **不 throw**——调用方（create / updateFiles / toggle）在注册前已完成数据写
  * （状态库 + git 快照都落了盘），注册只是让脚本「生效」的最后一环。把注册失败判成整个
- * 命令失败，会让用户看到「创建失败」但列表刷新后脚本明明在（2026-09-15 实测，违背直觉）。
+ * 命令失败，会让用户看到「创建失败」但列表刷新后脚本明明在（违背直觉）。
  * 故降级：命令成功 + registerError 警告字段，UI 决定怎么呈现。
  */
 async function registerOrLog(project: ScriptProject): Promise<string | undefined> {
+  // 环境 / 权限不可用（Chrome ≥138 未开「Allow User Scripts」等）：注册必然失败，
+  // 但这**不是脚本本身的错**——不能写成该脚本的 register 错误（否则误导成「每个脚本都有问题」）。
+  // 环境状态由列表页 availability 横幅统一兜底，这里只把原因回传调用方，不落 per-script 记录。
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') {
+    return 'userScripts 引擎不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限'
+  }
   try {
     // 先同步内置注册（MAIN 桩 + 状态浮窗，启用脚本集合可能变化），再注册脚本——保证桩与包装密钥同代
     await refreshBuiltinScripts().catch(() => {})
@@ -149,6 +153,7 @@ async function registerOrLog(project: ScriptProject): Promise<string | undefined
     return undefined
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
+    // 到这里仍是脚本自身缺陷（缺 matches / match 非法 / 构建产物无效 / 世界配置失败等），属该脚本，写记录
     void appendUserScriptError({
       uuid: project.uuid,
       name: project.name,
@@ -187,7 +192,7 @@ const handlers: {
   // —— AI 工具支路 ——
   // page_snapshot 工具（offscreen 经此命令请 SW 代办）：定位当前活动标签后执行拾取器快照模式。
   // chrome.userScripts 在 SW 可用（与注册链路同源，138+ 逐扩展开关门控），offscreen 不可达。
-  // 快照 = AI 判断需要时才采集（2026-09-17 改判：从用户显式按钮改为 AI 工具）。
+  // 快照 = AI 判断需要时才采集。
   'page:snapshot': async (): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
     if (!chrome.tabs?.query) throw new Error('tabs API 不可用，无法定位目标标签页')
     // SW 无窗口上下文：lastFocusedWindow 语义 = 用户最后聚焦的窗口（与侧边栏所在窗口一致的场景）
@@ -265,7 +270,7 @@ const handlers: {
     }
   },
 
-  // 删除：注销 → offscreen 清状态库记录 + git 仓 → 清该脚本的 DL.store 值。
+  // 删除：注销 → offscreen 清状态库记录 + git 仓 → 清该脚本的 DL.store 值 + 报错记录。
   // 仓的删除原先只能靠 offscreen 启动对账兜（删完会滞留一阵），现在写侧同在 offscreen，一步清干净。
   'userscript:remove': async (msg): Promise<void> => {
     await unregisterScripts([msg.uuid]).catch(() => {})
@@ -273,18 +278,23 @@ const handlers: {
     await refreshBuiltinScripts().catch(() => {})
     await writeViaOffscreen<void>({ kind: 'state:remove', uuid: msg.uuid })
     await clearGMValues(msg.uuid)
+    // 报错记录同属该脚本的残留：不清就会在错误日志里留下一个已删脚本的孤儿分组
+    // （按 uuid 清，不碰「未归属」那种本就没有脚本上下文的记录）
+    await clearUserScriptErrors(msg.uuid)
   },
 
   // 删除全部用户脚本（「全部删除」按钮）：注销全部 → offscreen 清状态库 + 各仓 → 清各脚本
-  // 的 DL.store 值。范围 = 新形态用户脚本；已弃用旧记录（chrome.storage）与内置件不在内，
+  // 的 DL.store 值与报错记录。范围 = 新形态用户脚本；已弃用旧记录（chrome.storage）与内置件不在内，
   // 故这里**不碰** us:script:* 旧键，也不调 clearDeprecatedScripts。
-  // uuid 由 SW 直读状态库（不经容器，与 userscript:list 同源），用于注销与清 GM 值。
+  // uuid 由 SW 直读状态库（不经容器，与 userscript:list 同源），用于注销与清残留。
   'userscript:removeAll': async (): Promise<{ removed: number }> => {
     const uuids = (await listProjects()).map((p) => p.uuid)
     await unregisterScripts(uuids).catch(() => {})
     try {
       const removed = await writeViaOffscreen<number>({ kind: 'state:removeAll' })
       for (const uuid of uuids) await clearGMValues(uuid)
+      // 报错记录逐 uuid 清（与单删同一条语义：删脚本 = 清该脚本名下的一切）
+      for (const uuid of uuids) await clearUserScriptErrors(uuid)
       return { removed }
     } catch (e) {
       // 注销在前、落盘在后，落盘失败会留下「记录还标 enabled、实际已注销」的偏差
@@ -327,8 +337,10 @@ const handlers: {
   'userscript:errorRead': async (msg): Promise<ReturnType<typeof findUserScriptError>> =>
     findUserScriptError(msg.id),
 
-  'userscript:clearErrors': async (): Promise<void> => {
-    await clearUserScriptErrors()
+  // 清错误日志。三态必须靠「字段在不在」区分（`!msg.uuid` 会把「未归属」误判成「全部」）：
+  //   字段缺失 = 清全部；string = 只清该脚本；null = 只清「未归属」记录
+  'userscript:clearErrors': async (msg): Promise<void> => {
+    await clearUserScriptErrors('uuid' in msg ? (msg.uuid ?? null) : undefined)
   },
 
   // SW 自证：把 define 注入的构建信息回给 UI（页面显示用，不依赖 SW DevTools 在场）。
@@ -460,6 +472,9 @@ export default defineBackground(() => {
     if (area !== 'local' || !Object.prototype.hasOwnProperty.call(changes, MODEL_PROFILES_KEY)) {
       return
     }
+    // 顺带通知前端：chrome.storage 的 onChanged 只是「存储变了」的信号，
+    // 各扩展页的视图不会因此自己刷新——别的窗口的设置页、侧边栏的模型选择器都得靠这条广播。
+    broadcastDataChange('model')
     void isOffscreenReady()
       .then((ready) => {
         if (!ready) return

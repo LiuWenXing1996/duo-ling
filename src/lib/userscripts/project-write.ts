@@ -182,8 +182,7 @@ export async function setProjectEnabled(uuid: string, enabled: boolean): Promise
 /**
  * zip 导入（state:import 的落点）：解码 → 逐脚本**尽量导入**。
  *
- * 2026-09-17 语义修订（老大拍板「不是原则项的阻断，尽量导入脚本，剩余走编辑器修」）：
- * 导入侧不再是「校验 + 淘汰」，而是「尽量落盘 + 报告说明」——
+ * 导入侧不是「校验 + 淘汰」，而是「尽量落盘 + 报告说明」——
  *  · 解码层已放行版本 / 字段缺失 / 路径不安全（后者只过滤该文件），只剩「无 project.json」跳过；
  *  · matches 非法、文件树非法：不在这里拦（启用时 registerScript 会以中文报错，导入后可在编辑器改）；
  *  · 构建失败：**仍导入**，只是不写 bundle；报告 note 带 esbuild 诊断，用户去编辑器改到能构建。
@@ -210,7 +209,7 @@ export async function importScriptsZip(zipBase64: string): Promise<ImportReport>
 /**
  * 导入单个脚本：只做「尽量落盘」，非原则项一律不淘汰它。
  *
- * 落盘顺序（2026-09-17 拍板「先写 lfs」）：
+ * 落盘顺序（先写 lfs）：
  *   ① 构建（buildOutcome，已有流程，读内存 Record）—— 成功即带产物落盘；**失败不淘汰**，
  *      只记 note 并以「无 bundle」落盘，等用户在编辑器修好重建产物；
  *   ② 先写 duoling-fs（源码工作区 + 首提交），作为导入**首要落点**，早于状态库；

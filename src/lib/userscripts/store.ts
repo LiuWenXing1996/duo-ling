@@ -1,7 +1,7 @@
 // 用户脚本的 chrome.storage 侧持久化。
 //
-// 2026-09-15 单写方落地后，**项目数据（源码/配置/产物/enabled）已迁往 IndexedDB 状态库
-// duoling-state**（读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
+// 项目数据（源码/配置/产物/enabled）的权威在 IndexedDB 状态库 duoling-state
+// （读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
 // 本文件只剩两类：DL.store 值（us:gm:*）、错误日志（us:errors）。
 //
 // 为什么这两类不一起迁：写入方是**注入页面里的用户脚本**（不受我们控制、可能被高频调用、
@@ -10,11 +10,13 @@
 import {
   GM_KEY_PREFIX,
   ERRORS_KEY,
+  ERROR_LOG_MAX,
   gmKey,
   type ScriptProject,
   type ScriptSummary,
   type UserScriptErrorRecord,
 } from './types'
+import { broadcastDataChange } from '../data-broadcast'
 
 /**
  * 列表视图：项目摘要（不含源码与构建产物），未启用在后、启用在前，组内按更新时间倒序。
@@ -70,9 +72,8 @@ export async function clearGMValues(uuid: string): Promise<void> {
 // —— 错误日志（错误面板）——
 //
 // 运行期错误经 DL 包装转发到 onUserScriptMessage 后被收集；注册/桥失败在后台直接收集。
-// 环形保留最近 N 条，避免无限增长。
-
-const MAX_ERRORS = 50
+// 环形保留最近 N 条，避免无限增长（上限定义在 types.ts，供 UI 文案同源引用）
+const MAX_ERRORS = ERROR_LOG_MAX
 
 // us:errors 是「读全量 → 改 → 写回整块」的 RMW，chrome.storage.local 没有原子写。
 // 脚本崩溃风暴时多个 append 并发执行会互相覆盖（lost update），必须按 key 串行化。
@@ -98,6 +99,10 @@ export async function appendUserScriptError(
     const next = existing.slice(-(MAX_ERRORS - 1))
     next.push({ ...rec, id: rec.id || crypto.randomUUID(), time: rec.time || Date.now() })
     await chrome.storage.local.set({ [ERRORS_KEY]: next })
+    // 广播埋在这里而不是各个调用点：错误有 4 个上报入口（background 的注册兜底、
+    // engine 两处、dl-bridge 的脚本消息转发），这里是唯一汇合点。
+    // 崩溃风暴的高频 append 由广播侧的合并窗口（100ms）兜住，前端不会被打爆。
+    broadcastDataChange('error', rec.uuid ?? undefined)
   })
 }
 
@@ -107,9 +112,33 @@ export async function listUserScriptErrors(): Promise<UserScriptErrorRecord[]> {
   return (r ?? []).slice().reverse()
 }
 
-/** 清空错误日志（与 append 同队列串行，避免清空被并发写回覆盖） */
-export async function clearUserScriptErrors(): Promise<void> {
-  return enqueueErrorOp(() => chrome.storage.local.remove(ERRORS_KEY))
+/**
+ * 清空错误日志（与 append 同队列串行，避免清空被并发写回覆盖）。
+ *
+ * @param uuid 缺省 = 清全部；字符串 = 只清该脚本的记录；**null = 只清「未归属」记录**
+ *   （uuid 为 null 的那些：注册失败无脚本上下文、部分桥错误）。
+ *   三态各自独立，故判定用 `=== undefined` 而非 falsy —— `null` 是有效目标，不是「没传」。
+ */
+export async function clearUserScriptErrors(uuid?: string | null): Promise<void> {
+  return enqueueErrorOp(async () => {
+    if (uuid === undefined) {
+      await chrome.storage.local.remove(ERRORS_KEY)
+      broadcastDataChange('error') // 全量清空
+      return
+    }
+    const existing =
+      ((await chrome.storage.local.get(ERRORS_KEY))[ERRORS_KEY] as UserScriptErrorRecord[] | undefined) ?? []
+    const kept = existing.filter((e) => e.uuid !== uuid)
+    // 没有该脚本的记录就不写回：RMW 的「无变化不落盘」语义，避免白写一次全量
+    if (kept.length === existing.length) return
+    if (!kept.length) {
+      await chrome.storage.local.remove(ERRORS_KEY)
+    } else {
+      await chrome.storage.local.set({ [ERRORS_KEY]: kept })
+    }
+    // null（未归属）没有单条 uuid 可指，按全量通知
+    broadcastDataChange('error', uuid ?? undefined)
+  })
 }
 
 /**

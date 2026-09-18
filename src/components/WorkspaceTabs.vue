@@ -1,11 +1,9 @@
 <script setup lang="ts">
 // 工作区标签栏：设置 / 开发者 / UI 测试 / 脚本列表 / 脚本编辑器。基础标签（脚本列表）不可关闭。
-// 2026-09-14：workbench 原 46px 顶栏（存在的唯一理由是放全局搜索框）删除，搜索框改由右侧
-// #actions 插槽承载；同日工具链路移除后，该搜索框的数据源
-// tool.list() 消失，插槽连同搜索框一并删除，工具类标签（tool / tool-history / tool-code）分支同步摘除。
 import { onMounted, ref } from 'vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
+  AlertTriangle as UiAlertTriangle,
   Compass as UiCompass,
   List as UiList,
   Pencil as UiPencil,
@@ -98,6 +96,7 @@ onMounted(async () => {
         class="gap-1.5 text-[12.5px]"
       >
         <ui-list v-if="tab.kind === 'userscript-list'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <ui-alert-triangle v-else-if="tab.kind === 'error-log'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-pencil v-else-if="tab.kind === 'userscript-edit'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-compass v-else-if="tab.kind === 'guide'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />

@@ -7,6 +7,7 @@
 // 复用链路：fsClient.history / historyTree / restoreToCommit + aiBuildClient（offscreen 构建）
 // + buildCodeTree + FileTree + CodeBlock。
 import { computed, onMounted, ref } from 'vue'
+import { useDataSync } from '@/composables/use-data-sync'
 import { RefreshCw as UiRefreshCw, RotateCcw as UiRotateCcw } from '@lucide/vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { FileTree } from '@/components/ai-elements/file-tree'
@@ -148,6 +149,12 @@ function relTime(t: number): string {
 }
 
 onMounted(() => {
+  void load()
+})
+
+// 别处保存 / 恢复该脚本：git 时间线变了，按 uuid 回拉（其它脚本的变更不理）
+useDataSync('script', (push) => {
+  if (push.uuid && push.uuid !== props.uuid) return
   void load()
 })
 </script>

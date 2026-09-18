@@ -53,7 +53,7 @@ const HEARTBEAT_MS = 5_000
 /** 孤儿判定的最小保护窗：只为盖住 chat:start 落盘记录 → runLoop 注册内存表
  *  之间的毫秒级竞态（此窗口内记录已存在但内存表还没有）。真正的误判防护是
  *  内存表交叉核对——记录说 running 但内存表没有 = 宿主换代，必是孤儿，
- *  无需等心跳过期（2026-09-15：原 30s 纯时间窗让用户白等，已弃用） */
+ *  无需等心跳过期。 */
 const ORPHAN_GRACE_MS = 5_000
 
 interface RunningTask {
@@ -197,7 +197,7 @@ async function persistGeneratedProject(ws: TaskWorkspace): Promise<GenerationCar
 }
 
 /** 从完整 chunk 序列还原 assistant UIMessage（收尾落盘用）。
- * 2026-09-15 手测教训：不能复用事件环形缓冲——它是为「进行中任务重连」设计的，
+ * 不能复用事件环形缓冲——它是为「进行中任务重连」设计的，
  * 4000 条上限会被长回复（万级 text delta）截断，replaySince(0) 判「不完整」→
  * 落盘被跳过、历史里只剩用户消息。落盘直接用泵流时收的完整序列，与缓冲解耦。 */
 async function buildFinalMessageFromChunks(
@@ -347,7 +347,7 @@ async function runLoop(opts: {
 
     // —— 收尾分支 1：用户主动停止 / 流异常中断 ——
     // 不落盘半截消息、不落盘产物；孤儿判定只认 running，记录即删。
-    // ⚠️ abort 后 toUIMessageStream 仍会补发 finish（2026-09-15 手测实测），所以
+    // ⚠️ abort 后 toUIMessageStream 仍会补发 finish，所以
     // 分支 2 之前必须再看一眼 sawAbort / abortSignal——否则半截消息照常落盘。
     if (!finishChunk || sawAbort || abort.signal.aborted) {
       if (!sawAbort) pushChunk(conversationId, { type: 'abort' })
@@ -441,7 +441,7 @@ async function runLoop(opts: {
   } catch (e) {
     // 循环异常（模型网络错误等）：推 error 块让 useChat onError 走起，记录清理。
     // start 块先行：useChat 的流处理在未 start 时收到 error 块可能整体丢弃，
-    // 面板就会「没回音、状态卡 streaming、也不报错」（2026-09-15 手测实测）。
+    // 面板就会「没回音、状态卡 streaming、也不报错」。
     console.error('[duoling:chat] 任务异常', taskId, e)
     pushChunk(conversationId, { type: 'start', messageId: task.messageId })
     pushChunk(conversationId, {
@@ -529,7 +529,7 @@ export async function abortChat(conversationId: string): Promise<void> {
 /** chat:resume：侧边栏重连（面板重开 / 切回会话）。
  *  **一律从头回放**：观察方切回时本地视图已从会话历史重建（不含进行中的半截
  *  assistant 消息），按「上次消费点」续传会缺 reasoning-start / text-start 等
- *  配对块，SDK 直接报「delta 先于 start」（2026-09-15 手测实测）。
+ *  配对块，SDK 直接报「delta 先于 start」。
  *  收尾即清缓冲，结束后 UI 一律以会话历史为准（防 replay 出重复消息）。 */
 export function resumeChat(conversationId: string): ChatResumeResult {
   const running = runningByConversation.get(conversationId)

@@ -6,15 +6,12 @@
 // 内部转接到扩展自己的数据层 —— 组件侧因此可以零改动复用：
 //
 //   conversation.*  → 读：IndexedDB（src/lib/conversation-store.ts）；写：conv:* 命令路由 offscreen
-//                     （2026-09-15 起会话历史唯一写入方 = offscreen，见下方说明）
+//                     （会话历史唯一写入方 = offscreen，见下方说明）
 //   model.*         → chrome.storage.local（src/lib/model-store.ts）
 //   provider.*      → 预设表（src/lib/providers.ts）
 //   window.*        → 扩展页没有无边框窗口，按「无窗口状态」应答
 //   workspace.*     → 标签快照上报（Agent 编排未平移，空实现）
-//
-// 2026-09-14：工具链路移除后，tool.* / toolsPreview.* /
-// toolsData.* / capability.* / agentTools.* 五个命名空间整体摘除 —— 它们全部只服务工具页与
-// 开发者界面。本文件仍是 window.api 的唯一装配点，两个 main 入口都调 installWindowApi()，故必留。
+
 //
 // 仍未平移的能力（agent）由 Proxy 兜底：调用时抛出带完整路径的错误。
 // 这样比静默返回 undefined 更早暴露「这段界面还没接上」，也便于后续逐项替换成真实实现。
@@ -75,7 +72,6 @@ function createStubNamespace(path: string): unknown {
 
 // —— conversation：读直连 IndexedDB；写路由 offscreen ——
 //
-// 2026-09-15：整条对话链路搬进 offscreen 后，
 // **会话历史唯一写入方 = offscreen**（防双写）。list / search / messages 是读，仍直连
 // 本地 IndexedDB（同源共享，注册链路同理不能押在容器存活上）；create / rename / delete /
 // deleteAll / appendMessage 是写，经 conv:* 命令交 offscreen 执行。

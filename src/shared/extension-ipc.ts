@@ -46,7 +46,7 @@ export interface ElementPickContext {
   full: ElementPickFull
 }
 
-/** 页面快照（渲染后 DOM，拾取器快照模式静默采集；2026-09-17 起采集方 = AI 的 page_snapshot 工具经 SW 调 execute()，用户面按钮已移除） */
+/** 页面快照（渲染后 DOM，拾取器快照模式静默采集；采集方 = AI 的 page_snapshot 工具经 SW 调 execute()） */
 export interface PageSnapshotContext {
   capturedAt: number
   pageUrl: string
@@ -138,14 +138,18 @@ export type RuntimeRequest =
   // AI 生成脚本落盘（SW 命令面，转发 offscreen 单写方；enabled 默认 false = 先落盘不启用）
   | { kind: 'userscript:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; enabled: boolean; note?: string }
   | { kind: 'userscript:remove'; uuid: string }
-  // 删除全部用户脚本（2026-09-17）：范围 = 新形态用户脚本（状态库项目 + 各自 git 仓），
+  // 删除全部用户脚本：范围 = 新形态用户脚本（状态库项目 + 各自 git 仓），
   // **不含**已弃用旧 GM 记录（chrome.storage，另有逐行删除与 clearDeprecated 两条路径）
   // 与内置件（随扩展包分发）。SW 注销全部 → 转发 state:removeAll → 清各脚本 DL.store 值。
   | { kind: 'userscript:removeAll' }
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
   | { kind: 'userscript:availability' }
   | { kind: 'userscript:errors' }
-  | { kind: 'userscript:clearErrors' }
+  // 清错误日志。三态靠「字段在不在」区分，**不可用 falsy 判定**：
+  //   不带该字段 = 清全部；uuid: string = 只清该脚本；uuid: null = 只清「未归属」记录。
+  // unassigned 用显式 null 而非 undefined：结构化克隆会保留 null，而 undefined 值在部分
+  // 序列化路径下与「字段缺失」无法区分（Firefox / JSON 回退），故调用方必须省略字段而非传 undefined。
+  | { kind: 'userscript:clearErrors'; uuid?: string | null }
   // 错误 ID 修复闭环：AI 的 error_read 工具经 SW 代查
   // us:errors（offscreen 拿不到 chrome.storage）。id = 完整记录 id 或唯一 8 位前缀
   | { kind: 'userscript:errorRead'; id: string }
@@ -153,8 +157,6 @@ export type RuntimeRequest =
   // 单写方（解码 + 校验 + 构建 + 落盘同处）。enabled 恒 false——先审后启，故无注册动作。
   // 导出零新增协议：走现成 userscript:list / getProject 只读命令。
   | { kind: 'userscript:import'; zipBase64: string }
-  // 注：git 历史的 `userscript:history*` 三命令已随执行宿主迁 offscreen 而废弃（由 ai:* 取代），
-  // 全仓无调用方，2026-09-15 从协议中移除——留着只会让 SW 的 handlers 表被迫补死桩。
 
   // —— 用户脚本源码库命令面（fs:*，执行宿主 = offscreen）——
   // 源码唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库，带 git 版本化，
@@ -245,8 +247,8 @@ export type RuntimeRequest =
   | { kind: 'model:getActiveProfile' }
 
   // —— AI 工具支路（offscreen 的 agent 工具经 SW 调 SW/扩展页才有的 chrome 能力）——
-  // page_snapshot 工具：SW 代为对当前活动标签执行拾取器快照模式（chrome.userScripts.execute
-  // 在 offscreen 不可达；2026-09-17 页面快照从用户按钮改判为 AI 工具）。
+  // page_snapshot 工具：SW 代为对当前活动标签执行拾取器快照模式
+  // （chrome.userScripts.execute 在 offscreen 不可达）。
   // 注意前缀：`chat:` 是「SW 静默让路给 offscreen」的保留前缀，SW 自答的命令不能用
   | { kind: 'page:snapshot' }
 
@@ -270,6 +272,44 @@ export type OffscreenPush =
   | { kind: 'offscreen:configChanged' }
   | { kind: 'chat:chunk'; conversationId: string; seq: number; chunk: import('ai').UIMessageChunk }
   | { kind: 'chat:finished'; conversationId: string; /** true = 正常收敛；false = 停止 / 异常（徽章同亮，不区分色） */ ok: boolean }
+
+// —— 数据变更广播（写侧 → 全部前端实例）——
+//
+// 为什么要有这条：项目状态库与会话都落在 IndexedDB，而 **IDB 没有变更通知**
+// （chrome.storage 有 onChanged，IDB 没有），所以「别处改了数据、这个页面还显示旧的」
+// 是结构性的必然，不是 bug。补的就是这条通知线。
+//
+// 与 OffscreenPush 的区别：那是「一个特定接收方」的点对点推送（SW→offscreen 等）；
+// 这是**多播**——同一工作台的其他标签页、另一个浏览器窗口的工作台、侧边栏，全都要收到。
+//
+// ⚠️ 刻意**不进 RuntimeRequest**：那里面全是「请求-应答」的命令，而广播没有应答方，
+// 塞进去会污染 extension-ipc.test.ts 的 kind 归属断言（每个 kind 恰被一端处理）。
+
+/** 数据域（与持久化分区一一对应） */
+export type DataDomain =
+  /** 项目状态库：源码 / 配置 / 构建产物 / enabled */
+  | 'script'
+  /** 会话与消息（duoling-chat） */
+  | 'conversation'
+  /** 模型配置（chrome.storage.local） */
+  | 'model'
+  /** 用户脚本错误日志（us:errors） */
+  | 'error'
+
+/**
+ * 一次落盘的变更通知：**只带「哪个域的哪条变了」，不带数据本身**。
+ * 接收方自己去权威存储回拉——读侧仍是直连 IDB，不新增数据通道，也就没有第二份真相。
+ *
+ * `uuid` 缺省 = 该域整体起了变化（新建 / 删除 / 批量改动），接收方一律全量重拉；
+ * 有值时接收方可自行判断「是不是我正在看的那条」，从而跳过无关重拉。
+ */
+export type DataChangedPush = {
+  kind: 'data:changed'
+  domain: DataDomain
+  uuid?: string
+  /** 发送时刻（ms） */
+  at: number
+}
 
 /** service worker → 渲染页的应答：统一信封，调用方据 ok 分支 */
 export type RuntimeResponse<T> = { ok: true; data: T } | { ok: false; error: string }

@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "name": "构建失败样本",
+  "config": {
+    "matches": ["*://*/*"],
+    "allFrames": false,
+    "runAt": "document_end"
+  },
+  "entry": "main.js"
+}

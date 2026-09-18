@@ -110,14 +110,16 @@ export const GM_KEY_PREFIX = 'us:gm:'
 export const SETTINGS_KEY = 'us:settings'
 /** 错误日志：us:errors（环形保留最近 N 条） */
 export const ERRORS_KEY = 'us:errors'
+/** 错误日志环形上限：超过后只留最近 N 条。
+ *  写侧（store.ts）裁剪、UI 文案（错误日志标签页）都读这里 —— 上限只写一处，避免文案与实现漂移。 */
+export const ERROR_LOG_MAX = 50
 
 /** 默认入口文件名 */
 export const ENTRY_DEFAULT = 'main.js'
 
 // —— zip 导入报告——
 //
-// 2026-09-17 语义修订（老大拍板「不是原则项的阻断，尽量导入脚本」）：导入只拦原则项，
-// 其余一律导入并说明，留给脚本编辑器修。故 ok 条目可带 notes（构建失败 / 字段兜底提示），
+// 导入只拦原则项，其余一律导入并说明，留给脚本编辑器修。故 ok 条目可带 notes（构建失败 / 字段兜底提示），
 // failed 只剩结构性原因（无 project.json / 非合法 JSON）。
 
 /** 导入成功的条目（uuid 为导入方新生成；enabled 恒 false） */

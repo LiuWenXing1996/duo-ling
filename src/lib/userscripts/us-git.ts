@@ -96,7 +96,7 @@ export async function ensureRepo(uuid: string): Promise<void> {
   }
 }
 
-/** 删除脚本的整棵 git 仓（历史不保留——2026-09-14 拍板：删脚本即删历史） */
+/** 删除脚本的整棵 git 仓（历史不保留：删脚本即删历史） */
 export async function deleteRepo(uuid: string): Promise<void> {
   assertSafeUuid(uuid)
   try {

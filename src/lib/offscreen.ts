@@ -9,9 +9,8 @@
 //   3. chrome.runtime.onStartup（浏览器启动）
 // 另：AI 生成入口与 fsClient 在发起请求前也会先 ensure，作为兜底。
 //
-// 说明：Chrome 不会自动启动 offscreen，必须显式 createDocument。早期设计曾「刻意不在启动时创建」、
-// 计划配合「空闲 N 分钟自关」做常驻退出；现改为常驻策略（老大 2026-09-14 拍板），
-// idle 自关**已撤销**，offscreen 不再自关，仅在 `offscreen:close` 调试命令下主动关。
+// 说明：Chrome 不会自动启动 offscreen，必须显式 createDocument。策略是常驻：offscreen 不自关，
+// 仅在 `offscreen:close` 调试命令下主动关。
 
 /** 与 src/entrypoints/offscreen.html 对应 */
 const OFFSCREEN_PATH = 'offscreen.html'

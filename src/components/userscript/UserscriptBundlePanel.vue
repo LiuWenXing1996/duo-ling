@@ -8,6 +8,7 @@
 //
 // 大文件防御：bundle 可能几百 KB（远程依赖全部内联），展示截断到前 1MB（与 lfs 预览同一策略）。
 import { onMounted, ref } from 'vue'
+import { useDataSync } from '@/composables/use-data-sync'
 import { RefreshCw as UiRefreshCw } from '@lucide/vue'
 import { CodeBlock } from '@/components/ai-elements/code-block'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
@@ -69,6 +70,12 @@ async function load(): Promise<void> {
 }
 
 onMounted(() => {
+  void load()
+})
+
+// 别处构建 / 保存该脚本：产物变了，按 uuid 回拉
+useDataSync('script', (push) => {
+  if (push.uuid && push.uuid !== props.uuid) return
   void load()
 })
 </script>

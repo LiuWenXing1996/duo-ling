@@ -1,18 +1,16 @@
 <script setup lang="ts">
-// 用户脚本编辑器（工作台标签页形态）。
-//
-// 2026-09-14 从 UserscriptManager（旧管理器覆盖层，2026-09-15 已整体删除）的编辑抽屉抽出：
-// 编辑器**只此一份实现**，列表页的「编辑」按钮改为打开本标签页。
+// 用户脚本编辑器（工作台标签页形态）：编辑器**只此一份实现**，列表页的「编辑」按钮打开本标签页。
 //
 // 自包含：只吃 uuid，内部自行 getProject 拉项目、管理编辑态与历史态。
 //
-// 与原抽屉实现的三处差异（载体从抽屉换成标签页使然）：
-//   1. 容器由「fixed inset-0 遮罩 + max-w-3xl 抽屉」改为「标签页铺满」（section.panel）。
-//   2. 保存成功后不再自动关闭 —— 原来关抽屉回列表，标签页里关掉反而要重开，改为顶部提示条。
+// 形态要点（标签页载体使然）：
+//   1. 容器铺满标签页（section.panel）。
+//   2. 保存成功后不自动关闭 —— 关掉反而要重开，改为顶部提示条。
 //   3. 「关闭」= 关标签页，行为交给宿主（emit close）。
 //
-// 配色由硬编码 zinc / blue / red 换成语义 token（AGENTS.md：颜色一律用语义 token）。
+// 配色一律用语义 token（AGENTS.md：颜色一律用语义 token）。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useDataSync } from '@/composables/use-data-sync'
 import {
   CircleX as UiCircleX,
   History as UiHistory,
@@ -75,6 +73,8 @@ const editFiles = ref<Record<string, string>>({})
 const editEntry = ref('')
 const activeFile = ref('')
 const editDirty = ref(false)
+/** 当前脚本在别处被修改（收到 `script` 广播但本地有未保存改动，故未自动重载） */
+const remoteChanged = ref(false)
 // 构建状态（保存即构建；失败行内展示、不落盘）
 const building = ref(false)
 const buildIssues = ref<string[]>([])
@@ -623,6 +623,19 @@ async function saveEdit(): Promise<void> {
 }
 
 onMounted(() => {
+  void load()
+})
+
+// 别处保存 / 启停了「我正在编辑的这个脚本」会广播 `script` 域：
+//   · 本地无未保存改动 → 直接重载，照见别处的最新内容；
+//   · 本地有未保存改动 → 不抢加载（否则会吃掉正在写的草稿），仅提示用户手动处理。
+useDataSync('script', (push) => {
+  if (push.uuid && push.uuid !== props.uuid) return
+  if (editDirty.value) {
+    remoteChanged.value = true
+    return
+  }
+  remoteChanged.value = false
   void load()
 })
 </script>

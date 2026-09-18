@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "name": "运行期报错",
+  "config": {
+    "matches": ["*://*/*"],
+    "allFrames": false,
+    "runAt": "document_end"
+  },
+  "entry": "main.js"
+}

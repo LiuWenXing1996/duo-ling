@@ -1,14 +1,12 @@
 <script setup lang="ts">
 // 当前会话聊天区：消息气泡 + 思考/工具过程折叠 + 输入区 + 模型选择。
 // 发送 / 停止由父组件执行；模型选择为纯本地面板逻辑，自含于此。
-// 2026-09-14：工具链路移除后，原「变更清单留痕卡片」
-// （AI 产出多工具意图 → 自动落盘留痕）整段摘除。
 //
-// 方案 B（切进 AI SDK 全家桶）后：消息模型为 UIMessage（parts），渲染按
+// 消息模型为 UIMessage（parts），渲染按
 //   - text part      -> 消息气泡正文（MessageResponse）
 //   - reasoning part -> 思考与执行过程中的思考段落
 //   - tool part      -> 工具调用卡（ToolHeader + ToolInput + ToolOutput）
-// 按 parts 出现顺序交错成「思考与执行过程」链，移除旧 chainNodes / reasonings 结构。
+// 按 parts 出现顺序交错成「思考与执行过程」链。
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import {
   Check as UiCheck,
@@ -81,16 +79,10 @@ import {
   subscribePageContext
 } from '@/lib/page-context-store'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
-import {
-  getToolName,
-  isReasoningUIPart,
-  isTextUIPart,
-  isToolUIPart,
-  type DynamicToolUIPart,
-  type TextUIPart,
-  type ToolUIPart,
-  type UIMessage
-} from 'ai'
+import type { DynamicToolUIPart, TextUIPart, ToolUIPart, UIMessage } from 'ai'
+// 这几个 part 判定 helper 走本地实现：静态 import 'ai' 会把整块 ~360KB 的核心
+// （含 gateway / zod）钉进侧边栏首屏静态图。详见该文件头部说明。
+import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart } from '@/lib/ui-message-parts'
 
 const props = defineProps<{
   messages: UIMessage[]
@@ -175,7 +167,7 @@ function userText(m: UIMessage): string {
   return textOf(m)
 }
 
-/** 随本条消息附上的页面上下文（气泡 chip 渲染源；只认元素拾取，快照已改 AI 工具不再进元数据） */
+/** 随本条消息附上的页面上下文（气泡 chip 渲染源；只认元素拾取，快照不进元数据） */
 function messagePageContext(m: UIMessage): MessagePageContext | undefined {
   const ctx = (m.metadata as ChatMessageMetadata | undefined)?.pageContext
   return ctx?.element ? ctx : undefined
@@ -482,7 +474,7 @@ function onPromptSubmit(payload: PromptInputMessage): void {
 // —— 元素拾取 ——
 // 产物暂存 page-context-store（模块级，transport 的 collectPageContext 组装进下一条消息），
 // 发送成功后 transport 清空，chip 经订阅自动消失。显式点击才采集，页面内容不自动附带。
-// 页面快照已改 AI 工具采集（2026-09-17 决策），无用户面入口。
+// 页面快照走 AI 工具采集（见 element-picker-client.ts），无用户面入口。
 const pickedElement = ref<ElementPickContext | null>(getPickedElement())
 let unsubscribeContext: (() => void) | null = null
 

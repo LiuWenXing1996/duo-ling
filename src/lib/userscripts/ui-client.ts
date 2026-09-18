@@ -34,8 +34,8 @@ function send<T>(request: RuntimeRequest): Promise<T> {
 
 /**
  * 向 offscreen 发 ai:* 命令（git 历史侧车 + 构建宿主）。
- * 现状（2026-09-15）：offscreen 常驻——SW 冷启动即 ensureOffscreen，不空闲自关；
- * 但扩展重载 / 崩溃 / 关窗会销毁容器，这些情况下 ai:* 无人响应会报
+ * offscreen 常驻（SW 冷启动即 ensureOffscreen，不空闲自关）；但扩展重载 / 崩溃 / 关窗会销毁
+ * 容器，这些情况下 ai:* 无人响应会报
  * 「The message port closed before a response was received」。故失败时先经 SW 唤起容器
  * （同时触发其启动对账、注册监听），再重试，最多 3 次。
  *
@@ -108,8 +108,10 @@ export const userscriptClient = {
   /** 错误日志：列出全部错误（最新在前） */
   errors: (): Promise<UserScriptErrorRecord[]> => send({ kind: 'userscript:errors' }),
 
-  /** 清空错误日志 */
-  clearErrors: (): Promise<void> => send({ kind: 'userscript:clearErrors' }),
+  /** 清空错误日志：缺省清全部；传 uuid 只清该脚本；传 null 只清「未归属」记录（uuid 为 null 的）。
+   *  「清全部」必须**省略字段**而非传 undefined——undefined 值在部分序列化路径下与字段缺失无法区分。 */
+  clearErrors: (uuid?: string | null): Promise<void> =>
+    send(uuid === undefined ? { kind: 'userscript:clearErrors' } : { kind: 'userscript:clearErrors', uuid }),
 }
 
 /**

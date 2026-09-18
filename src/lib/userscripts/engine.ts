@@ -19,8 +19,8 @@ import { enabledMatchUnion, sameMatchSet } from './match-union'
 import { STATUS_BUBBLE_ID, syncStatusBubbleRegister } from './status-bubble'
 
 // 不给脚本世界配置 csp：即**不放开** eval / new Function。脚本世界因此回落浏览器默认 CSP，
-// 动态执行字符串代码被禁。理由：AI 生成的脚本不可控，不额外给「执行任意字符串」的能力
-// （用户 2026-09-18 定）。注入链路自身零 eval —— DL 包装 / 页面中继 / 浮窗 / MAIN 桩均不含，
+// 动态执行字符串代码被禁。理由：AI 生成的脚本不可控，不额外给「执行任意字符串」的能力。
+// 注入链路自身零 eval —— DL 包装 / 页面中继 / 浮窗 / MAIN 桩均不含，
 // esbuild 打 IIFE 也不产 eval，故引擎不受影响；真正受影响的只有内部用 new Function 做
 // codegen 的依赖库（如 ajv 编译校验器 / Vue runtime 编译器 / handlebars 运行时模板），
 // 由 collectCspWarnings 在保存时提前提示。
@@ -249,7 +249,7 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
         a.click(); a.remove()
       })
     },
-    // 本地直写（不走桥）：需用户手势/页面焦点，失败明确报错（2026-09-14 决策）
+    // 本地直写（不走桥）：需用户手势/页面焦点，失败明确报错
     clipboard: {
       write: function (text) {
         return navigator.clipboard.writeText(text).catch(function (e) {
@@ -521,6 +521,9 @@ async function runRegisterAllEnabled(): Promise<void> {
   } catch {
     // 可用性未恢复时 getScripts 抛错，忽略（上层已检测）
   }
+  // 环境 / 权限不可用：全员注册必然失败，但那不属于任何脚本本身的错，
+  // 不要给每个脚本写一条 register 错误（会误导成「所有脚本都有问题」）；环境状态由列表页横幅兜底
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
   for (const project of enabled) {
     try {
       await registerScript(project)
