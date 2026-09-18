@@ -73,6 +73,7 @@ import {
   isUserScriptsApiAvailable,
   pickElement
 } from '@/lib/element-picker-client'
+import { openOwnExtensionPage } from '@/lib/extension-page'
 import {
   clearPickedElement,
   getPickedElement,
@@ -103,6 +104,8 @@ const emit = defineEmits<{
   send: [text: string]
   stop: []
   openSettings: []
+  /** 需要开权限（拾取器不可用 / 启用脚本失败）：请宿主打开工作台引导标签页 */
+  openGuide: []
 }>()
 
 // —— 对话模型选择：仅切换后续发送所用的模型 ——
@@ -381,6 +384,8 @@ const cardHidden = reactive(new Set<string>())
 const cardBusy = reactive(new Set<string>())
 /** 启用失败的错误（registerError / 命令异常）：按 uuid 记，卡片上直接展示——注册失败绝不能静默 */
 const cardErrors = reactive(new Map<string, string>())
+/** 上面那批错误里属「没开权限」的（registerError）：附带引导入口；命令异常则不给（原因不在这） */
+const cardErrorNeedsGuide = reactive(new Set<string>())
 
 function cardsOf(m: UIMessage): GenerationCardData[] {
   return m.parts
@@ -412,12 +417,14 @@ function capabilityLabel(cap: string): string {
 async function enableCard(card: GenerationCardData): Promise<void> {
   cardBusy.add(card.uuid)
   cardErrors.delete(card.uuid)
+  cardErrorNeedsGuide.delete(card.uuid)
   try {
     const { registerError } = await userscriptClient.toggle(card.uuid, true)
     if (registerError) {
       // 注册失败（典型：扩展详情页没开「允许用户脚本」/ 开发者模式）——错误留在卡片上，
       // 且不把卡片标成已启用（数据已落盘，脚本实际没生效）
       cardErrors.set(card.uuid, registerError)
+      cardErrorNeedsGuide.add(card.uuid)
     } else {
       cardEnabled.add(card.uuid)
     }
@@ -495,6 +502,8 @@ onUnmounted(() => {
 const contextBusy = ref<'pick' | null>(null)
 /** 拾取失败文案（用户行动可读；区别于聊天错误条，展示在 chip 区） */
 const contextError = ref('')
+/** 该错误是否属「去工作台引导页开权限」类（决定错误条里是否给引导入口） */
+const contextErrorNeedsGuide = ref(false)
 
 /** chip 上的元素简述：tag#id（文本摘要取前 12 字） */
 function elementChipLabel(ctx: ElementPickContext): string {
@@ -506,9 +515,11 @@ function elementChipLabel(ctx: ElementPickContext): string {
 async function onPickElement(): Promise<void> {
   if (contextBusy.value) return
   contextError.value = ''
+  contextErrorNeedsGuide.value = false
   if (!isUserScriptsApiAvailable()) {
     // 开关没开：不发起注入，直接给引导文案（探针结论：命名空间不存在时 execute 调用即失败）
     contextError.value = userScriptsUnavailableMessageSafe()
+    contextErrorNeedsGuide.value = true
     return
   }
   contextBusy.value = 'pick'
@@ -538,11 +549,9 @@ function onPanelKeydown(e: KeyboardEvent): void {
 
 /** 可用性检测失败时统一给引导文案（client 的 pick 也会抛同文案，此处是免注入的前置短路） */
 function userScriptsUnavailableMessageSafe(): string {
-  // 引导文案与 client 内部一致；单独 import 会造成循环依赖风险，故内联一份
-  return (
-    '拾取器不可用：请到 chrome://extensions → 哆灵 → 详情，打开「允许运行用户脚本」开关' +
-    '（并确认已开启右上角「开发者模式」），然后重试。'
-  )
+  // 引导文案与 client 内部一致；单独 import 会造成循环依赖风险，故内联一份。
+  // 具体步骤（按浏览器/版本分支）与「打开扩展管理页」按钮统一在工作台「引导」标签页，此处只指路
+  return '拾取器不可用：需要先开启「允许运行用户脚本」权限，开启后重试。'
 }
 </script>
 
@@ -811,13 +820,25 @@ function userScriptsUnavailableMessageSafe(): string {
                     删除
                   </ui-button>
                 </div>
-                <p
+                <div
                   v-if="cardErrors.get(card.uuid)"
                   class="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-xs leading-relaxed text-destructive"
                   role="alert"
                 >
-                  启用失败：{{ cardErrors.get(card.uuid) }}
-                </p>
+                  <p>启用失败：{{ cardErrors.get(card.uuid) }}</p>
+                  <!-- 注册失败多半是没开权限：分步说明在工作台「引导」标签页 -->
+                  <ui-button
+                    v-if="cardErrorNeedsGuide.has(card.uuid)"
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    class="mt-1.5"
+                    data-testid="card-error-open-guide"
+                    @click="emit('openGuide')"
+                  >
+                    查看开启引导
+                  </ui-button>
+                </div>
               </div>
               <!-- 本次消耗 token：assistant 气泡下方展示（无 usage 时不渲染） -->
               <p
@@ -870,14 +891,26 @@ function userScriptsUnavailableMessageSafe(): string {
             </button>
           </span>
         </div>
-        <p
+        <div
           v-if="contextError"
           class="mb-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs leading-relaxed text-destructive"
           role="alert"
           data-testid="context-error"
         >
-          {{ contextError }}
-        </p>
+          <p>{{ contextError }}</p>
+          <!-- 开权限类引导：完整步骤与「打开扩展管理页」按钮都在工作台「引导」标签页，此处只给入口 -->
+          <ui-button
+            v-if="contextErrorNeedsGuide"
+            type="button"
+            variant="outline"
+            size="xs"
+            class="mt-1.5"
+            data-testid="context-error-open-guide"
+            @click="emit('openGuide')"
+          >
+            查看开启引导
+          </ui-button>
+        </div>
         <ui-prompt-input @submit="onPromptSubmit">
           <ui-prompt-input-textarea
             placeholder="输入消息…"

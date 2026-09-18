@@ -13,7 +13,7 @@
 | 载体 | 角色 | 承载内容 |
 | --- | --- | --- |
 | **side panel** | 应用入口（常驻侧边栏） | **AI 对话界面**：会话列表、消息流、输入区、模型选择 |
-| **标签页 `workbench.html`** | 重界面工作区（按需打开） | 脚本列表 / 脚本编辑器 / 设置 / UI 测试 |
+| **标签页 `workbench.html`** | 重界面工作区（按需打开） | 脚本列表 / 脚本编辑器 / 引导 / 设置 / UI 测试 |
 
 主流程：在侧边栏对话里描述需求 → 到工作台标签页管理脚本（新建 / 编辑 / 启停 / 看 git 历史）。标签页从侧边栏顶栏的「打开工作台」按钮打开。
 
@@ -27,7 +27,7 @@
 | 模型配置 | `chrome.storage.local`（API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`；密钥同存本机，属防扫描级而非保密级） |
 | 主题 | **跟随系统深浅色**（`src/lib/theme.ts` 按 `prefers-color-scheme` 驱动 `html.dark`） |
 
-> **当前状态：两个载体都已是复用桌面版的实现。** side panel 由 `ChatPanel` + `SessionHistoryPanel` 承载；工作台标签页由 `WorkbenchApp`（裁剪自桌面版 `app.vue`：左侧导航 + `WorkspaceHost`）承载，左侧导航为设置 / UI 测试 / 脚本列表 / lfs 浏览 / 会话数据，标签页默认落脚本列表（该标签不可关闭）。`window.api` 由 `src/lib/window-api.ts` 按桌面版契约装配，**组件本体零改动**。
+> **当前状态：两个载体都已是复用桌面版的实现。** side panel 由 `ChatPanel` + `SessionHistoryPanel` 承载；工作台标签页由 `WorkbenchApp`（裁剪自桌面版 `app.vue`：左侧导航 + `WorkspaceHost`）承载，左侧导航为引导 / 设置 / UI 测试 / 脚本列表 / lfs 浏览 / 会话数据，标签页默认落脚本列表（该标签不可关闭）。`window.api` 由 `src/lib/window-api.ts` 按桌面版契约装配，**组件本体零改动**。
 
 ## 目录结构
 
@@ -49,7 +49,8 @@
 │  │  ├─ ChatPanel.vue            #   当前会话：消息气泡 / 思考过程折叠 / 工具卡 / 输入区 / 模型切换
 │  │  ├─ SessionHistoryPanel.vue  #   会话历史（搜索 / 重命名 / 删除确认）
 │  │  ├─ ModelFormDialog.vue      #   模型配置弹窗
-│  │  ├─ WorkspaceHost.vue        #   工作区多标签容器（默认脚本列表；设置 / UI 测试 / 编辑器 / lfs 浏览 / 会话数据等按需打开）
+│  │  ├─ WorkspaceHost.vue        #   工作区多标签容器（默认脚本列表；引导 / 设置 / UI 测试 / 编辑器 / lfs 浏览 / 会话数据等按需打开）
+│  │  ├─ GuidePanel.vue           #   引导标签页：需用户开启的权限（用户脚本 / 世界 CSP）状态自检 + 分步指引 + 直达扩展管理页
 │  │  ├─ SettingsPanel.vue / UiTestPanel.vue / WorkspaceTabs.vue …
 │  │  ├─ userscript/              #   脚本链路：管理器 / 列表 / 编辑器 / 文件树节点
 │  │  ├─ ui/                      #   shadcn-vue 基础组件（reka-ui）
@@ -108,18 +109,19 @@ npm run build:firefox    # 跨端构建（Firefox 侧；sidebar_action 适配见
 1. **加载扩展**：`npm run build` → Chrome 打开 `chrome://extensions` → 开「开发者模式」→「加载已解压的扩展程序」→ 选 `.output/chrome-mv3`
 2. **打开面板**：点工具栏哆灵图标 → 自动打开右侧 side panel（兜底：窗口右上角「侧边栏」按钮）
 3. **主题**：随系统深浅色 —— 切 macOS 外观为深色，面板与工作台应立刻跟着变（无需重载；`html.dark` 由 `src/lib/theme.ts` 驱动）
-4. **配模型**：面板顶栏打开工作台 → 左侧导航「设置」→ 添加模型（选服务商 / 填 API Key / 模型 ID）→ 「测试连接」→ 保存
-5. **对话**：面板内输入一句话发送 → 应流式吐字（模型有 `reasoning_content` 时另存「查看思考」）
-6. **新建脚本**：工作台左侧导航「用户脚本」→ 新建 → 自动建 git 仓并启用；或「脚本列表」标签页看全部脚本与启停
-7. **编辑与构建**：脚本列表点「编辑」开编辑器标签页 → 改文件后构建（esbuild-wasm）→ 保存；未保存时关标签应弹确认
-8. **历史**：编辑器内 git 历史 → 看提交记录 / 恢复某次提交（恢复产生新提交，历史不可变）
-9. **AI 生成脚本**：面板里描述需求 → 看进度流（工具卡：`script_spec` / `script_read` / `script_apply`）→ 生成卡片出现（未启用徽标 + 生效范围 + 会做什么）→ 点「启用并生效」→ 打开目标页确认脚本已生效
+4. **引导**：工作台左侧导航「引导」→ 看两项状态自检（运行用户脚本 / 脚本世界 CSP）；未开启时按步骤开完回本页点「重新检测」，状态应转为已开启
+5. **配模型**：面板顶栏打开工作台 → 左侧导航「设置」→ 添加模型（选服务商 / 填 API Key / 模型 ID）→ 「测试连接」→ 保存
+6. **对话**：面板内输入一句话发送 → 应流式吐字（模型有 `reasoning_content` 时另存「查看思考」）
+7. **新建脚本**：工作台左侧导航「脚本列表」→ 添加脚本 → 自动建 git 仓并启用；列表页可看全部脚本与启停
+8. **编辑与构建**：脚本列表点「编辑」开编辑器标签页 → 改文件后构建（esbuild-wasm）→ 保存；未保存时关标签应弹确认
+9. **历史**：编辑器顶栏「历史」开历史标签页 → 看提交记录 / 恢复某次提交（恢复产生新提交，历史不可变）
+10. **AI 生成脚本**：面板里描述需求 → 看进度流（工具卡：`script_spec` / `script_read` / `script_apply`）→ 生成卡片出现（未启用徽标 + 生效范围 + 会做什么）→ 点「启用并生效」→ 打开目标页确认脚本已生效
 
 **改代码后**：WXT 自动重建；回 `chrome://extensions` 点扩展卡片的刷新图标重载。**改 `wxt.config.ts` 必须重启 dev**（HMR 不重读配置）。
 
 ## 后续接入
 
-- **用户脚本可用性引导**：`chrome.userScripts` 在 Chrome ≥138 需在扩展详情页开「Allow User Scripts」、<138 需全局开发者模式，管理页状态横幅已能引导。
+- **权限引导**：需用户开启的开关（当前为用户脚本接口 / 脚本世界 CSP）已由工作台「引导」标签页统一承载——状态自检 + 分步指引 + 直达扩展管理页；后续新增需授权的权限一并并入该页，各处只留「查看开启引导」入口。
 - **自定义接口地址**：目前 `host_permissions` 只覆盖预设服务商，自定义 baseUrl 需用 `optional_host_permissions` 动态申请。
 
 ## 关键坑与规避（继承自 spike，勿踩）

@@ -18,6 +18,7 @@
 
 - 缺生成目录（`.wxt/`、`.chrome-dev-profile/`）同根因族：`wxt.config.ts` 固定 chromiumProfile 但 web-ext 只校验不建目录；`.wxt/` 由 `npx wxt prepare`（现 postinstall 自动跑）生成。装依赖只用 `npm install`——`--ignore-scripts` 致 `.wxt/` 不生成、必红，`--omit=dev` 致 wxt 缺失、安装中断。
 - `chrome.userScripts.register` 无 `persistAcrossSessions` 字段（那是 contentScripts 的）；手写交叉类型补齐会绕过 `@types/chrome` 的缺失字段保护，运行时 TypeError 还债——不给平台 API 手写类型补齐。
+- 引导用户去开「允许运行用户脚本」不必让用户手敲 URL：扩展上下文的 `chrome.tabs.create({ url: 'chrome://extensions/?id=' + chrome.runtime.id })` **可用且免权限**（tabs.create 属 tabs API 的免权限方法）。Chrome 文档「chrome:// URLs are not linkable」约束的是超链接（`<a href>`），不约束 tabs API——2026-09-18 无头 Chromium 实测：`?id=` 深链与列表页均能开出且标签停在该 URL。分支要点：≥138 的开关在扩展详情页（用深链），<138 要开的是整页右上角全局「开发者模式」（退到 `chrome://extensions/`）。反例：Firefox 的 `about:addons` 属特权 about: URL，tabs.create 会拒绝（MDN 明列），Firefox 别给该入口。
 
 ### Vitest / 测试基建
 

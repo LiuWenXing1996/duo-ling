@@ -31,9 +31,9 @@ describe('withTimeout（超时兜底）', () => {
 })
 
 describe('userScripts 不可用引导文案', () => {
-  it('给出用户可执行的指引（138+ 逐扩展开关）', () => {
+  it('给出用户可执行的指引（说明是哪个开关 + 指到引导页看步骤）', () => {
     const msg = userScriptsUnavailableMessage()
     expect(msg).toContain('允许运行用户脚本')
-    expect(msg).toContain('开发者模式')
+    expect(msg).toContain('引导')
   })
 })

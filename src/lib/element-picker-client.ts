@@ -30,12 +30,11 @@ export function isUserScriptsApiAvailable(): boolean {
   return typeof chrome.userScripts !== 'undefined' && typeof chrome.userScripts.execute === 'function'
 }
 
-/** 不可用时的引导文案（给用户行动指引，不裸抛 API 名） */
+/** 不可用时的引导文案（给用户行动指引，不裸抛 API 名）。
+ *  分步说明（按浏览器 / 版本分支）与「打开扩展管理页」按钮统一在工作台「引导」标签页，
+ *  见 lib/extension-page.ts 的 userScriptsGuideSteps；此处只指路，不复述步骤。 */
 export function userScriptsUnavailableMessage(): string {
-  return (
-    '拾取器不可用：请到 chrome://extensions → 哆灵 → 详情，打开「允许运行用户脚本」开关' +
-    '（并确认已开启右上角「开发者模式」），然后重试。'
-  )
+  return '拾取器不可用：需要先开启「允许运行用户脚本」权限（工作台「引导」标签页有开启步骤），开启后重试。'
 }
 
 function ensureAvailable(): void {

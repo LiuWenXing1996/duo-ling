@@ -6,6 +6,7 @@
 import { onMounted, ref } from 'vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
+  Compass as UiCompass,
   List as UiList,
   Pencil as UiPencil,
   Settings as UiSettings,
@@ -98,6 +99,7 @@ onMounted(async () => {
       >
         <ui-list v-if="tab.kind === 'userscript-list'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-pencil v-else-if="tab.kind === 'userscript-edit'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <ui-compass v-else-if="tab.kind === 'guide'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <span class="truncate">{{ tab.title }}</span>
         <button

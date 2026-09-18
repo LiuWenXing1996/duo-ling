@@ -4,6 +4,8 @@
 // DL 包装作为 js 数组首条目先于项目代码定义 window.DL，脚本经 onUserScriptMessage 桥接后台
 // （DL 桥后台监听在 dl-bridge.ts；style / log / info / clipboard 在包装内本地实现，不走桥）。
 import type { ScriptProject } from './types'
+// 版本判断与「打开扩展管理页」入口同源（引导文案按 <138 / ≥138 分支，UI 侧按钮也按同一分支取 URL）
+import { getChromeMajorVersion } from '@/lib/extension-page'
 // 项目读自状态库（IndexedDB，SW 与 offscreen 共用）：注册链路不能在 offscreen 存活上下注
 import { listProjects, validateMatchPatterns } from './project-store'
 import { appendUserScriptError } from './store'
@@ -31,15 +33,9 @@ export async function isUserScriptsAvailable(): Promise<boolean> {
   }
 }
 
-/** 解析 UA 中的 Chrome 大版本号（引导文案按 <138 / ≥138 分支） */
-export function getChromeMajorVersion(): number {
-  const m = navigator.userAgent.match(/Chrome\/(\d+)/)
-  return m ? parseInt(m[1], 10) : 0
-}
-
 /**
  * 引擎可用性状态：结合 isUserScriptsAvailable + UA 分支，返回结构化信息供管理页状态横幅展示。
- * - Chrome ≥138：需在扩展详情页开启「Allow User Scripts」按扩展开关
+ * - Chrome ≥138：需在扩展详情页开启「允许运行用户脚本」按扩展开关
  * - Chrome <138：需开启全局「开发者模式」
  * - Firefox：需授权 userScripts optional 权限
  */
@@ -53,7 +49,7 @@ export async function getUserScriptsStatus(): Promise<import('./types').UserScri
     if (isFirefox) {
       guideText = 'Firefox：在扩展管理页（about:addons → 哆灵 → 偏好）勾选「User Scripts」权限后即可使用。'
     } else if (chromeMajor >= 138) {
-      guideText = 'Chrome ≥138：在扩展详情页开启「Allow User Scripts」开关（chrome://extensions/?id=本扩展id）后即可使用。'
+      guideText = 'Chrome ≥138：在扩展详情页开启「允许运行用户脚本」开关后即可使用。'
     } else {
       guideText = 'Chrome <138：在 chrome://extensions 开启全局「开发者模式」后即可使用。'
     }

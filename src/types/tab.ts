@@ -8,7 +8,7 @@ import type { WorkspaceTabKind } from '@/shared/types'
  * 类型名也从 OpenTool 改为 WorkspaceTab（不再有「工具」语义）。
  */
 export interface WorkspaceTab {
-  /** 标签唯一标识：脚本列表 / 设置 / UI 测试 / lfs 浏览 / 会话数据固定；每脚本标签用 `us-edit:<uuid>` / `us-history:<uuid>` / `us-bundle:<uuid>` */
+  /** 标签唯一标识：脚本列表 / 引导 / 设置 / UI 测试 / lfs 浏览 / 会话数据固定；每脚本标签用 `us-edit:<uuid>` / `us-history:<uuid>` / `us-bundle:<uuid>` */
   id: string
   title: string
   /** 标签种类：决定内容面板渲染哪个组件 */

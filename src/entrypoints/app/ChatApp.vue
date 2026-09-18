@@ -231,6 +231,7 @@ function connectKeepAlive(): void {
       @send="send"
       @stop="stopGeneration"
       @open-settings="openWorkbench('#/settings')"
+      @open-guide="openWorkbench('#/guide')"
     />
 
     <!-- 展开态浮层：半透明遮罩 + 左侧滑出抽屉；聊天区不被挤窄 -->
