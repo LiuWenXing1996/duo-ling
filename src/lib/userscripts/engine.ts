@@ -197,11 +197,113 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
       })
     })
   }
-  // 二期能力 stub：显式抛错，不静默（契约见 api-contract.ts）
-  function __notAvailable(name) {
-    return function () {
-      return Promise.reject(new Error('NOT_AVAILABLE：' + name + ' 属二期能力，本期未实现'))
+  // —— DL Port 事件底座（二期）——
+  // 控制面（注册 / 订阅）走 sendMessage 请求-响应（__dlRegSend）；Port 只收下行推送帧。
+  // lazy 连接：首次 menu.register / store.watch / notify(onClick) 时才 connect。
+  // SW 注册表随 SW 冷启动归零：重连（onDisconnect → 重连 → port.ready）后重放全部活跃
+  // 注册（__dlActiveMenus / __dlActiveWatches）；contextMenus 本身持久于浏览器会话，
+  // 重放撞 duplicate id 由 SW 侧按成功处理（幂等）。notify 点击归属不重放（SW 内存态，
+  // 重启窗口内点击丢失——拍板 ③ 接受）。
+  var __dlConnId = (function () {
+    try { return crypto.randomUUID() }
+    catch (e) { return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10) }
+  })()
+  var __dlPort = null
+  var __dlPortReady = false
+  var __dlReadyWaiters = []     // 等 port.ready 的 waiter（每个含 resolve；8s 超时自拒）
+  var __dlActiveMenus = {}       // 活跃菜单注册清单（重放用）：menuId -> title
+  var __dlActiveWatches = {}     // 活跃订阅清单（重放用）：key -> true
+  var __dlMenuHandlers = {}      // menuId -> handler
+  var __dlWatchHandlers = {}     // key -> [cb]
+  var __dlNotifyHandlers = {}    // notificationId -> onClick
+  // 菜单 id：按「脚本 uuid + 标题」确定性生成（djb2）。菜单注册持久于浏览器会话，
+  // 若用随机 id，每次页面刷新都会造新 id → 菜单无限累积；确定性 id 使同标题注册
+  // 永远同 id，重放 / 重复注册撞 id 由 SW 按成功处理 → 天然去重（油猴同款语义）
+  function __dlMenuId(title) {
+    var h = 5381
+    for (var i = 0; i < title.length; i++) h = (((h << 5) + h) + title.charCodeAt(i)) | 0
+    return 'm-' + (h >>> 0).toString(36)
+  }
+  function __dlHandleEvent(ev) {
+    if (ev.t === 'menu.click') {
+      var mh = __dlMenuHandlers[ev.id]
+      if (mh) { try { mh() } catch (e) { console.error('[DL:' + DL_INFO.name + '] menu 回调异常', e) } }
+    } else if (ev.t === 'store.change') {
+      // 删除语义（契约）：key 被 delete 后 value 置 null，与「值恰为 null」不可区分
+      var cbs = __dlWatchHandlers[ev.key]
+      if (cbs) for (var i = 0; i < cbs.length; i++) {
+        try { cbs[i](ev.value) } catch (e) { console.error('[DL:' + DL_INFO.name + '] watch 回调异常', e) }
+      }
+    } else if (ev.t === 'notify.click') {
+      var nh = __dlNotifyHandlers[ev.id]
+      if (nh) { try { nh() } catch (e) { console.error('[DL:' + DL_INFO.name + '] notify 回调异常', e) } }
     }
+  }
+  function __dlConnect() {
+    if (__dlPort || !chrome || !chrome.runtime || !chrome.runtime.connect) return
+    var p
+    try {
+      p = chrome.runtime.connect({ name: 'duoling:dl:' + DL_INFO.uuid + ':' + __dlConnId })
+    } catch (e) {
+      // 扩展重载后 context 失效：connect 直接抛错，放弃重试（刷新页面才是正路）
+      console.warn('[DL:' + DL_INFO.name + '] Port 连接失败：' + ((e && e.message) || e))
+      return
+    }
+    __dlPort = p
+    p.onMessage.addListener(function (m) {
+      if (!m || m.__dlApiEvent !== true || !m.ev) return
+      if (m.ev.t === 'port.ready') {
+        __dlPortReady = true
+        var ws = __dlReadyWaiters.splice(0)
+        for (var wi = 0; wi < ws.length; wi++) ws[wi].resolve()
+        // SW 冷启动重放：注册表归零 → 重发全部活跃注册（菜单撞 id 幂等由 SW 侧处理）。
+        // 与挂起的 waiter 无关：waiter 是本次连接的首发，重放是历次连接的存量
+        var rreqs = []
+        for (var mid in __dlActiveMenus) rreqs.push({ c: 'menu.register', id: mid, title: __dlActiveMenus[mid] })
+        for (var wkey in __dlActiveWatches) rreqs.push({ c: 'store.watch', key: wkey, connId: __dlConnId })
+        for (var ri = 0; ri < rreqs.length; ri++) {
+          __dlSend(rreqs[ri]).catch(function (e) { console.warn('[DL:' + DL_INFO.name + '] 重放注册失败', e) })
+        }
+        return
+      }
+      __dlHandleEvent(m.ev)
+    })
+    p.onDisconnect.addListener(function () {
+      __dlPort = null
+      __dlPortReady = false
+      // SW 保活常驻（拍板前提），断开只在 SW 冷启动 / 扩展重载时发生；
+      // 重连本身会唤醒 SW，port.ready 回来后重放全部活跃注册，无需 SW 唤醒重连逻辑
+      setTimeout(__dlConnect, 100)
+    })
+  }
+  // 注册动作统一入口：Port 就绪立即发（真等 SW 响应）；未就绪等 port.ready 后再发
+  // （消除 connect→onConnect 竞态）。MENU_OK / WATCH_OK = SW 真确认，失败/超时如实上抛。
+  function __dlWaitReady() {
+    if (__dlPortReady && __dlPort) return Promise.resolve()
+    __dlConnect()
+    return new Promise(function (resolve, reject) {
+      var done = false
+      var timer = setTimeout(function () {
+        if (done) return
+        done = true
+        var i = __dlReadyWaiters.indexOf(w)
+        if (i >= 0) __dlReadyWaiters.splice(i, 1)
+        reject(new Error('DL Port 连接超时（8s 未就绪），去 SW Console 看「Port 已连接」日志'))
+      }, 8000)
+      var w = {
+        resolve: function () {
+          if (done) return
+          done = true
+          clearTimeout(timer)
+          resolve()
+        }
+      }
+      __dlReadyWaiters.push(w)
+    })
+  }
+  function __dlRegSend(req) {
+    if (__dlPortReady && __dlPort) return __dlSend(req)
+    return __dlWaitReady().then(function () { return __dlSend(req) })
   }
   function __base64ToArrayBuffer(b64) {
     var bin = atob(b64)
@@ -238,7 +340,24 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
       delete: function (key) { return __dlSend({ c: 'store.delete', key: key }) },
       keys: function () { return __dlSend({ c: 'store.keys' }) },
       clear: function () { return __dlSend({ c: 'store.clear' }) },
-      watch: __notAvailable('DL.store.watch') // 二期：需长连接 port
+      // 跨标签 / 跨页面监听：订阅走控制面，变化经 DL Port 推回（删除时 value 为 null）
+      watch: function (key, cb) {
+        if (!__dlWatchHandlers[key]) __dlWatchHandlers[key] = []
+        __dlWatchHandlers[key].push(cb)
+        __dlActiveWatches[key] = true
+        var off = function () {
+          var arr = __dlWatchHandlers[key] || []
+          var i = arr.indexOf(cb)
+          if (i >= 0) arr.splice(i, 1)
+          if (!arr.length) {
+            delete __dlWatchHandlers[key]
+            delete __dlActiveWatches[key]
+            __dlRegSend({ c: 'store.unwatch', key: key, connId: __dlConnId }).catch(function () {})
+          }
+        }
+        // 等 SW 真挂上订阅才 resolve——WATCH_OK 必须代表订阅已生效
+        return __dlRegSend({ c: 'store.watch', key: key, connId: __dlConnId }).then(function () { return off })
+      }
     },
     // 免 CORS 请求：后台 SW 发起，不受页面 CSP 与同源策略限制；非 2xx 不抛错，看 r.ok。
     // 二进制体：ArrayBuffer / TypedArray / DataView 转 base64 信封再过桥——二进制没法直接
@@ -276,8 +395,12 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
         }
       })
     },
+    // 系统通知。带 onClick 时按响应里的通知 id 挂回调，点击经 DL Port 回推
     notify: function (message, opts) {
-      return __dlSend({ c: 'notify', message: message, title: opts && opts.title, icon: opts && opts.icon })
+      return __dlSend({ c: 'notify', message: message, title: opts && opts.title, icon: opts && opts.icon }).then(function (r) {
+        if (opts && opts.onClick && r && r.id) __dlNotifyHandlers[r.id] = opts.onClick
+        return undefined
+      })
     },
     download: function (url, name) {
       return __dlSend({ c: 'download', url: url, name: name }).then(function (r) {
@@ -300,7 +423,23 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
       close: function (tabId) { return __dlSend({ c: 'tabs.close', tabId: tabId }) },
       focus: function (tabId) { return __dlSend({ c: 'tabs.focus', tabId: tabId }) }
     },
-    menu: { register: __notAvailable('DL.menu.register') }, // 二期：需长连接 port
+    // 扩展菜单（contextMenus）：后台登记，点击经 DL Port 回推（只推点击所在 tab）
+    menu: {
+      register: function (title, handler) {
+        var t = typeof title === 'string' && title ? title : '菜单项'
+        var id = __dlMenuId(t)
+        __dlMenuHandlers[id] = handler
+        __dlActiveMenus[id] = t
+        // 等 SW 真建好菜单才 resolve——MENU_OK 必须代表菜单已在位
+        return __dlRegSend({ c: 'menu.register', id: id, title: t }).then(function () {
+          return function () {
+            delete __dlMenuHandlers[id]
+            delete __dlActiveMenus[id]
+            __dlRegSend({ c: 'menu.unregister', id: id }).catch(function () {})
+          }
+        })
+      }
+    },
     // 本地能力（不跨桥）
     style: function (css) {
       var el = document.createElement('style')

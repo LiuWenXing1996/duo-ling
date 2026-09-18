@@ -79,14 +79,33 @@ export type ApiRequest =
   // 未实现（暂不加 cookies 权限）：
   //   cookie.get / cookie.set / cookie.remove —— 实现时须给 manifest 加 `cookies` 权限，
   //   且 url 缺省语义必须由 DL 包装层填 location.href（SW 里没有「当前页面」概念）。
-  // 菜单（后台登记，点击时经 ApiEvent 回推脚本）
+  // 菜单（contextMenus，后台登记，点击时经 ApiEvent 回推脚本）
   | { c: 'menu.register'; id: string; title: string }
   | { c: 'menu.unregister'; id: string }
+  // 事件订阅（控制面走请求-响应；订阅归属由 connId 定位到脚本世界自己的那条 Port）
+  | { c: 'store.watch'; key: string; connId: string }
+  | { c: 'store.unwatch'; key: string; connId: string }
 
-/** 后台 → 脚本世界 的推送事件（需要长连接 port，阶段二） */
+/**
+ * 后台 → 脚本世界 的推送事件，经 DL Port 下行（帧信封见 ApiEventFrame）。
+ * 三类来源：contextMenus.onClicked → menu.click；storage.onChanged → store.change；
+ * notifications.onClicked → notify.click。
+ */
 export type ApiEvent =
+  /** 内部帧（脚本作者不感知）：SW 建立 Port 后立即下发，包装层据此 flush 待注册队列 */
+  | { t: 'port.ready' }
+  /** 扩展菜单点击。id = DL.menu.register 时包装层 mint 的菜单标识 */
   | { t: 'menu.click'; id: string }
+  /**
+   * 私有存储某键变化（含删除）。**删除语义：key 被 store.delete 后 value 置 null** ——
+   * 与「值恰为 null」在帧上不可区分，脚本侧需要区分时用 store.get 兜底确认。
+   */
   | { t: 'store.change'; key: string; value: Json }
+  /** 通知点击。id = SW 创建通知时 mint 的 notificationId（notify 响应返回） */
+  | { t: 'notify.click'; id: string }
+
+/** DL Port 下行帧信封：Port 上只走这一种帧，防未来混入其他帧类型时判别冲突 */
+export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
 
 /**
  * 脚本世界 → 后台 的单向事件（不等待响应，区别于 ApiRequest 的请求-响应）。两种信封：
@@ -152,15 +171,18 @@ export interface DuoLingApi {
     delete(key: string): Promise<void>
     keys(): Promise<string[]>
     clear(): Promise<void>
-    /** 跨标签 / 跨页面监听某个键的变化，返回取消订阅函数（阶段二，需长连接） */
-    watch<T extends Json = Json>(key: string, cb: (value: T | undefined) => void): Promise<() => void>
+    /** 跨标签 / 跨页面监听某个键的变化（删除时 value 为 null，见 store.change 删除语义），返回取消订阅函数 */
+    watch<T extends Json = Json>(key: string, cb: (value: T | null) => void): Promise<() => void>
   }
 
   /** 免 CORS 的 HTTP 请求（后台 SW 发起，不受页面 CSP 与同源策略限制） */
   fetch(url: string, init?: FetchInit): Promise<DlFetchResult>
 
-  /** 系统通知 */
-  notify(message: string, opts?: { title?: string; icon?: string }): Promise<void>
+  /** 系统通知。opts.onClick 提供时，通知被点击后经 DL Port 回推 { t:'notify.click', id } */
+  notify(
+    message: string,
+    opts?: { title?: string; icon?: string; onClick?: () => void },
+  ): Promise<void>
 
   /** 触发下载 */
   download(url: string, name?: string): Promise<void>

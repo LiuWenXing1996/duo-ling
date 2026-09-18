@@ -34,6 +34,8 @@ import {
 // 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
 import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/availability-watch'
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
+// DL Port 事件底座（二期）：脚本世界 ↔ SW 长连接下行通道 + 三事件源接入
+import { initDlPort } from '@/lib/userscripts/dl-port'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listProjects } from '@/lib/userscripts/project-store'
 // chrome.storage 侧：DL.store 值、错误日志、运行统计
@@ -289,7 +291,11 @@ const handlers: {
   // 删除：注销 → offscreen 清状态库记录 + git 仓 → 清该脚本的 DL.store 值 + 报错记录。
   // 仓的删除原先只能靠 offscreen 启动对账兜（删完会滞留一阵），现在写侧同在 offscreen，一步清干净。
   'userscript:remove': async (msg): Promise<void> => {
-    await unregisterScripts([msg.uuid]).catch(() => {})
+    // 注销失败不能纯静默：状态库删掉后这条 uuid 不再出现在任何对账清单里，
+    // 幽灵注册会一直注入到下次 SW 冷启动（registerAllEnabled 全量对账）才被清
+    await unregisterScripts([msg.uuid]).catch((e) =>
+      console.warn('[duoling:sw] 删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
+    )
     // 该脚本对内置并集的贡献随之消失，MAIN 桩可能需要注销
     await refreshBuiltinScripts().catch(() => {})
     await writeViaOffscreen<void>({ kind: 'state:remove', uuid: msg.uuid })
@@ -335,7 +341,10 @@ const handlers: {
       enabled: msg.enabled,
     })
     if (msg.enabled) return { registerError: await registerOrLog(next) }
-    await unregisterScripts([msg.uuid]).catch(() => {})
+    // 同 userscript:remove：关停注销失败别静默，否则开关显示已关、页面里还在注入
+    await unregisterScripts([msg.uuid]).catch((e) =>
+      console.warn('[duoling:sw] 关停注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
+    )
     // 关停后内置并集可能缩小，MAIN 桩可能需要注销
     await refreshBuiltinScripts().catch(() => {})
     return {}
@@ -379,6 +388,7 @@ const handlers: {
 /** 用户脚本管理器启动：挂载 DL 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用项目 */
 async function initUserScripts(): Promise<void> {
   initDlBridge() // DL 后台桥（独立于 world 配置，只需注册一次）
+  initDlPort() // DL Port 事件底座（菜单点击 / 存储变更 / 通知点击的下行回推，同上只挂一次）
   // chrome.userScripts 仅在已开启「Allow User Scripts」（Chrome ≥138）或全局开发者模式
   // （Chrome <138）/ 已授权 userScripts 权限（Firefox）时存在；否则为 undefined，
   // 直接调用会令 SW 初始化崩溃。先判存在性，不可用则优雅跳过（UI 横幅会引导开启）。

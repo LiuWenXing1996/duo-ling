@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "name": "DL Port 事件回推",
+  "config": {
+    "matches": ["*://*/*"],
+    "allFrames": false,
+    "runAt": "document_end"
+  },
+  "entry": "main.js"
+}
