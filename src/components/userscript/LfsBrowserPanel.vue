@@ -10,12 +10,15 @@ import { CodeBlockContent } from '@/components/ai-elements/code-block'
 import { inferLanguage } from '@/lib/code-view'
 import { FileTree } from '@/components/ai-elements/file-tree'
 import LfsTreeNode from './LfsTreeNode.vue'
-import { aiFsClient } from '@/lib/userscripts/ui-client'
+import { aiFsClient, userscriptClient } from '@/lib/userscripts/ui-client'
 import type { LfsNode, LfsFileContent } from '@/lib/userscripts/us-fs'
 
 const loading = ref(false)
 const error = ref('')
 const tree = ref<LfsNode | null>(null)
+
+/** 脚本 ID（uuid）→ 脚本名：/uscripts/<uuid> 目录改显示「脚本名（uuid）」（状态库是名称的权威来源） */
+const scriptNames = ref<Map<string, string>>(new Map())
 
 /** 点选的文件路径（由 FileTree 的选中态双向绑定） */
 const selectedPath = ref<string | undefined>(undefined)
@@ -85,12 +88,23 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    tree.value = await aiFsClient.lfsTree()
+    const [t] = await Promise.all([aiFsClient.lfsTree(), loadScriptNames()])
+    tree.value = t
     if (tree.value) buildTypeMap(tree.value)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+  }
+}
+
+/** 拉脚本 ID → 名称映射。失败只丢附注、不报错：名字取不到不该让整棵树读不出来 */
+async function loadScriptNames(): Promise<void> {
+  try {
+    const list = await userscriptClient.list()
+    scriptNames.value = new Map(list.map((s) => [s.uuid, s.name]))
+  } catch {
+    scriptNames.value = new Map()
   }
 }
 
@@ -176,7 +190,7 @@ onMounted(load)
           :expanded="defaultExpanded"
           v-model:selectedPath="selectedPath"
         >
-          <LfsTreeNode :node="tree" />
+          <LfsTreeNode :node="tree" :script-names="scriptNames" />
         </FileTree>
       </div>
 
