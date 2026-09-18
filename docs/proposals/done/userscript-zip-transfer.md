@@ -2,7 +2,6 @@
 
 > 状态：实施完成
 > 来源：[docs/proposals/done/ai-userscript-next-roadmap.md](../done/ai-userscript-next-roadmap.md)（提案 ③ #4）
-> 提案人：小涡（AI）
 
 ## 问题
 
