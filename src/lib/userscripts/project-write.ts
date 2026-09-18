@@ -1,40 +1,36 @@
 // 用户脚本项目数据的**写侧**（⚠️ offscreen 专属，见 state-db.ts 文件头的单写方约定）。
 //
-// 这里是本方案的落点：
-// 原先一次保存是「SW 写 chrome.storage」+「IPC 让 offscreen commit git 仓」两次分离操作、
-// 两个写方，任一步失败就产生「已保存但没 commit」的偏差。
-// 现在状态库与 git 仓都在 offscreen 本地，写状态与 commit 收进同一个函数、同一个上下文里：
-// 先落状态、紧接着快照提交，**不再有跨上下文的缝隙**。
+// 这里是本方案的落点：源码的唯一权威在 duoling-fs（us-git），状态库（duoling-state）退化为
+// 「注册态库」只存 bundle + 元数据。一次保存 = 写 duoling-fs 工作区 + 构建 + 提交 git +
+// 写状态库，四步在同一函数、同一上下文里完成，没有跨上下文的缝隙。
 //
-// 失败策略不变：commit 失败只丢历史不丢脚本（仓损坏可重建，状态库是权威），故快照异常只 warn。
+// 失败策略不变：git 提交失败只丢历史不丢脚本（仓损坏可重建，duoling-fs 是权威），故提交异常只 warn。
 //
 // 2026-09-15 产物不变量（老大拍板：SW 只注册最终产物）：bundle 是注册的**必要条件**——
 // 新建在本模块内先构建（同在 offscreen，直接调 builder，零新链路），构建失败即创建失败；
 // updateProjectFiles 的 bundle 参数为必填（UI 只在构建成功后才调保存）。不存在「无产物被注册」的路径。
-// 同日粘贴安装（installProject 及整条协议链）移除：产品上不再提供「粘贴源码装脚本」入口。
 import { buildProject, BuildError } from './builder'
 import { getProject, listProjects, nextScriptName, validateFiles } from './project-store'
 import { removeProject, writeProject } from './state-db'
-import { deleteAllRepos, deleteRepo, snapshotProject } from './us-git'
+import { deleteAllRepos, deleteRepo, writeSourceTree, commitSource, readSourceTree } from './us-git'
 import { ENTRY_DEFAULT, defaultConfig, defaultSource } from './types'
-import type { ImportItemResult, ImportReport, ScriptConfig, ScriptProject } from './types'
+import type { ImportItemResult, ImportReport, ScriptConfig, ScriptMeta, ScriptProject } from './types'
 import { base64ToBytes, filesFingerprint, parseScriptsZip } from './zip-transfer'
 import type { ParsedScript } from './zip-transfer'
 
-function nowProject(name: string, files: Record<string, string>, config: ScriptConfig): ScriptProject {
-  const ts = Date.now()
-  return {
-    v: 1,
-    uuid: crypto.randomUUID(),
-    name,
-    // 新建即启用（2026-09-14 老大拍板）；初始模板先构建出产物才落盘，注册有产物可注入
-    enabled: true,
-    config,
-    files,
-    entry: ENTRY_DEFAULT,
-    createdAt: ts,
-    updatedAt: ts,
-  }
+/** 构造状态库记录（无源码；源码在 duoling-fs） */
+function makeState(
+  uuid: string,
+  name: string,
+  enabled: boolean,
+  config: ScriptConfig,
+  entry: string,
+  bundle: { code: string; builtAt: number } | undefined,
+  fileCount: number,
+  createdAt: number,
+  updatedAt: number,
+): ScriptProject {
+  return { v: 1, uuid, name, enabled, config, entry, bundle, fileCount, createdAt, updatedAt }
 }
 
 /** 构建并返回产物（bundle 必存在，注册的前置条件）；BuildError 格式化为可读多行错误 */
@@ -48,23 +44,46 @@ async function buildOutcome(files: Record<string, string>, entry: string): Promi
   }
 }
 
-/** 落状态 + 快照提交（首次即建仓）；快照失败只 warn，不阻断写入 */
-async function writeAndSnapshot(project: ScriptProject, note?: string): Promise<void> {
-  await writeProject(project)
+/** 写源码到 duoling-fs + 提交 git + 写状态库（落盘四步收一处） */
+async function persist(
+  uuid: string,
+  files: Record<string, string>,
+  meta: ScriptMeta,
+  bundle: { code: string; builtAt: number } | undefined,
+  enabled: boolean,
+  createdAt: number,
+  note?: string,
+): Promise<ScriptProject> {
+  await writeSourceTree(uuid, files, meta)
   try {
-    await snapshotProject(project, note)
+    await commitSource(uuid, meta, note)
   } catch (e) {
-    console.warn('[duoling:userscript] 历史快照失败（不影响保存）', project.uuid, e)
+    console.warn('[duoling:userscript] 历史快照失败（不影响保存）', uuid, e)
   }
+  const project = makeState(
+    uuid,
+    meta.name,
+    enabled,
+    meta.config,
+    meta.entry,
+    bundle,
+    Object.keys(files).length,
+    createdAt,
+    Date.now(),
+  )
+  await writeProject(project)
+  return project
 }
 
 /** 新建（零输入）：自动命名 + 初始模板 + **先构建出产物再落盘**（构建失败即创建失败） */
 export async function createProject(): Promise<ScriptProject> {
   const name = await nextScriptName()
-  const project = nowProject(name, { [ENTRY_DEFAULT]: defaultSource(name) }, defaultConfig(['*://*/*']))
-  project.bundle = await buildOutcome(project.files, project.entry)
-  await writeAndSnapshot(project)
-  return project
+  const ts = Date.now()
+  const uuid = crypto.randomUUID()
+  const files = { [ENTRY_DEFAULT]: defaultSource(name) }
+  const meta: ScriptMeta = { name, config: defaultConfig(['*://*/*']), entry: ENTRY_DEFAULT, createdAt: ts }
+  const bundle = await buildOutcome(files, meta.entry)
+  return persist(uuid, files, meta, bundle, true, ts)
 }
 
 /**
@@ -87,20 +106,9 @@ export async function createGeneratedProject(payload: {
   if (!payload.config.matches?.length) throw new Error('匹配规则（matches）至少一条')
   validateFiles(payload.files, payload.entry)
   const ts = Date.now()
-  const project: ScriptProject = {
-    v: 1,
-    uuid: crypto.randomUUID(),
-    name,
-    enabled: payload.enabled,
-    config: payload.config,
-    files: payload.files,
-    entry: payload.entry,
-    bundle: payload.bundle,
-    createdAt: ts,
-    updatedAt: ts,
-  }
-  await writeAndSnapshot(project, payload.note)
-  return project
+  const uuid = crypto.randomUUID()
+  const meta: ScriptMeta = { name, config: payload.config, entry: payload.entry, createdAt: ts }
+  return persist(uuid, payload.files, meta, payload.bundle, payload.enabled, ts, payload.note)
 }
 
 /** 更新文件树 + 入口 + 名称/配置 + 构建产物（读改写在同一处，不跨上下文）。
@@ -115,21 +123,13 @@ export async function updateProjectFiles(
   const project = await getProject(uuid)
   if (!project) throw new Error('脚本不存在')
   validateFiles(files, entry)
-  project.files = files
-  project.entry = entry
-  project.bundle = bundle
-  if (opts?.name !== undefined) {
-    const name = opts.name.trim()
-    if (!name) throw new Error('脚本名称不能为空')
-    project.name = name
-  }
-  if (opts?.config) {
-    if (!opts.config.matches?.length) throw new Error('匹配规则（matches）至少一条')
-    project.config = opts.config
-  }
-  project.updatedAt = Date.now()
-  await writeAndSnapshot(project, opts?.note)
-  return project
+  const name = opts?.name?.trim() ?? project.name
+  if (opts?.name !== undefined && !name) throw new Error('脚本名称不能为空')
+  const config = opts?.config ?? project.config
+  if (opts?.config && !opts.config.matches?.length) throw new Error('匹配规则（matches）至少一条')
+  const meta: ScriptMeta = { name, config, entry, createdAt: project.createdAt }
+  const next = await persist(uuid, files, meta, bundle, project.enabled, project.createdAt, opts?.note)
+  return next
 }
 
 /**
@@ -148,7 +148,7 @@ export async function removeProjectAndRepo(uuid: string): Promise<void> {
  * 删除全部用户脚本（「全部删除」按钮的落点），返回删除条数。
  *
  * 范围（2026-09-17 老大拍板）：只有新形态用户脚本——状态库项目 + 各自 git 仓。
- * **不含**已弃用旧 GM 记录（它在 chrome.storage，不是项目形态，另有逐行删除与
+ * **不含**已弃用旧 GM 记录（它在 chrome.storage，另有逐行删除与
  * clearDeprecated 两条清理路径）与内置件（随扩展包分发，不在状态库）。
  *
  * 两步：① 记录逐条 removeProject（与单删同一删除入口）；② 仓整目录清一遍 /uscripts
@@ -166,7 +166,7 @@ export async function removeAllProjects(): Promise<number> {
 
 /**
  * 启停：只改 enabled。
- * **不产生提交**——enabled 不入仓（buildContents 刻意排除它，否则每次启停都是一次「假变更」）。
+ * **不产生提交**——enabled 不入仓（commitSource 刻意排除它，否则每次启停都是一次「假变更」）。
  */
 export async function setProjectEnabled(uuid: string, enabled: boolean): Promise<ScriptProject> {
   const project = await getProject(uuid)
@@ -213,10 +213,9 @@ export async function importScriptsZip(zipBase64: string): Promise<ImportReport>
  * 落盘顺序（2026-09-17 拍板「先写 lfs」）：
  *   ① 构建（buildOutcome，已有流程，读内存 Record）—— 成功即带产物落盘；**失败不淘汰**，
  *      只记 note 并以「无 bundle」落盘，等用户在编辑器修好重建产物；
- *   ② 先写 lfs（snapshotProject）：把真实文件树物化进 lfs 工作树 + 首提交，作为导入
- *      **首要落点**，早于状态库；lfs 写入失败只 warn 不阻断状态库落盘（仓坏只丢历史
- *      不丢脚本的不变量保留）；
- *   ③ 再写状态库（state-DB 仍为权威：SW 注册读 bundle、编辑器基准读 files 均不变）。
+ *   ② 先写 duoling-fs（源码工作区 + 首提交），作为导入**首要落点**，早于状态库；
+ *      lfs 写入失败只 warn 不阻断状态库落盘（仓坏只丢历史不丢脚本的不变量保留）；
+ *   ③ 再写状态库（注册态库：bundle + 元数据）。
  * 构建不必读 lfs（builder 仍收内存 Record），故 lfs 写入对构建无依赖，仅表达落盘优先级。
  */
 async function importOneScript(script: ParsedScript): Promise<ImportItemResult> {
@@ -235,26 +234,27 @@ async function importOneScript(script: ParsedScript): Promise<ImportItemResult> 
     }
     const name = script.name.trim() || 'script'
     const ts = Date.now()
-    const project: ScriptProject = {
-      v: 1,
-      uuid: crypto.randomUUID(),
-      name,
-      enabled: false, // 先审后启
-      config: script.config,
-      files: script.files,
-      entry: script.entry,
-      // 构建失败的脚本也导入：只留 files/entry，bundle 缺省（可注册性由启用时的报错兜底）
-      ...(bundle ? { bundle } : {}),
-      createdAt: ts,
-      updatedAt: ts,
-    }
-    // ② 先写 lfs（导入首要目标）：真实文件树物化进 lfs 工作树 + 首提交，早于状态库
+    const uuid = crypto.randomUUID()
+    const meta: ScriptMeta = { name, config: script.config, entry: script.entry, createdAt: ts }
+    // ② 先写 duoling-fs（导入首要目标）：源码工作区物化 + 首提交，早于状态库
     try {
-      await snapshotProject(project, '从 zip 导入')
+      await writeSourceTree(uuid, script.files, meta)
+      if (bundle) await commitSource(uuid, meta, '从 zip 导入').catch(() => {})
     } catch (e) {
-      console.warn('[duoling:userscript] 导入快照失败（不影响状态库落盘）', project.uuid, e)
+      console.warn('[duoling:userscript] 导入写源码失败（不影响状态库落盘）', uuid, e)
     }
-    // ③ 再写状态库（权威仍 state-DB）
+    // ③ 再写状态库（注册态库）
+    const project = makeState(
+      uuid,
+      name,
+      false, // 先审后启
+      script.config,
+      script.entry,
+      bundle,
+      Object.keys(script.files).length,
+      ts,
+      ts,
+    )
     await writeProject(project)
     return {
       status: 'ok',
@@ -277,7 +277,8 @@ async function importOneScript(script: ParsedScript): Promise<ImportItemResult> 
 async function findContentDuplicate(entry: string, files: Record<string, string>): Promise<string | undefined> {
   const fingerprint = await filesFingerprint(entry, files)
   for (const p of await listProjects()) {
-    if ((await filesFingerprint(p.entry, p.files)) === fingerprint) {
+    const tree = await readSourceTree(p.uuid, true).catch(() => null)
+    if (tree && (await filesFingerprint(tree.meta.entry, tree.files)) === fingerprint) {
       return p.name
     }
   }

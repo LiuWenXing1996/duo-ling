@@ -35,13 +35,12 @@ import {
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import { formatTimestamp } from '@/lib/format'
 import { BUILTIN_SCRIPTS } from '@/lib/userscripts/builtins'
-import { userscriptClient } from '@/lib/userscripts/ui-client'
-import { buildScriptZip, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
+import { fsClient, userscriptClient } from '@/lib/userscripts/ui-client'
+import { base64ToBytes, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
 import type { ZipScriptPayload } from '@/lib/userscripts/zip-transfer'
 import type {
   ImportItemOk,
   ImportReport,
-  ScriptProject,
   ScriptSummary,
   UserScriptErrorRecord,
   UserScriptsAvailability
@@ -271,8 +270,8 @@ function askRemove(s: ScriptSummary): void {
 }
 
 // —— zip 导入导出——
-// 导出：ui-client 现成的 getProject / list 只读取数，zip 编码在本页（zip-transfer 纯函数），
-// 零新增协议。导入：zip 文件转 base64 走 userscript:import 命令对，offscreen 单写方落盘。
+// 导出：fs:exportZip 命令（offscreen 侧读源码并打包，大源码树不过消息桥），本页只触发下载。
+// 导入：zip 文件转 base64 走 userscript:import 命令对，offscreen 单写方落盘。
 
 /** 导出确认弹窗的待办目标：非 null 即弹窗打开（每行导出与全部导出共用，隐私文案只写一处） */
 const pendingExport = ref<null | { kind: 'single'; summary: ScriptSummary } | { kind: 'all' }>(null)
@@ -302,7 +301,7 @@ function allExportFilename(): string {
   return `duoling-scripts-${ymd}.zip`
 }
 
-/** 确认导出：取数（只读命令）→ 本页打包 → 触发下载 */
+/** 确认导出：fs:exportZip（offscreen 侧读源码打包）→ base64 解码 → 触发下载 */
 async function confirmExport(): Promise<void> {
   const target = pendingExport.value
   if (!target || exporting.value) return
@@ -310,26 +309,25 @@ async function confirmExport(): Promise<void> {
   exporting.value = true
   error.value = ''
   try {
-    let scripts: ZipScriptPayload[]
+    let uuids: string[]
     let filename: string
     if (target.kind === 'single') {
-      const p = await userscriptClient.getProject(target.summary.uuid)
-      if (!p) throw new Error('脚本不存在（可能刚被删除）')
-      scripts = [{ name: p.name, config: p.config, entry: p.entry, files: p.files }]
-      filename = `${sanitizeDirName(p.name)}.zip`
+      uuids = [target.summary.uuid]
+      filename = `${sanitizeDirName(target.summary.name)}.zip`
     } else {
       const list = await userscriptClient.list()
-      const projects = (
-        await Promise.all(list.map((s) => userscriptClient.getProject(s.uuid)))
-      ).filter((p): p is ScriptProject => !!p)
-      if (!projects.length) throw new Error('没有可导出的脚本')
-      scripts = projects.map((p) => ({ name: p.name, config: p.config, entry: p.entry, files: p.files }))
+      if (!list.length) throw new Error('没有可导出的脚本')
+      uuids = list.map((s) => s.uuid)
       filename = allExportFilename()
     }
-    const bytes = buildScriptZip(scripts, {
+    const { zipBase64, name } = await fsClient.exportZip(uuids, {
       exporter: `duoling/${chrome.runtime.getManifest().version}`,
     })
-    downloadZip(bytes, filename)
+    if (target.kind === 'single') {
+      // 单脚本文件名以 offscreen 读到的真实名称为准（目录名安全化同一套规则）
+      filename = `${sanitizeDirName(name ?? target.summary.name)}.zip`
+    }
+    downloadZip(base64ToBytes(zipBase64), filename)
   } catch (e) {
     error.value = '导出失败：' + (e instanceof Error ? e.message : String(e))
   } finally {

@@ -46,7 +46,7 @@ function send<T>(request: RuntimeRequest): Promise<T> {
 
 /**
  * 失败先唤起容器再重试（与 ui-client.sendAi 同构）：offscreen 被回收 / 扩展重载时，
- * chat:* 无人应答报「port closed」类错误——ensure（SW 侧轮询 ai:ping 到可应答）后重试一次。
+ * chat:* 无人应答报「port closed」类错误——ensure（SW 侧轮询 fs:ping 到可应答）后重试一次。
  */
 async function sendChat<T>(request: RuntimeRequest): Promise<T> {
   try {

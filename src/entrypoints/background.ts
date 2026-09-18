@@ -3,11 +3,13 @@
 // + offscreen 容器管理 + 模型配置中转。
 // 对话、模型配置不走这里（分别直连 IndexedDB 与 chrome.storage.local）。
 //
-// 项目数据（源码 / 配置 / 构建产物 / enabled）的权威在独立 IndexedDB 库 duoling-state，
-// **写只归 offscreen**（单写方）：
-//   · 读 —— 本文件直连 project-store，**不经容器**。注册链路不能押在 offscreen 存活上，
-//     否则容器一挂所有脚本都不生效。
-//   · 写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
+// 存储分工（2026-09-19 源码迁入 duoling-fs 后）：
+//   · 注册态（bundle + 元数据 + enabled）—— 权威在独立 IndexedDB 库 duoling-state，
+//     **写只归 offscreen**（单写方）：读 —— 本文件直连 project-store，**不经容器**，
+//     注册链路不能押在 offscreen 存活上，否则容器一挂所有脚本都不生效；
+//     写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
+//   · 源码 —— 唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
+//     SW 读不到 lfs，源码读写一律走 fs:* 命令向 offscreen 取（见 offscreen-fs-commands.ts）。
 // 仍在 chrome.storage 的只有两类：DL.store 值（us:gm:*）与错误日志（us:errors）——
 // 写入方是用户脚本本身、不受控，且不参与「脚本是什么」的判定，故留在 SW 直写。
 //
@@ -114,7 +116,7 @@ function sendToOffscreen<T>(request: RuntimeRequest): Promise<T> {
  * 写路径：项目数据的写只归 offscreen（单写方），SW 一律转发。
  *
  * 先 `ensureOffscreenReady` 再发命令：容器刚被回收 / 扩展重载时会重建，
- * 就绪判据是「能应答 ai:ping」而不是「文档已存在」。
+ * 就绪判据是「能应答 fs:ping」而不是「文档已存在」。
  *
  * 重试只对「容器没接上」类错误：业务异常（脚本不存在、文件树非法…）重试一次也是同样的错，
  * 只会让用户多等一轮。写命令都是读改写，重复执行一次不会产生第二份数据。
@@ -162,7 +164,7 @@ const handlers: {
 } = {
   // —— offscreen 容器——
   // A 组只做容器与通道：这几个命令供手动 / 调试触发；B 组的生成入口会直接调 ensureOffscreen()。
-  // 唤醒容器并**等到它真的能应答**才返回——调用方（aiFsClient）据此省掉了原先
+  // 唤醒容器并**等到它真的能应答**才返回——调用方（fsClient 等）据此省掉了原先
   // 「ensure 完 sleep 80ms 猜监听器注册好了没有」的兜底。
   // 常见路径几乎不等待：容器已在时第一次探测即成功。ready=false 表示超时未就绪，由调用方重试。
   'offscreen:ensure': async (): Promise<{ ready: boolean }> => ({
@@ -203,7 +205,7 @@ const handlers: {
   'userscript:list': async (): Promise<ScriptSummary[]> =>
     listSummaries(await listProjects()),
 
-  // 读完整项目（编辑器多文件用；管理页是可信扩展页，源码不过滤）
+  // 读注册态记录（元数据 + bundle；**不含源码**——源码在 duoling-fs，编辑器经 fs:readTree 取）
   'userscript:getProject': async (msg): Promise<ScriptProject | undefined> => getProject(msg.uuid),
 
   // 更新文件树 + 入口 + 构建产物（bundle 必填：UI 页构建成功后才调用），启用中则重注册。

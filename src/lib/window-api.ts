@@ -106,7 +106,7 @@ async function sendOffscreen<T>(request: RuntimeRequest): Promise<T> {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     if (!/port closed|Receiving end does not exist|无响应/.test(msg)) throw e
-    // 唤起容器并等它可应答（SW 侧处理 offscreen:ensure，内部轮询 ai:ping 到就绪为止）
+    // 唤起容器并等它可应答（SW 侧处理 offscreen:ensure，内部轮询 fs:ping 到就绪为止）
     await send({ kind: 'offscreen:ensure' }).catch(() => {})
     return await sendOnce()
   }

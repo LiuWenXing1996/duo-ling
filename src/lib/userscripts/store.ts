@@ -26,7 +26,8 @@ export async function listSummaries(projects: ScriptProject[]): Promise<ScriptSu
     name: p.name,
     enabled: p.enabled,
     matches: p.config.matches ?? [],
-    fileCount: Object.keys(p.files).length,
+    // 文件数来自状态库缓存（源码在 duoling-fs，SW 读不到，故落盘时算好存于此）
+    fileCount: p.fileCount ?? 0,
     updatedAt: p.updatedAt,
   }))
   return [...projectSummaries].sort(

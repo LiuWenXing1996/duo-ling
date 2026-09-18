@@ -131,6 +131,7 @@ export type StatusBubbleUp =
 export type RuntimeRequest =
   // 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）
   | { kind: 'userscript:list' }
+  // 读注册态记录（元数据 + bundle；**不含源码**——源码在 duoling-fs，编辑器经 fs:readTree 取）
   | { kind: 'userscript:getProject'; uuid: string }
   | { kind: 'userscript:updateFiles'; uuid: string; files: Record<string, string>; entry: string; bundle: { code: string; builtAt: number }; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
   | { kind: 'userscript:create' }
@@ -155,31 +156,41 @@ export type RuntimeRequest =
   // 注：git 历史的 `userscript:history*` 三命令已随执行宿主迁 offscreen 而废弃（由 ai:* 取代），
   // 全仓无调用方，2026-09-15 从协议中移除——留着只会让 SW 的 handlers 表被迫补死桩。
 
-  // 用户脚本 git 历史（执行宿主迁 offscreen）。
-  // UI / SW 经 chrome.runtime.sendMessage 共享总线直发 offscreen；SW 的 onMessage 对 ai: 前缀
-  // return false 静默放行，由 offscreen 处理并按 { ok, data | error } 信封回传。
+  // —— 用户脚本源码库命令面（fs:*，执行宿主 = offscreen）——
+  // 源码唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库，带 git 版本化，
+  // 见 us-fs.ts / us-git.ts）。SW 与扩展页读不到 lfs，**源码的一切读写都经这组命令
+  // 向 offscreen 取**。SW 的 onMessage 对 fs: 前缀静默让路（不在 SW_KIND_PREFIXES）。
   // 就绪探测：SW 用来确认容器**真的在应答**（而不仅是「文档已存在」）。
   // 判据必须是「应答」而非「存在」——createDocument 返回时，offscreen 的 onMessage
   // 未必已注册完，此时发业务命令会得到「port closed / Receiving end does not exist」。
-  | { kind: 'ai:ping' }
-  | { kind: 'ai:history'; uuid: string }
-  | { kind: 'ai:historyTree'; uuid: string; oid: string }
-  // 恢复：由快照物化出项目（不落状态库），提交一条「回滚」记录；落盘由调用方经
-  // userscript:updateFiles 完成（UI 侧先切编辑态、重建 bundle 再保存）。
-  | { kind: 'ai:restoreToCommit'; uuid: string; oid: string }
+  | { kind: 'fs:ping' }
+  // 读源码树：默认 = 工作区（含未提交草稿），committed = HEAD 已保存版本（丢弃草稿的基准）。
+  // 无源码（仓损坏 / 从未保存）返回 null
+  | { kind: 'fs:readTree'; uuid: string; committed?: boolean }
+  // 草稿写：编辑态防抖写入工作区（files/** + project.json 元数据，**不提交**）。
+  // 草稿 = 工作区相对 HEAD 的未提交改动；失败 throw，由调用方 catch（best-effort）
+  | { kind: 'fs:writeFiles'; uuid: string; files: Record<string, string>; meta: import('@/lib/userscripts/types').ScriptMeta }
+  // git 历史：提交列表（新在前）/ 某提交完整快照
+  | { kind: 'fs:history'; uuid: string }
+  | { kind: 'fs:historyTree'; uuid: string; oid: string }
+  // 恢复到某提交：目标树物化回工作区（= 当前源码）+ 提交一条「回滚」记录；
+  // 产物由调用方重建后经 userscript:updateFiles 落盘（写状态库 + 重注册）。
+  // 返回恢复出的源码树（meta + files），由调用方构建
+  | { kind: 'fs:restoreToCommit'; uuid: string; oid: string }
+  // 导出 zip：**在 offscreen 侧打包**（读各脚本工作区源码 → buildScriptZip），
+  // 只回传 base64——避免把全部源码树过大消息桥。单脚本时附带 name（UI 定文件名用）；
+  // exporter = 导出方标识（写入 zip manifest 排障用）
+  | { kind: 'fs:exportZip'; uuids: string[]; exporter?: string }
   // 整库浏览（只读调试视图）：递归列出 lfs 库的文件树（含 .git 内部），工作台「lfs 浏览」标签页用
-  | { kind: 'ai:lfsTree' }
+  | { kind: 'fs:lfsTree' }
+  // 单文件预览：按完整路径读 lfs 库内文件内容（含 .git 内部），「lfs 浏览」标签页点文件时拉取
+  | { kind: 'fs:lfsReadFile'; path: string }
+
   // esbuild 构建（宿主收敛 offscreen：唯一「能派生 Worker + 不被回收」的宿主）。
   // 编辑器保存 / 历史恢复 / AI 生成 loop 共用 offscreen 常驻 wasm 实例。
-  // 失败不抛异常（过桥丢结构），返回可辨识联合 BuildResult（见 offscreen-build-commands.ts）
+  // 失败不抛异常（过桥丢结构），返回可辨识联合 BuildResult（见 offscreen-build-commands.ts）。
+  // ai: 前缀只剩这一个命令（历史与源码命令面已归 fs:*）
   | { kind: 'ai:build'; files: Record<string, string>; entry: string }
-  // 草稿：编辑态防抖写入 git 工作区（纯 fs、不动 index）。
-  // 载荷传完整 ScriptProject 形状——offscreen 侧 buildContents 需要 v/uuid/createdAt，
-  // UI 不能 import us-git 复用（会把 isomorphic-git 打进面板包）
-  | { kind: 'ai:writeDraft'; uuid: string; project: import('@/lib/userscripts/types').ScriptProject }
-  | { kind: 'ai:readDraft'; uuid: string }
-  // 单文件预览：按完整路径读 lfs 库内文件内容（含 .git 内部），「lfs 浏览」标签页点文件时拉取
-  | { kind: 'ai:lfsReadFile'; path: string }
 
   // —— 项目状态库的**写**命令面——
   // 项目数据（源码 / 配置 / 构建产物 / enabled）落在独立 IndexedDB 库 duoling-state，

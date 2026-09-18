@@ -10,12 +10,11 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
-import type { ScriptProject } from './types'
+import type { ScriptMeta, ScriptProject } from './types'
 import { handleStateCommand, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
-import { handleAiFsCommand, type AiFsRequest } from '@/lib/userscripts/offscreen-fs-commands'
+import { handleFsCommand, type FsRequest } from '@/lib/userscripts/offscreen-fs-commands'
 import { handleBuildCommand, type BuildRequest } from '@/lib/userscripts/offscreen-build-commands'
 import * as projectWrite from '@/lib/userscripts/project-write'
-import * as projectStore from '@/lib/userscripts/project-store'
 import * as usGit from '@/lib/userscripts/us-git'
 import * as usFs from '@/lib/userscripts/us-fs'
 import * as builder from '@/lib/userscripts/builder'
@@ -46,12 +45,13 @@ vi.mock('@/lib/userscripts/us-fs', () => ({
 vi.mock('@/lib/userscripts/us-git', () => ({
   ensureRepo: vi.fn(),
   deleteRepo: vi.fn(),
-  snapshotProject: vi.fn(),
+  deleteAllRepos: vi.fn(),
   listHistory: vi.fn(),
   readTreeAt: vi.fn(),
   restoreToCommit: vi.fn(),
-  writeWorktree: vi.fn(),
-  readWorktree: vi.fn(),
+  writeSourceTree: vi.fn(),
+  commitSource: vi.fn(),
+  readSourceTree: vi.fn(),
 }))
 // BuildError 是真类（handleBuildCommand 用 instanceof 分流），mock 里给出实现
 vi.mock('@/lib/userscripts/builder', () => {
@@ -73,16 +73,22 @@ type AnyMock = Mock
 
 const FILES = { 'main.ts': 'console.log(1)' }
 const BUNDLE = { code: '/* bundle */', builtAt: 1 }
-// 完整 ScriptProject 形状（ai:writeDraft 的载荷、ai:restoreToCommit 的前置读取都吃它）
+const META: ScriptMeta = {
+  name: '脚本一',
+  config: { matches: ['https://example.com/*'], allFrames: false, runAt: 'document_end' },
+  entry: 'main.ts',
+  createdAt: 0,
+}
+// 完整 ScriptProject 形状（state:createProject 的载荷；源码不在其中——源码在 duoling-fs）
 const PROJECT: ScriptProject = {
   v: 1,
   uuid: 'u1',
   name: '脚本一',
   enabled: true,
-  config: { matches: ['https://example.com/*'], allFrames: false, runAt: 'document_end' },
-  files: FILES,
+  config: META.config,
   entry: 'main.ts',
   bundle: BUNDLE,
+  fileCount: 1,
   createdAt: 0,
   updatedAt: 0,
 }
@@ -169,21 +175,21 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
   })
 })
 
-describe('(b) handleAiFsCommand 分发全覆盖', () => {
-  // ai:build 不在此表：它在 offscreen-main 路由里先于 ai: 前缀被拦下、由 handleBuildCommand
-  // 处理（见下方 describe）——本表须与其余 ai:* 成员一一对应。
-  const AI_FS_KINDS = [
-    'ai:ping',
-    'ai:history',
-    'ai:historyTree',
-    'ai:restoreToCommit',
-    'ai:lfsTree',
-    'ai:writeDraft',
-    'ai:readDraft',
-    'ai:lfsReadFile',
-  ] as const satisfies readonly Exclude<AiFsRequest['kind'], 'ai:build'>[]
+describe('(b) handleFsCommand 分发全覆盖', () => {
+  // fs:* 全成员清单：typecheck 闸——新增成员而未登记 → Exclude 非 never → 编译失败
+  const FS_KINDS = [
+    'fs:ping',
+    'fs:readTree',
+    'fs:writeFiles',
+    'fs:history',
+    'fs:historyTree',
+    'fs:restoreToCommit',
+    'fs:exportZip',
+    'fs:lfsTree',
+    'fs:lfsReadFile',
+  ] as const satisfies readonly FsRequest['kind'][]
   const _exhaustive: Expect<
-    Exclude<AiFsRequest['kind'], (typeof AI_FS_KINDS)[number] | 'ai:build'> extends never ? true : false
+    Exclude<FsRequest['kind'], (typeof FS_KINDS)[number]> extends never ? true : false
   > = true
   // BuildRequest 与联合成员保持同一形状（它是独立声明的第二真相源，任一侧漂移在此暴露）
   const _buildReqMatchesUnion: Expect<
@@ -194,40 +200,46 @@ describe('(b) handleAiFsCommand 分发全覆盖', () => {
   > = true
 
   const CASES: Record<
-    (typeof AI_FS_KINDS)[number],
-    { msg: AiFsRequest; backend?: Mock; args?: unknown[]; result?: unknown; setup?: () => void }
+    (typeof FS_KINDS)[number],
+    { msg: FsRequest; backend?: Mock; args?: unknown[]; result?: unknown; setup?: () => void }
   > = {
-    'ai:ping': {
+    'fs:ping': {
       // 就绪探测不触碰任何后端，直接返回常量
-      msg: { kind: 'ai:ping' },
+      msg: { kind: 'fs:ping' },
       result: { ready: true },
     },
-    'ai:history': { msg: { kind: 'ai:history', uuid: 'u1' }, backend: vi.mocked(usGit.listHistory), args: ['u1'] },
-    'ai:historyTree': {
-      msg: { kind: 'ai:historyTree', uuid: 'u1', oid: 'o1' },
+    'fs:readTree': {
+      msg: { kind: 'fs:readTree', uuid: 'u1' },
+      backend: vi.mocked(usGit.readSourceTree),
+      args: ['u1', false],
+    },
+    'fs:writeFiles': {
+      msg: { kind: 'fs:writeFiles', uuid: 'u1', files: FILES, meta: META },
+      backend: vi.mocked(usGit.writeSourceTree),
+      args: ['u1', FILES, META],
+      result: { saved: true },
+    },
+    'fs:history': { msg: { kind: 'fs:history', uuid: 'u1' }, backend: vi.mocked(usGit.listHistory), args: ['u1'] },
+    'fs:historyTree': {
+      msg: { kind: 'fs:historyTree', uuid: 'u1', oid: 'o1' },
       backend: vi.mocked(usGit.readTreeAt),
       args: ['u1', 'o1'],
     },
-    'ai:restoreToCommit': {
-      msg: { kind: 'ai:restoreToCommit', uuid: 'u1', oid: 'o1' },
+    'fs:restoreToCommit': {
+      msg: { kind: 'fs:restoreToCommit', uuid: 'u1', oid: 'o1' },
       backend: vi.mocked(usGit.restoreToCommit),
-      args: [PROJECT, 'o1'],
-      setup: () => vi.mocked(projectStore.getProject).mockResolvedValue(PROJECT),
+      args: ['u1', 'o1'],
     },
-    'ai:lfsTree': { msg: { kind: 'ai:lfsTree' }, backend: vi.mocked(usFs.readLfsTree), args: ['/'] },
-    'ai:writeDraft': {
-      msg: { kind: 'ai:writeDraft', uuid: 'u1', project: PROJECT },
-      backend: vi.mocked(usGit.writeWorktree),
-      args: ['u1', PROJECT],
-      result: { saved: true },
-    },
-    'ai:readDraft': {
-      msg: { kind: 'ai:readDraft', uuid: 'u1' },
-      backend: vi.mocked(usGit.readWorktree),
+    'fs:exportZip': {
+      // readSourceTree mock 返回 null → tree 为 null → 空 payload 走真实 fflate 打包
+      msg: { kind: 'fs:exportZip', uuids: ['u1'] },
+      backend: vi.mocked(usGit.readSourceTree),
       args: ['u1'],
+      setup: () => vi.mocked(usGit.readSourceTree).mockResolvedValue(null),
     },
-    'ai:lfsReadFile': {
-      msg: { kind: 'ai:lfsReadFile', path: '/uscripts/u1/files/main.ts' },
+    'fs:lfsTree': { msg: { kind: 'fs:lfsTree' }, backend: vi.mocked(usFs.readLfsTree), args: ['/'] },
+    'fs:lfsReadFile': {
+      msg: { kind: 'fs:lfsReadFile', path: '/uscripts/u1/files/main.ts' },
       backend: vi.mocked(usFs.readLfsFile),
       args: ['/uscripts/u1/files/main.ts'],
     },
@@ -235,7 +247,7 @@ describe('(b) handleAiFsCommand 分发全覆盖', () => {
 
   beforeEach(() => vi.clearAllMocks())
 
-  it('union 穷尽性闸就位（新增 ai:* 成员而漏登记时 typecheck 先失败）', () => {
+  it('union 穷尽性闸就位（新增 fs:* 成员而漏登记时 typecheck 先失败）', () => {
     expect(_exhaustive).toBe(true)
     expect(_buildReqMatchesUnion).toBe(true)
     expect(_unionMatchesBuildReq).toBe(true)
@@ -243,7 +255,7 @@ describe('(b) handleAiFsCommand 分发全覆盖', () => {
 
   it.each(Object.entries(CASES))('%s → 分发正确', async (kind, c) => {
     c.setup?.()
-    const result = await handleAiFsCommand(c.msg)
+    const result = await handleFsCommand(c.msg)
     if (c.backend) {
       expect(c.backend, `${kind} 应触达后端`).toHaveBeenCalledTimes(1)
       expect(c.backend).toHaveBeenCalledWith(...(c.args ?? []))
@@ -257,20 +269,11 @@ describe('(b) handleAiFsCommand 分发全覆盖', () => {
     if (c.result !== undefined) expect(result).toEqual(c.result)
   })
 
-  it('ai:writeDraft 先 ensureRepo 再 writeWorktree（顺序契约）', async () => {
-    await handleAiFsCommand({ kind: 'ai:writeDraft', uuid: 'u1', project: PROJECT })
-    const ensureOrder = vi.mocked(usGit.ensureRepo).mock.invocationCallOrder[0]
-    const writeOrder = vi.mocked(usGit.writeWorktree).mock.invocationCallOrder[0]
-    expect(ensureOrder).toBeLessThan(writeOrder!)
-  })
-
-  it('ai:restoreToCommit 遇到不存在的脚本 → throw（由分发层包成 error 信封）', async () => {
-    // clearAllMocks 不清实现：显式覆盖为「脚本不存在」
-    vi.mocked(projectStore.getProject).mockResolvedValue(undefined)
-    await expect(handleAiFsCommand({ kind: 'ai:restoreToCommit', uuid: 'nope', oid: 'o1' })).rejects.toThrow(
-      '脚本不存在',
+  it('fs:restoreToCommit 后端 throw → 原样向上抛（由分发层包成 error 信封）', async () => {
+    vi.mocked(usGit.restoreToCommit).mockRejectedValueOnce(new Error('历史版本不存在或已损坏'))
+    await expect(handleFsCommand({ kind: 'fs:restoreToCommit', uuid: 'u1', oid: 'o1' })).rejects.toThrow(
+      '历史版本不存在或已损坏',
     )
-    expect(usGit.restoreToCommit).not.toHaveBeenCalled()
   })
 })
 
@@ -329,15 +332,16 @@ describe('(c) offscreen 应答信封 { ok, data | error }', () => {
   // offscreen 管辖的全部 kind（与 extension-ipc.test.ts 的归属表互为印证），
   // 全部经真实监听器走一遍，任何一路信封走样（漏 data / 裸抛错误对象 / 多余字段）都会被抓住
   const OFFSCREEN_MSGS: RuntimeRequest[] = [
-    { kind: 'ai:ping' },
-    { kind: 'ai:history', uuid: 'u1' },
-    { kind: 'ai:historyTree', uuid: 'u1', oid: 'o1' },
-    { kind: 'ai:restoreToCommit', uuid: 'u1', oid: 'o1' },
-    { kind: 'ai:lfsTree' },
+    { kind: 'fs:ping' },
+    { kind: 'fs:readTree', uuid: 'u1' },
+    { kind: 'fs:writeFiles', uuid: 'u1', files: FILES, meta: META },
+    { kind: 'fs:history', uuid: 'u1' },
+    { kind: 'fs:historyTree', uuid: 'u1', oid: 'o1' },
+    { kind: 'fs:restoreToCommit', uuid: 'u1', oid: 'o1' },
+    { kind: 'fs:exportZip', uuids: ['u1'] },
+    { kind: 'fs:lfsTree' },
+    { kind: 'fs:lfsReadFile', path: '/uscripts/u1/files/main.ts' },
     { kind: 'ai:build', files: FILES, entry: 'main.ts' },
-    { kind: 'ai:writeDraft', uuid: 'u1', project: PROJECT },
-    { kind: 'ai:readDraft', uuid: 'u1' },
-    { kind: 'ai:lfsReadFile', path: '/uscripts/u1/files/main.ts' },
     { kind: 'state:create' },
     { kind: 'state:updateFiles', uuid: 'u1', files: FILES, entry: 'main.ts', bundle: BUNDLE },
     { kind: 'state:remove', uuid: 'u1' },
@@ -363,8 +367,8 @@ describe('(c) offscreen 应答信封 { ok, data | error }', () => {
     expect(res).toEqual({ ok: false, error: 'IDB 打不开' })
   })
 
-  it('ai:ping 经监听器应答 { ok: true, data: { ready: true } }（SW 就绪探测的判据）', async () => {
-    expect(await reply({ kind: 'ai:ping' })).toEqual({ ok: true, data: { ready: true } })
+  it('fs:ping 经监听器应答 { ok: true, data: { ready: true } }（SW 就绪探测的判据）', async () => {
+    expect(await reply({ kind: 'fs:ping' })).toEqual({ ok: true, data: { ready: true } })
   })
 
   it('SW 管辖的 kind：offscreen 静默让路（无响应，由 SW 应答）', async () => {

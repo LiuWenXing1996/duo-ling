@@ -27,7 +27,7 @@ function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {
     name: '项目一',
     enabled: true,
     config: { matches: ['*://a.com/*'], allFrames: true, runAt: 'document_end' },
-    files: { 'main.js': '', 'lib/u.js': '' },
+    fileCount: 2,
     entry: 'main.js',
     createdAt: 1,
     updatedAt: 42,

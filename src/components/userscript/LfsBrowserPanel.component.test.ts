@@ -12,7 +12,7 @@ const lfsTree = vi.hoisted(() => vi.fn())
 const list = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/userscripts/ui-client', () => ({
-  aiFsClient: { lfsTree, lfsReadFile: vi.fn() },
+  fsClient: { lfsTree, lfsReadFile: vi.fn() },
   userscriptClient: { list },
 }))
 

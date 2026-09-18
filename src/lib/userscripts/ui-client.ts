@@ -5,8 +5,8 @@
 // 这里复用与 window-api.ts 同构的 send 信封（统一解包 { ok, data|error }），
 // 直接发 userscript:* 命令组（v2 方案）。
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
-import type { ImportReport, ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
-import type { UsCommit, UsHistoryTree } from './us-git'
+import type { ImportReport, ScriptConfig, ScriptMeta, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptErrorRecord } from './types'
+import type { SourceTree, UsCommit, UsHistoryTree } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
 import type { BuildResult } from './offscreen-build-commands'
 
@@ -39,7 +39,7 @@ function send<T>(request: RuntimeRequest): Promise<T> {
  * 「The message port closed before a response was received」。故失败时先经 SW 唤起容器
  * （同时触发其启动对账、注册监听），再重试，最多 3 次。
  *
- * **就绪判据**：`offscreen:ensure` 现在会等到容器**真的能应答**才返回（SW 侧轮询 `ai:ping`），故这里**不再需要固定 sleep 猜时间**——
+ * **就绪判据**：`offscreen:ensure` 现在会等到容器**真的能应答**才返回（SW 侧轮询 `fs:ping`），故这里**不再需要固定 sleep 猜时间**——
  * 原先的 `setTimeout(80)` 是在猜 offscreen 的 onMessage 有没有注册完，猜短了白重试、
  * 猜长了每次都白等。
  */
@@ -54,7 +54,7 @@ async function sendAi<T>(request: RuntimeRequest): Promise<T> {
       if (!/port closed|Receiving end does not exist|无响应/.test(msg)) throw e
       lastErr = e
     }
-    // 唤起容器并等它可应答（SW 侧处理 offscreen:ensure，内部轮询 ai:ping 到就绪为止）
+    // 唤起容器并等它可应答（SW 侧处理 offscreen:ensure，内部轮询 fs:ping 到就绪为止）
     await send({ kind: 'offscreen:ensure' }).catch(() => {})
   }
   throw lastErr
@@ -68,7 +68,7 @@ export const userscriptClient = {
   /** 列出全部脚本（项目 + 已弃用旧记录，不含源码） */
   list: (): Promise<ScriptSummary[]> => send({ kind: 'userscript:list' }),
 
-  /** 读完整项目（多文件编辑器用，含文件树 / 入口 / 配置） */
+  /** 读完整注册态记录（元数据 + bundle；**不含源码**——源码经 fsClient.readTree 取） */
   getProject: (uuid: string): Promise<ScriptProject | undefined> =>
     send({ kind: 'userscript:getProject', uuid }),
 
@@ -113,41 +113,49 @@ export const userscriptClient = {
 }
 
 /**
- * 用户脚本 git 历史命令面（执行宿主已迁 offscreen）。
- * 经 chrome.runtime.sendMessage 共享总线直发 offscreen，由后者处理并按 { ok, data | error } 回传。
- * 与 userscriptClient 的区别：后者走 SW 管辖的 userscript:* 命令组；本对象的 ai:* 命令 SW 静默让路。
+ * 用户脚本源码库命令面（fs:*，执行宿主 = offscreen）。
+ * 源码唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
+ * SW 与扩展页读不到 lfs——源码的一切读写都经本对象向 offscreen 取。
+ * 与 userscriptClient 的区别：后者走 SW 管辖的 userscript:* 命令组；本对象的 fs:* 命令 SW 静默让路。
  */
-export const aiFsClient = {
-  /** git 历史侧车：提交列表（新在前） */
-  history: (uuid: string): Promise<UsCommit[]> => sendAi({ kind: 'ai:history', uuid }),
+export const fsClient = {
+  /** 就绪探测（一般不直接用；offscreen:ensure 的就绪轮询内部即 fs:ping） */
+  ping: (): Promise<{ ready: boolean }> => sendAi({ kind: 'fs:ping' }),
+
+  /** 读源码树：默认工作区（含未提交草稿），committed = HEAD 已保存版本。无源码返回 null */
+  readTree: (uuid: string, committed = false): Promise<SourceTree | null> =>
+    sendAi({ kind: 'fs:readTree', uuid, ...(committed ? { committed: true } : {}) }),
+
+  /** 草稿写：编辑态防抖写入工作区（不提交）。失败 throw——调用方必须 catch（best-effort） */
+  writeFiles: (uuid: string, files: Record<string, string>, meta: ScriptMeta): Promise<void> =>
+    sendAi({ kind: 'fs:writeFiles', uuid, files, meta }).then(() => undefined),
+
+  /** git 历史：提交列表（新在前） */
+  history: (uuid: string): Promise<UsCommit[]> => sendAi({ kind: 'fs:history', uuid }),
 
   /** 某提交的完整快照（当时元信息 + 源码文件树） */
   historyTree: (uuid: string, oid: string): Promise<UsHistoryTree> =>
-    sendAi({ kind: 'ai:historyTree', uuid, oid }),
+    sendAi({ kind: 'fs:historyTree', uuid, oid }),
 
-  /** 恢复到某提交（enabled 保持当前值；bundle 由 UI 重建，落盘 + 重注册由后续 updateFiles 完成）。
-   *  返回 restored = 物化出的 ScriptProject（与 us-git.restoreToCommit 对齐） */
-  restoreToCommit: (uuid: string, oid: string): Promise<{ committed: boolean; restored: ScriptProject }> =>
-    sendAi({ kind: 'ai:restoreToCommit', uuid, oid }),
+  /** 恢复到某提交：目标树物化回工作区 + 提交「回滚」记录。
+   *  返回恢复出的源码树；产物由调用方重建后经 userscriptClient.updateFiles 落盘重注册 */
+  restoreToCommit: (uuid: string, oid: string): Promise<{ committed: boolean; tree: SourceTree }> =>
+    sendAi({ kind: 'fs:restoreToCommit', uuid, oid }),
+
+  /** 导出 zip：offscreen 侧打包（读工作区源码），只回传 base64；单脚本时附带 name */
+  exportZip: (uuids: string[], meta?: { exporter?: string }): Promise<{ zipBase64: string; name?: string }> =>
+    sendAi({ kind: 'fs:exportZip', uuids, ...meta }),
 
   /** 整库浏览（只读调试视图）：lfs 库的完整文件树（含 .git 内部） */
-  lfsTree: (): Promise<LfsNode> => sendAi({ kind: 'ai:lfsTree' }),
-
-  /** 草稿写：编辑态防抖写入 git 工作区（纯 fs、不动 index）。失败 throw——调用方必须 catch（best-effort） */
-  writeDraft: (uuid: string, project: ScriptProject): Promise<void> =>
-    sendAi({ kind: 'ai:writeDraft', uuid, project }),
-
-  /** 草稿读：工作区未提交改动；无草稿 / 损坏 / 半写 → null（us-git readWorktree 判据） */
-  readDraft: (uuid: string): Promise<UsHistoryTree | null> =>
-    sendAi({ kind: 'ai:readDraft', uuid }),
+  lfsTree: (): Promise<LfsNode> => sendAi({ kind: 'fs:lfsTree' }),
 
   /** 单文件预览：按完整路径读 lfs 库内文件内容（含 .git 内部） */
-  lfsReadFile: (path: string): Promise<LfsFileContent> => sendAi({ kind: 'ai:lfsReadFile', path }),
+  lfsReadFile: (path: string): Promise<LfsFileContent> => sendAi({ kind: 'fs:lfsReadFile', path }),
 }
 
 /**
  * esbuild 构建命令通道（宿主收敛 offscreen）。
- * 与 aiFsClient 同走 sendAi（唤起容器 + 重试）；wasm 在 offscreen 常驻，
+ * 与 fsClient 同走 sendAi（唤起容器 + 重试）；wasm 在 offscreen 常驻，
  * 整个浏览器会话只初始化一次——首次构建会慢（wasm 编译），之后接近瞬时。
  */
 export const aiBuildClient = {

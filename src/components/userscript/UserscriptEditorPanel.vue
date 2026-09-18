@@ -47,8 +47,9 @@ import { javascript } from '@codemirror/lang-javascript'
 import { FileTree } from '@/components/ai-elements/file-tree'
 import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
 import { buildCodeTree, type CodeTreeNode } from '@/lib/code-view'
-import { userscriptClient, aiBuildClient, aiFsClient } from '@/lib/userscripts/ui-client'
-import type { ScriptConfig, ScriptProject } from '@/lib/userscripts/types'
+import { userscriptClient, aiBuildClient, fsClient } from '@/lib/userscripts/ui-client'
+import type { ScriptConfig, ScriptMeta } from '@/lib/userscripts/types'
+import type { SourceTree } from '@/lib/userscripts/us-git'
 
 const props = defineProps<{ uuid: string }>()
 const emit = defineEmits<{
@@ -91,9 +92,9 @@ const saveNote = ref('')
 // —— 历史已迁出：浏览与恢复都在独立的 us-history:<uuid> 标签页（UserscriptHistoryPanel），
 // 本组件只负责编辑 + 保存，历史按钮经 openHistory 事件请求宿主开历史标签页。
 
-// —— 草稿（草稿 = git 工作区的未提交改动，经 offscreen 纯 fs 写）——
-/** 打开编辑器时刻的已保存项目（状态库权威）：丢弃草稿的回滚目标、currentProject 的兜底字段 */
-const baseline = ref<ScriptProject | null>(null)
+// —— 草稿（草稿 = git 工作区相对 HEAD 的未提交改动，经 fs:writeFiles 纯 fs 写、不提交）——
+/** 打开编辑器时刻的已保存源码树（HEAD；无提交时 = 工作区现状）：丢弃草稿的回滚目标 */
+const baseline = ref<SourceTree | null>(null)
 /** 打开时恢复了工作区草稿 → 常驻提示条（含丢弃入口） */
 const draftRestored = ref(false)
 /** 草稿自动写失败弱提示（best-effort：不进 error、不打断编辑） */
@@ -360,62 +361,59 @@ function currentConfig(): ScriptConfig {
   }
 }
 
-/** 编辑态 → ScriptProject 形状：v/uuid/createdAt/enabled 由 baseline 兜 */
-function currentProject(): ScriptProject {
+/** 编辑态 → 草稿元数据（fs:writeFiles 载荷；createdAt 沿用 baseline——创建时间不可改） */
+function currentMeta(): ScriptMeta {
   return {
-    ...(baseline.value ?? ({} as ScriptProject)),
-    uuid: props.uuid,
     name: editName.value,
-    entry: editEntry.value,
     config: currentConfig(),
-    files: { ...editFiles.value },
+    entry: editEntry.value,
+    createdAt: baseline.value?.meta.createdAt ?? Date.now(),
   }
 }
 
-/** 把编辑态各表单/文件树整体置为 p 的内容（load 与丢弃草稿共用） */
-function applyProject(p: ScriptProject): void {
-  scriptName.value = p.name
-  editFiles.value = { ...p.files }
-  editEntry.value = p.entry
+/** 把编辑态各表单/文件树整体置为 tree 的内容（load 与丢弃草稿共用） */
+function applyTree(tree: SourceTree): void {
+  scriptName.value = tree.meta.name
+  editFiles.value = { ...tree.files }
+  editEntry.value = tree.meta.entry
   // activeFile 不能盲信 entry——草稿里入口可能指向已删文件，取不到回退第一个文件
-  activeFile.value = p.entry in p.files ? p.entry : (Object.keys(p.files)[0] ?? '')
-  editName.value = p.name
-  editMatches.value = p.config.matches.join(', ')
-  editExcludeMatches.value = (p.config.excludeMatches ?? []).join(', ')
-  editIncludeGlobs.value = (p.config.includeGlobs ?? []).join(', ')
-  editExcludeGlobs.value = (p.config.excludeGlobs ?? []).join(', ')
-  editAllFrames.value = p.config.allFrames
-  editRunAt.value = p.config.runAt
+  activeFile.value = tree.meta.entry in tree.files ? tree.meta.entry : (Object.keys(tree.files)[0] ?? '')
+  editName.value = tree.meta.name
+  editMatches.value = tree.meta.config.matches.join(', ')
+  editExcludeMatches.value = (tree.meta.config.excludeMatches ?? []).join(', ')
+  editIncludeGlobs.value = (tree.meta.config.includeGlobs ?? []).join(', ')
+  editExcludeGlobs.value = (tree.meta.config.excludeGlobs ?? []).join(', ')
+  editAllFrames.value = tree.meta.config.allFrames
+  editRunAt.value = tree.meta.config.runAt
 }
 
-/** 装载项目 + 恢复草稿：状态库为权威基准，工作区草稿静默恢复 */
+/**
+ * 装载：注册态记录（状态库）管元数据兜底与存在性，源码一律读 duoling-fs 工作区。
+ * 工作区相对 HEAD 有差异 = 有未保存草稿，静默用工作区覆盖编辑态并常驻提示。
+ */
 async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
     const project = await userscriptClient.getProject(props.uuid)
-    if (!project) throw new Error('项目不存在或为已弃用旧记录')
-    baseline.value = project
-    // 草稿读必须 try/catch：失败/超时一律按无草稿处理，读不到不能挡住打开编辑器（best-effort）
-    let draft: Awaited<ReturnType<typeof aiFsClient.readDraft>> = null
+    if (!project) throw new Error('脚本不存在')
+    // 两个读取都 try/catch：offscreen 不在等失败按无源码处理（best-effort，不挡住打开编辑器）
+    let head: SourceTree | null = null
+    let worktree: SourceTree | null = null
     try {
-      draft = await aiFsClient.readDraft(props.uuid)
+      head = await fsClient.readTree(props.uuid, true)
+      worktree = await fsClient.readTree(props.uuid)
     } catch {
-      draft = null
+      worktree = null
     }
-    // 有草稿（files 为空按 null 兜底）且与已保存不等 → 静默用草稿覆盖编辑态
-    if (draft && draft.files.length && !draftEquals(draft, project)) {
-      applyProject({
-        ...project,
-        name: draft.meta?.name ?? project.name,
-        entry: draft.meta?.entry ?? project.entry,
-        config: draft.meta?.config ?? project.config,
-        files: Object.fromEntries(draft.files.map((f) => [f.path, f.content])),
-      })
+    if (!worktree) throw new Error('源码缺失（duoling-fs 仓不可用或已损坏）')
+    baseline.value = head ?? worktree
+    if (head && !treeEquals(worktree, head)) {
+      applyTree(worktree)
       editDirty.value = true
       draftRestored.value = true
     } else {
-      applyProject(project)
+      applyTree(worktree)
       editDirty.value = false
       draftRestored.value = false
     }
@@ -429,24 +427,23 @@ async function load(): Promise<void> {
 }
 
 /**
- * 草稿与已保存内容是否相等。两侧 config 必须同构可比：
- * 状态库里的空数组可能是 []，表单侧产出 undefined——都过 normConfig 归一后再比。
+ * 两棵源码树是否逐字段相等（工作区 vs HEAD，判「有无未保存草稿」）。
+ * 两侧 config 必须同构可比：仓里的空数组可能是 []，表单侧产出 undefined——
+ * 都过 normConfig 归一后再比。
  */
-function draftEquals(
-  draft: { meta?: { name: string; config: ScriptConfig; entry: string }; files: Array<{ path: string; content: string }> },
-  project: ScriptProject,
-): boolean {
-  if (!draft.meta) return false
-  if (draft.meta.name !== project.name || draft.meta.entry !== project.entry) return false
-  if (draft.files.length !== Object.keys(project.files).length) return false
-  for (const f of draft.files) {
-    if (project.files[f.path] !== f.content) return false
+function treeEquals(a: SourceTree, b: SourceTree): boolean {
+  if (a.meta.name !== b.meta.name || a.meta.entry !== b.meta.entry) return false
+  const aFiles = a.files
+  const bFiles = b.files
+  if (Object.keys(aFiles).length !== Object.keys(bFiles).length) return false
+  for (const [p, content] of Object.entries(aFiles)) {
+    if (bFiles[p] !== content) return false
   }
   const norm = (c: ScriptConfig): ScriptConfig => {
-    const opt = (a?: string[]): string[] | undefined => (a && a.length ? a : undefined)
+    const opt = (x?: string[]): string[] | undefined => (x && x.length ? x : undefined)
     return { ...c, excludeMatches: opt(c.excludeMatches), includeGlobs: opt(c.includeGlobs), excludeGlobs: opt(c.excludeGlobs) }
   }
-  return JSON.stringify(norm(draft.meta.config)) === JSON.stringify(norm(project.config))
+  return JSON.stringify(norm(a.meta.config)) === JSON.stringify(norm(b.meta.config))
 }
 
 /** 草稿写调度：debounce 500ms + 串行化。仅真实用户改动才落盘。 */
@@ -455,7 +452,7 @@ function scheduleDraftWrite(): void {
   draftTimer = window.setTimeout(() => {
     draftTimer = undefined
     draftInFlight = draftInFlight
-      .then(() => aiFsClient.writeDraft(props.uuid, currentProject()))
+      .then(() => fsClient.writeFiles(props.uuid, { ...editFiles.value }, currentMeta()))
       .then(() => {
         draftWriteFailed.value = false
       })
@@ -496,18 +493,18 @@ onBeforeUnmount(() => {
     clearTimeout(draftTimer)
     draftTimer = undefined
     if (editDirty.value) {
-      void aiFsClient.writeDraft(props.uuid, currentProject()).catch(() => {})
+      void fsClient.writeFiles(props.uuid, { ...editFiles.value }, currentMeta()).catch(() => {})
     }
   }
 })
 
-/** 丢弃草稿：用 baseline（状态库已保存内容）重写工作区；先写成功再动编辑态 */
+/** 丢弃草稿：用 baseline（HEAD 已保存内容）重写工作区；先写成功再动编辑态 */
 async function discardDraft(): Promise<void> {
   if (!baseline.value || discardingDraft.value) return
   discardingDraft.value = true
   try {
-    await aiFsClient.writeDraft(props.uuid, baseline.value)
-    applyProject(baseline.value)
+    await fsClient.writeFiles(props.uuid, { ...baseline.value.files }, baseline.value.meta)
+    applyTree(baseline.value)
     editDirty.value = false
     draftRestored.value = false
     draftWriteFailed.value = false
@@ -612,12 +609,7 @@ async function saveEdit(): Promise<void> {
     scriptName.value = editName.value
     // baseline 必须跟着保存结果走（builder 可能改写文件树，如拉取远程依赖）——
     // 否则之后「丢弃草稿」会退回到保存前的旧内容
-    baseline.value = {
-      ...currentProject(),
-      files: { ...outcome.files },
-      bundle: { code: outcome.code, builtAt: Date.now() },
-      updatedAt: Date.now(),
-    }
+    baseline.value = { meta: currentMeta(), files: { ...outcome.files } }
     editDirty.value = false
     draftRestored.value = false
     draftWriteFailed.value = false

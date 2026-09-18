@@ -13,6 +13,10 @@ vi.mock('@/lib/userscripts/builder', () => ({
     remoteFetched: [],
   })),
 }))
+// us-git 顶层 import 会实例化 lightning-fs（Node 无 indexedDB → 未处理 rejection）→ 一并 mock
+vi.mock('@/lib/userscripts/us-git', () => ({
+  readSourceTree: vi.fn(async () => null),
+}))
 
 function makeWorkspace(): TaskWorkspace {
   return {
