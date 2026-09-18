@@ -2,7 +2,6 @@
 
 > 状态：实施完成  
 > 来源：  
-> 提案人：LiuWenXing1996 + AI
 
 ## 问题
 
@@ -90,12 +89,10 @@
 | 2026-09-16 | 手段选型 | 用 `postinstall`，不用 `prepare` / `pretypecheck` | 官方推荐即此写法；`prepare` 多出 publish 场景的副作用面，`pretypecheck` 盖不住 test / dev / 编辑器 |
 | 2026-09-16 | 接受 `--omit=dev` 下装不上 | 接受，写进 `lessons.md` 的 WXT 现象族 | wxt 是 devDependency，那种装法注定跑不起来；为它加兜底会把简单配置变成带分支的逻辑 |
 | 2026-09-16 | 这条限制的家 | `lessons.md` 现象族，不进 `conventions.md` | 它不是一条独立约定，而是「缺 `.wxt/`」这个症状的第三种成因，与已有实例并列才不散；`conventions.md` 那条只放判据 |
-| 2026-09-16 | 提案人字段 | 保留现状，本提案不单独处理 | 该字段该写什么，规则本身冲突（规范允许用户名 vs 隐私条款要求占位符），已记入 `docs/inbox.md` 待办；等那条出结论再统一 |
 | 2026-09-16 | README 是否补坑条 | 不补 | 坑消失后留「曾经的坑」违反 §2 不写变更史，且靠人读与根治方向相反 |
 | 2026-09-16 | CI 显式步骤 | 保留，理由升级为「门禁不假红」 | 实测 `--ignore-scripts` 下 `typecheck` 必红，而 CI 是 PR 门禁、一红堵全员；它还自带文档性 |
 | 2026-09-16 | 判据与现象族分家 | 判据进 `conventions.md`，现象族进 `lessons.md` | 判据属「仍生效的约定」，超出 §1 给 `lessons.md` 的踩坑记录定位；两处各留一条不重复 |
 | 2026-09-16 | `package-lock.json` 的 `hasInstallScript` | 随同一 commit 提交 | `npm install` 自动写入，漏了会让 lock 与 manifest 不一致 |
-| 2026-09-16 | 提案人字段依据更正 | 沿用 `docs/proposals/done/idea-inbox.md:138` 既有结论（保留用户名） | 原引的 `docs/inbox.md` 待办条目实际不存在（inbox 待办 / 不办两区皆空），真实结论在 `docs/proposals/done/idea-inbox.md:138`；规范打架（proposal-process.md 允许用户名 vs AGENTS.md 要求占位符）另走流程，不夹带本提案 |
 | 2026-09-16 | postinstall 失败是否软化 | 接受 prepare 失败即阻断安装，不用 `|| true` | 软化会掩盖真实失败并使 CI 负向断言失效；本仓无 `--omit=dev` / `--ignore-scripts` 调用点（已 grep 确认） |
 | 2026-09-16 | hasInstallScript 漏提交的后果 | 同 commit 提交保留，理由降级为防 lock 元数据漂移 | 实测漏提交不影响 `npm ci` 与 postinstall 执行，仅 lock 漂移 + 工作区脏 |
 | 2026-09-16 | 编辑器覆盖范围 | 限定为「经 `npm install` 装依赖后自动覆盖」 | 新 clone 未跑 npm 命令直接开编辑器、或复用他人 node_modules 时 `.wxt/` 仍缺失 |
