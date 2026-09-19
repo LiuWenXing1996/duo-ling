@@ -10,7 +10,7 @@
 // 能力边界（官方原话：runtime API is the only extensions API supported by offscreen documents）：
 //   · 只有 chrome.runtime 可用 —— chrome.storage / chrome.userScripts / chrome.tabs 全拿不到，
 //     需要它们时必须经消息请 SW 代办（见 src/lib/offscreen-bridge.ts）
-//   · IndexedDB 同源共享，可直连（会话历史 duoling-chat 与任务快照走这条，无需经 background 中转）
+//   · IndexedDB 同源共享，可直连（会话历史与任务快照都在 duoling-chat 库，走这条，无需经 background 中转）
 //   · console 输出落在 **SW 的 inspector**（chrome://extensions → Service Worker），不在面板 DevTools
 //   · 不能聚焦；opener 恒为 null；URL 必须是打包进扩展的静态 HTML（即本文件对应的 offscreen.html）
 //

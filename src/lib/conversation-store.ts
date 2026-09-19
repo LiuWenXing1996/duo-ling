@@ -22,10 +22,13 @@ import type { Conversation, ConversationSearchHit, Message } from '../shared/typ
 import { broadcastDataChange } from './data-broadcast'
 
 const DB_NAME = 'duoling-chat'
-const DB_VERSION = 2
+/** v3：tasks store 并入（原独立库 duoling-chat-tasks，见 offscreen-chat/task-store.ts） */
+export const DB_VERSION = 3
 const CONVERSATIONS = 'conversations'
 const MESSAGES = 'messages'
 const META = 'meta'
+/** 生成任务快照 store（chat-host 写，与 conversation 写侧同归 offscreen） */
+export const TASKS = 'tasks'
 /** 新会话序号（meta store 键）：保证「新会话 N」不重号，清空会话时重置 */
 const SEQ_META_KEY = 'conversationSeq'
 
@@ -47,6 +50,10 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(META)) {
         db.createObjectStore(META)
+      }
+      // v3：任务快照并入本库（task-store.ts 与本模块各开各的连接，upgrade 都做 contains 防御）
+      if (!db.objectStoreNames.contains(TASKS)) {
+        db.createObjectStore(TASKS, { keyPath: 'taskId' })
       }
     }
     req.onsuccess = () => resolve(req.result)
