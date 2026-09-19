@@ -1,7 +1,10 @@
-// DL API 一期收口探针：fetch timeout / 二进制请求体 / tabs 三连的手测脚本。
+// DL API 收口探针：一期收口（fetch timeout / 二进制请求体 / tabs 三连）
+// + 二期特权增强（forbidden header 覆写 / 同 host 隔离 / redirect manual·error）的手测脚本。
 // 效果：页面右下角出现「DL API 收口探针」角标，点击后逐项跑测试并就地标 ✓ / ✗。
 // 注意：网络用例走 httpbin.org（慢或挂时对应项会失败，属环境问题不是桥的锅）；
 // tabs 用例会短暂开一个 example.com 标签页（约 2s 后自动关），全程点击触发、不自动跑。
+// 二期用例的前提：扩展 manifest 带 declarativeNetRequestWithHostAccess + webRequest，
+// 且 dev 是在加权限之后重启的——否则「覆写上线」与「manual 读 3xx」两项必失败。
 ;(async () => {
   var ID = 'dl-test-api-gapfill'
   var results = [] // { name, ok, detail }
@@ -136,6 +139,103 @@
     )
   }
 
+  // ————— 二期：DNR header 覆写与 redirect 语义（2026-09-19 落地） —————
+  // 覆写是否真的上线，只看 DL.fetch 的返回值证明不了——forbidden header 会被 fetch 静默
+  // 丢弃，必须由服务端回显作证，故这几项一律拿 httpbin.org/headers 的回显断言。
+
+  var REDIRECT_URL = 'https://httpbin.org/absolute-redirect/1'
+
+  function lowerHeaders(h) {
+    var out = {}
+    for (var k in h) out[k.toLowerCase()] = h[k]
+    return out
+  }
+
+  // ① 覆写真的上线：Cookie / Referer / User-Agent 三个禁设头应原样出现在服务端回显里
+  function headerOverrideCase() {
+    var want = {
+      Cookie: 'dl_probe=1',
+      Referer: 'https://dl-probe.example/ref',
+      'User-Agent': 'DLProbe/1.0',
+    }
+    return DL.fetch('https://httpbin.org/headers', { headers: want }).then(
+      function (r) {
+        if (!r.ok) return line('forbidden header 覆写上线', false, 'HTTP ' + r.status)
+        var got = lowerHeaders(r.json().headers)
+        var bad = []
+        for (var k in want) {
+          if (got[k.toLowerCase()] !== want[k]) {
+            bad.push(k + '=' + JSON.stringify(got[k.toLowerCase()]))
+          }
+        }
+        line(
+          'forbidden header 覆写上线',
+          bad.length === 0,
+          bad.length ? '回显不符：' + bad.join(' / ') : 'Cookie/Referer/UA 回显一致',
+        )
+      },
+      function (e) {
+        line('forbidden header 覆写上线', false, msg(e))
+      },
+    )
+  }
+
+  // ② 同 host 隔离：写者（带覆写）挂规则期间，并发发出的纯请求绝不能沾上覆写头。
+  // 写者用 /delay/1 拉长规则挂起窗口，读者若被并发放行就会落在窗口内——能真正区分锁有无效。
+  function isolationCase() {
+    var t0 = Date.now()
+    return Promise.all([
+      DL.fetch('https://httpbin.org/delay/1', {
+        headers: { Cookie: 'dl_probe=1', 'User-Agent': 'DLProbe/1.0' },
+      }),
+      DL.fetch('https://httpbin.org/headers?plain=1'),
+    ]).then(
+      function (rs) {
+        var taken = Date.now() - t0
+        var reader = rs[1]
+        if (!reader.ok) return line('同 host 纯请求不被污染', false, '读者 HTTP ' + reader.status)
+        var got = lowerHeaders(reader.json().headers)
+        var dirty = []
+        if (got.cookie) dirty.push('Cookie=' + got.cookie)
+        if (got['user-agent'] === 'DLProbe/1.0') dirty.push('User-Agent 被覆写')
+        line(
+          '同 host 纯请求不被污染',
+          dirty.length === 0,
+          dirty.length ? '被套上：' + dirty.join(' / ') : '读者干净，排在写者之后（' + taken + 'ms）',
+        )
+      },
+      function (e) {
+        line('同 host 纯请求不被污染', false, msg(e))
+      },
+    )
+  }
+
+  // ③ redirect:'manual'：SW fetch 只拿得到 opaqueredirect，状态与 Location 靠观察型 webRequest 补齐
+  function manualRedirectCase() {
+    return DL.fetch(REDIRECT_URL, { redirect: 'manual' }).then(
+      function (r) {
+        var loc = (r.headers && (r.headers.location || r.headers.Location)) || ''
+        var ok = r.status === 302 && !!loc
+        line('redirect:manual 读 3xx', ok, 'status=' + r.status + ' location=' + JSON.stringify(loc))
+      },
+      function (e) {
+        line('redirect:manual 读 3xx', false, msg(e))
+      },
+    )
+  }
+
+  // ④ redirect:'error'：交 fetch 原生语义（遇 3xx 直接拒绝），与 manual 走的是两条路
+  function errorRedirectCase() {
+    return DL.fetch(REDIRECT_URL, { redirect: 'error' }).then(
+      function (r) {
+        line('redirect:error 拒绝', false, '没抛错，status=' + r.status)
+      },
+      function (e) {
+        line('redirect:error 拒绝', true, (e && e.code ? e.code + ' ' : '') + msg(e))
+      },
+    )
+  }
+
   function tabsCase() {
     return (async function () {
       var id = await DL.tabs.open('https://example.com/#dl-api-probe', { active: false })
@@ -162,13 +262,18 @@
   async function runSuite() {
     running = true
     results = []
-    render('运行中…（约 10s，期间会短暂开一个标签页）')
+    render('运行中…（约 15s，期间会短暂开一个标签页）')
     await timeoutAbortCase()
     await timeoutZeroCase()
     await binaryBodyCase()
     await arrayBufferAndDataViewCase()
     await stringBodyCase()
     await invalidBodyCase()
+    // 二期四项：header 覆写 / 同 host 隔离 / redirect manual·error
+    await headerOverrideCase()
+    await isolationCase()
+    await manualRedirectCase()
+    await errorRedirectCase()
     await tabsCase()
     var failed = results.filter(function (r) { return !r.ok }).length
     render(failed ? '完成：' + failed + ' 项失败' : '完成：全部通过 ✓')
