@@ -8,6 +8,7 @@ import {
   List as UiList,
   Pencil as UiPencil,
   Settings as UiSettings,
+  Wrench as UiWrench,
   X as UiX
 } from '@lucide/vue'
 import {
@@ -99,6 +100,7 @@ onMounted(async () => {
         <ui-history v-else-if="tab.kind === 'error-log'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-pencil v-else-if="tab.kind === 'userscript-edit'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-compass v-else-if="tab.kind === 'guide'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <ui-wrench v-else-if="tab.kind === 'agent-tools'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <span class="truncate">{{ tab.title }}</span>
         <button

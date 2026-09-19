@@ -22,6 +22,7 @@ import {
   type UIMessageChunk,
 } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
+import { AGENT_RUNTIME_LIMITS } from '@/lib/agent-tools-catalog'
 import { appendMessage, listMessages } from '@/lib/conversation-store'
 import { toPersistedMessage, toUiMessage } from '@/lib/conversation-message'
 import { textOfMessage } from '@/lib/ui-message-parts'
@@ -46,8 +47,9 @@ import {
 import { buildScriptTools, type TaskWorkspace } from './script-tools'
 import { getTask, listRunningTasks, putTask, removeTask, type ChatTaskRecord } from './task-store'
 
-/** maxSteps 上限：沿用桌面版 agent-orchestrator 的 8 */
-const MAX_STEPS = 8
+/** maxSteps 上限：沿用桌面版 agent-orchestrator 的 8。
+ *  阈值取自 agent-tools-catalog（工作台「AI 工具」面板展示同一份，不再各写一份）。 */
+const MAX_STEPS = AGENT_RUNTIME_LIMITS.maxSteps
 /** 心跳间隔 / 孤儿判定阈值：宿主活着时每 5s 跳一次；30s 无心跳即判孤儿 */
 const HEARTBEAT_MS = 5_000
 /** 孤儿判定的最小保护窗：只为盖住 chat:start 落盘记录 → runLoop 注册内存表
