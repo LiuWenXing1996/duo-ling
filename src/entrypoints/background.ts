@@ -15,7 +15,7 @@
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
-import type { ModelProfileState, OffscreenPush, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
+import type { ModelProfileState, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 
 // 用户脚本管理器（v2 方案）：引擎 + 存储 + DL 桥 + 类型
 import {
@@ -60,19 +60,13 @@ import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailabilit
 
 // offscreen document 容器（AI 生成链路的执行宿主）
 import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady } from '@/lib/offscreen'
-// 模型配置：offscreen 既收不到 storage.onChanged、也不该直连存储，一律由 SW 经命令 / 推送中转
+// 模型配置：offscreen 既不直连存储、也不 import model-store（SW 专属模块），一律由
+// SW 经命令中转；变更推送由 model-store 写出口直发（见 offscreen-main.ts）。
 import { getActiveProfileState } from '@/lib/model-store'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
-import { broadcastBuildPhase, broadcastDataChange } from '@/lib/data-broadcast'
+import { broadcastBuildPhase } from '@/lib/data-broadcast'
 // AI 工具支路：page_snapshot 工具经 SW 调 userScripts.execute（offscreen 不可达该 API）
 import { capturePageSnapshotFromTab, pageInjectionBlockReason } from '@/lib/element-picker-client'
-
-/**
- * 模型配置在 chrome.storage.local 的键。
- * 与 src/lib/model-store.ts 的 `KEY` 是同一个值（键名是持久化契约，改名要迁数据，
- * 故两处并行硬编码、不互相 import）。
- */
-const MODEL_PROFILES_KEY = 'modelProfiles'
 
 /**
  * SW 管辖的 kind 前缀（路由白名单）。
@@ -535,26 +529,9 @@ export default defineBackground(() => {
   // SW 冷启动即确保 offscreen 在场（与上面监听器互补：SW 被终止后重启时，首条事件会触发本回调）
   void ensureOffscreen().catch((e) => console.error('[duoling:offscreen] ensure failed', e))
 
-  // 模型配置变更 → 通知 offscreen 重新拉取（它只有 chrome.runtime，收不到 storage.onChanged）。
-  // 只发「变了」这个信号、**不推配置内容**：由 offscreen 主动回拉，apiKey 只在它取用时过界，
-  // 而不是被 SW 广播。容器不存在就直接跳过，不为一条通知唤醒上下文。
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local' || !Object.prototype.hasOwnProperty.call(changes, MODEL_PROFILES_KEY)) {
-      return
-    }
-    // 顺带通知前端：chrome.storage 的 onChanged 只是「存储变了」的信号，
-    // 各扩展页的视图不会因此自己刷新——别的窗口的设置页、侧边栏的模型选择器都得靠这条广播。
-    broadcastDataChange('model')
-    void isOffscreenReady()
-      .then((ready) => {
-        if (!ready) return
-        const push: OffscreenPush = { kind: 'offscreen:configChanged' }
-        return chrome.runtime.sendMessage(push)
-      })
-      .catch(() => {
-        // 尽力而为：容器刚被关掉 / 无人监听时不阻断
-      })
-  })
+  // 模型配置变更通知已随存储迁移（chrome.storage → duoling-app 库）挪到 model-store 写出口：
+  // 它落盘成功后自己广播 `model` 域（扩展页回拉）并推送 offscreen:configChanged（offscreen
+  // 的 profile-cache 回拉）。SW 这里不再需要 storage.onChanged 兜底。
 
   chrome.runtime.onMessage.addListener((raw, _sender, sendResponse) => {
     const msg = raw as RuntimeRequest | undefined

@@ -7,7 +7,7 @@
 //
 //   conversation.*  → 读：IndexedDB（src/lib/conversation-store.ts）；写：conv:* 命令路由 offscreen
 //                     （会话历史唯一写入方 = offscreen，见下方说明）
-//   model.*         → chrome.storage.local（src/lib/model-store.ts）
+//   model.*         → IndexedDB duoling-app 库（src/lib/model-store.ts）
 //   provider.*      → 预设表（src/lib/providers.ts）
 //   window.*        → 扩展页没有无边框窗口，按「无窗口状态」应答
 //   workspace.*     → 标签快照上报（Agent 编排未平移，空实现）
@@ -121,7 +121,7 @@ const conversation: PreloadApi['conversation'] = {
   deleteAll: () => sendOffscreen({ kind: 'conv:deleteAll' })
 }
 
-// —— model：转接到 chrome.storage.local ——
+// —— model：转接到 IndexedDB duoling-app 库 ——
 
 const model: PreloadApi['model'] = {
   list: async () => ({

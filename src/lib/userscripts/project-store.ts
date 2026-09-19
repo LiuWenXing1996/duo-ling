@@ -1,7 +1,7 @@
 // 用户脚本项目的**读侧**（SW / offscreen / 扩展页共用）。
 //
 // 与 store.ts 的分工：
-//   store.ts        —— DL.store 值（duoling-usdata 库）+ 观测数据（chrome.storage），只许 SW import；
+//   store.ts        —— DL.store 值（duoling-usdata 库）+ 观测数据（duoling-runtime 库），只许 SW import；
 //   project-store.ts —— 只读项目状态库（IndexedDB，见 state-db.ts），不碰任何 chrome API，
 //                       所以 SW 与 offscreen 都能直接用，offscreen 不必再经 SW 桥接取项目。
 //

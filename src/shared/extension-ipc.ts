@@ -202,7 +202,7 @@ export type RuntimeRequest =
   | { kind: 'clipboard:write'; text: string | null; html: string | null }
 
   // —— 模型配置（offscreen 侧向 SW 拉取）——
-  // offscreen 拿不到 chrome.storage，故在启动 / 收到变更推送时经此命令取一次并缓存。
+  // offscreen 不 import model-store（SW 专属模块），故在启动 / 收到变更推送时经此命令取一次并缓存。
   // 返回值含 apiKey 明文：属同扩展内上下文之间的传递（offscreen 与 SW 信任级别等同），
   // 不是新增对外暴露面；但仍须「取一次、缓存、不写日志」。
   | { kind: 'model:getActiveProfile' }
@@ -252,7 +252,7 @@ export type DataDomain =
   | 'script'
   /** 会话与消息（duoling-chat） */
   | 'conversation'
-  /** 模型配置（chrome.storage.local） */
+  /** 模型配置（duoling-app 库） */
   | 'model'
   /** 用户脚本错误日志（runtime 库 errors store） */
   | 'error'

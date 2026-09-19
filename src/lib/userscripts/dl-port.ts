@@ -92,7 +92,7 @@ export class DlPortRegistry {
     for (const port of this.portsByConnId(uuid, connId)) this.watches.get(port)?.delete(key)
   }
 
-  /** 订阅了该脚本某 key 的全部 Port（storage.onChanged 路由） */
+  /** 订阅了该脚本某 key 的全部 Port（store 写出口事件路由） */
   watchersForKey(uuid: string, key: string): chrome.runtime.Port[] {
     const out: chrome.runtime.Port[] = []
     for (const [port, keys] of this.watches) {

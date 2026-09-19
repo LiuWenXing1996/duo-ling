@@ -85,8 +85,6 @@ beforeEach(async () => {
     cookies: cookiesMocks,
     declarativeNetRequest: dnrMocks,
     webRequest: { onHeadersReceived: { addListener: (fn: (d: unknown) => void) => webRequestListeners.push(fn) } },
-    // 错误路径会调 appendUserScriptError → chrome.storage，给个最小兜底防未处理拒绝噪音
-    storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) } },
   })
   const mod = await import('./dl-bridge')
   mod.initDlBridge()

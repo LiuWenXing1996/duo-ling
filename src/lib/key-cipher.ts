@@ -2,9 +2,11 @@
 //
 // 定位：扩展拿不到系统钥匙串（Chrome 未提供 safeStorage 等价物），又不引入
 // 用户口令方案，因此采用「安装期随机密钥 + AES-GCM」的静默加密：Key 不再以
-// 明文出现在 chrome.storage.local，可挡住备份同步、文件拷走后的明文扫描
-// （grep `sk-` 等）。⚠️ 密钥同样存于本机扩展存储，能读到存储的人就能解密——
+// 明文出现在本地存储（duoling-app 库），可挡住备份同步、文件拷走后的明文扫描
+// （grep `sk-` 等）。⚠️ 密钥同样存于本机，能读到存储的人就能解密——
 // 这不是对抗本机恶意软件的防线，真实降损靠「子 Key + 额度上限 + 定期轮换」。
+import * as appDb from './app-db'
+
 const DEK_KEY = 'apiKeyDek'
 
 /** AES-GCM 密文载荷（iv 与密文均 base64） */
@@ -31,13 +33,13 @@ function fromB64(value: string): Uint8Array<ArrayBuffer> {
 /** 惰性获取（或首次生成）落盘加密密钥 */
 async function getDek(): Promise<CryptoKey> {
   if (dekCache) return dekCache
-  const raw = (await chrome.storage.local.get(DEK_KEY))[DEK_KEY] as string | undefined
+  const raw = await appDb.get<string>(DEK_KEY)
   let bytes: Uint8Array<ArrayBuffer>
   if (raw) {
     bytes = fromB64(raw)
   } else {
     bytes = crypto.getRandomValues(new Uint8Array(32))
-    await chrome.storage.local.set({ [DEK_KEY]: toB64(bytes) })
+    await appDb.set(DEK_KEY, toB64(bytes))
   }
   dekCache = await crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, [
     'encrypt',

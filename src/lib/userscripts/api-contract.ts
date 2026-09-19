@@ -5,7 +5,7 @@
 //   ② 强类型桥（取代原先 `cmd: string; args: unknown[]` 的弱类型分发）
 //   ③ 可导出为 .d.ts 供脚本作者获得智能提示
 //
-// 约束：所有跨桥值必须同时满足「结构化克隆」与「可存进 chrome.storage」，
+// 约束：所有跨桥值必须满足「结构化克隆」（存储层 IndexedDB 同样要求），
 // 故统一收窄为 Json 类型；函数、类实例、DOM 节点一律不可跨桥。
 
 /** 允许跨桥 / 落盘的值类型 */
@@ -165,7 +165,7 @@ export type ApiRequest =
 
 /**
  * 后台 → 脚本世界 的推送事件，经 DL Port 下行（帧信封见 ApiEventFrame）。
- * 三类来源：contextMenus.onClicked → menu.click；storage.onChanged → store.change；
+ * 三类来源：contextMenus.onClicked → menu.click；store.ts 写出口直发 → store.change；
  * notifications.onClicked → notify.click。
  */
 export type ApiEvent =

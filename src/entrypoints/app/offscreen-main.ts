@@ -58,7 +58,8 @@ function announceReady(): void {
   })
 }
 
-// SW 的单向推送：offscreen 收不到 storage.onChanged，配置变更由 SW 转告后回拉。
+// 模型配置写侧（model-store 写出口）的单向推送：offscreen 不 import model-store（SW 专属模块），
+// 配置变更由写侧推 offscreen:configChanged、这里触发回拉。
 
 /**
  * offscreen 应答的命令面前缀（与 SW 的 SW_KIND_PREFIXES 互补，两者并集须恰好覆盖

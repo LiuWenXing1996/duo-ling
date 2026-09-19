@@ -1,7 +1,9 @@
 // key-cipher.ts 单测：加解密往返 + 密文载荷判别。
-// chrome.storage 依赖由 WxtVitest 插件 stub 成 fakeBrowser（Node 22 自带 crypto.subtle / btoa / atob）。
+// DEK 落 duoling-app 库：fake-indexeddb/auto 供 IDB（Node 22 自带 crypto.subtle / btoa / atob）。
+import 'fake-indexeddb/auto'
 import { describe, expect, it } from 'vitest'
 import { decryptApiKey, encryptApiKey, isEncPayload } from './key-cipher'
+import { get as appGet } from './app-db'
 
 describe('encryptApiKey / decryptApiKey 往返', () => {
   it('ASCII 明文往返一致', async () => {
@@ -44,12 +46,12 @@ describe('encryptApiKey / decryptApiKey 往返', () => {
 })
 
 describe('DEK 持久化', () => {
-  it('首次加密后密钥落盘 chrome.storage.local（明文 Key 不出现在存储）', async () => {
+  it('首次加密后密钥落 duoling-app 库（明文 Key 不出现在存储）', async () => {
     await encryptApiKey('probe')
-    const stored = await chrome.storage.local.get('apiKeyDek')
+    const stored = await appGet<string>('apiKeyDek')
     // 存的是 base64 的原始密钥字节（本来就非明文 API Key），关键是不存在明文 key 值
-    expect(typeof stored.apiKeyDek).toBe('string')
-    expect(stored.apiKeyDek).not.toContain('sk-')
+    expect(typeof stored).toBe('string')
+    expect(stored).not.toContain('sk-')
   })
 })
 

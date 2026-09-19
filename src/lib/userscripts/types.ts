@@ -1,6 +1,5 @@
-// 用户脚本管理器的类型与存储键约定（v2 方案）。
+// 用户脚本管理器的类型与存储约定（v2 方案）。
 //
-// 全量复用 chrome.storage.local（单存储，含项目源码 + DL 值 + 设置），不另起 IndexedDB。
 // v2 新形态：一个脚本 = 一个项目（ScriptProject），配置直接映射 chrome.userScripts 原生字段。
 
 /** 脚本配置：全部直接映射 chrome.userScripts 原生注册字段，无 metadata 中间层 */
