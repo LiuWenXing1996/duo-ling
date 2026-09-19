@@ -41,6 +41,7 @@ import { buildProject } from './builder'
 import {
   createProject,
   importScriptsZip,
+  rebuildPendingProjects,
   removeAllProjects,
   removeProjectAndRepo,
   setProjectEnabled,
@@ -323,7 +324,13 @@ function makeZipBase64(
 }
 
 describe('importScriptsZip', () => {
-  it('单脚本导入成功：enabled 恒 false / uuid 重生成 / 提交 note = 「从 zip 导入」/ 保留原名', async () => {
+  it('单脚本导入：导入即返回（占位态 lastBuildAt=0），后台构建补终态 / enabled 恒 false / 保留原名', async () => {
+    // 门控构建：让后台构建卡住，断言「导入返回 ≠ 构建完成」的解耦语义
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    mockBuild.mockImplementationOnce(() =>
+      gate.then(() => Promise.resolve({ code: '//bundled(1)', files: { 'main.js': 'console.log(1)' }, remoteFetched: [] })),
+    )
     const report = await importScriptsZip(
       makeZipBase64([{ dir: 'demo', name: '演示脚本', files: { 'main.js': 'console.log(1)' } }]),
     )
@@ -331,14 +338,27 @@ describe('importScriptsZip', () => {
     expect(report.failed).toBe(0)
     const item = report.results[0]!
     expect(item.status).toBe('ok')
-    const stored = (await readAllProjects()).find((p) => p.uuid === (item as { uuid: string }).uuid)
-    expect(stored).toBeDefined()
-    expect(stored!.enabled).toBe(false)
-    expect(stored!.name).toBe('演示脚本')
-    expect(stored!.bundle).toBeDefined() // 构建跟随保存产生产物
-    expect(mockWriteSourceTree).toHaveBeenCalledOnce() // 源码落 duoling-fs（导入首要落点）
+    const uuid = (item as { uuid: string }).uuid
+    // 报告返回时构建被门控卡着：占位注册态 = 无产物 + lastBuildAt=0（「从未构建」哨兵）
+    const placeholder = (await readAllProjects()).find((p) => p.uuid === uuid)
+    expect(placeholder).toBeDefined()
+    expect(placeholder!.enabled).toBe(false)
+    expect(placeholder!.name).toBe('演示脚本')
+    expect(placeholder!.bundle).toBeUndefined()
+    expect(placeholder!.lastBuildAt).toBe(0)
+    // 源码落 duoling-fs（导入首要落点），提交 note = 「从 zip 导入」
+    expect(mockWriteSourceTree).toHaveBeenCalledOnce()
     expect(mockCommitSource).toHaveBeenCalledOnce()
     expect(mockCommitSource.mock.calls[0]![2]).toBe('从 zip 导入')
+    // 放行后台构建 → 终态落库（等状态库出现产物，不是等 build 被调——被调时可能还卡在门里）
+    release()
+    const stored = await vi.waitFor(async () => {
+      const s = (await readAllProjects()).find((p) => p.uuid === uuid)
+      expect(s?.bundle).toBeDefined()
+      return s
+    })
+    expect(stored!.buildOk).toBe(true)
+    expect(stored!.lastBuildAt).toBeGreaterThan(0)
   })
 
   it('重复导入同一内容：仍导入为独立副本，报告带 duplicateOf 提示', async () => {
@@ -362,7 +382,7 @@ describe('importScriptsZip', () => {
     await expect(readAllProjects()).resolves.toHaveLength(2)
   })
 
-  it('构建失败不淘汰：脚本仍导入（产物置空）+ note 带 esbuild 诊断，版本照常提交', async () => {
+  it('后台构建失败不淘汰：脚本已导入（产物置空，终态 = 失败），源码照常提交', async () => {
     mockBuild.mockRejectedValueOnce(new (await import('./builder')).BuildError(['main.js:1:1 语法错误']))
     const report = await importScriptsZip(
       makeZipBase64([
@@ -370,18 +390,48 @@ describe('importScriptsZip', () => {
         { dir: 'good', name: '好脚本', files: { 'main.js': 'console.log(1)' } },
       ]),
     )
-    expect(report.succeeded).toBe(2) // 两个都导入
+    expect(report.succeeded).toBe(2) // 两个都导入（构建在后台，报告不再携带构建诊断）
     expect(report.failed).toBe(0)
     const bad = report.results.find((r) => r.name === '坏脚本') as { status: string; notes?: string[] }
     expect(bad.status).toBe('ok')
-    expect((bad.notes ?? []).join(' ')).toContain('main.js:1:1')
+    expect(bad.notes).toBeUndefined()
+    await vi.waitFor(() => expect(mockBuild).toHaveBeenCalledTimes(2))
     const stored = await readAllProjects()
     expect(stored.map((p) => p.name).sort()).toEqual(['坏脚本', '好脚本'])
-    expect(stored.find((p) => p.name === '坏脚本')!.bundle).toBeUndefined() // 产物置空
+    const badStored = stored.find((p) => p.name === '坏脚本')!
+    expect(badStored.bundle).toBeUndefined() // 产物置空
+    expect(badStored.buildOk).toBe(false)
+    expect(badStored.lastBuildAt).toBeGreaterThan(0) // 有终态时刻 → 列表按「构建失败」展示
     expect(stored.find((p) => p.name === '好脚本')!.bundle).toBeDefined()
     // 源码照常写工作区；构建失败不再跳过提交（统一保存语义）
     expect(mockWriteSourceTree).toHaveBeenCalledTimes(2)
     expect(mockCommitSource).toHaveBeenCalledTimes(2)
+  })
+
+  it('后台构建非 BuildError 异常：状态停在 lastBuildAt=0，启动对账重新排队补终态', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockBuild.mockRejectedValueOnce(new Error('wasm 引导崩了')) // 非 BuildError → 队列 catch，状态不更新
+    const report = await importScriptsZip(
+      makeZipBase64([{ dir: 'demo', name: '演示', files: { 'main.js': 'console.log(1)' } }]),
+    )
+    const uuid = (report.results[0] as { uuid: string }).uuid
+    await vi.waitFor(() => expect(mockBuild).toHaveBeenCalledOnce())
+    expect((await readAllProjects()).find((p) => p.uuid === uuid)!.lastBuildAt).toBe(0) // 悬挂态
+    warn.mockRestore()
+    // 下次 offscreen 启动对账：lastBuildAt=0 的脚本重新入队（对账读工作树取码），构建成功补终态
+    mockReadSourceTree.mockImplementation(async (u: string) =>
+      u === uuid
+        ? {
+            meta: { name: '演示', config: { matches: ['*://*/*'], allFrames: true, runAt: 'document_end' }, entry: 'main.js', createdAt: 0 },
+            files: { 'main.js': 'console.log(1)' },
+          }
+        : null,
+    )
+    await rebuildPendingProjects()
+    await vi.waitFor(() => expect(mockBuild).toHaveBeenCalledTimes(2))
+    const stored = (await readAllProjects()).find((p) => p.uuid === uuid)!
+    expect(stored.buildOk).toBe(true)
+    expect(stored.lastBuildAt).toBeGreaterThan(0)
   })
 
   it('matches 非法不拦：照常导入并原样落库（报错留给启用时 registerScript）', async () => {

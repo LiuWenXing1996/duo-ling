@@ -29,6 +29,7 @@ vi.mock('@/lib/userscripts/project-write', () => ({
   createProject: vi.fn(),
   createGeneratedProject: vi.fn(),
   importScriptsZip: vi.fn(),
+  rebuildPendingProjects: vi.fn(async () => 0),
   removeAllProjects: vi.fn(),
   removeProjectAndRepo: vi.fn(),
   setProjectEnabled: vi.fn(),

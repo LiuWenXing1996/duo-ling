@@ -30,6 +30,7 @@
 import '@/polyfills'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { handleFsCommand, type FsRequest } from '@/lib/userscripts/offscreen-fs-commands'
+import { rebuildPendingProjects } from '@/lib/userscripts/project-write'
 import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
 // 读侧项目列表（IndexedDB 同源直读，project-store 明确标注 offscreen 可用）：
 // 心跳的条件门——没有启用脚本就不 ping SW（上游 #45 保活心跳；不引 handleBuildCommand——
@@ -199,6 +200,8 @@ announceReady()
 void refreshActiveProfile()
 // 启动一次最终一致对账：补齐缺失仓、清理多余仓目录（幂等，失败不阻断）
 void reconcileFs()
+// 导入后台构建的悬挂态对账：导入只落源码（构建走后台队列），队列被杀的脚本（lastBuildAt=0）在此重排
+void rebuildPendingProjects()
 
 // —— SW 保活心跳 ——
 // Chrome 对「运行用户脚本」开关变化**没有任何事件**，而开关关闭期间启用的脚本只落库未注册；
