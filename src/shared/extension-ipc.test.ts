@@ -86,6 +86,8 @@ const ALL_KINDS = [
   { kind: 'offscreen:close', side: 'sw' },
   { kind: 'offscreen:status', side: 'sw' },
   { kind: 'offscreen:ready', side: 'sw' },
+  // —— clipboard:*（offscreen：剪贴板写，免手势 + 富文本）——
+  { kind: 'clipboard:write', side: 'offscreen' },
   // —— model:*（SW：配置中转）——
   { kind: 'model:getActiveProfile', side: 'sw' },
   // —— page:*（SW：AI 工具支路，page_snapshot 经 SW 调 userScripts.execute）——

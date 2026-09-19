@@ -314,3 +314,55 @@ describe('DL.cookie（cookies 权限 + 域名门）', () => {
     }
   })
 })
+
+describe('DL.tab', () => {
+  it('tab.save 落到 us:tab:<uuid>:<tabId> 键，tab.get 原样读回', async () => {
+    const store: Record<string, unknown> = {}
+    const setMock = chrome.storage.local.set as ReturnType<typeof vi.fn>
+    const getMock = chrome.storage.local.get as ReturnType<typeof vi.fn>
+    setMock.mockImplementation(async (o: Record<string, unknown>) => {
+      Object.assign(store, o)
+    })
+    getMock.mockImplementation(async (k: string | null) =>
+      k === null ? { ...store } : { [k]: store[k] },
+    )
+    const saveResp = await sendToBridge({ c: 'tab.save', value: { n: 1, s: 'x' } })
+    expect(saveResp).toEqual({ ok: true, data: undefined })
+    expect(setMock).toHaveBeenCalledWith({ 'us:tab:u1:1': { n: 1, s: 'x' } })
+    const getResp = await sendToBridge({ c: 'tab.get' })
+    expect(getResp).toEqual({ ok: true, data: { n: 1, s: 'x' } })
+  })
+
+  it('tab.all 只聚合本脚本的 tab 键，键为 tabId 字符串', async () => {
+    const store: Record<string, unknown> = {
+      'us:tab:u1:11': { a: 1 },
+      'us:tab:u1:22': { a: 2 },
+      'us:tab:other:11': { leak: true }, // 别的脚本，不应混入
+    }
+    ;(chrome.storage.local.get as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ ...store }))
+    const resp = await sendToBridge({ c: 'tab.all' })
+    expect(resp).toEqual({ ok: true, data: { '11': { a: 1 }, '22': { a: 2 } } })
+  })
+
+  it('无标签页上下文（sender.tab 缺失）报 INVALID_ARG', async () => {
+    // sendToBridge 固定带 { tab: { id: 1 } }，这里用裸监听器投递一个无 tab 的 sender
+    const resp = await new Promise((resolve) => {
+      listeners[0]!({ __dl: true, uuid: 'u1', req: { c: 'tab.get' } }, {}, resolve)
+    })
+    expect(resp).toMatchObject({ ok: false, code: 'INVALID_ARG' })
+  })
+})
+
+describe('parseTabKey', () => {
+  it('解析 us:tab:<uuid>:<tabId>', async () => {
+    const { parseTabKey } = await import('./dl-bridge')
+    expect(parseTabKey('us:tab:u1:42')).toEqual({ uuid: 'u1', tabId: 42 })
+    expect(parseTabKey('us:tab:abc-123:0')).toEqual({ uuid: 'abc-123', tabId: 0 })
+  })
+  it('非 tab 前缀 / 缺 tabId / tabId 非整数返回 null', async () => {
+    const { parseTabKey } = await import('./dl-bridge')
+    expect(parseTabKey('us:gm:u1:k')).toBeNull()
+    expect(parseTabKey('us:tab:u1:')).toBeNull()
+    expect(parseTabKey('us:tab:u1:xx')).toBeNull()
+  })
+})
