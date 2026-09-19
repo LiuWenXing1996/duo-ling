@@ -1,12 +1,11 @@
 name: release
 
 # 合 main 后由 CI 补打 tag：
-# 版本号由人在本地用 `npm run release` 决定并提交（commit message 固定为 `chore: release vX.Y.Z[-pre.N]`），
-# 通过 PR 合入 main；本 workflow 在 PR 合入后检测 main 最新提交是否为 release commit，
-# 是则在对应 commit 上打 annotated tag 并推送到远程。CI 不负责 bump，只负责推 tag。
-#
-# 设计前提：main 分支保护禁止对 main 直接 push（含 CI token），
-# 但 refs/tags/* 不在该 ruleset 约束范围内，故 CI 仅推送 tag、不碰分支。
+# 版本号由人在本地用 `npm run release` 决定，随「专门的 release PR」合入 main；
+# 本 workflow 在 release PR 合入后读取合并 commit 的 package.json version，
+# 若该版本 tag 不存在则打 annotated tag 并推送到 refs/tags/*。
+# 设计前提：main 分支保护禁止对分支直接 push（含 CI token），
+# 但 refs/tags/* 不在该 ruleset 约束内，故 CI 仅推 tag、不碰分支。
 
 on:
   pull_request:
@@ -16,7 +15,7 @@ on:
 permissions:
   contents: write
 
-# 串行，避免两个 PR 接连合入时重复打同一 tag。
+# 串行，防止两个 release PR 同时合入抢建同一 tag。
 concurrency:
   group: release
   cancel-in-progress: false
@@ -35,26 +34,22 @@ jobs:
           ref: main
           fetch-depth: 0
           fetch-tags: true
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      # runner 默认没有 git identity，annotated tag（`git tag -a`）会报 empty ident 而失败。
+      # runner 默认没有 git identity，annotated tag（git tag -a）会报 empty ident 而失败。
       - name: Configure git identity
         run: |
           git config user.email "actions@github.com"
           git config user.name "github-actions[bot]"
 
-      - name: Tag and push release commit
+      - name: Tag and push
         run: |
-          MSG=$(git log -1 --format=%s)
-          if [[ "$MSG" =~ ^chore:\ release\ v(.+)$ ]]; then
-            TAG="v${BASH_REMATCH[1]}"
-            if git rev-parse "$TAG" >/dev/null 2>&1; then
-              echo "tag $TAG 已存在，跳过。"
-              exit 0
-            fi
-            git tag -a "$TAG" -m "$TAG"
-            git push origin "$TAG"
-            echo "已推送 tag $TAG"
-          else
-            echo "最新提交不是 release commit（'$MSG'），跳过打 tag。"
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}"
+          echo "release version: ${VERSION} -> ${TAG}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "tag $TAG 已存在（本次非发版 PR 或已发过），跳过。"
+            exit 0
           fi
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+          echo "已推送 tag $TAG"
