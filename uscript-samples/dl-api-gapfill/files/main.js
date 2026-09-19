@@ -156,6 +156,25 @@
     return out
   }
 
+  // httpbin /headers 的正常回显必然带这几个真实请求头之一；一个都没有，说明拿到的不是正常回显
+  // （CDN 兜底页、半截响应、空体等）。此时「回显里没有脏头」证明不了「没被污染」——只能记未判定。
+  // 这条判据堵的是「空回显也能判 ✓」的恒真洞：没有数据，就不许下「干净」的结论。
+  var ECHO_MARKERS = ['host', 'accept', 'user-agent', 'accept-encoding', 'connection']
+
+  function readEcho(r) {
+    try {
+      var h = r.json().headers
+      if (!h) return null
+      var low = lowerHeaders(h)
+      for (var i = 0; i < ECHO_MARKERS.length; i++) {
+        if (low[ECHO_MARKERS[i]]) return low
+      }
+      return null
+    } catch (e) {
+      return null
+    }
+  }
+
   // ① 覆写真的上线：Cookie / Referer / User-Agent 三个禁设头应原样出现在服务端回显里
   function headerOverrideCase() {
     var want = {
@@ -165,8 +184,12 @@
     }
     return DL.fetch('https://httpbin.org/headers', { headers: want }).then(
       function (r) {
-        if (!r.ok) return line('forbidden header 覆写上线', false, 'HTTP ' + r.status)
-        var got = lowerHeaders(r.json().headers)
+        // 非 2xx / 回显不可辨认 = 没拿到可断言的证据，记未判定——不许当成「覆写没生效」
+        if (!r.ok) {
+          return line('forbidden header 覆写上线', null, 'HTTP ' + r.status + '（httpbin 抖动）——未能判定')
+        }
+        var got = readEcho(r)
+        if (!got) return line('forbidden header 覆写上线', null, '回显不可辨认——未能判定（重跑即可）')
         var bad = []
         for (var k in want) {
           if (got[k.toLowerCase()] !== want[k]) {
@@ -187,8 +210,8 @@
 
   // ② 同 host 隔离：写者（带覆写）挂规则期间，并发发出的纯请求绝不能沾上覆写头。
   // 写者用 /delay/1 拉长规则挂起窗口，读者若被并发放行就会落在窗口内——能真正区分锁有无效。
-  // 读者非 2xx（httpbin 抖动，502 常见）时重试一次；两次都拿不到回显只能记「未判定」——
-  // 502 的响应体是空的，读不出 header 干不干净，判功能失败会把人往错方向带。
+  // 读者非 2xx 或回显不可辨认（httpbin 抖动，502 常见）时重试一次；两次都拿不到回显只能记
+  // 「未判定」——502 的响应体是空的，读不出 header 干不干净，判功能失败会把人往错方向带。
   function isolationCase() {
     var t0 = Date.now()
     var writerFailed = false
@@ -200,29 +223,36 @@
         writerFailed = true
       },
     )
-    var retryReader = function () {
-      return sleep(500).then(function () {
-        return DL.fetch('https://httpbin.org/headers?plain=2')
-      })
+    // 读者要的是「一份可辨认的回显」：非 2xx、或 2xx 但回显里没有任何已知真实头（空体 / 兜底页），
+    // 都无从判断 header 干不干净 → 隔 500ms 重试一次；两次都拿不到才记「未能判定」。
+    var readPlain = function (n) {
+      return DL.fetch('https://httpbin.org/headers?plain=' + n).then(
+        function (r) {
+          return { status: r.status, echo: r.ok ? readEcho(r) : null }
+        },
+        function (e) {
+          return { status: msg(e), echo: null }
+        },
+      )
     }
-    var reader = DL.fetch('https://httpbin.org/headers?plain=1').then(
-      function (r) {
-        return r.ok ? r : retryReader()
-      },
-      retryReader,
-    )
+    var reader = readPlain(1).then(function (a) {
+      if (a.echo) return a
+      return sleep(500).then(function () {
+        return readPlain(2)
+      })
+    })
     return Promise.all([writer, reader]).then(
       function (rs) {
         var taken = Date.now() - t0
-        var reader_ = rs[1]
-        if (!reader_.ok) {
+        var a = rs[1]
+        if (!a.echo) {
           return line(
             '同 host 纯请求不被污染',
             null,
-            '读者两次均 HTTP ' + reader_.status + '（httpbin 抖动）——未能判定，非锁的问题',
+            '读者两次都没拿到可辨认的回显（' + a.status + '）——未能判定，非锁的问题',
           )
         }
-        var got = lowerHeaders(reader_.json().headers)
+        var got = a.echo
         var dirty = []
         if (got.cookie) dirty.push('Cookie=' + got.cookie)
         if (got['user-agent'] === 'DLProbe/1.0') dirty.push('User-Agent 被覆写')
