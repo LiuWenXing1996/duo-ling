@@ -95,7 +95,6 @@ const ALL_KINDS = [
   { kind: 'conv:rename', side: 'offscreen' },
   { kind: 'conv:delete', side: 'offscreen' },
   { kind: 'conv:deleteAll', side: 'offscreen' },
-  { kind: 'conv:append', side: 'offscreen' },
   // —— chat:*（offscreen：对话编排，发起 / 停止 / 重连 / 孤儿）——
   { kind: 'chat:start', side: 'offscreen' },
   { kind: 'chat:abort', side: 'offscreen' },

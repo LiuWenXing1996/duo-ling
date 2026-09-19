@@ -3,7 +3,7 @@
 // 会话列表渲染、选中拉消息、pageContext 落盘标记、原始 JSON 展开/收起。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import type { Conversation, Message } from '@/shared/types'
+import type { AssistantMessage, Conversation, UserMessage } from '@/shared/types'
 
 const listConversations = vi.fn()
 const listMessages = vi.fn()
@@ -23,12 +23,25 @@ const conv = (id: string, title: string): Conversation => ({
   totalTokens: 128,
 })
 
-const msg = (overrides?: Partial<Message>): Message => ({
+// Message 按 role 判别（user 分支带 pageContext、assistant 分支带 usage），
+// 造数据用两个 builder，避免 Partial<Message> 在联合上散不开
+const msg = (overrides?: Partial<Omit<UserMessage, 'role'>>): UserMessage => ({
   id: 'm1',
   conversationId: 'c1',
   role: 'user',
   content: '把这个按钮改成红色',
+  parts: [{ type: 'text', text: '把这个按钮改成红色' }],
   createdAt: '2026-09-17T10:01:00.000Z',
+  ...overrides,
+})
+
+const aiMsg = (overrides?: Partial<Omit<AssistantMessage, 'role'>>): AssistantMessage => ({
+  id: 'm2',
+  conversationId: 'c1',
+  role: 'assistant',
+  content: '好的',
+  parts: [{ type: 'text', text: '好的' }],
+  createdAt: '2026-09-17T10:01:01.000Z',
   ...overrides,
 })
 
@@ -67,7 +80,7 @@ describe('ChatDataPanel', () => {
     listConversations.mockResolvedValue([conv('c1', '改按钮颜色')])
     listMessages.mockResolvedValue([
       msg({ pageContext: { element: elementCtx } }),
-      msg({ id: 'm2', role: 'assistant', content: '好的', usage: { totalTokens: 88 } }),
+      aiMsg({ usage: { totalTokens: 88 } }),
     ])
     const wrapper = mountPanel()
     await flushPromises()

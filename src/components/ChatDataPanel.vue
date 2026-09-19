@@ -92,14 +92,21 @@ function formatTime(iso: string): string {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-/** 落盘字段概览：parts 里出现过哪些块类型（排查卡片 / 工具调用是否落库） */
+/** 单条消息的 token 用量（usage 只落在 assistant 分支，模板里读它需要先判角色，故收成 helper） */
+function usageTokens(m: Message): number | undefined {
+  return m.role === 'assistant' ? m.usage?.totalTokens : undefined
+}
+
+/** 落盘字段概览：parts 里出现过哪些块类型（排查卡片 / 工具调用是否落库）。
+ * `?? []` 只是防炸护栏：类型上 parts 必填，但库里可能还有旧记录（parts 缺失）。 */
 function partTypes(m: Message): string[] {
   return [...new Set((m.parts ?? []).map((p) => p.type))]
 }
 
-/** 随消息落盘的拾取概览（排查 pageContext 是否真的进了库）；旧数据里的 snapshot 字段不再展示 */
+/** 随消息落盘的拾取概览（排查 pageContext 是否真的进了库）；旧数据里的 snapshot 字段不再展示。
+ * pageContext 只属于 user 分支，故先按 role 收窄。 */
 function pageContextLabel(m: Message): string {
-  const ctx = m.pageContext
+  const ctx = m.role === 'user' ? m.pageContext : undefined
   if (!ctx?.element) return ''
   const s = ctx.element.summary
   return `已点选 <${s.tag}${s.id ? '#' + s.id : ''}>`
@@ -192,7 +199,7 @@ function pageContextLabel(m: Message): string {
                 {{ m.role === 'user' ? '用户' : 'AI' }}
               </span>
               <span>{{ formatTime(m.createdAt) }}</span>
-              <span v-if="m.usage?.totalTokens">· {{ m.usage.totalTokens }} tokens</span>
+              <span v-if="usageTokens(m)">· {{ usageTokens(m) }} tokens</span>
               <span v-if="partTypes(m).length" class="min-w-0 truncate" :title="partTypes(m).join('，')">
                 · {{ partTypes(m).join('，') }}
               </span>

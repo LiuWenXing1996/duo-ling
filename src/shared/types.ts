@@ -34,25 +34,42 @@ export interface ConversationSearchHit {
   snippet: string
 }
 
-export type MessageRole = 'user' | 'assistant'
-
-export interface Message {
+/** 落盘消息的公共字段（两种角色都有）。
+ *
+ * **parts 必填**：它是回显的正文真相源（读侧 `toUiMessage` → ChatPanel 只按 parts 渲染），
+ * content 只是由 parts 拍平出来的派生字段。曾经这里写成 `parts?`，结果 user 消息的落盘
+ * 路径漏写了它 —— 重开会话后用户气泡全空，而 `content` 还在，静态检查却完全不报。
+ * 落盘一律经 `lib/conversation-message.ts` 的 `toPersistedMessage`（单一投影），不要手写对象。 */
+interface MessageBase {
   id: string
   conversationId: string
-  role: MessageRole
   content: string
-  /** AI 思考过程（reasoning），与正文分离存储；仅 assistant 消息可能有 */
-  reasoning?: string
-  /** 完整 UIMessage.parts（reasoning/text/tool）。
-   * 回读时据此还原分轮思考 / 工具卡 / 多段正文；新数据均带 parts。 */
-  parts?: UIMessage['parts']
-  /** 本次生成消耗的 token（仅 assistant 消息有值），持久化为会话累计与单条耗时的唯一来源 */
-  usage?: TokenUsage
-  /** 随本条用户消息附上的页面上下文（元素拾取 / 页面快照，用户显式采集）。
-   * 气泡 chip 与后续轮次「最近一次拾取」prompt 注入的数据源；旧数据 / 未附上下文时缺省。 */
-  pageContext?: import('./extension-ipc').MessagePageContext
+  /** 完整 UIMessage.parts（text/reasoning/tool/file/data…），回显据此还原全部结构 */
+  parts: UIMessage['parts']
   createdAt: string
 }
+
+/** 用户消息：随消息附带的页面上下文（元素拾取 / 页面快照，用户显式采集）只在这条路径上有。
+ * 气泡 chip 与后续轮次「最近一次拾取」prompt 注入的数据源；未附上下文时缺省。 */
+export interface UserMessage extends MessageBase {
+  role: 'user'
+  pageContext?: import('./extension-ipc').MessagePageContext
+}
+
+/** AI 消息：思考过程与 token 用量只在这条路径上有 */
+export interface AssistantMessage extends MessageBase {
+  role: 'assistant'
+  /** AI 思考过程（reasoning）：从 parts 里的 reasoning part 拍平出来的冗余副本。
+   * **目前没有程序读侧**（续跑重建已改走 parts，见 lib/conversation-message.ts），
+   * 只有调试面板的原始 JSON 看得到 —— 留着是为检索/排查的近便，也可视作待清理项。 */
+  reasoning?: string
+  /** 本次生成消耗的 token，持久化为会话累计与单条耗时的唯一来源 */
+  usage?: TokenUsage
+}
+
+/** 落盘消息（会话库 duoling-chat 的记录形状）。按 role 判别：
+ * 读 usage / pageContext 这类角色专有字段时必须先判 role，避免张冠李戴。 */
+export type Message = UserMessage | AssistantMessage
 
 // —— 模型 ——
 /** 渲染进程可见的模型配置（apiKey 不回传明文，只暴露是否已设置） */
@@ -154,7 +171,10 @@ export interface WorkspaceTabsState {
   activeTabId: string
 }
 
-// —— IPC 相关响应类型 ——
+// —— 未平移的桌面版 IPC 面（只有 PreloadApi 的 agent / window 两个占位成员在用）——
+// 说明：这两组类型是桌面版契约的形状，扩展版把 agent 面做成了 Proxy stub（调用即抛错）、
+// window 面按「无边框窗口不存在」应答；命名里的 contextBridge / 主进程指桌面版实现。
+// 真接 Agent 编排时再按扩展侧的实际通道改写，别直接沿用这套 Electron 语义。
 export interface WindowBounds {
   x: number
   y: number
@@ -162,18 +182,12 @@ export interface WindowBounds {
   height: number
 }
 
-// —— AI SDK 流式通道（方案 B 阶段 A）——
-// 渲染层用 @ai-sdk/vue useChat({ transport })，主进程用 streamText + toUIMessageStream。
-// 原生 ReadableStream 无法过 contextBridge（结构化克隆不支持），因此主进程消费
-// toUIMessageStream() 的 reader，逐 chunk 经 webContents.send 推给渲染层，渲染层 transport 收集为流再喂给 useChat。
-
 /** Agent 流式响应的单个 chunk（channel: agent:stream 逐条推送）。
- * 直接复用 ai 的 UIMessageChunk：其字段均为纯 JSON 结构化数据，可安全通过 contextBridge 结构化克隆，
- * 且渲染层无需再做形状转换即可喂给 useChat（内部由 readUIMessageStream 累积为 UIMessage.parts）。 */
+ * 直接复用 ai 的 UIMessageChunk：字段均为纯 JSON 结构化数据，可安全结构化克隆。 */
 export type AgentStreamChunk = UIMessageChunk
 
 /** agent:streamSend 的收尾状态（流通过 EVENT_CH.agentStream 逐 chunk 推送，此处仅在流结束后汇总）。
- * usage 为本次生成消耗的 token（从主进程 streamText onFinish 捕获，供渲染层持久化与展示）。 */
+ * usage 为本次生成消耗的 token（从主进程 streamText onFinish 捕获）。 */
 export type AgentStreamSendResult =
   | { ok: true; content?: string; reasoning?: string; usage?: TokenUsage }
   | { ok: false; content?: string; reasoning?: string; error: string }

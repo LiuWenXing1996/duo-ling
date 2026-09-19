@@ -15,9 +15,10 @@ import { useDataSync } from '@/composables/use-data-sync'
 import type { UseChatHelpers } from '@ai-sdk/vue'
 import type { ChatInit, ChatStatus, UIMessage } from 'ai'
 import { ExtensionChatTransport } from '@/lib/extension-chat-transport'
+import { toUiMessage } from '@/lib/conversation-message'
 import { getPickedElement } from '@/lib/page-context-store'
 import type { ChatOrphanRecord, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
-import type { Conversation, Message, TokenUsage } from '@/shared/types'
+import type { Conversation, TokenUsage } from '@/shared/types'
 
 /** 会话历史列表项展示所需的时间格式化；补上分钟，便于同日内区分多次会话 */
 export function formatSessionTime(iso: string): string {
@@ -25,20 +26,6 @@ export function formatSessionTime(iso: string): string {
   if (Number.isNaN(d.getTime())) return ''
   const pad = (n: number): string => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-/** 主进程 Message → 渲染层 UIMessage。
- * 消息持久化时均带完整 parts（reasoning/text/tool/data），直接还原分轮思考与工具卡；
- * parts 缺失时按空处理（前提：写入层保证 parts 必填，见 offscreen chat-host 持久化）。
- * pageContext 元数据挂回 metadata：气泡 chip 与「最近一次拾取」prompt 注入都认它。 */
-function toUiMessage(m: Message): UIMessage {
-  const metadata = m.pageContext ? { pageContext: m.pageContext } : undefined
-  return {
-    id: m.id,
-    role: m.role,
-    parts: m.parts ?? [],
-    ...(metadata ? { metadata } : {}),
-  }
 }
 
 /** 从消息 parts 里取 offscreen 推送的 token 用量（data-usage data part） */
@@ -151,10 +138,11 @@ export function useGlobalConversation() {
     transport.setConversationId(id)
     const msgs = await window.api.conversation.messages(id)
     setMessages(msgs.map(toUiMessage))
-    // 回读各消息已落盘的 token 用量，供单条展示（id 与 UIMessage.id 一致）
+    // 回读各消息已落盘的 token 用量，供单条展示（id 与 UIMessage.id 一致）；
+    // usage 只落在 assistant 分支，先按 role 收窄
     const usageMap: Record<string, TokenUsage> = {}
     for (const m of msgs) {
-      if (m.usage) usageMap[m.id] = m.usage
+      if (m.role === 'assistant' && m.usage) usageMap[m.id] = m.usage
     }
     usageByMessageId.value = usageMap
     // 有进行中的任务就接上（transport 内部先 resume replay、再续实时推送）。
