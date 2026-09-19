@@ -12,11 +12,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import {
+  ChevronDown as UiChevronDown,
   CircleX as UiCircleX,
   History as UiHistory,
   Package as UiPackage,
   Pencil as UiPencil,
   Plus as UiPlus,
+  SlidersHorizontal as UiSlidersHorizontal,
   Star as UiStar,
   Trash2 as UiTrash2
 } from '@lucide/vue'
@@ -52,7 +54,12 @@ import { FileTree } from '@/components/ai-elements/file-tree'
 import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { Dialog as UiDialog, DialogContent as UiDialogContent, DialogDescription as UiDialogDescription, DialogFooter as UiDialogFooter, DialogHeader as UiDialogHeader, DialogTitle as UiDialogTitle } from '@/components/ui/dialog'
+import { Button as UiButton } from '@/components/ui/button'
+import { Collapsible as UiCollapsible, CollapsibleContent as UiCollapsibleContent, CollapsibleTrigger as UiCollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input as UiInput } from '@/components/ui/input'
+import { Textarea as UiTextarea } from '@/components/ui/textarea'
+import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
+import { Select as UiSelect, SelectContent as UiSelectContent, SelectItem as UiSelectItem, SelectTrigger as UiSelectTrigger, SelectValue as UiSelectValue } from '@/components/ui/select'
 import { buildCodeTree, type CodeTreeNode } from '@/lib/code-view'
 import { userscriptClient, fsClient } from '@/lib/userscripts/ui-client'
 import type { ScriptConfig } from '@/lib/userscripts/types'
@@ -94,8 +101,12 @@ const editExcludeMatches = ref('')
 const editIncludeGlobs = ref('')
 const editExcludeGlobs = ref('')
 const editAllFrames = ref(true)
-const editRunAt = ref<'document_start' | 'document_end' | 'document_idle'>('document_end')
+type RunAt = 'document_start' | 'document_end' | 'document_idle'
+const editRunAt = ref<RunAt>('document_end')
 const editDeps = ref('')
+// 配置区展开状态：编辑器才是主任务，配置默认收起（收起态用摘要行交代当前配置），
+// 展开后按「标签在左、控件在右」逐行排——避免长标签把控件推到屏幕另一头。
+const configOpen = ref(false)
 // 保存备注（可选：填了记入历史，空则自动计数「保存 #n」）
 const saveNote = ref('')
 
@@ -343,6 +354,29 @@ function parseMatches(input: string): string[] {
     .split(/[,\n]/)
     .map((s) => s.trim())
     .filter(Boolean)
+}
+
+/** 收起态摘要：不展开也能确认当前注入面（时机 / 匹配条数 / 排除 / 依赖 / frame） */
+const configSummary = computed(() => {
+  const parts = [editRunAt.value, `匹配 ${parseMatches(editMatches.value).length} 条`]
+  const excluded = parseMatches(editExcludeMatches.value).length
+  if (excluded) parts.push(`排除 ${excluded} 条`)
+  const deps = parseMatches(editDeps.value).length
+  if (deps) parts.push(`依赖 ${deps} 个`)
+  if (!editAllFrames.value) parts.push('仅主文档')
+  return parts.join(' · ')
+})
+
+/** runAt 选择：ui-select 不冒泡原生 change，直连编辑态并标 dirty */
+function onRunAtChange(v: unknown): void {
+  editRunAt.value = v as RunAt
+  editDirty.value = true
+}
+
+/** allFrames 开关：同上 */
+function onAllFramesChange(v: unknown): void {
+  editAllFrames.value = v === true
+  editDirty.value = true
 }
 
 /** 选填数组归一：空数组 → undefined（表单解析与状态库比对两侧共用，保证同构可比） */
@@ -636,16 +670,16 @@ useDataSync('script', (push) => {
     <p v-if="loading" class="p-6 text-sm text-muted-foreground">加载中…</p>
 
     <template v-else>
-      <!-- 头部：脚本名 + 历史/关闭 -->
-      <div class="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-        <div class="min-w-0">
-          <h3 class="truncate text-sm font-semibold">{{ scriptName || '脚本' }}</h3>
-          <p class="text-xs text-muted-foreground">
+      <!-- 头部：脚本名 + 产物/历史 -->
+      <div class="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
+        <div class="min-w-0 flex-1">
+          <h3 class="truncate text-sm leading-tight font-semibold">{{ scriptName || '脚本' }}</h3>
+          <p class="mt-0.5 truncate text-xs text-muted-foreground">
             {{ fileCount }} 个文件 · 入口 {{ editEntry }}
             <span v-if="editDirty" class="text-destructive">· 有未保存改动</span>
           </p>
         </div>
-        <div class="flex shrink-0 items-center gap-1">
+        <div class="flex shrink-0 items-center gap-0.5">
         <ui-tooltip-provider>
           <ui-tooltip>
             <ui-tooltip-trigger as-child>
@@ -702,115 +736,155 @@ useDataSync('script', (push) => {
         {{ error }}
       </p>
 
-      <!-- 配置表单（用户不接触注释语法，全部表单化） -->
-      <div
-        class="grid shrink-0 grid-cols-2 gap-x-3 gap-y-2 border-b border-border px-4 py-3"
+      <!-- 配置区（用户不接触注释语法，全部表单化）。
+           默认收起：编辑器才是主任务，收起态靠摘要行交代当前注入面；展开后「标签在左、控件在右」，
+           避免长标签把控件推到屏幕另一头。
+           unmount-on-hide=false：收起时表单仍留在 DOM（仅被 hidden 隐藏），编辑态与表单始终一致，
+           折叠不参与任何数据流。 -->
+      <ui-collapsible
+        v-model:open="configOpen"
+        :unmount-on-hide="false"
+        class="shrink-0 border-b border-border"
       >
-        <label class="block">
-          <span class="mb-1 block text-xs text-muted-foreground">脚本名称</span>
-          <input
-            v-model="editName"
-            type="text"
-            class="w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground outline-none focus:border-ring"
-            @input="editDirty = true"
+        <ui-collapsible-trigger
+          class="flex w-full items-center gap-2 px-4 py-2 text-left transition-colors hover:bg-accent/40"
+        >
+          <ui-sliders-horizontal class="size-3.5 shrink-0 text-muted-foreground" />
+          <span class="shrink-0 text-xs font-medium">脚本配置</span>
+          <span class="truncate font-mono text-[11px] text-muted-foreground">{{ configSummary }}</span>
+          <ui-chevron-down
+            class="ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform"
+            :class="configOpen ? 'rotate-180' : ''"
           />
-        </label>
-        <label class="block">
-          <span class="mb-1 block text-xs text-muted-foreground">注入时机（runAt）</span>
-          <select
-            v-model="editRunAt"
-            class="w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground outline-none focus:border-ring"
-            @change="editDirty = true"
-          >
-            <option value="document_start">document_start</option>
-            <option value="document_end">document_end（默认）</option>
-            <option value="document_idle">document_idle</option>
-          </select>
-        </label>
-        <label class="col-span-2 block">
-          <span class="mb-1 block text-xs text-muted-foreground">
-            匹配规则 matches（必填，逗号或换行分隔）
-          </span>
-          <input
-            v-model="editMatches"
-            type="text"
-            class="w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-ring"
-            @input="editDirty = true"
-          />
-        </label>
-        <label class="col-span-2 block">
-          <span class="mb-1 block text-xs text-muted-foreground">
-            排除规则 excludeMatches（选填，逗号分隔）
-          </span>
-          <input
-            v-model="editExcludeMatches"
-            type="text"
-            class="w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-ring"
-            @input="editDirty = true"
-          />
-        </label>
-        <label class="block">
-          <span class="mb-1 block text-xs text-muted-foreground">包含 glob（选填）</span>
-          <input
-            v-model="editIncludeGlobs"
-            type="text"
-            class="w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-ring"
-            @input="editDirty = true"
-          />
-        </label>
-        <label class="block">
-          <span class="mb-1 block text-xs text-muted-foreground">排除 glob（选填）</span>
-          <input
-            v-model="editExcludeGlobs"
-            type="text"
-            class="w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-ring"
-            @input="editDirty = true"
-          />
-        </label>
-        <label class="col-span-2 block">
-          <span class="mb-1 block text-xs text-muted-foreground">
-            依赖 URL deps（选填，一行一个；JS 依赖拼接进产物，其余可经 DL.resource(url) 读取）
-          </span>
-          <textarea
-            v-model="editDeps"
-            rows="2"
-            class="w-full resize-y rounded-md border border-input bg-background px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-ring"
-            placeholder="如 https://code.jquery.com/jquery-3.7.1.min.js（灰字是示例，不是已填内容）"
-            @input="editDirty = true"
-          ></textarea>
-          <!-- 依赖缓存管理（操作已保存的工作树；无已保存 deps 时不渲染）。
-               刷 = 无视缓存全量重拉，失败旧缓存原封不动；清 = 只删 _deps/，下次构建冷拉 -->
-          <div v-if="savedDeps.length" class="mt-1 flex items-center gap-2">
-            <button
-              type="button"
-              class="rounded border border-input px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
-              :disabled="!!depsBusy"
-              @click="refreshDeps"
-            >
-              {{ depsBusy === 'refresh' ? '刷新中…' : '刷新依赖' }}
-            </button>
-            <button
-              type="button"
-              class="rounded border border-input px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
-              :disabled="!!depsBusy"
-              @click="clearDeps"
-            >
-              {{ depsBusy === 'clear' ? '清除中…' : '清依赖缓存' }}
-            </button>
+        </ui-collapsible-trigger>
+
+        <ui-collapsible-content>
+          <div class="border-t border-border bg-muted/20 px-4 py-3">
+            <div class="grid max-w-3xl grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2.5">
+              <p class="col-span-2 text-[11px] font-medium text-muted-foreground">基本信息</p>
+
+              <label for="us-config-name" class="pt-2 text-xs leading-4 text-muted-foreground">
+                脚本名称
+              </label>
+              <ui-input
+                id="us-config-name"
+                v-model="editName"
+                class="h-8 text-xs"
+                @input="editDirty = true"
+              />
+
+              <span class="pt-2 text-xs leading-4 text-muted-foreground">注入时机</span>
+              <ui-select :model-value="editRunAt" @update:model-value="onRunAtChange">
+                <ui-select-trigger size="sm" class="w-56">
+                  <ui-select-value />
+                </ui-select-trigger>
+                <ui-select-content>
+                  <ui-select-item value="document_start">document_start</ui-select-item>
+                  <ui-select-item value="document_end">document_end（默认）</ui-select-item>
+                  <ui-select-item value="document_idle">document_idle</ui-select-item>
+                </ui-select-content>
+              </ui-select>
+
+              <p class="col-span-2 mt-1 text-[11px] font-medium text-muted-foreground">匹配范围</p>
+
+              <label for="us-config-matches" class="pt-2 text-xs leading-4 text-muted-foreground">
+                匹配规则 <span class="text-destructive">*</span>
+              </label>
+              <div class="flex flex-col gap-1">
+                <ui-input
+                  id="us-config-matches"
+                  v-model="editMatches"
+                  class="h-8 font-mono text-xs"
+                  placeholder="*://*/*"
+                  @input="editDirty = true"
+                />
+                <p class="text-[11px] leading-4 text-muted-foreground">
+                  目标页面 URL，逗号或换行分隔（必填）
+                </p>
+              </div>
+
+              <label for="us-config-exclude" class="pt-2 text-xs leading-4 text-muted-foreground">
+                排除规则
+              </label>
+              <ui-input
+                id="us-config-exclude"
+                v-model="editExcludeMatches"
+                class="h-8 font-mono text-xs"
+                @input="editDirty = true"
+              />
+
+              <label
+                for="us-config-include-glob"
+                class="pt-2 text-xs leading-4 text-muted-foreground"
+              >
+                包含 glob
+              </label>
+              <ui-input
+                id="us-config-include-glob"
+                v-model="editIncludeGlobs"
+                class="h-8 font-mono text-xs"
+                @input="editDirty = true"
+              />
+
+              <label
+                for="us-config-exclude-glob"
+                class="pt-2 text-xs leading-4 text-muted-foreground"
+              >
+                排除 glob
+              </label>
+              <ui-input
+                id="us-config-exclude-glob"
+                v-model="editExcludeGlobs"
+                class="h-8 font-mono text-xs"
+                @input="editDirty = true"
+              />
+              <span class="pt-2 text-xs leading-4 text-muted-foreground">注入 iframe</span>
+              <div class="flex h-8 items-center gap-2">
+                <ui-switch
+                  :model-value="editAllFrames"
+                  aria-label="注入所有 iframe"
+                  @update:model-value="onAllFramesChange"
+                >
+                  <ui-switch-thumb />
+                </ui-switch>
+                <span class="text-[11px] text-muted-foreground">
+                  默认开启；关掉即只注入主文档，不必再靠排除规则
+                </span>
+              </div>
+
+              <p class="col-span-2 mt-1 text-[11px] font-medium text-muted-foreground">依赖资源</p>
+
+              <label for="us-config-deps" class="pt-2 text-xs leading-4 text-muted-foreground">
+                依赖 URL
+              </label>
+              <div class="flex flex-col gap-1.5">
+                <ui-textarea
+                  id="us-config-deps"
+                  v-model="editDeps"
+                  rows="2"
+                  class="min-h-14 font-mono text-xs"
+                  placeholder="https://code.jquery.com/jquery-3.7.1.min.js"
+                  @input="editDirty = true"
+                />
+                <p class="text-[11px] leading-4 text-muted-foreground">
+                  一行一个（灰字为示例）；JS 依赖拼接进产物，其余可经 DL.resource(url) 读取
+                </p>
+                <!-- 依赖缓存管理（操作已保存的工作树；无已保存 deps 时不渲染）。
+                     刷 = 无视缓存全量重拉，失败旧缓存原封不动；清 = 只删 _deps/，下次构建冷拉 -->
+                <div v-if="savedDeps.length" class="flex items-center gap-2">
+                  <ui-button variant="outline" size="xs" :disabled="!!depsBusy" @click="refreshDeps">
+                    {{ depsBusy === 'refresh' ? '刷新中…' : '刷新依赖' }}
+                  </ui-button>
+                  <ui-button variant="outline" size="xs" :disabled="!!depsBusy" @click="clearDeps">
+                    {{ depsBusy === 'clear' ? '清除中…' : '清依赖缓存' }}
+                  </ui-button>
+                  <span class="text-[11px] text-muted-foreground">作用于已保存的工作树</span>
+                </div>
+              </div>
+            </div>
           </div>
-        </label>
-        <label class="col-span-2 flex items-center gap-2 text-sm">
-          <input
-            v-model="editAllFrames"
-            type="checkbox"
-            class="size-4 accent-primary"
-            @change="editDirty = true"
-          />
-          <span class="text-muted-foreground">
-            注入所有 iframe（allFrames，默认开启，靠排除规则关掉不需要的 frame）
-          </span>
-        </label>
-      </div>
+        </ui-collapsible-content>
+      </ui-collapsible>
 
       <!-- 编辑视图：左文件树 + 右源码/构建错误 -->
       <div class="flex min-h-0 flex-1">
@@ -924,22 +998,16 @@ useDataSync('script', (push) => {
         </div>
       </div>
 
-      <!-- 底栏 -->
-      <div class="flex shrink-0 items-center gap-2 border-t border-border px-4 py-3">
-        <input
+      <!-- 底栏：备注（可选，记入本次保存的历史版本）+ 统一保存入口 -->
+      <div class="flex shrink-0 items-center gap-2 border-t border-border px-4 py-2.5">
+        <ui-input
           v-model="saveNote"
-          type="text"
           placeholder="备注（可选，记入本次保存的历史版本）"
-          class="mr-auto w-64 rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground outline-none focus:border-ring"
+          class="mr-auto h-8 max-w-72 text-xs"
         />
-        <button
-          type="button"
-          :disabled="building"
-          class="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          @click="saveEdit"
-        >
+        <ui-button :disabled="building" @click="saveEdit">
           {{ building ? '构建中…' : '保存并重新注册' }}
-        </button>
+        </ui-button>
       </div>
     </template>
 
