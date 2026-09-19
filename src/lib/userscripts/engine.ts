@@ -440,6 +440,31 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
         })
       }
     },
+    // cookie（cookies 权限）：**url 缺省由本包装层填 location.href** —— SW 里没有「当前页面」概念。
+    // 这里只补默认值、不做任何安全判断：域名门在 SW 侧（cookie-gate.ts），
+    // 包装层传什么 url 都要过门（包装层跑在页面里，参数与身份都不可信）。
+    cookie: {
+      get: function (query) {
+        var q = query || {}
+        return __dlSend({ c: 'cookie.get', url: q.url || location.href, name: q.name })
+      },
+      set: function (details) {
+        var d = details || {}
+        return __dlSend({
+          c: 'cookie.set',
+          url: d.url || location.href,
+          name: d.name,
+          value: d.value,
+          secure: d.secure,
+          httpOnly: d.httpOnly,
+          expirationDate: d.expirationDate
+        })
+      },
+      remove: function (details) {
+        var d = details || {}
+        return __dlSend({ c: 'cookie.remove', url: d.url || location.href, name: d.name })
+      }
+    },
     // 本地能力（不跨桥）
     style: function (css) {
       var el = document.createElement('style')

@@ -95,7 +95,19 @@ export default defineConfig({
     // 老大 2026-09-14 已批准。
     // contextMenus = DL.menu（用户脚本扩展菜单，二期 DL Port 事件底座）的载体 API，
     // 未来项目自身菜单也走它。老大 2026-09-19 已批准。
-    permissions: ['storage', 'sidePanel', 'userScripts', 'notifications', 'offscreen', 'contextMenus'],
+    // cookies = DL.cookie（get / set / remove）的载体 API。**注意：host 已是 <all_urls>，
+    // 故此权限等价于「SW 可读写全浏览器 cookie（含 HttpOnly）」**，是能力面最大的一项权限。
+    // 补偿措施是与权限绑定的域名门（cookie-gate.ts）：url 必须落在脚本自身 matches 内、
+    // 只比 scheme+host（cookie 是 host 级作用域，忽略 pattern 的 path 段）。老大 2026-09-19 已批准。
+    permissions: [
+      'storage',
+      'sidePanel',
+      'userScripts',
+      'notifications',
+      'offscreen',
+      'contextMenus',
+      'cookies',
+    ],
     // 在线模型走 OpenAI 兼容接口，需要扩展页跨域 fetch，必须声明对应 host 权限。
     // 由服务商预设表推导（src/lib/providers.ts），避免申请不必要的全域权限；
     // 自定义接口地址的按需授权后续用 optional_host_permissions 动态申请。
