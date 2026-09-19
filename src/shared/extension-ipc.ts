@@ -190,6 +190,10 @@ export type RuntimeRequest =
   | { kind: 'offscreen:status' }
   | { kind: 'offscreen:ready' }
 
+  // 剪贴板写（SW → offscreen）：offscreen 内用 navigator.clipboard 写，免用户手势；
+  // 富文本走 ClipboardItem（text/html + text/plain）。clipboardWrite 权限在 manifest 声明。
+  | { kind: 'clipboard:write'; text: string | null; html: string | null }
+
   // —— 模型配置（offscreen 侧向 SW 拉取）——
   // offscreen 拿不到 chrome.storage，故在启动 / 收到变更推送时经此命令取一次并缓存。
   // 返回值含 apiKey 明文：属同扩展内上下文之间的传递（offscreen 与 SW 信任级别等同），

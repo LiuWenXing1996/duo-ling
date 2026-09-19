@@ -17,17 +17,20 @@ import type {
   ApiResponse,
   DlCookie,
   DlEvent,
+  FetchFormBody,
   FetchInit,
   FetchPayload,
   Json,
 } from './api-contract'
-// DL Port 事件底座（二期）：控制面实现（菜单登记 / store 订阅 / 通知归属）
+// DL Port 事件底座（二期）：控制面实现（菜单登记 / store 订阅 / 通知归属 / URL 订阅）
 import {
   registerScriptMenu,
   unregisterScriptMenu,
   attachScriptWatch,
   detachScriptWatch,
   mintNotification,
+  attachUrlWatch,
+  detachUrlWatch,
 } from './dl-port'
 // DL.cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
@@ -42,6 +45,8 @@ import {
   appendUserScriptError,
   recordRunStart,
 } from './store'
+// offscreen 容器就绪（SW 侧模块；dl-bridge 与 background 同属 SW，不触及 offscreen 专有 runtime API）
+import { ensureOffscreenReady } from '@/lib/offscreen'
 
 /** 通知兜底图标（打包资源）。MV3 的 notifications.create 不接受 data: URL 图标
  * （报 "Unable to download all specified images."），必须用扩展内资源或 http(s) 图 */
@@ -85,6 +90,36 @@ function isBinaryBody(v: unknown): v is { __dlBinaryBody: true; base64: string }
   )
 }
 
+/** 判定请求体是否为包装侧生成的 FormData 信封 */
+function isFormBody(v: unknown): v is { __dlFormData: true; fields: Array<{ name: string; value?: string; base64?: string; type?: string; filename?: string }> } {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    (v as { __dlFormData?: unknown }).__dlFormData === true &&
+    Array.isArray((v as { fields?: unknown }).fields)
+  )
+}
+
+/**
+ * 把 FormData 信封重建为真正的 FormData：二进制字段（base64）还原为 Blob（带 type/filename），
+ * 浏览器据此自动生成 multipart boundary。调用方务必不要手写 content-type——这里强制剔除并 warning，
+ * 否则手设的 content-type 会覆盖 boundary，服务器必 400。
+ */
+function rebuildFormData(body: FetchFormBody): FormData {
+  const fd = new FormData()
+  for (const f of body.fields) {
+    if (typeof f.value === 'string') {
+      fd.append(f.name, f.value)
+    } else if (typeof f.base64 === 'string') {
+      const bytes = base64ToBytes(f.base64)
+      const blob = new Blob([bytes], { type: f.type || 'application/octet-stream' })
+      if (f.filename) fd.append(f.name, blob, f.filename)
+      else fd.append(f.name, blob)
+    }
+  }
+  return fd
+}
+
 /**
  * DL.fetch 的后台实现：SW 内特权请求，豁免 CORS。
  * 与旧 GM 版不同：非 2xx 不抛错——HTTP 状态属于正常响应内容，由 FetchPayload.ok 承载。
@@ -102,8 +137,15 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
       req.body = init.body
     } else if (isBinaryBody(init.body)) {
       req.body = base64ToBytes(init.body.base64)
+    } else if (isFormBody(init.body)) {
+      // FormData：重建后让浏览器自动设 multipart boundary——手写 content-type 会破坏它
+      if (headers.has('content-type')) {
+        console.warn('[duoling:dl] fetch FormData 请求含手写 content-type，已强制剔除（boundary 由浏览器生成）')
+        headers.delete('content-type')
+      }
+      req.body = rebuildFormData(init.body)
     } else {
-      throw new ApiError('INVALID_ARG', 'DL.fetch：body 仅支持字符串或 DL 包装生成的二进制信封')
+      throw new ApiError('INVALID_ARG', 'DL.fetch：body 仅支持字符串 / Blob / FormData / ArrayBuffer / TypedArray / DataView')
     }
   }
   const timeout = init?.timeout
@@ -197,8 +239,105 @@ function toDlCookie(c: chrome.cookies.Cookie): DlCookie {
   return out
 }
 
+/** 标签页级存储（对齐 GM_getTab 系列）：每脚本每 tab 一键，避免多 tab 并发 RMW 互相覆盖 */
+const TAB_KEY_PREFIX = 'us:tab:'
+function tabKey(uuid: string, tabId: number): string {
+  return `${TAB_KEY_PREFIX}${uuid}:${tabId}`
+}
+
+/** 从完整存储键解析出 {uuid, tabId}；非 tab 键或格式非法返回 null */
+export function parseTabKey(fullKey: string): { uuid: string; tabId: number } | null {
+  if (!fullKey.startsWith(TAB_KEY_PREFIX)) return null
+  const rest = fullKey.slice(TAB_KEY_PREFIX.length)
+  const idx = rest.lastIndexOf(':')
+  if (idx <= 0 || idx === rest.length - 1) return null
+  const uuid = rest.slice(0, idx)
+  const tabId = Number(rest.slice(idx + 1))
+  if (!Number.isInteger(tabId)) return null
+  return { uuid, tabId }
+}
+
+/** 读当前标签页对象 */
+async function getTabValue(uuid: string, tabId: number): Promise<Json | undefined> {
+  const r = await chrome.storage.local.get(tabKey(uuid, tabId))
+  const v = r[tabKey(uuid, tabId)]
+  return v === undefined ? undefined : (v as Json)
+}
+
+/** 覆盖写当前标签页对象 */
+async function saveTabValue(uuid: string, tabId: number, value: Json): Promise<void> {
+  await chrome.storage.local.set({ [tabKey(uuid, tabId)]: value })
+}
+
+/** 全部标签页对象快照：键为 tabId 字符串（对齐 GM_getTabs）。仅本脚本自身前缀 */
+async function getAllTabValues(uuid: string): Promise<Record<string, Json>> {
+  const all = await chrome.storage.local.get(null)
+  const out: Record<string, Json> = {}
+  for (const [k, v] of Object.entries(all)) {
+    const parsed = parseTabKey(k)
+    if (!parsed || parsed.uuid !== uuid) continue
+    out[String(parsed.tabId)] = v as Json
+  }
+  return out
+}
+
+/** 删除某 tab 的全部 tab 存储键（tab 关闭清理） */
+async function dropTabKeys(tabId: number): Promise<void> {
+  const all = await chrome.storage.local.get(null)
+  const suffix = `:${tabId}`
+  const toRemove: string[] = []
+  for (const k of Object.keys(all)) {
+    if (k.startsWith(TAB_KEY_PREFIX) && k.endsWith(suffix)) toRemove.push(k)
+  }
+  if (toRemove.length) await chrome.storage.local.remove(toRemove)
+}
+
+/** 启动时对账：清掉「键存在但 tab 已不存在」的孤儿键（兜浏览器崩溃 / SW 错过 onRemoved） */
+async function reconcileOrphanTabKeys(): Promise<void> {
+  try {
+    const tabs = await chrome.tabs.query({})
+    const alive = new Set(tabs.map((t) => t.id))
+    const all = await chrome.storage.local.get(null)
+    const toRemove: string[] = []
+    for (const k of Object.keys(all)) {
+      if (!k.startsWith(TAB_KEY_PREFIX)) continue
+      const tabId = Number(k.slice(TAB_KEY_PREFIX.length).split(':').pop())
+      if (!alive.has(tabId)) toRemove.push(k)
+    }
+    if (toRemove.length) await chrome.storage.local.remove(toRemove)
+  } catch {
+    // 对账失败不阻断链路
+  }
+}
+
+/** 经 offscreen 写剪贴板（免用户手势；writeText / ClipboardItem 双轨）。超时即报，不挂死 */
+async function writeClipboardViaOffscreen(text?: string, html?: string): Promise<void> {
+  if (!text && !html) throw new ApiError('INVALID_ARG', 'DL.clipboard：text 与 html 至少给一个')
+  const ready = await ensureOffscreenReady()
+  if (!ready) throw new ApiError('NOT_AVAILABLE', 'DL.clipboard：offscreen 容器不可用，无法写剪贴板')
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new ApiError('BRIDGE_TIMEOUT', 'DL.clipboard 写入超时（offscreen 2s 无响应）')),
+      2000,
+    )
+    try {
+      chrome.runtime.sendMessage({ kind: 'clipboard:write', text: text ?? null, html: html ?? null }, (resp: unknown) => {
+        clearTimeout(timer)
+        const err = chrome.runtime.lastError
+        if (err) return reject(new ApiError('NOT_AVAILABLE', 'DL.clipboard：' + err.message))
+        const r = resp as { ok?: boolean; error?: string } | undefined
+        if (!r || !r.ok) return reject(new ApiError('INTERNAL', r?.error || 'DL.clipboard 写入失败'))
+        resolve()
+      })
+    } catch (e) {
+      clearTimeout(timer)
+      reject(e instanceof Error ? e : new Error(String(e)))
+    }
+  })
+}
 /** 按命令分发（已确认 __dl 标记与身份）。参数见 ApiRequest 契约注释 */
-async function dispatch(uuid: string, req: ApiRequest): Promise<unknown> {
+async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.MessageSender): Promise<unknown> {
+  const tabId = sender.tab?.id
   switch (req.c) {
     // 存储（键空间按脚本隔离）
     case 'store.get': {
@@ -233,6 +372,32 @@ async function dispatch(uuid: string, req: ApiRequest): Promise<unknown> {
     }
     case 'download':
       return doDownload(req.url, req.name || 'download')
+    // 剪贴板：走 offscreen（免用户手势）+ 富文本（clipboardWrite 权限）
+    case 'clipboard.write':
+      await writeClipboardViaOffscreen(req.text, req.html)
+      return undefined
+    // 标签页级存储（对齐 GM_getTab 系列）
+    case 'tab.get': {
+      if (tabId == null) throw new ApiError('INVALID_ARG', 'DL.tab 需要标签页上下文（sender.tab 缺失）')
+      return getTabValue(uuid, tabId)
+    }
+    case 'tab.save': {
+      if (tabId == null) throw new ApiError('INVALID_ARG', 'DL.tab 需要标签页上下文（sender.tab 缺失）')
+      await saveTabValue(uuid, tabId, req.value)
+      return undefined
+    }
+    case 'tab.all':
+      return getAllTabValues(uuid)
+    // URL 变化订阅（SPA 路由感知）：控制面走请求-响应，归属定位同 store.watch（connId）
+    case 'url.watch': {
+      if (!attachUrlWatch(uuid, req.connId)) {
+        throw new ApiError('INTERNAL', 'DL Port 未就绪，订阅未生效（请重试）')
+      }
+      return undefined
+    }
+    case 'url.unwatch':
+      detachUrlWatch(uuid, req.connId)
+      return undefined
     case 'tabs.open': {
       const tab = await chrome.tabs.create({ url: req.url, active: req.active !== false })
       if (tab?.id == null) throw new ApiError('INTERNAL', 'tabs.open 未返回 tabId')
@@ -320,6 +485,14 @@ export function initDlBridge(): void {
   if (initialized) return
   initialized = true
 
+  // 标签页级存储清理：tab 关闭即删该 tab 的全部 us:tab:* 键；SW 冷启动再对账一遍孤儿键
+  if (chrome.tabs?.onRemoved?.addListener) {
+    chrome.tabs.onRemoved.addListener((tabId) => {
+      void dropTabKeys(tabId).catch(() => {})
+    })
+  }
+  void reconcileOrphanTabKeys().catch(() => {})
+
   // 响应机制：onUserScriptMessage 不支持「返回 Promise 作为响应」，必须调 sendResponse
   // 并返回 true 保持通道打开（沿用旧 GM 桥已验证的写法）。
   chrome.runtime.onUserScriptMessage.addListener((raw, sender, sendResponse) => {
@@ -389,7 +562,7 @@ export function initDlBridge(): void {
       return undefined
     }
 
-    void dispatch(uuid, msg.req)
+    void dispatch(uuid, msg.req, sender)
       .then((data) => {
         // 运行时值受契约约束（结构化克隆 + chrome.storage 兼容），这里收窄回 Json | void
         sendResponse({ ok: true, data: data as Json | void } satisfies ApiResponse)

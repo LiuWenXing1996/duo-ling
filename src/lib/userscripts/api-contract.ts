@@ -48,11 +48,33 @@ export interface FetchBinaryBody {
   base64: string
 }
 
+/**
+ * FormData 请求体信封：包装侧逐字段序列化（文本直传，Blob/File 字段转 base64 + 还原 type/filename），
+ * SW 侧 `new FormData()` 重建，multipart boundary 由浏览器自动生成。
+ * 二进制无法结构化克隆过桥，故走与 FetchBinaryBody 同构的 base64 信封。
+ */
+export interface FetchFormField {
+  name: string
+  /** 文本字段：value 为字符串；缺失 = 本字段是二进制（base64 存在） */
+  value?: string
+  /** 二进制字段字节（base64） */
+  base64?: string
+  /** 二进制字段 MIME；缺省 application/octet-stream */
+  type?: string
+  /** 二进制字段文件名（File 才有，仅影响 multipart 的 filename 段） */
+  filename?: string
+}
+export interface FetchFormBody {
+  __dlFormData: true
+  fields: FetchFormField[]
+}
+
 export interface FetchInit {
   method?: string
   headers?: Record<string, string>
   /** 文本体直接传字符串；二进制体（ArrayBuffer / TypedArray / DataView）由 DL 包装转成 FetchBinaryBody 信封 */
-  body?: string | FetchBinaryBody
+  /** 文本体直接传字符串；二进制体（ArrayBuffer / TypedArray / DataView / Blob / File）由 DL 包装转成 FetchBinaryBody 信封；FormData 由 DL 包装转成 FetchFormBody 信封 */
+  body?: string | FetchBinaryBody | FetchFormBody
   /** 'arraybuffer' 时响应 body 为 base64 字符串（二进制无法跨桥） */
   responseType?: 'text' | 'arraybuffer'
   /** 毫秒；0 或不传表示不限。到点后台中止请求，报 BRIDGE_TIMEOUT */
@@ -92,6 +114,15 @@ export type ApiRequest =
   | { c: 'store.clear' }
   // 网络
   | { c: 'fetch'; url: string; init?: FetchInit }
+  // 剪贴板：走 offscreen 执行（免用户手势）+ 支持富文本（clipboardWrite 权限）
+  | { c: 'clipboard.write'; text?: string; html?: string }
+  // 标签页级存储（对齐 GM_getTab 系列）：tabId 由 SW 从 sender.tab.id 取，脚本世界拿不到
+  | { c: 'tab.get' }
+  | { c: 'tab.save'; value: Json }
+  | { c: 'tab.all' }
+  // URL 变化订阅（SPA 路由感知）：控制面走请求-响应，事件 t:'url.change' 经 DL Port 推回
+  | { c: 'url.watch'; connId: string }
+  | { c: 'url.unwatch'; connId: string }
   // 系统能力
   | { c: 'notify'; message: string; title?: string; icon?: string }
   | { c: 'download'; url: string; name?: string }
@@ -137,6 +168,8 @@ export type ApiEvent =
   | { t: 'store.change'; key: string; value: Json }
   /** 通知点击。id = SW 创建通知时 mint 的 notificationId（notify 响应返回） */
   | { t: 'notify.click'; id: string }
+  /** 当前标签页 URL 变化（含 SPA pushState / replaceState / popstate / hash 变更）。url = 变化后 URL */
+  | { t: 'url.change'; url: string }
 
 /** DL Port 下行帧信封：Port 上只走这一种帧，防未来混入其他帧类型时判别冲突 */
 export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
@@ -186,6 +219,11 @@ export interface DlFetchResult {
   json<T = unknown>(): T
   /** responseType 为 'arraybuffer' 时解码 base64 */
   arrayBuffer(): ArrayBuffer
+  /**
+   * 按 content-type 把响应体解回 Blob。
+   * 仅 `responseType: 'arraybuffer'` 时可用——默认 text 模式字节已被 UTF-8 解码破坏，调用即抛错。
+   */
+  blob(): Blob
 }
 
 /**
@@ -209,6 +247,16 @@ export interface DuoLingApi {
     watch<T extends Json = Json>(key: string, cb: (value: T | null) => void): Promise<() => void>
   }
 
+  /** 标签页级存储（对齐 GM_getTab / GM_saveTab / GM_getTabs；随标签页生命周期，关 tab 即清） */
+  tab: {
+    /** 取当前标签页的持久对象（无返回 undefined） */
+    get<T extends Json = Json>(): Promise<T | undefined>
+    /** 保存当前标签页的持久对象（整体覆盖，同 GM_saveTab） */
+    save(value: Json): Promise<void>
+    /** 全部标签页的对象快照，键为 tabId 字符串（对齐 GM_getTabs） */
+    all(): Promise<Record<string, Json>>
+  }
+
   /** 免 CORS 的 HTTP 请求（后台 SW 发起，不受页面 CSP 与同源策略限制） */
   fetch(url: string, init?: FetchInit): Promise<DlFetchResult>
 
@@ -218,15 +266,20 @@ export interface DuoLingApi {
     opts?: { title?: string; icon?: string; onClick?: () => void },
   ): Promise<void>
 
-  /** 触发下载 */
-  download(url: string, name?: string): Promise<void>
+  /** 触发下载
+   * - 首参 string：远程 URL（SW 抓取转 dataUrl，触发 a[download]）
+   * - 首参 Blob / ArrayBuffer / TypedArray：本地直下（纯包装层 createObjectURL + a[download]，不走桥）
+   */
+  download(urlOrBlob: string | Blob | ArrayBuffer | ArrayBufferView, name?: string): Promise<void>
 
   /**
-   * 写剪贴板。世界内直写（navigator.clipboard.writeText），不走桥。
-   * 限制：需要用户手势 / 页面焦点，且页面 CSP 可能约束——失败时 reject 明确错误，不静默。
+   * 写剪贴板。走 offscreen 执行（免用户手势），失败 reject 明确错误，不静默。
    */
   clipboard: {
+    /** 写纯文本（签名不变，内部由「世界内直写」改走 offscreen 桥，对脚本作者透明升级） */
     write(text: string): Promise<void>
+    /** 写富文本：html 为富文本 MIME，plainText 为纯文本兜底（缺省回退为空串） */
+    writeHtml(html: string, plainText?: string): Promise<void>
   }
 
   tabs: {
@@ -275,6 +328,14 @@ export interface DuoLingApi {
 
   /** 注入 CSS。纯本地实现，不跨桥，同步返回 */
   style(css: string): HTMLStyleElement
+
+  /**
+   * 当前标签页 URL 变化订阅（含 SPA pushState / replaceState / popstate / hash 变更）。
+   * 仅推「订阅生效之后」的变更——跨文档导航时旧世界 Port 已断、新世界尚未订阅，首屏 URL 用 location.href。
+   * 推送时机为 tabs.onUpdated 触发时机，可能比框架路由回调略晚一拍。
+   * 返回取消订阅函数。
+   */
+  onUrlChange(cb: (url: string) => void): Promise<() => void>
 
   /** 带脚本前缀的控制台输出。纯本地实现 */
   log(...args: unknown[]): void

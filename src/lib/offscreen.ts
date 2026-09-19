@@ -30,10 +30,11 @@ async function hasOffscreen(): Promise<boolean> {
 /**
  * 确保 offscreen document 已就绪（幂等；并发调用共享同一在途 promise）。
  *
- * reasons 取 BLOBS + WORKERS：
+ * reasons 取 BLOBS + WORKERS + CLIPBOARD：
  *   · BLOBS   —— 拿 URL.createObjectURL（esbuild 默认 worker 模式依赖它，而 SW 里没有）
  *   · WORKERS —— 派生子 worker 跑构建
- * 两者均不带自动关闭（只有 AUDIO_PLAYBACK 有 30s 无声自关），故容器可长活。
+ *   · CLIPBOARD —— DL.clipboard 在 offscreen 内写剪贴板（免用户手势 + 富文本）
+ * 三者均不带自动关闭（只有 AUDIO_PLAYBACK 有 30s 无声自关），故容器可长活。
  */
 export async function ensureOffscreen(): Promise<void> {
   if (await hasOffscreen()) return
@@ -43,8 +44,8 @@ export async function ensureOffscreen(): Promise<void> {
   }
   creating = chrome.offscreen.createDocument({
     url: OFFSCREEN_PATH,
-    reasons: ['BLOBS', 'WORKERS'],
-    justification: '运行 AI 生成脚本的编排循环与 esbuild 构建；需在扩展页面关闭后继续执行。',
+    reasons: ['BLOBS', 'WORKERS', 'CLIPBOARD'],
+    justification: '运行 AI 生成脚本的编排循环与 esbuild 构建、在 offscreen 内写剪贴板；需在扩展页面关闭后继续执行。',
   })
   try {
     await creating
