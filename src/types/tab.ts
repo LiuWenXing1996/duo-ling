@@ -1,5 +1,5 @@
 // 打开的工作区标签：脚本列表（默认）/ 引导 / 设置 / UI 测试 / 错误日志 /
-// 脚本编辑器 / 版本历史 / 构建产物 / lfs 浏览 / 会话数据 / AI 工具
+// 脚本编辑器 / 版本历史 / 构建产物 / lfs 浏览 / 会话数据 / AI 工具 / DL API
 import type { WorkspaceTabKind } from '@/shared/types'
 
 /** 工作区里打开的一个标签页。 */
