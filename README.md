@@ -101,7 +101,7 @@
 │  └─ public/                     # duoling-picker.js（元素拾取器）/ esbuild.wasm
 ├─ scripts/                       # 仓库维护脚本：verify-skills.mjs（skill 合规）/ check-inbox.py（inbox 体检）/ pack-uscripts.mjs（打用户脚本测试包）
 ├─ uscript-samples/               # pack-uscripts 的源目录（跟 git）：未压缩的测试脚本源码，注入探针 / DL 桥往返 / 多文件构建 / 运行期报错 / 构建失败
-├─ docs/inbox.md                  # 想法收件箱（只装问题，不写方案）
+├─ docs/inbox.md                  # 想法收件箱（只装问题 + ≤30 字方向，不写方案设计）
 ├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟四链路）
 └─ .github/workflows/             # ci.yml（typecheck + 单测）/ e2e.yml（Playwright 冒烟，PR 上也跑）
 ```
