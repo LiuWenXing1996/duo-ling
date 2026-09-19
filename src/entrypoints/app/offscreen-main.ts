@@ -43,7 +43,6 @@ import {
   startChat,
 } from '@/lib/offscreen-chat/chat-host'
 import {
-  appendMessage,
   createConversation,
   deleteAllConversations,
   deleteConversation,
@@ -104,8 +103,6 @@ async function handleConvCommand(msg: RuntimeRequest): Promise<unknown> {
       return deleteConversation(msg.id)
     case 'conv:deleteAll':
       return deleteAllConversations()
-    case 'conv:append':
-      return appendMessage(msg.message)
     default:
       throw new Error(`未知会话命令：${(msg as { kind: string }).kind}`)
   }

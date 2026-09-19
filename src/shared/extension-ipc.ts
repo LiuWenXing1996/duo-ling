@@ -164,11 +164,12 @@ export type RuntimeRequest =
 
   // —— 会话写侧（整条对话链路搬进 offscreen 后，会话历史唯一写入方 = offscreen）——
   // UI（侧边栏 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 对 conv: 前缀静默让路。
+  // 注意：**消息落盘不走这里**——它只发生在 chat:start（用户消息）与收尾（AI 消息），
+  // 且都经 lib/conversation-message.ts 的 toPersistedMessage（见该文件头注释）。
   | { kind: 'conv:create' }
   | { kind: 'conv:rename'; id: string; title: string }
   | { kind: 'conv:delete'; id: string }
   | { kind: 'conv:deleteAll' }
-  | { kind: 'conv:append'; message: import('./types').Message }
 
   // —— 对话链路（offscreen 执行宿主，定位 B「下完单就走」）——
   // 侧边栏是「指令入口 + 观察者」：发起后可关面板，任务在 offscreen 照跑完；

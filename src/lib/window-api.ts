@@ -11,13 +11,11 @@
 //   provider.*      → 预设表（src/lib/providers.ts）
 //   window.*        → 扩展页没有无边框窗口，按「无窗口状态」应答
 //   workspace.*     → 标签快照上报（Agent 编排未平移，空实现）
-
 //
 // 仍未平移的能力（agent）由 Proxy 兜底：调用时抛出带完整路径的错误。
 // 这样比静默返回 undefined 更早暴露「这段界面还没接上」，也便于后续逐项替换成真实实现。
 
 import type { PreloadApi } from '@/shared/ipc'
-import type { Message } from '@/shared/types'
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { ModelProfileInput } from '@/shared/types'
 import { getProviders } from './providers'
@@ -70,7 +68,8 @@ function createStubNamespace(path: string): unknown {
 //
 // **会话历史唯一写入方 = offscreen**（防双写）。list / search / messages 是读，仍直连
 // 本地 IndexedDB（同源共享，注册链路同理不能押在容器存活上）；create / rename / delete /
-// deleteAll / appendMessage 是写，经 conv:* 命令交 offscreen 执行。
+// deleteAll 是写，经 conv:* 命令交 offscreen 执行。消息落盘不在这个面上 —— 它只发生在
+// chat:start（用户消息）与收尾（AI 消息）两条链路里，见 lib/conversation-message.ts。
 
 /** 向 offscreen 发一次请求，统一解包 { ok, data|error }；「容器未响应」类错误先唤起再重试 */
 async function sendOffscreen<T>(request: RuntimeRequest): Promise<T> {
@@ -116,20 +115,6 @@ const conversation: PreloadApi['conversation'] = {
   create: () => sendOffscreen({ kind: 'conv:create' }),
 
   rename: (id, title) => sendOffscreen({ kind: 'conv:rename', id, title }),
-
-  appendMessage: (conversationId, role, content, reasoning, parts, usage) => {
-    const message: Message = {
-      id: crypto.randomUUID(),
-      conversationId,
-      role,
-      content,
-      createdAt: new Date().toISOString(),
-      ...(reasoning ? { reasoning } : {}),
-      ...(parts ? { parts } : {}),
-      ...(usage ? { usage } : {})
-    }
-    return sendOffscreen({ kind: 'conv:append', message })
-  },
 
   delete: (id) => sendOffscreen({ kind: 'conv:delete', id }),
 

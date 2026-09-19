@@ -43,3 +43,16 @@ export function isToolUIPart(part: UIPart): part is ToolUIPart | DynamicToolUIPa
 export function getToolName(part: ToolUIPart | DynamicToolUIPart): string {
   return part.type === 'dynamic-tool' ? part.toolName : part.type.split('-').slice(1).join('-')
 }
+
+/** 正文 = 所有 text part 顺序拼接（写侧 content 派生、读侧用户气泡正文共用这一处口径）。
+ *
+ * 「只认 text part」这个口径**只在这里定义**：将来若用户消息支持附件等非文本 part，
+ * 正文口径（要不要把附件名/类型也并进可检索文本）只改这一处，别在调用点各写一份。 */
+export function textOfMessage(m: UIMessage): string {
+  return m.parts.filter(isTextUIPart).map((p) => p.text).join('')
+}
+
+/** 思考过程 = 所有 reasoning part 顺序拼接（落盘时存成 content 之外的独立字段） */
+export function reasoningOfMessage(m: UIMessage): string {
+  return m.parts.filter(isReasoningUIPart).map((p) => p.text).join('')
+}

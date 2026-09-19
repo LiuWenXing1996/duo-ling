@@ -87,7 +87,7 @@ import { userscriptClient } from '@/lib/userscripts/ui-client'
 import type { DynamicToolUIPart, TextUIPart, ToolUIPart, UIMessage } from 'ai'
 // 这几个 part 判定 helper 走本地实现：静态 import 'ai' 会把整块 ~360KB 的核心
 // （含 gateway / zod）钉进侧边栏首屏静态图。详见该文件头部说明。
-import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart } from '@/lib/ui-message-parts'
+import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, textOfMessage } from '@/lib/ui-message-parts'
 
 const props = defineProps<{
   messages: UIMessage[]
@@ -162,14 +162,10 @@ onMounted(() => {
 
 // —— 消息渲染：UIMessage parts -> 气泡正文 / 思考与执行过程 ——
 
-/** 把消息的 text parts 聚合为正文（流式多轮正文按出现顺序拼接） */
-function textOf(m: UIMessage): string {
-  return m.parts.filter(isTextUIPart).map((p) => p.text).join('')
-}
-
-/** 用户消息正文：直接聚合 text parts 展示 */
+/** 用户消息正文：text parts 顺序拼接（口径与落盘侧共用 lib/ui-message-parts 的 textOfMessage）。
+ * 非文本 part（未来可能的附件）目前不在这里渲染——正文口径要改就改那个共享 helper。 */
 function userText(m: UIMessage): string {
-  return textOf(m)
+  return textOfMessage(m)
 }
 
 /** 随本条消息附上的页面上下文（气泡 chip 渲染源；只认元素拾取，快照不进元数据） */

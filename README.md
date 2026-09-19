@@ -101,7 +101,7 @@
 ├─ uscript-samples/               # pack-uscripts 的源目录（跟 git）：未压缩的测试脚本源码，注入探针 / DL 桥往返 / 多文件构建 / 运行期报错 / 构建失败
 ├─ docs/inbox.md                  # 想法收件箱（只装问题，不写方案）
 ├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟四链路）
-└─ .github/workflows/             # ci.yml（PR 门禁：typecheck + 单测）/ e2e.yml（手动 / nightly / push main）
+└─ .github/workflows/             # ci.yml（typecheck + 单测）/ e2e.yml（Playwright 冒烟，PR 上也跑）
 ```
 
 ## 命令
@@ -119,7 +119,7 @@ npm run check:inbox      # 想法收件箱体检（整理 inbox 时跑）
 npm run pack:uscripts    # 把仓库根 uscript-samples/ 打成可导入的用户脚本 zip → tmp/（测试用脚本不用手搓）
 ```
 
-> 依赖用 **npm** 管理。PR 门禁由 `ci.yml` 跑 typecheck + 全部单测；E2E 是独立 workflow（`e2e.yml`），**故意不作 required status check**。
+> 依赖用 **npm** 管理。PR 上跑两个 workflow：`ci.yml`（typecheck + 全部单测）与 `e2e.yml`（Playwright 冒烟，约 1 分钟）。**两者都是 required status check**（ruleset 里配的），都绿才能合；同 PR 连推由 concurrency 取消旧 run，只跑最新 commit。
 
 ## 手测
 
