@@ -1,7 +1,7 @@
 {
   "name": "duoling-plugin",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.2",
   "type": "module",
   "scripts": {
     "postinstall": "wxt prepare",
@@ -13,7 +13,8 @@
     "test:e2e": "playwright test",
     "verify:skills": "node scripts/verify-skills.mjs",
     "check:inbox": "python3 scripts/check-inbox.py",
-    "pack:uscripts": "node scripts/pack-uscripts.mjs"
+    "pack:uscripts": "node scripts/pack-uscripts.mjs",
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.48",

@@ -43,7 +43,7 @@ export interface ScriptProject {
   entry: string
   /**
    * 最近一次构建产物，正常路径必有（先构建后落盘）。
-   * **可缺省**：zip 导入构建失败时仍落盘（老大拍板「尽量导入」）——
+   * **可缺省**：zip 导入构建失败时仍落盘（经讨论定稿：「尽量导入」）——
    * 此时注册会被 resolveInjectCode 拦下并记 register 警告，用户去编辑器改到能构建即可。
    */
   bundle?: { code: string; builtAt: number }

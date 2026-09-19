@@ -26,4 +26,6 @@ declare module 'process' {
  */
 interface Window {
   api: import('@/shared/ipc').PreloadApi
+  // 构建信息（wxt.config.ts 注入）：版本号 + 分支 + 时间，用于 UI 展示「装的是哪个版本 / 跑的是哪次构建」。
+  __BUILD_INFO__?: { time: string; branch: string; version: string }
 }

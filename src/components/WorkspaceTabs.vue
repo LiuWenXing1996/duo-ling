@@ -28,12 +28,7 @@ const emit = defineEmits<{
 
 // 构建信息（wxt.config.ts 的 buildInfoPlugin 注入）：标签栏右侧展示，用于一眼判断
 // 「浏览器里跑的是不是最新代码」。dev 模式下 time = 页面加载时刻（刷新即更新），
-// build 模式下 = 产物构建时刻。
-declare global {
-  interface Window {
-    __BUILD_INFO__?: { time: string; branch: string }
-  }
-}
+// build 模式下 = 产物构建时刻。__BUILD_INFO__ 的全局类型见 src/types/shims.d.ts。
 
 function fmtBuildTime(iso: string): string {
   const d = new Date(iso)

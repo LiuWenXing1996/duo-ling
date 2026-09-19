@@ -1,0 +1,46 @@
+name: sync-release-notes
+
+# 例外修正通道：已发布版本的 CHANGELOG 段写错时（即使 AI 初稿 + 人审也可能出错），
+# 手动触发本 workflow，用最新 main 上的 CHANGELOG 对应段重写该 tag 的 Release notes。
+#
+# 设计原则：
+# - 与正常发版主链路（release.yml）彻底分离——本文件出问题不波及自动发版。
+# - 仅重写 notes，绝不删 / 改 tag 或 commit（已发布 tag 指向的 commit 是对的，只改文字）。
+# - 抽取逻辑复用 scripts/extract-changelog.mjs，与 release.yml 共用，行为一致。
+#
+# 用法：Actions 页面手动 Run workflow，输入已发布 tag（如 v0.1.0）。
+# 前置：CHANGELOG.md 的修正需先合入 main，本 workflow checkout main 才能抽到修正后内容。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "已发布 tag（如 v0.1.0），将用其对应 CHANGELOG 段重写 Release notes"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Rewrite release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ inputs.tag }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 不存在，无法同步（若 tag 也未发布，请先走正常发版流程）。"
+            exit 1
+          fi
+          node scripts/extract-changelog.mjs "$TAG" > /tmp/release-notes.md
+          gh release edit "$TAG" --notes-file /tmp/release-notes.md
+          echo "已用最新 CHANGELOG 段重写 $TAG 的 Release notes。"

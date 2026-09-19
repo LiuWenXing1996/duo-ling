@@ -4,7 +4,7 @@
 // 「注册态库」只存 bundle + 元数据。**一切源码落盘都收敛到 saveSource 一个入口**：
 // 写工作树 → 提交 git 版本 → 立刻构建 → 写状态库（+ 出口广播由命令面 handleStateCommand 负责）。
 //
-// 保存语义（2026-09-19 老大拍板）：**保存恒成功，构建跟随**——源码提交即保存，不再以构建
+// 保存语义（2026-09-19 经评审确认）：**保存恒成功，构建跟随**——源码提交即保存，不再以构建
 // 成功为落盘前提；构建失败则**产物置空**（bundle=undefined），脚本立即停止注入（旧产物不兜底，
 // 刷新目标页后不生效），直到用户改到能构建。构建终态另记 buildOk / lastBuildAt（列表状态标
 // 与「失败于何时」用；bundle 有无本身也是同一事实，但失败时没有时间戳可看）。
@@ -234,7 +234,7 @@ export async function removeProjectAndRepo(uuid: string): Promise<void> {
 /**
  * 删除全部用户脚本（「全部删除」按钮的落点），返回删除条数。
  *
- * 范围（2026-09-17 老大拍板）：只有新形态用户脚本——状态库项目 + 各自 git 仓。
+ * 范围（2026-09-17 经评审确认）：只有新形态用户脚本——状态库项目 + 各自 git 仓。
  * 不含内置件（随扩展包分发，不在状态库）。
  *
  * 两步：① 记录逐条 removeProject（与单删同一删除入口）；② 仓整目录清一遍 /uscripts
@@ -274,7 +274,7 @@ export async function setProjectEnabled(uuid: string, enabled: boolean): Promise
  *  · 构建失败：**仍导入**，产物置空（统一保存语义）；失败终态看列表失败标 / 编辑器打开时的诊断。
  * 导入默认值：uuid 重生成、enabled 恒 false（先审后启）、保留原名（名字不拦重复，uuid 才是标识）。
  *
- * **导入 ≠ 构建**（2026-09-19 老大拍板）：导入只落源码 + 占位注册态（lastBuildAt=0 = 从未构建），
+ * **导入 ≠ 构建**（2026-09-19 经评审确认）：导入只落源码 + 占位注册态（lastBuildAt=0 = 从未构建），
  * 构建由后台串行队列静默接力——导入即时返回，不因 esbuild / 依赖拉取卡弹窗。
  */
 export async function importScriptsZip(zipBase64: string): Promise<ImportReport> {
@@ -344,7 +344,7 @@ async function findContentDuplicate(entry: string, files: Record<string, string>
   return undefined
 }
 
-// —— 导入后台构建队列（2026-09-19 老大拍板：导入只落源码，构建静默后台）——
+// —— 导入后台构建队列（2026-09-19 经评审确认：导入只落源码，构建静默后台）——
 
 /** 一条待后台构建的任务：导入时登记，构建输入在真正执行时再从工作树现读 */
 interface PendingBuild {
@@ -434,7 +434,7 @@ export async function rebuildPendingProjects(): Promise<number> {
   return items.length
 }
 
-// —— 依赖缓存管理（2026-09-19 老大拍板：清缓存 / 刷缓存两个动作分开）——
+// —— 依赖缓存管理（2026-09-19 经评审确认：清缓存 / 刷缓存两个动作分开）——
 
 /** 刷新依赖缓存的返回：ok=false 时缓存原封未动，issues 带失败的 URL */
 export type DepsRefreshOutcome = { ok: true; refreshed: string[] } | { ok: false; issues: string[] }

@@ -97,6 +97,10 @@ async function onSaved(): Promise<void> {
 
 useDataSync('model', () => loadData())
 
+// 构建信息（wxt.config.ts 注入）：设置页底部展示构建分支，作为「关于」信息。
+const buildInfo = window.__BUILD_INFO__
+const buildBranch = buildInfo?.branch ?? 'unknown'
+
 onMounted(() => {
   void loadData()
 })
@@ -225,6 +229,11 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- 关于：构建分支信息（来自构建时注入的 __BUILD_INFO__） -->
+    <p class="border-t px-6 py-3 text-center text-xs text-muted-foreground">
+      哆灵 · 构建分支 {{ buildBranch }}
+    </p>
 
     <!-- 添加 / 编辑模型弹窗 -->
     <ModelFormDialog
