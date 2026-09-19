@@ -92,9 +92,13 @@ async function readAll(): Promise<{
   return { conversations, byConversation }
 }
 
-/** 会话 token 总量（由消息 usage 汇总，与桌面版 conversationTotalTokens 一致） */
+/** 会话 token 总量（由消息 usage 汇总，与桌面版 conversationTotalTokens 一致）。
+ * Message 按 role 判别：usage 只属于 assistant 分支，读之前必须判角色。 */
 function sumTokens(messages: Message[] | undefined): number {
-  return (messages ?? []).reduce((sum, m) => sum + (m.usage?.totalTokens ?? 0), 0)
+  return (messages ?? []).reduce(
+    (sum, m) => sum + (m.role === 'assistant' ? m.usage?.totalTokens ?? 0 : 0),
+    0,
+  )
 }
 
 /** 为会话派生列表展示字段：累计 token + 最近一条消息预览（取消息组最后一条正文截断） */

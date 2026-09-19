@@ -18,13 +18,13 @@ import {
   stepCountIs,
   streamText,
   toUIMessageStream,
-  isReasoningUIPart,
-  isTextUIPart,
   type UIMessage,
   type UIMessageChunk,
 } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { appendMessage, listMessages } from '@/lib/conversation-store'
+import { toPersistedMessage, toUiMessage } from '@/lib/conversation-message'
+import { textOfMessage } from '@/lib/ui-message-parts'
 import { offscreenBridge } from '@/lib/offscreen-bridge'
 import { getProject } from '@/lib/userscripts/project-store'
 import { ENTRY_DEFAULT } from '@/lib/userscripts/types'
@@ -82,15 +82,8 @@ const heartbeatTimer: unknown = setInterval(() => {
 
 // —— 工具 ——
 
-/** 提取 UIMessage 的正文（text parts 拼接） */
-function textOf(m: UIMessage): string {
-  return m.parts.filter(isTextUIPart).map((p) => p.text).join('')
-}
-
-/** 提取思考过程（reasoning parts 拼接） */
-function reasoningOf(m: UIMessage): string {
-  return m.parts.filter(isReasoningUIPart).map((p) => p.text).join('')
-}
+// 正文 / 思考的拼接口径统一在 lib/ui-message-parts（读侧 ChatPanel 用同一份），
+// 这里不再各写一份：两处 drift 会让"落盘的 content"和"渲染的正文"对不上。
 
 /** 历史消息送模型前剥掉 data parts（data-generation / data-usage 是 UI 专用，不进模型上下文） */
 function stripDataParts(messages: UIMessage[]): UIMessage[] {
@@ -247,22 +240,11 @@ async function runLoop(opts: {
     if (!profile) throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
 
     // 历史消息：新任务用调用方带来的；续跑从会话库现取（含此前完整上下文）。
-    // 会话库重建时把 pageContext 元数据挂回 metadata（气泡 chip 与「最近一次拾取」都认它）
-    const uiMessages = opts.messages ?? (await listMessages(conversationId)).map((m) =>
-      m.parts?.length
-        ? ({
-            id: m.id,
-            role: m.role,
-            parts: [...m.parts],
-            ...(m.pageContext ? { metadata: { pageContext: m.pageContext } } : {}),
-          } as UIMessage)
-        : ({
-            id: m.id,
-            role: m.role,
-            parts: [ ...(m.reasoning ? [{ type: 'reasoning' as const, text: m.reasoning }] : []), { type: 'text' as const, text: m.content } ],
-            ...(m.pageContext ? { metadata: { pageContext: m.pageContext } } : {}),
-          } as UIMessage),
-    )
+    // 库记录 → UIMessage 走与面板同一个 toUiMessage（含 pageContext 挂回 metadata：
+    // 气泡 chip 与「最近一次拾取」都认它）——这里以前手写过一份带"缺 parts 就用
+    // reasoning+content 合成"的转换，是第二个转换点，已收敛（老数据不兼容是既定取舍）。
+    const uiMessages =
+      opts.messages ?? (await listMessages(conversationId)).map(toUiMessage)
 
     // prompt 用的页面上下文：本请求的新鲜拾取优先，缺位回退历史里最近一次随消息附上的
     // （跨轮指代 / 重新生成 / 重开面板续聊都靠它接上；老快照不回注，见 mergePageContext）
@@ -407,16 +389,14 @@ async function runLoop(opts: {
     const { message: persisted, errors: restoreErrors } =
       await buildFinalMessageFromChunks(restoreChunks)
     if (persisted) {
-      await appendMessage({
-        id: persisted.id || task.messageId,
-        conversationId,
-        role: 'assistant',
-        content: textOf(persisted).trim() || '（模型未生成回复内容）',
-        ...(reasoningOf(persisted).trim() ? { reasoning: reasoningOf(persisted) } : {}),
-        parts: JSON.parse(JSON.stringify(persisted.parts)) as UIMessage['parts'],
-        ...(usageData ? { usage: usageData } : {}),
-        createdAt: new Date().toISOString(),
-      }).catch((e) => {
+      // 落盘一律经 toPersistedMessage（与 user 路径共用同一投影；见 lib/conversation-message.ts）
+      await appendMessage(
+        toPersistedMessage(persisted, {
+          conversationId,
+          id: persisted.id || task.messageId,
+          ...(usageData ? { usage: usageData } : {}),
+        }),
+      ).catch((e) => {
         console.error('[duoling:chat] assistant 消息落盘失败', e)
         pushChunk(conversationId, {
           type: 'error',
@@ -469,6 +449,8 @@ export async function startChat(msg: Extract<RuntimeRequest, { kind: 'chat:start
   // 新用户消息落盘（唯一写方=offscreen；自动命名逻辑在 store 的 appendMessage 里）。
   // 拾取/快照随消息落盘成 pageContext 元数据（档 0 URL/标题不落库，每轮实时取）——
   // 历史气泡 chip 与后续轮次「最近一次拾取」prompt 注入都以这条记录为数据源。
+  // 落盘一律经 toPersistedMessage：content 与 parts 由同一处投影派生，不会再出现
+  // "只写了 content、parts 漏掉"（那会让用户气泡在重开会话后变空，见该文件头注释）。
   if (msg.trigger === 'submit-message' && lastMessage?.role === 'user') {
     const attached: MessagePageContext | undefined =
       msg.pageContext?.element || msg.pageContext?.snapshot
@@ -477,18 +459,16 @@ export async function startChat(msg: Extract<RuntimeRequest, { kind: 'chat:start
             ...(msg.pageContext.snapshot ? { snapshot: msg.pageContext.snapshot } : {}),
           }
         : undefined
-    await appendMessage({
-      id: lastMessage.id,
-      conversationId: msg.conversationId,
-      role: 'user',
-      content: textOf(lastMessage),
-      ...(attached ? { pageContext: attached } : {}),
-      createdAt: new Date().toISOString(),
-    })
+    await appendMessage(
+      toPersistedMessage(lastMessage, {
+        conversationId: msg.conversationId,
+        ...(attached ? { pageContext: attached } : {}),
+      }),
+    )
   }
 
   const taskId = crypto.randomUUID()
-  const prompt = lastMessage ? textOf(lastMessage) : ''
+  const prompt = lastMessage ? textOfMessage(lastMessage) : ''
   await putTask({
     taskId,
     conversationId: msg.conversationId,
