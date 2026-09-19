@@ -93,13 +93,24 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 `.github/workflows/release.yml` 监听 `pull_request: closed + merged`（及手动 `workflow_dispatch`）：
 
 1. 读合并 commit 的 `package.json` version → `v<version>`。
-2. 若 `v<version>` **已存在** → 跳过（本次是普通 PR，或版本已发过）。
+2. 若 `v<version>` **已存在** → 跳过（本次是普通 PR，或版本已发过）；同时跳过产物构建（见下）。
 3. 否则打 **annotated tag** 并推 `refs/tags/*`。
+4. 构建 `chrome-mv3` 产物、打包成 zip 上传为该 Release 的 **asset**（独立 `build` job，详见下方「GitHub Release assets」）。
 
 - **CI 只推 tag，不 bump 版本**：bump 已在本地 `npm run release` 完成、随 release PR 合入。
 - **不依赖提交信息 / 不解析历史**：版本号只从 `package.json.version` 读取，不解析 commit message；PR 以 Merge Commit 合入后，**merge commit 标题（即开 PR 时的 `--title`）** 原样成为 `main` 上的提交记录、是项目永久历史，仍须按本仓库约定写成 `chore: release vX.Y.Z`（见上方开 PR 的 `--title`），保持历史自解释（提交信息通用规范见 [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md)）。
 - **串行**：`concurrency` 串行，防止两个 release PR 同时合入抢建同一 tag。
 - **手动兜底（罕见）**：CI 漏打 tag 时二选一补推——① Actions 页面对 `release` workflow 点 `Run workflow` 重跑（幂等：tag 已存在自动跳过；尽量在后续 PR 合入 main 前跑，避免 tag 落到错误 commit 上）；② 本地补建 annotated tag 并指向 release PR 的合并 commit 再推：`git tag -a vX.Y.Z -m "vX.Y.Z" <合并commit> && git push origin vX.Y.Z`（tag 走 `refs/tags/*`，不触发 main 分支保护）。
+
+## GitHub Release assets（自动上传构建产物）
+
+每个版本的 GitHub Release 都会附带一份可直接加载的安装包，由 `release.yml` 的 `build` job 产出：
+
+- **文件名**：`duo-ling-<tag>-chrome-mv3.zip`（如 `duo-ling-v0.1.0-alpha.3-chrome-mv3.zip`）。
+- **内容**：`npm run build` 的 `.output/chrome-mv3/` 目录本身，**解压即得**含 `manifest.json` 的目录，Chrome 用「加载已解压的扩展」指向它即可。
+- **两条保护**：① `build` 是**独立 job**（`needs: tag`）——构建/打包失败不影响 tag 与 Release notes 已先落定的事实；② 只有「本次新建 tag」或「手动 Run workflow」才构建上传，普通 PR 合入直接跳过（避免用 main 新代码覆盖已发布 tag 的同名产物）。
+- **补传**：build job 失败修好后，在 Actions 页面对 `release` workflow 点 `Run workflow` 重跑即可（tag 已存在会跳过，asset 用 `--clobber` 覆盖同名文件）。
+- ⚠️ **manifest 里的 version 会被 WXT 归一化**（`0.1.0-alpha.3` → `0.1.0`，Chrome 只接受纯数字点分段）。因此同一 base 下的多个预发布版在「扩展管理」页里显示同一个版本号，`0.1.0` 并非某个版本的专属标识——辨别装的是哪次构建看安装.zip 的文件名或用设置页的「构建信息」。
 
 ## GitHub Release notes（自动生成 + 例外修正）
 
