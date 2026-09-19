@@ -148,6 +148,15 @@ describe('parseScriptsZip 解析（尽量导入：只拦原则项，2026-09-17 �
     expect(clean.scripts[0].notes).toBeUndefined()
   })
 
+  it('config.deps 随导入保留（UMD / 资源依赖，2026-09-19）：非字符串项剔除，空列表不落字段', () => {
+    const url = 'https://code.jquery.com/jquery-3.7.1.min.js'
+    const withDeps = parseScriptsZip(validSingleZip({ config: { matches: ['*://*/*'], deps: [url, 42, ''] } }))
+    expect(withDeps.scripts[0].config.deps).toEqual([url])
+
+    const noDeps = parseScriptsZip(validSingleZip({ config: { matches: ['*://*/*'], deps: [] } }))
+    expect(noDeps.scripts[0].config.deps).toBeUndefined()
+  })
+
   it('zip slip：只过滤不安全路径的文件，脚本其余文件照常导入', () => {
     const evil = [
       'evil/files/../pwn.js',

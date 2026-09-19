@@ -257,6 +257,8 @@ function coerceConfig(raw: unknown): { config: ScriptConfig; note?: string } {
   if (includeGlobs.length) config.includeGlobs = includeGlobs
   const excludeGlobs = strArray(c.excludeGlobs)
   if (excludeGlobs.length) config.excludeGlobs = excludeGlobs
+  const deps = strArray(c.deps)
+  if (deps.length) config.deps = deps
   return {
     config,
     ...(matches.length ? {} : { note: '配置缺少匹配规则（matches），补全后再启用' }),

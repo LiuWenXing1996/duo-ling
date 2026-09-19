@@ -728,7 +728,7 @@ useDataSync('script', (push) => {
             v-model="editDeps"
             rows="2"
             class="w-full resize-y rounded-md border border-input bg-background px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-ring"
-            placeholder="https://code.jquery.com/jquery-3.7.1.min.js"
+            placeholder="如 https://code.jquery.com/jquery-3.7.1.min.js（灰字是示例，不是已填内容）"
             @input="editDirty = true"
           ></textarea>
         </label>
