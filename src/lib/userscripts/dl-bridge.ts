@@ -11,7 +11,16 @@
 // 安全性：消息来源天然是「不可信用户脚本」，故校验 sender.userScript.scriptId 与消息里的 uuid 一致，
 // 防止伪造身份读写其它脚本的私有存储。background 的 SW 内 fetch 受 <all_urls> host 权限豁免 CORS，
 // 这是 DL.fetch 免 CORS 的基础（Chrome 官方明文：内容脚本中的跨源请求始终按跨源处理）。
-import type { ApiErrorCode, ApiRequest, ApiResponse, DlEvent, FetchInit, FetchPayload, Json } from './api-contract'
+import type {
+  ApiErrorCode,
+  ApiRequest,
+  ApiResponse,
+  DlCookie,
+  DlEvent,
+  FetchInit,
+  FetchPayload,
+  Json,
+} from './api-contract'
 // DL Port 事件底座（二期）：控制面实现（菜单登记 / store 订阅 / 通知归属）
 import {
   registerScriptMenu,
@@ -20,6 +29,8 @@ import {
   detachScriptWatch,
   mintNotification,
 } from './dl-port'
+// DL.cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
+import { checkCookieUrl } from './cookie-gate'
 // 侧边栏页面脚本监控（运行时口径）：runstart 登记 + 错误实时推送（跨文档观察者，SW 按 tab 登记）
 import { notePageError, noteRunStart } from './page-monitor'
 import {
@@ -147,6 +158,45 @@ async function doDownload(url: string, name: string): Promise<{ dataUrl: string;
   return { dataUrl: `data:${mime};base64,${arrayBufferToBase64(buf)}`, name }
 }
 
+// ————————————————————— cookie（cookies 权限）—————————————————————
+
+/**
+ * 取 chrome.cookies，缺失即明确报错（扩展未声明 cookies 权限 / 旧产物）；不静默降级。
+ */
+function cookiesApi(): typeof chrome.cookies {
+  const api = chrome.cookies
+  if (!api || typeof api.get !== 'function') {
+    throw new ApiError('NOT_AVAILABLE', 'cookie 能力不可用：扩展未声明 cookies 权限')
+  }
+  return api
+}
+
+/**
+ * 过域名门（越域即拒）。**所有** cookie 命令都必须先走这里 —— 门在 SW 侧是唯一执行点，
+ * 包装层传什么 url 都不可信。
+ */
+async function assertCookieScope(uuid: string, url: string): Promise<void> {
+  const gate = await checkCookieUrl(uuid, url)
+  if (!gate.ok) throw new ApiError(gate.code, gate.message)
+}
+
+/** chrome.cookies.Cookie → DlCookie（只取可跨桥 / 允许暴露的字段） */
+function toDlCookie(c: chrome.cookies.Cookie): DlCookie {
+  const out: DlCookie = {
+    name: c.name,
+    value: c.value,
+    domain: c.domain,
+    path: c.path,
+    secure: c.secure,
+    httpOnly: c.httpOnly,
+    session: c.session,
+    hostOnly: c.hostOnly,
+  }
+  // session cookie 无 expirationDate（chrome 侧为 undefined），不写空字段
+  if (typeof c.expirationDate === 'number') out.expirationDate = c.expirationDate
+  return out
+}
+
 /** 按命令分发（已确认 __dl 标记与身份）。参数见 ApiRequest 契约注释 */
 async function dispatch(uuid: string, req: ApiRequest): Promise<unknown> {
   switch (req.c) {
@@ -197,6 +247,44 @@ async function dispatch(uuid: string, req: ApiRequest): Promise<unknown> {
       if (tab?.windowId != null) {
         await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {})
       }
+      return undefined
+    }
+    // cookie（cookies 权限）：先过域名门，再碰 chrome.cookies —— 顺序不可倒（门是唯一安全边界）
+    case 'cookie.get': {
+      await assertCookieScope(uuid, req.url)
+      const api = cookiesApi()
+      if (req.name != null && req.name !== '') {
+        const one = await api.get({ url: req.url, name: req.name })
+        return one ? [toDlCookie(one)] : []
+      }
+      const all = await api.getAll({ url: req.url })
+      return all.map(toDlCookie)
+    }
+    case 'cookie.set': {
+      await assertCookieScope(uuid, req.url)
+      if (typeof req.name !== 'string' || !req.name) {
+        throw new ApiError('INVALID_ARG', 'DL.cookie.set：name 必填')
+      }
+      if (typeof req.value !== 'string') {
+        throw new ApiError('INVALID_ARG', 'DL.cookie.set：value 必须是字符串')
+      }
+      // 只传 url：domain / path 不开放覆写（开放 domain 会架空域名门，见 api-contract 注释）
+      const details: chrome.cookies.SetDetails = { url: req.url, name: req.name, value: req.value }
+      if (typeof req.secure === 'boolean') details.secure = req.secure
+      if (typeof req.httpOnly === 'boolean') details.httpOnly = req.httpOnly
+      if (typeof req.expirationDate === 'number') details.expirationDate = req.expirationDate
+      const written = await cookiesApi().set(details)
+      if (!written) {
+        throw new ApiError('INTERNAL', `DL.cookie.set 被浏览器拒绝：${req.name}`)
+      }
+      return undefined
+    }
+    case 'cookie.remove': {
+      await assertCookieScope(uuid, req.url)
+      if (typeof req.name !== 'string' || !req.name) {
+        throw new ApiError('INVALID_ARG', 'DL.cookie.remove：name 必填')
+      }
+      await cookiesApi().remove({ url: req.url, name: req.name })
       return undefined
     }
     // 二期（DL Port 事件底座）：菜单登记 + store 订阅（控制面，经 Port 回推见 dl-port.ts）

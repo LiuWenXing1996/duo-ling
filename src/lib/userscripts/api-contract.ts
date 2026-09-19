@@ -18,6 +18,28 @@ export interface ScriptInfo {
   version?: string
 }
 
+/**
+ * cookie 快照（跨桥返回的纯数据，chrome.cookies.Cookie 的可克隆子集）。
+ *
+ * 字段口径与 chrome 一致：hostOnly / session 语义原样透传，不加工。
+ */
+export interface DlCookie {
+  name: string
+  value: string
+  /** 管辖域；点前缀表示父域 cookie */
+  domain: string
+  path: string
+  secure: boolean
+  /** HttpOnly：页面 JS 读不到，本 API 照原样暴露（老大 2026-09-19 拍板，与油猴一致） */
+  httpOnly: boolean
+  /** 会话 cookie（无过期时间）为 true */
+  session: boolean
+  /** Unix 秒；session cookie 无此字段 */
+  expirationDate?: number
+  /** 是否 host-only（无 domain 属性） */
+  hostOnly: boolean
+}
+
 // ————————————————————————————— 网络 —————————————————————————————
 
 /** 二进制请求体信封：包装侧把 ArrayBuffer / TypedArray 转 base64 打包，SW 侧解码后发请求 */
@@ -76,9 +98,21 @@ export type ApiRequest =
   | { c: 'tabs.open'; url: string; active?: boolean }
   | { c: 'tabs.close'; tabId: number }
   | { c: 'tabs.focus'; tabId: number }
-  // 未实现（暂不加 cookies 权限）：
-  //   cookie.get / cookie.set / cookie.remove —— 实现时须给 manifest 加 `cookies` 权限，
-  //   且 url 缺省语义必须由 DL 包装层填 location.href（SW 里没有「当前页面」概念）。
+  // cookie（需 manifest 的 cookies 权限；域名门见 cookie-gate.ts）
+  //   url 必填 —— 缺省语义由包装层填 location.href（SW 里没有「当前页面」概念），
+  //   SW 侧不做兜底：url 缺失/非法一律 INVALID_ARG，不静默猜。
+  | { c: 'cookie.get'; url: string; name?: string }
+  | {
+      c: 'cookie.set'
+      url: string
+      name: string
+      value: string
+      secure?: boolean
+      httpOnly?: boolean
+      /** Unix 秒；不传 = 会话 cookie */
+      expirationDate?: number
+    }
+  | { c: 'cookie.remove'; url: string; name: string }
   // 菜单（contextMenus，后台登记，点击时经 ApiEvent 回推脚本）
   | { c: 'menu.register'; id: string; title: string }
   | { c: 'menu.unregister'; id: string }
@@ -204,8 +238,36 @@ export interface DuoLingApi {
     focus(tabId: number): Promise<void>
   }
 
-  // 未实现：cookie.*，届时 manifest 需加 `cookies` 权限。
-
+  /**
+   * cookie 读写删（manifest 需 `cookies` 权限）。
+   *
+   * **域名门**：url 必须落在**该脚本自身** matches 内（不与其它脚本取并集），
+   * 且 pattern 只比 scheme + host、忽略 path 段 —— cookie 是 host 级作用域，
+   * 只注入 /foo/ 的脚本也必须能读站点 cookie。越域报 PERMISSION_DENIED。
+   * url 缺省 = 当前页（包装层填 location.href）。
+   */
+  cookie: {
+    /**
+     * 读 cookie。**恒返回数组**（空数组 = 该 url 没有 cookie）——
+     * 三态返回（单条 / null / 数组）会让调用方写三层分支，语义不单一。
+     * 按 name 查自己取 `[0]`。
+     */
+    get(query?: { url?: string; name?: string }): Promise<DlCookie[]>
+    /**
+     * 写 cookie。domain / path 不可覆写（domain 由 url 主机推导、path 恒 '/'）：
+     * 开放 domain 会让「脚本可写父域 cookie」架空域名门。
+     */
+    set(details: {
+      url?: string
+      name: string
+      value: string
+      secure?: boolean
+      httpOnly?: boolean
+      /** Unix 秒；不传 = 会话 cookie */
+      expirationDate?: number
+    }): Promise<void>
+    remove(details: { url?: string; name: string }): Promise<void>
+  }
   /** 在扩展菜单里注册命令，返回注销函数 */
   menu: {
     register(title: string, handler: () => void): Promise<() => void>
