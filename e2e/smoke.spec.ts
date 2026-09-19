@@ -144,6 +144,29 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     await page.close()
   })
 
+  test('workbench「DL API」标签页：清单渲染 + 详情展开 + 搜索空态', async () => {
+    const page = await context!.newPage()
+    await page.goto(`chrome-extension://${extensionId}/workbench.html`)
+
+    // 左侧导航进入：面板挂载，脚本世界 DL 的能力清单来自静态目录（与注入真身同源，见单测防漂移）
+    await page.locator('button[aria-label="DL API"]').click()
+    await expect(page.locator('[data-testid="dl-api-panel"]')).toBeVisible()
+    for (const path of ['store.get', 'fetch', 'cookie.set', 'page.hook']) {
+      await expect(page.locator(`[data-testid="dl-api-card-${path}"]`)).toBeVisible()
+    }
+
+    // 详情默认收起（28 条全铺开没法扫）→ 点标题行才出签名
+    const card = page.locator('[data-testid="dl-api-card-store.get"]')
+    await expect(card).not.toContainText('DL.store.get(key, fallback?)')
+    await page.locator('[data-testid="dl-api-card-toggle-store.get"]').click()
+    await expect(card).toContainText('DL.store.get(key, fallback?)')
+
+    // 搜不到的关键词：空态文案而不是留白
+    await page.locator('[data-testid="dl-api-search"]').fill('zzz-not-exist')
+    await expect(page.locator('[data-testid="dl-api-empty"]')).toBeVisible()
+    await page.close()
+  })
+
   // ———————————————————————————— side panel ————————————————————————————
 
   test('sidepanel.html 页面可加载（sidePanel.open() 需 user gesture，不进无头断言）', async () => {

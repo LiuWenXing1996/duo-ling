@@ -14,6 +14,7 @@ import UserscriptBundlePanel from '@/components/userscript/UserscriptBundlePanel
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import ChatDataPanel from '@/components/ChatDataPanel.vue'
 import AgentToolsPanel from '@/components/AgentToolsPanel.vue'
+import DlApiPanel from '@/components/DlApiPanel.vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
   Tabs as UiTabs,
@@ -148,6 +149,14 @@ function openAgentToolsTab(): void {
   activate('agent-tools')
 }
 
+// 打开 DL API 标签页：脚本世界里 window.DL 的能力速查（纯静态目录，与注入真身同源），全局仅一个
+function openDlApiTab(): void {
+  if (!openTabs.value.some((t) => t.kind === 'dl-api')) {
+    openTabs.value.push({ kind: 'dl-api', id: 'dl-api', title: 'DL API' })
+  }
+  activate('dl-api')
+}
+
 // 打开某脚本的历史标签页：每脚本一个（id = us-history:<uuid>），已打开则激活复用。
 // 编辑器顶栏的历史按钮经 @open-history 走到这里；浏览 + 恢复都在这个标签页里。
 function openUserscriptHistoryTab(uuid: string, title: string): void {
@@ -228,8 +237,8 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「引导 / 设置 / UI 测试 / 脚本列表 / 错误日志 / lfs 浏览 / 会话数据 / AI 工具」与脚本管理器的「编辑」入口
-defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorLogTab, openLfsBrowserTab, openChatDataTab, openAgentToolsTab, openUserscriptEditor })
+// 暴露给根布局：左侧导航栏「引导 / 设置 / UI 测试 / 脚本列表 / 错误日志 / lfs 浏览 / 会话数据 / AI 工具 / DL API」与脚本管理器的「编辑」入口
+defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorLogTab, openLfsBrowserTab, openChatDataTab, openAgentToolsTab, openDlApiTab, openUserscriptEditor })
 </script>
 
 <template>
@@ -293,6 +302,8 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
         <chat-data-panel v-else-if="tab.kind === 'chat-data'" />
         <!-- AI 工具：agent 工具契约（与模型所见同源）+ 会话库里的真实调用轨迹 -->
         <agent-tools-panel v-else-if="tab.kind === 'agent-tools'" />
+        <!-- DL API：脚本世界 window.DL 的能力速查（纯静态目录，与注入真身同源） -->
+        <dl-api-panel v-else-if="tab.kind === 'dl-api'" />
         <!-- 脚本历史：每脚本一个标签页，浏览 + 恢复；恢复后重载对应编辑器 -->
         <userscript-history-panel
           v-else-if="tab.kind === 'script-history'"
