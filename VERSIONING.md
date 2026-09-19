@@ -69,7 +69,7 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
    # 演练（只打印不改动；-- 让 npm 把参数传给脚本）
    npm run release -- minor --dry-run
    ```
-   > `npm run release` 只生成**空分组占位**段；起段后由 AI解析自上次发版以来的提交历史，生成**日志初稿**供人判定，再补填实际变更。
+   > `npm run release` 只生成**空分组占位**段；起段后由 AI解析自上次发版以来的提交历史,补填实际变更，生成**日志初稿**供人判定。
 2. 推分支并开 PR（分支名约定 `release/vX.Y.Z`）：
    ```bash
    git push -u origin HEAD
@@ -100,3 +100,16 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 - **不依赖提交信息 / 不解析历史**：版本号只从 `package.json.version` 读取，不解析 commit message，因此 squash 标题**不必**刻意编码版本号；但 squash 标题会原样成为 `main` 上的提交记录、是项目永久历史，仍须按本仓库约定写成 `chore: release vX.Y.Z`（见上方开 PR 的 `--title`），保持历史自解释。
 - **串行**：`concurrency` 串行，防止两个 release PR 同时合入抢建同一 tag。
 - **手动兜底（罕见）**：CI 漏打 tag 时二选一补推——① Actions 页面对 `release` workflow 点 `Run workflow` 重跑（幂等：tag 已存在自动跳过；尽量在后续 PR 合入 main 前跑，避免 tag 落到错误 commit 上）；② 本地补建 annotated tag 并指向 release PR 的合并 commit 再推：`git tag -a vX.Y.Z -m "vX.Y.Z" <合并commit> && git push origin vX.Y.Z`（tag 走 `refs/tags/*`，不触发 main 分支保护）。
+
+## GitHub Release notes（自动生成 + 例外修正）
+
+正常发版时，`release.yml` 在打 tag 后**自动从 `CHANGELOG.md` 对应段抽取内容生成 GitHub Release notes**（一次性快照），预发布版（tag 含 `-`，如 `v0.1.0-alpha.1`）自动标 `--prerelease`。抽取逻辑统一由 `scripts/extract-changelog.mjs` 提供，被 `release.yml` 与下方例外通道共用，保证行为一致。Release notes 是「发布那一瞬间的快照」，不随 CHANGELOG 后续改动自动更新。
+
+**例外：某次 notes 写错了（即使 AI 初稿 + 人审，仍可能出错），如何重新同步：**
+
+- **未发版（tag 未打 / Release 未建）**：直接在 `CHANGELOG.md` 改，CI 打 tag 时自然抽到正确内容，**无需任何额外同步**。这也是「人审关卡（步骤 3）」存在的意义——审稿没过就改重提，到不了建 Release 那步。
+- **已发版（tag + Release 均已存在）**：
+  1. 在 `CHANGELOG.md` 的已发布段做修正，合入 `main`（破例编辑已发布段，仅作为例外允许）。
+  2. 手动触发 `sync-release-notes` workflow（输入对应 tag），用最新 `CHANGELOG.md` 段重写该 Release 的 notes。
+  3. **绝不删 / 改 tag 或 commit 来修正文字**——已发布 tag 指向的 commit 是对的，只改 notes 即可；删 tag 重建会破坏已发布版本引用、可能让已装扩展的引用失效。
+- 例外通道**独立成 `sync-release-notes.yml`**，不塞进 `release.yml`——即使它出问题也不波及正常发版主链路。
