@@ -49,7 +49,7 @@ export function toFileUrl(input: string): LocalPathResult {
     return { ok: false, reason: '请填绝对路径（以 / 开头）；相对路径没有基准目录可锚定' }
   }
   if (!/\.zip$/i.test(path)) {
-    return { ok: false, reason: '只支持 .zip 导入包（与文件选择器的筛选一致）' }
+    return { ok: false, reason: '只支持 .zip 导入包' }
   }
 
   let url: URL
