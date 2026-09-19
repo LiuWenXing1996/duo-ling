@@ -6,20 +6,25 @@
 
 ## 项目速览（形态 + 红线）
 
-**形态**：Chrome MV3 扩展（background service worker + side panel + 工作台标签页）。**运行时架构（载体与运行时、对话链路、脚本注入、存储六库、统一保存、数据广播、依赖构建、构建信息注入）的唯一登记处是 [ARCHITECTURE.md](ARCHITECTURE.md)** —— 本文件不复述。
+**形态**：Chrome MV3 扩展（background service worker + side panel + 工作台标签页）。**运行时架构见 [ARCHITECTURE.md](ARCHITECTURE.md)**。
 
 **红线**（各领域规范与文档索引见下方「文档职责总表」）：
 
-- **UI 复用（强制）**：两个载体的 UI 都是现成实现（`src/components/`）—— side panel 用 `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列。它们靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，因此组件本体零改动。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 规范走：先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，**不手写组件**；`class` 只用于布局，不覆盖组件配色与字体，颜色一律用语义 token（`bg-primary` / `text-muted-foreground`），不写 `space-x-*` / `space-y-*`、不手写 `dark:` 覆盖。
-  - **Tooltip 组合约束（reka-ui 2.10 实测）**：① `TooltipProvider` 不转发 attrs，任何 as-child 组件**隔在 Provider 与目标元素之间都会静默断链**（编译不报错、运行时无警告，事件/属性全丢）——Tooltip 包其他触发组件时必须 **Tooltip 在最外、目标组件在内**；② 即便顺序正确，**TooltipTrigger 套在 DropdownMenuTrigger 外层仍会让 menu popper 失去定位**（内容渲染到视口外，`translate(0,-200%)` 兜底，无任何报错；组件测试/happy-dom 测不出来，只有真实浏览器可见性断言能抓到）——**菜单触发按钮一律用原生 `title`，不套 Tooltip**（`SessionHistoryPanel` 会话操作按钮即此例）。
-  - **Collapsible 折叠语义（reka-ui 2.10 实测）**：① `force-mount` 加在 `CollapsibleContent` 上**不是「保持挂载但隐藏」**——它使 `present=true`、`hidden` 属性不写，收起时内容**照样显示**；② 要「收起时留在 DOM 但不可见」（表单与编辑态始终同源、组件测试定位控件不受折叠影响），只能给**根组件** `<ui-collapsible :unmount-on-hide="false">` ——内容会带 `hidden` 属性，属性值经 Vue 归一为空串（测试只断言存在性，别断言 `until-found`）。`UserscriptEditorPanel` 的脚本配置区即此例（默认收起，收起态用摘要行交代当前注入面）。
-- **主题**：**跟随系统**（`src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`）——勿在 html 上硬写 `class="dark"`，也别在组件里硬编码色值（一律用主题变量如 `--background`）。
-- **工作台标签页（面板）**：新增 / 改动按 [workbench-panel](.agents/skills/workbench-panel/SKILL.md) 走 —— **接线固定 5 处（清单只在该 SKILL 罗列）**，**面板数据源不得 import offscreen 专属模块**（`us-git` / `builder` / `offscreen-chat/script-tools`），要么新增 IPC、要么抽一份运行时与 UI 共用的纯数据模块并配「从运行时反射比对」的防漂移单测。
+- **UI 复用（强制）**：side panel 用 `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列；组件本体零改动（靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`）。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。
+  - **组件来源**：UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 走 —— 先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，不手写组件。
+  - **样式**：`class` 只用于布局，不覆盖组件配色与字体；颜色一律用语义 token（`bg-primary` / `text-muted-foreground`）；不写 `space-x-*` / `space-y-*`，不手写 `dark:` 覆盖。
+  - **Tooltip 组合约束（reka-ui 2.10 实测）**：`TooltipProvider` 不转发 attrs —— 任何 as-child 组件**隔在 Provider 与目标元素之间都会静默断链**（编译不报错、运行时无警告，事件与属性全丢）。故 Tooltip 包其他触发组件时，**Tooltip 在最外、目标组件在内**。
+  - **菜单触发按钮不套 Tooltip（reka-ui 2.10 实测）**：即便顺序正确，`TooltipTrigger` 套在 `DropdownMenuTrigger` 外层仍会让 menu popper 失去定位（内容渲染到视口外，`translate(0,-200%)` 兜底，无任何报错；组件测试 / happy-dom 测不出来，只有真实浏览器可见性断言能抓到）。改用原生 `title`（`SessionHistoryPanel` 会话操作按钮即此例）。
+  - **Collapsible 折叠语义（reka-ui 2.10 实测）**：`force-mount` 加在 `CollapsibleContent` 上**不是「保持挂载但隐藏」**——它使 `present=true`、不写 `hidden` 属性，收起时内容照样显示。
+    「收起时留在 DOM 但不可见」（表单与编辑态始终同源、组件测试定位控件不受折叠影响）只能给**根组件** `<ui-collapsible :unmount-on-hide="false">`：内容带 `hidden` 属性，属性值经 Vue 归一为空串（测试只断言存在性，不断言 `until-found`）。`UserscriptEditorPanel` 脚本配置区即此例（默认收起，收起态用摘要行交代当前注入面）。
+- **主题**：**跟随系统**（`src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`）—— html 上不硬写 `class="dark"`，组件里不硬编码色值（一律用主题变量如 `--background`）。
+- **工作台标签页（面板）**：新增 / 改动按 [workbench-panel](.agents/skills/workbench-panel/SKILL.md) 走 —— **接线固定 5 处（清单只在该 SKILL 罗列）**。
+  - **面板数据源不得 import offscreen 专属模块**（`us-git` / `builder` / `offscreen-chat/script-tools`）：要么新增 IPC，要么抽一份运行时与 UI 共用的纯数据模块，并配「从运行时反射比对」的防漂移单测。
 - **依赖与权限**：**不自行升级 WXT 版本、不增删 manifest 权限**（需先与用户确认）—— 见 [wxt](.agents/skills/wxt/SKILL.md)「范围上限」与下方硬性底线。
 
 ## 常用命令
 
-> 本表是命令清单的**唯一登记处**（README 只链接、不复述）。
+> 本表是命令清单的登记处。
 
 | 命令 | 说明 |
 | --- | --- |
@@ -33,17 +38,17 @@
 | `npm run test:e2e` | Playwright 端测（全程无头、跑 build 产物；**先 `npm run build`**） |
 | `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 | `npm run check:inbox` | 想法收件箱条目体检：单条 >100 字、总字数 >6000、「不办」条目缺理由、疑似重复（**整理 inbox 时跑**，提醒级不进 CI） |
-| `npm run pack:uscripts` | 生成用户脚本测试包：把仓库根 `uscript-samples/` 打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；测脚本行为别手搓，改样例目录再打） |
+| `npm run pack:uscripts` | 生成用户脚本测试包：把仓库根 `uscript-samples/` 打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例目录再打） |
 
-> **交付前验证（唯一登记处）**：`npm run typecheck` + `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
+> **交付前验证**：`npm run typecheck` + `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
 
 ## 文档职责总表（读哪 / 写哪）
 
-> 判据只有一条：**换台机器、半年后还要读吗？** 要读的才落库，落哪按下表 —— **本表即「东西写哪」的唯一登记处**。
+> 判据：换台机器、半年后还要读的才落库；落哪按下表。
 
 | 文档 | 职责（读什么） | 何时读 / 何时写 |
 | --- | --- | --- |
-| [README.md](README.md) | 工程介绍、载体分工、目录结构、手测步骤、关键坑（**命令清单与文档导航不在这里**） | 上手 / 手测前；踩到新坑就地补「关键坑」 |
+| [README.md](README.md) | 工程介绍、载体分工、目录结构、手测步骤、关键坑 | 上手 / 手测前；踩到新坑就地补「关键坑」 |
 | **AGENTS.md**（本文件） | 协作约定、红线与硬性底线、命令清单、调试方法论、文档导航（本表） | 动手前；结论成形后就地补对应小节 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | **运行时架构**：载体与运行时、对话链路、脚本注入、页面上下文、存储六库、统一保存、用户脚本版本管理、数据广播、依赖构建、构建信息注入 | 改这些实现前；改完就地更新 |
 | [VERSIONING.md](VERSIONING.md) | 扩展**自身**版本机制：真相源 / SemVer / 预发布规则 / tag / release PR 流程 / GitHub Release notes 与故障处置 | 发版 / 改版本号前 |
@@ -77,11 +82,9 @@
 
 ### 协作与记录
 
-**东西写哪** —— 判据与登记处见上方「文档职责总表」，本处不复述。
+过程记录不落盘：无长期价值的内容（当日进度、做到一半的猜想、待拍板事项）不写进仓库；确需给下一轮会话留上下文时才放 `.workbuddy/memory/`（判据与落点见上方「文档职责总表」）。
 
-过程记录不落盘：没有长期价值的（今天干了啥、做到一半的猜想、待拍板）不写进仓库；确需给下一轮会话留上下文才放 `.workbuddy/memory/`。
-
-同一件事只写一处：决策理由写进本文件对应小节，**不复述第二遍**；代码注释里不写变更史（"原本…现在已移除"这类留给 git）。
+同一件事只写一处：决策理由写进本文件对应小节；代码注释不写变更史（「原本…现在已移除」这类留给 git）。
 
 **我（AI）怎么干**：
 
@@ -97,7 +100,7 @@
 
 ## 调试方法论
 
-> 接到 bug 后，**先判断 bug 在哪一层，再选最直接的工具**，不要默认只做静态分析。
+> 接到 bug 后，**先判断 bug 在哪一层，再选最直接的工具**，不默认只做静态分析。
 
 | bug 层级 | 首选工具 | 说明 |
 | --- | --- | --- |
@@ -115,7 +118,7 @@
 
 | 领域 | 一句话底线 | 详情 |
 | --- | --- | --- |
-| manifest 权限 | `sidePanel` 是 `chrome.sidePanel` 的**必需权限**（勿剔除）；所需权限之外的不要加（上架审查）。**已批准权限集只在 [wxt.config.ts](wxt.config.ts) 登记一处**（每项带「为什么需要」），本文件与 README 都不复述清单 | [wxt.config.ts](wxt.config.ts) |
+| manifest 权限 | `sidePanel` 是 `chrome.sidePanel` 的**必需权限**；所需权限之外的不得添加（上架审查）。已批准权限集见 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」） | [wxt.config.ts](wxt.config.ts) |
 | cookie 能力（DL.cookie） | `cookies` 权限 + 已全域的 host（`<all_urls>`）= **SW 可读写全浏览器 cookie（含 HttpOnly）**，故必须与**域名门**绑定：url 须落在该脚本自身 `matches` 内、不命中 `excludeMatches`，只比 **scheme + host**（pattern 的 path 段一律忽略）；`set` 不开放 domain / path 覆写。**门只在 SW 侧，新增任何 cookie 命令都必经此门** | [cookie-gate.ts](src/lib/userscripts/cookie-gate.ts) / [api-contract.ts](src/lib/userscripts/api-contract.ts) |
 | SW 全局 | 引入依赖 Node 全局的库时，必须补 `src/polyfills.ts` 并在 `background.ts` **最前** import | [README](README.md) 坑 2 |
 | CSP / 沙箱 | 扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**跑在 USER_SCRIPT 世界、注入第三方页面：**不受扩展 CSP 约束，但也不享有扩展 API**（只能经 `window.DL` 桥接） | [wxt.config.ts](wxt.config.ts) `content_security_policy` |
@@ -123,7 +126,7 @@
 | 权限引导 | 需用户在浏览器里开启的开关（当前两项：「运行用户脚本」「读取本地文件」——后者只对 Chrome 渲染）统一由工作台**「引导」标签页**承载（状态自检 + 分步指引 + 直达扩展管理页）；**别处一律只给「查看开启引导」入口，不各写一套步骤**。该页只放需要用户动手的项——无需操作的实现细节（如脚本世界禁 `eval`）由保存警告与错误日志在恰当时机给出 | [README](README.md) 手测第 4 步 |
 | 脚本世界 CSP | **不给 USER_SCRIPT 世界配 `csp`**：回落浏览器默认的严 CSP（禁 `eval` / `new Function`），不额外给 AI 生成的脚本「执行任意字符串」的能力 | [ARCHITECTURE.md](ARCHITECTURE.md)「脚本注入」 |
 | 错误文案 | **平台英文报错不直达用户**：扩展 API 的原话（注入失败 / 访问被拒等）必须先归一成用户的下一步动作（典型「切到要操作的网页后重试」），能在调用前判掉的就在判据里判掉；同类失败面（内置页 / 扩展页 / 未授权）文案保持一致 | [README](README.md) 坑 8 |
-| entrypoint | 不要同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [wxt](.agents/skills/wxt/SKILL.md) 硬约束 3 |
+| entrypoint | 同一名字不得同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [wxt](.agents/skills/wxt/SKILL.md) 硬约束 3 |
 | 首屏体积 | 入口 HTML 的静态图就是打开面板要执行的代码：markdown 渲染链路 / AI SDK 等重依赖一律动态 import；首帧加载态必须是内联静态 DOM（不靠 JS） | [README](README.md) 坑 10/12 |
 | 测试 | 新增 / 改动逻辑必须配最小验证；**手写桥接层（`src/lib/*.ts` 中非平移的那些）必须逐函数自检「默认值回退 / 入参守卫 / 先校验后落盘 / 无变化就不做」四类语义并各补单测** | [testing](.agents/skills/testing/SKILL.md) |
-| 命名 | 文件/目录 kebab-case；组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | 本表即约定，无独立文档 |
+| 命名 | 文件与目录 kebab-case；组件 kebab-case；props / emits 脚本 camelCase、模板 kebab-case | 本表即约定，无独立文档 |

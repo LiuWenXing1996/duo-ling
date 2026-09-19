@@ -3,12 +3,12 @@
 哆灵扩展**自身**的版本管理约定。先分清两套「版本」：
 
 - **扩展版本号**：manifest 的 `version`，决定用户装的是哪个版本。本文件只讲这个。
-- **用户脚本版本历史**：每个脚本在 `duoling-fs` 里的 git 历史（README/AGENTS 里的「版本管理」指的是它）。二者无关，别混。
+- **用户脚本版本历史**：每个脚本在 `duoling-fs` 里的 git 历史（README / AGENTS 里的「版本管理」指的是它）。二者无关。
 
 ## 基本原则
 
-- **唯一真相源 = `package.json` 的 `version`**。WXT 构建时默认把它写进 manifest 的 `version` 字段，所以扩展装进浏览器后显示的版本号就是这里的值。不要在别处另存一份版本号（避免 drift）。
-- **本项目用 vibe-coding 开发**：因此版本号**靠人拍板**，AI 可解析 commit 历史生成changelog初稿，最终定稿由人定。
+- **唯一真相源 = `package.json` 的 `version`**。WXT 构建时默认把它写进 manifest 的 `version` 字段，所以扩展装进浏览器后显示的版本号就是这里的值。不在别处另存一份版本号（避免 drift）。
+- **本项目以对话驱动开发（vibe coding）**：版本号**由人拍板**，AI 可解析 commit 历史生成 CHANGELOG 初稿，最终定稿由人决定。
 - **发布使用「专门的 release PR」**：日常功能 / 修复 / doc PR 只改代码、不动版本号；积累若干 PR 后，单独开一个 release PR 来升版本 + 写日志，合入后由 CI 自动打 tag。
 
 ## 语义化版本（SemVer）
@@ -45,7 +45,7 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 ## Git tag 规范
 
 - 格式：`vX.Y.Z`（字母 `v` + 语义化版本，含预发 `v0.2.0-alpha.1`），例如 `v0.2.0`、`v0.2.0-rc.1`。
-- 类型：**annotated tag**（`git tag -a vX.Y.Z -m "vX.Y.Z"`），不要 lightweight tag——message 即版本号本身（`vX.Y.Z`）。
+- 类型：**annotated tag**（`git tag -a vX.Y.Z -m "vX.Y.Z"`），不用 lightweight tag —— message 即版本号本身（`vX.Y.Z`）。
 - 时机：**只在 release PR 合入 main 后，由 CI 自动打并推送** `refs/tags/*`。本地不手动打远程 tag。
 - 已发布 tag 不删不改。
 
@@ -69,13 +69,13 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
    # 演练（只打印不改动；-- 让 npm 把参数传给脚本）
    npm run release -- minor --dry-run
    ```
-   > `npm run release` 只生成**空分组占位**段；起段后由 AI解析自上次发版以来的提交历史,补填实际变更，生成**日志初稿**供人判定。
+   > `npm run release` 只生成**空分组占位**段；起段后由 AI 解析自上次发版以来的提交历史，补填实际变更，生成**日志初稿**供人判定。
 2. 推分支并开 PR（分支名约定 `release/vX.Y.Z`）：
    ```bash
    git push -u origin HEAD
    gh pr create --base main --title "chore: release vX.Y.Z" --body "..."
    ```
-   > **不要挂 `--auto`**：开完 PR 留给发版人手动 merge；若挂 `--auto`，CI 一绿自动合、跳过人工审查。
+   > **不挂 `--auto`**：开完 PR 留给发版人手动 merge；若挂 `--auto`，CI 一绿自动合、跳过人工审查。
 3. **人审（merge 前）**：打开 PR 看 diff，确认两件事再合入——
    - `package.json` 的 `version` 变更正确（base / bump / stage 都对）。
    - `CHANGELOG.md` 的信息是否合适，由人决策。  
@@ -84,7 +84,7 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 
 注意：
 
-- **不要用 `--push` 直推 `main`**：分支保护会拦截；tag 由 CI 在 release PR 合入后补推。
+- **不用 `--push` 直推 `main`**：分支保护会拦截；tag 由 CI 在 release PR 合入后补推。
 - 演练用 `--dry-run`：只打印将要做的事，不改动文件 / 不提交 / 不打 tag。走 npm 时务必写成 `npm run release -- <args> --dry-run`（`--` 之后的参数才真正传给脚本；直接写 `npm run release minor --dry-run` 会被 npm 吞掉 `--dry-run`，脚本误以真发版模式运行）。
 - 发布前建议自己跑一次 `npm run build` 确认产物可加载；`release` 脚本只卡 `typecheck`，不卡 build（避免构建环境偶发问题误伤发版）。
 

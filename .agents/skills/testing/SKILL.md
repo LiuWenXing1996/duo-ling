@@ -5,7 +5,7 @@ description: Use when writing, fixing, or debugging tests in this repo — choos
 
 # 测试（写 / 改 / 排查）
 
-本 skill 管**测试怎么写**。命令与 CI 组成的唯一登记处是 [AGENTS.md](../../../AGENTS.md)「常用命令」与 [GIT_WORKFLOW.md](../../../GIT_WORKFLOW.md)，本文件不复述。
+本 skill 管**测试怎么写**。命令与 CI 组成见 [AGENTS.md](../../../AGENTS.md)「常用命令」与 [GIT_WORKFLOW.md](../../../GIT_WORKFLOW.md)。
 
 - `npm run test` → Vitest **双 project**（配置见 `vitest.config.ts`）：
   - **logic**（node 环境）：`src/lib/**/*.test.ts` 等纯逻辑测试；
@@ -14,7 +14,7 @@ description: Use when writing, fixing, or debugging tests in this repo — choos
 
 ## 测试三件套（新增一个面板 / 一条链路时）
 
-1. **防漂移单测**（logic project，`src/lib/xxx.test.ts`，参考 `agent-tools-catalog.test.ts`）：UI 展示的元数据若与运行时共用常量，就断言二者一致 —— 工具名集合、参数名集合（`inputSchema.shape` 在 zod v3/v4 都可用）、description 相等。**不要靠人工对照**。
+1. **防漂移单测**（logic project，`src/lib/xxx.test.ts`，参考 `agent-tools-catalog.test.ts`）：UI 展示的元数据若与运行时共用常量，就断言二者一致 —— 工具名集合、参数名集合（`inputSchema.shape` 在 zod v3/v4 都可用）、description 相等。**不靠人工对照**。
 2. **组件测试**（component project，`*.component.test.ts`，参考 `AgentToolsPanel.component.test.ts`）：`vi.mock` 掉 store 与 `use-data-sync`，用 `data-testid` 断言；**空态必须断言**（空白 vs 有内容的空态是两种 bug）。
 3. **e2e 冒烟**（`e2e/smoke.spec.ts`）：`page.locator('button[aria-label="<导航名>"]').click()` → 断言面板 `data-testid` 可见 + 关键文本渲染。
 
@@ -35,9 +35,9 @@ description: Use when writing, fixing, or debugging tests in this repo — choos
 - **reka-ui 的 DropdownMenu 开不了**：happy-dom 下 `trigger('pointerdown')` / `trigger('click')` **都开不了菜单**（reka 的事件判定不认 VTU 合成的 pointer 事件），用键盘开：`trigger('keydown', { key: 'ArrowDown' })`。
 - **portal 内容不在 `wrapper` 里**：菜单 / Dialog 都 portal 到 `document.body`，`wrapper.findAll()` 找不到——去 `document.querySelectorAll('[role="menuitem"]')` 上找，选中用原生 `el.click()`（见 `UserscriptListPanel.component.test.ts` 批量启停用例）。Dialog 同理：弹窗内的输入框 / 按钮按「不在组件根节点内」筛出来（`portalButtons()` / `pathInput()`）。
 - **点弹窗按钮前必须先 flush**：确认按钮常带 `:disabled="!输入.trim()"` 这类条件，`setValue` / 原生 `input` 事件之后 Vue 是**下一轮**才重渲染出非 disabled 的按钮——不等就点，点的是个灰按钮，什么都不会发生，测试还会以「断言文案没出现」的形式失败（误导性极强，2026-09-19 踩过）。
-- **页面级 `text()` 断言会跨卡串味**：页面里出现第二张状态卡（引导页的「读取本地文件」）后，「引擎已开启不给步骤」这类断言必须收窄到卡内（`cardText(w, 'guide-userscripts')`），否则另一张卡的文案会把断言顶掉（2026-09-19 踩过）。
-- **无头驱动工作台（E2E / 探针）用 hash 深链切标签页，别按文字点左侧导航**：导航项是**只有 `aria-label` 的图标按钮**（`WorkbenchApp.vue`），`getByText('引导')` 定位不到（文字在 tooltip 内容里，要 hover 才 portal 出来）；`workbench.html#/guide` 就是侧边栏「查看开启引导」走的那条路。
-- **e2e 环境几乎不会是空会话库**：打开 `sidepanel.html` 时侧边栏初始化会确保存在一个会话。所以「会话库为空」类空态别当必然分支断言——要么断 `count = 0`，要么正则接受两条分支。
+- **页面级 `text()` 断言会跨卡互相污染**：页面里出现第二张状态卡（引导页的「读取本地文件」）后，「引擎已开启不给步骤」这类断言必须收窄到卡内（`cardText(w, 'guide-userscripts')`），否则另一张卡的文案会把断言顶掉（2026-09-19 踩过）。
+- **无头驱动工作台（E2E / 探针）用 hash 深链切标签页，不按文字点左侧导航**：导航项是**只有 `aria-label` 的图标按钮**（`WorkbenchApp.vue`），`getByText('引导')` 定位不到（文字在 tooltip 内容里，要 hover 才 portal 出来）；`workbench.html#/guide` 就是侧边栏「查看开启引导」走的那条路。
+- **e2e 环境几乎不会是空会话库**：打开 `sidepanel.html` 时侧边栏初始化会确保存在一个会话。所以「会话库为空」类空态不作为必然分支断言——要么断 `count = 0`，要么正则接受两条分支。
 
 ## 覆盖盲区
 

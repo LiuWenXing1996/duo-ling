@@ -81,12 +81,12 @@
 
 > `main` 已开分支保护（团队标准，对所有人含 admin 生效）。**任何改动必须走 PR，禁止直推 main。**
 
-- **保护构成**：**全部收在一个 Ruleset** `protect main - pr & no-force-push`（`enforcement: active`，作用域 `refs/heads/main`）里；经典分支保护**已不再使用**（`GET /branches/main/protection` 返回 404 —— 查保护现状别走那个接口）。规则实际为：
-  - 必须走 PR（`required_approving_review_count: 0`，**不强制人工审核**，未来多人协作时再开；**合并方式已锁死为仅 Merge Commit（squash / rebase 在 repo 层禁用）**，见下「铁律」）
+- **保护构成**：**全部收在一个 Ruleset** `protect main - pr & no-force-push`（`enforcement: active`，作用域 `refs/heads/main`）里；经典分支保护**已不再使用**（`GET /branches/main/protection` 返回 404 —— 保护现状不经该接口查）。规则实际为：
+  - 必须走 PR（`required_approving_review_count: 0`，**不强制人工审核**，未来多人协作时再开；**合并方式仅 Merge Commit**，见下「铁律」）
   - **required status checks = `Typecheck & Unit tests` + `Playwright smoke (chromium)`**（两项都必过），且 `strict`（分支须基于最新 main，落后就得先更新再等一轮）
   - 禁强推（`non_fast_forward`）、禁删除该分支；`bypass_actors` 为空 —— **无人可绕过，含 admin**（2026-09-19 实测）
 - **合 main 标准流程**：
-  1. 基于最新 `origin/main` 起功能分支（命名细则见上「分支命名」）；不要在一个分支堆多件不相关的事
+  1. 基于最新 `origin/main` 起功能分支（命名细则见上「分支命名」）；不在一个分支堆多件不相关的事
   2. 本地开发；交付前验证按 [AGENTS.md](AGENTS.md#常用命令) 的门禁，合并前**另加** `npm run test`（全套单测）
   3. `git push -u origin <功能分支>`（**只 push 分支，不触发 CI**——两个 workflow 的 `push` 都限 `branches: [main]`）
   4. 开 PR（`base: main`），描述按 [.github/pull_request_template.md](.github/pull_request_template.md) 填（动机 / 变更 / 测试证据三段）；PR 触发**两个**门禁：`ci.yml`（typecheck + 全部单测）+ `e2e.yml`（Playwright 冒烟，约 1 分钟），**两个 check 都绿才能合**
@@ -94,14 +94,14 @@
   6. 合并自动触发 push main → `ci.yml` + `e2e.yml` **双跑复验**
 - **铁律**：
   - ❌ 严禁 `git push origin <x>:main`（含之前的 refspec 绕过法），会被 `GH006: Protected branch update failed` 拒
-  - ❌ 不要整分支 merge 把历史倒腾进 main（只会产生重复/冲突提交）；单一改动走上面的 PR 流
+  - ❌ 不将整分支 merge 进 main（只会产生重复 / 冲突提交）；单一改动走上面的 PR 流
   - ⚠️ **gh 合并只允许 `--merge`（Merge Commit）**：`gh pr merge` 一律带 `--merge`，**禁止 `--squash` / `--rebase`**；网页点 Merge 也必须选「Create a merge commit」。约定统一保留线性 merge commit 历史，不把 PR 压平成单提交、也不变基
-  - ⚠️ **E2E 在 PR 上就会跑**（`e2e.yml` 自 2026-09-19 起带 `pull_request` 触发；同 PR 连推由 `concurrency` 取消旧 run，只跑最新 commit）。**旧版本文件写的「e2e 无 PR 触发器 / PR 上永远不上报 / 设了会卡死合不了」已彻底不成立**——那条告诫只在 E2E 尚无 PR 触发器时成立，别再据它判断合并时机或要求撤销该 check
+  - ⚠️ **E2E 在 PR 上就会跑**（`e2e.yml` 自 2026-09-19 起带 `pull_request` 触发；同 PR 连推由 `concurrency` 取消旧 run，只跑最新 commit）。**旧版本文件写的「e2e 无 PR 触发器 / PR 上永远不上报 / 设了会卡死合不了」已不成立**——那条告诫只在 E2E 尚无 PR 触发器时成立，不再据它判断合并时机或要求撤销该 check
 - **即使改本文件 / CI 配置**，也走同样 PR 流（main 受保护，没有任何文件能直推）
 
 ## 合并提交标题（重要）
 
-`main` 已锁死为 **Merge Commit**（见上「铁律」），PR 合入后 **merge commit 标题 = 开 PR 时的 `--title`**，原样成为 `main` 永久历史。因此：
+`main` 已固定为 **Merge Commit**（见上「铁律」），PR 合入后 **merge commit 标题 = 开 PR 时的 `--title`**，原样成为 `main` 永久历史。因此：
 
 - **PR 标题必须遵循本文件的提交信息规范**——它就是那条要进 `main` 的提交信息。
 - 发版 PR 标题固定为 **`chore: release vX.Y.Z`**（见 [VERSIONING.md](VERSIONING.md)），是上面 `type=chore` 的一个特例。

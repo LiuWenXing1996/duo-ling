@@ -19,7 +19,7 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + esbuild 构建宿主 + `duoling-fs` 源码的唯一写入方 |
 | 注入世界 | USER_SCRIPT（第三方页面内） | 用户脚本自身逻辑，只能经 `window.DL` 桥接 |
 
-两个载体各承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」（标签页清单的唯一登记处）。
+两个载体各承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」。
 
 ## 对话链路
 
@@ -40,7 +40,7 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 
 ## 存储（IndexedDB 分库：源码 / 注册态 / 脚本数据 / 观测数据 / 应用配置 / 会话，2026-09-19 重构）
 
-> 本条目是分库全景的**唯一登记处**，README 只链接不另开清单。写权限是硬边界：**注册链路对 offscreen 存活零依赖**、`duoling-fs` 只许 offscreen 碰。
+> 分库写权限是硬边界：**注册链路对 offscreen 存活零依赖**。
 
 ① **源码唯一来源 `duoling-fs`**（lightning-fs，IndexedDB 后端，**只许 offscreen 碰**，`us-fs.ts` 单例）：每脚本一仓 `/uscripts/<uuid>/`——工作树 `files/` 即当前源码（未提交改动 = 草稿），git 历史 = 每次保存的版本（`us-git.ts`，仓损坏只丢历史不丢脚本）；SW/扩展页读不到 lfs，**源码读写一律走 `fs:*` 命令向 offscreen 取**（`offscreen-fs-commands.ts`）。
 
@@ -62,7 +62,7 @@ DevTools 里按库名过滤：`duoling-fs` / `duoling-state` / `duoling-usdata` 
 
 - **保存恒成功**（提交即保存，不再以构建成功为前提）；构建失败**产物置空**（`bundle=undefined`），脚本立即停止注入（旧产物不兜底，刷新目标页失效）。
 - 编辑内容只活在页面内存（草稿机制已删），关标签前的 dirty 确认弹窗保留。
-- **zip 导入例外（同日拍板）：导入 ≠ 构建**——导入只落源码 + 占位注册态（`lastBuildAt=0` = 「从未构建」哨兵，列表按「构建中」展示而非失败），构建走 `project-write` 的后台串行队列静默接力（导入即时返回，报告不含构建诊断）；队列被中断的脚本由 offscreen 启动对账 `rebuildPendingProjects` 重排。
+- **zip 导入例外（同日拍板）：导入 ≠ 构建**——导入只落源码 + 占位注册态（`lastBuildAt=0` 为「从未构建」标记，列表按「构建中」展示而非失败），构建由 `project-write` 的后台串行队列静默接续（导入即时返回，报告不含构建诊断）；队列被中断的脚本由 offscreen 启动对账 `rebuildPendingProjects` 重排。
 - 后台链路不经命令面，写完状态库**必须自己发** `broadcastDataChange`。
 
 ## 用户脚本版本管理
@@ -84,7 +84,7 @@ IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 
 
 ① **ESM 导入链**：VFS 插件按 URL 解析、逐条 fetch 持久化进 files（断网可重构建）。
 
-② **UMD / 资源依赖（`config.deps`，2026-09-19 提案拍板）**：保存时缓存优先拉取进 `_deps/`（确定性文件名 = sha256(url) 前缀 + `index.json` 清单，随 git/zip/历史搭车，孤儿自动清理），**JS 文本依赖只拼接进 bundle 头部**（不进 esbuild 模块图、不进资源表），其余打成 `DL.__res` 表供 `DL.resource(url)` 读（挂 DL 自身，不开新全局；文本/二进制按 content-type，octet-stream 与缺失时按扩展名兜底再兜文本）。拉取失败 = 构建失败（产物置空，统一保存语义）。
+② **UMD / 资源依赖（`config.deps`，2026-09-19 提案拍板）**：保存时缓存优先拉取进 `_deps/`（确定性文件名 = sha256(url) 前缀 + `index.json` 清单，随 git / zip / 历史一并流转，孤儿自动清理），**JS 文本依赖只拼接进 bundle 头部**（不进 esbuild 模块图、不进资源表），其余打成 `DL.__res` 表供 `DL.resource(url)` 读（挂 DL 自身，不开新全局；文本/二进制按 content-type，octet-stream 与缺失时按扩展名兜底再兜文本）。拉取失败 = 构建失败（产物置空，统一保存语义）。
 
 **依赖缓存管理（同日拍板，清/刷分开）**：编辑器 deps 表单旁两按钮，操作已保存工作树——「清依赖缓存」只删 `_deps/`（不拉不建，bundle 保留，下次构建冷拉）；「刷新依赖」无视缓存全量重拉且**事务性**（任一失败 BuildError、什么都不写、旧缓存原封不动，全成功才落盘替换 + 重建 + 重注册）。协议 = `userscript:deps-refresh/clear` → `state:deps-refresh/clear`。
 
@@ -92,17 +92,17 @@ IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 
 
 `wxt.config.ts` 通过 `vite().define` 把裸标识符 `__BUILD_INFO__`（`{ time, branch, version }`）替换成字面量，**编译进所有 JS bundle**（页面 / SW / offscreen 三处同源）。这是构建信息的唯一来源。
 
-- **别再用 HTML 内联注入 `window.__BUILD_INFO__`**（旧实现）：MV3 `extension_pages` CSP 不含 `'unsafe-inline'` → 内联脚本不执行，生产环境该字段恒 `undefined`，构建信息整列消失。WXT 只在 dev 注入宽松 CSP，所以这条 bug **在 dev 下永远复现不出来**，必须用生产产物（`npm run build` + 加载 `.output/chrome-mv3`）验证。
+- **HTML 内联注入 `window.__BUILD_INFO__` 已废弃**：MV3 `extension_pages` CSP 不含 `'unsafe-inline'` → 内联脚本不执行，生产环境该字段恒 `undefined`，构建信息整列消失。WXT 只在 dev 注入宽松 CSP，因此这条 bug **在 dev 下不复现**，必须用生产产物（`npm run build` + 加载 `.output/chrome-mv3`）验证。
 - 页面侧取数写法（`typeof` 守卫必需——未应用该 define 的环境里裸标识符不存在，`typeof` 读不存在的标识符不抛错）：
 
   ```ts
   const info = typeof __BUILD_INFO__ !== 'undefined' ? __BUILD_INFO__ : undefined
   ```
 
-- **SW 侧读不到自己的 bundle**（SW 不是 HTML / 不是同一执行上下文）：页面要 SW 的构建信息，经 `sw:buildInfo` 命令取回（IPC 契约 `src/shared/extension-ipc.ts`，SW 侧实现 `src/entrypoints/background.ts`）。取数要**重试**：WXT 重载扩展时页面跟着重载，挂载瞬间第一条请求常撞上「旧 SW 已死、新监听器未注册完」的窗口；三次都失败才算真失败（SW 是旧包或已挂），且要**显式展示「未响应」**，别静默隐藏。
+- **SW 侧读不到自己的 bundle**（SW 不是 HTML / 不是同一执行上下文）：页面要 SW 的构建信息，经 `sw:buildInfo` 命令取回（IPC 契约 `src/shared/extension-ipc.ts`，SW 侧实现 `src/entrypoints/background.ts`）。取数要**重试**：WXT 重载扩展时页面跟着重载，挂载瞬间第一条请求常撞上「旧 SW 已死、新监听器未注册完」的窗口；三次都失败才算真失败（SW 是旧包或已挂），且要**显式展示「未响应」**，不得静默隐藏。
 - 参考实现：取数统一封装在 `src/lib/build-info.ts`（页面侧 `readInjectedBuildInfo` / `readPageBuildStamp`，SW 侧 `fetchSwBuildStamp` 带 3 次重试）；展示在 **设置 → 关于** 分区（`src/components/settings/AboutSection.vue`，版本号 + 页面 + Service Worker 三行）。
 
-### 版本号展示：别用 `manifest.version`
+### 版本号展示：不用 `manifest.version`
 
 - `package.json` 写 `0.1.0-alpha.2` 时，产物 `manifest.version` = **`0.1.0`**（Chrome 该字段只允许 1–4 段数字），预发布标签被 WXT 裁掉；完整值另在 `manifest.version_name`（WXT 行为，非 Chrome 保证）。
-- 所以版本号展示取 **`__BUILD_INFO__.version`**（构建期直接读 `package.json`，完整、不受裁剪影响）；`chrome.runtime.getManifest().version` 只作兜底。也**别用** `window.__BUILD_INFO__`。
+- 所以版本号展示取 **`__BUILD_INFO__.version`**（构建期直接读 `package.json`，完整、不受裁剪影响）；`chrome.runtime.getManifest().version` 只作兜底。也不用 `window.__BUILD_INFO__`。
