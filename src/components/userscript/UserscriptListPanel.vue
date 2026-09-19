@@ -12,7 +12,6 @@ import {
   Check as UiCheck,
   ChevronDown as UiChevronDown,
   Download as UiDownload,
-  ExternalLink as UiExternalLink,
   FileQuestion as UiFileQuestion,
   FolderInput as UiFolderInput,
   ListFilter as UiListFilter,
@@ -57,11 +56,11 @@ import {
   TooltipTrigger as UiTooltipTrigger
 } from '@/components/ui/tooltip'
 import { formatTimestamp } from '@/lib/format'
-import { isFileSchemeAccessAllowed, openOwnExtensionPage } from '@/lib/extension-page'
+import { isFileSchemeAccessAllowed } from '@/lib/extension-page'
 import { useDataSync } from '@/composables/use-data-sync'
 import { BUILTIN_SCRIPTS } from '@/lib/userscripts/builtins'
 import { fsClient, subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
-import { headHex, looksLikeZip, toFileUrl } from '@/lib/userscripts/local-path'
+import { looksLikeZip, toFileUrl } from '@/lib/userscripts/local-path'
 import { base64ToBytes, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
 import type { BuildPhase } from '@/shared/extension-ipc'
 import type {
@@ -284,6 +283,12 @@ const importReport = ref<ImportReport | null>(null)
 const justImported = ref<string[]>([])
 /** 本次导入的来源路径（仅「从路径导入」时有值，展示在汇总报告里；文件选择器读不到真路径） */
 const importedFrom = ref('')
+/**
+ * 「允许访问文件网址」未开启时的那一句话 —— 弹窗常驻提示块与点「导入」后的报错**共用同一句**
+ * （文案只写一处，两处不一致会让用户以为是两个不同的问题）。
+ */
+const FILE_ACCESS_OFF_HINT = '未开启「允许访问文件网址」，路径导入读不到本地文件'
+
 /** 路径导入弹窗是否打开 */
 const pathImportOpen = ref(false)
 /** 路径输入框内容（手敲或粘贴） */
@@ -424,16 +429,16 @@ async function confirmPathImport(): Promise<void> {
       bytes = new Uint8Array(await res.arrayBuffer())
     } catch {
       // fetch 对「没开开关」与「文件不存在」报的是同一句 "Failed to fetch"，分不出来 ——
-      // 拿开关状态把话说到点上；探测不到（null）时两种都提，不替用户猜。
+      // 拿开关状态把话说到点上；探测不到（null）时按路径问题提示，不替用户猜。
       pathError.value =
         fileAccessAllowed.value === false
-          ? '读不到文件：本扩展未开启「允许访问文件网址」。点下方按钮到扩展详情页开启（该项需重启浏览器生效），回来重试。'
-          : `读不到文件：${target.path}\n请确认路径拼写与大小写完全一致，且指向 .zip 文件本身（目录读不了）。`
+          ? FILE_ACCESS_OFF_HINT
+          : `读不到文件：${target.path}\n请确认路径拼写与大小写完全一致，且指向 .zip 文件本身。`
       return
     }
     // 后缀骗人（拿目录 / 换成别的文件）时在入口先按魔数拦下，别让解码层报「不是合法 zip」
     if (!looksLikeZip(bytes)) {
-      pathError.value = `这个路径读到的不是 zip（前 4 字节 ${headHex(bytes)}），请确认指向的是导入包本身。`
+      pathError.value = '未识别到正确的 zip 内容，疑似 zip 内容被损坏'
       return
     }
     importedFrom.value = target.path
@@ -1073,23 +1078,26 @@ function lastBuildLabel(s: ScriptSummary): string {
             v-if="pathError"
             class="mt-2 whitespace-pre-wrap break-all text-xs text-destructive"
           >{{ pathError }}</p>
-          <!-- 开关未开：给一键直达（该项改动要重启浏览器才生效，Chrome 自己的提示如此） -->
+          <!-- 开关未开：常驻提示 + 引导入口。文案与点「导入」后的报错**是同一句**
+               （共用 FILE_ACCESS_OFF_HINT），两处不一致会让人以为是两个问题 -->
           <div
             v-if="fileAccessAllowed === false"
             class="mt-2 rounded-md border border-amber-500/40 p-2"
           >
             <p class="flex items-start gap-1 text-xs text-amber-600 dark:text-amber-400">
               <ui-alert-triangle class="mt-px size-3.5 shrink-0" />
-              <span>未开启「允许访问文件网址」，路径导入读不到本地文件（文件选择器不受影响）。</span>
+              <span>{{ FILE_ACCESS_OFF_HINT }}</span>
             </p>
+            <!-- 步骤与「打开扩展管理页」按钮都收在引导标签页，这里只给入口（与可用性横幅同一套） -->
             <ui-button
+              type="button"
               variant="outline"
-              size="sm"
-              class="mt-2 h-7 gap-1 px-2 text-xs"
-              @click="openOwnExtensionPage()"
+              size="xs"
+              class="mt-2"
+              data-testid="open-guide-file-access"
+              @click="emit('openGuide')"
             >
-              <ui-external-link class="size-3" />
-              打开扩展详情页
+              查看启用引导
             </ui-button>
           </div>
         </div>

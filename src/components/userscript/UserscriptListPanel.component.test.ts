@@ -407,7 +407,7 @@ describe('UserscriptListPanel 从路径导入', () => {
     expect(importZip).not.toHaveBeenCalled()
   })
 
-  it('读到非 zip（后缀骗人 / 指向别的文件）：按魔数拦下并给出实际读到的字节', async () => {
+  it('读到非 zip（后缀骗人 / 指向别的文件）：按魔数拦下，给一句人话而不是诊断数据', async () => {
     fetchMock.mockResolvedValue({ arrayBuffer: async () => notZipBytes().buffer })
     wrapper = await mountPanel()
     await openPathDialog()
@@ -416,12 +416,13 @@ describe('UserscriptListPanel 从路径导入', () => {
     await flushPromises()
     await flushPromises()
 
-    expect(document.body.textContent).toContain('读到的不是 zip')
-    expect(document.body.textContent).toContain('3c 21 44 4f')
+    expect(document.body.textContent).toContain('未识别到正确的 zip 内容')
+    // 前 4 字节这类诊断数据不进用户文案（2026-09-19 定稿）
+    expect(document.body.textContent).not.toContain('3c 21 44 4f')
     expect(importZip).not.toHaveBeenCalled()
   })
 
-  it('开关未开 + 读不到：指向「允许访问文件网址」并给一键跳转（不给「路径拼错了」这种误导）', async () => {
+  it('开关未开 + 读不到：提示与常驻提示块同一句，并给「查看启用引导」（不猜「路径拼错了」）', async () => {
     setFileAccessAllowed(false)
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
     wrapper = await mountPanel()
@@ -431,9 +432,15 @@ describe('UserscriptListPanel 从路径导入', () => {
     await flushPromises()
     await flushPromises()
 
-    expect(document.body.textContent).toContain('允许访问文件网址')
-    expect(portalButton('打开扩展详情页')).toBeDefined()
+    expect(document.body.textContent).toContain('未开启「允许访问文件网址」')
     expect(importZip).not.toHaveBeenCalled()
+
+    // 引导入口：emit 给宿主切到引导标签页（完整步骤只此一份）
+    const guide = portalButton('查看启用引导')!
+    expect(guide).toBeDefined()
+    guide.click()
+    await flushPromises()
+    expect(wrapper.emitted('openGuide')).toBeTruthy()
   })
 
   it('开关是开的 + 读不到：归因到路径拼写 / 指向了目录，不冤枉开关', async () => {

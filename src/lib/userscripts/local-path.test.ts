@@ -1,7 +1,7 @@
 // 单测：本地路径 → file:// URL 的归一与校验（local-path.ts）。
 // 覆盖四类坑：URL 形态前缀、`~` 不可展开、相对路径无基准、`#`/`?`/空格 的 URL 特殊含义。
 import { describe, expect, it } from 'vitest'
-import { headHex, looksLikeZip, toFileUrl } from './local-path'
+import { looksLikeZip, toFileUrl } from './local-path'
 
 /** 便捷：只取成功分支的 url（失败时断言消息更直观） */
 function urlOf(input: string): string {
@@ -85,12 +85,12 @@ describe('toFileUrl 拒绝并给人话原因', () => {
   })
 
   it('~ 无法展开（扩展里没有 HOME）', () => {
-    expect(reasonOf('~/Downloads/a.zip')).toContain('`~` 无法展开')
+    expect(reasonOf('~/Downloads/a.zip')).toBe('~ 无法展开，请填绝对路径（以 / 开头）')
   })
 
   it('相对路径（没有基准目录可锚定）', () => {
-    expect(reasonOf('tmp/a.zip')).toContain('绝对路径')
-    expect(reasonOf('./a.zip')).toContain('绝对路径')
+    expect(reasonOf('tmp/a.zip')).toBe('请填绝对路径（以 / 开头）')
+    expect(reasonOf('./a.zip')).toBe('请填绝对路径（以 / 开头）')
   })
 
   it('http(s) 网络地址：本期不做，不静默当本地路径', () => {
@@ -131,10 +131,5 @@ describe('zip 魔数自检', () => {
     expect(looksLikeZip(bytes(0x3c, 0x21, 0x44, 0x4f))).toBe(false)
     expect(looksLikeZip(bytes(0x50, 0x4b))).toBe(false)
     expect(looksLikeZip(new Uint8Array())).toBe(false)
-  })
-
-  it('headHex 给出实际读到的前几字节（报错文案用）', () => {
-    expect(headHex(bytes(0x3c, 0x21, 0x44, 0x4f))).toBe('3c 21 44 4f')
-    expect(headHex(bytes(0x50, 0x4b, 0x03, 0x04), 2)).toBe('50 4b')
   })
 })

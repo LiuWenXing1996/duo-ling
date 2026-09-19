@@ -38,7 +38,7 @@ export function toFileUrl(input: string): LocalPathResult {
     return { ok: false, reason: '只支持本地文件路径；网络地址（http/https）暂不支持' }
   }
   if (p.startsWith('~')) {
-    return { ok: false, reason: '扩展里拿不到家目录，`~` 无法展开，请填绝对路径（以 / 开头）' }
+    return { ok: false, reason: '~ 无法展开，请填绝对路径（以 / 开头）' }
   }
 
   // Windows 盘符：反斜杠归一成正斜杠（zip 内路径同规）；补前导 / 以免盘符被当成 URL 主机
@@ -46,7 +46,7 @@ export function toFileUrl(input: string): LocalPathResult {
   if (/^[a-zA-Z]:[\\/]/.test(path)) path = '/' + path.replace(/\\/g, '/')
 
   if (!path.startsWith('/')) {
-    return { ok: false, reason: '请填绝对路径（以 / 开头）；相对路径没有基准目录可锚定' }
+    return { ok: false, reason: '请填绝对路径（以 / 开头）' }
   }
   if (!/\.zip$/i.test(path)) {
     return { ok: false, reason: '只支持 .zip 导入包' }
@@ -79,16 +79,13 @@ function encodePath(path: string): string {
  * 读 zip 字节前的形状自检：`file:` URL 拿到的若不是 zip（比如填了个目录、或后缀骗人），
  * 交给解码层只会报「不是合法 zip」这种离现场很远的错，故在入口先按魔数拦一道。
  * ZIP 的本地文件头魔数 `PK\x03\x04`（空 zip 是 `PK\x05\x06`，同样放行）。
+ *
+ * 只回答「是不是」：曾把实际字节的前 4 字节十六进制也拼进报错（便于判断读错了什么），
+ * 2026-09-19 老大拍板改成一句人话（「未识别到正确的 zip 内容，疑似 zip 内容被损坏」），
+ * 诊断数据不进用户文案，故不再需要导出十六进制头的工具。
  */
 export function looksLikeZip(bytes: Uint8Array): boolean {
   if (bytes.length < 4) return false
   if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) return false
   return (bytes[2] === 0x03 && bytes[3] === 0x04) || (bytes[2] === 0x05 && bytes[3] === 0x06)
-}
-
-/** 供报错文案复用的魔数头（非 zip 时展示前 4 字节的十六进制，便于判断实际读到了什么） */
-export function headHex(bytes: Uint8Array, n = 4): string {
-  return Array.from(bytes.subarray(0, n))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join(' ')
 }

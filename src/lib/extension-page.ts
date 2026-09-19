@@ -99,3 +99,40 @@ export function userScriptsGuideSteps(browser: { isFirefox: boolean; chromeMajor
     { title: '回到本页点「重新检测」' }
   ]
 }
+
+/**
+ * 「允许访问文件网址」的分步指引 —— 「从路径导入」读本地文件的前置开关。
+ *
+ * 只做 Chrome：Firefox 侧的对应开关在 about:addons 里、开启口径与 Chrome 不同，而跨端本就是
+ * 三期的事（见 README「后续接入」），此处**不预写没验证过的步骤**；调用方对 Firefox 不渲染本卡片。
+ *
+ * Chrome 各版本都把这道开关放在**扩展详情页**的「网站权限」一节（与「允许运行用户脚本」同一页），
+ * 故 ≥138 用 `?id=` 深链直达；<138 沿用 openOwnExtensionPage 的降级（退列表页，让用户自己点「详情」）。
+ *
+ * 「重启浏览器」那一步不是可选的：实测**当场**改这道开关会把扩展重载到连自己的页面都进不去
+ * （导航报 ERR_BLOCKED_BY_CLIENT，14s 未恢复），详情页自己也写着「对此设置的更改将在 Chromium
+ * 重启后生效」——见 README「关键坑与规避」第 13 条。
+ */
+export function fileAccessGuideSteps(chromeMajor: number): GuideStep[] {
+  const openSwitch = {
+    title: '在「网站权限」一节打开「允许访问文件网址」',
+    detail: '同一节里也有「允许运行用户脚本」，别开错'
+  }
+  const restart = { title: '重启浏览器', detail: '该项改动 Chrome 提示重启后才生效' }
+  const redetect = { title: '回到本页点「重新检测」' }
+  if (chromeMajor >= 138) {
+    return [
+      { title: '打开本扩展的详情页', detail: '下面按钮直接打开' },
+      openSwitch,
+      restart,
+      redetect
+    ]
+  }
+  return [
+    { title: '打开扩展管理页', detail: '下面按钮直接打开' },
+    { title: '进入「哆灵」的详情页', detail: '卡片上的「详情」按钮' },
+    openSwitch,
+    restart,
+    redetect
+  ]
+}

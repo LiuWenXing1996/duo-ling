@@ -22,11 +22,18 @@ import {
   TriangleAlert as UiTriangleAlert
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
-import { openOwnExtensionPage, userScriptsGuideSteps } from '@/lib/extension-page'
+import {
+  fileAccessGuideSteps,
+  isFileSchemeAccessAllowed,
+  openOwnExtensionPage,
+  userScriptsGuideSteps
+} from '@/lib/extension-page'
 import { subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
 import type { UserScriptsAvailability } from '@/lib/userscripts/types'
 
 const availability = ref<UserScriptsAvailability | null>(null)
+/** 「允许访问文件网址」状态（true / false / null=探测不到）—— 「从路径导入」读本地文件的前置开关 */
+const fileAccess = ref<boolean | null>(null)
 const loading = ref(false)
 /** 检测本身失败（SW 无响应等）：如实说明，绝不把「查不到」渲染成「已就绪」 */
 const detectError = ref('')
@@ -37,6 +44,10 @@ const openError = ref('')
 const steps = computed(() =>
   availability.value ? userScriptsGuideSteps(availability.value) : []
 )
+/** 文件访问的分步指引：只做 Chrome（Firefox 的开启口径未验证，那张卡片也整块不渲染） */
+const fileSteps = computed(() =>
+  availability.value ? fileAccessGuideSteps(availability.value.chromeMajor) : []
+)
 
 async function detect(): Promise<void> {
   loading.value = true
@@ -44,6 +55,8 @@ async function detect(): Promise<void> {
   openError.value = ''
   try {
     availability.value = await userscriptClient.availability()
+    // 文件访问开关是本地属性、不经 SW，故与可用性一起在本页各查一次（「重新检测」两个都重查）
+    fileAccess.value = await isFileSchemeAccessAllowed()
   } catch (e) {
     availability.value = null
     detectError.value = e instanceof Error ? e.message : String(e)
@@ -109,7 +122,7 @@ onUnmounted(() => {
           检测中…
         </p>
 
-        <!-- 运行用户脚本：当前唯一需要用户动手的开关 -->
+        <!-- 运行用户脚本：脚本注入的总开关（页面上另一张卡是「读取本地文件」，两者互不影响） -->
         <div v-if="availability" class="rounded-md border bg-card" data-testid="guide-userscripts">
           <div class="flex items-center gap-2 border-b border-border px-4 py-3">
             <ui-check v-if="availability.available" class="size-4 shrink-0 text-primary" />
@@ -172,6 +185,67 @@ onUnmounted(() => {
               <p v-if="openError" class="text-xs text-destructive">
                 打开扩展管理页失败：{{ openError }}
               </p>
+            </template>
+          </div>
+        </div>
+
+        <!-- 允许访问文件网址：「从路径导入」读本地 zip 的前置开关。
+             只给 Chrome —— Firefox 的对应开关在 about:addons 里、开启口径未验证，不预写步骤。 -->
+        <div
+          v-if="availability && !availability.isFirefox"
+          class="rounded-md border bg-card"
+          data-testid="guide-file-access"
+        >
+          <div class="flex items-center gap-2 border-b border-border px-4 py-3">
+            <ui-check v-if="fileAccess === true" class="size-4 shrink-0 text-primary" />
+            <ui-triangle-alert v-else class="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span class="text-sm font-medium">读取本地文件</span>
+            <span
+              class="ml-auto text-xs"
+              :class="
+                fileAccess === true ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-400'
+              "
+              data-testid="guide-file-access-status"
+            >
+              {{ fileAccess === true ? '已开启' : fileAccess === false ? '未开启' : '未能检测' }}
+            </span>
+          </div>
+
+          <div class="space-y-3 px-4 py-3">
+            <p class="text-xs leading-relaxed text-muted-foreground">
+              脚本列表的「从路径导入」要读你本地的 zip，依赖这道开关。未开启时该项读不到文件，
+              用「选择 zip 文件…」导入不受影响。
+            </p>
+
+            <p v-if="fileAccess === true" class="text-xs text-muted-foreground">
+              当前环境已可用，无需操作。
+            </p>
+
+            <template v-else>
+              <ol class="space-y-1.5 text-xs leading-relaxed">
+                <li v-for="(step, i) in fileSteps" :key="i" class="flex gap-2">
+                  <span
+                    class="mt-px flex size-4 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground"
+                  >
+                    {{ i + 1 }}
+                  </span>
+                  <span>
+                    <span class="text-foreground">{{ step.title }}</span>
+                    <span v-if="step.detail" class="text-muted-foreground"> —— {{ step.detail }}</span>
+                  </span>
+                </li>
+              </ol>
+
+              <ui-button
+                variant="outline"
+                size="sm"
+                class="h-7 gap-1 px-2.5 text-xs"
+                data-testid="guide-file-access-open-extension-page"
+                @click="openExtensionPage"
+              >
+                <ui-external-link class="size-3.5" />
+                打开扩展管理页
+              </ui-button>
             </template>
           </div>
         </div>
