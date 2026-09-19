@@ -194,6 +194,18 @@ describe('saveExisting', () => {
     expect(outcome.project.config).toEqual(p.config)
   })
 
+  it('config.deps 透传给构建器（deps 内联的入参通道）', async () => {
+    const p = await createProject()
+    mockBuild.mockClear()
+    const deps = ['https://cdn.example/jquery.js', 'https://cdn.example/style.css']
+    await saveExisting(p.uuid, validFiles(), 'main.js', {
+      config: { matches: ['*://*/*'], allFrames: true, runAt: 'document_end', deps },
+    })
+    expect(mockBuild).toHaveBeenCalledOnce()
+    const [, , passedDeps] = mockBuild.mock.calls[0]
+    expect(passedDeps).toEqual(deps)
+  })
+
   it('构建补拉远程依赖：改写后的文件树再落盘 + 追加提交，fileCount 以最终树为准', async () => {
     const p = await createProject()
     mockWriteSourceTree.mockClear()

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { beforeAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { BuildError, buildProject } from './builder'
 
@@ -95,5 +95,163 @@ describe('buildProject 构建冒烟', () => {
     // vfs 插件报「找不到模块」，位置定位到 entry.ts 第 1 行
     expect(err.issues[0]).toContain('找不到模块')
     expect(err.issues[0]).toMatch(/^entry\.ts:1:\d+/)
+  })
+})
+
+// —— UMD / 资源依赖内联（_deps/）——
+
+/** fetch mock 的响应形状（builder 只用 ok / status / headers.get / text / arrayBuffer） */
+function fakeRes(body: string, ct: string, status = 200): unknown {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: () => ct },
+    text: async () => body,
+    arrayBuffer: async () => new TextEncoder().encode(body).buffer,
+  }
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  // beforeAll 里 stub 的 self 被上一行一并清掉，须重建（esbuild wasm 引导依赖它）
+  vi.stubGlobal('self', globalThis)
+})
+
+describe('buildProject deps 内联', () => {
+  const depJs = "window.__jq = '3.7.1'"
+
+  it('JS 依赖按文本拼接进 bundle 头部（在模块产物之前），源码持久化进 _deps/', async () => {
+    const fetchMock = vi.fn(async () => fakeRes(depJs, 'application/javascript'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const outcome = await buildProject(projectFiles, 'entry.ts', ['https://cdn.example/jquery.js'])
+
+    // 拼接：依赖文本在最前，其后才是 esbuild 产物（单 IIFE）
+    expect(outcome.code.startsWith(depJs)).toBe(true)
+    expect(outcome.code).toContain('(() => {')
+    expect(outcome.code).toContain('entry-total:')
+    // 不进资源表（拍板点①：JS 依赖只拼接）
+    expect(outcome.code).not.toContain('DL.__res')
+
+    // 持久化：清单 + 内容文件进文件树
+    const depPaths = Object.keys(outcome.files).filter((p) => p.startsWith('_deps/'))
+    expect(depPaths.filter((p) => p.endsWith('.js'))).toHaveLength(1)
+    expect(outcome.files['_deps/index.json']).toBeDefined()
+    const index = JSON.parse(outcome.files['_deps/index.json']!) as Record<string, { file: string; kind: string; mode: string }>
+    const entry = index['https://cdn.example/jquery.js']!
+    expect(entry).toMatchObject({ kind: 'script', mode: 'text' })
+    expect(outcome.files[entry.file]).toBe(depJs)
+
+    expect(outcome.remoteFetched).toEqual(['https://cdn.example/jquery.js'])
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it('缓存优先：清单与内容文件都在时不发请求（断网重构建不失败）', async () => {
+    const fetchMock = vi.fn(async () => fakeRes(depJs, 'application/javascript'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const first = await buildProject(projectFiles, 'entry.ts', ['https://cdn.example/jquery.js'])
+    expect(fetchMock).toHaveBeenCalledOnce()
+
+    const second = await buildProject(first.files, 'entry.ts', ['https://cdn.example/jquery.js'])
+    expect(fetchMock).toHaveBeenCalledOnce() // 未再拉取
+    expect(second.remoteFetched).toEqual([])
+    expect(second.code.startsWith(depJs)).toBe(true)
+  })
+
+  it('非 JS 依赖进 DL.__res 资源表（不拼接），DL.resource 读文本', async () => {
+    const css = 'body { color: red }'
+    vi.stubGlobal('fetch', vi.fn(async () => fakeRes(css, 'text/css')))
+
+    const outcome = await buildProject(projectFiles, 'entry.ts', ['https://cdn.example/style.css'])
+
+    // 不拼接进头部，而是整条打进 DL.__res 表（url → { text }）
+    expect(outcome.code).toContain('DL.__res')
+    expect(outcome.code).toContain('"https://cdn.example/style.css":{"text":"body { color: red }"}')
+    const index = JSON.parse(outcome.files['_deps/index.json']!) as Record<string, { kind: string; mode: string }>
+    expect(index['https://cdn.example/style.css']).toMatchObject({ kind: 'resource', mode: 'text' })
+  })
+
+  it('二进制依赖（image/png）存 .b64 文件，资源表带 b64 形态', async () => {
+    const bytes = 'PNGDATA'
+    vi.stubGlobal('fetch', vi.fn(async () => fakeRes(bytes, 'image/png')))
+
+    const outcome = await buildProject(projectFiles, 'entry.ts', ['https://cdn.example/i.png'])
+
+    const index = JSON.parse(outcome.files['_deps/index.json']!) as Record<string, { file: string; mode: string; kind: string }>
+    const entry = index['https://cdn.example/i.png']!
+    expect(entry.mode).toBe('base64')
+    expect(entry.file.endsWith('.b64')).toBe(true)
+    // 'PNGDATA' 的 base64
+    expect(outcome.files[entry.file]).toBe('UE5HREFUQQ==')
+    expect(outcome.code).toContain('"b64":"UE5HREFUQQ=="')
+  })
+
+  it('octet-stream 误标 .js：按扩展名兜底判为文本 JS，照常拼接（拍板点③）', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => fakeRes(depJs, 'application/octet-stream')))
+
+    const outcome = await buildProject(projectFiles, 'entry.ts', ['https://cdn.example/jquery.min.js'])
+
+    expect(outcome.code.startsWith(depJs)).toBe(true)
+    const index = JSON.parse(outcome.files['_deps/index.json']!) as Record<string, { kind: string; mode: string }>
+    expect(index['https://cdn.example/jquery.min.js']).toMatchObject({ kind: 'script', mode: 'text' })
+  })
+
+  it('缺失 content-type：按文本兜底', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => fakeRes(depJs, '')))
+
+    const outcome = await buildProject(projectFiles, 'entry.ts', ['https://cdn.example/lib.js'])
+    expect(outcome.code.startsWith(depJs)).toBe(true)
+  })
+
+  it('拉取失败（HTTP 404）→ BuildError，明确带状态与 URL', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => fakeRes('nope', 'text/plain', 404)))
+
+    const err: BuildError = await buildProject(
+      projectFiles,
+      'entry.ts',
+      ['https://cdn.example/missing.js'],
+    ).then(
+      () => {
+        throw new Error('应当抛 BuildError')
+      },
+      (e: unknown) => e as BuildError,
+    )
+    expect(err).toBeInstanceOf(BuildError)
+    expect(err.issues[0]).toContain('HTTP 404')
+    expect(err.issues[0]).toContain('https://cdn.example/missing.js')
+  })
+
+  it('URL 从 deps 清单删除 → 孤儿文件与清单一并清理', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => fakeRes(depJs, 'application/javascript')))
+
+    const first = await buildProject(projectFiles, 'entry.ts', ['https://cdn.example/jquery.js'])
+    expect(Object.keys(first.files).some((p) => p.startsWith('_deps/'))).toBe(true)
+
+    const second = await buildProject(first.files, 'entry.ts', [])
+    expect(Object.keys(second.files).some((p) => p.startsWith('_deps/'))).toBe(false)
+    expect(second.files['entry.ts']).toBe(projectFiles['entry.ts'])
+  })
+
+  it('deps 含非 http(s) URL → BuildError；重复 URL 去重保序只拉一次', async () => {
+    const err: BuildError = await buildProject(
+      projectFiles,
+      'entry.ts',
+      ['ftp://cdn.example/x.js'],
+    ).then(
+      () => {
+        throw new Error('应当抛 BuildError')
+      },
+      (e: unknown) => e as BuildError,
+    )
+    expect(err.issues[0]).toContain('仅支持 http/https')
+
+    const fetchMock = vi.fn(async () => fakeRes(depJs, 'application/javascript'))
+    vi.stubGlobal('fetch', fetchMock)
+    await buildProject(projectFiles, 'entry.ts', [
+      'https://cdn.example/a.js',
+      'https://cdn.example/a.js',
+    ])
+    expect(fetchMock).toHaveBeenCalledOnce()
   })
 })

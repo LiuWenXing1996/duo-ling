@@ -95,6 +95,7 @@ const editIncludeGlobs = ref('')
 const editExcludeGlobs = ref('')
 const editAllFrames = ref(true)
 const editRunAt = ref<'document_start' | 'document_end' | 'document_idle'>('document_end')
+const editDeps = ref('')
 // 保存备注（可选：填了记入历史，空则自动计数「保存 #n」）
 const saveNote = ref('')
 
@@ -359,6 +360,7 @@ function currentConfig(): ScriptConfig {
     excludeGlobs: optArr(editExcludeGlobs.value),
     allFrames: editAllFrames.value,
     runAt: editRunAt.value,
+    deps: optArr(editDeps.value),
   }
 }
 
@@ -376,6 +378,7 @@ function applyTree(tree: SourceTree): void {
   editExcludeGlobs.value = (tree.meta.config.excludeGlobs ?? []).join(', ')
   editAllFrames.value = tree.meta.config.allFrames
   editRunAt.value = tree.meta.config.runAt
+  editDeps.value = (tree.meta.config.deps ?? []).join('\n')
 }
 
 /**
@@ -716,6 +719,18 @@ useDataSync('script', (push) => {
             class="w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-ring"
             @input="editDirty = true"
           />
+        </label>
+        <label class="col-span-2 block">
+          <span class="mb-1 block text-xs text-muted-foreground">
+            依赖 URL deps（选填，一行一个；JS 依赖拼接进产物，其余可经 DL.resource(url) 读取）
+          </span>
+          <textarea
+            v-model="editDeps"
+            rows="2"
+            class="w-full resize-y rounded-md border border-input bg-background px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-ring"
+            placeholder="https://code.jquery.com/jquery-3.7.1.min.js"
+            @input="editDirty = true"
+          ></textarea>
         </label>
         <label class="col-span-2 flex items-center gap-2 text-sm">
           <input

@@ -57,10 +57,15 @@ export type BuildRun =
   | { ok: true; code: string; files: Record<string, string>; remoteFetched: string[] }
   | { ok: false; issues: string[] }
 
-/** 构建（读内存 Record）；BuildError → { ok:false, issues }，其余异常照抛（IPC/环境问题） */
-async function runBuild(files: Record<string, string>, entry: string): Promise<BuildRun> {
+/** 构建（读内存 Record）；BuildError → { ok:false, issues }，其余异常照抛（IPC/环境问题）。
+ *  deps 来自 meta.config.deps（UMD / 资源依赖 URL 列表），交给 builder 内联对齐 */
+async function runBuild(
+  files: Record<string, string>,
+  entry: string,
+  deps?: string[],
+): Promise<BuildRun> {
   try {
-    const outcome = await buildProject(files, entry)
+    const outcome = await buildProject(files, entry, deps)
     return { ok: true, code: outcome.code, files: outcome.files, remoteFetched: outcome.remoteFetched }
   } catch (e) {
     if (e instanceof BuildError) return { ok: false, issues: e.issues }
@@ -102,7 +107,7 @@ export async function saveSource(
   // 进构建前广播瞬态阶段：列表行切「构建中」转圈（写工作树 / git 提交阶段由 SW 的
   // userscript:save 转发侧广播「保存中」覆盖；offscreen 侧广播覆盖新建 / 导入这类不经转发的路径）
   broadcastBuildPhase('script', uuid, 'building')
-  const build = await runBuild(files, meta.entry)
+  const build = await runBuild(files, meta.entry, meta.config.deps)
   let finalFiles = files
   if (build.ok) {
     finalFiles = build.files

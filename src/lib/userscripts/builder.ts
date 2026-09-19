@@ -8,6 +8,8 @@
 //   已在 wxt.config.ts manifest 显式声明放开 wasm 编译
 // - 远程依赖在 offscreen fetch（扩展 host 权限覆盖 offscreen，免 CORS），源码持久化进项目
 //   files（断网可重构建）
+// - 传统 UMD / 资源依赖（config.deps）走 _deps/ 内联通道：缓存优先拉取进文件树，JS 文本
+//   拼接进 bundle 头部、其余进 DL.__res 资源表（详见下方 _deps 小节）
 // - offscreen 内直调（统一保存 saveSource / AI 生成 loop），本模块不 import 进 SW / 页面
 //
 // 一期边界：远程模块 = URL 可解析的导入链（esm.sh 的同源
@@ -171,18 +173,201 @@ function createVfsPlugin(
   }
 }
 
+// —— UMD / 资源依赖内联（_deps/，2026-09-19 提案拍板）——
+//
+// 与远程 ESM 依赖（VFS remote 命名空间）平行的一条通道，面向不进模块图的传统依赖：
+//   · deps = config.deps 里的 URL 列表；保存时在 offscreen fetch（host 权限免 CORS），缓存优先——
+//     `_deps/index.json` 里有且内容文件在 → 不发请求（断网保存 / 重构建不失败），缺失才拉取；
+//   · 内容持久化进项目 files 的 `_deps/`（确定性文件名 = sha256(url) 前 16 位），随 git / zip /
+//     历史恢复全链路搭车；URL 从列表删除时连同内容文件一并清掉（孤儿清理）；
+//   · 分类（拍板语义）：JS 文本依赖只**按文本拼接**进 bundle 头部（不进资源表）；其余进资源表，
+//     打成 `DL.__res` 表供 DL.resource(url) 读。单列表、行为可预测；
+//   · 文本/二进制判定按 content-type，带兜底（拍板点③）：octet-stream（部分 CDN 对 .js 误标）
+//     与缺失 content-type 时按扩展名猜，扩展名也不认识时兜文本（误存文本比误存二进制好排查）。
+
+/** 依赖清单（_deps/index.json）：url → 内容文件与分类。清单在 files 树里，随项目搭车 */
+interface DepEntry {
+  /** 内容文件路径：_deps/<sha256(url) 前 16 位>.js（文本）/ .b64（二进制 base64） */
+  file: string
+  /** 内容形态：text = 原文文本；base64 = 二进制内容转 base64 串 */
+  mode: 'text' | 'base64'
+  /** 用途：script = 拼接进 bundle 头部；resource = 进 DL.__res 资源表 */
+  kind: 'script' | 'resource'
+  fetchedAt: number
+}
+
+type DepIndex = Record<string, DepEntry>
+
+const DEPS_INDEX = '_deps/index.json'
+/** JS 家族扩展名（拼接判定用） */
+const JS_EXT = /\.(mjs|cjs|js)$/i
+/** 常见文本扩展名（content-type 兜底时猜 mode 用） */
+const TEXT_EXT = /\.(mjs|cjs|js|css|json|txt|xml|svg)$/i
+
+/** deps 入参归一：去空白、去重（保序）、仅接受 http/https */
+function normalizeDeps(deps?: string[]): string[] {
+  const out: string[] = []
+  for (const raw of deps ?? []) {
+    const url = raw.trim()
+    if (!url) continue
+    if (!out.includes(url)) out.push(url)
+  }
+  for (const url of out) {
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      throw new BuildError([`依赖 URL 仅支持 http/https：${url}`])
+    }
+  }
+  return out
+}
+
+/** content-type / 扩展名 → 依赖分类（兜底序见小节头注释） */
+function classifyDep(url: string, contentType: string): Pick<DepEntry, 'mode' | 'kind'> {
+  const path = url.split(/[?#]/)[0]
+  const jsExt = JS_EXT.test(path)
+  const textExt = TEXT_EXT.test(path)
+  const ct = contentType.trim().toLowerCase()
+  // JS 判定（拼进 bundle）：content-type 指明 JS，或扩展名是 JS 家族
+  const isScript =
+    ct.includes('javascript') || ct.includes('ecmascript') || (ctTextLike(ct, textExt) && jsExt)
+  // 文本判定：明确文本型 ct → 文本；octet-stream 或缺失 → 按扩展名猜，扩展名不认识兜文本
+  const isText = ctTextLike(ct, textExt)
+  return { mode: isText ? 'text' : 'base64', kind: isScript ? 'script' : 'resource' }
+}
+
+/** content-type 是否指明文本体（含 octet-stream / 缺失时的扩展名兜底） */
+function ctTextLike(ct: string, textExt: boolean): boolean {
+  if (
+    ct.startsWith('text/') ||
+    ct.includes('javascript') ||
+    ct.includes('ecmascript') ||
+    ct.includes('json') ||
+    ct.includes('xml') ||
+    ct.includes('css')
+  ) {
+    return true
+  }
+  // octet-stream（部分 CDN 对 .js 误标）与缺失 content-type：按扩展名猜，不认识兜文本
+  return !ct || ct === 'application/octet-stream' ? true : textExt
+}
+
+/** 确定性文件名：sha256(url) 前 16 位十六进制（同 URL 恒同文件，重复保存不膨胀） */
+async function depFileFor(url: string, ext: 'js' | 'b64'): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(url))
+  const hex = Array.from(new Uint8Array(buf).slice(0, 8))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+  return `_deps/${hex}.${ext}`
+}
+
+/** Uint8Array → base64（分块防大数组爆栈；node 测试环境也有全局 btoa） */
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk) as unknown as number[])
+  }
+  return btoa(bin)
+}
+
+/** 拉取单个依赖并分类：返回清单条目（内容已由调用方从返回值取用写盘） */
+async function fetchDep(
+  url: string,
+): Promise<{ entry: DepEntry; content: string }> {
+  let res: Response
+  try {
+    res = await fetch(url)
+  } catch (e) {
+    throw new BuildError([`依赖 URL 拉取异常：${url}（${e instanceof Error ? e.message : String(e)}）`])
+  }
+  if (!res.ok) {
+    throw new BuildError([`依赖 URL 拉取失败（HTTP ${res.status}）：${url}`])
+  }
+  const { mode, kind } = classifyDep(url, res.headers.get('content-type') ?? '')
+  if (mode === 'text') {
+    return { entry: { file: await depFileFor(url, 'js'), mode, kind, fetchedAt: Date.now() }, content: await res.text() }
+  }
+  return {
+    entry: { file: await depFileFor(url, 'b64'), mode, kind, fetchedAt: Date.now() },
+    content: bytesToBase64(new Uint8Array(await res.arrayBuffer())),
+  }
+}
+
+/** 读清单（损坏 / 缺失按空清单处理：命中的依赖会重新拉取，不会卡死） */
+function parseDepIndex(raw: string | undefined): DepIndex {
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw) as DepIndex
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * 依赖内联对齐（构建前调用）：缓存优先补齐缺失 → 写入 workFiles → 清孤儿 → 回写清单。
+ * 无依赖时也调用：清掉 URL 列表被清空后遗留的 `_deps/`。
+ */
+async function syncDeps(
+  files: Record<string, string>,
+  deps: string[],
+  remoteFetched: string[],
+): Promise<DepIndex> {
+  const oldIndex = parseDepIndex(files[DEPS_INDEX])
+  const index: DepIndex = {}
+  for (const url of deps) {
+    const cached = oldIndex[url]
+    if (cached && cached.file in files) {
+      index[url] = cached // 缓存命中：不发请求（断网友好；改依赖源码可手编 _deps 文件）
+      continue
+    }
+    const { entry, content } = await fetchDep(url)
+    files[entry.file] = content
+    index[url] = entry
+    remoteFetched.push(url)
+  }
+  // 孤儿清理：旧清单里已不在本次 deps 的条目，内容文件一并删
+  for (const [url, entry] of Object.entries(oldIndex)) {
+    if (!(url in index) && entry.file in files) delete files[entry.file]
+  }
+  if (Object.keys(index).length) files[DEPS_INDEX] = JSON.stringify(index, null, 2)
+  else delete files[DEPS_INDEX]
+  return index
+}
+
+/** bundle 头部：script 依赖文本拼接（保序，; 分隔）+ DL.__res 资源表帧。无内容返回空串 */
+function buildBundleHead(files: Record<string, string>, index: DepIndex): string {
+  const parts: string[] = []
+  const scripts: string[] = []
+  const resources: Record<string, { text?: string; b64?: string }> = {}
+  for (const [url, entry] of Object.entries(index)) {
+    const content = files[entry.file]
+    if (content == null) continue // syncDeps 后不应发生（清单与文件同步写），防御
+    if (entry.kind === 'script') scripts.push(content)
+    else resources[url] = entry.mode === 'text' ? { text: content } : { b64: content }
+  }
+  if (scripts.length) parts.push(scripts.join('\n;\n') + '\n;\n')
+  if (Object.keys(resources).length) {
+    // DL 由 DL 包装先于 bundle 注入；资源表挂在 DL 自身（不开新全局），DL.resource 读它
+    parts.push(`;(function () {\n  if (typeof DL !== 'undefined' && DL) DL.__res = ${JSON.stringify(resources)}\n})()\n;\n`)
+  }
+  return parts.join('')
+}
+
 // —— 对外入口 ——
 
 /**
  * 构建项目为单 IIFE。
  * - 入口经 stdin 喂入（绕开 entryPoints 的磁盘解析），相对导入由 vfs 插件解析
  * - format iife / 不 minify（报错行号可读）/ target es2020
- * - 成功：返回注入代码 + 回写文件树（含远程依赖源码）
+ * - deps（config.deps，选填）：UMD / 资源依赖内联对齐（缓存优先，缺失拉取并写回文件树），
+ *   JS 依赖按文本拼接进 bundle 头部，其余进 DL.__res 资源表（见文件头 _deps 小节）
+ * - 成功：返回注入代码 + 回写文件树（含远程依赖 / _deps 源码）
  * - 失败：抛 BuildError（issues 含 文件:行:列），调用方不得落盘
  */
 export async function buildProject(
   files: Record<string, string>,
   entry: string,
+  deps?: string[],
 ): Promise<BuildOutcome> {
   const entrySrc = files[entry]
   if (entrySrc == null) throw new BuildError([`入口文件不存在：${entry}`])
@@ -191,6 +376,8 @@ export async function buildProject(
   // files 复制一份：远程依赖写进副本，失败时不动调用方原对象
   const workFiles: Record<string, string> = { ...files }
   const remoteFetched: string[] = []
+  // 依赖内联对齐（含无依赖时的孤儿清理）；拉取失败抛 BuildError → 保存恒成功、产物置空
+  const depIndex = await syncDeps(workFiles, normalizeDeps(deps), remoteFetched)
 
   try {
     const result = await esbuild.build({
@@ -207,8 +394,10 @@ export async function buildProject(
       plugins: [createVfsPlugin(workFiles, remoteFetched)],
       logLevel: 'silent',
     })
-    const code = result.outputFiles?.[0]?.text
-    if (!code) throw new BuildError(['构建无产物输出'])
+    const bundled = result.outputFiles?.[0]?.text
+    if (!bundled) throw new BuildError(['构建无产物输出'])
+    // 头部拼接在 esbuild 之后：script 依赖文本 + DL.__res 资源表帧 + 模块产物
+    const code = buildBundleHead(workFiles, depIndex) + bundled
     return { code, files: workFiles, remoteFetched }
   } catch (e) {
     // esbuild 失败抛 { errors: [{ text, location: { file, line, column } }] }

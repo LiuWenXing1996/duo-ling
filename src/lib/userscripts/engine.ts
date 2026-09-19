@@ -462,6 +462,21 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
         })
       })
     },
+    // 读取保存期内联的资源（builder 把非 JS 依赖打成 DL.__res 表随 bundle 注入）。
+    // 纯本地读表，不走桥；类型不符 / 未内联明确报错，不静默。
+    resource: function (url, opts) {
+      var R = DL.__res || {}
+      var e = R[url]
+      if (!e) {
+        return Promise.reject(new Error('DL.resource：资源未内联（未加入依赖列表或保存时未成功拉取）：' + url))
+      }
+      if (opts && opts.base64) {
+        if (e.b64 != null) return Promise.resolve(e.b64)
+        return Promise.reject(new Error('DL.resource：该资源是文本，直接 DL.resource(url) 即可：' + url))
+      }
+      if (e.text != null) return Promise.resolve(e.text)
+      return Promise.reject(new Error('DL.resource：该资源是二进制，请用 DL.resource(url, { base64: true })：' + url))
+    },
     // 系统通知。带 onClick 时按响应里的通知 id 挂回调，点击经 DL Port 回推
     notify: function (message, opts) {
       return __dlSend({ c: 'notify', message: message, title: opts && opts.title, icon: opts && opts.icon }).then(function (r) {
