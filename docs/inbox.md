@@ -32,6 +32,7 @@
 - 脚本存储偏离目标设计：状态库 `ScriptProject` 同时含源码 `files` 与产物 `bundle`，源码权威副本也落 `duoling-state`，并非「源码仅 lfs、产物仅 state-db」划分；lfs 实为 offscreen 内 git 版本化工作副本（SW/扩展页读不到 lfs 所致）。需确认是否预期，或标定为已决偏离。
 - 产物「仅构建时写、非 offscreen 只读」无存储层硬守卫：`state-db.writeProject` 不校验 `bundle` 来源，仅靠调用方约定（create/update/import 均先 build）+ 单写方收敛保证；目标是硬约束，考虑是否加存储层守卫拒绝非构建路径覆盖 `bundle`。
 - 生产产物每次加载控制台必报一条 CSP 违规：内联注入的 `window.__BUILD_INFO__` 被扩展页 CSP 拦掉，工作台标签栏因此拿不到页面侧构建时间（SW 侧那条通道正常）。
+- 删除已启用的用户脚本后，目标页面里它仍在运行，像是没撤销注册；用户以为删干净了，页面却还跑着（刷新后是否依旧未确认）。
 
 ## 不办
 
