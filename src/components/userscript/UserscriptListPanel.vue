@@ -1120,7 +1120,8 @@ function lastBuildLabel(s: ScriptSummary): string {
             :disabled="importing || !importPath.trim()"
             @click="confirmPathImport"
           >
-            导入
+            <ui-loader-circle v-if="importing" class="size-3.5 animate-spin" />
+            {{ importing ? '导入中…' : '导入' }}
           </ui-button>
         </ui-dialog-footer>
       </ui-dialog-content>
