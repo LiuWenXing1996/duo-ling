@@ -290,9 +290,11 @@ const handlers: {
     await unregisterScripts([msg.uuid]).catch((e) =>
       console.warn('[duoling:sw] 删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
     )
-    // 该脚本对内置并集的贡献随之消失，MAIN 桩可能需要注销
-    await refreshBuiltinScripts().catch(() => {})
     await writeViaOffscreen<void>({ kind: 'state:remove', uuid: msg.uuid })
+    // 该脚本对内置并集的贡献随状态库删除而消失，MAIN 桩可能需要注销。
+    // 必须放在清库**之后**：清库前读库还算得进这个脚本，并集「未变」、桩被已在位检查跳过，
+    // 桩就带着已删脚本的 matches 残留（removeAll 之前整体漏调同属这一族问题）
+    await refreshBuiltinScripts().catch(() => {})
     await clearGMValues(msg.uuid)
     // 报错记录同属该脚本的残留：不清就会在错误日志里留下一个已删脚本的孤儿分组
     // （按 uuid 清，不碰「未归属」那种本就没有脚本上下文的记录）
@@ -306,9 +308,17 @@ const handlers: {
   // uuid 由 SW 直读状态库（不经容器，与 userscript:list 同源），用于注销与清残留。
   'userscript:removeAll': async (): Promise<{ removed: number }> => {
     const uuids = (await listProjects()).map((p) => p.uuid)
-    await unregisterScripts(uuids).catch(() => {})
+    // 注销失败不能纯静默（与单删/关停同语义）：吞掉后这批 uuid 成幽灵注册——
+    // 页面刷新照样注入；且刚删完没有启用脚本、offscreen 心跳停止保活前 SW 一直活着，
+    // registerAllEnabled 的冷启动对账不会跑，幽灵能一路活到下次浏览器重启
+    await unregisterScripts(uuids).catch((e) =>
+      console.warn('[duoling:sw] 全部删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', uuids, e),
+    )
     try {
       const removed = await writeViaOffscreen<number>({ kind: 'state:removeAll' })
+      // 状态库清空后再同步内置并集：此时读库必为空 → MAIN 桩注销。此前整体漏调，
+      // 桩带着旧并集（如 ["*://*/*"]）残留注册，删完脚本页面里 window.DL 仍在
+      await refreshBuiltinScripts().catch(() => {})
       for (const uuid of uuids) await clearGMValues(uuid)
       // 报错记录逐 uuid 清（与单删同一条语义：删脚本 = 清该脚本名下的一切）
       for (const uuid of uuids) await clearUserScriptErrors(uuid)
