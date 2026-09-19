@@ -47,6 +47,34 @@
 - **body**：与 subject 空一行，解释**为什么**（动机 / 背景），不只是复述 diff。
 - **footer**：关联 issue（`Closes #123`）、破坏性变更（`BREAKING CHANGE: ...`）。
 
+## 分支命名（强制，push 前自查）
+
+功能分支一律 `<type>/<kebab-case 描述>`，type 取自上面的白名单（常用 `feat` / `fix` / `refactor` / `docs` / `chore` / `test` / `ci` / `build`）：
+
+| 场景 | 分支名 |
+| --- | --- |
+| 新功能 | `feat/script-list-groups` |
+| 修 bug | `fix/panel-draft-overwrite` |
+| 重构 | `refactor/userscript-editor-layout` |
+| 文档 | `docs/merge-and-commit-conventions` |
+| 杂项 | `chore/cleanup-stale-inbox-todos` |
+
+**规则**
+
+- 全小写字母 + 数字 + 连字符；斜杠只用于分隔 type 与描述，层级不超过两层。
+- 描述走 kebab-case，不写大驼峰 / 下划线 / 空格 / 中文。
+- 一个分支只做一件事（与 `AGENTS.md` 合并铁律一致），分支名要能看出是哪件事。
+- 长期分支只有 `main`，其余都是短命功能分支，合并后删除。
+
+**禁止把不规范的分支名推到远程。** 远端分支名会进 PR 链接、CI 日志和他人本地的 `git branch -r`，事后重命名的成本远高于 push 前改一次名——**push 前必须自查**：
+
+- ❌ 工具 / 环境自动生成的会话名：`workbuddy/main-bda104d5`、`<user>/main-8f3c1a`、`patch-1`、`tmp`、`test1`
+- ❌ 无 type 前缀，或 type 不在白名单：`userscript-editor-layout`、`wip/xxx`、`my-branch`
+- ❌ 非 kebab-case：`feat/ScriptListGroups`、`feat/script_list_groups`、`feat/脚本列表分组`
+- ❌ 一个分支堆多件不相关的事：`feat/layout-and-storage-and-ci`
+
+已推上去的不规范分支：`git branch -m <新名>` 后删远端旧名、重推并 `-u` 重设上游。（**`main` 禁强推、禁删除，此操作只对功能分支**）
+
 ## 合并提交（重要）
 
 `main` 已锁死为 **Merge Commit**（见 `AGENTS.md` 合并铁律），PR 合入后 **merge commit 标题 = 开 PR 时的 `--title`**，原样成为 `main` 永久历史。因此：
