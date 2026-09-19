@@ -117,6 +117,33 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     await page.close()
   })
 
+  test('workbench「AI 工具」标签页：契约渲染 + 轨迹空态', async () => {
+    const page = await context!.newPage()
+    await page.goto(`chrome-extension://${extensionId}/workbench.html`)
+
+    // 左侧导航进入：面板挂载，左栏 6 个工具全部来自静态目录（与运行时同源，见单测防漂移）
+    await page.locator('button[aria-label="AI 工具"]').click()
+    await expect(page.locator('[data-testid="agent-tools-panel"]')).toBeVisible()
+    for (const name of ['script_spec', 'script_read', 'script_apply', 'element_read', 'page_snapshot', 'error_read']) {
+      await expect(page.locator(`[data-testid="agent-tools-select-${name}"]`)).toBeVisible()
+    }
+
+    // 选中写工具：契约区默认**收起**（入参表有 10 项，展开会把下方轨迹顶出屏幕）→ 点标题展开
+    await page.locator('[data-testid="agent-tools-select-script_apply"]').click()
+    const contract = page.locator('[data-testid="agent-tools-contract"]')
+    await expect(contract).toContainText('契约详情')
+    await page.locator('[data-testid="agent-tools-contract-toggle"]').click()
+    await expect(contract).toContainText('updateUuid')
+    await expect(contract).toContainText('必填')
+    await expect(page.getByText('单任务最多 8 步')).toBeVisible()
+
+    // 没跑过对话 → 无任何工具调用痕迹：一条轨迹行都不该有，且给空态文案而不是留白
+    // （空态文案分「会话库为空」与「还没有这条工具的调用记录」两支，此处不锁死哪一支）
+    await expect(page.locator('[data-testid^="agent-tools-trace-"]')).toHaveCount(0)
+    await expect(page.getByText(/会话库为空|还没有这条工具的调用记录/)).toBeVisible()
+    await page.close()
+  })
+
   // ———————————————————————————— side panel ————————————————————————————
 
   test('sidepanel.html 页面可加载（sidePanel.open() 需 user gesture，不进无头断言）', async () => {

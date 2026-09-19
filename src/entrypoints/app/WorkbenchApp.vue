@@ -15,7 +15,8 @@ import {
   FlaskConical as UiFlaskConical,
   FolderTree as UiFolderTree,
   List as UiList,
-  Settings as UiSettings
+  Settings as UiSettings,
+  Wrench as UiWrench
 } from '@lucide/vue'
 import WorkspaceHost from '@/components/WorkspaceHost.vue'
 import {
@@ -175,6 +176,21 @@ onUnmounted(() => window.removeEventListener('hashchange', handleHash))
               </button>
             </ui-tooltip-trigger>
             <ui-tooltip-content side="right">会话数据</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <button
+                class="workspace-nav-item"
+                type="button"
+                aria-label="AI 工具"
+                @click="workspaceRef?.openAgentToolsTab()"
+              >
+                <ui-wrench class="size-5" />
+              </button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content side="right">AI 工具</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
       </aside>

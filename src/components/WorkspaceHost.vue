@@ -13,6 +13,7 @@ import UserscriptHistoryPanel from '@/components/userscript/UserscriptHistoryPan
 import UserscriptBundlePanel from '@/components/userscript/UserscriptBundlePanel.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import ChatDataPanel from '@/components/ChatDataPanel.vue'
+import AgentToolsPanel from '@/components/AgentToolsPanel.vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
   Tabs as UiTabs,
@@ -138,6 +139,15 @@ function openChatDataTab(): void {
   activate('chat-data')
 }
 
+// 打开 AI 工具标签页：agent 工具契约 + 调用轨迹（只读），全局仅一个。
+// 契约读静态目录（lib/agent-tools-catalog.ts），轨迹读会话库落盘的 tool parts。
+function openAgentToolsTab(): void {
+  if (!openTabs.value.some((t) => t.kind === 'agent-tools')) {
+    openTabs.value.push({ kind: 'agent-tools', id: 'agent-tools', title: 'AI 工具' })
+  }
+  activate('agent-tools')
+}
+
 // 打开某脚本的历史标签页：每脚本一个（id = us-history:<uuid>），已打开则激活复用。
 // 编辑器顶栏的历史按钮经 @open-history 走到这里；浏览 + 恢复都在这个标签页里。
 function openUserscriptHistoryTab(uuid: string, title: string): void {
@@ -218,8 +228,8 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「引导 / 设置 / UI 测试 / 脚本列表 / 错误日志 / lfs 浏览 / 会话数据」与脚本管理器的「编辑」入口
-defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorLogTab, openLfsBrowserTab, openChatDataTab, openUserscriptEditor })
+// 暴露给根布局：左侧导航栏「引导 / 设置 / UI 测试 / 脚本列表 / 错误日志 / lfs 浏览 / 会话数据 / AI 工具」与脚本管理器的「编辑」入口
+defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorLogTab, openLfsBrowserTab, openChatDataTab, openAgentToolsTab, openUserscriptEditor })
 </script>
 
 <template>
@@ -281,6 +291,8 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
         <lfs-browser-panel v-else-if="tab.kind === 'lfs-browser'" />
         <!-- 会话数据：IndexedDB 会话库落盘原始记录（只读调试视图） -->
         <chat-data-panel v-else-if="tab.kind === 'chat-data'" />
+        <!-- AI 工具：agent 工具契约（与模型所见同源）+ 会话库里的真实调用轨迹 -->
+        <agent-tools-panel v-else-if="tab.kind === 'agent-tools'" />
         <!-- 脚本历史：每脚本一个标签页，浏览 + 恢复；恢复后重载对应编辑器 -->
         <userscript-history-panel
           v-else-if="tab.kind === 'script-history'"

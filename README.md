@@ -13,7 +13,7 @@
 | 载体 | 角色 | 承载内容 |
 | --- | --- | --- |
 | **side panel** | 应用入口（常驻侧边栏） | **AI 对话界面**：会话列表（浮层抽屉）、消息流、输入区（含元素拾取 chip）、模型选择 |
-| **标签页 `workbench.html`** | 重界面工作区（按需打开） | 引导 / 脚本列表（默认落点、不可关闭）/ 运行日志 / 脚本编辑器 / 脚本历史 / 脚本产物 / lfs 浏览 / 会话数据 / 设置 / UI 测试 |
+| **标签页 `workbench.html`** | 重界面工作区（按需打开） | 引导 / 脚本列表（默认落点、不可关闭）/ 运行日志 / 脚本编辑器 / 脚本历史 / 脚本产物 / lfs 浏览 / 会话数据 / AI 工具 / 设置 / UI 测试 |
 
 主流程：在侧边栏对话里描述需求 → 到工作台标签页管理脚本（新建 / 编辑 / 启停 / 看 git 历史）。标签页从侧边栏顶栏的「打开工作台」按钮打开，支持 hash 深链：`#/guide` 开引导、`#/tool/<uuid>` 直达该脚本编辑器、`#/errors/<uuid>` 打开运行日志标签页并过滤到该脚本、`#/settings` 开设置。
 
@@ -28,7 +28,7 @@
 | 页面上下文 | 点选元素：`chrome.userScripts.execute()` 按需注入内置拾取器，产物暂存后随下一条消息发出；页面快照：AI 侧 `page_snapshot` 工具经 SW 采集 |
 | 主题 | **跟随系统深浅色**（`src/lib/theme.ts` 按 `prefers-color-scheme` 驱动 `html.dark`） |
 
-> **UI 复用**：两个载体的界面都是现成实现 —— side panel 由 `ChatApp.vue` 装配 `ChatPanel` + `SessionHistoryPanel`；工作台由 `WorkbenchApp.vue`（左侧图标导航：引导 / 设置 / UI 测试 / 脚本列表 / lfs 浏览 / 会话数据 + `WorkspaceHost` 多标签宿主）承载。平移来的组件经 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，**组件本体零改动**；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`，不经 `window.api`。
+> **UI 复用**：两个载体的界面都是现成实现 —— side panel 由 `ChatApp.vue` 装配 `ChatPanel` + `SessionHistoryPanel`；工作台由 `WorkbenchApp.vue`（左侧图标导航：引导 / 设置 / UI 测试 / 脚本列表 / lfs 浏览 / 会话数据 / AI 工具 + `WorkspaceHost` 多标签宿主）承载。平移来的组件经 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，**组件本体零改动**；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`，不经 `window.api`。
 
 ## 目录结构
 

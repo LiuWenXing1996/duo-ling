@@ -14,6 +14,11 @@
 
 import { tool } from 'ai'
 import { z } from 'zod'
+import {
+  AGENT_RUNTIME_LIMITS,
+  TOOL_DESCRIPTIONS,
+  TOOL_PARAM_DESCRIPTIONS,
+} from '@/lib/agent-tools-catalog'
 import { buildProject, BuildError } from '@/lib/userscripts/builder'
 import { getProject, validateFiles } from '@/lib/userscripts/project-store'
 import { readSourceTree } from '@/lib/userscripts/us-git'
@@ -22,8 +27,9 @@ import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
-/** 连续构建失败上限：达到即让模型停手、把诊断交给用户（阈值 6） */
-export const MAX_APPLY_FAILURES = 6
+/** 连续构建失败上限：达到即让模型停手、把诊断交给用户。
+ *  阈值取自 agent-tools-catalog（工作台「AI 工具」面板展示同一份，不再各写一份）。 */
+export const MAX_APPLY_FAILURES = AGENT_RUNTIME_LIMITS.maxApplyFailures
 
 /** 一次生成任务的内存工作区（chat-host 持有；「继续」时从任务快照播种） */
 export interface TaskWorkspace {
@@ -79,17 +85,15 @@ export function buildScriptTools(
 ) {
   const tools = {
     script_spec: tool({
-      description:
-        '获取哆灵用户脚本的完整规范（DL 能力 API、硬性约束、禁止事项）。写或改任何脚本前必须先调用它。',
+      description: TOOL_DESCRIPTIONS.script_spec,
       inputSchema: z.object({}),
       execute: async () => ({ spec: SCRIPT_SPEC_TEXT }),
     }),
 
     script_read: tool({
-      description:
-        '读取脚本源码。不带参数 = 读当前任务的内存文件树（本任务已写入的内容）；带 uuid = 读一个已保存的脚本项目（修改现有脚本时用）。',
+      description: TOOL_DESCRIPTIONS.script_read,
       inputSchema: z.object({
-        uuid: z.string().optional().describe('已保存脚本的 uuid；省略则读当前任务内存文件树'),
+        uuid: z.string().optional().describe(TOOL_PARAM_DESCRIPTIONS.script_read.uuid),
       }),
       execute: async ({ uuid }) => {
         if (!uuid) {
@@ -120,19 +124,18 @@ export function buildScriptTools(
     }),
 
     script_apply: tool({
-      description:
-        '提交（整文件写）脚本文件树并立即用 esbuild 构建验证。返回 ok=true 表示构建通过（任务收敛）；' +
-        '返回 ok=false 时 errors 为 file:line 诊断列表，按诊断修改后再次整体提交全部文件。' +
-        '修改既有脚本（本会话此前生成过的）时必须带 updateUuid，落盘才会原地更新该脚本；省略 = 生成一个全新脚本。',
+      description: TOOL_DESCRIPTIONS.script_apply,
       inputSchema: z.object({
-        summary: z.string().describe('本轮改动的一句话摘要（将作为落盘时的提交说明）'),
-        config: applyConfigSchema.describe('脚本配置：matches 必填（收窄到目标站点）'),
-        files: z.record(z.string(), z.string()).describe('完整文件树：相对路径 → 源码'),
-        entry: z.string().default('main.js').describe('入口文件路径，默认 main.js'),
+        summary: z.string().describe(TOOL_PARAM_DESCRIPTIONS.script_apply.summary),
+        config: applyConfigSchema.describe(TOOL_PARAM_DESCRIPTIONS.script_apply.config),
+        files: z
+          .record(z.string(), z.string())
+          .describe(TOOL_PARAM_DESCRIPTIONS.script_apply.files),
+        entry: z.string().default('main.js').describe(TOOL_PARAM_DESCRIPTIONS.script_apply.entry),
         updateUuid: z
           .string()
           .optional()
-          .describe('要原地更新的既有脚本 uuid（system prompt 会给出本会话已落盘脚本的身份）；省略 = 生成新脚本'),
+          .describe(TOOL_PARAM_DESCRIPTIONS.script_apply.updateUuid),
       }),
       execute: async ({ summary, config, files, entry, updateUuid }) => {
         // 硬停手：失败阈值已达后仍再次 apply = 模型无视了 stop 提示，直接中止任务
@@ -202,15 +205,12 @@ export function buildScriptTools(
       },
     }),
     element_read: tool({
-      description:
-        '读取用户点选元素的完整快照（system prompt 里只有摘要层）。' +
-        '摘要层有不确定处时调用：返回全部属性、完整 outerHTML（拾取时刻截断快照，非活页面）、祖先链。' +
-        '本次请求没有点选元素时返回 ok:false。',
+      description: TOOL_DESCRIPTIONS.element_read,
       inputSchema: z.object({
         part: z
           .enum(['attrs', 'html', 'parents', 'all'])
           .default('all')
-          .describe('只取一部分省 token；默认 all'),
+          .describe(TOOL_PARAM_DESCRIPTIONS.element_read.part),
       }),
       execute: async ({ part }) => {
         if (!elementContext) {
@@ -229,10 +229,7 @@ export function buildScriptTools(
       },
     }),
     page_snapshot: tool({
-      description:
-        '抓取当前页面的**渲染后 DOM** 快照（documentElement.outerHTML，截断 ~32KB，拾取时刻快照非实时）。' +
-        '需要了解页面整体结构、找脚本目标节点的上下文、或摘要信息不够用时调用。' +
-        '内置页（chrome:// 等）与非活动窗口不可采，返回 ok:false 带原因。',
+      description: TOOL_DESCRIPTIONS.page_snapshot,
       inputSchema: z.object({}),
       execute: async () => {
         if (!captureSnapshot) {
@@ -252,12 +249,9 @@ export function buildScriptTools(
       },
     }),
     error_read: tool({
-      description:
-        '按错误 ID 查询一条脚本错误记录。用户可能直接粘贴一个错误 ID（脚本运行出错后，' +
-        '工作台错误日志里每条错误旁都展示，前 8 位短形态）要求修复。返回错误详情（message / stack / ' +
-        '报错页面 url）与脚本 uuid——uuid 可直接交给 script_read 读源码，改完带 updateUuid 调 script_apply 原地更新。',
+      description: TOOL_DESCRIPTIONS.error_read,
       inputSchema: z.object({
-        id: z.string().describe('错误 ID：完整 id，或至少 8 位的前缀（多命中会报不唯一）'),
+        id: z.string().describe(TOOL_PARAM_DESCRIPTIONS.error_read.id),
       }),
       execute: async ({ id }) => {
         if (!readError) {
