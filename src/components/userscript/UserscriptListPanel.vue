@@ -546,7 +546,7 @@ useDataSync('script', (push) => {
   return refresh()
 })
 
-// 运行统计（us:run-stats:*）在 SW 侧随脚本注入 / 运行期错误落盘后广播 `runstats` 域，
+// 运行统计（runtime 库 stats store）在 SW 侧随脚本注入 / 运行期错误落盘后广播 `runstats` 域，
 // 这里接住回拉，运行计数与「上次运行」时刻不必手动刷新
 useDataSync('runstats', () => refresh())
 
@@ -871,7 +871,7 @@ function lastBuildLabel(s: ScriptSummary): string {
                     · {{ updatedAtLabel(s.updatedAt) }}
                   </template>
                 </span>
-                <!-- 运行统计（us:run-stats:*，有统计才渲染；runstats 域广播驱动实时回拉） -->
+                <!-- 运行统计（有统计才渲染；runstats 域广播驱动实时回拉） -->
                 <span v-if="s.runCount !== undefined" class="shrink-0" data-testid="run-stats">
                   · 运行 {{ s.runCount }} 次<template v-if="s.lastRunAt">，上次 {{ updatedAtLabel(s.lastRunAt) }}</template>
                 </span>

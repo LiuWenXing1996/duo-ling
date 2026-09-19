@@ -93,24 +93,23 @@ export type RuntimeRequest =
   | { kind: 'userscript:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; files: Record<string, string>; entry: string; enabled: boolean; note?: string }
   | { kind: 'userscript:remove'; uuid: string }
   // 删除全部用户脚本：范围 = 新形态用户脚本（状态库项目 + 各自 git 仓），
-  // **不含**已弃用旧 GM 记录（chrome.storage，另有逐行删除与 clearDeprecated 两条路径）
-  // 与内置件（随扩展包分发）。SW 注销全部 → 转发 state:removeAll → 清各脚本 DL.store 值。
+  // 不含内置件（随扩展包分发）。SW 注销全部 → 转发 state:removeAll → 清各脚本 DL.store 值。
   | { kind: 'userscript:removeAll' }
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
   | { kind: 'userscript:availability' }
   // 引擎保活应答（offscreen → SW，5s 一次）：offscreen 心跳的**唯一职责是给 SW 保活**
   // （重置 30s 空闲计时），不做任何检测——检测在 SW 自身的轮询（availability-watch.ts）。
   | { kind: 'userscript:healthCheck' }
-  // 运行日志时间线：运行行（us:run-log）+ 无法归属的错误行按时间倒序混排（listRunTimeline）
+  // 运行日志时间线：运行行（runtime 库 runlog store）+ 无法归属的错误行按时间倒序混排（listRunTimeline）
   | { kind: 'userscript:runlog' }
-  // 清错误日志（us:errors；「全部/该脚本」范围同时清 us:run-log 对应条目）。三态靠「字段在不在」区分，**不可用 falsy 判定**：
+  // 清错误日志（runtime 库 errors store；「全部/该脚本」范围同时清 runlog store 对应条目）。三态靠「字段在不在」区分，**不可用 falsy 判定**：
   //   不带该字段 = 清全部；uuid: string = 只清该脚本；uuid: null = 只清「未归属」错误记录（run-log 不动）。
   //   不带该字段 = 清全部；uuid: string = 只清该脚本；uuid: null = 只清「未归属」记录。
   // unassigned 用显式 null 而非 undefined：结构化克隆会保留 null，而 undefined 值在部分
   // 序列化路径下与「字段缺失」无法区分（Firefox / JSON 回退），故调用方必须省略字段而非传 undefined。
   | { kind: 'userscript:clearErrors'; uuid?: string | null }
   // 错误 ID 修复闭环：AI 的 error_read 工具经 SW 代查
-  // us:errors（offscreen 拿不到 chrome.storage）。id = 完整记录 id 或唯一 8 位前缀
+  // 错误日志（runtime 库，offscreen 拿不到）。id = 完整记录 id 或唯一 8 位前缀
   | { kind: 'userscript:errorRead'; id: string }
   // zip 导入：UI 读 zip 文件转 base64，SW 纯转发 offscreen
   // 单写方（解码 + 校验 + 构建 + 落盘同处）。enabled 恒 false——先审后启，故无注册动作。
@@ -203,7 +202,7 @@ export type RuntimeRequest =
   | { kind: 'clipboard:write'; text: string | null; html: string | null }
 
   // —— 模型配置（offscreen 侧向 SW 拉取）——
-  // offscreen 拿不到 chrome.storage，故在启动 / 收到变更推送时经此命令取一次并缓存。
+  // offscreen 不 import model-store（SW 专属模块），故在启动 / 收到变更推送时经此命令取一次并缓存。
   // 返回值含 apiKey 明文：属同扩展内上下文之间的传递（offscreen 与 SW 信任级别等同），
   // 不是新增对外暴露面；但仍须「取一次、缓存、不写日志」。
   | { kind: 'model:getActiveProfile' }
@@ -253,11 +252,11 @@ export type DataDomain =
   | 'script'
   /** 会话与消息（duoling-chat） */
   | 'conversation'
-  /** 模型配置（chrome.storage.local） */
+  /** 模型配置（duoling-app 库） */
   | 'model'
-  /** 用户脚本错误日志（us:errors） */
+  /** 用户脚本错误日志（runtime 库 errors store） */
   | 'error'
-  /** 用户脚本运行统计（us:run-stats:*，按脚本聚合计数） */
+  /** 用户脚本运行统计（runtime 库 stats store，按脚本聚合计数） */
   | 'runstats'
 
 /**

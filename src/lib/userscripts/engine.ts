@@ -6,6 +6,7 @@
 import type { ScriptProject } from './types'
 // 版本判断与「打开扩展管理页」入口同源（引导文案按 <138 / ≥138 分支，UI 侧按钮也按同一分支取 URL）
 import { getChromeMajorVersion } from '@/lib/extension-page'
+import * as appDb from '@/lib/app-db'
 // 项目读自状态库（IndexedDB，SW 与 offscreen 共用）：注册链路不能在 offscreen 存活上下注
 import { listProjects, validateMatchPatterns } from './project-store'
 import { appendUserScriptError } from './store'
@@ -665,26 +666,26 @@ function sourceURLSuffix(project: ScriptProject): string {
 
 /** MAIN 世界共享桩的注册 ID：一个扩展一份，不是每脚本一份 */
 export const PAGE_STUB_ID = 'dl-page-stub'
-/** stubSecret 持久化键：MV3 SW 随时休眠，模块变量会归零，密钥必须落 storage */
-const PAGE_SECRET_KEY = 'us:page:secret'
+/** stubSecret 持久化键：MV3 SW 随时休眠，模块变量会归零，密钥必须落盘（duoling-app 库） */
+const PAGE_SECRET_KEY = 'pageSecret'
 
-/** 密钥模块缓存（SW 存活期内复用，避免每次注册都读 storage） */
+/** 密钥模块缓存（SW 存活期内复用，避免每次注册都读存储） */
 let pageSecretCache = ''
 
 async function getOrCreatePageSecret(): Promise<string> {
   if (pageSecretCache) return pageSecretCache
   try {
-    const r = (await chrome.storage.local.get(PAGE_SECRET_KEY)) as Record<string, unknown>
-    if (typeof r[PAGE_SECRET_KEY] === 'string' && r[PAGE_SECRET_KEY]) {
-      pageSecretCache = r[PAGE_SECRET_KEY] as string
+    const stored = await appDb.get<string>(PAGE_SECRET_KEY)
+    if (stored) {
+      pageSecretCache = stored
       return pageSecretCache
     }
   } catch {
-    // storage 不可用则退化为一次性密钥（仅本次 SW 存活期有效）
+    // 存储不可用则退化为一次性密钥（仅本次 SW 存活期有效）
   }
   pageSecretCache = generatePageSecret()
   try {
-    await chrome.storage.local.set({ [PAGE_SECRET_KEY]: pageSecretCache })
+    await appDb.set(PAGE_SECRET_KEY, pageSecretCache)
   } catch {
     // 写不进就只用缓存值：SW 重启后会换新密钥，脚本与桩在同一遍注册里仍保持一致
   }
@@ -697,7 +698,7 @@ async function getOrCreatePageSecret(): Promise<string> {
  */
 export async function rotatePageSecret(): Promise<void> {
   pageSecretCache = generatePageSecret()
-  await chrome.storage.local.set({ [PAGE_SECRET_KEY]: pageSecretCache }).catch(() => {})
+  await appDb.set(PAGE_SECRET_KEY, pageSecretCache).catch(() => {})
 }
 
 /**
@@ -820,11 +821,24 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   await chrome.userScripts.register([userScript])
 }
 
-/** 注销指定 id（ids 为空直接跳过） */
+/**
+ * 注销指定 id（ids 为空直接跳过）：逐个注销、逐个吞错。
+ *
+ * Chrome 的批量注销是**整批原子**：ids 里混进一个不在册的 id，整批抛
+ * "Nonexistent script ID"、一个都不注销（2026-09-20 手测实锤）。故不传批量，
+ * 循环单个注销——不在册的 id 无可注销、失败属预期（禁用的脚本从未注册过）；
+ * 其余真实失败 warn 一笔、继续清剩下的，不向上抛（调用方的 catch 退化为兜底）。
+ */
 export async function unregisterScripts(ids: string[]): Promise<void> {
   if (!ids.length) return
   if (!chrome.userScripts || typeof chrome.userScripts.unregister !== 'function') return
-  await chrome.userScripts.unregister({ ids })
+  for (const id of ids) {
+    await chrome.userScripts.unregister({ ids: [id] }).catch((e) => {
+      if (!/Nonexistent script ID/.test(String(e))) {
+        console.warn('[duoling:sw] 注销失败：', id, e)
+      }
+    })
+  }
 }
 
 // 串行化：dev 重载时 SW 顶层 init 与 onInstalled(update) 可能并发触发注册，

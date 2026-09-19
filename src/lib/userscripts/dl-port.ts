@@ -8,7 +8,8 @@
 //       dlPorts    Map<Port, {uuid, connId, tabId}>   连接寻址（menu.click 路由主键 = tabId）
 //       watches    Map<Port, Set<key>>                订阅跟随 Port 生命周期，断开自动清理
 //       notifyMap  Map<notificationId, uuid>          通知点击归属（内存，SW 重启窗口内点击丢失——已拍板接受）
-//   · 三个事件来源：contextMenus.onClicked / storage.onChanged / notifications.onClicked。
+//   · 三个事件来源：contextMenus.onClicked / DL.store 写出口（store.ts 的 onGmValueChange，
+//     原为 storage.onChanged，DL.store 迁 duoling-usdata 后改为直发）/ notifications.onClicked。
 //   · 控制面（注册 / 注销 / 订阅）走 sendMessage 请求-响应（dl-bridge dispatch 调本文件导出的
 //     函数），Port 只承载下行推送帧 —— 控制面/数据面分离。
 //
@@ -19,7 +20,7 @@
 // 竞态（connect → onConnect 就绪窗口）：SW 建立连接后立即下发 { t:'port.ready' } 内部帧，
 // 脚本包装层收到它才 flush 待注册队列 —— 见 engine.ts 包装层，脚本作者不感知。
 import type { ApiEvent, ApiEventFrame } from './api-contract'
-import { GM_KEY_PREFIX } from './types'
+import { onGmValueChange } from './store'
 
 // —— 纯逻辑：解析与注册表（node 单测直接覆盖，不 mock chrome）——
 
@@ -34,18 +35,6 @@ export function parseMenuitemId(id: string | number): { uuid: string; menuId: st
   if (typeof id !== 'string') return null
   const m = /^us:([^:]+):(.+)$/.exec(id)
   return m ? { uuid: m[1]!, menuId: m[2]! } : null
-}
-
-/**
- * 从完整 storage 键解析出 DL.store 的脚本内 key。
- * 完整键 = `us:gm:<uuid>:<key>`，key 本身可含冒号 —— 用「第一个冒号」切分 uuid 与 key。
- */
-export function parseGmStorageKey(fullKey: string): { uuid: string; key: string } | null {
-  if (!fullKey.startsWith(GM_KEY_PREFIX)) return null
-  const rest = fullKey.slice(GM_KEY_PREFIX.length)
-  const i = rest.indexOf(':')
-  if (i <= 0 || i === rest.length - 1) return null
-  return { uuid: rest.slice(0, i), key: rest.slice(i + 1) }
 }
 
 /** 单条 Port 连接的元数据 */
@@ -103,7 +92,7 @@ export class DlPortRegistry {
     for (const port of this.portsByConnId(uuid, connId)) this.watches.get(port)?.delete(key)
   }
 
-  /** 订阅了该脚本某 key 的全部 Port（storage.onChanged 路由） */
+  /** 订阅了该脚本某 key 的全部 Port（store 写出口事件路由） */
   watchersForKey(uuid: string, key: string): chrome.runtime.Port[] {
     const out: chrome.runtime.Port[] = []
     for (const [port, keys] of this.watches) {
@@ -294,17 +283,14 @@ export function initDlPort(): void {
     for (const port of ports) pushEvent(registry, port, { t: 'menu.click', id: parsed.menuId })
   })
 
-  // 事件源 ②：私有存储变更 → 推给订阅者（零新写路径：DL.store 全部写入口天然汇于 storage.onChanged）。
-  // 删除语义（拍板修正）：oldValue 有值而 newValue 缺失 = key 被 delete，帧上 value 置 null。
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local') return
-    for (const [fullKey, change] of Object.entries(changes)) {
-      const parsed = parseGmStorageKey(fullKey)
-      if (!parsed) continue
-      const value = (change.newValue ?? null) as import('./api-contract').Json
-      for (const port of registry.watchersForKey(parsed.uuid, parsed.key)) {
-        pushEvent(registry, port, { t: 'store.change', key: parsed.key, value })
-      }
+  // 事件源 ②：DL.store 值变更 → 推给订阅者。原经 storage.onChanged 兜底（DL.store 落
+  // chrome.storage 时代），迁 duoling-usdata 库后 IDB 无变更通知，改为订阅 store.ts 的
+  // 写出口直发（DL.store 全部写入口仍收敛在 store.ts 那几个函数，写+发不分离）。
+  // 删除语义（拍板修正）：deleted = true 时帧上 value 置 null。
+  onGmValueChange(({ uuid, key, deleted, value }) => {
+    const frameValue = (deleted ? null : value) as import('./api-contract').Json
+    for (const port of registry.watchersForKey(uuid, key)) {
+      pushEvent(registry, port, { t: 'store.change', key, value: frameValue })
     }
   })
 

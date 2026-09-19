@@ -1,4 +1,4 @@
-// 生成任务的运行时状态库（IndexedDB `duoling-chat-tasks`）。
+// 生成任务的运行时状态（IndexedDB `duoling-chat` 库的 tasks store）。
 //
 // 这不是 git 提交，只是任务运行时状态的 JSON——目的是「宿主被杀后有东西可继续」：
 //   · 每步把文件树快照进任务记录（覆盖写、只留最新一份，历史由对话 tool parts 承载，不双份存）；
@@ -6,8 +6,10 @@
 //     侧边栏据此提示「继续 / 丢弃」；
 //   · 任务正常收尾 / 用户中止时记录即删除——孤儿判定只认 running。
 //
-// 宿主差异说明：本库与状态库/会话库同为裸 IndexedDB，同源共享可读；但写只发生在 offscreen
-// （对话链路的宿主），SW 与扩展页没有写入路径。
+// 宿主差异说明：与会话同库（v3 并入，原独立库 duoling-chat-tasks 已废弃）——同域同写方
+// （都归 offscreen），纯粹少开一个库。写只发生在 offscreen（对话链路的宿主），SW 与扩展页
+// 没有写入路径；库版本与 upgrade 由本模块与 conversation-store.ts 共同防御（都做 contains 检查）。
+import { DB_VERSION, TASKS } from '../conversation-store'
 
 /** 任务状态：running = 循环进行中（唯一参与孤儿判定的状态） */
 export type ChatTaskStatus = 'running'
@@ -34,9 +36,8 @@ export interface ChatTaskRecord {
   heartbeat: number
 }
 
-const DB_NAME = 'duoling-chat-tasks'
-const DB_VERSION = 1
-const STORE = 'tasks'
+const DB_NAME = 'duoling-chat'
+const STORE = TASKS
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -46,6 +47,7 @@ function openDb(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION)
     req.onupgradeneeded = () => {
       const db = req.result
+      // 只管自己的 store：conversations/messages/meta 的创建归 conversation-store 的 upgrade
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: 'taskId' })
       }

@@ -80,7 +80,7 @@ export const userscriptClient = {
   /** 引擎可用性状态（横幅引导用） */
   availability: (): Promise<UserScriptsAvailability> => send({ kind: 'userscript:availability' }),
 
-  /** 列出全部脚本（项目 + 已弃用旧记录，不含源码） */
+  /** 列出全部脚本（不含源码） */
   list: (): Promise<ScriptSummary[]> => send({ kind: 'userscript:list' }),
 
   /** 读完整注册态记录（元数据 + bundle；**不含源码**——源码经 fsClient.readTree 取） */
@@ -106,7 +106,7 @@ export const userscriptClient = {
   /** 删除：注销 + 删存储（新/旧形态通用） */
   remove: (uuid: string): Promise<void> => send({ kind: 'userscript:remove', uuid }),
 
-  /** 删除全部用户脚本（不含已弃用旧记录与内置件）：注销全部 + 清状态库项目与各自 git 仓。
+  /** 删除全部用户脚本（不含内置件）：注销全部 + 清状态库项目与各自 git 仓。
    *  返回删除条数；不可撤销，调用方必须先经确认弹窗 */
   removeAll: (): Promise<{ removed: number }> => send({ kind: 'userscript:removeAll' }),
 
@@ -130,9 +130,9 @@ export const userscriptClient = {
   /** 运行日志时间线：运行行 + 孤儿错误行按时间倒序混排（运行日志标签页） */
   runlog: (): Promise<UserScriptRunLogRow[]> => send({ kind: 'userscript:runlog' }),
 
-  /** 清空错误日志（us:errors；「全部/该脚本」范围连带清运行日志 us:run-log 对应条目）。
-   *  缺省清全部；传 uuid 只清该脚本；传 null 只清「未归属」错误记录（us:errors 里 uuid 为 null 的，
-   *  run-log 条目必带 uuid，此形态下不动）。「清全部」必须**省略字段**而非传 undefined——
+  /** 清空错误日志（runtime 库 errors store；「全部/该脚本」范围连带清运行日志 runlog store 对应条目）。
+   *  缺省清全部；传 uuid 只清该脚本；传 null 只清「未归属」错误记录（errors store 里 uuid 为 null 的，
+   *  runlog 条目必带 uuid，此形态下不动）。「清全部」必须**省略字段**而非传 undefined——
    *  undefined 值在部分序列化路径下与字段缺失无法区分。 */
   clearErrors: (uuid?: string | null): Promise<void> =>
     send(uuid === undefined ? { kind: 'userscript:clearErrors' } : { kind: 'userscript:clearErrors', uuid }),

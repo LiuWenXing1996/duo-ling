@@ -1,29 +1,6 @@
-// types.ts 单测：存储键 / 默认值约定。
+// types.ts 单测：默认值约定（存储键拼接函数已随 chrome.storage 迁移删除或移入各库模块）。
 import { describe, expect, it } from 'vitest'
-import {
-  ENTRY_DEFAULT,
-  GM_KEY_PREFIX,
-  SCRIPT_KEY_PREFIX,
-  defaultConfig,
-  defaultSource,
-  gmKey,
-  scriptKey,
-} from './types'
-
-describe('存储键约定', () => {
-  it('scriptKey / gmKey 拼接格式', () => {
-    expect(scriptKey('u1')).toBe('us:script:u1')
-    expect(gmKey('u1', 'counter')).toBe('us:gm:u1:counter')
-    expect(gmKey('u1', 'a/b')).toBe('us:gm:u1:a/b') // key 本身不做路径语义
-  })
-
-  it('前缀常量与拼接函数一致', () => {
-    expect(SCRIPT_KEY_PREFIX).toBe('us:script:')
-    expect(GM_KEY_PREFIX).toBe('us:gm:')
-    expect(scriptKey('u').startsWith(SCRIPT_KEY_PREFIX)).toBe(true)
-    expect(gmKey('u', 'k').startsWith(GM_KEY_PREFIX)).toBe(true)
-  })
-})
+import { ENTRY_DEFAULT, defaultConfig, defaultSource } from './types'
 
 describe('默认值', () => {
   it('ENTRY_DEFAULT 为 main.js', () => {

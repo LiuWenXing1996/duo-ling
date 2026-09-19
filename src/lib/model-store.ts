@@ -1,4 +1,4 @@
-// 模型配置存取（chrome.storage.local 替换桌面版的 electron-store + safeStorage）。
+// 模型配置存取（IndexedDB duoling-app 库替换桌面版的 electron-store + safeStorage）。
 //
 // 语义对齐桌面版原实现（model-store）：
 //   1. **展示名为空时回退模型 ID**（契约见 `shared/types.ts` 的 `ModelProfile.name`）。
@@ -10,9 +10,16 @@
 // ⚠️ 安全边界：浏览器扩展没有 safeStorage 等价物，apiKey 经 AES-GCM 加密后落盘
 // （`key-cipher.ts`，随机密钥同存本机扩展存储）——属防扫描级，非保密级；
 // 真实降损靠引导用户使用子 Key + 额度上限 + 定期轮换。
+//
+// 变更通知：IDB 没有跨上下文通知，写出口（writeState，唯一落盘点）负责广播 `model` 域
+// （扩展页的模型下拉 / 设置页回拉）并推送 offscreen:configChanged（offscreen 的
+// profile-cache 回拉，apiKey 只在它取用时过界）。原 chrome.storage.onChanged 钩子已随
+// 迁移删除。offscreen 不 import 本模块（SW 命令中转），故无循环依赖。
 import type { ModelProfile, ModelProfileInput, ModelTestChatConfig } from '../shared/types'
 import type { ModelProfileState } from '../shared/extension-ipc'
 import { decryptApiKey, encryptApiKey, type EncPayload } from './key-cipher'
+import * as appDb from './app-db'
+import { broadcastDataChange } from './data-broadcast'
 
 const KEY = 'modelProfiles'
 
@@ -25,10 +32,9 @@ interface ModelState {
 }
 
 async function readState(): Promise<ModelState> {
-  const raw = (await chrome.storage.local.get(KEY))[KEY] as
-    | { profiles: StoredProfile[]; activeProfileId: string }
-    | undefined
-  const stored = raw ?? { profiles: [], activeProfileId: '' }
+  const stored =
+    (await appDb.get<{ profiles: StoredProfile[]; activeProfileId: string }>(KEY)) ??
+    { profiles: [], activeProfileId: '' }
   // 解密为内部形态
   const profiles: ModelProfileState[] = await Promise.all(
     stored.profiles.map(async (p) => {
@@ -61,7 +67,15 @@ async function writeState(state: ModelState): Promise<void> {
       return apiKey ? { ...rest, apiKeyEnc: await encryptApiKey(apiKey) } : rest
     }),
   )
-  await chrome.storage.local.set({ [KEY]: { profiles, activeProfileId: state.activeProfileId } })
+  await appDb.set(KEY, { profiles, activeProfileId: state.activeProfileId })
+  // 写出口广播（见文件头）：扩展页回拉 + offscreen 的 profile-cache 回拉。
+  // 推送尽力而为：offscreen 不在场就不为一条通知唤醒它。
+  broadcastDataChange('model')
+  void chrome.runtime
+    .sendMessage({ kind: 'offscreen:configChanged' })
+    .catch(() => {
+      // 无人监听（容器刚被关掉 / SW 侧自愈回写）不阻断
+    })
 }
 
 /**

@@ -1,6 +1,5 @@
-// 用户脚本管理器的类型与存储键约定（v2 方案）。
+// 用户脚本管理器的类型与存储约定（v2 方案）。
 //
-// 全量复用 chrome.storage.local（单存储，含项目源码 + DL 值 + 设置），不另起 IndexedDB。
 // v2 新形态：一个脚本 = 一个项目（ScriptProject），配置直接映射 chrome.userScripts 原生字段。
 
 /** 脚本配置：全部直接映射 chrome.userScripts 原生注册字段，无 metadata 中间层 */
@@ -103,7 +102,7 @@ export interface UserScriptsAvailability {
   guideText: string
 }
 
-/** 脚本错误记录（storage.local 键 us:errors；环形保留最近 N 条，供错误日志面板） */
+/** 脚本错误记录（runtime 库 errors store，单记录环形；环形保留最近 N 条，供错误日志面板） */
 export interface UserScriptErrorRecord {
   id: string
   uuid: string | null // 运行期/注册错误有；部分桥错误可能无
@@ -123,22 +122,13 @@ export interface UserScriptErrorRecord {
   runId?: string | null
 }
 
-// —— 存储键约定 ——
+// —— 存储约定 ——
 //
-// 键空间沿用（v2 决策不改名）：GM/DL 值键 us:gm:<uuid>:<key>。
+// 全部落 IndexedDB：DL.store / DL.tab → duoling-usdata（usdata-db.ts，复合主键）；
+// 观测数据（错误日志 / 运行统计 / 运行日志）→ duoling-runtime（runtime-db.ts）。
 
-/** 脚本记录：us:script:<uuid> */
-export const SCRIPT_KEY_PREFIX = 'us:script:'
-/** DL.store 值：us:gm:<uuid>:<key>（键名沿用旧 GM 键空间，不改名） */
-export const GM_KEY_PREFIX = 'us:gm:'
 /** 设置 / 黑名单：us:settings */
 export const SETTINGS_KEY = 'us:settings'
-/** 错误日志：us:errors（环形保留最近 N 条） */
-export const ERRORS_KEY = 'us:errors'
-/** 运行统计：us:run-stats:<uuid>（按脚本聚合的计数器） */
-export const RUN_STATS_KEY_PREFIX = 'us:run-stats:'
-/** 运行日志：us:run-log（全局环形，按时间记「哪次运行发生了」，错误明细仍在 us:errors 按 runId 关联） */
-export const RUN_LOG_KEY = 'us:run-log'
 /** 错误日志环形上限：超过后只留最近 N 条。
  *  写侧（store.ts）裁剪、UI 文案（错误日志标签页）都读这里 —— 上限只写一处，避免文案与实现漂移。 */
 export const ERROR_LOG_MAX = 50
@@ -146,10 +136,11 @@ export const ERROR_LOG_MAX = 50
 export const RUN_LOG_MAX = 500
 
 /**
- * 脚本运行统计（storage.local 键 us:run-stats:<uuid>；写侧 store.ts，SW 独占）。
+ * 脚本运行统计（duoling-runtime 库 stats store，keyPath uuid；写侧 store.ts，SW 独占）。
  *
- * 聚合计数器（总次数 / 最后运行时间 / 最近一次运行的错误数），与运行日志（us:run-log）
- * **并进同一次 RMW 写入**——每次页面加载仍只付一次存储事务，写放大不因逐条日志翻倍。
+ * 聚合计数器（总次数 / 最后运行时间 / 最近一次运行的错误数），与运行日志（runlog store）
+ * **并进同一事务写入**（store.recordRunStart 经 runtime-db.mutateStatsAndLog）——每次页面
+ * 加载仍只付一次存储事务，写放大不因逐条日志翻倍。
  * 「最近错误数」口径 = 最近一次运行（runId 相同）捕获的运行期错误数：新运行开始时清零，
  * 旧运行的迟到错误（runId 对不上）不计入（运行日志里按 runId 关联展示）。
  */
@@ -165,8 +156,8 @@ export interface UserScriptRunStats {
 }
 
 /**
- * 运行日志条目（us:run-log，全局环形按时间排；写侧 store.ts，SW 独占）。
- * 只记「一次运行发生了」——错误明细不复制进这里，仍在 us:errors 按 runId 关联；
+ * 运行日志条目（runtime 库 runlog store，全局环形按时间排；写侧 store.ts，SW 独占）。
+ * 只记「一次运行发生了」——错误明细不复制进这里，仍在 errors store 按 runId 关联；
  * name 是落盘时的快照（脚本删除后日志条目仍可读）。
  */
 export interface UserScriptRunLogEntry {
@@ -180,7 +171,7 @@ export interface UserScriptRunLogEntry {
 
 /**
  * 运行日志时间线的一行（listRunTimeline 的产物，UI 直接渲染）。
- * 运行行 = us:run-log 的一次运行，其运行期错误按 runId 挂在 errors 上（可展开看明细）；
+ * 运行行 = runlog store 的一次运行，其运行期错误按 runId 挂在 errors 上（可展开看明细）；
  * 错误行 = 无法归属到时间线内任何一次运行的错误（无 runId 的注册/桥错误，
  * 或该 runId 的运行已滑出环形）——单独成行，不丢。
  */
@@ -239,19 +230,6 @@ export interface ImportReport {
   results: ImportItemResult[]
   /** 未导入的文件（非脚本项 / 路径不安全被过滤），仅展示、不影响成功/失败计数 */
   ignored: ImportItemIgnored[]
-}
-
-export function scriptKey(uuid: string): string {
-  return SCRIPT_KEY_PREFIX + uuid
-}
-
-export function gmKey(uuid: string, key: string): string {
-  return `${GM_KEY_PREFIX}${uuid}:${key}`
-}
-
-/** 运行统计键：us:run-stats:<uuid> */
-export function runStatsKey(uuid: string): string {
-  return RUN_STATS_KEY_PREFIX + uuid
 }
 
 /** 新建项目的默认配置：allFrames true / runAt document_end（v2 决策表） */

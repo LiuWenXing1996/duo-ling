@@ -10,12 +10,12 @@
 //     写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
 //   · 源码 —— 唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
 //     SW 读不到 lfs，源码读写一律走 fs:* 命令向 offscreen 取（见 offscreen-fs-commands.ts）。
-// 仍在 chrome.storage 的只有两类：DL.store 值（us:gm:*）与错误日志（us:errors）——
-// 写入方是用户脚本本身、不受控，且不参与「脚本是什么」的判定，故留在 SW 直写。
+// DL.store / DL.tab 值已迁 IndexedDB 库 duoling-usdata；错误日志 / 运行统计 / 运行日志
+// （观测数据）已迁 IndexedDB 库 duoling-runtime——两者都 SW 直写、写侧收敛在 store.ts。
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
-import type { ModelProfileState, OffscreenPush, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
+import type { ModelProfileState, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 
 // 用户脚本管理器（v2 方案）：引擎 + 存储 + DL 桥 + 类型
 import {
@@ -60,19 +60,13 @@ import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailabilit
 
 // offscreen document 容器（AI 生成链路的执行宿主）
 import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady } from '@/lib/offscreen'
-// 模型配置：offscreen 既收不到 storage.onChanged、也不该直连存储，一律由 SW 经命令 / 推送中转
+// 模型配置：offscreen 既不直连存储、也不 import model-store（SW 专属模块），一律由
+// SW 经命令中转；变更推送由 model-store 写出口直发（见 offscreen-main.ts）。
 import { getActiveProfileState } from '@/lib/model-store'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
-import { broadcastBuildPhase, broadcastDataChange } from '@/lib/data-broadcast'
+import { broadcastBuildPhase } from '@/lib/data-broadcast'
 // AI 工具支路：page_snapshot 工具经 SW 调 userScripts.execute（offscreen 不可达该 API）
 import { capturePageSnapshotFromTab, pageInjectionBlockReason } from '@/lib/element-picker-client'
-
-/**
- * 模型配置在 chrome.storage.local 的键。
- * 与 src/lib/model-store.ts 的 `KEY` 是同一个值（键名是持久化契约，改名要迁数据，
- * 故两处并行硬编码、不互相 import）。
- */
-const MODEL_PROFILES_KEY = 'modelProfiles'
 
 /**
  * SW 管辖的 kind 前缀（路由白名单）。
@@ -214,7 +208,7 @@ const handlers: {
   },
 
   // —— 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）——
-  // 列表视图：项目读自状态库（直连 IDB）；运行统计（us:run-stats:*）在 chrome.storage，这里挂上
+  // 列表视图：项目读自状态库（直连 IDB）；运行统计（runtime 库 stats store）同样 SW 直读，这里挂上
   'userscript:list': async (): Promise<ScriptSummary[]> =>
     withRunStats(await listSummaries(await listProjects())),
 
@@ -296,9 +290,11 @@ const handlers: {
     await unregisterScripts([msg.uuid]).catch((e) =>
       console.warn('[duoling:sw] 删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
     )
-    // 该脚本对内置并集的贡献随之消失，MAIN 桩可能需要注销
-    await refreshBuiltinScripts().catch(() => {})
     await writeViaOffscreen<void>({ kind: 'state:remove', uuid: msg.uuid })
+    // 该脚本对内置并集的贡献随状态库删除而消失，MAIN 桩可能需要注销。
+    // 必须放在清库**之后**：清库前读库还算得进这个脚本，并集「未变」、桩被已在位检查跳过，
+    // 桩就带着已删脚本的 matches 残留（removeAll 之前整体漏调同属这一族问题）
+    await refreshBuiltinScripts().catch(() => {})
     await clearGMValues(msg.uuid)
     // 报错记录同属该脚本的残留：不清就会在错误日志里留下一个已删脚本的孤儿分组
     // （按 uuid 清，不碰「未归属」那种本就没有脚本上下文的记录）
@@ -308,14 +304,21 @@ const handlers: {
   },
 
   // 删除全部用户脚本（「全部删除」按钮）：注销全部 → offscreen 清状态库 + 各仓 → 清各脚本
-  // 的 DL.store 值与报错记录。范围 = 新形态用户脚本；已弃用旧记录（chrome.storage）与内置件不在内，
-  // 故这里**不碰** us:script:* 旧键，也不调 clearDeprecatedScripts。
+  // 的 DL.store 值与报错记录。范围 = 新形态用户脚本；内置件随扩展包分发、不在状态库。
   // uuid 由 SW 直读状态库（不经容器，与 userscript:list 同源），用于注销与清残留。
   'userscript:removeAll': async (): Promise<{ removed: number }> => {
     const uuids = (await listProjects()).map((p) => p.uuid)
-    await unregisterScripts(uuids).catch(() => {})
+    // 注销失败不能纯静默（与单删/关停同语义）：吞掉后这批 uuid 成幽灵注册——
+    // 页面刷新照样注入；且刚删完没有启用脚本、offscreen 心跳停止保活前 SW 一直活着，
+    // registerAllEnabled 的冷启动对账不会跑，幽灵能一路活到下次浏览器重启
+    await unregisterScripts(uuids).catch((e) =>
+      console.warn('[duoling:sw] 全部删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', uuids, e),
+    )
     try {
       const removed = await writeViaOffscreen<number>({ kind: 'state:removeAll' })
+      // 状态库清空后再同步内置并集：此时读库必为空 → MAIN 桩注销。此前整体漏调，
+      // 桩带着旧并集（如 ["*://*/*"]）残留注册，删完脚本页面里 window.DL 仍在
+      await refreshBuiltinScripts().catch(() => {})
       for (const uuid of uuids) await clearGMValues(uuid)
       // 报错记录逐 uuid 清（与单删同一条语义：删脚本 = 清该脚本名下的一切）
       for (const uuid of uuids) await clearUserScriptErrors(uuid)
@@ -389,8 +392,8 @@ const handlers: {
   'userscript:errorRead': async (msg): Promise<ReturnType<typeof findUserScriptError>> =>
     findUserScriptError(msg.id),
 
-  // 清错误日志（us:errors；「全部/该脚本」范围连带清运行日志 us:run-log 的对应条目——
-  // 时间线上「清空」应一条语义清两个键，否则运行行清不掉）。三态必须靠「字段在不在」区分
+  // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清运行日志 runlog store 的对应条目——
+  // 时间线上「清空」应一条语义清两个存储，否则运行行清不掉）。三态必须靠「字段在不在」区分
   // （`!msg.uuid` 会把「未归属」误判成「全部」）：
   //   字段缺失 = 清全部；string = 只清该脚本；null = 只清「未归属」错误记录（run-log 无此形态，不动）
   'userscript:clearErrors': async (msg): Promise<void> => {
@@ -536,26 +539,9 @@ export default defineBackground(() => {
   // SW 冷启动即确保 offscreen 在场（与上面监听器互补：SW 被终止后重启时，首条事件会触发本回调）
   void ensureOffscreen().catch((e) => console.error('[duoling:offscreen] ensure failed', e))
 
-  // 模型配置变更 → 通知 offscreen 重新拉取（它只有 chrome.runtime，收不到 storage.onChanged）。
-  // 只发「变了」这个信号、**不推配置内容**：由 offscreen 主动回拉，apiKey 只在它取用时过界，
-  // 而不是被 SW 广播。容器不存在就直接跳过，不为一条通知唤醒上下文。
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local' || !Object.prototype.hasOwnProperty.call(changes, MODEL_PROFILES_KEY)) {
-      return
-    }
-    // 顺带通知前端：chrome.storage 的 onChanged 只是「存储变了」的信号，
-    // 各扩展页的视图不会因此自己刷新——别的窗口的设置页、侧边栏的模型选择器都得靠这条广播。
-    broadcastDataChange('model')
-    void isOffscreenReady()
-      .then((ready) => {
-        if (!ready) return
-        const push: OffscreenPush = { kind: 'offscreen:configChanged' }
-        return chrome.runtime.sendMessage(push)
-      })
-      .catch(() => {
-        // 尽力而为：容器刚被关掉 / 无人监听时不阻断
-      })
-  })
+  // 模型配置变更通知已随存储迁移（chrome.storage → duoling-app 库）挪到 model-store 写出口：
+  // 它落盘成功后自己广播 `model` 域（扩展页回拉）并推送 offscreen:configChanged（offscreen
+  // 的 profile-cache 回拉）。SW 这里不再需要 storage.onChanged 兜底。
 
   chrome.runtime.onMessage.addListener((raw, _sender, sendResponse) => {
     const msg = raw as RuntimeRequest | undefined

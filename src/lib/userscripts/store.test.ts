@@ -1,7 +1,7 @@
-// store.ts 单测：chrome.storage 侧的 DL.store 值 / 错误日志环形保留 / 运行统计。
-// chrome 由 WxtVitest 插件 stub 成 fakeBrowser；用例间 resetState 保证隔离。
+// store.ts 单测：DL.store 值（duoling-usdata 库）/ 观测数据（duoling-runtime 库）。
+// 全走 fake-indexeddb，用例间 clearAllForTests 清库保证隔离（不再依赖 fakeBrowser）。
+import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fakeBrowser } from 'wxt/testing/fake-browser'
 import {
   appendUserScriptError,
   clearGMValues,
@@ -15,17 +15,20 @@ import {
   listRunTimeline,
   listSummaries,
   listUserScriptErrors,
+  onGmValueChange,
   recordRunStart,
   setGMValue,
   withRunStats,
 } from './store'
+import { clearAllForTests as clearRuntime, getStats } from './runtime-db'
+import { clearAllForTests as clearUsdata } from './usdata-db'
 import { RUN_LOG_MAX, type ScriptProject } from './types'
 
-beforeEach(() => {
-  fakeBrowser.reset()
+beforeEach(async () => {
+  await Promise.all([clearUsdata(), clearRuntime()])
 })
 
-/** appendUserScriptError 内部的运行统计记账是 void 后台异步（独立队列），等它排干再断言 */
+/** appendUserScriptError 内部的运行统计记账是 void 后台异步，等它排干再断言 */
 async function flushStats(): Promise<void> {
   await new Promise((r) => setTimeout(r, 0))
 }
@@ -86,7 +89,7 @@ describe('listSummaries', () => {
   })
 })
 
-describe('DL.store 值（us:gm:*）', () => {
+describe('DL.store 值（duoling-usdata 库）', () => {
   it('set / get 往返', async () => {
     await setGMValue('u1', 'k', { a: [1, 'x'] })
     await expect(getGMValue('u1', 'k')).resolves.toEqual({ a: [1, 'x'] })
@@ -119,9 +122,44 @@ describe('DL.store 值（us:gm:*）', () => {
     await expect(listGMKeys('u1')).resolves.toEqual([])
     await expect(getGMValue('u2', 'a')).resolves.toBe(3)
   })
+
+  it('写出口发变更事件：set 带新值、delete 置空、clear 逐键删除', async () => {
+    const got: Array<{ uuid: string; key: string; deleted: boolean; value: unknown }> = []
+    const off = onGmValueChange((c) => got.push({ ...c }))
+    try {
+      await setGMValue('u1', 'k', { n: 1 })
+      await deleteGMValue('u1', 'k')
+      await setGMValue('u1', 'a', 1)
+      await setGMValue('u1', 'b', 2)
+      await clearGMValues('u1')
+      expect(got).toEqual([
+        { uuid: 'u1', key: 'k', deleted: false, value: { n: 1 } },
+        { uuid: 'u1', key: 'k', deleted: true, value: null },
+        { uuid: 'u1', key: 'a', deleted: false, value: 1 },
+        { uuid: 'u1', key: 'b', deleted: false, value: 2 },
+        { uuid: 'u1', key: 'a', deleted: true, value: null },
+        { uuid: 'u1', key: 'b', deleted: true, value: null },
+      ])
+    } finally {
+      off()
+    }
+  })
+
+  it('值未变化的 set、删除不存在的键都不发事件（storage.onChanged 同款语义）', async () => {
+    const got: unknown[] = []
+    const off = onGmValueChange((c) => got.push(c))
+    try {
+      await setGMValue('u1', 'k', { a: 1 })
+      await setGMValue('u1', 'k', { a: 1 }) // 值未变
+      await deleteGMValue('u1', 'nope') // 键不存在
+      expect(got).toHaveLength(1)
+    } finally {
+      off()
+    }
+  })
 })
 
-describe('错误日志（us:errors 环形保留）', () => {
+describe('错误日志（runtime 库，环形保留）', () => {
   it('追加后可读，缺省 id / time 自动补', async () => {
     await appendUserScriptError({
       uuid: 'u1',
@@ -205,11 +243,10 @@ describe('错误日志（us:errors 环形保留）', () => {
     await expect(listUserScriptErrors()).resolves.toHaveLength(1)
   })
 
-  it('按脚本清空最后一条后，整个键被移除（不留空数组）', async () => {
+  it('按脚本清空最后一条后，读取为空', async () => {
     await appendUserScriptError({ uuid: 'u1', name: 'a', phase: 'runtime', message: 'm', time: 1 })
     await clearUserScriptErrors('u1')
     await expect(listUserScriptErrors()).resolves.toEqual([])
-    expect(await fakeBrowser.storage.local.get('us:errors')).toEqual({})
   })
 
   describe('findUserScriptError（错误 ID 查询）', () => {
@@ -250,7 +287,7 @@ describe('错误日志（us:errors 环形保留）', () => {
   })
 })
 
-describe('运行统计（us:run-stats:*，按脚本聚合计数）', () => {
+describe('运行统计（runtime 库 stats store，按脚本聚合计数）', () => {
   it('recordRunStart 累计次数并记录最后运行时刻；withRunStats 挂到摘要上', async () => {
     await recordRunStart('u1', 'r1')
     await recordRunStart('u1', 'r2')
@@ -309,11 +346,11 @@ describe('运行统计（us:run-stats:*，按脚本聚合计数）', () => {
     )
     expect(a!.runCount).toBeUndefined()
     expect(b!.runCount).toBe(1)
-    expect(await fakeBrowser.storage.local.get('us:run-stats:u1')).toEqual({})
+    await expect(getStats('u1')).resolves.toBeUndefined()
   })
 })
 
-describe('运行日志（us:run-log 环形 + listRunTimeline 时间线）', () => {
+describe('运行日志（runtime 库 runlog 环形 + listRunTimeline 时间线）', () => {
   it('每次运行记一条日志（含名字快照）；补播去重不重复记', async () => {
     await recordRunStart('u1', 'r1', '脚本甲')
     await recordRunStart('u2', 'r9', '脚本乙')
