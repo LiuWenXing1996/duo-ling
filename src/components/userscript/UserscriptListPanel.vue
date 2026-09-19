@@ -1054,8 +1054,7 @@ function lastBuildLabel(s: ScriptSummary): string {
       <ui-dialog-content class="max-w-lg">
         <ui-dialog-title class="text-base font-semibold">从路径导入</ui-dialog-title>
         <ui-dialog-description class="text-sm text-muted-foreground">
-          填本地 zip 导入包的绝对路径（以 / 开头）—— 扩展读不到相对路径（没有工作目录），
-          也展开不了 ~（拿不到家目录）。
+          填本地 zip 导入包的绝对路径（以 / 开头）—— 扩展读不到相对路径，也展开不了 ~。
         </ui-dialog-description>
         <div class="mt-3">
           <ui-input
