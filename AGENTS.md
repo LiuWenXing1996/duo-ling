@@ -48,6 +48,7 @@
 | [README.md](README.md) | 工程介绍、目录结构、命令、手测步骤、关键坑 | 上手 / 手测前 |
 | [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**。轻量想法收集 | 攒需求 / 清理待办时 |
 | [VERSIONING.md](VERSIONING.md) | 扩展**自身**版本机制：真相源 = `package.json` version、SemVer 规则、`vX.Y.Z` tag 规范、CHANGELOG 手动维护、`npm run release` 用法 | 发版 / 改版本号前 |
+| [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md) | **提交信息规范**（文档约束，无工具）：Conventional Commits 格式 / type 白名单 / scope / 合并提交标题要求 | 写提交 / 开 PR 前 |
 
 
 ## 全局约束（强制）
@@ -120,7 +121,7 @@
 > `main` 已开分支保护（团队标准，对所有人含 admin 生效）。**任何改动必须走 PR，禁止直推 main。**
 
 - **保护构成**：**全部收在一个 Ruleset** `protect main - pr & no-force-push`（`enforcement: active`，作用域 `refs/heads/main`）里；经典分支保护**已不再使用**（`GET /branches/main/protection` 返回 404 —— 查保护现状别走那个接口）。规则实际为：
-  - 必须走 PR（`required_approving_review_count: 0`，**不强制人工审核**，未来多人协作时再开；允许合并方式 merge / squash / rebase）
+  - 必须走 PR（`required_approving_review_count: 0`，**不强制人工审核**，未来多人协作时再开；**合并方式已锁死为仅 Merge Commit（squash / rebase 在 repo 层禁用）**，见下「铁律」）
   - **required status checks = `Typecheck & Unit tests` + `Playwright smoke (chromium)`**（两项都必过），且 `strict`（分支须基于最新 main，落后就得先更新再等一轮）
   - 禁强推（`non_fast_forward`）、禁删除该分支；`bypass_actors` 为空 —— **无人可绕过，含 admin**（2026-09-19 实测）
 - **合 main 标准流程**：
@@ -133,6 +134,7 @@
 - **铁律**：
   - ❌ 严禁 `git push origin <x>:main`（含之前的 refspec 绕过法），会被 `GH006: Protected branch update failed` 拒
   - ❌ 不要整分支 merge 把历史倒腾进 main（只会产生重复/冲突提交）；单一改动走上面的 PR 流
+  - ⚠️ **gh 合并只允许 `--merge`（Merge Commit）**：`gh pr merge` 一律带 `--merge`，**禁止 `--squash` / `--rebase`**；网页点 Merge 也必须选「Create a merge commit」。约定统一保留线性 merge commit 历史，不把 PR 压平成单提交、也不变基。
   - ⚠️ **E2E 是 required status check，且 PR 上就会跑**（`e2e.yml` 自 2026-09-19 起带 `pull_request` 触发；同 PR 连推由 `concurrency` 取消旧 run，只跑最新 commit）。**旧版本文件写的「e2e 无 PR 触发器 / PR 上永远不上报 / 设了会卡死合不了」已彻底不成立**——那条告诫只在 E2E 尚无 PR 触发器时成立，别再据它判断合并时机或要求撤销该 check。
 - **即使改本文件 / CI 配置**，也走同样 PR 流（main 受保护，没有任何文件能直推）
 
