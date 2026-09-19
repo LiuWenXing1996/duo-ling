@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// 发布脚本：bump 版本 + 打 annotated tag + 起 CHANGELOG 段。
-// 默认不推送（本地提交 + 打 tag）；CI 传 --push 自行推远程。
+// 发布脚本：bump 版本 + 起 CHANGELOG 段 + 本地提交。
+// 不打 tag、不推远程——tag 由 CI 在 release PR 合入 main 后补推。
 //
 // 用法：
-//   node scripts/release.mjs <patch|minor|major|x.y.z> [--pre <alpha|beta|rc>] [--push] [--dry-run]
+//   node scripts/release.mjs <patch|minor|major|x.y.z> [--pre <alpha|beta|rc>] [--dry-run]
 //
 // 版本计算（SemVer）：
 //   稳定版        release <bump>                → bump 进位（当前是预发则转正，不进位）
@@ -11,7 +11,7 @@
 //   同 base 迭代   release --pre X               → 当前须为预发；同 stage 则后缀+1，异 stage 则重置 .1
 //   显式版本       release x.y.z [--pre X]        → 直接指定 base（可选挂预发）
 //
-// 流程：typecheck 闸门 → bump package.json → 打 vX.Y.Z tag → CHANGELOG 起段 →（--push）推远程。
+// 流程：typecheck 闸门 → bump package.json → CHANGELOG 起段 → 本地提交。
 // 注意：npm run 会吞掉脚本后的 --xxx（当成 npm 自己的参数）。两种调用都兼容：
 //   推荐：npm run release -- minor --pre alpha
 //   兜底：npm run release minor --pre alpha   （npm 注入 npm_config_pre 环境变量）
@@ -44,8 +44,6 @@ const bump =
 const preIdx = args.indexOf('--pre')
 const stageArg =
   (preIdx >= 0 ? args[preIdx + 1] : undefined) ?? process.env.npm_config_pre
-const push =
-  args.includes('--push') || /^(1|true|yes)$/i.test(process.env.npm_config_push || '')
 const dryRun =
   args.includes('--dry-run') ||
   /^(1|true|yes)$/i.test(process.env.npm_config_dry_run || '')
@@ -174,38 +172,26 @@ if (dryRun) {
   console.log('· 已更新 CHANGELOG.md')
 }
 
-// 7. git 提交 + 打 tag（本地；--push 时再推）
+// 7. git 提交（本地；不打 tag、不推送——tag 由 CI 在 release PR 合入 main 后补推）
 const tag = `v${next}`
 if (dryRun) {
   console.log(
     `  (dry) 将执行：git add package.json CHANGELOG.md && git commit -m "chore: release ${tag}"`,
   )
-  console.log(`  (dry) 将执行：git tag -a ${tag} -m "${tag}"`)
-  if (push) console.log(`  (dry) 将执行：git push && git push ${tag}`)
 } else {
   try {
     run('git add package.json CHANGELOG.md')
     run(`git commit -m "chore: release ${tag}"`)
-    run(`git tag -a ${tag} -m "${tag}"`)
-    console.log(`✓ 已提交并打 tag ${tag}（${push ? '即将推送' : '未推送'}）`)
+    console.log(
+      `✓ 已提交 release（${tag}）。下一步：推分支并开 release PR，合入 main 后由 CI 打 tag。`,
+    )
   } catch (e) {
     fail(
-      `git 步骤失败：${e.message}。package.json / CHANGELOG 可能已改，请检查后手动收尾。`,
+      `git 提交失败：${e.message}。package.json / CHANGELOG 可能已改，请检查后手动收尾。`,
     )
-  }
-  if (push) {
-    try {
-      run('git push')
-      run(`git push ${tag}`)
-      console.log(`✓ 已推送 main 与 tag ${tag}`)
-    } catch (e) {
-      fail(
-        `推送失败：${e.message}。tag ${tag} 已打在本地，请手动 git push && git push ${tag} 收尾。`,
-      )
-    }
   }
 }
 
 console.log(
-  `\n${push ? '已推送远程。' : `下一步（确认无误后再做，本项目走代理）：\n  git push && git push ${tag}`}`,
+  `\n下一步：git push -u origin HEAD 推分支 → 开 release PR → 合入 main 后 CI 自动打 tag ${tag}。`,
 )
