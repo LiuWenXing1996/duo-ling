@@ -20,6 +20,8 @@ let cookiesMocks: {
   set: ReturnType<typeof vi.fn>
   remove: ReturnType<typeof vi.fn>
 }
+let dnrMocks: { updateSessionRules: ReturnType<typeof vi.fn>; getSessionRules: ReturnType<typeof vi.fn> }
+let webRequestListeners: Array<(details: unknown) => void>
 
 /** 完整 chrome.cookies.Cookie 样本（测试只关心字段透传，故给全字段） */
 function chromeCookie(over: Partial<chrome.cookies.Cookie> = {}): chrome.cookies.Cookie {
@@ -68,12 +70,19 @@ beforeEach(async () => {
     remove: vi.fn(async () => ({ name: 'sid', url: 'https://example.com/' })),
   }
   await removeProjects([COOKIE_UUID])
+  dnrMocks = { updateSessionRules: vi.fn(async () => {}), getSessionRules: vi.fn(async () => []) }
+  webRequestListeners = []
   vi.stubGlobal('fetch', fetchMock)
   vi.stubGlobal('chrome', {
-    runtime: { onUserScriptMessage: { addListener: (fn: Listener) => listeners.push(fn) } },
+    runtime: {
+      id: 'test-ext-id',
+      onUserScriptMessage: { addListener: (fn: Listener) => listeners.push(fn) },
+    },
     tabs: tabsMocks,
     windows: { update: windowUpdate },
     cookies: cookiesMocks,
+    declarativeNetRequest: dnrMocks,
+    webRequest: { onHeadersReceived: { addListener: (fn: (d: unknown) => void) => webRequestListeners.push(fn) } },
     // 错误路径会调 appendUserScriptError → chrome.storage，给个最小兜底防未处理拒绝噪音
     storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) } },
   })
@@ -161,6 +170,134 @@ describe('DL.fetch 二进制请求体', () => {
     })
     expect(resp.ok).toBe(false)
     if (!resp.ok) expect(resp.code).toBe('INVALID_ARG')
+  })
+})
+
+describe('DL.fetch forbidden header 覆写（DNR session 规则）', () => {
+  it('禁设头收进规则（set），原生头留在 Headers；settle 后撤规则', async () => {
+    fetchMock.mockResolvedValue(new Response('ok'))
+    const resp = await sendToBridge({
+      c: 'fetch',
+      url: 'https://x.test/api',
+      init: { headers: { Cookie: 'a=1', Referer: 'https://r.test/', 'User-Agent': 'UA1', 'X-Custom': 'v' } },
+    })
+    expect(resp.ok).toBe(true)
+
+    // 挂载：set 操作 + host 级作用域 + 自家 initiator
+    expect(dnrMocks.updateSessionRules).toHaveBeenCalledTimes(2)
+    const attach = dnrMocks.updateSessionRules.mock.calls[0]![0]
+    expect(attach.addRules).toHaveLength(1)
+    const rule = attach.addRules[0]
+    expect(rule.action.type).toBe('modifyHeaders')
+    expect(rule.action.requestHeaders).toEqual([
+      { header: 'cookie', operation: 'set', value: 'a=1' },
+      { header: 'referer', operation: 'set', value: 'https://r.test/' },
+      { header: 'user-agent', operation: 'set', value: 'UA1' },
+    ])
+    expect(rule.condition).toEqual({ requestDomains: ['x.test'], initiatorDomains: ['test-ext-id'] })
+    expect(attach.removeRuleIds).toEqual([rule.id])
+
+    // 原生路径：禁设头不进 Headers（fetch 会静默丢弃的路），普通头保留
+    const init = fetchMock.mock.calls[0]![1]
+    expect(init.headers.get('cookie')).toBeNull()
+    expect(init.headers.get('referer')).toBeNull()
+    expect(init.headers.get('x-custom')).toBe('v')
+
+    // 用后即撤
+    const detach = dnrMocks.updateSessionRules.mock.calls[1]![0]
+    expect(detach.removeRuleIds).toEqual([rule.id])
+    expect(detach.addRules).toBeUndefined()
+  })
+
+  it('纯 fetch（无禁设头）不挂 DNR 规则', async () => {
+    fetchMock.mockResolvedValue(new Response('ok'))
+    await sendToBridge({ c: 'fetch', url: 'https://x.test/', init: { headers: { 'X-Ok': '1' } } })
+    expect(dnrMocks.updateSessionRules).not.toHaveBeenCalled()
+  })
+
+  it('超时中止后同样撤规则（用后即撤对错误路径成立）', async () => {
+    vi.useFakeTimers()
+    fetchMock.mockImplementation((_url: string, init: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        init.signal!.addEventListener('abort', () => reject((init.signal as AbortSignal).reason))
+      })
+    })
+    const p = sendToBridge({
+      c: 'fetch',
+      url: 'https://x.test/',
+      init: { timeout: 300, headers: { Cookie: 'a=1' } },
+    })
+    await vi.advanceTimersByTimeAsync(300)
+    const resp = await p
+    expect(resp.ok).toBe(false)
+    if (!resp.ok) expect(resp.code).toBe('BRIDGE_TIMEOUT')
+    const calls = dnrMocks.updateSessionRules.mock.calls
+    expect(calls).toHaveLength(2)
+    expect(calls[1]![0].removeRuleIds).toEqual([calls[0]![0].addRules[0].id])
+  })
+
+  it('redirect 非法值报 INVALID_ARG', async () => {
+    const resp = await sendToBridge({
+      c: 'fetch',
+      url: 'https://x.test/',
+      init: { redirect: 'nope' as unknown as 'manual' },
+    })
+    expect(resp.ok).toBe(false)
+    if (!resp.ok) expect(resp.code).toBe('INVALID_ARG')
+  })
+})
+
+describe("DL.fetch redirect:'manual'（webRequest 观测）", () => {
+  it('opaqueredirect 配观测合成 3xx 响应：status/headers/location、body 空、url 为请求 URL', async () => {
+    fetchMock.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 10)) // 留出观测窗口
+      return { type: 'opaqueredirect', status: 0 } as unknown as Response
+    })
+    const p = sendToBridge({ c: 'fetch', url: 'https://x.test/r', init: { redirect: 'manual' } })
+    // fetch 收到 manual 语义；等待者先于 fetch 登记
+    await new Promise((r) => setTimeout(r, 5))
+    expect(fetchMock.mock.calls[0]![1].redirect).toBe('manual')
+    webRequestListeners[0]!({
+      url: 'https://x.test/r',
+      statusCode: 302,
+      responseHeaders: [
+        { name: 'Location', value: 'https://y.test/next' },
+        { name: 'Set-Cookie', value: 'k=1' },
+      ],
+    })
+    const resp = await p
+    expect(resp.ok).toBe(true)
+    if (resp.ok) {
+      expect(resp.data).toMatchObject({
+        ok: false,
+        status: 302,
+        statusText: '',
+        url: 'https://x.test/r',
+        body: '',
+        responseType: 'text',
+      })
+      expect((resp.data as { headers: Record<string, string> }).headers).toEqual({
+        location: 'https://y.test/next',
+        'set-cookie': 'k=1',
+      })
+    }
+  })
+
+  it('观测缺失时兜底报 INTERNAL，不挂死', async () => {
+    vi.useFakeTimers()
+    fetchMock.mockResolvedValue({ type: 'opaqueredirect', status: 0 } as unknown as Response)
+    const p = sendToBridge({ c: 'fetch', url: 'https://x.test/r', init: { redirect: 'manual' } })
+    await vi.advanceTimersByTimeAsync(5000)
+    const resp = await p
+    expect(resp.ok).toBe(false)
+    if (!resp.ok) expect(resp.code).toBe('INTERNAL')
+  })
+
+  it("非 3xx 的 manual 请求（直接 200）走正常响应路径", async () => {
+    fetchMock.mockResolvedValue(new Response('plain'))
+    const resp = await sendToBridge({ c: 'fetch', url: 'https://x.test/', init: { redirect: 'manual' } })
+    expect(resp.ok).toBe(true)
+    if (resp.ok) expect(resp.data).toMatchObject({ status: 200, body: 'plain' })
   })
 })
 

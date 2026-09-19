@@ -71,12 +71,24 @@ export interface FetchFormBody {
 
 export interface FetchInit {
   method?: string
+  /**
+   * 请求头。fetch 规范禁设头（Cookie / Referer / Origin 等，连同 User-Agent）不再被静默丢弃：
+   * 后台经 DNR session 规则在发头前覆写、真实上线。覆写规则挂起期间，同 host 的所有
+   * DL.fetch 互斥排队（规则没有「只作用于某一次请求」的粒度，防规则污染并发请求）。
+   */
   headers?: Record<string, string>
   /** 文本体直接传字符串；二进制体（ArrayBuffer / TypedArray / DataView）由 DL 包装转成 FetchBinaryBody 信封 */
   /** 文本体直接传字符串；二进制体（ArrayBuffer / TypedArray / DataView / Blob / File）由 DL 包装转成 FetchBinaryBody 信封；FormData 由 DL 包装转成 FetchFormBody 信封 */
   body?: string | FetchBinaryBody | FetchFormBody
   /** 'arraybuffer' 时响应 body 为 base64 字符串（二进制无法跨桥） */
   responseType?: 'text' | 'arraybuffer'
+  /**
+   * 重定向语义，缺省 'follow'（自动跟随，现状行为）：
+   *  - 'manual'：不跟随，返回首个 3xx——status / headers（含 location）/ body 为空 / url 为请求 URL。
+   *    3xx 响应头由观察型 webRequest 读取（SW fetch 对 3xx 只拿得到 opaqueredirect，无 Location）。
+   *  - 'error'：遇 3xx 请求直接报错（fetch 原生语义，错误信息来自浏览器）。
+   */
+  redirect?: 'follow' | 'manual' | 'error'
   /** 毫秒；0 或不传表示不限。到点后台中止请求，报 BRIDGE_TIMEOUT */
   timeout?: number
 }
@@ -92,7 +104,7 @@ export interface FetchPayload {
   status: number
   statusText: string
   headers: Record<string, string>
-  /** 跟随重定向后的最终 URL */
+  /** 跟随重定向后的最终 URL（redirect: 'manual' 时为请求 URL 本身） */
   url: string
   body: string
   responseType: 'text' | 'arraybuffer'

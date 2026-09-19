@@ -47,6 +47,15 @@ import {
 } from './store'
 // offscreen 容器就绪（SW 侧模块；dl-bridge 与 background 同属 SW，不触及 offscreen 专有 runtime API）
 import { ensureOffscreenReady } from '@/lib/offscreen'
+// DL.fetch 特权增强：forbidden header 覆写（DNR session 规则）+ redirect:'manual'（webRequest 观测）
+import {
+  splitHeaders,
+  hostLock,
+  mintRuleId,
+  sweepOrphanRules,
+  registerManualWaiter,
+  handleObservation,
+} from './dl-fetch-priv'
 
 /** 通知兜底图标（打包资源）。MV3 的 notifications.create 不接受 data: URL 图标
  * （报 "Unable to download all specified images."），必须用扩展内资源或 http(s) 图 */
@@ -124,13 +133,34 @@ function rebuildFormData(body: FetchFormBody): FormData {
  * DL.fetch 的后台实现：SW 内特权请求，豁免 CORS。
  * 与旧 GM 版不同：非 2xx 不抛错——HTTP 状态属于正常响应内容，由 FetchPayload.ok 承载。
  *
+ * forbidden header 覆写：Cookie/Referer/Origin 等（连同 User-Agent）由 DNR session 规则
+ * 在发头前套上（fetch 规范对 Headers 里的禁设头是静默丢弃）。覆写请求挂规则期间对该 host
+ * 独占（写者），纯请求共享（读者）——DNR 规则没有按请求的粒度，不互斥会把覆写头污染到
+ * 同 host 的并发请求上。
+ *
+ * redirect：'manual' 时 3xx 响应经观察型 webRequest 读取（SW fetch 只拿得到 opaqueredirect）；
+ * 'error' 交给 fetch 原生（遇 3xx 直接 reject，错误信息来自浏览器）。
+ *
  * timeout：毫秒，0 / 不传不限。用 AbortController 在到点时中止请求（响应体读取同样受
  * 信号约束，慢响应读到一半也会被掐断）；中止后统一报 BRIDGE_TIMEOUT，不让脚本调用挂死。
  */
 async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
+  const redirect = init?.redirect ?? 'follow'
+  if (redirect !== 'follow' && redirect !== 'manual' && redirect !== 'error') {
+    throw new ApiError('INVALID_ARG', `DL.fetch：redirect 仅支持 follow / manual / error，收到「${String(redirect)}」`)
+  }
+  let host: string
+  try {
+    host = new URL(url).host
+  } catch {
+    throw new ApiError('INVALID_ARG', `DL.fetch：URL 无法解析：${url}`)
+  }
+
+  // header 拆两路：禁设头走 DNR 规则，其余走原生 Headers
+  const { native, dnrOps } = splitHeaders(init?.headers)
   const method = (init?.method || 'GET').toUpperCase()
   const headers = new Headers()
-  for (const [k, v] of Object.entries(init?.headers ?? {})) headers.set(k, String(v))
+  for (const [k, v] of Object.entries(native)) headers.set(k, v)
   const req: RequestInit = { method, headers }
   if (init?.body != null && method !== 'GET' && method !== 'HEAD') {
     if (typeof init.body === 'string') {
@@ -148,6 +178,16 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
       throw new ApiError('INVALID_ARG', 'DL.fetch：body 仅支持字符串 / Blob / FormData / ArrayBuffer / TypedArray / DataView')
     }
   }
+
+  // host 级读写锁：覆写请求 = 写者（独占，规则挂起期间同 host 全部排队），纯请求 = 读者
+  const lock = hostLock(host)
+  const isWriter = dnrOps.length > 0
+  if (isWriter) {
+    await lock.acquireWriter()
+  } else {
+    await lock.acquireReader()
+  }
+
   const timeout = init?.timeout
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -157,12 +197,74 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
       timeout,
     )
   }
+
+  let ruleId: number | undefined
+  // manual：观测等待者必须先于 fetch 登记（观测事件在 fetch 进行中到达）；
+  // 声明在 try 外，finally 的 cancel 才够得着
+  const manualWaiter = redirect === 'manual' ? registerManualWaiter(url) : undefined
   try {
+    if (isWriter) {
+      ruleId = mintRuleId()
+      // TODO(C 域名门): 覆写目标 host 必须落在脚本自身 @match 范围内（对齐 cookie 提案的
+      // 安全模型，避免「cookie 有门、伪造 cookie 的 fetch 反而没门」的倒挂）。
+      // match-pattern 由 C 引入，合并后在此接入校验；C 延期则本 TODO 保持原样。
+      const dnr = chrome.declarativeNetRequest
+      if (!dnr?.updateSessionRules) {
+        throw new ApiError('NOT_AVAILABLE', 'DL.fetch：declarativeNetRequest 不可用')
+      }
+      try {
+        await dnr.updateSessionRules({
+          removeRuleIds: [ruleId],
+          addRules: [
+            {
+              id: ruleId,
+              priority: 1,
+              action: { type: 'modifyHeaders', requestHeaders: dnrOps },
+              // resourceTypes 省略：默认匹配除 main_frame 外全部类型，覆盖 SW fetch 的
+              // xmlhttprequest（探针实测）且不引入对类型枚举的硬依赖
+              condition: { requestDomains: [host], initiatorDomains: [chrome.runtime.id] },
+            },
+          ],
+        })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        throw new ApiError('INTERNAL', `DL.fetch：挂载 header 覆写规则失败：${msg}`)
+      }
+    }
+
+    // manual：等待者已登记（见 try 前），这里直接发请求
     const resp = await fetch(url, {
       credentials: 'omit',
       ...req,
+      redirect: redirect === 'follow' ? undefined : redirect,
       signal: controller.signal,
     })
+
+    if (manualWaiter && resp.type === 'opaqueredirect') {
+      // opaqueredirect 无任何可读信息，等 webRequest 观测补齐 3xx 状态与响应头。
+      // 防御两路：abort（超时）立即打断等待；观测迟迟不来（理论不应发生）兜底报错不挂死。
+      const aborted = new Promise<never>((_resolve, reject) => {
+        const onAbort = () => reject(controller.signal.reason)
+        if (controller.signal.aborted) onAbort()
+        else controller.signal.addEventListener('abort', onAbort, { once: true })
+      })
+      const grace = new Promise<null>((r) => setTimeout(() => r(null), 5000))
+      const obs = await Promise.race([manualWaiter.promise, grace, aborted])
+      if (!obs) {
+        throw new ApiError('INTERNAL', `DL.fetch：未能观测到 3xx 响应（webRequest 未见该请求）：${url}`)
+      }
+      const responseType = init?.responseType === 'arraybuffer' ? 'arraybuffer' : 'text'
+      return {
+        ok: obs.statusCode >= 200 && obs.statusCode < 300,
+        status: obs.statusCode,
+        statusText: '', // webRequest 不提供 statusText
+        headers: obs.headers,
+        url, // manual 语义：请求 URL，非 Location
+        body: '', // 3xx 无响应体语义
+        responseType,
+      }
+    }
+
     const responseHeaders: Record<string, string> = {}
     resp.headers.forEach((v, k) => (responseHeaders[k] = v))
     const responseType = init?.responseType === 'arraybuffer' ? 'arraybuffer' : 'text'
@@ -188,6 +290,18 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
     throw e
   } finally {
     if (timer) clearTimeout(timer)
+    manualWaiter?.cancel()
+    // 用后即撤（主路径）：settle 即撤规则（先撤再放锁，避免下一条覆写规则与残留叠加），
+    // 幂等；撤失败由启动对账 + 浏览器重启兜底
+    if (ruleId !== undefined) {
+      try {
+        await chrome.declarativeNetRequest?.updateSessionRules?.({ removeRuleIds: [ruleId] })
+      } catch {
+        // 静默：生命周期有第二、三层兜底
+      }
+    }
+    if (isWriter) lock.releaseWriter()
+    else lock.releaseReader()
   }
 }
 
@@ -492,6 +606,16 @@ export function initDlBridge(): void {
     })
   }
   void reconcileOrphanTabKeys().catch(() => {})
+  // 观察型 webRequest：redirect:'manual' 的 3xx 响应读取通道（SW fetch 只拿得到
+  // opaqueredirect，探针已证实 webRequest 能看到自家 SW fetch）。顶层注册（MV3 要求）；
+  // 无 manual 等待者时立即返回，浏览器全部流量都会路过这里，分发入口必须廉价。
+  chrome.webRequest?.onHeadersReceived?.addListener(
+    handleObservation,
+    { urls: ['*://*/*'] },
+    ['responseHeaders', 'extraHeaders'],
+  )
+  // 规则孤儿对账（用后即撤第二层）：清掉上次崩溃残留的自有区间 session 规则
+  void sweepOrphanRules().catch(() => {})
 
   // 响应机制：onUserScriptMessage 不支持「返回 Promise 作为响应」，必须调 sendResponse
   // 并返回 true 保持通道打开（沿用旧 GM 桥已验证的写法）。

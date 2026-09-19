@@ -100,6 +100,12 @@ export default defineConfig({
     // 补偿措施是与权限绑定的域名门（cookie-gate.ts）：url 必须落在脚本自身 matches 内、
     // 只比 scheme+host（cookie 是 host 级作用域，忽略 pattern 的 path 段）。老大 2026-09-19 已批准。
     // clipboardWrite：DL.clipboard 走 offscreen 免手势写剪贴板（含富文本 ClipboardItem），需此权限。
+    // declarativeNetRequestWithHostAccess = DL.fetch forbidden header 覆写的载体
+    // （SW fetch 改不了 Cookie/Referer 等，DNR session 规则按请求挂/撤在发头前套上）。
+    // 选 WithHostAccess 变体：不进安装权限提示，且 modifyHeaders/重定向要求 host 权限——
+    // 已有 <all_urls> 覆盖。webRequest（观察型，非 blocking）= redirect:'manual' 的
+    // 3xx 响应读取通道（SW fetch 只拿得到 opaqueredirect）。均不新增用户可见权限。
+    // 老大 2026-09-19 已批准（提案评审）。
     permissions: [
       'storage',
       'sidePanel',
@@ -109,6 +115,8 @@ export default defineConfig({
       'contextMenus',
       'cookies',
       'clipboardWrite',
+      'declarativeNetRequestWithHostAccess',
+      'webRequest',
     ],
     // 在线模型走 OpenAI 兼容接口，需要扩展页跨域 fetch，必须声明对应 host 权限。
     // 由服务商预设表推导（src/lib/providers.ts），避免申请不必要的全域权限；
