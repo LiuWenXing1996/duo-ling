@@ -42,6 +42,12 @@ export interface ScriptProject {
   /** 入口文件路径，默认 'main.js' */
   entry: string
   /**
+   * 所属分组 id（用户脚本列表的分组功能）。空字符串 = 未分组。
+   * 分组定义存于 duoling-state 的 groups 对象库（见 state-db.ts）；本字段只持有引用，
+   * 故分组改名不影响脚本、分组删除后脚本自动退回未分组（UI 按 id 查不到定义即按未分组渲染）。
+   */
+  group?: string
+  /**
    * 最近一次构建产物，正常路径必有（先构建后落盘）。
    * **可缺省**：zip 导入构建失败时仍落盘（经讨论定稿：「尽量导入」）——
    * 此时注册会被 resolveInjectCode 拦下并记 register 警告，用户去编辑器改到能构建即可。
@@ -78,6 +84,8 @@ export interface ScriptSummary {
   matches: string[]
   fileCount: number
   updatedAt: number
+  /** 所属分组 id（空字符串 = 未分组）；与 groups 对象库里的定义对应 */
+  group: string
   /** 最近一次构建终态（旧记录缺省时按 bundle 有无推导，见 ScriptProject.buildOk） */
   buildOk: boolean
   /** 最近一次构建完成时刻（ms）；缺省 = 旧记录没记过 */
@@ -88,6 +96,19 @@ export interface ScriptSummary {
   lastRunAt?: number
   /** 最近一次运行捕获的运行期错误数；缺省 = 0 或无统计（UI 只在 >0 时展示） */
   lastRunErrors?: number
+}
+
+/**
+ * 脚本列表分组（持久化于 duoling-state 的 groups 对象库，见 state-db.ts）。
+ * 纯组织元数据：脚本只持有 group id（ScriptProject.group），改名 / 删除分组不影响脚本引用以外的内容。
+ */
+export interface ScriptGroup {
+  /** 分组唯一 id（脚本侧引用它；uuid 风格，但与脚本 uuid 命名空间隔离） */
+  id: string
+  /** 分组展示名（可改） */
+  name: string
+  /** 排序权重：数值越小越靠前；UI 按此升序排列，未分组恒在最后 */
+  order: number
 }
 
 /** 用户脚本引擎可用性状态（供管理页状态横幅） */

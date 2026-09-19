@@ -13,11 +13,11 @@
 // 工作树仍持有本次内容，故只 warn（下次保存再提交）；写工作树失败才是真保存失败（源码没落地）。
 import { buildProject, BuildError } from './builder'
 import { broadcastBuildPhase, broadcastDataChange } from '../data-broadcast'
-import { getProject, listProjects, nextScriptName, validateFiles } from './project-store'
-import { removeProject, writeProject } from './state-db'
+import { getProject, listGroups, listProjects, nextScriptName, validateFiles } from './project-store'
+import { readGroup, removeGroup, removeProject, writeGroup, writeProject } from './state-db'
 import { deleteAllRepos, deleteRepo, writeSourceTree, commitSource, readSourceTree } from './us-git'
 import { ENTRY_DEFAULT, defaultConfig, defaultSource } from './types'
-import type { ImportItemResult, ImportReport, ScriptConfig, ScriptMeta, ScriptProject } from './types'
+import type { ImportItemResult, ImportReport, ScriptConfig, ScriptGroup, ScriptMeta, ScriptProject } from './types'
 import { base64ToBytes, filesFingerprint, parseScriptsZip } from './zip-transfer'
 import type { ParsedScript } from './zip-transfer'
 
@@ -28,6 +28,7 @@ function makeState(
   enabled: boolean,
   config: ScriptConfig,
   entry: string,
+  group: string,
   bundle: { code: string; builtAt: number } | undefined,
   buildOk: boolean,
   lastBuildAt: number,
@@ -42,6 +43,7 @@ function makeState(
     enabled,
     config,
     entry,
+    group,
     bundle,
     buildOk,
     lastBuildAt,
@@ -112,7 +114,7 @@ export async function saveSource(
   uuid: string,
   files: Record<string, string>,
   meta: ScriptMeta,
-  opts: { enabled: boolean; createdAt: number; note?: string },
+  opts: { enabled: boolean; createdAt: number; note?: string; group?: string },
 ): Promise<SaveOutcome> {
   await persistSource(uuid, files, meta, opts.note)
   // 进构建前广播瞬态阶段：列表行切「构建中」转圈（写工作树 / git 提交阶段由 SW 的
@@ -139,6 +141,7 @@ export async function saveSource(
     opts.enabled,
     meta.config,
     meta.entry,
+    opts.group ?? '',
     build.ok ? { code: build.code, builtAt } : undefined, // 构建失败产物置空
     build.ok,
     builtAt,
@@ -311,7 +314,7 @@ async function importOneScript(script: ParsedScript, queue: PendingBuild[]): Pro
     // 占位注册态：bundle 空 / buildOk=false / **lastBuildAt=0 哨兵**（列表据此显示「构建中」而非「失败」，
     // 启动对账也据此重排被中断的构建）。列表行立即出现，转圈由下面这条 building 瞬态驱动
     await writeProject(
-      makeState(uuid, name, false, script.config, script.entry, undefined, false, 0, Object.keys(script.files).length, ts, ts),
+      makeState(uuid, name, false, script.config, script.entry, '', undefined, false, 0, Object.keys(script.files).length, ts, ts),
     )
     broadcastBuildPhase('script', uuid, 'building')
     queue.push({ uuid, meta, files: script.files })
@@ -393,6 +396,7 @@ async function buildInBackground(item: PendingBuild): Promise<void> {
         false,
         item.meta.config,
         item.meta.entry,
+        '',
         build.ok ? { code: build.code, builtAt } : undefined, // 构建失败产物置空
         build.ok,
         builtAt,
@@ -462,6 +466,7 @@ export async function refreshDepsCache(uuid: string): Promise<DepsRefreshOutcome
       project.enabled,
       project.config,
       tree.meta.entry,
+      project.group ?? '',
       { code: build.code, builtAt },
       true,
       builtAt,
@@ -491,4 +496,86 @@ export async function clearDepsCache(uuid: string): Promise<{ cleared: number }>
   await writeProject({ ...project, fileCount: Object.keys(kept).length, updatedAt: Date.now() })
   broadcastDataChange('script', uuid)
   return { cleared }
+}
+
+// —— 分组管理（脚本列表分组功能；全部为 offscreen 单写方，落库后由命令面广播 group 域） ——
+
+/**
+ * 新建分组：自动生成 id + order（现有最大 order + 1，空库从 0 起）。
+ * 返回建好的分组记录供 UI 直接用（无需回拉）。
+ */
+export async function createGroup(name: string): Promise<ScriptGroup> {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('分组名不能为空')
+  const existing = await listGroups()
+  const order =
+    existing.length === 0 ? 0 : Math.max(...existing.map((g) => g.order)) + 1
+  const group: ScriptGroup = { id: crypto.randomUUID(), name: trimmed, order }
+  await writeGroup(group)
+  return group
+}
+
+/** 重命名分组（仅改展示名；脚本只持有 id，不受影响） */
+export async function renameGroup(id: string, name: string): Promise<ScriptGroup> {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('分组名不能为空')
+  const group = await readGroupSafe(id)
+  if (!group) throw new Error('分组不存在')
+  group.name = trimmed
+  await writeGroup(group)
+  return group
+}
+
+/**
+ * 删除分组：先把所有引用该分组的脚本退回未分组（同事务逐条改 group 字段），
+ * 再删分组定义——脚本不会悬空在「已删分组」下（UI 对查不到定义的 id 按未分组渲染，
+ * 但这里主动归位更稳，避免遗留脏引用）。分组不存在直接 no-op。
+ */
+export async function removeGroupAndReassign(id: string): Promise<void> {
+  const group = await readGroupSafe(id, { silent: true })
+  if (!group) return
+  const projects = await listProjects()
+  const ts = Date.now()
+  for (const p of projects) {
+    if (p.group === id) {
+      p.group = ''
+      p.updatedAt = ts
+      await writeProject(p)
+    }
+  }
+  await removeGroup(id)
+}
+
+/** 重排分组顺序：orderedIds 为全部分组 id 的目标顺序，按索引设 order */
+export async function reorderGroups(orderedIds: string[]): Promise<void> {
+  const groups = await listGroups()
+  const byId = new Map(groups.map((g) => [g.id, g]))
+  for (let i = 0; i < orderedIds.length; i++) {
+    const g = byId.get(orderedIds[i]!)
+    if (g) g.order = i
+  }
+  for (const g of byId.values()) await writeGroup(g)
+}
+
+/**
+ * 把脚本移动到某分组（groupId 为空字符串 = 归未分组）。
+ * 只改 group 字段 + updatedAt，不产生 git 提交（group 不入仓）。
+ */
+export async function setProjectGroup(uuid: string, groupId: string): Promise<ScriptProject> {
+  const project = await getProject(uuid)
+  if (!project) throw new Error('脚本不存在')
+  project.group = groupId
+  project.updatedAt = Date.now()
+  await writeProject(project)
+  return project
+}
+
+/** 读分组，不存在则抛错（silent=true 时返回 undefined） */
+async function readGroupSafe(id: string, opts?: { silent?: boolean }): Promise<ScriptGroup | undefined> {
+  const group = await readGroup(id)
+  if (!group) {
+    if (opts?.silent) return undefined
+    throw new Error('分组不存在')
+  }
+  return group
 }

@@ -19,6 +19,12 @@ const availability = vi.hoisted(() => vi.fn())
 const create = vi.hoisted(() => vi.fn())
 const toggle = vi.hoisted(() => vi.fn())
 const importZip = vi.hoisted(() => vi.fn())
+const groups = vi.hoisted(() => vi.fn())
+const setGroup = vi.hoisted(() => vi.fn())
+const createGroup = vi.hoisted(() => vi.fn())
+const renameGroup = vi.hoisted(() => vi.fn())
+const removeGroup = vi.hoisted(() => vi.fn())
+const reorderGroups = vi.hoisted(() => vi.fn())
 const fetchMock = vi.hoisted(() => vi.fn())
 const subscribeAvailability = vi.hoisted(() =>
   vi.fn((cb: (a: UserScriptsAvailability) => void) => vi.fn()),
@@ -35,6 +41,12 @@ vi.mock('@/lib/userscripts/ui-client', () => ({
     remove: vi.fn(),
     removeAll: vi.fn(),
     importZip,
+    groups,
+    setGroup,
+    createGroup,
+    renameGroup,
+    removeGroup,
+    reorderGroups,
     clearErrors: vi.fn(),
   },
   subscribeAvailability,
@@ -48,6 +60,7 @@ const summary = (uuid: string, name: string): ScriptSummary => ({
   fileCount: 1,
   updatedAt: 0,
   buildOk: true,
+  group: '',
 })
 
 const OK_AVAILABILITY: UserScriptsAvailability = {
@@ -171,6 +184,7 @@ beforeEach(() => {
   create.mockResolvedValue({ uuid: 'u2', name: '新建的脚本 1' })
   toggle.mockResolvedValue({})
   importZip.mockResolvedValue(okReport())
+  groups.mockResolvedValue([])
   vi.stubGlobal('fetch', fetchMock)
   setFileAccessAllowed(true)
 })
@@ -311,13 +325,13 @@ describe('UserscriptListPanel 批量启停', () => {
   })
 })
 
-describe('UserscriptListPanel 行紧凑化', () => {
-  it('文件数与更新时间收进匹配规则同一行（元信息是 span，与 matches 同容器）', async () => {
+describe('UserscriptListPanel 卡片布局', () => {
+  it('同一张卡片内同时展示匹配规则与元信息（文件数）', async () => {
     const s = { ...summary('u1', '脚本A'), updatedAt: 1758200000000 }
     list.mockResolvedValue([s])
     wrapper = await mountPanel()
-    const meta = wrapper.findAll('span').find((el) => el.text().includes('1 个文件'))!
-    expect(meta.element.parentElement?.textContent).toContain('a.example')
+    const card = wrapper.findAll('.bg-card').find((el) => el.text().includes('1 个文件'))!
+    expect(card.element.textContent).toContain('a.example')
   })
 })
 
@@ -479,5 +493,38 @@ describe('UserscriptListPanel 从路径导入', () => {
 
     expect(document.body.textContent).toContain('请确认路径拼写')
     expect(document.body.textContent).not.toContain('未开启「允许访问文件网址」')
+  })
+})
+
+describe('UserscriptListPanel 分组', () => {
+  it('groups() 返回分组时按分组头分块，未分组脚本进「未分组」节', async () => {
+    groups.mockResolvedValue([{ id: 'g1', name: '购物助手', order: 0 }])
+    list.mockResolvedValue([
+      { ...summary('u1', '脚本A'), group: 'g1' },
+      summary('u2', '脚本B'),
+    ])
+    wrapper = await mountPanel()
+
+    expect(wrapper.text()).toContain('购物助手')
+    expect(wrapper.text()).toContain('未分组')
+    expect(wrapper.findAll('button[aria-label="编辑脚本"]')).toHaveLength(2)
+  })
+
+  it('「新建分组」按钮打开命名弹窗，填写后调用 createGroup', async () => {
+    wrapper = await mountPanel()
+    await buttonByText('新建分组').trigger('click')
+    await flushPromises()
+
+    const input = [...document.querySelectorAll<HTMLInputElement>('input')].find(
+      (i) => !wrapper.element.contains(i) && i.getAttribute('aria-label') === '分组名称',
+    )!
+    expect(input).toBeDefined()
+    input.value = '我的分组'
+    input.dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    portalButton('创建')!.click()
+    await flushPromises()
+    expect(createGroup).toHaveBeenCalledWith('我的分组')
   })
 })

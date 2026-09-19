@@ -36,6 +36,11 @@ vi.mock('@/lib/userscripts/project-write', () => ({
   removeProjectAndRepo: vi.fn(),
   setProjectEnabled: vi.fn(),
   saveExisting: vi.fn(),
+  createGroup: vi.fn(),
+  renameGroup: vi.fn(),
+  removeGroupAndReassign: vi.fn(),
+  reorderGroups: vi.fn(),
+  setProjectGroup: vi.fn(),
 }))
 vi.mock('@/lib/userscripts/us-fs', () => ({
   fs: {},
@@ -107,6 +112,11 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
     'state:import',
     'state:deps-refresh',
     'state:deps-clear',
+    'state:group-create',
+    'state:group-rename',
+    'state:group-remove',
+    'state:group-reorder',
+    'state:set-group',
   ] as const satisfies readonly StateRequest['kind'][]
   const _exhaustive: Expect<
     Exclude<StateRequest['kind'], (typeof STATE_KINDS)[number]> extends never ? true : false
@@ -167,6 +177,31 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
       msg: { kind: 'state:deps-clear', uuid: 'u1' },
       backend: vi.mocked(projectWrite.clearDepsCache),
       args: ['u1'],
+    },
+    'state:group-create': {
+      msg: { kind: 'state:group-create', name: '购物助手' },
+      backend: vi.mocked(projectWrite.createGroup),
+      args: ['购物助手'],
+    },
+    'state:group-rename': {
+      msg: { kind: 'state:group-rename', id: 'g1', name: '新名' },
+      backend: vi.mocked(projectWrite.renameGroup),
+      args: ['g1', '新名'],
+    },
+    'state:group-remove': {
+      msg: { kind: 'state:group-remove', id: 'g1' },
+      backend: vi.mocked(projectWrite.removeGroupAndReassign),
+      args: ['g1'],
+    },
+    'state:group-reorder': {
+      msg: { kind: 'state:group-reorder', orderedIds: ['g2', 'g1'] },
+      backend: vi.mocked(projectWrite.reorderGroups),
+      args: [['g2', 'g1']],
+    },
+    'state:set-group': {
+      msg: { kind: 'state:set-group', uuid: 'u1', group: 'g1' },
+      backend: vi.mocked(projectWrite.setProjectGroup),
+      args: ['u1', 'g1'],
     },
   }
 

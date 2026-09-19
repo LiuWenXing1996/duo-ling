@@ -37,7 +37,7 @@ import { initDlBridge } from '@/lib/userscripts/dl-bridge'
 // DL Port 事件底座（二期）：脚本世界 ↔ SW 长连接下行通道 + 三事件源接入
 import { initDlPort } from '@/lib/userscripts/dl-port'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
-import { getProject, listProjects } from '@/lib/userscripts/project-store'
+import { getProject, listGroups, listProjects } from '@/lib/userscripts/project-store'
 // chrome.storage 侧：DL.store 值、错误日志、运行统计
 import {
   listSummaries,
@@ -377,6 +377,27 @@ const handlers: {
   // 清依赖缓存：转发 offscreen（只删 _deps/，产物保留）——无注册动作，脚本继续跑旧产物
   'userscript:deps-clear': async (msg): Promise<{ cleared: number }> =>
     writeViaOffscreen<{ cleared: number }>({ kind: 'state:deps-clear', uuid: msg.uuid }),
+
+  // 脚本列表分组：读分组定义（直连 IDB，与 userscript:list 同源）
+  'userscript:groups': async (): Promise<import('@/lib/userscripts/types').ScriptGroup[]> => listGroups(),
+
+  // 把脚本归入某分组 / 退回未分组：转发 offscreen 单写方（group 不入 git 仓，不产生提交）
+  'userscript:setGroup': async (msg): Promise<import('@/lib/userscripts/types').ScriptProject> =>
+    writeViaOffscreen<import('@/lib/userscripts/types').ScriptProject>({
+      kind: 'state:set-group',
+      uuid: msg.uuid,
+      group: msg.group,
+    }),
+
+  // 分组管理（新建 / 重命名 / 删除 / 重排）：纯转发 offscreen 单写方，SW 无副作用
+  'userscript:group-create': async (msg): Promise<import('@/lib/userscripts/types').ScriptGroup> =>
+    writeViaOffscreen<import('@/lib/userscripts/types').ScriptGroup>({ kind: 'state:group-create', name: msg.name }),
+  'userscript:group-rename': async (msg): Promise<import('@/lib/userscripts/types').ScriptGroup> =>
+    writeViaOffscreen<import('@/lib/userscripts/types').ScriptGroup>({ kind: 'state:group-rename', id: msg.id, name: msg.name }),
+  'userscript:group-remove': async (msg): Promise<void> =>
+    writeViaOffscreen<void>({ kind: 'state:group-remove', id: msg.id }),
+  'userscript:group-reorder': async (msg): Promise<void> =>
+    writeViaOffscreen<void>({ kind: 'state:group-reorder', orderedIds: msg.orderedIds }),
 
   'userscript:availability': async (): Promise<UserScriptsAvailability> => getUserScriptsStatus(),
 

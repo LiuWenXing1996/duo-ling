@@ -4,10 +4,15 @@
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  readAllGroups,
   readAllProjects,
+  readGroup,
   readProject,
+  removeGroup,
   removeProject,
   removeProjects,
+  STATE_DB_VERSION,
+  writeGroup,
   writeProject,
 } from './state-db'
 import type { ScriptProject } from './types'
@@ -66,7 +71,7 @@ describe('writeProject / readProject 往返', () => {
     // 手动写一条 v:2 形状
     const bad = { ...p, v: 2 as unknown as 1 }
     const dbp = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open('duoling-state', 1)
+      const req = indexedDB.open('duoling-state', STATE_DB_VERSION)
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => reject(req.error)
     })
@@ -121,5 +126,27 @@ describe('removeProject / removeProjects', () => {
 
   it('空数组直接返回，不触碰数据库', async () => {
     await expect(removeProjects([])).resolves.toBeUndefined()
+  })
+})
+
+describe('groups 对象库（脚本列表分组功能）', () => {
+  it('写入 / 读取 / 删除往返', async () => {
+    const g = { id: 'g1', name: '购物', order: 0 }
+    await writeGroup(g)
+    await expect(readGroup('g1')).resolves.toEqual(g)
+    await removeGroup('g1')
+    await expect(readGroup('g1')).resolves.toBeUndefined()
+  })
+
+  it('readAllGroups 按 order 升序返回', async () => {
+    await writeGroup({ id: 'c', name: 'C', order: 2 })
+    await writeGroup({ id: 'a', name: 'A', order: 0 })
+    await writeGroup({ id: 'b', name: 'B', order: 1 })
+    const all = await readAllGroups()
+    expect(all.map((g) => g.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('读取不存在的分组返回 undefined（不报错）', async () => {
+    await expect(readGroup('ghost')).resolves.toBeUndefined()
   })
 })

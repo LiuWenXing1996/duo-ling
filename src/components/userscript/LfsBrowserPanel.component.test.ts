@@ -59,6 +59,7 @@ const summary = (uuid: string, name: string): ScriptSummary => ({
   fileCount: 0,
   updatedAt: 0,
   buildOk: true,
+  group: '',
 })
 
 let wrapper: VueWrapper

@@ -6,8 +6,8 @@
 //                       所以 SW 与 offscreen 都能直接用，offscreen 不必再经 SW 桥接取项目。
 //
 // 这里**没有写 API**：写全在 project-write.ts（offscreen 专属），见 state-db.ts 文件头的单写方约定。
-import { readAllProjects, readProject } from './state-db'
-import type { ScriptConfig, ScriptProject } from './types'
+import { readAllGroups, readAllProjects, readProject } from './state-db'
+import type { ScriptConfig, ScriptProject, ScriptGroup } from './types'
 
 /** 列出全部项目：启用在前，组内按更新时间倒序（最近更新的排在最上面） */
 export async function listProjects(): Promise<ScriptProject[]> {
@@ -20,6 +20,11 @@ export async function listProjects(): Promise<ScriptProject[]> {
 /** 读单个项目（不存在 / 形态不对返回 undefined） */
 export function getProject(uuid: string): Promise<ScriptProject | undefined> {
   return readProject(uuid)
+}
+
+/** 列出全部分组（按 order 升序） */
+export function listGroups(): Promise<ScriptGroup[]> {
+  return readAllGroups()
 }
 
 /** 生成不与现有项目重名的默认名称：「新建的脚本 1」→「新建的脚本 2」→「新建的脚本 3」…（序号从 1 起，跳过已占用号） */

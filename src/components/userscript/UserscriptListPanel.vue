@@ -14,17 +14,20 @@ import {
   Download as UiDownload,
   FileQuestion as UiFileQuestion,
   FolderInput as UiFolderInput,
+  FolderPlus as UiFolderPlus,
   ListFilter as UiListFilter,
   LoaderCircle as UiLoaderCircle,
-  MousePointerClick as UiMousePointerClick,
-  Package as UiPackage,
+  MoreHorizontal as UiMoreHorizontal,
+  Move as UiMove,
   Pencil as UiPencil,
   Plus as UiPlus,
   RefreshCw as UiRefreshCw,
   Search as UiSearch,
   Trash2 as UiTrash2,
   Upload as UiUpload,
-  X as UiX
+  X as UiX,
+  ChevronRight as UiChevronRight,
+  ChevronUp as UiChevronUp
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import {
@@ -58,13 +61,13 @@ import {
 import { formatTimestamp } from '@/lib/format'
 import { isFileSchemeAccessAllowed } from '@/lib/extension-page'
 import { useDataSync } from '@/composables/use-data-sync'
-import { BUILTIN_SCRIPTS } from '@/lib/userscripts/builtins'
 import { fsClient, subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
 import { looksLikeZip, toFileUrl } from '@/lib/userscripts/local-path'
 import { base64ToBytes, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
 import type { BuildPhase } from '@/shared/extension-ipc'
 import type {
   ImportReport,
+  ScriptGroup,
   ScriptSummary,
   UserScriptsAvailability
 } from '@/lib/userscripts/types'
@@ -91,6 +94,8 @@ const creating = ref(false)
  * （关掉工作台标签页就没了，符合「刚」的时效语义；脚本被删了行也没了，无需额外清理）。
  */
 const justCreated = ref<string[]>([])
+/** 正在移动的脚本 uuid（移动到分组）：避免连点重复调用 */
+const movingUuid = ref<string | null>(null)
 /** 正在删除的脚本 uuid：避免连点重复发起 */
 const removing = ref<string | null>(null)
 /** 「全部删除」确认弹窗是否打开 */
@@ -99,6 +104,65 @@ const removeAllOpen = ref(false)
 const removingAll = ref(false)
 /** 批量启停进行中：避免连点重复发起（与单条 toggling 互不阻塞，但入口都置灰） */
 const batchToggling = ref(false)
+
+// —— 分组（脚本列表分组功能）——
+/** 分组定义（按 order 升序）；空 = 还没有任何分组 */
+const groups = ref<ScriptGroup[]>([])
+/** 折叠状态：按分组 id 记；未分组用常量键。默认全部展开（键缺失 = 展开） */
+const UNGROUPED_KEY = '__ungrouped__'
+const collapsed = ref<Record<string, boolean>>({})
+/** 新建 / 重命名分组弹窗：target 为 null = 新建，否则为待重命名的分组 id */
+const groupDialogOpen = ref(false)
+const groupDialogTarget = ref<string | null>(null)
+const groupDialogName = ref('')
+/** 删除分组确认弹窗的待删目标（其成员会退回未分组） */
+const removeGroupTarget = ref<string | null>(null)
+
+/** 分组 id → 定义（查不到 = 该分组已被删，按未分组渲染，避免悬空） */
+const groupById = computed(() => new Map(groups.value.map((g) => [g.id, g])))
+
+/**
+ * 分组展示节：按 groups 顺序，末尾追加「未分组」节（仅当存在未分组脚本）。
+ * 每节含其下脚本（已含搜索 / 状态筛选 / 排序）。筛选后某节无脚本则整节不显示。
+ */
+const groupSections = computed(() => {
+  const byGroup = new Map<string, ScriptSummary[]>()
+  for (const s of visibleScripts.value) {
+    const key = s.group || UNGROUPED_KEY
+    const arr = byGroup.get(key)
+    if (arr) arr.push(s)
+    else byGroup.set(key, [s])
+  }
+  const sections: Array<{ id: string; name: string; scripts: ScriptSummary[] }> = []
+  for (const g of groups.value) {
+    const scripts = byGroup.get(g.id)
+    if (scripts) sections.push({ id: g.id, name: g.name, scripts })
+  }
+  const ungrouped = byGroup.get(UNGROUPED_KEY)
+  if (ungrouped) sections.push({ id: UNGROUPED_KEY, name: '未分组', scripts: ungrouped })
+  return sections
+})
+
+/**
+ * 扁平渲染项：交替的「分组头」与「脚本行」，分组折叠时跳过其下脚本行。
+ * 行复用同一段标记、以 item.s 取脚本——避免把行块复制 N 份。
+ */
+const viewItems = computed(() => {
+  const items: Array<
+    | { kind: 'header'; id: string; name: string; count: number }
+    | { kind: 'script'; s: ScriptSummary }
+  > = []
+  for (const sec of groupSections.value) {
+    items.push({ kind: 'header', id: sec.id, name: sec.name, count: sec.scripts.length })
+    if (collapsed.value[sec.id]) continue
+    for (const s of sec.scripts) items.push({ kind: 'script', s })
+  }
+  return items
+})
+
+/** 首个 / 末个真实分组 id（用于上移 / 下移按钮的禁用判断；未分组不参与排序） */
+const firstGroupId = computed(() => groups.value[0]?.id ?? '')
+const lastGroupId = computed(() => groups.value[groups.value.length - 1]?.id ?? '')
 
 // 脚本列表不展示错误日志：报错属于历史信息，由独立「运行日志」标签页承载（左侧导航进入）。
 // 环境级问题（如引擎不可用）由下方 availability 横幅统一兜底，不按脚本逐条复述。
@@ -230,6 +294,100 @@ async function onToggleAll(next: boolean): Promise<void> {
  * 创建后**不跳编辑器**（新建时被抢走当前标签页很烦，尤其连建多个），改为在该行标「刚新建」，
  * 人点该行「编辑」进过一次即摘标。与导入动线一致：产物落在列表里，何时进编辑器由用户定。
  */
+
+// —— 分组操作（脚本列表分组功能） ——
+
+/** 拉取分组定义（挂载 / 广播触发；拉不到不阻断，全部按未分组渲染） */
+async function refreshGroups(): Promise<void> {
+  try {
+    groups.value = await userscriptClient.groups()
+  } catch {
+    groups.value = []
+  }
+}
+
+function openCreateGroup(): void {
+  groupDialogTarget.value = null
+  groupDialogName.value = ''
+  groupDialogOpen.value = true
+}
+
+function openRenameGroup(id: string, name: string): void {
+  groupDialogTarget.value = id
+  groupDialogName.value = name
+  groupDialogOpen.value = true
+}
+
+/** 新建 / 重命名分组弹窗确认：双用途（target 为空 = 新建） */
+async function confirmGroupDialog(): Promise<void> {
+  const name = groupDialogName.value.trim()
+  if (!name) return
+  const target = groupDialogTarget.value
+  groupDialogOpen.value = false
+  error.value = ''
+  try {
+    if (target) await userscriptClient.renameGroup(target, name)
+    else await userscriptClient.createGroup(name)
+    await refreshGroups()
+  } catch (e) {
+    error.value = (target ? '重命名分组失败：' : '新建分组失败：') + (e instanceof Error ? e.message : String(e))
+  }
+}
+
+function askRemoveGroup(id: string): void {
+  removeGroupTarget.value = id
+}
+
+/** 删除分组确认：其成员自动退回未分组（offscreen 侧改 group 字段） */
+async function confirmRemoveGroup(): Promise<void> {
+  const id = removeGroupTarget.value
+  if (!id) return
+  removeGroupTarget.value = null
+  error.value = ''
+  try {
+    await userscriptClient.removeGroup(id)
+    await refreshGroups()
+  } catch (e) {
+    error.value = '删除分组失败：' + (e instanceof Error ? e.message : String(e))
+  }
+}
+
+/** 分组上移 / 下移：本地先交换再整体提交新顺序 */
+async function reorderGroup(id: string, dir: -1 | 1): Promise<void> {
+  const idx = groups.value.findIndex((g) => g.id === id)
+  const next = idx + dir
+  if (idx < 0 || next < 0 || next >= groups.value.length) return
+  const arr = groups.value.slice()
+  const a = arr[idx]!
+  const b = arr[next]!
+  arr[idx] = b
+  arr[next] = a
+  groups.value = arr
+  try {
+    await userscriptClient.reorderGroups(arr.map((g) => g.id))
+  } catch (e) {
+    error.value = '调整分组顺序失败：' + (e instanceof Error ? e.message : String(e))
+    void refreshGroups()
+  }
+}
+
+/** 把脚本移动到分组（groupId 为空 = 退回未分组）；乐观更新本行 group，广播回来再校准 */
+async function moveToGroup(s: ScriptSummary, groupId: string): Promise<void> {
+  movingUuid.value = null
+  error.value = ''
+  try {
+    await userscriptClient.setGroup(s.uuid, groupId)
+    s.group = groupId
+  } catch (e) {
+    error.value = `「${s.name}」移动失败：` + (e instanceof Error ? e.message : String(e))
+  }
+}
+
+/** 折叠 / 展开分组 */
+function toggleCollapse(id: string): void {
+  collapsed.value = { ...collapsed.value, [id]: !collapsed.value[id] }
+}
+
 async function onCreate(): Promise<void> {
   if (creating.value) return
   creating.value = true
@@ -485,7 +643,7 @@ async function confirmRemove(): Promise<void> {
 
 /**
  * 弹窗里确认「全部删除」：一条命令走完注销 → 清状态库项目 + 各仓 → 清 GM 值，不可撤销。
- * 范围 = 列表全部用户脚本；内置件不在内（弹窗里已明示）。
+ * 范围 = 列表全部用户脚本；内置件不进状态库，自然不在范围内（也已在 UI 中隐藏）。
  * 先记下 uuid 列表，删完逐个广播 deleted，宿主据此关掉它们开着的编辑器 / 产物标签。
  */
 async function confirmRemoveAll(): Promise<void> {
@@ -515,6 +673,7 @@ let unsubscribeAvailability: (() => void) | null = null
 
 onMounted(() => {
   void refresh()
+  void refreshGroups()
   void detectAvailability()
   // 可用性变化由 SW 广播（availabilityChanged），横幅被动更新，不自己盯 visibilitychange
   unsubscribeAvailability = subscribeAvailability((av) => (availability.value = av))
@@ -550,6 +709,9 @@ useDataSync('script', (push) => {
 // 这里接住回拉，运行计数与「上次运行」时刻不必手动刷新
 useDataSync('runstats', () => refresh())
 
+// 分组定义变化（新建 / 重命名 / 删除 / 重排）由 offscreen 广播 `group` 域，这里回拉分组列表
+useDataSync('group', () => refreshGroups())
+
 /** 状态标的悬停提示：最近一次构建的时刻（成败共用） */
 function lastBuildLabel(s: ScriptSummary): string {
   return s.lastBuildAt ? `最近构建：${updatedAtLabel(s.lastBuildAt)}` : '最近构建'
@@ -558,111 +720,17 @@ function lastBuildLabel(s: ScriptSummary): string {
 
 <template>
   <section class="panel">
-    <div class="min-h-0 flex-1 overflow-y-auto scroll-gap p-6">
-      <div class="mx-auto max-w-3xl space-y-3">
-        <!-- 不设面板标题：当前标签名已经标明这是脚本列表 -->
-        <header class="flex items-center justify-between gap-2">
-          <p class="text-xs text-muted-foreground">
-            共 {{ scripts.length }} 个脚本
-            <template v-if="scripts.length">· {{ enabledCount }} 个已启用</template>
-            <template v-if="isFiltering">· 筛选显示 {{ visibleScripts.length }} 个</template>
-          </p>
-          <div class="flex shrink-0 items-center gap-1">
-            <ui-tooltip-provider>
-              <ui-tooltip>
-                <ui-tooltip-trigger as-child>
-                  <ui-button
-                    variant="ghost"
-                    size="icon"
-                    class="size-7"
-                    aria-label="刷新列表"
-                    :disabled="loading"
-                    @click="refresh"
-                  >
-                    <ui-refresh-cw class="size-3.5" :class="{ 'animate-spin': loading }" />
-                  </ui-button>
-                </ui-tooltip-trigger>
-                <ui-tooltip-content>刷新列表</ui-tooltip-content>
-              </ui-tooltip>
-            </ui-tooltip-provider>
-            <!-- 导入 zip：两种取字节方式（文件选择器 / 手输本地路径），取到字节之后链路完全共用。
-                 触发按钮用原生 title、不套 Tooltip —— Tooltip 与 DropdownMenuTrigger 不能叠
-                 （menu popper 会失去定位，见 AGENTS.md 的 UI 复用约束）。 -->
-            <ui-dropdown-menu>
-              <ui-dropdown-menu-trigger as-child>
-                <ui-button
-                  variant="ghost"
-                  size="sm"
-                  class="h-7 gap-1 px-2.5 text-xs"
-                  title="从 zip 导入脚本（可选文件或输入路径）"
-                  :disabled="importing"
-                >
-                  <ui-loader-circle v-if="importing" class="size-3.5 animate-spin" />
-                  <ui-upload v-else class="size-3.5" />
-                  导入
-                  <ui-chevron-down class="size-3 opacity-60" />
-                </ui-button>
-              </ui-dropdown-menu-trigger>
-              <ui-dropdown-menu-content align="end" class="w-48">
-                <ui-dropdown-menu-item @click="importInput?.click()">
-                  <ui-upload class="size-3.5" />
-                  选择 zip 文件…
-                </ui-dropdown-menu-item>
-                <ui-dropdown-menu-item @click="openPathImport">
-                  <ui-folder-input class="size-3.5" />
-                  输入文件路径…
-                </ui-dropdown-menu-item>
-              </ui-dropdown-menu-content>
-            </ui-dropdown-menu>
-            <input
-              ref="importInput"
-              type="file"
-              accept=".zip,application/zip"
-              class="hidden"
-              @change="onImportFile"
-            >
-            <!-- 全部导出：与每行导出共用确认弹窗（隐私提示只写一处） -->
-            <ui-button
-              variant="ghost"
-              size="sm"
-              class="h-7 gap-1 px-2.5 text-xs"
-              title="导出全部脚本"
-              :disabled="exporting || !scripts.length"
-              @click="askExportAll"
-            >
-              <ui-download class="size-3.5" />
-              全部导出
-            </ui-button>
-            <!-- 全部删除：破坏性操作，二次确认弹窗明示条数（范围 = 用户脚本，不含旧记录 / 内置件） -->
-            <ui-button
-              variant="ghost"
-              size="sm"
-              class="h-7 gap-1 px-2.5 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-              title="删除全部脚本"
-              :disabled="removingAll || !scripts.length"
-              @click="removeAllOpen = true"
-            >
-              <ui-loader-circle v-if="removingAll" class="size-3.5 animate-spin" />
-              <ui-trash-2 v-else class="size-3.5" />
-              全部删除
-            </ui-button>
-            <!-- 添加脚本：零输入创建（自动命名 + 初始模板 + 建 git 仓 + 启用） -->
-            <ui-button
-              size="sm"
-              class="h-7 gap-1 px-2.5 text-xs"
-              title="添加脚本"
-              :disabled="creating"
-              @click="onCreate"
-            >
-              <ui-loader-circle v-if="creating" class="size-3.5 animate-spin" />
-              <ui-plus v-else class="size-3.5" />
-              添加脚本
-            </ui-button>
-          </div>
-        </header>
+    <!-- 固定区：单行工具栏不随列表滚动 —— 计数 + 搜索 / 筛选 / 排序 / 批量 + 全部操作，列表再长入口也始终可见 -->
+    <div class="mx-auto w-full max-w-6xl shrink-0 px-5 pt-4">
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
+        <p class="shrink-0 text-xs text-muted-foreground">
+          共 {{ scripts.length }} 个脚本
+          <template v-if="scripts.length">· {{ enabledCount }} 个已启用</template>
+          <template v-if="isFiltering">· 筛选显示 {{ visibleScripts.length }} 个</template>
+        </p>
 
-        <!-- 工具行：搜索 + 状态筛选 + 排序 + 批量启停（脚本多了之后的管理入口；有脚本才显示） -->
-        <div v-if="scripts.length" class="flex flex-wrap items-center gap-2">
+        <!-- 搜索 / 筛选 / 排序 / 批量：管理工具，没有脚本时整段隐藏 -->
+        <template v-if="scripts.length">
           <!-- 搜索：按名称 / 匹配规则；有关键词时显示一键清空 -->
           <div class="relative min-w-0 flex-1 basis-48">
             <ui-search
@@ -740,24 +808,137 @@ function lastBuildLabel(s: ScriptSummary): string {
               </ui-dropdown-menu-item>
             </ui-dropdown-menu-content>
           </ui-dropdown-menu>
-        </div>
+        </template>
 
-        <!-- 可用性横幅：仅在引擎不可用时显示（有需要用户行动的信息才占位） -->
+        <!-- 右侧操作：刷新 / 导入常驻；低频与破坏性操作（全部导出 / 全部删除）收进「更多」溢出菜单 -->
+        <div class="ms-auto flex shrink-0 items-center gap-1">
+          <ui-tooltip-provider>
+            <ui-tooltip>
+              <ui-tooltip-trigger as-child>
+                <ui-button
+                  variant="ghost"
+                  size="icon"
+                  class="size-7"
+                  aria-label="刷新列表"
+                  :disabled="loading"
+                  @click="refresh"
+                >
+                  <ui-refresh-cw class="size-3.5" :class="{ 'animate-spin': loading }" />
+                </ui-button>
+              </ui-tooltip-trigger>
+              <ui-tooltip-content>刷新列表</ui-tooltip-content>
+            </ui-tooltip>
+          </ui-tooltip-provider>
+          <!-- 导入 zip：两种取字节方式（文件选择器 / 手输本地路径），取到字节之后链路完全共用。
+               触发按钮用原生 title、不套 Tooltip —— Tooltip 与 DropdownMenuTrigger 不能叠
+               （menu popper 会失去定位，见 AGENTS.md 的 UI 复用约束）。 -->
+          <ui-dropdown-menu>
+            <ui-dropdown-menu-trigger as-child>
+              <ui-button
+                variant="ghost"
+                size="sm"
+                class="h-7 gap-1 px-2.5 text-xs"
+                title="从 zip 导入脚本（可选文件或输入路径）"
+                :disabled="importing"
+              >
+                <ui-loader-circle v-if="importing" class="size-3.5 animate-spin" />
+                <ui-upload v-else class="size-3.5" />
+                导入
+                <ui-chevron-down class="size-3 opacity-60" />
+              </ui-button>
+            </ui-dropdown-menu-trigger>
+            <ui-dropdown-menu-content align="end" class="w-48">
+              <ui-dropdown-menu-item @click="importInput?.click()">
+                <ui-upload class="size-3.5" />
+                选择 zip 文件…
+              </ui-dropdown-menu-item>
+              <ui-dropdown-menu-item @click="openPathImport">
+                <ui-folder-input class="size-3.5" />
+                输入文件路径…
+              </ui-dropdown-menu-item>
+            </ui-dropdown-menu-content>
+          </ui-dropdown-menu>
+          <input
+            ref="importInput"
+            type="file"
+            accept=".zip,application/zip"
+            class="hidden"
+            @change="onImportFile"
+          >
+          <!-- 更多：与每行导出共用确认弹窗（隐私提示只写一处）；全部删除走二次确认弹窗 -->
+          <ui-dropdown-menu>
+            <ui-dropdown-menu-trigger as-child>
+              <ui-button
+                variant="ghost"
+                size="icon"
+                class="size-7"
+                aria-label="更多操作"
+                title="更多操作"
+              >
+                <ui-more-horizontal class="size-3.5" />
+              </ui-button>
+            </ui-dropdown-menu-trigger>
+            <ui-dropdown-menu-content align="end" class="w-44">
+              <ui-dropdown-menu-item :disabled="exporting || !scripts.length" @click="askExportAll">
+                <ui-download class="size-3.5" />
+                全部导出
+              </ui-dropdown-menu-item>
+              <ui-dropdown-menu-item
+                :disabled="removingAll || !scripts.length"
+                class="text-destructive focus:text-destructive"
+                @click="removeAllOpen = true"
+              >
+                <ui-trash-2 class="size-3.5" />
+                全部删除
+              </ui-dropdown-menu-item>
+            </ui-dropdown-menu-content>
+          </ui-dropdown-menu>
+          <!-- 新建分组：打开命名弹窗（空字符串 = 未分组，永不删） -->
+          <ui-button
+            size="sm"
+            class="h-7 gap-1 px-2.5 text-xs"
+            title="新建分组"
+            @click="openCreateGroup"
+          >
+            <ui-folder-plus class="size-3.5" />
+            新建分组
+          </ui-button>
+          <!-- 添加脚本：零输入创建（自动命名 + 初始模板 + 建 git 仓 + 启用） -->
+          <ui-button
+            size="sm"
+            class="h-7 gap-1 px-2.5 text-xs"
+            title="添加脚本"
+            :disabled="creating"
+            @click="onCreate"
+          >
+            <ui-loader-circle v-if="creating" class="size-3.5 animate-spin" />
+            <ui-plus v-else class="size-3.5" />
+            添加脚本
+          </ui-button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 滚动区：横幅 / 提示 / 脚本列表，只有这里滚 -->
+    <div class="min-h-0 flex-1 overflow-y-auto scroll-gap px-5 pb-5">
+      <div class="mx-auto max-w-6xl space-y-3 pt-1">
+
+        <!-- 可用性横幅：仅在引擎不可用时显示（有需要用户行动的信息才占位）；单行紧凑排版 -->
         <div
           v-if="availability && !availability.available"
-          class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs"
+          class="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs"
         >
-          <p class="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
-            <ui-alert-triangle class="size-3.5 shrink-0" />
-            用户脚本引擎不可用
+          <ui-alert-triangle class="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span class="shrink-0 font-medium text-amber-600 dark:text-amber-400">用户脚本引擎不可用</span>
+          <p class="min-w-0 flex-1 truncate text-muted-foreground" :title="availability.guideText">
+            {{ availability.guideText }}
           </p>
-          <p class="mt-1 leading-relaxed text-muted-foreground">{{ availability.guideText }}</p>
           <!-- 引导入口：完整步骤与「打开扩展管理页」按钮都在引导标签页，本页只留一句提示 -->
           <ui-button
             type="button"
             variant="outline"
             size="xs"
-            class="mt-2"
+            class="shrink-0"
             data-testid="open-guide"
             @click="emit('openGuide')"
           >
@@ -789,201 +970,262 @@ function lastBuildLabel(s: ScriptSummary): string {
           没有匹配的脚本。试试调整搜索关键词或筛选条件。
         </p>
 
-        <div v-else class="space-y-2">
-          <div
-            v-for="s in visibleScripts"
-            :key="s.uuid"
-            class="flex items-start gap-3 rounded-md border bg-card p-3"
+        <div v-else class="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
+          <template
+            v-for="item in viewItems"
+            :key="item.kind === 'header' ? 'h-' + item.id : item.s.uuid"
           >
-            <span
-              class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+            <!-- 分组头：点击折叠 / 展开；真实分组带重排与操作菜单，未分组只有折叠 -->
+            <div
+              v-if="item.kind === 'header'"
+              class="col-span-full flex items-center gap-1 pt-2"
             >
-              <ui-braces class="size-3.5" />
-            </span>
-
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2">
-                <!-- TooltipProvider：状态标悬停时刻用 shadcn Tooltip（原生 title 有 ~1s 浏览器
-                     延时）；Provider 默认 0ms 即显，包在名字行——TooltipRoot 必须有 Provider 上下文 -->
-                <ui-tooltip-provider>
-                  <span class="truncate text-sm font-medium">{{ s.name }}</span>
-                  <span
-                    v-if="justImported.includes(s.uuid) && !s.enabled"
-                    class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-                  >
-                    刚导入 · 未启用
-                  </span>
-                  <!-- 刚由「添加脚本」建成：新建不跳编辑器，靠这个标告诉人哪个是刚建的 -->
-                  <span
-                    v-else-if="justCreated.includes(s.uuid)"
-                    class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-                  >
-                    刚新建
-                  </span>
-                  <!-- 构建状态标：保存链瞬态（转圈）→ 落库终态（成功 / 失败） -->
-                  <span
-                    v-if="buildPhase[s.uuid]"
-                    class="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-                  >
-                    <ui-loader-circle class="size-3 animate-spin" />
-                    {{ buildPhase[s.uuid] === 'saving' ? '保存中' : '构建中' }}
-                  </span>
-                  <ui-tooltip v-else-if="s.buildOk">
-                    <ui-tooltip-trigger as-child>
-                      <span
-                        class="inline-flex shrink-0 cursor-default items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
-                      >
-                        <ui-check class="size-3" />
-                        构建成功
-                      </span>
-                    </ui-tooltip-trigger>
-                    <ui-tooltip-content>{{ lastBuildLabel(s) }}</ui-tooltip-content>
-                  </ui-tooltip>
-                  <!-- lastBuildAt=0 = 从未构建（导入后台构建还没轮到 / 被中断待对账），按构建中展示而非失败 -->
-                  <span
-                    v-else-if="s.lastBuildAt === 0"
-                    class="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-                  >
-                    <ui-loader-circle class="size-3 animate-spin" />
-                    构建中
-                  </span>
-                  <ui-tooltip v-else>
-                    <ui-tooltip-trigger as-child>
-                      <span
-                        class="inline-flex shrink-0 cursor-default items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
-                      >
-                        <ui-x class="size-3" />
-                        构建失败
-                      </span>
-                    </ui-tooltip-trigger>
-                    <ui-tooltip-content>{{ lastBuildLabel(s) }}</ui-tooltip-content>
-                  </ui-tooltip>
-                </ui-tooltip-provider>
-              </div>
-              <!-- 紧凑行：匹配规则占主体，文件数 / 更新时间收进同一行右侧（脚本多了行高越矮越好翻） -->
-              <div class="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                <p class="min-w-0 flex-1 truncate font-mono">
-                  {{ s.matches.join(', ') || '（无匹配规则）' }}
-                </p>
-                <span class="shrink-0 tabular-nums">
-                  {{ s.fileCount }} 个文件
-                  <template v-if="updatedAtLabel(s.updatedAt)">
-                    · {{ updatedAtLabel(s.updatedAt) }}
-                  </template>
-                </span>
-                <!-- 运行统计（有统计才渲染；runstats 域广播驱动实时回拉） -->
-                <span v-if="s.runCount !== undefined" class="shrink-0" data-testid="run-stats">
-                  · 运行 {{ s.runCount }} 次<template v-if="s.lastRunAt">，上次 {{ updatedAtLabel(s.lastRunAt) }}</template>
-                </span>
-                <span
-                  v-if="s.lastRunErrors"
-                  class="shrink-0 text-destructive"
-                  title="最近一次运行捕获的运行期错误数（详见运行日志标签页）"
-                >
-                  · 上次运行 {{ s.lastRunErrors }} 个错误
-                </span>
-              </div>
-            </div>
-
-            <div class="mt-0.5 flex shrink-0 items-center gap-1">
-              <ui-switch
-                :model-value="s.enabled"
-                :disabled="toggling === s.uuid"
-                :aria-label="`${s.name}：${s.enabled ? '已启用' : '已停用'}`"
-                @update:model-value="(v: boolean) => onToggle(s, v)"
+              <button
+                type="button"
+                class="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                :aria-expanded="!collapsed[item.id]"
+                @click="toggleCollapse(item.id)"
               >
-                <ui-switch-thumb />
-              </ui-switch>
-              <ui-tooltip-provider>
-                <ui-tooltip>
-                  <ui-tooltip-trigger as-child>
+                <ui-chevron-right v-if="collapsed[item.id]" class="size-3.5 shrink-0 text-muted-foreground" />
+                <ui-chevron-down v-else class="size-3.5 shrink-0 text-muted-foreground" />
+                <span class="truncate text-xs font-medium">{{ item.name }}</span>
+                <span class="shrink-0 text-[10px] tabular-nums text-muted-foreground">{{ item.count }}</span>
+              </button>
+              <template v-if="item.id !== UNGROUPED_KEY">
+                <ui-button
+                  variant="ghost"
+                  size="icon"
+                  class="size-6"
+                  title="上移分组"
+                  :disabled="item.id === firstGroupId"
+                  @click="reorderGroup(item.id, -1)"
+                >
+                  <ui-chevron-up class="size-3.5" />
+                </ui-button>
+                <ui-button
+                  variant="ghost"
+                  size="icon"
+                  class="size-6"
+                  title="下移分组"
+                  :disabled="item.id === lastGroupId"
+                  @click="reorderGroup(item.id, 1)"
+                >
+                  <ui-chevron-down class="size-3.5" />
+                </ui-button>
+                <ui-dropdown-menu>
+                  <ui-dropdown-menu-trigger as-child>
                     <ui-button
                       variant="ghost"
                       size="icon"
-                      class="size-7"
-                      aria-label="编辑脚本"
-                      @click="openEditor(s)"
+                      class="size-6"
+                      title="分组操作"
                     >
                       <ui-pencil class="size-3.5" />
                     </ui-button>
-                  </ui-tooltip-trigger>
-                  <ui-tooltip-content>编辑脚本</ui-tooltip-content>
-                </ui-tooltip>
-              </ui-tooltip-provider>
-              <!-- 导出（zip）：确认弹窗统一带隐私提示 -->
-              <ui-tooltip-provider>
-                <ui-tooltip>
-                  <ui-tooltip-trigger as-child>
-                    <ui-button
-                      variant="ghost"
-                      size="icon"
-                      class="size-7"
-                      aria-label="导出脚本（zip）"
-                      :disabled="exporting"
-                      @click="askExportSingle(s)"
+                  </ui-dropdown-menu-trigger>
+                  <ui-dropdown-menu-content align="end">
+                    <ui-dropdown-menu-item @click="openRenameGroup(item.id, item.name)">
+                      重命名分组
+                    </ui-dropdown-menu-item>
+                    <ui-dropdown-menu-item
+                      class="text-destructive focus:text-destructive"
+                      @click="askRemoveGroup(item.id)"
                     >
-                      <ui-download class="size-3.5" />
-                    </ui-button>
-                  </ui-tooltip-trigger>
-                  <ui-tooltip-content>导出脚本（zip）</ui-tooltip-content>
-                </ui-tooltip>
-              </ui-tooltip-provider>
-              <ui-tooltip-provider>
-                <ui-tooltip>
-                  <ui-tooltip-trigger as-child>
-                    <ui-button
-                      variant="ghost"
-                      size="icon"
-                      class="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      aria-label="删除脚本"
-                      :disabled="removing === s.uuid"
-                      @click="askRemove(s)"
-                    >
-                      <ui-trash2 class="size-3.5" />
-                    </ui-button>
-                  </ui-tooltip-trigger>
-                  <ui-tooltip-content>删除脚本</ui-tooltip-content>
-                </ui-tooltip>
-              </ui-tooltip-provider>
+                      删除分组
+                    </ui-dropdown-menu-item>
+                  </ui-dropdown-menu-content>
+                </ui-dropdown-menu>
+              </template>
             </div>
-          </div>
-        </div>
 
-        <!-- 内置分组：随扩展包分发的只读内置件（不进状态库、无启停 / 编辑 / 删除，内置脚本承载设计） -->
-        <section
-          v-if="BUILTIN_SCRIPTS.length"
-          class="rounded-md border bg-card"
-          data-testid="builtin-scripts"
-        >
-          <div class="border-b px-3 py-2">
-            <p class="flex items-center gap-1.5 text-xs font-medium">
-              <ui-package class="size-3.5 text-muted-foreground" />
-              内置
-              <span class="font-normal text-muted-foreground">随扩展分发 · 只读</span>
-            </p>
-          </div>
-          <div
-            v-for="b in BUILTIN_SCRIPTS"
-            :key="b.id"
-            class="flex items-start gap-3 px-3 py-2.5"
-          >
-            <span
-              class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+            <!-- 脚本卡片（网格单元；s = item.s）：图标 + 名称 + 状态标 → 匹配规则 → 元信息 → 底部开关 + 操作 -->
+            <div
+              v-else
+              class="flex flex-col rounded-md border bg-card p-3"
             >
-              <ui-mouse-pointer-click class="size-3.5" />
-            </span>
-            <div class="min-w-0 flex-1">
-              <p class="text-sm font-medium">{{ b.name }}</p>
-              <p class="mt-0.5 text-xs leading-relaxed text-muted-foreground">{{ b.description }}</p>
+              <!-- 顶部：图标 + 名称 + 构建状态标（名称截断，状态标保持可见） -->
+              <div class="flex items-start gap-2">
+                <span
+                  class="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+                >
+                  <ui-braces class="size-3.5" />
+                </span>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-1.5">
+                    <!-- TooltipProvider：状态标悬停时刻用 shadcn Tooltip（原生 title 有 ~1s 浏览器
+                         延时）；Provider 默认 0ms 即显，包在名字行——TooltipRoot 必须有 Provider 上下文 -->
+                    <ui-tooltip-provider>
+                      <span class="truncate text-sm font-medium">{{ item.s.name }}</span>
+                      <span
+                        v-if="justImported.includes(item.s.uuid) && !item.s.enabled"
+                        class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                      >
+                        刚导入 · 未启用
+                      </span>
+                      <!-- 刚由「添加脚本」建成：新建不跳编辑器，靠这个标告诉人哪个是刚建的 -->
+                      <span
+                        v-else-if="justCreated.includes(item.s.uuid)"
+                        class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                      >
+                        刚新建
+                      </span>
+                      <!-- 构建状态标：保存链瞬态（转圈）→ 落库终态（成功 / 失败） -->
+                      <span
+                        v-if="buildPhase[item.s.uuid]"
+                        class="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                      >
+                        <ui-loader-circle class="size-3 animate-spin" />
+                        {{ buildPhase[item.s.uuid] === 'saving' ? '保存中' : '构建中' }}
+                      </span>
+                      <ui-tooltip v-else-if="item.s.buildOk">
+                        <ui-tooltip-trigger as-child>
+                          <span
+                            class="inline-flex shrink-0 cursor-default items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
+                          >
+                            <ui-check class="size-3" />
+                            构建成功
+                          </span>
+                        </ui-tooltip-trigger>
+                        <ui-tooltip-content>{{ lastBuildLabel(item.s) }}</ui-tooltip-content>
+                      </ui-tooltip>
+                      <!-- lastBuildAt=0 = 从未构建（导入后台构建还没轮到 / 被中断待对账），按构建中展示而非失败 -->
+                      <span
+                        v-else-if="item.s.lastBuildAt === 0"
+                        class="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                      >
+                        <ui-loader-circle class="size-3 animate-spin" />
+                        构建中
+                      </span>
+                      <ui-tooltip v-else>
+                        <ui-tooltip-trigger as-child>
+                          <span
+                            class="inline-flex shrink-0 cursor-default items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
+                          >
+                            <ui-x class="size-3" />
+                            构建失败
+                          </span>
+                        </ui-tooltip-trigger>
+                        <ui-tooltip-content>{{ lastBuildLabel(item.s) }}</ui-tooltip-content>
+                      </ui-tooltip>
+                    </ui-tooltip-provider>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 匹配规则（占满一行，截断） -->
+              <p class="mt-2 truncate font-mono text-xs text-muted-foreground">
+                {{ item.s.matches.join(', ') || '（无匹配规则）' }}
+              </p>
+              <!-- 元信息：文件数 / 更新时间 / 运行统计（窄卡片自动换行） -->
+              <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
+                <span class="shrink-0">{{ item.s.fileCount }} 个文件</span>
+                <span v-if="updatedAtLabel(item.s.updatedAt)" class="shrink-0">· {{ updatedAtLabel(item.s.updatedAt) }}</span>
+                <!-- 运行统计（有统计才渲染；runstats 域广播驱动实时回拉） -->
+                <span v-if="item.s.runCount !== undefined" class="shrink-0" data-testid="run-stats">· 运行 {{ item.s.runCount }} 次<template v-if="item.s.lastRunAt">，上次 {{ updatedAtLabel(item.s.lastRunAt) }}</template></span>
+                <span
+                  v-if="item.s.lastRunErrors"
+                  class="shrink-0 text-destructive"
+                  title="最近一次运行捕获的运行期错误数（详见运行日志标签页）"
+                >· 上次运行 {{ item.s.lastRunErrors }} 个错误</span>
+              </div>
+
+              <!-- 底部：启用开关 + 操作（编辑 / 移动 / 导出 / 删除） -->
+              <div class="mt-3 flex items-center justify-between gap-2 border-t pt-2.5">
+                <ui-switch
+                  :model-value="item.s.enabled"
+                  :disabled="toggling === item.s.uuid"
+                  :aria-label="`${item.s.name}：${item.s.enabled ? '已启用' : '已停用'}`"
+                  @update:model-value="(v: boolean) => onToggle(item.s, v)"
+                >
+                  <ui-switch-thumb />
+                </ui-switch>
+                <div class="flex items-center gap-1">
+                  <ui-tooltip-provider>
+                    <ui-tooltip>
+                      <ui-tooltip-trigger as-child>
+                        <ui-button
+                          variant="ghost"
+                          size="icon"
+                          class="size-6"
+                          aria-label="编辑脚本"
+                          @click="openEditor(item.s)"
+                        >
+                          <ui-pencil class="size-3.5" />
+                        </ui-button>
+                      </ui-tooltip-trigger>
+                      <ui-tooltip-content>编辑脚本</ui-tooltip-content>
+                    </ui-tooltip>
+                  </ui-tooltip-provider>
+                  <!-- 移动到分组：列出全部分组 + 未分组，当前所在项禁用 -->
+                  <ui-dropdown-menu>
+                    <ui-dropdown-menu-trigger as-child>
+                      <ui-button
+                        variant="ghost"
+                        size="icon"
+                        class="size-6"
+                        aria-label="移动到分组"
+                        title="移动到分组"
+                      >
+                        <ui-move class="size-3.5" />
+                      </ui-button>
+                    </ui-dropdown-menu-trigger>
+                    <ui-dropdown-menu-content align="end" class="max-h-64 overflow-y-auto">
+                      <ui-dropdown-menu-item
+                        :disabled="!item.s.group"
+                        @click="moveToGroup(item.s, '')"
+                      >
+                        未分组
+                      </ui-dropdown-menu-item>
+                      <ui-dropdown-menu-item
+                        v-for="g in groups"
+                        :key="g.id"
+                        :disabled="item.s.group === g.id"
+                        @click="moveToGroup(item.s, g.id)"
+                      >
+                        {{ g.name }}
+                      </ui-dropdown-menu-item>
+                    </ui-dropdown-menu-content>
+                  </ui-dropdown-menu>
+                  <!-- 导出（zip）：确认弹窗统一带隐私提示 -->
+                  <ui-tooltip-provider>
+                    <ui-tooltip>
+                      <ui-tooltip-trigger as-child>
+                        <ui-button
+                          variant="ghost"
+                          size="icon"
+                          class="size-6"
+                          aria-label="导出脚本（zip）"
+                          :disabled="exporting"
+                          @click="askExportSingle(item.s)"
+                        >
+                          <ui-download class="size-3.5" />
+                        </ui-button>
+                      </ui-tooltip-trigger>
+                      <ui-tooltip-content>导出脚本（zip）</ui-tooltip-content>
+                    </ui-tooltip>
+                  </ui-tooltip-provider>
+                  <ui-tooltip-provider>
+                    <ui-tooltip>
+                      <ui-tooltip-trigger as-child>
+                        <ui-button
+                          variant="ghost"
+                          size="icon"
+                          class="size-6 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          aria-label="删除脚本"
+                          :disabled="removing === item.s.uuid"
+                          @click="askRemove(item.s)"
+                        >
+                          <ui-trash2 class="size-3.5" />
+                        </ui-button>
+                      </ui-tooltip-trigger>
+                      <ui-tooltip-content>删除脚本</ui-tooltip-content>
+                    </ui-tooltip>
+                  </ui-tooltip-provider>
+                </div>
+              </div>
             </div>
-            <span
-              class="mt-0.5 shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-              title="内置件按需注入、无启用概念，也没有编辑 / 删除"
-            >
-              常驻可用
-            </span>
-          </div>
-        </section>
+          </template>
+        </div>
 
       </div>
     </div>
@@ -998,9 +1240,6 @@ function lastBuildLabel(s: ScriptSummary): string {
         <ui-dialog-description class="text-sm text-muted-foreground">
           确定删除全部 {{ scripts.length }} 个脚本吗？各自的 git 历史会一并删除。
           <span class="mt-2 block text-destructive">此操作不可撤销。</span>
-          <span class="mt-1 block text-xs">
-            内置脚本不受影响。
-          </span>
         </ui-dialog-description>
         <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
           <ui-button variant="ghost" size="sm" @click="removeAllOpen = false">取消</ui-button>
@@ -1210,6 +1449,68 @@ function lastBuildLabel(s: ScriptSummary): string {
         </template>
         <ui-dialog-footer class="flex-none sm:justify-end">
           <ui-button size="sm" @click="importReport = null">好的</ui-button>
+        </ui-dialog-footer>
+      </ui-dialog-content>
+    </ui-dialog>
+
+    <!-- 新建 / 重命名分组：双用途（groupDialogTarget 为空 = 新建） -->
+    <ui-dialog
+      :open="groupDialogOpen"
+      @update:open="(v: boolean) => { if (!v) groupDialogOpen = false }"
+    >
+      <ui-dialog-content class="max-w-md">
+        <ui-dialog-title class="text-base font-semibold">
+          {{ groupDialogTarget ? '重命名分组' : '新建分组' }}
+        </ui-dialog-title>
+        <ui-dialog-description class="text-sm text-muted-foreground">
+          {{ groupDialogTarget ? '修改该分组的显示名称，不影响其下脚本。' : '给一组脚本起个名字，方便在列表里归类。' }}
+        </ui-dialog-description>
+        <div class="mt-3">
+          <ui-input
+            v-model="groupDialogName"
+            :placeholder="groupDialogTarget ? '分组名称' : '如：购物助手'"
+            aria-label="分组名称"
+            spellcheck="false"
+            autocomplete="off"
+            @keydown.enter="confirmGroupDialog"
+          />
+        </div>
+        <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
+          <ui-button variant="ghost" size="sm" @click="groupDialogOpen = false">
+            取消
+          </ui-button>
+          <ui-button
+            size="sm"
+            :disabled="!groupDialogName.trim()"
+            @click="confirmGroupDialog"
+          >
+            {{ groupDialogTarget ? '保存' : '创建' }}
+          </ui-button>
+        </ui-dialog-footer>
+      </ui-dialog-content>
+    </ui-dialog>
+
+    <!-- 删除分组确认：成员自动退回未分组 -->
+    <ui-dialog
+      :open="!!removeGroupTarget"
+      @update:open="(v: boolean) => { if (!v) removeGroupTarget = null }"
+    >
+      <ui-dialog-content class="max-w-md">
+        <ui-dialog-title class="text-base font-semibold">删除分组</ui-dialog-title>
+        <ui-dialog-description class="text-sm text-muted-foreground">
+          删除分组「{{ groupById.get(removeGroupTarget ?? '')?.name ?? '' }}」后，其下脚本将退回「未分组」。此操作不可撤销。
+        </ui-dialog-description>
+        <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
+          <ui-button variant="ghost" size="sm" @click="removeGroupTarget = null">
+            取消
+          </ui-button>
+          <ui-button
+            size="sm"
+            variant="destructive"
+            @click="confirmRemoveGroup"
+          >
+            删除
+          </ui-button>
         </ui-dialog-footer>
       </ui-dialog-content>
     </ui-dialog>

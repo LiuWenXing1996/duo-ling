@@ -11,12 +11,15 @@
 // 这不是技术限制（技术上谁都能写），是刻意的收敛——一次保存只有一个写方，
 // 「写了状态但没 commit」「已保存但没 commit」这类偏差就没有产生的缝隙。
 // 违反方式：在 offscreen 之外 import writeProject / removeProject 等。
-import type { ScriptProject } from './types'
+import type { ScriptGroup, ScriptProject } from './types'
 
 const DB_NAME = 'duoling-state'
-const DB_VERSION = 1
+const DB_VERSION = 2
+export const STATE_DB_VERSION = DB_VERSION
 const STORE = 'projects'
 const KEY_PATH = 'uuid'
+/** 分组对象库（脚本列表分组功能）；keyPath = id。与 projects 同库、同单写方约束 */
+const GROUPS_STORE = 'groups'
 
 let dbPromise: Promise<IDBDatabase> | undefined
 
@@ -28,6 +31,10 @@ function openDb(): Promise<IDBDatabase> {
         const db = req.result
         if (!db.objectStoreNames.contains(STORE)) {
           db.createObjectStore(STORE, { keyPath: KEY_PATH })
+        }
+        // v2 升级：新增 groups 对象库（已存在的库走 onupgradeneeded 补建，无数据迁移）
+        if (!db.objectStoreNames.contains(GROUPS_STORE)) {
+          db.createObjectStore(GROUPS_STORE, { keyPath: 'id' })
         }
       }
       req.onsuccess = () => {
@@ -68,14 +75,15 @@ function isDeadConnection(e: unknown): boolean {
  * 库被删本身无害：重新 open 时 onupgradeneeded 会把表建回来。
  */
 async function runTx<T>(
+  store: string,
   mode: IDBTransactionMode,
   run: (tx: IDBTransaction, store: IDBObjectStore) => Promise<T>,
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     const db = await openDb()
     try {
-      const tx = db.transaction(STORE, mode)
-      return await run(tx, tx.objectStore(STORE))
+      const tx = db.transaction(store, mode)
+      return await run(tx, tx.objectStore(store))
     } catch (e) {
       dbPromise = undefined
       if (attempt < 2 && isDeadConnection(e)) continue
@@ -88,7 +96,15 @@ async function withStore<T>(
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
-  return runTx(mode, (_tx, store) => request(run(store)))
+  return runTx(STORE, mode, (_tx, store) => request(run(store)))
+}
+
+/** 与 withStore 同构，但作用于 groups 对象库（脚本列表分组功能） */
+async function withGroupsStore<T>(
+  mode: IDBTransactionMode,
+  run: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
+  return runTx(GROUPS_STORE, mode, (_tx, store) => request(run(store)))
 }
 
 /** 读一个项目；不存在或形态不对（非 v:1）返回 undefined */
@@ -118,7 +134,7 @@ export async function removeProject(uuid: string): Promise<void> {
 /** 批量删除（同一事务，要么全成功要么全失败） */
 export async function removeProjects(uuids: string[]): Promise<void> {
   if (!uuids.length) return
-  await runTx('readwrite', (tx, store) => {
+  await runTx(STORE, 'readwrite', (tx, store) => {
     for (const uuid of uuids) store.delete(uuid)
     return new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve()
@@ -126,4 +142,27 @@ export async function removeProjects(uuids: string[]): Promise<void> {
       tx.onabort = () => reject(tx.error ?? new Error('批量删除被中止'))
     })
   })
+}
+
+// —— 分组对象库（脚本列表分组功能；与 projects 同单写方约束，只许 offscreen 调用） ——
+
+/** 读全部分组（按 order 升序；顺序由 UI 决定展示） */
+export async function readAllGroups(): Promise<ScriptGroup[]> {
+  const all = await withGroupsStore<ScriptGroup[]>('readonly', (s) => s.getAll())
+  return (all ?? []).sort((a, b) => a.order - b.order)
+}
+
+/** 读单个分组；不存在返回 undefined */
+export async function readGroup(id: string): Promise<ScriptGroup | undefined> {
+  return withGroupsStore<ScriptGroup | undefined>('readonly', (s) => s.get(id))
+}
+
+/** 写入 / 覆盖一个分组 */
+export async function writeGroup(group: ScriptGroup): Promise<void> {
+  await withGroupsStore('readwrite', (s) => s.put(group))
+}
+
+/** 删除一个分组（不影响项目：归未分组由调用方负责改写各项目的 group 字段） */
+export async function removeGroup(id: string): Promise<void> {
+  await withGroupsStore('readwrite', (s) => s.delete(id))
 }

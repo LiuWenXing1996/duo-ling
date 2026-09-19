@@ -13,13 +13,18 @@ import { listProjects } from './project-store'
 import {
   clearDepsCache,
   createGeneratedProject,
+  createGroup,
   createProject,
   importScriptsZip,
   refreshDepsCache,
   removeAllProjects,
+  removeGroupAndReassign,
   removeProjectAndRepo,
+  renameGroup,
+  reorderGroups,
   saveExisting,
   setProjectEnabled,
+  setProjectGroup,
 } from './project-write'
 import type { ScriptProject } from './types'
 import { pfs } from './us-fs'
@@ -75,6 +80,35 @@ async function runStateCommand(msg: StateRequest): Promise<unknown> {
     case 'state:deps-clear':
       // 清依赖缓存：只删 _deps/，不拉不建（产物保留，下次构建自然冷拉）
       return clearDepsCache(msg.uuid)
+    case 'state:group-create': {
+      // 新建分组：建好即广播 group 域，列表端回拉分组定义
+      const { kind: _kind, ...payload } = msg
+      const group = await createGroup(payload.name)
+      broadcastDataChange('group')
+      return group
+    }
+    case 'state:group-rename': {
+      const { kind: _kind, ...payload } = msg
+      const group = await renameGroup(payload.id, payload.name)
+      broadcastDataChange('group')
+      return group
+    }
+    case 'state:group-remove': {
+      // 删除分组：先将其成员退回未分组，再删定义；列表端经 'group' + 'script' 双域回拉
+      await removeGroupAndReassign(msg.id)
+      broadcastDataChange('group')
+      return undefined
+    }
+    case 'state:group-reorder': {
+      await reorderGroups(msg.orderedIds)
+      broadcastDataChange('group')
+      return undefined
+    }
+    case 'state:set-group': {
+      // 把脚本归入分组：只改脚本的 group 字段，外层 handleStateCommand 已广播 'script'
+      const { kind: _kind, ...payload } = msg
+      return setProjectGroup(payload.uuid, payload.group)
+    }
   }
 }
 

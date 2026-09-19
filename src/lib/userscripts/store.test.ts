@@ -63,6 +63,7 @@ describe('listSummaries', () => {
       updatedAt: 42,
       buildOk: true,
       lastBuildAt: 99,
+      group: '',
     })
     expect('files' in summaries[0]).toBe(false)
     expect('bundle' in summaries[0]).toBe(false)
