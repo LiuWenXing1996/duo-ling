@@ -22,5 +22,5 @@
 
 ### Added
 
-- 版本机制建立：`VERSIONING.md` 约定 + `npm run release` 发版脚本 + 构建信息栏 / 设置页显示版本号。
+- 版本机制建立：`VERSIONING.md` 约定 + `npm run release` 发版脚本。
 
