@@ -12,7 +12,9 @@ import {
   Check as UiCheck,
   ChevronDown as UiChevronDown,
   Download as UiDownload,
+  ExternalLink as UiExternalLink,
   FileQuestion as UiFileQuestion,
+  FolderInput as UiFolderInput,
   ListFilter as UiListFilter,
   LoaderCircle as UiLoaderCircle,
   MousePointerClick as UiMousePointerClick,
@@ -55,9 +57,11 @@ import {
   TooltipTrigger as UiTooltipTrigger
 } from '@/components/ui/tooltip'
 import { formatTimestamp } from '@/lib/format'
+import { isFileSchemeAccessAllowed, openOwnExtensionPage } from '@/lib/extension-page'
 import { useDataSync } from '@/composables/use-data-sync'
 import { BUILTIN_SCRIPTS } from '@/lib/userscripts/builtins'
 import { fsClient, subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
+import { headHex, looksLikeZip, toFileUrl } from '@/lib/userscripts/local-path'
 import { base64ToBytes, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
 import type { BuildPhase } from '@/shared/extension-ipc'
 import type {
@@ -278,6 +282,16 @@ const importInput = ref<HTMLInputElement | null>(null)
 const importReport = ref<ImportReport | null>(null)
 /** 刚导入的脚本 uuid：列表标「刚导入 · 未启用」，手动启用后即摘标 */
 const justImported = ref<string[]>([])
+/** 本次导入的来源路径（仅「从路径导入」时有值，展示在汇总报告里；文件选择器读不到真路径） */
+const importedFrom = ref('')
+/** 路径导入弹窗是否打开 */
+const pathImportOpen = ref(false)
+/** 路径输入框内容（手敲或粘贴） */
+const importPath = ref('')
+/** 路径导入的即时错误：校验不过 / 读不到文件 / 读到的不是 zip，就地展示在输入框下 */
+const pathError = ref('')
+/** 「允许访问文件网址」开关状态：null = 探测不到（不据此拦人，只少给一句提示） */
+const fileAccessAllowed = ref<boolean | null>(null)
 
 function askExportSingle(s: ScriptSummary): void {
   pendingExport.value = { kind: 'single', summary: s }
@@ -341,9 +355,23 @@ function downloadZip(bytes: Uint8Array, filename: string): void {
 }
 
 /**
- * 选定 zip 文件后导入：读文件转 base64 → userscript:import（offscreen 解码 + 校验 + 构建 + 落盘）。
- * 成功动线：导入后**不自动进编辑器**，统一弹汇总报告（成功 / 失败 + 未导入文件），
+ * 把一段**已读到的 zip 字节**送进导入链路 —— 文件选择器与「从路径导入」共用这一条动线：
+ * 成功后不自动进编辑器，统一弹汇总报告（成功 / 失败 + 未导入文件），
  * 新导入的脚本在列表行标「刚导入 · 未启用」，由用户按需手动启用或点编辑。
+ * 只管「送进去」，不管取字节 —— importing / 错误条归调用方（两处取字节的失败语义不同）。
+ */
+async function runImport(bytes: Uint8Array): Promise<void> {
+  error.value = ''
+  const report = await userscriptClient.importZip(bytesToBase64(bytes))
+  for (const r of report.results) {
+    if (r.status === 'ok') justImported.value = [...justImported.value, r.uuid]
+  }
+  await refresh()
+  importReport.value = report
+}
+
+/**
+ * 选定 zip 文件后导入：读文件转 base64 → userscript:import（offscreen 解码 + 校验 + 构建 + 落盘）。
  */
 async function onImportFile(e: Event): Promise<void> {
   const input = e.target as HTMLInputElement
@@ -351,19 +379,68 @@ async function onImportFile(e: Event): Promise<void> {
   input.value = '' // 清空以允许重复选择同一个文件
   if (!file || importing.value) return
   importing.value = true
-  error.value = ''
+  importedFrom.value = '' // 文件选择器给的是假路径（fakepath），不复述
   try {
-    const bytes = new Uint8Array(await file.arrayBuffer())
-    const report = await userscriptClient.importZip(bytesToBase64(bytes))
-    for (const r of report.results) {
-      if (r.status === 'ok') justImported.value = [...justImported.value, r.uuid]
-    }
-    await refresh()
-    // 导入不自动进编辑器：统一走汇总报告（含成功 N / 失败 M + 原因 + 指纹重复提示）；
-    // 「刚导入·未启用」标已通过 justImported 在列表行体现，用户按需手动点编辑
-    importReport.value = report
+    await runImport(new Uint8Array(await file.arrayBuffer()))
   } catch (err) {
     error.value = '导入失败：' + (err instanceof Error ? err.message : String(err))
+  } finally {
+    importing.value = false
+  }
+}
+
+/**
+ * 打开「从路径导入」弹窗。每次打开都重探一次开关状态 —— 用户很可能刚从扩展详情页
+ * 开完「允许访问文件网址」就回来试，状态不该是弹窗首次打开时的陈旧快照。
+ */
+async function openPathImport(): Promise<void> {
+  importPath.value = ''
+  pathError.value = ''
+  pathImportOpen.value = true
+  fileAccessAllowed.value = await isFileSchemeAccessAllowed()
+}
+
+/**
+ * 从路径导入：路径文本归一成 file:// URL → fetch 读字节 → 走与文件选择器同一条动线。
+ *
+ * 走 fetch 而不是再弹一次文件选择器，是因为扩展页读本地文件**已有**权限：manifest 里的
+ * `<all_urls>` 覆盖 `file:///*`（实测 chrome.permissions.contains 为真），故本功能
+ * **不需要新增任何 manifest 权限**；门槛只剩用户级的「允许访问文件网址」开关，
+ * 且命令行加载的 unpacked 扩展（= `npm run dev` 与手测加载方式）该开关默认就是开的。
+ */
+async function confirmPathImport(): Promise<void> {
+  if (importing.value) return
+  pathError.value = ''
+  const target = toFileUrl(importPath.value)
+  if (!target.ok) {
+    pathError.value = target.reason
+    return
+  }
+  importing.value = true
+  try {
+    let bytes: Uint8Array
+    try {
+      const res = await fetch(target.url)
+      bytes = new Uint8Array(await res.arrayBuffer())
+    } catch {
+      // fetch 对「没开开关」与「文件不存在」报的是同一句 "Failed to fetch"，分不出来 ——
+      // 拿开关状态把话说到点上；探测不到（null）时两种都提，不替用户猜。
+      pathError.value =
+        fileAccessAllowed.value === false
+          ? '读不到文件：本扩展未开启「允许访问文件网址」。点下方按钮到扩展详情页开启（该项需重启浏览器生效），回来重试。'
+          : `读不到文件：${target.path}\n请确认路径拼写与大小写完全一致，且指向 .zip 文件本身（目录读不了）。`
+      return
+    }
+    // 后缀骗人（拿目录 / 换成别的文件）时在入口先按魔数拦下，别让解码层报「不是合法 zip」
+    if (!looksLikeZip(bytes)) {
+      pathError.value = `这个路径读到的不是 zip（前 4 字节 ${headHex(bytes)}），请确认指向的是导入包本身。`
+      return
+    }
+    importedFrom.value = target.path
+    await runImport(bytes)
+    pathImportOpen.value = false
+  } catch (err) {
+    pathError.value = '导入失败：' + (err instanceof Error ? err.message : String(err))
   } finally {
     importing.value = false
   }
@@ -492,19 +569,35 @@ function lastBuildLabel(s: ScriptSummary): string {
                 <ui-tooltip-content>刷新列表</ui-tooltip-content>
               </ui-tooltip>
             </ui-tooltip-provider>
-            <!-- 导入 zip：file picker（拖拽导入后置），offscreen 单写方落盘后按成功动线分流 -->
-            <ui-button
-              variant="ghost"
-              size="sm"
-              class="h-7 gap-1 px-2.5 text-xs"
-              title="从 zip 导入脚本"
-              :disabled="importing"
-              @click="importInput?.click()"
-            >
-              <ui-loader-circle v-if="importing" class="size-3.5 animate-spin" />
-              <ui-upload v-else class="size-3.5" />
-              导入
-            </ui-button>
+            <!-- 导入 zip：两种取字节方式（文件选择器 / 手输本地路径），取到字节之后链路完全共用。
+                 触发按钮用原生 title、不套 Tooltip —— Tooltip 与 DropdownMenuTrigger 不能叠
+                 （menu popper 会失去定位，见 AGENTS.md 的 UI 复用约束）。 -->
+            <ui-dropdown-menu>
+              <ui-dropdown-menu-trigger as-child>
+                <ui-button
+                  variant="ghost"
+                  size="sm"
+                  class="h-7 gap-1 px-2.5 text-xs"
+                  title="从 zip 导入脚本（可选文件或输入路径）"
+                  :disabled="importing"
+                >
+                  <ui-loader-circle v-if="importing" class="size-3.5 animate-spin" />
+                  <ui-upload v-else class="size-3.5" />
+                  导入
+                  <ui-chevron-down class="size-3 opacity-60" />
+                </ui-button>
+              </ui-dropdown-menu-trigger>
+              <ui-dropdown-menu-content align="end" class="w-48">
+                <ui-dropdown-menu-item @click="importInput?.click()">
+                  <ui-upload class="size-3.5" />
+                  选择 zip 文件…
+                </ui-dropdown-menu-item>
+                <ui-dropdown-menu-item @click="openPathImport">
+                  <ui-folder-input class="size-3.5" />
+                  输入文件路径…
+                </ui-dropdown-menu-item>
+              </ui-dropdown-menu-content>
+            </ui-dropdown-menu>
             <input
               ref="importInput"
               type="file"
@@ -952,6 +1045,66 @@ function lastBuildLabel(s: ScriptSummary): string {
       </ui-dialog-content>
     </ui-dialog>
 
+    <!-- 从路径导入：手输 / 粘贴本地 zip 的绝对路径。取字节走 fetch('file:///…')，
+         之后与文件选择器共用同一条导入动线（见 confirmPathImport） -->
+    <ui-dialog
+      :open="pathImportOpen"
+      @update:open="(v: boolean) => { if (!v) pathImportOpen = false }"
+    >
+      <ui-dialog-content class="max-w-lg">
+        <ui-dialog-title class="text-base font-semibold">从路径导入</ui-dialog-title>
+        <ui-dialog-description class="text-sm text-muted-foreground">
+          填本地 zip 导入包的绝对路径（以 / 开头）—— 扩展读不到相对路径（没有工作目录），
+          也展开不了 ~（拿不到家目录）。
+        </ui-dialog-description>
+        <div class="mt-3">
+          <ui-input
+            v-model="importPath"
+            placeholder="/Users/…/duoling-scripts.zip"
+            spellcheck="false"
+            autocomplete="off"
+            :disabled="importing"
+            @keydown.enter="confirmPathImport"
+          />
+          <p
+            v-if="pathError"
+            class="mt-2 whitespace-pre-wrap break-all text-xs text-destructive"
+          >{{ pathError }}</p>
+          <!-- 开关未开：给一键直达（该项改动要重启浏览器才生效，Chrome 自己的提示如此） -->
+          <div
+            v-if="fileAccessAllowed === false"
+            class="mt-2 rounded-md border border-amber-500/40 p-2"
+          >
+            <p class="flex items-start gap-1 text-xs text-amber-600 dark:text-amber-400">
+              <ui-alert-triangle class="mt-px size-3.5 shrink-0" />
+              <span>未开启「允许访问文件网址」，路径导入读不到本地文件（文件选择器不受影响）。</span>
+            </p>
+            <ui-button
+              variant="outline"
+              size="sm"
+              class="mt-2 h-7 gap-1 px-2 text-xs"
+              @click="openOwnExtensionPage()"
+            >
+              <ui-external-link class="size-3" />
+              打开扩展详情页
+            </ui-button>
+          </div>
+        </div>
+        <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
+          <ui-button variant="ghost" size="sm" :disabled="importing" @click="pathImportOpen = false">
+            取消
+          </ui-button>
+          <ui-button
+            size="sm"
+            :disabled="importing || !importPath.trim()"
+            @click="confirmPathImport"
+          >
+            导入
+          </ui-button>
+        </ui-dialog-footer>
+      </ui-dialog-content>
+    </ui-dialog>
+
     <!-- 导入汇总报告：导入后统一展示（成功 / 失败 + 提示，以及未导入的文件） -->
     <ui-dialog
       :open="!!importReport"
@@ -964,6 +1117,8 @@ function lastBuildLabel(s: ScriptSummary): string {
         </ui-dialog-title>
         <ui-dialog-description class="text-sm text-muted-foreground">
           新导入的脚本默认停用——审过源码后再手动启用。
+          <!-- 路径导入复述一下来源：文件选择器那条给不了真路径，就不显示 -->
+          <span v-if="importedFrom" class="mt-1 block break-all text-xs">来源：{{ importedFrom }}</span>
         </ui-dialog-description>
         <ul class="mt-3 flex max-h-64 flex-col gap-2 overflow-y-auto">
           <li

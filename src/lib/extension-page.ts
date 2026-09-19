@@ -38,6 +38,32 @@ export async function openOwnExtensionPage(chromeMajor = getChromeMajorVersion()
   await chrome.tabs.create({ url: ownExtensionPageUrl(chrome.runtime.id, chromeMajor) })
 }
 
+/**
+ * 「允许访问文件网址」的当前状态 —— 本地路径导入的前置条件（导入走 `fetch('file:///…')`）。
+ *
+ * 三态是刻意的：`true` / `false` / `null`（探测不到）。null ≠ 「没权限」，调用方不得据此拦人，
+ * 只能少给一句提示 —— 探测不到还硬拦会把能用的环境挡在门外。
+ *
+ * ⚠️ MV3 实测（Chromium 141，2026-09-19 无头探针）：该 API 已 **promise 化** ——
+ * `chrome.extension.isAllowedFileSchemeAccess()` 不 await 会拿到一个 Promise 对象
+ * （truthy、JSON 序列化成 `{}`），当布尔用必然判错（探针第一版就踩了这个，读数显示成 `{}`）。
+ * 故这里同时兼容 promise 与同步返回；`@types/chrome` 的声明仍是回调形态，故整体收成 loose 签名。
+ */
+export async function isFileSchemeAccessAllowed(): Promise<boolean | null> {
+  try {
+    const fn = (
+      chrome as unknown as {
+        extension?: { isAllowedFileSchemeAccess?: () => boolean | Promise<boolean> }
+      }
+    ).extension?.isAllowedFileSchemeAccess
+    if (typeof fn !== 'function') return null
+    const r = fn()
+    return r && typeof (r as Promise<boolean>).then === 'function' ? await (r as Promise<boolean>) : r
+  } catch {
+    return null
+  }
+}
+
 /** 引导步骤：一步一个动作；detail 是可选的补充说明（渲染在同一行的弱化文字里） */
 export interface GuideStep {
   title: string
