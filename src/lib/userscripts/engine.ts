@@ -821,11 +821,21 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   await chrome.userScripts.register([userScript])
 }
 
-/** 注销指定 id（ids 为空直接跳过） */
+/**
+ * 注销指定 id（ids 为空直接跳过）。
+ *
+ * Chrome 的 unregister 批量语义是**整批原子**：ids 里混进任何一个已不在册的 id
+ * （状态库与注册表短暂不一致属常态），整批抛 "Nonexistent script ID"、一个都不注销，
+ * 其余在册的就此成幽灵（2026-09-20 手测实锤：14 个 uuid 只有 1 个在册，批量注销
+ * 恒失败）。故先 getScripts 取交集，只注销真实在册的；不在册的本来就无需注销。
+ */
 export async function unregisterScripts(ids: string[]): Promise<void> {
   if (!ids.length) return
   if (!chrome.userScripts || typeof chrome.userScripts.unregister !== 'function') return
-  await chrome.userScripts.unregister({ ids })
+  const existing = new Set((await chrome.userScripts.getScripts()).map((s) => s.id))
+  const live = ids.filter((id) => existing.has(id))
+  if (!live.length) return
+  await chrome.userScripts.unregister({ ids: live })
 }
 
 // 串行化：dev 重载时 SW 顶层 init 与 onInstalled(update) 可能并发触发注册，
