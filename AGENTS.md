@@ -19,7 +19,7 @@
 - **脚本注入**：`chrome.userScripts` + USER_SCRIPT 世界 + `window.DL` 桥接（`src/lib/userscripts/`）
 - **offscreen document**：AI 生成链路的执行宿主，按需创建（`src/lib/offscreen.ts`）
 - **包管理**：npm
-- **测试**：Vitest（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`）+ Playwright E2E 已建立；CI 快测门禁见 `.github/workflows/ci.yml`、独立 E2E 见 `e2e.yml`
+- **测试**：Vitest（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`）+ Playwright E2E 已建立；两个 workflow 都在 PR 上跑 —— `ci.yml`（typecheck + 单测）与 `e2e.yml`（Playwright 冒烟），**两者都是 required status check**（见下「分支保护」）
 
 > 项目介绍与手测步骤请读 [README.md](README.md)。
 
@@ -113,18 +113,21 @@
 
 > `main` 已开分支保护（团队标准，对所有人含 admin 生效）。**任何改动必须走 PR，禁止直推 main。**
 
-- **保护构成**：Ruleset（要求 PR + 禁强推 + 无人可绕过）+ 经典分支保护（`required_status_checks` = `Typecheck & Unit tests`、`strict: true`、约束 admin）。当前审核数 `required_approving_review_count: 0`（**不强制人工审核**，未来多人协作时再开）。
+- **保护构成**：**全部收在一个 Ruleset** `protect main - pr & no-force-push`（`enforcement: active`，作用域 `refs/heads/main`）里；经典分支保护**已不再使用**（`GET /branches/main/protection` 返回 404 —— 查保护现状别走那个接口）。规则实际为：
+  - 必须走 PR（`required_approving_review_count: 0`，**不强制人工审核**，未来多人协作时再开；允许合并方式 merge / squash / rebase）
+  - **required status checks = `Typecheck & Unit tests` + `Playwright smoke (chromium)`**（两项都必过），且 `strict`（分支须基于最新 main，落后就得先更新再等一轮）
+  - 禁强推（`non_fast_forward`）、禁删除该分支；`bypass_actors` 为空 —— **无人可绕过，含 admin**（2026-09-19 实测）
 - **合 main 标准流程**：
   1. 基于最新 `origin/main` 起 kebab-case 功能分支（如 `feat/xxx`、`fix/xxx`、`test/xxx`）；不要在一个分支堆多件不相关的事
   2. 本地开发，交付前 `npm run typecheck` + `npm run build` + `npm run test` 全过
   3. `git push -u origin <功能分支>`（**只 push 分支，不触发 CI**——两个 workflow 的 `push` 都限 `branches: [main]`）
-  4. 开 PR（`base: main`），描述按 `.github/pull_request_template.md` 填（动机 / 变更 / 测试证据三段）；PR 触发 `ci.yml` 的 `pull_request` 门禁，**合并前置**跑 typecheck + 全部单测
-  5. 等 CI 绿 → 网页点 Merge 或 `gh pr merge --merge`（生成 merge commit 进 main，**等价**）
+  4. 开 PR（`base: main`），描述按 `.github/pull_request_template.md` 填（动机 / 变更 / 测试证据三段）；PR 触发**两个**门禁：`ci.yml`（typecheck + 全部单测）+ `e2e.yml`（Playwright 冒烟，约 1 分钟），**两个 check 都绿才能合**
+  5. 等两个 check 绿 → 网页点 Merge 或 `gh pr merge --merge`（生成 merge commit 进 main，**等价**）
   6. 合并自动触发 push main → `ci.yml` + `e2e.yml` **双跑复验**
 - **铁律**：
   - ❌ 严禁 `git push origin <x>:main`（含之前的 refspec 绕过法），会被 `GH006: Protected branch update failed` 拒
   - ❌ 不要整分支 merge 把历史倒腾进 main（只会产生重复/冲突提交）；单一改动走上面的 PR 流
-  - ❌ E2E（Playwright）**故意不是 required status check**——`e2e.yml` 无 `pull_request` 触发器，PR 上永远不上报该状态，设了 PR 会卡死合不了
+  - ⚠️ **E2E 是 required status check，且 PR 上就会跑**（`e2e.yml` 自 2026-09-19 起带 `pull_request` 触发；同 PR 连推由 `concurrency` 取消旧 run，只跑最新 commit）。**旧版本文件写的「e2e 无 PR 触发器 / PR 上永远不上报 / 设了会卡死合不了」已彻底不成立**——那条告诫只在 E2E 尚无 PR 触发器时成立，别再据它判断合并时机或要求撤销该 check。
 - **即使改本文件 / CI 配置**，也走同样 PR 流（main 受保护，没有任何文件能直推）
 
 ## 项目硬性底线（速览）
