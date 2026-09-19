@@ -76,9 +76,20 @@ jobs:
           echo "args=$ARGS" >> "$GITHUB_OUTPUT"
           echo "resolved args: $ARGS"
 
-      - name: Release
-        if: steps.rel.outputs.args != ''
-        run: npm run release -- ${{ steps.rel.outputs.args }} --push
+      - name: Tag and push tag
+        if: github.event.pull_request.merged == true
+        run: |
+          # main 禁止直接 push（分支保护：changes must be through PR），故只打 tag 并推送 tag。
+          # release commit（bump + CHANGELOG）已随本 PR 合入 main，CI 在其上补 tag。
+          MSG=$(git log -1 --format=%s)
+          if [[ "$MSG" =~ chore:\ release\ v(.+) ]]; then
+            TAG="v${BASH_REMATCH[1]}"
+            git tag -a "$TAG" -m "$TAG"
+            git push origin "$TAG"
+            echo "pushed tag $TAG"
+          else
+            echo "latest commit is not a release commit, skip"
+          fi
 
       - name: Skip notice
         if: steps.rel.outputs.args == ''
