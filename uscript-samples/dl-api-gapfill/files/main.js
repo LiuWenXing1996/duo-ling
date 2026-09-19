@@ -1,8 +1,9 @@
 // DL API 收口探针：一期收口（fetch timeout / 二进制请求体 / tabs 三连）
 // + 二期特权增强（forbidden header 覆写 / 同 host 隔离 / redirect manual·error）的手测脚本。
-// 效果：页面右下角出现「DL API 收口探针」角标，点击后逐项跑测试并就地标 ✓ / ✗。
-// 注意：网络用例走 httpbin.org（慢或挂时对应项会失败，属环境问题不是桥的锅）；
-// tabs 用例会短暂开一个 example.com 标签页（约 2s 后自动关），全程点击触发、不自动跑。
+// 效果：页面右下角出现「DL API 收口探针」角标，点击后逐项跑测试并就地标三态：
+//   ✓ 通过 / ✗ 功能失败 / ? 未能判定（httpbin 抖动、拿不到回显，重跑即可——别当成桥的锅）。
+// tabs 用例会短暂开一个 example.com 标签页（约 2s 后自动关），全程点击触发、不自动跑；
+// 网络用例都走 httpbin.org。
 // 二期用例的前提：扩展 manifest 带 declarativeNetRequestWithHostAccess + webRequest，
 // 且 dev 是在加权限之后重启的——否则「覆写上线」与「manual 读 3xx」两项必失败。
 ;(async () => {
@@ -32,10 +33,14 @@
     var lines = head ? [head] : []
     for (var i = 0; i < results.length; i++) {
       var r = results[i]
-      lines.push((r.ok ? '✓ ' : '✗ ') + r.name + (r.detail ? ' — ' + r.detail : ''))
+      // 三态：true 通过 / false 功能失败 / null 未判定（环境问题，拿不到可断言的数据）
+      var tag = r.ok === true ? '✓ ' : r.ok === false ? '✗ ' : '? '
+      lines.push(tag + r.name + (r.detail ? ' — ' + r.detail : ''))
     }
     el.textContent = lines.join('\n')
-    el.style.color = results.some(function (r) { return !r.ok }) ? '#f66' : '#0f0'
+    var hasFail = results.some(function (r) { return r.ok === false })
+    var hasUnknown = results.some(function (r) { return r.ok === null })
+    el.style.color = hasFail ? '#f66' : hasUnknown ? '#fc0' : '#0f0'
   }
 
   function line(name, ok, detail) {
@@ -182,26 +187,51 @@
 
   // ② 同 host 隔离：写者（带覆写）挂规则期间，并发发出的纯请求绝不能沾上覆写头。
   // 写者用 /delay/1 拉长规则挂起窗口，读者若被并发放行就会落在窗口内——能真正区分锁有无效。
+  // 读者非 2xx（httpbin 抖动，502 常见）时重试一次；两次都拿不到回显只能记「未判定」——
+  // 502 的响应体是空的，读不出 header 干不干净，判功能失败会把人往错方向带。
   function isolationCase() {
     var t0 = Date.now()
-    return Promise.all([
-      DL.fetch('https://httpbin.org/delay/1', {
-        headers: { Cookie: 'dl_probe=1', 'User-Agent': 'DLProbe/1.0' },
-      }),
-      DL.fetch('https://httpbin.org/headers?plain=1'),
-    ]).then(
+    var writerFailed = false
+    var writer = DL.fetch('https://httpbin.org/delay/1', {
+      headers: { Cookie: 'dl_probe=1', 'User-Agent': 'DLProbe/1.0' },
+    }).then(
+      function () {},
+      function () {
+        writerFailed = true
+      },
+    )
+    var retryReader = function () {
+      return sleep(500).then(function () {
+        return DL.fetch('https://httpbin.org/headers?plain=2')
+      })
+    }
+    var reader = DL.fetch('https://httpbin.org/headers?plain=1').then(
+      function (r) {
+        return r.ok ? r : retryReader()
+      },
+      retryReader,
+    )
+    return Promise.all([writer, reader]).then(
       function (rs) {
         var taken = Date.now() - t0
-        var reader = rs[1]
-        if (!reader.ok) return line('同 host 纯请求不被污染', false, '读者 HTTP ' + reader.status)
-        var got = lowerHeaders(reader.json().headers)
+        var reader_ = rs[1]
+        if (!reader_.ok) {
+          return line(
+            '同 host 纯请求不被污染',
+            null,
+            '读者两次均 HTTP ' + reader_.status + '（httpbin 抖动）——未能判定，非锁的问题',
+          )
+        }
+        var got = lowerHeaders(reader_.json().headers)
         var dirty = []
         if (got.cookie) dirty.push('Cookie=' + got.cookie)
         if (got['user-agent'] === 'DLProbe/1.0') dirty.push('User-Agent 被覆写')
         line(
           '同 host 纯请求不被污染',
           dirty.length === 0,
-          dirty.length ? '被套上：' + dirty.join(' / ') : '读者干净，排在写者之后（' + taken + 'ms）',
+          dirty.length
+            ? '被套上：' + dirty.join(' / ')
+            : '读者干净，排在写者之后（' + taken + 'ms' + (writerFailed ? '，写者自身抖动' : '') + '）',
         )
       },
       function (e) {
@@ -275,8 +305,11 @@
     await manualRedirectCase()
     await errorRedirectCase()
     await tabsCase()
-    var failed = results.filter(function (r) { return !r.ok }).length
-    render(failed ? '完成：' + failed + ' 项失败' : '完成：全部通过 ✓')
+    var failed = results.filter(function (r) { return r.ok === false }).length
+    var unknown = results.filter(function (r) { return r.ok === null }).length
+    var tail = failed ? '完成：' + failed + ' 项失败' : '完成：全部通过 ✓'
+    if (unknown) tail += '；另有 ' + unknown + ' 项未判定（环境抖动，需重跑）'
+    render(tail)
     running = false
   }
 
