@@ -30,6 +30,8 @@ vi.mock('@/lib/userscripts/project-write', () => ({
   createGeneratedProject: vi.fn(),
   importScriptsZip: vi.fn(),
   rebuildPendingProjects: vi.fn(async () => 0),
+  refreshDepsCache: vi.fn(),
+  clearDepsCache: vi.fn(),
   removeAllProjects: vi.fn(),
   removeProjectAndRepo: vi.fn(),
   setProjectEnabled: vi.fn(),
@@ -103,6 +105,8 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
     'state:removeAll',
     'state:toggle',
     'state:import',
+    'state:deps-refresh',
+    'state:deps-clear',
   ] as const satisfies readonly StateRequest['kind'][]
   const _exhaustive: Expect<
     Exclude<StateRequest['kind'], (typeof STATE_KINDS)[number]> extends never ? true : false
@@ -153,6 +157,16 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
       msg: { kind: 'state:import', zipBase64: 'emlwLWJ5dGVz' },
       backend: vi.mocked(projectWrite.importScriptsZip),
       args: ['emlwLWJ5dGVz'],
+    },
+    'state:deps-refresh': {
+      msg: { kind: 'state:deps-refresh', uuid: 'u1' },
+      backend: vi.mocked(projectWrite.refreshDepsCache),
+      args: ['u1'],
+    },
+    'state:deps-clear': {
+      msg: { kind: 'state:deps-clear', uuid: 'u1' },
+      backend: vi.mocked(projectWrite.clearDepsCache),
+      args: ['u1'],
     },
   }
 

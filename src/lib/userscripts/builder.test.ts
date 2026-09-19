@@ -159,6 +159,51 @@ describe('buildProject deps 内联', () => {
     expect(second.code.startsWith(depJs)).toBe(true)
   })
 
+  it('refreshDeps：无视缓存全量重拉，新内容替换进文件树与 bundle', async () => {
+    const fetchMock = vi.fn(async () => fakeRes(depJs, 'application/javascript'))
+    vi.stubGlobal('fetch', fetchMock)
+    const first = await buildProject(projectFiles, 'entry.ts', ['https://cdn.example/jquery.js'])
+
+    const depJsV2 = "window.__jq = '3.7.2'"
+    fetchMock.mockImplementation(async () => fakeRes(depJsV2, 'application/javascript'))
+    const outcome = await buildProject(first.files, 'entry.ts', ['https://cdn.example/jquery.js'], {
+      refreshDeps: true,
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2) // 有缓存也重拉（与缓存优先语义相反）
+    expect(outcome.remoteFetched).toEqual(['https://cdn.example/jquery.js'])
+    expect(outcome.code.startsWith(depJsV2)).toBe(true)
+    const index = JSON.parse(outcome.files['_deps/index.json']!) as Record<string, { file: string }>
+    expect(outcome.files[index['https://cdn.example/jquery.js']!.file]).toBe(depJsV2)
+  })
+
+  it('refreshDeps：任一拉取失败 → BuildError 且调用方文件树原封不动（事务性，旧缓存未被替换）', async () => {
+    const fetchMock = vi.fn(async () => fakeRes(depJs, 'application/javascript'))
+    vi.stubGlobal('fetch', fetchMock)
+    const first = await buildProject(projectFiles, 'entry.ts', [
+      'https://cdn.example/jquery.js',
+      'https://cdn.example/other.js',
+    ])
+    const snapshot = JSON.stringify(first.files)
+
+    fetchMock.mockImplementation(async () => fakeRes('nope', 'text/plain', 503))
+    const err: BuildError = await buildProject(
+      first.files,
+      'entry.ts',
+      ['https://cdn.example/jquery.js', 'https://cdn.example/other.js'],
+      { refreshDeps: true },
+    ).then(
+      () => {
+        throw new Error('应当抛 BuildError')
+      },
+      (e: unknown) => e as BuildError,
+    )
+    expect(err).toBeInstanceOf(BuildError)
+    expect(err.issues[0]).toContain('已保留旧缓存')
+    expect(err.issues[0]).toContain('https://cdn.example/other.js')
+    expect(JSON.stringify(first.files)).toBe(snapshot) // 调用方文件树未被触碰
+  })
+
   it('非 JS 依赖进 DL.__res 资源表（不拼接），DL.resource 读文本', async () => {
     const css = 'body { color: red }'
     vi.stubGlobal('fetch', vi.fn(async () => fakeRes(css, 'text/css')))

@@ -116,6 +116,10 @@ export type RuntimeRequest =
   // 单写方（解码 + 校验 + 构建 + 落盘同处）。enabled 恒 false——先审后启，故无注册动作。
   // 导出零新增协议：走现成 userscript:list / getProject 只读命令。
   | { kind: 'userscript:import'; zipBase64: string }
+  // 依赖缓存管理（编辑器 deps 表单旁的按钮）：SW 转发 offscreen 单写方。刷新成功后
+  // 产物已更新，SW 照 save 语义重注册（enabled 才注册）；清除不动产物，无注册动作。
+  | { kind: 'userscript:deps-refresh'; uuid: string }
+  | { kind: 'userscript:deps-clear'; uuid: string }
 
   // —— 用户脚本源码库命令面（fs:*，执行宿主 = offscreen）——
   // 源码唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库，带 git 版本化，
@@ -161,6 +165,10 @@ export type RuntimeRequest =
   // zip 导入的落点（SW 的 userscript:import 转发到此）：importScriptsZip 逐脚本
   // 「构建 → 落盘 → 快照」，报告 ImportReport（types.ts）。
   | { kind: 'state:import'; zipBase64: string }
+  // 依赖缓存管理（SW 的 userscript:deps-refresh / deps-clear 转发到此）。
+  // 刷新 = 全量重拉，全成功才落盘替换 + 重建，失败缓存原封不动；清 = 只删 _deps/，不拉不建。
+  | { kind: 'state:deps-refresh'; uuid: string }
+  | { kind: 'state:deps-clear'; uuid: string }
 
   // —— 会话写侧（整条对话链路搬进 offscreen 后，会话历史唯一写入方 = offscreen）——
   // UI（侧边栏 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 对 conv: 前缀静默让路。

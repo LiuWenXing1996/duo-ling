@@ -63,9 +63,10 @@ async function runBuild(
   files: Record<string, string>,
   entry: string,
   deps?: string[],
+  opts?: { refreshDeps?: boolean },
 ): Promise<BuildRun> {
   try {
-    const outcome = await buildProject(files, entry, deps)
+    const outcome = await buildProject(files, entry, deps, opts)
     return { ok: true, code: outcome.code, files: outcome.files, remoteFetched: outcome.remoteFetched }
   } catch (e) {
     if (e instanceof BuildError) return { ok: false, issues: e.issues }
@@ -432,4 +433,63 @@ export async function rebuildPendingProjects(): Promise<number> {
   }
   enqueueBackgroundBuilds(items)
   return items.length
+}
+
+// —— 依赖缓存管理（2026-09-19 老大拍板：清缓存 / 刷缓存两个动作分开）——
+
+/** 刷新依赖缓存的返回：ok=false 时缓存原封未动，issues 带失败的 URL */
+export type DepsRefreshOutcome = { ok: true; refreshed: string[] } | { ok: false; issues: string[] }
+
+/**
+ * 刷新依赖缓存（「刷缓存」按钮）：无视缓存全量重拉，**全部成功**才落盘替换 + 重建重注册态；
+ * 任一拉取失败 → 什么都不写（旧缓存原封不动），issues 带失败 URL 让 UI 提示。
+ * 操作对象是**已保存的工作树**（不经编辑器内存态）；构建失败同样视为刷新失败（缓存未动）。
+ */
+export async function refreshDepsCache(uuid: string): Promise<DepsRefreshOutcome> {
+  const project = await getProject(uuid)
+  if (!project) throw new Error('脚本不存在')
+  const tree = await readSourceTree(uuid)
+  if (!tree) throw new Error('源码树不可读（duoling-fs 仓缺失或损坏）')
+  const build = await runBuild(tree.files, tree.meta.entry, tree.meta.config.deps, { refreshDeps: true })
+  if (!build.ok) return { ok: false, issues: build.issues }
+  // 全部拉取成功：落盘新依赖 + 提交 + 状态库重建 + 广播（写侧不经命令面的部分自己广播）
+  await writeSourceTree(uuid, build.files, tree.meta)
+  await commitSource(uuid, tree.meta, '刷新依赖缓存').catch(() => {})
+  const builtAt = Date.now()
+  await writeProject(
+    makeState(
+      uuid,
+      project.name,
+      project.enabled,
+      project.config,
+      tree.meta.entry,
+      { code: build.code, builtAt },
+      true,
+      builtAt,
+      Object.keys(build.files).length,
+      project.createdAt,
+      builtAt,
+    ),
+  )
+  broadcastDataChange('script', uuid)
+  return { ok: true, refreshed: build.remoteFetched }
+}
+
+/**
+ * 清依赖缓存（「清缓存」按钮）：只删 `_deps/`，**不拉取、不重建**——bundle 原样保留
+ * （脚本继续跑旧产物），下次任何构建（保存 / 导入 / 刷新）自然冷拉。
+ */
+export async function clearDepsCache(uuid: string): Promise<{ cleared: number }> {
+  const project = await getProject(uuid)
+  if (!project) throw new Error('脚本不存在')
+  const tree = await readSourceTree(uuid)
+  if (!tree) throw new Error('源码树不可读（duoling-fs 仓缺失或损坏）')
+  const kept = Object.fromEntries(Object.entries(tree.files).filter(([f]) => !f.startsWith('_deps/')))
+  const cleared = Object.keys(tree.files).length - Object.keys(kept).length
+  if (!cleared) return { cleared: 0 }
+  await writeSourceTree(uuid, kept, tree.meta)
+  await commitSource(uuid, tree.meta, '清依赖缓存').catch(() => {})
+  await writeProject({ ...project, fileCount: Object.keys(kept).length, updatedAt: Date.now() })
+  broadcastDataChange('script', uuid)
+  return { cleared }
 }

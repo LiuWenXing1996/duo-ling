@@ -39,9 +39,11 @@ vi.mock('./us-git', () => ({
 
 import { buildProject } from './builder'
 import {
+  clearDepsCache,
   createProject,
   importScriptsZip,
   rebuildPendingProjects,
+  refreshDepsCache,
   removeAllProjects,
   removeProjectAndRepo,
   setProjectEnabled,
@@ -478,5 +480,90 @@ describe('importScriptsZip', () => {
 
   it('非 zip 内容：整体报错（调用方 UI 展示错误）', async () => {
     await expect(importScriptsZip(bytesToBase64(new Uint8Array([1, 2, 3, 4])))).rejects.toThrow()
+  })
+})
+
+// —— 依赖缓存管理（清 / 刷，2026-09-19 老大拍板拆两个动作）——
+
+describe('依赖缓存管理', () => {
+  /** 给定 uuid 种一棵工作树：withDeps=true 时带 _deps/（index + 内容文件各一） */
+  function seedTree(uuid: string, withDeps: boolean): void {
+    mockReadSourceTree.mockImplementation(async (u: string) =>
+      u === uuid
+        ? {
+            meta: {
+              name: '演示',
+              config: withDeps
+                ? { matches: ['*://*/*'], allFrames: true, runAt: 'document_end', deps: ['https://cdn.example/jquery.js'] }
+                : { matches: ['*://*/*'], allFrames: true, runAt: 'document_end' },
+              entry: 'main.js',
+              createdAt: 0,
+            },
+            files: (withDeps
+              ? {
+                  'main.js': 'console.log(1)',
+                  '_deps/index.json': '{"https://cdn.example/jquery.js":{"file":"_deps/abc.js","kind":"script","mode":"text"}}',
+                  '_deps/abc.js': 'old-cache',
+                }
+              : { 'main.js': 'console.log(1)' }) as Record<string, string>,
+          }
+        : null,
+    )
+  }
+
+  it('清缓存：只删 _deps/（不拉不建），产物与启用态保留，fileCount 收缩', async () => {
+    const p = await createProject()
+    seedTree(p.uuid, true)
+    const res = await clearDepsCache(p.uuid)
+    expect(res.cleared).toBe(2)
+    const [uuid, files] = mockWriteSourceTree.mock.calls.at(-1)!
+    expect(uuid).toBe(p.uuid)
+    expect(Object.keys(files!).some((f) => f.startsWith('_deps/'))).toBe(false)
+    const stored = (await readAllProjects()).find((x) => x.uuid === p.uuid)
+    expect(stored!.bundle).toBeDefined() // 产物未动：脚本继续跑旧产物
+    expect(stored!.fileCount).toBe(1)
+    expect(mockCommitSource.mock.calls.at(-1)![2]).toBe('清依赖缓存')
+  })
+
+  it('清缓存：无 _deps 时返回 0 且不产生任何写', async () => {
+    const p = await createProject()
+    seedTree(p.uuid, false)
+    mockWriteSourceTree.mockClear()
+    mockCommitSource.mockClear()
+    await expect(clearDepsCache(p.uuid)).resolves.toEqual({ cleared: 0 })
+    expect(mockWriteSourceTree).not.toHaveBeenCalled()
+    expect(mockCommitSource).not.toHaveBeenCalled()
+  })
+
+  it('刷缓存：全成功 → 新依赖落盘 + 重建产物 + 状态库更新', async () => {
+    const p = await createProject()
+    seedTree(p.uuid, true)
+    mockBuild.mockImplementationOnce(async (files: Record<string, string>) => ({
+      code: '//refreshed',
+      files: { ...files, '_deps/abc.js': 'new-cache' },
+      remoteFetched: ['https://cdn.example/jquery.js'],
+    }))
+    const res = await refreshDepsCache(p.uuid)
+    expect(res).toMatchObject({ ok: true, refreshed: ['https://cdn.example/jquery.js'] })
+    const [uuid, files] = mockWriteSourceTree.mock.calls.at(-1)!
+    expect(uuid).toBe(p.uuid)
+    expect(files!['_deps/abc.js']).toBe('new-cache')
+    const stored = (await readAllProjects()).find((x) => x.uuid === p.uuid)
+    expect(stored!.bundle!.code).toBe('//refreshed')
+    expect(stored!.buildOk).toBe(true)
+    expect(stored!.lastBuildAt).toBeGreaterThan(0)
+  })
+
+  it('刷缓存：拉取/构建失败 → ok=false 且缓存未动（无落盘无提交）', async () => {
+    const p = await createProject()
+    seedTree(p.uuid, true)
+    mockBuild.mockRejectedValueOnce(new (await import('./builder')).BuildError(['依赖刷新失败（已保留旧缓存，未做任何替换）：x']))
+    mockWriteSourceTree.mockClear()
+    mockCommitSource.mockClear()
+    const res = await refreshDepsCache(p.uuid)
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.issues[0]).toContain('旧缓存')
+    expect(mockWriteSourceTree).not.toHaveBeenCalled()
+    expect(mockCommitSource).not.toHaveBeenCalled()
   })
 })

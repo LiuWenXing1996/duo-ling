@@ -11,9 +11,11 @@ import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { broadcastDataChange } from '@/lib/data-broadcast'
 import { listProjects } from './project-store'
 import {
+  clearDepsCache,
   createGeneratedProject,
   createProject,
   importScriptsZip,
+  refreshDepsCache,
   removeAllProjects,
   removeProjectAndRepo,
   saveExisting,
@@ -67,6 +69,12 @@ async function runStateCommand(msg: StateRequest): Promise<unknown> {
     case 'state:import':
       // zip 导入：解码 + 校验 + 构建 + 落盘全在本上下文（单写方）
       return importScriptsZip(msg.zipBase64)
+    case 'state:deps-refresh':
+      // 刷新依赖缓存：全量重拉，全成功才替换 + 重建（广播在 handleStateCommand 统一发）
+      return refreshDepsCache(msg.uuid)
+    case 'state:deps-clear':
+      // 清依赖缓存：只删 _deps/，不拉不建（产物保留，下次构建自然冷拉）
+      return clearDepsCache(msg.uuid)
   }
 }
 

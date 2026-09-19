@@ -306,24 +306,51 @@ function parseDepIndex(raw: string | undefined): DepIndex {
 /**
  * 依赖内联对齐（构建前调用）：缓存优先补齐缺失 → 写入 workFiles → 清孤儿 → 回写清单。
  * 无依赖时也调用：清掉 URL 列表被清空后遗留的 `_deps/`。
+ *
+ * refresh 模式（「刷新依赖」专用）：无视缓存**全量重拉**，且是**事务性**的——任一 URL
+ * 拉取失败即抛 BuildError，不向 files 写任何东西（workFiles 是副本，抛错即整体丢弃，
+ * 磁盘上的旧缓存原封不动）。普通模式维持缓存优先、缺失才拉。
  */
 async function syncDeps(
   files: Record<string, string>,
   deps: string[],
   remoteFetched: string[],
+  opts?: { refresh?: boolean },
 ): Promise<DepIndex> {
   const oldIndex = parseDepIndex(files[DEPS_INDEX])
   const index: DepIndex = {}
-  for (const url of deps) {
-    const cached = oldIndex[url]
-    if (cached && cached.file in files) {
-      index[url] = cached // 缓存命中：不发请求（断网友好；改依赖源码可手编 _deps 文件）
-      continue
+  if (opts?.refresh) {
+    // 刷新：先全量拉进内存，全部成功才写 files（任一失败在下方统一抛，files 未被触碰）
+    const fetched: Array<{ url: string; entry: DepEntry; content: string }> = []
+    const failures: string[] = []
+    for (const url of deps) {
+      try {
+        const { entry, content } = await fetchDep(url)
+        fetched.push({ url, entry, content })
+      } catch (e) {
+        failures.push(`${url}（${e instanceof Error ? e.message : String(e)}）`)
+      }
     }
-    const { entry, content } = await fetchDep(url)
-    files[entry.file] = content
-    index[url] = entry
-    remoteFetched.push(url)
+    if (failures.length) {
+      throw new BuildError([`依赖刷新失败（已保留旧缓存，未做任何替换）：${failures.join('；')}`])
+    }
+    for (const { url, entry, content } of fetched) {
+      files[entry.file] = content
+      index[url] = entry
+      remoteFetched.push(url)
+    }
+  } else {
+    for (const url of deps) {
+      const cached = oldIndex[url]
+      if (cached && cached.file in files) {
+        index[url] = cached // 缓存命中：不发请求（断网友好；改依赖源码可手编 _deps 文件）
+        continue
+      }
+      const { entry, content } = await fetchDep(url)
+      files[entry.file] = content
+      index[url] = entry
+      remoteFetched.push(url)
+    }
   }
   // 孤儿清理：旧清单里已不在本次 deps 的条目，内容文件一并删
   for (const [url, entry] of Object.entries(oldIndex)) {
@@ -361,6 +388,7 @@ function buildBundleHead(files: Record<string, string>, index: DepIndex): string
  * - format iife / 不 minify（报错行号可读）/ target es2020
  * - deps（config.deps，选填）：UMD / 资源依赖内联对齐（缓存优先，缺失拉取并写回文件树），
  *   JS 依赖按文本拼接进 bundle 头部，其余进 DL.__res 资源表（见文件头 _deps 小节）
+ * - opts.refreshDeps：「刷新依赖」用——无视缓存全量重拉，事务性（任一失败抛错且不写 files）
  * - 成功：返回注入代码 + 回写文件树（含远程依赖 / _deps 源码）
  * - 失败：抛 BuildError（issues 含 文件:行:列），调用方不得落盘
  */
@@ -368,6 +396,7 @@ export async function buildProject(
   files: Record<string, string>,
   entry: string,
   deps?: string[],
+  opts?: { refreshDeps?: boolean },
 ): Promise<BuildOutcome> {
   const entrySrc = files[entry]
   if (entrySrc == null) throw new BuildError([`入口文件不存在：${entry}`])
@@ -377,7 +406,7 @@ export async function buildProject(
   const workFiles: Record<string, string> = { ...files }
   const remoteFetched: string[] = []
   // 依赖内联对齐（含无依赖时的孤儿清理）；拉取失败抛 BuildError → 保存恒成功、产物置空
-  const depIndex = await syncDeps(workFiles, normalizeDeps(deps), remoteFetched)
+  const depIndex = await syncDeps(workFiles, normalizeDeps(deps), remoteFetched, { refresh: opts?.refreshDeps })
 
   try {
     const result = await esbuild.build({
