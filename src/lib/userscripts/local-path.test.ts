@@ -106,6 +106,13 @@ describe('toFileUrl 拒绝并给人话原因', () => {
   it('后缀大小写不敏感（.ZIP 放行）', () => {
     expect(urlOf('/Users/me/a.ZIP')).toBe('file:///Users/me/a.ZIP')
   })
+
+  // 「无法转成 URL 的字符」这条兜底**不是死代码**（别顺手删）：路径逐段 encodeURIComponent 之后
+  // 几乎什么都能编码，唯独**孤立代理项**（粘贴了半个 emoji / 截断的 UTF-8）会让 new URL 抛。
+  // 实测（2026-09-19）：NUL 字符、超长路径都能过，只有孤立代理项走这条。
+  it('孤立代理项（半个 emoji / 损坏的 UTF-8）→ 明确拦下，不静默变成别的错', () => {
+    expect(reasonOf('/tmp/\ud83dx.zip')).toContain('无法转成 URL')
+  })
 })
 
 describe('zip 魔数自检', () => {
