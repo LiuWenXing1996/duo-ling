@@ -53,7 +53,6 @@ description: Use when configuring, building, or debugging WXT 0.21 in this exten
 
 | 症状 | 原因 | 处置 |
 | --- | --- | --- |
-| 改了配置没生效 | HMR 不重读 `wxt.config.ts` | 重启 dev + 重载扩展 |
 | 构建报 entrypoint 冲突 / 多了个陌生入口 | 相关文件散放在 `entrypoints/` 根目录 | 收进 `entrypoints/<name>/` 子目录 |
 | SW 启动即 `global is undefined` / `TextEncoder` | 依赖用了 Node 全局 | 确认 `vite().define.global` 仍在；新引入的依赖按需补 `src/polyfills.ts` 并在 `background.ts` **最前** import |
 | manifest 报 `Unrecognized manifest key` | 用了驼峰键 | Chrome 规范字段用下划线，如 `minimum_chrome_version` |

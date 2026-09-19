@@ -21,12 +21,11 @@
 | --- | --- |
 | 对话链路 | 侧边栏只做指令入口与观察；整条链路（`streamText` + tools）跑在 offscreen document，侧边栏经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权 |
 | 脚本运行时 | background **service worker**（`chrome.userScripts` 注册 + 状态库写命令的转发方） |
-| 会话存储 | **IndexedDB `duoling-chat`**（唯一写方 = offscreen，侧边栏只读订阅）；生成任务快照在同库 tasks store（宿主被杀后可续） |
-| 脚本存储 | 源码唯一来源在 **`duoling-fs`**（lightning-fs，只有 offscreen 能碰）：每脚本一仓 `/uscripts/<uuid>/`，工作树 `files/` 即当前源码（未提交改动 = 草稿）；SW/扩展页读不到 lfs，源码读写一律走 `fs:*` 命令向 offscreen 取。注册态在**独立 IndexedDB 库 `duoling-state`**（产物 `bundle` + 元数据 + enabled，**不含源码**；**写只归 offscreen**，读由 SW / 扩展页直连，注册链路不依赖 offscreen 存活）。`DL.store` / `DL.tab` 值在 **`duoling-usdata`**（写只归 SW），错误日志 / 运行统计 / 运行日志在 **`duoling-runtime`**（写只归 SW）——用户脚本存储全部落 IndexedDB |
-| 版本管理 | `isomorphic-git`（纯 JS），仓在 duoling-fs：每次保存 = 一次提交（「保存 #n」/ 备注回滚记录），恢复走「产生新提交」而非 reset，历史不可变；仓损坏只丢历史，源码就在工作树里 |
+| 会话存储 | **IndexedDB `duoling-chat`**（唯一写方 = offscreen，侧边栏只读订阅）—— 分库分工见 [AGENTS.md](AGENTS.md)「存储」 |
+| 脚本存储 | 源码唯一来源在 **`duoling-fs`**（lightning-fs，只有 offscreen 能碰）、注册态在**独立库 `duoling-state`**（只存产物 + 元数据、不含源码）、脚本数据在 `duoling-usdata`、观测数据在 `duoling-runtime` —— **各库职责与写权限只在 [AGENTS.md](AGENTS.md)「存储」登记一处** |
+| 版本管理 | `isomorphic-git`（纯 JS），仓在 duoling-fs —— 提交 / 恢复语义见 [AGENTS.md](AGENTS.md)「版本管理」 |
 | 模型配置 | **IndexedDB `duoling-app` 库**（API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`；密钥同存本机，属防扫描级而非保密级） |
 | 页面上下文 | 点选元素：`chrome.userScripts.execute()` 按需注入内置拾取器，产物暂存后随下一条消息发出；页面快照：AI 侧 `page_snapshot` 工具经 SW 采集 |
-| 主题 | **跟随系统深浅色**（`src/lib/theme.ts` 按 `prefers-color-scheme` 驱动 `html.dark`） |
 
 > **UI 复用**：两个载体的界面都是现成实现 —— side panel 由 `ChatApp.vue` 装配 `ChatPanel` + `SessionHistoryPanel`；工作台由 `WorkbenchApp.vue`（左侧图标导航 + `WorkspaceHost` 多标签宿主）承载。**标签页清单只在上方「载体分工」表登记一处**，别处只链接不罗列；导航项是它的子集加每脚本标签，实况以 `WorkbenchApp.vue` 为准。平移来的组件经 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，**组件本体零改动**；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`，不经 `window.api`。
 
@@ -110,14 +109,14 @@
 
 命令清单（逐条带用途与坑）的唯一登记处在 [AGENTS.md](AGENTS.md#常用命令)，本文件不复述。
 
-> 依赖用 **npm** 管理。PR 上跑两个 workflow：`ci.yml`（typecheck + 全部单测）与 `e2e.yml`（Playwright 冒烟，约 1 分钟）。**两者都是 required status check**（ruleset 里配的），都绿才能合；同 PR 连推由 concurrency 取消旧 run，只跑最新 commit。
+> 依赖用 **npm** 管理。PR 上跑 `ci.yml` 与 `e2e.yml` 两个 workflow —— **合并门禁（required status check）与合并铁律见 [AGENTS.md](AGENTS.md)「分支保护 / 合并流程」**。
 
 ## 手测
 
 1. **加载扩展**：`npm run build` → Chrome 打开 `chrome://extensions` → 开「开发者模式」→「加载已解压的扩展程序」→ 选 `.output/chrome-mv3`
 2. **打开面板**：点工具栏哆灵图标 → 自动打开右侧 side panel（兜底：窗口右上角「侧边栏」按钮）
 3. **主题**：随系统深浅色 —— 切 macOS 外观为深色，面板与工作台应立刻跟着变（无需重载；`html.dark` 由 `src/lib/theme.ts` 驱动）
-4. **引导**：工作台左侧导航「引导」→ 两张状态自检卡：「运行用户脚本」（脚本注入的总开关）与「读取本地文件」（「从路径导入」的前置开关，只对 Chrome 渲染）。未开启时按步骤开完、**重启浏览器**、回本页点「重新检测」，状态应转为已开启（该页只放需要用户动手的项，不放无需操作的说明；步骤与「打开扩展管理页」按钮只此一份，别处只给「查看开启引导」入口）
+4. **引导**：工作台左侧导航「引导」→ 两张状态自检卡：「运行用户脚本」（脚本注入的总开关）与「读取本地文件」（「从路径导入」的前置开关，只对 Chrome 渲染）。未开启时按步骤开完、**重启浏览器**、回本页点「重新检测」，状态应转为已开启
 5. **配模型**：面板顶栏「打开工作台」→ 左侧导航「设置」→ 添加模型（选服务商 / 填 API Key / 模型 ID）→「测试连接」→ 保存
 6. **对话**：面板内输入一句话发送 → 应流式吐字（模型有 `reasoning_content` 时折叠成「查看思考」）；顶栏还有整会话导出（复制为 markdown）
 7. **元素拾取**：任意页面 → 面板输入区点拾取按钮 → 页面里点选目标元素 → 面板出现拾取 chip（随下一条消息发出，可 × 清除）
@@ -131,11 +130,11 @@
 15. **删除的连带清理**：删掉一个脚本（单删 / 「全部删除」都算）→ 状态库记录、它的 git 仓、`DL.store` 值、**它的报错记录与运行统计**一并清掉；已打开的运行日志标签页会自动重拉，不该再留下这个脚本的运行行
 16. **cookie 能力（DL.cookie）**：`npm run pack:uscripts` 后导入上述 zip → 启用「DL.cookie 探针」（其匹配规则**故意只写 `https://example.com/*`**）→ 打开 `https://example.com` → 点右下角角标跑用例：写读往返（含 `document.cookie` 交叉验证）/ 按 name 查 / 换路径仍放行（**pattern 的 path 段不参与判定**）/ **越域必须被拒** / 非 http(s) 拒 / 删除后读不到。核对面板「运行日志」里越域那条的报错文案（`PERMISSION_DENIED`）；改脚本匹配范围后门应即时收紧（`script` 域广播失效缓存）
 
-**改代码后**：WXT 自动重建；回 `chrome://extensions` 点扩展卡片的刷新图标重载。**改 `wxt.config.ts` 必须重启 dev**（HMR 不重读配置）。
+**改代码后**：WXT 自动重建；回 `chrome://extensions` 点扩展卡片的刷新图标重载。**改了 `wxt.config.ts` 得走重启 dev**（见 [wxt 规范](.agents/skills/wxt/SKILL.md)）。
 
 ## 后续接入
 
-- **权限引导**：需用户开启的开关已由工作台「引导」标签页统一承载 —— 状态自检 + 分步指引 + 直达扩展管理页（Chrome ≥138 直落本扩展详情页深链，<138 退列表页开全局开发者模式，Firefox 的 `about:addons` 打不开故不给入口）；后续新增需授权的权限一并并入该页，各处只留「查看开启引导」入口。
+- **权限引导**：后续新增需授权的权限一并并入该页（承载约定见 [AGENTS.md](AGENTS.md) 硬性底线）。该页的版本分支行为：Chrome ≥138 直落本扩展详情页深链，<138 退列表页开全局开发者模式，Firefox 的 `about:addons` 打不开故不给入口。
 - **脚本世界 CSP**：不配 `csp`，脚本世界用浏览器默认的严 CSP（禁 `eval` / `new Function`）；生成提示词与 `script_spec` 明令避开，保存时由 `collectCspWarnings` 对含 `eval` 的注入代码给非阻塞警告。
 - **自定义接口地址**：目前 `host_permissions` 只覆盖预设服务商（+ 用户脚本所需的 `<all_urls>`），自定义 baseUrl 需用 `optional_host_permissions` 动态申请。
 - **Firefox 跨端**：`build:firefox` 可构建，`sidebar_action` 适配待三期。

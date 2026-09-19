@@ -7,8 +7,8 @@
 ## 项目速览
 
 - **形态**：Chrome MV3 扩展（background service worker + side panel + 工作台标签页）
-- **构建**：WXT 0.21（Vite 内核），`srcDir: 'src'`（**不可改**，`@` 别名依赖它），入口在 `src/entrypoints/`，自动生成 `manifest.json`。WXT 配置 / 构建 / entrypoint / manifest 相关改动按 [wxt](.agents/skills/wxt/SKILL.md) 规范走：**改 `wxt.config.ts` 必须重启 dev**（HMR 不重读配置）、不要把相关文件散放在 `entrypoints/` 根目录（会被当 entrypoint 构建报错）、`minimum_chrome_version` 用下划线（驼峰被 Chrome 报 Unrecognized）、SW 缺 `global` 时靠 `vite().define.global` 兜底、**不自行升级 WXT 版本或增删 manifest 权限**（需先与用户确认）
-- **UI 层**：Vue 3.5 + TypeScript，`@` 别名指向 `src/`；样式 = Tailwind v4（CSS-first，`src/assets/main.css`）+ Less（`src/assets/main.less`）；主题**跟随系统**（`src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`，勿在 html 上硬写 `class="dark"`）
+- **构建**：WXT 0.21（Vite 内核），`srcDir: 'src'`（**不可改**，`@` 别名依赖它），入口在 `src/entrypoints/`，自动生成 `manifest.json`。**配置 / entrypoint / manifest 的一切规则与坑（重启 dev、命名冲突、`minimum_chrome_version` 下划线、SW `global` 兜底……）只在 [wxt](.agents/skills/wxt/SKILL.md) 罗列**，改前先读它；底线是 **不自行升级 WXT 版本或增删 manifest 权限**（需先与用户确认）
+- **UI 层**：Vue 3.5 + TypeScript，`@` 别名指向 `src/`；样式 = Tailwind v4（CSS-first，`src/assets/main.css`）+ Less（`src/assets/main.less`）；主题**跟随系统**（`src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`）——**主题的唯一约定处**：勿在 html 上硬写 `class="dark"`，也别在组件里硬编码色值（一律用主题变量如 `--background`）
 - **手写桥接层（`src/lib/*.ts` 中非平移的那些）必须逐函数自检四类语义**：这类文件是重写而非平移，最容易丢「默认值回退 / 入参守卫 / 先校验后落盘 / 无变化就不做」这四类不在类型里的语义（曾丢过：模型展示名回退、会话自动命名、空提交守卫、id 防穿越、服务商预设少 7 个）。这四类各补单测覆盖——靠测试兜，不靠人工对照。
 - **UI 复用（强制）**：两个载体的 UI 都是现成实现（`src/components/`）—— side panel 用 `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列。它们靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，因此组件本体零改动。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 规范走：先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，**不手写组件**；`class` 只用于布局，不覆盖组件配色与字体，颜色一律用语义 token（`bg-primary` / `text-muted-foreground`），不写 `space-x-*` / `space-y-*`、不手写 `dark:` 覆盖。**Tooltip 组合约束（reka-ui 2.10 实测）**：① `TooltipProvider` 不转发 attrs，任何 as-child 组件**隔在 Provider 与目标元素之间都会静默断链**（编译不报错、运行时无警告，事件/属性全丢）——Tooltip 包其他触发组件时必须 **Tooltip 在最外、目标组件在内**；② 即便顺序正确，**TooltipTrigger 套在 DropdownMenuTrigger 外层仍会让 menu popper 失去定位**（内容渲染到视口外，`translate(0,-200%)` 兜底，无任何报错；组件测试/happy-dom 测不出来，只有真实浏览器可见性断言能抓到）——**菜单触发按钮一律用原生 `title`，不套 Tooltip**（`SessionHistoryPanel` 会话操作按钮即此例）。**Collapsible 折叠语义（reka-ui 2.10 实测）**：① `force-mount` 加在 `CollapsibleContent` 上**不是「保持挂载但隐藏」**——它使 `present=true`、`hidden` 属性不写，收起时内容**照样显示**；② 要「收起时留在 DOM 但不可见」（表单与编辑态始终同源、组件测试定位控件不受折叠影响），只能给**根组件** `<ui-collapsible :unmount-on-hide="false">` ——内容会带 `hidden` 属性，属性值经 Vue 归一为空串（测试只断言存在性，别断言 `until-found`）。`UserscriptEditorPanel` 的脚本配置区即此例（默认收起，收起态用摘要行交代当前注入面）。
 - **工作台标签页（面板）**：新增 / 改动工作台标签页按 [workbench-panel](.agents/skills/workbench-panel/SKILL.md) 走 —— 接线固定 6 处（kind 字面量 → 标签栏图标 → `WorkspaceHost` 三个改点 → 左侧导航 → README 清单），**面板数据源不得 import offscreen 专属模块**（`us-git` / `builder` / `offscreen-chat/script-tools`），要么新增 IPC、要么抽一份运行时与 UI 共用的纯数据模块并配「从运行时反射比对」的防漂移单测。
@@ -21,7 +21,7 @@
 - **依赖构建（esbuild-wasm，offscreen 独占）**：两条通道——① ESM 导入链：VFS 插件按 URL 解析、逐条 fetch 持久化进 files（断网可重构建）；② **UMD / 资源依赖（`config.deps`，2026-09-19 提案拍板）**：保存时缓存优先拉取进 `_deps/`（确定性文件名 = sha256(url) 前缀 + `index.json` 清单，随 git/zip/历史搭车，孤儿自动清理），**JS 文本依赖只拼接进 bundle 头部**（不进 esbuild 模块图、不进资源表），其余打成 `DL.__res` 表供 `DL.resource(url)` 读（挂 DL 自身，不开新全局；文本/二进制按 content-type，octet-stream 与缺失时按扩展名兜底再兜文本）。拉取失败 = 构建失败（产物置空，统一保存语义）。**依赖缓存管理（同日拍板，清/刷分开）**：编辑器 deps 表单旁两按钮，操作已保存工作树——「清依赖缓存」只删 `_deps/`（不拉不建，bundle 保留，下次构建冷拉）；「刷新依赖」无视缓存全量重拉且**事务性**（任一失败 BuildError、什么都不写、旧缓存原封不动，全成功才落盘替换 + 重建 + 重注册）。协议 = `userscript:deps-refresh/clear` → `state:deps-refresh/clear`
 - **offscreen document**：AI 生成链路的执行宿主，按需创建（`src/lib/offscreen.ts`）
 - **包管理**：npm
-- **测试**：Vitest（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`）+ Playwright E2E 已建立；两个 workflow 都在 PR 上跑 —— `ci.yml`（typecheck + 单测）与 `e2e.yml`（Playwright 冒烟），**两者都是 required status check**（见下「分支保护」）
+- **测试**：Vitest（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`）+ Playwright E2E；**CI 组成与 required status check 见下「分支保护 / 合并流程」**
 
 > 项目介绍与手测步骤请读 [README.md](README.md)。
 
@@ -87,7 +87,7 @@
 | 持久化 | DevTools → Application → IndexedDB（`duoling`）/ chrome.storage | 以落盘数据事实为准 |
 | 构建/产物 | 直接查 `.output/chrome-mv3/manifest.json` 与产物 JS | manifest 权限错误只能在此确认 |
 
-边界：改了 `wxt.config.ts` 必须**重启 dev**（HMR 不重读配置），再到 `chrome://extensions` 点刷新图标重载扩展。
+边界：改了配置要走**重启 dev** 那条路（见 [wxt](.agents/skills/wxt/SKILL.md) 硬约束），再到 `chrome://extensions` 点刷新图标重载扩展。
 
 ### 协作与记录
 
@@ -140,7 +140,7 @@
   - ❌ 严禁 `git push origin <x>:main`（含之前的 refspec 绕过法），会被 `GH006: Protected branch update failed` 拒
   - ❌ 不要整分支 merge 把历史倒腾进 main（只会产生重复/冲突提交）；单一改动走上面的 PR 流
   - ⚠️ **gh 合并只允许 `--merge`（Merge Commit）**：`gh pr merge` 一律带 `--merge`，**禁止 `--squash` / `--rebase`**；网页点 Merge 也必须选「Create a merge commit」。约定统一保留线性 merge commit 历史，不把 PR 压平成单提交、也不变基。
-  - ⚠️ **E2E 是 required status check，且 PR 上就会跑**（`e2e.yml` 自 2026-09-19 起带 `pull_request` 触发；同 PR 连推由 `concurrency` 取消旧 run，只跑最新 commit）。**旧版本文件写的「e2e 无 PR 触发器 / PR 上永远不上报 / 设了会卡死合不了」已彻底不成立**——那条告诫只在 E2E 尚无 PR 触发器时成立，别再据它判断合并时机或要求撤销该 check。
+  - ⚠️ **E2E 在 PR 上就会跑**（`e2e.yml` 自 2026-09-19 起带 `pull_request` 触发；同 PR 连推由 `concurrency` 取消旧 run，只跑最新 commit）。**旧版本文件写的「e2e 无 PR 触发器 / PR 上永远不上报 / 设了会卡死合不了」已彻底不成立**——那条告诫只在 E2E 尚无 PR 触发器时成立，别再据它判断合并时机或要求撤销该 check。
 - **即使改本文件 / CI 配置**，也走同样 PR 流（main 受保护，没有任何文件能直推）
 
 ## 项目硬性底线（速览）
@@ -148,14 +148,13 @@
 | 领域 | 一句话底线 | 详情 |
 | --- | --- | --- |
 | manifest 权限 | `sidePanel` 是 `chrome.sidePanel` 的**必需权限**（勿剔除）；所需权限之外的不要加（上架审查）。**已批准权限集只在 [wxt.config.ts](wxt.config.ts) 登记一处**（每项带「为什么需要」），本文件与 README 都不复述清单 | [wxt.config.ts](wxt.config.ts) |
-| cookie 能力（DL.cookie） | `cookies` 权限叠加已全域的 host（`<all_urls>`）= **SW 可读写全浏览器 cookie（含 HttpOnly）**，故必须与**域名门**绑定：url 须落在该脚本自身 `matches` 内、不命中 `excludeMatches`，且只比 **scheme + host**（cookie 是 host 级作用域，**pattern 的 path 段一律忽略**）。门只在 SW 侧（`cookie-gate.ts`，所有 cookie 命令的必经点），包装层只填 `location.href` 缺省、不做安全判断；`set` 不开放 domain / path 覆写。新增任何 cookie 命令都得先过同一道门 | [cookie-gate.ts](src/lib/userscripts/cookie-gate.ts) / [api-contract.ts](src/lib/userscripts/api-contract.ts) |
+| cookie 能力（DL.cookie） | `cookies` 权限 + 已全域的 host（`<all_urls>`）= **SW 可读写全浏览器 cookie（含 HttpOnly）**，故必须与**域名门**绑定：url 须落在该脚本自身 `matches` 内、不命中 `excludeMatches`，只比 **scheme + host**（pattern 的 path 段一律忽略）；`set` 不开放 domain / path 覆写。**门只在 SW 侧，新增任何 cookie 命令都必经此门** | [cookie-gate.ts](src/lib/userscripts/cookie-gate.ts) / [api-contract.ts](src/lib/userscripts/api-contract.ts) |
 | SW 全局 | 引入依赖 Node 全局的库时，必须补 `src/polyfills.ts` 并在 `background.ts` **最前** import | [README](README.md) 坑 2 |
 | CSP / 沙箱 | 扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**跑在 USER_SCRIPT 世界、注入第三方页面：**不受扩展 CSP 约束，但也不享有扩展 API**（只能经 `window.DL` 桥接） | [wxt.config.ts](wxt.config.ts) `content_security_policy` |
-| 主题 | 深浅色**跟随系统**（`theme.ts` → `html.dark`）；不要在 `.html` 写死 `class="dark"`，也不要在组件里硬编码主题色（用 `--background` 等主题变量） | [README](README.md) |
 | 消息协议 | 扩展页只能经 `window.api` → background 调用能力；用户脚本只能经 `window.DL` → background，**两者都不得直接访问 `chrome.*`** | [src/lib/window-api.ts](src/lib/window-api.ts) |
-| 权限引导 | 需用户在浏览器里开启的开关（当前两项：「运行用户脚本」「读取本地文件」——后者只对 Chrome 渲染）统一由工作台**「引导」标签页**承载：状态自检 + 分步指引 + 直达扩展管理页（版本分支文案只有 `src/lib/extension-page.ts` 一份）；各处（脚本列表横幅 / 编辑器保存警告 / 侧边栏错误条 / 路径导入弹窗）只给「查看开启引导」入口，不各写一套步骤。**该页只放需要用户动手的项**——无需操作的实现细节（如脚本世界禁 `eval`）不写进去，用户看不懂也无从操作，这类信息由保存警告与错误日志在恰当时机给出 | [README](README.md) 手测第 4 步 |
-| 脚本世界 CSP | **不给 USER_SCRIPT 世界配 `csp`**：回落浏览器默认的严 CSP（禁 `eval` / `new Function`）。AI 生成的脚本不可控，不额外给「执行任意字符串」的能力；受影响的只有内部靠 `new Function` 做 codegen 的依赖库，靠保存警告（`collectCspWarnings`）+ 生成提示词 / `script_spec` 明令避开兜住 | [README](README.md)「后续接入」 |
-| 错误文案 | **平台英文报错不直达用户**：扩展 API 的原话（注入失败 / 访问被拒等）必须先归一成用户的下一步动作（典型「切到要操作的网页后重试」），能在调用前判掉的就在判据里判掉——错误条里躺一句 manifest 术语等于没提示；同类失败面（内置页 / 扩展页 / 未授权）文案保持一致 | [README](README.md) 坑 8 |
+| 权限引导 | 需用户在浏览器里开启的开关（当前两项：「运行用户脚本」「读取本地文件」——后者只对 Chrome 渲染）统一由工作台**「引导」标签页**承载（状态自检 + 分步指引 + 直达扩展管理页）；**别处一律只给「查看开启引导」入口，不各写一套步骤**。该页只放需要用户动手的项——无需操作的实现细节（如脚本世界禁 `eval`）由保存警告与错误日志在恰当时机给出 | [README](README.md) 手测第 4 步 |
+| 脚本世界 CSP | **不给 USER_SCRIPT 世界配 `csp`**：回落浏览器默认的严 CSP（禁 `eval` / `new Function`），不额外给 AI 生成的脚本「执行任意字符串」的能力 | [README](README.md)「后续接入」 |
+| 错误文案 | **平台英文报错不直达用户**：扩展 API 的原话（注入失败 / 访问被拒等）必须先归一成用户的下一步动作（典型「切到要操作的网页后重试」），能在调用前判掉的就在判据里判掉；同类失败面（内置页 / 扩展页 / 未授权）文案保持一致 | [README](README.md) 坑 8 |
 | entrypoint | 不要同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [README](README.md) 坑 5 |
-| 首屏体积 | 打开面板要执行的就是入口 HTML 的静态图：markdown 渲染链路 / AI SDK 等重依赖一律动态 import，摇不掉的（如 `ai` 的一行 helper）本地实现；首帧底色靠 `#app` 内的内联加载态、不靠 JS | [README](README.md) 坑 10/11 |
+| 首屏体积 | 入口 HTML 的静态图就是打开面板要执行的代码：markdown 渲染链路 / AI SDK 等重依赖一律动态 import；首帧加载态必须是内联静态 DOM（不靠 JS） | [README](README.md) 坑 10/11 |
 | 命名 | 文件/目录 kebab-case；组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | 本表即约定，无独立文档 |
