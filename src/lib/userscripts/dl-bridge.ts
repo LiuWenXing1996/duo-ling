@@ -207,9 +207,6 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
   try {
     if (isWriter) {
       ruleId = mintRuleId()
-      // TODO(C 域名门): 覆写目标 host 必须落在脚本自身 @match 范围内（对齐 cookie 提案的
-      // 安全模型，避免「cookie 有门、伪造 cookie 的 fetch 反而没门」的倒挂）。
-      // match-pattern 由 C 引入，合并后在此接入校验；C 延期则本 TODO 保持原样。
       const dnr = chrome.declarativeNetRequest
       if (!dnr?.updateSessionRules) {
         throw new ApiError('NOT_AVAILABLE', 'DL.fetch：declarativeNetRequest 不可用')
