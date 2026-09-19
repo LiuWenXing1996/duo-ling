@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "name": "DL R2 五项手测",
+  "config": {
+    "matches": ["*://*/*"],
+    "allFrames": false,
+    "runAt": "document_end"
+  },
+  "entry": "main.js"
+}
