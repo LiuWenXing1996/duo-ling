@@ -13,7 +13,8 @@
     "test:e2e": "playwright test",
     "verify:skills": "node scripts/verify-skills.mjs",
     "check:inbox": "python3 scripts/check-inbox.py",
-    "pack:uscripts": "node scripts/pack-uscripts.mjs"
+    "pack:uscripts": "node scripts/pack-uscripts.mjs",
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.48",

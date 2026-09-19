@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { execSync } from 'node:child_process'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { defineConfig } from 'wxt'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
@@ -47,6 +47,17 @@ const buildInfoBranch = (() => {
   }
 })()
 
+// 扩展版本号（manifest 的 version，也是用户装的是哪个版本的真相源）：构建时从 package.json 读，
+// 与 WXT 写入 manifest 的值同源。注入到 __BUILD_INFO__ 供 UI 展示「装的是哪个版本」。
+const buildInfoVersion = (() => {
+  try {
+    return JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf-8')).version
+  } catch {
+    // 读不到就降级 unknown，不阻塞构建
+    return 'unknown'
+  }
+})()
+
 function buildInfoPlugin(): import('vite').Plugin {
   return {
     name: 'duoling-build-info',
@@ -55,7 +66,7 @@ function buildInfoPlugin(): import('vite').Plugin {
       return [
         {
           tag: 'script',
-          children: `window.__BUILD_INFO__=${JSON.stringify({ time, branch: buildInfoBranch })}`,
+          children: `window.__BUILD_INFO__=${JSON.stringify({ time, branch: buildInfoBranch, version: buildInfoVersion })}`,
           injectTo: 'head-prepend',
         },
       ]
@@ -81,7 +92,7 @@ export default defineConfig({
       global: 'globalThis',
       // 裸标识符注入（HTML 入口走 buildInfoPlugin 的 window.__BUILD_INFO__，两通道互补）：
       // SW / offscreen 不是 HTML 页面，只有 define 能把构建信息编译进去，供启动日志自证版本
-      __BUILD_INFO__: JSON.stringify({ time: new Date().toISOString(), branch: buildInfoBranch }),
+      __BUILD_INFO__: JSON.stringify({ time: new Date().toISOString(), branch: buildInfoBranch, version: buildInfoVersion }),
     },
   }),
   manifest: {
@@ -92,20 +103,20 @@ export default defineConfig({
     // offscreen 是 AI 生成链路的执行宿主（定位 B）：
     // 对话 loop 与 esbuild 构建都跑在 offscreen document 里，「用户发起生成后可关掉侧边栏、
     // 任务照跑完」。没有该权限 chrome.offscreen 不存在，容器起不来（Chrome 109+ / 仅 MV3）。
-    // 老大 2026-09-14 已批准。
+    // 2026-09-14 经评审确认。
     // contextMenus = DL.menu（用户脚本扩展菜单，二期 DL Port 事件底座）的载体 API，
-    // 未来项目自身菜单也走它。老大 2026-09-19 已批准。
+    // 未来项目自身菜单也走它。2026-09-19 经评审确认。
     // cookies = DL.cookie（get / set / remove）的载体 API。**注意：host 已是 <all_urls>，
     // 故此权限等价于「SW 可读写全浏览器 cookie（含 HttpOnly）」**，是能力面最大的一项权限。
     // 补偿措施是与权限绑定的域名门（cookie-gate.ts）：url 必须落在脚本自身 matches 内、
-    // 只比 scheme+host（cookie 是 host 级作用域，忽略 pattern 的 path 段）。老大 2026-09-19 已批准。
+    // 只比 scheme+host（cookie 是 host 级作用域，忽略 pattern 的 path 段）。2026-09-19 经评审确认。
     // clipboardWrite：DL.clipboard 走 offscreen 免手势写剪贴板（含富文本 ClipboardItem），需此权限。
     // declarativeNetRequestWithHostAccess = DL.fetch forbidden header 覆写的载体
     // （SW fetch 改不了 Cookie/Referer 等，DNR session 规则按请求挂/撤在发头前套上）。
     // 选 WithHostAccess 变体：不进安装权限提示，且 modifyHeaders/重定向要求 host 权限——
     // 已有 <all_urls> 覆盖。webRequest（观察型，非 blocking）= redirect:'manual' 的
     // 3xx 响应读取通道（SW fetch 只拿得到 opaqueredirect）。均不新增用户可见权限。
-    // 老大 2026-09-19 已批准（提案评审）。
+    // 2026-09-19 经评审确认（提案评审）。
     permissions: [
       'storage',
       'sidePanel',
@@ -135,7 +146,7 @@ export default defineConfig({
     // （wxt/dist/core/utils/manifest.mjs 的 addDevModeCsp），所以 dev 下构建一直正常、
     // bug 只在生产产物暴露 —— 别用 dev 验证这个问题。此处显式声明以覆盖生产：
     // 'wasm-unsafe-eval' 是 Chrome 103+ 为 wasm 场景提供的专用指令，不含 `unsafe-eval`
-    // 的 JS eval 语义，不影响上架审查。老大 2026-09-15 已批准。
+    // 的 JS eval 语义，不影响上架审查。2026-09-15 经评审确认。
     // 真机复现（2026-09-15 晚，禁用修复的生产产物加载真机 Chrome）：新建脚本即报
     // "WebAssembly.instantiateStreaming ... violates CSP: script-src 'self'"——生产下
     // create 链路也走 esbuild，影响面比预想大。恢复修复后构建正常。
