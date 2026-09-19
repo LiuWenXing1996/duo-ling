@@ -8,6 +8,7 @@
 //   - tool part      -> 工具调用卡（ToolHeader + ToolInput + ToolOutput）
 // 按 parts 出现顺序交错成「思考与执行过程」链。
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { useDataSync } from '@/composables/use-data-sync'
 import {
   Check as UiCheck,
   ChevronsDown as UiChevronsDown,
@@ -159,6 +160,10 @@ function goToSettings(): void {
 onMounted(() => {
   void window.api.model.list().then(refreshModelStatus)
 })
+
+// 模型配置在别处变更（工作台模型管理 / 其它窗口的设置页）时自动重拉列表，
+// 否则侧边栏下拉会停留在挂载时的旧数据（useDataSync 自带在途合并，挂载即订阅、卸载自动退订）
+useDataSync('model', () => window.api.model.list().then(refreshModelStatus))
 
 // —— 消息渲染：UIMessage parts -> 气泡正文 / 思考与执行过程 ——
 
