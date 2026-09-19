@@ -41,10 +41,11 @@ npm run release patch     # 0.1.0 -> 0.1.1
 npm run release minor     # 0.1.0 -> 0.2.0
 npm run release major     # 0.1.0 -> 1.0.0
 npm run release 0.3.5     # 显式指定
+npm run release -- minor --dry-run   # 演练：只打印，不改动（-- 让 npm 把 --dry-run 传给脚本）
 ```
 
 - 默认会**本地提交**（commit message：`chore: release vX.Y.Z`）并打 tag，**不推送**。
-- `--dry-run`：只打印将要做的事，不改动文件 / 不提交 / 不打 tag。
+- 演练用 `--dry-run`：只打印将要做的事，不改动文件 / 不提交 / 不打 tag。走 npm 时务必写成 `npm run release -- minor --dry-run`（`--` 之后的参数才真正传给脚本；直接写 `npm run release minor --dry-run` 会被 npm 吞掉 `--dry-run`，脚本误以真发版模式运行）。
 - 发布前建议自己跑一次 `npm run build` 确认产物可加载；`release` 脚本只卡 `typecheck`，不卡 build（避免构建环境偶发问题误伤发版）。
 
 ## 版本号在哪儿可见

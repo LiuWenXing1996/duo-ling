@@ -28,7 +28,9 @@ function run(cmd, { silent = false } = {}) {
 // 1. 解析参数
 const args = process.argv.slice(2)
 const bumpArg = args.find((a) => !a.startsWith('--'))
-const dryRun = args.includes('--dry-run')
+// 注意：npm run 会吞掉脚本后的 --dry-run（当成 npm 自己的参数），故同时认 npm 注入的
+// 环境变量 npm_config_dry_run；走 npm 时推荐写成 `npm run release -- minor --dry-run`。
+const dryRun = args.includes('--dry-run') || /^(1|true|yes)$/i.test(process.env.npm_config_dry_run || '')
 
 let pkg
 try {
