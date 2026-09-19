@@ -11,12 +11,12 @@
 - **UI 层**：Vue 3.5 + TypeScript，`@` 别名指向 `src/`；样式 = Tailwind v4（CSS-first，`src/assets/main.css`）+ Less（`src/assets/main.less`）；主题**跟随系统**（`src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`）——**主题的唯一约定处**：勿在 html 上硬写 `class="dark"`，也别在组件里硬编码色值（一律用主题变量如 `--background`）
 - **手写桥接层（`src/lib/*.ts` 中非平移的那些）必须逐函数自检四类语义**：这类文件是重写而非平移，最容易丢「默认值回退 / 入参守卫 / 先校验后落盘 / 无变化就不做」这四类不在类型里的语义（曾丢过：模型展示名回退、会话自动命名、空提交守卫、id 防穿越、服务商预设少 7 个）。这四类各补单测覆盖——靠测试兜，不靠人工对照。
 - **UI 复用（强制）**：两个载体的 UI 都是现成实现（`src/components/`）—— side panel 用 `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列。它们靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，因此组件本体零改动。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 规范走：先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，**不手写组件**；`class` 只用于布局，不覆盖组件配色与字体，颜色一律用语义 token（`bg-primary` / `text-muted-foreground`），不写 `space-x-*` / `space-y-*`、不手写 `dark:` 覆盖。**Tooltip 组合约束（reka-ui 2.10 实测）**：① `TooltipProvider` 不转发 attrs，任何 as-child 组件**隔在 Provider 与目标元素之间都会静默断链**（编译不报错、运行时无警告，事件/属性全丢）——Tooltip 包其他触发组件时必须 **Tooltip 在最外、目标组件在内**；② 即便顺序正确，**TooltipTrigger 套在 DropdownMenuTrigger 外层仍会让 menu popper 失去定位**（内容渲染到视口外，`translate(0,-200%)` 兜底，无任何报错；组件测试/happy-dom 测不出来，只有真实浏览器可见性断言能抓到）——**菜单触发按钮一律用原生 `title`，不套 Tooltip**（`SessionHistoryPanel` 会话操作按钮即此例）。**Collapsible 折叠语义（reka-ui 2.10 实测）**：① `force-mount` 加在 `CollapsibleContent` 上**不是「保持挂载但隐藏」**——它使 `present=true`、`hidden` 属性不写，收起时内容**照样显示**；② 要「收起时留在 DOM 但不可见」（表单与编辑态始终同源、组件测试定位控件不受折叠影响），只能给**根组件** `<ui-collapsible :unmount-on-hide="false">` ——内容会带 `hidden` 属性，属性值经 Vue 归一为空串（测试只断言存在性，别断言 `until-found`）。`UserscriptEditorPanel` 的脚本配置区即此例（默认收起，收起态用摘要行交代当前注入面）。
-- **工作台标签页（面板）**：新增 / 改动工作台标签页按 [workbench-panel](.agents/skills/workbench-panel/SKILL.md) 走 —— 接线固定 6 处（kind 字面量 → 标签栏图标 → `WorkspaceHost` 三个改点 → 左侧导航 → README 清单），**面板数据源不得 import offscreen 专属模块**（`us-git` / `builder` / `offscreen-chat/script-tools`），要么新增 IPC、要么抽一份运行时与 UI 共用的纯数据模块并配「从运行时反射比对」的防漂移单测。
+- **工作台标签页（面板）**：新增 / 改动工作台标签页按 [workbench-panel](.agents/skills/workbench-panel/SKILL.md) 走 —— **接线固定 6 处（清单只在该 SKILL 罗列）**，**面板数据源不得 import offscreen 专属模块**（`us-git` / `builder` / `offscreen-chat/script-tools`），要么新增 IPC、要么抽一份运行时与 UI 共用的纯数据模块并配「从运行时反射比对」的防漂移单测。
 - **存储（IndexedDB 分库：源码 / 注册态 / 脚本数据 / 观测数据 / 应用配置 / 会话，2026-09-19 重构）**：① **源码唯一来源 `duoling-fs`**（lightning-fs，IndexedDB 后端，**只许 offscreen 碰**，`us-fs.ts` 单例）：每脚本一仓 `/uscripts/<uuid>/`——工作树 `files/` 即当前源码（未提交改动 = 草稿），git 历史 = 每次保存的版本（`us-git.ts`，仓损坏只丢历史不丢脚本）；SW/扩展页读不到 lfs，**源码读写一律走 `fs:*` 命令向 offscreen 取**（`offscreen-fs-commands.ts`）。② **注册态库 `duoling-state`**（独立 IndexedDB，`state-db.ts`/`project-store.ts` 读、`project-write.ts` 写，**写只归 offscreen**）= 每脚本一条 `ScriptProject`：只存产物 `bundle` + 元数据 + enabled + `fileCount` 缓存，**不含源码**——SW 注册直读 `bundle`，注册链路对 offscreen 存活零依赖（既定不变量）。③ **脚本数据库 `duoling-usdata`**（`usdata-db.ts`，**写只归 SW**）：`DL.store` 值（gm store，复合主键 `[uuid,key]`）与 `DL.tab`（tab store，`[uuid,tabId]`）——**脚本自己写的数据**（不可信、无上限），复合主键 + 索引替代旧 chrome.storage 字符串键拼接，范围查询不再全库扫描。④ **观测数据库 `duoling-runtime`**（`runtime-db.ts`，**写只归 SW**）：错误日志（errors store，单记录环形 ≤ `ERROR_LOG_MAX`）、运行统计（stats store，每脚本一记录：总次数 / 最后运行时间 / 最近一次运行错误数）与运行日志（runlog store，全局环形 ≤ `RUN_LOG_MAX`）——统计与日志**并进同一事务写入**（`mutateStatsAndLog` 跨 store，逐条日志不额外放大写入）；读改写在事务内天然原子，chrome.storage 时代的进程内串行队列已随之删除；错误明细按 runId 与日志关联，工作台「运行日志」标签页 = 时间线（运行行 + 孤儿错误行，`listRunTimeline` 合并读）。用户脚本的存储**全部落 IndexedDB**；DL.store 写出口发变更事件（`onGmValueChange`，值未变 / 删不存在键不发）。⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，密文载荷）、key-cipher DEK、MAIN 世界桩密钥（`pageSecret`）——扩展自己的小数据；`chrome.storage.local` 已清零。⑥ **会话库 `duoling-chat`**（`conversation-store.ts` 读写，**唯一写方 = offscreen**，侧边栏只读订阅）：会话与消息 + 生成任务快照（tasks store，宿主被杀后可续）——它不在 userScripts 链路里，故与 `duoling-state` 分开。
 - **统一保存（2026-09-19 经评审确认）**：一切源码落盘（编辑器保存 / AI 收尾 / 历史恢复 / zip 导入 / 新建）收敛到 offscreen 单一入口 `project-write.saveSource`：写工作树 → git 提交 → **立刻构建** → 写状态库 → 出口广播。**保存恒成功**（提交即保存，不再以构建成功为前提）；构建失败**产物置空**（`bundle=undefined`），脚本立即停止注入（旧产物不兜底，刷新目标页失效）。编辑内容只活在页面内存（草稿机制已删），关标签前的 dirty 确认弹窗保留。**zip 导入例外（同日拍板）：导入 ≠ 构建**——导入只落源码 + 占位注册态（`lastBuildAt=0` = 「从未构建」哨兵，列表按「构建中」展示而非失败），构建走 `project-write` 的后台串行队列静默接力（导入即时返回，报告不含构建诊断）；队列被中断的脚本由 offscreen 启动对账 `rebuildPendingProjects` 重排。后台链路不经命令面，写完状态库**必须自己发** `broadcastDataChange`
 - **版本管理**：`isomorphic-git`（纯 JS），仓在 duoling-fs——每次保存/导入/回滚 = 一次提交（恢复走「产生新提交」而非 reset，历史不可变）；仓损坏只丢历史，源码在工作树里。注册/注入以状态库 `duoling-state` 的 `bundle` 为准，编辑器以 duoling-fs 工作树为基准。（这里指**用户脚本自身**的 git 历史，不是扩展版本号；扩展版本号机制见 [VERSIONING.md](VERSIONING.md)）
 - **数据变更广播（跨页面同步）**：IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 `src/lib/data-broadcast.ts` 补——写侧落盘成功后 `broadcastDataChange(域, uuid?)` 发一条**只含域+uuid、不带数据**的通知（BroadcastChannel 同源多播，不唤醒休眠 SW；无 BC 降级 `runtime.sendMessage`），读侧组件用 `useDataSync(域, reload)` 订阅后自行回拉权威存储（同 `domain+uuid` 100ms 合并防风暴）。广播埋在写出口：offscreen `handleStateCommand`（`script` 域）、`conversation-store` 写函数（`conversation`）、`userscripts/store.ts`（`error`）、`userscripts/usdata-db` 写出口经 store.ts（gm 变更事件）与 `model-store.ts` 写出口（`model`）。**新增写路径必须同步埋广播**；前端新面板按域接 `useDataSync`，不再靠手动刷新兜底。编辑器有未保存改动时不自动重载，只提示「已在别处被修改」
-- **脚本注入**：`chrome.userScripts` + USER_SCRIPT 世界 + `window.DL` 桥接（`src/lib/userscripts/`）。DL.fetch 的 forbidden header 覆写（Cookie/Referer/UA 等）与 `redirect:'manual'` 走 DNR session 规则按请求挂/撤 + 观察型 webRequest（`dl-fetch-priv.ts`，2026-09-19 经评审批准，权限 `declarativeNetRequestWithHostAccess` + `webRequest` 均不新增用户可见提示）；覆写期间同 host 互斥（读写锁，防规则污染并发请求）。
+- **脚本注入**：`chrome.userScripts` + USER_SCRIPT 世界 + `window.DL` 桥接（`src/lib/userscripts/`）。DL.fetch 的 forbidden header 覆写（Cookie/Referer/UA 等）与 `redirect:'manual'` 走 DNR session 规则按请求挂/撤 + 观察型 webRequest（`dl-fetch-priv.ts`，2026-09-19 经评审批准，权限 `declarativeNetRequestWithHostAccess` + `webRequest` 均不新增用户可见提示）；覆写期间同 host 互斥（读写锁，防规则污染并发请求——粒度限制与生命周期兜底见 [README](README.md) 坑 16）。
 
 - **依赖构建（esbuild-wasm，offscreen 独占）**：两条通道——① ESM 导入链：VFS 插件按 URL 解析、逐条 fetch 持久化进 files（断网可重构建）；② **UMD / 资源依赖（`config.deps`，2026-09-19 提案拍板）**：保存时缓存优先拉取进 `_deps/`（确定性文件名 = sha256(url) 前缀 + `index.json` 清单，随 git/zip/历史搭车，孤儿自动清理），**JS 文本依赖只拼接进 bundle 头部**（不进 esbuild 模块图、不进资源表），其余打成 `DL.__res` 表供 `DL.resource(url)` 读（挂 DL 自身，不开新全局；文本/二进制按 content-type，octet-stream 与缺失时按扩展名兜底再兜文本）。拉取失败 = 构建失败（产物置空，统一保存语义）。**依赖缓存管理（同日拍板，清/刷分开）**：编辑器 deps 表单旁两按钮，操作已保存工作树——「清依赖缓存」只删 `_deps/`（不拉不建，bundle 保留，下次构建冷拉）；「刷新依赖」无视缓存全量重拉且**事务性**（任一失败 BuildError、什么都不写、旧缓存原封不动，全成功才落盘替换 + 重建 + 重注册）。协议 = `userscript:deps-refresh/clear` → `state:deps-refresh/clear`
 - **offscreen document**：AI 生成链路的执行宿主，按需创建（`src/lib/offscreen.ts`）
@@ -43,16 +43,20 @@
 | `npm run check:inbox` | 想法收件箱条目体检：单条 >100 字、总字数 >6000、「不办」条目缺理由、疑似重复（**整理 inbox 时跑**，提醒级不进 CI） |
 | `npm run pack:uscripts` | 生成用户脚本测试包：把仓库根 `uscript-samples/` 打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；测脚本行为别手搓，改样例目录再打） |
 
-> **交付前验证**：`npm run typecheck` 与 `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
+> **交付前验证（唯一登记处）**：`npm run typecheck` + `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
 
-## 文档职责总表
+## 文档职责总表（读哪 / 写哪）
 
-| 文档 | 职责 | 何时读 |
+> 判据只有一条：**换台机器、半年后还要读吗？** 要读的才落库，落哪按下表 —— **本表即「东西写哪」的唯一登记处**。
+
+| 文档 | 职责（读什么） | 何时读 / 何时写 |
 | --- | --- | --- |
-| [README.md](README.md) | 工程介绍、目录结构、手测步骤、关键坑（**命令清单不在这里**，见本文件「常用命令」） | 上手 / 手测前 |
-| [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），可带一句 ≤30 字方向，**不写方案设计、也不承诺要做**。轻量想法收集 | 攒需求 / 清理待办时 |
-| [VERSIONING.md](VERSIONING.md) | 扩展**自身**版本机制：真相源 = `package.json` version、SemVer 规则、`vX.Y.Z` tag 规范、CHANGELOG 手动维护、`npm run release` 用法 | 发版 / 改版本号前 |
-| [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md) | **提交信息规范**（文档约束，无工具）：Conventional Commits 格式 / type 白名单 / scope / 合并提交标题要求 | 写提交 / 开 PR 前 |
+| [README.md](README.md) | 工程介绍、目录结构、手测步骤、关键坑（**命令清单不在这里**，见本文件「常用命令」） | 上手 / 手测前；踩到新坑就地补「关键坑」 |
+| **AGENTS.md**（本文件） | 协作约定、全局约束、命令清单、硬性底线、决策理由 | 动手前；结论成形后就地补对应小节 |
+| [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），可带一句 ≤30 字方向，**不写方案设计、也不承诺要做** | 攒需求 / 清理待办时；待办只记不做 |
+| [VERSIONING.md](VERSIONING.md) | 扩展**自身**版本机制（真相源 / SemVer / 预发布 / tag / CHANGELOG / release 用法） | 发版 / 改版本号前 |
+| [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md) | **提交信息规范**（文档约束，无工具）：格式 / type 白名单 / scope / 分支命名 / 合并提交标题 | 写提交 / 开 PR 前 |
+| `.workbuddy/memory/` | 本机环境、会话过程、临时状态（不入库）—— **不承载项目知识** | 给下一轮会话留上下文；结论成形后按上表归位 |
 
 
 ## 全局约束（强制）
@@ -91,19 +95,7 @@
 
 ### 协作与记录
 
-**东西写哪** —— 只有一条判据：**换台机器、半年后还要读吗？**
-
-| 要记的 | 写哪 |
-| --- | --- |
-| 工程介绍 / 手测步骤 / 关键坑 | `README.md`，就地改 |
-| 命令清单（`npm run *`） | 本文件「常用命令」表，就地改 |
-| 协作约定 / 全局约束 / 硬性底线 | `AGENTS.md`（本文件），就地改 |
-| 扩展版本号 / 发版约定 / 版本变更记录 | `VERSIONING.md` + `CHANGELOG.md` |
-| 想法 / 待办（问题 + ≤30 字方向） | `inbox`（docs/inbox.md，**不写方案设计**） |
-| 踩坑记录 | `README.md`「关键坑与规避」 |
-| 待办（问题） | `inbox`（只描述问题 + 一句 ≤30 字方向，不展开方案） |
-| 仍生效约定 / 为什么这么定 | `AGENTS.md` 对应小节 |
-| 本机环境、会话过程、临时状态 | `.workbuddy/memory/`（不入库）——**不承载项目知识**，结论成形后按上表归位 |
+**东西写哪** —— 判据与登记处见上方「文档职责总表」，本处不复述。
 
 过程记录不落盘：没有长期价值的（今天干了啥、做到一半的猜想、待拍板）不写进仓库；确需给下一轮会话留上下文才放 `.workbuddy/memory/`。
 
@@ -114,9 +106,9 @@
 1. 动手前：读本文件 → 文档总表 → 相关文档 → `.workbuddy/memory/`（本机上下文，不入库）；重大变更的决策理由记进本文件对应小节；日常改动直接做
 2. 直接做：读代码、探索、改文档 / 注释 / 格式
 3. 先问再做：改行为或结构、加依赖、动 manifest、删文件、外部操作（push / 发布）
-4. 交付前：`npm run typecheck` + `npm run build` 必过；UI 不做额外视觉校验
+4. 交付前：走上面「交付前验证」；UI 不做额外视觉校验
 5. 提交：我可以提交，但提交前说清改了什么；你随时可叫停
-6. 收尾：讨论出的结论和踩到的坑**由我落进仓库**（约定与决策理由 → 本文件对应小节、坑 → `README.md`「关键坑与规避」、问题 → `inbox`），不能只留在 `.workbuddy/`
+6. 收尾：讨论出的结论和踩到的坑**由我落进仓库**（落哪见上表「文档职责总表」），不能只留在 `.workbuddy/`
 7. 发现跑偏、死链、过时内容、规范互相打架 → 直接说，不用等我问
 
 其他：修改前先阅读相关文件；需要桌面版旧实现参照时从 git 历史取回；测试体系已建立，新增功能尽量补最小验证（探针脚本放 `tmp/`），方案先与用户确认。
@@ -131,7 +123,7 @@
   - 禁强推（`non_fast_forward`）、禁删除该分支；`bypass_actors` 为空 —— **无人可绕过，含 admin**（2026-09-19 实测）
 - **合 main 标准流程**：
   1. 基于最新 `origin/main` 起 kebab-case 功能分支（如 `feat/xxx`、`fix/xxx`、`test/xxx`）；不要在一个分支堆多件不相关的事。**命名细则与「禁止不规范分支名推远程」见 [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md)「分支命名」**（工具自动生成的会话名如 `workbuddy/main-xxxx` 必须先 `git branch -m` 改名再 push）
-  2. 本地开发，交付前 `npm run typecheck` + `npm run build` + `npm run test` 全过
+  2. 本地开发；交付前验证按「常用命令」处的门禁，合并前**另加** `npm run test`（全套单测）
   3. `git push -u origin <功能分支>`（**只 push 分支，不触发 CI**——两个 workflow 的 `push` 都限 `branches: [main]`）
   4. 开 PR（`base: main`），描述按 `.github/pull_request_template.md` 填（动机 / 变更 / 测试证据三段）；PR 触发**两个**门禁：`ci.yml`（typecheck + 全部单测）+ `e2e.yml`（Playwright 冒烟，约 1 分钟），**两个 check 都绿才能合**
   5. 等两个 check 绿 → 网页点 Merge 或 `gh pr merge --merge`（生成 merge commit 进 main，**等价**）
@@ -155,6 +147,6 @@
 | 权限引导 | 需用户在浏览器里开启的开关（当前两项：「运行用户脚本」「读取本地文件」——后者只对 Chrome 渲染）统一由工作台**「引导」标签页**承载（状态自检 + 分步指引 + 直达扩展管理页）；**别处一律只给「查看开启引导」入口，不各写一套步骤**。该页只放需要用户动手的项——无需操作的实现细节（如脚本世界禁 `eval`）由保存警告与错误日志在恰当时机给出 | [README](README.md) 手测第 4 步 |
 | 脚本世界 CSP | **不给 USER_SCRIPT 世界配 `csp`**：回落浏览器默认的严 CSP（禁 `eval` / `new Function`），不额外给 AI 生成的脚本「执行任意字符串」的能力 | [README](README.md)「后续接入」 |
 | 错误文案 | **平台英文报错不直达用户**：扩展 API 的原话（注入失败 / 访问被拒等）必须先归一成用户的下一步动作（典型「切到要操作的网页后重试」），能在调用前判掉的就在判据里判掉；同类失败面（内置页 / 扩展页 / 未授权）文案保持一致 | [README](README.md) 坑 8 |
-| entrypoint | 不要同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [README](README.md) 坑 5 |
-| 首屏体积 | 入口 HTML 的静态图就是打开面板要执行的代码：markdown 渲染链路 / AI SDK 等重依赖一律动态 import；首帧加载态必须是内联静态 DOM（不靠 JS） | [README](README.md) 坑 10/11 |
+| entrypoint | 不要同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [wxt](.agents/skills/wxt/SKILL.md) 硬约束 3 |
+| 首屏体积 | 入口 HTML 的静态图就是打开面板要执行的代码：markdown 渲染链路 / AI SDK 等重依赖一律动态 import；首帧加载态必须是内联静态 DOM（不靠 JS） | [README](README.md) 坑 10/12 |
 | 命名 | 文件/目录 kebab-case；组件 kebab-case；props/emits 脚本 camelCase、模板 kebab-case | 本表即约定，无独立文档 |

@@ -27,7 +27,7 @@
 | 模型配置 | **IndexedDB `duoling-app` 库**（API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`；密钥同存本机，属防扫描级而非保密级） |
 | 页面上下文 | 点选元素：`chrome.userScripts.execute()` 按需注入内置拾取器，产物暂存后随下一条消息发出；页面快照：AI 侧 `page_snapshot` 工具经 SW 采集 |
 
-> **UI 复用**：两个载体的界面都是现成实现 —— side panel 由 `ChatApp.vue` 装配 `ChatPanel` + `SessionHistoryPanel`；工作台由 `WorkbenchApp.vue`（左侧图标导航 + `WorkspaceHost` 多标签宿主）承载。**标签页清单只在上方「载体分工」表登记一处**，别处只链接不罗列；导航项是它的子集加每脚本标签，实况以 `WorkbenchApp.vue` 为准。平移来的组件经 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，**组件本体零改动**；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`，不经 `window.api`。
+> **UI 复用**：两个载体的界面都是现成实现 —— side panel 由 `ChatApp.vue` 装配 `ChatPanel` + `SessionHistoryPanel`；工作台由 `WorkbenchApp.vue`（左侧图标导航 + `WorkspaceHost` 多标签宿主）承载。**标签页清单只在上方「载体分工」表登记一处**，别处只链接不罗列；导航项是它的子集加每脚本标签，实况以 `WorkbenchApp.vue` 为准。**复用铁律（改前先查现成实现、禁照着界面重写）与组件桥接契约只在 [AGENTS.md](AGENTS.md) 项目速览「UI 复用」登记一处**；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`，不经 `window.api`。
 
 ## 目录结构
 
@@ -48,7 +48,7 @@
 │  │     ├─ workbench-main.ts     # 工作台入口脚本（→ WorkbenchApp）
 │  │     ├─ WorkbenchApp.vue      # 工作台根：左侧图标导航 + WorkspaceHost + hash 深链
 │  │     └─ offscreen-main.ts     # offscreen 入口脚本
-│  ├─ components/                 # UI 组件（改前先查现有实现，禁止照着界面重写）
+│  ├─ components/                 # UI 组件（复用规则见 AGENTS.md「UI 复用」）
 │  │  ├─ ChatPanel.vue            #   聊天区：消息气泡 / 思考与执行过程折叠 / 工具卡 / 拾取 chip / 输入区 / 模型切换
 │  │  ├─ SessionHistoryPanel.vue  #   会话列表（搜索 / 重命名 / 删除确认）
 │  │  ├─ WorkspaceHost.vue        #   工作区多标签宿主（标签开合 / 脏标记 / 历史恢复后重载）
@@ -143,7 +143,7 @@
 
 1. **`sidePanel` 是必需权限，别剔除**：使用 `chrome.sidePanel` API **必须**在 `permissions` 里声明 `"sidePanel"`（Chrome 114+），否则 `chrome.sidePanel` 不存在、`setPanelBehavior` 静默失败、**点图标不开面板**；`setPanelBehavior({openPanelOnActionClick:true})` 还需 manifest 声明 `"action"` 键。**已批准权限集不在本文件罗列** —— 唯一登记处是 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」），核对产物 manifest 就是拿它的 `permissions` 数组逐项比对，另需 `action` + `side_panel.default_path` + `host_permissions`。
 2. **SW 缺 `global` / `Buffer` / `process`**：`isomorphic-git`/`lightning-fs` 依赖 Node 全局，SW 没有。`vite.define` 别名 `global: 'globalThis'` + `polyfills.ts`（含 `polyfill-process`）在 `background.ts` 最前 import 兜底；漏掉会以「`global.TextEncoder` 读不到」这类形式炸在加载期。
-3. **entrypoint 同名冲突**：不要同时存在 `sidepanel.html` 与 `sidepanel.ts`（WXT 会判定两个同名 entrypoint）。入口脚本用非约定名（如 `app/sidepanel-main.ts`）由 html 引用。
+3. **entrypoint 同名冲突**：不要同时存在 `x.html` 与 `x.ts`（WXT 判定两个同名 entrypoint）。规则与命名做法见 [wxt 规范](.agents/skills/wxt/SKILL.md) 硬约束 3。
 4. **跨域 fetch 需 host 权限**：扩展页 `fetch` 模型接口会被 CORS 拦，必须在 manifest 声明对应 `host_permissions`（模型服务商由 `src/lib/providers.ts` 推导，用户脚本另需 `<all_urls>`）。
 5. **userScripts 可用性前置**：`chrome.userScripts` 未开启时不存在，直接调用会让 SW 初始化崩溃；引擎每条入口都先判存在性（`isUserScriptsAvailable()` / `typeof chrome.userScripts.register === 'function'`）再优雅跳过，并把开启引导交给工作台「引导」标签页（各处只给「查看开启引导」入口，不各写一套步骤）。
 6. **git 不存产物、也不存权威副本之外的东西**：源码唯一来源 = duoling-fs 工作树，git 提交是其版本历史；产物 `bundle` 只进注册态库（git 侧显式排除，防「假变更」撑爆历史）；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护）
@@ -157,7 +157,7 @@
    - **`ai` 的 4 个 part 判定 helper 本地实现在 `src/lib/ui-message-parts.ts`**：`import { isTextUIPart } from 'ai'` 这种一行函数的静态导入会把整块 360KB 拉进首屏（`ai` 根入口与 `ai/internal` 都静态依赖 `@ai-sdk/gateway` / zod，`sideEffects:false` 也摇不掉）。上游改了判定要跟着改。
    - 复核：`node tmp/first-paint-size.mjs .output/chrome-mv3 sidepanel.html`（量首屏字节）、`node tmp/first-paint-graph.mjs src/entrypoints/app/sidepanel-main.ts`（列静态图里的包；`.vue` 里的动态 import 不计入）。
    - 结果：1420KB → 534KB。
-11. **首帧底色不能靠 JS，加载态必须是内联的静态 DOM**：`body` 背景取 `--background`，而 `:root` 是浅色（纯白）、深色值只在 `.dark` 里，`.dark` 由 `theme.ts` 的 `installTheme()` 在 JS 执行时才挂上（CSP 禁内联 `<script>`，没法抢先挂类）—— 所以「CSS 到了、JS 没执行完」这一档，`body` **实测就是 `oklch(1 0 0)` 纯白**，深色系统下极其刺眼（坑 10 只把这段窗口压短，白本身还在）。
+12. **首帧底色不能靠 JS，加载态必须是内联的静态 DOM**：`body` 背景取 `--background`，而 `:root` 是浅色（纯白）、深色值只在 `.dark` 里，`.dark` 由 `theme.ts` 的 `installTheme()` 在 JS 执行时才挂上（CSP 禁内联 `<script>`，没法抢先挂类）—— 所以「CSS 到了、JS 没执行完」这一档，`body` **实测就是 `oklch(1 0 0)` 纯白**，深色系统下极其刺眼（坑 10 只把这段窗口压短，白本身还在）。
    已在 `sidepanel.html` / `workbench.html` 的 `<head>` 内联首帧加载态 + `<meta name="color-scheme" content="light dark">`：`#app` 里一个 `.dl-boot`（`position: fixed; inset: 0` 钉死视口 + 自带底色，`::after` 是纯 CSS 转圈），Vue mount 清空 `#app` 时自动消失，无需 JS 移除。要点，改动时别丢：
    - **底色用 CSS 系统色 `Canvas` / `CanvasText`（不是 `@media (prefers-color-scheme)` 也不是写死的 `oklch`）**：这是踩坑后的关键修正 —— **Chrome 侧边栏的 `prefers-color-scheme` 媒体查询在部分环境下不可靠**（面板没正确上报深色），当年用 `@media (prefers-color-scheme: dark)` 时，侧边栏走了 light/白分支（工作台标签页却正常上报、显示深色转圈）—— 它造成的是**加载态底色发白**；而「侧边栏白屏」本身另有主因（dev 冷启动，见本条最后一条），两者别混为一谈。`Canvas` / `CanvasText` 由浏览器按 OS 配色直接解析，**不依赖该媒体查询、也不需要 JS**（CSP 禁内联脚本），深浅色自动跟系统。
    - **加载层必须整块覆盖视口**：用 `position: fixed; inset: 0`，不依赖 `#app`/`body` 的高度链路（侧边栏文档高度在部分状态下不撑满，`height: 100%` 会塌缩成只剩转圈、露出下方白底）。只给 `html` 设底色不够 —— `body` 的 `bg-background` 会盖住它。
@@ -168,20 +168,20 @@
    - 视觉回归：`node tmp/verify-canvas-boot.mjs` —— 无头分别按 dark / light 配色渲染，应得深底白圈 / 浅底黑圈且满屏覆盖，不开窗口。
    - **在侧边栏里几乎看不到它，不代表它没生效**：加载态窗口本来就只有几十毫秒（无头实测生产产物 `node tmp/measure-boot-state.mjs`：侧边栏 96ms / 缓热 30ms，工作台 50ms / 45ms），且 module 脚本在 `DOMContentLoaded` **之前**就执行完毕（探针挂在 DCL 上会完全错过这段窗口）。看不到恰恰说明快 —— 它是「真的需要等」时才出现的兜底，不是常驻动画。2026-09-18 又做了一次对照验证（把 Vue 挂到独立 `#ui-root`、让加载态常显）：**加载态与正式 UI 是同时出现的**，肉眼分不出先后，进一步坐实「热态下窗口短到看不见」。
    - **「侧边栏白屏」的那一大半是 dev 冷启动，前端无从覆盖**：`npm run dev` **首次自动打开浏览器**那一下会白屏几秒，之后在 `chrome://extensions` 点「刷新」重载就再也不出现、侧边栏秒开 —— 因为首次要等 Vite/WXT **现场编译 entrypoint + 预构建依赖**，这几秒里 **HTML 文档本身还没送达浏览器**，页面是彻底空白（不是「底色白」，是连内联 `<style>` 都还没到），任何前端手段都渲染不出加载态。**属 dev-only**：生产产物是静态文件，HTML 即时到达，没有这段窗口。所以验真实首屏体感要用 `npm run build` 的产物加载，别拿 dev 冷启动的观感下结论（同理 dev 也不适合验 CSP / wasm，见坑 7）。
-12. **组件测试里测 reka-ui 的 DropdownMenu**：happy-dom 下 `trigger('pointerdown')` / `trigger('click')` **都开不了菜单**（reka 的事件判定不认 VTU 合成的 pointer 事件），用键盘开：`trigger('keydown', { key: 'ArrowDown' })`。且菜单内容 portal 到 `document.body`，`wrapper.findAll()` 找不到 —— 要去 `document.querySelectorAll('[role="menuitem"]')` 上找，选中用原生 `el.click()`（见 `UserscriptListPanel.component.test.ts` 批量启停用例）。
+13. **组件测试里测 reka-ui 的 DropdownMenu**：happy-dom 下 `trigger('pointerdown')` / `trigger('click')` **都开不了菜单**（reka 的事件判定不认 VTU 合成的 pointer 事件），用键盘开：`trigger('keydown', { key: 'ArrowDown' })`。且菜单内容 portal 到 `document.body`，`wrapper.findAll()` 找不到 —— 要去 `document.querySelectorAll('[role="menuitem"]')` 上找，选中用原生 `el.click()`（见 `UserscriptListPanel.component.test.ts` 批量启停用例）。
    - 同一个 portal 道理也适用于 **Dialog**：`DialogContent` 挂到 body，弹窗内的输入框 / 按钮都不在 `wrapper` 里。按「不在组件根节点内」筛出来即可（`UserscriptListPanel.component.test.ts` 的 `portalButtons()` / `pathInput()`）。
    - **点弹窗按钮前必须先 flush**：确认按钮常带 `:disabled="!输入.trim()"` 这类条件，`setValue` / 原生 `input` 事件之后 Vue 是**下一轮**才重渲染出非 disabled 的按钮 —— 不等就点，点的是个灰按钮，什么都不会发生，测试还会以「断言文案没出现」的形式失败（误导性极强，2026-09-19 踩过）。
    - **页面级 `text()` 断言会跨卡串味**：页面里出现第二张状态卡（引导页的「读取本地文件」）后，「引擎已开启不给步骤」这类断言必须收窄到卡内（`cardText(w, 'guide-userscripts')`），否则另一张卡的文案会把断言顶掉（2026-09-19 踩过）。
    - **无头驱动工作台（E2E / 探针）用 hash 深链切标签页，别按文字点左侧导航**：导航项是**只有 `aria-label` 的图标按钮**（`WorkbenchApp.vue`），`getByText('引导')` 定位不到（文字在 tooltip 内容里，要 hover 才 portal 出来）；`workbench.html#/guide` 就是侧边栏「查看开启引导」走的那条路。
-13. **读本地 `file://` 不用加权限，但挡着一道用户开关**（「从路径导入」的地基，2026-09-19 无头实测，Chromium 141 / Playwright 捆绑版）：
+14. **读本地 `file://` 不用加权限，但挡着一道用户开关**（「从路径导入」的地基，2026-09-19 无头实测，Chromium 141 / Playwright 捆绑版）：
    - **manifest 不用动**：`<all_urls>` 已覆盖 `file:///*` —— 真产物里 `chrome.permissions.contains({origins:['file:///*']})` 实测为 `true`，别再多申请 `file:///*`。
    - **真正的门槛是每扩展的用户开关「允许访问文件网址」**：关着时 `isAllowedFileSchemeAccess()` 为 `false`、上面那个 `permissions.contains` 也跟着变 `false`（它是开关的忠实代理）、`fetch('file:///…')` 一律 `Failed to fetch`。**命令行加载的 unpacked 扩展（`npm run dev` 与 E2E 的方式）该开关默认就是开的**，所以开发/端测里开箱可用；UI 里手动「加载已解压的扩展程序」装的则可能要用户自己开一次。
    - **改这个开关不是即时生效**：程序化改（`chrome.developerPrivate.updateExtensionConfiguration({fileAccess})`）会把扩展重载，重载窗口内连自己的扩展页都进不去（导航报 `ERR_BLOCKED_BY_CLIENT`，实测 14s 未恢复），详情页自己也写着「对此设置的更改将在 Chromium 重启后生效」。所以引导页把「重启浏览器」**列成一步**（见 `fileAccessGuideSteps`），别写成「立刻生效」。
    - **`chrome.extension.isAllowedFileSchemeAccess()` 在 MV3 已 promise 化**：不 await 直接读会拿到一个 Promise 对象（truthy，JSON 序列化成 `{}`，看着像空对象）—— 当布尔用必然判错。`src/lib/extension-page.ts` 里兼容 promise 与同步返回，探测不到返回 `null`（**≠ 没权限**，调用方不得据此拦人）。
    - **裸路径不是 URL**：`fetch('/a/b.zip')` 会被当**相对地址**解析到扩展页自身（实测同样 `Failed to fetch`）。路径文本必须先归一成 `file://` URL，且要**逐段编码**：`#` / `?` / 空格 不编码会被当 fragment / query 截掉（`/a#b.zip` 会变成去读 `/a`），而 POSIX 首段与 Windows 盘符段不能编码（`C:` 编成 `C%3A` 就认不出盘符）。这层在 `src/lib/userscripts/local-path.ts`，单测覆盖四类坑。
    - 探针（`tmp/` 不入库，需要时重写）：`tmp/file-access-probe/probe.mjs` 用最小扩展测权限机制（`probe` / `rows` / `toggle on|off` / `live` 四相），`verify-real.mjs` 拿 `.output/chrome-mv3` 跑真实 UI 动线。
-14. **fake timers 与 fake-indexeddb 不能同时挂**：`vi.useFakeTimers()` 生效期间任何 IndexedDB 调用（`fake-indexeddb` 内部靠定时器调度请求队列）**永不 settle**，症状是 hook 超时（`Hook timed out in 10000ms`，指向 `beforeEach`/`afterEach` 行）而不是报错——极易误判成 IDB 或被测代码坏了。规避：任何碰状态库（`state-db` / `project-store` / 经它们到的桥逻辑）的测试，**先 `vi.useRealTimers()` 再做 IDB 操作**，`afterEach` 里也把还原放在清理之前（见 `dl-bridge.test.ts`）；`vi.resetModules()` 不影响这条（全局 `indexedDB` 不受模块重置影响）。
-15. **DNR header 覆写没有「按请求」粒度、也不跨重定向 hop**：DL.fetch 的 forbidden header 覆写（`dl-fetch-priv.ts`）靠 session 规则按请求挂/撤，但规则条件只能到 host 级 —— 覆写规则挂起期间，同 host 的**所有** DL.fetch 都会被套上覆写头。因此覆写请求 = 写者（独占该 host）、纯请求 = 读者（写优先读写锁），不互斥就会出现「纯请求带上不该带的 Cookie」这类难查死 bug。另：DNR 的头修改**不跨重定向 hop 保持**（跨 host 的 hop 不套用，Chrome 平台限制，油猴同款）；`redirect:'manual'` 的 3xx 头靠观察型 webRequest 读（SW fetch 对 3xx 只拿得到 opaqueredirect，实测 webRequest **能**看到自家 SW fetch，探针 `tmp/dnr-spike/`，2026-09-19）。规则生命周期三层兜底：settle finally 撤 → SW 启动对账自有 id 区间 → session 规则浏览器重启自清（故用 session 弃 dynamic）。
+15. **fake timers 与 fake-indexeddb 不能同时挂**：`vi.useFakeTimers()` 生效期间任何 IndexedDB 调用（`fake-indexeddb` 内部靠定时器调度请求队列）**永不 settle**，症状是 hook 超时（`Hook timed out in 10000ms`，指向 `beforeEach`/`afterEach` 行）而不是报错——极易误判成 IDB 或被测代码坏了。规避：任何碰状态库（`state-db` / `project-store` / 经它们到的桥逻辑）的测试，**先 `vi.useRealTimers()` 再做 IDB 操作**，`afterEach` 里也把还原放在清理之前（见 `dl-bridge.test.ts`）；`vi.resetModules()` 不影响这条（全局 `indexedDB` 不受模块重置影响）。
+16. **DNR header 覆写没有「按请求」粒度、也不跨重定向 hop**：DL.fetch 的 forbidden header 覆写（`dl-fetch-priv.ts`）靠 session 规则按请求挂/撤，但规则条件只能到 host 级 —— 覆写规则挂起期间，同 host 的**所有** DL.fetch 都会被套上覆写头。因此覆写请求 = 写者（独占该 host）、纯请求 = 读者（写优先读写锁），不互斥就会出现「纯请求带上不该带的 Cookie」这类难查死 bug。另：DNR 的头修改**不跨重定向 hop 保持**（跨 host 的 hop 不套用，Chrome 平台限制，油猴同款）；`redirect:'manual'` 的 3xx 头靠观察型 webRequest 读（SW fetch 对 3xx 只拿得到 opaqueredirect，实测 webRequest **能**看到自家 SW fetch，探针 `tmp/dnr-spike/`，2026-09-19）。规则生命周期三层兜底：settle finally 撤 → SW 启动对账自有 id 区间 → session 规则浏览器重启自清（故用 session 弃 dynamic）。
    - **怎么验**：`npm run pack:uscripts` → 工作台「脚本列表」导入 → 启用「DL API 收口探针」→ 页面右下角角标点一下。四项断言全打在 httpbin 回显上（覆写是否真上线只有服务端能作证）。**2026-09-19 真机手测通过**：覆写上线 / 同 host 隔离 / manual 读 3xx / error 拒绝四项全 ✓。
    - **角标是三态，别把 `?` 读成失败**：`✓` 通过 / `✗` 功能失败 / `?` 未判定（httpbin 抖动、响应体为空读不出 header 干不干净；读者会隔 500ms 自动重试一次，两次都拿不到回显才记 `?`）。重跑即可——把环境抖动当功能失败会让排查方向整个跑偏。
    - **判据是「回显里没有脏头」还是「回显可辨认」**：靠回显下结论的两项（覆写上线、同 host 隔离）必须先确认回显**可辨认**（含 Host/Accept 等真实请求头之一），否则记 `?` —— 空回显 / CDN 兜底页里「没有脏头」不能证明「没被污染」，靠缺席证据判 ✓ 是恒真的安慰剂（2026-09-19 堵掉）。

@@ -1,6 +1,6 @@
 # Changelog
 
-本文件记录哆灵扩展每个发布版本的变更。格式参考 Keep a Changelog，手动维护。
+本文件记录哆灵扩展每个发布版本的变更。**格式与维护方式见 [VERSIONING.md](VERSIONING.md)「CHANGELOG.md」**，本文件只放条目。
 
 
 

@@ -43,7 +43,7 @@ description: Use when configuring, building, or debugging WXT 0.21 in this exten
 
 1. **改 `wxt.config.ts` 必须重启 dev** —— HMR 不重读配置；改完还要去 `chrome://extensions` 点刷新图标重载扩展。
 2. **不要把 entrypoint 的相关文件直接放 `entrypoints/` 根目录** —— WXT 会把它当 entrypoint 去构建，通常直接报错。要用目录装：`entrypoints/<name>/index.html` + 同级 `main.ts` / `style.css`。
-3. **不要同时存在 `x.html` 与 `x.ts`** —— WXT 判定同名冲突。
+3. **不要同时存在 `x.html` 与 `x.ts`** —— WXT 判定两个同名 entrypoint（如 `sidepanel.html` 与 `sidepanel.ts`）。**入口脚本一律用非约定名**（如 `app/sidepanel-main.ts`）由 html 引用；脚本名一旦撞上 html 的 basename 就会被当成第二个入口。
 4. **`entrypoints/` 不支持深层嵌套** —— 它不像 Nuxt/Next 的 `pages/`，只有一层 `entrypoints/<name>/index.{ext}`。
 5. **entrypoint 的 `name` 决定类型** —— `background.ts` → background，`content.ts` → content script，`sidepanel.html` → side panel。改名等于改类型。
 6. **HTML entrypoint 的 manifest 选项写在 `<meta>` 标签里**，JS entrypoint 写在文件自身（`defineXxx` 导出）。不要在别处另建 manifest 配置。
@@ -54,6 +54,7 @@ description: Use when configuring, building, or debugging WXT 0.21 in this exten
 | 症状 | 原因 | 处置 |
 | --- | --- | --- |
 | 构建报 entrypoint 冲突 / 多了个陌生入口 | 相关文件散放在 `entrypoints/` 根目录 | 收进 `entrypoints/<name>/` 子目录 |
+| 同一个名字被构建成两个入口 | `x.html` 与 `x.ts` 同时存在 | 入口脚本改成非约定名（如 `app/sidepanel-main.ts`），由 html 引用 |
 | SW 启动即 `global is undefined` / `TextEncoder` | 依赖用了 Node 全局 | 确认 `vite().define.global` 仍在；新引入的依赖按需补 `src/polyfills.ts` 并在 `background.ts` **最前** import |
 | manifest 报 `Unrecognized manifest key` | 用了驼峰键 | Chrome 规范字段用下划线，如 `minimum_chrome_version` |
 | 点工具栏图标不开侧边栏 | 缺 `action` 键 | `setPanelBehavior({ openPanelOnActionClick: true })` 需要同时声明 `action` |
