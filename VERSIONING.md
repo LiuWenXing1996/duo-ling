@@ -79,7 +79,7 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 3. **人审（merge 前）**：打开 PR 看 diff，确认两件事再合入——
    - `package.json` 的 `version` 变更正确（base / bump / stage 都对）。
    - `CHANGELOG.md` 的信息是否合适，由人决策。  
-     确认无误后手动合入：`gh pr merge --squash` 或在界面点。
+     确认无误后手动合入：`gh pr merge --merge`（Merge Commit）或在界面点 Merge。
 4. 合入 main → CI（`release.yml`）读合并 commit 的 `package.json` version，打 `vX.Y.Z` annotated tag 并推 `refs/tags/*`。发布完成。
 
 注意：
@@ -97,7 +97,7 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 3. 否则打 **annotated tag** 并推 `refs/tags/*`。
 
 - **CI 只推 tag，不 bump 版本**：bump 已在本地 `npm run release` 完成、随 release PR 合入。
-- **不依赖提交信息 / 不解析历史**：版本号只从 `package.json.version` 读取，不解析 commit message，因此 squash 标题**不必**刻意编码版本号；但 squash 标题会原样成为 `main` 上的提交记录、是项目永久历史，仍须按本仓库约定写成 `chore: release vX.Y.Z`（见上方开 PR 的 `--title`），保持历史自解释。
+- **不依赖提交信息 / 不解析历史**：版本号只从 `package.json.version` 读取，不解析 commit message；PR 以 Merge Commit 合入后，**merge commit 标题（即开 PR 时的 `--title`）** 原样成为 `main` 上的提交记录、是项目永久历史，仍须按本仓库约定写成 `chore: release vX.Y.Z`（见上方开 PR 的 `--title`），保持历史自解释（提交信息通用规范见 [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md)）。
 - **串行**：`concurrency` 串行，防止两个 release PR 同时合入抢建同一 tag。
 - **手动兜底（罕见）**：CI 漏打 tag 时二选一补推——① Actions 页面对 `release` workflow 点 `Run workflow` 重跑（幂等：tag 已存在自动跳过；尽量在后续 PR 合入 main 前跑，避免 tag 落到错误 commit 上）；② 本地补建 annotated tag 并指向 release PR 的合并 commit 再推：`git tag -a vX.Y.Z -m "vX.Y.Z" <合并commit> && git push origin vX.Y.Z`（tag 走 `refs/tags/*`，不触发 main 分支保护）。
 

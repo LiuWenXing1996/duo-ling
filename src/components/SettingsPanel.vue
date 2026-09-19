@@ -1,258 +1,59 @@
 <script setup lang="ts">
-// 设置面板：模型管理。
-import { onMounted, ref } from 'vue'
-import { useDataSync } from '@/composables/use-data-sync'
+// 设置标签页外壳：左侧分区导航 + 右侧内容。
+//
+// 结构参考「左栏菜单 + 右栏内容」的设置布局：左栏纵向列出分区（模型管理 / 关于 / …），
+// 右栏渲染选中分区。分区清单集中在 ./settings/sections.ts，本文件只负责布局与切换，
+// 不含任何业务逻辑 —— 新增设置菜单无需改这里（见注册表文件头说明）。
+import { ref } from 'vue'
 import {
-  Box as UiBox,
-  ChevronRight as UiChevronRight,
-  Pencil as UiPencil,
-  Plus as UiPlus,
-  Trash2 as UiTrash2
-} from '@lucide/vue'
-import { Button as UiButton } from '@/components/ui/button'
-import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
-import {
-  Tooltip as UiTooltip,
-  TooltipContent as UiTooltipContent,
-  TooltipProvider as UiTooltipProvider,
-  TooltipTrigger as UiTooltipTrigger
-} from '@/components/ui/tooltip'
-import type { ModelProfile, ModelProvider } from '@/types/model'
-import ModelFormDialog from './ModelFormDialog.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
+  Tabs as UiTabs,
+  TabsContent as UiTabsContent,
+  TabsList as UiTabsList,
+  TabsTrigger as UiTabsTrigger
+} from '@/components/ui/tabs'
+import { SETTINGS_SECTIONS } from './settings/sections'
 
-const profiles = ref<ModelProfile[]>([])
-const providers = ref<ModelProvider[]>([])
-const loadError = ref('')
-const activeId = ref('')
-
-// 弹窗状态（新增/编辑共用）
-const dialogOpen = ref(false)
-const editing = ref<ModelProfile | null>(null)
-
-// 「自定义」分组折叠状态
-const customOpen = ref(true)
-
-async function loadData(): Promise<void> {
-  try {
-    const [modelData, providerData] = await Promise.all([
-      window.api.model.list(),
-      window.api.provider.list()
-    ])
-    profiles.value = modelData.profiles
-    providers.value = providerData
-    activeId.value = modelData.activeId
-    loadError.value = ''
-  } catch (error) {
-    loadError.value = error instanceof Error ? error.message : String(error)
-  }
-}
-
-function providerName(id: string): string {
-  return providers.value.find((p) => p.id === id)?.name ?? ''
-}
-
-function openAdd(): void {
-  editing.value = null
-  dialogOpen.value = true
-}
-
-function openEdit(profile: ModelProfile): void {
-  editing.value = profile
-  dialogOpen.value = true
-}
-
-async function toggleEnabled(profile: ModelProfile): Promise<void> {
-  try {
-    await window.api.model.toggle(profile.id, !profile.enabled)
-    await loadData()
-  } catch (error) {
-    console.error('启用/禁用模型失败：', error)
-  }
-}
-
-// 删除模型确认弹窗（ConfirmDialog 替代原生 window.confirm）
-const removeConfirmOpen = ref(false)
-const pendingRemove = ref<ModelProfile | null>(null)
-
-function removeModel(profile: ModelProfile): void {
-  pendingRemove.value = profile
-  removeConfirmOpen.value = true
-}
-
-async function confirmRemoveModel(): Promise<void> {
-  const profile = pendingRemove.value
-  if (!profile) return
-  try {
-    await window.api.model.delete(profile.id)
-    await loadData()
-  } catch (error) {
-    console.error('删除模型失败：', error)
-  }
-}
-
-async function onSaved(): Promise<void> {
-  await loadData()
-}
-
-useDataSync('model', () => loadData())
-
-// 构建信息（wxt.config.ts 注入）：设置页底部展示构建分支，作为「关于」信息。
-const buildInfo = window.__BUILD_INFO__
-const buildBranch = buildInfo?.branch ?? 'unknown'
-
-onMounted(() => {
-  void loadData()
-})
+// 默认选中首个分区（注册表第一项）
+const activeSection = ref(SETTINGS_SECTIONS[0]?.id ?? '')
 </script>
 
 <template>
   <section class="panel settings-panel">
-    <div class="min-h-0 flex-1 overflow-y-auto scroll-gap p-6">
-      <p v-if="loadError" class="text-destructive mb-3 text-xs">{{ loadError }}</p>
+    <ui-tabs
+      v-model="activeSection"
+      orientation="vertical"
+      class="flex min-h-0 flex-1"
+    >
+      <!-- 左栏：分区导航。纵向 TabsList，覆盖 base 的横排 pill 样式（与工作台标签栏同一做法）：
+           flex-col 竖排、左对齐、铺满高度；激活项靠 data-[state=active]:bg-background 反衬 bg-muted 底 -->
+      <ui-tabs-list
+        class="flex h-full w-52 shrink-0 flex-col items-stretch justify-start gap-1 overflow-y-auto rounded-none bg-muted p-2"
+        aria-label="设置分区"
+      >
+        <ui-tabs-trigger
+          v-for="section in SETTINGS_SECTIONS"
+          :key="section.id"
+          :value="section.id"
+          class="w-full justify-start gap-2 px-3 py-1.5 text-[13px]"
+        >
+          <component :is="section.icon" class="size-4 shrink-0" />
+          <span class="truncate">{{ section.label }}</span>
+        </ui-tabs-trigger>
+      </ui-tabs-list>
 
-      <!-- 模型管理 -->
-      <div class="mx-auto max-w-3xl">
-        <!-- 模型管理 -->
-        <div>
-          <h3 class="text-base font-semibold">模型管理</h3>
-          <p class="mt-1 text-xs text-muted-foreground">
-            配置 API key 添加更多可用模型，预置模型默认使用稳定版本。
-          </p>
-        </div>
-
-        <!-- 添加模型 -->
-        <ui-button class="mt-4" :class="['bg-foreground text-background hover:bg-foreground/90']" @click="openAdd">
-          <ui-plus class="size-4" />
-          添加模型
-        </ui-button>
-
-        <!-- 模型表格 -->
-        <div class="mt-6 overflow-hidden rounded-md border">
-          <!-- 表头 -->
-          <div class="grid grid-cols-[1fr_auto] gap-4 border-b bg-muted/40 px-4 py-2.5 text-xs text-muted-foreground sm:grid-cols-[1fr_200px_120px]">
-            <span>模型</span>
-            <span class="hidden sm:block">服务商</span>
-            <span class="text-right">操作</span>
-          </div>
-
-          <!-- 自定义分组（当前暂无内置，仅保留该分组） -->
-          <div>
-            <button
-              type="button"
-              class="flex w-full items-center gap-1.5 px-4 py-3 text-sm font-medium transition-colors hover:bg-muted/40"
-              @click="customOpen = !customOpen"
-            >
-              <ui-chevron-right
-                class="size-4 text-muted-foreground transition-transform"
-                :class="{ 'rotate-90': customOpen }"
-              />
-              自定义
-            </button>
-
-            <div v-show="customOpen" class="divide-y divide-border">
-              <!-- 模型行 -->
-              <div
-                v-for="profile in profiles"
-                :key="profile.id"
-                class="grid grid-cols-[1fr_auto] items-center gap-4 px-4 py-3 sm:grid-cols-[1fr_200px_120px]"
-                :class="{ 'opacity-60': !profile.enabled }"
-              >
-                <!-- 模型名 -->
-                <div class="flex min-w-0 items-center gap-2.5">
-                  <span class="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                    <ui-box class="size-4" />
-                  </span>
-                  <span class="truncate text-sm">{{ profile.name || profile.model }}</span>
-                  <span
-                    v-if="profile.id === activeId"
-                    class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary"
-                  >
-                    当前使用
-                  </span>
-                </div>
-
-                <!-- 服务商 -->
-                <span class="hidden truncate text-sm text-muted-foreground sm:block">
-                  {{ providerName(profile.providerId) || '自定义' }}
-                </span>
-
-                <!-- 操作 -->
-                <div class="flex items-center justify-end gap-1">
-                  <ui-tooltip-provider>
-                    <ui-tooltip>
-                      <ui-tooltip-trigger as-child>
-                        <ui-button
-                          variant="ghost"
-                          size="sm"
-                          class="size-8 p-0"
-                          aria-label="编辑"
-                          @click="openEdit(profile)"
-                        >
-                          <ui-pencil class="size-4" />
-                        </ui-button>
-                      </ui-tooltip-trigger>
-                      <ui-tooltip-content>编辑</ui-tooltip-content>
-                    </ui-tooltip>
-                  </ui-tooltip-provider>
-                  <ui-tooltip-provider>
-                    <ui-tooltip>
-                      <ui-tooltip-trigger as-child>
-                        <ui-button
-                          variant="ghost"
-                          size="sm"
-                          class="size-8 p-0 text-destructive hover:text-destructive"
-                          aria-label="删除"
-                          @click="removeModel(profile)"
-                        >
-                          <ui-trash2 class="size-4" />
-                        </ui-button>
-                      </ui-tooltip-trigger>
-                      <ui-tooltip-content>删除</ui-tooltip-content>
-                    </ui-tooltip>
-                  </ui-tooltip-provider>
-                  <ui-switch :model-value="profile.enabled" aria-label="启用模型" @update:model-value="toggleEnabled(profile)">
-                    <ui-switch-thumb />
-                  </ui-switch>
-                </div>
-              </div>
-
-              <!-- 空状态 -->
-              <p
-                v-if="!profiles.length"
-                class="px-4 py-8 text-center text-xs text-muted-foreground"
-              >
-                还没有模型配置，点击上方「添加模型」开始
-              </p>
-            </div>
-          </div>
-        </div>
+      <!-- 右栏：分区内容。独立滚动；各分区自带内边距，故 TabsContent 默认的 mt-2 归零。
+           分区按需挂载（未选中不渲染），菜单变多时不会一次性把所有分区都跑起来 -->
+      <div class="min-w-0 flex-1 overflow-y-auto scroll-gap">
+        <ui-tabs-content
+          v-for="section in SETTINGS_SECTIONS"
+          :key="section.id"
+          :value="section.id"
+          class="mt-0"
+        >
+          <component :is="section.component" />
+        </ui-tabs-content>
       </div>
-    </div>
-
-    <!-- 关于：构建分支信息（来自构建时注入的 __BUILD_INFO__） -->
-    <p class="border-t px-6 py-3 text-center text-xs text-muted-foreground">
-      哆灵 · 构建分支 {{ buildBranch }}
-    </p>
-
-    <!-- 添加 / 编辑模型弹窗 -->
-    <ModelFormDialog
-      :open="dialogOpen"
-      :editing="editing"
-      :providers="providers"
-      @update:open="dialogOpen = $event"
-      @saved="onSaved"
-    />
-
-    <!-- 删除模型确认弹窗 -->
-    <ConfirmDialog
-      v-model:open="removeConfirmOpen"
-      title="删除模型？"
-      :description="pendingRemove ? `确定删除模型「${pendingRemove.name || pendingRemove.model}」吗？` : ''"
-      confirm-text="删除"
-      danger
-      @confirm="confirmRemoveModel"
-    />
+    </ui-tabs>
   </section>
 </template>
 
