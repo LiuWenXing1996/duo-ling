@@ -9,7 +9,7 @@
 
 - **唯一真相源 = `package.json` 的 `version`**。WXT 构建时默认把它写进 manifest 的 `version` 字段，所以扩展装进浏览器后显示的版本号就是这里的值。不要在别处另存一份版本号（避免 drift）。
 - **本项目用 vibe-coding 开发**：提交信息不强制 conventional commits 格式，因此版本号**靠人拍板**，不靠解析 commit 历史自动判定；changelog 也**手动填**，不用工具自动生成。
-- **发布是「专门的 release PR」，不是每个功能 PR 都发版**：日常功能 / 修复 / doc PR 只改代码、不动版本号；积累若干 PR 后，单独开一个 release PR 来升版本 + 写日志 + 打 tag。这样发布日志只在新版本出现一次，不会随每个 PR 膨胀。
+- **发布是「专门的 release PR」，不是每个功能 PR 都发版**：日常功能 / 修复 / doc PR 只改代码、不动版本号；积累若干 PR 后，单独开一个 release PR 来升版本 + 写日志，合入后由 CI 自动打 tag。这样发布日志只在新版本出现一次，不会随每个 PR 膨胀。
 
 ## 语义化版本（SemVer）
 
@@ -92,9 +92,9 @@ npm run release -- minor --dry-run
 - 演练用 `--dry-run`：只打印将要做的事，不改动文件 / 不提交 / 不打 tag。走 npm 时务必写成 `npm run release -- <args> --dry-run`（`--` 之后的参数才真正传给脚本；直接写 `npm run release minor --dry-run` 会被 npm 吞掉 `--dry-run`，脚本误以真发版模式运行）。
 - 发布前建议自己跑一次 `npm run build` 确认产物可加载；`release` 脚本只卡 `typecheck`，不卡 build（避免构建环境偶发问题误伤发版）。
 
-## CI 自动发版（release PR 合入触发）
+## CI 自动发版（合入 main 触发）
 
-`.github/workflows/release.yml` 监听 `pull_request: closed + merged`（及手动 `workflow_dispatch`），逻辑极简：
+`.github/workflows/release.yml` 监听 `pull_request: closed + merged`（及手动 `workflow_dispatch`），**不限定必须是 release PR**；逻辑极简：
 
 1. 读合并 commit 的 `package.json` version → `v<version>`。
 2. 若 `v<version>` **已存在** → 跳过（本次是普通 PR，或版本已发过）。
