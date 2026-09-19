@@ -53,9 +53,10 @@
 │  │  ├─ ChatPanel.vue            #   聊天区：消息气泡 / 思考与执行过程折叠 / 工具卡 / 拾取 chip / 输入区 / 模型切换
 │  │  ├─ SessionHistoryPanel.vue  #   会话列表（搜索 / 重命名 / 删除确认）
 │  │  ├─ WorkspaceHost.vue        #   工作区多标签宿主（标签开合 / 脏标记 / 历史恢复后重载）
-│  │  ├─ WorkspaceTabs.vue        #   标签栏 + 构建信息（页面与 SW 的分支/时刻，判断跑的是哪次构建）
+│  │  ├─ WorkspaceTabs.vue        #   标签栏（构建信息已移至 设置 → 关于）
 │  │  ├─ GuidePanel.vue           #   引导标签页：需用户开启的开关（运行用户脚本）状态自检 + 分步指引 + 直达扩展管理页
 │  │  ├─ SettingsPanel.vue / UiTestPanel.vue / ChatDataPanel.vue / ConfirmDialog.vue / ModelFormDialog.vue
+│  │  ├─ settings/                #   设置分区：sections.ts 注册表（左栏导航 + 扩展点）+ ModelSettingsSection / AboutSection
 │  │  ├─ userscript/              #   脚本链路面板：列表 / 编辑器 / 历史 / 产物 / lfs 浏览 + 文件树节点
 │  │  ├─ ui/                      #   shadcn-vue 基础组件（reka-ui）
 │  │  └─ ai-elements/             #   对话元素（message / conversation / prompt-input / chain-of-thought / tool / code-block / file-tree）
@@ -85,6 +86,7 @@
 │  │  ├─ providers.ts             # 服务商预设（host_permissions 由此推导）
 │  │  ├─ element-picker-client.ts # 元素拾取 / 页面快照的发起侧（按需注入拾取器，失败有可读文案）
 │  │  ├─ page-context-store.ts    # 点选产物的采集侧暂存（等下一条消息一起发）
+│  │  ├─ build-info.ts            # 构建信息取数：define 注入的 __BUILD_INFO__（页面侧）+ sw:buildInfo 命令（SW 侧，带重试）
 │  │  ├─ theme.ts / code-view.ts / format.ts / utils.ts
 │  │  └─ userscripts/             # 脚本链路：引擎 / 存储 / git / DL 桥 / 匹配规则
 │  │     ├─ engine.ts             #   chrome.userScripts 注册：每脚本一 USER_SCRIPT 世界 + MAIN 桩

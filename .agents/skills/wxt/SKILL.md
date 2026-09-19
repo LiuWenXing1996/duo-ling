@@ -63,6 +63,38 @@ description: Use when configuring, building, or debugging WXT 0.21 in this exten
 | content script 组件库样式全丢 | 样式被插到 `ShadowRoot` 之外的 `document.head` | 用 `createShadowRootUi` 时告诉库把样式挂到 `shadow.querySelector('head')`；`Teleport`/`Portal` 要显式传 target 为 shadow 内的 `body` |
 | 不同站点上 UI 尺寸乱 | `rem` 相对宿主 html font-size | 用 `postcss-rem-to-responsive-pixel` 转 px |
 | 产物里缺 `public/` 下的文件 | publicDir 指错 | 确认 `publicDir: 'src/public'` 没被覆盖 |
+| 构建信息在生产产物整列消失（版本号、分支、时间显示 `unknown`） | 用 **HTML 内联 `<script>`** 注入构建信息，撞 MV3 CSP（无 `'unsafe-inline'`）被拦 | **一律走 `vite.define` 裸标识符** `__BUILD_INFO__`（编译进 bundle），见下「构建信息注入」；别再引入内联注入 |
+| 版本号显示成 `0.1.0`，但 `package.json` 是 `0.1.0-alpha.2` | `manifest.version` 只允许 1–4 段数字，预发布标签被 WXT 裁掉 | 取 `__BUILD_INFO__.version`（构建期直接读 package.json），manifest 仅作兜底 |
+
+## 构建信息注入（单一通道：vite.define）
+
+`wxt.config.ts` 通过 `vite().define` 把裸标识符 `__BUILD_INFO__`（`{ time, branch, version }`）替换成字面量，
+**编译进所有 JS bundle**（页面 / SW / offscreen 三处同源）。这是构建信息的唯一来源。
+
+| 通道 | 载体 | 生产可用？ |
+| --- | --- | --- |
+| `vite.define` 裸标识符 `__BUILD_INFO__` | 编译进 JS bundle | ✅ |
+
+- **别再用 HTML 内联注入 `window.__BUILD_INFO__`**（旧实现）：MV3 `extension_pages` CSP = `script-src 'self' 'wasm-unsafe-eval'`，
+  **不含 `'unsafe-inline'`** → 内联脚本不执行，生产环境该字段恒 `undefined`，构建信息整列消失。WXT 只在 dev 注入宽松 CSP，
+  所以这条 bug **在 dev 下永远复现不出来**，必须用生产产物（`npm run build` + 加载 `.output/chrome-mv3`）验证。
+- 页面侧取数写法（`typeof` 守卫必需：未应用该 define 的环境里裸标识符不存在，`typeof` 读不存在的标识符不抛错）：
+  ```ts
+  const info = typeof __BUILD_INFO__ !== 'undefined' ? __BUILD_INFO__ : undefined
+  ```
+- **SW 侧读不到自己的 bundle**（SW 不是 HTML / 不是同一执行上下文）：页面要 SW 的构建信息，经
+  `sw:buildInfo` 命令取回（IPC 契约 `src/shared/extension-ipc.ts`，SW 侧实现 `src/entrypoints/background.ts`）。
+  取数要**重试**：WXT 重载扩展时页面跟着重载，挂载瞬间第一条请求常撞上「旧 SW 已死、新监听器未注册完」的窗口；
+  三次都失败才算真失败（SW 是旧包或已挂），且要**显式展示「未响应」**，别静默隐藏。
+- 参考实现：取数统一封装在 `src/lib/build-info.ts`（页面侧 `readInjectedBuildInfo` / `readPageBuildStamp`，
+  SW 侧 `fetchSwBuildStamp` 带 3 次重试）；展示在 **设置 → 关于** 分区（`src/components/settings/AboutSection.vue`，
+  版本号 + 页面 + Service Worker 三行）。
+
+### 版本号：别用 `manifest.version`
+
+- `package.json` 写 `0.1.0-alpha.2` 时，产物 `manifest.version` = **`0.1.0`**（Chrome 该字段只允许 1–4 段数字），预发布标签被裁掉；完整值另在 `manifest.version_name`（WXT 行为，非 Chrome 保证）。
+- 所以版本号展示取 **`__BUILD_INFO__.version`**（构建期直接读 package.json，完整、不受裁剪影响）；
+  `chrome.runtime.getManifest().version` 只作兜底。也**别用** `window.__BUILD_INFO__`。
 
 ## 深规范
 
