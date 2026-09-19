@@ -26,6 +26,13 @@ declare module 'process' {
  */
 interface Window {
   api: import('@/shared/ipc').PreloadApi
-  // 构建信息（wxt.config.ts 注入）：版本号 + 分支 + 时间，用于 UI 展示「装的是哪个版本 / 跑的是哪次构建」。
-  __BUILD_INFO__?: { time: string; branch: string; version: string }
 }
+
+/**
+ * 构建期 vite.define 注入的裸标识符（wxt.config.ts 的 vite.define）：
+ * 编译期被替换成字面量、写进 JS bundle，**不受 extension_pages CSP 限制**，
+ * 是页面 / SW / offscreen 三处都能用的构建信息来源。
+ * 声明为联合 undefined：未应用该 define 的环境（如 vitest）里它不存在，
+ * 调用方须用 `typeof __BUILD_INFO__ !== 'undefined'` 兜底（typeof 读不存在的标识符不抛错）。
+ */
+declare const __BUILD_INFO__: { time: string; branch: string; version: string } | undefined

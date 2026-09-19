@@ -24,17 +24,14 @@ const chromiumProfileDir = resolve(process.cwd(), '.chrome-dev-profile')
 mkdirSync(chromiumProfileDir, { recursive: true })
 
 /**
- * 构建信息注入（分支名 + 时间戳），两个通道：
- *   1. HTML 入口 —— buildInfoPlugin 往每个 HTML 的 head 塞 `window.__BUILD_INFO__`，
- *      工作台标签栏右侧展示；
- *   2. 非 HTML 入口（SW / offscreen）—— 下面的 vite.define 把裸标识符 `__BUILD_INFO__`
- *      替换成同一份 JSON，SW 启动日志用它自证「跑的是哪次构建」。
- * dev 与 build 语义刻意不同：
- *   - dev（wxt）：HTML 通道**每次响应 HTML 请求都现算** → 显示的是页面加载时刻，
- *     刷新页面即更新，正是诊断「dev server 供给是否活着」的探针；
- *     define 通道在配置加载（= dev server 启动 / 构建开始）时算一次 → SW 日志时间
- *     = 本次 dev 会话的启动时刻，重启 dev 才会变，用于识别「SW 是哪次会话喂进浏览器的」。
- *   - build（wxt build）：两条通道都在构建期算一次定格 → 显示的是产物构建时刻。
+ * 构建信息注入（分支名 + 时间戳 + 版本号），单一通道：
+ *   通过下面的 vite.define 把裸标识符 `__BUILD_INFO__` 替换成一份 JSON，编译进所有 JS bundle
+ *   （页面 / SW / offscreen 三处同源）。SW 启动日志用它自证「跑的是哪次构建」，页面侧用它
+ *   展示版本号与构建分支。
+ * ⚠️ 不走 HTML 内联注入：MV3 extension_pages CSP 不含 'unsafe-inline'，内联脚本在生产产物里
+ *   会被拦 —— 此前用内联注入（window.__BUILD_INFO__），导致生产环境构建信息整列消失，已移除。
+ * 语义：define 在配置加载（= dev server 启动 / 构建开始）时算一次定格；dev 下整次会话不变
+ * （重启 dev 才变），build 下 = 产物构建时刻。
  */
 const buildInfoBranch = (() => {
   try {
@@ -58,22 +55,6 @@ const buildInfoVersion = (() => {
   }
 })()
 
-function buildInfoPlugin(): import('vite').Plugin {
-  return {
-    name: 'duoling-build-info',
-    transformIndexHtml() {
-      const time = new Date().toISOString()
-      return [
-        {
-          tag: 'script',
-          children: `window.__BUILD_INFO__=${JSON.stringify({ time, branch: buildInfoBranch, version: buildInfoVersion })}`,
-          injectTo: 'head-prepend',
-        },
-      ]
-    },
-  }
-}
-
 export default defineConfig({
   // 源码根设为 src：WXT 内置别名 `@` / `~` 硬编码指向 srcDir 且覆盖用户配置
   // （见 wxt 的 resolve-config.mjs），只有把 srcDir 指到 src，代码里的 `@/...`
@@ -83,15 +64,15 @@ export default defineConfig({
   // 否则 src/public/esbuild.wasm（脚本构建用的 esbuild-wasm）不会进产物。
   publicDir: 'src/public',
   vite: () => ({
-    plugins: [vue(), tailwindcss(), buildInfoPlugin()],
+    plugins: [vue(), tailwindcss()],
     // service worker 里没有 Node 的 `global`，而 isomorphic-git/lightning-fs 的
     // 打包代码写的是 `global.TextEncoder`。构建期把 `global` 别名成原生 globalThis
     // （SW 里自带 TextEncoder/TextDecoder），否则加载即抛
     // "Cannot read properties of undefined (reading 'TextEncoder')"，连带 SW 注册失败。
     define: {
       global: 'globalThis',
-      // 裸标识符注入（HTML 入口走 buildInfoPlugin 的 window.__BUILD_INFO__，两通道互补）：
-      // SW / offscreen 不是 HTML 页面，只有 define 能把构建信息编译进去，供启动日志自证版本
+      // 裸标识符注入（构建信息唯一通道，编译进所有 JS bundle，CSP 安全）：
+      // 页面 / SW / offscreen 都用它取构建信息；SW 启动日志靠它自证跑的是哪次构建。
       __BUILD_INFO__: JSON.stringify({ time: new Date().toISOString(), branch: buildInfoBranch, version: buildInfoVersion }),
     },
   }),
