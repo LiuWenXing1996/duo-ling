@@ -38,6 +38,32 @@ export async function openOwnExtensionPage(chromeMajor = getChromeMajorVersion()
   await chrome.tabs.create({ url: ownExtensionPageUrl(chrome.runtime.id, chromeMajor) })
 }
 
+/**
+ * 「允许访问文件网址」的当前状态 —— 本地路径导入的前置条件（导入走 `fetch('file:///…')`）。
+ *
+ * 三态是刻意的：`true` / `false` / `null`（探测不到）。null ≠ 「没权限」，调用方不得据此拦人，
+ * 只能少给一句提示 —— 探测不到还硬拦会把能用的环境挡在门外。
+ *
+ * ⚠️ MV3 实测（Chromium 141，2026-09-19 无头探针）：该 API 已 **promise 化** ——
+ * `chrome.extension.isAllowedFileSchemeAccess()` 不 await 会拿到一个 Promise 对象
+ * （truthy、JSON 序列化成 `{}`），当布尔用必然判错（探针第一版就踩了这个，读数显示成 `{}`）。
+ * 故这里同时兼容 promise 与同步返回；`@types/chrome` 的声明仍是回调形态，故整体收成 loose 签名。
+ */
+export async function isFileSchemeAccessAllowed(): Promise<boolean | null> {
+  try {
+    const fn = (
+      chrome as unknown as {
+        extension?: { isAllowedFileSchemeAccess?: () => boolean | Promise<boolean> }
+      }
+    ).extension?.isAllowedFileSchemeAccess
+    if (typeof fn !== 'function') return null
+    const r = fn()
+    return r && typeof (r as Promise<boolean>).then === 'function' ? await (r as Promise<boolean>) : r
+  } catch {
+    return null
+  }
+}
+
 /** 引导步骤：一步一个动作；detail 是可选的补充说明（渲染在同一行的弱化文字里） */
 export interface GuideStep {
   title: string
@@ -71,5 +97,42 @@ export function userScriptsGuideSteps(browser: { isFirefox: boolean; chromeMajor
     { title: '打开扩展管理页', detail: '下面按钮直接打开' },
     { title: '打开页面右上角的「开发者模式」', detail: '这是全局开关，扩展详情页里没有' },
     { title: '回到本页点「重新检测」' }
+  ]
+}
+
+/**
+ * 「允许访问文件网址」的分步指引 —— 「从路径导入」读本地文件的前置开关。
+ *
+ * 只做 Chrome：Firefox 侧的对应开关在 about:addons 里、开启口径与 Chrome 不同，而跨端本就是
+ * 三期的事（见 README「后续接入」），此处**不预写没验证过的步骤**；调用方对 Firefox 不渲染本卡片。
+ *
+ * Chrome 各版本都把这道开关放在**扩展详情页**的「网站权限」一节（与「允许运行用户脚本」同一页），
+ * 故 ≥138 用 `?id=` 深链直达；<138 沿用 openOwnExtensionPage 的降级（退列表页，让用户自己点「详情」）。
+ *
+ * 「重启浏览器」那一步不是可选的：实测**当场**改这道开关会把扩展重载到连自己的页面都进不去
+ * （导航报 ERR_BLOCKED_BY_CLIENT，14s 未恢复），详情页自己也写着「对此设置的更改将在 Chromium
+ * 重启后生效」——见 README「关键坑与规避」第 13 条。
+ */
+export function fileAccessGuideSteps(chromeMajor: number): GuideStep[] {
+  const openSwitch = {
+    title: '在「网站权限」一节打开「允许访问文件网址」',
+    detail: '同一节里也有「允许运行用户脚本」，别开错'
+  }
+  const restart = { title: '重启浏览器', detail: '该项改动 Chrome 提示重启后才生效' }
+  const redetect = { title: '回到本页点「重新检测」' }
+  if (chromeMajor >= 138) {
+    return [
+      { title: '打开本扩展的详情页', detail: '下面按钮直接打开' },
+      openSwitch,
+      restart,
+      redetect
+    ]
+  }
+  return [
+    { title: '打开扩展管理页', detail: '下面按钮直接打开' },
+    { title: '进入「哆灵」的详情页', detail: '卡片上的「详情」按钮' },
+    openSwitch,
+    restart,
+    redetect
   ]
 }

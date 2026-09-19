@@ -126,11 +126,11 @@ npm run pack:uscripts    # 把仓库根 uscript-samples/ 打成可导入的用�
 1. **加载扩展**：`npm run build` → Chrome 打开 `chrome://extensions` → 开「开发者模式」→「加载已解压的扩展程序」→ 选 `.output/chrome-mv3`
 2. **打开面板**：点工具栏哆灵图标 → 自动打开右侧 side panel（兜底：窗口右上角「侧边栏」按钮）
 3. **主题**：随系统深浅色 —— 切 macOS 外观为深色，面板与工作台应立刻跟着变（无需重载；`html.dark` 由 `src/lib/theme.ts` 驱动）
-4. **引导**：工作台左侧导航「引导」→ 看「运行用户脚本」状态自检；未开启时按步骤开完回本页点「重新检测」，状态应转为已开启（该页只放需要用户动手的项，不放无需操作的说明）
+4. **引导**：工作台左侧导航「引导」→ 两张状态自检卡：「运行用户脚本」（脚本注入的总开关）与「读取本地文件」（「从路径导入」的前置开关，只对 Chrome 渲染）。未开启时按步骤开完、**重启浏览器**、回本页点「重新检测」，状态应转为已开启（该页只放需要用户动手的项，不放无需操作的说明；步骤与「打开扩展管理页」按钮只此一份，别处只给「查看开启引导」入口）
 5. **配模型**：面板顶栏「打开工作台」→ 左侧导航「设置」→ 添加模型（选服务商 / 填 API Key / 模型 ID）→「测试连接」→ 保存
 6. **对话**：面板内输入一句话发送 → 应流式吐字（模型有 `reasoning_content` 时折叠成「查看思考」）；顶栏还有整会话导出（复制为 markdown）
 7. **元素拾取**：任意页面 → 面板输入区点拾取按钮 → 页面里点选目标元素 → 面板出现拾取 chip（随下一条消息发出，可 × 清除）
-8. **脚本列表**：面板顶栏「打开工作台」→ 默认落「脚本列表」（可关掉别的标签，这个不可关）→ 新建（零输入，**建完停在列表不跳编辑器**，该行标「刚新建」，点该行「编辑」进过一次即摘标）/ 启停 / 导入 zip（测试包用 `npm run pack:uscripts` 生成，落在 `tmp/`，内含注入探针 / DL 桥 / 多文件 / 故意报错等有具体行为的脚本）/ 导出 / 删除 / 看可用性横幅。列表本身**不展示脚本报错**（报错属历史信息，归独立的「错误日志」标签页；引擎不可用这类环境级问题只在本页横幅提一次，不按脚本逐条复述）
+8. **脚本列表**：面板顶栏「打开工作台」→ 默认落「脚本列表」（可关掉别的标签，这个不可关）→ 新建（零输入，**建完停在列表不跳编辑器**，该行标「刚新建」，点该行「编辑」进过一次即摘标）/ 启停 / 导入 zip（「导入」菜单给**两种取包方式**：「选择 zip 文件…」走文件选择器，「输入文件路径…」手输或粘贴**绝对路径** —— 后者的用处是把 `npm run pack:uscripts` 打印出来的 `tmp/…zip` 路径直接粘进去，省掉在弹窗里一层层点目录；二者取到字节之后完全同一条链路。测试包内含注入探针 / DL 桥 / 多文件 / 故意报错等有具体行为的脚本）/ 导出 / 删除 / 看可用性横幅。列表本身**不展示脚本报错**（报错属历史信息，归独立的「错误日志」标签页；引擎不可用这类环境级问题只在本页横幅提一次，不按脚本逐条复述）
 9. **编辑与构建**：列表行点「编辑」开编辑器标签页 → 改文件后构建（esbuild-wasm）→ 保存；顶栏可切「产物」标签看真正注入页面的 IIFE；有未保存改动时关标签应弹确认
 10. **历史**：编辑器内 git 历史 → 看提交记录 / 恢复某次提交（恢复产生新提交，历史不可变；**已知缺口**：有未保存草稿时恢复会直接覆盖草稿、事先无提示）
 11. **AI 生成脚本**：面板里描述需求 → 看进度流（工具卡：`script_spec` / `script_read` / `script_apply` / `page_snapshot`）→ 生成卡片出现（未启用徽标 + 生效范围 + 会做什么）→ 点「启用并生效」→ 打开目标页确认脚本已生效
@@ -178,3 +178,14 @@ npm run pack:uscripts    # 把仓库根 uscript-samples/ 打成可导入的用�
    - **在侧边栏里几乎看不到它，不代表它没生效**：加载态窗口本来就只有几十毫秒（无头实测生产产物 `node tmp/measure-boot-state.mjs`：侧边栏 96ms / 缓热 30ms，工作台 50ms / 45ms），且 module 脚本在 `DOMContentLoaded` **之前**就执行完毕（探针挂在 DCL 上会完全错过这段窗口）。看不到恰恰说明快 —— 它是「真的需要等」时才出现的兜底，不是常驻动画。2026-09-18 又做了一次对照验证（把 Vue 挂到独立 `#ui-root`、让加载态常显）：**加载态与正式 UI 是同时出现的**，肉眼分不出先后，进一步坐实「热态下窗口短到看不见」。
    - **「侧边栏白屏」的那一大半是 dev 冷启动，前端无从覆盖**：`npm run dev` **首次自动打开浏览器**那一下会白屏几秒，之后在 `chrome://extensions` 点「刷新」重载就再也不出现、侧边栏秒开 —— 因为首次要等 Vite/WXT **现场编译 entrypoint + 预构建依赖**，这几秒里 **HTML 文档本身还没送达浏览器**，页面是彻底空白（不是「底色白」，是连内联 `<style>` 都还没到），任何前端手段都渲染不出加载态。**属 dev-only**：生产产物是静态文件，HTML 即时到达，没有这段窗口。所以验真实首屏体感要用 `npm run build` 的产物加载，别拿 dev 冷启动的观感下结论（同理 dev 也不适合验 CSP / wasm，见坑 7）。
 12. **组件测试里测 reka-ui 的 DropdownMenu**：happy-dom 下 `trigger('pointerdown')` / `trigger('click')` **都开不了菜单**（reka 的事件判定不认 VTU 合成的 pointer 事件），用键盘开：`trigger('keydown', { key: 'ArrowDown' })`。且菜单内容 portal 到 `document.body`，`wrapper.findAll()` 找不到 —— 要去 `document.querySelectorAll('[role="menuitem"]')` 上找，选中用原生 `el.click()`（见 `UserscriptListPanel.component.test.ts` 批量启停用例）。
+   - 同一个 portal 道理也适用于 **Dialog**：`DialogContent` 挂到 body，弹窗内的输入框 / 按钮都不在 `wrapper` 里。按「不在组件根节点内」筛出来即可（`UserscriptListPanel.component.test.ts` 的 `portalButtons()` / `pathInput()`）。
+   - **点弹窗按钮前必须先 flush**：确认按钮常带 `:disabled="!输入.trim()"` 这类条件，`setValue` / 原生 `input` 事件之后 Vue 是**下一轮**才重渲染出非 disabled 的按钮 —— 不等就点，点的是个灰按钮，什么都不会发生，测试还会以「断言文案没出现」的形式失败（误导性极强，2026-09-19 踩过）。
+   - **页面级 `text()` 断言会跨卡串味**：页面里出现第二张状态卡（引导页的「读取本地文件」）后，「引擎已开启不给步骤」这类断言必须收窄到卡内（`cardText(w, 'guide-userscripts')`），否则另一张卡的文案会把断言顶掉（2026-09-19 踩过）。
+   - **无头驱动工作台（E2E / 探针）用 hash 深链切标签页，别按文字点左侧导航**：导航项是**只有 `aria-label` 的图标按钮**（`WorkbenchApp.vue`），`getByText('引导')` 定位不到（文字在 tooltip 内容里，要 hover 才 portal 出来）；`workbench.html#/guide` 就是侧边栏「查看开启引导」走的那条路。
+13. **读本地 `file://` 不用加权限，但挡着一道用户开关**（「从路径导入」的地基，2026-09-19 无头实测，Chromium 141 / Playwright 捆绑版）：
+   - **manifest 不用动**：`<all_urls>` 已覆盖 `file:///*` —— 真产物里 `chrome.permissions.contains({origins:['file:///*']})` 实测为 `true`，别再多申请 `file:///*`。
+   - **真正的门槛是每扩展的用户开关「允许访问文件网址」**：关着时 `isAllowedFileSchemeAccess()` 为 `false`、上面那个 `permissions.contains` 也跟着变 `false`（它是开关的忠实代理）、`fetch('file:///…')` 一律 `Failed to fetch`。**命令行加载的 unpacked 扩展（`npm run dev` 与 E2E 的方式）该开关默认就是开的**，所以开发/端测里开箱可用；UI 里手动「加载已解压的扩展程序」装的则可能要用户自己开一次。
+   - **改这个开关不是即时生效**：程序化改（`chrome.developerPrivate.updateExtensionConfiguration({fileAccess})`）会把扩展重载，重载窗口内连自己的扩展页都进不去（导航报 `ERR_BLOCKED_BY_CLIENT`，实测 14s 未恢复），详情页自己也写着「对此设置的更改将在 Chromium 重启后生效」。所以引导页把「重启浏览器」**列成一步**（见 `fileAccessGuideSteps`），别写成「立刻生效」。
+   - **`chrome.extension.isAllowedFileSchemeAccess()` 在 MV3 已 promise 化**：不 await 直接读会拿到一个 Promise 对象（truthy，JSON 序列化成 `{}`，看着像空对象）—— 当布尔用必然判错。`src/lib/extension-page.ts` 里兼容 promise 与同步返回，探测不到返回 `null`（**≠ 没权限**，调用方不得据此拦人）。
+   - **裸路径不是 URL**：`fetch('/a/b.zip')` 会被当**相对地址**解析到扩展页自身（实测同样 `Failed to fetch`）。路径文本必须先归一成 `file://` URL，且要**逐段编码**：`#` / `?` / 空格 不编码会被当 fragment / query 截掉（`/a#b.zip` 会变成去读 `/a`），而 POSIX 首段与 Windows 盘符段不能编码（`C:` 编成 `C%3A` 就认不出盘符）。这层在 `src/lib/userscripts/local-path.ts`，单测覆盖四类坑。
+   - 探针（`tmp/` 不入库，需要时重写）：`tmp/file-access-probe/probe.mjs` 用最小扩展测权限机制（`probe` / `rows` / `toggle on|off` / `live` 四相），`verify-real.mjs` 拿 `.output/chrome-mv3` 跑真实 UI 动线。

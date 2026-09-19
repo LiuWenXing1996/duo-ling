@@ -5,7 +5,9 @@
 // B. **新建脚本动线**：新建**不**跳编辑器（不 emit edit），改为在该行标「刚新建」，
 //    点该行「编辑」进过一次即摘标。
 //    注：A 与 B 在「注册失败要不要告不告诉用户」上交过锋 —— 结论是**不告**（见下方 B 组第 3 条）。
-// 边界 mock：ui-client（IPC 客户端）；按钮 / 弹窗 / 开关用真实 shadcn 组件。
+// C. **从路径导入**：路径归一 → fetch 读字节 → 与文件选择器共用同一条导入动线；
+//    路径非法 / 读到非 zip / 开关未开三类失败各给人话原因，且**都不该走到 importZip**。
+// 边界 mock：ui-client（IPC 客户端）+ 全局 fetch（路径导入要读 file://）；按钮 / 弹窗 / 开关用真实 shadcn 组件。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import UserscriptListPanel from './UserscriptListPanel.vue'
@@ -16,6 +18,8 @@ const errors = vi.hoisted(() => vi.fn())
 const availability = vi.hoisted(() => vi.fn())
 const create = vi.hoisted(() => vi.fn())
 const toggle = vi.hoisted(() => vi.fn())
+const importZip = vi.hoisted(() => vi.fn())
+const fetchMock = vi.hoisted(() => vi.fn())
 const subscribeAvailability = vi.hoisted(() =>
   vi.fn((cb: (a: UserScriptsAvailability) => void) => vi.fn()),
 )
@@ -30,7 +34,7 @@ vi.mock('@/lib/userscripts/ui-client', () => ({
     getProject: vi.fn(),
     remove: vi.fn(),
     removeAll: vi.fn(),
-    importZip: vi.fn(),
+    importZip,
     clearErrors: vi.fn(),
   },
   subscribeAvailability,
@@ -79,6 +83,86 @@ const buttonByText = (text: string) => wrapper.findAll('button').find((b) => b.t
 /** 行内报错入口（旧行为；新设计不应出现） */
 const errorChips = () => wrapper.findAll('button').filter((b) => b.text().includes('条报错'))
 
+// —— 弹窗内容都在 portal 里：reka-ui 的 DialogContent 挂到 document.body，
+//    wrapper.findAll 找不到，必须去 document 上按「不在组件根内」筛 ——
+
+/** 弹窗（portal）里的按钮 */
+function portalButtons(): HTMLButtonElement[] {
+  const root = wrapper.element as HTMLElement
+  return [...document.querySelectorAll<HTMLButtonElement>('button')].filter(
+    (b) => !root.contains(b),
+  )
+}
+
+/** 弹窗里文本精确等于 text 的按钮 */
+function portalButton(text: string): HTMLButtonElement | undefined {
+  return portalButtons().find((b) => b.textContent?.trim() === text)
+}
+
+/** 弹窗里的路径输入框。按 `aria-label` 而不是 placeholder 定位 ——
+ *  placeholder 是给用户看的示例文案，会反复改（这条通道的提示就改过三轮），
+ *  测试跟着它碎等于每次调文案都要修测试；aria-label 同时补上输入框的无障碍名。 */
+function pathInput(): HTMLInputElement {
+  const root = wrapper.element as HTMLElement
+  const el = [...document.querySelectorAll<HTMLInputElement>('input')].find(
+    (i) => !root.contains(i) && i.getAttribute('aria-label') === '导入包文件路径',
+  )
+  if (!el) throw new Error('没找到路径输入框（弹窗没打开？）')
+  return el
+}
+
+/** 往输入框里打字：v-model 认原生 input 事件；打完要等一轮重渲染 ——
+ *  确认按钮的 disabled 依赖 importPath，不等就点，点的是个灰按钮（什么都不会发生）。 */
+async function typePath(v: string): Promise<void> {
+  const el = pathInput()
+  el.value = v
+  el.dispatchEvent(new Event('input'))
+  await flushPromises()
+}
+
+/** 打开「从路径导入」弹窗：菜单用键盘开（happy-dom 下 pointer/click 都开不了，见 README 坑 12） */
+async function openPathDialog(): Promise<void> {
+  await buttonByText('导入').trigger('keydown', { key: 'ArrowDown' })
+  await flushPromises()
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) =>
+    el.textContent?.includes('输入文件路径'),
+  )
+  if (!item) throw new Error('菜单里没有「输入文件路径…」')
+  item.click()
+  await flushPromises()
+}
+
+/** zip 魔数开头 / 不是 zip 的两份假字节 */
+const zipBytes = () => new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x01, 0x02])
+const notZipBytes = () => new Uint8Array([0x3c, 0x21, 0x44, 0x4f])
+
+/** 弹窗是否已关：reka-ui 关闭时先切 `data-state="closed"` 再摘节点，
+ *  而退出动画在 happy-dom 里不一定跑得完 —— 两种状态都算「关了」 */
+function dialogClosed(): boolean {
+  const dlg = document.querySelector('[role="dialog"]')
+  return !dlg || dlg.getAttribute('data-state') === 'closed'
+}
+
+const okReport = (name = '导入的脚本') => ({
+  succeeded: 1,
+  failed: 0,
+  results: [{ status: 'ok' as const, name, uuid: 'u9' }],
+  ignored: [],
+})
+
+/** 设置「允许访问文件网址」的探测结果；null = 模拟探测不到（API 缺失） */
+function setFileAccessAllowed(v: boolean | null): void {
+  const c = globalThis as unknown as { chrome?: { extension?: unknown } }
+  if (v === null) {
+    if (c.chrome) delete c.chrome.extension
+    return
+  }
+  c.chrome = {
+    ...(c.chrome ?? {}),
+    extension: { isAllowedFileSchemeAccess: () => v },
+  } as typeof c.chrome
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   list.mockResolvedValue([summary('u1', '已有脚本')])
@@ -86,10 +170,15 @@ beforeEach(() => {
   availability.mockResolvedValue(OK_AVAILABILITY)
   create.mockResolvedValue({ uuid: 'u2', name: '新建的脚本 1' })
   toggle.mockResolvedValue({})
+  importZip.mockResolvedValue(okReport())
+  vi.stubGlobal('fetch', fetchMock)
+  setFileAccessAllowed(true)
 })
 
 afterEach(() => {
   wrapper?.unmount()
+  vi.unstubAllGlobals()
+  setFileAccessAllowed(null)
 })
 
 describe('UserscriptListPanel 不承载报错展示', () => {
@@ -284,5 +373,111 @@ describe('UserscriptListPanel 新建脚本', () => {
     await flushPromises()
 
     expect(rowText(0)).toContain('刚新建')
+  })
+})
+
+describe('UserscriptListPanel 从路径导入', () => {
+  it('导入菜单给两个入口：选择 zip 文件 / 输入文件路径', async () => {
+    wrapper = await mountPanel()
+    await buttonByText('导入').trigger('keydown', { key: 'ArrowDown' })
+    await flushPromises()
+
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((el) =>
+      el.textContent?.trim(),
+    )
+    expect(items).toEqual(['选择 zip 文件…', '输入文件路径…'])
+  })
+
+  it('绝对路径：fetch 该 file:// URL → 交给导入链路 → 汇总报告复述来源', async () => {
+    fetchMock.mockResolvedValue({ arrayBuffer: async () => zipBytes().buffer })
+    wrapper = await mountPanel()
+    await openPathDialog()
+    await typePath('/Users/me/duo.zip')
+    portalButton('导入')!.click()
+    await flushPromises()
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith('file:///Users/me/duo.zip')
+    expect(importZip).toHaveBeenCalledTimes(1)
+    expect(document.body.textContent).toContain('来源：/Users/me/duo.zip')
+  })
+
+  it('相对路径：就地给原因，既不 fetch 也不导入（不把「路径非法」拖到解码层才报）', async () => {
+    wrapper = await mountPanel()
+    await openPathDialog()
+    await typePath('tmp/duo.zip')
+    portalButton('导入')!.click()
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('请填绝对路径')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(importZip).not.toHaveBeenCalled()
+  })
+
+  it('读到非 zip（后缀骗人 / 指向别的文件）：按魔数拦下，给一句人话而不是诊断数据', async () => {
+    fetchMock.mockResolvedValue({ arrayBuffer: async () => notZipBytes().buffer })
+    wrapper = await mountPanel()
+    await openPathDialog()
+    await typePath('/Users/me/fake.zip')
+    portalButton('导入')!.click()
+    await flushPromises()
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('未识别到正确的 zip 内容')
+    // 前 4 字节这类诊断数据不进用户文案（2026-09-19 定稿）
+    expect(document.body.textContent).not.toContain('3c 21 44 4f')
+    expect(importZip).not.toHaveBeenCalled()
+  })
+
+  it('开关未开 + 读不到：提示与常驻提示块同一句，并给「查看启用引导」（不猜「路径拼错了」）', async () => {
+    setFileAccessAllowed(false)
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    wrapper = await mountPanel()
+    await openPathDialog()
+    await typePath('/Users/me/duo.zip')
+    portalButton('导入')!.click()
+    await flushPromises()
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('未开启「允许访问文件网址」')
+    expect(importZip).not.toHaveBeenCalled()
+
+    // 引导入口：emit 给宿主切到引导标签页（完整步骤只此一份），**并且自己先关弹窗** ——
+    // 宿主只切标签页，不关我们的弹窗（不关的话引导页上还压着这个弹窗，2026-09-19 手测发现）
+    const guide = portalButton('查看启用引导')!
+    expect(guide).toBeDefined()
+    guide.click()
+    await flushPromises()
+    expect(wrapper.emitted('openGuide')).toBeTruthy()
+    expect(dialogClosed()).toBe(true)
+  })
+
+  it('开关是开的 + 读不到：归因到路径拼写 / 指向了目录，不冤枉开关', async () => {
+    setFileAccessAllowed(true)
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    wrapper = await mountPanel()
+    await openPathDialog()
+    await typePath('/Users/me/nope.zip')
+    portalButton('导入')!.click()
+    await flushPromises()
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('请确认路径拼写')
+    expect(document.body.textContent).not.toContain('允许访问文件网址')
+    expect(importZip).not.toHaveBeenCalled()
+  })
+
+  it('探测不到开关（API 缺失）时不硬赖开关，两种可能都提', async () => {
+    setFileAccessAllowed(null)
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    wrapper = await mountPanel()
+    await openPathDialog()
+    await typePath('/Users/me/duo.zip')
+    portalButton('导入')!.click()
+    await flushPromises()
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('请确认路径拼写')
+    expect(document.body.textContent).not.toContain('未开启「允许访问文件网址」')
   })
 })
