@@ -99,6 +99,7 @@ export default defineConfig({
     // 故此权限等价于「SW 可读写全浏览器 cookie（含 HttpOnly）」**，是能力面最大的一项权限。
     // 补偿措施是与权限绑定的域名门（cookie-gate.ts）：url 必须落在脚本自身 matches 内、
     // 只比 scheme+host（cookie 是 host 级作用域，忽略 pattern 的 path 段）。老大 2026-09-19 已批准。
+    // clipboardWrite：DL.clipboard 走 offscreen 免手势写剪贴板（含富文本 ClipboardItem），需此权限。
     permissions: [
       'storage',
       'sidePanel',
@@ -107,6 +108,7 @@ export default defineConfig({
       'offscreen',
       'contextMenus',
       'cookies',
+      'clipboardWrite',
     ],
     // 在线模型走 OpenAI 兼容接口，需要扩展页跨域 fetch，必须声明对应 host 权限。
     // 由服务商预设表推导（src/lib/providers.ts），避免申请不必要的全域权限；

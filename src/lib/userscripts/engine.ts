@@ -213,9 +213,11 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
   var __dlReadyWaiters = []     // 等 port.ready 的 waiter（每个含 resolve；8s 超时自拒）
   var __dlActiveMenus = {}       // 活跃菜单注册清单（重放用）：menuId -> title
   var __dlActiveWatches = {}     // 活跃订阅清单（重放用）：key -> true
+  var __dlActiveUrlWatch = false // 活跃 URL 订阅标记（重放用）
   var __dlMenuHandlers = {}      // menuId -> handler
   var __dlWatchHandlers = {}     // key -> [cb]
   var __dlNotifyHandlers = {}    // notificationId -> onClick
+  var __dlUrlHandlers = []       // onUrlChange 回调清单（tab 级，不分 key）
   // 菜单 id：按「脚本 uuid + 标题」确定性生成（djb2）。菜单注册持久于浏览器会话，
   // 若用随机 id，每次页面刷新都会造新 id → 菜单无限累积；确定性 id 使同标题注册
   // 永远同 id，重放 / 重复注册撞 id 由 SW 按成功处理 → 天然去重（油猴同款语义）
@@ -237,6 +239,13 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
     } else if (ev.t === 'notify.click') {
       var nh = __dlNotifyHandlers[ev.id]
       if (nh) { try { nh() } catch (e) { console.error('[DL:' + DL_INFO.name + '] notify 回调异常', e) } }
+    } else if (ev.t === 'url.change') {
+      // URL 变化（含 SPA 路由）：有订阅时才有事件；直接回调注册的所有 onUrlChange 监听器
+      if (__dlUrlHandlers.length) {
+        for (var ui = 0; ui < __dlUrlHandlers.length; ui++) {
+          try { __dlUrlHandlers[ui](ev.url) } catch (e) { console.error('[DL:' + DL_INFO.name + '] onUrlChange 回调异常', e) }
+        }
+      }
     }
   }
   function __dlConnect() {
@@ -261,6 +270,7 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
         var rreqs = []
         for (var mid in __dlActiveMenus) rreqs.push({ c: 'menu.register', id: mid, title: __dlActiveMenus[mid] })
         for (var wkey in __dlActiveWatches) rreqs.push({ c: 'store.watch', key: wkey, connId: __dlConnId })
+        if (__dlActiveUrlWatch) rreqs.push({ c: 'url.watch', connId: __dlConnId })
         for (var ri = 0; ri < rreqs.length; ri++) {
           __dlSend(rreqs[ri]).catch(function (e) { console.warn('[DL:' + DL_INFO.name + '] 重放注册失败', e) })
         }
@@ -329,6 +339,71 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
     }
     return btoa(s)
   }
+  // 浅拷贝 init / headers（改 body 时不污染原对象，避免影响脚本后续复用）
+  function __copyInit(s) {
+    var c = {}
+    for (var k in s) if (Object.prototype.hasOwnProperty.call(s, k)) c[k] = s[k]
+    return c
+  }
+  function __copyHeaders(h) {
+    var c = {}
+    for (var k in h) if (Object.prototype.hasOwnProperty.call(h, k)) c[k] = h[k]
+    return c
+  }
+  // 把脚本侧请求体（string/Blob/FormData/ArrayBuffer/TypedArray/DataView）编码成可跨桥的 init。
+  // 返回 Promise<null | (sendInit)->newInit>：null 表示无需改动（string / 无 body）。
+  function __encodeFetchBody(raw) {
+    if (raw == null || typeof raw === 'string') return Promise.resolve(null)
+    // Blob（含 File）：转二进制信封；有 MIME 且无手写 content-type 时代填
+    if (typeof Blob !== 'undefined' && raw instanceof Blob) {
+      return raw.arrayBuffer().then(function (buf) {
+        var env = { __dlBinaryBody: true, base64: __bytesToBase64(new Uint8Array(buf)) }
+        return function (s) {
+          var c = __copyInit(s)
+          c.body = env
+          var t = raw.type
+          if (t && (!c.headers || c.headers['content-type'] == null)) {
+            c.headers = __copyHeaders(c.headers || {})
+            c.headers['content-type'] = t
+          }
+          return c
+        }
+      })
+    }
+    // FormData：逐字段序列化（文本直传，Blob 字段转 base64 + 还原 type/filename）
+    if (typeof FormData !== 'undefined' && raw instanceof FormData) {
+      var fields = []
+      var pending = []
+      raw.forEach(function (value, name) {
+        if (typeof value === 'string') {
+          fields.push({ name: name, value: value })
+        } else {
+          pending.push(value.arrayBuffer().then(function (buf) {
+            var b = new Uint8Array(buf)
+            var f = typeof File !== 'undefined' && value instanceof File ? value.name : undefined
+            fields.push({ name: name, base64: __bytesToBase64(b), type: value.type || 'application/octet-stream', filename: f })
+          }))
+        }
+      })
+      return Promise.all(pending).then(function () {
+        return function (s) {
+          var c = __copyInit(s)
+          c.body = { __dlFormData: true, fields: fields }
+          return c
+        }
+      })
+    }
+    // 现有二进制路径：ArrayBuffer / TypedArray / DataView
+    if (typeof raw === 'object') {
+      var bytes
+      if (raw instanceof ArrayBuffer) bytes = new Uint8Array(raw)
+      else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(raw)) bytes = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)
+      else return Promise.reject(new Error('DL.fetch：body 仅支持 string / Blob / FormData / ArrayBuffer / TypedArray / DataView'))
+      var env2 = { __dlBinaryBody: true, base64: __arrayBufferToBase64(bytes) }
+      return Promise.resolve(function (s) { var c = __copyInit(s); c.body = env2; return c })
+    }
+    return Promise.reject(new Error('DL.fetch：body 仅支持 string / Blob / FormData / ArrayBuffer / TypedArray / DataView'))
+  }
   // —— 反向中继客户端——
   var __dlPageApi = ${clientSource}
 
@@ -360,39 +435,31 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
       }
     },
     // 免 CORS 请求：后台 SW 发起，不受页面 CSP 与同源策略限制；非 2xx 不抛错，看 r.ok。
-    // 二进制体：ArrayBuffer / TypedArray / DataView 转 base64 信封再过桥——二进制没法直接
-    // 跨桥，转字符串发又会被 UTF-8 编码破坏字节；信封由 SW 侧解码为 Uint8Array 发请求。
+    // 请求体：string / Blob / FormData / ArrayBuffer / TypedArray / DataView。
+    // 二进制没法直接过桥——Blob/ArrayBuffer 转 base64 信封、FormData 逐字段序列化成信封，
+    // 由 SW 侧解码重建（FormData 的 multipart boundary 由浏览器生成）。
     fetch: function (url, init) {
       var sendInit = init || {}
-      var raw = sendInit.body
-      if (raw && typeof raw === 'object') {
-        var bytes
-        if (raw instanceof ArrayBuffer) {
-          bytes = new Uint8Array(raw)
-        } else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(raw)) {
-          // TypedArray / DataView：只取视图自己的字节段（大 buffer 上的局部视图不整个发）
-          bytes = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)
-        } else {
-          return Promise.reject(new Error('DL.fetch：body 仅支持字符串 / ArrayBuffer / TypedArray / DataView'))
-        }
-        var copy = {}
-        for (var k in sendInit) {
-          if (Object.prototype.hasOwnProperty.call(sendInit, k)) copy[k] = sendInit[k]
-        }
-        copy.body = { __dlBinaryBody: true, base64: __arrayBufferToBase64(bytes) }
-        sendInit = copy
-      }
-      return __dlSend({ c: 'fetch', url: url, init: sendInit }).then(function (p) {
-        return {
-          ok: p.ok,
-          status: p.status,
-          statusText: p.statusText,
-          headers: p.headers,
-          url: p.url,
-          text: function () { return p.body },
-          json: function () { return JSON.parse(p.body) },
-          arrayBuffer: function () { return __base64ToArrayBuffer(p.body) }
-        }
+      return __encodeFetchBody(sendInit.body).then(function (encode) {
+        var finalInit = encode ? encode(sendInit) : sendInit
+        return __dlSend({ c: 'fetch', url: url, init: finalInit }).then(function (p) {
+          return {
+            ok: p.ok,
+            status: p.status,
+            statusText: p.statusText,
+            headers: p.headers,
+            url: p.url,
+            text: function () { return p.body },
+            json: function () { return JSON.parse(p.body) },
+            arrayBuffer: function () { return __base64ToArrayBuffer(p.body) },
+            blob: function () {
+              if (p.responseType !== 'arraybuffer') {
+                throw new Error("DL.fetch().blob() 不可用：需先设置 responseType: 'arraybuffer'（默认 text 模式字节已被 UTF-8 解码破坏）")
+              }
+              return new Blob([__base64ToArrayBuffer(p.body)], { type: (p.headers && p.headers['content-type']) || '' })
+            }
+          }
+        })
       })
     },
     // 系统通知。带 onClick 时按响应里的通知 id 挂回调，点击经 DL Port 回推
@@ -402,26 +469,60 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
         return undefined
       })
     },
-    download: function (url, name) {
-      return __dlSend({ c: 'download', url: url, name: name }).then(function (r) {
+    // 触发下载：
+    //   - string = 远程 URL（SW 抓取转 dataUrl，触发 a[download]）
+    //   - Blob / ArrayBuffer / TypedArray = 本地直下（纯包装层 createObjectURL + a[download]，不走桥）
+    download: function (input, name) {
+      if (typeof input === 'string') {
+        return __dlSend({ c: 'download', url: input, name: name }).then(function (r) {
+          var a = document.createElement('a')
+          a.href = r.dataUrl; a.download = r.name
+          ;(document.body || document.documentElement).appendChild(a)
+          a.click(); a.remove()
+        })
+      }
+      var blob
+      if (input instanceof Blob) {
+        blob = input
+      } else if (input instanceof ArrayBuffer) {
+        blob = new Blob([input])
+      } else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(input)) {
+        // TypedArray / DataView：只取视图自己的字节段（大 buffer 上的局部视图不整个发）
+        blob = new Blob([new Uint8Array(input.buffer, input.byteOffset, input.byteLength)])
+      } else {
+        return Promise.reject(new Error('DL.download：首参仅支持 string(URL) / Blob / ArrayBuffer / TypedArray'))
+      }
+      var url = URL.createObjectURL(blob)
+      try {
         var a = document.createElement('a')
-        a.href = r.dataUrl; a.download = r.name
+        a.href = url; a.download = name || 'download'
         ;(document.body || document.documentElement).appendChild(a)
         a.click(); a.remove()
-      })
+      } finally {
+        // 点击后稍延释放，避免部分浏览器在 blob 被回收后才开始下载
+        setTimeout(function () { URL.revokeObjectURL(url) }, 1000)
+      }
+      return Promise.resolve()
     },
-    // 本地直写（不走桥）：需用户手势/页面焦点，失败明确报错
+    // 剪贴板：走 offscreen 桥（免用户手势）；富文本走 writeHtml
     clipboard: {
       write: function (text) {
-        return navigator.clipboard.writeText(text).catch(function (e) {
-          throw new Error('DL.clipboard.write 失败（需用户手势 / 页面焦点）：' + ((e && e.message) || e))
-        })
+        return __dlSend({ c: 'clipboard.write', text: text }).then(function () { return undefined })
+      },
+      writeHtml: function (html, plainText) {
+        return __dlSend({ c: 'clipboard.write', text: plainText, html: html }).then(function () { return undefined })
       }
     },
     tabs: {
       open: function (url, opts) { return __dlSend({ c: 'tabs.open', url: url, active: !!(opts && opts.active) }) },
       close: function (tabId) { return __dlSend({ c: 'tabs.close', tabId: tabId }) },
       focus: function (tabId) { return __dlSend({ c: 'tabs.focus', tabId: tabId }) }
+    },
+    // 标签页级存储（对齐 GM_getTab 系列）：tabId 由 SW 从 sender.tab.id 取，随 tab 生命周期清理
+    tab: {
+      get: function () { return __dlSend({ c: 'tab.get' }) },
+      save: function (value) { return __dlSend({ c: 'tab.save', value: value }) },
+      all: function () { return __dlSend({ c: 'tab.all' }) }
     },
     // 扩展菜单（contextMenus）：后台登记，点击经 DL Port 回推（只推点击所在 tab）
     menu: {
@@ -471,6 +572,21 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
       el.textContent = css
       ;(document.head || document.documentElement).appendChild(el)
       return el
+    },
+    // URL 变化订阅（SPA 路由感知）：走控制面 url.watch，事件经 DL Port 推回 t:'url.change'
+    onUrlChange: function (cb) {
+      __dlUrlHandlers.push(cb)
+      __dlActiveUrlWatch = true
+      var off = function () {
+        var i = __dlUrlHandlers.indexOf(cb)
+        if (i >= 0) __dlUrlHandlers.splice(i, 1)
+        if (!__dlUrlHandlers.length) {
+          __dlActiveUrlWatch = false
+          __dlRegSend({ c: 'url.unwatch', connId: __dlConnId }).catch(function () {})
+        }
+      }
+      // 等 SW 真挂上订阅才 resolve——WATCH_OK 必须代表订阅已生效
+      return __dlRegSend({ c: 'url.watch', connId: __dlConnId }).then(function () { return off })
     },
     log: function () {
       console.log.apply(console, ['[DL:' + DL_INFO.name + ']'].concat([].slice.call(arguments)))

@@ -63,7 +63,7 @@ function announceReady(): void {
  * offscreen 应答的命令面前缀（与 SW 的 SW_KIND_PREFIXES 互补，两者并集须恰好覆盖
  * RuntimeRequest 的 kind 全集——归属一致性由 extension-ipc.test.ts 表驱动断言）。
  */
-export const OFFSCREEN_KIND_PREFIXES = ['fs:', 'state:', 'conv:', 'chat:'] as const
+export const OFFSCREEN_KIND_PREFIXES = ['fs:', 'state:', 'conv:', 'chat:', 'clipboard:'] as const
 
 /** 前缀 → 处理器（与 OFFSCREEN_KIND_PREFIXES 一一对应） */
 const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: RuntimeRequest) => Promise<unknown> } = {
@@ -71,6 +71,7 @@ const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: Runt
   'state:': (msg) => handleStateCommand(msg as StateRequest),
   'conv:': (msg) => handleConvCommand(msg),
   'chat:': (msg) => handleChatCommand(msg),
+  'clipboard:': (msg) => handleClipboardCommand(msg),
 }
 
 // 命令面：UI / SW 经 chrome.runtime.sendMessage 共享总线发来，offscreen 在此处理并回传。
@@ -123,6 +124,62 @@ async function handleChatCommand(msg: RuntimeRequest): Promise<unknown> {
       return resolveOrphan(msg.taskId, msg.action)
     default:
       throw new Error(`未知对话命令：${msg.kind}`)
+  }
+}
+
+/**
+ * clipboard:* —— offscreen 内直写剪贴板（clipboardWrite 权限已在 manifest 声明）。
+ *
+ * 注意：offscreen document 拿不到页面焦点，navigator.clipboard 会报
+ * "Document is not focused"，所以这里走 document.execCommand('copy') + copy 事件
+ * 注入自定义 clipboardData。这是 Chrome 团队推荐的 offscreen 剪贴板写法。
+ */
+async function handleClipboardCommand(msg: RuntimeRequest): Promise<unknown> {
+  if (msg.kind !== 'clipboard:write') throw new Error(`未知剪贴板命令：${msg.kind}`)
+  const text = msg.text ?? null
+  const html = msg.html ?? null
+  if (!text && !html) throw new Error('clipboard.write 至少需要 text 或 html 之一')
+
+  // copy 事件处理器：把自定义数据写进 clipboardData，并 preventDefault 阻止默认。
+  const onCopy = (e: ClipboardEvent) => {
+    if (html) {
+      e.clipboardData?.setData('text/html', html)
+      e.clipboardData?.setData('text/plain', text ?? '')
+    } else {
+      e.clipboardData?.setData('text/plain', text as string)
+    }
+    e.preventDefault()
+  }
+  document.addEventListener('copy', onCopy as EventListener, { once: true })
+
+  const el = document.createElement(html ? 'div' : 'textarea')
+  el.style.position = 'fixed'
+  el.style.opacity = '0'
+  el.setAttribute('aria-hidden', 'true')
+  if (html) {
+    el.contentEditable = 'true'
+    el.innerHTML = html
+  } else {
+    ;(el as HTMLTextAreaElement).value = text as string
+  }
+  document.body.appendChild(el)
+  el.focus()
+
+  // 选中元素内容
+  const selection = window.getSelection()
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  try {
+    const ok = document.execCommand('copy')
+    if (!ok) throw new Error('剪贴板写入失败：document.execCommand("copy") 返回 false')
+    return undefined
+  } finally {
+    selection?.removeAllRanges()
+    el.remove()
+    document.removeEventListener('copy', onCopy as EventListener)
   }
 }
 

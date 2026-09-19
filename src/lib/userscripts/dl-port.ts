@@ -64,6 +64,8 @@ export class DlPortRegistry {
   private ports = new Map<chrome.runtime.Port, DlPortMeta>()
   private watches = new Map<chrome.runtime.Port, Set<string>>()
   private notifyMap = new Map<string, string>()
+  /** URL 变化订阅（SPA 路由感知）：Port 级布尔，tab 级推送经 portsForUrlChange 路由 */
+  private urlWatchers = new Set<chrome.runtime.Port>()
 
   addPort(port: chrome.runtime.Port, meta: DlPortMeta): void {
     this.ports.set(port, meta)
@@ -138,6 +140,27 @@ export class DlPortRegistry {
   ownerOfNotification(notificationId: string): string | null {
     return this.notifyMap.get(notificationId) ?? null
   }
+
+  /** 挂 URL 变化订阅。找不到该 connId 的 Port（连接未就绪）返回 false，由调用方抛错 */
+  attachUrlWatch(uuid: string, connId: string): boolean {
+    const targets = this.portsByConnId(uuid, connId)
+    if (!targets.length) return false
+    for (const port of targets) this.urlWatchers.add(port)
+    return true
+  }
+
+  detachUrlWatch(uuid: string, connId: string): void {
+    for (const port of this.portsByConnId(uuid, connId)) this.urlWatchers.delete(port)
+  }
+
+  /** 某 tab 上已订阅 URL 变化的全部 Port（tab 级推送；仅推订阅者） */
+  portsForUrlChange(tabId: number): chrome.runtime.Port[] {
+    const out: chrome.runtime.Port[] = []
+    for (const [port, m] of this.ports) {
+      if (m.tabId === tabId && this.urlWatchers.has(port)) out.push(port)
+    }
+    return out
+  }
 }
 
 /** 向单条 Port 推一帧 ApiEvent；Port 已断时静默摘除（postMessage 可能抛 disconnected） */
@@ -154,6 +177,9 @@ export function pushEvent(registry: DlPortRegistry, port: chrome.runtime.Port, e
 
 /** 模块级单例：dl-bridge 的 dispatch（控制面）与事件监听器共用同一张注册表 */
 let registrySingleton: DlPortRegistry | null = null
+
+/** 每 tab 最后已推送 URL（去连续重复；SW 重启归零只影响去重，不影响正确性） */
+const lastUrlByTab = new Map<number, string>()
 
 /** 取注册表单例（控制面函数与监听器共用；未初始化时惰性创建） */
 export function getDlPortRegistry(): DlPortRegistry {
@@ -206,6 +232,15 @@ export function attachScriptWatch(uuid: string, connId: string, key: string): bo
 
 export function detachScriptWatch(uuid: string, connId: string, key: string): void {
   getDlPortRegistry().detachWatch(uuid, connId, key)
+}
+
+/** 挂 URL 变化订阅（控制面，ApiRequest url.watch） */
+export function attachUrlWatch(uuid: string, connId: string): boolean {
+  return getDlPortRegistry().attachUrlWatch(uuid, connId)
+}
+
+export function detachUrlWatch(uuid: string, connId: string): void {
+  getDlPortRegistry().detachUrlWatch(uuid, connId)
 }
 
 /** 为一次 DL.notify mint 通知 id 并登记归属（响应该 id，供包装层挂 onClick） */
@@ -272,6 +307,21 @@ export function initDlPort(): void {
       }
     }
   })
+
+  // 事件源 ④：标签页 URL 变化（含 SPA pushState / replaceState / popstate / hash 变更）。
+  // 不引 webNavigation 权限，靠 tabs.onUpdated 的 changeInfo.url（<all_urls> host 权限已覆盖）。
+  // 内存记每 tab 最后推送 url，连续重复去重（SW 重启丢内存只影响去重，不影响正确性）。
+  if (chrome.tabs?.onUpdated?.addListener) {
+    chrome.tabs.onUpdated.addListener((tabId, info) => {
+      if (!info.url) return
+      const last = lastUrlByTab.get(tabId)
+      if (last === info.url) return
+      lastUrlByTab.set(tabId, info.url)
+      for (const port of registry.portsForUrlChange(tabId)) {
+        pushEvent(registry, port, { t: 'url.change', url: info.url })
+      }
+    })
+  }
 
   // 事件源 ③：通知点击。SW 重启丢失映射时事件丢弃（拍板 ③：接受，不落盘）
   chrome.notifications.onClicked.addListener((notificationId) => {
