@@ -55,7 +55,7 @@ function errRow(recOver: Partial<UserScriptErrorRecord> & { message: string }): 
 }
 
 function summary(uuid: string, name: string): ScriptSummary {
-  return { uuid, name, enabled: true, matches: [], fileCount: 1, updatedAt: 0, buildOk: true }
+  return { uuid, name, enabled: true, matches: [], fileCount: 1, updatedAt: 0, buildOk: true, group: '' }
 }
 
 let wrapper: VueWrapper

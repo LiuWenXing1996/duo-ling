@@ -5,7 +5,7 @@
 // 这里复用与 window-api.ts 同构的 send 信封（统一解包 { ok, data|error }），
 // 直接发 userscript:* 命令组（v2 方案）。
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
-import type { ImportReport, ScriptConfig, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptRunLogRow } from './types'
+import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptRunLogRow } from './types'
 import type { SourceTree, UsCommit, UsHistoryTree } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
 
@@ -126,6 +126,29 @@ export const userscriptClient = {
   /** 启停：enabled 已落状态库后返回；注册失败不判整体失败，只带回 registerError 警告 */
   toggle: (uuid: string, enabled: boolean): Promise<{ registerError?: string }> =>
     send({ kind: 'userscript:toggle', uuid, enabled }),
+
+  /** 列出全部分组定义（按 order 升序） */
+  groups: (): Promise<ScriptGroup[]> => send({ kind: 'userscript:groups' }),
+
+  /** 把脚本归入某分组（groupId 为空字符串 = 退回未分组） */
+  setGroup: (uuid: string, group: string): Promise<ScriptProject> =>
+    send({ kind: 'userscript:setGroup', uuid, group }),
+
+  /** 新建分组：返回建好的分组定义 */
+  createGroup: (name: string): Promise<ScriptGroup> =>
+    send({ kind: 'userscript:group-create', name }),
+
+  /** 重命名分组（仅展示名） */
+  renameGroup: (id: string, name: string): Promise<ScriptGroup> =>
+    send({ kind: 'userscript:group-rename', id, name }),
+
+  /** 删除分组（其成员自动退回未分组） */
+  removeGroup: (id: string): Promise<void> =>
+    send({ kind: 'userscript:group-remove', id }),
+
+  /** 重排分组顺序：orderedIds 为目标顺序的 id 列表 */
+  reorderGroups: (orderedIds: string[]): Promise<void> =>
+    send({ kind: 'userscript:group-reorder', orderedIds }),
 
   /** 运行日志时间线：运行行 + 孤儿错误行按时间倒序混排（运行日志标签页） */
   runlog: (): Promise<UserScriptRunLogRow[]> => send({ kind: 'userscript:runlog' }),

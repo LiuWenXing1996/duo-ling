@@ -119,6 +119,13 @@ export type RuntimeRequest =
   // 产物已更新，SW 照 save 语义重注册（enabled 才注册）；清除不动产物，无注册动作。
   | { kind: 'userscript:deps-refresh'; uuid: string }
   | { kind: 'userscript:deps-clear'; uuid: string }
+  // 脚本列表分组（读分组定义；写分组管理经 state: 单写方转发，见下方 state:group-*）
+  | { kind: 'userscript:groups' }
+  | { kind: 'userscript:setGroup'; uuid: string; group: string }
+  | { kind: 'userscript:group-create'; name: string }
+  | { kind: 'userscript:group-rename'; id: string; name: string }
+  | { kind: 'userscript:group-remove'; id: string }
+  | { kind: 'userscript:group-reorder'; orderedIds: string[] }
 
   // —— 用户脚本源码库命令面（fs:*，执行宿主 = offscreen）——
   // 源码唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库，带 git 版本化，
@@ -168,6 +175,12 @@ export type RuntimeRequest =
   // 刷新 = 全量重拉，全成功才落盘替换 + 重建，失败缓存原封不动；清 = 只删 _deps/，不拉不建。
   | { kind: 'state:deps-refresh'; uuid: string }
   | { kind: 'state:deps-clear'; uuid: string }
+  // 脚本列表分组（offscreen 单写方）：新建 / 重命名 / 删除（删前把成员退回未分组） / 重排 / 把脚本归入分组
+  | { kind: 'state:group-create'; name: string }
+  | { kind: 'state:group-rename'; id: string; name: string }
+  | { kind: 'state:group-remove'; id: string }
+  | { kind: 'state:group-reorder'; orderedIds: string[] }
+  | { kind: 'state:set-group'; uuid: string; group: string }
 
   // —— 会话写侧（整条对话链路搬进 offscreen 后，会话历史唯一写入方 = offscreen）——
   // UI（侧边栏 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 对 conv: 前缀静默让路。
@@ -258,6 +271,8 @@ export type DataDomain =
   | 'error'
   /** 用户脚本运行统计（runtime 库 stats store，按脚本聚合计数） */
   | 'runstats'
+  /** 脚本列表分组定义（duoling-state 的 groups 对象库） */
+  | 'group'
 
 /**
  * 一次落盘的变更通知：**只带「哪个域的哪条变了」，不带数据本身**。
