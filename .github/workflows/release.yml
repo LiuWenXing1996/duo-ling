@@ -1,33 +1,29 @@
 name: release
 
-# 合 main 自动发版：PR 合入 main 后，按 PR 上的 release label 自动 bump + 打 tag + 推送。
-# 预发布（alpha/beta/rc）与稳定版共用同一套 bump 规则；每个 PR 一个版本。
+# 合 main 后由 CI 补打 tag：
+# 版本号由人在本地用 `npm run release` 决定并提交（commit message 固定为 `chore: release vX.Y.Z[-pre.N]`），
+# 通过 PR 合入 main；本 workflow 在 PR 合入后检测 main 最新提交是否为 release commit，
+# 是则在对应 commit 上打 annotated tag 并推送到远程。CI 不负责 bump，只负责推 tag。
 #
-# 前提：main 分支保护需允许本 workflow 的 GITHUB_TOKEN 推送（或在分支保护中将此 token 加入豁免）。
-# 若推送被保护规则拦截，release 脚本已在本地完成 commit + 打 tag，按失败提示手动 git push 收尾即可。
+# 设计前提：main 分支保护禁止对 main 直接 push（含 CI token），
+# 但 refs/tags/* 不在该 ruleset 约束范围内，故 CI 仅推送 tag、不碰分支。
+
 on:
   pull_request:
     types: [closed]
   workflow_dispatch:
-    inputs:
-      bump:
-        description: 'patch | minor | major'
-        required: true
-        default: 'patch'
-      pre:
-        description: '预发布 stage：alpha | beta | rc（留空 = 稳定版）'
-        required: false
 
 permissions:
   contents: write
 
-# 串行，避免两个 PR 接连合入时读同一版本号撞 tag。
+# 串行，避免两个 PR 接连合入时重复打同一 tag。
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
-  release:
+  tag:
+    # PR 合入 main，或手动 Run workflow 时执行。
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.pull_request.merged == true &&
@@ -41,56 +37,24 @@ jobs:
           fetch-tags: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - run: npm ci
-
-      - name: Resolve release args from trigger
-        id: rel
-        env:
-          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-          DISPATCH_BUMP: ${{ github.event.inputs.bump }}
-          DISPATCH_PRE: ${{ github.event.inputs.pre }}
+      # runner 默认没有 git identity，annotated tag（`git tag -a`）会报 empty ident 而失败。
+      - name: Configure git identity
         run: |
-          ARGS=$(node -e '
-            const labels = JSON.parse(process.env.LABELS || "[]");
-            const rel = labels.find(l => l.startsWith("release:"));
-            const pre = labels.find(l => l.startsWith("pre:"));
-            let args = "";
-            if (rel) {
-              const p = rel.split(":");
-              const bump = p[1];
-              const stage = p[3];
-              args = bump + (stage ? " --pre " + stage : "");
-            } else if (pre) {
-              args = "--pre " + pre.split(":")[1];
-            } else if (process.env.DISPATCH_BUMP) {
-              args = process.env.DISPATCH_BUMP +
-                (process.env.DISPATCH_PRE ? " --pre " + process.env.DISPATCH_PRE : "");
-            }
-            process.stdout.write(args);
-          ')
-          echo "args=$ARGS" >> "$GITHUB_OUTPUT"
-          echo "resolved args: $ARGS"
+          git config user.email "actions@github.com"
+          git config user.name "github-actions[bot]"
 
-      - name: Tag and push tag
-        if: github.event.pull_request.merged == true
+      - name: Tag and push release commit
         run: |
-          # main 禁止直接 push（分支保护：changes must be through PR），故只打 tag 并推送 tag。
-          # release commit（bump + CHANGELOG）已随本 PR 合入 main，CI 在其上补 tag。
           MSG=$(git log -1 --format=%s)
-          if [[ "$MSG" =~ chore:\ release\ v(.+) ]]; then
+          if [[ "$MSG" =~ ^chore:\ release\ v(.+)$ ]]; then
             TAG="v${BASH_REMATCH[1]}"
+            if git rev-parse "$TAG" >/dev/null 2>&1; then
+              echo "tag $TAG 已存在，跳过。"
+              exit 0
+            fi
             git tag -a "$TAG" -m "$TAG"
             git push origin "$TAG"
-            echo "pushed tag $TAG"
+            echo "已推送 tag $TAG"
           else
-            echo "latest commit is not a release commit, skip"
+            echo "最新提交不是 release commit（'$MSG'），跳过打 tag。"
           fi
-
-      - name: Skip notice
-        if: steps.rel.outputs.args == ''
-        run: echo "无 release label（且非手动触发），跳过发版，仅合代码。"
