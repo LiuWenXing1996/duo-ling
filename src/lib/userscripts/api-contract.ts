@@ -30,7 +30,7 @@ export interface DlCookie {
   domain: string
   path: string
   secure: boolean
-  /** HttpOnly：页面 JS 读不到，本 API 照原样暴露（老大 2026-09-19 拍板，与油猴一致） */
+  /** HttpOnly：页面 JS 读不到，本 API 照原样暴露（2026-09-19 经评审确认，与油猴一致） */
   httpOnly: boolean
   /** 会话 cookie（无过期时间）为 true */
   session: boolean

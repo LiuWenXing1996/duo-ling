@@ -1,4 +1,4 @@
-// DL.fetch 特权增强（提案 2026-09-19 老大批准）：forbidden header 覆写 + redirect:'manual' 的
+// DL.fetch 特权增强（提案 2026-09-19 经评审批准）：forbidden header 覆写 + redirect:'manual' 的
 // 机制层，与消息分流解耦（dl-bridge.ts 负责桥接与组装）。
 //
 // 机制（均已真机探针验证，Chromium 153，tmp/dnr-spike，2026-09-19）：

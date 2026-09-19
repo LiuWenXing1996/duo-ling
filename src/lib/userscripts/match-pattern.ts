@@ -3,7 +3,7 @@
 // 与 project-store.isValidMatchPattern 的分工：那里是「注册前校验 pattern 合法性」，
 // 这里是「运行期判某条 url 是否落在 pattern 范围内」。两者语法认知同源，职责不同，故不复用函数。
 //
-// **关键语义（老大 2026-09-19 拍板）：只比 scheme + host，pattern 的 path 段一律当 `/*` 处理。**
+// **关键语义（2026-09-19 经评审确认）：只比 scheme + host，pattern 的 path 段一律当 `/*` 处理。**
 // 理由：cookie 是 host 级作用域，不与路径相关 —— 只注入 https://example.com/foo/* 的脚本，
 // 若不忽略 path 就连站点自己的 cookie（path 通常是 /）都读不到，违反 cookie 的天然语义。
 // 放宽的只是「同一 host 内的路径收窄」，跨 host 的边界一点没松（安全不变量）。

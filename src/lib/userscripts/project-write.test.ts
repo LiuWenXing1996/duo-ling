@@ -1,7 +1,7 @@
 // project-write.ts 单测（offscreen 写侧）：测试直调写 API，通过 mock builder（esbuild-wasm）
 // 与 us-git（lightning-fs + isomorphic-git）模拟 offscreen 上下文——这两个模块在真实环境里分别
 // 依赖 chrome.runtime.getURL 拉起的 wasm 与 lightning-fs，均非被测靶心。
-// 被测重点是写侧自身的语义：**保存恒成功、构建跟随**（2026-09-19 老大拍板：构建失败产物置空）、
+// 被测重点是写侧自身的语义：**保存恒成功、构建跟随**（2026-09-19 经评审确认：构建失败产物置空）、
 // 守卫校验、提交失败不阻断、启停不产生提交、删除全部（记录批量清 + 仓整目录清一次），
 // 以及 zip 导入「尽量导入」语义（2026-09-17 修订：非原则项不淘汰）。
 // 存储分工（2026-09-19 重构后）：源码写 duoling-fs（writeSourceTree + commitSource），
@@ -483,7 +483,7 @@ describe('importScriptsZip', () => {
   })
 })
 
-// —— 依赖缓存管理（清 / 刷，2026-09-19 老大拍板拆两个动作）——
+// —— 依赖缓存管理（清 / 刷，2026-09-19 经评审确认拆两个动作）——
 
 describe('依赖缓存管理', () => {
   /** 给定 uuid 种一棵工作树：withDeps=true 时带 _deps/（index + 内容文件各一） */
