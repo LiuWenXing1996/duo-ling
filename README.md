@@ -28,7 +28,7 @@
 | 页面上下文 | 点选元素：`chrome.userScripts.execute()` 按需注入内置拾取器，产物暂存后随下一条消息发出；页面快照：AI 侧 `page_snapshot` 工具经 SW 采集 |
 | 主题 | **跟随系统深浅色**（`src/lib/theme.ts` 按 `prefers-color-scheme` 驱动 `html.dark`） |
 
-> **UI 复用**：两个载体的界面都是现成实现 —— side panel 由 `ChatApp.vue` 装配 `ChatPanel` + `SessionHistoryPanel`；工作台由 `WorkbenchApp.vue`（左侧图标导航：引导 / 设置 / UI 测试 / 脚本列表 / lfs 浏览 / 会话数据 / AI 工具 / DL API + `WorkspaceHost` 多标签宿主）承载。平移来的组件经 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，**组件本体零改动**；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`，不经 `window.api`。
+> **UI 复用**：两个载体的界面都是现成实现 —— side panel 由 `ChatApp.vue` 装配 `ChatPanel` + `SessionHistoryPanel`；工作台由 `WorkbenchApp.vue`（左侧图标导航 + `WorkspaceHost` 多标签宿主）承载。**标签页清单只在上方「载体分工」表登记一处**，别处只链接不罗列；导航项是它的子集加每脚本标签，实况以 `WorkbenchApp.vue` 为准。平移来的组件经 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，**组件本体零改动**；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`，不经 `window.api`。
 
 ## 目录结构
 
@@ -81,7 +81,7 @@
 │  │  │  ├─ task-store.ts         #   生成任务快照（duoling-chat 库 tasks store，宿主被杀后可继续）
 │  │  │  └─ profile-cache.ts      #   模型配置缓存（offscreen 侧）
 │  │  ├─ conversation-store.ts    # 会话与消息（IndexedDB `duoling-chat`；唯一写方 = offscreen）
-│  │  ├─ model-store.ts           # 模型配置（chrome.storage.local + 连通性测试）
+│  │  ├─ model-store.ts           # 模型配置（IndexedDB `duoling-app` + 连通性测试；apiKey 密文落盘）
 │  │  ├─ key-cipher.ts            # API Key 落盘加密（AES-GCM，防扫描级）
 │  │  ├─ providers.ts             # 服务商预设（host_permissions 由此推导）
 │  │  ├─ element-picker-client.ts # 元素拾取 / 页面快照的发起侧（按需注入拾取器，失败有可读文案）
@@ -108,18 +108,7 @@
 
 ## 命令
 
-```bash
-npm install
-npm run dev              # 开发（HMR），产出 .output/chrome-mv3-dev
-npm run build            # 构建，产出 .output/chrome-mv3
-npm run typecheck        # vue-tsc 全量类型检查（含 .vue）
-npm run test             # Vitest 单测（logic=node + component=happy-dom 双 project）
-npm run test:e2e         # Playwright 端测（跑 build 产物，无头 Chromium）
-npm run build:firefox    # 跨端构建（Firefox 侧；sidebar_action 适配待三期）
-npm run verify:skills    # 校验 .agents/skills/ 合规（结构错误退出码 1）
-npm run check:inbox      # 想法收件箱体检（整理 inbox 时跑）
-npm run pack:uscripts    # 把仓库根 uscript-samples/ 打成可导入的用户脚本 zip → tmp/（测试用脚本不用手搓）
-```
+命令清单（逐条带用途与坑）的唯一登记处在 [AGENTS.md](AGENTS.md#常用命令)，本文件不复述。
 
 > 依赖用 **npm** 管理。PR 上跑两个 workflow：`ci.yml`（typecheck + 全部单测）与 `e2e.yml`（Playwright 冒烟，约 1 分钟）。**两者都是 required status check**（ruleset 里配的），都绿才能合；同 PR 连推由 concurrency 取消旧 run，只跑最新 commit。
 
@@ -153,7 +142,7 @@ npm run pack:uscripts    # 把仓库根 uscript-samples/ 打成可导入的用�
 
 ## 关键坑与规避（勿踩）
 
-1. **`sidePanel` 是必需权限，别剔除**：使用 `chrome.sidePanel` API **必须**在 `permissions` 里声明 `"sidePanel"`（Chrome 114+），否则 `chrome.sidePanel` 不存在、`setPanelBehavior` 静默失败、**点图标不开面板**；`setPanelBehavior({openPanelOnActionClick:true})` 还需 manifest 声明 `"action"` 键。核对产物 manifest 应为：`permissions:["storage","sidePanel","userScripts","notifications","offscreen"]` + `action` + `side_panel.default_path` + `host_permissions`。
+1. **`sidePanel` 是必需权限，别剔除**：使用 `chrome.sidePanel` API **必须**在 `permissions` 里声明 `"sidePanel"`（Chrome 114+），否则 `chrome.sidePanel` 不存在、`setPanelBehavior` 静默失败、**点图标不开面板**；`setPanelBehavior({openPanelOnActionClick:true})` 还需 manifest 声明 `"action"` 键。**已批准权限集不在本文件罗列** —— 唯一登记处是 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」），核对产物 manifest 就是拿它的 `permissions` 数组逐项比对，另需 `action` + `side_panel.default_path` + `host_permissions`。
 2. **SW 缺 `global` / `Buffer` / `process`**：`isomorphic-git`/`lightning-fs` 依赖 Node 全局，SW 没有。`vite.define` 别名 `global: 'globalThis'` + `polyfills.ts`（含 `polyfill-process`）在 `background.ts` 最前 import 兜底；漏掉会以「`global.TextEncoder` 读不到」这类形式炸在加载期。
 3. **entrypoint 同名冲突**：不要同时存在 `sidepanel.html` 与 `sidepanel.ts`（WXT 会判定两个同名 entrypoint）。入口脚本用非约定名（如 `app/sidepanel-main.ts`）由 html 引用。
 4. **跨域 fetch 需 host 权限**：扩展页 `fetch` 模型接口会被 CORS 拦，必须在 manifest 声明对应 `host_permissions`（模型服务商由 `src/lib/providers.ts` 推导，用户脚本另需 `<all_urls>`）。

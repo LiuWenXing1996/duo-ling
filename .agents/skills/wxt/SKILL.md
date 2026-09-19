@@ -19,7 +19,6 @@ description: Use when configuring, building, or debugging WXT 0.21 in this exten
 **本 skill 不管什么**（别越界）
 - Vue / UI 组件怎么写 → [shadcn-vue](../shadcn-vue/SKILL.md)
 - Chrome 扩展 API 本身语义 → MDN / `node_modules/@types/chrome`
-- 工具页 sandbox iframe / `window.cap` 桥接 → AGENTS.md「工具页承载」
 
 **范围上限（硬）**
 - **不要自行升级 WXT 版本或 patch `node_modules/wxt`** —— 遇到疑似框架 bug 先停下报告用户。
@@ -32,9 +31,9 @@ description: Use when configuring, building, or debugging WXT 0.21 in this exten
 | 配置 | 值 | 为什么（改错会怎样） |
 | --- | --- | --- |
 | `srcDir` | `'src'` | WXT 内置 `@` / `~` 别名硬编码指向 `srcDir` 且**覆盖用户配置**（见 `wxt` 的 `resolve-config.mjs`）。改掉 → 平移代码里所有 `@/...` 解析失败 |
-| `publicDir` | `'src/public'` | WXT 的 publicDir 默认基于**项目根**而非 srcDir。不显式指定 → `public/tool-bridge.js`（工具页 sandbox iframe 桥接脚本）不进产物 |
+| `publicDir` | `'src/public'` | WXT 的 publicDir 默认基于**项目根**而非 srcDir。不显式指定 → `src/public/` 下的静态资源（元素拾取器 `duoling-picker.js`、`esbuild.wasm`、通知图标）不进产物 |
 | `vite().define.global` | `'globalThis'` | SW 里没有 Node 的 `global`，而 isomorphic-git / lightning-fs 打包代码写的是 `global.TextEncoder`。不加 → SW 加载即抛 `Cannot read properties of undefined (reading 'TextEncoder')`，连带 SW 注册失败 |
-| `permissions` | `storage, sidePanel, userScripts, notifications` | `sidePanel` 是使用 `chrome.sidePanel` 的**必需权限**，不可剔除 |
+| `permissions` | 唯一登记处 = [wxt.config.ts](../../../wxt.config.ts)（每项带「为什么需要」，本表不复述清单） | `sidePanel` 是使用 `chrome.sidePanel` 的**必需权限**，不可剔除；增删权限影响上架审查，需用户确认 |
 | `host_permissions` | `providerOrigins()` + `<all_urls>` | 由服务商预设表推导 + userScripts 注入目标页所需全域权限 |
 | `minimum_chrome_version` | `'133'`（**下划线**） | 驼峰键会被 Chrome 忽略并报 `Unrecognized manifest key`。133 = 每脚本独立 `worldId` 隔离的最低版本 |
 | `webExt.chromiumProfile` | `resolve(process.cwd(), ...)`（**绝对路径**） | web-ext 按 cwd 解析相对路径，从不同目录启动 dev 会拿到不同 profile → 「Allow User Scripts」这类每扩展开关被重置 |

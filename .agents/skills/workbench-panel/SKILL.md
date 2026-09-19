@@ -17,7 +17,7 @@ description: Use when adding, changing, or debugging a workbench tab/panel in th
 | 3 | `src/components/WorkspaceTabs.vue` | 标签栏图标分支 —— **必须插在 `v-else` 兜底之前**（兜底是 settings 图标，插后面永远走不到） |
 | 4 | `src/components/WorkspaceHost.vue` | ① `openXxxTab()`（幂等：已开则 activate，不重复 push）；② `<ui-tabs-content>` 里 `v-else-if="tab.kind === 'xxx'"`；③ `defineExpose` 补上方法名 |
 | 5 | `src/entrypoints/app/WorkbenchApp.vue` | 左侧导航 `<button class="workspace-nav-item" aria-label="…">` + `ui-tooltip`（`TooltipProvider > Tooltip > TooltipTrigger as-child > button`，顺序不能反）+ `@click="workspaceRef?.openXxxTab()"` |
-| 6 | `README.md` | 两处清单：载体分工表的标签页列表、UI 复用段里的左侧导航列表 |
+| 6 | `README.md` | 载体分工表的「承载内容」列 —— **标签页清单唯一登记处**（UI 复用段只链接、不罗列，别再加第二份） |
 
 标签 id 约定：全局唯一视图用固定 id（`'agent-tools'`）；每实体一个的用 `前缀:<uuid>`（如 `us-edit:<uuid>`）。
 

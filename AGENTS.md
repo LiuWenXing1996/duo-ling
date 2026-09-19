@@ -12,7 +12,7 @@
 - **手写桥接层（`src/lib/*.ts` 中非平移的那些）必须逐函数自检四类语义**：这类文件是重写而非平移，最容易丢「默认值回退 / 入参守卫 / 先校验后落盘 / 无变化就不做」这四类不在类型里的语义（曾丢过：模型展示名回退、会话自动命名、空提交守卫、id 防穿越、服务商预设少 7 个）。这四类各补单测覆盖——靠测试兜，不靠人工对照。
 - **UI 复用（强制）**：两个载体的 UI 都是现成实现（`src/components/`）—— side panel 用 `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列。它们靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`，因此组件本体零改动。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 规范走：先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，**不手写组件**；`class` 只用于布局，不覆盖组件配色与字体，颜色一律用语义 token（`bg-primary` / `text-muted-foreground`），不写 `space-x-*` / `space-y-*`、不手写 `dark:` 覆盖。**Tooltip 组合约束（reka-ui 2.10 实测）**：① `TooltipProvider` 不转发 attrs，任何 as-child 组件**隔在 Provider 与目标元素之间都会静默断链**（编译不报错、运行时无警告，事件/属性全丢）——Tooltip 包其他触发组件时必须 **Tooltip 在最外、目标组件在内**；② 即便顺序正确，**TooltipTrigger 套在 DropdownMenuTrigger 外层仍会让 menu popper 失去定位**（内容渲染到视口外，`translate(0,-200%)` 兜底，无任何报错；组件测试/happy-dom 测不出来，只有真实浏览器可见性断言能抓到）——**菜单触发按钮一律用原生 `title`，不套 Tooltip**（`SessionHistoryPanel` 会话操作按钮即此例）。**Collapsible 折叠语义（reka-ui 2.10 实测）**：① `force-mount` 加在 `CollapsibleContent` 上**不是「保持挂载但隐藏」**——它使 `present=true`、`hidden` 属性不写，收起时内容**照样显示**；② 要「收起时留在 DOM 但不可见」（表单与编辑态始终同源、组件测试定位控件不受折叠影响），只能给**根组件** `<ui-collapsible :unmount-on-hide="false">` ——内容会带 `hidden` 属性，属性值经 Vue 归一为空串（测试只断言存在性，别断言 `until-found`）。`UserscriptEditorPanel` 的脚本配置区即此例（默认收起，收起态用摘要行交代当前注入面）。
 - **工作台标签页（面板）**：新增 / 改动工作台标签页按 [workbench-panel](.agents/skills/workbench-panel/SKILL.md) 走 —— 接线固定 6 处（kind 字面量 → 标签栏图标 → `WorkspaceHost` 三个改点 → 左侧导航 → README 清单），**面板数据源不得 import offscreen 专属模块**（`us-git` / `builder` / `offscreen-chat/script-tools`），要么新增 IPC、要么抽一份运行时与 UI 共用的纯数据模块并配「从运行时反射比对」的防漂移单测。
-- **存储（IndexedDB 三库 + 脚本数据/观测数据分库，2026-09-19 重构）**：① **源码唯一来源 `duoling-fs`**（lightning-fs，IndexedDB 后端，**只许 offscreen 碰**，`us-fs.ts` 单例）：每脚本一仓 `/uscripts/<uuid>/`——工作树 `files/` 即当前源码（未提交改动 = 草稿），git 历史 = 每次保存的版本（`us-git.ts`，仓损坏只丢历史不丢脚本）；SW/扩展页读不到 lfs，**源码读写一律走 `fs:*` 命令向 offscreen 取**（`offscreen-fs-commands.ts`）。② **注册态库 `duoling-state`**（独立 IndexedDB，`state-db.ts`/`project-store.ts` 读、`project-write.ts` 写，**写只归 offscreen**）= 每脚本一条 `ScriptProject`：只存产物 `bundle` + 元数据 + enabled + `fileCount` 缓存，**不含源码**——SW 注册直读 `bundle`，注册链路对 offscreen 存活零依赖（既定不变量）。③ **脚本数据库 `duoling-usdata`**（`usdata-db.ts`，**写只归 SW**）：`DL.store` 值（gm store，复合主键 `[uuid,key]`）与 `DL.tab`（tab store，`[uuid,tabId]`）——**脚本自己写的数据**（不可信、无上限），复合主键 + 索引替代旧 chrome.storage 字符串键拼接，范围查询不再全库扫描。④ **观测数据库 `duoling-runtime`**（`runtime-db.ts`，**写只归 SW**）：错误日志（errors store，单记录环形 ≤ `ERROR_LOG_MAX`）、运行统计（stats store，每脚本一记录：总次数 / 最后运行时间 / 最近一次运行错误数）与运行日志（runlog store，全局环形 ≤ `RUN_LOG_MAX`）——统计与日志**并进同一事务写入**（`mutateStatsAndLog` 跨 store，逐条日志不额外放大写入）；读改写在事务内天然原子，chrome.storage 时代的进程内串行队列已随之删除；错误明细按 runId 与日志关联，工作台「运行日志」标签页 = 时间线（运行行 + 孤儿错误行，`listRunTimeline` 合并读）。用户脚本的存储**全部落 IndexedDB**；DL.store 写出口发变更事件（`onGmValueChange`，值未变 / 删不存在键不发）。⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，密文载荷）、key-cipher DEK、MAIN 世界桩密钥（`pageSecret`）——扩展自己的小数据；`chrome.storage.local` 已清零。
+- **存储（IndexedDB 分库：源码 / 注册态 / 脚本数据 / 观测数据 / 应用配置 / 会话，2026-09-19 重构）**：① **源码唯一来源 `duoling-fs`**（lightning-fs，IndexedDB 后端，**只许 offscreen 碰**，`us-fs.ts` 单例）：每脚本一仓 `/uscripts/<uuid>/`——工作树 `files/` 即当前源码（未提交改动 = 草稿），git 历史 = 每次保存的版本（`us-git.ts`，仓损坏只丢历史不丢脚本）；SW/扩展页读不到 lfs，**源码读写一律走 `fs:*` 命令向 offscreen 取**（`offscreen-fs-commands.ts`）。② **注册态库 `duoling-state`**（独立 IndexedDB，`state-db.ts`/`project-store.ts` 读、`project-write.ts` 写，**写只归 offscreen**）= 每脚本一条 `ScriptProject`：只存产物 `bundle` + 元数据 + enabled + `fileCount` 缓存，**不含源码**——SW 注册直读 `bundle`，注册链路对 offscreen 存活零依赖（既定不变量）。③ **脚本数据库 `duoling-usdata`**（`usdata-db.ts`，**写只归 SW**）：`DL.store` 值（gm store，复合主键 `[uuid,key]`）与 `DL.tab`（tab store，`[uuid,tabId]`）——**脚本自己写的数据**（不可信、无上限），复合主键 + 索引替代旧 chrome.storage 字符串键拼接，范围查询不再全库扫描。④ **观测数据库 `duoling-runtime`**（`runtime-db.ts`，**写只归 SW**）：错误日志（errors store，单记录环形 ≤ `ERROR_LOG_MAX`）、运行统计（stats store，每脚本一记录：总次数 / 最后运行时间 / 最近一次运行错误数）与运行日志（runlog store，全局环形 ≤ `RUN_LOG_MAX`）——统计与日志**并进同一事务写入**（`mutateStatsAndLog` 跨 store，逐条日志不额外放大写入）；读改写在事务内天然原子，chrome.storage 时代的进程内串行队列已随之删除；错误明细按 runId 与日志关联，工作台「运行日志」标签页 = 时间线（运行行 + 孤儿错误行，`listRunTimeline` 合并读）。用户脚本的存储**全部落 IndexedDB**；DL.store 写出口发变更事件（`onGmValueChange`，值未变 / 删不存在键不发）。⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，密文载荷）、key-cipher DEK、MAIN 世界桩密钥（`pageSecret`）——扩展自己的小数据；`chrome.storage.local` 已清零。⑥ **会话库 `duoling-chat`**（`conversation-store.ts` 读写，**唯一写方 = offscreen**，侧边栏只读订阅）：会话与消息 + 生成任务快照（tasks store，宿主被杀后可续）——它不在 userScripts 链路里，故与 `duoling-state` 分开。
 - **统一保存（2026-09-19 经评审确认）**：一切源码落盘（编辑器保存 / AI 收尾 / 历史恢复 / zip 导入 / 新建）收敛到 offscreen 单一入口 `project-write.saveSource`：写工作树 → git 提交 → **立刻构建** → 写状态库 → 出口广播。**保存恒成功**（提交即保存，不再以构建成功为前提）；构建失败**产物置空**（`bundle=undefined`），脚本立即停止注入（旧产物不兜底，刷新目标页失效）。编辑内容只活在页面内存（草稿机制已删），关标签前的 dirty 确认弹窗保留。**zip 导入例外（同日拍板）：导入 ≠ 构建**——导入只落源码 + 占位注册态（`lastBuildAt=0` = 「从未构建」哨兵，列表按「构建中」展示而非失败），构建走 `project-write` 的后台串行队列静默接力（导入即时返回，报告不含构建诊断）；队列被中断的脚本由 offscreen 启动对账 `rebuildPendingProjects` 重排。后台链路不经命令面，写完状态库**必须自己发** `broadcastDataChange`
 - **版本管理**：`isomorphic-git`（纯 JS），仓在 duoling-fs——每次保存/导入/回滚 = 一次提交（恢复走「产生新提交」而非 reset，历史不可变）；仓损坏只丢历史，源码在工作树里。注册/注入以状态库 `duoling-state` 的 `bundle` 为准，编辑器以 duoling-fs 工作树为基准。（这里指**用户脚本自身**的 git 历史，不是扩展版本号；扩展版本号机制见 [VERSIONING.md](VERSIONING.md)）
 - **数据变更广播（跨页面同步）**：IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 `src/lib/data-broadcast.ts` 补——写侧落盘成功后 `broadcastDataChange(域, uuid?)` 发一条**只含域+uuid、不带数据**的通知（BroadcastChannel 同源多播，不唤醒休眠 SW；无 BC 降级 `runtime.sendMessage`），读侧组件用 `useDataSync(域, reload)` 订阅后自行回拉权威存储（同 `domain+uuid` 100ms 合并防风暴）。广播埋在写出口：offscreen `handleStateCommand`（`script` 域）、`conversation-store` 写函数（`conversation`）、`userscripts/store.ts`（`error`）、`userscripts/usdata-db` 写出口经 store.ts（gm 变更事件）与 `model-store.ts` 写出口（`model`）。**新增写路径必须同步埋广播**；前端新面板按域接 `useDataSync`，不再靠手动刷新兜底。编辑器有未保存改动时不自动重载，只提示「已在别处被修改」
@@ -27,13 +27,18 @@
 
 ## 常用命令
 
+> 本表是命令清单的**唯一登记处**（README 只链接、不复述）。
+
 | 命令 | 说明 |
 | --- | --- |
 | `npm ci` | **新 worktree 先跑它**：`node_modules` 不入库、也不跨 worktree 共享，缺了时所有 `npm run *` 与 `npx` 一律报错（`command not found` / `Cannot find module`），不是代码问题（约 10s） |
+| `npm install` | 首次装 / 加依赖（非锁定场景）；按 lockfile 精确还原用上面的 `npm ci` |
 | `npm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev` |
 | `npm run build` | 构建，产出 `.output/chrome-mv3` |
 | `npm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
 | `npm run typecheck` | 类型检查（`vue-tsc --noEmit`）；当前全仓零错误 |
+| `npm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
+| `npm run test:e2e` | Playwright 端测（全程无头、跑 build 产物；**先 `npm run build`**） |
 | `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 | `npm run check:inbox` | 想法收件箱条目体检：单条 >100 字、总字数 >6000、「不办」条目缺理由、疑似重复（**整理 inbox 时跑**，提醒级不进 CI） |
 | `npm run pack:uscripts` | 生成用户脚本测试包：把仓库根 `uscript-samples/` 打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；测脚本行为别手搓，改样例目录再打） |
@@ -44,7 +49,7 @@
 
 | 文档 | 职责 | 何时读 |
 | --- | --- | --- |
-| [README.md](README.md) | 工程介绍、目录结构、命令、手测步骤、关键坑 | 上手 / 手测前 |
+| [README.md](README.md) | 工程介绍、目录结构、手测步骤、关键坑（**命令清单不在这里**，见本文件「常用命令」） | 上手 / 手测前 |
 | [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），可带一句 ≤30 字方向，**不写方案设计、也不承诺要做**。轻量想法收集 | 攒需求 / 清理待办时 |
 | [VERSIONING.md](VERSIONING.md) | 扩展**自身**版本机制：真相源 = `package.json` version、SemVer 规则、`vX.Y.Z` tag 规范、CHANGELOG 手动维护、`npm run release` 用法 | 发版 / 改版本号前 |
 | [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md) | **提交信息规范**（文档约束，无工具）：Conventional Commits 格式 / type 白名单 / scope / 合并提交标题要求 | 写提交 / 开 PR 前 |
@@ -90,7 +95,8 @@
 
 | 要记的 | 写哪 |
 | --- | --- |
-| 工程介绍 / 命令 / 手测步骤 / 关键坑 | `README.md`，就地改 |
+| 工程介绍 / 手测步骤 / 关键坑 | `README.md`，就地改 |
+| 命令清单（`npm run *`） | 本文件「常用命令」表，就地改 |
 | 协作约定 / 全局约束 / 硬性底线 | `AGENTS.md`（本文件），就地改 |
 | 扩展版本号 / 发版约定 / 版本变更记录 | `VERSIONING.md` + `CHANGELOG.md` |
 | 想法 / 待办（问题 + ≤30 字方向） | `inbox`（docs/inbox.md，**不写方案设计**） |
@@ -141,7 +147,7 @@
 
 | 领域 | 一句话底线 | 详情 |
 | --- | --- | --- |
-| manifest 权限 | `sidePanel` 是 `chrome.sidePanel` 的**必需权限**（勿剔除）；所需权限之外的不要加（上架审查）。当前已批准集：`storage` / `sidePanel` / `userScripts` / `notifications` / `offscreen` / `contextMenus` / `cookies` | [README](README.md) 坑 1 |
+| manifest 权限 | `sidePanel` 是 `chrome.sidePanel` 的**必需权限**（勿剔除）；所需权限之外的不要加（上架审查）。**已批准权限集只在 [wxt.config.ts](wxt.config.ts) 登记一处**（每项带「为什么需要」），本文件与 README 都不复述清单 | [wxt.config.ts](wxt.config.ts) |
 | cookie 能力（DL.cookie） | `cookies` 权限叠加已全域的 host（`<all_urls>`）= **SW 可读写全浏览器 cookie（含 HttpOnly）**，故必须与**域名门**绑定：url 须落在该脚本自身 `matches` 内、不命中 `excludeMatches`，且只比 **scheme + host**（cookie 是 host 级作用域，**pattern 的 path 段一律忽略**）。门只在 SW 侧（`cookie-gate.ts`，所有 cookie 命令的必经点），包装层只填 `location.href` 缺省、不做安全判断；`set` 不开放 domain / path 覆写。新增任何 cookie 命令都得先过同一道门 | [cookie-gate.ts](src/lib/userscripts/cookie-gate.ts) / [api-contract.ts](src/lib/userscripts/api-contract.ts) |
 | SW 全局 | 引入依赖 Node 全局的库时，必须补 `src/polyfills.ts` 并在 `background.ts` **最前** import | [README](README.md) 坑 2 |
 | CSP / 沙箱 | 扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**跑在 USER_SCRIPT 世界、注入第三方页面：**不受扩展 CSP 约束，但也不享有扩展 API**（只能经 `window.DL` 桥接） | [wxt.config.ts](wxt.config.ts) `content_security_policy` |
