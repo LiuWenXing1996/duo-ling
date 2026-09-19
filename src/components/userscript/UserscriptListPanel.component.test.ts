@@ -99,11 +99,13 @@ function portalButton(text: string): HTMLButtonElement | undefined {
   return portalButtons().find((b) => b.textContent?.trim() === text)
 }
 
-/** 弹窗里的路径输入框（按 placeholder 前缀定位） */
+/** 弹窗里的路径输入框。按 `aria-label` 而不是 placeholder 定位 ——
+ *  placeholder 是给用户看的示例文案，会反复改（这条通道的提示就改过三轮），
+ *  测试跟着它碎等于每次调文案都要修测试；aria-label 同时补上输入框的无障碍名。 */
 function pathInput(): HTMLInputElement {
   const root = wrapper.element as HTMLElement
   const el = [...document.querySelectorAll<HTMLInputElement>('input')].find(
-    (i) => !root.contains(i) && i.placeholder.startsWith('/Users/'),
+    (i) => !root.contains(i) && i.getAttribute('aria-label') === '导入包文件路径',
   )
   if (!el) throw new Error('没找到路径输入框（弹窗没打开？）')
   return el

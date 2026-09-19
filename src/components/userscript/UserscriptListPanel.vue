@@ -1059,7 +1059,8 @@ function lastBuildLabel(s: ScriptSummary): string {
         <div class="mt-3">
           <ui-input
             v-model="importPath"
-            placeholder="/Users/…/duoling-scripts.zip"
+            placeholder="/绝对路径/导入包.zip"
+            aria-label="导入包文件路径"
             spellcheck="false"
             autocomplete="off"
             :disabled="importing"
