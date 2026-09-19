@@ -4,9 +4,16 @@ name: release
 # 版本号由人在本地用 `npm run release` 决定，随「专门的 release PR」合入 main；
 # 本 workflow 在 release PR 合入后读取合并 commit 的 package.json version → vX.Y.Z，
 # 打 annotated tag 并推送到 refs/tags/*（幂等：已存在则跳过），
-# 同时抽取 CHANGELOG.md 对应段作为 GitHub Release notes 自动建 Release（预发布版标 --prerelease）。
+# 同时抽取 CHANGELOG.md 对应段作为 GitHub Release notes 自动建 Release（预发布版标 --prerelease），
+# 再把构建好的 chrome-mv3 产物打包成 zip 上传为该 Release 的 asset。
 # 设计前提：main 分支保护禁止对分支直接 push（含 CI token），
 # 但 refs/tags/* 不在该 ruleset 约束内，故 CI 仅推 tag、不碰分支。
+#
+# 两个 job 的分工：
+#   tag   = 发版主链路（打 tag + 建/更新 Release notes），快、无依赖，尽量少失败点。
+#   build = 产物链路（构建 + 打包 + 上传 asset），独立 job 而非并入 tag：
+#           构建环境偶发失败不会拖累「版本已发布」这件事——tag 与 Release notes 已先落定，
+#           build 失败只需修好后手动 Run workflow 补传（tag 已存在会跳过，asset 用 --clobber 覆盖）。
 
 on:
   pull_request:
@@ -29,6 +36,12 @@ jobs:
       (github.event.pull_request.merged == true &&
        github.event.pull_request.base.ref == 'main')
     runs-on: ubuntu-latest
+    # 供 build job 消费：tag 串（形如 v0.1.0-alpha.3）、是否「本次确属发版 / 手动兜底」。
+    # upload=false 的场景（普通 PR 合入、tag 早已存在）不重建产物——避免用 main 当前代码
+    # 覆盖已发布 tag 对应的那份 asset（版本号相同、内容却不同）。
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      upload: ${{ steps.release.outputs.upload }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,19 +56,25 @@ jobs:
           git config user.name "github-actions[bot]"
 
       - name: Tag and release
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
+          # 走 env 而非直接把 ${{ }} 拼进脚本：避免模板表达式内联到 shell 里。
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
           TAG="v${VERSION}"
           echo "release version: ${VERSION} -> ${TAG}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
           if ! git rev-parse "$TAG" >/dev/null 2>&1; then
             git tag -a "$TAG" -m "$TAG"
             git push origin "$TAG"
             echo "已推送 tag $TAG"
+            NEW_RELEASE=true
           else
             echo "tag $TAG 已存在，跳过打 tag（本次非发版 PR 或已发过）。"
+            NEW_RELEASE=false
           fi
 
           # Release 幂等：缺失才建，已存在则更新 notes。
@@ -70,3 +89,59 @@ jobs:
             gh release create "$TAG" --title "$TAG" --notes-file /tmp/release-notes.md $PRERELEASE_FLAG
             echo "已创建 GitHub Release $TAG${PRERELEASE_FLAG:+（预发布）}。"
           fi
+
+          # 产物上传开关：仅「本次新建 tag（真发版）」或「手动 Run workflow（兜底补传）」时为 true；
+          # 两者都允许覆盖同名 asset（--clobber），普通 PR 合入则不碰已发布产物。
+          if [[ "$NEW_RELEASE" == "true" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "upload=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "非发版 PR（tag 已存在），跳过产物构建。"
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # 产物：构建 chrome-mv3 → 打包 zip → 上传为 Release asset。
+  # 只在 tag job 判定需要时执行（needs + if），普通 PR 合入会被跳过但 workflow 仍算成功。
+  build:
+    needs: tag
+    if: needs.tag.outputs.upload == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # .wxt/tsconfig.json 由 wxt prepare 生成，构建依赖它；显式 prepare 兜底（同 ci.yml）。
+      - name: Generate WXT types (.wxt/tsconfig.json)
+        run: npx wxt prepare
+
+      - name: Build chrome-mv3
+        run: npm run build
+
+      # zip 内容直接是扩展目录本身（含 manifest.json），解压即得可「加载已解压的扩展」的目录。
+      # 文件名带 tag，避免多个版本 asset 同名冲突。
+      - name: Package zip
+        id: package
+        run: |
+          TAG="${{ needs.tag.outputs.tag }}"
+          ARTIFACT="duo-ling-${TAG}-chrome-mv3.zip"
+          cd .output/chrome-mv3
+          zip -r "../../${ARTIFACT}" .
+          cd ../..
+          echo "artifact=${ARTIFACT}" >> "$GITHUB_OUTPUT"
+          ls -lh "${ARTIFACT}"
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ needs.tag.outputs.tag }}" \
+            "${{ steps.package.outputs.artifact }}" --clobber
+          echo "已上传 ${{ steps.package.outputs.artifact }} 到 ${{ needs.tag.outputs.tag }}。"
