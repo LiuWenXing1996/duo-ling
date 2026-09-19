@@ -48,6 +48,7 @@
 | [README.md](README.md) | 工程介绍、目录结构、命令、手测步骤、关键坑 | 上手 / 手测前 |
 | [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**。轻量想法收集 | 攒需求 / 清理待办时 |
 | [VERSIONING.md](VERSIONING.md) | 扩展**自身**版本机制：真相源 = `package.json` version、SemVer 规则、`vX.Y.Z` tag 规范、CHANGELOG 手动维护、`npm run release` 用法 | 发版 / 改版本号前 |
+| [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md) | **提交信息规范**（文档约束，无工具）：Conventional Commits 格式 / type 白名单 / scope / 合并提交标题要求 | 写提交 / 开 PR 前 |
 
 
 ## 全局约束（强制）
