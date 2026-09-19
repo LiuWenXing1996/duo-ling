@@ -39,7 +39,7 @@ function fmtBuildTime(iso: string): string {
 const buildInfo = (() => {
   const info = window.__BUILD_INFO__
   if (!info) return null
-  return { branch: info.branch, time: fmtBuildTime(info.time), version: info.version }
+  return { branch: info.branch, time: fmtBuildTime(info.time) }
 })()
 
 // SW 侧构建信息：SW 不是 HTML，define 注入的 __BUILD_INFO__ 页面看不见，经 sw:buildInfo 命令取回。
@@ -117,13 +117,6 @@ onMounted(async () => {
       v-if="buildInfo || swBuildInfo || swUnreachable"
       class="ml-auto flex shrink-0 select-none items-start gap-4 px-3 text-right font-mono text-[10px] leading-tight text-muted-foreground"
     >
-      <div
-        v-if="buildInfo"
-        class="text-right"
-        title="扩展版本号（manifest version），确认装的是哪个版本"
-      >
-        <div class="font-semibold text-foreground">v{{ buildInfo.version }}</div>
-      </div>
       <div
         v-if="buildInfo"
         title="页面：分支 + 加载时刻（dev，刷新即变）或构建时刻（build），确认页面代码新旧"

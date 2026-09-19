@@ -1,9 +1,10 @@
 name: release
 
-# 合 main 后由 CI 补打 tag：
+# 合 main 后由 CI 自动发版：
 # 版本号由人在本地用 `npm run release` 决定，随「专门的 release PR」合入 main；
-# 本 workflow 在 release PR 合入后读取合并 commit 的 package.json version，
-# 若该版本 tag 不存在则打 annotated tag 并推送到 refs/tags/*。
+# 本 workflow 在 release PR 合入后读取合并 commit 的 package.json version → vX.Y.Z，
+# 打 annotated tag 并推送到 refs/tags/*（幂等：已存在则跳过），
+# 同时抽取 CHANGELOG.md 对应段作为 GitHub Release notes 自动建 Release（预发布版标 --prerelease）。
 # 设计前提：main 分支保护禁止对分支直接 push（含 CI token），
 # 但 refs/tags/* 不在该 ruleset 约束内，故 CI 仅推 tag、不碰分支。
 
@@ -41,15 +42,31 @@ jobs:
           git config user.email "actions@github.com"
           git config user.name "github-actions[bot]"
 
-      - name: Tag and push
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
           TAG="v${VERSION}"
           echo "release version: ${VERSION} -> ${TAG}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "tag $TAG 已存在（本次非发版 PR 或已发过），跳过。"
-            exit 0
+
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            git tag -a "$TAG" -m "$TAG"
+            git push origin "$TAG"
+            echo "已推送 tag $TAG"
+          else
+            echo "tag $TAG 已存在，跳过打 tag（本次非发版 PR 或已发过）。"
           fi
-          git tag -a "$TAG" -m "$TAG"
-          git push origin "$TAG"
-          echo "已推送 tag $TAG"
+
+          # Release 幂等：缺失才建，已存在则更新 notes。
+          # notes 由 scripts/extract-changelog.mjs 从 CHANGELOG.md 对应段抽取（预发布版标 --prerelease）。
+          node scripts/extract-changelog.mjs "$TAG" > /tmp/release-notes.md
+          PRERELEASE_FLAG=""
+          if [[ "$TAG" == *"-"* ]]; then PRERELEASE_FLAG="--prerelease"; fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file /tmp/release-notes.md
+            echo "已更新 Release $TAG 的 notes。"
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file /tmp/release-notes.md $PRERELEASE_FLAG
+            echo "已创建 GitHub Release $TAG${PRERELEASE_FLAG:+（预发布）}。"
+          fi
