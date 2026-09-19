@@ -8,23 +8,22 @@
 ## 基本原则
 
 - **唯一真相源 = `package.json` 的 `version`**。WXT 构建时默认把它写进 manifest 的 `version` 字段，所以扩展装进浏览器后显示的版本号就是这里的值。不要在别处另存一份版本号（避免 drift）。
-- **本项目用 vibe-coding 开发**：提交信息不强制 conventional commits 格式，因此版本号**靠人拍板**，不靠解析 commit 历史自动判定；changelog 也**手动填**，不用工具自动生成。
-- **发布是「专门的 release PR」，不是每个功能 PR 都发版**：日常功能 / 修复 / doc PR 只改代码、不动版本号；积累若干 PR 后，单独开一个 release PR 来升版本 + 写日志，合入后由 CI 自动打 tag。这样发布日志只在新版本出现一次，不会随每个 PR 膨胀。
+- **本项目用 vibe-coding 开发**：因此版本号**靠人拍板**，AI 可解析 commit 历史生成changelog初稿，最终定稿由人定。
+- **发布使用「专门的 release PR」**：日常功能 / 修复 / doc PR 只改代码、不动版本号；积累若干 PR 后，单独开一个 release PR 来升版本 + 写日志，合入后由 CI 自动打 tag。
 
 ## 语义化版本（SemVer）
 
-当前处于 `0.y.z` 阶段（MVP）。
+使用 `x.y.z` 
 
-- **patch（修订）**：向后兼容的 bug 修复。
-- **minor（次版本）**：向后兼容的新功能 / 能力。
-- **major（主版本）**：破坏性变更（不兼容旧数据 / 旧行为），或步入首个稳定公开版（如首个对外发布 / 上架 Chrome 商店）时进位 `1.0.0`。
-- **`1.0.0` 之前**：始终停在 `0.y.z`。
-
-bump 级别只有这 3 种（patch / minor / major）。另有「显式版本」（如 `0.3.5`）作为跳号 / 回退的逃生口，不算常规级别。
+- **z 代表 patch（修订）**：向后兼容的 bug 修复。
+- **y 代表 minor（次版本）**：向后兼容的新功能 / 能力。
+- **x 代表 major（主版本）**：破坏性变更（不兼容旧数据 / 旧行为）。
 
 ## 预发布（prerelease）
 
-alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < rc < 正式`。阶段语义参照业界标准：
+alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < rc < 正式`。
+
+阶段语义：
 
 - **alpha**：早期内测，功能可能不全 / 不稳。
 - **beta**：功能基本完整，广域测试。
@@ -46,7 +45,7 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 ## Git tag 规范
 
 - 格式：`vX.Y.Z`（字母 `v` + 语义化版本，含预发 `v0.2.0-alpha.1`），例如 `v0.2.0`、`v0.2.0-rc.1`。
-- 类型：**annotated tag**（`git tag -a vX.Y.Z -m "vX.Y.Z"`），不要 lightweight tag——tag message 写一句这次发了什么。
+- 类型：**annotated tag**（`git tag -a vX.Y.Z -m "vX.Y.Z"`），不要 lightweight tag——message 即版本号本身（`vX.Y.Z`）。
 - 时机：**只在 release PR 合入 main 后，由 CI 自动打并推送** `refs/tags/*`。本地不手动打远程 tag。
 - 已发布 tag 不删不改。
 
@@ -56,7 +55,7 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 - 新版本段由 `npm run release` 自动起头（带空分组占位），发布时把改动补进对应分组。预发布版（含 `-alpha.1` 等）也各起一段。
 - 历史条目不重写（已发布版本的 changelog 是给用户看的）。
 
-## 发布流程（专门的 release PR）
+## 发布流程（建立专门的 release PR）
 
 日常不动版本；要发版时走专门 release PR：
 
@@ -71,21 +70,17 @@ npm run release -- 0.3.5                  # 显式指定（跳号 / 回退）
 npm run release -- minor --dry-run
 ```
 
-2. 推分支并开 PR（分支名约定 `release/vX.Y.Z`）：
-
+1. 推分支并开 PR（分支名约定 `release/vX.Y.Z`）：
    ```bash
    git push -u origin HEAD
    gh pr create --base main --title "chore: release vX.Y.Z" --body "..."
    ```
-
    > **不要挂 `--auto`**：开完 PR 留给发版人手动 merge；merge 前看 diff 就是「人审版本号 + CHANGELOG」的关卡（见步骤 3）。若挂 `--auto`，CI 一绿自动合、跳过人工审查。
-
-3. **人审（merge 前）**：打开 PR 看 diff，确认两件事再合入——
+2. **人审（merge 前）**：打开 PR 看 diff，确认两件事再合入——
    - `package.json` 的 `version` 变更正确（base / bump / stage 都对）。
-   - `CHANGELOG.md` 的新段已填好实际变更（`npm run release` 只起空骨架，发布前需手动补 `Added / Changed / Fixed`，见下方「merge 前补 CHANGELOG」）。
-   确认无误后手动合入：`gh pr merge --squash` 或在界面点。
-
-4. 合入 main → CI（`release.yml`）读合并 commit 的 `package.json` version，打 `vX.Y.Z` annotated tag 并推 `refs/tags/*`。发布完成。
+   - `CHANGELOG.md` 的新段已填好实际变更（`npm run release` 只起空骨架，发布前需手动补 `Added / Changed / Fixed`，见下方「merge 前补 CHANGELOG」）。  
+     确认无误后手动合入：`gh pr merge --squash` 或在界面点。
+3. 合入 main → CI（`release.yml`）读合并 commit 的 `package.json` version，打 `vX.Y.Z` annotated tag 并推 `refs/tags/*`。发布完成。
 
 - **merge 前补 CHANGELOG**：第 1 步脚本只生成空分组占位段，真正的变更描述在 push 前或 PR 内补填。release PR 把版本号与发布内容集中在一处小 diff 里，正是为了让人能专注审核——这是「专门 release PR」相对「每 PR 一版本」的核心收益。
 - **不要用 `--push` 直推 `main`**：分支保护会拦截；tag 由 CI 在 release PR 合入后补推。
@@ -94,16 +89,16 @@ npm run release -- minor --dry-run
 
 ## CI 自动发版（合入 main 触发）
 
-`.github/workflows/release.yml` 监听 `pull_request: closed + merged`（及手动 `workflow_dispatch`），**不限定必须是 release PR**；逻辑极简：
+`.github/workflows/release.yml` 监听 `pull_request: closed + merged`（及手动 `workflow_dispatch`）：
 
 1. 读合并 commit 的 `package.json` version → `v<version>`。
 2. 若 `v<version>` **已存在** → 跳过（本次是普通 PR，或版本已发过）。
 3. 否则打 **annotated tag** 并推 `refs/tags/*`。
 
-- **CI 只推 tag，不 bump 版本**：bump 已在本地 `npm run release` 完成、随 release PR 合入。因 `main` 受保护禁止直推（含 CI token），但 `refs/tags/*` 不在该 ruleset 约束内，故「只推 tag」合规。
-- **不依赖提交信息 / 不解析历史**：直接读 `package.json.version`，squash 标题随便写都行。
+- **CI 只推 tag，不 bump 版本**：bump 已在本地 `npm run release` 完成、随 release PR 合入。
+- **不依赖提交信息 / 不解析历史**：版本号只从 `package.json.version` 读取，不解析 commit message，因此 squash 标题**不必**刻意编码版本号；但 squash 标题会原样成为 `main` 上的提交记录、是项目永久历史，仍须按本仓库约定写成 `chore: release vX.Y.Z`（见上方开 PR 的 `--title`），保持历史自解释。
 - **串行**：`concurrency` 串行，防止两个 release PR 同时合入抢建同一 tag。
-- **手动兜底**：若 CI 漏打 tag，可在 Actions 页面对 `release` workflow 点 `Run workflow`（或本地 `git push origin vX.Y.Z`）补推。
+- **手动兜底（罕见）**：CI 漏打 tag 时二选一补推——① Actions 页面对 `release` workflow 点 `Run workflow` 重跑（幂等：tag 已存在自动跳过；尽量在后续 PR 合入 main 前跑，避免 tag 落到错误 commit 上）；② 本地补建 annotated tag 并指向 release PR 的合并 commit 再推：`git tag -a vX.Y.Z -m "vX.Y.Z" <合并commit> && git push origin vX.Y.Z`（tag 走 `refs/tags/*`，不触发 main 分支保护）。
 
 ## 版本号在哪儿可见
 
