@@ -80,7 +80,7 @@ export const userscriptClient = {
   /** 引擎可用性状态（横幅引导用） */
   availability: (): Promise<UserScriptsAvailability> => send({ kind: 'userscript:availability' }),
 
-  /** 列出全部脚本（项目 + 已弃用旧记录，不含源码） */
+  /** 列出全部脚本（不含源码） */
   list: (): Promise<ScriptSummary[]> => send({ kind: 'userscript:list' }),
 
   /** 读完整注册态记录（元数据 + bundle；**不含源码**——源码经 fsClient.readTree 取） */
@@ -106,7 +106,7 @@ export const userscriptClient = {
   /** 删除：注销 + 删存储（新/旧形态通用） */
   remove: (uuid: string): Promise<void> => send({ kind: 'userscript:remove', uuid }),
 
-  /** 删除全部用户脚本（不含已弃用旧记录与内置件）：注销全部 + 清状态库项目与各自 git 仓。
+  /** 删除全部用户脚本（不含内置件）：注销全部 + 清状态库项目与各自 git 仓。
    *  返回删除条数；不可撤销，调用方必须先经确认弹窗 */
   removeAll: (): Promise<{ removed: number }> => send({ kind: 'userscript:removeAll' }),
 

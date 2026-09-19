@@ -1,20 +1,18 @@
-// 用户脚本的 chrome.storage 侧持久化。
+// 用户脚本的 SW 侧持久化（写出口汇聚层）。
 //
 // 项目数据（源码/配置/产物/enabled）的权威在 IndexedDB 状态库 duoling-state
 // （读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
-// 本文件剩四类：DL.store 值（us:gm:*）、错误日志（us:errors）、运行统计（us:run-stats:*）、
-// 运行日志（us:run-log）。
+// 本文件管三类：DL.store 值（duoling-usdata 库，见 usdata-db.ts）、错误日志（us:errors）、
+// 运行统计（us:run-stats:*）与运行日志（us:run-log）——后三类暂在 chrome.storage。
 //
-// 为什么这些不一起迁：写入方是**注入页面里的用户脚本**（不受我们控制、可能被高频调用、
-// 且脚本崩溃时才上报错误），且它们不参与「脚本是什么」的判定——转 offscreen 只会多一跳、
-// 在最脆弱的时刻更容易丢（见 src/lib/userscripts/state-db.ts）。
+// 为什么 DL.store 值单独先行迁库：写入方是**注入页面里的用户脚本**（不受我们控制、可能
+// 被高频调用），且脚本数据无上限——chrome.storage.local 的 10MB 配额是全扩展共享的，
+// 脚本塞满会连累模型配置等核心功能落盘。观测数据有环形上限，迁移另行进行。
 import {
-  GM_KEY_PREFIX,
   ERRORS_KEY,
   ERROR_LOG_MAX,
   RUN_LOG_KEY,
   RUN_LOG_MAX,
-  gmKey,
   runStatsKey,
   type ScriptProject,
   type ScriptSummary,
@@ -24,6 +22,7 @@ import {
   type UserScriptRunStats,
 } from './types'
 import { broadcastDataChange } from '../data-broadcast'
+import * as usdata from './usdata-db'
 
 /**
  * 列表视图：项目摘要（不含源码与构建产物），未启用在后、启用在前，组内按更新时间倒序。
@@ -47,36 +46,70 @@ export async function listSummaries(projects: ScriptProject[]): Promise<ScriptSu
   )
 }
 
-// —— DL.store 值存储（键空间 us:gm:<uuid>:<key> 沿用）——
+// —— DL.store 值存储（原 chrome.storage 键空间 us:gm:<uuid>:<key>，现落 duoling-usdata 库）——
+//
+// 写出口 = 本文件这几个函数（dl-bridge dispatch 是唯一调用方），store.watch 的变更
+// 事件也从这里发（原经 storage.onChanged 兜底，IDB 无通知，改为写出口直发）。
+// 语义保持：值未变化的 set、删除不存在的键都不发事件（与 storage.onChanged 行为一致）。
+
+export interface GmValueChange {
+  uuid: string
+  key: string
+  /** true = 键被删除（帧上 value 置 null）；false = 新值写入 */
+  deleted: boolean
+  /** 新值（deleted 时为 null）；随事件携带，订阅方免回读 */
+  value: unknown
+}
+
+type GmValueListener = (change: GmValueChange) => void
+
+const gmValueListeners = new Set<GmValueListener>()
+
+/** 订阅 DL.store 值变更（dl-port 的 store.watch 下行推送经此接线；返回退订函数） */
+export function onGmValueChange(listener: GmValueListener): () => void {
+  gmValueListeners.add(listener)
+  return () => gmValueListeners.delete(listener)
+}
+
+function emitGmChange(change: GmValueChange): void {
+  for (const cb of gmValueListeners) {
+    try {
+      cb(change)
+    } catch {
+      // 单个订阅者异常不阻断其它订阅者与写入本身
+    }
+  }
+}
 
 export async function getGMValue(uuid: string, key: string): Promise<unknown> {
-  const store = await chrome.storage.local.get(gmKey(uuid, key))
-  return store[gmKey(uuid, key)]
+  return usdata.getGmValue(uuid, key)
 }
 
 export async function setGMValue(uuid: string, key: string, value: unknown): Promise<void> {
-  await chrome.storage.local.set({ [gmKey(uuid, key)]: value })
+  const prev = await usdata.getGmValue(uuid, key)
+  await usdata.setGmValue(uuid, key, value)
+  // 值未变化不发事件（storage.onChanged 同款语义）；结构化克隆值按 Json 契约可比
+  if (JSON.stringify(prev) !== JSON.stringify(value)) {
+    emitGmChange({ uuid, key, deleted: false, value })
+  }
 }
 
 export async function deleteGMValue(uuid: string, key: string): Promise<void> {
-  await chrome.storage.local.remove(gmKey(uuid, key))
+  const prev = await usdata.getGmValue(uuid, key)
+  if (prev === undefined) return // 键本就不存在：不写不发事件（同 storage.remove）
+  await usdata.deleteGmValue(uuid, key)
+  emitGmChange({ uuid, key, deleted: true, value: null })
 }
 
 /** 列出某脚本存过的全部键 */
 export async function listGMKeys(uuid: string): Promise<string[]> {
-  const all = await chrome.storage.local.get()
-  const prefix = GM_KEY_PREFIX + uuid + ':'
-  return Object.keys(all)
-    .filter((k) => k.startsWith(prefix))
-    .map((k) => k.slice(prefix.length))
+  return usdata.listGmKeys(uuid)
 }
 
-/** 清空某脚本的全部 DL.store 值 */
+/** 清空某脚本的全部 DL.store 值；被删的键逐个发删除事件（对齐 storage.onChanged 逐键语义） */
 export async function clearGMValues(uuid: string): Promise<void> {
-  const all = await chrome.storage.local.get()
-  const prefix = GM_KEY_PREFIX + uuid + ':'
-  const keys = Object.keys(all).filter((k) => k.startsWith(prefix))
-  if (keys.length) await chrome.storage.local.remove(keys)
+  const deletedKeys = await usdata.clearGmValues(uuid)
+  for (const key of deletedKeys) emitGmChange({ uuid, key, deleted: true, value: null })
 }
 
 // —— 错误日志（错误面板）——

@@ -47,6 +47,8 @@ import {
 } from './store'
 // offscreen 容器就绪（SW 侧模块；dl-bridge 与 background 同属 SW，不触及 offscreen 专有 runtime API）
 import { ensureOffscreenReady } from '@/lib/offscreen'
+// DL.tab 标签页级存储后端（duoling-usdata 库，SW 独占写）
+import * as usdata from './usdata-db'
 // DL.fetch 特权增强：forbidden header 覆写（DNR session 规则）+ redirect:'manual'（webRequest 观测）
 import {
   splitHeaders,
@@ -353,72 +355,38 @@ function toDlCookie(c: chrome.cookies.Cookie): DlCookie {
   return out
 }
 
-/** 标签页级存储（对齐 GM_getTab 系列）：每脚本每 tab 一键，避免多 tab 并发 RMW 互相覆盖 */
-const TAB_KEY_PREFIX = 'us:tab:'
-function tabKey(uuid: string, tabId: number): string {
-  return `${TAB_KEY_PREFIX}${uuid}:${tabId}`
-}
-
-/** 从完整存储键解析出 {uuid, tabId}；非 tab 键或格式非法返回 null */
-export function parseTabKey(fullKey: string): { uuid: string; tabId: number } | null {
-  if (!fullKey.startsWith(TAB_KEY_PREFIX)) return null
-  const rest = fullKey.slice(TAB_KEY_PREFIX.length)
-  const idx = rest.lastIndexOf(':')
-  if (idx <= 0 || idx === rest.length - 1) return null
-  const uuid = rest.slice(0, idx)
-  const tabId = Number(rest.slice(idx + 1))
-  if (!Number.isInteger(tabId)) return null
-  return { uuid, tabId }
-}
+// —— 标签页级存储（对齐 GM_getTab 系列）：duoling-usdata 库的 tab store，
+// 复合主键 [uuid, tabId]（原 chrome.storage 键空间 us:tab:<uuid>:<tabId>），
+// 每脚本每 tab 一记录，避免多 tab 并发互相覆盖 ——
 
 /** 读当前标签页对象 */
 async function getTabValue(uuid: string, tabId: number): Promise<Json | undefined> {
-  const r = await chrome.storage.local.get(tabKey(uuid, tabId))
-  const v = r[tabKey(uuid, tabId)]
+  const v = await usdata.getTabValue(uuid, tabId)
   return v === undefined ? undefined : (v as Json)
 }
 
 /** 覆盖写当前标签页对象 */
 async function saveTabValue(uuid: string, tabId: number, value: Json): Promise<void> {
-  await chrome.storage.local.set({ [tabKey(uuid, tabId)]: value })
+  await usdata.putTabValue(uuid, tabId, value)
 }
 
-/** 全部标签页对象快照：键为 tabId 字符串（对齐 GM_getTabs）。仅本脚本自身前缀 */
+/** 全部标签页对象快照：键为 tabId 字符串（对齐 GM_getTabs）。仅本脚本自身 */
 async function getAllTabValues(uuid: string): Promise<Record<string, Json>> {
-  const all = await chrome.storage.local.get(null)
-  const out: Record<string, Json> = {}
-  for (const [k, v] of Object.entries(all)) {
-    const parsed = parseTabKey(k)
-    if (!parsed || parsed.uuid !== uuid) continue
-    out[String(parsed.tabId)] = v as Json
-  }
-  return out
+  const all = await usdata.listTabValues(uuid)
+  return all as Record<string, Json>
 }
 
 /** 删除某 tab 的全部 tab 存储键（tab 关闭清理） */
 async function dropTabKeys(tabId: number): Promise<void> {
-  const all = await chrome.storage.local.get(null)
-  const suffix = `:${tabId}`
-  const toRemove: string[] = []
-  for (const k of Object.keys(all)) {
-    if (k.startsWith(TAB_KEY_PREFIX) && k.endsWith(suffix)) toRemove.push(k)
-  }
-  if (toRemove.length) await chrome.storage.local.remove(toRemove)
+  await usdata.deleteTabsByTabId(tabId)
 }
 
-/** 启动时对账：清掉「键存在但 tab 已不存在」的孤儿键（兜浏览器崩溃 / SW 错过 onRemoved） */
+/** 启动时对账：清掉「记录存在但 tab 已不存在」的孤儿记录（兜浏览器崩溃 / SW 错过 onRemoved） */
 async function reconcileOrphanTabKeys(): Promise<void> {
   try {
     const tabs = await chrome.tabs.query({})
-    const alive = new Set(tabs.map((t) => t.id))
-    const all = await chrome.storage.local.get(null)
-    const toRemove: string[] = []
-    for (const k of Object.keys(all)) {
-      if (!k.startsWith(TAB_KEY_PREFIX)) continue
-      const tabId = Number(k.slice(TAB_KEY_PREFIX.length).split(':').pop())
-      if (!alive.has(tabId)) toRemove.push(k)
-    }
-    if (toRemove.length) await chrome.storage.local.remove(toRemove)
+    const alive = new Set(tabs.map((t) => t.id).filter((id): id is number => id != null))
+    await usdata.pruneTabsNotIn(alive)
   } catch {
     // 对账失败不阻断链路
   }
@@ -599,7 +567,7 @@ export function initDlBridge(): void {
   if (initialized) return
   initialized = true
 
-  // 标签页级存储清理：tab 关闭即删该 tab 的全部 us:tab:* 键；SW 冷启动再对账一遍孤儿键
+  // 标签页级存储清理：tab 关闭即删该 tab 在 duoling-usdata 的全部记录；SW 冷启动再对账一遍孤儿记录
   if (chrome.tabs?.onRemoved?.addListener) {
     chrome.tabs.onRemoved.addListener((tabId) => {
       void dropTabKeys(tabId).catch(() => {})

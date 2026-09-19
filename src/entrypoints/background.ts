@@ -10,8 +10,9 @@
 //     写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
 //   · 源码 —— 唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
 //     SW 读不到 lfs，源码读写一律走 fs:* 命令向 offscreen 取（见 offscreen-fs-commands.ts）。
-// 仍在 chrome.storage 的只有两类：DL.store 值（us:gm:*）与错误日志（us:errors）——
-// 写入方是用户脚本本身、不受控，且不参与「脚本是什么」的判定，故留在 SW 直写。
+// DL.store 值已迁 IndexedDB 库 duoling-usdata（写侧收敛在 store.ts，SW 直写不增跳数）；
+// 仍在 chrome.storage 的只剩错误日志（us:errors）与运行统计/日志——观测数据、有环形上限，
+// 迁移另行进行。
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
@@ -308,8 +309,7 @@ const handlers: {
   },
 
   // 删除全部用户脚本（「全部删除」按钮）：注销全部 → offscreen 清状态库 + 各仓 → 清各脚本
-  // 的 DL.store 值与报错记录。范围 = 新形态用户脚本；已弃用旧记录（chrome.storage）与内置件不在内，
-  // 故这里**不碰** us:script:* 旧键，也不调 clearDeprecatedScripts。
+  // 的 DL.store 值与报错记录。范围 = 新形态用户脚本；内置件随扩展包分发、不在状态库。
   // uuid 由 SW 直读状态库（不经容器，与 userscript:list 同源），用于注销与清残留。
   'userscript:removeAll': async (): Promise<{ removed: number }> => {
     const uuids = (await listProjects()).map((p) => p.uuid)

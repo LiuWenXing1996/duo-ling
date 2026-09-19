@@ -1,13 +1,7 @@
-// dl-port.ts 纯逻辑单测：Port name / 菜单 id / storage 键解析 + 注册表路由。
+// dl-port.ts 纯逻辑单测：Port name / 菜单 id 解析 + 注册表路由。
 // 不 mock chrome：DlPortRegistry 与解析函数是纯 JS，Port 用假对象（onDisconnect 无人触发）。
 import { describe, expect, it } from 'vitest'
-import {
-  DlPortRegistry,
-  parseDlPortName,
-  parseGmStorageKey,
-  parseMenuitemId,
-  pushEvent,
-} from './dl-port'
+import { DlPortRegistry, parseDlPortName, parseMenuitemId, pushEvent } from './dl-port'
 import type { ApiEvent } from './api-contract'
 
 function fakePort(name = 'duoling:dl:u1:c1'): chrome.runtime.Port {
@@ -38,18 +32,6 @@ describe('parseMenuitemId', () => {
   it('非字符串（项目自身数字 id）/ 非 us: 前缀返回 null', () => {
     expect(parseMenuitemId(42)).toBeNull()
     expect(parseMenuitemId('other:item')).toBeNull()
-  })
-})
-
-describe('parseGmStorageKey', () => {
-  it('按第一个冒号切分 uuid 与 key（key 本身可含冒号）', () => {
-    expect(parseGmStorageKey('us:gm:u1:a:b')).toEqual({ uuid: 'u1', key: 'a:b' })
-    expect(parseGmStorageKey('us:gm:u1:k')).toEqual({ uuid: 'u1', key: 'k' })
-  })
-  it('非 us:gm: 前缀 / 缺 key 段返回 null', () => {
-    expect(parseGmStorageKey('us:errors')).toBeNull()
-    expect(parseGmStorageKey('us:gm:only-uuid')).toBeNull()
-    expect(parseGmStorageKey('us:gm:u1:')).toBeNull()
   })
 })
 

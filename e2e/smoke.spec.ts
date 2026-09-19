@@ -168,7 +168,7 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     expect(created.data.registerError, '注册不应报错').toBeUndefined()
     const { uuid } = created.data
 
-    // 2. 探针脚本：验证 window.DL 定义 + DL.store 经 DL 桥（SW chrome.storage）往返
+    // 2. 探针脚本：验证 window.DL 定义 + DL.store 经 DL 桥（SW duoling-usdata 库）往返
     const probeCode = `
 ;(async () => {
   var mark = function (t) {

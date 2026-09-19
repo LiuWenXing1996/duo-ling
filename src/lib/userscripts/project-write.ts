@@ -235,8 +235,7 @@ export async function removeProjectAndRepo(uuid: string): Promise<void> {
  * 删除全部用户脚本（「全部删除」按钮的落点），返回删除条数。
  *
  * 范围（2026-09-17 老大拍板）：只有新形态用户脚本——状态库项目 + 各自 git 仓。
- * **不含**已弃用旧 GM 记录（它在 chrome.storage，另有逐行删除与
- * clearDeprecated 两条清理路径）与内置件（随扩展包分发，不在状态库）。
+ * 不含内置件（随扩展包分发，不在状态库）。
  *
  * 两步：① 记录逐条 removeProject（与单删同一删除入口）；② 仓整目录清一遍 /uscripts
  * （含无人认领的滞留仓）。不逐条 deleteRepo —— 反正随后整目录也要清，逐条只是重复劳动。

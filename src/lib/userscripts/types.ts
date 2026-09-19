@@ -125,12 +125,9 @@ export interface UserScriptErrorRecord {
 
 // —— 存储键约定 ——
 //
-// 键空间沿用（v2 决策不改名）：GM/DL 值键 us:gm:<uuid>:<key>。
+// DL.store / DL.tab 已迁 duoling-usdata 库（见 usdata-db.ts，复合主键替代字符串键拼接）。
+// 以下 chrome.storage 键为观测数据（错误日志 / 运行统计 / 运行日志），迁移另行进行。
 
-/** 脚本记录：us:script:<uuid> */
-export const SCRIPT_KEY_PREFIX = 'us:script:'
-/** DL.store 值：us:gm:<uuid>:<key>（键名沿用旧 GM 键空间，不改名） */
-export const GM_KEY_PREFIX = 'us:gm:'
 /** 设置 / 黑名单：us:settings */
 export const SETTINGS_KEY = 'us:settings'
 /** 错误日志：us:errors（环形保留最近 N 条） */
@@ -239,14 +236,6 @@ export interface ImportReport {
   results: ImportItemResult[]
   /** 未导入的文件（非脚本项 / 路径不安全被过滤），仅展示、不影响成功/失败计数 */
   ignored: ImportItemIgnored[]
-}
-
-export function scriptKey(uuid: string): string {
-  return SCRIPT_KEY_PREFIX + uuid
-}
-
-export function gmKey(uuid: string, key: string): string {
-  return `${GM_KEY_PREFIX}${uuid}:${key}`
 }
 
 /** 运行统计键：us:run-stats:<uuid> */

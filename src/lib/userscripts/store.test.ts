@@ -1,5 +1,7 @@
-// store.ts 单测：chrome.storage 侧的 DL.store 值 / 错误日志环形保留 / 运行统计。
-// chrome 由 WxtVitest 插件 stub 成 fakeBrowser；用例间 resetState 保证隔离。
+// store.ts 单测：DL.store 值（duoling-usdata 库）/ 错误日志环形保留 / 运行统计。
+// 错误日志与运行统计仍走 chrome.storage：chrome 由 WxtVitest 插件 stub 成 fakeBrowser，
+// 用例间 resetState 保证隔离；DL.store 走 fake-indexeddb，用例间 clearAllForTests 清库。
+import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import {
@@ -15,14 +17,17 @@ import {
   listRunTimeline,
   listSummaries,
   listUserScriptErrors,
+  onGmValueChange,
   recordRunStart,
   setGMValue,
   withRunStats,
 } from './store'
+import { clearAllForTests } from './usdata-db'
 import { RUN_LOG_MAX, type ScriptProject } from './types'
 
-beforeEach(() => {
+beforeEach(async () => {
   fakeBrowser.reset()
+  await clearAllForTests()
 })
 
 /** appendUserScriptError 内部的运行统计记账是 void 后台异步（独立队列），等它排干再断言 */
@@ -86,7 +91,7 @@ describe('listSummaries', () => {
   })
 })
 
-describe('DL.store 值（us:gm:*）', () => {
+describe('DL.store 值（duoling-usdata 库）', () => {
   it('set / get 往返', async () => {
     await setGMValue('u1', 'k', { a: [1, 'x'] })
     await expect(getGMValue('u1', 'k')).resolves.toEqual({ a: [1, 'x'] })
@@ -118,6 +123,41 @@ describe('DL.store 值（us:gm:*）', () => {
     await clearGMValues('u1')
     await expect(listGMKeys('u1')).resolves.toEqual([])
     await expect(getGMValue('u2', 'a')).resolves.toBe(3)
+  })
+
+  it('写出口发变更事件：set 带新值、delete 置空、clear 逐键删除', async () => {
+    const got: Array<{ uuid: string; key: string; deleted: boolean; value: unknown }> = []
+    const off = onGmValueChange((c) => got.push({ ...c }))
+    try {
+      await setGMValue('u1', 'k', { n: 1 })
+      await deleteGMValue('u1', 'k')
+      await setGMValue('u1', 'a', 1)
+      await setGMValue('u1', 'b', 2)
+      await clearGMValues('u1')
+      expect(got).toEqual([
+        { uuid: 'u1', key: 'k', deleted: false, value: { n: 1 } },
+        { uuid: 'u1', key: 'k', deleted: true, value: null },
+        { uuid: 'u1', key: 'a', deleted: false, value: 1 },
+        { uuid: 'u1', key: 'b', deleted: false, value: 2 },
+        { uuid: 'u1', key: 'a', deleted: true, value: null },
+        { uuid: 'u1', key: 'b', deleted: true, value: null },
+      ])
+    } finally {
+      off()
+    }
+  })
+
+  it('值未变化的 set、删除不存在的键都不发事件（storage.onChanged 同款语义）', async () => {
+    const got: unknown[] = []
+    const off = onGmValueChange((c) => got.push(c))
+    try {
+      await setGMValue('u1', 'k', { a: 1 })
+      await setGMValue('u1', 'k', { a: 1 }) // 值未变
+      await deleteGMValue('u1', 'nope') // 键不存在
+      expect(got).toHaveLength(1)
+    } finally {
+      off()
+    }
   })
 })
 
