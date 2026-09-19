@@ -161,6 +161,29 @@ describe('UserscriptRunLogPanel 时间线', () => {
     expect(timelineText()).not.toContain('A 的落单错误')
   })
 
+  it('列表里有但暂无日志的脚本也出现在左栏（置灰、计数 0），排在日志脚本之后', async () => {
+    runlog.mockResolvedValue([runRow({ runId: 'r1', uuid: 'u1', name: '脚本A' })])
+    list.mockResolvedValue([summary('u1', '脚本A'), summary('u2', '脚本B（未运行）')])
+    wrapper = await mountPanel()
+
+    // 顺序：全部 → 有日志的脚本A → 无日志的脚本B
+    expect(navNames()).toEqual(['全部', '脚本A', '脚本B（未运行）'])
+    const noLogBtn = navButtons().find((b) => b.find('span').text() === '脚本B（未运行）')!
+    expect(noLogBtn.classes()).toContain('opacity-50')
+    expect(noLogBtn.text()).toContain('0') // 计数徽标为 0
+  })
+
+  it('一条日志都没有时双栏仍常驻：左栏列出全部脚本，右栏给一句空提示', async () => {
+    runlog.mockResolvedValue([])
+    list.mockResolvedValue([summary('u1', '脚本A'), summary('u2', '脚本B')])
+    wrapper = await mountPanel()
+
+    // 左栏可见（脚本列表一直在），不是整页空态
+    expect(navNames()).toEqual(['全部', '脚本A', '脚本B'])
+    // 右栏给空提示而非空白
+    expect(wrapper.text()).toContain('暂无运行记录')
+  })
+
   it('清空范围跟随选中项：全部 → 该脚本 → 未归属（三态各自对应 IPC 参数）', async () => {
     runlog.mockResolvedValue([
       runRow({ runId: 'r1', uuid: 'u1', name: '脚本A' }),
@@ -191,12 +214,27 @@ describe('UserscriptRunLogPanel 时间线', () => {
     expect(wrapper.findAll('ul > li')).toHaveLength(1)
   })
 
-  it('深链目标当前没有记录 → 落「全部」并说明一句（不静默无反应）', async () => {
+  it('深链目标在列表里但暂无日志 → 落到该脚本的空视图（左栏同样可见、不静默无反应）', async () => {
     runlog.mockResolvedValue([runRow({ runId: 'r1', uuid: 'u1', name: '脚本A' })])
     list.mockResolvedValue([summary('u9', '脚本Z')])
     wrapper = await mountPanel({ focusUuid: 'u9' })
 
-    expect(wrapper.text()).toContain('脚本「脚本Z」当前没有运行记录')
+    // 不再是无记录提示，而是定位到该脚本自己的空视图
+    expect(wrapper.text()).not.toContain('当前没有运行记录，已切到全部')
+    // 左栏里有这个脚本（含尚无日志的），且右栏给一句空提示
+    expect(navNames()).toContain('脚本Z')
+    expect(wrapper.text()).toContain('脚本「脚本Z」暂未运行')
+    expect(wrapper.findAll('ul > li')).toHaveLength(0)
+  })
+
+  it('深链目标既不在日志也不在列表（已彻底删除）→ 落「全部」并说明一句', async () => {
+    runlog.mockResolvedValue([runRow({ runId: 'r1', uuid: 'u1', name: '脚本A' })])
+    list.mockResolvedValue([]) // 列表里也没有
+    wrapper = await mountPanel({ focusUuid: 'u9' })
+
+    // 列表查不到名字时回退短 uuid，但说明文案与回落全部视图都成立
+    expect(wrapper.text()).toContain('脚本「u9」当前没有运行记录')
+    expect(wrapper.text()).toContain('已切到全部')
     expect(wrapper.text()).toContain('脚本A') // 已回落全部视图
   })
 

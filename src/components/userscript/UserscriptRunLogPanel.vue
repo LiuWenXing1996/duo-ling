@@ -21,6 +21,7 @@ import { Button as UiButton } from '@/components/ui/button'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
   RUN_LOG_MAX,
+  type ScriptSummary,
   type UserScriptErrorRecord,
   type UserScriptRunLogRow
 } from '@/lib/userscripts/types'
@@ -46,44 +47,75 @@ const focusMissName = ref('')
 /** 展开错误明细的运行行（runId 集合；折叠时间线，点开才看错误明细） */
 const expandedRunIds = ref<Set<string>>(new Set())
 
-/** 左栏过滤项：首项「全部」，其后「未归属」（仅当有这类错误）+ 各脚本 */
+/** 已加载的脚本全量列表（userscriptClient.list）；与日志合并出左栏，让没日志的脚本也可见 */
+const scriptList = ref<ScriptSummary[]>([])
+
+/** 左栏过滤项：首项「全部」，其后「未归属」（仅当有这类错误）+ 各脚本（有日志的在前、无日志的置灰排末尾） */
 interface NavItem {
   key: string
   name: string
   count: number
   hint: string
+  /** 该脚本是否有日志：无日志的置灰、计数 0，提示「尚无运行记录」 */
+  hasLogs: boolean
 }
 const navItems = computed<NavItem[]>(() => {
   const runCountByUuid = new Map<string, number>()
   const errCountByUuid = new Map<string, number>()
+  const lastTimeByUuid = new Map<string, number>()
   let orphanCount = 0
   for (const row of rows.value) {
     if (row.kind === 'run') {
       runCountByUuid.set(row.uuid, (runCountByUuid.get(row.uuid) ?? 0) + 1)
+      lastTimeByUuid.set(row.uuid, Math.max(lastTimeByUuid.get(row.uuid) ?? 0, row.time))
     } else {
       const u = row.record.uuid
       if (u === null) orphanCount += 1
-      else errCountByUuid.set(u, (errCountByUuid.get(u) ?? 0) + 1)
+      else {
+        errCountByUuid.set(u, (errCountByUuid.get(u) ?? 0) + 1)
+        lastTimeByUuid.set(u, Math.max(lastTimeByUuid.get(u) ?? 0, row.record.time))
+      }
     }
   }
-  // 名称：优先运行行的落盘快照（脚本删除后仍可读），其次错误记录里的
+  // 名称：优先脚本列表（权威，含未运行脚本），日志快照兜底（已删脚本仍可读）
   const nameByUuid = new Map<string, string>()
+  for (const s of scriptList.value) nameByUuid.set(s.uuid, s.name)
   for (const row of rows.value) {
-    if (row.kind === 'run') nameByUuid.set(row.uuid, row.name || row.uuid.slice(0, 8))
-    else if (row.record.uuid) nameByUuid.set(row.record.uuid, row.record.name || row.record.uuid.slice(0, 8))
+    if (row.kind === 'run') {
+      if (!nameByUuid.has(row.uuid)) nameByUuid.set(row.uuid, row.name || row.uuid.slice(0, 8))
+    } else if (row.record.uuid) {
+      if (!nameByUuid.has(row.record.uuid)) nameByUuid.set(row.record.uuid, row.record.name || row.record.uuid.slice(0, 8))
+    }
   }
-  const scriptItems = [...runCountByUuid.keys()].map((uuid) => ({
-    key: uuid,
-    name: nameByUuid.get(uuid) ?? uuid.slice(0, 8),
-    count: (runCountByUuid.get(uuid) ?? 0) + (errCountByUuid.get(uuid) ?? 0),
-    hint: `运行 ${runCountByUuid.get(uuid) ?? 0} 次 · 无法归属的错误 ${errCountByUuid.get(uuid) ?? 0} 条`
-  }))
+  // 日志里出现过的脚本（含已删但日志未清的）
+  const logUuids = new Set<string>([...runCountByUuid.keys(), ...errCountByUuid.keys()])
+  // 有日志的脚本：按最近活动时间倒序，排在前面
+  const logItems = [...logUuids]
+    .map((uuid) => ({
+      key: uuid,
+      name: nameByUuid.get(uuid) ?? uuid.slice(0, 8),
+      count: (runCountByUuid.get(uuid) ?? 0) + (errCountByUuid.get(uuid) ?? 0),
+      hint: `运行 ${runCountByUuid.get(uuid) ?? 0} 次 · 错误 ${errCountByUuid.get(uuid) ?? 0} 条`,
+      hasLogs: true
+    }))
+    .sort((a, b) => (lastTimeByUuid.get(b.key) ?? 0) - (lastTimeByUuid.get(a.key) ?? 0))
+  // 列表里有、但还没产生任何日志的脚本：置灰、计数 0，排在末尾
+  const noLogItems = scriptList.value
+    .filter((s) => !logUuids.has(s.uuid))
+    .map<NavItem>((s) => ({
+      key: s.uuid,
+      name: s.name,
+      count: 0,
+      hint: '尚无运行记录',
+      hasLogs: false
+    }))
   const items: NavItem[] = [
     {
       key: ALL_KEY,
       name: '全部',
       count: rows.value.length,
-      hint: '全部运行与错误混排（最新在前）'
+      hint: '全部运行与错误混排（最新在前）',
+      hasLogs: true
     }
   ]
   if (orphanCount > 0) {
@@ -91,11 +123,20 @@ const navItems = computed<NavItem[]>(() => {
       key: ORPHAN_KEY,
       name: '未归属',
       count: orphanCount,
-      hint: '没有脚本上下文的错误（注册失败 / 部分桥错误），不属于任何一次运行'
+      hint: '没有脚本上下文的错误（注册失败 / 部分桥错误），不属于任何一次运行',
+      hasLogs: true
     })
   }
-  return [...items, ...scriptItems]
+  return [...items, ...logItems, ...noLogItems]
 })
+
+/** 当前选中的是某个具体脚本、且其时间线为空（只在单脚本视图下给一句空提示，全部/未归属不提示） */
+const selectedScriptEmpty = computed(
+  () =>
+    selectedKey.value !== ALL_KEY &&
+    selectedKey.value !== ORPHAN_KEY &&
+    visibleRows.value.length === 0
+)
 
 /** 过滤后的时间线 */
 const visibleRows = computed<UserScriptRunLogRow[]>(() => {
@@ -186,7 +227,12 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    rows.value = await userscriptClient.runlog()
+    const [logRows, scripts] = await Promise.all([
+      userscriptClient.runlog(),
+      userscriptClient.list()
+    ])
+    rows.value = logRows
+    scriptList.value = scripts
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -313,21 +359,8 @@ onMounted(() => {
       脚本「{{ focusMissName }}」当前没有运行记录，已切到全部。
     </p>
 
-    <!-- 空态：整页居中，不留空的双栏 -->
-    <div
-      v-if="!rows.length"
-      class="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 px-6 text-center"
-    >
-      <ui-history class="size-6 text-muted-foreground" />
-      <p class="text-xs text-muted-foreground">
-        {{ loading ? '加载中…' : '暂无运行记录。' }}
-      </p>
-      <p v-if="!loading" class="max-w-md text-xs leading-relaxed text-muted-foreground">
-        启用脚本并访问命中页面后，每次运行都会按时间记在这里；运行期报错挂在对应运行下，注册失败等无运行上下文的错误单独成行。
-      </p>
-    </div>
-
-    <div v-else class="flex min-h-0 flex-1">
+    <!-- 双栏常驻：即便一条日志都没有，左栏脚本列表也要可见（可看有哪些脚本、逐个选中看空提示） -->
+    <div class="flex min-h-0 flex-1">
       <!-- 左栏：脚本过滤（条数徽标，hover 看运行/错误拆解） -->
       <nav class="w-56 shrink-0 overflow-y-auto border-r border-border py-2" aria-label="按脚本过滤">
         <button
@@ -335,11 +368,12 @@ onMounted(() => {
           :key="item.key"
           type="button"
           class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted"
-          :class="
+          :class="[
             item.key === selectedKey
               ? 'bg-muted font-medium text-foreground'
-              : 'text-muted-foreground'
-          "
+              : 'text-muted-foreground',
+            !item.hasLogs ? 'opacity-50' : ''
+          ]"
           :title="item.hint"
           @click="selectedKey = item.key"
         >
@@ -365,7 +399,27 @@ onMounted(() => {
             </ui-button>
           </header>
 
-          <ul class="mt-2 flex flex-col gap-2">
+          <p
+            v-if="!rows.length"
+            class="mt-3 flex flex-col gap-1.5 rounded-md border bg-card px-3 py-3 text-xs text-muted-foreground"
+          >
+            <span class="flex items-center gap-1.5">
+              <ui-history class="size-3.5" />
+              {{ loading ? '加载中…' : '暂无运行记录。' }}
+            </span>
+            <span v-if="!loading">
+              启用脚本并访问命中页面后，每次运行都会按时间记在这里；运行期报错挂在对应运行下，注册失败等无运行上下文的错误单独成行。
+            </span>
+          </p>
+
+          <p
+            v-else-if="selectedScriptEmpty"
+            class="mt-3 rounded-md border bg-card px-3 py-2 text-xs text-muted-foreground"
+          >
+            脚本「{{ navItems.find((i) => i.key === selectedKey)?.name }}」暂未运行。启用并访问命中的页面后，每次运行都会记在这里。
+          </p>
+
+          <ul v-if="rows.length" class="mt-2 flex flex-col gap-2">
             <li v-for="row in visibleRows" :key="row.kind === 'run' ? row.runId : row.record.id">
               <!-- 运行行：一次页面加载一条，出错可展开明细 -->
               <div v-if="row.kind === 'run'" class="rounded-md border bg-card p-3 text-xs">
