@@ -406,6 +406,16 @@ async function openPathImport(): Promise<void> {
 }
 
 /**
+ * 从路径导入弹窗里的「查看启用引导」：**先关弹窗再切标签页**。
+ * 宿主只负责切标签页（`openGuideTab`），它不知道也不该管本弹窗还开着 ——
+ * 不自己收尾的话，用户切到引导页看到的仍是压在上面的这个弹窗（2026-09-19 手测发现）。
+ */
+function goToGuide(): void {
+  pathImportOpen.value = false
+  emit('openGuide')
+}
+
+/**
  * 从路径导入：路径文本归一成 file:// URL → fetch 读字节 → 走与文件选择器同一条动线。
  *
  * 走 fetch 而不是再弹一次文件选择器，是因为扩展页读本地文件**已有**权限：manifest 里的
@@ -1095,7 +1105,7 @@ function lastBuildLabel(s: ScriptSummary): string {
               size="xs"
               class="mt-2"
               data-testid="open-guide-file-access"
-              @click="emit('openGuide')"
+              @click="goToGuide"
             >
               查看启用引导
             </ui-button>

@@ -136,6 +136,13 @@ async function openPathDialog(): Promise<void> {
 const zipBytes = () => new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x01, 0x02])
 const notZipBytes = () => new Uint8Array([0x3c, 0x21, 0x44, 0x4f])
 
+/** 弹窗是否已关：reka-ui 关闭时先切 `data-state="closed"` 再摘节点，
+ *  而退出动画在 happy-dom 里不一定跑得完 —— 两种状态都算「关了」 */
+function dialogClosed(): boolean {
+  const dlg = document.querySelector('[role="dialog"]')
+  return !dlg || dlg.getAttribute('data-state') === 'closed'
+}
+
 const okReport = (name = '导入的脚本') => ({
   succeeded: 1,
   failed: 0,
@@ -435,12 +442,14 @@ describe('UserscriptListPanel 从路径导入', () => {
     expect(document.body.textContent).toContain('未开启「允许访问文件网址」')
     expect(importZip).not.toHaveBeenCalled()
 
-    // 引导入口：emit 给宿主切到引导标签页（完整步骤只此一份）
+    // 引导入口：emit 给宿主切到引导标签页（完整步骤只此一份），**并且自己先关弹窗** ——
+    // 宿主只切标签页，不关我们的弹窗（不关的话引导页上还压着这个弹窗，2026-09-19 手测发现）
     const guide = portalButton('查看启用引导')!
     expect(guide).toBeDefined()
     guide.click()
     await flushPromises()
     expect(wrapper.emitted('openGuide')).toBeTruthy()
+    expect(dialogClosed()).toBe(true)
   })
 
   it('开关是开的 + 读不到：归因到路径拼写 / 指向了目录，不冤枉开关', async () => {
