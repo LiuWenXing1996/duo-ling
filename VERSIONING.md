@@ -110,7 +110,10 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 - **内容**：`npm run build` 的 `.output/chrome-mv3/` 目录本身，**解压即得**含 `manifest.json` 的目录，Chrome 用「加载已解压的扩展」指向它即可。
 - **两条保护**：① `build` 是**独立 job**（`needs: tag`）——构建/打包失败不影响 tag 与 Release notes 已先落定的事实；② 只有「本次新建 tag」或「手动 Run workflow」才构建上传，普通 PR 合入直接跳过（避免用 main 新代码覆盖已发布 tag 的同名产物）。
 - **补传**：build job 失败修好后，在 Actions 页面对 `release` workflow 点 `Run workflow` 重跑即可（tag 已存在会跳过，asset 用 `--clobber` 覆盖同名文件）。
-- ⚠️ **manifest 里的 version 会被 WXT 归一化**（`0.1.0-alpha.3` → `0.1.0`，Chrome 只接受纯数字点分段）。因此同一 base 下的多个预发布版在「扩展管理」页里显示同一个版本号，`0.1.0` 并非某个版本的专属标识——辨别装的是哪次构建看安装.zip 的文件名或用设置页的「构建信息」。
+- **版本号进产物后拆成两个字段**：`package.json` 的 `0.1.0-alpha.3` → manifest 的 `version: "0.1.0"` + `version_name: "0.1.0-alpha.3"`。Chrome 的 manifest `version` 只允许 1~4 段纯数字（每段 0~65535，非零段不能以 0 开头，不能全 0），带 `-alpha.3` 的串不合规，WXT 剥掉后缀后把完整串塞进 `version_name`（Chrome 在有 `version_name` 时优先用它做显示）。所以**扩展管理页看到的是 `0.1.0-alpha.3`**，不是 `0.1.0`。
+  - **副作用**：`version` 才是 Chrome 判定「新版本」的依据。同一 base 下的多个 alpha（`0.1.0-alpha.2` / `alpha.3`）落到 `version` 上都是 `0.1.0`，若将来走自托管 CRX 自动更新渠道，这类相邻 alpha 之间不会被判定为有更新。
+  - **火狐例外**：Firefox 不支持 `version_name` 键，WXT 构建 Firefox 产物时不写它（`npm run build:firefox` 的产物里只有 `0.1.0`）。
+  - **追溯某次安装来自哪次构建**：设置页「构建信息」（编译进 bundle 的 `__BUILD_INFO__`，取的是 package.json 的完整版本串）或安装 zip 的文件名。
 
 ## GitHub Release notes（自动生成 + 例外修正）
 
