@@ -95,6 +95,7 @@ const editIncludeGlobs = ref('')
 const editExcludeGlobs = ref('')
 const editAllFrames = ref(true)
 const editRunAt = ref<'document_start' | 'document_end' | 'document_idle'>('document_end')
+const editDeps = ref('')
 // 保存备注（可选：填了记入历史，空则自动计数「保存 #n」）
 const saveNote = ref('')
 
@@ -359,6 +360,7 @@ function currentConfig(): ScriptConfig {
     excludeGlobs: optArr(editExcludeGlobs.value),
     allFrames: editAllFrames.value,
     runAt: editRunAt.value,
+    deps: optArr(editDeps.value),
   }
 }
 
@@ -376,6 +378,8 @@ function applyTree(tree: SourceTree): void {
   editExcludeGlobs.value = (tree.meta.config.excludeGlobs ?? []).join(', ')
   editAllFrames.value = tree.meta.config.allFrames
   editRunAt.value = tree.meta.config.runAt
+  editDeps.value = (tree.meta.config.deps ?? []).join('\n')
+  savedDeps.value = tree.meta.config.deps ?? []
 }
 
 /**
@@ -563,6 +567,52 @@ async function saveEdit(): Promise<void> {
   }
 }
 
+// —— 依赖缓存管理（清缓存 / 刷缓存，2026-09-19 老大拍板拆成两个动作）——
+// 都操作**已保存的工作树**：编辑器内存态不参与；编辑中有未保存改动时不重载回填（沿用「别处被修改」提示语义）
+const savedDeps = ref<string[]>([])
+const depsBusy = ref<'refresh' | 'clear' | null>(null)
+
+/** 刷缓存：全量重拉（无视缓存），全成功才替换 + 重建重注册；失败旧缓存原封不动 */
+async function refreshDeps(): Promise<void> {
+  if (depsBusy.value) return
+  depsBusy.value = 'refresh'
+  error.value = ''
+  notice.value = ''
+  try {
+    const res = await userscriptClient.refreshDeps(props.uuid)
+    if (!res.ok) {
+      notice.value = '依赖刷新失败，旧缓存未被替换：' + res.issues.join('；')
+      return
+    }
+    const notes: string[] = [`已刷新 ${res.refreshed.length} 个依赖并重新构建${res.registerError ? '，但注册失败：' + res.registerError : '，目标页面刷新后生效'}`]
+    notice.value = notes.join(' ')
+    if (!editDirty.value) await load()
+  } catch (e) {
+    error.value = '依赖刷新失败：' + (e instanceof Error ? e.message : String(e))
+  } finally {
+    depsBusy.value = null
+  }
+}
+
+/** 清缓存：只删 _deps/（不拉不建），产物保留——脚本继续跑旧产物，下次构建自然冷拉 */
+async function clearDeps(): Promise<void> {
+  if (depsBusy.value) return
+  depsBusy.value = 'clear'
+  error.value = ''
+  notice.value = ''
+  try {
+    const res = await userscriptClient.clearDeps(props.uuid)
+    notice.value = res.cleared
+      ? `已清除 ${res.cleared} 个依赖缓存文件（产物未动，脚本继续用旧产物）。下次保存/刷新时将重新拉取`
+      : '没有可清除的依赖缓存'
+    if (!editDirty.value) await load()
+  } catch (e) {
+    error.value = '清除依赖缓存失败：' + (e instanceof Error ? e.message : String(e))
+  } finally {
+    depsBusy.value = null
+  }
+}
+
 onMounted(() => {
   void load()
 })
@@ -716,6 +766,38 @@ useDataSync('script', (push) => {
             class="w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-ring"
             @input="editDirty = true"
           />
+        </label>
+        <label class="col-span-2 block">
+          <span class="mb-1 block text-xs text-muted-foreground">
+            依赖 URL deps（选填，一行一个；JS 依赖拼接进产物，其余可经 DL.resource(url) 读取）
+          </span>
+          <textarea
+            v-model="editDeps"
+            rows="2"
+            class="w-full resize-y rounded-md border border-input bg-background px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-ring"
+            placeholder="如 https://code.jquery.com/jquery-3.7.1.min.js（灰字是示例，不是已填内容）"
+            @input="editDirty = true"
+          ></textarea>
+          <!-- 依赖缓存管理（操作已保存的工作树；无已保存 deps 时不渲染）。
+               刷 = 无视缓存全量重拉，失败旧缓存原封不动；清 = 只删 _deps/，下次构建冷拉 -->
+          <div v-if="savedDeps.length" class="mt-1 flex items-center gap-2">
+            <button
+              type="button"
+              class="rounded border border-input px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+              :disabled="!!depsBusy"
+              @click="refreshDeps"
+            >
+              {{ depsBusy === 'refresh' ? '刷新中…' : '刷新依赖' }}
+            </button>
+            <button
+              type="button"
+              class="rounded border border-input px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+              :disabled="!!depsBusy"
+              @click="clearDeps"
+            >
+              {{ depsBusy === 'clear' ? '清除中…' : '清依赖缓存' }}
+            </button>
+          </div>
         </label>
         <label class="col-span-2 flex items-center gap-2 text-sm">
           <input

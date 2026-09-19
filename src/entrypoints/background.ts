@@ -356,6 +356,25 @@ const handlers: {
   'userscript:import': async (msg): Promise<ImportReport> =>
     writeViaOffscreen<ImportReport>({ kind: 'state:import', zipBase64: msg.zipBase64 }),
 
+  // 刷新依赖缓存：转发 offscreen（全量重拉，失败缓存原封不动）。成功 = 产物已更新，
+  // 照 save 语义重注册（unregister 先行 + enabled 才注册）；失败（拉取/构建）产物未动，无需注册动作。
+  'userscript:deps-refresh': async (msg): Promise<{ ok: boolean; refreshed: string[]; issues: string[]; registerError?: string }> => {
+    broadcastBuildPhase('script', msg.uuid, 'saving')
+    const outcome = await writeViaOffscreen<import('@/lib/userscripts/project-write').DepsRefreshOutcome>({
+      kind: 'state:deps-refresh',
+      uuid: msg.uuid,
+    })
+    if (!outcome.ok) return { ok: false, refreshed: [], issues: outcome.issues }
+    const next = await getProject(msg.uuid)
+    await unregisterScripts([msg.uuid]).catch(() => {})
+    const registerError = next?.enabled ? await registerOrLog(next) : undefined
+    return { ok: true, refreshed: outcome.refreshed, issues: [], registerError }
+  },
+
+  // 清依赖缓存：转发 offscreen（只删 _deps/，产物保留）——无注册动作，脚本继续跑旧产物
+  'userscript:deps-clear': async (msg): Promise<{ cleared: number }> =>
+    writeViaOffscreen<{ cleared: number }>({ kind: 'state:deps-clear', uuid: msg.uuid }),
+
   'userscript:availability': async (): Promise<UserScriptsAvailability> => getUserScriptsStatus(),
 
   // 引擎保活应答（offscreen 心跳 5s 一次）：只证明「SW 活着」并重置空闲计时，

@@ -115,6 +115,14 @@ export const userscriptClient = {
   importZip: (zipBase64: string): Promise<ImportReport> =>
     send({ kind: 'userscript:import', zipBase64 }),
 
+  /** 刷新依赖缓存：全量重拉（无视缓存），全成功才替换 + 重建；失败旧缓存原封不动 */
+  refreshDeps: (uuid: string): Promise<{ ok: boolean; refreshed: string[]; issues: string[]; registerError?: string }> =>
+    send({ kind: 'userscript:deps-refresh', uuid }),
+
+  /** 清依赖缓存：只删 _deps/，不拉不建（产物保留，下次构建自然冷拉） */
+  clearDeps: (uuid: string): Promise<{ cleared: number }> =>
+    send({ kind: 'userscript:deps-clear', uuid }),
+
   /** 启停：enabled 已落状态库后返回；注册失败不判整体失败，只带回 registerError 警告 */
   toggle: (uuid: string, enabled: boolean): Promise<{ registerError?: string }> =>
     send({ kind: 'userscript:toggle', uuid, enabled }),

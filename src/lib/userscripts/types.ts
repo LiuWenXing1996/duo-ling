@@ -16,6 +16,13 @@ export interface ScriptConfig {
   allFrames: boolean
   /** 默认 document_end（对齐主流） */
   runAt: 'document_start' | 'document_end' | 'document_idle'
+  /**
+   * 依赖 URL 列表（http/https，选填，一行一个）。
+   * 保存时经 offscreen 拉取内联进项目 files 的 `_deps/`（缓存优先，断网可重构建）：
+   * JS 文本依赖按文本拼接进 bundle 头部；其余进资源表供 DL.resource(url) 读取。
+   * config 整体随 project.json（us-git meta）与 zip 导入导出序列化，本字段自动搭车。
+   */
+  deps?: string[]
 }
 
 /**
@@ -49,7 +56,8 @@ export interface ScriptProject {
   buildOk?: boolean
   /** 最近一次构建的完成时刻（ms）；成败都记 */
   lastBuildAt?: number
-  /** 文件数缓存：列表展示用，避免 SW 为拿数量回源读 duoling-fs（SW 读不到它）。落盘时算好写入 */
+  /** 文件数缓存：列表展示用，避免 SW 为拿数量回源读 duoling-fs（SW 读不到它）。落盘时算好写入。
+   *  口径 = 项目文件树全量文件数，**含 `_deps/` 内联依赖文件**（deps 拉取后文件树真实增长，如实计数） */
   fileCount?: number
   createdAt: number
   updatedAt: number

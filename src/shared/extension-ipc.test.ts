@@ -64,6 +64,8 @@ const ALL_KINDS = [
   { kind: 'userscript:errorRead', side: 'sw' },
   { kind: 'userscript:clearErrors', side: 'sw' },
   { kind: 'userscript:import', side: 'sw' },
+  { kind: 'userscript:deps-refresh', side: 'sw' },
+  { kind: 'userscript:deps-clear', side: 'sw' },
   // —— fs:*（offscreen：源码库 duoling-fs 命令面，SW 静默让路）——
   { kind: 'fs:ping', side: 'offscreen' },
   { kind: 'fs:readTree', side: 'offscreen' },
@@ -81,6 +83,8 @@ const ALL_KINDS = [
   { kind: 'state:removeAll', side: 'offscreen' },
   { kind: 'state:toggle', side: 'offscreen' },
   { kind: 'state:import', side: 'offscreen' },
+  { kind: 'state:deps-refresh', side: 'offscreen' },
+  { kind: 'state:deps-clear', side: 'offscreen' },
   // —— offscreen:*（SW：容器管理）——
   { kind: 'offscreen:ensure', side: 'sw' },
   { kind: 'offscreen:close', side: 'sw' },

@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "name": "UMD 依赖内联（时间戳冷拉）",
+  "config": {
+    "matches": ["*://*/*"],
+    "allFrames": false,
+    "runAt": "document_end",
+    "deps": ["https://code.jquery.com/jquery-3.7.1.min.js?v=202609192140"]
+  },
+  "entry": "main.js"
+}

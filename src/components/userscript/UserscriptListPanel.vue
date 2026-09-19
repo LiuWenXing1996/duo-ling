@@ -102,8 +102,9 @@ const batchToggling = ref(false)
 
 // 脚本列表不展示错误日志：报错属于历史信息，由独立「运行日志」标签页承载（左侧导航进入）。
 // 环境级问题（如引擎不可用）由下方 availability 横幅统一兜底，不按脚本逐条复述。
+// lastBuildAt=0 = 「从未构建」（导入后台构建未跑完的占位态），不算失败
 const enabledCount = computed(() => scripts.value.filter((s) => s.enabled).length)
-const failedCount = computed(() => scripts.value.filter((s) => !s.buildOk).length)
+const failedCount = computed(() => scripts.value.filter((s) => !s.buildOk && s.lastBuildAt !== 0).length)
 
 // —— 搜索 / 筛选 / 排序（脚本多了之后的管理入口，纯前端过滤，不改后端命令面）——
 /** 搜索关键词：按名称 / 匹配规则实时过滤（大小写不敏感） */
@@ -138,7 +139,7 @@ const visibleScripts = computed(() => {
   }
   if (statusFilter.value === 'enabled') list = list.filter((s) => s.enabled)
   else if (statusFilter.value === 'disabled') list = list.filter((s) => !s.enabled)
-  else if (statusFilter.value === 'failed') list = list.filter((s) => !s.buildOk)
+  else if (statusFilter.value === 'failed') list = list.filter((s) => !s.buildOk && s.lastBuildAt !== 0)
   const sorted = [...list]
   if (sortKey.value === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'))
   else sorted.sort((a, b) => b.updatedAt - a.updatedAt)
@@ -838,6 +839,14 @@ function lastBuildLabel(s: ScriptSummary): string {
                     </ui-tooltip-trigger>
                     <ui-tooltip-content>{{ lastBuildLabel(s) }}</ui-tooltip-content>
                   </ui-tooltip>
+                  <!-- lastBuildAt=0 = 从未构建（导入后台构建还没轮到 / 被中断待对账），按构建中展示而非失败 -->
+                  <span
+                    v-else-if="s.lastBuildAt === 0"
+                    class="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  >
+                    <ui-loader-circle class="size-3 animate-spin" />
+                    构建中
+                  </span>
                   <ui-tooltip v-else>
                     <ui-tooltip-trigger as-child>
                       <span
@@ -1120,7 +1129,8 @@ function lastBuildLabel(s: ScriptSummary): string {
             :disabled="importing || !importPath.trim()"
             @click="confirmPathImport"
           >
-            导入
+            <ui-loader-circle v-if="importing" class="size-3.5 animate-spin" />
+            {{ importing ? '导入中…' : '导入' }}
           </ui-button>
         </ui-dialog-footer>
       </ui-dialog-content>

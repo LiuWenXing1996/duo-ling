@@ -260,6 +260,9 @@ function readScriptDef(dir, overrides) {
     const v = strArray(manifest.config?.[key], [])
     if (v.length) config[key] = v
   }
+  // deps（UMD / 资源依赖 URL）：与 zip-transfer.coerceConfig 同步透传，别在打包侧剥掉
+  const deps = strArray(manifest.config?.deps, [])
+  if (deps.length) config.deps = deps
 
   return { label, name, entry, config, files, skipped }
 }

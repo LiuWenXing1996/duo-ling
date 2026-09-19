@@ -12,7 +12,7 @@
 // 失败策略：git 提交失败只丢历史不丢源码？不——duoling-fs 就是源码唯一来源，提交失败时
 // 工作树仍持有本次内容，故只 warn（下次保存再提交）；写工作树失败才是真保存失败（源码没落地）。
 import { buildProject, BuildError } from './builder'
-import { broadcastBuildPhase } from '../data-broadcast'
+import { broadcastBuildPhase, broadcastDataChange } from '../data-broadcast'
 import { getProject, listProjects, nextScriptName, validateFiles } from './project-store'
 import { removeProject, writeProject } from './state-db'
 import { deleteAllRepos, deleteRepo, writeSourceTree, commitSource, readSourceTree } from './us-git'
@@ -57,10 +57,16 @@ export type BuildRun =
   | { ok: true; code: string; files: Record<string, string>; remoteFetched: string[] }
   | { ok: false; issues: string[] }
 
-/** 构建（读内存 Record）；BuildError → { ok:false, issues }，其余异常照抛（IPC/环境问题） */
-async function runBuild(files: Record<string, string>, entry: string): Promise<BuildRun> {
+/** 构建（读内存 Record）；BuildError → { ok:false, issues }，其余异常照抛（IPC/环境问题）。
+ *  deps 来自 meta.config.deps（UMD / 资源依赖 URL 列表），交给 builder 内联对齐 */
+async function runBuild(
+  files: Record<string, string>,
+  entry: string,
+  deps?: string[],
+  opts?: { refreshDeps?: boolean },
+): Promise<BuildRun> {
   try {
-    const outcome = await buildProject(files, entry)
+    const outcome = await buildProject(files, entry, deps, opts)
     return { ok: true, code: outcome.code, files: outcome.files, remoteFetched: outcome.remoteFetched }
   } catch (e) {
     if (e instanceof BuildError) return { ok: false, issues: e.issues }
@@ -79,6 +85,22 @@ export interface SaveOutcome {
   files: Record<string, string>
 }
 
+/** 源码落盘（写工作树 + 提交 git）：saveSource 与导入共用的底层步骤。提交失败只丢历史不丢源码 */
+async function persistSource(
+  uuid: string,
+  files: Record<string, string>,
+  meta: ScriptMeta,
+  note?: string,
+): Promise<void> {
+  await writeSourceTree(uuid, files, meta)
+  try {
+    await commitSource(uuid, meta, note)
+  } catch (e) {
+    // 工作树已落地，提交失败只丢历史版本（下次保存会补提交），不判保存失败
+    console.warn('[duoling:userscript] git 提交失败（不影响保存）', uuid, e)
+  }
+}
+
 /**
  * **统一保存入口**（全部源码落盘路径都走这里）：写工作树 → 提交 git 版本 → 立刻构建 →
  * 写状态库。保存不依赖构建成功；构建失败产物置空（见文件头语义说明）。
@@ -92,17 +114,11 @@ export async function saveSource(
   meta: ScriptMeta,
   opts: { enabled: boolean; createdAt: number; note?: string },
 ): Promise<SaveOutcome> {
-  await writeSourceTree(uuid, files, meta)
-  try {
-    await commitSource(uuid, meta, opts.note)
-  } catch (e) {
-    // 工作树已落地，提交失败只丢历史版本（下次保存会补提交），不判保存失败
-    console.warn('[duoling:userscript] git 提交失败（不影响保存）', uuid, e)
-  }
+  await persistSource(uuid, files, meta, opts.note)
   // 进构建前广播瞬态阶段：列表行切「构建中」转圈（写工作树 / git 提交阶段由 SW 的
   // userscript:save 转发侧广播「保存中」覆盖；offscreen 侧广播覆盖新建 / 导入这类不经转发的路径）
   broadcastBuildPhase('script', uuid, 'building')
-  const build = await runBuild(files, meta.entry)
+  const build = await runBuild(files, meta.entry, meta.config.deps)
   let finalFiles = files
   if (build.ok) {
     finalFiles = build.files
@@ -256,19 +272,23 @@ export async function setProjectEnabled(uuid: string, enabled: boolean): Promise
  * 导入侧不是「校验 + 淘汰」，而是「尽量落盘 + 报告说明」——
  *  · 解码层已放行版本 / 字段缺失 / 路径不安全（后者只过滤该文件），只剩「无 project.json」跳过；
  *  · matches 非法、文件树非法：不在这里拦（启用时 registerScript 会以中文报错，导入后可在编辑器改）；
- *  · 构建失败：**仍导入**，产物置空（统一保存语义）；报告 note 带 esbuild 诊断，
- *    用户去编辑器改到能构建。（无产物注册会被 resolveInjectCode 拦下，绝不会注入页面。）
+ *  · 构建失败：**仍导入**，产物置空（统一保存语义）；失败终态看列表失败标 / 编辑器打开时的诊断。
  * 导入默认值：uuid 重生成、enabled 恒 false（先审后启）、保留原名（名字不拦重复，uuid 才是标识）。
+ *
+ * **导入 ≠ 构建**（2026-09-19 老大拍板）：导入只落源码 + 占位注册态（lastBuildAt=0 = 从未构建），
+ * 构建由后台串行队列静默接力——导入即时返回，不因 esbuild / 依赖拉取卡弹窗。
  */
 export async function importScriptsZip(zipBase64: string): Promise<ImportReport> {
   const parsed = parseScriptsZip(base64ToBytes(zipBase64))
   const results: ImportItemResult[] = []
+  const queue: PendingBuild[] = []
   for (const script of parsed.scripts) {
-    results.push(await importOneScript(script))
+    results.push(await importOneScript(script, queue))
   }
   for (const s of parsed.skipped) {
     results.push({ status: 'failed', name: s.dirName, reason: s.reason })
   }
+  enqueueBackgroundBuilds(queue)
   return {
     succeeded: results.filter((r) => r.status === 'ok').length,
     failed: results.filter((r) => r.status === 'failed').length,
@@ -277,9 +297,9 @@ export async function importScriptsZip(zipBase64: string): Promise<ImportReport>
   }
 }
 
-/** 导入单个脚本：守卫 + 指纹去重提示 + 统一保存（源码库写失败 = 该条导入失败） */
-async function importOneScript(script: ParsedScript): Promise<ImportItemResult> {
-  // 解码期的兜底提示（字段缺失已补默认等）先收进来，再叠加构建期提示
+/** 导入单个脚本：守卫 + 指纹去重提示 + 落源码与占位注册态（构建交后台队列，源码库写失败 = 该条导入失败） */
+async function importOneScript(script: ParsedScript, queue: PendingBuild[]): Promise<ImportItemResult> {
+  // 解码期的兜底提示（字段缺失已补默认等）先收进来；构建期提示不再进报告（构建在后台，报告已返回）
   const notes = [...(script.notes ?? [])]
   try {
     // 指纹去重提示：与现有项目（含本批先导入的——逐个落盘后立即可见）比对
@@ -288,14 +308,18 @@ async function importOneScript(script: ParsedScript): Promise<ImportItemResult> 
     const ts = Date.now()
     const uuid = crypto.randomUUID()
     const meta: ScriptMeta = { name, config: script.config, entry: script.entry, createdAt: ts }
-    const outcome = await saveSource(uuid, script.files, meta, { enabled: false, createdAt: ts, note: '从 zip 导入' })
-    if (!outcome.buildOk) {
-      notes.push('构建失败（已导入，产物未生成，可在编辑器修复后保存）：' + outcome.issues.join('；'))
-    }
+    await persistSource(uuid, script.files, meta, '从 zip 导入')
+    // 占位注册态：bundle 空 / buildOk=false / **lastBuildAt=0 哨兵**（列表据此显示「构建中」而非「失败」，
+    // 启动对账也据此重排被中断的构建）。列表行立即出现，转圈由下面这条 building 瞬态驱动
+    await writeProject(
+      makeState(uuid, name, false, script.config, script.entry, undefined, false, 0, Object.keys(script.files).length, ts, ts),
+    )
+    broadcastBuildPhase('script', uuid, 'building')
+    queue.push({ uuid, meta, files: script.files })
     return {
       status: 'ok',
-      uuid: outcome.project.uuid,
-      name: outcome.project.name,
+      uuid,
+      name,
       // duplicateOf / notes 仅在命中时出现（报告形状稳定，调用方不用判 undefined key）
       ...(duplicateOf ? { duplicateOf } : {}),
       ...(notes.length ? { notes } : {}),
@@ -319,4 +343,153 @@ async function findContentDuplicate(entry: string, files: Record<string, string>
     }
   }
   return undefined
+}
+
+// —— 导入后台构建队列（2026-09-19 老大拍板：导入只落源码，构建静默后台）——
+
+/** 一条待后台构建的任务：导入时登记，构建输入在真正执行时再从工作树现读 */
+interface PendingBuild {
+  uuid: string
+  meta: ScriptMeta
+  /** 导入时的源码快照：仅作工作树读不到时的兜底 */
+  files: Record<string, string>
+}
+
+// 串行链：esbuild-wasm 同进程本就该逐个跑；链式还保证两次导入的队列不交错构建
+let pendingBuildChain: Promise<void> = Promise.resolve()
+
+/** 把一批导入任务挂到后台构建链尾（fire-and-forget：导入报告不等构建） */
+function enqueueBackgroundBuilds(items: PendingBuild[]): void {
+  for (const item of items) {
+    pendingBuildChain = pendingBuildChain.then(() => buildInBackground(item))
+  }
+}
+
+/** 构建单条导入任务：与 saveSource 的构建段同语义（失败产物置空），只是时机在后台 */
+async function buildInBackground(item: PendingBuild): Promise<void> {
+  try {
+    broadcastBuildPhase('script', item.uuid, 'building')
+    // 构建输入取**当前工作树**（导入到真正构建之间用户可能已在编辑器改过源码），读不到再用导入快照兜底
+    const tree = await readSourceTree(item.uuid).catch(() => null)
+    const files = tree?.files ?? item.files
+    const build = await runBuild(files, item.meta.entry, item.meta.config.deps)
+    let finalFiles = files
+    if (build.ok) {
+      finalFiles = build.files
+      if (build.remoteFetched.length) {
+        // 远程依赖已持久化进文件树：再写一遍 + 追加提交，保持三处（工作树/历史/构建输入）一致
+        try {
+          await writeSourceTree(item.uuid, build.files, item.meta)
+          await commitSource(item.uuid, item.meta, '拉取远程依赖').catch(() => {})
+        } catch (e) {
+          console.warn('[duoling:userscript] 远程依赖落盘失败（不影响后台构建）', item.uuid, e)
+        }
+      }
+    }
+    const builtAt = Date.now()
+    await writeProject(
+      makeState(
+        item.uuid,
+        item.meta.name,
+        false,
+        item.meta.config,
+        item.meta.entry,
+        build.ok ? { code: build.code, builtAt } : undefined, // 构建失败产物置空
+        build.ok,
+        builtAt,
+        Object.keys(finalFiles).length,
+        item.meta.createdAt,
+        builtAt,
+      ),
+    )
+    // 出口广播：这条链路不经命令面（handleStateCommand 不管后台任务），自己发数据变更让列表拉终态
+    broadcastDataChange('script', item.uuid)
+  } catch (e) {
+    // 单条失败不拦队列；状态停在「从未构建」，下次 offscreen 启动对账（rebuildPendingProjects）重排
+    console.warn('[duoling:userscript] 导入后台构建失败', item.uuid, e)
+  }
+}
+
+/**
+ * 启动对账（offscreen 启动时调）：把「从未完成过构建」的脚本重新排队——
+ * lastBuildAt=0 只会出现在导入占位态，出现即说明后台构建没跑完（offscreen 被杀 / 扩展重载）。
+ * 源码读不到的（仓损坏 / 已被清）跳过，留着不动。
+ */
+export async function rebuildPendingProjects(): Promise<number> {
+  let projects: ScriptProject[]
+  try {
+    projects = await listProjects()
+  } catch (e) {
+    // 启动对账失败不阻断（幂等，下次启动再试）
+    console.warn('[duoling:userscript] 待构建对账失败（下次启动重试）', e)
+    return 0
+  }
+  const items: PendingBuild[] = []
+  for (const p of projects) {
+    if (p.lastBuildAt !== 0) continue
+    const tree = await readSourceTree(p.uuid).catch(() => null)
+    if (!tree) continue
+    items.push({ uuid: p.uuid, meta: tree.meta, files: tree.files })
+  }
+  enqueueBackgroundBuilds(items)
+  return items.length
+}
+
+// —— 依赖缓存管理（2026-09-19 老大拍板：清缓存 / 刷缓存两个动作分开）——
+
+/** 刷新依赖缓存的返回：ok=false 时缓存原封未动，issues 带失败的 URL */
+export type DepsRefreshOutcome = { ok: true; refreshed: string[] } | { ok: false; issues: string[] }
+
+/**
+ * 刷新依赖缓存（「刷缓存」按钮）：无视缓存全量重拉，**全部成功**才落盘替换 + 重建重注册态；
+ * 任一拉取失败 → 什么都不写（旧缓存原封不动），issues 带失败 URL 让 UI 提示。
+ * 操作对象是**已保存的工作树**（不经编辑器内存态）；构建失败同样视为刷新失败（缓存未动）。
+ */
+export async function refreshDepsCache(uuid: string): Promise<DepsRefreshOutcome> {
+  const project = await getProject(uuid)
+  if (!project) throw new Error('脚本不存在')
+  const tree = await readSourceTree(uuid)
+  if (!tree) throw new Error('源码树不可读（duoling-fs 仓缺失或损坏）')
+  const build = await runBuild(tree.files, tree.meta.entry, tree.meta.config.deps, { refreshDeps: true })
+  if (!build.ok) return { ok: false, issues: build.issues }
+  // 全部拉取成功：落盘新依赖 + 提交 + 状态库重建 + 广播（写侧不经命令面的部分自己广播）
+  await writeSourceTree(uuid, build.files, tree.meta)
+  await commitSource(uuid, tree.meta, '刷新依赖缓存').catch(() => {})
+  const builtAt = Date.now()
+  await writeProject(
+    makeState(
+      uuid,
+      project.name,
+      project.enabled,
+      project.config,
+      tree.meta.entry,
+      { code: build.code, builtAt },
+      true,
+      builtAt,
+      Object.keys(build.files).length,
+      project.createdAt,
+      builtAt,
+    ),
+  )
+  broadcastDataChange('script', uuid)
+  return { ok: true, refreshed: build.remoteFetched }
+}
+
+/**
+ * 清依赖缓存（「清缓存」按钮）：只删 `_deps/`，**不拉取、不重建**——bundle 原样保留
+ * （脚本继续跑旧产物），下次任何构建（保存 / 导入 / 刷新）自然冷拉。
+ */
+export async function clearDepsCache(uuid: string): Promise<{ cleared: number }> {
+  const project = await getProject(uuid)
+  if (!project) throw new Error('脚本不存在')
+  const tree = await readSourceTree(uuid)
+  if (!tree) throw new Error('源码树不可读（duoling-fs 仓缺失或损坏）')
+  const kept = Object.fromEntries(Object.entries(tree.files).filter(([f]) => !f.startsWith('_deps/')))
+  const cleared = Object.keys(tree.files).length - Object.keys(kept).length
+  if (!cleared) return { cleared: 0 }
+  await writeSourceTree(uuid, kept, tree.meta)
+  await commitSource(uuid, tree.meta, '清依赖缓存').catch(() => {})
+  await writeProject({ ...project, fileCount: Object.keys(kept).length, updatedAt: Date.now() })
+  broadcastDataChange('script', uuid)
+  return { cleared }
 }
