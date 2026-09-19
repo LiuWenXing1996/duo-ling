@@ -81,7 +81,7 @@ function encodePath(path: string): string {
  * ZIP 的本地文件头魔数 `PK\x03\x04`（空 zip 是 `PK\x05\x06`，同样放行）。
  *
  * 只回答「是不是」：曾把实际字节的前 4 字节十六进制也拼进报错（便于判断读错了什么），
- * 2026-09-19 老大拍板改成一句人话（「未识别到正确的 zip 内容，疑似 zip 内容被损坏」），
+ * 2026-09-19 经评审确认改成一句人话（「未识别到正确的 zip 内容，疑似 zip 内容被损坏」），
  * 诊断数据不进用户文案，故不再需要导出十六进制头的工具。
  */
 export function looksLikeZip(bytes: Uint8Array): boolean {

@@ -26,7 +26,7 @@ import {
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger
 } from '@/components/ui/tooltip'
-// CodeMirror 6：顶层只装了老大批准的 codemirror + @codemirror/lang-javascript 两个包，
+// CodeMirror 6：顶层只装了经评审批准的 codemirror + @codemirror/lang-javascript 两个包，
 // 下面按需引用的都是 codemirror 的直接依赖（官方分包），不新增 package.json 条目。
 import { EditorState, type Extension } from '@codemirror/state'
 import {
@@ -384,7 +384,7 @@ function applyTree(tree: SourceTree): void {
 
 /**
  * 装载：注册态记录（状态库）管元数据兜底、存在性与 createdAt，源码读 duoling-fs 工作树
- * （每次保存后工作树与 HEAD 一致；编辑内容只活在页面内存，不落盘——2026-09-19 老大拍板）。
+ * （每次保存后工作树与 HEAD 一致；编辑内容只活在页面内存，不落盘——2026-09-19 经评审确认）。
  */
 async function load(): Promise<void> {
   loading.value = true
@@ -567,7 +567,7 @@ async function saveEdit(): Promise<void> {
   }
 }
 
-// —— 依赖缓存管理（清缓存 / 刷缓存，2026-09-19 老大拍板拆成两个动作）——
+// —— 依赖缓存管理（清缓存 / 刷缓存，2026-09-19 经评审确认拆成两个动作）——
 // 都操作**已保存的工作树**：编辑器内存态不参与；编辑中有未保存改动时不重载回填（沿用「别处被修改」提示语义）
 const savedDeps = ref<string[]>([])
 const depsBusy = ref<'refresh' | 'clear' | null>(null)

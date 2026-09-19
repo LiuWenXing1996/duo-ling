@@ -1,6 +1,6 @@
 // DL.cookie 的**域名门**（安全边界，SW 侧唯一执行点）。
 //
-// 规则（老大 2026-09-19 拍板）：
+// 规则（2026-09-19 经评审确认）：
 //   · url 必须落在**该脚本自身**的 matches 内、不命中 excludeMatches —— 不与其它脚本取并集，
 //     脚本能碰的 cookie ⊆ 它能注入的页面能碰的 cookie，能力边界与注入面严格对齐；
 //   · 匹配只比 scheme + host（忽略 pattern 的 path 段，理由见 match-pattern.ts 文件头）；

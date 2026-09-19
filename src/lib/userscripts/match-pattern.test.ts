@@ -25,7 +25,7 @@ describe('parseMatchPattern', () => {
 
 describe('matchPatternCoversUrl · scheme + host', () => {
   it('**忽略 pattern 的 path 段**：只注入 /foo/ 的脚本也能覆盖站点根', () => {
-    // 核心用例（老大 2026-09-19 拍板）：cookie 是 host 级作用域，path 不得收窄判定
+    // 核心用例（2026-09-19 经评审确认）：cookie 是 host 级作用域，path 不得收窄判定
     expect(matchPatternCoversUrl('https://example.com/foo/*', 'https://example.com/')).toBe(true)
     expect(matchPatternCoversUrl('https://example.com/foo/*', 'https://example.com/bar/baz?x=1')).toBe(true)
     expect(matchPatternCoversUrl('https://example.com/*', 'https://example.com/deep/path')).toBe(true)

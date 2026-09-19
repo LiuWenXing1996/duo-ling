@@ -223,7 +223,7 @@ const handlers: {
 
   // 保存源码（唯一保存入口）：转 offscreen 统一保存（写 fs + git 提交 + 构建 + 落库），
   // 落库后启用中则重注册。**保存恒成功**（保存不依赖构建），构建失败产物置空：
-  // unregister 先行（旧产物立即失效——2026-09-19 老大拍板），无产物时注册被 resolveInjectCode
+  // unregister 先行（旧产物立即失效——2026-09-19 经评审确认），无产物时注册被 resolveInjectCode
   // 拦下、registerError 带原因。返回 buildOk + issues 供 UI 展示诊断。
   'userscript:save': async (
     msg,
