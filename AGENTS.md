@@ -45,7 +45,7 @@
 | 文档 | 职责 | 何时读 |
 | --- | --- | --- |
 | [README.md](README.md) | 工程介绍、目录结构、命令、手测步骤、关键坑 | 上手 / 手测前 |
-| [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），**没有方案、也不承诺要做**。轻量想法收集 | 攒需求 / 清理待办时 |
+| [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），可带一句 ≤30 字方向，**不写方案设计、也不承诺要做**。轻量想法收集 | 攒需求 / 清理待办时 |
 | [VERSIONING.md](VERSIONING.md) | 扩展**自身**版本机制：真相源 = `package.json` version、SemVer 规则、`vX.Y.Z` tag 规范、CHANGELOG 手动维护、`npm run release` 用法 | 发版 / 改版本号前 |
 | [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md) | **提交信息规范**（文档约束，无工具）：Conventional Commits 格式 / type 白名单 / scope / 合并提交标题要求 | 写提交 / 开 PR 前 |
 
@@ -93,9 +93,9 @@
 | 工程介绍 / 命令 / 手测步骤 / 关键坑 | `README.md`，就地改 |
 | 协作约定 / 全局约束 / 硬性底线 | `AGENTS.md`（本文件），就地改 |
 | 扩展版本号 / 发版约定 / 版本变更记录 | `VERSIONING.md` + `CHANGELOG.md` |
-| 想法（只描述问题） | `inbox`（docs/inbox.md） |
+| 想法 / 待办（问题 + ≤30 字方向） | `inbox`（docs/inbox.md，**不写方案设计**） |
 | 踩坑记录 | `README.md`「关键坑与规避」 |
-| 待办（问题） | `inbox`（只描述问题，不写方案） |
+| 待办（问题） | `inbox`（只描述问题 + 一句 ≤30 字方向，不展开方案） |
 | 仍生效约定 / 为什么这么定 | `AGENTS.md` 对应小节 |
 | 本机环境、会话过程、临时状态 | `.workbuddy/memory/`（不入库）——**不承载项目知识**，结论成形后按上表归位 |
 
