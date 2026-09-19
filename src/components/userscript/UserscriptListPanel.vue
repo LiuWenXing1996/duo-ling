@@ -1057,10 +1057,12 @@ function lastBuildLabel(s: ScriptSummary): string {
           填本地 zip 导入包的绝对路径（以 / 开头）。
         </ui-dialog-description>
         <div class="mt-3">
-          <!-- 不设 placeholder：一个「看起来已经填好」的示例路径会让人直接去点「导入」，
-               而按钮此时是灰的（空输入禁用），错觉比没提示更坑。该填什么由上句说明交代 -->
+          <!-- placeholder 只作**动作型**轻提示，不给示例路径：示例（如 /Users/…/x.zip）
+               长得像一个已填好的值，会让人直接去点「导入」，而按钮此刻正是灰的。
+               要填什么由上方说明句交代，这里只提示「怎么填」 -->
           <ui-input
             v-model="importPath"
+            placeholder="粘贴或输入绝对路径"
             aria-label="导入包文件路径"
             spellcheck="false"
             autocomplete="off"
