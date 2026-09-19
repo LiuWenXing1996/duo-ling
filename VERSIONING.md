@@ -96,6 +96,7 @@ label 规范（每个 PR 至多一个 release 类 label；不带则只合代码�
 | `release:minor` | 任意 | 稳定版 minor 进位 |
 | `release:major` | 任意 | 稳定版 major 进位 |
 | `release:<bump>:pre:<stage>` | 任意 | 升 base + 进预发（如 `release:minor:pre:alpha` → 0.2.0-alpha.1） |
+| `release:<base>:pre:<stage>` | 任意 | 锁 base 不进位（base 为 `x.y.z`），如 `release:0.1.0:pre:alpha` → 0.1.0-alpha.1（首个正式版定为某号、不想进位时用） |
 | `pre:<stage>` | 当前须为预发 | 同 base 迭代（如 `pre:alpha` → -alpha.2；`pre:beta` → -beta.1） |
 | （无上述 label） | — | 只合代码，不发版 |
 
