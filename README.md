@@ -22,7 +22,7 @@
 | 对话链路 | 侧边栏只做指令入口与观察；整条链路（`streamText` + tools）跑在 offscreen document，侧边栏经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权 |
 | 脚本运行时 | background **service worker**（`chrome.userScripts` 注册 + 状态库写命令的转发方） |
 | 会话存储 | **IndexedDB `duoling-chat`**（唯一写方 = offscreen，侧边栏只读订阅）；生成任务快照另存 `duoling-chat-tasks`（宿主被杀后可续） |
-| 脚本存储 | 源码唯一来源在 **`duoling-fs`**（lightning-fs，只有 offscreen 能碰）：每脚本一仓 `/uscripts/<uuid>/`，工作树 `files/` 即当前源码（未提交改动 = 草稿）；SW/扩展页读不到 lfs，源码读写一律走 `fs:*` 命令向 offscreen 取。注册态在**独立 IndexedDB 库 `duoling-state`**（产物 `bundle` + 元数据 + enabled，**不含源码**；**写只归 offscreen**，读由 SW / 扩展页直连，注册链路不依赖 offscreen 存活）；`chrome.storage.local` 只剩 `DL.store` 值（`us:gm:*`）与错误日志（`us:errors`） |
+| 脚本存储 | 源码唯一来源在 **`duoling-fs`**（lightning-fs，只有 offscreen 能碰）：每脚本一仓 `/uscripts/<uuid>/`，工作树 `files/` 即当前源码（未提交改动 = 草稿）；SW/扩展页读不到 lfs，源码读写一律走 `fs:*` 命令向 offscreen 取。注册态在**独立 IndexedDB 库 `duoling-state`**（产物 `bundle` + 元数据 + enabled，**不含源码**；**写只归 offscreen**，读由 SW / 扩展页直连，注册链路不依赖 offscreen 存活）。`DL.store` / `DL.tab` 值在 **`duoling-usdata`**（写只归 SW），错误日志 / 运行统计 / 运行日志在 **`duoling-runtime`**（写只归 SW）——用户脚本存储全部落 IndexedDB |
 | 版本管理 | `isomorphic-git`（纯 JS），仓在 duoling-fs：每次保存 = 一次提交（「保存 #n」/ 备注回滚记录），恢复走「产生新提交」而非 reset，历史不可变；仓损坏只丢历史，源码就在工作树里 |
 | 模型配置 | `chrome.storage.local`（API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`；密钥同存本机，属防扫描级而非保密级） |
 | 页面上下文 | 点选元素：`chrome.userScripts.execute()` 按需注入内置拾取器，产物暂存后随下一条消息发出；页面快照：AI 侧 `page_snapshot` 工具经 SW 采集 |

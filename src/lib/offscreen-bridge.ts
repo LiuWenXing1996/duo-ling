@@ -85,7 +85,7 @@ export const offscreenBridge = {
   capturePageSnapshot: (): Promise<PageSnapshotContext> => send({ kind: 'page:snapshot' }),
 
   /**
-   * 按错误 ID 查一条错误记录：us:errors 在 chrome.storage，
+   * 按错误 ID 查一条错误记录：错误日志在 duoling-runtime 库（SW 侧 IDB），
    * offscreen 拿不到，SW 代查。id = 完整记录 id 或唯一 8 位前缀（多命中返回 ambiguous）。
    */
   readError: (id: string): Promise<UserScriptErrorLookup> =>

@@ -6,11 +6,11 @@
 // 数据流（三个信号源，全部已在 dl-bridge / background 里存在，这里只是多接一根线）：
 //   · runstart 广播（DL 包装注入即发）→ noteRunStart：登记 + 推给所有打开的侧边栏
 //   · 运行错误落盘（__dlEvent 上报）→ notePageError：推给侧边栏（错误本体随推送走，
-//     面板不回查 us:errors——落盘记录无 tabId，按 tab 归属只能靠这条实时通道）
+//     面板不回查错误日志——落盘记录无 tabId，按 tab 归属只能靠这条实时通道）
 //   · 新文档导航（tabs.onUpdated status=loading）→ resetPageRuns：旧文档销毁，运行集清零
 //
 // 快照：面板切 tab / 刚打开时上行 page:snapshot，SW 按登记表回当前运行集；
-// 错误历史按 runId 从 us:errors 环形日志反查（runtime 错误都带 runId）。
+// 错误历史按 runId 从错误日志（runtime 库 errors store）反查（runtime 错误都带 runId）。
 //
 // 已知边界（刻意接受）：SW 被杀重启后登记表清空，且历史 runstart 不会重放
 // （广播是即发即弃的）——面板在「SW 重启后、页面未重新导航」的窗口里会显示为空。
@@ -100,7 +100,7 @@ export function pickErrorsForRuns(
     }))
 }
 
-/** 组一份快照应答：运行集来自登记表，错误按 runId 从 us:errors 反查 */
+/** 组一份快照应答：运行集来自登记表，错误按 runId 从错误日志（runtime 库）反查 */
 export async function snapshotFor(tabId: number): Promise<{
   runs: PageRunItem[]
   errors: PageErrorItem[]

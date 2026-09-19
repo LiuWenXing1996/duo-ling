@@ -10,9 +10,8 @@
 //     写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
 //   · 源码 —— 唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
 //     SW 读不到 lfs，源码读写一律走 fs:* 命令向 offscreen 取（见 offscreen-fs-commands.ts）。
-// DL.store 值已迁 IndexedDB 库 duoling-usdata（写侧收敛在 store.ts，SW 直写不增跳数）；
-// 仍在 chrome.storage 的只剩错误日志（us:errors）与运行统计/日志——观测数据、有环形上限，
-// 迁移另行进行。
+// DL.store / DL.tab 值已迁 IndexedDB 库 duoling-usdata；错误日志 / 运行统计 / 运行日志
+// （观测数据）已迁 IndexedDB 库 duoling-runtime——两者都 SW 直写、写侧收敛在 store.ts。
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
@@ -215,7 +214,7 @@ const handlers: {
   },
 
   // —— 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）——
-  // 列表视图：项目读自状态库（直连 IDB）；运行统计（us:run-stats:*）在 chrome.storage，这里挂上
+  // 列表视图：项目读自状态库（直连 IDB）；运行统计（runtime 库 stats store）同样 SW 直读，这里挂上
   'userscript:list': async (): Promise<ScriptSummary[]> =>
     withRunStats(await listSummaries(await listProjects())),
 
@@ -389,8 +388,8 @@ const handlers: {
   'userscript:errorRead': async (msg): Promise<ReturnType<typeof findUserScriptError>> =>
     findUserScriptError(msg.id),
 
-  // 清错误日志（us:errors；「全部/该脚本」范围连带清运行日志 us:run-log 的对应条目——
-  // 时间线上「清空」应一条语义清两个键，否则运行行清不掉）。三态必须靠「字段在不在」区分
+  // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清运行日志 runlog store 的对应条目——
+  // 时间线上「清空」应一条语义清两个存储，否则运行行清不掉）。三态必须靠「字段在不在」区分
   // （`!msg.uuid` 会把「未归属」误判成「全部」）：
   //   字段缺失 = 清全部；string = 只清该脚本；null = 只清「未归属」错误记录（run-log 无此形态，不动）
   'userscript:clearErrors': async (msg): Promise<void> => {

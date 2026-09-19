@@ -5,7 +5,7 @@
 //
 // 消息分流（契约定义）：
 //   { __dl: true, uuid, req: ApiRequest }        —— 请求-响应，按 req.c 强类型分发（穷尽性检查）
-//   { __dlEvent: true, uuid, name, event: DlEvent } —— 单向错误上报，收进 us:errors
+//   { __dlEvent: true, uuid, name, event: DlEvent } —— 单向错误上报，收进错误日志（runtime 库）
 //   { __dlRunStart: true, uuid, name, runId }    —— 运行标识广播：交侧边栏监控按 tab 登记
 //
 // 安全性：消息来源天然是「不可信用户脚本」，故校验 sender.userScript.scriptId 与消息里的 uuid 一致，
@@ -596,7 +596,7 @@ export function initDlBridge(): void {
         // 侧边栏监控（跨文档观察者）：SW 侧按 tab 登记运行集，面板切 tab 时靠它出快照
         noteRunStart(tabId, run.uuid, run.runId)
       }
-      // 运行统计 + 运行日志（us:run-stats:* / us:run-log，按脚本聚合落盘）：与 tab 无关，
+      // 运行统计 + 运行日志（runtime 库 stats/runlog store，按脚本聚合落盘）：与 tab 无关，
       // 有无 tabId 都记；同一 runId 的 load 补播在写侧按 lastRunId 去重。失败不影响监控登记。
       if (run.uuid && run.runId) {
         void recordRunStart(run.uuid, run.runId, run.name).catch(() => {})

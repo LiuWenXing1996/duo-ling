@@ -189,10 +189,10 @@ export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
 /**
  * 脚本世界 → 后台 的单向事件（不等待响应，区别于 ApiRequest 的请求-响应）。两种信封：
  *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报：DL 包装的
- *     window.onerror / unhandledrejection 收进 us:errors；
+ *     window.onerror / unhandledrejection 收进错误日志（runtime 库 errors store）；
  *   · `{ __dlRunStart: true, uuid, name, runId }` —— 运行标识广播：包装注入即 mint 一次
  *     「一次页面加载 = 一次运行」的 runId。SW 交侧边栏页面监控按 tab 登记、并落盘运行统计
- *     （us:run-stats:*）与运行日志（us:run-log，name 快照），补播按 runId 去重——没有对应的类型别名。
+ *     （runtime 库 stats store）与运行日志（runlog store，name 快照），补播按 runId 去重——没有对应的类型别名。
  */
 export type DlEvent = {
   t: 'error'
