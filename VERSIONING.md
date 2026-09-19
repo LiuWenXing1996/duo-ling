@@ -78,8 +78,16 @@ npm run release -- minor --dry-run
    gh pr create --base main --title "chore: release vX.Y.Z" --body "..."
    ```
 
-3. 合入 main → CI（`release.yml`）读合并 commit 的 `package.json` version，打 `vX.Y.Z` annotated tag 并推 `refs/tags/*`。发布完成。
+   > **不要挂 `--auto`**：开完 PR 留给发版人手动 merge；merge 前看 diff 就是「人审版本号 + CHANGELOG」的关卡（见步骤 3）。若挂 `--auto`，CI 一绿自动合、跳过人工审查。
 
+3. **人审（merge 前）**：打开 PR 看 diff，确认两件事再合入——
+   - `package.json` 的 `version` 变更正确（base / bump / stage 都对）。
+   - `CHANGELOG.md` 的新段已填好实际变更（`npm run release` 只起空骨架，发布前需手动补 `Added / Changed / Fixed`，见下方「merge 前补 CHANGELOG」）。
+   确认无误后手动合入：`gh pr merge --squash` 或在界面点。
+
+4. 合入 main → CI（`release.yml`）读合并 commit 的 `package.json` version，打 `vX.Y.Z` annotated tag 并推 `refs/tags/*`。发布完成。
+
+- **merge 前补 CHANGELOG**：第 1 步脚本只生成空分组占位段，真正的变更描述在 push 前或 PR 内补填。release PR 把版本号与发布内容集中在一处小 diff 里，正是为了让人能专注审核——这是「专门 release PR」相对「每 PR 一版本」的核心收益。
 - **不要用 `--push` 直推 `main`**：分支保护会拦截；tag 由 CI 在 release PR 合入后补推。
 - 演练用 `--dry-run`：只打印将要做的事，不改动文件 / 不提交 / 不打 tag。走 npm 时务必写成 `npm run release -- <args> --dry-run`（`--` 之后的参数才真正传给脚本；直接写 `npm run release minor --dry-run` 会被 npm 吞掉 `--dry-run`，脚本误以真发版模式运行）。
 - 发布前建议自己跑一次 `npm run build` 确认产物可加载；`release` 脚本只卡 `typecheck`，不卡 build（避免构建环境偶发问题误伤发版）。
