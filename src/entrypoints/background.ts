@@ -515,10 +515,12 @@ export default defineBackground(() => {
   // 启动自证：console 第一条就是构建信息，「SW 是不是新包」不用再靠猜
   console.log(`[duoling:sw] SW 启动 · 构建 ${__BUILD_INFO__.time} · 分支 ${__BUILD_INFO__.branch}`)
 
-  // 点击工具栏图标即打开 side panel。
-  // 需 manifest 同时声明 sidePanel 权限 + action 键，否则 chrome.sidePanel 不存在、此调用静默失败。
+  // 点击工具栏图标即打开 popup（action.default_popup 由 popup.html 入口自动写入 manifest）。
+  // 故关闭「点图标开侧边栏」的自动行为 —— 一个 action 无法同时默认开 popup 与 side panel；
+  // 对话改由 popup 内「打开对话」按钮经 chrome.sidePanel.open 唤起。
+  // 仍需 manifest 声明 sidePanel 权限 + action 键，否则 chrome.sidePanel 不存在、此调用静默失败。
   chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
+    .setPanelBehavior({ openPanelOnActionClick: false })
     .catch((e) => console.error('[duoling] setPanelBehavior failed', e))
 
   // 用户脚本管理器：启动配置世界并恢复已启用脚本
