@@ -83,6 +83,28 @@ function toggleAllRaw(): void {
   expanded.value = expanded.value.size ? new Set() : new Set(messages.value.map((m) => m.id))
 }
 
+// —— 导出：把选中会话的落盘原始记录下载为 .json（与面板「原始 JSON」逐字一致） ——
+/** 文件名安全化：去掉文件系统非法字符、去首尾空白、截断到 60，避免标题带 / 或超长导致下载失败 */
+function safeFileName(title: string): string {
+  return title.replace(/[\\/:*?"<>|]/g, '_').trim().slice(0, 60) || 'session'
+}
+
+/** 导出选中会话的落盘原始 JSON（会话元数据 + 全部消息），经 blob + a[download] 在本页触发下载，无需新增 manifest 权限 */
+function exportSelectedConversation(): void {
+  if (!selectedId.value) return
+  const conv = conversations.value.find((c) => c.id === selectedId.value) ?? null
+  const payload = { conversation: conv, messages: messages.value }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `duoling-session-${safeFileName(conv?.title ?? 'session')}.json`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 // —— 展示辅助 ——
 
 function formatTime(iso: string): string {
@@ -167,19 +189,30 @@ function pageContextLabel(m: Message): string {
 
     <!-- 右栏：选中会话的全部落盘消息 -->
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header class="flex items-center justify-between border-b border-border px-3 py-2 text-sm">
+      <header class="flex items-center justify-between gap-2 border-b border-border px-3 py-2 text-sm">
         <span class="truncate text-muted-foreground">
           {{ selectedId ? `共 ${messages.length} 条消息` : '左侧选择一个会话' }}
         </span>
-        <button
-          v-if="selectedId && messages.length"
-          type="button"
-          class="shrink-0 rounded-md px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          data-testid="chat-data-toggle-all"
-          @click="toggleAllRaw()"
-        >
-          {{ expanded.size ? '全部收起 JSON' : '展开全部 JSON' }}
-        </button>
+        <div class="flex shrink-0 items-center gap-2">
+          <button
+            v-if="selectedId && messages.length"
+            type="button"
+            class="shrink-0 rounded-md px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            data-testid="chat-data-export"
+            @click="exportSelectedConversation()"
+          >
+            导出 JSON
+          </button>
+          <button
+            v-if="selectedId && messages.length"
+            type="button"
+            class="shrink-0 rounded-md px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            data-testid="chat-data-toggle-all"
+            @click="toggleAllRaw()"
+          >
+            {{ expanded.size ? '全部收起 JSON' : '展开全部 JSON' }}
+          </button>
+        </div>
       </header>
       <div class="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         <p v-if="messagesLoading" class="text-xs text-muted-foreground">读取中…</p>
