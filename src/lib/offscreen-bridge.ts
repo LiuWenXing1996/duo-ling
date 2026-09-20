@@ -90,4 +90,22 @@ export const offscreenBridge = {
    */
   readError: (id: string): Promise<UserScriptErrorLookup> =>
     send({ kind: 'userscript:errorRead', id }),
+
+  /**
+   * 网络录制 · 读回某站点已录的接口语料（net_capture_read 工具 + 常驻 prompt 摘要档）。
+   * 门禁（duoling-app）与记录（duoling-netlog）都归 SW，offscreen 不直连。
+   * mode：digest = 接口清单（常驻用）；full = 逐条采样（工具读回用）。
+   */
+  readNetCapture: (
+    host: string,
+    mode: 'digest' | 'full',
+  ): Promise<{ enabled: boolean; host: string; count: number; text: string }> =>
+    send({ kind: 'userscript:netCaptureRead', host, mode }),
+
+  /**
+   * 网络录制 · 已同意录制的 host 集合。
+   * net_capture_enable 工具据此判「已开则不必再出卡」——出卡是请用户确认，
+   * 已开还出卡会让用户以为要重复点一次。
+   */
+  netCaptureHosts: (): Promise<{ hosts: string[] }> => send({ kind: 'userscript:netCaptureState' }),
 }

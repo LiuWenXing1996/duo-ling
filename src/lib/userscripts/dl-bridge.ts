@@ -34,6 +34,9 @@ import {
 } from './dl-port'
 // DL.cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
+// 网络录制：转发件送来的采集载荷在 SW 侧白名单化后落 duoling-netlog
+import { normalizeCapture } from './net-record-protocol'
+import * as netlog from './netlog-db'
 // 侧边栏页面脚本监控（运行时口径）：runstart 登记 + 错误实时推送（跨文档观察者，SW 按 tab 登记）
 import { notePageError, noteRunStart } from './page-monitor'
 import {
@@ -585,6 +588,16 @@ export function initDlBridge(): void {
   // 响应机制：onUserScriptMessage 不支持「返回 Promise 作为响应」，必须调 sendResponse
   // 并返回 true 保持通道打开（沿用旧 GM 桥已验证的写法）。
   chrome.runtime.onUserScriptMessage.addListener((raw, sender, sendResponse) => {
+    // 网络录制入站：USER_SCRIPT 转发件（us-dl-net）把 MAIN 捕获件的采集送来落库。
+    // 载荷形状不可信（经页面可伪造的 postMessage + 两次结构化克隆），故先过 normalizeCapture
+    // 白名单化；无响应，仅落库，失败静默（录制不该影响页面网络层）。
+    const net = raw as { __dlNetCapture?: true; host?: string; capture?: unknown }
+    if (net && net.__dlNetCapture === true) {
+      const record = normalizeCapture(net.host, net.capture)
+      if (record) void netlog.appendCapture(record).catch(() => {})
+      return undefined
+    }
+
     // 运行标识广播（DL 包装注入即发）：交侧边栏监控按 tab 登记。
     const run = raw as { __dlRunStart?: true; uuid?: string; name?: string; runId?: string }
     if (run && run.__dlRunStart === true) {

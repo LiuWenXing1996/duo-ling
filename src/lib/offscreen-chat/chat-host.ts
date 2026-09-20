@@ -44,9 +44,11 @@ import {
   mergePageContext,
   mostRecentGeneratedScript,
   mostRecentPageContext,
+  type NetCaptureContext,
 } from './system-prompt'
 import { buildScriptTools, type TaskWorkspace } from './script-tools'
 import { getTask, listRunningTasks, putTask, removeTask, type ChatTaskRecord } from './task-store'
+import { hostFromUrl } from '@/lib/userscripts/net-record-protocol'
 
 /** maxSteps 上限：沿用桌面版 agent-orchestrator 的 8。
  *  阈值取自 agent-tools-catalog（工作台「AI 工具」面板展示同一份，不再各写一份）。 */
@@ -107,6 +109,31 @@ function scanCapabilities(code: string): string[] {
     hits.add(m[1])
   }
   return [...hits]
+}
+
+/**
+ * 取某站点的接口录制状态 + 摘要档（喂 system prompt 与 net_capture_* 工具）。
+ * 失败静默降级为 undefined：录制是加分项，不该因为一次存储查询把整轮对话拦下来。
+ */
+async function readNetCaptureContext(host: string): Promise<NetCaptureContext | undefined> {
+  try {
+    const r = await offscreenBridge.readNetCapture(host, 'digest')
+    return { host: r.host, enabled: r.enabled, count: r.count, text: r.text }
+  } catch {
+    return undefined
+  }
+}
+
+/** 按 id 去重（保留最后一个）：同 id 的 data part 重复推只该落一份 */
+function dedupeById(chunks: UIMessageChunk[]): UIMessageChunk[] {
+  const out: UIMessageChunk[] = []
+  for (const c of chunks) {
+    const id = (c as { id?: string }).id
+    const dup = id ? out.findIndex((x) => (x as { id?: string }).id === id) : -1
+    if (dup >= 0) out.splice(dup, 1)
+    out.push(c)
+  }
+  return out
 }
 
 /** 新建工作区 */
@@ -274,6 +301,16 @@ async function runLoop(opts: {
     // 本会话最近落盘的脚本身份（来自历史生成卡片）：给模型指路「改既有脚本」用
     const prevScript = mostRecentGeneratedScript(uiMessages)
 
+    // 该站点的接口录制状态（站点级，取一次）：喂 system prompt 的摘要档 + net_capture_* 工具。
+    // 查询失败静默降级——录制只是加分项，不该因为一次存储查询把整轮对话拦下来。
+    const captureHost = hostFromUrl(promptContext?.url)
+    const netCapture = captureHost ? await readNetCaptureContext(captureHost) : undefined
+
+    // 本轮任务里**工具中途推的 data part**（同意卡）：收尾时插进落盘序列。
+    // 不收集就只在流里闪一下——重开面板时卡片消失，而卡片恰是用户唯一的操作入口
+    // （刷新页面后浮窗会关，用户回来就靠历史里这张卡开关录制）。
+    const midStreamParts: UIMessageChunk[] = []
+
     const baseURL = profile.useFullUrl
       ? profile.baseUrl.replace(/\/chat\/completions\/?$/i, '')
       : profile.baseUrl
@@ -290,6 +327,20 @@ async function runLoop(opts: {
       promptContext?.element,
       () => offscreenBridge.capturePageSnapshot(),
       (id) => offscreenBridge.readError(id),
+      {
+        hosts: async () => (await offscreenBridge.netCaptureHosts()).hosts,
+        read: (host, mode) => offscreenBridge.readNetCapture(host, mode),
+        requestConsent: async (host) => {
+          // 卡片 id 按 host 派生：同一站点重复请求同意只留一张（UI 也按 host 去重）
+          const chunk = {
+            type: 'data-net-capture',
+            id: `net-${host}`,
+            data: { host },
+          } as UIMessageChunk
+          midStreamParts.push(chunk)
+          pushChunk(conversationId, chunk)
+        },
+      },
     )
 
     const result = streamText({
@@ -298,7 +349,7 @@ async function runLoop(opts: {
       messages: await convertToModelMessages(stripDataParts(uiMessages)),
       tools,
       stopWhen: stepCountIs(MAX_STEPS),
-      system: buildSystemPrompt(prompt, promptContext, continuing, prevScript),
+      system: buildSystemPrompt(prompt, promptContext, continuing, prevScript, netCapture),
       abortSignal: abort.signal,
       ...(profile.temperature != null ? { temperature: profile.temperature } : {}),
       ...(profile.topP != null ? { topP: profile.topP } : {}),
@@ -426,6 +477,7 @@ async function runLoop(opts: {
       ...allChunks.filter((c) => c.type !== 'finish'),
       ...(cardChunk ? [cardChunk] : []),
       ...(usageChunk ? [usageChunk] : []),
+      ...dedupeById(midStreamParts),
       ...(finishChunk ? [finishChunk] : []),
     ]
     const { message: persisted, errors: restoreErrors } =

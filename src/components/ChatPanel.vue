@@ -23,6 +23,7 @@ import {
   Play as UiPlay,
   Plus as UiPlus,
   Sparkle as UiSparkle,
+  Square as UiSquare,
   Trash2 as UiTrash2,
   X as UiX
 } from '@lucide/vue'
@@ -445,6 +446,74 @@ async function removeCard(card: GenerationCardData): Promise<void> {
   }
 }
 
+// —— 接口录制同意卡（data-net-capture data part，两态 = 未开启 / 录制中）——
+// AI 判断写脚本需要目标站点的真实接口时出这张卡（net_capture_enable 工具，由 offscreen 推 part）。
+// 卡片是用户唯一的操作入口，也是隐私边界的落点：录什么是写死的，开关只在当前站点生效。
+// 开启后引导点**浏览器的刷新按钮**——录制只能抓开启之后的请求，钩子挂在文档开头。
+interface NetCaptureCardData {
+  host: string
+}
+
+/** 已开启录制的站点（SW 为权威；这里是渲染用的本地视图，点击后即时更新） */
+const captureHosts = reactive(new Set<string>())
+const captureBusy = reactive(new Set<string>())
+const captureErrors = reactive(new Map<string, string>())
+
+/** 拉一次授权态：历史卡片的状态以 SW 为准，不能只信卡片落盘那一刻的快照 */
+async function loadCaptureHosts(): Promise<void> {
+  try {
+    const { hosts } = await userscriptClient.netCaptureState()
+    captureHosts.clear()
+    for (const h of hosts) captureHosts.add(h)
+  } catch {
+    // 读不到就按未开启渲染（用户点开启时会看到真实错误）
+  }
+}
+
+onMounted(() => {
+  void loadCaptureHosts()
+})
+
+/** 该消息里的同意卡（按 host 去重：同一站点被请求两次同意也只渲染一张） */
+function captureCardsOf(m: UIMessage): NetCaptureCardData[] {
+  const seen = new Set<string>()
+  const out: NetCaptureCardData[] = []
+  for (const p of m.parts) {
+    if (p.type !== 'data-net-capture') continue
+    const host = (p as { data?: NetCaptureCardData }).data?.host
+    if (!host || seen.has(host)) continue
+    seen.add(host)
+    out.push({ host })
+  }
+  return out
+}
+
+async function enableCapture(host: string): Promise<void> {
+  captureBusy.add(host)
+  captureErrors.delete(host)
+  try {
+    await userscriptClient.netCaptureEnable(host)
+    captureHosts.add(host)
+  } catch (e) {
+    captureErrors.set(host, e instanceof Error ? e.message : String(e))
+  } finally {
+    captureBusy.delete(host)
+  }
+}
+
+async function disableCapture(host: string): Promise<void> {
+  captureBusy.add(host)
+  captureErrors.delete(host)
+  try {
+    await userscriptClient.netCaptureDisable(host)
+    captureHosts.delete(host)
+  } catch (e) {
+    captureErrors.set(host, e instanceof Error ? e.message : String(e))
+  } finally {
+    captureBusy.delete(host)
+  }
+}
+
 /** 进编辑器：工作台 hash 深链直达该脚本的编辑器标签页（#/tool/<uuid>） */
 function openWorkbench(uuid: string): void {
   void chrome.tabs.create({
@@ -758,6 +827,79 @@ function userScriptsUnavailableMessageSafe(): string {
                   </ui-tooltip-content>
                 </ui-tooltip>
               </ui-tooltip-provider>
+              <!-- 接口录制同意卡：AI 要目标站点的真实接口时出（data-net-capture part，随消息落盘） -->
+              <div
+                v-for="card in m.role === 'assistant' ? captureCardsOf(m) : []"
+                :key="`net-${card.host}`"
+                class="w-full min-w-0 rounded-lg border border-border bg-card p-3 text-sm"
+                data-testid="net-capture-card"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="min-w-0 truncate font-medium" :title="card.host">{{ card.host }}</span>
+                  <span
+                    class="shrink-0 rounded-full px-2 py-0.5 text-xs"
+                    :class="
+                      captureHosts.has(card.host)
+                        ? 'bg-green-600/15 text-green-600'
+                        : 'bg-amber-500/15 text-amber-600'
+                    "
+                  >
+                    {{ captureHosts.has(card.host) ? '录制中' : '未开启' }}
+                  </span>
+                </div>
+                <dl class="mt-2 space-y-1 text-xs text-muted-foreground">
+                  <div class="flex min-w-0 gap-1.5">
+                    <dt class="shrink-0">记录内容</dt>
+                    <dd class="min-w-0 break-all">页面发出的请求：地址 · 方法 · 请求体 · 响应结构</dd>
+                  </div>
+                  <div class="flex min-w-0 gap-1.5">
+                    <dt class="shrink-0">存放位置</dt>
+                    <dd class="min-w-0 break-all">仅本机，只对 {{ card.host }} 生效</dd>
+                  </div>
+                  <div class="flex min-w-0 gap-1.5">
+                    <dt class="shrink-0">保留条数</dt>
+                    <dd class="min-w-0">最近 200 条</dd>
+                  </div>
+                </dl>
+                <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
+                  <ui-button
+                    v-if="!captureHosts.has(card.host)"
+                    type="button"
+                    size="xs"
+                    :disabled="captureBusy.has(card.host)"
+                    title="只记录当前站点，数据留在本机"
+                    @click="enableCapture(card.host)"
+                  >
+                    <ui-play class="size-3" />
+                    开启录制
+                  </ui-button>
+                  <ui-button
+                    v-else
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    :disabled="captureBusy.has(card.host)"
+                    title="关闭后已录到的内容保留"
+                    @click="disableCapture(card.host)"
+                  >
+                    <ui-square class="size-3" />
+                    关闭录制
+                  </ui-button>
+                </div>
+                <p
+                  v-if="captureHosts.has(card.host)"
+                  class="mt-2 text-xs leading-relaxed text-muted-foreground"
+                >
+                  用浏览器的刷新按钮重新加载页面，从首屏请求开始记录。
+                </p>
+                <div
+                  v-if="captureErrors.get(card.host)"
+                  class="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-xs leading-relaxed text-destructive"
+                  role="alert"
+                >
+                  {{ captureErrors.get(card.host) }}
+                </div>
+              </div>
               <!-- 生成卡片：offscreen 收敛落盘后随消息推送/回读（尚未启用 · 生效范围 · 会做什么） -->
               <div
                 v-for="card in m.role === 'assistant' ? cardsOf(m) : []"

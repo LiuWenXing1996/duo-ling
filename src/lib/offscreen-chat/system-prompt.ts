@@ -1,7 +1,8 @@
 // 系统提示组装（从 chat-host 抽出：纯函数、无运行时依赖，便于单测覆盖档位组合）。
 //
 // 组装顺序（每档独立成块，互不依赖）：
-//   基础规范 → dev 例外（仅 DEV 构建）→ 档 0 当前页面 → 档 2 元素拾取摘要 → 续跑说明 → 会话内既有脚本 → 用户需求。
+//   基础规范 → dev 例外（仅 DEV 构建）→ 档 0 当前页面 → 档 2 元素拾取摘要
+//   → 接口录制档 → 续跑说明 → 会话内既有脚本 → 用户需求。
 // 摘要层（ElementPickSummary）≤2KB 常驻 prompt，同类计数（命中数）必须在内——
 // AI 自证选择器唯一性不该再花一次读取；全量层走 element_read 工具按需读；
 // 页面整体结构走 page_snapshot 工具（AI 按需采集，不再常驻 / 回注 prompt）。
@@ -81,6 +82,23 @@ export interface PrevGeneratedScript {
 }
 
 /**
+ * 该站点的接口录制状态（chat-host 在开跑前经 SW 取一次）。
+ *
+ * 为什么常驻 prompt：录制是前向的——「有没有数据」直接决定 AI 该不该走 net_capture_* 这条路。
+ * 不注入的话，模型只能在不知道有没有数据的情况下盲试一次工具调用（还常把
+ * 「没开录制」和「开了没刷新」误判成同一个原因）。
+ */
+export interface NetCaptureContext {
+  host: string
+  /** 用户是否已授权录制该站点 */
+  enabled: boolean
+  /** 已录到的条数 */
+  count: number
+  /** 摘要档文本（net-record-digest 压好的接口清单；无数据时为空串） */
+  text: string
+}
+
+/**
  * 历史消息里**最近一张**生成卡片的脚本身份（倒序扫 assistant 消息的 data-generation parts）。
  * 卡片随消息落盘且 uuid 唯一，天然就是「本会话生成过哪些脚本」的记录——
  * 没有它，模型拿不到脚本 uuid（script_apply 不回传、卡片是 data part 不进模型），只能新建。
@@ -103,6 +121,7 @@ export function buildSystemPrompt(
   pageContext?: PageContextInfo,
   continuing = false,
   prevScript?: PrevGeneratedScript,
+  netCapture?: NetCaptureContext,
 ): string {
   const lines = [
     '你是「哆灵」浏览器扩展的用户脚本助手。除日常对话外，你可以为网页编写用户脚本：',
@@ -131,6 +150,20 @@ export function buildSystemPrompt(
   }
   if (pageContext?.element) {
     lines.push(...describePickedElement(pageContext.element))
+  }
+  if (netCapture?.count) {
+    lines.push(
+      `\n该站点（${netCapture.host}）已录到 ${netCapture.count} 条接口请求——用户已授权录制，` +
+        '数据只在本机；鉴权头在采集时已剥离，别据此推断登录态：',
+      netCapture.text,
+      '需要某条接口的完整请求 / 响应采样时，用 net_capture_read 读回。',
+    )
+  } else if (netCapture?.enabled) {
+    lines.push(
+      `\n该站点（${netCapture.host}）的接口录制已开启，但还没有录到数据——` +
+        '录制只能抓开启之后的请求，钩子挂在文档开头，需要用户点浏览器的刷新按钮重载页面；' +
+        '用户刷新完再调 net_capture_read 读回。',
+    )
   }
   if (continuing) {
     lines.push('\n注意：此前一次生成任务在浏览器中断了。任务的内存文件树已恢复，' +

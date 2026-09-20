@@ -279,3 +279,41 @@ describe('buildSystemPrompt 会话内既有脚本指路', () => {
     expect(p).not.toContain('本会话此前落盘过脚本')
   })
 })
+
+describe('buildSystemPrompt 接口录制档', () => {
+  it('有数据时注入接口清单与读回指引', () => {
+    const p = buildSystemPrompt('照着接口写脚本', undefined, false, undefined, {
+      host: 'example.com',
+      enabled: true,
+      count: 3,
+      text: '- GET /api/list（200，2 次）：{ data: […], total: number }',
+    })
+    expect(p).toContain('example.com')
+    expect(p).toContain('3 条接口请求')
+    expect(p).toContain('GET /api/list')
+    expect(p).toContain('net_capture_read')
+    expect(p).toContain('鉴权头')
+  })
+
+  it('已开启但还没数据时，直接说清缺「刷新」这一步', () => {
+    const p = buildSystemPrompt('x', undefined, false, undefined, {
+      host: 'a.test',
+      enabled: true,
+      count: 0,
+      text: '',
+    })
+    expect(p).toContain('已开启')
+    expect(p).toContain('刷新')
+  })
+
+  it('没开录制时不产生该档位（不白占上下文）', () => {
+    const p = buildSystemPrompt('x', undefined, false, undefined, {
+      host: 'a.test',
+      enabled: false,
+      count: 0,
+      text: '',
+    })
+    expect(p).not.toContain('接口录制')
+    expect(p).not.toContain('该站点（a.test）')
+  })
+})

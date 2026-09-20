@@ -154,11 +154,25 @@ export const userscriptClient = {
   runlog: (): Promise<UserScriptRunLogRow[]> => send({ kind: 'userscript:runlog' }),
 
   /** 清空错误日志（runtime 库 errors store；「全部/该脚本」范围连带清运行日志 runlog store 对应条目）。
-   *  缺省清全部；传 uuid 只清该脚本；传 null 只清「未归属」错误记录（errors store 里 uuid 为 null 的，
+   *  缺省清全部；传 uuid 只清该脚本；传 null 只清「未归属」记录（errors store 里 uuid 为 null 的，
    *  runlog 条目必带 uuid，此形态下不动）。「清全部」必须**省略字段**而非传 undefined——
    *  undefined 值在部分序列化路径下与字段缺失无法区分。 */
   clearErrors: (uuid?: string | null): Promise<void> =>
     send(uuid === undefined ? { kind: 'userscript:clearErrors' } : { kind: 'userscript:clearErrors', uuid }),
+
+  // —— 网络录制（dl-recorder）——
+  // 录制件与门禁都归 SW：UI 只发命令，不直连 duoling-app / duoling-netlog。
+
+  /** 已同意录制的站点集合（同意卡的初始状态；以 SW 为权威，不信卡里落盘时的快照） */
+  netCaptureState: (): Promise<{ hosts: string[] }> => send({ kind: 'userscript:netCaptureState' }),
+
+  /** 开启某站点的录制。**唯一入口是用户点同意卡上的按钮**——AI 工具只出卡，不调这条 */
+  netCaptureEnable: (host: string): Promise<{ host: string; hosts: string[] }> =>
+    send({ kind: 'userscript:netCaptureEnable', host }),
+
+  /** 关闭某站点的录制；**已录到的记录保留**（用户可能还要让 AI 读） */
+  netCaptureDisable: (host: string): Promise<{ host: string; hosts: string[] }> =>
+    send({ kind: 'userscript:netCaptureDisable', host }),
 }
 
 /**
