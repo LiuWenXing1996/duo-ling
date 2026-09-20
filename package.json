@@ -2,6 +2,7 @@
   "name": "duoling-plugin",
   "private": true,
   "version": "0.2.0-alpha.1",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "postinstall": "wxt prepare",
