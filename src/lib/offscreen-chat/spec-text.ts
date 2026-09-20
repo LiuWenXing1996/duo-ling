@@ -16,9 +16,16 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
 2. 依赖只能 \`import 'https://…'\`（CDN 完整 URL，如 https://esm.sh/lodash-es@4）；**裸包名 \`from 'lodash'\` 会报错**；不支持 \`node:\` 前缀。
 3. \`DL\` **全 async**——所有 DL API 返回 Promise，必须 await；存储值必须是 Json（null/boolean/number/string/数组/纯对象）。
 4. \`DL.page.*\` 反向中继：提供 \`DL.page.listen(type, handler, opts?)\`
-   （监听页面事件，摘要 { type, key?, detail, timeStamp }）与 \`DL.page.hook('fetch', fn)\`
+   （监听页面事件，摘要 { type, key?, detail, timeStamp }）与 \`DL.page.fetchHook(fn, opts?)\`
    （拦截页面 fetch，fn 收 { url, method, headers, body }，回 { action: 'passthrough' } 或
-   { action: 'respond', status, headers?, body? }）。脚本仍**看不到页面 JS 全局**（框架实例、页面变量），不要写依赖它们的代码。
+   { action: 'respond', status, headers?, body? }；传 opts.onResponse 可在 passthrough 时被动拿到
+   真实响应体 { url, status, statusText, headers, body }，零额外请求）。
+   **hook 只拦「页面世界（MAIN）发出的 fetch」，即页面自身 JS 的请求**——脚本跑在独立的
+   USER_SCRIPT 隔离世界，它自己的 \`window.fetch\` 与页面那个不是同一个绑定，**脚本自己发的
+   请求不会被自己的 hook 拦到**（写脚本时别用「脚本内 fetch 一下、期待被拦」来自测）。
+   要拿某个接口的返回，必须让**页面**去发那个请求：触发站点自身交互（点击按钮、切路由等）。
+   不要靠往 DOM 注入内联 \`<script>\` 来代发——该通道在本扩展的运行环境里实测走不通，别依赖。
+   脚本仍**看不到页面 JS 全局**（框架实例、页面变量），不要写依赖它们的代码。
 5. \`allFrames\` 默认 true：脚本可能在同页多个 frame 各跑一次，初始化逻辑要幂等。
 6. 生成的脚本**不会自动生效**——先落盘为未启用状态，由用户确认后启用。不要假设「已经跑起来了」。
 7. 运行环境（USER_SCRIPT 隔离世界）用浏览器默认的严 CSP：**禁止 \`eval\` / \`new Function\`**，

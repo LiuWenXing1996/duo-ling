@@ -384,7 +384,7 @@ export interface PageEventSummary {
   timeStamp: number
 }
 
-/** 页面 fetch 调用摘要（hook('fetch') 转发；body 仅文本化尝试，失败置 null） */
+/** 页面 fetch 调用摘要（fetchHook 转发；body 仅文本化尝试，失败置 null） */
 export interface PageFetchSummary {
   url: string
   method: string
@@ -393,10 +393,29 @@ export interface PageFetchSummary {
   body: string | null
 }
 
-/** 脚本对 hook('fetch') 的裁决：透传原调用，或由 stub 构造 Response 返回页面 */
+/** 脚本对 fetchHook 的裁决：透传原调用，或由 stub 构造 Response 返回页面 */
 export type PageFetchAction =
   | { action: 'passthrough' }
   | { action: 'respond'; status: number; headers?: Record<string, string>; body?: string }
+
+/**
+ * 页面 fetch 响应摘要。
+ * 仅在 fetchHook 传了 opts.onResponse 且裁决为 passthrough 时出现：stub 克隆真实响应、
+ * 读 body 后转发（响应体超过上限会被截断，truncated=true）。respond 伪造响应时无真实响应，不回调。
+ */
+export interface PageResponseSummary {
+  /** 关联的出站请求 URL（与 fetchHook 回调收到的 call.url 同源，用于多请求下区分归属） */
+  url: string
+  /** HTTP 状态码（与页面拿到的真实响应一致） */
+  status: number
+  statusText: string
+  /** 响应头（可克隆部分，Headers 实例摊平失败为空对象） */
+  headers: Record<string, string>
+  /** 响应体文本（等于页面实际收到的响应体，可能被截断） */
+  body: string
+  /** 响应体超过 1MB 被截断时为 true（仅取前 1MB） */
+  truncated?: boolean
+}
 
 export interface PageListenOptions {
   /** 只转发 target 命中该选择器（或其祖先命中）的事件 */
@@ -405,15 +424,26 @@ export interface PageListenOptions {
   once?: boolean
 }
 
-/** DL.page 一期 API 面（就这两个入口，均返回 off()） */
+/**
+ * DL.page API 面（均返回 off()）。
+ * - listen：监听页面事件
+ * - fetchHook：拦截页面 fetch。传 opts.onResponse 即可在 passthrough 时被动拿到响应体
+ *   （stub 克隆真实响应、读 body 后转发，页面拿到的仍是原响应，零额外请求、零封号风险）
+ */
 export interface DlPageApi {
   listen(
     type: string,
     handler: (ev: PageEventSummary) => void,
     opts?: PageListenOptions,
   ): Promise<() => void>
-  hook(
-    name: 'fetch',
+  /**
+   * 拦截页面世界的 fetch 调用（一期仅 fetch）。
+   * @param handler 裁决函数，收 PageFetchSummary，回 PageFetchAction（passthrough / respond）
+   * @param opts.onResponse 可选。提供时，passthrough 的每一次真实响应都会经 PageResponseSummary 回调
+   *   （respond 伪造响应的场景无真实响应，不回调）。不提供则不读响应体，零开销。
+   */
+  fetchHook(
     handler: (call: PageFetchSummary) => PageFetchAction | Promise<PageFetchAction>,
+    opts?: { onResponse?: (resp: PageResponseSummary) => void },
   ): Promise<() => void>
 }

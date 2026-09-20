@@ -151,7 +151,7 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     // 左侧导航进入：面板挂载，脚本世界 DL 的能力清单来自静态目录（与注入真身同源，见单测防漂移）
     await page.locator('button[aria-label="DL API"]').click()
     await expect(page.locator('[data-testid="dl-api-panel"]')).toBeVisible()
-    for (const path of ['store.get', 'fetch', 'cookie.set', 'page.hook']) {
+    for (const path of ['store.get', 'fetch', 'cookie.set', 'page.fetchHook']) {
       await expect(page.locator(`[data-testid="dl-api-card-${path}"]`)).toBeVisible()
     }
 

@@ -58,7 +58,7 @@ function runStub(src: string, win: ReturnType<typeof createFakeWindow>): void {
 // 客户端源码是表达式（IIFE），以 `var x = <源码>` 形式求值后取出返回的 API 对象
 function runClient(src: string, win: ReturnType<typeof createFakeWindow>): {
   listen: (type: string, handler: (ev: unknown) => void, opts?: object) => Promise<() => Promise<void>>
-  hook: (name: 'fetch', handler: (call: unknown) => unknown) => Promise<() => Promise<void>>
+  fetchHook: (handler: (call: unknown) => unknown, opts?: { onResponse?: (resp: unknown) => void }) => Promise<() => Promise<void>>
 } {
   return new Function('window', `var __api = ${src}; return __api`)(win)
 }
@@ -129,7 +129,7 @@ describe('page relay 协议（stub + client 真源码对跑）', () => {
 
   it('hook fetch：respond 动作由 stub 构造 Response，原 fetch 不被调用', async () => {
     const { win, api, origFetch } = await setup()
-    const off = await api.hook('fetch', () => ({ action: 'respond', status: 201, body: 'fake-body' }))
+    const off = await api.fetchHook(() => ({ action: 'respond', status: 201, body: 'fake-body' }))
 
     const res = (await win.fetch('https://x.test/api')) as Response
     expect(res.status).toBe(201)
@@ -144,7 +144,7 @@ describe('page relay 协议（stub + client 真源码对跑）', () => {
 
   it('hook fetch：passthrough 透传原调用参数', async () => {
     const { win, api, origFetch } = await setup()
-    await api.hook('fetch', (call) => {
+    await api.fetchHook((call) => {
       expect((call as { url: string }).url).toBe('https://x.test/api')
       return { action: 'passthrough' }
     })
@@ -154,7 +154,7 @@ describe('page relay 协议（stub + client 真源码对跑）', () => {
 
   it('hook fetch：脚本 500ms 内未裁决自动放行（宁失效不阻塞）', async () => {
     const { win, api, origFetch } = await setup()
-    await api.hook('fetch', () => new Promise(() => {})) // 永不裁决
+    await api.fetchHook(() => new Promise(() => {})) // 永不裁决
 
     const pending = win.fetch('https://x.test/api') as Promise<Response>
     await vi.advanceTimersByTimeAsync(500)
@@ -165,7 +165,7 @@ describe('page relay 协议（stub + client 真源码对跑）', () => {
 
   it('hook fetch：脚本裁决函数抛错按 passthrough 兜底', async () => {
     const { win, api, origFetch } = await setup()
-    await api.hook('fetch', () => {
+    await api.fetchHook(() => {
       throw new Error('boom')
     })
     const res = (await win.fetch('https://x.test/api')) as Response
@@ -179,8 +179,8 @@ describe('page relay 协议（stub + client 真源码对跑）', () => {
     const a = runClient(buildPageClientSource(SECRET), win)
     const b = runClient(buildPageClientSource(SECRET), win)
 
-    const offA = await a.hook('fetch', () => ({ action: 'respond', status: 200, body: 'from-a' }))
-    const offB = await b.hook('fetch', () => ({ action: 'respond', status: 200, body: 'from-b' }))
+    const offA = await a.fetchHook(() => ({ action: 'respond', status: 200, body: 'from-a' }))
+    const offB = await b.fetchHook(() => ({ action: 'respond', status: 200, body: 'from-b' }))
 
     // b 后钩，顶层是 b 的 wrapper
     const res1 = (await win.fetch('https://x.test/')) as Response
@@ -196,5 +196,38 @@ describe('page relay 协议（stub + client 真源码对跑）', () => {
     await offA()
     const res3 = (await win.fetch('https://x.test/')) as Response
     expect(res3.status).toBe(200)
+  })
+
+  it('fetchHook：传 onResponse 时 passthrough 被动收到响应体，页面仍拿到原响应', async () => {
+    const { win, api, origFetch } = await setup()
+    const seen: unknown[] = []
+    const off = await api.fetchHook(
+      (call) => {
+        expect((call as { url: string }).url).toBe('https://x.test/api')
+        return { action: 'passthrough' }
+      },
+      { onResponse: (resp) => seen.push(resp) },
+    )
+
+    const res = (await win.fetch('https://x.test/api')) as Response
+    expect(await res.text()).toBe('orig-body')
+    expect(origFetch).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(0) // 响应摘要经微任务转发
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ status: 200, body: 'orig-body' })
+
+    await off()
+  })
+
+  it('fetchHook：未传 onResponse 时不读响应体，passthrough 仍正常返回', async () => {
+    const { win, api, origFetch } = await setup()
+    await api.fetchHook((call) => {
+      expect((call as { url: string }).url).toBe('https://x.test/api')
+      return { action: 'passthrough' }
+    })
+    const res = (await win.fetch('https://x.test/api')) as Response
+    expect(await res.text()).toBe('orig-body')
+    expect(origFetch).toHaveBeenCalledTimes(1)
   })
 })
