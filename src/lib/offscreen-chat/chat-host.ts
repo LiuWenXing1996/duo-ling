@@ -37,6 +37,7 @@ import type {
   RuntimeRequest,
 } from '@/shared/extension-ipc'
 import { dropBuffer, notifyChatFinished, pushChunk, replaySince, resetBuffer } from './event-bus'
+import { createIdleGuard } from './idle-guard'
 import { getActiveProfile } from './profile-cache'
 import {
   buildSystemPrompt,
@@ -57,6 +58,10 @@ const HEARTBEAT_MS = 5_000
  *  内存表交叉核对——记录说 running 但内存表没有 = 宿主换代，必是孤儿，
  *  无需等心跳过期。 */
 const ORPHAN_GRACE_MS = 5_000
+/** 流式静默超时（毫秒）：两次 chunk 间隔超过此值即判定 provider 卡死，主动 abort 释放连接。
+ *  避免「有连接但不吐 token」的请求长期占用网关并发/连接配额、累积触发限流。
+ *  用户手动停止走 abortChat，与此计时无关。 */
+const STREAM_IDLE_TIMEOUT_MS = 60_000
 
 interface RunningTask {
   taskId: string
@@ -228,6 +233,18 @@ async function runLoop(opts: {
 }): Promise<void> {
   const { conversationId, taskId, prompt, pageContext, workspace, continuing } = opts
   const abort = new AbortController()
+  // 流式静默守卫：provider 卡死（有连接但不吐 token）时主动中止，释放网关连接/并发配额。
+  const idle = createIdleGuard({
+    idleMs: STREAM_IDLE_TIMEOUT_MS,
+    onTimeout: () => {
+      pushChunk(conversationId, {
+        type: 'error',
+        errorText: `请求超时（${STREAM_IDLE_TIMEOUT_MS / 1000} 秒无响应），已自动中止。可能是模型服务繁忙，请稍后重试或切换模型。`,
+      })
+      abort.abort()
+    },
+  })
+  idle.arm() // 覆盖首字节（TTFT）：provider 连第一个 token 都迟迟不给时也及时释放
   const task: RunningTask = {
     taskId,
     workspace,
@@ -299,10 +316,18 @@ async function runLoop(opts: {
     let finishChunk: UIMessageChunk | undefined
     let sawAbort = false
     const reader = ui.getReader()
+    let readErr: unknown = undefined
     for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      const chunk = value as UIMessageChunk
+      let chunk!: UIMessageChunk
+      try {
+        const { done, value } = await reader.read()
+        if (done) break
+        chunk = value as UIMessageChunk
+      } catch (e) {
+        readErr = e
+        break
+      }
+      idle.arm() // 收到任意 chunk 重置空闲计时：覆盖「首字节之后」的静默卡死
       allChunks.push(chunk)
       if (chunk.type === 'start' && chunk.messageId) task.messageId = chunk.messageId
       if (chunk.type === 'start-step') {
@@ -316,6 +341,7 @@ async function runLoop(opts: {
       if (chunk.type === 'abort') sawAbort = true
       pushChunk(conversationId, chunk)
     }
+    idle.dispose() // 流结束/异常都释放定时器，避免泄漏
 
     // 任务收尾：删运行时记录 + 丢事件缓冲（缓冲只为进行中任务的重连服务；
     // 收尾后结果已在会话历史，保留缓冲反而会让重开面板 replay 出重复消息）。
@@ -325,6 +351,17 @@ async function runLoop(opts: {
       void removeTask(taskId).catch(() => {})
       dropBuffer(conversationId)
       notifyChatFinished(conversationId, ok)
+    }
+
+    // 空闲超时 / 用户停止会让 reader.read 抛 AbortError：归类为「中断」收尾，
+    // 不落盘半截、不报「任务异常」（超时分支已推过 error 块）。真实异常仍上抛。
+    if (readErr) {
+      if (abort.signal.aborted) {
+        if (!sawAbort) pushChunk(conversationId, { type: 'abort' })
+        cleanup(false)
+        return
+      }
+      throw readErr
     }
 
     // —— 收尾分支 1：用户主动停止 / 流异常中断 ——
