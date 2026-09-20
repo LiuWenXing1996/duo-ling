@@ -104,21 +104,47 @@ export function buildPageStubSource(secret: string): string {
     return { url: url, method: method, headers: headers, body: body }
   }
 
+  // passthrough 时被动读取响应体：克隆真实响应、读文本、转发摘要给脚本；
+  // 原响应不消耗，页面照常收到。MAX_BODY 上限防大响应体撑爆 postMessage。
+  var PAGE_FETCH_MAX_BODY = 1 << 20 // 1MB
   function dispatchHook(session, args, next) {
     var hseq = ++session.hseq
+    var call = summarizeFetch(args) // 出站摘要；响应关联用同一 url，保证 call.url === resp.url
+    function observeResponse(realResp, url) {
+      try {
+        var cloned = realResp.clone()
+        cloned.text().then(function (text) {
+          var truncated = false
+          if (text.length > PAGE_FETCH_MAX_BODY) { text = text.slice(0, PAGE_FETCH_MAX_BODY); truncated = true }
+          var headers = {}
+          try { realResp.headers.forEach(function (v, k) { headers[k] = v }) } catch (_) {}
+          send({ kind: 'hookresponse', sid: session.sidValue, seq: hseq, resp: { url: url, status: realResp.status, statusText: realResp.statusText || '', headers: headers, body: text, truncated: truncated } })
+        }).catch(function () { /* 读体失败，忽略 */ })
+      } catch (_) { /* clone 失败，忽略 */ }
+    }
     return new Promise(function (resolve) {
       var settled = false
       var timer
-      var passthrough = function () {
+      // observe：true 时 passthrough 的响应会被克隆并转发摘要（仅此分支产生开销）
+      var passthrough = function (observe) {
         if (settled) return
         settled = true
         clearTimeout(timer)
-        try { resolve(next.apply(window, args)) } catch (e) { resolve(Promise.reject(e)) }
+        try {
+          var realPromise = next.apply(window, args)
+          if (observe) {
+            realPromise = realPromise.then(function (realResp) {
+              observeResponse(realResp, call.url)
+              return realResp
+            })
+          }
+          resolve(realPromise)
+        } catch (e) { resolve(Promise.reject(e)) }
       }
-      timer = setTimeout(passthrough, HOOK_TIMEOUT) // 超时放行：宁可失效不可阻塞（最高优先级约束）
+      timer = setTimeout(function () { passthrough(false) }, HOOK_TIMEOUT) // 超时放行：宁可失效不可阻塞（最高优先级约束）
       // pendingHook 必须先于 send 挂好：消息投递可能同步到达，回包不能被丢。
       // 注意 settled 置位只在这两处入口各自完成，不得先置位再委托 passthrough（会自锁）。
-      session.pendingHook = function (action) {
+      session.pendingHook = function (action, observe) {
         if (settled) return
         if (action && action.action === 'respond') {
           settled = true
@@ -126,13 +152,13 @@ export function buildPageStubSource(secret: string): string {
           try {
             resolve(new Response(action.body || '', { status: action.status || 200, headers: action.headers || {} }))
           } catch (e) {
-            passthrough()
+            passthrough(false)
           }
         } else {
-          passthrough()
+          passthrough(observe === true)
         }
       }
-      send({ kind: 'hookcall', sid: session.sidValue, seq: hseq, call: summarizeFetch(args) })
+      send({ kind: 'hookcall', sid: session.sidValue, seq: hseq, call: call })
     })
   }
   function makeWrapper(session, prev) {
@@ -154,7 +180,7 @@ export function buildPageStubSource(secret: string): string {
       if (hs && hs.pendingHook) {
         var cb = hs.pendingHook
         hs.pendingHook = null
-        cb(d.action)
+        cb(d.action, d.observe)
       }
       return
     }

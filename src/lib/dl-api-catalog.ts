@@ -341,13 +341,17 @@ const DL_API_BY_PATH = {
     bridge: 'stub',
     group: 'page',
   },
-  'page.hook': {
+  'page.fetchHook': {
     title: '拦页面 fetch',
-    signature: "DL.page.hook('fetch', handler)",
-    summary: '反向中继：拦截页面世界的 fetch 调用',
+    signature: "DL.page.fetchHook(handler, opts?)",
+    summary: '反向中继：拦截页面世界的 fetch 调用，可被动读取响应体',
     detail:
       '一期只支持 fetch。裁决返回 { action: "passthrough" } 放行，或 { action: "respond", status, headers?, body? } ' +
-      '由桩直接构造 Response 返回页面。脚本回调抛异常一律按 passthrough 兜底（不会把页面搞挂）。',
+      '由桩直接构造 Response 返回页面。脚本回调抛异常一律按 passthrough 兜底（不会把页面搞挂）。' +
+      '传 opts.onResponse 后，passthrough 的每一次真实响应都会以 { url, status, statusText, headers, body, truncated? } 回调' +
+      '（stub 克隆响应体转发，页面拿到的仍是原响应，零额外请求；url 与裁决收到的 call.url 同源，便于多请求下区分归属）；不传 opts 则不读响应体，零开销。' +
+      '注意：只拦页面世界（MAIN）发出的 fetch（页面自身 JS 的请求）——脚本跑在独立的 USER_SCRIPT 隔离世界，' +
+      '它自己的 window.fetch 与页面那个不是同一绑定，脚本自身发的请求不经此路；要观察某接口的响应，须由页面发起该请求（触发站点自身交互）。',
     returns: 'Promise<() => void>（注销）',
     bridge: 'stub',
     group: 'page',

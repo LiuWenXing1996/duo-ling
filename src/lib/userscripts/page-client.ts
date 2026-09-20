@@ -36,7 +36,8 @@ export function buildPageClientSource(pageSecret: string): string {
   var seqCounter = 0
   var pending = {} // seq -> { resolve, reject, timer }
   var listeners = {} // lid -> handler(ev)
-  var hookHandler = null // hook('fetch') 的裁决函数（至多一个）
+  var hookHandler = null // fetchHook 的裁决函数（至多一个）
+  var hookOnResponse = null // fetchHook 的 onResponse 回调（提供时才观察响应体）
   var handshakePromise = null
 
   function err(code, message) {
@@ -122,13 +123,17 @@ export function buildPageClientSource(pageSecret: string): string {
     }
     if (d.kind === 'hookcall') {
       var hseq = d.seq
-      var settle = function (action) {
-        send({ kind: 'hookreply', seq: hseq, action: action && action.action ? action : { action: 'passthrough' } })
+      var settle = function (action, observe) {
+        send({ kind: 'hookreply', seq: hseq, action: action && action.action ? action : { action: 'passthrough' }, observe: !!observe })
       }
       Promise.resolve()
         .then(function () { return hookHandler ? hookHandler(d.call) : { action: 'passthrough' } })
-        .then(settle)
-        .catch(function () { settle({ action: 'passthrough' }) }) // 脚本异常兜底放行，不卡页面网络层
+        .then(function (action) { settle(action, hookOnResponse) })
+        .catch(function () { settle({ action: 'passthrough' }, false) }) // 脚本异常兜底放行，不卡页面网络层
+      return
+    }
+    if (d.kind === 'hookresponse') {
+      if (hookOnResponse) { try { hookOnResponse(d.resp) } catch (err2) { console.warn('[DL.page] onResponse 回调异常', err2) } }
       return
     }
   })
@@ -147,19 +152,21 @@ export function buildPageClientSource(pageSecret: string): string {
         })
       })
     },
-    hook: function (name, handler) {
-      if (name !== 'fetch') return Promise.reject(err('PERMISSION_DENIED', 'DL.page.hook 一期仅支持 fetch'))
-      if (typeof handler !== 'function') return Promise.reject(err('PERMISSION_DENIED', 'DL.page.hook 需要裁决函数'))
+    fetchHook: function (handler, opts) {
+      if (typeof handler !== 'function') return Promise.reject(err('PERMISSION_DENIED', 'DL.page.fetchHook 需要裁决函数'))
+      var onResp = opts && typeof opts.onResponse === 'function' ? opts.onResponse : null
       return handshake().then(function () {
         hookHandler = handler
+        hookOnResponse = onResp
         return call('hook').then(function () {
           return function () {
             return call('unhook').then(function () {
               hookHandler = null
+              hookOnResponse = null
             }, function (e) {
               // 桩已随导航消失（TIMEOUT）视为已还原；其余错误（如非 LIFO 摘除）如实上抛，
               // 且不清 hookHandler——钩子还在桩上，裁决函数不能丢
-              if (e && e.code === 'TIMEOUT') { hookHandler = null; return }
+              if (e && e.code === 'TIMEOUT') { hookHandler = null; hookOnResponse = null; return }
               throw e
             })
           }
