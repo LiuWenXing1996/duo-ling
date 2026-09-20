@@ -4,7 +4,7 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { Switch as UiSwitch } from '@/components/ui/switch'
+import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import {
   getMasterEnabled,
   setMasterEnabled,
@@ -69,7 +69,9 @@ onUnmounted(() => {
         <p class="text-sm font-medium">启用网页浮层</p>
         <p class="text-xs text-muted-foreground">关闭后所有网站都不显示悬浮按钮。</p>
       </div>
-      <UiSwitch :model-value="master" @update:model-value="onMaster" />
+      <UiSwitch :model-value="master" @update:model-value="onMaster">
+        <UiSwitchThumb />
+      </UiSwitch>
     </div>
 
     <div class="flex items-center justify-between rounded-lg border border-border p-4">
@@ -84,7 +86,9 @@ onUnmounted(() => {
         :disabled="!currentHost"
         :model-value="currentEnabled"
         @update:model-value="onCurrent"
-      />
+      >
+        <UiSwitchThumb />
+      </UiSwitch>
     </div>
   </div>
 </template>
