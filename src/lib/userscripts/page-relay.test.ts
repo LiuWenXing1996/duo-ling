@@ -198,6 +198,33 @@ describe('page relay 协议（stub + client 真源码对跑）', () => {
     expect(res3.status).toBe(200)
   })
 
+  it('桩之外已有的 fetch 包装者不被 hook/unhook 摘除，且 hook 期间仍在链上', async () => {
+    const origFetch = vi.fn((..._args: unknown[]) => Promise.resolve(new Response('orig', { status: 200 })))
+    const win = createFakeWindow(origFetch)
+    // 危险顺序：桩先执行（快照到原始 fetch），外部包装者后安装（如 dl-recorder 常驻录制件
+    // 与桩同为 document_start，谁先取决于注册顺序）。旧实现用注入期快照还原，会把它摘掉。
+    runStub(buildPageStubSource(SECRET), win)
+    const outerCalls: string[] = []
+    const outerFetch = (input: unknown) => {
+      outerCalls.push(String(input))
+      return origFetch()
+    }
+    win.fetch = outerFetch
+
+    const api = runClient(buildPageClientSource(SECRET), win)
+
+    const off = await api.fetchHook(() => ({ action: 'passthrough' }))
+    // 钩住期间：外部包装必须在链上，请求不被绕过
+    await win.fetch('https://x.test/a')
+    expect(outerCalls).toEqual(['https://x.test/a'])
+
+    await off()
+    // 摘钩后：还原到外部包装，而不是注入期快照的原始 fetch
+    expect(win.fetch).toBe(outerFetch)
+    await win.fetch('https://x.test/b')
+    expect(outerCalls).toEqual(['https://x.test/a', 'https://x.test/b'])
+  })
+
   it('fetchHook：传 onResponse 时 passthrough 被动收到响应体，页面仍拿到原响应', async () => {
     const { win, api, origFetch } = await setup()
     const seen: unknown[] = []

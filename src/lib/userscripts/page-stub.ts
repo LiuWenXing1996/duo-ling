@@ -72,8 +72,9 @@ export function buildPageStubSource(secret: string): string {
   }
 
   // —— fetch 钩子链：多会话按后进先出叠 wrapper；unhook 只许从栈顶摘 ——
+  // 栈元素记「钩住那一刻链下的真实 fetch」（prev），还原时用它——**不用注入期快照**：
+  // 本桩之外还可能有别的 fetch 包装者（如 dl-recorder），静态快照会把它们误摘。
   var hookStack = [] // { sid, wrapper, prev }
-  var origFetch = window.fetch
 
   function summarizeFetch(args) {
     var input = args[0]
@@ -221,7 +222,7 @@ export function buildPageStubSource(secret: string): string {
       }
       if (d.op === 'hook') {
         if (session.hook) return fail(d.sid, d.seq, '本会话已钩住 fetch')
-        var prev = hookStack.length ? hookStack[hookStack.length - 1].wrapper : origFetch
+        var prev = hookStack.length ? hookStack[hookStack.length - 1].wrapper : window.fetch
         session.sidValue = String(d.sid)
         var wrapper = makeWrapper(session, prev)
         session.hook = { wrapper: wrapper, prev: prev }
@@ -235,8 +236,8 @@ export function buildPageStubSource(secret: string): string {
         if (!top || top.sid !== String(d.sid)) {
           return fail(d.sid, d.seq, 'unhook 只能按后进先出顺序摘除')
         }
-        hookStack.pop()
-        window.fetch = hookStack.length ? hookStack[hookStack.length - 1].wrapper : origFetch
+        var popped = hookStack.pop()
+        window.fetch = hookStack.length ? hookStack[hookStack.length - 1].wrapper : popped.prev
         session.hook = null
         return reply(d.sid, d.seq, true, null)
       }
