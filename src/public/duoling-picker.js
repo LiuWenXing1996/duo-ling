@@ -22,6 +22,11 @@
  * 消息通道：不需要（载荷全走 execute() 返回值），世界 messaging 默认 false 正合适。
  * 结构约定与 src/shared/extension-ipc.ts 的 ElementPickContext / PageSnapshotContext 对齐，
  * 改形状必须两边同步。
+ *
+ * ⚠️ 跨世界契约：拾取遮罩的类名（CSS_NS + '-box'）是内容脚本判定「拾取进行中」的信号——
+ * src/entrypoints/content.ts 用它在拾取期间隐藏网页浮层（否则浮层挡住待选元素、自身还会被
+ * elementFromPoint 命中而误选）。两个世界 JS 隔离、DOM 共享，遮罩的生死即拾取区间。
+ * 改类名 / 改「拾取期间不再插入该遮罩」必须同步改那边。
  */
 ;(function () {
   'use strict'

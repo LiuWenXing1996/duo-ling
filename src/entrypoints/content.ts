@@ -7,6 +7,7 @@
 //   - iframe 懒加载：首次点击才设 src，避免页面一开就加载扩展页占资源。
 //   - per-site 开关：main() 读 storage 判定当前 host 是否启用，否则不挂；storage 变更时动态增删。
 //   - CSP 降级：iframe 加载失败（严格 frame-src 拦扩展 iframe）时提示改用侧栏。
+//   - 拾取让位：页面元素拾取（点选元素 / 快照）期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
 //
 // WXT 按文件名 content.ts 自动识别为 content script；matches 经 defineContentScript 声明。
 
@@ -15,6 +16,15 @@ import { isFloatEnabledForHost } from '@/lib/float-panel-store'
 
 // 浮层根 id（全局唯一，防止重复注入）
 const ROOT_ID = 'duoling-fab-root'
+
+// 「点选元素正在页面里进行」的信号：拾取器亮拾取态时往 documentElement 插的遮罩类名
+// （src/public/duoling-picker.js 的 CSS_NS + '-box'，仅拾取期间存在、finish() 即移除）。
+//
+// 为什么用 DOM 而不是广播：拾取器跑在 USER_SCRIPT 世界，与本源（ISOLATED 世界）JS 互相不可见，
+// 两边唯一共享面就是 DOM；而拾取遮罩的生死恰好就是「拾取区间」本身，无需新增任何通道。
+// 副作用还有一个好处：判定天然按 document 隔离——只有真正发起拾取的那个标签页会隐藏浮层。
+// ⚠️ 契约：改拾取遮罩的类名必须同步改这里（拾取器文件顶部注释也标注了这条）。
+const PICKER_BOX_SELECTOR = '.duoling-picker-box'
 
 const FAB_CSS = `
 .dl-fab-container {
@@ -157,15 +167,39 @@ export default defineContentScript({
     const host = location.hostname
     let root: HTMLElement | null = null
     let disposed = false
+    // 当前浮层是否正因「拾取进行中」而隐藏（避免与拾取的实时状态重复写样式）
+    let hiddenForPick = false
+
+    /**
+     * 拾取期间整块让位。
+     *
+     * 为什么必须隐藏：浮层钉在 `z-index: 2147483647`（见 FAB_CSS 的 .dl-fab-container），
+     * 而拾取器用 `document.elementFromPoint()` 判定目标（duoling-picker.js）——浮层在时，
+     * 用户点到浮层区域拿回的是浮层自己的元素（FAB 本体 / `<iframe>`），既选错元素，
+     * 也让被浮层盖住的真实元素永远点不到。
+     *
+     * 判据取「遮罩此刻在不在」这个 DOM 事实，而不是数插入/移除的次数：拾取器再次注入时会
+     * 先收掉旧拾取（移除旧遮罩）再插新遮罩，同一批 mutation 里一增一减，按次数计会算错。
+     */
+    const syncFloatVisibilityForPick = (): void => {
+      if (!root) return
+      const picking = !!document.querySelector(PICKER_BOX_SELECTOR)
+      if (picking === hiddenForPick) return
+      hiddenForPick = picking
+      root.style.display = picking ? 'none' : ''
+    }
 
     const inject = (): void => {
       if (root || document.getElementById(ROOT_ID)) return
       root = buildFloatUi()
       ;(document.body || document.documentElement).appendChild(root)
+      hiddenForPick = false // 新 root 默认可见，交给下面的同步裁决
+      syncFloatVisibilityForPick() // 拾取中重建（开关来回切）也要立即让位
     }
     const remove = (): void => {
       root?.remove()
       root = null
+      hiddenForPick = false
       disposed = true
     }
 
@@ -182,6 +216,12 @@ export default defineContentScript({
         if (enabled) inject()
         else remove()
       })
+    })
+
+    // 拾取器插/删遮罩 → 同步浮层显隐。只盯 documentElement 的直接子节点：
+    // 遮罩挂在 `<html>` 下，而浮层挂在 `<body>` 下，二者互不触发，不会自激。
+    new MutationObserver(() => syncFloatVisibilityForPick()).observe(document.documentElement, {
+      childList: true,
     })
   },
 })
