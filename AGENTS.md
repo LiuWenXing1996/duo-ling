@@ -10,7 +10,7 @@
 
 **红线**（各领域规范与文档索引见下方「文档职责总表」）：
 
-- **UI 复用（强制）**：side panel 用 `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列；组件本体零改动（靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`）。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。
+- **UI 复用（强制）**：side panel 用 `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列，网页浮层复用 side panel 同一套（只是另一个入口页）；popup 是独立的 `PopupPanel.vue`（纯配置面板，不装 `window.api`）。组件本体零改动（靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`）。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。
   - **组件来源**：UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 走 —— 先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，不手写组件。
   - **样式**：`class` 只用于布局，不覆盖组件配色与字体；颜色一律用语义 token（`bg-primary` / `text-muted-foreground`）；不写 `space-x-*` / `space-y-*`，不手写 `dark:` 覆盖。
   - **Tooltip 组合约束（reka-ui 2.10 实测）**：`TooltipProvider` 不转发 attrs —— 任何 as-child 组件**隔在 Provider 与目标元素之间都会静默断链**（编译不报错、运行时无警告，事件与属性全丢）。故 Tooltip 包其他触发组件时，**Tooltip 在最外、目标组件在内**。
@@ -52,7 +52,7 @@
 | **AGENTS.md**（本文件） | 协作约定、红线与硬性底线、命令清单、调试方法论、文档导航（本表） | 动手前；结论成形后就地补对应小节 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | **运行时架构**：载体与运行时、对话链路、脚本注入、页面上下文、存储六库、统一保存、用户脚本版本管理、数据广播、依赖构建、构建信息注入 | 改这些实现前；改完就地更新 |
 | [VERSIONING.md](VERSIONING.md) | 扩展**自身**版本机制：真相源 / SemVer / 预发布规则 / tag / release PR 流程 / GitHub Release notes 与故障处置 | 发版 / 改版本号前 |
-| [GIT_WORKFLOW.md](GIT_WORKFLOW.md) | **Git 工作流**：提交信息格式与 type 白名单 / 分支命名 / 分支保护与合并流程 / 合并提交标题 | 写提交 / 起分支 / 开 PR 前 |
+| [GIT_WORKFLOW.md](GIT_WORKFLOW.md) | **Git 工作流**：提交信息格式与 type 白名单 / 分支命名 / 分支保护与合并流程 / 小修补搭车 / 合并提交标题 | 写提交 / 起分支 / 开 PR 前 |
 | [CHANGELOG.md](CHANGELOG.md) | 每个发布版本的变更条目（格式与维护方式见 VERSIONING.md） | 发版时补条目 |
 | [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），可带一句 ≤30 字方向，**不写方案设计、也不承诺要做** | 攒需求 / 清理待办时；待办只记不做 |
 | [.github/pull_request_template.md](.github/pull_request_template.md) | PR 描述模板（动机 / 变更 / 测试证据三段） | 开 PR 时按它填 |
@@ -86,6 +86,8 @@
 
 同一件事只写一处：决策理由写进本文件对应小节；代码注释不写变更史（「原本…现在已移除」这类留给 git）。
 
+**文档随改动同步（强制）**：一个需求实现完、提交 / 开 PR 之前，先按「文档职责总表」自查本次改动波及的文档与注释（README 的载体分工与手测步骤、ARCHITECTURE 的载体与运行时、本文件红线、配置内注释等），**该改的与代码同批改完再交付**。**不许留到 PR 合并之后补**：事后补的改动不在同一条提交序列里，没有触发点、没有对账人，事实就此长期漂移。新增入口 / 改行为 / 加载体这类改动最容易只改代码、漏改文档。
+
 **执行分工（AI 代理）**：
 
 | 环节 | 做法 |
@@ -93,9 +95,9 @@
 | 动手前 | 读本文件 → 「文档职责总表」→ 相关文档 → `.workbuddy/memory/`（本机上下文，不入库）；重大变更的决策理由记进本文件对应小节 |
 | 可直接做 | 读代码、探索、改文档 / 注释 / 格式、日常改动 |
 | 先问再做 | 改行为或结构、加依赖、动 manifest、删文件、外部操作（push / 发布） |
-| 交付前 | 走上面「交付前验证」；UI 不做额外视觉校验 |
+| 交付前 | 走上面「交付前验证」；并自查波及的文档与注释是否需同步（见上「文档随改动同步」），需要改的与代码同批改完；UI 不做额外视觉校验 |
 | 提交 | 允许提交，但提交前须说明改了什么；改错可随时中止 |
-| 收尾 | 讨论出的结论和踩到的坑落进仓库（落点见「文档职责总表」），不停留在 `.workbuddy/` |
+| 收尾 | 讨论出的结论和踩到的坑落进仓库（落点见「文档职责总表」），不停留在 `.workbuddy/`；**过程沉淀不算文档同步，别拿它替代上一行的自查** |
 | 主动报告 | 发现方向偏离、死链、过时内容、规范互相冲突 → 直接指出，不等询问 |
 
 其他：修改前先阅读相关文件；需要桌面版旧实现参照时从 git 历史取回；测试体系已建立，新增功能尽量补最小验证（探针脚本放 `tmp/`），方案先与用户确认。

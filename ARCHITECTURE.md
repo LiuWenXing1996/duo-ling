@@ -7,7 +7,7 @@
 
 ## 形态
 
-Chrome MV3 扩展（background service worker + side panel + 工作台标签页）。原 Electron 桌面版实现已不在工作区，需要参照时从 git 历史取回。
+Chrome MV3 扩展（background service worker + side panel + 工作台标签页；另有工具栏 popup 与 content script 注入的网页浮层）。原 Electron 桌面版实现已不在工作区，需要参照时从 git 历史取回。
 
 ## 载体与运行时
 
@@ -15,15 +15,18 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 | --- | --- | --- |
 | 扩展页 | `sidepanel.html`（side panel） | 指令入口与观察窗（对话界面） |
 | 扩展页 | `workbench.html`（标签页） | 重界面工作区（脚本管理 / 运行日志 / 设置等） |
+| 扩展页 | `popup.html`（工具栏 popup） | 配置入口：网页浮层开关（总开关 + 当前站点）+「打开对话 / 打开工作台」；**不承载对话**（不装 `window.api`） |
+| 扩展页 | `floatpanel.html`（网页浮层 iframe） | 网页内对话界面：与 side panel 复用同一个 `ChatApp`、共享同一份会话 |
+| 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：注入悬浮按钮 + iframe（按站点开关），拾取期间整块让位 |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + esbuild 构建宿主 + `duoling-fs` 源码的唯一写入方 |
 | 注入世界 | USER_SCRIPT（第三方页面内） | 用户脚本自身逻辑，只能经 `window.DL` 桥接 |
 
-两个载体各承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」。
+各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的注入细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级）见 [src/entrypoints/content.ts](src/entrypoints/content.ts) 顶部注释与 README 坑 15。
 
 ## 对话链路
 
-侧边栏只做指令入口与观察；整条链路（`streamText` + tools）跑在 **offscreen document**，侧边栏经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权。offscreen 容器按需创建（`src/lib/offscreen.ts`）。
+指令入口（侧边栏 / 网页浮层）只做观察；整条链路（`streamText` + tools）跑在 **offscreen document**，入口经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权。offscreen 容器按需创建（`src/lib/offscreen.ts`）。
 
 - **流式静默超时（防限流）**：`runLoop` 泵流期间挂 `createIdleGuard`（`src/lib/offscreen-chat/idle-guard.ts`），两次 chunk 间隔超 `STREAM_IDLE_TIMEOUT_MS`（默认 60s，可在模型高级配置里按 provider 调整 `streamIdleTimeoutSec` 秒）即判定 provider 卡死（有连接但不吐 token），主动 `abort` 并推 error 块「请求超时…已自动中止」。避免静默卡死的请求长期占用网关连接/并发配额、累积触发限流；用户手动停止走 `abortChat`，与此计时无关。模型配置探活 `testChat` 另有 15s 超时。
 
@@ -54,7 +57,7 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 
 ⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`——**密钥同存本机，属防扫描级而非保密级**）、key-cipher DEK、MAIN 世界桩密钥（`pageSecret`）——扩展自己的小数据；`chrome.storage.local` 已清零。
 
-⑥ **会话库 `duoling-chat`**（`conversation-store.ts` 读写，**唯一写方 = offscreen**，侧边栏只读订阅）：会话与消息 + 生成任务快照（tasks store，宿主被杀后可续）——它不在 userScripts 链路里，故与 `duoling-state` 分开。
+⑥ **会话库 `duoling-chat`**（`conversation-store.ts` 读写，**唯一写方 = offscreen**，读侧（侧边栏 / 网页浮层）只读订阅）：会话与消息 + 生成任务快照（tasks store，宿主被杀后可续）——它不在 userScripts 链路里，故与 `duoling-state` 分开。
 
 DevTools 里按库名过滤：`duoling-fs` / `duoling-state` / `duoling-usdata` / `duoling-runtime` / `duoling-app` / `duoling-chat`（**不存在名为 `duoling` 的库**）。
 
