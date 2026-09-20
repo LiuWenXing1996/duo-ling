@@ -1043,7 +1043,7 @@ function lastBuildLabel(s: ScriptSummary): string {
               v-else
               class="flex flex-col rounded-md border bg-card p-3"
             >
-              <!-- 顶部：图标 + 名称 + 构建状态标（名称截断，状态标保持可见） -->
+              <!-- 顶部：图标 + 名称（独占一行）+ 状态标（统一另起一行） -->
               <div class="flex items-start gap-2">
                 <span
                   class="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
@@ -1051,11 +1051,19 @@ function lastBuildLabel(s: ScriptSummary): string {
                   <ui-braces class="size-3.5" />
                 </span>
                 <div class="min-w-0 flex-1">
-                  <div class="flex items-center gap-1.5">
-                    <!-- TooltipProvider：状态标悬停时刻用 shadcn Tooltip（原生 title 有 ~1s 浏览器
-                         延时）；Provider 默认 0ms 即显，包在名字行——TooltipRoot 必须有 Provider 上下文 -->
-                    <ui-tooltip-provider>
-                      <span class="truncate text-sm font-medium">{{ item.s.name }}</span>
+                  <!-- 名称独占一行（超长省略，悬停 Tooltip 看全名）；状态标统一另起一行 ——
+                       避免窄卡片里 shrink-0 的状态标把可收缩的名称挤到只剩一个字 -->
+                  <ui-tooltip-provider>
+                    <!-- TooltipProvider：名称与状态标悬停时刻用 shadcn Tooltip（原生 title 有 ~1s 浏览器
+                         延时）；Provider 默认 0ms 即显——TooltipRoot 必须有 Provider 上下文。
+                         Provider 只渲染 slot、不产元素，故名称与状态标行仍是本容器的直接块级子项 -->
+                    <ui-tooltip>
+                      <ui-tooltip-trigger as-child>
+                        <span class="block truncate text-sm font-medium">{{ item.s.name }}</span>
+                      </ui-tooltip-trigger>
+                      <ui-tooltip-content>{{ item.s.name }}</ui-tooltip-content>
+                    </ui-tooltip>
+                    <div class="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1">
                       <span
                         v-if="justImported.includes(item.s.uuid) && !item.s.enabled"
                         class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
@@ -1107,8 +1115,8 @@ function lastBuildLabel(s: ScriptSummary): string {
                         </ui-tooltip-trigger>
                         <ui-tooltip-content>{{ lastBuildLabel(item.s) }}</ui-tooltip-content>
                       </ui-tooltip>
-                    </ui-tooltip-provider>
-                  </div>
+                    </div>
+                  </ui-tooltip-provider>
                 </div>
               </div>
 
