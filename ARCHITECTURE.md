@@ -37,13 +37,17 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 - **DL.fetch 的 forbidden header 覆写**（Cookie / Referer / UA 等）与 `redirect:'manual'` 走 DNR session 规则按请求挂/撤 + 观察型 webRequest（`dl-fetch-priv.ts`，2026-09-19 经评审批准；权限 `declarativeNetRequestWithHostAccess` + `webRequest` 均不新增用户可见提示）。
 - **覆写期间同 host 互斥**（读写锁，防规则污染并发请求）——粒度限制与生命周期兜底见 [README.md](README.md) 坑 14。
 - **USER_SCRIPT 世界不配 `csp`**：回落浏览器默认的严 CSP（禁 `eval` / `new Function`），不额外给 AI 生成的脚本「执行任意字符串」的能力。生成提示词与 `script_spec` 明令避开，保存时由 `collectCspWarnings` 对含 `eval` 的注入代码给非阻塞警告（底线见 [AGENTS.md](AGENTS.md) 硬性底线「脚本世界 CSP」）。
+- **网络录制（dl-recorder，两段式常驻件）**：要拦页面**自己**发出的 `fetch`/`XMLHttpRequest`，钩子只能挂 MAIN 世界（USER_SCRIPT 各有独立 realm，挂它的 `window.fetch` 拦不到）；而 MAIN 世界无 `chrome.*`。故两件协作、都按「用户已同意录制的 host 集合」注册（`net-capture-gate.ts`，默认空集＝不注册）：
+  - `dl-net-recorder`（`world: 'MAIN'`，`document_start`）：包装 `fetch` 与 XHR，非阻塞采样后 `window.postMessage`（标签 `__dlNetCapture`）交给同帧；
+  - `dl-net-forwarder`（独立 USER_SCRIPT 世界 `us-dl-net`，`messaging: true`）：监听该标签消息，经 `chrome.runtime.sendMessage` 转 SW；
+  - SW 侧 `dl-bridge` 用 `normalizeCapture` 白名单化（载荷经页面可伪造的 postMessage，形状不可信）后落 `duoling-netlog`。采样剥鉴权头、请求/响应体各封顶 ≤2KB、每 host 环形 ≤200 条；设计契约见 [docs/dl-recorder-design.md](docs/dl-recorder-design.md)。
 
 ## 页面上下文
 
 - **点选元素**：`chrome.userScripts.execute()` 按需注入内置拾取器，产物暂存后随下一条消息发出。
 - **页面快照**：AI 侧 `page_snapshot` 工具经 SW 采集。
 
-## 存储（IndexedDB 分库：源码 / 注册态 / 脚本数据 / 观测数据 / 应用配置 / 会话，2026-09-19 重构）
+## 存储（IndexedDB 分库：源码 / 注册态 / 脚本数据 / 观测数据 / 应用配置 / 会话 / 网络录制，2026-09-19 重构）
 
 > 分库写权限是硬边界：**注册链路对 offscreen 存活零依赖**。
 
@@ -59,7 +63,9 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 
 ⑥ **会话库 `duoling-chat`**（`conversation-store.ts` 读写，**唯一写方 = offscreen**，读侧（侧边栏 / 网页浮层）只读订阅）：会话与消息 + 生成任务快照（tasks store，宿主被杀后可续）——它不在 userScripts 链路里，故与 `duoling-state` 分开。
 
-DevTools 里按库名过滤：`duoling-fs` / `duoling-state` / `duoling-usdata` / `duoling-runtime` / `duoling-app` / `duoling-chat`（**不存在名为 `duoling` 的库**）。
+⑦ **网络录制库 `duoling-netlog`**（`netlog-db.ts`，**写只归 SW**）：`captures` store（自增主键 + `by_host` 索引）——页面接口流量的**采样**（隐私敏感、按站点授权），每 host 环形 ≤ `NET_HOST_RING_LIMIT`（超限删最旧）。写入口是 `dl-bridge` 的 `__dlNetCapture` 分支；门禁（哪些 host 在录）是**应用配置**，存 `duoling-app` 的 `netCaptureHosts` 键（见 `net-capture-gate.ts`）。与 `duoling-runtime` 分开：那是脚本观测数据，这是「页面之外」的网络流量采样，生命周期随「关录制 / 清记录」走。
+
+DevTools 里按库名过滤：`duoling-fs` / `duoling-state` / `duoling-usdata` / `duoling-runtime` / `duoling-app` / `duoling-chat` / `duoling-netlog`（**不存在名为 `duoling` 的库**）。
 
 ## 统一保存（2026-09-19 经评审确认）
 

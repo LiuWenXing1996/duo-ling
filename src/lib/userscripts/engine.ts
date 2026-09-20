@@ -13,6 +13,10 @@ import { appendUserScriptError } from './store'
 import { buildPageStubSource } from './page-stub'
 import { buildPageClientSource } from './page-client'
 import { generatePageSecret } from './page-protocol'
+// 网络录制：MAIN 捕获件 + USER_SCRIPT 转发件 + per-host 门禁（默认关，按站点显式开）
+import { buildNetRecorderSource } from './net-recorder'
+import { buildNetForwarderSource } from './net-forwarder'
+import { getNetCaptureHosts, hostToMatchPattern } from './net-capture-gate'
 // 内置注入脚本共用：匹配并集与「未变则跳过」比对
 import { enabledMatchUnion, sameMatchSet } from './match-union'
 
@@ -666,6 +670,17 @@ function sourceURLSuffix(project: ScriptProject): string {
 
 /** MAIN 世界共享桩的注册 ID：一个扩展一份，不是每脚本一份 */
 export const PAGE_STUB_ID = 'dl-page-stub'
+
+/** 网络录制 · MAIN 捕获件注册 ID（一个扩展一份） */
+export const NET_RECORDER_ID = 'dl-net-recorder'
+/** 网络录制 · USER_SCRIPT 转发件注册 ID（一个扩展一份） */
+export const NET_FORWARDER_ID = 'dl-net-forwarder'
+/** 转发件的独立世界 id：必须 configureWorld({ messaging: true })，否则世界内无 chrome.runtime */
+const NET_FORWARDER_WORLD_ID = 'us-dl-net'
+
+/** 内置注册的 id 全集：全量重注册清「陈旧脚本」时必须排除它们（否则把自己刚同步的注册清掉） */
+const BUILTIN_SCRIPT_IDS = [PAGE_STUB_ID, NET_RECORDER_ID, NET_FORWARDER_ID]
+
 /** stubSecret 持久化键：MV3 SW 随时休眠，模块变量会归零，密钥必须落盘（duoling-app 库） */
 const PAGE_SECRET_KEY = 'pageSecret'
 
@@ -749,6 +764,83 @@ async function syncPageStubUnion(projects: ScriptProject[]): Promise<void> {
     console.warn('[duoling:sw] MAIN 桩注册失败：', e)
     throw e
   }
+}
+
+// —— 网络录制件（dl-recorder）：常驻 + 独立 per-host 门禁 ——
+//
+// 与 MAIN 桩完全独立：桩跟随「启用用户脚本并集」，录制件跟随「用户已同意录制的 host 集合」
+// （net-capture-gate.ts）。默认空集 = 两件都不注册，页面里没有任何录制代码。
+//
+// 为什么是两个注册：捕获必须在页面真实世界（MAIN）才拦得到 fetch/XHR，而 MAIN 无 chrome.*；
+// 故 MAIN 捕获件 postMessage 给同帧的 USER_SCRIPT 转发件，再由它 sendMessage 到 SW。
+
+/**
+ * 按门禁集合维护录制件注册（幂等可重入；调用方负责串行化）。
+ * 集合为空 → 注销两件；否则对 `*://<host>/*` 注册 MAIN 捕获件 + USER_SCRIPT 转发件。
+ * 集合未变且两件都在位时跳过重注册（重注册会换注入源码，已加载页面要到下次导航才换新）。
+ */
+async function syncNetRecorder(): Promise<void> {
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
+  const hosts = await getNetCaptureHosts()
+  const matches = hosts.map(hostToMatchPattern).filter(Boolean)
+  let existing: chrome.userScripts.RegisteredUserScript[] = []
+  try {
+    existing = (await chrome.userScripts.getScripts()).filter(
+      (s) => s.id === NET_RECORDER_ID || s.id === NET_FORWARDER_ID,
+    )
+  } catch {
+    return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
+  }
+  if (!matches.length) {
+    if (existing.length) {
+      await unregisterScripts(existing.map((s) => s.id))
+      console.log('[duoling:sw] 录制门禁为空，已注销 dl-recorder')
+    }
+    return
+  }
+  const recorder = existing.find((s) => s.id === NET_RECORDER_ID)
+  const forwarder = existing.find((s) => s.id === NET_FORWARDER_ID)
+  const union = { matches }
+  if (recorder && forwarder && sameMatchSet(recorder, union) && sameMatchSet(forwarder, union)) {
+    return
+  }
+  // 转发件的独立世界必须先开 messaging——自定义世界不继承默认世界配置，否则它没有
+  // chrome.runtime、转发件 sendMessage 全静默失败（症状：录制件在、库里永远没数据）
+  const worldOk = await configureWorld(NET_FORWARDER_WORLD_ID)
+  if (!worldOk) {
+    console.warn('[duoling:userscript] 录制转发件世界配置失败（无 messaging，转发不可用）', NET_FORWARDER_WORLD_ID)
+  }
+  await unregisterScripts([NET_RECORDER_ID, NET_FORWARDER_ID])
+  const common = { matches, runAt: 'document_start' as const, allFrames: true }
+  const recorderScript: chrome.userScripts.RegisteredUserScript = {
+    id: NET_RECORDER_ID,
+    world: 'MAIN',
+    js: [{ code: buildNetRecorderSource() }],
+    ...common,
+  }
+  const forwarderScript: chrome.userScripts.RegisteredUserScript = {
+    id: NET_FORWARDER_ID,
+    worldId: NET_FORWARDER_WORLD_ID,
+    js: [{ code: buildNetForwarderSource() }],
+    ...common,
+  }
+  try {
+    await chrome.userScripts.register([recorderScript, forwarderScript])
+    console.log('[duoling:sw] 录制件注册成功：', JSON.stringify(matches))
+  } catch (e) {
+    console.warn('[duoling:sw] 录制件注册失败：', e)
+    throw e
+  }
+}
+
+/**
+ * 重算录制件注册（挂 registerChain 串行队列）。门禁集合变更后（开启 / 关闭录制）由调用方触发。
+ * 与 refreshBuiltinScripts 分开：录制件跟随的是 per-host 门禁，不是脚本集合。
+ */
+export function refreshNetRecorder(): Promise<void> {
+  const run = registerChain.then(() => syncNetRecorder())
+  registerChain = run.catch(() => {})
+  return run
 }
 
 /**
@@ -856,11 +948,15 @@ async function runRegisterAllEnabled(): Promise<void> {
   const projects = await listProjects()
   // 先同步内置注册（启用脚本集合可能变化），再重注册脚本——同一遍里保持桩与包装密钥一致
   await syncPageStubUnion(projects).catch(() => {})
+  // 录制件跟随 per-host 门禁（与脚本集合无关）：SW 冷启动 / 扩展更新恢复时一并同步，
+  // 保证「用户已同意录制的站点」在重注册后依然生效
+  await syncNetRecorder().catch(() => {})
   const enabled = projects.filter((p) => p.enabled)
   try {
     const existing = await chrome.userScripts.getScripts()
-    // 全量重注册只清用户脚本——内置注册（MAIN 桩）在上一行刚按并集同步过，不能被这把误清
-    const stale = existing.filter((s) => s.id !== PAGE_STUB_ID)
+    // 全量重注册只清用户脚本——内置注册（MAIN 桩 / 录制件）在上一段刚按并集 / 门禁同步过，
+    // 不能被这把误清（否则重注册后录制件消失，直到下次冷启动才补）
+    const stale = existing.filter((s) => !BUILTIN_SCRIPT_IDS.includes(s.id))
     if (stale.length) await unregisterScripts(stale.map((s) => s.id))
   } catch {
     // 可用性未恢复时 getScripts 抛错，忽略（上层已检测）

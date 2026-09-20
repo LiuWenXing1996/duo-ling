@@ -50,7 +50,7 @@
 | --- | --- | --- |
 | [README.md](README.md) | 工程介绍、载体分工、目录结构、手测步骤、关键坑 | 上手 / 手测前；踩到新坑就地补「关键坑」 |
 | **AGENTS.md**（本文件） | 协作约定、红线与硬性底线、命令清单、调试方法论、文档导航（本表） | 动手前；结论成形后就地补对应小节 |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | **运行时架构**：载体与运行时、对话链路、脚本注入、页面上下文、存储六库、统一保存、用户脚本版本管理、数据广播、依赖构建、构建信息注入 | 改这些实现前；改完就地更新 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | **运行时架构**：载体与运行时、对话链路、脚本注入、页面上下文、存储七库、统一保存、用户脚本版本管理、数据广播、依赖构建、构建信息注入 | 改这些实现前；改完就地更新 |
 | [VERSIONING.md](VERSIONING.md) | 扩展**自身**版本机制：真相源 / SemVer / 预发布规则 / tag / release PR 流程 / GitHub Release notes 与故障处置 | 发版 / 改版本号前 |
 | [GIT_WORKFLOW.md](GIT_WORKFLOW.md) | **Git 工作流**：提交信息格式与 type 白名单 / 分支命名 / 分支保护与合并流程 / 小修补搭车 / 合并提交标题 | 写提交 / 起分支 / 开 PR 前 |
 | [CHANGELOG.md](CHANGELOG.md) | 每个发布版本的变更条目（格式与维护方式见 VERSIONING.md） | 发版时补条目 |
@@ -113,7 +113,7 @@
 | background（能力运行时） | `chrome://extensions` → 该扩展的「Service Worker」→ Console | SW 报错不会出现在面板 Console |
 | 消息链路（扩展页 → background → offscreen） | 三段各打一条日志，确认消息形状与 `uuid` | 跨上下文流转必须按边界验证 |
 | AI 工具调用（模型调了哪些工具、入参/结果、契约原文） | 工作台「AI 工具」标签页 | 轨迹 = 会话库落盘的 tool parts（只读）；契约与模型所见同源（`agent-tools-catalog.ts`） |
-| 持久化 | DevTools → Application → IndexedDB（**按库名过滤**，六个 `duoling-*` 库的分工见 [ARCHITECTURE.md](ARCHITECTURE.md)「存储」） | 以落盘数据事实为准 |
+| 持久化 | DevTools → Application → IndexedDB（**按库名过滤**，七个 `duoling-*` 库的分工见 [ARCHITECTURE.md](ARCHITECTURE.md)「存储」） | 以落盘数据事实为准 |
 | 构建/产物 | 直接查 `.output/chrome-mv3/manifest.json` 与产物 JS | manifest 权限错误只能在此确认 |
 
 边界：改了配置要走**重启 dev** 那条路（见 [wxt](.agents/skills/wxt/SKILL.md) 硬约束），再到 `chrome://extensions` 点刷新图标重载扩展。
