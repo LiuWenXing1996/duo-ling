@@ -16,6 +16,8 @@ export type AgentToolName =
   | 'script_apply'
   | 'element_read'
   | 'page_snapshot'
+  | 'net_capture_enable'
+  | 'net_capture_read'
   | 'error_read'
 
 /** 运行时闸门：面板展示的阈值与运行时真身共用这一份（改这里即改行为，别再各写一份） */
@@ -44,6 +46,15 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
     '抓取当前页面的**渲染后 DOM** 快照（documentElement.outerHTML，截断 ~32KB，拾取时刻快照非实时）。' +
     '需要了解页面整体结构、找脚本目标节点的上下文、或摘要信息不够用时调用。' +
     '内置页（chrome:// 等）与非活动窗口不可采，返回 ok:false 带原因。',
+  net_capture_enable:
+    '为该站点开启接口录制（页面发出的 fetch / XHR）。调用后会在对话里出一张开启卡片，' +
+    '**必须由用户点确认**——你不能替用户决定，卡片出现后就把话交给用户，不要重复调用。' +
+    '用户点开启后，还要请其点浏览器的刷新按钮重载页面：钩子只在文档开头挂，' +
+    '不刷新就录不到已经跑完的首屏请求。用户刷新完再调 net_capture_read 读回。',
+  net_capture_read:
+    '读回该站点已录制的接口语料（地址 / 方法 / 请求体 / 响应结构采样；鉴权头在采集时已剥离，' +
+    '所以鉴权信息是缺的，别据此推断登录态）。需先 net_capture_enable 拿到用户同意、且用户已刷新过页面，' +
+    '否则没有数据（返回 ok:false 并说明缺哪一步）。',
   error_read:
     '按错误 ID 查询一条脚本错误记录。用户可能直接粘贴一个错误 ID（脚本运行出错后，' +
     '工作台错误日志里每条错误旁都展示，前 8 位短形态）要求修复。返回错误详情（message / stack / ' +
@@ -65,6 +76,12 @@ export const TOOL_PARAM_DESCRIPTIONS = {
   },
   element_read: {
     part: '只取一部分省 token；默认 all',
+  },
+  net_capture_enable: {
+    host: '目标站点主机名（如 example.com）。从 system prompt 的当前页面 URL 取；只填主机名，不带协议与路径',
+  },
+  net_capture_read: {
+    host: '目标站点主机名（与 net_capture_enable 同一个）',
   },
   error_read: {
     id: '错误 ID：完整 id，或至少 8 位的前缀（多命中会报不唯一）',
@@ -216,6 +233,29 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
     params: [],
     returns: '{ ok:true, pageUrl, capturedAt, html }',
     unavailable: '未接采集通道 / 内置页（chrome://）/ 非活动窗口 → { ok:false, error }',
+  },
+  {
+    name: 'net_capture_enable',
+    title: '开启接口录制',
+    summary: '出录制同意卡（用户点确认），为该站点开接口录制',
+    description: TOOL_DESCRIPTIONS.net_capture_enable,
+    params: [
+      { name: 'host', type: 'string', required: true, desc: T.net_capture_enable.host },
+    ],
+    returns:
+      '未开时 { ok:true, awaitingUser:true, host }（等用户点卡片）；已开时 { ok:true, enabled:true, host }',
+    unavailable: '当前环境未接入录制通道 → { ok:false, error }',
+  },
+  {
+    name: 'net_capture_read',
+    title: '读接口录制',
+    summary: '读回该站点已录的接口语料（请求 / 响应结构采样）',
+    description: TOOL_DESCRIPTIONS.net_capture_read,
+    params: [
+      { name: 'host', type: 'string', required: true, desc: T.net_capture_read.host },
+    ],
+    returns: '{ ok:true, host, count, captures }（captures 为逐条文本）',
+    unavailable: '该站点未开启录制、或用户还没刷新过页面（无数据）→ { ok:false, error }',
   },
   {
     name: 'error_read',

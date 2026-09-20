@@ -46,12 +46,13 @@ dl-recorder 既不是"按需"也不是"被动跟随"，是第三类：常驻 + �
 
 ## 5. 录制内容与隐私
 
-捕获字段（每条）：`type`(fetch|xhr) / `url` / `method` / `reqHeaders`（剥离鉴权头）/ `reqBody` 采样(≤2KB，二进制标 `[binary]`) /
+捕获字段（每条）：`type`(fetch|xhr) / `url`（query 与 fragment 的凭据已脱敏，见下）/ `method` / `reqHeaders`（剥离鉴权头）/ `reqBody` 采样(≤2KB，二进制标 `[binary]`) /
 `status` / `respHeaders`（非鉴权）/ `respBody` 结构摘要(≤2KB，二进制标 `[binary]`) / `t`(时间戳)。
 
 隐私门（硬约束）：
 - per-host **默认关**；开启需显式同意（同意卡讲清录什么 / 存本地 / 可随时关）。
 - 可随时关 / 清（清 = 删该 host 库记录）。
+- **URL 里的凭据也要脱**（`stripUrlSecrets`，落库前在 `normalizeCapture` 里做）：只剥鉴权头挡不住把凭据放 URL 的站点（`?access_token=…` / `?code=…` / `?sign=…` / OAuth implicit 的 `#access_token=…`），这类 URL 会连标识一起进库、进 AI 上下文。规则：键名命中敏感词（token/secret/key/sign/auth/access/code/password/session 及 sid/cid/uid 等，词边界匹配、支持驼峰）**或**值解码后超 24 字符 → 值换 `***`；**键名一律保留**，AI 判断「这个端点带哪些参数」不受影响。
 - 页面 JS 读不到 HttpOnly Cookie 等鉴权头，AI 看到的接口会缺鉴权头——prompt 里讲清。
 
 ## 6. 存储（duoling-netlog）
@@ -70,7 +71,15 @@ dl-recorder 既不是"按需"也不是"被动跟随"，是第三类：常驻 + �
 可复用组件：今天渲染在 side panel 的 ChatPanel，明天渲染在页面浮窗（`window.DL` 浮层）——组件级搬迁，流程不变。
 卡内引导用户**点浏览器刷新按钮**（刷新需用户确认）。
 
+实现落点（2026-09-20）：**对话流内的卡片**（`ChatPanel.vue`，与「生成卡片」同族），走 `data-net-capture` data part——
+由 `net_capture_enable` 工具的 `requestConsent` 回调推送并随消息落盘。两态：
+未开启（按钮「开启录制」）/ 录制中（按钮「关闭录制」+ 刷新引导）。状态以 SW 的门禁集合为权威，
+面板挂载时拉一次 `userscript:netCaptureState`，不信卡里落盘那一刻的快照。
+
+因为 side panel 与页面浮窗用的是同一套 `ChatApp`/`ChatPanel`，卡片写一次两处都有。
+
 ## 9. 首期范围 vs 后续
 
-- **首期（数据通路，已实现 2026-09-20）**：`net-recorder.ts`（MAIN 捕获）+ `net-forwarder.ts`（转发）+ `netlog-db.ts`（`duoling-netlog`）+ `net-record-protocol.ts`（共享常量 / 入站归一化）+ `net-capture-gate.ts`（per-host 门禁，存 `duoling-app` 的 `netCaptureHosts`）+ engine 注册（`syncNetRecorder` / `refreshNetRecorder`）+ dl-bridge 落库分支。
-- **后续**：`net_capture_enable` / `net_capture_read` 工具实现 + catalog 登记 + `system-prompt` 注入（「该站点已观测接口」摘要档）+ 同意卡 UI（引导点浏览器刷新按钮）。
+- **首期（数据通路，已实现 2026-09-20）**：`net-recorder.ts`（MAIN 捕获）+ `net-forwarder.ts`（转发）+ `netlog-db.ts`（`duoling-netlog`）+ `net-record-protocol.ts`（共享常量 / 入站归一化 / host 归一化）+ `net-capture-gate.ts`（per-host 门禁，存 `duoling-app` 的 `netCaptureHosts`）+ engine 注册（`syncNetRecorder` / `refreshNetRecorder`）+ dl-bridge 落库分支。
+- **二期（AI 路径，已实现 2026-09-20）**：`script-tools.ts` 的 `net_capture_enable` / `net_capture_read` 两个 agent 工具 + `agent-tools-catalog.ts` 登记（面板与模型同源）+ `net-record-digest.ts`（摘要档 / 全量档两档压缩）+ `system-prompt.ts` 的「接口录制」档 + SW 命令面 `userscript:netCapture{State,Enable,Disable,Read}` + 同意卡（§8）。
+- **未做**：关闭录制后的「清记录」入口（`netlog-db.clearCapturesByHost` 已备，缺 UI）；浏览器内端到端实测（浮窗与侧栏两处卡片的真实渲染 + 开启→刷新→读回的完整流程）。

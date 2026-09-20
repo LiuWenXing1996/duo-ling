@@ -21,6 +21,7 @@ import {
 } from '@/lib/agent-tools-catalog'
 import { buildProject, BuildError } from '@/lib/userscripts/builder'
 import { getProject, validateFiles } from '@/lib/userscripts/project-store'
+import { normalizeHost } from '@/lib/userscripts/net-record-protocol'
 import { readSourceTree } from '@/lib/userscripts/us-git'
 import type { ScriptConfig, UserScriptErrorRecord } from '@/lib/userscripts/types'
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
@@ -68,12 +69,33 @@ const applyConfigSchema = z.object({
 export type ApplyConfigInput = z.infer<typeof applyConfigSchema>
 
 /**
+ * 网络录制回调组（由 chat-host 注入）。
+ *
+ * 为什么是回调而不是直接调 offscreenBridge：本模块的依赖边界是「builder + project-store +
+ * us-git + 纯数据模块」，offscreenBridge 属编排层的能力面。更关键的是
+ * **requestConsent 要往对话流里推 data part**——那是 chat-host 的职责（它持有
+ * conversationId 与事件缓冲），工具只负责「要一张卡」。
+ */
+export interface NetCaptureHooks {
+  /** 已同意录制的 host 集合（判「已开则不再出卡」） */
+  hosts: () => Promise<string[]>
+  /** 读回语料：digest = 接口清单 / full = 逐条采样 */
+  read: (
+    host: string,
+    mode: 'digest' | 'full',
+  ) => Promise<{ enabled: boolean; count: number; text: string }>
+  /** 出同意卡（推 data part，等用户点） */
+  requestConsent: (host: string) => Promise<void>
+}
+
+/**
  * 构建 Agent 工具（script 三件套 + element_read + page_snapshot）。snapshot 回调由 chat-host 提供（每步 apply 成功后把文件树
  * 快照进 IndexedDB 任务记录——覆盖写，宿主被杀后「继续」才有东西可继续）。
  * onFatal：硬停手回调——失败超阈值后模型仍再次 apply（无视 stop 提示）时中止整个
  * 任务（stop 提示只是文案，模型会无视继续烧步数）。
  * elementContext：本请求携带的拾取元素快照（用户显式点选；undefined = 本次没有）。
  * captureSnapshot：页面快照采集（经 SW 调 userScripts.execute，AI 判断需要时调用；未提供 = 工具返回不可用）。
+ * netCapture：接口录制（requestConsent 出同意卡 / read 读回语料；未提供 = 工具返回不可用）。
  */
 export function buildScriptTools(
   ws: TaskWorkspace,
@@ -82,6 +104,7 @@ export function buildScriptTools(
   elementContext?: ElementPickContext,
   captureSnapshot?: () => Promise<PageSnapshotContext>,
   readError?: (id: string) => Promise<UserScriptErrorLookup>,
+  netCapture?: NetCaptureHooks,
 ) {
   const tools = {
     script_spec: tool({
@@ -248,6 +271,76 @@ export function buildScriptTools(
         }
       },
     }),
+    net_capture_enable: tool({
+      description: TOOL_DESCRIPTIONS.net_capture_enable,
+      inputSchema: z.object({
+        host: z.string().describe(TOOL_PARAM_DESCRIPTIONS.net_capture_enable.host),
+      }),
+      execute: async ({ host }) => {
+        if (!netCapture) return { ok: false, error: '录制通道不可用（当前环境未接入）' }
+        const h = normalizeHost(host)
+        if (!h) return { ok: false, error: `无效的站点：${host}（只填主机名，如 example.com）` }
+        let enabled = false
+        try {
+          enabled = (await netCapture.hosts()).includes(h)
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+        }
+        if (enabled) {
+          return {
+            ok: true,
+            enabled: true,
+            host: h,
+            hint:
+              '该站点的录制已开启。若用户在开启之后还没刷新过页面，请先让其点浏览器的刷新按钮，' +
+              '再调 net_capture_read 读回。',
+          }
+        }
+        await netCapture.requestConsent(h)
+        return {
+          ok: true,
+          awaitingUser: true,
+          host: h,
+          hint:
+            '已向用户展示开启卡片，等其点「开启录制」并按卡片提示刷新页面。' +
+            '在用户回话之前不要重复调用本工具。',
+        }
+      },
+    }),
+
+    net_capture_read: tool({
+      description: TOOL_DESCRIPTIONS.net_capture_read,
+      inputSchema: z.object({
+        host: z.string().describe(TOOL_PARAM_DESCRIPTIONS.net_capture_read.host),
+      }),
+      execute: async ({ host }) => {
+        if (!netCapture) return { ok: false, error: '录制通道不可用（当前环境未接入）' }
+        const h = normalizeHost(host)
+        if (!h) return { ok: false, error: `无效的站点：${host}（只填主机名，如 example.com）` }
+        let r: { enabled: boolean; count: number; text: string }
+        try {
+          r = await netCapture.read(h, 'full')
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+        }
+        if (!r.enabled) {
+          return {
+            ok: false,
+            error: `「${h}」的接口录制未开启。需要接口数据时先调 net_capture_enable，由用户确认开启。`,
+          }
+        }
+        if (!r.count) {
+          return {
+            ok: false,
+            error:
+              `「${h}」已开启录制但还没有数据：录制是前向的，钩子只在文档开头挂。` +
+              '请用户点浏览器的刷新按钮重载页面，首屏请求才会被录到；刷新后再调本工具。',
+          }
+        }
+        return { ok: true, host: h, count: r.count, captures: r.text }
+      },
+    }),
+
     error_read: tool({
       description: TOOL_DESCRIPTIONS.error_read,
       inputSchema: z.object({

@@ -111,6 +111,18 @@ export type RuntimeRequest =
   // 错误 ID 修复闭环：AI 的 error_read 工具经 SW 代查
   // 错误日志（runtime 库，offscreen 拿不到）。id = 完整记录 id 或唯一 8 位前缀
   | { kind: 'userscript:errorRead'; id: string }
+  // —— 网络录制（dl-recorder）——
+  // 授权态（duoling-app 的 netCaptureHosts）与录到的记录（duoling-netlog 库）都归 SW 管辖，
+  // 故 offscreen 侧的两个 agent 工具经 offscreenBridge 走这组命令，UI 的同意卡也直接调它。
+  //
+  // 为什么 enable / disable 单独成命令、不给工具直接用：**开启录制必须由用户手势触发**
+  // （点同意卡上的按钮）。工具只能出卡 + 等用户点（见 agent-tools-catalog 的 net_capture_enable）。
+  | { kind: 'userscript:netCaptureState' }
+  | { kind: 'userscript:netCaptureEnable'; host: string }
+  | { kind: 'userscript:netCaptureDisable'; host: string }
+  // mode：digest = 摘要档（接口清单，常驻 prompt 用）；full = 逐条采样（工具读回用）
+  | { kind: 'userscript:netCaptureRead'; host: string; mode: 'digest' | 'full' }
+
   // zip 导入：UI 读 zip 文件转 base64，SW 纯转发 offscreen
   // 单写方（解码 + 校验 + 构建 + 落盘同处）。enabled 恒 false——先审后启，故无注册动作。
   // 导出零新增协议：走现成 userscript:list / getProject 只读命令。

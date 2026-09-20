@@ -1,7 +1,7 @@
 // element_read 工具测试（验收：
 // 「`element_read` 工具可拉全量属性 / outerHTML / parent 链（单测覆盖工具）」）。
 import { describe, expect, it, vi } from 'vitest'
-import { buildScriptTools, type TaskWorkspace } from './script-tools'
+import { buildScriptTools, type NetCaptureHooks, type TaskWorkspace } from './script-tools'
 import type { ElementPickContext } from '@/shared/extension-ipc'
 
 // 真构建依赖 esbuild-wasm + chrome.runtime.getURL，单测环境不可用 → mock 掉（本文件不测构建本身）
@@ -58,6 +58,7 @@ function makeTools(
   element?: ElementPickContext,
   captureSnapshot?: () => Promise<import('@/shared/extension-ipc').PageSnapshotContext>,
   readError?: (id: string) => Promise<import('@/lib/userscripts/store').UserScriptErrorLookup>,
+  netCapture?: NetCaptureHooks,
 ) {
   const ws = makeWorkspace()
   return buildScriptTools(
@@ -67,6 +68,7 @@ function makeTools(
     element,
     captureSnapshot,
     readError,
+    netCapture,
   )
 }
 
@@ -129,11 +131,101 @@ describe('script 三件套不受影响（回归）', () => {
     expect(Object.keys(tools).sort()).toEqual([
       'element_read',
       'error_read',
+      'net_capture_enable',
+      'net_capture_read',
       'page_snapshot',
       'script_apply',
       'script_read',
       'script_spec',
     ])
+  })
+})
+
+describe('net_capture_enable / net_capture_read（接口录制）', () => {
+  /** 造一组录制钩子；`consents` 记录实际出过卡的 host（出卡即"请用户确认"） */
+  function makeHooks(over: Partial<NetCaptureHooks> = {}) {
+    const consents: string[] = []
+    const hooks: NetCaptureHooks = {
+      hosts: async () => [],
+      read: async () => ({ enabled: false, count: 0, text: '' }),
+      requestConsent: async (host) => {
+        consents.push(host)
+      },
+      ...over,
+    }
+    return { hooks, consents }
+  }
+
+  async function runEnable(tools: ReturnType<typeof buildScriptTools>, host: string) {
+    return (await tools.net_capture_enable.execute({ host }, execOpts)) as Record<string, unknown>
+  }
+  async function runRead(tools: ReturnType<typeof buildScriptTools>, host: string) {
+    return (await tools.net_capture_read.execute({ host }, execOpts)) as Record<string, unknown>
+  }
+
+  it('未接入录制通道时两个工具都返回不可用（不抛）', async () => {
+    const tools = makeTools(makeElement())
+    expect(await runEnable(tools, 'example.com')).toMatchObject({ ok: false })
+    expect(await runRead(tools, 'example.com')).toMatchObject({ ok: false })
+  })
+
+  it('host 非法直接拒绝，且不出卡', async () => {
+    const { hooks, consents } = makeHooks()
+    const tools = makeTools(makeElement(), undefined, undefined, hooks)
+    const out = await runEnable(tools, 'has space.com')
+    expect(out.ok).toBe(false)
+    expect(consents).toEqual([])
+  })
+
+  it('已开启：不出卡，直接告知请用户刷新（避免让用户以为要重复确认）', async () => {
+    const { hooks, consents } = makeHooks({ hosts: async () => ['example.com'] })
+    const tools = makeTools(makeElement(), undefined, undefined, hooks)
+    const out = await runEnable(tools, 'https://example.com/x?a=1')
+    expect(out).toMatchObject({ ok: true, enabled: true, host: 'example.com' })
+    expect(String(out.hint)).toContain('刷新')
+    expect(consents).toEqual([])
+  })
+
+  it('未开启：出卡（host 归一化后）并返回 awaitingUser', async () => {
+    const { hooks, consents } = makeHooks()
+    const tools = makeTools(makeElement(), undefined, undefined, hooks)
+    const out = await runEnable(tools, 'Example.COM')
+    expect(out).toMatchObject({ ok: true, awaitingUser: true, host: 'example.com' })
+    expect(consents).toEqual(['example.com'])
+  })
+
+  it('net_capture_read：未开启 / 无数据 / 有数据三种返回各自说清缺哪一步', async () => {
+    const disabled = makeTools(
+      makeElement(),
+      undefined,
+      undefined,
+      makeHooks({ read: async () => ({ enabled: false, count: 0, text: '' }) }).hooks,
+    )
+    const off = await runRead(disabled, 'example.com')
+    expect(off.ok).toBe(false)
+    expect(String(off.error)).toContain('未开启')
+
+    const empty = makeTools(
+      makeElement(),
+      undefined,
+      undefined,
+      makeHooks({ read: async () => ({ enabled: true, count: 0, text: '' }) }).hooks,
+    )
+    const none = await runRead(empty, 'example.com')
+    expect(none.ok).toBe(false)
+    expect(String(none.error)).toContain('刷新')
+
+    const ready = makeTools(
+      makeElement(),
+      undefined,
+      undefined,
+      makeHooks({
+        read: async () => ({ enabled: true, count: 3, text: '[1] GET https://x.test/api → 200（fetch）' }),
+      }).hooks,
+    )
+    const ok = await runRead(ready, 'example.com')
+    expect(ok).toMatchObject({ ok: true, host: 'example.com', count: 3 })
+    expect(String(ok.captures)).toContain('https://x.test/api')
   })
 })
 

@@ -28,9 +28,20 @@ import {
   registerScript,
   unregisterScripts,
   refreshBuiltinScripts,
+  refreshNetRecorder,
   collectCspWarnings,
   resolveInjectCode,
 } from '@/lib/userscripts/engine'
+// 网络录制（dl-recorder）：per-host 门禁 + 录到的记录 + 语料压缩。
+// 三者都归 SW：门禁在 duoling-app、记录在 duoling-netlog，offscreen 与扩展页都不直连。
+import {
+  disableNetCapture,
+  enableNetCapture,
+  getNetCaptureHosts,
+} from '@/lib/userscripts/net-capture-gate'
+import { normalizeHost } from '@/lib/userscripts/net-record-protocol'
+import { listCapturesByHost } from '@/lib/userscripts/netlog-db'
+import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts/net-record-digest'
 // 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
 import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/availability-watch'
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
@@ -412,6 +423,48 @@ const handlers: {
   // 精确 id 或唯一 8 位前缀；多命中 / 不存在由信封里的 reason 区分（调用方给可读文案）
   'userscript:errorRead': async (msg): Promise<ReturnType<typeof findUserScriptError>> =>
     findUserScriptError(msg.id),
+
+  // —— 网络录制（dl-recorder）——
+  // 授权态（已同意录制的 host 集合）：UI 卡片的初始状态与 AI 工具判「是否已开」都读它
+  'userscript:netCaptureState': async (): Promise<{ hosts: string[] }> => ({
+    hosts: await getNetCaptureHosts(),
+  }),
+
+  // 开启录制：**唯一入口是用户点同意卡上的按钮**（AI 工具只负责出卡，不调这条）。
+  // 门禁落盘后同步注册——注册影响的是**下次导航**，当前页面必须由用户刷新才挂得上钩子。
+  'userscript:netCaptureEnable': async (msg): Promise<{ host: string; hosts: string[] }> => {
+    const host = normalizeHost(msg.host)
+    if (!host) throw new Error(`无效的站点：${msg.host}`)
+    const hosts = await enableNetCapture(host)
+    await refreshNetRecorder().catch(() => {})
+    return { host, hosts }
+  },
+
+  // 关闭录制：撤门禁 + 注销两件。**已录记录保留**（用户可能还要让 AI 读），清理另走后续入口。
+  'userscript:netCaptureDisable': async (msg): Promise<{ host: string; hosts: string[] }> => {
+    const host = normalizeHost(msg.host)
+    if (!host) throw new Error(`无效的站点：${msg.host}`)
+    const hosts = await disableNetCapture(host)
+    await refreshNetRecorder().catch(() => {})
+    return { host, hosts }
+  },
+
+  // 读回录制语料：AI 的 net_capture_read 工具与常驻 prompt 摘要档共用同一条命令，
+  // 只按 mode 换压缩档位。未授权时也返回（enabled:false）——调用方据此给准确提示，
+  // 比抛错更好用（「没开录制」和「开了但没数据」要能分开说）。
+  'userscript:netCaptureRead': async (
+    msg,
+  ): Promise<{ enabled: boolean; host: string; count: number; text: string }> => {
+    const host = normalizeHost(msg.host)
+    if (!host) throw new Error(`无效的站点：${msg.host}`)
+    const enabled = (await getNetCaptureHosts()).includes(host)
+    const records = enabled ? await listCapturesByHost(host) : []
+    const text =
+      msg.mode === 'digest'
+        ? describeCaptureDigest(records).join('\n')
+        : describeCaptureRecords(records)
+    return { enabled, host, count: records.length, text }
+  },
 
   // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清运行日志 runlog store 的对应条目——
   // 时间线上「清空」应一条语义清两个存储，否则运行行清不掉）。三态必须靠「字段在不在」区分

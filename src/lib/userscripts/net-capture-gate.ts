@@ -11,34 +11,10 @@
 // 这里在注册链路按 host 生效（注入维度），两者都只比 scheme/host，path 不参与。
 
 import * as appDb from '@/lib/app-db'
+import { normalizeHost } from './net-record-protocol'
 
 /** kv 键：已同意录制的 host 列表（string[]，小写裸主机名，不含 scheme/端口/path） */
 const NET_CAPTURE_HOSTS_KEY = 'netCaptureHosts'
-
-/** 把一个 host 归一化成「小写裸主机名」；非法返回空串。容忍传入完整 URL / 带端口 / 大写。 */
-export function normalizeHost(input: string): string {
-  let h = String(input ?? '').trim().toLowerCase()
-  if (!h) return ''
-  if (h.includes('://')) {
-    try {
-      h = new URL(h).hostname.toLowerCase()
-    } catch {
-      return ''
-    }
-  } else {
-    const m = /^([^/:]+)(?::\d+)?$/.exec(h)
-    h = m ? m[1] : h
-  }
-  h = h.replace(/^\.+|\.+$/g, '')
-  // 允许 a-z0-9 . - _（内网主机名常见下划线）；拒绝一切可能越界到 pattern 的字符
-  if (!/^[a-z0-9._-]+$/.test(h)) return ''
-  return h
-}
-
-/** host → match pattern：`*://` 同时覆盖 http / https（match pattern 里端口不参与匹配） */
-export function hostToMatchPattern(host: string): string {
-  return `*://${host}/*`
-}
 
 /** 已同意录制的 host 集合（去重、已归一；存储缺失 / 脏数据一律收敛为空数组） */
 export async function getNetCaptureHosts(): Promise<string[]> {

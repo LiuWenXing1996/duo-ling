@@ -64,6 +64,11 @@ const ALL_KINDS = [
   { kind: 'userscript:errorRead', side: 'sw' },
   { kind: 'userscript:clearErrors', side: 'sw' },
   { kind: 'userscript:import', side: 'sw' },
+  // 网络录制（dl-recorder）：门禁在 duoling-app、记录在 duoling-netlog，都归 SW
+  { kind: 'userscript:netCaptureState', side: 'sw' },
+  { kind: 'userscript:netCaptureEnable', side: 'sw' },
+  { kind: 'userscript:netCaptureDisable', side: 'sw' },
+  { kind: 'userscript:netCaptureRead', side: 'sw' },
   { kind: 'userscript:deps-refresh', side: 'sw' },
   { kind: 'userscript:deps-clear', side: 'sw' },
   { kind: 'userscript:groups', side: 'sw' },

@@ -16,7 +16,8 @@ import { generatePageSecret } from './page-protocol'
 // 网络录制：MAIN 捕获件 + USER_SCRIPT 转发件 + per-host 门禁（默认关，按站点显式开）
 import { buildNetRecorderSource } from './net-recorder'
 import { buildNetForwarderSource } from './net-forwarder'
-import { getNetCaptureHosts, hostToMatchPattern } from './net-capture-gate'
+import { getNetCaptureHosts } from './net-capture-gate'
+import { hostToMatchPattern } from './net-record-protocol'
 // 内置注入脚本共用：匹配并集与「未变则跳过」比对
 import { enabledMatchUnion, sameMatchSet } from './match-union'
 
