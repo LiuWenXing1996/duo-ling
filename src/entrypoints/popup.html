@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>哆灵</title>
+    <!--
+      popup = 点工具栏图标弹出的配置面板。WXT 按文件名自动识别本入口并写入
+      manifest 的 action.default_popup，无需在 wxt.config.ts 手写。
+      与 sidepanel.html 的差异：popup 尺寸由内容决定（不是全高侧栏），
+      故 #app 只固定宽度、不设 height:100%，首帧加载态也用固定高度容器占位。
+      首帧底色用 CSS 系统色 Canvas（自动跟随系统深浅色）；转圈只能纯 CSS 画 ——
+      两条理由与 sidepanel.html 相同，见该文件注释与 README「关键坑与规避」坑 11。
+    -->
+    <style>
+      html {
+        background: Canvas;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        overflow: hidden;
+      }
+      #app {
+        width: 340px;
+        min-height: 220px;
+      }
+      .dl-boot {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 220px;
+        background: Canvas;
+      }
+      .dl-boot::after {
+        content: '';
+        width: 24px;
+        height: 24px;
+        border: 2px solid color-mix(in srgb, CanvasText 15%, Canvas);
+        border-top-color: CanvasText;
+        border-radius: 50%;
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        .dl-boot::after {
+          animation: dl-spin 0.7s linear infinite;
+        }
+        @keyframes dl-spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="dl-boot" role="status" aria-label="加载中"></div>
+    </div>
+    <script type="module" src="./app/popup-main.ts"></script>
+  </body>
+</html>
