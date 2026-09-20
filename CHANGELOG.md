@@ -1,9 +1,6 @@
 # Changelog
 
-本文件记录哆灵扩展每个发布版本的变更。格式参考 Keep a Changelog，手动维护。
-
-
-
+本文件记录哆灵扩展每个发布版本的变更。**格式与维护方式见 [VERSIONING.md](VERSIONING.md)「CHANGELOG.md」**，本文件只放条目。
 
 ## [0.1.0-alpha.3] - 2026-09-19
 
@@ -28,14 +25,14 @@
 
 ## [0.1.0-alpha.2] - 2026-09-19
 
-### Added
-- 
-
 ### Changed
-- 
+
+- 发布模型改为「专门的 release PR」：日常 PR 不动版本号，发版单独开一个 PR 升版本 + 写日志。
 
 ### Fixed
-- 
+
+- CI 在打 tag 前补 git identity，避免打标签失败。
+
 ## [0.1.0-alpha.1] - 2026-09-19
 
 ## [0.1.0] - 2026-09-19

@@ -3,12 +3,12 @@
 哆灵扩展**自身**的版本管理约定。先分清两套「版本」：
 
 - **扩展版本号**：manifest 的 `version`，决定用户装的是哪个版本。本文件只讲这个。
-- **用户脚本版本历史**：每个脚本在 `duoling-fs` 里的 git 历史（README/AGENTS 里的「版本管理」指的是它）。二者无关，别混。
+- **用户脚本版本历史**：每个脚本在 `duoling-fs` 里的 git 历史（README / AGENTS 里的「版本管理」指的是它）。二者无关。
 
 ## 基本原则
 
-- **唯一真相源 = `package.json` 的 `version`**。WXT 构建时默认把它写进 manifest 的 `version` 字段，所以扩展装进浏览器后显示的版本号就是这里的值。不要在别处另存一份版本号（避免 drift）。
-- **本项目用 vibe-coding 开发**：因此版本号**靠人拍板**，AI 可解析 commit 历史生成changelog初稿，最终定稿由人定。
+- **唯一真相源 = `package.json` 的 `version`**。WXT 构建时默认把它写进 manifest 的 `version` 字段，所以扩展装进浏览器后显示的版本号就是这里的值。不在别处另存一份版本号（避免 drift）。
+- **本项目以对话驱动开发（vibe coding）**：版本号**由人拍板**，AI 可解析 commit 历史生成 CHANGELOG 初稿，最终定稿由人决定。
 - **发布使用「专门的 release PR」**：日常功能 / 修复 / doc PR 只改代码、不动版本号；积累若干 PR 后，单独开一个 release PR 来升版本 + 写日志，合入后由 CI 自动打 tag。
 
 ## 语义化版本（SemVer）
@@ -45,7 +45,7 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 ## Git tag 规范
 
 - 格式：`vX.Y.Z`（字母 `v` + 语义化版本，含预发 `v0.2.0-alpha.1`），例如 `v0.2.0`、`v0.2.0-rc.1`。
-- 类型：**annotated tag**（`git tag -a vX.Y.Z -m "vX.Y.Z"`），不要 lightweight tag——message 即版本号本身（`vX.Y.Z`）。
+- 类型：**annotated tag**（`git tag -a vX.Y.Z -m "vX.Y.Z"`），不用 lightweight tag —— message 即版本号本身（`vX.Y.Z`）。
 - 时机：**只在 release PR 合入 main 后，由 CI 自动打并推送** `refs/tags/*`。本地不手动打远程 tag。
 - 已发布 tag 不删不改。
 
@@ -69,13 +69,13 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
    # 演练（只打印不改动；-- 让 npm 把参数传给脚本）
    npm run release -- minor --dry-run
    ```
-   > `npm run release` 只生成**空分组占位**段；起段后由 AI解析自上次发版以来的提交历史,补填实际变更，生成**日志初稿**供人判定。
+   > `npm run release` 只生成**空分组占位**段；起段后由 AI 解析自上次发版以来的提交历史，补填实际变更，生成**日志初稿**供人判定。
 2. 推分支并开 PR（分支名约定 `release/vX.Y.Z`）：
    ```bash
    git push -u origin HEAD
    gh pr create --base main --title "chore: release vX.Y.Z" --body "..."
    ```
-   > **不要挂 `--auto`**：开完 PR 留给发版人手动 merge；若挂 `--auto`，CI 一绿自动合、跳过人工审查。
+   > **不挂 `--auto`**：开完 PR 留给发版人手动 merge；若挂 `--auto`，CI 一绿自动合、跳过人工审查。
 3. **人审（merge 前）**：打开 PR 看 diff，确认两件事再合入——
    - `package.json` 的 `version` 变更正确（base / bump / stage 都对）。
    - `CHANGELOG.md` 的信息是否合适，由人决策。  
@@ -84,7 +84,7 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 
 注意：
 
-- **不要用 `--push` 直推 `main`**：分支保护会拦截；tag 由 CI 在 release PR 合入后补推。
+- **不用 `--push` 直推 `main`**：分支保护会拦截；tag 由 CI 在 release PR 合入后补推。
 - 演练用 `--dry-run`：只打印将要做的事，不改动文件 / 不提交 / 不打 tag。走 npm 时务必写成 `npm run release -- <args> --dry-run`（`--` 之后的参数才真正传给脚本；直接写 `npm run release minor --dry-run` 会被 npm 吞掉 `--dry-run`，脚本误以真发版模式运行）。
 - 发布前建议自己跑一次 `npm run build` 确认产物可加载；`release` 脚本只卡 `typecheck`，不卡 build（避免构建环境偶发问题误伤发版）。
 
@@ -98,7 +98,7 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 4. 构建 `chrome-mv3` 产物、打包成 zip 上传为该 Release 的 **asset**（独立 `build` job，详见下方「GitHub Release assets」）。
 
 - **CI 只推 tag，不 bump 版本**：bump 已在本地 `npm run release` 完成、随 release PR 合入。
-- **不依赖提交信息 / 不解析历史**：版本号只从 `package.json.version` 读取，不解析 commit message；PR 以 Merge Commit 合入后，**merge commit 标题（即开 PR 时的 `--title`）** 原样成为 `main` 上的提交记录、是项目永久历史，仍须按本仓库约定写成 `chore: release vX.Y.Z`（见上方开 PR 的 `--title`），保持历史自解释（提交信息通用规范见 [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md)）。
+- **不依赖提交信息 / 不解析历史**：版本号只从 `package.json.version` 读取，不解析 commit message；PR 以 Merge Commit 合入后，**merge commit 标题（即开 PR 时的 `--title`）** 原样成为 `main` 上的提交记录、是项目永久历史，仍须按提交规范写成 release 标题（字面格式见上方开 PR 的 `--title`；通用规范见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)）。
 - **串行**：`concurrency` 串行，防止两个 release PR 同时合入抢建同一 tag。
 - **手动兜底（罕见）**：CI 漏打 tag 时二选一补推——① Actions 页面对 `release` workflow 点 `Run workflow` 重跑（幂等：tag 已存在自动跳过；尽量在后续 PR 合入 main 前跑，避免 tag 落到错误 commit 上）；② 本地补建 annotated tag 并指向 release PR 的合并 commit 再推：`git tag -a vX.Y.Z -m "vX.Y.Z" <合并commit> && git push origin vX.Y.Z`（tag 走 `refs/tags/*`，不触发 main 分支保护）。
 
@@ -116,6 +116,8 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
   - **追溯某次安装来自哪次构建**：设置页「构建信息」（编译进 bundle 的 `__BUILD_INFO__`，取的是 package.json 的完整版本串）或安装 zip 的文件名。
 
 ## GitHub Release notes（自动生成 + 例外修正）
+
+> 平时不用管这一节；**只在某次 notes 写错、需要重新同步时看**（属故障处置，不是日常发版步骤）。
 
 正常发版时，`release.yml` 在打 tag 后**自动从 `CHANGELOG.md` 对应段抽取内容生成 GitHub Release notes**（一次性快照），预发布版（tag 含 `-`，如 `v0.1.0-alpha.1`）自动标 `--prerelease`。抽取逻辑统一由 `scripts/extract-changelog.mjs` 提供，被 `release.yml` 与下方例外通道共用，保证行为一致。Release notes 是「发布那一瞬间的快照」，不随 CHANGELOG 后续改动自动更新。
 

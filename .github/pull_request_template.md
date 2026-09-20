@@ -26,5 +26,4 @@
 
 ---
 
-- 提交前 `npm run typecheck` + `npm run build` + `npm run test` 均须通过
-- 隐私与脱敏规则见 AGENTS.md「全局约束」
+- 门禁（交付前 / 合并前）见 [AGENTS.md](../AGENTS.md#常用命令) 与 [GIT_WORKFLOW.md](../GIT_WORKFLOW.md)；隐私与脱敏规则见 [AGENTS.md](../AGENTS.md)「全局约束」
