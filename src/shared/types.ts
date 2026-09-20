@@ -98,6 +98,8 @@ export interface ModelProfile {
   topP?: number
   /** 采样参数：Top K（1~100） */
   topK?: number
+  /** 流式静默超时（秒）：两次回复间隔超过此值即判定服务卡死并中止生成，避免请求长期占用连接触发限流；不填用默认 60 */
+  streamIdleTimeoutSec?: number
 }
 
 /** 保存/新增模型配置的入参；apiKey 为空表示保留已有 Key（编辑时未重输） */
@@ -114,6 +116,8 @@ export interface ModelProfileInput {
   temperature?: number
   topP?: number
   topK?: number
+  /** 流式静默超时（秒），见 ModelProfile.streamIdleTimeoutSec */
+  streamIdleTimeoutSec?: number
 }
 
 /** 连通性测试入参（model:testChat） */

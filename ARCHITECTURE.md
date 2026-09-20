@@ -25,6 +25,8 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 
 侧边栏只做指令入口与观察；整条链路（`streamText` + tools）跑在 **offscreen document**，侧边栏经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权。offscreen 容器按需创建（`src/lib/offscreen.ts`）。
 
+- **流式静默超时（防限流）**：`runLoop` 泵流期间挂 `createIdleGuard`（`src/lib/offscreen-chat/idle-guard.ts`），两次 chunk 间隔超 `STREAM_IDLE_TIMEOUT_MS`（默认 60s，可在模型高级配置里按 provider 调整 `streamIdleTimeoutSec` 秒）即判定 provider 卡死（有连接但不吐 token），主动 `abort` 并推 error 块「请求超时…已自动中止」。避免静默卡死的请求长期占用网关连接/并发配额、累积触发限流；用户手动停止走 `abortChat`，与此计时无关。模型配置探活 `testChat` 另有 15s 超时。
+
 ## 脚本注入
 
 `chrome.userScripts` + USER_SCRIPT 世界 + `window.DL` 桥接（`src/lib/userscripts/`）。

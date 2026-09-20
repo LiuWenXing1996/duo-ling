@@ -61,7 +61,8 @@ const form = reactive({
   contextOutputToken: '',
   temperature: '',
   topP: '',
-  topK: ''
+  topK: '',
+  streamIdleTimeoutSec: ''
 })
 
 const editingId = computed(() => props.editing?.id ?? null)
@@ -88,6 +89,7 @@ watch(
       form.temperature = props.editing.temperature != null ? String(props.editing.temperature) : ''
       form.topP = props.editing.topP != null ? String(props.editing.topP) : ''
       form.topK = props.editing.topK != null ? String(props.editing.topK) : ''
+      form.streamIdleTimeoutSec = props.editing.streamIdleTimeoutSec != null ? String(props.editing.streamIdleTimeoutSec) : ''
     } else {
       resetForm()
     }
@@ -106,6 +108,7 @@ function resetForm(): void {
   form.temperature = ''
   form.topP = ''
   form.topK = ''
+  form.streamIdleTimeoutSec = ''
 }
 
 /** 数字输入转数值；空串或非法值返回 undefined */
@@ -220,7 +223,8 @@ async function save(): Promise<void> {
       contextOutputToken: numberOrUndefined(form.contextOutputToken),
       temperature: numberOrUndefined(form.temperature),
       topP: numberOrUndefined(form.topP),
-      topK: numberOrUndefined(form.topK)
+      topK: numberOrUndefined(form.topK),
+      streamIdleTimeoutSec: numberOrUndefined(form.streamIdleTimeoutSec)
     })
     emit('saved')
     close()
@@ -477,6 +481,24 @@ async function save(): Promise<void> {
                   class="h-8"
                 />
               </div>
+            </div>
+
+            <!-- 流式超时（防限流） -->
+            <div class="space-y-2">
+              <label class="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                流式超时（秒）
+                <ui-tooltip>
+                  <ui-tooltip-trigger as-child>
+                    <span class="inline-flex"><ui-info class="size-3" /></span>
+                  </ui-tooltip-trigger>
+                  <ui-tooltip-content class="max-w-[260px] whitespace-normal leading-relaxed">两次回复间隔超过该值即判定服务卡死并中止生成，避免请求长期占用连接、触发限流。留空使用默认 60 秒。</ui-tooltip-content>
+                </ui-tooltip>
+              </label>
+              <ui-input
+                v-model="form.streamIdleTimeoutSec"
+                placeholder="留空使用默认 60 秒"
+                class="h-8"
+              />
             </div>
           </div>
         </div>
