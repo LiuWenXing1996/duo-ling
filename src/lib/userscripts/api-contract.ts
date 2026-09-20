@@ -272,13 +272,6 @@ export interface DuoLingApi {
   /** 免 CORS 的 HTTP 请求（后台 SW 发起，不受页面 CSP 与同源策略限制） */
   fetch(url: string, init?: FetchInit): Promise<DlFetchResult>
 
-  /**
-   * 读取**保存期内联**的资源（来自 config.deps 依赖列表，保存时已拉取打进 bundle，
-   * 断网可读）。文本资源返回原文；二进制资源必须传 { base64: true } 返回 base64 串，
-   * 类型不符 / 未内联时 reject 明确错误。纯本地读表（DL.__res），不走桥。
-   */
-  resource(url: string, opts?: { base64?: boolean }): Promise<string>
-
   /** 系统通知。opts.onClick 提供时，通知被点击后经 DL Port 回推 { t:'notify.click', id } */
   notify(
     message: string,

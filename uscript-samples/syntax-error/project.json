@@ -1,6 +1,6 @@
 {
   "v": 2,
-  "name": "DL API 收口探针",
+  "name": "语法错误样本",
   "config": {
     "matches": [
       "*://*/*"

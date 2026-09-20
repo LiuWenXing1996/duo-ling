@@ -182,7 +182,7 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
   test('用户脚本注入探针页：脚本执行 + window.DL 桥往返', async () => {
     test.skip(!userScriptsAvailable, 'chrome.userScripts 在无头 Chromium 下不可用（引导失败），注入面转手测')
 
-    // 1. 创建脚本：offscreen 侧自动命名 + 初始模板 + esbuild-wasm 构建 + 状态库落盘 + git 快照，SW 注册
+    // 1. 创建脚本：offscreen 侧自动命名 + 初始模板（单文件 script.js）+ 状态库落盘 + git 快照，SW 注册
     const created = await sendToSw<{ uuid: string; name: string; registerError?: string }>(messenger!, {
       kind: 'userscript:create',
     })
@@ -207,17 +207,15 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
   } catch (e) { mark('DL_FAIL:' + ((e && e.message) || e)) }
 })()
 `
-    // 统一保存语义（2026-09-19）：保存恒成功，offscreen 侧写 duoling-fs + git 提交 + esbuild
-    // 构建 + 落库，SW 侧重注册——不再传 bundle（产物由构建产生），探针代码经真构建出产物
-    const updated = await sendToSw<{ buildOk: boolean; issues: string[]; registerError?: string; warnings?: string[] }>(messenger!, {
+    // 单文件保存语义：保存恒成功、保存即注入——offscreen 写 duoling-fs + git 提交 + 状态库落盘，
+    // SW 直读源码副本重注册，不再有构建环节（探针代码原样注入）
+    const updated = await sendToSw<{ registerError?: string; warnings?: string[] }>(messenger!, {
       kind: 'userscript:save',
       uuid,
-      files: { 'main.js': probeCode },
-      entry: 'main.js',
+      code: probeCode,
     })
     expect(updated.ok, `userscript:save 失败：${updated.ok ? '' : updated.error}`).toBe(true)
     if (updated.ok) {
-      expect(updated.data.buildOk, `探针脚本构建失败：${updated.data.issues.join('；')}`).toBe(true)
       expect(updated.data.registerError, '重注册不应报错').toBeUndefined()
     }
 
@@ -259,12 +257,11 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
 
     // 2. 塞一条非法 match pattern：这是**脚本自身缺陷**，注册当场失败 → 应写一条该脚本的 register 记录。
     //    确定性造错（不必开页面等运行期错误），同时也验证了 register 阶段的记录同样随删除清理。
-    //    统一保存语义下 config 由 save 传入并落库，构建恒成功（源码本身合法），失败发生在注册。
-    const bad = await sendToSw<{ buildOk: boolean; registerError?: string }>(messenger!, {
+    //    单文件保存语义下 config 由 save 一并传入，源码恒可保存（此处源码本身合法），失败发生在注册阶段。
+    const bad = await sendToSw<{ registerError?: string }>(messenger!, {
       kind: 'userscript:save',
       uuid,
-      files: { 'main.js': "console.log('e2e')" },
-      entry: 'main.js',
+      code: "console.log('e2e')",
       config: { matches: ['not-a-match-pattern'], allFrames: true, runAt: 'document_end' },
     })
     expect(bad.ok, `userscript:save 失败：${bad.ok ? '' : bad.error}`).toBe(true)

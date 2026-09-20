@@ -35,13 +35,13 @@ async function flushStats(): Promise<void> {
 
 function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {
   return {
-    v: 1,
+    v: 2,
     uuid: 'p1',
     name: '项目一',
     enabled: true,
     config: { matches: ['*://a.com/*'], allFrames: true, runAt: 'document_end' },
-    fileCount: 2,
-    entry: 'main.js',
+    group: '',
+    source: { code: '// x', savedAt: 1 },
     createdAt: 1,
     updatedAt: 42,
     ...overrides,
@@ -49,33 +49,18 @@ function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {
 }
 
 describe('listSummaries', () => {
-  it('项目摘要不含源码字段，fileCount 正确', async () => {
-    const summaries = await listSummaries([
-      makeProject({ buildOk: true, lastBuildAt: 99, bundle: { code: 'x', builtAt: 99 } }),
-    ])
+  it('项目摘要不含源码搬运副本，只带列表所需字段', async () => {
+    const summaries = await listSummaries([makeProject()])
     expect(summaries).toHaveLength(1)
     expect(summaries[0]).toEqual({
       uuid: 'p1',
       name: '项目一',
       enabled: true,
       matches: ['*://a.com/*'],
-      fileCount: 2,
-      updatedAt: 42,
-      buildOk: true,
-      lastBuildAt: 99,
       group: '',
+      updatedAt: 42,
     })
-    expect('files' in summaries[0]).toBe(false)
-    expect('bundle' in summaries[0]).toBe(false)
-  })
-
-  it('构建终态：旧记录（无 buildOk）按 bundle 有无兜底推导', async () => {
-    const [okLegacy, failedLegacy] = await listSummaries([
-      makeProject({ uuid: 'ok', bundle: { code: 'x', builtAt: 1 } }),
-      makeProject({ uuid: 'failed' }), // 旧记录：产物置空即构建失败
-    ])
-    expect(okLegacy.buildOk).toBe(true)
-    expect(failedLegacy.buildOk).toBe(false)
+    expect('source' in summaries[0]).toBe(false)
   })
 
   it('排序：启用在前，组内按更新时间倒序', async () => {

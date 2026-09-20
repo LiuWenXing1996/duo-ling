@@ -36,28 +36,8 @@ export async function nextScriptName(base = '新建的脚本'): Promise<string> 
 }
 
 /**
- * 文件树校验（写入前调用，非法直接抛错）：
- * 非空、路径相对（禁开头 / 与 .. 段，防越权写）、内容必须是字符串、entry 必须存在。
+ * 文件树校验已随多文件形态移除：单文件源码无路径校验需求，保存恒成功（见 project-write.ts）。
  */
-export function validateFiles(files: Record<string, string>, entry: string): void {
-  if (!files || typeof files !== 'object' || !Object.keys(files).length) {
-    throw new Error('文件树不能为空')
-  }
-  for (const p of Object.keys(files)) {
-    if (!p || p.startsWith('/') || p.split('/').includes('..')) {
-      throw new Error(`非法文件路径（须为相对路径，且不含 .. 段）：${p}`)
-    }
-    if (p.endsWith('/')) {
-      throw new Error(`非法文件路径（不能以 / 结尾）：${p}`)
-    }
-    if (typeof files[p] !== 'string') {
-      throw new Error(`文件内容必须是字符串：${p}`)
-    }
-  }
-  if (!(entry in files)) {
-    throw new Error(`入口文件在文件树中不存在：${entry}`)
-  }
-}
 
 // —— match pattern 校验——
 // 导入路径（project-write.importScriptsZip）与启用路径（engine.registerScript）共用：

@@ -4,7 +4,7 @@
 // SW 与扩展页读不到 lfs，源码的一切读写都经 fs:* 命令向本模块取，按 { ok, data | error } 信封回传。
 // 源码的**写**（统一保存）另走 state:save（offscreen-state-commands → project-write.saveSource）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
-import { listHistory, readSourceTree, readTreeAt, restoreToCommit } from './us-git'
+import { listHistory, readSource, readSnapshotAt, restoreToCommit } from './us-git'
 import { readLfsFile, readLfsTree } from './us-fs'
 import { buildScriptZip, bytesToBase64 } from './zip-transfer'
 
@@ -17,26 +17,26 @@ export async function handleFsCommand(msg: FsRequest): Promise<unknown> {
     // 就绪探测（不触碰文件系统）：SW 用它确认本容器的 onMessage 已注册完毕
     case 'fs:ping':
       return { ready: true }
-    // 读源码树（工作树；每次保存后与 HEAD 一致，无草稿概念）。无源码返回 null
-    case 'fs:readTree':
-      return readSourceTree(msg.uuid)
+    // 读源码（工作树；每次保存后与 HEAD 一致，无草稿概念）。无源码返回 null
+    case 'fs:read':
+      return readSource(msg.uuid)
     case 'fs:history':
       return listHistory(msg.uuid)
-    case 'fs:historyTree':
-      return readTreeAt(msg.uuid, msg.oid)
-    // 恢复：目标树物化回工作区 + 提交「回滚」记录；返回恢复出的源码树，
+    case 'fs:readAt':
+      return readSnapshotAt(msg.uuid, msg.oid)
+    // 恢复：目标快照物化回工作区 + 提交「回滚」记录；返回恢复出的源码，
     // 随后调用方经 userscript:save 走统一保存（commit 为空提交守卫拦下，不重复提交）
     case 'fs:restoreToCommit':
       return restoreToCommit(msg.uuid, msg.oid)
-    // 导出 zip：读各脚本工作区源码，在 offscreen 侧打包，只回传 base64（大源码树不过桥）
+    // 导出 zip：读各脚本工作区源码，在 offscreen 侧打包，只回传 base64（大源码不过桥）
     case 'fs:exportZip': {
-      const payloads: Array<{ name: string; config: import('./types').ScriptConfig; entry: string; files: Record<string, string> }> = []
+      const payloads: Array<{ name: string; config: import('./types').ScriptConfig; code: string }> = []
       let singleName: string | undefined
       for (const uuid of msg.uuids) {
-        const tree = await readSourceTree(uuid).catch(() => null)
-        if (!tree) continue
-        payloads.push({ name: tree.meta.name, config: tree.meta.config, entry: tree.meta.entry, files: tree.files })
-        if (msg.uuids.length === 1) singleName = tree.meta.name
+        const source = await readSource(uuid).catch(() => null)
+        if (!source) continue
+        payloads.push({ name: source.meta.name, config: source.meta.config, code: source.code })
+        if (msg.uuids.length === 1) singleName = source.meta.name
       }
       return {
         zipBase64: bytesToBase64(buildScriptZip(payloads, { exporter: msg.exporter })),

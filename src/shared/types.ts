@@ -155,7 +155,6 @@ export type WorkspaceTabKind =
   | 'userscript-list'
   | 'userscript-edit'
   | 'script-history'
-  | 'us-bundle'
   | 'lfs-browser'
   | 'chat-data'
   | 'agent-tools'
@@ -167,7 +166,7 @@ export interface WorkspaceTabSnapshot {
   id: string
   title: string
   kind: WorkspaceTabKind
-  /** 仅 userscript-edit / script-history / us-bundle：对应的用户脚本 uuid */
+  /** 仅 userscript-edit / script-history：对应的用户脚本 uuid */
   userscriptId?: string
 }
 

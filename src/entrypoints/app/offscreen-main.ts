@@ -4,8 +4,7 @@
 //   · 侧边栏 / 工作台（document）：用户点 X 关面板即**立即销毁**，连保存现场的时机都没有
 //   · background SW：空闲 30s 即回收，且单次调用有 5 分钟硬顶（不可绕过，官方不鼓励保活）
 //   · offscreen document：**不主动关就一直活着**（唯一）
-// 而 esbuild 要求宿主「能派生 Worker（拿得到 URL.createObjectURL）+ 不会在任务中途被回收」，
-// agent loop 要求后者——三条件只有 offscreen 全过，所以 loop 与构建一起搬进来。
+// 而 agent loop 要求宿主「不会在任务中途被回收」——用户关面板即销毁的载体全出局，offscreen 是唯一解。
 //
 // 能力边界（官方原话：runtime API is the only extensions API supported by offscreen documents）：
 //   · 只有 chrome.runtime 可用 —— chrome.storage / chrome.userScripts / chrome.tabs 全拿不到，
@@ -14,7 +13,7 @@
 //   · console 输出落在 **SW 的 inspector**（chrome://extensions → Service Worker），不在面板 DevTools
 //   · 不能聚焦；opener 恒为 null；URL 必须是打包进扩展的静态 HTML（即本文件对应的 offscreen.html）
 //
-// 模块归属（硬约束）：本入口只允许 import builder.ts（纯 esbuild）、
+// 模块归属（硬约束）：本入口只允许 import us-git.ts（纯 JS 的 git 栈 + lightning-fs）、
 // extension-chat-transport.ts、ai SDK、offscreen-bridge.ts、offscreen-chat/（对话编排，
 // 内部只引裸 IndexedDB 模块），以及 offscreen-only 的 lib/userscripts/offscreen-fs-commands.ts
 // （源码库 duoling-fs 的 fs:* 命令面）与 offscreen-state-commands.ts（注册态库的写侧）。
@@ -30,7 +29,6 @@
 import '@/polyfills'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { handleFsCommand, type FsRequest } from '@/lib/userscripts/offscreen-fs-commands'
-import { rebuildPendingProjects } from '@/lib/userscripts/project-write'
 import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
 // 读侧项目列表（IndexedDB 同源直读，project-store 明确标注 offscreen 可用）：
 // 心跳的条件门——没有启用脚本就不 ping SW（上游 #45 保活心跳；不引 handleBuildCommand——
@@ -201,8 +199,6 @@ announceReady()
 void refreshActiveProfile()
 // 启动一次最终一致对账：补齐缺失仓、清理多余仓目录（幂等，失败不阻断）
 void reconcileFs()
-// 导入后台构建的悬挂态对账：导入只落源码（构建走后台队列），队列被杀的脚本（lastBuildAt=0）在此重排
-void rebuildPendingProjects()
 
 // —— SW 保活心跳 ——
 // Chrome 对「运行用户脚本」开关变化**没有任何事件**，而开关关闭期间启用的脚本只落库未注册；

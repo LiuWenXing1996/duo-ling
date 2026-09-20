@@ -38,7 +38,7 @@ const message = {
       type: 'tool-script_apply',
       toolCallId: 'tc-1',
       state: 'output-available',
-      input: { summary: '改字号', entry: 'main.js' },
+      input: { summary: '改字号', code: 'x' },
       output: { ok: true, bytes: 123 },
     },
     {
@@ -78,7 +78,7 @@ describe('AgentToolsPanel', () => {
     await wrapper.find('[data-testid="agent-tools-select-script_apply"]').trigger('click')
     const contract = wrapper.find('[data-testid="agent-tools-contract"]')
     // 默认收起：只留标题行（作用 + 入参数）—— 入参表可能很长，展开会把下方调用轨迹顶出屏幕
-    expect(contract.text()).toContain('整文件提交文件树并立刻用 esbuild 构建')
+    expect(contract.text()).toContain('整文件提交源码并立刻做语法检查')
     expect(contract.text()).not.toContain(TOOL_DESCRIPTIONS.script_apply.slice(0, 20))
 
     // 展开：description 原文与入参表（含必填标记）才渲染

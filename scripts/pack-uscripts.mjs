@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 // 用户脚本包生成器：把「写着具体内容的用户脚本」打成扩展可直接导入的 zip。
 //
-// 为什么要有它：手测 / 端测经常需要「有具体行为的脚本」——注入页面写标记、跑 DL 桥、多文件
-// 构建、故意报错……在扩展里新建再手粘代码太慢，写好的内容也没法进 git 复用。于是：脚本源码
-// 以普通目录形式躺在仓库根（uscript-samples/），本工具负责把它们打成 zip，扩展的
-// 「工作台 → 脚本列表 → 导入 zip」直接吃。导入侧会跑 esbuild 构建，所以这里**不带产物**。
+// 为什么要有它：手测 / 端测经常需要「有具体行为的脚本」——注入页面写标记、跑 DL 桥、故意报错……
+// 在扩展里新建再手粘代码太慢，写好的内容也没法进 git 复用。于是：脚本源码以普通目录形式躺在
+// 仓库根（uscript-samples/），本工具负责把它们打成 zip，扩展的「工作台 → 脚本列表 → 导入 zip」
+// 直接吃。脚本 = 单文件纯 JS 源码（保存即注入），所以这里**只有源码、不带产物**。
 //
 // 产出 zip 的布局必须与 src/lib/userscripts/zip-transfer.ts 的 buildScriptZip / parseScriptsZip
 // 对齐（那一对函数才是编解码侧的真相源）：
-//     <目录名>/project.json         脚本元信息（v / name / config / entry / exportedAt）
-//     <目录名>/files/<相对路径>      文件树真实展开
+//     <目录名>/project.json         脚本元信息（v / name / config / exportedAt）
+//     <目录名>/script.js            单文件源码
 //
 // 本脚本**不 import** 那个模块，两条原因：① src 是扩展运行时代码，其扩展名省略的 TS 导入在
 // node ESM 下解析不了；② 本工具刻意零依赖——没装 node_modules 也能跑（打测试包不该先 npm i）。
@@ -25,9 +25,9 @@ import { fileURLToPath } from 'node:url'
 // —— 常量：与 src/lib/userscripts/zip-transfer.ts 保持一致 ——
 
 /** zip schema 版本（project.json.v） */
-const ZIP_SCHEMA_VERSION = 1
-/** 默认入口文件名（types.ts 的 ENTRY_DEFAULT） */
-const ENTRY_DEFAULT = 'main.js'
+const ZIP_SCHEMA_VERSION = 2
+/** 单文件源码文件名（types.ts 的 SCRIPT_FILE） */
+const SCRIPT_FILE = 'script.js'
 /** 兜底匹配规则：全站（测试用最省事，正式脚本请写具体 pattern） */
 const MATCHES_DEFAULT = ['*://*/*']
 const DIR_NAME_MAX = 64
@@ -44,10 +44,11 @@ const SAMPLES_DIR = join(REPO_ROOT, 'uscript-samples')
 
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256)
-  for (let i = 0; i < 256; i++) {
-    let c = i
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-    t[i] = c >>> 0
+  let c = 0
+  for (; c < 256; c++) {
+    let x = c
+    for (let k = 0; k < 8; k++) x = x & 1 ? 0xedb88320 ^ (x >>> 1) : x >>> 1
+    t[c] = x >>> 0
   }
   return t
 })()
@@ -185,34 +186,11 @@ function sanitizeDirName(name) {
   return cleaned || 'script'
 }
 
-/** 项目内相对路径安全性（与 zip-transfer.isSafeRelPath 同规则） */
-function isSafeRelPath(p) {
-  return !!p && !p.startsWith('/') && !p.includes('\\') && !/^[a-zA-Z]:/.test(p) && !p.split('/').includes('..')
-}
-
-/** 递归收集目录下的文件（跳过点开头的隐藏项，路径用 / 分隔） */
-function collectFiles(root) {
-  const out = []
-  const walk = (dir, prefix) => {
-    for (const ent of readdirSync(dir, { withFileTypes: true })) {
-      if (ent.name.startsWith('.')) continue
-      const abs = join(dir, ent.name)
-      const rel = prefix ? `${prefix}/${ent.name}` : ent.name
-      if (ent.isDirectory()) walk(abs, rel)
-      else if (ent.isFile()) out.push({ rel, abs })
-    }
-  }
-  walk(root, '')
-  return out.sort((a, b) => a.rel.localeCompare(b.rel))
-}
-
 /**
  * 读一个素材目录 → 脚本定义。
  *
- * 两种摆放都能吃：
- *   · 规范布局（推荐）：<dir>/project.json + <dir>/files/main.js …
-
- *   · 平铺布局：<dir>/*.js 直接是文件树（project.json 可选，缺失项按默认补）
+ * 摆放（project.json 可选，缺字段按默认补）：
+ *   <dir>/project.json + <dir>/script.js
  */
 function readScriptDef(dir, overrides) {
   const absDir = resolve(dir)
@@ -231,24 +209,13 @@ function readScriptDef(dir, overrides) {
     }
   }
 
-  // 文件树根：优先 files/ 子目录，否则目录自身（平铺布局排除 project.json）
-  const filesRoot = join(absDir, 'files')
-  const nested = existsSync(filesRoot) && statSync(filesRoot).isDirectory()
-  const root = nested ? filesRoot : absDir
-  const files = {}
-  const skipped = []
-  for (const f of collectFiles(root)) {
-    if (!nested && f.rel === 'project.json') continue
-    if (!isSafeRelPath(f.rel)) {
-      skipped.push(f.rel)
-      continue
-    }
-    files[f.rel] = readFileSync(f.abs, 'utf8')
+  const sourcePath = join(absDir, SCRIPT_FILE)
+  if (!existsSync(sourcePath)) {
+    throw new Error(`${label}：缺少 ${SCRIPT_FILE}（单文件源码）`)
   }
-  if (!Object.keys(files).length) throw new Error(`${label}：没收到任何源文件`)
+  const code = readFileSync(sourcePath, 'utf8')
 
   const name = overrides.name ?? (typeof manifest.name === 'string' && manifest.name.trim() ? manifest.name.trim() : label)
-  const entry = overrides.entry ?? (typeof manifest.entry === 'string' && manifest.entry.trim() ? manifest.entry.trim() : ENTRY_DEFAULT)
   const config = {
     matches: overrides.matches?.length ? overrides.matches : strArray(manifest.config?.matches, MATCHES_DEFAULT),
     allFrames: typeof manifest.config?.allFrames === 'boolean' ? manifest.config.allFrames : true,
@@ -260,11 +227,8 @@ function readScriptDef(dir, overrides) {
     const v = strArray(manifest.config?.[key], [])
     if (v.length) config[key] = v
   }
-  // deps（UMD / 资源依赖 URL）：与 zip-transfer.coerceConfig 同步透传，别在打包侧剥掉
-  const deps = strArray(manifest.config?.deps, [])
-  if (deps.length) config.deps = deps
 
-  return { label, name, entry, config, files, skipped }
+  return { label, name, code, config }
 }
 
 /** 取字符串数组（非数组 / 非字符串 / 空串项一律丢弃；全丢则回退 fallback） */
@@ -292,14 +256,11 @@ function toZipEntries(scripts, exportedAt) {
       v: ZIP_SCHEMA_VERSION,
       name: s.name,
       config: s.config,
-      entry: s.entry,
       exportedAt,
       exporter: 'duoling/pack-uscripts',
     }
     entries.push({ name: `${dir}/project.json`, data: Buffer.from(JSON.stringify(manifest, null, 2), 'utf8') })
-    for (const rel of Object.keys(s.files).sort()) {
-      entries.push({ name: `${dir}/files/${rel}`, data: Buffer.from(s.files[rel], 'utf8') })
-    }
+    entries.push({ name: `${dir}/${SCRIPT_FILE}`, data: Buffer.from(s.code, 'utf8') })
   }
   return entries
 }
@@ -318,14 +279,12 @@ const HELP = `用户脚本包生成器：把脚本素材目录打成扩展可导
   -o, --out <文件>        输出 zip 路径（默认 tmp/uscripts-<时间戳>.zip）
   -n, --name <名字>       覆盖脚本名（仅单目录时可用）
   -m, --match <pattern>   覆盖匹配规则，可重复（仅单目录时可用）
-  -e, --entry <文件>      覆盖入口文件（仅单目录时可用）
       --list              列出样例目录并退出
       --no-verify         跳过写后回读自检
   -h, --help              显示本帮助
 
-素材目录两种摆法（project.json 可选，缺字段按默认补：全站匹配 / allFrames / document_end）：
-  <目录>/project.json + <目录>/files/main.js …   # 规范布局，与导出 zip 解开的形态一致
-  <目录>/main.js …                                # 平铺布局，直接写源码
+素材目录摆法（project.json 可选，缺字段按默认补：全站匹配 / allFrames / document_end）：
+  <目录>/project.json + <目录>/script.js   # 与导出 zip 解开的形态一致
 `
 
 function parseArgs(argv) {
@@ -354,10 +313,6 @@ function parseArgs(argv) {
       case '-m':
       case '--match':
         opts.matches.push(argv[++i])
-        break
-      case '-e':
-      case '--entry':
-        opts.entry = argv[++i]
         break
       default:
         if (a.startsWith('-')) throw new Error(`不认识的选项：${a}（--help 看用法）`)
@@ -391,8 +346,8 @@ function main() {
   if (!dirs.length) throw new Error('没有可打包的目录：uscript-samples/ 是空的，或手动指定目录')
 
   const single = dirs.length === 1
-  if (!single && (opts.name || opts.entry || opts.matches.length)) {
-    throw new Error('--name / --entry / --match 只在打包单个目录时可用')
+  if (!single && (opts.name || opts.matches.length)) {
+    throw new Error('--name / --match 只在打包单个目录时可用')
   }
 
   const scripts = dirs.map((d) => readScriptDef(d, opts))
@@ -414,16 +369,12 @@ function main() {
   }
 
   // —— 汇报 ——
-  const fileCount = scripts.reduce((n, s) => n + Object.keys(s.files).length, 0)
   const lines = scripts.map((s) => {
-    const warn = []
-    if (!(s.entry in s.files)) warn.push(`入口 ${s.entry} 不在文件树里（导入后需在编辑器补）`)
-    if (s.skipped.length) warn.push(`跳过不安全路径 ${s.skipped.length} 个`)
-    return `  · ${s.name}  入口 ${s.entry}  ${Object.keys(s.files).length} 文件  匹配 ${s.config.matches.join(' ')}${warn.length ? `  ⚠ ${warn.join('；')}` : ''}`
+    return `  · ${s.name}  ${s.code.length} 字节  匹配 ${s.config.matches.join(' ')}`
   })
   process.stdout.write(
     [
-      `已生成 ${rel(out)}（${scripts.length} 个脚本 / ${fileCount} 个文件 / ${(zip.length / 1024).toFixed(1)} KB${opts.verify ? '，自检通过' : '，未自检'}）`,
+      `已生成 ${rel(out)}（${scripts.length} 个脚本 / ${(zip.length / 1024).toFixed(1)} KB${opts.verify ? '，自检通过' : '，未自检'}）`,
       ...lines,
       '导入：工作台 → 脚本列表 → 导入 → 「选择 zip 文件…」选这个文件，或「输入文件路径…」直接把下面这行路径粘进去：',
       `  ${out}`,

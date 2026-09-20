@@ -2,7 +2,7 @@
 
 哆灵是 AI 用户脚本工坊：一句话描述需求 → AI 生成用户脚本 → 注入第三方页面运行。**本仓库即扩展工程本体**（Chrome MV3 扩展）。
 
-现存功能：**AI 对话**（流式 + 思考过程 + 工具过程；侧边栏与网页内浮层两个入口）+ **用户脚本**（多文件项目 / esbuild 构建 / git 历史 / 启停管理 / zip 导入导出）+ **页面元素拾取与页面快照**。
+现存功能：**AI 对话**（流式 + 思考过程 + 工具过程；侧边栏与网页内浮层两个入口）+ **用户脚本**（单文件脚本 / git 历史 / 启停管理 / zip 导入导出）+ **页面元素拾取与页面快照**。
 
 > 协作约定与红线见 [AGENTS.md](AGENTS.md)；运行时架构见 [ARCHITECTURE.md](ARCHITECTURE.md)；想法与待办记在 [docs/inbox.md](docs/inbox.md)。
 
@@ -27,7 +27,7 @@
 ## 目录结构
 
 ```
-├─ wxt.config.ts                  # WXT 配置：srcDir / publicDir / vue + tailwind 插件 / 构建信息注入 / side_panel / host_permissions / CSP
+├─ wxt.config.ts                  # WXT 配置：srcDir / publicDir / vue + tailwind 插件 / 构建信息注入 / side_panel / host_permissions
 ├─ vitest.config.ts / playwright.config.ts  # 单测（logic=node + component=happy-dom 双 project）/ 端测（无头 Chromium 跑 build 产物）
 ├─ AGENTS.md / ARCHITECTURE.md    # AI 协作约定与红线 / 运行时架构（改代码前先读这两份）
 ├─ README.md / VERSIONING.md / GIT_WORKFLOW.md / CHANGELOG.md  # 上手与手测 / 版本机制 / Git 工作流 / 变更记录
@@ -58,7 +58,7 @@
 │  │  ├─ GuidePanel.vue           #   引导标签页：需用户开启的开关（运行用户脚本）状态自检 + 分步指引 + 直达扩展管理页
 │  │  ├─ SettingsPanel.vue / UiTestPanel.vue / ChatDataPanel.vue / ConfirmDialog.vue / ModelFormDialog.vue
 │  │  ├─ settings/                #   设置分区：sections.ts 注册表（左栏导航 + 扩展点）+ ModelSettingsSection / FloatPanelSection / AboutSection
-│  │  ├─ userscript/              #   脚本链路面板：列表 / 编辑器 / 历史 / 产物 / lfs 浏览 + 文件树节点
+│  │  ├─ userscript/              #   脚本链路面板：列表 / 编辑器 / 历史 / lfs 浏览
 │  │  ├─ ui/                      #   shadcn-vue 基础组件（reka-ui）
 │  │  └─ ai-elements/             #   对话元素（message / conversation / prompt-input / chain-of-thought / tool / code-block / file-tree）
 │  ├─ composables/
@@ -75,7 +75,7 @@
 │  │  ├─ extension-chat-transport.ts  # AI SDK ChatTransport：向 offscreen 发 `chat:start` 并订阅事件流
 │  │  ├─ offscreen.ts / offscreen-bridge.ts  # offscreen 容器管理与桥接
 │  │  ├─ offscreen-chat/          # offscreen 侧对话链路（常驻）
-│  │  │  ├─ chat-host.ts          #   对话编排宿主（agent loop + 构建）
+│  │  │  ├─ chat-host.ts          #   对话编排宿主（agent loop）
 │  │  │  ├─ script-tools.ts       #   工具面：script_spec / script_read / script_apply / element_read / page_snapshot / error_read
 │  │  │  ├─ system-prompt.ts / spec-text.ts
 │  │  │  ├─ event-bus.ts          #   对话事件缓冲（重连从头全量回放，收尾即删）
@@ -92,17 +92,17 @@
 │  │  ├─ theme.ts / code-view.ts / format.ts / utils.ts
 │  │  └─ userscripts/             # 脚本链路：引擎 / 存储 / git / DL 桥 / 匹配规则
 │  │     ├─ engine.ts             #   chrome.userScripts 注册：每脚本一 USER_SCRIPT 世界 + MAIN 桩
-│  │     ├─ state-db.ts / project-store.ts / project-write.ts  # 注册态库 `duoling-state`（bundle+元数据，写只归 offscreen）
+│  │     ├─ state-db.ts / project-store.ts / project-write.ts  # 注册态库 `duoling-state`（元数据 + 源码搬运副本，写只归 offscreen）
 │  │     ├─ us-fs.ts / us-git.ts  #   lightning-fs 单例（库名 `duoling-fs`，只许 offscreen）+ isomorphic-git：源码唯一来源
 │  │     ├─ dl-bridge.ts / api-contract.ts  # 注入脚本 ⇄ SW 桥（DL.store / DL.fetch / DL.page 契约）
 │  │     ├─ page-stub.ts / page-client.ts / page-protocol.ts  # DL.page 反向中继（MAIN 桩 + USER_SCRIPT 客户端）
 │  │     ├─ match-union.ts        #   内置注册（MAIN 桩）的匹配并集与「未变则跳过」比对
-│  │     └─ builder.ts / zip-transfer.ts / builtins.ts / store.ts / ui-client.ts / types.ts
+│  │     └─ zip-transfer.ts / builtins.ts / store.ts / ui-client.ts / types.ts
 │  ├─ types/                      # shims.d.ts（process 模块 + window.api 全局声明）+ tab.ts / model.ts re-export
 │  ├─ polyfill-process.ts / polyfills.ts  # SW 兜底：process / global / Buffer
-│  └─ public/                     # duoling-picker.js（元素拾取器）/ esbuild.wasm
+│  └─ public/                     # duoling-picker.js（元素拾取器）
 ├─ scripts/                       # 仓库维护脚本：verify-skills.mjs（skill 合规）/ check-inbox.py（inbox 体检）/ pack-uscripts.mjs（打用户脚本测试包）
-├─ uscript-samples/               # pack-uscripts 的源目录（跟 git）：未压缩的测试脚本源码，注入探针 / DL 桥往返 / 多文件构建 / 运行期报错 / 构建失败
+├─ uscript-samples/               # pack-uscripts 的源目录（跟 git）：未压缩的测试脚本源码，注入探针 / DL 桥往返 / 语法错误样本（坏脚本照样装）/ 运行期报错
 ├─ docs/inbox.md                  # 想法收件箱（只装问题 + ≤30 字方向，不写方案设计）
 ├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟四链路）
 └─ .github/workflows/             # ci.yml / e2e.yml / release.yml / sync-release-notes.yml（各自作用见 GIT_WORKFLOW.md 与 VERSIONING.md）
@@ -128,10 +128,10 @@
 8. **脚本列表**：面板顶栏「打开工作台」→ 默认落「脚本列表」（可关掉别的标签，这个不可关）。本页操作：
    - **新建**：零输入，**建完停在列表不跳编辑器**，该行标「刚新建」；点该行「编辑」进过一次即摘标。
    - **启停 / 导出 / 删除 / 看可用性横幅**。
-   - **导入 zip**：「导入」菜单给两种取包方式 —— 「选择 zip 文件…」走文件选择器，「输入文件路径…」手输或粘贴**绝对路径**（后者用于把 `npm run pack:uscripts` 打印出来的 `tmp/…zip` 路径直接粘进去，省去在弹窗里逐层点目录）；两者取到字节后走完全同一条链路。测试包内含注入探针 / DL 桥 / 多文件 / 故意报错等有具体行为的脚本。
+   - **导入 zip**：「导入」菜单给两种取包方式 —— 「选择 zip 文件…」走文件选择器，「输入文件路径…」手输或粘贴**绝对路径**（后者用于把 `npm run pack:uscripts` 打印出来的 `tmp/…zip` 路径直接粘进去，省去在弹窗里逐层点目录）；两者取到字节后走完全同一条链路。测试包内含注入探针 / DL 桥 / 语法错误样本等有具体行为的脚本。
    - 列表本身**不展示脚本报错**（报错去「运行日志」标签页看）；只有引擎不可用这类环境级问题在本页横幅提示一次。
-9. **编辑与构建**：列表行点「编辑」开编辑器标签页 → 改文件后构建（esbuild-wasm）→ 保存；顶栏可切「产物」标签看真正注入页面的 IIFE；有未保存改动时关标签应弹确认
-10. **历史**：编辑器内 git 历史 → 看提交记录 / 恢复某次提交（恢复产生新提交，历史不可变）
+9. **编辑与保存**：列表行点「编辑」开编辑器标签页 → 改源码（单文件）→ 保存即重新注册（保存恒成功、保存即注入：语法错误也照存，坏了的脚本运行期报错去运行日志看）；有未保存改动时关标签应弹确认
+10. **历史**：编辑器顶栏的历史按钮 → 历史标签页看提交记录 / 恢复某次提交（恢复产生新提交，历史不可变）
 11. **AI 生成脚本**：面板里描述需求 → 看进度流（工具卡：`script_spec` / `script_read` / `script_apply` / `page_snapshot`）→ 生成卡片出现（未启用徽标 + 生效范围 + 会做什么）→ 点「启用并生效」→ 打开目标页确认脚本已生效
 12. **页面脚本灵动岛与角标**：在命中脚本的页面上，侧边栏灵动岛应列出本页在跑的脚本与报错（点脚本行跳工作台运行日志）；生成过程中关掉面板，完成后工具栏图标应亮红色角标 `1`，重开面板即清零
 13. **运行日志标签页**：左侧导航栏点「运行日志」（或灵动岛点脚本行深链 `#/errors/<uuid>` 过滤到该脚本）→ 时间线一行 = 一次运行（「运行 N 次」之外按时间看每次）；运行期报错挂在对应运行行下（点「N 个错误」展开明细），注册/桥失败等无运行上下文的错误单独成行；左栏按脚本过滤，点右上的「清空全部 / 清空该脚本」连带清运行行，不误伤别的脚本
@@ -167,8 +167,8 @@
 3. **entrypoint 同名冲突**：同一名字不得同时存在 `x.html` 与 `x.ts`（WXT 判定两个同名 entrypoint）。规则与命名做法见 [wxt 规范](.agents/skills/wxt/SKILL.md) 硬约束 3。
 4. **跨域 fetch 需 host 权限**：扩展页 `fetch` 模型接口会被 CORS 拦，必须在 manifest 声明对应 `host_permissions`（模型服务商由 `src/lib/providers.ts` 推导，用户脚本另需 `<all_urls>`）。
 5. **userScripts 可用性前置**：`chrome.userScripts` 未开启时不存在，直接调用会让 SW 初始化崩溃；引擎每条入口都先判存在性（`isUserScriptsAvailable()` / `typeof chrome.userScripts.register === 'function'`）再优雅跳过，并把开启引导交给工作台「引导」标签页（各处只给「查看开启引导」入口，不各写一套步骤）。
-6. **git 不存产物、也不存权威副本之外的东西**：源码唯一来源 = duoling-fs 工作树，git 提交是其版本历史；产物 `bundle` 只进注册态库（git 侧显式排除，避免「假变更」使历史异常膨胀）；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护）
-7. **生产产物的 CSP 与 wasm**：MV3 默认 `script-src 'self'` **不含** `'wasm-unsafe-eval'`，offscreen 的 esbuild-wasm 在 `npm run build` 产物里会被拦（dev 下 WXT 自动注入宽松 CSP，**故这一项须用生产产物验证**）；已在 `wxt.config.ts` 显式声明覆盖。
+6. **git 只存源码本身**：源码唯一来源 = duoling-fs 工作树（`script.js` + `project.json`），git 提交是其版本历史；注册态库的 `source` 搬运副本不进 git（由写侧落盘时组装）；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护）
+7. **CSP 保持 MV3 默认**：曾为 esbuild-wasm 在 `wxt.config.ts` 放开过 `'wasm-unsafe-eval'`，构建流程移除后（2026-09-20）该覆盖已删，扩展页回到默认 `script-src 'self'`——**不要再加回 CSP 覆盖**（脚本世界的 eval 防线见 AGENTS 硬性底线「脚本世界 CSP」）。
 8. **注入不了「非普通网页」**：`host_permissions` 的 `<all_urls>` **不覆盖 `chrome-extension://` scheme**，往扩展页注入（`userScripts.execute` / `scripting.executeScript`）必失败，抛 Chrome 原话 `Cannot access contents of url … must request permission to access this host` —— **连本扩展自己的页面也一样**（活动标签是工作台时点「点选元素」即命中）。
    - 不是漏配权限，加 host 权限也解决不了，只能在注入前拦；`file://` 未开「允许访问文件网址」报的是同一句。
    - 应对在 `element-picker-client.ts`：判据 `pageInjectionBlockReason`（拾取与 SW 快照共用）+ 归一 `friendlyInjectError`。**平台英文报错不直达用户**：能判的判掉，判不掉的翻译成用户的下一步动作（「切到要操作的网页后重试」）。
@@ -191,7 +191,7 @@
    - 两个入口的样式块是**刻意重复**的，改一处须同步另一处。
    - **在侧边栏里几乎看不到它，不代表未生效**：加载态窗口本来只有几十毫秒（无头实测生产产物：侧边栏 96ms / 缓热 30ms，工作台 50ms / 45ms），且 module 脚本在 `DOMContentLoaded` **之前**就已执行完毕（探针挂在 DCL 上会错过这段窗口）。它是「真的需要等」时才出现的兜底，不是常驻动画。2026-09-18 另做了一次对照验证（把 Vue 挂到独立 `#ui-root`、让加载态常显），**加载态与正式 UI 同时出现**，肉眼分不出先后。
    - **「侧边栏白屏」的大半是 dev 冷启动，前端无从覆盖**：`npm run dev` **首次自动打开浏览器**时白屏数秒，此后在 `chrome://extensions` 点「刷新」重载即不再出现、侧边栏秒开 —— 原因是首次需 Vite/WXT **现场编译 entrypoint + 预构建依赖**，这几秒里 **HTML 文档本身尚未送达浏览器**。
-     故页面为空白（不只是底色白，连内联 `<style>` 都还没到），任何前端手段都渲染不出加载态。**属 dev-only**：生产产物是静态文件，HTML 即时到达，没有这段窗口 —— 验真实首屏体感须用 `npm run build` 的产物加载；同理 dev 也不适合验 CSP / wasm（见坑 7）。
+     故页面为空白（不只是底色白，连内联 `<style>` 都还没到），任何前端手段都渲染不出加载态。**属 dev-only**：生产产物是静态文件，HTML 即时到达，没有这段窗口 —— 验真实首屏体感须用 `npm run build` 的产物加载；同理 dev 也不适合验 CSP（见坑 7）。
 13. **读本地 `file://` 不用加权限，但挡着一道用户开关**（「从路径导入」的地基，2026-09-19 无头实测，Chromium 141 / Playwright 捆绑版）：
    - **manifest 不用动**：`<all_urls>` 已覆盖 `file:///*` —— 真产物里 `chrome.permissions.contains({origins:['file:///*']})` 实测为 `true`，无需再申请 `file:///*`。
    - **真正的门槛是每扩展的用户开关「允许访问文件网址」**：关着时 `isAllowedFileSchemeAccess()` 为 `false`、上面那个 `permissions.contains` 也跟着变 `false`（它是开关的忠实代理）、`fetch('file:///…')` 一律 `Failed to fetch`。**命令行加载的 unpacked 扩展（`npm run dev` 与 E2E 的方式）该开关默认就是开的**，所以开发/端测里开箱可用；UI 里手动「加载已解压的扩展程序」装的则可能要用户自己开一次。

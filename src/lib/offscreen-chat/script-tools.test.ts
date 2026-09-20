@@ -4,26 +4,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { buildScriptTools, type NetCaptureHooks, type TaskWorkspace } from './script-tools'
 import type { ElementPickContext } from '@/shared/extension-ipc'
 
-// 真构建依赖 esbuild-wasm + chrome.runtime.getURL，单测环境不可用 → mock 掉（本文件不测构建本身）
-vi.mock('@/lib/userscripts/builder', () => ({
-  BuildError: class BuildError extends Error {},
-  buildProject: vi.fn(async (files: Record<string, string>) => ({
-    code: '/* bundle */',
-    files,
-    remoteFetched: [],
-  })),
-}))
 // us-git 顶层 import 会实例化 lightning-fs（Node 无 indexedDB → 未处理 rejection）→ 一并 mock
 vi.mock('@/lib/userscripts/us-git', () => ({
-  readSourceTree: vi.fn(async () => null),
+  readSource: vi.fn(async () => null),
 }))
 
 function makeWorkspace(): TaskWorkspace {
   return {
     taskId: 't-1',
     conversationId: 'c-1',
-    files: null,
-    entry: 'main.js',
+    code: null,
     config: null,
     summary: '',
     applyFailures: 0,
@@ -313,17 +303,17 @@ describe('page_snapshot（快照改 AI 工具采集）', () => {
 })
 
 describe('script_apply 更新意图（updateUuid → ws.targetUuid）', () => {
-  const files = { 'main.js': "DL.log('hi')\n" }
+  const code = "DL.log('hi')\n"
   const config = { matches: ['*://example.com/*'], allFrames: true, runAt: 'document_end' as const }
   const execOpts2 = execOpts as Parameters<
     ReturnType<typeof buildScriptTools>['script_apply']['execute']
   >[1]
 
-  it('带 updateUuid 构建成功 → ws.targetUuid 记下更新目标', async () => {
+  it('带 updateUuid 应用成功 → ws.targetUuid 记下更新目标', async () => {
     const ws = makeWorkspace()
     const tools = buildScriptTools(ws, async () => {})
     const out = (await tools.script_apply.execute(
-      { summary: '改字号', config, files, entry: 'main.js', updateUuid: 'uuid-target' },
+      { summary: '改字号', config, code, updateUuid: 'uuid-target' },
       execOpts2,
     )) as Record<string, unknown>
     expect(out.ok).toBe(true)
@@ -335,7 +325,7 @@ describe('script_apply 更新意图（updateUuid → ws.targetUuid）', () => {
     ws.targetUuid = 'uuid-stale'
     const tools = buildScriptTools(ws, async () => {})
     const out = (await tools.script_apply.execute(
-      { summary: '新脚本', config, files, entry: 'main.js' },
+      { summary: '新脚本', config, code },
       execOpts2,
     )) as Record<string, unknown>
     expect(out.ok).toBe(true)

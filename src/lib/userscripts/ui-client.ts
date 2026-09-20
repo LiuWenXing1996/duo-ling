@@ -6,7 +6,7 @@
 // 直接发 userscript:* 命令组（v2 方案）。
 import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptRunLogRow } from './types'
-import type { SourceTree, UsCommit, UsHistoryTree } from './us-git'
+import type { Source, UsCommit, UsSnapshot } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
@@ -83,20 +83,19 @@ export const userscriptClient = {
   /** 列出全部脚本（不含源码） */
   list: (): Promise<ScriptSummary[]> => send({ kind: 'userscript:list' }),
 
-  /** 读完整注册态记录（元数据 + bundle；**不含源码**——源码经 fsClient.readTree 取） */
+  /** 读完整注册态记录（元数据 + 源码搬运副本；duoling-fs 里的 git 历史源码经 fsClient.read 取） */
   getProject: (uuid: string): Promise<ScriptProject | undefined> =>
     send({ kind: 'userscript:getProject', uuid }),
 
-  /** 保存源码（唯一保存入口）：写 fs + git 提交 + 构建 + 落库 + 重注册一条龙。
-   *  **保存恒成功**（提交即保存）；构建失败产物置空，返回 buildOk=false + issues 诊断。
-   *  另返回非阻塞 warnings 与 registerError（仅注册失败时的警告文案） */
+  /** 保存源码（唯一保存入口）：写 fs + git 提交 + 落库 + 重注册一条龙。
+   *  **保存恒成功、保存即注入**（无构建流程）。
+   *  返回非阻塞 warnings 与 registerError（仅注册失败时的警告文案） */
   save: (
     uuid: string,
-    files: Record<string, string>,
-    entry: string,
+    code: string,
     opts?: { name?: string; config?: ScriptConfig; note?: string },
-  ): Promise<{ buildOk: boolean; issues: string[]; files: Record<string, string>; remoteFetched: string[]; warnings?: string[]; registerError?: string }> =>
-    send({ kind: 'userscript:save', uuid, files, entry, ...opts }),
+  ): Promise<{ warnings?: string[]; registerError?: string }> =>
+    send({ kind: 'userscript:save', uuid, code, ...opts }),
 
   /** 新建（零输入）：自动命名 + 初始模板 + 建 git 仓 + 注册。返回 uuid / name + 非阻塞警告
    *  与 registerError（数据已创建、仅注册失败时的警告文案，如未开 Allow User Scripts） */
@@ -114,14 +113,6 @@ export const userscriptClient = {
    *  逐脚本独立容错，返回汇总报告（导入恒 enabled:false，注册由用户手动启用时发生） */
   importZip: (zipBase64: string): Promise<ImportReport> =>
     send({ kind: 'userscript:import', zipBase64 }),
-
-  /** 刷新依赖缓存：全量重拉（无视缓存），全成功才替换 + 重建；失败旧缓存原封不动 */
-  refreshDeps: (uuid: string): Promise<{ ok: boolean; refreshed: string[]; issues: string[]; registerError?: string }> =>
-    send({ kind: 'userscript:deps-refresh', uuid }),
-
-  /** 清依赖缓存：只删 _deps/，不拉不建（产物保留，下次构建自然冷拉） */
-  clearDeps: (uuid: string): Promise<{ cleared: number }> =>
-    send({ kind: 'userscript:deps-clear', uuid }),
 
   /** 启停：enabled 已落状态库后返回；注册失败不判整体失败，只带回 registerError 警告 */
   toggle: (uuid: string, enabled: boolean): Promise<{ registerError?: string }> =>
@@ -185,19 +176,19 @@ export const fsClient = {
   /** 就绪探测（一般不直接用；offscreen:ensure 的就绪轮询内部即 fs:ping） */
   ping: (): Promise<{ ready: boolean }> => sendAi({ kind: 'fs:ping' }),
 
-  /** 读源码树（工作树；每次保存后与 HEAD 一致，无草稿概念）。无源码返回 null */
-  readTree: (uuid: string): Promise<SourceTree | null> => sendAi({ kind: 'fs:readTree', uuid }),
+  /** 读源码（工作树；每次保存后与 HEAD 一致，无草稿概念）。无源码返回 null */
+  read: (uuid: string): Promise<Source | null> => sendAi({ kind: 'fs:read', uuid }),
 
   /** git 历史：提交列表（新在前） */
   history: (uuid: string): Promise<UsCommit[]> => sendAi({ kind: 'fs:history', uuid }),
 
-  /** 某提交的完整快照（当时元信息 + 源码文件树） */
-  historyTree: (uuid: string, oid: string): Promise<UsHistoryTree> =>
-    sendAi({ kind: 'fs:historyTree', uuid, oid }),
+  /** 某提交的完整快照（当时元信息 + 源码） */
+  readAt: (uuid: string, oid: string): Promise<UsSnapshot> =>
+    sendAi({ kind: 'fs:readAt', uuid, oid }),
 
-  /** 恢复到某提交：目标树物化回工作区 + 提交「回滚」记录。
-   *  返回恢复出的源码树；随后经 userscriptClient.save 走统一保存（构建 + 落库 + 重注册） */
-  restoreToCommit: (uuid: string, oid: string): Promise<{ committed: boolean; tree: SourceTree }> =>
+  /** 恢复到某提交：目标快照物化回工作区 + 提交「回滚」记录。
+   *  返回恢复出的源码；随后经 userscriptClient.save 走统一保存（落库 + 重注册） */
+  restoreToCommit: (uuid: string, oid: string): Promise<{ committed: boolean; source: Source }> =>
     sendAi({ kind: 'fs:restoreToCommit', uuid, oid }),
 
   /** 导出 zip：offscreen 侧打包（读工作区源码），只回传 base64；单脚本时附带 name */

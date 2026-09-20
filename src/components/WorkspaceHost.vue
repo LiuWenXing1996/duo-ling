@@ -10,7 +10,6 @@ import UserscriptRunLogPanel from '@/components/userscript/UserscriptRunLogPanel
 import UserscriptEditorPanel from '@/components/userscript/UserscriptEditorPanel.vue'
 import LfsBrowserPanel from '@/components/userscript/LfsBrowserPanel.vue'
 import UserscriptHistoryPanel from '@/components/userscript/UserscriptHistoryPanel.vue'
-import UserscriptBundlePanel from '@/components/userscript/UserscriptBundlePanel.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import ChatDataPanel from '@/components/ChatDataPanel.vue'
 import AgentToolsPanel from '@/components/AgentToolsPanel.vue'
@@ -196,28 +195,13 @@ function openUserscriptEditor(uuid: string, title: string): void {
   activate(id)
 }
 
-// 打开某脚本的产物标签页：每脚本一个（id = us-bundle:<uuid>），已打开则激活复用。
-// 只读展示构建产物（真正注入页面的 IIFE）；编辑器顶栏的产物按钮经 @open-bundle 走到这里。
-function openUserscriptBundleTab(uuid: string, title: string): void {
-  const id = `us-bundle:${uuid}`
-  if (!openTabs.value.some((t) => t.id === id)) {
-    openTabs.value.push({
-      kind: 'us-bundle',
-      id,
-      title: `${title || '脚本'} 产物`,
-      userscriptId: uuid
-    })
-  }
-  activate(id)
-}
-
 /**
- * 脚本被删除（列表页广播）：关掉它可能开着的编辑器 / 产物标签页。
+ * 脚本被删除（列表页广播）：关掉它可能开着的编辑器标签页。
  * 先清脏标记再关 —— 脚本连 git 仓都被删了，未保存的改动已无处可存，不该再弹确认。
  * 同时让运行日志标签页重拉：该脚本的报错记录已随删除清掉，不重拉页面上还留着它的分组。
  */
 function onUserscriptDeleted(uuid: string): void {
-  for (const id of [`us-edit:${uuid}`, `us-bundle:${uuid}`]) {
+  for (const id of [`us-edit:${uuid}`]) {
     delete dirtyTabs.value[id]
     if (openTabs.value.some((t) => t.id === id)) closeTab(id)
   }
@@ -293,7 +277,6 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
           :uuid="tab.userscriptId ?? ''"
           @dirty="(v: boolean) => (dirtyTabs[tab.id] = v)"
           @open-history="openUserscriptHistoryTab"
-          @open-bundle="openUserscriptBundleTab"
           @open-guide="openGuideTab"
         />
         <!-- lfs 浏览：offscreen lightning-fs 整库只读文件树 -->
@@ -310,12 +293,6 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
           :key="tab.id"
           :uuid="tab.userscriptId ?? ''"
           @restored="onHistoryRestored"
-        />
-        <!-- 脚本产物：每脚本一个标签页，只读展示构建产物（真正注入页面的代码） -->
-        <userscript-bundle-panel
-          v-else-if="tab.kind === 'us-bundle'"
-          :key="tab.id + ':' + (editorReloadTick[tab.userscriptId ?? ''] ?? 0)"
-          :uuid="tab.userscriptId ?? ''"
         />
       </ui-tabs-content>
     </ui-tabs>

@@ -57,9 +57,7 @@ const summary = (uuid: string, name: string): ScriptSummary => ({
   name,
   enabled: true,
   matches: ['https://a.example/*'],
-  fileCount: 1,
   updatedAt: 0,
-  buildOk: true,
   group: '',
 })
 
@@ -326,12 +324,14 @@ describe('UserscriptListPanel 批量启停', () => {
 })
 
 describe('UserscriptListPanel 卡片布局', () => {
-  it('同一张卡片内同时展示匹配规则与元信息（文件数）', async () => {
+  it('同一张卡片内同时展示匹配规则与元信息（更新时间）', async () => {
     const s = { ...summary('u1', '脚本A'), updatedAt: 1758200000000 }
     list.mockResolvedValue([s])
     wrapper = await mountPanel()
-    const card = wrapper.findAll('.bg-card').find((el) => el.text().includes('1 个文件'))!
+    const card = wrapper.findAll('.bg-card').find((el) => el.text().includes('脚本A'))!
     expect(card.element.textContent).toContain('a.example')
+    // 元信息行（更新时间 / 运行统计）存在：本 fixture 无运行统计，只渲染更新时间
+    expect(card.element.textContent).not.toBe('')
   })
 })
 

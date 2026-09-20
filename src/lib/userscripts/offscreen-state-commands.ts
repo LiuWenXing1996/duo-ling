@@ -1,6 +1,6 @@
 // 用户脚本项目状态库的 offscreen 侧命令面。
 //
-// 本模块是本方案的落点：注册态数据（bundle / 元数据 / enabled）与源码库（duoling-fs，带 git）
+// 本模块是本方案的落点：注册态数据（源码搬运副本 / 元数据 / enabled）与源码库（duoling-fs，带 git）
 // 都在 offscreen 本地，**写**收敛到这一处。原先一次保存是「SW 写 chrome.storage」+「IPC 让 offscreen commit」
 // 两次分离操作、两个写方，任一步失败就产生「已保存但没 commit」的偏差；现在落盘与提交
 // 在同一个函数、同一个上下文里完成（project-write.ts），没有跨上下文的缝隙。
@@ -11,12 +11,10 @@ import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { broadcastDataChange } from '@/lib/data-broadcast'
 import { listProjects } from './project-store'
 import {
-  clearDepsCache,
   createGeneratedProject,
   createGroup,
   createProject,
   importScriptsZip,
-  refreshDepsCache,
   removeAllProjects,
   removeGroupAndReassign,
   removeProjectAndRepo,
@@ -52,8 +50,8 @@ async function runStateCommand(msg: StateRequest): Promise<unknown> {
     case 'state:create':
       return createProject()
     case 'state:save':
-      // 统一保存：写 duoling-fs + git 提交 + 构建（失败产物置空）+ 写状态库，见 project-write.saveSource
-      return saveExisting(msg.uuid, msg.files, msg.entry, {
+      // 统一保存：写 duoling-fs + git 提交 + 写状态库（保存即注入），见 project-write.saveSource
+      return saveExisting(msg.uuid, msg.code, {
         name: msg.name,
         config: msg.config,
         note: msg.note,
@@ -72,14 +70,8 @@ async function runStateCommand(msg: StateRequest): Promise<unknown> {
       return createGeneratedProject(payload)
     }
     case 'state:import':
-      // zip 导入：解码 + 校验 + 构建 + 落盘全在本上下文（单写方）
+      // zip 导入：解码 + 落盘全在本上下文（单写方）
       return importScriptsZip(msg.zipBase64)
-    case 'state:deps-refresh':
-      // 刷新依赖缓存：全量重拉，全成功才替换 + 重建（广播在 handleStateCommand 统一发）
-      return refreshDepsCache(msg.uuid)
-    case 'state:deps-clear':
-      // 清依赖缓存：只删 _deps/，不拉不建（产物保留，下次构建自然冷拉）
-      return clearDepsCache(msg.uuid)
     case 'state:group-create': {
       // 新建分组：建好即广播 group 域，列表端回拉分组定义
       const { kind: _kind, ...payload } = msg

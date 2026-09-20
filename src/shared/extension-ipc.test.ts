@@ -15,13 +15,9 @@ import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { SW_KIND_PREFIXES } from '@/entrypoints/background'
 import { OFFSCREEN_KIND_PREFIXES } from '@/entrypoints/app/offscreen-main'
 
-// offscreen-main 的 import 链会带到 builder（esbuild-wasm，纯重不纯用）与 us-fs / us-git
+// offscreen-main 的 import 链会带到 us-fs / us-git
 // （us-fs 模块顶层 new LightningFS，Node 下无 indexedDB 会产生未处理 rejection）——
 // 这里只做前缀比对，把这些重依赖挡在 mock 层。
-vi.mock('@/lib/userscripts/builder', () => ({
-  buildProject: vi.fn(),
-  BuildError: class BuildError extends Error {},
-}))
 vi.mock('@/lib/userscripts/us-fs', () => ({
   fs: {},
   pfs: { readdir: vi.fn() },
@@ -33,11 +29,11 @@ vi.mock('@/lib/userscripts/us-git', () => ({
   deleteRepo: vi.fn(),
   deleteAllRepos: vi.fn(),
   listHistory: vi.fn(),
-  readTreeAt: vi.fn(),
+  readSnapshotAt: vi.fn(),
   restoreToCommit: vi.fn(),
-  writeSourceTree: vi.fn(),
+  writeSource: vi.fn(),
   commitSource: vi.fn(),
-  readSourceTree: vi.fn(),
+  readSource: vi.fn(),
 }))
 // 启动对账会在 import 期真碰 fs/IDB，与本测试无关——保留其余真实导出
 vi.mock('@/lib/userscripts/offscreen-state-commands', async (importOriginal) => {
@@ -69,8 +65,6 @@ const ALL_KINDS = [
   { kind: 'userscript:netCaptureEnable', side: 'sw' },
   { kind: 'userscript:netCaptureDisable', side: 'sw' },
   { kind: 'userscript:netCaptureRead', side: 'sw' },
-  { kind: 'userscript:deps-refresh', side: 'sw' },
-  { kind: 'userscript:deps-clear', side: 'sw' },
   { kind: 'userscript:groups', side: 'sw' },
   { kind: 'userscript:setGroup', side: 'sw' },
   { kind: 'userscript:group-create', side: 'sw' },
@@ -79,9 +73,9 @@ const ALL_KINDS = [
   { kind: 'userscript:group-reorder', side: 'sw' },
   // —— fs:*（offscreen：源码库 duoling-fs 命令面，SW 静默让路）——
   { kind: 'fs:ping', side: 'offscreen' },
-  { kind: 'fs:readTree', side: 'offscreen' },
+  { kind: 'fs:read', side: 'offscreen' },
   { kind: 'fs:history', side: 'offscreen' },
-  { kind: 'fs:historyTree', side: 'offscreen' },
+  { kind: 'fs:readAt', side: 'offscreen' },
   { kind: 'fs:restoreToCommit', side: 'offscreen' },
   { kind: 'fs:exportZip', side: 'offscreen' },
   { kind: 'fs:lfsTree', side: 'offscreen' },
@@ -94,8 +88,6 @@ const ALL_KINDS = [
   { kind: 'state:removeAll', side: 'offscreen' },
   { kind: 'state:toggle', side: 'offscreen' },
   { kind: 'state:import', side: 'offscreen' },
-  { kind: 'state:deps-refresh', side: 'offscreen' },
-  { kind: 'state:deps-clear', side: 'offscreen' },
   { kind: 'state:group-create', side: 'offscreen' },
   { kind: 'state:group-rename', side: 'offscreen' },
   { kind: 'state:group-remove', side: 'offscreen' },

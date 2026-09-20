@@ -66,7 +66,7 @@ export default defineConfig({
   // 才能正确解析到扩展侧的 src。
   srcDir: 'src',
   // WXT 的 publicDir 默认基于**项目根**（不是 srcDir），需显式指到 src 下，
-  // 否则 src/public/esbuild.wasm（脚本构建用的 esbuild-wasm）不会进产物。
+  // 否则 src/public/ 下的静态资产（如 notify-icon.png）不会进产物。
   publicDir: 'src/public',
   vite: () => ({
     plugins: [vue(), tailwindcss()],
@@ -89,9 +89,9 @@ export default defineConfig({
     // setPanelBehavior 的 openPanelOnActionClick 已置 false），侧栏由 popup 内的
     // chrome.sidePanel.open() 唤起 —— 一个 action 无法同时默认开 popup 与 side panel。
     // offscreen 是 AI 生成链路的执行宿主（定位 B）：
-    // 对话 loop 与 esbuild 构建都跑在 offscreen document 里，「用户发起生成后可关掉侧边栏、
-    // 任务照跑完」。没有该权限 chrome.offscreen 不存在，容器起不来（Chrome 109+ / 仅 MV3）。
-    // 2026-09-14 经评审确认。
+    // 对话 loop 与源码写侧（us-git / project-write）都跑在 offscreen document 里，
+    // 「用户发起生成后可关掉侧边栏、任务照跑完」。没有该权限 chrome.offscreen 不存在
+    // （Chrome 109+ / 仅 MV3）。2026-09-14 经评审确认。
     // contextMenus = DL.menu（用户脚本扩展菜单，二期 DL Port 事件底座）的载体 API，
     // 未来项目自身菜单也走它。2026-09-19 经评审确认。
     // cookies = DL.cookie（get / set / remove）的载体 API。**注意：host 已是 <all_urls>，
@@ -127,20 +127,6 @@ export default defineConfig({
     // + 每脚本独立 USER_SCRIPT 世界隔离（worldId，133+）。
     // Chrome 规范字段是下划线 minimum_chrome_version；驼峰键会被 Chrome 忽略并报 Unrecognized。
     'minimum_chrome_version': '135',
-    // MV3 默认 extension_pages CSP 是 `script-src 'self'`，**不含** 'wasm-unsafe-eval'——
-    // 生产产物（npm run build）里 offscreen 的 esbuild-wasm（脚本构建链路）会被 CSP 拦
-    // （实测 Chromium 153 报 violates CSP）。
-    // 注意 WXT 只在 **dev**（command === 'serve'）自动注入含 'wasm-unsafe-eval' 的默认 CSP
-    // （wxt/dist/core/utils/manifest.mjs 的 addDevModeCsp），所以 dev 下构建一直正常、
-    // bug 只在生产产物暴露 —— 别用 dev 验证这个问题。此处显式声明以覆盖生产：
-    // 'wasm-unsafe-eval' 是 Chrome 103+ 为 wasm 场景提供的专用指令，不含 `unsafe-eval`
-    // 的 JS eval 语义，不影响上架审查。2026-09-15 经评审确认。
-    // 真机复现（2026-09-15 晚，禁用修复的生产产物加载真机 Chrome）：新建脚本即报
-    // "WebAssembly.instantiateStreaming ... violates CSP: script-src 'self'"——生产下
-    // create 链路也走 esbuild，影响面比预想大。恢复修复后构建正常。
-    content_security_policy: {
-      extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
-    },
     // default_popup 不在此手写：WXT 按文件名把 entrypoints/popup.html 识别为 popup 入口
     // 并自动写入 manifest（同 content.ts 成为内容脚本的机制）。
     action: {

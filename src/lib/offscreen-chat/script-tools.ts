@@ -1,17 +1,18 @@
 // Agent 工具：script 三件套（script_spec / script_read / script_apply）+ element_read / page_snapshot（页面上下文）+ error_read（错误 ID 查询）。
 //
 // 设计要点：
-//   · **script_apply 把「写」和「验证」合并成一步**：入参完整文件树 → esbuild 构建，
-//     成功返 ok、失败返 file:line 诊断——AI 在一次会话内「写 → 编译 → 读错误 → 再写」自收敛。
-//   · 写入契约是**整文件写，不做 patch**（文件小、多文件要一致、改完必须整体重构建）。
-//   · apply 只写内存文件树（TaskWorkspace），**不落盘**——落盘由编排层在收敛后调
+//   · **script_apply 把「写」和「语法验证」合并成一步**：入参完整源码 → acorn parse
+//     （sourceType: 'script'，import/export 也会被当场拦下），成功返 ok、失败返 行:列 诊断
+//     ——AI 在一次会话内「写 → 检查 → 读错误 → 再写」自收敛。
+//   · 写入契约是**整文件写，不做 patch**（单文件脚本，改完必须整体重提交）。
+//   · apply 只写内存工作区（TaskWorkspace），**不落盘**——落盘由编排层在收敛后调
 //     userscript:createProject 完成（不由 AI 显式保存，避免「AI 忘了存」）。
-//   · 连续构建失败超阈值就停手：返回明确文案让模型把诊断抛给用户（防无限自修循环）。
+//   · 连续失败超阈值就停手：返回明确文案让模型把诊断抛给用户（防无限自修循环）。
 //
-// 模块归属：本文件只 import builder（纯 esbuild）、project-store（裸 IndexedDB 读侧）与
+// 模块归属：本文件只 import acorn（纯 JS parse）、project-store（裸 IndexedDB 读侧）与
 // us-git（duoling-fs 源码库，offscreen-only），可安全跑在 offscreen；不碰 chrome.storage /
 // chrome.userScripts。
-
+import { Parser } from 'acorn'
 import { tool } from 'ai'
 import { z } from 'zod'
 import {
@@ -19,16 +20,15 @@ import {
   TOOL_DESCRIPTIONS,
   TOOL_PARAM_DESCRIPTIONS,
 } from '@/lib/agent-tools-catalog'
-import { buildProject, BuildError } from '@/lib/userscripts/builder'
-import { getProject, validateFiles } from '@/lib/userscripts/project-store'
+import { getProject } from '@/lib/userscripts/project-store'
 import { normalizeHost } from '@/lib/userscripts/net-record-protocol'
-import { readSourceTree } from '@/lib/userscripts/us-git'
+import { readSource } from '@/lib/userscripts/us-git'
 import type { ScriptConfig, UserScriptErrorRecord } from '@/lib/userscripts/types'
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
-/** 连续构建失败上限：达到即让模型停手、把诊断交给用户。
+/** 连续 apply 失败上限：达到即让模型停手、把诊断交给用户。
  *  阈值取自 agent-tools-catalog（工作台「AI 工具」面板展示同一份，不再各写一份）。 */
 export const MAX_APPLY_FAILURES = AGENT_RUNTIME_LIMITS.maxApplyFailures
 
@@ -36,9 +36,8 @@ export const MAX_APPLY_FAILURES = AGENT_RUNTIME_LIMITS.maxApplyFailures
 export interface TaskWorkspace {
   taskId: string
   conversationId: string
-  /** 内存文件树；null = 尚未写过文件（改既有脚本时由 script_read 读出后写回） */
-  files: Record<string, string> | null
-  entry: string
+  /** 内存源码（最近一次 script_apply 成功后的内容；null = 尚未写过） */
+  code: string | null
   /** 最近一次成功 apply 的配置（落盘用；null = 尚未收敛） */
   config: ScriptConfig | null
   /** 最近一次成功 apply 的 AI summary（git 快照 note） */
@@ -46,13 +45,11 @@ export interface TaskWorkspace {
   applyFailures: number
   /** 本次任务要更新的既有脚本 uuid（script_apply 带 updateUuid 时设置；不带则清空 = 生成新脚本）。落盘时据此走更新或新建 */
   targetUuid?: string
-  /** 最近一次构建成功的完整产物（收敛后由编排层落盘） */
+  /** 最近一次成功 apply 的完整快照（收敛后由编排层落盘） */
   lastOk: {
-    files: Record<string, string>
-    entry: string
+    code: string
     config: ScriptConfig
     summary: string
-    bundle: { code: string; builtAt: number }
   } | null
 }
 
@@ -71,7 +68,7 @@ export type ApplyConfigInput = z.infer<typeof applyConfigSchema>
 /**
  * 网络录制回调组（由 chat-host 注入）。
  *
- * 为什么是回调而不是直接调 offscreenBridge：本模块的依赖边界是「builder + project-store +
+ * 为什么是回调而不是直接调 offscreenBridge：本模块的依赖边界是「acorn + project-store +
  * us-git + 纯数据模块」，offscreenBridge 属编排层的能力面。更关键的是
  * **requestConsent 要往对话流里推 data part**——那是 chat-host 的职责（它持有
  * conversationId 与事件缓冲），工具只负责「要一张卡」。
@@ -89,7 +86,23 @@ export interface NetCaptureHooks {
 }
 
 /**
- * 构建 Agent 工具（script 三件套 + element_read + page_snapshot）。snapshot 回调由 chat-host 提供（每步 apply 成功后把文件树
+ * acorn 语法检查（仅 AI loop 用；人工保存不做检查，见 project-write.saveSource）。
+ * sourceType 固定 'script'：脚本世界按 classic script 执行，import/export 会被当场报错。
+ * 返回 null = 通过；否则一条 行:列 诊断。
+ */
+function checkSyntax(code: string): string | null {
+  try {
+    Parser.parse(code, { ecmaVersion: 'latest', sourceType: 'script', allowAwaitOutsideFunction: true })
+    return null
+  } catch (e: unknown) {
+    const err = e as { message?: string; loc?: { line: number; column: number } }
+    const where = err.loc ? `${err.loc.line}:${err.loc.column + 1}` : '(未知位置)'
+    return `${where}  ${err.message ?? String(e)}`
+  }
+}
+
+/**
+ * 构建 Agent 工具（script 三件套 + element_read + page_snapshot）。snapshot 回调由 chat-host 提供（每步 apply 成功后把工作区
  * 快照进 IndexedDB 任务记录——覆盖写，宿主被杀后「继续」才有东西可继续）。
  * onFatal：硬停手回调——失败超阈值后模型仍再次 apply（无视 stop 提示）时中止整个
  * 任务（stop 提示只是文案，模型会无视继续烧步数）。
@@ -120,28 +133,26 @@ export function buildScriptTools(
       }),
       execute: async ({ uuid }) => {
         if (!uuid) {
-          if (!ws.files) {
-            return { ok: false, error: '当前任务还没有写入任何文件（先用 script_apply 提交文件树）' }
+          if (ws.code == null) {
+            return { ok: false, error: '当前任务还没有写入任何源码（先用 script_apply 提交）' }
           }
-          return { ok: true, entry: ws.entry, config: ws.config, files: ws.files }
+          return { ok: true, config: ws.config, code: ws.code }
         }
         const project = await getProject(uuid)
         if (!project) return { ok: false, error: `脚本不存在：${uuid}` }
         // 源码唯一来源 = duoling-fs（本文件同在 offscreen，直读零 IPC）。
         // 先读已提交版本（AI 不该看到用户未保存的半成品草稿），无提交再退工作区
-        // （zip 导入构建失败等场景只有工作区、没有提交）
-        const tree =
-          (await readSourceTree(uuid, true).catch(() => null)) ??
-          (await readSourceTree(uuid).catch(() => null))
-        if (!tree) return { ok: false, error: '源码库不可用或已损坏' }
+        const source =
+          (await readSource(uuid, true).catch(() => null)) ??
+          (await readSource(uuid).catch(() => null))
+        if (!source) return { ok: false, error: '源码库不可用或已损坏' }
         return {
           ok: true,
           uuid: project.uuid,
           name: project.name,
           enabled: project.enabled,
-          entry: tree.meta.entry,
-          config: tree.meta.config,
-          files: tree.files,
+          config: source.meta.config,
+          code: source.code,
         }
       },
     }),
@@ -151,16 +162,13 @@ export function buildScriptTools(
       inputSchema: z.object({
         summary: z.string().describe(TOOL_PARAM_DESCRIPTIONS.script_apply.summary),
         config: applyConfigSchema.describe(TOOL_PARAM_DESCRIPTIONS.script_apply.config),
-        files: z
-          .record(z.string(), z.string())
-          .describe(TOOL_PARAM_DESCRIPTIONS.script_apply.files),
-        entry: z.string().default('main.js').describe(TOOL_PARAM_DESCRIPTIONS.script_apply.entry),
+        code: z.string().describe(TOOL_PARAM_DESCRIPTIONS.script_apply.code),
         updateUuid: z
           .string()
           .optional()
           .describe(TOOL_PARAM_DESCRIPTIONS.script_apply.updateUuid),
       }),
-      execute: async ({ summary, config, files, entry, updateUuid }) => {
+      execute: async ({ summary, config, code, updateUuid }) => {
         // 硬停手：失败阈值已达后仍再次 apply = 模型无视了 stop 提示，直接中止任务
         if (ws.applyFailures >= MAX_APPLY_FAILURES) {
           onFatal?.()
@@ -170,61 +178,35 @@ export function buildScriptTools(
             stop: true,
           }
         }
-        // 入参守卫先于构建：路径非法 / 入口缺失给出可读错误，不浪费一次构建
-        try {
-          validateFiles(files, entry)
-        } catch (e) {
-          ws.applyFailures += 1
-          return {
-            ok: false,
-            errors: [e instanceof Error ? e.message : String(e)],
-            ...(ws.applyFailures >= MAX_APPLY_FAILURES
-              ? { stop: STOP_HINT }
-              : {}),
-          }
+        const scriptConfig: ScriptConfig = {
+          matches: config.matches,
+          ...(config.excludeMatches ? { excludeMatches: config.excludeMatches } : {}),
+          ...(config.includeGlobs ? { includeGlobs: config.includeGlobs } : {}),
+          ...(config.excludeGlobs ? { excludeGlobs: config.excludeGlobs } : {}),
+          allFrames: config.allFrames,
+          runAt: config.runAt,
         }
 
-        try {
-          const outcome = await buildProject(files, entry)
-          const scriptConfig: ScriptConfig = {
-            matches: config.matches,
-            ...(config.excludeMatches ? { excludeMatches: config.excludeMatches } : {}),
-            ...(config.includeGlobs ? { includeGlobs: config.includeGlobs } : {}),
-            ...(config.excludeGlobs ? { excludeGlobs: config.excludeGlobs } : {}),
-            allFrames: config.allFrames,
-            runAt: config.runAt,
-          }
-          ws.files = outcome.files // 含远程依赖持久化后的完整树
-          ws.entry = entry
-          ws.config = scriptConfig
-          ws.summary = summary
-          ws.applyFailures = 0
-          // 更新意图逐次声明：本次带 updateUuid 就更新该脚本，不带就清空（同任务里改主意要新脚本也正确）
-          ws.targetUuid = updateUuid || undefined
-          ws.lastOk = {
-            files: outcome.files,
-            entry,
-            config: scriptConfig,
-            summary,
-            bundle: { code: outcome.code, builtAt: Date.now() },
-          }
-          await snapshot(ws)
-          return {
-            ok: true,
-            bytes: outcome.code.length,
-            ...(outcome.remoteFetched.length
-              ? { remoteFetched: outcome.remoteFetched }
-              : {}),
-          }
-        } catch (e) {
+        // 语法检查失败 = 正常业务态：行:列 诊断交回模型自修（连续失败超阈值停手）
+        const issue = checkSyntax(code)
+        if (issue) {
           ws.applyFailures += 1
-          const errors = e instanceof BuildError ? e.issues : [e instanceof Error ? e.message : String(e)]
           return {
             ok: false,
-            errors,
+            errors: [issue],
             ...(ws.applyFailures >= MAX_APPLY_FAILURES ? { stop: STOP_HINT } : {}),
           }
         }
+
+        ws.code = code
+        ws.config = scriptConfig
+        ws.summary = summary
+        ws.applyFailures = 0
+        // 更新意图逐次声明：本次带 updateUuid 就更新该脚本，不带就清空（同任务里改主意要新脚本也正确）
+        ws.targetUuid = updateUuid || undefined
+        ws.lastOk = { code, config: scriptConfig, summary }
+        await snapshot(ws)
+        return { ok: true, bytes: code.length }
       },
     }),
     element_read: tool({
@@ -385,4 +367,4 @@ export function buildScriptTools(
 
 /** 失败停手提示：让模型把诊断总结给用户，而不是继续烧步数（maxSteps 之外的第二道闸） */
 const STOP_HINT =
-  '构建已连续失败多次，请停止重试：总结当前诊断与已尝试的修改思路，向用户说明卡点并请其确认方向。'
+  '语法检查已连续失败多次，请停止重试：总结当前诊断与已尝试的修改思路，向用户说明卡点并请其确认方向。'

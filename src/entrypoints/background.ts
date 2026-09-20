@@ -223,24 +223,21 @@ const handlers: {
   'userscript:list': async (): Promise<ScriptSummary[]> =>
     withRunStats(await listSummaries(await listProjects())),
 
-  // 读注册态记录（元数据 + bundle；**不含源码**——源码在 duoling-fs，编辑器经 fs:readTree 取）
+  // 读注册态记录（元数据 + 源码搬运副本；duoling-fs 里另有带 git 历史的权威源码，编辑器经 fs:read 取）
   'userscript:getProject': async (msg): Promise<ScriptProject | undefined> => getProject(msg.uuid),
 
-  // 保存源码（唯一保存入口）：转 offscreen 统一保存（写 fs + git 提交 + 构建 + 落库），
-  // 落库后启用中则重注册。**保存恒成功**（保存不依赖构建），构建失败产物置空：
-  // unregister 先行（旧产物立即失效——2026-09-19 经评审确认），无产物时注册被 resolveInjectCode
-  // 拦下、registerError 带原因。返回 buildOk + issues 供 UI 展示诊断。
+  // 保存源码（唯一保存入口）：转 offscreen 统一保存（写 fs + git 提交 + 落库），
+  // 落库后启用中则重注册。**保存恒成功、保存即注入**（无构建流程，注入代码 = 源码原文）。
   'userscript:save': async (
     msg,
-  ): Promise<{ buildOk: boolean; issues: string[]; files: Record<string, string>; warnings?: string[]; registerError?: string }> => {
-    // 转发前先广播「保存中」瞬态：列表行立即转圈（offscreen 进构建时会再广播「构建中」，
-    // 链路收尾的落库广播负责切终态——见 extension-ipc.ts DataChangedPush.phase 说明）
+  ): Promise<{ warnings?: string[]; registerError?: string }> => {
+    // 转发前先广播「保存中」瞬态：列表行立即转圈（链路收尾的落库广播负责切终态
+    // ——见 extension-ipc.ts DataChangedPush.phase 说明）
     broadcastBuildPhase('script', msg.uuid, 'saving')
     const outcome = await writeViaOffscreen<import('@/lib/userscripts/project-write').SaveOutcome>({
       kind: 'state:save',
       uuid: msg.uuid,
-      files: msg.files,
-      entry: msg.entry,
+      code: msg.code,
       name: msg.name,
       config: msg.config,
       note: msg.note,
@@ -249,16 +246,12 @@ const handlers: {
     await unregisterScripts([next.uuid]).catch(() => {})
     const registerError = next.enabled ? await registerOrLog(next) : undefined
     return {
-      buildOk: outcome.buildOk,
-      issues: outcome.issues,
-      files: outcome.files,
-      // 无产物时 resolveInjectCode 会抛，CSP 警告只在有产物时有意义
-      warnings: next.bundle ? collectCspWarnings(resolveInjectCode(next)) : undefined,
+      warnings: collectCspWarnings(resolveInjectCode(next)),
       registerError,
     }
   },
 
-  // 新建脚本（零输入）：命名 / 初始模板 / **构建产物** / 首次快照全在 offscreen 侧完成，SW 只负责注册。
+  // 新建脚本（零输入）：命名 / 初始模板 / 首次快照全在 offscreen 侧完成，SW 只负责注册。
   'userscript:create': async (): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
     const project = await writeViaOffscreen<ScriptProject>({ kind: 'state:create' })
     const registerError = await registerOrLog(project)
@@ -278,17 +271,15 @@ const handlers: {
       kind: 'state:createProject',
       name: msg.name,
       config: msg.config,
-      files: msg.files,
-      entry: msg.entry,
+      code: msg.code,
       enabled: msg.enabled,
       note: msg.note,
     })
-    const registerError = project.enabled && project.bundle ? await registerOrLog(project) : undefined
+    const registerError = project.enabled ? await registerOrLog(project) : undefined
     return {
       uuid: project.uuid,
       name: project.name,
-      // 无产物（构建失败）时 resolveInjectCode 会抛，CSP 警告只在有产物时有意义
-      warnings: project.bundle ? collectCspWarnings(resolveInjectCode(project)) : undefined,
+      warnings: collectCspWarnings(resolveInjectCode(project)),
       registerError,
     }
   },
@@ -364,30 +355,10 @@ const handlers: {
     return {}
   },
 
-  // zip 导入：纯转发 offscreen 单写方（解码 + 校验 + 构建
-  // + 落盘同处）。导入恒 enabled:false——「先审后启」是产品原则，落盘后由用户手动启用
-  // （userscript:toggle），故此处**无注册动作**（与 create / toggle 不同：不调 registerOrLog）。
+  // zip 导入：纯转发 offscreen 单写方（解码 + 落盘同处）。导入恒 enabled:false——「先审后启」
+  // 是产品原则，落盘后由用户手动启用（userscript:toggle），故此处**无注册动作**（与 create / toggle 不同：不调 registerOrLog）。
   'userscript:import': async (msg): Promise<ImportReport> =>
     writeViaOffscreen<ImportReport>({ kind: 'state:import', zipBase64: msg.zipBase64 }),
-
-  // 刷新依赖缓存：转发 offscreen（全量重拉，失败缓存原封不动）。成功 = 产物已更新，
-  // 照 save 语义重注册（unregister 先行 + enabled 才注册）；失败（拉取/构建）产物未动，无需注册动作。
-  'userscript:deps-refresh': async (msg): Promise<{ ok: boolean; refreshed: string[]; issues: string[]; registerError?: string }> => {
-    broadcastBuildPhase('script', msg.uuid, 'saving')
-    const outcome = await writeViaOffscreen<import('@/lib/userscripts/project-write').DepsRefreshOutcome>({
-      kind: 'state:deps-refresh',
-      uuid: msg.uuid,
-    })
-    if (!outcome.ok) return { ok: false, refreshed: [], issues: outcome.issues }
-    const next = await getProject(msg.uuid)
-    await unregisterScripts([msg.uuid]).catch(() => {})
-    const registerError = next?.enabled ? await registerOrLog(next) : undefined
-    return { ok: true, refreshed: outcome.refreshed, issues: [], registerError }
-  },
-
-  // 清依赖缓存：转发 offscreen（只删 _deps/，产物保留）——无注册动作，脚本继续跑旧产物
-  'userscript:deps-clear': async (msg): Promise<{ cleared: number }> =>
-    writeViaOffscreen<{ cleared: number }>({ kind: 'state:deps-clear', uuid: msg.uuid }),
 
   // 脚本列表分组：读分组定义（直连 IDB，与 userscript:list 同源）
   'userscript:groups': async (): Promise<import('@/lib/userscripts/types').ScriptGroup[]> => listGroups(),

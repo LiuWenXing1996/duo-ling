@@ -1,10 +1,11 @@
 {
-  "v": 1,
+  "v": 2,
   "name": "注入探针",
   "config": {
-    "matches": ["*://*/*"],
+    "matches": [
+      "*://*/*"
+    ],
     "allFrames": false,
     "runAt": "document_end"
-  },
-  "entry": "main.js"
+  }
 }

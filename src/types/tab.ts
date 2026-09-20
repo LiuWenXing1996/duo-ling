@@ -4,11 +4,11 @@ import type { WorkspaceTabKind } from '@/shared/types'
 
 /** 工作区里打开的一个标签页。 */
 export interface WorkspaceTab {
-  /** 标签唯一标识：全局唯一视图用固定 id；每脚本标签用 `us-edit:<uuid>` / `us-history:<uuid>` / `us-bundle:<uuid>` */
+  /** 标签唯一标识：全局唯一视图用固定 id；每脚本标签用 `us-edit:<uuid>` / `us-history:<uuid>` */
   id: string
   title: string
   /** 标签种类：决定内容面板渲染哪个组件 */
   kind: WorkspaceTabKind
-  /** 仅 userscript-edit / script-history / us-bundle：对应的用户脚本 uuid（三类标签都每脚本一个） */
+  /** 仅 userscript-edit / script-history：对应的用户脚本 uuid（两类标签都每脚本一个） */
   userscriptId?: string
 }

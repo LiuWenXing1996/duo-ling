@@ -21,11 +21,10 @@ export interface ChatTaskRecord {
   status: ChatTaskStatus
   /** 已完成的循环步数（提示「中断在第 N 步」） */
   step: number
-  /** 连续构建失败次数（script_apply 维护） */
+  /** 连续 apply 失败次数（script_apply 维护） */
   applyFailures: number
-  /** 内存文件树快照（最近一次 script_apply成功后的树；null = 尚未写过文件） */
-  files: Record<string, string> | null
-  entry: string
+  /** 内存源码快照（最近一次 script_apply 成功后的内容；null = 尚未写过） */
+  code: string | null
   /** 首条需求摘要（用户消息），「继续」时回给模型 */
   prompt: string
   /** 页面上下文（档 0 + 可选档 2，chat:start 随指令带来；形状见 extension-ipc.PageContextInfo） */
