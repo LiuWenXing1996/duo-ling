@@ -141,6 +141,14 @@ export default defineConfig({
     side_panel: {
       default_path: 'sidepanel.html',
     },
+    // 网页浮层：content script 在第三方页面里用 iframe 加载 floatpanel.html，
+    // 该扩展页必须对目标站点可访问，否则 Chrome 会拦截 iframe 加载。
+    web_accessible_resources: [
+      {
+        resources: ['floatpanel.html'],
+        matches: ['<all_urls>'],
+      },
+    ],
   },
   // —— 开发期热重载（WXT dev server）——
   // 固定 profile + keepProfileChanges：像「Allow User Scripts」这类必须手动开启的开关
