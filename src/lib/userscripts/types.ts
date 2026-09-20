@@ -1,6 +1,7 @@
-// 用户脚本管理器的类型与存储约定（v2 方案）。
+// 用户脚本管理器的类型与存储约定（v3 形态：单文件脚本）。
 //
-// v2 新形态：一个脚本 = 一个项目（ScriptProject），配置直接映射 chrome.userScripts 原生字段。
+// 一个脚本 = 一个单文件源码 + 一份配置，直接映射 chrome.userScripts 原生字段。
+// 无构建流程：保存即注入（源码原文进注册态），对齐油猴单文件形态。
 
 /** 脚本配置：全部直接映射 chrome.userScripts 原生注册字段，无 metadata 中间层 */
 export interface ScriptConfig {
@@ -15,32 +16,24 @@ export interface ScriptConfig {
   allFrames: boolean
   /** 默认 document_end（对齐主流） */
   runAt: 'document_start' | 'document_end' | 'document_idle'
-  /**
-   * 依赖 URL 列表（http/https，选填，一行一个）。
-   * 保存时经 offscreen 拉取内联进项目 files 的 `_deps/`（缓存优先，断网可重构建）：
-   * JS 文本依赖按文本拼接进 bundle 头部；其余进资源表供 DL.resource(url) 读取。
-   * config 整体随 project.json（us-git meta）与 zip 导入导出序列化，本字段自动搭车。
-   */
-  deps?: string[]
 }
 
 /**
- * 一个脚本 = 一个项目（落盘形状，所有创建路径均按此形状写入）。
+ * 一个脚本 = 一个单文件源码（落盘形状，所有创建路径均按此形状写入）。
  *
  * **源码已迁出到 duoling-fs 库**（offscreen 独占的 lightning-fs 实例，带 git 版本化），
  * 不在此处保存——dl 单写方约束下 SW / 扩展页读不到 lfs，故源码的唯一权威副本在
- * duoling-fs；本记录退化为「注册态库」：只保留注册脚本所需的元数据与产物。
+ * duoling-fs；本记录退化为「注册态库」：注册所需的元数据 + **源码搬运副本**（SW 读不到
+ * lfs，注册时的注入代码从这里取——保存时由 offscreen 写侧随落盘一并写入）。
  * 改这份形状时务必同步 offscreen-fs-commands / us-git / project-write / ui-client / 各面板。
  */
 export interface ScriptProject {
   /** schema 版本 */
-  v: 1
+  v: 2
   uuid: string
   name: string
   enabled: boolean
   config: ScriptConfig
-  /** 入口文件路径，默认 'main.js' */
-  entry: string
   /**
    * 所属分组 id（用户脚本列表的分组功能）。空字符串 = 未分组。
    * 分组定义存于 duoling-state 的 groups 对象库（见 state-db.ts）；本字段只持有引用，
@@ -48,22 +41,10 @@ export interface ScriptProject {
    */
   group?: string
   /**
-   * 最近一次构建产物，正常路径必有（先构建后落盘）。
-   * **可缺省**：zip 导入构建失败时仍落盘（经讨论定稿：「尽量导入」）——
-   * 此时注册会被 resolveInjectCode 拦下并记 register 警告，用户去编辑器改到能构建即可。
+   * 源码搬运副本（保存时刻的源码原文）：SW 读不到 duoling-fs，chrome.userScripts.register
+   * 的注入代码从这里取。与 duoling-fs 的工作区同源（每次保存同批写入），无构建流程。
    */
-  bundle?: { code: string; builtAt: number }
-  /**
-   * 最近一次构建的终态（统一保存每次都构建，故保存路径恒写入）。
-   * 与 bundle 有无同义但显式：失败时 bundle 已置空，没有这个字段就连「失败于何时」都丢了。
-   * 旧记录（加字段前落盘）缺省，读侧按 bundle 有无兜底推导。
-   */
-  buildOk?: boolean
-  /** 最近一次构建的完成时刻（ms）；成败都记 */
-  lastBuildAt?: number
-  /** 文件数缓存：列表展示用，避免 SW 为拿数量回源读 duoling-fs（SW 读不到它）。落盘时算好写入。
-   *  口径 = 项目文件树全量文件数，**含 `_deps/` 内联依赖文件**（deps 拉取后文件树真实增长，如实计数） */
-  fileCount?: number
+  source: { code: string; savedAt: number }
   createdAt: number
   updatedAt: number
 }
@@ -72,24 +53,18 @@ export interface ScriptProject {
 export interface ScriptMeta {
   name: string
   config: ScriptConfig
-  entry: string
   createdAt: number
 }
 
-/** 给 UI 列表用的精简视图（不含源码与构建产物） */
+/** 给 UI 列表用的精简视图（不含源码） */
 export interface ScriptSummary {
   uuid: string
   name: string
   enabled: boolean
   matches: string[]
-  fileCount: number
   updatedAt: number
   /** 所属分组 id（空字符串 = 未分组）；与 groups 对象库里的定义对应 */
   group: string
-  /** 最近一次构建终态（旧记录缺省时按 bundle 有无推导，见 ScriptProject.buildOk） */
-  buildOk: boolean
-  /** 最近一次构建完成时刻（ms）；缺省 = 旧记录没记过 */
-  lastBuildAt?: number
   /** 累计运行次数（一次页面加载 = 一次）；缺省 = 还没有运行统计 */
   runCount?: number
   /** 最近一次运行时刻（ms）；与 runCount 同源，有统计即有值 */
@@ -207,13 +182,13 @@ export type UserScriptRunLogRow =
     }
   | { kind: 'error'; record: UserScriptErrorRecord }
 
-/** 默认入口文件名 */
-export const ENTRY_DEFAULT = 'main.js'
+/** zip 内源码文件的固定文件名（每脚本目录一个 project.json + 一个 script.js） */
+export const SCRIPT_FILE = 'script.js'
 
 // —— zip 导入报告——
 //
-// 导入只拦原则项，其余一律导入并说明，留给脚本编辑器修。故 ok 条目可带 notes（构建失败 / 字段兜底提示），
-// failed 只剩结构性原因（无 project.json / 非合法 JSON）。
+// 导入只拦原则项，其余一律导入并说明，留给脚本编辑器修。故 ok 条目可带 notes（字段兜底提示），
+// failed 只剩结构性原因（无 project.json / 非 JSON / 缺源码文件）。
 
 /** 导入成功的条目（uuid 为导入方新生成；enabled 恒 false） */
 export interface ImportItemOk {
@@ -261,14 +236,14 @@ export function defaultConfig(matches: string[]): ScriptConfig {
 /**
  * 新建脚本的初始源码模板（零输入创建用）。
  *
- * 新建即构建（project-write.createProject 内先 buildProject 再落盘，产物是注册的必要条件），
- * 但模板保持极简纯 JS：无依赖、无模块语法，构建产物与源码几乎等价，首保存即被用户内容覆盖。
+ * 单文件纯 JS：无依赖、无模块语法（USER_SCRIPT 世界按 classic script 执行，import/export
+ * 不可用），保存即注入。
  */
 export function defaultSource(name: string): string {
   return [
     `// 哆灵用户脚本 · ${name}`,
     '// 保存后按匹配规则注入页面；可用 DL.* 能力，例如 DL.log()。',
-    '// 注意：此处直接执行，暂不支持 import / export（需要多文件时在编辑器里构建）。',
+    "// 注意：单文件直接执行，不支持 import / export。",
     '',
     "console.log('[哆灵脚本] 已注入', location.href)",
     '',

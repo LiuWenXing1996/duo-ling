@@ -166,15 +166,13 @@ const lastGroupId = computed(() => groups.value[groups.value.length - 1]?.id ?? 
 
 // 脚本列表不展示错误日志：报错属于历史信息，由独立「运行日志」标签页承载（左侧导航进入）。
 // 环境级问题（如引擎不可用）由下方 availability 横幅统一兜底，不按脚本逐条复述。
-// lastBuildAt=0 = 「从未构建」（导入后台构建未跑完的占位态），不算失败
 const enabledCount = computed(() => scripts.value.filter((s) => s.enabled).length)
-const failedCount = computed(() => scripts.value.filter((s) => !s.buildOk && s.lastBuildAt !== 0).length)
 
 // —— 搜索 / 筛选 / 排序（脚本多了之后的管理入口，纯前端过滤，不改后端命令面）——
 /** 搜索关键词：按名称 / 匹配规则实时过滤（大小写不敏感） */
 const query = ref('')
 /** 状态筛选 */
-type StatusFilter = 'all' | 'enabled' | 'disabled' | 'failed'
+type StatusFilter = 'all' | 'enabled' | 'disabled'
 const statusFilter = ref<StatusFilter>('all')
 /** 排序：默认按更新时间新在前 */
 type SortKey = 'updatedAt' | 'name'
@@ -186,8 +184,7 @@ const isFiltering = computed(() => query.value.trim() !== '' || statusFilter.val
 const statusFilters = computed(() => [
   { key: 'all' as StatusFilter, label: '全部', count: scripts.value.length },
   { key: 'enabled' as StatusFilter, label: '已启用', count: enabledCount.value },
-  { key: 'disabled' as StatusFilter, label: '已停用', count: scripts.value.length - enabledCount.value },
-  { key: 'failed' as StatusFilter, label: '构建失败', count: failedCount.value }
+  { key: 'disabled' as StatusFilter, label: '已停用', count: scripts.value.length - enabledCount.value }
 ])
 
 /** 列表实际渲染的脚本：搜索 + 状态过滤后排序（不 mutating 原数组） */
@@ -203,7 +200,6 @@ const visibleScripts = computed(() => {
   }
   if (statusFilter.value === 'enabled') list = list.filter((s) => s.enabled)
   else if (statusFilter.value === 'disabled') list = list.filter((s) => !s.enabled)
-  else if (statusFilter.value === 'failed') list = list.filter((s) => !s.buildOk && s.lastBuildAt !== 0)
   const sorted = [...list]
   if (sortKey.value === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'))
   else sorted.sort((a, b) => b.updatedAt - a.updatedAt)
@@ -535,7 +531,7 @@ async function runImport(bytes: Uint8Array): Promise<void> {
 }
 
 /**
- * 选定 zip 文件后导入：读文件转 base64 → userscript:import（offscreen 解码 + 校验 + 构建 + 落盘）。
+ * 选定 zip 文件后导入：读文件转 base64 → userscript:import（offscreen 解码 + 校验 + 落盘）。
  */
 async function onImportFile(e: Event): Promise<void> {
   const input = e.target as HTMLInputElement
@@ -683,10 +679,9 @@ onUnmounted(() => {
   unsubscribeAvailability?.()
 })
 
-// —— 构建状态标 ——
-// 终态（构建成功 / 失败）随 ScriptSummary.buildOk 落库返回；瞬态（保存中 / 构建中）由
-// 保存链广播驱动：SW 转发 userscript:save 时广播 saving，offscreen 进构建时广播 building，
-// 收尾的落库广播（无 phase）切终态。瞬态只改转圈、不回拉——链路还没落库，拉了也是旧数据。
+// —— 保存状态标 ——
+// 「保存中」瞬态由保存链广播驱动：SW 转发 userscript:save 时广播 saving，
+// 收尾的落库广播（无 phase）切回。瞬态只改转圈、不回拉——链路还没落库，拉了也是旧数据。
 const buildPhase = ref<Record<string, BuildPhase>>({})
 
 // 别处的脚本写操作（保存 / 启停 / 新建 / 删除 / 导入）落盘后已广播 `script` 域，
@@ -711,11 +706,6 @@ useDataSync('runstats', () => refresh())
 
 // 分组定义变化（新建 / 重命名 / 删除 / 重排）由 offscreen 广播 `group` 域，这里回拉分组列表
 useDataSync('group', () => refreshGroups())
-
-/** 状态标的悬停提示：最近一次构建的时刻（成败共用） */
-function lastBuildLabel(s: ScriptSummary): string {
-  return s.lastBuildAt ? `最近构建：${updatedAtLabel(s.lastBuildAt)}` : '最近构建'
-}
 </script>
 
 <template>
@@ -1077,44 +1067,14 @@ function lastBuildLabel(s: ScriptSummary): string {
                       >
                         刚新建
                       </span>
-                      <!-- 构建状态标：保存链瞬态（转圈）→ 落库终态（成功 / 失败） -->
+                      <!-- 保存状态标：保存链瞬态（转圈），落库广播到达即消失 -->
                       <span
                         v-if="buildPhase[item.s.uuid]"
                         class="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
                       >
                         <ui-loader-circle class="size-3 animate-spin" />
-                        {{ buildPhase[item.s.uuid] === 'saving' ? '保存中' : '构建中' }}
+                        保存中
                       </span>
-                      <ui-tooltip v-else-if="item.s.buildOk">
-                        <ui-tooltip-trigger as-child>
-                          <span
-                            class="inline-flex shrink-0 cursor-default items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
-                          >
-                            <ui-check class="size-3" />
-                            构建成功
-                          </span>
-                        </ui-tooltip-trigger>
-                        <ui-tooltip-content>{{ lastBuildLabel(item.s) }}</ui-tooltip-content>
-                      </ui-tooltip>
-                      <!-- lastBuildAt=0 = 从未构建（导入后台构建还没轮到 / 被中断待对账），按构建中展示而非失败 -->
-                      <span
-                        v-else-if="item.s.lastBuildAt === 0"
-                        class="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-                      >
-                        <ui-loader-circle class="size-3 animate-spin" />
-                        构建中
-                      </span>
-                      <ui-tooltip v-else>
-                        <ui-tooltip-trigger as-child>
-                          <span
-                            class="inline-flex shrink-0 cursor-default items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
-                          >
-                            <ui-x class="size-3" />
-                            构建失败
-                          </span>
-                        </ui-tooltip-trigger>
-                        <ui-tooltip-content>{{ lastBuildLabel(item.s) }}</ui-tooltip-content>
-                      </ui-tooltip>
                     </div>
                   </ui-tooltip-provider>
                 </div>
@@ -1124,10 +1084,9 @@ function lastBuildLabel(s: ScriptSummary): string {
               <p class="mt-2 truncate font-mono text-xs text-muted-foreground">
                 {{ item.s.matches.join(', ') || '（无匹配规则）' }}
               </p>
-              <!-- 元信息：文件数 / 更新时间 / 运行统计（窄卡片自动换行） -->
+              <!-- 元信息：更新时间 / 运行统计（窄卡片自动换行） -->
               <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
-                <span class="shrink-0">{{ item.s.fileCount }} 个文件</span>
-                <span v-if="updatedAtLabel(item.s.updatedAt)" class="shrink-0">· {{ updatedAtLabel(item.s.updatedAt) }}</span>
+                <span v-if="updatedAtLabel(item.s.updatedAt)" class="shrink-0">{{ updatedAtLabel(item.s.updatedAt) }}</span>
                 <!-- 运行统计（有统计才渲染；runstats 域广播驱动实时回拉） -->
                 <span v-if="item.s.runCount !== undefined" class="shrink-0" data-testid="run-stats">· 运行 {{ item.s.runCount }} 次<template v-if="item.s.lastRunAt">，上次 {{ updatedAtLabel(item.s.lastRunAt) }}</template></span>
                 <span
@@ -1418,7 +1377,7 @@ function lastBuildLabel(s: ScriptSummary): string {
                 </template>
               </p>
               <p v-else class="mt-0.5 break-all text-destructive">{{ r.reason }}</p>
-              <!-- 导入期提示：构建失败可修 / 字段缺失已补默认（不阻断导入） -->
+              <!-- 导入期提示：非阻塞警告（不阻断导入） -->
               <ul
                 v-if="r.status === 'ok' && r.notes?.length"
                 class="mt-1 flex flex-col gap-1"

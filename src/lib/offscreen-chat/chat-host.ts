@@ -9,7 +9,7 @@
 //   · 会话历史唯一写入方：用户消息在 start 时落盘、assistant 消息在收尾时落盘（onFinish 的
 //     职责从侧边栏收归这里，防双写）。
 //
-// 边界：本模块只 import builder / project-store（读侧）/ conversation-store（offscreen 可跑）/
+// 边界：本模块只 import project-store（读侧）/ conversation-store（offscreen 可跑）/
 // ai SDK / offscreen-bridge；不碰 chrome.storage / chrome.userScripts。
 
 import {
@@ -28,7 +28,6 @@ import { toPersistedMessage, toUiMessage } from '@/lib/conversation-message'
 import { textOfMessage } from '@/lib/ui-message-parts'
 import { offscreenBridge } from '@/lib/offscreen-bridge'
 import { getProject } from '@/lib/userscripts/project-store'
-import { ENTRY_DEFAULT } from '@/lib/userscripts/types'
 import type {
   ChatOrphanRecord,
   ChatResumeResult,
@@ -141,8 +140,7 @@ function newWorkspace(taskId: string, conversationId: string): TaskWorkspace {
   return {
     taskId,
     conversationId,
-    files: null,
-    entry: ENTRY_DEFAULT,
+    code: null,
     config: null,
     summary: '',
     applyFailures: 0,
@@ -156,8 +154,7 @@ async function snapshotWorkspace(ws: TaskWorkspace, extra?: Partial<ChatTaskReco
   if (!rec) return // 任务已收尾 / 被丢弃，不再写
   await putTask({
     ...rec,
-    files: ws.files,
-    entry: ws.entry,
+    code: ws.code,
     applyFailures: ws.applyFailures,
     updatedAt: Date.now(),
     ...extra,
@@ -187,8 +184,7 @@ async function persistGeneratedProject(ws: TaskWorkspace): Promise<GenerationCar
     if (existing) {
       await offscreenBridge.updateProjectFiles({
         uuid: ws.targetUuid,
-        files: ws.lastOk.files,
-        entry: ws.lastOk.entry,
+        code: ws.lastOk.code,
         note: ws.summary || undefined,
       })
       return {
@@ -196,7 +192,7 @@ async function persistGeneratedProject(ws: TaskWorkspace): Promise<GenerationCar
         name: existing.name, // 更新不改名：脚本名在管理页的辨识度保持稳定
         enabled: existing.enabled,
         matches: ws.config.matches,
-        capabilities: scanCapabilities(ws.lastOk.bundle.code),
+        capabilities: scanCapabilities(ws.lastOk.code),
         summary: ws.summary,
         savedAt: Date.now(),
       }
@@ -205,8 +201,7 @@ async function persistGeneratedProject(ws: TaskWorkspace): Promise<GenerationCar
   const res = await offscreenBridge.createProject({
     name: ws.summary ? ws.summary.slice(0, 40) : 'AI 生成的脚本',
     config: ws.config,
-    files: ws.lastOk.files,
-    entry: ws.lastOk.entry,
+    code: ws.lastOk.code,
     enabled: false, // 先落盘不启用：启用由用户在卡片 / 管理页操作
     note: ws.summary || undefined,
   })
@@ -215,7 +210,7 @@ async function persistGeneratedProject(ws: TaskWorkspace): Promise<GenerationCar
     name: res.name,
     enabled: false,
     matches: ws.config.matches,
-    capabilities: scanCapabilities(ws.lastOk.bundle.code),
+    capabilities: scanCapabilities(ws.lastOk.code),
     summary: ws.summary,
     savedAt: Date.now(),
   }
@@ -569,8 +564,7 @@ export async function startChat(msg: Extract<RuntimeRequest, { kind: 'chat:start
     status: 'running',
     step: 0,
     applyFailures: 0,
-    files: null,
-    entry: ENTRY_DEFAULT,
+    code: null,
     prompt,
     ...(msg.pageContext ? { pageContext: msg.pageContext } : {}),
     createdAt: Date.now(),
@@ -646,7 +640,7 @@ export async function resolveOrphan(
 
   // 继续：从快照恢复工作区（内存文件树回来了，「继续」才有东西可继续）
   const workspace = newWorkspace(taskId, rec.conversationId)
-  if (rec.files) workspace.files = rec.files
+  if (rec.code) workspace.code = rec.code
   await putTask({ ...rec, heartbeat: Date.now(), updatedAt: Date.now() })
   void runLoop({
     conversationId: rec.conversationId,

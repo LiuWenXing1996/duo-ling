@@ -199,17 +199,6 @@ const DL_API_BY_PATH = {
     bridge: 'bridge',
     group: 'net',
   },
-  resource: {
-    title: '读内联依赖',
-    signature: 'DL.resource(url, opts?)',
-    summary: '读保存时打进 bundle 的依赖资源（断网可读）',
-    detail:
-      '资源来自脚本 config.deps 列表，保存时已拉取内联（DL.__res 表）。纯本地读表、不走桥。' +
-      '二进制资源必须传 { base64: true }；类型不符或没内联就 reject 明确错误，不静默返回空。',
-    returns: 'Promise<string>（文本原文，或 base64 串）',
-    bridge: 'local',
-    group: 'net',
-  },
 
   // ———————————————————————————— 系统能力 ————————————————————————————
   notify: {

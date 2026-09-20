@@ -1,7 +1,7 @@
 // Agent 工具目录：**工具契约与运行时闸门的展示侧单一来源**（纯数据、零依赖）。
 //
 // 为什么单独一份、而不是直接读 script-tools：
-//   script-tools.ts 是 offscreen 专属模块（import esbuild builder / us-git 源码库 / 裸 IDB 读侧），
+//   script-tools.ts 是 offscreen 专属模块（import us-git 源码库 / 裸 IDB 读侧），
 //   工作台页面 import 它既拖大首屏产物、又会碰到它访问不到的东西。故把「工具描述文本 + 运行时闸门」
 //   这两样纯数据抽到这里，运行时（script-tools / chat-host）与工作台「AI 工具」面板共用同一份 ——
 //   模型收到的 description 与面板展示的必然一致，不需要人工对照。
@@ -24,7 +24,7 @@ export type AgentToolName =
 export const AGENT_RUNTIME_LIMITS = {
   /** 单次任务的步数上限（chat-host 的 stopWhen: stepCountIs） */
   maxSteps: 8,
-  /** script_apply 连续构建失败上限：达到即让模型停手；再多一次 apply 直接中止整个任务 */
+  /** script_apply 连续失败上限：达到即让模型停手；再多一次 apply 直接中止整个任务 */
   maxApplyFailures: 6,
 } as const
 
@@ -33,10 +33,10 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
   script_spec:
     '获取哆灵用户脚本的完整规范（DL 能力 API、硬性约束、禁止事项）。写或改任何脚本前必须先调用它。',
   script_read:
-    '读取脚本源码。不带参数 = 读当前任务的内存文件树（本任务已写入的内容）；带 uuid = 读一个已保存的脚本项目（修改现有脚本时用）。',
+    '读取脚本源码。不带参数 = 读当前任务的内存源码（本任务已写入的内容）；带 uuid = 读一个已保存的脚本（修改现有脚本时用）。',
   script_apply:
-    '提交（整文件写）脚本文件树并立即用 esbuild 构建验证。返回 ok=true 表示构建通过（任务收敛）；' +
-    '返回 ok=false 时 errors 为 file:line 诊断列表，按诊断修改后再次整体提交全部文件。' +
+    '提交（整文件写）脚本源码并立即做语法检查。返回 ok=true 表示检查通过（任务收敛）；' +
+    '返回 ok=false 时 errors 为 行:列 诊断列表，按诊断修改后再次整体提交。' +
     '修改既有脚本（本会话此前生成过的）时必须带 updateUuid，落盘才会原地更新该脚本；省略 = 生成一个全新脚本。',
   element_read:
     '读取用户点选元素的完整快照（system prompt 里只有摘要层）。' +
@@ -64,13 +64,12 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
 /** 参数 description 原文（zod `.describe()` 的文本，模型同样看得到）：UI 与运行时共用 */
 export const TOOL_PARAM_DESCRIPTIONS = {
   script_read: {
-    uuid: '已保存脚本的 uuid；省略则读当前任务内存文件树',
+    uuid: '已保存脚本的 uuid；省略则读当前任务内存源码',
   },
   script_apply: {
     summary: '本轮改动的一句话摘要（将作为落盘时的提交说明）',
     config: '脚本配置：matches 必填（收窄到目标站点）',
-    files: '完整文件树：相对路径 → 源码',
-    entry: '入口文件路径，默认 main.js',
+    code: '完整脚本源码（单文件纯 JS，不支持 import / export）',
     updateUuid:
       '要原地更新的既有脚本 uuid（system prompt 会给出本会话已落盘脚本的身份）；省略 = 生成新脚本',
   },
@@ -131,7 +130,7 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
   {
     name: 'script_read',
     title: '读源码',
-    summary: '读当前任务的内存文件树，或按 uuid 读一个已保存脚本',
+    summary: '读当前任务的内存源码，或按 uuid 读一个已保存脚本',
     description: TOOL_DESCRIPTIONS.script_read,
     params: [
       {
@@ -142,13 +141,13 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
       },
     ],
     returns:
-      '{ ok:true, entry, config, files }；带 uuid 时另有 { uuid, name, enabled }',
+      '{ ok:true, config, code }；带 uuid 时另有 { uuid, name, enabled }',
     unavailable: '源码库不可用 / 已损坏 → { ok:false, error }',
   },
   {
     name: 'script_apply',
-    title: '写 + 构建验证',
-    summary: '整文件提交文件树并立刻用 esbuild 构建；写与验证合并成一步',
+    title: '写 + 语法检查',
+    summary: '整文件提交源码并立刻做语法检查；写与验证合并成一步',
     description: TOOL_DESCRIPTIONS.script_apply,
     params: [
       {
@@ -195,8 +194,7 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
         default: "'document_end'",
         desc: '注入时机',
       },
-      { name: 'files', type: 'Record<string, string>', required: true, desc: T.script_apply.files },
-      { name: 'entry', type: 'string', required: false, default: "'main.js'", desc: T.script_apply.entry },
+      { name: 'code', type: 'string', required: true, desc: T.script_apply.code },
       {
         name: 'updateUuid',
         type: 'string',
@@ -205,8 +203,8 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
       },
     ],
     returns:
-      '成功 { ok:true, bytes, remoteFetched? }；失败 { ok:false, errors: string[] }（连败达阈值另带 stop）',
-    unavailable: '入参非法（路径越界 / 入口缺失）或构建失败 → errors 为 file:line 诊断',
+      '成功 { ok:true, bytes }；失败 { ok:false, errors: string[] }（连败达阈值另带 stop）',
+    unavailable: '入参非法或语法检查失败 → errors 为 行:列 诊断',
   },
   {
     name: 'element_read',

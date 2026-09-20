@@ -107,16 +107,16 @@ async function withGroupsStore<T>(
   return runTx(GROUPS_STORE, mode, (_tx, store) => request(run(store)))
 }
 
-/** 读一个项目；不存在或形态不对（非 v:1）返回 undefined */
+/** 读一个项目；不存在或形态不对（非 v:2）返回 undefined */
 export async function readProject(uuid: string): Promise<ScriptProject | undefined> {
   const value = await withStore<ScriptProject | undefined>('readonly', (s) => s.get(uuid))
-  return value?.v === 1 ? value : undefined
+  return value?.v === 2 ? value : undefined
 }
 
-/** 读全部项目（v:1 形态；顺序由调用方决定） */
+/** 读全部项目（v:2 形态；顺序由调用方决定） */
 export async function readAllProjects(): Promise<ScriptProject[]> {
   const all = await withStore<ScriptProject[]>('readonly', (s) => s.getAll())
-  return (all ?? []).filter((p) => p?.v === 1)
+  return (all ?? []).filter((p) => p?.v === 2)
 }
 
 // —— 以下为写 API：只许 offscreen 调用（见文件头「单写方约定」）——

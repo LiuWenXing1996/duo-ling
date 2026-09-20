@@ -23,10 +23,10 @@ import { enabledMatchUnion, sameMatchSet } from './match-union'
 
 // 不给脚本世界配置 csp：即**不放开** eval / new Function。脚本世界因此回落浏览器默认 CSP，
 // 动态执行字符串代码被禁。理由：AI 生成的脚本不可控，不额外给「执行任意字符串」的能力。
-// 注入链路自身零 eval —— DL 包装 / 页面中继 / MAIN 桩均不含，
-// esbuild 打 IIFE 也不产 eval，故引擎不受影响；真正受影响的只有内部用 new Function 做
-// codegen 的依赖库（如 ajv 编译校验器 / Vue runtime 编译器 / handlebars 运行时模板），
-// 由 collectCspWarnings 在保存时提前提示。
+// 注入链路自身零 eval —— DL 包装 / 页面中继 / MAIN 桩均不含，脚本源码注入前也静态检查
+// eval / new Function（collectCspWarnings 在保存时提前提示）；真正受影响的只有内部用
+// new Function 做 codegen 的依赖库（如 ajv 编译校验器 / Vue runtime 编译器 / handlebars
+// 运行时模板），同样由 collectCspWarnings 在保存时提示。
 
 // —— 可用性检测 / 版本分支 ——
 
@@ -134,8 +134,7 @@ export async function ensureWorldsConfigured(): Promise<boolean> {
 /**
  * 安装/保存校验：脚本世界用浏览器默认的严 CSP（禁止动态执行字符串代码），
  * 注入代码里若出现 eval / new Function，运行时会被拦截。
- * 这里产出非阻塞警告，交给 UI 提示，而非让脚本静默失败。检测对象是**注入代码**（有 bundle 用
- * bundle.code，无 bundle 用入口源码），不是项目里所有文件。
+ * 这里产出非阻塞警告，交给 UI 提示，而非让脚本静默失败。检测对象是**注入代码**（= 源码原文）。
  */
 export function collectCspWarnings(code: string): string[] {
   if (/\beval\s*\(|new\s+Function\s*\(/.test(code)) {
@@ -468,21 +467,6 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
         })
       })
     },
-    // 读取保存期内联的资源（builder 把非 JS 依赖打成 DL.__res 表随 bundle 注入）。
-    // 纯本地读表，不走桥；类型不符 / 未内联明确报错，不静默。
-    resource: function (url, opts) {
-      var R = DL.__res || {}
-      var e = R[url]
-      if (!e) {
-        return Promise.reject(new Error('DL.resource：资源未内联（未加入依赖列表或保存时未成功拉取）：' + url))
-      }
-      if (opts && opts.base64) {
-        if (e.b64 != null) return Promise.resolve(e.b64)
-        return Promise.reject(new Error('DL.resource：该资源是文本，直接 DL.resource(url) 即可：' + url))
-      }
-      if (e.text != null) return Promise.resolve(e.text)
-      return Promise.reject(new Error('DL.resource：该资源是二进制，请用 DL.resource(url, { base64: true })：' + url))
-    },
     // 系统通知。带 onClick 时按响应里的通知 id 挂回调，点击经 DL Port 回推
     notify: function (message, opts) {
       return __dlSend({ c: 'notify', message: message, title: opts && opts.title, icon: opts && opts.icon }).then(function (r) {
@@ -647,18 +631,18 @@ function buildDlWrapper(project: ScriptProject, pageSecret: string): string {
 `
 }
 
-// —— 注入代码解析（产物不变量：SW 只注册最终产物，没有直跑源码的逻辑）——
+// —— 注入代码解析（无构建流程：注入代码 = 源码原文，取自注册态的搬运副本）——
 
 /**
- * 取实际注入的代码：**只认 bundle.code**。
- * 无产物直接抛错（注册失败降级为 registerError 警告），绝不把未构建的源码注入页面——
- * 新建 / 安装在写侧（project-write）已先构建出产物，能走到注册的项目必有 bundle。
+ * 取实际注入的代码：**只认 source.code**（保存时由 offscreen 写侧随落盘一并写入）。
+ * 缺失直接抛错（注册失败降级为 registerError 警告）——正常路径保存即有源码，
+ * 走到这里缺源码只可能是状态库记录被外部破坏。
  */
 export function resolveInjectCode(project: ScriptProject): string {
-  if (!project.bundle?.code) {
-    throw new Error('脚本没有构建产物：注入代码只来自构建（编辑器保存 / 历史恢复会自动构建）')
+  if (!project.source?.code) {
+    throw new Error('脚本没有源码：注册态缺少源码搬运副本（重新保存一次即可恢复）')
   }
-  return project.bundle.code
+  return project.source.code
 }
 
 /** DevTools 里的脚本显示名：duoling://script/<uuid>/<安全化的项目名>.js */
@@ -861,7 +845,7 @@ export function refreshBuiltinScripts(): Promise<void> {
 
 /**
  * 单条注册（仅 enabled 项目才注入；matches 缺失直接抛错）。
- * js 顺序：DL 包装 → 构建产物（resolveInjectCode，无产物即抛错）。
+ * js 顺序：DL 包装 → 源码原文（resolveInjectCode，缺源码即抛错）。
  */
 export async function registerScript(project: ScriptProject): Promise<void> {
   if (!project.enabled) return

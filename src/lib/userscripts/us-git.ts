@@ -1,8 +1,8 @@
 // 用户脚本源码与 git 版本化：每脚本一仓，源码的唯一权威来源落在 duoling-fs（us-fs）。
 //
-// 设计（2026-09-19 重构）：源码不再进状态库（duoling-state 退化成「注册态库」，只存
-// bundle + 元数据）。这里就是源码的落点——
-//   · 工作区（/uscripts/<uuid>/files/**）= 当前源码，天然承载「未保存改动」；
+// 设计（2026-09-20 单文件化重构）：源码不再进状态库（duoling-state 退化成「注册态库」，只存
+// 元数据 + 源码搬运副本）。这里就是源码的落点——
+//   · 工作区（/uscripts/<uuid>/script.js）= 当前源码，天然承载「未保存改动」；
 //   · 提交（git commit）= 一次保存 / 导入 / 恢复产生的历史版本；
 //   · 读源码一律走这里（offscreen 内直读，或经 fs:* 命令对外）。
 //
@@ -15,12 +15,12 @@ import type { ScriptConfig, ScriptMeta } from './types'
 const AUTHOR = { name: 'duoling', email: 'dev@duoling.local' }
 const US_ROOT = '/uscripts'
 const META_FILE = 'project.json'
-const FILES_DIR = 'files/'
+const SOURCE_FILE = 'script.js'
 
-/** 一次读取到的源码树（工作区或某次提交） */
-export interface SourceTree {
+/** 一次读取到的源码（工作区或某次提交） */
+export interface Source {
   meta: ScriptMeta
-  files: Record<string, string>
+  code: string
 }
 
 export interface UsCommit {
@@ -30,10 +30,10 @@ export interface UsCommit {
   time: number
 }
 
-/** 某提交的完整快照：当时的项目元信息 + 源码文件树（project.json 已剥离） */
-export interface UsHistoryTree {
+/** 某提交的完整快照：当时的元信息 + 源码（project.json 已剥离） */
+export interface UsSnapshot {
   meta?: ScriptMeta
-  files: Array<{ path: string; content: string }>
+  code?: string
 }
 
 /** uuid 来自 UI/消息层，防路径穿越（对齐 fs-store assertSafeToolId） */
@@ -129,25 +129,6 @@ async function headOid(uuid: string): Promise<string | undefined> {
   }
 }
 
-/** 目标提交树中全部 blob 的相对路径（无仓 / 无该提交时返回空） */
-async function listTreeFiles(uuid: string, oid: string): Promise<string[]> {
-  const files: string[] = []
-  try {
-    await git.walk({
-      fs,
-      dir: usDir(uuid),
-      trees: [git.TREE({ ref: oid })],
-      map: async (filepath, [entry]) => {
-        if (!entry) return
-        if ((await entry.type()) === 'blob') files.push(filepath)
-      },
-    })
-  } catch {
-    return []
-  }
-  return files
-}
-
 async function readBlobText(uuid: string, oid: string, filepath: string): Promise<string | undefined> {
   try {
     const { blob } = await git.readBlob({ fs, dir: usDir(uuid), oid, filepath })
@@ -157,74 +138,23 @@ async function readBlobText(uuid: string, oid: string, filepath: string): Promis
   }
 }
 
-/** project.json 的序列化内容（不含 files——files 单独物化进 files/） */
+/** project.json 的序列化内容（源码单独物化进 script.js） */
 function metaJson(meta: ScriptMeta, uuid: string): string {
   return JSON.stringify(
-    { v: 1, uuid, name: meta.name, config: meta.config, entry: meta.entry, createdAt: meta.createdAt },
+    { v: 2, uuid, name: meta.name, config: meta.config, createdAt: meta.createdAt },
     null,
     2,
   )
 }
 
-/**
- * 把源码文件树写入工作区（files/**）+ 写 project.json 元数据（不含 files）。
- * 整体清空旧 files/ 后重写——保证删文件也生效；project.json 最后写，
- * 作为「这批源码写完了」的提交点（半写保护）。不碰 .git、不动 index。
- */
-export async function writeSourceTree(
-  uuid: string,
-  files: Record<string, string>,
-  meta: ScriptMeta,
-): Promise<void> {
-  assertSafeUuid(uuid)
-  await ensureRepo(uuid)
+/** 解析 project.json 文本；缺关键字段返回 null */
+function parseMetaJson(raw: string): ScriptMeta | null {
   try {
-    await removeRecursive(`${usDir(uuid)}/${FILES_DIR}`)
-  } catch {
-    /* files/ 不存在，视为已清空 */
-  }
-  for (const [rel, content] of Object.entries(files)) {
-    await writeRepoFile(uuid, FILES_DIR + rel, content)
-  }
-  await writeRepoFile(uuid, META_FILE, metaJson(meta, uuid))
-}
-
-/** 读工作区 files/ 全部文件（相对路径 → 源码）；目录不存在返回 null */
-async function readWorktreeFiles(uuid: string): Promise<Record<string, string> | null> {
-  const files: Record<string, string> = {}
-  try {
-    const walk = async (dir: string, rel: string): Promise<void> => {
-      const entries = (await pfs.readdir(dir)) as string[]
-      for (const name of entries) {
-        const abs = `${dir}/${name}`
-        const st = await pfs.stat(abs)
-        const relPath = rel ? `${rel}/${name}` : name
-        if (st.type === 'dir') await walk(abs, relPath)
-        else files[relPath] = new TextDecoder().decode(await pfs.readFile(abs))
-      }
-    }
-    await walk(`${usDir(uuid)}/${FILES_DIR}`, '')
-  } catch {
-    return null
-  }
-  return Object.keys(files).length ? files : null
-}
-
-/** 读工作区 project.json 的元数据；读不出返回 null */
-async function readWorktreeMeta(uuid: string): Promise<ScriptMeta | null> {
-  let raw: string
-  try {
-    raw = new TextDecoder().decode(await pfs.readFile(`${usDir(uuid)}/${META_FILE}`))
-  } catch {
-    return null
-  }
-  try {
-    const parsed = JSON.parse(raw) as { name?: string; config?: ScriptConfig; entry?: string; createdAt?: number }
+    const parsed = JSON.parse(raw) as { name?: string; config?: ScriptConfig; createdAt?: number }
     if (!parsed.name || !parsed.config) return null
     return {
       name: parsed.name,
       config: parsed.config,
-      entry: parsed.entry ?? 'main.js',
       createdAt: parsed.createdAt ?? 0,
     }
   } catch {
@@ -233,37 +163,67 @@ async function readWorktreeMeta(uuid: string): Promise<ScriptMeta | null> {
 }
 
 /**
- * 读当前源码树。committed=false（默认）= 工作区（含未保存改动），
+ * 把源码写入工作区（script.js）+ 写 project.json 元数据。
+ * project.json 最后写，作为「这批源码写完了」的提交点（半写保护）。不碰 .git、不动 index。
+ */
+export async function writeSource(uuid: string, code: string, meta: ScriptMeta): Promise<void> {
+  assertSafeUuid(uuid)
+  await ensureRepo(uuid)
+  await writeRepoFile(uuid, SOURCE_FILE, code)
+  await writeRepoFile(uuid, META_FILE, metaJson(meta, uuid))
+}
+
+/** 读工作区 script.js 源码；不存在返回 null */
+async function readWorktreeCode(uuid: string): Promise<string | null> {
+  try {
+    const raw = await pfs.readFile(`${usDir(uuid)}/${SOURCE_FILE}`)
+    const text = new TextDecoder().decode(raw)
+    return text.length ? text : null
+  } catch {
+    return null
+  }
+}
+
+/** 读工作区 project.json 的元数据；读不出返回 null */
+async function readWorktreeMeta(uuid: string): Promise<ScriptMeta | null> {
+  try {
+    const raw = new TextDecoder().decode(await pfs.readFile(`${usDir(uuid)}/${META_FILE}`))
+    return parseMetaJson(raw)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 读当前源码。committed=false（默认）= 工作区（含未保存改动），
  * 工作区为空时回退到 HEAD；committed=true = HEAD 提交（已保存版本，丢弃草稿用）。
  * 无源码（仓损坏 / 从未保存）返回 null。
  */
-export async function readSourceTree(uuid: string, committed = false): Promise<SourceTree | null> {
+export async function readSource(uuid: string, committed = false): Promise<Source | null> {
   assertSafeUuid(uuid)
   if (committed) {
     const head = await headOid(uuid)
     if (!head) return null
-    return treeAt(uuid, head)
+    return snapshotToSource(uuid, head)
   }
-  const files = await readWorktreeFiles(uuid)
+  const code = await readWorktreeCode(uuid)
   const meta = await readWorktreeMeta(uuid)
-  if (files && meta) return { meta, files }
+  if (code && meta) return { meta, code }
   // 工作区空（未保存 / 草稿已清空）→ 回退 HEAD
   const head = await headOid(uuid)
   if (!head) return null
-  return treeAt(uuid, head)
+  return snapshotToSource(uuid, head)
 }
 
-/** 读取某提交树（含元数据） */
-async function treeAt(uuid: string, oid: string): Promise<SourceTree | null> {
-  const tree = await readTreeAt(uuid, oid)
-  if (!tree.files.length || !tree.meta) return null
-  const files: Record<string, string> = {}
-  for (const f of tree.files) files[f.path] = f.content
-  return { meta: tree.meta, files }
+/** 读取某提交（含元数据） */
+async function snapshotToSource(uuid: string, oid: string): Promise<Source | null> {
+  const snap = await readSnapshotAt(uuid, oid)
+  if (snap.code === undefined || !snap.meta) return null
+  return { meta: snap.meta, code: snap.code }
 }
 
 /**
- * 提交工作区（保存成功后调用）：内容与 HEAD 逐字节一致则不提交（无空提交）；
+ * 提交工作区（保存成功后调用）：script.js 与 project.json 都与 HEAD 一致则不提交（无空提交）；
  * message = 备注优先，否则自动计数「保存 #n」。
  */
 export async function commitSource(
@@ -275,41 +235,19 @@ export async function commitSource(
   await ensureRepo(uuid)
   const dir = usDir(uuid)
   const head = await headOid(uuid)
-  // 比对工作区与 HEAD：先比文件集合，再比内容
-  const worktree = await readWorktreeFiles(uuid)
-  if (!worktree) return { committed: false }
-  const headFiles = head ? await listTreeFiles(uuid, head) : []
-  const workPaths = Object.keys(worktree).map((p) => FILES_DIR + p).sort()
-  const headPaths = headFiles.slice().sort()
-  let changed = workPaths.length !== headPaths.length
-  if (!changed) {
-    for (let i = 0; i < workPaths.length; i++) {
-      if (workPaths[i] !== headPaths[i]) {
-        changed = true
-        break
-      }
-      const content = worktree[workPaths[i]!.slice(FILES_DIR.length)]!
-      const headContent = await readBlobText(uuid, head!, workPaths[i]!)
-      if (content !== headContent) {
-        changed = true
-        break
-      }
-    }
+  // 比对工作区与 HEAD：源码与元数据任一不同即需要提交（改名 / 改配置也是一次保存）
+  const code = await readWorktreeCode(uuid)
+  if (code == null) return { committed: false }
+  let changed = true
+  if (head) {
+    const headCode = await readBlobText(uuid, head, SOURCE_FILE)
+    const headMetaRaw = await readBlobText(uuid, head, META_FILE)
+    changed = code !== headCode || metaJson(meta, uuid) !== headMetaRaw
   }
   if (!changed) return { committed: false }
 
-  // 同步 index：HEAD 有而工作区没有的条目必须从 index 移除（否则被删文件随提交复活）；
-  // project.json 由下面重写覆盖，不用移除
-  for (const filepath of headFiles) {
-    const stillThere = filepath.startsWith(FILES_DIR) && filepath.slice(FILES_DIR.length) in worktree
-    if (!stillThere && filepath !== META_FILE) {
-      await git.remove({ fs, dir, filepath }).catch(() => {})
-    }
-  }
-  for (const [rel, content] of Object.entries(worktree)) {
-    await writeRepoFile(uuid, FILES_DIR + rel, content)
-    await git.add({ fs, dir, filepath: FILES_DIR + rel })
-  }
+  await writeRepoFile(uuid, SOURCE_FILE, code)
+  await git.add({ fs, dir, filepath: SOURCE_FILE })
   await writeRepoFile(uuid, META_FILE, metaJson(meta, uuid))
   await git.add({ fs, dir, filepath: META_FILE })
 
@@ -334,59 +272,36 @@ export async function listHistory(uuid: string): Promise<UsCommit[]> {
   }
 }
 
-/** 读某提交的完整快照（project.json 解出元信息；files/ 前缀剥离为项目相对路径） */
-export async function readTreeAt(uuid: string, oid: string): Promise<UsHistoryTree> {
+/** 读某提交的完整快照（project.json 解出元信息；script.js 为源码） */
+export async function readSnapshotAt(uuid: string, oid: string): Promise<UsSnapshot> {
   assertSafeUuid(uuid)
-  const paths = await listTreeFiles(uuid, oid)
-  const files: UsHistoryTree['files'] = []
-  let meta: UsHistoryTree['meta']
-  for (const p of paths) {
-    const content = await readBlobText(uuid, oid, p)
-    if (content === undefined) continue
-    if (p === META_FILE) {
-      try {
-        const parsed = JSON.parse(content) as { name?: string; config?: ScriptConfig; entry?: string; createdAt?: number }
-        if (parsed.name && parsed.config) {
-          meta = {
-            name: parsed.name,
-            config: parsed.config,
-            entry: parsed.entry ?? 'main.js',
-            createdAt: parsed.createdAt ?? 0,
-          }
-        }
-      } catch {
-        /* 元信息损坏时只展示文件 */
-      }
-      continue
-    }
-    if (p.startsWith(FILES_DIR)) {
-      files.push({ path: p.slice(FILES_DIR.length), content })
-    }
+  const code = await readBlobText(uuid, oid, SOURCE_FILE)
+  const metaRaw = await readBlobText(uuid, oid, META_FILE)
+  return {
+    code,
+    ...(metaRaw !== undefined ? { meta: parseMetaJson(metaRaw) ?? undefined } : {}),
   }
-  return { meta, files }
 }
 
 /**
- * 恢复到指定提交：把目标树物化回工作区（= 当前源码）+ 提交一条「回滚」记录。
- * 返回恢复出的源码树，由调用方负责构建 + 经 updateFiles 落盘（写状态库 + 重注册）。
- * 仓侧：目标即 HEAD 则不产生新提交，否则整树物化工作区并提交——绝不 reset（历史不可变）。
+ * 恢复到指定提交：把目标快照物化回工作区（= 当前源码）+ 提交一条「回滚」记录。
+ * 返回恢复出的源码，由调用方负责经 userscript:save 落盘（写状态库 + 重注册）。
+ * 仓侧：目标即 HEAD 则不产生新提交，否则物化工作区并提交——绝不 reset（历史不可变）。
  */
 export async function restoreToCommit(
   uuid: string,
   oid: string,
-): Promise<{ committed: boolean; tree: SourceTree }> {
+): Promise<{ committed: boolean; source: Source }> {
   assertSafeUuid(uuid)
   await ensureRepo(uuid)
   const dir = usDir(uuid)
-  const tree = await readTreeAt(uuid, oid)
-  if (!tree.files.length || !tree.meta) throw new Error('历史版本不存在或已损坏')
-  const files: Record<string, string> = {}
-  for (const f of tree.files) files[f.path] = f.content
+  const snap = await readSnapshotAt(uuid, oid)
+  if (snap.code === undefined || !snap.meta) throw new Error('历史版本不存在或已损坏')
 
-  await writeSourceTree(uuid, files, tree.meta)
+  await writeSource(uuid, snap.code, snap.meta)
   const head = await headOid(uuid)
   if (head === oid) {
-    return { committed: false, tree: { meta: tree.meta, files } }
+    return { committed: false, source: { meta: snap.meta, code: snap.code } }
   }
   let message = `回滚到 ${oid.slice(0, 8)}`
   try {
@@ -396,6 +311,6 @@ export async function restoreToCommit(
   } catch {
     /* 读不到原始 message 时用默认格式 */
   }
-  await commitSource(uuid, tree.meta, message)
-  return { committed: true, tree: { meta: tree.meta, files } }
+  await commitSource(uuid, snap.meta, message)
+  return { committed: true, source: { meta: snap.meta, code: snap.code } }
 }

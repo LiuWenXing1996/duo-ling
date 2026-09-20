@@ -4,22 +4,19 @@
 // 2026-09-15：历史浏览 + 恢复从编辑器内嵌视图整体迁出——编辑器只管编辑 + 保存，
 // 历史按钮经 openHistory 事件让宿主打开本标签页。恢复在此完成后发 restored 事件，
 // 宿主据此重载该脚本的编辑器标签（若开着），避免编辑态与已恢复数据脱节。
-// 复用链路：fsClient.history / historyTree / restoreToCommit + userscriptClient.save（统一保存）
-// + buildCodeTree + FileTree + CodeBlock。
-import { computed, onMounted, ref } from 'vue'
+// 复用链路：fsClient.history / readAt / restoreToCommit + userscriptClient.save（统一保存）+ CodeBlock。
+// 快照 = 当时元信息 + 单文件源码（脚本无构建流程，恢复即恢复源码本身）。
+import { onMounted, ref } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import { RefreshCw as UiRefreshCw, RotateCcw as UiRotateCcw } from '@lucide/vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import { FileTree } from '@/components/ai-elements/file-tree'
 import { CodeBlock } from '@/components/ai-elements/code-block'
-import UserscriptTreeNode from '@/components/userscript/UserscriptTreeNode.vue'
-import { buildCodeTree, inferLanguage, type CodeTreeNode } from '@/lib/code-view'
 import { userscriptClient, fsClient } from '@/lib/userscripts/ui-client'
-import type { UsCommit, UsHistoryTree } from '@/lib/userscripts/us-git'
+import type { UsCommit, UsSnapshot } from '@/lib/userscripts/us-git'
 
 const props = defineProps<{ uuid: string }>()
 const emit = defineEmits<{
-  /** 恢复完成（含仅源码恢复、构建失败的情形）：宿主重载该脚本的编辑器标签 */
+  /** 恢复完成：宿主重载该脚本的编辑器标签 */
   restored: [uuid: string]
 }>()
 
@@ -30,34 +27,8 @@ const notice = ref('')
 const commits = ref<UsCommit[]>([])
 const commitsLoading = ref(true)
 const oid = ref('')
-const tree = ref<UsHistoryTree | null>(null)
-const activeFile = ref('')
+const snap = ref<UsSnapshot | null>(null)
 const restoring = ref(false)
-
-/** 递归收集全部文件夹路径（用于 FileTree 默认展开） */
-function collectFolders(nodes: CodeTreeNode[]): string[] {
-  const paths: string[] = []
-  const walk = (list: CodeTreeNode[]): void => {
-    for (const n of list) {
-      if (n.type === 'folder') {
-        paths.push(n.path)
-        walk(n.children)
-      }
-    }
-  }
-  walk(nodes)
-  return paths
-}
-
-const treeNodes = computed<CodeTreeNode[]>(() =>
-  buildCodeTree(
-    (tree.value?.files ?? []).map((f) => ({ path: f.path, content: f.content, encoding: 'utf8' as const })),
-  ),
-)
-const treeExpanded = computed(() => new Set(collectFolders(treeNodes.value)))
-const fileContent = computed(
-  () => tree.value?.files.find((f) => f.path === activeFile.value)?.content ?? '',
-)
 
 /** 装载脚本名 + 提交列表，默认选中最新一条 */
 async function load(): Promise<void> {
@@ -71,8 +42,7 @@ async function load(): Promise<void> {
     if (commits.value.length) await selectCommit(commits.value[0]!.oid)
     else {
       oid.value = ''
-      tree.value = null
-      activeFile.value = ''
+      snap.value = null
     }
   } catch (e) {
     error.value = '读取历史失败：' + (e instanceof Error ? e.message : String(e))
@@ -85,14 +55,13 @@ async function selectCommit(o: string): Promise<void> {
   error.value = ''
   try {
     oid.value = o
-    tree.value = await fsClient.historyTree(props.uuid, o)
-    activeFile.value = tree.value.files[0]?.path ?? ''
+    snap.value = await fsClient.readAt(props.uuid, o)
   } catch (e) {
     error.value = '读取快照失败：' + (e instanceof Error ? e.message : String(e))
   }
 }
 
-/** 恢复确认弹窗（替代原生 confirm）：按钮只负责打开，真正的恢复在 onConfirmRestore */
+/** 恢复确认弹窗（替代原生 confirm）：按钮只负责打开，真正的恢复在 restoreCommit */
 const confirmOpen = ref(false)
 
 async function restoreCommit(): Promise<void> {
@@ -101,22 +70,17 @@ async function restoreCommit(): Promise<void> {
   error.value = ''
   notice.value = ''
   try {
-    const { tree: restored } = await fsClient.restoreToCommit(props.uuid, oid.value)
+    const { source } = await fsClient.restoreToCommit(props.uuid, oid.value)
     // 源码与元信息已物化回工作区并提交「回滚」记录；随后走统一保存：
-    // commit 对相同内容是空提交守卫拦下（不重复提交），构建 + 落库 + 重注册一条龙。
-    // 构建失败仅提示（产物置空，脚本停止注入；源码已恢复，修复后重新保存即可）。
-    const res = await userscriptClient.save(props.uuid, restored.files, restored.meta.entry, {
-      name: restored.meta.name,
-      config: restored.meta.config,
+    // commit 对相同内容是空提交守卫拦下（不重复提交），落库 + 重注册一条龙。
+    const res = await userscriptClient.save(props.uuid, source.code, {
+      name: source.meta.name,
+      config: source.meta.config,
       note: '恢复到历史版本',
     })
-    if (res.buildOk) {
-      notice.value = res.registerError
-        ? '已恢复到历史版本，但注册失败：' + res.registerError
-        : '已恢复到历史版本并重新注册。目标页面刷新后生效。'
-    } else {
-      error.value = '已恢复源码与配置（已记入历史），但构建失败，产物未生成：\n' + res.issues.join('\n')
-    }
+    notice.value = res.registerError
+      ? '已恢复到历史版本，但注册失败：' + res.registerError
+      : '已恢复到历史版本并重新注册。目标页面刷新后生效。'
     emit('restored', props.uuid)
     // 恢复本身产生「回滚」提交，刷新时间线
     commits.value = await fsClient.history(props.uuid)
@@ -217,42 +181,28 @@ useDataSync('script', (push) => {
       <div class="flex min-w-0 flex-1 flex-col">
         <!-- 当时的配置摘要 -->
         <div
-          v-if="tree?.meta"
+          v-if="snap?.meta"
           class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2 text-xs text-muted-foreground"
         >
-          <span class="font-medium text-foreground">{{ tree.meta.name }}</span>
+          <span class="font-medium text-foreground">{{ snap.meta.name }}</span>
           <span class="break-all font-mono">
-            {{ tree.meta.config.matches.join(', ') || '（无匹配规则）' }}
+            {{ snap.meta.config.matches.join(', ') || '（无匹配规则）' }}
           </span>
-          <span>{{ tree.meta.config.runAt }}</span>
-          <span v-if="tree.meta.config.allFrames">allFrames</span>
+          <span>{{ snap.meta.config.runAt }}</span>
+          <span v-if="snap.meta.config.allFrames">allFrames</span>
         </div>
 
-        <div class="flex min-h-0 flex-1">
-          <div class="w-48 shrink-0 overflow-y-auto border-r border-border">
-            <FileTree
-              class="min-h-0 rounded-none border-0 bg-transparent font-mono text-xs"
-              :default-expanded="treeExpanded"
-              :selected-path="activeFile"
-              @update:selected-path="(p: string) => (activeFile = p)"
-            >
-              <UserscriptTreeNode
-                v-for="node in treeNodes"
-                :key="node.path"
-                :node="node"
-                :entry="tree?.meta?.entry ?? ''"
-              />
-            </FileTree>
-          </div>
-          <div class="min-w-0 flex-1 overflow-auto">
-            <CodeBlock
-              v-if="activeFile"
-              :code="fileContent"
-              :language="inferLanguage(activeFile)"
-              show-line-numbers
-              class="rounded-none"
-            />
-          </div>
+        <div class="min-h-0 flex-1 overflow-auto">
+          <CodeBlock
+            v-if="snap?.code != null"
+            :code="snap.code"
+            language="javascript"
+            show-line-numbers
+            class="rounded-none"
+          />
+          <p v-else-if="snap" class="p-4 text-xs text-muted-foreground">
+            此快照没有源码。
+          </p>
         </div>
 
         <!-- 恢复 -->
