@@ -2,22 +2,26 @@
 
 哆灵是 AI 用户脚本工坊：一句话描述需求 → AI 生成用户脚本 → 注入第三方页面运行。**本仓库即扩展工程本体**（Chrome MV3 扩展）。
 
-现存功能：**AI 对话**（流式 + 思考过程 + 工具过程）+ **用户脚本**（多文件项目 / esbuild 构建 / git 历史 / 启停管理 / zip 导入导出）+ **页面元素拾取与页面快照**。
+现存功能：**AI 对话**（流式 + 思考过程 + 工具过程；侧边栏与网页内浮层两个入口）+ **用户脚本**（多文件项目 / esbuild 构建 / git 历史 / 启停管理 / zip 导入导出）+ **页面元素拾取与页面快照**。
 
 > 协作约定与红线见 [AGENTS.md](AGENTS.md)；运行时架构见 [ARCHITECTURE.md](ARCHITECTURE.md)；想法与待办记在 [docs/inbox.md](docs/inbox.md)。
 
 ## 载体分工
 
-扩展只有两个入口，各司其职：
+扩展有四个载体，各司其职：
 
 | 载体 | 角色 | 承载内容 |
 | --- | --- | --- |
 | **side panel** | 应用入口（常驻侧边栏） | **AI 对话界面**：会话列表（浮层抽屉）、消息流、输入区（含元素拾取 chip）、模型选择 |
 | **标签页 `workbench.html`** | 重界面工作区（按需打开） | 引导 / 脚本列表（默认落点、不可关闭）/ 运行日志 / 脚本编辑器 / 脚本历史 / 脚本产物 / lfs 浏览 / 会话数据 / AI 工具 / DL API / 设置 / UI 测试 |
+| **popup**（点工具栏图标弹出） | 配置入口（点开即用、点外即关） | 网页浮层开关（总开关 + 当前站点）；两个去处：「打开对话」「打开工作台」 |
+| **网页浮层 `floatpanel.html`**（content script 注入的 iframe） | 网页内便捷对话入口（与侧栏并存） | 与 side panel 同一套对话界面、同一份会话；按站点开关决定是否注入 |
 
-主流程：在侧边栏对话里描述需求 → 到工作台标签页管理脚本（新建 / 编辑 / 启停 / 看 git 历史）。标签页从侧边栏顶栏的「打开工作台」按钮打开，支持 hash 深链：`#/guide` 开引导、`#/tool/<uuid>` 直达该脚本编辑器、`#/errors/<uuid>` 打开运行日志标签页并过滤到该脚本、`#/settings` 开设置。
+主流程：在侧边栏或网页浮层里对话描述需求 → 到工作台标签页管理脚本（新建 / 编辑 / 启停 / 看 git 历史）。标签页从侧边栏顶栏的「打开工作台」按钮或 popup 的「打开工作台」打开，支持 hash 深链：`#/guide` 开引导、`#/tool/<uuid>` 直达该脚本编辑器、`#/errors/<uuid>` 打开运行日志标签页并过滤到该脚本、`#/settings` 开设置。
 
-> **UI 复用**：两个载体的界面均为现成实现 —— side panel 由 `ChatApp.vue` 装配 `ChatPanel` + `SessionHistoryPanel`；工作台由 `WorkbenchApp.vue`（左侧图标导航 + `WorkspaceHost` 多标签宿主）承载。
+> 点工具栏图标弹出的是 **popup**（不是直接开侧栏）——Chrome 的一个 action 不能同时默认开 popup 与 side panel，故侧栏入口收进 popup 的「打开对话」按钮；见 [wxt.config.ts](wxt.config.ts) 与坑 1。
+
+> **UI 复用**：四个载体的界面均为现成实现 —— side panel 由 `ChatApp.vue` 装配 `ChatPanel` + `SessionHistoryPanel`；网页浮层复用同一个 `ChatApp.vue`（另一个入口页 `floatpanel.html`，与侧栏共享同一份会话）；工作台由 `WorkbenchApp.vue`（左侧图标导航 + `WorkspaceHost` 多标签宿主）承载；popup 是独立的 `PopupPanel.vue`（纯配置面板，不装 `window.api`）。
 > 导航项是上方「载体分工」表标签清单的子集加每脚本标签，实况以 `WorkbenchApp.vue` 为准；复用铁律与组件桥接契约见 [AGENTS.md](AGENTS.md)「UI 复用」；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`，不经 `window.api`。
 
 ## 目录结构
@@ -31,12 +35,17 @@
 ├─ src/
 │  ├─ entrypoints/
 │  │  ├─ background.ts            # 能力运行时（service worker）
+│  │  ├─ content.ts               # 内容脚本：第三方页面注入悬浮按钮 + 浮层 iframe（按站点开关，拾取期间让位）
 │  │  ├─ sidepanel.html           # 入口 1：AI 对话界面
 │  │  ├─ workbench.html           # 入口 2：脚本工作区标签页
+│  │  ├─ popup.html               # 入口 3：工具栏配置面板（浮层开关 + 对话 / 工作台入口）
+│  │  ├─ floatpanel.html          # 入口 4：网页浮层对话页（content.ts 的 iframe 指向它）
 │  │  ├─ offscreen.html           # AI 生成链路的执行宿主（按需创建）
 │  │  └─ app/
 │  │     ├─ sidepanel-main.ts     # 侧边栏入口脚本（装 window.api + 主题 → ChatApp）
-│  │     ├─ ChatApp.vue           # side panel 根：顶栏 + 会话列表浮层 + ChatPanel 装配 + 孤儿任务横幅
+│  │     ├─ floatpanel-main.ts    # 浮层入口脚本（同上，另一个入口页 → ChatApp）
+│  │     ├─ popup-main.ts         # popup 入口脚本（只装主题 → PopupPanel）
+│  │     ├─ ChatApp.vue           # side panel / 浮层共用根：顶栏 + 会话列表浮层 + ChatPanel 装配 + 孤儿任务横幅
 │  │     ├─ workbench-main.ts     # 工作台入口脚本（→ WorkbenchApp）
 │  │     ├─ WorkbenchApp.vue      # 工作台根：左侧图标导航 + WorkspaceHost + hash 深链
 │  │     └─ offscreen-main.ts     # offscreen 入口脚本
@@ -45,9 +54,10 @@
 │  │  ├─ SessionHistoryPanel.vue  #   会话列表（搜索 / 重命名 / 删除确认）
 │  │  ├─ WorkspaceHost.vue        #   工作区多标签宿主（标签开合 / 脏标记 / 历史恢复后重载）
 │  │  ├─ WorkspaceTabs.vue        #   标签栏（构建信息已移至 设置 → 关于）
+│  │  ├─ PopupPanel.vue           #   工具栏 popup：网页浮层开关（总开关 + 当前站点）+「打开对话 / 打开工作台」
 │  │  ├─ GuidePanel.vue           #   引导标签页：需用户开启的开关（运行用户脚本）状态自检 + 分步指引 + 直达扩展管理页
 │  │  ├─ SettingsPanel.vue / UiTestPanel.vue / ChatDataPanel.vue / ConfirmDialog.vue / ModelFormDialog.vue
-│  │  ├─ settings/                #   设置分区：sections.ts 注册表（左栏导航 + 扩展点）+ ModelSettingsSection / AboutSection
+│  │  ├─ settings/                #   设置分区：sections.ts 注册表（左栏导航 + 扩展点）+ ModelSettingsSection / FloatPanelSection / AboutSection
 │  │  ├─ userscript/              #   脚本链路面板：列表 / 编辑器 / 历史 / 产物 / lfs 浏览 + 文件树节点
 │  │  ├─ ui/                      #   shadcn-vue 基础组件（reka-ui）
 │  │  └─ ai-elements/             #   对话元素（message / conversation / prompt-input / chain-of-thought / tool / code-block / file-tree）
@@ -77,6 +87,7 @@
 │  │  ├─ providers.ts             # 服务商预设（host_permissions 由此推导）
 │  │  ├─ element-picker-client.ts # 元素拾取 / 页面快照的发起侧（按需注入拾取器，失败有可读文案）
 │  │  ├─ page-context-store.ts    # 点选产物的采集侧暂存（等下一条消息一起发）
+│  │  ├─ float-panel-store.ts     # 网页浮层的开关存储：总开关 + 按站点禁用（chrome.storage.local）
 │  │  ├─ build-info.ts            # 构建信息取数：define 注入的 __BUILD_INFO__（页面侧）+ sw:buildInfo 命令（SW 侧，带重试）
 │  │  ├─ theme.ts / code-view.ts / format.ts / utils.ts
 │  │  └─ userscripts/             # 脚本链路：引擎 / 存储 / git / DL 桥 / 匹配规则
@@ -108,7 +119,7 @@
 > 本节是手测（验收动作）的登记处：怎么跑一遍、每步该看到什么。
 
 1. **加载扩展**：`npm run build` → Chrome 打开 `chrome://extensions` → 开「开发者模式」→「加载已解压的扩展程序」→ 选 `.output/chrome-mv3`
-2. **打开面板**：点工具栏哆灵图标 → 自动打开右侧 side panel（兜底：窗口右上角「侧边栏」按钮）
+2. **打开面板**：点工具栏哆灵图标 → 弹出 **popup 配置面板**（不是直接开侧栏）→ 点其中的「打开对话」开右侧 side panel（兜底：窗口右上角「侧边栏」按钮）。popup 含两个开关（浮层总开关、当前站点开关）与两个入口（打开对话 / 打开工作台）
 3. **主题**：随系统深浅色 —— 切 macOS 外观为深色，面板与工作台应立刻跟着变（无需重载）
 4. **引导**：工作台左侧导航「引导」→ 两张状态自检卡：「运行用户脚本」（脚本注入的总开关）与「读取本地文件」（「从路径导入」的前置开关，只对 Chrome 渲染）。未开启时按步骤开完、**重启浏览器**、回本页点「重新检测」，状态应转为已开启
 5. **配模型**：面板顶栏「打开工作台」→ 左侧导航「设置」→ 添加模型（选服务商 / 填 API Key / 模型 ID）→「测试连接」→ 保存
@@ -129,6 +140,10 @@
 16. **cookie 能力（DL.cookie）**：`npm run pack:uscripts` 后导入上述 zip → 启用「DL.cookie 探针」（其匹配规则**故意只写 `https://example.com/*`**）→ 打开 `https://example.com` → 点右下角角标跑用例：
    - 写读往返（含 `document.cookie` 交叉验证）/ 按 name 查 / 换路径仍放行（**pattern 的 path 段不参与判定**）/ **越域必须被拒** / 非 http(s) 拒 / 删除后读不到。
    - 核对面板「运行日志」里越域那条的报错文案（`PERMISSION_DENIED`）；改脚本匹配范围后门应即时收紧（`script` 域广播失效缓存）。
+17. **网页浮层**：任意普通网页右下角出现哆灵悬浮按钮（默认开）→ 点击展开对话界面（与侧栏同一套界面、同一份会话，两边发消息互相同步可见）→ 再点按钮收起。
+   - **拾取让位**：在浮层输入区点「点选元素」→ 浮层应整块消失、页面能正常高亮与点选 → 选完（或 Esc / 右键取消）浮层恢复，且原先展开的面板仍展开。
+   - **开关**：popup（或工作台「设置 → 网页浮层」）关掉总开关 / 禁用当前站点后，该页刷新即不再注入；两处开关状态应互相同步。
+   - **CSP 降级**：严格 CSP 的站点（`frame-src 'self'`）浮层降级为文字提示「该网站限制了内嵌框架…」，引导改用侧栏，不影响其他站点。
 
 **改代码后**：WXT 自动重建；回 `chrome://extensions` 点扩展卡片的刷新图标重载。**改了 `wxt.config.ts` 须重启 dev**（见 [wxt 规范](.agents/skills/wxt/SKILL.md)）。
 
@@ -140,8 +155,8 @@
 
 ## 关键坑与规避
 
-1. **`sidePanel` 是必需权限**：使用 `chrome.sidePanel` API **必须**在 `permissions` 里声明 `"sidePanel"`（Chrome 114+），否则 `chrome.sidePanel` 不存在、`setPanelBehavior` 静默失败、**点图标不开面板**；`setPanelBehavior({openPanelOnActionClick:true})` 还需 manifest 声明 `"action"` 键。
-   - 已批准权限集见 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」）：核对产物 manifest 即拿它的 `permissions` 数组逐项比对，另需 `action` + `side_panel.default_path` + `host_permissions`。
+1. **`sidePanel` 是必需权限**：使用 `chrome.sidePanel` API **必须**在 `permissions` 里声明 `"sidePanel"`（Chrome 114+），否则 `chrome.sidePanel` 不存在、调用静默失败（表现为 popup 里「打开对话」按钮毫无反应）。**注意 `openPanelOnActionClick` 现为 `false`**：点工具栏图标开的是 popup，侧栏改由 popup 内 `chrome.sidePanel.open()` 唤起 —— 一个 action 无法同时默认开 popup 与 side panel（详见「载体分工」与 `background.ts` 就近注释）。
+   - 已批准权限集见 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」）：核对产物 manifest 即拿它的 `permissions` 数组逐项比对，另需 `action`（含 `default_popup`，由 `entrypoints/popup.html` 自动写入）+ `side_panel.default_path` + `host_permissions`。
 2. **SW 缺 `global` / `Buffer` / `process`**：`isomorphic-git`/`lightning-fs` 依赖 Node 全局，SW 没有。`vite.define` 别名 `global: 'globalThis'` + `polyfills.ts`（含 `polyfill-process`）在 `background.ts` 最前 import 兜底；漏掉时表现为加载期即抛「`global.TextEncoder` 读不到」。
 3. **entrypoint 同名冲突**：同一名字不得同时存在 `x.html` 与 `x.ts`（WXT 判定两个同名 entrypoint）。规则与命名做法见 [wxt 规范](.agents/skills/wxt/SKILL.md) 硬约束 3。
 4. **跨域 fetch 需 host 权限**：扩展页 `fetch` 模型接口会被 CORS 拦，必须在 manifest 声明对应 `host_permissions`（模型服务商由 `src/lib/providers.ts` 推导，用户脚本另需 `<all_urls>`）。
@@ -184,3 +199,7 @@
    - **怎么验**：`npm run pack:uscripts` → 工作台「脚本列表」导入 → 启用「DL API 收口探针」→ 页面右下角角标点一下。四项断言全打在 httpbin 回显上（覆写是否真上线只有服务端能作证）。**2026-09-19 真机手测通过**：覆写上线 / 同 host 隔离 / manual 读 3xx / error 拒绝四项全 ✓。
    - **角标是三态**：`✓` 通过 / `✗` 功能失败 / `?` 未判定（httpbin 抖动、响应体为空读不出 header 是否干净；读者隔 500ms 自动重试一次，两次都拿不到回显才记 `?`）。重跑即可；把环境抖动当功能失败会使排查方向出错。
    - **判据是「回显里没有脏头」还是「回显可辨认」**：靠回显下结论的两项（覆写上线、同 host 隔离）必须先确认回显**可辨认**（含 Host/Accept 等真实请求头之一），否则记 `?` —— 空回显 / CDN 兜底页里「没有脏头」不能证明「没被污染」，靠缺席证据判 ✓ 是无效判据（2026-09-19 堵掉）。
+15. **网页浮层受第三方页面的 `frame-src` 约束**：浮层是 content script 往页面注入的 `<iframe>`（指向扩展页 `floatpanel.html`），**它本身是页面 DOM 元素**，所以严格 CSP 的站点（`frame-src 'self'`）会拦掉它 —— content script 创建 DOM 这一步不受页面 CSP 限制，受约束的只有这一层 iframe。三点须记住：
+   - `floatpanel.html` **必须**进 `web_accessible_resources`（见 [wxt.config.ts](wxt.config.ts)），否则 Chrome 直接拦。
+   - 被拦时要**降级成文字提示并引导改用侧栏**，不能静默失败；部分站点拦载不触发 iframe 的 `error` 事件，可靠性靠 `load` 超时兜底（`content.ts`）。
+   - **换 `chrome.userScripts` 注入绕不过**：USER_SCRIPT 世界的宽松 CSP 只管「那个世界里执行的脚本」，不管「页面 DOM 能嵌入什么」。

@@ -12,6 +12,11 @@ import { providerOrigins } from './src/lib/providers'
 // 载体分工：
 //   side panel  → 应用入口 = AI 对话界面（entrypoints/sidepanel.html）
 //   标签页      → 脚本工作区 = 脚本列表 / 编辑器 / 设置（entrypoints/workbench.html）
+//   popup       → 配置入口 = 点工具栏图标弹出的浮层开关面板（entrypoints/popup.html）
+//   网页浮层    → 网页内对话入口 = content script 注入的 iframe（entrypoints/content.ts
+//                 加载 floatpanel.html，复用 ChatApp、与侧栏共享会话；按站点开关见
+//                 src/lib/float-panel-store.ts）
+// 四个载体的界面复用关系见 README.md「载体分工」。
 // 开发期 Chrome profile 目录：必须用绝对路径 —— web-ext 对相对路径按 cwd 解析，
 // 换个目录启动 dev 就会拿到不同 profile，「Allow User Scripts」这类每扩展开关会被重置。
 //
@@ -80,7 +85,9 @@ export default defineConfig({
     name: '哆灵',
     description: '哆灵 AI 用户脚本工坊 · 扩展版（侧边栏对话 + 标签页工作台）',
     // sidePanel 是使用 chrome.sidePanel API 的必需权限（Chrome 114+），不要剔除。
-    // setPanelBehavior({openPanelOnActionClick:true}) 还需声明 action 键，点工具栏图标才会开面板。
+    // 注意 action 的默认行为现由 popup 承担：点工具栏图标弹 popup（background.ts 里
+    // setPanelBehavior 的 openPanelOnActionClick 已置 false），侧栏由 popup 内的
+    // chrome.sidePanel.open() 唤起 —— 一个 action 无法同时默认开 popup 与 side panel。
     // offscreen 是 AI 生成链路的执行宿主（定位 B）：
     // 对话 loop 与 esbuild 构建都跑在 offscreen document 里，「用户发起生成后可关掉侧边栏、
     // 任务照跑完」。没有该权限 chrome.offscreen 不存在，容器起不来（Chrome 109+ / 仅 MV3）。
@@ -134,6 +141,8 @@ export default defineConfig({
     content_security_policy: {
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
     },
+    // default_popup 不在此手写：WXT 按文件名把 entrypoints/popup.html 识别为 popup 入口
+    // 并自动写入 manifest（同 content.ts 成为内容脚本的机制）。
     action: {
       default_title: '打开哆灵',
     },
