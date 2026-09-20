@@ -95,15 +95,28 @@
 - **铁律**：
   - ❌ 严禁 `git push origin <x>:main`（含之前的 refspec 绕过法），会被 `GH006: Protected branch update failed` 拒
   - ❌ 不将整分支 merge 进 main（只会产生重复 / 冲突提交）；单一改动走上面的 PR 流
-  - ⚠️ **gh 合并只允许 `--merge`（Merge Commit）**：`gh pr merge` 一律带 `--merge`，**禁止 `--squash` / `--rebase`**；网页点 Merge 也必须选「Create a merge commit」。约定统一保留线性 merge commit 历史，不把 PR 压平成单提交、也不变基
+  - ⚠️ **gh 合并只允许 `--merge`（Merge Commit）**：`gh pr merge` 一律带 `--merge`，**禁止 `--squash` / `--rebase`**；网页点 Merge 也必须选「Create a merge commit」。约定统一保留线性 merge commit 历史，不把 PR 压平成单提交、也不变基。平台设置层未禁用另外两种（实测 `allow_squash_merge` / `allow_rebase_merge` 均为 `true`），这条禁令靠约定执行
   - ⚠️ **E2E 在 PR 上就会跑**（`e2e.yml` 自 2026-09-19 起带 `pull_request` 触发；同 PR 连推由 `concurrency` 取消旧 run，只跑最新 commit）。**旧版本文件写的「e2e 无 PR 触发器 / PR 上永远不上报 / 设了会卡死合不了」已不成立**——那条告诫只在 E2E 尚无 PR 触发器时成立，不再据它判断合并时机或要求撤销该 check
 - **即使改本文件 / CI 配置**，也走同样 PR 流（main 受保护，没有任何文件能直推）
 
 ## 合并提交标题（重要）
 
-`main` 已固定为 **Merge Commit**（见上「铁律」），PR 合入后 **merge commit 标题 = 开 PR 时的 `--title`**，原样成为 `main` 永久历史。因此：
+`main` 已固定为 **Merge Commit**（见上「铁律」）。**PR 标题不会成为 merge commit 的标题**，平台把它放在 body 首行：
 
-- **PR 标题必须遵循本文件的提交信息规范**——它就是那条要进 `main` 的提交信息。
+- **subject**：`Merge pull request #<N> from <属主>/<分支名>`
+- **body 首行**：开 PR 时传的 `--title`
+
+这由仓库设置决定（`gh api repos/{owner}/{repo}` 实测，2026-09-20）：
+
+| 设置 | 当前值 | 效果 |
+| --- | --- | --- |
+| `merge_commit_title` | `MERGE_MESSAGE` | subject 用平台默认文案，不取 PR 标题 |
+| `merge_commit_message` | `PR_TITLE` | PR 标题写进 body 首行 |
+
+`#79`–`#83` 五个 merge commit 全是这个形状，说明该行为一直如此。因此：
+
+- **PR 标题仍必须遵循本文件的提交信息规范**：它不在 subject 里，但会作为 merge commit body 首行进入 `main` 永久历史（`git log --format=%b` 可见）。
+- 想让「PR 标题 = merge commit 标题」，须改仓库设置 `merge_commit_title` → `PR_TITLE`。那是仓库级外部动作，且**只对之后的 PR 生效**，已有 merge commit 不会改写。
 - 发版 PR 标题固定为 **`chore: release vX.Y.Z`**（见 [VERSIONING.md](VERSIONING.md)），是上面 `type=chore` 的一个特例。
 
 ## 反例

@@ -98,7 +98,7 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 4. 构建 `chrome-mv3` 产物、打包成 zip 上传为该 Release 的 **asset**（独立 `build` job，详见下方「GitHub Release assets」）。
 
 - **CI 只推 tag，不 bump 版本**：bump 已在本地 `npm run release` 完成、随 release PR 合入。
-- **不依赖提交信息 / 不解析历史**：版本号只从 `package.json.version` 读取，不解析 commit message；PR 以 Merge Commit 合入后，**merge commit 标题（即开 PR 时的 `--title`）** 原样成为 `main` 上的提交记录、是项目永久历史，仍须按提交规范写成 release 标题（字面格式见上方开 PR 的 `--title`；通用规范见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)）。
+- **不依赖提交信息 / 不解析历史**：版本号只从 `package.json.version` 读取，不解析 commit message。release PR 标题仍须写成 release 标题（字面格式见上方 `--title`）；该标题进入 `main` 永久历史的位置与通用规范，见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md) 的「合并提交标题」节。
 - **串行**：`concurrency` 串行，防止两个 release PR 同时合入抢建同一 tag。
 - **手动兜底（罕见）**：CI 漏打 tag 时二选一补推——① Actions 页面对 `release` workflow 点 `Run workflow` 重跑（幂等：tag 已存在自动跳过；尽量在后续 PR 合入 main 前跑，避免 tag 落到错误 commit 上）；② 本地补建 annotated tag 并指向 release PR 的合并 commit 再推：`git tag -a vX.Y.Z -m "vX.Y.Z" <合并commit> && git push origin vX.Y.Z`（tag 走 `refs/tags/*`，不触发 main 分支保护）。
 
