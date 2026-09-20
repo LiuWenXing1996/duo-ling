@@ -18,20 +18,16 @@ import * as usGit from '@/lib/userscripts/us-git'
 import * as usFs from '@/lib/userscripts/us-fs'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 
-// —— 依赖 mock：offscreen 命令面的全部后端（fs / git / IDB / esbuild 一律不真碰）——
+// —— 依赖 mock：offscreen 命令面的全部后端（fs / git / IDB 一律不真碰）——
 vi.mock('@/lib/userscripts/project-store', () => ({
   getProject: vi.fn(),
   listProjects: vi.fn(),
   nextScriptName: vi.fn(),
-  validateFiles: vi.fn(),
 }))
 vi.mock('@/lib/userscripts/project-write', () => ({
   createProject: vi.fn(),
   createGeneratedProject: vi.fn(),
   importScriptsZip: vi.fn(),
-  rebuildPendingProjects: vi.fn(async () => 0),
-  refreshDepsCache: vi.fn(),
-  clearDepsCache: vi.fn(),
   removeAllProjects: vi.fn(),
   removeProjectAndRepo: vi.fn(),
   setProjectEnabled: vi.fn(),
@@ -53,21 +49,12 @@ vi.mock('@/lib/userscripts/us-git', () => ({
   deleteRepo: vi.fn(),
   deleteAllRepos: vi.fn(),
   listHistory: vi.fn(),
-  readTreeAt: vi.fn(),
+  readSnapshotAt: vi.fn(),
   restoreToCommit: vi.fn(),
-  writeSourceTree: vi.fn(),
+  writeSource: vi.fn(),
   commitSource: vi.fn(),
-  readSourceTree: vi.fn(),
+  readSource: vi.fn(),
 }))
-// builder 是真类依赖（chat-host → script-tools 传递引入），mock 掉避免顶层 wasm 依赖
-vi.mock('@/lib/userscripts/builder', () => {
-  class BuildError extends Error {
-    constructor(readonly issues: string[]) {
-      super('构建失败')
-    }
-  }
-  return { buildProject: vi.fn(), BuildError }
-})
 // reconcileFs 启动对账会真碰 fs/IDB，且与本测试无关——保留其余真实导出
 vi.mock('@/lib/userscripts/offscreen-state-commands', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/userscripts/offscreen-state-commands')>()
@@ -76,24 +63,21 @@ vi.mock('@/lib/userscripts/offscreen-state-commands', async (importOriginal) => 
 
 type Expect<T extends true> = T
 
-const FILES = { 'main.ts': 'console.log(1)' }
-const BUNDLE = { code: '/* bundle */', builtAt: 1 }
+const CODE = 'console.log(1)'
 const META: ScriptMeta = {
   name: '脚本一',
   config: { matches: ['https://example.com/*'], allFrames: false, runAt: 'document_end' },
-  entry: 'main.ts',
   createdAt: 0,
 }
-// 完整 ScriptProject 形状（state:createProject 的载荷；源码不在其中——源码在 duoling-fs）
+// 完整 ScriptProject 形状（state:createProject 的载荷；源码搬运副本在 source 字段）
 const PROJECT: ScriptProject = {
-  v: 1,
+  v: 2,
   uuid: 'u1',
   name: '脚本一',
   enabled: true,
   config: META.config,
-  entry: 'main.ts',
-  bundle: BUNDLE,
-  fileCount: 1,
+  group: '',
+  source: { code: CODE, savedAt: 1 },
   createdAt: 0,
   updatedAt: 0,
 }
@@ -110,8 +94,6 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
     'state:removeAll',
     'state:toggle',
     'state:import',
-    'state:deps-refresh',
-    'state:deps-clear',
     'state:group-create',
     'state:group-rename',
     'state:group-remove',
@@ -133,20 +115,19 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
         kind: 'state:createProject',
         name: '脚本一',
         config: PROJECT.config,
-        files: FILES,
-        entry: 'main.ts',
+        code: CODE,
         enabled: false,
         note: 'AI 生成',
       },
       backend: vi.mocked(projectWrite.createGeneratedProject),
       args: [
-        { name: '脚本一', config: PROJECT.config, files: FILES, entry: 'main.ts', enabled: false, note: 'AI 生成' },
+        { name: '脚本一', config: PROJECT.config, code: CODE, enabled: false, note: 'AI 生成' },
       ],
     },
     'state:save': {
-      msg: { kind: 'state:save', uuid: 'u1', files: FILES, entry: 'main.ts', name: '新名', note: '备注' },
+      msg: { kind: 'state:save', uuid: 'u1', code: CODE, name: '新名', note: '备注' },
       backend: vi.mocked(projectWrite.saveExisting),
-      args: ['u1', FILES, 'main.ts', { name: '新名', config: undefined, note: '备注' }],
+      args: ['u1', CODE, { name: '新名', config: undefined, note: '备注' }],
     },
     'state:remove': {
       msg: { kind: 'state:remove', uuid: 'u1' },
@@ -167,16 +148,6 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
       msg: { kind: 'state:import', zipBase64: 'emlwLWJ5dGVz' },
       backend: vi.mocked(projectWrite.importScriptsZip),
       args: ['emlwLWJ5dGVz'],
-    },
-    'state:deps-refresh': {
-      msg: { kind: 'state:deps-refresh', uuid: 'u1' },
-      backend: vi.mocked(projectWrite.refreshDepsCache),
-      args: ['u1'],
-    },
-    'state:deps-clear': {
-      msg: { kind: 'state:deps-clear', uuid: 'u1' },
-      backend: vi.mocked(projectWrite.clearDepsCache),
-      args: ['u1'],
     },
     'state:group-create': {
       msg: { kind: 'state:group-create', name: '购物助手' },
@@ -225,9 +196,9 @@ describe('(b) handleFsCommand 分发全覆盖', () => {
   // fs:* 全成员清单：typecheck 闸——新增成员而未登记 → Exclude 非 never → 编译失败
   const FS_KINDS = [
     'fs:ping',
-    'fs:readTree',
+    'fs:read',
     'fs:history',
-    'fs:historyTree',
+    'fs:readAt',
     'fs:restoreToCommit',
     'fs:exportZip',
     'fs:lfsTree',
@@ -245,15 +216,15 @@ describe('(b) handleFsCommand 分发全覆盖', () => {
       msg: { kind: 'fs:ping' },
       result: { ready: true },
     },
-    'fs:readTree': {
-      msg: { kind: 'fs:readTree', uuid: 'u1' },
-      backend: vi.mocked(usGit.readSourceTree),
+    'fs:read': {
+      msg: { kind: 'fs:read', uuid: 'u1' },
+      backend: vi.mocked(usGit.readSource),
       args: ['u1'],
     },
     'fs:history': { msg: { kind: 'fs:history', uuid: 'u1' }, backend: vi.mocked(usGit.listHistory), args: ['u1'] },
-    'fs:historyTree': {
-      msg: { kind: 'fs:historyTree', uuid: 'u1', oid: 'o1' },
-      backend: vi.mocked(usGit.readTreeAt),
+    'fs:readAt': {
+      msg: { kind: 'fs:readAt', uuid: 'u1', oid: 'o1' },
+      backend: vi.mocked(usGit.readSnapshotAt),
       args: ['u1', 'o1'],
     },
     'fs:restoreToCommit': {
@@ -262,17 +233,17 @@ describe('(b) handleFsCommand 分发全覆盖', () => {
       args: ['u1', 'o1'],
     },
     'fs:exportZip': {
-      // readSourceTree mock 返回 null → tree 为 null → 空 payload 走真实 fflate 打包
+      // readSource mock 返回 null → source 为 null → 空 payload 走真实 fflate 打包
       msg: { kind: 'fs:exportZip', uuids: ['u1'] },
-      backend: vi.mocked(usGit.readSourceTree),
+      backend: vi.mocked(usGit.readSource),
       args: ['u1'],
-      setup: () => vi.mocked(usGit.readSourceTree).mockResolvedValue(null),
+      setup: () => vi.mocked(usGit.readSource).mockResolvedValue(null),
     },
     'fs:lfsTree': { msg: { kind: 'fs:lfsTree' }, backend: vi.mocked(usFs.readLfsTree), args: ['/'] },
     'fs:lfsReadFile': {
-      msg: { kind: 'fs:lfsReadFile', path: '/uscripts/u1/files/main.ts' },
+      msg: { kind: 'fs:lfsReadFile', path: '/uscripts/u1/script.js' },
       backend: vi.mocked(usFs.readLfsFile),
-      args: ['/uscripts/u1/files/main.ts'],
+      args: ['/uscripts/u1/script.js'],
     },
   }
 
@@ -338,15 +309,15 @@ describe('(c) offscreen 应答信封 { ok, data | error }', () => {
   // 全部经真实监听器走一遍，任何一路信封走样（漏 data / 裸抛错误对象 / 多余字段）都会被抓住
   const OFFSCREEN_MSGS: RuntimeRequest[] = [
     { kind: 'fs:ping' },
-    { kind: 'fs:readTree', uuid: 'u1' },
+    { kind: 'fs:read', uuid: 'u1' },
     { kind: 'fs:history', uuid: 'u1' },
-    { kind: 'fs:historyTree', uuid: 'u1', oid: 'o1' },
+    { kind: 'fs:readAt', uuid: 'u1', oid: 'o1' },
     { kind: 'fs:restoreToCommit', uuid: 'u1', oid: 'o1' },
     { kind: 'fs:exportZip', uuids: ['u1'] },
     { kind: 'fs:lfsTree' },
-    { kind: 'fs:lfsReadFile', path: '/uscripts/u1/files/main.ts' },
+    { kind: 'fs:lfsReadFile', path: '/uscripts/u1/script.js' },
     { kind: 'state:create' },
-    { kind: 'state:save', uuid: 'u1', files: FILES, entry: 'main.ts' },
+    { kind: 'state:save', uuid: 'u1', code: CODE },
     { kind: 'state:remove', uuid: 'u1' },
     { kind: 'state:toggle', uuid: 'u1', enabled: true },
   ]

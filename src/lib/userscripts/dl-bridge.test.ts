@@ -44,12 +44,13 @@ function chromeCookie(over: Partial<chrome.cookies.Cookie> = {}): chrome.cookies
 /** 播种一个脚本项目（cookie 域名门的配置来源） */
 function seedScript(uuid: string, matches: string[], excludeMatches?: string[]): Promise<void> {
   const project: ScriptProject = {
-    v: 1,
+    v: 2,
     uuid,
     name: `cookie 脚本 ${uuid}`,
     enabled: true,
     config: { matches, excludeMatches, allFrames: true, runAt: 'document_end' },
-    entry: 'main.js',
+    group: '',
+    source: { code: '// x', savedAt: 1 },
     createdAt: 1,
     updatedAt: 1,
   }

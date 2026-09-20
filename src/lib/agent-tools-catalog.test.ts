@@ -11,22 +11,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { AGENT_RUNTIME_LIMITS, AGENT_TOOL_VIEWS, TOOL_DESCRIPTIONS } from './agent-tools-catalog'
 import { buildScriptTools, MAX_APPLY_FAILURES, type TaskWorkspace } from './offscreen-chat/script-tools'
 
-// 与 script-tools.test.ts 同因由：真构建依赖 esbuild-wasm + chrome.runtime.getURL（单测不可用），
-// us-git 顶层 import 会实例化 lightning-fs（Node 无 indexedDB）。
-vi.mock('@/lib/userscripts/builder', () => ({
-  BuildError: class BuildError extends Error {},
-  buildProject: vi.fn(),
-}))
+// 与 script-tools.test.ts 同因由：us-git 顶层 import 会实例化 lightning-fs（Node 无 indexedDB）。
 vi.mock('@/lib/userscripts/us-git', () => ({
-  readSourceTree: vi.fn(async () => null),
+  readSource: vi.fn(async () => null),
 }))
 
 function makeWorkspace(): TaskWorkspace {
   return {
     taskId: 't-1',
     conversationId: 'c-1',
-    files: null,
-    entry: 'main.js',
+    code: null,
     config: null,
     summary: '',
     applyFailures: 0,

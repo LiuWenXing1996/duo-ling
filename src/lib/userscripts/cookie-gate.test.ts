@@ -13,12 +13,13 @@ const UUID = 'gate-test-uuid'
 
 function projectWith(config: Partial<ScriptConfig>): ScriptProject {
   return {
-    v: 1,
+    v: 2,
     uuid: UUID,
     name: '门测试脚本',
     enabled: true,
     config: { matches: ['*://*/*'], allFrames: true, runAt: 'document_end', ...config },
-    entry: 'main.js',
+    group: '',
+    source: { code: '// x', savedAt: 1 },
     createdAt: 1,
     updatedAt: 1,
   }

@@ -56,9 +56,7 @@ const summary = (uuid: string, name: string): ScriptSummary => ({
   name,
   enabled: true,
   matches: [],
-  fileCount: 0,
   updatedAt: 0,
-  buildOk: true,
   group: '',
 })
 

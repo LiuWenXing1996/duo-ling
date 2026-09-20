@@ -1,10 +1,10 @@
 // types.ts 单测：默认值约定（存储键拼接函数已随 chrome.storage 迁移删除或移入各库模块）。
 import { describe, expect, it } from 'vitest'
-import { ENTRY_DEFAULT, defaultConfig, defaultSource } from './types'
+import { SCRIPT_FILE, defaultConfig, defaultSource } from './types'
 
 describe('默认值', () => {
-  it('ENTRY_DEFAULT 为 main.js', () => {
-    expect(ENTRY_DEFAULT).toBe('main.js')
+  it('SCRIPT_FILE 为 script.js（单文件脚本的唯一源码文件名）', () => {
+    expect(SCRIPT_FILE).toBe('script.js')
   })
 
   it('defaultConfig：allFrames true / runAt document_end，matches 原样带入', () => {

@@ -21,13 +21,13 @@ let seq = 0
 function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {
   seq += 1
   return {
-    v: 1,
+    v: 2,
     uuid: `u${seq}`,
     name: `脚本${seq}`,
     enabled: false,
     config: { matches: ['*://*/*'], allFrames: true, runAt: 'document_end' },
-    fileCount: 1,
-    entry: 'main.js',
+    group: '',
+    source: { code: '// x', savedAt: 1000 },
     createdAt: 1000,
     updatedAt: 1000,
     ...overrides,
@@ -63,13 +63,13 @@ describe('writeProject / readProject 往返', () => {
     await expect(readProject('nope')).resolves.toBeUndefined()
   })
 
-  it('形态不对（非 v:1）的记录返回 undefined', async () => {
+  it('形态不对（非 v:2）的记录返回 undefined', async () => {
     // 直接 put 一条非法形状（绕过 writeProject 类型），验证读侧守卫
     const p = makeProject()
     await writeProject(p)
     await removeProject(p.uuid)
-    // 手动写一条 v:2 形状
-    const bad = { ...p, v: 2 as unknown as 1 }
+    // 手动写一条 v:1 旧形状
+    const bad = { ...p, v: 1 as unknown as 2 }
     const dbp = await new Promise<IDBDatabase>((resolve, reject) => {
       const req = indexedDB.open('duoling-state', STATE_DB_VERSION)
       req.onsuccess = () => resolve(req.result)
@@ -89,7 +89,7 @@ describe('writeProject / readProject 往返', () => {
 })
 
 describe('readAllProjects', () => {
-  it('返回全部 v:1 项目并过滤非法形状', async () => {
+  it('返回全部 v:2 项目并过滤非法形状', async () => {
     const a = makeProject({ name: 'A' })
     const b = makeProject({ name: 'B' })
     await writeProject(a)
