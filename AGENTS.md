@@ -52,7 +52,7 @@
 | **AGENTS.md**（本文件） | 协作约定、红线与硬性底线、命令清单、调试方法论、文档导航（本表） | 动手前；结论成形后就地补对应小节 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | **运行时架构**：载体与运行时、对话链路、脚本注入、页面上下文、存储六库、统一保存、用户脚本版本管理、数据广播、依赖构建、构建信息注入 | 改这些实现前；改完就地更新 |
 | [VERSIONING.md](VERSIONING.md) | 扩展**自身**版本机制：真相源 / SemVer / 预发布规则 / tag / release PR 流程 / GitHub Release notes 与故障处置 | 发版 / 改版本号前 |
-| [GIT_WORKFLOW.md](GIT_WORKFLOW.md) | **Git 工作流**：提交信息格式与 type 白名单 / 分支命名 / 分支保护与合并流程 / 合并提交标题 | 写提交 / 起分支 / 开 PR 前 |
+| [GIT_WORKFLOW.md](GIT_WORKFLOW.md) | **Git 工作流**：提交信息格式与 type 白名单 / 分支命名 / 分支保护与合并流程 / 小修补搭车 / 合并提交标题 | 写提交 / 起分支 / 开 PR 前 |
 | [CHANGELOG.md](CHANGELOG.md) | 每个发布版本的变更条目（格式与维护方式见 VERSIONING.md） | 发版时补条目 |
 | [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），可带一句 ≤30 字方向，**不写方案设计、也不承诺要做** | 攒需求 / 清理待办时；待办只记不做 |
 | [.github/pull_request_template.md](.github/pull_request_template.md) | PR 描述模板（动机 / 变更 / 测试证据三段） | 开 PR 时按它填 |
