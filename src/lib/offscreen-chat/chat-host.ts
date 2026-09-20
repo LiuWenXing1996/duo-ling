@@ -233,18 +233,6 @@ async function runLoop(opts: {
 }): Promise<void> {
   const { conversationId, taskId, prompt, pageContext, workspace, continuing } = opts
   const abort = new AbortController()
-  // 流式静默守卫：provider 卡死（有连接但不吐 token）时主动中止，释放网关连接/并发配额。
-  const idle = createIdleGuard({
-    idleMs: STREAM_IDLE_TIMEOUT_MS,
-    onTimeout: () => {
-      pushChunk(conversationId, {
-        type: 'error',
-        errorText: `请求超时（${STREAM_IDLE_TIMEOUT_MS / 1000} 秒无响应），已自动中止。可能是模型服务繁忙，请稍后重试或切换模型。`,
-      })
-      abort.abort()
-    },
-  })
-  idle.arm() // 覆盖首字节（TTFT）：provider 连第一个 token 都迟迟不给时也及时释放
   const task: RunningTask = {
     taskId,
     workspace,
@@ -257,6 +245,21 @@ async function runLoop(opts: {
   try {
     const profile = getActiveProfile()
     if (!profile) throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
+
+    // 流式静默守卫：provider 卡死（有连接但不吐 token）时主动中止，释放网关连接/并发配额。
+    // 时长优先取模型配置里的 streamIdleTimeoutSec（秒），缺省回退 STREAM_IDLE_TIMEOUT_MS（60s）。
+    const idleMs = profile.streamIdleTimeoutSec != null ? profile.streamIdleTimeoutSec * 1000 : STREAM_IDLE_TIMEOUT_MS
+    const idle = createIdleGuard({
+      idleMs,
+      onTimeout: () => {
+        pushChunk(conversationId, {
+          type: 'error',
+          errorText: `请求超时（${idleMs / 1000} 秒无响应），已自动中止。可能是模型服务繁忙，请稍后重试或切换模型。`,
+        })
+        abort.abort()
+      },
+    })
+    idle.arm() // 覆盖首字节（TTFT）：provider 连第一个 token 都迟迟不给时也及时释放
 
     // 历史消息：新任务用调用方带来的；续跑从会话库现取（含此前完整上下文）。
     // 库记录 → UIMessage 走与面板同一个 toUiMessage（含 pageContext 挂回 metadata：

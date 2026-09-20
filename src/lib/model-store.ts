@@ -173,11 +173,12 @@ export async function saveProfile(input: ModelProfileInput): Promise<ModelProfil
     apiFormat: 'openai',
     hasApiKey: Boolean(apiKey) || Boolean(existing?.apiKey),
     apiKey: apiKey || existing?.apiKey || '',
-    contextOutputToken: input.contextOutputToken,
-    temperature: input.temperature,
-    topP: input.topP,
-    topK: input.topK
-  }
+      contextOutputToken: input.contextOutputToken,
+      temperature: input.temperature,
+      topP: input.topP,
+      topK: input.topK,
+      streamIdleTimeoutSec: input.streamIdleTimeoutSec ?? existing?.streamIdleTimeoutSec
+    }
   state.profiles = existing
     ? state.profiles.map((p) => (p.id === id ? next : p))
     : [...state.profiles, next]
