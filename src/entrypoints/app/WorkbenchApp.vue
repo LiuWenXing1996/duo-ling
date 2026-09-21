@@ -6,8 +6,9 @@
 //
 // 结构平移自桌面版 app.vue 的「顶栏 + 左侧导航 + 工作区」，只裁掉两栏聊天
 // （会话历史 | 当前会话已移入 side panel），保留的分支逐句照搬，未重写。
-// 导航项：引导 / 设置 / 脚本列表 / 运行日志 / 脚本文件 / 会话数据 / 会话历史 / AI 工具 / GM API。
-// 「AI 界面对话预览」不列在上面：它属调界面用的入口，只在开发者模式（设置 → 开发者）下出现。
+// 导航项：引导 / 设置 / 脚本列表 / 运行日志 / 会话历史。
+// 另有五个调界面用的入口只在开发者模式（设置 → 开发者）下出现：脚本文件 / 会话数据 /
+// AI 工具 / GM API / AI 界面对话预览。
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
   Code as UiCode,
@@ -168,7 +169,7 @@ onUnmounted(() => {
             <ui-tooltip-content side="right">运行日志</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
-        <ui-tooltip-provider>
+        <ui-tooltip-provider v-if="devMode">
           <ui-tooltip>
             <ui-tooltip-trigger as-child>
               <button
@@ -183,7 +184,7 @@ onUnmounted(() => {
             <ui-tooltip-content side="right">脚本文件</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
-        <ui-tooltip-provider>
+        <ui-tooltip-provider v-if="devMode">
           <ui-tooltip>
             <ui-tooltip-trigger as-child>
               <button
@@ -213,7 +214,7 @@ onUnmounted(() => {
             <ui-tooltip-content side="right">会话历史</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
-        <ui-tooltip-provider>
+        <ui-tooltip-provider v-if="devMode">
           <ui-tooltip>
             <ui-tooltip-trigger as-child>
               <button
@@ -228,7 +229,7 @@ onUnmounted(() => {
             <ui-tooltip-content side="right">AI 工具</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
-        <ui-tooltip-provider>
+        <ui-tooltip-provider v-if="devMode">
           <ui-tooltip>
             <ui-tooltip-trigger as-child>
               <button

@@ -38,7 +38,7 @@ onUnmounted(() => unsubscribe?.())
         <div class="min-w-0 flex-1">
           <p class="text-sm font-medium">开发者模式</p>
           <p class="mt-0.5 text-xs text-muted-foreground">
-            打开后工作台左侧出现「AI 界面对话预览」入口。
+            打开后工作台左侧出现脚本文件 / 会话数据 / AI 工具 / GM API / AI 界面对话预览这几个调试入口。
           </p>
         </div>
         <UiSwitch class="shrink-0" :model-value="enabled" @update:model-value="onToggle">
