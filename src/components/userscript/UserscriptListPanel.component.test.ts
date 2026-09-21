@@ -301,14 +301,14 @@ describe('UserscriptListPanel 搜索 / 筛选 / 排序', () => {
   })
 })
 
-describe('UserscriptListPanel 批量启停', () => {
+describe('UserscriptListPanel 批量操作菜单', () => {
   it('全部停用：只对启用中的脚本逐条 toggle，已停用的不动', async () => {
     const disabled = { ...summary('u1', '脚本A'), enabled: false }
     list.mockResolvedValue([summary('u2', '脚本B'), disabled])
     wrapper = await mountPanel()
 
     // reka-ui 的菜单在 happy-dom 里只认键盘开（trigger 上发 ArrowDown），内容 portal 到 body —— 去 document 上找菜单项
-    await wrapper.find('button[title="批量启用 / 停用"]').trigger('keydown', { key: 'ArrowDown' })
+    await wrapper.find('button[title="批量操作（作用于全部脚本）"]').trigger('keydown', { key: 'ArrowDown' })
     await flushPromises()
     const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) =>
       el.textContent?.includes('全部停用'),
@@ -320,6 +320,23 @@ describe('UserscriptListPanel 批量启停', () => {
     expect(toggle).toHaveBeenCalledTimes(1)
     expect(toggle).toHaveBeenCalledWith('u2', false)
     expect(toggle).not.toHaveBeenCalledWith('u1', false)
+  })
+
+  it('「批量」菜单是全部类动作的唯一入口（四项齐备，页面上无第二个溢出菜单）', async () => {
+    list.mockResolvedValue([summary('u1', '脚本A')])
+    wrapper = await mountPanel()
+
+    await wrapper
+      .find('button[title="批量操作（作用于全部脚本）"]')
+      .trigger('keydown', { key: 'ArrowDown' })
+    await flushPromises()
+
+    // reka-ui 的菜单只在被打开时挂载，故这里查到的就是本菜单的项
+    const labels = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((el) =>
+      el.textContent?.trim(),
+    )
+    expect(labels).toEqual(['全部停用', '全部启用', '全部导出', '全部删除'])
+    expect(wrapper.find('button[title="更多操作"]').exists()).toBe(false)
   })
 })
 

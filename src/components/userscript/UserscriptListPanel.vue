@@ -17,7 +17,6 @@ import {
   FolderPlus as UiFolderPlus,
   ListFilter as UiListFilter,
   LoaderCircle as UiLoaderCircle,
-  MoreHorizontal as UiMoreHorizontal,
   Move as UiMove,
   Pencil as UiPencil,
   Plus as UiPlus,
@@ -41,6 +40,7 @@ import {
   DropdownMenu as UiDropdownMenu,
   DropdownMenuContent as UiDropdownMenuContent,
   DropdownMenuItem as UiDropdownMenuItem,
+  DropdownMenuSeparator as UiDropdownMenuSeparator,
   DropdownMenuTrigger as UiDropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Input as UiInput } from '@/components/ui/input'
@@ -710,7 +710,7 @@ useDataSync('group', () => refreshGroups())
 
 <template>
   <section class="panel">
-    <!-- 固定区：单行工具栏不随列表滚动 —— 计数 + 搜索 / 筛选 / 排序 / 批量 + 全部操作，列表再长入口也始终可见 -->
+    <!-- 固定区：单行工具栏不随列表滚动 —— 计数 + 搜索 / 筛选 / 排序 / 批量操作 + 刷新 / 导入 / 新建，列表再长入口也始终可见 -->
     <div class="mx-auto w-full max-w-6xl shrink-0 px-5 pt-4">
       <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
         <p class="shrink-0 text-xs text-muted-foreground">
@@ -773,14 +773,16 @@ useDataSync('group', () => refreshGroups())
             </ui-select-content>
           </ui-select>
 
-          <!-- 批量启停：循环复用单条 toggle，逐条容错 -->
+          <!-- 批量操作：作用于全部脚本的动线收在这一个菜单里（启停 / 导出 / 删除），
+               不在页面上另开第二个「全部」入口。启停循环复用单条 toggle、逐条容错；
+               导出与删除都先过各自的确认弹窗（隐私提示与不可撤销提示在弹窗里，只写一处）。 -->
           <ui-dropdown-menu>
             <ui-dropdown-menu-trigger as-child>
               <ui-button
                 variant="ghost"
                 size="sm"
                 class="h-7 gap-1 px-2.5 text-xs"
-                title="批量启用 / 停用"
+                title="批量操作（作用于全部脚本）"
                 :disabled="batchToggling"
               >
                 <ui-loader-circle v-if="batchToggling" class="size-3.5 animate-spin" />
@@ -789,18 +791,29 @@ useDataSync('group', () => refreshGroups())
                 <ui-chevron-down class="size-3 opacity-60" />
               </ui-button>
             </ui-dropdown-menu-trigger>
-            <ui-dropdown-menu-content align="end">
+            <ui-dropdown-menu-content align="end" class="w-40">
               <ui-dropdown-menu-item :disabled="!enabledCount" @click="onToggleAll(false)">
                 全部停用
               </ui-dropdown-menu-item>
               <ui-dropdown-menu-item :disabled="enabledCount === scripts.length" @click="onToggleAll(true)">
                 全部启用
               </ui-dropdown-menu-item>
+              <ui-dropdown-menu-separator />
+              <ui-dropdown-menu-item :disabled="exporting" @click="askExportAll">
+                全部导出
+              </ui-dropdown-menu-item>
+              <ui-dropdown-menu-item
+                :disabled="removingAll"
+                class="text-destructive focus:text-destructive"
+                @click="removeAllOpen = true"
+              >
+                全部删除
+              </ui-dropdown-menu-item>
             </ui-dropdown-menu-content>
           </ui-dropdown-menu>
         </template>
 
-        <!-- 右侧操作：刷新 / 导入常驻；低频与破坏性操作（全部导出 / 全部删除）收进「更多」溢出菜单 -->
+        <!-- 右侧操作：刷新 / 导入 / 新建分组 / 添加脚本（作用于全部脚本的动线在左侧「批量」菜单里） -->
         <div class="ms-auto flex shrink-0 items-center gap-1">
           <ui-tooltip-provider>
             <ui-tooltip>
@@ -855,34 +868,6 @@ useDataSync('group', () => refreshGroups())
             class="hidden"
             @change="onImportFile"
           >
-          <!-- 更多：与每行导出共用确认弹窗（隐私提示只写一处）；全部删除走二次确认弹窗 -->
-          <ui-dropdown-menu>
-            <ui-dropdown-menu-trigger as-child>
-              <ui-button
-                variant="ghost"
-                size="icon"
-                class="size-7"
-                aria-label="更多操作"
-                title="更多操作"
-              >
-                <ui-more-horizontal class="size-3.5" />
-              </ui-button>
-            </ui-dropdown-menu-trigger>
-            <ui-dropdown-menu-content align="end" class="w-44">
-              <ui-dropdown-menu-item :disabled="exporting || !scripts.length" @click="askExportAll">
-                <ui-download class="size-3.5" />
-                全部导出
-              </ui-dropdown-menu-item>
-              <ui-dropdown-menu-item
-                :disabled="removingAll || !scripts.length"
-                class="text-destructive focus:text-destructive"
-                @click="removeAllOpen = true"
-              >
-                <ui-trash-2 class="size-3.5" />
-                全部删除
-              </ui-dropdown-menu-item>
-            </ui-dropdown-menu-content>
-          </ui-dropdown-menu>
           <!-- 新建分组：打开命名弹窗（空字符串 = 未分组，永不删） -->
           <ui-button
             size="sm"
