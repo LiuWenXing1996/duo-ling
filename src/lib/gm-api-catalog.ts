@@ -1,5 +1,8 @@
 // GM 能力 API 目录：**工作台「GM API」面板的展示侧单一来源**（纯数据、零依赖）。
 //
+// 同时是**脚本规范文本的「能力清单」段来源**：`offscreen-chat/spec-text.ts` 用 `specEntries()` 生成
+// 那段清单，故改名 / 新增 API 只要改这里，不必再人工同步一份散文。
+//
 // 为什么单独一份、而不是直接读 api-contract：
 //   api-contract.ts 只有类型（编译后不留任何东西），面板要展示的是文本（签名 / 说明 / 坑）；
 //   而真身（注入脚本世界的 `GM_*` / `GM.*`）是 gm-wrapper.ts 里的一段**源码字符串**，
@@ -8,10 +11,14 @@
 // 一条能力 = 两种形态（`GM_getValue` 同步 + `GM.getValue` 异步），故**只写一张能力表**，
 // 由它生成两条条目 —— 否则同一段说明要维护两遍，必然漂移。
 //
-// 漂移防护（两道，方向互补）：
+// 漂移防护（三道，方向互补）：
 //   ① **类型层**：能力表键必须恰好覆盖 `keyof GmGlobalFns`，缺一个 / 多一个 → typecheck 红；
 //   ② **源码层**：单测从 gm-wrapper.ts 的**装配块**反射真实挂载的键集合，与本目录双向比对
-//      （见 src/lib/gm-api-catalog.test.ts）。两条都不靠人工对照。
+//      （见 src/lib/gm-api-catalog.test.ts）；
+//   ③ **规范层**：单测断言规范文本里提到的成员全在本目录、`@grant` 名全在 gm-grants
+//      （见 src/lib/offscreen-chat/spec-text.test.ts）；本文件说明里提到的 `@grant` 名同样受检
+//      （见本目录的单测）。
+//   三条都不靠人工对照。
 import type {
   GmApiNamespace,
   GmCookieApi,
@@ -365,7 +372,8 @@ const OBJECT_ENTRIES = {
     signature: 'window.onurlchange = fn / addEventListener("urlchange", fn)',
     summary: '当前标签页 URL 变化（含 SPA 路由），回调收 { url }',
     detail:
-      '**两种写法都支持**（TM 形态）。**必须声明 `@grant window.onurlchange`**（若写了 @grant 清单）。' +
+      '**两种写法都支持**（TM 形态）。**与 `@grant` 清单无关**：写不写进清单都会提供，照 TM 习惯把它写进清单也无妨' +
+      '（清单里没认出的名字一律忽略，不会因此少注入什么）。' +
       '只推「监听生效之后」的变化——首屏 URL 自己读 location.href。推送时机为 tabs.onUpdated，可能比框架路由回调晚一拍。' +
       '监听器拦在本地、不派发真实事件（派发会经共享的 window 事件目标泄漏给页面）。',
     returns: 'void',
@@ -474,18 +482,34 @@ function nsEntry(cap: Capability, ns: GmNsName): GmApiEntry {
   }
 }
 
+/** 能力表 → 全局形态条目（每能力一条，不含 `GM.*` 镜像） */
+function globalEntries(): GmApiEntry[] {
+  return (Object.entries(CAPABILITIES) as [GmGlobalName, Capability][]).map(([name, cap]) => globalEntry(name, cap))
+}
+
+/** 对象型 / 变量型条目（`GM_cookie.*` / `GM.page.*` / 扩展成员 / `unsafeWindow` / `window.onurlchange`） */
+function objectEntries(): GmApiEntry[] {
+  return (Object.entries(OBJECT_ENTRIES) as [GmObjectPath, Omit<GmApiEntry, 'path'>][]).map(([path, entry]) => ({
+    path,
+    ...entry,
+  }))
+}
+
 /** 面板渲染用的 API 清单（顺序：基础 → 存储 → 网络 → 系统 → 页面；每能力先全局后 `GM.*`） */
-export const GM_API_ENTRIES: GmApiEntry[] = (() => {
-  const out: GmApiEntry[] = []
-  for (const [name, cap] of Object.entries(CAPABILITIES) as [GmGlobalName, Capability][]) {
-    out.push(globalEntry(name, cap))
-    if (cap.ns) out.push(nsEntry(cap, cap.ns))
-  }
-  for (const [path, entry] of Object.entries(OBJECT_ENTRIES) as [GmObjectPath, Omit<GmApiEntry, 'path'>][]) {
-    out.push({ path, ...entry })
-  }
-  return out
-})()
+export const GM_API_ENTRIES: GmApiEntry[] = [
+  ...(Object.entries(CAPABILITIES) as [GmGlobalName, Capability][]).flatMap(([name, cap]) =>
+    cap.ns ? [globalEntry(name, cap), nsEntry(cap, cap.ns)] : [globalEntry(name, cap)],
+  ),
+  ...objectEntries(),
+]
+
+/**
+ * 脚本规范文本用的清单：**每能力只列一条**（全局形态 + 对象 / 变量成员），不重复列 `GM.*` 镜像
+ * —— 同一段说明写两遍必然漂移，两形态的关系由规范末尾一句交代（见 spec-text.ts）。
+ */
+export function specEntries(): GmApiEntry[] {
+  return [...globalEntries(), ...objectEntries()]
+}
 
 /** 分组 id → 该组条目 */
 export function entriesOfGroup(group: GmApiGroupId): GmApiEntry[] {

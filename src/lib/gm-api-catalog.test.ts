@@ -9,6 +9,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { GM_API_ENTRIES, GM_API_GROUPS } from './gm-api-catalog'
+import { GRANT_NAMES } from './gm-grants'
 
 const WRAPPER_SRC = readFileSync(new URL('./userscripts/gm-wrapper.ts', import.meta.url), 'utf8')
 const PAGE_CLIENT_SRC = readFileSync(new URL('./userscripts/page-client.ts', import.meta.url), 'utf8')
@@ -102,5 +103,13 @@ describe('gm-api-catalog 与真实注入的 GM 面一致', () => {
     const ns = paths.filter((p) => p.startsWith('GM.') && !p.startsWith('GM.page.'))
     expect(ns.length).toBeGreaterThan(0)
     expect(globals.length).toBeGreaterThan(ns.length - 3)
+  })
+
+  it('说明里提到的 `@grant` 名都是本扩展认得的（认不得的名字会被静默忽略，等于白写）', () => {
+    for (const e of GM_API_ENTRIES) {
+      for (const m of e.detail.matchAll(/@grant\s+([A-Za-z_][\w.]*)/g)) {
+        expect(GRANT_NAMES, `${e.path} 的说明教了一个不认识的 @grant 名：${m[1]}`).toContain(m[1])
+      }
+    }
   })
 })

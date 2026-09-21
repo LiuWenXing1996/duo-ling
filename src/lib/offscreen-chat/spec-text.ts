@@ -1,10 +1,43 @@
-// script_spec 的规范载荷。
+// script_spec 的规范载荷：给模型读的「怎么写脚本」正文。
 //
-// 来源：GM 能力 API 权威规范（src/lib/userscripts/api-contract.ts，速查页数据在 lib/gm-api-catalog.ts）
-// + 生成脚本的禁止事项清单。由文档拼一段注入文本即可，.d.ts 留给脚本作者。
+// 分工（改这份文件前先看这条）：
+//   · 「能力清单」与「@grant 怎么写」两段是**生成**的 —— 能力来自 lib/gm-api-catalog
+//     （GM_API_GROUPS / specEntries），grant 名与恒注入集来自 lib/gm-grants。API 改名 / 新增只改
+//     数据，规范文本自动跟着变；两边不漂移由 spec-text.test.ts 断言。
+//   · 其余段落是**教导**（形态、硬性约束、边界、工作流），手写在下面 —— 这些推不出来（同步 /
+//     异步的差别、CSP 禁令、提交工作流），只能人写。
 // 放在独立模块（纯字符串常量），chat-host 与工具实现都不必关心内容。
 //
-// 注意：本文件是 TS 模板字符串，正文里的反引号必须写成 \\\` 转义（裸反引号会提前闭合模板）。
+// 注意：本文件是 TS 模板字符串，**手写正文里的反引号必须逐个转义**（写成「反斜杠 + 反引号」，
+// 裸反引号会提前闭合模板）；生成段经 ${} 插值拼入，其中的反引号不受此限。
+
+import { GM_API_GROUPS, specEntries } from '@/lib/gm-api-catalog'
+import { ALWAYS_GLOBALS, ALWAYS_NS, ALWAYS_WINDOW_MEMBERS, GRANT_NAMES } from '@/lib/gm-grants'
+
+/** 能力清单段：按速查页的分组顺序，一条一行（签名 + 一句话作用） */
+function renderCapabilities(): string {
+  const entries = specEntries()
+  const out: string[] = []
+  for (const group of GM_API_GROUPS) {
+    const rows = entries.filter((e) => e.group === group.id)
+    if (rows.length === 0) continue
+    if (out.length > 0) out.push('')
+    out.push(`### ${group.title}`)
+    for (const e of rows) out.push(`- \`${e.signature}\` —— ${e.summary}`)
+  }
+  return out.join('\n')
+}
+
+/** `@grant` 段：合法名字与恒注入集都取自 gm-grants，规范里不留第二份名单 */
+function renderGrantSection(): string {
+  const always: string[] = [...ALWAYS_GLOBALS, ...ALWAYS_NS.map((n) => `GM.${n}`), ...ALWAYS_WINDOW_MEMBERS]
+  const quote = (names: readonly string[]) => names.map((n) => `\`${n}\``).join('、')
+  return [
+    `- 写了清单 → 只注入清单内的能力 + 恒注入项（${quote(always)}）；\`@grant none\` 或完全不写 metadata → 全量注入。`,
+    `- 合法名字共 ${GRANT_NAMES.length} 个：${quote(GRANT_NAMES)}。**写别的名字会被静默忽略**，脚本里用了没注入的成员则 ReferenceError。`,
+    '- 一个 grant 同时开两种形态（`GM_setValue` 与 `GM.setValue`），不必为 `GM.*` 再写一行。',
+  ].join('\n')
+}
 
 export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必读）
 
@@ -14,8 +47,12 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
 
 配置有两条来源（保存时解析，源码声明者胜）：
 1. **推荐：在源码顶部写标准 metadata 块**（\`// ==UserScript==\` … \`// ==/UserScript==\`），
-   声明 \`@name\` / \`@match\` / \`@include\` / \`@exclude\` / \`@run-at\` / \`@noframes\` / \`@grant\`；
+   声明 \`@name\` / \`@match\` / \`@include\` / \`@exclude\` / \`@run-at\` / \`@noframes\` / \`@grant\` / \`@require\`；
 2. 界面上的配置（仅在源码**没声明**对应键时生效）。
+
+\`@require\` 在支持范围内：注册时按声明顺序抓取源码、前置注入到脚本世界（与脚本共享全局作用域），
+受 \`<all_urls>\` 豁免 CORS；抓取失败只记一条错误日志并跳过该依赖（**不阻断脚本注入**），
+源码按 url 缓存在本地库（手动清除前不重抓）；不做子资源完整性（SRI）校验。
 
 ## 硬性约束
 1. **单文件、无模块语法**：不能用 \`import\` / \`export\`（classic script 执行，语法检查会当场报错）；
@@ -25,8 +62,9 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
    - \`GM_setValue\` / \`GM_deleteValue\` 同步返回（本地缓存先落、异步过桥落盘，失败只进错误日志）；
    - \`GM.getValue\` / \`GM.listValues\` / \`GM.setValue\` 是 Promise（\`GM.getValue\` 每次回后台读，永远最新）；
    - 存储值必须是 Json（null/boolean/number/string/数组/纯对象），函数 / 类实例 / DOM 节点不可存储。
-3. **\`@grant\` 决定哪些 API 存在**：写了 \`@grant\` 清单就**只注入清单内的能力**（用了没声明的会
-   ReferenceError）。\`@grant none\` 或完全不写 metadata → 全量注入。**写清单就写全。**
+3. **\`@grant\` 决定哪些 API 存在**：写了清单就**只注入清单内的能力**（用了没声明的会
+   ReferenceError）。\`@grant none\` 或完全不写 metadata → 全量注入。**写清单就写全**，
+   合法名字见下面「\`@grant\` 怎么写」。
 4. \`GM_xmlhttpRequest\` 是**回调式**：响应对象有 \`responseHeaders\`（原始多行字符串）、\`responseText\`、
    \`response\`、\`status\`、\`finalUrl\`；事件 \`onload\` / \`onerror\` / \`ontimeout\` / \`onabort\`；
    返回句柄可 \`abort()\`。非 2xx 走 \`onload\`（不是 \`onerror\`）。**没有 onprogress**；
@@ -49,38 +87,24 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
    被拦下的代码只在目标页静默失败，排查成本极高。
 
 ## 能力清单
-- \`GM_info\` —— { script, scriptMetaStr, scriptHandler, version, uuid, userAgent, isIncognito, sandboxMode }（同步）
-- \`GM_log(...args)\` —— 带前缀日志（同步）
-- \`GM_addStyle(css)\` —— 注入 CSS（同步，返回 style 元素）
-- \`GM_addElement(tag, attrs)\` / \`GM_addElement(parent, tag, attrs)\` —— 建元素并插入（同步）
-- \`GM_getValue(key, def?)\` / \`GM_listValues()\` —— **同步**读；\`GM_setValue(key, v)\` / \`GM_deleteValue(key)\` —— 写
-- \`GM_addValueChangeListener(key, cb)\` —— cb 收 (key, oldValue, newValue, remote)，**返回监听器 id**；
-  \`GM_removeValueChangeListener(id)\` 注销
-- \`GM_xmlhttpRequest({ url, method?, headers?, data?, responseType?, timeout?, context?, onload, onerror, ontimeout })\`
-  —— 免 CORS 请求（后台发起，可 abort）；headers 里的 Cookie / Referer / User-Agent 等**禁设头会被真实覆写上线**
-- \`GM_notification(details)\` 或 \`GM_notification(text, title?, image?, onclick?)\` —— 系统通知
-- \`GM_setClipboard(data, info?)\` —— 写剪贴板（info 传 'text/html' 走富文本）
-- \`GM_download(details)\` / \`GM_download(url, name?)\` —— 下载（远程 URL 或本地 Blob / ArrayBuffer）
-- \`GM_openInTab(url, options?)\` —— 开标签页，返回 { close(), closed }
-- \`GM_getTab(cb)\` / \`GM_saveTab(tab, cb?)\` / \`GM_getTabs(cb)\` —— 标签页级存储（随标签页生命周期）
-- \`GM_cookie.list({ url?, name? }, cb?)\` / \`.set({ name, value, url?, ... }, cb?)\` / \`.delete({ name, url? }, cb?)\`
-  —— cookie；**url 必须落在脚本自身 matches 内**（域名门，越域报 PERMISSION_DENIED），url 缺省 = 当前页；
-  **set 不收 domain / path**（传入即报错）
-- \`GM_registerMenuCommand(caption, onClick, options?)\` —— 扩展菜单命令，**同步返回数字 id**；
-  \`GM_unregisterMenuCommand(idOrCaption)\` 注销
-- \`window.onurlchange = fn\` 或 \`window.addEventListener('urlchange', fn)\` —— 当前标签页 URL 变化（含 SPA 路由），
-  fn 收 { url }
-- \`GM.page.*\` —— 见上文反向中继
-- \`GM.*\` 命名空间是同一批能力的 Promise 化形态（如 \`await GM.getValue(key)\`）；
-  **\`GM.*\` 下没有 cookie**（按 Tampermonkey 口径），cookie 只用 \`GM_cookie\`；
-  另有三个哆灵扩展成员：\`GM.clearValues()\`、\`GM.focusTab(tabId)\`、\`GM.page\`
+
+${renderCapabilities()}
+
+\`GM.*\` 是本批能力的 Promise 化形态（如 \`await GM.getValue(key)\`，每次回后台读、永远最新）；
+**\`GM.*\` 下没有 cookie**（按 Tampermonkey 口径），cookie 只用 \`GM_cookie\`。
+标着「哆灵扩展，标准里无对应物」的条目不是油猴标准，按本扩展的实现写。
 
 ### 明确不支持（别写，写了不会生效或会以错误形式暴露）
-- \`@resource\`（命名资源，供 \`GM_getResourceText\` / \`GM_getResourceURL\`）——本期未实现，声明了会记一条错误日志
-- \`@require\`（外部依赖注入）——已实现：注册时由扩展按声明顺序抓取源码、前置注入到 USER_SCRIPT 世界（与脚本共享全局作用域），受 \`<all_urls>\` 豁免 CORS；抓取失败只记错误日志并跳过该依赖（不阻断脚本注入），源码按 url 缓存于 \`duoling-require-cache\` 库（手动清除前不重抓）；不做子资源完整性（SRI）校验
+- \`@resource\`（命名资源，供 \`GM_getResourceText\` / \`GM_getResourceURL\`）——本扩展不提供这两个
+  成员；声明了会被解析进 \`GM_info.script.resources\`，但脚本里拿不到内容
+- \`@connect\` 白名单（本扩展的跨域请求不需要声明）
+- 真正的页面上下文（\`unsafeWindow\` 是降级别名，见硬性约束 5）
 - \`GM_xmlhttpRequest\` 的 \`onprogress\`、\`responseType: 'document' | 'stream'\`、同步请求
 - \`GM_cookie\` 的 \`domain\` / \`path\`（安全收紧项，传入即报错）
-- 真正的页面上下文（\`unsafeWindow\` 是降级别名）、\`@connect\` 白名单（本扩展不需要）
+
+## \`@grant\` 怎么写
+
+${renderGrantSection()}
 
 ## 工作流
 1. 先想清楚要改哪个站点、做什么；\`@match\` **默认收窄到目标站点**（如 \`*://example.com/*\`），仅当用户明说「所有网站」才用 \`*://*/*\`。
