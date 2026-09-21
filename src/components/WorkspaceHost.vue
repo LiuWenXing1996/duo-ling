@@ -13,7 +13,7 @@ import UserscriptHistoryPanel from '@/components/userscript/UserscriptHistoryPan
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import ChatDataPanel from '@/components/ChatDataPanel.vue'
 import AgentToolsPanel from '@/components/AgentToolsPanel.vue'
-import DlApiPanel from '@/components/DlApiPanel.vue'
+import GmApiPanel from '@/components/GmApiPanel.vue'
 import type { WorkspaceTab } from '@/types/tab'
 import {
   Tabs as UiTabs,
@@ -148,12 +148,12 @@ function openAgentToolsTab(): void {
   activate('agent-tools')
 }
 
-// 打开 DL API 标签页：脚本世界里 window.DL 的能力速查（纯静态目录，与注入真身同源），全局仅一个
-function openDlApiTab(): void {
-  if (!openTabs.value.some((t) => t.kind === 'dl-api')) {
-    openTabs.value.push({ kind: 'dl-api', id: 'dl-api', title: 'DL API' })
+// 打开 GM API 标签页：脚本世界里 window.GM 的能力速查（纯静态目录，与注入真身同源），全局仅一个
+function openGmApiTab(): void {
+  if (!openTabs.value.some((t) => t.kind === 'gm-api')) {
+    openTabs.value.push({ kind: 'gm-api', id: 'gm-api', title: 'GM API' })
   }
-  activate('dl-api')
+  activate('gm-api')
 }
 
 // 打开某脚本的历史标签页：每脚本一个（id = us-history:<uuid>），已打开则激活复用。
@@ -221,8 +221,8 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「引导 / 设置 / UI 测试 / 脚本列表 / 错误日志 / lfs 浏览 / 会话数据 / AI 工具 / DL API」与脚本管理器的「编辑」入口
-defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorLogTab, openLfsBrowserTab, openChatDataTab, openAgentToolsTab, openDlApiTab, openUserscriptEditor })
+// 暴露给根布局：左侧导航栏「引导 / 设置 / UI 测试 / 脚本列表 / 错误日志 / lfs 浏览 / 会话数据 / AI 工具 / GM API」与脚本管理器的「编辑」入口
+defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorLogTab, openLfsBrowserTab, openChatDataTab, openAgentToolsTab, openGmApiTab, openUserscriptEditor })
 </script>
 
 <template>
@@ -285,8 +285,8 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
         <chat-data-panel v-else-if="tab.kind === 'chat-data'" />
         <!-- AI 工具：agent 工具契约（与模型所见同源）+ 会话库里的真实调用轨迹 -->
         <agent-tools-panel v-else-if="tab.kind === 'agent-tools'" />
-        <!-- DL API：脚本世界 window.DL 的能力速查（纯静态目录，与注入真身同源） -->
-        <dl-api-panel v-else-if="tab.kind === 'dl-api'" />
+        <!-- GM API：脚本世界 window.GM 的能力速查（纯静态目录，与注入真身同源） -->
+        <gm-api-panel v-else-if="tab.kind === 'gm-api'" />
         <!-- 脚本历史：每脚本一个标签页，浏览 + 恢复；恢复后重载对应编辑器 -->
         <userscript-history-panel
           v-else-if="tab.kind === 'script-history'"

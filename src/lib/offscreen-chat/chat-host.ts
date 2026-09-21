@@ -101,13 +101,32 @@ function stripDataParts(messages: UIMessage[]): UIMessage[] {
   }))
 }
 
-/** 静态扫描 bundle 里的 DL.* 用法（生成卡片「会做什么」展示级软审查） */
+/**
+ * 静态扫描源码里的 GM 能力用法（生成卡片「会做什么」展示级软审查）。
+ *
+ * 覆盖两种形态（`GM_getValue` 与 `GM.getValue`）。**顺序固定**：结果直接进卡片，顺序稳定才好比对。
+ * 只做展示级提示，不做安全判定 —— 判错的代价是卡片上少一行字，不是拦下脚本。
+ */
+const CAPABILITY_PROBES: ReadonlyArray<readonly [string, RegExp]> = [
+  ['info', /GM_info|GM\.info\b/],
+  ['log', /GM_log|GM\.log\b/],
+  ['style', /GM_addStyle|GM\.addStyle\b/],
+  [
+    'store',
+    /GM_(get|set|delete|list)Value|GM\.(getValue|setValue|deleteValue|listValues)\b|GM_(add|remove)ValueChangeListener|GM\.(add|remove)ValueChangeListener\b/,
+  ],
+  ['tabs', /GM_(getTab|saveTab|getTabs)|GM\.(getTab|saveTab|getTabs)\b|GM_openInTab|GM\.openInTab\b/],
+  ['fetch', /GM_xmlhttpRequest|GM\.xmlHttpRequest\b/],
+  ['notify', /GM_notification|GM\.notification\b/],
+  ['download', /GM_download|GM\.download\b/],
+  ['clipboard', /GM_setClipboard|GM\.setClipboard\b/],
+  ['menu', /GM_(un)?registerMenuCommand|GM\.(un)?registerMenuCommand\b/],
+  ['cookie', /GM_cookie/],
+  ['page', /GM\.page\./],
+]
+
 function scanCapabilities(code: string): string[] {
-  const hits = new Set<string>()
-  for (const m of code.matchAll(/DL\.(info|style|log|store|fetch|notify|download|clipboard|tabs)/g)) {
-    hits.add(m[1])
-  }
-  return [...hits]
+  return CAPABILITY_PROBES.filter(([, re]) => re.test(code)).map(([id]) => id)
 }
 
 /**
@@ -168,7 +187,7 @@ interface GenerationCardData {
   name: string
   enabled: boolean
   matches: string[]
-  /** bundle 静态扫描出的 DL.* 能力（「会做什么」） */
+  /** 源码静态扫描出的 GM 能力（「会做什么」） */
   capabilities: string[]
   summary: string
   savedAt: number

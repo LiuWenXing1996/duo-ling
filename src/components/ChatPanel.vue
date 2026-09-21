@@ -371,7 +371,7 @@ interface GenerationCardData {
   name: string
   enabled: boolean
   matches: string[]
-  /** bundle 里扫描到的 DL.* 能力（「会做什么」展示级软审查） */
+  /** 源码里扫描到的 GM 能力（「会做什么」展示级软审查，见 chat-host.scanCapabilities） */
   capabilities: string[]
   summary: string
   savedAt: number
@@ -397,6 +397,7 @@ function cardIsEnabled(card: GenerationCardData): boolean {
   return card.enabled || cardEnabled.has(card.uuid)
 }
 
+/** 能力 id（chat-host.scanCapabilities 的产出）→ 卡片上的中文短语。新增能力记得两处同改 */
 const CAPABILITY_LABELS: Record<string, string> = {
   info: '自省信息',
   style: '注入样式',
@@ -406,7 +407,10 @@ const CAPABILITY_LABELS: Record<string, string> = {
   notify: '系统通知',
   download: '下载文件',
   clipboard: '写剪贴板',
-  tabs: '开标签页'
+  tabs: '标签页操作',
+  menu: '右键菜单',
+  cookie: 'cookie 读写',
+  page: '页面世界监听',
 }
 
 function capabilityLabel(cap: string): string {

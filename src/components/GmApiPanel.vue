@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// 「DL API」标签页：脚本世界里 `window.DL` 的全部能力清单（只读速查）。
+// 「GM API」标签页：脚本世界里 `GM_*` / `GM.*` 的全部能力清单（只读速查）。
 //
-// 数据来源只有一处：lib/dl-api-catalog.ts —— 与注入脚本世界的真身同源，
-// 契约增删方法而目录没跟上由两条防线兜住（类型层 satisfies + 源码反射单测），
+// 数据来源只有一处：lib/gm-api-catalog.ts —— 与注入脚本世界的真身同源，
+// 契约增删方法而目录没跟上由两条防线兜住（类型层 Record<GmGlobalName> + 源码反射单测），
 // 不靠人工对照。面板本身零请求、零存储：纯静态渲染，故不接 useDataSync。
 import { computed, ref } from 'vue'
 import { Code as UiCode, Search as UiSearch } from '@lucide/vue'
@@ -14,40 +14,40 @@ import {
   CollapsibleTrigger as UiCollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import {
-  DL_API_ENTRIES,
-  DL_API_GROUPS,
-  DL_BRIDGE_LABELS,
+  GM_API_ENTRIES,
+  GM_API_GROUPS,
+  GM_BRIDGE_LABELS,
   entriesOfGroup,
-  type DlApiEntry,
-  type DlApiGroupId,
-} from '@/lib/dl-api-catalog'
+  type GmApiEntry,
+  type GmApiGroupId,
+} from '@/lib/gm-api-catalog'
 
 /** 左栏「全部」哨兵 */
 const ALL = 'all'
 
 const keyword = ref('')
-const group = ref<DlApiGroupId | typeof ALL>(ALL)
+const group = ref<GmApiGroupId | typeof ALL>(ALL)
 /** 每张卡片的展开状态（默认全收起：28 条全铺开根本没法扫） */
 const openMap = ref<Record<string, boolean>>({})
 
 const query = computed(() => keyword.value.trim().toLowerCase())
 
 /** 有关键词时不看分组，全库匹配（path / 中文名 / 签名 / 说明） */
-const matched = computed<DlApiEntry[] | null>(() => {
+const matched = computed<GmApiEntry[] | null>(() => {
   if (!query.value) return null
-  return DL_API_ENTRIES.filter((e) =>
+  return GM_API_ENTRIES.filter((e) =>
     `${e.path} ${e.title} ${e.signature} ${e.summary} ${e.detail}`.toLowerCase().includes(query.value),
   )
 })
 
-const visible = computed<DlApiEntry[]>(() => {
+const visible = computed<GmApiEntry[]>(() => {
   if (matched.value) return matched.value
-  return group.value === ALL ? DL_API_ENTRIES : entriesOfGroup(group.value)
+  return group.value === ALL ? GM_API_ENTRIES : entriesOfGroup(group.value)
 })
 
-const currentGroup = computed(() => DL_API_GROUPS.find((g) => g.id === group.value) ?? null)
+const currentGroup = computed(() => GM_API_GROUPS.find((g) => g.id === group.value) ?? null)
 
-function countOf(id: DlApiGroupId): number {
+function countOf(id: GmApiGroupId): number {
   return entriesOfGroup(id).length
 }
 
@@ -61,12 +61,12 @@ function setOpen(path: string, v: boolean): void {
 </script>
 
 <template>
-  <section class="flex h-full min-h-0 min-w-0" data-testid="dl-api-panel">
+  <section class="flex h-full min-h-0 min-w-0" data-testid="gm-api-panel">
     <!-- 左栏：搜索 + 分组导航 -->
     <aside class="flex min-h-0 w-72 shrink-0 flex-col border-r border-border">
       <header class="flex items-center gap-1.5 border-b border-border px-3 py-2 text-sm font-medium">
         <ui-code class="size-4 text-muted-foreground" />
-        DL API（{{ DL_API_ENTRIES.length }}）
+        GM API（{{ GM_API_ENTRIES.length }}）
       </header>
 
       <div class="relative border-b border-border p-2">
@@ -75,8 +75,8 @@ function setOpen(path: string, v: boolean): void {
           v-model="keyword"
           class="h-8 pl-8 text-xs"
           placeholder="搜方法名 / 作用"
-          aria-label="搜索 DL API"
-          data-testid="dl-api-search"
+          aria-label="搜索 GM API"
+          data-testid="gm-api-search"
         />
       </div>
 
@@ -85,20 +85,20 @@ function setOpen(path: string, v: boolean): void {
           type="button"
           class="mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors"
           :class="group === ALL && !query ? 'bg-muted' : 'hover:bg-muted/60'"
-          data-testid="dl-api-group-all"
+          data-testid="gm-api-group-all"
           @click="group = ALL; keyword = ''"
         >
           <span class="min-w-0 flex-1 truncate text-sm">全部</span>
-          <span class="shrink-0 text-xs text-muted-foreground">{{ DL_API_ENTRIES.length }}</span>
+          <span class="shrink-0 text-xs text-muted-foreground">{{ GM_API_ENTRIES.length }}</span>
         </button>
 
         <button
-          v-for="g in DL_API_GROUPS"
+          v-for="g in GM_API_GROUPS"
           :key="g.id"
           type="button"
           class="mb-1 w-full rounded-md px-2 py-1.5 text-left transition-colors"
           :class="group === g.id && !query ? 'bg-muted' : 'hover:bg-muted/60'"
-          :data-testid="`dl-api-group-${g.id}`"
+          :data-testid="`gm-api-group-${g.id}`"
           @click="group = g.id; keyword = ''"
         >
           <span class="flex items-center gap-2">
@@ -110,7 +110,7 @@ function setOpen(path: string, v: boolean): void {
       </div>
 
       <footer class="border-t border-border px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-        清单与注入脚本世界的 <code class="font-mono">window.DL</code> 同源；增删方法未同步会由单测拦下
+        清单与注入脚本世界的 <code class="font-mono">window.GM</code> / <code class="font-mono">GM_*</code> 同源；增删方法未同步会由单测拦下
       </footer>
     </aside>
 
@@ -122,11 +122,11 @@ function setOpen(path: string, v: boolean): void {
         </span>
         <span class="text-xs text-muted-foreground">{{ visible.length }} 条</span>
         <span class="ml-auto flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <Badge variant="secondary" class="text-[10px]">{{ DL_BRIDGE_LABELS.bridge }}</Badge>
+          <Badge variant="secondary" class="text-[10px]">{{ GM_BRIDGE_LABELS.bridge }}</Badge>
           走后台桥
-          <Badge variant="outline" class="text-[10px]">{{ DL_BRIDGE_LABELS.local }}</Badge>
+          <Badge variant="outline" class="text-[10px]">{{ GM_BRIDGE_LABELS.local }}</Badge>
           纯本地
-          <Badge variant="outline" class="text-[10px]">{{ DL_BRIDGE_LABELS.stub }}</Badge>
+          <Badge variant="outline" class="text-[10px]">{{ GM_BRIDGE_LABELS.stub }}</Badge>
           页面中继
         </span>
       </header>
@@ -135,7 +135,7 @@ function setOpen(path: string, v: boolean): void {
         <p
           v-if="!visible.length"
           class="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground"
-          data-testid="dl-api-empty"
+          data-testid="gm-api-empty"
         >
           没有匹配「{{ keyword.trim() }}」的 API
         </p>
@@ -146,11 +146,11 @@ function setOpen(path: string, v: boolean): void {
           :open="isOpen(e.path)"
           @update:open="setOpen(e.path, $event)"
           class="group mb-2 rounded-lg border border-border bg-card last:mb-0"
-          :data-testid="`dl-api-card-${e.path}`"
+          :data-testid="`gm-api-card-${e.path}`"
         >
           <ui-collapsible-trigger
             class="flex w-full flex-col gap-0.5 p-3 text-left transition-colors hover:bg-muted/40"
-            :data-testid="`dl-api-card-toggle-${e.path}`"
+            :data-testid="`gm-api-card-toggle-${e.path}`"
           >
             <span class="flex min-w-0 items-center gap-2">
               <code class="shrink-0 font-mono text-xs">{{ e.path }}</code>
@@ -159,7 +159,7 @@ function setOpen(path: string, v: boolean): void {
                 :variant="e.bridge === 'bridge' ? 'secondary' : 'outline'"
                 class="shrink-0 text-[10px]"
               >
-                {{ DL_BRIDGE_LABELS[e.bridge] }}
+                {{ GM_BRIDGE_LABELS[e.bridge] }}
               </Badge>
             </span>
             <span class="truncate text-xs text-muted-foreground">{{ e.summary }}</span>

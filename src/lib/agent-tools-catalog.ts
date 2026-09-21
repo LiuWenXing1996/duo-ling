@@ -31,7 +31,7 @@ export const AGENT_RUNTIME_LIMITS = {
 /** 工具 description 原文：**模型实际收到的就是这些字**，面板也展示这一份 */
 export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
   script_spec:
-    '获取哆灵用户脚本的完整规范（DL 能力 API、硬性约束、禁止事项）。写或改任何脚本前必须先调用它。',
+    '获取哆灵用户脚本的完整规范（GM 能力 API、硬性约束、禁止事项）。写或改任何脚本前必须先调用它。',
   script_read:
     '读取脚本源码。不带参数 = 读当前任务的内存源码（本任务已写入的内容）；带 uuid = 读一个已保存的脚本（修改现有脚本时用）。',
   script_apply:
@@ -121,7 +121,7 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
   {
     name: 'script_spec',
     title: '脚本规范',
-    summary: '取用户脚本的完整规范（DL 能力 API、硬约束、禁止事项）',
+    summary: '取用户脚本的完整规范（GM 能力 API、硬约束、禁止事项）',
     description: TOOL_DESCRIPTIONS.script_spec,
     params: [],
     returns: '{ spec: string } —— 规范全文',
