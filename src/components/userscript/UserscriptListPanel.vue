@@ -955,7 +955,7 @@ useDataSync('group', () => refreshGroups())
           class="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs"
         >
           <ui-alert-triangle class="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-          <span class="shrink-0 font-medium text-amber-600 dark:text-amber-400">用户脚本引擎不可用</span>
+          <span class="shrink-0 font-medium text-amber-600 dark:text-amber-400">用户脚本功能不可用</span>
           <p class="min-w-0 flex-1 truncate text-muted-foreground" :title="availability.guideText">
             {{ availability.guideText }}
           </p>
@@ -1241,7 +1241,7 @@ useDataSync('group', () => refreshGroups())
       <ui-dialog-content class="max-w-md">
         <ui-dialog-title class="text-base font-semibold">删除全部脚本</ui-dialog-title>
         <ui-dialog-description class="text-sm text-muted-foreground">
-          确定删除全部 {{ scripts.length }} 个脚本吗？各自的 git 历史会一并删除。
+          确定删除全部 {{ scripts.length }} 个脚本吗？各自的历史版本会一并删除。
           <span class="mt-2 block text-destructive">此操作不可撤销。</span>
         </ui-dialog-description>
         <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
@@ -1266,7 +1266,7 @@ useDataSync('group', () => refreshGroups())
       <ui-dialog-content class="max-w-md">
         <ui-dialog-title class="text-base font-semibold">删除脚本</ui-dialog-title>
         <ui-dialog-description class="text-sm text-muted-foreground">
-          确定删除脚本「{{ pendingRemove?.name }}」吗？此操作不可撤销，其 git 历史会一并删除。
+          确定删除脚本「{{ pendingRemove?.name }}」吗？此操作不可撤销，其历史版本会一并删除。
         </ui-dialog-description>
         <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
           <ui-button variant="ghost" size="sm" @click="pendingRemove = null">取消</ui-button>

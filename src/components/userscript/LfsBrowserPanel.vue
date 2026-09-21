@@ -160,16 +160,16 @@ useDataSync('script', () => load())
     <!-- 头部：说明 + 概览 + 刷新 -->
     <div class="flex items-center gap-2 border-b border-border px-4 py-2.5">
       <ui-folder-tree class="size-4 text-muted-foreground" />
-      <span class="text-sm font-medium">lfs 库</span>
+      <span class="text-sm font-medium">脚本文件</span>
       <span v-if="tree" class="text-xs text-muted-foreground">
-        {{ fileCount }} 个文件 · 含 .git 内部 · 只读
+        {{ fileCount }} 个文件 · 只读
       </span>
       <span class="flex-1" />
       <button
         type="button"
         class="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
         :disabled="loading"
-        title="重新读取（数据在 offscreen，每次点击实时拉取）"
+        title="重新读取（每次点击都实时拉取）"
         @click="load"
       >
         <ui-refresh-cw class="size-3.5" :class="{ 'animate-spin': loading }" />
@@ -186,7 +186,7 @@ useDataSync('script', () => load())
       v-else-if="!tree"
       class="px-4 py-4 text-xs leading-relaxed text-muted-foreground"
     >
-      库为空或尚未创建。保存任一脚本后 offscreen 会建仓，届时点「刷新」。
+      库为空或尚未创建。保存任一脚本后会自动建库，届时点「刷新」。
     </p>
 
     <!-- 树 + 预览：左树右预览 -->

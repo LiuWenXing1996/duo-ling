@@ -243,7 +243,7 @@ function block(value: unknown): string {
         <span class="text-sm font-medium">{{ selectedView ? selectedView.title : '全部工具' }}</span>
         <code v-if="selectedView" class="font-mono text-xs text-muted-foreground">{{ selectedView.name }}</code>
         <span class="ml-auto text-xs text-muted-foreground">
-          轨迹来自最近 {{ scanned }} 个会话的落盘消息
+          轨迹来自最近 {{ scanned }} 个会话的记录
         </span>
       </header>
 
@@ -265,7 +265,7 @@ function block(value: unknown): string {
                   <span class="text-[11px] text-muted-foreground">
                     契约详情 ·
                     {{ selectedView.params.length ? `${selectedView.params.length} 个入参` : '无入参' }}
-                    · description 原文 / 返回 / 何时不可用
+                    · 描述原文 / 返回 / 何时不可用
                   </span>
                 </span>
                 <ui-chevron-down
@@ -319,7 +319,7 @@ function block(value: unknown): string {
           <template v-else>
             <div class="border-b border-border/60 p-3">
               <p class="text-xs leading-relaxed text-muted-foreground">
-                这是每次对话真实挂给模型的工具集（offscreen 侧构造）。描述文本与模型收到的同源；
+                这是每次对话真实挂给模型的工具集。描述文本与模型收到的同源；
                 点左侧任一工具看完整契约，往下是对应的真实调用记录。
               </p>
             </div>
@@ -348,7 +348,7 @@ function block(value: unknown): string {
           v-else-if="!tracesOfSelected.length"
           class="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground"
         >
-          {{ scanned ? '还没有这条工具的调用记录' : '会话库为空——对话产生工具调用后这里才有记录' }}
+          {{ scanned ? '还没有这条工具的调用记录' : '暂无会话记录——对话产生工具调用后这里才有记录' }}
         </p>
 
         <ui-tool

@@ -116,7 +116,7 @@ onUnmounted(() => {
           v-if="detectError"
           class="rounded-md border border-destructive/40 px-3 py-2 text-xs text-destructive"
         >
-          状态检测失败（可能是后台未就绪）：{{ detectError }}
+          状态检测失败（可能是扩展服务未就绪）：{{ detectError }}
         </p>
         <p v-else-if="loading && !availability" class="py-10 text-center text-xs text-muted-foreground">
           检测中…
@@ -141,7 +141,7 @@ onUnmounted(() => {
           <div class="space-y-3 px-4 py-3">
             <p class="text-xs leading-relaxed text-muted-foreground">
               脚本注入网页依赖浏览器提供的用户脚本接口。未开启时脚本不会生效，但新建 / 编辑 /
-              保存都不受影响（数据照常落库）。开关打开后，已启用的脚本会在数秒内自动注册，
+              保存都不受影响（数据照常保存）。开关打开后，已启用的脚本会在数秒内自动注册，
               刷新目标页面即可生效。
             </p>
 

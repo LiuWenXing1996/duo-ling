@@ -6,7 +6,7 @@
 //
 // 结构平移自桌面版 app.vue 的「顶栏 + 左侧导航 + 工作区」，只裁掉两栏聊天
 // （会话历史 | 当前会话已移入 side panel），保留的分支逐句照搬，未重写。
-// 导航项：引导 / 设置 / UI 测试 / 脚本列表 / 运行日志 / lfs 浏览 / 会话数据 / 会话历史 / AI 工具 / GM API。
+// 导航项：引导 / 设置 / 界面预览 / 脚本列表 / 运行日志 / lfs 浏览 / 会话数据 / 会话历史 / AI 工具 / GM API。
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
   Code as UiCode,
@@ -116,13 +116,13 @@ onUnmounted(() => window.removeEventListener('hashchange', handleHash))
               <button
                 class="workspace-nav-item"
                 type="button"
-                aria-label="UI 测试"
+                aria-label="界面预览"
                 @click="workspaceRef?.openUiTestTab()"
               >
                 <ui-flask-conical class="size-5" />
               </button>
             </ui-tooltip-trigger>
-            <ui-tooltip-content side="right">UI 测试</ui-tooltip-content>
+            <ui-tooltip-content side="right">界面预览</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
         <ui-tooltip-provider>
@@ -161,13 +161,13 @@ onUnmounted(() => window.removeEventListener('hashchange', handleHash))
               <button
                 class="workspace-nav-item"
                 type="button"
-                aria-label="lfs 浏览"
+                aria-label="脚本文件"
                 @click="workspaceRef?.openLfsBrowserTab()"
               >
                 <ui-folder-tree class="size-5" />
               </button>
             </ui-tooltip-trigger>
-            <ui-tooltip-content side="right">lfs 浏览</ui-tooltip-content>
+            <ui-tooltip-content side="right">脚本文件</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
         <ui-tooltip-provider>

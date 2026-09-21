@@ -123,7 +123,7 @@ const navItems = computed<NavItem[]>(() => {
       key: ORPHAN_KEY,
       name: '未归属',
       count: orphanCount,
-      hint: '没有脚本上下文的错误（注册失败 / 部分桥错误），不属于任何一次运行',
+      hint: '不属于任何一次运行的错误（如注册失败），单独列在这里',
       hasLogs: true
     })
   }
@@ -330,7 +330,7 @@ onMounted(() => {
       <ui-history class="size-4 text-muted-foreground" />
       <span class="text-sm font-medium">运行日志</span>
       <span class="text-xs text-muted-foreground">
-        共 {{ totalRuns }} 次运行<template v-if="totalLooseErrors"> · {{ totalLooseErrors }} 条无法归属的错误</template> · 环形保留最近 {{ RUN_LOG_MAX }} 条
+        共 {{ totalRuns }} 次运行<template v-if="totalLooseErrors"> · {{ totalLooseErrors }} 条无法归属的错误</template> · 保留最近 {{ RUN_LOG_MAX }} 条
       </span>
       <span class="flex-1" />
       <ui-button
@@ -410,7 +410,7 @@ onMounted(() => {
               {{ loading ? '加载中…' : '暂无运行记录。' }}
             </span>
             <span v-if="!loading">
-              启用脚本并访问命中页面后，每次运行都会按时间记在这里；运行期报错挂在对应运行下，注册失败等无运行上下文的错误单独成行。
+              启用脚本并访问命中页面后，每次运行都会按时间记在这里；运行期报错挂在对应运行下，注册失败等不属于任何一次运行的错误单独成行。
             </span>
           </p>
 

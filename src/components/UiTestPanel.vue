@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// UI 测试面板：用 mock 数据预览思考与执行过程的展示效果。
+// 界面预览面板：用示例数据预览思考与执行过程的展示效果。
 // 布局：单层折叠（整条消息一个 ChainOfThought）+ 折叠内按 step 分组
 // （「第 N 步」小标题分隔，不嵌套折叠）+ 最终答案气泡。
 // 约定：所有 mock 数据与渲染逻辑集中在本组件内，便于快速调整预览。
@@ -302,9 +302,9 @@ function stepStatus(state: MockToolState): 'complete' | 'active' {
     <div class="min-h-0 flex-1 overflow-y-auto scroll-gap p-6">
       <div class="mx-auto max-w-2xl space-y-4">
         <div>
-          <h2 class="text-lg font-semibold">UI 测试</h2>
+          <h2 class="text-lg font-semibold">界面预览</h2>
           <p class="mt-1 text-xs text-muted-foreground">
-            单层折叠 + 内部按 step 分组（「第 N 步」小标题分隔）· 全部为 mock 数据
+            单层折叠，内部按步骤分组 · 全部为示例数据
           </p>
           <button
             type="button"

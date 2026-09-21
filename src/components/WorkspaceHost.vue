@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 工作区多标签宿主：引导 / 设置 / UI 测试 / 脚本列表 / 脚本编辑器 / 脚本历史 / 脚本产物。
+// 工作区多标签宿主：引导 / 设置 / 界面预览 / 脚本列表 / 脚本编辑器 / 脚本历史 / 脚本产物。
 import { ref, watch } from 'vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import GuidePanel from '@/components/GuidePanel.vue'
@@ -84,10 +84,10 @@ function openSettingsTab(): void {
   activate('settings')
 }
 
-// 打开 UI 测试标签页：若已打开则激活，否则新开一个
+// 打开 界面预览标签页：若已打开则激活，否则新开一个
 function openUiTestTab(): void {
   if (!openTabs.value.some((t) => t.kind === 'ui-test')) {
-    openTabs.value.push({ kind: 'ui-test', id: 'ui-test', title: 'UI 测试' })
+    openTabs.value.push({ kind: 'ui-test', id: 'ui-test', title: '界面预览' })
   }
   activate('ui-test')
 }
@@ -124,10 +124,10 @@ function openErrorLogTab(focusUuid?: string | null): void {
   activate('error-log')
 }
 
-// 打开 lfs 浏览标签页：只读调试视图（offscreen 持有的 lightning-fs 库整库文件树），全局仅一个
+// 打开「脚本文件」标签页：只读视图（脚本工作区整库文件树，含版本记录），全局仅一个
 function openLfsBrowserTab(): void {
   if (!openTabs.value.some((t) => t.kind === 'lfs-browser')) {
-    openTabs.value.push({ kind: 'lfs-browser', id: 'lfs-browser', title: 'lfs 浏览' })
+    openTabs.value.push({ kind: 'lfs-browser', id: 'lfs-browser', title: '脚本文件' })
   }
   activate('lfs-browser')
 }
@@ -231,13 +231,13 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「引导 / 设置 / UI 测试 / 脚本列表 / 错误日志 / lfs 浏览 / 会话数据 / 会话历史 / AI 工具 / GM API」与脚本管理器的「编辑」入口
+// 暴露给根布局：左侧导航栏「引导 / 设置 / 界面预览 / 脚本列表 / 错误日志 / 脚本文件 / 会话数据 / 会话历史 / AI 工具 / GM API」与脚本管理器的「编辑」入口
 defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorLogTab, openLfsBrowserTab, openChatDataTab, openSessionHistoryTab, openAgentToolsTab, openGmApiTab, openUserscriptEditor })
 </script>
 
 <template>
   <div class="workspace-host">
-    <!-- 标签栏 + 内容面板：使用 shadcn Tabs（脚本列表 / 设置 / UI 测试 / 脚本编辑器 / 版本历史 / 构建产物 / lfs 浏览 / 会话数据） -->
+    <!-- 标签栏 + 内容面板：使用 shadcn Tabs（脚本列表 / 设置 / 界面预览 / 脚本编辑器 / 版本历史 / 构建产物 / lfs 浏览 / 会话数据） -->
     <ui-tabs
       v-model="activeTabId"
       :default-value="LIST_TAB_ID"
@@ -263,7 +263,7 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
         <guide-panel v-if="tab.kind === 'guide'" />
         <!-- 设置标签：渲染设置面板 -->
         <settings-panel v-else-if="tab.kind === 'settings'" />
-        <!-- UI 测试：mock 数据预览思考与执行过程展示方案 -->
+        <!-- 界面预览：mock 数据预览思考与执行过程展示方案 -->
         <ui-test-panel v-else-if="tab.kind === 'ui-test'" />
         <!-- 脚本列表：列出全部用户脚本 + 启停；「编辑」开对应的编辑器标签页 -->
         <userscript-list-panel
@@ -289,7 +289,7 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
           @open-history="openUserscriptHistoryTab"
           @open-guide="openGuideTab"
         />
-        <!-- lfs 浏览：offscreen lightning-fs 整库只读文件树 -->
+        <!-- 脚本文件：脚本工作区整库只读文件树 -->
         <lfs-browser-panel v-else-if="tab.kind === 'lfs-browser'" />
         <!-- 会话数据：IndexedDB 会话库落盘原始记录（只读调试视图） -->
         <chat-data-panel v-else-if="tab.kind === 'chat-data'" />
