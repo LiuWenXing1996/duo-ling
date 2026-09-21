@@ -407,13 +407,21 @@
   })
 
   add('存储', 'GM_deleteValue / GM.deleteValue', async function () {
+    // ⚠️ 本用例刻意**逐步 await**：它验的是「两形态都能删」，不是写序。不等的话会撞上 SW 值存储的
+    // 写序竞争 —— 同步形态是 fire-and-forget（本地缓存先改、桥不等应答），连着发的几条命令在 SW 里
+    // 并发落盘（dl-bridge.ts 的 void dispatch），而 deleteGMValue 读到「键不存在」会提前返回
+    // （store.ts）→ 后到的 set 把值留在了盘上。2026-09-21 真机第四轮就是这么红过一次（✓/✗ 之间摇摆）。
     await GM.setValue(K, 'v3')
     GM_deleteValue(K)
-    var syncGone = GM_getValue(K, '__none__') === '__none__'
-    GM_setValue(K, 'v4')
+    var syncLocal = GM_getValue(K, '__none__') === '__none__' // 同步形态：本地缓存立刻生效
+    await sleep(500) // 让那次不等应答的删除过桥落盘
+    var syncBridge = (await GM.getValue(K, '__none__')) === '__none__' // 后台也真没了
+    await GM.setValue(K, 'v4')
     await GM.deleteValue(K)
     var asyncGone = (await GM.getValue(K, '__none__')) === '__none__'
-    return syncGone && asyncGone ? pass('两形态删后都读不到') : fail('同步删=' + syncGone + ' 异步删=' + asyncGone)
+    return syncLocal && syncBridge && asyncGone
+      ? pass('两形态删后都读不到（本地缓存 + 后台两层都验）')
+      : fail('本地=' + syncLocal + ' 过桥=' + syncBridge + ' 异步=' + asyncGone)
   })
 
   add('存储', 'GM_addValueChangeListener / GM_removeValueChangeListener', async function () {
