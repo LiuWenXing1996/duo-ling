@@ -143,7 +143,7 @@ export async function ensureWorldsConfigured(): Promise<boolean> {
 export function collectCspWarnings(code: string): string[] {
   if (/\beval\s*\(|new\s+Function\s*\(/.test(code)) {
     return [
-      '脚本世界默认禁止动态执行代码：脚本里的 eval / new Function 会被拦截，请改用不含它们的写法。',
+      '脚本运行环境默认禁止动态执行代码：脚本里的 eval / new Function 会被拦截，请改用不含它们的写法。',
     ]
   }
   return []
@@ -208,7 +208,7 @@ function buildGmInfo(
  */
 export function resolveInjectCode(project: ScriptProject): string {
   if (!project.source?.code) {
-    throw new Error('脚本没有源码：注册态缺少源码搬运副本（重新保存一次即可恢复）')
+    throw new Error('脚本没有源码：重新保存一次即可恢复')
   }
   return project.source.code
 }
@@ -418,7 +418,7 @@ export function refreshBuiltinScripts(): Promise<void> {
 export async function registerScript(project: ScriptProject): Promise<void> {
   if (!project.enabled) return
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') {
-    throw new Error('userScripts 引擎不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限')
+    throw new Error('用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限')
   }
   if (!project.config.matches?.length) {
     throw new Error('脚本缺少匹配规则（matches），无法注册')
@@ -482,7 +482,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
       uuid: project.uuid,
       name: project.name,
       phase: 'register',
-      message: '独立世界配置失败：该脚本的 GM 桥与错误上报不可用（世界未开启 messaging）',
+      message: '脚本运行环境配置失败：GM 能力与错误上报不可用',
     }).catch(() => {})
   }
   const userScript: chrome.userScripts.RegisteredUserScript = {

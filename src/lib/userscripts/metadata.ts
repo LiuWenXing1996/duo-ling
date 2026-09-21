@@ -269,7 +269,7 @@ function dedupe(list: string[]): string[] {
  * **`@include` 纯路径形态的安全含义**（须知情）：`@include /foo/*` 在油猴语义下是「任意站点的
  * 该路径」，注入面本来就是全部站点，故这里如实把 matches 放宽为**全域 pattern**（`*` scheme +
  * `*` host + 任意 path），再用 includeGlobs 收窄。
- * 连带效应是 **cookie 域名门随之放开**（门的不变量是「cookie ⊆ 注入面」，见 cookie-gate.ts）
+ * 连带效应是 **cookie 访问范围随之放开**（门的不变量是「cookie ⊆ 注入面」，见 cookie-gate.ts）
  * —— 不是门的漏洞，而是脚本自己声明了全域。该情形会**写入 notes**，不静默。
  */
 export function applyMetadataToConfig(
@@ -296,7 +296,7 @@ export function applyMetadataToConfig(
       includeGlobs.push(c.value)
       widenAll = true
       notes.push(
-        `@include「${raw}」未指定站点，已按「任意站点」处理：注入面放宽为全部站点，cookie 域名门随之放开`,
+        `@include「${raw}」未指定站点，已按「任意站点」处理：注入面放宽为全部站点，cookie 访问范围随之放开`,
       )
     } else notes.push(`@include ${c.reason}`)
   }

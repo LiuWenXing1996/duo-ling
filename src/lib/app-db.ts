@@ -43,8 +43,8 @@ function openDb(): Promise<IDBDatabase> {
         }
         resolve(db)
       }
-      req.onerror = () => reject(req.error ?? new Error('无法打开应用配置数据库'))
-      req.onblocked = () => reject(new Error('应用配置数据库被其它上下文占用，无法升级'))
+      req.onerror = () => reject(req.error ?? new Error('无法打开本地数据'))
+      req.onblocked = () => reject(new Error('本地数据被其它页面占用，无法升级'))
     }).catch((e: unknown) => {
       dbPromise = undefined // 失败不缓存，下次重试
       throw e
@@ -56,7 +56,7 @@ function openDb(): Promise<IDBDatabase> {
 function request<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error ?? new Error('IndexedDB 请求失败'))
+    req.onerror = () => reject(req.error ?? new Error('本地数据读取失败'))
   })
 }
 
@@ -96,8 +96,8 @@ export async function set(key: string, value: unknown): Promise<void> {
     tx.objectStore(KV_STORE).put({ key, value } satisfies KvRecord)
     return new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error ?? new Error('写入应用配置失败'))
-      tx.onabort = () => reject(tx.error ?? new Error('写入应用配置被中止'))
+      tx.onerror = () => reject(tx.error ?? new Error('保存设置失败'))
+      tx.onabort = () => reject(tx.error ?? new Error('保存设置被中止'))
     })
   })
 }
@@ -121,8 +121,8 @@ export async function update<T>(key: string, mutate: (prev: T | undefined) => T)
     store.put({ key, value: next } satisfies KvRecord)
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error ?? new Error('写入应用配置失败'))
-      tx.onabort = () => reject(tx.error ?? new Error('写入应用配置被中止'))
+      tx.onerror = () => reject(tx.error ?? new Error('保存设置失败'))
+      tx.onabort = () => reject(tx.error ?? new Error('保存设置被中止'))
     })
     return next
   })
@@ -134,8 +134,8 @@ export async function remove(key: string): Promise<void> {
     tx.objectStore(KV_STORE).delete(key)
     return new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error ?? new Error('删除应用配置失败'))
-      tx.onabort = () => reject(tx.error ?? new Error('删除应用配置被中止'))
+      tx.onerror = () => reject(tx.error ?? new Error('删除设置失败'))
+      tx.onabort = () => reject(tx.error ?? new Error('删除设置被中止'))
     })
   })
 }
@@ -147,8 +147,8 @@ export async function clearAllForTests(): Promise<void> {
     tx.objectStore(KV_STORE).clear()
     return new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error ?? new Error('清空应用配置失败'))
-      tx.onabort = () => reject(tx.error ?? new Error('清空应用配置被中止'))
+      tx.onerror = () => reject(tx.error ?? new Error('清空设置失败'))
+      tx.onabort = () => reject(tx.error ?? new Error('清空设置被中止'))
     })
   })
 }

@@ -241,7 +241,7 @@ export function buildScriptTools(
       inputSchema: z.object({}),
       execute: async () => {
         if (!captureSnapshot) {
-          return { ok: false, error: '页面快照采集不可用（当前环境未接入采集通道）' }
+          return { ok: false, error: '页面快照采集不可用' }
         }
         try {
           const snap = await captureSnapshot()
@@ -262,7 +262,7 @@ export function buildScriptTools(
         host: z.string().describe(TOOL_PARAM_DESCRIPTIONS.net_capture_enable.host),
       }),
       execute: async ({ host }) => {
-        if (!netCapture) return { ok: false, error: '录制通道不可用（当前环境未接入）' }
+        if (!netCapture) return { ok: false, error: '录制通道不可用' }
         const h = normalizeHost(host)
         if (!h) return { ok: false, error: `无效的站点：${host}（只填主机名，如 example.com）` }
         let enabled = false
@@ -299,7 +299,7 @@ export function buildScriptTools(
         host: z.string().describe(TOOL_PARAM_DESCRIPTIONS.net_capture_read.host),
       }),
       execute: async ({ host }) => {
-        if (!netCapture) return { ok: false, error: '录制通道不可用（当前环境未接入）' }
+        if (!netCapture) return { ok: false, error: '录制通道不可用' }
         const h = normalizeHost(host)
         if (!h) return { ok: false, error: `无效的站点：${host}（只填主机名，如 example.com）` }
         let r: { enabled: boolean; count: number; text: string }
@@ -333,7 +333,7 @@ export function buildScriptTools(
       }),
       execute: async ({ id }) => {
         if (!readError) {
-          return { ok: false, error: '错误查询通道不可用（当前环境未接入）' }
+          return { ok: false, error: '错误查询通道不可用' }
         }
         let r: UserScriptErrorLookup
         try {

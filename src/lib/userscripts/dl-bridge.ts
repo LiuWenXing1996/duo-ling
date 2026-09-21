@@ -226,7 +226,7 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
       ruleId = mintRuleId()
       const dnr = chrome.declarativeNetRequest
       if (!dnr?.updateSessionRules) {
-        throw new ApiError('NOT_AVAILABLE', 'GM_xmlhttpRequest：declarativeNetRequest 不可用')
+        throw new ApiError('NOT_AVAILABLE', 'GM_xmlhttpRequest：请求头覆写能力不可用')
       }
       try {
         await dnr.updateSessionRules({
@@ -244,7 +244,7 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
         })
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
-        throw new ApiError('INTERNAL', `GM_xmlhttpRequest：挂载 header 覆写规则失败：${msg}`)
+        throw new ApiError('INTERNAL', `GM_xmlhttpRequest：设置请求头覆写规则失败：${msg}`)
       }
     }
 
@@ -339,7 +339,7 @@ async function doDownload(url: string, name: string): Promise<{ dataUrl: string;
 function cookiesApi(): typeof chrome.cookies {
   const api = chrome.cookies
   if (!api || typeof api.get !== 'function') {
-    throw new ApiError('NOT_AVAILABLE', 'cookie 能力不可用：扩展未声明 cookies 权限')
+    throw new ApiError('NOT_AVAILABLE', 'cookie 能力不可用')
   }
   return api
 }
@@ -411,10 +411,10 @@ async function reconcileOrphanTabKeys(): Promise<void> {
 async function writeClipboardViaOffscreen(text?: string, html?: string): Promise<void> {
   if (!text && !html) throw new ApiError('INVALID_ARG', 'GM_setClipboard：text 与 html 至少给一个')
   const ready = await ensureOffscreenReady()
-  if (!ready) throw new ApiError('NOT_AVAILABLE', 'GM_setClipboard：offscreen 容器不可用，无法写剪贴板')
+  if (!ready) throw new ApiError('NOT_AVAILABLE', 'GM_setClipboard：剪贴板服务不可用')
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new ApiError('BRIDGE_TIMEOUT', 'GM_setClipboard 写入超时（offscreen 2s 无响应）')),
+      () => reject(new ApiError('BRIDGE_TIMEOUT', 'GM_setClipboard 写入超时（2s 无响应）')),
       2000,
     )
     try {
@@ -488,11 +488,11 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       return undefined
     // 标签页级存储（对齐 GM_getTab 系列）
     case 'tab.get': {
-      if (tabId == null) throw new ApiError('INVALID_ARG', 'GM_getTab 需要标签页上下文（sender.tab 缺失）')
+      if (tabId == null) throw new ApiError('INVALID_ARG', 'GM_getTab 需要标签页上下文')
       return getTabValue(uuid, tabId)
     }
     case 'tab.save': {
-      if (tabId == null) throw new ApiError('INVALID_ARG', 'GM_getTab 需要标签页上下文（sender.tab 缺失）')
+      if (tabId == null) throw new ApiError('INVALID_ARG', 'GM_getTab 需要标签页上下文')
       await saveTabValue(uuid, tabId, req.value)
       return undefined
     }
@@ -501,7 +501,7 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
     // URL 变化订阅（SPA 路由感知）：控制面走请求-响应，归属定位同 store.watch（connId）
     case 'url.watch': {
       if (!attachUrlWatch(uuid, req.connId)) {
-        throw new ApiError('INTERNAL', 'DL Port 未就绪，订阅未生效（请重试）')
+        throw new ApiError('INTERNAL', '事件通道未就绪，订阅未生效（请重试）')
       }
       return undefined
     }
@@ -510,7 +510,7 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       return undefined
     case 'tabs.open': {
       const tab = await chrome.tabs.create({ url: req.url, active: req.active !== false })
-      if (tab?.id == null) throw new ApiError('INTERNAL', 'tabs.open 未返回 tabId')
+      if (tab?.id == null) throw new ApiError('INTERNAL', 'tabs.open 未返回标签页')
       return tab.id
     }
     case 'tabs.close':
@@ -562,7 +562,7 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       await cookiesApi().remove({ url: req.url, name: req.name })
       return undefined
     }
-    // 二期（DL Port 事件底座）：菜单登记 + store 订阅（控制面，经 Port 回推见 dl-port.ts）
+    // DL Port 事件底座：菜单登记 + store 订阅（控制面，经 Port 回推见 dl-port.ts）
     case 'menu.register':
       await registerScriptMenu(uuid, req.id, req.title)
       return undefined
@@ -572,7 +572,7 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
     case 'store.watch': {
       // Port 未就绪属竞态防御（正常流程包装层等 port.ready 后才发）
       if (!attachScriptWatch(uuid, req.connId, req.key)) {
-        throw new ApiError('INTERNAL', 'DL Port 未就绪，订阅未生效（请重试）')
+        throw new ApiError('INTERNAL', '事件通道未就绪，订阅未生效（请重试）')
       }
       return undefined
     }
@@ -584,7 +584,7 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
     // 故契约里没有对应的 unwatchAll 命令（清理只发生在 Port 断开时的 removePort）。
     case 'store.watchAll': {
       if (!attachValueWatch(uuid, req.connId)) {
-        throw new ApiError('INTERNAL', 'GM Port 未就绪，全量订阅未生效（请重试）')
+        throw new ApiError('INTERNAL', '事件通道未就绪，订阅未生效（请重试）')
       }
       return undefined
     }
@@ -592,7 +592,7 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       // 穷尽性检查：ApiRequest 加新命令时这里会编译报错提醒补 dispatch
       const unreachable: never = req
       void unreachable
-      throw new ApiError('INTERNAL', `未实现的 DL 命令`)
+      throw new ApiError('INTERNAL', `未实现的命令`)
     }
   }
 }

@@ -75,8 +75,8 @@ function openDb(): Promise<IDBDatabase> {
         }
         resolve(db)
       }
-      req.onerror = () => reject(req.error ?? new Error('无法打开运行时数据库'))
-      req.onblocked = () => reject(new Error('运行时数据库被其它上下文占用，无法升级'))
+      req.onerror = () => reject(req.error ?? new Error('无法打开运行数据'))
+      req.onblocked = () => reject(new Error('运行数据被其它页面占用，无法升级'))
     }).catch((e: unknown) => {
       dbPromise = undefined // 失败不缓存，下次重试
       throw e
@@ -88,7 +88,7 @@ function openDb(): Promise<IDBDatabase> {
 function request<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error ?? new Error('IndexedDB 请求失败'))
+    req.onerror = () => reject(req.error ?? new Error('本地数据读取失败'))
   })
 }
 

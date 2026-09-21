@@ -82,7 +82,7 @@ describe('friendlyInjectError（Chrome 英文报错归一）', () => {
       'Cannot access contents of url "chrome-extension://EXTID/workbench.html". ' +
       'Extension manifest must request permission to access this host.'
     const msg = friendlyInjectError(new Error(raw)).message
-    expect(msg).toContain('不允许扩展注入')
+    expect(msg).toContain('不支持哆灵')
     expect(msg).toContain('允许访问文件网址')
     expect(msg).not.toContain('manifest')
   })

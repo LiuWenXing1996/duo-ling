@@ -43,8 +43,8 @@ function openDb(): Promise<IDBDatabase> {
         }
         resolve(db)
       }
-      req.onerror = () => reject(req.error ?? new Error('无法打开网络录制数据库'))
-      req.onblocked = () => reject(new Error('网络录制数据库被其它上下文占用，无法升级'))
+      req.onerror = () => reject(req.error ?? new Error('无法打开录制数据'))
+      req.onblocked = () => reject(new Error('录制数据被其它页面占用，无法升级'))
     }).catch((e: unknown) => {
       dbPromise = undefined // 失败不缓存，下次重试
       throw e
@@ -56,7 +56,7 @@ function openDb(): Promise<IDBDatabase> {
 function request<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error ?? new Error('IndexedDB 请求失败'))
+    req.onerror = () => reject(req.error ?? new Error('本地数据读取失败'))
   })
 }
 
@@ -108,7 +108,7 @@ function eachHostRecord(
       if (onRecord(c)) c.continue()
       else resolve()
     }
-    cur.onerror = () => reject(cur.error ?? new Error('遍历网络采集失败'))
+    cur.onerror = () => reject(cur.error ?? new Error('读取录制数据失败'))
   })
 }
 
@@ -133,7 +133,7 @@ export async function appendCapture(rec: NetCaptureRecord): Promise<void> {
         return true
       })
     }
-    await txDone(tx, '写入网络采集失败')
+    await txDone(tx, '保存录制数据失败')
   })
 }
 
@@ -159,7 +159,7 @@ export async function clearCapturesByHost(host: string): Promise<void> {
       cursor.delete()
       return true
     })
-    await txDone(tx, '清空网络采集失败')
+    await txDone(tx, '清空录制数据失败')
   })
 }
 
@@ -179,7 +179,7 @@ export async function listCapturedHosts(): Promise<string[]> {
         if (out[out.length - 1] !== key) out.push(key)
         c.continue()
       }
-      cur.onerror = () => reject(cur.error ?? new Error('枚举已录 host 失败'))
+      cur.onerror = () => reject(cur.error ?? new Error('读取已录站点失败'))
     })
   })
 }
@@ -189,6 +189,6 @@ export async function listCapturedHosts(): Promise<string[]> {
 export async function clearAllForTests(): Promise<void> {
   await runTx('readwrite', async (tx, store) => {
     store.clear()
-    await txDone(tx, '清空网络录制库失败')
+    await txDone(tx, '清空录制数据失败')
   })
 }

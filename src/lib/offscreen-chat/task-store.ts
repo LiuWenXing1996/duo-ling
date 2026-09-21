@@ -60,7 +60,7 @@ function openDb(): Promise<IDBDatabase> {
 function request<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error ?? new Error('IndexedDB 请求失败'))
+    req.onerror = () => reject(req.error ?? new Error('本地数据读取失败'))
   })
 }
 

@@ -17,6 +17,6 @@ export const BUILTIN_SCRIPTS: BuiltinScriptInfo[] = [
     id: 'duoling-picker',
     name: '页面元素拾取器',
     description:
-      '对话界面「点选元素 / 页面快照」的执行端：点按钮那一刻注入当前页面，亮拾取框或静默抓取渲染后 HTML，用完即走（平时页面里没有它的代码）。',
+      '对话界面「点选元素 / 页面快照」的功能实现：点按钮时在目标页面运行，亮拾取框或静默抓取渲染后的 HTML，用完即走（平时页面里没有它的代码）。',
   },
 ]

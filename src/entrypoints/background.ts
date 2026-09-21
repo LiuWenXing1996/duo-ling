@@ -53,7 +53,7 @@ import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/
 // 新版本检查：SW 在浏览器启动 / 安装更新时各查一次，结果落 duoling-app 库供 popup 与设置页读
 import { runUpdateCheck } from '@/lib/update-check'
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
-// DL Port 事件底座（二期）：脚本世界 ↔ SW 长连接下行通道 + 三事件源接入
+// DL Port 事件底座：脚本世界 ↔ SW 长连接下行通道 + 三事件源接入
 import { initDlPort } from '@/lib/userscripts/dl-port'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listGroups, listProjects } from '@/lib/userscripts/project-store'
@@ -122,7 +122,7 @@ function sendToOffscreen<T>(request: RuntimeRequest): Promise<T> {
         return
       }
       if (!response) {
-        reject(new Error('offscreen 无响应'))
+        reject(new Error('扩展服务未响应，请重试'))
         return
       }
       if (!response.ok) {
@@ -168,7 +168,7 @@ async function registerOrLog(project: ScriptProject): Promise<string | undefined
   // 但这**不是脚本本身的错**——不能写成该脚本的 register 错误（否则误导成「每个脚本都有问题」）。
   // 环境状态由列表页 availability 横幅统一兜底，这里只把原因回传调用方，不落 per-script 记录。
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') {
-    return 'userScripts 引擎不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限'
+    return '用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限'
   }
   try {
     // 先同步内置注册（MAIN 桩，启用脚本集合可能变化），再注册脚本——保证桩与包装密钥同代
@@ -227,7 +227,7 @@ const handlers: {
   // 会话），而快照是 AI 在生成中途决定采的，那时用户完全可能已经切到别的页 —— 查「激活」会把
   // 别人那一页的 DOM 喂给模型。反查走归属映射，自带存活校验（tab 已关的残留项会被判掉）。
   'page:snapshot': async (msg): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
-    if (!chrome.tabs?.query) throw new Error('tabs API 不可用，无法定位目标标签页')
+    if (!chrome.tabs?.query) throw new Error('无法定位目标标签页')
     const owned = msg.conversationId ? await findTabsUsingConversation(msg.conversationId) : []
     let tabId: number | undefined = owned[0]
     if (tabId == null) {
@@ -508,7 +508,7 @@ async function initUserScripts(): Promise<void> {
   // 直接调用会令 SW 初始化崩溃。先判存在性，不可用则优雅跳过（UI 横幅会引导开启）。
   if (!chrome.userScripts) {
     console.warn(
-      '[duoling:userscript] chrome.userScripts 不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，' +
+      '[duoling:userscript] 用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，' +
         'Chrome <138 需开启全局「开发者模式」；Firefox 需授权 userScripts 权限。用户脚本功能已禁用。',
     )
     return
@@ -517,7 +517,7 @@ async function initUserScripts(): Promise<void> {
   const ok = await isUserScriptsAvailable()
   if (!ok) {
     console.warn(
-      '[duoling:userscript] userScripts 不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，' +
+      '[duoling:userscript] 用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，' +
         'Chrome <138 需开启全局「开发者模式」；Firefox 需授权 userScripts 权限',
     )
     return
@@ -619,7 +619,7 @@ export default defineBackground(() => {
   mountProposal2Listeners()
 
   // offscreen 需「随时可用」：安装 / 更新 / 浏览器启动都立即确保容器在场。
-  // Chrome 不会自动启动 offscreen，且 idle 自关未实现，故改为常驻策略（与一期收编决策记录的退出条件已冲突，见 offscreen.ts）。
+  // Chrome 不会自动启动 offscreen，且 idle 自关未实现，故改为常驻策略（退出条件见 offscreen.ts）。
   chrome.runtime.onInstalled.addListener((details) => {
     void ensureOffscreen().catch((e) => console.error('[duoling:offscreen] ensure failed', e))
     if (details.reason === 'update') {

@@ -39,8 +39,8 @@ function openDb(): Promise<IDBDatabase> {
         }
         resolve(db)
       }
-      req.onerror = () => reject(req.error ?? new Error('无法打开 require 缓存库'))
-      req.onblocked = () => reject(new Error('require 缓存库被其它上下文占用，无法升级'))
+      req.onerror = () => reject(req.error ?? new Error('无法打开依赖缓存'))
+      req.onblocked = () => reject(new Error('依赖缓存被其它页面占用，无法升级'))
     }).catch((e: unknown) => {
       dbPromise = undefined // 失败不缓存，下次重试
       throw e
@@ -70,7 +70,7 @@ export async function getRequireCache(urls: string[]): Promise<Map<string, strin
       }
       req.onerror = () => done() // 单条失败不阻断整批
     }
-    tx.onerror = () => reject(tx.error ?? new Error('require 缓存读取失败'))
+    tx.onerror = () => reject(tx.error ?? new Error('依赖缓存读取失败'))
   })
   return out
 }
@@ -102,7 +102,7 @@ export async function clearRequireCache(): Promise<void> {
     const tx = db.transaction(STORE, 'readwrite')
     tx.objectStore(STORE).clear()
     tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error ?? new Error('require 缓存清除失败'))
+    tx.onerror = () => reject(tx.error ?? new Error('依赖缓存清除失败'))
   })
 }
 

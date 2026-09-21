@@ -395,7 +395,7 @@ function sendChatCommand<T>(request: RuntimeRequest): Promise<T> {
         return
       }
       if (!response) {
-        reject(new Error('offscreen 无响应'))
+        reject(new Error('扩展服务未响应，请重试'))
         return
       }
       if (!response.ok) {
