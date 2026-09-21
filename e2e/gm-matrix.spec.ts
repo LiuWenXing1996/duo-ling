@@ -8,11 +8,12 @@
 // 这条路在 CI 上已被 smoke 证明可行（其中一条断言 available === true）。
 //
 // 矩阵里四项要人动手的，端测的处理：
-//   · GM.page.listen      —— Playwright 真鼠标移动 → 中继收到 mousemove（**自动**）
+//   · GM.page.listen      —— Playwright 真点击 → 中继收到事件（**自动**）
 //   · GM.page.fetchHook   —— page.evaluate 在**页面主世界**发一个 fetch（等价于在 DevTools 里敲）（**自动**）
-//   · GM_setClipboard     —— 回读要系统剪贴板 + 粘贴手势 → 只验「两形态写入调用」，回读记「?」
-//   · GM_registerMenuCommand —— 点的是浏览器**原生右键菜单**，Playwright 碰不到 → 只验「四种调用」，「?」
-// 故这里的预期是：✗ = 0、? = 2、✓ = 其余 26 条、无 ⋯（端测下人工项不干等，见探针里的 AUTO）。
+//   · GM_setClipboard     —— 给该 origin 授 clipboard-read 权限后走 navigator.clipboard.readText()
+//     自动验「写进去的到底是什么」（**自动**）
+//   · GM_registerMenuCommand —— 点的是浏览器**原生右键菜单**，Playwright 碰不到 → 只验「四种调用」，记「?」
+// 故这里的预期是：✗ = 0、? = 1、✓ = 其余 27 条、无 ⋯（端测下人工项不干等，见探针里的 AUTO）。
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import * as http from 'node:http'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -87,6 +88,11 @@ test.describe.serial('GM 可用性矩阵（真机自动化）', () => {
     port = await new Promise<number>((resolve) => {
       server!.listen(0, '127.0.0.1', () => resolve((server!.address() as { port: number }).port))
     })
+    // 探针的剪贴板用例在 AUTO 下改走 navigator.clipboard.readText()：授了这道权限它就能自动验
+    // 「写进去的到底是什么」，不必等人按 Cmd+V（省掉矩阵里一个固定「?」）
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+      origin: `http://127.0.0.1:${port}`,
+    })
   })
 
   test.afterAll(async () => {
@@ -151,7 +157,9 @@ test.describe.serial('GM 可用性矩阵（真机自动化）', () => {
     expect(bad, `有 API 在真机上是 ✗：\n${panelText}`).toBe(0)
     expect(pending, `还有人工项没收尾：\n${panelText}`).toBe(0)
     expect(total, '矩阵条目数变了（新增 / 删除了用例？）').toBe(28)
-    expect(ok, `通过数偏少（期望 26：28 减掉端测做不了的剪贴板回读与菜单点击）:\n${panelText}`).toBeGreaterThanOrEqual(26)
+    expect(unknownCount, `未判定的行多于预期（只该剩「原生右键菜单」那一条）：\n${panelText}`).toBeLessThanOrEqual(1)
+    expect(panelText, '剪贴板回读没成（应走 clipboard.readText()）').not.toContain('端测读不到剪贴板')
+    expect(ok, `通过数偏少（期望 27：28 减掉端测做不了的原生右键菜单点击）：\n${panelText}`).toBeGreaterThanOrEqual(27)
     await page.close()
   })
 })

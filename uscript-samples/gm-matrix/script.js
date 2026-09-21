@@ -510,8 +510,19 @@
     var text = 'duoling-matrix-clipboard'
     GM_setClipboard(text)
     await GM.setClipboard(text + '-2')
-    // 端测（AUTO）：两形态写入调用已经跑过，但回读要系统剪贴板 + 粘贴手势，无头里做不了 → 直接记「?」
-    if (AUTO) return unknown('端测模式跳过回读（要系统剪贴板 + 粘贴手势）；两形态写入调用本身已完成')
+    // 端测（AUTO）：两形态写入调用已经跑过；回读改走 navigator.clipboard.readText()
+    // —— 端测给该 origin 授了 clipboard-read 权限，所以这一步能自动验「写进去的到底是什么」，
+    // 不用你按粘贴。读不到（未授权 / 文档没焦点）就退回「?」，不冤枉桥。
+    if (AUTO) {
+      try {
+        var autoGot = await navigator.clipboard.readText()
+        return autoGot === text || autoGot === text + '-2'
+          ? pass('端测读回剪贴板命中：' + autoGot)
+          : fail('端测读回剪贴板内容不符：' + JSON.stringify(String(autoGot).slice(0, 60)))
+      } catch (e) {
+        return unknown('端测读不到剪贴板（未授权 / 无焦点）：' + msg(e))
+      }
+    }
     // 回读剪贴板要用户手势（浏览器限制）→ 在待办盒子里摆一个输入框，请你按一次粘贴，从 paste
     // 事件取内容。这样「写进去的到底是什么」才是被验过的事实，而不是「调用没抛」。
     var row = todoRow('在下面这个框里点一下、按一次 Cmd/Ctrl+V —— 验剪贴板写入')
