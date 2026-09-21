@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | **网页浮层 `floatpanel.html`**（content script 注入的 iframe） | **对话界面**（唯一入口） | 当前标签页的会话（消息流、输入区含拾取 chip、模型选择）+ 顶栏「会话历史 / 打开工作台」两个去处；会话 = **它所在标签页**的会话（tab 身份由 content script 经 iframe URL 传入）；按站点开关决定是否注入 |
 | **标签页 `workbench.html`** | 重界面工作区（按需打开） | 引导 / 脚本列表（默认落点、不可关闭）/ 运行日志 / 脚本编辑器 / 脚本历史 / 脚本产物 / lfs 浏览 / 会话数据 / 会话历史 / AI 工具 / GM API / 设置 / UI 测试 |
-| **popup**（点工具栏图标弹出） | 配置入口（点开即用、点外即关） | 网页浮层开关（总开关 + 当前站点）+「打开工作台」；在挂不了浮层的页面上说明原因 |
+| **popup**（点工具栏图标弹出） | 配置入口（点开即用、点外即关） | 网页浮层开关（总开关 + 当前站点）+ 本页脚本（在跑的脚本与报错，点脚本行跳工作台运行日志）+「打开工作台」；在挂不了浮层的页面上说明原因 |
 
 主流程：在网页浮层里对话描述需求 → 到工作台标签页管理脚本（新建 / 编辑 / 启停 / 看 git 历史）。标签页从对话界面顶栏的「打开工作台」按钮或 popup 的「打开工作台」打开，支持 hash 深链：`#/guide` 开引导、`#/tool/<uuid>` 直达该脚本编辑器、`#/errors/<uuid>` 打开运行日志标签页并过滤到该脚本、`#/settings` 开设置、`#/sessions` 开会话历史。
 
@@ -22,7 +22,7 @@
 
 > 点工具栏图标弹出的是 **popup**（纯配置面板）；对话入口在页面里 —— 由 content script 注入的悬浮按钮，见 [wxt.config.ts](wxt.config.ts) 与坑 1。
 
-> **UI 复用**：三个载体的界面均为现成实现 —— 对话界面由 `ChatApp.vue` 装配 `ChatPanel`（`floatpanel.html` 是它的入口页）；工作台「会话历史」标签页复用 `SessionHistoryPanel` 与 `ChatPanel` 的只读模式（`readonly`）；工作台整体由 `WorkbenchApp.vue`（左侧图标导航 + `WorkspaceHost` 多标签宿主）承载；popup 是独立的 `PopupPanel.vue`（纯配置面板，不装 `window.api`）。
+> **UI 复用**：三个载体的界面均为现成实现 —— 对话界面由 `ChatApp.vue` 装配 `ChatPanel`（`floatpanel.html` 是它的入口页）；工作台「会话历史」标签页复用 `SessionHistoryPanel` 与 `ChatPanel` 的只读模式（`readonly`）；工作台整体由 `WorkbenchApp.vue`（左侧图标导航 + `WorkspaceHost` 多标签宿主）承载；popup 是独立的 `PopupPanel.vue`（纯配置面板，不装 `window.api`），其中「本页脚本」分区（`PopupPageScripts.vue`）与对话界面灵动岛共用同一条页面监控链路（`use-page-monitor`，只是归属解析与形态不同）。
 > 导航项是上方「载体分工」表标签清单的子集加每脚本标签，实况以 `WorkbenchApp.vue` 为准；复用铁律与组件桥接契约见 [AGENTS.md](AGENTS.md)「UI 复用」；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`，不经 `window.api`。
 
 ## 目录结构
@@ -39,7 +39,7 @@
 │  │  ├─ content.ts               # 内容脚本：第三方页面注入悬浮按钮 + 浮层 iframe（按站点开关，拾取期间让位）
 │  │  ├─ floatpanel.html          # 入口 1：对话界面（浮层页，content.ts 的 iframe 指向它）
 │  │  ├─ workbench.html           # 入口 2：脚本工作区标签页
-│  │  ├─ popup.html               # 入口 3：工具栏配置面板（浮层开关 + 工作台入口）
+│  │  ├─ popup.html               # 入口 3：工具栏配置面板（浮层开关 + 本页脚本 + 工作台入口）
 │  │  ├─ offscreen.html           # AI 生成链路的执行宿主（按需创建）
 │  │  └─ app/
 │  │     ├─ floatpanel-main.ts    # 对话界面入口脚本（装 window.api + 主题 → ChatApp）
@@ -55,6 +55,7 @@
 │  │  ├─ WorkspaceHost.vue        #   工作区多标签宿主（标签开合 / 脏标记 / 历史恢复后重载）
 │  │  ├─ WorkspaceTabs.vue        #   标签栏（构建信息已移至 设置 → 关于）
 │  │  ├─ PopupPanel.vue           #   工具栏 popup：网页浮层开关（总开关 + 当前站点）+「打开工作台」+「挂不了浮层」说明
+│  │  ├─ PopupPageScripts.vue     #   popup 的「本页脚本」分区（默认收起；与对话界面灵动岛同源）
 │  │  ├─ GuidePanel.vue           #   引导标签页：需用户开启的开关（运行用户脚本）状态自检 + 分步指引 + 直达扩展管理页
 │  │  ├─ SettingsPanel.vue / UiTestPanel.vue / ChatDataPanel.vue / ConfirmDialog.vue / ModelFormDialog.vue
 │  │  ├─ settings/                #   设置分区：sections.ts 注册表（左栏导航 + 扩展点）+ ModelSettingsSection / FloatPanelSection / AboutSection
@@ -120,7 +121,7 @@
 > 本节是手测（验收动作）的登记处：怎么跑一遍、每步该看到什么。
 
 1. **加载扩展**：`npm run build` → Chrome 打开 `chrome://extensions` → 开「开发者模式」→「加载已解压的扩展程序」→ 选 `.output/chrome-mv3`
-2. **popup 配置面板**：点工具栏哆灵图标 → 弹出 popup（浮层总开关、当前站点开关、「打开工作台」）。在浏览器内部页（如 `chrome://extensions`）点开时，应看到一行说明「当前页面不能显示浮层…」；本地文件页（`file://`）显示同一行（它后半句就是管这种情况的）。
+2. **popup 配置面板**：点工具栏哆灵图标 → 弹出 popup（浮层总开关、当前站点开关、本页脚本、「打开工作台」）。在浏览器内部页（如 `chrome://extensions`）点开时，应看到一行说明「当前页面不能显示浮层…」（也不再出现「本页脚本」分区）；本地文件页（`file://`）显示同一行（它后半句就是管这种情况的）。在命中脚本的页面上点开时，「本页脚本」默认收起、摘要行给出在跑的脚本数，展开后可见脚本名与报错，点脚本行跳工作台运行日志；再点一次折叠，**popup 高度应跟着缩回去**（缩不回去说明 `html` 又被铺满了，见坑 17）。
 3. **主题**：随系统深浅色 —— 切 macOS 外观为深色，面板与工作台应立刻跟着变（无需重载）
 4. **引导**：工作台左侧导航「引导」→ 两张状态自检卡：「运行用户脚本」（脚本注入的总开关）与「读取本地文件」（「从路径导入」的前置开关，只对 Chrome 渲染）。未开启时按步骤开完、**重启浏览器**、回本页点「重新检测」，状态应转为已开启
 5. **配模型**：面板顶栏「打开工作台」→ 左侧导航「设置」→ 添加模型（选服务商 / 填 API Key / 模型 ID）→「测试连接」→ 保存
@@ -225,4 +226,5 @@
 16. **浮层的标签页身份只能由 content script 传进来，不能它自己查**（「会话按标签页归属」的地基）：
    - 浮层是扩展页 iframe，`chrome.tabs.query({active:true,currentWindow:true})` 拿到的是「窗口里当前**激活**的标签页」——而浮层可能挂在一个**已不是激活**的标签页上（用户切走了、浮层还留着），照它查就会把会话错接到别人的标签页。**所以凡是「本载体属于哪个 tab」的判断一律走 `lib/owning-tab.ts`**（会话归属、随消息发出的页面上下文、灵动岛的运行集都经它），不要各处自己 query。
    - 故浮层的 tab id 由 content script 经 `tab:identify` 命令向 SW 取 `sender.tab.id`（**content script 拿不到 `chrome.tabs`**，只有 runtime / storage 等 API 子集），拼进 iframe URL 的 `?tab=<id>` 传给浮层；取不到就退回不带参数。
-   - 拿不到 tabId 时的行为是**「不绑定」**（照常对话，只是这条会话不归属任何标签页）——好过错绑到别人的标签页。解析见 `use-global-conversation.ts` 的 `resolveOwningTabId`。
+   - 拿不到 tabId 时的行为是**「不绑定」**（照常对话，只是这条会话不归属任何标签页）——好过错绑到别人的标签页。解析见 `lib/owning-tab.ts` 的 `resolveOwningTabId`。
+17. **popup 的高度只能由内容驱动：不能用百分比高度，也不能用 `vh`**：popup 没有可编程的窗口尺寸 —— 浏览器量完文档、围着它画窗口（上限 800×600），而 `height: 100%` / `100vh` 会造成**循环测量**（视口高度来自内容，内容高度又来自视口）：`#app` 恒等于 100% 视口高，窗口便**只增不减** —— popup 里展开再折叠「本页脚本」列表，底部留一片空白（2026-09-21 实测）。`main.css`「扩展载体适配」那条 `html/body/#app { height: 100% }`（浮层与工作台需要它）靠 `html.dl-popup` 整条排除掉 popup 载体。**在 popup 里定尺寸一律用 px（`min-height` / `max-height`）。**

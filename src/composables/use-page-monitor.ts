@@ -1,8 +1,14 @@
-// 对话界面（网页浮层）里的「页面脚本监控」·面板侧（运行时口径）。
+// 「页面脚本监控」·面板侧（运行时口径）——对话界面浮层与工具栏 popup 共用。
+//
+// 两个载体的数据来源是同一条（SW 的运行登记表经 duoling:panel 端口按 tabId 回快照），
+// 差别只在**归属从哪来**，由调用方经 resolveTabId 注入：
+//   · 浮层传 resolveOwningTabId —— 浮层固定挂在某个 tab 上，用户切走后它还在原 tab，
+//     跟着「当前激活标签页」走会显示别人的脚本；
+//   · popup 传 resolveActiveTabId —— popup 是用户点开那一刻弹出来的，激活页就是答案。
+//   两种归属的判据（为什么不能混用）见 lib/owning-tab.ts。
 //
 // 职责三件：
-//   ① 认定本浮层所属的标签页（浮层固定挂在某个 tab 上，见 lib/owning-tab.ts）——
-//      **不跟随「当前激活标签页」**：用户切走之后浮层还留在原 tab 上，跟着激活项走会显示别人的脚本；
+//   ① 认定本载体该看哪个标签页（外部注入的 resolveTabId）；
 //   ② 经 'duoling:panel' 端口接收 SW 推送（runstart / 错误 / 新文档清零 / 快照），
 //      只保留本 tab 的切片；挂载时向 SW 拉一次快照补齐；
 //   ③ 补齐运行项的脚本名（runstart 只带 uuid）：首拉 + 运行集出现未知 uuid 时补拉 +
@@ -23,8 +29,14 @@ import { useDataSync } from './use-data-sync'
 /** 面板保留的错误行上限（环形日志本身 50 条，这里再兜一层） */
 const MAX_ERRORS = 50
 
-export function usePageMonitor() {
-  /** 本浮层所属的标签页；null = 取不到归属（极端态，UI 自隐藏） */
+export function usePageMonitor(
+  options: {
+    /** 本载体该看哪个标签页；缺省按浮层口径解析（pinned tab 优先，兜底查激活页） */
+    resolveTabId?: () => Promise<number | null>
+  } = {},
+) {
+  const resolveTabId = options.resolveTabId ?? resolveOwningTabId
+  /** 本载体该看的标签页（浮层 = pinned tab；popup = 点开时的激活页）；null = 取不到归属（极端态，UI 自隐藏） */
   const owningTabId = ref<number | null>(null)
   const pageUrl = ref('')
   /** 当前 tab 当前文档的运行集（uuid → 运行项；展示按启动时间倒序） */
@@ -87,9 +99,9 @@ export function usePageMonitor() {
     }
   }
 
-  /** 认定本浮层所属的标签页并取它的地址（挂载时一次；之后靠 onTabUpdated 跟随页内导航） */
-  async function trackOwningTab(): Promise<void> {
-    const tabId = await resolveOwningTabId()
+  /** 认定本载体该看的标签页并取它的地址（挂载时一次；之后靠 onTabUpdated 跟随页内导航） */
+  async function trackTab(): Promise<void> {
+    const tabId = await resolveTabId()
     if (tabId == null) {
       setTab(null, '')
       return
@@ -113,7 +125,7 @@ export function usePageMonitor() {
     }
   }
 
-  // —— SW 推送消费（只认当前 active tab 的切片） ——
+  // —— SW 推送消费（只认本载体归属 tab 的切片） ——
 
   function handlePush(msg: PanelMonitorPush): void {
     if (msg.tabId !== owningTabId.value) return
@@ -155,7 +167,7 @@ export function usePageMonitor() {
 
   let monitorPort: chrome.runtime.Port | null = null
 
-  // 只跟「本浮层所属的那个标签页」的导航：它在页内跳转（含 SPA 软导航改 URL）时同步地址。
+  // 只跟「本载体所属的那个标签页」的导航：它在页内跳转（含 SPA 软导航改 URL）时同步地址。
   // 与归属无关 —— 归属认的是 tabId，页内导航既不换 tab 也不换会话（见 lib/owning-tab.ts）。
   const onTabUpdated = (tabId: number, changeInfo: { url?: string }, tab: { url?: string }): void => {
     if (tabId !== owningTabId.value) return
@@ -167,7 +179,7 @@ export function usePageMonitor() {
   useDataSync('script', () => refreshNames())
 
   onMounted(() => {
-    void trackOwningTab()
+    void trackTab()
     scheduleNameRefresh()
     try {
       monitorPort = chrome.runtime.connect({ name: 'duoling:panel' })
@@ -198,7 +210,8 @@ export function usePageMonitor() {
     return errors.value.filter((e) => e.uuid === uuid)
   }
 
-  /** 点击脚本行：经端口上行，由 SW 打开/聚焦工作台并深链到该脚本的错误 */
+  /** 点击脚本行：经端口上行，由 SW 打开/聚焦工作台并深链到该脚本的错误。
+   *  popup 侧的调用方点完要自行关闭面板（新标签页激活后 popup 未必立刻消失） */
   function openErrors(uuid: string): void {
     try {
       monitorPort?.postMessage({ t: 'page:openErrors', uuid })
