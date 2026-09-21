@@ -2,6 +2,18 @@
 
 本文件记录哆灵扩展每个发布版本的变更。**格式与维护方式见 [VERSIONING.md](VERSIONING.md)「CHANGELOG.md」**，本文件只放条目。
 
+
+
+## [0.3.0-alpha.2] - 2026-09-21
+
+### Added
+
+- 新版本检查：查到有新版本时，工具栏 popup 与设置页「关于」给出去处（自动检查挂在浏览器启动与安装 / 更新时，设置页另有手动入口）
+
+### Changed
+
+- 扩展 ID 固定为由公钥派生的值，不再随安装目录变化 —— 换 git worktree、换解压目录、换机器都共享同一份本地数据（storage / IndexedDB / userScripts 授权）与 `chrome-extension://` 页面 URL
+- 设置页「关于」分区新增「检查更新」行
 ## [0.3.0-alpha.1] - 2026-09-21
 
 ### Added
