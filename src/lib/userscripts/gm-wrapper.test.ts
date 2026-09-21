@@ -2,8 +2,9 @@
 // ② `@grant` 裁剪规则按预期放行 / 关闭成员。
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
+import { GM_ALL_GLOBALS, GM_ALL_NS } from '../gm-grants'
 import type { GmInfo } from './api-contract'
-import { GM_ALL_GLOBALS, GM_ALL_NS, buildGmWrapperSource, resolveGmExposure } from './gm-wrapper'
+import { buildGmWrapperSource, resolveGmExposure } from './gm-wrapper'
 
 /** 造一份最小 GM_info（userAgent / isIncognito 由包装运行时就地补，故不传） */
 function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {

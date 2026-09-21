@@ -16,6 +16,7 @@
 //     （本扩展无页面上下文，一点不给反而会让读 `GM_info` 判环境的脚本当场崩）。
 //   · **降级项**（速查页与 spec 必须标注）：`unsafeWindow` 是隔离世界的 window；`GM_xmlhttpRequest`
 //     无 `onprogress`；`GM_cookie` 不收 `domain` / `path`（域名门）。
+import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS, GRANT_MEMBERS } from '../gm-grants'
 import type { GmInfo, Json } from './api-contract'
 import { buildPageClientSource } from './page-client'
 
@@ -34,45 +35,6 @@ export interface GmWrapperOptions {
   /** `@grant` 声明（缺省 / 空 / 含 none → 全量注入） */
   grant?: string[]
 }
-
-/** `@grant` 名 → 它开启的成员（全局函数名 / `GM.*` 成员名）。对齐 TM：一个 grant 同时开两种形态 */
-const GRANT_MEMBERS: Record<string, { globals: string[]; ns: string[] }> = {
-  GM_getValue: { globals: ['GM_getValue'], ns: ['getValue'] },
-  GM_setValue: { globals: ['GM_setValue'], ns: ['setValue'] },
-  GM_deleteValue: { globals: ['GM_deleteValue'], ns: ['deleteValue'] },
-  GM_listValues: { globals: ['GM_listValues'], ns: ['listValues'] },
-  GM_addValueChangeListener: { globals: ['GM_addValueChangeListener'], ns: ['addValueChangeListener'] },
-  GM_removeValueChangeListener: { globals: ['GM_removeValueChangeListener'], ns: ['removeValueChangeListener'] },
-  GM_registerMenuCommand: { globals: ['GM_registerMenuCommand'], ns: ['registerMenuCommand'] },
-  GM_unregisterMenuCommand: { globals: ['GM_unregisterMenuCommand'], ns: ['unregisterMenuCommand'] },
-  GM_addStyle: { globals: ['GM_addStyle'], ns: ['addStyle'] },
-  GM_addElement: { globals: ['GM_addElement'], ns: ['addElement'] },
-  GM_log: { globals: ['GM_log'], ns: ['log'] },
-  GM_notification: { globals: ['GM_notification'], ns: ['notification'] },
-  GM_setClipboard: { globals: ['GM_setClipboard'], ns: ['setClipboard'] },
-  GM_xmlhttpRequest: { globals: ['GM_xmlhttpRequest'], ns: ['xmlHttpRequest'] },
-  GM_download: { globals: ['GM_download'], ns: ['download'] },
-  GM_openInTab: { globals: ['GM_openInTab'], ns: ['openInTab'] },
-  GM_getTab: { globals: ['GM_getTab'], ns: ['getTab'] },
-  GM_saveTab: { globals: ['GM_saveTab'], ns: ['saveTab'] },
-  GM_getTabs: { globals: ['GM_getTabs'], ns: ['getTabs'] },
-  GM_cookie: { globals: ['GM_cookie'], ns: [] },
-}
-
-/** 恒注入、不需要 `@grant` 的全局（对齐 TM：`GM_info` / `unsafeWindow` 无需声明） */
-const ALWAYS_GLOBALS = ['GM_info', 'unsafeWindow'] as const
-
-/** 恒注入的 `GM.*` 成员：`info` + 本扩展成员（非标准，不属于任何 grant） */
-const ALWAYS_NS = ['info', 'clearValues', 'focusTab', 'page'] as const
-
-/** 全部成员名的枚举（catalog 的类型层镜像与单测共用；避免两处各写一份） */
-export const GM_ALL_GLOBALS: string[] = [
-  ...new Set([...ALWAYS_GLOBALS, ...Object.values(GRANT_MEMBERS).flatMap((m) => m.globals)]),
-].sort()
-
-export const GM_ALL_NS: string[] = [
-  ...new Set([...ALWAYS_NS, ...Object.values(GRANT_MEMBERS).flatMap((m) => m.ns)]),
-].sort()
 
 /**
  * 按 `@grant` 算出「注入哪些成员」。
