@@ -315,9 +315,56 @@ export type ApiRequest =
   | { c: 'store.watch'; key: string; connId: string }
   | { c: 'store.unwatch'; key: string; connId: string }
   // 全量订阅（Port 级布尔）：**只读值的脚本也必须有下行通道**，否则同步快照跨 tab 永久陈旧。
-  // 与 url.watch 同构。
+  // 与 url.watch 同构，但**故意不配退订命令** —— 「读过值即常驻订阅」这个前提决定了撤销它等于
+  // 把同步读退回陈旧状态（那是缺陷，不是能力），故这里只有 watchAll。
   | { c: 'store.watchAll'; connId: string }
-  | { c: 'store.unwatchAll'; connId: string }
+
+/**
+ * 命令名的**运行时登记表**（键即 `ApiRequest.c` 的全集）。
+ *
+ * 为什么需要它：命令的**发送侧**是 gm-wrapper.ts 里那段注入源码**字符串**
+ * （`__gmSend({ c: 'store.get' … })`），命令名对 typecheck 完全不可见 —— 拼错、或改了 dispatch
+ * 漏改包装层，编译与分层单测都不报。故这里立一份可在运行时枚举的登记表，
+ * 由 api-commands.test.ts 从真实注入源码反射发送侧、与它双向比对。
+ *
+ * 形状取 `Record<ApiRequest['c'], true>` 是刻意的：键约束 + 对象字面量的多余属性检查，
+ * 使「契约加了命令、表没跟上」与「表里写了不存在的命令」**都编译报错** ——
+ * 本表不可能成为第二真相源，也与 `default` 里的穷尽性检查互补（那条管分发侧，这条管发送侧）。
+ *
+ * 顺序按字母（前缀天然成簇）；新增命令时在此与 `ApiRequest` 各加一行即可。
+ */
+export const API_COMMANDS: Record<ApiRequest['c'], true> = {
+  'clipboard.write': true,
+  'cookie.get': true,
+  'cookie.remove': true,
+  'cookie.set': true,
+  download: true,
+  fetch: true,
+  'fetch.abort': true,
+  'menu.register': true,
+  'menu.unregister': true,
+  notify: true,
+  'store.all': true,
+  'store.clear': true,
+  'store.delete': true,
+  'store.get': true,
+  'store.keys': true,
+  'store.set': true,
+  'store.unwatch': true,
+  'store.watch': true,
+  'store.watchAll': true,
+  'tab.all': true,
+  'tab.get': true,
+  'tab.save': true,
+  'tabs.close': true,
+  'tabs.focus': true,
+  'tabs.open': true,
+  'url.unwatch': true,
+  'url.watch': true,
+}
+
+/** 命令名（= `ApiRequest['c']`；`API_COMMANDS` 的键类型） */
+export type ApiCommand = ApiRequest['c']
 
 /**
  * 后台 → 脚本世界 的推送事件，经 Port 下行（帧信封见 ApiEventFrame）。

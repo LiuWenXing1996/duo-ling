@@ -68,6 +68,18 @@ describe('buildGmWrapperSource', () => {
     expect(src).toContain('store.watchAll') // 常驻通道
     expect(src).toContain('store.all') // connect 后全量校准
   })
+
+  it('onurlchange 的退订路径在（摘干净 → 复位意图位 + 发 url.unwatch）', () => {
+    const src = build()
+    // 订阅侧两条路（属性赋值 / addEventListener）都在
+    expect(src.match(/c: 'url\.watch'/g)?.length).toBeGreaterThanOrEqual(3)
+    // 退订侧：复位意图位 + 通知后台。不复位的后果是**注销不掉** —— 意图位一直为 true，
+    // Port 重连时 __gmConnect 会无条件重放 url.watch（见上面 rreqs 那段）
+    expect(src).toContain("c: 'url.unwatch'")
+    expect(src).toContain('__gmActiveUrlWatch = false')
+    // 释放函数 = 定义 1 处 + 两条退订路（属性置 null / removeEventListener）各 1 处
+    expect(src.match(/__gmReleaseUrlWatchIfIdle\(\)/g)?.length, '退订没接全（少了一处调用？）').toBe(3)
+  })
 })
 
 describe('resolveGmExposure（@grant 裁剪）', () => {
