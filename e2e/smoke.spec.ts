@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  enableDevMode,
   enableUserScripts,
   extensionIdFromServiceWorker,
   getServiceWorker,
@@ -48,6 +49,8 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     sw = await getServiceWorker(context)
     extensionId = extensionIdFromServiceWorker(sw)
     messenger = await openMessengerPage(context, extensionId)
+    // 工作台那几个调试入口默认不显示（开发者模式关闭），端测要验它们就得先开总闸
+    await enableDevMode(messenger)
     const availability = await sendToSw<{ available: boolean }>(messenger, { kind: 'userscript:availability' })
     userScriptsAvailable = availability.ok === true && availability.data.available === true
 

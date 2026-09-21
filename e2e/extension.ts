@@ -90,6 +90,20 @@ export async function sendToSw<T>(
 }
 
 /**
+ * 打开扩展自己的「开发者模式」总闸（storage 键见 src/lib/dev-mode-store.ts）。
+ *
+ * 工作台左侧那几个调试入口（脚本文件 / 会话数据 / AI 工具 / GM API / AI 界面对话预览）
+ * 默认不显示，端测要验它们就得先开总闸 —— 顺带也把这道开关本身覆盖了。
+ * 键名在这里是字面量而非 import：e2e 与 src 是两套 tsconfig（`@/` 别名不同），
+ * 改键名时两边一起改（真相源只在 dev-mode-store.ts 一处）。
+ *
+ * storage 是扩展级持久化，写一次之后新开的 workbench 页立即生效，无需 reload。
+ */
+export async function enableDevMode(extensionPage: Page): Promise<void> {
+  await extensionPage.evaluate(() => chrome.storage.local.set({ 'duoling:devMode': true }))
+}
+
+/**
  * 无头下打开 chrome://extensions，程序化打开 userScripts 的两道开关：
  * 1) 全局开发者模式：chrome.developerPrivate.updateProfileConfiguration（各版本通用）；
  * 2) 每扩展「Allow user scripts」（≥138）：API 字段名随版本变过（153 报
