@@ -45,7 +45,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 `chrome.userScripts` + USER_SCRIPT 世界 + **GM 包装层**（`gm-wrapper.ts`，注入体）桥接（`src/lib/userscripts/`）。
 
-标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`）；能力表 `gm-api-catalog.ts` 一张生成速查页与 `.d.ts` 两形态（50 条，双防漂移：类型层 `satisfies` + 源码反射单测）。内部仍走 `dl-bridge.ts` 的 `__dl` 信封协议（协议稳定、与 DL 时代一致）。
+标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`；grant 名 → 它开启的成员这张对应表在 `gm-grants.ts`，注入侧、速查页与 AI 规范三处共用这一份）；能力表 `gm-api-catalog.ts` 一张生成速查页、`.d.ts` 与**给 AI 的能力清单**三形态（50 条，三防漂移：类型层 `satisfies` + 从注入源码反射 + 规范文本对齐单测）。内部仍走 `dl-bridge.ts` 的 `__dl` 信封协议（协议稳定、与 DL 时代一致）。
 
 - **可用性前置**：`chrome.userScripts` 在用户未开启「运行用户脚本」时**不存在**，直接调用会让 SW 初始化崩溃。引擎每条入口都先判存在性（`isUserScriptsAvailable()` / `typeof chrome.userScripts.register === 'function'`）再优雅跳过；开启引导统一交给工作台「引导」标签页（各处只给「查看开启引导」入口，不各写一套步骤）。
 
