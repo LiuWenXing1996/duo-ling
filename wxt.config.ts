@@ -103,6 +103,13 @@ export default defineConfig({
   manifest: {
     name: '哆灵',
     description: '哆灵 AI 用户脚本工坊 · 扩展版（网页浮层对话 + 标签页工作台）',
+    // 扩展 ID 固定：manifest 带 key 时 Chrome 用 SHA256(公钥) 派生 ID，不再按扩展目录的
+    // 绝对路径算 —— 换 worktree、换解压目录、换机器都是同一个 ID，本地数据（storage /
+    // IndexedDB / userScripts 授权）不再随安装位置重置。
+    // 公钥非敏感（公开仓库可见、上架后商店也公开此值）；私钥单独保管、不入库，仅打包
+    // CRX 自托管时才需要。生成方式与 ID 换算见 VERSIONING.md。
+    // 2026-09-22 经评审确认。
+    key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAn48Pdu5rZ8jaljtXTNwFjwDOfj4b0phMH50lb6jhE4VGV2SRVbnWcoi34IOJw/Vlp8wVwM8Dpn6ZpRsmIdUWzx5lrjO8vc9DXI+5ORtH/2vl0jCxlmALDh3Wi/6wYnjb5QkXsPFzobhypeD+Aseaf1nREgo0Vp/W90awxDx7blBTuhVVdKVDNs6Mt8HluvDTMgUAWq0e1MDxhOkWvTjEMT5Q7pkLaBrapg1eA/FlBie5Hd3qj/uT2ykPHEKsZBZNd3ZHDizxtTM1c0LXAFX+7k5E6IS4B27uJhIoCxrv3GXOuo2BdVce5pLjNbwRa+JoHgSVJ1ZEsVQFWaUuGTBTCQIDAQAB',
     // action 的默认行为由 popup 承担：点工具栏图标弹 popup（entrypoints/popup.html 自动写入
     // default_popup）。对话入口是网页浮层，由 content script 注入，不占 action。
     // offscreen 是 AI 生成链路的执行宿主（定位 B）：
