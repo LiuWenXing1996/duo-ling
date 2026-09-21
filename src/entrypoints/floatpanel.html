@@ -20,7 +20,7 @@
     -->
     <style>
       /* 首帧底色用 CSS 系统色 Canvas，自动跟随系统深浅色 —— 不依赖 @media (prefers-color-scheme)，
-         因为 Chrome 侧边栏在部分环境下该媒体查询不可靠（面板未正确上报深色），会让内联样式走 light 分支变白。
+         因为 Chrome 在部分环境下该媒体查询不可靠（文档未正确上报深色），会让内联样式走 light 分支变白。
          Canvas/CanvasText 由浏览器按 OS 配色直接解析，稳定且不需 JS（CSP 禁内联脚本）。 */
       html {
         background: Canvas;

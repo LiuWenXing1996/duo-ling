@@ -137,7 +137,7 @@ export interface UserScriptErrorRecord {
   time: number // 时间戳
   /**
    * 运行标识：**一次页面加载 = 一个 runId**（GM 包装注入即 mint，见 gm-wrapper 的 buildGmWrapperSource）。
-   * 用途：日志是全量环形（历次运行混存），侧边栏页面监控只显「本次运行」的错误——
+   * 用途：日志是全量环形（历次运行混存），对话界面页面监控只显「本次运行」的错误——
    * 按当前 tab 登记的运行集里有没有该 runId 来判定。
    * `register`（注册失败）与 `bridge`（桥调用失败）没有页面/运行上下文，恒为 null / 缺省。
    */

@@ -15,6 +15,7 @@
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
+import { FLOAT_PANEL_OPEN_PORT } from '@/shared/extension-ipc'
 import type { ModelProfileState, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 
 // 用户脚本管理器（v2 方案）：引擎 + 存储 + GM 桥 + 类型
@@ -64,12 +65,15 @@ import {
   listRunTimeline,
   clearRunLog,
 } from '@/lib/userscripts/store'
-// 侧边栏页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口
+// 对话界面页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口
 import {
   forgetPageTab,
   initPageMonitorPorts,
   resetPageRuns,
 } from '@/lib/userscripts/page-monitor'
+// 会话的标签页归属映射（duoling-app 库）：标签页关闭时在这里清（见 tabs.onRemoved 处说明）；
+// page:snapshot 也用它反查「这条会话在哪个标签页上」（会话按 tab 归属）
+import { findTabsUsingConversation, unbindTab } from '@/lib/conversation-tab-map'
 import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主）
@@ -94,7 +98,7 @@ import { capturePageSnapshotFromTab, pageInjectionBlockReason } from '@/lib/elem
  *
  * export 仅供协议一致性测试（extension-ipc.test.ts）做 kind 归属断言。
  */
-export const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:', 'sw:', 'page:'] as const
+export const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:', 'sw:', 'page:', 'tab:'] as const
 
 /**
  * SW 管辖的请求（由上面的前缀推导，两者必须同源）。
@@ -180,8 +184,13 @@ async function registerOrLog(project: ScriptProject): Promise<string | undefined
   }
 }
 
+// 第二个参数是 chrome 的消息发送方：只有需要「回 sender 自己的东西」的命令才用得上
+// （现仅 tab:identify 取 sender.tab.id）；其余 handler 少写一个参数即可，TS 允许。
 const handlers: {
-  [K in SwRequest['kind']]: (msg: Extract<SwRequest, { kind: K }>) => Promise<unknown>
+  [K in SwRequest['kind']]: (
+    msg: Extract<SwRequest, { kind: K }>,
+    sender: chrome.runtime.MessageSender,
+  ) => Promise<unknown>
 } = {
   // —— offscreen 容器——
   // A 组只做容器与通道：这几个命令供手动 / 调试触发；B 组的生成入口会直接调 ensureOffscreen()。
@@ -206,20 +215,40 @@ const handlers: {
   'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> => getActiveProfileState(),
 
   // —— AI 工具支路 ——
-  // page_snapshot 工具（offscreen 经此命令请 SW 代办）：定位当前活动标签后执行拾取器快照模式。
+  // page_snapshot 工具（offscreen 经此命令请 SW 代办）：定位目标标签后执行拾取器快照模式。
   // chrome.userScripts 在 SW 可用（与注册链路同源，138+ 逐扩展开关门控），offscreen 不可达。
   // 快照 = AI 判断需要时才采集。
-  'page:snapshot': async (): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
+  //
+  // **目标页 = 本会话所属的标签页**，不是「当前激活标签页」：会话按 tab 归属（一个 tab 一条
+  // 会话），而快照是 AI 在生成中途决定采的，那时用户完全可能已经切到别的页 —— 查「激活」会把
+  // 别人那一页的 DOM 喂给模型。反查走归属映射，自带存活校验（tab 已关的残留项会被判掉）。
+  'page:snapshot': async (msg): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
     if (!chrome.tabs?.query) throw new Error('tabs API 不可用，无法定位目标标签页')
-    // SW 无窗口上下文：lastFocusedWindow 语义 = 用户最后聚焦的窗口（与侧边栏所在窗口一致的场景）
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-    if (!tab?.id) throw new Error('未找到活动标签页')
+    const owned = msg.conversationId ? await findTabsUsingConversation(msg.conversationId) : []
+    let tabId: number | undefined = owned[0]
+    if (tabId == null) {
+      // 兜底：会话没绑标签页（那条 tab 已关 / 映射缺项）→ 退回最后聚焦窗口的激活页，
+      // 总比直接失败强；SW 无窗口上下文，lastFocusedWindow 语义 = 用户最后聚焦的窗口
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+      tabId = tab?.id
+    }
+    if (tabId == null) throw new Error('未找到目标标签页')
     // 内置页 / 扩展页拦在注入前（判据与拾取器共用，见 pageInjectionBlockReason——扩展页连自己
     // 的也不行，<all_urls> 不覆盖 chrome-extension scheme）
-    const blocked = pageInjectionBlockReason(tab.url)
+    const tab = await chrome.tabs.get(tabId).catch(() => null)
+    const blocked = pageInjectionBlockReason(tab?.url)
     if (blocked) throw new Error(`${blocked}，无法采集页面快照`)
-    return capturePageSnapshotFromTab(tab.id)
+    return capturePageSnapshotFromTab(tabId)
   },
+
+  // —— 内容脚本自证身份 ——
+  // 回 sender 自己的 tab id：content script 拿不到 chrome.tabs，而网页浮层（扩展页 iframe）
+  // 必须知道「自己属于哪个 tab」才能认定会话归属（每 tab 一条会话）。
+  // 取不到时回 null（扩展页发的消息本就没有 tab），由调用方降级——浮层拿不到 tabId 的
+  // 情况下会话归属退化为「不绑定」，而不是错绑到别的 tab。
+  'tab:identify': async (_msg, sender): Promise<{ tabId: number | null }> => ({
+    tabId: sender.tab?.id ?? null,
+  }),
 
   // —— 用户脚本管理器（IPC 命令名沿用既有，载荷为项目形态）——
   // 列表视图：项目读自状态库（直连 IDB）；运行统计（runtime 库 stats store）同样 SW 直读，这里挂上
@@ -493,10 +522,13 @@ async function initUserScripts(): Promise<void> {
 declare const __BUILD_INFO__: { time: string; branch: string }
 
 // —— 生成完成徽章 ——
-// 面板存活感知：侧边栏打开时连一条端口长连接（ChatApp 挂载时 connect），断开 = 面板关了。
-// 任务收尾推送 chat:finished 到达时：面板开着 → 不做任何事；面板关着 → 图标角标亮 '1'。
-// 角标是「你不在时有事发生了」的信号：不计数、失败同亮同色、面板一开即清零。
-const panelPorts = new Set<chrome.runtime.Port>()
+// 「用户此刻在看对话界面吗」的判据 = **浮层是否展开**：content script 展开时连上
+// FLOAT_PANEL_OPEN_PORT、收起时断开（页面卸载 / 导航则端口自然断）。**不能拿「面板文档存活」
+// 判**：收起草稿浮层只是 `display:none`，iframe 与面板文档都还在，端口永不断开 → 角标永不亮
+// （2026-09-21 无头实测：收起后推 chat:finished，角标纹丝不动；把 iframe 真摘掉才亮）。
+// 任务收尾推送 chat:finished 到达时：浮层展开着 → 不做任何事；没展开 → 图标角标亮 '1'。
+// 角标是「你不在时有事发生了」的信号：不计数、失败同亮同色，浮层一展开即清零。
+const openFloatPorts = new Set<chrome.runtime.Port>()
 
 function setFinishedBadge(): void {
   chrome.action.setBadgeBackgroundColor({ color: '#d93025' }).catch(() => {})
@@ -509,16 +541,16 @@ function clearFinishedBadge(): void {
 
 /** chat:finished 观察（offscreen 推送，chat: 前缀按约定不进命令路由，这里只旁听） */
 function handleChatFinishedPush(ok: boolean): void {
-  if (panelPorts.size === 0) setFinishedBadge()
+  if (openFloatPorts.size === 0) setFinishedBadge()
   void ok
 }
 
-// —— 侧边栏监控 + 完成徽章的事件挂载 ——
+// —— 对话界面监控 + 完成徽章的事件挂载 ——
 // ⚠️ 全部 addListener 必须留在 defineBackground 回调内（与既有监听器同惯例）：
 // 本文件会被协议一致性测试 import（取 SW_KIND_PREFIXES），模块顶层挂监听会在
 // Node/fakeBrowser 下炸（runtime.onConnect 未实现）——之前踩过。
 function mountProposal2Listeners(): void {
-  // 侧边栏监控：新文档导航开始 = 旧文档销毁，该 tab 的运行集清零。
+  // 对话界面监控：新文档导航开始 = 旧文档销毁，该 tab 的运行集清零。
   // 刻意用 status=loading（文档替换的准确时点），SPA 软导航只改 url、不换文档，不清。
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo.status === 'loading') resetPageRuns(tabId)
@@ -526,21 +558,23 @@ function mountProposal2Listeners(): void {
 
   chrome.tabs.onRemoved.addListener((tabId) => {
     forgetPageTab(tabId)
+    // 会话归属映射一并清掉：面板没开的时候标签页照样会被关，只有常驻的 SW 不漏。
+    // 漏清也不致错 —— 会话历史的删除门自己会验「标签页是否还开着」，残留项判不出「在用」
+    // （见 conversation-tab-map 的 getActiveTabBindings）；这里清是为了不留垃圾。
+    void unbindTab(tabId).catch(() => {})
   })
 
-  // 面板存活端口 + 徽章清零
+  // 浮层展开态端口：连上 = 有浮层正展开（顺手清角标 ——「用户回来了」），断开 = 收起 / 页面走了。
+  // 判据用**展开态**而不是「面板文档还活着」：收起只给面板加 display:none，iframe 与文档都还在
+  // （草稿 / 滚动位置刻意留着），那条端口永不断开，角标就永不亮（2026-09-21 无头实测确认）。
   chrome.runtime.onConnect.addListener((port) => {
-    if (port.name !== 'duoling:panel') return
-    panelPorts.add(port)
-    clearFinishedBadge() // 用户回来了：信号完成使命
-    port.onDisconnect.addListener(() => panelPorts.delete(port))
-  })
-
-  chrome.sidePanel.onOpened.addListener(() => {
+    if (port.name !== FLOAT_PANEL_OPEN_PORT) return
+    openFloatPorts.add(port)
     clearFinishedBadge()
+    port.onDisconnect.addListener(() => openFloatPorts.delete(port))
   })
 
-  // 侧边栏监控端口（复用 'duoling:panel' 连接：上行快照请求 + 推送寻址）
+  // 页面脚本监控端口（另一条连接 'duoling:panel'：上行快照请求 + 推送寻址）
   initPageMonitorPorts()
 }
 
@@ -548,13 +582,8 @@ export default defineBackground(() => {
   // 启动自证：console 第一条就是构建信息，「SW 是不是新包」不用再靠猜
   console.log(`[duoling:sw] SW 启动 · 构建 ${__BUILD_INFO__.time} · 分支 ${__BUILD_INFO__.branch}`)
 
-  // 点击工具栏图标即打开 popup（action.default_popup 由 popup.html 入口自动写入 manifest）。
-  // 故关闭「点图标开侧边栏」的自动行为 —— 一个 action 无法同时默认开 popup 与 side panel；
-  // 对话改由 popup 内「打开对话」按钮经 chrome.sidePanel.open 唤起。
-  // 仍需 manifest 声明 sidePanel 权限 + action 键，否则 chrome.sidePanel 不存在、此调用静默失败。
-  chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: false })
-    .catch((e) => console.error('[duoling] setPanelBehavior failed', e))
+  // 点击工具栏图标打开 popup（action.default_popup 由 popup.html 入口自动写入 manifest）——
+  // 这是 action 的唯一用途；对话入口是网页浮层（content script 注入），不占 action。
 
   // 用户脚本管理器：启动配置世界并恢复已启用脚本
   void initUserScripts().catch((e) => console.error('[duoling:userscript] init failed', e))
@@ -576,7 +605,7 @@ export default defineBackground(() => {
     void chrome.runtime.sendMessage(push).catch(() => {})
   })
 
-  // 侧边栏监控 / 面板端口 / 完成徽章 / 深链跳转的监听器
+  // 对话界面监控 / 面板端口 / 完成徽章 / 深链跳转的监听器
   mountProposal2Listeners()
 
   // offscreen 需「随时可用」：安装 / 更新 / 浏览器启动都立即确保容器在场。
@@ -599,7 +628,7 @@ export default defineBackground(() => {
   // 它落盘成功后自己广播 `model` 域（扩展页回拉）并推送 offscreen:configChanged（offscreen
   // 的 profile-cache 回拉）。SW 这里不再需要 storage.onChanged 兜底。
 
-  chrome.runtime.onMessage.addListener((raw, _sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
     const msg = raw as RuntimeRequest | undefined
     if (!msg?.kind) return
 
@@ -615,14 +644,14 @@ export default defineBackground(() => {
 
     // 走到这里 msg.kind 必属 SW 管辖（上面按 SW_KIND_PREFIXES 过滤过），故可安全收窄
     const handler = handlers[msg.kind as SwRequest['kind']] as
-      | ((m: RuntimeRequest) => Promise<unknown>)
+      | ((m: RuntimeRequest, sender: chrome.runtime.MessageSender) => Promise<unknown>)
       | undefined
     if (!handler) {
       sendResponse({ ok: false, error: `未知消息类型：${msg.kind}` })
       return false
     }
 
-    handler(msg)
+    handler(msg, sender)
       .then((data) => sendResponse({ ok: true, data }))
       .catch((e: unknown) =>
         sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }),

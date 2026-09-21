@@ -36,7 +36,7 @@ function getTokensCacheKey(code: string, language: CodeLanguage) {
 
 /** shiki 运行时（引擎 + 正则引擎，生产产物约 200KB）的按需加载入口。
  *
- * 这里刻意不用顶层静态 import：shiki 只在「真正要渲染代码块」时才用得上，而打开侧边栏 /
+ * 这里刻意不用顶层静态 import：shiki 只在「真正要渲染代码块」时才用得上，而打开对话界面 /
  * 工作台的那一刻可能一条消息、一个代码块都没有 —— 静态 import 会把它钉进首屏静态图，
  * 直接拉长首开白屏。改为首次高亮时动态 import，模块级 Promise 缓存保证只加载一次。
  *

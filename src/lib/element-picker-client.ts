@@ -1,12 +1,13 @@
-// 元素拾取 / 页面快照的**发起侧**封装（侧边栏与 SW 两个上下文共用）。
+// 元素拾取 / 页面快照的**发起侧**封装（对话界面与 SW 两个上下文共用）。
 //
 // 链路：chrome.userScripts.execute() 按 tabId 向**已加载页面**注入拾取器
 // （src/public/duoling-picker.js，独立世界 us-builtin-picker），注入脚本返回
 // 「点选时才 resolve」的 Promise，浏览器等结算后把载荷从 execute() 的返回值带回——
 // 无消息回传链、无 SW 参与（前置探针已验证扩展页可访问该 API）。
 //
-// 采集方归属：点选 = 用户在侧边栏点按钮（用户显式）；
-// 快照 = AI 的 page_snapshot 工具经 SW 调 capturePageSnapshotFromTab（SW 定位活动标签）。
+// 采集方归属：点选 = 用户在对话界面点按钮（用户显式）；
+// 快照 = AI 的 page_snapshot 工具经 SW 调 capturePageSnapshotFromTab（SW 按**会话归属**定位
+// 目标标签页，见 background.ts 的 'page:snapshot'）。
 //
 // 失败语义（都有明确文案，不静默）：
 //   · chrome.userScripts 不可用 —— 138+ 逐扩展「允许运行用户脚本」开关未开 /
@@ -49,7 +50,7 @@ function ensureAvailable(): void {
  *   · 浏览器内置页（chrome:// / about: 等）：任何扩展都进不去；
  *   · 扩展页（chrome-extension://）：**连本扩展自己的页面也不行** —— host_permissions 里的
  *     `<all_urls>` 不覆盖 chrome-extension 这个 scheme。
- *     （真机复现：活动标签是工作台时点「点选元素」，侧边栏就显示那句英文原话。）
+ *     （真机复现：活动标签是工作台时点「点选元素」，对话界面就显示那句英文原话。）
  *
  * 在前置判据里拦住，比让 Chrome 把英文报错漏给用户好；而且这两类页面本来也不该被拾取。
  */
@@ -84,7 +85,13 @@ export function friendlyInjectError(e: unknown): Error {
   return e instanceof Error ? e : new Error(raw)
 }
 
-/** 目标标签页：与档 0（collectPageContext）同语义——当前窗口的活动标签 */
+/**
+ * 拾取的目标标签页 = **当前窗口的活动标签页**。
+ *
+ * 与快照（SW 按会话归属反查）口径不同是刻意的：拾取由用户在**看得见的面板**上点按钮发起，
+ * 那一刻它必然在激活标签页上（浮层只在自己那个 tab 可见），查激活页既准确又不必让面板
+ * 传参；而快照是 AI 在生成中途自己决定的，那时用户可能已切走，必须认归属。
+ */
 async function getTargetTabId(): Promise<number> {
   if (!chrome.tabs?.query) throw new Error('tabs API 不可用，无法定位目标标签页')
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
@@ -133,8 +140,8 @@ async function executePicker<T>(mode: 'pick' | 'snapshot', tabId: number): Promi
 }
 
 /**
- * 点选元素：页面亮拾取态，用户点选后 resolve 元素载荷（侧边栏上下文调用，用户显式动作）。
- * 用户取消（右键 / 侧边栏 Esc / 页面 Esc）返回 null（静默，不是错误）；超时 / 注入失败抛错。
+ * 点选元素：页面亮拾取态，用户点选后 resolve 元素载荷（对话界面上下文调用，用户显式动作）。
+ * 用户取消（右键 / 对话界面 Esc / 页面 Esc）返回 null（静默，不是错误）；超时 / 注入失败抛错。
  */
 export async function pickElement(): Promise<ElementPickContext | null> {
   ensureAvailable()
@@ -149,9 +156,9 @@ export async function pickElement(): Promise<ElementPickContext | null> {
 }
 
 /**
- * 取消进行中的拾取（侧边栏 Esc 触发）。
+ * 取消进行中的拾取（对话界面 Esc 触发）。
  *
- * 为什么不能只靠页面里的 Esc 监听：拾取期间键盘焦点在侧边栏（发起按钮所在文档），
+ * 为什么不能只靠页面里的 Esc 监听：拾取期间键盘焦点在对话界面（发起按钮所在文档），
  * keydown 不会到达页面 document——除非先点页面，而点击会被拾取拦截成「选中」。
  * 所以取消的主路径在发起侧：向同一世界补注入一条 cancel 指令，世界全局
  * `__duolingPickerActive` 跨注入持久（duoling-picker.js），旧 Promise resolve null，
@@ -173,8 +180,8 @@ export async function cancelPick(): Promise<void> {
 
 /**
  * 页面快照：静默抓渲染后 outerHTML（拾取器内截断 ~32KB），不亮任何 UI。
- * 调用方 = SW 的 chat:pageSnapshot 命令（AI 的 page_snapshot 工具触发）；
- * tabId 由 SW 定位（lastFocusedWindow 活动标签），本函数只管注入与取载荷。
+ * 调用方 = SW 的 'page:snapshot' 命令（AI 的 page_snapshot 工具触发）；
+ * tabId 由调用方定位（SW 侧按会话归属反查，兜底最后聚焦窗口的激活页），本函数只管注入与取载荷。
  */
 export async function capturePageSnapshotFromTab(tabId: number): Promise<PageSnapshotContext> {
   ensureAvailable()

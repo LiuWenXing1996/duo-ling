@@ -12,6 +12,7 @@ import LfsBrowserPanel from '@/components/userscript/LfsBrowserPanel.vue'
 import UserscriptHistoryPanel from '@/components/userscript/UserscriptHistoryPanel.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import ChatDataPanel from '@/components/ChatDataPanel.vue'
+import SessionHistoryTab from '@/components/SessionHistoryTab.vue'
 import AgentToolsPanel from '@/components/AgentToolsPanel.vue'
 import GmApiPanel from '@/components/GmApiPanel.vue'
 import type { WorkspaceTab } from '@/types/tab'
@@ -66,7 +67,7 @@ function confirmCloseTab(): void {
 }
 
 // 打开引导标签页：若已打开则激活，否则新开一个（全局仅一个）。
-// 这是「需要开权限」类提示的统一去处——脚本列表横幅、编辑器保存警告、侧边栏错误条都指向它，
+// 这是「需要开权限」类提示的统一去处——脚本列表横幅、编辑器保存警告、对话界面错误条都指向它，
 // 完整步骤与「打开扩展管理页」按钮只此一份（文案见 lib/extension-page.ts）。
 function openGuideTab(): void {
   if (!openTabs.value.some((t) => t.kind === 'guide')) {
@@ -137,6 +138,15 @@ function openChatDataTab(): void {
     openTabs.value.push({ kind: 'chat-data', id: 'chat-data', title: '会话数据' })
   }
   activate('chat-data')
+}
+
+// 打开会话历史标签页：回看/管理历史会话（列表 + 只读消息回放），全局仅一个。
+// 对话界面（网页浮层）的会话归属由标签页决定，历史会话的入口收在这里。
+function openSessionHistoryTab(): void {
+  if (!openTabs.value.some((t) => t.kind === 'session-history')) {
+    openTabs.value.push({ kind: 'session-history', id: 'session-history', title: '会话历史' })
+  }
+  activate('session-history')
 }
 
 // 打开 AI 工具标签页：agent 工具契约 + 调用轨迹（只读），全局仅一个。
@@ -221,8 +231,8 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「引导 / 设置 / UI 测试 / 脚本列表 / 错误日志 / lfs 浏览 / 会话数据 / AI 工具 / GM API」与脚本管理器的「编辑」入口
-defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorLogTab, openLfsBrowserTab, openChatDataTab, openAgentToolsTab, openGmApiTab, openUserscriptEditor })
+// 暴露给根布局：左侧导航栏「引导 / 设置 / UI 测试 / 脚本列表 / 错误日志 / lfs 浏览 / 会话数据 / 会话历史 / AI 工具 / GM API」与脚本管理器的「编辑」入口
+defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorLogTab, openLfsBrowserTab, openChatDataTab, openSessionHistoryTab, openAgentToolsTab, openGmApiTab, openUserscriptEditor })
 </script>
 
 <template>
@@ -283,6 +293,8 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
         <lfs-browser-panel v-else-if="tab.kind === 'lfs-browser'" />
         <!-- 会话数据：IndexedDB 会话库落盘原始记录（只读调试视图） -->
         <chat-data-panel v-else-if="tab.kind === 'chat-data'" />
+        <!-- 会话历史：回看历史会话（列表 + 只读消息回放）、改名 / 删除 -->
+        <session-history-tab v-else-if="tab.kind === 'session-history'" />
         <!-- AI 工具：agent 工具契约（与模型所见同源）+ 会话库里的真实调用轨迹 -->
         <agent-tools-panel v-else-if="tab.kind === 'agent-tools'" />
         <!-- GM API：脚本世界 window.GM 的能力速查（纯静态目录，与注入真身同源） -->

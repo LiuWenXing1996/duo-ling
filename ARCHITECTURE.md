@@ -7,16 +7,15 @@
 
 ## 形态
 
-Chrome MV3 扩展（background service worker + side panel + 工作台标签页；另有工具栏 popup 与 content script 注入的网页浮层）。原 Electron 桌面版实现已不在工作区，需要参照时从 git 历史取回。
+Chrome MV3 扩展（background service worker + 工作台标签页；对话界面是 content script 注入的网页浮层，另有工具栏 popup）。原 Electron 桌面版实现已不在工作区，需要参照时从 git 历史取回。
 
 ## 载体与运行时
 
 | 上下文 | 载体 | 角色 |
 | --- | --- | --- |
-| 扩展页 | `sidepanel.html`（side panel） | 指令入口与观察窗（对话界面） |
-| 扩展页 | `workbench.html`（标签页） | 重界面工作区（脚本管理 / 运行日志 / 设置等） |
-| 扩展页 | `popup.html`（工具栏 popup） | 配置入口：网页浮层开关（总开关 + 当前站点）+「打开对话 / 打开工作台」；**不承载对话**（不装 `window.api`） |
-| 扩展页 | `floatpanel.html`（网页浮层 iframe） | 网页内对话界面：与 side panel 复用同一个 `ChatApp`、共享同一份会话 |
+| 扩展页 | `floatpanel.html`（网页浮层 iframe） | **对话界面（唯一入口）**：指令入口与观察窗；显示**它所在标签页**的会话（tab 身份由 content script 经 iframe URL 传入） |
+| 扩展页 | `workbench.html`（标签页） | 重界面工作区（脚本管理 / 运行日志 / 会话历史 / 设置等） |
+| 扩展页 | `popup.html`（工具栏 popup） | 配置入口：网页浮层开关（总开关 + 当前站点）+「打开工作台」，并说明当前页面为何挂不了浮层；**不承载对话**（不装 `window.api`） |
 | 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：注入悬浮按钮 + iframe（按站点开关），拾取期间整块让位 |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
@@ -26,7 +25,18 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 
 ## 对话链路
 
-指令入口（侧边栏 / 网页浮层）只做观察；整条链路（`streamText` + tools）跑在 **offscreen document**，入口经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权。offscreen 容器按需创建（`src/lib/offscreen.ts`）。
+指令入口（网页浮层）只做观察；整条链路（`streamText` + tools）跑在 **offscreen document**，入口经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权。offscreen 容器按需创建（`src/lib/offscreen.ts`）。
+
+- **会话归属按标签页**：一个 tab 一条会话，切 tab 即切会话。归属映射（tabId → conversationId）存 `duoling-app` 的 `convByTab` 键（`src/lib/conversation-tab-map.ts`）—— **既不进会话库、也不进对话链路**：任务与流的键始终是 conversationId（`chat-host.ts` 的 `runningByConversation`、transport 的 `consumers`），所以这套绑定对执行层零影响，断了本地流任务照跑、切回来 resumeStream 接上。
+  - 归属解析**只在 `lib/owning-tab.ts` 一处**：认 content script 经 iframe URL 传来的 `?tab=<id>`（固定归属）—— 不能跟「当前激活标签页」走，浮层可能挂在一个已经不是激活的标签页上。会话归属（`use-global-conversation`）、随消息发出的页面上下文（`extension-chat-transport`）、灵动岛的运行集（`use-page-monitor`）都经它取 tab。
+  - **惰性新建**：tab 没有归属会话时不建、不落库、不进历史列表（未绑定态），发出第一条消息时才 create 并登记。
+  - 归属映射的清理归 **SW 的 `tabs.onRemoved`** —— 面板没开时 tab 照样会被关，只有常驻的 SW 不漏。
+  - 历史会话的查看 / 改名 / 删除在工作台「会话历史」标签页（`SessionHistoryTab.vue`：列表复用 `SessionHistoryPanel`，右栏用 `ChatPanel` 的只读模式回放）；对话界面里没有会话列表，也没有「新建会话」。
+  - **删除有前置门**：会话正被**开着的**标签页使用就不让删（它是那个标签页的现场）。判据在 `conversation-tab-map.ts` 的 `getActiveTabBindings` —— 「映射里有」**且**「该 tab 还活着」两条都成立才算在用：SW 的 `tabs.onRemoved` 负责及时清映射，但判据**不能只依赖它**（SW 可能被回收，残留项会把已关闭的标签页算成在用，用户就删不掉又找不到是哪个标签页）。无法判定 tab 存活时保守算作在用。
+  - 被挡下时不只拒绝，还要**告诉用户去关谁**（`SessionHistoryTab.vue`）：单条删除给文案（带那个标签页的站点名，`chrome.tabs.get` 取 url）+ 一颗「去那个标签页」按钮；「删除全部」则在弹框里**逐条列出**「会话标题 · 站点」，每条各配跳转按钮。跳转一律先 `windows.update({focused})` 再 `tabs.update({active})`（跨窗口时只 active 不会把窗口翻上来），且**跳完不收起弹框**（多条场景要连着关好几个）。
+  - **弹框形态按「哪种删除被挡」分（`blocked.kind`），不按目标条数分**：按条数分会出岔 —— 「删除全部」只碰到 1 个占用时，文案说「以下 1 条」而列表按「多于 1 条才显示」的规则不出现，成了指向空气的「以下」，按钮措辞也串成单条那套。
+
+- **生成完成徽章**：offscreen 收尾时推 `chat:finished`（`OffscreenPush`），SW 旁听后**只在没有任何浮层处于「展开态」时**点亮工具栏角标（不计数、失败同亮同色；浮层一展开即清零）。判据是 content script 在展开时连、收起时断的 `FLOAT_PANEL_OPEN_PORT` 端口 —— **不能拿「面板文档还活着没有」判**：收起浮层只是给它加 `display:none`（iframe 与面板文档刻意留着，草稿 / 滚动位置不丢），那条端口永不断开，角标就永不亮（2026-09-21 无头实测确认；页面卸载 / 导航则端口自然断，天然等于「收起」）。
 
 - **流式静默超时（防限流）**：`runLoop` 泵流期间挂 `createIdleGuard`（`src/lib/offscreen-chat/idle-guard.ts`），两次 chunk 间隔超 `STREAM_IDLE_TIMEOUT_MS`（默认 60s，可在模型高级配置里按 provider 调整 `streamIdleTimeoutSec` 秒）即判定 provider 卡死（有连接但不吐 token），主动 `abort` 并推 error 块「请求超时…已自动中止」。避免静默卡死的请求长期占用网关连接/并发配额、累积触发限流；用户手动停止走 `abortChat`，与此计时无关。模型配置探活 `testChat` 另有 15s 超时。
 - **对话流内的卡片走 `data-*` part**（`data-generation` 生成卡片、`data-net-capture` 录制同意卡）。两条硬约束：① 历史消息送模型前 `stripDataParts` 会剥掉全部 `data-*`（UI 专用，不进上下文）；② 卡片若由**工具执行中途**推送（同意卡的 `requestConsent` 回调即此例），必须在 `runLoop` 里收集（`midStreamParts`）并在收尾插进落盘序列——`allChunks` 只收 `streamText` 的输出流，中途手工推的 part 不在其中，不收集就只在流里闪一下、重开面板即消失（而卡片往往是用户唯一的操作入口）。
@@ -53,8 +63,8 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 
 ## 页面上下文
 
-- **点选元素**：`chrome.userScripts.execute()` 按需注入内置拾取器，产物暂存后随下一条消息发出。
-- **页面快照**：AI 侧 `page_snapshot` 工具经 SW 采集。
+- **点选元素**：`chrome.userScripts.execute()` 按需注入内置拾取器，产物暂存后随下一条消息发出。目标 = **当前窗口的活动标签页**（拾取由用户在看得见的面板上点按钮发起，那一刻它就在激活页上）。
+- **页面快照**：AI 侧 `page_snapshot` 工具经 SW 采集。目标 = **这条会话所属的标签页**（不是「当前激活页」：快照是 AI 在生成中途自己决定要采的，那时用户可能已经切到别处）。反查走归属映射（`findTabsUsingConversation`，自带 tab 存活校验），会话没绑标签页时才退回最后聚焦窗口的激活页。
 
 ## 存储（IndexedDB 分库：源码 / 注册态 / 脚本数据 / 观测数据 / 应用配置 / 会话 / 网络录制，2026-09-19 重构）
 
@@ -68,9 +78,9 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 
 ④ **观测数据库 `duoling-runtime`**（`runtime-db.ts`，**写只归 SW**）：错误日志（errors store，单记录环形 ≤ `ERROR_LOG_MAX`）、运行统计（stats store，每脚本一记录：总次数 / 最后运行时间 / 最近一次运行错误数）与运行日志（runlog store，全局环形 ≤ `RUN_LOG_MAX`）——统计与日志**并进同一事务写入**（`mutateStatsAndLog` 跨 store，逐条日志不额外放大写入）；读改写在事务内天然原子，chrome.storage 时代的进程内串行队列已随之删除；错误明细按 runId 与日志关联，工作台「运行日志」标签页 = 时间线（运行行 + 孤儿错误行，`listRunTimeline` 合并读）。用户脚本的存储**全部落 IndexedDB**；GM 存储写出口发变更事件（`onGmValueChange`，值未变 / 删不存在键不发）。
 
-⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`——**密钥同存本机，属防扫描级而非保密级**）、key-cipher DEK、MAIN 世界桩密钥（`pageSecret`）——扩展自己的小数据；`chrome.storage.local` 已清零。
+⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`——**密钥同存本机，属防扫描级而非保密级**）、key-cipher DEK、MAIN 世界桩密钥（`pageSecret`）、**标签页 → 会话的归属映射（`convByTab`，见 `conversation-tab-map.ts`）**——扩展自己的小数据；`chrome.storage.local` 已清零。归属映射是**整表一个键**，而写方有两处（面板登记新会话 / SW 在 tab 关闭时清理），可能交错，故写入一律走 `app-db.update` 的单事务「读-改-写」（拆成 get+set 会丢更新）。
 
-⑥ **会话库 `duoling-chat`**（`conversation-store.ts` 读写，**唯一写方 = offscreen**，读侧（侧边栏 / 网页浮层）只读订阅）：会话与消息 + 生成任务快照（tasks store，宿主被杀后可续）——它不在 userScripts 链路里，故与 `duoling-state` 分开。
+⑥ **会话库 `duoling-chat`**（`conversation-store.ts` 读写，**唯一写方 = offscreen**，读侧（对话界面 / 工作台会话历史）只读订阅）：会话与消息 + 生成任务快照（tasks store，宿主被杀后可续）——它不在 userScripts 链路里，故与 `duoling-state` 分开。
 
 ⑦ **网络录制库 `duoling-netlog`**（`netlog-db.ts`，**写只归 SW**）：`captures` store（自增主键 + `by_host` 索引）——页面接口流量的**采样**（隐私敏感、按站点授权），每 host 环形 ≤ `NET_HOST_RING_LIMIT`（超限删最旧）。写入口是 `dl-bridge` 的 `__dlNetCapture` 分支；门禁（哪些 host 在录）是**应用配置**，存 `duoling-app` 的 `netCaptureHosts` 键（见 `net-capture-gate.ts`）。与 `duoling-runtime` 分开：那是脚本观测数据，这是「页面之外」的网络流量采样，生命周期随「关录制 / 清记录」走。
 

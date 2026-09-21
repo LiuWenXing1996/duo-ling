@@ -1,17 +1,24 @@
 // 内容脚本：在第三方网页注入「悬浮对话按钮(FAB)」，点击切换一个 iframe 浮层
-// （指向扩展页 floatpanel.html，复用侧边栏同一套 ChatApp 对话界面）。
+// （指向扩展页 floatpanel.html，即对话界面本体）。
 //
 // 设计要点：
 //   - 跑在 ISOLATED world：可直接用 chrome.storage / chrome.runtime.getURL，无需经 SW 中转。
 //   - 注入根挂 shadow DOM：FAB 样式与页面互相隔离。
 //   - iframe 懒加载：首次点击才设 src，避免页面一开就加载扩展页占资源。
+//   - 身份传递：首次打开时先向 SW 取本 tab 的 id（content script 拿不到 chrome.tabs），
+//     拼进 iframe URL（floatpanel.html?tab=<id>）—— 浮层据此认定自己的会话归属（每 tab 一条会话）。
+//     取不到就退回不带参数：浮层侧归属退化为「不绑定」，好过错绑到别人的 tab。
 //   - per-site 开关：main() 读 storage 判定当前 host 是否启用，否则不挂；storage 变更时动态增删。
-//   - CSP 降级：iframe 加载失败（严格 frame-src 拦扩展 iframe）时提示改用侧栏。
+//   - CSP 降级：iframe 加载失败（严格 frame-src 拦扩展 iframe）时给一句可读提示
+//     （浮层是唯一对话入口，这些站点上就是用不了 —— 不能指向已不存在的载体）。
 //   - 拾取让位：页面元素拾取（点选元素 / 快照）期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
+//   - 展开态上报：浮层展开时连一条 FLOAT_PANEL_OPEN_PORT 端口、收起时断开 —— SW 靠它判
+//     「用户此刻在看对话界面吗」（生成完成徽章）。见该常量处说明。
 //
 // WXT 按文件名 content.ts 自动识别为 content script；matches 经 defineContentScript 声明。
 
 import { defineContentScript } from '#imports'
+import { FLOAT_PANEL_OPEN_PORT, type RuntimeRequest, type RuntimeResponse } from '@/shared/extension-ipc'
 import { isFloatEnabledForHost } from '@/lib/float-panel-store'
 
 // 浮层根 id（全局唯一，防止重复注入）
@@ -82,8 +89,35 @@ const FAB_CSS = `
 // message-circle 图标（lucide）
 const CHAT_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`
 
+/**
+ * 取本内容脚本所在标签页的 id。
+ *
+ * content script 拿不到 `chrome.tabs`（只有 runtime / storage 等 API 子集），而 SW 的
+ * `sender.tab` 是唯一权威来源 —— 故经 `tab:identify` 命令请它回答。
+ * 失败（SW 未起、扩展重载的窗口期）返回 null，由调用方降级为不带参数。
+ */
+function requestTabId(): Promise<number | null> {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage(
+        { kind: 'tab:identify' } satisfies RuntimeRequest,
+        (response: RuntimeResponse<{ tabId: number | null }> | undefined) => {
+          const lastError = chrome.runtime.lastError
+          if (lastError || !response?.ok) {
+            resolve(null)
+            return
+          }
+          resolve(response.data?.tabId ?? null)
+        },
+      )
+    } catch {
+      resolve(null)
+    }
+  })
+}
+
 /** 构建并挂好浮层 UI，返回宿主根元素（已含 shadow DOM） */
-function buildFloatUi(): HTMLElement {
+function buildFloatUi(): { root: HTMLElement; teardown: () => void } {
   const root = document.createElement('div')
   root.id = ROOT_ID
 
@@ -115,31 +149,74 @@ function buildFloatUi(): HTMLElement {
 
   let opened = false
   let loaded = false
+  /** src 是否已指派（含「正在取 tabId」的在途态）：首次打开连点两次不该指派两回、加载两回 */
+  let srcAssigned = false
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null
+  /** 展开态端口：非 null = 此刻浮层是展开的（SW 靠它的生死判「用户在看对话界面吗」） */
+  let openPort: chrome.runtime.Port | null = null
+  /** 整块卸下（站点被禁用 / 扩展失效）后不再补连端口 */
+  let discarded = false
+
+  /**
+   * 上报浮层展开态。判据不能是「面板文档是否活着」—— 收起只是 `display:none`，iframe 与面板
+   * 文档都还在（草稿 / 滚动位置要留着），那条端口永远不会断，于是完成角标永不亮。
+   *
+   * SW 被回收时端口会被掐断，而面板可能还开着 → 补连一次，让状态继续准确（断开只在 SW 真被
+   * 回收时发生，不会变成热循环）。
+   */
+  const reportOpen = (open: boolean): void => {
+    if (!open) {
+      try {
+        openPort?.disconnect()
+      } catch {
+        // 已断开：忽略
+      }
+      openPort = null
+      return
+    }
+    if (openPort) return
+    try {
+      const port = chrome.runtime.connect({ name: FLOAT_PANEL_OPEN_PORT })
+      openPort = port
+      port.onDisconnect.addListener(() => {
+        if (openPort !== port) return
+        openPort = null
+        if (opened && !discarded) reportOpen(true)
+      })
+    } catch {
+      openPort = null // SW 未起等场景：尽力而为，退化为「当用户没在看」
+    }
+  }
 
   const showFallback = (): void => {
     iframe.remove()
     const fb = document.createElement('div')
     fb.className = 'dl-fab-fallback'
-    fb.textContent = '该网站限制了内嵌框架，浮层无法显示。请点击工具栏图标或用侧边栏打开哆灵。'
+    fb.textContent = '该网站限制了内嵌框架，浮层无法显示——哆灵在这个网站上用不了。'
     panel.appendChild(fb)
   }
 
   const open = (): void => {
     container.classList.add('open')
     opened = true
-    if (!iframe.src) {
-      // 懒加载：首次打开才设 src
-      iframe.src = chrome.runtime.getURL('floatpanel.html')
-      loaded = false
+    reportOpen(true)
+    if (srcAssigned) return
+    srcAssigned = true
+    loaded = false
+    // 懒加载：首次打开才设 src。src 要等 tabId 取回再拼 —— 浮层靠 URL 里的 tab 参数
+    // 认定会话归属（每 tab 一条会话），自带参数比让它自己去猜可靠。
+    void requestTabId().then((tabId) => {
+      const url = chrome.runtime.getURL('floatpanel.html')
+      iframe.src = tabId == null ? url : `${url}?tab=${tabId}`
       fallbackTimer = setTimeout(() => {
         if (!loaded) showFallback()
       }, 2500)
-    }
+    })
   }
   const close = (): void => {
     container.classList.remove('open')
     opened = false
+    reportOpen(false)
   }
 
   fab.addEventListener('click', () => (opened ? close() : open()))
@@ -156,7 +233,13 @@ function buildFloatUi(): HTMLElement {
     if (!loaded) showFallback()
   })
 
-  return root
+  /** 整块卸下（站点被禁用 / 扩展失效）时收尾：停掉补连、断开展开态端口 */
+  const teardown = (): void => {
+    discarded = true
+    reportOpen(false)
+  }
+
+  return { root, teardown }
 }
 
 export default defineContentScript({
@@ -166,6 +249,7 @@ export default defineContentScript({
   main(ctx) {
     const host = location.hostname
     let root: HTMLElement | null = null
+    let teardownUi: (() => void) | null = null
     let disposed = false
     // 当前浮层是否正因「拾取进行中」而隐藏（避免与拾取的实时状态重复写样式）
     let hiddenForPick = false
@@ -191,12 +275,16 @@ export default defineContentScript({
 
     const inject = (): void => {
       if (root || document.getElementById(ROOT_ID)) return
-      root = buildFloatUi()
+      const ui = buildFloatUi()
+      root = ui.root
+      teardownUi = ui.teardown
       ;(document.body || document.documentElement).appendChild(root)
       hiddenForPick = false // 新 root 默认可见，交给下面的同步裁决
       syncFloatVisibilityForPick() // 拾取中重建（开关来回切）也要立即让位
     }
     const remove = (): void => {
+      teardownUi?.() // 先收尾（停补连 + 断开展开态端口），再摘 DOM
+      teardownUi = null
       root?.remove()
       root = null
       hiddenForPick = false

@@ -2,7 +2,7 @@
 //
 // offscreen 为每个会话的进行中任务维护一份 UIMessageChunk 环形缓冲：
 //   · 每条事件带自增 seq（每轮任务从 1 重计）；
-//   · 侧边栏（观察者）按 seq 去重；重连（chat:resume）时**从头全量回放**——
+//   · 对话界面（观察者）按 seq 去重；重连（chat:resume）时**从头全量回放**——
 //     观察方本地视图可能刚从会话历史重建，按消费点续传会缺 start 类配对块；
 //   · **只服务进行中任务的重连**：任务收尾（正常 / 中止 / 异常）即 dropBuffer——
 //     收尾后结果已在会话历史，保留缓冲只会让重开面板 replay 出重复消息；
@@ -10,7 +10,7 @@
 //   · ⚠️ 缓冲**不用于落盘还原**：4000 条上限会被长回复（万级 text delta）截断，
 //     落盘走 chat-host 泵流时自收的完整 chunk 序列（buildFinalMessageFromChunks）。
 //
-// 推送通道：chrome.runtime.sendMessage（offscreen → 侧边栏 + SW）。SW 不消费 chat: 前缀
+// 推送通道：chrome.runtime.sendMessage（offscreen → 对话界面 + SW）。SW 不消费 chat: 前缀
 // （不在其路由白名单）；面板未开时 sendMessage 报「无人接收」，尽力而为、不阻断任务。
 
 import type { UIMessageChunk } from 'ai'
@@ -47,7 +47,7 @@ export function dropBuffer(conversationId: string): void {
   buffers.delete(conversationId)
 }
 
-/** 当前最新 seq（侧边栏首次 resume 前查询用） */
+/** 当前最新 seq（对话界面首次 resume 前查询用） */
 export function latestSeq(conversationId: string): number {
   return buffers.get(conversationId)?.seq ?? 0
 }

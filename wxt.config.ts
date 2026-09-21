@@ -10,13 +10,12 @@ import { providerOrigins } from './src/lib/providers'
 // 不依赖已下架的 @wxt/vue，直接用 vite 的 vue 插件编译 .vue 组件。
 //
 // 载体分工：
-//   side panel  → 应用入口 = AI 对话界面（entrypoints/sidepanel.html）
-//   标签页      → 脚本工作区 = 脚本列表 / 编辑器 / 设置（entrypoints/workbench.html）
-//   popup       → 配置入口 = 点工具栏图标弹出的浮层开关面板（entrypoints/popup.html）
-//   网页浮层    → 网页内对话入口 = content script 注入的 iframe（entrypoints/content.ts
-//                 加载 floatpanel.html，复用 ChatApp、与侧栏共享会话；按站点开关见
+//   网页浮层    → 对话界面 = content script 注入的 iframe（entrypoints/content.ts
+//                 加载 floatpanel.html，显示**它所在标签页**的会话；按站点开关见
 //                 src/lib/float-panel-store.ts）
-// 四个载体的界面复用关系见 README.md「载体分工」。
+//   标签页      → 脚本工作区 = 脚本列表 / 编辑器 / 设置 / 会话历史（entrypoints/workbench.html）
+//   popup       → 配置入口 = 点工具栏图标弹出的浮层开关面板（entrypoints/popup.html）
+// 三个载体的界面复用关系见 README.md「载体分工」。
 // 开发期 Chrome profile 目录：必须用绝对路径 —— web-ext 对相对路径按 cwd 解析，
 // 换个目录启动 dev 就会拿到不同 profile，「Allow User Scripts」这类每扩展开关会被重置。
 //
@@ -83,14 +82,12 @@ export default defineConfig({
   }),
   manifest: {
     name: '哆灵',
-    description: '哆灵 AI 用户脚本工坊 · 扩展版（侧边栏对话 + 标签页工作台）',
-    // sidePanel 是使用 chrome.sidePanel API 的必需权限（Chrome 114+），不要剔除。
-    // 注意 action 的默认行为现由 popup 承担：点工具栏图标弹 popup（background.ts 里
-    // setPanelBehavior 的 openPanelOnActionClick 已置 false），侧栏由 popup 内的
-    // chrome.sidePanel.open() 唤起 —— 一个 action 无法同时默认开 popup 与 side panel。
+    description: '哆灵 AI 用户脚本工坊 · 扩展版（网页浮层对话 + 标签页工作台）',
+    // action 的默认行为由 popup 承担：点工具栏图标弹 popup（entrypoints/popup.html 自动写入
+    // default_popup）。对话入口是网页浮层，由 content script 注入，不占 action。
     // offscreen 是 AI 生成链路的执行宿主（定位 B）：
     // 对话 loop 与源码写侧（us-git / project-write）都跑在 offscreen document 里，
-    // 「用户发起生成后可关掉侧边栏、任务照跑完」。没有该权限 chrome.offscreen 不存在
+    // 「用户发起生成后可收起浮层、任务照跑完」。没有该权限 chrome.offscreen 不存在
     // （Chrome 109+ / 仅 MV3）。2026-09-14 经评审确认。
     // contextMenus = GM_registerMenuCommand（用户脚本扩展菜单，事件回推见 dl-port.ts）的载体 API，
     // 未来项目自身菜单也走它。2026-09-19 经评审确认。
@@ -107,7 +104,6 @@ export default defineConfig({
     // 2026-09-19 经评审确认（提案评审）。
     permissions: [
       'storage',
-      'sidePanel',
       'userScripts',
       'notifications',
       'offscreen',
@@ -131,10 +127,6 @@ export default defineConfig({
     // 并自动写入 manifest（同 content.ts 成为内容脚本的机制）。
     action: {
       default_title: '打开哆灵',
-    },
-    // Chrome 用 side_panel key；Firefox 的 sidebar_action 在三期跨端时再补。
-    side_panel: {
-      default_path: 'sidepanel.html',
     },
     // 网页浮层：content script 在第三方页面里用 iframe 加载 floatpanel.html，
     // 该扩展页必须对目标站点可访问，否则 Chrome 会拦截 iframe 加载。

@@ -88,7 +88,7 @@ import {
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import type { DynamicToolUIPart, TextUIPart, ToolUIPart, UIMessage } from 'ai'
 // 这几个 part 判定 helper 走本地实现：静态 import 'ai' 会把整块 ~360KB 的核心
-// （含 gateway / zod）钉进侧边栏首屏静态图。详见该文件头部说明。
+// （含 gateway / zod）钉进对话界面首屏静态图。详见该文件头部说明。
 import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, textOfMessage } from '@/lib/ui-message-parts'
 
 const props = defineProps<{
@@ -98,6 +98,9 @@ const props = defineProps<{
   streaming: boolean
   /** 最近一次生成失败的错误文案（空串 = 无错）；渲染在消息区与输入框之间 */
   errorText?: string
+  /** 只读回放：不渲染输入区（含拾取与模型切换）—— 工作台「会话历史」看历史用。
+   *  消息区、思考链、工具卡、复制、生成卡片都照常，只是不能再发消息。 */
+  readonly?: boolean
 }>()
 const emit = defineEmits<{
   send: [text: string]
@@ -163,7 +166,7 @@ onMounted(() => {
 })
 
 // 模型配置在别处变更（工作台模型管理 / 其它窗口的设置页）时自动重拉列表，
-// 否则侧边栏下拉会停留在挂载时的旧数据（useDataSync 自带在途合并，挂载即订阅、卸载自动退订）
+// 否则对话界面下拉会停留在挂载时的旧数据（useDataSync 自带在途合并，挂载即订阅、卸载自动退订）
 useDataSync('model', () => window.api.model.list().then(refreshModelStatus))
 
 // —— 消息渲染：UIMessage parts -> 气泡正文 / 思考与执行过程 ——
@@ -608,8 +611,8 @@ async function onPickElement(): Promise<void> {
 }
 
 /**
- * 拾取期间侧边栏里的 Esc 取消（cancelPick 补注入指令）。
- * 拾取时键盘焦点在侧边栏，页面 document 收不到 keydown——页面内 Esc 监听只在
+ * 拾取期间对话界面里的 Esc 取消（cancelPick 补注入指令）。
+ * 拾取时键盘焦点在对话界面，页面 document 收不到 keydown——页面内 Esc 监听只在
  * 页面恰好持有焦点时兜底，主取消路径在这边。监听器全程挂载、回调里按状态放行。
  */
 function onPanelKeydown(e: KeyboardEvent): void {
@@ -1018,7 +1021,9 @@ function userScriptsUnavailableMessageSafe(): string {
         {{ props.errorText }}
       </p>
 
-      <div class="border-t p-3">
+      <!-- 输入区：只读回放（工作台「会话历史」）不渲染 —— 看历史不需要输入框，
+           留着反而让人以为这个 tab 能发消息 -->
+      <div v-if="!props.readonly" class="border-t p-3">
         <!-- 拾取 chip：随下一条消息发出的暂存上下文，× 可清除；发送成功后自动消失 -->
         <div
           v-if="pickedElement || contextError"

@@ -34,7 +34,7 @@ export type StateRequest = Extract<RuntimeRequest, { kind: `state:${string}` }>
 /**
  * 处理一条 state: 命令，返回应作为 RuntimeResponse.data 回传的值。
  *
- * 落盘成功即广播一次 `script` 域变更：别的标签页 / 别的窗口 / 侧边栏据此回拉，
+ * 落盘成功即广播一次 `script` 域变更：别的标签页 / 别的窗口 / 对话界面据此回拉，
  * 不必等用户手动刷新（IndexedDB 没有变更通知，这条线由 data-broadcast 补上）。
  * 广播放在**写成功之后**——写失败不通知，避免前端拿着旧数据重拉后还以为是最新的。
  */

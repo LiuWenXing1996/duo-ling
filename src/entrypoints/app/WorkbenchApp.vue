@@ -6,7 +6,7 @@
 //
 // 结构平移自桌面版 app.vue 的「顶栏 + 左侧导航 + 工作区」，只裁掉两栏聊天
 // （会话历史 | 当前会话已移入 side panel），保留的分支逐句照搬，未重写。
-// 导航项：设置 / UI 测试 / 脚本列表 / 运行日志 / lfs 浏览 / 会话数据 / AI 工具 / GM API。
+// 导航项：引导 / 设置 / UI 测试 / 脚本列表 / 运行日志 / lfs 浏览 / 会话数据 / 会话历史 / AI 工具 / GM API。
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
   Code as UiCode,
@@ -16,6 +16,7 @@ import {
   FlaskConical as UiFlaskConical,
   FolderTree as UiFolderTree,
   List as UiList,
+  MessagesSquare as UiMessagesSquare,
   Settings as UiSettings,
   Wrench as UiWrench
 } from '@lucide/vue'
@@ -33,9 +34,10 @@ const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
 
 // hash 深链（openWorkbench 的约定）：
 //   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
-//   #/errors/<uuid> → 打开运行日志标签页并定位到该脚本（侧边栏灵动岛点击脚本行跳转）
+//   #/errors/<uuid> → 打开运行日志标签页并定位到该脚本（对话界面灵动岛点击脚本行跳转）
 //   #/settings    → 打开设置标签页
-//   #/guide       → 打开引导标签页（侧边栏「查看开启引导」跳这里）
+//   #/guide       → 打开引导标签页（对话界面「查看开启引导」跳这里）
+//   #/sessions    → 打开会话历史标签页（对话界面顶栏「会话历史」跳这里）
 function handleHash(): void {
   const tool = location.hash.match(/^#\/tool\/([A-Za-z0-9-]+)/)
   if (tool) {
@@ -51,6 +53,10 @@ function handleHash(): void {
   }
   if (location.hash === '#/guide') {
     workspaceRef.value?.openGuideTab()
+    return
+  }
+  if (location.hash === '#/sessions') {
+    workspaceRef.value?.openSessionHistoryTab()
     return
   }
   if (location.hash === '#/settings') workspaceRef.value?.openSettingsTab()
@@ -177,6 +183,21 @@ onUnmounted(() => window.removeEventListener('hashchange', handleHash))
               </button>
             </ui-tooltip-trigger>
             <ui-tooltip-content side="right">会话数据</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <button
+                class="workspace-nav-item"
+                type="button"
+                aria-label="会话历史"
+                @click="workspaceRef?.openSessionHistoryTab()"
+              >
+                <ui-messages-square class="size-5" />
+              </button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content side="right">会话历史</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
         <ui-tooltip-provider>

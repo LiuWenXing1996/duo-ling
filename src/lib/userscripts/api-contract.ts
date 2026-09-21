@@ -350,7 +350,7 @@ export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
  *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报：包装的
  *     window.onerror / unhandledrejection 收进错误日志（runtime 库 errors store）；
  *   · `{ __dlRunStart: true, uuid, name, runId }` —— 运行标识广播：包装注入即 mint 一次
- *     「一次页面加载 = 一次运行」的 runId。SW 交侧边栏页面监控按 tab 登记、并落盘运行统计
+ *     「一次页面加载 = 一次运行」的 runId。SW 交对话界面页面监控按 tab 登记、并落盘运行统计
  *     （runtime 库 stats store）与运行日志（runlog store，name 快照），补播按 runId 去重。
  *
  * 信封名保持 `dl` 前缀（内部协议面不改名，改它是纯 churn）。
@@ -361,7 +361,7 @@ export type DlEvent = {
   message: string
   stack?: string
   url?: string
-  /** 本次运行的标识（一次页面加载 mint 一个）；侧边栏监控据此把错误归属到对应运行 */
+  /** 本次运行的标识（一次页面加载 mint 一个）；对话界面监控据此把错误归属到对应运行 */
   runId?: string
 }
 
