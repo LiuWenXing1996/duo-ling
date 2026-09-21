@@ -40,7 +40,7 @@
 | `npm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
 | `npm run test:e2e` | Playwright 端测（全程无头、跑 build 产物；**先 `npm run build`**） |
 | `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
-| `npm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、「不办」条目缺理由、疑似重复（**整理待办时跑**，提醒级不进 CI） |
+| `npm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、疑似重复（**整理待办时跑**，提醒级不进 CI） |
 | `npm run pack:uscripts` | 生成用户脚本测试包：把仓库根 `uscript-samples/` 打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例目录再打） |
 
 > **交付前验证**：`npm run typecheck` + `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
