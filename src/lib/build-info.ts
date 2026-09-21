@@ -23,6 +23,11 @@ export interface InjectedBuildInfo {
   branch: string
   /** package.json 完整版本（含预发布标签） */
   version: string
+  /**
+   * 仓库标识 `owner/repo`（构建期从 git remote 推导，见 wxt.config.ts）。
+   * 供检查更新调 GitHub Releases；推导不到时为 `unknown`，检查更新会自行跳过。
+   */
+  repo: string
 }
 
 /** 展示用的构建标记：分支 + 已格式化的时间 */

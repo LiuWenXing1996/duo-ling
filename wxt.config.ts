@@ -59,6 +59,20 @@ const buildInfoVersion = (() => {
   }
 })()
 
+// 仓库标识（owner/repo）：检查更新要按它调 GitHub Releases。
+// ⚠️ 刻意**不写进源码**——代码托管用户名属需脱敏的个人 ID，写死在 src/ 会随仓库分发；
+// 改为构建期从 git remote 推导，值由「这份 clone 指向谁」决定，fork 出去自动指向各自仓库。
+const buildInfoRepo = (() => {
+  try {
+    const url = execSync('git remote get-url origin', { cwd: process.cwd() }).toString().trim()
+    // 同时兼容 https://github.com/<owner>/<repo>.git 与 git@github.com:<owner>/<repo>.git
+    return url.replace(/^.*github\.com[:/]/, '').replace(/\.git$/, '')
+  } catch {
+    // 没有 origin（本地实验仓 / 非 git 目录）降级 unknown，检查更新会自行跳过
+    return 'unknown'
+  }
+})()
+
 export default defineConfig({
   // 源码根设为 src：WXT 内置别名 `@` / `~` 硬编码指向 srcDir 且覆盖用户配置
   // （见 wxt 的 resolve-config.mjs），只有把 srcDir 指到 src，代码里的 `@/...`
@@ -76,13 +90,26 @@ export default defineConfig({
     define: {
       global: 'globalThis',
       // 裸标识符注入（构建信息唯一通道，编译进所有 JS bundle，CSP 安全）：
-      // 页面 / SW / offscreen 都用它取构建信息；SW 启动日志靠它自证跑的是哪次构建。
-      __BUILD_INFO__: JSON.stringify({ time: new Date().toISOString(), branch: buildInfoBranch, version: buildInfoVersion }),
+      // 页面 / SW / offscreen 都用它取构建信息；SW 启动日志靠它自证跑的是哪次构建；
+      // repo 供检查更新（src/lib/update-check.ts）调 GitHub Releases 用。
+      __BUILD_INFO__: JSON.stringify({
+        time: new Date().toISOString(),
+        branch: buildInfoBranch,
+        version: buildInfoVersion,
+        repo: buildInfoRepo,
+      }),
     },
   }),
   manifest: {
     name: '哆灵',
     description: '哆灵 AI 用户脚本工坊 · 扩展版（网页浮层对话 + 标签页工作台）',
+    // 扩展 ID 固定：manifest 带 key 时 Chrome 用 SHA256(公钥) 派生 ID，不再按扩展目录的
+    // 绝对路径算 —— 换 worktree、换解压目录、换机器都是同一个 ID，本地数据（storage /
+    // IndexedDB / userScripts 授权）不再随安装位置重置。
+    // 公钥非敏感（公开仓库可见、上架后商店也公开此值）；私钥单独保管、不入库，仅打包
+    // CRX 自托管时才需要。生成方式与 ID 换算见 VERSIONING.md。
+    // 2026-09-22 经评审确认。
+    key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAn48Pdu5rZ8jaljtXTNwFjwDOfj4b0phMH50lb6jhE4VGV2SRVbnWcoi34IOJw/Vlp8wVwM8Dpn6ZpRsmIdUWzx5lrjO8vc9DXI+5ORtH/2vl0jCxlmALDh3Wi/6wYnjb5QkXsPFzobhypeD+Aseaf1nREgo0Vp/W90awxDx7blBTuhVVdKVDNs6Mt8HluvDTMgUAWq0e1MDxhOkWvTjEMT5Q7pkLaBrapg1eA/FlBie5Hd3qj/uT2ykPHEKsZBZNd3ZHDizxtTM1c0LXAFX+7k5E6IS4B27uJhIoCxrv3GXOuo2BdVce5pLjNbwRa+JoHgSVJ1ZEsVQFWaUuGTBTCQIDAQAB',
     // action 的默认行为由 popup 承担：点工具栏图标弹 popup（entrypoints/popup.html 自动写入
     // default_popup）。对话入口是网页浮层，由 content script 注入，不占 action。
     // offscreen 是 AI 生成链路的执行宿主（定位 B）：

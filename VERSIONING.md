@@ -112,9 +112,35 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 - **两条保护**：① `build` 是**独立 job**（`needs: tag`）——构建/打包失败不影响 tag 与 Release notes 已先落定的事实；② 只有「本次新建 tag」或「手动 Run workflow」才构建上传，普通 PR 合入直接跳过（避免用 main 新代码覆盖已发布 tag 的同名产物）。
 - **补传**：build job 失败修好后，在 Actions 页面对 `release` workflow 点 `Run workflow` 重跑即可（tag 已存在会跳过，asset 用 `--clobber` 覆盖同名文件）。
 - **版本号进产物后拆成两个字段**：`package.json` 的 `0.1.0-alpha.3` → manifest 的 `version: "0.1.0"` + `version_name: "0.1.0-alpha.3"`。Chrome 的 manifest `version` 只允许 1~4 段纯数字（每段 0~65535，非零段不能以 0 开头，不能全 0），带 `-alpha.3` 的串不合规，WXT 剥掉后缀后把完整串塞进 `version_name`（Chrome 在有 `version_name` 时优先用它做显示）。所以**扩展管理页看到的是 `0.1.0-alpha.3`**，不是 `0.1.0`。
-  - **副作用**：`version` 才是 Chrome 判定「新版本」的依据。同一 base 下的多个 alpha（`0.1.0-alpha.2` / `alpha.3`）落到 `version` 上都是 `0.1.0`，若将来走自托管 CRX 自动更新渠道，这类相邻 alpha 之间不会被判定为有更新。
+  - **`version` 才是版本判定依据**：Chrome 比对「是不是新版本」只看 `version`，`version_name` 只影响显示。所以同一 base 下的多个 alpha（`0.1.0-alpha.2` / `alpha.3`）在 `version` 上都是 `0.1.0`。
+  - **本项目没有自动更新通道**：产物是「加载已解压的扩展」（Release 的 zip），而 Chrome 对 unpacked 扩展不执行自动更新 —— `update_url` 只对打包安装的扩展生效；且 macOS / Windows 上 Chrome 要求 `update_url` 指向应用商店，自托管 update 服务器仅 Linux 的偏好设置文件可用。把 `.crx` 传上 Release 也没用（同一限制会拒绝安装）。升级一律靠手动换产物：ID 由 `manifest.key` 决定、与安装目录无关，所以**覆盖到同一目录不会丢数据**。
   - **火狐例外**：Firefox 不支持 `version_name` 键，WXT 构建 Firefox 产物时不写它（`npm run build:firefox` 的产物里只有 `0.1.0`）。
   - **追溯某次安装来自哪次构建**：设置页「构建信息」（编译进 bundle 的 `__BUILD_INFO__`，取的是 package.json 的完整版本串）或安装 zip 的文件名。
+
+## 扩展 ID
+
+扩展 ID 是 Chrome 标识一个扩展的 32 字符串。**同一个 ID 才共享同一份本地存储**，所以它直接决定「升级之后数据还在不在」。
+
+两种来源：
+
+- **manifest 带 `key`** → ID = `SHA256(公钥 DER)` 前 16 字节，每字节的高 / 低 nibble 各映射一个 `a`~`p` 字符。**与安装位置无关。**
+- **不带 `key` 且未上架** → ID = `SHA256(扩展目录的绝对路径)` 同法映射。**换目录、换 git worktree、换机器都会得到不同的 ID** —— 本地数据、`userScripts` 授权、`chrome-extension://` 页面 URL 一并重置。
+
+本项目**已固定**（`wxt.config.ts` 的 `manifest.key`），ID 为 `hgkfaeghnknafhdbghmdbfelfhiamcbp`，可在 `chrome://extensions` 上核对。
+
+重新生成 / 复算：
+
+```bash
+openssl genrsa -out <私钥路径> 2048
+openssl rsa -in <私钥路径> -pubout -outform DER | openssl base64 -A   # 输出即 manifest.key
+```
+
+ID 由该 DER 的 SHA256 前 16 字节换算（每字节高 nibble、低 nibble 依次映射为 `a`~`p`）。
+
+其余约定：
+
+- **公钥可入库**（非敏感；公开仓库可见，上架后商店也公开此值）；**私钥不入库**，仅打包 CRX 自托管时才需要。
+- **上架商店后要换**：Chrome 应用商店不允许开发者指定 ID，首次上传时由商店自行生成公钥。要让本地版本与商店版同 ID，须把商店开发者信息里的公钥替换掉当前值 —— 届时 ID 会再变一次，属不可避免。
 
 ## GitHub Release notes（自动生成 + 例外修正）
 
