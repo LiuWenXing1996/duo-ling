@@ -3,7 +3,7 @@
 // USER_SCRIPT 世界的 GM 包装（gm-wrapper.ts 注入的那份源码）经 chrome.runtime.sendMessage 发来的消息，
 // 因世界已 configureWorld({messaging:true})，被路由到本文件的 runtime.onUserScriptMessage（而非通用 onMessage）。
 //
-// 消息分流（契约定义；信封名保持 __dl 前缀，见 docs/gm-api-migration.md 的 D8）：
+// 消息分流（契约定义；信封名保持 __dl 前缀）：
 //   { __dl: true, uuid, req: ApiRequest }        —— 请求-响应，按 req.c 强类型分发（穷尽性检查）
 //   { __dlEvent: true, uuid, name, event: DlEvent } —— 单向错误上报，收进错误日志（runtime 库）
 //   { __dlRunStart: true, uuid, name, runId }    —— 运行标识广播：交对话界面监控按 tab 登记
@@ -580,7 +580,7 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
     case 'store.unwatch':
       detachScriptWatch(uuid, req.connId, req.key)
       return undefined
-    // 全量值订阅（D1-b）：只读值的脚本从不做键级订阅，靠这条通道收跨标签页变更
+    // 全量值订阅：只读值的脚本从不做键级订阅，靠这条通道收跨标签页变更
     case 'store.watchAll': {
       if (!attachValueWatch(uuid, req.connId)) {
         throw new ApiError('INTERNAL', 'GM Port 未就绪，全量订阅未生效（请重试）')

@@ -263,7 +263,7 @@ function dedupe(list: string[]): string[] {
 /**
  * 把解析产物归一化进 ScriptConfig。
  *
- * **覆盖规则（D2「metadata 为准」的精确化）**：逐字段判定，metadata **声明了就采用 metadata、
+ * **覆盖规则（「metadata 为准」的精确化）**：逐字段判定，metadata **声明了就采用 metadata、
  * 没声明就沿用 fallback**。故 UI 里手改的配置只在源码没声明对应键时保留 —— 覆盖发生时会写进 notes。
  *
  * **`@include` 纯路径形态的安全含义**（须知情）：`@include /foo/*` 在油猴语义下是「任意站点的
@@ -313,7 +313,7 @@ export function applyMetadataToConfig(
   if (parsed.runAtRaw && !declaredRunAt) notes.push(`@run-at 取值不认识，已沿用原配置：${parsed.runAtRaw}`)
 
   const config: ScriptConfig = {
-    // 未声明匹配规则时沿用 fallback（导入路径的 fallback 是空数组 → 落「不匹配任何页面」，与 D2 一致）
+    // 未声明匹配规则时沿用 fallback（导入路径的 fallback 是空数组 → 落「不匹配任何页面」，与 project-write.ts 的写入口归一化一致）
     matches: declaredMatches ? dedupe(matches) : (fallback.matches ?? []),
     allFrames: parsed.noframes ? false : (fallback.allFrames ?? true),
     runAt: declaredRunAt ?? fallback.runAt ?? 'document_end',

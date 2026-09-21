@@ -71,7 +71,7 @@ async function persistSource(uuid: string, code: string, note?: string): Promise
  * **统一保存入口**（全部源码落盘路径都走这里）：写工作树 → 提交 git 版本 → 写状态库。
  * 保存恒成功、保存即注入（源码原文进注册态，无构建流程）。
  *
- * **metadata 归一化就在这一处做**（D2）：源码里的 `// ==UserScript==` 块是**输入**，
+ * **metadata 归一化就在这一处做**：源码里的 `// ==UserScript==` 块是**输入**，
  * `config` 是此后唯一的运行期事实源（不回写源码）。逐字段「metadata 声明了就采用、没声明才沿用
  * 调用方给的 config」—— 因为全部落盘路径（编辑器保存 / 新建 / AI 生成 / zip 导入）都收敛到这里，
  * 只需一处即无遗漏。改了这里不会漏掉某条写路径。

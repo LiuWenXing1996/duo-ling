@@ -250,7 +250,7 @@ const handlers: {
     tabId: sender.tab?.id ?? null,
   }),
 
-  // —— 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）——
+  // —— 用户脚本管理器（IPC 命令名沿用既有，载荷为项目形态）——
   // 列表视图：项目读自状态库（直连 IDB）；运行统计（runtime 库 stats store）同样 SW 直读，这里挂上
   'userscript:list': async (): Promise<ScriptSummary[]> =>
     withRunStats(await listSummaries(await listProjects())),

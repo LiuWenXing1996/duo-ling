@@ -153,7 +153,7 @@ export function collectCspWarnings(code: string): string[] {
 //
 // 包装源码在 gm-wrapper.ts（独立模块：便于审阅，且速查页的防漂移单测要从它的装配块反射真实键集合）。
 // 本文件只负责组装：① GM_info（metadata 视图 + 扩展版本 + uuid）；② 该脚本的**值快照**
-// （同步 GM_getValue 的底座，见 gm-wrapper 的 D1 说明）；③ 按 @grant 算出的成员裁剪。
+// （同步 GM_getValue 的底座，见 gm-wrapper 的 `GM_VALUES` 快照块）；③ 按 @grant 算出的成员裁剪。
 // 注入顺序：包装 → @require 依赖（按序前置）→ 脚本源码。
 
 /** config.runAt（下划线写法）→ metadata 视图里的油猴写法（连字符） */
@@ -430,7 +430,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   // 密钥取自持久层（与 MAIN 桩同源）：单脚本注册路径（create/updateFiles/toggle）也可能
   // 在 SW 刚唤醒、尚未跑过 registerAllEnabled 时发生，必须能独立取到当前密钥。
   const pageSecret = await getOrCreatePageSecret()
-  // **值快照**：同步 GM_getValue 的底座（见 gm-wrapper 的 D1）。读不到不阻断注册——
+  // **值快照**：同步 GM_getValue 的底座（见 gm-wrapper 的 `GM_VALUES` 快照块）。读不到不阻断注册——
   // 退化为空快照（首读拿默认值），包装层 connect 后的全量校准会补齐。
   let values: Record<string, Json> = {}
   try {
@@ -439,7 +439,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
     // 存储暂时不可用：按空快照继续
   }
   // @require（P2）：注册时由 SW 抓取源码、按序前置注入（见 require-cache.ts）。
-  // 抓取失败只记错误、跳过该依赖，不阻断脚本整体注入（决策 B1：记错误不静默）。
+  // 抓取失败只记错误、跳过该依赖，不阻断脚本整体注入（记错误不静默）。
   const requireResults = project.config.requires?.length
     ? await fetchRequireSources(project.config.requires)
     : []
