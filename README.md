@@ -167,7 +167,7 @@
 3. **entrypoint 同名冲突**：同一名字不得同时存在 `x.html` 与 `x.ts`（WXT 判定两个同名 entrypoint）。规则与命名做法见 [wxt 规范](.agents/skills/wxt/SKILL.md) 硬约束 3。
 4. **跨域 fetch 需 host 权限**：扩展页 `fetch` 模型接口会被 CORS 拦，必须在 manifest 声明对应 `host_permissions`（模型服务商由 `src/lib/providers.ts` 推导，用户脚本另需 `<all_urls>`）。
 5. **userScripts 可用性前置**：`chrome.userScripts` 未开启时不存在，直接调用会让 SW 初始化崩溃；引擎每条入口都先判存在性（`isUserScriptsAvailable()` / `typeof chrome.userScripts.register === 'function'`）再优雅跳过，并把开启引导交给工作台「引导」标签页（各处只给「查看开启引导」入口，不各写一套步骤）。
-6. **git 只存源码本身**：源码唯一来源 = duoling-fs 工作树（`script.js` + `project.json`），git 提交是其版本历史；注册态库的 `source` 搬运副本不进 git（由写侧落盘时组装）；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护）
+6. **git 只存源码本身**：源码唯一来源 = duoling-fs 工作树（单文件 `script.js`，2026-09-20 单文件化；配置由源码里的 `// ==UserScript==` 块派生，不另存元信息文件），git 提交是其版本历史；注册态库的 `source` 搬运副本不进 git（由写侧落盘时组装）；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护）
 7. **CSP 保持 MV3 默认**：曾为 esbuild-wasm 在 `wxt.config.ts` 放开过 `'wasm-unsafe-eval'`，构建流程移除后（2026-09-20）该覆盖已删，扩展页回到默认 `script-src 'self'`——**不要再加回 CSP 覆盖**（脚本世界的 eval 防线见 AGENTS 硬性底线「脚本世界 CSP」）。
 8. **注入不了「非普通网页」**：`host_permissions` 的 `<all_urls>` **不覆盖 `chrome-extension://` scheme**，往扩展页注入（`userScripts.execute` / `scripting.executeScript`）必失败，抛 Chrome 原话 `Cannot access contents of url … must request permission to access this host` —— **连本扩展自己的页面也一样**（活动标签是工作台时点「点选元素」即命中）。
    - 不是漏配权限，加 host 权限也解决不了，只能在注入前拦；`file://` 未开「允许访问文件网址」报的是同一句。

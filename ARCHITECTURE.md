@@ -60,7 +60,7 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 
 > 分库写权限是硬边界：**注册链路对 offscreen 存活零依赖**。
 
-① **源码唯一来源 `duoling-fs`**（lightning-fs，IndexedDB 后端，**只许 offscreen 碰**，`us-fs.ts` 单例）：每脚本一仓 `/uscripts/<uuid>/`——`script.js`（单文件纯 JS 源码，2026-09-20 单文件化）+ `project.json`（元信息）即工作树（未提交改动 = 草稿），git 历史 = 每次保存的版本（`us-git.ts`，仓损坏只丢历史不丢脚本）；SW/扩展页读不到 lfs，**源码读写一律走 `fs:*` 命令向 offscreen 取**（`offscreen-fs-commands.ts`）。
+① **源码唯一来源 `duoling-fs`**（lightning-fs，IndexedDB 后端，**只许 offscreen 碰**，`us-fs.ts` 单例）：每脚本一仓 `/uscripts/<uuid>/`——`script.js`（单文件纯 JS 源码，2026-09-20 单文件化）即工作树（未提交改动 = 草稿），git 历史 = 每次保存的版本（`us-git.ts`，仓损坏只丢历史不丢脚本）；配置由源码里的 `// ==UserScript==` 块派生（`resolveConfigFromSource`），**不再有并行元信息文件**；SW/扩展页读不到 lfs，**源码读写一律走 `fs:*` 命令向 offscreen 取**（`offscreen-fs-commands.ts`）。
 
 ② **注册态库 `duoling-state`**（独立 IndexedDB，`state-db.ts`/`project-store.ts` 读、`project-write.ts` 写，**写只归 offscreen**）= 每脚本一条 `ScriptProject`：元数据 + enabled + **源码搬运副本 `source`**（SW 读不到 lfs，注册的注入代码从注册态取）——SW 注册直读 `source.code`，注册链路对 offscreen 存活零依赖（既定不变量）。
 
@@ -82,7 +82,7 @@ DevTools 里按库名过滤：`duoling-fs` / `duoling-state` / `duoling-usdata` 
 
 - **保存恒成功、保存即注入**：无构建流程，源码原文随落盘进注册态，注册的注入代码 = 源码本身。语法错误不拦保存：坏了的脚本照样装（油猴同款），运行期报错走现成的错误日志 / 运行日志链路。
 - 编辑内容只活在页面内存（草稿机制已删），关标签前的 dirty 确认弹窗保留。
-- **zip 导入**：解码 + 落盘同在 offscreen（单写方），导入即完成（无后台构建队列）；只拦原则项（缺 project.json / 非 JSON / 缺 script.js），其余尽量导入 + 报告说明。
+- **zip 导入**：解码 + 落盘同在 offscreen（单写方），导入即完成（无后台构建队列）；只拦原则项（缺 script.js 源码文件），其余尽量导入 + 报告说明（配置由源码里的 `// ==UserScript==` 块派生，缺 matches 提示补全）。
 - 后台链路不经命令面，写完状态库**必须自己发** `broadcastDataChange`。
 
 ## 用户脚本版本管理
