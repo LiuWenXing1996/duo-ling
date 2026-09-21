@@ -24,9 +24,9 @@ export interface SettingsSection {
   component: Component
 }
 
-/** 设置分区清单（顺序即导航顺序，首个为默认选中项） */
+/** 设置分区清单（顺序即导航顺序，首个为默认选中项；「关于」这类只读信息固定放末位） */
 export const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: 'models', label: '模型管理', icon: IconBox, component: ModelSettingsSection },
-  { id: 'about', label: '关于', icon: IconInfo, component: AboutSection },
   { id: 'float-panel', label: '网页浮层', icon: IconMessageSquare, component: FloatPanelSection },
+  { id: 'about', label: '关于', icon: IconInfo, component: AboutSection },
 ]
