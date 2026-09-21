@@ -49,7 +49,7 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 | 契约：命令名 + 类型 | `api-contract.ts` 的 `ApiRequest` + `API_COMMANDS` | 类型层：`Record<ApiRequest['c'], true>` 两向约束（少一条 / 多一条都编译红） |
 | 注入侧：包装真身 | `gm-wrapper.ts` 的装配块与命令发送 | `api-commands.test.ts`（反射**生成的注入源码** ↔ 登记表双向） |
 | 展示侧：工作台面板 | `gm-api-catalog.ts` | `gm-api-catalog.test.ts`（反射装配块 ↔ 目录双向） |
-| 真机侧：手测矩阵 | `uscript-samples/gm-matrix/script.js` 顶部的 `@covers` 登记表 | `gm-api-coverage.test.ts`（目录 ↔ 登记表双向） |
+| 真机侧：手测矩阵 | `uscript-samples/gm-matrix/script.js` 顶部的 `@covers` 登记表 | `gm-api-coverage.test.ts`（目录 ↔ 登记表双向）；同一条矩阵另由 `e2e/gm-matrix.spec.ts` 在无头 CI 上自动跑（读同一份源码，人工两项用 Playwright 代做） |
 
 新增一条 API 的完整动作：① `ApiRequest` 加一项 + `API_COMMANDS` 加一行（类型层盯着这里，忘加就编译红）；
 ② `gm-wrapper.ts` 挂成员并发命令；③ `gm-api-catalog.ts` 加条目（标题 / 签名 / 说明 / 返回）；

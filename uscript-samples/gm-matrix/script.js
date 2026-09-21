@@ -20,7 +20,7 @@
 //
 // 四项**要你动手**才判得准（其余全自动）。它们**不阻塞跑批**：跑批照常走完，这几项先落 `⋯`，
 // 动作做完后自动翻成结果 —— 面板与左下角那个「待你完成」盒子都会实时更新，不限时（10 分钟兜底）：
-//   · GM.page.listen  —— 把鼠标在页面上晃一下（或点一下页面任意处）
+//   · GM.page.listen  —— 点一下页面任意处（点那个盒子也算；别指望晃鼠标，实测不发）
 //   · GM_setClipboard  —— 在盒子里那个输入框按一次 Cmd/Ctrl+V（读回写入的到底是什么）
 //   · GM_registerMenuCommand —— 在页面右键 → 点「GM 矩阵：点我试试」（验菜单点击链路）
 //   · GM.page.fetchHook —— 让页面**自己**发一个请求（换会拉接口的站点重跑；或在本页 DevTools
@@ -75,6 +75,13 @@
   var rows = [] // { mark, group, name, detail }
   var running = false
   var cleanups = [] // 跑完调用的收尾动作
+
+  /**
+   * 自动化模式（端测用）：URL hash 带 `gm-matrix-auto` 时跳过两次 confirm（cookie 写入 / 下载）。
+   * 无头下 Playwright 默认自动 dismiss 对话框，不跳的话这两行会被记成「用户跳过 ?」；
+   * 端测跑在一次性 profile 上，副作用无所谓。人肉手测不加 hash，照旧要确认。
+   */
+  var AUTO = /(^|[#&])gm-matrix-auto\b/.test(location.hash)
 
   // ————————————————————————— 结果与面板 —————————————————————————
 
@@ -503,6 +510,8 @@
     var text = 'duoling-matrix-clipboard'
     GM_setClipboard(text)
     await GM.setClipboard(text + '-2')
+    // 端测（AUTO）：两形态写入调用已经跑过，但回读要系统剪贴板 + 粘贴手势，无头里做不了 → 直接记「?」
+    if (AUTO) return unknown('端测模式跳过回读（要系统剪贴板 + 粘贴手势）；两形态写入调用本身已完成')
     // 回读剪贴板要用户手势（浏览器限制）→ 在待办盒子里摆一个输入框，请你按一次粘贴，从 paste
     // 事件取内容。这样「写进去的到底是什么」才是被验过的事实，而不是「调用没抛」。
     var row = todoRow('在下面这个框里点一下、按一次 Cmd/Ctrl+V —— 验剪贴板写入')
@@ -556,8 +565,8 @@
     if (typeof GM_download !== 'function' || typeof GM.download !== 'function') {
       throw new Error('GM_download / GM.download 未挂载')
     }
-    // 会往下载目录落一个文件，先问一次
-    if (!window.confirm('GM 可用性矩阵：这一条会往下载目录落 2 个 example.com 的 html 文件，继续？')) {
+    // 会往下载目录落一个文件，先问一次（自动化模式下不问，见 AUTO）
+    if (!AUTO && !window.confirm('GM 可用性矩阵：这一条会往下载目录落 2 个 example.com 的 html 文件，继续？')) {
       return unknown('用户跳过（会下载文件）')
     }
     return new Promise(function (resolve) {
@@ -633,7 +642,7 @@
   add('站点与页面', 'GM_cookie.set / delete（写读删）', async function () {
     if (!isHttpPage()) return unknown('非 http(s) 页面（' + location.protocol + '）')
     var name = PFX + 'cookie'
-    if (!window.confirm('GM 可用性矩阵：这一条会往当前站点写一条 cookie（' + name + '）随后立刻删掉，继续？')) {
+    if (!AUTO && !window.confirm('GM 可用性矩阵：这一条会往当前站点写一条 cookie（' + name + '）随后立刻删掉，继续？')) {
       return unknown('用户跳过（会写 cookie）')
     }
     try {
@@ -696,11 +705,10 @@
     if (typeof GM === 'undefined' || !GM.page || typeof GM.page.listen !== 'function') throw new Error('GM.page.listen 未挂载')
     var got = null
     var offs = []
-    // 挂两种事件：`mousemove` 是**自触发**（鼠标在页面上移动必然产生），`click` 是你真点的那一下。
-    // 真机第三轮出现过「点了却一直不翻」，用 mousemove 能把两件事分开：
-    //   · 收到 mousemove → 中继是通的（那一次只是没点到 / 被别的点击顶掉）；
-    //   · 连 mousemove 都没有 → **事件中继本身没工作**（真 bug，别再当成「你没动手」）。
-    var types = ['mousemove', 'click']
+    // 挂两种事件：`click` 是**可靠的那条**（人肉点击与端测里的 Playwright 点击都验过）；
+    // `mousemove` 也挂上、但不稳 —— 端测里按固定坐标连续 move 90s 一次都没触发，而 Playwright
+    // 点击内部那次「移到元素中心」的移动却触发过。故待办文案只说「点一下页面」，别让人去晃鼠标。
+    var types = ['click', 'mousemove']
     try {
       for (var i = 0; i < types.length; i++) {
         offs.push(
@@ -716,7 +724,7 @@
     } catch (e) {
       return /PAGE_STUB_UNAVAILABLE|HANDSHAKE_FAILED|超时/.test(msg(e)) ? unknown('页面世界桩不可用：' + msg(e)) : fail(code(e) + msg(e))
     }
-    var row = todoRow('把鼠标在页面上晃一下（或点一下页面任意处）—— 验 GM.page.listen 中继')
+    var row = todoRow('点一下页面任意处（点这个盒子也行）—— 验 GM.page.listen 中继')
     var acted = await waitUntil(function () { return !!got })
     row.done()
     for (var j = 0; j < offs.length; j++) {
@@ -766,6 +774,13 @@
     if (typeof nsId !== 'number') throw new Error('GM.* 形态没 resolve 出数字 id')
     // 四种调用成功只说明「登记没报错」。真正的验收是**点击链路**：contextMenus.onClicked →
     // SW 按 tabId 路由 menu.click → 包装层按 id 查表调回调。全仓只这一条路能测到它。
+    // 端测（AUTO）：那一跳要点浏览器**原生右键菜单**，Playwright 碰不到 → 注销后记「?」。
+    if (AUTO) {
+      GM_unregisterMenuCommand(id)
+      GM_unregisterMenuCommand(CAPTION)
+      GM.unregisterMenuCommand(nsId)
+      return unknown('端测模式跳过点击（浏览器原生右键菜单不可点）；四种调用本身已完成')
+    }
     var row = todoRow('在页面任意处右键 → 点「' + CAPTION + '」—— 验菜单点击链路')
     var acted = await waitUntil(function () { return !!clicked })
     row.done()

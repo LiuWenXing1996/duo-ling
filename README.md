@@ -165,11 +165,12 @@
    - **刷新当前标签页（浏览器刷新按钮）**：什么都不该变 —— 会话不换、不丢、也不新建。浮层会重建并**自动收起**（懒加载），再点悬浮按钮打开，仍是同一条会话（tabId 不变，归属映射自然不动）。
 
 20. **GM 可用性矩阵（全量 API 自检）**：`npm run pack:uscripts` → 导入 → 启用「GM 可用性矩阵」→ 打开任意 http(s) 页面 → 点面板上的「**跑全部**」→ 面板出三态明细，**点「复制结果」**拿到可整段回帖的文本（同时也会 `console.log` 一份）。
-    - **四项要你动手**，但**不阻塞看着你**：跑批照常走完，这四项先落 `⋯`，在左下角「**待你完成**」盒子里做完就自动翻成结果（不限时，10 分钟兜底）。四项是：`GM.page.listen`（把鼠标在页面上晃一下即可；连 `mousemove` 都收不到才算中继真有问题）、`GM_setClipboard`（在盒子里的输入框按一次 Cmd/Ctrl+V）、`GM_registerMenuCommand`（右键 → 点「GM 矩阵：点我试试」）、`GM.page.fetchHook`（让页面**自己**发请求：换会拉接口的站点重跑，或在本页 DevTools Console 里执行 `fetch(location.href)`；安静页面如 example.com 会一直挂着）。
+    - **四项要你动手**，但**不阻塞看着你**：跑批照常走完，这四项先落 `⋯`，在左下角「**待你完成**」盒子里做完就自动翻成结果（不限时，10 分钟兜底）。四项是：`GM.page.listen`（点一下页面任意处）、`GM_setClipboard`（在盒子里的输入框按一次 Cmd/Ctrl+V）、`GM_registerMenuCommand`（右键 → 点「GM 矩阵：点我试试」）、`GM.page.fetchHook`（让页面**自己**发请求：换会拉接口的站点重跑，或在本页 DevTools Console 里执行 `fetch(location.href)`；安静页面如 example.com 会一直挂着）。
     - **点击不绑在面板上**（只有那两个按钮可点）：想选中文字看明细不会误触发重跑。
     - **判读**：`✗` 才是真问题（某条 API 在真机上不通）；`?` 是环境原因、别当 bug —— 网络不可达 / 上面四项没做满 10 分钟。**`GM.page.*` 不能靠「注入内联 script」自触发**：实测在本扩展的脚本世界里注入的内联 `<script>` 不执行（与页面 CSP 无关，机制未定论，见 `dl-fetchhook-test` 头部），故这两项分别走「真点击」与「被动等页面请求」。
     - **两条会先弹 confirm**：下载（往下载目录落 2 个 html）与 GM_cookie 写入（写一条探针 cookie 后立刻删）。剪贴板用例会**覆盖你当前的剪贴板内容**。
     - **覆盖范围**以脚本顶部 `// @covers` 登记表为准，它与目录（`src/lib/gm-api-catalog.ts`）的双向对齐由 `npm run test` 保证（目录加了 API 而矩阵没认领 → 单测红，即「不留空行」）。
+    - **这条矩阵在端测里也跑**（`e2e/gm-matrix.spec.ts`，随 `npm run test:e2e`）：无头 CI 上读同一份源码注入、断言行里没有 ✗；两项能在浏览器里代做的（`GM.page.listen` 用 Playwright 点击、`GM.page.fetchHook` 用页面主世界 `fetch`）由测试代做，另两项端测做不了的（剪贴板回读、原生右键菜单）固定记 `?`。**端测跑的是同一份矩阵，不是另写一套断言**。
     - 深语义不在这里测：`GM_xmlhttpRequest` 的 timeout / 二进制体 / forbidden header 覆写 / redirect 见「关键坑」对应条目与 `dl-api-gapfill` 专包；`GM_cookie` 的**域名门**见上面第 16 条。
     - **测完请停用或删除本脚本**：`@match` 是 `*://*/*`，长期开着逢页就注入。
 
