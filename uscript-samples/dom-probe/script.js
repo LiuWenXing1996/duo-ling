@@ -1,3 +1,11 @@
+// ==UserScript==
+// @name         dom-probe
+// @namespace    duoling
+// @version      1.0.0
+// @description  验证脚本确实被注入并执行：页面右下角写标记
+// @match        *://*/*
+// ==/UserScript==
+
 // 注入探针：验证「脚本确实被注入并执行了」。
 // 效果：页面右下角出现一块标记，文本 = 主机名 + 注入时刻。
 // 断言方式：`document.getElementById('dl-test-dom-probe').textContent` 以 INJECTED 开头。

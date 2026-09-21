@@ -8,14 +8,13 @@
 //
 // 产出 zip 的布局必须与 src/lib/userscripts/zip-transfer.ts 的 buildScriptZip / parseScriptsZip
 // 对齐（那一对函数才是编解码侧的真相源）：
-//     <目录名>/project.json         脚本元信息（v / name / config / exportedAt）
-//     <目录名>/script.js            单文件源码
+//     <目录名>/script.js            单文件源码（配置由源码里的 // ==UserScript== 块派生，不进 zip）
 //
 // 本脚本**不 import** 那个模块，两条原因：① src 是扩展运行时代码，其扩展名省略的 TS 导入在
 // node ESM 下解析不了；② 本工具刻意零依赖——没装 node_modules 也能跑（打测试包不该先 npm i）。
 // 对齐靠两点保障：
 //   ① 写完立刻回读 zip 自检（--no-verify 关）：解析中央目录 + 逐条比对本地文件头与 CRC；
-//   ② 样例目录里的 project.json 与 ZipManifest 同形——改字段名时这两处要一起改。
+//   ② 样例目录只放 script.js（与单文件形态一致）；若某样例想带名字，在源码里写 // @name。
 //
 // 用法见 `--help`；常规用法 `npm run pack:uscripts`（打包全部样例 → tmp/）。
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
@@ -24,12 +23,8 @@ import { fileURLToPath } from 'node:url'
 
 // —— 常量：与 src/lib/userscripts/zip-transfer.ts 保持一致 ——
 
-/** zip schema 版本（project.json.v） */
-const ZIP_SCHEMA_VERSION = 2
 /** 单文件源码文件名（types.ts 的 SCRIPT_FILE） */
 const SCRIPT_FILE = 'script.js'
-/** 兜底匹配规则：全站（测试用最省事，正式脚本请写具体 pattern） */
-const MATCHES_DEFAULT = ['*://*/*']
 const DIR_NAME_MAX = 64
 
 /** 固定 DOS 时间戳（2020-01-01 00:00）：zip 条目时间不参与比对，固定掉更可复现 */
@@ -189,8 +184,8 @@ function sanitizeDirName(name) {
 /**
  * 读一个素材目录 → 脚本定义。
  *
- * 摆放（project.json 可选，缺字段按默认补）：
- *   <dir>/project.json + <dir>/script.js
+ * 单文件摆放：<dir>/script.js。配置由源码里的 // ==UserScript== 块决定；
+ * name 优先取源码里的 @name，否则用目录名。
  */
 function readScriptDef(dir, overrides) {
   const absDir = resolve(dir)
@@ -199,46 +194,20 @@ function readScriptDef(dir, overrides) {
   }
   const label = basename(absDir)
 
-  let manifest = {}
-  const manifestPath = join(absDir, 'project.json')
-  if (existsSync(manifestPath)) {
-    try {
-      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-    } catch (e) {
-      throw new Error(`${label}/project.json 不是合法 JSON：${e instanceof Error ? e.message : String(e)}`)
-    }
-  }
-
   const sourcePath = join(absDir, SCRIPT_FILE)
   if (!existsSync(sourcePath)) {
     throw new Error(`${label}：缺少 ${SCRIPT_FILE}（单文件源码）`)
   }
   const code = readFileSync(sourcePath, 'utf8')
 
-  const name = overrides.name ?? (typeof manifest.name === 'string' && manifest.name.trim() ? manifest.name.trim() : label)
-  const config = {
-    matches: overrides.matches?.length ? overrides.matches : strArray(manifest.config?.matches, MATCHES_DEFAULT),
-    allFrames: typeof manifest.config?.allFrames === 'boolean' ? manifest.config.allFrames : true,
-    runAt: ['document_start', 'document_end', 'document_idle'].includes(manifest.config?.runAt)
-      ? manifest.config.runAt
-      : 'document_end',
-  }
-  for (const key of ['excludeMatches', 'includeGlobs', 'excludeGlobs']) {
-    const v = strArray(manifest.config?.[key], [])
-    if (v.length) config[key] = v
-  }
+  const metaName = (code.match(/^\s*\/\/\s*@name\s+(.+?)\s*$/m) || [])[1]
+  const name = (overrides.name ?? (metaName && metaName.trim())) || label
 
-  return { label, name, code, config }
+  return { label, name, code }
 }
 
-/** 取字符串数组（非数组 / 非字符串 / 空串项一律丢弃；全丢则回退 fallback） */
-function strArray(v, fallback) {
-  const arr = Array.isArray(v) ? v.filter((x) => typeof x === 'string' && !!x) : []
-  return arr.length ? arr : fallback
-}
-
-/** 脚本定义 → zip 条目（目录名重名加 -2 后缀，与 buildScriptZip 同规则） */
-function toZipEntries(scripts, exportedAt) {
+/** 脚本定义 → zip 条目（只 script.js；目录名重名加 -2 后缀，与 buildScriptZip 同规则） */
+function toZipEntries(scripts) {
   const entries = []
   const used = new Set()
   for (const s of scripts) {
@@ -252,14 +221,6 @@ function toZipEntries(scripts, exportedAt) {
       }
     }
     used.add(dir)
-    const manifest = {
-      v: ZIP_SCHEMA_VERSION,
-      name: s.name,
-      config: s.config,
-      exportedAt,
-      exporter: 'duoling/pack-uscripts',
-    }
-    entries.push({ name: `${dir}/project.json`, data: Buffer.from(JSON.stringify(manifest, null, 2), 'utf8') })
     entries.push({ name: `${dir}/${SCRIPT_FILE}`, data: Buffer.from(s.code, 'utf8') })
   }
   return entries
@@ -277,18 +238,17 @@ const HELP = `用户脚本包生成器：把脚本素材目录打成扩展可导
 
 选项：
   -o, --out <文件>        输出 zip 路径（默认 tmp/uscripts-<时间戳>.zip）
-  -n, --name <名字>       覆盖脚本名（仅单目录时可用）
-  -m, --match <pattern>   覆盖匹配规则，可重复（仅单目录时可用）
+  -n, --name <名字>       覆盖脚本名（仅单目录时可用，覆盖源码 @name）
       --list              列出样例目录并退出
       --no-verify         跳过写后回读自检
   -h, --help              显示本帮助
 
-素材目录摆法（project.json 可选，缺字段按默认补：全站匹配 / allFrames / document_end）：
-  <目录>/project.json + <目录>/script.js   # 与导出 zip 解开的形态一致
+素材目录摆法（单文件形态）：
+  <目录>/script.js   # 配置写在源码里的 // ==UserScript== 块；与导出 zip 解开的形态一致
 `
 
 function parseArgs(argv) {
-  const opts = { dirs: [], matches: [], verify: true, list: false }
+  const opts = { dirs: [], verify: true, list: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     switch (a) {
@@ -309,10 +269,6 @@ function parseArgs(argv) {
       case '-n':
       case '--name':
         opts.name = argv[++i]
-        break
-      case '-m':
-      case '--match':
-        opts.matches.push(argv[++i])
         break
       default:
         if (a.startsWith('-')) throw new Error(`不认识的选项：${a}（--help 看用法）`)
@@ -346,14 +302,13 @@ function main() {
   if (!dirs.length) throw new Error('没有可打包的目录：uscript-samples/ 是空的，或手动指定目录')
 
   const single = dirs.length === 1
-  if (!single && (opts.name || opts.matches.length)) {
-    throw new Error('--name / --match 只在打包单个目录时可用')
+  if (!single && opts.name) {
+    throw new Error('--name 只在打包单个目录时可用')
   }
 
   const scripts = dirs.map((d) => readScriptDef(d, opts))
 
-  const exportedAt = Date.now()
-  const entries = toZipEntries(scripts, exportedAt)
+  const entries = toZipEntries(scripts)
   const zip = zipStore(entries)
 
   const out = resolve(opts.out ?? join(REPO_ROOT, 'tmp', `uscripts-${stamp()}.zip`))
@@ -370,7 +325,7 @@ function main() {
 
   // —— 汇报 ——
   const lines = scripts.map((s) => {
-    return `  · ${s.name}  ${s.code.length} 字节  匹配 ${s.config.matches.join(' ')}`
+    return `  · ${s.name}  ${s.code.length} 字节`
   })
   process.stdout.write(
     [
