@@ -1,4 +1,4 @@
-// DL.cookie 的**域名门**（安全边界，SW 侧唯一执行点）。
+// GM_cookie 的**域名门**（安全边界，SW 侧唯一执行点）。
 //
 // 规则（2026-09-19 经评审确认）：
 //   · url 必须落在**该脚本自身**的 matches 内、不命中 excludeMatches —— 不与其它脚本取并集，
@@ -83,11 +83,11 @@ function isCookieUsableUrl(url: string): boolean {
  */
 export async function checkCookieUrl(uuid: string, url: string): Promise<CookieGateResult> {
   if (typeof url !== 'string' || !url || !isCookieUsableUrl(url)) {
-    return { ok: false, code: 'INVALID_ARG', message: `DL.cookie：url 必须是 http(s) 地址（收到 ${JSON.stringify(url)}）` }
+    return { ok: false, code: 'INVALID_ARG', message: `GM_cookie：url 必须是 http(s) 地址（收到 ${JSON.stringify(url)}）` }
   }
   const scope = await scopeOf(uuid)
   if (!scope || !urlInCookieScope(scope, url)) {
-    return { ok: false, code: 'PERMISSION_DENIED', message: `DL.cookie：${url} 不在本脚本的匹配域内` }
+    return { ok: false, code: 'PERMISSION_DENIED', message: `GM_cookie：${url} 不在本脚本的匹配域内` }
   }
   return { ok: true }
 }
