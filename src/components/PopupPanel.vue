@@ -89,6 +89,19 @@ async function openWorkbench(): Promise<void> {
   window.close()
 }
 
+/**
+ * 打开 chrome://extensions 并带上本扩展 id：省掉「找入口 → 输地址 / 翻找卡片」这几步。
+ *
+ * 落点是**列表页**，不是详情页 —— 那个页面是 SPA，`?id=` 不会把路由切到详情页
+ * （2026-09-22 无头实测：tabs.create 不被拦、URL 里 id 保留，但页面停在 extensions-manager、
+ * 无 extensions-detail-view）。最后那一下「点详情」没有程序化入口：chrome:// 页注入不了
+ * 内容脚本，chrome.developerPrivate 也不对扩展开放。
+ */
+async function openExtensionsPage(): Promise<void> {
+  await chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` })
+  window.close()
+}
+
 /** 去 Release 页面：更新说明与产物下载都在那里 */
 async function openRelease(): Promise<void> {
   const url = updateAvailable.value?.releaseUrl
@@ -160,6 +173,11 @@ onMounted(() => {
 
     <PopupPageScripts v-if="currentIsWebPage" />
 
-    <UiButton class="w-full" variant="outline" @click="openWorkbench">打开工作台</UiButton>
+    <div class="grid grid-cols-2 gap-2">
+      <UiButton variant="outline" @click="openWorkbench">打开工作台</UiButton>
+      <UiButton variant="outline" data-testid="open-extensions-page" @click="openExtensionsPage">
+        扩展管理页
+      </UiButton>
+    </div>
   </div>
 </template>

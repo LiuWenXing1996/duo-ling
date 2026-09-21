@@ -60,6 +60,7 @@ function stubChrome(url: string | undefined): void {
   tabsCreate.mockResolvedValue(undefined)
   vi.stubGlobal('chrome', {
     runtime: {
+      id: 'EXTID',
       getURL: (p: string) => `chrome-extension://EXTID/${p}`,
       connect: vi.fn(() => port as unknown as chrome.runtime.Port),
     },
@@ -159,6 +160,17 @@ describe('popup 的「本页脚本」分区', () => {
     await toggle(w).trigger('click')
     await flushPromises()
     expect(rows(w)[0]!.text()).toContain('⚠ 1')
+  })
+})
+
+describe('popup 的扩展管理页入口', () => {
+  it('点了打开 chrome://extensions，URL 带本扩展 id', async () => {
+    stubChrome('https://example.com/page')
+    const w = await mountPopup()
+
+    await w.find('[data-testid="open-extensions-page"]').trigger('click')
+    await flushPromises()
+    expect(tabsCreate).toHaveBeenCalledWith({ url: 'chrome://extensions/?id=EXTID' })
   })
 })
 
