@@ -7,6 +7,7 @@
 //    注：A 与 B 在「注册失败要不要告不告诉用户」上交过锋 —— 结论是**不告**（见下方 B 组第 3 条）。
 // C. **从路径导入**：路径归一 → fetch 读字节 → 与文件选择器共用同一条导入动线；
 //    路径非法 / 读到非 zip / 开关未开三类失败各给人话原因，且**都不该走到 importZip**。
+// D. **粘贴导入**：粘贴源码 → importText → 与 zip 导入共用同一份汇总报告与「刚导入 · 未启用」标。
 // 边界 mock：ui-client（IPC 客户端）+ 全局 fetch（路径导入要读 file://）；按钮 / 弹窗 / 开关用真实 shadcn 组件。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
@@ -19,6 +20,7 @@ const availability = vi.hoisted(() => vi.fn())
 const create = vi.hoisted(() => vi.fn())
 const toggle = vi.hoisted(() => vi.fn())
 const importZip = vi.hoisted(() => vi.fn())
+const importText = vi.hoisted(() => vi.fn())
 const groups = vi.hoisted(() => vi.fn())
 const setGroup = vi.hoisted(() => vi.fn())
 const createGroup = vi.hoisted(() => vi.fn())
@@ -41,6 +43,7 @@ vi.mock('@/lib/userscripts/ui-client', () => ({
     remove: vi.fn(),
     removeAll: vi.fn(),
     importZip,
+    importText,
     groups,
     setGroup,
     createGroup,
@@ -143,6 +146,45 @@ async function openPathDialog(): Promise<void> {
   await flushPromises()
 }
 
+/** 弹窗里的源码粘贴框（同样按 aria-label 定位，理由同 pathInput） */
+function codeArea(): HTMLTextAreaElement {
+  const root = wrapper.element as HTMLElement
+  const el = [...document.querySelectorAll<HTMLTextAreaElement>('textarea')].find(
+    (t) => !root.contains(t) && t.getAttribute('aria-label') === '脚本源码',
+  )
+  if (!el) throw new Error('弹窗里没有粘贴框')
+  return el
+}
+
+/** 粘贴弹窗是否还开着 —— 按弹窗里的粘贴框判断：导入成功后汇总报告弹窗会顶上来，
+ *  那也是 role=dialog，不能用 dialogClosed() 一刀切 */
+function pasteDialogOpen(): boolean {
+  const root = wrapper.element as HTMLElement
+  return [...document.querySelectorAll<HTMLElement>('textarea')].some(
+    (t) => !root.contains(t) && t.getAttribute('aria-label') === '脚本源码',
+  )
+}
+
+/** 往粘贴框里填源码（v-model 认原生 input 事件；按钮 disabled 依赖它，不等一轮就点到灰按钮） */
+async function typeCode(v: string): Promise<void> {
+  const el = codeArea()
+  el.value = v
+  el.dispatchEvent(new Event('input'))
+  await flushPromises()
+}
+
+/** 打开「粘贴导入」弹窗（菜单第三项）—— 菜单同样用键盘开 */
+async function openPasteDialog(): Promise<void> {
+  await buttonByText('导入').trigger('keydown', { key: 'ArrowDown' })
+  await flushPromises()
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) =>
+    el.textContent?.includes('粘贴脚本代码'),
+  )
+  if (!item) throw new Error('菜单里没有「粘贴脚本代码…」')
+  item.click()
+  await flushPromises()
+}
+
 /** zip 魔数开头 / 不是 zip 的两份假字节 */
 const zipBytes = () => new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x01, 0x02])
 const notZipBytes = () => new Uint8Array([0x3c, 0x21, 0x44, 0x4f])
@@ -182,6 +224,7 @@ beforeEach(() => {
   create.mockResolvedValue({ uuid: 'u2', name: '新建的脚本 1' })
   toggle.mockResolvedValue({})
   importZip.mockResolvedValue(okReport())
+  importText.mockResolvedValue(okReport())
   groups.mockResolvedValue([])
   vi.stubGlobal('fetch', fetchMock)
   setFileAccessAllowed(true)
@@ -407,8 +450,8 @@ describe('UserscriptListPanel 新建脚本', () => {
   })
 })
 
-describe('UserscriptListPanel 从路径导入', () => {
-  it('导入菜单给两个入口：选择 zip 文件 / 输入文件路径', async () => {
+describe('UserscriptListPanel 导入入口', () => {
+  it('导入菜单给三个入口：选择 zip 文件 / 输入文件路径 / 粘贴脚本代码', async () => {
     wrapper = await mountPanel()
     await buttonByText('导入').trigger('keydown', { key: 'ArrowDown' })
     await flushPromises()
@@ -416,7 +459,7 @@ describe('UserscriptListPanel 从路径导入', () => {
     const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((el) =>
       el.textContent?.trim(),
     )
-    expect(items).toEqual(['选择 zip 文件…', '输入文件路径…'])
+    expect(items).toEqual(['选择 zip 文件…', '输入文件路径…', '粘贴脚本代码…'])
   })
 
   it('绝对路径：fetch 该 file:// URL → 交给导入链路 → 汇总报告复述来源', async () => {
@@ -510,6 +553,49 @@ describe('UserscriptListPanel 从路径导入', () => {
 
     expect(document.body.textContent).toContain('请确认路径拼写')
     expect(document.body.textContent).not.toContain('未开启「允许访问文件网址」')
+  })
+})
+
+describe('UserscriptListPanel 粘贴导入', () => {
+  it('粘贴源码 → importText → 汇总报告 + 列表标「刚导入 · 未启用」', async () => {
+    // 导入后列表里就是这条新脚本（列表刷新走 mock），且与真实落盘一致是停用态 ——
+    // 「刚导入」标只在停用脚本上显示（标的就是「还没启用」这件事）
+    list.mockResolvedValue([{ ...summary('u9', '粘来的脚本'), enabled: false }])
+    wrapper = await mountPanel()
+    await openPasteDialog()
+    await typeCode('// ==UserScript==\n// @name 粘来的脚本\n// ==/UserScript==\nconsole.log(1)')
+    portalButton('导入')!.click()
+    await flushPromises()
+    await flushPromises()
+
+    expect(importText).toHaveBeenCalledTimes(1)
+    expect(importText.mock.calls[0]![0]).toContain('@name 粘来的脚本')
+    expect(document.body.textContent).toContain('导入完成')
+    expect(pasteDialogOpen()).toBe(false)
+    expect(rowText(0)).toContain('刚导入 · 未启用')
+    // 不是 zip 通道：两条动线不串
+    expect(importZip).not.toHaveBeenCalled()
+  })
+
+  it('空白内容：按钮置灰，点不动（不发命令）', async () => {
+    wrapper = await mountPanel()
+    await openPasteDialog()
+
+    expect(portalButton('导入')!.disabled).toBe(true)
+    expect(importText).not.toHaveBeenCalled()
+  })
+
+  it('导入失败：原因留在框下、弹窗不关（源码还在框里，关掉就得重粘一遍）', async () => {
+    importText.mockRejectedValue(new Error('IDB 打不开'))
+    wrapper = await mountPanel()
+    await openPasteDialog()
+    await typeCode('console.log(1)')
+    portalButton('导入')!.click()
+    await flushPromises()
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('导入失败：IDB 打不开')
+    expect(pasteDialogOpen()).toBe(true)
   })
 })
 

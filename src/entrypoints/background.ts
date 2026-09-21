@@ -402,6 +402,11 @@ const handlers: {
   'userscript:import': async (msg): Promise<ImportReport> =>
     writeViaOffscreen<ImportReport>({ kind: 'state:import', zipBase64: msg.zipBase64 }),
 
+  // 粘贴导入：一段脚本源码 → 一个脚本。解析与落盘都归 offscreen 单写方，SW 只转发；
+  // 语义照抄 zip 导入——恒 enabled:false（先审后启），故此处同样**无注册动作**。
+  'userscript:importText': async (msg): Promise<ImportReport> =>
+    writeViaOffscreen<ImportReport>({ kind: 'state:import-text', code: msg.code }),
+
   // 脚本列表分组：读分组定义（直连 IDB，与 userscript:list 同源）
   'userscript:groups': async (): Promise<import('@/lib/userscripts/types').ScriptGroup[]> => listGroups(),
 

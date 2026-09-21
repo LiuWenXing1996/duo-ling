@@ -2,7 +2,7 @@
 // isomorphic-git）模拟 offscreen 上下文——真实环境里它依赖 lightning-fs，非被测靶心。
 // 被测重点是写侧自身的语义：**保存恒成功、保存即注入**（2026-09-20 单文件化：无构建流程，
 // 源码原文进注册态）、守卫校验、提交失败不阻断、启停不产生提交、删除全部（记录批量清 +
-// 仓整目录清一次），以及 zip 导入「尽量导入」语义（单文件形态：配置由源码 metadata 派生）。
+// 仓整目录清一次），以及导入（zip / 粘贴）「尽量导入」语义（单文件形态：配置由源码 metadata 派生）。
 // 存储分工：源码写 duoling-fs（writeSource + commitSource），状态库存注册态（元数据 + 源码搬运副本）。
 import 'fake-indexeddb/auto'
 import { strToU8, zipSync } from 'fflate'
@@ -19,6 +19,7 @@ vi.mock('./us-git', () => ({
 import {
   createGeneratedProject,
   createProject,
+  importScriptFromText,
   importScriptsZip,
   removeAllProjects,
   removeProjectAndRepo,
@@ -239,7 +240,7 @@ describe('提交失败策略', () => {
   })
 })
 
-// —— zip 导入（保留原名 / enabled false / 单写方落盘）——
+// —— 导入（zip / 粘贴；两条入口共用 importOneScript 落盘）——
 //
 // 单文件形态：zip 内只有 script.js，配置由源码里的 // ==UserScript== 块派生。
 // makeZipBase64 直接把给定 code（可含 metadata 块）落成 <dir>/script.js。
@@ -364,6 +365,58 @@ describe('importScriptsZip', () => {
 
   it('非 zip 内容：整体报错（调用方 UI 展示错误）', async () => {
     await expect(importScriptsZip(bytesToBase64(new Uint8Array([1, 2, 3, 4])))).rejects.toThrow()
+  })
+})
+
+describe('importScriptFromText（粘贴导入）', () => {
+  it('落一个未启用脚本：@name / @match 取自源码，提交 note「粘贴导入」', async () => {
+    const report = await importScriptFromText(withMeta('粘贴来的脚本', 'console.log(1)', ['https://example.com/*']))
+    expect(report.succeeded).toBe(1)
+    expect(report.failed).toBe(0)
+    expect(report.ignored).toEqual([])
+    const item = report.results[0]!
+    expect(item.status).toBe('ok')
+    const uuid = (item as { uuid: string }).uuid
+    const stored = (await readAllProjects()).find((p) => p.uuid === uuid)
+    expect(stored).toBeDefined()
+    // 与 zip 导入同语义：先审后启，落盘即停用
+    expect(stored!.enabled).toBe(false)
+    expect(stored!.name).toBe('粘贴来的脚本')
+    expect(stored!.config.matches).toEqual(['https://example.com/*'])
+    expect(stored!.source.code).toContain('console.log(1)')
+    expect(mockCommitSource).toHaveBeenCalledOnce()
+    expect(mockCommitSource.mock.calls[0]![1]).toBe('粘贴导入')
+  })
+
+  it('无 metadata：名字退回自动编号，并提示「没有匹配规则 → 不会注入任何页面」', async () => {
+    const report = await importScriptFromText('console.log(1)')
+    const item = report.results[0] as { status: string; name: string; notes?: string[] }
+    expect(item.status).toBe('ok')
+    expect(item.name).toBe('粘贴的脚本 1')
+    expect(item.notes?.some((n) => n.includes('未声明匹配规则'))).toBe(true)
+    const stored = (await readAllProjects())[0]!
+    expect(stored.config.matches).toEqual([])
+  })
+
+  it('空白内容：报一条 failed，不落源码也不提交（UI 侧按钮已置灰，这里是兜底）', async () => {
+    const report = await importScriptFromText('  \n  ')
+    expect(report.succeeded).toBe(0)
+    expect(report.failed).toBe(1)
+    expect(report.results[0]).toMatchObject({ status: 'failed' })
+    expect(mockWriteSource).not.toHaveBeenCalled()
+    expect(mockCommitSource).not.toHaveBeenCalled()
+  })
+
+  it('内容与既有脚本相同：仍导入为独立副本，报告带 duplicateOf（与 zip 导入共用去重）', async () => {
+    const code = withMeta('演示', 'console.log(1)')
+    const first = await importScriptFromText(code)
+    const firstUuid = (first.results[0] as { uuid: string }).uuid
+    mockReadSource.mockImplementation(async (uuid: string) =>
+      uuid === firstUuid ? { code } : null,
+    )
+    const second = await importScriptFromText(code)
+    expect(second.results[0]).toMatchObject({ status: 'ok', duplicateOf: '演示' })
+    await expect(readAllProjects()).resolves.toHaveLength(2)
   })
 })
 

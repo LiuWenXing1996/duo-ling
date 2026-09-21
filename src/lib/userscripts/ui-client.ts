@@ -114,6 +114,11 @@ export const userscriptClient = {
   importZip: (zipBase64: string): Promise<ImportReport> =>
     send({ kind: 'userscript:import', zipBase64 }),
 
+  /** 粘贴导入：把一段脚本源码落成一个脚本（恒 enabled:false，同 zip 导入的先审后启）。
+   *  单脚本也回同一份 ImportReport，UI 侧因此能与 zip 导入共用一条收尾动线 */
+  importText: (code: string): Promise<ImportReport> =>
+    send({ kind: 'userscript:importText', code }),
+
   /** 启停：enabled 已落状态库后返回；注册失败不判整体失败，只带回 registerError 警告 */
   toggle: (uuid: string, enabled: boolean): Promise<{ registerError?: string }> =>
     send({ kind: 'userscript:toggle', uuid, enabled }),

@@ -14,6 +14,7 @@ import {
   createGeneratedProject,
   createGroup,
   createProject,
+  importScriptFromText,
   importScriptsZip,
   removeAllProjects,
   removeGroupAndReassign,
@@ -72,6 +73,10 @@ async function runStateCommand(msg: StateRequest): Promise<unknown> {
     case 'state:import':
       // zip 导入：解码 + 落盘全在本上下文（单写方）
       return importScriptsZip(msg.zipBase64)
+    case 'state:import-text':
+      // 粘贴导入：一段源码文本 → 一个未启用脚本；解析 + 落盘同在本上下文，
+      // 与 zip 导入共用同一条落盘路径（project-write.importOneScript）
+      return importScriptFromText(msg.code)
     case 'state:group-create': {
       // 新建分组：建好即广播 group 域，列表端回拉分组定义
       const { kind: _kind, ...payload } = msg

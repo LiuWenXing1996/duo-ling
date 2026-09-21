@@ -225,7 +225,7 @@ export async function setProjectEnabled(uuid: string, enabled: boolean): Promise
   return project
 }
 
-// —— zip 导入——
+// —— 导入（zip / 粘贴）——
 
 /**
  * zip 导入（state:import 的落点）：解码 → 逐脚本**尽量导入**。
@@ -239,7 +239,7 @@ export async function importScriptsZip(zipBase64: string): Promise<ImportReport>
   const parsed = parseScriptsZip(base64ToBytes(zipBase64))
   const results: ImportItemResult[] = []
   for (const script of parsed.scripts) {
-    results.push(await importOneScript(script))
+    results.push(await importOneScript(script, '从 zip 导入'))
   }
   for (const s of parsed.skipped) {
     results.push({ status: 'failed', name: s.dirName, reason: s.reason })
@@ -252,8 +252,47 @@ export async function importScriptsZip(zipBase64: string): Promise<ImportReport>
   }
 }
 
-/** 导入单个脚本：守卫 + 指纹去重提示 + 落源码与注册态（源码库写失败 = 该条导入失败） */
-async function importOneScript(script: { name: string; config: ScriptConfig; code: string; notes?: string[] }): Promise<ImportItemResult> {
+/**
+ * 粘贴导入（state:import-text 的落点）：把一段脚本源码落成一个脚本。
+ *
+ * 与 zip 导入**同一条落盘路径**（importOneScript），语义也照抄：尽量导入、报告说明、
+ * uuid 重生成、enabled 恒 false（先审后启）、指纹去重提示照给。
+ * 两处差异都来自「没有 zip 容器」：① 无解码期 notes；② 源码没声明 `@name` 时用自动编号名
+ * （zip 那边用目录名兜底）—— 故此处先取名再交给 importOneScript 的 name 字段。
+ * 匹配规则兜底为空数组：没写 `@match` 就落「不匹配任何页面」，由报告里的提示指引用户补，
+ * 不替他放宽成全域。
+ */
+export async function importScriptFromText(code: string): Promise<ImportReport> {
+  if (!code.trim()) {
+    return {
+      succeeded: 0,
+      failed: 1,
+      results: [{ status: 'failed', name: '粘贴的脚本', reason: '没有可导入的内容' }],
+      ignored: [],
+    }
+  }
+  const result = await importOneScript(
+    { name: await nextScriptName('粘贴的脚本'), config: defaultConfig([]), code },
+    '粘贴导入',
+  )
+  return {
+    succeeded: result.status === 'ok' ? 1 : 0,
+    failed: result.status === 'ok' ? 0 : 1,
+    results: [result],
+    ignored: [],
+  }
+}
+
+/**
+ * 导入单个脚本：守卫 + 指纹去重提示 + 落源码与注册态（源码库写失败 = 该条导入失败）。
+ *
+ * `note` = git 提交信息，点明这一批脚本从哪条入口进来（zip / 粘贴）。两条入口的落盘语义完全一致，
+ * 差别只在这句提交说明与上游「怎么拿到内容」，故共用本函数、不另写一套。
+ */
+async function importOneScript(
+  script: { name: string; config: ScriptConfig; code: string; notes?: string[] },
+  note: string,
+): Promise<ImportItemResult> {
   // 解码期的兜底提示（字段缺失已补默认等）先收进来
   const notes = [...(script.notes ?? [])]
   try {
@@ -263,9 +302,14 @@ async function importOneScript(script: { name: string; config: ScriptConfig; cod
     const resolved = resolveConfigFromSource(script.code, script.config)
     const name = (resolved.name?.trim() || script.name.trim() || 'script').trim()
     notes.push(...resolved.notes)
+    // 没匹配规则 = 装上了也永不注入。两条导入入口都可能是这情形（外部脚本没写 @match），
+    // 提示一句，别让用户把「导入成功」当成「已经在跑」。
+    if (!resolved.config.matches.length) {
+      notes.push('未声明匹配规则，脚本不会注入任何页面：进编辑器补 @match 再启用')
+    }
     const ts = Date.now()
     const uuid = crypto.randomUUID()
-    await persistSource(uuid, script.code, '从 zip 导入')
+    await persistSource(uuid, script.code, note)
     await writeProject(makeState(uuid, name, false, resolved.config, '', script.code, ts, ts, ts))
     return {
       status: 'ok',
