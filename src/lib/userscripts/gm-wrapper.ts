@@ -128,7 +128,7 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
   var NAME_PREFIX = '[GM:' + ${jsonLiteral(opts.name)} + ']'
 
   // —— 运行标识：**一次页面加载 = 一次运行**。注入即 mint，随错误记录上报并广播给 SW
-  //    （侧边栏页面监控据此按 tab 登记运行）——
+  //    （对话界面页面监控据此按 tab 登记运行）——
   var __gmRunId = (function () {
     try { return crypto.randomUUID() }
     catch (e) { return 'r-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10) }
