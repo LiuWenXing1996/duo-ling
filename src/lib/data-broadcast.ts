@@ -100,7 +100,7 @@ export function broadcastDataChange(domain: DataDomain, uuid?: string): void {
 }
 
 /**
- * 广播一次保存链的瞬态阶段（`saving` / `building`）。
+ * 广播一次保存链的瞬态阶段（当前只有 `saving`）。
  *
  * 与 broadcastDataChange 的区别：**立即发、不进合并窗口**——瞬态就是给用户看进度的，
  * 被 100ms 窗口吞掉后到达顺序错乱（如 saving 被并发的完成通知合并掉），转圈会闪跳。

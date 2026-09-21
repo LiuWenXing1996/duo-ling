@@ -1,4 +1,4 @@
-// DL Port 事件底座（二期）：脚本世界 ↔ background SW 的长连接下行通道。
+// DL Port 事件底座：脚本世界 ↔ background SW 的长连接下行通道。
 //
 // 职责（协议契约见 api-contract.ts 的 ApiEvent / ApiEventFrame）：
 //   · Port 生命周期 —— 脚本世界主动 connect（SW 无法反向连接脚本世界，脚本是唯一发起端），
