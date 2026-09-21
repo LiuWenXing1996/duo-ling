@@ -51,7 +51,7 @@
 
 | 文档 | 职责（读什么） | 何时读 / 何时写 |
 | --- | --- | --- |
-| [README.md](README.md) | 工程介绍、载体分工、目录结构、手测步骤、关键坑 | 上手 / 手测前；踩到新坑就地补「关键坑」 |
+| [README.md](README.md) | 工程介绍、载体分工、目录结构 | 上手前；踩到新坑按性质落 ARCHITECTURE（机制）/ 本文件硬性底线（红线）/ 代码注释（就地约束） |
 | **AGENTS.md**（本文件） | 协作约定、红线与硬性底线、命令清单、调试方法论、文档导航（本表） | 动手前；结论成形后就地补对应小节 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | **运行时架构**：载体与运行时、对话链路、脚本注入、页面上下文、存储七库、统一保存、用户脚本版本管理、数据广播、构建信息注入 | 改这些实现前；改完就地更新 |
 | [VERSIONING.md](VERSIONING.md) | 扩展**自身**版本机制：真相源 / SemVer / 预发布规则 / tag / release PR 流程 / GitHub Release notes 与故障处置 | 发版 / 改版本号前 |
@@ -90,7 +90,7 @@
 不得出现：
 
 - **实现期编号 / 代号**：`D1` / `决策 A1` / `方案 C` / `Phase 2` / `§5` 这类只在某次讨论里成立的标签。有约束就直接把约束写出来（`**常驻通道**：只读值的脚本也要 connect Port，否则别的标签页写的新值永远到不了本实例`）。
-- **指向不存在产物的指引**：`见 docs/xxx.md`、`见 §5`。只有指向仓库内**真实存在**的文件或章节才可以（如 `docs/dl-recorder-design.md` 的第 8 节）。
+- **指向不存在产物的指引**：`见 docs/xxx.md`、`见 §5`。只有指向仓库内**真实存在**的文件或章节才可以。
 - **用户可见文案里的内部术语 / 版本号 / 阶段号**：错误信息、面板标题、按钮文字一律用**产品面词汇**（`GM_cookie`、`GM_xmlhttpRequest`），不得出现内部模块名或方案代号。
 - **变更史**（与下节「协作与记录」同规）：不写「原本…现在已移除」。
 
@@ -102,7 +102,7 @@
 
 同一件事只写一处：决策理由写进本文件对应小节；代码注释不写变更史（「原本…现在已移除」这类留给 git）。
 
-**文档随改动同步（强制）**：一个需求实现完、提交 / 开 PR 之前，先按「文档职责总表」自查本次改动波及的文档与注释（README 的载体分工与手测步骤、ARCHITECTURE 的载体与运行时、本文件红线、配置内注释等），**该改的与代码同批改完再交付**。**不许留到 PR 合并之后补**：事后补的改动不在同一条提交序列里，没有触发点、没有对账人，事实就此长期漂移。新增入口 / 改行为 / 加载体这类改动最容易只改代码、漏改文档。
+**文档随改动同步（强制）**：一个需求实现完、提交 / 开 PR 之前，先按「文档职责总表」自查本次改动波及的文档与注释（README 的载体分工与目录结构、ARCHITECTURE 的载体与运行时、本文件红线、配置内注释等），**该改的与代码同批改完再交付**。**不许留到 PR 合并之后补**：事后补的改动不在同一条提交序列里，没有触发点、没有对账人，事实就此长期漂移。新增入口 / 改行为 / 加载体这类改动最容易只改代码、漏改文档。
 
 **执行分工（AI 代理）**：
 
@@ -138,15 +138,15 @@
 
 | 领域 | 一句话底线 | 详情 |
 | --- | --- | --- |
-| manifest 权限 | 所需权限之外的不得添加（上架审查）；**没有 `sidePanel`** —— 对话入口是页面内浮层，不用 `chrome.sidePanel`。已批准权限集见 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」） | [wxt.config.ts](wxt.config.ts) |
+| manifest 权限 | 所需权限之外的不得添加（上架审查）；**没有 `sidePanel`** —— 一个 action 只能有一种默认行为，本项目给了 popup（配置面板），对话入口是 content script 注入的页面内浮层，故不用 `chrome.sidePanel`（加回来只会多出一个点不动的入口）。已批准权限集见 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」）；核对产物即拿它的 `permissions` 数组逐项比对，另需 `action`（含 `default_popup`，由 `entrypoints/popup.html` 自动写入）+ `host_permissions` | [wxt.config.ts](wxt.config.ts) |
 | cookie 能力（GM_cookie） | `cookies` 权限 + 已全域的 host（`<all_urls>`）= **SW 可读写全浏览器 cookie（含 HttpOnly）**，故必须与**域名门**绑定：url 须落在该脚本自身 `matches` 内、不命中 `excludeMatches`，只比 **scheme + host**（pattern 的 path 段一律忽略）；`set` 不开放 domain / path 覆写。**门只在 SW 侧，新增任何 cookie 命令都必经此门** | [cookie-gate.ts](src/lib/userscripts/cookie-gate.ts) / [api-contract.ts](src/lib/userscripts/api-contract.ts) |
-| SW 全局 | 引入依赖 Node 全局的库时，必须补 `src/polyfills.ts` 并在 `background.ts` **最前** import | [README](README.md) 坑 2 |
-| CSP / 沙箱 | 扩展页 CSP 保持 MV3 默认（曾为 esbuild-wasm 放开的 `'wasm-unsafe-eval'` 覆盖已随构建流程移除，**不要再加回**）；扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**跑在 USER_SCRIPT 世界、注入第三方页面：**不受扩展 CSP 约束，但也不享有扩展 API**（只能经 GM 包装层桥接：`GM_*` / `GM.*` 标准 API，内部走 `__dl` 信封协议） | [README](README.md) 坑 7 / [ARCHITECTURE.md](ARCHITECTURE.md)「脚本注入」 |
+| SW 全局 | 引入依赖 Node 全局的库时，必须补 `src/polyfills.ts` 并在 `background.ts` **最前** import；漏掉时表现为加载期即抛「`global.TextEncoder` 读不到」 | [src/polyfills.ts](src/polyfills.ts) |
+| CSP / 沙箱 | 扩展页 CSP 保持 MV3 默认 `script-src 'self'`，**不要加任何 CSP 覆盖**；扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**跑在 USER_SCRIPT 世界、注入第三方页面：**不受扩展 CSP 约束，但也不享有扩展 API**（只能经 GM 包装层桥接：`GM_*` / `GM.*` 标准 API，内部走 `__dl` 信封协议） | [ARCHITECTURE.md](ARCHITECTURE.md)「脚本注入」/ [wxt.config.ts](wxt.config.ts) |
 | 消息协议 | 扩展页只能经 `window.api` → background 调用能力；用户脚本只能经 GM 包装层（`GM_*` / `GM.*`）→ background，内部走 `dl-bridge.ts` 的 `__dl` 信封协议，**两者都不得直接访问 `chrome.*`** | [src/lib/window-api.ts](src/lib/window-api.ts) |
-| 权限引导 | 需用户在浏览器里开启的开关（当前两项：「运行用户脚本」「读取本地文件」——后者只对 Chrome 渲染）统一由工作台**「引导」标签页**承载（状态自检 + 分步指引 + 直达扩展管理页）；**别处一律只给「查看开启引导」入口，不各写一套步骤**。该页只放需要用户动手的项——无需操作的实现细节（如脚本世界禁 `eval`）由保存警告与错误日志在恰当时机给出 | [README](README.md) 手测第 4 步 |
+| 权限引导 | 需用户在浏览器里开启的开关（当前两项：「运行用户脚本」「读取本地文件」——后者只对 Chrome 渲染）统一由工作台**「引导」标签页**承载（状态自检 + 分步指引 + 直达扩展管理页）；**别处一律只给「查看开启引导」入口，不各写一套步骤**。该页只放需要用户动手的项——无需操作的实现细节（如脚本世界禁 `eval`）由保存警告与错误日志在恰当时机给出。**直达管理页用 `chrome.tabs.create`**（属 tabs API 免权限方法，可开 `chrome://extensions`——文档那句「chrome:// URLs are not linkable」只约束 `<a href>`）：Chrome ≥138 用 `?id=` 深链落**扩展详情页**，<138 退**列表页**（要开的是整页右上角的全局「开发者模式」）；Firefox 的 `about:addons` 是特权 URL，`tabs.create` 会被拒，故不提供该入口 | [src/lib/extension-page.ts](src/lib/extension-page.ts) |
 | 脚本世界 CSP | **不给 USER_SCRIPT 世界配 `csp`**：回落浏览器默认的严 CSP（禁 `eval` / `new Function`），不额外给 AI 生成的脚本「执行任意字符串」的能力 | [ARCHITECTURE.md](ARCHITECTURE.md)「脚本注入」 |
-| 错误文案 | **平台英文报错不直达用户**：扩展 API 的原话（注入失败 / 访问被拒等）必须先归一成用户的下一步动作（典型「切到要操作的网页后重试」），能在调用前判掉的就在判据里判掉；同类失败面（内置页 / 扩展页 / 未授权）文案保持一致 | [README](README.md) 坑 8 |
+| 错误文案 | **平台英文报错不直达用户**：扩展 API 的原话（注入失败 / 访问被拒等）必须先归一成用户的下一步动作（典型「切到要操作的网页后重试」），能在调用前判掉的就在判据里判掉；同类失败面（内置页 / 扩展页 / 未授权）文案保持一致。注意 `<all_urls>` **不覆盖 `chrome-extension://` scheme** —— 往扩展页注入必失败（连本扩展自己的页面也一样），加 host 权限解决不了，只能在注入前按 scheme 拦 | [src/lib/element-picker-client.ts](src/lib/element-picker-client.ts) |
 | entrypoint | 同一名字不得同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [wxt](.agents/skills/wxt/SKILL.md) 硬约束 3 |
-| 首屏体积 | 入口 HTML 的静态图就是打开面板要执行的代码：markdown 渲染链路 / AI SDK 等重依赖一律动态 import；首帧加载态必须是内联静态 DOM（不靠 JS） | [README](README.md) 坑 10/12 |
+| 首屏体积 | 入口 HTML 的静态图就是打开面板要执行的代码：markdown 渲染链路 / AI SDK 等重依赖一律动态 import（静态引入会把首屏从约 530KB 抬到约 1420KB）；首帧加载态必须是内联静态 DOM（不靠 JS） | [ARCHITECTURE.md](ARCHITECTURE.md)「首帧加载态」 |
 | 测试 | 新增 / 改动逻辑必须配最小验证；**手写桥接层（`src/lib/*.ts` 中非平移的那些）必须逐函数自检「默认值回退 / 入参守卫 / 先校验后落盘 / 无变化就不做」四类语义并各补单测** | [testing](.agents/skills/testing/SKILL.md) |
 | 命名 | 文件与目录 kebab-case；组件 kebab-case；props / emits 脚本 camelCase、模板 kebab-case | 本表即约定，无独立文档 |

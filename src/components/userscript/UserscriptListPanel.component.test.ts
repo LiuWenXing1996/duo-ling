@@ -131,7 +131,7 @@ async function typePath(v: string): Promise<void> {
   await flushPromises()
 }
 
-/** 打开「从路径导入」弹窗：菜单用键盘开（happy-dom 下 pointer/click 都开不了，见 README 坑 12） */
+/** 打开「从路径导入」弹窗：菜单用键盘开（happy-dom 下 pointer/click 都开不了，见 testing skill「happy-dom / Vitest 陷阱」） */
 async function openPathDialog(): Promise<void> {
   await buttonByText('导入').trigger('keydown', { key: 'ArrowDown' })
   await flushPromises()

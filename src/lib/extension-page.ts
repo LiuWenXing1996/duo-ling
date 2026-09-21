@@ -111,7 +111,7 @@ export function userScriptsGuideSteps(browser: { isFirefox: boolean; chromeMajor
  *
  * 「重启浏览器」那一步不是可选的：实测**当场**改这道开关会把扩展重载到连自己的页面都进不去
  * （导航报 ERR_BLOCKED_BY_CLIENT，14s 未恢复），详情页自己也写着「对此设置的更改将在 Chromium
- * 重启后生效」——见 README「关键坑与规避」第 13 条。
+ * 重启后生效」。
  */
 export function fileAccessGuideSteps(chromeMajor: number): GuideStep[] {
   const openSwitch = {

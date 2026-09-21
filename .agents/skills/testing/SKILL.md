@@ -63,7 +63,10 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 
 ## 覆盖盲区
 
-**跨层接线漏掉时，typecheck 与分层单测都不报**（`noUnusedLocals` 已开，但它只抓「整个 import 从未被使用」，单测又只覆盖各层函数自身）—— 详见 [README.md](../../../README.md) 坑 11。
+**跨层接线漏掉时，typecheck 与分层单测都不报**：跨层接线（如 background handlers 组装 `store` / `project-store` 的函数）漏调时，只要那个 import 在别处仍被用到，`vue-tsc` 就不会报（`noUnusedLocals` 已开，但它只抓「整个 import 从未被使用」这一种），单测又只覆盖各层函数自身。运行统计就曾因此静默漏接 `withRunStats`，靠手测才暴露。
+
+- **规避**：新增跨层链路时自查「写侧函数是否有对应读侧消费」，条件允许时手测走一遍端到端。
+- 反过来，删组件里某块模板后剩的**未使用 import** 会报 `TS6133`（`noUnusedLocals` 生效）—— 那时不必怀疑类型推断，回去删 import。
 
 ## 探针
 
@@ -73,4 +76,4 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 - **验扩展页的渲染分支**：先在工作窗口里激活目标标签页（`tabs.update({active:true})`），再 **reload 那个扩展页**（reload 不会把它变成激活页），它 mount 时读到的才是目标标签页。顺手打印一句「切换是否真生效」—— 否则断言可能在测一个根本没切过去的状态。
 - 判据不要依赖 url 可读：验「当前页能不能注入」应按 **scheme**。
 
-**要长期复用的探针**（人工点一次出结论的那种）放 `uscript-samples/`：`npm run pack:uscripts` 打成一包，扩展「脚本列表 → 导入」直接吃；验收项登记进 README「手测」（例：`gm-matrix` 的 GM 可用性矩阵）。
+**要长期复用的探针**（人工点一次出结论的那种）放 `uscript-samples/`：`npm run pack:uscripts` 打成一包，扩展「脚本列表 → 导入」直接吃；**用法、要人动手的项与覆盖登记都写在探针文件的头部注释里**（例：`gm-matrix/script.js` 顶部有用法、四项人工动作、三态判读与 `@covers` 登记表）。
