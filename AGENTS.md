@@ -123,10 +123,10 @@
 | 领域 | 一句话底线 | 详情 |
 | --- | --- | --- |
 | manifest 权限 | `sidePanel` 是 `chrome.sidePanel` 的**必需权限**；所需权限之外的不得添加（上架审查）。已批准权限集见 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」） | [wxt.config.ts](wxt.config.ts) |
-| cookie 能力（DL.cookie） | `cookies` 权限 + 已全域的 host（`<all_urls>`）= **SW 可读写全浏览器 cookie（含 HttpOnly）**，故必须与**域名门**绑定：url 须落在该脚本自身 `matches` 内、不命中 `excludeMatches`，只比 **scheme + host**（pattern 的 path 段一律忽略）；`set` 不开放 domain / path 覆写。**门只在 SW 侧，新增任何 cookie 命令都必经此门** | [cookie-gate.ts](src/lib/userscripts/cookie-gate.ts) / [api-contract.ts](src/lib/userscripts/api-contract.ts) |
+| cookie 能力（GM_cookie） | `cookies` 权限 + 已全域的 host（`<all_urls>`）= **SW 可读写全浏览器 cookie（含 HttpOnly）**，故必须与**域名门**绑定：url 须落在该脚本自身 `matches` 内、不命中 `excludeMatches`，只比 **scheme + host**（pattern 的 path 段一律忽略）；`set` 不开放 domain / path 覆写。**门只在 SW 侧，新增任何 cookie 命令都必经此门** | [cookie-gate.ts](src/lib/userscripts/cookie-gate.ts) / [api-contract.ts](src/lib/userscripts/api-contract.ts) |
 | SW 全局 | 引入依赖 Node 全局的库时，必须补 `src/polyfills.ts` 并在 `background.ts` **最前** import | [README](README.md) 坑 2 |
-| CSP / 沙箱 | 扩展页 CSP 保持 MV3 默认（曾为 esbuild-wasm 放开的 `'wasm-unsafe-eval'` 覆盖已随构建流程移除，**不要再加回**）；扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**跑在 USER_SCRIPT 世界、注入第三方页面：**不受扩展 CSP 约束，但也不享有扩展 API**（只能经 `window.DL` 桥接） | [README](README.md) 坑 7 / [ARCHITECTURE.md](ARCHITECTURE.md)「脚本注入」 |
-| 消息协议 | 扩展页只能经 `window.api` → background 调用能力；用户脚本只能经 `window.DL` → background，**两者都不得直接访问 `chrome.*`** | [src/lib/window-api.ts](src/lib/window-api.ts) |
+| CSP / 沙箱 | 扩展页 CSP 保持 MV3 默认（曾为 esbuild-wasm 放开的 `'wasm-unsafe-eval'` 覆盖已随构建流程移除，**不要再加回**）；扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**跑在 USER_SCRIPT 世界、注入第三方页面：**不受扩展 CSP 约束，但也不享有扩展 API**（只能经 GM 包装层桥接：`GM_*` / `GM.*` 标准 API，内部走 `__dl` 信封协议） | [README](README.md) 坑 7 / [ARCHITECTURE.md](ARCHITECTURE.md)「脚本注入」 |
+| 消息协议 | 扩展页只能经 `window.api` → background 调用能力；用户脚本只能经 GM 包装层（`GM_*` / `GM.*`）→ background，内部走 `dl-bridge.ts` 的 `__dl` 信封协议，**两者都不得直接访问 `chrome.*`** | [src/lib/window-api.ts](src/lib/window-api.ts) |
 | 权限引导 | 需用户在浏览器里开启的开关（当前两项：「运行用户脚本」「读取本地文件」——后者只对 Chrome 渲染）统一由工作台**「引导」标签页**承载（状态自检 + 分步指引 + 直达扩展管理页）；**别处一律只给「查看开启引导」入口，不各写一套步骤**。该页只放需要用户动手的项——无需操作的实现细节（如脚本世界禁 `eval`）由保存警告与错误日志在恰当时机给出 | [README](README.md) 手测第 4 步 |
 | 脚本世界 CSP | **不给 USER_SCRIPT 世界配 `csp`**：回落浏览器默认的严 CSP（禁 `eval` / `new Function`），不额外给 AI 生成的脚本「执行任意字符串」的能力 | [ARCHITECTURE.md](ARCHITECTURE.md)「脚本注入」 |
 | 错误文案 | **平台英文报错不直达用户**：扩展 API 的原话（注入失败 / 访问被拒等）必须先归一成用户的下一步动作（典型「切到要操作的网页后重试」），能在调用前判掉的就在判据里判掉；同类失败面（内置页 / 扩展页 / 未授权）文案保持一致 | [README](README.md) 坑 8 |
