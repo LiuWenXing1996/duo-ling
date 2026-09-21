@@ -11,6 +11,8 @@
 //   - per-site 开关：main() 读 storage 判定当前 host 是否启用，否则不挂；storage 变更时动态增删。
 //   - CSP 降级：iframe 加载失败（严格 frame-src 拦扩展 iframe）时给一句可读提示
 //     （浮层是唯一对话入口，这些站点上就是用不了 —— 不能指向已不存在的载体）。
+//     两点实现约束：部分站点拦载**不触发** iframe 的 error 事件，可靠性靠 load 超时兜底；
+//     floatpanel.html 必须进 web_accessible_resources（见 wxt.config.ts），否则 Chrome 直接拦。
 //   - 拾取让位：页面元素拾取（点选元素 / 快照）期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
 //   - 展开态上报：浮层展开时连一条 FLOAT_PANEL_OPEN_PORT 端口、收起时断开 —— SW 靠它判
 //     「用户此刻在看对话界面吗」（生成完成徽章）。见该常量处说明。

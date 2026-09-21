@@ -6,16 +6,20 @@
     <meta name="color-scheme" content="light dark" />
     <title>哆灵</title>
     <!--
-      首帧加载态（内联，零外部依赖）。为什么必须内联，见 README「关键坑与规避」坑 11：
+      首帧加载态（内联，零外部依赖）。为什么必须内联：
         扩展页 CSP 禁内联 <script>，主题类 .dark 只能等 JS 执行才挂上；而入口静态图（modulepreload
         那几百 KB）执行完前页面没有任何背景色 —— 系统是深色时先看到一片刺眼纯白。
         这里让「JS 未执行完」的窗口直接呈现「正确的底色 + 一个转圈」。Vue mount 会清空 #app，
         加载态随之消失，无需 JS 移除（这段样式在元素消失后即无作用目标）。
-      两个关键约束，改动时别丢：
+        它只存在几十毫秒，看不到不代表没生效（module 脚本在 DOMContentLoaded 之前就跑完了）；
+        dev 首次打开时那几秒白屏是 Vite 现场编译，属另一回事 —— 那时 HTML 还没送达浏览器，
+        任何前端手段都覆盖不了。
+      三个关键约束，改动时别丢：
         1) .dl-boot 必须自带背景。CSS 到达后 body 会取 --background 的 :root 值（浅色），
            只给 html 设底色会被 body 遮住、照样是白，所以这一层要整块盖住它。
         2) 转圈只能用纯 CSS 画。SVG / 图标库 / Tailwind 的 animate-spin 都要求 JS 或外部 CSS 已就绪，
            在这一档全都不成立。
+        3) 三个入口（floatpanel / workbench / popup）的样式块是刻意重复的，改一处须同步其余两处。
       下列布局基线与颜色取值均与 assets/main.css 同值，不会与正式样式互相覆盖。
     -->
     <style>
