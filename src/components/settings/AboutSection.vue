@@ -19,6 +19,9 @@ const injected = readInjectedBuildInfo()
 // 1–4 段数字，WXT 会把 `0.1.0-alpha.2` 裁成 `0.1.0`（预发布标签丢失）。manifest 仅作兜底。
 const version = injected?.version ?? chrome.runtime.getManifest().version
 
+/** 构建信息（分支 / 加载时刻）只在开发构建里渲染：给开发者判断「浏览器里跑的是不是最新代码」，正式包对用户没有意义 */
+const isDev = import.meta.env.DEV
+
 /** 页面自身构建标记：页面加载时即确定，不必等异步 */
 const page = readPageBuildStamp()
 
@@ -67,7 +70,7 @@ async function openRelease(): Promise<void> {
 
 onMounted(async () => {
   update.value = await readUpdateCheck()
-  sw.value = await fetchSwBuildStamp()
+  if (isDev) sw.value = await fetchSwBuildStamp()
   swPending.value = false
 })
 </script>
@@ -87,7 +90,7 @@ onMounted(async () => {
         <div class="min-w-0 flex-1">
           <p class="text-sm font-medium">版本号</p>
           <p class="mt-0.5 text-xs text-muted-foreground">
-            来自构建期注入的 package.json 完整版本（含预发布标签）
+            当前安装的扩展版本
           </p>
         </div>
         <span class="shrink-0 font-mono text-sm">v{{ version }}</span>
@@ -110,8 +113,9 @@ onMounted(async () => {
         </div>
       </div>
 
+      <!-- 构建信息两块只在 dev 构建里出现（见脚本里的 isDev 说明） -->
       <!-- 页面：页面上下文里的那份构建信息 -->
-      <div class="flex items-center gap-4 px-4 py-3">
+      <div v-if="isDev" class="flex items-center gap-4 px-4 py-3">
         <div class="min-w-0 flex-1">
           <p class="text-sm font-medium">页面</p>
           <p class="mt-0.5 text-xs text-muted-foreground">
@@ -126,7 +130,7 @@ onMounted(async () => {
       </div>
 
       <!-- SW：SW 上下文里的构建信息，经 sw:buildInfo 命令取回（SW 不是 HTML，页面读不到它的注入） -->
-      <div class="flex items-center gap-4 px-4 py-3">
+      <div v-if="isDev" class="flex items-center gap-4 px-4 py-3">
         <div class="min-w-0 flex-1">
           <p class="text-sm font-medium">Service Worker</p>
           <p v-if="!sw && !swPending" class="mt-0.5 text-xs text-amber-600 dark:text-amber-400">
