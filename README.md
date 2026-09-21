@@ -25,86 +25,26 @@
 ## 目录结构
 
 ```
-├─ wxt.config.ts                  # WXT 配置：srcDir / publicDir / vue + tailwind 插件 / 构建信息注入 / host_permissions
-├─ vitest.config.ts / playwright.config.ts  # 单测（logic=node + component=happy-dom 双 project）/ 端测（无头 Chromium 跑 build 产物）
-├─ AGENTS.md / ARCHITECTURE.md    # AI 协作约定与红线 / 运行时架构（改代码前先读这两份）
+├─ wxt.config.ts / vitest.config.ts / playwright.config.ts  # 构建（含权限与构建信息注入）/ 单测（双 project）/ 端测
+├─ AGENTS.md / ARCHITECTURE.md    # 协作约定与红线 / 运行时架构（改代码前先读这两份）
 ├─ README.md / VERSIONING.md / GIT_WORKFLOW.md / CHANGELOG.md  # 上手与手测 / 版本机制 / Git 工作流 / 变更记录
 ├─ .agents/skills/                # 就地挂载的 Agent 规范（wxt / shadcn-vue / workbench-panel / testing）
 ├─ src/
-│  ├─ entrypoints/
-│  │  ├─ background.ts            # 能力运行时（service worker）
-│  │  ├─ content.ts               # 内容脚本：第三方页面注入悬浮按钮 + 浮层 iframe（按站点开关，拾取期间让位）
-│  │  ├─ floatpanel.html          # 入口 1：对话界面（浮层页，content.ts 的 iframe 指向它）
-│  │  ├─ workbench.html           # 入口 2：脚本工作区标签页
-│  │  ├─ popup.html               # 入口 3：工具栏配置面板（浮层开关 + 本页脚本 + 工作台入口）
-│  │  ├─ offscreen.html           # AI 生成链路的执行宿主（按需创建）
-│  │  └─ app/
-│  │     ├─ floatpanel-main.ts    # 对话界面入口脚本（装 window.api + 主题 → ChatApp）
-│  │     ├─ popup-main.ts         # popup 入口脚本（只装主题 → PopupPanel）
-│  │     ├─ ChatApp.vue           # 对话界面根：顶栏 + ChatPanel 装配 + 孤儿任务横幅（无会话列表）
-│  │     ├─ workbench-main.ts     # 工作台入口脚本（→ WorkbenchApp）
-│  │     ├─ WorkbenchApp.vue      # 工作台根：左侧图标导航 + WorkspaceHost + hash 深链
-│  │     └─ offscreen-main.ts     # offscreen 入口脚本
-│  ├─ components/                 # UI 组件（复用规则见 AGENTS.md「UI 复用」）
-│  │  ├─ ChatPanel.vue            #   聊天区：消息气泡 / 思考与执行过程折叠 / 工具卡 / 拾取 chip / 输入区 / 模型切换
-│  │  ├─ SessionHistoryPanel.vue  #   会话列表（搜索 / 重命名 / 删除确认）；抽屉形态与工作台标签页形态共用
-│  │  ├─ SessionHistoryTab.vue    #   会话历史标签页：左列表 + 右只读消息回放（ChatPanel readonly）
-│  │  ├─ WorkspaceHost.vue        #   工作区多标签宿主（标签开合 / 脏标记 / 历史恢复后重载）
-│  │  ├─ WorkspaceTabs.vue        #   标签栏（构建信息见 设置 → 关于）
-│  │  ├─ PopupPanel.vue           #   工具栏 popup：网页浮层开关（总开关 + 当前站点）+「打开工作台」+「挂不了浮层」说明
-│  │  ├─ PopupPageScripts.vue     #   popup 的「本页脚本」分区（默认收起；与对话界面灵动岛同源）
-│  │  ├─ GuidePanel.vue           #   引导标签页：需用户开启的开关（运行用户脚本）状态自检 + 分步指引 + 直达扩展管理页
-│  │  ├─ SettingsPanel.vue / UiTestPanel.vue / ChatDataPanel.vue / ConfirmDialog.vue / ModelFormDialog.vue
-│  │  ├─ settings/                #   设置分区：sections.ts 注册表（左栏导航 + 扩展点）+ ModelSettingsSection / FloatPanelSection / AboutSection
-│  │  ├─ userscript/              #   脚本链路面板：列表 / 编辑器 / 历史 / lfs 浏览
-│  │  ├─ ui/                      #   shadcn-vue 基础组件（reka-ui）
-│  │  └─ ai-elements/             #   对话元素（message / conversation / prompt-input / chain-of-thought / tool / code-block / file-tree）
-│  ├─ composables/
-│  │  └─ use-global-conversation.ts  # 会话中枢：useChat + 流式（只读，落盘在 offscreen）
-│  ├─ assets/
-│  │  ├─ main.css                 # Tailwind v4 主题变量 + 全局滚动条 + 扩展载体适配
-│  │  └─ main.less                # 业务样式（.panel 等，ChatPanel 布局依赖）
-│  ├─ shared/
-│  │  ├─ types.ts                 # 全应用契约（会话 / 消息 / 模型 / 工作区标签）
-│  │  ├─ ipc.ts                   # window.api 的权威形状 PreloadApi
-│  │  └─ extension-ipc.ts         # 扩展专有：渲染页 ⇄ SW 消息协议、ModelProfileState
-│  ├─ lib/
-│  │  ├─ window-api.ts            # 按 PreloadApi 装配 window.api
-│  │  ├─ extension-chat-transport.ts  # AI SDK ChatTransport：向 offscreen 发 `chat:start` 并订阅事件流
-│  │  ├─ offscreen.ts / offscreen-bridge.ts  # offscreen 容器管理与桥接
-│  │  ├─ offscreen-chat/          # offscreen 侧对话链路（常驻）
-│  │  │  ├─ chat-host.ts          #   对话编排宿主（agent loop）
-│  │  │  ├─ script-tools.ts       #   工具面：script_spec / script_read / script_apply / element_read / page_snapshot / error_read
-│  │  │  ├─ system-prompt.ts / spec-text.ts
-│  │  │  ├─ event-bus.ts          #   对话事件缓冲（重连从头全量回放，收尾即删）
-│  │  │  ├─ task-store.ts         #   生成任务快照（duoling-chat 库 tasks store，宿主被杀后可继续）
-│  │  │  └─ profile-cache.ts      #   模型配置缓存（offscreen 侧）
-│  │  ├─ conversation-store.ts    # 会话与消息（IndexedDB `duoling-chat`；唯一写方 = offscreen）
-│  │  ├─ conversation-tab-map.ts  # 标签页 → 会话 的归属映射（IndexedDB `duoling-app` 的 convByTab 键）
-│  │  ├─ model-store.ts           # 模型配置（IndexedDB `duoling-app` + 连通性测试；apiKey 密文落盘）
-│  │  ├─ key-cipher.ts            # API Key 落盘加密（AES-GCM，防扫描级）
-│  │  ├─ providers.ts             # 服务商预设（host_permissions 由此推导）
-│  │  ├─ element-picker-client.ts # 元素拾取 / 页面快照的发起侧（按需注入拾取器，失败有可读文案）
-│  │  ├─ page-context-store.ts    # 点选产物的采集侧暂存（等下一条消息一起发）
-│  │  ├─ float-panel-store.ts     # 网页浮层的开关存储：总开关 + 按站点禁用（chrome.storage.local）
-│  │  ├─ build-info.ts            # 构建信息取数：define 注入的 __BUILD_INFO__（页面侧）+ sw:buildInfo 命令（SW 侧，带重试）
-│  │  ├─ theme.ts / code-view.ts / format.ts / utils.ts
-│  │  └─ userscripts/             # 脚本链路：引擎 / 存储 / git / GM 桥 / 匹配规则
-│  │     ├─ engine.ts             #   chrome.userScripts 注册：每脚本一 USER_SCRIPT 世界 + MAIN 桩
-│  │     ├─ state-db.ts / project-store.ts / project-write.ts  # 注册态库 `duoling-state`（元数据 + 源码搬运副本，写只归 offscreen）
-│  │     ├─ us-fs.ts / us-git.ts  #   lightning-fs 单例（库名 `duoling-fs`，只许 offscreen）+ isomorphic-git：源码唯一来源
-│  │     ├─ dl-bridge.ts / api-contract.ts / gm-wrapper.ts  # 注入脚本 ⇄ SW 桥（GM.* 契约 + __dl 信封）
-│  │     ├─ page-stub.ts / page-client.ts / page-protocol.ts  # GM.page.* 反向中继（MAIN 桩 + USER_SCRIPT 客户端）
-│  │     ├─ match-union.ts        #   内置注册（MAIN 桩）的匹配并集与「未变则跳过」比对
-│  │     └─ zip-transfer.ts / builtins.ts / store.ts / ui-client.ts / types.ts
-│  ├─ types/                      # shims.d.ts（process 模块 + window.api 全局声明）+ tab.ts / model.ts re-export
-│  ├─ polyfill-process.ts / polyfills.ts  # SW 兜底：process / global / Buffer
-│  └─ public/                     # duoling-picker.js（元素拾取器）
-├─ scripts/                       # 仓库维护脚本：verify-skills.mjs（skill 合规）/ check-inbox.py（inbox 体检）/ pack-uscripts.mjs（打用户脚本测试包）
-├─ uscript-samples/               # pack-uscripts 的源目录（跟 git）：未压缩的测试脚本源码，注入探针 / GM 桥往返 / 语法错误样本（坏脚本照样装）/ 运行期报错
-├─ docs/inbox.md                  # 想法收件箱（只装问题 + ≤30 字方向，不写方案设计）
-├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟四链路）
-└─ .github/workflows/             # ci.yml / e2e.yml / release.yml / sync-release-notes.yml（各自作用见 GIT_WORKFLOW.md 与 VERSIONING.md）
+│  ├─ entrypoints/                # 载体入口与运行时宿主：background（SW 能力运行时）/ content（浮层宿主）/ offscreen（AI 生成宿主）
+│  ├─ components/                 # UI：对话（ChatPanel 系列）/ 工作台宿主与面板 / popup / 设置分区（sections.ts 注册表）/ ui / ai-elements
+│  ├─ composables/                # use-global-conversation：会话中枢（useChat + 流式）
+│  ├─ lib/                        # 运行时逻辑层；各库的写权限与机制见 ARCHITECTURE.md「存储」
+│  │  ├─ offscreen-chat/          #   对话编排：chat-host（agent loop）/ 工具面 / 事件缓冲 / 任务快照 / 模型缓存
+│  │  ├─ userscripts/             #   脚本链路：注册引擎（USER_SCRIPT 世界 + MAIN 桩）/ lfs + git 存储 / dl-bridge 桥 / 匹配并集
+│  │  └─ 其他文件                 #   各 store（会话 / 模型 / 归属映射 / 浮层开关）/ transport / 元素拾取 / 构建信息取数
+│  ├─ shared/                     # 跨上下文契约：types / ipc（window.api 形状）/ extension-ipc（渲染页 ⇄ SW 协议）
+│  ├─ assets/                     # Tailwind 主题变量与全局样式
+│  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（见坑 2）/ 静态资源（元素拾取器）
+├─ scripts/                       # 仓库维护脚本：verify-skills / check-inbox / pack-uscripts
+├─ uscript-samples/               # pack-uscripts 的源目录（注入探针 / GM 桥 / 语法错误样本等测试脚本）
+├─ docs/                          # 想法收件箱（inbox.md）+ 设计契约（dl-recorder 等）
+├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟）
+└─ .github/workflows/             # ci / e2e / release / sync-release-notes（作用见 GIT_WORKFLOW.md 与 VERSIONING.md）
 ```
 
 ## 手测
