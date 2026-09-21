@@ -39,7 +39,7 @@
 │  │  └─ 其他文件                 #   各 store（会话 / 模型 / 归属映射 / 浮层开关）/ transport / 元素拾取 / 构建信息取数
 │  ├─ shared/                     # 跨上下文契约：types / ipc（window.api 形状）/ extension-ipc（渲染页 ⇄ SW 协议）
 │  ├─ assets/                     # Tailwind 主题变量与全局样式
-│  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（见坑 2）/ 静态资源（元素拾取器）
+│  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（元素拾取器）
 ├─ scripts/                       # 仓库维护脚本：verify-skills / check-inbox / pack-uscripts
 ├─ uscript-samples/               # pack-uscripts 的源目录（注入探针 / GM 桥 / 语法错误样本等测试脚本）
 ├─ docs/                          # 想法收件箱（inbox.md）+ 设计契约（dl-recorder 等）
@@ -112,62 +112,6 @@
 
 ## 后续接入
 
-- **权限引导**：后续新增需授权的权限一并并入「引导」标签页（承载约定见 [AGENTS.md](AGENTS.md) 硬性底线；深链与版本分支行为见坑 9）。
+- **权限引导**：后续新增需授权的权限一并并入「引导」标签页（承载约定与直达管理页的版本分支见 [AGENTS.md](AGENTS.md) 硬性底线「权限引导」）。
 - **自定义接口地址**：目前 `host_permissions` 只覆盖预设服务商（+ 用户脚本所需的 `<all_urls>`），自定义 baseUrl 需用 `optional_host_permissions` 动态申请。
 - **Firefox 跨端**：`build:firefox` 可构建，`sidebar_action` 适配待三期。
-
-## 关键坑与规避
-
-1. **点工具栏图标只能开 popup，对话入口不在 action 上**：Chrome 的一个 action 只有一种默认行为，本项目给了 popup（配置面板）；对话界面是 content script 注入的**页面内浮层**（见「载体分工」）。所以 manifest 里**没有 `side_panel` 键、也不需要 `sidePanel` 权限**，代码里不得调用 `chrome.sidePanel.*` —— **不要加回来**（一个 action 无法同时默认开 popup 与侧边栏，加回来只会多出一个点不动的入口）。
-   - 已批准权限集见 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」）：核对产物 manifest 即拿它的 `permissions` 数组逐项比对，另需 `action`（含 `default_popup`，由 `entrypoints/popup.html` 自动写入）+ `host_permissions`。
-2. **SW 缺 `global` / `Buffer` / `process`**：`isomorphic-git`/`lightning-fs` 依赖 Node 全局，SW 没有。`vite.define` 别名 `global: 'globalThis'` + `polyfills.ts`（含 `polyfill-process`）在 `background.ts` 最前 import 兜底；漏掉时表现为加载期即抛「`global.TextEncoder` 读不到」。
-3. **entrypoint 同名冲突**：同一名字不得同时存在 `x.html` 与 `x.ts`（WXT 判定两个同名 entrypoint）。规则与命名做法见 [wxt 规范](.agents/skills/wxt/SKILL.md) 硬约束 3。
-4. **跨域 fetch 需 host 权限**：扩展页 `fetch` 模型接口会被 CORS 拦，必须在 manifest 声明对应 `host_permissions`（模型服务商由 `src/lib/providers.ts` 推导，用户脚本另需 `<all_urls>`）。
-5. **userScripts 可用性前置**：`chrome.userScripts` 未开启时不存在，直接调用会让 SW 初始化崩溃；引擎每条入口都先判存在性（`isUserScriptsAvailable()` / `typeof chrome.userScripts.register === 'function'`）再优雅跳过，并把开启引导交给工作台「引导」标签页（各处只给「查看开启引导」入口，不各写一套步骤）。
-6. **git 只存源码本身**：源码唯一来源 = duoling-fs 工作树（单文件 `script.js`；配置由源码里的 `// ==UserScript==` 块派生，不另存元信息文件），git 提交是其版本历史；注册态库的 `source` 搬运副本不进 git（由写侧落盘时组装）；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护）
-7. **CSP 保持 MV3 默认**：扩展页 CSP 必须是默认的 `script-src 'self'` —— **不要加 CSP 覆盖**（脚本世界的 eval 防线见 [AGENTS.md](AGENTS.md) 硬性底线「脚本世界 CSP」）。
-8. **注入不了「非普通网页」**：`host_permissions` 的 `<all_urls>` **不覆盖 `chrome-extension://` scheme**，往扩展页注入（`userScripts.execute` / `scripting.executeScript`）必失败，抛 Chrome 原话 `Cannot access contents of url … must request permission to access this host` —— **连本扩展自己的页面也一样**（活动标签是工作台时点「点选元素」即命中）。
-   - 不是漏配权限，加 host 权限也解决不了，只能在注入前拦；`file://` 未开「允许访问文件网址」报的是同一句。
-   - 应对在 `element-picker-client.ts`：判据 `pageInjectionBlockReason`（拾取与 SW 快照共用）+ 归一 `friendlyInjectError`。**平台英文报错不直达用户**：能判的判掉，判不掉的翻译成用户的下一步动作（「切到要操作的网页后重试」）。
-9. **扩展自己可以打开 `chrome://extensions`**：`chrome.tabs.create({ url: 'chrome://extensions/?id=' + chrome.runtime.id })` 可用且**免权限**（属 tabs API 免权限方法）—— 文档「chrome:// URLs are not linkable」约束的是超链接（`<a href>`），不约束 tabs API。
-   - 分支要点：≥138 的开关在扩展详情页（用 `?id=` 深链），<138 要开的是整页右上角的全局「开发者模式」（退到列表页）。
-   - 反例：Firefox 的 `about:addons` 属特权 about: URL，`tabs.create` 会拒绝，故不提供该入口。
-10. **首屏静态图只放「打开就能看到」的依赖**：入口 HTML 的 `modulepreload` 链就是首帧要执行的代码，它的体积 ≈ 首开白屏时长。其中 markdown 渲染链路（micromark/mdast + shiki + katex）约 600KB、AI SDK（`ai` 核心 + zod）约 360KB —— 而展开浮层那一刻两者都用不上（历史消息走 IndexedDB 直读），故都必须按需加载（静态引入会把首屏从约 530KB 抬到约 1420KB）：
-   - markdown：`MessageResponse.vue` 用 `defineAsyncComponent` + `<Suspense>`（加载期间用纯文本兜底）拉 `vue-stream-markdown`（组件与 CSS 一起 await）；shiki 在 `code-block/utils.ts` 首次高亮时动态 import（该文件本就是「先出无色 token、高亮结果异步补上」的形状）。
-   - AI SDK：`useChat` 收进 `use-global-conversation.ts` 的 `ensureChat()` 动态加载（`@ai-sdk/vue` 的 `useChat` 不依赖组件实例，setup 作用域外调用成立）；客户端加载前 `messages` 由本地承担真相源，加载时整体移交。
-   - **`ai` 的 4 个 part 判定 helper 本地实现在 `src/lib/ui-message-parts.ts`**：`import { isTextUIPart } from 'ai'` 这种一行函数的静态导入会把整块 360KB 拉进首屏（`ai` 根入口与 `ai/internal` 都静态依赖 `@ai-sdk/gateway` / zod，`sideEffects:false` 也摇不掉）。上游改了判定要跟着改。
-11. **「import 了但没接线」typecheck 与分层单测都不报**：跨层接线（如 background handlers 组装 `store` / `project-store` 的函数）漏调时，只要那个 import 在别处仍被用到，`vue-tsc` 就不会报（`noUnusedLocals` **已开**，但它只抓「整个 import 从未被使用」这一种），单测又只覆盖各层函数自身——运行统计曾因此静默漏接 `withRunStats`，靠手测才暴露。规避：新增跨层链路时自查「写侧函数是否有对应读侧消费」，条件允许时手测走一遍端到端。
-   - 反过来，删组件里某块模板后剩的**未使用 import** 会报 `TS6133`（`noUnusedLocals` 生效）—— 那时别怀疑类型推断，回去删 import。
-12. **首帧底色不能靠 JS，加载态必须是内联的静态 DOM**：`body` 背景取 `--background`，而 `:root` 是浅色（纯白）、深色值只在 `.dark` 里，`.dark` 由 `theme.ts` 的 `installTheme()` 在 JS 执行时才挂上（CSP 禁内联 `<script>`，无法抢先挂类）。因此「CSS 已到、JS 未执行完」这一档，`body` **实测为 `oklch(1 0 0)` 纯白**，深色系统下反差明显（坑 10 那类动态加载只缩短了这段窗口，白本身仍在）。
-   做法：在 `floatpanel.html` / `workbench.html` / `popup.html` 的 `<head>` 内联首帧加载态 + `<meta name="color-scheme" content="light dark">` —— `#app` 内放一个 `.dl-boot`（`position: fixed; inset: 0` + 自带底色，`::after` 画纯 CSS 转圈），Vue mount 清空 `#app` 时自动消失，无需 JS 移除。改动时须保留的要点：
-   - **底色用 CSS 系统色 `Canvas` / `CanvasText`**（不用 `@media (prefers-color-scheme)`，也不写死 `oklch`）：**Chrome 在部分环境下该媒体查询不可靠**（文档未正确上报深色），用它会让对话界面落进 light / 白分支，表现为**加载态底色发白**（与末条「白屏」是两个不同现象）。`Canvas` / `CanvasText` 由浏览器按 OS 配色直接解析，**不依赖该媒体查询、也不需要 JS**，深浅色自动跟系统。
-   - **加载层整块覆盖视口**：用 `position: fixed; inset: 0`，不依赖 `#app` / `body` 的高度链路（浮层 iframe 的文档高度在部分状态下不撑满，`height: 100%` 会塌缩成只剩转圈、露出下方白底）。只给 `html` 设底色不够，`body` 的 `bg-background` 会盖住它。
-   - **样式必须内联、零外部依赖，用不了 `ui/Skeleton` 这类现成组件**：那类组件靠 Vue 渲染 + Tailwind 类（`bg-accent animate-pulse`）出效果，而这一档 JS 与外部 CSS 都尚未就绪，用它等于让占位与正式界面同时出现。
-   - **转圈只能用纯 CSS 画**（`::after` 的 `border` + `border-top-color` + `rotate` 动画，轨道用 `color-mix(in srgb, CanvasText 15%, Canvas)`）：SVG、图标库、Tailwind 的 `animate-spin` 同样要求 JS 或外部 CSS 已就绪。
-   - **加载态 DOM 放在 `#app` 内**：放外面须自行用 JS 移除。
-   - 三个入口（`floatpanel.html` / `workbench.html` / `popup.html`）的样式块是**刻意重复**的，改一处须同步其余两处。
-   - **几乎看不到它，不代表未生效**：加载态窗口本来只有几十毫秒（实测生产产物：对话界面 96ms / 缓热 30ms，工作台 50ms / 45ms），且 module 脚本在 `DOMContentLoaded` **之前**就已执行完毕（探针挂在 DCL 上会错过这段窗口）。它是「真的需要等」时才出现的兜底，不是常驻动画。
-   - **「一打开就白屏」的大半是 dev 冷启动，前端无从覆盖**：`npm run dev` **首次自动打开浏览器**时白屏数秒，此后在 `chrome://extensions` 点「刷新」重载即不再出现、浮层秒开 —— 原因是首次需 Vite/WXT **现场编译 entrypoint + 预构建依赖**，这几秒里 **HTML 文档本身尚未送达浏览器**。
-     故页面为空白（不只是底色白，连内联 `<style>` 都还没到），任何前端手段都渲染不出加载态。**属 dev-only**：生产产物是静态文件，HTML 即时到达，没有这段窗口 —— 验真实首屏体感须用 `npm run build` 的产物加载；同理 dev 也不适合验 CSP（见坑 7）。
-13. **读本地 `file://` 不用加权限，但挡着一道用户开关**（「从路径导入」的地基）：
-   - **manifest 不用动**：`<all_urls>` 已覆盖 `file:///*` —— 真产物里 `chrome.permissions.contains({origins:['file:///*']})` 实测为 `true`，无需再申请 `file:///*`。
-   - **真正的门槛是每扩展的用户开关「允许访问文件网址」**：关着时 `isAllowedFileSchemeAccess()` 为 `false`、上面那个 `permissions.contains` 也跟着变 `false`（它是开关的忠实代理）、`fetch('file:///…')` 一律 `Failed to fetch`。**命令行加载的 unpacked 扩展（`npm run dev` 与 E2E 的方式）该开关默认就是开的**，所以开发/端测里开箱可用；UI 里手动「加载已解压的扩展程序」装的则可能要用户自己开一次。
-   - **改这个开关不是即时生效**：程序化改（`chrome.developerPrivate.updateExtensionConfiguration({fileAccess})`）会把扩展重载，重载窗口内连自己的扩展页都进不去（导航报 `ERR_BLOCKED_BY_CLIENT`，实测 14s 未恢复），详情页自己也写着「对此设置的更改将在 Chromium 重启后生效」。所以引导页把「重启浏览器」**列成一步**（见 `fileAccessGuideSteps`），不可写成「立刻生效」。
-   - **`chrome.extension.isAllowedFileSchemeAccess()` 在 MV3 已 promise 化**：不 await 直接读会拿到一个 Promise 对象（truthy，JSON 序列化成 `{}`，看着像空对象）—— 当布尔用必然判错。`src/lib/extension-page.ts` 里兼容 promise 与同步返回，探测不到返回 `null`（**≠ 没权限**，调用方不得据此拦人）。
-   - **裸路径不是 URL**：`fetch('/a/b.zip')` 会被当**相对地址**解析到扩展页自身（实测同样 `Failed to fetch`）。路径文本必须先归一成 `file://` URL，且要**逐段编码**：`#` / `?` / 空格 不编码会被当 fragment / query 截掉（`/a#b.zip` 会变成去读 `/a`），而 POSIX 首段与 Windows 盘符段不能编码（`C:` 编成 `C%3A` 就认不出盘符）。这层在 `src/lib/userscripts/local-path.ts`，单测覆盖四类坑。
-14. **DNR header 覆写没有「按请求」粒度、也不跨重定向 hop**，两层限制：
-   - **粒度只到 host**：GM_xmlhttpRequest 的 forbidden header 覆写（`dl-fetch-priv.ts`）靠 session 规则按请求挂 / 撤，但规则条件只能到 host 级 —— 覆写规则挂起期间，同 host 的**所有** GM_xmlhttpRequest 都会被套上覆写头。因此覆写请求 = 写者（独占该 host）、纯请求 = 读者（写优先读写锁）；不互斥就会出现「纯请求带上不该带的 Cookie」这类难以排查的 bug。
-   - **不跨重定向 hop**：DNR 的头修改不跨 hop 保持（跨 host 的 hop 不套用，Chrome 平台限制，油猴同款）；`redirect:'manual'` 的 3xx 头靠观察型 webRequest 读（SW fetch 对 3xx 只拿得到 opaqueredirect，实测 webRequest **能**看到自家 SW fetch）。
-   - 规则生命周期三层兜底：settle finally 撤 → SW 启动对账自有 id 区间 → session 规则浏览器重启自清（故用 session 弃 dynamic）。
-   - **怎么验**：`npm run pack:uscripts` → 工作台「脚本列表」导入 → 启用「GM API 收口探针」→ 页面右下角角标点一下。四项断言全打在 httpbin 回显上（覆写是否真上线只有服务端能作证）：覆写上线 / 同 host 隔离 / manual 读 3xx / error 拒绝。
-   - **角标是三态**：`✓` 通过 / `✗` 功能失败 / `?` 未判定（httpbin 抖动、响应体为空读不出 header 是否干净；读者隔 500ms 自动重试一次，两次都拿不到回显才记 `?`）。重跑即可；把环境抖动当功能失败会使排查方向出错。
-   - **判据是「回显里没有脏头」还是「回显可辨认」**：靠回显下结论的两项（覆写上线、同 host 隔离）必须先确认回显**可辨认**（含 Host/Accept 等真实请求头之一），否则记 `?` —— 空回显 / CDN 兜底页里「没有脏头」不能证明「没被污染」，靠缺席证据判 ✓ 是无效判据。
-15. **网页浮层受第三方页面的 `frame-src` 约束**：浮层是 content script 往页面注入的 `<iframe>`（指向扩展页 `floatpanel.html`），**它本身是页面 DOM 元素**，所以严格 CSP 的站点（`frame-src 'self'`）会拦掉它 —— content script 创建 DOM 这一步不受页面 CSP 限制，受约束的只有这一层 iframe。三点须记住：
-   - `floatpanel.html` **必须**进 `web_accessible_resources`（见 [wxt.config.ts](wxt.config.ts)），否则 Chrome 直接拦。
-   - 被拦时要**降级成文字提示**（说清这些站点用不了），不能静默失败；部分站点拦载不触发 iframe 的 `error` 事件，可靠性靠 `load` 超时兜底（`content.ts`）。
-   - **换 `chrome.userScripts` 注入绕不过**：USER_SCRIPT 世界的宽松 CSP 只管「那个世界里执行的脚本」，不管「页面 DOM 能嵌入什么」。
-16. **浮层的标签页身份只能由 content script 传进来，不能它自己查**（「会话按标签页归属」的地基）：
-   - 浮层是扩展页 iframe，`chrome.tabs.query({active:true,currentWindow:true})` 拿到的是「窗口里当前**激活**的标签页」——而浮层可能挂在一个**已不是激活**的标签页上（用户切走了、浮层还留着），照它查就会把会话错接到别人的标签页。**所以凡是「本载体属于哪个 tab」的判断一律走 `lib/owning-tab.ts`**（会话归属、随消息发出的页面上下文、灵动岛的运行集都经它），不要各处自己 query。
-   - 故浮层的 tab id 由 content script 经 `tab:identify` 命令向 SW 取 `sender.tab.id`（**content script 拿不到 `chrome.tabs`**，只有 runtime / storage 等 API 子集），拼进 iframe URL 的 `?tab=<id>` 传给浮层；取不到就退回不带参数。
-   - 拿不到 tabId 时的行为是**「不绑定」**（照常对话，只是这条会话不归属任何标签页）——好过错绑到别人的标签页。解析见 `lib/owning-tab.ts` 的 `resolveOwningTabId`。
-17. **popup 的高度只能由内容驱动：不能用百分比高度，也不能用 `vh`**：popup 没有可编程的窗口尺寸 —— 浏览器量完文档、围着它画窗口（上限 800×600），而 `height: 100%` / `100vh` 会造成**循环测量**（视口高度来自内容，内容高度又来自视口）：`#app` 恒等于 100% 视口高，窗口便**只增不减** —— popup 里展开再折叠「本页脚本」列表，底部留一片空白（2026-09-21 实测）。`main.css`「扩展载体适配」那条 `html/body/#app { height: 100% }`（浮层与工作台需要它）靠 `html.dl-popup` 整条排除掉 popup 载体。**在 popup 里定尺寸一律用 px（`min-height` / `max-height`）。**
