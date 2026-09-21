@@ -42,7 +42,7 @@
 │  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（元素拾取器）
 ├─ scripts/                       # 仓库维护脚本：verify-skills / check-inbox / pack-uscripts
 ├─ uscript-samples/               # pack-uscripts 的源目录（注入探针 / GM 桥 / 语法错误样本等测试脚本）
-├─ docs/                          # 想法收件箱（inbox.md）+ 设计契约（dl-recorder 等）
+├─ docs/                          # 想法收件箱（inbox.md）
 ├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟）
 └─ .github/workflows/             # ci / e2e / release / sync-release-notes（作用见 GIT_WORKFLOW.md 与 VERSIONING.md）
 ```

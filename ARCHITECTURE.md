@@ -59,7 +59,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 - **网络录制（dl-recorder，两段式常驻件）**：要拦页面**自己**发出的 `fetch`/`XMLHttpRequest`，钩子只能挂 MAIN 世界（USER_SCRIPT 各有独立 realm，挂它的 `window.fetch` 拦不到）；而 MAIN 世界无 `chrome.*`。故两件协作、都按「用户已同意录制的 host 集合」注册（`net-capture-gate.ts`，默认空集＝不注册）：
   - `dl-net-recorder`（`world: 'MAIN'`，`document_start`）：包装 `fetch` 与 XHR，非阻塞采样后 `window.postMessage`（标签 `__dlNetCapture`）交给同帧；
   - `dl-net-forwarder`（独立 USER_SCRIPT 世界 `us-dl-net`，`messaging: true`）：监听该标签消息，经 `chrome.runtime.sendMessage` 转 SW；
-  - SW 侧 `dl-bridge` 用 `normalizeCapture` 白名单化（载荷经页面可伪造的 postMessage，形状不可信）后落 `duoling-netlog`。采样剥鉴权头、**URL 的 query/fragment 凭据脱敏**（`stripUrlSecrets`：键名命中敏感词或值超长即换 `***`，键名保留）、请求/响应体各封顶 ≤2KB、每 host 环形 ≤200 条；设计契约见 [docs/dl-recorder-design.md](docs/dl-recorder-design.md)。
+  - SW 侧 `dl-bridge` 用 `normalizeCapture` 白名单化（载荷经页面可伪造的 postMessage，形状不可信）后落 `duoling-netlog`。采样剥鉴权头、**URL 的 query/fragment 凭据脱敏**（`stripUrlSecrets`：键名命中敏感词或值超长即换 `***`，键名保留）、请求/响应体各封顶 ≤2KB、每 host 环形 ≤200 条。
   - **录制的 AI 路径**（用户同意是硬门槛）：`net_capture_enable` 工具**只出同意卡、不开录制**——开启的唯一入口是用户点卡片上的按钮（`userscriptClient.netCaptureEnable` → SW 写门禁 + 重注册）。卡片走 `data-net-capture` data part（同生成卡片的机制，随消息落盘，重开面板仍在）；开启后引导用户点**浏览器的刷新按钮**——录制是前向的，钩子只在文档开头挂，不刷新就录不到已跑完的首屏请求。读回走 `net_capture_read`（`net-record-digest.ts` 压两档：摘要档常驻 prompt、全量档给工具），`system-prompt.ts` 有对应档位。
 - **MAIN 世界多包装者共存**：`dl-page-stub` 的 `fetchHook` 与 `dl-recorder` 都会替换 `window.fetch`，且同为 `document_start`（先后取决于注册顺序）。故 `hookStack` 的记录与还原一律取**当时链下的实际值**（钩住时取当前 `window.fetch` 作 `prev`、摘钩时还原被摘元素的 `prev`），**不得用注入期快照**——否则后安装的那个包装者会被摘钩还原掉，在该页余下生命周期里永久失效。
 
