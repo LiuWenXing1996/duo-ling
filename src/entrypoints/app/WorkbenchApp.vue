@@ -6,7 +6,8 @@
 //
 // 结构平移自桌面版 app.vue 的「顶栏 + 左侧导航 + 工作区」，只裁掉两栏聊天
 // （会话历史 | 当前会话已移入 side panel），保留的分支逐句照搬，未重写。
-// 导航项：引导 / 设置 / 界面预览 / 脚本列表 / 运行日志 / lfs 浏览 / 会话数据 / 会话历史 / AI 工具 / GM API。
+// 导航项：引导 / 设置 / 脚本列表 / 运行日志 / 脚本文件 / 会话数据 / 会话历史 / AI 工具 / GM API。
+// 「AI 界面对话预览」不列在上面：它属调界面用的入口，只在开发者模式（设置 → 开发者）下出现。
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
   Code as UiCode,
@@ -28,9 +29,15 @@ import {
   TooltipTrigger as UiTooltipTrigger
 } from '@/components/ui/tooltip'
 import { getProject } from '@/lib/userscripts/project-store'
+import { getDevMode, subscribeDevMode } from '@/lib/dev-mode-store'
 
 // 左侧导航栏「设置」「脚本列表」等：调用工作区的对应方法
 const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
+
+// 开发者模式：控制「AI 界面对话预览」这类调界面用的入口是否出现在左侧导航。
+// 设置页是同一文档里的一个标签页，开关改动经 storage.onChanged 回到这里
+const devMode = ref(false)
+let unsubDevMode: (() => void) | undefined
 
 // hash 深链（openWorkbench 的约定）：
 //   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
@@ -62,13 +69,19 @@ function handleHash(): void {
   if (location.hash === '#/settings') workspaceRef.value?.openSettingsTab()
 }
 
-onMounted(() => {
+onMounted(async () => {
   handleHash()
   // 已打开的工作台被再次深链时，SW 走的是 chrome.tabs.update 只改 hash（文档不重载），
   // 只靠 onMounted 会「点了没反应」——必须接住 hashchange。
   window.addEventListener('hashchange', handleHash)
+
+  devMode.value = await getDevMode()
+  unsubDevMode = subscribeDevMode((v) => (devMode.value = v))
 })
-onUnmounted(() => window.removeEventListener('hashchange', handleHash))
+onUnmounted(() => {
+  window.removeEventListener('hashchange', handleHash)
+  unsubDevMode?.()
+})
 </script>
 
 <template>
@@ -110,19 +123,19 @@ onUnmounted(() => window.removeEventListener('hashchange', handleHash))
             <ui-tooltip-content side="right">设置</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
-        <ui-tooltip-provider>
+        <ui-tooltip-provider v-if="devMode">
           <ui-tooltip>
             <ui-tooltip-trigger as-child>
               <button
                 class="workspace-nav-item"
                 type="button"
-                aria-label="界面预览"
+                aria-label="AI 界面对话预览"
                 @click="workspaceRef?.openUiTestTab()"
               >
                 <ui-flask-conical class="size-5" />
               </button>
             </ui-tooltip-trigger>
-            <ui-tooltip-content side="right">界面预览</ui-tooltip-content>
+            <ui-tooltip-content side="right">AI 界面对话预览</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
         <ui-tooltip-provider>
