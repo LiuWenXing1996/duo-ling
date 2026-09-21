@@ -3,7 +3,15 @@
 // 一个脚本 = 一个单文件源码 + 一份配置，直接映射 chrome.userScripts 原生字段。
 // 无构建流程：保存即注入（源码原文进注册态），对齐油猴单文件形态。
 
-/** 脚本配置：全部直接映射 chrome.userScripts 原生注册字段，无 metadata 中间层 */
+/**
+ * 脚本配置：**运行期唯一事实源**。
+ *
+ * 前 6 个字段直接映射 chrome.userScripts 原生注册字段；`metadata` 组字段是**注入期配置**
+ * （@grant / @require / @resource 与 GM_info 合成所需），不映射到注册字段。
+ *
+ * 来源：源码里的 `// ==UserScript==` 块（由 metadata.ts 解析后写入）**或**用户在 UI 里手改。
+ * 写入后**不回写源码**（2026-09-20 拍板）—— metadata 只是输入，config 是唯一运行期事实源。
+ */
 export interface ScriptConfig {
   /** 必填，match pattern */
   matches: string[]
@@ -16,6 +24,31 @@ export interface ScriptConfig {
   allFrames: boolean
   /** 默认 document_end（对齐主流） */
   runAt: 'document_start' | 'document_end' | 'document_idle'
+
+  // —— 以下为 GM 化的注入期配置（metadata 派生，不映射注册字段）——
+
+  /**
+   * `@grant` 声明的能力名（保序去重，含 `'none'`）。
+   * 缺省 / 空数组 / 仅 `['none']` → **全量注入**（D4：本扩展无页面上下文，`@grant none`
+   * 若真的一点不给，很多脚本里读 `GM_info` 判环境的语句会当场崩）。
+   */
+  grant?: string[]
+  /** `@require` 外部依赖 URL（保序；注册时抓取缓存后按序前置注入）—— P2 落地 */
+  requires?: string[]
+  /** `@resource` 命名资源（供 GM_getResourceText / GM_getResourceURL）—— P2 落地 */
+  resources?: ScriptResourceDecl[]
+  /** metadata 的展示字段（GM_info.script 合成用，不参与匹配） */
+  namespace?: string
+  version?: string
+  description?: string
+  author?: string
+  icon?: string
+}
+
+/** `@resource name url` 一条（资源体落库由 P2 实现） */
+export interface ScriptResourceDecl {
+  name: string
+  url: string
 }
 
 /**
@@ -47,13 +80,6 @@ export interface ScriptProject {
   source: { code: string; savedAt: number }
   createdAt: number
   updatedAt: number
-}
-
-/** 源码的元数据（并行写入 duoling-fs 的 project.json，与状态库记录同源保存） */
-export interface ScriptMeta {
-  name: string
-  config: ScriptConfig
-  createdAt: number
 }
 
 /** 给 UI 列表用的精简视图（不含源码） */
@@ -103,14 +129,14 @@ export interface UserScriptErrorRecord {
   id: string
   uuid: string | null // 运行期/注册错误有；部分桥错误可能无
   name: string // 脚本名（便于展示，未知时占位）
-  /** 错误阶段：runtime=用户脚本运行期报错；register=后台注册失败；bridge=DL 桥调用失败 */
-  phase: 'runtime' | 'register' | 'bridge'
+  /** 错误阶段：runtime=用户脚本运行期报错；register=后台注册失败；bridge=GM 桥调用失败 */
+  phase: 'runtime' | 'register' | 'bridge' | 'require'
   message: string
   stack?: string
   url?: string // 运行期错误所在页面
   time: number // 时间戳
   /**
-   * 运行标识：**一次页面加载 = 一个 runId**（DL 包装注入即 mint，见 engine.buildDlWrapper）。
+   * 运行标识：**一次页面加载 = 一个 runId**（GM 包装注入即 mint，见 engine.buildDlWrapper）。
    * 用途：日志是全量环形（历次运行混存），侧边栏页面监控只显「本次运行」的错误——
    * 按当前 tab 登记的运行集里有没有该 runId 来判定。
    * `register`（注册失败）与 `bridge`（桥调用失败）没有页面/运行上下文，恒为 null / 缺省。
@@ -120,7 +146,7 @@ export interface UserScriptErrorRecord {
 
 // —— 存储约定 ——
 //
-// 全部落 IndexedDB：DL.store / DL.tab → duoling-usdata（usdata-db.ts，复合主键）；
+// 全部落 IndexedDB：GM 值存储 / GM tab → duoling-usdata（usdata-db.ts，复合主键）；
 // 观测数据（错误日志 / 运行统计 / 运行日志）→ duoling-runtime（runtime-db.ts）。
 
 /** 设置 / 黑名单：us:settings */
@@ -182,13 +208,13 @@ export type UserScriptRunLogRow =
     }
   | { kind: 'error'; record: UserScriptErrorRecord }
 
-/** zip 内源码文件的固定文件名（每脚本目录一个 project.json + 一个 script.js） */
+/** zip 内源码文件的固定文件名（每脚本目录只此一个 script.js，单文件形态） */
 export const SCRIPT_FILE = 'script.js'
 
 // —— zip 导入报告——
 //
 // 导入只拦原则项，其余一律导入并说明，留给脚本编辑器修。故 ok 条目可带 notes（字段兜底提示），
-// failed 只剩结构性原因（无 project.json / 非 JSON / 缺源码文件）。
+// failed 只剩结构性原因（缺 script.js 源码文件 / 非脚本目录）。
 
 /** 导入成功的条目（uuid 为导入方新生成；enabled 恒 false） */
 export interface ImportItemOk {
@@ -242,8 +268,9 @@ export function defaultConfig(matches: string[]): ScriptConfig {
 export function defaultSource(name: string): string {
   return [
     `// 哆灵用户脚本 · ${name}`,
-    '// 保存后按匹配规则注入页面；可用 DL.* 能力，例如 DL.log()。',
-    "// 注意：单文件直接执行，不支持 import / export。",
+    '// 保存后按匹配规则注入页面；能力面为标准油猴 API（GM_getValue / GM_setValue / GM_xmlhttpRequest …）。',
+    '// 带 // ==UserScript== metadata 块的标准油猴脚本可直接粘贴：保存时解析并采用其声明。',
+    '// 注意：单文件直接执行，不支持 import / export。',
     '',
     "console.log('[哆灵脚本] 已注入', location.href)",
     '',

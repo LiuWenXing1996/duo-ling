@@ -1,13 +1,13 @@
-// DL.fetch 特权增强（提案 2026-09-19 经评审批准）：forbidden header 覆写 + redirect:'manual' 的
+// GM_xmlhttpRequest 特权增强（提案 2026-09-19 经评审批准）：forbidden header 覆写 + redirect:'manual' 的
 // 机制层，与消息分流解耦（dl-bridge.ts 负责桥接与组装）。
 //
 // 机制（均已真机探针验证，Chromium 153，tmp/dnr-spike，2026-09-19）：
 //   · SW 内 fetch 改不了 forbidden header（fetch 规范静默丢弃），改经 DNR session 规则
 //     modifyHeaders 在「发送请求头之前」套上。set/remove 无 header 白名单；append 有，
 //     故 v1 只做 set。
-//   · DNR 规则没有「只作用于某一次请求」的粒度：规则挂起期间，同 host 的任何 DL.fetch
+//   · DNR 规则没有「只作用于某一次请求」的粒度：规则挂起期间，同 host 的任何 GM_xmlhttpRequest
 //     都会被套上覆写头。因此覆写请求 = 写者（独占该 host），纯请求 = 读者（共享）——
-//     写优先读写锁：覆写规则挂起期间该 host 的所有 DL.fetch 互斥排队，不同 host 之间照旧并行。
+//     写优先读写锁：覆写规则挂起期间该 host 的所有 GM_xmlhttpRequest 互斥排队，不同 host 之间照旧并行。
 //   · redirect:'manual'：SW fetch 对 3xx 只拿得到 opaqueredirect（status 0、headers 不可读），
 //     Location 由观察型 webRequest.onHeadersReceived 读取——manual 不跟随、单次响应、无竞态。
 //

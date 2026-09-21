@@ -8,8 +8,8 @@
 //       dlPorts    Map<Port, {uuid, connId, tabId}>   连接寻址（menu.click 路由主键 = tabId）
 //       watches    Map<Port, Set<key>>                订阅跟随 Port 生命周期，断开自动清理
 //       notifyMap  Map<notificationId, uuid>          通知点击归属（内存，SW 重启窗口内点击丢失——已拍板接受）
-//   · 三个事件来源：contextMenus.onClicked / DL.store 写出口（store.ts 的 onGmValueChange，
-//     原为 storage.onChanged，DL.store 迁 duoling-usdata 后改为直发）/ notifications.onClicked。
+//   · 三个事件来源：contextMenus.onClicked / GM 值存储 写出口（store.ts 的 onGmValueChange，
+//     原为 storage.onChanged，GM 值存储 迁 duoling-usdata 后改为直发）/ notifications.onClicked。
 //   · 控制面（注册 / 注销 / 订阅）走 sendMessage 请求-响应（dl-bridge dispatch 调本文件导出的
 //     函数），Port 只承载下行推送帧 —— 控制面/数据面分离。
 //
@@ -55,6 +55,12 @@ export class DlPortRegistry {
   private notifyMap = new Map<string, string>()
   /** URL 变化订阅（SPA 路由感知）：Port 级布尔，tab 级推送经 portsForUrlChange 路由 */
   private urlWatchers = new Set<chrome.runtime.Port>()
+  /**
+   * 全量值订阅（`store.watchAll`）：Port 级布尔，与 urlWatchers 同构。
+   * 存在理由：只读值的脚本从不键级订阅，若不给它一条全量通道，别的标签页改的值它永远收不到，
+   * 同步快照会整个页面生命周期陈旧（见 gm-wrapper.ts 的 `__gmEnsureChannel`，D1-b）。
+   */
+  private valueWatchers = new Set<chrome.runtime.Port>()
 
   addPort(port: chrome.runtime.Port, meta: DlPortMeta): void {
     this.ports.set(port, meta)
@@ -65,6 +71,13 @@ export class DlPortRegistry {
   removePort(port: chrome.runtime.Port): void {
     this.ports.delete(port)
     this.watches.delete(port)
+    this.urlWatchers.delete(port)
+    this.valueWatchers.delete(port)
+  }
+
+  /** 该 Port 的连接身份（判 `store.change` 的 remote 用：与发起写者同 connId = 本实例自己写的） */
+  connIdOf(port: chrome.runtime.Port): string | undefined {
+    return this.ports.get(port)?.connId
   }
 
   get meta(): Iterable<[chrome.runtime.Port, DlPortMeta]> {
@@ -150,6 +163,27 @@ export class DlPortRegistry {
     }
     return out
   }
+
+  /** 挂全量值订阅。找不到该 connId 的 Port（连接未就绪）返回 false，由调用方抛错 */
+  attachValueWatch(uuid: string, connId: string): boolean {
+    const targets = this.portsByConnId(uuid, connId)
+    if (!targets.length) return false
+    for (const port of targets) this.valueWatchers.add(port)
+    return true
+  }
+
+  detachValueWatch(uuid: string, connId: string): void {
+    for (const port of this.portsByConnId(uuid, connId)) this.valueWatchers.delete(port)
+  }
+
+  /** 某脚本上已开全量值订阅的全部 Port（任意键变更都要推给它） */
+  portsForValueChange(uuid: string): chrome.runtime.Port[] {
+    const out: chrome.runtime.Port[] = []
+    for (const [port, m] of this.ports) {
+      if (m.uuid === uuid && this.valueWatchers.has(port)) out.push(port)
+    }
+    return out
+  }
 }
 
 /** 向单条 Port 推一帧 ApiEvent；Port 已断时静默摘除（postMessage 可能抛 disconnected） */
@@ -232,6 +266,15 @@ export function detachUrlWatch(uuid: string, connId: string): void {
   getDlPortRegistry().detachUrlWatch(uuid, connId)
 }
 
+/** 挂全量值订阅（控制面，ApiRequest store.watchAll）；Port 未就绪返回 false（竞态防御） */
+export function attachValueWatch(uuid: string, connId: string): boolean {
+  return getDlPortRegistry().attachValueWatch(uuid, connId)
+}
+
+export function detachValueWatch(uuid: string, connId: string): void {
+  getDlPortRegistry().detachValueWatch(uuid, connId)
+}
+
 /** 为一次 DL.notify mint 通知 id 并登记归属（响应该 id，供包装层挂 onClick） */
 export function mintNotification(uuid: string): string {
   const id = `us-${crypto.randomUUID()}`
@@ -283,14 +326,28 @@ export function initDlPort(): void {
     for (const port of ports) pushEvent(registry, port, { t: 'menu.click', id: parsed.menuId })
   })
 
-  // 事件源 ②：DL.store 值变更 → 推给订阅者。原经 storage.onChanged 兜底（DL.store 落
-  // chrome.storage 时代），迁 duoling-usdata 库后 IDB 无变更通知，改为订阅 store.ts 的
-  // 写出口直发（DL.store 全部写入口仍收敛在 store.ts 那几个函数，写+发不分离）。
-  // 删除语义（拍板修正）：deleted = true 时帧上 value 置 null。
-  onGmValueChange(({ uuid, key, deleted, value }) => {
+  // 事件源 ②：值变更 → 推给订阅者。原经 storage.onChanged 兜底（落 chrome.storage 时代），
+  // 迁 duoling-usdata 库后 IDB 无变更通知，改为订阅 store.ts 的写出口直发（写入口仍收敛在
+  // store.ts 那几个函数，写+发不分离）。删除语义：deleted = true 时帧上 value 置 null。
+  //
+  // 两类订阅者并集：键级（store.watch）+ 全量（store.watchAll，D1-b 给只读脚本的通道）。
+  // 同一 Port 可能同时命中两类 → 用 Set 去重，否则它会收到重复帧。
+  // remote：与发起写的实例同 connId 即「本实例自己写的」（false）；无 connId（后台内部写）算 true。
+  onGmValueChange(({ uuid, key, deleted, value, oldValue, writerConnId }) => {
     const frameValue = (deleted ? null : value) as import('./api-contract').Json
-    for (const port of registry.watchersForKey(uuid, key)) {
-      pushEvent(registry, port, { t: 'store.change', key, value: frameValue })
+    const frameOldValue = (oldValue === undefined ? null : oldValue) as import('./api-contract').Json
+    const targets = new Set([
+      ...registry.watchersForKey(uuid, key),
+      ...registry.portsForValueChange(uuid),
+    ])
+    for (const port of targets) {
+      pushEvent(registry, port, {
+        t: 'store.change',
+        key,
+        value: frameValue,
+        oldValue: frameOldValue,
+        remote: !writerConnId || registry.connIdOf(port) !== writerConnId,
+      })
     }
   })
 

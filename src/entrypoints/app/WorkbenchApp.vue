@@ -6,7 +6,7 @@
 //
 // 结构平移自桌面版 app.vue 的「顶栏 + 左侧导航 + 工作区」，只裁掉两栏聊天
 // （会话历史 | 当前会话已移入 side panel），保留的分支逐句照搬，未重写。
-// 导航项：设置 / UI 测试 / 脚本列表 / 运行日志 / lfs 浏览 / 会话数据 / AI 工具 / DL API。
+// 导航项：设置 / UI 测试 / 脚本列表 / 运行日志 / lfs 浏览 / 会话数据 / AI 工具 / GM API。
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
   Code as UiCode,
@@ -200,13 +200,13 @@ onUnmounted(() => window.removeEventListener('hashchange', handleHash))
               <button
                 class="workspace-nav-item"
                 type="button"
-                aria-label="DL API"
-                @click="workspaceRef?.openDlApiTab()"
+                aria-label="GM API"
+                @click="workspaceRef?.openGmApiTab()"
               >
                 <ui-code class="size-5" />
               </button>
             </ui-tooltip-trigger>
-            <ui-tooltip-content side="right">DL API</ui-tooltip-content>
+            <ui-tooltip-content side="right">GM API</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
       </aside>

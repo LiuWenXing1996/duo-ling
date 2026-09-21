@@ -10,16 +10,13 @@
 // 历史不丢脚本，所有失败都不阻断保存主链路。
 import git from 'isomorphic-git'
 import { fs, pfs } from './us-fs'
-import type { ScriptConfig, ScriptMeta } from './types'
 
 const AUTHOR = { name: 'duoling', email: 'dev@duoling.local' }
 const US_ROOT = '/uscripts'
-const META_FILE = 'project.json'
 const SOURCE_FILE = 'script.js'
 
-/** 一次读取到的源码（工作区或某次提交） */
+/** 一次读取到的源码（工作区或某次提交）；单文件形态下源码本身即全部事实，无并行元数据文件 */
 export interface Source {
-  meta: ScriptMeta
   code: string
 }
 
@@ -30,9 +27,8 @@ export interface UsCommit {
   time: number
 }
 
-/** 某提交的完整快照：当时的元信息 + 源码（project.json 已剥离） */
+/** 某提交的完整快照：单文件形态下只有源码（历史版本同样不含并行元数据文件） */
 export interface UsSnapshot {
-  meta?: ScriptMeta
   code?: string
 }
 
@@ -138,39 +134,14 @@ async function readBlobText(uuid: string, oid: string, filepath: string): Promis
   }
 }
 
-/** project.json 的序列化内容（源码单独物化进 script.js） */
-function metaJson(meta: ScriptMeta, uuid: string): string {
-  return JSON.stringify(
-    { v: 2, uuid, name: meta.name, config: meta.config, createdAt: meta.createdAt },
-    null,
-    2,
-  )
-}
-
-/** 解析 project.json 文本；缺关键字段返回 null */
-function parseMetaJson(raw: string): ScriptMeta | null {
-  try {
-    const parsed = JSON.parse(raw) as { name?: string; config?: ScriptConfig; createdAt?: number }
-    if (!parsed.name || !parsed.config) return null
-    return {
-      name: parsed.name,
-      config: parsed.config,
-      createdAt: parsed.createdAt ?? 0,
-    }
-  } catch {
-    return null
-  }
-}
-
 /**
- * 把源码写入工作区（script.js）+ 写 project.json 元数据。
- * project.json 最后写，作为「这批源码写完了」的提交点（半写保护）。不碰 .git、不动 index。
+ * 把源码写入工作区（script.js）。单文件形态下源码本身即全部事实，无并行元数据文件。
+ * 不碰 .git、不动 index（提交由 commitSource 负责）。
  */
-export async function writeSource(uuid: string, code: string, meta: ScriptMeta): Promise<void> {
+export async function writeSource(uuid: string, code: string): Promise<void> {
   assertSafeUuid(uuid)
   await ensureRepo(uuid)
   await writeRepoFile(uuid, SOURCE_FILE, code)
-  await writeRepoFile(uuid, META_FILE, metaJson(meta, uuid))
 }
 
 /** 读工作区 script.js 源码；不存在返回 null */
@@ -179,16 +150,6 @@ async function readWorktreeCode(uuid: string): Promise<string | null> {
     const raw = await pfs.readFile(`${usDir(uuid)}/${SOURCE_FILE}`)
     const text = new TextDecoder().decode(raw)
     return text.length ? text : null
-  } catch {
-    return null
-  }
-}
-
-/** 读工作区 project.json 的元数据；读不出返回 null */
-async function readWorktreeMeta(uuid: string): Promise<ScriptMeta | null> {
-  try {
-    const raw = new TextDecoder().decode(await pfs.readFile(`${usDir(uuid)}/${META_FILE}`))
-    return parseMetaJson(raw)
   } catch {
     return null
   }
@@ -207,49 +168,43 @@ export async function readSource(uuid: string, committed = false): Promise<Sourc
     return snapshotToSource(uuid, head)
   }
   const code = await readWorktreeCode(uuid)
-  const meta = await readWorktreeMeta(uuid)
-  if (code && meta) return { meta, code }
+  if (code) return { code }
   // 工作区空（未保存 / 草稿已清空）→ 回退 HEAD
   const head = await headOid(uuid)
   if (!head) return null
   return snapshotToSource(uuid, head)
 }
 
-/** 读取某提交（含元数据） */
+/** 读取某提交（源码） */
 async function snapshotToSource(uuid: string, oid: string): Promise<Source | null> {
   const snap = await readSnapshotAt(uuid, oid)
-  if (snap.code === undefined || !snap.meta) return null
-  return { meta: snap.meta, code: snap.code }
+  if (snap.code === undefined) return null
+  return { code: snap.code }
 }
 
 /**
- * 提交工作区（保存成功后调用）：script.js 与 project.json 都与 HEAD 一致则不提交（无空提交）；
+ * 提交工作区（保存成功后调用）：script.js 与 HEAD 一致则不提交（无空提交）；
  * message = 备注优先，否则自动计数「保存 #n」。
  */
 export async function commitSource(
   uuid: string,
-  meta: ScriptMeta,
   note?: string,
 ): Promise<{ committed: boolean; oid?: string }> {
   assertSafeUuid(uuid)
   await ensureRepo(uuid)
   const dir = usDir(uuid)
   const head = await headOid(uuid)
-  // 比对工作区与 HEAD：源码与元数据任一不同即需要提交（改名 / 改配置也是一次保存）
   const code = await readWorktreeCode(uuid)
   if (code == null) return { committed: false }
   let changed = true
   if (head) {
     const headCode = await readBlobText(uuid, head, SOURCE_FILE)
-    const headMetaRaw = await readBlobText(uuid, head, META_FILE)
-    changed = code !== headCode || metaJson(meta, uuid) !== headMetaRaw
+    changed = code !== headCode
   }
   if (!changed) return { committed: false }
 
   await writeRepoFile(uuid, SOURCE_FILE, code)
   await git.add({ fs, dir, filepath: SOURCE_FILE })
-  await writeRepoFile(uuid, META_FILE, metaJson(meta, uuid))
-  await git.add({ fs, dir, filepath: META_FILE })
 
   const count = (await listHistory(uuid)).length
   const message = note?.trim() || `保存 #${count + 1}`
@@ -272,15 +227,11 @@ export async function listHistory(uuid: string): Promise<UsCommit[]> {
   }
 }
 
-/** 读某提交的完整快照（project.json 解出元信息；script.js 为源码） */
+/** 读某提交的完整快照（script.js 为源码；单文件形态，无并行元数据文件） */
 export async function readSnapshotAt(uuid: string, oid: string): Promise<UsSnapshot> {
   assertSafeUuid(uuid)
   const code = await readBlobText(uuid, oid, SOURCE_FILE)
-  const metaRaw = await readBlobText(uuid, oid, META_FILE)
-  return {
-    code,
-    ...(metaRaw !== undefined ? { meta: parseMetaJson(metaRaw) ?? undefined } : {}),
-  }
+  return { code }
 }
 
 /**
@@ -296,12 +247,12 @@ export async function restoreToCommit(
   await ensureRepo(uuid)
   const dir = usDir(uuid)
   const snap = await readSnapshotAt(uuid, oid)
-  if (snap.code === undefined || !snap.meta) throw new Error('历史版本不存在或已损坏')
+  if (snap.code === undefined) throw new Error('历史版本不存在或已损坏')
 
-  await writeSource(uuid, snap.code, snap.meta)
+  await writeSource(uuid, snap.code)
   const head = await headOid(uuid)
   if (head === oid) {
-    return { committed: false, source: { meta: snap.meta, code: snap.code } }
+    return { committed: false, source: { code: snap.code } }
   }
   let message = `回滚到 ${oid.slice(0, 8)}`
   try {
@@ -311,6 +262,6 @@ export async function restoreToCommit(
   } catch {
     /* 读不到原始 message 时用默认格式 */
   }
-  await commitSource(uuid, snap.meta, message)
-  return { committed: true, source: { meta: snap.meta, code: snap.code } }
+  await commitSource(uuid, message)
+  return { committed: true, source: { code: snap.code } }
 }

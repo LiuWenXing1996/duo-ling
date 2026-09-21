@@ -20,7 +20,7 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 | 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：注入悬浮按钮 + iframe（按站点开关），拾取期间整块让位 |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
-| 注入世界 | USER_SCRIPT（第三方页面内） | 用户脚本自身逻辑，只能经 `window.DL` 桥接 |
+| 注入世界 | USER_SCRIPT（第三方页面内） | 用户脚本自身逻辑，经 GM 包装层（`gm-wrapper.ts` 注入 `GM_*` / `GM.*`）桥接，内部走 userScript 世界的 `__dl` 信封协议 |
 
 各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的注入细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级）见 [src/entrypoints/content.ts](src/entrypoints/content.ts) 顶部注释与 README 坑 15。
 
@@ -33,9 +33,15 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 
 ## 脚本注入
 
-`chrome.userScripts` + USER_SCRIPT 世界 + `window.DL` 桥接（`src/lib/userscripts/`）。
+`chrome.userScripts` + USER_SCRIPT 世界 + **GM 包装层**（`gm-wrapper.ts`，注入体）桥接（`src/lib/userscripts/`）。
 
-- **DL.fetch 的 forbidden header 覆写**（Cookie / Referer / UA 等）与 `redirect:'manual'` 走 DNR session 规则按请求挂/撤 + 观察型 webRequest（`dl-fetch-priv.ts`，2026-09-19 经评审批准；权限 `declarativeNetRequestWithHostAccess` + `webRequest` 均不新增用户可见提示）。
+标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`）；能力表 `gm-api-catalog.ts` 一张生成速查页与 `.d.ts` 两形态（53 条，双防漂移：类型层 `satisfies` + 源码反射单测）。内部仍走 `dl-bridge.ts` 的 `__dl` 信封协议（协议稳定、与 DL 时代一致）。
+
+- **同步值快照**：注册时 SW 把 `duoling-usdata` 全量值快照嵌入注入体，`GM_getValue` / `GM_listValues` 纯内存读；写后 debounce `userScripts.update()` 刷新（阈值参照 VM `FLUSH_DELAY=100`）。`GM.getValue` 走实时桥读（永远新鲜）。
+- **只读脚本的下行通道**：读写值 / 订阅变更的脚本经 `store.watchAll` 常驻 Port 接收变更（与 `url.watch` 同构）；connect 成功后主动全量校准一次，覆盖 Port 建立前的窗口。
+- **`@grant` 精确注入**：`@grant none` / 无 metadata = 全量注入；声明具体 grant 才裁剪。`unsafeWindow` 降级为隔离 world 的 `window` + `console.warn`；`window.onurlchange` / `GM.page.*` / `GM_info` 恒注入（不受 grant 限制）。
+- **cookie 域名门**（红线索引见 [AGENTS.md](AGENTS.md)「硬性底线」「cookie 能力」）：入口为 `GM_cookie.list/set/delete`（原 `DL.cookie`），门仍在 SW 侧、只比 scheme + host，`set` 仍禁 domain / path 覆写。
+- **GM_xmlhttpRequest 的 forbidden header 覆写**（Cookie / Referer / UA 等）与 `redirect:'manual'` 走 DNR session 规则按请求挂/撤 + 观察型 webRequest（`dl-fetch-priv.ts`，2026-09-19 经评审批准；权限 `declarativeNetRequestWithHostAccess` + `webRequest` 均不新增用户可见提示）。
 - **覆写期间同 host 互斥**（读写锁，防规则污染并发请求）——粒度限制与生命周期兜底见 [README.md](README.md) 坑 14。
 - **USER_SCRIPT 世界不配 `csp`**：回落浏览器默认的严 CSP（禁 `eval` / `new Function`），不额外给 AI 生成的脚本「执行任意字符串」的能力。生成提示词与 `script_spec` 明令避开，保存时由 `collectCspWarnings` 对含 `eval` 的注入代码给非阻塞警告（底线见 [AGENTS.md](AGENTS.md) 硬性底线「脚本世界 CSP」）。
 - **网络录制（dl-recorder，两段式常驻件）**：要拦页面**自己**发出的 `fetch`/`XMLHttpRequest`，钩子只能挂 MAIN 世界（USER_SCRIPT 各有独立 realm，挂它的 `window.fetch` 拦不到）；而 MAIN 世界无 `chrome.*`。故两件协作、都按「用户已同意录制的 host 集合」注册（`net-capture-gate.ts`，默认空集＝不注册）：
@@ -54,13 +60,13 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 
 > 分库写权限是硬边界：**注册链路对 offscreen 存活零依赖**。
 
-① **源码唯一来源 `duoling-fs`**（lightning-fs，IndexedDB 后端，**只许 offscreen 碰**，`us-fs.ts` 单例）：每脚本一仓 `/uscripts/<uuid>/`——`script.js`（单文件纯 JS 源码，2026-09-20 单文件化）+ `project.json`（元信息）即工作树（未提交改动 = 草稿），git 历史 = 每次保存的版本（`us-git.ts`，仓损坏只丢历史不丢脚本）；SW/扩展页读不到 lfs，**源码读写一律走 `fs:*` 命令向 offscreen 取**（`offscreen-fs-commands.ts`）。
+① **源码唯一来源 `duoling-fs`**（lightning-fs，IndexedDB 后端，**只许 offscreen 碰**，`us-fs.ts` 单例）：每脚本一仓 `/uscripts/<uuid>/`——`script.js`（单文件纯 JS 源码，2026-09-20 单文件化）即工作树（未提交改动 = 草稿），git 历史 = 每次保存的版本（`us-git.ts`，仓损坏只丢历史不丢脚本）；配置由源码里的 `// ==UserScript==` 块派生（`resolveConfigFromSource`），**不再有并行元信息文件**；SW/扩展页读不到 lfs，**源码读写一律走 `fs:*` 命令向 offscreen 取**（`offscreen-fs-commands.ts`）。
 
 ② **注册态库 `duoling-state`**（独立 IndexedDB，`state-db.ts`/`project-store.ts` 读、`project-write.ts` 写，**写只归 offscreen**）= 每脚本一条 `ScriptProject`：元数据 + enabled + **源码搬运副本 `source`**（SW 读不到 lfs，注册的注入代码从注册态取）——SW 注册直读 `source.code`，注册链路对 offscreen 存活零依赖（既定不变量）。
 
-③ **脚本数据库 `duoling-usdata`**（`usdata-db.ts`，**写只归 SW**）：`DL.store` 值（gm store，复合主键 `[uuid,key]`）与 `DL.tab`（tab store，`[uuid,tabId]`）——**脚本自己写的数据**（不可信、无上限），复合主键 + 索引替代旧 chrome.storage 字符串键拼接，范围查询不再全库扫描。
+③ **脚本数据库 `duoling-usdata`**（`usdata-db.ts`，**写只归 SW**）：`GM.*` 存储值（gm store，复合主键 `[uuid,key]`）与 `GM.*` 标签值（tab store，`[uuid,tabId]`）——**脚本自己写的数据**（不可信、无上限），复合主键 + 索引替代旧 chrome.storage 字符串键拼接，范围查询不再全库扫描。
 
-④ **观测数据库 `duoling-runtime`**（`runtime-db.ts`，**写只归 SW**）：错误日志（errors store，单记录环形 ≤ `ERROR_LOG_MAX`）、运行统计（stats store，每脚本一记录：总次数 / 最后运行时间 / 最近一次运行错误数）与运行日志（runlog store，全局环形 ≤ `RUN_LOG_MAX`）——统计与日志**并进同一事务写入**（`mutateStatsAndLog` 跨 store，逐条日志不额外放大写入）；读改写在事务内天然原子，chrome.storage 时代的进程内串行队列已随之删除；错误明细按 runId 与日志关联，工作台「运行日志」标签页 = 时间线（运行行 + 孤儿错误行，`listRunTimeline` 合并读）。用户脚本的存储**全部落 IndexedDB**；DL.store 写出口发变更事件（`onGmValueChange`，值未变 / 删不存在键不发）。
+④ **观测数据库 `duoling-runtime`**（`runtime-db.ts`，**写只归 SW**）：错误日志（errors store，单记录环形 ≤ `ERROR_LOG_MAX`）、运行统计（stats store，每脚本一记录：总次数 / 最后运行时间 / 最近一次运行错误数）与运行日志（runlog store，全局环形 ≤ `RUN_LOG_MAX`）——统计与日志**并进同一事务写入**（`mutateStatsAndLog` 跨 store，逐条日志不额外放大写入）；读改写在事务内天然原子，chrome.storage 时代的进程内串行队列已随之删除；错误明细按 runId 与日志关联，工作台「运行日志」标签页 = 时间线（运行行 + 孤儿错误行，`listRunTimeline` 合并读）。用户脚本的存储**全部落 IndexedDB**；GM 存储写出口发变更事件（`onGmValueChange`，值未变 / 删不存在键不发）。
 
 ⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`——**密钥同存本机，属防扫描级而非保密级**）、key-cipher DEK、MAIN 世界桩密钥（`pageSecret`）——扩展自己的小数据；`chrome.storage.local` 已清零。
 
@@ -76,7 +82,7 @@ DevTools 里按库名过滤：`duoling-fs` / `duoling-state` / `duoling-usdata` 
 
 - **保存恒成功、保存即注入**：无构建流程，源码原文随落盘进注册态，注册的注入代码 = 源码本身。语法错误不拦保存：坏了的脚本照样装（油猴同款），运行期报错走现成的错误日志 / 运行日志链路。
 - 编辑内容只活在页面内存（草稿机制已删），关标签前的 dirty 确认弹窗保留。
-- **zip 导入**：解码 + 落盘同在 offscreen（单写方），导入即完成（无后台构建队列）；只拦原则项（缺 project.json / 非 JSON / 缺 script.js），其余尽量导入 + 报告说明。
+- **zip 导入**：解码 + 落盘同在 offscreen（单写方），导入即完成（无后台构建队列）；只拦原则项（缺 script.js 源码文件），其余尽量导入 + 报告说明（配置由源码里的 `// ==UserScript==` 块派生，缺 matches 提示补全）。
 - 后台链路不经命令面，写完状态库**必须自己发** `broadcastDataChange`。
 
 ## 用户脚本版本管理

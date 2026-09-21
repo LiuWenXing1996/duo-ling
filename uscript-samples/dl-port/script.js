@@ -1,13 +1,25 @@
-// DL Port 事件回推（二期底座）：DL.menu / DL.store.watch / 通知点击，一键自测。
+// ==UserScript==
+// @name         GM Port 事件回推
+// @namespace    https://duoling.example
+// @match        *://*/*
+// @grant        GM_registerMenuCommand
+// @grant        GM_unregisterMenuCommand
+// @grant        GM_addValueChangeListener
+// @grant        GM_setValue
+// @grant        GM_deleteValue
+// @grant        GM_notification
+// @grant        GM_log
+// ==/UserScript==
+// GM Port 事件回推：GM_registerMenuCommand / GM_addValueChangeListener / GM_notification，一键自测。
 // 页面右下角出控制面板：
 //   · 菜单「哆灵：点我」→ 本 tab 计数 +1（开两个同匹配页可验证 tab 路由：只有点击所在 tab 计数）
 //   · [set] / [delete] → 改 'counter' 键，watch 回调把新值打进面板（本 tab / 其他 tab 改都触发；
-//     delete 后 value 为 null，与「值恰为 null」帧上不可区分——契约已注明）
+//     delete 后 value 为 undefined，与「值恰为 undefined」帧上不可区分——契约已注明）
 //   · [通知] → 弹系统通知，点通知 → 面板提示（SW 重启后旧通知点击丢失属拍板预期）
-//   · [注销菜单] → 验证 off() 后菜单项消失
+//   · [注销菜单] → 验证 GM_unregisterMenuCommand 后菜单项消失
 //   · 重启 SW（chrome://serviceworker-internals 点 Stop）后：再点菜单 / 改键仍有效 = 重连重放生效
 ;(async () => {
-  var ID = 'dl-test-dl-port'
+  var ID = 'gm-test-port'
   var MENU_TITLE = '哆灵：点我（本 tab 计数）'
 
   function root() {
@@ -35,18 +47,19 @@
       )
       bar.addEventListener('click', function (e) {
         var act = e.target && e.target.dataset && e.target.dataset.act
-        if (act === 'set') DL.store.set('counter', Date.now()).catch(function (er) { mark('SET_FAIL ' + er.message) })
-        if (act === 'delete') DL.store.delete('counter').catch(function (er) { mark('DEL_FAIL ' + er.message) })
+        if (act === 'set') GM_setValue('counter', Date.now())
+        if (act === 'delete') GM_deleteValue('counter')
         if (act === 'notify') {
-          DL.notify('哆灵 Port 自测：点我', {
-            onClick: function () { mark('NOTIFY_CLICK ' + new Date().toLocaleTimeString()) },
-          }).catch(function (er) { mark('NOTIFY_FAIL ' + er.message) })
-        }
-        if (act === 'unmenu' && menuOff) {
-          menuOff().then(function () {
-            menuOff = null
-            mark('MENU_OFF 已注销（右键菜单应消失）')
+          GM_notification({
+            text: '哆灵 Port 自测：点我',
+            title: '哆灵 Port 自测',
+            onclick: function () { mark('NOTIFY_CLICK ' + new Date().toLocaleTimeString()) },
           })
+        }
+        if (act === 'unmenu' && menuId != null) {
+          GM_unregisterMenuCommand(menuId)
+          menuId = null
+          mark('MENU_OFF 已注销（右键菜单应消失）')
         }
       })
       el.appendChild(bar)
@@ -61,27 +74,32 @@
     el.insertBefore(line, el.firstChild.nextSibling || null)
   }
 
-  try {
-    if (!window.DL || !DL.menu || !DL.store.watch) return mark('DL_MISSING')
+  var menuId = null
 
-    // 1) 菜单注册：点击只触发点击所在 tab 的回调
+  try {
+    if (typeof GM_registerMenuCommand !== 'function' || typeof GM_addValueChangeListener !== 'function') {
+      return mark('GM_MISSING')
+    }
+
+    // 1) 菜单注册：点击只触发点击所在 tab 的回调（GM_registerMenuCommand 同步返回菜单 id）
     var menuCount = 0
-    var menuOff = await DL.menu.register(MENU_TITLE, function () {
+    menuId = GM_registerMenuCommand(MENU_TITLE, function () {
       menuCount++
       mark('MENU_CLICK x' + menuCount + ' ' + new Date().toLocaleTimeString())
-      DL.log('菜单被点击，本 tab 第', menuCount, '次')
+      GM_log('菜单被点击，本 tab 第', menuCount, '次')
     })
     mark('MENU_OK')
 
-    // 2) watch：任何 tab 改 'counter' 都推到这里；删除时 v === null
-    await DL.store.watch('counter', function (v) {
-      mark('WATCH counter=' + JSON.stringify(v) + (v === null ? '（删除）' : ''))
-      DL.log('counter 变化 →', v)
+    // 2) watch：任何 tab 改 'counter' 都推到这里；删除时 newValue 为 undefined。
+    //    GM_addValueChangeListener 回调签名 = (key, oldValue, newValue, remote)
+    GM_addValueChangeListener('counter', function (_key, _old, v) {
+      mark('WATCH counter=' + JSON.stringify(v) + (v === undefined ? '（删除）' : ''))
+      GM_log('counter 变化 →', v)
     })
     mark('WATCH_OK')
 
     mark('面板就绪：右键菜单 / 按钮自测，见文件头注释')
   } catch (e) {
-    mark('DL_FAIL ' + ((e && e.message) || e))
+    mark('GM_FAIL ' + ((e && e.message) || e))
   }
 })()

@@ -1,3 +1,11 @@
+// ==UserScript==
+// @name         syntax-error
+// @namespace    duoling
+// @version      1.0.0
+// @description  构建失败样本：引用不存在的模块，验证「尽量导入」语义
+// @match        *://*/*
+// ==/UserScript==
+
 // 构建失败样本：验证「尽量导入」语义 —— 导入期 esbuild 失败**仍会导入**，
 // 导入报告的该条 notes 里带构建诊断，脚本停在「无产物」状态（启用时注册会被拦并给警告）。
 //

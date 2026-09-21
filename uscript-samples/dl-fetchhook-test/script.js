@@ -1,4 +1,10 @@
-// DL.page.fetchHook 手测探针（被动观察「页面请求」的响应体）。
+// ==UserScript==
+// @name         GM.page.fetchHook 探针
+// @namespace    https://duoling.example
+// @match        *://*/*
+// @grant        GM_log
+// ==/UserScript==
+// GM.page.fetchHook 手测探针（被动观察「页面请求」的响应体）。
 //
 // 前提：fetchHook 拦的是**页面世界（MAIN）**的 fetch。用户脚本跑在独立隔离世界
 //       （worldId: us-<uuid>），它自己的 window.fetch 与页面被代理的那个不是同一个绑定——
@@ -17,9 +23,9 @@
 //       点角标跑一次自测（只刷新结果区，不会清掉已观察到的列表）。
 // 被动观察对页面零侵入：裁决恒 passthrough，绝不改页面任何请求。
 ;(async () => {
-  var ID = 'dl-test-fetchhook'
-  var DOM_ATTR = 'data-dl-fetchhook-probe' // MAIN 世界脚本 → 隔离世界 的回传通道（DOM 跨世界共享）
-  var SENTINEL_PATH = '/dl-hook-sentinel' // 命中这段的请求由桩伪造响应（不出网）
+  var ID = 'gm-test-fetchhook'
+  var DOM_ATTR = 'data-gm-fetchhook-probe' // MAIN 世界脚本 → 隔离世界 的回传通道（DOM 跨世界共享）
+  var SENTINEL_PATH = '/gm-hook-sentinel' // 命中这段的请求由桩伪造响应（不出网）
   var MAX_BODY = 1 << 20
   var MAX_SHOW = 5
   var results = [] // 自测结果 { name, ok, detail }，ok: true / false / null(未能判定)
@@ -52,7 +58,7 @@
 
   function render(head) {
     var el = ensureBadge()
-    var lines = [head || 'DL.page.fetchHook 探针 · 观察中（点角标自测）']
+    var lines = [head || 'GM.page.fetchHook 探针 · 观察中（点角标自测）']
     for (var i = 0; i < results.length; i++) {
       var r = results[i]
       lines.push(tag(r.ok) + r.name + (r.detail ? ' — ' + r.detail : ''))
@@ -145,7 +151,7 @@
 
   // 注册被动观察：裁决恒 passthrough（零侵入），响应体经 onResponse 拿到。
   async function install() {
-    offHook = await DL.page.fetchHook(
+    offHook = await GM.page.fetchHook(
       function (call) {
         lastMethod[call.url] = call.method
         if (call.url.indexOf(SENTINEL_PATH) >= 0) {
@@ -230,14 +236,14 @@
   }
 
   try {
-    if (!window.DL || !DL.page || typeof DL.page.fetchHook !== 'function') {
-      render('DL_MISSING（本脚本世界没有 DL.page.fetchHook）')
+    if (typeof GM === 'undefined' || !GM.page || typeof GM.page.fetchHook !== 'function') {
+      render('GM_MISSING（本脚本世界没有 GM.page.fetchHook）')
       return
     }
     await install()
-    render('DL.page.fetchHook 探针 · 观察中（点角标自测）')
-    DL.log('[fetchHook 探针] 已注册被动观察：在真实站点上操作即可看到页面请求与响应体大小')
+    render('GM.page.fetchHook 探针 · 观察中（点角标自测）')
+    GM_log('[fetchHook 探针] 已注册被动观察：在真实站点上操作即可看到页面请求与响应体大小')
   } catch (e) {
-    render('DL_FAIL ' + msg(e))
+    render('GM_FAIL ' + msg(e))
   }
 })()

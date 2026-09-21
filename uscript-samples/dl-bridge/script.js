@@ -1,8 +1,18 @@
-// DL 桥往返：脚本世界 ⇄ background SW 的桥是否通。
-// 效果：页面标记显示 DL_OK / DL_MISSING / DL_FAIL:<原因>。
-// 走一遍 DL.store 写 → 读 → 列键，外加 DL.info 自省与 DL.log。
+// ==UserScript==
+// @name         GM 桥往返
+// @namespace    https://duoling.example
+// @match        *://*/*
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_listValues
+// @grant        GM_deleteValue
+// @grant        GM_log
+// ==/UserScript==
+// GM 桥往返：脚本世界 ⇄ background SW 的桥是否通。
+// 效果：页面标记显示 GM_OK / GM_MISSING / GM_FAIL:<原因>。
+// 走一遍 GM_setValue → GM_getValue → GM_listValues，外加 GM_info 自省与 GM_log。
 ;(async () => {
-  var ID = 'dl-test-dl-bridge'
+  var ID = 'gm-test-bridge'
 
   function mark(text) {
     var el = document.getElementById(ID)
@@ -18,18 +28,18 @@
   }
 
   try {
-    if (!window.DL || !window.DL.store) return mark('DL_MISSING')
-    DL.log('脚本信息', DL.info && DL.info.name)
+    if (typeof GM_setValue !== 'function') return mark('GM_MISSING（本脚本世界没有 GM_setValue）')
+    GM_log('脚本信息', GM_info.script.name)
 
-    await DL.store.set('probe', { at: Date.now(), host: location.host })
-    var back = await DL.store.get('probe')
-    var keys = await DL.store.keys()
-    if (!keys.includes('probe')) return mark('DL_BAD_KEYS ' + keys.join(','))
-    if (!back || back.host !== location.host) return mark('DL_BAD_VALUE ' + JSON.stringify(back))
+    GM_setValue('probe', { at: Date.now(), host: location.host })
+    var back = GM_getValue('probe')
+    var keys = GM_listValues()
+    if (keys.indexOf('probe') < 0) return mark('GM_BAD_KEYS ' + keys.join(','))
+    if (!back || back.host !== location.host) return mark('GM_BAD_VALUE ' + JSON.stringify(back))
 
-    await DL.store.delete('probe')
-    mark('DL_OK ' + JSON.stringify(back))
+    GM_deleteValue('probe')
+    mark('GM_OK ' + JSON.stringify(back))
   } catch (e) {
-    mark('DL_FAIL ' + ((e && e.message) || e))
+    mark('GM_FAIL ' + ((e && e.message) || e))
   }
 })()

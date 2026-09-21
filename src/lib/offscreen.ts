@@ -33,7 +33,7 @@ async function hasOffscreen(): Promise<boolean> {
  * reasons 取 BLOBS + WORKERS + CLIPBOARD：
  *   · BLOBS   —— 拿 URL.createObjectURL（agent loop 的流式数据通道依赖 blob，而 SW 里没有）
  *   · WORKERS —— 派生子 worker（ai SDK 的分词 / 嵌入等子任务用）
- *   · CLIPBOARD —— DL.clipboard 在 offscreen 内写剪贴板（免用户手势 + 富文本）
+ *   · CLIPBOARD —— GM_setClipboard 在 offscreen 内写剪贴板（免用户手势 + 富文本）
  * 三者均不带自动关闭（只有 AUDIO_PLAYBACK 有 30s 无声自关），故容器可长活。
  */
 export async function ensureOffscreen(): Promise<void> {

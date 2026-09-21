@@ -1,4 +1,4 @@
-// usdata-db.ts 单测：脚本数据库（DL.store / DL.tab）的读写与清理语义。
+// usdata-db.ts 单测：脚本数据库（GM 值存储 / GM tab）的读写与清理语义。
 // fake-indexeddb 提供全局 indexedDB；用例间 clearAllForTests 保证隔离。
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -20,7 +20,7 @@ beforeEach(async () => {
   await clearAllForTests()
 })
 
-describe('gm store（DL.store）', () => {
+describe('gm store（GM 值存储）', () => {
   it('set / get 往返，值按结构化克隆原样读回', async () => {
     await setGmValue('u1', 'k', { a: [1, 'x'], b: null })
     await expect(getGmValue('u1', 'k')).resolves.toEqual({ a: [1, 'x'], b: null })
@@ -58,7 +58,7 @@ describe('gm store（DL.store）', () => {
   })
 })
 
-describe('tab store（DL.tab）', () => {
+describe('tab store（GM tab）', () => {
   it('put / get 往返，按 uuid + tabId 隔离', async () => {
     await putTabValue('u1', 11, { a: 1 })
     await putTabValue('u1', 22, { a: 2 })

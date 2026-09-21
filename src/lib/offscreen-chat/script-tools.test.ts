@@ -303,7 +303,7 @@ describe('page_snapshot（快照改 AI 工具采集）', () => {
 })
 
 describe('script_apply 更新意图（updateUuid → ws.targetUuid）', () => {
-  const code = "DL.log('hi')\n"
+  const code = "GM_log('hi')\n"
   const config = { matches: ['*://example.com/*'], allFrames: true, runAt: 'document_end' as const }
   const execOpts2 = execOpts as Parameters<
     ReturnType<typeof buildScriptTools>['script_apply']['execute']

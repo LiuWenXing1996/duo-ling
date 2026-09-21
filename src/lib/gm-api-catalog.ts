@@ -1,0 +1,500 @@
+// GM 能力 API 目录：**工作台「GM API」面板的展示侧单一来源**（纯数据、零依赖）。
+//
+// 为什么单独一份、而不是直接读 api-contract：
+//   api-contract.ts 只有类型（编译后不留任何东西），面板要展示的是文本（签名 / 说明 / 坑）；
+//   而真身（注入脚本世界的 `GM_*` / `GM.*`）是 gm-wrapper.ts 里的一段**源码字符串**，
+//   工作台页面 import gm-wrapper 会把 page-client / 注册链路拖进首屏产物。故抽成这份纯数据。
+//
+// 一条能力 = 两种形态（`GM_getValue` 同步 + `GM.getValue` 异步），故**只写一张能力表**，
+// 由它生成两条条目 —— 否则同一段说明要维护两遍，必然漂移。
+//
+// 漂移防护（两道，方向互补）：
+//   ① **类型层**：能力表键必须恰好覆盖 `keyof GmGlobalFns`，缺一个 / 多一个 → typecheck 红；
+//   ② **源码层**：单测从 gm-wrapper.ts 的**装配块**反射真实挂载的键集合，与本目录双向比对
+//      （见 src/lib/gm-api-catalog.test.ts）。两条都不靠人工对照。
+import type {
+  GmApiNamespace,
+  GmCookieApi,
+  GmGlobalFns,
+  GmGlobalObjects,
+} from './userscripts/api-contract'
+
+/** 全局名（函数全局 `GM_getValue` + 对象全局 `GM_info` / `GM_cookie`） */
+export type GmGlobalName = keyof GmGlobalFns | keyof GmGlobalObjects
+
+/** `GM.*` 命名空间成员名（`page` 单独展开，不进这张表） */
+export type GmNsName = Exclude<keyof GmApiNamespace, 'page'>
+
+/**
+ * 对象型成员 / 变量 / 扩展成员的方法路径。
+ * 这些不是「某能力的两形态」之一，类型层也取不到（对象成员 / defineProperty 挂的变量），故显式列出。
+ */
+export type GmObjectPath =
+  | `GM_cookie.${keyof GmCookieApi & string}`
+  | 'GM.page.listen'
+  | 'GM.page.fetchHook'
+  | 'GM.clearValues'
+  | 'GM.focusTab'
+  | 'unsafeWindow'
+  | 'window.onurlchange'
+
+/** 目录须覆盖的全部路径（真身源码由源码反射单测比对） */
+export type GmApiPath = GmGlobalName | `GM.${GmNsName}` | GmObjectPath
+
+/** 是否跨桥：决定面板上的标记，也决定脚本作者要付出的代价 */
+export type GmApiBridge =
+  /** 经 SW 桥（请求-响应 / Port 下行，受 SW 存活与权限影响） */
+  | 'bridge'
+  /** 纯包装层本地实现：同步可用，不依赖后台 */
+  | 'local'
+  /** 经 MAIN 世界中继桩（GM.page 专属通道） */
+  | 'stub'
+
+/** 分组（顺序 = 面板左栏顺序） */
+export const GM_API_GROUPS = [
+  { id: 'basics', title: '基础', desc: '自省 / 输出 / 注入样式：多为本地实现' },
+  { id: 'storage', title: '存储', desc: '脚本私有存储 + 标签页级存储（按脚本隔离）' },
+  { id: 'net', title: '网络', desc: '免 CORS 请求（后台发起，可中止）' },
+  { id: 'system', title: '系统能力', desc: '通知 / 剪贴板 / 下载 / 标签页' },
+  { id: 'page', title: '站点与页面', desc: 'cookie / 菜单 / URL 变化 / 页面世界中继' },
+] as const
+
+export type GmApiGroupId = (typeof GM_API_GROUPS)[number]['id']
+
+/** 面板里的一个 API 条目（展示元数据；`path` 由键名注入，不手写两遍） */
+export interface GmApiEntry {
+  /** 点号路径（全局函数就是键名） */
+  path: GmApiPath
+  /** 中文短名（一眼扫用） */
+  title: string
+  /** 展示用签名 */
+  signature: string
+  /** 一句话作用（列表态就显示这个） */
+  summary: string
+  /** 展开后的说明：语义、默认值、边界、降级项 */
+  detail: string
+  /** 返回什么 / 什么时候会失败 */
+  returns: string
+  bridge: GmApiBridge
+  group: GmApiGroupId
+}
+
+/** 一条能力的元数据（`path` 由键注入；`signature` 由 `sigGlobal` / `sigNs` 注入） */
+interface Capability extends Omit<GmApiEntry, 'path' | 'signature'> {
+  /** 该能力在 `GM.*` 下的成员名；`null` = 只在全局提供（`GM_cookie` 依 TM 口径不进 `GM.*`） */
+  ns: GmNsName | null
+  /** 展示用签名的全局形态（缺省 = 直接用全局名） */
+  sigGlobal?: string
+  /** 展示用签名的 `GM.*` 形态（缺省 = 直接用 `GM.<ns>`） */
+  sigNs?: string
+}
+
+/**
+ * 能力表：**键 = 全局函数名**，值 = 展示元数据 + 它在 `GM.*` 下的同名成员。
+ *
+ * `ns: null` 表示该能力**只在全局提供**（`GM_cookie` 依 TM 口径不进 `GM.*`）。
+ */
+const CAPABILITIES = {
+  GM_info: {
+    ns: 'info',
+    title: '脚本自省',
+    sigGlobal: 'GM_info',
+    sigNs: 'GM.info',
+    summary: '当前脚本的元信息（名 / 版本 / 匹配规则 / metadata 原文）',
+    detail:
+      '从脚本源码的 metadata 块合成：script（含 matches / includes / excludes / runAt / grant / requires / resources）、' +
+      'scriptMetaStr（原文）、scriptHandler、version（扩展版本）、uuid、userAgent、isIncognito、sandboxMode。' +
+      '**是 TM ScriptInfo 的已实现子集**：未实现的字段（如 scriptUpdateURL / downloadMode）读到 undefined，不报错。',
+    returns: 'GmInfo',
+    bridge: 'local',
+    group: 'basics',
+  },
+  GM_log: {
+    ns: 'log',
+    title: '带前缀输出',
+    sigGlobal: 'GM_log(...args)',
+    summary: '控制台输出，自动带 [GM:<脚本名>] 前缀',
+    detail: '就是 console.log 套了层前缀，方便在一堆页面日志里认出自己的输出。同步、不跨桥。',
+    returns: 'void',
+    bridge: 'local',
+    group: 'basics',
+  },
+  GM_addStyle: {
+    ns: 'addStyle',
+    title: '注入样式',
+    sigGlobal: 'GM_addStyle(css)',
+    summary: '往页面插一段 CSS，返回 style 元素',
+    detail: '同步执行、不跨桥。返回的 HTMLStyleElement 自己留着就能后续改 textContent 或 remove() 撤掉。',
+    returns: 'HTMLStyleElement',
+    bridge: 'local',
+    group: 'basics',
+  },
+  GM_addElement: {
+    ns: 'addElement',
+    title: '创建并插入元素',
+    sigGlobal: "GM_addElement(tag, attrs) / GM_addElement(parent, tag, attrs)",
+    summary: '创建元素、设属性、插入 DOM，返回该元素',
+    detail:
+      '两式入参：首参是字符串 = 标签名（插到 head），首参是元素 = 父节点。attrs 逐项走 setAttribute。' +
+      '同步、不跨桥。（油猴用它绕严 CSP 插 script；本扩展脚本世界本就不放开 eval，无此用途。）',
+    returns: 'HTMLElement',
+    bridge: 'local',
+    group: 'basics',
+  },
+  GM_getValue: {
+    ns: 'getValue',
+    title: '读私有存储',
+    sigGlobal: 'GM_getValue(key, defaultValue?)',
+    sigNs: 'GM.getValue(key, defaultValue?)',
+    summary: '按键读本脚本的存储（跨站点统一，与页面 localStorage 隔离）',
+    detail:
+      '**全局形态是同步的**（油猴语义）：读的是注入时预载的值快照，写过之后本地缓存立即更新；' +
+      '首次读值会把常驻通道建起来，之后别的标签页改的值会实时刷进缓存。' +
+      '**GM.* 形态是异步的**：每次都回后台读，永远是最新值——要「绝对新鲜」就用它。',
+    returns: 'T | undefined（键不存在时是 defaultValue）',
+    bridge: 'bridge',
+    group: 'storage',
+  },
+  GM_setValue: {
+    ns: 'setValue',
+    title: '写私有存储',
+    sigGlobal: 'GM_setValue(key, value)',
+    sigNs: 'GM.setValue(key, value)',
+    summary: '按键写入（整体覆盖），落 IndexedDB',
+    detail:
+      '全局形态同步返回（先更本地缓存、再异步过桥落盘）：**落盘失败只进错误日志，不阻塞脚本**。' +
+      'GM.* 形态 await 到真正落盘完成。值必须可结构化克隆（Json），函数 / DOM 节点存不了。' +
+      '写入会广播给同一脚本的其它标签页。',
+    returns: 'void（全局）/ Promise<void>（GM.*）',
+    bridge: 'bridge',
+    group: 'storage',
+  },
+  GM_deleteValue: {
+    ns: 'deleteValue',
+    title: '删键',
+    sigGlobal: 'GM_deleteValue(key)',
+    sigNs: 'GM.deleteValue(key)',
+    summary: '删除一个键（不存在也不报错）',
+    detail: '删除会发变更事件，监听回调收到 newValue = undefined。',
+    returns: 'void / Promise<void>',
+    bridge: 'bridge',
+    group: 'storage',
+  },
+  GM_listValues: {
+    ns: 'listValues',
+    title: '列全部键',
+    sigGlobal: 'GM_listValues()',
+    sigNs: 'GM.listValues()',
+    summary: '本脚本已存的全部键',
+    detail: '全局形态同步（读快照）；GM.* 形态回后台读。只列键名，不取值。',
+    returns: 'string[] / Promise<string[]>',
+    bridge: 'bridge',
+    group: 'storage',
+  },
+  GM_addValueChangeListener: {
+    ns: 'addValueChangeListener',
+    title: '监听键变化',
+    sigGlobal: 'GM_addValueChangeListener(key, cb)',
+    sigNs: 'GM.addValueChangeListener(key, cb)',
+    summary: '跨标签 / 跨页面监听某个键，回调收 (key, oldValue, newValue, remote)',
+    detail:
+      '**必须声明 `@grant GM_addValueChangeListener`**。remote=true 表示变化来自别的标签页/框架（本实例自己写的为 false）。' +
+      '删除时 newValue 为 undefined。**返回监听器 id**（同步），注销用 GM_removeValueChangeListener。',
+    returns: 'number（监听器 id）/ Promise<number>',
+    bridge: 'bridge',
+    group: 'storage',
+  },
+  GM_removeValueChangeListener: {
+    ns: 'removeValueChangeListener',
+    title: '注销监听',
+    sigGlobal: 'GM_removeValueChangeListener(listenerId)',
+    sigNs: 'GM.removeValueChangeListener(listenerId)',
+    summary: '按 id 注销一个值变更监听器',
+    detail: '同步、本地实现（最后一个监听器摘掉时才通知后台退订）。',
+    returns: 'void',
+    bridge: 'local',
+    group: 'storage',
+  },
+  GM_getTab: {
+    ns: 'getTab',
+    title: '读标签页存储',
+    sigGlobal: 'GM_getTab(cb)',
+    sigNs: 'GM.getTab()',
+    summary: '取当前标签页的持久对象（对齐 GM_getTab）',
+    detail: '随标签页生命周期，关 tab 即清；跨同源导航保留。tabId 由后台从 sender 取，脚本世界拿不到也不必传。**回调式**（TM 语义）。',
+    returns: 'void（回调收对象）/ Promise<Json | undefined>',
+    bridge: 'bridge',
+    group: 'storage',
+  },
+  GM_saveTab: {
+    ns: 'saveTab',
+    title: '写标签页存储',
+    sigGlobal: 'GM_saveTab(tab, cb?)',
+    sigNs: 'GM.saveTab(tab)',
+    summary: '整体覆盖当前标签页的对象（对齐 GM_saveTab）',
+    detail: '是整体覆盖而非合并——要保留旧字段就先 get 再改再 save。',
+    returns: 'void（cb 可选）/ Promise<void>',
+    bridge: 'bridge',
+    group: 'storage',
+  },
+  GM_getTabs: {
+    ns: 'getTabs',
+    title: '全部标签页快照',
+    sigGlobal: 'GM_getTabs(cb)',
+    sigNs: 'GM.getTabs()',
+    summary: '所有标签页的对象快照，键为 tabId（对齐 GM_getTabs）',
+    detail: '看「别的标签页里这个脚本存了什么」用。是快照，不随后续写入更新。',
+    returns: 'void（回调收 Record<tabId, Json>）/ Promise<Record<string, Json>>',
+    bridge: 'bridge',
+    group: 'storage',
+  },
+  GM_xmlhttpRequest: {
+    ns: 'xmlHttpRequest',
+    title: '免 CORS 请求',
+    sigGlobal: 'GM_xmlhttpRequest(details)',
+    sigNs: 'GM.xmlHttpRequest(details)',
+    summary: '后台发起的 HTTP 请求，不受页面 CSP 与同源策略限制，可 abort',
+    detail:
+      'details：url / method / headers / data（string / Blob / FormData / ArrayBuffer / TypedArray）/ ' +
+      'responseType（text / json / arraybuffer / blob）/ timeout / redirect / context + onload / onerror / ontimeout / onabort。' +
+      '**禁设头（Cookie / Referer / Origin / User-Agent）不再被静默丢弃**：后台经 DNR session 规则在发头前覆写，覆写期间同 host 请求互斥排队。' +
+      '**降级项**：无 onprogress（桥无流式）、responseType 不支持 document / stream。非 2xx 走 onload（不是 onerror）。',
+    returns: '句柄 { abort() }（GM.* 形态没有句柄，改 await Promise）',
+    bridge: 'bridge',
+    group: 'net',
+  },
+  GM_notification: {
+    ns: 'notification',
+    title: '系统通知',
+    sigGlobal: 'GM_notification(details) / GM_notification(text, title?, image?, onclick?)',
+    summary: '发一条系统通知，支持点击回调',
+    detail: '两种入参（details 对象或位置参数）。回调经 Port 回推（只推该脚本）。ondone 不接受（仅允许赋值）。',
+    returns: 'void / Promise<void>',
+    bridge: 'bridge',
+    group: 'system',
+  },
+  GM_setClipboard: {
+    ns: 'setClipboard',
+    title: '写剪贴板',
+    sigGlobal: "GM_setClipboard(data, info?)",
+    summary: '写剪贴板；info 传 text/html 走富文本',
+    detail: '走 offscreen 执行（**免用户手势**）。失败只进错误日志，不静默也阻塞不了页面。',
+    returns: 'void / Promise<void>',
+    bridge: 'bridge',
+    group: 'system',
+  },
+  GM_download: {
+    ns: 'download',
+    title: '触发下载',
+    sigGlobal: 'GM_download(details) / GM_download(url, name?)',
+    summary: '下载远程 URL 或本地 Blob / 二进制',
+    detail:
+      '传 URL 字符串 / details 对象 = 远程（后台抓取转 dataUrl，再 a[download] 触发）；' +
+      '传 Blob / ArrayBuffer / TypedArray = 纯本地直下，不过桥。**saveAs 不支持**（用 a[download]，无法弹另存为），传入会被忽略并记一条日志。',
+    returns: 'void / Promise<void>',
+    bridge: 'bridge',
+    group: 'system',
+  },
+  GM_openInTab: {
+    ns: 'openInTab',
+    title: '开标签页',
+    sigGlobal: 'GM_openInTab(url, options?)',
+    summary: '打开一个标签页，返回可关闭的句柄',
+    detail:
+      'options 可传布尔（= active）或对象 { active }。返回 { close(), closed } —— tabId 是异步拿到的，' +
+      '所以**先 close() 后拿到 id 也不丢**（挂起待 id 到达再关）。TM 的 onclose 不触发（仅允许赋值）。',
+    returns: 'GmTabHandle',
+    bridge: 'bridge',
+    group: 'system',
+  },
+  GM_registerMenuCommand: {
+    ns: 'registerMenuCommand',
+    title: '注册菜单项',
+    sigGlobal: 'GM_registerMenuCommand(caption, onClick, options?)',
+    sigNs: 'GM.registerMenuCommand(caption, onClick, options?)',
+    summary: '往扩展右键菜单加一项，点击回调脚本',
+    detail:
+      '**同步返回菜单 id（数字）**，登记异步进行（失败只进错误日志）。' +
+      'id 按标题确定性派生（djb2）——同一标题永远同一 id，故页面刷新不会堆出重复菜单。',
+    returns: 'number（菜单 id）/ Promise<number>',
+    bridge: 'bridge',
+    group: 'page',
+  },
+  GM_unregisterMenuCommand: {
+    ns: 'unregisterMenuCommand',
+    title: '注销菜单项',
+    sigGlobal: 'GM_unregisterMenuCommand(idOrCaption)',
+    sigNs: 'GM.unregisterMenuCommand(idOrCaption)',
+    summary: '注销菜单项；**id 与 caption 两种入参都收**',
+    detail: 'TM 只收 register 返回的 id，VM 收 caption —— 本扩展两种都认（成本近零）。同步、本地实现 + 异步通知后台。',
+    returns: 'void',
+    bridge: 'local',
+    group: 'page',
+  },
+  GM_cookie: {
+    ns: null,
+    title: 'cookie 读写删',
+    sigGlobal: 'GM_cookie',
+    summary: 'cookie 的 list / set / delete（**过域名门**，比油猴收紧）',
+    detail:
+      '**url 必须落在该脚本自身 matches 内**（只比 scheme + host，忽略 path），越域报 PERMISSION_DENIED；url 缺省 = 当前页。' +
+      '**收紧项**：`set` 不收 domain / path（传入即报错，不静默忽略）——domain 由 url 主机推导、path 恒 `/`，' +
+      '开放 domain 会架空域名门。HttpOnly cookie 照原样暴露（与油猴一致）。回调可省（省了用返回的 Promise）。',
+    returns: '回调式 + Promise',
+    bridge: 'bridge',
+    group: 'page',
+  },
+} satisfies Record<GmGlobalName, Capability>
+
+/** 对象型 / 变量型成员的条目（类型层取不到，故用 `satisfies Record<GmObjectPath, …>` 单独兜住） */
+const OBJECT_ENTRIES = {
+  unsafeWindow: {
+    title: '页面 window（降级）',
+    signature: 'unsafeWindow',
+    summary: '**降级别名**：返回隔离世界的 window（DOM 可用，页面 JS 全局不可见）',
+    detail:
+      '本扩展没有页面上下文，无法提供真正的 page window。给别名而不是留空，是因为 ReferenceError 会让整个脚本当场停摆；' +
+      '降级至少让只用 DOM 的脚本跑通。**首次访问会在控制台 warn 一次**。' +
+      '依赖页面全局变量（框架实例、站点自己的变量）的脚本在这里跑不通——要拿页面数据请用 GM.page。',
+    returns: 'Window（隔离世界的）',
+    bridge: 'local',
+    group: 'basics',
+  },
+  'window.onurlchange': {
+    title: 'URL 变化订阅',
+    signature: 'window.onurlchange = fn / addEventListener("urlchange", fn)',
+    summary: '当前标签页 URL 变化（含 SPA 路由），回调收 { url }',
+    detail:
+      '**两种写法都支持**（TM 形态）。**必须声明 `@grant window.onurlchange`**（若写了 @grant 清单）。' +
+      '只推「监听生效之后」的变化——首屏 URL 自己读 location.href。推送时机为 tabs.onUpdated，可能比框架路由回调晚一拍。' +
+      '监听器拦在本地、不派发真实事件（派发会经共享的 window 事件目标泄漏给页面）。',
+    returns: 'void',
+    bridge: 'bridge',
+    group: 'page',
+  },
+  'GM_cookie.list': {
+    title: '读 cookie',
+    signature: 'GM_cookie.list({ url?, name? }, cb?)',
+    summary: '读 cookie，**恒返回数组**（空数组 = 没有）',
+    detail: 'url 缺省 = 当前页，须过域名门。按 name 查就取 `[0]`。回调签名 (cookies, error)。',
+    returns: 'Promise<GmCookie[]>（回调同收）',
+    bridge: 'bridge',
+    group: 'page',
+  },
+  'GM_cookie.set': {
+    title: '写 cookie',
+    signature: 'GM_cookie.set({ name, value, url?, secure?, httpOnly?, expirationDate? }, cb?)',
+    summary: '写一个 cookie（**domain / path 传入即报错**）',
+    detail: 'domain 由 url 主机推导、path 恒 `/`；不传 expirationDate = 会话 cookie。回调签名 (error)。',
+    returns: 'Promise<void>（回调同收）',
+    bridge: 'bridge',
+    group: 'page',
+  },
+  'GM_cookie.delete': {
+    title: '删 cookie',
+    signature: 'GM_cookie.delete({ name, url? }, cb?)',
+    summary: '按名删除 cookie',
+    detail: '同样过域名门。删不存在的 cookie 不报错。回调签名 (error)。',
+    returns: 'Promise<void>（回调同收）',
+    bridge: 'bridge',
+    group: 'page',
+  },
+  'GM.clearValues': {
+    title: '清空存储',
+    signature: 'GM.clearValues()',
+    summary: '清掉本脚本的全部键值（**哆灵扩展，标准里无对应物**）',
+    detail:
+      '不可撤销。**不逐个发变更事件**（清空是一次性操作，watch 侧请自行重拉）。同步缓存一并清掉。',
+    returns: 'Promise<void>',
+    bridge: 'bridge',
+    group: 'storage',
+  },
+  'GM.focusTab': {
+    title: '激活标签页',
+    signature: 'GM.focusTab(tabId)',
+    summary: '激活指定标签页并聚焦其所在窗口（**哆灵扩展，标准里无对应物**）',
+    detail: '标准里只有 `GM_openInTab` 返回句柄的 `close()`，没有「激活一个已知 tabId」的 API。抢用户视线，谨慎用。',
+    returns: 'Promise<void>',
+    bridge: 'bridge',
+    group: 'system',
+  },
+  'GM.page.listen': {
+    title: '听页面事件',
+    signature: 'GM.page.listen(type, handler, opts?)',
+    summary: '反向中继：监听页面世界（MAIN）里的事件',
+    detail:
+      '**哆灵扩展，非油猴标准。** opts.selector 只转发命中该选择器（或其祖先）的事件，opts.once 命中一次后自动注销。' +
+      '回调收到的是事件摘要（可克隆字段），不是原生事件对象。返回注销函数。',
+    returns: 'Promise<() => void>（注销）',
+    bridge: 'stub',
+    group: 'page',
+  },
+  'GM.page.fetchHook': {
+    title: '拦页面 fetch',
+    signature: 'GM.page.fetchHook(handler, opts?)',
+    summary: '反向中继：拦截页面世界的 fetch，可被动读取响应体',
+    detail:
+      '**哆灵扩展，非油猴标准。** 裁决返回 { action: "passthrough" } 放行，或 { action: "respond", status, headers?, body? } ' +
+      '由桩直接构造 Response 返回页面；脚本回调抛异常一律按 passthrough 兜底（不会把页面搞挂）。' +
+      '传 opts.onResponse 后，passthrough 的每次真实响应都会以 { url, status, statusText, headers, body, truncated? } 回调' +
+      '（零额外请求，页面拿到的仍是原响应）。' +
+      '注意：**只拦页面世界（MAIN）发出的 fetch**——脚本自己发的请求不经此路（脚本跑在独立隔离世界）；' +
+      '要观察某接口的响应，须由页面发起该请求（触发站点自身交互）。',
+    returns: 'Promise<() => void>（注销）',
+    bridge: 'stub',
+    group: 'page',
+  },
+} satisfies Record<GmObjectPath, Omit<GmApiEntry, 'path'>>
+
+/** 能力表 → 全局条目（`GM_*` 及其函数签名） */
+function globalEntry(name: GmGlobalName, cap: Capability): GmApiEntry {
+  return {
+    path: name,
+    title: cap.title,
+    signature: cap.sigGlobal ?? name,
+    summary: cap.summary,
+    detail: cap.detail,
+    returns: cap.returns,
+    bridge: cap.bridge,
+    group: cap.group,
+  }
+}
+
+/** 能力表 → `GM.*` 成员条目（同一能力，Promise 化形态） */
+function nsEntry(cap: Capability, ns: GmNsName): GmApiEntry {
+  return {
+    path: `GM.${ns}`,
+    title: `${cap.title}（异步）`,
+    signature: cap.sigNs ?? `GM.${ns}`,
+    summary: cap.summary,
+    detail: cap.detail,
+    returns: cap.returns,
+    bridge: cap.bridge,
+    group: cap.group,
+  }
+}
+
+/** 面板渲染用的 API 清单（顺序：基础 → 存储 → 网络 → 系统 → 页面；每能力先全局后 `GM.*`） */
+export const GM_API_ENTRIES: GmApiEntry[] = (() => {
+  const out: GmApiEntry[] = []
+  for (const [name, cap] of Object.entries(CAPABILITIES) as [GmGlobalName, Capability][]) {
+    out.push(globalEntry(name, cap))
+    if (cap.ns) out.push(nsEntry(cap, cap.ns))
+  }
+  for (const [path, entry] of Object.entries(OBJECT_ENTRIES) as [GmObjectPath, Omit<GmApiEntry, 'path'>][]) {
+    out.push({ path, ...entry })
+  }
+  return out
+})()
+
+/** 分组 id → 该组条目 */
+export function entriesOfGroup(group: GmApiGroupId): GmApiEntry[] {
+  return GM_API_ENTRIES.filter((e) => e.group === group)
+}
+
+/** 面板上的跨桥标记文案（bridge 值的展示名，改这里即改全部） */
+export const GM_BRIDGE_LABELS: Record<GmApiBridge, string> = {
+  bridge: '跨桥',
+  local: '本地',
+  stub: '页面中继',
+}

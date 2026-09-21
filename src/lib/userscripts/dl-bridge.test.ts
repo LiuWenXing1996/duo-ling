@@ -1,6 +1,6 @@
 // dl-bridge.ts 单测：走真实监听器链路（initDlBridge 注册 → 捕获监听函数 → 手工投递消息）。
 // chrome 由 vi.stubGlobal 整体替换（fakeBrowser 无 onUserScriptMessage），fetch 用 vi.fn 接管。
-// cookie 段的域名门与 DL.tab 后端走真实 IndexedDB（fake-indexeddb 播种/断言），不 mock 存储层。
+// cookie 段的域名门与 GM tab 后端走真实 IndexedDB（fake-indexeddb 播种/断言），不 mock 存储层。
 import 'fake-indexeddb/auto'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiRequest, ApiResponse } from './api-contract'
@@ -103,7 +103,7 @@ afterEach(async () => {
   vi.unstubAllGlobals()
 })
 
-describe('DL.fetch timeout', () => {
+describe('GM_xmlhttpRequest timeout', () => {
   it('到点中止请求，报 BRIDGE_TIMEOUT，fetch 收到 abort signal', async () => {
     vi.useFakeTimers()
     // 挂死不返回的请求：只在被 abort 时 reject
@@ -138,7 +138,7 @@ describe('DL.fetch timeout', () => {
   })
 })
 
-describe('DL.fetch 二进制请求体', () => {
+describe('GM_xmlhttpRequest 二进制请求体', () => {
   it('信封解码为 Uint8Array 传给 fetch（字节逐个还原，0x00 / 0xff 不被 UTF-8 破坏）', async () => {
     fetchMock.mockResolvedValue(new Response('ok'))
     // [0x00, 0xff, 0x10, 0x41]——含 UTF-8 编码会破坏的字节
@@ -174,7 +174,7 @@ describe('DL.fetch 二进制请求体', () => {
   })
 })
 
-describe('DL.fetch forbidden header 覆写（DNR session 规则）', () => {
+describe('GM_xmlhttpRequest forbidden header 覆写（DNR session 规则）', () => {
   it('禁设头收进规则（set），原生头留在 Headers；settle 后撤规则', async () => {
     fetchMock.mockResolvedValue(new Response('ok'))
     const resp = await sendToBridge({
@@ -248,7 +248,7 @@ describe('DL.fetch forbidden header 覆写（DNR session 规则）', () => {
   })
 })
 
-describe("DL.fetch redirect:'manual'（webRequest 观测）", () => {
+describe("GM_xmlhttpRequest redirect:'manual'（webRequest 观测）", () => {
   it('opaqueredirect 配观测合成 3xx 响应：status/headers/location、body 空、url 为请求 URL', async () => {
     fetchMock.mockImplementation(async () => {
       await new Promise((r) => setTimeout(r, 10)) // 留出观测窗口
@@ -302,7 +302,7 @@ describe("DL.fetch redirect:'manual'（webRequest 观测）", () => {
   })
 })
 
-describe('DL.tabs', () => {
+describe('GM tabs', () => {
   it('tabs.open 返回新标签页的 tabId', async () => {
     tabsMocks.create.mockResolvedValue({ id: 7 })
     const resp = await sendToBridge({ c: 'tabs.open', url: 'https://a.test/' })
@@ -453,7 +453,7 @@ describe('DL.cookie（cookies 权限 + 域名门）', () => {
   })
 })
 
-describe('DL.tab', () => {
+describe('GM tab', () => {
   it('tab.save 落 duoling-usdata 库，tab.get 原样读回', async () => {
     const saveResp = await sendToBridge({ c: 'tab.save', value: { n: 1, s: 'x' } })
     expect(saveResp).toEqual({ ok: true, data: undefined })

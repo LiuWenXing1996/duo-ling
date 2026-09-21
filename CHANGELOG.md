@@ -2,6 +2,23 @@
 
 本文件记录哆灵扩展每个发布版本的变更。**格式与维护方式见 [VERSIONING.md](VERSIONING.md)「CHANGELOG.md」**，本文件只放条目。
 
+## [Unreleased]
+
+### Added
+
+- 脚本对外 `DL.api` 整层移除，全面转向标准 GM API（`GM_*` 全局 + `GM.*` 命名空间）：标准油猴脚本（`==UserScript==` metadata）可直接粘贴运行
+- 新增 `GM.page.*`（`GM.page.listen` / `GM.page.fetchHook`）非标准扩展，承接原 `DL.page` 的页面 hook 能力
+- 新增 `GM.clearValues()` / `GM.focusTab()` 扩展成员（标准无对应物）
+
+### Changed
+
+- 注入体由 `buildDlWrapper` 重写为 `gm-wrapper.ts`：同步值快照 + 只读脚本常驻下行通道 + `@grant` 精确注入
+- cookie 域名门入口从 `DL.cookie` 换 `GM_cookie.list/set/delete`（门仍在 SW 侧，只比 scheme + host）
+- 工作台「DL API 速查」标签页改名「GM API 速查」（源 `gm-api-catalog.ts`，一张能力表生成速查页与 `.d.ts` 两形态）
+
+### Changed (tooling)
+
+- 新增 devDependency `@types/tampermonkey`（^5.5.0），并为 `uscript-samples/` 加专属 `tsconfig.json`（`types: ["tampermonkey"]` + `checkJs:false`）：脚本作者在样例里编写 `GM_*`/`GM.*`/`GM_info` 即可获得类型提示，不强制校验（本扩展三个非标成员 `GM.clearValues`/`GM.focusTab`/`GM.page` 无官方类型，靠 `spec-text.ts` 文档说明）
 
 ## [0.2.0-alpha.1] - 2026-09-20
 

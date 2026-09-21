@@ -1,8 +1,8 @@
 // 用户脚本「自己存的数据」的底层存储：独立 IndexedDB 库 duoling-usdata（SW 独占写）。
 //
 // 装两类数据（从 chrome.storage 迁入，键空间概念随之变成 object store）：
-//   · gm  —— DL.store 值（原 us:gm:<uuid>:<key>），复合主键 [uuid, key]
-//   · tab —— DL.tab 标签页级存储（原 us:tab:<uuid>:<tabId>），复合主键 [uuid, tabId]
+//   · gm  —— GM 值（原 us:gm:<uuid>:<key>），复合主键 [uuid, key]
+//   · tab —— GM tab 标签页级存储（原 us:tab:<uuid>:<tabId>），复合主键 [uuid, tabId]
 //
 // 为什么单独一库（与 duoling-runtime 观测数据分开）：这里放的是**脚本自己写的数据**
 // ——不可信、无上限（此前受 chrome.storage 10MB 配额约束，正是迁移动机）、生命周期随
@@ -117,7 +117,7 @@ async function getAllByUuid<T>(storeName: string, uuid: string): Promise<T[]> {
   })
 }
 
-// —— DL.store（gm store）——
+// —— GM 值存储（gm store）——
 
 export async function getGmValue(uuid: string, key: string): Promise<unknown> {
   const rec = await withStore<GmRecord | undefined>(GM_STORE, 'readonly', (s) => s.get([uuid, key]))
@@ -138,7 +138,20 @@ export async function listGmKeys(uuid: string): Promise<string[]> {
   return recs.map((r) => r.key)
 }
 
-/** 清空某脚本的全部 DL.store 值，返回被删的键（供写出口逐键发变更事件） */
+/**
+ * 某脚本的全部键值快照（键 → 值）。
+ *
+ * 两个调用方：注入时的**值预载**（同步 `GM_getValue` 的底座，见 gm-wrapper.ts）与
+ * 包装层 connect 后的**全量校准**（覆盖 Port 就绪前的窗口，D1-b）。
+ */
+export async function listGmValues(uuid: string): Promise<Record<string, unknown>> {
+  const recs = await getAllByUuid<GmRecord>(GM_STORE, uuid)
+  const out: Record<string, unknown> = {}
+  for (const r of recs) out[r.key] = r.value
+  return out
+}
+
+/** 清空某脚本的全部存储值，返回被删的键（供写出口逐键发变更事件） */
 export async function clearGmValues(uuid: string): Promise<string[]> {
   return runTx(GM_STORE, 'readwrite', async (tx, store) => {
     const recs = await request<GmRecord[]>(store.index('by_uuid').getAll(uuid))
@@ -151,7 +164,7 @@ export async function clearGmValues(uuid: string): Promise<string[]> {
   })
 }
 
-// —— DL.tab（tab store）——
+// —— GM tab（tab store）——
 
 export async function getTabValue(uuid: string, tabId: number): Promise<unknown> {
   const rec = await withStore<TabRecord | undefined>(TAB_STORE, 'readonly', (s) =>

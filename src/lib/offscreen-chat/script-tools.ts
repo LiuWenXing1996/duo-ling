@@ -23,6 +23,8 @@ import {
 import { getProject } from '@/lib/userscripts/project-store'
 import { normalizeHost } from '@/lib/userscripts/net-record-protocol'
 import { readSource } from '@/lib/userscripts/us-git'
+import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
+import { defaultConfig } from '@/lib/userscripts/types'
 import type { ScriptConfig, UserScriptErrorRecord } from '@/lib/userscripts/types'
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
@@ -151,7 +153,8 @@ export function buildScriptTools(
           uuid: project.uuid,
           name: project.name,
           enabled: project.enabled,
-          config: source.meta.config,
+          // 配置由源码里的 // ==UserScript== 块派生（单文件形态，无并行元数据）
+          config: resolveConfigFromSource(source.code, defaultConfig([])).config,
           code: source.code,
         }
       },

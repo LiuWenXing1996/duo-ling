@@ -92,7 +92,7 @@ export type RuntimeRequest =
   | { kind: 'userscript:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; code: string; enabled: boolean; note?: string }
   | { kind: 'userscript:remove'; uuid: string }
   // 删除全部用户脚本：范围 = 用户脚本（状态库项目 + 各自 git 仓），
-  // 不含内置件（随扩展包分发）。SW 注销全部 → 转发 state:removeAll → 清各脚本 DL.store 值。
+  // 不含内置件（随扩展包分发）。SW 注销全部 → 转发 state:removeAll → 清各脚本 GM 值。
   | { kind: 'userscript:removeAll' }
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
   | { kind: 'userscript:availability' }
@@ -302,7 +302,7 @@ export type DataChangedPush = {
 export type BuildPhase = 'saving'
 
 // —— 页面脚本监控（侧边栏 · 运行时口径）——
-// 信号源：DL 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。
+// 信号源：GM 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。
 // 侧边栏跟踪本窗口 active tab，SW 侧按 tab 登记运行集并经 'duoling:panel' 端口推送。
 
 /** 当前 tab 的一次运行（一次页面加载 = 一个 runId；SPA 软导航不换文档、runId 不变） */

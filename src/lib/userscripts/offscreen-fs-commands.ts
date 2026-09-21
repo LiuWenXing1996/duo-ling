@@ -7,6 +7,8 @@ import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { listHistory, readSource, readSnapshotAt, restoreToCommit } from './us-git'
 import { readLfsFile, readLfsTree } from './us-fs'
 import { buildScriptZip, bytesToBase64 } from './zip-transfer'
+import { resolveConfigFromSource } from './metadata'
+import { defaultConfig } from './types'
 
 /** 收窄 fs: 前缀的命令（供 onMessage 分发时类型化） */
 export type FsRequest = Extract<RuntimeRequest, { kind: `fs:${string}` }>
@@ -30,16 +32,19 @@ export async function handleFsCommand(msg: FsRequest): Promise<unknown> {
       return restoreToCommit(msg.uuid, msg.oid)
     // 导出 zip：读各脚本工作区源码，在 offscreen 侧打包，只回传 base64（大源码不过桥）
     case 'fs:exportZip': {
-      const payloads: Array<{ name: string; config: import('./types').ScriptConfig; code: string }> = []
+      const payloads: Array<{ name: string; code: string }> = []
       let singleName: string | undefined
       for (const uuid of msg.uuids) {
         const source = await readSource(uuid).catch(() => null)
         if (!source) continue
-        payloads.push({ name: source.meta.name, config: source.meta.config, code: source.code })
-        if (msg.uuids.length === 1) singleName = source.meta.name
+        // 单文件形态：只打包 script.js；配置由源码派生，name 优先取源码 @name 否则用 uuid
+        const derived = resolveConfigFromSource(source.code, defaultConfig([]))
+        const name = derived.name?.trim() || uuid
+        payloads.push({ name, code: source.code })
+        if (msg.uuids.length === 1) singleName = name
       }
       return {
-        zipBase64: bytesToBase64(buildScriptZip(payloads, { exporter: msg.exporter })),
+        zipBase64: bytesToBase64(buildScriptZip(payloads)),
         ...(singleName ? { name: singleName } : {}),
       }
     }

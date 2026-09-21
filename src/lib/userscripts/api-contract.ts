@@ -1,9 +1,12 @@
-// 用户脚本「能力 API」契约 —— 脚本侧包装与后台桥共用的唯一真相源。
+// 用户脚本「能力 API」契约 —— 脚本侧 GM 包装与后台桥共用的唯一真相源。
 //
-// 定位：自有形态，不追求与油猴（VM/TM）的命名或同步语义一致：
-//   ① 全 async（无准同步预载，语义单一、可预期）
-//   ② 强类型桥（取代原先 `cmd: string; args: unknown[]` 的弱类型分发）
-//   ③ 可导出为 .d.ts 供脚本作者获得智能提示
+// **对外面 = 油猴标准**（`GM_*` / `GM.*`），目标是标准油猴脚本可直接粘贴运行。
+// **内部面 = 自有桥协议**（`__dl` 信封 + `ApiRequest` 命令名），**保持稳定**（见
+// docs/gm-api-migration.md 的 D8）：桥仍是「请求-响应 + Port 下行」两条通道，只增命令、不改形状。
+//
+// 与油猴的两处**已知差异**（速查页与 spec 必须标注，不能让人以为是实现缺陷）：
+//   · **无页面上下文**：`unsafeWindow` 是降级别名（= 隔离世界的 `window`，DOM 共用但页面 JS 全局不可见）；
+//   · **cookie 走域名门**：`GM_cookie.set` 不收 `domain` / `path`（开放 domain 会架空域名门）。
 //
 // 约束：所有跨桥值必须满足「结构化克隆」（存储层 IndexedDB 同样要求），
 // 故统一收窄为 Json 类型；函数、类实例、DOM 节点一律不可跨桥。
@@ -11,19 +14,64 @@
 /** 允许跨桥 / 落盘的值类型 */
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json }
 
-/** 脚本自省信息 */
-export interface ScriptInfo {
-  uuid: string
+// ————————————————————————— GM_info —————————————————————————
+
+/** metadata 块的归一化视图（`GM_info.script`） */
+export interface GmScriptMeta {
   name: string
+  namespace?: string
   version?: string
+  description?: string
+  author?: string
+  icon?: string
+  /** 实际生效的 match pattern（已归一化，含由 @include 转换来的） */
+  matches: string[]
+  /** `@include` 原值（未转换，供脚本自省） */
+  includes: string[]
+  /** `@exclude` 原值 */
+  excludes: string[]
+  /** 油猴风格写法：`document-start` / `document-end` / `document-idle` */
+  runAt: string
+  /** `@grant` 声明值；空数组 = 未声明 */
+  grant: string[]
+  /** `@require` URL（保序） */
+  requires: string[]
+  /** `@resource` 名 → URL */
+  resources: Record<string, string>
 }
+
+/**
+ * `GM_info`（TM `Tampermonkey.ScriptInfo` 的**已实现子集**）。
+ *
+ * 未实现的字段（如 `scriptUpdateURL` / `scriptSource` / `downloadMode`）不出现在本类型里：
+ * 脚本访问会是 `undefined`，属可预期的降级，速查页已注明。
+ */
+export interface GmInfo {
+  script: GmScriptMeta
+  /** 原始 metadata 块文本（无块时为空串） */
+  scriptMetaStr: string
+  /** 脚本管理器名（本扩展固定返回「哆灵」） */
+  scriptHandler: string
+  /** 本扩展版本 */
+  version: string
+  /** 脚本 uuid */
+  uuid: string
+  /** `navigator.userAgent` 副本（脚本判环境的常见用法） */
+  userAgent: string
+  /** 是否隐身窗口 */
+  isIncognito: boolean
+  /** 本扩展无页面上下文，恒为 `'js'`（隔离世界） */
+  sandboxMode: 'js'
+}
+
+// ————————————————————————— cookie —————————————————————————
 
 /**
  * cookie 快照（跨桥返回的纯数据，chrome.cookies.Cookie 的可克隆子集）。
  *
  * 字段口径与 chrome 一致：hostOnly / session 语义原样透传，不加工。
  */
-export interface DlCookie {
+export interface GmCookie {
   name: string
   value: string
   /** 管辖域；点前缀表示父域 cookie */
@@ -40,7 +88,7 @@ export interface DlCookie {
   hostOnly: boolean
 }
 
-// ————————————————————————————— 网络 —————————————————————————————
+// ————————————————————————— 网络 —————————————————————————
 
 /** 二进制请求体信封：包装侧把 ArrayBuffer / TypedArray 转 base64 打包，SW 侧解码后发请求 */
 export interface FetchBinaryBody {
@@ -74,11 +122,10 @@ export interface FetchInit {
   /**
    * 请求头。fetch 规范禁设头（Cookie / Referer / Origin 等，连同 User-Agent）不再被静默丢弃：
    * 后台经 DNR session 规则在发头前覆写、真实上线。覆写规则挂起期间，同 host 的所有
-   * DL.fetch 互斥排队（规则没有「只作用于某一次请求」的粒度，防规则污染并发请求）。
+   * 特权请求互斥排队（规则没有「只作用于某一次请求」的粒度，防规则污染并发请求）。
    */
   headers?: Record<string, string>
-  /** 文本体直接传字符串；二进制体（ArrayBuffer / TypedArray / DataView）由 DL 包装转成 FetchBinaryBody 信封 */
-  /** 文本体直接传字符串；二进制体（ArrayBuffer / TypedArray / DataView / Blob / File）由 DL 包装转成 FetchBinaryBody 信封；FormData 由 DL 包装转成 FetchFormBody 信封 */
+  /** 文本体直接传字符串；二进制体（ArrayBuffer / TypedArray / DataView / Blob / File）由包装层转成 FetchBinaryBody 信封；FormData 转成 FetchFormBody 信封 */
   body?: string | FetchBinaryBody | FetchFormBody
   /** 'arraybuffer' 时响应 body 为 base64 字符串（二进制无法跨桥） */
   responseType?: 'text' | 'arraybuffer'
@@ -91,6 +138,8 @@ export interface FetchInit {
   redirect?: 'follow' | 'manual' | 'error'
   /** 毫秒；0 或不传表示不限。到点后台中止请求，报 BRIDGE_TIMEOUT */
   timeout?: number
+  /** 中止关联标识（`GM_xmlhttpRequest` 的 abort() 用；不传即不可中止） */
+  requestId?: string
 }
 
 /**
@@ -110,7 +159,103 @@ export interface FetchPayload {
   responseType: 'text' | 'arraybuffer'
 }
 
-// ————————————————————————————— 桥协议 —————————————————————————————
+// —— GM_xmlhttpRequest / GM.xmlHttpRequest（TM 形状）——
+
+/** 请求详情（TM `details` 的已实现子集） */
+export interface GmXhrDetails {
+  url: string
+  method?: string
+  headers?: Record<string, string>
+  /** string / Blob / FormData / ArrayBuffer / TypedArray / DataView */
+  data?: string | Blob | FormData | ArrayBuffer | ArrayBufferView
+  /**
+   * `text`（缺省）/ `json` / `arraybuffer` / `blob`。
+   * **不支持 `document` / `stream`**（前者本可实现但未做，后者桥无流式）。
+   */
+  responseType?: 'text' | 'json' | 'arraybuffer' | 'blob'
+  /** 毫秒；到点触发 ontimeout */
+  timeout?: number
+  /** 重定向语义（本扩展扩展项；TM 无此字段）。缺省 'follow' */
+  redirect?: 'follow' | 'manual' | 'error'
+  /** 原样回传给各回调（**纯本地**，不过桥） */
+  context?: unknown
+  onloadstart?: (resp: GmXhrResponse) => void
+  onreadystatechange?: (resp: GmXhrResponse) => void
+  onload?: (resp: GmXhrResponse) => void
+  onerror?: (resp: GmXhrErrorResponse) => void
+  ontimeout?: (resp: GmXhrResponse) => void
+  onabort?: (resp: GmXhrResponse) => void
+}
+
+export interface GmXhrResponseBase {
+  readyState: number
+  status: number
+  statusText: string
+  /** 原始响应头（每行 `k: v`，TM 形状；不是对象） */
+  responseHeaders: string
+  /** 跟随重定向后的最终 URL */
+  finalUrl: string
+  context?: unknown
+}
+
+export interface GmXhrResponse extends GmXhrResponseBase {
+  responseText: string
+  /** 按 responseType 解码后的值（text/json → 原值；arraybuffer → ArrayBuffer；blob → Blob） */
+  response: unknown
+}
+
+export interface GmXhrErrorResponse extends GmXhrResponseBase {
+  error: string
+}
+
+/** 请求句柄：`abort()` 真实中止后台请求（新桥命令 `fetch.abort` + SW 侧按 requestId 注册表） */
+export interface GmXhrHandle {
+  abort(): void
+}
+
+// —— 通知 / 下载 / 标签页 ——
+
+export interface GmNotificationDetails {
+  text: string
+  title?: string
+  image?: string
+  /** 点击回调（经 Port 回推） */
+  onclick?: () => void
+  /** 关闭回调（通知被点掉时）—— 本扩展**不实现**，仅接受赋值不报错 */
+  ondone?: () => void
+}
+
+export interface GmDownloadDetails {
+  url: string
+  name?: string
+  headers?: Record<string, string>
+  /** 远程抓取的响应体（本扩展走 SW 抓取 → dataUrl → a[download]） */
+  onload?: () => void
+  onerror?: (e: { error: string }) => void
+  ontimeout?: () => void
+}
+
+export interface GmOpenInTabOptions {
+  active?: boolean
+  insert?: boolean
+  pinned?: boolean
+}
+
+/** `GM_openInTab` 的返回句柄（TM 的 `onclose` 不实现：仅允许赋值，不会触发） */
+export interface GmTabHandle {
+  close(): void
+  closed: boolean
+  onclose?: () => void
+}
+
+export type GmValueChangeListener = (
+  key: string,
+  oldValue: Json | undefined,
+  newValue: Json | undefined,
+  remote: boolean,
+) => void
+
+// ————————————————————————— 桥协议 —————————————————————————
 
 /**
  * 脚本世界 → 后台 的请求。
@@ -120,19 +265,26 @@ export interface FetchPayload {
 export type ApiRequest =
   // 存储（按脚本隔离，键空间 = 脚本 uuid）
   | { c: 'store.get'; key: string; fallback?: Json }
-  | { c: 'store.set'; key: string; value: Json }
-  | { c: 'store.delete'; key: string }
+  // connId = 发起写的那条 Port 身份：SW 据此把「本实例自己写的」帧标 remote=false，
+  // 其余（别的标签页 / 框架）标 true —— GM_addValueChangeListener 的第 4 参靠它。
+  // 未连接 Port 的实例也会带上自己 mint 的 connId（只是没人订阅它）。
+  | { c: 'store.set'; key: string; value: Json; connId?: string }
+  | { c: 'store.delete'; key: string; connId?: string }
   | { c: 'store.keys' }
-  | { c: 'store.clear' }
+  // 全量快照：注入时的「值校准」与未来 GM_getValues 共用（避免逐键往返）
+  | { c: 'store.all' }
+  | { c: 'store.clear'; connId?: string }
   // 网络
   | { c: 'fetch'; url: string; init?: FetchInit }
+  // 中止一次在飞行的 fetch（GM_xmlhttpRequest 的 abort()）；找不到 requestId 视为已结束
+  | { c: 'fetch.abort'; requestId: string }
   // 剪贴板：走 offscreen 执行（免用户手势）+ 支持富文本（clipboardWrite 权限）
   | { c: 'clipboard.write'; text?: string; html?: string }
   // 标签页级存储（对齐 GM_getTab 系列）：tabId 由 SW 从 sender.tab.id 取，脚本世界拿不到
   | { c: 'tab.get' }
   | { c: 'tab.save'; value: Json }
   | { c: 'tab.all' }
-  // URL 变化订阅（SPA 路由感知）：控制面走请求-响应，事件 t:'url.change' 经 DL Port 推回
+  // URL 变化订阅（SPA 路由感知）：控制面走请求-响应，事件 t:'url.change' 经 Port 推回
   | { c: 'url.watch'; connId: string }
   | { c: 'url.unwatch'; connId: string }
   // 系统能力
@@ -162,22 +314,29 @@ export type ApiRequest =
   // 事件订阅（控制面走请求-响应；订阅归属由 connId 定位到脚本世界自己的那条 Port）
   | { c: 'store.watch'; key: string; connId: string }
   | { c: 'store.unwatch'; key: string; connId: string }
+  // 全量订阅（Port 级布尔）：**只读值的脚本也必须有下行通道**，否则同步快照跨 tab 永久陈旧
+  // （见 docs/gm-api-migration.md 的 D1-b）。与 url.watch 同构。
+  | { c: 'store.watchAll'; connId: string }
+  | { c: 'store.unwatchAll'; connId: string }
 
 /**
- * 后台 → 脚本世界 的推送事件，经 DL Port 下行（帧信封见 ApiEventFrame）。
- * 三类来源：contextMenus.onClicked → menu.click；store.ts 写出口直发 → store.change；
- * notifications.onClicked → notify.click。
+ * 后台 → 脚本世界 的推送事件，经 Port 下行（帧信封见 ApiEventFrame）。
+ * 四类来源：contextMenus.onClicked → menu.click；store.ts 写出口直发 → store.change；
+ * notifications.onClicked → notify.click；tabs.onUpdated → url.change。
  */
 export type ApiEvent =
   /** 内部帧（脚本作者不感知）：SW 建立 Port 后立即下发，包装层据此 flush 待注册队列 */
   | { t: 'port.ready' }
-  /** 扩展菜单点击。id = DL.menu.register 时包装层 mint 的菜单标识 */
+  /** 扩展菜单点击。id = 包装层 mint 的菜单标识 */
   | { t: 'menu.click'; id: string }
   /**
-   * 私有存储某键变化（含删除）。**删除语义：key 被 store.delete 后 value 置 null** ——
-   * 与「值恰为 null」在帧上不可区分，脚本侧需要区分时用 store.get 兜底确认。
+   * 私有存储某键变化（含删除）。
+   *
+   * 删除语义：key 被删除后 `value` 置 null。`oldValue` 为变化前的值（无旧值时为 null），
+   * `remote` 表示变化来自**别的**标签页/框架（本实例自己写的为 false）—— 三者合起来支撑
+   * `GM_addValueChangeListener` 的 `(key, oldValue, newValue, remote)` 回调形状。
    */
-  | { t: 'store.change'; key: string; value: Json }
+  | { t: 'store.change'; key: string; value: Json; oldValue: Json; remote: boolean }
   /** 通知点击。id = SW 创建通知时 mint 的 notificationId（notify 响应返回） */
   | { t: 'notify.click'; id: string }
   /** 当前标签页 URL 变化（含 SPA pushState / replaceState / popstate / hash 变更）。url = 变化后 URL */
@@ -188,11 +347,13 @@ export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
 
 /**
  * 脚本世界 → 后台 的单向事件（不等待响应，区别于 ApiRequest 的请求-响应）。两种信封：
- *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报：DL 包装的
+ *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报：包装的
  *     window.onerror / unhandledrejection 收进错误日志（runtime 库 errors store）；
  *   · `{ __dlRunStart: true, uuid, name, runId }` —— 运行标识广播：包装注入即 mint 一次
  *     「一次页面加载 = 一次运行」的 runId。SW 交侧边栏页面监控按 tab 登记、并落盘运行统计
- *     （runtime 库 stats store）与运行日志（runlog store，name 快照），补播按 runId 去重——没有对应的类型别名。
+ *     （runtime 库 stats store）与运行日志（runlog store，name 快照），补播按 runId 去重。
+ *
+ * 信封名保持 `dl` 前缀（D8：内部协议面不改名，改它是纯 churn）。
  */
 export type DlEvent = {
   t: 'error'
@@ -218,150 +379,157 @@ export type ApiErrorCode =
 
 // ————————————————————— 脚本作者看到的 API 形态 —————————————————————
 
-/** fetch 的返回值：后台纯数据 + 本地便捷方法 */
-export interface DlFetchResult {
-  ok: boolean
-  status: number
-  statusText: string
-  headers: Record<string, string>
-  url: string
-  /** 响应体文本 */
-  text(): string
-  /** 按 JSON 解析响应体，失败抛错 */
-  json<T = unknown>(): T
-  /** responseType 为 'arraybuffer' 时解码 base64 */
-  arrayBuffer(): ArrayBuffer
-  /**
-   * 按 content-type 把响应体解回 Blob。
-   * 仅 `responseType: 'arraybuffer'` 时可用——默认 text 模式字节已被 UTF-8 解码破坏，调用即抛错。
-   */
-  blob(): Blob
+/**
+ * `GM_*` 全局函数集合。
+ *
+ * 这个接口有两个用途，两处都靠它兜漂移（catalog 的 `keyof` 镜像 + 自产 `.d.ts`）：
+ *   ① 速查页的条目键必须恰好覆盖 `keyof GmGlobalFns`（类型层防线）；
+ *   ② 注入包装的装配块由源码反射单测比对。
+ * **故这里不要写函数重载**（`T[K] extends (...)= >unknown` 的反射对重载不稳），
+ * 多形态入参用联合类型表达（如 `GM_notification(details | string, …)`）。
+ */
+export interface GmGlobalFns {
+  /** 同步读（读注入时预载的值快照）—— 与油猴一致，**返回值不是 Promise** */
+  GM_getValue<T extends Json = Json>(key: string, defaultValue?: T): T | undefined
+  /** 同步写本地缓存 + 异步过桥落盘（与油猴一致，返回 void） */
+  GM_setValue(key: string, value: Json): void
+  GM_deleteValue(key: string): void
+  /** 同步列出全部键（读快照） */
+  GM_listValues(): string[]
+  /** 同步返回监听器 id；`remote` 标记变化是否来自别的标签页 */
+  GM_addValueChangeListener(key: string, cb: GmValueChangeListener): number
+  GM_removeValueChangeListener(listenerId: number): void
+  /** 同步返回菜单 id（后台登记异步进行，失败走错误日志） */
+  GM_registerMenuCommand(
+    caption: string,
+    onClick: () => void,
+    options?: { id?: string; title?: string; accessKey?: string },
+  ): number
+  /** 两种入参都收：本扩展 mint 的 number id，或注册时的 caption（TM 只收 id、VM 收 caption） */
+  GM_unregisterMenuCommand(idOrCaption: number | string): void
+  /** 注入 CSS，同步返回 style 元素 */
+  GM_addStyle(css: string): HTMLStyleElement
+  GM_addElement(
+    parentOrTagName: Element | string,
+    tagNameOrAttributes?: string | Record<string, string>,
+    attributes?: Record<string, string>,
+  ): HTMLElement
+  GM_log(...args: unknown[]): void
+  GM_notification(
+    details: GmNotificationDetails | string,
+    title?: string,
+    image?: string,
+    onclick?: () => void,
+  ): void
+  /** `info` 缺省 `'text/plain'`；传 `'text/html'` 走富文本（TM 的 `{type}` 对象形态不收） */
+  GM_setClipboard(data: string, info?: 'text/plain' | 'text/html'): void
+  GM_xmlhttpRequest(details: GmXhrDetails): GmXhrHandle
+  GM_download(details: GmDownloadDetails | string, name?: string): void
+  GM_openInTab(url: string, options?: boolean | GmOpenInTabOptions): GmTabHandle
+  GM_getTab(cb: (tab: Json | undefined) => void): void
+  GM_saveTab(tab: Json, cb?: () => void): void
+  GM_getTabs(cb: (tabs: Record<string, Json>) => void): void
 }
 
 /**
- * 脚本里通过全局 `DL` 访问的能力集合。
+ * **对象型**的全局（不是函数，故不在 `GmGlobalFns` 里）。
  *
- * 全部方法返回 Promise（全 async，不做准同步预载）。
- * 例外是纯本地能力（style / log / info），它们不跨桥，保持同步。
+ * 与 `GmGlobalFns` 合起来才是「脚本世界挂载的全部全局」——速查页的路径全集与
+ * 源码反射单测都按这两个接口取键。
  */
-export interface DuoLingApi {
-  /** 脚本自省 */
-  readonly info: ScriptInfo
-
-  /** 脚本私有存储（跨站点统一、与页面 localStorage 隔离） */
-  store: {
-    get<T extends Json = Json>(key: string, fallback?: T): Promise<T | undefined>
-    set(key: string, value: Json): Promise<void>
-    delete(key: string): Promise<void>
-    keys(): Promise<string[]>
-    clear(): Promise<void>
-    /** 跨标签 / 跨页面监听某个键的变化（删除时 value 为 null，见 store.change 删除语义），返回取消订阅函数 */
-    watch<T extends Json = Json>(key: string, cb: (value: T | null) => void): Promise<() => void>
-  }
-
-  /** 标签页级存储（对齐 GM_getTab / GM_saveTab / GM_getTabs；随标签页生命周期，关 tab 即清） */
-  tab: {
-    /** 取当前标签页的持久对象（无返回 undefined） */
-    get<T extends Json = Json>(): Promise<T | undefined>
-    /** 保存当前标签页的持久对象（整体覆盖，同 GM_saveTab） */
-    save(value: Json): Promise<void>
-    /** 全部标签页的对象快照，键为 tabId 字符串（对齐 GM_getTabs） */
-    all(): Promise<Record<string, Json>>
-  }
-
-  /** 免 CORS 的 HTTP 请求（后台 SW 发起，不受页面 CSP 与同源策略限制） */
-  fetch(url: string, init?: FetchInit): Promise<DlFetchResult>
-
-  /** 系统通知。opts.onClick 提供时，通知被点击后经 DL Port 回推 { t:'notify.click', id } */
-  notify(
-    message: string,
-    opts?: { title?: string; icon?: string; onClick?: () => void },
-  ): Promise<void>
-
-  /** 触发下载
-   * - 首参 string：远程 URL（SW 抓取转 dataUrl，触发 a[download]）
-   * - 首参 Blob / ArrayBuffer / TypedArray：本地直下（纯包装层 createObjectURL + a[download]，不走桥）
-   */
-  download(urlOrBlob: string | Blob | ArrayBuffer | ArrayBufferView, name?: string): Promise<void>
-
-  /**
-   * 写剪贴板。走 offscreen 执行（免用户手势），失败 reject 明确错误，不静默。
-   */
-  clipboard: {
-    /** 写纯文本（签名不变，内部由「世界内直写」改走 offscreen 桥，对脚本作者透明升级） */
-    write(text: string): Promise<void>
-    /** 写富文本：html 为富文本 MIME，plainText 为纯文本兜底（缺省回退为空串） */
-    writeHtml(html: string, plainText?: string): Promise<void>
-  }
-
-  tabs: {
-    /** 打开标签页，返回新标签页的 tabId（可续接 tabs.close / tabs.focus） */
-    open(url: string, opts?: { active?: boolean }): Promise<number>
-    /** 关闭指定标签页 */
-    close(tabId: number): Promise<void>
-    /** 激活指定标签页（并聚焦其所在窗口） */
-    focus(tabId: number): Promise<void>
-  }
-
-  /**
-   * cookie 读写删（manifest 需 `cookies` 权限）。
-   *
-   * **域名门**：url 必须落在**该脚本自身** matches 内（不与其它脚本取并集），
-   * 且 pattern 只比 scheme + host、忽略 path 段 —— cookie 是 host 级作用域，
-   * 只注入 /foo/ 的脚本也必须能读站点 cookie。越域报 PERMISSION_DENIED。
-   * url 缺省 = 当前页（包装层填 location.href）。
-   */
-  cookie: {
-    /**
-     * 读 cookie。**恒返回数组**（空数组 = 该 url 没有 cookie）——
-     * 三态返回（单条 / null / 数组）会让调用方写三层分支，语义不单一。
-     * 按 name 查自己取 `[0]`。
-     */
-    get(query?: { url?: string; name?: string }): Promise<DlCookie[]>
-    /**
-     * 写 cookie。domain / path 不可覆写（domain 由 url 主机推导、path 恒 '/'）：
-     * 开放 domain 会让「脚本可写父域 cookie」架空域名门。
-     */
-    set(details: {
-      url?: string
-      name: string
-      value: string
-      secure?: boolean
-      httpOnly?: boolean
-      /** Unix 秒；不传 = 会话 cookie */
-      expirationDate?: number
-    }): Promise<void>
-    remove(details: { url?: string; name: string }): Promise<void>
-  }
-  /** 在扩展菜单里注册命令，返回注销函数 */
-  menu: {
-    register(title: string, handler: () => void): Promise<() => void>
-  }
-
-  /** 注入 CSS。纯本地实现，不跨桥，同步返回 */
-  style(css: string): HTMLStyleElement
-
-  /**
-   * 当前标签页 URL 变化订阅（含 SPA pushState / replaceState / popstate / hash 变更）。
-   * 仅推「订阅生效之后」的变更——跨文档导航时旧世界 Port 已断、新世界尚未订阅，首屏 URL 用 location.href。
-   * 推送时机为 tabs.onUpdated 触发时机，可能比框架路由回调略晚一拍。
-   * 返回取消订阅函数。
-   */
-  onUrlChange(cb: (url: string) => void): Promise<() => void>
-
-  /** 带脚本前缀的控制台输出。纯本地实现 */
-  log(...args: unknown[]): void
-
-  /**
-   * 反向中继 · 页面世界访问（一期 listen + hook('fetch')）。
-   * 对全部脚本开放（无 pageAccess 门禁）。
-   */
-  page: DlPageApi
+export interface GmGlobalObjects {
+  /** 脚本自省信息（同步可达，无需 @grant） */
+  GM_info: GmInfo
+  /** cookie 读写删（`@grant GM_cookie`；TM 口径下只在全局，`GM.*` 里不重复提供） */
+  GM_cookie: GmCookieApi
 }
 
-// ————————————————————— 反向中继 DL.page（一期）—————————————————————
+/** `GM_cookie` 全局对象（TM 口径；回调式，回调可省 → 返回 Promise 便于 await） */
+export interface GmCookieApi {
+  /**
+   * 列 cookie。**恒回调数组**（空数组 = 该 url 没有 cookie）。
+   * url 缺省 = 当前页；**过域名门**：url 须落在脚本自身 matches 内，越域报 PERMISSION_DENIED。
+   */
+  list(
+    details?: GmCookieQuery,
+    cb?: (cookies: GmCookie[] | undefined, error?: string) => void,
+  ): Promise<GmCookie[]>
+  /**
+   * 写 cookie。**`domain` / `path` 一律不受支持**（传入即 INVALID_ARG，不静默忽略）：
+   * domain 由 url 主机推导、path 恒 `/` —— 开放 domain 会架空域名门（见 cookie-gate.ts）。
+   */
+  set(details: GmCookieWrite, cb?: (error?: string) => void): Promise<void>
+  delete(details: GmCookieQuery & { name: string }, cb?: (error?: string) => void): Promise<void>
+}
 
-/** DL.page 自有错误码（不走 SW 桥的 ApiErrorCode） */
+export interface GmCookieQuery {
+  /** 缺省 = 当前页 */
+  url?: string
+  name?: string
+}
+
+export interface GmCookieWrite extends GmCookieQuery {
+  name: string
+  value: string
+  secure?: boolean
+  httpOnly?: boolean
+  /** Unix 秒；不传 = 会话 cookie */
+  expirationDate?: number
+  /** **不支持**：传入即报错（域名门收紧项） */
+  domain?: never
+  /** **不支持**：传入即报错（域名门收紧项） */
+  path?: never
+}
+
+/**
+ * `GM.*` 命名空间（Promise 化形态）。
+ *
+ * 口径按 **Tampermonkey**：TM 的 `GM.*` **没有** `cookie` / `webRequest` / `audio`
+ * （VM 有 `GM.cookie` —— 差异是口径不同，不是谁错）。故本扩展的 `GM_cookie` 只在全局，
+ * `GM.*` 下不重复提供。
+ */
+export interface GmApiNamespace {
+  info: GmInfo
+  getValue<T extends Json = Json>(key: string, defaultValue?: T): Promise<T | undefined>
+  setValue(key: string, value: Json): Promise<void>
+  deleteValue(key: string): Promise<void>
+  listValues(): Promise<string[]>
+  addValueChangeListener(key: string, cb: GmValueChangeListener): Promise<number>
+  removeValueChangeListener(listenerId: number): void
+  registerMenuCommand(
+    caption: string,
+    onClick: () => void,
+    options?: { id?: string; title?: string },
+  ): Promise<number>
+  unregisterMenuCommand(idOrCaption: number | string): void
+  addStyle(css: string): HTMLStyleElement
+  addElement(
+    parentOrTagName: Element | string,
+    tagNameOrAttributes?: string | Record<string, string>,
+    attributes?: Record<string, string>,
+  ): HTMLElement
+  log(...args: unknown[]): void
+  notification(details: GmNotificationDetails | string, title?: string, image?: string): Promise<void>
+  setClipboard(data: string, info?: 'text/plain' | 'text/html'): Promise<void>
+  xmlHttpRequest(details: GmXhrDetails): Promise<GmXhrResponse>
+  download(details: GmDownloadDetails | string, name?: string): Promise<void>
+  openInTab(url: string, options?: boolean | GmOpenInTabOptions): GmTabHandle
+  getTab(): Promise<Json | undefined>
+  saveTab(tab: Json): Promise<void>
+  getTabs(): Promise<Record<string, Json>>
+
+  // —— 以下为**哆灵扩展**（非油猴标准，速查页与自产 .d.ts 必须标注）——
+  /** 清空本脚本全部存储（标准里无对应物，D9） */
+  clearValues(): Promise<void>
+  /** 激活指定标签页（标准里无对应物：TM 只有 GM_openInTab 返回句柄的 close()，D9） */
+  focusTab(tabId: number): Promise<void>
+  /** 反向中继 · 页面世界访问（本扩展独有能力，见 §5） */
+  page: GmPageApi
+}
+
+// ————————————————————— 反向中继 GM.page —————————————————————
+
+/** GM.page 自有错误码（不走 SW 桥的 ApiErrorCode） */
 export type PageErrorCode =
   | 'PAGE_STUB_UNAVAILABLE'
   | 'HANDSHAKE_FAILED'
@@ -418,12 +586,12 @@ export interface PageListenOptions {
 }
 
 /**
- * DL.page API 面（均返回 off()）。
+ * GM.page API 面（均返回 off()）。
  * - listen：监听页面事件
  * - fetchHook：拦截页面 fetch。传 opts.onResponse 即可在 passthrough 时被动拿到响应体
  *   （stub 克隆真实响应、读 body 后转发，页面拿到的仍是原响应，零额外请求、零封号风险）
  */
-export interface DlPageApi {
+export interface GmPageApi {
   listen(
     type: string,
     handler: (ev: PageEventSummary) => void,

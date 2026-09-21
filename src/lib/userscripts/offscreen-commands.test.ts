@@ -10,7 +10,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
-import type { ScriptMeta, ScriptProject } from './types'
+import type { ScriptConfig, ScriptProject } from './types'
 import { handleStateCommand, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
 import { handleFsCommand, type FsRequest } from '@/lib/userscripts/offscreen-fs-commands'
 import * as projectWrite from '@/lib/userscripts/project-write'
@@ -64,18 +64,14 @@ vi.mock('@/lib/userscripts/offscreen-state-commands', async (importOriginal) => 
 type Expect<T extends true> = T
 
 const CODE = 'console.log(1)'
-const META: ScriptMeta = {
-  name: '脚本一',
-  config: { matches: ['https://example.com/*'], allFrames: false, runAt: 'document_end' },
-  createdAt: 0,
-}
+const META_CONFIG: ScriptConfig = { matches: ['https://example.com/*'], allFrames: false, runAt: 'document_end' }
 // 完整 ScriptProject 形状（state:createProject 的载荷；源码搬运副本在 source 字段）
 const PROJECT: ScriptProject = {
   v: 2,
   uuid: 'u1',
   name: '脚本一',
   enabled: true,
-  config: META.config,
+  config: META_CONFIG,
   group: '',
   source: { code: CODE, savedAt: 1 },
   createdAt: 0,

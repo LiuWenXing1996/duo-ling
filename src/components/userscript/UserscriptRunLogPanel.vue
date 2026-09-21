@@ -182,13 +182,15 @@ const clearLabel = computed(() => {
 const PHASE_LABEL: Record<UserScriptErrorRecord['phase'], string> = {
   runtime: '运行期',
   register: '注册',
-  bridge: 'DL 桥'
+  bridge: 'GM 桥',
+  require: '@require 抓取'
 }
 /** 阶段配色走语义 token（不硬编码色值、不手写 dark: 覆盖）：运行期最需要关注 → destructive */
 const PHASE_BADGE: Record<UserScriptErrorRecord['phase'], string> = {
   runtime: 'bg-destructive/10 text-destructive',
   register: 'bg-muted text-muted-foreground',
-  bridge: 'bg-primary/10 text-primary'
+  bridge: 'bg-primary/10 text-primary',
+  require: 'bg-muted text-muted-foreground'
 }
 function phaseLabel(p: UserScriptErrorRecord['phase']): string {
   return PHASE_LABEL[p]

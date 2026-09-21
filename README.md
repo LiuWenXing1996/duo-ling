@@ -13,7 +13,7 @@
 | 载体 | 角色 | 承载内容 |
 | --- | --- | --- |
 | **side panel** | 应用入口（常驻侧边栏） | **AI 对话界面**：会话列表（浮层抽屉）、消息流、输入区（含元素拾取 chip）、模型选择 |
-| **标签页 `workbench.html`** | 重界面工作区（按需打开） | 引导 / 脚本列表（默认落点、不可关闭）/ 运行日志 / 脚本编辑器 / 脚本历史 / 脚本产物 / lfs 浏览 / 会话数据 / AI 工具 / DL API / 设置 / UI 测试 |
+| **标签页 `workbench.html`** | 重界面工作区（按需打开） | 引导 / 脚本列表（默认落点、不可关闭）/ 运行日志 / 脚本编辑器 / 脚本历史 / 脚本产物 / lfs 浏览 / 会话数据 / AI 工具 / GM API / 设置 / UI 测试 |
 | **popup**（点工具栏图标弹出） | 配置入口（点开即用、点外即关） | 网页浮层开关（总开关 + 当前站点）；两个去处：「打开对话」「打开工作台」 |
 | **网页浮层 `floatpanel.html`**（content script 注入的 iframe） | 网页内便捷对话入口（与侧栏并存） | 与 side panel 同一套对话界面、同一份会话；按站点开关决定是否注入 |
 
@@ -90,19 +90,19 @@
 │  │  ├─ float-panel-store.ts     # 网页浮层的开关存储：总开关 + 按站点禁用（chrome.storage.local）
 │  │  ├─ build-info.ts            # 构建信息取数：define 注入的 __BUILD_INFO__（页面侧）+ sw:buildInfo 命令（SW 侧，带重试）
 │  │  ├─ theme.ts / code-view.ts / format.ts / utils.ts
-│  │  └─ userscripts/             # 脚本链路：引擎 / 存储 / git / DL 桥 / 匹配规则
+│  │  └─ userscripts/             # 脚本链路：引擎 / 存储 / git / GM 桥 / 匹配规则
 │  │     ├─ engine.ts             #   chrome.userScripts 注册：每脚本一 USER_SCRIPT 世界 + MAIN 桩
 │  │     ├─ state-db.ts / project-store.ts / project-write.ts  # 注册态库 `duoling-state`（元数据 + 源码搬运副本，写只归 offscreen）
 │  │     ├─ us-fs.ts / us-git.ts  #   lightning-fs 单例（库名 `duoling-fs`，只许 offscreen）+ isomorphic-git：源码唯一来源
-│  │     ├─ dl-bridge.ts / api-contract.ts  # 注入脚本 ⇄ SW 桥（DL.store / DL.fetch / DL.page 契约）
-│  │     ├─ page-stub.ts / page-client.ts / page-protocol.ts  # DL.page 反向中继（MAIN 桩 + USER_SCRIPT 客户端）
+│  │     ├─ dl-bridge.ts / api-contract.ts / gm-wrapper.ts  # 注入脚本 ⇄ SW 桥（GM.* 契约 + __dl 信封）
+│  │     ├─ page-stub.ts / page-client.ts / page-protocol.ts  # GM.page.* 反向中继（MAIN 桩 + USER_SCRIPT 客户端）
 │  │     ├─ match-union.ts        #   内置注册（MAIN 桩）的匹配并集与「未变则跳过」比对
 │  │     └─ zip-transfer.ts / builtins.ts / store.ts / ui-client.ts / types.ts
 │  ├─ types/                      # shims.d.ts（process 模块 + window.api 全局声明）+ tab.ts / model.ts re-export
 │  ├─ polyfill-process.ts / polyfills.ts  # SW 兜底：process / global / Buffer
 │  └─ public/                     # duoling-picker.js（元素拾取器）
 ├─ scripts/                       # 仓库维护脚本：verify-skills.mjs（skill 合规）/ check-inbox.py（inbox 体检）/ pack-uscripts.mjs（打用户脚本测试包）
-├─ uscript-samples/               # pack-uscripts 的源目录（跟 git）：未压缩的测试脚本源码，注入探针 / DL 桥往返 / 语法错误样本（坏脚本照样装）/ 运行期报错
+├─ uscript-samples/               # pack-uscripts 的源目录（跟 git）：未压缩的测试脚本源码，注入探针 / GM 桥往返 / 语法错误样本（坏脚本照样装）/ 运行期报错
 ├─ docs/inbox.md                  # 想法收件箱（只装问题 + ≤30 字方向，不写方案设计）
 ├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟四链路）
 └─ .github/workflows/             # ci.yml / e2e.yml / release.yml / sync-release-notes.yml（各自作用见 GIT_WORKFLOW.md 与 VERSIONING.md）
@@ -128,7 +128,7 @@
 8. **脚本列表**：面板顶栏「打开工作台」→ 默认落「脚本列表」（可关掉别的标签，这个不可关）。本页操作：
    - **新建**：零输入，**建完停在列表不跳编辑器**，该行标「刚新建」；点该行「编辑」进过一次即摘标。
    - **启停 / 导出 / 删除 / 看可用性横幅**。
-   - **导入 zip**：「导入」菜单给两种取包方式 —— 「选择 zip 文件…」走文件选择器，「输入文件路径…」手输或粘贴**绝对路径**（后者用于把 `npm run pack:uscripts` 打印出来的 `tmp/…zip` 路径直接粘进去，省去在弹窗里逐层点目录）；两者取到字节后走完全同一条链路。测试包内含注入探针 / DL 桥 / 语法错误样本等有具体行为的脚本。
+   - **导入 zip**：「导入」菜单给两种取包方式 —— 「选择 zip 文件…」走文件选择器，「输入文件路径…」手输或粘贴**绝对路径**（后者用于把 `npm run pack:uscripts` 打印出来的 `tmp/…zip` 路径直接粘进去，省去在弹窗里逐层点目录）；两者取到字节后走完全同一条链路。测试包内含注入探针 / GM 桥 / 语法错误样本等有具体行为的脚本。
    - 列表本身**不展示脚本报错**（报错去「运行日志」标签页看）；只有引擎不可用这类环境级问题在本页横幅提示一次。
 9. **编辑与保存**：列表行点「编辑」开编辑器标签页 → 改源码（单文件）→ 保存即重新注册（保存恒成功、保存即注入：语法错误也照存，坏了的脚本运行期报错去运行日志看）；有未保存改动时关标签应弹确认
 10. **历史**：编辑器顶栏的历史按钮 → 历史标签页看提交记录 / 恢复某次提交（恢复产生新提交，历史不可变）
@@ -136,8 +136,8 @@
 12. **页面脚本灵动岛与角标**：在命中脚本的页面上，侧边栏灵动岛应列出本页在跑的脚本与报错（点脚本行跳工作台运行日志）；生成过程中关掉面板，完成后工具栏图标应亮红色角标 `1`，重开面板即清零
 13. **运行日志标签页**：左侧导航栏点「运行日志」（或灵动岛点脚本行深链 `#/errors/<uuid>` 过滤到该脚本）→ 时间线一行 = 一次运行（「运行 N 次」之外按时间看每次）；运行期报错挂在对应运行行下（点「N 个错误」展开明细），注册/桥失败等无运行上下文的错误单独成行；左栏按脚本过滤，点右上的「清空全部 / 清空该脚本」连带清运行行，不误伤别的脚本
 14. **运行统计**：脚本列表行应显示「运行 N 次，上次 <时间>」——到命中脚本的页面刷几次，回工作台（不用手动刷新，`runstats` 域广播驱动回拉）计数应增长；脚本在页面上报错后，该行出现红色的「上次运行 N 个错误」（口径 = 最近一次运行捕获的运行期错误数，明细去运行日志标签页看）；停用后再访问页面计数不应增长
-15. **删除的连带清理**：删掉一个脚本（单删 / 「全部删除」都算）→ 状态库记录、它的 git 仓、`DL.store` 值、**它的报错记录与运行统计**一并清掉；已打开的运行日志标签页会自动重拉，不该再留下这个脚本的运行行
-16. **cookie 能力（DL.cookie）**：`npm run pack:uscripts` 后导入上述 zip → 启用「DL.cookie 探针」（其匹配规则**故意只写 `https://example.com/*`**）→ 打开 `https://example.com` → 点右下角角标跑用例：
+15. **删除的连带清理**：删掉一个脚本（单删 / 「全部删除」都算）→ 状态库记录、它的 git 仓、`GM.*` 存储值、**它的报错记录与运行统计**一并清掉；已打开的运行日志标签页会自动重拉，不该再留下这个脚本的运行行
+16. **cookie 能力（GM_cookie）**：`npm run pack:uscripts` 后导入上述 zip → 启用「GM_cookie 探针」（其匹配规则**故意只写 `https://example.com/*`**）→ 打开 `https://example.com` → 点右下角角标跑用例：
    - 写读往返（含 `document.cookie` 交叉验证）/ 按 name 查 / 换路径仍放行（**pattern 的 path 段不参与判定**）/ **越域必须被拒** / 非 http(s) 拒 / 删除后读不到。
    - 核对面板「运行日志」里越域那条的报错文案（`PERMISSION_DENIED`）；改脚本匹配范围后门应即时收紧（`script` 域广播失效缓存）。
 17. **网页浮层**：任意普通网页右下角出现哆灵悬浮按钮（默认开）→ 点击展开对话界面（与侧栏同一套界面、同一份会话，两边发消息互相同步可见）→ 再点按钮收起。
@@ -167,7 +167,7 @@
 3. **entrypoint 同名冲突**：同一名字不得同时存在 `x.html` 与 `x.ts`（WXT 判定两个同名 entrypoint）。规则与命名做法见 [wxt 规范](.agents/skills/wxt/SKILL.md) 硬约束 3。
 4. **跨域 fetch 需 host 权限**：扩展页 `fetch` 模型接口会被 CORS 拦，必须在 manifest 声明对应 `host_permissions`（模型服务商由 `src/lib/providers.ts` 推导，用户脚本另需 `<all_urls>`）。
 5. **userScripts 可用性前置**：`chrome.userScripts` 未开启时不存在，直接调用会让 SW 初始化崩溃；引擎每条入口都先判存在性（`isUserScriptsAvailable()` / `typeof chrome.userScripts.register === 'function'`）再优雅跳过，并把开启引导交给工作台「引导」标签页（各处只给「查看开启引导」入口，不各写一套步骤）。
-6. **git 只存源码本身**：源码唯一来源 = duoling-fs 工作树（`script.js` + `project.json`），git 提交是其版本历史；注册态库的 `source` 搬运副本不进 git（由写侧落盘时组装）；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护）
+6. **git 只存源码本身**：源码唯一来源 = duoling-fs 工作树（单文件 `script.js`，2026-09-20 单文件化；配置由源码里的 `// ==UserScript==` 块派生，不另存元信息文件），git 提交是其版本历史；注册态库的 `source` 搬运副本不进 git（由写侧落盘时组装）；恢复走「产生新提交」而非 reset，历史不可变（仓由 offscreen 单写维护）
 7. **CSP 保持 MV3 默认**：曾为 esbuild-wasm 在 `wxt.config.ts` 放开过 `'wasm-unsafe-eval'`，构建流程移除后（2026-09-20）该覆盖已删，扩展页回到默认 `script-src 'self'`——**不要再加回 CSP 覆盖**（脚本世界的 eval 防线见 AGENTS 硬性底线「脚本世界 CSP」）。
 8. **注入不了「非普通网页」**：`host_permissions` 的 `<all_urls>` **不覆盖 `chrome-extension://` scheme**，往扩展页注入（`userScripts.execute` / `scripting.executeScript`）必失败，抛 Chrome 原话 `Cannot access contents of url … must request permission to access this host` —— **连本扩展自己的页面也一样**（活动标签是工作台时点「点选元素」即命中）。
    - 不是漏配权限，加 host 权限也解决不了，只能在注入前拦；`file://` 未开「允许访问文件网址」报的是同一句。
@@ -199,10 +199,10 @@
    - **`chrome.extension.isAllowedFileSchemeAccess()` 在 MV3 已 promise 化**：不 await 直接读会拿到一个 Promise 对象（truthy，JSON 序列化成 `{}`，看着像空对象）—— 当布尔用必然判错。`src/lib/extension-page.ts` 里兼容 promise 与同步返回，探测不到返回 `null`（**≠ 没权限**，调用方不得据此拦人）。
    - **裸路径不是 URL**：`fetch('/a/b.zip')` 会被当**相对地址**解析到扩展页自身（实测同样 `Failed to fetch`）。路径文本必须先归一成 `file://` URL，且要**逐段编码**：`#` / `?` / 空格 不编码会被当 fragment / query 截掉（`/a#b.zip` 会变成去读 `/a`），而 POSIX 首段与 Windows 盘符段不能编码（`C:` 编成 `C%3A` 就认不出盘符）。这层在 `src/lib/userscripts/local-path.ts`，单测覆盖四类坑。
 14. **DNR header 覆写没有「按请求」粒度、也不跨重定向 hop**，两层限制：
-   - **粒度只到 host**：DL.fetch 的 forbidden header 覆写（`dl-fetch-priv.ts`）靠 session 规则按请求挂 / 撤，但规则条件只能到 host 级 —— 覆写规则挂起期间，同 host 的**所有** DL.fetch 都会被套上覆写头。因此覆写请求 = 写者（独占该 host）、纯请求 = 读者（写优先读写锁）；不互斥就会出现「纯请求带上不该带的 Cookie」这类难以排查的 bug。
+   - **粒度只到 host**：GM_xmlhttpRequest 的 forbidden header 覆写（`dl-fetch-priv.ts`）靠 session 规则按请求挂 / 撤，但规则条件只能到 host 级 —— 覆写规则挂起期间，同 host 的**所有** GM_xmlhttpRequest 都会被套上覆写头。因此覆写请求 = 写者（独占该 host）、纯请求 = 读者（写优先读写锁）；不互斥就会出现「纯请求带上不该带的 Cookie」这类难以排查的 bug。
    - **不跨重定向 hop**：DNR 的头修改不跨 hop 保持（跨 host 的 hop 不套用，Chrome 平台限制，油猴同款）；`redirect:'manual'` 的 3xx 头靠观察型 webRequest 读（SW fetch 对 3xx 只拿得到 opaqueredirect，实测 webRequest **能**看到自家 SW fetch，2026-09-19）。
    - 规则生命周期三层兜底：settle finally 撤 → SW 启动对账自有 id 区间 → session 规则浏览器重启自清（故用 session 弃 dynamic）。
-   - **怎么验**：`npm run pack:uscripts` → 工作台「脚本列表」导入 → 启用「DL API 收口探针」→ 页面右下角角标点一下。四项断言全打在 httpbin 回显上（覆写是否真上线只有服务端能作证）。**2026-09-19 真机手测通过**：覆写上线 / 同 host 隔离 / manual 读 3xx / error 拒绝四项全 ✓。
+   - **怎么验**：`npm run pack:uscripts` → 工作台「脚本列表」导入 → 启用「GM API 收口探针」→ 页面右下角角标点一下。四项断言全打在 httpbin 回显上（覆写是否真上线只有服务端能作证）。**2026-09-19 真机手测通过**：覆写上线 / 同 host 隔离 / manual 读 3xx / error 拒绝四项全 ✓。
    - **角标是三态**：`✓` 通过 / `✗` 功能失败 / `?` 未判定（httpbin 抖动、响应体为空读不出 header 是否干净；读者隔 500ms 自动重试一次，两次都拿不到回显才记 `?`）。重跑即可；把环境抖动当功能失败会使排查方向出错。
    - **判据是「回显里没有脏头」还是「回显可辨认」**：靠回显下结论的两项（覆写上线、同 host 隔离）必须先确认回显**可辨认**（含 Host/Accept 等真实请求头之一），否则记 `?` —— 空回显 / CDN 兜底页里「没有脏头」不能证明「没被污染」，靠缺席证据判 ✓ 是无效判据（2026-09-19 堵掉）。
 15. **网页浮层受第三方页面的 `frame-src` 约束**：浮层是 content script 往页面注入的 `<iframe>`（指向扩展页 `floatpanel.html`），**它本身是页面 DOM 元素**，所以严格 CSP 的站点（`frame-src 'self'`）会拦掉它 —— content script 创建 DOM 这一步不受页面 CSP 限制，受约束的只有这一层 iframe。三点须记住：

@@ -2,7 +2,7 @@
 // isomorphic-git）模拟 offscreen 上下文——真实环境里它依赖 lightning-fs，非被测靶心。
 // 被测重点是写侧自身的语义：**保存恒成功、保存即注入**（2026-09-20 单文件化：无构建流程，
 // 源码原文进注册态）、守卫校验、提交失败不阻断、启停不产生提交、删除全部（记录批量清 +
-// 仓整目录清一次），以及 zip 导入「尽量导入」语义（2026-09-17 修订：非原则项不淘汰）。
+// 仓整目录清一次），以及 zip 导入「尽量导入」语义（单文件形态：配置由源码 metadata 派生）。
 // 存储分工：源码写 duoling-fs（writeSource + commitSource），状态库存注册态（元数据 + 源码搬运副本）。
 import 'fake-indexeddb/auto'
 import { strToU8, zipSync } from 'fflate'
@@ -27,6 +27,7 @@ import {
 } from './project-write'
 import { readAllProjects, removeProjects } from './state-db'
 import { bytesToBase64 } from './zip-transfer'
+import { defaultConfig } from './types'
 import { commitSource, deleteAllRepos, deleteRepo, readSource, writeSource } from './us-git'
 
 const mockWriteSource = vi.mocked(writeSource)
@@ -64,12 +65,11 @@ describe('createProject', () => {
     const p = await createProject()
     await expect(readAllProjects()).resolves.toHaveLength(1)
     expect(mockWriteSource).toHaveBeenCalledOnce()
-    const [uuid, code, meta] = mockWriteSource.mock.calls[0]
+    const [uuid, code] = mockWriteSource.mock.calls[0]
     expect(uuid).toBe(p.uuid)
     expect(code).toBeTruthy()
-    expect(meta!.name).toBe(p.name)
     expect(mockCommitSource).toHaveBeenCalledOnce()
-    expect(mockCommitSource.mock.calls[0]![2]).toBeUndefined() // 无备注
+    expect(mockCommitSource.mock.calls[0]![1]).toBeUndefined() // 无备注
     // 搬运副本与写入 duoling-fs 的源码同源
     expect(p.source.code).toBe(code)
     // 单文件化后旧多文件字段不再存在
@@ -97,7 +97,7 @@ describe('saveExisting', () => {
     expect(mockWriteSource).toHaveBeenCalledOnce()
     expect(mockWriteSource.mock.calls[0]![1]).toBe('// v2')
     expect(mockCommitSource).toHaveBeenCalledOnce()
-    expect(mockCommitSource.mock.calls[0]![2]).toBe('第一次保存')
+    expect(mockCommitSource.mock.calls[0]![1]).toBe('第一次保存')
   })
 
   it('语法错误不拦保存：坏脚本照常落库（保存即注入语义）', async () => {
@@ -148,7 +148,7 @@ describe('createGeneratedProject', () => {
     expect(p.enabled).toBe(false)
     expect(p.source.code).toBe('console.log("ai")')
     expect(mockCommitSource).toHaveBeenCalledOnce()
-    expect(mockCommitSource.mock.calls[0]![2]).toBe('自动生成的演示脚本')
+    expect(mockCommitSource.mock.calls[0]![1]).toBe('自动生成的演示脚本')
   })
 
   it('守卫：空名 / 空 matches / 非字符串 code 抛错', async () => {
@@ -240,37 +240,30 @@ describe('提交失败策略', () => {
 })
 
 // —— zip 导入（保留原名 / enabled false / 单写方落盘）——
+//
+// 单文件形态：zip 内只有 script.js，配置由源码里的 // ==UserScript== 块派生。
+// makeZipBase64 直接把给定 code（可含 metadata 块）落成 <dir>/script.js。
 
-/** 构造一个 zip 的 base64：scripts 为顶层目录 → project.json + script.js */
-function makeZipBase64(
-  scripts: Array<{
-    dir: string
-    name?: string
-    code?: string
-    matches?: string[]
-    v?: number
-  }>,
-): string {
+/** 构造带 metadata 块的源码（name / matches 派生配置） */
+function withMeta(name: string, code = 'console.log(1)', matches: string[] = []): string {
+  const lines = ['// ==UserScript==', `// @name ${name}`]
+  for (const m of matches) lines.push(`// @match ${m}`)
+  lines.push('// ==/UserScript==')
+  return lines.join('\n') + '\n' + code
+}
+
+/** 构造一个 zip 的 base64：每个脚本一个平级目录 → script.js */
+function makeZipBase64(scripts: Array<{ dir: string; code?: string }>): string {
   const entries: Record<string, Uint8Array> = {}
   for (const s of scripts) {
-    entries[`${s.dir}/project.json`] = strToU8(
-      JSON.stringify({
-        v: s.v ?? 2,
-        name: s.name ?? '脚本',
-        config: { matches: s.matches ?? ['*://*/*'], allFrames: true, runAt: 'document_end' },
-        exportedAt: 1726000000000,
-      }),
-    )
     entries[`${s.dir}/script.js`] = strToU8(s.code ?? 'console.log(1)')
   }
   return bytesToBase64(zipSync(entries))
 }
 
 describe('importScriptsZip', () => {
-  it('单脚本导入：enabled 恒 false / 保留原名 / 源码原文进注册态 / 提交 note「从 zip 导入」', async () => {
-    const report = await importScriptsZip(
-      makeZipBase64([{ dir: 'demo', name: '演示脚本', code: 'console.log(1)' }]),
-    )
+  it('单脚本导入：enabled 恒 false / 保留 @name / 源码原文进注册态（含 metadata 块）/ 提交 note「从 zip 导入」', async () => {
+    const report = await importScriptsZip(makeZipBase64([{ dir: 'demo', code: withMeta('演示脚本') }]))
     expect(report.succeeded).toBe(1)
     expect(report.failed).toBe(0)
     const item = report.results[0]!
@@ -280,30 +273,22 @@ describe('importScriptsZip', () => {
     expect(stored).toBeDefined()
     expect(stored!.enabled).toBe(false)
     expect(stored!.name).toBe('演示脚本')
-    expect(stored!.source.code).toBe('console.log(1)')
+    expect(stored!.source.code).toContain('演示脚本')
     expect(mockWriteSource).toHaveBeenCalledOnce()
     expect(mockCommitSource).toHaveBeenCalledOnce()
-    expect(mockCommitSource.mock.calls[0]![2]).toBe('从 zip 导入')
+    expect(mockCommitSource.mock.calls[0]![1]).toBe('从 zip 导入')
   })
 
   it('重复导入同一内容：仍导入为独立副本，报告带 duplicateOf 提示', async () => {
-    const zip = makeZipBase64([{ dir: 'demo', name: '演示', code: 'console.log(1)' }])
+    const code = withMeta('演示', 'console.log(1)')
+    const zip = makeZipBase64([{ dir: 'demo', code }])
     const first = await importScriptsZip(zip)
     expect(first.results[0]).toMatchObject({ status: 'ok' })
     expect(first.results[0]).not.toHaveProperty('duplicateOf')
     // 指纹去重读既有脚本的源码：mock 返回与导入内容一致的第一份记录
     const firstUuid = (first.results[0] as { uuid: string }).uuid
     mockReadSource.mockImplementation(async (uuid: string) =>
-      uuid === firstUuid
-        ? {
-            meta: {
-              name: '演示',
-              config: { matches: ['*://*/*'], allFrames: true, runAt: 'document_end' },
-              createdAt: 0,
-            },
-            code: 'console.log(1)',
-          }
-        : null,
+      uuid === firstUuid ? { code } : null,
     )
     const second = await importScriptsZip(zip)
     expect(second.succeeded).toBe(1)
@@ -314,38 +299,23 @@ describe('importScriptsZip', () => {
   it('语法错误不淘汰：坏脚本照常导入（保存即注入语义），源码原样落库', async () => {
     const report = await importScriptsZip(
       makeZipBase64([
-        { dir: 'bad', name: '坏脚本', code: 'syntax error here' },
-        { dir: 'good', name: '好脚本' },
+        { dir: 'bad', code: withMeta('坏脚本', 'syntax error here') },
+        { dir: 'good', code: withMeta('好脚本', 'console.log(1)') },
       ]),
     )
     expect(report.succeeded).toBe(2)
     expect(report.failed).toBe(0)
     await expect(readAllProjects()).resolves.toHaveLength(2)
     const stored = await readAllProjects()
-    expect(stored.find((p) => p.name === '坏脚本')!.source.code).toBe('syntax error here')
+    expect(stored.find((p) => p.name === '坏脚本')!.source.code).toContain('syntax error here')
     expect(mockWriteSource).toHaveBeenCalledTimes(2)
     expect(mockCommitSource).toHaveBeenCalledTimes(2)
   })
 
   it('缺 script.js：该条跳过进 failed（原则项），其余照常导入', async () => {
     const entries: Record<string, Uint8Array> = {
-      'empty/project.json': strToU8(
-        JSON.stringify({
-          v: 2,
-          name: '没源码',
-          config: { matches: ['*://*/*'], allFrames: true, runAt: 'document_end' },
-          exportedAt: 0,
-        }),
-      ),
-      'demo/project.json': strToU8(
-        JSON.stringify({
-          v: 2,
-          name: '演示',
-          config: { matches: ['*://*/*'], allFrames: true, runAt: 'document_end' },
-          exportedAt: 0,
-        }),
-      ),
-      'demo/script.js': strToU8('console.log(1)'),
+      'empty/notes.txt': strToU8('not a script'),
+      'demo/script.js': strToU8(withMeta('演示', 'console.log(1)')),
     }
     const report = await importScriptsZip(bytesToBase64(zipSync(entries)))
     expect(report.succeeded).toBe(1)
@@ -355,15 +325,8 @@ describe('importScriptsZip', () => {
     })
   })
 
-  it('name 缺失：目录名兜底，原因随报告 notes 展示', async () => {
+  it('无 @name：目录名兜底，原因随报告 notes 展示', async () => {
     const entries: Record<string, Uint8Array> = {
-      'noname/project.json': strToU8(
-        JSON.stringify({
-          v: 2,
-          config: { matches: ['*://*/*'], allFrames: true, runAt: 'document_end' },
-          exportedAt: 0,
-        }),
-      ),
       'noname/script.js': strToU8('console.log(1)'),
     }
     const report = await importScriptsZip(bytesToBase64(zipSync(entries)))
@@ -374,28 +337,21 @@ describe('importScriptsZip', () => {
     expect(item.notes?.[0]).toContain('目录名')
   })
 
-  it('matches 非法不拦：照常导入并原样落库（报错留给启用时 registerScript）', async () => {
+  it('matches 非法不拦：照常导入并原样落库（坏规则被丢弃并提示，报错留给启用时 registerScript）', async () => {
     const report = await importScriptsZip(
-      makeZipBase64([{ dir: 'bad', name: '规则坏', code: 'x', matches: ['bad-rule'] }]),
+      makeZipBase64([{ dir: 'bad', code: withMeta('规则坏', 'x', ['bad-rule']) }]),
     )
     expect(report.succeeded).toBe(1)
     expect(report.failed).toBe(0)
     const stored = await readAllProjects()
     expect(stored.map((p) => p.name)).toEqual(['规则坏'])
-    expect(stored[0]!.config.matches).toEqual(['bad-rule'])
+    // 非法 @match 被丢弃（非 Chrome 安全 pattern），matches 退回空，不阻断导入
+    expect(stored[0]!.config.matches).toEqual([])
   })
 
   it('未导入的文件（顶层散文件 / 脚本目录内非脚本条目）汇进报告 ignored，不影响成功计数', async () => {
     const entries: Record<string, Uint8Array> = {
-      'demo/project.json': strToU8(
-        JSON.stringify({
-          v: 2,
-          name: '演示',
-          config: { matches: ['*://*/*'], allFrames: true, runAt: 'document_end' },
-          exportedAt: 0,
-        }),
-      ),
-      'demo/script.js': strToU8('console.log(1)'),
+      'demo/script.js': strToU8(withMeta('演示', 'console.log(1)')),
       'demo/data/x.json': strToU8('{}'),
       'loose.txt': strToU8('x'),
     }
@@ -408,5 +364,51 @@ describe('importScriptsZip', () => {
 
   it('非 zip 内容：整体报错（调用方 UI 展示错误）', async () => {
     await expect(importScriptsZip(bytesToBase64(new Uint8Array([1, 2, 3, 4])))).rejects.toThrow()
+  })
+})
+
+describe('metadata 归一化（D2：只在写入口一处解析）', () => {
+  const WITH_META = `// ==UserScript==
+// @name 源码里的名字
+// @match https://example.com/*
+// @run-at document-start
+// ==/UserScript==
+console.log(1)
+`
+
+  it('新建（AI 生成 / 全新脚本）：采用源码声明的 @name / @match / @run-at', async () => {
+    const p = await createGeneratedProject({
+      name: '界面给的名字',
+      config: defaultConfig(['*://*/*']),
+      code: WITH_META,
+      enabled: false,
+    })
+    expect(p.name).toBe('源码里的名字')
+    expect(p.config.matches).toEqual(['https://example.com/*'])
+    expect(p.config.runAt).toBe('document_start')
+  })
+
+  it('编辑器保存：采纳 metadata 的匹配规则，但**不改名**（界面上的名字优先）', async () => {
+    const created = await createGeneratedProject({
+      name: '甲',
+      config: defaultConfig(['*://*/*']),
+      code: 'console.log(1)',
+      enabled: false,
+    })
+    const outcome = await saveExisting(created.uuid, WITH_META, {})
+    expect(outcome.project.name).toBe('甲')
+    expect(outcome.project.config.matches).toEqual(['https://example.com/*'])
+  })
+
+  it('无 metadata 块：配置原样沿用、零提示（无 metadata 是正常形态）', async () => {
+    const created = await createGeneratedProject({
+      name: '乙',
+      config: defaultConfig(['https://a.example.com/*']),
+      code: 'console.log(1)',
+      enabled: false,
+    })
+    const outcome = await saveExisting(created.uuid, 'console.log(2)', {})
+    expect(outcome.project.config.matches).toEqual(['https://a.example.com/*'])
+    expect(outcome.notes).toEqual([])
   })
 })

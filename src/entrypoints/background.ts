@@ -10,14 +10,14 @@
 //     写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
 //   · 源码 —— 唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
 //     SW 读不到 lfs，源码读写一律走 fs:* 命令向 offscreen 取（见 offscreen-fs-commands.ts）。
-// DL.store / DL.tab 值已迁 IndexedDB 库 duoling-usdata；错误日志 / 运行统计 / 运行日志
+// GM 值存储 / GM tab 值已迁 IndexedDB 库 duoling-usdata；错误日志 / 运行统计 / 运行日志
 // （观测数据）已迁 IndexedDB 库 duoling-runtime——两者都 SW 直写、写侧收敛在 store.ts。
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
 import type { ModelProfileState, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 
-// 用户脚本管理器（v2 方案）：引擎 + 存储 + DL 桥 + 类型
+// 用户脚本管理器（v2 方案）：引擎 + 存储 + GM 桥 + 类型
 import {
   configureUserScriptsWorld,
   ensureWorldsConfigured,
@@ -32,6 +32,9 @@ import {
   collectCspWarnings,
   resolveInjectCode,
 } from '@/lib/userscripts/engine'
+// metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
+// 真正的归一化在写入口一处（project-write.saveSource），此处不写回任何东西
+import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
 // 网络录制（dl-recorder）：per-host 门禁 + 录到的记录 + 语料压缩。
 // 三者都归 SW：门禁在 duoling-app、记录在 duoling-netlog，offscreen 与扩展页都不直连。
 import {
@@ -49,7 +52,7 @@ import { initDlBridge } from '@/lib/userscripts/dl-bridge'
 import { initDlPort } from '@/lib/userscripts/dl-port'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listGroups, listProjects } from '@/lib/userscripts/project-store'
-// chrome.storage 侧：DL.store 值、错误日志、运行统计
+// chrome.storage 侧：GM 值、错误日志、运行统计
 import {
   listSummaries,
   withRunStats,
@@ -246,7 +249,9 @@ const handlers: {
     await unregisterScripts([next.uuid]).catch(() => {})
     const registerError = next.enabled ? await registerOrLog(next) : undefined
     return {
-      warnings: collectCspWarnings(resolveInjectCode(next)),
+      // metadata 解析提示（@include 放宽 / 正则被丢弃 / @match 不合法…）与 CSP 警告同一通道到编辑器，
+      // 提示由写侧一处产出（SaveOutcome.notes）——避免 SW 再解析一遍、拿不到当时那个 fallback 而误报
+      warnings: [...collectCspWarnings(resolveInjectCode(next)), ...outcome.notes],
       registerError,
     }
   },
@@ -279,12 +284,16 @@ const handlers: {
     return {
       uuid: project.uuid,
       name: project.name,
-      warnings: collectCspWarnings(resolveInjectCode(project)),
+      warnings: [
+        ...collectCspWarnings(resolveInjectCode(project)),
+        // AI 产物可能自带 metadata 块：SW 手上有当时的 fallback（msg.config），可精确算出提示
+        ...resolveConfigFromSource(resolveInjectCode(project), msg.config).notes,
+      ],
       registerError,
     }
   },
 
-  // 删除：注销 → offscreen 清状态库记录 + git 仓 → 清该脚本的 DL.store 值 + 报错记录。
+  // 删除：注销 → offscreen 清状态库记录 + git 仓 → 清该脚本的 GM 值 + 报错记录。
   // 仓的删除原先只能靠 offscreen 启动对账兜（删完会滞留一阵），现在写侧同在 offscreen，一步清干净。
   'userscript:remove': async (msg): Promise<void> => {
     // 注销失败不能纯静默：状态库删掉后这条 uuid 不再出现在任何对账清单里，
@@ -306,7 +315,7 @@ const handlers: {
   },
 
   // 删除全部用户脚本（「全部删除」按钮）：注销全部 → offscreen 清状态库 + 各仓 → 清各脚本
-  // 的 DL.store 值与报错记录。范围 = 新形态用户脚本；内置件随扩展包分发、不在状态库。
+  // 的 GM 值与报错记录。范围 = 新形态用户脚本；内置件随扩展包分发、不在状态库。
   // uuid 由 SW 直读状态库（不经容器，与 userscript:list 同源），用于注销与清残留。
   'userscript:removeAll': async (): Promise<{ removed: number }> => {
     const uuids = (await listProjects()).map((p) => p.uuid)
@@ -319,7 +328,7 @@ const handlers: {
     try {
       const removed = await writeViaOffscreen<number>({ kind: 'state:removeAll' })
       // 状态库清空后再同步内置并集：此时读库必为空 → MAIN 桩注销。此前整体漏调，
-      // 桩带着旧并集（如 ["*://*/*"]）残留注册，删完脚本页面里 window.DL 仍在
+      // 桩带着旧并集（如 ["*://*/*"]）残留注册，删完脚本页面里 window.GM 仍在
       await refreshBuiltinScripts().catch(() => {})
       for (const uuid of uuids) await clearGMValues(uuid)
       // 报错记录逐 uuid 清（与单删同一条语义：删脚本 = 清该脚本名下的一切）
@@ -452,7 +461,7 @@ const handlers: {
   'sw:buildInfo': async (): Promise<{ time: string; branch: string }> => __BUILD_INFO__,
 }
 
-/** 用户脚本管理器启动：挂载 DL 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用项目 */
+/** 用户脚本管理器启动：挂载 GM 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用项目 */
 async function initUserScripts(): Promise<void> {
   initDlBridge() // DL 后台桥（独立于 world 配置，只需注册一次）
   initDlPort() // DL Port 事件底座（菜单点击 / 存储变更 / 通知点击的下行回推，同上只挂一次）
