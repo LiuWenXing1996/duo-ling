@@ -15,7 +15,7 @@ import {
   History as UiHistory,
   Compass as UiCompass,
   Database as UiDatabase,
-  FlaskConical as UiFlaskConical,
+  BotMessageSquare as UiBotMessageSquare,
   FolderTree as UiFolderTree,
   List as UiList,
   MessagesSquare as UiMessagesSquare,
@@ -144,7 +144,7 @@ onUnmounted(() => {
                 aria-label="AI 界面对话预览"
                 @click="workspaceRef?.openUiTestTab()"
               >
-                <ui-flask-conical class="size-5" />
+                <ui-bot-message-square class="size-5" />
               </button>
             </ui-tooltip-trigger>
             <ui-tooltip-content side="right">AI 界面对话预览</ui-tooltip-content>
