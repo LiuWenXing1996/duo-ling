@@ -16,6 +16,17 @@ export interface ModelStubHit {
   stream: boolean
   /** 最后一条 user 消息的文本（默认回复会回显它） */
   lastUser: string
+  /** 本次请求带上的 messages（断言「工具结果有没有回流」「上下文有没有带上」用） */
+  messages: Array<{ role: string; content?: unknown; tool_calls?: unknown }>
+  /** 本次请求声明的工具名（断言「app 把工具声明发给模型了」用） */
+  toolNames: string[]
+}
+
+/** 一次回复：给文本，或给工具调用（给工具调用时文本可省） */
+export interface StubReply {
+  text?: string
+  /** 要模型发起的工具调用（多步循环靠它驱动：第 1 次 spec、第 2 次 apply…） */
+  toolCalls?: Array<{ name: string; args?: unknown }>
 }
 
 export interface ModelStub {
@@ -26,8 +37,14 @@ export interface ModelStub {
 }
 
 export interface ModelStubOptions {
-  /** 自定义回复文本；给了就完全取代默认的「stub 回复：<最后一条用户消息>」 */
+  /** 默认回复文本（不给 plan 时用）；默认回显最后一条用户消息 */
   reply?: (lastUser: string, hit: ModelStubHit) => string
+  /**
+   * 按「第几次请求」脚本化回复 —— 多步工具循环要靠它：
+   * 第 1 次请求（只有用户消息）发 script_spec、第 2 次（带回 spec 结果）发 script_apply、第 3 次收尾。
+   * 返回 undefined 时退回 `reply` 的文本。
+   */
+  plan?: (hit: ModelStubHit, index: number) => StubReply | undefined
   /** 模型 id（回包里的 model 字段，默认 stub-model） */
   model?: string
 }
@@ -36,6 +53,16 @@ const CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-headers': '*',
   'access-control-allow-methods': 'POST, OPTIONS',
+}
+
+function flattenText(v: unknown): string {
+  if (typeof v === 'string') return v
+  if (Array.isArray(v)) {
+    return v
+      .map((p) => (p && typeof p === 'object' && 'text' in p ? String((p as { text?: unknown }).text ?? '') : ''))
+      .join('')
+  }
+  return ''
 }
 
 /**
@@ -60,18 +87,32 @@ export async function startModelStub(opts: ModelStubOptions = {}): Promise<{
     let raw = ''
     req.on('data', (c) => (raw += c))
     req.on('end', () => {
-      let body: { stream?: boolean; messages?: Array<{ role: string; content: string }> } = {}
+      let body: {
+        stream?: boolean
+        messages?: Array<{ role: string; content?: unknown; tool_calls?: unknown }>
+        tools?: Array<{ function?: { name?: string } }>
+      } = {}
       try {
         body = JSON.parse(raw || '{}')
       } catch {
         /* 空体按空对象处理：仍然回一句，避免调用方干等 */
       }
-      const lastUser = [...(body.messages ?? [])].reverse().find((m) => m.role === 'user')?.content ?? ''
-      const hit: ModelStubHit = { url: req.url ?? '', stream: !!body.stream, lastUser }
+      const messages = body.messages ?? []
+      const lastUserRaw = [...messages].reverse().find((m) => m.role === 'user')?.content
+      const hit: ModelStubHit = {
+        url: req.url ?? '',
+        stream: !!body.stream,
+        lastUser: flattenText(lastUserRaw),
+        messages,
+        toolNames: (body.tools ?? []).map((t) => t.function?.name ?? '').filter(Boolean),
+      }
       hits.push(hit)
-      const text = replyText(lastUser)
+      const planned = opts.plan?.(hit, hits.length - 1)
+      const text = planned?.text ?? replyText(hit.lastUser)
+      const toolCalls = planned?.toolCalls ?? []
 
       if (!body.stream) {
+        // 非流式只服务 testChat（它只验 HTTP 通不通），不带工具调用
         res.writeHead(200, { 'content-type': 'application/json', ...CORS })
         res.end(
           JSON.stringify({
@@ -86,7 +127,6 @@ export async function startModelStub(opts: ModelStubOptions = {}): Promise<{
         return
       }
 
-      // 流式：分两片吐字 + finish + [DONE]（AI SDK 认这个形状）
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', ...CORS })
       const chunk = (delta: Record<string, unknown>, finish: string | null) =>
         'data: ' +
@@ -98,6 +138,33 @@ export async function startModelStub(opts: ModelStubOptions = {}): Promise<{
           choices: [{ index: 0, delta, finish_reason: finish }],
         }) +
         '\n\n'
+
+      if (toolCalls.length) {
+        // OpenAI 形状的工具调用：先给 id/name/type，再逐片补 arguments，最后 finish_reason=tool_calls
+        res.write(
+          chunk(
+            {
+              role: 'assistant',
+              tool_calls: toolCalls.map((tc, i) => ({
+                index: i,
+                id: `call_${hits.length}_${i}`,
+                type: 'function',
+                function: { name: tc.name, arguments: '' },
+              })),
+            },
+            null,
+          ),
+        )
+        toolCalls.forEach((tc, i) => {
+          res.write(chunk({ tool_calls: [{ index: i, function: { arguments: JSON.stringify(tc.args ?? {}) } }] }, null))
+        })
+        res.write(chunk({}, 'tool_calls'))
+        res.write('data: [DONE]\n\n')
+        res.end()
+        return
+      }
+
+      // 流式文本：分两片吐字 + finish + [DONE]（AI SDK 认这个形状）
       res.write(chunk({ role: 'assistant', content: text.slice(0, 5) }, null))
       res.write(chunk({ content: text.slice(5) }, null))
       res.write(chunk({}, 'stop'))
