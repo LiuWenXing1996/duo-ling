@@ -15,6 +15,7 @@
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
+import { FLOAT_PANEL_OPEN_PORT } from '@/shared/extension-ipc'
 import type { ModelProfileState, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 
 // 用户脚本管理器（v2 方案）：引擎 + 存储 + GM 桥 + 类型
@@ -521,10 +522,13 @@ async function initUserScripts(): Promise<void> {
 declare const __BUILD_INFO__: { time: string; branch: string }
 
 // —— 生成完成徽章 ——
-// 对话界面存活感知：浮层展开后连一条端口长连接（ChatApp 挂载时 connect），断开 = 浮层收了 / 页面走了。
-// 任务收尾推送 chat:finished 到达时：面板开着 → 不做任何事；面板关着 → 图标角标亮 '1'。
-// 角标是「你不在时有事发生了」的信号：不计数、失败同亮同色、面板一开即清零。
-const panelPorts = new Set<chrome.runtime.Port>()
+// 「用户此刻在看对话界面吗」的判据 = **浮层是否展开**：content script 展开时连上
+// FLOAT_PANEL_OPEN_PORT、收起时断开（页面卸载 / 导航则端口自然断）。**不能拿「面板文档存活」
+// 判**：收起草稿浮层只是 `display:none`，iframe 与面板文档都还在，端口永不断开 → 角标永不亮
+// （2026-09-21 无头实测：收起后推 chat:finished，角标纹丝不动；把 iframe 真摘掉才亮）。
+// 任务收尾推送 chat:finished 到达时：浮层展开着 → 不做任何事；没展开 → 图标角标亮 '1'。
+// 角标是「你不在时有事发生了」的信号：不计数、失败同亮同色，浮层一展开即清零。
+const openFloatPorts = new Set<chrome.runtime.Port>()
 
 function setFinishedBadge(): void {
   chrome.action.setBadgeBackgroundColor({ color: '#d93025' }).catch(() => {})
@@ -537,7 +541,7 @@ function clearFinishedBadge(): void {
 
 /** chat:finished 观察（offscreen 推送，chat: 前缀按约定不进命令路由，这里只旁听） */
 function handleChatFinishedPush(ok: boolean): void {
-  if (panelPorts.size === 0) setFinishedBadge()
+  if (openFloatPorts.size === 0) setFinishedBadge()
   void ok
 }
 
@@ -560,16 +564,17 @@ function mountProposal2Listeners(): void {
     void unbindTab(tabId).catch(() => {})
   })
 
-  // 面板存活端口 + 徽章清零
+  // 浮层展开态端口：连上 = 有浮层正展开（顺手清角标 ——「用户回来了」），断开 = 收起 / 页面走了。
+  // 判据用**展开态**而不是「面板文档还活着」：收起只给面板加 display:none，iframe 与文档都还在
+  // （草稿 / 滚动位置刻意留着），那条端口永不断开，角标就永不亮（2026-09-21 无头实测确认）。
   chrome.runtime.onConnect.addListener((port) => {
-    if (port.name !== 'duoling:panel') return
-    panelPorts.add(port)
-    clearFinishedBadge() // 用户回来了：信号完成使命
-    port.onDisconnect.addListener(() => panelPorts.delete(port))
+    if (port.name !== FLOAT_PANEL_OPEN_PORT) return
+    openFloatPorts.add(port)
+    clearFinishedBadge()
+    port.onDisconnect.addListener(() => openFloatPorts.delete(port))
   })
 
-  // 页面脚本监控端口（复用 'duoling:panel' 连接：上行快照请求 + 推送寻址）
-  // 徽章清零归上面那条 onConnect —— 浮层一连上端口就算「用户回来了」。
+  // 页面脚本监控端口（另一条连接 'duoling:panel'：上行快照请求 + 推送寻址）
   initPageMonitorPorts()
 }
 

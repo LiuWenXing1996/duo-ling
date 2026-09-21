@@ -25,7 +25,7 @@ import type {
 import type { UserScriptErrorRecord } from './types'
 import { listUserScriptErrors } from './store'
 
-/** 面板端口名（复用面板存活端口：ChatApp 建连时用同一个名字，SW 侧两个监听者各取所需） */
+/** 面板端口名：对话界面（浮层面板文档）里的脚本监控通道 —— 上行快照请求 + 下行推送寻址 */
 const PANEL_PORT_NAME = 'duoling:panel'
 
 /** 快照错误行的 message 截断（面板行内展示） */
@@ -38,7 +38,11 @@ const SNAPSHOT_ERROR_TRUNC = 200
  */
 export const pageRunsByTab = new Map<number, Map<string, PageRunItem>>()
 
-/** 已登记的对话界面端口（寻址表：浮层展开着才有；断开即摘）。与 background 的 panelPorts 独立——那边只管徽章。 */
+/**
+ * 已登记的对话界面端口（寻址表：面板文档活着才有；断开即摘）。
+ * 注意它**不代表「浮层展开着」**——收起浮层只是 display:none，面板文档照活着。
+ * 「展开态」另有一条端口（`FLOAT_PANEL_OPEN_PORT`，见 background 的角标判定）。
+ */
 const monitorPorts = new Set<chrome.runtime.Port>()
 
 /** 推一条给所有打开的对话界面；端口已断（SW 重启竞态）就静默摘除 */

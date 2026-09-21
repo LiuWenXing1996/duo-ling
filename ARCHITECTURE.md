@@ -36,6 +36,8 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
   - 被挡下时不只拒绝，还要**告诉用户去关谁**（`SessionHistoryTab.vue`）：单条删除给文案（带那个标签页的站点名，`chrome.tabs.get` 取 url）+ 一颗「去那个标签页」按钮；「删除全部」则在弹框里**逐条列出**「会话标题 · 站点」，每条各配跳转按钮。跳转一律先 `windows.update({focused})` 再 `tabs.update({active})`（跨窗口时只 active 不会把窗口翻上来），且**跳完不收起弹框**（多条场景要连着关好几个）。
   - **弹框形态按「哪种删除被挡」分（`blocked.kind`），不按目标条数分**：按条数分会出岔 —— 「删除全部」只碰到 1 个占用时，文案说「以下 1 条」而列表按「多于 1 条才显示」的规则不出现，成了指向空气的「以下」，按钮措辞也串成单条那套。
 
+- **生成完成徽章**：offscreen 收尾时推 `chat:finished`（`OffscreenPush`），SW 旁听后**只在没有任何浮层处于「展开态」时**点亮工具栏角标（不计数、失败同亮同色；浮层一展开即清零）。判据是 content script 在展开时连、收起时断的 `FLOAT_PANEL_OPEN_PORT` 端口 —— **不能拿「面板文档还活着没有」判**：收起浮层只是给它加 `display:none`（iframe 与面板文档刻意留着，草稿 / 滚动位置不丢），那条端口永不断开，角标就永不亮（2026-09-21 无头实测确认；页面卸载 / 导航则端口自然断，天然等于「收起」）。
+
 - **流式静默超时（防限流）**：`runLoop` 泵流期间挂 `createIdleGuard`（`src/lib/offscreen-chat/idle-guard.ts`），两次 chunk 间隔超 `STREAM_IDLE_TIMEOUT_MS`（默认 60s，可在模型高级配置里按 provider 调整 `streamIdleTimeoutSec` 秒）即判定 provider 卡死（有连接但不吐 token），主动 `abort` 并推 error 块「请求超时…已自动中止」。避免静默卡死的请求长期占用网关连接/并发配额、累积触发限流；用户手动停止走 `abortChat`，与此计时无关。模型配置探活 `testChat` 另有 15s 超时。
 - **对话流内的卡片走 `data-*` part**（`data-generation` 生成卡片、`data-net-capture` 录制同意卡）。两条硬约束：① 历史消息送模型前 `stripDataParts` 会剥掉全部 `data-*`（UI 专用，不进上下文）；② 卡片若由**工具执行中途**推送（同意卡的 `requestConsent` 回调即此例），必须在 `runLoop` 里收集（`midStreamParts`）并在收尾插进落盘序列——`allChunks` 只收 `streamText` 的输出流，中途手工推的 part 不在其中，不收集就只在流里闪一下、重开面板即消失（而卡片往往是用户唯一的操作入口）。
 

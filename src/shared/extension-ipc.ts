@@ -309,6 +309,22 @@ export type DataChangedPush = {
 /** 保存链的瞬态阶段（前端列表据此显示「保存中」转圈；保存即注入，无构建阶段） */
 export type BuildPhase = 'saving'
 
+// —— 端口名约定（跨上下文长连接）——
+// 'duoling:panel'（定义在 lib/userscripts/page-monitor.ts）= 对话界面文档 ↔ SW 的监控通道
+// （岛推送寻址 + 快照请求），页面脚本监控在用。
+
+/**
+ * 浮层「**展开态**」端口名：content script 在浮层展开时连上、收起时断开。
+ *
+ * 为什么单独要一条：`duoling:panel` 那条是**面板文档的存活信号**，而收起草稿浮层只是给它加
+ * `display:none`（iframe 与面板文档都还在 —— 这是刻意的：草稿、滚动位置、拾取 chip 都留在
+ * 原位，重开不必重载），端口根本不会断。于是「面板开着没」若拿文档存活来判就**恒为真**，
+ * 生成完成徽章（chat:finished 到达时若无人查看才点亮）永不亮。
+ * 展开态只有 content script 知道（FAB 开关在它手里），故由它开一条短寿命端口表达；
+ * 页面卸载 / 导航时端口自动断开，天然等于「浮层收起」。
+ */
+export const FLOAT_PANEL_OPEN_PORT = 'duoling:panel-open'
+
 // —— 页面脚本监控（对话界面 · 运行时口径）——
 // 信号源：GM 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。
 // 浮层认定**自己所属的标签页**（见 lib/owning-tab.ts —— 不跟随 active tab），
