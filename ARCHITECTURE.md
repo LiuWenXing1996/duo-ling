@@ -3,7 +3,7 @@
 > **本文件是运行时架构的唯一登记处**：载体与运行时、对话链路、脚本注入、页面上下文、存储分库、统一保存、用户脚本版本管理、数据广播、构建信息注入。
 > 改这些实现前读它，改完就地更新。
 >
-> 相关：协作约定与红线见 [AGENTS.md](AGENTS.md)；上手与手测见 [README.md](README.md)；扩展**自身**版本号见 [VERSIONING.md](VERSIONING.md)。
+> 相关：协作约定与红线见 [AGENTS.md](AGENTS.md)；工程介绍与目录结构见 [README.md](README.md)；扩展**自身**版本号见 [VERSIONING.md](VERSIONING.md)。
 
 ## 形态
 
