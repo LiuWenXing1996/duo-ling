@@ -63,7 +63,10 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 
 ## 覆盖盲区
 
-**跨层接线漏掉时，typecheck 与分层单测都不报**（`noUnusedLocals` 已开，但它只抓「整个 import 从未被使用」，单测又只覆盖各层函数自身）—— 详见 [README.md](../../../README.md) 坑 11。
+**跨层接线漏掉时，typecheck 与分层单测都不报**：跨层接线（如 background handlers 组装 `store` / `project-store` 的函数）漏调时，只要那个 import 在别处仍被用到，`vue-tsc` 就不会报（`noUnusedLocals` 已开，但它只抓「整个 import 从未被使用」这一种），单测又只覆盖各层函数自身。运行统计就曾因此静默漏接 `withRunStats`，靠手测才暴露。
+
+- **规避**：新增跨层链路时自查「写侧函数是否有对应读侧消费」，条件允许时手测走一遍端到端。
+- 反过来，删组件里某块模板后剩的**未使用 import** 会报 `TS6133`（`noUnusedLocals` 生效）—— 那时不必怀疑类型推断，回去删 import。
 
 ## 探针
 
