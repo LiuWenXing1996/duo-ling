@@ -45,10 +45,10 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 `chrome.userScripts` + USER_SCRIPT 世界 + **GM 包装层**（`gm-wrapper.ts`，注入体）桥接（`src/lib/userscripts/`）。
 
-标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`）；能力表 `gm-api-catalog.ts` 一张生成速查页与 `.d.ts` 两形态（53 条，双防漂移：类型层 `satisfies` + 源码反射单测）。内部仍走 `dl-bridge.ts` 的 `__dl` 信封协议（协议稳定、与 DL 时代一致）。
+标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`）；能力表 `gm-api-catalog.ts` 一张生成速查页与 `.d.ts` 两形态（50 条，双防漂移：类型层 `satisfies` + 源码反射单测）。内部仍走 `dl-bridge.ts` 的 `__dl` 信封协议（协议稳定、与 DL 时代一致）。
 
 - **同步值快照**：注册时 SW 把 `duoling-usdata` 全量值快照嵌入注入体，`GM_getValue` / `GM_listValues` 纯内存读；写后 debounce `userScripts.update()` 刷新（阈值参照 VM `FLUSH_DELAY=100`）。`GM.getValue` 走实时桥读（永远新鲜）。
-- **只读脚本的下行通道**：读写值 / 订阅变更的脚本经 `store.watchAll` 常驻 Port 接收变更（与 `url.watch` 同构）；connect 成功后主动全量校准一次，覆盖 Port 建立前的窗口。
+- **只读脚本的下行通道**：读写值 / 订阅变更的脚本经 `store.watchAll` 常驻 Port 接收变更；connect 成功后主动全量校准一次，覆盖 Port 建立前的窗口。**两条订阅的退订是不对称的，这是刻意的**：`url.watch` 配 `url.unwatch`（脚本摘完 `onurlchange` / `urlchange` 监听即退订，并复位注册重放位 —— 不复位则 Port 重连会把已无人要的订阅重新挂上）；`store.watchAll` **不配退订**，因为「读过值」本身就意味着要一直收（退订会让同步读退回陈旧，是缺陷不是能力），它的清理只随 Port 断开发生。
 - **`@grant` 精确注入**：`@grant none` / 无 metadata = 全量注入；声明具体 grant 才裁剪。`unsafeWindow` 降级为隔离 world 的 `window` + `console.warn`；`window.onurlchange` / `GM.page.*` / `GM_info` 恒注入（不受 grant 限制）。
 - **cookie 域名门**（红线索引见 [AGENTS.md](AGENTS.md)「硬性底线」「cookie 能力」）：入口为 `GM_cookie.list/set/delete`（原 `DL.cookie`），门仍在 SW 侧、只比 scheme + host，`set` 仍禁 domain / path 覆写。
 - **GM_xmlhttpRequest 的 forbidden header 覆写**（Cookie / Referer / UA 等）与 `redirect:'manual'` 走 DNR session 规则按请求挂/撤 + 观察型 webRequest（`dl-fetch-priv.ts`，2026-09-19 经评审批准；权限 `declarativeNetRequestWithHostAccess` + `webRequest` 均不新增用户可见提示）。

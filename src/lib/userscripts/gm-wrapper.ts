@@ -812,6 +812,16 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
 
   // —— window.onurlchange（TM 形态）：属性赋值 + addEventListener('urlchange') 两种都给。
   //    监听器拦在本地、不派发真实事件（派发会经共享的 window 事件目标泄漏给页面）。——
+  /**
+   * 退订：两种形态（属性赋值 / 事件监听）**都空了**才告诉后台别再推，并复位意图位。
+   * 复位的意义不只是省几帧：意图位参与 Port 重连后的注册重放（见 __gmConnect 的 rreqs），
+   * 不复位就等于**注销不掉** —— 每次重连都会把已无人要的订阅重新挂上。
+   */
+  function __gmReleaseUrlWatchIfIdle() {
+    if (__gmUrlChangeHandler || __gmUrlChangeHandlers.length || !__gmActiveUrlWatch) return
+    __gmActiveUrlWatch = false
+    __gmRegSend({ c: 'url.unwatch', connId: __gmConnId }).catch(function () {})
+  }
   try {
     Object.defineProperty(window, 'onurlchange', {
       configurable: true,
@@ -819,6 +829,7 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
       set: function (fn) {
         __gmUrlChangeHandler = typeof fn === 'function' ? fn : null
         if (__gmUrlChangeHandler) { __gmActiveUrlWatch = true; __gmEnsureChannel() ; __gmRegSend({ c: 'url.watch', connId: __gmConnId }).catch(function () {}) }
+        else __gmReleaseUrlWatchIfIdle()
       }
     })
   } catch (e) {}
@@ -838,6 +849,7 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
     if (type === 'urlchange') {
       var i = __gmUrlChangeHandlers.indexOf(fn)
       if (i >= 0) __gmUrlChangeHandlers.splice(i, 1)
+      __gmReleaseUrlWatchIfIdle()
       return
     }
     return __gmOrigRemoveEventListener.call(window, type, fn, opts)

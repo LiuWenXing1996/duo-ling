@@ -29,7 +29,6 @@ import {
   attachScriptWatch,
   detachScriptWatch,
   attachValueWatch,
-  detachValueWatch,
   mintNotification,
   attachUrlWatch,
   detachUrlWatch,
@@ -580,16 +579,15 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
     case 'store.unwatch':
       detachScriptWatch(uuid, req.connId, req.key)
       return undefined
-    // 全量值订阅：只读值的脚本从不做键级订阅，靠这条通道收跨标签页变更
+    // 全量值订阅：只读值的脚本从不做键级订阅，靠这条通道收跨标签页变更。
+    // **只有订阅、没有退订**：「读过值即常驻订阅」这个前提决定了退订会让同步读退回陈旧，
+    // 故契约里没有对应的 unwatchAll 命令（清理只发生在 Port 断开时的 removePort）。
     case 'store.watchAll': {
       if (!attachValueWatch(uuid, req.connId)) {
         throw new ApiError('INTERNAL', 'GM Port 未就绪，全量订阅未生效（请重试）')
       }
       return undefined
     }
-    case 'store.unwatchAll':
-      detachValueWatch(uuid, req.connId)
-      return undefined
     default: {
       // 穷尽性检查：ApiRequest 加新命令时这里会编译报错提醒补 dispatch
       const unreachable: never = req
