@@ -51,6 +51,8 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 | 展示侧：工作台面板 | `gm-api-catalog.ts` | `gm-api-catalog.test.ts`（反射装配块 ↔ 目录双向） |
 | 真机侧：手测矩阵 | `uscript-samples/gm-matrix/script.js` 顶部的 `@covers` 登记表 | `gm-api-coverage.test.ts`（目录 ↔ 登记表双向）；同一条矩阵另由 `e2e/gm-matrix.spec.ts` 在无头 CI 上自动跑（读同一份源码，人工两项用 Playwright 代做） |
 
+**要验「需要 AI 回一句」的项**（会话归属 / 生成结果 / 修订…）：端测里用 `e2e/model-stub.ts` 的本地假模型服务顶替真模型 —— 经 `window.api.model.save/ setActive` 指到它，`chat:start` 即可跑完且回复内容由测试写死（见 `e2e/chat-stub.spec.ts`）。CI 里没有也不该有真 key。
+
 新增一条 API 的完整动作：① `ApiRequest` 加一项 + `API_COMMANDS` 加一行（类型层盯着这里，忘加就编译红）；
 ② `gm-wrapper.ts` 挂成员并发命令；③ `gm-api-catalog.ts` 加条目（标题 / 签名 / 说明 / 返回）；
 ④ 矩阵探针加一条用例 + `@covers` 认领一行。四处齐了 `npm run test` 才绿。
