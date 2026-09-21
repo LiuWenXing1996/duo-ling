@@ -1,5 +1,8 @@
 <!doctype html>
-<html lang="zh-CN">
+<!-- html 上挂 .dl-popup：本载体的窗口尺寸由内容决定，必须排除 main.css「扩展载体适配」
+     里 html/body/#app { height: 100% } 那条 —— 铺满视口会把窗口高度焊在最大值上，
+     内容折叠后缩不回去（详见该段注释）。 -->
+<html lang="zh-CN" class="dl-popup">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -10,6 +13,9 @@
       manifest 的 action.default_popup，无需在 wxt.config.ts 手写。
       与 floatpanel.html 的差异：popup 尺寸由内容决定（不是整页浮层），
       故 #app 只固定宽度、不设 height:100%，首帧加载态也用固定高度容器占位。
+      ⚠️ 此处不写 height 还不够 —— main.css「扩展载体适配」会给 html/body/#app 兜底设
+      height:100%，那会让 popup 高度只增不减（展开过就缩不回去）；故 <html> 挂 .dl-popup，
+      由那条规则自己排除本载体。改动本文件的尺寸相关样式时别把这条约束弄丢。
       首帧底色用 CSS 系统色 Canvas（自动跟随系统深浅色）；转圈只能纯 CSS 画 ——
       两条理由与 floatpanel.html 相同，见该文件注释与 README「关键坑与规避」坑 12。
     -->
