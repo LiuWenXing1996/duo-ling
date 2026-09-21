@@ -16,8 +16,8 @@
 // （@grant 裁剪本身另有用例覆盖，见 gm-wrapper.test.ts 的 resolveGmExposure）。
 //
 // 用法：`npm run pack:uscripts` → 工作台「脚本列表」导入 → 启用 → 打开任意 http(s) 页面
-//       → 点右下角角标跑全部。**跑的时候要盯着面板顶部**：轮到需要动手的用例会出现
-//       `→ …` 提示，照着做即可（错过就是「?」，重跑一遍即可）。
+//       → 点面板上的「跑全部」。**跑的时候要盯着面板**：轮到需要动手的用例会出现
+//       `→ …` 提示，照着做即可（错过就是「?」，重跑一遍即可）。跑完点「复制结果」整段贴回。
 //
 // 三项**必须你动手**才判得准（其余全自动）：
 //   · GM.page.listen  —— 点一下页面任意处（触发被中继的真事件）
@@ -85,6 +85,34 @@
   function fail(d) { return mark(false, d) }
   function unknown(d) { return mark('?', d) }
 
+  /** 面板内的三个节点（ensurePanel 建一次，render 只改文本） */
+  var statusEl = null
+  var hintEl = null
+  var outEl = null
+
+  var BTN_STYLE =
+    'font:12px ui-monospace,monospace;padding:2px 8px;margin-right:6px;border-radius:4px;' +
+    'border:1px solid #555;background:#222;color:#7ee787;cursor:pointer'
+
+  function panelButton(label, act) {
+    var b = document.createElement('button')
+    b.textContent = label
+    b.style.cssText = BTN_STYLE
+    b.addEventListener('click', function () {
+      // 刻意不 stopPropagation：这一下也算一次真实页面点击（GM.page.listen 那项在听 body）
+      if (act === 'run') {
+        if (!running) runAll()
+        return
+      }
+      copyResult()
+    })
+    return b
+  }
+
+  /**
+   * 面板。**点击不再绑在整个面板上** —— 那样想选中文字复制就会误触发重跑（2026-09-21 真机反馈）。
+   * 现在只有两个显式按钮：跑全部 / 复制结果。
+   */
   function ensurePanel() {
     var el = document.getElementById(ID)
     if (el) return el
@@ -93,10 +121,20 @@
     el.style.cssText =
       'position:fixed;right:12px;bottom:12px;z-index:2147483647;padding:8px 10px;' +
       'border-radius:6px;background:#111;color:#ddd;font:12px/1.55 ui-monospace,SFMono-Regular,monospace;' +
-      'cursor:pointer;max-width:660px;max-height:70vh;overflow:auto;white-space:pre-wrap'
-    el.addEventListener('click', function () {
-      if (!running) runAll()
-    })
+      'max-width:660px;max-height:70vh;overflow:auto'
+    var bar = document.createElement('div')
+    bar.appendChild(panelButton('跑全部', 'run'))
+    bar.appendChild(panelButton('复制结果', 'copy'))
+    el.appendChild(bar)
+    statusEl = document.createElement('div')
+    statusEl.style.cssText = 'margin:6px 0 2px;color:#888'
+    el.appendChild(statusEl)
+    hintEl = document.createElement('div')
+    hintEl.style.cssText = 'margin-bottom:4px;color:#e3b341'
+    el.appendChild(hintEl)
+    outEl = document.createElement('div')
+    outEl.style.cssText = 'white-space:pre-wrap;user-select:text'
+    el.appendChild(outEl)
     ;(document.body || document.documentElement).appendChild(el)
     return el
   }
@@ -104,13 +142,41 @@
   /** 跑批期间显示的人工提示（需要用户动手的用例设它，跑完清掉） */
   var currentHint = ''
 
+  /** 短暂替换状态行（复制结果后的反馈），1.5s 后还原 */
+  function flash(text) {
+    var prev = statusEl.textContent
+    statusEl.textContent = text
+    setTimeout(function () { statusEl.textContent = prev }, 1500)
+  }
+
+  /** 复制矩阵文本到剪贴板：优先走 GM_setClipboard（本包自己就在验它），落回浏览器 API */
+  async function copyResult() {
+    var text = matrixText()
+    if (!text) {
+      flash('还没有结果可复制')
+      return
+    }
+    try {
+      if (typeof GM !== 'undefined' && GM && typeof GM.setClipboard === 'function') {
+        await GM.setClipboard(text)
+        flash('已复制 ✓')
+        return
+      }
+    } catch (e) { /* 落回下面 */ }
+    try {
+      await navigator.clipboard.writeText(text)
+      flash('已复制 ✓')
+    } catch (e) {
+      flash('复制失败，请手动选中结果区文本')
+    }
+  }
+
   function render(head) {
     var el = ensurePanel()
     var ok = 0
     var bad = 0
     var q = 0
-    var lines = [head || (running ? 'GM 可用性矩阵 · 运行中…' : 'GM 可用性矩阵 · 点击运行')]
-    if (running && currentHint) lines.push('→ ' + currentHint)
+    var lines = []
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i]
       if (r.mark === '✓') ok++
@@ -120,10 +186,12 @@
     }
     if (rows.length && !running) {
       lines.push('—— ✓' + ok + ' ✗' + bad + ' ?' + q + ' / 共 ' + rows.length)
-      lines.push('（明细已同步 console.log，可整段复制回帖）')
+      lines.push('（点「复制结果」拿到可整段回帖的文本）')
     }
-    el.textContent = lines.join('\n')
-    el.style.color = bad ? '#ff7b72' : running ? '#e3b341' : '#7ee787'
+    statusEl.textContent = head || (running ? '运行中…' : '就绪')
+    hintEl.textContent = running && currentHint ? '→ ' + currentHint : ''
+    outEl.textContent = lines.join('\n')
+    outEl.style.color = bad ? '#ff7b72' : running ? '#e3b341' : '#7ee787'
   }
 
   function push(group, name, res) {
@@ -694,7 +762,7 @@
     }
     // 存一个 tab 值：GM.focusTab 用例需要从 getTabs 的键里取 tabId（顺带覆盖 tab 存储）
     try { GM.saveTab({ probe: 'boot' }) } catch (e) { /* 未连接时会被忽略 */ }
-    render('GM 可用性矩阵 · 点击运行（' + CASES.length + ' 项，约 10s）')
+    render('就绪 · 点「跑全部」开始（' + CASES.length + ' 项，约 30–60s）')
   }
 
   if (document.readyState === 'loading') {
