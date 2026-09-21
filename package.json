@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "verify:skills": "node scripts/verify-skills.mjs",
-    "check:inbox": "python3 scripts/check-inbox.py",
+    "check:todo": "python3 scripts/check-todo.py",
     "pack:uscripts": "node scripts/pack-uscripts.mjs",
     "release": "node scripts/release.mjs"
   },
