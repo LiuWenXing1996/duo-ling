@@ -5,14 +5,14 @@
 //   · 速查页（gm-api-catalog）的防漂移单测要从**源码反射**出真实挂载的键集合，
 //     反射锚点落在本文件比落在 engine 的注册链路里稳（engine 会 import IDB / chrome API）。
 //
-// 设计要点（见 docs/gm-api-migration.md）：
-//   · **D1 同步读**：`GM_getValue` / `GM_listValues` 必须同步（油猴语义），故注册时把该脚本的
+// 设计要点：
+//   · **同步读**：`GM_getValue` / `GM_listValues` 必须同步（油猴语义），故注册时把该脚本的
 //     全量值作为**快照**嵌进注入体（`GM_VALUES`），同步读走内存；写则「先更本地缓存、再异步过桥」
 //     （对齐 Violentmonkey `dumpValue()`：本地先落、`UpdateValue` 后发）。
-//   · **D1-b 常驻通道**：只读值的脚本原本从不 connect Port（`store.get/set` 是一次性 sendMessage），
+//   · **常驻通道**：只读值的脚本原本从不 connect Port（`store.get/set` 是一次性 sendMessage），
 //     于是别的标签页改了值它永远收不到 → 同步快照会**长周期陈旧**。故「读过值」也触发 connect，
 //     并补 `store.watchAll`（Port 级全量订阅）与 connect 后的**一次全量校准**（覆盖 Port 就绪前的窗口）。
-//   · **D4 `@grant` 裁剪**：声明了 grant 就只注入声明的成员；`@grant none` / 无 metadata → 全量注入
+//   · **`@grant` 裁剪**：声明了 grant 就只注入声明的成员；`@grant none` / 无 metadata → 全量注入
 //     （本扩展无页面上下文，一点不给反而会让读 `GM_info` 判环境的脚本当场崩）。
 //   · **降级项**（速查页与 spec 必须标注）：`unsafeWindow` 是隔离世界的 window；`GM_xmlhttpRequest`
 //     无 `onprogress`；`GM_cookie` 不收 `domain` / `path`（域名门）。
@@ -77,7 +77,7 @@ export const GM_ALL_NS: string[] = [
 /**
  * 按 `@grant` 算出「注入哪些成员」。
  *
- * 规则（D4）：
+ * 规则：
  *   · 未声明 / 空 / 含 `none` → **全量注入**；
  *   · 否则只注入声明的能力对应的成员 + 恒注入集（`GM_info` / `unsafeWindow` / 本扩展成员）。
  *     未知的 grant 名（本扩展未实现的 API）静默忽略 —— 脚本用了会 `ReferenceError`，
@@ -339,7 +339,7 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
   function __gmListSync() { return Object.keys(GM_VALUES) }
 
   /**
-   * 常驻通道（D1-b）：**读过值**就要把 Port 建起来，否则别的标签页写的新值永远到不了本实例，
+   * 常驻通道：**读过值**就要把 Port 建起来，否则别的标签页写的新值永远到不了本实例，
    * 同步快照会整个页面生命周期陈旧。建立后补一次全量校准（覆盖 Port 就绪前的窗口）。
    */
   var __gmChannelReady = null
@@ -793,7 +793,7 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
   GM.page = __gmPageApi
   window.GM = GM
 
-  // —— unsafeWindow（**降级别名**，D4）：本扩展无页面上下文，返回隔离世界的 window。
+  // —— unsafeWindow（**降级别名**）：本扩展无页面上下文，返回隔离世界的 window。
   //    给别名而非留空，是因为 ReferenceError 会让整个脚本当场停摆；降级至少让只用 DOM 的脚本跑通。
   //    （注意：本文件是 TS 模板字符串，注入源码里**不能出现反引号**，否则会提前闭合模板。）
   var __gmUnsafeWarned = false

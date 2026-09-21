@@ -1,5 +1,5 @@
 // gm-wrapper 单测：① 注入源码**必须能解析**（它是字符串，语法错一次就静默全废）；
-// ② `@grant` 裁剪规则（D4）按预期放行 / 关闭成员。
+// ② `@grant` 裁剪规则按预期放行 / 关闭成员。
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
 import type { GmInfo } from './api-contract'
@@ -65,12 +65,12 @@ describe('buildGmWrapperSource', () => {
     expect(src).toContain("Object.defineProperty(window, 'unsafeWindow'")
     expect(src).toContain("Object.defineProperty(window, 'onurlchange'")
     expect(src).toContain('domain / path 不受支持')
-    expect(src).toContain('store.watchAll') // D1-b 常驻通道
+    expect(src).toContain('store.watchAll') // 常驻通道
     expect(src).toContain('store.all') // connect 后全量校准
   })
 })
 
-describe('resolveGmExposure（D4：@grant 裁剪）', () => {
+describe('resolveGmExposure（@grant 裁剪）', () => {
   const ALL = [...GM_ALL_GLOBALS, ...GM_ALL_NS]
 
   it('未声明 / 空 / @grant none → 全量注入', () => {

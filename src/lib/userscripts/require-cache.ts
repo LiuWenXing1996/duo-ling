@@ -4,9 +4,9 @@
 // 与脚本自己写的数据（duoling-usdata）信任级与演进节奏不同。「删脚本」不该动 require 缓存，
 // 「清 require 缓存」也不该动脚本数据。
 //
-// 缓存策略（决策 A1）：url 不变即命中、永不过期，仅手动 clearRequireCache 时重抓。
-// 抓取策略（决策 C1）：注册时由 SW 内 fetch 抓取，受 <all_urls> host 权限豁免 CORS。
-// 失败策略（决策 B1）：单条抓取失败只记错误、跳过该依赖，不阻断脚本整体注入。
+// 缓存策略：url 不变即命中、永不过期，仅手动 clearRequireCache 时重抓。
+// 抓取策略：注册时由 SW 内 fetch 抓取，受 <all_urls> host 权限豁免 CORS。
+// 失败策略：单条抓取失败只记错误、跳过该依赖，不阻断脚本整体注入。
 
 const DB_NAME = 'duoling-require-cache'
 const DB_VERSION = 1
@@ -106,7 +106,7 @@ export async function clearRequireCache(): Promise<void> {
   })
 }
 
-// —— 抓取层（决策 C1：注册时抓）——
+// —— 抓取层（注册时抓）——
 const REQUIRE_TIMEOUT_MS = 15000
 
 export interface RequireFetchResult {

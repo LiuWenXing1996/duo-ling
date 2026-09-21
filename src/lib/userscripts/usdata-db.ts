@@ -142,7 +142,7 @@ export async function listGmKeys(uuid: string): Promise<string[]> {
  * 某脚本的全部键值快照（键 → 值）。
  *
  * 两个调用方：注入时的**值预载**（同步 `GM_getValue` 的底座，见 gm-wrapper.ts）与
- * 包装层 connect 后的**全量校准**（覆盖 Port 就绪前的窗口，D1-b）。
+ * 包装层 connect 后的**全量校准**（覆盖 Port 就绪前的窗口）。
  */
 export async function listGmValues(uuid: string): Promise<Record<string, unknown>> {
   const recs = await getAllByUuid<GmRecord>(GM_STORE, uuid)

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// UI 测试面板：用 mock 数据按「方案 C」预览思考与执行过程的展示效果。
-// 方案 C = 单层折叠（整条消息一个 ChainOfThought）+ 折叠内按 step 分组
+// UI 测试面板：用 mock 数据预览思考与执行过程的展示效果。
+// 布局：单层折叠（整条消息一个 ChainOfThought）+ 折叠内按 step 分组
 // （「第 N 步」小标题分隔，不嵌套折叠）+ 最终答案气泡。
 // 约定：所有 mock 数据与渲染逻辑集中在本组件内，便于快速调整预览。
 import { onUnmounted, reactive, ref } from 'vue'
@@ -104,7 +104,7 @@ const mockParts: MockPart[] = [
   { type: 'text', text: '你的项目结构如下：**MD 阅读器**由「解析」与「渲染」两个模块组成——解析模块负责把 Markdown 转成 AST，渲染模块再把 AST 输出为 HTML。整体职责清晰，扩展新格式时只需新增解析器即可。' }
 ]
 
-// —— 方案 C 的分组逻辑：按 step-start 切块，最终答案 = 最后一段 text（留在气泡），其余归链 ——
+// —— 分组逻辑：按 step-start 切块，最终答案 = 最后一段 text（留在气泡），其余归链 ——
 type Node =
   | { kind: 'thinking'; key: string; text: string }
   | {
@@ -285,7 +285,7 @@ function stopStream(): void {
 
 onUnmounted(stopStream)
 
-// 最终答案：整条消息最后一段 text（方案 C 中即最后一个 step 的最后正文）
+// 最终答案：整条消息最后一段 text（即最后一个 step 的最后正文）
 const finalText = (() => {
   const texts = mockParts.filter((p): p is Extract<MockPart, { type: 'text' }> => p.type === 'text')
   return texts.length ? texts[texts.length - 1].text : ''
@@ -302,7 +302,7 @@ function stepStatus(state: MockToolState): 'complete' | 'active' {
     <div class="min-h-0 flex-1 overflow-y-auto scroll-gap p-6">
       <div class="mx-auto max-w-2xl space-y-4">
         <div>
-          <h2 class="text-lg font-semibold">UI 测试 · 方案 C</h2>
+          <h2 class="text-lg font-semibold">UI 测试</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             单层折叠 + 内部按 step 分组（「第 N 步」小标题分隔）· 全部为 mock 数据
           </p>
@@ -320,7 +320,7 @@ function stepStatus(state: MockToolState): 'complete' | 'active' {
           <ui-message-content>介绍一下这个项目的结构</ui-message-content>
         </ui-message>
 
-        <!-- 模拟对话：assistant 消息（方案 C 渲染） -->
+        <!-- 模拟对话：assistant 消息 -->
         <div class="flex flex-col items-start gap-1.5">
           <ui-chain-of-thought :default-open="true" class="w-full min-w-0">
             <ui-chain-of-thought-header>思考过程</ui-chain-of-thought-header>

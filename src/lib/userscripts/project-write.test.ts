@@ -367,7 +367,7 @@ describe('importScriptsZip', () => {
   })
 })
 
-describe('metadata 归一化（D2：只在写入口一处解析）', () => {
+describe('metadata 归一化（只在写入口一处解析）', () => {
   const WITH_META = `// ==UserScript==
 // @name 源码里的名字
 // @match https://example.com/*

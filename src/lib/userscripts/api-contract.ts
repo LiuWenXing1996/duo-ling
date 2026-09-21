@@ -1,8 +1,8 @@
 // 用户脚本「能力 API」契约 —— 脚本侧 GM 包装与后台桥共用的唯一真相源。
 //
 // **对外面 = 油猴标准**（`GM_*` / `GM.*`），目标是标准油猴脚本可直接粘贴运行。
-// **内部面 = 自有桥协议**（`__dl` 信封 + `ApiRequest` 命令名），**保持稳定**（见
-// docs/gm-api-migration.md 的 D8）：桥仍是「请求-响应 + Port 下行」两条通道，只增命令、不改形状。
+// **内部面 = 自有桥协议**（`__dl` 信封 + `ApiRequest` 命令名），**保持稳定**：
+// 桥仍是「请求-响应 + Port 下行」两条通道，只增命令、不改形状。
 //
 // 与油猴的两处**已知差异**（速查页与 spec 必须标注，不能让人以为是实现缺陷）：
 //   · **无页面上下文**：`unsafeWindow` 是降级别名（= 隔离世界的 `window`，DOM 共用但页面 JS 全局不可见）；
@@ -314,8 +314,8 @@ export type ApiRequest =
   // 事件订阅（控制面走请求-响应；订阅归属由 connId 定位到脚本世界自己的那条 Port）
   | { c: 'store.watch'; key: string; connId: string }
   | { c: 'store.unwatch'; key: string; connId: string }
-  // 全量订阅（Port 级布尔）：**只读值的脚本也必须有下行通道**，否则同步快照跨 tab 永久陈旧
-  // （见 docs/gm-api-migration.md 的 D1-b）。与 url.watch 同构。
+  // 全量订阅（Port 级布尔）：**只读值的脚本也必须有下行通道**，否则同步快照跨 tab 永久陈旧。
+  // 与 url.watch 同构。
   | { c: 'store.watchAll'; connId: string }
   | { c: 'store.unwatchAll'; connId: string }
 
@@ -353,7 +353,7 @@ export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
  *     「一次页面加载 = 一次运行」的 runId。SW 交侧边栏页面监控按 tab 登记、并落盘运行统计
  *     （runtime 库 stats store）与运行日志（runlog store，name 快照），补播按 runId 去重。
  *
- * 信封名保持 `dl` 前缀（D8：内部协议面不改名，改它是纯 churn）。
+ * 信封名保持 `dl` 前缀（内部协议面不改名，改它是纯 churn）。
  */
 export type DlEvent = {
   t: 'error'
@@ -519,11 +519,11 @@ export interface GmApiNamespace {
   getTabs(): Promise<Record<string, Json>>
 
   // —— 以下为**哆灵扩展**（非油猴标准，速查页与自产 .d.ts 必须标注）——
-  /** 清空本脚本全部存储（标准里无对应物，D9） */
+  /** 清空本脚本全部存储（标准里无对应物） */
   clearValues(): Promise<void>
-  /** 激活指定标签页（标准里无对应物：TM 只有 GM_openInTab 返回句柄的 close()，D9） */
+  /** 激活指定标签页（标准里无对应物：TM 只有 GM_openInTab 返回句柄的 close()） */
   focusTab(tabId: number): Promise<void>
-  /** 反向中继 · 页面世界访问（本扩展独有能力，见 §5） */
+  /** 反向中继 · 页面世界访问（本扩展独有能力） */
   page: GmPageApi
 }
 
