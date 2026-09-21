@@ -1,17 +1,17 @@
 // background = 桌面版 main 进程的能力运行时。
 // 职责：用户脚本的**注册与运行时**（chrome.userScripts）+ 项目状态库写命令的转发方
 // + offscreen 容器管理 + 模型配置中转。
-// 对话、模型配置不走这里（分别直连 IndexedDB 与 chrome.storage.local）。
+// 对话、模型配置不走这里（各自直连 IndexedDB：duoling-chat / duoling-app）。
 //
-// 存储分工（2026-09-19 源码迁入 duoling-fs 后）：
+// 存储分工：
 //   · 注册态（bundle + 元数据 + enabled）—— 权威在独立 IndexedDB 库 duoling-state，
 //     **写只归 offscreen**（单写方）：读 —— 本文件直连 project-store，**不经容器**，
 //     注册链路不能押在 offscreen 存活上，否则容器一挂所有脚本都不生效；
 //     写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
 //   · 源码 —— 唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
 //     SW 读不到 lfs，源码读写一律走 fs:* 命令向 offscreen 取（见 offscreen-fs-commands.ts）。
-// GM 值存储 / GM tab 值已迁 IndexedDB 库 duoling-usdata；错误日志 / 运行统计 / 运行日志
-// （观测数据）已迁 IndexedDB 库 duoling-runtime——两者都 SW 直写、写侧收敛在 store.ts。
+// GM 值存储 / GM tab 值在 IndexedDB 库 duoling-usdata；错误日志 / 运行统计 / 运行日志
+// （观测数据）在 IndexedDB 库 duoling-runtime——两者都 SW 直写、写侧收敛在 store.ts。
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
