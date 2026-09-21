@@ -20,7 +20,7 @@
 //
 // 四项**要你动手**才判得准（其余全自动）。它们**不阻塞跑批**：跑批照常走完，这几项先落 `⋯`，
 // 动作做完后自动翻成结果 —— 面板与左下角那个「待你完成」盒子都会实时更新，不限时（10 分钟兜底）：
-//   · GM.page.listen  —— 点一下页面任意处（点那个盒子也算）
+//   · GM.page.listen  —— 把鼠标在页面上晃一下（或点一下页面任意处）
 //   · GM_setClipboard  —— 在盒子里那个输入框按一次 Cmd/Ctrl+V（读回写入的到底是什么）
 //   · GM_registerMenuCommand —— 在页面右键 → 点「GM 矩阵：点我试试」（验菜单点击链路）
 //   · GM.page.fetchHook —— 让页面**自己**发一个请求（换会拉接口的站点重跑；或在本页 DevTools
@@ -687,21 +687,35 @@
   add('站点与页面', 'GM.page.listen（页面事件中继）', async function () {
     if (typeof GM === 'undefined' || !GM.page || typeof GM.page.listen !== 'function') throw new Error('GM.page.listen 未挂载')
     var got = null
-    var off = null
+    var offs = []
+    // 挂两种事件：`mousemove` 是**自触发**（鼠标在页面上移动必然产生），`click` 是你真点的那一下。
+    // 真机第三轮出现过「点了却一直不翻」，用 mousemove 能把两件事分开：
+    //   · 收到 mousemove → 中继是通的（那一次只是没点到 / 被别的点击顶掉）；
+    //   · 连 mousemove 都没有 → **事件中继本身没工作**（真 bug，别再当成「你没动手」）。
+    var types = ['mousemove', 'click']
     try {
-      off = await GM.page.listen('click', function (ev) { got = ev }, { selector: 'body', once: true })
+      for (var i = 0; i < types.length; i++) {
+        offs.push(
+          await GM.page.listen(
+            types[i],
+            (function (t) {
+              return function (ev) { if (!got) got = { t: t, ev: ev } }
+            })(types[i]),
+            { selector: 'body', once: true },
+          ),
+        )
+      }
     } catch (e) {
       return /PAGE_STUB_UNAVAILABLE|HANDSHAKE_FAILED|超时/.test(msg(e)) ? unknown('页面世界桩不可用：' + msg(e)) : fail(code(e) + msg(e))
     }
-    cleanups.push(function () { if (off) off() })
-    // 触发必须是**页面自己发出的真事件**（点页面任意处都行 —— 点待办盒子也算，它也在页面 DOM 里）。
-    // 不能靠注入内联 script，见上面那段实测结论。
-    var row = todoRow('点一下页面任意处（点这个盒子也行）—— 验 GM.page.listen 中继')
+    var row = todoRow('把鼠标在页面上晃一下（或点一下页面任意处）—— 验 GM.page.listen 中继')
     var acted = await waitUntil(function () { return !!got })
     row.done()
-    if (off) off()
-    if (!acted) return unknown('10 分钟没动手 → GM.page.listen 未验')
-    return pass('收到页面 click（type=' + got.type + '）')
+    for (var j = 0; j < offs.length; j++) {
+      try { offs[j]() } catch (e) { /* 已随导航消失也算摘干净 */ }
+    }
+    if (!acted) return unknown('10 分钟连 mousemove 都没收到 → 事件中继本身可能没工作（不是「没点到」）')
+    return pass('中继通了：收到页面 ' + got.t + '（ev.type=' + (got.ev && got.ev.type) + '）')
   }, { pending: true })
 
   add('站点与页面', 'GM.page.fetchHook（页面 fetch 拦截）', async function () {
