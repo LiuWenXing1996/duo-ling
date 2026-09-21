@@ -17,6 +17,8 @@ import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process �
 import { defineBackground } from '#imports'
 import { FLOAT_PANEL_OPEN_PORT } from '@/shared/extension-ipc'
 import type { ModelProfileState, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
+// 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
+import type { InjectedBuildInfo } from '@/lib/build-info'
 
 // 用户脚本管理器（v2 方案）：引擎 + 存储 + GM 桥 + 类型
 import {
@@ -48,6 +50,8 @@ import { listCapturesByHost } from '@/lib/userscripts/netlog-db'
 import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts/net-record-digest'
 // 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
 import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/availability-watch'
+// 新版本检查：SW 在浏览器启动 / 安装更新时各查一次，结果落 duoling-app 库供 popup 与设置页读
+import { runUpdateCheck } from '@/lib/update-check'
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
 // DL Port 事件底座（二期）：脚本世界 ↔ SW 长连接下行通道 + 三事件源接入
 import { initDlPort } from '@/lib/userscripts/dl-port'
@@ -519,7 +523,8 @@ async function initUserScripts(): Promise<void> {
 // 非 HTML 入口的构建信息：由 wxt.config.ts 的 vite.define 在配置加载期（dev = server 启动 /
 // build = 构建开始）替换成字面量。SW 启动日志据此自证「跑的是哪次构建」——HTML 页面的
 // 时间戳每次刷新都会变，SW 的只在 dev 重启 / 重新构建时才变，两者语义见 wxt.config.ts 注释。
-declare const __BUILD_INFO__: { time: string; branch: string }
+// 这里只做「非 undefined」的收窄（SW 侧该标识符必然存在），形状引自 src/lib/build-info.ts。
+declare const __BUILD_INFO__: InjectedBuildInfo
 
 // —— 生成完成徽章 ——
 // 「用户此刻在看对话界面吗」的判据 = **浮层是否展开**：content script 展开时连上
@@ -615,10 +620,15 @@ export default defineBackground(() => {
     if (details.reason === 'update') {
       void recoverOnUpdate().catch((e) => console.error('[duoling:userscript] recover failed', e))
     }
+    // 装完 / 更新完顺带查一次新版本
+    void runUpdateCheck().catch((e) => console.warn('[duoling:update] 检查失败', e))
   })
 
   chrome.runtime.onStartup.addListener(() => {
     void ensureOffscreen().catch((e) => console.error('[duoling:offscreen] ensure failed', e))
+    // 每次开浏览器查一次。注意 onStartup **只在浏览器启动时**触发，SW 被挂起后唤醒不触发它
+    // —— 本次启动若正好离线就会错过一轮，靠设置页「关于」里的手动检查补。
+    void runUpdateCheck().catch((e) => console.warn('[duoling:update] 检查失败', e))
   })
 
   // SW 冷启动即确保 offscreen 在场（与上面监听器互补：SW 被终止后重启时，首条事件会触发本回调）

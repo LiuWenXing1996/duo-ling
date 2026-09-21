@@ -59,6 +59,20 @@ const buildInfoVersion = (() => {
   }
 })()
 
+// 仓库标识（owner/repo）：检查更新要按它调 GitHub Releases。
+// ⚠️ 刻意**不写进源码**——代码托管用户名属需脱敏的个人 ID，写死在 src/ 会随仓库分发；
+// 改为构建期从 git remote 推导，值由「这份 clone 指向谁」决定，fork 出去自动指向各自仓库。
+const buildInfoRepo = (() => {
+  try {
+    const url = execSync('git remote get-url origin', { cwd: process.cwd() }).toString().trim()
+    // 同时兼容 https://github.com/<owner>/<repo>.git 与 git@github.com:<owner>/<repo>.git
+    return url.replace(/^.*github\.com[:/]/, '').replace(/\.git$/, '')
+  } catch {
+    // 没有 origin（本地实验仓 / 非 git 目录）降级 unknown，检查更新会自行跳过
+    return 'unknown'
+  }
+})()
+
 export default defineConfig({
   // 源码根设为 src：WXT 内置别名 `@` / `~` 硬编码指向 srcDir 且覆盖用户配置
   // （见 wxt 的 resolve-config.mjs），只有把 srcDir 指到 src，代码里的 `@/...`
@@ -76,8 +90,14 @@ export default defineConfig({
     define: {
       global: 'globalThis',
       // 裸标识符注入（构建信息唯一通道，编译进所有 JS bundle，CSP 安全）：
-      // 页面 / SW / offscreen 都用它取构建信息；SW 启动日志靠它自证跑的是哪次构建。
-      __BUILD_INFO__: JSON.stringify({ time: new Date().toISOString(), branch: buildInfoBranch, version: buildInfoVersion }),
+      // 页面 / SW / offscreen 都用它取构建信息；SW 启动日志靠它自证跑的是哪次构建；
+      // repo 供检查更新（src/lib/update-check.ts）调 GitHub Releases 用。
+      __BUILD_INFO__: JSON.stringify({
+        time: new Date().toISOString(),
+        branch: buildInfoBranch,
+        version: buildInfoVersion,
+        repo: buildInfoRepo,
+      }),
     },
   }),
   manifest: {

@@ -16,8 +16,12 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import PopupPanel from './PopupPanel.vue'
 
 const listScripts = vi.hoisted(() => vi.fn())
+const readUpdateCheck = vi.hoisted(() => vi.fn())
+const tabsCreate = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/userscripts/ui-client', () => ({ userscriptClient: { list: listScripts } }))
 vi.mock('@/composables/use-data-sync', () => ({ useDataSync: vi.fn() }))
+// 新版本提示只读 SW 落下的结果，不在 popup 里发检查；mock 掉读侧即可完全控制它有 / 无
+vi.mock('@/lib/update-check', () => ({ readUpdateCheck }))
 vi.mock('@/lib/float-panel-store', () => ({
   getMasterEnabled: vi.fn(async () => true),
   setMasterEnabled: vi.fn(async () => undefined),
@@ -53,6 +57,7 @@ let port: FakePort
 
 function stubChrome(url: string | undefined): void {
   port = createFakePort()
+  tabsCreate.mockResolvedValue(undefined)
   vi.stubGlobal('chrome', {
     runtime: {
       getURL: (p: string) => `chrome-extension://EXTID/${p}`,
@@ -61,7 +66,7 @@ function stubChrome(url: string | undefined): void {
     tabs: {
       query: vi.fn(async () => [{ id: TAB_ID, url }]),
       get: vi.fn(async () => ({ id: TAB_ID, url })),
-      create: vi.fn(async () => undefined),
+      create: tabsCreate,
       onUpdated: { addListener: vi.fn(), removeListener: vi.fn() },
     },
   })
@@ -154,5 +159,54 @@ describe('popup 的「本页脚本」分区', () => {
     await toggle(w).trigger('click')
     await flushPromises()
     expect(rows(w)[0]!.text()).toContain('⚠ 1')
+  })
+})
+
+describe('popup 的新版本提示', () => {
+  const box = (w: VueWrapper) => w.find('[data-testid="update-available"]')
+
+  it('没查过：整块不出现', async () => {
+    stubChrome('https://example.com/page')
+    readUpdateCheck.mockResolvedValue(undefined)
+    expect(box(await mountPopup()).exists()).toBe(false)
+  })
+
+  it('已是最新：整块不出现', async () => {
+    stubChrome('https://example.com/page')
+    readUpdateCheck.mockResolvedValue({
+      checkedAt: 1,
+      current: '0.2.0-alpha.1',
+      status: { kind: 'current', latest: '0.2.0-alpha.1' },
+    })
+    expect(box(await mountPopup()).exists()).toBe(false)
+  })
+
+  it('上次没查成：整块不出现（离线不该在 popup 上变成一条错误）', async () => {
+    stubChrome('https://example.com/page')
+    readUpdateCheck.mockResolvedValue({
+      checkedAt: 1,
+      current: '0.2.0-alpha.1',
+      status: { kind: 'unavailable', reason: 'GitHub 返回 403' },
+    })
+    expect(box(await mountPopup()).exists()).toBe(false)
+  })
+
+  it('有新版本：给出最新与当前版本号，按钮跳 Release 页面', async () => {
+    stubChrome('https://example.com/page')
+    readUpdateCheck.mockResolvedValue({
+      checkedAt: 1,
+      current: '0.2.0-alpha.1',
+      status: { kind: 'update', latest: '0.3.0', releaseUrl: 'https://example.com/r' },
+    })
+    const w = await mountPopup()
+
+    const card = box(w)
+    expect(card.exists()).toBe(true)
+    expect(card.text()).toContain('v0.3.0')
+    expect(card.text()).toContain('v0.2.0-alpha.1')
+
+    await card.find('button').trigger('click')
+    await flushPromises()
+    expect(tabsCreate).toHaveBeenCalledWith({ url: 'https://example.com/r' })
   })
 })

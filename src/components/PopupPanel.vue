@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 工具栏图标 popup：浮层显示开关 + 本页脚本 + 工作台入口。
+// 工具栏图标 popup：浮层显示开关 + 本页脚本 + 工作台入口 + 新版本提示。
 // 浮层开关逻辑复用 float-panel-store（与设置页「网页浮层」分区同源），不重复实现存储。
 // 「打开工作台」新建 workbench.html 标签页（与对话界面里的入口同姿势，不带 hash 落默认面板）。
 // 「本页脚本」分区（PopupPageScripts）复用页面监控那条链路，只在普通网页上渲染 ——
@@ -9,7 +9,7 @@
 // 浏览器内部页 / 扩展页 / 应用商店上 content script 注入不了，用户在那些页面上看不到悬浮
 // 按钮不是装坏了。严格 CSP 站点同理也挂不上，但那要等页面里的 iframe 真的加载失败才知道
 // —— popup 判不出来，那条由页面内的降级提示负责（见 content.ts）。
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import { Button as UiButton } from '@/components/ui/button'
 import PopupPageScripts from './PopupPageScripts.vue'
@@ -19,12 +19,25 @@ import {
   isFloatEnabledForHost,
   setHostDisabled,
 } from '@/lib/float-panel-store'
+import { readUpdateCheck, type UpdateCheckRecord } from '@/lib/update-check'
 
 const master = ref(true)
 const currentHost = ref('')
 const currentEnabled = ref(true)
 /** 当前标签页是不是普通网页（http/https）—— 只有这类页面 content script 能注入 */
 const currentIsWebPage = ref(true)
+
+/**
+ * 上次检查到的版本结论（SW 在开浏览器 / 安装更新时写入 duoling-app，这里只读）。
+ * **刻意不在 popup 里发起检查**：它生命周期极短（点开即关），发网络请求会随窗口关闭被取消，
+ * 还可能让打开瞬间卡一下——检查的时机归 SW 与设置页，这里只负责把已有结论露出来。
+ */
+const update = ref<UpdateCheckRecord | undefined>(undefined)
+
+/** 有新版本时的结论（收窄成非空对象，模板里才能直接取 latest） */
+const updateAvailable = computed(() =>
+  update.value?.status.kind === 'update' ? update.value.status : null,
+)
 
 /**
  * 普通网页的 hostname；非普通网页（内部页 / 扩展页 / 应用商店）返回空串。
@@ -50,6 +63,7 @@ function webHost(url: string | undefined): string {
 
 async function refresh(): Promise<void> {
   master.value = await getMasterEnabled()
+  update.value = await readUpdateCheck()
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
   currentHost.value = webHost(tabs[0]?.url)
   currentIsWebPage.value = currentHost.value !== ''
@@ -75,6 +89,14 @@ async function openWorkbench(): Promise<void> {
   window.close()
 }
 
+/** 去 Release 页面：更新说明与产物下载都在那里 */
+async function openRelease(): Promise<void> {
+  const url = updateAvailable.value?.releaseUrl
+  if (!url) return
+  await chrome.tabs.create({ url })
+  window.close()
+}
+
 onMounted(() => {
   void refresh()
 })
@@ -86,6 +108,19 @@ onMounted(() => {
       <span class="text-sm font-semibold">哆灵</span>
       <span class="text-xs text-muted-foreground">浮窗设置</span>
     </header>
+
+    <!-- 仅在有新版本时出现：常态下 popup 保持原样，不新增噪音 -->
+    <div
+      v-if="updateAvailable"
+      class="rounded-lg border border-border p-3"
+      data-testid="update-available"
+    >
+      <p class="text-sm font-medium">有新版本 v{{ updateAvailable.latest }}</p>
+      <p class="mt-0.5 text-xs text-muted-foreground">当前 v{{ update?.current }}</p>
+      <UiButton class="mt-2 w-full" variant="outline" size="sm" @click="openRelease">
+        去下载
+      </UiButton>
+    </div>
 
     <!-- 挂不了浮层的页面：说清原因，别让用户以为装坏了 -->
     <p

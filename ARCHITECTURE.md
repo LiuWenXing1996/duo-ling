@@ -81,7 +81,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 ④ **观测数据库 `duoling-runtime`**（`runtime-db.ts`，**写只归 SW**）：错误日志（errors store，单记录环形 ≤ `ERROR_LOG_MAX`）、运行统计（stats store，每脚本一记录：总次数 / 最后运行时间 / 最近一次运行错误数）与运行日志（runlog store，全局环形 ≤ `RUN_LOG_MAX`）——统计与日志**并进同一事务写入**（`mutateStatsAndLog` 跨 store，逐条日志不额外放大写入）；读改写在事务内天然原子；错误明细按 runId 与日志关联，工作台「运行日志」标签页 = 时间线（运行行 + 孤儿错误行，`listRunTimeline` 合并读）。用户脚本的存储**全部落 IndexedDB**；GM 存储写出口发变更事件（`onGmValueChange`，值未变 / 删不存在键不发）。
 
-⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`——**密钥同存本机，属防扫描级而非保密级**）、key-cipher DEK、MAIN 世界桩密钥（`pageSecret`）、**标签页 → 会话的归属映射（`convByTab`，见 `conversation-tab-map.ts`）**——扩展自己的小数据。`chrome.storage.local` 只剩网页浮层的按站点开关（`float-panel-store.ts`：总开关 `duoling:floatEnabled` + 禁用站点集合 `duoling:floatDisabledSites`，storage 键改动集中在该模块）。归属映射是**整表一个键**，而写方有两处（面板登记新会话 / SW 在 tab 关闭时清理），可能交错，故写入一律走 `app-db.update` 的单事务「读-改-写」（拆成 get+set 会丢更新）。
+⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`——**密钥同存本机，属防扫描级而非保密级**）、key-cipher DEK、MAIN 世界桩密钥（`pageSecret`）、**标签页 → 会话的归属映射（`convByTab`，见 `conversation-tab-map.ts`）**、**新版本检查结果（`updateCheck`，见 `update-check.ts`）**——扩展自己的小数据。`chrome.storage.local` 只剩网页浮层的按站点开关（`float-panel-store.ts`：总开关 `duoling:floatEnabled` + 禁用站点集合 `duoling:floatDisabledSites`，storage 键改动集中在该模块）。归属映射是**整表一个键**，而写方有两处（面板登记新会话 / SW 在 tab 关闭时清理），可能交错，故写入一律走 `app-db.update` 的单事务「读-改-写」（拆成 get+set 会丢更新）。
 
 ⑥ **会话库 `duoling-chat`**（`conversation-store.ts` 读写，**唯一写方 = offscreen**，读侧（对话界面 / 工作台会话历史）只读订阅）：会话与消息 + 生成任务快照（tasks store，宿主被杀后可续）——它不在 userScripts 链路里，故与 `duoling-state` 分开。
 
@@ -113,8 +113,9 @@ IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 
 
 ## 构建信息注入（单一通道：`vite.define`）
 
-`wxt.config.ts` 通过 `vite().define` 把裸标识符 `__BUILD_INFO__`（`{ time, branch, version }`）替换成字面量，**编译进所有 JS bundle**（页面 / SW / offscreen 三处同源）。这是构建信息的唯一来源。
+`wxt.config.ts` 通过 `vite().define` 把裸标识符 `__BUILD_INFO__`（`{ time, branch, version, repo }`）替换成字面量，**编译进所有 JS bundle**（页面 / SW / offscreen 三处同源）。这是构建信息的唯一来源。
 
+- `repo` 是 `owner/repo` 形式，**由构建期从 git remote 推导，不写死在源码里**：代码托管用户名属需脱敏的个人 ID，写死会随仓库分发出去；没有 origin 时降级 `unknown`，检查更新会自行跳过（用途见 `src/lib/update-check.ts`）。
 - **HTML 内联注入 `window.__BUILD_INFO__` 已废弃**：MV3 `extension_pages` CSP 不含 `'unsafe-inline'` → 内联脚本不执行，生产环境该字段恒 `undefined`，构建信息整列消失。WXT 只在 dev 注入宽松 CSP，因此这条 bug **在 dev 下不复现**，必须用生产产物（`npm run build` + 加载 `.output/chrome-mv3`）验证。
 - 页面侧取数写法（`typeof` 守卫必需——未应用该 define 的环境里裸标识符不存在，`typeof` 读不存在的标识符不抛错）：
 
@@ -129,6 +130,16 @@ IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 
 
 - `package.json` 写 `0.1.0-alpha.2` 时，产物 `manifest.version` = **`0.1.0`**（Chrome 该字段只允许 1–4 段数字），预发布标签被 WXT 裁掉；完整值另在 `manifest.version_name`（WXT 行为，非 Chrome 保证）。
 - 所以版本号展示取 **`__BUILD_INFO__.version`**（构建期直接读 `package.json`，完整、不受裁剪影响）；`chrome.runtime.getManifest().version` 只作兜底。也不用 `window.__BUILD_INFO__`。
+
+## 检查更新
+
+扩展向 GitHub Releases 取最新版本，有新版本时在工具栏 popup 与设置页「关于」露头。链路收敛在 `src/lib/update-check.ts`，**不新增 IPC 命令**：结果写进 `duoling-app` 库，读侧（popup / 设置页）直连 IndexedDB 自己读。
+
+- **时机**：SW 在 `chrome.runtime.onStartup`（开浏览器）与 `onInstalled`（安装 / 更新）各查一次，设置页另有手动入口。**不用 `alarms`** —— `onStartup` 只在浏览器启动时触发（SW 被挂起后唤醒不触发它），启动时若正好离线就错过本轮，由手动入口兜底。
+- **取数走 `/releases` 列表，不用 `/releases/latest`**：后者只返回最新正式版、跳过 prerelease，而本项目版本线长期处于预发布（`0.2.0-alpha.N`），那时该端点直接 404。
+- **版本比较自己实现**（`compareVersions`）：SemVer 下 `0.2.0-alpha.1 < 0.2.0`，字符串比较方向正好相反；项目没有 semver 依赖，也不为这一处引入。比的是 `__BUILD_INFO__.version`（含预发布标签），不是被裁成一到四段数字的 `manifest.version`。
+- **止于提示**：Chrome 不允许扩展替换自身，非商店渠道的自动更新在 macOS / Windows 上还被平台限制（见 [VERSIONING.md](VERSIONING.md)），所以查到新版本只给去处（Release 页面），下载与替换由用户完成。
+- **失败不打扰**：离线 / 限速 / 仓库不可达一律收敛成 `unavailable` 结果而不抛错 —— popup 只在真有新版本时才出现那一块，设置页则把原因显示出来供排查。
 
 ## 首帧加载态（内联静态 DOM）
 

@@ -35,4 +35,6 @@ interface Window {
  * 声明为联合 undefined：未应用该 define 的环境（如 vitest）里它不存在，
  * 调用方须用 `typeof __BUILD_INFO__ !== 'undefined'` 兜底（typeof 读不存在的标识符不抛错）。
  */
-declare const __BUILD_INFO__: { time: string; branch: string; version: string } | undefined
+declare const __BUILD_INFO__:
+  | { time: string; branch: string; version: string; repo: string }
+  | undefined
