@@ -7,7 +7,7 @@
 //   ① **尽量导入**：任何字段缺失 / 非法都不阻断，产出 `notes` 交调用方提示（对齐 zip 导入的
 //      「只拦原则项、坏脚本照样装、保存恒成功」）；
 //   ② **单一归一化路径**：本模块产出的 ScriptConfig 与 zip 导入共用同一形状与默认值
-//      （`zip-transfer.coerceConfig`），不新写第二套。
+//      （`resolveConfigFromSource` 是唯一归一化函数），不新写第二套。
 //
 // 取值规则（对齐 Tampermonkey）：
 //   · 只认**第一个** metadata 块；

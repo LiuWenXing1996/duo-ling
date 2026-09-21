@@ -19,7 +19,6 @@ import type {
   ImportReport,
   ScriptConfig,
   ScriptGroup,
-  ScriptMeta,
   ScriptProject
 } from './types'
 import { base64ToBytes, parseScriptsZip, sourceFingerprint } from './zip-transfer'
@@ -58,15 +57,10 @@ export interface SaveOutcome {
 }
 
 /** 源码落盘（写工作树 + 提交 git）：saveSource 与导入共用的底层步骤。提交失败只丢历史不丢源码 */
-async function persistSource(
-  uuid: string,
-  code: string,
-  meta: ScriptMeta,
-  note?: string,
-): Promise<void> {
-  await writeSource(uuid, code, meta)
+async function persistSource(uuid: string, code: string, note?: string): Promise<void> {
+  await writeSource(uuid, code)
   try {
-    await commitSource(uuid, meta, note)
+    await commitSource(uuid, note)
   } catch (e) {
     // 工作树已落地，提交失败只丢历史版本（下次保存会补提交），不判保存失败
     console.warn('[duoling:userscript] git 提交失败（不影响保存）', uuid, e)
@@ -88,13 +82,21 @@ async function persistSource(
 export async function saveSource(
   uuid: string,
   code: string,
-  meta: ScriptMeta,
-  opts: { enabled: boolean; createdAt: number; note?: string; group?: string; adoptName?: boolean },
+  opts: {
+    /** 脚本名（界面/调用方给的）；adoptName=true 且源码声明了 @name 时以 @name 覆盖 */
+    name: string
+    /** 兜底配置：源码无 metadata 块时沿用（新建默认全站、AI 生成用其给定 config、编辑器保存沿用现有 config） */
+    config: ScriptConfig
+    enabled: boolean
+    createdAt: number
+    note?: string
+    group?: string
+    adoptName?: boolean
+  },
 ): Promise<SaveOutcome> {
-  const resolved = resolveConfigFromSource(code, meta.config)
-  const name = (opts.adoptName && resolved.name?.trim()) || meta.name
-  const effective: ScriptMeta = { name, config: resolved.config, createdAt: meta.createdAt }
-  await persistSource(uuid, code, effective, opts.note)
+  const resolved = resolveConfigFromSource(code, opts.config)
+  const name = (opts.adoptName && resolved.name?.trim()) || opts.name
+  await persistSource(uuid, code, opts.note)
   const savedAt = Date.now()
   const project = makeState(
     uuid,
@@ -116,8 +118,9 @@ export async function createProject(): Promise<ScriptProject> {
   const name = await nextScriptName()
   const ts = Date.now()
   const uuid = crypto.randomUUID()
-  const meta: ScriptMeta = { name, config: defaultConfig(['*://*/*']), createdAt: ts }
-  const outcome = await saveSource(uuid, defaultSource(name), meta, {
+  const outcome = await saveSource(uuid, defaultSource(name), {
+    name,
+    config: defaultConfig(['*://*/*']),
     enabled: true,
     createdAt: ts,
     adoptName: true,
@@ -144,8 +147,9 @@ export async function createGeneratedProject(payload: {
   if (typeof payload.code !== 'string') throw new Error('脚本源码必须是字符串')
   const ts = Date.now()
   const uuid = crypto.randomUUID()
-  const meta: ScriptMeta = { name, config: payload.config, createdAt: ts }
-  const outcome = await saveSource(uuid, payload.code, meta, {
+  const outcome = await saveSource(uuid, payload.code, {
+    name,
+    config: payload.config,
     enabled: payload.enabled,
     createdAt: ts,
     note: payload.note,
@@ -168,8 +172,9 @@ export async function saveExisting(
   if (opts?.name !== undefined && !name) throw new Error('脚本名称不能为空')
   const config = opts?.config ?? project.config
   if (opts?.config && !opts.config.matches?.length) throw new Error('匹配规则（matches）至少一条')
-  const meta: ScriptMeta = { name, config, createdAt: project.createdAt }
-  return saveSource(uuid, code, meta, {
+  return saveSource(uuid, code, {
+    name,
+    config,
     enabled: project.enabled,
     createdAt: project.createdAt,
     note: opts?.note,
@@ -226,7 +231,7 @@ export async function setProjectEnabled(uuid: string, enabled: boolean): Promise
  * zip 导入（state:import 的落点）：解码 → 逐脚本**尽量导入**。
  *
  * 导入侧不是「校验 + 淘汰」，而是「尽量落盘 + 报告说明」——
- *  · 解码层已放行版本 / 字段缺失（后者只补默认值），只剩「无 project.json / 缺源码文件」跳过；
+ *  · 解码层配置由源码里的 `// ==UserScript==` 块派生（无块按默认配置），只剩「缺 script.js 源码文件」跳过；
  *  · matches 非法：不在这里拦（启用时 registerScript 会以中文报错，导入后可在编辑器改）。
  * 导入默认值：uuid 重生成、enabled 恒 false（先审后启）、保留原名（名字不拦重复，uuid 才是标识）。
  */
@@ -260,8 +265,7 @@ async function importOneScript(script: { name: string; config: ScriptConfig; cod
     notes.push(...resolved.notes)
     const ts = Date.now()
     const uuid = crypto.randomUUID()
-    const meta: ScriptMeta = { name, config: resolved.config, createdAt: ts }
-    await persistSource(uuid, script.code, meta, '从 zip 导入')
+    await persistSource(uuid, script.code, '从 zip 导入')
     await writeProject(makeState(uuid, name, false, resolved.config, '', script.code, ts, ts, ts))
     return {
       status: 'ok',

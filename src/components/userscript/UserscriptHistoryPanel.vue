@@ -5,13 +5,15 @@
 // 历史按钮经 openHistory 事件让宿主打开本标签页。恢复在此完成后发 restored 事件，
 // 宿主据此重载该脚本的编辑器标签（若开着），避免编辑态与已恢复数据脱节。
 // 复用链路：fsClient.history / readAt / restoreToCommit + userscriptClient.save（统一保存）+ CodeBlock。
-// 快照 = 当时元信息 + 单文件源码（脚本无构建流程，恢复即恢复源码本身）。
-import { onMounted, ref } from 'vue'
+// 快照 = 单文件源码（配置由源码里的 // ==UserScript== 块派生，脚本无构建流程，恢复即恢复源码本身）。
+import { computed, onMounted, ref } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import { RefreshCw as UiRefreshCw, RotateCcw as UiRotateCcw } from '@lucide/vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { CodeBlock } from '@/components/ai-elements/code-block'
 import { userscriptClient, fsClient } from '@/lib/userscripts/ui-client'
+import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
+import { defaultConfig } from '@/lib/userscripts/types'
 import type { UsCommit, UsSnapshot } from '@/lib/userscripts/us-git'
 
 const props = defineProps<{ uuid: string }>()
@@ -23,6 +25,13 @@ const emit = defineEmits<{
 const scriptName = ref('')
 const error = ref('')
 const notice = ref('')
+
+/** 选中快照由源码派生的名称与配置（单文件形态：快照只有源码，配置从 // ==UserScript== 块派生） */
+const snapshotMeta = computed(() => {
+  if (snap.value?.code == null) return null
+  const r = resolveConfigFromSource(snap.value.code, defaultConfig([]))
+  return { name: r.name?.trim() || '', config: r.config }
+})
 
 const commits = ref<UsCommit[]>([])
 const commitsLoading = ref(true)
@@ -71,11 +80,10 @@ async function restoreCommit(): Promise<void> {
   notice.value = ''
   try {
     const { source } = await fsClient.restoreToCommit(props.uuid, oid.value)
-    // 源码与元信息已物化回工作区并提交「回滚」记录；随后走统一保存：
+    // 源码已物化回工作区并提交「回滚」记录；随后走统一保存：
     // commit 对相同内容是空提交守卫拦下（不重复提交），落库 + 重注册一条龙。
+    // 配置由源码派生（源码自带 metadata 块则恢复当时的声明），adoptName=false 保留当前脚本名。
     const res = await userscriptClient.save(props.uuid, source.code, {
-      name: source.meta.name,
-      config: source.meta.config,
       note: '恢复到历史版本',
     })
     notice.value = res.registerError
@@ -179,17 +187,17 @@ useDataSync('script', (push) => {
       </div>
 
       <div class="flex min-w-0 flex-1 flex-col">
-        <!-- 当时的配置摘要 -->
+        <!-- 当时的配置摘要（由源码里的 // ==UserScript== 块派生） -->
         <div
-          v-if="snap?.meta"
+          v-if="snapshotMeta"
           class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2 text-xs text-muted-foreground"
         >
-          <span class="font-medium text-foreground">{{ snap.meta.name }}</span>
+          <span class="font-medium text-foreground">{{ snapshotMeta.name || '（未命名）' }}</span>
           <span class="break-all font-mono">
-            {{ snap.meta.config.matches.join(', ') || '（无匹配规则）' }}
+            {{ snapshotMeta.config.matches.join(', ') || '（无匹配规则）' }}
           </span>
-          <span>{{ snap.meta.config.runAt }}</span>
-          <span v-if="snap.meta.config.allFrames">allFrames</span>
+          <span>{{ snapshotMeta.config.runAt }}</span>
+          <span v-if="snapshotMeta.config.allFrames">allFrames</span>
         </div>
 
         <div class="min-h-0 flex-1 overflow-auto">

@@ -8,43 +8,35 @@
 // 安全：zip slip 防护在本模块的解码层做拦截（.. 段 / 绝对路径 / 盘符 / 反斜杠）。
 //
 // 解码层**只拦原则项**——
-// 没有可解析的 project.json（无 manifest 就构造不出任何记录）、缺 script.js 源码文件。
-// 其余一律放行：版本 v、字段 name/config 缺失或非法 → 补默认值导入，报告里说明，留给编辑器修。
+// 缺 script.js 源码文件（无源码就构造不出记录）。其余一律放行：源码里的 `// ==UserScript==`
+// 块声明了配置就采用、没有就按默认配置导入（缺 matches 提示用户补全，不阻断）。
 // 故导入侧的「校验」不再是拦截，而是**尽量修复 + 报告**。
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
-import { SCRIPT_FILE } from './types'
-import type { ScriptConfig, ScriptResourceDecl } from './types'
+import { SCRIPT_FILE, defaultConfig } from './types'
+import type { ScriptConfig } from './types'
+import { resolveConfigFromSource } from './metadata'
 
-/** zip schema 版本（project.json.v；导出侧写入。**解码侧不据此拦截**——开发期无版本规范，见文件头） */
+/** zip schema 版本（历史字段；**解码侧不据此拦截**——开发期无版本规范，见文件头） */
 export const ZIP_SCHEMA_VERSION = 2
 
 /** zip 目录名长度上限（超长截断，防极端名称撑爆解压路径） */
 const DIR_NAME_MAX = 64
 
-/** project.json（zip 内）的形状：source/uuid/enabled/createdAt 不进 zip */
-export interface ZipManifest {
-  v: number
-  name: string
-  config: ScriptConfig
-  exportedAt: number
-  /** 导出方标识 `duoling/<扩展版本>`，排障用 */
-  exporter?: string
-}
-
-/** 单脚本的中间形态（编码入参 / 解码出参；真名以 name 为准，zip 目录名仅展示） */
+/** 单脚本的编码入参（zip 内只有 script.js，name 仅用于目录名，配置由源码派生） */
 export interface ZipScriptPayload {
   name: string
-  config: ScriptConfig
   code: string
 }
 
 /** 解码出的一个待导入脚本（notes 承载导入期兜底/提示，随成功条目一并展示） */
 export interface ParsedScript extends ZipScriptPayload {
+  /** 配置完全由源码里的 `// ==UserScript==` 块派生（无块则用默认配置） */
+  config: ScriptConfig
   /** 导入期需要告知用户的兜底与提示（字段缺失已补默认等），非阻断 */
   notes?: string[]
 }
 
-/** 解码时被跳过的顶层目录——**只剩原则项**（缺 project.json / 非 JSON / 缺源码文件） */
+/** 解码时被跳过的顶层目录——**只剩原则项**（缺源码文件） */
 export interface ParsedSkip {
   /** zip 顶层目录名（≠真名，仅排障展示） */
   dirName: string
@@ -67,25 +59,14 @@ export interface ScriptsZipParse {
 // —— 编码（导出侧） ——
 
 /**
- * 把若干脚本打成 zip。每脚本一个平级目录（project.json + script.js）；
- * 目录名 = 脚本名安全化，重名加 -2 后缀；data/ 预留位 v1 恒不写入。
+ * 把若干脚本打成 zip。单文件形态：每脚本一个平级目录，目录内**只有 script.js**。
+ * 目录名 = 脚本名安全化，重名加 -2 后缀。配置不进 zip（导入时从源码派生）。
  */
-export function buildScriptZip(
-  scripts: ZipScriptPayload[],
-  meta?: { exportedAt?: number; exporter?: string },
-): Uint8Array {
+export function buildScriptZip(scripts: ZipScriptPayload[]): Uint8Array {
   const entries: Record<string, Uint8Array> = {}
   const usedDirs = new Set<string>()
   for (const s of scripts) {
     const dir = uniqueDirName(sanitizeDirName(s.name), usedDirs)
-    const manifest: ZipManifest = {
-      v: ZIP_SCHEMA_VERSION,
-      name: s.name,
-      config: s.config,
-      exportedAt: meta?.exportedAt ?? Date.now(),
-      exporter: meta?.exporter,
-    }
-    entries[`${dir}/project.json`] = strToU8(JSON.stringify(manifest, null, 2))
     entries[`${dir}/${SCRIPT_FILE}`] = strToU8(s.code)
   }
   return zipSync(entries)
@@ -132,11 +113,11 @@ function isSafeRelPath(p: string): boolean {
 
 /**
  * 解析脚本 zip（**只拦原则项，尽量导入**，见文件头）：
- *  · 顶层散条目与脚本目录内的非脚本条目（含 data/ 预留位）→ 未导入，进 ignored 报告；
+ *  · 顶层散条目与脚本目录内的非脚本条目（data/ 等）→ 未导入，进 ignored 报告；
  *  · 路径不安全的**文件**（zip slip 特征）→ 只过滤该文件（进 ignored 报告），脚本其余照常导入；
- *  · 版本 v / name / config 缺失或非法 → **补默认值导入**，原因写进 notes，留给编辑器修；
+ *  · 配置由源码里的 `// ==UserScript==` 块派生；缺块则按默认配置导入，缺 matches 提示用户补全；
  *  · 目录名 ≠ 真名；name 缺失时以目录名兜底；
- *  · **唯一跳过**：缺 project.json / 非 JSON / 缺 script.js（无 manifest 或源码就构造不出记录）。
+ *  · **唯一跳过**：缺 script.js（无源码就构造不出记录）。
  * 本函数不做语法校验——坏脚本照样导入（保存即注入的语义），运行期报错走错误日志。
  */
 export function parseScriptsZip(bytes: Uint8Array): ScriptsZipParse {
@@ -171,111 +152,39 @@ export function parseScriptsZip(bytes: Uint8Array): ScriptsZipParse {
   const skip = (dirName: string, reason: string) => skipped.push({ dirName, reason })
 
   for (const [top, filesByDir] of groups) {
-    // —— 原则项一：没有可解析的 manifest，就构造不出记录 ——
-    const manifestRaw = filesByDir.get('project.json')
-    if (!manifestRaw) {
-      skip(top, '缺少 project.json')
-      continue
-    }
-    let parsedManifest: unknown
-    try {
-      parsedManifest = JSON.parse(strFromU8(manifestRaw))
-    } catch {
-      skip(top, 'project.json 不是合法 JSON')
-      continue
-    }
-    if (typeof parsedManifest !== 'object' || parsedManifest === null || Array.isArray(parsedManifest)) {
-      skip(top, 'project.json 不是对象（无法识别为脚本 manifest）')
-      continue
-    }
-    const manifest = parsedManifest as Partial<ZipManifest>
-    const notes: string[] = []
-
-    // 字段兜底：拿不到就补默认值 + 报告说明，不阻断（留给编辑器修）
-    let name = typeof manifest.name === 'string' ? manifest.name.trim() : ''
-    if (!name) {
-      name = top
-      notes.push(`缺少脚本名（name），已用目录名「${top}」`)
-    }
-    const { config, note: configNote } = coerceConfig(manifest.config)
-    if (configNote) notes.push(configNote)
-
-    // —— 原则项二：缺源码文件 ——
-    // v1 旧格式（files/ 目录）不再支持；其余条目（data/ 预留位等）未导入，仅提示
+    // —— 原则项：缺源码文件就构造不出记录 ——
     const codeRaw = filesByDir.get(SCRIPT_FILE)
     if (!codeRaw) {
       skip(top, `缺少 ${SCRIPT_FILE} 源码文件`)
       continue
     }
+    const code = strFromU8(codeRaw)
+    // 其余条目（data/ 等历史遗留或杂项）未导入，仅提示
     for (const rest of filesByDir.keys()) {
-      if (rest !== 'project.json' && rest !== SCRIPT_FILE) {
+      if (rest !== SCRIPT_FILE) {
         ignored.push({
           path: `${top}/${rest}`,
-          reason: '脚本目录内的非脚本条目（如 data/ 预留位），未导入',
+          reason: '脚本目录内的非脚本条目（如 data/ 遗留），未导入',
         })
       }
     }
 
-    scripts.push({ name, config, code: strFromU8(codeRaw), ...(notes.length ? { notes } : {}) })
+    // 配置完全由源码里的 // ==UserScript== 块派生（单一归一化路径），无块则按默认配置。
+    const resolved = resolveConfigFromSource(code, defaultConfig([]))
+    let name = resolved.name?.trim()
+    const notes: string[] = [...resolved.notes]
+    if (!name) {
+      name = top
+      notes.push(`缺少脚本名（name），已用目录名「${top}」`)
+    }
+    if (!resolved.config.matches.length) {
+      notes.push('配置缺少匹配规则（matches），补全后再启用')
+    }
+
+    scripts.push({ name, config: resolved.config, code, ...(notes.length ? { notes } : {}) })
   }
 
   return { scripts, skipped, ignored }
-}
-
-/**
- * 尽力把 project.json.config 收成合法 ScriptConfig：逐字段取用 + 缺项补默认。
- * 不因配置缺失/非法阻断导入——匹配规则为空只提示，留给编辑器补全后再启用。
- *
- * **导出以便复用**：这是 config 归一化的唯一路径（zip 导入 / 未来其它以 json 形态进出的写入口），
- * 不要新写第二套 —— 两条路径哲学不一致是长期隐患（见 metadata.ts 文件头的「单一归一化路径」）。
- */
-export function coerceConfig(raw: unknown): { config: ScriptConfig; note?: string } {
-  const c = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {}
-  const matches = strArray(c.matches)
-  const config: ScriptConfig = {
-    matches,
-    allFrames: typeof c.allFrames === 'boolean' ? c.allFrames : true,
-    runAt: c.runAt === 'document_start' || c.runAt === 'document_idle' ? c.runAt : 'document_end',
-  }
-  const excludeMatches = strArray(c.excludeMatches)
-  if (excludeMatches.length) config.excludeMatches = excludeMatches
-  const includeGlobs = strArray(c.includeGlobs)
-  if (includeGlobs.length) config.includeGlobs = includeGlobs
-  const excludeGlobs = strArray(c.excludeGlobs)
-  if (excludeGlobs.length) config.excludeGlobs = excludeGlobs
-  // —— GM 化的注入期字段：原样搬运。缺了这段，zip 往返会**静默丢掉** @grant / @require / @resource ——
-  const grant = strArray(c.grant)
-  if (grant.length) config.grant = grant
-  const requires = strArray(c.requires)
-  if (requires.length) config.requires = requires
-  const resources = resourceArray(c.resources)
-  if (resources.length) config.resources = resources
-  if (typeof c.namespace === 'string' && c.namespace) config.namespace = c.namespace
-  if (typeof c.version === 'string' && c.version) config.version = c.version
-  if (typeof c.description === 'string' && c.description) config.description = c.description
-  if (typeof c.author === 'string' && c.author) config.author = c.author
-  if (typeof c.icon === 'string' && c.icon) config.icon = c.icon
-  return {
-    config,
-    ...(matches.length ? {} : { note: '配置缺少匹配规则（matches），补全后再启用' }),
-  }
-}
-
-/** 取字符串数组（非数组 / 非字符串 / 空串项一律丢弃） */
-function strArray(v: unknown): string[] {
-  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x) : []
-}
-
-/** 取 `@resource` 风格的命名资源数组（name 与 url 都须为非空字符串，其余条目丢弃） */
-function resourceArray(v: unknown): ScriptResourceDecl[] {
-  if (!Array.isArray(v)) return []
-  const out: ScriptResourceDecl[] = []
-  for (const item of v) {
-    if (typeof item !== 'object' || item === null) continue
-    const { name, url } = item as { name?: unknown; url?: unknown }
-    if (typeof name === 'string' && name && typeof url === 'string' && url) out.push({ name, url })
-  }
-  return out
 }
 
 // —— 传输与指纹（两侧共用的小工具） ——

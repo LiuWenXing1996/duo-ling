@@ -82,13 +82,6 @@ export interface ScriptProject {
   updatedAt: number
 }
 
-/** 源码的元数据（并行写入 duoling-fs 的 project.json，与状态库记录同源保存） */
-export interface ScriptMeta {
-  name: string
-  config: ScriptConfig
-  createdAt: number
-}
-
 /** 给 UI 列表用的精简视图（不含源码） */
 export interface ScriptSummary {
   uuid: string
@@ -215,13 +208,13 @@ export type UserScriptRunLogRow =
     }
   | { kind: 'error'; record: UserScriptErrorRecord }
 
-/** zip 内源码文件的固定文件名（每脚本目录一个 project.json + 一个 script.js） */
+/** zip 内源码文件的固定文件名（每脚本目录只此一个 script.js，单文件形态） */
 export const SCRIPT_FILE = 'script.js'
 
 // —— zip 导入报告——
 //
 // 导入只拦原则项，其余一律导入并说明，留给脚本编辑器修。故 ok 条目可带 notes（字段兜底提示），
-// failed 只剩结构性原因（无 project.json / 非 JSON / 缺源码文件）。
+// failed 只剩结构性原因（缺 script.js 源码文件 / 非脚本目录）。
 
 /** 导入成功的条目（uuid 为导入方新生成；enabled 恒 false） */
 export interface ImportItemOk {
