@@ -52,6 +52,7 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 ## CHANGELOG.md
 
 - 参考 [Keep a Changelog](https://keepachangelog.com/) 思路：每个版本一段，按 `Added / Changed / Fixed` 分组，手动填写。
+- **只记已发布的版本**：未发布的改动不写进 CHANGELOG，也不设 `[Unreleased]` 这类累积段——发布前的改动只留在提交历史里，等 `npm run release` 起段后统一补填。
 - 新版本段由 `npm run release` 自动起头（带空分组占位），发布时把改动补进对应分组。预发布版（含 `-alpha.1` 等）也各起一段。
 - 历史条目不重写（已发布版本的 changelog 是给用户看的）。
 

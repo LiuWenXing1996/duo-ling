@@ -2,24 +2,38 @@
 
 本文件记录哆灵扩展每个发布版本的变更。**格式与维护方式见 [VERSIONING.md](VERSIONING.md)「CHANGELOG.md」**，本文件只放条目。
 
-## [Unreleased]
+## [0.3.0-alpha.1] - 2026-09-21
 
 ### Added
 
 - 脚本对外 `DL.api` 整层移除，全面转向标准 GM API（`GM_*` 全局 + `GM.*` 命名空间）：标准油猴脚本（`==UserScript==` metadata）可直接粘贴运行
 - 新增 `GM.page.*`（`GM.page.listen` / `GM.page.fetchHook`）非标准扩展，承接原 `DL.page` 的页面 hook 能力
 - 新增 `GM.clearValues()` / `GM.focusTab()` 扩展成员（标准无对应物）
+- 用户脚本支持 `@require` 外部依赖的前置注入
 - popup 新增「本页脚本」分区：显示本页在跑的脚本与报错，点脚本行跳工作台运行日志（与对话界面灵动岛同源同协议，默认收起；非普通网页不渲染）
+- 添加 MIT 协议（LICENSE）
 
 ### Changed
 
+- 用户脚本单文件化：移除 esbuild 构建流程，正文与 `==UserScript==` metadata 同文件，原 `project.json` 与脚本配置表单删除
+- 移除侧边栏，对话入口收敛到网页浮层
+- 会话归属改为按标签页（一个标签页一条会话），历史会话入口收进工作台「会话历史」标签页；删除会话前先判「是否正被该标签页使用」
 - 注入体由 `buildDlWrapper` 重写为 `gm-wrapper.ts`：同步值快照 + 只读脚本常驻下行通道 + `@grant` 精确注入
 - cookie 域名门入口从 `DL.cookie` 换 `GM_cookie.list/set/delete`（门仍在 SW 侧，只比 scheme + host）
 - 工作台「DL API 速查」标签页改名「GM API 速查」（源 `gm-api-catalog.ts`，一张能力表生成速查页与 `.d.ts` 两形态）
+- 用户脚本的启停 / 删除等类动作收进单一「批量」菜单
+
+### Fixed
+
+- 悬浮层完成角标改判「浮层展开态」，不再拿面板文档存活当判据
+- 页面快照认会话归属，不再跟着激活标签页跑
+- popup 高度改回内容驱动，不再被百分比高度锁死
+- cookie 域名门错误文案改回 `GM_cookie`
 
 ### Changed (tooling)
 
 - 新增 devDependency `@types/tampermonkey`（^5.5.0），并为 `uscript-samples/` 加专属 `tsconfig.json`（`types: ["tampermonkey"]` + `checkJs:false`）：脚本作者在样例里编写 `GM_*`/`GM.*`/`GM_info` 即可获得类型提示，不强制校验（本扩展三个非标成员 `GM.clearValues`/`GM.focusTab`/`GM.page` 无官方类型，靠 `spec-text.ts` 文档说明）
+- 端到端测试补本地模型 stub，对话链路与 AI 生成脚本链路进无头 CI；GM API 可用性矩阵、会话归属与删除门搬进端到端测试
 
 ## [0.2.0-alpha.1] - 2026-09-20
 
