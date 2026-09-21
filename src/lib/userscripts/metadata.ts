@@ -318,9 +318,6 @@ export function applyMetadataToConfig(
     allFrames: parsed.noframes ? false : (fallback.allFrames ?? true),
     runAt: declaredRunAt ?? fallback.runAt ?? 'document_end',
   }
-  if (declaredMatches && (fallback.matches?.length ?? 0) > 0) {
-    notes.push('metadata 声明了 @match / @include，已覆盖此前在界面上设置的匹配规则')
-  }
 
   const exclM = dedupe([...excludeMatches, ...(declaredMatches ? [] : (fallback.excludeMatches ?? []))])
   if (exclM.length) config.excludeMatches = exclM

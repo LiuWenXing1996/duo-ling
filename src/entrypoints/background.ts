@@ -249,7 +249,7 @@ const handlers: {
     await unregisterScripts([next.uuid]).catch(() => {})
     const registerError = next.enabled ? await registerOrLog(next) : undefined
     return {
-      // metadata 解析提示（已覆盖界面配置 / @include 放宽 / 正则被丢弃…）与 CSP 警告同一通道到编辑器，
+      // metadata 解析提示（@include 放宽 / 正则被丢弃 / @match 不合法…）与 CSP 警告同一通道到编辑器，
       // 提示由写侧一处产出（SaveOutcome.notes）——避免 SW 再解析一遍、拿不到当时那个 fallback 而误报
       warnings: [...collectCspWarnings(resolveInjectCode(next)), ...outcome.notes],
       registerError,

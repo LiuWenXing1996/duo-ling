@@ -197,10 +197,9 @@ describe('applyMetadataToConfig', () => {
     expect(empty.config.matches).toEqual([])
   })
 
-  it('metadata 覆盖界面配置时给出提示（逐字段：声明了就采用，没声明才沿用）', () => {
+  it('源码声明优先于 fallback（逐字段：声明了就采用，没声明才沿用）', () => {
     const r = applyMetadataToConfig(mk({ matches: ['https://x.example.com/*'] }), defaultConfig(['https://y.example.com/*']))
     expect(r.config.matches).toEqual(['https://x.example.com/*'])
-    expect(r.notes.join('\n')).toContain('已覆盖')
     // 未声明的键仍沿用 fallback
     expect(r.config.runAt).toBe('document_end')
     expect(r.config.allFrames).toBe(true)
