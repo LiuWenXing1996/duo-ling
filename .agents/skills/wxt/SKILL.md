@@ -12,7 +12,7 @@ description: Use when configuring, building, or debugging WXT 0.21 in this exten
 **本 skill 管什么**
 - `wxt.config.ts` 的写法与改动后果
 - `src/entrypoints/` 的文件命名与目录约定
-- manifest 字段（权限、版本键、side_panel）如何生成、为何被 Chrome 报 Unrecognized
+- manifest 字段（权限、版本键、`action` / `host_permissions`）如何生成、为何被 Chrome 报 Unrecognized
 - `.output/chrome-mv3*` 产物结构与 dev / build 差异
 - WXT dev server（web-ext）的 profile、重载、启动页行为
 
