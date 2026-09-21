@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 工作区标签栏：设置 / 开发者 / UI 测试 / 脚本列表 / 脚本编辑器 / AI 工具 / GM API。基础标签（脚本列表）不可关闭。
+// 工作区标签栏：设置 / 开发者 / AI 界面对话预览 / 脚本列表 / 脚本编辑器 / AI 工具 / GM API。基础标签（脚本列表）不可关闭。
 // 构建信息（页面 / SW 分支 + 时刻）不在这里展示：已移入 设置 → 关于，与版本号同处一地更好找，
 // 顶栏只留标签本身。取数实现见 src/lib/build-info.ts。
 import type { WorkspaceTab } from '@/types/tab'

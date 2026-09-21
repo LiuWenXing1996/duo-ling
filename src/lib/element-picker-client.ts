@@ -79,7 +79,7 @@ export function friendlyInjectError(e: unknown): Error {
   const raw = e instanceof Error ? e.message : String(e)
   if (/must request permission to access this host|Cannot access contents of url/i.test(raw)) {
     return new Error(
-      '当前页面不允许扩展注入（浏览器内置页 / 扩展页，或未开启「允许访问文件网址」），请切到普通网页后重试'
+      '当前页面不支持哆灵（浏览器内置页 / 扩展页，或未开启「允许访问文件网址」），请切到普通网页后重试'
     )
   }
   return e instanceof Error ? e : new Error(raw)
@@ -93,7 +93,7 @@ export function friendlyInjectError(e: unknown): Error {
  * 传参；而快照是 AI 在生成中途自己决定的，那时用户可能已切走，必须认归属。
  */
 async function getTargetTabId(): Promise<number> {
-  if (!chrome.tabs?.query) throw new Error('tabs API 不可用，无法定位目标标签页')
+  if (!chrome.tabs?.query) throw new Error('无法定位目标标签页')
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
   if (!tab?.id) throw new Error('未找到活动标签页')
   const reason = pageInjectionBlockReason(tab.url)

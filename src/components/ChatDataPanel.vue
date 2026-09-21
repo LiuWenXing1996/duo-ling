@@ -142,7 +142,7 @@ function pageContextLabel(m: Message): string {
       <header class="flex items-center justify-between border-b border-border px-3 py-2">
         <div class="flex items-center gap-1.5 text-sm font-medium">
           <ui-database class="size-4 text-muted-foreground" />
-          会话库（{{ conversations.length }}）
+          会话（{{ conversations.length }}）
         </div>
         <ui-tooltip-provider>
           <ui-tooltip>
@@ -167,7 +167,7 @@ function pageContextLabel(m: Message): string {
       </p>
       <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
         <p v-if="!loading && conversations.length === 0" class="px-2 py-4 text-center text-xs text-muted-foreground">
-          会话库为空
+          暂无会话
         </p>
         <button
           v-for="c in conversations"
@@ -201,7 +201,7 @@ function pageContextLabel(m: Message): string {
             data-testid="chat-data-export"
             @click="exportSelectedConversation()"
           >
-            导出 JSON
+            导出数据
           </button>
           <button
             v-if="selectedId && messages.length"
@@ -210,7 +210,7 @@ function pageContextLabel(m: Message): string {
             data-testid="chat-data-toggle-all"
             @click="toggleAllRaw()"
           >
-            {{ expanded.size ? '全部收起 JSON' : '展开全部 JSON' }}
+            {{ expanded.size ? '全部收起' : '展开全部' }}
           </button>
         </div>
       </header>
@@ -256,7 +256,7 @@ function pageContextLabel(m: Message): string {
                 :data-testid="`chat-data-raw-${m.id}`"
                 @click="toggleRaw(m.id)"
               >
-                {{ expanded.has(m.id) ? '收起原始 JSON' : '原始 JSON' }}
+                {{ expanded.has(m.id) ? '收起原始数据' : '原始数据' }}
               </button>
               <pre
                 v-if="expanded.has(m.id)"

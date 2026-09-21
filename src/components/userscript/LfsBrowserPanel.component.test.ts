@@ -36,7 +36,7 @@ vi.mock('@/components/ai-elements/code-block', () => ({
 /** 最小树：一个命名的脚本仓 + 一个已无项目记录的孤儿仓（只有 uuid） */
 const tree: LfsNode = {
   path: '/',
-  name: 'lfs 根',
+  name: '根目录',
   type: 'folder',
   children: [
     {
@@ -92,7 +92,7 @@ describe('LfsBrowserPanel 脚本仓目录名', () => {
   })
 
   it('取脚本名失败只丢徽标：树正常渲染、不出错误条', async () => {
-    list.mockRejectedValue(new Error('background 无响应'))
+    list.mockRejectedValue(new Error('扩展服务未响应，请重试'))
     wrapper = await mountPanel()
     expect(folders()[2]!.text()).toBe('u-1')
     expect(folders()[2]!.find('[data-slot="badge"]').exists()).toBe(false)

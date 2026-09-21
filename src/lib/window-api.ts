@@ -34,7 +34,7 @@ function send<T>(request: RuntimeRequest): Promise<T> {
         return
       }
       if (!response) {
-        reject(new Error('background 无响应'))
+        reject(new Error('扩展服务未响应，请重试'))
         return
       }
       if (!response.ok) {
@@ -59,7 +59,7 @@ function createStubNamespace(path: string): unknown {
       return createStubNamespace(`${path}.${String(key)}`)
     },
     apply() {
-      throw new Error(`window.api.${path} 尚未在扩展版实现（属后续平移范围）`)
+      throw new Error(`功能暂未提供：${path}`)
     },
   })
 }
@@ -82,7 +82,7 @@ async function sendOffscreen<T>(request: RuntimeRequest): Promise<T> {
           return
         }
         if (!response) {
-          reject(new Error('offscreen 无响应'))
+          reject(new Error('扩展服务未响应，请重试'))
           return
         }
         if (!response.ok) {

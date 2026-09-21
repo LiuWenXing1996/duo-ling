@@ -145,7 +145,7 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
       var timer = setTimeout(function () {
         if (settled) return
         settled = true
-        var e = new Error('GM 调用超时（后台 30s 无响应）：' + (req && req.c))
+        var e = new Error('GM 调用超时（30s 无响应）：' + (req && req.c))
         e.code = 'BRIDGE_TIMEOUT'
         reject(e)
       }, 30000)
@@ -155,7 +155,7 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
         clearTimeout(timer)
         var err = chrome.runtime.lastError
         if (err) return reject(new Error(err.message))
-        if (!resp) return reject(new Error('GM 桥无响应：' + (req && req.c)))
+        if (!resp) return reject(new Error('GM 调用无响应：' + (req && req.c)))
         if (!resp.ok) {
           var e = new Error(resp.error || 'GM 调用失败')
           if (resp.code) e.code = resp.code
@@ -275,7 +275,7 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
         done = true
         var i = __gmReadyWaiters.indexOf(w)
         if (i >= 0) __gmReadyWaiters.splice(i, 1)
-        reject(new Error('GM Port 连接超时（8s 未就绪），去 SW Console 看「Port 已连接」日志'))
+        reject(new Error('GM 事件通道连接超时（8s 未就绪）'))
       }, 8000)
       var w = {
         resolve: function () {
@@ -765,7 +765,7 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
       get: function () {
         if (!__gmUnsafeWarned) {
           __gmUnsafeWarned = true
-          console.warn(NAME_PREFIX + ' unsafeWindow 为降级别名：本扩展无页面上下文，返回隔离世界的 window（DOM 可用，页面 JS 全局不可见）')
+          console.warn(NAME_PREFIX + ' unsafeWindow 为降级别名：本扩展只在独立环境里运行脚本，返回的 window 可用于 DOM 操作，但读不到页面的 JS 全局变量')
         }
         return window
       }

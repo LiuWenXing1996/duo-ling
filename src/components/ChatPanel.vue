@@ -413,7 +413,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
   tabs: '标签页操作',
   menu: '右键菜单',
   cookie: 'cookie 读写',
-  page: '页面世界监听',
+  page: '页面事件监听',
 }
 
 function capabilityLabel(cap: string): string {
@@ -969,7 +969,7 @@ function userScriptsUnavailableMessageSafe(): string {
                     size="xs"
                     class="text-destructive hover:text-destructive"
                     :disabled="cardBusy.has(card.uuid)"
-                    title="删除该脚本（含 git 历史）"
+                    title="删除该脚本（含历史版本）"
                     @click="removeCard(card)"
                   >
                     <ui-trash-2 class="size-3" />

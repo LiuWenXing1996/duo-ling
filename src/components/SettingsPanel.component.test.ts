@@ -73,7 +73,7 @@ describe('SettingsPanel 分区导航', () => {
     // 首个分区（模型管理）正文已渲染
     expect(w.text()).toContain('配置 API key')
     // 未选中的「关于」不渲染（分区按需挂载）
-    expect(w.text()).not.toContain('构建期注入的 package.json')
+    expect(w.text()).not.toContain('当前安装的扩展版本')
   })
 
   it('点左栏「关于」：右栏切到关于分区，版本号取注入的完整版本（含预发布标签）', async () => {

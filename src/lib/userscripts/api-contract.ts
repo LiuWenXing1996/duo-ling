@@ -645,7 +645,7 @@ export interface GmPageApi {
     opts?: PageListenOptions,
   ): Promise<() => void>
   /**
-   * 拦截页面世界的 fetch 调用（一期仅 fetch）。
+   * 拦截页面世界的 fetch 调用。
    * @param handler 裁决函数，收 PageFetchSummary，回 PageFetchAction（passthrough / respond）
    * @param opts.onResponse 可选。提供时，passthrough 的每一次真实响应都会经 PageResponseSummary 回调
    *   （respond 伪造响应的场景无真实响应，不回调）。不提供则不读响应体，零开销。

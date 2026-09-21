@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  enableDevMode,
   enableUserScripts,
   extensionIdFromServiceWorker,
   getServiceWorker,
@@ -48,6 +49,8 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     sw = await getServiceWorker(context)
     extensionId = extensionIdFromServiceWorker(sw)
     messenger = await openMessengerPage(context, extensionId)
+    // 工作台那几个调试入口默认不显示（开发者模式关闭），端测要验它们就得先开总闸
+    await enableDevMode(messenger)
     const availability = await sendToSw<{ available: boolean }>(messenger, { kind: 'userscript:availability' })
     userScriptsAvailable = availability.ok === true && availability.data.available === true
 
@@ -138,9 +141,9 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     await expect(page.getByText('单任务最多 8 步')).toBeVisible()
 
     // 没跑过对话 → 无任何工具调用痕迹：一条轨迹行都不该有，且给空态文案而不是留白
-    // （空态文案分「会话库为空」与「还没有这条工具的调用记录」两支，此处不锁死哪一支）
+    // （空态文案分「暂无会话记录」与「还没有这条工具的调用记录」两支，此处不锁死哪一支）
     await expect(page.locator('[data-testid^="agent-tools-trace-"]')).toHaveCount(0)
-    await expect(page.getByText(/会话库为空|还没有这条工具的调用记录/)).toBeVisible()
+    await expect(page.getByText(/暂无会话记录|还没有这条工具的调用记录/)).toBeVisible()
     await page.close()
   })
 

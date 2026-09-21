@@ -71,7 +71,7 @@ describe('UserscriptEditorPanel 加载与渲染', () => {
   it('加载后渲染脚本名与单文件标识', async () => {
     wrapper = await mountEditor()
     expect(wrapper.text()).toContain('测试脚本')
-    expect(wrapper.text()).toContain('单文件脚本 · script.js')
+    expect(wrapper.text()).toContain('单文件脚本')
   })
 
   it('getProject 失败时展示错误条', async () => {

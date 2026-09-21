@@ -150,7 +150,7 @@ describe('applyMetadataToConfig', () => {
     expect(r.config.matches).toEqual(['*://*/*'])
     expect(r.config.includeGlobs).toEqual(['*://*/foo/*'])
     expect(r.notes.join('\n')).toContain('任意站点')
-    expect(r.notes.join('\n')).toContain('cookie 域名门')
+    expect(r.notes.join('\n')).toContain('cookie 访问范围')
   })
 
   it('纯路径不产出空 host 的 pattern（项目校验器的已知宽松点须绕开）', () => {

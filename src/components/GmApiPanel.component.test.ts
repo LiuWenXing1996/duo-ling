@@ -27,12 +27,12 @@ describe('GmApiPanel', () => {
     // 收起态只有标题 + 一句话（说明段还没渲染）
     const collapsed = wrapper.find('[data-testid="gm-api-card-GM_getValue"]')
     expect(collapsed.exists()).toBe(true)
-    expect(collapsed.text()).not.toContain('读的是注入时预载的值快照')
+    expect(collapsed.text()).not.toContain('读的是脚本启动时的值快照')
 
     await wrapper.find('[data-testid="gm-api-card-toggle-GM_getValue"]').trigger('click')
     await wrapper.vm.$nextTick()
     expect(wrapper.find('[data-testid="gm-api-card-GM_getValue"]').text()).toContain(
-      '读的是注入时预载的值快照',
+      '读的是脚本启动时的值快照',
     )
   })
 

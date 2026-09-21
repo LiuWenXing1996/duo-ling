@@ -267,7 +267,7 @@ describe('UserscriptListPanel 不承载报错展示', () => {
     list.mockResolvedValue([summary('u1', '脚本A'), summary('u2', '脚本B')])
     wrapper = await mountPanel()
 
-    expect(wrapper.text()).toContain('用户脚本引擎不可用')
+    expect(wrapper.text()).toContain('用户脚本功能不可用')
     expect(errorChips()).toHaveLength(0)
   })
 })
@@ -276,13 +276,13 @@ describe('UserscriptListPanel 横幅自动刷新', () => {
   it('订阅广播：SW 推送 availabilityChanged 时横幅直接更新（无需手动重查）', async () => {
     availability.mockResolvedValue(ENGINE_OFF)
     wrapper = await mountPanel()
-    expect(wrapper.text()).toContain('用户脚本引擎不可用')
+    expect(wrapper.text()).toContain('用户脚本功能不可用')
 
     // 用户在扩展管理页开了开关 → SW 轮询发现并广播 → 横幅自动消掉
     const cb = subscribeAvailability.mock.calls.at(-1)![0] as (a: UserScriptsAvailability) => void
     cb(OK_AVAILABILITY)
     await flushPromises()
-    expect(wrapper.text()).not.toContain('用户脚本引擎不可用')
+    expect(wrapper.text()).not.toContain('用户脚本功能不可用')
   })
 
   it('卸载时退订广播', async () => {

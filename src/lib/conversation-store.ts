@@ -265,8 +265,8 @@ export async function appendMessage(message: Message): Promise<Message | null> {
       if (existed) broadcastDataChange('conversation', message.conversationId)
       resolve(existed ? message : null)
     }
-    transaction.onerror = () => reject(transaction.error ?? new Error('appendMessage 事务失败'))
-    transaction.onabort = () => reject(transaction.error ?? new Error('appendMessage 事务中止'))
+    transaction.onerror = () => reject(transaction.error ?? new Error('写入消息失败'))
+    transaction.onabort = () => reject(transaction.error ?? new Error('写入消息被中止'))
   })
 }
 

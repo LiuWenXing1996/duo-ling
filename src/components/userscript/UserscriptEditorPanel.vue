@@ -301,7 +301,7 @@ useDataSync('script', (push) => {
         <div class="min-w-0 flex-1">
           <h3 class="truncate text-sm leading-tight font-semibold">{{ scriptName || '脚本' }}</h3>
           <p class="mt-0.5 truncate text-xs text-muted-foreground">
-            单文件脚本 · script.js
+            单文件脚本
             <span v-if="editDirty" class="text-destructive">· 有未保存改动</span>
             <span v-else-if="remoteChanged" class="text-destructive">· 已在别处修改（保存会覆盖，可点关闭后重开查看）</span>
           </p>

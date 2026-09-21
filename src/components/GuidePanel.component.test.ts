@@ -89,9 +89,9 @@ describe('GuidePanel 状态分支', () => {
   })
 
   it('检测失败：如实报错且不渲染状态卡片——绝不把「查不到」当成「没问题」', async () => {
-    const w = await mountPanel(new Error('background 无响应'))
+    const w = await mountPanel(new Error('扩展服务未响应，请重试'))
     expect(text(w)).toContain('状态检测失败')
-    expect(text(w)).toContain('background 无响应')
+    expect(text(w)).toContain('扩展服务未响应，请重试')
     expect(w.find('[data-testid="guide-userscripts"]').exists()).toBe(false)
     expect(w.find('[data-testid="guide-file-access"]').exists()).toBe(false)
   })

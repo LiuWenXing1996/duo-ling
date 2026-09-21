@@ -104,7 +104,7 @@ export function userScriptsGuideSteps(browser: { isFirefox: boolean; chromeMajor
  * 「允许访问文件网址」的分步指引 —— 「从路径导入」读本地文件的前置开关。
  *
  * 只做 Chrome：Firefox 侧的对应开关在 about:addons 里、开启口径与 Chrome 不同，而跨端本就是
- * 三期的事（见 README「后续接入」），此处**不预写没验证过的步骤**；调用方对 Firefox 不渲染本卡片。
+ * 跨端支持尚未定型，此处**不预写没验证过的步骤**；调用方对 Firefox 不渲染本卡片。
  *
  * Chrome 各版本都把这道开关放在**扩展详情页**的「网站权限」一节（与「允许运行用户脚本」同一页），
  * 故 ≥138 用 `?id=` 深链直达；<138 沿用 openOwnExtensionPage 的降级（退列表页，让用户自己点「详情」）。

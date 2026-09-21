@@ -452,7 +452,7 @@ async function runLoop(opts: {
     } catch (e) {
       pushChunk(conversationId, {
         type: 'error',
-        errorText: `脚本落盘失败：${e instanceof Error ? e.message : String(e)}`,
+        errorText: `脚本保存失败：${e instanceof Error ? e.message : String(e)}`,
       })
     }
 

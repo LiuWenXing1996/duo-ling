@@ -3,7 +3,7 @@
 // A. **契约来自静态目录**：左栏列的就是 catalog 的 6 个工具，选中即展示该工具的
 //    description 原文（面板展示 = 模型所见，故断言的是 catalog 里那一句）。
 // B. **轨迹来自会话库落盘**：assistant 消息 parts 里的 `tool-<name>` parts 被抽成轨迹行，
-//    带状态（已完成 / 错误）；没有记录时给「会话库为空 / 无这条工具记录」的空态而不是白屏。
+//    带状态（已完成 / 错误）；没有记录时给「暂无会话记录 / 无这条工具记录」的空态而不是白屏。
 //
 // 边界 mock：conversation-store（IDB 读侧）与 use-data-sync（变更订阅）——本面板是只读展示，
 // 两者都不必真跑；Collapsible / Badge 用真实 shadcn 组件。
@@ -103,12 +103,12 @@ describe('AgentToolsPanel', () => {
     expect(wrapper.find('[data-testid="agent-tools-select-all"]').text()).toContain('2 次调用')
   })
 
-  it('会话库为空：空态提示，不白屏', async () => {
+  it('暂无会话记录：空态提示，不白屏', async () => {
     listConversations.mockResolvedValue([])
     listMessages.mockResolvedValue([])
     wrapper = await mountPanel()
 
     expect(wrapper.findAll('[data-testid^="agent-tools-trace-"]')).toHaveLength(0)
-    expect(wrapper.text()).toContain('会话库为空')
+    expect(wrapper.text()).toContain('暂无会话记录')
   })
 })

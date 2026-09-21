@@ -43,7 +43,7 @@ export async function readLfsTree(root = '/'): Promise<LfsNode> {
   let count = 0
   async function walk(dir: string, name: string): Promise<LfsNode> {
     if (++count > LFS_TREE_MAX_NODES) {
-      throw new Error(`lfs 树节点数超出上限 ${LFS_TREE_MAX_NODES}，疑似异常状态`)
+      throw new Error(`文件树节点数超出上限 ${LFS_TREE_MAX_NODES}，疑似异常状态`)
     }
     const entries = await pfs.readdir(dir)
     const children: LfsNode[] = []
@@ -58,7 +58,7 @@ export async function readLfsTree(root = '/'): Promise<LfsNode> {
     )
     return { path: dir, name, type: 'folder', children }
   }
-  return walk(root, 'lfs 根')
+  return walk(root, '根目录')
 }
 
 // —— 单文件预览（只读调试视图，fs:lfsReadFile 的数据源）——
