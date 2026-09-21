@@ -58,6 +58,7 @@
 | [GIT_WORKFLOW.md](GIT_WORKFLOW.md) | **Git 工作流**：提交信息格式与 type 白名单 / 分支命名 / 分支保护与合并流程 / 小修补搭车 / 合并提交标题 | 写提交 / 起分支 / 开 PR 前 |
 | [CHANGELOG.md](CHANGELOG.md) | 每个发布版本的变更条目（格式与维护方式见 VERSIONING.md） | 发版时补条目 |
 | [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），可带一句 ≤30 字方向，**不写方案设计、也不承诺要做** | 攒需求 / 清理待办时；待办只记不做 |
+| [docs/gm-api-gap.md](docs/gm-api-gap.md) | 脚本面 GM API 与油猴标准的差距：覆盖面 / 完全缺失的 / 降级实现 / 本扩展自有，及补 API 时要同步的 5 处 | 改 `gm-grants.ts` / `gm-api-catalog.ts` / `spec-text.ts` 前后 |
 | [.github/pull_request_template.md](.github/pull_request_template.md) | PR 描述模板（动机 / 变更 / 测试证据三段） | 开 PR 时按它填 |
 | [.agents/skills/wxt/SKILL.md](.agents/skills/wxt/SKILL.md) | WXT 配置 / entrypoint / manifest 规范与坑 | 动构建配置、entrypoint、manifest 前 |
 | [.agents/skills/shadcn-vue/SKILL.md](.agents/skills/shadcn-vue/SKILL.md) | shadcn-vue 组件检索、添加与样式规范（上游 skill） | 动 UI / 表单 / 图标前 |
