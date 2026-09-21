@@ -232,7 +232,7 @@ watch(
 )
 
 // 暴露给根布局：左侧导航栏「引导 / 设置 / 脚本列表 / 错误日志 / 会话历史」与脚本管理器的「编辑」入口；
-// 另有脚本文件 / 会话数据 / AI 工具 / GM API / AI 界面对话预览五个标签页只在开发者模式下有入口
+// 另有五个标签页只在开发者模式下有入口，且可逐个关掉（清单见 lib/dev-mode-store.ts）
 defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorLogTab, openLfsBrowserTab, openChatDataTab, openSessionHistoryTab, openAgentToolsTab, openGmApiTab, openUserscriptEditor })
 </script>
 
