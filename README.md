@@ -12,16 +12,18 @@
 
 | 载体 | 角色 | 承载内容 |
 | --- | --- | --- |
-| **side panel** | 应用入口（常驻侧边栏） | **AI 对话界面**：会话列表（浮层抽屉）、消息流、输入区（含元素拾取 chip）、模型选择 |
-| **标签页 `workbench.html`** | 重界面工作区（按需打开） | 引导 / 脚本列表（默认落点、不可关闭）/ 运行日志 / 脚本编辑器 / 脚本历史 / 脚本产物 / lfs 浏览 / 会话数据 / AI 工具 / GM API / 设置 / UI 测试 |
+| **side panel** | 应用入口（常驻侧边栏） | **AI 对话界面**：当前标签页的会话（消息流、输入区含拾取 chip、模型选择）+ 顶栏「会话历史 / 打开工作台」两个去处 |
+| **标签页 `workbench.html`** | 重界面工作区（按需打开） | 引导 / 脚本列表（默认落点、不可关闭）/ 运行日志 / 脚本编辑器 / 脚本历史 / 脚本产物 / lfs 浏览 / 会话数据 / 会话历史 / AI 工具 / GM API / 设置 / UI 测试 |
 | **popup**（点工具栏图标弹出） | 配置入口（点开即用、点外即关） | 网页浮层开关（总开关 + 当前站点）；两个去处：「打开对话」「打开工作台」 |
-| **网页浮层 `floatpanel.html`**（content script 注入的 iframe） | 网页内便捷对话入口（与侧栏并存） | 与 side panel 同一套对话界面、同一份会话；按站点开关决定是否注入 |
+| **网页浮层 `floatpanel.html`**（content script 注入的 iframe） | 网页内便捷对话入口（与侧栏并存） | 与 side panel 同一套对话界面；会话 = **它所在标签页**的会话（tab 身份由 content script 经 iframe URL 传入）；按站点开关决定是否注入 |
 
-主流程：在侧边栏或网页浮层里对话描述需求 → 到工作台标签页管理脚本（新建 / 编辑 / 启停 / 看 git 历史）。标签页从侧边栏顶栏的「打开工作台」按钮或 popup 的「打开工作台」打开，支持 hash 深链：`#/guide` 开引导、`#/tool/<uuid>` 直达该脚本编辑器、`#/errors/<uuid>` 打开运行日志标签页并过滤到该脚本、`#/settings` 开设置。
+主流程：在侧边栏或网页浮层里对话描述需求 → 到工作台标签页管理脚本（新建 / 编辑 / 启停 / 看 git 历史）。标签页从侧边栏顶栏的「打开工作台」按钮或 popup 的「打开工作台」打开，支持 hash 深链：`#/guide` 开引导、`#/tool/<uuid>` 直达该脚本编辑器、`#/errors/<uuid>` 打开运行日志标签页并过滤到该脚本、`#/settings` 开设置、`#/sessions` 开会话历史。
+
+> **会话归属按标签页**：一个 tab 一条会话，切 tab 即切会话（映射见 `src/lib/conversation-tab-map.ts`）。所以对话界面里**没有**会话列表、也**没有**「新建会话」—— 要开一段新对话就开个新标签页，要回看旧对话就去工作台的「会话历史」（只读回放 + 改名 / 删除）。没发过消息的 tab 没有会话（惰性新建：第一条消息才建）。**正在被开着的标签页使用的会话不可删** —— 关掉那个标签页再删。
 
 > 点工具栏图标弹出的是 **popup**（不是直接开侧栏）——Chrome 的一个 action 不能同时默认开 popup 与 side panel，故侧栏入口收进 popup 的「打开对话」按钮；见 [wxt.config.ts](wxt.config.ts) 与坑 1。
 
-> **UI 复用**：四个载体的界面均为现成实现 —— side panel 由 `ChatApp.vue` 装配 `ChatPanel` + `SessionHistoryPanel`；网页浮层复用同一个 `ChatApp.vue`（另一个入口页 `floatpanel.html`，与侧栏共享同一份会话）；工作台由 `WorkbenchApp.vue`（左侧图标导航 + `WorkspaceHost` 多标签宿主）承载；popup 是独立的 `PopupPanel.vue`（纯配置面板，不装 `window.api`）。
+> **UI 复用**：四个载体的界面均为现成实现 —— side panel 由 `ChatApp.vue` 装配 `ChatPanel`；网页浮层复用同一个 `ChatApp.vue`（另一个入口页 `floatpanel.html`，各自显示其所在标签页的会话）；工作台「会话历史」标签页复用 `SessionHistoryPanel` 与 `ChatPanel` 的只读模式（`readonly`）；工作台整体由 `WorkbenchApp.vue`（左侧图标导航 + `WorkspaceHost` 多标签宿主）承载；popup 是独立的 `PopupPanel.vue`（纯配置面板，不装 `window.api`）。
 > 导航项是上方「载体分工」表标签清单的子集加每脚本标签，实况以 `WorkbenchApp.vue` 为准；复用铁律与组件桥接契约见 [AGENTS.md](AGENTS.md)「UI 复用」；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`，不经 `window.api`。
 
 ## 目录结构
@@ -45,13 +47,14 @@
 │  │     ├─ sidepanel-main.ts     # 侧边栏入口脚本（装 window.api + 主题 → ChatApp）
 │  │     ├─ floatpanel-main.ts    # 浮层入口脚本（同上，另一个入口页 → ChatApp）
 │  │     ├─ popup-main.ts         # popup 入口脚本（只装主题 → PopupPanel）
-│  │     ├─ ChatApp.vue           # side panel / 浮层共用根：顶栏 + 会话列表浮层 + ChatPanel 装配 + 孤儿任务横幅
+│  │     ├─ ChatApp.vue           # side panel / 浮层共用根：顶栏 + ChatPanel 装配 + 孤儿任务横幅（无会话列表）
 │  │     ├─ workbench-main.ts     # 工作台入口脚本（→ WorkbenchApp）
 │  │     ├─ WorkbenchApp.vue      # 工作台根：左侧图标导航 + WorkspaceHost + hash 深链
 │  │     └─ offscreen-main.ts     # offscreen 入口脚本
 │  ├─ components/                 # UI 组件（复用规则见 AGENTS.md「UI 复用」）
 │  │  ├─ ChatPanel.vue            #   聊天区：消息气泡 / 思考与执行过程折叠 / 工具卡 / 拾取 chip / 输入区 / 模型切换
-│  │  ├─ SessionHistoryPanel.vue  #   会话列表（搜索 / 重命名 / 删除确认）
+│  │  ├─ SessionHistoryPanel.vue  #   会话列表（搜索 / 重命名 / 删除确认）；抽屉形态与工作台标签页形态共用
+│  │  ├─ SessionHistoryTab.vue    #   会话历史标签页：左列表 + 右只读消息回放（ChatPanel readonly）
 │  │  ├─ WorkspaceHost.vue        #   工作区多标签宿主（标签开合 / 脏标记 / 历史恢复后重载）
 │  │  ├─ WorkspaceTabs.vue        #   标签栏（构建信息已移至 设置 → 关于）
 │  │  ├─ PopupPanel.vue           #   工具栏 popup：网页浮层开关（总开关 + 当前站点）+「打开对话 / 打开工作台」
@@ -82,6 +85,7 @@
 │  │  │  ├─ task-store.ts         #   生成任务快照（duoling-chat 库 tasks store，宿主被杀后可继续）
 │  │  │  └─ profile-cache.ts      #   模型配置缓存（offscreen 侧）
 │  │  ├─ conversation-store.ts    # 会话与消息（IndexedDB `duoling-chat`；唯一写方 = offscreen）
+│  │  ├─ conversation-tab-map.ts  # 标签页 → 会话 的归属映射（IndexedDB `duoling-app` 的 convByTab 键）
 │  │  ├─ model-store.ts           # 模型配置（IndexedDB `duoling-app` + 连通性测试；apiKey 密文落盘）
 │  │  ├─ key-cipher.ts            # API Key 落盘加密（AES-GCM，防扫描级）
 │  │  ├─ providers.ts             # 服务商预设（host_permissions 由此推导）
@@ -123,7 +127,7 @@
 3. **主题**：随系统深浅色 —— 切 macOS 外观为深色，面板与工作台应立刻跟着变（无需重载）
 4. **引导**：工作台左侧导航「引导」→ 两张状态自检卡：「运行用户脚本」（脚本注入的总开关）与「读取本地文件」（「从路径导入」的前置开关，只对 Chrome 渲染）。未开启时按步骤开完、**重启浏览器**、回本页点「重新检测」，状态应转为已开启
 5. **配模型**：面板顶栏「打开工作台」→ 左侧导航「设置」→ 添加模型（选服务商 / 填 API Key / 模型 ID）→「测试连接」→ 保存
-6. **对话**：面板内输入一句话发送 → 应流式输出文字（模型有 `reasoning_content` 时折叠成「查看思考」）；顶栏还有整会话导出（复制为 markdown）
+6. **对话**：面板内输入一句话发送 → 应流式输出文字（模型有 `reasoning_content` 时折叠成「查看思考」）；顶栏还有整会话导出（复制为 markdown）。会话归哪个标签页见 19
 7. **元素拾取**：任意页面 → 面板输入区点拾取按钮 → 页面里点选目标元素 → 面板出现拾取 chip（随下一条消息发出，可 × 清除）
 8. **脚本列表**：面板顶栏「打开工作台」→ 默认落「脚本列表」（可关掉别的标签，这个不可关）。本页操作：
    - **新建**：零输入，**建完停在列表不跳编辑器**，该行标「刚新建」；点该行「编辑」进过一次即摘标。
@@ -140,7 +144,7 @@
 16. **cookie 能力（GM_cookie）**：`npm run pack:uscripts` 后导入上述 zip → 启用「GM_cookie 探针」（其匹配规则**故意只写 `https://example.com/*`**）→ 打开 `https://example.com` → 点右下角角标跑用例：
    - 写读往返（含 `document.cookie` 交叉验证）/ 按 name 查 / 换路径仍放行（**pattern 的 path 段不参与判定**）/ **越域必须被拒** / 非 http(s) 拒 / 删除后读不到。
    - 核对面板「运行日志」里越域那条的报错文案（`PERMISSION_DENIED`）；改脚本匹配范围后门应即时收紧（`script` 域广播失效缓存）。
-17. **网页浮层**：任意普通网页右下角出现哆灵悬浮按钮（默认开）→ 点击展开对话界面（与侧栏同一套界面、同一份会话，两边发消息互相同步可见）→ 再点按钮收起。
+17. **网页浮层**：任意普通网页右下角出现哆灵悬浮按钮（默认开）→ 点击展开对话界面（与侧栏同一套界面；会话 = **这个标签页**的 —— 与侧栏在同一个标签页时是同一条，各自在不同标签页则各看各的）→ 再点按钮收起。
    - **拾取让位**：在浮层输入区点「点选元素」→ 浮层应整块消失、页面能正常高亮与点选 → 选完（或 Esc / 右键取消）浮层恢复，且原先展开的面板仍展开。
    - **开关**：popup（或工作台「设置 → 网页浮层」）关掉总开关 / 禁用当前站点后，该页刷新即不再注入；两处开关状态应互相同步。
    - **CSP 降级**：严格 CSP 的站点（`frame-src 'self'`）浮层降级为文字提示「该网站限制了内嵌框架…」，引导改用侧栏，不影响其他站点。
@@ -150,6 +154,16 @@
    - **不刷新就没有数据**：钩子只在文档开头挂，是前向捕获——开启前已跑完的首屏请求录不到，这不是缺陷。
    - **录的是该页发出的全部请求**（含三方 CDN / 广告 / 统计）：门禁的 host 是「在哪个站点录」，不是「录哪些域名」。URL 里的凭据（`?access_token=` 等）在落库前已脱敏成 `***`。
    - **开关只有这一个入口**：就是对话里那张卡（没有独立设置页），关掉后已录内容保留。
+19. **会话归属按标签页**：一条会话归一个标签页，所以对话界面里没有会话列表、也没有「新建会话」。
+   - **切 tab 即切会话**：在 A 标签页发消息 → 切到 B → 侧栏应显示**空的**对话（顶栏回到应用名「哆灵」）；在 B 里发一条 → B 建立起自己的会话；切回 A → 自动回到 A 的会话，消息原样还在。
+   - **生成不中断**：A 里发完消息立刻切到 B，再切回 A —— 应自动续上正在跑的生成（offscreen 的任务从没停过，断的只是本地那条流）。
+   - **没发消息就没有会话**：连开几个标签页、每个都点开面板看一眼，回「会话历史」看 —— 不该多出空会话。
+   - **关标签页不删对话**：关掉 A → 那条会话仍在「会话历史」里（只是不再归属任何标签页）；重新打开该站点是**新的一条**。
+   - **历史与改名 / 删除**：面板顶栏「会话历史」→ 工作台开对应标签页 → 左栏搜索 / 改名 / 删除，右栏只读回放（**没有输入框**）。
+   - **删除有前置门**：删一条**正被开着的标签页使用**的会话（某个标签页正在聊的那条）→ 弹「无法删除 · 该会话正在被「<站点>」标签页使用」，列表里那条仍在（这是刻意的：会话是那个标签页的现场）。弹框里的「**去那个标签页**」会直接跳过去（跨窗口时连窗口一起翻到前台），关掉它之后再删即可成功。删一条没人用的（例如已关闭标签页留下的旧会话）直接成功。
+   - **「删除全部」被挡下**：还有会话被标签页占用时点「删除全部」→ 弹框**逐条列出**「会话标题 · 站点」，每条各配一个「去标签页」按钮，可一条条跳过去关掉；弹框**不自动消失**（要连着关好几个），全关完再点一次「删除全部」即成功。
+   - **浮层同样是「它所在标签页」的**：在 A 页打开浮层显示的会话应与侧栏一致；切到 B 页再打开浮层 → 显示 B 的。
+   - **刷新当前标签页（浏览器刷新按钮）**：什么都不该变 —— 会话不换、不丢、也不新建。侧栏完全无感（它是 per-window 的独立文档，不随网页重载；且刷新不改 tabId、不触发 `tabs.onActivated`）；网页浮层会重建并**自动收起**（懒加载），再点悬浮按钮打开，仍是同一条会话。
 
 **改代码后**：WXT 自动重建；回 `chrome://extensions` 点扩展卡片的刷新图标重载。**改了 `wxt.config.ts` 须重启 dev**（见 [wxt 规范](.agents/skills/wxt/SKILL.md)）。
 
@@ -209,3 +223,7 @@
    - `floatpanel.html` **必须**进 `web_accessible_resources`（见 [wxt.config.ts](wxt.config.ts)），否则 Chrome 直接拦。
    - 被拦时要**降级成文字提示并引导改用侧栏**，不能静默失败；部分站点拦载不触发 iframe 的 `error` 事件，可靠性靠 `load` 超时兜底（`content.ts`）。
    - **换 `chrome.userScripts` 注入绕不过**：USER_SCRIPT 世界的宽松 CSP 只管「那个世界里执行的脚本」，不管「页面 DOM 能嵌入什么」。
+16. **浮层的标签页身份只能由 content script 传进来，不能它自己查**（「会话按标签页归属」的地基）：
+   - 浮层是扩展页 iframe，`chrome.tabs.query({active:true,currentWindow:true})` 拿到的是「窗口里当前**激活**的标签页」——而浮层可能挂在一个**已不是激活**的标签页上（用户切走了、浮层还留着），照它查就会把会话错接到别人的标签页。侧栏是 per-window 扩展页，才可以自己查激活标签页、并跟随 `tabs.onActivated` 换会话。
+   - 故浮层的 tab id 由 content script 经 `tab:identify` 命令向 SW 取 `sender.tab.id`（**content script 拿不到 `chrome.tabs`**，只有 runtime / storage 等 API 子集），拼进 iframe URL 的 `?tab=<id>` 传给浮层；取不到就退回不带参数。
+   - 拿不到 tabId 时的行为是**「不绑定」**（照常对话，只是这条会话不归属任何标签页）——好过错绑到别人的标签页。解析见 `use-global-conversation.ts` 的 `resolveOwningTabId`。

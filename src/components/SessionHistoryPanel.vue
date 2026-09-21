@@ -42,6 +42,10 @@ import { formatSessionTime } from '@/composables/use-global-conversation'
 const props = defineProps<{
   conversations: Conversation[]
   activeConversationId: string
+  /** 'drawer'（默认）= 对话界面里的抽屉形态：含「新建会话」与「收起」；
+   *  'page' = 工作台「会话历史」标签页形态：会话由标签页产生（这里没有「新建」这回事），
+   *  外层也没有可收起的抽屉。 */
+  variant?: 'drawer' | 'page'
 }>()
 const emit = defineEmits<{
   activate: [id: string]
@@ -217,7 +221,8 @@ function confirmRename(): void {
             <ui-tooltip-content>删除全部会话</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
-        <ui-tooltip-provider>
+        <!-- 「新建会话」只在抽屉形态出现：会话归属由标签页决定，工作台里没有「新建一条空会话」这回事 -->
+        <ui-tooltip-provider v-if="props.variant !== 'page'">
           <ui-tooltip>
             <ui-tooltip-trigger as-child>
               <ui-button
@@ -233,7 +238,8 @@ function confirmRename(): void {
             <ui-tooltip-content>新建会话</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
-        <ui-tooltip-provider>
+        <!-- 「收起」同理：工作台标签页没有外层抽屉可收 -->
+        <ui-tooltip-provider v-if="props.variant !== 'page'">
           <ui-tooltip>
             <ui-tooltip-trigger as-child>
               <ui-button

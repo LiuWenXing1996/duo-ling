@@ -229,6 +229,12 @@ export type RuntimeRequest =
   // 注意前缀：`chat:` 是「SW 静默让路给 offscreen」的保留前缀，SW 自答的命令不能用
   | { kind: 'page:snapshot' }
 
+  // —— 内容脚本自证身份 ——
+  // content script 拿不到 chrome.tabs，而网页浮层（扩展页 iframe）必须知道「自己属于哪个
+  // 标签页」才能认定该 tab 的会话归属。故 content script 经本命令取回 sender.tab.id
+  // （SW 是唯一知道发送方 tab 的一方），再拼进 iframe URL 传给浮层。
+  | { kind: 'tab:identify' }
+
   // —— SW 自证（诊断）——
   // SW 的 define 注入构建信息（wxt.config.ts）不是 HTML，页面看不见；UI 经此命令取回并展示。
   // 发消息本身会把休眠的 SW 唤醒，故返回的总是「此刻 SW 上下文」的构建信息——正是想要的语义。

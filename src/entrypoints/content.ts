@@ -5,6 +5,9 @@
 //   - 跑在 ISOLATED world：可直接用 chrome.storage / chrome.runtime.getURL，无需经 SW 中转。
 //   - 注入根挂 shadow DOM：FAB 样式与页面互相隔离。
 //   - iframe 懒加载：首次点击才设 src，避免页面一开就加载扩展页占资源。
+//   - 身份传递：首次打开时先向 SW 取本 tab 的 id（content script 拿不到 chrome.tabs），
+//     拼进 iframe URL（floatpanel.html?tab=<id>）—— 浮层据此认定自己的会话归属（每 tab 一条会话）。
+//     取不到就退回不带参数：浮层侧归属退化为「不绑定」，好过错绑到别人的 tab。
 //   - per-site 开关：main() 读 storage 判定当前 host 是否启用，否则不挂；storage 变更时动态增删。
 //   - CSP 降级：iframe 加载失败（严格 frame-src 拦扩展 iframe）时提示改用侧栏。
 //   - 拾取让位：页面元素拾取（点选元素 / 快照）期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
@@ -12,6 +15,7 @@
 // WXT 按文件名 content.ts 自动识别为 content script；matches 经 defineContentScript 声明。
 
 import { defineContentScript } from '#imports'
+import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import { isFloatEnabledForHost } from '@/lib/float-panel-store'
 
 // 浮层根 id（全局唯一，防止重复注入）
@@ -82,6 +86,33 @@ const FAB_CSS = `
 // message-circle 图标（lucide）
 const CHAT_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`
 
+/**
+ * 取本内容脚本所在标签页的 id。
+ *
+ * content script 拿不到 `chrome.tabs`（只有 runtime / storage 等 API 子集），而 SW 的
+ * `sender.tab` 是唯一权威来源 —— 故经 `tab:identify` 命令请它回答。
+ * 失败（SW 未起、扩展重载的窗口期）返回 null，由调用方降级为不带参数。
+ */
+function requestTabId(): Promise<number | null> {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage(
+        { kind: 'tab:identify' } satisfies RuntimeRequest,
+        (response: RuntimeResponse<{ tabId: number | null }> | undefined) => {
+          const lastError = chrome.runtime.lastError
+          if (lastError || !response?.ok) {
+            resolve(null)
+            return
+          }
+          resolve(response.data?.tabId ?? null)
+        },
+      )
+    } catch {
+      resolve(null)
+    }
+  })
+}
+
 /** 构建并挂好浮层 UI，返回宿主根元素（已含 shadow DOM） */
 function buildFloatUi(): HTMLElement {
   const root = document.createElement('div')
@@ -115,6 +146,8 @@ function buildFloatUi(): HTMLElement {
 
   let opened = false
   let loaded = false
+  /** src 是否已指派（含「正在取 tabId」的在途态）：首次打开连点两次不该指派两回、加载两回 */
+  let srcAssigned = false
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null
 
   const showFallback = (): void => {
@@ -128,14 +161,18 @@ function buildFloatUi(): HTMLElement {
   const open = (): void => {
     container.classList.add('open')
     opened = true
-    if (!iframe.src) {
-      // 懒加载：首次打开才设 src
-      iframe.src = chrome.runtime.getURL('floatpanel.html')
-      loaded = false
+    if (srcAssigned) return
+    srcAssigned = true
+    loaded = false
+    // 懒加载：首次打开才设 src。src 要等 tabId 取回再拼 —— 浮层靠 URL 里的 tab 参数
+    // 认定会话归属（每 tab 一条会话），自带参数比让它自己去猜可靠。
+    void requestTabId().then((tabId) => {
+      const url = chrome.runtime.getURL('floatpanel.html')
+      iframe.src = tabId == null ? url : `${url}?tab=${tabId}`
       fallbackTimer = setTimeout(() => {
         if (!loaded) showFallback()
       }, 2500)
-    }
+    })
   }
   const close = (): void => {
     container.classList.remove('open')

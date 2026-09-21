@@ -70,6 +70,8 @@ import {
   initPageMonitorPorts,
   resetPageRuns,
 } from '@/lib/userscripts/page-monitor'
+// 会话的标签页归属映射（duoling-app 库）：标签页关闭时在这里清（见 tabs.onRemoved 处说明）
+import { unbindTab } from '@/lib/conversation-tab-map'
 import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主）
@@ -94,7 +96,7 @@ import { capturePageSnapshotFromTab, pageInjectionBlockReason } from '@/lib/elem
  *
  * export 仅供协议一致性测试（extension-ipc.test.ts）做 kind 归属断言。
  */
-export const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:', 'sw:', 'page:'] as const
+export const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:', 'sw:', 'page:', 'tab:'] as const
 
 /**
  * SW 管辖的请求（由上面的前缀推导，两者必须同源）。
@@ -180,8 +182,13 @@ async function registerOrLog(project: ScriptProject): Promise<string | undefined
   }
 }
 
+// 第二个参数是 chrome 的消息发送方：只有需要「回 sender 自己的东西」的命令才用得上
+// （现仅 tab:identify 取 sender.tab.id）；其余 handler 少写一个参数即可，TS 允许。
 const handlers: {
-  [K in SwRequest['kind']]: (msg: Extract<SwRequest, { kind: K }>) => Promise<unknown>
+  [K in SwRequest['kind']]: (
+    msg: Extract<SwRequest, { kind: K }>,
+    sender: chrome.runtime.MessageSender,
+  ) => Promise<unknown>
 } = {
   // —— offscreen 容器——
   // A 组只做容器与通道：这几个命令供手动 / 调试触发；B 组的生成入口会直接调 ensureOffscreen()。
@@ -220,6 +227,15 @@ const handlers: {
     if (blocked) throw new Error(`${blocked}，无法采集页面快照`)
     return capturePageSnapshotFromTab(tab.id)
   },
+
+  // —— 内容脚本自证身份 ——
+  // 回 sender 自己的 tab id：content script 拿不到 chrome.tabs，而网页浮层（扩展页 iframe）
+  // 必须知道「自己属于哪个 tab」才能认定会话归属（每 tab 一条会话）。
+  // 取不到时回 null（扩展页发的消息本就没有 tab），由调用方降级——浮层拿不到 tabId 的
+  // 情况下会话归属退化为「不绑定」，而不是错绑到别的 tab。
+  'tab:identify': async (_msg, sender): Promise<{ tabId: number | null }> => ({
+    tabId: sender.tab?.id ?? null,
+  }),
 
   // —— 用户脚本管理器（v2 方案 Phase 0：命令面沿用，载荷换成项目形态）——
   // 列表视图：项目读自状态库（直连 IDB）；运行统计（runtime 库 stats store）同样 SW 直读，这里挂上
@@ -526,6 +542,10 @@ function mountProposal2Listeners(): void {
 
   chrome.tabs.onRemoved.addListener((tabId) => {
     forgetPageTab(tabId)
+    // 会话归属映射一并清掉：面板没开的时候标签页照样会被关，只有常驻的 SW 不漏。
+    // 漏清也不致错 —— 会话历史的删除门自己会验「标签页是否还开着」，残留项判不出「在用」
+    // （见 conversation-tab-map 的 getActiveTabBindings）；这里清是为了不留垃圾。
+    void unbindTab(tabId).catch(() => {})
   })
 
   // 面板存活端口 + 徽章清零
@@ -599,7 +619,7 @@ export default defineBackground(() => {
   // 它落盘成功后自己广播 `model` 域（扩展页回拉）并推送 offscreen:configChanged（offscreen
   // 的 profile-cache 回拉）。SW 这里不再需要 storage.onChanged 兜底。
 
-  chrome.runtime.onMessage.addListener((raw, _sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
     const msg = raw as RuntimeRequest | undefined
     if (!msg?.kind) return
 
@@ -615,14 +635,14 @@ export default defineBackground(() => {
 
     // 走到这里 msg.kind 必属 SW 管辖（上面按 SW_KIND_PREFIXES 过滤过），故可安全收窄
     const handler = handlers[msg.kind as SwRequest['kind']] as
-      | ((m: RuntimeRequest) => Promise<unknown>)
+      | ((m: RuntimeRequest, sender: chrome.runtime.MessageSender) => Promise<unknown>)
       | undefined
     if (!handler) {
       sendResponse({ ok: false, error: `未知消息类型：${msg.kind}` })
       return false
     }
 
-    handler(msg)
+    handler(msg, sender)
       .then((data) => sendResponse({ ok: true, data }))
       .catch((e: unknown) =>
         sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }),

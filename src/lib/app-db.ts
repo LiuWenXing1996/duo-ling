@@ -102,6 +102,32 @@ export async function set(key: string, value: unknown): Promise<void> {
   })
 }
 
+/**
+ * 原子读-改-写：在**单个 readwrite 事务**内读旧值、交给 mutate 产出新值、写回。
+ *
+ * 为什么必须提供它：跨上下文并发写同一个键会丢更新。典型场景是 tab 归属映射
+ * （`convByTab`，见 conversation-tab-map.ts）——「面板在 A tab 记一条」与
+ * 「SW 在 B tab 关掉时删一条」可能交错，各自 get 到同一份旧值再 set，后写的把先写的抹掉。
+ * IndexedDB 会把同一 store 的 readwrite 事务串行化，因此把读与写放进**同一个事务**
+ * 就是原子操作（同 conversation-store 的 takeNextSeq）；拆成两个独立事务则不是。
+ *
+ * 返回 mutate 产出的新值（调用方通常要接着用它）。
+ */
+export async function update<T>(key: string, mutate: (prev: T | undefined) => T): Promise<T> {
+  return runTx('readwrite', async (tx) => {
+    const store = tx.objectStore(KV_STORE)
+    const prev = (await request<KvRecord | undefined>(store.get(key)))?.value as T | undefined
+    const next = mutate(prev)
+    store.put({ key, value: next } satisfies KvRecord)
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error ?? new Error('写入应用配置失败'))
+      tx.onabort = () => reject(tx.error ?? new Error('写入应用配置被中止'))
+    })
+    return next
+  })
+}
+
 /** 删除一个键（键不存在是 no-op） */
 export async function remove(key: string): Promise<void> {
   await runTx('readwrite', async (tx) => {

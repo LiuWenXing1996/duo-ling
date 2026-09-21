@@ -98,6 +98,9 @@ const props = defineProps<{
   streaming: boolean
   /** 最近一次生成失败的错误文案（空串 = 无错）；渲染在消息区与输入框之间 */
   errorText?: string
+  /** 只读回放：不渲染输入区（含拾取与模型切换）—— 工作台「会话历史」看历史用。
+   *  消息区、思考链、工具卡、复制、生成卡片都照常，只是不能再发消息。 */
+  readonly?: boolean
 }>()
 const emit = defineEmits<{
   send: [text: string]
@@ -1018,7 +1021,9 @@ function userScriptsUnavailableMessageSafe(): string {
         {{ props.errorText }}
       </p>
 
-      <div class="border-t p-3">
+      <!-- 输入区：只读回放（工作台「会话历史」）不渲染 —— 看历史不需要输入框，
+           留着反而让人以为这个 tab 能发消息 -->
+      <div v-if="!props.readonly" class="border-t p-3">
         <!-- 拾取 chip：随下一条消息发出的暂存上下文，× 可清除；发送成功后自动消失 -->
         <div
           v-if="pickedElement || contextError"

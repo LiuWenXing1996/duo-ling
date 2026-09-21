@@ -17,6 +17,8 @@
   - **菜单触发按钮不套 Tooltip（reka-ui 2.10 实测）**：即便顺序正确，`TooltipTrigger` 套在 `DropdownMenuTrigger` 外层仍会让 menu popper 失去定位（内容渲染到视口外，`translate(0,-200%)` 兜底，无任何报错；组件测试 / happy-dom 测不出来，只有真实浏览器可见性断言能抓到）。改用原生 `title`（`SessionHistoryPanel` 会话操作按钮即此例）。
   - **Collapsible 折叠语义（reka-ui 2.10 实测）**：`force-mount` 加在 `CollapsibleContent` 上**不是「保持挂载但隐藏」**——它使 `present=true`、不写 `hidden` 属性，收起时内容照样显示。
     「收起时留在 DOM 但不可见」（表单与编辑态始终同源、组件测试定位控件不受折叠影响）只能给**根组件** `<ui-collapsible :unmount-on-hide="false">`：内容带 `hidden` 属性，属性值经 Vue 归一为空串（测试只断言存在性，不断言 `until-found`）。`UserscriptEditorPanel` 脚本配置区即此例（默认收起，收起态用摘要行交代当前注入面）。
+  - **会话归属按标签页（2026-09-21）**：一个 tab 一条会话、切 tab 即切会话（映射见 `src/lib/conversation-tab-map.ts`）。对话界面（`ChatApp` 系列）里**不得**加回会话列表或「新建会话」—— 历史会话的入口在工作台「会话历史」标签页。归属解析与惰性新建**只在 `use-global-conversation.ts` 一处**，面板组件不做归属判断。
+    **删除会话必须先过「是否正被标签页使用」这道门**（`conversation-tab-map` 的 `getActiveTabBindings`：映射里有 **且** 该标签页还开着）—— 新增任何删除入口都要走它，别只查映射。
 - **主题**：**跟随系统**（`src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`）—— html 上不硬写 `class="dark"`，组件里不硬编码色值（一律用主题变量如 `--background`）。
 - **工作台标签页（面板）**：新增 / 改动按 [workbench-panel](.agents/skills/workbench-panel/SKILL.md) 走 —— **接线固定 5 处（清单只在该 SKILL 罗列）**。
   - **面板数据源不得 import offscreen 专属模块**（`us-git` / `builder` / `offscreen-chat/script-tools`）：要么新增 IPC，要么抽一份运行时与 UI 共用的纯数据模块，并配「从运行时反射比对」的防漂移单测。

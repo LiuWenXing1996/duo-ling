@@ -157,6 +157,7 @@ export type WorkspaceTabKind =
   | 'script-history'
   | 'lfs-browser'
   | 'chat-data'
+  | 'session-history'
   | 'agent-tools'
   | 'gm-api'
   | 'error-log'
