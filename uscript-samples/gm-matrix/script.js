@@ -16,15 +16,15 @@
 // （@grant 裁剪本身另有用例覆盖，见 gm-wrapper.test.ts 的 resolveGmExposure）。
 //
 // 用法：`npm run pack:uscripts` → 工作台「脚本列表」导入 → 启用 → 打开任意 http(s) 页面
-//       → 点面板上的「跑全部」。**跑的时候要盯着面板**：轮到需要动手的用例会出现
-//       `→ …` 提示，照着做即可（错过就是「?」，重跑一遍即可）。跑完点「复制结果」整段贴回。
+//       → 点面板上的「跑全部」→ 跑完点「复制结果」整段贴回。
 //
-// 三项**必须你动手**才判得准（其余全自动）：
-//   · GM.page.listen  —— 点一下页面任意处（触发被中继的真事件）
-//   · GM_setClipboard  —— 在左下角输入框按一次 Cmd/Ctrl+V（读回写入的到底是什么）
+// 四项**要你动手**才判得准（其余全自动）。它们**不阻塞跑批**：跑批照常走完，这几项先落 `⋯`，
+// 动作做完后自动翻成结果 —— 面板与左下角那个「待你完成」盒子都会实时更新，不限时（10 分钟兜底）：
+//   · GM.page.listen  —— 点一下页面任意处（点那个盒子也算）
+//   · GM_setClipboard  —— 在盒子里那个输入框按一次 Cmd/Ctrl+V（读回写入的到底是什么）
 //   · GM_registerMenuCommand —— 在页面右键 → 点「GM 矩阵：点我试试」（验菜单点击链路）
-//   另有 GM.page.fetchHook 需要页面**自己**发一个请求，窗口 12s（安静页面记「?」）。
-//   全程约 30–60s，取决于你动手多快。
+//   · GM.page.fetchHook —— 让页面**自己**发一个请求（换会拉接口的站点重跑；或在本页 DevTools
+//     Console 里执行 fetch(location.href)）。安静页面（如 example.com）会一直挂着当待办。
 //
 // 副作用（都已尽量自清）：网络用例出网 2 次；tabs 用例开 1 个 example.com 标签页（跑完自动关）；
 //       通知用例弹 1 条系统通知；下载与 cookie 写入两条**先 confirm** 再跑；剪贴板会覆盖你当前的
@@ -85,9 +85,8 @@
   function fail(d) { return mark(false, d) }
   function unknown(d) { return mark('?', d) }
 
-  /** 面板内的三个节点（ensurePanel 建一次，render 只改文本） */
+  /** 面板内的节点（ensurePanel 建一次，render 只改文本） */
   var statusEl = null
-  var hintEl = null
   var outEl = null
 
   var BTN_STYLE =
@@ -127,11 +126,8 @@
     bar.appendChild(panelButton('复制结果', 'copy'))
     el.appendChild(bar)
     statusEl = document.createElement('div')
-    statusEl.style.cssText = 'margin:6px 0 2px;color:#888'
+    statusEl.style.cssText = 'margin:6px 0 4px;color:#888'
     el.appendChild(statusEl)
-    hintEl = document.createElement('div')
-    hintEl.style.cssText = 'margin-bottom:4px;color:#e3b341'
-    el.appendChild(hintEl)
     outEl = document.createElement('div')
     outEl.style.cssText = 'white-space:pre-wrap;user-select:text'
     el.appendChild(outEl)
@@ -139,14 +135,63 @@
     return el
   }
 
-  /** 跑批期间显示的人工提示（需要用户动手的用例设它，跑完清掉） */
-  var currentHint = ''
-
   /** 短暂替换状态行（复制结果后的反馈），1.5s 后还原 */
   function flash(text) {
     var prev = statusEl.textContent
     statusEl.textContent = text
     setTimeout(function () { statusEl.textContent = prev }, 1500)
+  }
+
+  // —— 「待你完成」盒子（左下）——
+  //
+  // 教训（2026-09-21 真机第二轮）：人工项的说明只写在结果面板的一行提示里 + 只给 15/20s 窗口，
+  // 结果是「不知道要做什么」而不是「做了什么没生效」。故把动作摆到页面上一个独立盒子里，
+  // 每项一行、写完就不限时等着（面板里的 ⋯ 行会跟着翻成 ✓）。
+
+  var todoBox = null
+
+  function ensureTodo() {
+    if (todoBox && document.contains(todoBox)) return todoBox
+    todoBox = document.createElement('div')
+    todoBox.id = ID + '-todo'
+    todoBox.style.cssText =
+      'position:fixed;left:12px;bottom:12px;z-index:2147483647;max-width:430px;padding:8px 10px;' +
+      'border-radius:6px;background:#1c1a12;border:1px solid #e3b341;color:#e3b341;' +
+      'font:12px/1.6 ui-monospace,SFMono-Regular,monospace'
+    var head = document.createElement('div')
+    head.textContent = '待你完成（不限时，做完就消失）：'
+    todoBox.appendChild(head)
+    ;(document.body || document.documentElement).appendChild(todoBox)
+    return todoBox
+  }
+
+  /** 挂一行待办；返回 { done, append }。做完 done() 把它变灰（保留着供复核） */
+  function todoRow(label) {
+    var box = ensureTodo()
+    var row = document.createElement('div')
+    row.style.cssText = 'margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap'
+    var tag = document.createElement('span')
+    tag.textContent = '□'
+    row.appendChild(tag)
+    var text = document.createElement('span')
+    text.textContent = label
+    row.appendChild(text)
+    box.appendChild(row)
+    return {
+      done: function () {
+        tag.textContent = '✓'
+        row.style.opacity = '.45'
+        dropTodoIfIdle()
+      },
+      append: function (el) { row.appendChild(el) },
+    }
+  }
+
+  /** 待办全做完就把盒子撤掉 */
+  function dropTodoIfIdle() {
+    if (pendingCount > 0 || !todoBox) return
+    todoBox.remove()
+    todoBox = null
   }
 
   /** 复制矩阵文本到剪贴板：优先走 GM_setClipboard（本包自己就在验它），落回浏览器 API */
@@ -176,20 +221,28 @@
     var ok = 0
     var bad = 0
     var q = 0
+    var pend = 0
     var lines = []
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i]
       if (r.mark === '✓') ok++
       else if (r.mark === '✗') bad++
       else if (r.mark === '?') q++
+      else if (r.mark === '⋯') pend++
       lines.push(r.mark + ' [' + r.group + '] ' + r.name + (r.detail ? ' — ' + r.detail : ''))
     }
     if (rows.length && !running) {
-      lines.push('—— ✓' + ok + ' ✗' + bad + ' ?' + q + ' / 共 ' + rows.length)
-      lines.push('（点「复制结果」拿到可整段回帖的文本）')
+      lines.push('—— ✓' + ok + ' ✗' + bad + ' ?' + q + (pend ? ' ⋯' + pend : '') + ' / 共 ' + rows.length)
+      lines.push(
+        pend
+          ? '（剩下 ' + pend + ' 项在左下角「待你完成」盒子里，做完它们会自动翻 ✓，不限时）'
+          : '（点「复制结果」拿到可整段回帖的文本）',
+      )
     }
-    statusEl.textContent = head || (running ? '运行中…' : '就绪')
-    hintEl.textContent = running && currentHint ? '→ ' + currentHint : ''
+    if (head) statusEl.textContent = head
+    else if (running) statusEl.textContent = '运行中…'
+    else if (!rows.length) statusEl.textContent = '就绪'
+    else statusEl.textContent = pend ? '完成 · 还有 ' + pend + ' 项在左下角盒子里' : '完成'
     outEl.textContent = lines.join('\n')
     outEl.style.color = bad ? '#ff7b72' : running ? '#e3b341' : '#7ee787'
   }
@@ -213,16 +266,24 @@
   }
 
   /**
-   * 轮询等一个人工动作 / 外部事件（每 250ms 看一次）。超时返回 false，由调用方记「?」。
-   * 矩阵里有三项**必须用户动手**才判得准，等的就是它们。
+   * 轮到人工项时**不阻塞跑批**：arm 好之后就一直等（每 250ms 看一次），你什么时候动手什么时候翻 ✓。
+   * 上限 10 分钟（防跑批永远挂着），超时由调用方记「?」。
    */
-  async function waitFor(get, ms) {
-    var steps = Math.ceil(ms / 250)
-    for (var i = 0; i < steps; i++) {
-      if (get()) return true
-      await sleep(250)
-    }
-    return !!get()
+  function waitUntil(get, ms) {
+    return new Promise(function (resolve) {
+      var deadline = Date.now() + (ms || 600000)
+      var timer = setInterval(function () {
+        if (get()) {
+          clearInterval(timer)
+          resolve(true)
+          return
+        }
+        if (Date.now() > deadline) {
+          clearInterval(timer)
+          resolve(false)
+        }
+      }, 250)
+    })
   }
 
   /**
@@ -254,8 +315,8 @@
   // 每条：{ group, name, run, confirm? }。run() 返回 mark(...)；抛错按「✗ + 错误码」记。
 
   var CASES = []
-  function add(group, name, run, confirm) {
-    CASES.push({ group: group, name: name, run: run, confirm: !!confirm })
+  function add(group, name, run, opts) {
+    CASES.push({ group: group, name: name, run: run, pending: !!(opts && opts.pending) })
   }
 
   // —— 基础 ——
@@ -434,32 +495,29 @@
     var text = 'duoling-matrix-clipboard'
     GM_setClipboard(text)
     await GM.setClipboard(text + '-2')
-    // 回读剪贴板要用户手势（浏览器限制）→ 摆一个输入框，请你真按一次粘贴，从 paste 事件取内容。
-    // 这样「写进去的到底是什么」才是被验过的事实，而不是「调用没抛」。
+    // 回读剪贴板要用户手势（浏览器限制）→ 在待办盒子里摆一个输入框，请你按一次粘贴，从 paste
+    // 事件取内容。这样「写进去的到底是什么」才是被验过的事实，而不是「调用没抛」。
+    var row = todoRow('在下面这个框里点一下、按一次 Cmd/Ctrl+V —— 验剪贴板写入')
     var box = document.createElement('textarea')
     box.id = ID + '-paste'
     box.style.cssText =
-      'position:fixed;left:12px;bottom:12px;z-index:2147483647;width:280px;height:60px;' +
-      'font:12px ui-monospace,monospace;background:#111;color:#7ee787;border:1px solid #e3b341'
-    box.placeholder = '按一次 Cmd/Ctrl+V 验剪贴板'
-    ;(document.body || document.documentElement).appendChild(box)
-    cleanups.push(function () { box.remove() })
+      'width:100%;height:44px;font:12px ui-monospace,monospace;background:#111;color:#7ee787;border:1px solid #e3b341'
+    box.placeholder = '点这里 → 按 Cmd/Ctrl+V'
+    row.append(box)
     var pasted = null
     box.addEventListener('paste', function (ev) {
       pasted = (ev.clipboardData && ev.clipboardData.getData('text/plain')) || ''
     })
-    try { box.focus() } catch (e) { /* 焦点被人抢走就靠你自己点它 */ }
-    currentHint = '在左下角输入框里按一次 Cmd/Ctrl+V（验剪贴板）'
-    render()
-    await waitFor(function () { return pasted !== null }, 15000)
-    currentHint = ''
-    render()
-    if (pasted === null) return unknown('15s 内没粘贴 → 剪贴板内容未能回读（两形态调用本身不抛）')
+    try { box.focus() } catch (e) { /* 焦点被抢就靠你自己点它 */ }
+    var acted = await waitUntil(function () { return pasted !== null })
+    box.remove()
+    row.done()
+    if (!acted) return unknown('10 分钟没粘贴 → 剪贴板写入的内容未能回读（两形态调用本身不抛）')
     if (!pasted) return unknown('粘贴事件到了但读不到内容（隔离世界拿不到 clipboardData？）')
     return pasted === text || pasted === text + '-2'
       ? pass('两形态写入成功，粘贴回读命中：' + pasted)
       : fail('粘贴内容不符：' + JSON.stringify(pasted.slice(0, 60)))
-  })
+  }, { pending: true })
 
   add('系统能力', 'GM_openInTab / GM.openInTab', async function () {
     if (typeof GM_openInTab !== 'function' || typeof GM.openInTab !== 'function') {
@@ -636,16 +694,15 @@
       return /PAGE_STUB_UNAVAILABLE|HANDSHAKE_FAILED|超时/.test(msg(e)) ? unknown('页面世界桩不可用：' + msg(e)) : fail(code(e) + msg(e))
     }
     cleanups.push(function () { if (off) off() })
-    // 触发必须是**页面自己发出的真事件**（点一下页面即可，点这个面板也算 —— 它也在页面 DOM 里）。
+    // 触发必须是**页面自己发出的真事件**（点页面任意处都行 —— 点待办盒子也算，它也在页面 DOM 里）。
     // 不能靠注入内联 script，见上面那段实测结论。
-    currentHint = '请点击页面任意处（触发 GM.page.listen）'
-    render()
-    await waitFor(function () { return !!got }, 15000)
-    currentHint = ''
-    render()
-    if (!got) return unknown('15s 内没等到点击 → GM.page.listen 未验（需要你点一下页面）')
+    var row = todoRow('点一下页面任意处（点这个盒子也行）—— 验 GM.page.listen 中继')
+    var acted = await waitUntil(function () { return !!got })
+    row.done()
+    if (off) off()
+    if (!acted) return unknown('10 分钟没动手 → GM.page.listen 未验')
     return pass('收到页面 click（type=' + got.type + '）')
-  })
+  }, { pending: true })
 
   add('站点与页面', 'GM.page.fetchHook（页面 fetch 拦截）', async function () {
     if (typeof GM === 'undefined' || !GM.page || typeof GM.page.fetchHook !== 'function') throw new Error('GM.page.fetchHook 未挂载')
@@ -659,17 +716,18 @@
     } catch (e) {
       return /PAGE_STUB_UNAVAILABLE|HANDSHAKE_FAILED|超时/.test(msg(e)) ? unknown('页面世界桩不可用：' + msg(e)) : fail(code(e) + msg(e))
     }
-    cleanups.push(function () { if (off) off() })
     // 只能**被动等页面自己发请求**：脚本世界的 fetch 与页面被代理的不是同一个绑定（自己发测不到），
-    // 注入内联 script 又不执行。窗口 12s，期间可顺手点点页面 / 滚动，让它自己发点请求。
-    currentHint = '等页面自己发一个请求（可顺手点几下页面；最多 12s）'
-    render()
-    await waitFor(function () { return !!decided }, 12000)
-    currentHint = ''
-    render()
-    if (!decided) return unknown('12s 内本页没发出请求 → 换个会拉接口的站点再跑这一项')
+    // 注入内联 script 又不执行。故**不设时限**：等到了就翻 ✓；安静页面（如 example.com）会一直挂着，
+    // 你换站点重跑即可。
+    var row = todoRow(
+      '让页面自己发一个请求（换会拉接口的站点重跑；或在此页 DevTools Console 里执行 fetch(location.href)）—— 验 GM.page.fetchHook',
+    )
+    var acted = await waitUntil(function () { return !!decided })
+    row.done()
+    if (off) off()
+    if (!acted) return unknown('10 分钟本页没发出请求 → 换个会拉接口的站点再跑这一项')
     return pass('拦到页面 fetch：' + decided.method + ' ' + String(decided.url).slice(0, 60))
-  })
+  }, { pending: true })
 
   add('站点与页面', 'GM_registerMenuCommand / GM_unregisterMenuCommand', async function () {
     if (typeof GM_registerMenuCommand !== 'function' || typeof GM_unregisterMenuCommand !== 'function') {
@@ -686,18 +744,15 @@
     if (typeof nsId !== 'number') throw new Error('GM.* 形态没 resolve 出数字 id')
     // 四种调用成功只说明「登记没报错」。真正的验收是**点击链路**：contextMenus.onClicked →
     // SW 按 tabId 路由 menu.click → 包装层按 id 查表调回调。全仓只这一条路能测到它。
-    currentHint = '在页面任意处右键 → 点「' + CAPTION + '」（验菜单点击链路）'
-    render()
-    await waitFor(function () { return !!clicked }, 20000)
-    currentHint = ''
-    render()
+    var row = todoRow('在页面任意处右键 → 点「' + CAPTION + '」—— 验菜单点击链路')
+    var acted = await waitUntil(function () { return !!clicked })
+    row.done()
     GM_unregisterMenuCommand(id)
     GM_unregisterMenuCommand(CAPTION)
     GM.unregisterMenuCommand(nsId)
-    return clicked
-      ? pass('四种调用成功，点到菜单项后回调经 menu.click 推回（' + clicked + '）')
-      : unknown('四种调用成功，但 20s 内没点到菜单项 → 菜单可见性与点击链路都未验')
-  })
+    if (!acted) return unknown('10 分钟没点菜单项 → 菜单可见性与点击链路都未验')
+    return pass('点到菜单项后回调经 menu.click 推回（' + clicked + '）')
+  }, { pending: true })
 
   // —— 收尾：clearValues 放最后（它会清掉前面用例写的值）——
 
@@ -711,30 +766,79 @@
 
   // ————————————————————————— 跑批 —————————————————————————
 
+  /** 待完成的用例数（面板与待办盒子据此决定收尾） */
+  var pendingCount = 0
+  /** 跑批序号：重跑后上一轮未完成的人工项结果作废（否则会写进新一轮的行里） */
+  var runSeq = 0
+
+  /**
+   * 人工项：**不阻塞跑批** —— 先落一行 `⋯ 待你完成`，等它在左下角盒子里被你做完再翻成结果。
+   * 自己负责收尾（不 push 到 cleanups，否则跑批结束就把它拆了、你再也做不成）。
+   */
+  function armPending(group, name, promise) {
+    var seq = runSeq
+    var idx = rows.length
+    rows.push({ mark: '⋯', group: group, name: name, detail: '待你完成（左下角盒子）' })
+    pendingCount++
+    render()
+    return promise.then(
+      function (res) {
+        if (seq !== runSeq) return // 上一轮的残留：监听与菜单由它自己的超时收尾
+        var r = res && res.mark ? res : fail('用例没返回结果')
+        rows[idx] = { mark: r.mark, group: group, name: name, detail: r.detail }
+        pendingCount--
+        dropTodoIfIdle()
+        render()
+        console.log('[GM 可用性矩阵] ' + r.mark + ' ' + name + ' — ' + r.detail)
+      },
+      function (e) {
+        if (seq !== runSeq) return
+        rows[idx] = { mark: '✗', group: group, name: name, detail: '用例异常：' + code(e) + msg(e) }
+        pendingCount--
+        dropTodoIfIdle()
+        render()
+      },
+    )
+  }
+
   async function runAll() {
     running = true
     rows = []
+    runSeq++
+    pendingCount = 0
+    // 上一轮还没做完的待办：整盒作废（新的一轮会重建；旧监听/菜单由它们各自的超时收尾）
+    if (todoBox) {
+      todoBox.remove()
+      todoBox = null
+    }
     render('运行中…')
     for (var i = 0; i < CASES.length; i++) {
       var c = CASES[i]
+      if (c.pending) {
+        // 人工项：arm 完立刻往下走，不等你（等下去就回到「必须掐着时间动手」的老毛病）
+        try {
+          armPending(c.group, c.name, c.run())
+        } catch (e) {
+          push(c.group, c.name, fail(code(e) + msg(e)))
+        }
+        continue
+      }
       var res
-      currentHint = ''
       try {
         res = await c.run()
         if (!res || !res.mark) res = fail('用例没返回结果')
       } catch (e) {
         res = fail(code(e) + msg(e))
       }
-      currentHint = ''
       push(c.group, c.name, res)
     }
-    // 收尾：摘监听 / 卸样式 / 还原 URL（clearValues 已把存储清干净）
+    // 收尾：摘监听 / 卸样式 / 还原 URL（人工项自己收尾；clearValues 已把存储清干净）
     for (var j = 0; j < cleanups.length; j++) {
       try { cleanups[j]() } catch (e) { /* 收尾失败不改变矩阵结论 */ }
     }
     cleanups = []
     running = false
-    render('GM 可用性矩阵 · 完成')
+    render() // 标题由 render 按「是否还有待办」自己算（人工项可能在跑批结束后才完成）
     console.log('[GM 可用性矩阵]\n' + matrixText())
   }
 
@@ -743,13 +847,18 @@
     var ok = 0
     var bad = 0
     var q = 0
+    var pend = 0
     var lines = rows.map(function (r) {
       if (r.mark === '✓') ok++
       else if (r.mark === '✗') bad++
       else if (r.mark === '?') q++
+      else if (r.mark === '⋯') pend++
       return r.mark + ' [' + r.group + '] ' + r.name + (r.detail ? ' — ' + r.detail : '')
     })
-    lines.push('—— ✓' + ok + ' ✗' + bad + ' ?' + q + ' / 共 ' + rows.length + '（' + location.href + '）')
+    lines.push(
+      '—— ✓' + ok + ' ✗' + bad + ' ?' + q + (pend ? ' ⋯' + pend + '（待完成）' : '') +
+        ' / 共 ' + rows.length + '（' + location.href + '）',
+    )
     return lines.join('\n')
   }
 
@@ -762,7 +871,7 @@
     }
     // 存一个 tab 值：GM.focusTab 用例需要从 getTabs 的键里取 tabId（顺带覆盖 tab 存储）
     try { GM.saveTab({ probe: 'boot' }) } catch (e) { /* 未连接时会被忽略 */ }
-    render('就绪 · 点「跑全部」开始（' + CASES.length + ' 项，约 30–60s）')
+    render('就绪 · 点「跑全部」开始（' + CASES.length + ' 项；其中 4 项要你动手，跑完在左下角盒子里做）')
   }
 
   if (document.readyState === 'loading') {
