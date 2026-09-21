@@ -27,6 +27,7 @@ vi.mock('@/lib/userscripts/project-store', () => ({
 vi.mock('@/lib/userscripts/project-write', () => ({
   createProject: vi.fn(),
   createGeneratedProject: vi.fn(),
+  importScriptFromText: vi.fn(),
   importScriptsZip: vi.fn(),
   removeAllProjects: vi.fn(),
   removeProjectAndRepo: vi.fn(),
@@ -90,6 +91,7 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
     'state:removeAll',
     'state:toggle',
     'state:import',
+    'state:import-text',
     'state:group-create',
     'state:group-rename',
     'state:group-remove',
@@ -144,6 +146,11 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
       msg: { kind: 'state:import', zipBase64: 'emlwLWJ5dGVz' },
       backend: vi.mocked(projectWrite.importScriptsZip),
       args: ['emlwLWJ5dGVz'],
+    },
+    'state:import-text': {
+      msg: { kind: 'state:import-text', code: CODE },
+      backend: vi.mocked(projectWrite.importScriptFromText),
+      args: [CODE],
     },
     'state:group-create': {
       msg: { kind: 'state:group-create', name: '购物助手' },

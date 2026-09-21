@@ -11,6 +11,7 @@ import {
   Braces as UiBraces,
   Check as UiCheck,
   ChevronDown as UiChevronDown,
+  ClipboardPaste as UiClipboardPaste,
   Download as UiDownload,
   FileQuestion as UiFileQuestion,
   FolderInput as UiFolderInput,
@@ -52,6 +53,7 @@ import {
   SelectValue as UiSelectValue
 } from '@/components/ui/select'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
+import { Textarea as UiTextarea } from '@/components/ui/textarea'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
@@ -450,6 +452,12 @@ const pathImportOpen = ref(false)
 const importPath = ref('')
 /** 路径导入的即时错误：校验不过 / 读不到文件 / 读到的不是 zip，就地展示在输入框下 */
 const pathError = ref('')
+/** 粘贴导入弹窗是否打开 */
+const pasteImportOpen = ref(false)
+/** 粘贴框内容（脚本源码） */
+const pasteCode = ref('')
+/** 粘贴导入的即时错误：与路径导入同款，就地展示在框下，错误不弹第二层对话框 */
+const pasteError = ref('')
 /** 「允许访问文件网址」开关状态：null = 探测不到（不据此拦人，只少给一句提示） */
 const fileAccessAllowed = ref<boolean | null>(null)
 
@@ -515,19 +523,26 @@ function downloadZip(bytes: Uint8Array, filename: string): void {
 }
 
 /**
- * 把一段**已读到的 zip 字节**送进导入链路 —— 文件选择器与「从路径导入」共用这一条动线：
- * 成功后不自动进编辑器，统一弹汇总报告（成功 / 失败 + 未导入文件），
- * 新导入的脚本在列表行标「刚导入 · 未启用」，由用户按需手动启用或点编辑。
- * 只管「送进去」，不管取字节 —— importing / 错误条归调用方（两处取字节的失败语义不同）。
+ * 导入收尾：标「刚导入」→ 刷新列表 → 弹汇总报告（成功 / 失败 + 未导入文件）。
+ * 三条取内容方式（选择 zip 文件 / 输入路径 / 粘贴源码）只差「怎么拿到内容」，收尾统一走这里
+ * —— 故三处的成功表现天然一致：都不自动进编辑器，脚本落在列表里标「刚导入 · 未启用」，
+ * 由用户审过源码后手动启用或点编辑。
  */
-async function runImport(bytes: Uint8Array): Promise<void> {
-  error.value = ''
-  const report = await userscriptClient.importZip(bytesToBase64(bytes))
+async function finishImport(report: ImportReport): Promise<void> {
   for (const r of report.results) {
     if (r.status === 'ok') justImported.value = [...justImported.value, r.uuid]
   }
   await refresh()
   importReport.value = report
+}
+
+/**
+ * 把一段**已读到的 zip 字节**送进导入链路 —— 文件选择器与「从路径导入」共用这一条动线。
+ * 只管「送进去」，不管取字节 —— importing / 错误条归调用方（两处取字节的失败语义不同）。
+ */
+async function runImport(bytes: Uint8Array): Promise<void> {
+  error.value = ''
+  await finishImport(await userscriptClient.importZip(bytesToBase64(bytes)))
 }
 
 /**
@@ -611,6 +626,38 @@ async function confirmPathImport(): Promise<void> {
     pathImportOpen.value = false
   } catch (err) {
     pathError.value = '导入失败：' + (err instanceof Error ? err.message : String(err))
+  } finally {
+    importing.value = false
+  }
+}
+
+/**
+ * 打开「粘贴导入」弹窗。每次打开都清空上次的内容与报错 —— 上一次粘的源码留在框里，
+ * 下次打开一眼看不出是旧的，容易糊里糊涂再导一遍。
+ */
+function openPasteImport(): void {
+  pasteCode.value = ''
+  pasteError.value = ''
+  pasteImportOpen.value = true
+}
+
+/**
+ * 粘贴导入：把框里的脚本源码送进导入链路（解析与落盘都在 offscreen 单写方）。
+ * 语义与 zip 导入完全一致：落成未启用脚本、汇总报告、指纹去重提示。
+ *
+ * 失败就地报在框下、**不关弹窗**：源码还在框里，关掉等于让人重粘一遍。
+ */
+async function confirmPasteImport(): Promise<void> {
+  if (importing.value) return
+  pasteError.value = ''
+  if (!pasteCode.value.trim()) return
+  importing.value = true
+  importedFrom.value = '' // 粘贴没有来源可复述
+  try {
+    await finishImport(await userscriptClient.importText(pasteCode.value))
+    pasteImportOpen.value = false
+  } catch (err) {
+    pasteError.value = '导入失败：' + (err instanceof Error ? err.message : String(err))
   } finally {
     importing.value = false
   }
@@ -832,7 +879,7 @@ useDataSync('group', () => refreshGroups())
               <ui-tooltip-content>刷新列表</ui-tooltip-content>
             </ui-tooltip>
           </ui-tooltip-provider>
-          <!-- 导入 zip：两种取字节方式（文件选择器 / 手输本地路径），取到字节之后链路完全共用。
+          <!-- 导入：三种取内容方式（文件选择器 / 手输本地路径 / 粘贴源码），拿到内容之后链路完全共用。
                触发按钮用原生 title、不套 Tooltip —— Tooltip 与 DropdownMenuTrigger 不能叠
                （menu popper 会失去定位，见 AGENTS.md 的 UI 复用约束）。 -->
           <ui-dropdown-menu>
@@ -841,7 +888,7 @@ useDataSync('group', () => refreshGroups())
                 variant="ghost"
                 size="sm"
                 class="h-7 gap-1 px-2.5 text-xs"
-                title="从 zip 导入脚本（可选文件或输入路径）"
+                title="导入脚本（选择文件、输入路径或粘贴源码）"
                 :disabled="importing"
               >
                 <ui-loader-circle v-if="importing" class="size-3.5 animate-spin" />
@@ -858,6 +905,10 @@ useDataSync('group', () => refreshGroups())
               <ui-dropdown-menu-item @click="openPathImport">
                 <ui-folder-input class="size-3.5" />
                 输入文件路径…
+              </ui-dropdown-menu-item>
+              <ui-dropdown-menu-item @click="openPasteImport">
+                <ui-clipboard-paste class="size-3.5" />
+                粘贴脚本代码…
               </ui-dropdown-menu-item>
             </ui-dropdown-menu-content>
           </ui-dropdown-menu>
@@ -1319,6 +1370,53 @@ useDataSync('group', () => refreshGroups())
             size="sm"
             :disabled="importing || !importPath.trim()"
             @click="confirmPathImport"
+          >
+            <ui-loader-circle v-if="importing" class="size-3.5 animate-spin" />
+            {{ importing ? '导入中…' : '导入' }}
+          </ui-button>
+        </ui-dialog-footer>
+      </ui-dialog-content>
+    </ui-dialog>
+
+    <!-- 粘贴导入：把脚本源码直接粘进来落成一个脚本。解析与落盘都在 offscreen 单写方，
+         成功后与 zip 导入共用同一份汇总报告与「刚导入 · 未启用」标（见 confirmPasteImport） -->
+    <ui-dialog
+      :open="pasteImportOpen"
+      @update:open="(v: boolean) => { if (!v) pasteImportOpen = false }"
+    >
+      <!-- 高度上限：DialogContent 是「视口居中 + 固定定位」，自身不封顶 ——
+           窗口矮的时候光靠上面的固定高粘贴框仍可能顶出视口，这里再兜一层（超高则在弹窗内滚动） -->
+      <ui-dialog-content class="max-h-[calc(100vh-2rem)] max-w-lg overflow-y-auto">
+        <ui-dialog-title class="text-base font-semibold">粘贴导入</ui-dialog-title>
+        <ui-dialog-description class="text-sm text-muted-foreground">
+          粘贴脚本全文；带 // ==UserScript== 块时，名称与匹配规则取其声明。
+        </ui-dialog-description>
+        <div class="mt-3">
+          <!-- placeholder 只作**动作型**轻提示、不给示例源码：示例长得像已填好的内容，
+               会让人以为框里已经装好脚本了（与「从路径导入」同一个坑）。
+               高度必须**固定 + 自身滚动**：Textarea 组件自带 field-sizing-content（高度随内容增长），
+               粘一段长脚本就会把弹窗撑到超出视口、标题与按钮全被顶出去 —— 不封顶不行。 -->
+          <ui-textarea
+            v-model="pasteCode"
+            class="field-sizing-fixed h-40 resize-y overflow-y-auto font-mono text-xs"
+            placeholder="粘贴脚本源码"
+            aria-label="脚本源码"
+            spellcheck="false"
+            :disabled="importing"
+          />
+          <p
+            v-if="pasteError"
+            class="mt-2 whitespace-pre-wrap break-all text-xs text-destructive"
+          >{{ pasteError }}</p>
+        </div>
+        <ui-dialog-footer class="flex-none">
+          <ui-button variant="ghost" size="sm" :disabled="importing" @click="pasteImportOpen = false">
+            取消
+          </ui-button>
+          <ui-button
+            size="sm"
+            :disabled="importing || !pasteCode.trim()"
+            @click="confirmPasteImport"
           >
             <ui-loader-circle v-if="importing" class="size-3.5 animate-spin" />
             {{ importing ? '导入中…' : '导入' }}

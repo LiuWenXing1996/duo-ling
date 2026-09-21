@@ -126,6 +126,9 @@ export type RuntimeRequest =
   // 单写方（解码 + 落盘同处）。enabled 恒 false——先审后启，故无注册动作。
   // 导出零新增协议：走现成 userscript:list / getProject 只读命令。
   | { kind: 'userscript:import'; zipBase64: string }
+  // 粘贴导入：脚本源码文本 → 一个脚本（恒 enabled:false，同 zip 的先审后启）。
+  // 解析与落盘都在 offscreen 单写方，与 zip 导入共用同一条落盘路径，故此处也无注册动作。
+  | { kind: 'userscript:importText'; code: string }
   // 脚本列表分组（读分组定义；写分组管理经 state: 单写方转发，见下方 state:group-*）
   | { kind: 'userscript:groups' }
   | { kind: 'userscript:setGroup'; uuid: string; group: string }
@@ -178,6 +181,9 @@ export type RuntimeRequest =
   // zip 导入的落点（SW 的 userscript:import 转发到此）：importScriptsZip 逐脚本
   // 「落盘 → 快照」，报告 ImportReport（types.ts）。
   | { kind: 'state:import'; zipBase64: string }
+  // 粘贴导入的落点（SW 的 userscript:importText 转发到此）：一段源码文本 → 一个脚本，
+  // 与 zip 导入走同一套落盘（project-write.importOneScript），报告同为 ImportReport。
+  | { kind: 'state:import-text'; code: string }
   // 脚本列表分组（offscreen 单写方）：新建 / 重命名 / 删除（删前把成员退回未分组） / 重排 / 把脚本归入分组
   | { kind: 'state:group-create'; name: string }
   | { kind: 'state:group-rename'; id: string; name: string }
