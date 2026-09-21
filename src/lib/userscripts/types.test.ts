@@ -19,6 +19,12 @@ describe('默认值', () => {
     const src = defaultSource('测试脚本')
     expect(src).toContain('测试脚本')
     expect(src).not.toMatch(/^\s*(import|export)\s/m)
-    expect(src).toContain('DL.')
+  })
+
+  it('defaultSource：指引的是标准油猴 API 与 metadata 块（不再是已移除的 GM 能力）', () => {
+    const src = defaultSource('测试脚本')
+    expect(src).toContain('GM_')
+    expect(src).toContain('==UserScript==')
+    expect(src).not.toContain('DL.')
   })
 })

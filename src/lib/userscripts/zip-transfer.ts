@@ -13,7 +13,7 @@
 // 故导入侧的「校验」不再是拦截，而是**尽量修复 + 报告**。
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { SCRIPT_FILE } from './types'
-import type { ScriptConfig } from './types'
+import type { ScriptConfig, ScriptResourceDecl } from './types'
 
 /** zip schema 版本（project.json.v；导出侧写入。**解码侧不据此拦截**——开发期无版本规范，见文件头） */
 export const ZIP_SCHEMA_VERSION = 2
@@ -225,8 +225,11 @@ export function parseScriptsZip(bytes: Uint8Array): ScriptsZipParse {
 /**
  * 尽力把 project.json.config 收成合法 ScriptConfig：逐字段取用 + 缺项补默认。
  * 不因配置缺失/非法阻断导入——匹配规则为空只提示，留给编辑器补全后再启用。
+ *
+ * **导出以便复用**：这是 config 归一化的唯一路径（zip 导入 / 未来其它以 json 形态进出的写入口），
+ * 不要新写第二套 —— 两条路径哲学不一致是长期隐患（见 metadata.ts 文件头的「单一归一化路径」）。
  */
-function coerceConfig(raw: unknown): { config: ScriptConfig; note?: string } {
+export function coerceConfig(raw: unknown): { config: ScriptConfig; note?: string } {
   const c = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {}
   const matches = strArray(c.matches)
   const config: ScriptConfig = {
@@ -240,6 +243,18 @@ function coerceConfig(raw: unknown): { config: ScriptConfig; note?: string } {
   if (includeGlobs.length) config.includeGlobs = includeGlobs
   const excludeGlobs = strArray(c.excludeGlobs)
   if (excludeGlobs.length) config.excludeGlobs = excludeGlobs
+  // —— GM 化的注入期字段：原样搬运。缺了这段，zip 往返会**静默丢掉** @grant / @require / @resource ——
+  const grant = strArray(c.grant)
+  if (grant.length) config.grant = grant
+  const requires = strArray(c.requires)
+  if (requires.length) config.requires = requires
+  const resources = resourceArray(c.resources)
+  if (resources.length) config.resources = resources
+  if (typeof c.namespace === 'string' && c.namespace) config.namespace = c.namespace
+  if (typeof c.version === 'string' && c.version) config.version = c.version
+  if (typeof c.description === 'string' && c.description) config.description = c.description
+  if (typeof c.author === 'string' && c.author) config.author = c.author
+  if (typeof c.icon === 'string' && c.icon) config.icon = c.icon
   return {
     config,
     ...(matches.length ? {} : { note: '配置缺少匹配规则（matches），补全后再启用' }),
@@ -249,6 +264,18 @@ function coerceConfig(raw: unknown): { config: ScriptConfig; note?: string } {
 /** 取字符串数组（非数组 / 非字符串 / 空串项一律丢弃） */
 function strArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x) : []
+}
+
+/** 取 `@resource` 风格的命名资源数组（name 与 url 都须为非空字符串，其余条目丢弃） */
+function resourceArray(v: unknown): ScriptResourceDecl[] {
+  if (!Array.isArray(v)) return []
+  const out: ScriptResourceDecl[] = []
+  for (const item of v) {
+    if (typeof item !== 'object' || item === null) continue
+    const { name, url } = item as { name?: unknown; url?: unknown }
+    if (typeof name === 'string' && name && typeof url === 'string' && url) out.push({ name, url })
+  }
+  return out
 }
 
 // —— 传输与指纹（两侧共用的小工具） ——
