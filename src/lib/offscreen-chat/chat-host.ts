@@ -339,7 +339,9 @@ async function runLoop(opts: {
       (ws) => snapshotWorkspace(ws),
       () => abort.abort(),
       promptContext?.element,
-      () => offscreenBridge.capturePageSnapshot(),
+      // 快照目标 = 本会话所属标签页：把 conversationId 带过去让 SW 反查（AI 决定采快照时
+      // 用户可能已经切走，按「当前激活页」采会把别人的 DOM 喂给模型）
+      () => offscreenBridge.capturePageSnapshot(conversationId),
       (id) => offscreenBridge.readError(id),
       {
         hosts: async () => (await offscreenBridge.netCaptureHosts()).hosts,

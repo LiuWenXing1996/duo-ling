@@ -41,8 +41,12 @@ description: Use when writing, fixing, or debugging tests in this repo — choos
 
 ## 覆盖盲区
 
-**跨层接线漏掉时，typecheck 与分层单测都不报**（仓库未开 `noUnusedLocals`，单测又只覆盖各层函数自身）—— 详见 [README.md](../../../README.md) 坑 11。
+**跨层接线漏掉时，typecheck 与分层单测都不报**（`noUnusedLocals` 已开，但它只抓「整个 import 从未被使用」，单测又只覆盖各层函数自身）—— 详见 [README.md](../../../README.md) 坑 11。
 
 ## 探针
 
-一次性探针脚本放 `tmp/`（不入库，见 `.gitignore`），需要时重写。
+一次性探针脚本放 `tmp/`（不入库，见 `.gitignore`），需要时重写。沿用 `e2e/extension.ts` 的启动姿势（Playwright 捆绑 Chromium + 无头 + 侧载 flag）。两条踩过的坑：
+
+- **读不到 url 的标签页，不能「按 url 找出它再激活」**：扩展没有 `tabs` 权限，`chrome://` / `chrome-extension://` 页的 `tab.url` 是 `undefined`（`<all_urls>` 不含这两个 scheme）。要拿不可读 url 的标签页，由 **SW `chrome.tabs.create()`** 建并拿返回的 id。
+- **验扩展页的渲染分支**：先在工作窗口里激活目标标签页（`tabs.update({active:true})`），再 **reload 那个扩展页**（reload 不会把它变成激活页），它 mount 时读到的才是目标标签页。顺手打印一句「切换是否真生效」—— 否则断言可能在测一个根本没切过去的状态。
+- 判据不要依赖 url 可读：验「当前页能不能注入」应按 **scheme**。

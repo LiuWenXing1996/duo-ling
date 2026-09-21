@@ -25,8 +25,15 @@ const currentIsWebPage = ref(true)
 
 /**
  * 普通网页的 hostname；非普通网页（内部页 / 扩展页 / 应用商店）返回空串。
- * 不能直接取 `new URL(url).hostname`：那样 `chrome://extensions` 会得到 `extensions`，
- * 被当成一个站点写进「按站点禁用」的开关里。
+ *
+ * 判据只能按 **scheme**。这些页面上扩展根本读不到 url —— manifest 里没有 `tabs` 权限，
+ * 而 `<all_urls>` 不含 `chrome://` / `chrome-extension://` scheme（2026-09-21 无头实测：
+ * `chrome://version` 与扩展自身页的 `tab.url` 都是 `undefined`，`tabs.query` 的其他字段正常）。
+ * 旧版落到兜底文案「无法获取当前标签页地址」，用户看不出这里为什么没有浮层。
+ *
+ * 已知边界：`file://` 也走这条 —— 未开「允许访问文件网址」时扩展同样读不到它的 url
+ * （读得到时 `hostname` 为空，照样不满足 `http/https`），而本地文件页**开了那个开关后是可
+ * 注入的**，所以这条提示的文案要把它一起说到（见下方模板），不能写成「这些页面上都注入不了」。
  */
 function webHost(url: string | undefined): string {
   if (!url) return ''
@@ -83,7 +90,7 @@ onMounted(() => {
       class="rounded-lg border border-border bg-muted px-3 py-2 text-xs leading-relaxed text-muted-foreground"
       data-testid="float-unsupported"
     >
-      当前页面不能显示浮层（浏览器内部页 / 扩展页 / 应用商店上无法注入），请到普通网页上使用。
+      当前页面不能显示浮层：浏览器内部页、扩展页、应用商店上都注入不了；本地文件页需开启「允许访问文件网址」才可用。
     </p>
 
     <div class="flex items-center justify-between rounded-lg border border-border p-3">

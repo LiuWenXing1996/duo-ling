@@ -224,10 +224,12 @@ export type RuntimeRequest =
   | { kind: 'model:getActiveProfile' }
 
   // —— AI 工具支路（offscreen 的 agent 工具经 SW 调 SW/扩展页才有的 chrome 能力）——
-  // page_snapshot 工具：SW 代为对当前活动标签执行拾取器快照模式
-  // （chrome.userScripts.execute 在 offscreen 不可达）。
+  // page_snapshot 工具：SW 代为对**本会话所属的标签页**执行拾取器快照模式
+  // （chrome.userScripts.execute 在 offscreen 不可达）。为什么必须带 conversationId：
+  // 会话按标签页归属，而快照是 AI 在生成中途决定要采的 —— 那时用户可能已经切到别的
+  // 标签页，「当前激活页」不再等于「这条会话在聊的那个页」。不带 / 反查不到才退回激活页。
   // 注意前缀：`chat:` 是「SW 静默让路给 offscreen」的保留前缀，SW 自答的命令不能用
-  | { kind: 'page:snapshot' }
+  | { kind: 'page:snapshot'; conversationId?: string }
 
   // —— 内容脚本自证身份 ——
   // content script 拿不到 chrome.tabs，而网页浮层（扩展页 iframe）必须知道「自己属于哪个

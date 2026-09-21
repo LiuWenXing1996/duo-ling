@@ -70,8 +70,9 @@ import {
   initPageMonitorPorts,
   resetPageRuns,
 } from '@/lib/userscripts/page-monitor'
-// 会话的标签页归属映射（duoling-app 库）：标签页关闭时在这里清（见 tabs.onRemoved 处说明）
-import { unbindTab } from '@/lib/conversation-tab-map'
+// 会话的标签页归属映射（duoling-app 库）：标签页关闭时在这里清（见 tabs.onRemoved 处说明）；
+// page:snapshot 也用它反查「这条会话在哪个标签页上」（会话按 tab 归属）
+import { findTabsUsingConversation, unbindTab } from '@/lib/conversation-tab-map'
 import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主）
@@ -213,19 +214,30 @@ const handlers: {
   'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> => getActiveProfileState(),
 
   // —— AI 工具支路 ——
-  // page_snapshot 工具（offscreen 经此命令请 SW 代办）：定位当前活动标签后执行拾取器快照模式。
+  // page_snapshot 工具（offscreen 经此命令请 SW 代办）：定位目标标签后执行拾取器快照模式。
   // chrome.userScripts 在 SW 可用（与注册链路同源，138+ 逐扩展开关门控），offscreen 不可达。
   // 快照 = AI 判断需要时才采集。
-  'page:snapshot': async (): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
+  //
+  // **目标页 = 本会话所属的标签页**，不是「当前激活标签页」：会话按 tab 归属（一个 tab 一条
+  // 会话），而快照是 AI 在生成中途决定采的，那时用户完全可能已经切到别的页 —— 查「激活」会把
+  // 别人那一页的 DOM 喂给模型。反查走归属映射，自带存活校验（tab 已关的残留项会被判掉）。
+  'page:snapshot': async (msg): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
     if (!chrome.tabs?.query) throw new Error('tabs API 不可用，无法定位目标标签页')
-    // SW 无窗口上下文：lastFocusedWindow 语义 = 用户最后聚焦的窗口
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-    if (!tab?.id) throw new Error('未找到活动标签页')
+    const owned = msg.conversationId ? await findTabsUsingConversation(msg.conversationId) : []
+    let tabId: number | undefined = owned[0]
+    if (tabId == null) {
+      // 兜底：会话没绑标签页（那条 tab 已关 / 映射缺项）→ 退回最后聚焦窗口的激活页，
+      // 总比直接失败强；SW 无窗口上下文，lastFocusedWindow 语义 = 用户最后聚焦的窗口
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+      tabId = tab?.id
+    }
+    if (tabId == null) throw new Error('未找到目标标签页')
     // 内置页 / 扩展页拦在注入前（判据与拾取器共用，见 pageInjectionBlockReason——扩展页连自己
     // 的也不行，<all_urls> 不覆盖 chrome-extension scheme）
-    const blocked = pageInjectionBlockReason(tab.url)
+    const tab = await chrome.tabs.get(tabId).catch(() => null)
+    const blocked = pageInjectionBlockReason(tab?.url)
     if (blocked) throw new Error(`${blocked}，无法采集页面快照`)
-    return capturePageSnapshotFromTab(tab.id)
+    return capturePageSnapshotFromTab(tabId)
   },
 
   // —— 内容脚本自证身份 ——

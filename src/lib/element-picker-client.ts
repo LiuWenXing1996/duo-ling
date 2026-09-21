@@ -6,7 +6,8 @@
 // 无消息回传链、无 SW 参与（前置探针已验证扩展页可访问该 API）。
 //
 // 采集方归属：点选 = 用户在对话界面点按钮（用户显式）；
-// 快照 = AI 的 page_snapshot 工具经 SW 调 capturePageSnapshotFromTab（SW 定位活动标签）。
+// 快照 = AI 的 page_snapshot 工具经 SW 调 capturePageSnapshotFromTab（SW 按**会话归属**定位
+// 目标标签页，见 background.ts 的 'page:snapshot'）。
 //
 // 失败语义（都有明确文案，不静默）：
 //   · chrome.userScripts 不可用 —— 138+ 逐扩展「允许运行用户脚本」开关未开 /
@@ -84,7 +85,13 @@ export function friendlyInjectError(e: unknown): Error {
   return e instanceof Error ? e : new Error(raw)
 }
 
-/** 目标标签页：与档 0（collectPageContext）同语义——当前窗口的活动标签 */
+/**
+ * 拾取的目标标签页 = **当前窗口的活动标签页**。
+ *
+ * 与快照（SW 按会话归属反查）口径不同是刻意的：拾取由用户在**看得见的面板**上点按钮发起，
+ * 那一刻它必然在激活标签页上（浮层只在自己那个 tab 可见），查激活页既准确又不必让面板
+ * 传参；而快照是 AI 在生成中途自己决定的，那时用户可能已切走，必须认归属。
+ */
 async function getTargetTabId(): Promise<number> {
   if (!chrome.tabs?.query) throw new Error('tabs API 不可用，无法定位目标标签页')
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
@@ -173,8 +180,8 @@ export async function cancelPick(): Promise<void> {
 
 /**
  * 页面快照：静默抓渲染后 outerHTML（拾取器内截断 ~32KB），不亮任何 UI。
- * 调用方 = SW 的 chat:pageSnapshot 命令（AI 的 page_snapshot 工具触发）；
- * tabId 由 SW 定位（lastFocusedWindow 活动标签），本函数只管注入与取载荷。
+ * 调用方 = SW 的 'page:snapshot' 命令（AI 的 page_snapshot 工具触发）；
+ * tabId 由调用方定位（SW 侧按会话归属反查，兜底最后聚焦窗口的激活页），本函数只管注入与取载荷。
  */
 export async function capturePageSnapshotFromTab(tabId: number): Promise<PageSnapshotContext> {
   ensureAvailable()
