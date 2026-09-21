@@ -186,7 +186,7 @@ export type RuntimeRequest =
   | { kind: 'state:set-group'; uuid: string; group: string }
 
   // —— 会话写侧（整条对话链路搬进 offscreen 后，会话历史唯一写入方 = offscreen）——
-  // UI（侧边栏 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 对 conv: 前缀静默让路。
+  // UI（对话界面 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 对 conv: 前缀静默让路。
   // 注意：**消息落盘不走这里**——它只发生在 chat:start（用户消息）与收尾（AI 消息），
   // 且都经 lib/conversation-message.ts 的 toPersistedMessage（见该文件头注释）。
   | { kind: 'conv:create' }
@@ -195,7 +195,7 @@ export type RuntimeRequest =
   | { kind: 'conv:deleteAll' }
 
   // —— 对话链路（offscreen 执行宿主，定位 B「下完单就走」）——
-  // 侧边栏是「指令入口 + 观察者」：发起后可关面板，任务在 offscreen 照跑完；
+  // 对话界面是「指令入口 + 观察者」：发起后可关面板，任务在 offscreen 照跑完；
   // 事件经 OffscreenPush（chat:chunk）逐条推送，重开面板按 lastEventId replay（chat:resume）。
   | { kind: 'chat:start'; conversationId: string; messages: import('ai').UIMessage[]; trigger: 'submit-message' | 'regenerate-message'; pageContext?: PageContextInfo }
   | { kind: 'chat:abort'; conversationId: string }
@@ -224,10 +224,18 @@ export type RuntimeRequest =
   | { kind: 'model:getActiveProfile' }
 
   // —— AI 工具支路（offscreen 的 agent 工具经 SW 调 SW/扩展页才有的 chrome 能力）——
-  // page_snapshot 工具：SW 代为对当前活动标签执行拾取器快照模式
-  // （chrome.userScripts.execute 在 offscreen 不可达）。
+  // page_snapshot 工具：SW 代为对**本会话所属的标签页**执行拾取器快照模式
+  // （chrome.userScripts.execute 在 offscreen 不可达）。为什么必须带 conversationId：
+  // 会话按标签页归属，而快照是 AI 在生成中途决定要采的 —— 那时用户可能已经切到别的
+  // 标签页，「当前激活页」不再等于「这条会话在聊的那个页」。不带 / 反查不到才退回激活页。
   // 注意前缀：`chat:` 是「SW 静默让路给 offscreen」的保留前缀，SW 自答的命令不能用
-  | { kind: 'page:snapshot' }
+  | { kind: 'page:snapshot'; conversationId?: string }
+
+  // —— 内容脚本自证身份 ——
+  // content script 拿不到 chrome.tabs，而网页浮层（扩展页 iframe）必须知道「自己属于哪个
+  // 标签页」才能认定该 tab 的会话归属。故 content script 经本命令取回 sender.tab.id
+  // （SW 是唯一知道发送方 tab 的一方），再拼进 iframe URL 传给浮层。
+  | { kind: 'tab:identify' }
 
   // —— SW 自证（诊断）——
   // SW 的 define 注入构建信息（wxt.config.ts）不是 HTML，页面看不见；UI 经此命令取回并展示。
@@ -238,8 +246,8 @@ export type RuntimeRequest =
  * SW → offscreen 的单向推送（**不经 handlers 表** —— SW 不会收到自己发出的消息）。
  * offscreen 监听后自行决定是否回拉，例如收到 configChanged 就重新调 model:getActiveProfile。
  *
- * chat:chunk —— offscreen → 侧边栏（观察者）的事件流：每条带会话 id 与自增 seq，
- * 侧边栏按 seq 去重（重连回放与实时推送短暂重叠时防重）。SW 不消费（前缀不在白名单）。
+ * chat:chunk —— offscreen → 对话界面（观察者）的事件流：每条带会话 id 与自增 seq，
+ * 对话界面按 seq 去重（重连回放与实时推送短暂重叠时防重）。SW 不消费（前缀不在白名单）。
  *
  * chat:finished —— offscreen → SW（观察者）：任务收尾（正常 / 异常）通知，SW 据此在
  * 「面板关着」时点亮扩展图标完成徽章。面板开着时 SW 不做任何事。
@@ -257,7 +265,7 @@ export type OffscreenPush =
 // 是结构性的必然，不是 bug。补的就是这条通知线。
 //
 // 与 OffscreenPush 的区别：那是「一个特定接收方」的点对点推送（SW→offscreen 等）；
-// 这是**多播**——同一工作台的其他标签页、另一个浏览器窗口的工作台、侧边栏，全都要收到。
+// 这是**多播**——同一工作台的其他标签页、另一个浏览器窗口的工作台、对话界面，全都要收到。
 //
 // ⚠️ 刻意**不进 RuntimeRequest**：那里面全是「请求-应答」的命令，而广播没有应答方，
 // 塞进去会污染 extension-ipc.test.ts 的 kind 归属断言（每个 kind 恰被一端处理）。
@@ -301,9 +309,26 @@ export type DataChangedPush = {
 /** 保存链的瞬态阶段（前端列表据此显示「保存中」转圈；保存即注入，无构建阶段） */
 export type BuildPhase = 'saving'
 
-// —— 页面脚本监控（侧边栏 · 运行时口径）——
+// —— 端口名约定（跨上下文长连接）——
+// 'duoling:panel'（定义在 lib/userscripts/page-monitor.ts）= 对话界面文档 ↔ SW 的监控通道
+// （岛推送寻址 + 快照请求），页面脚本监控在用。
+
+/**
+ * 浮层「**展开态**」端口名：content script 在浮层展开时连上、收起时断开。
+ *
+ * 为什么单独要一条：`duoling:panel` 那条是**面板文档的存活信号**，而收起草稿浮层只是给它加
+ * `display:none`（iframe 与面板文档都还在 —— 这是刻意的：草稿、滚动位置、拾取 chip 都留在
+ * 原位，重开不必重载），端口根本不会断。于是「面板开着没」若拿文档存活来判就**恒为真**，
+ * 生成完成徽章（chat:finished 到达时若无人查看才点亮）永不亮。
+ * 展开态只有 content script 知道（FAB 开关在它手里），故由它开一条短寿命端口表达；
+ * 页面卸载 / 导航时端口自动断开，天然等于「浮层收起」。
+ */
+export const FLOAT_PANEL_OPEN_PORT = 'duoling:panel-open'
+
+// —— 页面脚本监控（对话界面 · 运行时口径）——
 // 信号源：GM 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。
-// 侧边栏跟踪本窗口 active tab，SW 侧按 tab 登记运行集并经 'duoling:panel' 端口推送。
+// 浮层认定**自己所属的标签页**（见 lib/owning-tab.ts —— 不跟随 active tab），
+// SW 侧按 tab 登记运行集并经 'duoling:panel' 端口推送。
 
 /** 当前 tab 的一次运行（一次页面加载 = 一个 runId；SPA 软导航不换文档、runId 不变） */
 export interface PageRunItem {
@@ -321,7 +346,7 @@ export interface PageErrorItem {
   runId: string | null
 }
 
-/** SW → 侧边栏的监控推送（侧边栏经 `runtime.connect({ name: 'duoling:panel' })` 建连） */
+/** SW → 对话界面的监控推送（对话界面经 `runtime.connect({ name: 'duoling:panel' })` 建连） */
 export type PanelMonitorPush =
   /** 脚本注入即广播：登记一次运行 */
   | { t: 'page:runstart'; tabId: number; run: PageRunItem }
@@ -332,7 +357,7 @@ export type PanelMonitorPush =
   /** 快照应答：该 tab 的运行集 + 关联错误（面板切 tab / 建连时拉取） */
   | { t: 'page:snapshot'; tabId: number; runs: PageRunItem[]; errors: PageErrorItem[] }
 
-/** 侧边栏 → SW 的监控上行（同端口） */
+/** 对话界面 → SW 的监控上行（同端口） */
 export type PanelMonitorUp =
   /** 按当前 active tab 拉快照（切 tab / 面板刚打开时） */
   | { t: 'page:snapshot'; tabId: number }

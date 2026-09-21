@@ -26,7 +26,7 @@ import {
   type UserScriptRunLogRow
 } from '@/lib/userscripts/types'
 
-/** 深链定位：侧边栏灵动岛「点击脚本行」→ workbench.html#/errors/<uuid> → 宿主传入。
+/** 深链定位：对话界面灵动岛「点击脚本行」→ workbench.html#/errors/<uuid> → 宿主传入。
  *  带 focusSeq（宿主每次定位请求递增）：标签页常驻不重挂，对同一脚本再点一次时
  *  focusUuid 不变，只靠 uuid 无法触发 watch —— seq 是「这次请求」的标识。
  *  reloadSeq 同理由宿主递增（脚本被删除后要求重拉），见文件末 watch。 */

@@ -104,6 +104,8 @@ const ALL_KINDS = [
   { kind: 'model:getActiveProfile', side: 'sw' },
   // —— page:*（SW：AI 工具支路，page_snapshot 经 SW 调 userScripts.execute）——
   { kind: 'page:snapshot', side: 'sw' },
+  // —— tab:*（SW：内容脚本自证身份，回 sender.tab.id 供浮层认定会话归属）——
+  { kind: 'tab:identify', side: 'sw' },
   // —— conv:*（offscreen：会话写侧，唯一写方；SW 对前缀静默让路）——
   { kind: 'conv:create', side: 'offscreen' },
   { kind: 'conv:rename', side: 'offscreen' },

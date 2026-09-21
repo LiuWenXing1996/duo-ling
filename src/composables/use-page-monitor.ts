@@ -1,9 +1,10 @@
-// 侧边栏「页面脚本监控」面板侧（运行时口径）。
+// 对话界面（网页浮层）里的「页面脚本监控」·面板侧（运行时口径）。
 //
 // 职责三件：
-//   ① 跟踪本窗口的 active tab（侧边栏按窗口挂载，currentWindow 语义 = 自己所在窗口）；
+//   ① 认定本浮层所属的标签页（浮层固定挂在某个 tab 上，见 lib/owning-tab.ts）——
+//      **不跟随「当前激活标签页」**：用户切走之后浮层还留在原 tab 上，跟着激活项走会显示别人的脚本；
 //   ② 经 'duoling:panel' 端口接收 SW 推送（runstart / 错误 / 新文档清零 / 快照），
-//      只保留当前 active tab 的切片；切 tab 时向 SW 拉一次快照补齐；
+//      只保留本 tab 的切片；挂载时向 SW 拉一次快照补齐；
 //   ③ 补齐运行项的脚本名（runstart 只带 uuid）：首拉 + 运行集出现未知 uuid 时补拉 +
 //      订阅 script 域数据广播跟随增删改——名字表是快照，必须自愈。
 //
@@ -16,14 +17,15 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { PageErrorItem, PageRunItem, PanelMonitorPush } from '@/shared/extension-ipc'
 import type { ScriptSummary } from '@/lib/userscripts/types'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
+import { resolveOwningTabId } from '@/lib/owning-tab'
 import { useDataSync } from './use-data-sync'
 
 /** 面板保留的错误行上限（环形日志本身 50 条，这里再兜一层） */
 const MAX_ERRORS = 50
 
 export function usePageMonitor() {
-  /** 本窗口当前 active 的普通标签页；null = 窗口里没有可用 tab（极端态，UI 自隐藏） */
-  const activeTabId = ref<number | null>(null)
+  /** 本浮层所属的标签页；null = 取不到归属（极端态，UI 自隐藏） */
+  const owningTabId = ref<number | null>(null)
   const pageUrl = ref('')
   /** 当前 tab 当前文档的运行集（uuid → 运行项；展示按启动时间倒序） */
   const runs = ref<PageRunItem[]>([])
@@ -85,18 +87,25 @@ export function usePageMonitor() {
     }
   }
 
-  async function trackActiveTab(): Promise<void> {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-      setTab(tab?.id ?? null, tab?.url ?? '')
-    } catch {
+  /** 认定本浮层所属的标签页并取它的地址（挂载时一次；之后靠 onTabUpdated 跟随页内导航） */
+  async function trackOwningTab(): Promise<void> {
+    const tabId = await resolveOwningTabId()
+    if (tabId == null) {
       setTab(null, '')
+      return
+    }
+    try {
+      const tab = await chrome.tabs.get(tabId)
+      setTab(tabId, tab.url ?? '')
+    } catch {
+      // 标签页刚好没了（浮层所在 tab 正在关闭）：只留 id、地址留空
+      setTab(tabId, '')
     }
   }
 
   function setTab(tabId: number | null, url: string): void {
-    const changed = tabId !== activeTabId.value
-    activeTabId.value = tabId
+    const changed = tabId !== owningTabId.value
+    owningTabId.value = tabId
     pageUrl.value = url
     if (changed && tabId != null) {
       clearSlice()
@@ -107,7 +116,7 @@ export function usePageMonitor() {
   // —— SW 推送消费（只认当前 active tab 的切片） ——
 
   function handlePush(msg: PanelMonitorPush): void {
-    if (msg.tabId !== activeTabId.value) return
+    if (msg.tabId !== owningTabId.value) return
     switch (msg.t) {
       case 'page:runstart': {
         // 同 uuid 重复广播 = 覆盖为最新 runId；其余保留（一个文档多个脚本各一条）
@@ -145,30 +154,12 @@ export function usePageMonitor() {
   // —— 端口 + 事件监听（挂载 / 卸载成对） ——
 
   let monitorPort: chrome.runtime.Port | null = null
-  let ownWindowId: number | undefined
 
-  // chrome.types 未导出这两个事件载荷形状，按用到的字段结构化声明（与官方事件签名对齐）
-  const onTabActivated = (info: { tabId: number; windowId: number }): void => {
-    // 只关心本窗口（侧边栏是 per-window 的，别的窗口切 tab 与本面板无关）
-    if (ownWindowId != null && info.windowId !== ownWindowId) return
-    void chrome.tabs
-      .get(info.tabId)
-      .then((tab) => setTab(info.tabId, tab?.url ?? ''))
-      .catch(() => {})
-  }
-
+  // 只跟「本浮层所属的那个标签页」的导航：它在页内跳转（含 SPA 软导航改 URL）时同步地址。
+  // 与归属无关 —— 归属认的是 tabId，页内导航既不换 tab 也不换会话（见 lib/owning-tab.ts）。
   const onTabUpdated = (tabId: number, changeInfo: { url?: string }, tab: { url?: string }): void => {
-    if (tabId !== activeTabId.value) return
+    if (tabId !== owningTabId.value) return
     if (changeInfo.url || tab.url) pageUrl.value = changeInfo.url ?? tab.url ?? ''
-  }
-
-  const onTabRemoved = (tabId: number): void => {
-    if (tabId === activeTabId.value) {
-      // active tab 关了：切片清空，等用户切到别的 tab 再跟踪
-      activeTabId.value = null
-      pageUrl.value = ''
-      clearSlice()
-    }
   }
 
   // 脚本增删改（导入 / 启停 / 改名 / 删除）→ 重拉名字表：改名即时生效，
@@ -176,30 +167,19 @@ export function usePageMonitor() {
   useDataSync('script', () => refreshNames())
 
   onMounted(() => {
-    void trackActiveTab()
+    void trackOwningTab()
     scheduleNameRefresh()
-    // 本窗口 id：只跟踪自己所在窗口的 active tab
-    void chrome.windows
-      .getCurrent()
-      .then((w) => {
-        ownWindowId = w.id
-      })
-      .catch(() => {})
     try {
       monitorPort = chrome.runtime.connect({ name: 'duoling:panel' })
       monitorPort.onMessage.addListener(handlePush)
     } catch {
-      monitorPort = null // SW 未起等场景：退化为「无实时推送」，切 tab 时的快照请求也可能失败
+      monitorPort = null // SW 未起等场景：退化为「无实时推送」，挂载时的快照请求也可能失败
     }
-    chrome.tabs.onActivated.addListener(onTabActivated)
     chrome.tabs.onUpdated.addListener(onTabUpdated)
-    chrome.tabs.onRemoved.addListener(onTabRemoved)
   })
 
   onUnmounted(() => {
-    chrome.tabs.onActivated.removeListener(onTabActivated)
     chrome.tabs.onUpdated.removeListener(onTabUpdated)
-    chrome.tabs.onRemoved.removeListener(onTabRemoved)
     try {
       monitorPort?.disconnect()
     } catch {

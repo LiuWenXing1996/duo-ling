@@ -1,13 +1,22 @@
-// 全局会话 composable：渲染层的会话状态源。
+// 会话状态源：对话界面（网页浮层）的当前会话视图。
 //
-// 布局上对应全局三栏中的「会话历史 + 当前会话」两栏：会话列表读自 IndexedDB（同源共享），
-// 消息全部持久化在 IndexedDB，此处只维护「当前激活会话」的视图与流式过程中的临时态。
+// **会话归属按标签页**：一个 tab 一条会话，切 tab 即切会话（归属映射见
+// lib/conversation-tab-map.ts）。因此本 composable 不再有「手动新建 / 手动切换」——
+// 用户让某个 tab 产生对话的方式就是直接发消息：
+//   · tab 已有归属会话 → 激活它（`activateConversation`）；
+//   · tab 还没有 → 进入「未绑定」态（视图清空、不落库、不进历史列表），
+//     直到用户在这个 tab 发出第一条消息才 create 并登记归属（惰性新建）。
+//
+// 本载体属于哪个标签页由 `lib/owning-tab.ts` 解析：浮层认 content script 经 iframe URL 传来的
+// `?tab=<id>`，是**固定归属** —— 用户切走别的标签页后浮层仍挂在原 tab 上，
+// 跟着「当前激活标签页」现查就会串到别人那里。
 //
 // 定位是「指令入口 + 观察者」（对话链路的执行宿主是 offscreen）：
 //   · 落盘归 offscreen —— 用户消息在 chat:start 时落盘、assistant 消息在收尾时落盘
-//     （含完整 parts 与 token 用量）；侧边栏**不写**会话库，防双写。
+//     （含完整 parts 与 token 用量）；对话界面**不写**会话库，防双写。
 //   · 断线重连 —— 面板重开 / 切回会话时经 chat.resumeStream() → transport.reconnectToStream()
 //     从头回放 offscreen 里仍在进行中任务的完整事件缓冲接上；「下完单就走」由此成立。
+//     切 tab 换会话也走这条：`chat.stop()` 只断本地流，offscreen 里的任务照跑，切回来自动接上。
 //   · 孤儿任务 —— offscreen 宿主被杀后 status=running 的记录（心跳过期）在此提示「继续 / 丢弃」。
 
 import { computed, ref, shallowRef, watchEffect } from 'vue'
@@ -17,6 +26,12 @@ import type { ChatInit, ChatStatus, UIMessage } from 'ai'
 import { ExtensionChatTransport } from '@/lib/extension-chat-transport'
 import { toUiMessage } from '@/lib/conversation-message'
 import { getPickedElement } from '@/lib/page-context-store'
+import {
+  bindTabToConversation,
+  getConversationIdForTab,
+  unbindTab,
+} from '@/lib/conversation-tab-map'
+import { resolveOwningTabId } from '@/lib/owning-tab'
 import type { ChatOrphanRecord, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { Conversation, TokenUsage } from '@/shared/types'
 
@@ -43,12 +58,15 @@ type ChatInstance = UseChatHelpers<UIMessage>
 let orphanPollStarted = false
 
 /**
- * 全局会话状态源。应在 app.vue 顶层调用一次，再把 state 下发给会话历史 / 当前会话两栏。
+ * 会话状态源。应在载体根组件（ChatApp）顶层调用一次，再把 state 下发给消息区。
  */
 export function useGlobalConversation() {
   // —— 会话列表（IndexedDB 直读，按 lastMessageAt 倒序由 store 保证）——
   const conversations = ref<Conversation[]>([])
+  /** 当前激活会话；空串 = 未绑定态（本 tab 还没产生过对话，会话尚未落库、不进历史列表） */
   const activeConversationId = ref('')
+  /** 本载体所属的标签页；null = 取不到归属，退化为「不绑定」（照常对话，只是不归属任何 tab） */
+  const currentTabId = ref<number | null>(null)
   // —— 各消息本次消耗的 token（按 UIMessage.id 索引，供 ChatPanel 单条展示）——
   const usageByMessageId = ref<Record<string, TokenUsage>>({})
   // —— 孤儿任务（offscreen 宿主被杀后遗留；供 ChatApp 横幅提示「继续 / 丢弃」）——
@@ -60,7 +78,7 @@ export function useGlobalConversation() {
 
   // —— 对话客户端：AI SDK 全家桶按需加载 ——
   //
-  // useChat 连带 ai 核心 + zod，生产产物合计约 360KB，是侧边栏 / 工作台首屏最大的一块。
+  // useChat 连带 ai 核心 + zod，生产产物合计约 360KB，是对话界面 / 工作台首屏最大的一块。
   // 但打开面板要做的事（列会话、读历史消息）全部走 IndexedDB 直读，用不到它 ——
   // 真正需要流式接收的只有「发送」与「续上未完成任务」。故改为首次需要时动态加载：
   // 首帧不再等它，面板立刻可画（首开白屏的主因之一）。
@@ -118,7 +136,12 @@ export function useGlobalConversation() {
   const status = computed<ChatStatus>(() => chat.value?.status.value ?? 'ready')
   const streaming = computed(() => status.value === 'submitted' || status.value === 'streaming')
 
-  /** 确保有当前激活会话：无则新建一个（首次进入 / 全部删除后）。返回会话 id。 */
+  /**
+   * 确保有当前激活会话：本 tab 还没有归属会话时新建一条并登记归属。返回会话 id。
+   *
+   * 这是「惰性新建」的唯一落点 —— 只有用户真要发消息时才走到这里（`send` 的第一步），
+   * 所以随手点开的 tab 不会在会话列表里留下一串空会话。
+   */
   async function ensureActiveConversation(): Promise<string> {
     if (activeConversationId.value) return activeConversationId.value
     const conv = await window.api.conversation.create()
@@ -127,7 +150,49 @@ export function useGlobalConversation() {
     transport.setConversationId(conv.id)
     setMessages([])
     usageByMessageId.value = {}
+    // 登记归属：这个 tab 从此有了自己的会话。绑定失败不拦对话 —— 会话已经建好了，
+    // 大不了这一轮不归属 tab（下次发消息还会走 ensure，那时再绑）。
+    if (currentTabId.value != null) {
+      await bindTabToConversation(currentTabId.value, conv.id).catch(() => {})
+    }
     return conv.id
+  }
+
+  /**
+   * 进入未绑定态：本 tab 没有归属会话（或归属的会话已被删）。
+   * 视图清空、transport 会话 id 置空，**既不落库也不新建** —— 等用户发消息才建（惰性）。
+   */
+  function enterUnbound(): void {
+    // 与 activateConversation 同样是「只断本地流」：offscreen 里的任务照跑，切回来会接上
+    chat.value?.stop()
+    chatError.value = ''
+    activeConversationId.value = ''
+    transport.setConversationId('')
+    setMessages([])
+    usageByMessageId.value = {}
+  }
+
+  /**
+   * 按标签页解析当前该显示哪条会话 —— 「切 tab 即切会话」的唯一入口
+   * （首次加载与每次 onActivated 都走它）。
+   *
+   * 归属映射里的会话若已不存在（在别处删掉了），顺手清掉那条陈旧映射再进未绑定态，
+   * 免得它一直指着一条已不存在的会话。
+   */
+  async function syncToTab(tabId: number | null): Promise<void> {
+    currentTabId.value = tabId
+    if (tabId == null) {
+      enterUnbound()
+      return
+    }
+    const bound = await getConversationIdForTab(tabId)
+    if (bound && conversations.value.some((c) => c.id === bound)) {
+      if (bound === activeConversationId.value) return // 已在这条上：不重建视图、不打断进行中的流
+      await activateConversation(bound)
+      return
+    }
+    if (bound) void unbindTab(tabId).catch(() => {}) // 陈旧映射：指向的会话已不在库里
+    enterUnbound()
   }
 
   /** 加载某会话的消息并激活之；若该会话有进行中的任务则重连续流 */
@@ -150,15 +215,17 @@ export function useGlobalConversation() {
     void ensureChat().then((instance) => instance.resumeStream())
   }
 
-  /** 初次加载会话列表：有则激活第一个，无则新建；顺带拉一次孤儿任务 */
+  /**
+   * 初次加载：拉会话列表 → 按本载体的标签页解析该显示哪条（会话归属按 tab）。
+   *
+   * **不再「有会话就激活最新那条」**：归属由 tab 决定，激活最新会把用户打开面板的第一眼
+   * 钉在别的 tab 的会话上。列表为空时也不新建 —— 未绑定态是合法起点（惰性新建见
+   * ensureActiveConversation）。顺带拉一次孤儿任务。
+   */
   async function loadConversations(): Promise<void> {
     const list = await window.api.conversation.list()
     conversations.value = list
-    if (list.length) {
-      await activateConversation(list[0].id)
-    } else {
-      await ensureActiveConversation()
-    }
+    await syncToTab(await resolveOwningTabId())
     void refreshOrphans()
   }
 
@@ -179,12 +246,23 @@ export function useGlobalConversation() {
     setInterval(() => void refreshOrphans(), 15_000)
   }
 
-  // 别处增删改会话（新建 / 删除 / 重命名）落盘后已广播 `conversation` 域：
-  // 回拉列表即可，不动当前激活会话的消息（避免打断进行中的对话）。本 composable 在
-  // app 顶层调用一次，订阅随 app 生命周期存活。
+  // 别处增删改会话（新建 / 重命名 / 删除）落盘后已广播 `conversation` 域：
+  // 回拉列表即可，**不动当前激活会话**（避免打断进行中的对话）。本 composable 在
+  // 载体根组件顶层调用一次，订阅随页面生命周期存活。
+  //
+  // 唯一的例外是「当前会话被删了」——那条会话可能是在工作台「会话历史」里删的，
+  // 此时必须落到未绑定态：否则 activeConversationId 一直指着一条不存在的会话，
+  // 下一条消息会在 appendMessage 处因「会话不存在」静默落空。
+  // 判据刻意用「id 已不在列表里」而不是无条件重解析：流式期间每条消息落盘都会广播本域，
+  // 无条件重解析会把用户从「孤儿继续」之类临时覆盖的视图里拽走、打断正在进行的一轮对话。
   useDataSync('conversation', async () => {
     try {
-      conversations.value = await window.api.conversation.list()
+      const list = await window.api.conversation.list()
+      conversations.value = list
+      if (activeConversationId.value && !list.some((c) => c.id === activeConversationId.value)) {
+        if (currentTabId.value != null) void unbindTab(currentTabId.value).catch(() => {})
+        enterUnbound()
+      }
     } catch {
       // 列表刷新失败不影响主流程
     }
@@ -197,6 +275,8 @@ export function useGlobalConversation() {
       const { conversationId } = await chatClient.orphanAction(taskId, action)
       orphanTasks.value = orphanTasks.value.filter((t) => t.taskId !== taskId)
       if (action === 'continue') {
+        // 显式覆盖：孤儿会话可能归属别的 tab（用户在哪发的就在哪）。这里是用户主动点的
+        // 「继续」，临时显示它是对的 —— 但**不改归属映射**，切一次 tab 就会回到本 tab 的会话。
         await activateConversation(conversationId)
       }
     } catch (e) {
@@ -205,49 +285,9 @@ export function useGlobalConversation() {
     }
   }
 
-  /** 新建会话：立即在 offscreen 创建并激活，清空当前视图 */
-  async function newConversation(): Promise<void> {
-    chat.value?.stop()
-    const conv = await window.api.conversation.create()
-    conversations.value = [{ ...conv }, ...conversations.value]
-    activeConversationId.value = conv.id
-    transport.setConversationId(conv.id)
-    setMessages([])
-    usageByMessageId.value = {}
-  }
-
-  /** 删除单个会话：删除后若活跃会话被移除，则激活剩余第一个（否则新建空会话） */
-  async function deleteConversation(id: string): Promise<void> {
-    await window.api.conversation.delete(id)
-    conversations.value = conversations.value.filter((c) => c.id !== id)
-    if (activeConversationId.value === id) {
-      if (conversations.value.length) {
-        await activateConversation(conversations.value[0].id)
-      } else {
-        await ensureActiveConversation()
-      }
-    }
-  }
-
-  /** 重命名会话：调 offscreen rename，成功后就地更新列表项（返回更新后的 Conversation） */
-  async function renameConversation(id: string, title: string): Promise<void> {
-    const updated = await window.api.conversation.rename(id, title)
-    if (updated) {
-      const idx = conversations.value.findIndex((c) => c.id === id)
-      if (idx !== -1) conversations.value[idx] = updated
-    }
-  }
-
-  /** 清空全部会话：删除后列表为空、无活跃会话；下次发送时 send 会自动新建会话 */
-  async function deleteAllConversations(): Promise<void> {
-    chat.value?.stop()
-    await window.api.conversation.deleteAll()
-    conversations.value = []
-    activeConversationId.value = ''
-    transport.setConversationId('')
-    usageByMessageId.value = {}
-    setMessages([])
-  }
+  // 会话的「新建 / 重命名 / 删除 / 清空」不再从这里出去：新建由 tab 归属驱动、且是惰性的
+  // （见 ensureActiveConversation），改名与删除属**会话历史**的操作 —— 入口在工作台的
+  // 「会话历史」标签页，那里直接调 `window.api.conversation.*`。
 
   /**
    * 回复完成回调（useChat onFinish）：落盘已由 offscreen 在收尾时完成（唯一写方），
@@ -320,7 +360,7 @@ export function useGlobalConversation() {
   }
 
   return {
-    // 会话列表
+    // 会话列表（仅用于取当前会话标题；会话的改名 / 删除入口在工作台「会话历史」）
     conversations,
     activeConversationId,
     // 当前会话视图
@@ -335,11 +375,6 @@ export function useGlobalConversation() {
     status,
     // 操作
     loadConversations,
-    newConversation,
-    activateConversation,
-    deleteConversation,
-    deleteAllConversations,
-    renameConversation,
     resolveOrphan,
     send,
     stopGeneration,

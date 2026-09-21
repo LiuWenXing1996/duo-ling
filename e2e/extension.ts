@@ -64,17 +64,20 @@ export function extensionIdFromServiceWorker(sw: Worker): string {
 }
 
 /**
- * 命令面的发送端：一个加载了 sidepanel.html 的扩展页。
+ * 命令面的发送端：一个加载了 popup.html 的扩展页。
  * 不能从 SW 自发 chrome.runtime.sendMessage —— runtime 消息不回环到发送者自身上下文
  * （实测报 "Receiving end does not exist"），必须从另一个扩展上下文发出，
- * 这也正好复现真实链路（扩展页 window.api → background onMessage）。
+ * 这也正好复现真实链路（扩展页 → background onMessage）。
+ *
+ * 选 popup 而不是对话页（floatpanel）：它最轻（不装 window.api、不跑 ChatApp），
+ * 而加载对话页会顺带连上 `duoling:panel` 端口、干扰「浮层开着没」的判定。
  */
 export async function openMessengerPage(
   context: BrowserContext,
   extensionId: string,
 ): Promise<Page> {
   const page = await context.newPage()
-  await page.goto(`chrome-extension://${extensionId}/sidepanel.html`)
+  await page.goto(`chrome-extension://${extensionId}/popup.html`)
   return page
 }
 

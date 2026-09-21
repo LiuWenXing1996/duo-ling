@@ -6,13 +6,13 @@
     <meta name="color-scheme" content="light dark" />
     <title>哆灵工作台</title>
     <!--
-      首帧加载态（内联，零外部依赖）。说明与两个关键约束见 sidepanel.html 的同一段注释，
+      首帧加载态（内联，零外部依赖）。说明与两个关键约束见 floatpanel.html 的同一段注释，
       两处必须保持一致（同值是为了不跟 assets/main.css 打架，改一处就要改另一处）。
       Vue mount 会清空 #app，加载态随之消失，无需 JS 移除。
     -->
     <style>
       /* 首帧底色用 CSS 系统色 Canvas，自动跟随系统深浅色 —— 不依赖 @media (prefers-color-scheme)，
-         因为 Chrome 侧边栏在部分环境下该媒体查询不可靠（面板未正确上报深色），会导致内联样式走 light 分支变白。
+         因为 Chrome 在部分环境下该媒体查询不可靠（文档未正确上报深色），会导致内联样式走 light 分支变白。
          Canvas/CanvasText 由浏览器按 OS 配色直接解析，稳定且不需 JS（CSP 禁内联脚本）。 */
       html {
         background: Canvas;

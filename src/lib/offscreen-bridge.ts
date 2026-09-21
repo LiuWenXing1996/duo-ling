@@ -77,10 +77,13 @@ export const offscreenBridge = {
     send({ kind: 'userscript:save', ...payload }),
 
   /**
-   * 页面快照（AI 的 page_snapshot 工具用）：SW 代为对当前活动标签执行拾取器快照模式。
+   * 页面快照（AI 的 page_snapshot 工具用）：SW 代为对本会话所属标签页执行拾取器快照模式。
    * chrome.userScripts.execute 在 offscreen 不可达，必须经 SW。
+   * conversationId 由 chat-host 注入（它手里才有当前会话 id）——SW 靠它反查目标标签页，
+   * 免得 AI 在用户已切走时采到别的页面。
    */
-  capturePageSnapshot: (): Promise<PageSnapshotContext> => send({ kind: 'page:snapshot' }),
+  capturePageSnapshot: (conversationId?: string): Promise<PageSnapshotContext> =>
+    send({ kind: 'page:snapshot', conversationId }),
 
   /**
    * 按错误 ID 查一条错误记录：错误日志在 duoling-runtime 库（SW 侧 IDB），

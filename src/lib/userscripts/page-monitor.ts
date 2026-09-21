@@ -1,11 +1,11 @@
-// 侧边栏「页面脚本监控」的 SW 侧逻辑（运行时口径）。
+// 对话界面「页面脚本监控」的 SW 侧逻辑（运行时口径）。
 //
-// 侧边栏灵动岛是**跨文档观察者**（跟随 active tab 切换），必须有一个地方替它记住
+// 灵动岛显示的是「浮层所属标签页」的运行集（归属见 lib/owning-tab.ts，不跟随 active tab），必须有一个地方替它记住
 // 「每个 tab 当前文档里跑着哪些脚本」——就是这个按 tab 的运行登记表。
 //
 // 数据流（三个信号源，全部已在 dl-bridge / background 里存在，这里只是多接一根线）：
-//   · runstart 广播（GM 包装注入即发）→ noteRunStart：登记 + 推给所有打开的侧边栏
-//   · 运行错误落盘（__dlEvent 上报）→ notePageError：推给侧边栏（错误本体随推送走，
+//   · runstart 广播（GM 包装注入即发）→ noteRunStart：登记 + 推给所有打开的对话界面
+//   · 运行错误落盘（__dlEvent 上报）→ notePageError：推给对话界面（错误本体随推送走，
 //     面板不回查错误日志——落盘记录无 tabId，按 tab 归属只能靠这条实时通道）
 //   · 新文档导航（tabs.onUpdated status=loading）→ resetPageRuns：旧文档销毁，运行集清零
 //
@@ -25,7 +25,7 @@ import type {
 import type { UserScriptErrorRecord } from './types'
 import { listUserScriptErrors } from './store'
 
-/** 面板端口名（复用面板存活端口：ChatApp 建连时用同一个名字，SW 侧两个监听者各取所需） */
+/** 面板端口名：对话界面（浮层面板文档）里的脚本监控通道 —— 上行快照请求 + 下行推送寻址 */
 const PANEL_PORT_NAME = 'duoling:panel'
 
 /** 快照错误行的 message 截断（面板行内展示） */
@@ -38,10 +38,14 @@ const SNAPSHOT_ERROR_TRUNC = 200
  */
 export const pageRunsByTab = new Map<number, Map<string, PageRunItem>>()
 
-/** 已登记的侧边栏端口（寻址表：面板开着才有；断开即摘）。与 background 的 panelPorts 独立——那边只管徽章。 */
+/**
+ * 已登记的对话界面端口（寻址表：面板文档活着才有；断开即摘）。
+ * 注意它**不代表「浮层展开着」**——收起浮层只是 display:none，面板文档照活着。
+ * 「展开态」另有一条端口（`FLOAT_PANEL_OPEN_PORT`，见 background 的角标判定）。
+ */
 const monitorPorts = new Set<chrome.runtime.Port>()
 
-/** 推一条给所有打开的侧边栏；端口已断（SW 重启竞态）就静默摘除 */
+/** 推一条给所有打开的对话界面；端口已断（SW 重启竞态）就静默摘除 */
 function pushToPanels(payload: PanelMonitorPush): void {
   for (const port of monitorPorts) {
     try {

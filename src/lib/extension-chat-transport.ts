@@ -18,6 +18,7 @@ import type {
   RuntimeResponse,
 } from '@/shared/extension-ipc'
 import { consumePendingPageContext, clearSentPageContext } from '@/lib/page-context-store'
+import { resolveOwningTabId } from '@/lib/owning-tab'
 
 /** 向 offscreen 发一次请求（共享总线，SW 对 chat: 前缀静默让路），统一解包信封 */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -94,7 +95,7 @@ function closeConsumer(conversationId: string): void {
   }
 }
 
-// 模块级订阅：只注册一次。offscreen → 侧边栏的事件推送都从这里进流。
+// 模块级订阅：只注册一次。offscreen → 对话界面的事件推送都从这里进流。
 let pushListenerInstalled = false
 function installPushListener(): void {
   if (pushListenerInstalled) return
@@ -109,14 +110,19 @@ function installPushListener(): void {
 }
 
 /** 档 0 页面上下文 + 档 2（拾取元素）：
- *  侧边栏是扩展页，可直接读当前标签 URL / 标题（host_permissions <all_urls> 已覆盖，无需 tabs 权限）；
- *  offscreen 没有 chrome.tabs。拾取由用户显式动作采集，暂存在 page-context-store，
- *  随**下一条消息**发出（不自动附带）。页面快照走 AI 工具采集，不走这条通道。 */
+ *  对话界面是扩展页，可直接读**本浮层所属标签页**的 URL / 标题（host_permissions <all_urls>
+ *  已覆盖，无需 tabs 权限）；offscreen 没有 chrome.tabs。拾取由用户显式动作采集，
+ *  暂存在 page-context-store，随**下一条消息**发出（不自动附带）。页面快照走 AI 工具采集，
+ *  不走这条通道。
+ *
+ *  取的是**所属标签页**而不是「当前激活标签页」：浮层可能挂在用户已经切走的标签页上，
+ *  查激活项会把别人的 URL / 标题当上下文发出去（见 lib/owning-tab.ts）。 */
 async function collectPageContext(): Promise<PageContextInfo | undefined> {
   try {
-    if (!chrome.tabs?.query) return undefined
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    if (!tab?.url) return undefined
+    const tabId = await resolveOwningTabId()
+    if (tabId == null || !chrome.tabs?.get) return undefined
+    const tab = await chrome.tabs.get(tabId)
+    if (!tab.url) return undefined
     const pending = consumePendingPageContext()
     const ctx: PageContextInfo = {
       url: tab.url,

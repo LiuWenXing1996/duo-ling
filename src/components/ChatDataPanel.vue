@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 「会话数据」标签页：会话库（IndexedDB duoling-chat）的落盘原始视图，只读调试用。
 //
-// 动机：侧边栏只有逻辑视图（气泡 / chip），落盘真相（Message 对象里有没有 pageContext /
+// 动机：对话界面只有逻辑视图（气泡 / chip），落盘真相（Message 对象里有没有 pageContext /
 // parts / usage）无处可看——切会话 chip 丢失这类 bug 需要直接对照库里的记录。本面板 =
 // lfs 浏览的会话库版：左栏会话列表，右栏该会话全部消息的落盘字段（含拾取上下文、token、
 // parts 类型），每条可展开看原始 JSON。

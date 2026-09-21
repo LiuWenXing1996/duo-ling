@@ -1,6 +1,6 @@
 // 端测冒烟。
-// 覆盖四条面：workbench 页 / SW 命令面 + offscreen 就绪 / 用户脚本注入（GM 桥）/ sidepanel 页。
-// sidePanel.open() 需 user gesture 且无头无浏览器 UI，不进无头断言（手测覆盖）。
+// 覆盖四条面：workbench 页 / SW 命令面 + offscreen 就绪 / 用户脚本注入（GM 桥）/ 网页浮层页。
+// 浮层的真实注入链路（content script 挂 iframe）由手测覆盖 —— 无头下没有 FAB 点击这条路径。
 import { test, expect, type BrowserContext, type Page, type Worker } from '@playwright/test'
 import * as http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -167,11 +167,11 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     await page.close()
   })
 
-  // ———————————————————————————— side panel ————————————————————————————
+  // ———————————————————————————— 网页浮层 ————————————————————————————
 
-  test('sidepanel.html 页面可加载（sidePanel.open() 需 user gesture，不进无头断言）', async () => {
+  test('floatpanel.html 页面可加载（浮层对话页）', async () => {
     const page = await context!.newPage()
-    await page.goto(`chrome-extension://${extensionId}/sidepanel.html`)
+    await page.goto(`chrome-extension://${extensionId}/floatpanel.html`)
     await expect(page).toHaveTitle('哆灵')
     await expect(page.locator('#app')).toBeVisible()
     await page.close()
