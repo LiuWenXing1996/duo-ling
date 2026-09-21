@@ -12,7 +12,7 @@
 //   · dl-cookie 管 GM_cookie 的**域名门**（越域拒绝 / path 不参与判定 / 非 http(s) 拒绝）。
 //   故本包对网络与 cookie 只做「往返能通」，深语义不重测。
 //
-// 刻意**不写 @grant**：D4 规则下「未声明 = 全量注入」，本包要的就是全量面
+// 刻意**不写 @grant**：规则是「未声明 = 全量注入」，本包要的就是全量面
 // （@grant 裁剪本身另有用例覆盖，见 gm-wrapper.test.ts 的 resolveGmExposure）。
 //
 // 用法：`npm run pack:uscripts` → 工作台「脚本列表」导入 → 启用 → 打开任意 http(s) 页面
@@ -345,7 +345,7 @@
 
   add('基础', 'unsafeWindow（降级别名）', function () {
     if (typeof unsafeWindow === 'undefined') throw new Error('unsafeWindow 未定义')
-    // D4 降级：本扩展无页面上下文，它 === 隔离世界的 window（DOM 共用、页面 JS 全局不可见）
+    // 降级项：本扩展无页面上下文，它 === 隔离世界的 window（DOM 共用、页面 JS 全局不可见）
     if (unsafeWindow !== window) return fail('不等于隔离世界的 window（预期降级别名）')
     return pass('=== 隔离世界 window（预期降级）')
   })
