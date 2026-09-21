@@ -29,7 +29,7 @@ export interface ScriptConfig {
 
   /**
    * `@grant` 声明的能力名（保序去重，含 `'none'`）。
-   * 缺省 / 空数组 / 仅 `['none']` → **全量注入**（D4：本扩展无页面上下文，`@grant none`
+   * 缺省 / 空数组 / 仅 `['none']` → **全量注入**（本扩展无页面上下文，`@grant none`
    * 若真的一点不给，很多脚本里读 `GM_info` 判环境的语句会当场崩）。
    */
   grant?: string[]
@@ -136,7 +136,7 @@ export interface UserScriptErrorRecord {
   url?: string // 运行期错误所在页面
   time: number // 时间戳
   /**
-   * 运行标识：**一次页面加载 = 一个 runId**（GM 包装注入即 mint，见 engine.buildDlWrapper）。
+   * 运行标识：**一次页面加载 = 一个 runId**（GM 包装注入即 mint，见 gm-wrapper 的 buildGmWrapperSource）。
    * 用途：日志是全量环形（历次运行混存），侧边栏页面监控只显「本次运行」的错误——
    * 按当前 tab 登记的运行集里有没有该 runId 来判定。
    * `register`（注册失败）与 `bridge`（桥调用失败）没有页面/运行上下文，恒为 null / 缺省。

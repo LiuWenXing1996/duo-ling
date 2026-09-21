@@ -1,4 +1,4 @@
-// match pattern ↔ url 判定（**运行期**），DL.cookie 域名门的纯逻辑部分（门本体见 cookie-gate.ts）。
+// match pattern ↔ url 判定（**运行期**），GM_cookie 域名门的纯逻辑部分（门本体见 cookie-gate.ts）。
 //
 // 与 project-store.isValidMatchPattern 的分工：那里是「注册前校验 pattern 合法性」，
 // 这里是「运行期判某条 url 是否落在 pattern 范围内」。两者语法认知同源，职责不同，故不复用函数。

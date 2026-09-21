@@ -92,14 +92,14 @@ export default defineConfig({
     // 对话 loop 与源码写侧（us-git / project-write）都跑在 offscreen document 里，
     // 「用户发起生成后可关掉侧边栏、任务照跑完」。没有该权限 chrome.offscreen 不存在
     // （Chrome 109+ / 仅 MV3）。2026-09-14 经评审确认。
-    // contextMenus = DL.menu（用户脚本扩展菜单，二期 DL Port 事件底座）的载体 API，
+    // contextMenus = GM_registerMenuCommand（用户脚本扩展菜单，事件回推见 dl-port.ts）的载体 API，
     // 未来项目自身菜单也走它。2026-09-19 经评审确认。
-    // cookies = DL.cookie（get / set / remove）的载体 API。**注意：host 已是 <all_urls>，
+    // cookies = GM_cookie（list / set / delete）的载体 API。**注意：host 已是 <all_urls>，
     // 故此权限等价于「SW 可读写全浏览器 cookie（含 HttpOnly）」**，是能力面最大的一项权限。
     // 补偿措施是与权限绑定的域名门（cookie-gate.ts）：url 必须落在脚本自身 matches 内、
     // 只比 scheme+host（cookie 是 host 级作用域，忽略 pattern 的 path 段）。2026-09-19 经评审确认。
-    // clipboardWrite：DL.clipboard 走 offscreen 免手势写剪贴板（含富文本 ClipboardItem），需此权限。
-    // declarativeNetRequestWithHostAccess = DL.fetch forbidden header 覆写的载体
+    // clipboardWrite：GM_setClipboard 走 offscreen 免手势写剪贴板（含富文本 ClipboardItem），需此权限。
+    // declarativeNetRequestWithHostAccess = GM_xmlhttpRequest forbidden header 覆写的载体
     // （SW fetch 改不了 Cookie/Referer 等，DNR session 规则按请求挂/撤在发头前套上）。
     // 选 WithHostAccess 变体：不进安装权限提示，且 modifyHeaders/重定向要求 host 权限——
     // 已有 <all_urls> 覆盖。webRequest（观察型，非 blocking）= redirect:'manual' 的

@@ -58,7 +58,7 @@ export class DlPortRegistry {
   /**
    * 全量值订阅（`store.watchAll`）：Port 级布尔，与 urlWatchers 同构。
    * 存在理由：只读值的脚本从不键级订阅，若不给它一条全量通道，别的标签页改的值它永远收不到，
-   * 同步快照会整个页面生命周期陈旧（见 gm-wrapper.ts 的 `__gmEnsureChannel`，D1-b）。
+   * 同步快照会整个页面生命周期陈旧（见 gm-wrapper.ts 的 `__gmEnsureChannel`）。
    */
   private valueWatchers = new Set<chrome.runtime.Port>()
 
@@ -213,7 +213,7 @@ export function getDlPortRegistry(): DlPortRegistry {
 // —— 控制面（dl-bridge dispatch 调用；ApiRequest 的 menu.* / store.watch / store.unwatch）——
 
 /**
- * 登记扩展菜单项（DL.menu.register 的后台实现）。
+ * 登记扩展菜单项（GM_registerMenuCommand 的后台实现）。
  * contextMenus id 加 `us:` 前缀防与项目自身菜单撞；**撞 duplicate id 按成功处理**——
  * SW 重启后菜单持久在位，脚本重放 register 即幂等达标（拍板修正）。
  */
@@ -275,7 +275,7 @@ export function detachValueWatch(uuid: string, connId: string): void {
   getDlPortRegistry().detachValueWatch(uuid, connId)
 }
 
-/** 为一次 DL.notify mint 通知 id 并登记归属（响应该 id，供包装层挂 onClick） */
+/** 为一次 GM_notification mint 通知 id 并登记归属（响应该 id，供包装层挂 onClick） */
 export function mintNotification(uuid: string): string {
   const id = `us-${crypto.randomUUID()}`
   getDlPortRegistry().trackNotification(id, uuid)
@@ -330,7 +330,7 @@ export function initDlPort(): void {
   // 迁 duoling-usdata 库后 IDB 无变更通知，改为订阅 store.ts 的写出口直发（写入口仍收敛在
   // store.ts 那几个函数，写+发不分离）。删除语义：deleted = true 时帧上 value 置 null。
   //
-  // 两类订阅者并集：键级（store.watch）+ 全量（store.watchAll，D1-b 给只读脚本的通道）。
+  // 两类订阅者并集：键级（store.watch）+ 全量（store.watchAll 给只读脚本的通道）。
   // 同一 Port 可能同时命中两类 → 用 Set 去重，否则它会收到重复帧。
   // remote：与发起写的实例同 connId 即「本实例自己写的」（false）；无 connId（后台内部写）算 true。
   onGmValueChange(({ uuid, key, deleted, value, oldValue, writerConnId }) => {

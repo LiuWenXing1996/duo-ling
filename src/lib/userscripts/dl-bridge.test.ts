@@ -334,7 +334,7 @@ describe('GM tabs', () => {
   })
 })
 
-describe('DL.cookie（cookies 权限 + 域名门）', () => {
+describe('GM_cookie（cookies 权限 + 域名门）', () => {
   it('越域被门拦下：报 PERMISSION_DENIED，且**完全不碰 chrome.cookies**', async () => {
     await seedScript(COOKIE_UUID, ['*://*.example.com/*'])
     const resp = await sendToBridge({ c: 'cookie.get', url: 'https://evil.test/' }, COOKIE_UUID)

@@ -1,6 +1,6 @@
 // 反向中继 · 脚本侧客户端源码模板。
 //
-// buildPageClientSource(pageSecret) 返回的字符串由 engine.ts 的 buildDlWrapper 内联到
+// buildPageClientSource(pageSecret) 返回的字符串由 gm-wrapper.ts 的 buildGmWrapperSource 内联到
 // GM 包装里（USER_SCRIPT 世界），运行结果赋给 GM.page。与 page-stub.ts 成对：
 // 两端共享 page-protocol.ts 的常量与 digest 片段，密钥同源（SW 注册时同一把写入）。
 //
@@ -18,7 +18,7 @@ import {
 } from './page-protocol'
 
 export function buildPageClientSource(pageSecret: string): string {
-  // 注意：本源码由 buildDlWrapper 以 `var __dlPageApi = <源码>` 形式内联，
+  // 注意：本源码由 buildGmWrapperSource 以 `var __dlPageApi = <源码>` 形式内联，
   // 开头不能带分号（`var x = ;` 是语法错误），也不能包 IIFE 之外的语句。
   return `
 (function () {
