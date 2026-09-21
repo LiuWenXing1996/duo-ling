@@ -120,6 +120,15 @@ console.log(
 // 4. 闸门：typecheck（只卡类型层；build 由发布前人工确认，避免构建环境偶发问题误伤发版）
 console.log('· 闸门：npm run typecheck')
 if (!dryRun) {
+  // 依赖不随仓库走（新 worktree / 新 clone 都没有 node_modules），此时 npm run typecheck
+  // 只会报 command not found，看着像代码坏了。先查要用的那个命令在不在，给出真正的处置。
+  const binDir = resolve(cwd, 'node_modules', '.bin')
+  const hasVueTsc = ['vue-tsc', 'vue-tsc.cmd', 'vue-tsc.ps1'].some((b) =>
+    existsSync(resolve(binDir, b)),
+  )
+  if (!hasVueTsc) {
+    fail('node_modules 里没有 vue-tsc，先跑 npm ci 装依赖再发版（新 worktree 不共享依赖）')
+  }
   try {
     run('npm run typecheck')
   } catch {
