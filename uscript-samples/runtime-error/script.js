@@ -6,9 +6,9 @@
 // @match        *://*/*
 // ==/UserScript==
 
-// 运行期报错：验证错误链路（错误日志落盘，phase=runtime）与侧边栏灵动岛监控。
+// 运行期报错：验证错误链路（错误日志落盘，phase=runtime）与对话界面灵动岛监控。
 // 效果：先写标记 WILL_THROW，随后故意抛错 —— 脚本列表「错误日志」应出现一条运行期错误，
-// 侧边栏灵动岛应把该脚本标为出错（错误按 runId 归属到本次运行，刷新页面会重新 mint runId）。
+// 对话界面灵动岛应把该脚本标为出错（错误按 runId 归属到本次运行，刷新页面会重新 mint runId）。
 ;(function () {
   var ID = 'dl-test-runtime-error'
   var el = document.getElementById(ID)

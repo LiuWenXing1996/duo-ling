@@ -1,5 +1,5 @@
 // 内容脚本：在第三方网页注入「悬浮对话按钮(FAB)」，点击切换一个 iframe 浮层
-// （指向扩展页 floatpanel.html，复用侧边栏同一套 ChatApp 对话界面）。
+// （指向扩展页 floatpanel.html，即对话界面本体）。
 //
 // 设计要点：
 //   - 跑在 ISOLATED world：可直接用 chrome.storage / chrome.runtime.getURL，无需经 SW 中转。
@@ -9,7 +9,8 @@
 //     拼进 iframe URL（floatpanel.html?tab=<id>）—— 浮层据此认定自己的会话归属（每 tab 一条会话）。
 //     取不到就退回不带参数：浮层侧归属退化为「不绑定」，好过错绑到别人的 tab。
 //   - per-site 开关：main() 读 storage 判定当前 host 是否启用，否则不挂；storage 变更时动态增删。
-//   - CSP 降级：iframe 加载失败（严格 frame-src 拦扩展 iframe）时提示改用侧栏。
+//   - CSP 降级：iframe 加载失败（严格 frame-src 拦扩展 iframe）时给一句可读提示
+//     （浮层是唯一对话入口，这些站点上就是用不了 —— 不能指向已不存在的载体）。
 //   - 拾取让位：页面元素拾取（点选元素 / 快照）期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
 //
 // WXT 按文件名 content.ts 自动识别为 content script；matches 经 defineContentScript 声明。
@@ -154,7 +155,7 @@ function buildFloatUi(): HTMLElement {
     iframe.remove()
     const fb = document.createElement('div')
     fb.className = 'dl-fab-fallback'
-    fb.textContent = '该网站限制了内嵌框架，浮层无法显示。请点击工具栏图标或用侧边栏打开哆灵。'
+    fb.textContent = '该网站限制了内嵌框架，浮层无法显示——哆灵在这个网站上用不了。'
     panel.appendChild(fb)
   }
 

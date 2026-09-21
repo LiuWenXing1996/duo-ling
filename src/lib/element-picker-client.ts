@@ -1,11 +1,11 @@
-// 元素拾取 / 页面快照的**发起侧**封装（侧边栏与 SW 两个上下文共用）。
+// 元素拾取 / 页面快照的**发起侧**封装（对话界面与 SW 两个上下文共用）。
 //
 // 链路：chrome.userScripts.execute() 按 tabId 向**已加载页面**注入拾取器
 // （src/public/duoling-picker.js，独立世界 us-builtin-picker），注入脚本返回
 // 「点选时才 resolve」的 Promise，浏览器等结算后把载荷从 execute() 的返回值带回——
 // 无消息回传链、无 SW 参与（前置探针已验证扩展页可访问该 API）。
 //
-// 采集方归属：点选 = 用户在侧边栏点按钮（用户显式）；
+// 采集方归属：点选 = 用户在对话界面点按钮（用户显式）；
 // 快照 = AI 的 page_snapshot 工具经 SW 调 capturePageSnapshotFromTab（SW 定位活动标签）。
 //
 // 失败语义（都有明确文案，不静默）：
@@ -49,7 +49,7 @@ function ensureAvailable(): void {
  *   · 浏览器内置页（chrome:// / about: 等）：任何扩展都进不去；
  *   · 扩展页（chrome-extension://）：**连本扩展自己的页面也不行** —— host_permissions 里的
  *     `<all_urls>` 不覆盖 chrome-extension 这个 scheme。
- *     （真机复现：活动标签是工作台时点「点选元素」，侧边栏就显示那句英文原话。）
+ *     （真机复现：活动标签是工作台时点「点选元素」，对话界面就显示那句英文原话。）
  *
  * 在前置判据里拦住，比让 Chrome 把英文报错漏给用户好；而且这两类页面本来也不该被拾取。
  */
@@ -133,8 +133,8 @@ async function executePicker<T>(mode: 'pick' | 'snapshot', tabId: number): Promi
 }
 
 /**
- * 点选元素：页面亮拾取态，用户点选后 resolve 元素载荷（侧边栏上下文调用，用户显式动作）。
- * 用户取消（右键 / 侧边栏 Esc / 页面 Esc）返回 null（静默，不是错误）；超时 / 注入失败抛错。
+ * 点选元素：页面亮拾取态，用户点选后 resolve 元素载荷（对话界面上下文调用，用户显式动作）。
+ * 用户取消（右键 / 对话界面 Esc / 页面 Esc）返回 null（静默，不是错误）；超时 / 注入失败抛错。
  */
 export async function pickElement(): Promise<ElementPickContext | null> {
   ensureAvailable()
@@ -149,9 +149,9 @@ export async function pickElement(): Promise<ElementPickContext | null> {
 }
 
 /**
- * 取消进行中的拾取（侧边栏 Esc 触发）。
+ * 取消进行中的拾取（对话界面 Esc 触发）。
  *
- * 为什么不能只靠页面里的 Esc 监听：拾取期间键盘焦点在侧边栏（发起按钮所在文档），
+ * 为什么不能只靠页面里的 Esc 监听：拾取期间键盘焦点在对话界面（发起按钮所在文档），
  * keydown 不会到达页面 document——除非先点页面，而点击会被拾取拦截成「选中」。
  * 所以取消的主路径在发起侧：向同一世界补注入一条 cancel 指令，世界全局
  * `__duolingPickerActive` 跨注入持久（duoling-picker.js），旧 Promise resolve null，

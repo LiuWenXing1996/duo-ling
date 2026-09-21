@@ -186,7 +186,7 @@ export type RuntimeRequest =
   | { kind: 'state:set-group'; uuid: string; group: string }
 
   // —— 会话写侧（整条对话链路搬进 offscreen 后，会话历史唯一写入方 = offscreen）——
-  // UI（侧边栏 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 对 conv: 前缀静默让路。
+  // UI（对话界面 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 对 conv: 前缀静默让路。
   // 注意：**消息落盘不走这里**——它只发生在 chat:start（用户消息）与收尾（AI 消息），
   // 且都经 lib/conversation-message.ts 的 toPersistedMessage（见该文件头注释）。
   | { kind: 'conv:create' }
@@ -195,7 +195,7 @@ export type RuntimeRequest =
   | { kind: 'conv:deleteAll' }
 
   // —— 对话链路（offscreen 执行宿主，定位 B「下完单就走」）——
-  // 侧边栏是「指令入口 + 观察者」：发起后可关面板，任务在 offscreen 照跑完；
+  // 对话界面是「指令入口 + 观察者」：发起后可关面板，任务在 offscreen 照跑完；
   // 事件经 OffscreenPush（chat:chunk）逐条推送，重开面板按 lastEventId replay（chat:resume）。
   | { kind: 'chat:start'; conversationId: string; messages: import('ai').UIMessage[]; trigger: 'submit-message' | 'regenerate-message'; pageContext?: PageContextInfo }
   | { kind: 'chat:abort'; conversationId: string }
@@ -244,8 +244,8 @@ export type RuntimeRequest =
  * SW → offscreen 的单向推送（**不经 handlers 表** —— SW 不会收到自己发出的消息）。
  * offscreen 监听后自行决定是否回拉，例如收到 configChanged 就重新调 model:getActiveProfile。
  *
- * chat:chunk —— offscreen → 侧边栏（观察者）的事件流：每条带会话 id 与自增 seq，
- * 侧边栏按 seq 去重（重连回放与实时推送短暂重叠时防重）。SW 不消费（前缀不在白名单）。
+ * chat:chunk —— offscreen → 对话界面（观察者）的事件流：每条带会话 id 与自增 seq，
+ * 对话界面按 seq 去重（重连回放与实时推送短暂重叠时防重）。SW 不消费（前缀不在白名单）。
  *
  * chat:finished —— offscreen → SW（观察者）：任务收尾（正常 / 异常）通知，SW 据此在
  * 「面板关着」时点亮扩展图标完成徽章。面板开着时 SW 不做任何事。
@@ -263,7 +263,7 @@ export type OffscreenPush =
 // 是结构性的必然，不是 bug。补的就是这条通知线。
 //
 // 与 OffscreenPush 的区别：那是「一个特定接收方」的点对点推送（SW→offscreen 等）；
-// 这是**多播**——同一工作台的其他标签页、另一个浏览器窗口的工作台、侧边栏，全都要收到。
+// 这是**多播**——同一工作台的其他标签页、另一个浏览器窗口的工作台、对话界面，全都要收到。
 //
 // ⚠️ 刻意**不进 RuntimeRequest**：那里面全是「请求-应答」的命令，而广播没有应答方，
 // 塞进去会污染 extension-ipc.test.ts 的 kind 归属断言（每个 kind 恰被一端处理）。
@@ -307,9 +307,10 @@ export type DataChangedPush = {
 /** 保存链的瞬态阶段（前端列表据此显示「保存中」转圈；保存即注入，无构建阶段） */
 export type BuildPhase = 'saving'
 
-// —— 页面脚本监控（侧边栏 · 运行时口径）——
+// —— 页面脚本监控（对话界面 · 运行时口径）——
 // 信号源：GM 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。
-// 侧边栏跟踪本窗口 active tab，SW 侧按 tab 登记运行集并经 'duoling:panel' 端口推送。
+// 浮层认定**自己所属的标签页**（见 lib/owning-tab.ts —— 不跟随 active tab），
+// SW 侧按 tab 登记运行集并经 'duoling:panel' 端口推送。
 
 /** 当前 tab 的一次运行（一次页面加载 = 一个 runId；SPA 软导航不换文档、runId 不变） */
 export interface PageRunItem {
@@ -327,7 +328,7 @@ export interface PageErrorItem {
   runId: string | null
 }
 
-/** SW → 侧边栏的监控推送（侧边栏经 `runtime.connect({ name: 'duoling:panel' })` 建连） */
+/** SW → 对话界面的监控推送（对话界面经 `runtime.connect({ name: 'duoling:panel' })` 建连） */
 export type PanelMonitorPush =
   /** 脚本注入即广播：登记一次运行 */
   | { t: 'page:runstart'; tabId: number; run: PageRunItem }
@@ -338,7 +339,7 @@ export type PanelMonitorPush =
   /** 快照应答：该 tab 的运行集 + 关联错误（面板切 tab / 建连时拉取） */
   | { t: 'page:snapshot'; tabId: number; runs: PageRunItem[]; errors: PageErrorItem[] }
 
-/** 侧边栏 → SW 的监控上行（同端口） */
+/** 对话界面 → SW 的监控上行（同端口） */
 export type PanelMonitorUp =
   /** 按当前 active tab 拉快照（切 tab / 面板刚打开时） */
   | { t: 'page:snapshot'; tabId: number }

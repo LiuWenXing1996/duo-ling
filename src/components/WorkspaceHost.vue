@@ -67,7 +67,7 @@ function confirmCloseTab(): void {
 }
 
 // 打开引导标签页：若已打开则激活，否则新开一个（全局仅一个）。
-// 这是「需要开权限」类提示的统一去处——脚本列表横幅、编辑器保存警告、侧边栏错误条都指向它，
+// 这是「需要开权限」类提示的统一去处——脚本列表横幅、编辑器保存警告、对话界面错误条都指向它，
 // 完整步骤与「打开扩展管理页」按钮只此一份（文案见 lib/extension-page.ts）。
 function openGuideTab(): void {
   if (!openTabs.value.some((t) => t.kind === 'guide')) {
@@ -141,7 +141,7 @@ function openChatDataTab(): void {
 }
 
 // 打开会话历史标签页：回看/管理历史会话（列表 + 只读消息回放），全局仅一个。
-// 对话界面（侧边栏 / 网页浮层）的会话归属由标签页决定，历史会话的入口收在这里。
+// 对话界面（网页浮层）的会话归属由标签页决定，历史会话的入口收在这里。
 function openSessionHistoryTab(): void {
   if (!openTabs.value.some((t) => t.kind === 'session-history')) {
     openTabs.value.push({ kind: 'session-history', id: 'session-history', title: '会话历史' })

@@ -7,7 +7,7 @@
 //   · 收敛后经 SW 落盘（userscript:createProject，单写方在 offscreen 侧的 state:createProject），
 //     git 快照 note = AI summary；生成卡片（data-generation data part）随流推送并随消息落盘；
 //   · 会话历史唯一写入方：用户消息在 start 时落盘、assistant 消息在收尾时落盘（onFinish 的
-//     职责从侧边栏收归这里，防双写）。
+//     职责从对话界面收归这里，防双写）。
 //
 // 边界：本模块只 import project-store（读侧）/ conversation-store（offscreen 可跑）/
 // ai SDK / offscreen-bridge；不碰 chrome.storage / chrome.userScripts。
@@ -611,7 +611,7 @@ export async function abortChat(conversationId: string): Promise<void> {
   task?.abort.abort()
 }
 
-/** chat:resume：侧边栏重连（面板重开 / 切回会话）。
+/** chat:resume：对话界面重连（面板重开 / 切回会话）。
  *  **一律从头回放**：观察方切回时本地视图已从会话历史重建（不含进行中的半截
  *  assistant 消息），按「上次消费点」续传会缺 reasoning-start / text-start 等
  *  配对块，SDK 直接报「delta 先于 start」。

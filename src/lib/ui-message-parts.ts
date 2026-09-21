@@ -3,7 +3,7 @@
 // 为什么本地实现，而不是 `import { isTextUIPart } from 'ai'`：
 //   `ai` 的根入口静态依赖 @ai-sdk/gateway / @ai-sdk/provider-utils / zod（含 `ai/internal`
 //   子入口也一样），生产产物是一块约 360KB 的 chunk。而这里需要的只是 4 个一行判断的运行时
-//   helper —— 为了它们把整块拉进首屏静态图，侧边栏每次打开都要白等这段加载与执行。
+//   helper —— 为了它们把整块拉进首屏静态图，对话界面每次打开都要白等这段加载与执行。
 //   类型仍从 'ai' 取（type-only，不进产物），只有运行时函数落在本地。
 //
 // 实现与上游逐字对齐（`ai/dist` 的 isTextUIPart / isReasoningUIPart / isToolUIPart /

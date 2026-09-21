@@ -7,16 +7,15 @@
 
 ## 形态
 
-Chrome MV3 扩展（background service worker + side panel + 工作台标签页；另有工具栏 popup 与 content script 注入的网页浮层）。原 Electron 桌面版实现已不在工作区，需要参照时从 git 历史取回。
+Chrome MV3 扩展（background service worker + 工作台标签页；对话界面是 content script 注入的网页浮层，另有工具栏 popup）。原 Electron 桌面版实现已不在工作区，需要参照时从 git 历史取回。
 
 ## 载体与运行时
 
 | 上下文 | 载体 | 角色 |
 | --- | --- | --- |
-| 扩展页 | `sidepanel.html`（side panel） | 指令入口与观察窗（对话界面） |
-| 扩展页 | `workbench.html`（标签页） | 重界面工作区（脚本管理 / 运行日志 / 设置等） |
-| 扩展页 | `popup.html`（工具栏 popup） | 配置入口：网页浮层开关（总开关 + 当前站点）+「打开对话 / 打开工作台」；**不承载对话**（不装 `window.api`） |
-| 扩展页 | `floatpanel.html`（网页浮层 iframe） | 网页内对话界面：与 side panel 复用同一个 `ChatApp`，显示**它所在标签页**的会话（tab 身份由 content script 经 iframe URL 传入） |
+| 扩展页 | `floatpanel.html`（网页浮层 iframe） | **对话界面（唯一入口）**：指令入口与观察窗；显示**它所在标签页**的会话（tab 身份由 content script 经 iframe URL 传入） |
+| 扩展页 | `workbench.html`（标签页） | 重界面工作区（脚本管理 / 运行日志 / 会话历史 / 设置等） |
+| 扩展页 | `popup.html`（工具栏 popup） | 配置入口：网页浮层开关（总开关 + 当前站点）+「打开工作台」，并说明当前页面为何挂不了浮层；**不承载对话**（不装 `window.api`） |
 | 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：注入悬浮按钮 + iframe（按站点开关），拾取期间整块让位 |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
@@ -26,10 +25,10 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 
 ## 对话链路
 
-指令入口（侧边栏 / 网页浮层）只做观察；整条链路（`streamText` + tools）跑在 **offscreen document**，入口经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权。offscreen 容器按需创建（`src/lib/offscreen.ts`）。
+指令入口（网页浮层）只做观察；整条链路（`streamText` + tools）跑在 **offscreen document**，入口经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权。offscreen 容器按需创建（`src/lib/offscreen.ts`）。
 
 - **会话归属按标签页**：一个 tab 一条会话，切 tab 即切会话。归属映射（tabId → conversationId）存 `duoling-app` 的 `convByTab` 键（`src/lib/conversation-tab-map.ts`）—— **既不进会话库、也不进对话链路**：任务与流的键始终是 conversationId（`chat-host.ts` 的 `runningByConversation`、transport 的 `consumers`），所以这套绑定对执行层零影响，断了本地流任务照跑、切回来 resumeStream 接上。
-  - 解析在 `use-global-conversation.ts`：side panel 查本窗口激活标签页并跟随 `tabs.onActivated` 换会话；浮层认 content script 经 iframe URL 传来的 `?tab=<id>`（固定归属，不跟「当前激活标签页」走 —— 浮层可能挂在一个已经不是激活的标签页上）。
+  - 归属解析**只在 `lib/owning-tab.ts` 一处**：认 content script 经 iframe URL 传来的 `?tab=<id>`（固定归属）—— 不能跟「当前激活标签页」走，浮层可能挂在一个已经不是激活的标签页上。会话归属（`use-global-conversation`）、随消息发出的页面上下文（`extension-chat-transport`）、灵动岛的运行集（`use-page-monitor`）都经它取 tab。
   - **惰性新建**：tab 没有归属会话时不建、不落库、不进历史列表（未绑定态），发出第一条消息时才 create 并登记。
   - 归属映射的清理归 **SW 的 `tabs.onRemoved`** —— 面板没开时 tab 照样会被关，只有常驻的 SW 不漏。
   - 历史会话的查看 / 改名 / 删除在工作台「会话历史」标签页（`SessionHistoryTab.vue`：列表复用 `SessionHistoryPanel`，右栏用 `ChatPanel` 的只读模式回放）；对话界面里没有会话列表，也没有「新建会话」。
@@ -79,7 +78,7 @@ Chrome MV3 扩展（background service worker + side panel + 工作台标签页�
 
 ⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`——**密钥同存本机，属防扫描级而非保密级**）、key-cipher DEK、MAIN 世界桩密钥（`pageSecret`）、**标签页 → 会话的归属映射（`convByTab`，见 `conversation-tab-map.ts`）**——扩展自己的小数据；`chrome.storage.local` 已清零。归属映射是**整表一个键**，而写方有两处（面板登记新会话 / SW 在 tab 关闭时清理），可能交错，故写入一律走 `app-db.update` 的单事务「读-改-写」（拆成 get+set 会丢更新）。
 
-⑥ **会话库 `duoling-chat`**（`conversation-store.ts` 读写，**唯一写方 = offscreen**，读侧（侧边栏 / 网页浮层）只读订阅）：会话与消息 + 生成任务快照（tasks store，宿主被杀后可续）——它不在 userScripts 链路里，故与 `duoling-state` 分开。
+⑥ **会话库 `duoling-chat`**（`conversation-store.ts` 读写，**唯一写方 = offscreen**，读侧（对话界面 / 工作台会话历史）只读订阅）：会话与消息 + 生成任务快照（tasks store，宿主被杀后可续）——它不在 userScripts 链路里，故与 `duoling-state` 分开。
 
 ⑦ **网络录制库 `duoling-netlog`**（`netlog-db.ts`，**写只归 SW**）：`captures` store（自增主键 + `by_host` 索引）——页面接口流量的**采样**（隐私敏感、按站点授权），每 host 环形 ≤ `NET_HOST_RING_LIMIT`（超限删最旧）。写入口是 `dl-bridge` 的 `__dlNetCapture` 分支；门禁（哪些 host 在录）是**应用配置**，存 `duoling-app` 的 `netCaptureHosts` 键（见 `net-capture-gate.ts`）。与 `duoling-runtime` 分开：那是脚本观测数据，这是「页面之外」的网络流量采样，生命周期随「关录制 / 清记录」走。
 

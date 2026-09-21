@@ -4,14 +4,14 @@
  * 运行位置：目标标签页的独立 USER_SCRIPT 世界 `us-builtin-picker`（经
  * chrome.userScripts.execute() 按需注入——点按钮那一刻才进页面，平时零注入足迹）。
  * 本文件是**无依赖的 vanilla JS**，不进打包链路（src/public/ 随包分发），
- * 由侧边栏以 `js: [{file}, {code: '__duolingPicker("pick")'}]` 两段注入：
+ * 由对话界面以 `js: [{file}, {code: '__duolingPicker("pick")'}]` 两段注入：
  * 第一段定义运行器，第二段的**补全值**（Promise）作为 execute() 的返回值带回。
  *
  * 两个模式（由调用方的 epilogue code 指定）：
  *   pick     —— 拾取模式：亮高亮框 + 拦截点击，用户点选后 resolve 元素载荷；
  *               右键取消（resolve null）。Esc 取消挂在页面 document 上，只在页面
- *               恰好持有焦点时生效——拾取由侧边栏发起时焦点在侧边栏，主取消路径
- *               是侧边栏监听 Esc 后经 cancelPick() 补注入 cancel 指令（见
+ *               恰好持有焦点时生效——拾取由对话界面发起时焦点在对话界面，主取消路径
+ *               是对话界面监听 Esc 后经 cancelPick() 补注入 cancel 指令（见
  *               element-picker-client.ts）。返回「点选时才 resolve」的 Promise。
  *   snapshot —— 快照模式：不亮任何 UI，静默抓渲染后 documentElement.outerHTML
  *               （截断 ~32KB）resolve 回去。

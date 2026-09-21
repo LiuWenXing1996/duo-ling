@@ -1,16 +1,15 @@
 <script setup lang="ts">
-// 会话历史侧栏（常驻两栏布局的「展开态」）：工具内各会话的列表 + 新建 / 会话操作（重命名 / 删除）。
-// 头部含标题与「会话数」徽标、删除全部、新建、收起（收起由父级两栏布局承载，此处只发 close）；
+// 会话历史列表：工作台「会话历史」标签页的左栏（工具内各会话的列表 + 会话操作）。
+// 头部含标题与「会话数」徽标、删除全部 —— **没有「新建会话」**：会话由标签页产生（一个 tab 一条），
+// 没有「凭空建一条空会话」这回事；也没有「收起」，这里不是抽屉。
 // 标题下方搜索框（按标题/内容实时过滤，命中走 window.api.conversation.search）；
 // 非搜索态按「今天 / 昨天 / 日期」分组并展示最近一条消息预览，搜索态展示命中片段；
 // 每项的「更多」下拉菜单含重命名与删除，删除确认 / 重命名用 UI 弹窗，均由本组件自含单一实例。
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
-  ChevronLeft as UiChevronLeft,
   ListTodo as UiListTodo,
   MoreHorizontal as UiMoreHorizontal,
   Pencil as UiPencil,
-  Plus as UiPlus,
   Search as UiSearch,
   Trash2 as UiTrash2
 } from '@lucide/vue'
@@ -42,17 +41,11 @@ import { formatSessionTime } from '@/composables/use-global-conversation'
 const props = defineProps<{
   conversations: Conversation[]
   activeConversationId: string
-  /** 'drawer'（默认）= 对话界面里的抽屉形态：含「新建会话」与「收起」；
-   *  'page' = 工作台「会话历史」标签页形态：会话由标签页产生（这里没有「新建」这回事），
-   *  外层也没有可收起的抽屉。 */
-  variant?: 'drawer' | 'page'
 }>()
 const emit = defineEmits<{
   activate: [id: string]
-  new: []
   delete: [payload: { type: 'session' | 'all'; id?: string; title?: string }]
   rename: [payload: { id: string; title: string }]
-  close: []
 }>()
 
 // —— 搜索：防抖调主进程 conversation:search；空查询回落到 props.conversations（按日期分组）——
@@ -219,40 +212,6 @@ function confirmRename(): void {
               </ui-button>
             </ui-tooltip-trigger>
             <ui-tooltip-content>删除全部会话</ui-tooltip-content>
-          </ui-tooltip>
-        </ui-tooltip-provider>
-        <!-- 「新建会话」只在抽屉形态出现：会话归属由标签页决定，工作台里没有「新建一条空会话」这回事 -->
-        <ui-tooltip-provider v-if="props.variant !== 'page'">
-          <ui-tooltip>
-            <ui-tooltip-trigger as-child>
-              <ui-button
-                variant="ghost"
-                size="icon"
-                class="no-drag size-7"
-                aria-label="新建会话"
-                @click="emit('new')"
-              >
-                <ui-plus class="size-4" />
-              </ui-button>
-            </ui-tooltip-trigger>
-            <ui-tooltip-content>新建会话</ui-tooltip-content>
-          </ui-tooltip>
-        </ui-tooltip-provider>
-        <!-- 「收起」同理：工作台标签页没有外层抽屉可收 -->
-        <ui-tooltip-provider v-if="props.variant !== 'page'">
-          <ui-tooltip>
-            <ui-tooltip-trigger as-child>
-              <ui-button
-                variant="ghost"
-                size="icon"
-                class="no-drag size-7"
-                aria-label="收起"
-                @click="emit('close')"
-              >
-                <ui-chevron-left class="size-4" />
-              </ui-button>
-            </ui-tooltip-trigger>
-            <ui-tooltip-content>收起</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
       </div>

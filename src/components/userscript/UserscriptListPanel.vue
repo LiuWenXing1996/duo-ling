@@ -685,7 +685,7 @@ onUnmounted(() => {
 const buildPhase = ref<Record<string, BuildPhase>>({})
 
 // 别处的脚本写操作（保存 / 启停 / 新建 / 删除 / 导入）落盘后已广播 `script` 域，
-// 这里接住并自动回拉列表——多窗口、多标签、侧边栏之间不必各自手动刷新
+// 这里接住并自动回拉列表——多窗口、多标签、对话界面之间不必各自手动刷新
 useDataSync('script', (push) => {
   if (push.phase && push.uuid) {
     buildPhase.value = { ...buildPhase.value, [push.uuid]: push.phase }
@@ -950,7 +950,7 @@ useDataSync('group', () => refreshGroups())
           加载中…
         </p>
         <p v-else-if="!scripts.length" class="py-10 text-center text-xs text-muted-foreground">
-          还没有用户脚本。可点上方「添加脚本」新建，也可在侧边栏让 AI 生成。
+          还没有用户脚本。可点上方「添加脚本」新建，也可在对话界面让 AI 生成。
         </p>
         <!-- 有脚本但被搜索 / 筛选滤空：提示调整条件，而非误导为「没有脚本」 -->
         <p

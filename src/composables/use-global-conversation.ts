@@ -1,4 +1,4 @@
-// 会话状态源：渲染层（侧边栏 / 网页浮层各持一份实例）的当前会话视图。
+// 会话状态源：对话界面（网页浮层）的当前会话视图。
 //
 // **会话归属按标签页**：一个 tab 一条会话，切 tab 即切会话（归属映射见
 // lib/conversation-tab-map.ts）。因此本 composable 不再有「手动新建 / 手动切换」——
@@ -7,20 +7,19 @@
 //   · tab 还没有 → 进入「未绑定」态（视图清空、不落库、不进历史列表），
 //     直到用户在这个 tab 发出第一条消息才 create 并登记归属（惰性新建）。
 //
-// 两侧载体认定「自己是哪个 tab」的方式不同（见 resolveOwningTabId）：
-//   · 侧边栏是 per-window 的扩展页 → 查本窗口当前激活的 tab，并**跟随切 tab 事件**换会话；
-//   · 网页浮层是页面内 iframe → 认 content script 经 URL 传进来的 `?tab=<id>`，**固定归属**
-//     （用户切走别的 tab 后浮层仍挂在原 tab 上，若跟着「当前激活 tab」走就会串）。
+// 本载体属于哪个标签页由 `lib/owning-tab.ts` 解析：浮层认 content script 经 iframe URL 传来的
+// `?tab=<id>`，是**固定归属** —— 用户切走别的标签页后浮层仍挂在原 tab 上，
+// 跟着「当前激活标签页」现查就会串到别人那里。
 //
 // 定位是「指令入口 + 观察者」（对话链路的执行宿主是 offscreen）：
 //   · 落盘归 offscreen —— 用户消息在 chat:start 时落盘、assistant 消息在收尾时落盘
-//     （含完整 parts 与 token 用量）；侧边栏**不写**会话库，防双写。
+//     （含完整 parts 与 token 用量）；对话界面**不写**会话库，防双写。
 //   · 断线重连 —— 面板重开 / 切回会话时经 chat.resumeStream() → transport.reconnectToStream()
 //     从头回放 offscreen 里仍在进行中任务的完整事件缓冲接上；「下完单就走」由此成立。
 //     切 tab 换会话也走这条：`chat.stop()` 只断本地流，offscreen 里的任务照跑，切回来自动接上。
 //   · 孤儿任务 —— offscreen 宿主被杀后 status=running 的记录（心跳过期）在此提示「继续 / 丢弃」。
 
-import { computed, onUnmounted, ref, shallowRef, watchEffect } from 'vue'
+import { computed, ref, shallowRef, watchEffect } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import type { UseChatHelpers } from '@ai-sdk/vue'
 import type { ChatInit, ChatStatus, UIMessage } from 'ai'
@@ -32,6 +31,7 @@ import {
   getConversationIdForTab,
   unbindTab,
 } from '@/lib/conversation-tab-map'
+import { resolveOwningTabId } from '@/lib/owning-tab'
 import type { ChatOrphanRecord, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 import type { Conversation, TokenUsage } from '@/shared/types'
 
@@ -57,44 +57,6 @@ type ChatInstance = UseChatHelpers<UIMessage>
 /** 孤儿横幅轮询的启动哨兵（composable 可能被多处调用，定时器只起一个） */
 let orphanPollStarted = false
 
-// —— 载体归属的标签页 ——
-
-/**
- * 网页浮层的**固定**归属：content script 经 iframe URL 传来的 `?tab=<id>`。
- * 只有浮层带这个参数（见 entrypoints/content.ts），侧栏不带。
- */
-function readPinnedTabId(): number | null {
-  try {
-    const raw = new URLSearchParams(location.search).get('tab')
-    if (!raw) return null
-    const id = Number(raw)
-    return Number.isInteger(id) && id > 0 ? id : null
-  } catch {
-    return null
-  }
-}
-
-/**
- * 本载体所属的标签页 id。
- *
- * 优先级：URL 的 `?tab=`（浮层的权威值 —— 浮层可能挂在一个已不是「当前激活」的 tab 上，
- * 用 query 会拿到别人）→ 本窗口当前激活 tab（侧栏；以及浮层万一没拿到参数时的兜底 ——
- * 打开浮层那一刻它必然是激活的）。
- *
- * 取不到返回 null：调用方退化为「不绑定」（可正常对话，只是这条会话不归属任何 tab）。
- */
-async function resolveOwningTabId(): Promise<number | null> {
-  const pinned = readPinnedTabId()
-  if (pinned != null) return pinned
-  try {
-    if (!chrome.tabs?.query) return null
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    return tab?.id ?? null
-  } catch {
-    return null
-  }
-}
-
 /**
  * 会话状态源。应在载体根组件（ChatApp）顶层调用一次，再把 state 下发给消息区。
  */
@@ -116,7 +78,7 @@ export function useGlobalConversation() {
 
   // —— 对话客户端：AI SDK 全家桶按需加载 ——
   //
-  // useChat 连带 ai 核心 + zod，生产产物合计约 360KB，是侧边栏 / 工作台首屏最大的一块。
+  // useChat 连带 ai 核心 + zod，生产产物合计约 360KB，是对话界面 / 工作台首屏最大的一块。
   // 但打开面板要做的事（列会话、读历史消息）全部走 IndexedDB 直读，用不到它 ——
   // 真正需要流式接收的只有「发送」与「续上未完成任务」。故改为首次需要时动态加载：
   // 首帧不再等它，面板立刻可画（首开白屏的主因之一）。
@@ -233,50 +195,6 @@ export function useGlobalConversation() {
     enterUnbound()
   }
 
-  // —— 跟随切 tab（仅侧栏需要）——
-  //
-  // 侧栏是 per-window 的扩展页：窗口里换了标签页就得换会话。浮层不装这些监听 ——
-  // 它的归属是 URL 带来的固定 tabId，若跟着「当前激活 tab」走，用户切走后浮层就会串到别人的会话。
-
-  /** 本面板所在窗口的 id：只跟踪自己窗口的 active tab（别窗口切 tab 与本面板无关） */
-  let ownWindowId: number | undefined
-  let tabTracking = false
-
-  /** 当前激活 tab 变了 → 换会话 */
-  function onTabActivated(info: { tabId: number; windowId: number }): void {
-    if (ownWindowId != null && info.windowId !== ownWindowId) return
-    void syncToTab(info.tabId)
-  }
-
-  /** 当前 tab 被关掉：视图清空，等用户切到别的 tab（onActivated 会来）。
-   *  映射项的清理不在这里 —— 面板没开时 tab 照样会被关，只有 SW 侧的 onRemoved 不漏。 */
-  function onTabRemoved(tabId: number): void {
-    if (tabId !== currentTabId.value) return
-    currentTabId.value = null
-    enterUnbound()
-  }
-
-  function startTabTracking(): void {
-    if (tabTracking) return
-    tabTracking = true
-    // 先拿窗口 id 再挂监听：两者之间有事件漏掉也只影响「别窗口的切换」这类本就该忽略的事件
-    void chrome.windows
-      ?.getCurrent()
-      .then((w) => {
-        ownWindowId = w.id
-      })
-      .catch(() => {})
-    chrome.tabs.onActivated.addListener(onTabActivated)
-    chrome.tabs.onRemoved.addListener(onTabRemoved)
-  }
-
-  // 卸载时摘监听（与挂载成对）。在 setup 同步阶段注册 —— 放进异步回调里会因
-  // 「没有活动组件实例」而注册失败。
-  onUnmounted(() => {
-    chrome.tabs?.onActivated?.removeListener(onTabActivated)
-    chrome.tabs?.onRemoved?.removeListener(onTabRemoved)
-  })
-
   /** 加载某会话的消息并激活之；若该会话有进行中的任务则重连续流 */
   async function activateConversation(id: string): Promise<void> {
     chat.value?.stop() // 本地断流（不发 chat:abort，offscreen 任务照跑；显式停止走 stopGeneration）
@@ -308,7 +226,6 @@ export function useGlobalConversation() {
     const list = await window.api.conversation.list()
     conversations.value = list
     await syncToTab(await resolveOwningTabId())
-    if (readPinnedTabId() == null) startTabTracking()
     void refreshOrphans()
   }
 

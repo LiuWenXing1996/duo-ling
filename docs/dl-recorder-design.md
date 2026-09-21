@@ -76,10 +76,10 @@ dl-recorder 既不是"按需"也不是"被动跟随"，是第三类：常驻 + �
 未开启（按钮「开启录制」）/ 录制中（按钮「关闭录制」+ 刷新引导）。状态以 SW 的门禁集合为权威，
 面板挂载时拉一次 `userscript:netCaptureState`，不信卡里落盘那一刻的快照。
 
-因为 side panel 与页面浮窗用的是同一套 `ChatApp`/`ChatPanel`，卡片写一次两处都有。
+卡片写在对话界面里（`ChatApp`/`ChatPanel`，即页面浮窗），一处即可。
 
 ## 9. 首期范围 vs 后续
 
 - **首期（数据通路，已实现 2026-09-20）**：`net-recorder.ts`（MAIN 捕获）+ `net-forwarder.ts`（转发）+ `netlog-db.ts`（`duoling-netlog`）+ `net-record-protocol.ts`（共享常量 / 入站归一化 / host 归一化）+ `net-capture-gate.ts`（per-host 门禁，存 `duoling-app` 的 `netCaptureHosts`）+ engine 注册（`syncNetRecorder` / `refreshNetRecorder`）+ dl-bridge 落库分支。
 - **二期（AI 路径，已实现 2026-09-20）**：`script-tools.ts` 的 `net_capture_enable` / `net_capture_read` 两个 agent 工具 + `agent-tools-catalog.ts` 登记（面板与模型同源）+ `net-record-digest.ts`（摘要档 / 全量档两档压缩）+ `system-prompt.ts` 的「接口录制」档 + SW 命令面 `userscript:netCapture{State,Enable,Disable,Read}` + 同意卡（§8）。
-- **未做**：关闭录制后的「清记录」入口（`netlog-db.clearCapturesByHost` 已备，缺 UI）；浏览器内端到端实测（浮窗与侧栏两处卡片的真实渲染 + 开启→刷新→读回的完整流程）。
+- **未做**：关闭录制后的「清记录」入口（`netlog-db.clearCapturesByHost` 已备，缺 UI）；浏览器内端到端实测（浮层里卡片的真实渲染 + 开启→刷新→读回的完整流程）。

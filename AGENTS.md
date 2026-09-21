@@ -6,18 +6,18 @@
 
 ## 项目速览（形态 + 红线）
 
-**形态**：Chrome MV3 扩展（background service worker + side panel + 工作台标签页）。**运行时架构见 [ARCHITECTURE.md](ARCHITECTURE.md)**。
+**形态**：Chrome MV3 扩展（background service worker + 工作台标签页；对话界面是 content script 注入的网页浮层，另有工具栏 popup）。**运行时架构见 [ARCHITECTURE.md](ARCHITECTURE.md)**。
 
 **红线**（各领域规范与文档索引见下方「文档职责总表」）：
 
-- **UI 复用（强制）**：side panel 用 `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列，网页浮层复用 side panel 同一套（只是另一个入口页）；popup 是独立的 `PopupPanel.vue`（纯配置面板，不装 `window.api`）。组件本体零改动（靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`）。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。
+- **UI 复用（强制）**：对话界面（网页浮层）用 `ChatApp` + `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列；popup 是独立的 `PopupPanel.vue`（纯配置面板，不装 `window.api`）。组件本体零改动（靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`）。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。
   - **组件来源**：UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 走 —— 先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，不手写组件。
   - **样式**：`class` 只用于布局，不覆盖组件配色与字体；颜色一律用语义 token（`bg-primary` / `text-muted-foreground`）；不写 `space-x-*` / `space-y-*`，不手写 `dark:` 覆盖。
   - **Tooltip 组合约束（reka-ui 2.10 实测）**：`TooltipProvider` 不转发 attrs —— 任何 as-child 组件**隔在 Provider 与目标元素之间都会静默断链**（编译不报错、运行时无警告，事件与属性全丢）。故 Tooltip 包其他触发组件时，**Tooltip 在最外、目标组件在内**。
   - **菜单触发按钮不套 Tooltip（reka-ui 2.10 实测）**：即便顺序正确，`TooltipTrigger` 套在 `DropdownMenuTrigger` 外层仍会让 menu popper 失去定位（内容渲染到视口外，`translate(0,-200%)` 兜底，无任何报错；组件测试 / happy-dom 测不出来，只有真实浏览器可见性断言能抓到）。改用原生 `title`（`SessionHistoryPanel` 会话操作按钮即此例）。
   - **Collapsible 折叠语义（reka-ui 2.10 实测）**：`force-mount` 加在 `CollapsibleContent` 上**不是「保持挂载但隐藏」**——它使 `present=true`、不写 `hidden` 属性，收起时内容照样显示。
     「收起时留在 DOM 但不可见」（表单与编辑态始终同源、组件测试定位控件不受折叠影响）只能给**根组件** `<ui-collapsible :unmount-on-hide="false">`：内容带 `hidden` 属性，属性值经 Vue 归一为空串（测试只断言存在性，不断言 `until-found`）。`UserscriptEditorPanel` 脚本配置区即此例（默认收起，收起态用摘要行交代当前注入面）。
-  - **会话归属按标签页（2026-09-21）**：一个 tab 一条会话、切 tab 即切会话（映射见 `src/lib/conversation-tab-map.ts`）。对话界面（`ChatApp` 系列）里**不得**加回会话列表或「新建会话」—— 历史会话的入口在工作台「会话历史」标签页。归属解析与惰性新建**只在 `use-global-conversation.ts` 一处**，面板组件不做归属判断。
+  - **会话归属按标签页（2026-09-21）**：一个 tab 一条会话（映射见 `src/lib/conversation-tab-map.ts`）。对话界面（`ChatApp`）里**不得**加回会话列表或「新建会话」—— 历史会话的入口在工作台「会话历史」标签页。归属解析与惰性新建**只在 `use-global-conversation.ts` 一处**；「本载体属于哪个 tab」**只在 `src/lib/owning-tab.ts` 一处**（乱查 `tabs.query({active})` 会串到别人的标签页），面板组件不做这类判断。
     **删除会话必须先过「是否正被标签页使用」这道门**（`conversation-tab-map` 的 `getActiveTabBindings`：映射里有 **且** 该标签页还开着）—— 新增任何删除入口都要走它，别只查映射。
 - **主题**：**跟随系统**（`src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`）—— html 上不硬写 `class="dark"`，组件里不硬编码色值（一律用主题变量如 `--background`）。
 - **工作台标签页（面板）**：新增 / 改动按 [workbench-panel](.agents/skills/workbench-panel/SKILL.md) 走 —— **接线固定 5 处（清单只在该 SKILL 罗列）**。
@@ -110,7 +110,7 @@
 
 | bug 层级 | 首选工具 | 说明 |
 | --- | --- | --- |
-| side panel UI（Vue 状态/交互） | 面板内右键 → 检查 → Console | 直接读组件状态与 DOM 真实文本 |
+| 对话界面 UI（Vue 状态/交互） | 浮层内右键 → 检查 → Console | 直接读组件状态与 DOM 真实文本 |
 | 用户脚本（注入第三方页面） | 目标页 DevTools Console + 工作台「运行日志」标签页（运行流水 + 错误日志按 runId 关联展示） | 脚本崩了不影响扩展，错误只进日志 |
 | background（能力运行时） | `chrome://extensions` → 该扩展的「Service Worker」→ Console | SW 报错不会出现在面板 Console |
 | 消息链路（扩展页 → background → offscreen） | 三段各打一条日志，确认消息形状与 `uuid` | 跨上下文流转必须按边界验证 |
@@ -124,7 +124,7 @@
 
 | 领域 | 一句话底线 | 详情 |
 | --- | --- | --- |
-| manifest 权限 | `sidePanel` 是 `chrome.sidePanel` 的**必需权限**；所需权限之外的不得添加（上架审查）。已批准权限集见 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」） | [wxt.config.ts](wxt.config.ts) |
+| manifest 权限 | 所需权限之外的不得添加（上架审查）；**没有 `sidePanel`** —— 对话入口是页面内浮层，不用 `chrome.sidePanel`。已批准权限集见 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」） | [wxt.config.ts](wxt.config.ts) |
 | cookie 能力（GM_cookie） | `cookies` 权限 + 已全域的 host（`<all_urls>`）= **SW 可读写全浏览器 cookie（含 HttpOnly）**，故必须与**域名门**绑定：url 须落在该脚本自身 `matches` 内、不命中 `excludeMatches`，只比 **scheme + host**（pattern 的 path 段一律忽略）；`set` 不开放 domain / path 覆写。**门只在 SW 侧，新增任何 cookie 命令都必经此门** | [cookie-gate.ts](src/lib/userscripts/cookie-gate.ts) / [api-contract.ts](src/lib/userscripts/api-contract.ts) |
 | SW 全局 | 引入依赖 Node 全局的库时，必须补 `src/polyfills.ts` 并在 `background.ts` **最前** import | [README](README.md) 坑 2 |
 | CSP / 沙箱 | 扩展页 CSP 保持 MV3 默认（曾为 esbuild-wasm 放开的 `'wasm-unsafe-eval'` 覆盖已随构建流程移除，**不要再加回**）；扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**跑在 USER_SCRIPT 世界、注入第三方页面：**不受扩展 CSP 约束，但也不享有扩展 API**（只能经 GM 包装层桥接：`GM_*` / `GM.*` 标准 API，内部走 `__dl` 信封协议） | [README](README.md) 坑 7 / [ARCHITECTURE.md](ARCHITECTURE.md)「脚本注入」 |

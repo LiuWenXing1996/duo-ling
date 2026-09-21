@@ -1,5 +1,5 @@
-// 浮层对话界面入口：与 side panel 复用同一套 ChatApp 对话组件。
-// 唯一区别是承载容器是网页内 iframe（由 content script 注入），而非浏览器侧栏。
+// 浮层对话界面入口：装配 ChatApp（对话界面本体，唯一的对话载体）。
+// 承载容器是网页内 iframe（由 content script 注入）。
 // 注意：入口脚本不能用与 html 同名的约定名（floatpanel.ts 会与 floatpanel.html 冲突，
 // WXT 报 "Multiple entrypoints with the same name"），故用 app/floatpanel-main.ts。
 import '@/assets/main.css'

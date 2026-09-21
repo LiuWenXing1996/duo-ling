@@ -34,9 +34,9 @@ const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
 
 // hash 深链（openWorkbench 的约定）：
 //   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
-//   #/errors/<uuid> → 打开运行日志标签页并定位到该脚本（侧边栏灵动岛点击脚本行跳转）
+//   #/errors/<uuid> → 打开运行日志标签页并定位到该脚本（对话界面灵动岛点击脚本行跳转）
 //   #/settings    → 打开设置标签页
-//   #/guide       → 打开引导标签页（侧边栏「查看开启引导」跳这里）
+//   #/guide       → 打开引导标签页（对话界面「查看开启引导」跳这里）
 //   #/sessions    → 打开会话历史标签页（对话界面顶栏「会话历史」跳这里）
 function handleHash(): void {
   const tool = location.hash.match(/^#\/tool\/([A-Za-z0-9-]+)/)

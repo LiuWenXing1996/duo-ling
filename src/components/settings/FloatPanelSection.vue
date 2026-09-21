@@ -60,7 +60,7 @@ onUnmounted(() => {
     <div>
       <h2 class="text-lg font-semibold mb-1">网页浮层</h2>
       <p class="text-sm text-muted-foreground">
-        在网页内显示一个悬浮对话按钮，点击打开与侧边栏相同的对话界面。
+        在网页内显示一个悬浮对话按钮，点击打开对话界面。
       </p>
     </div>
 

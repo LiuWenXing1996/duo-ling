@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 工作台「会话历史」标签页：回看历史会话（列表 + 消息回放），改名与删除也在这里。
 //
-// 为什么会话历史需要一个独立去处：对话界面（侧边栏 / 网页浮层）的会话**归属由标签页决定**
+// 为什么会话历史需要一个独立去处：对话界面（网页浮层）的会话**归属由标签页决定**
 // —— 一个 tab 一条会话、切 tab 即切会话，所以那里既没有会话列表也没有「新建会话」。
 // 历史会话因此收进工作台这个重界面：它是「查看与管理」的落点，不是对话的落点。
 //
@@ -263,10 +263,8 @@ onMounted(() => void loadList())
         :conversations="conversations"
         :active-conversation-id="selectedId"
         @activate="select"
-        @new="() => {}"
         @delete="onDelete"
         @rename="onRename"
-        @close="() => {}"
       />
     </div>
 

@@ -64,7 +64,7 @@ import {
   listRunTimeline,
   clearRunLog,
 } from '@/lib/userscripts/store'
-// 侧边栏页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口
+// 对话界面页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口
 import {
   forgetPageTab,
   initPageMonitorPorts,
@@ -218,7 +218,7 @@ const handlers: {
   // 快照 = AI 判断需要时才采集。
   'page:snapshot': async (): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
     if (!chrome.tabs?.query) throw new Error('tabs API 不可用，无法定位目标标签页')
-    // SW 无窗口上下文：lastFocusedWindow 语义 = 用户最后聚焦的窗口（与侧边栏所在窗口一致的场景）
+    // SW 无窗口上下文：lastFocusedWindow 语义 = 用户最后聚焦的窗口
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
     if (!tab?.id) throw new Error('未找到活动标签页')
     // 内置页 / 扩展页拦在注入前（判据与拾取器共用，见 pageInjectionBlockReason——扩展页连自己
@@ -509,7 +509,7 @@ async function initUserScripts(): Promise<void> {
 declare const __BUILD_INFO__: { time: string; branch: string }
 
 // —— 生成完成徽章 ——
-// 面板存活感知：侧边栏打开时连一条端口长连接（ChatApp 挂载时 connect），断开 = 面板关了。
+// 对话界面存活感知：浮层展开后连一条端口长连接（ChatApp 挂载时 connect），断开 = 浮层收了 / 页面走了。
 // 任务收尾推送 chat:finished 到达时：面板开着 → 不做任何事；面板关着 → 图标角标亮 '1'。
 // 角标是「你不在时有事发生了」的信号：不计数、失败同亮同色、面板一开即清零。
 const panelPorts = new Set<chrome.runtime.Port>()
@@ -529,12 +529,12 @@ function handleChatFinishedPush(ok: boolean): void {
   void ok
 }
 
-// —— 侧边栏监控 + 完成徽章的事件挂载 ——
+// —— 对话界面监控 + 完成徽章的事件挂载 ——
 // ⚠️ 全部 addListener 必须留在 defineBackground 回调内（与既有监听器同惯例）：
 // 本文件会被协议一致性测试 import（取 SW_KIND_PREFIXES），模块顶层挂监听会在
 // Node/fakeBrowser 下炸（runtime.onConnect 未实现）——之前踩过。
 function mountProposal2Listeners(): void {
-  // 侧边栏监控：新文档导航开始 = 旧文档销毁，该 tab 的运行集清零。
+  // 对话界面监控：新文档导航开始 = 旧文档销毁，该 tab 的运行集清零。
   // 刻意用 status=loading（文档替换的准确时点），SPA 软导航只改 url、不换文档，不清。
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo.status === 'loading') resetPageRuns(tabId)
@@ -556,11 +556,8 @@ function mountProposal2Listeners(): void {
     port.onDisconnect.addListener(() => panelPorts.delete(port))
   })
 
-  chrome.sidePanel.onOpened.addListener(() => {
-    clearFinishedBadge()
-  })
-
-  // 侧边栏监控端口（复用 'duoling:panel' 连接：上行快照请求 + 推送寻址）
+  // 页面脚本监控端口（复用 'duoling:panel' 连接：上行快照请求 + 推送寻址）
+  // 徽章清零归上面那条 onConnect —— 浮层一连上端口就算「用户回来了」。
   initPageMonitorPorts()
 }
 
@@ -568,13 +565,8 @@ export default defineBackground(() => {
   // 启动自证：console 第一条就是构建信息，「SW 是不是新包」不用再靠猜
   console.log(`[duoling:sw] SW 启动 · 构建 ${__BUILD_INFO__.time} · 分支 ${__BUILD_INFO__.branch}`)
 
-  // 点击工具栏图标即打开 popup（action.default_popup 由 popup.html 入口自动写入 manifest）。
-  // 故关闭「点图标开侧边栏」的自动行为 —— 一个 action 无法同时默认开 popup 与 side panel；
-  // 对话改由 popup 内「打开对话」按钮经 chrome.sidePanel.open 唤起。
-  // 仍需 manifest 声明 sidePanel 权限 + action 键，否则 chrome.sidePanel 不存在、此调用静默失败。
-  chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: false })
-    .catch((e) => console.error('[duoling] setPanelBehavior failed', e))
+  // 点击工具栏图标打开 popup（action.default_popup 由 popup.html 入口自动写入 manifest）——
+  // 这是 action 的唯一用途；对话入口是网页浮层（content script 注入），不占 action。
 
   // 用户脚本管理器：启动配置世界并恢复已启用脚本
   void initUserScripts().catch((e) => console.error('[duoling:userscript] init failed', e))
@@ -596,7 +588,7 @@ export default defineBackground(() => {
     void chrome.runtime.sendMessage(push).catch(() => {})
   })
 
-  // 侧边栏监控 / 面板端口 / 完成徽章 / 深链跳转的监听器
+  // 对话界面监控 / 面板端口 / 完成徽章 / 深链跳转的监听器
   mountProposal2Listeners()
 
   // offscreen 需「随时可用」：安装 / 更新 / 浏览器启动都立即确保容器在场。

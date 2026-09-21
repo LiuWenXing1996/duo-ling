@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 对话界面宿主：side panel（侧边栏）与网页浮层共用同一份实现。
+// 对话界面宿主：网页浮层（floatpanel.html，由 content script 注入的 iframe）的根组件。
 //
 // 布局：顶栏 = 当前会话标题 + 两个去处（会话历史 / 工作台）；下方是消息区与输入区。
 //
