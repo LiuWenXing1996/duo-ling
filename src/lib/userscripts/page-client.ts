@@ -1,7 +1,7 @@
 // 反向中继 · 脚本侧客户端源码模板。
 //
 // buildPageClientSource(pageSecret) 返回的字符串由 engine.ts 的 buildDlWrapper 内联到
-// DL 包装里（USER_SCRIPT 世界），运行结果赋给 DL.page。与 page-stub.ts 成对：
+// GM 包装里（USER_SCRIPT 世界），运行结果赋给 GM.page。与 page-stub.ts 成对：
 // 两端共享 page-protocol.ts 的常量与 digest 片段，密钥同源（SW 注册时同一把写入）。
 //
 // 行为：首次调用惰性握手（1s 超时）；请求按 seq 配对 reply（5s 超时）；
@@ -63,7 +63,7 @@ export function buildPageClientSource(pageSecret: string): string {
         if (settled) return
         settled = true
         handshakePromise = null // 失败后允许下次调用重试
-        reject(err('PAGE_STUB_UNAVAILABLE', 'DL.page 握手超时：页面世界桩不可用（检查脚本匹配规则）'))
+        reject(err('PAGE_STUB_UNAVAILABLE', 'GM.page 握手超时：页面世界桩不可用（检查脚本匹配规则）'))
       }, HANDSHAKE_TIMEOUT)
       function onAck(d) {
         if (settled) return
@@ -71,11 +71,11 @@ export function buildPageClientSource(pageSecret: string): string {
         clearTimeout(timer)
         if (d.v !== VERSION) {
           handshakePromise = null
-          return reject(err('HANDSHAKE_FAILED', 'DL.page 协议版本不符：扩展或页面脚本需要更新'))
+          return reject(err('HANDSHAKE_FAILED', 'GM.page 协议版本不符：扩展或页面脚本需要更新'))
         }
         if (d.proof !== expected) {
           handshakePromise = null
-          return reject(err('HANDSHAKE_FAILED', 'DL.page 握手校验失败：页面存在冒充桩'))
+          return reject(err('HANDSHAKE_FAILED', 'GM.page 握手校验失败：页面存在冒充桩'))
         }
         resolve()
       }
@@ -92,7 +92,7 @@ export function buildPageClientSource(pageSecret: string): string {
     return new Promise(function (resolve, reject) {
       var timer = setTimeout(function () {
         delete pending[seq]
-        reject(err('TIMEOUT', 'DL.page 调用超时：' + op))
+        reject(err('TIMEOUT', 'GM.page 调用超时：' + op))
       }, CALL_TIMEOUT)
       pending[seq] = { resolve: resolve, reject: reject, timer: timer }
       send(Object.assign({ kind: 'call', seq: seq, op: op }, extra || {}))
@@ -113,12 +113,12 @@ export function buildPageClientSource(pageSecret: string): string {
       delete pending[d.seq]
       clearTimeout(p.timer)
       if (d.ok) p.resolve(d.value)
-      else p.reject(err('PAGE_STUB_UNAVAILABLE', (d.value && d.value.message) || 'DL.page 调用失败'))
+      else p.reject(err('PAGE_STUB_UNAVAILABLE', (d.value && d.value.message) || 'GM.page 调用失败'))
       return
     }
     if (d.kind === 'event') {
       var cb = listeners[d.lid]
-      if (cb) { try { cb(d.ev) } catch (err2) { console.warn('[DL.page] 事件回调异常', err2) } }
+      if (cb) { try { cb(d.ev) } catch (err2) { console.warn('[GM.page] 事件回调异常', err2) } }
       return
     }
     if (d.kind === 'hookcall') {
@@ -133,14 +133,14 @@ export function buildPageClientSource(pageSecret: string): string {
       return
     }
     if (d.kind === 'hookresponse') {
-      if (hookOnResponse) { try { hookOnResponse(d.resp) } catch (err2) { console.warn('[DL.page] onResponse 回调异常', err2) } }
+      if (hookOnResponse) { try { hookOnResponse(d.resp) } catch (err2) { console.warn('[GM.page] onResponse 回调异常', err2) } }
       return
     }
   })
 
   return {
     listen: function (type, handler, opts) {
-      if (typeof handler !== 'function') return Promise.reject(err('PERMISSION_DENIED', 'DL.page.listen 需要事件回调函数'))
+      if (typeof handler !== 'function') return Promise.reject(err('PERMISSION_DENIED', 'GM.page.listen 需要事件回调函数'))
       return handshake().then(function () {
         var lid = 'L' + (++seqCounter)
         return call('listen', { lid: lid, type: String(type), selector: opts && opts.selector, once: !!(opts && opts.once) }).then(function () {
@@ -153,7 +153,7 @@ export function buildPageClientSource(pageSecret: string): string {
       })
     },
     fetchHook: function (handler, opts) {
-      if (typeof handler !== 'function') return Promise.reject(err('PERMISSION_DENIED', 'DL.page.fetchHook 需要裁决函数'))
+      if (typeof handler !== 'function') return Promise.reject(err('PERMISSION_DENIED', 'GM.page.fetchHook 需要裁决函数'))
       var onResp = opts && typeof opts.onResponse === 'function' ? opts.onResponse : null
       return handshake().then(function () {
         hookHandler = handler

@@ -23,6 +23,8 @@ import type {
   ScriptProject
 } from './types'
 import { base64ToBytes, parseScriptsZip, sourceFingerprint } from './zip-transfer'
+// metadata 归一化（唯一路径：写入口 saveSource 调用一次，不再另写第二套）
+import { resolveConfigFromSource } from './metadata'
 
 /** 构造状态库记录（无源码权威；源码在 duoling-fs，这里只带搬运副本） */
 function makeState(
@@ -49,9 +51,10 @@ function makeState(
   }
 }
 
-/** 保存结果：project = 落库后的注册态记录 */
+/** 保存结果：project = 落库后的注册态记录；notes = metadata 解析提示（须经 warnings 通道给用户看） */
 export interface SaveOutcome {
   project: ScriptProject
+  notes: string[]
 }
 
 /** 源码落盘（写工作树 + 提交 git）：saveSource 与导入共用的底层步骤。提交失败只丢历史不丢源码 */
@@ -73,20 +76,31 @@ async function persistSource(
 /**
  * **统一保存入口**（全部源码落盘路径都走这里）：写工作树 → 提交 git 版本 → 写状态库。
  * 保存恒成功、保存即注入（源码原文进注册态，无构建流程）。
+ *
+ * **metadata 归一化就在这一处做**（D2）：源码里的 `// ==UserScript==` 块是**输入**，
+ * `config` 是此后唯一的运行期事实源（不回写源码）。逐字段「metadata 声明了就采用、没声明才沿用
+ * 调用方给的 config」—— 因为全部落盘路径（编辑器保存 / 新建 / AI 生成 / zip 导入）都收敛到这里，
+ * 只需一处即无遗漏。改了这里不会漏掉某条写路径。
+ *
+ * `opts.adoptName`：新建 / 导入采用源码声明的 `@name`（用户尚无命名意图）；
+ * 编辑器保存**不采用**（用户在界面上起的名字不该每次保存被改回去），此时 `@name` 只进 `GM_info`。
  */
 export async function saveSource(
   uuid: string,
   code: string,
   meta: ScriptMeta,
-  opts: { enabled: boolean; createdAt: number; note?: string; group?: string },
+  opts: { enabled: boolean; createdAt: number; note?: string; group?: string; adoptName?: boolean },
 ): Promise<SaveOutcome> {
-  await persistSource(uuid, code, meta, opts.note)
+  const resolved = resolveConfigFromSource(code, meta.config)
+  const name = (opts.adoptName && resolved.name?.trim()) || meta.name
+  const effective: ScriptMeta = { name, config: resolved.config, createdAt: meta.createdAt }
+  await persistSource(uuid, code, effective, opts.note)
   const savedAt = Date.now()
   const project = makeState(
     uuid,
-    meta.name,
+    name,
     opts.enabled,
-    meta.config,
+    resolved.config,
     opts.group ?? '',
     code,
     savedAt,
@@ -94,7 +108,7 @@ export async function saveSource(
     savedAt,
   )
   await writeProject(project)
-  return { project }
+  return { project, notes: resolved.notes }
 }
 
 /** 新建（零输入）：自动命名 + 初始模板 + 首次保存 */
@@ -103,7 +117,11 @@ export async function createProject(): Promise<ScriptProject> {
   const ts = Date.now()
   const uuid = crypto.randomUUID()
   const meta: ScriptMeta = { name, config: defaultConfig(['*://*/*']), createdAt: ts }
-  const outcome = await saveSource(uuid, defaultSource(name), meta, { enabled: true, createdAt: ts })
+  const outcome = await saveSource(uuid, defaultSource(name), meta, {
+    enabled: true,
+    createdAt: ts,
+    adoptName: true,
+  })
   return outcome.project
 }
 
@@ -131,6 +149,8 @@ export async function createGeneratedProject(payload: {
     enabled: payload.enabled,
     createdAt: ts,
     note: payload.note,
+    // AI 产物同样可能自带 metadata 块：新建语义 → 采用其中的 @name / @match
+    adoptName: true,
   })
   return outcome.project
 }
@@ -234,12 +254,15 @@ async function importOneScript(script: { name: string; config: ScriptConfig; cod
   try {
     // 指纹去重提示：与现有项目（含本批先导入的——逐个落盘后立即可见）比对
     const duplicateOf = await findContentDuplicate(script.code)
-    const name = script.name.trim() || 'script'
+    // metadata 归一化走**与保存同一套**路径（同一函数，不新写第二套）；导入是「新建」语义 → 采用 @name
+    const resolved = resolveConfigFromSource(script.code, script.config)
+    const name = (resolved.name?.trim() || script.name.trim() || 'script').trim()
+    notes.push(...resolved.notes)
     const ts = Date.now()
     const uuid = crypto.randomUUID()
-    const meta: ScriptMeta = { name, config: script.config, createdAt: ts }
+    const meta: ScriptMeta = { name, config: resolved.config, createdAt: ts }
     await persistSource(uuid, script.code, meta, '从 zip 导入')
-    await writeProject(makeState(uuid, name, false, script.config, '', script.code, ts, ts, ts))
+    await writeProject(makeState(uuid, name, false, resolved.config, '', script.code, ts, ts, ts))
     return {
       status: 'ok',
       uuid,

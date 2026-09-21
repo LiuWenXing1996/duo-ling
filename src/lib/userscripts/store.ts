@@ -2,7 +2,7 @@
 //
 // 项目数据（源码/配置/产物/enabled）的权威在 IndexedDB 状态库 duoling-state
 // （读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
-// 本文件管三块，全部落 IndexedDB：DL.store 值（duoling-usdata 库，见 usdata-db.ts）、
+// 本文件管三块，全部落 IndexedDB：GM 值（duoling-usdata 库，见 usdata-db.ts）、
 // 观测数据 = 错误日志 / 运行统计 / 运行日志（duoling-runtime 库，见 runtime-db.ts）。
 //
 // 观测数据的读改写在 runtime-db 的同一事务内完成（天然原子），故这里不再需要
@@ -40,7 +40,7 @@ export async function listSummaries(projects: ScriptProject[]): Promise<ScriptSu
   )
 }
 
-// —— DL.store 值存储（原 chrome.storage 键空间 us:gm:<uuid>:<key>，现落 duoling-usdata 库）——
+// —— GM 值存储（原 chrome.storage 键空间 us:gm:<uuid>:<key>，现落 duoling-usdata 库）——
 //
 // 写出口 = 本文件这几个函数（dl-bridge dispatch 是唯一调用方），store.watch 的变更
 // 事件也从这里发（原经 storage.onChanged 兜底，IDB 无通知，改为写出口直发）。
@@ -53,13 +53,24 @@ export interface GmValueChange {
   deleted: boolean
   /** 新值（deleted 时为 null）；随事件携带，订阅方免回读 */
   value: unknown
+  /**
+   * 变化前的值。支撑 `GM_addValueChangeListener(key, (k, oldValue, newValue, remote))` 的
+   * 第二参；键原先不存在时为 undefined。
+   */
+  oldValue?: unknown
+  /**
+   * 发起写的实例 connId（包装层随 `store.set` 带上）。
+   * 推送侧据此判 `remote`：与发起者同 connId 的 Port 是「本实例自己写的」（false），
+   * 其余是「别的标签页 / 框架写的」（true）；缺省 = 来源未知（后台内部写）→ 一律按 remote 处理。
+   */
+  writerConnId?: string
 }
 
 type GmValueListener = (change: GmValueChange) => void
 
 const gmValueListeners = new Set<GmValueListener>()
 
-/** 订阅 DL.store 值变更（dl-port 的 store.watch 下行推送经此接线；返回退订函数） */
+/** 订阅 GM 值变更（dl-port 的 store.watch 下行推送经此接线；返回退订函数） */
 export function onGmValueChange(listener: GmValueListener): () => void {
   gmValueListeners.add(listener)
   return () => gmValueListeners.delete(listener)
@@ -79,20 +90,37 @@ export async function getGMValue(uuid: string, key: string): Promise<unknown> {
   return usdata.getGmValue(uuid, key)
 }
 
-export async function setGMValue(uuid: string, key: string, value: unknown): Promise<void> {
+export async function setGMValue(
+  uuid: string,
+  key: string,
+  value: unknown,
+  writerConnId?: string,
+): Promise<void> {
   const prev = await usdata.getGmValue(uuid, key)
   await usdata.setGmValue(uuid, key, value)
   // 值未变化不发事件（storage.onChanged 同款语义）；结构化克隆值按 Json 契约可比
   if (JSON.stringify(prev) !== JSON.stringify(value)) {
-    emitGmChange({ uuid, key, deleted: false, value })
+    // 可选字段只在有值时挂上 —— 事件要过结构化克隆过桥，留 undefined 键只会让帧更脏
+    emitGmChange({
+      uuid,
+      key,
+      deleted: false,
+      value,
+      ...(prev !== undefined ? { oldValue: prev } : {}),
+      ...(writerConnId ? { writerConnId } : {}),
+    })
   }
 }
 
-export async function deleteGMValue(uuid: string, key: string): Promise<void> {
+export async function deleteGMValue(
+  uuid: string,
+  key: string,
+  writerConnId?: string,
+): Promise<void> {
   const prev = await usdata.getGmValue(uuid, key)
   if (prev === undefined) return // 键本就不存在：不写不发事件（同 storage.remove）
   await usdata.deleteGmValue(uuid, key)
-  emitGmChange({ uuid, key, deleted: true, value: null })
+  emitGmChange({ uuid, key, deleted: true, value: null, oldValue: prev, ...(writerConnId ? { writerConnId } : {}) })
 }
 
 /** 列出某脚本存过的全部键 */
@@ -100,15 +128,28 @@ export async function listGMKeys(uuid: string): Promise<string[]> {
   return usdata.listGmKeys(uuid)
 }
 
-/** 清空某脚本的全部 DL.store 值；被删的键逐个发删除事件（对齐 storage.onChanged 逐键语义） */
-export async function clearGMValues(uuid: string): Promise<void> {
+/** 某脚本的全部键值快照（注入时的值预载 + 包装层全量校准用） */
+export async function getAllGMValues(uuid: string): Promise<Record<string, unknown>> {
+  return usdata.listGmValues(uuid)
+}
+
+/**
+ * 清空某脚本的全部存储值；被删的键逐个发删除事件（对齐 storage.onChanged 逐键语义）。
+ *
+ * **不带 oldValue**：批量操作不逐个回读旧值，订阅方的 oldValue 为 undefined（帧上是 null）。
+ * 要精确的旧值请在 clear 前自己 listValues + getValue 读一遍。
+ */
+export async function clearGMValues(uuid: string, writerConnId?: string): Promise<void> {
   const deletedKeys = await usdata.clearGmValues(uuid)
-  for (const key of deletedKeys) emitGmChange({ uuid, key, deleted: true, value: null })
+  for (const key of deletedKeys) {
+    // 逐个发删除事件（对齐 storage.onChanged 逐键语义）；被删的键必然有旧值
+    emitGmChange({ uuid, key, deleted: true, value: null, ...(writerConnId ? { writerConnId } : {}) })
+  }
 }
 
 // —— 错误日志（duoling-runtime 库 errors store，环形）——
 //
-// 运行期错误经 DL 包装转发到 onUserScriptMessage 后被收集；注册/桥失败在后台直接收集。
+// 运行期错误经 GM 包装转发到 onUserScriptMessage 后被收集；注册/桥失败在后台直接收集。
 // 环形保留最近 N 条，避免无限增长（上限定义在 types.ts，供 UI 文案同源引用）。
 // 读改写在 runtime.mutateErrors 的事务内原子完成，无需进程内队列串行。
 

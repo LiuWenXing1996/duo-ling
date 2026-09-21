@@ -27,6 +27,7 @@ import {
 } from './project-write'
 import { readAllProjects, removeProjects } from './state-db'
 import { bytesToBase64 } from './zip-transfer'
+import { defaultConfig } from './types'
 import { commitSource, deleteAllRepos, deleteRepo, readSource, writeSource } from './us-git'
 
 const mockWriteSource = vi.mocked(writeSource)
@@ -408,5 +409,53 @@ describe('importScriptsZip', () => {
 
   it('非 zip 内容：整体报错（调用方 UI 展示错误）', async () => {
     await expect(importScriptsZip(bytesToBase64(new Uint8Array([1, 2, 3, 4])))).rejects.toThrow()
+  })
+})
+
+describe('metadata 归一化（D2：只在写入口一处解析）', () => {
+  const WITH_META = `// ==UserScript==
+// @name 源码里的名字
+// @match https://example.com/*
+// @run-at document-start
+// ==/UserScript==
+console.log(1)
+`
+
+  it('新建（AI 生成 / 全新脚本）：采用源码声明的 @name / @match / @run-at', async () => {
+    const p = await createGeneratedProject({
+      name: '界面给的名字',
+      config: defaultConfig(['*://*/*']),
+      code: WITH_META,
+      enabled: false,
+    })
+    expect(p.name).toBe('源码里的名字')
+    expect(p.config.matches).toEqual(['https://example.com/*'])
+    expect(p.config.runAt).toBe('document_start')
+  })
+
+  it('编辑器保存：采纳 metadata 的匹配规则，但**不改名**（界面上的名字优先）', async () => {
+    const created = await createGeneratedProject({
+      name: '甲',
+      config: defaultConfig(['*://*/*']),
+      code: 'console.log(1)',
+      enabled: false,
+    })
+    const outcome = await saveExisting(created.uuid, WITH_META, {})
+    expect(outcome.project.name).toBe('甲')
+    expect(outcome.project.config.matches).toEqual(['https://example.com/*'])
+    // 覆盖了界面上的匹配规则 → 必须给提示（不静默）
+    expect(outcome.notes.join('\n')).toContain('已覆盖')
+  })
+
+  it('无 metadata 块：配置原样沿用、零提示（无 metadata 是正常形态）', async () => {
+    const created = await createGeneratedProject({
+      name: '乙',
+      config: defaultConfig(['https://a.example.com/*']),
+      code: 'console.log(1)',
+      enabled: false,
+    })
+    const outcome = await saveExisting(created.uuid, 'console.log(2)', {})
+    expect(outcome.project.config.matches).toEqual(['https://a.example.com/*'])
+    expect(outcome.notes).toEqual([])
   })
 })

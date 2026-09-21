@@ -1,38 +1,40 @@
-// DL 后台桥（协议契约 src/lib/userscripts/api-contract.ts）。
+// GM 后台桥（协议契约 src/lib/userscripts/api-contract.ts）。
 //
-// USER_SCRIPT 世界的 DL 包装经 chrome.runtime.sendMessage 发来的消息，因世界已
-// configureWorld({messaging:true})，被路由到本文件的 runtime.onUserScriptMessage（而非通用 onMessage）。
+// USER_SCRIPT 世界的 GM 包装（gm-wrapper.ts 注入的那份源码）经 chrome.runtime.sendMessage 发来的消息，
+// 因世界已 configureWorld({messaging:true})，被路由到本文件的 runtime.onUserScriptMessage（而非通用 onMessage）。
 //
-// 消息分流（契约定义）：
+// 消息分流（契约定义；信封名保持 __dl 前缀，见 docs/gm-api-migration.md 的 D8）：
 //   { __dl: true, uuid, req: ApiRequest }        —— 请求-响应，按 req.c 强类型分发（穷尽性检查）
 //   { __dlEvent: true, uuid, name, event: DlEvent } —— 单向错误上报，收进错误日志（runtime 库）
 //   { __dlRunStart: true, uuid, name, runId }    —— 运行标识广播：交侧边栏监控按 tab 登记
 //
 // 安全性：消息来源天然是「不可信用户脚本」，故校验 sender.userScript.scriptId 与消息里的 uuid 一致，
 // 防止伪造身份读写其它脚本的私有存储。background 的 SW 内 fetch 受 <all_urls> host 权限豁免 CORS，
-// 这是 DL.fetch 免 CORS 的基础（Chrome 官方明文：内容脚本中的跨源请求始终按跨源处理）。
+// 这是 GM_xmlhttpRequest 免 CORS 的基础（Chrome 官方明文：内容脚本中的跨源请求始终按跨源处理）。
 import type {
   ApiErrorCode,
   ApiRequest,
   ApiResponse,
-  DlCookie,
+  GmCookie,
   DlEvent,
   FetchFormBody,
   FetchInit,
   FetchPayload,
   Json,
 } from './api-contract'
-// DL Port 事件底座（二期）：控制面实现（菜单登记 / store 订阅 / 通知归属 / URL 订阅）
+// Port 事件底座：控制面实现（菜单登记 / 键级与全量值订阅 / 通知归属 / URL 订阅）
 import {
   registerScriptMenu,
   unregisterScriptMenu,
   attachScriptWatch,
   detachScriptWatch,
+  attachValueWatch,
+  detachValueWatch,
   mintNotification,
   attachUrlWatch,
   detachUrlWatch,
 } from './dl-port'
-// DL.cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
+// GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
 // 网络录制：转发件送来的采集载荷在 SW 侧白名单化后落 duoling-netlog
 import { normalizeCapture } from './net-record-protocol'
@@ -44,15 +46,16 @@ import {
   setGMValue,
   deleteGMValue,
   listGMKeys,
+  getAllGMValues,
   clearGMValues,
   appendUserScriptError,
   recordRunStart,
 } from './store'
 // offscreen 容器就绪（SW 侧模块；dl-bridge 与 background 同属 SW，不触及 offscreen 专有 runtime API）
 import { ensureOffscreenReady } from '@/lib/offscreen'
-// DL.tab 标签页级存储后端（duoling-usdata 库，SW 独占写）
+// GM_getTab 标签页级存储后端（duoling-usdata 库，SW 独占写）
 import * as usdata from './usdata-db'
-// DL.fetch 特权增强：forbidden header 覆写（DNR session 规则）+ redirect:'manual'（webRequest 观测）
+// GM_xmlhttpRequest 特权增强：forbidden header 覆写（DNR session 规则）+ redirect:'manual'（webRequest 观测）
 import {
   splitHeaders,
   hostLock,
@@ -65,6 +68,15 @@ import {
 /** 通知兜底图标（打包资源）。MV3 的 notifications.create 不接受 data: URL 图标
  * （报 "Unable to download all specified images."），必须用扩展内资源或 http(s) 图 */
 const FALLBACK_ICON = 'notify-icon.png' // 相对扩展根，即 src/public/notify-icon.png
+
+/**
+ * 在飞行的特权请求：`requestId` → AbortController。
+ *
+ * 服务 `GM_xmlhttpRequest` 返回句柄的 `abort()`（`fetch.abort` 命令）——桥是请求-响应模型，
+ * SW 无法反向控制一次已经发出的 fetch，故由本表把「包装层 mint 的 requestId」与 SW 侧控制器对上。
+ * 请求结束（含超时 / 异常）即摘除，表只活在请求飞行期间。
+ */
+const inFlightFetches = new Map<string, AbortController>()
 
 /** 带 ApiErrorCode 的错误：dispatch 抛出后由监听器写入响应信封的 code 字段 */
 class ApiError extends Error {
@@ -135,7 +147,7 @@ function rebuildFormData(body: FetchFormBody): FormData {
 }
 
 /**
- * DL.fetch 的后台实现：SW 内特权请求，豁免 CORS。
+ * GM_xmlhttpRequest 的后台实现：SW 内特权请求，豁免 CORS。
  * 与旧 GM 版不同：非 2xx 不抛错——HTTP 状态属于正常响应内容，由 FetchPayload.ok 承载。
  *
  * forbidden header 覆写：Cookie/Referer/Origin 等（连同 User-Agent）由 DNR session 规则
@@ -152,13 +164,13 @@ function rebuildFormData(body: FetchFormBody): FormData {
 async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
   const redirect = init?.redirect ?? 'follow'
   if (redirect !== 'follow' && redirect !== 'manual' && redirect !== 'error') {
-    throw new ApiError('INVALID_ARG', `DL.fetch：redirect 仅支持 follow / manual / error，收到「${String(redirect)}」`)
+    throw new ApiError('INVALID_ARG', `GM_xmlhttpRequest：redirect 仅支持 follow / manual / error，收到「${String(redirect)}」`)
   }
   let host: string
   try {
     host = new URL(url).host
   } catch {
-    throw new ApiError('INVALID_ARG', `DL.fetch：URL 无法解析：${url}`)
+    throw new ApiError('INVALID_ARG', `GM_xmlhttpRequest：URL 无法解析：${url}`)
   }
 
   // header 拆两路：禁设头走 DNR 规则，其余走原生 Headers
@@ -180,7 +192,7 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
       }
       req.body = rebuildFormData(init.body)
     } else {
-      throw new ApiError('INVALID_ARG', 'DL.fetch：body 仅支持字符串 / Blob / FormData / ArrayBuffer / TypedArray / DataView')
+      throw new ApiError('INVALID_ARG', 'GM_xmlhttpRequest：body 仅支持字符串 / Blob / FormData / ArrayBuffer / TypedArray / DataView')
     }
   }
 
@@ -195,10 +207,13 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
 
   const timeout = init?.timeout
   const controller = new AbortController()
+  // 登记在飞请求，供 `fetch.abort` 真中止（包装层 mint 的 requestId；不传即不可中止）
+  const requestId = init?.requestId
+  if (requestId) inFlightFetches.set(requestId, controller)
   let timer: ReturnType<typeof setTimeout> | undefined
   if (timeout && timeout > 0) {
     timer = setTimeout(
-      () => controller.abort(new ApiError('BRIDGE_TIMEOUT', `DL.fetch 请求超时（${timeout}ms）：${url}`)),
+      () => controller.abort(new ApiError('BRIDGE_TIMEOUT', `GM_xmlhttpRequest 请求超时（${timeout}ms）：${url}`)),
       timeout,
     )
   }
@@ -212,7 +227,7 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
       ruleId = mintRuleId()
       const dnr = chrome.declarativeNetRequest
       if (!dnr?.updateSessionRules) {
-        throw new ApiError('NOT_AVAILABLE', 'DL.fetch：declarativeNetRequest 不可用')
+        throw new ApiError('NOT_AVAILABLE', 'GM_xmlhttpRequest：declarativeNetRequest 不可用')
       }
       try {
         await dnr.updateSessionRules({
@@ -230,7 +245,7 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
         })
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
-        throw new ApiError('INTERNAL', `DL.fetch：挂载 header 覆写规则失败：${msg}`)
+        throw new ApiError('INTERNAL', `GM_xmlhttpRequest：挂载 header 覆写规则失败：${msg}`)
       }
     }
 
@@ -253,7 +268,7 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
       const grace = new Promise<null>((r) => setTimeout(() => r(null), 5000))
       const obs = await Promise.race([manualWaiter.promise, grace, aborted])
       if (!obs) {
-        throw new ApiError('INTERNAL', `DL.fetch：未能观测到 3xx 响应（webRequest 未见该请求）：${url}`)
+        throw new ApiError('INTERNAL', `GM_xmlhttpRequest：未能观测到 3xx 响应（webRequest 未见该请求）：${url}`)
       }
       const responseType = init?.responseType === 'arraybuffer' ? 'arraybuffer' : 'text'
       return {
@@ -287,10 +302,11 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
     if (controller.signal.aborted) {
       throw e instanceof ApiError
         ? e
-        : new ApiError('BRIDGE_TIMEOUT', `DL.fetch 请求超时（${timeout ?? 0}ms）：${url}`)
+        : new ApiError('BRIDGE_TIMEOUT', `GM_xmlhttpRequest 请求超时（${timeout ?? 0}ms）：${url}`)
     }
     throw e
   } finally {
+    if (requestId) inFlightFetches.delete(requestId)
     if (timer) clearTimeout(timer)
     manualWaiter?.cancel()
     // 用后即撤（主路径）：settle 即撤规则（先撤再放锁，避免下一条覆写规则与残留叠加），
@@ -307,7 +323,7 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
   }
 }
 
-/** DL.download 的后台实现：抓成 dataUrl，包装侧用 a[download] 触发本地下载（避免新增 downloads 权限） */
+/** GM_download 的后台实现：抓成 dataUrl，包装侧用 a[download] 触发本地下载（避免新增 downloads 权限） */
 async function doDownload(url: string, name: string): Promise<{ dataUrl: string; name: string }> {
   const resp = await fetch(url, { credentials: 'omit' })
   if (!resp.ok) throw new Error(`下载 ${url} 失败：${resp.status} ${resp.statusText}`)
@@ -338,9 +354,9 @@ async function assertCookieScope(uuid: string, url: string): Promise<void> {
   if (!gate.ok) throw new ApiError(gate.code, gate.message)
 }
 
-/** chrome.cookies.Cookie → DlCookie（只取可跨桥 / 允许暴露的字段） */
-function toDlCookie(c: chrome.cookies.Cookie): DlCookie {
-  const out: DlCookie = {
+/** chrome.cookies.Cookie → GmCookie（只取可跨桥 / 允许暴露的字段） */
+function toGmCookie(c: chrome.cookies.Cookie): GmCookie {
+  const out: GmCookie = {
     name: c.name,
     value: c.value,
     domain: c.domain,
@@ -394,21 +410,21 @@ async function reconcileOrphanTabKeys(): Promise<void> {
 
 /** 经 offscreen 写剪贴板（免用户手势；writeText / ClipboardItem 双轨）。超时即报，不挂死 */
 async function writeClipboardViaOffscreen(text?: string, html?: string): Promise<void> {
-  if (!text && !html) throw new ApiError('INVALID_ARG', 'DL.clipboard：text 与 html 至少给一个')
+  if (!text && !html) throw new ApiError('INVALID_ARG', 'GM_setClipboard：text 与 html 至少给一个')
   const ready = await ensureOffscreenReady()
-  if (!ready) throw new ApiError('NOT_AVAILABLE', 'DL.clipboard：offscreen 容器不可用，无法写剪贴板')
+  if (!ready) throw new ApiError('NOT_AVAILABLE', 'GM_setClipboard：offscreen 容器不可用，无法写剪贴板')
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new ApiError('BRIDGE_TIMEOUT', 'DL.clipboard 写入超时（offscreen 2s 无响应）')),
+      () => reject(new ApiError('BRIDGE_TIMEOUT', 'GM_setClipboard 写入超时（offscreen 2s 无响应）')),
       2000,
     )
     try {
       chrome.runtime.sendMessage({ kind: 'clipboard:write', text: text ?? null, html: html ?? null }, (resp: unknown) => {
         clearTimeout(timer)
         const err = chrome.runtime.lastError
-        if (err) return reject(new ApiError('NOT_AVAILABLE', 'DL.clipboard：' + err.message))
+        if (err) return reject(new ApiError('NOT_AVAILABLE', 'GM_setClipboard：' + err.message))
         const r = resp as { ok?: boolean; error?: string } | undefined
-        if (!r || !r.ok) return reject(new ApiError('INTERNAL', r?.error || 'DL.clipboard 写入失败'))
+        if (!r || !r.ok) return reject(new ApiError('INTERNAL', r?.error || 'GM_setClipboard 写入失败'))
         resolve()
       })
     } catch (e) {
@@ -426,20 +442,33 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       const v = await getGMValue(uuid, req.key)
       return v === undefined ? req.fallback : v
     }
+    // connId 随写请求带上：推送侧据此把「本实例自己写的」帧标 remote=false（GM_addValueChangeListener 第 4 参）
     case 'store.set':
-      await setGMValue(uuid, req.key, req.value)
+      await setGMValue(uuid, req.key, req.value, req.connId)
       return undefined
     case 'store.delete':
-      await deleteGMValue(uuid, req.key)
+      await deleteGMValue(uuid, req.key, req.connId)
       return undefined
     case 'store.keys':
       return listGMKeys(uuid)
+    // 全量快照：注入时的值预载（注册链路直接调 store.ts）与包装层 connect 后的校准共用
+    case 'store.all':
+      return getAllGMValues(uuid)
     case 'store.clear':
-      await clearGMValues(uuid)
+      await clearGMValues(uuid, req.connId)
       return undefined
     // 网络
     case 'fetch':
       return doFetch(req.url, req.init)
+    case 'fetch.abort': {
+      // 真中止：桥是请求-响应模型，SW 无法反向控制已发出的 fetch，故按 requestId 查表拿控制器。
+      // 查不到 = 请求已结束（或从未存在），幂等处理不报错（连续 abort 是合法调用）。
+      const controller = inFlightFetches.get(req.requestId)
+      if (controller && !controller.signal.aborted) {
+        controller.abort(new ApiError('INTERNAL', 'GM_xmlhttpRequest：请求已被脚本中止'))
+      }
+      return undefined
+    }
     // 系统能力
     case 'notify': {
       // mint 通知 id 并登记归属：点击事件经 DL Port 回推（包装层按 id 挂 onClick）
@@ -460,11 +489,11 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       return undefined
     // 标签页级存储（对齐 GM_getTab 系列）
     case 'tab.get': {
-      if (tabId == null) throw new ApiError('INVALID_ARG', 'DL.tab 需要标签页上下文（sender.tab 缺失）')
+      if (tabId == null) throw new ApiError('INVALID_ARG', 'GM_getTab 需要标签页上下文（sender.tab 缺失）')
       return getTabValue(uuid, tabId)
     }
     case 'tab.save': {
-      if (tabId == null) throw new ApiError('INVALID_ARG', 'DL.tab 需要标签页上下文（sender.tab 缺失）')
+      if (tabId == null) throw new ApiError('INVALID_ARG', 'GM_getTab 需要标签页上下文（sender.tab 缺失）')
       await saveTabValue(uuid, tabId, req.value)
       return undefined
     }
@@ -502,18 +531,18 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       const api = cookiesApi()
       if (req.name != null && req.name !== '') {
         const one = await api.get({ url: req.url, name: req.name })
-        return one ? [toDlCookie(one)] : []
+        return one ? [toGmCookie(one)] : []
       }
       const all = await api.getAll({ url: req.url })
-      return all.map(toDlCookie)
+      return all.map(toGmCookie)
     }
     case 'cookie.set': {
       await assertCookieScope(uuid, req.url)
       if (typeof req.name !== 'string' || !req.name) {
-        throw new ApiError('INVALID_ARG', 'DL.cookie.set：name 必填')
+        throw new ApiError('INVALID_ARG', 'GM_cookie.set：name 必填')
       }
       if (typeof req.value !== 'string') {
-        throw new ApiError('INVALID_ARG', 'DL.cookie.set：value 必须是字符串')
+        throw new ApiError('INVALID_ARG', 'GM_cookie.set：value 必须是字符串')
       }
       // 只传 url：domain / path 不开放覆写（开放 domain 会架空域名门，见 api-contract 注释）
       const details: chrome.cookies.SetDetails = { url: req.url, name: req.name, value: req.value }
@@ -522,14 +551,14 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       if (typeof req.expirationDate === 'number') details.expirationDate = req.expirationDate
       const written = await cookiesApi().set(details)
       if (!written) {
-        throw new ApiError('INTERNAL', `DL.cookie.set 被浏览器拒绝：${req.name}`)
+        throw new ApiError('INTERNAL', `GM_cookie.set 被浏览器拒绝：${req.name}`)
       }
       return undefined
     }
     case 'cookie.remove': {
       await assertCookieScope(uuid, req.url)
       if (typeof req.name !== 'string' || !req.name) {
-        throw new ApiError('INVALID_ARG', 'DL.cookie.remove：name 必填')
+        throw new ApiError('INVALID_ARG', 'GM_cookie.remove：name 必填')
       }
       await cookiesApi().remove({ url: req.url, name: req.name })
       return undefined
@@ -551,6 +580,16 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
     case 'store.unwatch':
       detachScriptWatch(uuid, req.connId, req.key)
       return undefined
+    // 全量值订阅（D1-b）：只读值的脚本从不做键级订阅，靠这条通道收跨标签页变更
+    case 'store.watchAll': {
+      if (!attachValueWatch(uuid, req.connId)) {
+        throw new ApiError('INTERNAL', 'GM Port 未就绪，全量订阅未生效（请重试）')
+      }
+      return undefined
+    }
+    case 'store.unwatchAll':
+      detachValueWatch(uuid, req.connId)
+      return undefined
     default: {
       // 穷尽性检查：ApiRequest 加新命令时这里会编译报错提醒补 dispatch
       const unreachable: never = req
@@ -562,7 +601,7 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
 
 let initialized = false
 
-/** 注册 DL 桥监听（幂等：SW 闲置重启后会再次 init，避免重复监听） */
+/** 注册 GM 桥监听（幂等：SW 闲置重启后会再次 init，避免重复监听） */
 export function initDlBridge(): void {
   if (initialized) return
   initialized = true
@@ -598,7 +637,7 @@ export function initDlBridge(): void {
       return undefined
     }
 
-    // 运行标识广播（DL 包装注入即发）：交侧边栏监控按 tab 登记。
+    // 运行标识广播（GM 包装注入即发）：交侧边栏监控按 tab 登记。
     const run = raw as { __dlRunStart?: true; uuid?: string; name?: string; runId?: string }
     if (run && run.__dlRunStart === true) {
       const tabId = sender.tab?.id
@@ -614,7 +653,7 @@ export function initDlBridge(): void {
       return undefined // 仅登记，无需响应
     }
 
-    // 单向错误上报（DL 包装的 window.onerror / unhandledrejection）
+    // 单向错误上报（GM 包装的 window.onerror / unhandledrejection）
     const evt = raw as { __dlEvent?: true; uuid?: string; name?: string; event?: DlEvent }
     if (evt && evt.__dlEvent === true) {
       void appendUserScriptError({

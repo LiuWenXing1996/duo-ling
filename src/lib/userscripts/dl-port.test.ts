@@ -129,7 +129,7 @@ describe('pushEvent', () => {
     dead.postMessage = () => {
       throw new Error('Attempting to use a disconnected port object')
     }
-    const ev: ApiEvent = { t: 'store.change', key: 'k', value: null }
+    const ev: ApiEvent = { t: 'store.change', key: 'k', value: null, oldValue: 1, remote: true }
     pushEvent(reg, dead, ev)
     pushEvent(reg, alive, ev)
     expect(frames).toEqual([{ __dlApiEvent: true, ev }])

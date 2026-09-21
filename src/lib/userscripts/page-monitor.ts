@@ -4,7 +4,7 @@
 // 「每个 tab 当前文档里跑着哪些脚本」——就是这个按 tab 的运行登记表。
 //
 // 数据流（三个信号源，全部已在 dl-bridge / background 里存在，这里只是多接一根线）：
-//   · runstart 广播（DL 包装注入即发）→ noteRunStart：登记 + 推给所有打开的侧边栏
+//   · runstart 广播（GM 包装注入即发）→ noteRunStart：登记 + 推给所有打开的侧边栏
 //   · 运行错误落盘（__dlEvent 上报）→ notePageError：推给侧边栏（错误本体随推送走，
 //     面板不回查错误日志——落盘记录无 tabId，按 tab 归属只能靠这条实时通道）
 //   · 新文档导航（tabs.onUpdated status=loading）→ resetPageRuns：旧文档销毁，运行集清零
