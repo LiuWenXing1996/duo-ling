@@ -2,6 +2,8 @@
 
 本文件记录哆灵扩展每个发布版本的变更。**格式与维护方式见 [VERSIONING.md](VERSIONING.md)「CHANGELOG.md」**，本文件只放条目。
 
+## [Unreleased]
+
 ## [0.3.0-alpha.1] - 2026-09-21
 
 ### Added
@@ -34,8 +36,6 @@
 
 - 新增 devDependency `@types/tampermonkey`（^5.5.0），并为 `uscript-samples/` 加专属 `tsconfig.json`（`types: ["tampermonkey"]` + `checkJs:false`）：脚本作者在样例里编写 `GM_*`/`GM.*`/`GM_info` 即可获得类型提示，不强制校验（本扩展三个非标成员 `GM.clearValues`/`GM.focusTab`/`GM.page` 无官方类型，靠 `spec-text.ts` 文档说明）
 - 端到端测试补本地模型 stub，对话链路与 AI 生成脚本链路进无头 CI；GM API 可用性矩阵、会话归属与删除门搬进端到端测试
-
-## [Unreleased]
 
 ## [0.2.0-alpha.1] - 2026-09-20
 
