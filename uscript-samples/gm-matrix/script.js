@@ -16,13 +16,23 @@
 // （@grant 裁剪本身另有用例覆盖，见 gm-wrapper.test.ts 的 resolveGmExposure）。
 //
 // 用法：`npm run pack:uscripts` → 工作台「脚本列表」导入 → 启用 → 打开任意 http(s) 页面
-//       → 点右下角角标跑全部（约 10s，含 2 次出网请求与 2 次开标签页）。
+//       → 点右下角角标跑全部。**跑的时候要盯着面板顶部**：轮到需要动手的用例会出现
+//       `→ …` 提示，照着做即可（错过就是「?」，重跑一遍即可）。
+//
+// 三项**必须你动手**才判得准（其余全自动）：
+//   · GM.page.listen  —— 点一下页面任意处（触发被中继的真事件）
+//   · GM_setClipboard  —— 在左下角输入框按一次 Cmd/Ctrl+V（读回写入的到底是什么）
+//   · GM_registerMenuCommand —— 在页面右键 → 点「GM 矩阵：点我试试」（验菜单点击链路）
+//   另有 GM.page.fetchHook 需要页面**自己**发一个请求，窗口 12s（安静页面记「?」）。
+//   全程约 30–60s，取决于你动手多快。
+//
 // 副作用（都已尽量自清）：网络用例出网 2 次；tabs 用例开 1 个 example.com 标签页（跑完自动关）；
-//       通知用例弹 1 条系统通知；下载与 cookie 写入两条**先 confirm** 再跑；
-//       存储用例只动本脚本自己的键，最后一条 clearValues 会把它们清掉。
+//       通知用例弹 1 条系统通知；下载与 cookie 写入两条**先 confirm** 再跑；剪贴板会覆盖你当前的
+//       剪贴板内容；菜单项跑完即注销；存储用例只动本脚本自己的键，最后一条 clearValues 会把它们清掉。
 // 测完请**停用或删除**本脚本：@match 是 *://*/*，长期开着逢页就注入。
 //
-// 三态：✓ 通过 / ✗ 失败（真问题）/ ? 未能判定（环境原因：网络不可达 / 页面 CSP 拦了注入 / 需要人工耳目）
+// 三态：✓ 通过 / ✗ 失败（真问题）/ ? 未能判定（环境或人手原因：网络不可达 / 本页没发请求 /
+//       你没动手 / 需要另看菜单）
 //
 // ————————————————————————— 覆盖登记（矩阵 ↔ 目录 的对齐表）—————————————————————————
 // 格式：`// @covers <用例名> :: <路径…>`。用例名须与下面 add(...) 的用例名**一字不差**，
@@ -62,7 +72,6 @@
 
   var ID = 'gm-matrix-probe'
   var PFX = 'gmm_' // 存储键前缀：本脚本私有空间里再划一块，便于自清
-  var HOOK_COUNT_ATTR = 'data-gm-matrix-pw'
   var rows = [] // { mark, group, name, detail }
   var running = false
   var cleanups = [] // 跑完调用的收尾动作
@@ -92,12 +101,16 @@
     return el
   }
 
+  /** 跑批期间显示的人工提示（需要用户动手的用例设它，跑完清掉） */
+  var currentHint = ''
+
   function render(head) {
     var el = ensurePanel()
     var ok = 0
     var bad = 0
     var q = 0
-    var lines = [head || 'GM 可用性矩阵 · 点击运行']
+    var lines = [head || (running ? 'GM 可用性矩阵 · 运行中…' : 'GM 可用性矩阵 · 点击运行')]
+    if (running && currentHint) lines.push('→ ' + currentHint)
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i]
       if (r.mark === '✓') ok++
@@ -132,37 +145,26 @@
   }
 
   /**
-   * 在**页面世界**跑一段代码。隔离世界调不到页面的 fetch（各自独立的 window），
-   * 故 GM.page 的两条用例要靠注入 script 触发真实页面行为。
-   * 注入被 CSP 拦下时**不抛错**（只是不执行），所以顺手写一个 DOM 信标认领执行：
-   * 信标缺失 = 段没跑（多半是 CSP），用例据此报「?」而不是「✗」，免得冤枉桥。
+   * 轮询等一个人工动作 / 外部事件（每 250ms 看一次）。超时返回 false，由调用方记「?」。
+   * 矩阵里有三项**必须用户动手**才判得准，等的就是它们。
    */
-  function runInPageWorld(code) {
-    var old = document.getElementById(ID + '-pw')
-    if (old) old.remove()
-    var attr = JSON.stringify(HOOK_COUNT_ATTR)
-    try { document.documentElement.removeAttribute(HOOK_COUNT_ATTR) } catch (e) {}
-    var s = document.createElement('script')
-    s.id = ID + '-pw'
-    // 信标先写：只要它出现，就说明这段注入源码真的被执行了（与代码本身是否抛错无关）
-    s.textContent =
-      'document.documentElement.setAttribute(' + attr + ',"ran");' +
-      'try{' + code + '}catch(e){document.documentElement.setAttribute(' + attr + ',"err:"+e)}'
-    ;(document.head || document.documentElement).appendChild(s)
+  async function waitFor(get, ms) {
+    var steps = Math.ceil(ms / 250)
+    for (var i = 0; i < steps; i++) {
+      if (get()) return true
+      await sleep(250)
+    }
+    return !!get()
   }
 
-  /** 'ran' | 'err:…' | null（null = 注入的 script 根本没跑，多半是页面 CSP） */
-  function pageWorldState() {
-    return document.documentElement.getAttribute(HOOK_COUNT_ATTR)
-  }
-
-  /** 页面世界那一段的执行结论：没跑 → 「?」（环境）；跑了但抛错 → 「✗」（真问题）；正常 → null（继续断言） */
-  function pageWorldGate() {
-    var st = pageWorldState()
-    if (st === 'ran') return null
-    if (!st) return unknown('页面世界脚本没跑（页面 CSP 拦了注入的 script；换无 CSP 的站点重试）')
-    return fail('页面世界脚本抛错：' + st.slice(4))
-  }
+  /**
+   * GM.page 的两项**不能靠「往页面注入内联 script」来触发**。
+   *
+   * 实测结论（记录在 uscript-samples/dl-fetchhook-test/script.js 头部）：从脚本世界往 DOM 插内联
+   * `<script>`，在本扩展的 USER_SCRIPT 世界里**不执行** —— 在 example.com 与 rebang.today 上都失败过，
+   * 而两站都没有 CSP（curl 实测），故**与页面 CSP 无关**，机制至今未定论（怀疑世界自身的默认 CSP）。
+   * 所以本包改用不依赖注入的两条路：真用户点击（listen）/ 被动等页面自己的请求（fetchHook）。
+   */
 
   /** 当前页是否 http(s)：cookie / urlchange 这类用例的前提 */
   function isHttpPage() {
@@ -363,9 +365,32 @@
     }
     var text = 'duoling-matrix-clipboard'
     GM_setClipboard(text)
-    await GM.setClipboard('duoling-matrix-clipboard-2')
-    // 回读需要用户手势（浏览器限制），脚本侧判不了 → 交给人工耳目
-    return unknown('两形态调用不抛；请手动粘贴核对（应看到 …clipboard / …clipboard-2）')
+    await GM.setClipboard(text + '-2')
+    // 回读剪贴板要用户手势（浏览器限制）→ 摆一个输入框，请你真按一次粘贴，从 paste 事件取内容。
+    // 这样「写进去的到底是什么」才是被验过的事实，而不是「调用没抛」。
+    var box = document.createElement('textarea')
+    box.id = ID + '-paste'
+    box.style.cssText =
+      'position:fixed;left:12px;bottom:12px;z-index:2147483647;width:280px;height:60px;' +
+      'font:12px ui-monospace,monospace;background:#111;color:#7ee787;border:1px solid #e3b341'
+    box.placeholder = '按一次 Cmd/Ctrl+V 验剪贴板'
+    ;(document.body || document.documentElement).appendChild(box)
+    cleanups.push(function () { box.remove() })
+    var pasted = null
+    box.addEventListener('paste', function (ev) {
+      pasted = (ev.clipboardData && ev.clipboardData.getData('text/plain')) || ''
+    })
+    try { box.focus() } catch (e) { /* 焦点被人抢走就靠你自己点它 */ }
+    currentHint = '在左下角输入框里按一次 Cmd/Ctrl+V（验剪贴板）'
+    render()
+    await waitFor(function () { return pasted !== null }, 15000)
+    currentHint = ''
+    render()
+    if (pasted === null) return unknown('15s 内没粘贴 → 剪贴板内容未能回读（两形态调用本身不抛）')
+    if (!pasted) return unknown('粘贴事件到了但读不到内容（隔离世界拿不到 clipboardData？）')
+    return pasted === text || pasted === text + '-2'
+      ? pass('两形态写入成功，粘贴回读命中：' + pasted)
+      : fail('粘贴内容不符：' + JSON.stringify(pasted.slice(0, 60)))
   })
 
   add('系统能力', 'GM_openInTab / GM.openInTab', async function () {
@@ -538,16 +563,20 @@
     var got = null
     var off = null
     try {
-      off = await GM.page.listen('click', function (ev) { got = ev }, { selector: 'body' })
+      off = await GM.page.listen('click', function (ev) { got = ev }, { selector: 'body', once: true })
     } catch (e) {
       return /PAGE_STUB_UNAVAILABLE|HANDSHAKE_FAILED|超时/.test(msg(e)) ? unknown('页面世界桩不可用：' + msg(e)) : fail(code(e) + msg(e))
     }
     cleanups.push(function () { if (off) off() })
-    runInPageWorld('document.body && document.body.click()')
-    await sleep(600)
-    var gate = pageWorldGate()
-    if (gate) return gate
-    return got ? pass('收到页面 click（type=' + got.type + '）') : fail('注入了点击但没收到事件')
+    // 触发必须是**页面自己发出的真事件**（点一下页面即可，点这个面板也算 —— 它也在页面 DOM 里）。
+    // 不能靠注入内联 script，见上面那段实测结论。
+    currentHint = '请点击页面任意处（触发 GM.page.listen）'
+    render()
+    await waitFor(function () { return !!got }, 15000)
+    currentHint = ''
+    render()
+    if (!got) return unknown('15s 内没等到点击 → GM.page.listen 未验（需要你点一下页面）')
+    return pass('收到页面 click（type=' + got.type + '）')
   })
 
   add('站点与页面', 'GM.page.fetchHook（页面 fetch 拦截）', async function () {
@@ -563,11 +592,15 @@
       return /PAGE_STUB_UNAVAILABLE|HANDSHAKE_FAILED|超时/.test(msg(e)) ? unknown('页面世界桩不可用：' + msg(e)) : fail(code(e) + msg(e))
     }
     cleanups.push(function () { if (off) off() })
-    runInPageWorld('fetch(location.href,{cache:"no-store"}).then(function(r){return r.text()}).catch(function(){})')
-    await sleep(1200)
-    var gate = pageWorldGate()
-    if (gate) return gate
-    return decided ? pass('拦到页面 fetch：' + decided.method + ' ' + String(decided.url).slice(0, 60)) : fail('页面发了 fetch 但裁决没被调用')
+    // 只能**被动等页面自己发请求**：脚本世界的 fetch 与页面被代理的不是同一个绑定（自己发测不到），
+    // 注入内联 script 又不执行。窗口 12s，期间可顺手点点页面 / 滚动，让它自己发点请求。
+    currentHint = '等页面自己发一个请求（可顺手点几下页面；最多 12s）'
+    render()
+    await waitFor(function () { return !!decided }, 12000)
+    currentHint = ''
+    render()
+    if (!decided) return unknown('12s 内本页没发出请求 → 换个会拉接口的站点再跑这一项')
+    return pass('拦到页面 fetch：' + decided.method + ' ' + String(decided.url).slice(0, 60))
   })
 
   add('站点与页面', 'GM_registerMenuCommand / GM_unregisterMenuCommand', async function () {
@@ -578,14 +611,24 @@
       throw new Error('GM.registerMenuCommand / GM.unregisterMenuCommand 未挂载')
     }
     var CAPTION = 'GM 矩阵：点我试试'
-    var id = GM_registerMenuCommand(CAPTION, function () {})
+    var clicked = ''
+    var id = GM_registerMenuCommand(CAPTION, function () { clicked = '全局形态' })
     if (typeof id !== 'number') throw new Error('全局形态没返回数字 id')
-    var nsId = await GM.registerMenuCommand(CAPTION + '（GM.*）', function () {})
+    var nsId = await GM.registerMenuCommand(CAPTION + '（GM.*）', function () { clicked = 'GM.* 形态' })
     if (typeof nsId !== 'number') throw new Error('GM.* 形态没 resolve 出数字 id')
+    // 四种调用成功只说明「登记没报错」。真正的验收是**点击链路**：contextMenus.onClicked →
+    // SW 按 tabId 路由 menu.click → 包装层按 id 查表调回调。全仓只这一条路能测到它。
+    currentHint = '在页面任意处右键 → 点「' + CAPTION + '」（验菜单点击链路）'
+    render()
+    await waitFor(function () { return !!clicked }, 20000)
+    currentHint = ''
+    render()
     GM_unregisterMenuCommand(id)
     GM_unregisterMenuCommand(CAPTION)
     GM.unregisterMenuCommand(nsId)
-    return unknown('四种调用都成功；菜单项是否出现需人工看扩展菜单（点击链路无法脚本断言）')
+    return clicked
+      ? pass('四种调用成功，点到菜单项后回调经 menu.click 推回（' + clicked + '）')
+      : unknown('四种调用成功，但 20s 内没点到菜单项 → 菜单可见性与点击链路都未验')
   })
 
   // —— 收尾：clearValues 放最后（它会清掉前面用例写的值）——
@@ -607,12 +650,14 @@
     for (var i = 0; i < CASES.length; i++) {
       var c = CASES[i]
       var res
+      currentHint = ''
       try {
         res = await c.run()
         if (!res || !res.mark) res = fail('用例没返回结果')
       } catch (e) {
         res = fail(code(e) + msg(e))
       }
+      currentHint = ''
       push(c.group, c.name, res)
     }
     // 收尾：摘监听 / 卸样式 / 还原 URL（clearValues 已把存储清干净）
