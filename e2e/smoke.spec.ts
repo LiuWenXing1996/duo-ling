@@ -1,5 +1,5 @@
 // 端测冒烟。
-// 覆盖四条面：workbench 页 / SW 命令面 + offscreen 就绪 / 用户脚本注入（window.DL 桥）/ sidepanel 页。
+// 覆盖四条面：workbench 页 / SW 命令面 + offscreen 就绪 / 用户脚本注入（GM 桥）/ sidepanel 页。
 // sidePanel.open() 需 user gesture 且无头无浏览器 UI，不进无头断言（手测覆盖）。
 import { test, expect, type BrowserContext, type Page, type Worker } from '@playwright/test'
 import * as http from 'node:http'
@@ -144,26 +144,26 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     await page.close()
   })
 
-  test('workbench「DL API」标签页：清单渲染 + 详情展开 + 搜索空态', async () => {
+  test('workbench「GM API」标签页：清单渲染 + 详情展开 + 搜索空态', async () => {
     const page = await context!.newPage()
     await page.goto(`chrome-extension://${extensionId}/workbench.html`)
 
-    // 左侧导航进入：面板挂载，脚本世界 DL 的能力清单来自静态目录（与注入真身同源，见单测防漂移）
-    await page.locator('button[aria-label="DL API"]').click()
-    await expect(page.locator('[data-testid="dl-api-panel"]')).toBeVisible()
-    for (const path of ['store.get', 'fetch', 'cookie.set', 'page.fetchHook']) {
-      await expect(page.locator(`[data-testid="dl-api-card-${path}"]`)).toBeVisible()
+    // 左侧导航进入：面板挂载，脚本世界 GM 的能力清单来自静态目录（与注入真身同源，见单测防漂移）
+    await page.locator('button[aria-label="GM API"]').click()
+    await expect(page.locator('[data-testid="gm-api-panel"]')).toBeVisible()
+    for (const path of ['GM_getValue', 'GM_xmlhttpRequest', 'GM_cookie.set', 'GM.page.fetchHook']) {
+      await expect(page.locator(`[data-testid="gm-api-card-${path}"]`)).toBeVisible()
     }
 
-    // 详情默认收起（28 条全铺开没法扫）→ 点标题行才出签名
-    const card = page.locator('[data-testid="dl-api-card-store.get"]')
-    await expect(card).not.toContainText('DL.store.get(key, fallback?)')
-    await page.locator('[data-testid="dl-api-card-toggle-store.get"]').click()
-    await expect(card).toContainText('DL.store.get(key, fallback?)')
+    // 详情默认收起（50+ 条全铺开没法扫）→ 点标题行才出签名
+    const card = page.locator('[data-testid="gm-api-card-GM_getValue"]')
+    await expect(card).not.toContainText('GM_getValue(key, defaultValue?)')
+    await page.locator('[data-testid="gm-api-card-toggle-GM_getValue"]').click()
+    await expect(card).toContainText('GM_getValue(key, defaultValue?)')
 
     // 搜不到的关键词：空态文案而不是留白
-    await page.locator('[data-testid="dl-api-search"]').fill('zzz-not-exist')
-    await expect(page.locator('[data-testid="dl-api-empty"]')).toBeVisible()
+    await page.locator('[data-testid="gm-api-search"]').fill('zzz-not-exist')
+    await expect(page.locator('[data-testid="gm-api-empty"]')).toBeVisible()
     await page.close()
   })
 
@@ -179,7 +179,7 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
 
   // ———————————————————————————— 用户脚本注入 ————————————————————————————
 
-  test('用户脚本注入探针页：脚本执行 + window.DL 桥往返', async () => {
+  test('用户脚本注入探针页：脚本执行 + GM 桥往返', async () => {
     test.skip(!userScriptsAvailable, 'chrome.userScripts 在无头 Chromium 下不可用（引导失败），注入面转手测')
 
     // 1. 创建脚本：offscreen 侧自动命名 + 初始模板（单文件 script.js）+ 状态库落盘 + git 快照，SW 注册
@@ -191,7 +191,9 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     expect(created.data.registerError, '注册不应报错').toBeUndefined()
     const { uuid } = created.data
 
-    // 2. 探针脚本：验证 window.DL 定义 + DL.store 经 DL 桥（SW duoling-usdata 库）往返
+    // 2. 探针脚本：验证 GM_info 已挂 + GM.* 经桥（SW duoling-usdata 库）往返。
+    //    这里刻意走异步形态 GM.getValue：同步 GM_getValue 读的是注入时的本地快照，
+    //    读回自己刚写的值**证明不了**桥通——异步形态每次回后台读，才真验到桥。
     const probeCode = `
 ;(async () => {
   var mark = function (t) {
@@ -200,11 +202,11 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     el.textContent = t
   }
   try {
-    if (!window.DL || !window.DL.info) return mark('DL_MISSING')
-    await DL.store.set('e2e-ok', 'yes')
-    var v = await DL.store.get('e2e-ok')
-    mark(v === 'yes' ? 'DL_OK' : 'DL_BAD_VALUE:' + String(v))
-  } catch (e) { mark('DL_FAIL:' + ((e && e.message) || e)) }
+    if (!window.GM_info) return mark('GM_MISSING')
+    await GM.setValue('e2e-ok', 'yes')
+    var v = await GM.getValue('e2e-ok')
+    mark(v === 'yes' ? 'GM_OK' : 'GM_BAD_VALUE:' + String(v))
+  } catch (e) { mark('GM_FAIL:' + ((e && e.message) || e)) }
 })()
 `
     // 单文件保存语义：保存恒成功、保存即注入——offscreen 写 duoling-fs + git 提交 + 状态库落盘，
@@ -222,10 +224,10 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     // 3. 打开探针页，等脚本标记结果（runAt document_end）
     const page = await context!.newPage()
     await page.goto(`http://127.0.0.1:${probePort}/probe.html`)
-    await expect(page.locator(`#${PROBE_MARKER_ID}`)).toHaveText('DL_OK', { timeout: 20_000 })
+    await expect(page.locator(`#${PROBE_MARKER_ID}`)).toHaveText('GM_OK', { timeout: 20_000 })
     await page.close()
 
-    // 4. 清理：删除探针脚本（注销 + 状态库 + git 仓 + DL.store 值）
+    // 4. 清理：删除探针脚本（注销 + 状态库 + git 仓 + GM 值）
     const removed = await sendToSw<void>(messenger!, { kind: 'userscript:remove', uuid })
     expect(removed.ok, `userscript:remove 失败：${removed.ok ? '' : removed.error}`).toBe(true)
   })
