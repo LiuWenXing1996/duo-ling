@@ -81,7 +81,7 @@
 | 修 bug | `fix/panel-draft-overwrite` |
 | 重构 | `refactor/userscript-editor-layout` |
 | 文档 | `docs/merge-and-commit-conventions` |
-| 杂项 | `chore/cleanup-stale-inbox-todos` |
+| 杂项 | `chore/cleanup-stale-todos` |
 
 **规则**
 

@@ -40,7 +40,7 @@
 | `npm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
 | `npm run test:e2e` | Playwright 端测（全程无头、跑 build 产物；**先 `npm run build`**） |
 | `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
-| `npm run check:inbox` | 想法收件箱条目体检：单条 >100 字、总字数 >6000、「不办」条目缺理由、疑似重复（**整理 inbox 时跑**，提醒级不进 CI） |
+| `npm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、疑似重复（**整理待办时跑**，提醒级不进 CI） |
 | `npm run pack:uscripts` | 生成用户脚本测试包：把仓库根 `uscript-samples/` 打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例目录再打） |
 
 > **交付前验证**：`npm run typecheck` + `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
@@ -57,7 +57,8 @@
 | [VERSIONING.md](VERSIONING.md) | 扩展**自身**版本机制：真相源 / SemVer / 预发布规则 / tag / release PR 流程 / GitHub Release notes 与故障处置 | 发版 / 改版本号前 |
 | [GIT_WORKFLOW.md](GIT_WORKFLOW.md) | **Git 工作流**：提交信息格式与 type 白名单 / 分支命名 / 分支保护与合并流程 / 小修补搭车 / 合并提交标题 | 写提交 / 起分支 / 开 PR 前 |
 | [CHANGELOG.md](CHANGELOG.md) | 每个发布版本的变更条目（格式与维护方式见 VERSIONING.md） | 发版时补条目 |
-| [docs/inbox.md](docs/inbox.md) | **想法收件箱**：只放问题（≤100 字），可带一句 ≤30 字方向，**不写方案设计、也不承诺要做** | 攒需求 / 清理待办时；待办只记不做 |
+| [TODO.md](TODO.md) | **待办清单**：每条 ≤100 字，可带一句 ≤30 字方向，**不写方案设计、不排序不排期**（进清单即要做，AI 可认领但不可擅自加） | 记待办 / 清理待办时；条目写法规则见文件开头 |
+| [docs/gm-api-gap.md](docs/gm-api-gap.md) | 脚本面 GM API 与油猴标准的差距：覆盖面 / 完全缺失的 / 降级实现 / 本扩展自有，及补 API 时要同步的 5 处 | 改 `gm-grants.ts` / `gm-api-catalog.ts` / `spec-text.ts` 前后 |
 | [.github/pull_request_template.md](.github/pull_request_template.md) | PR 描述模板（动机 / 变更 / 测试证据三段） | 开 PR 时按它填 |
 | [.agents/skills/wxt/SKILL.md](.agents/skills/wxt/SKILL.md) | WXT 配置 / entrypoint / manifest 规范与坑 | 动构建配置、entrypoint、manifest 前 |
 | [.agents/skills/shadcn-vue/SKILL.md](.agents/skills/shadcn-vue/SKILL.md) | shadcn-vue 组件检索、添加与样式规范（上游 skill） | 动 UI / 表单 / 图标前 |

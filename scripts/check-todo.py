@@ -1,31 +1,30 @@
 #!/usr/bin/env python3
-"""想法收件箱体检：条目字数 / 文件总字数 / 不办理由 / 疑似重复。
+"""待办清单体检：条目字数 / 文件总字数 / 疑似重复。
 
 只负责**报出越界**，不负责判断条目该留还是该删——那要按条目内容由人决定。
 
-规则见 docs/inbox.md 开头。
+规则见 TODO.md 开头。
 
 用法:
-    python3 scripts/check-inbox.py [文件]
+    python3 scripts/check-todo.py [文件]
 
-    不带参数时查 docs/inbox.md；传 [文件] 是为了拿别处的样例练手 / 验脚本自身，
-    日常就是 `npm run check:inbox`。
+    不带参数时查 TODO.md；传 [文件] 是为了拿别处的样例练手 / 验脚本自身，
+    日常就是 `npm run check:todo`。
 
 检查项：
-    1. 「待办」「不办」分区下的条目 >100 字
-    2. docs/inbox.md 总字数 >6000（软上限）
-    3. 「不办」条目缺「理由：」前缀——`理由:` 半角也算，但必须写在本条目内部
-    4. 疑似重复条目：去掉标点与空白后，两条相同或互为子串
+    1. 「清单」分区下的条目 >100 字
+    2. TODO.md 总字数 >6000（软上限）
+    3. 疑似重复条目：去掉标点与空白后，两条相同或互为子串
 
-解析口径（inbox 会长歪，这几条是踩出来的）：
+解析口径（待办清单会长歪，这几条是踩出来的）：
     - 代码块围栏（``` / ~~~）里的假列表项不算条目——顶部贴格式示例时最高危
     - 围栏到文件尾还没闭合会让后面的真条目全被吞：这时报「未闭合」后停止四项检查，
-      不打印那些明摆着是残缺的结论（它本来会把存在的 `## 不办` 误报成「缺分区」）
+      不打印那些明摆着是残缺的结论（它本来会把文件尾部误报成「缺分区」）
     - `<!-- -->` 注释先剥掉，注释里的假条目不算
     - 嵌套列表只认缩进 0 的 `-` / `*` / `- [ ]`，缩进项并入上一条一起计字
       否则把长条目换行写就永远查不出超字数
-    - 分区标题**精确匹配** `## 待办` / `## 不办`，模糊匹配会让 `## 待办` 吃掉 `## 待办事项`
-    - 文件不存在算无 inbox 可查，退 0；分区缺失是结构错，退 1
+    - 分区标题**精确匹配** `## 清单`，模糊匹配会让 `## 待办` 吃掉 `## 待办事项`
+    - 文件不存在算无待办文件可查，退 0；分区缺失是结构错，退 1
 
 退出码: 0 无问题, 1 有问题。只提醒，不阻断。
 """
@@ -37,16 +36,15 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TARGET = "docs/inbox.md"
+TARGET = "TODO.md"
 
 ITEM_MAX = 100
 TOTAL_MAX = 6000
-SECTIONS = ("待办", "不办")
+SECTIONS = ("清单",)
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(\S.*?)\s*$")
 ITEM_RE = re.compile(r"^[-*]\s+(?:\[[ xX]\]\s+)?(.*)$")
 FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-REASON_RE = re.compile(r"理由[:：]")
 
 # 计字：CJK 一字一格；英文按连续串（单词 / 数字 / URL）整体算一字；标点一字一格；空白不计
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
@@ -143,7 +141,7 @@ def code_flags(lines: list[str]) -> tuple[list[bool], int | None]:
 
 
 def find_sections(lines: list[str], flags: list[bool]) -> dict[str, tuple[int, int]]:
-    """精确匹配 `## 待办` / `## 不办`，返回 [起行, 止行) 区间。"""
+    """精确匹配 `## 清单`，返回 [起行, 止行) 区间。"""
     spans: dict[str, tuple[int, int]] = {}
     for i, line in enumerate(lines):
         if flags[i]:
@@ -207,7 +205,7 @@ def main() -> int:
     path = ROOT / TARGET if not args.file else Path(args.file).expanduser()
     display = rel(path)
     if not path.is_file():
-        print(f"{display} 不存在，无 inbox 可查")
+        print(f"{display} 不存在，无待办可查")
         return 0
 
     lines = strip_comments(path.read_text(encoding="utf-8").splitlines())
@@ -216,7 +214,7 @@ def main() -> int:
     total = count_words("\n".join(lines))
     sections = {name: collect_items(lines, flags, spans[name]) for name in SECTIONS if name in spans}
 
-    print(f"想法收件箱体检（{display}）")
+    print(f"待办清单体检（{display}）")
 
     # 围栏没关时后面全是瞎的，此时还去报「缺分区」等于指着没病的地方开刀，故到此为止
     if open_fence is not None:
@@ -233,7 +231,7 @@ def main() -> int:
     missing = [name for name in SECTIONS if name not in spans]
     if missing:
         problems += len(missing)
-        print("\n缺分区（精确匹配 `## 待办` / `## 不办`）")
+        print("\n缺分区（精确匹配 `## 清单`）")
         for name in missing:
             print(f"  · {display}  缺 `## {name}`")
 
@@ -248,15 +246,6 @@ def main() -> int:
         print(f"\n超长条目（>{ITEM_MAX} 字）")
         for name, no, size, text in long_items:
             print(f"  · {display}:{no}  [{name}] {size} 字  {brief(text)}")
-
-    no_reason = [
-        (no, text) for no, text in sections.get("不办", []) if not REASON_RE.search(text)
-    ]
-    if no_reason:
-        problems += len(no_reason)
-        print("\n「不办」条目缺理由（要写「理由：」或「理由:」，半角冒号也算）")
-        for no, text in no_reason:
-            print(f"  · {display}:{no}  {brief(text)}")
 
     flat = [(name, no, text, norm(text)) for name, items in sections.items() for no, text in items]
     dupes = []
@@ -280,7 +269,7 @@ def main() -> int:
     if problems:
         print(f"{problems} 项待处理 —— 规则见 {display} 开头")
         return 1
-    print("想法收件箱体检通过")
+    print("待办清单体检通过")
     return 0
 
 

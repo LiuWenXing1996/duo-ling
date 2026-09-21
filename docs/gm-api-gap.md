@@ -1,0 +1,86 @@
+# GM API 与油猴标准的差距
+
+> 脚本面 GM API 支持面的快照：**哪些有、哪些没有、哪些是降级实现**。
+> 补能力或改语义时同步本文件，否则「已支持但没人知道」与「写在文档里但没实现」都会长期漂移。
+
+## 数据来源（三处单一来源，改它们就要同步本文）
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/lib/gm-grants.ts` | `@grant` 名 → 它开启的成员（全局与 `GM.*` 两种形态），以及恒注入成员 |
+| `src/lib/gm-api-catalog.ts` | 工作台「GM API 速查」页的数据源（说明、默认值、边界、降级项） |
+| `src/lib/offscreen-chat/spec-text.ts` | AI 写脚本时读到的规范文本，含「明确不支持」清单 |
+
+## 一、覆盖面
+
+20 个 `@grant`，每个同时开全局与 `GM.*` 两种形态（对齐 Tampermonkey 口径）：
+
+| 能力 | `@grant` 名 | `GM.*` 成员 |
+| --- | --- | --- |
+| 读值 | `GM_getValue` | `getValue` |
+| 写值 | `GM_setValue` | `setValue` |
+| 删值 | `GM_deleteValue` | `deleteValue` |
+| 列出键 | `GM_listValues` | `listValues` |
+| 订阅值变更 | `GM_addValueChangeListener` | `addValueChangeListener` |
+| 取消订阅 | `GM_removeValueChangeListener` | `removeValueChangeListener` |
+| 登记菜单 | `GM_registerMenuCommand` | `registerMenuCommand` |
+| 注销菜单 | `GM_unregisterMenuCommand` | `unregisterMenuCommand` |
+| 注入样式 | `GM_addStyle` | `addStyle` |
+| 注入元素 | `GM_addElement` | `addElement` |
+| 日志 | `GM_log` | `log` |
+| 通知 | `GM_notification` | `notification` |
+| 剪贴板 | `GM_setClipboard` | `setClipboard` |
+| 跨域请求 | `GM_xmlhttpRequest` | `xmlHttpRequest` |
+| 下载 | `GM_download` | `download` |
+| 开标签页 | `GM_openInTab` | `openInTab` |
+| 读标签页存储 | `GM_getTab` | `getTab` |
+| 存标签页数据 | `GM_saveTab` | `saveTab` |
+| 列出标签页 | `GM_getTabs` | `getTabs` |
+| Cookie | `GM_cookie` | 无（按 Tampermonkey 口径不进 `GM.*`） |
+
+**恒注入**（无需 `@grant`）：`GM_info`、`unsafeWindow`、`window.onurlchange`；`GM.*` 侧恒注入 `info`、`clearValues`、`focusTab`、`page`。
+
+## 二、标准里有、本扩展完全没有的
+
+| 缺失 | 现状 | 依据 |
+| --- | --- | --- |
+| `GM_closeTab` / `GM.closeTab` | 无实现。仓库内同名的 `closeTab` 是工作台标签页的内部函数，与 GM API 无关 | 全仓无 GM 侧实现 |
+| `GM_getResourceText` / `GM_getResourceURL` | 无实现。`@resource` 元数据会被解析并出现在 `GM_info.script.resources` 里，但脚本拿不到资源内容 | `spec-text.ts`「明确不支持」段 |
+| `GM_webRequest` | 不在注入面内 | `gm-wrapper.test.ts` 断言它不在 exposure 表 |
+
+## 三、有实现但语义弱于油猴（降级项）
+
+| 项 | 差异 | 依据 |
+| --- | --- | --- |
+| `unsafeWindow` | 降级别名 = 隔离世界的 `window`：DOM 可用，**看不到页面 JS 全局**（站点自己的变量、框架实例都读不到）；首次访问 console.warn 一次 | `gm-api-catalog.ts`「页面 window（降级）」条目 |
+| `GM_xmlhttpRequest` | **无 `onprogress`**（桥无流式）；`responseType` 只支持 text / json / arraybuffer / blob，不支持 document / stream；非 2xx 走 `onload` 而非 `onerror` | `gm-api-catalog.ts` 与 `spec-text.ts` 的请求条目 |
+| `GM_xmlhttpRequest` | 不支持同步请求 | `spec-text.ts`「明确不支持」段 |
+| `GM_cookie` | 不收 `domain` / `path`，传入即报错——域名门只比 scheme + host，开放 domain 会架空它 | `gm-wrapper.ts` cookie 分支 |
+| `GM_download` | `saveAs` 被忽略（走 `a[download]`，弹不出另存为），仅记一条日志 | `gm-wrapper.ts` download 分支 |
+| `@connect` | 不做白名单：本扩展的跨域请求经后台发出，不需要声明 | `spec-text.ts`「明确不支持」段 |
+| header 覆写 | 只做 `set`（`append` 受 DNR 头白名单限制、`remove` 未实现）；且头修改**不跨重定向 hop**，跨 host 的 3xx 之后新请求拿不到覆写头 | `dl-fetch-priv.ts` 顶部注释 |
+
+## 四、环境级差异（脚本会撞上，但不算 API 缺口）
+
+- **严 CSP**：USER_SCRIPT 隔离世界禁 `eval` / `new Function`；依赖动态代码生成的库（如 ajv 编译校验器、Vue 运行时模板编译器）会在目标页静默失败。
+- **`@grant` 精确裁剪**：写了清单就只注入清单内的成员，漏写即 `ReferenceError`；`@grant none` 或完全没有 metadata 才全量注入。
+
+## 五、本扩展自有（标准里无对应物）
+
+| 成员 | 作用 |
+| --- | --- |
+| `GM.page.listen` | 监听页面事件，收摘要 `{ type, key?, detail, timeStamp }` |
+| `GM.page.fetchHook` | 拦截页面世界发出的 fetch，可 `passthrough` 或 `respond`；可选拿真实响应体 |
+| `GM.clearValues` | 清掉本脚本的全部键值 |
+| `GM.focusTab` | 激活指定标签页并聚焦其所在窗口 |
+| `window.onurlchange` | 页面 URL 变化回调 |
+
+## 六、补一个 API 时要动的地方
+
+1. `src/lib/gm-grants.ts` —— 加 grant 与成员映射；
+2. `src/lib/userscripts/gm-wrapper.ts` —— 注入体里挂载实现；
+3. `src/lib/gm-api-catalog.ts` —— 速查页条目（含降级项说明）；
+4. `src/lib/offscreen-chat/spec-text.ts` —— 规范文本，以及把不再成立的条目从「明确不支持」里删掉；
+5. 本文件 —— 从「缺失」移到「覆盖面」，或更新降级描述。
+
+第 4 步最容易被漏：AI 写脚本只看规范文本，实现了但没从「明确不支持」里摘掉，等于没实现。

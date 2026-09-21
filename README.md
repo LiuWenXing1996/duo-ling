@@ -4,7 +4,7 @@
 
 现存功能：**AI 对话**（流式 + 思考过程 + 工具过程；入口是网页里的悬浮浮层）+ **用户脚本**（单文件脚本 / git 历史 / 启停管理 / 导入导出：zip 包、本地路径、粘贴源码）+ **页面元素拾取与页面快照** + **新版本检查**（查到新版时在 popup 与设置页给去处）。
 
-> 协作约定与红线见 [AGENTS.md](AGENTS.md)；运行时架构见 [ARCHITECTURE.md](ARCHITECTURE.md)；命令清单见 [AGENTS.md](AGENTS.md#常用命令)「常用命令」（依赖用 **npm** 管理）；CI 组成与合并流程见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)；想法与待办记在 [docs/inbox.md](docs/inbox.md)。
+> 协作约定与红线见 [AGENTS.md](AGENTS.md)；运行时架构见 [ARCHITECTURE.md](ARCHITECTURE.md)；命令清单见 [AGENTS.md](AGENTS.md#常用命令)「常用命令」（依赖用 **npm** 管理）；CI 组成与合并流程见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)；想法与待办记在 [TODO.md](TODO.md)。
 
 ## 载体分工
 
@@ -27,7 +27,7 @@
 ```
 ├─ wxt.config.ts / vitest.config.ts / playwright.config.ts  # 构建（含权限与构建信息注入）/ 单测（双 project）/ 端测
 ├─ AGENTS.md / ARCHITECTURE.md    # 协作约定与红线 / 运行时架构（改代码前先读这两份）
-├─ README.md / VERSIONING.md / GIT_WORKFLOW.md / CHANGELOG.md  # 工程介绍与目录结构 / 版本机制 / Git 工作流 / 变更记录
+├─ README.md / VERSIONING.md / GIT_WORKFLOW.md / CHANGELOG.md / TODO.md  # 工程介绍与目录结构 / 版本机制 / Git 工作流 / 变更记录 / 待办清单
 ├─ .agents/skills/                # 就地挂载的 Agent 规范（wxt / shadcn-vue / workbench-panel / testing）
 ├─ src/
 │  ├─ entrypoints/                # 载体入口与运行时宿主：background（SW 能力运行时）/ content（浮层宿主）/ offscreen（AI 生成宿主）
@@ -40,9 +40,9 @@
 │  ├─ shared/                     # 跨上下文契约：types / ipc（window.api 形状）/ extension-ipc（渲染页 ⇄ SW 协议）
 │  ├─ assets/                     # Tailwind 主题变量与全局样式
 │  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（元素拾取器）
-├─ scripts/                       # 仓库维护脚本：verify-skills / check-inbox / pack-uscripts
+├─ scripts/                       # 仓库维护脚本：verify-skills / check-todo / pack-uscripts
 ├─ uscript-samples/               # pack-uscripts 的源目录（注入探针 / GM 桥 / 语法错误样本等测试脚本）
-├─ docs/                          # 想法收件箱（inbox.md）
+├─ docs/                          # 归档型文档（gm-api-gap.md：GM API 与油猴标准的差距）
 ├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟）
 └─ .github/workflows/             # ci / e2e / release / sync-release-notes（作用见 GIT_WORKFLOW.md 与 VERSIONING.md）
 ```
