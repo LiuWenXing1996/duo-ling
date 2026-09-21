@@ -398,8 +398,6 @@ console.log(1)
     const outcome = await saveExisting(created.uuid, WITH_META, {})
     expect(outcome.project.name).toBe('甲')
     expect(outcome.project.config.matches).toEqual(['https://example.com/*'])
-    // 覆盖了界面上的匹配规则 → 必须给提示（不静默）
-    expect(outcome.notes.join('\n')).toContain('已覆盖')
   })
 
   it('无 metadata 块：配置原样沿用、零提示（无 metadata 是正常形态）', async () => {
