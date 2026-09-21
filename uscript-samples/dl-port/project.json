@@ -1,6 +1,6 @@
 {
   "v": 2,
-  "name": "DL Port 事件回推",
+  "name": "GM Port 事件回推",
   "config": {
     "matches": [
       "*://*/*"

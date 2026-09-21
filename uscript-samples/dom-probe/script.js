@@ -13,5 +13,5 @@
     ;(document.body || document.documentElement).appendChild(el)
   }
   el.textContent = 'INJECTED ' + location.host + ' @' + new Date().toLocaleTimeString('zh-CN')
-  if (window.DL) DL.log('注入探针已生效：', location.href)
+  if (typeof GM_log === 'function') GM_log('注入探针已生效：', location.href)
 })()

@@ -1,6 +1,6 @@
 {
   "v": 2,
-  "name": "DL API 收口探针",
+  "name": "GM API 收口探针",
   "config": {
     "matches": [
       "*://*/*"

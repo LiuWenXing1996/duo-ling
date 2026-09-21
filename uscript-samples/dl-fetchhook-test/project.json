@@ -1,6 +1,6 @@
 {
   "v": 2,
-  "name": "DL.page.fetchHook 探针",
+  "name": "GM.page.fetchHook 探针",
   "config": {
     "matches": [
       "*://*/*"
