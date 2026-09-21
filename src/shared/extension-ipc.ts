@@ -346,7 +346,7 @@ export interface PageErrorItem {
   runId: string | null
 }
 
-/** SW → 对话界面的监控推送（对话界面经 `runtime.connect({ name: 'duoling:panel' })` 建连） */
+/** SW → 面板的监控推送（对话界面浮层 / 工具栏 popup 经 `runtime.connect({ name: 'duoling:panel' })` 建连） */
 export type PanelMonitorPush =
   /** 脚本注入即广播：登记一次运行 */
   | { t: 'page:runstart'; tabId: number; run: PageRunItem }
@@ -357,9 +357,9 @@ export type PanelMonitorPush =
   /** 快照应答：该 tab 的运行集 + 关联错误（面板切 tab / 建连时拉取） */
   | { t: 'page:snapshot'; tabId: number; runs: PageRunItem[]; errors: PageErrorItem[] }
 
-/** 对话界面 → SW 的监控上行（同端口） */
+/** 面板 → SW 的监控上行（同端口） */
 export type PanelMonitorUp =
-  /** 按当前 active tab 拉快照（切 tab / 面板刚打开时） */
+  /** 按面板自己归属的那个 tab 拉快照（面板刚打开 / 挂载时；归属怎么定见 lib/owning-tab.ts） */
   | { t: 'page:snapshot'; tabId: number }
   /** 点击脚本行 → SW 打开/聚焦工作台并深链到该脚本的错误 */
   | { t: 'page:openErrors'; uuid: string }

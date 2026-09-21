@@ -9,6 +9,7 @@
 - 脚本对外 `DL.api` 整层移除，全面转向标准 GM API（`GM_*` 全局 + `GM.*` 命名空间）：标准油猴脚本（`==UserScript==` metadata）可直接粘贴运行
 - 新增 `GM.page.*`（`GM.page.listen` / `GM.page.fetchHook`）非标准扩展，承接原 `DL.page` 的页面 hook 能力
 - 新增 `GM.clearValues()` / `GM.focusTab()` 扩展成员（标准无对应物）
+- popup 新增「本页脚本」分区：显示本页在跑的脚本与报错，点脚本行跳工作台运行日志（与对话界面灵动岛同源同协议，默认收起；非普通网页不渲染）
 
 ### Changed
 

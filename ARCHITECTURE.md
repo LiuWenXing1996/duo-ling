@@ -15,7 +15,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 | --- | --- | --- |
 | 扩展页 | `floatpanel.html`（网页浮层 iframe） | **对话界面（唯一入口）**：指令入口与观察窗；显示**它所在标签页**的会话（tab 身份由 content script 经 iframe URL 传入） |
 | 扩展页 | `workbench.html`（标签页） | 重界面工作区（脚本管理 / 运行日志 / 会话历史 / 设置等） |
-| 扩展页 | `popup.html`（工具栏 popup） | 配置入口：网页浮层开关（总开关 + 当前站点）+「打开工作台」，并说明当前页面为何挂不了浮层；**不承载对话**（不装 `window.api`） |
+| 扩展页 | `popup.html`（工具栏 popup） | 配置入口：网页浮层开关（总开关 + 当前站点）+ 本页脚本（本页在跑的脚本与报错）+「打开工作台」，并说明当前页面为何挂不了浮层；**不承载对话**（不装 `window.api`） |
 | 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：注入悬浮按钮 + iframe（按站点开关），拾取期间整块让位 |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
@@ -28,7 +28,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 指令入口（网页浮层）只做观察；整条链路（`streamText` + tools）跑在 **offscreen document**，入口经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权。offscreen 容器按需创建（`src/lib/offscreen.ts`）。
 
 - **会话归属按标签页**：一个 tab 一条会话，切 tab 即切会话。归属映射（tabId → conversationId）存 `duoling-app` 的 `convByTab` 键（`src/lib/conversation-tab-map.ts`）—— **既不进会话库、也不进对话链路**：任务与流的键始终是 conversationId（`chat-host.ts` 的 `runningByConversation`、transport 的 `consumers`），所以这套绑定对执行层零影响，断了本地流任务照跑、切回来 resumeStream 接上。
-  - 归属解析**只在 `lib/owning-tab.ts` 一处**：认 content script 经 iframe URL 传来的 `?tab=<id>`（固定归属）—— 不能跟「当前激活标签页」走，浮层可能挂在一个已经不是激活的标签页上。会话归属（`use-global-conversation`）、随消息发出的页面上下文（`extension-chat-transport`）、灵动岛的运行集（`use-page-monitor`）都经它取 tab。
+  - 归属解析**只在 `lib/owning-tab.ts` 一处**：浮层认 content script 经 iframe URL 传来的 `?tab=<id>`（固定归属）—— 不能跟「当前激活标签页」走，浮层可能挂在一个已经不是激活的标签页上；popup 认点开那一刻的激活页（`resolveActiveTabId`）—— 它没有固定归属、也从不与某个标签页长驻绑定。会话归属（`use-global-conversation`）、随消息发出的页面上下文（`extension-chat-transport`）、页面脚本运行集（`use-page-monitor`：浮层传 owning、popup 传 active）都经它取 tab。
   - **惰性新建**：tab 没有归属会话时不建、不落库、不进历史列表（未绑定态），发出第一条消息时才 create 并登记。
   - 归属映射的清理归 **SW 的 `tabs.onRemoved`** —— 面板没开时 tab 照样会被关，只有常驻的 SW 不漏。
   - 历史会话的查看 / 改名 / 删除在工作台「会话历史」标签页（`SessionHistoryTab.vue`：列表复用 `SessionHistoryPanel`，右栏用 `ChatPanel` 的只读模式回放）；对话界面里没有会话列表，也没有「新建会话」。

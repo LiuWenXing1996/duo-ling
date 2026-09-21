@@ -1,7 +1,9 @@
 <script setup lang="ts">
-// 工具栏图标 popup：浮层显示开关 + 工作台入口。
+// 工具栏图标 popup：浮层显示开关 + 本页脚本 + 工作台入口。
 // 浮层开关逻辑复用 float-panel-store（与设置页「网页浮层」分区同源），不重复实现存储。
 // 「打开工作台」新建 workbench.html 标签页（与对话界面里的入口同姿势，不带 hash 落默认面板）。
+// 「本页脚本」分区（PopupPageScripts）复用页面监控那条链路，只在普通网页上渲染 ——
+// 非普通网页上 content script 注入不了、计数必然为空，与下面那条提示并列只会互相打架。
 //
 // 对话入口是**网页浮层**（content script 注入），所以这里对「挂不了浮层的页面」得给一句说明：
 // 浏览器内部页 / 扩展页 / 应用商店上 content script 注入不了，用户在那些页面上看不到悬浮
@@ -10,6 +12,7 @@
 import { onMounted, ref } from 'vue'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import { Button as UiButton } from '@/components/ui/button'
+import PopupPageScripts from './PopupPageScripts.vue'
 import {
   getMasterEnabled,
   setMasterEnabled,
@@ -119,6 +122,8 @@ onMounted(() => {
         <UiSwitchThumb />
       </UiSwitch>
     </div>
+
+    <PopupPageScripts v-if="currentIsWebPage" />
 
     <UiButton class="w-full" variant="outline" @click="openWorkbench">打开工作台</UiButton>
   </div>

@@ -158,10 +158,15 @@
 
 /* —— 扩展载体适配（原桌面版是 Electron 窗口，窗口自带视口尺寸，无需此段）——
    side panel 与标签页都要求 html → body → #app 逐级铺满，
-   否则对话区的滚动容器高度塌陷，输入框会跟着上浮。 */
-html,
-body,
-#app {
+   否则对话区的滚动容器高度塌陷，输入框会跟着上浮。
+
+   **popup 是例外**（html 上带 .dl-popup，见 entrypoints/popup.html）：它的窗口尺寸由
+   内容决定，铺满视口等于把自己锁死 —— #app 恒等于 100% 视口高，内容折叠后浏览器量到的
+   文档高度还是那么高，窗口就再也缩不回去（2026-09-21 实测：popup 里「本页脚本」列表
+   展开再折叠，底部留一片空白）。故整条规则排除 popup 载体。 */
+html:not(.dl-popup),
+html:not(.dl-popup) body,
+html:not(.dl-popup) #app {
   height: 100%;
 }
 
