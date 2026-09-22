@@ -8,7 +8,10 @@
 // C. **从路径导入**：路径归一 → fetch 读字节 → 与文件选择器共用同一条导入动线；
 //    路径非法 / 读到非 zip / 开关未开三类失败各给人话原因，且**都不该走到 importZip**。
 // D. **粘贴导入**：粘贴源码 → importText → 与 zip 导入共用同一份汇总报告与「刚导入 · 未启用」标。
-// 边界 mock：ui-client（IPC 客户端）+ 全局 fetch（路径导入要读 file://）；按钮 / 弹窗 / 开关用真实 shadcn 组件。
+// E. **从链接导入**：与前三条差一步 —— 先取回看清是什么（元数据摘要），再落盘；
+//    地址非法 / 抓回 HTML 两类失败就地报原因且不落盘。
+// 边界 mock：ui-client（IPC 客户端）+ 全局 fetch（路径导入要读 file://、链接导入要抓远端）；
+// 按钮 / 弹窗 / 开关用真实 shadcn 组件。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import UserscriptListPanel from './UserscriptListPanel.vue'
@@ -454,7 +457,7 @@ describe('UserscriptListPanel 新建脚本', () => {
 })
 
 describe('UserscriptListPanel 导入入口', () => {
-  it('导入菜单给三个入口：选择 zip 文件 / 输入文件路径 / 粘贴脚本代码', async () => {
+  it('导入菜单给四个入口：选择 zip 文件 / 输入文件路径 / 粘贴脚本代码 / 从链接导入', async () => {
     wrapper = await mountPanel()
     await buttonByText('导入').trigger('keydown', { key: 'ArrowDown' })
     await flushPromises()
@@ -462,7 +465,7 @@ describe('UserscriptListPanel 导入入口', () => {
     const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((el) =>
       el.textContent?.trim(),
     )
-    expect(items).toEqual(['选择 zip 文件…', '输入文件路径…', '粘贴脚本代码…'])
+    expect(items).toEqual(['选择 zip 文件…', '输入文件路径…', '粘贴脚本代码…', '从链接导入…'])
   })
 
   it('绝对路径：fetch 该 file:// URL → 交给导入链路 → 汇总报告复述来源', async () => {
@@ -679,5 +682,132 @@ describe('UserscriptListPanel 删除时提示未保存草稿', () => {
     await wrapper.find('button[aria-label="删除脚本"]').trigger('click')
     await flushPromises()
     expect(document.body.textContent).not.toContain('还有未保存的改动')
+  })
+})
+
+// —— 从链接导入（E）——
+//
+// 与前三条导入动线的关键差别是**分两步**：先取回、看清装的是什么（元数据摘要），再落盘。
+// 故断言重点是「取回之后还没落盘」与「三类拿错东西的失败都就地报、都不落盘」。
+describe('UserscriptListPanel 从链接导入', () => {
+  /** 弹窗里的脚本地址输入框（按 aria-label 定位，理由同 pathInput） */
+  function linkInput(): HTMLInputElement {
+    const root = wrapper.element as HTMLElement
+    const el = [...document.querySelectorAll<HTMLInputElement>('input')].find(
+      (i) => !root.contains(i) && i.getAttribute('aria-label') === '脚本地址',
+    )
+    if (!el) throw new Error('弹窗里没有链接输入框（弹窗没打开？）')
+    return el
+  }
+
+  async function typeLink(v: string): Promise<void> {
+    const el = linkInput()
+    el.value = v
+    el.dispatchEvent(new Event('input'))
+    await flushPromises()
+  }
+
+  /** 打开「从链接导入」弹窗（菜单第四项）—— 菜单同样用键盘开 */
+  async function openLinkDialog(): Promise<void> {
+    await buttonByText('导入').trigger('keydown', { key: 'ArrowDown' })
+    await flushPromises()
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) =>
+      el.textContent?.includes('从链接导入'),
+    )
+    if (!item) throw new Error('菜单里没有「从链接导入…」')
+    item.click()
+    await flushPromises()
+  }
+
+  /** 抓取响应替身：组件会看 ok / status / text 三项 */
+  function fetchBody(code: string) {
+    return { ok: true, status: 200, text: async () => code }
+  }
+
+  const clickTestId = (id: string): void => {
+    const el = document.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`)
+    if (!el) throw new Error(`没找到 ${id}`)
+    el.click()
+  }
+
+  it('地址不是 http(s)：就地给原因，既不抓取也不导入', async () => {
+    wrapper = await mountPanel()
+    await openLinkDialog()
+    await typeLink('example.com/x.user.js')
+    clickTestId('link-import-fetch')
+    await flushPromises()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('https://')
+    expect(importText).not.toHaveBeenCalled()
+  })
+
+  it('抓回的是网页：给人话原因，不落盘', async () => {
+    fetchMock.mockResolvedValue(fetchBody('<!DOCTYPE html>\n<html><body>某个脚本页</body></html>'))
+    wrapper = await mountPanel()
+    await openLinkDialog()
+    await typeLink('https://greasyfork.org/scripts/123')
+    clickTestId('link-import-fetch')
+    await flushPromises()
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('不是脚本源码')
+    expect(importText).not.toHaveBeenCalled()
+  })
+
+  it('取回后先停在确认态（未落盘），看清摘要再安装', async () => {
+    fetchMock.mockResolvedValue(
+      fetchBody(
+        [
+          '// ==UserScript==',
+          '// @name 购物助手',
+          '// @version 1.2.3',
+          '// @author 某人',
+          '// @grant GM_setValue',
+          '// @match https://a.example/*',
+          '// ==/UserScript==',
+          'console.log(1)',
+        ].join('\n'),
+      ),
+    )
+    wrapper = await mountPanel()
+    await openLinkDialog()
+    await typeLink('https://example.com/x.user.js')
+    clickTestId('link-import-fetch')
+    await flushPromises()
+    await flushPromises()
+
+    // 还没落盘：报告弹窗没出现，importText 一次都没调
+    expect(importText).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('购物助手')
+    expect(document.body.textContent).toContain('1.2.3')
+    expect(document.body.textContent).toContain('匹配 1 条规则')
+
+    clickTestId('link-import-install')
+    await flushPromises()
+    await flushPromises()
+
+    expect(importText).toHaveBeenCalledTimes(1)
+    expect(importText.mock.calls[0]![0]).toContain('// @name 购物助手')
+    // 来源在报告里复述（链接是说得清来源的那种入口）
+    expect(document.body.textContent).toContain('来源：https://example.com/x.user.js')
+  })
+
+  it('「重新填写」退回输入态：地址留着，主按钮回到「获取」', async () => {
+    fetchMock.mockResolvedValue(fetchBody('console.log(1)'))
+    wrapper = await mountPanel()
+    await openLinkDialog()
+    await typeLink('https://example.com/x.user.js')
+    clickTestId('link-import-fetch')
+    await flushPromises()
+    await flushPromises()
+
+    clickTestId('link-import-refill')
+    await flushPromises()
+
+    // 地址保留（多半是改一个字符，清空等于让人重敲一遍）
+    expect(linkInput().value).toBe('https://example.com/x.user.js')
+    expect(document.querySelector('[data-testid="link-import-fetch"]')).not.toBeNull()
+    expect(importText).not.toHaveBeenCalled()
   })
 })

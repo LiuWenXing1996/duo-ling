@@ -54,6 +54,10 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
 受 \`<all_urls>\` 豁免 CORS；抓取失败只记一条错误日志并跳过该依赖（**不阻断脚本注入**），
 源码按 url 缓存在本地库（手动清除前不重抓）；不做子资源完整性（SRI）校验。
 
+\`@run-at\` 支持 \`document-start\` / \`document-body\` / \`document-end\` / \`document-idle\`；
+\`document-body\` 指「body 元素存在时」才开始跑。不写时的默认值是 \`document-idle\`（与 TM 一致）；
+\`context-menu\` 暂不支持。
+
 ## 硬性约束
 1. **单文件、无模块语法**：不能用 \`import\` / \`export\`（classic script 执行，语法检查会当场报错）；
    不支持 \`node:\` 前缀；没有 \`require\`。需要的工具函数直接写在文件里。
@@ -66,8 +70,9 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
    不写 \`@grant\`、或写 \`@grant none\`，都等于「清单为空」——只剩恒注入项，GM 成员一个都没有。
    **每用一个 GM 能力就要在清单里补上它**，合法名字见下面「\`@grant\` 怎么写」。
 4. \`GM_xmlhttpRequest\` 是**回调式**：响应对象有 \`responseHeaders\`（原始多行字符串）、\`responseText\`、
-   \`response\`、\`status\`、\`finalUrl\`；事件 \`onload\` / \`onerror\` / \`ontimeout\` / \`onabort\`；
-   返回句柄可 \`abort()\`。非 2xx 走 \`onload\`（不是 \`onerror\`）。**没有 onprogress**；
+   \`response\`、\`status\`、\`finalUrl\`；事件 \`onload\` / \`onerror\` / \`ontimeout\` / \`onabort\` /
+   \`onprogress\`（进度对象只有 \`loaded\` / \`total\` / \`lengthComputable\`）；
+   返回句柄可 \`abort()\`。非 2xx 走 \`onload\`（不是 \`onerror\`）；
    \`responseType\` 只支持 text / json / arraybuffer / blob。
 5. \`unsafeWindow\` 就是**页面自己的 window**（脚本运行在页面主世界）：站点自定义的全局
    （框架实例、\`window.xxx\`）可直接读写，也能往页面上挂自己的东西。
@@ -91,13 +96,13 @@ ${renderCapabilities()}
 \`GM.*\` 是本批能力的 Promise 化形态（如 \`await GM.getValue(key)\`，每次回后台读、永远最新）；
 **\`GM.*\` 下没有 cookie**（按 Tampermonkey 口径），cookie 只用 \`GM_cookie\`。
 标着「哆灵扩展，标准里无对应物」的条目不是油猴标准，按本扩展的实现写。
+**用 \`GM_getResourceText\` / \`GM_getResourceURL\` 之前，必须先在头部声明 \`@resource 名字 地址\`** ——
+声明即预加载（内容随注入体一起就绪，所以这两个是**同步** API）；没声明的名字取到 undefined。
 
 ### 明确不支持（别写，写了不会生效或会以错误形式暴露）
-- \`@resource\`（命名资源，供 \`GM_getResourceText\` / \`GM_getResourceURL\`）——本扩展不提供这两个
-  成员；声明了会被解析进 \`GM_info.script.resources\`，但脚本里拿不到内容
 - \`@connect\` 白名单（本扩展的跨域请求不需要声明）
-- \`GM_xmlhttpRequest\` 的 \`onprogress\`、\`responseType: 'document' | 'stream'\`、同步请求
-- \`GM_cookie\` 的 \`domain\` / \`path\`（安全收紧项，传入即报错）
+- \`GM_xmlhttpRequest\` 的 \`responseType: 'stream'\`（TM 有、本扩展暂无）
+- 同步 \`GM_xmlhttpRequest\`：TM 官方也明确不支持；\`responseType\` 的合法值只有 arraybuffer / blob / json / stream
 
 ## \`@grant\` 怎么写
 

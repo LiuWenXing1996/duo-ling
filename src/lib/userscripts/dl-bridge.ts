@@ -29,6 +29,10 @@ import {
   attachScriptWatch,
   detachScriptWatch,
   attachValueWatch,
+  attachAudioWatch,
+  detachAudioWatch,
+  pushFetchProgress,
+  pushDownloadChange,
   mintNotification,
 } from './dl-port'
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
@@ -42,6 +46,9 @@ import {
   getGMValue,
   setGMValue,
   deleteGMValue,
+  setGMValues,
+  deleteGMValues,
+  getGMValues,
   listGMKeys,
   getAllGMValues,
   clearGMValues,
@@ -158,7 +165,62 @@ function rebuildFormData(body: FetchFormBody): FormData {
  * timeout：毫秒，0 / 不传不限。用 AbortController 在到点时中止请求（响应体读取同样受
  * 信号约束，慢响应读到一半也会被掐断）；中止后统一报 BRIDGE_TIMEOUT，不让脚本调用挂死。
  */
-async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
+/**
+ * 读响应体；`onProgress` 存在时改成**流式读 + 边读边推进度**（读完照样拼成完整字节，返回路径不变）。
+ *
+ * 只有显式要进度的请求走这条路（`FetchInit.wantProgress`），其余仍是 `resp.arrayBuffer()` /
+ * `resp.text()` —— 零行为变化。节流按「≥64KB 或 ≥50ms」：响应块可能很密（大文件几千块），
+ * 逐块推会把 Port 打满，而进度条不需要那个粒度。
+ */
+async function readBodyStreaming(
+  resp: Response,
+  onProgress: (loaded: number, total: number | null) => void,
+): Promise<ArrayBuffer> {
+  const reader = resp.body?.getReader()
+  if (!reader) return await resp.arrayBuffer() // 无流（罕见）：退化，仍给完整体
+  const header = resp.headers.get('content-length')
+  const parsed = header == null ? Number.NaN : Number(header)
+  const total = Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+
+  const chunks: Uint8Array[] = []
+  let loaded = 0
+  let pushedAt = 0
+  let pushedBytes = 0
+  let frames = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    chunks.push(value)
+    loaded += value.byteLength
+    const now = Date.now()
+    if (loaded - pushedBytes >= 65536 || now - pushedAt >= 50) {
+      pushedAt = now
+      pushedBytes = loaded
+      frames++
+      onProgress(loaded, total)
+    }
+  }
+  // 收尾一帧：让进度走到头（有 content-length 时脚本才算得出 100%）
+  frames++
+  onProgress(loaded, total)
+  // 诊断（debug 级）：这条**没出现**就说明压根没走流式那条路 —— 「收到 0 帧」的排查靠它分叉
+  console.debug(`[duoling:dl] 流式读完成：${frames} 帧 / ${loaded} 字节 / total=${total}`)
+
+  const out = new Uint8Array(loaded)
+  let offset = 0
+  for (const c of chunks) {
+    out.set(c, offset)
+    offset += c.byteLength
+  }
+  return out.buffer // 新分配、offset 0、长度正好 —— 直接交出底层缓冲
+}
+
+async function doFetch(
+  url: string,
+  init?: FetchInit,
+  progress?: (loaded: number, total: number | null) => void,
+): Promise<FetchPayload> {
   const redirect = init?.redirect ?? 'follow'
   if (redirect !== 'follow' && redirect !== 'manual' && redirect !== 'error') {
     throw new ApiError('INVALID_ARG', `GM_xmlhttpRequest：redirect 仅支持 follow / manual / error，收到「${String(redirect)}」`)
@@ -282,9 +344,15 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
     const responseHeaders: Record<string, string> = {}
     resp.headers.forEach((v, k) => (responseHeaders[k] = v))
     const responseType = init?.responseType === 'arraybuffer' ? 'arraybuffer' : 'text'
+    // 要了进度 → 流式读（边读边推）；否则整体读。两条路拿到的都是**完整字节**，只是前者会推进度帧。
+    const bytes = progress ? await readBodyStreaming(resp, progress) : undefined
     // 二进制无法结构化克隆过桥，转 base64（包装侧 arrayBuffer() 解码）
     const body =
-      responseType === 'arraybuffer' ? arrayBufferToBase64(await resp.arrayBuffer()) : await resp.text()
+      responseType === 'arraybuffer'
+        ? arrayBufferToBase64(bytes ?? (await resp.arrayBuffer()))
+        : bytes
+          ? new TextDecoder().decode(bytes)
+          : await resp.text()
     return {
       ok: resp.ok,
       status: resp.status,
@@ -320,13 +388,163 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
   }
 }
 
-/** GM_download 的后台实现：抓成 dataUrl，包装侧用 a[download] 触发本地下载（避免新增 downloads 权限） */
-async function doDownload(url: string, name: string): Promise<{ dataUrl: string; name: string }> {
-  const resp = await fetch(url, { credentials: 'omit' })
-  if (!resp.ok) throw new Error(`下载 ${url} 失败：${resp.status} ${resp.statusText}`)
-  const buf = await resp.arrayBuffer()
-  const mime = resp.headers.get('content-type') || 'application/octet-stream'
-  return { dataUrl: `data:${mime};base64,${arrayBufferToBase64(buf)}`, name }
+// ————————————————————— 下载（downloads 权限）—————————————————————
+
+/** 取 chrome.downloads，缺失即明确报错（扩展未声明 downloads 权限 / 旧产物）；不静默降级 */
+function downloadsApi(): typeof chrome.downloads {
+  const api = chrome.downloads
+  if (!api || typeof api.download !== 'function') {
+    throw new ApiError('NOT_AVAILABLE', 'download 能力不可用')
+  }
+  return api
+}
+
+/**
+ * 下载文件名清洗：只取纯文件名（挡 `../` 越出下载目录）、去掉前导点、trim；空则交回 undefined
+ * 让浏览器按 URL 推断。**不做扩展名白名单**（TM 有，那是它选项页的产品选择，我们不加）。
+ */
+function sanitizeDownloadName(name?: string): string | undefined {
+  if (!name) return undefined
+  const base = name.split(/[\\/]/).pop() ?? ''
+  const cleaned = base.replace(/^\.+/, '').trim()
+  return cleaned || undefined
+}
+
+/** 在飞下载的登记项（`total` 在登记时查一次；`timer` 只有脚本要进度时才起） */
+type DownloadEntry = {
+  uuid: string
+  connId: string
+  requestId: string
+  total: number | null
+  timer?: ReturnType<typeof setInterval>
+}
+
+/**
+ * 在飞下载的登记：downloadId → 归属信息，供进度轮询与 `onChanged` 的心思把帧推回脚本。
+ */
+const downloadWatch = new Map<number, DownloadEntry>()
+
+/**
+ * 进度轮询间隔。浏览器下载器**不发**字节数（`onChanged` 只有 state / totalBytes），只能主动查
+ * `chrome.downloads.search()`；而 SW 由 offscreen 心跳保活常驻（有启用脚本时 5s 一跳，见
+ * availability-watch.ts），下载期间不会休眠 —— 所以轮询在 SW 里是可靠手段。
+ */
+const DOWNLOAD_PROGRESS_MS = 500
+
+/** 查一次进度并推帧（轮询用）；下载已不在表里（终帧已处理）就直接返回 */
+async function pollDownloadProgress(id: number): Promise<void> {
+  const entry = downloadWatch.get(id)
+  if (!entry) return
+  try {
+    const items = await downloadsApi().search({ id })
+    const item = items[0]
+    if (!item) return
+    // 已结束：终帧交给 onChanged（那里会清 timer），这里不抢
+    if (item.state === 'complete' || item.state === 'interrupted') return
+    const totalBytes = item.totalBytes
+    pushDownloadChange(entry.uuid, entry.connId, {
+      requestId: entry.requestId,
+      state: 'progress',
+      loaded: item.bytesReceived ?? 0,
+      total: entry.total ?? (typeof totalBytes === 'number' && totalBytes > 0 ? totalBytes : null),
+    })
+  } catch {
+    // 轮询失败不致命：下一跳再试（下载本身不受影响）
+  }
+}
+
+let downloadWatchMounted = false
+
+/** 挂 onChanged（首次下载时懒挂）：delta 里既有 state 也有 bytesReceived */
+function mountDownloadWatch(): void {
+  if (downloadWatchMounted) return
+  downloadWatchMounted = true
+  try {
+    downloadsApi().onChanged.addListener((delta) => {
+      const entry = downloadWatch.get(delta.id)
+      if (!entry) return
+      const state = delta.state?.current
+      if (state !== 'complete' && state !== 'interrupted') return
+      downloadWatch.delete(delta.id)
+      if (entry.timer) clearInterval(entry.timer)
+      pushDownloadChange(entry.uuid, entry.connId, {
+        requestId: entry.requestId,
+        state,
+        loaded: delta.fileSize?.current ?? 0,
+        total: entry.total,
+        ...(state === 'interrupted' ? { error: delta.error?.current ?? 'not_succeeded' } : {}),
+      })
+    })
+  } catch {
+    downloadWatchMounted = false // 权限缺失等：下次调用再试（doDownload 自己会先报错）
+  }
+}
+
+/**
+ * 发起下载：交给**浏览器下载器**（能弹另存为、大文件流式落盘，旧实现是整份读进内存再走 data URL）。
+ * 返回 downloadId —— 下载器只承诺「已开始」，成败**稍后**经 `download.change` 帧回报。
+ */
+async function doDownload(
+  uuid: string,
+  url: string,
+  opts: {
+    name?: string
+    saveAs?: boolean
+    conflictAction?: string
+    requestId?: string
+    connId?: string
+    wantProgress?: boolean
+  },
+): Promise<{ id: number }> {
+  const api = downloadsApi()
+  const conflict = opts.conflictAction
+  if (conflict && conflict !== 'uniquify' && conflict !== 'overwrite' && conflict !== 'prompt') {
+    throw new ApiError(
+      'INVALID_ARG',
+      `GM_download：conflictAction 只支持 uniquify / overwrite / prompt，收到「${conflict}」`,
+    )
+  }
+  const filename = sanitizeDownloadName(opts.name)
+  const id = await api.download({
+    url,
+    ...(filename ? { filename } : {}),
+    saveAs: opts.saveAs === true,
+    ...(conflict ? { conflictAction: conflict as chrome.downloads.FilenameConflictAction } : {}),
+  })
+  if (typeof id !== 'number') {
+    throw new ApiError('INTERNAL', `GM_download 未能开始下载：${url}`)
+  }
+  if (opts.requestId && opts.connId) {
+    mountDownloadWatch()
+    const entry: DownloadEntry = { uuid, connId: opts.connId, requestId: opts.requestId, total: null }
+    // 先登记再查：下面有一个 await，终帧若落在这个窗口里，onChanged 会因为查不到登记而丢掉
+    downloadWatch.set(id, entry)
+    try {
+      const item = (await api.search({ id }))[0]
+      const bytes = item?.totalBytes
+      entry.total = typeof bytes === 'number' && bytes > 0 ? bytes : null
+      // 先推一帧已知进度：很短的下载可能等不到第一次轮询
+      if (opts.wantProgress && item && typeof item.bytesReceived === 'number') {
+        pushDownloadChange(uuid, opts.connId, {
+          requestId: opts.requestId,
+          state: 'progress',
+          loaded: item.bytesReceived,
+          total: entry.total,
+        })
+      }
+    } catch {
+      // 查不到就不给 total（lengthComputable 为 false），不阻断下载
+    }
+    if (opts.wantProgress) {
+      const timer = setInterval(() => {
+        void pollDownloadProgress(id)
+      }, DOWNLOAD_PROGRESS_MS)
+      // 上面查 total 期间就可能已收到终帧（那一跳会把登记删掉）—— 删了就别留这个定时器
+      if (downloadWatch.has(id)) entry.timer = timer
+      else clearInterval(timer)
+    }
+  }
+  return { id }
 }
 
 // ————————————————————— cookie（cookies 权限）—————————————————————
@@ -446,6 +664,15 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
     case 'store.delete':
       await deleteGMValue(uuid, req.key, req.connId)
       return undefined
+    // 批量写 / 批量删（GM_setValues / GM_deleteValues）：事务粒度在 usdata，事件粒度仍在 store
+    case 'store.setMany':
+      await setGMValues(uuid, req.entries, req.connId)
+      return undefined
+    case 'store.deleteMany':
+      await deleteGMValues(uuid, req.keys, req.connId)
+      return undefined
+    case 'store.getMany':
+      return getGMValues(uuid, req.keys)
     case 'store.keys':
       return listGMKeys(uuid)
     // 全量快照：注入时的值预载（注册链路直接调 store.ts）与包装层 connect 后的校准共用
@@ -455,8 +682,20 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       await clearGMValues(uuid, req.connId)
       return undefined
     // 网络
-    case 'fetch':
-      return doFetch(req.url, req.init)
+    case 'fetch': {
+      // 要了进度才建回调（且得能寻址到发起它的连接，否则推给谁都不知道）
+      const rid = req.init?.requestId
+      const cid = req.init?.connId
+      const progress =
+        req.init?.wantProgress && rid && cid
+          ? (loaded: number, total: number | null) => pushFetchProgress(uuid, cid, { requestId: rid, loaded, total })
+          : undefined
+      // 诊断（debug 级）：脚本要了进度却收不到帧时，先看这条在不在（只对要进度的请求打，别的请求不刷）
+      if (req.init?.wantProgress) {
+        console.debug(`[duoling:dl] fetch 要进度：rid=${String(rid)} cid=${String(cid)} → 流式=${progress ? '是' : '否'}`)
+      }
+      return doFetch(req.url, req.init, progress)
+    }
     case 'fetch.abort': {
       // 真中止：桥是请求-响应模型，SW 无法反向控制已发出的 fetch，故按 requestId 查表拿控制器。
       // 查不到 = 请求已结束（或从未存在），幂等处理不报错（连续 abort 是合法调用）。
@@ -479,7 +718,27 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       return { id }
     }
     case 'download':
-      return doDownload(req.url, req.name || 'download')
+      return doDownload(uuid, req.url, {
+        name: req.name,
+        saveAs: req.saveAs,
+        conflictAction: req.conflictAction,
+        requestId: req.requestId,
+        connId: req.connId,
+        wantProgress: req.wantProgress,
+      })
+    case 'download.cancel': {
+      // 中止：cancel 之后 onChanged 会报 interrupted（error: USER_CANCELED）→ 由 download.change 的
+      // 终帧回到脚本的 onerror（TM 语义：取消也算 onerror）。id 查不到就静默 —— 连续 abort 是合法调用。
+      const entry = downloadWatch.get(req.id)
+      if (entry?.timer) clearInterval(entry.timer)
+      downloadWatch.delete(req.id)
+      try {
+        await downloadsApi().cancel(req.id)
+      } catch {
+        // 已被浏览器清掉 / 不存在：幂等处理
+      }
+      return undefined
+    }
     // 剪贴板：走 offscreen（免用户手势）+ 富文本（clipboardWrite 权限）
     case 'clipboard.write':
       await writeClipboardViaOffscreen(req.text, req.html)
@@ -501,12 +760,26 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       if (tab?.id == null) throw new ApiError('INTERNAL', 'tabs.open 未返回标签页')
       return tab.id
     }
-    case 'tabs.close':
-      await chrome.tabs.remove(req.tabId)
+    case 'tabs.close': {
+      // tabId 缺省 = 发起命令的标签页（`window.close` 的落点；注入层不知道自己的 tabId）
+      const target = req.tabId ?? tabId
+      if (target == null) throw new ApiError('INTERNAL', 'tabs.close 缺 tabId')
+      // 对齐 TM：**不允许关掉窗口的最后一个标签页**（TM 文档把这条限制写在 window.close 下）
+      const closing = await chrome.tabs.get(target).catch(() => undefined)
+      if (closing?.windowId != null) {
+        const siblings = await chrome.tabs.query({ windowId: closing.windowId })
+        if (siblings.length <= 1) {
+          throw new ApiError('INVALID_ARG', 'window.close：不允许关闭窗口的最后一个标签页')
+        }
+      }
+      await chrome.tabs.remove(target)
       return undefined
+    }
     case 'tabs.focus': {
+      const target = req.tabId ?? tabId
+      if (target == null) throw new ApiError('INTERNAL', 'tabs.focus 缺 tabId')
       // 激活标签页 + 聚焦其所在窗口（跨窗口 focus 语义才完整）；窗口聚焦失败不拖垮整体
-      const tab = await chrome.tabs.update(req.tabId, { active: true })
+      const tab = await chrome.tabs.update(target, { active: true })
       if (tab?.windowId != null) {
         await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {})
       }
@@ -515,12 +788,14 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
     // cookie（cookies 权限）：先过域名门，再碰 chrome.cookies —— 顺序不可倒（门是唯一安全边界）
     case 'cookie.get': {
       await assertCookieScope(uuid, req.url)
-      const api = cookiesApi()
-      if (req.name != null && req.name !== '') {
-        const one = await api.get({ url: req.url, name: req.name })
-        return one ? [toGmCookie(one)] : []
-      }
-      const all = await api.getAll({ url: req.url })
+      // domain / path 只是**收窄**条件：chrome 的查询是 AND 语义、且 url 恒在 → 返回集 ⊆ 本页可见，
+      // 不会越权读到无关域的 cookie（这正是敢把它们透传下去的理由）。
+      // 统一走 getAll（它支持这四个条件；get 只吃 url + name），name 分支的语义与此等价。
+      const filter: chrome.cookies.GetAllDetails = { url: req.url }
+      if (req.name != null && req.name !== '') filter.name = req.name
+      if (req.domain) filter.domain = req.domain
+      if (req.path) filter.path = req.path
+      const all = await cookiesApi().getAll(filter)
       return all.map(toGmCookie)
     }
     case 'cookie.set': {
@@ -531,11 +806,16 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       if (typeof req.value !== 'string') {
         throw new ApiError('INVALID_ARG', 'GM_cookie.set：value 必须是字符串')
       }
-      // 只传 url：domain / path 不开放覆写（开放 domain 会架空域名门，见 api-contract 注释）
       const details: chrome.cookies.SetDetails = { url: req.url, name: req.name, value: req.value }
       if (typeof req.secure === 'boolean') details.secure = req.secure
       if (typeof req.httpOnly === 'boolean') details.httpOnly = req.httpOnly
       if (typeof req.expirationDate === 'number') details.expirationDate = req.expirationDate
+      // domain / path 照 TM 收下（不传则分别由 url 主机与 "/" 推导）。**门没被架空**：
+      // ① 上面的 assertCookieScope 已按 url 校验过脚本作用域，domain 不参与判定；
+      // ② chrome.cookies.set 自身要求 domain 与 url 同域或其父域 —— 真越域会被浏览器拒
+      //（写成父域 cookie 是 cookie 语义允许的，影响面从「本子域」扩到「整个父域」，这是 TM 同款行为）。
+      if (typeof req.domain === 'string' && req.domain) details.domain = req.domain
+      if (typeof req.path === 'string' && req.path) details.path = req.path
       const written = await cookiesApi().set(details)
       if (!written) {
         throw new ApiError('INTERNAL', `GM_cookie.set 被浏览器拒绝：${req.name}`)
@@ -547,7 +827,23 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       if (typeof req.name !== 'string' || !req.name) {
         throw new ApiError('INVALID_ARG', 'GM_cookie.remove：name 必填')
       }
-      await cookiesApi().remove({ url: req.url, name: req.name })
+      const api = cookiesApi()
+      // 带 domain / path 时先按条件查、再用**每条 cookie 自己的域与路径**拼 url 删：
+      // chrome.cookies.remove 只吃 { url, name }，而查出来的必然落在 url 的可见范围内（AND 语义）。
+      if (req.domain || req.path) {
+        const found = await api.getAll({
+          url: req.url,
+          name: req.name,
+          ...(req.domain ? { domain: req.domain } : {}),
+          ...(req.path ? { path: req.path } : {}),
+        })
+        for (const c of found) {
+          const scheme = c.secure ? 'https' : 'http'
+          await api.remove({ url: `${scheme}://${c.domain.replace(/^\./, '')}${c.path}`, name: c.name })
+        }
+        return undefined
+      }
+      await api.remove({ url: req.url, name: req.name })
       return undefined
     }
     // DL Port 事件底座：菜单登记 + store 订阅（控制面，经 Port 回推见 dl-port.ts）
@@ -576,6 +872,33 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       }
       return undefined
     }
+    // 音频（GM_audio）：一律作用于**脚本所在标签页** —— tabId 取 sender.tab.id，脚本给不了别的
+    // （对齐 TM：GM_audio 只操作「当前标签页」，没有 tabId 参数）
+    case 'audio.setMute': {
+      if (tabId == null) throw new ApiError('INTERNAL', 'audio.setMute 取不到当前标签页')
+      await chrome.tabs.update(tabId, { muted: req.isMuted })
+      return undefined
+    }
+    case 'audio.getState': {
+      if (tabId == null) throw new ApiError('INTERNAL', 'audio.getState 取不到当前标签页')
+      const tab = await chrome.tabs.get(tabId)
+      // 字段形状照 TM：取不到就省略该键（脚本用 `'x' in state` 判断，给 false 是错的）
+      return {
+        ...(tab.mutedInfo ? { isMuted: tab.mutedInfo.muted } : {}),
+        ...(tab.mutedInfo?.reason ? { muteReason: tab.mutedInfo.reason } : {}),
+        ...(tab.audible !== undefined ? { isAudible: tab.audible } : {}),
+      }
+    }
+    // 订阅登记：没登记的连接不收 audio.change（音频变化可能很频繁，不做无差别广播）
+    case 'audio.watch': {
+      if (!attachAudioWatch(uuid, req.connId)) {
+        throw new ApiError('INTERNAL', '事件通道未就绪，订阅未生效（请重试）')
+      }
+      return undefined
+    }
+    case 'audio.unwatch':
+      detachAudioWatch(uuid, req.connId)
+      return undefined
     default: {
       // 穷尽性检查：ApiRequest 加新命令时这里会编译报错提醒补 dispatch
       const unreachable: never = req

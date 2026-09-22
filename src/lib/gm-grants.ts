@@ -4,7 +4,8 @@
 // 规范侧（offscreen-chat/spec-text.ts 教 AI 怎么写 @grant 清单）。谁 import gm-wrapper 都会把注入链路
 // （gm-wrapper 与注册链路）拖进产物，故抽成这份零依赖纯数据。
 //
-// 对齐 TM：一个 grant 同时开全局与 `GM.*` 两种形态；`GM_cookie` 依 TM 口径不进 `GM.*`（故 `ns: []`）。
+// 对齐 TM：一个 grant 同时开全局与 `GM.*` 两种形态（例外见下）；`GM_cookie` 依 TM 口径不进 `GM.*`（故 `ns: []`）；
+// `window.close` / `window.focus` 开的是 window 属性，两种形态都不涉及。
 
 /** grant 名 → 它开启的成员（空数组 = 该形态下没有对应成员） */
 export const GRANT_MEMBERS: Record<string, { globals: string[]; ns: string[] }> = {
@@ -12,6 +13,12 @@ export const GRANT_MEMBERS: Record<string, { globals: string[]; ns: string[] }> 
   GM_setValue: { globals: ['GM_setValue'], ns: ['setValue'] },
   GM_deleteValue: { globals: ['GM_deleteValue'], ns: ['deleteValue'] },
   GM_listValues: { globals: ['GM_listValues'], ns: ['listValues'] },
+  // 批量版（对齐 TM v5.3+，VM 2.x 与 ScriptCat 也有）：成组读写同一份存储，外部脚本里很常见。
+  // 语义照 TM：`getValues` 收「键数组」或「默认值对象」（给默认值对象时按它补缺），
+  // `setValues` 收键值对对象，`deleteValues` 收键数组。
+  GM_getValues: { globals: ['GM_getValues'], ns: ['getValues'] },
+  GM_setValues: { globals: ['GM_setValues'], ns: ['setValues'] },
+  GM_deleteValues: { globals: ['GM_deleteValues'], ns: ['deleteValues'] },
   GM_addValueChangeListener: { globals: ['GM_addValueChangeListener'], ns: ['addValueChangeListener'] },
   GM_removeValueChangeListener: { globals: ['GM_removeValueChangeListener'], ns: ['removeValueChangeListener'] },
   GM_registerMenuCommand: { globals: ['GM_registerMenuCommand'], ns: ['registerMenuCommand'] },
@@ -28,6 +35,18 @@ export const GRANT_MEMBERS: Record<string, { globals: string[]; ns: string[] }> 
   GM_saveTab: { globals: ['GM_saveTab'], ns: ['saveTab'] },
   GM_getTabs: { globals: ['GM_getTabs'], ns: ['getTabs'] },
   GM_cookie: { globals: ['GM_cookie'], ns: [] },
+  // 音频控制（TM v5.0+）：对象型全局，`GM.*` 侧是 GM.audio（与 GM_cookie 不同，TM 给了这个镜像）
+  GM_audio: { globals: ['GM_audio'], ns: ['audio'] },
+  // 命名资源（TM：`@resource` 声明即预加载，内容随注入体就绪）。
+  // 注意 `GM.*` 形态是 **getResourceText / getResourceUrl** —— Url 的小写 r/l 照 TM 原样，不是笔误。
+  GM_getResourceText: { globals: ['GM_getResourceText'], ns: ['getResourceText'] },
+  GM_getResourceURL: { globals: ['GM_getResourceURL'], ns: ['getResourceUrl'] },
+  // window 级成员：TM 把「关当前标签页 / 聚焦当前标签页」也当 `@grant` 项（原话：
+  // "closing and focusing tabs is a powerful feature this needs to be added to the @grant
+  // statements as well"）。名字就是**属性路径** —— 注入体里对 window 赋值而非声明局部变量，
+  // 所以 globals 里也会出现这种带点的名字（flags 表按名直查，不受影响）；两者都没有 GM.* 形态。
+  'window.close': { globals: ['window.close'], ns: [] },
+  'window.focus': { globals: ['window.focus'], ns: [] },
 }
 
 /** 恒注入、不需要 `@grant` 的全局（对齐 TM：`GM_info` / `unsafeWindow` 无需声明） */

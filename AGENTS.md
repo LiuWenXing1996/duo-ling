@@ -40,7 +40,7 @@
 | `npm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev` |
 | `npm run build` | 构建，产出 `.output/chrome-mv3` |
 | `npm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
-| `npm run typecheck` | 类型检查（`vue-tsc --noEmit`）；当前全仓零错误 |
+| `npm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
 | `npm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
 | `npm run test:e2e` | Playwright 端测（全程无头、跑 build 产物；**先 `npm run build`**） |
 | `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
@@ -62,7 +62,7 @@
 | [GIT_WORKFLOW.md](GIT_WORKFLOW.md) | **Git 工作流**：提交信息格式与 type 白名单 / 分支命名 / 分支保护与合并流程 / 小修补搭车 / 合并提交标题 | 写提交 / 起分支 / 开 PR 前 |
 | [CHANGELOG.md](CHANGELOG.md) | 每个发布版本的变更条目（格式与维护方式见 VERSIONING.md） | 发版时补条目 |
 | [TODO.md](TODO.md) | **待办清单**：每条 ≤100 字，可带一句 ≤30 字方向，**不写方案设计、不排序不排期**（进清单即要做，AI 可认领但不可擅自加） | 记待办 / 清理待办时；条目写法规则见文件开头 |
-| [docs/gm-api-gap.md](docs/gm-api-gap.md) | 脚本面 GM API 与油猴标准的差距：覆盖面 / 完全缺失的 / 降级实现 / 本扩展自有，及补 API 时要同步的 5 处 | 改 `gm-grants.ts` / `gm-api-catalog.ts` / `spec-text.ts` 前后 |
+| [docs/gm-api-gap.md](docs/gm-api-gap.md) | 脚本面 GM API 与油猴标准的差距：覆盖面 / 完全缺失的 / 降级实现 / 本扩展自有，及补 API 时要同步的 8 处 | 改 `gm-grants.ts` / `gm-api-catalog.ts` / `spec-text.ts` / `userscripts/api-contract.ts` / `uscript-samples/gm-matrix` 前后 |
 | [.github/pull_request_template.md](.github/pull_request_template.md) | PR 描述模板（动机 / 变更 / 测试证据三段） | 开 PR 时按它填 |
 | [.agents/skills/wxt/SKILL.md](.agents/skills/wxt/SKILL.md) | WXT 配置 / entrypoint / manifest 规范与坑 | 动构建配置、entrypoint、manifest 前 |
 | [.agents/skills/shadcn-vue/SKILL.md](.agents/skills/shadcn-vue/SKILL.md) | shadcn-vue 组件检索、添加与样式规范（上游 skill） | 动 UI / 表单 / 图标前 |

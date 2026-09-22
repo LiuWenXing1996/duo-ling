@@ -250,7 +250,7 @@
   btn('⑤ 订阅', function () {
     return test('onUrlChange 订阅', async function () {
       if (urlSubscribed) return '已订阅'
-      window.onurlchange = function (e) { log('URL', 'url.change → ' + (e && e.url)) }
+      window.onurlchange = function (e) { log('URL', 'URL 变化 → ' + (e && e.url)) }
       urlSubscribed = true
       return '订阅生效，点下方三个按钮触发路由变化'
     })
@@ -288,7 +288,7 @@
     return 'ok'
   })
   await test('onUrlChange 订阅 (auto)', async function () {
-    if (!urlSubscribed) { window.onurlchange = function (e) { log('URL', 'url.change → ' + (e && e.url)) }; urlSubscribed = true }
+    if (!urlSubscribed) { window.onurlchange = function (e) { log('URL', 'URL 变化 → ' + (e && e.url)) }; urlSubscribed = true }
     return 'ok（点 pushState/replaceState/hash 验证三种是否都触发）'
   })
   log('INFO', '自动轮结束。clipboard / download 需手动点按钮；⑤ 三种路由变化请逐个点验证触发情况。')

@@ -22,8 +22,15 @@ export interface ScriptConfig {
   excludeGlobs?: string[]
   /** 默认 true（对齐主流：靠排除关 iframe） */
   allFrames: boolean
-  /** 默认 document_end（对齐主流） */
-  runAt: 'document_start' | 'document_end' | 'document_idle'
+  /** 默认 document_idle（对齐 TM：不写 @run-at 时 TM 也是 idle） */
+  /**
+   * 注入时机（对应 `@run-at`）。
+   *
+   * `document_body` 是 TM 的取值（**body 元素存在时**才开始跑，TM 文档："injected if the body element exists"）。
+   * Chrome 的 `userScripts.runAt` 只认 start / end / idle，故它注入时仍用 `document_start`，
+   * 由包装层加一道「等 body」的闸门把正文推后（见 gm-wrapper 的 `__gmRunAtBody`）。
+   */
+  runAt: 'document_start' | 'document_body' | 'document_end' | 'document_idle'
 
   // —— 以下为 GM 化的注入期配置（metadata 派生，不映射注册字段）——
 
@@ -42,6 +49,14 @@ export interface ScriptConfig {
   description?: string
   author?: string
   icon?: string
+  /**
+   * 分发来源（`@updateURL` / `@downloadURL` / `@homepageURL`）——油猴生态自带的自声明约定。
+   * 脚本自己在 metadata 块里声明它从哪来、去哪取新版，故**不必由本扩展维护任何清单**。
+   * 仅记录、不参与注入：供 UI 复述「这脚本从哪来」，以及后续的更新提示。
+   */
+  updateUrl?: string
+  downloadUrl?: string
+  homepageUrl?: string
 }
 
 /** `@resource name url` 一条（资源体落库由 P2 实现） */
@@ -135,8 +150,11 @@ export interface UserScriptErrorRecord {
   id: string
   uuid: string | null // 运行期/注册错误有；部分桥错误可能无
   name: string // 脚本名（便于展示，未知时占位）
-  /** 错误阶段：runtime=用户脚本运行期报错；register=后台注册失败；bridge=GM 桥调用失败 */
-  phase: 'runtime' | 'register' | 'bridge' | 'require'
+  /**
+   * 错误阶段：runtime=用户脚本运行期报错；register=后台注册失败；bridge=GM 桥调用失败；
+   * require=外部依赖抓取失败；resource=@resource 资源抓取失败（后两者都只记错误、不阻断注入）
+   */
+  phase: 'runtime' | 'register' | 'bridge' | 'require' | 'resource'
   message: string
   stack?: string
   url?: string // 运行期错误所在页面
@@ -260,9 +278,9 @@ export interface ImportReport {
   ignored: ImportItemIgnored[]
 }
 
-/** 新建项目的默认配置：allFrames true / runAt document_end（v2 决策表） */
+/** 新建项目的默认配置：allFrames true / runAt document_idle（对齐 TM 的默认值） */
 export function defaultConfig(matches: string[]): ScriptConfig {
-  return { matches, allFrames: true, runAt: 'document_end' }
+  return { matches, allFrames: true, runAt: 'document_idle' }
 }
 
 /**

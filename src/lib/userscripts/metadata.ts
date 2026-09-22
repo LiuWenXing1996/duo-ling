@@ -11,10 +11,14 @@
 //
 // 取值规则（对齐 Tampermonkey）：
 //   · 只认**第一个** metadata 块；
-//   · 单值键（@name / @namespace / @version / @description / @author / @icon / @run-at）
-//     **无后缀写法优先、同级首次胜**：`@name` 恒胜过 `@name:zh-CN`（本地化只作兜底），
-//     重复的无后缀键取第一个（TM 同款）；
+//   · 单值键（@name / @namespace / @version / @description / @author / @icon / @run-at
+//     / @updateURL / @downloadURL / @homepageURL）**无后缀写法优先、同级首次胜**：
+//     `@name` 恒胜过 `@name:zh-CN`（本地化只作兜底），重复的无后缀键取第一个（TM 同款）；
 //   · 多值键（@match / @include / @exclude / @grant / @require / @resource / @connect）按出现顺序累积。
+//
+// `@updateURL` / `@downloadURL` / `@homepageURL` 是油猴生态自带的分发约定：脚本自己在块里声明
+// 它从哪来、去哪取新版。读下来只为「认领来源」与后续的更新提示用，**不改变注入行为**。
+// `@homepage` 与 `@homepageURL` 是同一件事的两种写法（TM 两者都认），见 SINGLE_KEYS 的归一。
 import type { ScriptConfig, ScriptResourceDecl } from './types'
 import { isValidMatchPattern } from './project-store'
 import { parseMatchPattern } from '@/lib/match-pattern'
@@ -31,6 +35,12 @@ export interface ParsedMetadata {
   description?: string
   author?: string
   icon?: string
+  /** `@updateURL`：脚本自声明的更新检查地址（油猴约定，本扩展只记录不改注入） */
+  updateUrl?: string
+  /** `@downloadURL`：脚本自声明的新版下载地址 */
+  downloadUrl?: string
+  /** `@homepageURL` / `@homepage`：脚本主页（同一件事的两种写法，已归一） */
+  homepageUrl?: string
   /** `@match` 原值（未校验、未去重） */
   matches: string[]
   /** `@include` 原值（glob / 正则形态未转换） */
@@ -65,8 +75,42 @@ const KEY_LINE_RE = /^@([A-Za-z][A-Za-z0-9-]*)(?::([A-Za-z0-9-]+))?\s*(.*)$/
 /** 正则形态的 @include / @exclude（TM 支持 `/re/flags`），本扩展不支持 */
 const REGEX_FORM_RE = /^\/.*\/[gimsuy]*$/
 
-/** 单值键：首次出现者胜（本地化后缀不参与判定） */
-const SINGLE_KEYS = new Set(['name', 'namespace', 'version', 'description', 'author', 'icon', 'run-at'])
+/**
+ * 单值键：首次出现者胜（本地化后缀不参与判定）。
+ *
+ * 键名一律小写形态（`@updateURL` 在这里是 `updateurl`）。`homepage` 是 `homepageURL` 的同义写法，
+ * 在查表前先归一到 `homepageurl` —— 否则两者同时出现时各自占位，后出现的会覆盖先出现的，
+ * 破坏「首个胜」。
+ */
+const SINGLE_KEYS = new Set([
+  'name',
+  'namespace',
+  'version',
+  'description',
+  'author',
+  'icon',
+  'run-at',
+  'updateurl',
+  'downloadurl',
+  'homepageurl',
+])
+
+/**
+ * 定位第一个 metadata 块的首尾行号；找不到返回 null。
+ * 块定位（`// ==UserScript==` … `// ==/UserScript==`）只写这一处。
+ */
+function findBlockLines(lines: string[]): { start: number; end: number } | null {
+  let start = -1
+  for (let i = 0; i < lines.length; i++) {
+    const bare = bareLine(lines[i]!)
+    if (start < 0) {
+      if (bare === START_MARK) start = i
+      continue
+    }
+    if (bare === END_MARK) return { start, end: i }
+  }
+  return null
+}
 
 /**
  * 解析源码里的第一个 metadata 块。
@@ -76,20 +120,9 @@ const SINGLE_KEYS = new Set(['name', 'namespace', 'version', 'description', 'aut
  */
 export function parseUserScriptMetadata(code: string): ParsedMetadata | null {
   const lines = code.split(/\r?\n/)
-  let start = -1
-  let end = -1
-  for (let i = 0; i < lines.length; i++) {
-    const bare = bareLine(lines[i]!)
-    if (start < 0) {
-      if (bare === START_MARK) start = i
-      continue
-    }
-    if (bare === END_MARK) {
-      end = i
-      break
-    }
-  }
-  if (start < 0 || end < 0) return null
+  const bounds = findBlockLines(lines)
+  if (!bounds) return null
+  const { start, end } = bounds
 
   const raw = lines.slice(start, end + 1).join('\n')
   // 单值键的两级占位：无后缀写法（`@name`）恒胜过本地化写法（`@name:zh-CN`）；
@@ -112,7 +145,10 @@ export function parseUserScriptMetadata(code: string): ParsedMetadata | null {
     if (!bare.startsWith('@')) continue
     const m = KEY_LINE_RE.exec(bare)
     if (!m) continue
-    const key = m[1]!.toLowerCase()
+    const rawKey = m[1]!.toLowerCase()
+    // `@homepage` 与 `@homepageURL` 归一：两者是同一件事的不同写法（TM 都认），
+    // 必须在查 SINGLE_KEYS 与占位判定之前归一，否则同一件事会各占一个位
+    const key = rawKey === 'homepage' ? 'homepageurl' : rawKey
     const value = m[3]!.trim()
 
     if (key === 'noframes') {
@@ -149,6 +185,15 @@ export function parseUserScriptMetadata(code: string): ParsedMetadata | null {
           break
         case 'run-at':
           out.runAtRaw = value
+          break
+        case 'updateurl':
+          out.updateUrl = value
+          break
+        case 'downloadurl':
+          out.downloadUrl = value
+          break
+        case 'homepageurl':
+          out.homepageUrl = value
           break
       }
       continue
@@ -200,6 +245,7 @@ function mapRunAt(raw: string | undefined): ScriptConfig['runAt'] | null {
   if (!raw) return null
   const v = raw.trim().toLowerCase().replace(/_/g, '-')
   if (v === 'document-start') return 'document_start'
+  if (v === 'document-body') return 'document_body'
   if (v === 'document-end') return 'document_end'
   if (v === 'document-idle') return 'document_idle'
   return null
@@ -316,7 +362,7 @@ export function applyMetadataToConfig(
     // 未声明匹配规则时沿用 fallback（导入路径的 fallback 是空数组 → 落「不匹配任何页面」，与 project-write.ts 的写入口归一化一致）
     matches: declaredMatches ? dedupe(matches) : (fallback.matches ?? []),
     allFrames: parsed.noframes ? false : (fallback.allFrames ?? true),
-    runAt: declaredRunAt ?? fallback.runAt ?? 'document_end',
+    runAt: declaredRunAt ?? fallback.runAt ?? 'document_idle',
   }
 
   const exclM = dedupe([...excludeMatches, ...(declaredMatches ? [] : (fallback.excludeMatches ?? []))])
@@ -339,6 +385,16 @@ export function applyMetadataToConfig(
   if (parsed.description) config.description = parsed.description
   if (parsed.author) config.author = parsed.author
   if (parsed.icon) config.icon = parsed.icon
+
+  // 分发来源键：与 grant / requires 同规 —— metadata 声明即采用，未声明沿用 fallback。
+  // 走 fallback 是有意的：用户编辑源码块时（比如整段重贴正文）不该静默丢掉「这脚本从哪来」。
+  // 条件赋值而非直接赋 undefined：undefined 值的键会被 structured clone 原样带进库里，纯噪音。
+  const updateUrl = parsed.updateUrl ?? fallback.updateUrl
+  if (updateUrl) config.updateUrl = updateUrl
+  const downloadUrl = parsed.downloadUrl ?? fallback.downloadUrl
+  if (downloadUrl) config.downloadUrl = downloadUrl
+  const homepageUrl = parsed.homepageUrl ?? fallback.homepageUrl
+  if (homepageUrl) config.homepageUrl = homepageUrl
 
   return { config, ...(parsed.name ? { name: parsed.name } : {}), notes }
 }

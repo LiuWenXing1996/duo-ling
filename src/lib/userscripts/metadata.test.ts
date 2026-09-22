@@ -5,7 +5,11 @@
 //   ② 产出的 match pattern **一定是 Chrome 会接受的**：项目自己的 MATCH_PATTERN_RE 有个已知宽松点
 //      （host 段可为空 → `*:///foo/*` 被判合法），解析器必须绕开它，否则错误会拖到注册期才以英文异常冒出。
 import { describe, expect, it } from 'vitest'
-import { applyMetadataToConfig, parseUserScriptMetadata, resolveConfigFromSource } from './metadata'
+import {
+  applyMetadataToConfig,
+  parseUserScriptMetadata,
+  resolveConfigFromSource,
+} from './metadata'
 import type { ParsedMetadata } from './metadata'
 import { isValidMatchPattern } from './project-store'
 import { parseMatchPattern } from '@/lib/match-pattern'
@@ -128,6 +132,13 @@ describe('parseUserScriptMetadata', () => {
 })
 
 describe('applyMetadataToConfig', () => {
+  it('@run-at document-body 也认（Chrome 的 runAt 没有这个值，注入侧另有一道等 body 的闸门）', () => {
+    const parsed = parseUserScriptMetadata(
+      ['// ==UserScript==', '// @run-at document-body', '// ==/UserScript=='].join('\n'),
+    )!
+    expect(applyMetadataToConfig(parsed, defaultConfig([])).config.runAt).toBe('document_body')
+  })
+
   it('@match 直通（含 <all_urls> 特例），且产出的 pattern 全部 Chrome 安全', () => {
     const r = applyMetadataToConfig(
       mk({ matches: ['https://example.com/*', '<all_urls>'] }),
@@ -200,8 +211,8 @@ describe('applyMetadataToConfig', () => {
   it('源码声明优先于 fallback（逐字段：声明了就采用，没声明才沿用）', () => {
     const r = applyMetadataToConfig(mk({ matches: ['https://x.example.com/*'] }), defaultConfig(['https://y.example.com/*']))
     expect(r.config.matches).toEqual(['https://x.example.com/*'])
-    // 未声明的键仍沿用 fallback
-    expect(r.config.runAt).toBe('document_end')
+    // 未声明的键仍沿用 fallback（defaultConfig 的默认值现在是 document_idle，对齐 TM）
+    expect(r.config.runAt).toBe('document_idle')
     expect(r.config.allFrames).toBe(true)
   })
 
@@ -216,8 +227,9 @@ describe('applyMetadataToConfig', () => {
   })
 
   it('@run-at 取值不认识时沿用原配置并不猜（写 notes）', () => {
-    const r = applyMetadataToConfig(mk({ runAtRaw: 'document-body' }), defaultConfig([]))
-    expect(r.config.runAt).toBe('document_end')
+    // 样本必须是**真的不认识**的值：`document-body` 曾是，现已支持（见本 describe 的第一条用例）
+    const r = applyMetadataToConfig(mk({ runAtRaw: 'document-foo' }), defaultConfig([]))
+    expect(r.config.runAt).toBe('document_idle')
     expect(r.notes.join('\n')).toContain('@run-at')
   })
 
@@ -269,5 +281,51 @@ console.log(1)`
     const r = resolveConfigFromSource(source, defaultConfig(['*://*/*']))
     expect(r.name).toBe('直接粘进来的标准脚本')
     expect(r.config.matches).toEqual(['https://example.com/*'])
+  })
+})
+
+// 分发来源键（@updateURL / @downloadURL / @homepageURL）：油猴生态自带的自声明约定 ——
+// 读它就不必由本扩展维护任何脚本清单。
+describe('分发来源键', () => {
+  it('三个键都解析出来（键名大小写不敏感）', () => {
+    const m = parseUserScriptMetadata(
+      [
+        '// ==UserScript==',
+        '// @name 来源脚本',
+        '// @updateURL https://example.com/x.meta.js',
+        '// @downloadURL https://example.com/x.user.js',
+        '// @homepageURL https://example.com/x',
+        '// ==/UserScript==',
+      ].join('\n'),
+    )!
+    expect(m.updateUrl).toBe('https://example.com/x.meta.js')
+    expect(m.downloadUrl).toBe('https://example.com/x.user.js')
+    expect(m.homepageUrl).toBe('https://example.com/x')
+  })
+
+  it('@homepage 与 @homepageURL 归一：同一个键，先出现的胜（不互相覆盖）', () => {
+    const m = parseUserScriptMetadata(
+      [
+        '// ==UserScript==',
+        '// @name 来源脚本',
+        '// @homepage https://first.example.com/',
+        '// @homepageURL https://second.example.com/',
+        '// ==/UserScript==',
+      ].join('\n'),
+    )!
+    expect(m.homepageUrl).toBe('https://first.example.com/')
+  })
+
+  it('归一进 config；未声明时沿用 fallback（源码块被重贴不该丢掉来源）', () => {
+    const source = `// ==UserScript==
+// @name 来源脚本
+// @match https://example.com/*
+// ==/UserScript==
+console.log(1)`
+    const fallback = { ...defaultConfig(['*://*/*']), homepageUrl: 'https://kept.example.com/' }
+    const r = resolveConfigFromSource(source, fallback)
+    expect(r.config.homepageUrl).toBe('https://kept.example.com/')
+    // 未声明的另外两个不该凭空长出 undefined 键（undefined 值会被原样带进库里）
+    expect('updateUrl' in r.config).toBe(false)
   })
 })

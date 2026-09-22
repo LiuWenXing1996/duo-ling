@@ -38,7 +38,7 @@ describe('buildScriptZip + parseScriptsZip 往返', () => {
     expect(scripts[0].name).toBe('示例脚本')
     expect(scripts[0].config.matches).toEqual(['https://example.com/*'])
     expect(scripts[0].config.allFrames).toBe(true)
-    expect(scripts[0].config.runAt).toBe('document_end')
+    expect(scripts[0].config.runAt).toBe('document_idle')
     expect(scripts[0].code).toBe(code)
   })
 
@@ -108,7 +108,7 @@ describe('parseScriptsZip 解析（尽量导入：只拦原则项，2026-09-20 �
   it('metadata 块声明字段：matches 保留，未声明字段用默认（allFrames/runAt）', () => {
     const code = withMeta('a', 'console.log(1)', ['*://a.com/*'])
     const { scripts } = parseScriptsZip(makeZip({ 'x/script.js': code }))
-    expect(scripts[0].config).toEqual({ matches: ['*://a.com/*'], allFrames: true, runAt: 'document_end' })
+    expect(scripts[0].config).toEqual({ matches: ['*://a.com/*'], allFrames: true, runAt: 'document_idle' })
     expect(scripts[0].notes).toBeUndefined() // 合法 metadata，无 notes
   })
 

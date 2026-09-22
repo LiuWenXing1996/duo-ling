@@ -13,7 +13,13 @@ type Listener = (raw: unknown, sender: unknown, sendResponse: (r: ApiResponse) =
 let listeners: Listener[]
 let sendToBridge: (req: ApiRequest, uuid?: string) => Promise<ApiResponse>
 let fetchMock: ReturnType<typeof vi.fn>
-let tabsMocks: { create: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> }
+let tabsMocks: {
+  create: ReturnType<typeof vi.fn>
+  remove: ReturnType<typeof vi.fn>
+  update: ReturnType<typeof vi.fn>
+  get: ReturnType<typeof vi.fn>
+  query: ReturnType<typeof vi.fn>
+}
 let windowUpdate: ReturnType<typeof vi.fn>
 let cookiesMocks: {
   get: ReturnType<typeof vi.fn>
@@ -59,11 +65,24 @@ function seedScript(uuid: string, matches: string[], excludeMatches?: string[]):
 
 const COOKIE_UUID = 'cookie-u1'
 
+let downloadsMocks: {
+  download: ReturnType<typeof vi.fn>
+  search: ReturnType<typeof vi.fn>
+  cancel: ReturnType<typeof vi.fn>
+  onChanged: { addListener: ReturnType<typeof vi.fn> }
+}
+
 beforeEach(async () => {
   vi.resetModules() // initDlBridge 有模块级 initialized 幂等标志，重置后每次都能重新注册
   listeners = []
+  downloadsMocks = {
+    download: vi.fn(async () => 1),
+    search: vi.fn(async () => []),
+    cancel: vi.fn(async () => {}),
+    onChanged: { addListener: vi.fn() },
+  }
   fetchMock = vi.fn()
-  tabsMocks = { create: vi.fn(), remove: vi.fn(), update: vi.fn() }
+  tabsMocks = { create: vi.fn(), remove: vi.fn(), update: vi.fn(), get: vi.fn(), query: vi.fn() }
   windowUpdate = vi.fn()
   cookiesMocks = {
     get: vi.fn(async () => chromeCookie()),
@@ -84,6 +103,7 @@ beforeEach(async () => {
     tabs: tabsMocks,
     windows: { update: windowUpdate },
     cookies: cookiesMocks,
+    downloads: downloadsMocks,
     declarativeNetRequest: dnrMocks,
     webRequest: { onHeadersReceived: { addListener: (fn: (d: unknown) => void) => webRequestListeners.push(fn) } },
   })
@@ -300,6 +320,17 @@ describe("GM_xmlhttpRequest redirect:'manual'（webRequest 观测）", () => {
     expect(resp.ok).toBe(true)
     if (resp.ok) expect(resp.data).toMatchObject({ status: 200, body: 'plain' })
   })
+
+  it('fetch：wantProgress 但寻不到连接（没 connId）时不推帧，响应体照常完整 —— 进度缺失不该影响请求', async () => {
+    fetchMock.mockResolvedValue(new Response('hello'))
+    const resp = await sendToBridge({
+      c: 'fetch',
+      url: 'https://x.test/',
+      init: { requestId: 'r1', wantProgress: true },
+    })
+    expect(resp.ok).toBe(true)
+    if (resp.ok) expect(resp.data).toMatchObject({ status: 200, body: 'hello' })
+  })
 })
 
 describe('GM tabs', () => {
@@ -310,11 +341,22 @@ describe('GM tabs', () => {
     expect(resp).toEqual({ ok: true, data: 7 })
   })
 
-  it('tabs.close 调 chrome.tabs.remove', async () => {
+  it('tabs.close 调 chrome.tabs.remove（非最后一个标签页）', async () => {
+    // window.close 的落点：先取 tab 拿 windowId、再数同窗口兄弟 —— 最后一个不许关（对齐 TM）
+    tabsMocks.get.mockResolvedValue({ id: 7, windowId: 3 })
+    tabsMocks.query.mockResolvedValue([{ id: 7 }, { id: 8 }])
     tabsMocks.remove.mockResolvedValue(undefined)
     const resp = await sendToBridge({ c: 'tabs.close', tabId: 7 })
     expect(tabsMocks.remove).toHaveBeenCalledWith(7)
     expect(resp).toEqual({ ok: true, data: undefined })
+  })
+
+  it('tabs.close 拒绝关窗口的最后一个标签页（TM 同款限制）', async () => {
+    tabsMocks.get.mockResolvedValue({ id: 7, windowId: 3 })
+    tabsMocks.query.mockResolvedValue([{ id: 7 }])
+    const resp = await sendToBridge({ c: 'tabs.close', tabId: 7 })
+    expect(tabsMocks.remove).not.toHaveBeenCalled()
+    expect(resp.ok).toBe(false)
   })
 
   it('tabs.focus 激活标签页并聚焦所在窗口', async () => {
@@ -331,6 +373,39 @@ describe('GM tabs', () => {
     const resp = await sendToBridge({ c: 'tabs.focus', tabId: 7 })
     expect(windowUpdate).not.toHaveBeenCalled()
     expect(resp.ok).toBe(true)
+  })
+})
+
+describe('download（浏览器下载器）', () => {
+  it('saveAs / conflictAction 透传，文件名只取纯名（挡 ../ 越出下载目录）', async () => {
+    downloadsMocks.download.mockResolvedValueOnce(7)
+    const resp = await sendToBridge(
+      {
+        c: 'download',
+        url: 'https://x.test/a.txt',
+        name: '../../evil.txt',
+        saveAs: true,
+        conflictAction: 'overwrite',
+      },
+      COOKIE_UUID,
+    )
+    expect(resp).toEqual({ ok: true, data: { id: 7 } })
+    expect(downloadsMocks.download).toHaveBeenCalledWith({
+      url: 'https://x.test/a.txt',
+      filename: 'evil.txt',
+      saveAs: true,
+      conflictAction: 'overwrite',
+    })
+  })
+
+  it('download.cancel 调 chrome.downloads.cancel；cancel 抛错也静默（连续 abort 是合法调用）', async () => {
+    const ok = await sendToBridge({ c: 'download.cancel', id: 5 }, COOKIE_UUID)
+    expect(ok).toEqual({ ok: true, data: undefined })
+    expect(downloadsMocks.cancel).toHaveBeenCalledWith(5)
+
+    downloadsMocks.cancel.mockRejectedValueOnce(new Error('no such download'))
+    const again = await sendToBridge({ c: 'download.cancel', id: 5 }, COOKIE_UUID)
+    expect(again).toEqual({ ok: true, data: undefined })
   })
 })
 
@@ -365,15 +440,51 @@ describe('GM_cookie（cookies 权限 + 域名门）', () => {
     expect(cookiesMocks.getAll).toHaveBeenCalledWith({ url: 'https://example.com/' })
   })
 
-  it('指定 name：查单条，命中返回单元素数组、未命中返回空数组（不是 null）', async () => {
+  it('指定 name / domain / path 一起透传给 getAll（桥只负责筛，命中与否由 chrome 定）', async () => {
     await seedScript(COOKIE_UUID, ['<all_urls>'])
-    const hit = await sendToBridge({ c: 'cookie.get', url: 'https://a.test/', name: 'sid' }, COOKIE_UUID)
+    const hit = await sendToBridge(
+      { c: 'cookie.get', url: 'https://a.test/', name: 'sid', domain: '.a.test', path: '/' },
+      COOKIE_UUID,
+    )
     expect(hit.ok).toBe(true)
-    if (hit.ok) expect((hit.data as unknown[]).length).toBe(1)
+    // 三个条件都进查询：url 恒在（域名门的落点），domain / path 只是收窄 —— chrome 的查询是 AND 语义
+    expect(cookiesMocks.getAll).toHaveBeenCalledWith({
+      url: 'https://a.test/',
+      name: 'sid',
+      domain: '.a.test',
+      path: '/',
+    })
 
-    cookiesMocks.get.mockResolvedValueOnce(null)
+    // 未命中：getAll 给空数组 → 桥原样回空数组（不是 null）
+    cookiesMocks.getAll.mockResolvedValueOnce([])
     const miss = await sendToBridge({ c: 'cookie.get', url: 'https://a.test/', name: 'nope' }, COOKIE_UUID)
     expect(miss).toEqual({ ok: true, data: [] })
+  })
+
+  it('cookie.remove 带 domain / path：先查、再按每条 cookie 自己的域与路径拼 url 删', async () => {
+    await seedScript(COOKIE_UUID, ['<all_urls>'])
+    cookiesMocks.getAll.mockResolvedValueOnce([
+      {
+        name: 'sid',
+        value: 'v',
+        domain: '.a.test',
+        path: '/x',
+        secure: true,
+      } as unknown as chrome.cookies.Cookie,
+    ])
+    const resp = await sendToBridge(
+      { c: 'cookie.remove', url: 'https://a.test/', name: 'sid', domain: '.a.test', path: '/x' },
+      COOKIE_UUID,
+    )
+    expect(resp).toEqual({ ok: true, data: undefined })
+    expect(cookiesMocks.getAll).toHaveBeenCalledWith({
+      url: 'https://a.test/',
+      name: 'sid',
+      domain: '.a.test',
+      path: '/x',
+    })
+    // chrome.cookies.remove 只吃 { url, name }：url 由 cookie 自己的域（去前导点）+ 路径 + secure 拼出
+    expect(cookiesMocks.remove).toHaveBeenCalledWith({ url: 'https://a.test/x', name: 'sid' })
   })
 
   it('非持久 cookie 不带 expirationDate 字段（不写 undefined 占位）', async () => {
@@ -385,7 +496,7 @@ describe('GM_cookie（cookies 权限 + 域名门）', () => {
     }
   })
 
-  it('cookie.set 只传 url（不传 domain / path，防架空域名门），可选字段按需透传', async () => {
+  it('cookie.set 不传的可选字段不进 details（domain / path 也在其列）', async () => {
     await seedScript(COOKIE_UUID, ['https://example.com/*'])
     const resp = await sendToBridge(
       {
@@ -408,6 +519,25 @@ describe('GM_cookie（cookies 权限 + 域名门）', () => {
       httpOnly: true,
       expirationDate: 1900000000,
     })
+  })
+
+  it('cookie.set 把 domain / path 透传（照 TM 收下；同域约束由浏览器保证，门仍按 url 算）', async () => {
+    await seedScript(COOKIE_UUID, ['https://a.example.com/*'])
+    const resp = await sendToBridge(
+      {
+        c: 'cookie.set',
+        url: 'https://a.example.com/',
+        name: 'k',
+        value: 'v',
+        domain: '.example.com',
+        path: '/sub',
+      },
+      COOKIE_UUID,
+    )
+    expect(resp).toEqual({ ok: true, data: undefined })
+    expect(cookiesMocks.set).toHaveBeenCalledWith(
+      expect.objectContaining({ domain: '.example.com', path: '/sub' }),
+    )
   })
 
   it('cookie.set 缺 name / value 非字符串 → INVALID_ARG', async () => {

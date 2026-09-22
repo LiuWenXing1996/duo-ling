@@ -403,7 +403,6 @@ test.describe.serial('注册失败时的引导入口（真机 · 未开权限）
   let messenger: Page
   let extensionId = ''
   let profileDir = ''
-  let uuid = ''
 
   test.beforeAll(async () => {
     profileDir = mkdtempSync(join(tmpdir(), 'duoling-nogrant-e2e-'))
@@ -415,7 +414,6 @@ test.describe.serial('注册失败时的引导入口（真机 · 未开权限）
 
     const created = await sendToSw<{ uuid: string }>(messenger, { kind: 'userscript:create' })
     if (!created.ok) throw new Error('铺数据失败（创建脚本）：' + created.error)
-    uuid = created.data.uuid
   })
 
   test.afterAll(async () => {

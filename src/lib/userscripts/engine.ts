@@ -16,6 +16,7 @@ import * as appDb from '@/lib/app-db'
 import { listProjects, validateMatchPatterns } from './project-store'
 import { appendUserScriptError, getAllGMValues } from './store'
 import { fetchRequireSources } from './require-cache'
+import { fetchResourceSources } from './resource-cache'
 import { buildScriptRelaySource } from './script-relay'
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
 import { parseUserScriptMetadata } from './metadata'
@@ -199,6 +200,8 @@ function buildGmInfo(
     version: chrome.runtime.getManifest().version,
     uuid: project.uuid,
     sandboxMode: 'raw',
+    // GM_download 走浏览器下载器（chrome.downloads）→ 档位如实报 browser，供脚本判「能不能弹另存为」
+    downloadMode: 'browser',
   }
 }
 
@@ -314,7 +317,7 @@ async function syncScriptRelay(projects: ScriptProject[]): Promise<void> {
     excludeMatches: union.excludeMatches,
     includeGlobs: union.includeGlobs,
     excludeGlobs: union.excludeGlobs,
-    // document_start：必须早于脚本默认的 document_end 握手窗口（与 MAIN 桩同理）
+    // document_start：必须早于脚本默认的 document_idle 握手窗口（与 MAIN 桩同理）
     runAt: 'document_start',
     allFrames: true,
   }
@@ -464,9 +467,32 @@ export async function registerScript(project: ScriptProject): Promise<void> {
     }
   }
   const requireCodes = requireResults.filter((r) => r.ok && r.code != null).map((r) => r.code!)
+  // @resource（命名资源）：与 @require 同款「这里抓、注入时用」，但它不是代码而是**素材**，
+  // 故不进 code 拼接，而是内联成包装层里的常量表（GM_getResourceText / GM_getResourceURL 都是
+  // **同步** API，内容必须注入前就绪）。抓取失败同样只记错误、不阻断注入。
+  const resourceDecls = project.config.resources ?? []
+  const resourceResults = resourceDecls.length ? await fetchResourceSources(resourceDecls) : []
+  for (const r of resourceResults) {
+    if (!r.ok) {
+      void appendUserScriptError({
+        uuid: project.uuid,
+        name: project.name,
+        phase: 'resource',
+        message: `@resource 抓取失败：${r.name}（${r.url}）：${r.error ?? '未知错误'}，脚本里取不到该资源`,
+      }).catch(() => {})
+    }
+  }
+  const resources: Record<string, { text: string; url: string }> = {}
+  for (const r of resourceResults) {
+    if (r.ok && r.dataUrl != null && r.text != null) resources[r.name] = { text: r.text, url: r.dataUrl }
+  }
   // 注入 code **必须拼成一条**：包装前缀、@require、脚本源码、闭合后缀要在同一个函数作用域里，
   // 脚本才能按词法拿到 `GM_*`（见 gm-wrapper.ts 文件头）。拆成多条 js 会各自独立求值 ——
   // 未闭合的 IIFE 前缀单独求值直接是语法错误。
+  // @run-at document-body：注入仍用 document_start（Chrome 的 runAt 只认三种），正文则由包装层的
+  // 闸门推到 body 出现之后再跑 —— TM 的语义是 body 元素存在时才注入。
+  const runAtBody = project.config.runAt === 'document_body'
+  const bodySource = [...requireCodes, rawCode].join('\n')
   const code = [
     buildGmWrapperPrefix({
       uuid: project.uuid,
@@ -475,9 +501,10 @@ export async function registerScript(project: ScriptProject): Promise<void> {
       info: buildGmInfo(project, rawCode),
       pageSecret,
       grant: project.config.grant,
+      resources,
+      runAtBody,
     }),
-    ...requireCodes,
-    rawCode,
+    runAtBody ? '__gmRunAtBody(function () {\n' + bodySource + '\n})' : bodySource,
     sourceURLSuffix(project),
     GM_WRAPPER_SUFFIX,
   ].join('\n')
@@ -492,7 +519,8 @@ export async function registerScript(project: ScriptProject): Promise<void> {
     excludeMatches: project.config.excludeMatches,
     includeGlobs: project.config.includeGlobs,
     excludeGlobs: project.config.excludeGlobs,
-    runAt: project.config.runAt,
+    // document_body 不是 Chrome 的合法取值：映射成 document_start，正文由闸门推迟到 body 出现
+    runAt: project.config.runAt === 'document_body' ? 'document_start' : project.config.runAt,
     allFrames: project.config.allFrames,
   }
   // 幂等保护：dev 重载 / SW 顶层 init 与 onInstalled(update) 并发时，同 ID 可能已注册，

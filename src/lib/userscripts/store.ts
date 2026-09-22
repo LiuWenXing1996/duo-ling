@@ -123,6 +123,59 @@ export async function deleteGMValue(
   emitGmChange({ uuid, key, deleted: true, value: null, oldValue: prev, ...(writerConnId ? { writerConnId } : {}) })
 }
 
+/**
+ * 批量写（GM_setValues 的落点）：一次事务落盘，**逐键**发变更事件。
+ *
+ * 事件粒度照旧是「一键一帧」而不是「一批一帧」——订阅侧（`GM_addValueChangeListener`）
+ * 的语义按 key 走，合成一帧它没法派发；且值没变化的键不发（与单键版同款）。
+ */
+export async function setGMValues(
+  uuid: string,
+  entries: Record<string, unknown>,
+  writerConnId?: string,
+): Promise<void> {
+  const keys = Object.keys(entries)
+  if (!keys.length) return
+  const prev = await usdata.getGmValues(uuid, keys)
+  await usdata.setGmValues(uuid, entries)
+  for (const key of keys) {
+    // 结构化克隆值按 Json 契约可比（同单键版的判据）
+    if (JSON.stringify(prev[key]) === JSON.stringify(entries[key])) continue
+    const oldValue = prev[key]
+    emitGmChange({
+      uuid,
+      key,
+      deleted: false,
+      value: entries[key],
+      ...(oldValue !== undefined ? { oldValue } : {}),
+      ...(writerConnId ? { writerConnId } : {}),
+    })
+  }
+}
+
+/**
+ * 批量删（GM_deleteValues 的落点）：一次事务落盘，只对**真删掉**的键逐键发删除事件。
+ * 不存在的键静默跳过（同 deleteGMValue 的 storage.remove 语义）。
+ */
+export async function deleteGMValues(
+  uuid: string,
+  keys: string[],
+  writerConnId?: string,
+): Promise<void> {
+  if (!keys.length) return
+  const removed = await usdata.deleteGmValues(uuid, keys)
+  for (const { key, oldValue } of removed) {
+    emitGmChange({
+      uuid,
+      key,
+      deleted: true,
+      value: null,
+      oldValue,
+      ...(writerConnId ? { writerConnId } : {}),
+    })
+  }
+}
+
 /** 列出某脚本存过的全部键 */
 export async function listGMKeys(uuid: string): Promise<string[]> {
   return usdata.listGmKeys(uuid)
@@ -131,6 +184,11 @@ export async function listGMKeys(uuid: string): Promise<string[]> {
 /** 某脚本的全部键值快照（注入时的值预载 + 包装层全量校准用） */
 export async function getAllGMValues(uuid: string): Promise<Record<string, unknown>> {
   return usdata.listGmValues(uuid)
+}
+
+/** 批量取若干键（`GM.getValues` 的落点）：只回存在的键，不把整份存储搬过桥 */
+export async function getGMValues(uuid: string, keys: string[]): Promise<Record<string, unknown>> {
+  return usdata.getGmValues(uuid, keys)
 }
 
 /**

@@ -5,8 +5,9 @@
 // 桥仍是「请求-响应 + Port 下行」两条通道，只增命令、不改形状。
 //
 // 与油猴的**已知差异**（速查页与 spec 必须标注，不能让人以为是实现缺陷）：
-//   · **cookie 走域名门**：`GM_cookie.set` 不收 `domain` / `path`（开放 domain 会架空域名门）；
-//   · **`GM_xmlhttpRequest` 无流式**：不收 `onprogress`，`responseType` 不支持 document / stream。
+//   · **`GM_xmlhttpRequest` 无流式**：`responseType` 不支持 stream（TM 的合法值只有
+//     arraybuffer / blob / json / stream，也没有 document）；`onprogress` 只给进度字段，
+//     不给 TM 那种「带完整 response 的进度对象」。
 //
 // 约束：所有跨桥值必须满足「结构化克隆」（存储层 IndexedDB 同样要求），
 // 故统一收窄为 Json 类型；函数、类实例、DOM 节点一律不可跨桥。
@@ -30,7 +31,7 @@ export interface GmScriptMeta {
   includes: string[]
   /** `@exclude` 原值 */
   excludes: string[]
-  /** 油猴风格写法：`document-start` / `document-end` / `document-idle` */
+  /** 油猴风格写法：`document-start` / `document-body` / `document-end` / `document-idle` */
   runAt: string
   /** `@grant` 声明值；空数组 = 未声明 */
   grant: string[]
@@ -43,7 +44,7 @@ export interface GmScriptMeta {
 /**
  * `GM_info`（TM `Tampermonkey.ScriptInfo` 的**已实现子集**）。
  *
- * 未实现的字段（如 `scriptUpdateURL` / `scriptSource` / `downloadMode`）不出现在本类型里：
+ * 未实现的字段（如 `scriptUpdateURL` / `scriptSource`）不出现在本类型里：
  * 脚本访问会是 `undefined`，属可预期的降级，速查页已注明。
  */
 export interface GmInfo {
@@ -65,6 +66,12 @@ export interface GmInfo {
    * `@sandbox` 时的默认一致。（`'js'` = Firefox 的 USERSCRIPT_WORLD、`'dom'` = 隔离世界，本扩展都不给。）
    */
   sandboxMode: 'raw'
+  /**
+   * 下载档位（TM 同名字段）：本扩展恒 `'browser'` —— `GM_download` 走浏览器下载器
+   * （`chrome.downloads`）。脚本可据此判断能不能弹「另存为」（`saveAs` 只在这个档位有效）。
+   * 类型保留 TM 的三个取值，方便从 TM 迁来的脚本原样比较。
+   */
+  downloadMode: 'native' | 'disabled' | 'browser'
 }
 
 // ————————————————————————— cookie —————————————————————————
@@ -143,6 +150,13 @@ export interface FetchInit {
   timeout?: number
   /** 中止关联标识（`GM_xmlhttpRequest` 的 abort() 用；不传即不可中止） */
   requestId?: string
+  /**
+   * 要下载进度帧（`GM_xmlhttpRequest` 的 `onprogress`）。**缺省不推** —— 进度帧有成本，
+   * 只有脚本真给了 onprogress 才走流式读那条路（见 dl-bridge 的 readBodyStreaming）。
+   */
+  wantProgress?: boolean
+  /** 进度帧的推送目标（包装层的 connId）；wantProgress 为真时必填 */
+  connId?: string
 }
 
 /**
@@ -173,7 +187,7 @@ export interface GmXhrDetails {
   data?: string | Blob | FormData | ArrayBuffer | ArrayBufferView
   /**
    * `text`（缺省）/ `json` / `arraybuffer` / `blob`。
-   * **不支持 `document` / `stream`**（前者本可实现但未做，后者桥无流式）。
+   * **不支持 `stream`**（TM 的合法值正是这四个 + `stream`，我们只缺最后那个；`document` 两边都没有）。
    */
   responseType?: 'text' | 'json' | 'arraybuffer' | 'blob'
   /** 毫秒；到点触发 ontimeout */
@@ -188,6 +202,22 @@ export interface GmXhrDetails {
   onerror?: (resp: GmXhrErrorResponse) => void
   ontimeout?: (resp: GmXhrResponse) => void
   onabort?: (resp: GmXhrResponse) => void
+  /**
+   * 下载进度。**只给进度字段**（loaded / total / lengthComputable），不像 TM 那样附带完整 response ——
+   * 进度帧走的是轻量通道（只传数字），每帧都带状态与响应头不值当。
+   * 上传进度不提供（TM 的 details 里也没有 `xhr.upload`）。
+   */
+  onprogress?: (progress: GmXhrProgress) => void
+}
+
+/** `GM_xmlhttpRequest` 的进度对象（`onprogress` 入参） */
+export interface GmXhrProgress {
+  /** 已接收字节数 */
+  loaded: number
+  /** 总字节数；null = 响应没有 content-length */
+  total: number | null
+  /** 就是 `total != null`（照 XHR 语义） */
+  lengthComputable: boolean
 }
 
 export interface GmXhrResponseBase {
@@ -228,14 +258,23 @@ export interface GmNotificationDetails {
   ondone?: () => void
 }
 
+/**
+ * `GM_download` 的 details（TM 的子集）。**不支持**：`headers`（下载请求由浏览器下载器发出、
+ * 不经扩展，塞不进自定义头）、`anonymous`、`ontimeout`。
+ * 返回值是 `{ abort() }` 句柄（TM 同形）；经本地锚点下载的 Blob / ArrayBuffer 入参**不可中止**。
+ */
 export interface GmDownloadDetails {
   url: string
+  /** 文件名（**只取纯名**，路径会被剥掉）；不传则浏览器按 URL 推断 */
   name?: string
-  headers?: Record<string, string>
-  /** 远程抓取的响应体（本扩展走 SW 抓取 → dataUrl → a[download]） */
+  /** 弹「另存为」对话框（走浏览器下载器，与 TM 同语义） */
+  saveAs?: boolean
+  /** 同名文件怎么办（走浏览器下载器，与 TM 同语义） */
+  conflictAction?: 'uniquify' | 'overwrite' | 'prompt'
   onload?: () => void
   onerror?: (e: { error: string }) => void
-  ontimeout?: () => void
+  /** 下载进度（浏览器下载器不发字节数，由 SW 轮询 `chrome.downloads.search()` 取） */
+  onprogress?: (p: GmXhrProgress) => void
 }
 
 export interface GmOpenInTabOptions {
@@ -277,6 +316,11 @@ export type ApiRequest =
   // 全量快照：注入时的「值校准」与未来 GM_getValues 共用（避免逐键往返）
   | { c: 'store.all' }
   | { c: 'store.clear'; connId?: string }
+  // 批量版（GM_getValues / GM_setValues / GM_deleteValues 的落点）：读写各一条命令，
+  // 落盘在一个事务里；变更事件仍逐键发（见 store.ts）
+  | { c: 'store.getMany'; keys: string[] }
+  | { c: 'store.setMany'; entries: Record<string, Json>; connId?: string }
+  | { c: 'store.deleteMany'; keys: string[]; connId?: string }
   // 网络
   | { c: 'fetch'; url: string; init?: FetchInit }
   // 中止一次在飞行的 fetch（GM_xmlhttpRequest 的 abort()）；找不到 requestId 视为已结束
@@ -289,14 +333,42 @@ export type ApiRequest =
   | { c: 'tab.all' }
   // 系统能力
   | { c: 'notify'; message: string; title?: string; icon?: string }
-  | { c: 'download'; url: string; name?: string }
+  /**
+   * 下载（`GM_download`）：交给**浏览器下载器**（`chrome.downloads`）—— 这是能弹「另存为」的唯一途径，
+   * 也让大文件流式落盘（旧实现是把整份读进内存转 base64 再经 data URL 点锚点）。
+   * `requestId` + `connId` 给进度 / 结局帧寻址（与 `xhr.progress` 同款）；不给就只发起、不回报。
+   */
+  | {
+      c: 'download'
+      url: string
+      name?: string
+      /** 弹「另存为」对话框（TM 同名字段；只在浏览器下载器模式下有效） */
+      saveAs?: boolean
+      conflictAction?: 'uniquify' | 'overwrite' | 'prompt'
+      requestId?: string
+      connId?: string
+      /**
+       * 要进度帧（脚本给了 `onprogress` 才传）。浏览器下载器不发字节数，靠 SW 侧轮询
+       * `chrome.downloads.search()` 取 —— 只在要的时候才轮询，省掉无用开销。
+       */
+      wantProgress?: boolean
+    }
+  // 中止一次在飞下载（`GM_download` 返回的 abort()）；id 查不到视为已结束，幂等不报错
+  | { c: 'download.cancel'; id: number }
   | { c: 'tabs.open'; url: string; active?: boolean }
-  | { c: 'tabs.close'; tabId: number }
-  | { c: 'tabs.focus'; tabId: number }
+  // tabId 缺省 = 发起命令的那个标签页（`window.close` / `window.focus` 的落点）
+  | { c: 'tabs.close'; tabId?: number }
+  | { c: 'tabs.focus'; tabId?: number }
+  // 音频（`GM_audio`）：作用于**当前标签页**（由 sender.tab.id 定），脚本不必也不该传 tabId。
+  // watch / unwatch 是订阅登记 —— 只有登记过的连接才会收到 audio.change 下行（省掉无谓广播）。
+  | { c: 'audio.setMute'; isMuted: boolean }
+  | { c: 'audio.getState' }
+  | { c: 'audio.watch'; connId: string }
+  | { c: 'audio.unwatch'; connId: string }
   // cookie（需 manifest 的 cookies 权限；域名门见 cookie-gate.ts）
   //   url 必填 —— 缺省语义由包装层填 location.href（SW 里没有「当前页面」概念），
   //   SW 侧不做兜底：url 缺失/非法一律 INVALID_ARG，不静默猜。
-  | { c: 'cookie.get'; url: string; name?: string }
+  | { c: 'cookie.get'; url: string; name?: string; domain?: string; path?: string }
   | {
       c: 'cookie.set'
       url: string
@@ -306,8 +378,12 @@ export type ApiRequest =
       httpOnly?: boolean
       /** Unix 秒；不传 = 会话 cookie */
       expirationDate?: number
+      /** 写入哪个域（照 TM）；不传 = 由 url 主机推导。浏览器要求它与 url 同域或其父域 */
+      domain?: string
+      /** 写入路径（照 TM）；不传 = `/` */
+      path?: string
     }
-  | { c: 'cookie.remove'; url: string; name: string }
+  | { c: 'cookie.remove'; url: string; name: string; domain?: string; path?: string }
   // 菜单（contextMenus，后台登记，点击时经 ApiEvent 回推脚本）
   | { c: 'menu.register'; id: string; title: string }
   | { c: 'menu.unregister'; id: string }
@@ -337,6 +413,7 @@ export const API_COMMANDS: Record<ApiRequest['c'], true> = {
   'clipboard.write': true,
   'cookie.get': true,
   'cookie.remove': true,
+  'download.cancel': true,
   'cookie.set': true,
   download: true,
   fetch: true,
@@ -347,9 +424,12 @@ export const API_COMMANDS: Record<ApiRequest['c'], true> = {
   'store.all': true,
   'store.clear': true,
   'store.delete': true,
+  'store.deleteMany': true,
   'store.get': true,
+  'store.getMany': true,
   'store.keys': true,
   'store.set': true,
+  'store.setMany': true,
   'store.unwatch': true,
   'store.watch': true,
   'store.watchAll': true,
@@ -359,6 +439,10 @@ export const API_COMMANDS: Record<ApiRequest['c'], true> = {
   'tabs.close': true,
   'tabs.focus': true,
   'tabs.open': true,
+  'audio.getState': true,
+  'audio.setMute': true,
+  'audio.unwatch': true,
+  'audio.watch': true,
 }
 
 /** 命令名（= `ApiRequest['c']`；`API_COMMANDS` 的键类型） */
@@ -366,8 +450,12 @@ export type ApiCommand = ApiRequest['c']
 
 /**
  * 后台 → 脚本世界 的推送事件，经 Port 下行（帧信封见 ApiEventFrame）。
- * 四类来源：contextMenus.onClicked → menu.click；store.ts 写出口直发 → store.change；
- * notifications.onClicked → notify.click；tabs.onUpdated → url.change。
+ * 来源：contextMenus.onClicked → menu.click；store.ts 写出口直发 → store.change；
+ * notifications.onClicked → notify.click；tabs.onUpdated → audio.change；请求 / 下载的进度与结局
+ * （xhr.progress / download.change）由各自发起方在 SW 侧推。`port.ready` 是内部握手帧。
+ *
+ * （**没有 URL 变化事件**：URL 变化在页面本地检测——见 gm-wrapper 的 history hook——
+ * 不经 SW 推，故这里没有对应的事件类型。）
  */
 export type ApiEvent =
   /** 内部帧（脚本作者不感知）：SW 建立 Port 后立即下发，包装层据此 flush 待注册队列 */
@@ -384,8 +472,32 @@ export type ApiEvent =
   | { t: 'store.change'; key: string; value: Json; oldValue: Json; remote: boolean }
   /** 通知点击。id = SW 创建通知时 mint 的 notificationId（notify 响应返回） */
   | { t: 'notify.click'; id: string }
-  /** 当前标签页 URL 变化（含 SPA pushState / replaceState / popstate / hash 变更）。url = 变化后 URL */
-  | { t: 'url.change'; url: string }
+  /**
+   * 当前标签页的静音 / 发声状态变化（`GM_audio.addStateChangeListener` 的触发源）。
+   * **只推给登记过 `audio.watch` 的连接**；字段含义见 GmAudioChangeEvent（muted 是原因字符串或 false）。
+   */
+  | { t: 'audio.change'; muted?: string | false; audible?: boolean }
+  /**
+   * 下载进度（`GM_xmlhttpRequest` 的 `onprogress`）：按 requestId 找到发起它的那次请求。
+   * **只在该请求要了进度时推**（`FetchInit.wantProgress`）；`total` 为 null = 响应没有 content-length。
+   */
+  | { t: 'xhr.progress'; requestId: string; loaded: number; total: number | null }
+  /**
+   * 下载进度与结局（`GM_download` 的 `onprogress` / `onload` / `onerror`）：按 requestId 找到那次下载。
+   *
+   * 进度**为什么靠轮询**：`chrome.downloads.onChanged` 只给 state / totalBytes，**不给 bytesReceived**
+   * （下载中的字节数只在 `search()` 的 DownloadItem 里）。轮询在 SW 里是安全的 —— SW 由 offscreen
+   * 心跳保活常驻（有启用脚本时 5s 一跳，见 availability-watch.ts），下载期间不会休眠。
+   * `state` 为 `complete` / `interrupted` 时是**终帧**（此后该 requestId 不再有帧）。
+   */
+  | {
+      t: 'download.change'
+      requestId: string
+      state: 'progress' | 'complete' | 'interrupted'
+      loaded: number
+      total: number | null
+      error?: string
+    }
 
 /** DL Port 下行帧信封：Port 上只走这一种帧，防未来混入其他帧类型时判别冲突 */
 export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
@@ -441,6 +553,11 @@ export interface GmGlobalFns {
   GM_deleteValue(key: string): void
   /** 同步列出全部键（读快照） */
   GM_listValues(): string[]
+  /** 批量取（同步读快照）：键数组只回存在的键，默认值对象按它补缺，不传参数取整份存储 */
+  GM_getValues(keysOrDefaults?: string[] | Record<string, Json>): Record<string, Json>
+  /** 批量写本地缓存 + 异步过桥落盘（一个事务；事件逐键发） */
+  GM_setValues(values: Record<string, Json>): void
+  GM_deleteValues(keys: string[]): void
   /** 同步返回监听器 id；`remote` 标记变化是否来自别的标签页 */
   GM_addValueChangeListener(key: string, cb: GmValueChangeListener): number
   GM_removeValueChangeListener(listenerId: number): void
@@ -469,11 +586,25 @@ export interface GmGlobalFns {
   /** `info` 缺省 `'text/plain'`；传 `'text/html'` 走富文本（TM 的 `{type}` 对象形态不收） */
   GM_setClipboard(data: string, info?: 'text/plain' | 'text/html'): void
   GM_xmlhttpRequest(details: GmXhrDetails): GmXhrHandle
-  GM_download(details: GmDownloadDetails | string, name?: string): void
+  GM_download(details: GmDownloadDetails | string, name?: string): { abort(): void }
   GM_openInTab(url: string, options?: boolean | GmOpenInTabOptions): GmTabHandle
   GM_getTab(cb: (tab: Json | undefined) => void): void
   GM_saveTab(tab: Json, cb?: () => void): void
   GM_getTabs(cb: (tabs: Record<string, Json>) => void): void
+  /**
+   * 取 `@resource` 的**文本**内容。**同步**（内容随注入体内联 —— 与油猴一致，返回值不是 Promise）。
+   * 名字未声明、或该资源抓取失败 → 返回 undefined 并记一条运行日志（**不抛**）。
+   */
+  GM_getResourceText(name: string): string | undefined
+  /** 取 `@resource` 的 **base64 data URI**（TM 口径）。同样同步，取不到同样返回 undefined。 */
+  GM_getResourceURL(name: string): string | undefined
+  /**
+   * 关当前标签页（`@grant window.close`）。TM 语义：**不允许关窗口的最后一个标签页**。
+   * 注意名字是 **window 属性路径**而非标识符 —— 注入体把它挂到 window 上，脚本里 `window.close()` 才走它。
+   */
+  'window.close'(): void
+  /** 聚焦当前标签页所在窗口（`@grant window.focus`） */
+  'window.focus'(): void
 }
 
 /**
@@ -487,6 +618,8 @@ export interface GmGlobalObjects {
   GM_info: GmInfo
   /** cookie 读写删（`@grant GM_cookie`；TM 口径下只在全局，`GM.*` 里不重复提供） */
   GM_cookie: GmCookieApi
+  /** 当前标签页的静音 / 发声控制（`@grant GM_audio`；`GM.*` 侧是 `GM.audio`） */
+  GM_audio: GmAudioApi
 }
 
 /** `GM_cookie` 全局对象（TM 口径；回调式，回调可省 → 返回 Promise 便于 await） */
@@ -500,17 +633,27 @@ export interface GmCookieApi {
     cb?: (cookies: GmCookie[] | undefined, error?: string) => void,
   ): Promise<GmCookie[]>
   /**
-   * 写 cookie。**`domain` / `path` 一律不受支持**（传入即 INVALID_ARG，不静默忽略）：
-   * domain 由 url 主机推导、path 恒 `/` —— 开放 domain 会架空域名门（见 cookie-gate.ts）。
+   * 写 cookie。`domain` / `path` 照 TM 收下（不传则 domain 由 url 主机推导、path 恒 `/`）。
+   * 域名门仍**按 url 校验**（见 cookie-gate.ts）；「domain 必须与 url 同域或其父域」由浏览器自己保证。
    */
   set(details: GmCookieWrite, cb?: (error?: string) => void): Promise<void>
   delete(details: GmCookieQuery & { name: string }, cb?: (error?: string) => void): Promise<void>
 }
 
 export interface GmCookieQuery {
-  /** 缺省 = 当前页 */
+  /**
+   * 缺省 = 当前页。**恒参与查询**（与下面两个字段是 AND 关系）—— 边界就在这条：
+   * 返回集永远 ⊆ 「本页可见的 cookie」。
+   */
   url?: string
   name?: string
+  /**
+   * 按域筛选（可带前导点，如 `.example.com`）。**只会收窄** url 的可见范围，不会越权读到无关域的 cookie；
+   * 写 cookie 时它是「写到哪个域」，此时浏览器要求它与 url 同域或其父域（`chrome.cookies.set` 会拒越域）。
+   */
+  domain?: string
+  /** 按路径筛选；写 cookie 时是「写到哪个路径」（不传 = `/`） */
+  path?: string
 }
 
 export interface GmCookieWrite extends GmCookieQuery {
@@ -520,10 +663,43 @@ export interface GmCookieWrite extends GmCookieQuery {
   httpOnly?: boolean
   /** Unix 秒；不传 = 会话 cookie */
   expirationDate?: number
-  /** **不支持**：传入即报错（域名门收紧项） */
-  domain?: never
-  /** **不支持**：传入即报错（域名门收紧项） */
-  path?: never
+}
+
+/** 当前标签页的音频状态（`GM_audio.getState`；字段形状照 TM，缺字段用 undefined 而非 false） */
+export interface GmAudioState {
+  isMuted?: boolean
+  /** 被静音的原因：user（用户点了静音）/ capture（标签捕获）/ extension（扩展所为） */
+  muteReason?: 'user' | 'capture' | 'extension'
+  isAudible?: boolean
+}
+
+/**
+ * 音频状态变化事件（`GM_audio.addStateChangeListener` 的回调入参）。
+ *
+ * 注意 `muted` **不是布尔**而是「静音原因字符串，未静音时为 false」—— 照 TM 的 @types 原样
+ * （脚本常写 `if ('muted' in e)` 判是静音变化还是发声变化，故字段缺失与 false 含义不同）。
+ */
+export interface GmAudioChangeEvent {
+  muted?: string | false
+  audible?: boolean
+}
+
+/** `GM_audio` 全局对象（TM v5.0+；回调可省 → 返回 Promise 便于 await） */
+export interface GmAudioApi {
+  /** 设置当前标签页的静音状态 */
+  setMute(details: { isMuted: boolean }, cb?: (error?: string) => void): Promise<void>
+  /** 读当前标签页的音频状态（TM 里回调是必需的，这里许可省掉回调直接 await） */
+  getState(cb?: (state: GmAudioState) => void): Promise<GmAudioState>
+  /** 注册状态变化监听（**传监听函数本身**，TM 没有 id 机制） */
+  addStateChangeListener(
+    listener: (ev: GmAudioChangeEvent) => void,
+    cb?: (error?: string) => void,
+  ): Promise<void>
+  /** 注销：必须传**同一个函数引用**（同 TM） */
+  removeStateChangeListener(
+    listener: (ev: GmAudioChangeEvent) => void,
+    cb?: (error?: string) => void,
+  ): Promise<void>
 }
 
 /**
@@ -535,10 +711,27 @@ export interface GmCookieWrite extends GmCookieQuery {
  */
 export interface GmApiNamespace {
   info: GmInfo
+  /** 音频控制（`@grant GM_audio`；与全局 `GM_audio` 同一套方法，都返回 Promise） */
+  audio: {
+    setMute(details: { isMuted: boolean }): Promise<void>
+    getState(): Promise<GmAudioState>
+    addStateChangeListener(listener: (ev: GmAudioChangeEvent) => void): Promise<void>
+    removeStateChangeListener(listener: (ev: GmAudioChangeEvent) => void): Promise<void>
+  }
+  /**
+   * 命名资源取值。TM 的 `GM.*` 形态是 **getResourceText / getResourceUrl**
+   * （Url 的小写 r/l 与全局名 `GM_getResourceURL` 不一致，照 TM 原样）。
+   */
+  getResourceText(name: string): Promise<string | undefined>
+  getResourceUrl(name: string): Promise<string | undefined>
   getValue<T extends Json = Json>(key: string, defaultValue?: T): Promise<T | undefined>
   setValue(key: string, value: Json): Promise<void>
   deleteValue(key: string): Promise<void>
   listValues(): Promise<string[]>
+  /** 批量取（读后台真值）：入参同 GM_getValues，不传参数取整份存储 */
+  getValues(keysOrDefaults?: string[] | Record<string, Json>): Promise<Record<string, Json>>
+  setValues(values: Record<string, Json>): Promise<void>
+  deleteValues(keys: string[]): Promise<void>
   addValueChangeListener(key: string, cb: GmValueChangeListener): Promise<number>
   removeValueChangeListener(listenerId: number): void
   registerMenuCommand(

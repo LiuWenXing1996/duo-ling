@@ -62,7 +62,7 @@ const applyConfigSchema = z.object({
   includeGlobs: z.array(z.string()).optional(),
   excludeGlobs: z.array(z.string()).optional(),
   allFrames: z.boolean().default(true),
-  runAt: z.enum(['document_start', 'document_end', 'document_idle']).default('document_end'),
+  runAt: z.enum(['document_start', 'document_body', 'document_end', 'document_idle']).default('document_idle'),
 })
 
 export type ApplyConfigInput = z.infer<typeof applyConfigSchema>

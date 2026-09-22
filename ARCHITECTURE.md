@@ -69,10 +69,12 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 - **同步值快照**：注册时 SW 把 `duoling-usdata` 全量值快照嵌入注入体，`GM_getValue` / `GM_listValues` 纯内存读；写后 debounce `userScripts.update()` 刷新（阈值参照 VM `FLUSH_DELAY=100`）。`GM.getValue` 走实时桥读（永远新鲜）。
 - **只读脚本的下行通道**：读写值 / 订阅变更的脚本经 `store.watchAll` 常驻 Port 接收变更；connect 成功后主动全量校准一次，覆盖 Port 建立前的窗口。**两条订阅的退订是不对称的，这是刻意的**：`url.watch` 配 `url.unwatch`（脚本摘完 `onurlchange` / `urlchange` 监听即退订，并复位注册重放位 —— 不复位则 Port 重连会把已无人要的订阅重新挂上）；`store.watchAll` **不配退订**，因为「读过值」本身就意味着要一直收（退订会让同步读退回陈旧，是缺陷不是能力），它的清理只随 Port 断开发生。
+- **靠下行帧的回调必须先等通道**：`GM_xmlhttpRequest` 的 `onprogress`、`GM_download` 的 `onprogress` / `onload` / `onerror`、`GM_notification` 的 `onclick` 都由 Port 推帧送达，而请求-应答（`sendMessage`）**不会**把 Port 建起来。只调这几个 API、不读值 / 不注册菜单 / 不订阅音频的脚本会踩到：SW 侧 `portsByConnId` 命中 0 个连接，帧全被丢掉，而请求 / 下载本身照常成功——表现为「回调永不触发」（2026-09-22 真机查了两轮才定位）。故这些命令统一先等通道再发（`__gmSendAfterChannel`）；通道建不起来也**照发**（降级不阻断），但 SW 侧 `warnNoPort` 会按连接喊一次，不做新的静默失败。
 - **`@grant` 精确注入**：语义对齐 TM —— **不写 `@grant` / `@grant none` 都等于空清单**（只剩恒注入项），写了才给对应成员。`unsafeWindow` 就是页面自身的 `window`（脚本跑在主世界）；`window.onurlchange` / `GM.page.*` / `GM_info` 恒注入（不受 grant 限制，这点比 TM 宽松）。
 - **脚本主世界注入 + 中继桥**：脚本注入页面 MAIN 世界（与 Tampermonkey 默认一致，`unsafeWindow` 因此就是页面 window）。MAIN 世界没有 `chrome.*`，能力调用经同帧的 `dl-script-relay`（独立 USER_SCRIPT 世界 `us-dl-bridge`，`messaging: true`）转给 SW，桥协议见 `bridge-protocol.ts`（每条消息带 `digest(secret, uuid:seq)` 防页面伪造与重放）。注入代码是「GM 包装前缀 ＋ `@require` ＋ 脚本源码 ＋ 闭合后缀」拼成的**一条** code —— MAIN 不支持 `worldId`，同帧多脚本共享一个 window，故 `GM_*` 一律声明在包装的函数作用域里（挂 window 会互相覆盖）。
 - **cookie 域名门**（红线索引见 [AGENTS.md](AGENTS.md)「硬性底线」「cookie 能力」）：入口为 `GM_cookie.list/set/delete`（原 `DL.cookie`），门仍在 SW 侧、只比 scheme + host，`set` 仍禁 domain / path 覆写。
 - **GM_xmlhttpRequest 的 forbidden header 覆写**（Cookie / Referer / UA 等）与 `redirect:'manual'` 走 DNR session 规则按请求挂/撤 + 观察型 webRequest（`dl-fetch-priv.ts`；权限 `declarativeNetRequestWithHostAccess` + `webRequest` 均不新增用户可见提示）。**DNR 的头修改不跨重定向 hop**（跨 host 的 hop 不套用，Chrome 平台限制，油猴同款）。
+- **GM_download 走浏览器下载器**（`chrome.downloads`，权限 `downloads`）：只有它能弹「另存为」（`saveAs`）、也只有它是流式落盘（旧实现要把整份文件读进内存再经 data URL 点锚点，大文件会炸）。`downloads` 是**用户可见权限**（安装 / 更新时提示「管理您的下载内容」）。进度靠 SW 轮询 `search()`（`onChanged` 不给下载中的字节数），由 offscreen 心跳保活常驻支撑。
 - **覆写期间同 host 互斥**（写优先读写锁，防规则污染并发请求）：DNR 规则只能按 host 匹配，没有「只作用于某一次请求」的粒度，故覆写挂起期间该 host 的**所有** GM_xmlhttpRequest 都会套上覆写头；生命周期三层兜底（settle finally 撤 → SW 启动对账自有 id 区间 → session 规则浏览器重启自清）。机制与验证路径见 `dl-fetch-priv.ts` 顶部注释。
 - **CSP 跟随目标站点**：脚本运行在页面 MAIN 世界，不再由本扩展配置 CSP —— `eval` / `new Function` 能否使用取决于站点自身策略。生成提示词与 `script_spec` 仍明令避开动态代码生成，保存时由 `collectCspWarnings` 对含 `eval` / `new Function` 的注入代码给非阻塞警告。
 - **网络录制（dl-recorder，两段式常驻件）**：要拦页面**自己**发出的 `fetch`/`XMLHttpRequest`，钩子只能挂 MAIN 世界（USER_SCRIPT 各有独立 realm，挂它的 `window.fetch` 拦不到）；而 MAIN 世界无 `chrome.*`。故两件协作、都按「用户已同意录制的 host 集合」注册（`net-capture-gate.ts`，默认空集＝不注册）：
@@ -110,12 +112,13 @@ DevTools 里按库名过滤：`duoling-fs` / `duoling-state` / `duoling-usdata` 
 
 ## 统一保存（2026-09-20 单文件化：保存恒成功、保存即注入）
 
-一切源码落盘（编辑器保存 / AI 收尾 / 历史恢复 / zip 导入 / 粘贴导入 / 新建）收敛到 offscreen 单一入口 `project-write.saveSource`：写工作树 → git 提交 → 写状态库（含源码搬运副本）→ 出口广播。
+一切源码落盘（编辑器保存 / AI 收尾 / 历史恢复 / zip 导入 / 链接导入 / 粘贴导入 / 新建）收敛到 offscreen 单一入口 `project-write.saveSource`：写工作树 → git 提交 → 写状态库（含源码搬运副本）→ 出口广播。
 
 - **保存恒成功、保存即注入**：无构建流程，源码原文随落盘进注册态，注册的注入代码 = 源码本身。语法错误不拦保存：坏了的脚本照样装（油猴同款），运行期报错走现成的错误日志 / 运行日志链路。
 - 编辑内容只活在页面内存（草稿机制已删）：有未保存改动时标签栏标题后点红点，关标签前弹确认（确认里可直接「保存并关闭」）；历史恢复会连草稿一并覆盖，恢复确认里按该脚本的编辑器脏状态追加提醒。
 - **脚本名不入仓**：改名（`renameProject` / `state:rename`）只改状态库记录的 `name`，不写源码、不产生提交——名字是管理面标识（列表 / 标签页 / `GM_info` / 错误日志分组名），与源码里的 `@name` 互不覆盖（见 `saveSource` 的 adoptName 说明）。
-- **导入（zip / 粘贴）**：取内容方式不同（zip 解码 / 直接粘源码），落盘同在 offscreen（单写方），导入即完成（无后台构建队列）；只拦原则项（缺 script.js 源码文件），其余尽量导入 + 报告说明（配置由源码里的 `// ==UserScript==` 块派生，缺 matches 提示补全）。两条入口都落「未启用」，由用户审过源码再手动启用。
+- **导入（zip / 本地路径 / 粘贴 / 链接）**：取内容方式不同（zip 解码 / 读本地文件 / 直接粘源码 / 抓远端脚本），落盘同在 offscreen（单写方），导入即完成（无后台构建队列）；只拦原则项（缺 script.js 源码文件），其余尽量导入 + 报告说明（配置由源码里的 `// ==UserScript==` 块派生，缺 matches 提示补全）。四条入口都落「未启用」，由用户审过源码再手动启用。
+- **链接导入多一步**：远端内容在取回前不知道是什么，故它是两条动线 —— 先抓回并展示元数据摘要，用户确认后才落盘；其余三条内容已在手上，直接落盘 + 报告复述。
 - 后台链路不经命令面，写完状态库**必须自己发** `broadcastDataChange`。
 
 ## 用户脚本版本管理
