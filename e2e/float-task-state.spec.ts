@@ -1,16 +1,20 @@
-// 任务状态外显的端测：浮层收起期间「在跑 / 跑完了」得有提示。
+// 任务状态外显的端测：对话框收起期间「在跑 / 跑完了」得有提示。
 //
-// 两个载体各验一段，都不依赖页面内的对话交互（无头下没有「点 FAB 再在 iframe 里发消息」
-// 那条路，见 smoke.spec.ts 头注释）：
-//   · 图标角标 —— 真实消息路径（扩展页 → SW 旁听 chat:running / chat:finished → chrome.action）：
-//     进行中亮中性、收尾亮红点、浮层展开即清零、展开着不亮。
-//   · 悬浮按钮 —— 真实 http 页加载 content script：UI 挂上即连常驻端口、SW 补推快照（idle），
-//     此后收到 running / done 就换态（转圈 / 红点），展开浮层时收起。
+// 提示位只有图标角标（真实消息路径：扩展页 → SW 旁听 chat:running / chat:finished →
+// chrome.action）：进行中报数、收尾转未读、对话框展开即清零。
 //
-// 悬浮按钮要「本 tab 有会话」才收得到状态（SW 用 conversationId 反查标签页，见
-// conversation-tab-map 的 findTabsUsingConversation）。绑定这里直接写 convByTab
-// （duoling-app 库的键）：绑定**怎么建立**由 conversation-tab-map 单测与 chat-stub 端测覆盖，
-// 这里只借它把状态推上来 —— 库名 / store / 键名改动时与本 spec 一起改。
+// 另有一条守「对话框的显隐」：页面里平时不注入任何 DOM，收到 float:open 才挂出来并连上
+// 「在看」端口（`duoling:panel-open`），收起又把端口断掉。
+//
+// 页面内没有可点的入口（对话框平时不在页面里），故打开 / 收起一律走那两条定向消息 ——
+// 与 popup 的按钮、页面右键菜单、对话框顶栏那颗「收起」是同一套契约（发送方那侧的行为由
+// PopupPanel 的组件测试覆盖）。无头下也没有「在 iframe 里发消息」那条路，见 smoke.spec.ts
+// 头注释。
+//
+// 有几条用例要「本 tab 有会话」（SW 用 conversationId 反查标签页，见 conversation-tab-map 的
+// findTabsUsingConversation）。绑定这里直接写 convByTab（duoling-app 库的键）：绑定**怎么建立**
+// 由 conversation-tab-map 单测与 chat-stub 端测覆盖，这里只借它把状态推上来 —— 库名 / store /
+// 键名改动时与本 spec 一起改。
 import { test, expect, type BrowserContext, type Frame, type Page, type Worker } from '@playwright/test'
 import * as http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -24,10 +28,10 @@ import {
 } from './extension'
 import { startModelStub } from './model-stub'
 
-/** 假会话 id：状态推送只按它反查标签页，不需要真会话存在 */
+/** 假会话 id：状态推送不需要真会话存在，给个不会与别的用例撞上的即可 */
 const CID = 'e2e-task-state'
 
-test.describe.serial('任务状态外显（角标 + 悬浮按钮）', () => {
+test.describe.serial('任务状态外显（图标角标 + 对话框显隐）', () => {
   let context: BrowserContext | undefined
   let sw: Worker
   let messenger: Page
@@ -163,70 +167,70 @@ test.describe.serial('任务状态外显（角标 + 悬浮按钮）', () => {
     await popup.close()
   })
 
-  test('悬浮按钮：快照对齐、跑起来转圈、跑完亮红点、展开即收起', async () => {
+  test('对话框：平时不注入，打开即连「在看」端口，收起又断', async () => {
     const page = await context!.newPage()
     await page.goto(probeUrl)
 
-    // UI 挂上就连任务状态端口 → SW 立刻补推一次当前状态；能读到 idle 就说明这条通道通了
-    // （初始脚本不写该属性，只有收到推送才写）
-    const fab = page.locator('#duoling-fab-root .dl-fab-container')
-    await expect(fab).toHaveAttribute('data-task', 'idle', { timeout: 15_000 })
+    // 起手：页面里连根节点都没有 —— content script 只在收到 float:open 时才建
+    await expect(page.locator('#duoling-float-root')).toHaveCount(0)
 
-    // 本 tab ↔ 会话：没有它，SW 反查不到标签页，状态无处可推
-    const tabId = await sw.evaluate(
-      async (url) => (await chrome.tabs.query({})).find((t) => t.url === url)?.id ?? -1,
-      probeUrl,
-    )
-    expect(tabId, '探针页的 tabId 应能反查到').toBeGreaterThan(0)
-    await bindConversationToTab(messenger, tabId, CID)
-
+    // 造一条「跑完没看」：没人看着的时候，角标得亮着
     await pushOffscreen({ kind: 'chat:running', conversationId: CID })
-    await expect(fab).toHaveAttribute('data-task', 'running', { timeout: 15_000 })
-
     await pushOffscreen({ kind: 'chat:finished', conversationId: CID })
-    await expect(fab).toHaveAttribute('data-task', 'done', { timeout: 15_000 })
+    await expect.poll(badge, { message: '没人看，角标该亮' }).toBe('1')
 
-    // 展开浮层：进度与结果都在面板里，按钮上的状态收起
-    await page.locator('#duoling-fab-root .dl-fab').click()
-    await expect(fab).toHaveAttribute('data-task', 'idle', { timeout: 15_000 })
+    // 打开（popup 的按钮与页面右键菜单发的就是这条消息）
+    const [tabId] = await tabIdsOf(sw, probeUrl)
+    expect(tabId, '探针页的 tabId 应能反查到').toBeGreaterThan(0)
+    await expect
+      .poll(() => trySendFloat(sw, tabId!, 'float:open'), { timeout: 15_000 })
+      .toBe(true)
+    await expect(page.locator('#duoling-float-root .dl-float-container')).toHaveClass(/open/)
+    await expect.poll(badge, { message: '人正看着对话界面，角标该收起' }).toBe('')
+
+    // 收起：只把面板藏起来（容器还在，草稿与滚动位置都留着），角标回来 ——
+    // 那条未读属于别的会话，不会因为这一次「看过」被读掉
+    await trySendFloat(sw, tabId!, 'float:collapse')
+    await expect(page.locator('#duoling-float-root .dl-float-container')).not.toHaveClass(/open/)
+    await expect.poll(badge, { message: '没人看了，那条未读该重新报出来' }).toBe('1')
 
     await page.close()
   })
 })
 
-/** 往 duoling-app 的 kv 写 convByTab（等价于 conversation-tab-map 的 bindTabToConversation） */
-async function bindConversationToTab(page: Page, tabId: number, conversationId: string): Promise<void> {
-  await page.evaluate(
-    async ({ tabId, conversationId }) => {
-      const DB = 'duoling-app'
-      const STORE = 'kv'
-      const KEY = 'convByTab'
-      const db: IDBDatabase = await new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB, 1)
-        req.onupgradeneeded = () => {
-          if (!req.result.objectStoreNames.contains(STORE)) {
-            req.result.createObjectStore(STORE, { keyPath: 'key' })
-          }
-        }
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
-      })
-      const prev = await new Promise<{ value?: unknown } | undefined>((resolve, reject) => {
-        const r = db.transaction(STORE, 'readonly').objectStore(STORE).get(KEY)
-        r.onsuccess = () => resolve(r.result as { value?: unknown } | undefined)
-        r.onerror = () => reject(r.error)
-      })
-      const value = { ...((prev?.value as Record<string, string> | undefined) ?? {}), [String(tabId)]: conversationId }
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(STORE, 'readwrite')
-        tx.objectStore(STORE).put({ key: KEY, value })
-        tx.oncomplete = () => resolve()
-        tx.onerror = () => reject(tx.error)
-      })
-      db.close()
-    },
-    { tabId, conversationId },
+/** 探针页（可能同时开着多个同址标签页）→ tabId 列表 */
+async function tabIdsOf(sw: Worker, url: string): Promise<number[]> {
+  return await sw.evaluate(
+    async (u) => (await chrome.tabs.query({})).filter((t) => t.url === u).map((t) => t.id ?? -1),
+    url,
   )
+}
+
+/**
+ * 给某标签页发一条浮层消息（`float:open` / `float:collapse`）；页面还没接上时返回 false。
+ *
+ * 页面里没有可点的入口（对话框平时不在页面里），这两条定向消息就是它的开关 —— 与 popup 的按钮、
+ * 页面右键菜单、对话框顶栏那颗「收起」是同一套契约。发送方那侧的行为由 PopupPanel 的组件测试
+ * 覆盖，这里只借扩展页代发一下。
+ *
+ * 幂等：重复发 float:open 只是再 open 一次，所以可以拿它当「内容脚本就绪了没」的探针重试。
+ */
+async function trySendFloat(
+  sw: Worker,
+  tabId: number,
+  kind: 'float:open' | 'float:collapse',
+): Promise<boolean> {
+  try {
+    await sw.evaluate(
+      async ({ id, k }) => {
+        await chrome.tabs.sendMessage(id, { kind: k })
+      },
+      { id: tabId, k: kind },
+    )
+    return true
+  } catch {
+    return false // 页面还没接上扩展（内容脚本未注入完 / 扩展正在更新）
+  }
 }
 
 /**
@@ -273,16 +277,17 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
 
   const badge = (): Promise<string> => sw.evaluate(async () => await chrome.action.getBadgeText({}))
 
-  test('发消息 → 收起 = 转圈 + 进行中角标 → 完成 = 红点 + 完成角标 → 展开双清', async () => {
+  /** 图标悬停文案：一个数字说不清「还在跑」还是「跑完没看」，要靠它区分 */
+  const title = (): Promise<string> => sw.evaluate(async () => await chrome.action.getTitle({}))
+
+  test('发消息 → 收起 = 进行中角标 → 完成 = 未读角标 → 展开清零', async () => {
     const page = await context!.newPage()
     await page.goto(probeUrl)
-    const fab = page.locator('#duoling-fab-root .dl-fab-container')
-    const fabButton = page.locator('#duoling-fab-root .dl-fab')
-    await expect(fabButton).toBeVisible()
+    const [tabId] = await tabIdsOf(sw, probeUrl)
 
-    // 真人路径：点开浮层 → 在面板里配模型（`window.api` 只有浮层这一侧装，popup 是纯配置面板）
-    // → 填字回车。会话归属也由这条路径建立，不用测试代写 convByTab。
-    await fabButton.click()
+    // 真人路径：打开对话框 → 在面板里配模型（`window.api` 只有浮层这一侧装，popup 是纯配置
+    // 面板）→ 填字回车。会话归属也由这条路径建立，不用测试代写 convByTab。
+    await expect.poll(() => trySendFloat(sw, tabId!, 'float:open'), { timeout: 15_000 }).toBe(true)
     const panel = await waitForPanelFrame(page)
     await panel.waitForFunction(() => !!(window as unknown as { api?: { model?: unknown } }).api?.model)
     await panel.evaluate(
@@ -306,100 +311,32 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
     await box.fill('你好')
     await box.press('Enter')
 
-    // 生成已开始（stub 收到请求）而浮层开着：进度就在面板里，按钮与角标都不该来打扰
+    // 生成已开始（stub 收到请求）而对话框开着：进度就在面板里，角标不该来打扰
     await expect.poll(() => stub.stub.hits.length, { timeout: 30_000 }).toBeGreaterThan(0)
-    await expect(fab).toHaveAttribute('data-task', 'idle')
-    expect(await badge(), '浮层开着时不该亮角标').toBe('')
+    expect(await badge(), '对话框开着时不该亮角标').toBe('')
 
-    // 收起：按钮转圈 + 角标 1（一个在跑）—— 这一条正是「收起那一刻要按当前状态重算」
-    await fabButton.click()
-    await expect(fab).toHaveAttribute('data-task', 'running', { timeout: 10_000 })
+    // 收起：进行中角标 1 —— 这一条正是「收起那一刻要按当前状态重算」
+    await trySendFloat(sw, tabId!, 'float:collapse')
+    await expect.poll(title, { timeout: 10_000 }).toBe('进行中 1')
     await expect.poll(badge, { timeout: 10_000 }).toBe('1')
 
-    // 生成收尾（收起态下没人看）：按钮红点 + 角标仍是 1（一个跑完没看）
-    await expect(fab).toHaveAttribute('data-task', 'done', { timeout: 30_000 })
+    // 生成收尾（收起态下没人看）：转成一条未读 —— 数字不变，悬停文案换口径
+    await expect
+      .poll(title, { timeout: 30_000, message: '跑完没人在看，该转成未读' })
+      .toBe('已完成 1')
     await expect.poll(badge, { timeout: 10_000 }).toBe('1')
 
-    // 展开看一眼：两处都清
-    await fabButton.click()
-    await expect(fab).toHaveAttribute('data-task', 'idle', { timeout: 10_000 })
+    // 展开看一眼：角标清掉
+    await trySendFloat(sw, tabId!, 'float:open')
     await expect.poll(badge, { timeout: 10_000 }).toBe('')
 
     await page.close()
   })
 
-  test('两个同址标签页：状态只推给绑定了这条会话的那个', async () => {
-    const tabA = await context!.newPage()
-    await tabA.goto(probeUrl)
-    const tabB = await context!.newPage()
-    await tabB.goto(probeUrl)
-
-    const fabA = tabA.locator('#duoling-fab-root .dl-fab-container')
-    const fabB = tabB.locator('#duoling-fab-root .dl-fab-container')
-    await expect(tabA.locator('#duoling-fab-root .dl-fab')).toBeVisible()
-    await expect(tabB.locator('#duoling-fab-root .dl-fab')).toBeVisible()
-
-    // 只在 A 发消息：B 全程只是「同一个地址的另一个标签页」，没有自己的会话
-    const before = stub.stub.hits.length
-    await tabA.locator('#duoling-fab-root .dl-fab').click()
-    const panel = await waitForPanelFrame(tabA)
-    const box = panel.getByRole('textbox').first()
-    await box.fill('你好')
-    await box.press('Enter')
-    await expect.poll(() => stub.stub.hits.length).toBeGreaterThan(before)
-
-    // A 收起 → 转圈；B 不该有任何状态（反查映射里没有它）
-    await tabA.locator('#duoling-fab-root .dl-fab').click()
-    await expect(fabA).toHaveAttribute('data-task', 'running', { timeout: 10_000 })
-    await expect(fabB, '同一地址的另一个标签页不该收到这条会话的状态').toHaveAttribute('data-task', 'idle')
-
-    await tabB.close()
-    await tabA.close()
-  })
-
-  test('两页各有自己的会话：B 的「跑完没看」不会被 A 的新任务顶掉或点亮', async () => {
-    const tabA = await context!.newPage()
-    await tabA.goto(probeUrl)
-    const tabB = await context!.newPage()
-    await tabB.goto(probeUrl)
-
-    const fabA = tabA.locator('#duoling-fab-root .dl-fab-container')
-    const fabB = tabB.locator('#duoling-fab-root .dl-fab-container')
-    const fabBtnA = tabA.locator('#duoling-fab-root .dl-fab')
-    const fabBtnB = tabB.locator('#duoling-fab-root .dl-fab')
-    await expect(fabBtnA).toBeVisible()
-    await expect(fabBtnB).toBeVisible()
-
-    // B 先聊一句并收起 → B 挂上自己的「跑完没看」（这是 B 的状态，与 A 无关）
-    let before = stub.stub.hits.length
-    await fabBtnB.click()
-    const boxB = (await waitForPanelFrame(tabB)).getByRole('textbox').first()
-    await boxB.fill('B 的问题')
-    await boxB.press('Enter')
-    await expect.poll(() => stub.stub.hits.length).toBeGreaterThan(before)
-    await fabBtnB.click()
-    await expect(fabB).toHaveAttribute('data-task', 'done', { timeout: 30_000 })
-
-    // A 再跑一个：A 转圈，B 保持它自己的未读 —— 两个标签页各算各的，不互相顶替
-    before = stub.stub.hits.length
-    await fabBtnA.click()
-    const boxA = (await waitForPanelFrame(tabA)).getByRole('textbox').first()
-    await boxA.fill('A 的问题')
-    await boxA.press('Enter')
-    await expect.poll(() => stub.stub.hits.length).toBeGreaterThan(before)
-    await fabBtnA.click()
-    await expect(fabA).toHaveAttribute('data-task', 'running', { timeout: 10_000 })
-    await expect(fabB, 'B 显示的是它自己的未读，不是 A 这次任务的').toHaveAttribute('data-task', 'done')
-
-    // 通知里要能认出「是哪条对话」：站点名从标签页现查（取不到就只剩一句「对话已完成」）
-    const popup = await context!.newPage()
-    await popup.goto(`chrome-extension://${extensionId}/popup.html`)
-    await expect(popup.locator('[data-testid="notify-item"]').first()).toContainText('127.0.0.1')
-    await popup.close()
-
-    await tabB.close()
-    await tabA.close()
-  })
+  // 原先这里还有两条：「两个同址标签页：状态只推给绑定了这条会话的那个」与「两页各有自己的
+  // 会话」—— 它们验的是悬浮按钮那套**按标签页分发**的就近状态位。按钮移除后，页面里不再有按
+  // tab 区分的状态位（角标是全局那一份），这两条失去载体，随之删除。
+  // 「未读通知带站点名」原先是前一条用例顺带断言的，挪到了下面「会话被删」那条里。
 
   test('点浮层里的停止：任务就地中止，半截照样落盘（带「已中断」）', async () => {
     // 首片之后再按住：这样「停止」时已经有一点内容，能验到「保住半截」这件事
@@ -407,7 +344,8 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
 
     const page = await context!.newPage()
     await page.goto(probeUrl)
-    await page.locator('#duoling-fab-root .dl-fab').click()
+    const [tabId] = await tabIdsOf(sw, probeUrl)
+    await expect.poll(() => trySendFloat(sw, tabId!, 'float:open'), { timeout: 15_000 }).toBe(true)
     const panel = await waitForPanelFrame(page)
     const box = panel.getByRole('textbox').first()
     await box.fill('停我')
@@ -481,7 +419,8 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
 
     const page = await context!.newPage()
     await page.goto(probeUrl)
-    await page.locator('#duoling-fab-root .dl-fab').click()
+    const [tabId] = await tabIdsOf(sw, probeUrl)
+    await expect.poll(() => trySendFloat(sw, tabId!, 'float:open'), { timeout: 15_000 }).toBe(true)
     const box = (await waitForPanelFrame(page)).getByRole('textbox').first()
     await box.fill('你好')
     await box.press('Enter')
@@ -550,7 +489,7 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
     const sender = await openMessengerPage(context!, extensionId)
     interface Snapshot {
       running: Array<{ conversationId: string }>
-      items: Array<{ conversationId: string }>
+      items: Array<{ conversationId: string; host?: string }>
     }
     const ask = async (): Promise<Snapshot | undefined> => {
       const res = (await sender.evaluate(
@@ -582,12 +521,13 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
 
     const page = await context!.newPage()
     await page.goto(probeUrl)
-    const fabButton = page.locator('#duoling-fab-root .dl-fab')
-    await fabButton.click()
+    const [tabId] = await tabIdsOf(sw, probeUrl)
+    await expect.poll(() => trySendFloat(sw, tabId!, 'float:open'), { timeout: 15_000 }).toBe(true)
     const box = (await waitForPanelFrame(page)).getByRole('textbox').first()
     await box.fill('删除我') // 用一条独有的文本，好在工作台列表里认准这条（自动命名取首句）
     await box.press('Enter')
-    await fabButton.click() // 收起 = 没人在看它 → 跑完会记一条未读通知
+    // 收起 = 没人在看它 → 跑完会记一条未读通知
+    await trySendFloat(sw, tabId!, 'float:collapse')
 
     await expect
       .poll(async () => (await ask())?.items.length ?? 0, {
@@ -595,6 +535,8 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
         message: '跑完没人在看，该记一条通知',
       })
       .toBe(1)
+    // 通知里要能认出「是哪条对话」：站点名从标签页现查（取不到就只剩一句「对话已完成」）
+    expect((await ask())?.items[0]?.host, '通知要带站点名').toBe('127.0.0.1')
     await expect.poll(badge, { timeout: 10_000 }).toBe('1')
 
     // 关掉标签页：任务其实已经跑完，这一步只是解绑归属 —— 会话变成「没被使用」才允许删
@@ -665,11 +607,10 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
 
     const page = await context!.newPage()
     await page.goto(probeUrl) // 最后打开 → 它是当前激活页
-    const fabButton = page.locator('#duoling-fab-root .dl-fab')
-    await expect(fabButton).toBeVisible()
+    const [tabId] = await tabIdsOf(sw, probeUrl)
 
-    // 浮层展开着、人也在这一页 → 「在看」，一条在跑也不打扰
-    await fabButton.click()
+    // 对话框展开着、人也在这一页 → 「在看」，一条在跑也不打扰
+    await expect.poll(() => trySendFloat(sw, tabId!, 'float:open'), { timeout: 15_000 }).toBe(true)
     await waitForPanelFrame(page)
     await push({ kind: 'chat:running', conversationId: 'e2e-visibility' })
     await expect.poll(badge, { timeout: 10_000, message: '人正看着，不该亮' }).toBe('')
@@ -696,7 +637,7 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
   })
 })
 
-/** 等浮层 iframe 出现（点开 FAB 后 content script 才去取 tabId、再给它设 src） */
+/** 等对话框 iframe 出现（收到 float:open 后 content script 才去取 tabId、再给它设 src） */
 async function waitForPanelFrame(page: Page): Promise<Frame> {
   for (let i = 0; i < 100; i++) {
     const frame = page.frames().find((f) => f.url().includes('floatpanel.html'))

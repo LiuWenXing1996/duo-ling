@@ -1,7 +1,10 @@
 <script setup lang="ts">
 // 对话界面宿主：网页浮层（floatpanel.html，由 content script 注入的 iframe）的根组件。
 //
-// 布局：顶栏 = 当前会话标题 + 两个去处（会话历史 / 工作台）；下方是消息区与输入区。
+// 布局：顶栏 = 当前会话标题 + 两个去处（会话历史 / 工作台）+ 收起按钮；下方是消息区与输入区。
+//
+// **收起**（顶栏最右）：把对话框从页面上收掉，动作落在父页的内容脚本上（见 collapse）。
+// 再打开要从工具栏 popup 或页面右键菜单 —— 对话框平时不在页面里（见 content.ts）。
 //
 // **会话归属按标签页**（一个 tab 一条会话，切 tab 即切会话）—— 所以这里**没有**会话列表、
 // 没有「新建会话」：要开一段新对话就开个新标签页；要回看旧对话就去工作台的「会话历史」
@@ -13,6 +16,7 @@ import { computed, onMounted } from 'vue'
 import {
   History as UiHistory,
   LayoutDashboard as UiLayoutDashboard,
+  Minus as UiMinus,
   TriangleAlert as UiTriangleAlert
 } from '@lucide/vue'
 import ChatPanel from '@/components/ChatPanel.vue'
@@ -25,6 +29,8 @@ import {
   TooltipTrigger as UiTooltipTrigger
 } from '@/components/ui/tooltip'
 import { useGlobalConversation } from '@/composables/use-global-conversation'
+import { readPinnedTabId } from '@/lib/owning-tab'
+import { FLOAT_COLLAPSE_REQUEST } from '@/shared/extension-ipc'
 
 const {
   conversations,
@@ -47,6 +53,20 @@ const activeTitle = computed(
 /** 工作台是独立标签页，用 hash 指定初始落点（#/sessions、#/settings、#/guide 等） */
 function openWorkbench(hash = ''): void {
   void chrome.tabs.create({ url: chrome.runtime.getURL('workbench.html') + hash })
+}
+
+/**
+ * 收起对话框（顶栏最右那颗按钮）。
+ *
+ * 容器的显隐握在父页的内容脚本手里，而本组件在 iframe 里（跨源），只能发一条定向消息叫它收 ——
+ * tabId 从 iframe URL 的 `?tab=` 读出（见 lib/owning-tab）。
+ *
+ * 发不出去时静默（页面已导航走 / 扩展刚更新）：这颗按钮的用途只是「让开页面」，没什么可失败的。
+ */
+function collapse(): void {
+  const tabId = readPinnedTabId()
+  if (tabId == null) return
+  chrome.tabs.sendMessage(tabId, FLOAT_COLLAPSE_REQUEST).catch(() => {})
 }
 
 onMounted(() => {
@@ -92,6 +112,24 @@ onMounted(() => {
             </ui-button>
           </ui-tooltip-trigger>
           <ui-tooltip-content>打开工作台</ui-tooltip-content>
+        </ui-tooltip>
+      </ui-tooltip-provider>
+
+      <!-- 收起对话框：再打开要从工具栏 popup 或页面右键菜单（对话框平时不在页面里） -->
+      <ui-tooltip-provider>
+        <ui-tooltip>
+          <ui-tooltip-trigger as-child>
+            <ui-button
+              variant="ghost"
+              size="icon"
+              class="size-7 shrink-0"
+              aria-label="收起"
+              @click="collapse"
+            >
+              <ui-minus class="size-4" />
+            </ui-button>
+          </ui-tooltip-trigger>
+          <ui-tooltip-content>收起</ui-tooltip-content>
         </ui-tooltip>
       </ui-tooltip-provider>
     </header>

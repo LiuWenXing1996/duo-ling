@@ -81,8 +81,8 @@ export function replaySince(
 }
 
 /**
- * 任务开始推送（chat:running）：SW 旁听后点亮「进行中」角标，并把状态写给该会话所属标签页的
- * 悬浮按钮。每个任务推一次（细节进度在 chat:chunk 里，SW 不必逐条消费）。
+ * 任务开始推送（chat:running）：SW 旁听后点亮「进行中」角标。每个任务推一次
+ * （细节进度在 chat:chunk 里，SW 不必逐条消费）。
  * 尽力而为：SW 未起 / 无接收方都会 reject，任务照跑。
  */
 export function notifyChatRunning(conversationId: string): void {

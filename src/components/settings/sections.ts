@@ -8,10 +8,9 @@
  * 自身不含任何业务逻辑，因此扩展菜单无需改动外壳。
  */
 import type { Component } from 'vue'
-import { Box as IconBox, FlaskConical as IconFlaskConical, Info as IconInfo, MessageSquare as IconMessageSquare } from '@lucide/vue'
+import { Box as IconBox, FlaskConical as IconFlaskConical, Info as IconInfo } from '@lucide/vue'
 import ModelSettingsSection from './ModelSettingsSection.vue'
 import AboutSection from './AboutSection.vue'
-import FloatPanelSection from './FloatPanelSection.vue'
 import DevModeSection from './DevModeSection.vue'
 
 export interface SettingsSection {
@@ -28,7 +27,6 @@ export interface SettingsSection {
 /** 设置分区清单（顺序即导航顺序，首个为默认选中项；「关于」这类只读信息固定放末位） */
 export const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: 'models', label: '模型管理', icon: IconBox, component: ModelSettingsSection },
-  { id: 'float-panel', label: '网页浮层', icon: IconMessageSquare, component: FloatPanelSection },
   { id: 'dev', label: '开发者', icon: IconFlaskConical, component: DevModeSection },
   { id: 'about', label: '关于', icon: IconInfo, component: AboutSection },
 ]

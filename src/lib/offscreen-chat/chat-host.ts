@@ -338,8 +338,8 @@ async function runLoop(opts: {
   }
   runningByConversation.set(conversationId, task)
   resetBuffer(conversationId)
-  // 任务开始的唯一信号点（新任务与孤儿续跑都经这里起循环）：SW 据此点亮「进行中」角标，
-  // 并把状态写给该会话所属标签页的悬浮按钮。收尾配对是 chat:finished（cleanup / 异常分支）。
+  // 任务开始的唯一信号点（新任务与孤儿续跑都经这里起循环）：SW 据此点亮「进行中」角标。
+  // 收尾配对是 chat:finished（cleanup / 异常分支）。
   notifyChatRunning(conversationId)
 
   // 泵流期间收集的序列（chunk 全量 + 工具中途手工推的 part）：正常收尾与中止收尾（含异常分支）

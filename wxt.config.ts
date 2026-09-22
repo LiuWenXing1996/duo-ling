@@ -10,11 +10,11 @@ import { providerOrigins } from './src/lib/providers'
 // 不依赖已下架的 @wxt/vue，直接用 vite 的 vue 插件编译 .vue 组件。
 //
 // 载体分工：
-//   网页浮层    → 对话界面 = content script 注入的 iframe（entrypoints/content.ts
-//                 加载 floatpanel.html，显示**它所在标签页**的会话；按站点开关见
-//                 src/lib/float-panel-store.ts）
+//   网页浮层    → 对话界面 = content script 按需注入的 iframe（entrypoints/content.ts
+//                 加载 floatpanel.html，显示**它所在标签页**的会话；页面加载时不注入任何
+//                 DOM，从工具栏 popup 的按钮或页面右键菜单打开）
 //   标签页      → 脚本工作区 = 脚本列表 / 编辑器 / 设置 / 会话历史（entrypoints/workbench.html）
-//   popup       → 配置入口 = 点工具栏图标弹出的浮层开关面板（entrypoints/popup.html）
+//   popup       → 配置入口 = 点工具栏图标弹出的面板（对话浮层入口 + 本页脚本，entrypoints/popup.html）
 // 三个载体的界面复用关系见 README.md「载体分工」。
 // 开发期 Chrome profile 目录：必须用绝对路径 —— web-ext 对相对路径按 cwd 解析，
 // 换个目录启动 dev 就会拿到不同 profile，「Allow User Scripts」这类每扩展开关会被重置。
