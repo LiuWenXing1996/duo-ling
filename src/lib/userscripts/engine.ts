@@ -14,6 +14,7 @@ import { listProjects, validateMatchPatterns } from './project-store'
 import { appendUserScriptError, getAllGMValues } from './store'
 import { fetchRequireSources } from './require-cache'
 import { buildPageStubSource } from './page-stub'
+import { buildScriptRelaySource } from './script-relay'
 import { buildGmWrapperSource } from './gm-wrapper'
 import { parseUserScriptMetadata } from './metadata'
 import { generatePageSecret } from './page-protocol'
@@ -224,6 +225,11 @@ function sourceURLSuffix(project: ScriptProject): string {
 /** MAIN 世界共享桩的注册 ID：一个扩展一份，不是每脚本一份 */
 export const PAGE_STUB_ID = 'dl-page-stub'
 
+/** 脚本主世界桥 · USER_SCRIPT 中继件注册 ID（一个扩展一份） */
+export const SCRIPT_RELAY_ID = 'dl-script-relay'
+/** 中继件的独立世界 id：必须 configureWorld({ messaging: true })，否则世界内无 chrome.runtime */
+const SCRIPT_RELAY_WORLD_ID = 'us-dl-bridge'
+
 /** 网络录制 · MAIN 捕获件注册 ID（一个扩展一份） */
 export const NET_RECORDER_ID = 'dl-net-recorder'
 /** 网络录制 · USER_SCRIPT 转发件注册 ID（一个扩展一份） */
@@ -232,7 +238,7 @@ export const NET_FORWARDER_ID = 'dl-net-forwarder'
 const NET_FORWARDER_WORLD_ID = 'us-dl-net'
 
 /** 内置注册的 id 全集：全量重注册清「陈旧脚本」时必须排除它们（否则把自己刚同步的注册清掉） */
-const BUILTIN_SCRIPT_IDS = [PAGE_STUB_ID, NET_RECORDER_ID, NET_FORWARDER_ID]
+const BUILTIN_SCRIPT_IDS = [PAGE_STUB_ID, SCRIPT_RELAY_ID, NET_RECORDER_ID, NET_FORWARDER_ID]
 
 /** stubSecret 持久化键：MV3 SW 随时休眠，模块变量会归零，密钥必须落盘（duoling-app 库） */
 const PAGE_SECRET_KEY = 'pageSecret'
@@ -319,6 +325,59 @@ async function syncPageStubUnion(projects: ScriptProject[]): Promise<void> {
   }
 }
 
+/**
+ * 按并集维护脚本桥中继件（幂等可重入；调用方负责串行化）。
+ *
+ * 触发条件与 MAIN 桩完全一致（都跟「启用脚本的匹配并集」）—— 脚本切到 MAIN 世界后
+ * 没有 `chrome.*`，GM 能力全靠本件转给 SW，两者必须同时在场、同进同退。
+ * 并集未变且件已在位时跳过重注册（重注册会换注入源码，已加载页面要到下次导航才换新）。
+ */
+async function syncScriptRelay(projects: ScriptProject[]): Promise<void> {
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
+  const union = enabledMatchUnion(projects)
+  let existing: chrome.userScripts.RegisteredUserScript | undefined
+  try {
+    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === SCRIPT_RELAY_ID)
+  } catch {
+    return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
+  }
+  if (!union) {
+    if (existing) await chrome.userScripts.unregister({ ids: [SCRIPT_RELAY_ID] }).catch(() => {})
+    return
+  }
+  if (existing && sameMatchSet(existing, union)) return
+  const secret = await getOrCreatePageSecret()
+  // 中继件的独立世界必须先开 messaging，否则件内没有 chrome.runtime，整条桥静默失效
+  // （自定义世界不继承默认世界配置，与录制转发件同理）。
+  const worldOk = await configureWorld(SCRIPT_RELAY_WORLD_ID)
+  if (!worldOk) {
+    console.warn(
+      '[duoling:userscript] 脚本桥中继件世界配置失败（无 messaging，GM 桥不可用）',
+      SCRIPT_RELAY_WORLD_ID,
+    )
+  }
+  await chrome.userScripts.unregister({ ids: [SCRIPT_RELAY_ID] }).catch(() => {})
+  const relay: chrome.userScripts.RegisteredUserScript = {
+    id: SCRIPT_RELAY_ID,
+    worldId: SCRIPT_RELAY_WORLD_ID,
+    js: [{ code: buildScriptRelaySource(secret) }],
+    matches: union.matches,
+    excludeMatches: union.excludeMatches,
+    includeGlobs: union.includeGlobs,
+    excludeGlobs: union.excludeGlobs,
+    // document_start：必须早于脚本默认的 document_end 握手窗口（与 MAIN 桩同理）
+    runAt: 'document_start',
+    allFrames: true,
+  }
+  try {
+    await chrome.userScripts.register([relay])
+    console.log('[duoling:sw] 脚本桥中继件注册成功：', JSON.stringify(union.matches))
+  } catch (e) {
+    console.warn('[duoling:sw] 脚本桥中继件注册失败：', e)
+    throw e
+  }
+}
+
 // —— 网络录制件（dl-recorder）：常驻 + 独立 per-host 门禁 ——
 //
 // 与 MAIN 桩完全独立：桩跟随「启用用户脚本并集」，录制件跟随「用户已同意录制的 host 集合」
@@ -398,12 +457,15 @@ export function refreshNetRecorder(): Promise<void> {
 
 /**
  * 重算**内置注入脚本**的注册（挂 registerChain 串行队列）：脚本增删改 / 启停 / 删除后由 background 调用。
- * 当前唯一一份内置注册：GM.page MAIN 桩（world: 'MAIN'，页面世界能力代理）。
+ * 两份子件，触发条件都是「启用脚本的匹配并集」：
+ *   · GM.page MAIN 桩（world: 'MAIN'，页面世界能力代理）；
+ *   · 脚本桥中继件（USER_SCRIPT，把 MAIN 世界脚本的 GM 调用转给 SW）。
  */
 export function refreshBuiltinScripts(): Promise<void> {
   const run = registerChain.then(async () => {
     const projects = await listProjects()
     await syncPageStubUnion(projects)
+    await syncScriptRelay(projects)
   })
   registerChain = run.catch(() => {})
   return run
