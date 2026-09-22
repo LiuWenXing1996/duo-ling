@@ -4,7 +4,8 @@
 //   A. 名单为空 → 给空态，规则说明是「所有网站都显示」；
 //   B. 名单非空 → 逐行列出 hostname（按域名序），点「恢复显示」调 setHostDisabled(host, false)；
 //   C. 总开关关着 → 规则说明改成「全站不显示」（例外名单暂不生效）；
-//   D. 别处改了开关（订阅回调）→ 自动重拉；卸载时退订。
+//   D. 别处改了开关（订阅回调）→ 自动重拉；卸载时退订；
+//   E. 当前标签页是扩展页（设置页自己）→ 不给站点名、开关禁用（不把扩展 id 当网站）。
 //
 // 边界 mock：chrome 只手写 tabs.query / tabs.onActivated 两个面（分区只用到这两个）；
 // float-panel-store 整块 mock，不牵进真实 storage。
@@ -82,6 +83,15 @@ describe('设置页「网页浮层」的例外名单', () => {
     expect(rows(w)).toHaveLength(0)
     expect(w.find('[data-testid="float-sites-empty"]').text()).toContain('尚未单独关闭任何网站')
     expect(rule(w).text()).toBe('浮层在所有网站显示。')
+  })
+
+  it('当前标签页是扩展页（设置页自己）：不给站点名、开关禁用，绝不把扩展 id 当网站', async () => {
+    stubChrome('chrome-extension://EXTID/workbench.html')
+    const w = await mountSection()
+
+    expect(w.text()).toContain('当前标签页不是普通网页')
+    expect(w.text()).not.toContain('EXTID')
+    expect(w.findAll('[role="switch"]')[1]!.attributes('disabled')).toBeDefined()
   })
 
   it('名单非空：按域名序列出各站，点「恢复显示」把它移出名单', async () => {

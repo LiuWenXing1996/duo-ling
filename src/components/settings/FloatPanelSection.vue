@@ -11,6 +11,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import { Button as UiButton } from '@/components/ui/button'
+import { webHostname } from '@/lib/float-panel-host'
 import {
   getMasterEnabled,
   setMasterEnabled,
@@ -40,16 +41,10 @@ async function refresh(): Promise<void> {
   master.value = await getMasterEnabled()
   disabledSites.value = await getDisabledSites()
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
-  const url = tabs[0]?.url
-  if (url) {
-    try {
-      currentHost.value = new URL(url).hostname
-    } catch {
-      currentHost.value = ''
-    }
-  } else {
-    currentHost.value = ''
-  }
+  // 非普通网页一律视为「拿不到站点」：扩展页的 hostname 就是本扩展自己的 id（设置页自己
+  // 就是扩展页），直接取出来会把它当成一个「网站」显示、还能写进站点禁用集合。
+  // 判据与 popup 同源，见 lib/float-panel-host.ts
+  currentHost.value = webHostname(tabs[0]?.url)
   if (currentHost.value) {
     currentEnabled.value = await isFloatEnabledForHost(currentHost.value)
   }
@@ -114,7 +109,7 @@ onUnmounted(() => {
           <p class="text-sm font-medium">当前网站显示浮层</p>
           <p class="mt-0.5 text-xs text-muted-foreground">
             <template v-if="currentHost">{{ currentHost }}</template>
-            <template v-else>无法获取当前标签页地址</template>
+            <template v-else>当前标签页不是普通网页</template>
           </p>
         </div>
         <UiSwitch
