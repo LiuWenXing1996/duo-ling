@@ -1,6 +1,7 @@
 // 端测冒烟。
 // 覆盖四条面：workbench 页 / SW 命令面 + offscreen 就绪 / 用户脚本注入（GM 桥）/ 网页浮层页。
-// 浮层的真实注入链路（content script 挂 iframe）由手测覆盖 —— 无头下没有 FAB 点击这条路径。
+// 浮层页（floatpanel.html）在这里作为独立标签页打开；它在真实页面里怎么挂出来（content script
+// 挂 iframe）由 float-task-state.spec.ts 覆盖，页面内的对话交互仍归手测。
 import { test, expect, type BrowserContext, type Page, type Worker } from '@playwright/test'
 import * as http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'

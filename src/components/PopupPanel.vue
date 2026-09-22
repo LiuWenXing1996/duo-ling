@@ -1,36 +1,24 @@
 <script setup lang="ts">
-// 工具栏图标 popup：浮层显示开关 + 本页脚本 + 工作台入口 + 新版本提示。
-// 浮层开关逻辑复用 float-panel-store（与设置页「网页浮层」分区同源），不重复实现存储。
+// 工具栏图标 popup：对话浮层入口 + 本页脚本 + 工作台入口 + 新版本提示。
 // 「打开工作台」新建 workbench.html 标签页（与对话界面里的入口同姿势，不带 hash 落默认面板）。
 // 「本页脚本」分区（PopupPageScripts）复用页面监控那条链路，只在普通网页上渲染 ——
 // 非普通网页上 content script 注入不了、计数必然为空，与下面那条提示并列只会互相打架。
 //
-// 对话入口是**网页浮层**（content script 注入），所以这里对「挂不了浮层的页面」得给一句说明：
-// 浏览器内部页 / 扩展页 / 应用商店上 content script 注入不了，用户在那些页面上看不到悬浮
-// 按钮不是装坏了。严格 CSP 站点同理也挂不上，但那要等页面里的 iframe 真的加载失败才知道
+// 对话入口是**网页浮层**（content script 按需注入），所以这里对「挂不了浮层的页面」得给一句
+// 说明：浏览器内部页 / 扩展页 / 应用商店上 content script 注入不了，用户在那些页面上打不开
+// 不是装坏了。严格 CSP 站点同理也挂不上，但那要等页面里的 iframe 真的加载失败才知道
 // —— popup 判不出来，那条由页面内的降级提示负责（见 content.ts）。
 import { computed, onMounted, ref } from 'vue'
-import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import { Button as UiButton } from '@/components/ui/button'
 import PopupNotifications from './PopupNotifications.vue'
 import PopupPageScripts from './PopupPageScripts.vue'
-import {
-  ensureFloatEnabled,
-  getMasterEnabled,
-  setMasterEnabled,
-  isFloatEnabledForHost,
-  setHostDisabled,
-} from '@/lib/float-panel-store'
 import { webHostname } from '@/lib/float-panel-host'
 import { readUpdateCheck, type UpdateCheckRecord } from '@/lib/update-check'
 import { FLOAT_OPEN_REQUEST } from '@/shared/extension-ipc'
 
-const master = ref(true)
-const currentHost = ref('')
-const currentEnabled = ref(true)
 /** 当前标签页是不是普通网页（http/https）—— 只有这类页面 content script 能注入 */
 const currentIsWebPage = ref(true)
-/** 「打开对话浮层」没打通时的说明（只在 popup 里显示，成功就直接关了） */
+/** 「打开」没打通时的说明（只在 popup 里显示，成功就直接关了） */
 const openError = ref('')
 
 /**
@@ -46,43 +34,20 @@ const updateAvailable = computed(() =>
 )
 
 async function refresh(): Promise<void> {
-  master.value = await getMasterEnabled()
   update.value = await readUpdateCheck()
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
-  currentHost.value = webHostname(tabs[0]?.url)
-  currentIsWebPage.value = currentHost.value !== ''
-  if (currentHost.value) {
-    currentEnabled.value = await isFloatEnabledForHost(currentHost.value)
-  }
-}
-
-async function onMaster(value: boolean): Promise<void> {
-  master.value = value
-  await setMasterEnabled(value)
-}
-
-async function onCurrent(value: boolean): Promise<void> {
-  if (!currentHost.value) return
-  currentEnabled.value = value
-  // value=true 表示在当站显示 → 取消禁用
-  await setHostDisabled(currentHost.value, !value)
+  currentIsWebPage.value = webHostname(tabs[0]?.url) !== ''
 }
 
 /**
  * 把当前页面的对话浮层调出来。
  *
- * 为什么 popup 要有这个按钮：浮层一贯只有页面里那颗悬浮按钮一个开关，而那颗按钮可能被页面
- * 元素压住（页面自己的固定元素，或无视 z-index 的 top layer），也可能站点开关关着时整块不存在
- * —— 那两种情况下用户在页面上什么都点不到，只能翻到这里来。
- *
- * 三步，顺序有讲究：
- *   1. 开关补齐成「开」（见 ensureFloatEnabled）。让「开关显示的状态」与「浮层实际的显示」
- *      一致 —— 否则用户下次刷新页面浮层又不见了，而开关还写着「已关」，无从解释。
- *   2. 给当前标签页的内容脚本发**定向**消息（不经 SW；契约见 FloatOpenRequest）。
- *   3. 成功才关 popup。失败时留在 popup 里把原因说出来 —— 关了就没地方说了。
+ * 对话框平时不在页面里（content script 默认不往页面放 DOM，见 content.ts），这颗按钮是它的常规
+ * 打开方式（另一条是页面右键菜单）。
  *
  * 收不到（页面在扩展更新前就打开、或在扩展管理页里单独禁掉了本站点的访问权）只能让用户刷新；
- * 这两种情况 popup 判不出来，所以文案不指向具体原因。
+ * 这两种情况 popup 判不出来，所以文案不指向具体原因。失败时留在 popup 里把话说出来 ——
+ * 关了就没地方说了。
  */
 async function openFloatPanel(): Promise<void> {
   openError.value = ''
@@ -90,12 +55,6 @@ async function openFloatPanel(): Promise<void> {
   const tabId = tabs[0]?.id
   // 读不到标签页时静默退场：这是 popup 与页面失联的异常态，给技术性报错只是噪音
   if (tabId == null) return
-
-  // 开关补齐的判据在 ensureFloatEnabled 一处（页面右键菜单共用同一条），这里只负责把面板上的
-  // 两个开关回读成真实状态
-  await ensureFloatEnabled(currentHost.value)
-  master.value = await getMasterEnabled()
-  if (currentHost.value) currentEnabled.value = await isFloatEnabledForHost(currentHost.value)
 
   try {
     await chrome.tabs.sendMessage(tabId, FLOAT_OPEN_REQUEST)
@@ -141,7 +100,6 @@ onMounted(() => {
   <div class="flex w-full flex-col gap-3 px-4 py-3">
     <header class="flex items-center gap-2">
       <span class="text-sm font-semibold">哆灵</span>
-      <span class="text-xs text-muted-foreground">浮窗设置</span>
     </header>
 
     <!-- 通知（进行中 + 跑完没看）：角标只有一个数字，具体是什么事在这里展开 -->
@@ -171,54 +129,24 @@ onMounted(() => {
 
     <div class="flex items-center justify-between rounded-lg border border-border p-3">
       <div class="pr-3">
-        <p class="text-sm font-medium">启用网页浮层</p>
-        <p class="text-xs text-muted-foreground">关闭后所有网站都不显示悬浮按钮。</p>
+        <p class="text-sm font-medium">对话浮层</p>
+        <p class="text-xs text-muted-foreground">在页面右下角打开对话。</p>
       </div>
-      <UiSwitch :model-value="master" @update:model-value="onMaster">
-        <UiSwitchThumb />
-      </UiSwitch>
-    </div>
-
-    <div class="flex items-center justify-between rounded-lg border border-border p-3">
-      <div class="pr-3">
-        <p class="text-sm font-medium">当前网站显示浮层</p>
-        <p class="text-xs text-muted-foreground">
-          <template v-if="currentHost">{{ currentHost }}</template>
-          <template v-else>当前页面不是普通网页</template>
-        </p>
-      </div>
-      <UiSwitch
-        :disabled="!currentHost"
-        :model-value="currentEnabled"
-        @update:model-value="onCurrent"
+      <UiButton
+        :disabled="!currentIsWebPage"
+        data-testid="open-float-panel"
+        @click="openFloatPanel"
       >
-        <UiSwitchThumb />
-      </UiSwitch>
+        打开
+      </UiButton>
     </div>
-
-    <!-- 页面外的浮层入口：悬浮按钮被页面挡住、或当前站点没显示浮层时，用户只能从这里调出来 -->
-    <div class="rounded-lg border border-border p-3">
-      <div class="flex items-center justify-between">
-        <div class="pr-3">
-          <p class="text-sm font-medium">对话浮层</p>
-          <p class="text-xs text-muted-foreground">
-            悬浮按钮被页面挡住、或当前网站没显示浮层时，从这里调出。
-          </p>
-        </div>
-        <UiButton
-          variant="outline"
-          size="sm"
-          :disabled="!currentIsWebPage"
-          data-testid="open-float-panel"
-          @click="openFloatPanel"
-        >
-          打开
-        </UiButton>
-      </div>
-      <p v-if="openError" class="mt-2 text-xs text-destructive" data-testid="open-float-error">
-        {{ openError }}
-      </p>
-    </div>
+    <p
+      v-if="openError"
+      class="-mt-1 text-xs text-destructive"
+      data-testid="open-float-error"
+    >
+      {{ openError }}
+    </p>
 
     <PopupPageScripts v-if="currentIsWebPage" />
 

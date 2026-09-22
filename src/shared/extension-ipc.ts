@@ -272,7 +272,7 @@ export type RuntimeRequest =
  * 对话界面按 seq 去重（重连回放与实时推送短暂重叠时防重）。SW 不消费（前缀不在白名单）。
  *
  * chat:running —— offscreen → SW（观察者）：任务**开始**（新任务 / 孤儿续跑）通知。
- * 与 chat:finished 配对，构成 SW 侧的任务生命周期信号，据此点亮「进行中」角标、驱动悬浮按钮。
+ * 与 chat:finished 配对，构成 SW 侧的任务生命周期信号，据此点亮「进行中」角标。
  * 每个任务只推一次：**细节进度仍在 chat:chunk 流里，SW 不消费**（逐 token 唤醒 SW 不划算）。
  *
  * chat:finished —— offscreen → SW（观察者）：任务收尾（正常 / 异常）通知，SW 据此在
@@ -389,7 +389,7 @@ export type BuildPhase = 'saving'
  * 原位，重开不必重载），端口根本不会断。于是「面板开着没」若拿文档存活来判就**恒为真**，
  * 通知角标（chat:running / chat:finished 到达时若无人查看才计数）永不变。
  *
- * 两个条件都要，只有 content script 知道（FAB 开关在它手里，可见性也在页面侧）：
+ * 两个条件都要，只有 content script 知道（对话框的开合在它手里，页面可见性也在页面侧）：
  *   · 收起浮层 = 看不见对话内容；
  *   · 页面切到后台（切标签页 / 最小化）= 浮层虽还展开着，他同样什么都看不见 —— 这种时候照旧
  *     要提示（亮角标、跑完记一条未读），否则用户切去别处忙一趟回来，才发现早已跑完。
@@ -398,48 +398,17 @@ export type BuildPhase = 'saving'
  */
 export const FLOAT_PANEL_OPEN_PORT = 'duoling:panel-open'
 
-/**
- * 悬浮按钮「**任务状态**」端口名：content script **挂上浮层 UI 就连**，一直保持到 UI 卸下
- * （站点开关关掉、扩展失效），不随浮层开合变化。
- *
- * 为什么在展开态端口之外再要一条：收起浮层期间用户既看不见对话内容、也看不到进度，而展开态
- * 那条只在展开时存在 —— 收起那一刻它正好断开，什么都推不出去。这条常驻，承载「本标签页的会话
- * 在跑 / 跑完了」。SW 在端口连上时**先补推一次当前状态**（页面导航后新内容脚本立刻对齐，不必
- * 等下一次变化），此后有变化再推。
- *
- * SW 被回收后这条端口会断、内存里的状态也丢：content script **不补连**（补连等于周期性把 SW
- * 拉起来），而是退回 idle —— 宁可漏报，也不让「在跑」永远挂在按钮上。此时「有任务在跑」只剩
- * 图标角标那一路（浏览器保留下来的进行中角标）。刻意不做状态重建，成本不划算。
- */
-export const FLOAT_TAB_TASK_PORT = 'duoling:tab-task-state'
-
-/**
- * 悬浮按钮要显示的任务状态（SW 按 tab 维护、经 FLOAT_TAB_TASK_PORT 推送）：
- *   · `running` —— 该标签页的会话有生成任务在跑（按钮转圈）
- *   · `done` —— 跑完了、但用户还没打开过浮层（按钮红点）
- *   · `idle` —— 没有任务，或结果已被看过（按钮还原）
- * 刻意只有这三档：生成进度本身不可量化，多出来的中间态只能靠猜。
- */
-export type FloatTaskState = 'running' | 'done' | 'idle'
-
-/** SW → 内容脚本的状态帧（字段名 `t` 与 PanelMonitorPush 同惯例，便于按帧类型分派） */
-export interface FloatTaskStatePush {
-  t: 'task-state'
-  state: FloatTaskState
-}
-
 // —— 浮层的页面外入口 ——
 /**
- * popup → **当前标签页内容脚本**的定向消息（`chrome.tabs.sendMessage`，不经 SW 中转）。
+ * popup / 页面右键菜单 → **当前标签页内容脚本**的定向消息（`chrome.tabs.sendMessage`，
+ * 不经 SW 中转）。
  *
- * 为什么需要：浮层一贯只有页面里那颗悬浮按钮一个开关，而那个按钮可能点不到、也可能不在——
- * 页面自己的固定元素会把它压住（有些站点还会用 `dialog.showModal()` / `popover` 这类 top layer，
- * 它们无视 z-index），站点开关或总开关关闭时内容脚本则干脆不挂 UI。两种情况都让用户「再也
- * 调不出浮层」，所以页面之外得留入口：popup 的「对话浮层」按钮与页面右键菜单都发这条消息。
+ * 为什么需要：对话框**按需挂载** —— 页面加载时 content script 不往页面里放任何 DOM，这两个
+ * 页面之外的入口就是它的打开方式：popup 的「对话浮层」按钮与页面右键菜单都发这条消息。
  *
  * 为什么不走 RuntimeRequest 总线（渲染页 → SW → 转发）：这条消息只对**某一个**标签页有意义，
  * 而 `tabs.sendMessage` 天然定向到那个 tab 的内容脚本，SW 参与不进来、也不需要它。
- * 内容脚本随 `matches: ['<all_urls>']` 常驻页面（站点点被禁用时只是不挂 UI，脚本本身照跑），
+ * 内容脚本随 `matches: ['<all_urls>']` 常驻页面（不挂 UI 时也照跑，只为接住这条消息），
  * 故只要页面接上了扩展，消息就有人收。
  */
 export interface FloatOpenRequest {
@@ -448,6 +417,24 @@ export interface FloatOpenRequest {
 
 /** 上面那条消息的唯一构造处：发送方与接收方都取这里的 kind，避免两边各写一份字符串 */
 export const FLOAT_OPEN_REQUEST: FloatOpenRequest = { kind: 'float:open' }
+
+/**
+ * 对话界面 → **本浮层所属标签页内容脚本**的定向消息（同样是 `chrome.tabs.sendMessage`）。
+ *
+ * 来源是对话框顶栏那颗「收起」按钮：按钮在 iframe 里（对话界面本体），而容器的显隐握在父页的
+ * 内容脚本手里，跨源拿不到对方，只能发一条消息。tabId 由对话界面从 iframe URL 的 `?tab=` 读出
+ * （见 lib/owning-tab 的 readPinnedTabId）。
+ *
+ * 为什么不走 postMessage：宿主网页的脚本就挂在父 window 上，它既能监听、也能用
+ * `iframe.contentWindow.postMessage` 伪造来源（`event.source` 校验挡不住这一手），等于把
+ * 「关掉扩展界面」开放给被注入的页面。走扩展自己的消息通道则只有扩展上下文发得出来。
+ */
+export interface FloatCollapseRequest {
+  kind: 'float:collapse'
+}
+
+/** 上面那条消息的唯一构造处（理由同 FLOAT_OPEN_REQUEST） */
+export const FLOAT_COLLAPSE_REQUEST: FloatCollapseRequest = { kind: 'float:collapse' }
 
 // —— 页面脚本监控（对话界面 · 运行时口径）——
 // 信号源：GM 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。

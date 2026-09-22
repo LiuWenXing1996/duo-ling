@@ -7,7 +7,7 @@
 
 ## 形态
 
-Chrome MV3 扩展（background service worker + 工作台标签页；对话界面是 content script 注入的网页浮层，另有工具栏 popup）。原 Electron 桌面版实现已不在工作区，需要参照时从 git 历史取回。
+Chrome MV3 扩展（background service worker + 工作台标签页；对话界面是 content script 按需挂进网页的浮层，另有工具栏 popup）。原 Electron 桌面版实现已不在工作区，需要参照时从 git 历史取回。
 
 ## 载体与运行时
 
@@ -15,13 +15,13 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 | --- | --- | --- |
 | 扩展页 | `floatpanel.html`（网页浮层 iframe） | **对话界面（唯一入口）**：指令入口与观察窗；显示**它所在标签页**的会话（tab 身份由 content script 经 iframe URL 传入） |
 | 扩展页 | `workbench.html`（标签页） | 重界面工作区（脚本管理 / 运行日志 / 会话历史 / 设置等） |
-| 扩展页 | `popup.html`（工具栏 popup） | 配置入口：网页浮层开关（总开关 + 当前站点；**按站点开关只有这里** —— 设置页自己就是扩展页，在它里面查到的激活标签页永远是自己）+ 调出当前页的对话浮层 + 本页脚本（本页在跑的脚本与报错）+「打开工作台」，并说明当前页面为何挂不了浮层；**不承载对话**（不装 `window.api`） |
-| 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：注入悬浮按钮 + iframe（按站点开关），按钮可拖拽（位置按站点记），拾取期间整块让位；并接受 popup 的调出请求（`FloatOpenRequest`） |
+| 扩展页 | `popup.html`（工具栏 popup） | 页面外的入口：打开当前页的对话浮层（**对话框的常规打开方式**）+ 本页脚本（本页在跑的脚本与报错）+「打开工作台」，并说明当前页面为何挂不了浮层；**不承载对话**（不装 `window.api`） |
+| 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：**平时不往页面里放任何 DOM**，收到 `float:open` 才挂出 iframe 并展开，收到 `float:collapse` 收起（只加 `display:none`，iframe 与草稿都留着）；位置钉在视口右下角，拾取期间整块让位 |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 + 网页浮层的右键菜单入口 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
 | 注入世界 | MAIN（第三方页面内） | 用户脚本自身逻辑；GM 包装层（`gm-wrapper.ts`）在同一函数作用域里声明 `GM_*` / `GM.*`，能力调用经同帧 USER_SCRIPT 中继件（`script-relay.ts`）转 SW |
 
-各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的注入细节（shadow DOM 隔离、iframe 懒加载、按钮拖拽与位置记忆、拾取期间让位、CSP 降级、页面外的调出入口）见 [src/entrypoints/content.ts](src/entrypoints/content.ts) 顶部注释。**调出入口有三条**：页面内那颗悬浮按钮是主入口，但它可能被页面元素压住（含无视 z-index 的 top layer），也可能站点开关 / 总开关关着时内容脚本整块不挂 —— 这两种情况下页面上没有任何东西可点，只能从页面外叫：工具栏 popup 的「对话浮层」按钮，与页面右键菜单（SW 注册，`documentUrlPatterns` 限 http/https）。三者都收敛到同一条定向消息（`FloatOpenRequest`，`tabs.sendMessage`，不经 SW），内容脚本收到就地挂 UI 并展开；发消息前一律先按 `ensureFloatEnabled` 补齐开关 —— 否则会出现「浮层显示着、开关却写着已关」，用户下次刷新页面浮层消失无从解释。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
+各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的挂载细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级、收起语义）见 [src/entrypoints/content.ts](src/entrypoints/content.ts) 顶部注释。**打开入口都在页面之外**：工具栏 popup 的「对话浮层」按钮，与页面右键菜单（SW 注册，`documentUrlPatterns` 限 http/https）—— 对话框平时不在页面里，页面上没有任何可点的地方。两条都收敛到同一条定向消息（`FloatOpenRequest`，`tabs.sendMessage`，不经 SW），内容脚本收到就地挂出 UI 并展开。**收起走反向的另一条消息**（`FloatCollapseRequest`）：对话框顶栏那颗按钮在 iframe 里（跨源，父页拿不到它的事件），只能发消息叫父页把容器藏起来；刻意不用 `postMessage` —— 宿主网页的脚本挂在父 window 上，既能监听也能用 `iframe.contentWindow.postMessage` 伪造来源，那等于把「关掉扩展界面」开放给被注入的页面。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
 
 ## 对话链路
 
@@ -42,12 +42,11 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 - **中止也保留已生成的内容**：中止（用户点停止 / 关标签页 / 流中断 / 静默超时 / 循环异常）都会把已经吐出来的那部分落盘，并附一个 `data-interrupted` 标记 —— 半截文字是用户要的东西，丢掉就真没了；界面在消息下方标「已中断」，免得事后把半截当成完整回复。两条刻意不做：**不落产物**（半截脚本没有意义，落盘反而让人以为生成完了）、**不留没有结果的工具调用**（`isPendingToolUIPart` —— 否则历史里是一串转不完的卡片）。
 
-- **任务状态与通知中心**：offscreen 在任务开始 / 收尾各推一条（`chat:running` / `chat:finished`，`OffscreenPush`），SW 旁听后分发到三个出口 —— 一份信号、三种「离用户多远」的表达。
-  - **工具栏角标 = 通知数（全局那一份）**：红底白字，数字 = 「进行中 + 跑完没看」的条数（>9 显示 `9+`）。**只报数、不分类**：什么颜色代表什么状态是要用户记的额外约定，而具体是什么事去 popup 看；悬停文案另给一句明细（`进行中 1 · 已完成 2`）。它不受页面影响 —— 浮层挂不上（站点开关关着）、按钮被页面元素压住（含无视 z-index 的 top layer）时，页面内没有任何提示位，只剩它。数字由 `refreshBadge` **重算**而来，不是「收到事件时顺手设一下」：事件到达的时刻与「用户此刻看得见吗」未必同时成立 —— 任务在浮层开着时开始、用户之后才收起，就是一个没有事件来过的时点。
-  - **网页悬浮按钮 = 就近那一份**：收起浮层期间用户视线就在它身上。SW 用 `findTabsUsingConversation` 反查「这条会话属于哪个标签页」，经 `FLOAT_TAB_TASK_PORT` 推给那个 tab 的 content script（UI 挂上即连、常驻，不随浮层开合）：转圈 = 在跑、红点 = 跑完没看，浮层一展开即收起（进度与结果都在面板里）。端口连上时先补推一次当前状态，页面导航后新内容脚本立刻对齐；SW 被回收则内存里的状态丢，此时只剩角标那一路（刻意不做重建）。
+- **任务状态与通知中心**：offscreen 在任务开始 / 收尾各推一条（`chat:running` / `chat:finished`，`OffscreenPush`），SW 旁听后分发到两个出口 —— 一份信号、两种「离用户多远」的表达。
+  - **工具栏角标 = 通知数（全局那一份）**：红底白字，数字 = 「进行中 + 跑完没看」的条数（>9 显示 `9+`）。**只报数、不分类**：什么颜色代表什么状态是要用户记的额外约定，而具体是什么事去 popup 看；悬停文案另给一句明细（`进行中 1 · 已完成 2`）。它不受页面影响 —— 对话框收起后页面里没有任何提示位，只剩它。数字由 `refreshBadge` **重算**而来，不是「收到事件时顺手设一下」：事件到达的时刻与「用户此刻看得见吗」未必同时成立 —— 任务在对话框开着时开始、用户之后才收起，就是一个没有事件来过的时点。
   - **popup = 明细**（`PopupNotifications`，走 `notify:*` 命令面）：进行中几条、哪几条跑完没看；点条目跳过去（那个标签页还开着就唤起它的浮层，已关就落到工作台「会话历史」）并标已读，另有「全部已读」。已读是**按会话**标的：角标是全局的，但「看过没看过」是各标签页各自的，不该替用户读掉别人的未读。无通知时整块不渲染。
-  - 三个出口共用的判据：**「用户此刻在看对话界面吗」= 浮层展开 且 页面可见** —— 两条都成立时 content script 连上 `FLOAT_PANEL_OPEN_PORT`，否则断开（页面卸载 / 导航则端口自然断）。**不能拿「面板文档存活」判**：收起浮层只是给它加 `display:none`（iframe 与面板文档刻意留着，草稿 / 滚动位置不丢），那条端口永不断开，角标就永不变（2026-09-21 无头实测确认）。**「页面可见」那条也不能省**：浮层还开着、人却切去别的标签页忙了，他同样什么都看不见 —— 少了它，切走期间既不亮角标也不记通知，任务跑完一点提示都没有。可见性取 `document.visibilityState`，**不掺窗口焦点**（`hasFocus`）：点一下地址栏 / 书签栏就会失焦，那会让角标无意义地闪一下；代价是「Chrome 窗口在前台、人去用了别的应用」仍算在看。
-  - 回到「在看」状态时（浮层刚展开、或从别的标签页切回来）：角标清空、该会话的通知标已读 —— 但**不动**别的标签页的未读。
+  - 两个出口共用的判据：**「用户此刻在看对话界面吗」= 对话框展开 且 页面可见** —— 两条都成立时 content script 连上 `FLOAT_PANEL_OPEN_PORT`，否则断开（页面卸载 / 导航则端口自然断）。**不能拿「面板文档存活」判**：收起只是给它加 `display:none`（iframe 与面板文档刻意留着，草稿 / 滚动位置不丢），那条端口永不断开，角标就永不变（2026-09-21 无头实测确认）。**「页面可见」那条也不能省**：对话框还开着、人却切去别的标签页忙了，他同样什么都看不见 —— 少了它，切走期间既不亮角标也不记通知，任务跑完一点提示都没有。可见性取 `document.visibilityState`，**不掺窗口焦点**（`hasFocus`）：点一下地址栏 / 书签栏就会失焦，那会让角标无意义地闪一下；代价是「Chrome 窗口在前台、人去用了别的应用」仍算在看。
+  - 回到「在看」状态时（对话框刚打开、或从别的标签页切回来）：角标清空、该会话的通知标已读 —— 但**不动**别的标签页的未读。
   - 通知落在 `duoling-app` 的 `notifications` 键（`lib/notifications.ts`）：只存**已发生**的事 —— 进行中不落库（SW 被回收后内存里那份就没了，而库里若留一条恒为「进行中」的记录，再不会有事件来收尾它，成了假状态）；同一会话的未读只留一条（跑两次都还没看 = 一件事，否则角标数字虚高），已读最多留 20 条（它不是历史记录）。加新通知类型只动三处：`kind`、popup 的文案、跳转落点 —— 角标与池子都不用改。
 
 - **流式静默超时（防限流）**：`runLoop` 泵流期间挂 `createIdleGuard`（`src/lib/offscreen-chat/idle-guard.ts`），两次 chunk 间隔超 `STREAM_IDLE_TIMEOUT_MS`（默认 60s，可在模型高级配置里按 provider 调整 `streamIdleTimeoutSec` 秒）即判定 provider 卡死（有连接但不吐 token），主动 `abort` 并推 error 块「请求超时…已自动中止」。避免静默卡死的请求长期占用网关连接/并发配额、累积触发限流；用户手动停止走 `abortChat`，与此计时无关。模型配置探活 `testChat` 另有 15s 超时。
@@ -94,7 +93,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 ④ **观测数据库 `duoling-runtime`**（`runtime-db.ts`，**写只归 SW**）：错误日志（errors store，单记录环形 ≤ `ERROR_LOG_MAX`）、运行统计（stats store，每脚本一记录：总次数 / 最后运行时间 / 最近一次运行错误数）与运行日志（runlog store，全局环形 ≤ `RUN_LOG_MAX`）——统计与日志**并进同一事务写入**（`mutateStatsAndLog` 跨 store，逐条日志不额外放大写入）；读改写在事务内天然原子；错误明细按 runId 与日志关联，工作台「运行日志」标签页 = 时间线（运行行 + 孤儿错误行，`listRunTimeline` 合并读）。用户脚本的存储**全部落 IndexedDB**；GM 存储写出口发变更事件（`onGmValueChange`，值未变 / 删不存在键不发）。
 
-⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`——**密钥同存本机，属防扫描级而非保密级**）、key-cipher DEK、MAIN 世界桩密钥（`pageSecret`）、**标签页 → 会话的归属映射（`convByTab`，见 `conversation-tab-map.ts`）**、**新版本检查结果（`updateCheck`，见 `update-check.ts`）**——扩展自己的小数据。`chrome.storage.local` 只剩网页浮层的按站点开关（`float-panel-store.ts`：总开关 `duoling:floatEnabled` + 禁用站点集合 `duoling:floatDisabledSites`（条目是 **match pattern** `*://*.example.com/*`，判定复用 `match-pattern.ts` —— 与用户脚本注入面同一套语义；早期条目是裸 hostname，按精确匹配兼容），storage 键改动集中在该模块）。归属映射是**整表一个键**，而写方有两处（面板登记新会话 / SW 在 tab 关闭时清理），可能交错，故写入一律走 `app-db.update` 的单事务「读-改-写」（拆成 get+set 会丢更新）。
+⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`——**密钥同存本机，属防扫描级而非保密级**）、key-cipher DEK、MAIN 世界桩密钥（`pageSecret`）、**标签页 → 会话的归属映射（`convByTab`，见 `conversation-tab-map.ts`）**、**新版本检查结果（`updateCheck`，见 `update-check.ts`）**——扩展自己的小数据。`chrome.storage.local` 只剩开发者模式开关这类零星设置（`dev-mode-store.ts`，storage 键的读写与订阅都集中在该模块）。归属映射是**整表一个键**，而写方有两处（面板登记新会话 / SW 在 tab 关闭时清理），可能交错，故写入一律走 `app-db.update` 的单事务「读-改-写」（拆成 get+set 会丢更新）。
 
 ⑥ **会话库 `duoling-chat`**（`conversation-store.ts` 读写，**唯一写方 = offscreen**，读侧（对话界面 / 工作台会话历史）只读订阅）：会话与消息 + 生成任务快照（tasks store，宿主被杀后可续）——它不在 userScripts 链路里，故与 `duoling-state` 分开。
 
@@ -128,7 +127,7 @@ IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 
 
 - 广播埋在写出口：offscreen `handleStateCommand`（`script` 域）、`conversation-store` 写函数（`conversation`）、`userscripts/store.ts`（`error`）、`userscripts/usdata-db` 写出口经 store.ts（gm 变更事件）与 `model-store.ts` 写出口（`model`）。
 - **新增写路径必须同步埋广播**；前端新面板按域接 `useDataSync`，不再靠手动刷新兜底。编辑器有未保存改动时不自动重载，只提示「已在别处修改，这次保存会覆盖那一次改动」；编辑器自己保存触发的广播会被忽略——否则刚保存就被当成「别处修改」挂上提示。
-- **只适用于 IDB**。落在 `chrome.storage.local` 的设置在**模块内封一层订阅**即可 —— 原生 `chrome.storage.onChanged` 已跨上下文通知（扩展页 / popup / 内容脚本都收得到），不必自建通道：`float-panel-store.ts` 的 `subscribeFloatSettings`、`dev-mode-store.ts` 的 `subscribeDevMode`。键名与 area 过滤都封在 store 里，调用方不写字面量。
+- **只适用于 IDB**。落在 `chrome.storage.local` 的设置在**模块内封一层订阅**即可 —— 原生 `chrome.storage.onChanged` 已跨上下文通知（扩展页 / popup / 内容脚本都收得到），不必自建通道：`dev-mode-store.ts` 的 `subscribeDevMode` 即此例。键名与 area 过滤都封在 store 里，调用方不写字面量。
 
 ## 构建信息注入（单一通道：`vite.define`）
 
@@ -164,6 +163,6 @@ IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 
 
 入口 HTML 的 `modulepreload` 链就是首帧要执行的代码，其体积 ≈ 首开白屏时长。两条硬约束：
 
-- **重依赖一律按需加载**：markdown 渲染链路（micromark/mdast + shiki + katex）约 600KB、AI SDK（`ai` 核心 + zod）约 360KB —— 展开浮层那一刻两者都用不上（历史消息走 IndexedDB 直读），静态引入会把首屏从约 530KB 抬到约 1420KB。落点：`MessageResponse.vue` 用 `defineAsyncComponent` + `<Suspense>` 拉 `vue-stream-markdown`（组件与 CSS 一起 await）；shiki 在 `code-block/utils.ts` 首次高亮时动态 import；`useChat` 收进 `use-global-conversation.ts` 的 `ensureChat()`。`ai` 的 part 判定 helper 另有本地实现，理由见 `src/lib/ui-message-parts.ts` 顶部注释。
+- **重依赖一律按需加载**：markdown 渲染链路（micromark/mdast + shiki + katex）约 600KB、AI SDK（`ai` 核心 + zod）约 360KB —— 打开对话框那一刻两者都用不上（历史消息走 IndexedDB 直读），静态引入会把首屏从约 530KB 抬到约 1420KB。落点：`MessageResponse.vue` 用 `defineAsyncComponent` + `<Suspense>` 拉 `vue-stream-markdown`（组件与 CSS 一起 await）；shiki 在 `code-block/utils.ts` 首次高亮时动态 import；`useChat` 收进 `use-global-conversation.ts` 的 `ensureChat()`。`ai` 的 part 判定 helper 另有本地实现，理由见 `src/lib/ui-message-parts.ts` 顶部注释。
 - **首帧底色不能靠 JS，加载态必须是内联静态 DOM**：`body` 背景取 `--background`，而 `.dark` 由 `theme.ts` 在 JS 执行时才挂上（CSP 禁内联 `<script>`），故「CSS 已到、JS 未执行完」这一档 `body` 实测为纯白、深色系统下反差明显。做法是三个入口 HTML 的 `<head>` 内联 `.dl-boot` 加载层 + `<meta name="color-scheme">`：底色用 CSS 系统色 `Canvas` / `CanvasText`（不依赖 `prefers-color-scheme` —— Chrome 在部分环境下该媒体查询不可靠），转圈只能用纯 CSS 画，Vue mount 清空 `#app` 时自动消失。**三个入口的样式块刻意重复，改一处须同步其余两处**；逐条改造要点就地记在 `floatpanel.html` 的注释里。
 - **dev 冷启动的白屏不属此列**：`npm run dev` 首次自动打开浏览器时白屏数秒 —— 那几秒里 HTML 文档本身尚未送达（Vite/WXT 现场编译 entrypoint + 预构建依赖），任何前端手段都渲染不出加载态。生产产物是静态文件、没有这段窗口，验真实首屏体感须用 `npm run build` 的产物；dev 同样不适合验 CSP。

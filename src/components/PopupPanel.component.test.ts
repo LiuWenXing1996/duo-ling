@@ -9,12 +9,11 @@
 //   · chrome —— 手写壳，只需 tabs.query / tabs.get / tabs.onUpdated / runtime.connect。
 //     假端口留一个 push 口模拟 SW 的快照应答（真 SW 不在测试里），并记录 postMessage
 //     以便断言上行报文。
-//   · float-panel-store（开关读写）、userscripts/ui-client（名字补齐）、use-data-sync（变更订阅）
-//     —— 都与分区渲染无关，mock 掉避免牵进 IDB 与消息总线。
+//   · userscripts/ui-client（名字补齐）、use-data-sync（变更订阅）—— 都与分区渲染无关，
+//     mock 掉避免牵进 IDB 与消息总线。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import PopupPanel from './PopupPanel.vue'
-import { ensureFloatEnabled } from '@/lib/float-panel-store'
 
 const listScripts = vi.hoisted(() => vi.fn())
 const readUpdateCheck = vi.hoisted(() => vi.fn())
@@ -27,13 +26,6 @@ vi.mock('@/lib/userscripts/ui-client', () => ({ userscriptClient: { list: listSc
 vi.mock('@/composables/use-data-sync', () => ({ useDataSync: vi.fn() }))
 // 新版本提示只读 SW 落下的结果，不在 popup 里发检查；mock 掉读侧即可完全控制它有 / 无
 vi.mock('@/lib/update-check', () => ({ readUpdateCheck }))
-vi.mock('@/lib/float-panel-store', () => ({
-  getMasterEnabled: vi.fn(async () => true),
-  setMasterEnabled: vi.fn(async () => undefined),
-  isFloatEnabledForHost: vi.fn(async () => true),
-  setHostDisabled: vi.fn(async () => undefined),
-  ensureFloatEnabled: vi.fn(async () => undefined),
-}))
 
 /** 假端口：保留 push 口喂 SW → 面板的下行推送，并记录面板的上行 postMessage */
 interface FakePort {
@@ -185,8 +177,8 @@ describe('popup 的扩展管理页入口', () => {
   })
 })
 
-// 页面外的浮层入口：悬浮按钮被页面元素挡住、或当前站点没显示浮层时，用户在页面上什么都点不到，
-// 只能从 popup 把浮层叫出来。这条链路的关键在「谁能收到消息」与「失败时说得出话」。
+// 对话浮层入口：对话框平时不在页面里（content script 默认不往页面放 DOM），这里是它的常规打开
+// 方式。这条链路的关键在「定向消息发给谁」与「失败时说得出话」。
 describe('popup 的「对话浮层」入口', () => {
   const openBtn = (w: VueWrapper) => w.find('[data-testid="open-float-panel"]')
 
@@ -208,19 +200,6 @@ describe('popup 的「对话浮层」入口', () => {
     // tabId 是 popup 打开时的激活页 —— 内容脚本按它认自己属于哪个标签页
     expect(tabsSendMessage).toHaveBeenCalledWith(TAB_ID, { kind: 'float:open' })
     expect(close).toHaveBeenCalled()
-  })
-
-  it('发消息前先把开关补齐（补齐策略在 ensureFloatEnabled 一处，页面右键菜单共用）', async () => {
-    stubChrome('https://example.com/page')
-    const w = await mountPopup()
-
-    await openBtn(w).trigger('click')
-    await flushPromises()
-
-    // 不补齐的话会出现「浮层显示着、开关却写着已关」，用户下次刷新页面浮层消失无从解释。
-    // 「补齐成什么样」由 ensureFloatEnabled 决定，见 lib/float-panel-store 的单测。
-    expect(ensureFloatEnabled).toHaveBeenCalledWith('example.com')
-    expect(tabsSendMessage).toHaveBeenCalledWith(TAB_ID, { kind: 'float:open' })
   })
 
   it('页面接不上（消息发不出去）：留在 popup 里说明原因，不关窗', async () => {

@@ -1,8 +1,7 @@
 // match pattern ↔ url / hostname 判定（**运行期**）。纯匹配逻辑，不属任何子系统。
 //
-// 两个消费者：
-//   · 用户脚本面：`@match` 解析（userscripts/metadata.ts）与 GM_cookie 域名门（userscripts/cookie-gate.ts）；
-//   · 浮层按站点开关（float-panel-store.ts）：那条设置的条目存的就是 match pattern，只用到 host 段。
+// 消费者：用户脚本面 —— `@match` 解析（userscripts/metadata.ts）与 GM_cookie 域名门
+// （userscripts/cookie-gate.ts）；两条都只用到 host 段。
 //
 // 与 project-store.isValidMatchPattern 的分工：那里是「注册前校验 pattern 合法性」，
 // 这里是「运行期判某条 url 是否落在 pattern 范围内」。两者语法认知同源，职责不同，故不复用函数。
@@ -11,7 +10,6 @@
 // 理由：cookie 是 host 级作用域，不与路径相关 —— 只注入 https://example.com/foo/* 的脚本，
 // 若不忽略 path 就连站点自己的 cookie（path 通常是 /）都读不到，违反 cookie 的天然语义。
 // 放宽的只是「同一 host 内的路径收窄」，跨 host 的边界一点没松（安全不变量）。
-// 浮层按站点开关同理：它按站点，不分 path，条目一律 `*://<host>/*`。
 //
 // 不做的事：不解析端口（match pattern 语法本身不支持端口，url 侧取 hostname 即天然丢端口）。
 

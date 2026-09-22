@@ -117,7 +117,8 @@ test.describe.serial('会话归属按标签页', () => {
   // ⇒ 本 spec 里独立打开的 `floatpanel.html` 标签页拿不到 tabId、不写归属，门自然不触发
   //   （实测弹的是普通确认框「删除会话「甲」」而不是拦截框）。
   // 要自动验它，得让浮层跑在**页面内的 iframe** 里（真实产品的路径：content script 挂 iframe，
-  // 消息经它转发 → 有 sender.tab），而 smoke 里已注明「无头下没有 FAB 点击这条路径」。
+  // 消息经它转发 → 有 sender.tab）—— 这条路在 harness 里已经走得通（向页面发一条 float:open
+  // 就能把 iframe 挂出来，见 float-task-state.spec.ts），这条 skip 待填。
   test.skip('删除门：正被开着的标签页占用的会话删不掉（需要页面内 iframe 路径，见上方注释）', async () => {
     /* 保留位置与理由；等 harness 支持页面内浮层后再填 */
   })
