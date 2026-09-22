@@ -21,6 +21,7 @@
 //   三条都不靠人工对照。
 import type {
   GmApiNamespace,
+  GmAudioApi,
   GmCookieApi,
   GmGlobalFns,
   GmGlobalObjects,
@@ -38,6 +39,7 @@ export type GmNsName = Exclude<keyof GmApiNamespace, 'page'>
  */
 export type GmObjectPath =
   | `GM_cookie.${keyof GmCookieApi & string}`
+  | `GM_audio.${keyof GmAudioApi & string}`
   | 'GM.page.listen'
   | 'GM.page.fetchHook'
   | 'GM.clearValues'
@@ -197,6 +199,43 @@ const CAPABILITIES = {
     bridge: 'bridge',
     group: 'storage',
   },
+  GM_getValues: {
+    ns: 'getValues',
+    title: '批量取值',
+    sigGlobal: 'GM_getValues(keysOrDefaults)',
+    sigNs: 'GM.getValues(keysOrDefaults)',
+    summary: '一次取多个键；不传参数则取整份存储',
+    detail:
+      '传**键数组**只回存在的键（缺失的键不出现）；传**默认值对象**则按它补缺，键存在时仍用真值；' +
+      '不传参数返回整份存储。全局形态同步（读快照）；GM.* 形态读实时值。一律返回新对象。',
+    returns: 'Record<string, any> / Promise<Record<string, any>>',
+    bridge: 'bridge',
+    group: 'storage',
+  },
+  GM_setValues: {
+    ns: 'setValues',
+    title: '批量写值',
+    sigGlobal: 'GM_setValues(values)',
+    sigNs: 'GM.setValues(values)',
+    summary: '一次写多个键（收一个键值对对象）',
+    detail:
+      '一个事务落盘：别的标签页看不到「写了一半」的批次。变更事件仍**逐键**发，值没变化的键不发（与单键版同规）。',
+    returns: 'void / Promise<void>',
+    bridge: 'bridge',
+    group: 'storage',
+  },
+  GM_deleteValues: {
+    ns: 'deleteValues',
+    title: '批量删值',
+    sigGlobal: 'GM_deleteValues(keys)',
+    sigNs: 'GM.deleteValues(keys)',
+    summary: '一次删多个键（收键名数组）',
+    detail:
+      '一个事务落盘，只对**真存在**的键发删除事件（不存在的键静默跳过，同单键版）。',
+    returns: 'void / Promise<void>',
+    bridge: 'bridge',
+    group: 'storage',
+  },
   GM_addValueChangeListener: {
     ns: 'addValueChangeListener',
     title: '监听键变化',
@@ -350,6 +389,45 @@ const CAPABILITIES = {
     bridge: 'bridge',
     group: 'page',
   },
+  // 对象型全局（方法逐条列在 OBJECT_ENTRIES）；`GM.*` 侧是 GM.audio（TM 给了这个镜像）
+  GM_audio: {
+    ns: 'audio',
+    title: '标签页音频控制',
+    sigGlobal: 'GM_audio',
+    summary: '当前标签页的静音 / 发声控制（TM v5.0+）',
+    detail:
+      '**四个成员**：`setMute({ isMuted })`、`getState(cb?)`、`addStateChangeListener(fn, cb?)`、' +
+      '`removeStateChangeListener(fn, cb?)` —— 最后两个都收**同一个函数引用**（TM 没有 id 机制）。' +
+      '一律作用于**当前标签页**（没有 tabId 参数）。回调可省 → 返回 Promise。',
+    returns: '回调式 + Promise',
+    bridge: 'bridge',
+    group: 'system',
+  },
+  // window 级成员：名字就是属性路径（挂到 window 上，不是脚本作用域里的标识符），
+  // 且 TM 口径下都没有 `GM.*` 形态 —— 故 ns 为 null。
+  'window.close': {
+    ns: null,
+    title: '关当前标签页',
+    sigGlobal: 'window.close()',
+    summary: '关闭当前标签页（TM 的 `@grant` 项）',
+    detail:
+      '**必须声明 `@grant window.close`** —— 声明后**覆盖**原生 window.close：原生只能关脚本自己打开的窗口，' +
+      '本项能关当前标签页。**不允许关窗口的最后一个标签页**（TM 同款限制），那时只记一条运行日志、不抛。',
+    returns: 'void（异步转发，失败只记日志）',
+    bridge: 'bridge',
+    group: 'system',
+  },
+  'window.focus': {
+    ns: null,
+    title: '聚焦当前窗口',
+    sigGlobal: 'window.focus()',
+    summary: '把当前标签页所在窗口置于前台（TM 的 `@grant` 项）',
+    detail:
+      '**必须声明 `@grant window.focus`**。比原生强：原生对非脚本打开的窗口无效，本项会激活标签页并聚焦其所在窗口。',
+    returns: 'void（异步转发）',
+    bridge: 'bridge',
+    group: 'system',
+  },
 } satisfies Record<GmGlobalName, Capability>
 
 /** 对象型 / 变量型成员的条目（类型层取不到，故用 `satisfies Record<GmObjectPath, …>` 单独兜住） */
@@ -378,6 +456,47 @@ const OBJECT_ENTRIES = {
     returns: 'void',
     bridge: 'bridge',
     group: 'page',
+  },
+  'GM_audio.setMute': {
+    title: '静音 / 取消静音',
+    signature: 'GM_audio.setMute({ isMuted }, cb?)',
+    summary: '设置**当前标签页**的静音状态',
+    detail: 'cb 收 error（失败才带值），省掉回调就用返回的 Promise。只影响当前标签页，不动其它标签。',
+    returns: 'Promise<void>（回调同收 error）',
+    bridge: 'bridge',
+    group: 'system',
+  },
+  'GM_audio.getState': {
+    title: '读音频状态',
+    signature: 'GM_audio.getState(cb?)',
+    summary: '读当前标签页的 `{ isMuted, muteReason, isAudible }`',
+    detail:
+      'muteReason 是 `user`（用户点的）/ `capture`（标签捕获）/ `extension`（扩展所为）。' +
+      '取不到的字段**省略**（不是 false）—— 用 `\'x\' in state` 判断，别当布尔用。',
+    returns: 'Promise<GmAudioState>（回调同收）',
+    bridge: 'bridge',
+    group: 'system',
+  },
+  'GM_audio.addStateChangeListener': {
+    title: '监听音频变化',
+    signature: 'GM_audio.addStateChangeListener(fn, cb?)',
+    summary: '注册静音 / 发声变化监听（**传函数本身**，TM 没有 id）',
+    detail:
+      '回调收 `{ muted?, audible? }`：**muted 是静音原因字符串或 false**（不是布尔），' +
+      '字段可能缺 —— 脚本常用 `\'muted\' in e` 区分「静音变化」与「发声变化」。' +
+      '只在真有监听时订阅（没监听就不收帧），注销传**同一个函数引用**。',
+    returns: 'Promise<void>（回调同收 error）',
+    bridge: 'bridge',
+    group: 'system',
+  },
+  'GM_audio.removeStateChangeListener': {
+    title: '注销音频监听',
+    signature: 'GM_audio.removeStateChangeListener(fn, cb?)',
+    summary: '注销先前注册的监听（必须传**同一个函数引用**）',
+    detail: '传的不是同一个函数引用就找不到（与 TM 同）。全部注销后退订，不再收音频帧。',
+    returns: 'Promise<void>（回调同收 error）',
+    bridge: 'bridge',
+    group: 'system',
   },
   'GM_cookie.list': {
     title: '读 cookie',

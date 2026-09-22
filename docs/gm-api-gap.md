@@ -13,7 +13,7 @@
 
 ## 一、覆盖面
 
-20 个 `@grant`，每个同时开全局与 `GM.*` 两种形态（对齐 Tampermonkey 口径）：
+26 个 `@grant`（含两个 window 级成员），每个同时开全局与 `GM.*` 两种形态（对齐 Tampermonkey 口径，例外在表内注明）：
 
 | 能力 | `@grant` 名 | `GM.*` 成员 |
 | --- | --- | --- |
@@ -21,6 +21,9 @@
 | 写值 | `GM_setValue` | `setValue` |
 | 删值 | `GM_deleteValue` | `deleteValue` |
 | 列出键 | `GM_listValues` | `listValues` |
+| 批量取值 | `GM_getValues` | `getValues` |
+| 批量写值 | `GM_setValues` | `setValues` |
+| 批量删值 | `GM_deleteValues` | `deleteValues` |
 | 订阅值变更 | `GM_addValueChangeListener` | `addValueChangeListener` |
 | 取消订阅 | `GM_removeValueChangeListener` | `removeValueChangeListener` |
 | 登记菜单 | `GM_registerMenuCommand` | `registerMenuCommand` |
@@ -36,7 +39,10 @@
 | 读标签页存储 | `GM_getTab` | `getTab` |
 | 存标签页数据 | `GM_saveTab` | `saveTab` |
 | 列出标签页 | `GM_getTabs` | `getTabs` |
+| 标签页音频 | `GM_audio` | `audio` |
 | Cookie | `GM_cookie` | 无（按 Tampermonkey 口径不进 `GM.*`） |
+| 关当前标签页 | `window.close` | 无（window 级成员，没有 `GM.*` 形态） |
+| 聚焦当前窗口 | `window.focus` | 无（同上） |
 
 **恒注入**（无需 `@grant`）：`GM_info`、`unsafeWindow`、`window.onurlchange`；`GM.*` 侧恒注入 `info`、`clearValues`、`focusTab`、`page`。
 
@@ -50,10 +56,11 @@
 
 | 缺失 | 现状 | 依据 |
 | --- | --- | --- |
-| `GM_closeTab` / `GM.closeTab` | 无实现。仓库内同名的 `closeTab` 是工作台标签页的内部函数，与 GM API 无关 | 全仓无 GM 侧实现 |
 | `GM_getResourceText` / `GM_getResourceURL` | 无实现。`@resource` 元数据会被解析并出现在 `GM_info.script.resources` 里，但脚本拿不到资源内容 | `spec-text.ts`「明确不支持」段 |
 | `GM_webRequest` | 不在注入面内 | `gm-wrapper.test.ts` 断言它不在 exposure 表 |
-| `window.close` / `window.focus` | 无实现。TM 把它们当 `@grant` 项暴露（关闭 / 聚焦当前标签页）；本扩展只有自有的 `GM.focusTab`，且不需要 `@grant` | `gm-wrapper.ts` 装配块里无对应成员 |
+
+> `GM_closeTab` **不在表内**：TM 官方文档里没有它（TM 用 `window.close`），属个别实现自有；
+> 按 TM 对齐就不把它算作缺口。
 
 ## 三、有实现但语义弱于油猴（降级项）
 
@@ -72,7 +79,7 @@
 - **`GM_info.isIncognito` 恒 false**：脚本在 MAIN 世界读不到扩展的隐身上下文；要拿真值需经桥回 SW 查，暂未做。
 - **脚本顶层 `var` 不进页面全局**：注入代码把包装与脚本一起放在函数作用域里。要往页面上挂东西请显式写 `unsafeWindow.x = …`。
 - **`GM_*` / `GM` 是脚本作用域里的标识符，不是 `window` 属性**：`GM_setValue(…)` 直接写即可，但 `window.GM_setValue` 取不到。TM 的 `raw` 模式挂在 window 上，本扩展不挂 —— 同帧多脚本共享一个 window，挂上去会互相覆盖（前一个脚本的调用会落到后一个的存储）。能力检测请用 `typeof GM_setValue === 'function'`，不要探测 `window.GM_*`。
-- **`@grant` 精确裁剪**：**只有写进清单的成员才存在**，漏写即 `ReferenceError`；**不写 `@grant` / `@grant none` 都等于空清单**（对齐 TM：没写 metadata 也不全量注入）。这是**有意的取舍**：不写 `@grant` 的老脚本（GM 1.0 时代常见）导入后会整体失效，我们**不做兼容推断** —— 目标是「脚本行为与 TM 一致」，而不是「尽量让它跑起来」。自产脚本由 `spec-text` 强制写全清单，样例包也一律写全。
+- **`@grant` 精确裁剪**：**只有写进清单的成员才存在**，漏写即 `ReferenceError`。**不写 `@grant` 与 `@grant none` 都等于空清单** —— TM 官方文档原文如此（"If no @grant tag is given an empty list is assumed. However this different from using none."），所以这不是我们的取舍而是照 TM 对齐：不写 `@grant` 的老脚本（GM 1.0 时代常见）在 TM 里同样会 `ReferenceError`，我们**不替它推断权限**。自产脚本由 `spec-text` 强制写全清单，样例包也一律写全。
 
 ## 五、本扩展自有（标准里无对应物）
 
@@ -86,10 +93,28 @@
 
 ## 六、补一个 API 时要动的地方
 
-1. `src/lib/gm-grants.ts` —— 加 grant 与成员映射；
-2. `src/lib/userscripts/gm-wrapper.ts` —— 注入体里挂载实现；
-3. `src/lib/gm-api-catalog.ts` —— 速查页条目（含降级项说明）；
-4. `src/lib/offscreen-chat/spec-text.ts` —— 规范文本，以及把不再成立的条目从「明确不支持」里删掉；
-5. 本文件 —— 从「缺失」移到「覆盖面」，或更新降级描述。
+> 每一处都有门禁拦着，漏了会红（不会静默漂）—— 红在哪，就说明漏了哪一处。
 
-第 4 步最容易被漏：AI 写脚本只看规范文本，实现了但没从「明确不支持」里摘掉，等于没实现。
+1. `src/lib/gm-grants.ts` —— 加 grant 与成员映射（这一处一动，注入面裁剪立刻生效）；
+2. `src/lib/userscripts/api-contract.ts` —— 脚本面类型声明两处（`GmGlobalFns` 全局形态 + `GmApiNamespace` 的 `GM.*` 形态）；需要新桥命令时也在这里登记；
+3. `src/lib/userscripts/gm-wrapper.ts` —— 注入体里挂载实现（全局 + `GM.*` 两个形态）；
+4. `src/lib/gm-api-catalog.ts` —— 速查页条目（含降级项说明）；
+5. `src/lib/offscreen-chat/spec-text.ts` —— 规范文本，以及把不再成立的条目从「明确不支持」里删掉（能力清单由能力数据自动生成，手写的只有「明确不支持」段）；
+6. `uscript-samples/gm-matrix/script.js` —— 真机矩阵探针：`@grant` 清单写全 + 顶部 `@covers` 登记 + 用例本身；
+7. `e2e/gm-matrix.spec.ts` —— 矩阵条目数期望值（增删用例时同步）；
+8. 本文件 —— 从「缺失」移到「覆盖面」，或更新降级描述。
+
+第 5 步最容易被漏：AI 写脚本只看规范文本，实现了但没从「明确不支持」里摘掉，等于没实现。
+第 6／7 步漏掉时的信号**长得不像「漏了一处」**：coverage 单测报「目录里有、矩阵探针没覆盖的路径」，
+端测报「矩阵条目数变了」—— 两次都容易被当成「测试里那个数字过期了」顺手改掉，
+而不是意识到「有个 API 还没被真机验过」。
+
+> 补的是 **window 级成员**（`window.close` / `window.focus` 这类）时，另有两处测试设施要顺手跟上：
+> ① `gm-api-catalog.test.ts` 的全局反射只认 `GM_HAS.X` 赋值形态，`defineProperty` 挂上 window 的要加进它那份
+> 特例清单，并补一条「确实被挂载」的反向断言；② `spec-text.test.ts` 的成员提取器按 gm-grants 里的 window 名单
+> 逐个查文本（新增成员自动跟上）—— 别把它改成通配正则，否则 `window.addEventListener` 这类无关写法会被当成能力引用。
+>
+> 补的是**对象型全局**（`GM_cookie` / `GM_audio` 这类，成员是方法而非函数）时：注入体里要写成**具名对象**
+> `var __gmXxxApi = { … }`（内联字面量反射取不到），并在 `gm-api-catalog.test.ts` 的 `OBJECT_BLOCKS` 里登记
+> 「定义块标记 → 路径前缀」。另外桥命令名**一律写字面量**：契约一致性单测按字面量反射「谁发了这条命令」，
+> `{ c: cond ? 'a.x' : 'a.y' }` 这种拼出来的名字会被判成「没人发的死命令」。

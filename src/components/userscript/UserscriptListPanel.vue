@@ -16,6 +16,7 @@ import {
   FileQuestion as UiFileQuestion,
   FolderInput as UiFolderInput,
   FolderPlus as UiFolderPlus,
+  Link as UiLink,
   ListFilter as UiListFilter,
   LoaderCircle as UiLoaderCircle,
   Move as UiMove,
@@ -67,6 +68,8 @@ import { useDataSync } from '@/composables/use-data-sync'
 import { fsClient, subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
 import { looksLikeZip, toFileUrl } from '@/lib/userscripts/local-path'
 import { base64ToBytes, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
+import { inspectFetchedText, toScriptUrl } from '@/lib/userscripts/script-url'
+import { parseUserScriptMetadata } from '@/lib/userscripts/metadata'
 import type { BuildPhase } from '@/shared/extension-ipc'
 import type {
   ImportReport,
@@ -511,6 +514,24 @@ const pasteError = ref('')
 /** 「允许访问文件网址」开关状态：null = 探测不到（不据此拦人，只少给一句提示） */
 const fileAccessAllowed = ref<boolean | null>(null)
 
+// —— 从链接导入 ——
+// 第四种取内容方式：内容在别处（Gist / 仓库 / 静态托管的 .user.js），把它抓回来。
+// 与前三处的差别是**抓回来之前不知道是什么**，故这条分两步：先取回、看清装的是什么
+// （脚本名 / 匹配规则 / 兼容性体检），再落盘；zip 与粘贴是一步（内容已在手上，报告里说清即可）。
+
+/** 从链接导入弹窗是否打开 */
+const linkImportOpen = ref(false)
+/** 链接输入框内容 */
+const importLink = ref('')
+/** 链接导入的即时错误：地址非法 / 抓不到 / 抓回的不是脚本，就地展示在输入框下 */
+const linkError = ref('')
+/** 抓取中（防连点 + 按钮转圈） */
+const linkFetching = ref(false)
+/** 已取回的源码：非 null 即弹窗进「已取回」态（主按钮从「获取」变「安装」） */
+const fetchedCode = ref<string | null>(null)
+/** 已取回源码的 metadata 摘要（复述「装的是什么」；无块时为 null） */
+const fetchedMeta = computed(() => (fetchedCode.value ? parseUserScriptMetadata(fetchedCode.value) : null))
+
 function askExportSingle(s: ScriptSummary): void {
   pendingExport.value = { kind: 'single', summary: s }
 }
@@ -708,6 +729,83 @@ async function confirmPasteImport(): Promise<void> {
     pasteImportOpen.value = false
   } catch (err) {
     pasteError.value = '导入失败：' + (err instanceof Error ? err.message : String(err))
+  } finally {
+    importing.value = false
+  }
+}
+
+/** 打开「从链接导入」弹窗：每次打开都清空上次的地址、错误与已取回内容 */
+function openLinkImport(): void {
+  importLink.value = ''
+  linkError.value = ''
+  fetchedCode.value = null
+  linkImportOpen.value = true
+}
+
+/**
+ * 从链接取回脚本源码：地址归一 → fetch → 内容形状自检 → 停在「已取回」态。
+ *
+ * 取回后**不自动落盘**：装之前先让用户看清装的是什么（外部来源，先审后启）。
+ * 失败一律就地报在输入框下、不关弹窗 —— 地址还在框里，关掉等于让人重敲一遍。
+ */
+async function fetchFromLink(): Promise<void> {
+  if (linkFetching.value) return
+  linkError.value = ''
+  const target = toScriptUrl(importLink.value)
+  if (!target.ok) {
+    linkError.value = target.reason
+    return
+  }
+  linkFetching.value = true
+  try {
+    const res = await fetch(target.url)
+    // 「地址错了」与「网络不通」要分开说：用户的自纠动作完全不同（改地址 vs 查网络 / 换来源）
+    if (!res.ok) {
+      linkError.value =
+        res.status === 404
+          ? '这个地址不存在（服务端返回 404）：确认链接没写错、内容没被删'
+          : `抓取失败：服务端返回 ${res.status}`
+      return
+    }
+    const text = await res.text()
+    const shape = inspectFetchedText(text)
+    if (!shape.ok) {
+      linkError.value = shape.reason
+      return
+    }
+    fetchedCode.value = text
+  } catch (err) {
+    // 域名解析不了 / 连接被拒 / 被拦截都落在这里：浏览器给的原因已是最准的，不另编一句
+    linkError.value = '抓取失败：' + (err instanceof Error ? err.message : String(err))
+  } finally {
+    linkFetching.value = false
+  }
+}
+
+/**
+ * 取回→输入态（「重新填写」）：清掉已取回内容与报错，地址框解锁、主按钮回到「获取」。
+ * 地址**保留**在框里 —— 多半是地址写错要改一个字符，清空等于让人重敲一遍。
+ */
+function onRefillLink(): void {
+  fetchedCode.value = null
+  linkError.value = ''
+}
+
+/**
+ * 确认安装：把已取回的源码送进与粘贴导入**完全相同**的落盘链路（userscript:importText →
+ * offscreen 单写方），于是导入报告、指纹去重提示、「刚导入 · 未启用」标全部一致。
+ */
+async function confirmLinkImport(): Promise<void> {
+  if (importing.value || !fetchedCode.value) return
+  importing.value = true
+  linkError.value = ''
+  importedFrom.value = importLink.value.trim() // 报告里复述来源（链接是说得清来源的那种入口）
+  try {
+    await finishImport(await userscriptClient.importText(fetchedCode.value))
+    linkImportOpen.value = false
+    fetchedCode.value = null
+  } catch (err) {
+    linkError.value = '导入失败：' + (err instanceof Error ? err.message : String(err))
   } finally {
     importing.value = false
   }
@@ -929,7 +1027,7 @@ useDataSync('group', () => refreshGroups())
               <ui-tooltip-content>刷新列表</ui-tooltip-content>
             </ui-tooltip>
           </ui-tooltip-provider>
-          <!-- 导入：三种取内容方式（文件选择器 / 手输本地路径 / 粘贴源码），拿到内容之后链路完全共用。
+          <!-- 导入：四种取内容方式（文件选择器 / 手输本地路径 / 粘贴源码 / 从链接获取），拿到内容之后链路完全共用。
                触发按钮用原生 title、不套 Tooltip —— Tooltip 与 DropdownMenuTrigger 不能叠
                （menu popper 会失去定位，见 AGENTS.md 的 UI 复用约束）。 -->
           <ui-dropdown-menu>
@@ -938,7 +1036,7 @@ useDataSync('group', () => refreshGroups())
                 variant="ghost"
                 size="sm"
                 class="h-7 gap-1 px-2.5 text-xs"
-                title="导入脚本（选择文件、输入路径或粘贴源码）"
+                title="导入脚本（文件、路径、源码或链接）"
                 :disabled="importing"
               >
                 <ui-loader-circle v-if="importing" class="size-3.5 animate-spin" />
@@ -959,6 +1057,10 @@ useDataSync('group', () => refreshGroups())
               <ui-dropdown-menu-item @click="openPasteImport">
                 <ui-clipboard-paste class="size-3.5" />
                 粘贴脚本代码…
+              </ui-dropdown-menu-item>
+              <ui-dropdown-menu-item @click="openLinkImport">
+                <ui-link class="size-3.5" />
+                从链接导入…
               </ui-dropdown-menu-item>
             </ui-dropdown-menu-content>
           </ui-dropdown-menu>
@@ -1526,6 +1628,94 @@ useDataSync('group', () => refreshGroups())
           >
             <ui-loader-circle v-if="importing" class="size-3.5 animate-spin" />
             {{ importing ? '导入中…' : '导入' }}
+          </ui-button>
+        </ui-dialog-footer>
+      </ui-dialog-content>
+    </ui-dialog>
+
+    <!-- 从链接导入：地址在别处（Gist / 仓库 / 静态托管的 .user.js），抓回来再落盘。
+         与另外三条差一步：先取回、看清装的是什么（脚本名 / 匹配规则 / 兼容性体检），再安装
+         —— 外部来源先审后启（见 fetchFromLink / confirmLinkImport） -->
+    <ui-dialog
+      :open="linkImportOpen"
+      @update:open="(v: boolean) => { if (!v) linkImportOpen = false }"
+    >
+      <ui-dialog-content class="max-h-[calc(100vh-2rem)] max-w-lg overflow-y-auto">
+        <ui-dialog-title class="text-base font-semibold">从链接导入</ui-dialog-title>
+        <ui-dialog-description class="text-sm text-muted-foreground">
+          填脚本源码的直链（http / https），如 https://example.com/x.user.js。
+        </ui-dialog-description>
+        <div class="mt-3">
+          <!-- placeholder 只作动作型轻提示、不给示例地址：示例长得像已填好的值，
+               会让人直接去点「获取」（与「从路径导入」同一个坑） -->
+          <ui-input
+            v-model="importLink"
+            data-testid="link-import-input"
+            placeholder="粘贴或输入脚本地址"
+            aria-label="脚本地址"
+            spellcheck="false"
+            autocomplete="off"
+            :disabled="importing || linkFetching || !!fetchedCode"
+            @keydown.enter="fetchedCode ? confirmLinkImport() : fetchFromLink()"
+          />
+          <p
+            v-if="linkError"
+            class="mt-2 whitespace-pre-wrap break-all text-xs text-destructive"
+          >{{ linkError }}</p>
+
+          <!-- 已取回：先说清装的是什么（元数据摘要），再给体检结论；取回态下地址框锁住，
+               要换地址得先「重新填写」 -->
+          <div v-if="fetchedCode" class="mt-3 rounded-md border p-2">
+            <p class="text-xs font-medium">
+              {{ fetchedMeta?.name ?? '（源码未声明脚本名，导入后按自动编号取名）' }}
+              <span v-if="fetchedMeta?.version" class="text-muted-foreground">· {{ fetchedMeta.version }}</span>
+              <span v-if="fetchedMeta?.author" class="text-muted-foreground">· {{ fetchedMeta.author }}</span>
+            </p>
+            <p class="mt-0.5 text-xs text-muted-foreground">
+              <template v-if="fetchedMeta?.matches.length">匹配 {{ fetchedMeta.matches.length }} 条规则</template>
+              <template v-else-if="fetchedMeta?.includes.length">未写 @match，导入后按 @include 转换</template>
+              <template v-else>未声明匹配规则：装上也不会注入任何页面</template>
+            </p>
+          </div>
+        </div>
+        <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
+          <ui-button
+            variant="ghost"
+            size="sm"
+            :disabled="importing || linkFetching"
+            @click="linkImportOpen = false"
+          >
+            取消
+          </ui-button>
+          <ui-button
+            v-if="fetchedCode"
+            variant="ghost"
+            size="sm"
+            data-testid="link-import-refill"
+            :disabled="importing"
+            @click="onRefillLink"
+          >
+            重新填写
+          </ui-button>
+          <ui-button
+            v-if="!fetchedCode"
+            size="sm"
+            data-testid="link-import-fetch"
+            :disabled="linkFetching || !importLink.trim()"
+            @click="fetchFromLink"
+          >
+            <ui-loader-circle v-if="linkFetching" class="size-3.5 animate-spin" />
+            {{ linkFetching ? '获取中…' : '获取' }}
+          </ui-button>
+          <ui-button
+            v-else
+            size="sm"
+            data-testid="link-import-install"
+            :disabled="importing"
+            @click="confirmLinkImport"
+          >
+            <ui-loader-circle v-if="importing" class="size-3.5 animate-spin" />
+            {{ importing ? '导入中…' : '安装' }}
           </ui-button>
         </ui-dialog-footer>
       </ui-dialog-content>

@@ -13,7 +13,13 @@ type Listener = (raw: unknown, sender: unknown, sendResponse: (r: ApiResponse) =
 let listeners: Listener[]
 let sendToBridge: (req: ApiRequest, uuid?: string) => Promise<ApiResponse>
 let fetchMock: ReturnType<typeof vi.fn>
-let tabsMocks: { create: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> }
+let tabsMocks: {
+  create: ReturnType<typeof vi.fn>
+  remove: ReturnType<typeof vi.fn>
+  update: ReturnType<typeof vi.fn>
+  get: ReturnType<typeof vi.fn>
+  query: ReturnType<typeof vi.fn>
+}
 let windowUpdate: ReturnType<typeof vi.fn>
 let cookiesMocks: {
   get: ReturnType<typeof vi.fn>
@@ -63,7 +69,7 @@ beforeEach(async () => {
   vi.resetModules() // initDlBridge 有模块级 initialized 幂等标志，重置后每次都能重新注册
   listeners = []
   fetchMock = vi.fn()
-  tabsMocks = { create: vi.fn(), remove: vi.fn(), update: vi.fn() }
+  tabsMocks = { create: vi.fn(), remove: vi.fn(), update: vi.fn(), get: vi.fn(), query: vi.fn() }
   windowUpdate = vi.fn()
   cookiesMocks = {
     get: vi.fn(async () => chromeCookie()),
@@ -310,11 +316,22 @@ describe('GM tabs', () => {
     expect(resp).toEqual({ ok: true, data: 7 })
   })
 
-  it('tabs.close 调 chrome.tabs.remove', async () => {
+  it('tabs.close 调 chrome.tabs.remove（非最后一个标签页）', async () => {
+    // window.close 的落点：先取 tab 拿 windowId、再数同窗口兄弟 —— 最后一个不许关（对齐 TM）
+    tabsMocks.get.mockResolvedValue({ id: 7, windowId: 3 })
+    tabsMocks.query.mockResolvedValue([{ id: 7 }, { id: 8 }])
     tabsMocks.remove.mockResolvedValue(undefined)
     const resp = await sendToBridge({ c: 'tabs.close', tabId: 7 })
     expect(tabsMocks.remove).toHaveBeenCalledWith(7)
     expect(resp).toEqual({ ok: true, data: undefined })
+  })
+
+  it('tabs.close 拒绝关窗口的最后一个标签页（TM 同款限制）', async () => {
+    tabsMocks.get.mockResolvedValue({ id: 7, windowId: 3 })
+    tabsMocks.query.mockResolvedValue([{ id: 7 }])
+    const resp = await sendToBridge({ c: 'tabs.close', tabId: 7 })
+    expect(tabsMocks.remove).not.toHaveBeenCalled()
+    expect(resp.ok).toBe(false)
   })
 
   it('tabs.focus 激活标签页并聚焦所在窗口', async () => {

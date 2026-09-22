@@ -6,6 +6,9 @@
 // @grant        GM_setValue
 // @grant        GM_deleteValue
 // @grant        GM_listValues
+// @grant        GM_getValues
+// @grant        GM_setValues
+// @grant        GM_deleteValues
 // @grant        GM_addValueChangeListener
 // @grant        GM_removeValueChangeListener
 // @grant        GM_registerMenuCommand
@@ -22,6 +25,9 @@
 // @grant        GM_saveTab
 // @grant        GM_getTabs
 // @grant        GM_cookie
+// @grant        GM_audio
+// @grant        window.close
+// @grant        window.focus
 // ==/UserScript==
 // GM 可用性矩阵：**逐个 API** 做一次最小真实调用，把结果铺成一张表。
 //
@@ -70,6 +76,8 @@
 // @covers GM.setValue → GM.getValue（异步过桥） :: GM.setValue GM.getValue
 // @covers GM_listValues / GM.listValues :: GM_listValues GM.listValues
 // @covers GM_deleteValue / GM.deleteValue :: GM_deleteValue GM.deleteValue
+// @covers 批量读写删（同步形态） :: GM_getValues GM_setValues GM_deleteValues
+// @covers 批量读写删（Promise 形态） :: GM.getValues GM.setValues GM.deleteValues
 // @covers GM_addValueChangeListener / GM_removeValueChangeListener :: GM_addValueChangeListener GM_removeValueChangeListener
 // @covers GM.addValueChangeListener / GM.removeValueChangeListener :: GM.addValueChangeListener GM.removeValueChangeListener
 // @covers GM_xmlhttpRequest（回调形态） :: GM_xmlhttpRequest
@@ -88,6 +96,9 @@
 // @covers GM.page.fetchHook（页面 fetch 拦截） :: GM.page.fetchHook
 // @covers GM_registerMenuCommand / GM_unregisterMenuCommand :: GM_registerMenuCommand GM_unregisterMenuCommand GM.registerMenuCommand GM.unregisterMenuCommand
 // @covers GM.clearValues（扩展独有） :: GM.clearValues
+// @covers GM_audio.setMute / getState（含 GM.audio 镜像） :: GM_audio.setMute GM_audio.getState GM_audio GM.audio
+// @covers GM_audio 状态监听 :: GM_audio.addStateChangeListener GM_audio.removeStateChangeListener
+// @covers window.close / window.focus（@grant 项） :: window.close window.focus
 ;(function () {
   'use strict'
 
@@ -458,6 +469,50 @@
       : fail('本地=' + syncLocal + ' 过桥=' + syncBridge + ' 异步=' + asyncGone)
   })
 
+  add('存储', '批量读写删（同步形态）', function () {
+    // 同步形态是 fire-and-forget（本地缓存先改、桥不等应答），故这里只验**本地快照**是否立刻正确
+    // ——落盘正确性归下面那条 Promise 形态的用例验（同 deleteValue 用例的坑，见那里的长注释）。
+    var ka = PFX + 'ba', kb = PFX + 'bb'
+    var batch = {}
+    batch[ka] = 1
+    batch[kb] = 2
+    GM_setValues(batch)
+    var picked = GM_getValues([ka, PFX + 'missing'])
+    var whole = GM_getValues()
+    var defaults = {}
+    defaults[ka] = 99
+    defaults[PFX + 'missing'] = 9
+    var filled = GM_getValues(defaults)
+    GM_deleteValues([ka, kb])
+    var after = GM_getValues()
+    return picked[ka] === 1 && !(PFX + 'missing' in picked) && whole[kb] === 2 &&
+      filled[ka] === 1 && filled[PFX + 'missing'] === 9 && !(ka in after) && !(kb in after)
+      ? pass('数组只回存在的键 / 默认值对象补缺 / 无参取全量 / 批量删本地立即可见')
+      : fail('picked=' + JSON.stringify(picked) + ' filled=' + JSON.stringify(filled) + ' after=' + JSON.stringify(after))
+  })
+
+  add('存储', '批量读写删（Promise 形态）', async function () {
+    // 异步形态读的是后台真值，能证明批量写真的落了盘（且是一个事务）
+    var ka = PFX + 'p1', kb = PFX + 'p2'
+    var batch = {}
+    batch[ka] = 'a'
+    batch[kb] = 'b'
+    await GM.setValues(batch)
+    var byKeys = await GM.getValues([ka, kb, PFX + 'pMissing'])
+    var defaults = {}
+    defaults[ka] = '__default__'
+    defaults[PFX + 'pMissing'] = 9
+    var filled = await GM.getValues(defaults)
+    var whole = await GM.getValues()
+    await GM.deleteValues([ka, kb])
+    var after = await GM.getValues([ka, kb])
+    return byKeys[ka] === 'a' && byKeys[kb] === 'b' && !(PFX + 'pMissing' in byKeys) &&
+      filled[ka] === 'a' && filled[PFX + 'pMissing'] === 9 && whole[ka] === 'a' &&
+      Object.keys(after).length === 0
+      ? pass('过桥读写：数组 / 默认值对象 / 无参 / 批量删都正确')
+      : fail('byKeys=' + JSON.stringify(byKeys) + ' filled=' + JSON.stringify(filled) + ' after=' + JSON.stringify(after))
+  })
+
   add('存储', 'GM_addValueChangeListener / GM_removeValueChangeListener', async function () {
     var seen = []
     var id = GM_addValueChangeListener(K, function (key, oldV, newV, remote) {
@@ -597,6 +652,43 @@
     if (typeof GM.focusTab !== 'function') throw new Error('GM.focusTab 未挂载')
     await GM.focusTab(Number(ids[0]))
     return pass('已激活 tabId=' + ids[0])
+  })
+
+  add('系统能力', 'GM_audio.setMute / getState（含 GM.audio 镜像）', async function () {
+    // 无头下静音没有声音副作用。验「设了能按当前标签页读回」+ GM.audio 镜像同样可用。
+    await GM_audio.setMute({ isMuted: true })
+    var muted = await GM_audio.getState()
+    await GM.audio.setMute({ isMuted: false })
+    var after = await GM.audio.getState()
+    await GM_audio.setMute({ isMuted: false }) // 收尾：别把测试标签页留在静音态
+    return muted.isMuted === true && after.isMuted === false
+      ? pass('静音后读回 true、取消后读回 false（两种形态都通）')
+      : fail('muted=' + JSON.stringify(muted) + ' after=' + JSON.stringify(after))
+  })
+
+  add('系统能力', 'GM_audio 状态监听', async function () {
+    var got = []
+    function onAudio(e) { got.push(e) }
+    await GM_audio.addStateChangeListener(onAudio)
+    await GM_audio.setMute({ isMuted: true })
+    await sleep(500) // 等 chrome.tabs.onUpdated 经 Port 推回来
+    await GM_audio.removeStateChangeListener(onAudio)
+    // 帧形状照 TM：muted 是原因字符串或 false（不是布尔）；这里只验收到且带 muted 字段
+    var saw = got.length > 0 && 'muted' in got[0]
+    return saw
+      ? pass('收到状态变化帧：' + JSON.stringify(got[0]))
+      : fail('没收到变化帧（got=' + JSON.stringify(got) + '）')
+  })
+
+  add('系统能力', 'window.close / window.focus（@grant 项）', function () {
+    // window.close **不能真调**（会关掉本页、面板随之消失，结果就测不到了）——它的端到端行为由
+    // dl-bridge 单测覆盖（关当前标签页 / 拒绝关窗口的最后一个）。这里只验「增强版确实挂上了」，
+    // 判据只能靠**反射**：原生本身也有这两个同名函数，所以看挂上去的是不是我们的转发实现。
+    var closeSrc = String(window.close)
+    var focusSrc = String(window.focus)
+    var ours = closeSrc.indexOf('tabs.close') >= 0 && focusSrc.indexOf('tabs.focus') >= 0
+    try { window.focus() } catch (e) { return fail('window.focus() 抛异常：' + ((e && e.message) || e)) }
+    return ours ? pass('两项都挂上了（window.focus() 调用无异常）') : fail('挂上的不是增强版：' + closeSrc.slice(0, 60))
   })
 
   add('系统能力', 'GM_download / GM.download', async function () {

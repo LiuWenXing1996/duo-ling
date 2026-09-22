@@ -43,13 +43,33 @@ function reflectNs(): string[] {
   return [...out].sort()
 }
 
-/** `GM_cookie` 的方法（对象成员，类型层取不到，从 `__gmCookie` 定义块反射） */
-function reflectCookieMethods(): string[] {
-  const i = WRAPPER_SRC.indexOf('var __gmCookie = {')
-  const j = WRAPPER_SRC.indexOf(ASSEMBLY_MARK)
-  if (i < 0 || j < i) throw new Error('gm-wrapper.ts 里找不到 __gmCookie 定义块')
-  const block = WRAPPER_SRC.slice(i, j)
-  return [...block.matchAll(/^\s{4}(\w+): function/gm)].map((m) => `GM_cookie.${m[1]!}`).sort()
+/**
+ * 对象型全局的方法（`GM_cookie.list` / `GM_audio.setMute`…）：类型层取不到，
+ * 从包装层里的对象定义块反射。**块尾按「下一个块的起点」切**，不用固定标记 ——
+ * 否则块内一旦出现同缩进的闭合括号就会提前截断、漏掉后面的方法。
+ */
+const OBJECT_BLOCKS: Array<[mark: string, prefix: string]> = [
+  ['var __gmCookie = {', 'GM_cookie'],
+  ['var __gmAudioApi = {', 'GM_audio'],
+]
+
+function reflectObjectMethods(): string[] {
+  const assemblyAt = WRAPPER_SRC.indexOf(ASSEMBLY_MARK)
+  if (assemblyAt < 0) throw new Error(`gm-wrapper.ts 里找不到装配块锚点：${ASSEMBLY_MARK}`)
+  const blocks = OBJECT_BLOCKS.map(([mark, prefix]) => {
+    const i = WRAPPER_SRC.indexOf(mark)
+    if (i < 0) throw new Error(`gm-wrapper.ts 里找不到对象定义块：${mark}`)
+    return { i, prefix }
+  }).sort((a, b) => a.i - b.i)
+
+  const out: string[] = []
+  for (let k = 0; k < blocks.length; k++) {
+    const from = blocks[k]!.i
+    const to = k + 1 < blocks.length ? blocks[k + 1]!.i : assemblyAt
+    const block = WRAPPER_SRC.slice(from, to)
+    out.push(...[...block.matchAll(/^\s{4}(\w+): function/gm)].map((m) => `${blocks[k]!.prefix}.${m[1]!}`))
+  }
+  return out.sort()
 }
 
 /** `GM.page` 的两个方法：包装里的 `__gmPageApi` 定义块（缩进 4 空格） */
@@ -69,20 +89,26 @@ describe('gm-api-catalog 与真实注入的 GM 面一致', () => {
     const runtime = [
       ...reflectGlobals(),
       ...nsNames.filter((n) => n !== 'page').map((n) => `GM.${n}`),
-      ...reflectCookieMethods(),
+      ...reflectObjectMethods(),
       ...reflectPagePaths(),
       'unsafeWindow',
       'window.onurlchange',
+      // window 级 @grant 项：走 defineProperty 挂载，不在 `GM_HAS.X` 赋值反射里
+      'window.close',
+      'window.focus',
     ].sort()
     const catalog = GM_API_ENTRIES.map((e) => e.path).sort()
     expect(runtime.length).toBeGreaterThan(40)
     expect(catalog).toEqual(runtime)
   })
 
-  it('两条**不在赋值反射里**的成员确实被挂载（unsafeWindow 走局部声明，onurlchange 走 defineProperty）', () => {
+  it('不在赋值反射里的成员确实被挂载（局部声明 / defineProperty 两条路径）', () => {
     // 反向断言：unsafeWindow 走局部声明（MAIN 世界下它就是 window），不是挂到 window 上的属性
     expect(WRAPPER_SRC).toContain('var unsafeWindow = window')
     expect(WRAPPER_SRC).toContain("Object.defineProperty(window, 'onurlchange'")
+    // window.close / window.focus 是 @grant 项，挂的同样是 window 属性（由 GM_HAS 决定挂不挂）
+    expect(WRAPPER_SRC).toContain("Object.defineProperty(window, 'close'")
+    expect(WRAPPER_SRC).toContain("Object.defineProperty(window, 'focus'")
   })
 
   it('每条都有签名 / 说明 / 返回说明，且 signature 能认出自己', () => {

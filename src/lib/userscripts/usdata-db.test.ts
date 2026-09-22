@@ -6,14 +6,17 @@ import {
   clearAllForTests,
   clearGmValues,
   deleteGmValue,
+  deleteGmValues,
   deleteTabsByTabId,
   getGmValue,
+  getGmValues,
   getTabValue,
   listGmKeys,
   listTabValues,
   pruneTabsNotIn,
   putTabValue,
   setGmValue,
+  setGmValues,
 } from './usdata-db'
 
 beforeEach(async () => {
@@ -55,6 +58,31 @@ describe('gm store（GM 值存储）', () => {
 
   it('clearGmValues 对无数据的脚本返回空数组', async () => {
     await expect(clearGmValues('ghost')).resolves.toEqual([])
+  })
+
+  it('setGmValues / getGmValues：批量写读，不存在的键不出现在结果里', async () => {
+    await setGmValues('u1', { a: 1, b: { x: [2] } })
+    await expect(getGmValues('u1', ['a', 'b', 'nope'])).resolves.toEqual({ a: 1, b: { x: [2] } })
+    await expect(listGmKeys('u1')).resolves.toEqual(['a', 'b'].sort())
+  })
+
+  it('批量函数的空输入短路（不落盘、不报错，也不产生多余事务）', async () => {
+    await expect(setGmValues('u1', {})).resolves.toBeUndefined()
+    await expect(getGmValues('u1', [])).resolves.toEqual({})
+    await expect(deleteGmValues('u1', [])).resolves.toEqual([])
+  })
+
+  it('deleteGmValues 只回真删掉的键与它们的旧值（不存在的键不进结果）', async () => {
+    await setGmValues('u1', { a: 1, b: 2 })
+    await expect(deleteGmValues('u1', ['a', 'ghost'])).resolves.toEqual([{ key: 'a', oldValue: 1 }])
+    await expect(listGmKeys('u1')).resolves.toEqual(['b'])
+  })
+
+  it('批量写删按 uuid 隔离（不串到别的脚本）', async () => {
+    await setGmValue('u2', 'a', 'keep')
+    await setGmValues('u1', { a: 1 })
+    await deleteGmValues('u1', ['a'])
+    await expect(getGmValue('u2', 'a')).resolves.toBe('keep')
   })
 })
 

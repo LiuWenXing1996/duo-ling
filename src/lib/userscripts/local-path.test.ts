@@ -93,9 +93,9 @@ describe('toFileUrl 拒绝并给人话原因', () => {
     expect(reasonOf('./a.zip')).toBe('请填绝对路径（以 / 开头）')
   })
 
-  it('http(s) 网络地址：本期不做，不静默当本地路径', () => {
-    expect(reasonOf('https://example.com/a.zip')).toContain('网络地址')
-    expect(reasonOf('http://example.com/a.zip')).toContain('网络地址')
+  it('http(s) 网络地址：不静默当本地路径，指到「从链接导入」', () => {
+    expect(reasonOf('https://example.com/a.zip')).toContain('从链接导入')
+    expect(reasonOf('http://example.com/a.zip')).toContain('从链接导入')
   })
 
   it('非 .zip 后缀（与文件选择器的筛选一致）', () => {

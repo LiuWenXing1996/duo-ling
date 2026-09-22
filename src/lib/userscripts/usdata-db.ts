@@ -132,6 +132,65 @@ export async function deleteGmValue(uuid: string, key: string): Promise<void> {
   await withStore(GM_STORE, 'readwrite', (s) => s.delete([uuid, key]))
 }
 
+/** 批量读若干键（同一事务）；不存在的键不出现在结果里（对齐 GM_getValues 数组形态） */
+export async function getGmValues(uuid: string, keys: string[]): Promise<Record<string, unknown>> {
+  if (!keys.length) return {}
+  return runTx(GM_STORE, 'readonly', async (_tx, store) => {
+    const out: Record<string, unknown> = {}
+    for (const key of keys) {
+      const rec = await request<GmRecord | undefined>(store.get([uuid, key]))
+      if (rec) out[key] = rec.value
+    }
+    return out
+  })
+}
+
+/**
+ * 批量写（同一事务，要么全成功要么全失败）。
+ *
+ * 与逐键 `setGmValue` 的差别只在事务粒度：一次落盘，别的标签页看不到「写了一半」的批次
+ * —— 油猴 v5.3 引入多值 API 的理由之一就是这个（另一个是减少 I/O 次数）。
+ */
+export async function setGmValues(uuid: string, entries: Record<string, unknown>): Promise<void> {
+  const keys = Object.keys(entries)
+  if (!keys.length) return
+  await runTx(GM_STORE, 'readwrite', (tx, store) => {
+    for (const key of keys) store.put({ uuid, key, value: entries[key] })
+    return new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error ?? new Error('批量写入脚本数据失败'))
+      tx.onabort = () => reject(tx.error ?? new Error('批量写入脚本数据被中止'))
+    })
+  })
+}
+
+/**
+ * 批量删（同一事务）；返回**真删掉**的键及其旧值。
+ *
+ * 不存在键的删除是幂等的（不报错），但只有**存在过**的键才该发变更事件 ——
+ * 旧值随返回值一起带出，让上层能照单键版的样子发带 `oldValue` 的事件。
+ */
+export async function deleteGmValues(
+  uuid: string,
+  keys: string[],
+): Promise<Array<{ key: string; oldValue: unknown }>> {
+  if (!keys.length) return []
+  return runTx(GM_STORE, 'readwrite', async (tx, store) => {
+    const removed: Array<{ key: string; oldValue: unknown }> = []
+    for (const key of keys) {
+      const rec = await request<GmRecord | undefined>(store.get([uuid, key]))
+      if (!rec) continue
+      store.delete([uuid, key])
+      removed.push({ key, oldValue: rec.value })
+    }
+    return new Promise<Array<{ key: string; oldValue: unknown }>>((resolve, reject) => {
+      tx.oncomplete = () => resolve(removed)
+      tx.onerror = () => reject(tx.error ?? new Error('批量删除脚本数据失败'))
+      tx.onabort = () => reject(tx.error ?? new Error('批量删除脚本数据被中止'))
+    })
+  })
+}
+
 /** 列出某脚本存过的全部键（索引查询，不再全库扫描） */
 export async function listGmKeys(uuid: string): Promise<string[]> {
   const recs = await getAllByUuid<GmRecord>(GM_STORE, uuid)

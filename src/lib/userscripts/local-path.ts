@@ -34,8 +34,10 @@ export function toFileUrl(input: string): LocalPathResult {
 
   if (!p) return { ok: false, reason: '请填写文件路径' }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(p)) {
-    // http(s)/ws 等带主机名的形态：本期只做本地路径，不在这里顺手当 URL 下载
-    return { ok: false, reason: '只支持本地文件路径；网络地址（http/https）暂不支持' }
+    // 带主机名的形态（http/https/ws…）：本入口只管本地路径。网上的**脚本源码**有自己的入口
+    // （「从链接导入」），zip 包仍得先落到本地 —— 不在这里顺手当 http 下载，
+    // 否则同一个入口的产物一半是脚本、一半是 zip，后面每条上报文案都要分叉。
+    return { ok: false, reason: '只支持本地文件路径（.zip）；网上的脚本用「从链接导入」，zip 包需先下载到本地' }
   }
   if (p.startsWith('~')) {
     return { ok: false, reason: '~ 无法展开，请填绝对路径（以 / 开头）' }

@@ -248,6 +248,13 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
       if (nh) { try { nh() } catch (e) { __gmLog('通知点击回调异常', e) } }
     } else if (ev.t === 'url.change') {
       __gmFireUrlChange(ev.url)
+    } else if (ev.t === 'audio.change') {
+      // 只把**帧上真有的键**交给脚本：TM 的监听器靠 'muted' in e / 'audible' in e 区分
+      // 是静音变化还是发声变化，多塞一个 undefined 键就会破坏这个判据。
+      var ae = {}
+      if ('muted' in ev) ae.muted = ev.muted
+      if ('audible' in ev) ae.audible = ev.audible
+      __gmFireAudioChange(ae)
     }
   }
 
@@ -340,6 +347,60 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
       __gmLog((isDelete ? 'GM_deleteValue' : 'GM_setValue') + ' 落盘失败：' + ((e && e.message) || e))
       throw e
     })
+  }
+
+  /**
+   * 批量写 / 批量删（GM_setValues / GM_deleteValues 的底座）。
+   *
+   * 与单键 __gmSetSync 的差别只在**请求次数**：本地镜像仍逐键改（同步读立刻可见），
+   * 落盘走一条 store.setMany / store.deleteMany（服务端一个事务），变更事件在服务端逐键发。
+   * 同步形态（GM_setValues）不关心返回值、失败只记日志；异步形态（GM.setValues）直接返回它。
+   */
+  function __gmSetManySync(input, isDelete) {
+    var keys = isDelete ? (input || []).slice() : Object.keys(input || {})
+    if (!keys.length) return Promise.resolve()
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i]
+      if (isDelete) delete GM_VALUES[k]
+      else GM_VALUES[k] = input[k]
+      __gmPendingWrites[k] = true
+    }
+    var req = isDelete
+      ? { c: 'store.deleteMany', keys: keys, connId: __gmConnId }
+      : { c: 'store.setMany', entries: input, connId: __gmConnId }
+    return __gmSend(req).then(function () {
+      for (var j = 0; j < keys.length; j++) delete __gmPendingWrites[keys[j]]
+    }, function (e) {
+      for (var j = 0; j < keys.length; j++) delete __gmPendingWrites[keys[j]]
+      __gmLog((isDelete ? 'GM_deleteValues' : 'GM_setValues') + ' 落盘失败：' + ((e && e.message) || e))
+      throw e
+    })
+  }
+
+  /**
+   * GM_getValues 的取值口径 —— 同步与异步两个形态**共用这一处**，免得两套语义：
+   *   · 不给参数 → 整份存储；
+   *   · 给键数组 → 只含**存在**的键（不存在的键不出现在结果里，对齐 TM）；
+   *   · 给默认值对象 → 按它补缺，键存在时用真值。
+   * 一律返回**新对象**：绝不把内部镜像透出去（脚本改它不该动到包装层的缓存）。
+   */
+  function __gmPickValues(source, keysOrDefaults) {
+    var out = {}
+    if (keysOrDefaults == null) {
+      for (var k in source) if (Object.prototype.hasOwnProperty.call(source, k)) out[k] = source[k]
+      return out
+    }
+    if (Array.isArray(keysOrDefaults)) {
+      for (var i = 0; i < keysOrDefaults.length; i++) {
+        var key = keysOrDefaults[i]
+        if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = source[key]
+      }
+      return out
+    }
+    for (var d in keysOrDefaults) if (Object.prototype.hasOwnProperty.call(keysOrDefaults, d)) {
+      out[d] = Object.prototype.hasOwnProperty.call(source, d) ? source[d] : keysOrDefaults[d]
+    }
+    return out
   }
 
   // —— 二进制 / FormData 请求体编码（GM_xmlhttpRequest 的 data）——
@@ -753,6 +814,38 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   }
 
   var __gmListenerSeq = 0
+  // —— 音频状态监听（GM_audio.addStateChangeListener）——
+  // TM 用**函数引用**标识监听器（没有 id 机制）：本地就是一张函数数组，由空变非空时订阅、
+  // 非空变空时退订 —— 与值监听同款「按需订阅」，没有监听就不收 audio.change 帧。
+  var __gmAudioHandlers = []
+  var __gmAudioWatching = false
+  function __gmAudioSetWatch(want) {
+    if (want === __gmAudioWatching) return
+    __gmAudioWatching = want
+    // 命令名写成两个字面量（不要用三元拼字符串）—— 契约一致性单测按**字面量**反射
+    // 「哪条命令由谁发出」，拼出来的名字它看不见，会被判成「没人发的死命令」。
+    var req = want ? { c: 'audio.watch', connId: __gmConnId } : { c: 'audio.unwatch', connId: __gmConnId }
+    __gmRegSend(req).catch(function (e) {
+      __gmLog('GM_audio 订阅失败：' + ((e && e.message) || e))
+    })
+  }
+  function __gmAddAudioListener(fn) {
+    __gmAudioHandlers.push(fn)
+    __gmAudioSetWatch(true)
+  }
+  function __gmRemoveAudioListener(fn) {
+    var i = __gmAudioHandlers.indexOf(fn)
+    if (i < 0) return
+    __gmAudioHandlers.splice(i, 1)
+    if (!__gmAudioHandlers.length) __gmAudioSetWatch(false)
+  }
+  function __gmFireAudioChange(ev) {
+    var list = __gmAudioHandlers.slice()
+    for (var i = 0; i < list.length; i++) {
+      try { list[i](ev) } catch (e) { __gmLog('GM_audio 监听回调异常', e) }
+    }
+  }
+
   function __gmAddValueChangeListener(key, cb) {
     var id = ++__gmListenerSeq
     if (!__gmWatchHandlers[key]) __gmWatchHandlers[key] = []
@@ -814,19 +907,50 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     }
   }
 
+  // —— 音频控制（TM v5.0+）：4 个成员都作用于**当前标签页**。回调可省 → 返回 Promise
+  //    （TM 里 getState 的回调是必需的，这里放宽；回调形状照 TM：getState 回状态对象，其余回 error）——
+  var __gmAudioApi = {
+    setMute: function (details, cb) {
+      var p = __gmSend({ c: 'audio.setMute', isMuted: !!(details && details.isMuted) })
+      if (typeof cb === 'function') p.then(function () { cb() }, function (e) { cb((e && e.message) || String(e)) })
+      return p
+    },
+    getState: function (cb) {
+      var p = __gmSend({ c: 'audio.getState' }).then(function (s) { return s || {} })
+      if (typeof cb === 'function') p.then(function (s) { cb(s) }, function (e) { __gmLog('GM_audio.getState 失败：' + ((e && e.message) || e)) })
+      return p
+    },
+    // 订阅登记交给 __gmAddAudioListener：它管「表由空变非空才订阅」的那层节流
+    addStateChangeListener: function (fn, cb) {
+      var p = __gmWaitReady().then(function () { __gmAddAudioListener(fn) })
+      if (typeof cb === 'function') p.then(function () { cb() }, function (e) { cb((e && e.message) || String(e)) })
+      return p
+    },
+    removeStateChangeListener: function (fn, cb) {
+      var p = __gmWaitReady().then(function () { __gmRemoveAudioListener(fn) })
+      if (typeof cb === 'function') p.then(function () { cb() }, function (e) { cb((e && e.message) || String(e)) })
+      return p
+    },
+  }
+
   // —— 组装成员（按 @grant 裁剪：GM_HAS 由注册侧算好）——
   // 全部声明为**局部变量**而非挂 window：同帧多脚本共享一个 window，挂上去会互相覆盖；
   // 而脚本与本包装拼在同一条 code 里（同一函数作用域），按词法即可拿到（见文件头说明）。
   var GM_info, GM_getValue, GM_listValues, GM_setValue, GM_deleteValue,
+      GM_getValues, GM_setValues, GM_deleteValues,
       GM_addValueChangeListener, GM_removeValueChangeListener, GM_registerMenuCommand,
       GM_unregisterMenuCommand, GM_addStyle, GM_addElement, GM_log, GM_notification,
       GM_setClipboard, GM_xmlhttpRequest, GM_download, GM_openInTab, GM_cookie,
-      GM_getTab, GM_saveTab, GM_getTabs
+      GM_audio, GM_getTab, GM_saveTab, GM_getTabs
   if (GM_HAS.GM_info) GM_info = GM_INFO
   if (GM_HAS.GM_getValue) GM_getValue = function (key, def) { __gmEnsureChannel(); return __gmGetSync(key, def) }
   if (GM_HAS.GM_listValues) GM_listValues = function () { __gmEnsureChannel(); return __gmListSync() }
   if (GM_HAS.GM_setValue) GM_setValue = function (key, value) { __gmEnsureChannel(); __gmSetSync(key, value, false).catch(function () {}) }
   if (GM_HAS.GM_deleteValue) GM_deleteValue = function (key) { __gmEnsureChannel(); __gmSetSync(key, undefined, true).catch(function () {}) }
+  // 批量版（同步形态）：读本地镜像、写一条批量命令，语义见 __gmPickValues / __gmSetManySync
+  if (GM_HAS.GM_getValues) GM_getValues = function (keysOrDefaults) { __gmEnsureChannel(); return __gmPickValues(GM_VALUES, keysOrDefaults) }
+  if (GM_HAS.GM_setValues) GM_setValues = function (values) { __gmEnsureChannel(); __gmSetManySync(values, false).catch(function () {}) }
+  if (GM_HAS.GM_deleteValues) GM_deleteValues = function (keys) { __gmEnsureChannel(); __gmSetManySync(keys, true).catch(function () {}) }
   if (GM_HAS.GM_addValueChangeListener) GM_addValueChangeListener = __gmAddValueChangeListener
   if (GM_HAS.GM_removeValueChangeListener) GM_removeValueChangeListener = __gmRemoveValueChangeListener
   if (GM_HAS.GM_registerMenuCommand) GM_registerMenuCommand = __gmRegisterMenu
@@ -840,6 +964,7 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   if (GM_HAS.GM_download) GM_download = function (input, name) { __gmDownload(input, name).catch(function () {}) }
   if (GM_HAS.GM_openInTab) GM_openInTab = __gmOpenInTab
   if (GM_HAS.GM_cookie) GM_cookie = __gmCookie
+  if (GM_HAS.GM_audio) GM_audio = __gmAudioApi
   if (GM_HAS.GM_getTab) GM_getTab = function (cb) {
     __gmSend({ c: 'tab.get' }).then(function (v) { if (typeof cb === 'function') cb(v) }, function (e) { __gmLog('GM_getTab 失败：' + ((e && e.message) || e)); if (typeof cb === 'function') cb(undefined) })
   }
@@ -864,6 +989,19 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   if (GM_HAS.listValues) GM.listValues = function () { return __gmSend({ c: 'store.keys' }) }
   if (GM_HAS.setValue) GM.setValue = function (key, value) { return __gmSetSync(key, value, false) }
   if (GM_HAS.deleteValue) GM.deleteValue = function (key) { return __gmSetSync(key, undefined, true) }
+  // 批量版（异步形态）：读走桥＝**服务端最新**（与 GM.getValue 同口径，不只本地快照）；
+  // 只取请求的键（store.getMany），不像 store.all 那样把整份存储搬过桥。
+  if (GM_HAS.getValues) GM.getValues = function (keysOrDefaults) {
+    var want = keysOrDefaults == null ? null : (Array.isArray(keysOrDefaults) ? keysOrDefaults : Object.keys(keysOrDefaults))
+    if (want === null) {
+      return __gmSend({ c: 'store.all' }).then(function (all) { return __gmPickValues(all || {}, null) })
+    }
+    return __gmSend({ c: 'store.getMany', keys: want }).then(function (found) {
+      return __gmPickValues(found || {}, keysOrDefaults)
+    })
+  }
+  if (GM_HAS.setValues) GM.setValues = function (values) { return __gmSetManySync(values, false) }
+  if (GM_HAS.deleteValues) GM.deleteValues = function (keys) { return __gmSetManySync(keys, true) }
   if (GM_HAS.addValueChangeListener) GM.addValueChangeListener = function (key, cb) { return Promise.resolve(__gmAddValueChangeListener(key, cb)) }
   if (GM_HAS.removeValueChangeListener) GM.removeValueChangeListener = __gmRemoveValueChangeListener
   if (GM_HAS.registerMenuCommand) GM.registerMenuCommand = function (caption, onClick, options) { return __gmWaitReady().then(function () { return __gmRegisterMenu(caption, onClick, options) }) }
@@ -894,6 +1032,9 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   if (GM_HAS.saveTab) GM.saveTab = function (tab) { return __gmSend({ c: 'tab.save', value: tab }) }
   if (GM_HAS.getTabs) GM.getTabs = function () { return __gmSend({ c: 'tab.all' }).then(function (v) { return v || {} }) }
 
+  // GM.audio：与全局 GM_audio 是同一套方法（本来都返回 Promise），直接复用同一对象，不另写一份
+  if (GM_HAS.audio) GM.audio = __gmAudioApi
+
   // 本扩展成员（非标准，速查页与自产 .d.ts 已标注）：恒注入，不属于任何 @grant
   GM.clearValues = function () { return __gmSend({ c: 'store.clear', connId: __gmConnId }).then(function () {
     GM_VALUES = {}
@@ -916,6 +1057,39 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
       set: function (fn) { __gmUrlChangeHandler = typeof fn === 'function' ? fn : null }
     })
   } catch (e) {}
+
+  // —— window.close / window.focus（TM 把「关 / 聚焦当前标签页」也当 @grant 项）。
+  //    挂到 window 上是安全的：本扩展跑在隔离的 USER_SCRIPT 世界，改的不是页面的 window；
+  //    同世界多脚本共享这两个成员，但它们都只是无状态转发，互相覆盖无害。
+  //    window.close 的失败（例如「窗口的最后一个标签页」）只记日志 —— 与原生一样是同步无返回，
+  //    调用方拿不到错误，写 __gmLog 是为了让它别静默消失。——
+  if (GM_HAS['window.close']) {
+    try {
+      Object.defineProperty(window, 'close', {
+        configurable: true,
+        writable: true,
+        value: function () {
+          __gmRegSend({ c: 'tabs.close' }).catch(function (e) {
+            __gmLog('window.close 失败：' + ((e && e.message) || e))
+          })
+        },
+      })
+    } catch (e) { __gmLog('window.close 挂载失败：' + ((e && e.message) || e)) }
+  }
+  if (GM_HAS['window.focus']) {
+    try {
+      Object.defineProperty(window, 'focus', {
+        configurable: true,
+        writable: true,
+        value: function () {
+          __gmRegSend({ c: 'tabs.focus' }).catch(function (e) {
+            __gmLog('window.focus 失败：' + ((e && e.message) || e))
+          })
+        },
+      })
+    } catch (e) { __gmLog('window.focus 挂载失败：' + ((e && e.message) || e)) }
+  }
+
   // —— URL 变化：MAIN 世界直接本地检测（hook history + popstate / hashchange）。
   //    不再经 SW 推：脚本与页面同处一个世界，自己能听见路由变化——省一条跨世界通道，
   //    也避免了「拦 window.addEventListener 做本地转发」那套对页面热路径方法的覆盖。——

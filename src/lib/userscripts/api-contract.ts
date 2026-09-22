@@ -277,6 +277,11 @@ export type ApiRequest =
   // 全量快照：注入时的「值校准」与未来 GM_getValues 共用（避免逐键往返）
   | { c: 'store.all' }
   | { c: 'store.clear'; connId?: string }
+  // 批量版（GM_getValues / GM_setValues / GM_deleteValues 的落点）：读写各一条命令，
+  // 落盘在一个事务里；变更事件仍逐键发（见 store.ts）
+  | { c: 'store.getMany'; keys: string[] }
+  | { c: 'store.setMany'; entries: Record<string, Json>; connId?: string }
+  | { c: 'store.deleteMany'; keys: string[]; connId?: string }
   // 网络
   | { c: 'fetch'; url: string; init?: FetchInit }
   // 中止一次在飞行的 fetch（GM_xmlhttpRequest 的 abort()）；找不到 requestId 视为已结束
@@ -291,8 +296,15 @@ export type ApiRequest =
   | { c: 'notify'; message: string; title?: string; icon?: string }
   | { c: 'download'; url: string; name?: string }
   | { c: 'tabs.open'; url: string; active?: boolean }
-  | { c: 'tabs.close'; tabId: number }
-  | { c: 'tabs.focus'; tabId: number }
+  // tabId 缺省 = 发起命令的那个标签页（`window.close` / `window.focus` 的落点）
+  | { c: 'tabs.close'; tabId?: number }
+  | { c: 'tabs.focus'; tabId?: number }
+  // 音频（`GM_audio`）：作用于**当前标签页**（由 sender.tab.id 定），脚本不必也不该传 tabId。
+  // watch / unwatch 是订阅登记 —— 只有登记过的连接才会收到 audio.change 下行（省掉无谓广播）。
+  | { c: 'audio.setMute'; isMuted: boolean }
+  | { c: 'audio.getState' }
+  | { c: 'audio.watch'; connId: string }
+  | { c: 'audio.unwatch'; connId: string }
   // cookie（需 manifest 的 cookies 权限；域名门见 cookie-gate.ts）
   //   url 必填 —— 缺省语义由包装层填 location.href（SW 里没有「当前页面」概念），
   //   SW 侧不做兜底：url 缺失/非法一律 INVALID_ARG，不静默猜。
@@ -347,9 +359,12 @@ export const API_COMMANDS: Record<ApiRequest['c'], true> = {
   'store.all': true,
   'store.clear': true,
   'store.delete': true,
+  'store.deleteMany': true,
   'store.get': true,
+  'store.getMany': true,
   'store.keys': true,
   'store.set': true,
+  'store.setMany': true,
   'store.unwatch': true,
   'store.watch': true,
   'store.watchAll': true,
@@ -359,6 +374,10 @@ export const API_COMMANDS: Record<ApiRequest['c'], true> = {
   'tabs.close': true,
   'tabs.focus': true,
   'tabs.open': true,
+  'audio.getState': true,
+  'audio.setMute': true,
+  'audio.unwatch': true,
+  'audio.watch': true,
 }
 
 /** 命令名（= `ApiRequest['c']`；`API_COMMANDS` 的键类型） */
@@ -386,6 +405,11 @@ export type ApiEvent =
   | { t: 'notify.click'; id: string }
   /** 当前标签页 URL 变化（含 SPA pushState / replaceState / popstate / hash 变更）。url = 变化后 URL */
   | { t: 'url.change'; url: string }
+  /**
+   * 当前标签页的静音 / 发声状态变化（`GM_audio.addStateChangeListener` 的触发源）。
+   * **只推给登记过 `audio.watch` 的连接**；字段含义见 GmAudioChangeEvent（muted 是原因字符串或 false）。
+   */
+  | { t: 'audio.change'; muted?: string | false; audible?: boolean }
 
 /** DL Port 下行帧信封：Port 上只走这一种帧，防未来混入其他帧类型时判别冲突 */
 export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
@@ -441,6 +465,11 @@ export interface GmGlobalFns {
   GM_deleteValue(key: string): void
   /** 同步列出全部键（读快照） */
   GM_listValues(): string[]
+  /** 批量取（同步读快照）：键数组只回存在的键，默认值对象按它补缺，不传参数取整份存储 */
+  GM_getValues(keysOrDefaults?: string[] | Record<string, Json>): Record<string, Json>
+  /** 批量写本地缓存 + 异步过桥落盘（一个事务；事件逐键发） */
+  GM_setValues(values: Record<string, Json>): void
+  GM_deleteValues(keys: string[]): void
   /** 同步返回监听器 id；`remote` 标记变化是否来自别的标签页 */
   GM_addValueChangeListener(key: string, cb: GmValueChangeListener): number
   GM_removeValueChangeListener(listenerId: number): void
@@ -474,6 +503,13 @@ export interface GmGlobalFns {
   GM_getTab(cb: (tab: Json | undefined) => void): void
   GM_saveTab(tab: Json, cb?: () => void): void
   GM_getTabs(cb: (tabs: Record<string, Json>) => void): void
+  /**
+   * 关当前标签页（`@grant window.close`）。TM 语义：**不允许关窗口的最后一个标签页**。
+   * 注意名字是 **window 属性路径**而非标识符 —— 注入体把它挂到 window 上，脚本里 `window.close()` 才走它。
+   */
+  'window.close'(): void
+  /** 聚焦当前标签页所在窗口（`@grant window.focus`） */
+  'window.focus'(): void
 }
 
 /**
@@ -487,6 +523,8 @@ export interface GmGlobalObjects {
   GM_info: GmInfo
   /** cookie 读写删（`@grant GM_cookie`；TM 口径下只在全局，`GM.*` 里不重复提供） */
   GM_cookie: GmCookieApi
+  /** 当前标签页的静音 / 发声控制（`@grant GM_audio`；`GM.*` 侧是 `GM.audio`） */
+  GM_audio: GmAudioApi
 }
 
 /** `GM_cookie` 全局对象（TM 口径；回调式，回调可省 → 返回 Promise 便于 await） */
@@ -526,6 +564,43 @@ export interface GmCookieWrite extends GmCookieQuery {
   path?: never
 }
 
+/** 当前标签页的音频状态（`GM_audio.getState`；字段形状照 TM，缺字段用 undefined 而非 false） */
+export interface GmAudioState {
+  isMuted?: boolean
+  /** 被静音的原因：user（用户点了静音）/ capture（标签捕获）/ extension（扩展所为） */
+  muteReason?: 'user' | 'capture' | 'extension'
+  isAudible?: boolean
+}
+
+/**
+ * 音频状态变化事件（`GM_audio.addStateChangeListener` 的回调入参）。
+ *
+ * 注意 `muted` **不是布尔**而是「静音原因字符串，未静音时为 false」—— 照 TM 的 @types 原样
+ * （脚本常写 `if ('muted' in e)` 判是静音变化还是发声变化，故字段缺失与 false 含义不同）。
+ */
+export interface GmAudioChangeEvent {
+  muted?: string | false
+  audible?: boolean
+}
+
+/** `GM_audio` 全局对象（TM v5.0+；回调可省 → 返回 Promise 便于 await） */
+export interface GmAudioApi {
+  /** 设置当前标签页的静音状态 */
+  setMute(details: { isMuted: boolean }, cb?: (error?: string) => void): Promise<void>
+  /** 读当前标签页的音频状态（TM 里回调是必需的，这里许可省掉回调直接 await） */
+  getState(cb?: (state: GmAudioState) => void): Promise<GmAudioState>
+  /** 注册状态变化监听（**传监听函数本身**，TM 没有 id 机制） */
+  addStateChangeListener(
+    listener: (ev: GmAudioChangeEvent) => void,
+    cb?: (error?: string) => void,
+  ): Promise<void>
+  /** 注销：必须传**同一个函数引用**（同 TM） */
+  removeStateChangeListener(
+    listener: (ev: GmAudioChangeEvent) => void,
+    cb?: (error?: string) => void,
+  ): Promise<void>
+}
+
 /**
  * `GM.*` 命名空间（Promise 化形态）。
  *
@@ -535,10 +610,21 @@ export interface GmCookieWrite extends GmCookieQuery {
  */
 export interface GmApiNamespace {
   info: GmInfo
+  /** 音频控制（`@grant GM_audio`；与全局 `GM_audio` 同一套方法，都返回 Promise） */
+  audio: {
+    setMute(details: { isMuted: boolean }): Promise<void>
+    getState(): Promise<GmAudioState>
+    addStateChangeListener(listener: (ev: GmAudioChangeEvent) => void): Promise<void>
+    removeStateChangeListener(listener: (ev: GmAudioChangeEvent) => void): Promise<void>
+  }
   getValue<T extends Json = Json>(key: string, defaultValue?: T): Promise<T | undefined>
   setValue(key: string, value: Json): Promise<void>
   deleteValue(key: string): Promise<void>
   listValues(): Promise<string[]>
+  /** 批量取（读后台真值）：入参同 GM_getValues，不传参数取整份存储 */
+  getValues(keysOrDefaults?: string[] | Record<string, Json>): Promise<Record<string, Json>>
+  setValues(values: Record<string, Json>): Promise<void>
+  deleteValues(keys: string[]): Promise<void>
   addValueChangeListener(key: string, cb: GmValueChangeListener): Promise<number>
   removeValueChangeListener(listenerId: number): void
   registerMenuCommand(

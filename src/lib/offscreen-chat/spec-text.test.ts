@@ -8,7 +8,7 @@
 // 的脚本。能力清单与 `@grant` 一节已由数据生成，这里防的是「有人改回手写」与「手写段引用错名字」。
 import { describe, expect, it } from 'vitest'
 import { GM_API_ENTRIES, specEntries } from '@/lib/gm-api-catalog'
-import { GRANT_NAMES } from '@/lib/gm-grants'
+import { ALWAYS_WINDOW_MEMBERS, GRANT_NAMES } from '@/lib/gm-grants'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
 /** 规范文本里**故意**点名、但不在能力目录里的成员（目录 = 已实现的成员） */
@@ -22,12 +22,20 @@ const GRANT_SPECIAL_VALUES = ['none']
  * `GM_*` / `GM.*` 这两个通配写法不会被匹配（后面不是字母）。
  */
 function mentionedNames(text: string): Set<string> {
-  return new Set([
+  const out = new Set<string>([
     ...[...text.matchAll(/\bGM_[A-Za-z]+/g)].map((m) => m[0]),
     ...[...text.matchAll(/\bGM\.[A-Za-z]+/g)].map((m) => m[0]),
     ...[...text.matchAll(/\bunsafeWindow\b/g)].map((m) => m[0]),
-    ...[...text.matchAll(/\bwindow\.onurlchange\b/g)].map((m) => m[0]),
   ])
+  // window 级成员：恒注入的（`window.onurlchange`）与 `@grant` 项（`window.close` / `window.focus`）
+  // 都是 window 属性路径。名单从 gm-grants 取、逐个查文本，**不用通配正则** ——
+  // 否则 `window.addEventListener` 这类无关写法会被当成「引用了某个能力」。
+  const windowMembers = [
+    ...ALWAYS_WINDOW_MEMBERS,
+    ...GRANT_NAMES.filter((n) => n.startsWith('window.')),
+  ]
+  for (const name of windowMembers) if (text.includes(name)) out.add(name)
+  return out
 }
 
 /** 目录里的路径有没有被文本提到（允许只提到容器名，如 `GM.page` 代表 `GM.page.listen`） */

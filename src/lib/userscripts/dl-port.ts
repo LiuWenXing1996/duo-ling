@@ -59,6 +59,8 @@ export class DlPortRegistry {
    * 同步快照会整个页面生命周期陈旧（见 gm-wrapper.ts 的 `__gmEnsureChannel`）。
    */
   private valueWatchers = new Set<chrome.runtime.Port>()
+  /** 登记过音频订阅（`GM_audio.addStateChangeListener`）的 Port —— 见 portsForAudioWatch */
+  private audioWatchers = new Set<chrome.runtime.Port>()
 
   addPort(port: chrome.runtime.Port, meta: DlPortMeta): void {
     this.ports.set(port, meta)
@@ -160,6 +162,33 @@ export class DlPortRegistry {
     }
     return out
   }
+
+  // —— 音频状态订阅（`GM_audio.addStateChangeListener`）——
+  //
+  // 与值订阅同构，但**按 tab 定位**：音频状态是「当前标签页」的属性，SW 收到
+  // chrome.tabs.onUpdated 时按 tabId 找订阅者。没登记就不推（音频变化可能很频繁，
+  // 不该往每个 tab 的每条连接都广播）。
+
+  /** 挂音频订阅（同 attachValueWatch：连接未就绪返回 false，由调用方决定怎么办） */
+  attachAudioWatch(uuid: string, connId: string): boolean {
+    const targets = this.portsByConnId(uuid, connId)
+    if (!targets.length) return false
+    for (const port of targets) this.audioWatchers.add(port)
+    return true
+  }
+
+  detachAudioWatch(uuid: string, connId: string): void {
+    for (const port of this.portsByConnId(uuid, connId)) this.audioWatchers.delete(port)
+  }
+
+  /** 某标签页里登记过音频订阅的 Port（audio.change 的推送目标） */
+  portsForAudioWatch(tabId: number): chrome.runtime.Port[] {
+    const out: chrome.runtime.Port[] = []
+    for (const [port, m] of this.ports) {
+      if (m.tabId === tabId && this.audioWatchers.has(port)) out.push(port)
+    }
+    return out
+  }
 }
 
 /** 向单条 Port 推一帧 ApiEvent；Port 已断时静默摘除（postMessage 可能抛 disconnected） */
@@ -239,6 +268,22 @@ export function detachValueWatch(uuid: string, connId: string): void {
   getDlPortRegistry().detachValueWatch(uuid, connId)
 }
 
+// —— 音频状态订阅（控制面，ApiRequest audio.watch / audio.unwatch）——
+
+/** 挂音频订阅；Port 未就绪返回 false（竞态防御，同 attachValueWatch） */
+export function attachAudioWatch(uuid: string, connId: string): boolean {
+  return getDlPortRegistry().attachAudioWatch(uuid, connId)
+}
+
+export function detachAudioWatch(uuid: string, connId: string): void {
+  getDlPortRegistry().detachAudioWatch(uuid, connId)
+}
+
+/** 某标签页里登记过音频订阅的 Port（SW 收到 tabs.onUpdated 时用） */
+export function portsForAudioWatch(tabId: number): chrome.runtime.Port[] {
+  return getDlPortRegistry().portsForAudioWatch(tabId)
+}
+
 /** 为一次 GM_notification mint 通知 id 并登记归属（响应该 id，供包装层挂 onClick） */
 export function mintNotification(uuid: string): string {
   const id = `us-${crypto.randomUUID()}`
@@ -311,6 +356,23 @@ export function initDlPort(): void {
         value: frameValue,
         oldValue: frameOldValue,
         remote: !writerConnId || registry.connIdOf(port) !== writerConnId,
+      })
+    }
+  })
+
+  // 事件源：当前标签页的音频状态变化（GM_audio.addStateChangeListener）→ 只推给**登记过订阅**的连接。
+  // 只在 mutedInfo / audible 出现时才推：tabs.onUpdated 对加载进度也触发，不筛会产生大量无用帧。
+  // muted 字段照 TM：值是**静音原因字符串**（user/capture/extension），未静音时为 false（不是 boolean）。
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo.mutedInfo === undefined && changeInfo.audible === undefined) return
+    const targets = registry.portsForAudioWatch(tabId)
+    if (!targets.length) return
+    const info = changeInfo.mutedInfo
+    for (const port of targets) {
+      pushEvent(registry, port, {
+        t: 'audio.change',
+        ...(info ? { muted: info.muted ? (info.reason ?? 'user') : false } : {}),
+        ...(changeInfo.audible !== undefined ? { audible: changeInfo.audible } : {}),
       })
     }
   })

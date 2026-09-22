@@ -8,6 +8,9 @@
     "noUncheckedIndexedAccess": false,
     "noUnusedLocals": true
   },
-  "include": ["src/**/*", ".wxt/wxt.d.ts"],
+  // e2e 一并纳入类型检查：Playwright 走 esbuild **只转译、不检查类型**，spec 里写错类型
+  // 不会被任何门禁拦住（2026-09-22 就是靠真跑才发现白等了一次 120s 超时）。
+  // 与 src 共用同一套 compilerOptions / 全局类型（e2e 导依赖用相对路径，不吃 `@/` 别名）。
+  "include": ["src/**/*", "e2e/**/*", ".wxt/wxt.d.ts"],
   "exclude": ["node_modules", ".output", "tmp"]
 }

@@ -42,6 +42,14 @@ export interface ScriptConfig {
   description?: string
   author?: string
   icon?: string
+  /**
+   * 分发来源（`@updateURL` / `@downloadURL` / `@homepageURL`）——油猴生态自带的自声明约定。
+   * 脚本自己在 metadata 块里声明它从哪来、去哪取新版，故**不必由本扩展维护任何清单**。
+   * 仅记录、不参与注入：供 UI 复述「这脚本从哪来」，以及后续的更新提示。
+   */
+  updateUrl?: string
+  downloadUrl?: string
+  homepageUrl?: string
 }
 
 /** `@resource name url` 一条（资源体落库由 P2 实现） */

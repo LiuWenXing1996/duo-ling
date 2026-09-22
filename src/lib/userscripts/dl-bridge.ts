@@ -29,6 +29,8 @@ import {
   attachScriptWatch,
   detachScriptWatch,
   attachValueWatch,
+  attachAudioWatch,
+  detachAudioWatch,
   mintNotification,
 } from './dl-port'
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
@@ -42,6 +44,9 @@ import {
   getGMValue,
   setGMValue,
   deleteGMValue,
+  setGMValues,
+  deleteGMValues,
+  getGMValues,
   listGMKeys,
   getAllGMValues,
   clearGMValues,
@@ -446,6 +451,15 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
     case 'store.delete':
       await deleteGMValue(uuid, req.key, req.connId)
       return undefined
+    // 批量写 / 批量删（GM_setValues / GM_deleteValues）：事务粒度在 usdata，事件粒度仍在 store
+    case 'store.setMany':
+      await setGMValues(uuid, req.entries, req.connId)
+      return undefined
+    case 'store.deleteMany':
+      await deleteGMValues(uuid, req.keys, req.connId)
+      return undefined
+    case 'store.getMany':
+      return getGMValues(uuid, req.keys)
     case 'store.keys':
       return listGMKeys(uuid)
     // 全量快照：注入时的值预载（注册链路直接调 store.ts）与包装层 connect 后的校准共用
@@ -501,12 +515,26 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       if (tab?.id == null) throw new ApiError('INTERNAL', 'tabs.open 未返回标签页')
       return tab.id
     }
-    case 'tabs.close':
-      await chrome.tabs.remove(req.tabId)
+    case 'tabs.close': {
+      // tabId 缺省 = 发起命令的标签页（`window.close` 的落点；注入层不知道自己的 tabId）
+      const target = req.tabId ?? tabId
+      if (target == null) throw new ApiError('INTERNAL', 'tabs.close 缺 tabId')
+      // 对齐 TM：**不允许关掉窗口的最后一个标签页**（TM 文档把这条限制写在 window.close 下）
+      const closing = await chrome.tabs.get(target).catch(() => undefined)
+      if (closing?.windowId != null) {
+        const siblings = await chrome.tabs.query({ windowId: closing.windowId })
+        if (siblings.length <= 1) {
+          throw new ApiError('INVALID_ARG', 'window.close：不允许关闭窗口的最后一个标签页')
+        }
+      }
+      await chrome.tabs.remove(target)
       return undefined
+    }
     case 'tabs.focus': {
+      const target = req.tabId ?? tabId
+      if (target == null) throw new ApiError('INTERNAL', 'tabs.focus 缺 tabId')
       // 激活标签页 + 聚焦其所在窗口（跨窗口 focus 语义才完整）；窗口聚焦失败不拖垮整体
-      const tab = await chrome.tabs.update(req.tabId, { active: true })
+      const tab = await chrome.tabs.update(target, { active: true })
       if (tab?.windowId != null) {
         await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {})
       }
@@ -576,6 +604,33 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       }
       return undefined
     }
+    // 音频（GM_audio）：一律作用于**脚本所在标签页** —— tabId 取 sender.tab.id，脚本给不了别的
+    // （对齐 TM：GM_audio 只操作「当前标签页」，没有 tabId 参数）
+    case 'audio.setMute': {
+      if (tabId == null) throw new ApiError('INTERNAL', 'audio.setMute 取不到当前标签页')
+      await chrome.tabs.update(tabId, { muted: req.isMuted })
+      return undefined
+    }
+    case 'audio.getState': {
+      if (tabId == null) throw new ApiError('INTERNAL', 'audio.getState 取不到当前标签页')
+      const tab = await chrome.tabs.get(tabId)
+      // 字段形状照 TM：取不到就省略该键（脚本用 `'x' in state` 判断，给 false 是错的）
+      return {
+        ...(tab.mutedInfo ? { isMuted: tab.mutedInfo.muted } : {}),
+        ...(tab.mutedInfo?.reason ? { muteReason: tab.mutedInfo.reason } : {}),
+        ...(tab.audible !== undefined ? { isAudible: tab.audible } : {}),
+      }
+    }
+    // 订阅登记：没登记的连接不收 audio.change（音频变化可能很频繁，不做无差别广播）
+    case 'audio.watch': {
+      if (!attachAudioWatch(uuid, req.connId)) {
+        throw new ApiError('INTERNAL', '事件通道未就绪，订阅未生效（请重试）')
+      }
+      return undefined
+    }
+    case 'audio.unwatch':
+      detachAudioWatch(uuid, req.connId)
+      return undefined
     default: {
       // 穷尽性检查：ApiRequest 加新命令时这里会编译报错提醒补 dispatch
       const unreachable: never = req
