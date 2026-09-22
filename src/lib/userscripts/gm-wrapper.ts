@@ -332,6 +332,23 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     return __gmWaitReady().then(function () { return __gmSend(req) })
   }
 
+  /**
+   * 「回调靠下行帧」的命令（xhr 的 onprogress、GM_download 的 onprogress / onload / onerror）必须先
+   * 等通道就绪 —— 帧是从 Port 推的，而 __gmSend 只管请求-应答、**不建通道**。不等的话：SW 侧
+   * portsByConnId 命中 0 个连接，每一帧都被丢掉，而请求本身照常成功，脚本侧表现为「回调永不触发」。
+   *
+   * 通道建立失败**不阻断命令**：请求 / 下载本身是主体、回调是附加，宁可降级也不让它们发不出去；
+   * 但要在控制台喊一声，别变成新的静默失败。
+   */
+  function __gmSendAfterChannel(req) {
+    if (__gmPortReady) return __gmSend(req)
+    return __gmWaitReady()
+      .catch(function (e) {
+        console.warn(NAME_PREFIX + ' 下行通道未就绪，本次调用的进度 / 完成回调会收不到：' + ((e && e.message) || e))
+      })
+      .then(function () { return __gmSend(req) })
+  }
+
   // —— 值缓存（同步读的底座）——
   var __gmPendingWrites = {}
   function __gmHas(key) { return Object.prototype.hasOwnProperty.call(GM_VALUES, key) }
@@ -742,7 +759,9 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
       var wantsProgress = typeof d.onprogress === 'function'
       if (wantsProgress) __gmRegisterXhrProgress(requestId, d.onprogress)
       var init = { method: d.method, headers: d.headers, responseType: responseType === 'text' || responseType === 'json' ? 'text' : 'arraybuffer', timeout: d.timeout, redirect: d.redirect, requestId: requestId, wantProgress: wantsProgress, connId: __gmConnId }
-      return __gmSend({ c: 'fetch', url: d.url, init: encode ? encode(init) : init })
+      // 要进度 → 先等通道（帧靠 Port 推）；不要 → 走普通请求-应答，不建通道
+      var sendReq = wantsProgress ? __gmSendAfterChannel : __gmSend
+      return sendReq({ c: 'fetch', url: d.url, init: encode ? encode(init) : init })
     })
     // 登记与请求同生命周期（成功 / 失败 / 中止都清）
     var __gmProgressDone = function () { __gmUnregisterXhrProgress(requestId) }
@@ -793,7 +812,9 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
         abortEarly = true
       }
     }
-    var p = __gmSend({
+    // 要帧（progress / load / error）→ 先等通道，否则 SW 侧找不到连接、帧全丢
+    var sendReq = wantsFrames ? __gmSendAfterChannel : __gmSend
+    var p = sendReq({
       c: 'download', url: d.url, name: d.name, saveAs: d.saveAs === true,
       conflictAction: d.conflictAction,
       requestId: wantsFrames ? requestId : undefined,
@@ -857,7 +878,9 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     var msg, title, icon, onclick
     if (a && typeof a === 'object') { msg = a.text; title = a.title; icon = a.image; onclick = a.onclick }
     else { msg = a; title = b; icon = c; onclick = d }
-    return __gmSend({ c: 'notify', message: String(msg == null ? '' : msg), title: title, icon: icon }).then(function (r) {
+    // 带 onclick 的通知：点击回调靠 Port 推帧（SW 按 uuid 找连接），同样要先等通道
+    var sendReq = typeof onclick === 'function' ? __gmSendAfterChannel : __gmSend
+    return sendReq({ c: 'notify', message: String(msg == null ? '' : msg), title: title, icon: icon }).then(function (r) {
       if (typeof onclick === 'function' && r && r.id) __gmNotifyHandlers[r.id] = onclick
     })
   }

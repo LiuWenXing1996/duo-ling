@@ -51,6 +51,18 @@ describe('buildGmWrapperPrefix', () => {
     expect(src).not.toContain('\\`')
   })
 
+  it('靠下行帧的命令都先等通道（否则帧无处可推，回调静默永不触发）', () => {
+    const src = build()
+    // fetch 的 onprogress、download 的三个回调、notify 的 onclick —— 都靠 Port 推帧，而
+    // __gmSend 只管请求-应答、不建通道。曾经三处都用 __gmSend 直发：请求 / 下载本身成功，
+    // 但回调全被静默丢掉（2026-09-22 真机查了两轮）。
+    expect(src).toContain('wantsProgress ? __gmSendAfterChannel : __gmSend')
+    expect(src).toContain('wantsFrames ? __gmSendAfterChannel : __gmSend')
+    expect(src).toContain("typeof onclick === 'function' ? __gmSendAfterChannel : __gmSend")
+    // 降级而不阻断：通道建不起来也要把请求发出去，但必须在控制台喊一声（不做新的静默失败）
+    expect(src).toContain('下行通道未就绪，本次调用的进度 / 完成回调会收不到')
+  })
+
   it('嵌入了值快照、GM_info 与按 grant 算出的成员表', () => {
     const src = build(['GM_getValue'])
     expect(src).toContain('"k":"v"') // 值快照

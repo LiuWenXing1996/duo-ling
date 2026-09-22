@@ -1,7 +1,14 @@
 // dl-port.ts 纯逻辑单测：Port name / 菜单 id 解析 + 注册表路由。
 // 不 mock chrome：DlPortRegistry 与解析函数是纯 JS，Port 用假对象（onDisconnect 无人触发）。
-import { describe, expect, it } from 'vitest'
-import { DlPortRegistry, parseDlPortName, parseMenuitemId, pushEvent } from './dl-port'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  DlPortRegistry,
+  getDlPortRegistry,
+  parseDlPortName,
+  parseMenuitemId,
+  pushEvent,
+  pushFetchProgress,
+} from './dl-port'
 import type { ApiEvent } from './api-contract'
 
 function fakePort(name = 'duoling:dl:u1:c1'): chrome.runtime.Port {
@@ -118,5 +125,26 @@ describe('pushEvent', () => {
     expect(frames).toEqual([{ __dlApiEvent: true, ev }])
     // dead 已被摘除，不再出现在路由里
     expect(reg.portsByUuid('u1')).toEqual([alive])
+  })
+})
+
+// 2026-09-22 真机踩过的坑：脚本只调 GM_xmlhttpRequest / GM_download（不读值、不注册菜单、不订阅
+// 音频）时页面侧从未建下行 Port → portsByConnId 命中 0 → 每一帧都被静默丢掉，脚本只看到「回调
+// 永不触发」。这里锁住「推不到时不抛、且喊一声」这条底线。
+describe('帧无人接收', () => {
+  it('目标连接不存在：不抛、按连接只喊一次', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const frame = { requestId: 'r1', loaded: 1, total: null }
+    expect(() => pushFetchProgress('u-noport', 'c-noport', frame)).not.toThrow()
+    // 同一个连接再来一帧（推帧很频繁）：不该刷屏
+    pushFetchProgress('u-noport', 'c-noport', { ...frame, loaded: 2 })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]![0])).toContain('帧无处可推')
+
+    // 有连接时不喊（同一个 mock 下计数不涨）
+    addPort(getDlPortRegistry(), 'u-hasport', 'c-hasport', 1)
+    pushFetchProgress('u-hasport', 'c-hasport', frame)
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
   })
 })

@@ -121,7 +121,8 @@
         },
         onload: function () {
           setLive('② 完成')
-          log('② 完成：共 ' + frames + ' 帧 ' + (frames > 1 ? '✓ 轮询在推' : '✗ 只有 1 帧，没在推'), frames > 1 ? 's' : 'e')
+          var verdict = frames > 1 ? '✓ 轮询在推' : (frames === 0 ? '✗ 一帧都没收到（看 SW 控制台的「帧无处可推」告警）' : '✗ 只有 1 帧，没在推')
+          log('② 完成：共 ' + frames + ' 帧 ' + verdict, frames > 1 ? 's' : 'e')
         },
         onerror: function (e) { log('② 失败 → ' + ((e && e.error) || '未知'), 'e') },
       })

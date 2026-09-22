@@ -517,6 +517,8 @@ async function doDownload(
   if (opts.requestId && opts.connId) {
     mountDownloadWatch()
     const entry: DownloadEntry = { uuid, connId: opts.connId, requestId: opts.requestId, total: null }
+    // 先登记再查：下面有一个 await，终帧若落在这个窗口里，onChanged 会因为查不到登记而丢掉
+    downloadWatch.set(id, entry)
     try {
       const item = (await api.search({ id }))[0]
       const bytes = item?.totalBytes
@@ -533,11 +535,13 @@ async function doDownload(
     } catch {
       // 查不到就不给 total（lengthComputable 为 false），不阻断下载
     }
-    downloadWatch.set(id, entry)
     if (opts.wantProgress) {
-      entry.timer = setInterval(() => {
+      const timer = setInterval(() => {
         void pollDownloadProgress(id)
       }, DOWNLOAD_PROGRESS_MS)
+      // 上面查 total 期间就可能已收到终帧（那一跳会把登记删掉）—— 删了就别留这个定时器
+      if (downloadWatch.has(id)) entry.timer = timer
+      else clearInterval(timer)
     }
   }
   return { id }

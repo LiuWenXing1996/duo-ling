@@ -285,6 +285,25 @@ export function portsForAudioWatch(tabId: number): chrome.runtime.Port[] {
 }
 
 /**
+ * 「帧推给谁」的兜底告警：命中 0 个连接意味着**脚本侧没建下行通道**（只调 GM_xmlhttpRequest /
+ * GM_download 而不读值、不注册菜单、不订阅音频的脚本就是这样），帧会被静默丢掉，脚本侧只看到
+ * 「回调永不触发」—— 2026-09-22 真机踩过，查了两轮才定位。
+ *
+ * 按连接只喊一次（否则每次推帧都刷屏）；SW 重启后集合归零，能再喊一遍。
+ */
+const noPortWarned = new Set<string>()
+
+function warnNoPort(kind: string, uuid: string, connId?: string): void {
+  const key = connId ? `${uuid}:${connId}` : uuid
+  if (noPortWarned.has(key)) return
+  noPortWarned.add(key)
+  console.warn(
+    `[duoling:dl] ${kind} 帧无处可推：该脚本没有下行通道（它从未读值 / 注册菜单 / 订阅音频 / 用带回调的通知）。` +
+      `请求本身会照常完成，但脚本的回调收不到。uuid=${uuid}`,
+  )
+}
+
+/**
  * 推一帧下载进度（`GM_xmlhttpRequest` 的 `onprogress`）给**发起该请求的连接**。
  * 按 uuid + connId 定位（与 audio.watch 同款寻址）；找不到（连接已断）就丢弃 —— 请求照常走完，
  * 进度只是锦上添花，不该因为它没推到而报错。
@@ -295,7 +314,9 @@ export function pushFetchProgress(
   frame: { requestId: string; loaded: number; total: number | null },
 ): void {
   const registry = getDlPortRegistry()
-  for (const port of registry.portsByConnId(uuid, connId)) {
+  const ports = registry.portsByConnId(uuid, connId)
+  if (!ports.length) warnNoPort('xhr.progress', uuid, connId)
+  for (const port of ports) {
     pushEvent(registry, port, { t: 'xhr.progress', ...frame })
   }
 }
@@ -313,7 +334,9 @@ export function pushDownloadChange(
   },
 ): void {
   const registry = getDlPortRegistry()
-  for (const port of registry.portsByConnId(uuid, connId)) {
+  const ports = registry.portsByConnId(uuid, connId)
+  if (!ports.length) warnNoPort('download.change', uuid, connId)
+  for (const port of ports) {
     pushEvent(registry, port, { t: 'download.change', ...frame })
   }
 }
@@ -415,7 +438,9 @@ export function initDlPort(): void {
   chrome.notifications.onClicked.addListener((notificationId) => {
     const uuid = registry.ownerOfNotification(notificationId)
     if (!uuid) return
-    for (const port of registry.portsByUuid(uuid)) {
+    const ports = registry.portsByUuid(uuid)
+    if (!ports.length) warnNoPort('notify.click', uuid)
+    for (const port of ports) {
       pushEvent(registry, port, { t: 'notify.click', id: notificationId })
     }
   })
