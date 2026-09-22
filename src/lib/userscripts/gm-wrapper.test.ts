@@ -42,7 +42,7 @@ function build(grant?: string[]): string {
 }
 
 describe('buildGmWrapperPrefix', () => {
-  it('产出的注入源码语法合法（acorn 解析；含内联的 page-client 客户端）', () => {
+  it('产出的注入源码语法合法（acorn 解析；含内联的桥客户端与 GM.page 本地实现）', () => {
     const src = build()
     expect(() => parse(src, { ecmaVersion: 'latest' })).not.toThrow()
     // 模板体里绝不能残留未闭合的模板痕迹（反引号一旦漏进注入体，整份源码就废了）

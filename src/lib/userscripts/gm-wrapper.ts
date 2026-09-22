@@ -26,7 +26,6 @@
 //     `GM_cookie` 不收 `domain` / `path`（域名门）。
 import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS, resolveGrant } from '../gm-grants'
 import type { GmInfo, Json } from './api-contract'
-import { buildPageClientSource } from './page-client'
 import { buildScriptBridgeSource } from './script-bridge'
 
 export interface GmWrapperOptions {
@@ -39,7 +38,7 @@ export interface GmWrapperOptions {
    * `userAgent` / `isIncognito` 不在其中：它们只能在页面里取到，由包装运行时就地补齐。
    */
   info: Omit<GmInfo, 'userAgent' | 'isIncognito'>
-  /** 反向中继握手密钥（与 MAIN 桩同源） */
+  /** 脚本桥握手密钥（MAIN 侧 script-bridge 与 USER_SCRIPT 侧 script-relay 同源） */
   pageSecret: string
   /** `@grant` 声明（缺省 / 空 / 含 none → 全量注入） */
   grant?: string[]
@@ -418,8 +417,152 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     return Promise.reject(new Error('GM_xmlhttpRequest：data 仅支持 string / Blob / FormData / ArrayBuffer / TypedArray / DataView'))
   }
 
-  // —— 反向中继客户端（GM.page，本扩展独有能力）——
-  var __gmPageApi = ${buildPageClientSource(opts.pageSecret)}
+  // —— GM.page（本扩展独有能力）：脚本与页面同处 MAIN 世界，两个方法都能**本地实现** ——
+  //    不必再绕「postMessage 找 MAIN 桩」那一圈（那是隔离世界才需要的做法）。
+
+  /** 事件摘要：只留可结构化克隆的字段 */
+  function __gmSummarizeEvent(e) {
+    var ev = { type: e.type, timeStamp: e.timeStamp || 0 }
+    if (typeof e.key === 'string') ev.key = e.key
+    var detail = null
+    try {
+      if (e && typeof e === 'object' && 'detail' in e && e.detail != null) detail = JSON.parse(JSON.stringify(e.detail))
+    } catch (e2) { detail = null }
+    ev.detail = detail
+    return ev
+  }
+
+  /** selector 过滤：target 自身命中或沿祖先链命中（不依赖注入时刻的元素快照，晚出现的元素也命中） */
+  function __gmHitSelector(e, selector) {
+    var t = e.target
+    if (!t || typeof t.matches !== 'function') return false
+    try { return t.matches(selector) || !!(t.closest && t.closest(selector)) } catch (e2) { return false }
+  }
+
+  /** fetch 出站摘要（裁决函数看到的形状） */
+  function __gmSummarizeFetch(args) {
+    var input = args[0]
+    var init = args[1]
+    var url = ''
+    var method = 'GET'
+    var headers = {}
+    var body = null
+    try {
+      if (input && typeof input === 'object' && typeof input.url === 'string') {
+        url = input.url
+        method = String(input.method || 'GET')
+        if (input.headers && typeof input.headers.forEach === 'function') {
+          input.headers.forEach(function (v, k) { headers[k] = String(v) })
+        }
+      } else {
+        url = String(input)
+        method = String((init && init.method) || 'GET')
+        var h = init && init.headers
+        if (h && typeof h.forEach === 'function') h.forEach(function (v, k) { headers[k] = String(v) })
+        else if (h && typeof h === 'object') {
+          for (var k in h) if (Object.prototype.hasOwnProperty.call(h, k)) headers[k] = String(h[k])
+        }
+        if (init && typeof init.body === 'string') body = init.body
+      }
+    } catch (e2) { /* 摘要失败按空值转发，不阻塞页面请求 */ }
+    return { url: url, method: method, headers: headers, body: body }
+  }
+
+  /** 响应体采样上限：防大响应把内存读爆 */
+  var __gmFetchMaxBody = 1 << 20
+  /** 本脚本的 fetch 包装层状态（同帧多脚本各包一层、链式相套，后包者先处理） */
+  var __gmFetchLayer = null
+
+  /** passthrough 时被动读响应体：克隆后异步读，原响应不消耗 */
+  function __gmObserveFetch(real, url, onResponse) {
+    try {
+      Promise.resolve(real).then(function (resp) {
+        try {
+          var cloned = resp.clone()
+          cloned.text().then(function (text) {
+            var truncated = false
+            if (text.length > __gmFetchMaxBody) { text = text.slice(0, __gmFetchMaxBody); truncated = true }
+            var headers = {}
+            try { resp.headers.forEach(function (v, k) { headers[k] = v }) } catch (e3) {}
+            try {
+              onResponse({ url: url, status: resp.status, statusText: resp.statusText || '', headers: headers, body: text, truncated: truncated })
+            } catch (e3) { /* 回调异常不拖垮网络层 */ }
+          }).catch(function () { /* 读体失败忽略 */ })
+        } catch (e3) { /* clone 失败忽略 */ }
+      }, function () { /* 请求失败：无可观察的响应 */ })
+    } catch (e3) { /* 忽略 */ }
+  }
+
+  function __gmPageFetchHook(handler, opts) {
+    if (typeof handler !== 'function') return Promise.reject(new Error('GM.page.fetchHook 需要裁决函数'))
+    var onResponse = opts && typeof opts.onResponse === 'function' ? opts.onResponse : null
+    if (!__gmFetchLayer) {
+      var layer = { handler: null, onResponse: null, prev: window.fetch }
+      layer.wrapper = function () {
+        var args = arguments
+        if (typeof layer.handler !== 'function') return layer.prev.apply(window, args) // 已卸载：透传
+        var call = __gmSummarizeFetch(args)
+        var decision
+        try { decision = layer.handler(call) } catch (e2) { decision = null }
+        // 裁决等待设上限：宁可失效也不阻塞页面网络层（与注入体其它钩子同一取舍）
+        return new Promise(function (resolve) {
+          var settled = false
+          var timer = setTimeout(function () { if (!settled) { settled = true; resolve(null) } }, 500)
+          Promise.resolve(decision).then(function (a) {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            resolve(a)
+          }, function () {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            resolve(null)
+          })
+        }).then(function (action) {
+          if (action && action.action === 'respond') {
+            try {
+              return new Response(action.body || '', { status: action.status || 200, headers: action.headers || {} })
+            } catch (e2) { /* Response 构造失败：退回真实请求 */ }
+          }
+          var real = layer.prev.apply(window, args)
+          if (typeof layer.onResponse === 'function') __gmObserveFetch(real, call.url, layer.onResponse)
+          return real
+        })
+      }
+      __gmFetchLayer = layer
+      window.fetch = layer.wrapper
+    }
+    __gmFetchLayer.handler = handler
+    __gmFetchLayer.onResponse = onResponse
+    // 卸载**不做链上摘除**（同帧多脚本各持一层，跨脚本协调做不到）：清空本层裁决，
+    // 该层从此在链上一律透传 —— 页面网络层照常，只是不再经过本脚本。
+    return Promise.resolve(function () {
+      if (__gmFetchLayer) {
+        __gmFetchLayer.handler = null
+        __gmFetchLayer.onResponse = null
+      }
+    })
+  }
+
+  var __gmPageApi = {
+    listen: function (type, handler, opts) {
+      if (typeof handler !== 'function') return Promise.reject(new Error('GM.page.listen 需要事件回调函数'))
+      var t = String(type)
+      var selector = opts && opts.selector ? String(opts.selector) : ''
+      var once = !!(opts && opts.once)
+      var fn = function (ev) {
+        if (selector && !__gmHitSelector(ev, selector)) return
+        if (once) { try { window.removeEventListener(t, fn, true) } catch (e2) {} }
+        try { handler(__gmSummarizeEvent(ev)) } catch (e2) { /* 回调异常不拖垮页面 */ }
+      }
+      window.addEventListener(t, fn, { capture: true, once: once })
+      return Promise.resolve(function () {
+        try { window.removeEventListener(t, fn, true) } catch (e2) {}
+      })
+    },
+    fetchHook: __gmPageFetchHook
+  }
 
   function __gmAddStyle(css) {
     var el = document.createElement('style')

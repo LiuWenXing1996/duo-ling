@@ -6,7 +6,7 @@
 // 为什么单独一份、而不是直接读 api-contract：
 //   api-contract.ts 只有类型（编译后不留任何东西），面板要展示的是文本（签名 / 说明 / 坑）；
 //   而真身（注入脚本世界的 `GM_*` / `GM.*`）是 gm-wrapper.ts 里的一段**源码字符串**，
-//   工作台页面 import gm-wrapper 会把 page-client / 注册链路拖进首屏产物。故抽成这份纯数据。
+//   工作台页面 import gm-wrapper 会把注入链路（含桥客户端）拖进首屏产物。故抽成这份纯数据。
 //
 // 一条能力 = 两种形态（`GM_getValue` 同步 + `GM.getValue` 异步），故**只写一张能力表**，
 // 由它生成两条条目 —— 否则同一段说明要维护两遍，必然漂移。
@@ -54,8 +54,6 @@ export type GmApiBridge =
   | 'bridge'
   /** 纯包装层本地实现：同步可用，不依赖后台 */
   | 'local'
-  /** 经 MAIN 世界中继桩（GM.page 专属通道） */
-  | 'stub'
 
 /** 分组（顺序 = 面板左栏顺序） */
 export const GM_API_GROUPS = [
@@ -434,7 +432,7 @@ const OBJECT_ENTRIES = {
       '**哆灵扩展，非油猴标准。** opts.selector 只转发命中该选择器（或其祖先）的事件，opts.once 命中一次后自动注销。' +
       '回调收到的是事件摘要（可克隆字段），不是原生事件对象。返回注销函数。',
     returns: 'Promise<() => void>（注销）',
-    bridge: 'stub',
+    bridge: 'local',
     group: 'page',
   },
   'GM.page.fetchHook': {
@@ -446,10 +444,10 @@ const OBJECT_ENTRIES = {
       '由页面侧直接构造 Response 返回；脚本回调抛异常一律按放行处理（不会把页面搞挂）。' +
       '传 opts.onResponse 后，passthrough 的每次真实响应都会以 { url, status, statusText, headers, body, truncated? } 回调' +
       '（零额外请求，页面拿到的仍是原响应）。' +
-      '注意：**只拦页面自身发出的 fetch**——脚本自己发的请求不经此路（脚本跑在独立运行环境）；' +
-      '要观察某接口的响应，须由页面发起该请求（触发站点自身交互）。',
+      '注意：脚本自身也运行在页面世界，**它自己发出的 fetch 同样会经过本钩子**；' +
+      '不想拦自己发的请求，就在 handler 里按 URL 过滤掉。',
     returns: 'Promise<() => void>（注销）',
-    bridge: 'stub',
+    bridge: 'local',
     group: 'page',
   },
 } satisfies Record<GmObjectPath, Omit<GmApiEntry, 'path'>>
@@ -520,5 +518,4 @@ export function entriesOfGroup(group: GmApiGroupId): GmApiEntry[] {
 export const GM_BRIDGE_LABELS: Record<GmApiBridge, string> = {
   bridge: '后台',
   local: '本地',
-  stub: '页面',
 }

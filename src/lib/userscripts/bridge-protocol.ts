@@ -28,7 +28,7 @@ export const BRIDGE_HANDSHAKE_TIMEOUT = 1000
 export const BRIDGE_CALL_TIMEOUT = 30000
 
 /**
- * 加固版同步小哈希（FNV-1a 变体）：算法与 page-protocol 的版本一致，但**在求值当时就
+ * 加固版同步小哈希（FNV-1a 变体）：**在求值当时就捕获原生方法引用** —— 页面可以在运行期
  * 捕获原生方法引用** —— 页面可以在运行期覆盖 `String.prototype.charCodeAt` /
  * `Number.prototype.toString` 来截获 digest 的入参（其中含 secret），捕获引用把这条路
  * 堵掉。注入时机是 document_start，早于页面自己的脚本，捕获到的是原生实现。
@@ -50,3 +50,13 @@ var __dlBridgeDigest = (function () {
     return ('0000000' + numToString.call(h, 16)).slice(-8)
   }
 })()`
+
+/**
+ * 生成共享密钥（SW 侧调用；不在模板内，走 `crypto.getRandomValues`）。
+ * 同一把写进 MAIN 侧的 script-bridge 与 USER_SCRIPT 侧的 script-relay —— 中继件靠它验 proof。
+ */
+export function generateBridgeSecret(): string {
+  const buf = new Uint8Array(16)
+  crypto.getRandomValues(buf)
+  return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('')
+}

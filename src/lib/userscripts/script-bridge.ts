@@ -1,7 +1,7 @@
 // 脚本主世界桥 · MAIN 世界侧客户端源码模板。
 //
 // buildScriptBridgeSource(secret, uuid) 返回的字符串由 gm-wrapper.ts 以
-// `var __dlBridge = <源码>` 内联进 GM 包装（与 page-client 同款），运行在**页面 MAIN 世界**。
+// `var __dlBridge = <源码>` 内联进 GM 包装，运行在**页面 MAIN 世界**。
 //
 // 职责：给同一份包装里的 GM 能力实现当「`chrome.runtime` 的替身」——
 //   · `call(req)` 请求-应答，对应原先的 `chrome.runtime.sendMessage` 回调式调用；

@@ -565,11 +565,11 @@ export interface GmApiNamespace {
   clearValues(): Promise<void>
   /** 激活指定标签页（标准里无对应物：TM 只有 GM_openInTab 返回句柄的 close()） */
   focusTab(tabId: number): Promise<void>
-  /** 反向中继 · 页面世界访问（本扩展独有能力） */
+  /** 页面世界访问（本扩展独有能力，本地实现，不经桥） */
   page: GmPageApi
 }
 
-// ————————————————————— 反向中继 GM.page —————————————————————
+// ————————————————————— GM.page（页面世界能力） —————————————————————
 
 /** GM.page 自有错误码（不走 SW 桥的 ApiErrorCode） */
 export type PageErrorCode =

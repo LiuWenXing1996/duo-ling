@@ -2,7 +2,7 @@
 //
 // 三个消费方：注入侧（userscripts/gm-wrapper.ts 按它裁剪注入面）、展示侧（gm-api-catalog.ts 的速查页）、
 // 规范侧（offscreen-chat/spec-text.ts 教 AI 怎么写 @grant 清单）。谁 import gm-wrapper 都会把注入链路
-// （page-client 与注册模块）拖进产物，故抽成这份零依赖纯数据。
+// （gm-wrapper 与注册链路）拖进产物，故抽成这份零依赖纯数据。
 //
 // 对齐 TM：一个 grant 同时开全局与 `GM.*` 两种形态；`GM_cookie` 依 TM 口径不进 `GM.*`（故 `ns: []`）。
 

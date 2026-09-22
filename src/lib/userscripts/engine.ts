@@ -16,11 +16,10 @@ import * as appDb from '@/lib/app-db'
 import { listProjects, validateMatchPatterns } from './project-store'
 import { appendUserScriptError, getAllGMValues } from './store'
 import { fetchRequireSources } from './require-cache'
-import { buildPageStubSource } from './page-stub'
 import { buildScriptRelaySource } from './script-relay'
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
 import { parseUserScriptMetadata } from './metadata'
-import { generatePageSecret } from './page-protocol'
+import { generateBridgeSecret } from './bridge-protocol'
 // 网络录制：MAIN 捕获件 + USER_SCRIPT 转发件 + per-host 门禁（默认关，按站点显式开）
 import { buildNetRecorderSource } from './net-recorder'
 import { buildNetForwarderSource } from './net-forwarder'
@@ -223,10 +222,7 @@ function sourceURLSuffix(project: ScriptProject): string {
   return `\n//# sourceURL=duoling://script/${project.uuid}/${safeName}.js`
 }
 
-// —— 反向中继 stub 注册——
-
-/** MAIN 世界共享桩的注册 ID：一个扩展一份，不是每脚本一份 */
-export const PAGE_STUB_ID = 'dl-page-stub'
+// —— 内置件的注册 ID 与共享密钥 ——
 
 /** 脚本主世界桥 · USER_SCRIPT 中继件注册 ID（一个扩展一份） */
 export const SCRIPT_RELAY_ID = 'dl-script-relay'
@@ -241,7 +237,7 @@ export const NET_FORWARDER_ID = 'dl-net-forwarder'
 const NET_FORWARDER_WORLD_ID = 'us-dl-net'
 
 /** 内置注册的 id 全集：全量重注册清「陈旧脚本」时必须排除它们（否则把自己刚同步的注册清掉） */
-const BUILTIN_SCRIPT_IDS = [PAGE_STUB_ID, SCRIPT_RELAY_ID, NET_RECORDER_ID, NET_FORWARDER_ID]
+const BUILTIN_SCRIPT_IDS = [SCRIPT_RELAY_ID, NET_RECORDER_ID, NET_FORWARDER_ID]
 
 /** stubSecret 持久化键：MV3 SW 随时休眠，模块变量会归零，密钥必须落盘（duoling-app 库） */
 const PAGE_SECRET_KEY = 'pageSecret'
@@ -260,7 +256,7 @@ async function getOrCreatePageSecret(): Promise<string> {
   } catch {
     // 存储不可用则退化为一次性密钥（仅本次 SW 存活期有效）
   }
-  pageSecretCache = generatePageSecret()
+  pageSecretCache = generateBridgeSecret()
   try {
     await appDb.set(PAGE_SECRET_KEY, pageSecretCache)
   } catch {
@@ -274,58 +270,8 @@ async function getOrCreatePageSecret(): Promise<string> {
  * 轮换后必须紧跟着 registerAllEnabled：桩与全部启用脚本包装在同一遍里带上新密钥。
  */
 export async function rotatePageSecret(): Promise<void> {
-  pageSecretCache = generatePageSecret()
+  pageSecretCache = generateBridgeSecret()
   await appDb.set(PAGE_SECRET_KEY, pageSecretCache).catch(() => {})
-}
-
-/**
- * 按并集维护 MAIN 世界共享桩（幂等可重入；调用方负责串行化）。
- * 匹配并集未变且桩已在位时跳过重注册——重注册会换注入源码，已加载页面要到下次导航才换新，
- * 无谓重注册只会扩大「桩与脚本包装密钥不同代」的窗口。
- * 并集为空 → 注销桩。并集算法与比对在 match-union.ts。
- */
-async function syncPageStubUnion(projects: ScriptProject[]): Promise<void> {
-  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
-  const union = enabledMatchUnion(projects)
-  let existing: chrome.userScripts.RegisteredUserScript | undefined
-  try {
-    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === PAGE_STUB_ID)
-  } catch {
-    return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
-  }
-  if (!union) {
-    console.log('[duoling:sw] 桩并集为空，注销 MAIN 桩')
-    if (existing) await chrome.userScripts.unregister({ ids: [PAGE_STUB_ID] }).catch(() => {})
-    return
-  }
-  if (existing && sameMatchSet(existing, union)) {
-    console.log('[duoling:sw] MAIN 桩已在位且并集未变，跳过')
-    return
-  }
-  const secret = await getOrCreatePageSecret()
-  await chrome.userScripts.unregister({ ids: [PAGE_STUB_ID] }).catch(() => {})
-  const stub: chrome.userScripts.RegisteredUserScript = {
-    id: PAGE_STUB_ID,
-    world: 'MAIN',
-    js: [{ code: buildPageStubSource(secret) }],
-    matches: union.matches,
-    excludeMatches: union.excludeMatches,
-    includeGlobs: union.includeGlobs,
-    excludeGlobs: union.excludeGlobs,
-    // document_start：必须早于脚本默认的 document_end 握手窗口
-    runAt: 'document_start',
-    allFrames: true,
-    // userScripts API 无 persistAcrossSessions（那是 contentScripts 的字段，Chrome 会报
-    // Unexpected property）；userScripts 注册本身即跨 SW 会话持久，仅扩展更新后需重注册
-    // （recoverOnUpdate 已覆盖）。
-  }
-  try {
-    await chrome.userScripts.register([stub])
-    console.log('[duoling:sw] MAIN 桩注册成功：', JSON.stringify(union.matches))
-  } catch (e) {
-    console.warn('[duoling:sw] MAIN 桩注册失败：', e)
-    throw e
-  }
 }
 
 /**
@@ -467,7 +413,6 @@ export function refreshNetRecorder(): Promise<void> {
 export function refreshBuiltinScripts(): Promise<void> {
   const run = registerChain.then(async () => {
     const projects = await listProjects()
-    await syncPageStubUnion(projects)
     await syncScriptRelay(projects)
   })
   registerChain = run.catch(() => {})
@@ -589,8 +534,8 @@ export function registerAllEnabled(): Promise<void> {
 
 async function runRegisterAllEnabled(): Promise<void> {
   const projects = await listProjects()
-  // 先同步内置注册（启用脚本集合可能变化），再重注册脚本——同一遍里保持桩与包装密钥一致
-  await syncPageStubUnion(projects).catch(() => {})
+  // 先同步内置注册（启用脚本集合可能变化），再重注册脚本——同一遍里保持中继件与包装密钥一致
+  await syncScriptRelay(projects).catch(() => {})
   // 录制件跟随 per-host 门禁（与脚本集合无关）：SW 冷启动 / 扩展更新恢复时一并同步，
   // 保证「用户已同意录制的站点」在重注册后依然生效
   await syncNetRecorder().catch(() => {})

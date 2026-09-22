@@ -4,7 +4,7 @@
 // MAIN 世界（world: 'MAIN'）。为什么必须 MAIN：要拦页面**自己**发出的 fetch/XHR，
 // 钩子只能挂在页面世界——USER_SCRIPT 世界是独立 realm，挂它的 window.fetch 拦不到。
 //
-// 设计硬边界（与 page-stub.ts 同款）：
+// 设计硬边界（与 script-relay.ts 同款）：
 //   - 无 chrome.*（MAIN 世界本就没有），捕获后只靠同帧 window.postMessage 交给转发件；
 //   - 与页面同级、无特权：页面看得见它做的一切；
 //   - **不阻塞页面网络层**：所有采样都在响应返回之后异步做，绝不 await 在请求路径上。

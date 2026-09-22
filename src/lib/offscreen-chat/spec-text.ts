@@ -71,7 +71,7 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
    \`responseType\` 只支持 text / json / arraybuffer / blob。
 5. \`unsafeWindow\` 就是**页面自己的 window**（脚本运行在页面主世界）：站点自定义的全局
    （框架实例、\`window.xxx\`）可直接读写，也能往页面上挂自己的东西。
-6. \`GM.page.*\` 反向中继（**哆灵扩展，非油猴标准**）：
+6. \`GM.page.*\` 页面世界能力（**哆灵扩展，非油猴标准**）：
    - \`GM.page.listen(type, handler, opts?)\` 监听页面事件（摘要 { type, key?, detail, timeStamp }）；
    - \`GM.page.fetchHook(fn, opts?)\` 拦截页面 fetch，fn 收 { url, method, headers, body }，回
      { action: 'passthrough' } 或 { action: 'respond', status, headers?, body? }；传 opts.onResponse 可在

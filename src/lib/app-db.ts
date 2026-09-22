@@ -3,7 +3,7 @@
 // 装三类（从 chrome.storage.local 迁入，storage 侧自此清零）：
 //   · modelProfiles —— 模型配置（密文载荷 + activeProfileId，见 model-store.ts）
 //   · apiKeyDek     —— API Key 落盘加密的 DEK（见 key-cipher.ts）
-//   · pageSecret    —— MAIN 世界共享桩的注册密钥（见 userscripts/engine.ts）
+//   · pageSecret    —— 脚本桥的共享密钥（见 userscripts/engine.ts）
 //
 // 与脚本数据（duoling-usdata）、观测数据（duoling-runtime）分库：这些都是**扩展自己的
 // 小数据**——有固定键、写频极低（保存配置 / 首次生成），跟「脚本不可信数据」「高频观测

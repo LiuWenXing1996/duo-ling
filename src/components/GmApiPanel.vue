@@ -126,8 +126,6 @@ function setOpen(path: string, v: boolean): void {
           后台代理
           <Badge variant="outline" class="text-[10px]">{{ GM_BRIDGE_LABELS.local }}</Badge>
           本地直连
-          <Badge variant="outline" class="text-[10px]">{{ GM_BRIDGE_LABELS.stub }}</Badge>
-          页面转发
         </span>
       </header>
 

@@ -1,7 +1,7 @@
 // GM API 目录（lib/gm-api-catalog.ts）的**防漂移**测试。
 //
 // 目录是工作台「GM API」面板的唯一数据来源，而真身是 gm-wrapper.ts 里那段注入源码的**装配块**
-// （GM.page 的两个方法在 page-client.ts）。两处一旦分叉，面板就在对着用户说谎（还看不出错），
+// （GM.page 的两个方法在 gm-wrapper.ts 的 `__gmPageApi` 块）。两处一旦分叉，面板就在对着用户说谎（还看不出错），
 // 故这里从源码反射出真实挂载的键集合，与目录双向比对。
 //
 // 另一道防线在类型层：能力表的键必须恰好覆盖 `keyof GmGlobalFns`
@@ -12,7 +12,6 @@ import { GM_API_ENTRIES, GM_API_GROUPS } from './gm-api-catalog'
 import { GRANT_NAMES } from './gm-grants'
 
 const WRAPPER_SRC = readFileSync(new URL('./userscripts/gm-wrapper.ts', import.meta.url), 'utf8')
-const PAGE_CLIENT_SRC = readFileSync(new URL('./userscripts/page-client.ts', import.meta.url), 'utf8')
 
 /** 装配块的起点注释；找不到即说明包装被重构过，反射锚点需同步更新（会让测试红，不会静默） */
 const ASSEMBLY_MARK = '// —— 组装成员（按 @grant 裁剪'
@@ -53,10 +52,13 @@ function reflectCookieMethods(): string[] {
   return [...block.matchAll(/^\s{4}(\w+): function/gm)].map((m) => `GM_cookie.${m[1]!}`).sort()
 }
 
-/** `GM.page` 的两个方法在 page-client.ts 的 return 块（缩进 4 空格） */
+/** `GM.page` 的两个方法：包装里的 `__gmPageApi` 定义块（缩进 4 空格） */
 function reflectPagePaths(): string[] {
-  const tail = PAGE_CLIENT_SRC.slice(PAGE_CLIENT_SRC.indexOf('return {'))
-  return [...tail.matchAll(/^ {4}(\w+): function/gm)].map((m) => `GM.page.${m[1]!}`).sort()
+  const i = WRAPPER_SRC.indexOf('var __gmPageApi = {')
+  if (i < 0) throw new Error('gm-wrapper.ts 里找不到 __gmPageApi 定义块')
+  const end = WRAPPER_SRC.indexOf('\n  }\n', i)
+  const block = WRAPPER_SRC.slice(i, end < 0 ? undefined : end)
+  return [...block.matchAll(/^ {4}(\w+):/gm)].map((m) => `GM.page.${m[1]!}`).sort()
 }
 
 describe('gm-api-catalog 与真实注入的 GM 面一致', () => {

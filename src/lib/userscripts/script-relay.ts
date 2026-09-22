@@ -2,7 +2,7 @@
 //
 // buildScriptRelaySource(secret) 返回的字符串由 engine.ts 注入独立 USER_SCRIPT 世界
 // （worldId: 'us-dl-bridge'，须 configureWorld({ messaging: true })），随「启用脚本的
-// 匹配并集」注册 —— 与 dl-page-stub 同一套触发条件。
+// 匹配并集」注册（与录制转发件同一套触发条件，`engine.ts` 的 `syncScriptRelay`）。
 //
 // 存在理由：脚本切到 MAIN 世界后没有 `chrome.*`，而 GM 能力（值存储 / 跨域请求 /
 // cookie / 菜单 / 通知）只有扩展侧能给。本件就是那层「`chrome.runtime` 的替身」：
