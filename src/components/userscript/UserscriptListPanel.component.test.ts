@@ -755,7 +755,7 @@ describe('UserscriptListPanel 从链接导入', () => {
     expect(importText).not.toHaveBeenCalled()
   })
 
-  it('取回后先停在确认态（未落盘），看清摘要与体检再安装', async () => {
+  it('取回后先停在确认态（未落盘），看清摘要再安装', async () => {
     fetchMock.mockResolvedValue(
       fetchBody(
         [

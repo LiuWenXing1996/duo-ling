@@ -181,7 +181,7 @@ export interface GmXhrDetails {
   data?: string | Blob | FormData | ArrayBuffer | ArrayBufferView
   /**
    * `text`（缺省）/ `json` / `arraybuffer` / `blob`。
-   * **不支持 `document` / `stream`**（前者本可实现但未做，后者桥无流式）。
+   * **不支持 `stream`**（TM 的合法值正是这四个 + `stream`，我们只缺最后那个；`document` 两边都没有）。
    */
   responseType?: 'text' | 'json' | 'arraybuffer' | 'blob'
   /** 毫秒；到点触发 ontimeout */
@@ -252,14 +252,22 @@ export interface GmNotificationDetails {
   ondone?: () => void
 }
 
+/**
+ * `GM_download` 的 details（TM 的子集）。**不支持**：`headers`（下载请求由浏览器下载器发出、
+ * 不经扩展，塞不进自定义头）、`anonymous`、`ontimeout`、以及返回值上的 `abort()`。
+ */
 export interface GmDownloadDetails {
   url: string
+  /** 文件名（**只取纯名**，路径会被剥掉）；不传则浏览器按 URL 推断 */
   name?: string
-  headers?: Record<string, string>
-  /** 远程抓取的响应体（本扩展走 SW 抓取 → dataUrl → a[download]） */
+  /** 弹「另存为」对话框（走浏览器下载器，与 TM 同语义） */
+  saveAs?: boolean
+  /** 同名文件怎么办（走浏览器下载器，与 TM 同语义） */
+  conflictAction?: 'uniquify' | 'overwrite' | 'prompt'
   onload?: () => void
   onerror?: (e: { error: string }) => void
-  ontimeout?: () => void
+  /** 下载进度（浏览器下载器不发字节数，由 SW 轮询 `chrome.downloads.search()` 取） */
+  onprogress?: (p: GmXhrProgress) => void
 }
 
 export interface GmOpenInTabOptions {

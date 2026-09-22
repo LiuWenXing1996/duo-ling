@@ -517,7 +517,7 @@ const fileAccessAllowed = ref<boolean | null>(null)
 // —— 从链接导入 ——
 // 第四种取内容方式：内容在别处（Gist / 仓库 / 静态托管的 .user.js），把它抓回来。
 // 与前三处的差别是**抓回来之前不知道是什么**，故这条分两步：先取回、看清装的是什么
-// （脚本名 / 匹配规则 / 兼容性体检），再落盘；zip 与粘贴是一步（内容已在手上，报告里说清即可）。
+// （脚本名 / 匹配规则），再落盘；zip 与粘贴是一步（内容已在手上，报告里说清即可）。
 
 /** 从链接导入弹窗是否打开 */
 const linkImportOpen = ref(false)
@@ -1634,7 +1634,7 @@ useDataSync('group', () => refreshGroups())
     </ui-dialog>
 
     <!-- 从链接导入：地址在别处（Gist / 仓库 / 静态托管的 .user.js），抓回来再落盘。
-         与另外三条差一步：先取回、看清装的是什么（脚本名 / 匹配规则 / 兼容性体检），再安装
+         与另外三条差一步：先取回、看清装的是什么（脚本名 / 匹配规则），再安装
          —— 外部来源先审后启（见 fetchFromLink / confirmLinkImport） -->
     <ui-dialog
       :open="linkImportOpen"
@@ -1663,7 +1663,7 @@ useDataSync('group', () => refreshGroups())
             class="mt-2 whitespace-pre-wrap break-all text-xs text-destructive"
           >{{ linkError }}</p>
 
-          <!-- 已取回：先说清装的是什么（元数据摘要），再给体检结论；取回态下地址框锁住，
+          <!-- 已取回：先说清装的是什么（元数据摘要）；取回态下地址框锁住，
                要换地址得先「重新填写」 -->
           <div v-if="fetchedCode" class="mt-3 rounded-md border p-2">
             <p class="text-xs font-medium">

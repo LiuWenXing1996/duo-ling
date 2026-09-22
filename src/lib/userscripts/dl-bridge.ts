@@ -383,7 +383,6 @@ async function doFetch(
   }
 }
 
-/** GM_download 的后台实现：抓成 dataUrl，包装侧用 a[download] 触发本地下载（避免新增 downloads 权限） */
 // ————————————————————— 下载（downloads 权限）—————————————————————
 
 /** 取 chrome.downloads，缺失即明确报错（扩展未声明 downloads 权限 / 旧产物）；不静默降级 */

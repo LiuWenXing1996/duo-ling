@@ -97,7 +97,7 @@ const SINGLE_KEYS = new Set([
 
 /**
  * 定位第一个 metadata 块的首尾行号；找不到返回 null。
- * 解析与「补全权限」共用同一套判据 —— 块定位只写这一处。
+ * 块定位（`// ==UserScript==` … `// ==/UserScript==`）只写这一处。
  */
 function findBlockLines(lines: string[]): { start: number; end: number } | null {
   let start = -1
