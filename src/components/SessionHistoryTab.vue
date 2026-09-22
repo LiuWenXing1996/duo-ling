@@ -24,6 +24,7 @@
 import { onMounted, ref } from 'vue'
 import ChatPanel from '@/components/ChatPanel.vue'
 import SessionHistoryPanel from '@/components/SessionHistoryPanel.vue'
+import { useChatRunning } from '@/composables/use-chat-running'
 import { Button as UiButton } from '@/components/ui/button'
 import {
   Dialog as UiDialog,
@@ -42,6 +43,7 @@ import {
 } from '@/lib/conversation-tab-map'
 import type { TabConversationMap } from '@/lib/conversation-tab-map'
 import type { Conversation, TokenUsage } from '@/shared/types'
+import type { RuntimeRequest } from '@/shared/extension-ipc'
 import type { UIMessage } from 'ai'
 
 const conversations = ref<Conversation[]>([])
@@ -197,6 +199,22 @@ async function focusTab(tabId: number): Promise<void> {
  *
  * 拦截放在这里而不是 SessionHistoryPanel：面板只管列表与交互，业务规则归宿主。
  */
+
+/**
+ * 会话删掉后，顺手清掉它的通知。
+ *
+ * 不清的话：弹层里会留一条点不开的通知（会话都没了），角标数字也一直挂着它。
+ * 这一步**交给 SW**（而不是本页直接清库）—— 角标归 SW 维护，本页偷偷清了库它不知道，
+ * 数字会挂着一个不对的值、又没有任何事件来纠正。
+ */
+async function dropNotifications(target: { conversationId?: string; all?: boolean }): Promise<void> {
+  try {
+    await chrome.runtime.sendMessage({ kind: 'notify:drop', ...target } satisfies RuntimeRequest)
+  } catch {
+    // SW 不在（扩展更新中 / 被禁用）：残留的通知指向已删会话，点开落工作台会话历史，不拦主流程
+  }
+}
+
 async function onDelete(payload: {
   type: 'session' | 'all'
   id?: string
@@ -231,6 +249,7 @@ async function onDelete(payload: {
     if (payload.type === 'all') {
       await window.api.conversation.deleteAll()
       await unbindAll().catch(() => {})
+      await dropNotifications({ all: true })
       conversations.value = []
       selectedId.value = ''
       messages.value = []
@@ -241,6 +260,8 @@ async function onDelete(payload: {
     await window.api.conversation.delete(payload.id)
     // 清掉指向它的归属绑定：否则对应标签页的映射会一直指着一条已不存在的会话
     await unbindConversation(payload.id).catch(() => {})
+    // 通知同理：会话没了，指向它的那几条也该跟着走
+    await dropNotifications({ conversationId: payload.id })
   } catch {
     // 同上：交给广播回拉兜底
   }
@@ -249,6 +270,25 @@ async function onDelete(payload: {
 // 别处（对话界面所在标签页之外）增删改会话 → 回拉列表。
 // 本页自己的删除已在 onDelete 里就地更新，重复回拉无副作用。
 useDataSync('conversation', () => void loadList())
+
+/** 正在生成的会话：列表上给状态标与就地停止入口（数据源见 useChatRunning） */
+const { runningIds } = useChatRunning()
+
+/**
+ * 就地停止某条会话的生成。
+ *
+ * 为什么必须在这里也能停：会话按标签页归属，但任务跑在 offscreen、与页面无关 —— 用户可能正在
+ * 工作台翻历史（压根没打开那个标签页的浮层）。不给入口就等于只能看着它在后台烧 token。
+ *
+ * 停完不动本地状态：状态归 SW（`chat:finished` 广播回来会触发重拉），这里只发命令、不做第二套口径。
+ */
+async function onStop(id: string): Promise<void> {
+  try {
+    await chrome.runtime.sendMessage({ kind: 'chat:abort', conversationId: id } satisfies RuntimeRequest)
+  } catch {
+    // 发不出去（SW 不在）：状态由列表下次刷新纠正，这里不额外报错
+  }
+}
 
 onMounted(() => void loadList())
 </script>
@@ -262,9 +302,11 @@ onMounted(() => void loadList())
         variant="page"
         :conversations="conversations"
         :active-conversation-id="selectedId"
+        :running-ids="runningIds"
         @activate="select"
         @delete="onDelete"
         @rename="onRename"
+        @stop="onStop"
       />
     </div>
 

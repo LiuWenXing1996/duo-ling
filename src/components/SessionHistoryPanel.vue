@@ -35,18 +35,24 @@ import {
   TooltipTrigger as UiTooltipTrigger
 } from '@/components/ui/tooltip'
 import { Input as UiInput } from '@/components/ui/input'
+import SessionRunningBadge from './SessionRunningBadge.vue'
 import type { Conversation, ConversationSearchHit } from '@/shared/types'
 import { formatSessionTime } from '@/composables/use-global-conversation'
 
 const props = defineProps<{
   conversations: Conversation[]
   activeConversationId: string
+  /** 正在生成的会话 id：命中就在那一行给「生成中」标与就地停止入口（数据见 useChatRunning） */
+  runningIds?: string[]
 }>()
 const emit = defineEmits<{
   activate: [id: string]
   delete: [payload: { type: 'session' | 'all'; id?: string; title?: string }]
   rename: [payload: { id: string; title: string }]
+  stop: [id: string]
 }>()
+
+const isRunning = (id: string): boolean => props.runningIds?.includes(id) ?? false
 
 // —— 搜索：防抖调主进程 conversation:search；空查询回落到 props.conversations（按日期分组）——
 const query = ref('')
@@ -260,6 +266,7 @@ function confirmRename(): void {
                 >
               </p>
             </div>
+            <SessionRunningBadge v-if="isRunning(s.id)" @stop="emit('stop', s.id)" />
             <ui-dropdown-menu>
               <!-- ⚠️ 此按钮暂不套 shadcn Tooltip：TooltipTrigger as-child 夹在 DropdownMenu
                    与按钮之间会让 reka-ui 的 menu popper 失去定位（内容渲染到视口外，
@@ -331,6 +338,7 @@ function confirmRename(): void {
                   >
                 </p>
               </div>
+              <SessionRunningBadge v-if="isRunning(s.id)" @stop="emit('stop', s.id)" />
               <ui-dropdown-menu>
                 <ui-dropdown-menu-trigger as-child>
                   <ui-button

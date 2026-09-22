@@ -12,6 +12,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import { Button as UiButton } from '@/components/ui/button'
+import PopupNotifications from './PopupNotifications.vue'
 import PopupPageScripts from './PopupPageScripts.vue'
 import {
   ensureFloatEnabled,
@@ -142,6 +143,9 @@ onMounted(() => {
       <span class="text-sm font-semibold">哆灵</span>
       <span class="text-xs text-muted-foreground">浮窗设置</span>
     </header>
+
+    <!-- 通知（进行中 + 跑完没看）：角标只有一个数字，具体是什么事在这里展开 -->
+    <PopupNotifications />
 
     <!-- 仅在有新版本时出现：常态下 popup 保持原样，不新增噪音 -->
     <div

@@ -25,7 +25,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { AGENT_RUNTIME_LIMITS } from '@/lib/agent-tools-catalog'
 import { appendMessage, listMessages } from '@/lib/conversation-store'
 import { toPersistedMessage, toUiMessage } from '@/lib/conversation-message'
-import { textOfMessage } from '@/lib/ui-message-parts'
+import { isPendingToolUIPart, textOfMessage } from '@/lib/ui-message-parts'
 import { offscreenBridge } from '@/lib/offscreen-bridge'
 import { getProject } from '@/lib/userscripts/project-store'
 import type {
@@ -35,7 +35,14 @@ import type {
   PageContextInfo,
   RuntimeRequest,
 } from '@/shared/extension-ipc'
-import { dropBuffer, notifyChatFinished, pushChunk, replaySince, resetBuffer } from './event-bus'
+import {
+  dropBuffer,
+  notifyChatFinished,
+  notifyChatRunning,
+  pushChunk,
+  replaySince,
+  resetBuffer,
+} from './event-bus'
 import { createIdleGuard } from './idle-guard'
 import { getActiveProfile } from './profile-cache'
 import {
@@ -260,6 +267,55 @@ async function buildFinalMessageFromChunks(
   return { message: last, errors }
 }
 
+/**
+ * 中止时落盘「已经生成出来的那部分」。
+ *
+ * 为什么不整条丢掉：用户按停止、或关掉那个标签页，只是不要后续了 —— 已经吐出来的文字仍然是他
+ * 要的东西，丢掉就真没了。半截照样走同一条投影链（`buildFinalMessageFromChunks` 不依赖 finish
+ * chunk），只是额外附一个 `data-interrupted` 标记，让界面与会话历史能标出「这条没说完」。
+ *
+ * 两条刻意不做：
+ *   · **不落产物**（半截脚本没有意义，落盘反而让人以为生成完了）；
+ *   · **不留没有结果的工具调用**（见 isPendingToolUIPart —— 否则历史里是一串转不完的卡片）。
+ * 真正没内容可落时（除标记外一个 part 都没有）整条跳过，不写空消息。
+ */
+async function persistInterruptedOutput(opts: {
+  conversationId: string
+  messageId: string
+  /** 泵流时收到的 chunk（含未完成部分，不含 finish —— 它还没来） */
+  chunks: UIMessageChunk[]
+  /** 工具执行中途手工推的 part（同意卡那类），同样要进落盘序列 */
+  midParts: UIMessageChunk[]
+}): Promise<void> {
+  const mark = {
+    type: 'data-interrupted',
+    id: `interrupted-${opts.messageId}`,
+    data: {},
+  } as UIMessageChunk
+  // 标记先推给还开着面板：往下 pushChunk('abort') 之后流就断了，那时推什么都进不去
+  pushChunk(opts.conversationId, mark)
+
+  const { message, errors } = await buildFinalMessageFromChunks([
+    ...opts.chunks.filter((c) => c.type !== 'finish'),
+    ...dedupeById(opts.midParts),
+    mark,
+  ])
+  if (!message) {
+    // 还原不出来是异常（正常半截总有 start + 若干 part），留日志但不再打扰用户 ——
+    // 他刚按了停止，再弹一条错误只是噪音
+    if (errors.length) console.error('[duoling:chat] 中止落盘还原失败：', errors.slice(0, 3).join('；'))
+    return
+  }
+  const parts = message.parts.filter((p) => !isPendingToolUIPart(p))
+  if (parts.length <= 1) return // 只剩那个标记 = 这一轮什么都没生成
+  await appendMessage(
+    toPersistedMessage(
+      { ...message, parts },
+      { conversationId: opts.conversationId, id: message.id || opts.messageId },
+    ),
+  ).catch((e) => console.error('[duoling:chat] 中止落盘失败', e))
+}
+
 // —— 主循环 ——
 
 async function runLoop(opts: {
@@ -282,6 +338,15 @@ async function runLoop(opts: {
   }
   runningByConversation.set(conversationId, task)
   resetBuffer(conversationId)
+  // 任务开始的唯一信号点（新任务与孤儿续跑都经这里起循环）：SW 据此点亮「进行中」角标，
+  // 并把状态写给该会话所属标签页的悬浮按钮。收尾配对是 chat:finished（cleanup / 异常分支）。
+  notifyChatRunning(conversationId)
+
+  // 泵流期间收集的序列（chunk 全量 + 工具中途手工推的 part）：正常收尾与中止收尾（含异常分支）
+  // 都要拿它落盘，所以声明在 try 之外 —— 否则 catch 里取不到「异常前已经生成的部分」。
+  // 收集发生在下面，异常更早抛出时它们就是空数组，落盘那步自然会跳过。
+  const allChunks: UIMessageChunk[] = []
+  const midStreamParts: UIMessageChunk[] = []
 
   try {
     const profile = getActiveProfile()
@@ -322,9 +387,7 @@ async function runLoop(opts: {
 
     // 本轮任务里**工具中途推的 data part**（同意卡）：收尾时插进落盘序列。
     // 不收集就只在流里闪一下——重开面板时卡片消失，而卡片恰是用户唯一的操作入口
-    // （刷新页面后浮窗会关，用户回来就靠历史里这张卡开关录制）。
-    const midStreamParts: UIMessageChunk[] = []
-
+    // （刷新页面后浮窗会关，用户回来就靠历史里这张卡开关录制）。数组声明在 try 之外，见上。
     const baseURL = profile.useFullUrl
       ? profile.baseUrl.replace(/\/chat\/completions\/?$/i, '')
       : profile.baseUrl
@@ -382,7 +445,6 @@ async function runLoop(opts: {
     // 泵流：逐条入缓冲 + 推观察者；finish 只押后出**缓冲**（收尾时再入），
     // 完整序列 allChunks 全收（含 finish）——落盘还原靠它，不靠环形缓冲（会被长回复截断）
     // （ReadableStream 在当前 TS lib 下没有 asyncIterator 声明，reader 手泵）
-    const allChunks: UIMessageChunk[] = []
     let finishChunk: UIMessageChunk | undefined
     let sawAbort = false
     const reader = ui.getReader()
@@ -415,7 +477,7 @@ async function runLoop(opts: {
 
     // 任务收尾：删运行时记录 + 丢事件缓冲（缓冲只为进行中任务的重连服务；
     // 收尾后结果已在会话历史，保留缓冲反而会让重开面板 replay 出重复消息）。
-    // ok 顺路推 chat:finished：SW 旁听后视面板存活点亮完成徽章。
+    // ok 顺路推 chat:finished：SW 旁听后视浮层展开态点亮完成角标（配对 chat:running）。
     const cleanup = (ok: boolean) => {
       runningByConversation.delete(conversationId)
       void removeTask(taskId).catch(() => {})
@@ -427,6 +489,12 @@ async function runLoop(opts: {
     // 不落盘半截、不报「任务异常」（超时分支已推过 error 块）。真实异常仍上抛。
     if (readErr) {
       if (abort.signal.aborted) {
+        await persistInterruptedOutput({
+          conversationId,
+          messageId: task.messageId,
+          chunks: allChunks,
+          midParts: midStreamParts,
+        })
         if (!sawAbort) pushChunk(conversationId, { type: 'abort' })
         cleanup(false)
         return
@@ -434,11 +502,18 @@ async function runLoop(opts: {
       throw readErr
     }
 
-    // —— 收尾分支 1：用户主动停止 / 流异常中断 ——
-    // 不落盘半截消息、不落盘产物；孤儿判定只认 running，记录即删。
-    // ⚠️ abort 后 toUIMessageStream 仍会补发 finish，所以
-    // 分支 2 之前必须再看一眼 sawAbort / abortSignal——否则半截消息照常落盘。
+    // —— 收尾分支 1：用户主动停止 / 关掉标签页 / 流异常中断 ——
+    // 已生成的部分**照样落盘**（附 data-interrupted 标记），只有产物不落 ——
+    // 半截脚本没有意义，而半截文字是用户要的东西。孤儿判定只认 running，记录即删。
+    // ⚠️ abort 后 toUIMessageStream 仍会补发 finish，所以分支 2 之前必须再看一眼
+    // sawAbort / abortSignal —— 否则半截会被当成正常收尾，多落一份产物。
     if (!finishChunk || sawAbort || abort.signal.aborted) {
+      await persistInterruptedOutput({
+        conversationId,
+        messageId: task.messageId,
+        chunks: allChunks,
+        midParts: midStreamParts,
+      })
       if (!sawAbort) pushChunk(conversationId, { type: 'abort' })
       cleanup(false)
       return
@@ -535,6 +610,13 @@ async function runLoop(opts: {
     pushChunk(conversationId, {
       type: 'error',
       errorText: e instanceof Error ? e.message : String(e),
+    })
+    // 异常前吐出来的内容同样别丢（用户看到的文字是真金白银）
+    await persistInterruptedOutput({
+      conversationId,
+      messageId: task.messageId,
+      chunks: allChunks,
+      midParts: midStreamParts,
     })
     pushChunk(conversationId, { type: 'abort' })
     await removeTask(taskId).catch(() => {})

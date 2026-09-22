@@ -389,6 +389,11 @@ const cardErrors = reactive(new Map<string, string>())
 /** 上面那批错误里属「没开权限」的（registerError）：附带引导入口；命令异常则不给（原因不在这） */
 const cardErrorNeedsGuide = reactive(new Set<string>())
 
+/** 这条回复是不是被中止的（offscreen 中止落盘时附的 data-interrupted 标记，见 chat-host） */
+function isInterrupted(m: UIMessage): boolean {
+  return m.parts.some((p) => p.type === 'data-interrupted')
+}
+
 function cardsOf(m: UIMessage): GenerationCardData[] {
   return m.parts
     .filter((p) => p.type === 'data-generation')
@@ -996,6 +1001,15 @@ function userScriptsUnavailableMessageSafe(): string {
                   </ui-button>
                 </div>
               </div>
+              <!-- 被中止的回复：内容只到停下的地方（offscreen 中止落盘时附的 data-interrupted 标记）。
+                   标出来，免得事后翻会话历史把半截当成完整回复。 -->
+              <p
+                v-if="m.role === 'assistant' && isInterrupted(m)"
+                class="pl-1 text-xs text-muted-foreground/70"
+                data-testid="message-interrupted"
+              >
+                已中断
+              </p>
               <!-- 本次消耗 token：assistant 气泡下方展示（无 usage 时不渲染） -->
               <p
                 v-if="m.role === 'assistant' && tokenLabel(usageOf(m.id))"
