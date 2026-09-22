@@ -100,23 +100,6 @@ describe('DlPortRegistry', () => {
     expect(reg.portsByUuid('u1')).toHaveLength(2)
   })
 
-  it('url 订阅按 tab 路由：仅推该 tab 上已订阅的 Port，与 store watch 独立', () => {
-    const reg = new DlPortRegistry()
-    addPort(reg, 'u1', 'c1', 11)
-    addPort(reg, 'u1', 'c2', 11)
-    addPort(reg, 'u1', 'c3', 22)
-    // 仅 c1 订阅 URL 变化；c2 同 tab 但未订阅不应收到
-    expect(reg.attachUrlWatch('u1', 'c1')).toBe(true)
-    // 未就绪 connId 返回 false
-    expect(reg.attachUrlWatch('u1', 'c-x')).toBe(false)
-    expect(reg.portsForUrlChange(11).map((p) => p.name)).toEqual(['duoling:dl:u1:c1'])
-    expect(reg.portsForUrlChange(22)).toEqual([])
-    // store watch 不受影响
-    expect(reg.watchersForKey('u1', 'k')).toEqual([])
-    // 取消订阅后不再路由
-    reg.detachUrlWatch('u1', 'c1')
-    expect(reg.portsForUrlChange(11)).toEqual([])
-  })
 })
 
 describe('pushEvent', () => {

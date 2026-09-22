@@ -56,7 +56,6 @@
 
 | 项 | 差异 | 依据 |
 | --- | --- | --- |
-| `unsafeWindow` | 降级别名 = 隔离世界的 `window`：DOM 可用，**看不到页面 JS 全局**（站点自己的变量、框架实例都读不到）；首次访问 console.warn 一次 | `gm-api-catalog.ts`「页面 window（降级）」条目 |
 | `GM_xmlhttpRequest` | **无 `onprogress`**（桥无流式）；`responseType` 只支持 text / json / arraybuffer / blob，不支持 document / stream；非 2xx 走 `onload` 而非 `onerror` | `gm-api-catalog.ts` 与 `spec-text.ts` 的请求条目 |
 | `GM_xmlhttpRequest` | 不支持同步请求 | `spec-text.ts`「明确不支持」段 |
 | `GM_cookie` | 不收 `domain` / `path`，传入即报错——域名门只比 scheme + host，开放 domain 会架空它 | `gm-wrapper.ts` cookie 分支 |
@@ -66,7 +65,9 @@
 
 ## 四、环境级差异（脚本会撞上，但不算 API 缺口）
 
-- **严 CSP**：USER_SCRIPT 隔离世界禁 `eval` / `new Function`；依赖动态代码生成的库（如 ajv 编译校验器、Vue 运行时模板编译器）会在目标页静默失败。
+- **CSP 跟随目标站点**：脚本运行在页面主世界，`eval` / `new Function` 能不能用由站点自身的 CSP 决定（不再由本扩展拦截）。依赖动态代码生成的库（如 ajv 编译校验器、Vue 运行时模板编译器）在收紧 CSP 的站点上仍会静默失败。
+- **`GM_info.isIncognito` 恒 false**：脚本在 MAIN 世界读不到扩展的隐身上下文；要拿真值需经桥回 SW 查，暂未做。
+- **脚本顶层 `var` 不进页面全局**：注入代码把包装与脚本一起放在函数作用域里。要往页面上挂东西请显式写 `unsafeWindow.x = …`。
 - **`@grant` 精确裁剪**：写了清单就只注入清单内的成员，漏写即 `ReferenceError`；`@grant none` 或完全没有 metadata 才全量注入。
 
 ## 五、本扩展自有（标准里无对应物）

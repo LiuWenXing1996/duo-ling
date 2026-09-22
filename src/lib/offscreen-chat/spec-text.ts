@@ -50,7 +50,7 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
    声明 \`@name\` / \`@match\` / \`@include\` / \`@exclude\` / \`@run-at\` / \`@noframes\` / \`@grant\` / \`@require\`；
 2. 界面上的配置（仅在源码**没声明**对应键时生效）。
 
-\`@require\` 在支持范围内：注册时按声明顺序抓取源码、前置注入到脚本世界（与脚本共享全局作用域），
+\`@require\` 在支持范围内：注册时按声明顺序抓取源码，与本脚本**拼在同一条注入代码里**（共享函数作用域），
 受 \`<all_urls>\` 豁免 CORS；抓取失败只记一条错误日志并跳过该依赖（**不阻断脚本注入**），
 源码按 url 缓存在本地库（手动清除前不重抓）；不做子资源完整性（SRI）校验。
 
@@ -69,22 +69,20 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
    \`response\`、\`status\`、\`finalUrl\`；事件 \`onload\` / \`onerror\` / \`ontimeout\` / \`onabort\`；
    返回句柄可 \`abort()\`。非 2xx 走 \`onload\`（不是 \`onerror\`）。**没有 onprogress**；
    \`responseType\` 只支持 text / json / arraybuffer / blob。
-5. \`unsafeWindow\` 是**降级别名**（= 隔离世界的 window）：DOM 可用，但**看不到页面 JS 全局**
-   （框架实例、站点自己的变量都读不到）。要拿页面数据请用 \`GM.page\`（见下）。
+5. \`unsafeWindow\` 就是**页面自己的 window**（脚本运行在页面主世界）：站点自定义的全局
+   （框架实例、\`window.xxx\`）可直接读写，也能往页面上挂自己的东西。
 6. \`GM.page.*\` 反向中继（**哆灵扩展，非油猴标准**）：
    - \`GM.page.listen(type, handler, opts?)\` 监听页面事件（摘要 { type, key?, detail, timeStamp }）；
    - \`GM.page.fetchHook(fn, opts?)\` 拦截页面 fetch，fn 收 { url, method, headers, body }，回
      { action: 'passthrough' } 或 { action: 'respond', status, headers?, body? }；传 opts.onResponse 可在
      passthrough 时被动拿到真实响应体，零额外请求。
-   - **hook 只拦「页面世界（MAIN）发出的 fetch」，即页面自身 JS 的请求**——脚本跑在独立隔离世界，
-     它自己的 \`fetch\` 与页面那个不是同一绑定，**脚本自己发的请求不会被自己的 hook 拦到**。
-     要拿某个接口的返回，必须让**页面**去发那个请求（触发站点自身交互：点击按钮、切路由等）。
-     不要靠往 DOM 注入内联 \`<script>\` 来代发——该通道在本扩展的运行环境里实测走不通。
+   - **hook 拦的是页面世界（MAIN）的 fetch**。脚本自身也运行在这个世界，所以**脚本自己发的请求
+     同样会被拦到**——不想拦自己发的，在 handler 里按 URL 过滤掉。
 7. \`allFrames\` 默认 true：脚本可能在同页多个 frame 各跑一次，初始化逻辑要幂等（\`@noframes\` 可关）。
 8. 生成的脚本**不会自动生效**——先落盘为未启用状态，由用户确认后启用。不要假设「已经跑起来了」。
-9. 运行环境（USER_SCRIPT 隔离世界）用浏览器默认的严 CSP：**禁止 \`eval\` / \`new Function\`**，
-   也不要引入内部靠它们动态生成代码的库（如 ajv 的编译校验器、Vue 运行时模板编译器）——
-   被拦下的代码只在目标页静默失败，排查成本极高。
+9. 脚本运行在**页面主世界**：能不能用 \`eval\` / \`new Function\` 取决于**目标站点自己的 CSP**，
+   本扩展不再拦。别依赖动态代码生成（如 ajv 的编译校验器、Vue 的运行时模板编译器）——
+   站点一旦收紧 CSP，这类代码会在目标页静默失败，排查成本极高。
 
 ## 能力清单
 
@@ -98,7 +96,6 @@ ${renderCapabilities()}
 - \`@resource\`（命名资源，供 \`GM_getResourceText\` / \`GM_getResourceURL\`）——本扩展不提供这两个
   成员；声明了会被解析进 \`GM_info.script.resources\`，但脚本里拿不到内容
 - \`@connect\` 白名单（本扩展的跨域请求不需要声明）
-- 真正的页面上下文（\`unsafeWindow\` 是降级别名，见硬性约束 5）
 - \`GM_xmlhttpRequest\` 的 \`onprogress\`、\`responseType: 'document' | 'stream'\`、同步请求
 - \`GM_cookie\` 的 \`domain\` / \`path\`（安全收紧项，传入即报错）
 

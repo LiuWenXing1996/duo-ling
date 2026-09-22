@@ -284,9 +284,6 @@ export type ApiRequest =
   | { c: 'tab.get' }
   | { c: 'tab.save'; value: Json }
   | { c: 'tab.all' }
-  // URL 变化订阅（SPA 路由感知）：控制面走请求-响应，事件 t:'url.change' 经 Port 推回
-  | { c: 'url.watch'; connId: string }
-  | { c: 'url.unwatch'; connId: string }
   // 系统能力
   | { c: 'notify'; message: string; title?: string; icon?: string }
   | { c: 'download'; url: string; name?: string }
@@ -315,7 +312,7 @@ export type ApiRequest =
   | { c: 'store.watch'; key: string; connId: string }
   | { c: 'store.unwatch'; key: string; connId: string }
   // 全量订阅（Port 级布尔）：**只读值的脚本也必须有下行通道**，否则同步快照跨 tab 永久陈旧。
-  // 与 url.watch 同构，但**故意不配退订命令** —— 「读过值即常驻订阅」这个前提决定了撤销它等于
+  // 与 store.watch 同构，但**故意不配退订命令** —— 「读过值即常驻订阅」这个前提决定了撤销它等于
   // 把同步读退回陈旧状态（那是缺陷，不是能力），故这里只有 watchAll。
   | { c: 'store.watchAll'; connId: string }
 
@@ -359,8 +356,6 @@ export const API_COMMANDS: Record<ApiRequest['c'], true> = {
   'tabs.close': true,
   'tabs.focus': true,
   'tabs.open': true,
-  'url.unwatch': true,
-  'url.watch': true,
 }
 
 /** 命令名（= `ApiRequest['c']`；`API_COMMANDS` 的键类型） */

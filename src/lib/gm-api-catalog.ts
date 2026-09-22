@@ -356,14 +356,14 @@ const CAPABILITIES = {
 /** 对象型 / 变量型成员的条目（类型层取不到，故用 `satisfies Record<GmObjectPath, …>` 单独兜住） */
 const OBJECT_ENTRIES = {
   unsafeWindow: {
-    title: '页面 window（降级）',
+    title: '页面 window',
     signature: 'unsafeWindow',
-    summary: '**降级别名**：返回独立运行环境的 window（DOM 可用，页面 JS 全局不可见）',
+    summary: '**页面自己的 window**（脚本运行在页面主世界）',
     detail:
-      '本扩展的脚本跑在独立运行环境里，看不到页面的 window。给别名而不是留空，是因为 ReferenceError 会让整个脚本当场停摆；' +
-      '降级至少让只用 DOM 的脚本跑通。**首次访问会在控制台 warn 一次**。' +
-      '依赖页面全局变量（框架实例、站点自己的变量）的脚本在这里跑不通——要拿页面数据请用 GM.page。',
-    returns: 'Window（独立运行环境的）',
+      '脚本与页面同处一个世界，`unsafeWindow` 就是页面自身的 window —— 站点自定义的全局' +
+      '（框架实例、`window.xxx`）可以直接读写，也能往页面上挂自己的东西。与 Tampermonkey 默认行为一致。' +
+      '注意脚本顶层 `var` 落在注入体自己的函数作用域里、不进页面全局；要挂页面请显式写 `unsafeWindow.x = …`。',
+    returns: 'Window（页面的）',
     bridge: 'local',
     group: 'basics',
   },

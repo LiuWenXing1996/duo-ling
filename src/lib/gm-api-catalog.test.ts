@@ -15,7 +15,7 @@ const WRAPPER_SRC = readFileSync(new URL('./userscripts/gm-wrapper.ts', import.m
 const PAGE_CLIENT_SRC = readFileSync(new URL('./userscripts/page-client.ts', import.meta.url), 'utf8')
 
 /** 装配块的起点注释；找不到即说明包装被重构过，反射锚点需同步更新（会让测试红，不会静默） */
-const ASSEMBLY_MARK = '// —— 组装全局（按 @grant 裁剪'
+const ASSEMBLY_MARK = '// —— 组装成员（按 @grant 裁剪'
 
 function assembly(): string {
   const i = WRAPPER_SRC.indexOf(ASSEMBLY_MARK)
@@ -23,10 +23,17 @@ function assembly(): string {
   return WRAPPER_SRC.slice(i)
 }
 
-/** 全局函数 / 全局对象：`if (GM_HAS.X) window.GM_x = …`（`window.GM = GM` 不在此列——无 `GM_` 前缀） */
+/**
+ * 全局函数 / 全局对象：`if (GM_HAS.X) GM_x = …`。
+ * 注意是**局部声明**而非 `window.GM_x = …` —— MAIN 世界下同帧多脚本共享一个 window，
+ * 挂上去会互相覆盖，故全部改成函数作用域内的变量（见 gm-wrapper.ts 文件头）。
+ * `GM_VALUES` 要挡掉：那是值快照的赋值，不是成员。
+ */
 function reflectGlobals(): string[] {
   const out = new Set<string>()
-  for (const m of assembly().matchAll(/window\.(GM_[A-Za-z]+)\s*=/g)) out.add(m[1]!)
+  for (const m of assembly().matchAll(/(?:^|\n)\s*(?:if \(GM_HAS\.\w+\) )?(GM_(?!VALUES)[A-Za-z]+)\s*=/g)) {
+    out.add(m[1]!)
+  }
   return [...out].sort()
 }
 
@@ -56,7 +63,7 @@ describe('gm-api-catalog 与真实注入的 GM 面一致', () => {
   it('路径集合一致（目录没多写、没漏写）', () => {
     const nsNames = reflectNs()
     // `GM.page` 这个容器本身不单独成条目：它展开成 GM.page.listen / fetchHook 两条
-    expect(nsNames, '包装里已不再挂载 window.GM.page').toContain('page')
+    expect(nsNames, '包装里已不再挂载 GM.page').toContain('page')
     const runtime = [
       ...reflectGlobals(),
       ...nsNames.filter((n) => n !== 'page').map((n) => `GM.${n}`),
@@ -70,8 +77,9 @@ describe('gm-api-catalog 与真实注入的 GM 面一致', () => {
     expect(catalog).toEqual(runtime)
   })
 
-  it('两条**降级/差异**成员确实被挂载（降级别名与 onurlchange 走 defineProperty，不在赋值反射里）', () => {
-    expect(WRAPPER_SRC).toContain("Object.defineProperty(window, 'unsafeWindow'")
+  it('两条**不在赋值反射里**的成员确实被挂载（unsafeWindow 走局部声明，onurlchange 走 defineProperty）', () => {
+    // unsafeWindow 不再是 defineProperty 挂的降级别名：MAIN 世界下它就是 window，故走局部声明
+    expect(WRAPPER_SRC).toContain('var unsafeWindow = window')
     expect(WRAPPER_SRC).toContain("Object.defineProperty(window, 'onurlchange'")
   })
 

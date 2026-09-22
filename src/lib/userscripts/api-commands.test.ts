@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GmInfo } from './api-contract'
 import { API_COMMANDS } from './api-contract'
-import { buildGmWrapperSource } from './gm-wrapper'
+import { buildGmWrapperPrefix } from './gm-wrapper'
 
 /** 造一份最小 GM_info（userAgent / isIncognito 由包装运行时就地补，故不传） */
 function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
@@ -38,14 +38,14 @@ function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
 /**
  * 反射注入侧发出的命令名。
  *
- * 反射对象是 `buildGmWrapperSource()` 的**产出**（真身字节），不是 ts 源文本 —— 这样注释里的
+ * 反射对象是 `buildGmWrapperPrefix()` 的**产出**（真身字节），不是 ts 源文本 —— 这样注释里的
  * 「`c: 'xxx'`」不会误入（产出里只留注入体自身的注释），改包装也不会绕开这条检查。
  *
  * 匹配 `c: '<字面量>'`：包装层全部命令名都是字面量（无拼接、无 `.c =` 赋值；新增时也别拼接，
  * 否则本反射会静默漏掉 —— 真出现拼接，比对会以「登记表里的命令没有生产者」的形式红出来）。
  */
 function producers(grant?: string[]): string[] {
-  const src = buildGmWrapperSource({
+  const src = buildGmWrapperPrefix({
     uuid: 'u-cmd',
     name: '命令面反射',
     values: { k: 'v' },
@@ -67,7 +67,6 @@ describe('桥命令面：登记表 ↔ 注入侧发送', () => {
     expect(sent.length).toBeGreaterThan(20)
     expect(sent).toContain('store.get')
     expect(sent).toContain('fetch')
-    expect(sent).toContain('url.unwatch')
   })
 
   it('注入侧发出的命令都在契约里（SW 不会收到它不认识的命令）', () => {

@@ -1,9 +1,12 @@
-// 用户脚本注册引擎（v2 方案）。
+// 用户脚本注册引擎。
 //
-// 主走 chrome.userScripts API：每脚本注册到独立 USER_SCRIPT 世界（worldId），
-// **GM 包装**作为 js 数组首条目先于项目代码定义 `GM_*` / `GM.*`（源码模板在 gm-wrapper.ts），
-// 脚本经 onUserScriptMessage 桥接后台（后台监听在 dl-bridge.ts；
-// style / log / info / addElement 等在包装内本地实现，不走桥）。
+// 主走 chrome.userScripts API：脚本注入**页面 MAIN 世界**（与 Tampermonkey 默认一致，
+// `unsafeWindow` 因此就是页面自己的 window）。`GM_*` / `GM.*` 由包装在**同一函数作用域**里
+// 声明为局部变量（源码模板在 gm-wrapper.ts）—— MAIN 不支持 worldId，同帧多脚本共享一个
+// window，挂到 window 上会互相覆盖。
+// 注入代码与 @require 依赖**拼成一条** code（见 registerScript），包装只是它的头尾。
+// MAIN 世界没有 `chrome.*`：能力调用经同帧 USER_SCRIPT 中继件（script-relay.ts）转给 SW，
+// SW 侧监听在 dl-bridge.ts。style / log / info / addElement 在包装内本地实现，不走桥。
 import type { ScriptConfig, ScriptProject } from './types'
 import type { GmInfo, Json } from './api-contract'
 // 版本判断与「打开扩展管理页」入口同源（引导文案按 <138 / ≥138 分支，UI 侧按钮也按同一分支取 URL）
@@ -15,7 +18,7 @@ import { appendUserScriptError, getAllGMValues } from './store'
 import { fetchRequireSources } from './require-cache'
 import { buildPageStubSource } from './page-stub'
 import { buildScriptRelaySource } from './script-relay'
-import { buildGmWrapperSource } from './gm-wrapper'
+import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
 import { parseUserScriptMetadata } from './metadata'
 import { generatePageSecret } from './page-protocol'
 // 网络录制：MAIN 捕获件 + USER_SCRIPT 转发件 + per-host 门禁（默认关，按站点显式开）
@@ -515,42 +518,31 @@ export async function registerScript(project: ScriptProject): Promise<void> {
       }).catch(() => {})
     }
   }
-  const requireJs: chrome.userScripts.RegisteredUserScript['js'] = requireResults
-    .filter((r) => r.ok && r.code != null)
-    .map((r) => ({ code: r.code! }))
-  const js: chrome.userScripts.RegisteredUserScript['js'] = [
-    {
-      code: buildGmWrapperSource({
-        uuid: project.uuid,
-        name: project.name,
-        values,
-        info: buildGmInfo(project, rawCode),
-        pageSecret,
-        grant: project.config.grant,
-      }),
-    },
-    ...requireJs,
-    { code: rawCode + sourceURLSuffix(project) },
-  ]
-  const worldId = 'us-' + project.uuid // 每脚本独立世界，实现全局隔离（要求 Chrome 133+）
-  // 该脚本的独立世界必须先单独开 messaging，否则世界内没有 chrome.runtime，
-  // GM 桥与运行期错误上报全部失效（自定义世界不继承默认世界配置）。
-  // 注意：不能覆盖全局 worldsConfigured——那是**默认世界**的状态（供可用性查询自愈判断）；
-  // 单世界失败只影响该脚本自身，记入错误日志而非污染全局标志。
-  const worldOk = await configureWorld(worldId)
-  if (!worldOk) {
-    console.warn('[duoling:userscript] 脚本世界配置失败（无 messaging，GM 桥不可用）', worldId)
-    void appendUserScriptError({
+  const requireCodes = requireResults.filter((r) => r.ok && r.code != null).map((r) => r.code!)
+  // 注入 code **必须拼成一条**：包装前缀、@require、脚本源码、闭合后缀要在同一个函数作用域里，
+  // 脚本才能按词法拿到 `GM_*`（见 gm-wrapper.ts 文件头）。拆成多条 js 会各自独立求值 ——
+  // 未闭合的 IIFE 前缀单独求值直接是语法错误。
+  const code = [
+    buildGmWrapperPrefix({
       uuid: project.uuid,
       name: project.name,
-      phase: 'register',
-      message: '脚本运行环境配置失败：GM 能力与错误上报不可用',
-    }).catch(() => {})
-  }
+      values,
+      info: buildGmInfo(project, rawCode),
+      pageSecret,
+      grant: project.config.grant,
+    }),
+    ...requireCodes,
+    rawCode,
+    sourceURLSuffix(project),
+    GM_WRAPPER_SUFFIX,
+  ].join('\n')
   const userScript: chrome.userScripts.RegisteredUserScript = {
     id: project.uuid,
-    worldId,
-    js,
+    // 注入页面主世界：`unsafeWindow` 即页面 window、站点自身的 JS 全局可见（与 TM 默认一致）。
+    // MAIN 不支持 worldId，故不再有「每脚本独立世界」——同帧多脚本共享一个 window，
+    // GM 成员由包装声明为局部变量来避免互相覆盖（见 gm-wrapper.ts 文件头）。
+    world: 'MAIN',
+    js: [{ code }],
     matches: project.config.matches,
     excludeMatches: project.config.excludeMatches,
     includeGlobs: project.config.includeGlobs,

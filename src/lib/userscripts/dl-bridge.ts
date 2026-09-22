@@ -30,8 +30,6 @@ import {
   detachScriptWatch,
   attachValueWatch,
   mintNotification,
-  attachUrlWatch,
-  detachUrlWatch,
 } from './dl-port'
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
@@ -498,16 +496,6 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
     }
     case 'tab.all':
       return getAllTabValues(uuid)
-    // URL 变化订阅（SPA 路由感知）：控制面走请求-响应，归属定位同 store.watch（connId）
-    case 'url.watch': {
-      if (!attachUrlWatch(uuid, req.connId)) {
-        throw new ApiError('INTERNAL', '事件通道未就绪，订阅未生效（请重试）')
-      }
-      return undefined
-    }
-    case 'url.unwatch':
-      detachUrlWatch(uuid, req.connId)
-      return undefined
     case 'tabs.open': {
       const tab = await chrome.tabs.create({ url: req.url, active: req.active !== false })
       if (tab?.id == null) throw new ApiError('INTERNAL', 'tabs.open 未返回标签页')
