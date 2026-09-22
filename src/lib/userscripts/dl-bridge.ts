@@ -690,10 +690,10 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
         req.init?.wantProgress && rid && cid
           ? (loaded: number, total: number | null) => pushFetchProgress(uuid, cid, { requestId: rid, loaded, total })
           : undefined
-      // 诊断（debug 级）：脚本要了进度却没收到帧时，先看这条在不在
-      console.debug(
-        `[duoling:dl] fetch wantProgress=${String(req.init?.wantProgress)} rid=${String(rid)} cid=${String(cid)} → 流式=${progress ? '是' : '否'}`,
-      )
+      // 诊断（debug 级）：脚本要了进度却收不到帧时，先看这条在不在（只对要进度的请求打，别的请求不刷）
+      if (req.init?.wantProgress) {
+        console.debug(`[duoling:dl] fetch 要进度：rid=${String(rid)} cid=${String(cid)} → 流式=${progress ? '是' : '否'}`)
+      }
       return doFetch(req.url, req.init, progress)
     }
     case 'fetch.abort': {
