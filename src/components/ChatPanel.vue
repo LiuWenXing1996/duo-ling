@@ -889,28 +889,36 @@ function userScriptsUnavailableMessageSafe(): string {
                          所以用「背景色 + 描边」浮出来；输入区那枚在浅色输入区上，浅灰底就够 -->
                     <span
                       v-if="messagePageContext(m)?.element"
-                      class="inline-flex max-w-full self-start items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-sm"
+                      class="inline-flex max-w-full self-start items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-xs"
                       :title="messagePageContext(m)!.element!.summary.htmlSample"
                       data-testid="message-page-context"
                     >
-                      <ui-mouse-pointer-click class="size-3.5 shrink-0 text-muted-foreground" />
+                      <ui-mouse-pointer-click class="size-3 shrink-0 text-muted-foreground" />
                       <span class="truncate">
                         已点选：{{ elementChipLabel(messagePageContext(m)!.element!) }}
                       </span>
                     </span>
+                    <!-- 图片不展开成大图：只给「小缩略图 + 文件名」，与点选 chip 同一套外观。
+                         窄面板里大图会把消息挤得很高，而回看时真正要找的是「我当时发了哪张」。
+                         底色同样用「背景色 + 描边」——外层是灰气泡，浅灰底会糊成一片。 -->
                     <div
                       v-if="messageImages(m).length"
-                      class="flex flex-wrap gap-2"
+                      class="flex flex-wrap gap-1.5"
                       data-testid="message-images"
                     >
-                      <img
+                      <span
                         v-for="(img, i) in messageImages(m)"
                         :key="i"
-                        :src="img.url"
-                        :alt="img.filename ?? '图片附件'"
+                        class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-background py-1 pl-1 pr-2.5 text-xs"
                         :title="img.filename"
-                        class="max-h-56 max-w-full rounded-lg border border-border"
                       >
+                        <img
+                          :src="img.url"
+                          :alt="img.filename ?? '图片附件'"
+                          class="h-6 w-9 shrink-0 rounded-sm object-cover"
+                        >
+                        <span class="truncate">{{ img.filename }}</span>
+                      </span>
                     </div>
                     <template v-if="userText(m)">{{ userText(m) }}</template>
                   </ui-message-content>
@@ -1155,22 +1163,23 @@ function userScriptsUnavailableMessageSafe(): string {
         <!-- 附件 chip：随下一条消息发出的图片 / 文本文件，× 可移除；提交成功后由 prompt-input 清空 -->
         <div
           v-if="promptInput.files.value.length"
-          class="mb-2 flex flex-wrap items-center gap-2"
+          class="mb-2 flex flex-wrap items-center gap-1.5"
           data-testid="attachment-chips"
         >
           <span
             v-for="file in promptInput.files.value"
             :key="file.id"
-            class="inline-flex max-w-full items-center gap-2 rounded-full bg-muted py-1.5 pl-1.5 pr-3 text-sm"
+            class="inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted py-1 pl-1 pr-2.5 text-xs"
           >
-            <!-- 缩略图用宽扁比例（截图基本都宽扁）：正方形裁法只剩中间一竖条，看不出是哪张图 -->
+            <!-- 缩略图用宽扁比例（截图基本都宽扁）：正方形裁法只剩中间一竖条，看不出是哪张图。
+                 尺寸比字号大一号：这枚小图是「认出是哪张图」的唯一线索，比文件名更值得占地方 -->
             <img
               v-if="isImageAttachment(file)"
               :src="file.url"
               :alt="file.filename ?? '图片附件'"
               class="h-6 w-9 shrink-0 rounded-sm object-cover"
             >
-            <ui-file-text v-else class="ml-1.5 size-4 shrink-0 text-muted-foreground" />
+            <ui-file-text v-else class="ml-1.5 size-3.5 shrink-0 text-muted-foreground" />
             <span class="truncate" :title="file.filename">{{ file.filename }}</span>
             <button
               type="button"
@@ -1195,14 +1204,14 @@ function userScriptsUnavailableMessageSafe(): string {
         <!-- 拾取 chip：随下一条消息发出的暂存上下文，× 可清除；发送成功后自动消失 -->
         <div
           v-if="pickedElement || contextError"
-          class="mb-2 flex flex-wrap items-center gap-2"
+          class="mb-2 flex flex-wrap items-center gap-1.5"
           data-testid="page-context-chips"
         >
           <span
             v-if="pickedElement"
-            class="inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm"
+            class="inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs"
           >
-            <ui-mouse-pointer-click class="size-3.5 shrink-0 text-muted-foreground" />
+            <ui-mouse-pointer-click class="size-3 shrink-0 text-muted-foreground" />
             <span class="truncate" :title="pickedElement.summary.htmlSample">
               已点选：{{ elementChipLabel(pickedElement) }}
             </span>
@@ -1213,7 +1222,7 @@ function userScriptsUnavailableMessageSafe(): string {
               data-testid="clear-picked-element"
               @click="clearPickedElement()"
             >
-              <ui-x class="size-3.5" />
+              <ui-x class="size-3" />
             </button>
           </span>
         </div>
