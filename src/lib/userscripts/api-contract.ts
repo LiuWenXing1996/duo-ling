@@ -440,8 +440,12 @@ export type ApiCommand = ApiRequest['c']
 
 /**
  * 后台 → 脚本世界 的推送事件，经 Port 下行（帧信封见 ApiEventFrame）。
- * 四类来源：contextMenus.onClicked → menu.click；store.ts 写出口直发 → store.change；
- * notifications.onClicked → notify.click；tabs.onUpdated → url.change。
+ * 来源：contextMenus.onClicked → menu.click；store.ts 写出口直发 → store.change；
+ * notifications.onClicked → notify.click；tabs.onUpdated → audio.change；请求 / 下载的进度与结局
+ * （xhr.progress / download.change）由各自发起方在 SW 侧推。`port.ready` 是内部握手帧。
+ *
+ * （**没有 URL 变化事件**：URL 变化在页面本地检测——见 gm-wrapper 的 history hook——
+ * 不经 SW 推，故这里没有对应的事件类型。）
  */
 export type ApiEvent =
   /** 内部帧（脚本作者不感知）：SW 建立 Port 后立即下发，包装层据此 flush 待注册队列 */
@@ -458,8 +462,6 @@ export type ApiEvent =
   | { t: 'store.change'; key: string; value: Json; oldValue: Json; remote: boolean }
   /** 通知点击。id = SW 创建通知时 mint 的 notificationId（notify 响应返回） */
   | { t: 'notify.click'; id: string }
-  /** 当前标签页 URL 变化（含 SPA pushState / replaceState / popstate / hash 变更）。url = 变化后 URL */
-  | { t: 'url.change'; url: string }
   /**
    * 当前标签页的静音 / 发声状态变化（`GM_audio.addStateChangeListener` 的触发源）。
    * **只推给登记过 `audio.watch` 的连接**；字段含义见 GmAudioChangeEvent（muted 是原因字符串或 false）。

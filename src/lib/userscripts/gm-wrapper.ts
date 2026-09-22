@@ -259,8 +259,6 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     } else if (ev.t === 'notify.click') {
       var nh = __gmNotifyHandlers[ev.id]
       if (nh) { try { nh() } catch (e) { __gmLog('通知点击回调异常', e) } }
-    } else if (ev.t === 'url.change') {
-      __gmFireUrlChange(ev.url)
     } else if (ev.t === 'audio.change') {
       // 只把**帧上真有的键**交给脚本：TM 的监听器靠 'muted' in e / 'audible' in e 区分
       // 是静音变化还是发声变化，多塞一个 undefined 键就会破坏这个判据。

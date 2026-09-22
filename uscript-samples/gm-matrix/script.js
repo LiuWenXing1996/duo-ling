@@ -890,7 +890,7 @@
         window.onurlchange = null
         try { history.replaceState(null, '', href) } catch (e) { /* 跨文档就放弃还原 */ }
       })
-      // 同文档导航（hash 变更）→ SW 观察 tabs.onUpdated → 经 Port 推回 url.change
+      // 同文档导航（hash 变更）也照常触发 —— URL 变化由包装层在页面本地检测（history hook + popstate）
       function push(hash) {
         try {
           history.pushState(null, '', base + hash)
