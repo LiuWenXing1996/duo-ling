@@ -119,6 +119,11 @@ const ALL_KINDS = [
   { kind: 'chat:resume', side: 'offscreen' },
   { kind: 'chat:orphans', side: 'offscreen' },
   { kind: 'chat:orphanAction', side: 'offscreen' },
+  // —— notify:*（SW：通知中心，popup 是唯一消费方）——
+  { kind: 'notify:list', side: 'sw' },
+  { kind: 'notify:read', side: 'sw' },
+  { kind: 'notify:readAll', side: 'sw' },
+  { kind: 'notify:drop', side: 'sw' },
   // —— sw:*（SW：自证）——
   { kind: 'sw:buildInfo', side: 'sw' },
 ] as const satisfies readonly OwnershipRow[]

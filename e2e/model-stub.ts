@@ -47,6 +47,17 @@ export interface ModelStubOptions {
   plan?: (hit: ModelStubHit, index: number) => StubReply | undefined
   /** 模型 id（回包里的 model 字段，默认 stub-model） */
   model?: string
+  /**
+   * **首片文本之后**的延时（ms）：制造「已经吐了内容、但还没结束」的窗口 ——
+   * 端测要在这段时间里中止任务，验「半截照样落盘」（与 delayMs 的区别：那个是吐字节之前）。
+   */
+  holdAfterFirstChunkMs?: number
+  /**
+   * 响应前的延时（ms）：把「生成中」的窗口拉长 —— 端测要在这段时间里做断言
+   * （例如收起浮层后按钮是否已在转圈）。此刻既没吐字节也没收尾，正是「任务在跑」的形态。
+   * 不设则立即响应。注意别越过 offscreen 的流式静默守卫（默认 60s）。
+   */
+  delayMs?: number
 }
 
 const CORS = {
@@ -73,6 +84,8 @@ export async function startModelStub(opts: ModelStubOptions = {}): Promise<{
   stub: ModelStub
   server: http.Server
   replyText: (lastUser: string) => string
+  /** 运行期改配置：同一个实例在不同用例里需要不同节奏（每次请求都读当前值，改完即生效） */
+  setOptions: (patch: ModelStubOptions) => void
 }> {
   const modelId = opts.model ?? 'stub-model'
   const hits: ModelStubHit[] = []
@@ -86,7 +99,7 @@ export async function startModelStub(opts: ModelStubOptions = {}): Promise<{
     }
     let raw = ''
     req.on('data', (c) => (raw += c))
-    req.on('end', () => {
+    req.on('end', async () => {
       let body: {
         stream?: boolean
         messages?: Array<{ role: string; content?: unknown; tool_calls?: unknown }>
@@ -110,6 +123,10 @@ export async function startModelStub(opts: ModelStubOptions = {}): Promise<{
       const planned = opts.plan?.(hit, hits.length - 1)
       const text = planned?.text ?? replyText(hit.lastUser)
       const toolCalls = planned?.toolCalls ?? []
+
+      // 延时在**记录之后、吐字节之前**：此刻 hits 里已有这条请求（断言「生成已开始」读得到），
+      // 而对端还在等首字节 —— 正是「任务在跑」的形态。
+      if (opts.delayMs) await new Promise<void>((resolve) => setTimeout(resolve, opts.delayMs))
 
       if (!body.stream) {
         // 非流式只服务 testChat（它只验 HTTP 通不通），不带工具调用
@@ -166,6 +183,9 @@ export async function startModelStub(opts: ModelStubOptions = {}): Promise<{
 
       // 流式文本：分两片吐字 + finish + [DONE]（AI SDK 认这个形状）
       res.write(chunk({ role: 'assistant', content: text.slice(0, 5) }, null))
+      if (opts.holdAfterFirstChunkMs) {
+        await new Promise<void>((resolve) => setTimeout(resolve, opts.holdAfterFirstChunkMs))
+      }
       res.write(chunk({ content: text.slice(5) }, null))
       res.write(chunk({}, 'stop'))
       res.write('data: [DONE]\n\n')
@@ -176,5 +196,10 @@ export async function startModelStub(opts: ModelStubOptions = {}): Promise<{
   const port = await new Promise<number>((resolve) => {
     server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port))
   })
-  return { stub: { baseUrl: `http://127.0.0.1:${port}`, hits }, server, replyText }
+  return {
+    stub: { baseUrl: `http://127.0.0.1:${port}`, hits },
+    server,
+    replyText,
+    setOptions: (patch) => Object.assign(opts, patch),
+  }
 }

@@ -18,8 +18,14 @@
 //     两点实现约束：部分站点拦载**不触发** iframe 的 error 事件，可靠性靠 load 超时兜底；
 //     floatpanel.html 必须进 web_accessible_resources（见 wxt.config.ts），否则 Chrome 直接拦。
 //   - 拾取让位：页面元素拾取（点选元素 / 快照）期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
-//   - 展开态上报：浮层展开时连一条 FLOAT_PANEL_OPEN_PORT 端口、收起时断开 —— SW 靠它判
-//     「用户此刻在看对话界面吗」（生成完成徽章）。见该常量处说明。
+//   - 「在看」上报：**浮层展开 且 页面可见**时连一条 FLOAT_PANEL_OPEN_PORT 端口，否则断开 ——
+//     SW 靠它判「用户此刻在看对话界面吗」（角标要不要亮、跑完要不要记一条未读通知）。两条缺一
+//     不可：收起浮层他看不见对话内容；切到后台（切标签页 / 最小化）浮层虽还开着，他同样什么都
+//     看不见。见该常量处说明。
+//   - 任务状态外显：UI 挂上即连一条常驻的 FLOAT_TAB_TASK_PORT 端口，SW 推「本标签页的会话
+//     在跑 / 跑完了」——收起浮层期间用户看不见对话，进度与结果就落在悬浮按钮上（转圈 / 红点）。
+//     展开时不显示（面板里自明），收起后立刻恢复显示。整块 UI 不在时（站点开关关着、按钮被页面
+//     元素压住）只剩扩展图标角标那一路。
 //   - 页面外的入口：popup 的「对话浮层」按钮与页面右键菜单各发一条 float:open 消息，收到就挂
 //     UI 并展开（见 FloatOpenRequest）—— 悬浮按钮可能被页面元素压住（页面自己的固定元素，或
 //     无视 z-index 的 top layer），也可能站点开关关着时整块不存在，那些场景下只能从页面外叫。
@@ -30,7 +36,10 @@ import { defineContentScript } from '#imports'
 import {
   FLOAT_OPEN_REQUEST,
   FLOAT_PANEL_OPEN_PORT,
+  FLOAT_TAB_TASK_PORT,
   type FloatOpenRequest,
+  type FloatTaskState,
+  type FloatTaskStatePush,
   type RuntimeRequest,
   type RuntimeResponse,
 } from '@/shared/extension-ipc'
@@ -88,6 +97,8 @@ const FAB_CSS = `
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 .dl-fab {
+  /* 任务状态（转圈环 / 红点）挂在 ::after 上，得有个定位祖先 */
+  position: relative;
   width: 52px;
   height: 52px;
   border-radius: 9999px;
@@ -107,6 +118,40 @@ const FAB_CSS = `
 .dl-fab:active { transform: translateY(0); }
 .dl-fab-container.dragging .dl-fab { cursor: grabbing; }
 .dl-fab svg { width: 24px; height: 24px; }
+/* 任务状态：由 SW 推来、脚本写在容器上（data-task）。收起浮层期间对话内容看不见，
+   进度与结果就落在这颗常驻按钮上 —— 展开时脚本置回 idle（面板里自明）。 */
+.dl-fab-container[data-task="running"] .dl-fab::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  border-top-color: #4f46e5;
+  animation: dl-fab-spin 0.9s linear infinite;
+  pointer-events: none;
+}
+.dl-fab-container[data-task="done"] .dl-fab::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: #d93025;
+  box-shadow: 0 0 0 2px #fff;
+  pointer-events: none;
+}
+@keyframes dl-fab-spin {
+  to { transform: rotate(360deg); }
+}
+/* 关掉动效偏好时不留旋转，改成一个静止的缺口环（状态照样可辨） */
+@media (prefers-reduced-motion: reduce) {
+  .dl-fab-container[data-task="running"] .dl-fab::after {
+    animation: none;
+    border-right-color: #4f46e5;
+  }
+}
 .dl-fab-panel { display: none; }
 .dl-fab-container.open .dl-fab-panel { display: block; }
 .dl-fab-iframe {
@@ -231,17 +276,28 @@ function buildFloatUi(
   /** src 是否已指派（含「正在取 tabId」的在途态）：首次打开连点两次不该指派两回、加载两回 */
   let srcAssigned = false
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null
-  /** 展开态端口：非 null = 此刻浮层是展开的（SW 靠它的生死判「用户在看对话界面吗」） */
+  /** 「在看」端口：非 null = 此刻用户正看着这条对话（SW 靠它的生死判「要不要打扰他」） */
   let openPort: chrome.runtime.Port | null = null
   /** 整块卸下（站点被禁用 / 扩展失效）后不再补连端口 */
   let discarded = false
+  /** 页面此刻是否可见（切到后台 → 浮层虽还展开着，用户已经看不见它了） */
+  let pageVisible = document.visibilityState === 'visible'
+  /** 本标签页的任务状态（SW 推来的权威值）——收起浮层时它就落在这颗按钮上 */
+  let taskState: FloatTaskState = 'idle'
+  /** 任务状态端口（常驻；收起浮层时正是它派上用场） */
+  let taskPort: chrome.runtime.Port | null = null
 
   /**
-   * 上报浮层展开态。判据不能是「面板文档是否活着」—— 收起只是 `display:none`，iframe 与面板
-   * 文档都还在（草稿 / 滚动位置要留着），那条端口永远不会断，于是完成角标永不亮。
+   * 上报「用户正看着这条对话」。
    *
-   * SW 被回收时端口会被掐断，而面板可能还开着 → 补连一次，让状态继续准确（断开只在 SW 真被
-   * 回收时发生，不会变成热循环）。
+   * 判据**两条缺一不可**：
+   *   · 浮层**已展开** —— 收起时他看不见对话内容（但也不能拿「面板文档是否活着」判：收起只是
+   *     `display:none`，iframe 与文档都还在、草稿与滚动位置要留着，那条端口永远不会断）；
+   *   · 页面**可见** —— 浮层还开着、人却切到别的标签页去忙了，他同样什么都看不见。这条漏了的话，
+   *     切走期间既不亮角标也不记通知，任务跑完他一点提示都没有。
+   *
+   * SW 被回收时端口会被掐断，而用户可能还看着 → 补连一次（断开只在 SW 真被回收时发生，
+   * 不会变成热循环）。
    */
   const reportOpen = (open: boolean): void => {
     if (!open) {
@@ -260,10 +316,71 @@ function buildFloatUi(
       port.onDisconnect.addListener(() => {
         if (openPort !== port) return
         openPort = null
-        if (opened && !discarded) reportOpen(true)
+        if (opened && pageVisible && !discarded) reportOpen(true)
       })
     } catch {
       openPort = null // SW 未起等场景：尽力而为，退化为「当用户没在看」
+    }
+  }
+
+  /** 两个条件里的任意一个变了都重报一次（开合浮层、切走 / 切回标签页） */
+  const syncOpenReport = (): void => {
+    reportOpen(opened && pageVisible)
+  }
+
+  /**
+   * 页面可见性变化 = 用户离开 / 回到这一页。
+   *
+   * 只用 `visibilityState`，**不掺窗口焦点**（`document.hasFocus()`）：点一下地址栏、书签栏或
+   * 浏览器菜单都会让文档失焦，那会造成「角标无意义地闪一下」——用户其实没离开这个页面。
+   * 代价是「Chrome 窗口在前台、人去用了别的应用」仍算在看，这个边角先认了。
+   */
+  const onVisibilityChange = (): void => {
+    pageVisible = document.visibilityState === 'visible'
+    syncOpenReport()
+  }
+  document.addEventListener('visibilitychange', onVisibilityChange)
+
+  /**
+   * 任务状态 → 悬浮按钮。收起时显示（转圈 = 在跑，红点 = 跑完还没看），展开时置回 idle：
+   * 进度与结果都在面板里，按钮上再挂一个状态只是噪声。
+   */
+  const renderTaskState = (): void => {
+    container.dataset.task = opened ? 'idle' : taskState
+  }
+
+  /**
+   * 连任务状态端口（**常驻**：UI 挂上就连，不随浮层开合）。
+   *
+   * 为什么收起时也要连着：收起只是给面板加 display:none，任务照跑，而用户此刻恰恰什么都看不见
+   * —— 状态得由 SW 推到这颗按钮上。连上时 SW 会立刻补推一次当前状态，所以页面导航后新内容
+   * 脚本也能马上对齐，不必等下一次变化。
+   *
+   * **刻意不补连**：SW 被回收时端口会被掐断，此时若自动重连就会周期性把 SW 拉起来（自废省电），
+   * 而那一刻多半闲置、状态本来就是 idle。断掉后 FAB 停在最后一次收到的状态；真丢了也有
+   * 扩展图标角标那一路兜着。
+   */
+  const connectTaskPort = (): void => {
+    if (taskPort || discarded) return
+    try {
+      const port = chrome.runtime.connect({ name: FLOAT_TAB_TASK_PORT })
+      taskPort = port
+      port.onMessage.addListener((raw: unknown) => {
+        const state = (raw as Partial<FloatTaskStatePush> | null | undefined)?.state
+        if (state !== 'running' && state !== 'done' && state !== 'idle') return
+        taskState = state
+        renderTaskState()
+      })
+      port.onDisconnect.addListener(() => {
+        if (taskPort !== port) return
+        taskPort = null
+        // 连线断了 = 状态源不可信：退回 idle。宁可漏报（图标角标那一路照旧），
+        // 也不要把「在跑」永远挂在按钮上 —— 任务结束后没人再来纠正它。
+        taskState = 'idle'
+        renderTaskState()
+      })
+    } catch {
+      taskPort = null // SW 未起：退化为「没有任务状态」，图标角标那一路照旧
     }
   }
 
@@ -304,7 +421,8 @@ function buildFloatUi(
   const open = (): void => {
     container.classList.add('open')
     opened = true
-    reportOpen(true)
+    syncOpenReport()
+    renderTaskState() // 面板里进度与结果自明，按钮上的状态先收起来
     // 面板从 display:none 变可见，量尺寸要等这一帧的布局生效，故放到下一帧
     requestAnimationFrame(keepPanelInView)
     if (srcAssigned) return
@@ -323,7 +441,8 @@ function buildFloatUi(
   const close = (): void => {
     container.classList.remove('open')
     opened = false
-    reportOpen(false)
+    syncOpenReport()
+    renderTaskState() // 收起后进度与结果只剩这颗按钮可显示
   }
 
   /**
@@ -418,12 +537,22 @@ function buildFloatUi(
     if (!loaded) showFallback()
   })
 
-  /** 整块卸下（站点被禁用 / 扩展失效）时收尾：停掉补连、断开展开态端口、卸掉全局监听 */
+  /** 整块卸下（站点被禁用 / 扩展失效）时收尾：停掉补连、断掉两条端口、卸掉全局监听 */
   const teardown = (): void => {
     discarded = true
+    document.removeEventListener('visibilitychange', onVisibilityChange)
     reportOpen(false)
+    try {
+      taskPort?.disconnect()
+    } catch {
+      // 已断开：忽略
+    }
+    taskPort = null
     window.removeEventListener('resize', onResize)
   }
+
+  // UI 挂上就连任务状态端口：收起浮层期间，它是页面上唯一的进度 / 结果提示位
+  connectTaskPort()
 
   return { root, open, teardown }
 }

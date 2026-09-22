@@ -39,6 +39,17 @@ export function isToolUIPart(part: UIPart): part is ToolUIPart | DynamicToolUIPa
   return part.type.startsWith('tool-') || part.type === 'dynamic-tool'
 }
 
+/**
+ * 是否属于「还没有结果的工具调用」。
+ *
+ * 中止落盘时用它把这类 part 丢掉：半截里常有参数发了一半（`input-streaming`）或已开始执行
+ * （`input-available`）的调用 —— 它们永远等不到结果，落进历史就是一串转不完的卡片。
+ */
+export function isPendingToolUIPart(part: UIPart): boolean {
+  if (!isToolUIPart(part)) return false
+  return part.state !== 'output-available' && part.state !== 'output-error'
+}
+
 /** 取工具名：动态工具直接读 toolName，静态工具从 `tool-<name>` 里剥掉前缀 */
 export function getToolName(part: ToolUIPart | DynamicToolUIPart): string {
   return part.type === 'dynamic-tool' ? part.toolName : part.type.split('-').slice(1).join('-')

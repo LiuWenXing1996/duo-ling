@@ -81,7 +81,17 @@ export function replaySince(
 }
 
 /**
- * 任务收尾推送（chat:finished）：SW 旁听后在「面板关着」时点亮完成徽章。
+ * 任务开始推送（chat:running）：SW 旁听后点亮「进行中」角标，并把状态写给该会话所属标签页的
+ * 悬浮按钮。每个任务推一次（细节进度在 chat:chunk 里，SW 不必逐条消费）。
+ * 尽力而为：SW 未起 / 无接收方都会 reject，任务照跑。
+ */
+export function notifyChatRunning(conversationId: string): void {
+  const push: OffscreenPush = { kind: 'chat:running', conversationId }
+  void chrome.runtime.sendMessage(push).catch(() => {})
+}
+
+/**
+ * 任务收尾推送（chat:finished）：SW 旁听后在「浮层没展开」时点亮完成角标。
  * ok = 是否正常收敛（停止 / 异常为 false；徽章同亮同色，不区分）。
  * 尽力而为：SW 未起 / 无接收方都会 reject，任务收尾不受影响。
  */

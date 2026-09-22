@@ -15,8 +15,16 @@
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
-import { FLOAT_OPEN_REQUEST, FLOAT_PANEL_OPEN_PORT } from '@/shared/extension-ipc'
-import type { ModelProfileState, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
+import { FLOAT_OPEN_REQUEST, FLOAT_PANEL_OPEN_PORT, FLOAT_TAB_TASK_PORT } from '@/shared/extension-ipc'
+import type {
+  FloatTaskState,
+  FloatTaskStatePush,
+  ModelProfileState,
+  NotificationSnapshot,
+  RunningNotice,
+  RuntimeRequest,
+  RuntimeResponse,
+} from '@/shared/extension-ipc'
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
 import type { InjectedBuildInfo } from '@/lib/build-info'
 
@@ -79,7 +87,22 @@ import {
 } from '@/lib/userscripts/page-monitor'
 // 会话的标签页归属映射（duoling-app 库）：标签页关闭时在这里清（见 tabs.onRemoved 处说明）；
 // page:snapshot 也用它反查「这条会话在哪个标签页上」（会话按 tab 归属）
-import { findTabsUsingConversation, unbindTab } from '@/lib/conversation-tab-map'
+import {
+  findTabsUsingConversation,
+  getConversationIdForTab,
+  unbindTab,
+} from '@/lib/conversation-tab-map'
+// 通知中心（duoling-app 库）：任务收尾记一条未读通知，角标按「进行中 + 未读」报数、popup 给明细
+import {
+  addChatDone,
+  countUnread,
+  listNotifications,
+  markAllRead,
+  markConversationRead,
+  markRead,
+  removeAll,
+  removeByConversation,
+} from '@/lib/notifications'
 import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主）
@@ -104,7 +127,15 @@ import { capturePageSnapshotFromTab, pageInjectionBlockReason } from '@/lib/elem
  *
  * export 仅供协议一致性测试（extension-ipc.test.ts）做 kind 归属断言。
  */
-export const SW_KIND_PREFIXES = ['userscript:', 'model:', 'offscreen:', 'sw:', 'page:', 'tab:'] as const
+export const SW_KIND_PREFIXES = [
+  'userscript:',
+  'model:',
+  'offscreen:',
+  'sw:',
+  'page:',
+  'tab:',
+  'notify:',
+] as const
 
 /**
  * SW 管辖的请求（由上面的前缀推导，两者必须同源）。
@@ -496,6 +527,36 @@ const handlers: {
     await clearRunLog(target)
   },
 
+  // —— 通知中心（popup 是唯一消费方）——
+  // 进行中那份不落库（见 runningConversations），所以这里把内存快照与库里的列表合成一个答复。
+  'notify:list': async (): Promise<NotificationSnapshot> => ({
+    running: await runningNotices(),
+    items: await listNotifications(),
+  }),
+
+  // 标已读后顺手重算角标：角标数字就是这个列表的未读数，两处必须一起变
+  'notify:read': async (msg): Promise<{ unread: number }> => {
+    await markRead(msg.id)
+    await refreshBadge()
+    return { unread: await countUnread() }
+  },
+
+  'notify:readAll': async (): Promise<{ unread: number }> => {
+    await markAllRead()
+    await refreshBadge()
+    return { unread: 0 }
+  },
+
+  // 会话被删 → 它的通知一并清掉（留着只会指向一个不存在的对话）。
+  // **这步必须走 SW**：角标数字归 SW 维护，清库这种事若由工作台直接做，它不知道、也没人喊它重算，
+  // 角标会挂着一个已经不对的数字。
+  'notify:drop': async (msg): Promise<{ unread: number }> => {
+    if (msg.all) await removeAll()
+    else if (msg.conversationId) await removeByConversation(msg.conversationId)
+    await refreshBadge()
+    return { unread: await countUnread() }
+  },
+
   // SW 自证：把 define 注入的构建信息回给 UI（页面显示用，不依赖 SW DevTools 在场）。
   // 消息本身会唤醒休眠的 SW，唤醒后执行的这段代码持有的就是当前生效的 __BUILD_INFO__。
   'sw:buildInfo': async (): Promise<{ time: string; branch: string }> => __BUILD_INFO__,
@@ -533,35 +594,218 @@ async function initUserScripts(): Promise<void> {
 // 这里只做「非 undefined」的收窄（SW 侧该标识符必然存在），形状引自 src/lib/build-info.ts。
 declare const __BUILD_INFO__: InjectedBuildInfo
 
-// —— 生成完成徽章 ——
-// 「用户此刻在看对话界面吗」的判据 = **浮层是否展开**：content script 展开时连上
-// FLOAT_PANEL_OPEN_PORT、收起时断开（页面卸载 / 导航则端口自然断）。**不能拿「面板文档存活」
-// 判**：收起草稿浮层只是 `display:none`，iframe 与面板文档都还在，端口永不断开 → 角标永不亮
+// —— 任务状态：通知中心（角标报数）+ 悬浮按钮（就近提示）——
+//
+// 一份信号源 = offscreen 的 chat:running / chat:finished，三个出口各司其职：
+//
+//   · 工具栏角标 = **全局那一份**：红底白字，数字 = 「进行中 + 跑完没看」的条数。
+//     它是唯一不受页面影响的提示位（浮层没挂、按钮被 top layer 压住时只剩它）。
+//     **只报数、不分类**：什么颜色代表什么状态是额外的记忆负担，具体是什么事去 popup 看。
+//   · 悬浮按钮 = **就近那一份**：收起时转圈 / 亮红点，只讲这个标签页自己的事。
+//     按 tab 分发（会话 → 标签页反查），页面导航后由常驻端口补推当前状态。
+//   · popup = **明细**：几条在进行中、哪几条跑完没看，点条目跳过去并标已读。
+//
+// 「用户此刻在看对话界面吗」的判据 = **浮层展开 且 页面可见**：两条都成立时 content script 连上
+// FLOAT_PANEL_OPEN_PORT，否则断开（页面卸载 / 导航则端口自然断）。**不能拿「面板文档存活」判**：
+// 收起草稿浮层只是 `display:none`，iframe 与面板文档都还在，端口永不断开 → 角标永不变
 // （2026-09-21 无头实测：收起后推 chat:finished，角标纹丝不动；把 iframe 真摘掉才亮）。
-// 任务收尾推送 chat:finished 到达时：浮层展开着 → 不做任何事；没展开 → 图标角标亮 '1'。
-// 角标是「你不在时有事发生了」的信号：不计数、失败同亮同色，浮层一展开即清零。
+// 「页面可见」那条同样不能省：浮层还开着、人却切去别的标签页，那时他什么都看不见，照旧要提示。
 const openFloatPorts = new Set<chrome.runtime.Port>()
+/** 展开态连接 → 所属标签页（判「**这个** tab 的浮层开着吗」，悬浮按钮状态要用它） */
+const openFloatPortTab = new Map<chrome.runtime.Port, number>()
 
-function setFinishedBadge(): void {
+/** 各标签页悬浮按钮此刻该显示的状态；无键 = idle。标签页关闭时清 */
+const tabTaskState = new Map<number, Exclude<FloatTaskState, 'idle'>>()
+/** 各标签页的 FLOAT_TAB_TASK_PORT 连接（重载 / 补连可能并存多条，用 Set 兜住） */
+const tabTaskPorts = new Map<number, Set<chrome.runtime.Port>>()
+
+/** 该标签页的浮层此刻是否展开（= 进度与结果都在用户眼前） */
+function isFloatOpenIn(tabId: number): boolean {
+  for (const tab of openFloatPortTab.values()) if (tab === tabId) return true
+  return false
+}
+
+/** 角标数字：超过 9 显示 9+（角标最多 4 字符，两位数在工具栏尺寸下已经看不清） */
+function badgeCount(n: number): string {
+  return n > 9 ? '9+' : String(n)
+}
+
+/**
+ * 进行中的对话（chat:running 进来、chat:finished 出去）：会话 id → 开始时间。
+ *
+ * **刻意不落库**：它没有稳定落点 —— SW 被回收后内存里这份就没了，而库里若留着一条恒为
+ * 「进行中」的记录，再不会有事件来收尾它，就成了假状态。所以进行中只活在内存：角标数它一份，
+ * popup 问起时把当前快照给它。
+ *
+ * **为什么要记而不是每次现算**：状态变化是事件驱动的，而「事件到达时用户在不在看」与之后可能
+ * 不同 —— 任务开始时浮层还开着（当场判「不打扰」），用户随后收起就再没人喊一声，角标会一直不亮。
+ * 收起那一刻得能按当前情况重算（见 refreshBadge）。
+ */
+const runningConversations = new Map<string, number>()
+
+/** 标签页 → 站点名（通知里用它区分「是哪条对话」；取不到就空串） */
+async function hostOfTab(tabId: number | null): Promise<string> {
+  if (tabId == null || !chrome.tabs?.get) return ''
+  try {
+    const url = (await chrome.tabs.get(tabId)).url
+    if (!url) return ''
+    const u = new URL(url)
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.hostname : ''
+  } catch {
+    return ''
+  }
+}
+
+/** 进行中的快照（popup 的「进行中」那一组）：站点名与标签页现查，不缓一份会过期的 */
+async function runningNotices(): Promise<RunningNotice[]> {
+  return Promise.all(
+    [...runningConversations].map(async ([conversationId, startedAt]) => {
+      const tabId = (await findTabsUsingConversation(conversationId))[0] ?? null
+      return { conversationId, startedAt, tabId, host: await hostOfTab(tabId) }
+    }),
+  )
+}
+
+/**
+ * 图标悬停文案。
+ *
+ * 角标只有一个符号、一个颜色，说不出「是还在跑，还是跑完没看」—— 这里补一句明细，且**只给主动
+ * 悬停的人看**（不占角标、不需要用户记任何约定）。空串 = 恢复默认（扩展名）。
+ */
+function setActionTitle(runningCount: number, unreadCount: number): void {
+  const parts: string[] = []
+  if (runningCount > 0) parts.push(`进行中 ${runningCount}`)
+  if (unreadCount > 0) parts.push(`已完成 ${unreadCount}`)
+  chrome.action.setTitle({ title: parts.join(' · ') }).catch(() => {})
+}
+
+/**
+ * 按此刻的真实情况重算角标与悬停文案 —— **唯一**的角标写入口。
+ *
+ * 之所以是「重算」而不是「收到事件时顺手设一下」：事件到达的时刻与「用户此刻看得见吗」未必
+ * 同时成立 —— 任务在浮层开着时开始、用户之后才收起，就是一个没有事件来过的时点
+ * （见 runningConversations 处的说明），只有重算接得住。
+ *
+ * - 有浮层开着 → 角标清掉（进度与结果都在用户眼前）；悬停文案照报真实数量（它是状态镜像）。
+ * - 否则 → 数字 = 进行中 + 跑完没看；一条都没有才清空。
+ */
+async function refreshBadge(): Promise<void> {
+  const running = runningConversations.size
+  const unread = await countUnread().catch(() => 0)
+  setActionTitle(running, unread)
+  const total = running + unread
+  if (openFloatPorts.size > 0 || total === 0) {
+    chrome.action.setBadgeText({ text: '' }).catch(() => {})
+    return
+  }
   chrome.action.setBadgeBackgroundColor({ color: '#d93025' }).catch(() => {})
-  chrome.action.setBadgeText({ text: '1' }).catch(() => {})
+  chrome.action.setBadgeText({ text: badgeCount(total) }).catch(() => {})
 }
 
-function clearFinishedBadge(): void {
-  chrome.action.setBadgeText({ text: '' }).catch(() => {})
+/**
+ * 把某个标签页的任务状态写给它的悬浮按钮。
+ * 该 tab 当前没有连接（浮层 UI 没挂起来）时只更新记忆值 —— 内容脚本稍后连上会收到快照。
+ */
+function pushTabTaskState(tabId: number, state: FloatTaskState): void {
+  if (state === 'idle') tabTaskState.delete(tabId)
+  else tabTaskState.set(tabId, state)
+  const ports = tabTaskPorts.get(tabId)
+  if (!ports?.size) return
+  const frame: FloatTaskStatePush = { t: 'task-state', state }
+  for (const port of ports) {
+    try {
+      port.postMessage(frame)
+    } catch {
+      ports.delete(port) // 已断开：静默摘除（onDisconnect 也会走一遍）
+    }
+  }
 }
 
-/** chat:finished 观察（offscreen 推送，chat: 前缀按约定不进命令路由，这里只旁听） */
-function handleChatFinishedPush(ok: boolean): void {
-  if (openFloatPorts.size === 0) setFinishedBadge()
-  void ok
+/** 会话 → 还在用它的标签页；反查失败（tab 已关 / 无绑定）就当没人需要页面内的提示 */
+function tabsOfConversation(conversationId: string): Promise<number[]> {
+  return findTabsUsingConversation(conversationId).catch(() => [])
 }
 
-// —— 对话界面监控 + 完成徽章的事件挂载 ——
+/**
+ * 被「标签页关闭」中止掉的会话：收尾时据此**不记**未读通知。
+ *
+ * 为什么：通知的语义是「有事发生而你不在场」；这次是用户自己把页面关掉、任务随之停下，
+ * 他知道会停 —— 再记一条「对话已完成」反而误导（点开只有半截结果）。
+ *
+ * 只在内存里，且会被这次收尾或下一条 chat:running 消费掉，所以不会长期误伤同一会话。
+ */
+const abortedByTabClose = new Set<string>()
+
+/**
+ * 标签页被关掉时的收尾：**中止它那条会话正在跑的任务**。
+ *
+ * 为什么必须中止：会话按标签页归属，标签页没了就没人会去看结果、也没处按停止；而任务跑在
+ * offscreen、与页面无关（这是刻意的，见 chat-host），不显式喊停它就会一路跑完、静默消耗 token。
+ * 用户侧还有第二个停止入口（工作台「会话历史」的生成中标记），但那要他主动去翻。
+ *
+ * 读归属必须在解绑之前 —— 解绑完就不知道这个标签页归哪条会话了。
+ */
+async function abortConversationOfClosedTab(tabId: number): Promise<void> {
+  const conversationId = await getConversationIdForTab(tabId).catch(() => null)
+  await unbindTab(tabId).catch(() => {})
+  if (!conversationId) return
+  if (!runningConversations.has(conversationId)) return // 没在跑就不必惊动 offscreen
+  abortedByTabClose.add(conversationId)
+  try {
+    // 命令面归 offscreen（chat: 前缀）：由 SW 发出去，offscreen 收到后中止任务
+    await chrome.runtime.sendMessage({ kind: 'chat:abort', conversationId } satisfies RuntimeRequest)
+  } catch {
+    abortedByTabClose.delete(conversationId) // 没送到就别留着这个标记
+  }
+}
+
+/**
+ * chat:running 观察（offscreen 推送，chat: 前缀按约定不进命令路由，这里只旁听）：任务开始。
+ * 进行中角标只在「用户没在看对话界面」时亮 —— 展开的浮层里进度自明。
+ */
+function handleChatRunningPush(conversationId: string): void {
+  runningConversations.set(conversationId, Date.now())
+  // 新任务开跑 → 上一次的「因关标签页而中止」标记作废，免得它误伤这次的收尾通知
+  abortedByTabClose.delete(conversationId)
+  void refreshBadge()
+  void tabsOfConversation(conversationId).then((tabIds) => {
+    // 展开着的 tab 也照记 running：收起那一刻要立刻看得见还在跑
+    for (const tabId of tabIds) pushTabTaskState(tabId, 'running')
+  })
+}
+
+/** chat:finished 观察：任务收尾（正常 / 异常同处理，通知不区分成败） */
+function handleChatFinishedPush(conversationId: string): void {
+  runningConversations.delete(conversationId)
+  void tabsOfConversation(conversationId).then(async (tabIds) => {
+    for (const tabId of tabIds) {
+      // 浮层展开着的那个 tab：结果就在眼前，不必再点红点（与「记不记通知」同一判据）
+      pushTabTaskState(tabId, isFloatOpenIn(tabId) ? 'idle' : 'done')
+    }
+    // 没人在看就记一条未读通知。**反查不到标签页时也要记**（tab 已关 / 还没绑定）——
+    // 那时按钮那一路没人接，角标与 popup 是用户唯一的知情途径。
+    // 唯一的例外：这次收尾是「标签页被关」引发的中止（见 abortConversationOfClosedTab），
+    // 那是用户自己停的，不必再告诉他「已完成」。
+    if (!abortedByTabClose.delete(conversationId) && !tabIds.some((tabId) => isFloatOpenIn(tabId))) {
+      await addChatDone({
+        conversationId,
+        tabId: tabIds[0] ?? null,
+        host: await hostOfTab(tabIds[0] ?? null),
+      }).catch(() => {})
+    }
+    await refreshBadge()
+  })
+}
+
+// —— 对话界面监控 + 任务状态的事件挂载 ——
 // ⚠️ 全部 addListener 必须留在 defineBackground 回调内（与既有监听器同惯例）：
 // 本文件会被协议一致性测试 import（取 SW_KIND_PREFIXES），模块顶层挂监听会在
 // Node/fakeBrowser 下炸（runtime.onConnect 未实现）——之前踩过。
 function mountProposal2Listeners(): void {
+  // SW 冷启动：内存里的计数已丢（角标是浏览器保留的，刻意不去动它 —— 那可能是用户还没看的结果），
+  // 但悬停文案会是上次那句、已无从对证 —— 清成默认比留一句不知道对不对的话好。
+  chrome.action.setTitle({ title: '' }).catch(() => {})
+
   // 对话界面监控：新文档导航开始 = 旧文档销毁，该 tab 的运行集清零。
   // 刻意用 status=loading（文档替换的准确时点），SPA 软导航只改 url、不换文档，不清。
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -570,20 +814,64 @@ function mountProposal2Listeners(): void {
 
   chrome.tabs.onRemoved.addListener((tabId) => {
     forgetPageTab(tabId)
-    // 会话归属映射一并清掉：面板没开的时候标签页照样会被关，只有常驻的 SW 不漏。
-    // 漏清也不致错 —— 会话历史的删除门自己会验「标签页是否还开着」，残留项判不出「在用」
-    // （见 conversation-tab-map 的 getActiveTabBindings）；这里清是为了不留垃圾。
-    void unbindTab(tabId).catch(() => {})
+    // 悬浮按钮的任务状态随标签页走：页面没了，进度与结果都无处可显示
+    tabTaskPorts.delete(tabId)
+    tabTaskState.delete(tabId)
+    // 归属收尾：按映射找到那条会话并**中止它的任务**，再解绑。
+    // 面板没开的时候标签页照样会被关，只有常驻的 SW 不漏，所以这一步必须在这里做
+    // （漏了它会留在 offscreen 里跑完 —— 没人看结果、也没处按停止，纯粹烧 token）。
+    void abortConversationOfClosedTab(tabId)
   })
 
-  // 浮层展开态端口：连上 = 有浮层正展开（顺手清角标 ——「用户回来了」），断开 = 收起 / 页面走了。
-  // 判据用**展开态**而不是「面板文档还活着」：收起只给面板加 display:none，iframe 与文档都还在
-  // （草稿 / 滚动位置刻意留着），那条端口永不断开，角标就永不亮（2026-09-21 无头实测确认）。
+  // 浮层端口两条，都在这里接：「在看」（短寿命，浮层展开且页面可见时才连）与悬浮按钮任务状态
+  // （常驻，表达「本 tab 在跑 / 跑完了」）。判据不能是「面板文档还活着」：收起只给面板加
+  // display:none，iframe 与文档都还在（草稿 / 滚动位置刻意留着），那条端口永不断开，角标就永不亮
+  // （2026-09-21 无头实测确认）。
   chrome.runtime.onConnect.addListener((port) => {
-    if (port.name !== FLOAT_PANEL_OPEN_PORT) return
-    openFloatPorts.add(port)
-    clearFinishedBadge()
-    port.onDisconnect.addListener(() => openFloatPorts.delete(port))
+    const tabId = port.sender?.tab?.id
+    if (port.name === FLOAT_PANEL_OPEN_PORT) {
+      openFloatPorts.add(port)
+      if (tabId != null) openFloatPortTab.set(port, tabId)
+      // 「用户回来了（并且看着它）」：**这个标签页那条会话**的通知就地标已读。按会话标、不搞全局
+      // 清空 —— 角标是全局的，但「看过没看过」是各标签页各自的，不该替用户读掉别人的未读。
+      if (tabId != null) {
+        void getConversationIdForTab(tabId)
+          .then((cid) => (cid ? markConversationRead(cid) : 0))
+          .then(() => refreshBadge())
+          .catch(() => {})
+      }
+      // 这个 tab 的「跑完没看」也清掉（按钮状态那一路）；仍在跑的任务保持 running
+      if (tabId != null && tabTaskState.get(tabId) === 'done') pushTabTaskState(tabId, 'idle')
+      void refreshBadge()
+      port.onDisconnect.addListener(() => {
+        openFloatPorts.delete(port)
+        openFloatPortTab.delete(port)
+        // 收起瞬间按当前情况重算：还在跑、或还有未读，就重新亮起来
+        void refreshBadge()
+      })
+      return
+    }
+
+    // 悬浮按钮任务状态端口：连上先补一次当前状态（页面导航 / SW 重启后新连上的内容脚本立刻
+    // 对齐，不必等下一次变化），此后有变化由 pushTabTaskState 推。方向单向，内容脚本不发消息。
+    if (port.name === FLOAT_TAB_TASK_PORT) {
+      if (tabId == null) return
+      const ports = tabTaskPorts.get(tabId) ?? new Set<chrome.runtime.Port>()
+      ports.add(port)
+      tabTaskPorts.set(tabId, ports)
+      try {
+        port.postMessage({
+          t: 'task-state',
+          state: tabTaskState.get(tabId) ?? 'idle',
+        } satisfies FloatTaskStatePush)
+      } catch {
+        // 已断开：忽略
+      }
+      port.onDisconnect.addListener(() => {
+        ports.delete(port)
+        if (!ports.size) tabTaskPorts.delete(tabId)
+      })
+    }
   })
 
   // 页面脚本监控端口（另一条连接 'duoling:panel'：上行快照请求 + 推送寻址）
@@ -691,7 +979,7 @@ export default defineBackground(() => {
     void chrome.runtime.sendMessage(push).catch(() => {})
   })
 
-  // 对话界面监控 / 面板端口 / 完成徽章 / 深链跳转的监听器
+  // 对话界面监控 / 面板端口 / 任务状态 / 深链跳转的监听器
   mountProposal2Listeners()
 
   // 浮层的右键菜单入口（页面内那颗悬浮按钮点不到时的第二条路）
@@ -726,10 +1014,15 @@ export default defineBackground(() => {
     const msg = raw as RuntimeRequest | undefined
     if (!msg?.kind) return
 
-    // 旁听 offscreen 推送（chat:finished：任务收尾）。chat: 前缀对命令面是 offscreen 保留
-    // 前缀，SW 静默让路；这里只观察不响应（推送方对响应本就尽力而为）。
-    if ((msg as { kind: string }).kind === 'chat:finished') {
-      handleChatFinishedPush((msg as { ok?: boolean }).ok === true)
+    // 旁听 offscreen 推送（chat:running / chat:finished：任务起止）。chat: 前缀对命令面是
+    // offscreen 保留前缀，SW 静默让路；这里只观察不响应（推送方对响应本就尽力而为）。
+    const offscreenPush = msg as { kind: string; conversationId?: string }
+    if (offscreenPush.kind === 'chat:running' && offscreenPush.conversationId) {
+      handleChatRunningPush(offscreenPush.conversationId)
+      return false
+    }
+    if (offscreenPush.kind === 'chat:finished' && offscreenPush.conversationId) {
+      handleChatFinishedPush(offscreenPush.conversationId)
       return false
     }
 

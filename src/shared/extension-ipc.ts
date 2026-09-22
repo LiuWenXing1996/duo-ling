@@ -245,6 +245,15 @@ export type RuntimeRequest =
 
   // —— SW 自证（诊断）——
   // SW 的 define 注入构建信息（wxt.config.ts）不是 HTML，页面看不见；UI 经此命令取回并展示。
+  // —— notify:*（SW：通知中心）——
+  // 通知的写方是 SW（任务收尾时记一条），popup 只读列表、标已读。
+  // 进行中的任务不落库（SW 重启后无从对账），由 SW 内存表达，故列表命令把两者一并回给 popup。
+  | { kind: 'notify:list' }
+  | { kind: 'notify:read'; id: string }
+  | { kind: 'notify:readAll' }
+  /** 清掉某条会话的通知（会话被删）/ 全部通知（删除全部会话）。**必须走 SW** —— 角标归它维护 */
+  | { kind: 'notify:drop'; conversationId?: string; all?: boolean }
+
   // 发消息本身会把休眠的 SW 唤醒，故返回的总是「此刻 SW 上下文」的构建信息——正是想要的语义。
   | { kind: 'sw:buildInfo' }
 
@@ -255,6 +264,10 @@ export type RuntimeRequest =
  * chat:chunk —— offscreen → 对话界面（观察者）的事件流：每条带会话 id 与自增 seq，
  * 对话界面按 seq 去重（重连回放与实时推送短暂重叠时防重）。SW 不消费（前缀不在白名单）。
  *
+ * chat:running —— offscreen → SW（观察者）：任务**开始**（新任务 / 孤儿续跑）通知。
+ * 与 chat:finished 配对，构成 SW 侧的任务生命周期信号，据此点亮「进行中」角标、驱动悬浮按钮。
+ * 每个任务只推一次：**细节进度仍在 chat:chunk 流里，SW 不消费**（逐 token 唤醒 SW 不划算）。
+ *
  * chat:finished —— offscreen → SW（观察者）：任务收尾（正常 / 异常）通知，SW 据此在
  * 「面板关着」时点亮扩展图标完成徽章。面板开着时 SW 不做任何事。
  * 注意 `chat:` 前缀对 RuntimeRequest 是 offscreen 保留前缀；OffscreenPush 不进命令面，不受此限。
@@ -262,7 +275,49 @@ export type RuntimeRequest =
 export type OffscreenPush =
   | { kind: 'offscreen:configChanged' }
   | { kind: 'chat:chunk'; conversationId: string; seq: number; chunk: import('ai').UIMessageChunk }
+  | { kind: 'chat:running'; conversationId: string }
   | { kind: 'chat:finished'; conversationId: string; /** true = 正常收敛；false = 停止 / 异常（徽章同亮，不区分色） */ ok: boolean }
+
+// —— 通知中心 ——
+//
+// 一期的通知模型：**一条通知有生命周期**（进行中 → 跑完没看 → 看过），不是一个瞬间的旗子。
+// 存放与读写见 lib/notifications.ts；形状放这里是因为它是跨上下文契约（SW 写、popup 读）。
+
+/**
+ * 一条「已发生」的通知。
+ *
+ * 加新类型时角标与 popup 都不用改：它们只认条数与 `kind → 文案 / 落点` 这张映射表。
+ */
+export interface AppNotification {
+  id: string
+  /** 通知类型。本期只有任务完成 */
+  kind: 'chat-done'
+  /** 来源会话：跳转落点与「看过即已读」都靠它 */
+  conversationId: string
+  /** 来源标签页（跳转用；写下时可能有效，跳之前要再验一次存活） */
+  tabId: number | null
+  /** 站点名 —— 区分「是哪条对话」最省事的办法；拿不到（tab 已关）时为空串 */
+  host: string
+  createdAt: number
+  /** 已读时间；不设 = 未读（只有未读进角标） */
+  readAt?: number
+}
+
+/** 正在生成的对话（SW 内存态：不落库，故只有 popup 主动问时才有值） */
+export interface RunningNotice {
+  conversationId: string
+  /** 站点名（同 AppNotification.host）；拿不到为空串 */
+  host: string
+  /** 那条对话所在标签页（点「正在进行」跳过去用）；反查不到为 null */
+  tabId: number | null
+  startedAt: number
+}
+
+/** `notify:list` 的返回：进行中 + 已发生的通知（含已读） */
+export interface NotificationSnapshot {
+  running: RunningNotice[]
+  items: AppNotification[]
+}
 
 // —— 数据变更广播（写侧 → 全部前端实例）——
 //
@@ -320,16 +375,51 @@ export type BuildPhase = 'saving'
 // （岛推送寻址 + 快照请求），页面脚本监控在用。
 
 /**
- * 浮层「**展开态**」端口名：content script 在浮层展开时连上、收起时断开。
+ * 「**用户正看着这条对话**」端口名：content script 在**浮层展开 且 页面可见**时连上，否则断开。
  *
  * 为什么单独要一条：`duoling:panel` 那条是**面板文档的存活信号**，而收起草稿浮层只是给它加
  * `display:none`（iframe 与面板文档都还在 —— 这是刻意的：草稿、滚动位置、拾取 chip 都留在
  * 原位，重开不必重载），端口根本不会断。于是「面板开着没」若拿文档存活来判就**恒为真**，
- * 生成完成徽章（chat:finished 到达时若无人查看才点亮）永不亮。
- * 展开态只有 content script 知道（FAB 开关在它手里），故由它开一条短寿命端口表达；
- * 页面卸载 / 导航时端口自动断开，天然等于「浮层收起」。
+ * 通知角标（chat:running / chat:finished 到达时若无人查看才计数）永不变。
+ *
+ * 两个条件都要，只有 content script 知道（FAB 开关在它手里，可见性也在页面侧）：
+ *   · 收起浮层 = 看不见对话内容；
+ *   · 页面切到后台（切标签页 / 最小化）= 浮层虽还展开着，他同样什么都看不见 —— 这种时候照旧
+ *     要提示（亮角标、跑完记一条未读），否则用户切去别处忙一趟回来，才发现早已跑完。
+ *
+ * 页面卸载 / 导航时端口自动断开，天然等于「收起」。
  */
 export const FLOAT_PANEL_OPEN_PORT = 'duoling:panel-open'
+
+/**
+ * 悬浮按钮「**任务状态**」端口名：content script **挂上浮层 UI 就连**，一直保持到 UI 卸下
+ * （站点开关关掉、扩展失效），不随浮层开合变化。
+ *
+ * 为什么在展开态端口之外再要一条：收起浮层期间用户既看不见对话内容、也看不到进度，而展开态
+ * 那条只在展开时存在 —— 收起那一刻它正好断开，什么都推不出去。这条常驻，承载「本标签页的会话
+ * 在跑 / 跑完了」。SW 在端口连上时**先补推一次当前状态**（页面导航后新内容脚本立刻对齐，不必
+ * 等下一次变化），此后有变化再推。
+ *
+ * SW 被回收后这条端口会断、内存里的状态也丢：content script **不补连**（补连等于周期性把 SW
+ * 拉起来），而是退回 idle —— 宁可漏报，也不让「在跑」永远挂在按钮上。此时「有任务在跑」只剩
+ * 图标角标那一路（浏览器保留下来的进行中角标）。刻意不做状态重建，成本不划算。
+ */
+export const FLOAT_TAB_TASK_PORT = 'duoling:tab-task-state'
+
+/**
+ * 悬浮按钮要显示的任务状态（SW 按 tab 维护、经 FLOAT_TAB_TASK_PORT 推送）：
+ *   · `running` —— 该标签页的会话有生成任务在跑（按钮转圈）
+ *   · `done` —— 跑完了、但用户还没打开过浮层（按钮红点）
+ *   · `idle` —— 没有任务，或结果已被看过（按钮还原）
+ * 刻意只有这三档：生成进度本身不可量化，多出来的中间态只能靠猜。
+ */
+export type FloatTaskState = 'running' | 'done' | 'idle'
+
+/** SW → 内容脚本的状态帧（字段名 `t` 与 PanelMonitorPush 同惯例，便于按帧类型分派） */
+export interface FloatTaskStatePush {
+  t: 'task-state'
+  state: FloatTaskState
+}
 
 // —— 浮层的页面外入口 ——
 /**
