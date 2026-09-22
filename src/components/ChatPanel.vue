@@ -6,7 +6,10 @@
 //   - text part      -> 消息气泡正文（MessageResponse）
 //   - reasoning part -> 思考与执行过程中的思考段落
 //   - tool part      -> 工具调用卡（ToolHeader + ToolInput + ToolOutput）
+//   - file part      -> 用户气泡里的图片缩略图（随消息发出的附件；文本附件在发送时并进了正文）
 // 按 parts 出现顺序交错成「思考与执行过程」链。
+//
+// 附件的加入 / 压缩 / 提交都在本组件：输入区的 prompt-input 上下文由这里创建（见下方「附件」）。
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import {
@@ -19,6 +22,7 @@ import {
   FileText as UiFileText,
   LoaderCircle as UiLoaderCircle,
   MousePointerClick as UiMousePointerClick,
+  Paperclip as UiPaperclip,
   Pencil as UiPencil,
   Play as UiPlay,
   Plus as UiPlus,
@@ -69,7 +73,8 @@ import {
   PromptInputFooter as UiPromptInputFooter,
   PromptInputSubmit as UiPromptInputSubmit,
   PromptInputTextarea as UiPromptInputTextarea,
-  PromptInputTools as UiPromptInputTools
+  PromptInputTools as UiPromptInputTools,
+  usePromptInputProvider
 } from '@/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import type { TokenUsage } from '@/shared/types'
@@ -86,10 +91,19 @@ import {
   subscribePageContext
 } from '@/lib/page-context-store'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
-import type { DynamicToolUIPart, TextUIPart, ToolUIPart, UIMessage } from 'ai'
+import type { DynamicToolUIPart, FileUIPart, TextUIPart, ToolUIPart, UIMessage } from 'ai'
 // 这几个 part 判定 helper 走本地实现：静态 import 'ai' 会把整块 ~360KB 的核心
 // （含 gateway / zod）钉进对话界面首屏静态图。详见该文件头部说明。
 import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, textOfMessage } from '@/lib/ui-message-parts'
+import {
+  ATTACHMENT_ACCEPT,
+  MAX_ATTACHMENTS,
+  MAX_IMAGE_BYTES,
+  TEXT_ONLY_ACCEPT,
+  composeMessageText,
+  isImageAttachment,
+  prepareAttachments
+} from '@/lib/chat-attachments'
 
 const props = defineProps<{
   messages: UIMessage[]
@@ -103,7 +117,8 @@ const props = defineProps<{
   readonly?: boolean
 }>()
 const emit = defineEmits<{
-  send: [text: string]
+  /** 发送一条消息：text 可以为空（纯图提问），files 是已压缩好的图片附件 */
+  send: [text: string, files: FileUIPart[]]
   stop: []
   openSettings: []
   /** 需要开权限（拾取器不可用 / 启用脚本失败）：请宿主打开工作台引导标签页 */
@@ -116,6 +131,8 @@ interface ModelOption {
   name: string
   hasApiKey: boolean
   enabled?: boolean
+  /** 模型能力声明：能否接收图片（见 shared/types 的 ModelProfile.vision） */
+  vision?: boolean
 }
 
 const profiles = ref<ModelOption[]>([])
@@ -133,6 +150,7 @@ function refreshModelStatus(data: {
     model: string
     hasApiKey: boolean
     enabled?: boolean
+    vision?: boolean
   }>
   activeId: string
 }): void {
@@ -140,6 +158,18 @@ function refreshModelStatus(data: {
   profiles.value = enabled
   activeModelId.value = data.activeId
 }
+
+/** 当前模型是否声明支持图片：附件入口、粘贴与提交校验都以它为准。
+ *  未声明（老配置 / 拿不准的模型）一律按不支持 —— 图片发错了会让整条会话变地雷，见 ModelProfile.vision */
+const promptSupportsImages = computed(
+  () => profiles.value.find((p) => p.id === activeModelId.value)?.vision === true
+)
+
+/** 这里能选什么文件：模型不支持图片时把图片从选择器与校验里一起去掉。
+ *  注意能收的仍是「图片 + 文本文件」两类 —— 不支持图片不等于不支持附件。 */
+const attachmentAccept = computed(() =>
+  promptSupportsImages.value ? ATTACHMENT_ACCEPT : TEXT_ONLY_ACCEPT
+)
 
 async function switchModel(id: string): Promise<void> {
   if (!id || id === activeModelId.value) {
@@ -172,9 +202,15 @@ useDataSync('model', () => window.api.model.list().then(refreshModelStatus))
 // —— 消息渲染：UIMessage parts -> 气泡正文 / 思考与执行过程 ——
 
 /** 用户消息正文：text parts 顺序拼接（口径与落盘侧共用 lib/ui-message-parts 的 textOfMessage）。
- * 非文本 part（未来可能的附件）目前不在这里渲染——正文口径要改就改那个共享 helper。 */
+ *  附件不进正文 —— 图片在气泡里单独渲染成缩略图（见 messageImages），文本附件在发送时
+ *  就已经拼进正文了。正文口径要改仍改那个共享 helper。 */
 function userText(m: UIMessage): string {
   return textOfMessage(m)
+}
+
+/** 用户气泡里的图片附件：parts 存的是压缩后的 data URL，所以重开会话、换标签页都还能回看 */
+function messageImages(m: UIMessage): FileUIPart[] {
+  return m.parts.filter((part): part is FileUIPart => part.type === 'file')
 }
 
 /** 随本条消息附上的页面上下文（气泡 chip 渲染源；只认元素拾取，快照不进元数据） */
@@ -547,15 +583,66 @@ async function copyMessage(m: UIMessage): Promise<void> {
   }, 1500)
 }
 
-/** 发送/停止：由 PromptInput 表单提交触发；流式时视为停止，否则发送（执行由父组件负责） */
-function onPromptSubmit(payload: PromptInputMessage): void {
+// —— 附件（图片 / 文本文件）——
+//
+// 输入区的附件状态由本组件持有：在这里自己建 prompt-input 的上下文，<ui-prompt-input>
+// 会继承它（PromptInput.vue 的双模式：外层已 provide 就直接用、不再自建）。于是附件 chip、
+// 入口按钮、提交处理都留在对话面板里，不用把对话特有的逻辑塞进通用组件。
+//
+// 模型不支持图片时入口**保留但禁用**并说明原因：直接隐藏会让人以为「没这个功能」，
+// 而不是「换个模型就能用」。
+const attachmentError = ref('')
+
+/** 附件被拒 / 处理失败时给用户的说明；文案随当前模型能力分叉 */
+function attachmentErrorMessage(err: { code: string, message: string }): string {
+  if (err.code === 'accept') {
+    return promptSupportsImages.value
+      ? '这类文件不能发：可以发图片，或 txt / md / json / csv 等文本文件'
+      : '当前模型不支持图片，只能添加 txt / md / json / csv 等文本文件'
+  }
+  if (err.code === 'max_file_size') return `文件超过 ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)}MB 上限`
+  if (err.code === 'max_files') return `最多添加 ${MAX_ATTACHMENTS} 个附件`
+  return err.message
+}
+
+/** 提交：把附件整理成可发送的形态再交给宿主。流式中的提交是「停止」（发送按钮此时是停止图标） */
+async function prepareAndSend(payload: PromptInputMessage): Promise<void> {
   if (props.streaming) {
     emit('stop')
     return
   }
-  const text = payload.text.trim()
-  if (!text) return
-  emit('send', text)
+  const prepared = await prepareAttachments(payload.files)
+  if (prepared.images.length && !promptSupportsImages.value) {
+    // 兜底路径：入口与粘贴都按 accept 拦过一道，走到这里说明是「先加图、再切模型」。
+    // 抛错是为了让 prompt-input 保留附件与已输入的文字（它只在提交成功时清空）。
+    throw new Error('当前模型不支持图片，请先移除图片或切换到支持图片的模型')
+  }
+  const text = composeMessageText(payload.text.trim(), prepared.textBlocks)
+  if (!text && !prepared.images.length) return
+
+  attachmentError.value = prepared.skipped.length
+    ? `这些附件没能随消息发出：${prepared.skipped.join('；')}`
+    : ''
+  emit('send', text, prepared.images)
+}
+
+const promptInput = usePromptInputProvider({
+  // accept 用 getter：provider 建好之后就只读 props 的当前值了，而模型是随时可切的
+  get accept() {
+    return attachmentAccept.value
+  },
+  maxFiles: MAX_ATTACHMENTS,
+  maxFileSize: MAX_IMAGE_BYTES,
+  onSubmit: prepareAndSend,
+  onError: (err) => {
+    attachmentError.value = attachmentErrorMessage(err)
+  }
+})
+
+/** 移除一个附件；顺手清掉上一条与附件相关的提示（附件都换了，旧提示已过期） */
+function removeAttachment(id: string): void {
+  promptInput.removeFile(id)
+  attachmentError.value = ''
 }
 
 // —— 元素拾取 ——
@@ -799,6 +886,21 @@ function userScriptsUnavailableMessageSafe(): string {
                       </span>
                     </span>
                   </div>
+                  <!-- 随消息发出的图片：从 parts 还原，重开会话仍在；缩略图为展示用，不做放大 -->
+                  <div
+                    v-if="messageImages(m).length"
+                    class="mb-1 flex flex-wrap justify-end gap-1.5"
+                    data-testid="message-images"
+                  >
+                    <img
+                      v-for="(img, i) in messageImages(m)"
+                      :key="i"
+                      :src="img.url"
+                      :alt="img.filename ?? '图片附件'"
+                      :title="img.filename"
+                      class="max-h-40 max-w-[12rem] rounded-md border object-cover"
+                    >
+                  </div>
                   <ui-message-content>{{ userText(m) }}</ui-message-content>
                 </template>
                 <template v-else>
@@ -1038,6 +1140,45 @@ function userScriptsUnavailableMessageSafe(): string {
       <!-- 输入区：只读回放（工作台「会话历史」）不渲染 —— 看历史不需要输入框，
            留着反而让人以为这个 tab 能发消息 -->
       <div v-if="!props.readonly" class="border-t p-3">
+        <!-- 附件 chip：随下一条消息发出的图片 / 文本文件，× 可移除；提交成功后由 prompt-input 清空 -->
+        <div
+          v-if="promptInput.files.value.length"
+          class="mb-2 flex flex-wrap items-center gap-1.5"
+          data-testid="attachment-chips"
+        >
+          <span
+            v-for="file in promptInput.files.value"
+            :key="file.id"
+            class="inline-flex max-w-full items-center gap-1 rounded-full bg-muted py-1 pl-1 pr-2.5 text-xs"
+          >
+            <img
+              v-if="isImageAttachment(file)"
+              :src="file.url"
+              :alt="file.filename ?? '图片附件'"
+              class="size-5 shrink-0 rounded-full object-cover"
+            >
+            <ui-file-text v-else class="ml-1 size-3 shrink-0 text-muted-foreground" />
+            <span class="truncate" :title="file.filename">{{ file.filename }}</span>
+            <button
+              type="button"
+              class="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+              :aria-label="`移除附件 ${file.filename}`"
+              data-testid="remove-attachment"
+              @click="removeAttachment(file.id)"
+            >
+              <ui-x class="size-3" />
+            </button>
+          </span>
+        </div>
+        <!-- 附件相关的提示：类型不收 / 超限 / 处理失败 / 当前模型读不了图 -->
+        <div
+          v-if="attachmentError"
+          class="mb-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs leading-relaxed text-destructive"
+          role="alert"
+          data-testid="attachment-error"
+        >
+          {{ attachmentError }}
+        </div>
         <!-- 拾取 chip：随下一条消息发出的暂存上下文，× 可清除；发送成功后自动消失 -->
         <div
           v-if="pickedElement || contextError"
@@ -1083,14 +1224,39 @@ function userScriptsUnavailableMessageSafe(): string {
             查看开启引导
           </ui-button>
         </div>
-        <ui-prompt-input @submit="onPromptSubmit">
+        <!-- accept / multiple 传给隐藏的 file input（校验那一侧走上面 provider 的 accept） -->
+        <ui-prompt-input :accept="attachmentAccept" multiple>
           <ui-prompt-input-textarea
             placeholder="输入消息…"
             :disabled="props.streaming"
           />
           <ui-prompt-input-footer>
-            <!-- 工具区：页面拾取 + 模型选择（页面快照已改 AI 工具采集，无用户面入口） -->
+            <!-- 工具区：附件 + 页面拾取 + 模型选择（页面快照已改 AI 工具采集，无用户面入口） -->
             <ui-prompt-input-tools>
+              <!-- 附件入口：模型不支持图片时入口仍在（文本文件照发），把限制挂在提示上 ——
+                   隐藏或整枚禁用都会让人以为「没有这个功能」或「附件全不能用」 -->
+              <ui-tooltip-provider>
+                <ui-tooltip>
+                  <ui-tooltip-trigger as-child>
+                    <span class="inline-flex">
+                      <ui-button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        :aria-label="promptSupportsImages ? '添加图片或文件' : '添加文本文件（当前模型不支持图片）'"
+                        data-testid="add-attachment-button"
+                        @click="promptInput.openFileDialog()"
+                      >
+                        <ui-paperclip class="size-3" />
+                        附件
+                      </ui-button>
+                    </span>
+                  </ui-tooltip-trigger>
+                  <ui-tooltip-content>
+                    {{ promptSupportsImages ? '添加图片或文本文件' : '当前模型不支持图片，可在「设置 - 模型」里开启' }}
+                  </ui-tooltip-content>
+                </ui-tooltip>
+              </ui-tooltip-provider>
               <ui-button
                 type="button"
                 variant="outline"

@@ -660,7 +660,10 @@ export async function startChat(msg: Extract<RuntimeRequest, { kind: 'chat:start
   }
 
   const taskId = crypto.randomUUID()
-  const prompt = lastMessage ? textOfMessage(lastMessage) : ''
+  // 纯图片消息（只发了图、没写字）没有正文：系统提示里的「用户需求」会空着，
+  // 给个占位说明。图片本身在消息 parts 里，模型照常看得到。
+  const promptText = lastMessage ? textOfMessage(lastMessage) : ''
+  const prompt = promptText.trim() || (lastMessage?.parts.some((p) => p.type === 'file') ? '（见消息中的图片）' : '')
   await putTask({
     taskId,
     conversationId: msg.conversationId,

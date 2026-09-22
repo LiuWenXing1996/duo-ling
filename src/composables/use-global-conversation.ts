@@ -22,7 +22,7 @@
 import { computed, ref, shallowRef, watchEffect } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import type { UseChatHelpers } from '@ai-sdk/vue'
-import type { ChatInit, ChatStatus, UIMessage } from 'ai'
+import type { ChatInit, ChatStatus, FileUIPart, UIMessage } from 'ai'
 import { ExtensionChatTransport } from '@/lib/extension-chat-transport'
 import { toUiMessage } from '@/lib/conversation-message'
 import { getPickedElement } from '@/lib/page-context-store'
@@ -338,15 +338,29 @@ export function useGlobalConversation() {
    * 暂存的拾取元素以 metadata 随消息走：offscreen 据此落盘 pageContext 元数据，
    * 本地视图也带上它（气泡 chip 立即可见，不必等重开会话）。
    * 页面快照走 AI 工具采集，不走这条通道。
+   *
+   * files 是随消息发出的附件（图片已压缩成 data URL）。它们是 UIMessage 的
+   * file part，与正文同源：落盘、回读、每轮重发给模型都按 parts 走 ——
+   * 所以模型读不了图时不是「这一轮失败」，而是这条消息在会话里永久变成地雷
+   * （见 shared/types 的 ModelProfile.vision）。
+   * 只有附件、没有文字也是合法的（纯图提问），此时 text 传空串。
    */
-  async function send(text: string): Promise<void> {
-    if (!text || streaming.value) return
+  async function send(text: string, files: FileUIPart[] = []): Promise<void> {
+    if ((!text && files.length === 0) || streaming.value) return
     chatError.value = ''
     await ensureActiveConversation()
     const element = getPickedElement()
     const metadata = element ? { pageContext: { element } } : undefined
     const instance = await ensureChat()
-    await instance.sendMessage({ text, ...(metadata ? { metadata } : {}) })
+    if (text) {
+      await instance.sendMessage({
+        text,
+        ...(files.length ? { files } : {}),
+        ...(metadata ? { metadata } : {})
+      })
+      return
+    }
+    await instance.sendMessage({ files, ...(metadata ? { metadata } : {}) })
   }
 
   /**
