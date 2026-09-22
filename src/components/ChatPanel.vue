@@ -171,6 +171,13 @@ const attachmentAccept = computed(() =>
   promptSupportsImages.value ? ATTACHMENT_ACCEPT : TEXT_ONLY_ACCEPT
 )
 
+/** 本会话历史里有没有图片。
+ *  用途单一但关键：请求体带的是**整段历史**（服务端无状态），图片每轮都会跟着重发 ——
+ *  所以一旦当前模型读不了图，这个会话的**每一轮**都会失败，而不是只失败带图的那一轮。 */
+const historyHasImages = computed(() =>
+  props.messages.some((m) => m.parts.some((part) => part.type === 'file'))
+)
+
 async function switchModel(id: string): Promise<void> {
   if (!id || id === activeModelId.value) {
     modelMenuOpen.value = false
@@ -610,6 +617,11 @@ async function prepareAndSend(payload: PromptInputMessage): Promise<void> {
   if (props.streaming) {
     emit('stop')
     return
+  }
+  // 先过「会话历史与当前模型是否兼容」这道门：历史里的图每轮都会随请求重发，
+  // 不拦下的话用户只会看到一次上游原文报错（而且每轮都看到），不知道是模型读不了图。
+  if (historyHasImages.value && !promptSupportsImages.value) {
+    throw new Error('这个会话里发过图片，当前模型读不了图。换成支持图片的模型，或在新标签页里开新对话')
   }
   const prepared = await prepareAttachments(payload.files)
   if (prepared.images.length && !promptSupportsImages.value) {

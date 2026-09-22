@@ -6,6 +6,7 @@
 //   · 「模型读不读得了图」取决于模型配置的 vision 字段，用两份 profile 分别验入口文案。
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import type { UIMessage } from 'ai'
 import ChatPanel from './ChatPanel.vue'
 
 vi.mock('@/composables/use-data-sync', () => ({ useDataSync: () => {} }))
@@ -29,11 +30,30 @@ function setModelProfile(vision: boolean): void {
   }
 }
 
-async function mountPanel(vision: boolean): Promise<VueWrapper> {
+async function mountPanel(vision: boolean, messages: UIMessage[] = []): Promise<VueWrapper> {
   setModelProfile(vision)
-  const w = mount(ChatPanel, { props: { messages: [], usageByMessageId: {}, streaming: false } })
+  const w = mount(ChatPanel, { props: { messages, usageByMessageId: {}, streaming: false } })
   await flushPromises() // onMounted 里拉模型列表，拉完 promptSupportsImages 才有值
   return w
+}
+
+/** 提交（填字 + 走表单提交，与真人按回车同一条路） */
+async function submit(w: VueWrapper, text: string): Promise<void> {
+  await w.find('textarea').setValue(text)
+  await w.find('form').trigger('submit')
+  await flushPromises()
+}
+
+/** 一条带图片的历史消息：模拟「上一个模型下发的图」——它每轮都会随请求重发 */
+function imageHistoryMessage(): UIMessage {
+  return {
+    id: 'm-with-image',
+    role: 'user',
+    parts: [
+      { type: 'file', mediaType: 'image/jpeg', filename: 'shot.jpg', url: 'data:image/jpeg;base64,AAAA' },
+      { type: 'text', text: '看这张图' },
+    ],
+  }
 }
 
 /** 走隐藏的 file input 添附件（与用户点「附件」按钮后选文件同一条路） */
@@ -107,12 +127,6 @@ describe('提交分流', () => {
     document.body.innerHTML = ''
   })
 
-  async function submit(w: VueWrapper, text: string): Promise<void> {
-    await w.find('textarea').setValue(text)
-    await w.find('form').trigger('submit')
-    await flushPromises()
-  }
-
   it('纯文字：正文原样发出，附件为空', async () => {
     const w = await mountPanel(true)
     await submit(w, '你好')
@@ -149,6 +163,31 @@ describe('提交分流', () => {
     const w = await mountPanel(true)
     await submit(w, '   ')
     expect(w.emitted('send')).toBeUndefined()
+    w.unmount()
+  })
+})
+
+describe('会话历史里有图片、又切到读不了图的模型', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('拦下并说明原因，而不是让用户每轮都看一次上游报错', async () => {
+    const w = await mountPanel(false, [imageHistoryMessage()])
+    await submit(w, '接着聊')
+
+    expect(w.emitted('send'), '这一轮不可能成功（历史里的图每轮都会重发），不该白跑').toBeUndefined()
+    const error = w.find('[data-testid="attachment-error"]')
+    expect(error.exists()).toBe(true)
+    expect(error.text()).toContain('这个会话里发过图片')
+    expect(error.text(), '要说清两条出路').toContain('新对话')
+    w.unmount()
+  })
+
+  it('模型支持图片时照常发出（历史有图不构成阻碍）', async () => {
+    const w = await mountPanel(true, [imageHistoryMessage()])
+    await submit(w, '接着聊')
+    expect(w.emitted('send')).toEqual([['接着聊', []]])
     w.unmount()
   })
 })
