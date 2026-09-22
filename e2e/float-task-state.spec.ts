@@ -185,13 +185,16 @@ test.describe.serial('任务状态外显（图标角标 + 对话框显隐）', (
     await expect
       .poll(() => trySendFloat(sw, tabId!, 'float:open'), { timeout: 15_000 })
       .toBe(true)
+    const panel = await waitForPanelFrame(page)
     await expect(page.locator('#duoling-float-root .dl-float-container')).toHaveClass(/open/)
     await expect.poll(badge, { message: '人正看着对话界面，角标该收起' }).toBe('')
 
-    // 收起：只把面板藏起来（容器还在，草稿与滚动位置都留着），角标回来 ——
-    // 那条未读属于别的会话，不会因为这一次「看过」被读掉
-    await trySendFloat(sw, tabId!, 'float:collapse')
+    // 收起：点对话框顶栏那颗**真按钮** —— 它是这条链路里唯一跨源的一步（按钮在 iframe 里、
+    // 容器在父页），拿「发一条消息」代过就只剩替身了。
+    await panel.getByLabel('收起').click()
     await expect(page.locator('#duoling-float-root .dl-float-container')).not.toHaveClass(/open/)
+    // 只藏不销毁：容器仍在 DOM 里（iframe、草稿、滚动位置都留着，再打开就是原状态）
+    await expect(page.locator('#duoling-float-root')).toHaveCount(1)
     await expect.poll(badge, { message: '没人看了，那条未读该重新报出来' }).toBe('1')
 
     await page.close()
