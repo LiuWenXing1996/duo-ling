@@ -50,10 +50,13 @@ describe('normalizeSitePattern（用户输入 → match pattern）', () => {
     expect(normalizeSitePattern('  Example.COM  ')).toBe('*://*.example.com/*')
   })
 
-  it('整条网址 / 带路径 / 带端口：只取站点，丢掉 scheme 与 path', () => {
+  it('整条网址 / 带路径 / 带端口：只取站点', () => {
     expect(normalizeSitePattern('https://www.a.com/x?y=1#z')).toBe('*://*.www.a.com/*')
     expect(normalizeSitePattern('http://a.com:8080/x')).toBe('*://*.a.com/*')
     expect(normalizeSitePattern('a.com/foo')).toBe('*://*.a.com/*')
+    // 没有 scheme 的裸路径 / 裸端口同样收（从地址栏、日志里复制时常见）
+    expect(normalizeSitePattern('a.com:8080')).toBe('*://*.a.com/*')
+    expect(normalizeSitePattern('192.168.1.10:3000')).toBe('*://192.168.1.10/*')
   })
 
   it('显式 *. 前缀等价于纯域名；单标签 host 与 IPv4 不带 *.', () => {
@@ -84,7 +87,7 @@ describe('sitePatternLabel / splitSiteInputs', () => {
     expect(sitePatternLabel('www.example.com')).toBe('www.example.com')
   })
 
-  it('粘贴拆分：换行 / 逗号 / 分号 / 空格都当分隔，空项丢掉', () => {
+  it('粘贴拆分：换行 / 逗号 / 分号都当分隔，空项丢掉', () => {
     expect(splitSiteInputs('a.com\nb.com, c.com；d.com; e.com')).toEqual([
       'a.com',
       'b.com',
@@ -93,5 +96,9 @@ describe('sitePatternLabel / splitSiteInputs', () => {
       'e.com',
     ])
     expect(splitSiteInputs('  \n  ')).toEqual([])
+  })
+
+  it('**空格不是分隔符**：手滑空格宁可整条报「未识别」，也不劈成两半加错站', () => {
+    expect(splitSiteInputs('exa mple.com')).toEqual(['exa mple.com'])
   })
 })

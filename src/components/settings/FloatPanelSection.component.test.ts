@@ -135,8 +135,8 @@ describe('设置页「网页浮层」的添加区', () => {
     })
     const w = await mountSection()
 
-    // 换行与空格都当分隔（粘贴一串域名的常态）
-    await input(w).setValue('example.com\nhttps://www.a.com/x !bad!')
+    // 换行与逗号都当分隔（空格刻意不算 —— 见 float-panel-host 的 splitSiteInputs）
+    await input(w).setValue('example.com\nhttps://www.a.com/x\n!bad!')
     await flushPromises()
     await w.find('[data-testid="float-add-submit"]').trigger('click')
     await flushPromises()

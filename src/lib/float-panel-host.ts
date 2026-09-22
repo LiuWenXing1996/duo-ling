@@ -36,8 +36,8 @@ export function webHostname(url: string | undefined): string {
 /**
  * 用户输入的一条站点 → 存储用的 match pattern；认不出来返回 null（调用方据此报「无效」）。
  *
- * 宽容的地方：整条 URL（`https://www.a.com/x?y`）与带路径的裸域名（`a.com/foo`）都收；
- * 大小写、前后空白一律规范化。**非 http(s) 的 URL 一律拒**（`chrome-extension://…` 之类不是站点）。
+ * 宽容的地方：整条 URL（`https://www.a.com/x?y`）、带路径或端口的裸域名（`a.com/foo`、`a.com:8080`）
+ * 都收；大小写、前后空白一律规范化。**非 http(s) 的 URL 一律拒**（`chrome-extension://…` 之类不是站点）。
  *
  * 语义（与 Chrome「网站设置」的 `[*.]example.com` 默认一致）：**纯域名默认连子域一起关** ——
  * `example.com` → `*://*.example.com/*`。想要「只关本域不含子域」不提供：关浮层场景下没有意义，
@@ -55,7 +55,8 @@ export function normalizeSitePattern(raw: string): string | null {
       return null
     }
   } else {
-    s = s.split('/')[0]! // 容忍 `a.com/foo` 这种没有 scheme 的粘贴
+    // 没有 scheme 的粘贴：去掉路径（`a.com/foo`）与端口（`a.com:8080`）
+    s = s.split('/')[0]!.replace(/:\d+$/, '')
   }
   const explicitWildcard = s.startsWith('*.')
   const host = explicitWildcard ? s.slice(2) : s
@@ -91,11 +92,14 @@ export function sitePatternLabel(entry: string): string {
 
 /**
  * 用户粘贴的多条输入 → 逐条待规范化的原始串。
- * 一行一条；也容忍逗号 / 中英文分号 / 空格分隔 —— 从别处整段粘一串域名是最常见的用法。
+ *
+ * 分隔只认换行 / 逗号 / 中英文分号，**刻意不认空格**：手滑打出的空格会把一个域名劈成两半
+ * （`exa mple.com` 的后半 `mple.com` 还是合法域名），静默加错站点比让用户换个分隔符更糟。
+ * 分隔符两侧的空白仍会 trim（`b.com, c.com` 拆得干净）。
  */
 export function splitSiteInputs(text: string): string[] {
   return text
-    .split(/[\s,;，；]+/)
+    .split(/[\n\r,;，；]+/)
     .map((s) => s.trim())
     .filter(Boolean)
 }
