@@ -362,8 +362,8 @@ const handlers: {
     )
     try {
       const removed = await writeViaOffscreen<number>({ kind: 'state:removeAll' })
-      // 状态库清空后再同步内置并集：此时读库必为空 → MAIN 桩注销。此前整体漏调，
-      // 桩带着旧并集（如 ["*://*/*"]）残留注册，删完脚本页面里 window.GM 仍在
+      // 状态库清空后再同步内置并集：此时读库必为空 → 中继件与录制转发件整体注销。
+      // 此前整体漏调，中继件带着旧并集（如 ["*://*/*"]）残留注册，白占每个页面的注入面
       await refreshBuiltinScripts().catch(() => {})
       for (const uuid of uuids) await clearGMValues(uuid)
       // 报错记录逐 uuid 清（与单删同一条语义：删脚本 = 清该脚本名下的一切）
