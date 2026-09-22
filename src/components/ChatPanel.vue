@@ -881,39 +881,39 @@ function userScriptsUnavailableMessageSafe(): string {
               <!-- 消息气泡：用 ai-elements 的 Message / MessageContent / MessageResponse 渲染 -->
               <ui-message :from="fromOf(m)" class="max-w-full">
                 <template v-if="m.role === 'user'">
-                  <!-- 随消息附上的拾取 chip：落盘元数据还原，重开会话仍在；纯展示（删除 = 删整条消息） -->
-                  <div
-                    v-if="messagePageContext(m)"
-                    class="mb-1 flex flex-wrap justify-end gap-1"
-                    data-testid="message-page-context"
-                  >
+                  <!-- 气泡里 = 这条消息实际带的东西（点选标注、图片、正文），按这个顺序排。
+                       气泡外只留输入区的暂存 chip：画在外面 = 待发送，画在里面 = 已发送。 -->
+                  <ui-message-content>
+                    <!-- 随消息落盘的点选元数据还原；纯展示（删它等于删整条消息） -->
+                    <!-- 底色刻意与输入区那枚不同：这里的外层是灰气泡，浅灰底会糊成一片，
+                         所以用「背景色 + 描边」浮出来；输入区那枚在浅色输入区上，浅灰底就够 -->
                     <span
-                      v-if="messagePageContext(m)!.element"
-                      class="inline-flex max-w-full items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs"
+                      v-if="messagePageContext(m)?.element"
+                      class="inline-flex max-w-full self-start items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-sm"
                       :title="messagePageContext(m)!.element!.summary.htmlSample"
+                      data-testid="message-page-context"
                     >
-                      <ui-mouse-pointer-click class="size-3 shrink-0 text-muted-foreground" />
+                      <ui-mouse-pointer-click class="size-3.5 shrink-0 text-muted-foreground" />
                       <span class="truncate">
                         已点选：{{ elementChipLabel(messagePageContext(m)!.element!) }}
                       </span>
                     </span>
-                  </div>
-                  <!-- 随消息发出的图片：从 parts 还原，重开会话仍在；缩略图为展示用，不做放大 -->
-                  <div
-                    v-if="messageImages(m).length"
-                    class="mb-1 flex flex-wrap justify-end gap-1.5"
-                    data-testid="message-images"
-                  >
-                    <img
-                      v-for="(img, i) in messageImages(m)"
-                      :key="i"
-                      :src="img.url"
-                      :alt="img.filename ?? '图片附件'"
-                      :title="img.filename"
-                      class="max-h-40 max-w-[12rem] rounded-md border object-cover"
+                    <div
+                      v-if="messageImages(m).length"
+                      class="flex flex-wrap gap-2"
+                      data-testid="message-images"
                     >
-                  </div>
-                  <ui-message-content>{{ userText(m) }}</ui-message-content>
+                      <img
+                        v-for="(img, i) in messageImages(m)"
+                        :key="i"
+                        :src="img.url"
+                        :alt="img.filename ?? '图片附件'"
+                        :title="img.filename"
+                        class="max-h-56 max-w-full rounded-lg border border-border"
+                      >
+                    </div>
+                    <template v-if="userText(m)">{{ userText(m) }}</template>
+                  </ui-message-content>
                 </template>
                 <template v-else>
                   <ui-message-content class="w-full min-w-0">
@@ -1155,21 +1155,22 @@ function userScriptsUnavailableMessageSafe(): string {
         <!-- 附件 chip：随下一条消息发出的图片 / 文本文件，× 可移除；提交成功后由 prompt-input 清空 -->
         <div
           v-if="promptInput.files.value.length"
-          class="mb-2 flex flex-wrap items-center gap-1.5"
+          class="mb-2 flex flex-wrap items-center gap-2"
           data-testid="attachment-chips"
         >
           <span
             v-for="file in promptInput.files.value"
             :key="file.id"
-            class="inline-flex max-w-full items-center gap-1 rounded-full bg-muted py-1 pl-1 pr-2.5 text-xs"
+            class="inline-flex max-w-full items-center gap-2 rounded-full bg-muted py-1.5 pl-1.5 pr-3 text-sm"
           >
+            <!-- 缩略图用宽扁比例（截图基本都宽扁）：正方形裁法只剩中间一竖条，看不出是哪张图 -->
             <img
               v-if="isImageAttachment(file)"
               :src="file.url"
               :alt="file.filename ?? '图片附件'"
-              class="size-5 shrink-0 rounded-full object-cover"
+              class="h-6 w-9 shrink-0 rounded-sm object-cover"
             >
-            <ui-file-text v-else class="ml-1 size-3 shrink-0 text-muted-foreground" />
+            <ui-file-text v-else class="ml-1.5 size-4 shrink-0 text-muted-foreground" />
             <span class="truncate" :title="file.filename">{{ file.filename }}</span>
             <button
               type="button"
@@ -1178,7 +1179,7 @@ function userScriptsUnavailableMessageSafe(): string {
               data-testid="remove-attachment"
               @click="removeAttachment(file.id)"
             >
-              <ui-x class="size-3" />
+              <ui-x class="size-3.5" />
             </button>
           </span>
         </div>
@@ -1194,14 +1195,14 @@ function userScriptsUnavailableMessageSafe(): string {
         <!-- 拾取 chip：随下一条消息发出的暂存上下文，× 可清除；发送成功后自动消失 -->
         <div
           v-if="pickedElement || contextError"
-          class="mb-2 flex flex-wrap items-center gap-1.5"
+          class="mb-2 flex flex-wrap items-center gap-2"
           data-testid="page-context-chips"
         >
           <span
             v-if="pickedElement"
-            class="inline-flex max-w-full items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs"
+            class="inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm"
           >
-            <ui-mouse-pointer-click class="size-3 shrink-0 text-muted-foreground" />
+            <ui-mouse-pointer-click class="size-3.5 shrink-0 text-muted-foreground" />
             <span class="truncate" :title="pickedElement.summary.htmlSample">
               已点选：{{ elementChipLabel(pickedElement) }}
             </span>
@@ -1212,7 +1213,7 @@ function userScriptsUnavailableMessageSafe(): string {
               data-testid="clear-picked-element"
               @click="clearPickedElement()"
             >
-              <ui-x class="size-3" />
+              <ui-x class="size-3.5" />
             </button>
           </span>
         </div>
