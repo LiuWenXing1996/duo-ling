@@ -338,7 +338,8 @@ const CAPABILITIES = {
       '传 Blob / ArrayBuffer / TypedArray = 本地直接下载，不经扩展。' +
       '支持 `saveAs` / `conflictAction`（TM 的同名字段，两者本就只在浏览器下载器模式下有效）与 `onprogress`' +
       '（浏览器下载器不发字节数，进度由 SW 轮询 `chrome.downloads.search()` 取）。' +
-      '**不支持**：`headers`（下载请求由浏览器发出、不经扩展）、`anonymous`、`ontimeout`、`abort()`。',
+      '**不支持**：`headers`（下载请求由浏览器发出、不经扩展）、`anonymous`、`ontimeout`。' +
+      '返回 `{ abort() }` 句柄（`GM.download` 的 Promise 上也带 `abort`）—— 但 Blob / ArrayBuffer 入参走本地锚点，不可中止。',
     returns: 'void / Promise<void>',
     bridge: 'bridge',
     group: 'system',

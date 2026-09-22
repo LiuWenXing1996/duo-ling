@@ -713,6 +713,19 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
         connId: req.connId,
         wantProgress: req.wantProgress,
       })
+    case 'download.cancel': {
+      // 中止：cancel 之后 onChanged 会报 interrupted（error: USER_CANCELED）→ 由 download.change 的
+      // 终帧回到脚本的 onerror（TM 语义：取消也算 onerror）。id 查不到就静默 —— 连续 abort 是合法调用。
+      const entry = downloadWatch.get(req.id)
+      if (entry?.timer) clearInterval(entry.timer)
+      downloadWatch.delete(req.id)
+      try {
+        await downloadsApi().cancel(req.id)
+      } catch {
+        // 已被浏览器清掉 / 不存在：幂等处理
+      }
+      return undefined
+    }
     // 剪贴板：走 offscreen（免用户手势）+ 富文本（clipboardWrite 权限）
     case 'clipboard.write':
       await writeClipboardViaOffscreen(req.text, req.html)

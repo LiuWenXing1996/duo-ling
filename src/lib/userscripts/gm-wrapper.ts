@@ -782,13 +782,26 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     var wantsFrames = wantsProgress || typeof d.onload === 'function' || typeof d.onerror === 'function'
     var requestId = '__gmDl' + (++__gmDownloadSeq)
     if (wantsFrames) __gmDownloadHandlers[requestId] = d
-    return __gmSend({
+    // abort：id 到手前调用就记为「待中止」，id 一到立刻 cancel（不放过这个竞态窗口）
+    var downloadId = null
+    var abortEarly = false
+    function __gmAbortDownload() {
+      if (typeof downloadId === 'number') {
+        __gmUnregisterDownload(requestId)
+        __gmSend({ c: 'download.cancel', id: downloadId }).catch(function () {})
+      } else {
+        abortEarly = true
+      }
+    }
+    var p = __gmSend({
       c: 'download', url: d.url, name: d.name, saveAs: d.saveAs === true,
       conflictAction: d.conflictAction,
       requestId: wantsFrames ? requestId : undefined,
       connId: wantsFrames ? __gmConnId : undefined,
       wantProgress: wantsProgress
     }).then(function (r) {
+      downloadId = r && r.id
+      if (abortEarly) __gmAbortDownload()
       return r
     }, function (e) {
       // 起不来（扩展没 downloads 权限 / URL 非法 / 文件名非法）：立即回报并清掉登记
@@ -796,6 +809,9 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
       if (typeof d.onerror === 'function') { try { d.onerror({ error: (e && e.message) || 'not_succeeded' }) } catch (_) {} }
       throw e
     })
+    // abort 挂在 Promise 上：GM.download 直接返回它（TM 同为「promise 也带 abort」）
+    p.abort = __gmAbortDownload
+    return p
   }
 
   function __gmDownload(input, name) {
@@ -1053,7 +1069,12 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   if (GM_HAS.GM_notification) GM_notification = function (a, b, c, d) { __gmNotify(a, b, c, d).catch(function () {}) }
   if (GM_HAS.GM_setClipboard) GM_setClipboard = function (data, info) { __gmSetClipboard(data, info).catch(function () {}) }
   if (GM_HAS.GM_xmlhttpRequest) GM_xmlhttpRequest = __gmXhr
-  if (GM_HAS.GM_download) GM_download = function (input, name) { __gmDownload(input, name).catch(function () {}) }
+  if (GM_HAS.GM_download) GM_download = function (input, name) {
+    var p = __gmDownload(input, name)
+    p.catch(function () {}) // 失败已走 onerror，这里只防 unhandled rejection
+    // TM 形态：回调式返回 { abort() }。Blob / ArrayBuffer 走本地锚点、不经扩展，没有可中止的对象
+    return p && typeof p.abort === 'function' ? { abort: p.abort } : { abort: function () {} }
+  }
   if (GM_HAS.GM_openInTab) GM_openInTab = __gmOpenInTab
   if (GM_HAS.GM_cookie) GM_cookie = __gmCookie
   if (GM_HAS.GM_getResourceText) GM_getResourceText = function (name) { return __gmResource(name, false) }

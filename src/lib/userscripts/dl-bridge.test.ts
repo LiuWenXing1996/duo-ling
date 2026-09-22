@@ -68,6 +68,7 @@ const COOKIE_UUID = 'cookie-u1'
 let downloadsMocks: {
   download: ReturnType<typeof vi.fn>
   search: ReturnType<typeof vi.fn>
+  cancel: ReturnType<typeof vi.fn>
   onChanged: { addListener: ReturnType<typeof vi.fn> }
 }
 
@@ -77,6 +78,7 @@ beforeEach(async () => {
   downloadsMocks = {
     download: vi.fn(async () => 1),
     search: vi.fn(async () => []),
+    cancel: vi.fn(async () => {}),
     onChanged: { addListener: vi.fn() },
   }
   fetchMock = vi.fn()
@@ -394,6 +396,16 @@ describe('download（浏览器下载器）', () => {
       saveAs: true,
       conflictAction: 'overwrite',
     })
+  })
+
+  it('download.cancel 调 chrome.downloads.cancel；cancel 抛错也静默（连续 abort 是合法调用）', async () => {
+    const ok = await sendToBridge({ c: 'download.cancel', id: 5 }, COOKIE_UUID)
+    expect(ok).toEqual({ ok: true, data: undefined })
+    expect(downloadsMocks.cancel).toHaveBeenCalledWith(5)
+
+    downloadsMocks.cancel.mockRejectedValueOnce(new Error('no such download'))
+    const again = await sendToBridge({ c: 'download.cancel', id: 5 }, COOKIE_UUID)
+    expect(again).toEqual({ ok: true, data: undefined })
   })
 })
 

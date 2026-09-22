@@ -260,7 +260,8 @@ export interface GmNotificationDetails {
 
 /**
  * `GM_download` 的 details（TM 的子集）。**不支持**：`headers`（下载请求由浏览器下载器发出、
- * 不经扩展，塞不进自定义头）、`anonymous`、`ontimeout`、以及返回值上的 `abort()`。
+ * 不经扩展，塞不进自定义头）、`anonymous`、`ontimeout`。
+ * 返回值是 `{ abort() }` 句柄（TM 同形）；经本地锚点下载的 Blob / ArrayBuffer 入参**不可中止**。
  */
 export interface GmDownloadDetails {
   url: string
@@ -352,6 +353,8 @@ export type ApiRequest =
        */
       wantProgress?: boolean
     }
+  // 中止一次在飞下载（`GM_download` 返回的 abort()）；id 查不到视为已结束，幂等不报错
+  | { c: 'download.cancel'; id: number }
   | { c: 'tabs.open'; url: string; active?: boolean }
   // tabId 缺省 = 发起命令的那个标签页（`window.close` / `window.focus` 的落点）
   | { c: 'tabs.close'; tabId?: number }
@@ -410,6 +413,7 @@ export const API_COMMANDS: Record<ApiRequest['c'], true> = {
   'clipboard.write': true,
   'cookie.get': true,
   'cookie.remove': true,
+  'download.cancel': true,
   'cookie.set': true,
   download: true,
   fetch: true,
@@ -582,7 +586,7 @@ export interface GmGlobalFns {
   /** `info` 缺省 `'text/plain'`；传 `'text/html'` 走富文本（TM 的 `{type}` 对象形态不收） */
   GM_setClipboard(data: string, info?: 'text/plain' | 'text/html'): void
   GM_xmlhttpRequest(details: GmXhrDetails): GmXhrHandle
-  GM_download(details: GmDownloadDetails | string, name?: string): void
+  GM_download(details: GmDownloadDetails | string, name?: string): { abort(): void }
   GM_openInTab(url: string, options?: boolean | GmOpenInTabOptions): GmTabHandle
   GM_getTab(cb: (tab: Json | undefined) => void): void
   GM_saveTab(tab: Json, cb?: () => void): void
