@@ -110,6 +110,7 @@ IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 
 
 - 广播埋在写出口：offscreen `handleStateCommand`（`script` 域）、`conversation-store` 写函数（`conversation`）、`userscripts/store.ts`（`error`）、`userscripts/usdata-db` 写出口经 store.ts（gm 变更事件）与 `model-store.ts` 写出口（`model`）。
 - **新增写路径必须同步埋广播**；前端新面板按域接 `useDataSync`，不再靠手动刷新兜底。编辑器有未保存改动时不自动重载，只提示「已在别处被修改」。
+- **只适用于 IDB**。落在 `chrome.storage.local` 的设置在**模块内封一层订阅**即可 —— 原生 `chrome.storage.onChanged` 已跨上下文通知（扩展页 / popup / 内容脚本都收得到），不必自建通道：`float-panel-store.ts` 的 `subscribeFloatSettings`、`dev-mode-store.ts` 的 `subscribeDevMode`。键名与 area 过滤都封在 store 里，调用方不写字面量。
 
 ## 构建信息注入（单一通道：`vite.define`）
 
