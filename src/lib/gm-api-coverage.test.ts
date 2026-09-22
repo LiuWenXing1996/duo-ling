@@ -59,7 +59,9 @@ describe('GM 可用性矩阵探针覆盖目录', () => {
     const rows = declared()
     expect(rows.length, '探针里没找到 @covers 登记表').toBeGreaterThan(20)
     for (const row of rows) {
-      expect(row.paths.length, `登记行缺路径或格式不对：${row.probe}`).toBeGreaterThan(0)
+      // 允许「无路径」的登记（`// @covers <用例名>`，没有 `::`）：有些用例验的不是某个 API ——
+      // 例如注入时机（run-at document-body），它们只需要证明「这条用例存在且已登记」，
+      // 不认领目录里的任何路径。有路径时仍限制条数，好让报错能定位到是哪个 API。
       expect(row.paths.length, `一条用例认领太多路径（报错定位不到是哪个 API）：${row.probe}`).toBeLessThanOrEqual(4)
     }
   })

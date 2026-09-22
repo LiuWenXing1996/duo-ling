@@ -2,6 +2,7 @@
 // @name         GM 可用性矩阵
 // @namespace    https://duoling.example
 // @match        *://*/*
+// @run-at       document-body
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
@@ -64,7 +65,8 @@
 //       你没动手 / 需要另看菜单）
 //
 // ————————————————————————— 覆盖登记（矩阵 ↔ 目录 的对齐表）—————————————————————————
-// 格式：`// @covers <用例名> :: <路径…>`。用例名须与下面 add(...) 的用例名**一字不差**，
+// 格式：`// @covers <用例名> :: <路径…>`；**不认领任何 API 的用例**（例如注入时机）写成 `// @covers <用例名>`。
+// 用例名须与下面 add(...) 的用例名**一字不差**，
 // 路径取自 src/lib/gm-api-catalog.ts（GM API 清单的唯一来源）。目录加了新 API 时**必须**
 // 在这里认领一行，否则 src/lib/gm-api-coverage.test.ts 会红（这正是「矩阵不留空行」的机器保证）。
 // 单个用例最多认领 4 条路径——认领太多，报 ✗ 时定位不到是哪个 API。
@@ -98,6 +100,7 @@
 // @covers GM.page.fetchHook（页面 fetch 拦截） :: GM.page.fetchHook
 // @covers GM_registerMenuCommand / GM_unregisterMenuCommand :: GM_registerMenuCommand GM_unregisterMenuCommand GM.registerMenuCommand GM.unregisterMenuCommand
 // @covers GM.clearValues（扩展独有） :: GM.clearValues
+// @covers run-at document-body（注入时 body 已存在）
 // @covers GM_getResourceText / GM_getResourceURL（未知名 → undefined） :: GM_getResourceText GM_getResourceURL GM.getResourceText GM.getResourceUrl
 // @covers GM_audio.setMute / getState（含 GM.audio 镜像） :: GM_audio.setMute GM_audio.getState GM_audio GM.audio
 // @covers GM_audio 状态监听 :: GM_audio.addStateChangeListener GM_audio.removeStateChangeListener
@@ -362,6 +365,14 @@
   }
 
   // —— 基础 ——
+
+  add('基础', 'run-at document-body（注入时 body 已存在）', function () {
+    // 本探针自己声明了 `@run-at document-body` —— 若闸门生效，脚本正文开始执行时 document.body 必已存在。
+    // （Chrome 的 userScripts.runAt 只有 start / end / idle，document-body 靠 document_start + 等 body 实现）
+    return document.body
+      ? pass('正文执行时 document.body 已存在（闸门把它推到了 body 之后）')
+      : fail('document.body 仍是 null —— 闸门没生效')
+  })
 
   add('基础', 'GM_info（全局）', function () {
     if (typeof GM_info !== 'object' || !GM_info) throw new Error('GM_info 未挂载')

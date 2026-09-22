@@ -76,7 +76,7 @@
 | `GM_cookie` | 不收 `domain` / `path`，传入即报错——域名门只比 scheme + host，开放 domain 会架空它 | `gm-wrapper.ts` cookie 分支 |
 | `GM_download` | `saveAs` 被忽略（走 `a[download]`，弹不出另存为），仅记一条日志 | `gm-wrapper.ts` download 分支 |
 | `@connect` | **更宽松**（不是缺失）：不拦未声明的域名（TM 会拦）——本扩展的跨域请求经后台发出，白名单没有意义 | `spec-text.ts`「明确不支持」段 |
-| `@run-at` | 只映射 `document-start` / `document-end` / `document-idle`（TM 的默认值也是 idle）；TM 另有 **`document-body`**（body 元素存在时）与 **`context-menu`**（右键菜单点了才注入，且该模式下 `@include` / `@exclude` 会被忽略，TM 5.5+） | TM 官方文档的 `@run-at` 段 |
+| `@run-at` | 支持 `document-start` / `document-body` / `document-end` / `document-idle`；**缺 `context-menu`**（右键菜单点了才注入，且该模式下 `@include` / `@exclude` 会被忽略，TM 5.5+）。另有一条默认值差异：**不写 `@run-at` 时我们按 `document-end`，TM 的默认值是 `document-idle`** | TM 官方文档的 `@run-at` 段 |
 | header 覆写 | 只做 `set`（`append` 受 DNR 头白名单限制、`remove` 未实现）；且头修改**不跨重定向 hop**，跨 host 的 3xx 之后新请求拿不到覆写头 | `dl-fetch-priv.ts` 顶部注释 |
 
 ## 四、环境级差异（脚本会撞上，但不算 API 缺口）
@@ -85,6 +85,7 @@
 - **`GM_info.isIncognito` 恒 false**：脚本在 MAIN 世界读不到扩展的隐身上下文；要拿真值需经桥回 SW 查，暂未做。
 - **脚本顶层 `var` 不进页面全局**：注入代码把包装与脚本一起放在函数作用域里。要往页面上挂东西请显式写 `unsafeWindow.x = …`。
 - **`GM_*` / `GM` 是脚本作用域里的标识符，不是 `window` 属性**：`GM_setValue(…)` 直接写即可，但 `window.GM_setValue` 取不到。TM 的 `raw` 模式挂在 window 上，本扩展不挂 —— 同帧多脚本共享一个 window，挂上去会互相覆盖（前一个脚本的调用会落到后一个的存储）。能力检测请用 `typeof GM_setValue === 'function'`，不要探测 `window.GM_*`。
+- **`@run-at document-body` 靠闸门实现**：Chrome 的 `userScripts.runAt` 只有 start / end / idle，故声明 `document-body` 时注入走 `document_start`，**正文**由包装层等 body 出现再跑（包装层自身不等 —— 它不碰页面 DOM）。脚本观测到的正文时机与 TM 一致，但**注入体的成员挂载早于 body 存在**（要在 body 之前的时机做事的脚本仍应写 `document-start`）。
 - **同步 `GM_xmlhttpRequest` 不存在**：TM 官方文档明确写了 *"the `synchronous` flag at `details` is not supported"*，我们同样不支持 —— 这不是差距，是两边一致。
 - **`@grant` 精确裁剪**：**只有写进清单的成员才存在**，漏写即 `ReferenceError`。**不写 `@grant` 与 `@grant none` 都等于空清单** —— TM 官方文档原文如此（"If no @grant tag is given an empty list is assumed. However this different from using none."），所以这不是我们的取舍而是照 TM 对齐：不写 `@grant` 的老脚本（GM 1.0 时代常见）在 TM 里同样会 `ReferenceError`，我们**不替它推断权限**。自产脚本由 `spec-text` 强制写全清单，样例包也一律写全。
 

@@ -156,10 +156,10 @@ test.describe.serial('GM 可用性矩阵（真机自动化）', () => {
 
     expect(bad, `有 API 在真机上是 ✗：\n${panelText}`).toBe(0)
     expect(pending, `还有人工项没收尾：\n${panelText}`).toBe(0)
-    expect(total, '矩阵条目数变了（新增 / 删除了用例？）').toBe(34)
+    expect(total, '矩阵条目数变了（新增 / 删除了用例？）').toBe(35)
     expect(unknownCount, `未判定的行多于预期（只该剩「原生右键菜单」那一条）：\n${panelText}`).toBeLessThanOrEqual(1)
     expect(panelText, '剪贴板回读没成（应走 clipboard.readText()）').not.toContain('端测读不到剪贴板')
-    expect(ok, `通过数偏少（期望 33：34 减掉端测做不了的原生右键菜单点击）：\n${panelText}`).toBeGreaterThanOrEqual(33)
+    expect(ok, `通过数偏少（期望 34：35 减掉端测做不了的原生右键菜单点击）：\n${panelText}`).toBeGreaterThanOrEqual(34)
     await page.close()
   })
 })
