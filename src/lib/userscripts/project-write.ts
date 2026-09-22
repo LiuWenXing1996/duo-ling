@@ -126,7 +126,7 @@ export async function createProject(): Promise<ScriptProject> {
   const name = await nextScriptName()
   const ts = Date.now()
   const uuid = crypto.randomUUID()
-  const outcome = await saveSource(uuid, defaultSource(name), {
+  const outcome = await saveSource(uuid, defaultSource(), {
     name,
     config: defaultConfig(['*://*/*']),
     enabled: true,

@@ -401,6 +401,66 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
     await tabA.close()
   })
 
+  test('点浮层里的停止：任务就地中止，半截照样落盘（带「已中断」）', async () => {
+    // 首片之后再按住：这样「停止」时已经有一点内容，能验到「保住半截」这件事
+    stub.setOptions({ delayMs: 0, holdAfterFirstChunkMs: 5_000 })
+
+    const page = await context!.newPage()
+    await page.goto(probeUrl)
+    await page.locator('#duoling-fab-root .dl-fab').click()
+    const panel = await waitForPanelFrame(page)
+    const box = panel.getByRole('textbox').first()
+    await box.fill('停我')
+    await box.press('Enter')
+
+    // 首片文本到了 = 已生成一点内容，而 stub 正按住第二片 —— 此刻点停止。
+    // 浮层里流式中的那个提交按钮就是停止按钮（见 ChatPanel.onPromptSubmit）。
+    await expect(panel.getByText(/stub/).first()).toBeVisible({ timeout: 20_000 })
+    await panel.getByLabel('Submit').click()
+
+    // 落盘：最新那条会话里应有半截 assistant 消息，并带「已中断」标记。
+    // （不断言浮层当场显示 —— 点停止时 UI 已本地断流，标记是给回看用的。）
+    const reader = await context!.newPage()
+    await reader.goto(`chrome-extension://${extensionId}/workbench.html`)
+    interface StoredMessage {
+      role: string
+      content: string
+      parts: Array<{ type: string }>
+    }
+    const readLatest = async (): Promise<StoredMessage[]> =>
+      await reader.evaluate(async () => {
+        const api = (
+          window as unknown as {
+            api: {
+              conversation: {
+                list: () => Promise<Array<{ id: string }>>
+                messages: (id: string) => Promise<StoredMessage[]>
+              }
+            }
+          }
+        ).api
+        const list = await api.conversation.list()
+        return list.length ? await api.conversation.messages(list[0]!.id) : []
+      })
+
+    await expect
+      .poll(async () => (await readLatest()).some((m) => m.role === 'assistant'), {
+        timeout: 10_000,
+        message: '点停止后，已生成的那半截也要落盘',
+      })
+      .toBe(true)
+    const assistant = (await readLatest()).find((m) => m.role === 'assistant')
+    expect(
+      assistant?.parts.some((p) => p.type === 'data-interrupted'),
+      '半截要带「已中断」标记',
+    ).toBe(true)
+    expect(assistant?.content ?? '', '半截内容要留住').toContain('stub')
+
+    await reader.close()
+    stub.setOptions({ delayMs: 6_000, holdAfterFirstChunkMs: 0 })
+    await page.close()
+  })
+
   test('关掉标签页：任务就地中止、半截照样落盘（带「已中断」）、不记「已完成」', async () => {
     const sender = await openMessengerPage(context!, extensionId)
     interface Snapshot {

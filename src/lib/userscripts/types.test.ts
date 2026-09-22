@@ -15,16 +15,29 @@ describe('默认值', () => {
     })
   })
 
-  it('defaultSource：极简纯 JS 模板，含脚本名，不含 import/export', () => {
-    const src = defaultSource('测试脚本')
-    expect(src).toContain('测试脚本')
-    expect(src).not.toMatch(/^\s*(import|export)\s/m)
+  it('defaultSource：一个现成的 metadata 块（配置与能力都在这里声明）', () => {
+    const src = defaultSource()
+    expect(src).toContain('==UserScript==')
+    // 匹配规则与能力是块里的两行主角（编辑器没有配置表单，这是唯一的配置入口）
+    expect(src).toContain('@match *://*/*')
+    expect(src).toContain('@grant none')
+    expect(src).not.toContain('DL.')
   })
 
-  it('defaultSource：指引的是标准油猴 API 与 metadata 块（不再是已移除的 GM 能力）', () => {
-    const src = defaultSource('测试脚本')
-    expect(src).toContain('GM_')
-    expect(src).toContain('==UserScript==')
-    expect(src).not.toContain('DL.')
+  it('defaultSource：只留 metadata 注释，不铺散文说明', () => {
+    const src = defaultSource()
+    const commentLines = src.split('\n').filter((line) => line.trim().startsWith('//'))
+    const metadataLines = commentLines.filter((line) => /^\/\/\s*(@|==)/.test(line.trim()))
+    // 模板是给用户直接改的起点，不是说明书：说明归文档与「GM API」页，注释多了反而挡路
+    expect(commentLines.length).toBe(metadataLines.length)
+    // 块里不写 @name —— 名字归状态库，免得列表里改名后两处对不上
+    expect(src).not.toContain('@name')
+  })
+
+  it('defaultSource：极简纯 JS（不含 import/export，也不含脚本名）', () => {
+    const src = defaultSource()
+    expect(src).not.toMatch(/^\s*(import|export)\s/m)
+    // 名字由状态库决定、不进模板
+    expect(src).not.toContain('测试脚本')
   })
 })
