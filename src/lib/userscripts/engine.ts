@@ -315,7 +315,7 @@ async function syncScriptRelay(projects: ScriptProject[]): Promise<void> {
     excludeMatches: union.excludeMatches,
     includeGlobs: union.includeGlobs,
     excludeGlobs: union.excludeGlobs,
-    // document_start：必须早于脚本默认的 document_end 握手窗口（与 MAIN 桩同理）
+    // document_start：必须早于脚本默认的 document_idle 握手窗口（与 MAIN 桩同理）
     runAt: 'document_start',
     allFrames: true,
   }

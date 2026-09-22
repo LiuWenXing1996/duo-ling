@@ -362,7 +362,7 @@ export function applyMetadataToConfig(
     // 未声明匹配规则时沿用 fallback（导入路径的 fallback 是空数组 → 落「不匹配任何页面」，与 project-write.ts 的写入口归一化一致）
     matches: declaredMatches ? dedupe(matches) : (fallback.matches ?? []),
     allFrames: parsed.noframes ? false : (fallback.allFrames ?? true),
-    runAt: declaredRunAt ?? fallback.runAt ?? 'document_end',
+    runAt: declaredRunAt ?? fallback.runAt ?? 'document_idle',
   }
 
   const exclM = dedupe([...excludeMatches, ...(declaredMatches ? [] : (fallback.excludeMatches ?? []))])

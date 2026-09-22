@@ -76,7 +76,7 @@
 | `GM_cookie` | 不收 `domain` / `path`，传入即报错——域名门只比 scheme + host，开放 domain 会架空它 | `gm-wrapper.ts` cookie 分支 |
 | `GM_download` | `saveAs` 被忽略（走 `a[download]`，弹不出另存为），仅记一条日志 | `gm-wrapper.ts` download 分支 |
 | `@connect` | **更宽松**（不是缺失）：不拦未声明的域名（TM 会拦）——本扩展的跨域请求经后台发出，白名单没有意义 | `spec-text.ts`「明确不支持」段 |
-| `@run-at` | 支持 `document-start` / `document-body` / `document-end` / `document-idle`；**缺 `context-menu`**（右键菜单点了才注入，且该模式下 `@include` / `@exclude` 会被忽略，TM 5.5+）。另有一条默认值差异：**不写 `@run-at` 时我们按 `document-end`，TM 的默认值是 `document-idle`** | TM 官方文档的 `@run-at` 段 |
+| `@run-at` | 支持 `document-start` / `document-body` / `document-end` / `document-idle`（**不写时默认值也是 `document-idle`，与 TM 一致**）；**缺 `context-menu`**（右键菜单点了才注入，且该模式下 `@include` / `@exclude` 会被忽略，TM 5.5+） | TM 官方文档的 `@run-at` 段 |
 | header 覆写 | 只做 `set`（`append` 受 DNR 头白名单限制、`remove` 未实现）；且头修改**不跨重定向 hop**，跨 host 的 3xx 之后新请求拿不到覆写头 | `dl-fetch-priv.ts` 顶部注释 |
 
 ## 四、环境级差异（脚本会撞上，但不算 API 缺口）

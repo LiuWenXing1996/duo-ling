@@ -30,7 +30,7 @@ export interface GmScriptMeta {
   includes: string[]
   /** `@exclude` 原值 */
   excludes: string[]
-  /** 油猴风格写法：`document-start` / `document-end` / `document-idle` */
+  /** 油猴风格写法：`document-start` / `document-body` / `document-end` / `document-idle` */
   runAt: string
   /** `@grant` 声明值；空数组 = 未声明 */
   grant: string[]

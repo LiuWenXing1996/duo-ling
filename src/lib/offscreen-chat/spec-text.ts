@@ -55,8 +55,8 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
 源码按 url 缓存在本地库（手动清除前不重抓）；不做子资源完整性（SRI）校验。
 
 \`@run-at\` 支持 \`document-start\` / \`document-body\` / \`document-end\` / \`document-idle\`；
-\`document-body\` 指「body 元素存在时」才开始跑。不写时本扩展按 \`document-end\`（TM 的默认值是
-\`document-idle\`，这条差异见 docs/gm-api-gap.md）；\`context-menu\` 暂不支持。
+\`document-body\` 指「body 元素存在时」才开始跑。不写时的默认值是 \`document-idle\`（与 TM 一致）；
+\`context-menu\` 暂不支持。
 
 ## 硬性约束
 1. **单文件、无模块语法**：不能用 \`import\` / \`export\`（classic script 执行，语法检查会当场报错）；

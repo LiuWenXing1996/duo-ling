@@ -22,7 +22,7 @@ export interface ScriptConfig {
   excludeGlobs?: string[]
   /** 默认 true（对齐主流：靠排除关 iframe） */
   allFrames: boolean
-  /** 默认 document_end（对齐主流） */
+  /** 默认 document_idle（对齐 TM：不写 @run-at 时 TM 也是 idle） */
   /**
    * 注入时机（对应 `@run-at`）。
    *
@@ -278,9 +278,9 @@ export interface ImportReport {
   ignored: ImportItemIgnored[]
 }
 
-/** 新建项目的默认配置：allFrames true / runAt document_end（v2 决策表） */
+/** 新建项目的默认配置：allFrames true / runAt document_idle（对齐 TM 的默认值） */
 export function defaultConfig(matches: string[]): ScriptConfig {
-  return { matches, allFrames: true, runAt: 'document_end' }
+  return { matches, allFrames: true, runAt: 'document_idle' }
 }
 
 /**

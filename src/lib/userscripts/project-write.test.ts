@@ -54,10 +54,11 @@ describe('createProject', () => {
     expect(p.enabled).toBe(true)
     // 模板自带 metadata 块（配置的唯一入口），所以 createProject 是带着声明走的：
     // 匹配规则与兜底同值，能力声明是 `none`（= 只给恒注入集，与「不声明」等价）
+    // 模板**不声明** @run-at → 取兜底配置的默认值（document_idle，对齐 TM；不是模板写死的）
     expect(p.config).toEqual({
       matches: ['*://*/*'],
       allFrames: true,
-      runAt: 'document_end',
+      runAt: 'document_idle',
       grant: ['none'],
     })
     expect(p.source.code).toBeTruthy()

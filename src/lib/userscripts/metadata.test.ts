@@ -211,8 +211,8 @@ describe('applyMetadataToConfig', () => {
   it('源码声明优先于 fallback（逐字段：声明了就采用，没声明才沿用）', () => {
     const r = applyMetadataToConfig(mk({ matches: ['https://x.example.com/*'] }), defaultConfig(['https://y.example.com/*']))
     expect(r.config.matches).toEqual(['https://x.example.com/*'])
-    // 未声明的键仍沿用 fallback
-    expect(r.config.runAt).toBe('document_end')
+    // 未声明的键仍沿用 fallback（defaultConfig 的默认值现在是 document_idle，对齐 TM）
+    expect(r.config.runAt).toBe('document_idle')
     expect(r.config.allFrames).toBe(true)
   })
 
@@ -229,7 +229,7 @@ describe('applyMetadataToConfig', () => {
   it('@run-at 取值不认识时沿用原配置并不猜（写 notes）', () => {
     // 样本必须是**真的不认识**的值：`document-body` 曾是，现已支持（见本 describe 的第一条用例）
     const r = applyMetadataToConfig(mk({ runAtRaw: 'document-foo' }), defaultConfig([]))
-    expect(r.config.runAt).toBe('document_end')
+    expect(r.config.runAt).toBe('document_idle')
     expect(r.notes.join('\n')).toContain('@run-at')
   })
 

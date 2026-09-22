@@ -7,11 +7,11 @@ describe('默认值', () => {
     expect(SCRIPT_FILE).toBe('script.js')
   })
 
-  it('defaultConfig：allFrames true / runAt document_end，matches 原样带入', () => {
+  it('defaultConfig：allFrames true / runAt document_idle（对齐 TM 的默认值），matches 原样带入', () => {
     expect(defaultConfig(['*://*/*'])).toEqual({
       matches: ['*://*/*'],
       allFrames: true,
-      runAt: 'document_end',
+      runAt: 'document_idle',
     })
   })
 
