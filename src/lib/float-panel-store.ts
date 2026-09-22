@@ -1,9 +1,17 @@
 // 网页浮层（content script 注入的悬浮对话按钮）的 per-site 开关存储。
 //
-// 设计：全局总开关 `duoling:floatEnabled`（默认开启）+ 按站点禁用集合 `duoling:floatDisabledSites`
-// （存被关闭的 hostname）。默认「全站开启、可单站关闭」——开箱即可见浮层，又保留克制入口。
-// 内容脚本、设置页与 SW（右键菜单）都经本模块读写，避免散落 chrome.storage 调用；
+// 设计：全局总开关 `duoling:floatEnabled`（默认开启）+ 按站点禁用集合 `duoling:floatDisabledSites`。
+// 集合里的条目是 **match pattern**（`*://*.example.com/*`）：纯域名默认连子域一起关，判定复用
+// lib/match-pattern.ts —— 与用户脚本注入面同一套匹配语义。**历史条目是裸 hostname**（早期直接存
+// hostname），不是合法 pattern，判定时按精确匹配兼容（见 entryCoversHost）；新写入一律是 pattern。
+// 默认「全站开启、可单站关闭」——开箱即可见浮层，又保留克制入口。
+// 内容脚本、popup、设置页与 SW（右键菜单）都经本模块读写，避免散落 chrome.storage 调用；
 // storage 键改动集中在此。
+// 「别处改了开关」的通知走 subscribeFloatSettings —— 调用方**不要**自己拼键名字面量去挂
+// chrome.storage.onChanged（键名只此一处）。
+
+import { normalizeSitePattern, sitePatternLabel } from '@/lib/float-panel-host'
+import { matchPatternCoversHost } from '@/lib/match-pattern'
 
 const MASTER_KEY = 'duoling:floatEnabled'
 const DISABLED_KEY = 'duoling:floatDisabledSites'
@@ -19,7 +27,7 @@ export async function setMasterEnabled(enabled: boolean): Promise<void> {
   await chrome.storage.local.set({ [MASTER_KEY]: enabled })
 }
 
-/** 被关闭浮层的 hostname 列表 */
+/** 被关闭浮层的条目（match pattern；历史条目为裸 hostname） */
 export async function getDisabledSites(): Promise<string[]> {
   const r = await chrome.storage.local.get(DISABLED_KEY)
   const v = r[DISABLED_KEY]
@@ -30,19 +38,86 @@ async function setDisabledSites(sites: string[]): Promise<void> {
   await chrome.storage.local.set({ [DISABLED_KEY]: sites })
 }
 
-/** 某 host 是否应显示浮层：总开关开 且 不在禁用集合 */
-export async function isFloatEnabledForHost(host: string): Promise<boolean> {
-  const [master, disabled] = await Promise.all([getMasterEnabled(), getDisabledSites()])
-  return master && !disabled.includes(host)
+/**
+ * 单条存储项是否覆盖该 host。
+ *
+ * 新条目是 match pattern（`*://*.example.com/*`）→ 交给 match-pattern 判 host 段（含子域）；
+ * 历史条目是裸 hostname（`example.com`）→ 不是合法 pattern，按**精确匹配**兼容。
+ */
+function entryCoversHost(entry: string, host: string): boolean {
+  const h = host.toLowerCase()
+  return matchPatternCoversHost(entry, h) || entry.toLowerCase() === h
 }
 
-/** 设置某 host 的禁用状态（true = 该站不显示浮层） */
+/** 某 host 是否应显示浮层：总开关开 且 没有任何条目覆盖它 */
+export async function isFloatEnabledForHost(host: string): Promise<boolean> {
+  const [master, disabled] = await Promise.all([getMasterEnabled(), getDisabledSites()])
+  if (!master) return false
+  return !disabled.some((entry) => entryCoversHost(entry, host))
+}
+
+/**
+ * 设置某 host 的禁用状态（true = 该站不显示浮层）。popup 的「当前网站显示浮层」开关用它 ——
+ * 调用方只知道 host、不知道名单里对应哪条，规范化与反查都在这里做：
+ *   · 禁用 → 规范化成 pattern 后入列（已被覆盖则不动）
+ *   · 恢复 → 把**覆盖该 host 的条目全删掉**（含历史裸 hostname 条目），否则「关了再开」看着没生效
+ */
 export async function setHostDisabled(host: string, disabled: boolean): Promise<void> {
   const sites = await getDisabledSites()
-  const has = sites.includes(host)
-  if (disabled && !has) sites.push(host)
-  if (!disabled && has) sites.splice(sites.indexOf(host), 1)
-  await setDisabledSites(sites)
+  if (!disabled) {
+    const rest = sites.filter((entry) => !entryCoversHost(entry, host))
+    if (rest.length !== sites.length) await setDisabledSites(rest)
+    return
+  }
+  const pattern = normalizeSitePattern(host)
+  if (!pattern || sites.includes(pattern)) return
+  await setDisabledSites([...sites, pattern])
+}
+
+/** 按条目原值移出禁用集合（设置页名单的「恢复显示」用：用户点的是某一行，只删那一条） */
+export async function removeDisabledSite(entry: string): Promise<void> {
+  const sites = await getDisabledSites()
+  const rest = sites.filter((e) => e !== entry)
+  if (rest.length !== sites.length) await setDisabledSites(rest)
+}
+
+/** 批量添加的结果（设置页据此给一句反馈） */
+export interface AddSitesResult {
+  /** 新增的条目（规范化后的 match pattern） */
+  added: string[]
+  /** 已在名单里（重复输入 / 已被现有条目覆盖） */
+  existing: string[]
+  /** 认不出来的输入（原样回显） */
+  invalid: string[]
+}
+
+/**
+ * 批量把用户输入加进禁用集合（设置页的「添加」）。
+ *
+ * 逐条经 normalizeSitePattern 规范化；**已被现有条目覆盖**的算 existing 而不是再加一条 ——
+ * 名单不留冗余条目，用户也能从反馈里看出「为什么加了没反应」。
+ * 反向不处理：新条目比现有条目宽（`example.com` 覆盖已有的 `www.example.com`）时两条并存，
+ * 由用户在名单里删掉窄的那条 —— 自动清理要猜用户意图，收益不抵风险。
+ */
+export async function addDisabledSites(inputs: string[]): Promise<AddSitesResult> {
+  const sites = await getDisabledSites()
+  const result: AddSitesResult = { added: [], existing: [], invalid: [] }
+  for (const raw of inputs) {
+    const pattern = normalizeSitePattern(raw)
+    if (!pattern) {
+      result.invalid.push(raw.trim())
+      continue
+    }
+    // pattern 必然覆盖自己的 host，所以这一句同时兜住「输入重复」与「已被更宽的条目覆盖」
+    const host = sitePatternLabel(pattern)
+    if (result.added.includes(pattern) || sites.some((entry) => entryCoversHost(entry, host))) {
+      result.existing.push(pattern)
+      continue
+    }
+    result.added.push(pattern)
+  }
+  if (result.added.length) await setDisabledSites([...sites, ...result.added])
+  return result
 }
 
 /**
@@ -56,7 +131,35 @@ export async function setHostDisabled(host: string, disabled: boolean): Promise<
  */
 export async function ensureFloatEnabled(host: string): Promise<void> {
   if (!(await getMasterEnabled())) await setMasterEnabled(true)
-  if (host && (await getDisabledSites()).includes(host)) await setHostDisabled(host, false)
+  if (!host) return
+  // 条目可能带子域（`*://*.example.com/*`），不能用 includes(host) 去对 —— 走覆盖判定
+  if ((await getDisabledSites()).some((entry) => entryCoversHost(entry, host))) {
+    await setHostDisabled(host, false)
+  }
+}
+
+/** storage.onChanged 给到的变更集（只用到键名是否存在） */
+type StorageChanges = Record<string, { newValue?: unknown }>
+
+/**
+ * 订阅开关变更（总开关与站点禁用集合任一改动都会触发）。
+ *
+ * 浮层设置落在 chrome.storage.local，浏览器原生就跨上下文通知（扩展页、popup、内容脚本
+ * 都收得到），所以这条线**不走** `lib/data-broadcast.ts` —— 那套是给没有变更通知能力的
+ * IndexedDB 补的。这里同样只通知「有变化」、不带数据：调用方收到后自己用上面的读函数重拉。
+ *
+ * 刻意**不管** `duoling:floatPos`：位置是本页面自己拖自己写、只有本页要用，不跨上下文。
+ *
+ * @returns 取消订阅的函数
+ */
+export function subscribeFloatSettings(listener: () => void): () => void {
+  const handler = (changes: StorageChanges, area: string): void => {
+    if (area !== 'local') return
+    if (!(MASTER_KEY in changes) && !(DISABLED_KEY in changes)) return
+    listener()
+  }
+  chrome.storage.onChanged.addListener(handler)
+  return () => chrome.storage.onChanged.removeListener(handler)
 }
 
 // —— 浮层位置（用户拖拽后记下的角落） ——

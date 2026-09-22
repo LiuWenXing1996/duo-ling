@@ -20,6 +20,7 @@ import {
   isFloatEnabledForHost,
   setHostDisabled,
 } from '@/lib/float-panel-store'
+import { webHostname } from '@/lib/float-panel-host'
 import { readUpdateCheck, type UpdateCheckRecord } from '@/lib/update-check'
 import { FLOAT_OPEN_REQUEST } from '@/shared/extension-ipc'
 
@@ -43,33 +44,11 @@ const updateAvailable = computed(() =>
   update.value?.status.kind === 'update' ? update.value.status : null,
 )
 
-/**
- * 普通网页的 hostname；非普通网页（内部页 / 扩展页 / 应用商店）返回空串。
- *
- * 判据只能按 **scheme**。这些页面上扩展根本读不到 url —— manifest 里没有 `tabs` 权限，
- * 而 `<all_urls>` 不含 `chrome://` / `chrome-extension://` scheme（2026-09-21 无头实测：
- * `chrome://version` 与扩展自身页的 `tab.url` 都是 `undefined`，`tabs.query` 的其他字段正常）。
- * 旧版落到兜底文案「无法获取当前标签页地址」，用户看不出这里为什么没有浮层。
- *
- * 已知边界：`file://` 也走这条 —— 未开「允许访问文件网址」时扩展同样读不到它的 url
- * （读得到时 `hostname` 为空，照样不满足 `http/https`），而本地文件页**开了那个开关后是可
- * 注入的**，所以这条提示的文案要把它一起说到（见下方模板），不能写成「这些页面上都注入不了」。
- */
-function webHost(url: string | undefined): string {
-  if (!url) return ''
-  try {
-    const u = new URL(url)
-    return u.protocol === 'http:' || u.protocol === 'https:' ? u.hostname : ''
-  } catch {
-    return ''
-  }
-}
-
 async function refresh(): Promise<void> {
   master.value = await getMasterEnabled()
   update.value = await readUpdateCheck()
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
-  currentHost.value = webHost(tabs[0]?.url)
+  currentHost.value = webHostname(tabs[0]?.url)
   currentIsWebPage.value = currentHost.value !== ''
   if (currentHost.value) {
     currentEnabled.value = await isFloatEnabledForHost(currentHost.value)

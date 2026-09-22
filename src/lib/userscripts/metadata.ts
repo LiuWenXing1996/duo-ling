@@ -17,7 +17,7 @@
 //   · 多值键（@match / @include / @exclude / @grant / @require / @resource / @connect）按出现顺序累积。
 import type { ScriptConfig, ScriptResourceDecl } from './types'
 import { isValidMatchPattern } from './project-store'
-import { parseMatchPattern } from './match-pattern'
+import { parseMatchPattern } from '@/lib/match-pattern'
 
 export type { ScriptResourceDecl }
 

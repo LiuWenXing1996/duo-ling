@@ -16,7 +16,7 @@
 //   · 单测专门覆盖「配置改了 + 广播后门即时生效」（cookie-gate.test.ts）。
 import { subscribeDataChange } from '@/lib/data-broadcast'
 import { getProject } from './project-store'
-import { urlInCookieScope, type CookieScope } from './match-pattern'
+import { urlInCookieScope, type CookieScope } from '@/lib/match-pattern'
 
 /** 门判定结果：错误码与 ApiErrorCode 的同名项对齐，由调用方（dl-bridge）转成 ApiError */
 export type CookieGateResult =
