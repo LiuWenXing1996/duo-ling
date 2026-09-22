@@ -20,6 +20,7 @@ import {
   removeGroupAndReassign,
   removeProjectAndRepo,
   renameGroup,
+  renameProject,
   reorderGroups,
   saveExisting,
   setProjectEnabled,
@@ -52,10 +53,12 @@ async function runStateCommand(msg: StateRequest): Promise<unknown> {
       return createProject()
     case 'state:save':
       // 统一保存：写 duoling-fs + git 提交 + 写状态库（保存即注入），见 project-write.saveSource
+      // actor 缺省为 user：编辑器保存不传（就是用户手动），AI 落盘由桥接层显式传 'ai'
       return saveExisting(msg.uuid, msg.code, {
         name: msg.name,
         config: msg.config,
         note: msg.note,
+        actor: msg.actor,
       })
     case 'state:remove':
       await removeProjectAndRepo(msg.uuid)
@@ -65,6 +68,9 @@ async function runStateCommand(msg: StateRequest): Promise<unknown> {
       return removeAllProjects()
     case 'state:toggle':
       return setProjectEnabled(msg.uuid, msg.enabled)
+    case 'state:rename':
+      // 只改状态库的 name（不入仓、不产生提交）；外层 handleStateCommand 已广播 'script' 域
+      return renameProject(msg.uuid, msg.name)
     case 'state:createProject': {
       // AI 生成脚本落盘：写状态库 + git 快照（note = AI summary），不在此注册（enabled:false 默认）
       const { kind: _kind, ...payload } = msg

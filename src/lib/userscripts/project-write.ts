@@ -15,6 +15,7 @@ import { readGroup, removeGroup, removeProject, writeGroup, writeProject } from 
 import { deleteAllRepos, deleteRepo, writeSource, commitSource, readSource } from './us-git'
 import { defaultConfig, defaultSource } from './types'
 import type {
+  CommitActor,
   ImportItemResult,
   ImportReport,
   ScriptConfig,
@@ -57,10 +58,15 @@ export interface SaveOutcome {
 }
 
 /** 源码落盘（写工作树 + 提交 git）：saveSource 与导入共用的底层步骤。提交失败只丢历史不丢源码 */
-async function persistSource(uuid: string, code: string, note?: string): Promise<void> {
+async function persistSource(
+  uuid: string,
+  code: string,
+  note?: string,
+  actor: CommitActor = 'user',
+): Promise<void> {
   await writeSource(uuid, code)
   try {
-    await commitSource(uuid, note)
+    await commitSource(uuid, note, actor)
   } catch (e) {
     // 工作树已落地，提交失败只丢历史版本（下次保存会补提交），不判保存失败
     console.warn('[duoling:userscript] git 提交失败（不影响保存）', uuid, e)
@@ -92,11 +98,13 @@ export async function saveSource(
     note?: string
     group?: string
     adoptName?: boolean
+    /** 本次改动来源（默认 user）；AI 落盘显式传 'ai' —— 历史面板据此显示来源标签 */
+    actor?: CommitActor
   },
 ): Promise<SaveOutcome> {
   const resolved = resolveConfigFromSource(code, opts.config)
   const name = (opts.adoptName && resolved.name?.trim()) || opts.name
-  await persistSource(uuid, code, opts.note)
+  await persistSource(uuid, code, opts.note, opts.actor)
   const savedAt = Date.now()
   const project = makeState(
     uuid,
@@ -124,6 +132,8 @@ export async function createProject(): Promise<ScriptProject> {
     enabled: true,
     createdAt: ts,
     adoptName: true,
+    // 这条不是「保存」来的（用户还没动过它），给个说得通的名字，别让它长成「保存 <时间>」
+    note: '初始版本',
   })
   return outcome.project
 }
@@ -155,6 +165,7 @@ export async function createGeneratedProject(payload: {
     note: payload.note,
     // AI 产物同样可能自带 metadata 块：新建语义 → 采用其中的 @name / @match
     adoptName: true,
+    actor: 'ai',
   })
   return outcome.project
 }
@@ -163,7 +174,7 @@ export async function createGeneratedProject(payload: {
 export async function saveExisting(
   uuid: string,
   code: string,
-  opts?: { name?: string; config?: ScriptConfig; note?: string },
+  opts?: { name?: string; config?: ScriptConfig; note?: string; actor?: CommitActor },
 ): Promise<SaveOutcome> {
   const project = await getProject(uuid)
   if (!project) throw new Error('脚本不存在')
@@ -178,6 +189,7 @@ export async function saveExisting(
     enabled: project.enabled,
     createdAt: project.createdAt,
     note: opts?.note,
+    actor: opts?.actor,
   })
 }
 
@@ -220,6 +232,24 @@ export async function setProjectEnabled(uuid: string, enabled: boolean): Promise
   const project = await getProject(uuid)
   if (!project) throw new Error('脚本不存在')
   project.enabled = enabled
+  project.updatedAt = Date.now()
+  await writeProject(project)
+  return project
+}
+
+/**
+ * 重命名脚本：只改状态库里的 name + updatedAt。
+ *
+ * 名字是**管理面标识**（列表 / 标签页 / GM_info / 错误日志分组名都用它），不入 git 仓——
+ * 仓里的名字是源码的 `// @name`，两者互不覆盖：这里改名不动源码，改源码的 `@name`
+ * 也不会覆盖这里的名字（见 saveSource 的 adoptName 说明）。故与启停、归组一样不产生提交。
+ */
+export async function renameProject(uuid: string, name: string): Promise<ScriptProject> {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('脚本名不能为空')
+  const project = await getProject(uuid)
+  if (!project) throw new Error('脚本不存在')
+  project.name = trimmed
   project.updatedAt = Date.now()
   await writeProject(project)
   return project

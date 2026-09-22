@@ -23,6 +23,7 @@ import {
   Plus as UiPlus,
   RefreshCw as UiRefreshCw,
   Search as UiSearch,
+  Tag as UiTag,
   Trash2 as UiTrash2,
   Upload as UiUpload,
   X as UiX,
@@ -73,6 +74,11 @@ import type {
   ScriptSummary,
   UserScriptsAvailability
 } from '@/lib/userscripts/types'
+
+const props = defineProps<{
+  /** 编辑器里有未保存改动的脚本 uuid（宿主注入）：删除前据此示警草稿会一起没 */
+  dirtyUuids?: string[]
+}>()
 
 const emit = defineEmits<{
   /** 请求打开该脚本的编辑器标签页（由 WorkspaceHost 接管） */
@@ -420,6 +426,50 @@ const pendingRemove = ref<ScriptSummary | null>(null)
  */
 function askRemove(s: ScriptSummary): void {
   pendingRemove.value = s
+}
+
+/** 待改名的脚本：非 null 即重命名弹窗打开 */
+const renameTarget = ref<ScriptSummary | null>(null)
+/** 重命名输入框内容 */
+const renameName = ref('')
+/** 改名进行中：防连点 */
+const renaming = ref(false)
+
+/**
+ * 点「重命名」：开弹窗并预填当前名字。
+ * 名字是管理面标识（列表 / 标签页 / GM_info / 错误日志分组名），改它不动源码、不产生版本。
+ */
+function askRename(s: ScriptSummary): void {
+  renameTarget.value = s
+  renameName.value = s.name
+}
+
+async function confirmRename(): Promise<void> {
+  const target = renameTarget.value
+  if (!target || renaming.value) return
+  const name = renameName.value.trim()
+  if (!name) {
+    error.value = '脚本名不能为空'
+    return
+  }
+  if (name === target.name) {
+    // 没改动直接收工，不必往后台跑一趟
+    renameTarget.value = null
+    return
+  }
+  renaming.value = true
+  error.value = ''
+  try {
+    const res = await userscriptClient.rename(target.uuid, name)
+    // 名字已落库；启用中的脚本会随之重注册，失败只提示、不回退改名
+    if (res.registerError) error.value = `已改名为「${name}」，但脚本没能生效：` + res.registerError
+    renameTarget.value = null
+    await refresh()
+  } catch (e) {
+    error.value = `「${target.name}」改名失败：` + (e instanceof Error ? e.message : String(e))
+  } finally {
+    renaming.value = false
+  }
 }
 
 // —— zip 导入导出——
@@ -1159,6 +1209,22 @@ useDataSync('group', () => refreshGroups())
                       <ui-tooltip-content>编辑脚本</ui-tooltip-content>
                     </ui-tooltip>
                   </ui-tooltip-provider>
+                  <ui-tooltip-provider>
+                    <ui-tooltip>
+                      <ui-tooltip-trigger as-child>
+                        <ui-button
+                          variant="ghost"
+                          size="icon"
+                          class="size-6"
+                          aria-label="重命名脚本"
+                          @click="askRename(item.s)"
+                        >
+                          <ui-tag class="size-3.5" />
+                        </ui-button>
+                      </ui-tooltip-trigger>
+                      <ui-tooltip-content>重命名脚本</ui-tooltip-content>
+                    </ui-tooltip>
+                  </ui-tooltip-provider>
                   <!-- 移动到分组：列出全部分组 + 未分组，当前所在项禁用 -->
                   <ui-dropdown-menu>
                     <ui-dropdown-menu-trigger as-child>
@@ -1258,6 +1324,40 @@ useDataSync('group', () => refreshGroups())
       </ui-dialog-content>
     </ui-dialog>
 
+    <!-- 重命名弹窗：名字是管理面标识，改它不动源码、不产生版本 -->
+    <ui-dialog
+      :open="!!renameTarget"
+      @update:open="(v: boolean) => { if (!v) renameTarget = null }"
+    >
+      <ui-dialog-content class="max-w-md">
+        <ui-dialog-title class="text-base font-semibold">重命名脚本</ui-dialog-title>
+        <ui-dialog-description class="text-sm text-muted-foreground">
+          只改列表里显示的名字：脚本源码、匹配规则与版本历史都不受影响。
+        </ui-dialog-description>
+        <div class="mt-3">
+          <ui-input
+            v-model="renameName"
+            placeholder="脚本名称"
+            aria-label="脚本名称"
+            spellcheck="false"
+            autocomplete="off"
+            :disabled="renaming"
+            @keydown.enter="confirmRename"
+          />
+        </div>
+        <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
+          <ui-button variant="ghost" size="sm" @click="renameTarget = null">取消</ui-button>
+          <ui-button
+            size="sm"
+            :disabled="renaming || !renameName.trim()"
+            @click="confirmRename"
+          >
+            {{ renaming ? '重命名中…' : '重命名' }}
+          </ui-button>
+        </ui-dialog-footer>
+      </ui-dialog-content>
+    </ui-dialog>
+
     <!-- 删除确认弹窗：用 UI 弹窗替代原生 confirm（原生 confirm / prompt 是同步阻塞的，会冻结渲染） -->
     <ui-dialog
       :open="!!pendingRemove"
@@ -1267,6 +1367,12 @@ useDataSync('group', () => refreshGroups())
         <ui-dialog-title class="text-base font-semibold">删除脚本</ui-dialog-title>
         <ui-dialog-description class="text-sm text-muted-foreground">
           确定删除脚本「{{ pendingRemove?.name }}」吗？此操作不可撤销，其历史版本会一并删除。
+          <span
+            v-if="pendingRemove && props.dirtyUuids?.includes(pendingRemove.uuid)"
+            class="mt-2 block text-destructive"
+          >
+            该脚本的编辑器里还有未保存的改动，删除后会一起丢失。
+          </span>
         </ui-dialog-description>
         <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
           <ui-button variant="ghost" size="sm" @click="pendingRemove = null">取消</ui-button>

@@ -18,15 +18,24 @@ const props = defineProps<{
   cancelText?: string
   /** 危险操作：确认按钮用红色系 */
   danger?: boolean
+  /** 次要动作文案（可选）：给了就多一个按钮，排在「取消」与确认之间（如关闭确认里的「保存并关闭」） */
+  alternativeText?: string
 }>()
 
 const emit = defineEmits<{
   'update:open': [open: boolean]
   confirm: []
+  /** 次要动作（只有传了 alternativeText 才会触发）：动作完成后弹窗照常关闭，与确认一致 */
+  alternative: []
 }>()
 
 function onConfirm(): void {
   emit('confirm')
+  emit('update:open', false)
+}
+
+function onAlternative(): void {
+  emit('alternative')
   emit('update:open', false)
 }
 </script>
@@ -36,10 +45,13 @@ function onConfirm(): void {
     <DialogContent class="sm:max-w-md">
       <DialogHeader>
         <DialogTitle>{{ props.title }}</DialogTitle>
-        <DialogDescription v-if="props.description" class="whitespace-pre-line">
+        <DialogDescription v-if="props.description" class="whitespace-pre-line text-pretty">
           {{ props.description }}
         </DialogDescription>
       </DialogHeader>
+      <!-- 默认插槽：给「必须看见」的补充信息留位置（description 是纯文本，只能承载平铺的说明）。
+           调用方自己决定样式，组件不猜语气。 -->
+      <slot />
       <DialogFooter class="gap-2">
         <button
           type="button"
@@ -47,6 +59,14 @@ function onConfirm(): void {
           @click="emit('update:open', false)"
         >
           {{ props.cancelText ?? '取消' }}
+        </button>
+        <button
+          v-if="props.alternativeText"
+          type="button"
+          class="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+          @click="onAlternative"
+        >
+          {{ props.alternativeText }}
         </button>
         <button
           type="button"

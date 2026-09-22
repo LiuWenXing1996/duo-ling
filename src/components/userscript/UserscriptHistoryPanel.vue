@@ -8,19 +8,44 @@
 // 快照 = 单文件源码（配置由源码里的 // ==UserScript== 块派生，脚本无构建流程，恢复即恢复源码本身）。
 import { computed, onMounted, ref } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
-import { RefreshCw as UiRefreshCw, RotateCcw as UiRotateCcw } from '@lucide/vue'
+import {
+  AlertTriangle as UiAlertTriangle,
+  Cog as UiCog,
+  RefreshCw as UiRefreshCw,
+  RotateCcw as UiRotateCcw,
+  Sparkles as UiSparkles
+} from '@lucide/vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { CodeBlock } from '@/components/ai-elements/code-block'
 import { userscriptClient, fsClient } from '@/lib/userscripts/ui-client'
 import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
 import { defaultConfig } from '@/lib/userscripts/types'
+import type { CommitActor } from '@/lib/userscripts/types'
 import type { UsCommit, UsSnapshot } from '@/lib/userscripts/us-git'
 
-const props = defineProps<{ uuid: string }>()
+const props = defineProps<{
+  uuid: string
+  /** 该脚本的编辑器标签开着且有未保存改动（宿主注入）：恢复会连草稿一起覆盖，故要提前示警 */
+  editorDirty?: boolean
+}>()
 const emit = defineEmits<{
   /** 恢复完成：宿主重载该脚本的编辑器标签 */
   restored: [uuid: string]
+  /** 载入 / 重载后回报脚本名：脚本可能在别处被改名，历史标签标题不该停在旧名 */
+  nameChange: [name: string]
 }>()
+
+/**
+ * 版本来源标签。**每一版都标**（包括用户自己的）—— 早先只标非用户的，结果那一栏空着，
+ * 用户会读成「来源功能没生效」而不是「这版是我改的」。
+ * 权重靠样式分：用户 = 普通灰字；非用户 = 加图标 + 加深（**图标本身就是「这版不是我改的」的信号**）。
+ * 措辞避开「自动」二字：对用户来说 AI 也是自动的，靠「AI」/「系统」区分才立得住。
+ */
+const ACTOR_LABEL: Record<CommitActor, string> = {
+  user: '你',
+  ai: 'AI 修改',
+  system: '系统处理',
+}
 
 const scriptName = ref('')
 const error = ref('')
@@ -39,6 +64,24 @@ const oid = ref('')
 const snap = ref<UsSnapshot | null>(null)
 const restoring = ref(false)
 
+/** 选中的就是最新一版：恢复它等于把当前内容再存一遍，无意义，故按钮直接禁用 */
+const isLatestSelected = computed(() => !!oid.value && oid.value === commits.value[0]?.oid)
+
+/** 选中版本的一句话标识（弹窗里供用户核对「恢复到哪一版」）。
+ *  只给 message + 相对时间：短 oid 对用户没有意义（时间线里已有），带上它还会把一行挤成两行 */
+const selectedCommitLabel = computed(() => {
+  const c = commits.value.find((x) => x.oid === oid.value)
+  return c ? `${c.message}（${relTime(c.time)}）` : ''
+})
+
+/**
+ * 恢复确认弹窗的说明：只留要核对的目标版本。
+ * 匹配规则随源码恢复、名字与启用状态不变、产生「回滚」记录这些都不写：不看不影响决策，
+ * 堆进弹窗只会让人整段跳过（连该看的那句一起跳过）。
+ * 「草稿会丢」那条**不放 description** —— 它是必须看见的警示，走插槽做成警示块（见模板）。
+ */
+const restoreDescription = computed(() => `将恢复到：${selectedCommitLabel.value || '所选版本'}`)
+
 /** 装载脚本名 + 提交列表，默认选中最新一条 */
 async function load(): Promise<void> {
   commitsLoading.value = true
@@ -47,6 +90,8 @@ async function load(): Promise<void> {
     const project = await userscriptClient.getProject(props.uuid)
     if (!project) throw new Error('脚本不存在')
     scriptName.value = project.name
+    // 回报宿主：标签标题跟着脚本名走（名字可能在列表页被改过）
+    emit('nameChange', project.name)
     commits.value = await fsClient.history(props.uuid)
     if (commits.value.length) await selectCommit(commits.value[0]!.oid)
     else {
@@ -87,8 +132,8 @@ async function restoreCommit(): Promise<void> {
       note: '恢复到历史版本',
     })
     notice.value = res.registerError
-      ? '已恢复到历史版本，但注册失败：' + res.registerError
-      : '已恢复到历史版本并重新注册。目标页面刷新后生效。'
+      ? '已恢复到历史版本，但脚本没能生效：' + res.registerError
+      : '已恢复到历史版本，目标页面刷新后生效。'
     emit('restored', props.uuid)
     // 恢复本身产生「回滚」提交，刷新时间线
     commits.value = await fsClient.history(props.uuid)
@@ -167,7 +212,7 @@ useDataSync('script', (push) => {
             v-else-if="!commits.length"
             class="px-3 py-4 text-xs leading-relaxed text-muted-foreground"
           >
-            暂无历史。保存后自动生成版本；本次编辑产生的改动会记为「保存 #1」。
+            暂无历史。保存后自动生成版本；没填备注的版本按保存时间命名。
           </p>
           <button
             v-for="(c, i) in commits"
@@ -178,8 +223,19 @@ useDataSync('script', (push) => {
             @click="selectCommit(c.oid)"
           >
             <p class="truncate text-xs font-medium" :title="c.message">{{ c.message }}</p>
-            <p class="mt-0.5 text-[11px] text-muted-foreground">
-              {{ relTime(c.time) }}<template v-if="i === 0"> · 最新</template>
+            <!-- 来源 + 时间同一行（窄栏里省一行）：非用户改动带图标并加深，图标即「这版不是我改的」的信号 -->
+            <p class="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+              <ui-sparkles v-if="c.actor === 'ai'" class="size-3 shrink-0 text-foreground" />
+              <ui-cog v-else-if="c.actor === 'system'" class="size-3 shrink-0 text-foreground" />
+              <span :class="c.actor === 'user' ? '' : 'font-medium text-foreground'">
+                {{ ACTOR_LABEL[c.actor] }}
+              </span>
+              <span>·</span>
+              <span>{{ relTime(c.time) }}</span>
+              <template v-if="i === 0">
+                <span>·</span>
+                <span>最新</span>
+              </template>
             </p>
             <p class="font-mono text-[10px] text-muted-foreground">{{ c.oid.slice(0, 8) }}</p>
           </button>
@@ -209,18 +265,19 @@ useDataSync('script', (push) => {
             class="rounded-none"
           />
           <p v-else-if="snap" class="p-4 text-xs text-muted-foreground">
-            此快照没有源码。
+            这一版的源码缺失，无法预览。
           </p>
         </div>
 
         <!-- 恢复 -->
         <div class="flex items-center justify-between border-t border-border px-4 py-2">
           <p class="text-[11px] text-muted-foreground">
-            恢复会保留当前启用状态，并产生一条「回滚」记录（可再恢复回来）；开着编辑器标签会自动重载。
+            {{ isLatestSelected ? '已是最新版本。' : '可再恢复回来。' }}
           </p>
           <button
             type="button"
-            :disabled="restoring || !oid"
+            :disabled="restoring || !oid || isLatestSelected"
+            :title="isLatestSelected ? '已是最新版本' : '恢复到选中的版本'"
             class="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             @click="confirmOpen = true"
           >
@@ -234,10 +291,19 @@ useDataSync('script', (push) => {
     <!-- 恢复确认 -->
     <ConfirmDialog
       v-model:open="confirmOpen"
-      title="恢复到此版本？"
-      description="将同时恢复当时的名称与匹配规则（启用状态保持不变），并产生一条「回滚」记录（可再恢复回来）。"
+      title="恢复到这一版？"
+      :description="restoreDescription"
       confirm-text="恢复"
       @confirm="restoreCommit"
-    />
+    >
+      <!-- 草稿会丢是**必须看见**的一条：灰色正文会被一眼扫过去，故做成警示块（红字 + 警示底 + 图标） -->
+      <div
+        v-if="editorDirty"
+        class="mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+      >
+        <ui-alert-triangle class="mt-px size-3.5 shrink-0" />
+        <span>编辑器里有未保存的改动，会一并丢失。</span>
+      </div>
+    </ConfirmDialog>
   </section>
 </template>

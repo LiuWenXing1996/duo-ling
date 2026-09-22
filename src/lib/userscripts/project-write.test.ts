@@ -23,6 +23,7 @@ import {
   importScriptsZip,
   removeAllProjects,
   removeProjectAndRepo,
+  renameProject,
   saveExisting,
   setProjectEnabled,
 } from './project-write'
@@ -70,7 +71,7 @@ describe('createProject', () => {
     expect(uuid).toBe(p.uuid)
     expect(code).toBeTruthy()
     expect(mockCommitSource).toHaveBeenCalledOnce()
-    expect(mockCommitSource.mock.calls[0]![1]).toBeUndefined() // 无备注
+    expect(mockCommitSource.mock.calls[0]![1]).toBe('初始版本') // 新建不是「保存」来的，给它一个说得通的名字
     // 搬运副本与写入 duoling-fs 的源码同源
     expect(p.source.code).toBe(code)
     // 单文件化后旧多文件字段不再存在
@@ -187,8 +188,49 @@ describe('setProjectEnabled', () => {
   })
 })
 
-describe('removeProjectAndRepo', () => {
-  it('状态记录与 git 仓一起清', async () => {
+describe('renameProject', () => {
+  it('只改名字：不写源码、不产生提交', async () => {
+    const p = await createProject()
+    mockWriteSource.mockClear()
+    mockCommitSource.mockClear()
+    const next = await renameProject(p.uuid, '  新名字  ')
+    expect(next.name).toBe('新名字') // 去空白
+    expect(mockWriteSource).not.toHaveBeenCalled()
+    expect(mockCommitSource).not.toHaveBeenCalled()
+    const stored = (await readAllProjects()).find((x) => x.uuid === p.uuid)
+    expect(stored?.name).toBe('新名字')
+  })
+
+  it('空名与不存在的脚本都拦下', async () => {
+    const p = await createProject()
+    await expect(renameProject(p.uuid, '   ')).rejects.toThrow('脚本名不能为空')
+    await expect(renameProject('ghost', 'x')).rejects.toThrow('脚本不存在')
+  })
+})
+
+describe('改动来源透传到提交', () => {
+  it('用户路径标 user；AI 落盘标 ai，来源单独成参、不拼进 message', async () => {
+    const p = await createProject()
+    // 用户零输入新建 → commitSource(uuid, note, 'user')
+    expect(mockCommitSource.mock.calls.at(-1)?.[2]).toBe('user')
+
+    await saveExisting(p.uuid, '// ai 改的', { note: '把按钮改成红色', actor: 'ai' })
+    const last = mockCommitSource.mock.calls.at(-1)
+    expect(last?.[1]).toBe('把按钮改成红色') // message 就是备注本身，来源不拼进去
+    expect(last?.[2]).toBe('ai')
+
+    await createGeneratedProject({
+      name: 'AI 脚本',
+      config: defaultConfig(['*://*/*']),
+      code: 'console.log(1)',
+      enabled: false,
+      note: '生成了一个脚本',
+    })
+    expect(mockCommitSource.mock.calls.at(-1)?.[2]).toBe('ai')
+  })
+})
+
+describe('removeProjectAndRepo', () => {  it('状态记录与 git 仓一起清', async () => {
     const p = await createProject()
     await removeProjectAndRepo(p.uuid)
     await expect(readAllProjects()).resolves.toEqual([])

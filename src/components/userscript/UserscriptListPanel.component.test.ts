@@ -25,6 +25,7 @@ const groups = vi.hoisted(() => vi.fn())
 const setGroup = vi.hoisted(() => vi.fn())
 const createGroup = vi.hoisted(() => vi.fn())
 const renameGroup = vi.hoisted(() => vi.fn())
+const rename = vi.hoisted(() => vi.fn())
 const removeGroup = vi.hoisted(() => vi.fn())
 const reorderGroups = vi.hoisted(() => vi.fn())
 const fetchMock = vi.hoisted(() => vi.fn())
@@ -48,6 +49,7 @@ vi.mock('@/lib/userscripts/ui-client', () => ({
     setGroup,
     createGroup,
     renameGroup,
+    rename,
     removeGroup,
     reorderGroups,
     clearErrors: vi.fn(),
@@ -223,6 +225,7 @@ beforeEach(() => {
   availability.mockResolvedValue(OK_AVAILABILITY)
   create.mockResolvedValue({ uuid: 'u2', name: '新建的脚本 1' })
   toggle.mockResolvedValue({})
+  rename.mockResolvedValue({})
   importZip.mockResolvedValue(okReport())
   importText.mockResolvedValue(okReport())
   groups.mockResolvedValue([])
@@ -629,5 +632,52 @@ describe('UserscriptListPanel 分组', () => {
     portalButton('创建')!.click()
     await flushPromises()
     expect(createGroup).toHaveBeenCalledWith('我的分组')
+  })
+})
+
+describe('UserscriptListPanel 重命名脚本', () => {
+  it('行内「重命名脚本」打开弹窗，确认后调用 userscriptClient.rename', async () => {
+    wrapper = await mountPanel()
+    await wrapper.find('button[aria-label="重命名脚本"]').trigger('click')
+    await flushPromises()
+
+    const input = [...document.querySelectorAll<HTMLInputElement>('input')].find(
+      (i) => !wrapper.element.contains(i) && i.getAttribute('aria-label') === '脚本名称',
+    )!
+    expect(input.value).toBe('已有脚本') // 预填当前名
+    input.value = '新名字'
+    input.dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    portalButton('重命名')!.click()
+    await flushPromises()
+    expect(rename).toHaveBeenCalledWith('u1', '新名字')
+  })
+
+  it('名称没变时不发请求', async () => {
+    wrapper = await mountPanel()
+    await wrapper.find('button[aria-label="重命名脚本"]').trigger('click')
+    await flushPromises()
+    portalButton('重命名')!.click()
+    await flushPromises()
+    expect(rename).not.toHaveBeenCalled()
+  })
+})
+
+describe('UserscriptListPanel 删除时提示未保存草稿', () => {
+  it('该脚本编辑器有未保存改动 → 删除确认里点明草稿会一起丢', async () => {
+    wrapper = mount(UserscriptListPanel, { props: { dirtyUuids: ['u1'] } })
+    await flushPromises()
+    await flushPromises()
+    await wrapper.find('button[aria-label="删除脚本"]').trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain('还有未保存的改动，删除后会一起丢失')
+  })
+
+  it('没有未保存改动 → 不出现草稿提示', async () => {
+    wrapper = await mountPanel()
+    await wrapper.find('button[aria-label="删除脚本"]').trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).not.toContain('还有未保存的改动')
   })
 })

@@ -431,7 +431,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
     throw new Error('用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限')
   }
   if (!project.config.matches?.length) {
-    throw new Error('脚本缺少匹配规则（matches），无法注册')
+    throw new Error('脚本缺少匹配规则（matches），不会在任何页面运行')
   }
   // match pattern 合法性：与导入路径共用同一校验器，
   // 非法值在此以中文报错拦下，不再拖到 chrome.userScripts.register 才以英文异常冒出

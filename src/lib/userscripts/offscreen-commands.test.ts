@@ -35,6 +35,7 @@ vi.mock('@/lib/userscripts/project-write', () => ({
   saveExisting: vi.fn(),
   createGroup: vi.fn(),
   renameGroup: vi.fn(),
+  renameProject: vi.fn(),
   removeGroupAndReassign: vi.fn(),
   reorderGroups: vi.fn(),
   setProjectGroup: vi.fn(),
@@ -90,6 +91,7 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
     'state:remove',
     'state:removeAll',
     'state:toggle',
+    'state:rename',
     'state:import',
     'state:import-text',
     'state:group-create',
@@ -141,6 +143,11 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
       msg: { kind: 'state:toggle', uuid: 'u1', enabled: true },
       backend: vi.mocked(projectWrite.setProjectEnabled),
       args: ['u1', true],
+    },
+    'state:rename': {
+      msg: { kind: 'state:rename', uuid: 'u1', name: '新名' },
+      backend: vi.mocked(projectWrite.renameProject),
+      args: ['u1', '新名'],
     },
     'state:import': {
       msg: { kind: 'state:import', zipBase64: 'emlwLWJ5dGVz' },

@@ -81,6 +81,13 @@ export interface ScriptProject {
   updatedAt: number
 }
 
+/**
+ * 一次源码改动的来源：一套历史里要能分清是谁改的。
+ * 存在版本记录的 author 上（见 us-git），**不拼进提交信息** —— 提交信息是给用户读的
+ * 「改了什么」，来源是「谁改的」，分开存才不会互相污染。
+ */
+export type CommitActor = 'user' | 'ai' | 'system'
+
 /** 给 UI 列表用的精简视图（不含源码） */
 export interface ScriptSummary {
   uuid: string

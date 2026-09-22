@@ -62,7 +62,8 @@ export const offscreenBridge = {
     enabled: boolean
     note?: string
   }): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> =>
-    send({ kind: 'userscript:createProject', ...payload }),
+    // actor 固定 'ai'：本条通道是 AI 专用的，来源在桥这一层一次性声明，免得调用方漏传就丢了来源
+    send({ kind: 'userscript:createProject', ...payload, actor: 'ai' }),
 
   /**
    * AI 改既有脚本落盘（经 SW：userscript:save → state:save）。
@@ -74,7 +75,8 @@ export const offscreenBridge = {
     code: string
     note?: string
   }): Promise<{ warnings?: string[]; registerError?: string }> =>
-    send({ kind: 'userscript:save', ...payload }),
+    // 同 createProject：本条通道只服务 AI 改脚本，actor 在桥这一层声明
+    send({ kind: 'userscript:save', ...payload, actor: 'ai' }),
 
   /**
    * 页面快照（AI 的 page_snapshot 工具用）：SW 代为对本会话所属标签页执行拾取器快照模式。

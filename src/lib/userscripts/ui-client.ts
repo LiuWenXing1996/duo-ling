@@ -123,6 +123,11 @@ export const userscriptClient = {
   toggle: (uuid: string, enabled: boolean): Promise<{ registerError?: string }> =>
     send({ kind: 'userscript:toggle', uuid, enabled }),
 
+  /** 重命名脚本（只改管理面标识，不碰源码）：名字已落库后返回；
+   *  启用中的脚本会随之重注册，注册失败只降级为 registerError 警告 */
+  rename: (uuid: string, name: string): Promise<{ registerError?: string }> =>
+    send({ kind: 'userscript:rename', uuid, name }),
+
   /** 列出全部分组定义（按 order 升序） */
   groups: (): Promise<ScriptGroup[]> => send({ kind: 'userscript:groups' }),
 

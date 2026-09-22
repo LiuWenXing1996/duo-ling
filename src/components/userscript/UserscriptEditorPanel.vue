@@ -11,9 +11,9 @@
 //   3. 「关闭」= 关标签页，行为交给宿主（emit close）。
 //
 // 配色一律用语义 token（AGENTS.md：颜色一律用语义 token）。
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
-import { History as UiHistory } from '@lucide/vue'
+import { History as UiHistory, X as UiX } from '@lucide/vue'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/tooltip'
 import { Button as UiButton } from '@/components/ui/button'
 import { Input as UiInput } from '@/components/ui/input'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 // CodeMirror 6：顶层只装了经评审批准的 codemirror + @codemirror/lang-javascript 两个包，
 // 下面按需引用的都是 codemirror 的直接依赖（官方分包），不新增 package.json 条目。
 import { EditorState, type Extension } from '@codemirror/state'
@@ -43,8 +44,9 @@ import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } 
 import { searchKeymap } from '@codemirror/search'
 import { tags as t } from '@lezer/highlight'
 import { javascript } from '@codemirror/lang-javascript'
-import { userscriptClient, fsClient } from '@/lib/userscripts/ui-client'
+import { userscriptClient, fsClient, subscribeAvailability } from '@/lib/userscripts/ui-client'
 import type { Source } from '@/lib/userscripts/us-git'
+import type { UserScriptsAvailability } from '@/lib/userscripts/types'
 
 const props = defineProps<{ uuid: string }>()
 const emit = defineEmits<{
@@ -54,24 +56,55 @@ const emit = defineEmits<{
   openHistory: [uuid: string, title: string]
   /** 保存后注册失败（多半是没开权限）：请宿主切到引导标签页 */
   openGuide: []
+  /** 载入 / 重载后回报脚本名：脚本可能在别处被改名（列表页「重命名」），标签标题不该停在旧名 */
+  nameChange: [name: string]
 }>()
 
 const loading = ref(true)
 const error = ref('')
 const notice = ref('')
-/** 本条 notice 是否属「去开权限」类（保存时注册失败）：决定是否附带引导入口 */
+/** 本条 notice 是否附带「去开权限」引导入口：**只在引擎确实不可用**时给——
+ *  注册失败也可能是 matches 缺失 / 非法，那类问题该去改源码，指向权限引导是误导 */
 const noticeNeedsGuide = ref(false)
+/** 引擎可用性（挂载取初值 + 订阅 SW 广播）：判定引导入口的依据，不靠匹配错误文案 */
+const engineAvailable = ref<UserScriptsAvailability | null>(null)
 
 // —— 编辑态 ——
 const scriptName = ref('')
 const editCode = ref('')
 const editDirty = ref(false)
+/** 源码基准（= 最近一次装载进编辑器的已保存源码）：用来判「点了保存但内容没变」 */
+const baseCode = ref('')
+/** 脚本当前启用态：决定保存后的提示说「刷新后生效」还是「停用中不会注入」 */
+const scriptEnabled = ref(false)
 /** 当前脚本在别处被修改（收到 `script` 广播但本地有未保存改动，故未自动重载） */
 const remoteChanged = ref(false)
 // 保存进行中（按钮禁用 + 文案切换；保存无构建，通常一闪而过）
 const saving = ref(false)
-// 保存备注（可选：填了记入历史，空则自动计数「保存 #n」）
+// 保存备注（可选：填了记入历史，空则按保存时间命名）
 const saveNote = ref('')
+
+/**
+ * 可保存 = 有改动且不在保存中。没改动时保存按钮就该是灰的：让用户点一下再被告知「没变化」，
+ * 是把判断推给人白跑一趟往返；改回原样（内容与已保存版本一致）也一并灰掉。
+ */
+const canSave = computed(() => !saving.value && editCode.value !== baseCode.value)
+
+/** 保存弹窗（备注入口）：备注埋在底栏输入框里没人会注意，改为保存动作的必经一步 */
+const saveDialogOpen = ref(false)
+
+/** 点保存 / 按 Cmd+S：开弹窗（无改动时按钮已灰，这里兜的是快捷键路径） */
+function openSaveDialog(): void {
+  if (!canSave.value) return
+  saveNote.value = '' // 备注是「本次保存」的，每次打开都从空开始
+  saveDialogOpen.value = true
+}
+
+/** 弹窗确认（也接输入框回车）：先关弹窗；保存进度由 saving 驱动按钮文案 */
+function confirmSave(): void {
+  saveDialogOpen.value = false
+  void saveEdit()
+}
 
 // —— 历史已迁出：浏览与恢复都在独立的 us-history:<uuid> 标签页（UserscriptHistoryPanel），
 // 本组件只负责编辑 + 保存，历史按钮经 openHistory 事件请求宿主开历史标签页。
@@ -160,6 +193,15 @@ function cmExtensions(): Extension[] {
     autocompletion(),
     EditorState.allowMultipleSelections.of(true),
     keymap.of([
+      // Mod+S = 保存：不绑的话会落到浏览器默认的「保存网页」，用户按习惯键位只会弹出另存为对话框。
+      // 与点按钮同一条路径（开备注弹窗），两条入口行为一致，免得快捷键悄悄跳过备注
+      {
+        key: 'Mod-s',
+        run: () => {
+          openSaveDialog()
+          return true
+        }
+      },
       ...closeBracketsKeymap,
       ...defaultKeymap,
       ...searchKeymap,
@@ -196,9 +238,13 @@ watch(editCode, (val) => {
   cmSyncing = false
 })
 
-/** 把编辑态源码置为 source 的内容（load 用；配置不进编辑器，全部由源码里的 // ==UserScript== 块决定） */
+/**
+ * 把编辑态源码置为 source 的内容（load 用；配置不进编辑器，全部由源码里的 // ==UserScript== 块决定）。
+ * 同步记下 baseCode 基准：此后 editCode 与它相同 = 内容没变过。
+ */
 function applySource(source: Source): void {
   editCode.value = source.code
+  baseCode.value = source.code
 }
 
 /**
@@ -211,8 +257,11 @@ async function load(): Promise<void> {
   try {
     const project = await userscriptClient.getProject(props.uuid)
     if (!project) throw new Error('脚本不存在')
-    // 头部展示名来自状态库记录（保存不回写源码；改配置需改源码里的 // ==UserScript== 块）
+    // 头部展示名来自状态库记录（保存不回写源码；改名在脚本列表的「重命名」里，改配置需改源码里的 // ==UserScript== 块）
     scriptName.value = project.name
+    scriptEnabled.value = project.enabled
+    // 回报宿主：标签标题跟着脚本名走（名字可能在列表页被改过）
+    emit('nameChange', project.name)
     // 源码读取 try/catch：offscreen 不在等失败按无源码处理（best-effort，不挡住打开编辑器）
     let source: Source | null = null
     try {
@@ -220,11 +269,11 @@ async function load(): Promise<void> {
     } catch {
       source = null
     }
-    if (!source) throw new Error('源码不可用（源码库未就绪或已损坏）')
+    if (!source) throw new Error('脚本源码读不到，无法打开编辑器')
     applySource(source)
     editDirty.value = false
   } catch (e) {
-    error.value = '读取项目失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '读取失败：' + (e instanceof Error ? e.message : String(e))
   } finally {
     loading.value = false
   }
@@ -232,7 +281,11 @@ async function load(): Promise<void> {
 
 // 关标签页确认的依据是 editDirty（见下方 watch）；未保存改动不落盘，关掉即丢——由宿主弹确认。
 
+/** 引擎可用性订阅的退订函数（onMounted 建立，卸载时释放） */
+let unsubscribeAvailability: (() => void) | null = null
+
 onBeforeUnmount(() => {
+  unsubscribeAvailability?.()
   cmView?.destroy()
   cmView = null
 })
@@ -243,11 +296,15 @@ onBeforeUnmount(() => {
  */
 watch(editDirty, (v) => emit('dirty', v))
 
-async function saveEdit(): Promise<void> {
-  if (saving.value) return
+/** 保存；返回**是否可以安全关闭**（无改动 / 已落盘 = true；保存失败 = false）——宿主的「保存并关闭」据此决定关不关 */
+async function saveEdit(): Promise<boolean> {
+  if (saving.value) return false
   error.value = ''
   notice.value = ''
   noticeNeedsGuide.value = false
+  // 没改动就不发请求：git 侧对相同内容同样是空提交守卫（静默地不产生版本），照发只会让人以为
+  // 记了一个版本。按钮此时本就是灰的（canSave），这里只兜快捷键路径 —— 静默返回，不再弹提示。
+  if (editCode.value === baseCode.value) return true
   saving.value = true
   try {
     // 统一保存（唯一入口）：写 fs + git 提交 + 落库 + 重注册一条龙。
@@ -257,17 +314,29 @@ async function saveEdit(): Promise<void> {
       note: saveNote.value,
     })
     editDirty.value = false
+    baseCode.value = editCode.value
+    // 自己的保存同样会广播 `script` 域；广播先于本应答到达时会被 useDataSync 当成「别处修改」，
+    // 故成功路径顺手复位（广播侧的守卫见下方 useDataSync）
+    remoteChanged.value = false
     saveNote.value = ''
-    const notes: string[] = [
-      res.registerError
-        ? '已保存，但注册失败，脚本不会注入页面：' + res.registerError
-        : '已保存并重新注册。目标页面刷新后生效。'
-    ]
+    const notes: string[] = []
+    if (res.registerError) {
+      notes.push('已保存，但脚本没能生效：' + res.registerError)
+      // 只有引擎确实不可用才给引导入口；matches 缺失 / 非法该去改源码，指向权限引导是误导
+      noticeNeedsGuide.value = engineAvailable.value?.available === false
+    } else if (scriptEnabled.value) {
+      notes.push('已保存，目标页面刷新后生效。')
+    } else {
+      // SW 侧对停用中的脚本不注册，别说成「已重新注册」
+      notes.push('已保存。脚本处于停用状态，启用后才会注入页面。')
+    }
     if (res.warnings?.length) notes.push(...res.warnings)
     notice.value = notes.join(' ')
+    return true
   } catch (e) {
     // 这里只兜写盘与 IPC 层的意外
     error.value = '保存失败：' + (e instanceof Error ? e.message : String(e))
+    return false
   } finally {
     saving.value = false
   }
@@ -275,13 +344,22 @@ async function saveEdit(): Promise<void> {
 
 onMounted(() => {
   void load()
+  // 引擎可用性：挂载取一次初值 + 订阅 SW 广播（注册失败时判定该不该给「去开权限」引导）；
+  // 取不到不影响编辑，只是注册失败时不显示引导入口
+  void userscriptClient
+    .availability()
+    .then((av) => (engineAvailable.value = av))
+    .catch(() => {})
+  unsubscribeAvailability = subscribeAvailability((av) => (engineAvailable.value = av))
 })
 
-// 别处保存 / 启停了「我正在编辑的这个脚本」会广播 `script` 域：
+// 别处保存 / 启停 / 改名了「我正在编辑的这个脚本」会广播 `script` 域：
+//   · 自己发起的保存（saving 中）→ 忽略：否则刚保存就被当成「已在别处修改」挂上提示；
 //   · 本地无未保存改动 → 直接重载，照见别处的最新内容；
 //   · 本地有未保存改动 → 不抢加载（否则会吃掉正在写的草稿），仅提示用户手动处理。
 useDataSync('script', (push) => {
   if (push.uuid && push.uuid !== props.uuid) return
+  if (saving.value) return
   if (editDirty.value) {
     remoteChanged.value = true
     return
@@ -289,6 +367,9 @@ useDataSync('script', (push) => {
   remoteChanged.value = false
   void load()
 })
+
+/** 暴露保存给宿主：标签栏的关闭确认要能「保存并关闭」（返回 false = 没落盘，宿主持续拦截） */
+defineExpose({ save: saveEdit })
 </script>
 
 <template>
@@ -302,8 +383,10 @@ useDataSync('script', (push) => {
           <h3 class="truncate text-sm leading-tight font-semibold">{{ scriptName || '脚本' }}</h3>
           <p class="mt-0.5 truncate text-xs text-muted-foreground">
             单文件脚本
-            <span v-if="editDirty" class="text-destructive">· 有未保存改动</span>
-            <span v-else-if="remoteChanged" class="text-destructive">· 已在别处修改（保存会覆盖，可点关闭后重开查看）</span>
+            <!-- 未保存用中性色加深：它不是错误（错误红留给下面那条真警告） -->
+            <span v-if="editDirty" class="font-medium text-foreground">· 有未保存改动</span>
+            <!-- 两个状态不互斥：本地有草稿时，「别处也改过、这次保存会盖掉那一次」同样必须看得见 -->
+            <span v-if="remoteChanged" class="text-destructive">· 已在别处修改，这次保存会覆盖那一次改动</span>
           </p>
         </div>
         <div class="flex shrink-0 items-center gap-0.5">
@@ -330,7 +413,17 @@ useDataSync('script', (push) => {
         v-if="notice"
         class="shrink-0 border-b border-border bg-accent/50 px-4 py-2 text-xs text-accent-foreground"
       >
-        <p>{{ notice }}</p>
+        <div class="flex items-start gap-2">
+          <p class="min-w-0 flex-1">{{ notice }}</p>
+          <button
+            type="button"
+            class="-mr-1 shrink-0 rounded p-0.5 opacity-60 hover:bg-accent hover:opacity-100"
+            aria-label="关闭提示"
+            @click="notice = ''"
+          >
+            <ui-x class="size-3.5" />
+          </button>
+        </div>
         <button
           v-if="noticeNeedsGuide"
           type="button"
@@ -351,18 +444,32 @@ useDataSync('script', (push) => {
       <!-- 源码编辑（CodeMirror 6）：配置全部由源码里的 // ==UserScript== 块决定，编辑器不暴露配置表单 -->
       <div ref="cmHost" class="us-editor min-h-0 flex-1 overflow-hidden" />
 
-      <!-- 底栏：备注（可选，记入本次保存的历史版本）+ 统一保存入口 -->
-      <div class="flex shrink-0 items-center gap-2 border-t border-border px-4 py-2.5">
-        <ui-input
-          v-model="saveNote"
-          placeholder="备注（可选，记入本次保存的历史版本）"
-          class="mr-auto h-8 max-w-72 text-xs"
-        />
-        <ui-button :disabled="saving" @click="saveEdit">
-          {{ saving ? '保存中…' : '保存并重新注册' }}
+      <!-- 底栏：统一的保存入口。备注不在这儿 —— 底栏塞个输入框太隐晦（没人知道要往里写），
+           挪进保存弹窗（见下），让用户每次保存都看见「可以写个备注」 -->
+      <div class="flex shrink-0 items-center justify-end border-t border-border px-4 py-2.5">
+        <ui-button :disabled="!canSave" @click="openSaveDialog">
+          {{ saving ? '保存中…' : '保存' }}
         </ui-button>
       </div>
     </template>
+
+    <!-- 保存前确认：备注（可选，空则按保存时间命名）放在保存动作的必经路径上 -->
+    <ConfirmDialog
+      v-model:open="saveDialogOpen"
+      title="保存这一版？"
+      confirm-text="保存"
+      @confirm="confirmSave"
+    >
+      <ui-input
+        v-model="saveNote"
+        class="mt-3"
+        placeholder="备注（不填则自动编号）"
+        aria-label="保存备注"
+        spellcheck="false"
+        autocomplete="off"
+        @keydown.enter="confirmSave"
+      />
+    </ConfirmDialog>
   </section>
 </template>
 

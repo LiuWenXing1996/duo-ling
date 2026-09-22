@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 工作区多标签宿主：引导 / 设置 / AI 界面对话预览 / 脚本列表 / 脚本编辑器 / 脚本历史 / 脚本产物。
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { AlertTriangle as UiAlertTriangle } from '@lucide/vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import GuidePanel from '@/components/GuidePanel.vue'
 import UiTestPanel from '@/components/UiTestPanel.vue'
@@ -35,6 +36,37 @@ function activate(id: string): void {
  *  因此「有未保存改动」的确认挪到这里，由编辑器通过 @dirty 上报。 */
 const dirtyTabs = ref<Record<string, boolean>>({})
 
+/** 编辑器标签 id 前缀（`us-edit:<uuid>`）：宿主内多处按 id 反查，集中一处免得手写前缀漂移 */
+const EDITOR_TAB_PREFIX = 'us-edit:'
+function editorTabId(uuid: string): string {
+  return `${EDITOR_TAB_PREFIX}${uuid}`
+}
+
+/** 有未保存改动的标签 id：标签栏据此在标题后点红点（切到别的标签也看得见） */
+const dirtyTabIds = computed(() => Object.keys(dirtyTabs.value).filter((id) => dirtyTabs.value[id]))
+
+/** 编辑器里有未保存改动的脚本 uuid：列表页删脚本、历史面板恢复之前据此示警 */
+const dirtyEditorUuids = computed(() =>
+  dirtyTabIds.value
+    .filter((id) => id.startsWith(EDITOR_TAB_PREFIX))
+    .map((id) => id.slice(EDITOR_TAB_PREFIX.length)),
+)
+
+/** 某脚本的编辑器标签是否有未保存改动 */
+function isEditorDirty(uuid: string): boolean {
+  return !!dirtyTabs.value[editorTabId(uuid)]
+}
+
+/** 编辑器实例（按脚本 uuid）：关标签之前要能代它保存（「保存并关闭」） */
+type EditorHandle = { save: () => Promise<boolean> }
+const editorRefs = new Map<string, EditorHandle>()
+
+/** 函数式 ref：恢复后编辑器会换 key 重建，旧实例以 null 回填一次，故两个方向都要处理 */
+function setEditorRef(uuid: string, el: unknown): void {
+  if (el) editorRefs.set(uuid, el as EditorHandle)
+  else editorRefs.delete(uuid)
+}
+
 /** 关闭前确认弹窗（有未保存改动的标签先弹，确认后才真正关闭） */
 const closeConfirmOpen = ref(false)
 const pendingCloseId = ref('')
@@ -64,6 +96,21 @@ function doCloseTab(id: string): void {
 
 function confirmCloseTab(): void {
   if (pendingCloseId.value) doCloseTab(pendingCloseId.value)
+}
+
+/**
+ * 保存并关闭：把改动交给该脚本的编辑器自己保存（草稿只在它手里），落盘成功才关标签。
+ * 保存失败（写盘 / IPC 报错）就停在编辑器上——错误条在那里，把标签关掉反而看不见原因。
+ */
+async function saveAndCloseTab(): Promise<void> {
+  const id = pendingCloseId.value
+  pendingCloseId.value = ''
+  if (!id) return
+  const uuid = openTabs.value.find((t) => t.id === id)?.userscriptId ?? ''
+  const handle = uuid ? editorRefs.get(uuid) : undefined
+  // 拿不到实例（异常路径：标签已不在 / 组件未挂载）时按普通关闭执行——用户在这个弹窗里
+  // 已经明确要关了，再弹一次确认只是打转
+  if (!handle || (await handle.save())) doCloseTab(id)
 }
 
 // 打开引导标签页：若已打开则激活，否则新开一个（全局仅一个）。
@@ -186,14 +233,24 @@ const editorReloadTick = ref<Record<string, number>>({})
 
 function onHistoryRestored(uuid: string): void {
   // 先清脏标记再重载 —— 恢复后编辑态里的未保存改动已无意义，不该再弹确认
-  const editId = `us-edit:${uuid}`
-  delete dirtyTabs.value[editId]
+  // （草稿会丢这件事已在恢复确认弹窗里示警，见 UserscriptHistoryPanel 的 editorDirty）
+  delete dirtyTabs.value[editorTabId(uuid)]
   editorReloadTick.value[uuid] = (editorReloadTick.value[uuid] ?? 0) + 1
+}
+
+/**
+ * 标签标题跟随脚本名更新：脚本可以在别处被改名（列表页「重命名」），编辑器 / 历史标签的
+ * 标题不该停在打开时那个旧名。标题一律由宿主拼（面板只回报名字，不各自拼一份）。
+ */
+function syncScriptTabTitle(tabId: string, name: string): void {
+  const tab = openTabs.value.find((t) => t.id === tabId)
+  if (!tab || !name) return
+  tab.title = tab.kind === 'script-history' ? `${name} 历史` : name
 }
 
 /** 打开某脚本的编辑器标签页：每脚本一个（id = us-edit:<uuid>），已打开则激活复用 */
 function openUserscriptEditor(uuid: string, title: string): void {
-  const id = `us-edit:${uuid}`
+  const id = editorTabId(uuid)
   if (!openTabs.value.some((t) => t.id === id)) {
     openTabs.value.push({
       kind: 'userscript-edit',
@@ -211,7 +268,7 @@ function openUserscriptEditor(uuid: string, title: string): void {
  * 同时让运行日志标签页重拉：该脚本的报错记录已随删除清掉，不重拉页面上还留着它的分组。
  */
 function onUserscriptDeleted(uuid: string): void {
-  for (const id of [`us-edit:${uuid}`]) {
+  for (const id of [editorTabId(uuid)]) {
     delete dirtyTabs.value[id]
     if (openTabs.value.some((t) => t.id === id)) closeTab(id)
   }
@@ -251,6 +308,7 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
         :tabs="openTabs"
         :active-id="activeTabId"
         :pinned-tab-id="LIST_TAB_ID"
+        :dirty-tab-ids="dirtyTabIds"
         @close="closeTab"
       />
 
@@ -269,6 +327,7 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
         <!-- 脚本列表：列出全部用户脚本 + 启停；「编辑」开对应的编辑器标签页 -->
         <userscript-list-panel
           v-else-if="tab.kind === 'userscript-list'"
+          :dirty-uuids="dirtyEditorUuids"
           @edit="openUserscriptEditor"
           @deleted="onUserscriptDeleted"
           @open-guide="openGuideTab"
@@ -285,10 +344,12 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
         <userscript-editor-panel
           v-else-if="tab.kind === 'userscript-edit'"
           :key="tab.id + ':' + (editorReloadTick[tab.userscriptId ?? ''] ?? 0)"
+          :ref="(el) => setEditorRef(tab.userscriptId ?? '', el)"
           :uuid="tab.userscriptId ?? ''"
           @dirty="(v: boolean) => (dirtyTabs[tab.id] = v)"
           @open-history="openUserscriptHistoryTab"
           @open-guide="openGuideTab"
+          @name-change="(name) => syncScriptTabTitle(tab.id, name)"
         />
         <!-- 脚本文件：脚本工作区整库只读文件树 -->
         <lfs-browser-panel v-else-if="tab.kind === 'lfs-browser'" />
@@ -305,20 +366,31 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
           v-else-if="tab.kind === 'script-history'"
           :key="tab.id"
           :uuid="tab.userscriptId ?? ''"
+          :editor-dirty="isEditorDirty(tab.userscriptId ?? '')"
           @restored="onHistoryRestored"
+          @name-change="(name) => syncScriptTabTitle(tab.id, name)"
         />
       </ui-tabs-content>
     </ui-tabs>
 
-    <!-- 关闭有未保存改动标签页前的确认弹窗 -->
+    <!-- 关闭有未保存改动标签页前的确认弹窗：「会丢」这条做成警示块（与历史恢复弹窗同一处理），
+         并多给一条「保存并关闭」—— 否则想留住改动只能取消 → 手点保存 → 再关一次 -->
     <ConfirmDialog
       v-model:open="closeConfirmOpen"
       title="有未保存的修改"
-      description="关闭后未保存的修改将丢失，确认关闭？"
       confirm-text="关闭"
+      alternative-text="保存并关闭"
       danger
       @confirm="confirmCloseTab"
-    />
+      @alternative="saveAndCloseTab"
+    >
+      <div
+        class="mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+      >
+        <ui-alert-triangle class="mt-px size-3.5 shrink-0" />
+        <span>关闭后未保存的修改将丢失。</span>
+      </div>
+    </ConfirmDialog>
   </div>
 </template>
 
