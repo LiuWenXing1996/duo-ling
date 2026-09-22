@@ -6,7 +6,7 @@
 //   · 「file part 会不会被转成模型认的 image_url」取决于 AI SDK 的 convertToModelMessages，
 //     那是跨层行为，只有让请求真的打到桩上才看得见（桩里能读到原始请求体）。
 // 真模型不会出现在 CI 里（没有 key、也不该为此花钱），所以用 `e2e/model-stub.ts` 顶替。
-import { test, expect, type BrowserContext } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,17 +21,59 @@ const APP_PAGE = 'floatpanel.html'
  * `InvalidStateError: The source image could not be decoded`，而失败点会落在压缩逻辑上，
  * 看起来像实现坏了。素材由同一个浏览器现产现用，编码差异不存在。
  */
-async function makePngBuffer(page: Awaited<ReturnType<BrowserContext['newPage']>>): Promise<Buffer> {
-  const base64 = await page.evaluate(() => {
+async function makePngBuffer(page: Page, width = 2, height = 2): Promise<Buffer> {
+  const base64 = await page.evaluate(([w, h]) => {
     const canvas = document.createElement('canvas')
-    canvas.width = 2
-    canvas.height = 2
+    canvas.width = w
+    canvas.height = h
     const ctx = canvas.getContext('2d')!
     ctx.fillStyle = '#ff0000'
-    ctx.fillRect(0, 0, 2, 2)
+    ctx.fillRect(0, 0, w, h)
     return canvas.toDataURL('image/png').split(',')[1] ?? ''
-  })
+  }, [width, height] as const)
   return Buffer.from(base64, 'base64')
+}
+
+/**
+ * 真实粘贴路径（Ctrl+V）：走 textarea 的 paste 事件。
+ * 为什么不用 setInputFiles：那是直塞隐藏 input，绕过了粘贴这条分支（附件类型校验、
+ * 以及「模型不支持图片时粘贴该被拦下」都在这条分支上）。
+ */
+async function pasteImage(page: Page, png: Buffer, name = 'pasted.png'): Promise<void> {
+  await page.evaluate(
+    ({ name: fileName, base64 }) => {
+      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+      const dt = new DataTransfer()
+      dt.items.add(new File([bytes], fileName, { type: 'image/png' }))
+      document
+        .querySelector('textarea')
+        ?.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+    },
+    { name, base64: png.toString('base64') },
+  )
+}
+
+/** 真实拖拽路径：走 form 的 drop 事件（组件把 drop 挂在表单节点上） */
+async function dropImage(page: Page, png: Buffer, name = 'dropped.png'): Promise<void> {
+  await page.evaluate(
+    ({ name: fileName, base64 }) => {
+      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+      const dt = new DataTransfer()
+      dt.items.add(new File([bytes], fileName, { type: 'image/png' }))
+      document
+        .querySelector('textarea')
+        ?.closest('form')
+        ?.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
+    },
+    { name, base64: png.toString('base64') },
+  )
+}
+
+/** 从 stub 收到的消息 content 里取出图片的 data URL（OpenAI 兼容形态） */
+function imageDataUrl(content: unknown): string {
+  const parts = Array.isArray(content) ? content : []
+  const part = parts.find((p) => (p as { type?: string })?.type === 'image_url')
+  return (part as { image_url?: { url?: string } } | undefined)?.image_url?.url ?? ''
 }
 
 /** 最后一次请求里最后一条 user 消息（附件就在它身上） */
@@ -167,6 +209,66 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     const streamed = stub.stub.hits.filter((h) => h.stream)
     const content = JSON.stringify(lastUserMessage(streamed[streamed.length - 1]).content)
     expect(content, '没有文字也要把图片发出去').toContain('image_url')
+    await page.close()
+  })
+
+  test('粘贴图片（Ctrl+V）与拖拽进输入框：两条真实路径都能带图发出', async () => {
+    const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
+    const page = await context!.newPage()
+    await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
+    await configureModel(page, true)
+    const png = await makePngBuffer(page, 4, 4)
+
+    // ① 粘贴
+    await pasteImage(page, png)
+    await expect(page.locator('[data-testid="attachment-chips"]'), '粘贴后应出现附件 chip').toContainText('pasted.png')
+    await page.locator('[data-testid="remove-attachment"]').click()
+    await expect(page.locator('[data-testid="attachment-chips"]')).toHaveCount(0)
+
+    // ② 拖拽
+    await dropImage(page, png)
+    await expect(page.locator('[data-testid="attachment-chips"]'), '拖拽进表单后应出现附件 chip').toContainText('dropped.png')
+
+    const box = page.getByRole('textbox').first()
+    await box.fill('两条路各来一张')
+    await box.press('Enter')
+    await expect(page.getByText(/stub 回复：/)).toBeVisible({ timeout: 25_000 })
+
+    const streamed = stub.stub.hits.filter((h) => h.stream)
+    expect(JSON.stringify(lastUserMessage(streamed[streamed.length - 1]).content)).toContain('image_url')
+    await page.close()
+  })
+
+  test('大图会被压到长边上限（不只是换了格式，尺寸真的降下来）', async () => {
+    const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
+    const page = await context!.newPage()
+    await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
+    await configureModel(page, true)
+
+    // 3000×2000 的纯色图：PNG 本身很小（纯色压得动），但像素尺寸必须被压下来
+    await page.setInputFiles('input[type="file"]', {
+      name: 'huge.png',
+      mimeType: 'image/png',
+      buffer: await makePngBuffer(page, 3000, 2000),
+    })
+    const box = page.getByRole('textbox').first()
+    await box.fill('这张很大')
+    await box.press('Enter')
+    await expect(page.getByText(/stub 回复：/)).toBeVisible({ timeout: 25_000 })
+
+    const streamed = stub.stub.hits.filter((h) => h.stream)
+    const dataUrl = imageDataUrl(lastUserMessage(streamed[streamed.length - 1]).content)
+    expect(dataUrl, '压缩后的图应在请求体里').not.toBe('')
+
+    // 在页面里解码收到的 data URL，量真实像素（等比缩放：3000×2000 → 1568×1045）
+    const size = await page.evaluate(async (url) => {
+      const img = new Image()
+      img.src = url
+      await img.decode()
+      return { width: img.naturalWidth, height: img.naturalHeight }
+    }, dataUrl)
+    expect(size.width, '长边应被压到上限').toBe(1568)
+    expect(size.height, '短边按比例缩放').toBe(1045)
     await page.close()
   })
 })
