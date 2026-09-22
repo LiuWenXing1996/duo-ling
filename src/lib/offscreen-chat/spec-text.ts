@@ -70,8 +70,9 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
    不写 \`@grant\`、或写 \`@grant none\`，都等于「清单为空」——只剩恒注入项，GM 成员一个都没有。
    **每用一个 GM 能力就要在清单里补上它**，合法名字见下面「\`@grant\` 怎么写」。
 4. \`GM_xmlhttpRequest\` 是**回调式**：响应对象有 \`responseHeaders\`（原始多行字符串）、\`responseText\`、
-   \`response\`、\`status\`、\`finalUrl\`；事件 \`onload\` / \`onerror\` / \`ontimeout\` / \`onabort\`；
-   返回句柄可 \`abort()\`。非 2xx 走 \`onload\`（不是 \`onerror\`）。**没有 onprogress**；
+   \`response\`、\`status\`、\`finalUrl\`；事件 \`onload\` / \`onerror\` / \`ontimeout\` / \`onabort\` /
+   \`onprogress\`（进度对象只有 \`loaded\` / \`total\` / \`lengthComputable\`）；
+   返回句柄可 \`abort()\`。非 2xx 走 \`onload\`（不是 \`onerror\`）；
    \`responseType\` 只支持 text / json / arraybuffer / blob。
 5. \`unsafeWindow\` 就是**页面自己的 window**（脚本运行在页面主世界）：站点自定义的全局
    （框架实例、\`window.xxx\`）可直接读写，也能往页面上挂自己的东西。
@@ -100,7 +101,7 @@ ${renderCapabilities()}
 
 ### 明确不支持（别写，写了不会生效或会以错误形式暴露）
 - \`@connect\` 白名单（本扩展的跨域请求不需要声明）
-- \`GM_xmlhttpRequest\` 的 \`onprogress\` 与 \`responseType: 'stream'\`（这两项 TM 有、本扩展暂无）
+- \`GM_xmlhttpRequest\` 的 \`responseType: 'stream'\`（TM 有、本扩展暂无）
 - 同步 \`GM_xmlhttpRequest\`：TM 官方也明确不支持；\`responseType\` 的合法值只有 arraybuffer / blob / json / stream
 - \`GM_cookie.list\` / \`GM_cookie.delete\` 的 \`domain\` / \`path\` 查询（\`set\` 支持这两个字段）
 

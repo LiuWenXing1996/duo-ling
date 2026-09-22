@@ -303,7 +303,7 @@ const CAPABILITIES = {
       'details：url / method / headers / data（string / Blob / FormData / ArrayBuffer / TypedArray）/ ' +
       'responseType（text / json / arraybuffer / blob）/ timeout / redirect / context + onload / onerror / ontimeout / onabort。' +
       '**禁设头（Cookie / Referer / Origin / User-Agent）不再被静默丢弃**：扩展在发出前覆写，覆写期间同一站点的请求互斥排队。' +
-      '**降级项**：无 onprogress（桥无流式）、responseType 不支持 document / stream。非 2xx 走 onload（不是 onerror）。',
+      '**降级项**：responseType 不支持 stream（TM 的合法值里也没有 document）；onprogress 只给进度字段（不带完整 response）。非 2xx 走 onload（不是 onerror）。',
     returns: '句柄 { abort() }（GM.* 形态没有句柄，改 await Promise）',
     bridge: 'bridge',
     group: 'net',

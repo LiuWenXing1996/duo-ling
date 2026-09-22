@@ -101,6 +101,7 @@
 // @covers GM_registerMenuCommand / GM_unregisterMenuCommand :: GM_registerMenuCommand GM_unregisterMenuCommand GM.registerMenuCommand GM.unregisterMenuCommand
 // @covers GM.clearValues（扩展独有） :: GM.clearValues
 // @covers run-at document-body（注入时 body 已存在）
+// @covers GM_xmlhttpRequest 的 onprogress（下载进度） :: GM_xmlhttpRequest GM.xmlHttpRequest
 // @covers GM_getResourceText / GM_getResourceURL（未知名 → undefined） :: GM_getResourceText GM_getResourceURL GM.getResourceText GM.getResourceUrl
 // @covers GM_audio.setMute / getState（含 GM.audio 镜像） :: GM_audio.setMute GM_audio.getState GM_audio GM.audio
 // @covers GM_audio 状态监听 :: GM_audio.addStateChangeListener GM_audio.removeStateChangeListener
@@ -569,6 +570,27 @@
         },
         onerror: function (r) { resolve(unknown('请求失败：' + (r && r.error))) },
         ontimeout: function () { resolve(unknown('请求超时（网络不可达？）')) }
+      })
+    })
+  })
+
+  add('网络', 'GM_xmlhttpRequest 的 onprogress（下载进度）', function () {
+    return new Promise(function (resolve) {
+      var frames = []
+      GM_xmlhttpRequest({
+        url: NET_URL,
+        method: 'GET',
+        timeout: 10000,
+        onprogress: function (p) { frames.push(p) },
+        onload: function (r) {
+          if (r.status !== 200) return resolve(fail('status=' + r.status))
+          if (!frames.length) return resolve(fail('一帧进度都没收到'))
+          var last = frames[frames.length - 1]
+          return resolve(last.loaded > 0 && typeof last.lengthComputable === 'boolean'
+            ? pass('收到 ' + frames.length + ' 帧，末帧 loaded=' + last.loaded + ' / total=' + last.total)
+            : fail('进度对象形状不对：' + JSON.stringify(last)))
+        },
+        onerror: function () { resolve(fail('请求失败（未拿到响应）')) },
       })
     })
   })
