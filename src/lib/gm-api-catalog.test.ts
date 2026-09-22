@@ -80,7 +80,7 @@ describe('gm-api-catalog 与真实注入的 GM 面一致', () => {
   })
 
   it('两条**不在赋值反射里**的成员确实被挂载（unsafeWindow 走局部声明，onurlchange 走 defineProperty）', () => {
-    // unsafeWindow 不再是 defineProperty 挂的降级别名：MAIN 世界下它就是 window，故走局部声明
+    // 反向断言：unsafeWindow 走局部声明（MAIN 世界下它就是 window），不是挂到 window 上的属性
     expect(WRAPPER_SRC).toContain('var unsafeWindow = window')
     expect(WRAPPER_SRC).toContain("Object.defineProperty(window, 'onurlchange'")
   })

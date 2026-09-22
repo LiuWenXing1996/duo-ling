@@ -66,7 +66,7 @@ describe('buildGmWrapperPrefix', () => {
 
   it('MAIN 世界的成员都显式实现（unsafeWindow 即页面 window / onurlchange / 域名门收紧）', () => {
     const src = build()
-    // unsafeWindow 不再是降级别名：脚本就住在页面世界，它就是 window 本身
+    // unsafeWindow 就是页面自己的 window（脚本跑在主世界），故走局部声明
     expect(src).toContain('var unsafeWindow = window')
     expect(src).not.toContain("defineProperty(window, 'unsafeWindow'")
     expect(src).toContain("Object.defineProperty(window, 'onurlchange'")

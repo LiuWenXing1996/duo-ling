@@ -21,7 +21,7 @@
 //   · **常驻通道**：只读值的脚本原本从不 connect（`store.get/set` 是一次性请求），
 //     于是别的标签页改了值它永远收不到 → 同步快照会**长周期陈旧**。故「读过值」也触发 connect，
 //     并补 `store.watchAll`（全量订阅）与 connect 后的**一次全量校准**（覆盖就绪前的窗口）。
-//   · **`@grant` 裁剪**：声明了 grant 就只注入声明的成员；`@grant none` / 无 metadata → 全量注入。
+//   · **`@grant` 裁剪**：只有写进清单的能力才注入；不写 `@grant` / `@grant none` → 只给恒注入集。
 //   · **降级项**（速查页与 spec 必须标注）：`GM_xmlhttpRequest` 无 `onprogress`；
 //     `GM_cookie` 不收 `domain` / `path`（域名门）。
 import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS, resolveGrant } from '../gm-grants'
@@ -40,7 +40,7 @@ export interface GmWrapperOptions {
   info: Omit<GmInfo, 'userAgent' | 'isIncognito'>
   /** 脚本桥握手密钥（MAIN 侧 script-bridge 与 USER_SCRIPT 侧 script-relay 同源） */
   pageSecret: string
-  /** `@grant` 声明（缺省 / 空 / 含 none → 全量注入） */
+  /** `@grant` 声明（缺省 / 空 / 含 none → 空清单，只给恒注入集） */
   grant?: string[]
 }
 
@@ -51,7 +51,7 @@ export interface GmWrapperOptions {
  *   · `@grant none` → 同「空清单」（TM 里 none 另有关闭沙箱之义，我们恒包一层 IIFE，故 API 面相同）；
  *   · 声明了则注入声明的成员 + 恒注入集。
  *
- * 刻意**不再**「无 grant 就全量注入」：那会让漏写清单的脚本在本扩展能跑、换到 TM 上立刻
+ * 刻意**不做**「无 grant 就全量注入」：那会让漏写清单的脚本在本扩展能跑、换到 TM 上立刻
  * ReferenceError —— 把真实问题掩盖过去，也让用户以为脚本没问题。
  * 认不出的 grant 名静默忽略（脚本用了会 ReferenceError，比「假装支持」好排查）。
  * 名字解析走 `resolveGrant`：`GM_setValue` 与 `GM.setValue` 两种写法都认。
@@ -418,7 +418,7 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   }
 
   // —— GM.page（本扩展独有能力）：脚本与页面同处 MAIN 世界，两个方法都能**本地实现** ——
-  //    不必再绕「postMessage 找 MAIN 桩」那一圈（那是隔离世界才需要的做法）。
+  //    直接 addEventListener / 包 window.fetch 即可（绕 postMessage 找桩是隔离世界的做法）。
 
   /** 事件摘要：只留可结构化克隆的字段 */
   function __gmSummarizeEvent(e) {
@@ -902,7 +902,7 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   GM.page = __gmPageApi
 
   // —— unsafeWindow：脚本跑在页面 MAIN 世界，这里就是页面自己的 window ——
-  //    不再是「隔离世界的别名」（那只在隔离世界才成立），也不需要首次访问告警。
+  //    直接指向 window 即可（隔离世界下才需要一个别名），无需访问告警。
   //    （注意：本文件是 TS 模板字符串，注入源码里**不能出现反引号**，否则会提前闭合模板。）
   var unsafeWindow = window
 

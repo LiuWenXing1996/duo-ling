@@ -172,7 +172,7 @@
 
   // —— 「待你完成」盒子（左下）——
   //
-  // 教训（2026-09-21 真机第二轮）：人工项的说明只写在结果面板的一行提示里 + 只给 15/20s 窗口，
+  // 教训（真机实测得来）：人工项的说明只写在结果面板的一行提示里 + 只给 15/20s 窗口，
   // 结果是「不知道要做什么」而不是「做了什么没生效」。故把动作摆到页面上一个独立盒子里，
   // 每项一行、写完就不限时等着（面板里的 ⋯ 行会跟着翻成 ✓）。
 
@@ -368,7 +368,7 @@
     if (typeof unsafeWindow === 'undefined') throw new Error('unsafeWindow 未定义')
     if (unsafeWindow !== window) return fail('不等于 window')
     // 实现侧判据（可靠）：切到主世界后 unsafeWindow 只是包装函数作用域里的局部变量，
-    // 不再是挂在 window 上的 getter —— 挂 getter 是隔离世界的降级别名做法。
+    // 反着断言：真在页面主世界时 unsafeWindow 是局部变量，不会在 window 上留 getter。
     if (Object.getOwnPropertyDescriptor(window, 'unsafeWindow')) {
       return fail('unsafeWindow 仍挂在 window 上：脚本还在隔离世界，没切主世界')
     }

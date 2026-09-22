@@ -64,7 +64,7 @@ test.describe.serial('GM 可用性矩阵（真机自动化）', () => {
     available = availability.ok === true && availability.data.available === true
     if (!available) return // 后面的 test.skip 兜住
 
-    // 存成脚本：单文件源码（探针刻意不写 @grant = 全量注入）
+    // 存成脚本：单文件源码（探针的 @grant 清单写全，覆盖全部 API）
     const created = await sendToSw<{ uuid: string }>(messenger, { kind: 'userscript:create' })
     expect(created.ok, 'userscript:create 应成功').toBe(true)
     if (!created.ok) return

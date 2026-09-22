@@ -35,7 +35,7 @@
 │  ├─ composables/                # use-global-conversation：会话中枢（useChat + 流式）
 │  ├─ lib/                        # 运行时逻辑层；各库的写权限与机制见 ARCHITECTURE.md「存储」
 │  │  ├─ offscreen-chat/          #   对话编排：chat-host（agent loop）/ 工具面 / 事件缓冲 / 任务快照 / 模型缓存
-│  │  ├─ userscripts/             #   脚本链路：注册引擎（USER_SCRIPT 世界 + MAIN 桩）/ lfs + git 存储 / dl-bridge 桥 / 匹配并集
+│  │  ├─ userscripts/             #   脚本链路：注册引擎（主世界注入 + 中继桥）/ lfs + git 存储 / dl-bridge 桥 / 匹配并集
 │  │  └─ 其他文件                 #   各 store（会话 / 模型 / 归属映射 / 浮层开关）/ 新版本检查 / transport / 元素拾取 / 构建信息取数
 │  ├─ shared/                     # 跨上下文契约：types / ipc（window.api 形状）/ extension-ipc（渲染页 ⇄ SW 协议）
 │  ├─ assets/                     # Tailwind 主题变量与全局样式

@@ -4,9 +4,9 @@
 // **内部面 = 自有桥协议**（`__dl` 信封 + `ApiRequest` 命令名），**保持稳定**：
 // 桥仍是「请求-响应 + Port 下行」两条通道，只增命令、不改形状。
 //
-// 与油猴的两处**已知差异**（速查页与 spec 必须标注，不能让人以为是实现缺陷）：
-//   · **无页面上下文**：`unsafeWindow` 是降级别名（= 隔离世界的 `window`，DOM 共用但页面 JS 全局不可见）；
-//   · **cookie 走域名门**：`GM_cookie.set` 不收 `domain` / `path`（开放 domain 会架空域名门）。
+// 与油猴的**已知差异**（速查页与 spec 必须标注，不能让人以为是实现缺陷）：
+//   · **cookie 走域名门**：`GM_cookie.set` 不收 `domain` / `path`（开放 domain 会架空域名门）；
+//   · **`GM_xmlhttpRequest` 无流式**：不收 `onprogress`，`responseType` 不支持 document / stream。
 //
 // 约束：所有跨桥值必须满足「结构化克隆」（存储层 IndexedDB 同样要求），
 // 故统一收窄为 Json 类型；函数、类实例、DOM 节点一律不可跨桥。

@@ -71,14 +71,14 @@
 - **CSP 跟随目标站点**：脚本运行在页面主世界，`eval` / `new Function` 能不能用由站点自身的 CSP 决定（不再由本扩展拦截）。依赖动态代码生成的库（如 ajv 编译校验器、Vue 运行时模板编译器）在收紧 CSP 的站点上仍会静默失败。
 - **`GM_info.isIncognito` 恒 false**：脚本在 MAIN 世界读不到扩展的隐身上下文；要拿真值需经桥回 SW 查，暂未做。
 - **脚本顶层 `var` 不进页面全局**：注入代码把包装与脚本一起放在函数作用域里。要往页面上挂东西请显式写 `unsafeWindow.x = …`。
-- **`@grant` 精确裁剪**：**只有写进清单的成员才存在**，漏写即 `ReferenceError`；**不写 `@grant` / `@grant none` 都等于空清单**（对齐 TM，不再「无 metadata 就全量注入」）。**这是有意的取舍**（2026-09-22 定）：不写 `@grant` 的老脚本（GM 1.0 时代常见）导入后会整体失效，我们**不做兼容推断** —— 目标是「脚本行为与 TM 一致」，而不是「尽量让它跑起来」。自产脚本由 `spec-text` 强制写全清单，样例包也一律写全。
+- **`@grant` 精确裁剪**：**只有写进清单的成员才存在**，漏写即 `ReferenceError`；**不写 `@grant` / `@grant none` 都等于空清单**（对齐 TM：没写 metadata 也不全量注入）。这是**有意的取舍**：不写 `@grant` 的老脚本（GM 1.0 时代常见）导入后会整体失效，我们**不做兼容推断** —— 目标是「脚本行为与 TM 一致」，而不是「尽量让它跑起来」。自产脚本由 `spec-text` 强制写全清单，样例包也一律写全。
 
 ## 五、本扩展自有（标准里无对应物）
 
 | 成员 | 作用 |
 | --- | --- |
 | `GM.page.listen` | 监听页面事件，收摘要 `{ type, key?, detail, timeStamp }` |
-| `GM.page.fetchHook` | 拦截页面世界发出的 fetch，可 `passthrough` 或 `respond`；可选拿真实响应体 |
+| `GM.page.fetchHook` | 拦截页面世界的 fetch（含脚本自己发的），可 `passthrough` 或 `respond`；可选拿真实响应体 |
 | `GM.clearValues` | 清掉本脚本的全部键值 |
 | `GM.focusTab` | 激活指定标签页并聚焦其所在窗口 |
 | `window.onurlchange` | 页面 URL 变化回调 |

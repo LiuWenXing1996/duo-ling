@@ -6,26 +6,20 @@
 // ==/UserScript==
 // GM.page.fetchHook 手测探针（被动观察「页面请求」的响应体）。
 //
-// 前提：fetchHook 拦的是**页面世界（MAIN）**的 fetch。用户脚本跑在独立隔离世界
-//       （worldId: us-<uuid>），它自己的 window.fetch 与页面被代理的那个不是同一个绑定——
-//       脚本自己发 fetch 永远测不到钩子。要触发，请求必须由**页面**发出：
-//         ① 在真实站点上正常操作（站点 JS 自己会发请求）—— 本探针的主用法，也是权威验证；
-//         ② 点角标「自测」：往页面注入一段 MAIN 世界脚本，由页面 GET 本页 + 打一个哨兵 URL。
+// 前提：脚本与页面同处 MAIN 世界 —— 页面自己发的请求与脚本自己发的请求**都会**经过本钩子。
+//       权威验证是在真实站点上正常操作（站点 JS 自己会发请求）；角标「自测」由注入的
+//       <script> 代发 GET 本页 + 一个哨兵 URL，用于安静页面（如 example.com）。
 //
-// ⚠️ 自测通道的已知限制（2026-09-20 实测）：② 依赖「从脚本世界往页面 DOM 插入内联 <script>」，
-//    在 example.com 与 rebang.today 上都没能触发（注入的脚本从未执行）。原因**未定论**，
-//    但可排除「页面 CSP」这个说法：两站响应头与 HTML 都没有 CSP（curl 实测），且按 Chrome
-//    文档，DOM 注入且立即执行的脚本**不受页面 CSP 限制**。最可能的是 USER_SCRIPT 世界自身的
-//    默认 CSP 拦下了这枚内联脚本（本扩展刻意不放开世界 CSP）——**仅为假设，未验证**。
-//    → 所以自测显示「?」不代表功能坏：**以 ① 的被动观察为准**。
+// ⚠️ 自测通道：向页面 DOM 插入内联 <script> 代发请求，站点 CSP 收紧时可能不执行。
+//    自测显示「?」不代表功能坏 —— **以真实站点的被动观察为准**。
 //
 // 用法：导入 → 启用 → 打开页面 → 角标进入「观察中」，实时列出被拦到的页面请求；
 //       点角标跑一次自测（只刷新结果区，不会清掉已观察到的列表）。
 // 被动观察对页面零侵入：裁决恒 passthrough，绝不改页面任何请求。
 ;(async () => {
   var ID = 'gm-test-fetchhook'
-  var DOM_ATTR = 'data-gm-fetchhook-probe' // MAIN 世界脚本 → 隔离世界 的回传通道（DOM 跨世界共享）
-  var SENTINEL_PATH = '/gm-hook-sentinel' // 命中这段的请求由桩伪造响应（不出网）
+  var DOM_ATTR = 'data-gm-fetchhook-probe' // 注入脚本 → 探针 的回传通道（DOM 属性）
+  var SENTINEL_PATH = '/gm-hook-sentinel' // 命中这段的请求由本探针的 hook 伪造响应（不出网）
   var MAX_BODY = 1 << 20
   var MAX_SHOW = 5
   var results = [] // 自测结果 { name, ok, detail }，ok: true / false / null(未能判定)
@@ -112,8 +106,8 @@
     return null
   }
 
-  // 往页面注入一段 MAIN 世界脚本发 fetch：只有页面世界的 fetch 才在桩的代理链上。
-  // 结果经 DOM 属性回传（隔离世界读不到 MAIN 世界的 JS 变量，但能读共享 DOM）。
+  // 往页面注入一段脚本代发 fetch（安静页面上由它触发钩子）。
+  // 结果经 DOM 属性回传（DOM 各世界共享，比跨世界读 JS 变量可靠）。
   //
   // 注意：**不立即摘掉 script 节点**。早期版本是 append 后马上 removeChild——若浏览器把内联脚本的
   // 执行排到下一个任务（而非插入时同步执行），节点已被摘掉、脚本就永不执行，症状会伪装成「功能坏」。

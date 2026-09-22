@@ -6,8 +6,8 @@
 // @grant        GM_openInTab
 // @grant        GM_log
 // ==/UserScript==
-// GM API 收口探针：一期收口（fetch timeout / 二进制请求体 / tabs）
-// + 二期特权增强（forbidden header 覆写 / 同 host 隔离 / redirect manual·error）的手测脚本。
+// GM API 收口探针：覆盖 fetch timeout / 二进制请求体 / tabs，以及特权增强项
+// （forbidden header 覆写 / 同 host 隔离 / redirect manual·error）的手测脚本。
 // 效果：页面右下角出现「GM API 收口探针」角标，点击后逐项跑测试并就地标三态：
 //   ✓ 通过 / ✗ 功能失败 / ? 未能判定（httpbin 抖动、拿不到回显，重跑即可——别当成桥的锅）。
 // tabs 用例会短暂开一个 example.com 标签页（约 2s 后自动关），全程点击触发、不自动跑；
@@ -210,7 +210,7 @@
     )
   }
 
-  // ————— 二期：DNR header 覆写与 redirect 语义（2026-09-19 落地） —————
+  // ————— DNR header 覆写与 redirect 语义 —————
   // 覆写是否真的上线，只看 gmFetch 的返回值证明不了——forbidden header 会被 fetch 静默
   // 丢弃，必须由服务端回显作证，故这几项一律拿 httpbin.org/headers 的回显断言。
 
@@ -390,7 +390,7 @@
     await arrayBufferAndDataViewCase()
     await stringBodyCase()
     await invalidBodyCase()
-    // 二期四项：header 覆写 / 同 host 隔离 / redirect manual·error
+    // 特权增强四项：header 覆写 / 同 host 隔离 / redirect manual·error
     await headerOverrideCase()
     await isolationCase()
     await manualRedirectCase()

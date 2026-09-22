@@ -2,7 +2,7 @@
 // @name         require-cdn 探针
 // @namespace    duoling
 // @version      1.0.0
-// @description  验证 @require 外部依赖被正确前置注入到 USER_SCRIPT 世界
+// @description  验证 @require 外部依赖被正确前置注入到脚本作用域
 // @match        https://example.com/*
 // @grant        GM_registerMenuCommand
 // @require      https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js
