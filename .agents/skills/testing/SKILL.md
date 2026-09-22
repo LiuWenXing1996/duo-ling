@@ -75,5 +75,8 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 - **读不到 url 的标签页，不能「按 url 找出它再激活」**：扩展没有 `tabs` 权限，`chrome://` / `chrome-extension://` 页的 `tab.url` 是 `undefined`（`<all_urls>` 不含这两个 scheme）。要拿不可读 url 的标签页，由 **SW `chrome.tabs.create()`** 建并拿返回的 id。
 - **验扩展页的渲染分支**：先在工作窗口里激活目标标签页（`tabs.update({active:true})`），再 **reload 那个扩展页**（reload 不会把它变成激活页），它 mount 时读到的才是目标标签页。顺手打印一句「切换是否真生效」—— 否则断言可能在测一个根本没切过去的状态。
 - 判据不要依赖 url 可读：验「当前页能不能注入」应按 **scheme**。
+- **测 content script 的交互（浮层按钮 / 浮窗等）就凭空造个站点**：`page.route('https://<假域名>/**', r => r.fulfill({ body: '<!doctype html>…' }))` 之后再 `goto`，不必起本地 server、也不碰真实站点；等注入用 `page.waitForFunction(() => !!document.getElementById('<注入根 id>')?.shadowRoot)`，之后读几何一律走 `evaluate`（`getBoundingClientRect` 比 locator 断言直观，也不受 shadow DOM 选择器能力限制）。
+- **拖拽 / 手势要驱动真实指针序列**：`mouse.move(起点) → down() → move(终点, { steps: 8 }) → up()`。断言优先抓**不变量**（「按钮没被挪动」「落盘值没被改写」「开合状态没被误切换」）而不是绝对坐标——绝对坐标只能证明"数值等于我以为的公式"，不变量才能抓住行为回归。
+- **屏幕坐标与「距视口边距」差一个视口宽**：样式里定位写 `right` / `bottom`（距视口右 / 下）时，断言里 `rect.right` 得换算成 `视口宽 − right`，别拿指针落点直接比（2026-09-22 连栽两次，两次都长得像"实现坏了"）。真怀疑时加一条**故意失败的断言**把实际值回显出来（`expect({ 实际 }).toEqual({ 标记: 'debug' })`）——比 `console.log` 可靠：vitest 会把普通输出折叠掉，而 diff 一定显示。
 
 **要长期复用的探针**（人工点一次出结论的那种）放 `uscript-samples/`：`npm run pack:uscripts` 打成一包，扩展「脚本列表 → 导入」直接吃；**用法、要人动手的项与覆盖登记都写在探针文件的头部注释里**（例：`gm-matrix/script.js` 顶部有用法、四项人工动作、三态判读与 `@covers` 登记表）。
