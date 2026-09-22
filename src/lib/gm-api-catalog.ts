@@ -383,9 +383,8 @@ const CAPABILITIES = {
     summary: 'cookie 的 list / set / delete（url 须过域名门）',
     detail:
       '**url 必须落在该脚本自身 matches 内**（只比协议与主机名，忽略路径），越域报 PERMISSION_DENIED；url 缺省 = 当前页。' +
-      '`set` 的 `domain` / `path` 照 TM 收下（不传则分别由 url 主机与 `/` 推导）：域名校验始终按 url 算，' +
-      '而「domain 必须与 url 同域或其父域」由浏览器保证 —— 写父域 cookie 是 cookie 语义允许的。' +
-      '**`list` / `delete` 的 `domain` / `path` 查询尚未支持**（传入即报错，不静默忽略）。' +
+      '三个方法都照 TM 收 `domain` / `path`：查询时它们只是**收窄**条件（url 恒参与、chrome 按 AND 语义查，' +
+      '所以读不到无关域的 cookie），写入时「domain 必须与 url 同域或其父域」由浏览器保证。' +
       'HttpOnly cookie 照原样暴露（与油猴一致）。回调可省（省了用返回的 Promise）。',
     returns: '回调式 + Promise',
     bridge: 'bridge',
@@ -539,8 +538,10 @@ const OBJECT_ENTRIES = {
   'GM_cookie.set': {
     title: '写 cookie',
     signature: 'GM_cookie.set({ name, value, url?, secure?, httpOnly?, expirationDate? }, cb?)',
-    summary: '写一个 cookie（**domain / path 传入即报错**）',
-    detail: 'domain 由 url 主机推导、path 恒 `/`；不传 expirationDate = 会话 cookie。回调签名 (error)。',
+    summary: '写一个 cookie（可指定 domain / path）',
+    detail:
+      '不传 `domain` / `path` 时分别由 url 主机与 `/` 推导；传了时「domain 必须与 url 同域或其父域」由浏览器保证。' +
+      '不传 expirationDate = 会话 cookie。回调签名 (error)。',
     returns: 'Promise<void>（回调同收）',
     bridge: 'bridge',
     group: 'page',

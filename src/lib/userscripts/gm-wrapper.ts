@@ -23,8 +23,7 @@
 //     并补 `store.watchAll`（全量订阅）与 connect 后的**一次全量校准**（覆盖就绪前的窗口）。
 //   · **`@grant` 裁剪**：只有写进清单的能力才注入；不写 `@grant` / `@grant none` → 只给恒注入集。
 //   · **降级项**（速查页与 spec 必须标注）：`GM_xmlhttpRequest` 的 `responseType` 不支持 `stream`；
-//     它的 `onprogress` 只给进度字段（不带完整 response）；`GM_cookie` 的 `list` / `delete`
-//     不收 `domain` / `path` 查询（`set` 已支持）。
+//     它的 `onprogress` 只给进度字段（不带完整 response）。
 import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS, resolveGrant } from '../gm-grants'
 import type { GmInfo, Json } from './api-contract'
 import { buildScriptBridgeSource } from './script-bridge'

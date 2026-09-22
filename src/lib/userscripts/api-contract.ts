@@ -5,7 +5,6 @@
 // 桥仍是「请求-响应 + Port 下行」两条通道，只增命令、不改形状。
 //
 // 与油猴的**已知差异**（速查页与 spec 必须标注，不能让人以为是实现缺陷）：
-//   · **cookie 的 `list` / `delete` 不支持 `domain` / `path` 查询**（`set` 照 TM 收这两个字段）；
 //   · **`GM_xmlhttpRequest` 无流式**：`responseType` 不支持 stream（TM 的合法值只有
 //     arraybuffer / blob / json / stream，也没有 document）；`onprogress` 只给进度字段，
 //     不给 TM 那种「带完整 response 的进度对象」。
