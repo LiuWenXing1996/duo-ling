@@ -2,6 +2,26 @@
 // @name         GM 可用性矩阵
 // @namespace    https://duoling.example
 // @match        *://*/*
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_deleteValue
+// @grant        GM_listValues
+// @grant        GM_addValueChangeListener
+// @grant        GM_removeValueChangeListener
+// @grant        GM_registerMenuCommand
+// @grant        GM_unregisterMenuCommand
+// @grant        GM_addStyle
+// @grant        GM_addElement
+// @grant        GM_log
+// @grant        GM_notification
+// @grant        GM_setClipboard
+// @grant        GM_xmlhttpRequest
+// @grant        GM_download
+// @grant        GM_openInTab
+// @grant        GM_getTab
+// @grant        GM_saveTab
+// @grant        GM_getTabs
+// @grant        GM_cookie
 // ==/UserScript==
 // GM 可用性矩阵：**逐个 API** 做一次最小真实调用，把结果铺成一张表。
 //
@@ -12,8 +32,9 @@
 //   · dl-cookie 管 GM_cookie 的**域名门**（越域拒绝 / path 不参与判定 / 非 http(s) 拒绝）。
 //   故本包对网络与 cookie 只做「往返能通」，深语义不重测。
 //
-// 刻意**不写 @grant**：规则是「未声明 = 全量注入」，本包要的就是全量面
-// （@grant 裁剪本身另有用例覆盖，见 gm-wrapper.test.ts 的 resolveGmExposure）。
+// @grant 清单一律**写全**（本包要覆盖全部 API）。规则对齐 Tampermonkey：**不写 @grant 或写
+// `@grant none` 都等于空清单**，GM 成员一个都不会注入 —— 漏写就是大面积 ✗，别把它当成 API 有问题。
+// （@grant 裁剪逻辑本身另有用例覆盖，见 gm-wrapper.test.ts 的 resolveGmExposure。）
 //
 // 用法：`npm run pack:uscripts` → 工作台「脚本列表」导入 → 启用 → 打开任意 http(s) 页面
 //       → 点面板上的「跑全部」→ 跑完点「复制结果」整段贴回。

@@ -4,6 +4,7 @@
 // @version      1.0.0
 // @description  验证脚本确实被注入并执行：页面右下角写标记
 // @match        *://*/*
+// @grant        GM_log
 // ==/UserScript==
 
 // 注入探针：验证「脚本确实被注入并执行了」。
