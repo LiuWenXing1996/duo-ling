@@ -4,6 +4,8 @@
 // （存被关闭的 hostname）。默认「全站开启、可单站关闭」——开箱即可见浮层，又保留克制入口。
 // 内容脚本、设置页与 SW（右键菜单）都经本模块读写，避免散落 chrome.storage 调用；
 // storage 键改动集中在此。
+// 「别处改了开关」的通知走 subscribeFloatSettings —— 调用方**不要**自己拼键名字面量去挂
+// chrome.storage.onChanged（键名只此一处）。
 
 const MASTER_KEY = 'duoling:floatEnabled'
 const DISABLED_KEY = 'duoling:floatDisabledSites'
@@ -57,6 +59,30 @@ export async function setHostDisabled(host: string, disabled: boolean): Promise<
 export async function ensureFloatEnabled(host: string): Promise<void> {
   if (!(await getMasterEnabled())) await setMasterEnabled(true)
   if (host && (await getDisabledSites()).includes(host)) await setHostDisabled(host, false)
+}
+
+/** storage.onChanged 给到的变更集（只用到键名是否存在） */
+type StorageChanges = Record<string, { newValue?: unknown }>
+
+/**
+ * 订阅开关变更（总开关与站点禁用集合任一改动都会触发）。
+ *
+ * 浮层设置落在 chrome.storage.local，浏览器原生就跨上下文通知（扩展页、popup、内容脚本
+ * 都收得到），所以这条线**不走** `lib/data-broadcast.ts` —— 那套是给没有变更通知能力的
+ * IndexedDB 补的。这里同样只通知「有变化」、不带数据：调用方收到后自己用上面的读函数重拉。
+ *
+ * 刻意**不管** `duoling:floatPos`：位置是本页面自己拖自己写、只有本页要用，不跨上下文。
+ *
+ * @returns 取消订阅的函数
+ */
+export function subscribeFloatSettings(listener: () => void): () => void {
+  const handler = (changes: StorageChanges, area: string): void => {
+    if (area !== 'local') return
+    if (!(MASTER_KEY in changes) && !(DISABLED_KEY in changes)) return
+    listener()
+  }
+  chrome.storage.onChanged.addListener(handler)
+  return () => chrome.storage.onChanged.removeListener(handler)
 }
 
 // —— 浮层位置（用户拖拽后记下的角落） ——

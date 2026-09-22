@@ -40,6 +40,7 @@ import {
   getFloatPos,
   isFloatEnabledForHost,
   setFloatPos,
+  subscribeFloatSettings,
   type FloatPos,
 } from '@/lib/float-panel-store'
 
@@ -490,10 +491,8 @@ export default defineContentScript({
       if (enabled && ctx.isValid && !disposed) void injectAtStoredPos()
     })
 
-    // 开关变化时动态增删（设置页改了某站 / 总开关）
-    chrome.storage.onChanged.addListener((changes, area) => {
-      if (area !== 'local') return
-      if (!('duoling:floatEnabled' in changes) && !('duoling:floatDisabledSites' in changes)) return
+    // 开关变化时动态增删（设置页改了某站 / 总开关）；键名判定封在 store 里
+    subscribeFloatSettings(() => {
       void isFloatEnabledForHost(host).then((enabled) => {
         if (!ctx.isValid) return
         if (enabled) void injectAtStoredPos()
