@@ -116,6 +116,13 @@ describe('resolveGmExposure（@grant 裁剪）', () => {
     expect(flags).not.toHaveProperty('GM_webRequest')
   })
 
+  it('点号形态的 grant 名也认，且只开 GM.* 那一形态（外部油猴脚本会写 GM.setValue）', () => {
+    const flags = resolveGmExposure(['GM.setValue'])
+    expect(flags.setValue).toBe(true)
+    expect(flags.GM_setValue).toBe(false)
+    expect(flags.GM_getValue).toBe(false)
+  })
+
   it('两张名单不重名（注入体按名直查一张扁平表的前提）', () => {
     const overlap = GM_ALL_GLOBALS.filter((n) => GM_ALL_NS.includes(n))
     expect(overlap).toEqual([])

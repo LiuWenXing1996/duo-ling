@@ -40,6 +40,10 @@
 
 **恒注入**（无需 `@grant`）：`GM_info`、`unsafeWindow`、`window.onurlchange`；`GM.*` 侧恒注入 `info`、`clearValues`、`focusTab`、`page`。
 
+**`@grant` 名收两种写法**（TM 官方示例把两种并列列出，导入的外部脚本两种都可能写）：规范名
+`GM_setValue` 同时开全局与 `GM.*` 两种形态；点号形态 `GM.setValue` 只开 `GM.*` 那一种。
+规范文本只教前一种（自产脚本写一行就够），第二种是为兼容外部脚本而认。
+
 ## 二、标准里有、本扩展完全没有的
 
 | 缺失 | 现状 | 依据 |

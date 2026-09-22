@@ -16,7 +16,7 @@
 //     （本扩展无页面上下文，一点不给反而会让读 `GM_info` 判环境的脚本当场崩）。
 //   · **降级项**（速查页与 spec 必须标注）：`unsafeWindow` 是隔离世界的 window；`GM_xmlhttpRequest`
 //     无 `onprogress`；`GM_cookie` 不收 `domain` / `path`（域名门）。
-import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS, GRANT_MEMBERS } from '../gm-grants'
+import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS, resolveGrant } from '../gm-grants'
 import type { GmInfo, Json } from './api-contract'
 import { buildPageClientSource } from './page-client'
 
@@ -42,8 +42,9 @@ export interface GmWrapperOptions {
  * 规则：
  *   · 未声明 / 空 / 含 `none` → **全量注入**；
  *   · 否则只注入声明的能力对应的成员 + 恒注入集（`GM_info` / `unsafeWindow` / 本扩展成员）。
- *     未知的 grant 名（本扩展未实现的 API）静默忽略 —— 脚本用了会 `ReferenceError`，
- *     这比「假装支持」更容易排查。
+ *     认不出的 grant 名（本扩展未实现的 API）静默忽略 —— 脚本用了会 `ReferenceError`，
+ *     这比「假装支持」更容易排查。名字解析走 `resolveGrant`，`GM_setValue` 与 `GM.setValue`
+ *     两种写法都认（导入的油猴脚本两种都可能写）。
  */
 export function resolveGmExposure(grant: string[] | undefined): Record<string, boolean> {
   const full = !grant || grant.length === 0 || grant.includes('none')
@@ -56,7 +57,7 @@ export function resolveGmExposure(grant: string[] | undefined): Record<string, b
     for (const name of [...GM_ALL_GLOBALS, ...GM_ALL_NS]) flags[name] = true
   } else {
     for (const g of grant!) {
-      const m = GRANT_MEMBERS[g]
+      const m = resolveGrant(g)
       if (!m) continue
       for (const name of m.globals) flags[name] = true
       for (const name of m.ns) flags[name] = true
