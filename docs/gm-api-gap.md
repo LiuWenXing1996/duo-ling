@@ -13,7 +13,7 @@
 
 ## 一、覆盖面
 
-26 个 `@grant`（含两个 window 级成员），每个同时开全局与 `GM.*` 两种形态（对齐 Tampermonkey 口径，例外在表内注明）：
+28 个 `@grant`（含两个 window 级成员），每个同时开全局与 `GM.*` 两种形态（对齐 Tampermonkey 口径，例外在表内注明）：
 
 | 能力 | `@grant` 名 | `GM.*` 成员 |
 | --- | --- | --- |
@@ -40,6 +40,8 @@
 | 存标签页数据 | `GM_saveTab` | `saveTab` |
 | 列出标签页 | `GM_getTabs` | `getTabs` |
 | 标签页音频 | `GM_audio` | `audio` |
+| 取资源文本 | `GM_getResourceText` | `getResourceText` |
+| 取资源 data URI | `GM_getResourceURL` | `getResourceUrl`（小写 r/l，照 TM 原样） |
 | Cookie | `GM_cookie` | 无（按 Tampermonkey 口径不进 `GM.*`） |
 | 关当前标签页 | `window.close` | 无（window 级成员，没有 `GM.*` 形态） |
 | 聚焦当前窗口 | `window.focus` | 无（同上） |
@@ -56,7 +58,6 @@
 
 | 缺失 | 现状 | 依据 |
 | --- | --- | --- |
-| `GM_getResourceText` / `GM_getResourceURL` | 无实现。`@resource` 元数据会被解析并出现在 `GM_info.script.resources` 里，但脚本拿不到资源内容 | `spec-text.ts`「明确不支持」段 |
 | `GM_webRequest` | 不在注入面内 | `gm-wrapper.test.ts` 断言它不在 exposure 表 |
 
 > `GM_closeTab` **不在表内**：TM 官方文档里没有它（TM 用 `window.close`），属个别实现自有；

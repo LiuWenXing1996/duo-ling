@@ -91,10 +91,10 @@ ${renderCapabilities()}
 \`GM.*\` 是本批能力的 Promise 化形态（如 \`await GM.getValue(key)\`，每次回后台读、永远最新）；
 **\`GM.*\` 下没有 cookie**（按 Tampermonkey 口径），cookie 只用 \`GM_cookie\`。
 标着「哆灵扩展，标准里无对应物」的条目不是油猴标准，按本扩展的实现写。
+**用 \`GM_getResourceText\` / \`GM_getResourceURL\` 之前，必须先在头部声明 \`@resource 名字 地址\`** ——
+声明即预加载（内容随注入体一起就绪，所以这两个是**同步** API）；没声明的名字取到 undefined。
 
 ### 明确不支持（别写，写了不会生效或会以错误形式暴露）
-- \`@resource\`（命名资源，供 \`GM_getResourceText\` / \`GM_getResourceURL\`）——本扩展不提供这两个
-  成员；声明了会被解析进 \`GM_info.script.resources\`，但脚本里拿不到内容
 - \`@connect\` 白名单（本扩展的跨域请求不需要声明）
 - \`GM_xmlhttpRequest\` 的 \`onprogress\`、\`responseType: 'document' | 'stream'\`、同步请求
 - \`GM_cookie\` 的 \`domain\` / \`path\`（安全收紧项，传入即报错）

@@ -16,6 +16,7 @@ import * as appDb from '@/lib/app-db'
 import { listProjects, validateMatchPatterns } from './project-store'
 import { appendUserScriptError, getAllGMValues } from './store'
 import { fetchRequireSources } from './require-cache'
+import { fetchResourceSources } from './resource-cache'
 import { buildScriptRelaySource } from './script-relay'
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
 import { parseUserScriptMetadata } from './metadata'
@@ -464,6 +465,25 @@ export async function registerScript(project: ScriptProject): Promise<void> {
     }
   }
   const requireCodes = requireResults.filter((r) => r.ok && r.code != null).map((r) => r.code!)
+  // @resource（命名资源）：与 @require 同款「这里抓、注入时用」，但它不是代码而是**素材**，
+  // 故不进 code 拼接，而是内联成包装层里的常量表（GM_getResourceText / GM_getResourceURL 都是
+  // **同步** API，内容必须注入前就绪）。抓取失败同样只记错误、不阻断注入。
+  const resourceDecls = project.config.resources ?? []
+  const resourceResults = resourceDecls.length ? await fetchResourceSources(resourceDecls) : []
+  for (const r of resourceResults) {
+    if (!r.ok) {
+      void appendUserScriptError({
+        uuid: project.uuid,
+        name: project.name,
+        phase: 'resource',
+        message: `@resource 抓取失败：${r.name}（${r.url}）：${r.error ?? '未知错误'}，脚本里取不到该资源`,
+      }).catch(() => {})
+    }
+  }
+  const resources: Record<string, { text: string; url: string }> = {}
+  for (const r of resourceResults) {
+    if (r.ok && r.dataUrl != null && r.text != null) resources[r.name] = { text: r.text, url: r.dataUrl }
+  }
   // 注入 code **必须拼成一条**：包装前缀、@require、脚本源码、闭合后缀要在同一个函数作用域里，
   // 脚本才能按词法拿到 `GM_*`（见 gm-wrapper.ts 文件头）。拆成多条 js 会各自独立求值 ——
   // 未闭合的 IIFE 前缀单独求值直接是语法错误。
@@ -475,6 +495,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
       info: buildGmInfo(project, rawCode),
       pageSecret,
       grant: project.config.grant,
+      resources,
     }),
     ...requireCodes,
     rawCode,

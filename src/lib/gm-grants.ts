@@ -37,6 +37,10 @@ export const GRANT_MEMBERS: Record<string, { globals: string[]; ns: string[] }> 
   GM_cookie: { globals: ['GM_cookie'], ns: [] },
   // 音频控制（TM v5.0+）：对象型全局，`GM.*` 侧是 GM.audio（与 GM_cookie 不同，TM 给了这个镜像）
   GM_audio: { globals: ['GM_audio'], ns: ['audio'] },
+  // 命名资源（TM：`@resource` 声明即预加载，内容随注入体就绪）。
+  // 注意 `GM.*` 形态是 **getResourceText / getResourceUrl** —— Url 的小写 r/l 照 TM 原样，不是笔误。
+  GM_getResourceText: { globals: ['GM_getResourceText'], ns: ['getResourceText'] },
+  GM_getResourceURL: { globals: ['GM_getResourceURL'], ns: ['getResourceUrl'] },
   // window 级成员：TM 把「关当前标签页 / 聚焦当前标签页」也当 `@grant` 项（原话：
   // "closing and focusing tabs is a powerful feature this needs to be added to the @grant
   // statements as well"）。名字就是**属性路径** —— 注入体里对 window 赋值而非声明局部变量，

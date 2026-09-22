@@ -504,6 +504,13 @@ export interface GmGlobalFns {
   GM_saveTab(tab: Json, cb?: () => void): void
   GM_getTabs(cb: (tabs: Record<string, Json>) => void): void
   /**
+   * 取 `@resource` 的**文本**内容。**同步**（内容随注入体内联 —— 与油猴一致，返回值不是 Promise）。
+   * 名字未声明、或该资源抓取失败 → 返回 undefined 并记一条运行日志（**不抛**）。
+   */
+  GM_getResourceText(name: string): string | undefined
+  /** 取 `@resource` 的 **base64 data URI**（TM 口径）。同样同步，取不到同样返回 undefined。 */
+  GM_getResourceURL(name: string): string | undefined
+  /**
    * 关当前标签页（`@grant window.close`）。TM 语义：**不允许关窗口的最后一个标签页**。
    * 注意名字是 **window 属性路径**而非标识符 —— 注入体把它挂到 window 上，脚本里 `window.close()` 才走它。
    */
@@ -617,6 +624,12 @@ export interface GmApiNamespace {
     addStateChangeListener(listener: (ev: GmAudioChangeEvent) => void): Promise<void>
     removeStateChangeListener(listener: (ev: GmAudioChangeEvent) => void): Promise<void>
   }
+  /**
+   * 命名资源取值。TM 的 `GM.*` 形态是 **getResourceText / getResourceUrl**
+   * （Url 的小写 r/l 与全局名 `GM_getResourceURL` 不一致，照 TM 原样）。
+   */
+  getResourceText(name: string): Promise<string | undefined>
+  getResourceUrl(name: string): Promise<string | undefined>
   getValue<T extends Json = Json>(key: string, defaultValue?: T): Promise<T | undefined>
   setValue(key: string, value: Json): Promise<void>
   deleteValue(key: string): Promise<void>

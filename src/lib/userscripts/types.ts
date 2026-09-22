@@ -143,8 +143,11 @@ export interface UserScriptErrorRecord {
   id: string
   uuid: string | null // 运行期/注册错误有；部分桥错误可能无
   name: string // 脚本名（便于展示，未知时占位）
-  /** 错误阶段：runtime=用户脚本运行期报错；register=后台注册失败；bridge=GM 桥调用失败 */
-  phase: 'runtime' | 'register' | 'bridge' | 'require'
+  /**
+   * 错误阶段：runtime=用户脚本运行期报错；register=后台注册失败；bridge=GM 桥调用失败；
+   * require=外部依赖抓取失败；resource=@resource 资源抓取失败（后两者都只记错误、不阻断注入）
+   */
+  phase: 'runtime' | 'register' | 'bridge' | 'require' | 'resource'
   message: string
   stack?: string
   url?: string // 运行期错误所在页面

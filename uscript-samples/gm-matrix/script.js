@@ -26,6 +26,8 @@
 // @grant        GM_getTabs
 // @grant        GM_cookie
 // @grant        GM_audio
+// @grant        GM_getResourceText
+// @grant        GM_getResourceURL
 // @grant        window.close
 // @grant        window.focus
 // ==/UserScript==
@@ -96,6 +98,7 @@
 // @covers GM.page.fetchHook（页面 fetch 拦截） :: GM.page.fetchHook
 // @covers GM_registerMenuCommand / GM_unregisterMenuCommand :: GM_registerMenuCommand GM_unregisterMenuCommand GM.registerMenuCommand GM.unregisterMenuCommand
 // @covers GM.clearValues（扩展独有） :: GM.clearValues
+// @covers GM_getResourceText / GM_getResourceURL（未知名 → undefined） :: GM_getResourceText GM_getResourceURL GM.getResourceText GM.getResourceUrl
 // @covers GM_audio.setMute / getState（含 GM.audio 镜像） :: GM_audio.setMute GM_audio.getState GM_audio GM.audio
 // @covers GM_audio 状态监听 :: GM_audio.addStateChangeListener GM_audio.removeStateChangeListener
 // @covers window.close / window.focus（@grant 项） :: window.close window.focus
@@ -652,6 +655,18 @@
     if (typeof GM.focusTab !== 'function') throw new Error('GM.focusTab 未挂载')
     await GM.focusTab(Number(ids[0]))
     return pass('已激活 tabId=' + ids[0])
+  })
+
+  add('存储', 'GM_getResourceText / GM_getResourceURL（未知名 → undefined）', function () {
+    // 探针脚本**刻意不声明 @resource**：它的地址必须静态写死在 metadata 里，而真机端测的端口是
+    // 运行时才分配的，写不死。「真取到内容」那条由 e2e/link-import.spec 验（那里的样本脚本在运行时
+    // 拼出来，@resource 直接指向本地服务）。
+    var t = GM_getResourceText('__nope__')
+    var u = GM_getResourceURL('__nope__')
+    var fromNs = GM.getResourceText  // 只验 GM.* 形态存在（Promise 版取值同样由 e2e 覆盖）
+    return t === undefined && u === undefined && typeof fromNs === 'function'
+      ? pass('两个成员可调用；未声明的名字返回 undefined（不抛）')
+      : fail('t=' + String(t) + ' u=' + String(u) + ' ns=' + typeof fromNs)
   })
 
   add('系统能力', 'GM_audio.setMute / getState（含 GM.audio 镜像）', async function () {

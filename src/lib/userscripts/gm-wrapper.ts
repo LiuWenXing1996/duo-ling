@@ -42,6 +42,11 @@ export interface GmWrapperOptions {
   pageSecret: string
   /** `@grant` 声明（缺省 / 空 / 含 none → 空清单，只给恒注入集） */
   grant?: string[]
+  /**
+   * `@resource` 内容（名 → `{ text, url }`，url 是 data URI）：同步 API 的底座，注入时内联成常量表。
+   * 未声明或抓取失败的资源不在这里面 —— 脚本取到 undefined（与不写 @grant 时成员不存在不同）。
+   */
+  resources?: Record<string, { text: string; url: string }>
 }
 
 /**
@@ -98,6 +103,9 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   var GM_HAS = ${jsonLiteral(exposure)}
   // 值快照：注册时刻的全量值。同步读只认它；写过之后本地缓存立即更新（见 __gmSet）。
   var GM_VALUES = ${jsonLiteral(opts.values)}
+  // @resource 内容：名 → { text, url(data URI) }。**同步 API 直接读它、不经桥** ——
+  // 内容由注册/注入路径抓好后随本前缀一起注入（见 resource-cache.ts 与 engine.ts）。
+  var GM_RESOURCES = ${jsonLiteral(opts.resources ?? {})}
   var NAME_PREFIX = '[GM:' + ${jsonLiteral(opts.name)} + ']'
 
   // —— 扩展侧通道：MAIN 世界没有 chrome.*，一切经同帧中继件（bridge-protocol.ts）。
@@ -907,6 +915,18 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     }
   }
 
+  // —— @resource 取值（TM：文本 / base64 data URI，都是**同步**返回）——
+  //    取不到（未声明该名、或抓取失败）返回 undefined 并记一条日志：报错会把脚本整段带崩，
+  //    而 TM 这类「拿不到素材」的情形脚本自己判 undefined 更常见。
+  function __gmResource(name, wantUrl) {
+    var r = GM_RESOURCES[name]
+    if (!r) {
+      __gmLog((wantUrl ? 'GM_getResourceURL' : 'GM_getResourceText') + '：资源 ' + name + ' 不存在（未声明或抓取失败）')
+      return undefined
+    }
+    return wantUrl ? r.url : r.text
+  }
+
   // —— 音频控制（TM v5.0+）：4 个成员都作用于**当前标签页**。回调可省 → 返回 Promise
   //    （TM 里 getState 的回调是必需的，这里放宽；回调形状照 TM：getState 回状态对象，其余回 error）——
   var __gmAudioApi = {
@@ -941,7 +961,7 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
       GM_addValueChangeListener, GM_removeValueChangeListener, GM_registerMenuCommand,
       GM_unregisterMenuCommand, GM_addStyle, GM_addElement, GM_log, GM_notification,
       GM_setClipboard, GM_xmlhttpRequest, GM_download, GM_openInTab, GM_cookie,
-      GM_audio, GM_getTab, GM_saveTab, GM_getTabs
+      GM_audio, GM_getResourceText, GM_getResourceURL, GM_getTab, GM_saveTab, GM_getTabs
   if (GM_HAS.GM_info) GM_info = GM_INFO
   if (GM_HAS.GM_getValue) GM_getValue = function (key, def) { __gmEnsureChannel(); return __gmGetSync(key, def) }
   if (GM_HAS.GM_listValues) GM_listValues = function () { __gmEnsureChannel(); return __gmListSync() }
@@ -964,6 +984,8 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   if (GM_HAS.GM_download) GM_download = function (input, name) { __gmDownload(input, name).catch(function () {}) }
   if (GM_HAS.GM_openInTab) GM_openInTab = __gmOpenInTab
   if (GM_HAS.GM_cookie) GM_cookie = __gmCookie
+  if (GM_HAS.GM_getResourceText) GM_getResourceText = function (name) { return __gmResource(name, false) }
+  if (GM_HAS.GM_getResourceURL) GM_getResourceURL = function (name) { return __gmResource(name, true) }
   if (GM_HAS.GM_audio) GM_audio = __gmAudioApi
   if (GM_HAS.GM_getTab) GM_getTab = function (cb) {
     __gmSend({ c: 'tab.get' }).then(function (v) { if (typeof cb === 'function') cb(v) }, function (e) { __gmLog('GM_getTab 失败：' + ((e && e.message) || e)); if (typeof cb === 'function') cb(undefined) })
@@ -1031,6 +1053,11 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   if (GM_HAS.getTab) GM.getTab = function () { return __gmSend({ c: 'tab.get' }) }
   if (GM_HAS.saveTab) GM.saveTab = function (tab) { return __gmSend({ c: 'tab.save', value: tab }) }
   if (GM_HAS.getTabs) GM.getTabs = function () { return __gmSend({ c: 'tab.all' }).then(function (v) { return v || {} }) }
+
+  // 资源取值（TM 的 GM.* 形态是 **getResourceText / getResourceUrl** —— Url 的小写 r/l 与全局名不同，
+  // 这里刻意照抄 TM，不统一大小写；虽然本该同步，但 GM.* 一律 Promise 形态）
+  if (GM_HAS.getResourceText) GM.getResourceText = function (name) { return Promise.resolve(__gmResource(name, false)) }
+  if (GM_HAS.getResourceUrl) GM.getResourceUrl = function (name) { return Promise.resolve(__gmResource(name, true)) }
 
   // GM.audio：与全局 GM_audio 是同一套方法（本来都返回 Promise），直接复用同一对象，不另写一份
   if (GM_HAS.audio) GM.audio = __gmAudioApi

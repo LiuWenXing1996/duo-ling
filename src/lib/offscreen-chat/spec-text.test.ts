@@ -12,7 +12,7 @@ import { ALWAYS_WINDOW_MEMBERS, GRANT_NAMES } from '@/lib/gm-grants'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
 /** 规范文本里**故意**点名、但不在能力目录里的成员（目录 = 已实现的成员） */
-const KNOWN_UNSUPPORTED = ['GM_getResourceText', 'GM_getResourceURL']
+const KNOWN_UNSUPPORTED: string[] = []
 
 /** `@grant` 的特殊值（不是 API 名） */
 const GRANT_SPECIAL_VALUES = ['none']

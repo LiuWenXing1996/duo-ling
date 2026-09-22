@@ -389,6 +389,33 @@ const CAPABILITIES = {
     bridge: 'bridge',
     group: 'page',
   },
+  GM_getResourceText: {
+    ns: 'getResourceText',
+    title: '取资源文本',
+    sigGlobal: 'GM_getResourceText(name)',
+    sigNs: 'GM.getResourceText(name)',
+    summary: '取 `@resource` 的文本内容（**同步**）',
+    detail:
+      '**必须先在头部声明 `@resource name url`** —— 声明即预加载，内容随注入体一起就绪，故同步可用。' +
+      '名字未声明、或该资源抓取失败 → 返回 undefined 并记一条运行日志（不抛）。' +
+      '二进制资源经文本解码后是乱码（与 TM 一致），要拿可用的图片就用 GM_getResourceURL。',
+    returns: 'string | undefined（GM.* 形态为 Promise）',
+    bridge: 'local',
+    group: 'storage',
+  },
+  GM_getResourceURL: {
+    ns: 'getResourceUrl',
+    title: '取资源 data URI',
+    sigGlobal: 'GM_getResourceURL(name)',
+    sigNs: 'GM.getResourceUrl(name)',
+    summary: '取 `@resource` 的 **base64 data URI**（同步）',
+    detail:
+      'TM 口径就是 base64 data URI —— 可直接塞给 `img.src` / CSS `url()`，不必自己转。同样需先声明 `@resource`，' +
+      '取不到返回 undefined。**`GM.*` 形态是 `getResourceUrl`（小写 r/l）**，与全局名 `GM_getResourceURL` 不同，照 TM 原样。',
+    returns: 'string | undefined（GM.* 形态为 Promise）',
+    bridge: 'local',
+    group: 'storage',
+  },
   // 对象型全局（方法逐条列在 OBJECT_ENTRIES）；`GM.*` 侧是 GM.audio（TM 给了这个镜像）
   GM_audio: {
     ns: 'audio',
