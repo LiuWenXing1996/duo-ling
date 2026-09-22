@@ -70,8 +70,8 @@ describe('buildGmWrapperPrefix', () => {
     expect(src).toContain('var unsafeWindow = window')
     expect(src).not.toContain("defineProperty(window, 'unsafeWindow'")
     expect(src).toContain("Object.defineProperty(window, 'onurlchange'")
-    // set 照 TM 收下 domain / path；仍显式拒绝的是 list / delete 的这两个查询条件（不静默忽略）
-    expect(src).toContain('list / delete 的 domain / path 查询尚未支持')
+    // cookie 的三个方法都照 TM 收 domain / path（url 恒参与查询，domain / path 只收窄可见范围）
+    expect(src).toContain('domain: q.domain, path: q.path')
     expect(src).toContain('store.watchAll') // 常驻通道
     expect(src).toContain('store.all') // connect 后全量校准
   })

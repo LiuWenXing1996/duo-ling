@@ -393,15 +393,51 @@ describe('GM_cookie（cookies 权限 + 域名门）', () => {
     expect(cookiesMocks.getAll).toHaveBeenCalledWith({ url: 'https://example.com/' })
   })
 
-  it('指定 name：查单条，命中返回单元素数组、未命中返回空数组（不是 null）', async () => {
+  it('指定 name / domain / path 一起透传给 getAll（桥只负责筛，命中与否由 chrome 定）', async () => {
     await seedScript(COOKIE_UUID, ['<all_urls>'])
-    const hit = await sendToBridge({ c: 'cookie.get', url: 'https://a.test/', name: 'sid' }, COOKIE_UUID)
+    const hit = await sendToBridge(
+      { c: 'cookie.get', url: 'https://a.test/', name: 'sid', domain: '.a.test', path: '/' },
+      COOKIE_UUID,
+    )
     expect(hit.ok).toBe(true)
-    if (hit.ok) expect((hit.data as unknown[]).length).toBe(1)
+    // 三个条件都进查询：url 恒在（域名门的落点），domain / path 只是收窄 —— chrome 的查询是 AND 语义
+    expect(cookiesMocks.getAll).toHaveBeenCalledWith({
+      url: 'https://a.test/',
+      name: 'sid',
+      domain: '.a.test',
+      path: '/',
+    })
 
-    cookiesMocks.get.mockResolvedValueOnce(null)
+    // 未命中：getAll 给空数组 → 桥原样回空数组（不是 null）
+    cookiesMocks.getAll.mockResolvedValueOnce([])
     const miss = await sendToBridge({ c: 'cookie.get', url: 'https://a.test/', name: 'nope' }, COOKIE_UUID)
     expect(miss).toEqual({ ok: true, data: [] })
+  })
+
+  it('cookie.remove 带 domain / path：先查、再按每条 cookie 自己的域与路径拼 url 删', async () => {
+    await seedScript(COOKIE_UUID, ['<all_urls>'])
+    cookiesMocks.getAll.mockResolvedValueOnce([
+      {
+        name: 'sid',
+        value: 'v',
+        domain: '.a.test',
+        path: '/x',
+        secure: true,
+      } as unknown as chrome.cookies.Cookie,
+    ])
+    const resp = await sendToBridge(
+      { c: 'cookie.remove', url: 'https://a.test/', name: 'sid', domain: '.a.test', path: '/x' },
+      COOKIE_UUID,
+    )
+    expect(resp).toEqual({ ok: true, data: undefined })
+    expect(cookiesMocks.getAll).toHaveBeenCalledWith({
+      url: 'https://a.test/',
+      name: 'sid',
+      domain: '.a.test',
+      path: '/x',
+    })
+    // chrome.cookies.remove 只吃 { url, name }：url 由 cookie 自己的域（去前导点）+ 路径 + secure 拼出
+    expect(cookiesMocks.remove).toHaveBeenCalledWith({ url: 'https://a.test/x', name: 'sid' })
   })
 
   it('非持久 cookie 不带 expirationDate 字段（不写 undefined 占位）', async () => {

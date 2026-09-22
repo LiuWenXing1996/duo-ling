@@ -905,31 +905,19 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
       }
     }
   }
-  /**
-   * 不支持的字段**显式拒绝**、不静默忽略 —— 静默会让脚本以为自己写成了。
-   *
-   * domain / path 在 set 上已照 TM 收下（传 allowDomainPath = true）；list / delete 的
-   * 这两个**查询条件**尚未实现，传了仍报错（否则脚本会以为筛过了）。
-   */
-  function __gmCookieReject(q, allowDomainPath) {
-    if (!allowDomainPath && q && (q.domain != null || q.path != null)) {
-      return new Error('GM_cookie：list / delete 的 domain / path 查询尚未支持（set 已支持这两个字段）')
-    }
-    return null
-  }
-
+  // 三个方法都照 TM 收 domain / path：url 恒参与查询（缺省当前页），domain / path 只是**收窄条件**，
+  // 桥侧按 AND 语义交给 chrome.cookies —— 边界由域名门 + 浏览器自身保证（见 cookie-gate.ts）。
+  // 于是这里不再需要「遇到不支持的字段就显式拒绝」那层（原先 list / delete 的 domain / path 走的就是它）。
   var __gmCookie = {
     list: function (details, cb) {
       var q = details || {}
-      var bad = __gmCookieReject(q)
-      var p = bad ? Promise.reject(bad) : __gmSend({ c: 'cookie.get', url: q.url || location.href, name: q.name })
+      var p = __gmSend({ c: 'cookie.get', url: q.url || location.href, name: q.name, domain: q.domain, path: q.path })
       __gmWithCb(p, cb)
       return p
     },
     set: function (details, cb) {
       var d = details || {}
-      var bad = __gmCookieReject(d, true)
-      var p = bad ? Promise.reject(bad) : __gmSend({
+      var p = __gmSend({
         c: 'cookie.set', url: d.url || location.href, name: d.name, value: d.value,
         secure: d.secure, httpOnly: d.httpOnly, expirationDate: d.expirationDate,
         domain: d.domain, path: d.path
@@ -939,7 +927,7 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     },
     delete: function (details, cb) {
       var d = details || {}
-      var p = __gmSend({ c: 'cookie.remove', url: d.url || location.href, name: d.name })
+      var p = __gmSend({ c: 'cookie.remove', url: d.url || location.href, name: d.name, domain: d.domain, path: d.path })
       __gmWithErrCb(p, cb)
       return p
     }

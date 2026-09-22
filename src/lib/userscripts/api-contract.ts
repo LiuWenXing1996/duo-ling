@@ -333,7 +333,7 @@ export type ApiRequest =
   // cookie（需 manifest 的 cookies 权限；域名门见 cookie-gate.ts）
   //   url 必填 —— 缺省语义由包装层填 location.href（SW 里没有「当前页面」概念），
   //   SW 侧不做兜底：url 缺失/非法一律 INVALID_ARG，不静默猜。
-  | { c: 'cookie.get'; url: string; name?: string }
+  | { c: 'cookie.get'; url: string; name?: string; domain?: string; path?: string }
   | {
       c: 'cookie.set'
       url: string
@@ -348,7 +348,7 @@ export type ApiRequest =
       /** 写入路径（照 TM）；不传 = `/` */
       path?: string
     }
-  | { c: 'cookie.remove'; url: string; name: string }
+  | { c: 'cookie.remove'; url: string; name: string; domain?: string; path?: string }
   // 菜单（contextMenus，后台登记，点击时经 ApiEvent 回推脚本）
   | { c: 'menu.register'; id: string; title: string }
   | { c: 'menu.unregister'; id: string }
@@ -587,9 +587,19 @@ export interface GmCookieApi {
 }
 
 export interface GmCookieQuery {
-  /** 缺省 = 当前页 */
+  /**
+   * 缺省 = 当前页。**恒参与查询**（与下面两个字段是 AND 关系）—— 边界就在这条：
+   * 返回集永远 ⊆ 「本页可见的 cookie」。
+   */
   url?: string
   name?: string
+  /**
+   * 按域筛选（可带前导点，如 `.example.com`）。**只会收窄** url 的可见范围，不会越权读到无关域的 cookie；
+   * 写 cookie 时它是「写到哪个域」，此时浏览器要求它与 url 同域或其父域（`chrome.cookies.set` 会拒越域）。
+   */
+  domain?: string
+  /** 按路径筛选；写 cookie 时是「写到哪个路径」（不传 = `/`） */
+  path?: string
 }
 
 export interface GmCookieWrite extends GmCookieQuery {
@@ -599,13 +609,6 @@ export interface GmCookieWrite extends GmCookieQuery {
   httpOnly?: boolean
   /** Unix 秒；不传 = 会话 cookie */
   expirationDate?: number
-  /**
-   * 写入哪个域（照 TM 收下）。**不传 = 由 url 主机推导**；传了必须与该 url 同域或其父域 ——
-   * 这是浏览器自己的约束（`chrome.cookies.set` 会拒），不是我们额外加的限制。
-   */
-  domain?: string
-  /** 写入路径（照 TM）。不传 = `/` */
-  path?: string
 }
 
 /** 当前标签页的音频状态（`GM_audio.getState`；字段形状照 TM，缺字段用 undefined 而非 false） */

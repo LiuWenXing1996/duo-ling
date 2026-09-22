@@ -608,12 +608,14 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
     // cookie（cookies 权限）：先过域名门，再碰 chrome.cookies —— 顺序不可倒（门是唯一安全边界）
     case 'cookie.get': {
       await assertCookieScope(uuid, req.url)
-      const api = cookiesApi()
-      if (req.name != null && req.name !== '') {
-        const one = await api.get({ url: req.url, name: req.name })
-        return one ? [toGmCookie(one)] : []
-      }
-      const all = await api.getAll({ url: req.url })
+      // domain / path 只是**收窄**条件：chrome 的查询是 AND 语义、且 url 恒在 → 返回集 ⊆ 本页可见，
+      // 不会越权读到无关域的 cookie（这正是敢把它们透传下去的理由）。
+      // 统一走 getAll（它支持这四个条件；get 只吃 url + name），name 分支的语义与此等价。
+      const filter: chrome.cookies.GetAllDetails = { url: req.url }
+      if (req.name != null && req.name !== '') filter.name = req.name
+      if (req.domain) filter.domain = req.domain
+      if (req.path) filter.path = req.path
+      const all = await cookiesApi().getAll(filter)
       return all.map(toGmCookie)
     }
     case 'cookie.set': {
@@ -645,7 +647,23 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       if (typeof req.name !== 'string' || !req.name) {
         throw new ApiError('INVALID_ARG', 'GM_cookie.remove：name 必填')
       }
-      await cookiesApi().remove({ url: req.url, name: req.name })
+      const api = cookiesApi()
+      // 带 domain / path 时先按条件查、再用**每条 cookie 自己的域与路径**拼 url 删：
+      // chrome.cookies.remove 只吃 { url, name }，而查出来的必然落在 url 的可见范围内（AND 语义）。
+      if (req.domain || req.path) {
+        const found = await api.getAll({
+          url: req.url,
+          name: req.name,
+          ...(req.domain ? { domain: req.domain } : {}),
+          ...(req.path ? { path: req.path } : {}),
+        })
+        for (const c of found) {
+          const scheme = c.secure ? 'https' : 'http'
+          await api.remove({ url: `${scheme}://${c.domain.replace(/^\./, '')}${c.path}`, name: c.name })
+        }
+        return undefined
+      }
+      await api.remove({ url: req.url, name: req.name })
       return undefined
     }
     // DL Port 事件底座：菜单登记 + store 订阅（控制面，经 Port 回推见 dl-port.ts）
