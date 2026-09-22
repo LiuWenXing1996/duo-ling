@@ -21,6 +21,9 @@
     **删除会话必须先过「是否正被标签页使用」这道门**（`conversation-tab-map` 的 `getActiveTabBindings`：映射里有 **且** 该标签页还开着）—— 新增任何删除入口都要走它，别只查映射。
     **标签页关闭时，它那条会话正在跑的任务要一并中止**（`background` 的 `tabs.onRemoved` → `abortConversationOfClosedTab`：先按归属映射找到会话、再解绑，然后发 `chat:abort`）。任务跑在 offscreen、与页面无关是刻意的，但会话按标签页归属 —— 页面没了就没人看结果、也没处按停止，不喊停它会一路跑完烧 token。这种中止**不记未读通知**（用户自己关的）。用户侧的就地停止入口在工作台「会话历史」的「生成中」标上。
     **凡是「对这个标签页做点什么」的新入口，判据必须是会话归属，不是 `tabs.query({active})`**：命中页只可能是「用户此刻正看着的那页」（拾取 —— 用户点按钮时面板必然在激活页上），其余一律认归属（页面快照走 `findTabsUsingConversation` 反查，见 `background.ts` 的 `'page:snapshot'`）—— 生成期间用户随时可能切走。
+- **对话附件（图片 / 文本文件，2026-09-22）**：转换全在**发出前**完成，集中一处（`src/lib/chat-attachments.ts`），下游 transport / offscreen / provider 不感知附件的存在 —— 机制见 [ARCHITECTURE.md](ARCHITECTURE.md)「对话链路」。两条不得改坏：
+  - **模型未声明支持图片时，附件入口不得隐藏、也不得整枚禁用**：入口消失或全灰会让用户以为「没有这个功能」，而实际只是「换个模型或者换成文本文件就行」。正确做法是入口保留、只收文本文件（`accept` 随之切换，粘贴与拖拽走同一道校验），并把原因写在入口提示里。**未声明一律按不支持** —— 图片发错了会让整个会话从头废掉（每轮历史重发都带着那张图），这是唯一必须预防而不能事后处理的失败方式。同理，**历史里有图而当前模型读不了时要拦在发送前**（判据只看历史 parts 有没有 file、与本届带不带附件无关）：这种组合下每一轮都会失败，不能让用户每轮去读一次上游报错。
+  - **任何新的附件入口都必须过那份类型白名单**：将来加拖拽 / 选择器 / 导入之类的入口时，别绕开 `prepareAttachments` 自己处理文件，否则会把 zip / pdf 当文本读进提示词。
 - **主题**：**跟随系统**（`src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`）—— html 上不硬写 `class="dark"`，组件里不硬编码色值（一律用主题变量如 `--background`）。
 - **工作台标签页（面板）**：新增 / 改动按 [workbench-panel](.agents/skills/workbench-panel/SKILL.md) 走 —— **接线固定 5 处（清单只在该 SKILL 罗列）**。
   - **面板数据源不得 import offscreen 专属模块**（`us-git` / `builder` / `offscreen-chat/script-tools`）：要么新增 IPC，要么抽一份运行时与 UI 共用的纯数据模块，并配「从运行时反射比对」的防漂移单测。
@@ -65,6 +68,7 @@
 | [.agents/skills/shadcn-vue/SKILL.md](.agents/skills/shadcn-vue/SKILL.md) | shadcn-vue 组件检索、添加与样式规范（上游 skill） | 动 UI / 表单 / 图标前 |
 | [.agents/skills/workbench-panel/SKILL.md](.agents/skills/workbench-panel/SKILL.md) | 工作台标签页接线 5 处、面板数据源约束、复用骨架 | 新增 / 改动工作台面板前 |
 | [.agents/skills/testing/SKILL.md](.agents/skills/testing/SKILL.md) | 测试怎么写：双 project 分工、测试三件套、桥接层四类语义自检、happy-dom 陷阱 | 写 / 改测试前 |
+| [.agents/skills/ui-visual-probe/SKILL.md](.agents/skills/ui-visual-probe/SKILL.md) | UI 观感怎么看：无头 Playwright 探针截图（viewport / 真素材 / 造落盘数据的要点） | 改样式后要确认渲染、需要改前改后对照时 |
 | `.workbuddy/memory/` | 本机环境、会话过程、临时状态（不入库）—— **不承载项目知识** | 给下一轮会话留上下文；结论成形后按本表归位 |
 
 ## 全局约束（强制）
@@ -120,7 +124,7 @@
 | 动手前 | 读本文件 → 「文档职责总表」→ 相关文档 → `.workbuddy/memory/`（本机上下文，不入库）；重大变更的决策理由记进本文件对应小节 |
 | 可直接做 | 读代码、探索、改文档 / 注释 / 格式、日常改动 |
 | 先问再做 | 改行为或结构、加依赖、动 manifest、删文件、外部操作（push / 发布） |
-| 交付前 | 走上面「交付前验证」；并自查波及的文档与注释是否需同步（见上「文档随改动同步」），需要改的与代码同批改完；UI 不做额外视觉校验 |
+| 交付前 | 走上面「交付前验证」；并自查波及的文档与注释是否需同步（见上「文档随改动同步」），需要改的与代码同批改完；UI **不做强制**视觉校验，但要给出观感结论（或用户问样式）时用 [ui-visual-probe](.agents/skills/ui-visual-probe/SKILL.md) 截图说明，别只写「好看多了」 |
 | 提交 | 允许提交，但提交前须说明改了什么；改错可随时中止 |
 | 收尾 | 讨论出的结论和踩到的坑落进仓库（落点见「文档职责总表」），不停留在 `.workbuddy/`；**过程沉淀不算文档同步，别拿它替代上一行的自查** |
 | 主动报告 | 发现方向偏离、死链、过时内容、规范互相冲突 → 直接指出，不等询问 |

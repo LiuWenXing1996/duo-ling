@@ -31,6 +31,7 @@ import {
   X as UiX
 } from '@lucide/vue'
 import { cn } from '@/lib/utils'
+import { isKnownVisionModel } from '@/lib/providers'
 import type { ModelProfile, ModelProvider } from '@/types/model'
 
 const props = defineProps<{
@@ -57,6 +58,8 @@ const form = reactive({
   baseUrl: '',
   useFullUrl: false,
   apiKey: '',
+  // 模型能力声明：能否接收图片（对话栏的附件入口据此决定可用性）
+  vision: false,
   // 高级配置
   contextOutputToken: '',
   temperature: '',
@@ -85,6 +88,7 @@ watch(
       form.baseUrl = props.editing.baseUrl
       form.useFullUrl = props.editing.useFullUrl
       form.apiKey = '' // 不回显明文，留空表示保存时保留
+      form.vision = props.editing.vision ?? false
       form.contextOutputToken = props.editing.contextOutputToken != null ? String(props.editing.contextOutputToken) : ''
       form.temperature = props.editing.temperature != null ? String(props.editing.temperature) : ''
       form.topP = props.editing.topP != null ? String(props.editing.topP) : ''
@@ -102,6 +106,7 @@ function resetForm(): void {
   form.name = ''
   form.useFullUrl = false
   form.apiKey = ''
+  form.vision = false
   testResult.value = null
   testing.value = false
   form.contextOutputToken = ''
@@ -160,9 +165,12 @@ watch(quickProviderId, (id) => {
   quickProviderId.value = ''
 })
 
-/** 模型快捷填入：点击预设计算出的候选模型 ID */
+/** 模型快捷填入：点击预设计算出的候选模型 ID。
+ *  同时按预设表把「支持图片」预置到已知的视觉模型上（手输模型 ID 不联动，
+ *  免得打字过程中来回改用户的勾选；拿不准的一律保持原样，由用户自己判断）。 */
 function fillModel(model: string): void {
   form.model = model
+  form.vision = isKnownVisionModel(model)
 }
 
 const canSave = computed(() => {
@@ -220,6 +228,7 @@ async function save(): Promise<void> {
       model: form.model.trim(),
       useFullUrl: form.useFullUrl,
       enabled: props.editing?.enabled ?? true,
+      vision: form.vision,
       contextOutputToken: numberOrUndefined(form.contextOutputToken),
       temperature: numberOrUndefined(form.temperature),
       topP: numberOrUndefined(form.topP),
@@ -357,6 +366,19 @@ async function save(): Promise<void> {
                 {{ form.name.length }}/32
               </span>
             </div>
+          </div>
+
+          <!-- 是否支持图片：对话栏的附件入口据此判断能否发送图片 -->
+          <div class="space-y-1">
+            <div class="flex items-center justify-between">
+              <label for="model-vision" class="cursor-pointer text-xs font-medium">支持图片</label>
+              <ui-switch id="model-vision" v-model="form.vision" aria-label="支持图片">
+                <ui-switch-thumb />
+              </ui-switch>
+            </div>
+            <p class="text-xs leading-relaxed text-muted-foreground">
+              开启后可在对话中把图片发给这个模型；模型读不了图时，请求会直接失败。
+            </p>
           </div>
 
           <!-- API 密钥 -->

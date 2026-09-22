@@ -115,7 +115,7 @@ function deriveConversation(c: Conversation, messages: Message[] | undefined): C
   return {
     ...c,
     totalTokens: sumTokens(list),
-    lastMessagePreview: last ? truncateSnippet(last.content, 80) : ''
+    lastMessagePreview: last ? previewOf(last) : ''
   }
 }
 
@@ -123,6 +123,13 @@ function deriveConversation(c: Conversation, messages: Message[] | undefined): C
 function truncateSnippet(text: string, max = 100): string {
   const flat = text.replace(/\s+/g, ' ').trim()
   return flat.length > max ? `${flat.slice(0, max)}…` : flat
+}
+
+/** 列表预览：正文空但带图片时给个可读占位 —— 只发了图的那条消息，预览不该是一片空白 */
+function previewOf(m: Message): string {
+  const text = truncateSnippet(m.content, 80)
+  if (text) return text
+  return (m.parts ?? []).some((p) => p.type === 'file') ? '[图片]' : ''
 }
 
 /**
