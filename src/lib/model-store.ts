@@ -177,7 +177,10 @@ export async function saveProfile(input: ModelProfileInput): Promise<ModelProfil
       temperature: input.temperature,
       topP: input.topP,
       topK: input.topK,
-      streamIdleTimeoutSec: input.streamIdleTimeoutSec ?? existing?.streamIdleTimeoutSec
+      streamIdleTimeoutSec: input.streamIdleTimeoutSec ?? existing?.streamIdleTimeoutSec,
+      // 能力声明缺省为关闭：老配置没有这个字段，一律按「不支持图片」起步 ——
+      // 默认开着会把图片发给读不了图的模型（失败方式见 shared/types 的 ModelProfile.vision）
+      vision: input.vision ?? existing?.vision ?? false
     }
   state.profiles = existing
     ? state.profiles.map((p) => (p.id === id ? next : p))

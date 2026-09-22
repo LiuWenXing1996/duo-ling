@@ -100,6 +100,15 @@ export interface ModelProfile {
   topK?: number
   /** 流式静默超时（秒）：两次回复间隔超过此值即判定服务卡死并中止生成，避免请求长期占用连接触发限流；不填用默认 60 */
   streamIdleTimeoutSec?: number
+  /**
+   * 是否支持图片输入（模型能力声明，用户在模型表单里勾选）。
+   *
+   * 为什么必须声明而不是自动探测：对话里的图片以 image part 直接进请求体，
+   * 读不了图的模型要么报错（用户只会看到上游的原文报错）、要么静默丢弃图片后
+   * 一本正经地编内容。而带图消息一发出去就落盘了，之后每一轮都会重新带上它 ——
+   * 声明缺失会让一个会话从头废掉，且用户无从定位。
+   */
+  vision?: boolean
 }
 
 /** 保存/新增模型配置的入参；apiKey 为空表示保留已有 Key（编辑时未重输） */
@@ -118,6 +127,8 @@ export interface ModelProfileInput {
   topK?: number
   /** 流式静默超时（秒），见 ModelProfile.streamIdleTimeoutSec */
   streamIdleTimeoutSec?: number
+  /** 是否支持图片输入，见 ModelProfile.vision */
+  vision?: boolean
 }
 
 /** 连通性测试入参（model:testChat） */
