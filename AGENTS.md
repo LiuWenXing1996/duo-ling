@@ -68,6 +68,7 @@
 | [.agents/skills/shadcn-vue/SKILL.md](.agents/skills/shadcn-vue/SKILL.md) | shadcn-vue 组件检索、添加与样式规范（上游 skill） | 动 UI / 表单 / 图标前 |
 | [.agents/skills/workbench-panel/SKILL.md](.agents/skills/workbench-panel/SKILL.md) | 工作台标签页接线 5 处、面板数据源约束、复用骨架 | 新增 / 改动工作台面板前 |
 | [.agents/skills/testing/SKILL.md](.agents/skills/testing/SKILL.md) | 测试怎么写：双 project 分工、测试三件套、桥接层四类语义自检、happy-dom 陷阱 | 写 / 改测试前 |
+| [.agents/skills/ui-visual-probe/SKILL.md](.agents/skills/ui-visual-probe/SKILL.md) | UI 观感怎么看：无头 Playwright 探针截图（viewport / 真素材 / 造落盘数据的要点） | 改样式后要确认渲染、需要改前改后对照时 |
 | `.workbuddy/memory/` | 本机环境、会话过程、临时状态（不入库）—— **不承载项目知识** | 给下一轮会话留上下文；结论成形后按本表归位 |
 
 ## 全局约束（强制）
@@ -123,7 +124,7 @@
 | 动手前 | 读本文件 → 「文档职责总表」→ 相关文档 → `.workbuddy/memory/`（本机上下文，不入库）；重大变更的决策理由记进本文件对应小节 |
 | 可直接做 | 读代码、探索、改文档 / 注释 / 格式、日常改动 |
 | 先问再做 | 改行为或结构、加依赖、动 manifest、删文件、外部操作（push / 发布） |
-| 交付前 | 走上面「交付前验证」；并自查波及的文档与注释是否需同步（见上「文档随改动同步」），需要改的与代码同批改完；UI 不做额外视觉校验 |
+| 交付前 | 走上面「交付前验证」；并自查波及的文档与注释是否需同步（见上「文档随改动同步」），需要改的与代码同批改完；UI **不做强制**视觉校验，但要给出观感结论（或用户问样式）时用 [ui-visual-probe](.agents/skills/ui-visual-probe/SKILL.md) 截图说明，别只写「好看多了」 |
 | 提交 | 允许提交，但提交前须说明改了什么；改错可随时中止 |
 | 收尾 | 讨论出的结论和踩到的坑落进仓库（落点见「文档职责总表」），不停留在 `.workbuddy/`；**过程沉淀不算文档同步，别拿它替代上一行的自查** |
 | 主动报告 | 发现方向偏离、死链、过时内容、规范互相冲突 → 直接指出，不等询问 |
