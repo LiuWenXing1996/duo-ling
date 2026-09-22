@@ -14,12 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import PopupPanel from './PopupPanel.vue'
-import {
-  getMasterEnabled,
-  isFloatEnabledForHost,
-  setHostDisabled,
-  setMasterEnabled,
-} from '@/lib/float-panel-store'
+import { ensureFloatEnabled } from '@/lib/float-panel-store'
 
 const listScripts = vi.hoisted(() => vi.fn())
 const readUpdateCheck = vi.hoisted(() => vi.fn())
@@ -34,6 +29,7 @@ vi.mock('@/lib/float-panel-store', () => ({
   setMasterEnabled: vi.fn(async () => undefined),
   isFloatEnabledForHost: vi.fn(async () => true),
   setHostDisabled: vi.fn(async () => undefined),
+  ensureFloatEnabled: vi.fn(async () => undefined),
 }))
 
 /** 假端口：保留 push 口喂 SW → 面板的下行推送，并记录面板的上行 postMessage */
@@ -207,28 +203,16 @@ describe('popup 的「对话浮层」入口', () => {
     expect(close).toHaveBeenCalled()
   })
 
-  it('当前网站的浮层关着：先把它打开（写回存储）再发消息', async () => {
+  it('发消息前先把开关补齐（补齐策略在 ensureFloatEnabled 一处，页面右键菜单共用）', async () => {
     stubChrome('https://example.com/page')
-    vi.mocked(isFloatEnabledForHost).mockResolvedValueOnce(false)
     const w = await mountPopup()
 
     await openBtn(w).trigger('click')
     await flushPromises()
 
-    // 不写回存储的话，浮层显示着、开关却写着「已关」，刷新后浮层消失无从解释
-    expect(setHostDisabled).toHaveBeenCalledWith('example.com', false)
-    expect(tabsSendMessage).toHaveBeenCalledWith(TAB_ID, { kind: 'float:open' })
-  })
-
-  it('总开关关着：先打开总开关再发消息', async () => {
-    stubChrome('https://example.com/page')
-    vi.mocked(getMasterEnabled).mockResolvedValueOnce(false)
-    const w = await mountPopup()
-
-    await openBtn(w).trigger('click')
-    await flushPromises()
-
-    expect(setMasterEnabled).toHaveBeenCalledWith(true)
+    // 不补齐的话会出现「浮层显示着、开关却写着已关」，用户下次刷新页面浮层消失无从解释。
+    // 「补齐成什么样」由 ensureFloatEnabled 决定，见 lib/float-panel-store 的单测。
+    expect(ensureFloatEnabled).toHaveBeenCalledWith('example.com')
     expect(tabsSendMessage).toHaveBeenCalledWith(TAB_ID, { kind: 'float:open' })
   })
 

@@ -17,11 +17,11 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 | 扩展页 | `workbench.html`（标签页） | 重界面工作区（脚本管理 / 运行日志 / 会话历史 / 设置等） |
 | 扩展页 | `popup.html`（工具栏 popup） | 配置入口：网页浮层开关（总开关 + 当前站点）+ 调出当前页的对话浮层 + 本页脚本（本页在跑的脚本与报错）+「打开工作台」，并说明当前页面为何挂不了浮层；**不承载对话**（不装 `window.api`） |
 | 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：注入悬浮按钮 + iframe（按站点开关），拾取期间整块让位；并接受 popup 的调出请求（`FloatOpenRequest`） |
-| SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 |
+| SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 + 网页浮层的右键菜单入口 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
 | 注入世界 | USER_SCRIPT（第三方页面内） | 用户脚本自身逻辑，经 GM 包装层（`gm-wrapper.ts` 注入 `GM_*` / `GM.*`）桥接，内部走 userScript 世界的 `__dl` 信封协议 |
 
-各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的注入细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级、页面外的调出入口）见 [src/entrypoints/content.ts](src/entrypoints/content.ts) 顶部注释。**调出入口有两个**：页面内那颗悬浮按钮是主入口，但它可能被页面元素压住（含无视 z-index 的 top layer），也可能站点开关 / 总开关关着时内容脚本整块不挂 —— 这两种情况下页面上没有任何东西可点，只能由 popup 发一条定向消息（`FloatOpenRequest`，`tabs.sendMessage`，不经 SW）让内容脚本就地挂 UI 并展开。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
+各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的注入细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级、页面外的调出入口）见 [src/entrypoints/content.ts](src/entrypoints/content.ts) 顶部注释。**调出入口有三条**：页面内那颗悬浮按钮是主入口，但它可能被页面元素压住（含无视 z-index 的 top layer），也可能站点开关 / 总开关关着时内容脚本整块不挂 —— 这两种情况下页面上没有任何东西可点，只能从页面外叫：工具栏 popup 的「对话浮层」按钮，与页面右键菜单（SW 注册，`documentUrlPatterns` 限 http/https）。三者都收敛到同一条定向消息（`FloatOpenRequest`，`tabs.sendMessage`，不经 SW），内容脚本收到就地挂 UI 并展开；发消息前一律先按 `ensureFloatEnabled` 补齐开关 —— 否则会出现「浮层显示着、开关却写着已关」，用户下次刷新页面浮层消失无从解释。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
 
 ## 对话链路
 

@@ -14,6 +14,7 @@ import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/u
 import { Button as UiButton } from '@/components/ui/button'
 import PopupPageScripts from './PopupPageScripts.vue'
 import {
+  ensureFloatEnabled,
   getMasterEnabled,
   setMasterEnabled,
   isFloatEnabledForHost,
@@ -95,8 +96,8 @@ async function onCurrent(value: boolean): Promise<void> {
  * —— 那两种情况下用户在页面上什么都点不到，只能翻到这里来。
  *
  * 三步，顺序有讲究：
- *   1. 开关关着就先打开（写回存储）。让「开关显示的状态」与「浮层实际的显示」一致 —— 否则
- *      用户下次刷新页面浮层又不见了，而开关还写着「已关」，无从解释。
+ *   1. 开关补齐成「开」（见 ensureFloatEnabled）。让「开关显示的状态」与「浮层实际的显示」
+ *      一致 —— 否则用户下次刷新页面浮层又不见了，而开关还写着「已关」，无从解释。
  *   2. 给当前标签页的内容脚本发**定向**消息（不经 SW；契约见 FloatOpenRequest）。
  *   3. 成功才关 popup。失败时留在 popup 里把原因说出来 —— 关了就没地方说了。
  *
@@ -110,14 +111,11 @@ async function openFloatPanel(): Promise<void> {
   // 读不到标签页时静默退场：这是 popup 与页面失联的异常态，给技术性报错只是噪音
   if (tabId == null) return
 
-  if (!master.value) {
-    master.value = true
-    await setMasterEnabled(true)
-  }
-  if (currentHost.value && !currentEnabled.value) {
-    currentEnabled.value = true
-    await setHostDisabled(currentHost.value, false)
-  }
+  // 开关补齐的判据在 ensureFloatEnabled 一处（页面右键菜单共用同一条），这里只负责把面板上的
+  // 两个开关回读成真实状态
+  await ensureFloatEnabled(currentHost.value)
+  master.value = await getMasterEnabled()
+  if (currentHost.value) currentEnabled.value = await isFloatEnabledForHost(currentHost.value)
 
   try {
     await chrome.tabs.sendMessage(tabId, FLOAT_OPEN_REQUEST)

@@ -16,9 +16,9 @@
 //   - 拾取让位：页面元素拾取（点选元素 / 快照）期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
 //   - 展开态上报：浮层展开时连一条 FLOAT_PANEL_OPEN_PORT 端口、收起时断开 —— SW 靠它判
 //     「用户此刻在看对话界面吗」（生成完成徽章）。见该常量处说明。
-//   - 页面外的入口：popup 发一条 float:open 消息即可把浮层叫出来（见 FloatOpenRequest）——
-//     悬浮按钮可能被页面元素压住（页面自己的固定元素，或无视 z-index 的 top layer），也可能
-//     站点开关关着时整块不存在，那些场景下用户只能从这个入口调出浮层。
+//   - 页面外的入口：popup 的「对话浮层」按钮与页面右键菜单各发一条 float:open 消息，收到就挂
+//     UI 并展开（见 FloatOpenRequest）—— 悬浮按钮可能被页面元素压住（页面自己的固定元素，或
+//     无视 z-index 的 top layer），也可能站点开关关着时整块不存在，那些场景下只能从页面外叫。
 //
 // WXT 按文件名 content.ts 自动识别为 content script；matches 经 defineContentScript 声明。
 

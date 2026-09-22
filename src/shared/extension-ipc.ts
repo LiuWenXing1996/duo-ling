@@ -338,7 +338,7 @@ export const FLOAT_PANEL_OPEN_PORT = 'duoling:panel-open'
  * 为什么需要：浮层一贯只有页面里那颗悬浮按钮一个开关，而那个按钮可能点不到、也可能不在——
  * 页面自己的固定元素会把它压住（有些站点还会用 `dialog.showModal()` / `popover` 这类 top layer，
  * 它们无视 z-index），站点开关或总开关关闭时内容脚本则干脆不挂 UI。两种情况都让用户「再也
- * 调不出浮层」，所以 popup 得有一个页面之外的入口。
+ * 调不出浮层」，所以页面之外得留入口：popup 的「对话浮层」按钮与页面右键菜单都发这条消息。
  *
  * 为什么不走 RuntimeRequest 总线（渲染页 → SW → 转发）：这条消息只对**某一个**标签页有意义，
  * 而 `tabs.sendMessage` 天然定向到那个 tab 的内容脚本，SW 参与不进来、也不需要它。
