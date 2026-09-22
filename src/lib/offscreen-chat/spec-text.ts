@@ -102,7 +102,7 @@ ${renderCapabilities()}
 - \`@connect\` 白名单（本扩展的跨域请求不需要声明）
 - \`GM_xmlhttpRequest\` 的 \`onprogress\` 与 \`responseType: 'stream'\`（这两项 TM 有、本扩展暂无）
 - 同步 \`GM_xmlhttpRequest\`：TM 官方也明确不支持；\`responseType\` 的合法值只有 arraybuffer / blob / json / stream
-- \`GM_cookie\` 的 \`domain\` / \`path\`（安全收紧项，传入即报错）
+- \`GM_cookie.list\` / \`GM_cookie.delete\` 的 \`domain\` / \`path\` 查询（\`set\` 支持这两个字段）
 
 ## \`@grant\` 怎么写
 

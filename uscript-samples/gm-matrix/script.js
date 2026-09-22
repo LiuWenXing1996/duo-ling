@@ -802,9 +802,14 @@
       return unknown('用户跳过（会写 cookie）')
     }
     try {
-      await GM_cookie.set({ name: name, value: 'v1' })
+      // domain / path 照 TM 收下（这里给 domain = location.hostname，即与 url 同域的那种合法写法；
+      // 真机上若浏览器拒收，这一条会红 —— 正是想验的点）
+      await GM_cookie.set({ name: name, value: 'v1', domain: location.hostname, path: '/' })
       var hit = await GM_cookie.list({ name: name })
       if (!Array.isArray(hit) || hit.length !== 1 || hit[0].value !== 'v1') return fail('写后读回不对：' + JSON.stringify(hit))
+      // 判据容忍前导点：chrome 对 domain == host 的写法可能存成 ".example.com" 形态
+      var gotDomain = String(hit[0].domain || '').replace(/^\./, '')
+      if (gotDomain !== location.hostname) return fail('domain 没落上：' + hit[0].domain)
       await GM_cookie.delete({ name: name })
       var gone = await GM_cookie.list({ name: name })
       return Array.isArray(gone) && gone.length === 0 ? pass('写 → 读回 → 删掉，页面 cookie 无残留') : fail('删后仍读得到')

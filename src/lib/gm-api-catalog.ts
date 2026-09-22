@@ -380,11 +380,13 @@ const CAPABILITIES = {
     ns: null,
     title: 'cookie 读写删',
     sigGlobal: 'GM_cookie',
-    summary: 'cookie 的 list / set / delete（**过域名门**，比油猴收紧）',
+    summary: 'cookie 的 list / set / delete（url 须过域名门）',
     detail:
       '**url 必须落在该脚本自身 matches 内**（只比协议与主机名，忽略路径），越域报 PERMISSION_DENIED；url 缺省 = 当前页。' +
-      '**收紧项**：`set` 不收 domain / path（传入即报错，不静默忽略）——domain 由 url 主机推导、path 恒 `/`，' +
-      '开放 domain 会让上面的域名校验形同虚设。HttpOnly cookie 照原样暴露（与油猴一致）。回调可省（省了用返回的 Promise）。',
+      '`set` 的 `domain` / `path` 照 TM 收下（不传则分别由 url 主机与 `/` 推导）：域名校验始终按 url 算，' +
+      '而「domain 必须与 url 同域或其父域」由浏览器保证 —— 写父域 cookie 是 cookie 语义允许的。' +
+      '**`list` / `delete` 的 `domain` / `path` 查询尚未支持**（传入即报错，不静默忽略）。' +
+      'HttpOnly cookie 照原样暴露（与油猴一致）。回调可省（省了用返回的 Promise）。',
     returns: '回调式 + Promise',
     bridge: 'bridge',
     group: 'page',
