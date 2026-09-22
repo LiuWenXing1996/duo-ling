@@ -27,6 +27,7 @@
 // @grant        GM_getTabs
 // @grant        GM_cookie
 // @grant        GM_audio
+// @grant        GM_download
 // @grant        GM_getResourceText
 // @grant        GM_getResourceURL
 // @grant        window.close
@@ -101,6 +102,7 @@
 // @covers GM_registerMenuCommand / GM_unregisterMenuCommand :: GM_registerMenuCommand GM_unregisterMenuCommand GM.registerMenuCommand GM.unregisterMenuCommand
 // @covers GM.clearValues（扩展独有） :: GM.clearValues
 // @covers run-at document-body（注入时 body 已存在）
+// @covers GM_download（浏览器下载器） :: GM_download GM.download
 // @covers GM_xmlhttpRequest 的 onprogress（下载进度） :: GM_xmlhttpRequest GM.xmlHttpRequest
 // @covers GM_getResourceText / GM_getResourceURL（未知名 → undefined） :: GM_getResourceText GM_getResourceURL GM.getResourceText GM.getResourceUrl
 // @covers GM_audio.setMute / getState（含 GM.audio 镜像） :: GM_audio.setMute GM_audio.getState GM_audio GM.audio
@@ -570,6 +572,22 @@
         },
         onerror: function (r) { resolve(unknown('请求失败：' + (r && r.error))) },
         ontimeout: function () { resolve(unknown('请求超时（网络不可达？）')) }
+      })
+    })
+  })
+
+  add('网络', 'GM_download（浏览器下载器）', function () {
+    return new Promise(function (resolve) {
+      var settled = false
+      var done = function (r) { if (!settled) { settled = true; resolve(r) } }
+      // 兜底：下载或事件链出问题时不把整轮卡死
+      setTimeout(function () { done(fail('10s 内没有回调（下载没完成 / 结局帧没回来）')) }, 10000)
+      GM_download({
+        url: NET_URL,
+        name: PFX + 'probe.txt',
+        // saveAs 刻意不开：无头 / 自动跑时弹「另存为」会卡住整轮
+        onload: function () { done(pass('完成回调触发（文件落在浏览器下载目录）')) },
+        onerror: function (e) { done(fail('下载失败：' + ((e && e.error) || '未知'))) },
       })
     })
   })
