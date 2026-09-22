@@ -402,7 +402,7 @@ describe('GM_cookie（cookies 权限 + 域名门）', () => {
     }
   })
 
-  it('cookie.set 只传 url（不传 domain / path，防架空域名门），可选字段按需透传', async () => {
+  it('cookie.set 不传的可选字段不进 details（domain / path 也在其列）', async () => {
     await seedScript(COOKIE_UUID, ['https://example.com/*'])
     const resp = await sendToBridge(
       {
@@ -425,6 +425,25 @@ describe('GM_cookie（cookies 权限 + 域名门）', () => {
       httpOnly: true,
       expirationDate: 1900000000,
     })
+  })
+
+  it('cookie.set 把 domain / path 透传（照 TM 收下；同域约束由浏览器保证，门仍按 url 算）', async () => {
+    await seedScript(COOKIE_UUID, ['https://a.example.com/*'])
+    const resp = await sendToBridge(
+      {
+        c: 'cookie.set',
+        url: 'https://a.example.com/',
+        name: 'k',
+        value: 'v',
+        domain: '.example.com',
+        path: '/sub',
+      },
+      COOKIE_UUID,
+    )
+    expect(resp).toEqual({ ok: true, data: undefined })
+    expect(cookiesMocks.set).toHaveBeenCalledWith(
+      expect.objectContaining({ domain: '.example.com', path: '/sub' }),
+    )
   })
 
   it('cookie.set 缺 name / value 非字符串 → INVALID_ARG', async () => {

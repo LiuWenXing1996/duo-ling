@@ -64,13 +64,14 @@ describe('buildGmWrapperPrefix', () => {
     expect(src).toContain('inIncognitoContext')
   })
 
-  it('MAIN 世界的成员都显式实现（unsafeWindow 即页面 window / onurlchange / 域名门收紧）', () => {
+  it('MAIN 世界的成员都显式实现（unsafeWindow 即页面 window / onurlchange / cookie 字段校验收窄）', () => {
     const src = build()
     // unsafeWindow 就是页面自己的 window（脚本跑在主世界），故走局部声明
     expect(src).toContain('var unsafeWindow = window')
     expect(src).not.toContain("defineProperty(window, 'unsafeWindow'")
     expect(src).toContain("Object.defineProperty(window, 'onurlchange'")
-    expect(src).toContain('domain / path 不受支持')
+    // set 照 TM 收下 domain / path；仍显式拒绝的是 list / delete 的这两个查询条件（不静默忽略）
+    expect(src).toContain('list / delete 的 domain / path 查询尚未支持')
     expect(src).toContain('store.watchAll') // 常驻通道
     expect(src).toContain('store.all') // connect 后全量校准
   })

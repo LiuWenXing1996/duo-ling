@@ -886,10 +886,15 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
       }
     }
   }
-  /** domain / path 是**域名门收紧项**：传入即拒（不静默忽略——静默会让脚本以为自己写到了父域） */
-  function __gmCookieReject(q) {
-    if (q && (q.domain != null || q.path != null)) {
-      return new Error('GM_cookie：domain / path 不受支持（domain 由 url 主机推导、path 恒 "/"；开放 domain 会架空域名门）')
+  /**
+   * 不支持的字段**显式拒绝**、不静默忽略 —— 静默会让脚本以为自己写成了。
+   *
+   * domain / path 在 set 上已照 TM 收下（传 allowDomainPath = true）；list / delete 的
+   * 这两个**查询条件**尚未实现，传了仍报错（否则脚本会以为筛过了）。
+   */
+  function __gmCookieReject(q, allowDomainPath) {
+    if (!allowDomainPath && q && (q.domain != null || q.path != null)) {
+      return new Error('GM_cookie：list / delete 的 domain / path 查询尚未支持（set 已支持这两个字段）')
     }
     return null
   }
@@ -904,10 +909,11 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     },
     set: function (details, cb) {
       var d = details || {}
-      var bad = __gmCookieReject(d)
+      var bad = __gmCookieReject(d, true)
       var p = bad ? Promise.reject(bad) : __gmSend({
         c: 'cookie.set', url: d.url || location.href, name: d.name, value: d.value,
-        secure: d.secure, httpOnly: d.httpOnly, expirationDate: d.expirationDate
+        secure: d.secure, httpOnly: d.httpOnly, expirationDate: d.expirationDate,
+        domain: d.domain, path: d.path
       })
       __gmWithErrCb(p, cb)
       return p

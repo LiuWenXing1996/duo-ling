@@ -5,7 +5,7 @@
 // 桥仍是「请求-响应 + Port 下行」两条通道，只增命令、不改形状。
 //
 // 与油猴的**已知差异**（速查页与 spec 必须标注，不能让人以为是实现缺陷）：
-//   · **cookie 走域名门**：`GM_cookie.set` 不收 `domain` / `path`（开放 domain 会架空域名门）；
+//   · **cookie 的 `list` / `delete` 不支持 `domain` / `path` 查询**（`set` 照 TM 收这两个字段）；
 //   · **`GM_xmlhttpRequest` 无流式**：不收 `onprogress`，`responseType` 不支持 document / stream。
 //
 // 约束：所有跨桥值必须满足「结构化克隆」（存储层 IndexedDB 同样要求），
@@ -318,6 +318,10 @@ export type ApiRequest =
       httpOnly?: boolean
       /** Unix 秒；不传 = 会话 cookie */
       expirationDate?: number
+      /** 写入哪个域（照 TM）；不传 = 由 url 主机推导。浏览器要求它与 url 同域或其父域 */
+      domain?: string
+      /** 写入路径（照 TM）；不传 = `/` */
+      path?: string
     }
   | { c: 'cookie.remove'; url: string; name: string }
   // 菜单（contextMenus，后台登记，点击时经 ApiEvent 回推脚本）
@@ -545,8 +549,8 @@ export interface GmCookieApi {
     cb?: (cookies: GmCookie[] | undefined, error?: string) => void,
   ): Promise<GmCookie[]>
   /**
-   * 写 cookie。**`domain` / `path` 一律不受支持**（传入即 INVALID_ARG，不静默忽略）：
-   * domain 由 url 主机推导、path 恒 `/` —— 开放 domain 会架空域名门（见 cookie-gate.ts）。
+   * 写 cookie。`domain` / `path` 照 TM 收下（不传则 domain 由 url 主机推导、path 恒 `/`）。
+   * 域名门仍**按 url 校验**（见 cookie-gate.ts）；「domain 必须与 url 同域或其父域」由浏览器自己保证。
    */
   set(details: GmCookieWrite, cb?: (error?: string) => void): Promise<void>
   delete(details: GmCookieQuery & { name: string }, cb?: (error?: string) => void): Promise<void>
@@ -565,10 +569,13 @@ export interface GmCookieWrite extends GmCookieQuery {
   httpOnly?: boolean
   /** Unix 秒；不传 = 会话 cookie */
   expirationDate?: number
-  /** **不支持**：传入即报错（域名门收紧项） */
-  domain?: never
-  /** **不支持**：传入即报错（域名门收紧项） */
-  path?: never
+  /**
+   * 写入哪个域（照 TM 收下）。**不传 = 由 url 主机推导**；传了必须与该 url 同域或其父域 ——
+   * 这是浏览器自己的约束（`chrome.cookies.set` 会拒），不是我们额外加的限制。
+   */
+  domain?: string
+  /** 写入路径（照 TM）。不传 = `/` */
+  path?: string
 }
 
 /** 当前标签页的音频状态（`GM_audio.getState`；字段形状照 TM，缺字段用 undefined 而非 false） */

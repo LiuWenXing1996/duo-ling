@@ -559,11 +559,16 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       if (typeof req.value !== 'string') {
         throw new ApiError('INVALID_ARG', 'GM_cookie.set：value 必须是字符串')
       }
-      // 只传 url：domain / path 不开放覆写（开放 domain 会架空域名门，见 api-contract 注释）
       const details: chrome.cookies.SetDetails = { url: req.url, name: req.name, value: req.value }
       if (typeof req.secure === 'boolean') details.secure = req.secure
       if (typeof req.httpOnly === 'boolean') details.httpOnly = req.httpOnly
       if (typeof req.expirationDate === 'number') details.expirationDate = req.expirationDate
+      // domain / path 照 TM 收下（不传则分别由 url 主机与 "/" 推导）。**门没被架空**：
+      // ① 上面的 assertCookieScope 已按 url 校验过脚本作用域，domain 不参与判定；
+      // ② chrome.cookies.set 自身要求 domain 与 url 同域或其父域 —— 真越域会被浏览器拒
+      //（写成父域 cookie 是 cookie 语义允许的，影响面从「本子域」扩到「整个父域」，这是 TM 同款行为）。
+      if (typeof req.domain === 'string' && req.domain) details.domain = req.domain
+      if (typeof req.path === 'string' && req.path) details.path = req.path
       const written = await cookiesApi().set(details)
       if (!written) {
         throw new ApiError('INTERNAL', `GM_cookie.set 被浏览器拒绝：${req.name}`)
