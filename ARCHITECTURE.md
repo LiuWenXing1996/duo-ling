@@ -107,13 +107,18 @@ DevTools 里按库名过滤：`duoling-fs` / `duoling-state` / `duoling-usdata` 
 一切源码落盘（编辑器保存 / AI 收尾 / 历史恢复 / zip 导入 / 粘贴导入 / 新建）收敛到 offscreen 单一入口 `project-write.saveSource`：写工作树 → git 提交 → 写状态库（含源码搬运副本）→ 出口广播。
 
 - **保存恒成功、保存即注入**：无构建流程，源码原文随落盘进注册态，注册的注入代码 = 源码本身。语法错误不拦保存：坏了的脚本照样装（油猴同款），运行期报错走现成的错误日志 / 运行日志链路。
-- 编辑内容只活在页面内存（草稿机制已删），关标签前的 dirty 确认弹窗保留。
+- 编辑内容只活在页面内存（草稿机制已删）：有未保存改动时标签栏标题后点红点，关标签前弹确认（确认里可直接「保存并关闭」）；历史恢复会连草稿一并覆盖，恢复确认里按该脚本的编辑器脏状态追加提醒。
+- **脚本名不入仓**：改名（`renameProject` / `state:rename`）只改状态库记录的 `name`，不写源码、不产生提交——名字是管理面标识（列表 / 标签页 / `GM_info` / 错误日志分组名），与源码里的 `@name` 互不覆盖（见 `saveSource` 的 adoptName 说明）。
 - **导入（zip / 粘贴）**：取内容方式不同（zip 解码 / 直接粘源码），落盘同在 offscreen（单写方），导入即完成（无后台构建队列）；只拦原则项（缺 script.js 源码文件），其余尽量导入 + 报告说明（配置由源码里的 `// ==UserScript==` 块派生，缺 matches 提示补全）。两条入口都落「未启用」，由用户审过源码再手动启用。
 - 后台链路不经命令面，写完状态库**必须自己发** `broadcastDataChange`。
 
 ## 用户脚本版本管理
 
 `isomorphic-git`（纯 JS），仓在 `duoling-fs`——每次保存/导入/回滚 = 一次提交（恢复走「产生新提交」而非 reset，历史不可变）；仓损坏只丢历史，源码在工作树里。注册/注入以状态库 `duoling-state` 的 `source.code` 为准，编辑器以 `duoling-fs` 工作树为基准。
+
+版本记录带**改动来源**（`CommitActor = user | ai | system`）：来源存在提交的 author 上，**不拼进提交信息**——提交信息是给用户读的「改了什么」，来源是「谁改的」，分开存才不会互相污染（`userscript:save` 的 `actor` 字段，AI 的桥接层固定传 `ai`）。历史面板**每一版都标**（用户那档是灰字「你」，AI / 系统带图标 + 加深字）：只标非用户的会让那一栏空着，被读成「来源功能没生效」。
+
+> 措辞上刻意避开「自动」：对用户来说 AI 也是自动的，靠「AI 修改 / 系统处理」区分才立得住。
 
 > 这里指**用户脚本自身**的 git 历史，不是扩展版本号；扩展版本号机制见 [VERSIONING.md](VERSIONING.md)。
 
@@ -122,7 +127,7 @@ DevTools 里按库名过滤：`duoling-fs` / `duoling-state` / `duoling-usdata` 
 IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 `src/lib/data-broadcast.ts` 补：写侧落盘成功后 `broadcastDataChange(域, uuid?)` 发一条**只含域+uuid、不带数据**的通知（BroadcastChannel 同源多播，不唤醒休眠 SW；无 BC 降级 `runtime.sendMessage`），读侧组件用 `useDataSync(域, reload)` 订阅后自行回拉权威存储（同 `domain+uuid` 100ms 合并防风暴）。
 
 - 广播埋在写出口：offscreen `handleStateCommand`（`script` 域）、`conversation-store` 写函数（`conversation`）、`userscripts/store.ts`（`error`）、`userscripts/usdata-db` 写出口经 store.ts（gm 变更事件）与 `model-store.ts` 写出口（`model`）。
-- **新增写路径必须同步埋广播**；前端新面板按域接 `useDataSync`，不再靠手动刷新兜底。编辑器有未保存改动时不自动重载，只提示「已在别处被修改」。
+- **新增写路径必须同步埋广播**；前端新面板按域接 `useDataSync`，不再靠手动刷新兜底。编辑器有未保存改动时不自动重载，只提示「已在别处修改，这次保存会覆盖那一次改动」；编辑器自己保存触发的广播会被忽略——否则刚保存就被当成「别处修改」挂上提示。
 - **只适用于 IDB**。落在 `chrome.storage.local` 的设置在**模块内封一层订阅**即可 —— 原生 `chrome.storage.onChanged` 已跨上下文通知（扩展页 / popup / 内容脚本都收得到），不必自建通道：`float-panel-store.ts` 的 `subscribeFloatSettings`、`dev-mode-store.ts` 的 `subscribeDevMode`。键名与 area 过滤都封在 store 里，调用方不写字面量。
 
 ## 构建信息注入（单一通道：`vite.define`）

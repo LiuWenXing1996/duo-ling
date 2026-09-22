@@ -148,6 +148,19 @@ test.describe.serial('AI 生成脚本（本地模型 stub 发工具调用）', (
       )
       .toBe('found')
 
+    // ④ 来源：AI 落的盘，历史里应带「AI 修改」—— 走的是真对话链路（不是命令面模拟 actor），
+    //    验的是「chat-host → 桥接层固定传 ai → git author → 历史面板读出来」这一整条
+    const wb = await context!.newPage()
+    await wb.goto(`chrome-extension://${extensionId}/workbench.html`)
+    await wb.locator('button[aria-label="脚本列表"]').click()
+    const listCard = wb.locator('.bg-card').filter({ hasText: '端测生成的小脚本' })
+    await listCard.locator('button[aria-label="编辑脚本"]').click()
+    await wb.locator('button[aria-label="历史版本（打开历史标签页）"]').click()
+    const history = wb.locator('section.panel').filter({ hasText: '版本时间线' })
+    await expect(history.getByText('AI 修改'), 'AI 生成的脚本，历史里应标出来源').toHaveCount(1)
+    await expect(history).toContainText('端测生成的小脚本')
+    await wb.close()
+
     await page.close()
   })
 })

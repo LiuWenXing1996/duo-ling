@@ -10,13 +10,15 @@ description: Use when writing, fixing, or debugging tests in this repo — choos
 - `npm run test` → Vitest **双 project**（配置见 `vitest.config.ts`）：
   - **logic**（node 环境）：`src/lib/**/*.test.ts` 等纯逻辑测试；
   - **component**（happy-dom 环境）：`*.component.test.ts` 组件测试。
-- `npm run test:e2e` → Playwright 冒烟（`e2e/smoke.spec.ts`）：跑 **`.output/chrome-mv3` 产物**（**先 `npm run build`**）、Playwright 捆绑 Chromium、全程无头。
+- `npm run test:e2e` → Playwright 端测（`e2e/*.spec.ts`，无头、单 worker 串行）：跑 **`.output/chrome-mv3` 产物**（**先 `npm run build`**）、Playwright 捆绑 Chromium。除冒烟 `smoke.spec.ts` 外，按面拆分的还有编辑器交互 `editor.spec.ts`、GM 矩阵 `gm-matrix.spec.ts`、假模型对话 `chat-stub.spec.ts`、会话归属 `conversation-scope.spec.ts`、AI 生成 `agent-generate.spec.ts`。
 
 ## 测试三件套（新增一个面板 / 一条链路时）
 
 1. **防漂移单测**（logic project，`src/lib/xxx.test.ts`，参考 `agent-tools-catalog.test.ts`）：UI 展示的元数据若与运行时共用常量，就断言二者一致 —— 工具名集合、参数名集合（`inputSchema.shape` 在 zod v3/v4 都可用）、description 相等。**不靠人工对照**。
 2. **组件测试**（component project，`*.component.test.ts`，参考 `AgentToolsPanel.component.test.ts`）：`vi.mock` 掉 store 与 `use-data-sync`，用 `data-testid` 断言；**空态必须断言**（空白 vs 有内容的空态是两种 bug）。
 3. **e2e 冒烟**（`e2e/smoke.spec.ts`）：`page.locator('button[aria-label="<导航名>"]').click()` → 断言面板 `data-testid` 可见 + 关键文本渲染。
+
+**要验的是交互链路（时序 / 宿主 / 真实输入）而不只是渲染**，就照 `e2e/editor.spec.ts` 写专用 spec：铺数据走 `sendToSw`（命令面直调，见 `e2e/extension.ts`），用一段真情景区间串起「列表 → 编辑 → 保存 → 标签栏 → 历史」。适合它的正是组件测试拿不到的两层——**跨页广播时序**与 **Vue 宿主的 key 重建 / 函数式 ref**。要验「引擎未授权」这类环境，就在同一文件里另起一个**不调 `enableUserScripts`** 的 describe（各自建 profile：开关持久化在 profile 里，会互相污染）。
 
 ## 手写桥接层：四类语义必须逐函数自检
 

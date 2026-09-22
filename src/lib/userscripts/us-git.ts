@@ -10,8 +10,26 @@
 // 历史不丢脚本，所有失败都不阻断保存主链路。
 import git from 'isomorphic-git'
 import { fs, pfs } from './us-fs'
+import type { CommitActor } from './types'
 
-const AUTHOR = { name: 'duoling', email: 'dev@duoling.local' }
+/**
+ * 改动来源的 git 身份映射：来源类型定义在 types.ts（IPC 契约也要引用，故不放实现文件里）。
+ * 存进 git 的 author 字段、**不拼进 message** —— message 是给用户读的「改了什么」，
+ * 来源是「谁改的」，两件事分开存，message 才不会被「AI：」这类前缀污染。
+ */
+const IDENTITY: Record<CommitActor, { name: string; email: string }> = {
+  user: { name: 'user', email: 'user@duoling.local' },
+  ai: { name: 'ai', email: 'ai@duoling.local' },
+  system: { name: 'system', email: 'system@duoling.local' },
+}
+
+/** 由 git author 反解来源；认不出（来源字段引入前的老提交）按 user 处理 */
+function actorFromEmail(email: string | undefined): CommitActor {
+  if (email === IDENTITY.ai.email) return 'ai'
+  if (email === IDENTITY.system.email) return 'system'
+  return 'user'
+}
+
 const US_ROOT = '/uscripts'
 const SOURCE_FILE = 'script.js'
 
@@ -25,6 +43,8 @@ export interface UsCommit {
   message: string
   /** 毫秒时间戳（fs-store 的 ToolCommit 用秒，这里面向自有 UI，统一毫秒） */
   time: number
+  /** 这次改动是谁做的：历史面板据此显示来源标签（user 不显示） */
+  actor: CommitActor
 }
 
 /** 某提交的完整快照：单文件形态下只有源码（历史版本同样不含并行元数据文件） */
@@ -182,13 +202,22 @@ async function snapshotToSource(uuid: string, oid: string): Promise<Source | nul
   return { code: snap.code }
 }
 
+/** 无备注时的默认版本名：「保存 2026-09-22 19:46」（本地时间；带年份，几个月后回看也读得懂） */
+function defaultSaveMessage(at: number): string {
+  const d = new Date(at)
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `保存 ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 /**
  * 提交工作区（保存成功后调用）：script.js 与 HEAD 一致则不提交（无空提交）；
- * message = 备注优先，否则自动计数「保存 #n」。
+ * message = 备注优先，否则「保存 <本地时间>」—— 用时间戳而不是自增编号：编号需要可靠计数器
+ * （回滚提交也占号会让它跳），时间戳天然唯一、不依赖额外状态。
  */
 export async function commitSource(
   uuid: string,
   note?: string,
+  actor: CommitActor = 'user',
 ): Promise<{ committed: boolean; oid?: string }> {
   assertSafeUuid(uuid)
   await ensureRepo(uuid)
@@ -206,9 +235,8 @@ export async function commitSource(
   await writeRepoFile(uuid, SOURCE_FILE, code)
   await git.add({ fs, dir, filepath: SOURCE_FILE })
 
-  const count = (await listHistory(uuid)).length
-  const message = note?.trim() || `保存 #${count + 1}`
-  const oid = await git.commit({ fs, dir, message, author: AUTHOR })
+  const message = note?.trim() || defaultSaveMessage(Date.now())
+  const oid = await git.commit({ fs, dir, message, author: IDENTITY[actor] })
   return { committed: true, oid }
 }
 
@@ -221,6 +249,7 @@ export async function listHistory(uuid: string): Promise<UsCommit[]> {
       oid: entry.oid,
       message: entry.commit.message.trim(),
       time: entry.commit.author.timestamp * 1000,
+      actor: actorFromEmail(entry.commit.author.email),
     }))
   } catch {
     return []

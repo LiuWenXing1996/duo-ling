@@ -86,15 +86,19 @@ export type RuntimeRequest =
   | { kind: 'userscript:getProject'; uuid: string }
   // 保存源码（唯一保存入口）：传源码与元数据，offscreen 写 fs + git 提交 + 落库，保存恒成功。
   // 启用中脚本由 SW 落库后重注册（注入代码 = 源码原文）。
-  | { kind: 'userscript:save'; uuid: string; code: string; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
+  | { kind: 'userscript:save'; uuid: string; code: string; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string; actor?: import('@/lib/userscripts/types').CommitActor }
   | { kind: 'userscript:create' }
   // AI 生成脚本落盘（SW 命令面，转发 offscreen 单写方；enabled 默认 false = 先落盘不启用）
-  | { kind: 'userscript:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; code: string; enabled: boolean; note?: string }
+  | { kind: 'userscript:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; code: string; enabled: boolean; note?: string; actor?: import('@/lib/userscripts/types').CommitActor }
   | { kind: 'userscript:remove'; uuid: string }
   // 删除全部用户脚本：范围 = 用户脚本（状态库项目 + 各自 git 仓），
   // 不含内置件（随扩展包分发）。SW 注销全部 → 转发 state:removeAll → 清各脚本 GM 值。
   | { kind: 'userscript:removeAll' }
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
+  // 重命名脚本：只改管理面标识（列表 / 标签页 / GM_info / 错误日志分组名），**不入 git 仓**
+  // （仓里的名字是源码 `@name`，两者互不覆盖，见 project-write.saveSource 的 adoptName 说明）。
+  // 启用中的脚本改名后由 SW 重注册——已注入的脚本否则仍顶旧名。
+  | { kind: 'userscript:rename'; uuid: string; name: string }
   | { kind: 'userscript:availability' }
   // 引擎保活应答（offscreen → SW，5s 一次）：offscreen 心跳的**唯一职责是给 SW 保活**
   // （重置 30s 空闲计时），不做任何检测——检测在 SW 自身的轮询（availability-watch.ts）。
@@ -169,15 +173,18 @@ export type RuntimeRequest =
   // 消除原先「SW 写 storage + IPC 让 offscreen commit」两次分离操作带来的偏差缝隙。
   // 读不进协议：SW 与扩展页直连 IDB（project-store），不经容器——注册链路不能押在容器存活上。
   | { kind: 'state:create' }
-  | { kind: 'state:save'; uuid: string; code: string; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string }
+  | { kind: 'state:save'; uuid: string; code: string; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string; actor?: import('@/lib/userscripts/types').CommitActor }
   | { kind: 'state:remove'; uuid: string }
   // 清空全部项目记录 + 各自仓（SW 的 userscript:removeAll 转发到此）；返回删除条数。
   // 与 state:remove 同处一地的好处：记录与仓的删除不跨上下文，不留无主仓。
   | { kind: 'state:removeAll' }
   | { kind: 'state:toggle'; uuid: string; enabled: boolean }
+  // 重命名脚本的落点（SW 的 userscript:rename 转发到此）：只改状态库里的 name + updatedAt，
+  // 不碰源码、不产生 git 提交（名字不入仓）。
+  | { kind: 'state:rename'; uuid: string; name: string }
   // AI 生成脚本的落盘：SW 的 userscript:createProject
   // 转发到此（单写方），写状态库 + git 快照（note = AI summary），**不注册**（enabled:false 默认）。
-  | { kind: 'state:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; code: string; enabled: boolean; note?: string }
+  | { kind: 'state:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; code: string; enabled: boolean; note?: string; actor?: import('@/lib/userscripts/types').CommitActor }
   // zip 导入的落点（SW 的 userscript:import 转发到此）：importScriptsZip 逐脚本
   // 「落盘 → 快照」，报告 ImportReport（types.ts）。
   | { kind: 'state:import'; zipBase64: string }

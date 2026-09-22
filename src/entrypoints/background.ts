@@ -310,6 +310,7 @@ const handlers: {
       name: msg.name,
       config: msg.config,
       note: msg.note,
+      actor: msg.actor,
     })
     const next = outcome.project
     await unregisterScripts([next.uuid]).catch(() => {})
@@ -428,6 +429,19 @@ const handlers: {
     // 关停后内置并集可能缩小，MAIN 桩可能需要注销
     await refreshBuiltinScripts().catch(() => {})
     return {}
+  },
+
+  // 重命名脚本：只改状态库的 name（不入仓、不产生提交），落库后启用中则重注册——
+  // 名字进 GM_info 与错误日志分组名，不重注册的话已注入的脚本仍顶旧名。
+  // 同 toggle：注册失败只降级为警告，不把改名判失败（名字已落库）。
+  'userscript:rename': async (msg): Promise<{ registerError?: string }> => {
+    if (!(await getProject(msg.uuid))) throw new Error('脚本不存在')
+    const next = await writeViaOffscreen<ScriptProject>({
+      kind: 'state:rename',
+      uuid: msg.uuid,
+      name: msg.name,
+    })
+    return next.enabled ? { registerError: await registerOrLog(next) } : {}
   },
 
   // zip 导入：纯转发 offscreen 单写方（解码 + 落盘同处）。导入恒 enabled:false——「先审后启」

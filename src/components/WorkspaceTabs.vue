@@ -24,6 +24,8 @@ const props = defineProps<{
   activeId: string
   /** 基础标签 id：始终存在、不可关闭（当前为脚本列表） */
   pinnedTabId: string
+  /** 有未保存改动的标签 id：这些标签标题后点一颗红点——切走后也能一眼看出哪个编辑器还有草稿 */
+  dirtyTabIds?: string[]
 }>()
 const emit = defineEmits<{
   close: [id: string]
@@ -51,6 +53,17 @@ const emit = defineEmits<{
         <ui-code v-else-if="tab.kind === 'gm-api'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-messages-square v-else-if="tab.kind === 'session-history'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <!--
+          未保存标记：夹在图标与标题之间，**不紧贴标题** —— 紧贴时不管什么颜色都会被读成名字的一部分
+          （像名字里混进了个字符）；颜色用 --unsaved（专用语义色，见 main.css）：整套 token 都是无彩色
+          （primary 就是黑/白，与文字同色等于看不见），错误红留给「已在别处修改」那类真警告。
+        -->
+        <span
+          v-if="props.dirtyTabIds?.includes(tab.id)"
+          class="size-1.5 shrink-0 rounded-full bg-unsaved"
+          role="img"
+          aria-label="有未保存改动"
+        />
         <span class="truncate">{{ tab.title }}</span>
         <button
           v-if="tab.id !== props.pinnedTabId"

@@ -123,7 +123,7 @@ const navItems = computed<NavItem[]>(() => {
       key: ORPHAN_KEY,
       name: '未归属',
       count: orphanCount,
-      hint: '不属于任何一次运行的错误（如注册失败），单独列在这里',
+      hint: '不属于任何一次运行的错误（如没能生效），单独列在这里',
       hasLogs: true
     })
   }
@@ -181,7 +181,7 @@ const clearLabel = computed(() => {
 
 const PHASE_LABEL: Record<UserScriptErrorRecord['phase'], string> = {
   runtime: '运行期',
-  register: '注册',
+  register: '未生效',
   bridge: 'GM 桥',
   require: '@require 抓取'
 }
@@ -410,7 +410,7 @@ onMounted(() => {
               {{ loading ? '加载中…' : '暂无运行记录。' }}
             </span>
             <span v-if="!loading">
-              启用脚本并访问命中页面后，每次运行都会按时间记在这里；运行期报错挂在对应运行下，注册失败等不属于任何一次运行的错误单独成行。
+              启用脚本并访问命中页面后，每次运行都会按时间记在这里；运行期报错挂在对应运行下，没能生效等不属于任何一次运行的错误单独成行。
             </span>
           </p>
 
