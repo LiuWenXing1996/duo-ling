@@ -1,24 +1,32 @@
-// GM 包装源码模板（注入到 USER_SCRIPT 世界的第一条 js，先于脚本源码定义 `GM_*` / `GM.*`）。
+// GM 包装源码模板（注入到**页面 MAIN 世界**，先于脚本源码定义 `GM_*` / `GM.*`）。
 //
 // 为什么独立成文件（而不是塞回 engine.ts）：
 //   · 它是**注入到页面里的源码字符串**，语法错一次就静默全废，值得单文件可读可审；
 //   · 速查页（gm-api-catalog）的防漂移单测要从**源码反射**出真实挂载的键集合，
 //     反射锚点落在本文件比落在 engine 的注册链路里稳（engine 会 import IDB / chrome API）。
 //
+// **与脚本源码同处一个函数作用域**：engine 把「本包装（未闭合）＋ `@require` ＋ 脚本源码 ＋
+// 闭合后缀」拼成**一条** code 注入。为什么必须这样：
+//   · MAIN 世界不支持 `worldId`，同帧多脚本共享一个 `window` —— 若把 `GM_*` 挂到 window 上，
+//     后注入的脚本会把前一个的成员整个覆盖；
+//   · 故全部成员**声明为局部变量**，脚本按词法作用域找到它们；`unsafeWindow` 于是就是本世界
+//     的 `window`，不再需要别名与降级告警；
+//   · 副作用：脚本顶层 `var` 不再进页面全局（要挂页面请用 `unsafeWindow`）。
+//
 // 设计要点：
+//   · **无 `chrome.*`**：MAIN 世界没有扩展 API，一切经同帧中继件转 SW（`__dlBridge`，见 script-bridge.ts）。
 //   · **同步读**：`GM_getValue` / `GM_listValues` 必须同步（油猴语义），故注册时把该脚本的
 //     全量值作为**快照**嵌进注入体（`GM_VALUES`），同步读走内存；写则「先更本地缓存、再异步过桥」
 //     （对齐 Violentmonkey `dumpValue()`：本地先落、`UpdateValue` 后发）。
-//   · **常驻通道**：只读值的脚本原本从不 connect Port（`store.get/set` 是一次性 sendMessage），
+//   · **常驻通道**：只读值的脚本原本从不 connect（`store.get/set` 是一次性请求），
 //     于是别的标签页改了值它永远收不到 → 同步快照会**长周期陈旧**。故「读过值」也触发 connect，
-//     并补 `store.watchAll`（Port 级全量订阅）与 connect 后的**一次全量校准**（覆盖 Port 就绪前的窗口）。
-//   · **`@grant` 裁剪**：声明了 grant 就只注入声明的成员；`@grant none` / 无 metadata → 全量注入
-//     （本扩展无页面上下文，一点不给反而会让读 `GM_info` 判环境的脚本当场崩）。
-//   · **降级项**（速查页与 spec 必须标注）：`unsafeWindow` 是隔离世界的 window；`GM_xmlhttpRequest`
-//     无 `onprogress`；`GM_cookie` 不收 `domain` / `path`（域名门）。
-import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS, GRANT_MEMBERS } from '../gm-grants'
+//     并补 `store.watchAll`（全量订阅）与 connect 后的**一次全量校准**（覆盖就绪前的窗口）。
+//   · **`@grant` 裁剪**：只有写进清单的能力才注入；不写 `@grant` / `@grant none` → 只给恒注入集。
+//   · **降级项**（速查页与 spec 必须标注）：`GM_xmlhttpRequest` 无 `onprogress`；
+//     `GM_cookie` 不收 `domain` / `path`（域名门）。
+import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS, resolveGrant } from '../gm-grants'
 import type { GmInfo, Json } from './api-contract'
-import { buildPageClientSource } from './page-client'
+import { buildScriptBridgeSource } from './script-bridge'
 
 export interface GmWrapperOptions {
   uuid: string
@@ -30,37 +38,36 @@ export interface GmWrapperOptions {
    * `userAgent` / `isIncognito` 不在其中：它们只能在页面里取到，由包装运行时就地补齐。
    */
   info: Omit<GmInfo, 'userAgent' | 'isIncognito'>
-  /** 反向中继握手密钥（与 MAIN 桩同源） */
+  /** 脚本桥握手密钥（MAIN 侧 script-bridge 与 USER_SCRIPT 侧 script-relay 同源） */
   pageSecret: string
-  /** `@grant` 声明（缺省 / 空 / 含 none → 全量注入） */
+  /** `@grant` 声明（缺省 / 空 / 含 none → 空清单，只给恒注入集） */
   grant?: string[]
 }
 
 /**
- * 按 `@grant` 算出「注入哪些成员」。
+ * 按 `@grant` 算出「注入哪些成员」。语义对齐 Tampermonkey：
  *
- * 规则：
- *   · 未声明 / 空 / 含 `none` → **全量注入**；
- *   · 否则只注入声明的能力对应的成员 + 恒注入集（`GM_info` / `unsafeWindow` / 本扩展成员）。
- *     未知的 grant 名（本扩展未实现的 API）静默忽略 —— 脚本用了会 `ReferenceError`，
- *     这比「假装支持」更容易排查。
+ *   · **没写 `@grant`（含完全没有 metadata）→ 空清单**：只给恒注入集；
+ *   · `@grant none` → 同「空清单」（TM 里 none 另有关闭沙箱之义，我们恒包一层 IIFE，故 API 面相同）；
+ *   · 声明了则注入声明的成员 + 恒注入集。
+ *
+ * 刻意**不做**「无 grant 就全量注入」：那会让漏写清单的脚本在本扩展能跑、换到 TM 上立刻
+ * ReferenceError —— 把真实问题掩盖过去，也让用户以为脚本没问题。
+ * 认不出的 grant 名静默忽略（脚本用了会 ReferenceError，比「假装支持」好排查）。
+ * 名字解析走 `resolveGrant`：`GM_setValue` 与 `GM.setValue` 两种写法都认。
  */
 export function resolveGmExposure(grant: string[] | undefined): Record<string, boolean> {
-  const full = !grant || grant.length === 0 || grant.includes('none')
   // 扁平一张表：全局名（`GM_xxxx`）与命名空间成员名（`getValue`）不重名，注入体里按名直查
   const flags: Record<string, boolean> = {}
   for (const name of [...GM_ALL_GLOBALS, ...GM_ALL_NS]) flags[name] = false
   for (const name of ALWAYS_GLOBALS) flags[name] = true
   for (const name of ALWAYS_NS) flags[name] = true
-  if (full) {
-    for (const name of [...GM_ALL_GLOBALS, ...GM_ALL_NS]) flags[name] = true
-  } else {
-    for (const g of grant!) {
-      const m = GRANT_MEMBERS[g]
-      if (!m) continue
-      for (const name of m.globals) flags[name] = true
-      for (const name of m.ns) flags[name] = true
-    }
+  for (const g of grant ?? []) {
+    if (g === 'none') continue // 与「没写 @grant」同义：都不注入 GM 成员
+    const m = resolveGrant(g)
+    if (!m) continue
+    for (const name of m.globals) flags[name] = true
+    for (const name of m.ns) flags[name] = true
   }
   return flags
 }
@@ -71,23 +78,33 @@ function jsonLiteral(v: unknown): string {
 }
 
 /**
- * 生成注入源码。返回的字符串是 js 数组的**首条目**（先于脚本源码执行）。
+ * 生成注入源码的**开头部分**（未闭合的 IIFE）。
+ *
+ * 调用方（engine）负责把「本前缀 ＋ `@require` 源码 ＋ 脚本源码 ＋ 闭合的 `GM_WRAPPER_SUFFIX`」
+ * 拼成**一条** code 注入 —— 三段必须在同一个函数作用域里，脚本才能按词法找到 `GM_*`（见文件头）。
  *
  * 注入体内部标识统一用 `__gm` 前缀（与桥的 `__dl` 信封区分：前者是包装层私有变量，可自由改名）。
  */
-export function buildGmWrapperSource(opts: GmWrapperOptions): string {
+export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   const exposure = resolveGmExposure(opts.grant)
   return `
 ;(function () {
   var GM_INFO = ${jsonLiteral(opts.info)}
-  // 这两项只能在页面里取（页面 UA 未必等于 SW 的 UA），注册侧不传、注入时就地补齐
+  // userAgent 只能在页面里取（页面 UA 未必等于 SW 的 UA），注册侧不传、注入时就地补齐
   GM_INFO.userAgent = navigator.userAgent
-  try { GM_INFO.isIncognito = !!(chrome && chrome.extension && chrome.extension.inIncognitoContext) }
+  // MAIN 世界没有 chrome.*，隐身上下文取不到 —— 恒 false（要拿真值需经桥回 SW 查，暂不做）
+  try { GM_INFO.isIncognito = !!(typeof chrome !== 'undefined' && chrome.extension && chrome.extension.inIncognitoContext) }
   catch (e) { GM_INFO.isIncognito = false }
   var GM_HAS = ${jsonLiteral(exposure)}
   // 值快照：注册时刻的全量值。同步读只认它；写过之后本地缓存立即更新（见 __gmSet）。
   var GM_VALUES = ${jsonLiteral(opts.values)}
   var NAME_PREFIX = '[GM:' + ${jsonLiteral(opts.name)} + ']'
+
+  // —— 扩展侧通道：MAIN 世界没有 chrome.*，一切经同帧中继件（bridge-protocol.ts）。
+  //    必须先于任何调用到位 —— 下面的 __gmAnnounceRun() 是立即调用的。——
+  var __dlBridge = ${buildScriptBridgeSource(opts.pageSecret, opts.uuid)}
+  // 下行推送统一入口：Port 就绪 / 值变更 / 菜单点击 / URL 变化 / 中继件通道重建都走它
+  __dlBridge.onEvent(function (ev) { __gmHandleEvent(ev) })
 
   // —— 运行标识：**一次页面加载 = 一次运行**。注入即 mint，随错误记录上报并广播给 SW
   //    （对话界面页面监控据此按 tab 登记运行）——
@@ -97,11 +114,9 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
   })()
   function __gmAnnounceRun() {
     try {
-      if (!chrome || !chrome.runtime || !chrome.runtime.sendMessage) return
-      chrome.runtime.sendMessage({ __dlRunStart: true, uuid: GM_INFO.uuid, name: GM_INFO.script.name, runId: __gmRunId }, function () {
-        void chrome.runtime.lastError
-      })
-    } catch (e) { /* 世界未开 messaging：静默（与错误上报同款兜底） */ }
+      var p = __dlBridge.emit({ __dlRunStart: true, name: GM_INFO.script.name, runId: __gmRunId })
+      if (p && typeof p.catch === 'function') p.catch(function () { /* 中继件未就位：丢弃 */ })
+    } catch (e) { /* 同上 */ }
   }
   __gmAnnounceRun()
   // load 时补播一次：脚本可能被配成 document_start，极早的广播会赶在 SW 唤醒前丢失
@@ -111,20 +126,16 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
     try { console.log.apply(console, [NAME_PREFIX].concat([].slice.call(arguments))) } catch (e) {}
   }
 
-  // —— 运行期错误收集（错误日志面板）：本世界的未捕获异常 / 未处理拒绝经 __dlEvent 转发 ——
+  // —— 运行期错误收集（错误日志面板）：本世界的未捕获异常 / 未处理拒绝经桥上报 ——
   function __gmReportError(message, stack, url) {
     try {
-      if (!chrome || !chrome.runtime || !chrome.runtime.sendMessage) {
-        console.warn('[duoling:userscript] 世界未开启 messaging，运行期错误无法上报：' + message)
-        return
-      }
-      chrome.runtime.sendMessage(
-        { __dlEvent: true, uuid: GM_INFO.uuid, name: GM_INFO.script.name, event: { t: 'error', phase: 'runtime', message: message, stack: stack, url: url, runId: __gmRunId } },
-        function () {
-          var le = chrome.runtime.lastError
-          if (le) console.warn('[duoling:userscript] 运行期错误上报失败：' + le.message)
-        },
-      )
+      var p = __dlBridge.emit({
+        __dlEvent: true,
+        name: GM_INFO.script.name,
+        event: { t: 'error', phase: 'runtime', message: message, stack: stack, url: url, runId: __gmRunId },
+      })
+      // 必须吞掉失败：reject 会触发 unhandledrejection，又回到本函数形成自触发循环
+      if (p && typeof p.catch === 'function') p.catch(function () { /* 桥不可用：丢弃 */ })
     } catch (e) {
       console.warn('[duoling:userscript] 上报异常：' + ((e && e.message) || e))
     }
@@ -138,31 +149,20 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
     __gmReportError('Unhandled rejection: ' + ((r && r.message) || String(e.reason)), (r && r.stack) || '', location.href)
   })
 
-  // —— 桥请求（请求-响应，30s 超时兜底：后台无响应也不能让调用永久挂起）——
+  // —— 桥请求：超时与传输都归 __dlBridge 管（见 bridge-protocol），这里只解释响应语义 ——
   function __gmSend(req) {
-    return new Promise(function (resolve, reject) {
-      var settled = false
-      var timer = setTimeout(function () {
-        if (settled) return
-        settled = true
-        var e = new Error('GM 调用超时（30s 无响应）：' + (req && req.c))
-        e.code = 'BRIDGE_TIMEOUT'
-        reject(e)
-      }, 30000)
-      chrome.runtime.sendMessage({ __dl: true, uuid: GM_INFO.uuid, req: req }, function (resp) {
-        if (settled) return
-        settled = true
-        clearTimeout(timer)
-        var err = chrome.runtime.lastError
-        if (err) return reject(new Error(err.message))
-        if (!resp) return reject(new Error('GM 调用无响应：' + (req && req.c)))
-        if (!resp.ok) {
-          var e = new Error(resp.error || 'GM 调用失败')
-          if (resp.code) e.code = resp.code
-          return reject(e)
-        }
-        resolve(resp.data)
-      })
+    return __dlBridge.call(req).then(function (resp) {
+      if (!resp) {
+        var e = new Error('GM 调用无响应：' + (req && req.c))
+        e.code = 'BRIDGE_NO_RESPONSE'
+        throw e
+      }
+      if (!resp.ok) {
+        var e2 = new Error(resp.error || 'GM 调用失败')
+        if (resp.code) e2.code = resp.code
+        throw e2
+      }
+      return resp.data
     })
   }
 
@@ -173,18 +173,17 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
     try { return crypto.randomUUID() }
     catch (e) { return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10) }
   })()
-  var __gmPort = null
+  // 下行通道由中继件代连 Port：本侧只记「是否已请求过连接」与「SW 是否已推 port.ready」
+  var __gmConnectStarted = false
   var __gmPortReady = false
   var __gmReadyWaiters = []
   var __gmActiveMenus = {}
   var __gmActiveWatches = {}
-  var __gmActiveUrlWatch = false
   var __gmActiveValueWatch = false
   var __gmMenuHandlers = {}
   var __gmWatchHandlers = {}
   var __gmNotifyHandlers = {}
   var __gmUrlChangeHandler = null
-  var __gmUrlChangeHandlers = []
 
   function __gmMenuId(caption) {
     var h = 5381
@@ -198,13 +197,36 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
   function __gmFireUrlChange(url) {
     var obj = { url: url }
     if (__gmUrlChangeHandler) { try { __gmUrlChangeHandler(obj) } catch (e) { __gmLog('onurlchange 回调异常', e) } }
-    for (var i = 0; i < __gmUrlChangeHandlers.length; i++) {
-      try { __gmUrlChangeHandlers[i](obj) } catch (e) { __gmLog('urlchange 监听器异常', e) }
-    }
+    // addEventListener('urlchange') 形态：MAIN 世界可以直接派发真实事件——同帧所有脚本都收得到。
+    // （隔离世界做不到，那时只能拦 window.addEventListener 做本地转发；那套会覆盖页面的
+    //  addEventListener，在 MAIN 世界属于对页面的侵入，故不再用。）
+    try { window.dispatchEvent(new CustomEvent('urlchange', { detail: obj })) } catch (e) {}
   }
 
   function __gmHandleEvent(ev) {
     if (!ev) return
+    if (ev.t === 'port.ready') {
+      __gmPortReady = true
+      var ws = __gmReadyWaiters.splice(0)
+      for (var wi = 0; wi < ws.length; wi++) ws[wi].resolve()
+      // SW 冷启动重放：注册表归零 → 重发全部活跃注册（菜单撞 id 幂等由 SW 侧处理）
+      var rreqs = []
+      for (var mid in __gmActiveMenus) rreqs.push({ c: 'menu.register', id: mid, title: __gmActiveMenus[mid] })
+      for (var wkey in __gmActiveWatches) rreqs.push({ c: 'store.watch', key: wkey, connId: __gmConnId })
+      if (__gmActiveValueWatch) rreqs.push({ c: 'store.watchAll', connId: __gmConnId })
+      for (var ri = 0; ri < rreqs.length; ri++) {
+        __gmSend(rreqs[ri]).catch(function (e) { console.warn(NAME_PREFIX + ' 重放注册失败', e) })
+      }
+      return
+    }
+    if (ev.t === 'relay.port.closed') {
+      // 中继件那侧 Port 断了（SW 重启 / 页面里换了代的中继件）：复位后重连。
+      // SW 接通会重新推 port.ready，届时上面的重放逻辑把活跃注册补回来。
+      __gmConnectStarted = false
+      __gmPortReady = false
+      setTimeout(__gmConnect, 100)
+      return
+    }
     if (ev.t === 'menu.click') {
       var mh = __gmMenuHandlers[ev.id]
       if (mh) { try { mh() } catch (e) { __gmLog('菜单回调异常', e) } }
@@ -230,43 +252,17 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
   }
 
   function __gmConnect() {
-    if (__gmPort || !chrome || !chrome.runtime || !chrome.runtime.connect) return
-    var p
-    try {
-      p = chrome.runtime.connect({ name: 'duoling:dl:' + GM_INFO.uuid + ':' + __gmConnId })
-    } catch (e) {
-      console.warn(NAME_PREFIX + ' Port 连接失败：' + ((e && e.message) || e))
-      return
-    }
-    __gmPort = p
-    p.onMessage.addListener(function (m) {
-      if (!m || m.__dlApiEvent !== true || !m.ev) return
-      if (m.ev.t === 'port.ready') {
-        __gmPortReady = true
-        var ws = __gmReadyWaiters.splice(0)
-        for (var wi = 0; wi < ws.length; wi++) ws[wi].resolve()
-        // SW 冷启动重放：注册表归零 → 重发全部活跃注册（菜单撞 id 幂等由 SW 侧处理）
-        var rreqs = []
-        for (var mid in __gmActiveMenus) rreqs.push({ c: 'menu.register', id: mid, title: __gmActiveMenus[mid] })
-        for (var wkey in __gmActiveWatches) rreqs.push({ c: 'store.watch', key: wkey, connId: __gmConnId })
-        if (__gmActiveUrlWatch) rreqs.push({ c: 'url.watch', connId: __gmConnId })
-        if (__gmActiveValueWatch) rreqs.push({ c: 'store.watchAll', connId: __gmConnId })
-        for (var ri = 0; ri < rreqs.length; ri++) {
-          __gmSend(rreqs[ri]).catch(function (e) { console.warn(NAME_PREFIX + ' 重放注册失败', e) })
-        }
-        return
-      }
-      __gmHandleEvent(m.ev)
-    })
-    p.onDisconnect.addListener(function () {
-      __gmPort = null
-      __gmPortReady = false
-      setTimeout(__gmConnect, 100)
+    if (__gmConnectStarted) return
+    __gmConnectStarted = true
+    // 中继件代连 Port；接通后 SW 推 port.ready，经桥回到 __gmHandleEvent
+    __dlBridge.connect(__gmConnId).catch(function (e) {
+      __gmConnectStarted = false // 握手失败（中继件未就位）：允许后续调用重试
+      console.warn(NAME_PREFIX + ' 事件通道连接失败：' + ((e && e.message) || e))
     })
   }
 
   function __gmWaitReady() {
-    if (__gmPortReady && __gmPort) return Promise.resolve()
+    if (__gmPortReady) return Promise.resolve()
     __gmConnect()
     return new Promise(function (resolve, reject) {
       var done = false
@@ -290,7 +286,7 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
   }
 
   function __gmRegSend(req) {
-    if (__gmPortReady && __gmPort) return __gmSend(req)
+    if (__gmPortReady) return __gmSend(req)
     return __gmWaitReady().then(function () { return __gmSend(req) })
   }
 
@@ -421,8 +417,152 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
     return Promise.reject(new Error('GM_xmlhttpRequest：data 仅支持 string / Blob / FormData / ArrayBuffer / TypedArray / DataView'))
   }
 
-  // —— 反向中继客户端（GM.page，本扩展独有能力）——
-  var __gmPageApi = ${buildPageClientSource(opts.pageSecret)}
+  // —— GM.page（本扩展独有能力）：脚本与页面同处 MAIN 世界，两个方法都能**本地实现** ——
+  //    直接 addEventListener / 包 window.fetch 即可（绕 postMessage 找桩是隔离世界的做法）。
+
+  /** 事件摘要：只留可结构化克隆的字段 */
+  function __gmSummarizeEvent(e) {
+    var ev = { type: e.type, timeStamp: e.timeStamp || 0 }
+    if (typeof e.key === 'string') ev.key = e.key
+    var detail = null
+    try {
+      if (e && typeof e === 'object' && 'detail' in e && e.detail != null) detail = JSON.parse(JSON.stringify(e.detail))
+    } catch (e2) { detail = null }
+    ev.detail = detail
+    return ev
+  }
+
+  /** selector 过滤：target 自身命中或沿祖先链命中（不依赖注入时刻的元素快照，晚出现的元素也命中） */
+  function __gmHitSelector(e, selector) {
+    var t = e.target
+    if (!t || typeof t.matches !== 'function') return false
+    try { return t.matches(selector) || !!(t.closest && t.closest(selector)) } catch (e2) { return false }
+  }
+
+  /** fetch 出站摘要（裁决函数看到的形状） */
+  function __gmSummarizeFetch(args) {
+    var input = args[0]
+    var init = args[1]
+    var url = ''
+    var method = 'GET'
+    var headers = {}
+    var body = null
+    try {
+      if (input && typeof input === 'object' && typeof input.url === 'string') {
+        url = input.url
+        method = String(input.method || 'GET')
+        if (input.headers && typeof input.headers.forEach === 'function') {
+          input.headers.forEach(function (v, k) { headers[k] = String(v) })
+        }
+      } else {
+        url = String(input)
+        method = String((init && init.method) || 'GET')
+        var h = init && init.headers
+        if (h && typeof h.forEach === 'function') h.forEach(function (v, k) { headers[k] = String(v) })
+        else if (h && typeof h === 'object') {
+          for (var k in h) if (Object.prototype.hasOwnProperty.call(h, k)) headers[k] = String(h[k])
+        }
+        if (init && typeof init.body === 'string') body = init.body
+      }
+    } catch (e2) { /* 摘要失败按空值转发，不阻塞页面请求 */ }
+    return { url: url, method: method, headers: headers, body: body }
+  }
+
+  /** 响应体采样上限：防大响应把内存读爆 */
+  var __gmFetchMaxBody = 1 << 20
+  /** 本脚本的 fetch 包装层状态（同帧多脚本各包一层、链式相套，后包者先处理） */
+  var __gmFetchLayer = null
+
+  /** passthrough 时被动读响应体：克隆后异步读，原响应不消耗 */
+  function __gmObserveFetch(real, url, onResponse) {
+    try {
+      Promise.resolve(real).then(function (resp) {
+        try {
+          var cloned = resp.clone()
+          cloned.text().then(function (text) {
+            var truncated = false
+            if (text.length > __gmFetchMaxBody) { text = text.slice(0, __gmFetchMaxBody); truncated = true }
+            var headers = {}
+            try { resp.headers.forEach(function (v, k) { headers[k] = v }) } catch (e3) {}
+            try {
+              onResponse({ url: url, status: resp.status, statusText: resp.statusText || '', headers: headers, body: text, truncated: truncated })
+            } catch (e3) { /* 回调异常不拖垮网络层 */ }
+          }).catch(function () { /* 读体失败忽略 */ })
+        } catch (e3) { /* clone 失败忽略 */ }
+      }, function () { /* 请求失败：无可观察的响应 */ })
+    } catch (e3) { /* 忽略 */ }
+  }
+
+  function __gmPageFetchHook(handler, opts) {
+    if (typeof handler !== 'function') return Promise.reject(new Error('GM.page.fetchHook 需要裁决函数'))
+    var onResponse = opts && typeof opts.onResponse === 'function' ? opts.onResponse : null
+    if (!__gmFetchLayer) {
+      var layer = { handler: null, onResponse: null, prev: window.fetch }
+      layer.wrapper = function () {
+        var args = arguments
+        if (typeof layer.handler !== 'function') return layer.prev.apply(window, args) // 已卸载：透传
+        var call = __gmSummarizeFetch(args)
+        var decision
+        try { decision = layer.handler(call) } catch (e2) { decision = null }
+        // 裁决等待设上限：宁可失效也不阻塞页面网络层（与注入体其它钩子同一取舍）
+        return new Promise(function (resolve) {
+          var settled = false
+          var timer = setTimeout(function () { if (!settled) { settled = true; resolve(null) } }, 500)
+          Promise.resolve(decision).then(function (a) {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            resolve(a)
+          }, function () {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            resolve(null)
+          })
+        }).then(function (action) {
+          if (action && action.action === 'respond') {
+            try {
+              return new Response(action.body || '', { status: action.status || 200, headers: action.headers || {} })
+            } catch (e2) { /* Response 构造失败：退回真实请求 */ }
+          }
+          var real = layer.prev.apply(window, args)
+          if (typeof layer.onResponse === 'function') __gmObserveFetch(real, call.url, layer.onResponse)
+          return real
+        })
+      }
+      __gmFetchLayer = layer
+      window.fetch = layer.wrapper
+    }
+    __gmFetchLayer.handler = handler
+    __gmFetchLayer.onResponse = onResponse
+    // 卸载**不做链上摘除**（同帧多脚本各持一层，跨脚本协调做不到）：清空本层裁决，
+    // 该层从此在链上一律透传 —— 页面网络层照常，只是不再经过本脚本。
+    return Promise.resolve(function () {
+      if (__gmFetchLayer) {
+        __gmFetchLayer.handler = null
+        __gmFetchLayer.onResponse = null
+      }
+    })
+  }
+
+  var __gmPageApi = {
+    listen: function (type, handler, opts) {
+      if (typeof handler !== 'function') return Promise.reject(new Error('GM.page.listen 需要事件回调函数'))
+      var t = String(type)
+      var selector = opts && opts.selector ? String(opts.selector) : ''
+      var once = !!(opts && opts.once)
+      var fn = function (ev) {
+        if (selector && !__gmHitSelector(ev, selector)) return
+        if (once) { try { window.removeEventListener(t, fn, true) } catch (e2) {} }
+        try { handler(__gmSummarizeEvent(ev)) } catch (e2) { /* 回调异常不拖垮页面 */ }
+      }
+      window.addEventListener(t, fn, { capture: true, once: once })
+      return Promise.resolve(function () {
+        try { window.removeEventListener(t, fn, true) } catch (e2) {}
+      })
+    },
+    fetchHook: __gmPageFetchHook
+  }
 
   function __gmAddStyle(css) {
     var el = document.createElement('style')
@@ -674,32 +814,39 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
     }
   }
 
-  // —— 组装全局（按 @grant 裁剪：GM_HAS 由注册侧算好）——
-  if (GM_HAS.GM_info) window.GM_info = GM_INFO
-  if (GM_HAS.GM_getValue) window.GM_getValue = function (key, def) { __gmEnsureChannel(); return __gmGetSync(key, def) }
-  if (GM_HAS.GM_listValues) window.GM_listValues = function () { __gmEnsureChannel(); return __gmListSync() }
-  if (GM_HAS.GM_setValue) window.GM_setValue = function (key, value) { __gmEnsureChannel(); __gmSetSync(key, value, false).catch(function () {}) }
-  if (GM_HAS.GM_deleteValue) window.GM_deleteValue = function (key) { __gmEnsureChannel(); __gmSetSync(key, undefined, true).catch(function () {}) }
-  if (GM_HAS.GM_addValueChangeListener) window.GM_addValueChangeListener = __gmAddValueChangeListener
-  if (GM_HAS.GM_removeValueChangeListener) window.GM_removeValueChangeListener = __gmRemoveValueChangeListener
-  if (GM_HAS.GM_registerMenuCommand) window.GM_registerMenuCommand = __gmRegisterMenu
-  if (GM_HAS.GM_unregisterMenuCommand) window.GM_unregisterMenuCommand = __gmUnregisterMenu
-  if (GM_HAS.GM_addStyle) window.GM_addStyle = __gmAddStyle
-  if (GM_HAS.GM_addElement) window.GM_addElement = __gmAddElement
-  if (GM_HAS.GM_log) window.GM_log = function () { __gmLog.apply(null, arguments) }
-  if (GM_HAS.GM_notification) window.GM_notification = function (a, b, c, d) { __gmNotify(a, b, c, d).catch(function () {}) }
-  if (GM_HAS.GM_setClipboard) window.GM_setClipboard = function (data, info) { __gmSetClipboard(data, info).catch(function () {}) }
-  if (GM_HAS.GM_xmlhttpRequest) window.GM_xmlhttpRequest = __gmXhr
-  if (GM_HAS.GM_download) window.GM_download = function (input, name) { __gmDownload(input, name).catch(function () {}) }
-  if (GM_HAS.GM_openInTab) window.GM_openInTab = __gmOpenInTab
-  if (GM_HAS.GM_cookie) window.GM_cookie = __gmCookie
-  if (GM_HAS.GM_getTab) window.GM_getTab = function (cb) {
+  // —— 组装成员（按 @grant 裁剪：GM_HAS 由注册侧算好）——
+  // 全部声明为**局部变量**而非挂 window：同帧多脚本共享一个 window，挂上去会互相覆盖；
+  // 而脚本与本包装拼在同一条 code 里（同一函数作用域），按词法即可拿到（见文件头说明）。
+  var GM_info, GM_getValue, GM_listValues, GM_setValue, GM_deleteValue,
+      GM_addValueChangeListener, GM_removeValueChangeListener, GM_registerMenuCommand,
+      GM_unregisterMenuCommand, GM_addStyle, GM_addElement, GM_log, GM_notification,
+      GM_setClipboard, GM_xmlhttpRequest, GM_download, GM_openInTab, GM_cookie,
+      GM_getTab, GM_saveTab, GM_getTabs
+  if (GM_HAS.GM_info) GM_info = GM_INFO
+  if (GM_HAS.GM_getValue) GM_getValue = function (key, def) { __gmEnsureChannel(); return __gmGetSync(key, def) }
+  if (GM_HAS.GM_listValues) GM_listValues = function () { __gmEnsureChannel(); return __gmListSync() }
+  if (GM_HAS.GM_setValue) GM_setValue = function (key, value) { __gmEnsureChannel(); __gmSetSync(key, value, false).catch(function () {}) }
+  if (GM_HAS.GM_deleteValue) GM_deleteValue = function (key) { __gmEnsureChannel(); __gmSetSync(key, undefined, true).catch(function () {}) }
+  if (GM_HAS.GM_addValueChangeListener) GM_addValueChangeListener = __gmAddValueChangeListener
+  if (GM_HAS.GM_removeValueChangeListener) GM_removeValueChangeListener = __gmRemoveValueChangeListener
+  if (GM_HAS.GM_registerMenuCommand) GM_registerMenuCommand = __gmRegisterMenu
+  if (GM_HAS.GM_unregisterMenuCommand) GM_unregisterMenuCommand = __gmUnregisterMenu
+  if (GM_HAS.GM_addStyle) GM_addStyle = __gmAddStyle
+  if (GM_HAS.GM_addElement) GM_addElement = __gmAddElement
+  if (GM_HAS.GM_log) GM_log = function () { __gmLog.apply(null, arguments) }
+  if (GM_HAS.GM_notification) GM_notification = function (a, b, c, d) { __gmNotify(a, b, c, d).catch(function () {}) }
+  if (GM_HAS.GM_setClipboard) GM_setClipboard = function (data, info) { __gmSetClipboard(data, info).catch(function () {}) }
+  if (GM_HAS.GM_xmlhttpRequest) GM_xmlhttpRequest = __gmXhr
+  if (GM_HAS.GM_download) GM_download = function (input, name) { __gmDownload(input, name).catch(function () {}) }
+  if (GM_HAS.GM_openInTab) GM_openInTab = __gmOpenInTab
+  if (GM_HAS.GM_cookie) GM_cookie = __gmCookie
+  if (GM_HAS.GM_getTab) GM_getTab = function (cb) {
     __gmSend({ c: 'tab.get' }).then(function (v) { if (typeof cb === 'function') cb(v) }, function (e) { __gmLog('GM_getTab 失败：' + ((e && e.message) || e)); if (typeof cb === 'function') cb(undefined) })
   }
-  if (GM_HAS.GM_saveTab) window.GM_saveTab = function (tab, cb) {
+  if (GM_HAS.GM_saveTab) GM_saveTab = function (tab, cb) {
     __gmSend({ c: 'tab.save', value: tab }).then(function () { if (typeof cb === 'function') cb() }, function (e) { __gmLog('GM_saveTab 失败：' + ((e && e.message) || e)); if (typeof cb === 'function') cb() })
   }
-  if (GM_HAS.GM_getTabs) window.GM_getTabs = function (cb) {
+  if (GM_HAS.GM_getTabs) GM_getTabs = function (cb) {
     __gmSend({ c: 'tab.all' }).then(function (v) { if (typeof cb === 'function') cb(v || {}) }, function (e) { __gmLog('GM_getTabs 失败：' + ((e && e.message) || e)); if (typeof cb === 'function') cb({}) })
   }
 
@@ -753,69 +900,45 @@ export function buildGmWrapperSource(opts: GmWrapperOptions): string {
   }) }
   GM.focusTab = function (tabId) { return __gmSend({ c: 'tabs.focus', tabId: tabId }) }
   GM.page = __gmPageApi
-  window.GM = GM
 
-  // —— unsafeWindow（**降级别名**）：本扩展无页面上下文，返回隔离世界的 window。
-  //    给别名而非留空，是因为 ReferenceError 会让整个脚本当场停摆；降级至少让只用 DOM 的脚本跑通。
+  // —— unsafeWindow：脚本跑在页面 MAIN 世界，这里就是页面自己的 window ——
+  //    直接指向 window 即可（隔离世界下才需要一个别名），无需访问告警。
   //    （注意：本文件是 TS 模板字符串，注入源码里**不能出现反引号**，否则会提前闭合模板。）
-  var __gmUnsafeWarned = false
-  try {
-    Object.defineProperty(window, 'unsafeWindow', {
-      configurable: true,
-      get: function () {
-        if (!__gmUnsafeWarned) {
-          __gmUnsafeWarned = true
-          console.warn(NAME_PREFIX + ' unsafeWindow 为降级别名：本扩展只在独立环境里运行脚本，返回的 window 可用于 DOM 操作，但读不到页面的 JS 全局变量')
-        }
-        return window
-      }
-    })
-  } catch (e) { /* defineProperty 失败（极少见）则退化为「未定义」，脚本会得到 ReferenceError */ }
+  var unsafeWindow = window
 
   // —— window.onurlchange（TM 形态）：属性赋值 + addEventListener('urlchange') 两种都给。
   //    监听器拦在本地、不派发真实事件（派发会经共享的 window 事件目标泄漏给页面）。——
-  /**
-   * 退订：两种形态（属性赋值 / 事件监听）**都空了**才告诉后台别再推，并复位意图位。
-   * 复位的意义不只是省几帧：意图位参与 Port 重连后的注册重放（见 __gmConnect 的 rreqs），
-   * 不复位就等于**注销不掉** —— 每次重连都会把已无人要的订阅重新挂上。
-   */
-  function __gmReleaseUrlWatchIfIdle() {
-    if (__gmUrlChangeHandler || __gmUrlChangeHandlers.length || !__gmActiveUrlWatch) return
-    __gmActiveUrlWatch = false
-    __gmRegSend({ c: 'url.unwatch', connId: __gmConnId }).catch(function () {})
-  }
   try {
     Object.defineProperty(window, 'onurlchange', {
       configurable: true,
       get: function () { return __gmUrlChangeHandler },
-      set: function (fn) {
-        __gmUrlChangeHandler = typeof fn === 'function' ? fn : null
-        if (__gmUrlChangeHandler) { __gmActiveUrlWatch = true; __gmEnsureChannel() ; __gmRegSend({ c: 'url.watch', connId: __gmConnId }).catch(function () {}) }
-        else __gmReleaseUrlWatchIfIdle()
-      }
+      // 纯本地：只记下回调，URL 检测（见文件末尾的 history hook）负责调它，不经 SW 订阅
+      set: function (fn) { __gmUrlChangeHandler = typeof fn === 'function' ? fn : null }
     })
   } catch (e) {}
-  var __gmOrigAddEventListener = window.addEventListener
-  var __gmOrigRemoveEventListener = window.removeEventListener
-  window.addEventListener = function (type, fn, opts) {
-    if (type === 'urlchange') {
-      __gmUrlChangeHandlers.push(fn)
-      __gmActiveUrlWatch = true
-      __gmEnsureChannel()
-      __gmRegSend({ c: 'url.watch', connId: __gmConnId }).catch(function () {})
-      return
-    }
-    return __gmOrigAddEventListener.call(window, type, fn, opts)
+  // —— URL 变化：MAIN 世界直接本地检测（hook history + popstate / hashchange）。
+  //    不再经 SW 推：脚本与页面同处一个世界，自己能听见路由变化——省一条跨世界通道，
+  //    也避免了「拦 window.addEventListener 做本地转发」那套对页面热路径方法的覆盖。——
+  var __gmLastUrl = location.href
+  function __gmCheckUrl() {
+    var cur = location.href
+    if (cur === __gmLastUrl) return
+    __gmLastUrl = cur
+    __gmFireUrlChange(cur)
   }
-  window.removeEventListener = function (type, fn, opts) {
-    if (type === 'urlchange') {
-      var i = __gmUrlChangeHandlers.indexOf(fn)
-      if (i >= 0) __gmUrlChangeHandlers.splice(i, 1)
-      __gmReleaseUrlWatchIfIdle()
-      return
-    }
-    return __gmOrigRemoveEventListener.call(window, type, fn, opts)
-  }
-})();
+  try {
+    var __gmPushState = history.pushState
+    history.pushState = function () { var r = __gmPushState.apply(this, arguments); setTimeout(__gmCheckUrl, 0); return r }
+    var __gmReplaceState = history.replaceState
+    history.replaceState = function () { var r = __gmReplaceState.apply(this, arguments); setTimeout(__gmCheckUrl, 0); return r }
+  } catch (e) { /* 极少数环境改不动 history：退化为只看 popstate / hashchange */ }
+  window.addEventListener('popstate', __gmCheckUrl)
+  window.addEventListener('hashchange', __gmCheckUrl)
 `
 }
+
+/**
+ * 包装的闭合后缀：engine 把它拼在「`@require` 源码 ＋ 脚本源码 ＋ sourceURL 注释」之后，
+ * 与本前缀合起来才是完整的一条 code（见文件头对「同一函数作用域」的说明）。
+ */
+export const GM_WRAPPER_SUFFIX = '\n})();'

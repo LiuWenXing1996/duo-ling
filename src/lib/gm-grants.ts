@@ -2,7 +2,7 @@
 //
 // 三个消费方：注入侧（userscripts/gm-wrapper.ts 按它裁剪注入面）、展示侧（gm-api-catalog.ts 的速查页）、
 // 规范侧（offscreen-chat/spec-text.ts 教 AI 怎么写 @grant 清单）。谁 import gm-wrapper 都会把注入链路
-// （page-client 与注册模块）拖进产物，故抽成这份零依赖纯数据。
+// （gm-wrapper 与注册链路）拖进产物，故抽成这份零依赖纯数据。
 //
 // 对齐 TM：一个 grant 同时开全局与 `GM.*` 两种形态；`GM_cookie` 依 TM 口径不进 `GM.*`（故 `ns: []`）。
 
@@ -55,3 +55,22 @@ export const GM_ALL_GLOBALS: string[] = [
 export const GM_ALL_NS: string[] = [
   ...new Set([...ALWAYS_NS, ...Object.values(GRANT_MEMBERS).flatMap((m) => m.ns)]),
 ].sort()
+
+/**
+ * 把单个 `@grant` 名解析成它开启的成员；认不出返回 `undefined`（调用方静默忽略）。
+ *
+ * 收两种写法 —— TM 官方文档的示例把两种并列列出，导入的油猴脚本两种都可能写：
+ *   · `GM_setValue` —— 规范名，开全局 `GM_setValue` 与 `GM.*` 的 `setValue` 两种形态；
+ *   · `GM.setValue` —— 点号形态，只开对应的 `GM.*` 成员（两种 grant 名各自独立）。
+ *
+ * 规范文本只教前一种（对自产脚本，写一行就够）；后一种是认外部脚本的写法。
+ */
+export function resolveGrant(name: string): { globals: string[]; ns: string[] } | undefined {
+  const canonical = GRANT_MEMBERS[name]
+  if (canonical) return canonical
+  if (name.startsWith('GM.')) {
+    const member = name.slice('GM.'.length)
+    if (GM_ALL_NS.includes(member)) return { globals: [], ns: [member] }
+  }
+  return undefined
+}

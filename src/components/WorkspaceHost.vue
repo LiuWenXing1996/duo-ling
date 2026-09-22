@@ -158,7 +158,7 @@ function openAgentToolsTab(): void {
   activate('agent-tools')
 }
 
-// 打开 GM API 标签页：脚本世界里 window.GM 的能力速查（纯静态目录，与注入真身同源），全局仅一个
+// 打开 GM API 标签页：脚本作用域里 GM 的能力速查（纯静态目录，与注入真身同源），全局仅一个
 function openGmApiTab(): void {
   if (!openTabs.value.some((t) => t.kind === 'gm-api')) {
     openTabs.value.push({ kind: 'gm-api', id: 'gm-api', title: 'GM API' })
@@ -298,7 +298,7 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
         <session-history-tab v-else-if="tab.kind === 'session-history'" />
         <!-- AI 工具：agent 工具契约（与模型所见同源）+ 会话库里的真实调用轨迹 -->
         <agent-tools-panel v-else-if="tab.kind === 'agent-tools'" />
-        <!-- GM API：脚本世界 window.GM 的能力速查（纯静态目录，与注入真身同源） -->
+        <!-- GM API：脚本作用域里 GM 的能力速查（纯静态目录，与注入真身同源） -->
         <gm-api-panel v-else-if="tab.kind === 'gm-api'" />
         <!-- 脚本历史：每脚本一个标签页，浏览 + 恢复；恢复后重载对应编辑器 -->
         <userscript-history-panel

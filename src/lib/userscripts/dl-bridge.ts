@@ -1,6 +1,6 @@
 // GM 后台桥（协议契约 src/lib/userscripts/api-contract.ts）。
 //
-// USER_SCRIPT 世界的 GM 包装（gm-wrapper.ts 注入的那份源码）经 chrome.runtime.sendMessage 发来的消息，
+// 脚本桥中继件（script-relay.ts，USER_SCRIPT 世界）经 chrome.runtime.sendMessage 发来的消息，
 // 因世界已 configureWorld({messaging:true})，被路由到本文件的 runtime.onUserScriptMessage（而非通用 onMessage）。
 //
 // 消息分流（契约定义；信封名保持 __dl 前缀）：
@@ -30,8 +30,6 @@ import {
   detachScriptWatch,
   attachValueWatch,
   mintNotification,
-  attachUrlWatch,
-  detachUrlWatch,
 } from './dl-port'
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
@@ -498,16 +496,6 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
     }
     case 'tab.all':
       return getAllTabValues(uuid)
-    // URL 变化订阅（SPA 路由感知）：控制面走请求-响应，归属定位同 store.watch（connId）
-    case 'url.watch': {
-      if (!attachUrlWatch(uuid, req.connId)) {
-        throw new ApiError('INTERNAL', '事件通道未就绪，订阅未生效（请重试）')
-      }
-      return undefined
-    }
-    case 'url.unwatch':
-      detachUrlWatch(uuid, req.connId)
-      return undefined
     case 'tabs.open': {
       const tab = await chrome.tabs.create({ url: req.url, active: req.active !== false })
       if (tab?.id == null) throw new ApiError('INTERNAL', 'tabs.open 未返回标签页')

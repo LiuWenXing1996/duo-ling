@@ -2,9 +2,9 @@
 // ② `@grant` 裁剪规则按预期放行 / 关闭成员。
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
-import { GM_ALL_GLOBALS, GM_ALL_NS } from '../gm-grants'
+import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS } from '../gm-grants'
 import type { GmInfo } from './api-contract'
-import { buildGmWrapperSource, resolveGmExposure } from './gm-wrapper'
+import { GM_WRAPPER_SUFFIX, buildGmWrapperPrefix, resolveGmExposure } from './gm-wrapper'
 
 /** 造一份最小 GM_info（userAgent / isIncognito 由包装运行时就地补，故不传） */
 function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
@@ -23,23 +23,26 @@ function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
     scriptHandler: '哆灵',
     version: '0.0.0-test',
     uuid: 'u-test',
-    sandboxMode: 'js',
+    sandboxMode: 'raw',
   }
 }
 
+/** 产出**完整**的注入 code：engine 那边由「包装前缀 ＋ @require ＋ 脚本源码 ＋ 闭合后缀」拼成 */
 function build(grant?: string[]): string {
-  return buildGmWrapperSource({
-    uuid: 'u-test',
-    name: '测试脚本',
-    values: { k: 'v', n: 1 },
-    info: info(),
-    pageSecret: 'secret',
-    ...(grant ? { grant } : {}),
-  })
+  return (
+    buildGmWrapperPrefix({
+      uuid: 'u-test',
+      name: '测试脚本',
+      values: { k: 'v', n: 1 },
+      info: info(),
+      pageSecret: 'secret',
+      ...(grant ? { grant } : {}),
+    }) + GM_WRAPPER_SUFFIX
+  )
 }
 
-describe('buildGmWrapperSource', () => {
-  it('产出的注入源码语法合法（acorn 解析；含内联的 page-client 客户端）', () => {
+describe('buildGmWrapperPrefix', () => {
+  it('产出的注入源码语法合法（acorn 解析；含内联的桥客户端与 GM.page 本地实现）', () => {
     const src = build()
     expect(() => parse(src, { ecmaVersion: 'latest' })).not.toThrow()
     // 模板体里绝不能残留未闭合的模板痕迹（反引号一旦漏进注入体，整份源码就废了）
@@ -61,35 +64,41 @@ describe('buildGmWrapperSource', () => {
     expect(src).toContain('inIncognitoContext')
   })
 
-  it('降级与差异项都被显式实现（unsafeWindow / onurlchange / 域名门收紧）', () => {
+  it('MAIN 世界的成员都显式实现（unsafeWindow 即页面 window / onurlchange / 域名门收紧）', () => {
     const src = build()
-    expect(src).toContain("Object.defineProperty(window, 'unsafeWindow'")
+    // unsafeWindow 就是页面自己的 window（脚本跑在主世界），故走局部声明
+    expect(src).toContain('var unsafeWindow = window')
+    expect(src).not.toContain("defineProperty(window, 'unsafeWindow'")
     expect(src).toContain("Object.defineProperty(window, 'onurlchange'")
     expect(src).toContain('domain / path 不受支持')
     expect(src).toContain('store.watchAll') // 常驻通道
     expect(src).toContain('store.all') // connect 后全量校准
   })
 
-  it('onurlchange 的退订路径在（摘干净 → 复位意图位 + 发 url.unwatch）', () => {
+  it('urlchange 走本地检测：hook history + popstate / hashchange，不再经 SW 订阅', () => {
     const src = build()
-    // 订阅侧两条路（属性赋值 / addEventListener）都在
-    expect(src.match(/c: 'url\.watch'/g)?.length).toBeGreaterThanOrEqual(3)
-    // 退订侧：复位意图位 + 通知后台。不复位的后果是**注销不掉** —— 意图位一直为 true，
-    // Port 重连时 __gmConnect 会无条件重放 url.watch（见上面 rreqs 那段）
-    expect(src).toContain("c: 'url.unwatch'")
-    expect(src).toContain('__gmActiveUrlWatch = false')
-    // 释放函数 = 定义 1 处 + 两条退订路（属性置 null / removeEventListener）各 1 处
-    expect(src.match(/__gmReleaseUrlWatchIfIdle\(\)/g)?.length, '退订没接全（少了一处调用？）').toBe(3)
+    expect(src).toContain("Object.defineProperty(window, 'onurlchange'")
+    expect(src).toContain('history.pushState =')
+    expect(src).toContain('history.replaceState =')
+    expect(src).toContain("addEventListener('popstate'")
+    expect(src).toContain("addEventListener('hashchange'")
+    // 脚本与页面同处一个世界，路由变化自己就能听见 —— 跨世界订阅整条撤掉，
+    // 也顺带免掉了「覆盖 window.addEventListener 做本地转发」对页面的侵入
+    expect(src).not.toContain("c: 'url.watch'")
+    expect(src).not.toContain("c: 'url.unwatch'")
   })
 })
 
 describe('resolveGmExposure（@grant 裁剪）', () => {
-  const ALL = [...GM_ALL_GLOBALS, ...GM_ALL_NS]
-
-  it('未声明 / 空 / @grant none → 全量注入', () => {
+  it('未声明 / 空 / @grant none → 只给恒注入集（对齐 TM：三种都不开 GM 成员）', () => {
+    const always = [...ALWAYS_GLOBALS, ...ALWAYS_NS].sort()
     for (const grant of [undefined, [], ['none']]) {
       const flags = resolveGmExposure(grant)
-      expect(Object.values(flags).filter(Boolean)).toHaveLength(ALL.length)
+      const on = Object.entries(flags)
+        .filter(([, v]) => v)
+        .map(([k]) => k)
+        .sort()
+      expect(on, JSON.stringify(grant)).toEqual(always)
     }
   })
 
@@ -114,6 +123,13 @@ describe('resolveGmExposure（@grant 裁剪）', () => {
     const flags = resolveGmExposure(['GM_webRequest', 'GM_setValue'])
     expect(flags.GM_setValue).toBe(true)
     expect(flags).not.toHaveProperty('GM_webRequest')
+  })
+
+  it('点号形态的 grant 名也认，且只开 GM.* 那一形态（外部油猴脚本会写 GM.setValue）', () => {
+    const flags = resolveGmExposure(['GM.setValue'])
+    expect(flags.setValue).toBe(true)
+    expect(flags.GM_setValue).toBe(false)
+    expect(flags.GM_getValue).toBe(false)
   })
 
   it('两张名单不重名（注入体按名直查一张扁平表的前提）', () => {

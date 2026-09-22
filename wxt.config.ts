@@ -6,7 +6,7 @@ import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 import { providerOrigins } from './src/lib/providers'
 
-// 哆灵 · 浏览器扩展版（一期 MVP）
+// 哆灵 · 浏览器扩展版
 // 不依赖已下架的 @wxt/vue，直接用 vite 的 vue 插件编译 .vue 组件。
 //
 // 载体分工：
@@ -147,7 +147,7 @@ export default defineConfig({
     // （Chrome 文档明确要求），同时覆盖 GM_xmlhttpRequest 的跨域可达范围。
     host_permissions: [...providerOrigins(), '<all_urls>'],
     // 135 = chrome.userScripts.execute()（元素拾取器/页面快照的按需注入通道）
-    // + 每脚本独立 USER_SCRIPT 世界隔离（worldId，133+）。
+    // + 自定义 USER_SCRIPT 世界（worldId，133+）：脚本桥中继件与录制转发件各占一个。
     // Chrome 规范字段是下划线 minimum_chrome_version；驼峰键会被 Chrome 忽略并报 Unrecognized。
     'minimum_chrome_version': '135',
     // default_popup 不在此手写：WXT 按文件名把 entrypoints/popup.html 识别为 popup 入口

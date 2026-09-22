@@ -194,10 +194,20 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     expect(created.data.registerError, '注册不应报错').toBeUndefined()
     const { uuid } = created.data
 
-    // 2. 探针脚本：验证 GM_info 已挂 + GM.* 经桥（SW duoling-usdata 库）往返。
+    // 2. 探针脚本：验证 GM_info 可见 + GM.* 经桥（SW duoling-usdata 库）往返。
     //    这里刻意走异步形态 GM.getValue：同步 GM_getValue 读的是注入时的本地快照，
     //    读回自己刚写的值**证明不了**桥通——异步形态每次回后台读，才真验到桥。
-    const probeCode = `
+    //
+    //    两条与「脚本注入页面 MAIN 世界」有关的硬要求：
+    //      · `@grant` 必须写全 —— 不写等于空清单，成员一个都不注入；
+    //      · GM 成员是注入体函数作用域内的标识符，**不是 window 属性**，故用 typeof 直接探测。
+    const probeCode = `// ==UserScript==
+// @name         E2E 桥往返探针
+// @namespace    https://duoling.example
+// @match        *://*/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// ==/UserScript==
 ;(async () => {
   var mark = function (t) {
     var el = document.getElementById('${PROBE_MARKER_ID}')
@@ -205,7 +215,7 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     el.textContent = t
   }
   try {
-    if (!window.GM_info) return mark('GM_MISSING')
+    if (typeof GM_info === 'undefined') return mark('GM_MISSING')
     await GM.setValue('e2e-ok', 'yes')
     var v = await GM.getValue('e2e-ok')
     mark(v === 'yes' ? 'GM_OK' : 'GM_BAD_VALUE:' + String(v))

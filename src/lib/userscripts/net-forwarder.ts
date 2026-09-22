@@ -5,7 +5,7 @@
 //
 // 存在理由：MAIN 捕获件没有 chrome.*，捕获后只能 window.postMessage 给同帧；
 // 而 postMessage 跨世界（MAIN ↔ USER_SCRIPT 共享同一个 window）是通的——
-// 与 page-stub → page-client 同款通道。本件职责单一：把该标签消息转给 SW。
+// 通道形态与 script-bridge → script-relay 那对一样（同帧 postMessage）。本件职责单一：把该标签消息转给 SW。
 //
 // 安全性：本件只做「转发」，不做任何判断；host 用它自己的 location.hostname 现取。
 

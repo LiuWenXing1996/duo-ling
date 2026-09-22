@@ -110,7 +110,7 @@ function setOpen(path: string, v: boolean): void {
       </div>
 
       <footer class="border-t border-border px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-        清单与注入脚本世界的 <code class="font-mono">window.GM</code> / <code class="font-mono">GM_*</code> 同源
+        清单与注入脚本作用域的 <code class="font-mono">GM</code> / <code class="font-mono">GM_*</code> 同源
       </footer>
     </aside>
 
@@ -126,8 +126,6 @@ function setOpen(path: string, v: boolean): void {
           后台代理
           <Badge variant="outline" class="text-[10px]">{{ GM_BRIDGE_LABELS.local }}</Badge>
           本地直连
-          <Badge variant="outline" class="text-[10px]">{{ GM_BRIDGE_LABELS.stub }}</Badge>
-          页面转发
         </span>
       </header>
 

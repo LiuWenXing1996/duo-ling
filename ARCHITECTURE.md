@@ -19,7 +19,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 | 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：注入悬浮按钮 + iframe（按站点开关），按钮可拖拽（位置按站点记），拾取期间整块让位；并接受 popup 的调出请求（`FloatOpenRequest`） |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 + 网页浮层的右键菜单入口 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
-| 注入世界 | USER_SCRIPT（第三方页面内） | 用户脚本自身逻辑，经 GM 包装层（`gm-wrapper.ts` 注入 `GM_*` / `GM.*`）桥接，内部走 userScript 世界的 `__dl` 信封协议 |
+| 注入世界 | MAIN（第三方页面内） | 用户脚本自身逻辑；GM 包装层（`gm-wrapper.ts`）在同一函数作用域里声明 `GM_*` / `GM.*`，能力调用经同帧 USER_SCRIPT 中继件（`script-relay.ts`）转 SW |
 
 各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的注入细节（shadow DOM 隔离、iframe 懒加载、按钮拖拽与位置记忆、拾取期间让位、CSP 降级、页面外的调出入口）见 [src/entrypoints/content.ts](src/entrypoints/content.ts) 顶部注释。**调出入口有三条**：页面内那颗悬浮按钮是主入口，但它可能被页面元素压住（含无视 z-index 的 top layer），也可能站点开关 / 总开关关着时内容脚本整块不挂 —— 这两种情况下页面上没有任何东西可点，只能从页面外叫：工具栏 popup 的「对话浮层」按钮，与页面右键菜单（SW 注册，`documentUrlPatterns` 限 http/https）。三者都收敛到同一条定向消息（`FloatOpenRequest`，`tabs.sendMessage`，不经 SW），内容脚本收到就地挂 UI 并展开；发消息前一律先按 `ensureFloatEnabled` 补齐开关 —— 否则会出现「浮层显示着、开关却写着已关」，用户下次刷新页面浮层消失无从解释。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
 
@@ -43,7 +43,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 ## 脚本注入
 
-`chrome.userScripts` + USER_SCRIPT 世界 + **GM 包装层**（`gm-wrapper.ts`，注入体）桥接（`src/lib/userscripts/`）。
+`chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`gm-wrapper.ts`）与 **USER_SCRIPT 中继件**（`script-relay.ts`）桥接（`src/lib/userscripts/`）。
 
 标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`；grant 名 → 它开启的成员这张对应表在 `gm-grants.ts`，注入侧、速查页与 AI 规范三处共用这一份）；能力表 `gm-api-catalog.ts` 一张生成速查页、`.d.ts` 与**给 AI 的能力清单**三形态（50 条，三防漂移：类型层 `satisfies` + 从注入源码反射 + 规范文本对齐单测）。内部仍走 `dl-bridge.ts` 的 `__dl` 信封协议（协议稳定、与 DL 时代一致）。
 
@@ -51,17 +51,18 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 - **同步值快照**：注册时 SW 把 `duoling-usdata` 全量值快照嵌入注入体，`GM_getValue` / `GM_listValues` 纯内存读；写后 debounce `userScripts.update()` 刷新（阈值参照 VM `FLUSH_DELAY=100`）。`GM.getValue` 走实时桥读（永远新鲜）。
 - **只读脚本的下行通道**：读写值 / 订阅变更的脚本经 `store.watchAll` 常驻 Port 接收变更；connect 成功后主动全量校准一次，覆盖 Port 建立前的窗口。**两条订阅的退订是不对称的，这是刻意的**：`url.watch` 配 `url.unwatch`（脚本摘完 `onurlchange` / `urlchange` 监听即退订，并复位注册重放位 —— 不复位则 Port 重连会把已无人要的订阅重新挂上）；`store.watchAll` **不配退订**，因为「读过值」本身就意味着要一直收（退订会让同步读退回陈旧，是缺陷不是能力），它的清理只随 Port 断开发生。
-- **`@grant` 精确注入**：`@grant none` / 无 metadata = 全量注入；声明具体 grant 才裁剪。`unsafeWindow` 降级为隔离 world 的 `window` + `console.warn`；`window.onurlchange` / `GM.page.*` / `GM_info` 恒注入（不受 grant 限制）。
+- **`@grant` 精确注入**：语义对齐 TM —— **不写 `@grant` / `@grant none` 都等于空清单**（只剩恒注入项），写了才给对应成员。`unsafeWindow` 就是页面自身的 `window`（脚本跑在主世界）；`window.onurlchange` / `GM.page.*` / `GM_info` 恒注入（不受 grant 限制，这点比 TM 宽松）。
+- **脚本主世界注入 + 中继桥**：脚本注入页面 MAIN 世界（与 Tampermonkey 默认一致，`unsafeWindow` 因此就是页面 window）。MAIN 世界没有 `chrome.*`，能力调用经同帧的 `dl-script-relay`（独立 USER_SCRIPT 世界 `us-dl-bridge`，`messaging: true`）转给 SW，桥协议见 `bridge-protocol.ts`（每条消息带 `digest(secret, uuid:seq)` 防页面伪造与重放）。注入代码是「GM 包装前缀 ＋ `@require` ＋ 脚本源码 ＋ 闭合后缀」拼成的**一条** code —— MAIN 不支持 `worldId`，同帧多脚本共享一个 window，故 `GM_*` 一律声明在包装的函数作用域里（挂 window 会互相覆盖）。
 - **cookie 域名门**（红线索引见 [AGENTS.md](AGENTS.md)「硬性底线」「cookie 能力」）：入口为 `GM_cookie.list/set/delete`（原 `DL.cookie`），门仍在 SW 侧、只比 scheme + host，`set` 仍禁 domain / path 覆写。
 - **GM_xmlhttpRequest 的 forbidden header 覆写**（Cookie / Referer / UA 等）与 `redirect:'manual'` 走 DNR session 规则按请求挂/撤 + 观察型 webRequest（`dl-fetch-priv.ts`；权限 `declarativeNetRequestWithHostAccess` + `webRequest` 均不新增用户可见提示）。**DNR 的头修改不跨重定向 hop**（跨 host 的 hop 不套用，Chrome 平台限制，油猴同款）。
 - **覆写期间同 host 互斥**（写优先读写锁，防规则污染并发请求）：DNR 规则只能按 host 匹配，没有「只作用于某一次请求」的粒度，故覆写挂起期间该 host 的**所有** GM_xmlhttpRequest 都会套上覆写头；生命周期三层兜底（settle finally 撤 → SW 启动对账自有 id 区间 → session 规则浏览器重启自清）。机制与验证路径见 `dl-fetch-priv.ts` 顶部注释。
-- **USER_SCRIPT 世界不配 `csp`**：回落浏览器默认的严 CSP（禁 `eval` / `new Function`），不额外给 AI 生成的脚本「执行任意字符串」的能力。生成提示词与 `script_spec` 明令避开，保存时由 `collectCspWarnings` 对含 `eval` 的注入代码给非阻塞警告（底线见 [AGENTS.md](AGENTS.md) 硬性底线「脚本世界 CSP」）。
+- **CSP 跟随目标站点**：脚本运行在页面 MAIN 世界，不再由本扩展配置 CSP —— `eval` / `new Function` 能否使用取决于站点自身策略。生成提示词与 `script_spec` 仍明令避开动态代码生成，保存时由 `collectCspWarnings` 对含 `eval` / `new Function` 的注入代码给非阻塞警告。
 - **网络录制（dl-recorder，两段式常驻件）**：要拦页面**自己**发出的 `fetch`/`XMLHttpRequest`，钩子只能挂 MAIN 世界（USER_SCRIPT 各有独立 realm，挂它的 `window.fetch` 拦不到）；而 MAIN 世界无 `chrome.*`。故两件协作、都按「用户已同意录制的 host 集合」注册（`net-capture-gate.ts`，默认空集＝不注册）：
   - `dl-net-recorder`（`world: 'MAIN'`，`document_start`）：包装 `fetch` 与 XHR，非阻塞采样后 `window.postMessage`（标签 `__dlNetCapture`）交给同帧；
   - `dl-net-forwarder`（独立 USER_SCRIPT 世界 `us-dl-net`，`messaging: true`）：监听该标签消息，经 `chrome.runtime.sendMessage` 转 SW；
   - SW 侧 `dl-bridge` 用 `normalizeCapture` 白名单化（载荷经页面可伪造的 postMessage，形状不可信）后落 `duoling-netlog`。采样剥鉴权头、**URL 的 query/fragment 凭据脱敏**（`stripUrlSecrets`：键名命中敏感词或值超长即换 `***`，键名保留）、请求/响应体各封顶 ≤2KB、每 host 环形 ≤200 条。
   - **录制的 AI 路径**（用户同意是硬门槛）：`net_capture_enable` 工具**只出同意卡、不开录制**——开启的唯一入口是用户点卡片上的按钮（`userscriptClient.netCaptureEnable` → SW 写门禁 + 重注册）。卡片走 `data-net-capture` data part（同生成卡片的机制，随消息落盘，重开面板仍在）；开启后引导用户点**浏览器的刷新按钮**——录制是前向的，钩子只在文档开头挂，不刷新就录不到已跑完的首屏请求。读回走 `net_capture_read`（`net-record-digest.ts` 压两档：摘要档常驻 prompt、全量档给工具），`system-prompt.ts` 有对应档位。
-- **MAIN 世界多包装者共存**：`dl-page-stub` 的 `fetchHook` 与 `dl-recorder` 都会替换 `window.fetch`，且同为 `document_start`（先后取决于注册顺序）。故 `hookStack` 的记录与还原一律取**当时链下的实际值**（钩住时取当前 `window.fetch` 作 `prev`、摘钩时还原被摘元素的 `prev`），**不得用注入期快照**——否则后安装的那个包装者会被摘钩还原掉，在该页余下生命周期里永久失效。
+- **MAIN 世界多包装者共存**：脚本包装里的 `GM.page.fetchHook` 与 `dl-recorder` 都会替换 `window.fetch`。故两边的记录与还原一律取**当时链下的实际值**（钩住时取当前 `window.fetch` 作 `prev`、摘钩时还原被摘元素的 `prev`），**不得用注入期快照**——否则后安装的那个包装者会被摘钩还原掉，在该页余下生命周期里永久失效。`GM.page.fetchHook` 的卸载同理不做链上摘除，只清空本层裁决（同帧多脚本各持一层，跨脚本协调摘除做不到）。
 
 ## 页面上下文
 

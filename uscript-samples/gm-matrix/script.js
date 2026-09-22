@@ -2,6 +2,26 @@
 // @name         GM 可用性矩阵
 // @namespace    https://duoling.example
 // @match        *://*/*
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_deleteValue
+// @grant        GM_listValues
+// @grant        GM_addValueChangeListener
+// @grant        GM_removeValueChangeListener
+// @grant        GM_registerMenuCommand
+// @grant        GM_unregisterMenuCommand
+// @grant        GM_addStyle
+// @grant        GM_addElement
+// @grant        GM_log
+// @grant        GM_notification
+// @grant        GM_setClipboard
+// @grant        GM_xmlhttpRequest
+// @grant        GM_download
+// @grant        GM_openInTab
+// @grant        GM_getTab
+// @grant        GM_saveTab
+// @grant        GM_getTabs
+// @grant        GM_cookie
 // ==/UserScript==
 // GM 可用性矩阵：**逐个 API** 做一次最小真实调用，把结果铺成一张表。
 //
@@ -12,8 +32,9 @@
 //   · dl-cookie 管 GM_cookie 的**域名门**（越域拒绝 / path 不参与判定 / 非 http(s) 拒绝）。
 //   故本包对网络与 cookie 只做「往返能通」，深语义不重测。
 //
-// 刻意**不写 @grant**：规则是「未声明 = 全量注入」，本包要的就是全量面
-// （@grant 裁剪本身另有用例覆盖，见 gm-wrapper.test.ts 的 resolveGmExposure）。
+// @grant 清单一律**写全**（本包要覆盖全部 API）。规则对齐 Tampermonkey：**不写 @grant 或写
+// `@grant none` 都等于空清单**，GM 成员一个都不会注入 —— 漏写就是大面积 ✗，别把它当成 API 有问题。
+// （@grant 裁剪逻辑本身另有用例覆盖，见 gm-wrapper.test.ts 的 resolveGmExposure。）
 //
 // 用法：`npm run pack:uscripts` → 工作台「脚本列表」导入 → 启用 → 打开任意 http(s) 页面
 //       → 点面板上的「跑全部」→ 跑完点「复制结果」整段贴回。
@@ -41,7 +62,7 @@
 // 单个用例最多认领 4 条路径——认领太多，报 ✗ 时定位不到是哪个 API。
 // @covers GM_info（全局） :: GM_info
 // @covers GM.info（GM.*） :: GM.info
-// @covers unsafeWindow（降级别名） :: unsafeWindow
+// @covers unsafeWindow（页面自身 window） :: unsafeWindow
 // @covers GM_addStyle / GM.addStyle :: GM_addStyle GM.addStyle
 // @covers GM_addElement / GM.addElement :: GM_addElement GM.addElement
 // @covers GM_log / GM.log :: GM_log GM.log
@@ -151,7 +172,7 @@
 
   // —— 「待你完成」盒子（左下）——
   //
-  // 教训（2026-09-21 真机第二轮）：人工项的说明只写在结果面板的一行提示里 + 只给 15/20s 窗口，
+  // 教训（真机实测得来）：人工项的说明只写在结果面板的一行提示里 + 只给 15/20s 窗口，
   // 结果是「不知道要做什么」而不是「做了什么没生效」。故把动作摆到页面上一个独立盒子里，
   // 每项一行、写完就不限时等着（面板里的 ⋯ 行会跟着翻成 ✓）。
 
@@ -343,11 +364,17 @@
     return GM.info.uuid === GM_info.uuid ? pass('与全局同源') : fail('与 GM_info 不同源')
   })
 
-  add('基础', 'unsafeWindow（降级别名）', function () {
+  add('基础', 'unsafeWindow（页面自身 window）', function () {
     if (typeof unsafeWindow === 'undefined') throw new Error('unsafeWindow 未定义')
-    // 降级项：本扩展无页面上下文，它 === 隔离世界的 window（DOM 共用、页面 JS 全局不可见）
-    if (unsafeWindow !== window) return fail('不等于隔离世界的 window（预期降级别名）')
-    return pass('=== 隔离世界 window（预期降级）')
+    if (unsafeWindow !== window) return fail('不等于 window')
+    // 实现侧判据（可靠）：切到主世界后 unsafeWindow 只是包装函数作用域里的局部变量，
+    // 反着断言：真在页面主世界时 unsafeWindow 是局部变量，不会在 window 上留 getter。
+    if (Object.getOwnPropertyDescriptor(window, 'unsafeWindow')) {
+      return fail('unsafeWindow 仍挂在 window 上：脚本还在隔离世界，没切主世界')
+    }
+    // 佐证：主世界下脚本的 window 就是文档所属的那个 window
+    if (document.defaultView !== window) return fail('window 不是文档所属的 window')
+    return pass('=== 页面 window（主世界）')
   })
 
   add('基础', 'GM_addStyle / GM.addStyle', function () {

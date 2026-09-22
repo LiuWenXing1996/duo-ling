@@ -6,7 +6,7 @@
 // 为什么单独一份、而不是直接读 api-contract：
 //   api-contract.ts 只有类型（编译后不留任何东西），面板要展示的是文本（签名 / 说明 / 坑）；
 //   而真身（注入脚本世界的 `GM_*` / `GM.*`）是 gm-wrapper.ts 里的一段**源码字符串**，
-//   工作台页面 import gm-wrapper 会把 page-client / 注册链路拖进首屏产物。故抽成这份纯数据。
+//   工作台页面 import gm-wrapper 会把注入链路（含桥客户端）拖进首屏产物。故抽成这份纯数据。
 //
 // 一条能力 = 两种形态（`GM_getValue` 同步 + `GM.getValue` 异步），故**只写一张能力表**，
 // 由它生成两条条目 —— 否则同一段说明要维护两遍，必然漂移。
@@ -54,8 +54,6 @@ export type GmApiBridge =
   | 'bridge'
   /** 纯包装层本地实现：同步可用，不依赖后台 */
   | 'local'
-  /** 经 MAIN 世界中继桩（GM.page 专属通道） */
-  | 'stub'
 
 /** 分组（顺序 = 面板左栏顺序） */
 export const GM_API_GROUPS = [
@@ -110,7 +108,8 @@ const CAPABILITIES = {
     summary: '当前脚本的元信息（名 / 版本 / 匹配规则 / metadata 原文）',
     detail:
       '从脚本源码的 metadata 块合成：script（含 matches / includes / excludes / runAt / grant / requires / resources）、' +
-      'scriptMetaStr（原文）、scriptHandler、version（扩展版本）、uuid、userAgent、isIncognito、sandboxMode。' +
+      'scriptMetaStr（原文）、scriptHandler、version（扩展版本）、uuid、userAgent、sandboxMode（恒为 raw）。' +
+      'isIncognito 在页面主世界取不到，恒为 false。' +
       '**是 TM ScriptInfo 的已实现子集**：未实现的字段（如 scriptUpdateURL / downloadMode）读到 undefined，不报错。',
     returns: 'GmInfo',
     bridge: 'local',
@@ -356,14 +355,14 @@ const CAPABILITIES = {
 /** 对象型 / 变量型成员的条目（类型层取不到，故用 `satisfies Record<GmObjectPath, …>` 单独兜住） */
 const OBJECT_ENTRIES = {
   unsafeWindow: {
-    title: '页面 window（降级）',
+    title: '页面 window',
     signature: 'unsafeWindow',
-    summary: '**降级别名**：返回独立运行环境的 window（DOM 可用，页面 JS 全局不可见）',
+    summary: '**页面自己的 window**（脚本运行在页面主世界）',
     detail:
-      '本扩展的脚本跑在独立运行环境里，看不到页面的 window。给别名而不是留空，是因为 ReferenceError 会让整个脚本当场停摆；' +
-      '降级至少让只用 DOM 的脚本跑通。**首次访问会在控制台 warn 一次**。' +
-      '依赖页面全局变量（框架实例、站点自己的变量）的脚本在这里跑不通——要拿页面数据请用 GM.page。',
-    returns: 'Window（独立运行环境的）',
+      '脚本与页面同处一个世界，`unsafeWindow` 就是页面自身的 window —— 站点自定义的全局' +
+      '（框架实例、`window.xxx`）可以直接读写，也能往页面上挂自己的东西。与 Tampermonkey 默认行为一致。' +
+      '注意脚本顶层 `var` 落在注入体自己的函数作用域里、不进页面全局；要挂页面请显式写 `unsafeWindow.x = …`。',
+    returns: 'Window（页面的）',
     bridge: 'local',
     group: 'basics',
   },
@@ -434,7 +433,7 @@ const OBJECT_ENTRIES = {
       '**哆灵扩展，非油猴标准。** opts.selector 只转发命中该选择器（或其祖先）的事件，opts.once 命中一次后自动注销。' +
       '回调收到的是事件摘要（可克隆字段），不是原生事件对象。返回注销函数。',
     returns: 'Promise<() => void>（注销）',
-    bridge: 'stub',
+    bridge: 'local',
     group: 'page',
   },
   'GM.page.fetchHook': {
@@ -446,10 +445,10 @@ const OBJECT_ENTRIES = {
       '由页面侧直接构造 Response 返回；脚本回调抛异常一律按放行处理（不会把页面搞挂）。' +
       '传 opts.onResponse 后，passthrough 的每次真实响应都会以 { url, status, statusText, headers, body, truncated? } 回调' +
       '（零额外请求，页面拿到的仍是原响应）。' +
-      '注意：**只拦页面自身发出的 fetch**——脚本自己发的请求不经此路（脚本跑在独立运行环境）；' +
-      '要观察某接口的响应，须由页面发起该请求（触发站点自身交互）。',
+      '注意：脚本自身也运行在页面世界，**它自己发出的 fetch 同样会经过本钩子**；' +
+      '不想拦自己发的请求，就在 handler 里按 URL 过滤掉。',
     returns: 'Promise<() => void>（注销）',
-    bridge: 'stub',
+    bridge: 'local',
     group: 'page',
   },
 } satisfies Record<GmObjectPath, Omit<GmApiEntry, 'path'>>
@@ -520,5 +519,4 @@ export function entriesOfGroup(group: GmApiGroupId): GmApiEntry[] {
 export const GM_BRIDGE_LABELS: Record<GmApiBridge, string> = {
   bridge: '后台',
   local: '本地',
-  stub: '页面',
 }

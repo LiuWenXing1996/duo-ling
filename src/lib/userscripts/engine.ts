@@ -1,9 +1,12 @@
-// 用户脚本注册引擎（v2 方案）。
+// 用户脚本注册引擎。
 //
-// 主走 chrome.userScripts API：每脚本注册到独立 USER_SCRIPT 世界（worldId），
-// **GM 包装**作为 js 数组首条目先于项目代码定义 `GM_*` / `GM.*`（源码模板在 gm-wrapper.ts），
-// 脚本经 onUserScriptMessage 桥接后台（后台监听在 dl-bridge.ts；
-// style / log / info / addElement 等在包装内本地实现，不走桥）。
+// 主走 chrome.userScripts API：脚本注入**页面 MAIN 世界**（与 Tampermonkey 默认一致，
+// `unsafeWindow` 因此就是页面自己的 window）。`GM_*` / `GM.*` 由包装在**同一函数作用域**里
+// 声明为局部变量（源码模板在 gm-wrapper.ts）—— MAIN 不支持 worldId，同帧多脚本共享一个
+// window，挂到 window 上会互相覆盖。
+// 注入代码与 @require 依赖**拼成一条** code（见 registerScript），包装只是它的头尾。
+// MAIN 世界没有 `chrome.*`：能力调用经同帧 USER_SCRIPT 中继件（script-relay.ts）转给 SW，
+// SW 侧监听在 dl-bridge.ts。style / log / info / addElement 在包装内本地实现，不走桥。
 import type { ScriptConfig, ScriptProject } from './types'
 import type { GmInfo, Json } from './api-contract'
 // 版本判断与「打开扩展管理页」入口同源（引导文案按 <138 / ≥138 分支，UI 侧按钮也按同一分支取 URL）
@@ -13,10 +16,10 @@ import * as appDb from '@/lib/app-db'
 import { listProjects, validateMatchPatterns } from './project-store'
 import { appendUserScriptError, getAllGMValues } from './store'
 import { fetchRequireSources } from './require-cache'
-import { buildPageStubSource } from './page-stub'
-import { buildGmWrapperSource } from './gm-wrapper'
+import { buildScriptRelaySource } from './script-relay'
+import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
 import { parseUserScriptMetadata } from './metadata'
-import { generatePageSecret } from './page-protocol'
+import { generateBridgeSecret } from './bridge-protocol'
 // 网络录制：MAIN 捕获件 + USER_SCRIPT 转发件 + per-host 门禁（默认关，按站点显式开）
 import { buildNetRecorderSource } from './net-recorder'
 import { buildNetForwarderSource } from './net-forwarder'
@@ -195,7 +198,7 @@ function buildGmInfo(
     scriptHandler: '哆灵',
     version: chrome.runtime.getManifest().version,
     uuid: project.uuid,
-    sandboxMode: 'js',
+    sandboxMode: 'raw',
   }
 }
 
@@ -219,10 +222,12 @@ function sourceURLSuffix(project: ScriptProject): string {
   return `\n//# sourceURL=duoling://script/${project.uuid}/${safeName}.js`
 }
 
-// —— 反向中继 stub 注册——
+// —— 内置件的注册 ID 与共享密钥 ——
 
-/** MAIN 世界共享桩的注册 ID：一个扩展一份，不是每脚本一份 */
-export const PAGE_STUB_ID = 'dl-page-stub'
+/** 脚本主世界桥 · USER_SCRIPT 中继件注册 ID（一个扩展一份） */
+export const SCRIPT_RELAY_ID = 'dl-script-relay'
+/** 中继件的独立世界 id：必须 configureWorld({ messaging: true })，否则世界内无 chrome.runtime */
+const SCRIPT_RELAY_WORLD_ID = 'us-dl-bridge'
 
 /** 网络录制 · MAIN 捕获件注册 ID（一个扩展一份） */
 export const NET_RECORDER_ID = 'dl-net-recorder'
@@ -232,7 +237,7 @@ export const NET_FORWARDER_ID = 'dl-net-forwarder'
 const NET_FORWARDER_WORLD_ID = 'us-dl-net'
 
 /** 内置注册的 id 全集：全量重注册清「陈旧脚本」时必须排除它们（否则把自己刚同步的注册清掉） */
-const BUILTIN_SCRIPT_IDS = [PAGE_STUB_ID, NET_RECORDER_ID, NET_FORWARDER_ID]
+const BUILTIN_SCRIPT_IDS = [SCRIPT_RELAY_ID, NET_RECORDER_ID, NET_FORWARDER_ID]
 
 /** stubSecret 持久化键：MV3 SW 随时休眠，模块变量会归零，密钥必须落盘（duoling-app 库） */
 const PAGE_SECRET_KEY = 'pageSecret'
@@ -251,7 +256,7 @@ async function getOrCreatePageSecret(): Promise<string> {
   } catch {
     // 存储不可用则退化为一次性密钥（仅本次 SW 存活期有效）
   }
-  pageSecretCache = generatePageSecret()
+  pageSecretCache = generateBridgeSecret()
   try {
     await appDb.set(PAGE_SECRET_KEY, pageSecretCache)
   } catch {
@@ -265,56 +270,59 @@ async function getOrCreatePageSecret(): Promise<string> {
  * 轮换后必须紧跟着 registerAllEnabled：桩与全部启用脚本包装在同一遍里带上新密钥。
  */
 export async function rotatePageSecret(): Promise<void> {
-  pageSecretCache = generatePageSecret()
+  pageSecretCache = generateBridgeSecret()
   await appDb.set(PAGE_SECRET_KEY, pageSecretCache).catch(() => {})
 }
 
 /**
- * 按并集维护 MAIN 世界共享桩（幂等可重入；调用方负责串行化）。
- * 匹配并集未变且桩已在位时跳过重注册——重注册会换注入源码，已加载页面要到下次导航才换新，
- * 无谓重注册只会扩大「桩与脚本包装密钥不同代」的窗口。
- * 并集为空 → 注销桩。并集算法与比对在 match-union.ts。
+ * 按并集维护脚本桥中继件（幂等可重入；调用方负责串行化）。
+ *
+ * 触发条件与 MAIN 桩完全一致（都跟「启用脚本的匹配并集」）—— 脚本切到 MAIN 世界后
+ * 没有 `chrome.*`，GM 能力全靠本件转给 SW，两者必须同时在场、同进同退。
+ * 并集未变且件已在位时跳过重注册（重注册会换注入源码，已加载页面要到下次导航才换新）。
  */
-async function syncPageStubUnion(projects: ScriptProject[]): Promise<void> {
+async function syncScriptRelay(projects: ScriptProject[]): Promise<void> {
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
   const union = enabledMatchUnion(projects)
   let existing: chrome.userScripts.RegisteredUserScript | undefined
   try {
-    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === PAGE_STUB_ID)
+    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === SCRIPT_RELAY_ID)
   } catch {
     return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
   }
   if (!union) {
-    console.log('[duoling:sw] 桩并集为空，注销 MAIN 桩')
-    if (existing) await chrome.userScripts.unregister({ ids: [PAGE_STUB_ID] }).catch(() => {})
+    if (existing) await chrome.userScripts.unregister({ ids: [SCRIPT_RELAY_ID] }).catch(() => {})
     return
   }
-  if (existing && sameMatchSet(existing, union)) {
-    console.log('[duoling:sw] MAIN 桩已在位且并集未变，跳过')
-    return
-  }
+  if (existing && sameMatchSet(existing, union)) return
   const secret = await getOrCreatePageSecret()
-  await chrome.userScripts.unregister({ ids: [PAGE_STUB_ID] }).catch(() => {})
-  const stub: chrome.userScripts.RegisteredUserScript = {
-    id: PAGE_STUB_ID,
-    world: 'MAIN',
-    js: [{ code: buildPageStubSource(secret) }],
+  // 中继件的独立世界必须先开 messaging，否则件内没有 chrome.runtime，整条桥静默失效
+  // （自定义世界不继承默认世界配置，与录制转发件同理）。
+  const worldOk = await configureWorld(SCRIPT_RELAY_WORLD_ID)
+  if (!worldOk) {
+    console.warn(
+      '[duoling:userscript] 脚本桥中继件世界配置失败（无 messaging，GM 桥不可用）',
+      SCRIPT_RELAY_WORLD_ID,
+    )
+  }
+  await chrome.userScripts.unregister({ ids: [SCRIPT_RELAY_ID] }).catch(() => {})
+  const relay: chrome.userScripts.RegisteredUserScript = {
+    id: SCRIPT_RELAY_ID,
+    worldId: SCRIPT_RELAY_WORLD_ID,
+    js: [{ code: buildScriptRelaySource(secret) }],
     matches: union.matches,
     excludeMatches: union.excludeMatches,
     includeGlobs: union.includeGlobs,
     excludeGlobs: union.excludeGlobs,
-    // document_start：必须早于脚本默认的 document_end 握手窗口
+    // document_start：必须早于脚本默认的 document_end 握手窗口（与 MAIN 桩同理）
     runAt: 'document_start',
     allFrames: true,
-    // userScripts API 无 persistAcrossSessions（那是 contentScripts 的字段，Chrome 会报
-    // Unexpected property）；userScripts 注册本身即跨 SW 会话持久，仅扩展更新后需重注册
-    // （recoverOnUpdate 已覆盖）。
   }
   try {
-    await chrome.userScripts.register([stub])
-    console.log('[duoling:sw] MAIN 桩注册成功：', JSON.stringify(union.matches))
+    await chrome.userScripts.register([relay])
+    console.log('[duoling:sw] 脚本桥中继件注册成功：', JSON.stringify(union.matches))
   } catch (e) {
-    console.warn('[duoling:sw] MAIN 桩注册失败：', e)
+    console.warn('[duoling:sw] 脚本桥中继件注册失败：', e)
     throw e
   }
 }
@@ -398,12 +406,14 @@ export function refreshNetRecorder(): Promise<void> {
 
 /**
  * 重算**内置注入脚本**的注册（挂 registerChain 串行队列）：脚本增删改 / 启停 / 删除后由 background 调用。
- * 当前唯一一份内置注册：GM.page MAIN 桩（world: 'MAIN'，页面世界能力代理）。
+ * 两份子件，触发条件都是「启用脚本的匹配并集」：
+ *   · GM.page MAIN 桩（world: 'MAIN'，页面世界能力代理）；
+ *   · 脚本桥中继件（USER_SCRIPT，把 MAIN 世界脚本的 GM 调用转给 SW）。
  */
 export function refreshBuiltinScripts(): Promise<void> {
   const run = registerChain.then(async () => {
     const projects = await listProjects()
-    await syncPageStubUnion(projects)
+    await syncScriptRelay(projects)
   })
   registerChain = run.catch(() => {})
   return run
@@ -453,42 +463,31 @@ export async function registerScript(project: ScriptProject): Promise<void> {
       }).catch(() => {})
     }
   }
-  const requireJs: chrome.userScripts.RegisteredUserScript['js'] = requireResults
-    .filter((r) => r.ok && r.code != null)
-    .map((r) => ({ code: r.code! }))
-  const js: chrome.userScripts.RegisteredUserScript['js'] = [
-    {
-      code: buildGmWrapperSource({
-        uuid: project.uuid,
-        name: project.name,
-        values,
-        info: buildGmInfo(project, rawCode),
-        pageSecret,
-        grant: project.config.grant,
-      }),
-    },
-    ...requireJs,
-    { code: rawCode + sourceURLSuffix(project) },
-  ]
-  const worldId = 'us-' + project.uuid // 每脚本独立世界，实现全局隔离（要求 Chrome 133+）
-  // 该脚本的独立世界必须先单独开 messaging，否则世界内没有 chrome.runtime，
-  // GM 桥与运行期错误上报全部失效（自定义世界不继承默认世界配置）。
-  // 注意：不能覆盖全局 worldsConfigured——那是**默认世界**的状态（供可用性查询自愈判断）；
-  // 单世界失败只影响该脚本自身，记入错误日志而非污染全局标志。
-  const worldOk = await configureWorld(worldId)
-  if (!worldOk) {
-    console.warn('[duoling:userscript] 脚本世界配置失败（无 messaging，GM 桥不可用）', worldId)
-    void appendUserScriptError({
+  const requireCodes = requireResults.filter((r) => r.ok && r.code != null).map((r) => r.code!)
+  // 注入 code **必须拼成一条**：包装前缀、@require、脚本源码、闭合后缀要在同一个函数作用域里，
+  // 脚本才能按词法拿到 `GM_*`（见 gm-wrapper.ts 文件头）。拆成多条 js 会各自独立求值 ——
+  // 未闭合的 IIFE 前缀单独求值直接是语法错误。
+  const code = [
+    buildGmWrapperPrefix({
       uuid: project.uuid,
       name: project.name,
-      phase: 'register',
-      message: '脚本运行环境配置失败：GM 能力与错误上报不可用',
-    }).catch(() => {})
-  }
+      values,
+      info: buildGmInfo(project, rawCode),
+      pageSecret,
+      grant: project.config.grant,
+    }),
+    ...requireCodes,
+    rawCode,
+    sourceURLSuffix(project),
+    GM_WRAPPER_SUFFIX,
+  ].join('\n')
   const userScript: chrome.userScripts.RegisteredUserScript = {
     id: project.uuid,
-    worldId,
-    js,
+    // 注入页面主世界：`unsafeWindow` 即页面 window、站点自身的 JS 全局可见（与 TM 默认一致）。
+    // MAIN 不支持 worldId，故不再有「每脚本独立世界」——同帧多脚本共享一个 window，
+    // GM 成员由包装声明为局部变量来避免互相覆盖（见 gm-wrapper.ts 文件头）。
+    world: 'MAIN',
+    js: [{ code }],
     matches: project.config.matches,
     excludeMatches: project.config.excludeMatches,
     includeGlobs: project.config.includeGlobs,
@@ -535,8 +534,8 @@ export function registerAllEnabled(): Promise<void> {
 
 async function runRegisterAllEnabled(): Promise<void> {
   const projects = await listProjects()
-  // 先同步内置注册（启用脚本集合可能变化），再重注册脚本——同一遍里保持桩与包装密钥一致
-  await syncPageStubUnion(projects).catch(() => {})
+  // 先同步内置注册（启用脚本集合可能变化），再重注册脚本——同一遍里保持中继件与包装密钥一致
+  await syncScriptRelay(projects).catch(() => {})
   // 录制件跟随 per-host 门禁（与脚本集合无关）：SW 冷启动 / 扩展更新恢复时一并同步，
   // 保证「用户已同意录制的站点」在重注册后依然生效
   await syncNetRecorder().catch(() => {})

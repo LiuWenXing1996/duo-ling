@@ -29,13 +29,12 @@ export interface ScriptConfig {
 
   /**
    * `@grant` 声明的能力名（保序去重，含 `'none'`）。
-   * 缺省 / 空数组 / 仅 `['none']` → **全量注入**（本扩展无页面上下文，`@grant none`
-   * 若真的一点不给，很多脚本里读 `GM_info` 判环境的语句会当场崩）。
+   * 缺省 / 空数组 / 仅 `['none']` → **空清单，只给恒注入集**（对齐 TM；`GM_info` 等恒注入项仍可用）。
    */
   grant?: string[]
-  /** `@require` 外部依赖 URL（保序；注册时抓取缓存后按序前置注入）—— P2 落地 */
+  /** `@require` 外部依赖 URL（保序；注册时抓取缓存后按序前置注入） */
   requires?: string[]
-  /** `@resource` 命名资源（供 GM_getResourceText / GM_getResourceURL）—— P2 落地 */
+  /** `@resource` 命名资源（供 GM_getResourceText / GM_getResourceURL） */
   resources?: ScriptResourceDecl[]
   /** metadata 的展示字段（GM_info.script 合成用，不参与匹配） */
   namespace?: string
@@ -262,8 +261,7 @@ export function defaultConfig(matches: string[]): ScriptConfig {
 /**
  * 新建脚本的初始源码模板（零输入创建用）。
  *
- * 单文件纯 JS：无依赖、无模块语法（USER_SCRIPT 世界按 classic script 执行，import/export
- * 不可用），保存即注入。
+ * 单文件纯 JS：无依赖、无模块语法（按 classic script 注入，import/export 不可用），保存即注入。
  */
 export function defaultSource(name: string): string {
   return [

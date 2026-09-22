@@ -4,9 +4,9 @@
 // **内部面 = 自有桥协议**（`__dl` 信封 + `ApiRequest` 命令名），**保持稳定**：
 // 桥仍是「请求-响应 + Port 下行」两条通道，只增命令、不改形状。
 //
-// 与油猴的两处**已知差异**（速查页与 spec 必须标注，不能让人以为是实现缺陷）：
-//   · **无页面上下文**：`unsafeWindow` 是降级别名（= 隔离世界的 `window`，DOM 共用但页面 JS 全局不可见）；
-//   · **cookie 走域名门**：`GM_cookie.set` 不收 `domain` / `path`（开放 domain 会架空域名门）。
+// 与油猴的**已知差异**（速查页与 spec 必须标注，不能让人以为是实现缺陷）：
+//   · **cookie 走域名门**：`GM_cookie.set` 不收 `domain` / `path`（开放 domain 会架空域名门）；
+//   · **`GM_xmlhttpRequest` 无流式**：不收 `onprogress`，`responseType` 不支持 document / stream。
 //
 // 约束：所有跨桥值必须满足「结构化克隆」（存储层 IndexedDB 同样要求），
 // 故统一收窄为 Json 类型；函数、类实例、DOM 节点一律不可跨桥。
@@ -60,8 +60,11 @@ export interface GmInfo {
   userAgent: string
   /** 是否隐身窗口 */
   isIncognito: boolean
-  /** 本扩展无页面上下文，恒为 `'js'`（隔离世界） */
-  sandboxMode: 'js'
+  /**
+   * 运行环境对应的 TM `@sandbox` 取值，恒为 `'raw'`：脚本注入页面 MAIN 世界，与 TM 省略
+   * `@sandbox` 时的默认一致。（`'js'` = Firefox 的 USERSCRIPT_WORLD、`'dom'` = 隔离世界，本扩展都不给。）
+   */
+  sandboxMode: 'raw'
 }
 
 // ————————————————————————— cookie —————————————————————————
@@ -284,9 +287,6 @@ export type ApiRequest =
   | { c: 'tab.get' }
   | { c: 'tab.save'; value: Json }
   | { c: 'tab.all' }
-  // URL 变化订阅（SPA 路由感知）：控制面走请求-响应，事件 t:'url.change' 经 Port 推回
-  | { c: 'url.watch'; connId: string }
-  | { c: 'url.unwatch'; connId: string }
   // 系统能力
   | { c: 'notify'; message: string; title?: string; icon?: string }
   | { c: 'download'; url: string; name?: string }
@@ -315,7 +315,7 @@ export type ApiRequest =
   | { c: 'store.watch'; key: string; connId: string }
   | { c: 'store.unwatch'; key: string; connId: string }
   // 全量订阅（Port 级布尔）：**只读值的脚本也必须有下行通道**，否则同步快照跨 tab 永久陈旧。
-  // 与 url.watch 同构，但**故意不配退订命令** —— 「读过值即常驻订阅」这个前提决定了撤销它等于
+  // 与 store.watch 同构，但**故意不配退订命令** —— 「读过值即常驻订阅」这个前提决定了撤销它等于
   // 把同步读退回陈旧状态（那是缺陷，不是能力），故这里只有 watchAll。
   | { c: 'store.watchAll'; connId: string }
 
@@ -359,8 +359,6 @@ export const API_COMMANDS: Record<ApiRequest['c'], true> = {
   'tabs.close': true,
   'tabs.focus': true,
   'tabs.open': true,
-  'url.unwatch': true,
-  'url.watch': true,
 }
 
 /** 命令名（= `ApiRequest['c']`；`API_COMMANDS` 的键类型） */
@@ -570,11 +568,11 @@ export interface GmApiNamespace {
   clearValues(): Promise<void>
   /** 激活指定标签页（标准里无对应物：TM 只有 GM_openInTab 返回句柄的 close()） */
   focusTab(tabId: number): Promise<void>
-  /** 反向中继 · 页面世界访问（本扩展独有能力） */
+  /** 页面世界访问（本扩展独有能力，本地实现，不经桥） */
   page: GmPageApi
 }
 
-// ————————————————————— 反向中继 GM.page —————————————————————
+// ————————————————————— GM.page（页面世界能力） —————————————————————
 
 /** GM.page 自有错误码（不走 SW 桥的 ApiErrorCode） */
 export type PageErrorCode =
