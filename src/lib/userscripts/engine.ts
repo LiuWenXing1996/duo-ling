@@ -200,6 +200,8 @@ function buildGmInfo(
     version: chrome.runtime.getManifest().version,
     uuid: project.uuid,
     sandboxMode: 'raw',
+    // GM_download 走浏览器下载器（chrome.downloads）→ 档位如实报 browser，供脚本判「能不能弹另存为」
+    downloadMode: 'browser',
   }
 }
 

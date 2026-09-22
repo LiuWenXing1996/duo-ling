@@ -44,7 +44,7 @@ export interface GmScriptMeta {
 /**
  * `GM_info`（TM `Tampermonkey.ScriptInfo` 的**已实现子集**）。
  *
- * 未实现的字段（如 `scriptUpdateURL` / `scriptSource` / `downloadMode`）不出现在本类型里：
+ * 未实现的字段（如 `scriptUpdateURL` / `scriptSource`）不出现在本类型里：
  * 脚本访问会是 `undefined`，属可预期的降级，速查页已注明。
  */
 export interface GmInfo {
@@ -66,6 +66,12 @@ export interface GmInfo {
    * `@sandbox` 时的默认一致。（`'js'` = Firefox 的 USERSCRIPT_WORLD、`'dom'` = 隔离世界，本扩展都不给。）
    */
   sandboxMode: 'raw'
+  /**
+   * 下载档位（TM 同名字段）：本扩展恒 `'browser'` —— `GM_download` 走浏览器下载器
+   * （`chrome.downloads`）。脚本可据此判断能不能弹「另存为」（`saveAs` 只在这个档位有效）。
+   * 类型保留 TM 的三个取值，方便从 TM 迁来的脚本原样比较。
+   */
+  downloadMode: 'native' | 'disabled' | 'browser'
 }
 
 // ————————————————————————— cookie —————————————————————————

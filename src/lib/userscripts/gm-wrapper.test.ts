@@ -24,6 +24,7 @@ function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
     version: '0.0.0-test',
     uuid: 'u-test',
     sandboxMode: 'raw',
+  downloadMode: 'browser',
   }
 }
 
