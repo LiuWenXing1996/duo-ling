@@ -274,6 +274,17 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
         try { ph({ loaded: ev.loaded, total: ev.total, lengthComputable: ev.total != null }) }
         catch (e) { __gmLog('onprogress 回调异常', e) }
       }
+    } else if (ev.t === 'download.done') {
+      var dh = __gmDownloadHandlers[ev.requestId]
+      if (dh) {
+        // 先注销再回调：回调里若又发起一次下载，不会被这次的事件污染
+        __gmUnregisterDownload(ev.requestId)
+        if (ev.state === 'complete') {
+          if (typeof dh.onload === 'function') { try { dh.onload() } catch (e) { __gmLog('GM_download onload 异常', e) } }
+        } else if (typeof dh.onerror === 'function') {
+          try { dh.onerror({ error: ev.error || 'not_succeeded' }) } catch (e) { __gmLog('GM_download onerror 异常', e) }
+        }
+      }
     }
   }
 
@@ -754,20 +765,37 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   }
 
   /** GM_download：URL 字符串 / details 对象 / Blob（本地直下，不过桥） */
+  // —— GM_download：URL 走**浏览器下载器**（chrome.downloads），进度与结局经 Port 回来 ——
+  //    不再自己 fetch 的理由：只有浏览器下载器能弹「另存为」（saveAs），而且它流式落盘 ——
+  //    旧实现要把整份文件读进内存、转 base64、经 data URL 点锚点，大文件会炸。
+  //    Blob / ArrayBuffer 入参仍在本地走锚点（二进制没必要往返一趟扩展）。
+  var __gmDownloadHandlers = {}
+  var __gmDownloadSeq = 0
+  function __gmUnregisterDownload(id) { delete __gmDownloadHandlers[id] }
+
+  function __gmDownloadUrl(d) {
+    // onprogress 明确不支持（见 api-contract 里 download.done 的注释：下载中的字节数拿不到）
+    var wantsFrames = typeof d.onload === 'function' || typeof d.onerror === 'function'
+    var requestId = '__gmDl' + (++__gmDownloadSeq)
+    if (wantsFrames) __gmDownloadHandlers[requestId] = d
+    return __gmSend({
+      c: 'download', url: d.url, name: d.name, saveAs: d.saveAs === true,
+      conflictAction: d.conflictAction,
+      requestId: wantsFrames ? requestId : undefined,
+      connId: wantsFrames ? __gmConnId : undefined
+    }).then(function (r) {
+      return r
+    }, function (e) {
+      // 起不来（扩展没 downloads 权限 / URL 非法 / 文件名非法）：立即回报并清掉登记
+      __gmUnregisterDownload(requestId)
+      if (typeof d.onerror === 'function') { try { d.onerror({ error: (e && e.message) || 'not_succeeded' }) } catch (_) {} }
+      throw e
+    })
+  }
+
   function __gmDownload(input, name) {
-    if (typeof input === 'string') {
-      return __gmSend({ c: 'download', url: input, name: name }).then(function (r) { __gmTriggerAnchor(r.dataUrl, r.name) })
-    }
-    if (input && typeof input === 'object' && typeof input.url === 'string') {
-      if (input.saveAs) __gmLog('GM_download：saveAs 不受支持（走 a[download]，无法弹另存为），已忽略')
-      return __gmSend({ c: 'download', url: input.url, name: input.name || name }).then(function (r) {
-        __gmTriggerAnchor(r.dataUrl, r.name)
-        if (input.onload) { try { input.onload() } catch (e) {} }
-      }, function (e) {
-        if (input.onerror) { try { input.onerror({ error: (e && e.message) || '下载失败' }) } catch (_) {} }
-        throw e
-      })
-    }
+    if (typeof input === 'string') return __gmDownloadUrl({ url: input, name: name })
+    if (input && typeof input === 'object' && typeof input.url === 'string') return __gmDownloadUrl(input)
     var blob = null
     if (typeof Blob !== 'undefined' && input instanceof Blob) blob = input
     else if (input instanceof ArrayBuffer) blob = new Blob([input])

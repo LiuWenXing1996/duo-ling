@@ -300,6 +300,24 @@ export function pushFetchProgress(
   }
 }
 
+/** 推下载结局（`GM_download` 的 onload / onerror）给发起它的连接；寻址与 pushFetchProgress 同款 */
+export function pushDownloadDone(
+  uuid: string,
+  connId: string,
+  frame: {
+    requestId: string
+    state: 'complete' | 'interrupted'
+    loaded: number
+    total: number | null
+    error?: string
+  },
+): void {
+  const registry = getDlPortRegistry()
+  for (const port of registry.portsByConnId(uuid, connId)) {
+    pushEvent(registry, port, { t: 'download.done', ...frame })
+  }
+}
+
 /** 为一次 GM_notification mint 通知 id 并登记归属（响应该 id，供包装层挂 onClick） */
 export function mintNotification(uuid: string): string {
   const id = `us-${crypto.randomUUID()}`

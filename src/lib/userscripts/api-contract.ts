@@ -318,7 +318,21 @@ export type ApiRequest =
   | { c: 'tab.all' }
   // 系统能力
   | { c: 'notify'; message: string; title?: string; icon?: string }
-  | { c: 'download'; url: string; name?: string }
+  /**
+   * 下载（`GM_download`）：交给**浏览器下载器**（`chrome.downloads`）—— 这是能弹「另存为」的唯一途径，
+   * 也让大文件流式落盘（旧实现是把整份读进内存转 base64 再经 data URL 点锚点）。
+   * `requestId` + `connId` 给进度 / 结局帧寻址（与 `xhr.progress` 同款）；不给就只发起、不回报。
+   */
+  | {
+      c: 'download'
+      url: string
+      name?: string
+      /** 弹「另存为」对话框（TM 同名字段；只在浏览器下载器模式下有效） */
+      saveAs?: boolean
+      conflictAction?: 'uniquify' | 'overwrite' | 'prompt'
+      requestId?: string
+      connId?: string
+    }
   | { c: 'tabs.open'; url: string; active?: boolean }
   // tabId 缺省 = 发起命令的那个标签页（`window.close` / `window.focus` 的落点）
   | { c: 'tabs.close'; tabId?: number }
@@ -443,6 +457,22 @@ export type ApiEvent =
    * **只在该请求要了进度时推**（`FetchInit.wantProgress`）；`total` 为 null = 响应没有 content-length。
    */
   | { t: 'xhr.progress'; requestId: string; loaded: number; total: number | null }
+  /**
+   * 下载**结局**（`GM_download` 的 `onload` / `onerror`）：按 requestId 找到那次下载。
+   *
+   * **没有进度帧**：`chrome.downloads.onChanged` 只给 state / totalBytes，**不给 bytesReceived**
+   * （进度只存在于 `search()` 的 DownloadItem 里）—— 要做得靠轮询，而 SW 休眠会把轮询掐断，收益不值。
+   * 所以 `GM_download` 的 `onprogress` 明确不支持。
+   */
+  | {
+      t: 'download.done'
+      requestId: string
+      state: 'complete' | 'interrupted'
+      /** 完成时是文件大小；中断时取不到（0） */
+      loaded: number
+      total: number | null
+      error?: string
+    }
 
 /** DL Port 下行帧信封：Port 上只走这一种帧，防未来混入其他帧类型时判别冲突 */
 export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }

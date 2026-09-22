@@ -137,6 +137,9 @@ export default defineConfig({
       'contextMenus',
       'cookies',
       'clipboardWrite',
+      // 用户脚本的 GM_download 走**浏览器下载器**（chrome.downloads）：能弹「另存为」，
+      // 且大文件流式落盘（旧实现是整份读进内存再走 data URL）。见 dl-bridge 的 doDownload。
+      'downloads',
       'declarativeNetRequestWithHostAccess',
       'webRequest',
     ],

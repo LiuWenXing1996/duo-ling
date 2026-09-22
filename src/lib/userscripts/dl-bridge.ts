@@ -32,6 +32,7 @@ import {
   attachAudioWatch,
   detachAudioWatch,
   pushFetchProgress,
+  pushDownloadDone,
   mintNotification,
 } from './dl-port'
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
@@ -383,12 +384,103 @@ async function doFetch(
 }
 
 /** GM_download 的后台实现：抓成 dataUrl，包装侧用 a[download] 触发本地下载（避免新增 downloads 权限） */
-async function doDownload(url: string, name: string): Promise<{ dataUrl: string; name: string }> {
-  const resp = await fetch(url, { credentials: 'omit' })
-  if (!resp.ok) throw new Error(`下载 ${url} 失败：${resp.status} ${resp.statusText}`)
-  const buf = await resp.arrayBuffer()
-  const mime = resp.headers.get('content-type') || 'application/octet-stream'
-  return { dataUrl: `data:${mime};base64,${arrayBufferToBase64(buf)}`, name }
+// ————————————————————— 下载（downloads 权限）—————————————————————
+
+/** 取 chrome.downloads，缺失即明确报错（扩展未声明 downloads 权限 / 旧产物）；不静默降级 */
+function downloadsApi(): typeof chrome.downloads {
+  const api = chrome.downloads
+  if (!api || typeof api.download !== 'function') {
+    throw new ApiError('NOT_AVAILABLE', 'download 能力不可用')
+  }
+  return api
+}
+
+/**
+ * 下载文件名清洗：只取纯文件名（挡 `../` 越出下载目录）、去掉前导点、trim；空则交回 undefined
+ * 让浏览器按 URL 推断。**不做扩展名白名单**（TM 有，那是它选项页的产品选择，我们不加）。
+ */
+function sanitizeDownloadName(name?: string): string | undefined {
+  if (!name) return undefined
+  const base = name.split(/[\\/]/).pop() ?? ''
+  const cleaned = base.replace(/^\.+/, '').trim()
+  return cleaned || undefined
+}
+
+/**
+ * 在飞下载的登记：downloadId → 归属信息，供 `chrome.downloads.onChanged` 把进度 / 结局推回脚本。
+ * `total` 只在这里查一次（DownloadDelta 不给 totalBytes），查不到就为 null。
+ */
+const downloadWatch = new Map<
+  number,
+  { uuid: string; connId: string; requestId: string; total: number | null }
+>()
+
+let downloadWatchMounted = false
+
+/** 挂 onChanged（首次下载时懒挂）：delta 里既有 state 也有 bytesReceived */
+function mountDownloadWatch(): void {
+  if (downloadWatchMounted) return
+  downloadWatchMounted = true
+  try {
+    downloadsApi().onChanged.addListener((delta) => {
+      const entry = downloadWatch.get(delta.id)
+      if (!entry) return
+      const state = delta.state?.current
+      if (state !== 'complete' && state !== 'interrupted') return
+      downloadWatch.delete(delta.id)
+      pushDownloadDone(entry.uuid, entry.connId, {
+        requestId: entry.requestId,
+        state,
+        loaded: delta.fileSize?.current ?? 0,
+        total: entry.total,
+        ...(state === 'interrupted' ? { error: delta.error?.current ?? 'not_succeeded' } : {}),
+      })
+    })
+  } catch {
+    downloadWatchMounted = false // 权限缺失等：下次调用再试（doDownload 自己会先报错）
+  }
+}
+
+/**
+ * 发起下载：交给**浏览器下载器**（能弹另存为、大文件流式落盘，旧实现是整份读进内存再走 data URL）。
+ * 返回 downloadId —— 下载器只承诺「已开始」，成败**稍后**经 `download.change` 帧回报。
+ */
+async function doDownload(
+  uuid: string,
+  url: string,
+  opts: { name?: string; saveAs?: boolean; conflictAction?: string; requestId?: string; connId?: string },
+): Promise<{ id: number }> {
+  const api = downloadsApi()
+  const conflict = opts.conflictAction
+  if (conflict && conflict !== 'uniquify' && conflict !== 'overwrite' && conflict !== 'prompt') {
+    throw new ApiError(
+      'INVALID_ARG',
+      `GM_download：conflictAction 只支持 uniquify / overwrite / prompt，收到「${conflict}」`,
+    )
+  }
+  const filename = sanitizeDownloadName(opts.name)
+  const id = await api.download({
+    url,
+    ...(filename ? { filename } : {}),
+    saveAs: opts.saveAs === true,
+    ...(conflict ? { conflictAction: conflict as chrome.downloads.FilenameConflictAction } : {}),
+  })
+  if (typeof id !== 'number') {
+    throw new ApiError('INTERNAL', `GM_download 未能开始下载：${url}`)
+  }
+  if (opts.requestId && opts.connId) {
+    mountDownloadWatch()
+    let total: number | null = null
+    try {
+      const items = await api.search({ id })
+      const bytes = items[0]?.totalBytes
+      total = typeof bytes === 'number' && bytes > 0 ? bytes : null
+    } catch {
+      // 查不到就不给 total（lengthComputable 为 false），不阻断下载
+    }
+    downloadWatch.set(id, { uuid, connId: opts.connId, requestId: opts.requestId, total })
+  }
+  return { id }
 }
 
 // ————————————————————— cookie（cookies 权限）—————————————————————
@@ -558,7 +650,13 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       return { id }
     }
     case 'download':
-      return doDownload(req.url, req.name || 'download')
+      return doDownload(uuid, req.url, {
+        name: req.name,
+        saveAs: req.saveAs,
+        conflictAction: req.conflictAction,
+        requestId: req.requestId,
+        connId: req.connId,
+      })
     // 剪贴板：走 offscreen（免用户手势）+ 富文本（clipboardWrite 权限）
     case 'clipboard.write':
       await writeClipboardViaOffscreen(req.text, req.html)
