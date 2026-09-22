@@ -52,6 +52,12 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 - **流式静默超时（防限流）**：`runLoop` 泵流期间挂 `createIdleGuard`（`src/lib/offscreen-chat/idle-guard.ts`），两次 chunk 间隔超 `STREAM_IDLE_TIMEOUT_MS`（默认 60s，可在模型高级配置里按 provider 调整 `streamIdleTimeoutSec` 秒）即判定 provider 卡死（有连接但不吐 token），主动 `abort` 并推 error 块「请求超时…已自动中止」。避免静默卡死的请求长期占用网关连接/并发配额、累积触发限流；用户手动停止走 `abortChat`，与此计时无关。模型配置探活 `testChat` 另有 15s 超时。
 - **对话流内的卡片走 `data-*` part**（`data-generation` 生成卡片、`data-net-capture` 录制同意卡）。两条硬约束：① 历史消息送模型前 `stripDataParts` 会剥掉全部 `data-*`（UI 专用，不进上下文）；② 卡片若由**工具执行中途**推送（同意卡的 `requestConsent` 回调即此例），必须在 `runLoop` 里收集（`midStreamParts`）并在收尾插进落盘序列——`allChunks` 只收 `streamText` 的输出流，中途手工推的 part 不在其中，不收集就只在流里闪一下、重开面板即消失（而卡片往往是用户唯一的操作入口）。
 
+- **附件（图片 / 文本文件）**：转换全部在**发出前**完成，链路下游（transport / offscreen / provider）不需要知道「附件」这个概念 —— 图片压成 data URL 的 file part 随消息走，落盘、回读、每轮重发都沿用 parts 的既有机制；文本文件读成文本拼进正文（OpenAI 兼容接口不支持任意文件上传）。**压缩只能在发出前做**：图片一旦随 user 消息落盘就是历史的一部分，以后每轮都会重新发给模型，事后再想换张小的已经改不动。处理逻辑集中在 `src/lib/chat-attachments.ts`。
+  - **图片统一转 JPEG**（长边 ≤1568、先铺白底）：JPEG 是各家兼容服务端的接受交集 —— PNG 压不动体积、WebP 有一批服务不认。代价是丢透明通道，对截图 / 设计稿无影响。
+  - **能不能发图由模型的 `vision` 声明决定**（`ModelProfile.vision`）：图片以 image part 直接进请求体，读不了图的模型要么报错（用户看到的是上游原文报错）、要么静默丢弃图片后照着文字编内容；而带图消息一发即落盘，那之后**每一轮都带着它**，会让这个会话从头废掉且用户无从定位。故未声明时**入口保留但只收文本文件** —— 不隐藏入口（隐藏会让人以为没这个功能），也不整枚禁用（文本文件仍然发得出去），并在入口提示里说明原因；`accept` 随之切换，粘贴 / 拖拽走同一道校验。
+  - **声明默认关闭**：老配置与新建配置都从「不支持图片」起步；模型表单里按预设表给已知的视觉模型预置默认值（`providers.ts` 的白名单）。拿不准的一律不预置 —— 预置错比不预置坏得多，漏了只是让用户手勾一下。
+  - 输入区的附件状态由 `ChatPanel` 自持：它在自己的 setup 里创建 prompt-input 的上下文，`PromptInput` 会继承外层的那个（组件的双模式）—— 于是附件 chip、入口按钮、提交分流都留在对话面板内，通用组件不用装对话特有的逻辑。
+
 ## 脚本注入
 
 `chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`gm-wrapper.ts`）与 **USER_SCRIPT 中继件**（`script-relay.ts`）桥接（`src/lib/userscripts/`）。
