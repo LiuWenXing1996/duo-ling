@@ -268,6 +268,12 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
       if ('muted' in ev) ae.muted = ev.muted
       if ('audible' in ev) ae.audible = ev.audible
       __gmFireAudioChange(ae)
+    } else if (ev.t === 'xhr.progress') {
+      var ph = __gmXhrProgress[ev.requestId]
+      if (ph) {
+        try { ph({ loaded: ev.loaded, total: ev.total, lengthComputable: ev.total != null }) }
+        catch (e) { __gmLog('onprogress 回调异常', e) }
+      }
     }
   }
 
@@ -717,9 +723,14 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     }
     if (d.onloadstart) { try { d.onloadstart(base(0, '', {}, d.url)) } catch (e) {} }
     var chain = __gmEncodeBody(d.data).then(function (encode) {
-      var init = { method: d.method, headers: d.headers, responseType: responseType === 'text' || responseType === 'json' ? 'text' : 'arraybuffer', timeout: d.timeout, redirect: d.redirect, requestId: requestId }
+      var wantsProgress = typeof d.onprogress === 'function'
+      if (wantsProgress) __gmRegisterXhrProgress(requestId, d.onprogress)
+      var init = { method: d.method, headers: d.headers, responseType: responseType === 'text' || responseType === 'json' ? 'text' : 'arraybuffer', timeout: d.timeout, redirect: d.redirect, requestId: requestId, wantProgress: wantsProgress, connId: __gmConnId }
       return __gmSend({ c: 'fetch', url: d.url, init: encode ? encode(init) : init })
     })
+    // 登记与请求同生命周期（成功 / 失败 / 中止都清）
+    var __gmProgressDone = function () { __gmUnregisterXhrProgress(requestId) }
+    chain.then(__gmProgressDone, __gmProgressDone)
     chain.then(function (p) {
       if (aborted) return
       var resp = toResponse(p)
@@ -827,6 +838,13 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   }
 
   var __gmListenerSeq = 0
+  // —— 请求进度登记（GM_xmlhttpRequest 的 onprogress）——
+  // 进度帧按 requestId 回来，这张表记住"哪个 requestId 要回调哪个函数"。请求结束（成功 / 失败 /
+  // 中止）都要清 —— 否则脚本跑久了表只增不减。
+  var __gmXhrProgress = {}
+  function __gmRegisterXhrProgress(requestId, fn) { __gmXhrProgress[requestId] = fn }
+  function __gmUnregisterXhrProgress(requestId) { delete __gmXhrProgress[requestId] }
+
   // —— 音频状态监听（GM_audio.addStateChangeListener）——
   // TM 用**函数引用**标识监听器（没有 id 机制）：本地就是一张函数数组，由空变非空时订阅、
   // 非空变空时退订 —— 与值监听同款「按需订阅」，没有监听就不收 audio.change 帧。

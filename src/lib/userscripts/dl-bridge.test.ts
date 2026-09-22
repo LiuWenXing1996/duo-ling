@@ -306,6 +306,17 @@ describe("GM_xmlhttpRequest redirect:'manual'（webRequest 观测）", () => {
     expect(resp.ok).toBe(true)
     if (resp.ok) expect(resp.data).toMatchObject({ status: 200, body: 'plain' })
   })
+
+  it('fetch：wantProgress 但寻不到连接（没 connId）时不推帧，响应体照常完整 —— 进度缺失不该影响请求', async () => {
+    fetchMock.mockResolvedValue(new Response('hello'))
+    const resp = await sendToBridge({
+      c: 'fetch',
+      url: 'https://x.test/',
+      init: { requestId: 'r1', wantProgress: true },
+    })
+    expect(resp.ok).toBe(true)
+    if (resp.ok) expect(resp.data).toMatchObject({ status: 200, body: 'hello' })
+  })
 })
 
 describe('GM tabs', () => {

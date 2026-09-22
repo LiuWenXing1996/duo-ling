@@ -6,7 +6,9 @@
 //
 // 与油猴的**已知差异**（速查页与 spec 必须标注，不能让人以为是实现缺陷）：
 //   · **cookie 的 `list` / `delete` 不支持 `domain` / `path` 查询**（`set` 照 TM 收这两个字段）；
-//   · **`GM_xmlhttpRequest` 无流式**：不收 `onprogress`，`responseType` 不支持 document / stream。
+//   · **`GM_xmlhttpRequest` 无流式**：`responseType` 不支持 stream（TM 的合法值只有
+//     arraybuffer / blob / json / stream，也没有 document）；`onprogress` 只给进度字段，
+//     不给 TM 那种「带完整 response 的进度对象」。
 //
 // 约束：所有跨桥值必须满足「结构化克隆」（存储层 IndexedDB 同样要求），
 // 故统一收窄为 Json 类型；函数、类实例、DOM 节点一律不可跨桥。
@@ -143,6 +145,13 @@ export interface FetchInit {
   timeout?: number
   /** 中止关联标识（`GM_xmlhttpRequest` 的 abort() 用；不传即不可中止） */
   requestId?: string
+  /**
+   * 要下载进度帧（`GM_xmlhttpRequest` 的 `onprogress`）。**缺省不推** —— 进度帧有成本，
+   * 只有脚本真给了 onprogress 才走流式读那条路（见 dl-bridge 的 readBodyStreaming）。
+   */
+  wantProgress?: boolean
+  /** 进度帧的推送目标（包装层的 connId）；wantProgress 为真时必填 */
+  connId?: string
 }
 
 /**
@@ -188,6 +197,22 @@ export interface GmXhrDetails {
   onerror?: (resp: GmXhrErrorResponse) => void
   ontimeout?: (resp: GmXhrResponse) => void
   onabort?: (resp: GmXhrResponse) => void
+  /**
+   * 下载进度。**只给进度字段**（loaded / total / lengthComputable），不像 TM 那样附带完整 response ——
+   * 进度帧走的是轻量通道（只传数字），每帧都带状态与响应头不值当。
+   * 上传进度不提供（TM 的 details 里也没有 `xhr.upload`）。
+   */
+  onprogress?: (progress: GmXhrProgress) => void
+}
+
+/** `GM_xmlhttpRequest` 的进度对象（`onprogress` 入参） */
+export interface GmXhrProgress {
+  /** 已接收字节数 */
+  loaded: number
+  /** 总字节数；null = 响应没有 content-length */
+  total: number | null
+  /** 就是 `total != null`（照 XHR 语义） */
+  lengthComputable: boolean
 }
 
 export interface GmXhrResponseBase {
@@ -414,6 +439,11 @@ export type ApiEvent =
    * **只推给登记过 `audio.watch` 的连接**；字段含义见 GmAudioChangeEvent（muted 是原因字符串或 false）。
    */
   | { t: 'audio.change'; muted?: string | false; audible?: boolean }
+  /**
+   * 下载进度（`GM_xmlhttpRequest` 的 `onprogress`）：按 requestId 找到发起它的那次请求。
+   * **只在该请求要了进度时推**（`FetchInit.wantProgress`）；`total` 为 null = 响应没有 content-length。
+   */
+  | { t: 'xhr.progress'; requestId: string; loaded: number; total: number | null }
 
 /** DL Port 下行帧信封：Port 上只走这一种帧，防未来混入其他帧类型时判别冲突 */
 export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }

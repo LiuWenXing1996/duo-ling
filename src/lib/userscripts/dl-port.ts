@@ -284,6 +284,22 @@ export function portsForAudioWatch(tabId: number): chrome.runtime.Port[] {
   return getDlPortRegistry().portsForAudioWatch(tabId)
 }
 
+/**
+ * 推一帧下载进度（`GM_xmlhttpRequest` 的 `onprogress`）给**发起该请求的连接**。
+ * 按 uuid + connId 定位（与 audio.watch 同款寻址）；找不到（连接已断）就丢弃 —— 请求照常走完，
+ * 进度只是锦上添花，不该因为它没推到而报错。
+ */
+export function pushFetchProgress(
+  uuid: string,
+  connId: string,
+  frame: { requestId: string; loaded: number; total: number | null },
+): void {
+  const registry = getDlPortRegistry()
+  for (const port of registry.portsByConnId(uuid, connId)) {
+    pushEvent(registry, port, { t: 'xhr.progress', ...frame })
+  }
+}
+
 /** 为一次 GM_notification mint 通知 id 并登记归属（响应该 id，供包装层挂 onClick） */
 export function mintNotification(uuid: string): string {
   const id = `us-${crypto.randomUUID()}`

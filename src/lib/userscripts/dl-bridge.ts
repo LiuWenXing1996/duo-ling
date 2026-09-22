@@ -31,6 +31,7 @@ import {
   attachValueWatch,
   attachAudioWatch,
   detachAudioWatch,
+  pushFetchProgress,
   mintNotification,
 } from './dl-port'
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
@@ -163,7 +164,57 @@ function rebuildFormData(body: FetchFormBody): FormData {
  * timeout：毫秒，0 / 不传不限。用 AbortController 在到点时中止请求（响应体读取同样受
  * 信号约束，慢响应读到一半也会被掐断）；中止后统一报 BRIDGE_TIMEOUT，不让脚本调用挂死。
  */
-async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
+/**
+ * 读响应体；`onProgress` 存在时改成**流式读 + 边读边推进度**（读完照样拼成完整字节，返回路径不变）。
+ *
+ * 只有显式要进度的请求走这条路（`FetchInit.wantProgress`），其余仍是 `resp.arrayBuffer()` /
+ * `resp.text()` —— 零行为变化。节流按「≥64KB 或 ≥50ms」：响应块可能很密（大文件几千块），
+ * 逐块推会把 Port 打满，而进度条不需要那个粒度。
+ */
+async function readBodyStreaming(
+  resp: Response,
+  onProgress: (loaded: number, total: number | null) => void,
+): Promise<ArrayBuffer> {
+  const reader = resp.body?.getReader()
+  if (!reader) return await resp.arrayBuffer() // 无流（罕见）：退化，仍给完整体
+  const header = resp.headers.get('content-length')
+  const parsed = header == null ? Number.NaN : Number(header)
+  const total = Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+
+  const chunks: Uint8Array[] = []
+  let loaded = 0
+  let pushedAt = 0
+  let pushedBytes = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    chunks.push(value)
+    loaded += value.byteLength
+    const now = Date.now()
+    if (loaded - pushedBytes >= 65536 || now - pushedAt >= 50) {
+      pushedAt = now
+      pushedBytes = loaded
+      onProgress(loaded, total)
+    }
+  }
+  // 收尾一帧：让进度走到头（有 content-length 时脚本才算得出 100%）
+  onProgress(loaded, total)
+
+  const out = new Uint8Array(loaded)
+  let offset = 0
+  for (const c of chunks) {
+    out.set(c, offset)
+    offset += c.byteLength
+  }
+  return out.buffer // 新分配、offset 0、长度正好 —— 直接交出底层缓冲
+}
+
+async function doFetch(
+  url: string,
+  init?: FetchInit,
+  progress?: (loaded: number, total: number | null) => void,
+): Promise<FetchPayload> {
   const redirect = init?.redirect ?? 'follow'
   if (redirect !== 'follow' && redirect !== 'manual' && redirect !== 'error') {
     throw new ApiError('INVALID_ARG', `GM_xmlhttpRequest：redirect 仅支持 follow / manual / error，收到「${String(redirect)}」`)
@@ -287,9 +338,15 @@ async function doFetch(url: string, init?: FetchInit): Promise<FetchPayload> {
     const responseHeaders: Record<string, string> = {}
     resp.headers.forEach((v, k) => (responseHeaders[k] = v))
     const responseType = init?.responseType === 'arraybuffer' ? 'arraybuffer' : 'text'
+    // 要了进度 → 流式读（边读边推）；否则整体读。两条路拿到的都是**完整字节**，只是前者会推进度帧。
+    const bytes = progress ? await readBodyStreaming(resp, progress) : undefined
     // 二进制无法结构化克隆过桥，转 base64（包装侧 arrayBuffer() 解码）
     const body =
-      responseType === 'arraybuffer' ? arrayBufferToBase64(await resp.arrayBuffer()) : await resp.text()
+      responseType === 'arraybuffer'
+        ? arrayBufferToBase64(bytes ?? (await resp.arrayBuffer()))
+        : bytes
+          ? new TextDecoder().decode(bytes)
+          : await resp.text()
     return {
       ok: resp.ok,
       status: resp.status,
@@ -469,8 +526,16 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       await clearGMValues(uuid, req.connId)
       return undefined
     // 网络
-    case 'fetch':
-      return doFetch(req.url, req.init)
+    case 'fetch': {
+      // 要了进度才建回调（且得能寻址到发起它的连接，否则推给谁都不知道）
+      const rid = req.init?.requestId
+      const cid = req.init?.connId
+      const progress =
+        req.init?.wantProgress && rid && cid
+          ? (loaded: number, total: number | null) => pushFetchProgress(uuid, cid, { requestId: rid, loaded, total })
+          : undefined
+      return doFetch(req.url, req.init, progress)
+    }
     case 'fetch.abort': {
       // 真中止：桥是请求-响应模型，SW 无法反向控制已发出的 fetch，故按 requestId 查表拿控制器。
       // 查不到 = 请求已结束（或从未存在），幂等处理不报错（连续 abort 是合法调用）。
