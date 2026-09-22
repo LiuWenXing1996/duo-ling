@@ -1,14 +1,14 @@
-// 组件测试：设置页「网页浮层」分区的例外名单（FloatPanelSection.vue）。
+// 组件测试：设置页「网页浮层」分区的开关与例外名单（FloatPanelSection.vue）。
 //
-// 守的是这块新面的四件事：
+// 守的是这块面的三件事：
 //   A. 名单为空 → 给空态，规则说明是「所有网站都显示」；
 //   B. 名单非空 → 逐行列出 hostname（按域名序），点「恢复显示」调 setHostDisabled(host, false)；
-//   C. 总开关关着 → 规则说明改成「全站不显示」（例外名单暂不生效）；
-//   D. 别处改了开关（订阅回调）→ 自动重拉；卸载时退订；
-//   E. 当前标签页是扩展页（设置页自己）→ 不给站点名、开关禁用（不把扩展 id 当网站）。
+//   C. 别处改了开关（订阅回调）→ 自动重拉；卸载时退订。
 //
-// 边界 mock：chrome 只手写 tabs.query / tabs.onActivated 两个面（分区只用到这两个）；
-// float-panel-store 整块 mock，不牵进真实 storage。
+// 按站点开关**不在这里**（设置页自己就是扩展页，查到的激活标签页永远是自己）—— 那部分归 popup，
+// 其测试见 PopupPanel.component.test.ts。
+//
+// 边界 mock：float-panel-store 整块 mock，不牵进真实 storage；本分区不碰 chrome.tabs。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import FloatPanelSection from './FloatPanelSection.vue'
@@ -16,7 +16,6 @@ import FloatPanelSection from './FloatPanelSection.vue'
 const getMasterEnabled = vi.hoisted(() => vi.fn())
 const setMasterEnabled = vi.hoisted(() => vi.fn())
 const getDisabledSites = vi.hoisted(() => vi.fn())
-const isFloatEnabledForHost = vi.hoisted(() => vi.fn())
 const setHostDisabled = vi.hoisted(() => vi.fn())
 const subscribeFloatSettings = vi.hoisted(() => vi.fn())
 
@@ -24,7 +23,6 @@ vi.mock('@/lib/float-panel-store', () => ({
   getMasterEnabled,
   setMasterEnabled,
   getDisabledSites,
-  isFloatEnabledForHost,
   setHostDisabled,
   subscribeFloatSettings,
 }))
@@ -32,15 +30,6 @@ vi.mock('@/lib/float-panel-store', () => ({
 /** 订阅回调（store 的 mock 把它交出来，测试手动触发「别处改了开关」） */
 let onSettingsChanged: (() => void) | null = null
 const unsubscribe = vi.fn()
-
-function stubChrome(url: string | undefined): void {
-  vi.stubGlobal('chrome', {
-    tabs: {
-      query: vi.fn(async () => [{ id: 1, url }]),
-      onActivated: { addListener: vi.fn(), removeListener: vi.fn() },
-    },
-  })
-}
 
 const wrappers: VueWrapper[] = []
 
@@ -63,7 +52,6 @@ beforeEach(() => {
   })
   getMasterEnabled.mockResolvedValue(true)
   getDisabledSites.mockResolvedValue([])
-  isFloatEnabledForHost.mockResolvedValue(true)
   setMasterEnabled.mockResolvedValue(undefined)
   setHostDisabled.mockResolvedValue(undefined)
 })
@@ -71,13 +59,11 @@ beforeEach(() => {
 afterEach(() => {
   for (const w of wrappers) w.unmount()
   wrappers.length = 0
-  vi.unstubAllGlobals()
   vi.clearAllMocks()
 })
 
 describe('设置页「网页浮层」的例外名单', () => {
   it('名单为空：给空态，规则说明是「所有网站都显示」', async () => {
-    stubChrome('https://example.com/page')
     const w = await mountSection()
 
     expect(rows(w)).toHaveLength(0)
@@ -85,17 +71,7 @@ describe('设置页「网页浮层」的例外名单', () => {
     expect(rule(w).text()).toBe('浮层在所有网站显示。')
   })
 
-  it('当前标签页是扩展页（设置页自己）：不给站点名、开关禁用，绝不把扩展 id 当网站', async () => {
-    stubChrome('chrome-extension://EXTID/workbench.html')
-    const w = await mountSection()
-
-    expect(w.text()).toContain('当前标签页不是普通网页')
-    expect(w.text()).not.toContain('EXTID')
-    expect(w.findAll('[role="switch"]')[1]!.attributes('disabled')).toBeDefined()
-  })
-
   it('名单非空：按域名序列出各站，点「恢复显示」把它移出名单', async () => {
-    stubChrome('https://example.com/page')
     getDisabledSites.mockResolvedValue(['b.example', 'a.example'])
     const w = await mountSection()
 
@@ -111,7 +87,6 @@ describe('设置页「网页浮层」的例外名单', () => {
   })
 
   it('总开关关着：规则说明改成全站不显示（例外名单不生效）', async () => {
-    stubChrome('https://example.com/page')
     getMasterEnabled.mockResolvedValue(false)
     getDisabledSites.mockResolvedValue(['a.example'])
     const w = await mountSection()
@@ -122,7 +97,6 @@ describe('设置页「网页浮层」的例外名单', () => {
   })
 
   it('别处改了开关：订阅回调触发重拉，清单跟着更新；卸载时退订', async () => {
-    stubChrome('https://example.com/page')
     const w = await mountSection()
     expect(rows(w)).toHaveLength(0)
 
