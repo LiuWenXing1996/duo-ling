@@ -31,7 +31,7 @@ function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
     scriptHandler: '哆灵',
     version: '0.0.0-test',
     uuid: 'u-cmd',
-    sandboxMode: 'js',
+    sandboxMode: 'raw',
   }
 }
 

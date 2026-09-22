@@ -198,7 +198,7 @@ function buildGmInfo(
     scriptHandler: '哆灵',
     version: chrome.runtime.getManifest().version,
     uuid: project.uuid,
-    sandboxMode: 'js',
+    sandboxMode: 'raw',
   }
 }
 

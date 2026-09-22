@@ -108,7 +108,8 @@ const CAPABILITIES = {
     summary: '当前脚本的元信息（名 / 版本 / 匹配规则 / metadata 原文）',
     detail:
       '从脚本源码的 metadata 块合成：script（含 matches / includes / excludes / runAt / grant / requires / resources）、' +
-      'scriptMetaStr（原文）、scriptHandler、version（扩展版本）、uuid、userAgent、isIncognito、sandboxMode。' +
+      'scriptMetaStr（原文）、scriptHandler、version（扩展版本）、uuid、userAgent、sandboxMode（恒为 raw）。' +
+      'isIncognito 在页面主世界取不到，恒为 false。' +
       '**是 TM ScriptInfo 的已实现子集**：未实现的字段（如 scriptUpdateURL / downloadMode）读到 undefined，不报错。',
     returns: 'GmInfo',
     bridge: 'local',

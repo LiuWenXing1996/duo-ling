@@ -60,8 +60,11 @@ export interface GmInfo {
   userAgent: string
   /** 是否隐身窗口 */
   isIncognito: boolean
-  /** 本扩展无页面上下文，恒为 `'js'`（隔离世界） */
-  sandboxMode: 'js'
+  /**
+   * 运行环境对应的 TM `@sandbox` 取值，恒为 `'raw'`：脚本注入页面 MAIN 世界，与 TM 省略
+   * `@sandbox` 时的默认一致。（`'js'` = Firefox 的 USERSCRIPT_WORLD、`'dom'` = 隔离世界，本扩展都不给。）
+   */
+  sandboxMode: 'raw'
 }
 
 // ————————————————————————— cookie —————————————————————————
