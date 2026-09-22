@@ -191,3 +191,33 @@ describe('会话历史里有图片、又切到读不了图的模型', () => {
     w.unmount()
   })
 })
+
+describe('图片预览', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('点气泡里的缩略图：面板内弹出大图 + 下载，而不是跳走', async () => {
+    const w = await mountPanel(true, [imageHistoryMessage()])
+
+    const chip = w.find('[data-testid="preview-image"]')
+    expect(chip.exists(), '缩略图应可点（button 而不是纯展示）').toBe(true)
+    await chip.trigger('click')
+    await flushPromises()
+
+    // Dialog 走 portal，不在 wrapper 里 —— 去 document 上找
+    const dialog = document.querySelector('[data-testid="image-preview"]')
+    expect(dialog, '应弹出预览弹窗').not.toBeNull()
+
+    const img = dialog!.querySelector('img')
+    expect(img?.getAttribute('src')).toBe('data:image/jpeg;base64,AAAA')
+
+    const download = dialog!.querySelector('[data-testid="download-image"]')
+    expect(download, '下载走 <a download>（data: URL 合法的用法）').not.toBeNull()
+    expect(download!.getAttribute('download')).toBe('shot.jpg')
+    // 不设 href 指向别处：必须还是那条 data URL，否则点了会跳走
+    expect(download!.getAttribute('href')).toBe('data:image/jpeg;base64,AAAA')
+
+    w.unmount()
+  })
+})

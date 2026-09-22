@@ -38,6 +38,11 @@ import {
   PopoverTrigger as UiPopoverTrigger
 } from '@/components/ui/popover'
 import {
+  Dialog as UiDialog,
+  DialogContent as UiDialogContent,
+  DialogTitle as UiDialogTitle
+} from '@/components/ui/dialog'
+import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
@@ -219,6 +224,15 @@ function userText(m: UIMessage): string {
 function messageImages(m: UIMessage): FileUIPart[] {
   return m.parts.filter((part): part is FileUIPart => part.type === 'file')
 }
+
+/**
+ * 正在预览的图片（点气泡里的缩略图打开），null = 关闭。
+ *
+ * 为什么用面板内弹窗而不是开新标签看：`data:` URL 不允许顶层导航（Chrome 那条防钓鱼策略，
+ * `<a href>` / `window.open` / `chrome.tabs.create` 一律拦），而 `<img src>` 是子资源、合法。
+ * 顺带好处是不离开当前对话上下文，看完关掉就回到原处。
+ */
+const previewImage = ref<{ url: string, filename: string } | null>(null)
 
 /** 随本条消息附上的页面上下文（气泡 chip 渲染源；只认元素拾取，快照不进元数据） */
 function messagePageContext(m: UIMessage): MessagePageContext | undefined {
@@ -906,11 +920,16 @@ function userScriptsUnavailableMessageSafe(): string {
                       class="flex flex-wrap gap-1.5"
                       data-testid="message-images"
                     >
-                      <span
+                      <!-- 缩略图可点：点开在面板内看大图（data: 不能开新标签，见 previewImage 处的说明） -->
+                      <button
                         v-for="(img, i) in messageImages(m)"
                         :key="i"
-                        class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-background py-1 pl-1 pr-2.5 text-xs"
+                        type="button"
+                        class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-background py-1 pl-1 pr-2.5 text-xs transition-colors hover:bg-muted/60"
                         :title="img.filename"
+                        :aria-label="`查看图片 ${img.filename ?? ''}`"
+                        data-testid="preview-image"
+                        @click="previewImage = { url: img.url, filename: img.filename ?? '图片' }"
                       >
                         <img
                           :src="img.url"
@@ -918,7 +937,7 @@ function userScriptsUnavailableMessageSafe(): string {
                           class="h-6 w-9 shrink-0 rounded-sm object-cover"
                         >
                         <span class="truncate">{{ img.filename }}</span>
-                      </span>
+                      </button>
                     </div>
                     <template v-if="userText(m)">{{ userText(m) }}</template>
                   </ui-message-content>
@@ -1345,5 +1364,45 @@ function userScriptsUnavailableMessageSafe(): string {
         </ui-prompt-input>
       </div>
     </div>
+
+    <!-- 图片预览：面板内弹窗 —— data: URL 不允许顶层导航，开不了新标签（见 previewImage 的说明）。
+         长图靠容器纵向滚动看细节，不硬缩（缩了反而看不清）。 -->
+    <ui-dialog
+      :open="previewImage !== null"
+      @update:open="(open) => { if (!open) previewImage = null }"
+    >
+      <ui-dialog-content
+        class="max-w-[92vw] gap-0 overflow-hidden p-0"
+        :show-close-button="false"
+        data-testid="image-preview"
+      >
+        <ui-dialog-title class="truncate border-b px-3 py-2 text-xs font-medium">
+          {{ previewImage?.filename }}
+        </ui-dialog-title>
+        <div class="max-h-[60vh] overflow-auto bg-muted/30">
+          <img
+            v-if="previewImage"
+            :src="previewImage.url"
+            :alt="previewImage.filename"
+            class="w-full"
+          >
+        </div>
+        <div class="flex items-center justify-end gap-2 border-t px-3 py-2">
+          <!-- 下载不算导航，data: URL 在这里是合法用法 -->
+          <a
+            v-if="previewImage"
+            :href="previewImage.url"
+            :download="previewImage.filename"
+            class="inline-flex h-7 items-center rounded-md border bg-background px-2.5 text-xs transition-colors hover:bg-muted/60"
+            data-testid="download-image"
+          >
+            下载
+          </a>
+          <ui-button type="button" variant="ghost" size="xs" @click="previewImage = null">
+            关闭
+          </ui-button>
+        </div>
+      </ui-dialog-content>
+    </ui-dialog>
   </section>
 </template>

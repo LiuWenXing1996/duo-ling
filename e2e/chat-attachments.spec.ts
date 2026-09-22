@@ -302,4 +302,34 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     expect(size.height, '短边按比例缩放').toBe(1045)
     await page.close()
   })
+
+  test('点气泡里的缩略图：面板内弹出大图 + 下载，不开新标签', async () => {
+    const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
+    const page = await context!.newPage()
+    await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
+    await configureModel(page, true)
+
+    await page.setInputFiles('input[type="file"]', {
+      name: 'shot.png',
+      mimeType: 'image/png',
+      buffer: await makePngBuffer(page, 40, 24),
+    })
+    const box = page.getByRole('textbox').first()
+    await box.fill('看一眼')
+    await box.press('Enter')
+    await expect(page.getByText(/stub 回复：/)).toBeVisible({ timeout: 25_000 })
+
+    const pagesBefore = context!.pages().length
+    await page.locator('[data-testid="preview-image"]').click()
+
+    const dialog = page.locator('[data-testid="image-preview"]')
+    await expect(dialog, '应在面板内弹出预览').toBeVisible()
+    await expect(dialog.locator('img')).toHaveAttribute('src', /^data:image\/jpeg/)
+    await expect(dialog.locator('[data-testid="download-image"]')).toHaveAttribute('download', 'shot.png')
+
+    // 关键：没有新标签被打开 —— data: 不允许顶层导航，这正是走面板内弹窗的原因
+    await page.waitForTimeout(400)
+    expect(context!.pages().length, '不该开新标签').toBe(pagesBefore)
+    await page.close()
+  })
 })
