@@ -14,10 +14,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import PopupPanel from './PopupPanel.vue'
+import {
+  getMasterEnabled,
+  isFloatEnabledForHost,
+  setHostDisabled,
+  setMasterEnabled,
+} from '@/lib/float-panel-store'
 
 const listScripts = vi.hoisted(() => vi.fn())
 const readUpdateCheck = vi.hoisted(() => vi.fn())
 const tabsCreate = vi.hoisted(() => vi.fn())
+const tabsSendMessage = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/userscripts/ui-client', () => ({ userscriptClient: { list: listScripts } }))
 vi.mock('@/composables/use-data-sync', () => ({ useDataSync: vi.fn() }))
 // 新版本提示只读 SW 落下的结果，不在 popup 里发检查；mock 掉读侧即可完全控制它有 / 无
@@ -68,6 +75,7 @@ function stubChrome(url: string | undefined): void {
       query: vi.fn(async () => [{ id: TAB_ID, url }]),
       get: vi.fn(async () => ({ id: TAB_ID, url })),
       create: tabsCreate,
+      sendMessage: tabsSendMessage,
       onUpdated: { addListener: vi.fn(), removeListener: vi.fn() },
     },
   })
@@ -171,6 +179,76 @@ describe('popup 的扩展管理页入口', () => {
     await w.find('[data-testid="open-extensions-page"]').trigger('click')
     await flushPromises()
     expect(tabsCreate).toHaveBeenCalledWith({ url: 'chrome://extensions/?id=EXTID' })
+  })
+})
+
+// 页面外的浮层入口：悬浮按钮被页面元素挡住、或当前站点没显示浮层时，用户在页面上什么都点不到，
+// 只能从 popup 把浮层叫出来。这条链路的关键在「谁能收到消息」与「失败时说得出话」。
+describe('popup 的「对话浮层」入口', () => {
+  const openBtn = (w: VueWrapper) => w.find('[data-testid="open-float-panel"]')
+
+  /** 假的 window.close：真关窗在 happy-dom 里没有可观测效果，换 spy 才能断言「关没关」 */
+  function spyClose(): ReturnType<typeof vi.fn> {
+    const close = vi.fn()
+    vi.stubGlobal('close', close)
+    return close
+  }
+
+  it('点开：向当前标签页发定向消息，成功后关掉 popup', async () => {
+    stubChrome('https://example.com/page')
+    const w = await mountPopup()
+    const close = spyClose()
+
+    await openBtn(w).trigger('click')
+    await flushPromises()
+
+    // tabId 是 popup 打开时的激活页 —— 内容脚本按它认自己属于哪个标签页
+    expect(tabsSendMessage).toHaveBeenCalledWith(TAB_ID, { kind: 'float:open' })
+    expect(close).toHaveBeenCalled()
+  })
+
+  it('当前网站的浮层关着：先把它打开（写回存储）再发消息', async () => {
+    stubChrome('https://example.com/page')
+    vi.mocked(isFloatEnabledForHost).mockResolvedValueOnce(false)
+    const w = await mountPopup()
+
+    await openBtn(w).trigger('click')
+    await flushPromises()
+
+    // 不写回存储的话，浮层显示着、开关却写着「已关」，刷新后浮层消失无从解释
+    expect(setHostDisabled).toHaveBeenCalledWith('example.com', false)
+    expect(tabsSendMessage).toHaveBeenCalledWith(TAB_ID, { kind: 'float:open' })
+  })
+
+  it('总开关关着：先打开总开关再发消息', async () => {
+    stubChrome('https://example.com/page')
+    vi.mocked(getMasterEnabled).mockResolvedValueOnce(false)
+    const w = await mountPopup()
+
+    await openBtn(w).trigger('click')
+    await flushPromises()
+
+    expect(setMasterEnabled).toHaveBeenCalledWith(true)
+    expect(tabsSendMessage).toHaveBeenCalledWith(TAB_ID, { kind: 'float:open' })
+  })
+
+  it('页面接不上（消息发不出去）：留在 popup 里说明原因，不关窗', async () => {
+    stubChrome('https://example.com/page')
+    const w = await mountPopup()
+    const close = spyClose()
+    tabsSendMessage.mockRejectedValueOnce(new Error('Receiving end does not exist'))
+
+    await openBtn(w).trigger('click')
+    await flushPromises()
+
+    expect(w.find('[data-testid="open-float-error"]').exists()).toBe(true)
+    // 关掉就没地方说话了
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it('非普通网页：按钮不可用（这些页面上内容脚本注入不了）', async () => {
+    stubChrome(undefined)
+    expect(openBtn(await mountPopup()).attributes('disabled')).toBeDefined()
   })
 })
 
