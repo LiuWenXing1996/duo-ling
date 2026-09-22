@@ -40,6 +40,8 @@
 
 **恒注入**（无需 `@grant`）：`GM_info`、`unsafeWindow`、`window.onurlchange`；`GM.*` 侧恒注入 `info`、`clearValues`、`focusTab`、`page`。
 
+> 其中 `unsafeWindow` / `window.onurlchange` 在 TM 里需要显式 `@grant`，本扩展恒给 —— 更宽松，不会因此让脚本 ReferenceError。
+
 **`@grant` 名收两种写法**（TM 官方示例把两种并列列出，导入的外部脚本两种都可能写）：规范名
 `GM_setValue` 同时开全局与 `GM.*` 两种形态；点号形态 `GM.setValue` 只开 `GM.*` 那一种。
 规范文本只教前一种（自产脚本写一行就够），第二种是为兼容外部脚本而认。
@@ -51,6 +53,7 @@
 | `GM_closeTab` / `GM.closeTab` | 无实现。仓库内同名的 `closeTab` 是工作台标签页的内部函数，与 GM API 无关 | 全仓无 GM 侧实现 |
 | `GM_getResourceText` / `GM_getResourceURL` | 无实现。`@resource` 元数据会被解析并出现在 `GM_info.script.resources` 里，但脚本拿不到资源内容 | `spec-text.ts`「明确不支持」段 |
 | `GM_webRequest` | 不在注入面内 | `gm-wrapper.test.ts` 断言它不在 exposure 表 |
+| `window.close` / `window.focus` | 无实现。TM 把它们当 `@grant` 项暴露（关闭 / 聚焦当前标签页）；本扩展只有自有的 `GM.focusTab`，且不需要 `@grant` | `gm-wrapper.ts` 装配块里无对应成员 |
 
 ## 三、有实现但语义弱于油猴（降级项）
 
@@ -68,7 +71,7 @@
 - **CSP 跟随目标站点**：脚本运行在页面主世界，`eval` / `new Function` 能不能用由站点自身的 CSP 决定（不再由本扩展拦截）。依赖动态代码生成的库（如 ajv 编译校验器、Vue 运行时模板编译器）在收紧 CSP 的站点上仍会静默失败。
 - **`GM_info.isIncognito` 恒 false**：脚本在 MAIN 世界读不到扩展的隐身上下文；要拿真值需经桥回 SW 查，暂未做。
 - **脚本顶层 `var` 不进页面全局**：注入代码把包装与脚本一起放在函数作用域里。要往页面上挂东西请显式写 `unsafeWindow.x = …`。
-- **`@grant` 精确裁剪**：写了清单就只注入清单内的成员，漏写即 `ReferenceError`；`@grant none` 或完全没有 metadata 才全量注入。
+- **`@grant` 精确裁剪**：**只有写进清单的成员才存在**，漏写即 `ReferenceError`；**不写 `@grant` / `@grant none` 都等于空清单**（对齐 TM，不再「无 metadata 就全量注入」）。
 
 ## 五、本扩展自有（标准里无对应物）
 

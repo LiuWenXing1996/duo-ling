@@ -33,7 +33,7 @@ function renderGrantSection(): string {
   const always: string[] = [...ALWAYS_GLOBALS, ...ALWAYS_NS.map((n) => `GM.${n}`), ...ALWAYS_WINDOW_MEMBERS]
   const quote = (names: readonly string[]) => names.map((n) => `\`${n}\``).join('、')
   return [
-    `- 写了清单 → 只注入清单内的能力 + 恒注入项（${quote(always)}）；\`@grant none\` 或完全不写 metadata → 全量注入。`,
+    `- 写了清单 → 只注入清单内的能力 + 恒注入项（${quote(always)}）；**不写 @grant 或写 \`@grant none\` → 只有恒注入项**（与 Tampermonkey 一致，别指望「不写就全都给」）。`,
     `- 合法名字共 ${GRANT_NAMES.length} 个：${quote(GRANT_NAMES)}。**写别的名字会被静默忽略**，脚本里用了没注入的成员则 ReferenceError。`,
     '- 一个 grant 同时开两种形态（`GM_setValue` 与 `GM.setValue`），不必为 `GM.*` 再写一行。',
   ].join('\n')
@@ -62,9 +62,9 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
    - \`GM_setValue\` / \`GM_deleteValue\` 同步返回（本地缓存先落、异步过桥落盘，失败只进错误日志）；
    - \`GM.getValue\` / \`GM.listValues\` / \`GM.setValue\` 是 Promise（\`GM.getValue\` 每次回后台读，永远最新）；
    - 存储值必须是 Json（null/boolean/number/string/数组/纯对象），函数 / 类实例 / DOM 节点不可存储。
-3. **\`@grant\` 决定哪些 API 存在**：写了清单就**只注入清单内的能力**（用了没声明的会
-   ReferenceError）。\`@grant none\` 或完全不写 metadata → 全量注入。**写清单就写全**，
-   合法名字见下面「\`@grant\` 怎么写」。
+3. **\`@grant\` 决定哪些 API 存在**：**只有写进清单的能力才存在**（用了没声明的会 ReferenceError）。
+   不写 \`@grant\`、或写 \`@grant none\`，都等于「清单为空」——只剩恒注入项，GM 成员一个都没有。
+   **每用一个 GM 能力就要在清单里补上它**，合法名字见下面「\`@grant\` 怎么写」。
 4. \`GM_xmlhttpRequest\` 是**回调式**：响应对象有 \`responseHeaders\`（原始多行字符串）、\`responseText\`、
    \`response\`、\`status\`、\`finalUrl\`；事件 \`onload\` / \`onerror\` / \`ontimeout\` / \`onabort\`；
    返回句柄可 \`abort()\`。非 2xx 走 \`onload\`（不是 \`onerror\`）。**没有 onprogress**；

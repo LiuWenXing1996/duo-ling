@@ -2,7 +2,7 @@
 // ② `@grant` 裁剪规则按预期放行 / 关闭成员。
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
-import { GM_ALL_GLOBALS, GM_ALL_NS } from '../gm-grants'
+import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS } from '../gm-grants'
 import type { GmInfo } from './api-contract'
 import { GM_WRAPPER_SUFFIX, buildGmWrapperPrefix, resolveGmExposure } from './gm-wrapper'
 
@@ -90,12 +90,15 @@ describe('buildGmWrapperPrefix', () => {
 })
 
 describe('resolveGmExposure（@grant 裁剪）', () => {
-  const ALL = [...GM_ALL_GLOBALS, ...GM_ALL_NS]
-
-  it('未声明 / 空 / @grant none → 全量注入', () => {
+  it('未声明 / 空 / @grant none → 只给恒注入集（对齐 TM：三种都不开 GM 成员）', () => {
+    const always = [...ALWAYS_GLOBALS, ...ALWAYS_NS].sort()
     for (const grant of [undefined, [], ['none']]) {
       const flags = resolveGmExposure(grant)
-      expect(Object.values(flags).filter(Boolean)).toHaveLength(ALL.length)
+      const on = Object.entries(flags)
+        .filter(([, v]) => v)
+        .map(([k]) => k)
+        .sort()
+      expect(on, JSON.stringify(grant)).toEqual(always)
     }
   })
 

@@ -46,31 +46,29 @@ export interface GmWrapperOptions {
 }
 
 /**
- * 按 `@grant` 算出「注入哪些成员」。
+ * 按 `@grant` 算出「注入哪些成员」。语义对齐 Tampermonkey：
  *
- * 规则：
- *   · 未声明 / 空 / 含 `none` → **全量注入**；
- *   · 否则只注入声明的能力对应的成员 + 恒注入集（`GM_info` / `unsafeWindow` / 本扩展成员）。
- *     认不出的 grant 名（本扩展未实现的 API）静默忽略 —— 脚本用了会 `ReferenceError`，
- *     这比「假装支持」更容易排查。名字解析走 `resolveGrant`，`GM_setValue` 与 `GM.setValue`
- *     两种写法都认（导入的油猴脚本两种都可能写）。
+ *   · **没写 `@grant`（含完全没有 metadata）→ 空清单**：只给恒注入集；
+ *   · `@grant none` → 同「空清单」（TM 里 none 另有关闭沙箱之义，我们恒包一层 IIFE，故 API 面相同）；
+ *   · 声明了则注入声明的成员 + 恒注入集。
+ *
+ * 刻意**不再**「无 grant 就全量注入」：那会让漏写清单的脚本在本扩展能跑、换到 TM 上立刻
+ * ReferenceError —— 把真实问题掩盖过去，也让用户以为脚本没问题。
+ * 认不出的 grant 名静默忽略（脚本用了会 ReferenceError，比「假装支持」好排查）。
+ * 名字解析走 `resolveGrant`：`GM_setValue` 与 `GM.setValue` 两种写法都认。
  */
 export function resolveGmExposure(grant: string[] | undefined): Record<string, boolean> {
-  const full = !grant || grant.length === 0 || grant.includes('none')
   // 扁平一张表：全局名（`GM_xxxx`）与命名空间成员名（`getValue`）不重名，注入体里按名直查
   const flags: Record<string, boolean> = {}
   for (const name of [...GM_ALL_GLOBALS, ...GM_ALL_NS]) flags[name] = false
   for (const name of ALWAYS_GLOBALS) flags[name] = true
   for (const name of ALWAYS_NS) flags[name] = true
-  if (full) {
-    for (const name of [...GM_ALL_GLOBALS, ...GM_ALL_NS]) flags[name] = true
-  } else {
-    for (const g of grant!) {
-      const m = resolveGrant(g)
-      if (!m) continue
-      for (const name of m.globals) flags[name] = true
-      for (const name of m.ns) flags[name] = true
-    }
+  for (const g of grant ?? []) {
+    if (g === 'none') continue // 与「没写 @grant」同义：都不注入 GM 成员
+    const m = resolveGrant(g)
+    if (!m) continue
+    for (const name of m.globals) flags[name] = true
+    for (const name of m.ns) flags[name] = true
   }
   return flags
 }
