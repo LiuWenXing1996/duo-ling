@@ -41,7 +41,7 @@
 // 单个用例最多认领 4 条路径——认领太多，报 ✗ 时定位不到是哪个 API。
 // @covers GM_info（全局） :: GM_info
 // @covers GM.info（GM.*） :: GM.info
-// @covers unsafeWindow（降级别名） :: unsafeWindow
+// @covers unsafeWindow（页面自身 window） :: unsafeWindow
 // @covers GM_addStyle / GM.addStyle :: GM_addStyle GM.addStyle
 // @covers GM_addElement / GM.addElement :: GM_addElement GM.addElement
 // @covers GM_log / GM.log :: GM_log GM.log
@@ -343,11 +343,17 @@
     return GM.info.uuid === GM_info.uuid ? pass('与全局同源') : fail('与 GM_info 不同源')
   })
 
-  add('基础', 'unsafeWindow（降级别名）', function () {
+  add('基础', 'unsafeWindow（页面自身 window）', function () {
     if (typeof unsafeWindow === 'undefined') throw new Error('unsafeWindow 未定义')
-    // 降级项：本扩展无页面上下文，它 === 隔离世界的 window（DOM 共用、页面 JS 全局不可见）
-    if (unsafeWindow !== window) return fail('不等于隔离世界的 window（预期降级别名）')
-    return pass('=== 隔离世界 window（预期降级）')
+    if (unsafeWindow !== window) return fail('不等于 window')
+    // 实现侧判据（可靠）：切到主世界后 unsafeWindow 只是包装函数作用域里的局部变量，
+    // 不再是挂在 window 上的 getter —— 挂 getter 是隔离世界的降级别名做法。
+    if (Object.getOwnPropertyDescriptor(window, 'unsafeWindow')) {
+      return fail('unsafeWindow 仍挂在 window 上：脚本还在隔离世界，没切主世界')
+    }
+    // 佐证：主世界下脚本的 window 就是文档所属的那个 window
+    if (document.defaultView !== window) return fail('window 不是文档所属的 window')
+    return pass('=== 页面 window（主世界）')
   })
 
   add('基础', 'GM_addStyle / GM.addStyle', function () {
