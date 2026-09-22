@@ -9,6 +9,10 @@
 //     拼进 iframe URL（floatpanel.html?tab=<id>）—— 浮层据此认定自己的会话归属（每 tab 一条会话）。
 //     取不到就退回不带参数：浮层侧归属退化为「不绑定」，好过错绑到别人的 tab。
 //   - per-site 开关：main() 读 storage 判定当前 host 是否启用，否则不挂；storage 变更时动态增删。
+//   - 可拖拽：拖悬浮按钮即整块移动（按钮+面板），位置按站点记下（见 float-panel-store）。
+//     装配顺序上也依赖它：位置先取回再注入，避免先按默认位置画一帧再跳过去。
+//     面板相对按钮的位置固定（朝上展开、右对齐按钮，见 FAB_CSS）；按钮拖到贴左 / 贴底时
+//     面板会伸到视口外，展开时由 keepPanelInView 把整块拉回视口内。
 //   - CSP 降级：iframe 加载失败（严格 frame-src 拦扩展 iframe）时给一句可读提示
 //     （浮层是唯一对话入口，这些站点上就是用不了 —— 不能指向已不存在的载体）。
 //     两点实现约束：部分站点拦载**不触发** iframe 的 error 事件，可靠性靠 load 超时兜底；
@@ -30,10 +34,32 @@ import {
   type RuntimeRequest,
   type RuntimeResponse,
 } from '@/shared/extension-ipc'
-import { isFloatEnabledForHost } from '@/lib/float-panel-store'
+import {
+  DEFAULT_FLOAT_POS,
+  clampFloatPos,
+  getFloatPos,
+  isFloatEnabledForHost,
+  setFloatPos,
+  type FloatPos,
+} from '@/lib/float-panel-store'
 
 // 浮层根 id（全局唯一，防止重复注入）
 const ROOT_ID = 'duoling-fab-root'
+
+/** 悬浮按钮边长（px）—— 与 FAB_CSS 的 .dl-fab 一致，拖拽钳制要用 */
+const FAB_SIZE = 52
+
+/** 展开让位时与视口边留的最小空隙（px） */
+const EDGE_GAP = 8
+
+/** 位移超过这个距离（px）才算拖拽，否则算点击开合 —— 手指/鼠标按下去总会抖几个像素 */
+const DRAG_THRESHOLD = 4
+
+/** 视口尺寸：fixed 定位的参照系 */
+const viewport = (): { width: number; height: number } => ({
+  width: window.innerWidth,
+  height: window.innerHeight,
+})
 
 // 「点选元素正在页面里进行」的信号：拾取器亮拾取态时往 documentElement 插的遮罩类名
 // （src/public/duoling-picker.js 的 CSS_NS + '-box'，仅拾取期间存在、finish() 即移除）。
@@ -51,7 +77,11 @@ const FAB_CSS = `
   bottom: 20px;
   z-index: 2147483647;
   display: flex;
-  flex-direction: column;
+  /* 反转主轴：按钮钉在容器右下角，对话面板朝上展开 —— 面板相对按钮的位置就固定成这一种。
+     好处有两个：拖拽坐标锚在按钮上（right/bottom 直接是按钮的边距），面板开合不会把锚点
+     顶走；按钮也不会被面板挤得跳位。
+     右对齐由 align-items: flex-end 保持（反转主轴不影响交叉轴方向）。 */
+  flex-direction: column-reverse;
   align-items: flex-end;
   gap: 12px;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -63,7 +93,9 @@ const FAB_CSS = `
   border: none;
   background: #4f46e5;
   color: #fff;
-  cursor: pointer;
+  cursor: grab;
+  /* 触摸拖拽时别让浏览器把手势解释成滚动 */
+  touch-action: none;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -72,6 +104,7 @@ const FAB_CSS = `
 }
 .dl-fab:hover { background: #4338ca; transform: translateY(-1px); }
 .dl-fab:active { transform: translateY(0); }
+.dl-fab-container.dragging .dl-fab { cursor: grabbing; }
 .dl-fab svg { width: 24px; height: 24px; }
 .dl-fab-panel { display: none; }
 .dl-fab-container.open .dl-fab-panel { display: block; }
@@ -140,8 +173,13 @@ function isFloatOpenRequest(raw: unknown): raw is FloatOpenRequest {
  * `open` 要暴露给页面之外的入口：那颗悬浮按钮可能被页面元素压住（页面自己的固定元素、
  * 或无视 z-index 的 top layer），也可能站点开关关着时压根不存在 —— 这些场景下浮层只能从
  * 页面外叫出来（popup 的「打开对话浮层」按钮，消息见 FloatOpenRequest）。
+ *
+ * `initialPos` 由调用方先从 storage 取回（没记过则用默认值），首帧就落在用户习惯的位置上。
  */
-function buildFloatUi(): { root: HTMLElement; open: () => void; teardown: () => void } {
+function buildFloatUi(
+  host: string,
+  initialPos: FloatPos,
+): { root: HTMLElement; open: () => void; teardown: () => void } {
   const root = document.createElement('div')
   root.id = ROOT_ID
 
@@ -154,6 +192,22 @@ function buildFloatUi(): { root: HTMLElement; open: () => void; teardown: () => 
   const container = document.createElement('div')
   container.className = 'dl-fab-container'
   shadow.appendChild(container)
+
+  /**
+   * 当前位置（容器右下角 = 悬浮按钮的位置，见 FAB_CSS 的 column-reverse 说明）。
+   * 分两层含义要分清：
+   *   - `pos` 是此刻渲染用的值，展开让位 / 视口变化会临时改它；
+   *   - 落盘的值只在**用户拖拽松手**时写（见 endDrag），让位与钳制都不回写 —— 用户没拖，
+   *     不该悄悄改掉他记下的位置。
+   */
+  let pos: FloatPos = clampFloatPos(initialPos, viewport(), FAB_SIZE)
+
+  const applyPos = (next: FloatPos): void => {
+    pos = next
+    container.style.right = `${next.right}px`
+    container.style.bottom = `${next.bottom}px`
+  }
+  applyPos(pos)
 
   const fab = document.createElement('button')
   fab.type = 'button'
@@ -220,10 +274,38 @@ function buildFloatUi(): { root: HTMLElement; open: () => void; teardown: () => 
     panel.appendChild(fb)
   }
 
+  /**
+   * 展开后把面板拉回视口内。
+   *
+   * 面板比按钮大得多（384×560，向上展开），按钮拖到贴左 / 贴底时面板会有一截在视口外。
+   * 只挪必要距离，且保证按钮本身仍在视口内（right/bottom 不为负）——把按钮挪到面板能看见的
+   * 位置，总好过按钮留在原处、对话只有一半在屏幕里。
+   */
+  const keepPanelInView = (): void => {
+    if (!opened) return
+    const rect = container.getBoundingClientRect()
+    const overLeft = EDGE_GAP - rect.left
+    const overTop = EDGE_GAP - rect.top
+    if (overLeft <= 0 && overTop <= 0) return
+    applyPos({
+      right: Math.max(0, pos.right - Math.max(0, overLeft)),
+      bottom: Math.max(0, pos.bottom - Math.max(0, overTop)),
+    })
+  }
+
+  /** 视口变小后原位置可能把按钮甩到看不见的地方，拉回来（同样不回写存储） */
+  const onResize = (): void => {
+    applyPos(clampFloatPos(pos, viewport(), FAB_SIZE))
+    keepPanelInView()
+  }
+  window.addEventListener('resize', onResize)
+
   const open = (): void => {
     container.classList.add('open')
     opened = true
     reportOpen(true)
+    // 面板从 display:none 变可见，量尺寸要等这一帧的布局生效，故放到下一帧
+    requestAnimationFrame(keepPanelInView)
     if (srcAssigned) return
     srcAssigned = true
     loaded = false
@@ -243,7 +325,85 @@ function buildFloatUi(): { root: HTMLElement; open: () => void; teardown: () => 
     reportOpen(false)
   }
 
-  fab.addEventListener('click', () => (opened ? close() : open()))
+  /**
+   * 拖拽：拖悬浮按钮即整块移动（按钮与面板同属一个容器，位置由容器的 right/bottom 决定）。
+   *
+   * 抓手只有按钮：面板里是 iframe，它内部的事件到不了内容脚本；想在面板上做抓手就得在
+   * iframe 外加一条拖拽条、还得占掉一块高度。拖按钮时面板跟着走，够用。
+   *
+   * 位移过阈值才算拖拽，否则算点击开合（按下时鼠标 / 手指总会抖几个像素）；拖过之后吞掉
+   * 紧随的那次 click，免得松手就把面板收起来。
+   */
+  let drag: {
+    pointerId: number
+    startX: number
+    startY: number
+    startPos: FloatPos
+    moved: boolean
+  } | null = null
+  /** 吞掉紧随拖拽的一次 click（每次 pointerdown 重置，故不会残留到下一次点击） */
+  let swallowClick = false
+
+  fab.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return // 只认主键
+    swallowClick = false
+    drag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startPos: pos,
+      moved: false,
+    }
+    try {
+      fab.setPointerCapture(event.pointerId) // 指针移出按钮后仍要收 move
+    } catch {
+      // 拿不到指针捕获（极少见）：退化成拖不动，点击开合照旧
+    }
+    event.preventDefault() // 别让浏览器开始选文本 / 拖拽元素
+  })
+
+  fab.addEventListener('pointermove', (event) => {
+    const active = drag
+    if (!active || event.pointerId !== active.pointerId) return
+    const dx = event.clientX - active.startX
+    const dy = event.clientY - active.startY
+    if (!active.moved) {
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return
+      active.moved = true
+      container.classList.add('dragging')
+    }
+    // 往右拖 → 离右边缘更近（right 变小）；往下拖 → bottom 变小
+    applyPos(
+      clampFloatPos(
+        { right: active.startPos.right - dx, bottom: active.startPos.bottom - dy },
+        viewport(),
+        FAB_SIZE,
+      ),
+    )
+  })
+
+  const endDrag = (event: PointerEvent): void => {
+    const active = drag
+    if (!active || event.pointerId !== active.pointerId) return
+    const moved = active.moved
+    drag = null
+    container.classList.remove('dragging')
+    if (!moved) return
+    swallowClick = true
+    void setFloatPos(host, pos) // 只有用户拖过才落盘，且存的是他拖到的位置
+    requestAnimationFrame(keepPanelInView) // 展开态下顺手把面板拉回视口
+  }
+  fab.addEventListener('pointerup', endDrag)
+  fab.addEventListener('pointercancel', endDrag)
+
+  fab.addEventListener('click', () => {
+    if (swallowClick) {
+      swallowClick = false
+      return
+    }
+    if (opened) close()
+    else open()
+  })
 
   iframe.addEventListener('load', () => {
     loaded = true
@@ -257,10 +417,11 @@ function buildFloatUi(): { root: HTMLElement; open: () => void; teardown: () => 
     if (!loaded) showFallback()
   })
 
-  /** 整块卸下（站点被禁用 / 扩展失效）时收尾：停掉补连、断开展开态端口 */
+  /** 整块卸下（站点被禁用 / 扩展失效）时收尾：停掉补连、断开展开态端口、卸掉全局监听 */
   const teardown = (): void => {
     discarded = true
     reportOpen(false)
+    window.removeEventListener('resize', onResize)
   }
 
   return { root, open, teardown }
@@ -299,15 +460,21 @@ export default defineContentScript({
       root.style.display = picking ? 'none' : ''
     }
 
-    const inject = (): void => {
+    const inject = (pos: FloatPos): void => {
       if (root || document.getElementById(ROOT_ID)) return
-      const ui = buildFloatUi()
+      const ui = buildFloatUi(host, pos)
       root = ui.root
       teardownUi = ui.teardown
       openUi = ui.open
       ;(document.body || document.documentElement).appendChild(root)
       hiddenForPick = false // 新 root 默认可见，交给下面的同步裁决
       syncFloatVisibilityForPick() // 拾取中重建（开关来回切）也要立即让位
+    }
+    /** 先取回本机记下的位置再注入：否则会先按默认位置画一帧、随即跳到记下的位置 */
+    const injectAtStoredPos = async (): Promise<void> => {
+      const stored = await getFloatPos(host)
+      if (!ctx.isValid) return
+      inject(stored ?? DEFAULT_FLOAT_POS)
     }
     const remove = (): void => {
       teardownUi?.() // 先收尾（停补连 + 断开展开态端口），再摘 DOM
@@ -320,7 +487,7 @@ export default defineContentScript({
     }
 
     void isFloatEnabledForHost(host).then((enabled) => {
-      if (enabled && ctx.isValid && !disposed) inject()
+      if (enabled && ctx.isValid && !disposed) void injectAtStoredPos()
     })
 
     // 开关变化时动态增删（设置页改了某站 / 总开关）
@@ -329,7 +496,7 @@ export default defineContentScript({
       if (!('duoling:floatEnabled' in changes) && !('duoling:floatDisabledSites' in changes)) return
       void isFloatEnabledForHost(host).then((enabled) => {
         if (!ctx.isValid) return
-        if (enabled) inject()
+        if (enabled) void injectAtStoredPos()
         else remove()
       })
     })
@@ -344,8 +511,9 @@ export default defineContentScript({
      */
     chrome.runtime.onMessage.addListener((raw: unknown) => {
       if (!isFloatOpenRequest(raw) || !ctx.isValid) return
-      inject()
-      openUi?.()
+      // 注入得先取回记下的位置（storage 是异步的），故注入完再展开；`inject` 幂等，
+      // 已有 UI 时它直接返回，这里照样能开到那个 UI 上
+      void injectAtStoredPos().finally(() => openUi?.())
     })
 
     // 拾取器插/删遮罩 → 同步浮层显隐。只盯 documentElement 的直接子节点：
