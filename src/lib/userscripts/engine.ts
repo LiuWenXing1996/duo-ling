@@ -487,6 +487,10 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   // 注入 code **必须拼成一条**：包装前缀、@require、脚本源码、闭合后缀要在同一个函数作用域里，
   // 脚本才能按词法拿到 `GM_*`（见 gm-wrapper.ts 文件头）。拆成多条 js 会各自独立求值 ——
   // 未闭合的 IIFE 前缀单独求值直接是语法错误。
+  // @run-at document-body：注入仍用 document_start（Chrome 的 runAt 只认三种），正文则由包装层的
+  // 闸门推到 body 出现之后再跑 —— TM 的语义是 body 元素存在时才注入。
+  const runAtBody = project.config.runAt === 'document_body'
+  const bodySource = [...requireCodes, rawCode].join('\n')
   const code = [
     buildGmWrapperPrefix({
       uuid: project.uuid,
@@ -496,9 +500,9 @@ export async function registerScript(project: ScriptProject): Promise<void> {
       pageSecret,
       grant: project.config.grant,
       resources,
+      runAtBody,
     }),
-    ...requireCodes,
-    rawCode,
+    runAtBody ? '__gmRunAtBody(function () {\n' + bodySource + '\n})' : bodySource,
     sourceURLSuffix(project),
     GM_WRAPPER_SUFFIX,
   ].join('\n')
@@ -513,7 +517,8 @@ export async function registerScript(project: ScriptProject): Promise<void> {
     excludeMatches: project.config.excludeMatches,
     includeGlobs: project.config.includeGlobs,
     excludeGlobs: project.config.excludeGlobs,
-    runAt: project.config.runAt,
+    // document_body 不是 Chrome 的合法取值：映射成 document_start，正文由闸门推迟到 body 出现
+    runAt: project.config.runAt === 'document_body' ? 'document_start' : project.config.runAt,
     allFrames: project.config.allFrames,
   }
   // 幂等保护：dev 重载 / SW 顶层 init 与 onInstalled(update) 并发时，同 ID 可能已注册，

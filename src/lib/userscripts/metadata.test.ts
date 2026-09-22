@@ -132,6 +132,13 @@ describe('parseUserScriptMetadata', () => {
 })
 
 describe('applyMetadataToConfig', () => {
+  it('@run-at document-body 也认（Chrome 的 runAt 没有这个值，注入侧另有一道等 body 的闸门）', () => {
+    const parsed = parseUserScriptMetadata(
+      ['// ==UserScript==', '// @run-at document-body', '// ==/UserScript=='].join('\n'),
+    )!
+    expect(applyMetadataToConfig(parsed, defaultConfig([])).config.runAt).toBe('document_body')
+  })
+
   it('@match 直通（含 <all_urls> 特例），且产出的 pattern 全部 Chrome 安全', () => {
     const r = applyMetadataToConfig(
       mk({ matches: ['https://example.com/*', '<all_urls>'] }),
@@ -220,7 +227,8 @@ describe('applyMetadataToConfig', () => {
   })
 
   it('@run-at 取值不认识时沿用原配置并不猜（写 notes）', () => {
-    const r = applyMetadataToConfig(mk({ runAtRaw: 'document-body' }), defaultConfig([]))
+    // 样本必须是**真的不认识**的值：`document-body` 曾是，现已支持（见本 describe 的第一条用例）
+    const r = applyMetadataToConfig(mk({ runAtRaw: 'document-foo' }), defaultConfig([]))
     expect(r.config.runAt).toBe('document_end')
     expect(r.notes.join('\n')).toContain('@run-at')
   })

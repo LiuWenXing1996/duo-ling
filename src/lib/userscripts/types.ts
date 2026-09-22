@@ -23,7 +23,14 @@ export interface ScriptConfig {
   /** 默认 true（对齐主流：靠排除关 iframe） */
   allFrames: boolean
   /** 默认 document_end（对齐主流） */
-  runAt: 'document_start' | 'document_end' | 'document_idle'
+  /**
+   * 注入时机（对应 `@run-at`）。
+   *
+   * `document_body` 是 TM 的取值（**body 元素存在时**才开始跑，TM 文档："injected if the body element exists"）。
+   * Chrome 的 `userScripts.runAt` 只认 start / end / idle，故它注入时仍用 `document_start`，
+   * 由包装层加一道「等 body」的闸门把正文推后（见 gm-wrapper 的 `__gmRunAtBody`）。
+   */
+  runAt: 'document_start' | 'document_body' | 'document_end' | 'document_idle'
 
   // —— 以下为 GM 化的注入期配置（metadata 派生，不映射注册字段）——
 

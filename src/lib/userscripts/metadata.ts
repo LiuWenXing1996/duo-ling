@@ -245,6 +245,7 @@ function mapRunAt(raw: string | undefined): ScriptConfig['runAt'] | null {
   if (!raw) return null
   const v = raw.trim().toLowerCase().replace(/_/g, '-')
   if (v === 'document-start') return 'document_start'
+  if (v === 'document-body') return 'document_body'
   if (v === 'document-end') return 'document_end'
   if (v === 'document-idle') return 'document_idle'
   return null

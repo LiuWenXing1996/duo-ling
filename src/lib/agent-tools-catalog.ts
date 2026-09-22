@@ -189,7 +189,7 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
       },
       {
         name: 'config.runAt',
-        type: "'document_start' | 'document_end' | 'document_idle'",
+        type: "'document_start' | 'document_body' | 'document_end' | 'document_idle'",
         required: false,
         default: "'document_end'",
         desc: '注入时机',

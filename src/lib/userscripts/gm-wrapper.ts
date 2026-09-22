@@ -47,6 +47,11 @@ export interface GmWrapperOptions {
    * 未声明或抓取失败的资源不在这里面 —— 脚本取到 undefined（与不写 @grant 时成员不存在不同）。
    */
   resources?: Record<string, { text: string; url: string }>
+  /**
+   * `@run-at document-body`：注入仍走 `document_start`（Chrome 的 runAt 只认三种），
+   * 但**正文**被包进「等 body 出现」的闸门里再跑（见 `__gmRunAtBody`）—— TM 的语义是 body 存在时才注入。
+   */
+  runAtBody?: boolean
 }
 
 /**
@@ -925,6 +930,28 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
       return undefined
     }
     return wantUrl ? r.url : r.text
+  }
+
+  // —— @run-at document-body 的闸门：body 出现后才执行正文 ——
+  //    Chrome 的 userScripts.runAt 只有 start / end / idle，没有 body，故注入用 document_start +
+  //    闸门把**正文**推后。包装层自身（GM 成员挂载、Port 连接、事件监听）不等 —— 它不碰页面 DOM，
+  //    早跑没有副作用，而等它会白白推迟脚本能调 GM API 的时点。
+  //    两条触发路径都挂上并各自幂等：MutationObserver 抓 body 插入，DOMContentLoaded 兜底。
+  function __gmRunAtBody(fn) {
+    if (document.body) { fn(); return }
+    var done = false
+    var fire = function () {
+      if (done || !document.body) return
+      done = true
+      if (mo) { try { mo.disconnect() } catch (e) {} }
+      fn()
+    }
+    var mo = null
+    try {
+      mo = new MutationObserver(fire)
+      mo.observe(document, { childList: true, subtree: true })
+    } catch (e) { mo = null }
+    document.addEventListener('DOMContentLoaded', fire, { once: true })
   }
 
   // —— 音频控制（TM v5.0+）：4 个成员都作用于**当前标签页**。回调可省 → 返回 Promise
