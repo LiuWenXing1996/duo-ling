@@ -189,6 +189,37 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     await page.close()
   })
 
+  test('同一轮里图片与文本文件并存：两条通路互不干扰', async () => {
+    const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
+    const page = await context!.newPage()
+    await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
+    await configureModel(page, true)
+
+    await page.setInputFiles('input[type="file"]', [
+      { name: 'shot.png', mimeType: 'image/png', buffer: await makePngBuffer(page, 4, 4) },
+      { name: 'err.log', mimeType: 'text/plain', buffer: Buffer.from('ERROR 第一行\n第二行', 'utf8') },
+    ])
+
+    const chips = page.locator('[data-testid="attachment-chips"]')
+    await expect(chips).toContainText('shot.png')
+    await expect(chips, '图片与文本文件应各占一枚 chip').toContainText('err.log')
+
+    const box = page.getByRole('textbox').first()
+    await box.fill('图是界面，日志在附件里')
+    await box.press('Enter')
+    await expect(page.getByText(/stub 回复：/)).toBeVisible({ timeout: 25_000 })
+
+    const content = lastUserMessage(stub.stub.hits.filter((h) => h.stream).at(-1)).content
+    const parts = Array.isArray(content) ? (content as Array<{ type?: string, text?: string }>) : []
+    const text = parts.find((p) => p.type === 'text')?.text ?? ''
+    // 文本附件进正文（带围栏），图片仍以 image_url 单独走 —— 两条路各归各的
+    expect(text).toContain('图是界面，日志在附件里')
+    expect(text).toContain('【附件：err.log】')
+    expect(text).toContain('ERROR 第一行')
+    expect(JSON.stringify(content)).toContain('image_url')
+    await page.close()
+  })
+
   test('纯图提问：不写字也能发出去（消息正文允许为空）', async () => {
     const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
     const page = await context!.newPage()
