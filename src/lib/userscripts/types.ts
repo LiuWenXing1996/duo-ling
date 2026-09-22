@@ -269,13 +269,23 @@ export function defaultConfig(matches: string[]): ScriptConfig {
  * 新建脚本的初始源码模板（零输入创建用）。
  *
  * 单文件纯 JS：无依赖、无模块语法（按 classic script 注入，import/export 不可用），保存即注入。
+ *
+ * 模板只有两样东西：**一个现成的 metadata 块**与**一行能跑起来的示例**。
+ * 块是配置的唯一入口（编辑器没有配置表单，匹配规则 `@match` 与能力 `@grant` 都只能写在这里），
+ * 摆出来用户就知道该改哪儿；示例证明脚本真的跑起来了。
+ *
+ * **刻意不写散文注释**：这是给用户直接改的起点，不是说明书 —— 讲「得声明 grant」「配置住在源码里」
+ * 归文档与工作台「GM API」页，放在模板里只会挡路。
+ *
+ * 块里也不写 `@name`：名字归状态库（列表里重命名不回写源码，写在这儿反而两处对不上）。
+ * 匹配规则那一行与新建时的兜底配置同值（都是全站），保持一致免得两边打架。
  */
-export function defaultSource(name: string): string {
+export function defaultSource(): string {
   return [
-    `// 哆灵用户脚本 · ${name}`,
-    '// 保存后按匹配规则注入页面；能力面为标准油猴 API（GM_getValue / GM_setValue / GM_xmlhttpRequest …）。',
-    '// 带 // ==UserScript== metadata 块的标准油猴脚本可直接粘贴：保存时解析并采用其声明。',
-    '// 注意：单文件直接执行，不支持 import / export。',
+    '// ==UserScript==',
+    '// @match *://*/*',
+    '// @grant none',
+    '// ==/UserScript==',
     '',
     "console.log('[哆灵脚本] 已注入', location.href)",
     '',
