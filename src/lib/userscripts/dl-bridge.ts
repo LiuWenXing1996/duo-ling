@@ -186,6 +186,7 @@ async function readBodyStreaming(
   let loaded = 0
   let pushedAt = 0
   let pushedBytes = 0
+  let frames = 0
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
@@ -196,11 +197,15 @@ async function readBodyStreaming(
     if (loaded - pushedBytes >= 65536 || now - pushedAt >= 50) {
       pushedAt = now
       pushedBytes = loaded
+      frames++
       onProgress(loaded, total)
     }
   }
   // 收尾一帧：让进度走到头（有 content-length 时脚本才算得出 100%）
+  frames++
   onProgress(loaded, total)
+  // 诊断（debug 级）：这条**没出现**就说明压根没走流式那条路 —— 「收到 0 帧」的排查靠它分叉
+  console.debug(`[duoling:dl] 流式读完成：${frames} 帧 / ${loaded} 字节 / total=${total}`)
 
   const out = new Uint8Array(loaded)
   let offset = 0
@@ -681,6 +686,10 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
         req.init?.wantProgress && rid && cid
           ? (loaded: number, total: number | null) => pushFetchProgress(uuid, cid, { requestId: rid, loaded, total })
           : undefined
+      // 诊断（debug 级）：脚本要了进度却没收到帧时，先看这条在不在
+      console.debug(
+        `[duoling:dl] fetch wantProgress=${String(req.init?.wantProgress)} rid=${String(rid)} cid=${String(cid)} → 流式=${progress ? '是' : '否'}`,
+      )
       return doFetch(req.url, req.init, progress)
     }
     case 'fetch.abort': {
