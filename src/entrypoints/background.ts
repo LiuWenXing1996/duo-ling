@@ -15,7 +15,7 @@
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
-import { FLOAT_PANEL_OPEN_PORT } from '@/shared/extension-ipc'
+import { FLOAT_OPEN_REQUEST, FLOAT_PANEL_OPEN_PORT } from '@/shared/extension-ipc'
 import type { ModelProfileState, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
 import type { InjectedBuildInfo } from '@/lib/build-info'
@@ -52,6 +52,8 @@ import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts
 import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/availability-watch'
 // 新版本检查：SW 在浏览器启动 / 安装更新时各查一次，结果落 duoling-app 库供 popup 与设置页读
 import { runUpdateCheck } from '@/lib/update-check'
+// 网页浮层开关：右键菜单那条入口要在发「调出浮层」请求前把开关补齐（与 popup 的按钮同策略）
+import { ensureFloatEnabled } from '@/lib/float-panel-store'
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
 // DL Port 事件底座：脚本世界 ↔ SW 长连接下行通道 + 三事件源接入
 import { initDlPort } from '@/lib/userscripts/dl-port'
@@ -588,6 +590,80 @@ function mountProposal2Listeners(): void {
   initPageMonitorPorts()
 }
 
+// —— 浮层的右键菜单入口 ——
+//
+// 网页浮层一共有三个入口：页面里那颗悬浮按钮（主入口，但可能被页面元素压住 —— 含无视 z-index
+// 的 top layer，也可能因站点开关关着而整块不挂）、工具栏 popup 里的「对话浮层」按钮，以及这个
+// 右键菜单。菜单这条由浏览器渲染，页面里的东西遮不住它，也不依赖内容脚本已经挂上 UI。
+//
+// id 带 `duoling:` 前缀：与用户脚本的 GM_registerMenuCommand 共用 contextMenus 命名空间，
+// 脚本侧是 `us:<uuid>:<menuId>`（见 dl-port.ts 的 parseMenuitemId —— 它只认那个前缀，本条会被放行）。
+const FLOAT_MENU_ID = 'duoling:open-float'
+
+/** 通知图标（打包资源，即 src/public/notify-icon.png；与用户脚本通知的兜底图标同一个文件） */
+const NOTIFY_ICON = 'notify-icon.png'
+
+/**
+ * 注册本扩展自己的菜单项（幂等）。
+ *
+ * 先摘再建，而不是 create 撞上 duplicate id 就吞掉：那样虽不影响既有项，但菜单文案 / 作用域
+ * 改过之后旧项会一直留着 —— 卸载重建才能让改动生效，而本函数在每次 SW 冷启动时都会跑一遍。
+ * 首次安装时该 id 不存在，remove 报的 lastError 属正常路径，读一下就消掉。
+ */
+function ensureFloatMenuItem(): void {
+  chrome.contextMenus.remove(FLOAT_MENU_ID, () => {
+    void chrome.runtime.lastError
+    chrome.contextMenus.create({
+      id: FLOAT_MENU_ID,
+      title: '打开哆灵对话',
+      contexts: ['page'],
+      // 与 popup 的判据一致：只对普通网页出现（内部页 / 扩展页 / file:// 上浮层挂不了）
+      documentUrlPatterns: ['*://*/*'],
+    })
+  })
+}
+
+/** 取 URL 的 hostname；解析不了（空 URL / 非标准 scheme）一律空串，调用方按「认不出站点」对待 */
+function hostnameOf(url: string | undefined): string {
+  try {
+    return new URL(url ?? '').hostname
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 在当前标签页把对话浮层调出来（右键菜单用；动作与 popup 那颗按钮同一套）。
+ *
+ * 与 popup 的差别只有失败反馈的渠道：那里能留在面板里写字，这里没有面板，只能弹一条系统通知
+ * —— 菜单点了毫无动静是最糟的结果，用户会以为功能坏了。
+ */
+async function openFloatPanelInTab(tab: chrome.tabs.Tab): Promise<void> {
+  const tabId = tab.id
+  if (tabId == null) return
+  const host = hostnameOf(tab.url)
+  // 认不出是哪个站点时不动开关：改总开关可能是用户没要求的动作
+  if (host) await ensureFloatEnabled(host)
+  try {
+    await chrome.tabs.sendMessage(tabId, FLOAT_OPEN_REQUEST)
+  } catch {
+    await chrome.notifications.create('duoling:float-open-failed', {
+      type: 'basic',
+      iconUrl: NOTIFY_ICON,
+      title: '哆灵',
+      message: '这个页面还没接上哆灵，刷新页面后再试。',
+    })
+  }
+}
+
+function mountFloatMenu(): void {
+  ensureFloatMenuItem()
+  chrome.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId !== FLOAT_MENU_ID || !tab) return
+    void openFloatPanelInTab(tab)
+  })
+}
+
 export default defineBackground(() => {
   // 启动自证：console 第一条就是构建信息，「SW 是不是新包」不用再靠猜
   console.log(`[duoling:sw] SW 启动 · 构建 ${__BUILD_INFO__.time} · 分支 ${__BUILD_INFO__.branch}`)
@@ -617,6 +693,9 @@ export default defineBackground(() => {
 
   // 对话界面监控 / 面板端口 / 完成徽章 / 深链跳转的监听器
   mountProposal2Listeners()
+
+  // 浮层的右键菜单入口（页面内那颗悬浮按钮点不到时的第二条路）
+  mountFloatMenu()
 
   // offscreen 需「随时可用」：安装 / 更新 / 浏览器启动都立即确保容器在场。
   // Chrome 不会自动启动 offscreen，且 idle 自关未实现，故改为常驻策略（退出条件见 offscreen.ts）。

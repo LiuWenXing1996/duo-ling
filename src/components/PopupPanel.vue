@@ -14,18 +14,22 @@ import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/u
 import { Button as UiButton } from '@/components/ui/button'
 import PopupPageScripts from './PopupPageScripts.vue'
 import {
+  ensureFloatEnabled,
   getMasterEnabled,
   setMasterEnabled,
   isFloatEnabledForHost,
   setHostDisabled,
 } from '@/lib/float-panel-store'
 import { readUpdateCheck, type UpdateCheckRecord } from '@/lib/update-check'
+import { FLOAT_OPEN_REQUEST } from '@/shared/extension-ipc'
 
 const master = ref(true)
 const currentHost = ref('')
 const currentEnabled = ref(true)
 /** 当前标签页是不是普通网页（http/https）—— 只有这类页面 content script 能注入 */
 const currentIsWebPage = ref(true)
+/** 「打开对话浮层」没打通时的说明（只在 popup 里显示，成功就直接关了） */
+const openError = ref('')
 
 /**
  * 上次检查到的版本结论（SW 在开浏览器 / 安装更新时写入 duoling-app，这里只读）。
@@ -82,6 +86,44 @@ async function onCurrent(value: boolean): Promise<void> {
   currentEnabled.value = value
   // value=true 表示在当站显示 → 取消禁用
   await setHostDisabled(currentHost.value, !value)
+}
+
+/**
+ * 把当前页面的对话浮层调出来。
+ *
+ * 为什么 popup 要有这个按钮：浮层一贯只有页面里那颗悬浮按钮一个开关，而那颗按钮可能被页面
+ * 元素压住（页面自己的固定元素，或无视 z-index 的 top layer），也可能站点开关关着时整块不存在
+ * —— 那两种情况下用户在页面上什么都点不到，只能翻到这里来。
+ *
+ * 三步，顺序有讲究：
+ *   1. 开关补齐成「开」（见 ensureFloatEnabled）。让「开关显示的状态」与「浮层实际的显示」
+ *      一致 —— 否则用户下次刷新页面浮层又不见了，而开关还写着「已关」，无从解释。
+ *   2. 给当前标签页的内容脚本发**定向**消息（不经 SW；契约见 FloatOpenRequest）。
+ *   3. 成功才关 popup。失败时留在 popup 里把原因说出来 —— 关了就没地方说了。
+ *
+ * 收不到（页面在扩展更新前就打开、或在扩展管理页里单独禁掉了本站点的访问权）只能让用户刷新；
+ * 这两种情况 popup 判不出来，所以文案不指向具体原因。
+ */
+async function openFloatPanel(): Promise<void> {
+  openError.value = ''
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
+  const tabId = tabs[0]?.id
+  // 读不到标签页时静默退场：这是 popup 与页面失联的异常态，给技术性报错只是噪音
+  if (tabId == null) return
+
+  // 开关补齐的判据在 ensureFloatEnabled 一处（页面右键菜单共用同一条），这里只负责把面板上的
+  // 两个开关回读成真实状态
+  await ensureFloatEnabled(currentHost.value)
+  master.value = await getMasterEnabled()
+  if (currentHost.value) currentEnabled.value = await isFloatEnabledForHost(currentHost.value)
+
+  try {
+    await chrome.tabs.sendMessage(tabId, FLOAT_OPEN_REQUEST)
+  } catch {
+    openError.value = '页面还没接上哆灵，刷新页面后再试。'
+    return
+  }
+  window.close()
 }
 
 async function openWorkbench(): Promise<void> {
@@ -169,6 +211,30 @@ onMounted(() => {
       >
         <UiSwitchThumb />
       </UiSwitch>
+    </div>
+
+    <!-- 页面外的浮层入口：悬浮按钮被页面挡住、或当前站点没显示浮层时，用户只能从这里调出来 -->
+    <div class="rounded-lg border border-border p-3">
+      <div class="flex items-center justify-between">
+        <div class="pr-3">
+          <p class="text-sm font-medium">对话浮层</p>
+          <p class="text-xs text-muted-foreground">
+            悬浮按钮被页面挡住、或当前网站没显示浮层时，从这里调出。
+          </p>
+        </div>
+        <UiButton
+          variant="outline"
+          size="sm"
+          :disabled="!currentIsWebPage"
+          data-testid="open-float-panel"
+          @click="openFloatPanel"
+        >
+          打开
+        </UiButton>
+      </div>
+      <p v-if="openError" class="mt-2 text-xs text-destructive" data-testid="open-float-error">
+        {{ openError }}
+      </p>
     </div>
 
     <PopupPageScripts v-if="currentIsWebPage" />

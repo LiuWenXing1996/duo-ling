@@ -16,11 +16,20 @@
 //   - 拾取让位：页面元素拾取（点选元素 / 快照）期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
 //   - 展开态上报：浮层展开时连一条 FLOAT_PANEL_OPEN_PORT 端口、收起时断开 —— SW 靠它判
 //     「用户此刻在看对话界面吗」（生成完成徽章）。见该常量处说明。
+//   - 页面外的入口：popup 的「对话浮层」按钮与页面右键菜单各发一条 float:open 消息，收到就挂
+//     UI 并展开（见 FloatOpenRequest）—— 悬浮按钮可能被页面元素压住（页面自己的固定元素，或
+//     无视 z-index 的 top layer），也可能站点开关关着时整块不存在，那些场景下只能从页面外叫。
 //
 // WXT 按文件名 content.ts 自动识别为 content script；matches 经 defineContentScript 声明。
 
 import { defineContentScript } from '#imports'
-import { FLOAT_PANEL_OPEN_PORT, type RuntimeRequest, type RuntimeResponse } from '@/shared/extension-ipc'
+import {
+  FLOAT_OPEN_REQUEST,
+  FLOAT_PANEL_OPEN_PORT,
+  type FloatOpenRequest,
+  type RuntimeRequest,
+  type RuntimeResponse,
+} from '@/shared/extension-ipc'
 import { isFloatEnabledForHost } from '@/lib/float-panel-store'
 
 // 浮层根 id（全局唯一，防止重复注入）
@@ -118,8 +127,21 @@ function requestTabId(): Promise<number | null> {
   })
 }
 
-/** 构建并挂好浮层 UI，返回宿主根元素（已含 shadow DOM） */
-function buildFloatUi(): { root: HTMLElement; teardown: () => void } {
+/** 判据取共享契约里的 kind，避免与发送方（popup）各写一份字符串 */
+function isFloatOpenRequest(raw: unknown): raw is FloatOpenRequest {
+  return (
+    typeof raw === 'object' && raw !== null && (raw as { kind?: unknown }).kind === FLOAT_OPEN_REQUEST.kind
+  )
+}
+
+/**
+ * 构建浮层 UI（挂进 DOM 由调用方做），返回宿主根元素（已含 shadow DOM）与两个操作口。
+ *
+ * `open` 要暴露给页面之外的入口：那颗悬浮按钮可能被页面元素压住（页面自己的固定元素、
+ * 或无视 z-index 的 top layer），也可能站点开关关着时压根不存在 —— 这些场景下浮层只能从
+ * 页面外叫出来（popup 的「打开对话浮层」按钮，消息见 FloatOpenRequest）。
+ */
+function buildFloatUi(): { root: HTMLElement; open: () => void; teardown: () => void } {
   const root = document.createElement('div')
   root.id = ROOT_ID
 
@@ -241,7 +263,7 @@ function buildFloatUi(): { root: HTMLElement; teardown: () => void } {
     reportOpen(false)
   }
 
-  return { root, teardown }
+  return { root, open, teardown }
 }
 
 export default defineContentScript({
@@ -252,6 +274,8 @@ export default defineContentScript({
     const host = location.hostname
     let root: HTMLElement | null = null
     let teardownUi: (() => void) | null = null
+    /** 当前 UI 的「展开」口（页面外的入口要用它）；UI 不在时为空 */
+    let openUi: (() => void) | null = null
     let disposed = false
     // 当前浮层是否正因「拾取进行中」而隐藏（避免与拾取的实时状态重复写样式）
     let hiddenForPick = false
@@ -280,6 +304,7 @@ export default defineContentScript({
       const ui = buildFloatUi()
       root = ui.root
       teardownUi = ui.teardown
+      openUi = ui.open
       ;(document.body || document.documentElement).appendChild(root)
       hiddenForPick = false // 新 root 默认可见，交给下面的同步裁决
       syncFloatVisibilityForPick() // 拾取中重建（开关来回切）也要立即让位
@@ -287,6 +312,7 @@ export default defineContentScript({
     const remove = (): void => {
       teardownUi?.() // 先收尾（停补连 + 断开展开态端口），再摘 DOM
       teardownUi = null
+      openUi = null
       root?.remove()
       root = null
       hiddenForPick = false
@@ -306,6 +332,20 @@ export default defineContentScript({
         if (enabled) inject()
         else remove()
       })
+    })
+
+    /**
+     * 页面之外的入口：popup 的「打开对话浮层」按钮（消息契约见 FloatOpenRequest）。
+     *
+     * 就地挂 UI，而不是等 `storage.onChanged` 把 UI 挂回来 —— popup 那边是「先写开关、再发这条
+     * 消息」两步，而消息与存储变更事件是两条互不排序的路径；`inject()` 幂等（已有 root 即返回），
+     * 谁先到都对，这里不必等谁。收到时 UI 不在（站点开关 / 总开关关着）也照样挂出来：
+     * 用户主动点了「打开对话浮层」，那就是明确意图。
+     */
+    chrome.runtime.onMessage.addListener((raw: unknown) => {
+      if (!isFloatOpenRequest(raw) || !ctx.isValid) return
+      inject()
+      openUi?.()
     })
 
     // 拾取器插/删遮罩 → 同步浮层显隐。只盯 documentElement 的直接子节点：

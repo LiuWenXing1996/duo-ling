@@ -331,6 +331,27 @@ export type BuildPhase = 'saving'
  */
 export const FLOAT_PANEL_OPEN_PORT = 'duoling:panel-open'
 
+// —— 浮层的页面外入口 ——
+/**
+ * popup → **当前标签页内容脚本**的定向消息（`chrome.tabs.sendMessage`，不经 SW 中转）。
+ *
+ * 为什么需要：浮层一贯只有页面里那颗悬浮按钮一个开关，而那个按钮可能点不到、也可能不在——
+ * 页面自己的固定元素会把它压住（有些站点还会用 `dialog.showModal()` / `popover` 这类 top layer，
+ * 它们无视 z-index），站点开关或总开关关闭时内容脚本则干脆不挂 UI。两种情况都让用户「再也
+ * 调不出浮层」，所以页面之外得留入口：popup 的「对话浮层」按钮与页面右键菜单都发这条消息。
+ *
+ * 为什么不走 RuntimeRequest 总线（渲染页 → SW → 转发）：这条消息只对**某一个**标签页有意义，
+ * 而 `tabs.sendMessage` 天然定向到那个 tab 的内容脚本，SW 参与不进来、也不需要它。
+ * 内容脚本随 `matches: ['<all_urls>']` 常驻页面（站点点被禁用时只是不挂 UI，脚本本身照跑），
+ * 故只要页面接上了扩展，消息就有人收。
+ */
+export interface FloatOpenRequest {
+  kind: 'float:open'
+}
+
+/** 上面那条消息的唯一构造处：发送方与接收方都取这里的 kind，避免两边各写一份字符串 */
+export const FLOAT_OPEN_REQUEST: FloatOpenRequest = { kind: 'float:open' }
+
 // —— 页面脚本监控（对话界面 · 运行时口径）——
 // 信号源：GM 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。
 // 浮层认定**自己所属的标签页**（见 lib/owning-tab.ts —— 不跟随 active tab），
