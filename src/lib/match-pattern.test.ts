@@ -1,6 +1,7 @@
-// match-pattern.ts 单测：cookie 域名门的纯逻辑（scheme + host 判定，**忽略 path**）。
+// match-pattern.ts 单测：纯匹配逻辑（scheme + host 判定，**忽略 path**）—— 用户脚本面与浮层按站点开关共用。
 import { describe, expect, it } from 'vitest'
 import {
+  matchPatternCoversHost,
   matchPatternCoversUrl,
   parseMatchPattern,
   urlInCookieScope,
@@ -67,6 +68,29 @@ describe('matchPatternCoversUrl · scheme + host', () => {
 
   it('非法 pattern 不匹配任何 url', () => {
     expect(matchPatternCoversUrl('example.com/*', 'https://example.com/')).toBe(false)
+  })
+})
+
+describe('matchPatternCoversHost · 只看 host 段（浮层按站点开关用）', () => {
+  it('不看 scheme：条目一律 *://，host 对了就行', () => {
+    expect(matchPatternCoversHost('*://*.example.com/*', 'example.com')).toBe(true)
+    expect(matchPatternCoversHost('*://*.example.com/*', 'a.b.example.com')).toBe(true)
+    expect(matchPatternCoversHost('*://*.example.com/*', 'notexample.com')).toBe(false)
+    expect(matchPatternCoversHost('*://*.example.com/*', 'example.com.evil.test')).toBe(false)
+  })
+
+  it('hostname 大小写不敏感', () => {
+    expect(matchPatternCoversHost('*://*.example.com/*', 'A.Example.COM')).toBe(true)
+  })
+
+  it('字面量条目只覆盖该 host，不含子域', () => {
+    expect(matchPatternCoversHost('*://example.com/*', 'example.com')).toBe(true)
+    expect(matchPatternCoversHost('*://example.com/*', 'sub.example.com')).toBe(false)
+  })
+
+  it('非法 pattern 一律 false（裸 hostname 不是 pattern，兜底由调用方负责）', () => {
+    expect(matchPatternCoversHost('example.com', 'example.com')).toBe(false)
+    expect(matchPatternCoversHost('', 'example.com')).toBe(false)
   })
 })
 

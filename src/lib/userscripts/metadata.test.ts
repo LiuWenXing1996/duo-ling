@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { applyMetadataToConfig, parseUserScriptMetadata, resolveConfigFromSource } from './metadata'
 import type { ParsedMetadata } from './metadata'
 import { isValidMatchPattern } from './project-store'
-import { parseMatchPattern } from './match-pattern'
+import { parseMatchPattern } from '@/lib/match-pattern'
 import { defaultConfig } from './types'
 
 /** 造一个解析产物（只填关心的字段） */
