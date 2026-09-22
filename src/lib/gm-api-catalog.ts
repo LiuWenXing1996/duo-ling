@@ -334,8 +334,10 @@ const CAPABILITIES = {
     sigGlobal: 'GM_download(details) / GM_download(url, name?)',
     summary: '下载远程 URL 或本地 Blob / 二进制',
     detail:
-      '传 URL 字符串 / details 对象 = 远程（扩展先抓取，再触发浏览器下载）；' +
-      '传 Blob / ArrayBuffer / TypedArray = 本地直接下载，不经扩展。**saveAs 不支持**（用 a[download]，无法弹另存为），传入会被忽略并记一条日志。',
+      '传 URL 字符串 / details 对象 = 交给**浏览器下载器**（能弹「另存为」、大文件流式落盘）；' +
+      '传 Blob / ArrayBuffer / TypedArray = 本地直接下载，不经扩展。' +
+      '支持 `saveAs` / `conflictAction`（TM 的同名字段，两者本就只在浏览器下载器模式下有效）与 `onprogress`' +
+      '（浏览器下载器不发字节数，进度由 SW 轮询 `chrome.downloads.search()` 取）。**`abort()` 不支持**。',
     returns: 'void / Promise<void>',
     bridge: 'bridge',
     group: 'system',

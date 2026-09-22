@@ -73,7 +73,7 @@
 | 项 | 差异 | 依据 |
 | --- | --- | --- |
 | `GM_xmlhttpRequest` | `responseType` 支持 text（缺省）/ json / arraybuffer / blob，**缺 `stream`**（TM 的合法值只有 arraybuffer / blob / json / stream，**没有 document**）；`onprogress` 只给进度字段（TM 那种带完整 response 的进度对象不给）；非 2xx 走 `onload` 而非 `onerror`（与 TM 一致） | `gm-api-catalog.ts` 与 `spec-text.ts` 的请求条目 |
-| `GM_download` | `saveAs` 被忽略（走 `a[download]`，弹不出另存为），仅记一条日志 | `gm-wrapper.ts` download 分支 |
+| `GM_download` | 走**浏览器下载器**：`saveAs` / `conflictAction` 已支持（两者本就只在浏览器下载器模式下有效）；`onprogress` 也支持（进度靠 SW 轮询 `chrome.downloads.search()`，浏览器下载器不发字节数）；**无 `abort()`** | `gm-wrapper.ts` 的 `__gmDownloadUrl` |
 | `@connect` | **更宽松**（不是缺失）：不拦未声明的域名（TM 会拦）——本扩展的跨域请求经后台发出，白名单没有意义 | `spec-text.ts`「明确不支持」段 |
 | `@run-at` | 支持 `document-start` / `document-body` / `document-end` / `document-idle`（**不写时默认值也是 `document-idle`，与 TM 一致**）；**缺 `context-menu`**（右键菜单点了才注入，且该模式下 `@include` / `@exclude` 会被忽略，TM 5.5+） | TM 官方文档的 `@run-at` 段 |
 | header 覆写 | 只做 `set`（`append` 受 DNR 头白名单限制、`remove` 未实现）；且头修改**不跨重定向 hop**，跨 host 的 3xx 之后新请求拿不到覆写头 | `dl-fetch-priv.ts` 顶部注释 |

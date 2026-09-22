@@ -32,7 +32,7 @@ import {
   attachAudioWatch,
   detachAudioWatch,
   pushFetchProgress,
-  pushDownloadDone,
+  pushDownloadChange,
   mintNotification,
 } from './dl-port'
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
@@ -406,14 +406,48 @@ function sanitizeDownloadName(name?: string): string | undefined {
   return cleaned || undefined
 }
 
+/** 在飞下载的登记项（`total` 在登记时查一次；`timer` 只有脚本要进度时才起） */
+type DownloadEntry = {
+  uuid: string
+  connId: string
+  requestId: string
+  total: number | null
+  timer?: ReturnType<typeof setInterval>
+}
+
 /**
- * 在飞下载的登记：downloadId → 归属信息，供 `chrome.downloads.onChanged` 把进度 / 结局推回脚本。
- * `total` 只在这里查一次（DownloadDelta 不给 totalBytes），查不到就为 null。
+ * 在飞下载的登记：downloadId → 归属信息，供进度轮询与 `onChanged` 的心思把帧推回脚本。
  */
-const downloadWatch = new Map<
-  number,
-  { uuid: string; connId: string; requestId: string; total: number | null }
->()
+const downloadWatch = new Map<number, DownloadEntry>()
+
+/**
+ * 进度轮询间隔。浏览器下载器**不发**字节数（`onChanged` 只有 state / totalBytes），只能主动查
+ * `chrome.downloads.search()`；而 SW 由 offscreen 心跳保活常驻（有启用脚本时 5s 一跳，见
+ * availability-watch.ts），下载期间不会休眠 —— 所以轮询在 SW 里是可靠手段。
+ */
+const DOWNLOAD_PROGRESS_MS = 500
+
+/** 查一次进度并推帧（轮询用）；下载已不在表里（终帧已处理）就直接返回 */
+async function pollDownloadProgress(id: number): Promise<void> {
+  const entry = downloadWatch.get(id)
+  if (!entry) return
+  try {
+    const items = await downloadsApi().search({ id })
+    const item = items[0]
+    if (!item) return
+    // 已结束：终帧交给 onChanged（那里会清 timer），这里不抢
+    if (item.state === 'complete' || item.state === 'interrupted') return
+    const totalBytes = item.totalBytes
+    pushDownloadChange(entry.uuid, entry.connId, {
+      requestId: entry.requestId,
+      state: 'progress',
+      loaded: item.bytesReceived ?? 0,
+      total: entry.total ?? (typeof totalBytes === 'number' && totalBytes > 0 ? totalBytes : null),
+    })
+  } catch {
+    // 轮询失败不致命：下一跳再试（下载本身不受影响）
+  }
+}
 
 let downloadWatchMounted = false
 
@@ -428,7 +462,8 @@ function mountDownloadWatch(): void {
       const state = delta.state?.current
       if (state !== 'complete' && state !== 'interrupted') return
       downloadWatch.delete(delta.id)
-      pushDownloadDone(entry.uuid, entry.connId, {
+      if (entry.timer) clearInterval(entry.timer)
+      pushDownloadChange(entry.uuid, entry.connId, {
         requestId: entry.requestId,
         state,
         loaded: delta.fileSize?.current ?? 0,
@@ -448,7 +483,14 @@ function mountDownloadWatch(): void {
 async function doDownload(
   uuid: string,
   url: string,
-  opts: { name?: string; saveAs?: boolean; conflictAction?: string; requestId?: string; connId?: string },
+  opts: {
+    name?: string
+    saveAs?: boolean
+    conflictAction?: string
+    requestId?: string
+    connId?: string
+    wantProgress?: boolean
+  },
 ): Promise<{ id: number }> {
   const api = downloadsApi()
   const conflict = opts.conflictAction
@@ -470,15 +512,29 @@ async function doDownload(
   }
   if (opts.requestId && opts.connId) {
     mountDownloadWatch()
-    let total: number | null = null
+    const entry: DownloadEntry = { uuid, connId: opts.connId, requestId: opts.requestId, total: null }
     try {
-      const items = await api.search({ id })
-      const bytes = items[0]?.totalBytes
-      total = typeof bytes === 'number' && bytes > 0 ? bytes : null
+      const item = (await api.search({ id }))[0]
+      const bytes = item?.totalBytes
+      entry.total = typeof bytes === 'number' && bytes > 0 ? bytes : null
+      // 先推一帧已知进度：很短的下载可能等不到第一次轮询
+      if (opts.wantProgress && item && typeof item.bytesReceived === 'number') {
+        pushDownloadChange(uuid, opts.connId, {
+          requestId: opts.requestId,
+          state: 'progress',
+          loaded: item.bytesReceived,
+          total: entry.total,
+        })
+      }
     } catch {
       // 查不到就不给 total（lengthComputable 为 false），不阻断下载
     }
-    downloadWatch.set(id, { uuid, connId: opts.connId, requestId: opts.requestId, total })
+    downloadWatch.set(id, entry)
+    if (opts.wantProgress) {
+      entry.timer = setInterval(() => {
+        void pollDownloadProgress(id)
+      }, DOWNLOAD_PROGRESS_MS)
+    }
   }
   return { id }
 }
@@ -656,6 +712,7 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
         conflictAction: req.conflictAction,
         requestId: req.requestId,
         connId: req.connId,
+        wantProgress: req.wantProgress,
       })
     // 剪贴板：走 offscreen（免用户手势）+ 富文本（clipboardWrite 权限）
     case 'clipboard.write':

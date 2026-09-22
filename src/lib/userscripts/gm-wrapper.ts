@@ -274,15 +274,22 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
         try { ph({ loaded: ev.loaded, total: ev.total, lengthComputable: ev.total != null }) }
         catch (e) { __gmLog('onprogress 回调异常', e) }
       }
-    } else if (ev.t === 'download.done') {
+    } else if (ev.t === 'download.change') {
       var dh = __gmDownloadHandlers[ev.requestId]
       if (dh) {
-        // 先注销再回调：回调里若又发起一次下载，不会被这次的事件污染
-        __gmUnregisterDownload(ev.requestId)
-        if (ev.state === 'complete') {
-          if (typeof dh.onload === 'function') { try { dh.onload() } catch (e) { __gmLog('GM_download onload 异常', e) } }
-        } else if (typeof dh.onerror === 'function') {
-          try { dh.onerror({ error: ev.error || 'not_succeeded' }) } catch (e) { __gmLog('GM_download onerror 异常', e) }
+        if (ev.state === 'progress') {
+          if (typeof dh.onprogress === 'function') {
+            try { dh.onprogress({ loaded: ev.loaded, total: ev.total, lengthComputable: ev.total != null }) }
+            catch (e) { __gmLog('GM_download onprogress 异常', e) }
+          }
+        } else {
+          // 终帧：先注销再回调（回调里若又发起一次下载，不会被这次的事件污染）
+          __gmUnregisterDownload(ev.requestId)
+          if (ev.state === 'complete') {
+            if (typeof dh.onload === 'function') { try { dh.onload() } catch (e) { __gmLog('GM_download onload 异常', e) } }
+          } else if (typeof dh.onerror === 'function') {
+            try { dh.onerror({ error: ev.error || 'not_succeeded' }) } catch (e) { __gmLog('GM_download onerror 异常', e) }
+          }
         }
       }
     }
@@ -764,8 +771,7 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     return handle
   }
 
-  /** GM_download：URL 字符串 / details 对象 / Blob（本地直下，不过桥） */
-  // —— GM_download：URL 走**浏览器下载器**（chrome.downloads），进度与结局经 Port 回来 ——
+  // —— GM_download：URL / details 走**浏览器下载器**（chrome.downloads），结局经 Port 回来 ——
   //    不再自己 fetch 的理由：只有浏览器下载器能弹「另存为」（saveAs），而且它流式落盘 ——
   //    旧实现要把整份文件读进内存、转 base64、经 data URL 点锚点，大文件会炸。
   //    Blob / ArrayBuffer 入参仍在本地走锚点（二进制没必要往返一趟扩展）。
@@ -774,15 +780,16 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   function __gmUnregisterDownload(id) { delete __gmDownloadHandlers[id] }
 
   function __gmDownloadUrl(d) {
-    // onprogress 明确不支持（见 api-contract 里 download.done 的注释：下载中的字节数拿不到）
-    var wantsFrames = typeof d.onload === 'function' || typeof d.onerror === 'function'
+    var wantsProgress = typeof d.onprogress === 'function'
+    var wantsFrames = wantsProgress || typeof d.onload === 'function' || typeof d.onerror === 'function'
     var requestId = '__gmDl' + (++__gmDownloadSeq)
     if (wantsFrames) __gmDownloadHandlers[requestId] = d
     return __gmSend({
       c: 'download', url: d.url, name: d.name, saveAs: d.saveAs === true,
       conflictAction: d.conflictAction,
       requestId: wantsFrames ? requestId : undefined,
-      connId: wantsFrames ? __gmConnId : undefined
+      connId: wantsFrames ? __gmConnId : undefined,
+      wantProgress: wantsProgress
     }).then(function (r) {
       return r
     }, function (e) {

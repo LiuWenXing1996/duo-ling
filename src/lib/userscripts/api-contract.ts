@@ -332,6 +332,11 @@ export type ApiRequest =
       conflictAction?: 'uniquify' | 'overwrite' | 'prompt'
       requestId?: string
       connId?: string
+      /**
+       * 要进度帧（脚本给了 `onprogress` 才传）。浏览器下载器不发字节数，靠 SW 侧轮询
+       * `chrome.downloads.search()` 取 —— 只在要的时候才轮询，省掉无用开销。
+       */
+      wantProgress?: boolean
     }
   | { c: 'tabs.open'; url: string; active?: boolean }
   // tabId 缺省 = 发起命令的那个标签页（`window.close` / `window.focus` 的落点）
@@ -458,17 +463,17 @@ export type ApiEvent =
    */
   | { t: 'xhr.progress'; requestId: string; loaded: number; total: number | null }
   /**
-   * 下载**结局**（`GM_download` 的 `onload` / `onerror`）：按 requestId 找到那次下载。
+   * 下载进度与结局（`GM_download` 的 `onprogress` / `onload` / `onerror`）：按 requestId 找到那次下载。
    *
-   * **没有进度帧**：`chrome.downloads.onChanged` 只给 state / totalBytes，**不给 bytesReceived**
-   * （进度只存在于 `search()` 的 DownloadItem 里）—— 要做得靠轮询，而 SW 休眠会把轮询掐断，收益不值。
-   * 所以 `GM_download` 的 `onprogress` 明确不支持。
+   * 进度**为什么靠轮询**：`chrome.downloads.onChanged` 只给 state / totalBytes，**不给 bytesReceived**
+   * （下载中的字节数只在 `search()` 的 DownloadItem 里）。轮询在 SW 里是安全的 —— SW 由 offscreen
+   * 心跳保活常驻（有启用脚本时 5s 一跳，见 availability-watch.ts），下载期间不会休眠。
+   * `state` 为 `complete` / `interrupted` 时是**终帧**（此后该 requestId 不再有帧）。
    */
   | {
-      t: 'download.done'
+      t: 'download.change'
       requestId: string
-      state: 'complete' | 'interrupted'
-      /** 完成时是文件大小；中断时取不到（0） */
+      state: 'progress' | 'complete' | 'interrupted'
       loaded: number
       total: number | null
       error?: string

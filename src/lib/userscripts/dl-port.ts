@@ -300,13 +300,13 @@ export function pushFetchProgress(
   }
 }
 
-/** 推下载结局（`GM_download` 的 onload / onerror）给发起它的连接；寻址与 pushFetchProgress 同款 */
-export function pushDownloadDone(
+/** 推下载进度 / 结局（`GM_download`）给发起它的连接；寻址与 pushFetchProgress 同款 */
+export function pushDownloadChange(
   uuid: string,
   connId: string,
   frame: {
     requestId: string
-    state: 'complete' | 'interrupted'
+    state: 'progress' | 'complete' | 'interrupted'
     loaded: number
     total: number | null
     error?: string
@@ -314,7 +314,7 @@ export function pushDownloadDone(
 ): void {
   const registry = getDlPortRegistry()
   for (const port of registry.portsByConnId(uuid, connId)) {
-    pushEvent(registry, port, { t: 'download.done', ...frame })
+    pushEvent(registry, port, { t: 'download.change', ...frame })
   }
 }
 

@@ -65,9 +65,20 @@ function seedScript(uuid: string, matches: string[], excludeMatches?: string[]):
 
 const COOKIE_UUID = 'cookie-u1'
 
+let downloadsMocks: {
+  download: ReturnType<typeof vi.fn>
+  search: ReturnType<typeof vi.fn>
+  onChanged: { addListener: ReturnType<typeof vi.fn> }
+}
+
 beforeEach(async () => {
   vi.resetModules() // initDlBridge 有模块级 initialized 幂等标志，重置后每次都能重新注册
   listeners = []
+  downloadsMocks = {
+    download: vi.fn(async () => 1),
+    search: vi.fn(async () => []),
+    onChanged: { addListener: vi.fn() },
+  }
   fetchMock = vi.fn()
   tabsMocks = { create: vi.fn(), remove: vi.fn(), update: vi.fn(), get: vi.fn(), query: vi.fn() }
   windowUpdate = vi.fn()
@@ -90,6 +101,7 @@ beforeEach(async () => {
     tabs: tabsMocks,
     windows: { update: windowUpdate },
     cookies: cookiesMocks,
+    downloads: downloadsMocks,
     declarativeNetRequest: dnrMocks,
     webRequest: { onHeadersReceived: { addListener: (fn: (d: unknown) => void) => webRequestListeners.push(fn) } },
   })
@@ -359,6 +371,29 @@ describe('GM tabs', () => {
     const resp = await sendToBridge({ c: 'tabs.focus', tabId: 7 })
     expect(windowUpdate).not.toHaveBeenCalled()
     expect(resp.ok).toBe(true)
+  })
+})
+
+describe('download（浏览器下载器）', () => {
+  it('saveAs / conflictAction 透传，文件名只取纯名（挡 ../ 越出下载目录）', async () => {
+    downloadsMocks.download.mockResolvedValueOnce(7)
+    const resp = await sendToBridge(
+      {
+        c: 'download',
+        url: 'https://x.test/a.txt',
+        name: '../../evil.txt',
+        saveAs: true,
+        conflictAction: 'overwrite',
+      },
+      COOKIE_UUID,
+    )
+    expect(resp).toEqual({ ok: true, data: { id: 7 } })
+    expect(downloadsMocks.download).toHaveBeenCalledWith({
+      url: 'https://x.test/a.txt',
+      filename: 'evil.txt',
+      saveAs: true,
+      conflictAction: 'overwrite',
+    })
   })
 })
 
