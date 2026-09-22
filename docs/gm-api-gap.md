@@ -56,22 +56,27 @@
 
 ## 二、标准里有、本扩展完全没有的
 
-| 缺失 | 现状 | 依据 |
-| --- | --- | --- |
-| `GM_webRequest` | 不在注入面内 | `gm-wrapper.test.ts` 断言它不在 exposure 表 |
+**对齐口径**：以「**Chrome MV3 上的 Tampermonkey**」为准 —— 不补 TM 自己在 MV3 下已下线、或在 MV3 语境里不适用的东西。
+下表是这条判定剩下的部分（**结论：当前没有待补项**）：
 
-> `GM_closeTab` **不在表内**：TM 官方文档里没有它（TM 用 `window.close`），属个别实现自有；
-> 按 TM 对齐就不把它算作缺口。
+| 项 | 判定 | 依据 |
+| --- | --- | --- |
+| `GM_webRequest` / `@webRequest` | **不补** | TM 自标 `@webRequest` 为 *experimental, MV2 only*；`GM_webRequest` 的 @types 注释写明 *not available anymore at Manifest v3 versions of Tampermonkey 5.2+* |
+| `@sandbox`（`raw` / `JavaScript` / `DOM`） | **不补** | 那是「脚本注入到哪个世界」的开关（Firefox 的 USERSCRIPT_WORLD / ISOLATED_WORLD 语境）；本扩展恒注入页面主世界，Chrome MV3 下没有等价选择 |
+| `@run-in`（v5.3+） | **不补** | 按普通 / 隐身 / **Firefox 容器**筛注入上下文；Chrome 没有容器概念，隐身筛选我们也做不到（`GM_info.isIncognito` 恒 false，见第四节） |
+
+> 两条**不在表内**：`GM_closeTab`（TM 官方文档里没有它，TM 用 `window.close`，属个别实现自有）；
+> `@connect` 白名单（我们不做白名单是**更宽松**而非缺失 —— 见第三节）。
 
 ## 三、有实现但语义弱于油猴（降级项）
 
 | 项 | 差异 | 依据 |
 | --- | --- | --- |
-| `GM_xmlhttpRequest` | **无 `onprogress`**（桥无流式）；`responseType` 只支持 text / json / arraybuffer / blob，不支持 document / stream；非 2xx 走 `onload` 而非 `onerror` | `gm-api-catalog.ts` 与 `spec-text.ts` 的请求条目 |
-| `GM_xmlhttpRequest` | 不支持同步请求 | `spec-text.ts`「明确不支持」段 |
+| `GM_xmlhttpRequest` | **无 `onprogress`**（桥没有流式转发）；`responseType` 支持 text（缺省）/ json / arraybuffer / blob，**缺 `stream`**（TM 的合法值只有 arraybuffer / blob / json / stream，**没有 document**）；非 2xx 走 `onload` 而非 `onerror`（与 TM 一致） | `gm-api-catalog.ts` 与 `spec-text.ts` 的请求条目 |
 | `GM_cookie` | 不收 `domain` / `path`，传入即报错——域名门只比 scheme + host，开放 domain 会架空它 | `gm-wrapper.ts` cookie 分支 |
 | `GM_download` | `saveAs` 被忽略（走 `a[download]`，弹不出另存为），仅记一条日志 | `gm-wrapper.ts` download 分支 |
-| `@connect` | 不做白名单：本扩展的跨域请求经后台发出，不需要声明 | `spec-text.ts`「明确不支持」段 |
+| `@connect` | **更宽松**（不是缺失）：不拦未声明的域名（TM 会拦）——本扩展的跨域请求经后台发出，白名单没有意义 | `spec-text.ts`「明确不支持」段 |
+| `@run-at` | 只映射 `document-start` / `document-end` / `document-idle`（TM 的默认值也是 idle）；TM 另有 **`document-body`**（body 元素存在时）与 **`context-menu`**（右键菜单点了才注入，且该模式下 `@include` / `@exclude` 会被忽略，TM 5.5+） | TM 官方文档的 `@run-at` 段 |
 | header 覆写 | 只做 `set`（`append` 受 DNR 头白名单限制、`remove` 未实现）；且头修改**不跨重定向 hop**，跨 host 的 3xx 之后新请求拿不到覆写头 | `dl-fetch-priv.ts` 顶部注释 |
 
 ## 四、环境级差异（脚本会撞上，但不算 API 缺口）
@@ -80,6 +85,7 @@
 - **`GM_info.isIncognito` 恒 false**：脚本在 MAIN 世界读不到扩展的隐身上下文；要拿真值需经桥回 SW 查，暂未做。
 - **脚本顶层 `var` 不进页面全局**：注入代码把包装与脚本一起放在函数作用域里。要往页面上挂东西请显式写 `unsafeWindow.x = …`。
 - **`GM_*` / `GM` 是脚本作用域里的标识符，不是 `window` 属性**：`GM_setValue(…)` 直接写即可，但 `window.GM_setValue` 取不到。TM 的 `raw` 模式挂在 window 上，本扩展不挂 —— 同帧多脚本共享一个 window，挂上去会互相覆盖（前一个脚本的调用会落到后一个的存储）。能力检测请用 `typeof GM_setValue === 'function'`，不要探测 `window.GM_*`。
+- **同步 `GM_xmlhttpRequest` 不存在**：TM 官方文档明确写了 *"the `synchronous` flag at `details` is not supported"*，我们同样不支持 —— 这不是差距，是两边一致。
 - **`@grant` 精确裁剪**：**只有写进清单的成员才存在**，漏写即 `ReferenceError`。**不写 `@grant` 与 `@grant none` 都等于空清单** —— TM 官方文档原文如此（"If no @grant tag is given an empty list is assumed. However this different from using none."），所以这不是我们的取舍而是照 TM 对齐：不写 `@grant` 的老脚本（GM 1.0 时代常见）在 TM 里同样会 `ReferenceError`，我们**不替它推断权限**。自产脚本由 `spec-text` 强制写全清单，样例包也一律写全。
 
 ## 五、本扩展自有（标准里无对应物）
