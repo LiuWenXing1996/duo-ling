@@ -1,0 +1,5 @@
+# pnpm 会拦截依赖的构建脚本（postinstall 等），这里显式登记放行与否。
+# vue-demi 的 postinstall 只按装到的 Vue 版本切换入口文件，而它发版时的默认入口就是
+# Vue 3 版本（lib/index.cjs / index.mjs / index.d.ts 与 lib/v3/ 逐字节相同），跳过无影响。
+allowBuilds:
+  vue-demi: false

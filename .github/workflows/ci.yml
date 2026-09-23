@@ -19,21 +19,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 不传 version：pnpm/action-setup 读 package.json 的 packageManager 字段，
+      # 版本只有一处真相源，避免 workflow 与本地各写一个版本号后漂移。
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # .wxt/tsconfig.json 由 wxt prepare 生成（含 @ 别名与 #imports 虚拟模块类型），vue-tsc 与 vitest(WxtVitest) 都依赖它；
       # 缺失报 "Failed to load tsconfig '.wxt/tsconfig.json'"；门禁不因缺 .wxt 假红——显式 prepare 兜底，防 postinstall 被跳过致 typecheck 假红。
       - name: Generate WXT types (.wxt/tsconfig.json)
-        run: npx wxt prepare
+        run: pnpm exec wxt prepare
 
       - name: Typecheck (vue-tsc --noEmit)
-        run: npm run typecheck
+        run: pnpm run typecheck
 
       - name: Unit tests (vitest)
-        run: npm run test
+        run: pnpm run test

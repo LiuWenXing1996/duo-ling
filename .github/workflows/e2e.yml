@@ -26,17 +26,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 不传 version：pnpm/action-setup 读 package.json 的 packageManager 字段，
+      # 版本只有一处真相源，避免 workflow 与本地各写一个版本号后漂移。
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # 构建生产产物（E2E fixture 加载 .output/chrome-mv3），同时生成 .wxt 类型
       - name: Build extension
-        run: npm run build
+        run: pnpm run build
 
       # 缓存 Playwright 浏览器二进制，避免每次重新下载。
       # GitHub 官方 runner 在海外，走 Playwright 官方 CDN 即可（稳定且快）；
@@ -45,12 +49,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: E2E smoke
-        run: npm run test:e2e
+        run: pnpm run test:e2e

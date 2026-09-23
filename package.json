@@ -4,6 +4,7 @@
   "version": "0.4.0-alpha.2",
   "license": "MIT",
   "type": "module",
+  "packageManager": "pnpm@11.9.0",
   "scripts": {
     "postinstall": "wxt prepare",
     "dev": "wxt",
@@ -20,8 +21,15 @@
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.48",
     "@ai-sdk/vue": "^4.0.99",
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.11.1",
     "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
     "@isomorphic-git/lightning-fs": "4.7.0",
+    "@lezer/highlight": "^1.2.3",
     "@lucide/vue": "^1.45.0",
     "@vueuse/core": "^14.4.0",
     "acorn": "^8.18.0",
@@ -38,7 +46,8 @@
     "tailwind-merge": "^3.7.0",
     "vue": "3.5.42",
     "vue-stick-to-bottom": "^1.0.1",
-    "vue-stream-markdown": "^1.1.0"
+    "vue-stream-markdown": "^1.1.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
