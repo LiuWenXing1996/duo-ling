@@ -8,7 +8,7 @@
  * 背景：实测宿主不会自动加载 SKILL.md 全文，合规全靠 description 摘要与 AGENTS.md 挂载句，
  * 所以这两项必须守住。参考 deepseek-harness 的 verify-skill-invocation-metadata.ts。
  *
- * 用法：npm run verify:skills
+ * 用法：pnpm run verify:skills
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'

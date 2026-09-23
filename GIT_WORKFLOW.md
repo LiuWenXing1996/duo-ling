@@ -110,7 +110,7 @@
   - 禁强推（`non_fast_forward`）、禁删除该分支；`bypass_actors` 为空 —— **无人可绕过，含 admin**（2026-09-19 实测）
 - **合 main 标准流程**：
   1. 基于最新 `origin/main` 起功能分支（命名细则见上「分支命名」）；不在一个分支堆多件不相关的事。**若是同一件事的小修补，别另起分支 —— 搭当前分支的车，见下「小修补搭车」**
-  2. 本地开发；交付前验证按 [AGENTS.md](AGENTS.md#常用命令) 的门禁，合并前**另加** `npm run test`（全套单测）
+  2. 本地开发；交付前验证按 [AGENTS.md](AGENTS.md#常用命令) 的门禁，合并前**另加** `pnpm run test`（全套单测）
   3. `git push -u origin <功能分支>`（**只 push 分支，不触发 CI**——两个 workflow 的 `push` 都限 `branches: [main]`）
   4. 开 PR（`base: main`），描述按 [.github/pull_request_template.md](.github/pull_request_template.md) 填（动机 / 变更 / 测试证据三段）；PR 触发**两个**门禁：`ci.yml`（typecheck + 全部单测）+ `e2e.yml`（Playwright 冒烟，约 1 分钟），**两个 check 都绿才能合**
   5. 等两个 check 绿 → 网页点 Merge 或 `gh pr merge --merge`（生成 merge commit 进 main，**等价**）

@@ -52,8 +52,8 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 ## CHANGELOG.md
 
 - 参考 [Keep a Changelog](https://keepachangelog.com/) 思路：每个版本一段，按 `Added / Changed / Fixed` 分组，手动填写。
-- **只记已发布的版本**：未发布的改动不写进 CHANGELOG，也不设 `[Unreleased]` 这类累积段——发布前的改动只留在提交历史里，等 `npm run release` 起段后统一补填。
-- 新版本段由 `npm run release` 自动起头（带空分组占位），发布时把改动补进对应分组。预发布版（含 `-alpha.1` 等）也各起一段。
+- **只记已发布的版本**：未发布的改动不写进 CHANGELOG，也不设 `[Unreleased]` 这类累积段——发布前的改动只留在提交历史里，等 `pnpm run release` 起段后统一补填。
+- 新版本段由 `pnpm run release` 自动起头（带空分组占位），发布时把改动补进对应分组。预发布版（含 `-alpha.1` 等）也各起一段。
 - 历史条目不重写（已发布版本的 changelog 是给用户看的）。
 
 ## 发布流程（建立专门的 release PR）
@@ -62,15 +62,15 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 
 1. **本地升版本（由人决策） + 起 CHANGELOG 段 + 提交**（不推远程、不打 tag）：
    ```bash
-   npm run release -- minor --pre alpha      # 0.1.0 -> 0.2.0-alpha.1
-   npm run release -- patch                  # 0.1.0 -> 0.1.1
-   npm run release -- minor                  # 0.1.0 -> 0.2.0
-   npm run release -- 0.3.5                  # 显式指定（跳号 / 回退）
+   pnpm run release -- minor --pre alpha      # 0.1.0 -> 0.2.0-alpha.1
+   pnpm run release -- patch                  # 0.1.0 -> 0.1.1
+   pnpm run release -- minor                  # 0.1.0 -> 0.2.0
+   pnpm run release -- 0.3.5                  # 显式指定（跳号 / 回退）
 
-   # 演练（只打印不改动；-- 让 npm 把参数传给脚本）
-   npm run release -- minor --dry-run
+   # 演练（只打印不改动；-- 让 pnpm 把参数传给脚本）
+   pnpm run release -- minor --dry-run
    ```
-   > `npm run release` 只生成**空分组占位**段；起段后由 AI 解析自上次发版以来的提交历史，补填实际变更，生成**日志初稿**供人判定。
+   > `pnpm run release` 只生成**空分组占位**段；起段后由 AI 解析自上次发版以来的提交历史，补填实际变更，生成**日志初稿**供人判定。
 2. 推分支并开 PR（分支名约定 `release/vX.Y.Z`）：
    ```bash
    git push -u origin HEAD
@@ -86,8 +86,8 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 注意：
 
 - **不用 `--push` 直推 `main`**：分支保护会拦截；tag 由 CI 在 release PR 合入后补推。
-- 演练用 `--dry-run`：只打印将要做的事，不改动文件 / 不提交 / 不打 tag。走 npm 时务必写成 `npm run release -- <args> --dry-run`（`--` 之后的参数才真正传给脚本；直接写 `npm run release minor --dry-run` 会被 npm 吞掉 `--dry-run`，脚本误以真发版模式运行）。
-- 发布前建议自己跑一次 `npm run build` 确认产物可加载；`release` 脚本只卡 `typecheck`，不卡 build（避免构建环境偶发问题误伤发版）。
+- 演练用 `--dry-run`：只打印将要做的事，不改动文件 / 不提交 / 不打 tag。参数一律写在 `--` 之后：`pnpm run release -- <args> --dry-run`。位置参数与 `--pre` 即使不写 `--` 也能到脚本，但 `--dry-run` 与 pnpm 自身同名选项冲突，不写 `--` 会被 pnpm 吞掉，脚本拿不到它就按真发版模式跑。
+- 发布前建议自己跑一次 `pnpm run build` 确认产物可加载；`release` 脚本只卡 `typecheck`，不卡 build（避免构建环境偶发问题误伤发版）。
 
 ## CI 自动发版（合入 main 触发）
 
@@ -98,7 +98,7 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 3. 否则打 **annotated tag** 并推 `refs/tags/*`。
 4. 构建 `chrome-mv3` 产物、打包成 zip 上传为该 Release 的 **asset**（独立 `build` job，详见下方「GitHub Release assets」）。
 
-- **CI 只推 tag，不 bump 版本**：bump 已在本地 `npm run release` 完成、随 release PR 合入。
+- **CI 只推 tag，不 bump 版本**：bump 已在本地 `pnpm run release` 完成、随 release PR 合入。
 - **不依赖提交信息 / 不解析历史**：版本号只从 `package.json.version` 读取，不解析 commit message。release PR 标题仍须写成 release 标题（字面格式见上方 `--title`）；该标题进入 `main` 永久历史的位置与通用规范，见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md) 的「合并提交标题」节。
 - **串行**：`concurrency` 串行，防止两个 release PR 同时合入抢建同一 tag。
 - **手动兜底（罕见）**：CI 漏打 tag 时二选一补推——① Actions 页面对 `release` workflow 点 `Run workflow` 重跑（幂等：tag 已存在自动跳过；尽量在后续 PR 合入 main 前跑，避免 tag 落到错误 commit 上）；② 本地补建 annotated tag 并指向 release PR 的合并 commit 再推：`git tag -a vX.Y.Z -m "vX.Y.Z" <合并commit> && git push origin vX.Y.Z`（tag 走 `refs/tags/*`，不触发 main 分支保护）。
@@ -108,13 +108,13 @@ alpha / beta / rc 都属预发布 stage，按成熟度递增：`alpha < beta < r
 每个版本的 GitHub Release 都会附带一份可直接加载的安装包，由 `release.yml` 的 `build` job 产出：
 
 - **文件名**：`duo-ling-<tag>-chrome-mv3.zip`（如 `duo-ling-v0.1.0-alpha.3-chrome-mv3.zip`）。
-- **内容**：`npm run build` 的 `.output/chrome-mv3/` 目录本身，**解压即得**含 `manifest.json` 的目录，Chrome 用「加载已解压的扩展」指向它即可。
+- **内容**：`pnpm run build` 的 `.output/chrome-mv3/` 目录本身，**解压即得**含 `manifest.json` 的目录，Chrome 用「加载已解压的扩展」指向它即可。
 - **两条保护**：① `build` 是**独立 job**（`needs: tag`）——构建/打包失败不影响 tag 与 Release notes 已先落定的事实；② 只有「本次新建 tag」或「手动 Run workflow」才构建上传，普通 PR 合入直接跳过（避免用 main 新代码覆盖已发布 tag 的同名产物）。
 - **补传**：build job 失败修好后，在 Actions 页面对 `release` workflow 点 `Run workflow` 重跑即可（tag 已存在会跳过，asset 用 `--clobber` 覆盖同名文件）。
 - **版本号进产物后拆成两个字段**：`package.json` 的 `0.1.0-alpha.3` → manifest 的 `version: "0.1.0"` + `version_name: "0.1.0-alpha.3"`。Chrome 的 manifest `version` 只允许 1~4 段纯数字（每段 0~65535，非零段不能以 0 开头，不能全 0），带 `-alpha.3` 的串不合规，WXT 剥掉后缀后把完整串塞进 `version_name`（Chrome 在有 `version_name` 时优先用它做显示）。所以**扩展管理页看到的是 `0.1.0-alpha.3`**，不是 `0.1.0`。
   - **`version` 才是版本判定依据**：Chrome 比对「是不是新版本」只看 `version`，`version_name` 只影响显示。所以同一 base 下的多个 alpha（`0.1.0-alpha.2` / `alpha.3`）在 `version` 上都是 `0.1.0`。
   - **本项目没有自动更新通道**：产物是「加载已解压的扩展」（Release 的 zip），而 Chrome 对 unpacked 扩展不执行自动更新 —— `update_url` 只对打包安装的扩展生效；且 macOS / Windows 上 Chrome 要求 `update_url` 指向应用商店，自托管 update 服务器仅 Linux 的偏好设置文件可用。把 `.crx` 传上 Release 也没用（同一限制会拒绝安装）。升级一律靠手动换产物：ID 由 `manifest.key` 决定、与安装目录无关，所以**覆盖到同一目录不会丢数据**。
-  - **火狐例外**：Firefox 不支持 `version_name` 键，WXT 构建 Firefox 产物时不写它（`npm run build:firefox` 的产物里只有 `0.1.0`）。
+  - **火狐例外**：Firefox 不支持 `version_name` 键，WXT 构建 Firefox 产物时不写它（`pnpm run build:firefox` 的产物里只有 `0.1.0`）。
   - **追溯某次安装来自哪次构建**：设置页「构建信息」（编译进 bundle 的 `__BUILD_INFO__`，取的是 package.json 的完整版本串）或安装 zip 的文件名。
 
 ## 扩展 ID

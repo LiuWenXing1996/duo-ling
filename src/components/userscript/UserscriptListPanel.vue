@@ -662,7 +662,7 @@ function goToGuide(): void {
  * 走 fetch 而不是再弹一次文件选择器，是因为扩展页读本地文件**已有**权限：manifest 里的
  * `<all_urls>` 覆盖 `file:///*`（实测 chrome.permissions.contains 为真），故本功能
  * **不需要新增任何 manifest 权限**；门槛只剩用户级的「允许访问文件网址」开关，
- * 且命令行加载的 unpacked 扩展（= `npm run dev` 与手测加载方式）该开关默认就是开的。
+ * 且命令行加载的 unpacked 扩展（= `pnpm run dev` 与手测加载方式）该开关默认就是开的。
  */
 async function confirmPathImport(): Promise<void> {
   if (importing.value) return

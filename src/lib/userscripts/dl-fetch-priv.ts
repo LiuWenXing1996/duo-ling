@@ -19,7 +19,7 @@
 //   ③ session 规则浏览器重启自动清空——因此用 session 而非 dynamic rules，
 //     孤儿规则不会变永久幽灵。
 //
-// 验证路径：npm run pack:uscripts → 工作台「脚本列表」导入 → 启用「GM API 收口探针」
+// 验证路径：pnpm run pack:uscripts → 工作台「脚本列表」导入 → 启用「GM API 收口探针」
 // → 命中页右下角角标点一下。四项断言（覆写上线 / 同 host 隔离 / manual 读 3xx / error 拒绝）
 // 全打在 httpbin 回显上——覆写是否真上线只有服务端能作证。
 

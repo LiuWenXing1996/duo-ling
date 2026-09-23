@@ -135,7 +135,7 @@ onMounted(async () => {
           <p class="text-sm font-medium">Service Worker</p>
           <p v-if="!sw && !swPending" class="mt-0.5 text-xs text-amber-600 dark:text-amber-400">
             sw:buildInfo 重试 3 次均无应答 —— 浏览器里的 SW 多半是旧包（没有该命令）或已挂。
-            去 chrome://extensions 重载扩展（或重启 npm run dev），再刷新本页
+            去 chrome://extensions 重载扩展（或重启 pnpm dev），再刷新本页
           </p>
           <p v-else class="mt-0.5 text-xs text-muted-foreground">
             SW 上下文跑的是哪次构建：dev 下为 dev server 启动时刻，早于页面属常态，用于判断两者是否同一次会话
