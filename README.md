@@ -4,7 +4,7 @@
 
 现存功能：**AI 对话**（流式 + 思考过程 + 工具过程 + 图片与文本文件附件；入口是网页里的悬浮浮层）+ **用户脚本**（单文件脚本 / git 历史 / 启停管理 / 导入导出：zip 包、本地路径、粘贴源码、链接）+ **页面元素拾取与页面快照** + **新版本检查**（查到新版时在 popup 与设置页给去处）。
 
-> 协作约定与红线见 [AGENTS.md](AGENTS.md)；运行时架构见 [ARCHITECTURE.md](ARCHITECTURE.md)；命令清单见 [AGENTS.md](AGENTS.md#常用命令)「常用命令」（依赖用 **npm** 管理）；CI 组成与合并流程见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)；想法与待办记在 [TODO.md](TODO.md)。
+> 协作约定与红线见 [AGENTS.md](AGENTS.md)；运行时架构见 [ARCHITECTURE.md](ARCHITECTURE.md)；命令清单见 [AGENTS.md](AGENTS.md#常用命令)「常用命令」（依赖用 **pnpm** 管理）；CI 组成与合并流程见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)；想法与待办记在 [TODO.md](TODO.md)。
 
 ## 载体分工
 

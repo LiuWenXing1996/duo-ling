@@ -12,9 +12,10 @@
 //   显式版本       release x.y.z [--pre X]        → 直接指定 base（可选挂预发）
 //
 // 流程：typecheck 闸门 → bump package.json → CHANGELOG 起段 → 本地提交。
-// 注意：npm run 会吞掉脚本后的 --xxx（当成 npm 自己的参数）。两种调用都兼容：
-//   推荐：npm run release -- minor --pre alpha
-//   兜底：npm run release minor --pre alpha   （npm 注入 npm_config_pre 环境变量）
+// 注意：`pnpm run` 会把位置参数与 `--pre` 直接转发给脚本，但 `--dry-run` 与 pnpm 自身同名，
+// 不写 `--` 会被 pnpm 吞掉、脚本误按真模式跑。故统一写成：
+//   pnpm run release -- minor --pre alpha --dry-run
+// （下面仍兼容 npm_config_* 环境变量注入的写法，属历史兼容，保留无害。）
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { execSync } from 'node:child_process'
@@ -91,7 +92,7 @@ if (stageArg) {
     if (!curPreObj)
       fail(
         `当前是稳定版 ${current}，"--pre ${stageArg}" 不能单独用。\n` +
-          `需配合 bump 起新预发线，例如：npm run release minor --pre ${stageArg}`,
+          `需配合 bump 起新预发线，例如：pnpm run release -- minor --pre ${stageArg}`,
       )
     nb = curBase
   }
@@ -106,7 +107,7 @@ if (stageArg) {
   else next = curBase
 } else {
   fail(
-    '用法：npm run release <patch|minor|major|x.y.z> [--pre <alpha|beta|rc>] [--push] [--dry-run]',
+    '用法：pnpm run release -- <patch|minor|major|x.y.z> [--pre <alpha|beta|rc>] [--push] [--dry-run]',
   )
 }
 
@@ -118,19 +119,19 @@ console.log(
 )
 
 // 4. 闸门：typecheck（只卡类型层；build 由发布前人工确认，避免构建环境偶发问题误伤发版）
-console.log('· 闸门：npm run typecheck')
+console.log('· 闸门：pnpm run typecheck')
 if (!dryRun) {
-  // 依赖不随仓库走（新 worktree / 新 clone 都没有 node_modules），此时 npm run typecheck
+  // 依赖不随仓库走（新 worktree / 新 clone 都没有 node_modules），此时 pnpm run typecheck
   // 只会报 command not found，看着像代码坏了。先查要用的那个命令在不在，给出真正的处置。
   const binDir = resolve(cwd, 'node_modules', '.bin')
   const hasVueTsc = ['vue-tsc', 'vue-tsc.cmd', 'vue-tsc.ps1'].some((b) =>
     existsSync(resolve(binDir, b)),
   )
   if (!hasVueTsc) {
-    fail('node_modules 里没有 vue-tsc，先跑 npm ci 装依赖再发版（新 worktree 不共享依赖）')
+    fail('node_modules 里没有 vue-tsc，先跑 pnpm install 装依赖再发版（新 worktree 不共享依赖）')
   }
   try {
-    run('npm run typecheck')
+    run('pnpm run typecheck')
   } catch {
     fail('typecheck 未通过，终止发版（先修掉再发）')
   }

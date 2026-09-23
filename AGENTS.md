@@ -11,7 +11,7 @@
 **红线**（各领域规范与文档索引见下方「文档职责总表」）：
 
 - **UI 复用（强制）**：对话界面（网页浮层）用 `ChatApp` + `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列；popup 是独立的 `PopupPanel.vue`（纯配置面板，不装 `window.api`）。组件本体零改动（靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`）。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。
-  - **组件来源**：UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 走 —— 先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，不手写组件。
+  - **组件来源**：UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 走 —— 先 `pnpm dlx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，不手写组件。
   - **样式**：`class` 只用于布局，不覆盖组件配色与字体；颜色一律用语义 token（`bg-primary` / `text-muted-foreground`）；不写 `space-x-*` / `space-y-*`，不手写 `dark:` 覆盖。新增语义 token 时三处一起改（`@theme inline` 注册 + `:root` / `.dark` 取值），并**构建后 grep 产物 CSS 确认工具类真的生成了** —— Tailwind v4 对没注册的 token 静默忽略：不报错、不生效，typecheck 也看不出来。另注意本套 token 除 `--destructive` 外全是无彩色（`--primary` 就是黑/白），要给状态找颜色就新立语义 token，别借 `chart-*`（语义错配且会随图表配色漂）。
   - **Tooltip 组合约束（reka-ui 2.10 实测）**：`TooltipProvider` 不转发 attrs —— 任何 as-child 组件**隔在 Provider 与目标元素之间都会静默断链**（编译不报错、运行时无警告，事件与属性全丢）。故 Tooltip 包其他触发组件时，**Tooltip 在最外、目标组件在内**。
   - **菜单触发按钮不套 Tooltip（reka-ui 2.10 实测）**：即便顺序正确，`TooltipTrigger` 套在 `DropdownMenuTrigger` 外层仍会让 menu popper 失去定位（内容渲染到视口外，`translate(0,-200%)` 兜底，无任何报错；组件测试 / happy-dom 测不出来，只有真实浏览器可见性断言能抓到）。改用原生 `title`（`SessionHistoryPanel` 会话操作按钮即此例）。
@@ -31,23 +31,26 @@
 
 ## 常用命令
 
-> 本表是命令清单的登记处。
+> 本表是命令清单的登记处。包管理器是 **pnpm**（版本由 `package.json` 的 `packageManager` 字段锁定，CI 读同一个字段）。
 
 | 命令 | 说明 |
 | --- | --- |
-| `npm ci` | **新 worktree 先跑它**：`node_modules` 不入库、也不跨 worktree 共享，缺了时所有 `npm run *` 与 `npx` 一律报错（`command not found` / `Cannot find module`），不是代码问题（约 10s） |
-| `npm install` | 首次装 / 加依赖（非锁定场景）；按 lockfile 精确还原用上面的 `npm ci` |
-| `npm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev` |
-| `npm run build` | 构建，产出 `.output/chrome-mv3` |
-| `npm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
-| `npm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
-| `npm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
-| `npm run test:e2e` | Playwright 端测（全程无头、跑 build 产物；**先 `npm run build`**） |
-| `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
-| `npm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、疑似重复（**整理待办时跑**，提醒级不进 CI） |
-| `npm run pack:uscripts` | 生成用户脚本测试包：把仓库根 `uscript-samples/` 打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例目录再打） |
+| `pnpm install` | **新 worktree 先跑它**：`node_modules` 不入库、也不跨 worktree 共享，缺了时所有 `pnpm run *` 与 `pnpm exec` 一律报错（`command not found` / `Cannot find module`），不是代码问题（约 10s） |
+| `pnpm install --frozen-lockfile` | 严格按 `pnpm-lock.yaml` 还原（CI 用这条）；加 / 改依赖后要提交更新过的锁文件 |
+| `pnpm exec <bin>` / `pnpm dlx <pkg>` | 跑包内可执行文件 / 临时跑未安装的包（原来写 `npx` 的地方按这两条分） |
+| `pnpm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev` |
+| `pnpm run build` | 构建，产出 `.output/chrome-mv3` |
+| `pnpm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
+| `pnpm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
+| `pnpm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
+| `pnpm run test:e2e` | Playwright 端测（全程无头、跑 build 产物；**先 `pnpm run build`**） |
+| `pnpm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
+| `pnpm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、疑似重复（**整理待办时跑**，提醒级不进 CI） |
+| `pnpm run pack:uscripts` | 生成用户脚本测试包：把仓库根 `uscript-samples/` 打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例目录再打） |
 
-> **交付前验证**：`npm run typecheck` + `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
+> **给脚本传参数一律写成 `pnpm run <script> -- <args>`**：位置参数与 `--pre` 即使不写 `--` 也能转发到脚本，但 `--dry-run` 这类与 pnpm 自身同名的选项不写 `--` 会被 pnpm 吞掉（脚本拿不到、误按真模式运行）。
+>
+> **交付前验证**：`pnpm run typecheck` + `pnpm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
 
 ## 文档职责总表（读哪 / 写哪）
 

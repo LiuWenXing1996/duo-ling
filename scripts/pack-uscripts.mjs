@@ -11,12 +11,12 @@
 //     <目录名>/script.js            单文件源码（配置由源码里的 // ==UserScript== 块派生，不进 zip）
 //
 // 本脚本**不 import** 那个模块，两条原因：① src 是扩展运行时代码，其扩展名省略的 TS 导入在
-// node ESM 下解析不了；② 本工具刻意零依赖——没装 node_modules 也能跑（打测试包不该先 npm i）。
+// node ESM 下解析不了；② 本工具刻意零依赖——没装 node_modules 也能跑（打测试包不该先装依赖）。
 // 对齐靠两点保障：
 //   ① 写完立刻回读 zip 自检（--no-verify 关）：解析中央目录 + 逐条比对本地文件头与 CRC；
 //   ② 样例目录只放 script.js（与单文件形态一致）；若某样例想带名字，在源码里写 // @name。
 //
-// 用法见 `--help`；常规用法 `npm run pack:uscripts`（打包全部样例 → tmp/）。
+// 用法见 `--help`；常规用法 `pnpm run pack:uscripts`（打包全部样例 → tmp/）。
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -231,10 +231,10 @@ function toZipEntries(scripts) {
 const HELP = `用户脚本包生成器：把脚本素材目录打成扩展可导入的 zip
 
 用法：
-  npm run pack:uscripts                     # 打包仓库根 uscript-samples/ 下全部样例 → tmp/
-  npm run pack:uscripts -- --list           # 列出可用样例
-  npm run pack:uscripts -- <目录> [<目录>…]  # 只打指定目录（素材目录，不是 zip）
-  npm run pack:uscripts -- <目录> -o 包.zip  # 指定输出路径
+  pnpm run pack:uscripts                     # 打包仓库根 uscript-samples/ 下全部样例 → tmp/
+  pnpm run pack:uscripts -- --list           # 列出可用样例
+  pnpm run pack:uscripts -- <目录> [<目录>…]  # 只打指定目录（素材目录，不是 zip）
+  pnpm run pack:uscripts -- <目录> -o 包.zip  # 指定输出路径
 
 选项：
   -o, --out <文件>        输出 zip 路径（默认 tmp/uscripts-<时间戳>.zip）
