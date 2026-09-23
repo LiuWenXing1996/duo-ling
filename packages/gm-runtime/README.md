@@ -18,21 +18,25 @@
 
 ## 复现（vendored 的 VM 源码不入库）
 
+本包是**仓库 workspace 成员**（根 `pnpm-workspace.yaml` 的 `packages/*`），依赖一律从仓库根用 pnpm 装。
+
 ```bash
-git clone --depth 1 --branch v2.49.0 https://github.com/violentmonkey/violentmonkey /tmp/vm
+cd packages/gm-runtime
 mkdir -p vendor/violentmonkey
+git clone --depth 1 --branch v2.49.0 https://github.com/violentmonkey/violentmonkey /tmp/vm
 cp -R /tmp/vm/src /tmp/vm/scripts /tmp/vm/babel.config.js /tmp/vm/package.json vendor/violentmonkey/
-npm install          # 包内独立 node_modules（不要并入根 workspace，避免依赖提升串味）
+cd ../.. && pnpm install
 ```
 
 ## 构建与验证
 
 ```bash
-npm run build             # 库产物：entry=probe
-npm run build:match       # 库产物：entry=match
-npm run build:injectors   # 注入件：VM 自带的 injected + injected-web（production 形态）
-node test/probe.cjs       # 6 个用例
-node test/match.cjs       # 16 个用例
+cd packages/gm-runtime
+pnpm run build             # 库产物：entry=probe
+pnpm run build:match       # 库产物：entry=match
+pnpm run build:injectors   # 注入件：VM 自带的 injected + injected-web（production 形态）
+node test/probe.cjs        # 6 个用例
+node test/match.cjs        # 16 个用例
 ```
 
 真机验证在**扩展仓**侧跑（产物拷进扩展目录后注册）：
@@ -75,6 +79,9 @@ cd ../.. && pnpm run build && pnpm exec playwright test e2e/vm-runtime.spec.ts
 7. **真机接桩要挂 `onUserScriptMessage`**：默认世界配了 `configureWorld({ messaging: true })` 之后，
    来自该世界的 user script 发的 `runtime.sendMessage` 会被路由到 `onUserScriptMessage`，
    **不是通用 `onMessage`**（本仓自研链路的 `dl-bridge` 吃的是同一个机制）。
+8. **依赖只能用 pnpm、别在包内单独 `npm install`**：本机 npm 会撞沙箱对 `.bin` 的 rename 限制
+   （`CODEBUDDY_BROKER_DENY`）；而且 npm 装的 `node_modules` 与 pnpm 的软链结构混在一起，会留下
+   指向已不存在路径的 `.bin` 条目（构建时刷 `Failed to create bin` 警告）。本包已纳入 workspace。
 
 ## 语义备忘（与 TM 不同处，一律以 VM 为准）
 
