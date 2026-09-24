@@ -147,35 +147,40 @@ export async function initVmRuntime(): Promise<void> {
       } catch { /* 观测失败不影响链路 */ }
     }
     rt.onUserScriptMessage?.addListener(
-      (msg: unknown, sender: unknown, sendResponse: (r: unknown) => void) => {
+      (msg: unknown, sender: unknown) => {
       const cmd = (msg as { cmd?: string } | undefined)?.cmd
       // ★ 只应答 VM 认识的命令，其余让响应权给自研链路的 listener（并存的关键）
       if (!cmd || !(cmd in vm!.commands)) return undefined
       void bump('__vmCmdLog', cmd)
       const senderTabId = (sender as { tab?: { id?: number } } | undefined)?.tab?.id
       const p = vm!.dispatch(msg as { cmd?: string }, sender)
-      if (p instanceof Promise) {
-        p.then(
-          (res) => {
+      if (!(p instanceof Promise)) return undefined
+      // execute 数据通道（fire-and-forget）：onUserScriptMessage 的 sendResponse 在异步延迟后
+      // 会失效（README 条目 14），GetInjected 的数据以 execute 喂等待器为准（VM 官方
+      // registerScriptDataMV3 同语义）。
+      if (cmd === 'GetInjected' && senderTabId != null) {
+        void p
+          .then((res) => {
             const plain = JSON.parse(JSON.stringify(res ?? null)) as unknown
-            if (cmd === 'GetInjected' && senderTabId != null) {
-              // 数据走 VM 官方通道（registerScriptDataMV3 同语义）；sendResponse 只当陪跑
-              chrome.userScripts.execute({
-                js: [{ code: `window['Violentmonkey'](${JSON.stringify(plain)})` }],
-                target: { tabId: senderTabId },
-                world: { id: VM_WORLD },
-              }).catch(() => {})
-            }
-            sendResponse([plain, false])
-          },
-          (err: unknown) => {
-            void bump('__vmCmdErr', cmd, String((err as Error)?.stack || err))
-            sendResponse([null, [String(err), '']])
-          },
-        )
-        return true
+            return chrome.userScripts.execute({
+              js: [{ code: `window['Violentmonkey'](${JSON.stringify(plain)})` }],
+              target: { tabId: senderTabId },
+              // world 对象式（自定义世界）是 Chrome 138+ 能力，本机类型声明未跟上；运行时已验证
+              world: { id: VM_WORLD } as never,
+            }).then(() => {
+              void bump('__vmCmdErr', 'execute', 'OK len=' + JSON.stringify(plain).length)
+            })
+          })
+          .catch((e: unknown) => {
+            // execute 失败 = 数据通道断了（content 层等待器收不到）—— 必须可见
+            void bump('__vmCmdErr', 'execute', String((e as Error)?.message || e))
+          })
       }
-      return undefined
+      // ★ 响应只 return Promise：VM 库加载后改写了 addListener（browser.js 的
+      // onMessageListener 包装），它会对 Promise 做 sendResponseAsync。若这里自己
+      // sendResponse 再 return true，包装层会再 sendResponse(wrapResponse(true)) 把
+      // 正确数据覆盖成 true —— 实测 content 层拿到的 data === true，脚本静默不跑。
+      return p as unknown as boolean
       },
     )
   } catch (e) {

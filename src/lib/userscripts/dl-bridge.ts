@@ -995,7 +995,9 @@ export function initDlBridge(): void {
     // 请求-响应
     const msg = raw as { __dl?: true; uuid?: string; req?: ApiRequest }
     if (!msg || msg.__dl !== true || !msg.req) {
-      sendResponse({ ok: false, error: '非 DL 消息' } satisfies ApiResponse)
+      // 非 DL 消息（如 VM 运行时的 GetInjected / 内核命令）：**不应答、不占响应权** ——
+      // onUserScriptMessage 上多 listener 共存时，这里的 sendResponse 调用会抢占/挤掉
+      // 真正应答方的响应通道（实测 VM 链路的响应被它弄失效，脚本静默不跑）
       return undefined
     }
 

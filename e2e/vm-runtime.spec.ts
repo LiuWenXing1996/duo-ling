@@ -177,7 +177,7 @@ test.describe.serial('VM 运行时（正式接入·真机）', () => {
     const page: Page = await context!.newPage()
     const errors: string[] = []
     const logs: string[] = []
-    page.on('pageerror', (e) => errors.push(String(e)))
+    page.on('pageerror', (e) => errors.push(String((e as Error)?.stack || e)))
     page.on('console', (m) => logs.push(`${m.type()}: ${m.text()}`))
     await page.goto(`http://127.0.0.1:${port}/probe.html`, { waitUntil: 'load' })
 
@@ -196,15 +196,26 @@ test.describe.serial('VM 运行时（正式接入·真机）', () => {
     if (logs.length) console.log(`[E2E] 页面 console（共 ${logs.length} 条）：\n${logs.slice(0, 40).join('\n')}`)
 
     // 分水岭：VM 真链路交出的脚本在页面 MAIN 世界执行（脚本写 DOM 属性；page.evaluate 同世界读得到）
-    await expect
-      .poll(
-        () => page.evaluate(() => document.documentElement.getAttribute('data-vm-runtime-probe')),
-        {
-          timeout: 15_000,
-          message: `脚本没跑起来。页面错误：${JSON.stringify(errors)}｜dispatch 错误：${JSON.stringify(log.err)}`,
-        },
-      )
-      .toBe('ran')
+    try {
+      await expect
+        .poll(
+          () => page.evaluate(() => document.documentElement.getAttribute('data-vm-runtime-probe')),
+          {
+            timeout: 15_000,
+            message: `脚本没跑起来。页面错误：${JSON.stringify(errors)}｜dispatch 错误：${JSON.stringify(log.err)}`,
+          },
+        )
+        .toBe('ran')
+    } catch {
+      // 抓现场：命令日志说脚本跑过（Run 回执），但属性不在 —— dump 页面实际状态
+      const dump = await page.evaluate(() => ({
+        url: location.href,
+        attrs: [...document.documentElement.attributes].map((a) => `${a.name}=${a.value.slice(0, 40)}`),
+        winKeys: Object.keys(window).filter((k) => /^w[0-9a-zA-Z]{10,}$/.test(k)),
+      }))
+      console.log(`[E2E] 页面现场：${JSON.stringify(dump)}`)
+      throw new Error(`脚本未执行（页面现场已打印）｜dispatch 错误：${JSON.stringify(log.err)}`)
+    }
     await page.close()
   })
 })
