@@ -82,6 +82,16 @@ cd ../.. && pnpm run build && pnpm exec playwright test e2e/vm-runtime.spec.ts
 8. **依赖只能用 pnpm、别在包内单独 `npm install`**：本机 npm 会撞沙箱对 `.bin` 的 rename 限制
    （`CODEBUDDY_BROKER_DENY`）；而且 npm 装的 `node_modules` 与 pnpm 的软链结构混在一起，会留下
    指向已不存在路径的 `.bin` 条目（构建时刷 `Failed to create bin` 警告）。本包已纳入 workspace。
+9. **webpack 必须钉在 VM 锁定的 5.109.2**：5.111.x 对「跨模块 `export let` 赋值」生成
+   `({get bridge(){…}}).bridge = v` 形态（getter-only 临时对象），严格模式下赋值必抛 TypeError，
+   且异常被 VM 的 `init().catch(undefined)` 静默吞掉 —— content 层初始化断链、脚本静默不跑。
+10. **真机注册注入件时 `configureWorld` 必须连 `csp` 一起配**（照 VM 的 registerInjector）：
+    USER_SCRIPT 世界的默认 CSP 会拦注入件往页面注的内联 script（vault iframe + 内核），握手
+    完不成、脚本静默被丢且页面零报错。csp 值照抄 VM：`"script-src 'self' 'unsafe-inline'
+    'unsafe-eval'; style-src * 'unsafe-inline' data: blob:"`。
+11. **`GetInjected` 走双通道应答**：messaging 信封 `[result, 0]`（VM 的 browser.js 会解包
+    `[0]`=结果、`[1]`=错误）与 `userScripts.execute` 喂 `window.Violentmonkey(data)`（必须
+    `world:'USER_SCRIPT'`，execute 默认是 MAIN）赛跑，先到先得；输的那条报 not-a-function，无害。
 
 ## 语义备忘（与 TM 不同处，一律以 VM 为准）
 
