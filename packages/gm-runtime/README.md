@@ -92,6 +92,30 @@ cd ../.. && pnpm run build && pnpm exec playwright test e2e/vm-runtime.spec.ts
 11. **`GetInjected` 走双通道应答**：messaging 信封 `[result, 0]`（VM 的 browser.js 会解包
     `[0]`=结果、`[1]`=错误）与 `userScripts.execute` 喂 `window.Violentmonkey(data)`（必须
     `world:'USER_SCRIPT'`，execute 默认是 MAIN）赛跑，先到先得；输的那条报 not-a-function，无害。
+12. **SW 里加载库产物只能 inline，不能 import() 也不能靠 importScripts**：MV3 SW 禁动态
+    `import()`（ServiceWorker spec）；`importScripts` 又受 Chrome「安装后不许导入新脚本」限制，
+    在部分 SW 生命周期被拒。最终形态：垫片 + 库 bundle 直接拼进扩展的 background.js 顶层
+    （等效正式接入的静态引入）。
+13. **宿主装配垫片（VM 对宿主环境的三处假设）**，不改 VM 源码、在宿主侧满足：
+    ① `getManifest()` 补 `options_ui` / `icons` / `action.default_icon`（VM safe-globals 与
+    icon.js 初始化期读取；图标文件名必须 `icon<数字>.png` 形态 —— icon.js 用 `/\d+(\w*)\./`
+    从文件名提取变体后缀）；② `chrome.webNavigation` no-op stub（icon.js 顶层挂 onCommitted
+    做 badge，需要 webNavigation 权限）；③ `userScripts.unregister` 无参调用限制到 VM 自己的
+    id（`1000`/`1001`）+ 把 VM 注入器注册的文件路径映射到宿主产物位置 —— VM 的
+    `registerInjector` 会**无参注销全部 userScripts** 再重注自己（js 指向扩展根 `injected*.js`），
+    不垫片的话宿主注册的注入件会被清空。
+14. **`onUserScriptMessage` 的 `sendResponse` 在异步延迟后失效**（报
+    `sendResponse is not a function`，曾触发 content 层 15s 内 947 次重试）→ GetInjected 的
+    数据投递必须走 `userScripts.execute` 通道（VM 官方 `registerScriptDataMV3` 同语义），
+    messaging 回传只当陪跑。
+15. **VM 的 `@match` 端口语义与 Chrome 原生不同**：VM 的 URL 解析（`RE_URL_PARTS` 的 `[^/]*`）
+    把 host+port 整段参与匹配 —— `@match http://127.0.0.1/*` 匹配不到 `http://127.0.0.1:8080/`；
+    Chrome 原生 match pattern 忽略端口。差异登记条目（迁移脚本库时注意）。
+16. **sw 库 entry 的装配面**（`entry/sw.js`）：import 即装配 —— VM 的模块自带副作用式命令
+    注册（db.js 注册 ParseScript 等并在加载时 `initializeDatabase()` + resolve init；
+    preinject.js 注册 GetInjected/InjectionFeedback/Run）。不 import VM 的
+    `background/index.js`（整包装配点，会连带 sync/update）。导出 `dispatch`
+    （`handleCommandMessage` 精简移植：把消息体的 `top` 搬到 src、`src.tab` 兜底 false）。
 
 ## 语义备忘（与 TM 不同处，一律以 VM 为准）
 
