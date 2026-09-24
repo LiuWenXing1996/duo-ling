@@ -79,9 +79,13 @@ test.describe.serial('VM 注入链（真机）', () => {
     const registered = await sw.evaluate(
       async ({ id, files }) => {
         try {
-          // messaging 必须开 —— 否则 USER_SCRIPT 世界里的 injected 没有 chrome.runtime，
-          // 整条桥静默失效（与扩展自研链路同一个前提）
-          await chrome.userScripts.configureWorld({ messaging: true })
+          // messaging + csp 都要配（照 VM 的 registerInjector）：messaging 给 USER_SCRIPT 世界
+          // 开 chrome.runtime；csp 换掉该世界的默认 CSP —— 否则注入件往页面注的内联 script
+          //（vault iframe + 内核）会被「script-src 'self' …」拦掉，握手完不成、脚本静默被丢。
+          await chrome.userScripts.configureWorld({
+            messaging: true,
+            csp: "script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline' data: blob:",
+          })
           await chrome.userScripts.unregister({ ids: [id] }).catch(() => {})
           await chrome.userScripts.register([
             {
@@ -127,32 +131,87 @@ test.describe.serial('VM 注入链（真机）', () => {
       await chrome.storage.session.set({ [logKey]: {} })
       const onMsg = (
         msg: { cmd?: string } | undefined,
-        _sender: unknown,
+        sender: unknown,
         sendResponse: (r: unknown) => void,
       ) => {
         const cmd = msg?.cmd
         if (!cmd) return undefined
+        const senderTabId = (sender as { tab?: { id?: number } } | undefined)?.tab?.id ?? -1
         chrome.storage.session.get(logKey).then((cur) => {
           const log = (cur[logKey] ?? {}) as Record<string, number>
           log[cmd] = (log[cmd] ?? 0) + 1
-          chrome.storage.session.set({ [logKey]: log })
+          chrome.storage.session.set({ [logKey]: log, __vmProbeTabId: senderTabId })
         })
+        if (cmd === 'ping') {
+          sendResponse(['pong', 0])
+          return true
+        }
         if (cmd === 'GetInjected') {
-          // 最小响应：这个页面没有要注入的脚本（第 1 步只验链路，不验脚本）
-          sendResponse({ scripts: [] })
+          // 一条会写 DOM 的最小脚本，用来证明「脚本真的在页面里跑起来了」。
+          // 结构照 VM 的 `prepareScript`（见 vendor 的 background/utils/preinject-prepare.js）：
+          //   · `code` 可以是**分片数组**（VM 就是这么拼 @require + 源码 + 收尾的，content 层按数组 append）
+          //   · `gmi` 只需 scriptWillUpdate / uuid 两个字段（其余由内核的 makeGmApiWrapper 补）
+          //   · `meta.grant` 必需（content 层的 triageScript 会读 `meta.grant.length`）
+          //   · `cache` 必需（content 层 `setPrototypeOf(bridge.cache = data.cache, null)`，缺了会抛）
+          //   · `injectInto: 'page'` 才注入页面 MAIN 世界
+          //   · `runAt: 'start'` 才会在第一轮就注入 —— content 层的 end/idle 批次只在响应带 `more`
+          //     （第二轮数据）时才跑，这里不提供 more，所以只有 start 会被处理
+          const injection = {
+            scripts: [
+              {
+                id: 1,
+                code: ['document.documentElement.setAttribute("data-vm-runtime-probe", "ran");\n'],
+                displayName: 'gm-runtime-probe',
+                gmi: { scriptWillUpdate: false, uuid: 'gm-runtime-probe' },
+                key: { data: 'dprobe1', win: 'wprobe1' },
+                meta: { name: 'gm-runtime-probe', grant: [], unwrap: false },
+                metaStr: ['', 0, 0],
+                pathMap: {},
+                runAt: 'start',
+                injectInto: 'page',
+              },
+            ],
+            cache: {},
+            ids: [1],
+            runAt: { 1: 'start' },
+            value: {},
+            valueIds: [],
+            errors: '',
+            // ★ `page: true` 是必需的开关：content 层只有看到它才会启动「页面可注入性」握手
+            // （injectPageSandbox → vault/handshake → 把内核注进 MAIN 世界）。
+            // 漏了它，triageScript 会把脚本判成「坏 realm」整条丢弃 —— 且页面零报错，极难查。
+            page: true,
+            sessionId: 'gm-runtime-probe',
+            info: { ua: {}, gmi: { downloadMode: 'browser', isIncognito: false } },
+          }
+          // ★ VM 的 browser.js 会对响应解包（unwrapResponse 读信封的 [0]=结果、[1]=错误标记）：
+          // 必须给 `[result, 0]` 数组形状。裸对象会被 resolve 成 undefined，又落到错误分支被
+          // init().catch(…) 静默吞掉 —— 上一轮「零报错但脚本没跑」就是它。
+          // 双通道应答（VM 原生就有两条，赛跑先到先得）：
+          //   ① messaging：sendResponse 回 [injection, 0] 信封（browser.js 的 unwrapResponse 读 [0]/[1]）
+          //   ② registerScriptData：userScripts.execute 把 window.Violentmonkey(injection) 喂给
+          //      content 层在 getRegistration 里挂的等待器（preinject-core.js 的 INJECTED_DATA_ID
+          //      同款机制）—— 必须 world:'USER_SCRIPT'，execute 默认是 MAIN 世界。
+          // 输的那条会报「window.Violentmonkey is not a function」，无害，不当作失败。
+          chrome.userScripts.execute({
+            js: [{ code: `window['Violentmonkey'](${JSON.stringify(injection)})` }],
+            target: { tabId: senderTabId },
+            world: 'USER_SCRIPT',
+          }).catch((e) => console.error('[vm-probe] execute 失败', String(e)))
+          sendResponse([injection, 0])
           return true
         }
         return undefined
       }
-      // ★ 必须挂 onUserScriptMessage：默认世界配了 `messaging: true` 之后，来自该世界的 user script
-      // 发的 runtime.sendMessage 会被路由到这里，**而不是通用 onMessage**（扩展自研链路的
-      // dl-bridge 吃的就是同一个机制）。两边都挂以兼容未配 messaging 的情形。
+      // ★ 只能挂 onUserScriptMessage：默认世界配了 `messaging: true` 之后，来自该世界的
+      // runtime.sendMessage 走这条事件（扩展自研链路的 dl-bridge 吃的也是它）。
+      // ⚠️ 千万别再挂通用 onMessage —— 两个事件都会收到同一条消息，而扩展自己的 onMessage
+      // 监听器会对不认识的消息「返回 true 占住响应权」，VM 的 sendResponse 就被吞掉，
+      // 表现为 sendMessageRetry 永远 pending（消息被问多次、日志链停在 await）。
       const rt = chrome.runtime as unknown as {
         onUserScriptMessage?: { addListener: (cb: unknown) => void }
-        onMessage: { addListener: (cb: unknown) => void }
       }
       rt.onUserScriptMessage?.addListener(onMsg)
-      rt.onMessage.addListener(onMsg)
     }, LOG_KEY)
   }
 
@@ -164,7 +223,7 @@ test.describe.serial('VM 注入链（真机）', () => {
     }, LOG_KEY)
   }
 
-  test('注入件注册成功、能在真机页面里起跑并问到 SW', async () => {
+  test('注入件注册成功、能跟 SW 通上话、并让一条脚本在页面里跑起来', async () => {
     test.skip(!HAS_INJECTORS, '本地未构建 gm-runtime 注入件（vendor 不入库，干净 clone / CI 上跳过）')
     test.skip(!sw, 'SW 未就绪')
     await installStub()
@@ -180,6 +239,25 @@ test.describe.serial('VM 注入链（真机）', () => {
     const page: Page = await context!.newPage()
     const errors: string[] = []
     const logs: string[] = []
+    // MAIN 世界的诊断钩子（每次导航前执行）：记录所有 dispatchEvent 的事件名 + 主世界错误。
+    // 内核 fire 握手事件走 window.dispatchEvent，能在这里看到它到底 fire 没 fire。
+    await page.addInitScript(() => {
+      const w = window as unknown as {
+        __diag: { dispatched: string[]; errs: string[] }
+        __vmInjected?: boolean
+      }
+      w.__diag = { dispatched: [], errs: [] }
+      const orig = EventTarget.prototype.dispatchEvent
+      EventTarget.prototype.dispatchEvent = function (e: Event) {
+        w.__diag.dispatched.push(e.type)
+        if (w.__diag.dispatched.length > 40) w.__diag.dispatched.shift()
+        return orig.call(this, e)
+      }
+      window.addEventListener('error', (e) => {
+        w.__diag.errs.push((e as ErrorEvent).message)
+        if (w.__diag.errs.length > 20) w.__diag.errs.shift()
+      })
+    })
     page.on('pageerror', (e) => errors.push(String(e)))
     page.on('console', (m) => logs.push(`${m.type()}: ${m.text()}`))
     await page.goto(`http://127.0.0.1:${port}/probe.html`, { waitUntil: 'load' })
@@ -197,7 +275,57 @@ test.describe.serial('VM 注入链（真机）', () => {
     expect(log.GetInjected, 'injected 应该向 SW 问过 GetInjected（没问到 = 宿主没起或桥不通）').toBeGreaterThan(0)
 
     console.log(`[E2E] 页面错误：${errors.length ? JSON.stringify(errors) : '无'}`)
-    if (logs.length) console.log(`[E2E] 页面 console：\n${logs.slice(0, 20).join('\n')}`)
+    if (logs.length) console.log(`[E2E] 页面 console（共 ${logs.length} 条）：\n${logs.slice(0, 80).join('\n')}`)
+
+    // 诊断：把每个 frame 上 VM content 层留下的插桩痕迹读出来（见 packages/gm-runtime 的插桩脚本）。
+    // 走 DOM 属性而不是 console —— content 层在隔离世界，它的 console 不会进 page.on('console')。
+    await page.waitForTimeout(4000)
+    for (const f of page.frames()) {
+      try {
+        const probe = await f.evaluate(() => ({
+          log: document.documentElement?.getAttribute('data-vm-probe') ?? null,
+          ran: document.documentElement?.getAttribute('data-vm-runtime-probe') ?? null,
+          frames: window.frames.length,
+        }))
+        console.log(`[E2E] frame ${f === page.mainFrame() ? '(main)' : f.url()} → ${JSON.stringify(probe)}`)
+      } catch (e) {
+        console.log(`[E2E] frame ${f.url()} → 读取失败：${String(e)}`)
+      }
+    }
+
+    // ping/pong 单测：user script 世界 → SW 桩 → sendResponse 这条响应通道本身是否可用。
+    // 探针用 chrome.userScripts.execute 注入（它默认就跑在与注入件相同的 USER_SCRIPT 世界）。
+    const tabId = await sw!.evaluate(async () => {
+      const cur = await chrome.storage.session.get('__vmProbeTabId')
+      return (cur.__vmProbeTabId ?? -1) as number
+    })
+    console.log(`[E2E] 消息来源 tabId：${tabId}`)
+    if (tabId > 0) {
+      await sw!.evaluate(async (tid: number) => {
+        await chrome.userScripts.execute({
+          js: [{
+            code: `chrome.runtime.sendMessage({cmd:'ping'}).then((r) => document.documentElement.setAttribute('data-ping', JSON.stringify(r))).catch((e) => document.documentElement.setAttribute('data-ping', 'ERR:' + e))`,
+          }],
+          target: { tabId: tid },
+        })
+      }, tabId)
+      await page.waitForTimeout(1500)
+      const pong = await page.evaluate(() => document.documentElement.getAttribute('data-ping'))
+      console.log(`[E2E] ping/pong：${pong}`)
+    }
+
+    // 这一步的分水岭：桩给了一条真实脚本，断言它真的在页面 MAIN 世界里执行了。
+    // 脚本往 documentElement 写了个属性；page.evaluate 也跑在 MAIN 世界，读得到。
+    // 诊断信息带上 message —— 断言抛错时后面的 log 不会执行，光看结果会瞎猜。
+    await expect
+      .poll(
+        () => page.evaluate(() => document.documentElement.getAttribute('data-vm-runtime-probe')),
+        {
+          timeout: 15_000,
+          message: `脚本没跑起来（属性没写上）。页面错误：${JSON.stringify(errors)}｜console：${logs.slice(0, 6).join(' / ')}`,
+        },
+      )
+      .toBe('ran')
     await page.close()
   })
 })
