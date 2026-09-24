@@ -8,7 +8,7 @@
   "scripts": {
     "postinstall": "wxt prepare",
     "dev": "wxt",
-    "build": "wxt build",
+    "build": "pnpm --filter @duoling/gm-runtime build:runtime && node scripts/copy-gm-runtime.mjs && wxt build",
     "build:firefox": "wxt build --browser firefox",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",

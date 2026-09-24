@@ -28,6 +28,10 @@ import type { InjectedBuildInfo } from '@/lib/build-info'
 
 // 用户脚本管理器（v2 方案）：引擎 + 存储 + GM 桥 + 类型
 import {
+  initVmRuntime,
+} from '@/lib/userscripts/vm-runtime-host'
+import {
+
   configureUserScriptsWorld,
   ensureWorldsConfigured,
   isUserScriptsAvailable,
@@ -916,6 +920,10 @@ export default defineBackground(() => {
 
   // 对话界面监控 / 面板端口 / 任务状态 / 深链跳转的监听器
   mountProposal2Listeners()
+
+  // VM 运行时（Violentmonkey 库）的宿主装配：空库并存形态 —— VM 脚本库为空时零注入，
+  // 自研链路照旧（见 vm-runtime-host.ts 模块注释）。垫片与库加载已在模块顶层完成。
+  void initVmRuntime()
 
   // 浮层的右键菜单入口（与 popup 的按钮同一条路：对话框平时不在页面里）
   mountFloatMenu()
