@@ -116,6 +116,12 @@ cd ../.. && pnpm run build && pnpm exec playwright test e2e/vm-runtime.spec.ts
     preinject.js 注册 GetInjected/InjectionFeedback/Run）。不 import VM 的
     `background/index.js`（整包装配点，会连带 sync/update）。导出 `dispatch`
     （`handleCommandMessage` 精简移植：把消息体的 `top` 搬到 src、`src.tab` 兜底 false）。
+17. **「停止注入」认 `enabled` 标志，不认 `removed`**：VM 的 `getScriptsByURL`（GetInjected 注入
+    决策）只遍历 `aliveScripts` 且以 `!config.enabled` 拦截（`db.js` 第 333 行），**不读**
+    `config.removed`；`removed` 脚本仍留在 `aliveScripts` 里、enabled=1 时照样注入。所以关停 /
+    删除脚本必须同时把 `enabled` 置 0（`updateScriptInfo(id,{config:{removed:1,enabled:0}})`）；
+    单置 `removed=1` 不会停跑。真正的「移出活跃视图」靠把脚本挪进 `removedScripts`（VM 内部
+    `MarkRemoved` 才做，外部 `updateScriptInfo` 不会挪）。自研链路的启停 = 改 enabled 即可。
 
 ## 语义备忘（与 TM 不同处，一律以 VM 为准）
 
