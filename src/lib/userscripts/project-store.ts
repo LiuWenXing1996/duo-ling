@@ -40,7 +40,7 @@ export async function nextScriptName(base = '新建的脚本'): Promise<string> 
  */
 
 // —— match pattern 校验——
-// 导入路径（project-write.importScriptsZip）与启用路径（engine.registerScript）共用：
+// 导入路径（project-write.importScriptsZip）与启用路径（vm-script-manager.vmInstallScript）共用：
 // 非法值在导入 / 启用当场拦下并指明哪条不合法，不拖到注册时才以 Chrome 的英文异常冒出。
 
 /**

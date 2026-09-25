@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UserScriptsAvailability } from './types'
 
 const getUserScriptsStatus = vi.hoisted(() => vi.fn())
-vi.mock('./engine', () => ({ getUserScriptsStatus }))
+vi.mock('./availability', () => ({ getUserScriptsStatus }))
 
 const OFF: UserScriptsAvailability = { available: false, isFirefox: false, chromeMajor: 140, guideText: '' }
 const ON: UserScriptsAvailability = { available: true, isFirefox: false, chromeMajor: 140, guideText: '' }

@@ -1,8 +1,8 @@
 // `@grant` 面的**纯数据单一来源**：grant 名 → 它开启的成员，以及「恒注入、不属于任何 grant」的成员。
 //
-// 三个消费方：注入侧（userscripts/gm-wrapper.ts 按它裁剪注入面）、展示侧（gm-api-catalog.ts 的速查页）、
-// 规范侧（offscreen-chat/spec-text.ts 教 AI 怎么写 @grant 清单）。谁 import gm-wrapper 都会把注入链路
-// （gm-wrapper 与注册链路）拖进产物，故抽成这份零依赖纯数据。
+// 三个消费方：注入侧（VM 接管后由 VM 按它裁剪注入面，原 gm-wrapper 已随 P4 删除）、
+// 展示侧（gm-api-catalog.ts 的速查页）、规范侧（offscreen-chat/spec-text.ts 教 AI 怎么写 @grant 清单）。
+// 本模块保持零依赖纯数据：GM 真身由 VM 注入，避免把注入链路拖进首屏产物。
 //
 // 对齐 TM：一个 grant 同时开全局与 `GM.*` 两种形态（例外见下）；`GM_cookie` 依 TM 口径不进 `GM.*`（故 `ns: []`）；
 // `window.close` / `window.focus` 开的是 window 属性，两种形态都不涉及。

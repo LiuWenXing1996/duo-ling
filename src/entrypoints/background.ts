@@ -32,11 +32,13 @@ import {
   addRuntimeMessageListener,
   sendRuntimeMessage,
 } from '@/lib/userscripts/vm-runtime-host'
+// 可用性检测（与注入引擎无关，VM / 自研引擎共用 chrome.userScripts API）
 import {
   isUserScriptsAvailable,
   getUserScriptsStatus,
-  refreshNetRecorder,
-} from '@/lib/userscripts/engine'
+} from '@/lib/userscripts/availability'
+// 网络录制件同步（dl-recorder：MAIN 捕获 + USER_SCRIPT 转发，独立于脚本引擎）
+import { refreshNetRecorder } from '@/lib/userscripts/net-recorder-sync'
 // P4：脚本安装 / 卸载 / 对账改走 VM 运行时
 import {
   vmInstallScript,

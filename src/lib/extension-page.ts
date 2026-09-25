@@ -72,7 +72,7 @@ export interface GuideStep {
 
 /**
  * 「开启运行用户脚本」的分步指引。
- * 判据与 `engine.getUserScriptsStatus` 的 guideText 一致（Firefox / Chrome ≥138 / Chrome <138 三支），
+ * 判据与 `getUserScriptsStatus`（availability.ts）的 guideText 一致（Firefox / Chrome ≥138 / Chrome <138 三支），
  * 但那里是一句话、这里给结构化步骤供引导页逐条渲染。
  */
 export function userScriptsGuideSteps(browser: { isFirefox: boolean; chromeMajor: number }): GuideStep[] {
