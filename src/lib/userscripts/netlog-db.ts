@@ -5,7 +5,7 @@
 // 脚本观测数据（duoling-runtime）的信任级与演进节奏都不同，混库会让
 // 「清某 host 的录制」变成跨表手术。
 //
-// 单写方：写 API 只许 SW 调用（写入口是 dl-bridge 的 __dlNetCapture 分支）；
+// 单写方：写 API 只许 SW 调用（写入口是 net-capture-receiver 的 __dlNetCapture 分支）；
 // 本模块不感知 chrome API，node 单测用 fake-indexeddb/auto 直测。
 //
 // 环形：每 host 保留最近 NET_HOST_RING_LIMIT 条，超出删最旧——隐私（少留）与

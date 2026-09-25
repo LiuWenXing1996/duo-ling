@@ -10,7 +10,7 @@
 //       notifyMap  Map<notificationId, uuid>          通知点击归属（内存，SW 重启窗口内点击丢失——已拍板接受）
 //   · 三个事件来源：contextMenus.onClicked / GM 值存储 写出口（store.ts 的 onGmValueChange，
 //     原为 storage.onChanged，GM 值存储 迁 duoling-usdata 后改为直发）/ notifications.onClicked。
-//   · 控制面（注册 / 注销 / 订阅）走 sendMessage 请求-响应（dl-bridge dispatch 调本文件导出的
+//   · 控制面（注册 / 注销 / 订阅）走 sendMessage 请求-响应（事件底座函数现由 VM adapter 在 Phase D 调用；
 //     函数），Port 只承载下行推送帧 —— 控制面/数据面分离。
 //
 // 幂等（拍板修正）：contextMenus 注册持久于浏览器会话，SW 重启后脚本重放 menu.register 会撞
@@ -203,7 +203,7 @@ export function pushEvent(registry: DlPortRegistry, port: chrome.runtime.Port, e
 
 // —— chrome 接线（SW 侧，只在 defineBackground 回调内调用）——
 
-/** 模块级单例：dl-bridge 的 dispatch（控制面）与事件监听器共用同一张注册表 */
+/** 模块级单例：VM adapter（Phase D）的 dispatch（控制面）与事件监听器共用同一张注册表 */
 let registrySingleton: DlPortRegistry | null = null
 
 /** 取注册表单例（控制面函数与监听器共用；未初始化时惰性创建） */
@@ -212,7 +212,7 @@ export function getDlPortRegistry(): DlPortRegistry {
   return registrySingleton
 }
 
-// —— 控制面（dl-bridge dispatch 调用；ApiRequest 的 menu.* / store.watch / store.unwatch）——
+// —— 控制面（VM adapter 在 Phase D 调用；menu.* / store.watch / store.unwatch）——
 
 /**
  * 登记扩展菜单项（GM_registerMenuCommand 的后台实现）。
@@ -350,7 +350,7 @@ export function mintNotification(uuid: string): string {
 
 /**
  * 挂载 DL Port 全部监听（幂等由 chrome API 语义保证：重复 addListener 会重复触发，
- * 因此只允许在 SW 初始化路径调用一次——与 initDlBridge 同惯例）。
+ * 因此只允许在 SW 初始化路径调用一次——与 initNetCaptureReceiver 同惯例）。
  */
 export function initDlPort(): void {
   // 关键坑：userScripts 世界的 connect() 触发的是**专用事件** runtime.onUserScriptConnect，
@@ -367,7 +367,7 @@ export function initDlPort(): void {
   onScriptConnect.addListener((port) => {
     const parsed = parseDlPortName(port.name)
     if (!parsed) return // 非 DL Port（panel 等各自的监听器处理）
-    // 身份校验：与 dl-bridge 同款 —— sender.userScript 缺省时跳过（沿用旧 GM 桥实测结论）
+    // 身份校验：与脚本消息桥同款 —— sender.userScript 缺省时跳过（沿用旧 GM 桥实测结论）
     const scriptId = (port.sender as { userScript?: { scriptId?: string } } | undefined)?.userScript?.scriptId
     if (scriptId && scriptId !== parsed.uuid) {
       port.disconnect()

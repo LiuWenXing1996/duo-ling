@@ -3,7 +3,7 @@
 // 三个消费方必须逐字节一致，故集中在这里：
 //   · net-recorder.ts（MAIN 世界捕获件）—— 字符串模板，插值 constants；
 //   · net-forwarder.ts（USER_SCRIPT 转发件）—— 字符串模板，插值 TAG；
-//   · netlog-db.ts / dl-bridge.ts（SW 落库 + 入站归一化）—— 直接 import。
+//   · netlog-db.ts / net-capture-receiver.ts（SW 落库 + 入站归一化）—— 直接 import。
 //
 // 与 bridge-protocol.ts 同款：模板源码无法 import，只能靠常量插值保持一致。
 

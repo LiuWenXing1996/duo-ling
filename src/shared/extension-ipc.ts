@@ -437,7 +437,7 @@ export interface FloatCollapseRequest {
 export const FLOAT_COLLAPSE_REQUEST: FloatCollapseRequest = { kind: 'float:collapse' }
 
 // —— 页面脚本监控（对话界面 · 运行时口径）——
-// 信号源：GM 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。
+// 信号源：GM 包装注入即广播 runstart（现由 VM adapter 触发，见 Phase D），运行错误落盘即上报。
 // 浮层认定**自己所属的标签页**（见 lib/owning-tab.ts —— 不跟随 active tab），
 // SW 侧按 tab 登记运行集并经 'duoling:panel' 端口推送。
 

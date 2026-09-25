@@ -152,7 +152,7 @@ export interface FetchInit {
   requestId?: string
   /**
    * 要下载进度帧（`GM_xmlhttpRequest` 的 `onprogress`）。**缺省不推** —— 进度帧有成本，
-   * 只有脚本真给了 onprogress 才走流式读那条路（见 dl-bridge 的 readBodyStreaming）。
+   * 只有脚本真给了 onprogress 才走流式读那条路（自研桥的 readBodyStreaming 已随引擎废弃，流式读改由 VM 负责，见 Phase D）。
    */
   wantProgress?: boolean
   /** 进度帧的推送目标（包装层的 connId）；wantProgress 为真时必填 */
@@ -504,9 +504,10 @@ export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
 
 /**
  * 脚本世界 → 后台 的单向事件（不等待响应，区别于 ApiRequest 的请求-响应）。两种信封：
- *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报：包装的
- *     window.onerror / unhandledrejection 收进错误日志（runtime 库 errors store）；
- *   · `{ __dlRunStart: true, uuid, name, runId }` —— 运行标识广播：包装注入即 mint 一次
+ *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报（自研 GM 包装发出，
+ *     随引擎废弃改由 VM adapter 触发，见 Phase D）：window.onerror / unhandledrejection
+ *     收进错误日志（runtime 库 errors store）；
+ *   · `{ __dlRunStart: true, uuid, name, runId }` —— 运行标识广播（同上，VM adapter 触发，Phase D）：
  *     「一次页面加载 = 一次运行」的 runId。SW 交对话界面页面监控按 tab 登记、并落盘运行统计
  *     （runtime 库 stats store）与运行日志（runlog store，name 快照），补播按 runId 去重。
  *

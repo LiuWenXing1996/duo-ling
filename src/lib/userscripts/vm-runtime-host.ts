@@ -1,8 +1,8 @@
 // VM 运行时的宿主装配（正式接入形态）。
 //
 // 语义：**VM 空库并存** —— VM 的脚本库（chrome.storage 的 scr:/code: 键空间）里没有脚本时，
-// 它的 tester 对任何页面都判「不匹配」→ GetInjected 交出零脚本 → 页面零注入。自研链路
-// （engine/dl-bridge）照旧工作，天然并存、无需开关。将来脚本库迁移时这里不需要变。
+// 它的 tester 对任何页面都判「不匹配」→ GetInjected 交出零脚本 → 页面零注入。
+// 自研链路（engine/dl-bridge）已随 P4 废弃，VM 成为唯一运行时；空库语义不变。
 //
 // 本模块被 background.ts 顶层 import，全部装配在 SW 顶层评估期同步完成（import 顺序先于
 // background 主体）。三段职责：

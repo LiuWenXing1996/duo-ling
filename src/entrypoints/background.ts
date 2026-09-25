@@ -65,7 +65,7 @@ import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/
 // 新版本检查：SW 在浏览器启动 / 安装更新时各查一次，结果落 duoling-app 库供 popup 与设置页读
 import { runUpdateCheck } from '@/lib/update-check'
 // 网页浮层开关的补齐动作已随站点开关一并移除：右键菜单只负责发「调出浮层」请求
-import { initDlBridge } from '@/lib/userscripts/dl-bridge'
+import { initNetCaptureReceiver } from '@/lib/userscripts/net-capture-receiver'
 // DL Port 事件底座：脚本世界 ↔ SW 长连接下行通道 + 三事件源接入
 import { initDlPort } from '@/lib/userscripts/dl-port'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
@@ -569,7 +569,7 @@ const handlers: {
 
 /** 用户脚本管理器启动：挂载 GM 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用项目 */
 async function initUserScripts(): Promise<void> {
-  initDlBridge() // DL 后台桥（独立于 world 配置，只需注册一次）
+  initNetCaptureReceiver() // 网络录制接收（duo-ling 原生抓包，独立于 VM/GM 桥，只挂一次）
   initDlPort() // DL Port 事件底座（菜单点击 / 存储变更 / 通知点击的下行回推，同上只挂一次）
   // chrome.userScripts 仅在已开启「Allow User Scripts」（Chrome ≥138）或全局开发者模式
   // （Chrome <138）/ 已授权 userScripts 权限（Firefox）时存在；否则为 undefined，

@@ -3,9 +3,9 @@
 // 两个面板显示的都是「它所属标签页」的运行集（归属怎么定见 lib/owning-tab.ts，不是 active tab），
 // 必须有一个地方替它们记住「每个 tab 当前文档里跑着哪些脚本」——就是这个按 tab 的运行登记表。
 //
-// 数据流（三个信号源，全部已在 dl-bridge / background 里存在，这里只是多接一根线）：
-//   · runstart 广播（GM 包装注入即发）→ noteRunStart：登记 + 推给所有连着的面板
-//   · 运行错误落盘（__dlEvent 上报）→ notePageError：推给对话界面（错误本体随推送走，
+// 数据流（信号源：页面导航在 background，运行开始/错误改由 VM adapter 触发（Phase D）；这里只做登记与推送）：
+//   · runstart 广播（VM adapter 触发，见 Phase D）→ noteRunStart：登记 + 推给所有连着的面板
+//   · 运行错误落盘（VM adapter 触发，见 Phase D）→ notePageError：推给对话界面（错误本体随推送走，
 //     面板不回查错误日志——落盘记录无 tabId，按 tab 归属只能靠这条实时通道）
 //   · 新文档导航（tabs.onUpdated status=loading）→ resetPageRuns：旧文档销毁，运行集清零
 //

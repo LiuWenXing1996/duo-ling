@@ -42,7 +42,7 @@ export async function listSummaries(projects: ScriptProject[]): Promise<ScriptSu
 
 // —— GM 值存储（原 chrome.storage 键空间 us:gm:<uuid>:<key>，现落 duoling-usdata 库）——
 //
-// 写出口 = 本文件这几个函数（dl-bridge dispatch 是唯一调用方），store.watch 的变更
+// 写出口 = 本文件这几个 GM 值函数；自研 GM 桥废弃后写 API 改由 VM 负责（Phase D），store.watch 的变更
 // 事件也从这里发（原经 storage.onChanged 兜底，IDB 无通知，改为写出口直发）。
 // 语义保持：值未变化的 set、删除不存在的键都不发事件（与 storage.onChanged 行为一致）。
 
@@ -221,8 +221,8 @@ export async function appendUserScriptError(
     next.push({ ...rec, id: rec.id || crypto.randomUUID(), time: rec.time || Date.now() })
     return next
   })
-  // 广播埋在这里而不是各个调用点：错误有 4 个上报入口（background 的注册兜底、
-  // engine 两处、dl-bridge 的脚本消息转发），这里是唯一汇合点。
+  // 广播埋在这里而不是各个调用点：错误上报入口曾分布在 engine / dl-bridge / background，
+  // 随 P4 自研链路废弃已收敛，现仅 background 的注册兜底在此汇合；
   // 崩溃风暴的高频 append 由广播侧的合并窗口（100ms）兜住，前端不会被打爆。
   broadcastDataChange('error', rec.uuid ?? undefined)
   // 运行期错误同步计入该脚本的「最近一次运行」错误数（独立事务，失败不影响错误记录本身）
@@ -284,7 +284,7 @@ export async function findUserScriptError(id: string): Promise<UserScriptErrorLo
 // 补播去重 / 旧运行迟到错误直接返回 null，不写也不广播。
 
 /**
- * 登记一次运行开始（dl-bridge 收到 __dlRunStart 广播时调用，有无 tabId 都记）。
+ * 登记一次运行开始（运行监控改由 VM adapter 触发，见 Phase D；有无 tabId 都记）。
  * 同一 runId 的重复广播（engine 的 load 补救补播）按 lastRunId 去重，是 no-op——
  * 补播若重置 lastRunErrors 会抹掉两次广播之间已上报的错误，故去重必须整体跳过
  * （运行日志条目也随之不重复追加）。
@@ -293,7 +293,7 @@ export function recordRunStart(uuid: string, runId: string, name?: string): Prom
   return runtime
     .mutateStatsAndLog(uuid, (cur, log) => {
       if (cur?.lastRunId === runId) return { stats: null, log: null, recorded: false } // 同一次运行的补播
-      // name 快照由调用方传（dl-bridge 手上有注册表）；没传就留空，UI 回退短 uuid
+      // name 快照由调用方传（VM adapter 在 Phase D 触发时带注册表名）；没传就留空，UI 回退短 uuid
       const logNext: UserScriptRunLogEntry[] = [
         ...log.slice(-(RUN_LOG_MAX - 1)),
         { runId, uuid, name: name ?? '', time: Date.now() },
