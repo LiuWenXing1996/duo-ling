@@ -24,6 +24,7 @@ import {
   initializeDatabase,
   parseScript,
   getScriptsByIdsOrAll,
+  updateScriptInfo,
 } from '../vendor/violentmonkey/src/background/utils/db'
 // 副作用 import：注册命令 + 启动初始化链
 import '../vendor/violentmonkey/src/background/utils/db'
@@ -48,6 +49,13 @@ export async function initGM() {
   await initializeDatabase()
 }
 
-export { commands, parseScript, getScriptsByIdsOrAll }
+export { commands, parseScript, getScriptsByIdsOrAll, updateScriptInfo }
 
-globalThis.__gmRuntime = { dispatch, initGM, commands, parseScript, getScriptsByIdsOrAll }
+globalThis.__gmRuntime = {
+  dispatch,
+  initGM,
+  commands,
+  parseScript,
+  getScriptsByIdsOrAll,
+  updateScriptInfo,
+}

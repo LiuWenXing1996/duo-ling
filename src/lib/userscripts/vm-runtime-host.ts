@@ -104,12 +104,40 @@ type VmRuntimeMod = {
   initGM: () => Promise<void>
   dispatch: (msg: { cmd?: string; url?: string; top?: number }, src: unknown) => Promise<unknown>
   commands: Record<string, unknown>
-  parseScript: (src: { code: string }) => Promise<{ id?: number }>
+  parseScript: (src: {
+    code: string
+    props?: { uuid?: string }
+    config?: { enabled?: number }
+  }) => Promise<{ id?: number }>
+  getScriptsByIdsOrAll: (ids: number[] | null) => Promise<unknown[]> | unknown[]
+  updateScriptInfo: (
+    id: number,
+    data: { config?: { enabled?: number; removed?: number } },
+  ) => Promise<void>
 }
 const vm = (globalThis as unknown as { __gmRuntime?: VmRuntimeMod }).__gmRuntime
 
 // —— ③ 接线（异步初始化，失败只记录不拖垮 SW） ——
-export async function initVmRuntime(): Promise<void> {
+let vmReadyPromise: Promise<void> | undefined
+
+/** 初始化 VM 运行时（幂等：多次调用返回同一 promise；模块加载即触发一次）。 */
+export function initVmRuntime(): Promise<void> {
+  if (!vmReadyPromise) vmReadyPromise = doInitVmRuntime()
+  return vmReadyPromise
+}
+
+/** 装配就绪（importScripts 库 + initGM + 世界配置 + 监听）完成后的就绪信号。 */
+export const vmReady: Promise<void> = initVmRuntime()
+
+/** 取 VM 库模块，确保装配已就绪。 */
+export async function getVm(): Promise<VmRuntimeMod> {
+  await vmReady
+  const vm = (globalThis as unknown as { __gmRuntime?: VmRuntimeMod }).__gmRuntime
+  if (!vm) throw new Error('gm-runtime 库未加载（globalThis.__gmRuntime 不存在）')
+  return vm
+}
+
+async function doInitVmRuntime(): Promise<void> {
   try {
     if (!vm) throw new Error('gm-runtime 库未加载（globalThis.__gmRuntime 不存在）')
     await vm.initGM()
