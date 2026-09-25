@@ -118,6 +118,19 @@ const origSendMessage = runtimeNs.sendMessage.bind(runtimeNs)
     const act = chromeApi.action as unknown as Record<string, unknown>
     if (act.setIcon) act.setIcon = () => Promise.resolve()
   }
+  // ①-2d chrome.i18n.getMessage 垫片：VM 根菜单标题用 i18n('extName')（sw.js 的 ROOT_ID），
+  //     语义 = 扩展名。宿主未 vendored VM 的 _locales，getMessage 任何 key 恒返回空串，VM 的
+  //     `|| name` 兜底会露出字面量 'extName'。这里只拦这一个 key 返回「哆灵」，其余透传——
+  //     不引入 VM 整套 UI 文案。须在 importScripts 前装（VM 的 i18n 调用时才解析
+  //     chrome.i18n.getMessage，改写后恒生效）。
+  const i18nApi = chromeApi.i18n as { getMessage: (name: string, args?: unknown) => string } | undefined
+  if (i18nApi) {
+    const origGetMessage = i18nApi.getMessage.bind(i18nApi)
+    i18nApi.getMessage = ((name: string, args?: unknown) => {
+      if (name === 'extName') return '哆灵'
+      return origGetMessage(name, args)
+    }) as typeof i18nApi.getMessage
+  }
   // ①-3 userScripts 包装：VM 的 registerInjector（browser-scripts-api.js）「无参 unregister
   //     全清 → 重注 VM 注入器（js 指向扩展根 injected*.js）」。宿主下：无参 unregister 限制
   //     到 VM 自己的 id；VM 注入器的文件路径映射到宿主产物位置。

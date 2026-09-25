@@ -15,7 +15,7 @@
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
-import { FLOAT_OPEN_REQUEST, FLOAT_PANEL_OPEN_PORT } from '@/shared/extension-ipc'
+import { FLOAT_PANEL_OPEN_PORT } from '@/shared/extension-ipc'
 import type {
   ModelProfileState,
   NotificationSnapshot,
@@ -824,67 +824,6 @@ function mountProposal2Listeners(): void {
   initPageMonitorPorts()
 }
 
-// —— 浮层的右键菜单入口 ——
-//
-// 对话框的入口全在页面之外：工具栏 popup 里的「对话浮层」按钮，以及这个右键菜单。菜单这条由
-// 浏览器渲染，页面里的东西遮不住它，也不依赖内容脚本已经挂上 UI。
-//
-// id 带 `duoling:` 前缀：与用户脚本的 GM_registerMenuCommand 共用 contextMenus 命名空间，
-// 脚本侧是 `us:<uuid>:<menuId>`（见 dl-port.ts 的 parseMenuitemId —— 它只认那个前缀，本条会被放行）。
-const FLOAT_MENU_ID = 'duoling:open-float'
-
-/** 通知图标（打包资源，即 src/public/notify-icon.png；与用户脚本通知的兜底图标同一个文件） */
-const NOTIFY_ICON = 'notify-icon.png'
-
-/**
- * 注册本扩展自己的菜单项（幂等）。
- *
- * 先摘再建，而不是 create 撞上 duplicate id 就吞掉：那样虽不影响既有项，但菜单文案 / 作用域
- * 改过之后旧项会一直留着 —— 卸载重建才能让改动生效，而本函数在每次 SW 冷启动时都会跑一遍。
- * 首次安装时该 id 不存在，remove 报的 lastError 属正常路径，读一下就消掉。
- */
-function ensureFloatMenuItem(): void {
-  chrome.contextMenus.remove(FLOAT_MENU_ID, () => {
-    void chrome.runtime.lastError
-    chrome.contextMenus.create({
-      id: FLOAT_MENU_ID,
-      title: '打开哆灵对话',
-      contexts: ['page'],
-      // 与 popup 的判据一致：只对普通网页出现（内部页 / 扩展页 / file:// 上浮层挂不了）
-      documentUrlPatterns: ['*://*/*'],
-    })
-  })
-}
-
-/**
- * 在当前标签页把对话浮层调出来（右键菜单用；动作与 popup 那颗按钮同一套）。
- *
- * 与 popup 的差别只有失败反馈的渠道：那里能留在面板里写字，这里没有面板，只能弹一条系统通知
- * —— 菜单点了毫无动静是最糟的结果，用户会以为功能坏了。
- */
-async function openFloatPanelInTab(tab: chrome.tabs.Tab): Promise<void> {
-  const tabId = tab.id
-  if (tabId == null) return
-  try {
-    await chrome.tabs.sendMessage(tabId, FLOAT_OPEN_REQUEST)
-  } catch {
-    await chrome.notifications.create('duoling:float-open-failed', {
-      type: 'basic',
-      iconUrl: NOTIFY_ICON,
-      title: '哆灵',
-      message: '这个页面还没接上哆灵，刷新页面后再试。',
-    })
-  }
-}
-
-function mountFloatMenu(): void {
-  ensureFloatMenuItem()
-  chrome.contextMenus.onClicked.addListener((info, tab) => {
-    if (info.menuItemId !== FLOAT_MENU_ID || !tab) return
-    void openFloatPanelInTab(tab)
-  })
-}
-
 export default defineBackground(() => {
   // 启动自证：console 第一条就是构建信息，「SW 是不是新包」不用再靠猜
   console.log(`[duoling:sw] SW 启动 · 构建 ${__BUILD_INFO__.time} · 分支 ${__BUILD_INFO__.branch}`)
@@ -920,9 +859,6 @@ export default defineBackground(() => {
 
   // VM 运行时（Violentmonkey 库）的宿主装配：模块导入即触发（vmReady 在 vm-runtime-host.ts 顶层
   // 求值），垫片 + importScripts 库加载 + 世界配置 + 监听已在模块加载期完成；VM 空库并存形态下零注入。
-
-  // 浮层的右键菜单入口（与 popup 的按钮同一条路：对话框平时不在页面里）
-  mountFloatMenu()
 
   // offscreen 需「随时可用」：安装 / 更新 / 浏览器启动都立即确保容器在场。
   // Chrome 不会自动启动 offscreen，且 idle 自关未实现，故改为常驻策略（退出条件见 offscreen.ts）。

@@ -44,6 +44,24 @@ if (!fs.existsSync(path.join(vmRoot, 'scripts', 'webpack.conf.js'))) {
   fail('vendor/violentmonkey 不存在 —— 按 README.md 拉取 VM 源码后再构建')
 }
 
+// ★ duo-ling 覆盖 VM 默认（不改 VM 源码仓库，fork 不可控；落在 duo-ling 构建流程里）：
+// VM 把「页面右键菜单命令」(pageMenuCommands) 默认关，但 duo-ling 定位跑用户脚本、要对齐
+// Tampermonkey/Greasemonkey「注册即显示」，故在打包前强制为 true。vendor 重新拉取也会自动重施加，
+// 无需手动维护。若 VM 升级改了 key 名 / 默认值写法，下面会 loudly 失败，避免静默带「默认关」发布。
+{
+  const defaultsFile = path.join(vmRoot, 'src/common/options-defaults.js')
+  if (fs.existsSync(defaultsFile)) {
+    const KEY = '[kPageMenuCommands]:'
+    let src = fs.readFileSync(defaultsFile, 'utf8')
+    if (src.includes(`${KEY} false`)) {
+      fs.writeFileSync(defaultsFile, src.replace(`${KEY} false`, `${KEY} true`))
+      console.error('[gm-runtime] 覆盖 VM 默认：pageMenuCommands → true（duo-ling 行为对齐 TM/GM）')
+    } else if (!src.includes(`${KEY} true`)) {
+      fail(`options-defaults.js 未找到预期的 ${KEY} 默认值 —— VM 可能升级改了写法，请复查右键菜单默认开关`)
+    }
+  }
+}
+
 const libEntryFile = source === 'lib' ? path.join(pkgRoot, 'entry', `${entryNames[0]}.js`) : ''
 if (source === 'lib' && !fs.existsSync(libEntryFile)) fail(`没有这个 entry：entry/${entryNames[0]}.js`)
 
