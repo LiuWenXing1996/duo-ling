@@ -19,6 +19,8 @@
 // （源码库 duoling-fs 的 fs:* 命令面）与 offscreen-state-commands.ts（注册态库的写侧）。
 // 一旦 import store.ts / fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报
 // chrome.storage is undefined —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
+// 例外：VM 运行时 offscreen 包（gm-runtime/offscreen.js）以运行时 <script> 注入而非 import —— 它是经典
+// IIFE、不引任何 SW 模块，绕开「chrome.storage is undefined」约束，仅为 XHR/download 后端挂端口监听。
 //
 // 生命周期：每扩展同时只能有一份；不主动关就一直活着，但**关窗口 / 扩展重载 / 浏览器崩溃
 // 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（→ offscreen-chat/task-store.ts）。
@@ -30,6 +32,19 @@ import '@/polyfills'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { handleFsCommand, type FsRequest } from '@/lib/userscripts/offscreen-fs-commands'
 import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
+
+// —— VM 运行时 offscreen 包（GM_xmlhttpRequest / GM.download 的后端）——
+// 复用本 offscreen 文档：包内 VM 代码加载即注册 navigator.serviceWorker.onmessage（收 SW→offscreen 的
+// XHRStart / LeaseBlob 命令）+ chrome.runtime.onConnect 监听（与 SW 的 callOffscreen 端口对上）。
+// 不能用静态 `import '@/public/...'`（public 下的文件不进 Vite 模块图，不会参与打包），故运行时以
+// <script> 注入 —— 与 SW 侧 importScripts 同构。包本身是 VM 自带的经典 IIFE（非 ESM），加载即执行副作用。
+void (() => {
+  const url = chrome.runtime.getURL('gm-runtime/offscreen.js')
+  const s = document.createElement('script')
+  s.src = url
+  s.async = false
+  document.head.appendChild(s)
+})()
 // 读侧项目列表（IndexedDB 同源直读，project-store 明确标注 offscreen 可用）：
 // 心跳的条件门——没有启用脚本就不 ping SW（上游 #45 保活心跳；不引 handleBuildCommand——
 // ai:build 命令面已被统一保存语义删除，见 project-write.saveSource）

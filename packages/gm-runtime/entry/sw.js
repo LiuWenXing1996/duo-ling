@@ -20,6 +20,7 @@
 //   · offscreen 命令名的字符串直调（__.MV3 func==='string' 分支，callOffscreen 场景）
 
 import { commands, init } from '../vendor/violentmonkey/src/background/utils/init'
+import { onClientMessage } from '../vendor/violentmonkey/src/common/messaging-sw'
 import {
   initializeDatabase,
   parseScript,
@@ -31,6 +32,21 @@ import '../vendor/violentmonkey/src/background/utils/db'
 import '../vendor/violentmonkey/src/background/utils/preinject'
 import '../vendor/violentmonkey/src/background/utils/storage-fetch'
 import '../vendor/violentmonkey/src/background/utils/tab-redirector'
+// 补全 VM 官方背景装配（index.js/sw.js 注册的命令模块），否则下文命令从未注册、
+// 注入侧 GM_* 包装发命令回包 undefined —— 表现为 XHR/cookie/通知/存储值变更/tab/菜单/下载/剪贴板 整批失败。
+// requests.js 现接入：MV3 下 HttpRequest / GM.download 走 offscreen+DNR；offscreen 文档复用 duo-ling 常驻的
+// offscreen.html（vendor 的 callOffscreen 把 URL 改成 offscreen.html、VM 包在 offscreen-main.ts 运行时注入），
+// DNR 仅靠 VM 自带 dnr.js（duo-ling 自研 DNR 运行时注册已随 P4 移除，无冲突）。
+import '../vendor/violentmonkey/src/background/utils/cookies'
+import '../vendor/violentmonkey/src/background/utils/requests'
+import '../vendor/violentmonkey/src/background/utils/notifications'
+import '../vendor/violentmonkey/src/background/utils/script'
+import '../vendor/violentmonkey/src/background/utils/values'
+import '../vendor/violentmonkey/src/background/utils/tabs'
+import '../vendor/violentmonkey/src/background/utils/page-menu-commands'
+import '../vendor/violentmonkey/src/background/utils/popup-tracker'
+import '../vendor/violentmonkey/src/background/utils/offscreen'
+import '../vendor/violentmonkey/src/background/utils/download-via-api'
 
 export async function dispatch(msg, src) {
   if (init) return init.then(() => dispatch(msg, src))
@@ -58,4 +74,5 @@ globalThis.__gmRuntime = {
   parseScript,
   getScriptsByIdsOrAll,
   updateScriptInfo,
+  onClientMessage,
 }

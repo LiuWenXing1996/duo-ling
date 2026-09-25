@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const dist = join(root, 'packages/gm-runtime/dist')
 const dest = join(root, 'src/public/gm-runtime')
-const files = ['sw/sw.js', 'injected/injected.js', 'injected-web/injected-web.js']
+const files = ['sw/sw.js', 'injected/injected.js', 'injected-web/injected-web.js', 'offscreen/offscreen.js']
 
 mkdirSync(dest, { recursive: true })
 for (const rel of files) {

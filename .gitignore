@@ -29,3 +29,5 @@ blob-report
 
 # gm-runtime 产物（由 packages/gm-runtime 构建，不入库）
 src/public/gm-runtime/
+# 护栏：根 public/ 非 WXT publicDir，陈旧游离副本不得入库
+public/gm-runtime/

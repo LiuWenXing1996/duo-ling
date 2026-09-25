@@ -20,14 +20,14 @@
 //   ③ 接线 —— onUserScriptMessage 只对 VM 命令表里存在的 cmd 应答（`commands[cmd]` 检查），
 //      其余消息返回 undefined 把响应权让给自研链路的 listener。GetInjected 的数据投递走
 //      `userScripts.register`（对齐 VM 官方 registerScriptDataMV3：用 register 把数据脚本注入
-//      VM 世界）—— onUserScriptMessage 的 sendResponse 在异步延迟后会失效（README 条目 14），
-//      messaging 回传只当陪跑；execute 的 world 只吃枚举、自定义世界对象本机 Chrome 拒收。
+//      默认 USER_SCRIPT 世界，与 VM 注入器同世界，injected-web.js 的 window['Violentmonkey']
+//      全局即可收到）—— 默认世界下 onUserScriptMessage 的异步 sendResponse 可靠（自定义世界里
+//      流式下行 XHR·cookie·值变更事件会失效，见 README 条目 14），故切回默认世界即修好下行。
 
 import { emitRunsFromGetInjected } from './vm-adapter'
 
 const VM_ID = '1001'
 const VM_IDS = ['1000', '1001']
-const VM_WORLD = 'vm'
 const VM_CSP =
   "script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline' data: blob:"
 
@@ -129,8 +129,30 @@ type VmRuntimeMod = {
     id: number,
     data: { config?: { enabled?: number; removed?: number } },
   ) => Promise<void>
+  onClientMessage?: (
+    handler: (msg: { cmd?: string; url?: string; top?: number }, src: unknown) => unknown,
+    evt: MessageEvent,
+  ) => void
 }
 const vm = (globalThis as unknown as { __gmRuntime?: VmRuntimeMod }).__gmRuntime
+
+// —— ③-b offscreen 回程桥 ——
+// VM 的 offscreen 包（offscreen-main.ts 运行时注入）经 navigator.serviceWorker.onmessage 收 SW→offscreen 的
+// XHRStart / LeaseBlob 命令；而 offscreen→SW 的 XHRNotify 走 swController.postMessage → 本 SW 的 self.onmessage
+// （与 onUserScriptMessage 不同通道）。VM 官方 background/sw.js 用 `global.onmessage = onClientMessage.bind(
+// null, handleCommandMessage)` 收这个；我们的装配不 import 官方 sw.js，故在此把消息路由到 vm.dispatch。
+// 必须用 importScripts 进来的同一份 onClientMessage（vm.onClientMessage），不能在此另 import messaging-sw
+// 打一份 —— 否则 pending 表分属两个实例、offscreen↔SW 的 XHRNotify 响应对不上。
+if (vm?.onClientMessage) {
+  ;(globalThis as unknown as {
+    addEventListener: (type: string, handler: (e: MessageEvent) => void) => void
+  }).addEventListener('message', (e: MessageEvent) => {
+    vm!.onClientMessage!(
+      (msg: { cmd?: string; url?: string; top?: number }, src: unknown) => vm!.dispatch(msg, src),
+      e,
+    )
+  })
+}
 
 // —— ③ 接线（异步初始化，失败只记录不拖垮 SW） ——
 let vmReadyPromise: Promise<void> | undefined
@@ -189,10 +211,12 @@ async function doInitVmRuntime(): Promise<void> {
   try {
     if (!vm) throw new Error('gm-runtime 库未加载（globalThis.__gmRuntime 不存在）')
     await vm.initGM()
-    // ★ VM 用**独立世界**（worldId: 'vm'）：自研引擎启动时会 configureWorld 默认世界（刻意
-    // 不带 csp —— 不放开 eval，见 engine.ts 文件头），会把世界的 csp 覆盖回默认严 CSP；
-    // VM 注入件需要 csp 放行它往页面注的内联 script（vault + 内核）。独立世界互不覆盖。
-    await chrome.userScripts.configureWorld({ messaging: true, csp: VM_CSP, worldId: VM_WORLD })
+    // ★ VM 用**默认 USER_SCRIPT 世界**（对齐 VM 官方 registerInjector：configureWorld / 注入器
+    // 都不带 worldId）。自研引擎曾 configureWorld 默认世界且不带 csp（覆盖回严 CSP），故当初给 VM
+    // 单开自定义 worldId:'vm' 规避冲突；自研引擎已随 P4 删除，默认世界回归空闲，走 VM 官方默认世界
+    // 即同时修好「自定义世界里 web↔content 桥 / 流式下行（XHR·cookie·值变更事件）不可靠」的问题
+    // （README 条目 14 的异步 sendResponse 在自定义世界失效）。
+    await chrome.userScripts.configureWorld({ messaging: true, csp: VM_CSP })
     // VM 注入器（registerInjector 的宿主形态）：垫片把 injected*.js 映射到 gm-runtime/。
     // 注册持久化；unregister-then-register 保证幂等。
     await chrome.userScripts.unregister({ ids: [VM_ID] }).catch(() => {})
@@ -202,7 +226,6 @@ async function doInitVmRuntime(): Promise<void> {
         runAt: 'document_start',
         allFrames: true,
         matches: ['<all_urls>'],
-        worldId: VM_WORLD,
         js: [{ file: 'injected-web.js' }, { file: 'injected.js' }],
       },
     ] as never)
@@ -229,7 +252,10 @@ async function doInitVmRuntime(): Promise<void> {
       if (!cmd || !(cmd in vm!.commands)) return undefined
       void bump('__vmCmdLog', cmd)
       const senderTabId = (sender as { tab?: { id?: number } } | undefined)?.tab?.id
-      const p = vm!.dispatch(msg as { cmd?: string }, sender)
+      const p = vm!.dispatch(msg as { cmd?: string }, sender).catch((e: unknown) => {
+        void bump('__vmCmdErr', cmd, String((e as Error)?.message || e))
+        throw e
+      })
       if (!(p instanceof Promise)) return undefined
       // execute 数据通道（fire-and-forget）：onUserScriptMessage 的 sendResponse 在异步延迟后
       // 会失效（README 条目 14），GetInjected 的数据以 execute 喂等待器为准（VM 官方
@@ -240,10 +266,8 @@ async function doInitVmRuntime(): Promise<void> {
             // ★ 运行日志（Phase D）：VM 的注入决策 = 该文档将跑哪些脚本，驱动 page-monitor 登记
             const plain = JSON.parse(JSON.stringify(res ?? null)) as unknown
             emitRunsFromGetInjected(senderTabId, plain)
-            // 数据投递对齐 VM 的 registerScriptDataMV3：用 register 把数据脚本注入 VM 世界。
-            // execute 的 world 只吃枚举、不吃自定义世界对象（本机 Chrome 153 直接拒）；且 duo-ling
-            // 把注入器强制塞进 worldId:'vm'，数据脚本不带 worldId 会落到 USER_SCRIPT 世界、与
-            // injected.js 不同窗口 —— 故必须显式 worldId: VM_WORLD。
+            // 数据投递对齐 VM 的 registerScriptDataMV3：用 register 把数据脚本注入默认 USER_SCRIPT
+            // 世界（与 VM 注入器同世界），injected-web.js 设的 window['Violentmonkey'] 全局即可收到。
             const tab = await chrome.tabs.get(senderTabId).catch(() => undefined)
             const url = tab?.url?.split('#')[0]
             if (!url) {
@@ -258,7 +282,6 @@ async function doInitVmRuntime(): Promise<void> {
                 js: [{ code: `window['Violentmonkey'](${JSON.stringify(plain)})` }],
                 matches: [url.replace(/\*/g, '\\$&')],
                 runAt: 'document_start',
-                worldId: VM_WORLD,
               }])
               void bump('__vmCmdErr', 'register', 'OK len=' + JSON.stringify(plain).length)
             } catch (e) {
@@ -269,10 +292,12 @@ async function doInitVmRuntime(): Promise<void> {
             void bump('__vmCmdErr', 'register', String((e as Error)?.message || e))
           })
       }
-      // ★ 响应只 return Promise：VM 库加载后改写了 addListener（browser.js 的
-      // onMessageListener 包装），它会对 Promise 做 sendResponseAsync。若这里自己
-      // sendResponse 再 return true，包装层会再 sendResponse(wrapResponse(true)) 把
-      // 正确数据覆盖成 true —— 实测 content 层拿到的 data === true，脚本静默不跑。
+      // ★ 信封由 common/browser.js 的 onMessageListener 统一处理（见 sw.js 行 266-297）：
+      // 监听器返回 Promise → sendResponseAsync(p) → sendResponse(wrapResponse(await p))，
+      // 即把结果包成元组 [result, error]。VM 内容侧 unwrapResponse 取 response[0]。
+      // 所以这里**必须裸 return p**，绝不能自己再包一层元组——否则会变成 [[r,null],null]，
+      // GetInjected 等内容处理器（期望裸数据 r）会拿到数组而注入失败。
+      // onUserScriptMessage 支持异步响应：返回 Promise 即把 resolve 值作为消息回包。
       return p as unknown as boolean
       },
     )

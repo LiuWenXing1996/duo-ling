@@ -8,7 +8,7 @@
     "build": "node build/webpack.lib.cjs",
     "build:match": "node build/webpack.lib.cjs --entry=match",
     "build:injectors": "node build/webpack.lib.cjs --source=vm --entry=injected,injected-web",
-    "build:runtime": "node build/webpack.lib.cjs --entry=sw && node build/webpack.lib.cjs --source=vm --entry=injected,injected-web"
+    "build:runtime": "node build/webpack.lib.cjs --entry=sw && node build/webpack.lib.cjs --source=vm --entry=injected,injected-web && node build/webpack.lib.cjs --source=vm --entry=offscreen"
   },
   "dependencies": {
     "tldts": "^7.4.10"
