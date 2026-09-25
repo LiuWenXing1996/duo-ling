@@ -19,8 +19,9 @@
 //
 //   ③ 接线 —— onUserScriptMessage 只对 VM 命令表里存在的 cmd 应答（`commands[cmd]` 检查），
 //      其余消息返回 undefined 把响应权让给自研链路的 listener。GetInjected 的数据投递走
-//      `userScripts.execute`（VM 官方 registerScriptDataMV3 同语义）—— onUserScriptMessage
-//      的 sendResponse 在异步延迟后会失效（README 条目 14），messaging 回传只当陪跑。
+//      `userScripts.register`（对齐 VM 官方 registerScriptDataMV3：用 register 把数据脚本注入
+//      VM 世界）—— onUserScriptMessage 的 sendResponse 在异步延迟后会失效（README 条目 14），
+//      messaging 回传只当陪跑；execute 的 world 只吃枚举、自定义世界对象本机 Chrome 拒收。
 
 import { emitRunsFromGetInjected } from './vm-adapter'
 
@@ -235,22 +236,37 @@ async function doInitVmRuntime(): Promise<void> {
       // registerScriptDataMV3 同语义）。
       if (cmd === 'GetInjected' && senderTabId != null) {
         void p
-          .then((res) => {
+          .then(async (res) => {
             // ★ 运行日志（Phase D）：VM 的注入决策 = 该文档将跑哪些脚本，驱动 page-monitor 登记
             const plain = JSON.parse(JSON.stringify(res ?? null)) as unknown
             emitRunsFromGetInjected(senderTabId, plain)
-            return chrome.userScripts.execute({
-              js: [{ code: `window['Violentmonkey'](${JSON.stringify(plain)})` }],
-              target: { tabId: senderTabId },
-              // world 对象式（自定义世界）是 Chrome 138+ 能力，本机类型声明未跟上；运行时已验证
-              world: { id: VM_WORLD } as never,
-            }).then(() => {
-              void bump('__vmCmdErr', 'execute', 'OK len=' + JSON.stringify(plain).length)
-            })
+            // 数据投递对齐 VM 的 registerScriptDataMV3：用 register 把数据脚本注入 VM 世界。
+            // execute 的 world 只吃枚举、不吃自定义世界对象（本机 Chrome 153 直接拒）；且 duo-ling
+            // 把注入器强制塞进 worldId:'vm'，数据脚本不带 worldId 会落到 USER_SCRIPT 世界、与
+            // injected.js 不同窗口 —— 故必须显式 worldId: VM_WORLD。
+            const tab = await chrome.tabs.get(senderTabId).catch(() => undefined)
+            const url = tab?.url?.split('#')[0]
+            if (!url) {
+              void bump('__vmCmdErr', 'register', `no-url tabId=${senderTabId}`)
+              return
+            }
+            const injId = `vm-getinjected-${senderTabId}`
+            try {
+              await chrome.userScripts.unregister({ ids: [injId] }).catch(() => {})
+              await chrome.userScripts.register([{
+                id: injId,
+                js: [{ code: `window['Violentmonkey'](${JSON.stringify(plain)})` }],
+                matches: [url.replace(/\*/g, '\\$&')],
+                runAt: 'document_start',
+                worldId: VM_WORLD,
+              }])
+              void bump('__vmCmdErr', 'register', 'OK len=' + JSON.stringify(plain).length)
+            } catch (e) {
+              void bump('__vmCmdErr', 'register', String((e as Error)?.message || e))
+            }
           })
           .catch((e: unknown) => {
-            // execute 失败 = 数据通道断了（content 层等待器收不到）—— 必须可见
-            void bump('__vmCmdErr', 'execute', String((e as Error)?.message || e))
+            void bump('__vmCmdErr', 'register', String((e as Error)?.message || e))
           })
       }
       // ★ 响应只 return Promise：VM 库加载后改写了 addListener（browser.js 的
