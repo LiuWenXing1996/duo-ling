@@ -28,6 +28,18 @@ const VM_WORLD = 'vm'
 const VM_CSP =
   "script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline' data: blob:"
 
+// ①-0 捕获原始 runtime.onMessage / runtime.sendMessage：VM 库（common/browser.js）在 importScripts 时
+// 改写这两项 —— onMessage.addListener 被包成「不传 sendResponse、改由包装层 wrapResponse 包成元组信封
+// [result, error]」的版本（README 条目 10 的同源劫持）；sendMessage 被包成「给 2 参回调形式追加第三
+// 个 cb（message, cb, cb）→ Chrome 判 options 为函数报 No matching signature；且 unwrapResponse 把
+// 我们的 {ok,data} 信封当成 VM 元组只取 response[0]=true，破坏信封」。两项都在改写前捕获原始版本，
+// 供 background.ts 注册未被包装的监听器 / 发送未被包装的消息，恢复原生契约。
+const runtimeNs = (globalThis as unknown as { chrome: typeof chrome }).chrome.runtime
+const runtimeOnMessage = runtimeNs.onMessage
+const origOnMessageAdd = runtimeOnMessage.addListener.bind(runtimeOnMessage)
+const origOnMessageRemove = runtimeOnMessage.removeListener.bind(runtimeOnMessage)
+const origSendMessage = runtimeNs.sendMessage.bind(runtimeNs)
+
 // —— ① 垫片（必须先于库加载） ——
 {
   const w = globalThis as unknown as { chrome?: never } & Record<string, unknown>
@@ -135,6 +147,39 @@ export async function getVm(): Promise<VmRuntimeMod> {
   const vm = (globalThis as unknown as { __gmRuntime?: VmRuntimeMod }).__gmRuntime
   if (!vm) throw new Error('gm-runtime 库未加载（globalThis.__gmRuntime 不存在）')
   return vm
+}
+
+/**
+ * 注册「未被 VM 包装」的 runtime.onMessage 监听器。
+ *
+ * VM 库（common/browser.js）在 importScripts 时改写 chrome.runtime.onMessage.addListener，包装后的
+ * onMessageListener 不向 listener 传 sendResponse，而是把返回值 wrapResponse 成元组信封 [result, error]，
+ * 会劫持 duo-ling 自己的 userscript:* 应答。用改写前捕获的原始 addListener 注册，恢复原生
+ * return true + 异步 sendResponse 的 {ok,data} 契约。VM 在本 bundle 里并未在 runtime.onMessage 上
+ * 注册 listener（不 import background/index.js），故 SW 侧该通道只有我们这一条，无冲突。
+ */
+export function addRuntimeMessageListener(
+  listener: (msg: unknown, sender: chrome.runtime.MessageSender, sendResponse: (r?: unknown) => void) => void,
+): void {
+  origOnMessageAdd(listener as never)
+}
+
+/** 对应原始 removeListener（对称提供，便于测试或动态注销）。 */
+export function removeRuntimeMessageListener(
+  listener: (msg: unknown, sender: chrome.runtime.MessageSender, sendResponse: (r?: unknown) => void) => void,
+): void {
+  origOnMessageRemove(listener as never)
+}
+
+/**
+ * 用「改写前捕获」的原始 chrome.runtime.sendMessage 发送（SW → offscreen 的命令面转发）。
+ *
+ * VM 库（common/browser.js）在 importScripts 时改写 runtime.sendMessage：给 2 参回调形式追加第三个
+ * cb 导致 Chrome 报 No matching signature；且其 unwrapResponse 把我们的 {ok,data} 当成 VM 元组只取
+ * response[0]=true，破坏信封。绕过包装、直接用原始版本，恢复原生 promise 形态。
+ */
+export function sendRuntimeMessage<T>(request: unknown): Promise<T> {
+  return origSendMessage(request as never) as Promise<T>
 }
 
 async function doInitVmRuntime(): Promise<void> {

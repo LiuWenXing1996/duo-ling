@@ -29,6 +29,8 @@ import type { InjectedBuildInfo } from '@/lib/build-info'
 // 用户脚本管理器：可用性检测 + 引擎类型（仅保留与 VM 无关的可用性查询；安装/卸载/对账见下方 vm-script-manager）
 import {
   vmReady,
+  addRuntimeMessageListener,
+  sendRuntimeMessage,
 } from '@/lib/userscripts/vm-runtime-host'
 import {
   isUserScriptsAvailable,
@@ -39,6 +41,7 @@ import {
 import {
   vmInstallScript,
   vmUninstallScript,
+  vmSetEnabled,
   vmReconcile,
 } from '@/lib/userscripts/vm-script-manager'
 import { collectCspWarnings } from '@/lib/userscripts/csp-check'
@@ -143,25 +146,23 @@ export const SW_KIND_PREFIXES = [
  */
 type SwRequest = Extract<RuntimeRequest, { kind: `${(typeof SW_KIND_PREFIXES)[number]}${string}` }>
 
-/** SW → offscreen 的请求封装：转发 ai:*（git 历史）与 state:*（项目状态库写侧）命令面。统一信封解包。 */
+/**
+ * SW → offscreen 的请求封装：转发 ai:*（git 历史）与 state:*（项目状态库写侧）命令面。统一信封解包。
+ *
+ * 必须用「改写前捕获」的原始 sendMessage（sendRuntimeMessage）—— VM 库（common/browser.js）
+ * 在 importScripts 时重写 runtime.sendMessage：2 参回调形式被追加第三 cb 导致 Chrome 报
+ * No matching signature；且会把 {ok,data} 信封当 VM 元组 [result,error] 只取 response[0]=true 破坏信封。
+ * 原始版本恢复原生 promise 形态（见 vm-runtime-host.ts ①-0）。
+ */
 function sendToOffscreen<T>(request: RuntimeRequest): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    chrome.runtime.sendMessage(request, (response: RuntimeResponse<T> | undefined) => {
-      const lastError = chrome.runtime.lastError
-      if (lastError) {
-        reject(new Error(lastError.message))
-        return
-      }
-      if (!response) {
-        reject(new Error('扩展服务未响应，请重试'))
-        return
-      }
-      if (!response.ok) {
-        reject(new Error(response.error))
-        return
-      }
-      resolve(response.data as T)
-    })
+  return sendRuntimeMessage<RuntimeResponse<T> | undefined>(request).then((response) => {
+    if (!response) {
+      throw new Error('扩展服务未响应，请重试')
+    }
+    if (!response.ok) {
+      throw new Error(response.error)
+    }
+    return response.data as T
   })
 }
 
@@ -310,8 +311,9 @@ const handlers: {
       actor: msg.actor,
     })
     const next = outcome.project
-    await vmUninstallScript(next.uuid).catch(() => {})
-    const registerError = next.enabled ? await registerOrLog(next) : undefined
+    // P4：VM 接管注入。保存即重新安装到 VM（parseScript 按 uri upsert，enabled 跟随 project.enabled）；
+    // 关停态（enabled=false）装进去也是 enabled=0，getScriptsByURL 不会注入——无需先 uninstall。
+    const registerError = await registerOrLog(next)
     return {
       // metadata 解析提示（@include 放宽 / 正则被丢弃 / @match 不合法…）与 CSP 警告同一通道到编辑器，
       // 提示由写侧一处产出（SaveOutcome.notes）——避免 SW 再解析一遍、拿不到当时那个 fallback 而误报
@@ -410,9 +412,10 @@ const handlers: {
       enabled: msg.enabled,
     })
     if (msg.enabled) return { registerError: await registerOrLog(next) }
-    // P4：VM 接管注入，关停 = 标记 removed 让 VM 停止注入（storage 惰性残留无害，无需自研注销）
-    await vmUninstallScript(msg.uuid).catch((e) =>
-      console.warn('[duoling:sw] 关停 VM 卸载失败（下次启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
+    // P4：VM 接管注入。关停 = 改 VM 脚本的 enabled 标志（getScriptsByURL 以 !enabled 拦截注入），
+    // 脚本留在库里、可随时再启；removed 是「删库」语义（见 userscript:remove），不能用于关停。
+    await vmSetEnabled(msg.uuid, false).catch((e) =>
+      console.warn('[duoling:sw] 关停 VM 脚本失败（下次启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
     )
     return {}
   },
@@ -728,10 +731,11 @@ async function abortConversationOfClosedTab(tabId: number): Promise<void> {
   if (!conversationId) return
   if (!runningConversations.has(conversationId)) return // 没在跑就不必惊动 offscreen
   abortedByTabClose.add(conversationId)
-  try {
-    // 命令面归 offscreen（chat: 前缀）：由 SW 发出去，offscreen 收到后中止任务
-    await chrome.runtime.sendMessage({ kind: 'chat:abort', conversationId } satisfies RuntimeRequest)
-  } catch {
+    try {
+      // 命令面归 offscreen（chat: 前缀）：由 SW 发出去，offscreen 收到后中止任务。
+      // 用原始 sendMessage 绕过 VM 对 runtime.sendMessage 的包装（见 sendToOffscreen 说明）
+      await sendRuntimeMessage({ kind: 'chat:abort', conversationId } satisfies RuntimeRequest)
+    } catch {
     abortedByTabClose.delete(conversationId) // 没送到就别留着这个标记
   }
 }
@@ -903,9 +907,10 @@ export default defineBackground(() => {
         })
         .catch((e) => console.error('[duoling:userscript] 可用性翻转对账失败', e))
     }
-    // SW 收不到自己发的消息，广播只到扩展页；无接收方（没开任何页面）属常态，静默
+    // SW 收不到自己发的消息，广播只到扩展页；无接收方（没开任何页面）属常态，静默。
+    // 用原始 sendMessage 绕过 VM 对 runtime.sendMessage 的包装（见 sendToOffscreen 说明）
     const push = { kind: 'userscript:availabilityChanged' as const, availability: current, changedAt: Date.now() }
-    void chrome.runtime.sendMessage(push).catch(() => {})
+    void sendRuntimeMessage(push).catch(() => {})
   })
 
   // 对话界面监控 / 面板端口 / 任务状态 / 深链跳转的监听器
@@ -945,7 +950,10 @@ export default defineBackground(() => {
   // 它落盘成功后自己广播 `model` 域（扩展页回拉）并推送 offscreen:configChanged（offscreen
   // 的 profile-cache 回拉）。SW 这里不再需要 storage.onChanged 兜底。
 
-  chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
+  // 用 VM 改写前的原始 addListener 注册：VM 库（common/browser.js）会包装 onMessage.addListener，
+  // 把应答强制包成元组信封 [result, error]，劫持我们的 userscript:* 应答；用原始版本恢复原生
+  // return true + 异步 sendResponse 的 {ok,data} 契约（见 vm-runtime-host.ts ①-0）。
+  addRuntimeMessageListener((raw, sender, sendResponse) => {
     const msg = raw as RuntimeRequest | undefined
     if (!msg?.kind) return
 
@@ -954,15 +962,15 @@ export default defineBackground(() => {
     const offscreenPush = msg as { kind: string; conversationId?: string }
     if (offscreenPush.kind === 'chat:running' && offscreenPush.conversationId) {
       handleChatRunningPush(offscreenPush.conversationId)
-      return false
+      return
     }
     if (offscreenPush.kind === 'chat:finished' && offscreenPush.conversationId) {
       handleChatFinishedPush(offscreenPush.conversationId)
-      return false
+      return
     }
 
     // 路由：只响应归 SW 管辖的 kind，其余静默让路给 offscreen（见 SW_KIND_PREFIXES）
-    if (!SW_KIND_PREFIXES.some((p) => msg.kind.startsWith(p))) return false
+    if (!SW_KIND_PREFIXES.some((p) => msg.kind.startsWith(p))) return
 
     // 走到这里 msg.kind 必属 SW 管辖（上面按 SW_KIND_PREFIXES 过滤过），故可安全收窄
     const handler = handlers[msg.kind as SwRequest['kind']] as
@@ -970,7 +978,7 @@ export default defineBackground(() => {
       | undefined
     if (!handler) {
       sendResponse({ ok: false, error: `未知消息类型：${msg.kind}` })
-      return false
+      return
     }
 
     handler(msg, sender)

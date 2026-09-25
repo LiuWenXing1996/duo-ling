@@ -58,12 +58,15 @@ function schemeCovers(patternScheme: string, urlScheme: string): boolean {
 
 /** pattern 的 host 是否覆盖 url 的 host（`*.example.com` 含 example.com 本身） */
 function hostCovers(patternHost: string, urlHost: string): boolean {
-  if (patternHost === '*') return true
-  if (patternHost.startsWith('*.')) {
-    const apex = patternHost.slice(2)
+  // 端口不参与 host 段比对：cookie / 站点作用域是 host 级、与端口无关，且 VM 注入要求 host+port
+  // 整段匹配（pattern 可能带端口），这里只比对主机名，避免「匹配了带端口页面却读不到该 host 的 cookie」。
+  const ph = patternHost.split(':')[0]
+  if (ph === '*') return true
+  if (ph.startsWith('*.')) {
+    const apex = ph.slice(2)
     return urlHost === apex || urlHost.endsWith(`.${apex}`)
   }
-  return urlHost === patternHost
+  return urlHost === ph
 }
 
 /**

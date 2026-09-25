@@ -153,7 +153,11 @@ export async function createGeneratedProject(payload: {
 }): Promise<ScriptProject> {
   const name = payload.name.trim()
   if (!name) throw new Error('脚本名称不能为空')
-  if (!payload.config.matches?.length) throw new Error('匹配规则（matches）至少一条')
+  // matches 可来自调用方给定的 config，也可来自源码的 @match 块：先归一化一次再校验，
+  // 避免「config 缺省但源码带了 @match」被误判为无匹配（resolveConfigFromSource 以源码为准）。
+  // config 缺省时交给源码归一化（applyMetadataToConfig 对 fallback 全程 ?? 兜底，不会崩）。
+  const resolvedConfig = resolveConfigFromSource(payload.code, payload.config).config
+  if (!resolvedConfig.matches.length) throw new Error('匹配规则（matches）至少一条')
   if (typeof payload.code !== 'string') throw new Error('脚本源码必须是字符串')
   const ts = Date.now()
   const uuid = crypto.randomUUID()

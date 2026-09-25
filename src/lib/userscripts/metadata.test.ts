@@ -188,8 +188,10 @@ describe('applyMetadataToConfig', () => {
     expectChromeSafe(r.config.excludeMatches!)
   })
 
-  it('带端口 / 非法 host 的 @match 被忽略并说明（校验器的第二个宽松点）', () => {
-    // 记录事实：项目校验器接受带端口的 host，但 match pattern 语法不表达端口，Chrome 会拒
+  it('带端口的 @match 被接受（VM 注入语义要求 host+port 整段匹配，localhost 开发服务器带端口）', () => {
+    // 历史：Chrome 原生 userScripts.register 不支持端口，项目校验器曾把带端口的 host 当非法忽略。
+    // 现在 VM 是注入运行时，其 @match 语义要求 host+port 整段参与匹配，故放开端口、只校验主机名，
+    // 端口随原始 pattern 原样交给 VM。
     expect(isValidMatchPattern('https://example.com:8443/*')).toBe(true)
     expect(parseMatchPattern('https://example.com:8443/*')?.host).toBe('example.com:8443')
 
@@ -197,8 +199,8 @@ describe('applyMetadataToConfig', () => {
       mk({ matches: ['https://example.com:8443/*', 'https://ok.example.com/*'] }),
       defaultConfig([]),
     )
-    expect(r.config.matches).toEqual(['https://ok.example.com/*'])
-    expect(r.notes.join('\n')).toContain('@match 不合法')
+    expect(r.config.matches).toEqual(['https://example.com:8443/*', 'https://ok.example.com/*'])
+    expect(r.notes.join('\n')).not.toContain('@match 不合法')
   })
 
   it('未声明匹配规则时沿用 fallback（导入路径 fallback 为空 → 落「不匹配任何页面」）', () => {

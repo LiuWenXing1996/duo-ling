@@ -33,12 +33,14 @@ async function findVmIdByUuid(uuid: string): Promise<number | undefined> {
   return all.find((s) => s.props?.uuid === uuid)?.props?.id
 }
 
-/** 卸载（删除脚本）：标记 removed=1，VM 不再注入。存储残留无害（不碰 removeScripts 的脆弱路径）。 */
+/** 卸载（删除脚本）：标记 removed=1 且 enabled=0 让 VM 停止注入。
+ * 关键：VM 的 getScriptsByURL 只以 config.enabled 拦截注入（不读 removed），故「停止注入」必须
+ * 同时把 enabled 置 0；仅置 removed=1 不会让脚本停跑（脚本仍留在 aliveScripts，enabled 仍为 1）。 */
 export async function vmUninstallScript(uuid: string): Promise<void> {
   const id = await findVmIdByUuid(uuid)
   if (id == null) return
   const vm = await getVm()
-  await vm.updateScriptInfo(id, { config: { removed: 1 } })
+  await vm.updateScriptInfo(id, { config: { removed: 1, enabled: 0 } })
 }
 
 /** 启停（toggle）：标记 enabled。 */
@@ -64,8 +66,10 @@ export async function vmReconcile(projects: ScriptProject[]): Promise<void> {
   for (const s of all) {
     const u = s.props?.uuid
     if (u && !activeUuids.has(u)) {
+      // 孤儿脚本：停止注入（enabled=0，getScriptsByURL 据此拦截）+ 标记 removed（移出活跃视图）。
+      // 仅置 removed=1 不够——VM 注入只认 enabled 标志。
       await vm
-        .updateScriptInfo(s.props!.id!, { config: { removed: 1 } })
+        .updateScriptInfo(s.props!.id!, { config: { removed: 1, enabled: 0 } })
         .catch(() => {})
     }
   }
