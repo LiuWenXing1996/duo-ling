@@ -7,11 +7,17 @@
 // 本模块被 background.ts 顶层 import，全部装配在 SW 顶层评估期同步完成（import 顺序先于
 // background 主体）。三段职责：
 //
-//   ① 垫片 —— 满足 VM 库对宿主环境的三处假设（不改 VM 源码，见 packages/gm-runtime/README.md
-//      条目 13）：getManifest 补 VM 初始化期读取的字段；webNavigation stub（VM icon.js 顶层
-//      挂 onCommitted 做 badge，宿主没有 webNavigation 权限）；userScripts.unregister/register
-//      包装（VM 的 registerInjector 会无参注销全部注入件，限制到它自己的 id 并把它的注入器
-//      文件路径映射到宿主产物位置）。
+//   ① 垫片 —— 满足 VM 库对宿主环境的能力假设（不改 VM 源码，见 packages/gm-runtime/README.md
+//      条目 13），在 importScripts 前补齐 VM 用到、但宿主裁剪/未声明的能力：
+//        · getManifest 补 VM 初始化期读取的 options_ui/icons/action 字段；
+//        · webNavigation stub（VM icon.js 顶层挂 onCommitted 做 badge，宿主无该权限）；
+//        · alarms stub（VM on-installed 用 chrome.alarms 做自清理/自更新定时任务，宿主不声明
+//          alarms 权限、且定时任务由宿主自管，no-op 消错）；
+//        · chrome.action.setIcon no-op（VM icon.js 用 canvas 画 badge 图标，SW 无 document/canvas
+//          必炸；宿主只用 setBadgeText/BackgroundColor，no-op 不影响宿主）；
+//        · userScripts.unregister 幂等包装（VM registerInjector 无参注销全部 → 限制到 VM 自己的
+//          id 并先过滤真实存在的 id，避免首装空库『Nonexistent script ID』）；register 把 VM 注入器
+//          文件路径映射到宿主产物位置（gm-runtime/）。
 //
 //   ② 库加载 —— `importScripts(gm-runtime/sw.js)`。必须在 SW 顶层评估期同步调用（安装期），
 //      产物文件由 `pnpm --filter @duoling/gm-runtime build:runtime` 产出、经 public/gm-runtime/
@@ -25,6 +31,7 @@
 //      流式下行 XHR·cookie·值变更事件会失效，见 README 条目 14），故切回默认世界即修好下行。
 
 import { emitRunsFromGetInjected } from './vm-adapter'
+import { captureRuntimeRaw } from '../runtime-message'
 
 const VM_ID = '1001'
 const VM_IDS = ['1000', '1001']
@@ -83,16 +90,71 @@ const origSendMessage = runtimeNs.sendMessage.bind(runtimeNs)
       onTabReplaced: noopEvt,
     }
   }
+  // ①-2b alarms stub：VM on-installed.js 在 onInstalled 里用 chrome.alarms 做自清理（kAlarmRemove）
+  //     与自更新（kAlarmUpdate）定时任务（sw.js:7223 的 chrome.alarms.clearAll().then(create...)）。
+  //     宿主不声明 alarms 权限（VM 定时任务在宿主无意义、扩展更新由宿主自管），这里 no-op 消除
+  //     「Cannot read properties of undefined (reading 'clearAll')」。onAlarm 监听器注册后永不
+  //     触发，VM 的自动任务在宿主静默失效（预期行为）。
+  if (!chromeApi.alarms) {
+    const noopAsync = () => Promise.resolve()
+    const alarmEvt = {
+      addListener() {},
+      removeListener() {},
+      hasListener: () => false,
+    }
+    ;(chromeApi as unknown as Record<string, unknown>).alarms = {
+      create() {},
+      clear: noopAsync,
+      clearAll: noopAsync,
+      get: () => Promise.resolve(undefined),
+      getAll: () => Promise.resolve([]),
+      onAlarm: alarmEvt,
+    }
+  }
+  // ①-2c chrome.action.setIcon no-op：VM icon.js 用 canvas 画 badge 图标后 chrome.action.setIcon
+  //     （browser['action']），SW 环境无 document/canvas → imageData 非法 → 报错。宿主只用
+  //     setBadgeText/setBadgeBackgroundColor（不依赖 setIcon），no-op 不影响宿主、消除噪音错误。
+  if (chromeApi.action) {
+    const act = chromeApi.action as unknown as Record<string, unknown>
+    if (act.setIcon) act.setIcon = () => Promise.resolve()
+  }
   // ①-3 userScripts 包装：VM 的 registerInjector（browser-scripts-api.js）「无参 unregister
   //     全清 → 重注 VM 注入器（js 指向扩展根 injected*.js）」。宿主下：无参 unregister 限制
   //     到 VM 自己的 id；VM 注入器的文件路径映射到宿主产物位置。
-  const us = chromeApi.userScripts as unknown as {
-    unregister: (opt?: { ids?: string[] }) => Promise<void>
-    register: (scripts: unknown[]) => Promise<void>
-    configureWorld: (opt: { messaging?: boolean; csp?: string }) => Promise<void>
-  }
+  // Chrome 138+：「允许运行用户脚本」开关关闭时 chrome.userScripts 恒为 undefined（官方行为，
+  //     且重载扩展会重置该开关）。这里必须判空——否则 SW 顶层求值即炸（registration failed 15），
+  //     整个扩展瘫掉。不可用时只告警跳过，装配阶段（doInitVmRuntime）给可操作提示。
+  const us = chromeApi.userScripts as unknown as
+    | {
+        unregister: (opt?: { ids?: string[] }) => Promise<void>
+        register: (scripts: unknown[]) => Promise<void>
+        configureWorld: (opt: { messaging?: boolean; csp?: string }) => Promise<void>
+        getScripts: (opt?: { ids?: string[] }) => Promise<Array<{ id: string }>>
+      }
+    | undefined
+  if (!us) {
+    console.warn(
+      '[vm-runtime-host] chrome.userScripts 不可用（「允许运行用户脚本」开关未开），跳过 userScripts 垫片',
+    )
+  } else {
   const usUnreg = us.unregister.bind(us)
-  us.unregister = ((opt?: { ids?: string[] }) => usUnreg(opt ?? { ids: VM_IDS })) as typeof us.unregister
+  const usGetScripts = us.getScripts.bind(us)
+  // 幂等 unregister：VM registerInjector「无参 unregister 全清」→ 限制到 VM 自己的 id；但首装/空库
+  // 时这些 id 尚未注册，直接 unregister 会抛「Nonexistent script ID '1000'」。先 getScripts 过滤
+  // 真实存在的 id 再 unregister，消除噪音错误（部分存在时全量 unregister 也会整体报错，过滤最稳）。
+  us.unregister = ((async (opt?: { ids?: string[] }) => {
+    const ids = opt?.ids ?? VM_IDS
+    if (!ids.length) return
+    let existing: string[] = []
+    try {
+      existing = (await usGetScripts({ ids })).map((s) => s.id)
+    } catch {
+      // getScripts 失败（极端：userScripts 未就绪）则跳过过滤，原样 unregister 让 Chrome 报错以
+      // 暴露真实问题，而不是静默吞掉。
+    }
+    const toUnreg = ids.filter((id) => existing.includes(id))
+    if (toUnreg.length) await usUnreg({ ids: toUnreg })
+  }) as unknown) as typeof us.unregister
   const usReg = us.register.bind(us)
   us.register = ((scripts: Array<{ id?: string; js?: Array<{ file: string }> }>) =>
     usReg(
@@ -107,7 +169,12 @@ const origSendMessage = runtimeNs.sendMessage.bind(runtimeNs)
           : s,
       ),
     )) as typeof us.register
+  }
 }
+
+// 在 VM 改写 chrome.runtime 之前，先让轻量 holder 捕获原始引用（供 data-broadcast 等三环境通用
+// 模块共享，避免它们直接 import 本文件而连带加载 SW 专属的 VM 内核）。
+captureRuntimeRaw()
 
 // —— ② 库加载（SW 顶层评估期同步 importScripts；产物经 public/gm-runtime/ 进入扩展） ——
 ;(globalThis as unknown as { importScripts: (url: string) => void }).importScripts(
@@ -209,6 +276,13 @@ export function sendRuntimeMessage<T>(request: unknown): Promise<T> {
 
 async function doInitVmRuntime(): Promise<void> {
   try {
+    // Chrome 138+：「允许运行用户脚本」开关关闭时 chrome.userScripts 恒为 undefined（重载扩展会
+    // 重置该开关）。在此显式拦截，给出可操作提示而非裸 TypeError（reading 'configureWorld'）。
+    if (!chrome.userScripts) {
+      throw new Error(
+        'chrome.userScripts 不可用：请在 chrome://extensions → 本扩展「详情」页开启「允许运行用户脚本」开关，然后重载扩展',
+      )
+    }
     if (!vm) throw new Error('gm-runtime 库未加载（globalThis.__gmRuntime 不存在）')
     await vm.initGM()
     // ★ VM 用**默认 USER_SCRIPT 世界**（对齐 VM 官方 registerInjector：configureWorld / 注入器

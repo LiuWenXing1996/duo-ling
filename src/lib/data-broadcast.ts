@@ -20,6 +20,11 @@
 // 所以 SW / offscreen / 扩展页三处都能用（与 project-store.ts 同一个道理）。
 
 import type { BuildPhase, DataChangedPush, DataDomain } from '@/shared/extension-ipc'
+// 降级通道（无 BroadcastChannel 时）走「VM 改写前捕获」的原始 sendMessage。
+// 不能裸用 chrome.runtime.sendMessage：VM 内核 importScripts 时会改写它（2 参回调形式报
+// No matching signature），SW 侧裸发会被破信封/签名错吞掉。data-broadcast 是三环境通用模块，
+// 引此轻量 holder（不加载 VM 内核）而非 vm-runtime-host，避免把 SW 专属内核带进 offscreen/扩展页。
+import { rawSendRuntimeMessage } from './runtime-message'
 
 /** 频道名（同一扩展内唯一即可；跨扩展不会串，因为 origin 含扩展 id） */
 const CHANNEL_NAME = 'duoling:data'
@@ -57,9 +62,10 @@ function emit(push: DataChangedPush): void {
     channel.postMessage(push)
     return
   }
-  // 降级：sendMessage 无人接收时会产生 lastError，静默吞掉
+  // 降级：sendMessage 无人接收时会产生 lastError，静默吞掉。
+  // 走原始（VM 改写前捕获）通道，避开 VM 对 chrome.runtime.sendMessage 的包装。
   try {
-    void chrome.runtime.sendMessage(push).catch(() => {})
+    void rawSendRuntimeMessage(push).catch(() => {})
   } catch {
     // chrome.runtime 不在（如纯 Node 测试环境）：广播本就是尽力而为，不影响主链路
   }

@@ -114,6 +114,9 @@ importers:
       '@vue/test-utils':
         specifier: ^2.5.0
         version: 2.5.1(@vue/compiler-dom@3.5.43)(@vue/server-renderer@3.5.42)(vue@3.5.42(typescript@5.9.3))
+      buffer:
+        specifier: ^6.0.3
+        version: 6.0.3
       fake-indexeddb:
         specifier: ^6.2.5
         version: 6.2.5
@@ -123,6 +126,9 @@ importers:
       less:
         specifier: ^4.9.1
         version: 4.9.1
+      process:
+        specifier: ^0.11.10
+        version: 0.11.10
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
@@ -215,7 +221,7 @@ importers:
         specifier: ^17.4.2
         version: 17.4.2(@vue/compiler-sfc@3.5.42)(vue@3.5.42(typescript@5.9.3))(webpack@5.109.2)
       webpack:
-        specifier: ^5.109.2
+        specifier: 5.109.2
         version: 5.109.2(postcss@8.5.28)(webpack-cli@7.2.3)
       webpack-cli:
         specifier: ^7.2.2
