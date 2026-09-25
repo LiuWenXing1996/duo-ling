@@ -46,7 +46,7 @@
 | 关当前标签页 | `window.close` | 无（window 级成员，没有 `GM.*` 形态） |
 | 聚焦当前窗口 | `window.focus` | 无（同上） |
 
-**恒注入**（无需 `@grant`）：`GM_info`、`unsafeWindow`、`window.onurlchange`；`GM.*` 侧恒注入 `info`、`clearValues`、`focusTab`、`page`。
+**恒注入**（无需 `@grant`）：`GM_info`、`unsafeWindow`、`window.onurlchange`；`GM.*` 侧恒注入 `info`。
 
 > 其中 `unsafeWindow` / `window.onurlchange` 在 TM 里需要显式 `@grant`，本扩展恒给 —— 更宽松，不会因此让脚本 ReferenceError。
 
@@ -91,10 +91,6 @@
 
 | 成员 | 作用 |
 | --- | --- |
-| `GM.page.listen` | 监听页面事件，收摘要 `{ type, key?, detail, timeStamp }` |
-| `GM.page.fetchHook` | 拦截页面世界的 fetch（含脚本自己发的），可 `passthrough` 或 `respond`；可选拿真实响应体 |
-| `GM.clearValues` | 清掉本脚本的全部键值 |
-| `GM.focusTab` | 激活指定标签页并聚焦其所在窗口 |
 | `window.onurlchange` | 页面 URL 变化回调 |
 
 ## 六、补一个 API 时要动的地方

@@ -155,7 +155,7 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     // 左侧导航进入：面板挂载，脚本世界 GM 的能力清单来自静态目录（与注入真身同源，见单测防漂移）
     await page.locator('button[aria-label="GM API"]').click()
     await expect(page.locator('[data-testid="gm-api-panel"]')).toBeVisible()
-    for (const path of ['GM_getValue', 'GM_xmlhttpRequest', 'GM_cookie.set', 'GM.page.fetchHook']) {
+    for (const path of ['GM_getValue', 'GM_xmlhttpRequest', 'GM_cookie.set']) {
       await expect(page.locator(`[data-testid="gm-api-card-${path}"]`)).toBeVisible()
     }
 

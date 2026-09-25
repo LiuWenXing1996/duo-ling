@@ -365,7 +365,6 @@
   function tabsCase() {
     return (async function () {
       // GM_openInTab 返回句柄 { close, closed }；tabId 异步到达、句柄不暴露，故用句柄 close 收尾。
-      // 真正的激活已知 tabId 用 GM.focusTab(tabId)（GM.* 命名空间，恒注入）。
       var handle = GM_openInTab('https://example.com/#gm-api-probe', { active: false })
       if (!handle || typeof handle.close !== 'function') {
         line('tabs open/close', false, 'GM_openInTab 未返回句柄：' + JSON.stringify(handle))
@@ -374,7 +373,7 @@
       await sleep(1200)
       handle.close()
       await sleep(400)
-      line('tabs open/close', true, 'GM_openInTab 句柄已 open 并 close（focus 见 GM.focusTab）')
+      line('tabs open/close', true, 'GM_openInTab 句柄已 open 并 close')
     })().catch(function (e) {
       line('tabs open/close', false, msg(e))
     })

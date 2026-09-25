@@ -69,7 +69,6 @@ describe('GM 可用性矩阵探针覆盖目录', () => {
   it('反射真的取到了路径（防锚点失效后「两边都空」的假绿）', () => {
     expect(DECLARED_PATHS.length).toBeGreaterThan(30)
     expect(DECLARED_PATHS).toContain('GM_info')
-    expect(DECLARED_PATHS).toContain('GM.page.fetchHook')
   })
 
   it('用例与登记表一一对应（每个用例都被认领、每条登记都有用例）', () => {

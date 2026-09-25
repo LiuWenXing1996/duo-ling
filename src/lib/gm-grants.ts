@@ -52,8 +52,8 @@ export const GRANT_MEMBERS: Record<string, { globals: string[]; ns: string[] }> 
 /** 恒注入、不需要 `@grant` 的全局（对齐 TM：`GM_info` / `unsafeWindow` 无需声明） */
 export const ALWAYS_GLOBALS = ['GM_info', 'unsafeWindow'] as const
 
-/** 恒注入的 `GM.*` 成员：`info` + 本扩展成员（非标准，不属于任何 grant） */
-export const ALWAYS_NS = ['info', 'clearValues', 'focusTab', 'page'] as const
+/** 恒注入的 `GM.*` 成员：`info`（其余能力均来自 `@grant` 或标准 API） */
+export const ALWAYS_NS = ['info'] as const
 
 /**
  * 恒注入、且与 `@grant` 清单完全无关的 `window` 级成员。

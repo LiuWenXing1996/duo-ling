@@ -40,10 +40,6 @@ export type GmNsName = Exclude<keyof GmApiNamespace, 'page'>
 export type GmObjectPath =
   | `GM_cookie.${keyof GmCookieApi & string}`
   | `GM_audio.${keyof GmAudioApi & string}`
-  | 'GM.page.listen'
-  | 'GM.page.fetchHook'
-  | 'GM.clearValues'
-  | 'GM.focusTab'
   | 'unsafeWindow'
   | 'window.onurlchange'
 
@@ -559,51 +555,6 @@ const OBJECT_ENTRIES = {
     bridge: 'bridge',
     group: 'page',
   },
-  'GM.clearValues': {
-    title: '清空存储',
-    signature: 'GM.clearValues()',
-    summary: '清掉本脚本的全部键值（**哆灵扩展，标准里无对应物**）',
-    detail:
-      '不可撤销。**不逐个发变更事件**（清空是一次性操作，watch 侧请自行重拉）。同步缓存一并清掉。',
-    returns: 'Promise<void>',
-    bridge: 'bridge',
-    group: 'storage',
-  },
-  'GM.focusTab': {
-    title: '激活标签页',
-    signature: 'GM.focusTab(tabId)',
-    summary: '激活指定标签页并聚焦其所在窗口（**哆灵扩展，标准里无对应物**）',
-    detail: '标准里只有 `GM_openInTab` 返回句柄的 `close()`，没有「激活某个已打开标签页」的 API。抢用户视线，谨慎用。',
-    returns: 'Promise<void>',
-    bridge: 'bridge',
-    group: 'system',
-  },
-  'GM.page.listen': {
-    title: '听页面事件',
-    signature: 'GM.page.listen(type, handler, opts?)',
-    summary: '监听页面自身触发的事件',
-    detail:
-      '**哆灵扩展，非油猴标准。** opts.selector 只转发命中该选择器（或其祖先）的事件，opts.once 命中一次后自动注销。' +
-      '回调收到的是事件摘要（可克隆字段），不是原生事件对象。返回注销函数。',
-    returns: 'Promise<() => void>（注销）',
-    bridge: 'local',
-    group: 'page',
-  },
-  'GM.page.fetchHook': {
-    title: '拦页面 fetch',
-    signature: 'GM.page.fetchHook(handler, opts?)',
-    summary: '拦截页面自身的 fetch，可被动读取响应体',
-    detail:
-      '**哆灵扩展，非油猴标准。** 裁决返回 { action: "passthrough" } 放行，或 { action: "respond", status, headers?, body? } ' +
-      '由页面侧直接构造 Response 返回；脚本回调抛异常一律按放行处理（不会把页面搞挂）。' +
-      '传 opts.onResponse 后，passthrough 的每次真实响应都会以 { url, status, statusText, headers, body, truncated? } 回调' +
-      '（零额外请求，页面拿到的仍是原响应）。' +
-      '注意：脚本自身也运行在页面世界，**它自己发出的 fetch 同样会经过本钩子**；' +
-      '不想拦自己发的请求，就在 handler 里按 URL 过滤掉。',
-    returns: 'Promise<() => void>（注销）',
-    bridge: 'local',
-    group: 'page',
-  },
 } satisfies Record<GmObjectPath, Omit<GmApiEntry, 'path'>>
 
 /** 能力表 → 全局条目（`GM_*` 及其函数签名） */
@@ -639,7 +590,7 @@ function globalEntries(): GmApiEntry[] {
   return (Object.entries(CAPABILITIES) as [GmGlobalName, Capability][]).map(([name, cap]) => globalEntry(name, cap))
 }
 
-/** 对象型 / 变量型条目（`GM_cookie.*` / `GM.page.*` / 扩展成员 / `unsafeWindow` / `window.onurlchange`） */
+/** 对象型 / 变量型条目（`GM_cookie.*` / `GM_audio.*` / `unsafeWindow` / `window.onurlchange`） */
 function objectEntries(): GmApiEntry[] {
   return (Object.entries(OBJECT_ENTRIES) as [GmObjectPath, Omit<GmApiEntry, 'path'>][]).map(([path, entry]) => ({
     path,
