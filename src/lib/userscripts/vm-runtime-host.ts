@@ -22,6 +22,8 @@
 //      `userScripts.execute`（VM 官方 registerScriptDataMV3 同语义）—— onUserScriptMessage
 //      的 sendResponse 在异步延迟后会失效（README 条目 14），messaging 回传只当陪跑。
 
+import { emitRunsFromGetInjected } from './vm-adapter'
+
 const VM_ID = '1001'
 const VM_IDS = ['1000', '1001']
 const VM_WORLD = 'vm'
@@ -234,7 +236,9 @@ async function doInitVmRuntime(): Promise<void> {
       if (cmd === 'GetInjected' && senderTabId != null) {
         void p
           .then((res) => {
+            // ★ 运行日志（Phase D）：VM 的注入决策 = 该文档将跑哪些脚本，驱动 page-monitor 登记
             const plain = JSON.parse(JSON.stringify(res ?? null)) as unknown
+            emitRunsFromGetInjected(senderTabId, plain)
             return chrome.userScripts.execute({
               js: [{ code: `window['Violentmonkey'](${JSON.stringify(plain)})` }],
               target: { tabId: senderTabId },
