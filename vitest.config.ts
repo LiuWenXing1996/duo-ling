@@ -27,6 +27,7 @@ export default defineConfig({
         test: {
           name: 'logic',
           environment: 'node',
+          setupFiles: ['./vitest.setup.ts'],
           include: ['src/**/*.test.ts'],
           exclude: ['src/**/*.component.test.ts', ...defaultExclude],
         },
@@ -36,6 +37,7 @@ export default defineConfig({
         test: {
           name: 'component',
           environment: 'happy-dom',
+          setupFiles: ['./vitest.setup.ts'],
           include: ['src/**/*.component.test.ts'],
           exclude: [...defaultExclude],
         },

@@ -8,8 +8,8 @@
 //       dlPorts    Map<Port, {uuid, connId, tabId}>   连接寻址（menu.click 路由主键 = tabId）
 //       watches    Map<Port, Set<key>>                订阅跟随 Port 生命周期，断开自动清理
 //       notifyMap  Map<notificationId, uuid>          通知点击归属（内存，SW 重启窗口内点击丢失——已拍板接受）
-//   · 三个事件来源：contextMenus.onClicked / GM 值存储 写出口（store.ts 的 onGmValueChange，
-//     原为 storage.onChanged，GM 值存储 迁 duoling-usdata 后改为直发）/ notifications.onClicked。
+//   · 事件来源（GM 值变更已归 VM 内核原生处理，不再经这里下行）：contextMenus.onClicked /
+//     notifications.onClicked；音频状态变化走 tabs.onUpdated（见下方事件源）。
 //   · 控制面（注册 / 注销 / 订阅）走 sendMessage 请求-响应（事件底座函数现由 VM adapter 在 Phase D 调用；
 //     函数），Port 只承载下行推送帧 —— 控制面/数据面分离。
 //
@@ -20,7 +20,6 @@
 // 竞态（connect → onConnect 就绪窗口）：SW 建立连接后立即下发 { t:'port.ready' } 内部帧，
 // 脚本包装层收到它才 flush 待注册队列 —— 见 engine.ts 包装层，脚本作者不感知。
 import type { ApiEvent, ApiEventFrame } from './api-contract'
-import { onGmValueChange } from './store'
 
 // —— 纯逻辑：解析与注册表（node 单测直接覆盖，不 mock chrome）——
 
@@ -390,31 +389,6 @@ export function initDlPort(): void {
     if (!parsed || tab?.id == null) return
     const ports = registry.portsForMenuClick(parsed.uuid, tab.id)
     for (const port of ports) pushEvent(registry, port, { t: 'menu.click', id: parsed.menuId })
-  })
-
-  // 事件源 ②：值变更 → 推给订阅者。原经 storage.onChanged 兜底（落 chrome.storage 时代），
-  // 迁 duoling-usdata 库后 IDB 无变更通知，改为订阅 store.ts 的写出口直发（写入口仍收敛在
-  // store.ts 那几个函数，写+发不分离）。删除语义：deleted = true 时帧上 value 置 null。
-  //
-  // 两类订阅者并集：键级（store.watch）+ 全量（store.watchAll 给只读脚本的通道）。
-  // 同一 Port 可能同时命中两类 → 用 Set 去重，否则它会收到重复帧。
-  // remote：与发起写的实例同 connId 即「本实例自己写的」（false）；无 connId（后台内部写）算 true。
-  onGmValueChange(({ uuid, key, deleted, value, oldValue, writerConnId }) => {
-    const frameValue = (deleted ? null : value) as import('./api-contract').Json
-    const frameOldValue = (oldValue === undefined ? null : oldValue) as import('./api-contract').Json
-    const targets = new Set([
-      ...registry.watchersForKey(uuid, key),
-      ...registry.portsForValueChange(uuid),
-    ])
-    for (const port of targets) {
-      pushEvent(registry, port, {
-        t: 'store.change',
-        key,
-        value: frameValue,
-        oldValue: frameOldValue,
-        remote: !writerConnId || registry.connIdOf(port) !== writerConnId,
-      })
-    }
   })
 
   // 事件源：当前标签页的音频状态变化（GM_audio.addStateChangeListener）→ 只推给**登记过订阅**的连接。
