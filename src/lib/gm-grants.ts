@@ -31,12 +31,7 @@ export const GRANT_MEMBERS: Record<string, { globals: string[]; ns: string[] }> 
   GM_xmlhttpRequest: { globals: ['GM_xmlhttpRequest'], ns: ['xmlHttpRequest'] },
   GM_download: { globals: ['GM_download'], ns: ['download'] },
   GM_openInTab: { globals: ['GM_openInTab'], ns: ['openInTab'] },
-  GM_getTab: { globals: ['GM_getTab'], ns: ['getTab'] },
-  GM_saveTab: { globals: ['GM_saveTab'], ns: ['saveTab'] },
-  GM_getTabs: { globals: ['GM_getTabs'], ns: ['getTabs'] },
   GM_cookie: { globals: ['GM_cookie'], ns: [] },
-  // 音频控制（TM v5.0+）：对象型全局，`GM.*` 侧是 GM.audio（与 GM_cookie 不同，TM 给了这个镜像）
-  GM_audio: { globals: ['GM_audio'], ns: ['audio'] },
   // 命名资源（TM：`@resource` 声明即预加载，内容随注入体就绪）。
   // 注意 `GM.*` 形态是 **getResourceText / getResourceUrl** —— Url 的小写 r/l 照 TM 原样，不是笔误。
   GM_getResourceText: { globals: ['GM_getResourceText'], ns: ['getResourceText'] },
@@ -58,10 +53,11 @@ export const ALWAYS_NS = ['info'] as const
 /**
  * 恒注入、且与 `@grant` 清单完全无关的 `window` 级成员。
  *
- * 注入侧对它们没有 `GM_HAS` 分支（无条件 `defineProperty` / 包装 `addEventListener`），
- * 声明与不声明都一个样；登记在此只为让规范文本与速查页有单一来源可引用。
+ * VM 运行时下，脚本世界没有此类成员（历史上曾把 `window.onurlchange` 列在这里，
+ * 但它是 TM/GM4 标准、VM 不注入，故移除）；`window.close` / `window.focus` 是 `@grant` 项，不在此列。
+ * 保留这个导出（空数组）仅供规范文本与速查页的引用点稳定。
  */
-export const ALWAYS_WINDOW_MEMBERS = ['window.onurlchange'] as const
+export const ALWAYS_WINDOW_MEMBERS = [] as const
 
 /** 合法 grant 名（升序）：规范文本与速查页引用它，别在别处再手写一份清单 */
 export const GRANT_NAMES: string[] = Object.keys(GRANT_MEMBERS).sort()

@@ -95,6 +95,7 @@ ${renderCapabilities()}
 - \`@connect\` 白名单（本扩展的跨域请求不需要声明）
 - \`GM_xmlhttpRequest\` 的 \`responseType: 'stream'\`（TM 有、本扩展暂无）
 - 同步 \`GM_xmlhttpRequest\`：TM 官方也明确不支持；\`responseType\` 的合法值只有 arraybuffer / blob / json / stream
+- 以下 TM / GM4 标准 API **本运行时（Violentmonkey 内核）不提供**，写了也不会生效：\`GM_getTab\` / \`GM_saveTab\` / \`GM_getTabs\`（标签页级存储）、\`GM_audio\`（v5.0+ 音频控制）、\`window.onurlchange\`（SPA 路由变化）—— 标准油猴脚本若依赖它们，在本扩展下会 ReferenceError 或取不到。
 
 ## \`@grant\` 怎么写
 

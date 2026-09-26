@@ -35,13 +35,13 @@
 │  ├─ composables/                # use-global-conversation：会话中枢（useChat + 流式）
 │  ├─ lib/                        # 运行时逻辑层；各库的写权限与机制见 ARCHITECTURE.md「存储」
 │  │  ├─ offscreen-chat/          #   对话编排：chat-host（agent loop）/ 工具面 / 事件缓冲 / 任务快照 / 模型缓存
-│  │  ├─ userscripts/             #   脚本链路：注册引擎（主世界注入 + 中继桥）/ lfs + git 存储 / dl-bridge 桥 / 匹配并集
+│  │  ├─ userscripts/             #   脚本链路：VM 运行时（GM API 由 Violentmonkey 内核注入）/ lfs + git 存储 / 匹配并集
 │  │  └─ 其他文件                 #   各 store（会话 / 模型 / 归属映射 / 浮层开关）/ 新版本检查 / transport / 元素拾取 / 构建信息取数
 │  ├─ shared/                     # 跨上下文契约：types / ipc（window.api 形状）/ extension-ipc（渲染页 ⇄ SW 协议）
 │  ├─ assets/                     # Tailwind 主题变量与全局样式
 │  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（元素拾取器）
 ├─ scripts/                       # 仓库维护脚本：verify-skills / check-todo / pack-uscripts
-├─ uscript-samples/               # pack-uscripts 的源目录（注入探针 / GM 桥 / 语法错误样本等测试脚本）
+├─ uscript-samples/               # pack-uscripts 的源目录（GM API 可用性矩阵探针 / 语法错误样本等测试脚本）
 ├─ docs/                          # 归档型文档（gm-api-gap.md：GM API 与油猴标准的差距）
 ├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟）
 └─ .github/workflows/             # ci / e2e / release / sync-release-notes（作用见 GIT_WORKFLOW.md 与 VERSIONING.md）

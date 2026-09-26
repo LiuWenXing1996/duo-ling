@@ -9,7 +9,7 @@
 //       watches    Map<Port, Set<key>>                订阅跟随 Port 生命周期，断开自动清理
 //       notifyMap  Map<notificationId, uuid>          通知点击归属（内存，SW 重启窗口内点击丢失——已拍板接受）
 //   · 事件来源（GM 值变更已归 VM 内核原生处理，不再经这里下行）：contextMenus.onClicked /
-//     notifications.onClicked；音频状态变化走 tabs.onUpdated（见下方事件源）。
+//     notifications.onClicked。
 //   · 控制面（注册 / 注销 / 订阅）走 sendMessage 请求-响应（事件底座函数现由 VM adapter 在 Phase D 调用；
 //     函数），Port 只承载下行推送帧 —— 控制面/数据面分离。
 //
@@ -52,14 +52,6 @@ export class DlPortRegistry {
   private ports = new Map<chrome.runtime.Port, DlPortMeta>()
   private watches = new Map<chrome.runtime.Port, Set<string>>()
   private notifyMap = new Map<string, string>()
-  /**
-   * 全量值订阅（`store.watchAll`）：Port 级布尔。
-   * 存在理由：只读值的脚本从不键级订阅，若不给它一条全量通道，别的标签页改的值它永远收不到，
-   * 同步快照会整个页面生命周期陈旧（见 gm-wrapper.ts 的 `__gmEnsureChannel`）。
-   */
-  private valueWatchers = new Set<chrome.runtime.Port>()
-  /** 登记过音频订阅（`GM_audio.addStateChangeListener`）的 Port —— 见 portsForAudioWatch */
-  private audioWatchers = new Set<chrome.runtime.Port>()
 
   addPort(port: chrome.runtime.Port, meta: DlPortMeta): void {
     this.ports.set(port, meta)
@@ -70,7 +62,6 @@ export class DlPortRegistry {
   removePort(port: chrome.runtime.Port): void {
     this.ports.delete(port)
     this.watches.delete(port)
-    this.valueWatchers.delete(port)
   }
 
   /** 该 Port 的连接身份（判 `store.change` 的 remote 用：与发起写者同 connId = 本实例自己写的） */
@@ -141,53 +132,6 @@ export class DlPortRegistry {
     return this.notifyMap.get(notificationId) ?? null
   }
 
-  /** 挂全量值订阅。找不到该 connId 的 Port（连接未就绪）返回 false，由调用方抛错 */
-  attachValueWatch(uuid: string, connId: string): boolean {
-    const targets = this.portsByConnId(uuid, connId)
-    if (!targets.length) return false
-    for (const port of targets) this.valueWatchers.add(port)
-    return true
-  }
-
-  detachValueWatch(uuid: string, connId: string): void {
-    for (const port of this.portsByConnId(uuid, connId)) this.valueWatchers.delete(port)
-  }
-
-  /** 某脚本上已开全量值订阅的全部 Port（任意键变更都要推给它） */
-  portsForValueChange(uuid: string): chrome.runtime.Port[] {
-    const out: chrome.runtime.Port[] = []
-    for (const [port, m] of this.ports) {
-      if (m.uuid === uuid && this.valueWatchers.has(port)) out.push(port)
-    }
-    return out
-  }
-
-  // —— 音频状态订阅（`GM_audio.addStateChangeListener`）——
-  //
-  // 与值订阅同构，但**按 tab 定位**：音频状态是「当前标签页」的属性，SW 收到
-  // chrome.tabs.onUpdated 时按 tabId 找订阅者。没登记就不推（音频变化可能很频繁，
-  // 不该往每个 tab 的每条连接都广播）。
-
-  /** 挂音频订阅（同 attachValueWatch：连接未就绪返回 false，由调用方决定怎么办） */
-  attachAudioWatch(uuid: string, connId: string): boolean {
-    const targets = this.portsByConnId(uuid, connId)
-    if (!targets.length) return false
-    for (const port of targets) this.audioWatchers.add(port)
-    return true
-  }
-
-  detachAudioWatch(uuid: string, connId: string): void {
-    for (const port of this.portsByConnId(uuid, connId)) this.audioWatchers.delete(port)
-  }
-
-  /** 某标签页里登记过音频订阅的 Port（audio.change 的推送目标） */
-  portsForAudioWatch(tabId: number): chrome.runtime.Port[] {
-    const out: chrome.runtime.Port[] = []
-    for (const [port, m] of this.ports) {
-      if (m.tabId === tabId && this.audioWatchers.has(port)) out.push(port)
-    }
-    return out
-  }
 }
 
 /** 向单条 Port 推一帧 ApiEvent；Port 已断时静默摘除（postMessage 可能抛 disconnected） */
@@ -258,34 +202,9 @@ export function detachScriptWatch(uuid: string, connId: string, key: string): vo
   getDlPortRegistry().detachWatch(uuid, connId, key)
 }
 
-/** 挂全量值订阅（控制面，ApiRequest store.watchAll）；Port 未就绪返回 false（竞态防御） */
-export function attachValueWatch(uuid: string, connId: string): boolean {
-  return getDlPortRegistry().attachValueWatch(uuid, connId)
-}
-
-export function detachValueWatch(uuid: string, connId: string): void {
-  getDlPortRegistry().detachValueWatch(uuid, connId)
-}
-
-// —— 音频状态订阅（控制面，ApiRequest audio.watch / audio.unwatch）——
-
-/** 挂音频订阅；Port 未就绪返回 false（竞态防御，同 attachValueWatch） */
-export function attachAudioWatch(uuid: string, connId: string): boolean {
-  return getDlPortRegistry().attachAudioWatch(uuid, connId)
-}
-
-export function detachAudioWatch(uuid: string, connId: string): void {
-  getDlPortRegistry().detachAudioWatch(uuid, connId)
-}
-
-/** 某标签页里登记过音频订阅的 Port（SW 收到 tabs.onUpdated 时用） */
-export function portsForAudioWatch(tabId: number): chrome.runtime.Port[] {
-  return getDlPortRegistry().portsForAudioWatch(tabId)
-}
-
 /**
  * 「帧推给谁」的兜底告警：命中 0 个连接意味着**脚本侧没建下行通道**（只调 GM_xmlhttpRequest /
- * GM_download 而不读值、不注册菜单、不订阅音频的脚本就是这样），帧会被静默丢掉，脚本侧只看到
+ * GM_download 而不读值、不注册菜单的脚本就是这样），帧会被静默丢掉，脚本侧只看到
  * 「回调永不触发」—— 2026-09-22 真机踩过，查了两轮才定位。
  *
  * 按连接只喊一次（否则每次推帧都刷屏）；SW 重启后集合归零，能再喊一遍。
@@ -297,14 +216,14 @@ function warnNoPort(kind: string, uuid: string, connId?: string): void {
   if (noPortWarned.has(key)) return
   noPortWarned.add(key)
   console.warn(
-    `[duoling:dl] ${kind} 帧无处可推：该脚本没有下行通道（它从未读值 / 注册菜单 / 订阅音频 / 用带回调的通知）。` +
+    `[duoling:dl] ${kind} 帧无处可推：该脚本没有下行通道（它从未读值 / 注册菜单 / 用带回调的通知）。` +
       `请求本身会照常完成，但脚本的回调收不到。uuid=${uuid}`,
   )
 }
 
 /**
  * 推一帧下载进度（`GM_xmlhttpRequest` 的 `onprogress`）给**发起该请求的连接**。
- * 按 uuid + connId 定位（与 audio.watch 同款寻址）；找不到（连接已断）就丢弃 —— 请求照常走完，
+ * 按 uuid + connId 定位；找不到（连接已断）就丢弃 —— 请求照常走完，
  * 进度只是锦上添花，不该因为它没推到而报错。
  */
 export function pushFetchProgress(
@@ -389,23 +308,6 @@ export function initDlPort(): void {
     if (!parsed || tab?.id == null) return
     const ports = registry.portsForMenuClick(parsed.uuid, tab.id)
     for (const port of ports) pushEvent(registry, port, { t: 'menu.click', id: parsed.menuId })
-  })
-
-  // 事件源：当前标签页的音频状态变化（GM_audio.addStateChangeListener）→ 只推给**登记过订阅**的连接。
-  // 只在 mutedInfo / audible 出现时才推：tabs.onUpdated 对加载进度也触发，不筛会产生大量无用帧。
-  // muted 字段照 TM：值是**静音原因字符串**（user/capture/extension），未静音时为 false（不是 boolean）。
-  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo.mutedInfo === undefined && changeInfo.audible === undefined) return
-    const targets = registry.portsForAudioWatch(tabId)
-    if (!targets.length) return
-    const info = changeInfo.mutedInfo
-    for (const port of targets) {
-      pushEvent(registry, port, {
-        t: 'audio.change',
-        ...(info ? { muted: info.muted ? (info.reason ?? 'user') : false } : {}),
-        ...(changeInfo.audible !== undefined ? { audible: changeInfo.audible } : {}),
-      })
-    }
   })
 
   // 事件源 ③：通知点击。SW 重启丢失映射时事件丢弃（拍板 ③：接受，不落盘）

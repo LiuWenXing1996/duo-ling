@@ -117,8 +117,8 @@
 // @covers GM_download / GM.download :: GM_download GM.download
 // @covers GM_getTab / GM_saveTab / GM_getTabs（回调形态） :: GM_getTab GM_saveTab GM_getTabs
 // @covers GM.getTab / GM.saveTab / GM.getTabs（Promise 形态） :: GM.getTab GM.saveTab GM.getTabs
-// @covers GM.cookie.list（读） :: GM.cookie GM.cookie.list
-// @covers GM.cookie.set / delete（写读删） :: GM.cookie.set GM.cookie.delete
+// @covers GM.cookie.list（读） :: GM_cookie GM_cookie.list
+// @covers GM.cookie.set / delete（写读删） :: GM_cookie.set GM_cookie.delete
 // @covers GM_cookie.list（读，全局回调形态） :: GM_cookie GM_cookie.list
 // @covers GM_cookie.set / delete（写读删，全局回调形态） :: GM_cookie.set GM_cookie.delete
 // @covers window.onurlchange（含置 null 退订） :: window.onurlchange
@@ -732,8 +732,8 @@
   })
 
   add('系统能力', 'GM_audio.setMute / getState（含 GM.audio 镜像）', async function () {
-    // VM 不提供 GM_audio（duo-ling 扩展独有），归「?」
-    if (typeof GM_audio === 'undefined') return unknown('VM 不提供 GM_audio（扩展独有）')
+    // VM 未实现 GM_audio（TM v5.0+ 标准），归「?」
+    if (typeof GM_audio === 'undefined') return unknown('VM 未实现 GM_audio（TM v5.0+ 标准）')
     // 无头下静音没有声音副作用。验「设了能按当前标签页读回」+ GM.audio 镜像同样可用。
     await GM_audio.setMute({ isMuted: true })
     var muted = await GM_audio.getState()
@@ -746,8 +746,8 @@
   })
 
   add('系统能力', 'GM_audio 状态监听', async function () {
-    // VM 不提供 GM_audio（duo-ling 扩展独有），归「?」
-    if (typeof GM_audio === 'undefined') return unknown('VM 不提供 GM_audio（扩展独有）')
+    // VM 未实现 GM_audio（TM v5.0+ 标准），归「?」
+    if (typeof GM_audio === 'undefined') return unknown('VM 未实现 GM_audio（TM v5.0+ 标准）')
     var got = []
     function onAudio(e) { got.push(e) }
     await GM_audio.addStateChangeListener(onAudio)
@@ -806,9 +806,9 @@
   })
 
   add('系统能力', 'GM_getTab / GM_saveTab / GM_getTabs（回调形态）', function () {
-    // VM 不提供 tab 存储（duo-ling 扩展独有），归「?」
+    // VM 未实现 tab 存储（GM4 标准），归「?」
     if (typeof GM_saveTab !== 'function' || typeof GM_getTab !== 'function' || typeof GM_getTabs !== 'function') {
-      return unknown('VM 不提供 tab 存储（扩展独有）')
+      return unknown('VM 未实现 tab 存储（GM4 标准）')
     }
     // 回调式三层嵌套：save → get 读回 → getTabs 聚合；超时兜底，免得卡死整轮
     return new Promise(function (resolve) {
@@ -836,9 +836,9 @@
   })
 
   add('系统能力', 'GM.getTab / GM.saveTab / GM.getTabs（Promise 形态）', async function () {
-    // VM 不提供 tab 存储（duo-ling 扩展独有），归「?」
+    // VM 未实现 tab 存储（GM4 标准），归「?」
     if (typeof GM.saveTab !== 'function' || typeof GM.getTabs !== 'function') {
-      return unknown('VM 不提供 tab 存储（扩展独有）')
+      return unknown('VM 未实现 tab 存储（GM4 标准）')
     }
     await GM.saveTab({ probe: 'ns' })
     var one = await GM.getTab()
@@ -932,8 +932,8 @@
 
   add('站点与页面', 'window.onurlchange（含置 null 退订）', function () {
     if (!isHttpPage()) return unknown('非 http(s) 页面（' + location.protocol + '）')
-    // VM 不提供 window.onurlchange（duo-ling 扩展独有），归「?」
-    if (!('onurlchange' in window)) return unknown('VM 不提供 window.onurlchange（扩展独有）')
+    // VM 未实现 window.onurlchange（TM/GM4 标准），归「?」
+    if (!('onurlchange' in window)) return unknown('VM 未实现 window.onurlchange（TM/GM4 标准）')
     var href = location.href
     var base = href.split('#')[0]
     return new Promise(function (resolve) {
@@ -949,8 +949,8 @@
         fired++
         if (fired > 1) return
         // 首跳到了 → 立刻退订（TM 语义：置 null = 不再要），再跳一次应静默。
-        // 注：本地静音是能在这里验的；「后台订阅也摘了」页面侧看不见（那是 url.unwatch 的事，
-        // 由 api-commands.test.ts / gm-wrapper.test.ts 在源码层兜）。
+        // 注：本探针在 VM 下 early-return（window.onurlchange 未提供），下面分支实际跑不到；
+        // 订阅退订由 VM 内核在源码层处理，本扩展不再单独兜。
         window.onurlchange = null
         push('#gm-matrix-2')
         setTimeout(function () {

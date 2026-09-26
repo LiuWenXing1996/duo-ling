@@ -7,9 +7,12 @@
 
 | 文件 | 职责 |
 | --- | --- |
-| `src/lib/gm-grants.ts` | `@grant` 名 → 它开启的成员（全局与 `GM.*` 两种形态），以及恒注入成员 |
+| `src/lib/gm-grants.ts` | **纯数据**：catalog / spec / `@grant` 校验用；**不驱动注入**（见下「运行期模型」） |
 | `src/lib/gm-api-catalog.ts` | 工作台「GM API 速查」页的数据源（说明、默认值、边界、降级项） |
 | `src/lib/offscreen-chat/spec-text.ts` | AI 写脚本时读到的规范文本，含「明确不支持」清单 |
+| VM 注入层 `GM_API` / `GM_API_CTX` / `GM_API_CTX_GM4ASYNC`（`packages/gm-runtime/vendor/violentmonkey/src/injected/web/gm-api.js`） | **注入面真相**：脚本实际拿到的 GM 函数就这三张清单，VM 内核原生注入，duo-ling 不介入 |
+
+> **⚠️ 运行期模型（2026-09 起）**：GM 运行时已切到 Violentmonkey 内核。脚本面 GM 函数由 VM 按它自己的三张清单原生注入，**duo-ling 不裁剪、也不补充**。`gm-grants.ts` 只给 catalog / spec / `@grant` 校验提供数据 —— 它多登记的成员（见第一节标注）只是「catalog / spec 会过度宣称支持」，**运行期脚本拿不到**。要新增一个真能力，前提是 VM 内核实现了它；只改 `gm-grants.ts` 只会制造空宣称。
 
 ## 一、覆盖面
 
@@ -46,18 +49,34 @@
 | 关当前标签页 | `window.close` | 无（window 级成员，没有 `GM.*` 形态） |
 | 聚焦当前窗口 | `window.focus` | 无（同上） |
 
-**恒注入**（无需 `@grant`）：`GM_info`、`unsafeWindow`、`window.onurlchange`；`GM.*` 侧恒注入 `info`。
+**恒注入**（无需 `@grant`）：`GM_info`、`unsafeWindow`；`GM.*` 侧恒注入 `info`。
 
-> 其中 `unsafeWindow` / `window.onurlchange` 在 TM 里需要显式 `@grant`，本扩展恒给 —— 更宽松，不会因此让脚本 ReferenceError。
+> 其中 `unsafeWindow` 在 TM 里需要显式 `@grant`，本扩展恒给 —— 更宽松，不会因此让脚本 ReferenceError。`window.onurlchange` **不是**恒注入项（见第二节：VM 不提供，本扩展也不注入）。
 
 **`@grant` 名收两种写法**（TM 官方示例把两种并列列出，导入的外部脚本两种都可能写）：规范名
 `GM_setValue` 同时开全局与 `GM.*` 两种形态；点号形态 `GM.setValue` 只开 `GM.*` 那一种。
 规范文本只教前一种（自产脚本写一行就够），第二种是为兼容外部脚本而认。
 
+> **⚠️ 过度宣称项（运行期拿不到）**：下表 `GM_getTab` / `GM_saveTab` / `GM_getTabs` / `GM_audio` 在 `gm-grants.ts` 有登记，但 **VM 运行期不注入**（VM 三张清单不含它们）。catalog / spec 目前会据此宣称支持，属已知待修，不是真能力。真·运行期覆盖面 = VM 清单（不含这 4 项，亦不含 `window.onurlchange`，见第二节）。
+
 ## 二、标准里有、本扩展完全没有的
 
+### （一）TM 标准但 VM 未实现 —— 本扩展同样不提供
+
+这类不是「我们主动不补」，而是 VM 内核本身没实现，duo-ling 在 VM 运行期无法凭空提供：
+
+| 项 | 说明 | 依据 |
+| --- | --- | --- |
+| `window.onurlchange` | SPA 路由导航回调（TM / GM4 标准） | VM 注入层三张清单均不含；`gm-grants.ts` 的 `ALWAYS_WINDOW_MEMBERS` 虽登记，但注入侧已无 `GM_HAS` 分支，运行期不挂载 |
+| `GM_getTab` / `GM_saveTab` / `GM_getTabs` | 标签页间共享存储（GM4 标准） | VM 未实现 |
+| `GM_audio` | 脚本控制标签页音频（TM v5.0+ 标准） | VM 未实现 |
+
+> 这 5 项目前在 `gm-grants.ts` 仍有登记，会让 catalog / spec 过度宣称「支持」—— 属文档与运行期不一致，待修（改 `gm-grants.ts` 摘掉，或将来接 VM 之外的实现）。
+
+### （二）TM 在 MV3 下已下线 / 不适用 —— 不补
+
 **对齐口径**：以「**Chrome MV3 上的 Tampermonkey**」为准 —— 不补 TM 自己在 MV3 下已下线、或在 MV3 语境里不适用的东西。
-下表是这条判定剩下的部分（**结论：当前没有待补项**）：
+下表是这条判定剩下的部分（**这类确实没有待补项**）：
 
 | 项 | 判定 | 依据 |
 | --- | --- | --- |
@@ -89,17 +108,15 @@
 
 ## 五、本扩展自有（标准里无对应物）
 
-| 成员 | 作用 |
-| --- | --- |
-| `window.onurlchange` | 页面 URL 变化回调 |
+> VM 运行期下 duo-ling **不注入任何自有 GM 成员**，能力全部来自 VM 内核（即 TM / GM4 标准集合）。原列于此的 `window.onurlchange` 实为 **TM / GM4 标准能力**，且 VM 不提供（已移至第二节（一）），并非本扩展自有，故移出。
 
 ## 六、补一个 API 时要动的地方
 
 > 每一处都有门禁拦着，漏了会红（不会静默漂）—— 红在哪，就说明漏了哪一处。
 
-1. `src/lib/gm-grants.ts` —— 加 grant 与成员映射（这一处一动，注入面裁剪立刻生效）；
-2. `src/lib/userscripts/api-contract.ts` —— 脚本面类型声明两处（`GmGlobalFns` 全局形态 + `GmApiNamespace` 的 `GM.*` 形态）；需要新桥命令时也在这里登记；
-3. `src/lib/userscripts/gm-wrapper.ts` —— 注入体里挂载实现（全局 + `GM.*` 两个形态）；
+1. `src/lib/gm-grants.ts` —— 只更新 catalog / spec / `@grant` 校验数据（**不再驱动注入**）；脚本要真能用某 API，前提是 VM 内核实现了它（见 VM 三张清单），否则只改这里只会制造空宣称。
+2. `src/lib/userscripts/api-contract.ts` —— 仅限 **duo-ling 自有桥命令**（如 cookie 门）在此登记 `ApiRequest` / `API_COMMANDS`；`GmGlobalFns` / `GmApiNamespace` 只是 catalog / spec 用的 TS 视图，**不再驱动注入**（注入是 VM 的事）。新增一个 VM 已支持的 GM API 通常不需要动这里。
+3. ~~`src/lib/userscripts/gm-wrapper.ts`（**已删除**）~~ —— 注入体挂载实现这一层不存在了：VM 接管后 GM 成员由 VM 内核注入，duo-ling 不在注入体里挂任何 GM 函数；原文档里的「注入体装配块」对应物是 VM 的 `gm-api.js`，不改本仓代码。
 4. `src/lib/gm-api-catalog.ts` —— 速查页条目（含降级项说明）；
 5. `src/lib/offscreen-chat/spec-text.ts` —— 规范文本，以及把不再成立的条目从「明确不支持」里删掉（能力清单由能力数据自动生成，手写的只有「明确不支持」段）；
 6. `uscript-samples/gm-matrix/script.js` —— 真机矩阵探针：`@grant` 清单写全 + 顶部 `@covers` 登记 + 用例本身；

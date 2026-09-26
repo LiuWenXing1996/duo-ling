@@ -50,6 +50,16 @@ const CATALOG: string[] = GM_API_ENTRIES.map((e) => e.path).sort()
 /** 登记表里出现过的全部路径 */
 const DECLARED_PATHS = [...new Set(declared().flatMap((d) => d.paths))].sort()
 
+/** 探针**故意**验证「VM 未提供」的 TM 标准 API：它们不在目录里（本扩展不提供），探针只验其缺失 */
+const KNOWN_UNSUPPORTED_PATHS = [
+  'GM_getTab', 'GM_saveTab', 'GM_getTabs',
+  'GM.getTab', 'GM.saveTab', 'GM.getTabs',
+  'window.onurlchange',
+  'GM_audio', 'GM.audio',
+  'GM_audio.setMute', 'GM_audio.getState',
+  'GM_audio.addStateChangeListener', 'GM_audio.removeStateChangeListener',
+]
+
 describe('GM 可用性矩阵探针覆盖目录', () => {
   it('探针源码语法合法（acorn 解析；它是手测脚本，语法错一次就静默全废）', () => {
     expect(() => parse(PROBE_SRC, { ecmaVersion: 'latest' })).not.toThrow()
@@ -85,7 +95,7 @@ describe('GM 可用性矩阵探针覆盖目录', () => {
   })
 
   it('登记表里的路径都还在目录里（防留下已下架的路径）', () => {
-    const stale = DECLARED_PATHS.filter((p) => !CATALOG.includes(p))
+    const stale = DECLARED_PATHS.filter((p) => !CATALOG.includes(p) && !KNOWN_UNSUPPORTED_PATHS.includes(p))
     expect(stale, `登记表里有、目录里已没有的路径：${stale.join(', ')}`).toEqual([])
   })
 })

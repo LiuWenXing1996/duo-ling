@@ -5,7 +5,7 @@
 //   · net-forwarder.ts（USER_SCRIPT 转发件）—— 字符串模板，插值 TAG；
 //   · netlog-db.ts / net-capture-receiver.ts（SW 落库 + 入站归一化）—— 直接 import。
 //
-// 与 bridge-protocol.ts 同款：模板源码无法 import，只能靠常量插值保持一致。
+// 模板源码无法 import，只能靠常量插值保持一致。
 
 /** 消息信封标记：MAIN 捕获件 postMessage 与转发件 → SW 的 sendMessage 都用它 */
 export const NET_CAPTURE_TAG = '__dlNetCapture'

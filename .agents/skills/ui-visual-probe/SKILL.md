@@ -48,7 +48,7 @@ test('截图：<要看的那块>', async () => {
 })
 ```
 
-跑：`npm run build`（先出产物）→ `npx playwright test e2e/_probe.spec.ts` → **Read `tmp/probe.png`**。
+跑：`pnpm run build`（先出产物）→ `npx playwright test e2e/_probe.spec.ts` → **Read `tmp/probe.png`**。
 
 ## 四条要点
 
@@ -81,7 +81,7 @@ await page.reload() // 从库里读回，才看得到「靠落盘元数据渲染
 
 - **`getByText` 报 strict mode violation**：同一句话常在多处出现（用户气泡 + assistant 回复里的引用），
   加 `.first()`，或者改用具名 `data-testid` 定位。
-- **改了 class 要重跑 `npm run build`**：探针跑的是 `.output/chrome-mv3` 产物，不重建就一直在截旧样式。
+- **改了 class 要重跑 `pnpm run build`**：探针跑的是 `.output/chrome-mv3` 产物，不重建就一直在截旧样式。
 
 ## 收尾
 
