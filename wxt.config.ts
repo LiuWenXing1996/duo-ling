@@ -112,6 +112,9 @@ export default defineConfig({
     },
   }),
   manifest: {
+    // 含 _locales 时 Chrome 强制要求 default_locale（否则扩展加载报错）。当前仅 zh_CN，
+    // 浏览器语言不匹配时回退到此值。新增语言只需再加 src/public/_locales/<lang>/messages.json。
+    default_locale: 'zh_CN',
     name: '哆灵',
     description: '哆灵 AI 用户脚本工坊 · 扩展版（网页浮层对话 + 标签页工作台）',
     // 扩展 ID 固定：manifest 带 key 时 Chrome 用 SHA256(公钥) 派生 ID，不再按扩展目录的
