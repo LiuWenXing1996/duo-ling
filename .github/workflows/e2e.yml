@@ -38,6 +38,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # VM 运行时源码不入库（见 packages/gm-runtime/.gitignore），build:runtime 依赖它。
+      # 按 packages/gm-runtime/README.md 的配方拉取钉定版本 v2.49.0 到 vendor/violentmonkey。
+      - name: Fetch Violentmonkey runtime source
+        run: |
+          mkdir -p packages/gm-runtime/vendor/violentmonkey
+          git clone --depth 1 --branch v2.49.0 https://github.com/violentmonkey/violentmonkey /tmp/vm
+          cp -R /tmp/vm/src /tmp/vm/scripts /tmp/vm/babel.config.js /tmp/vm/package.json packages/gm-runtime/vendor/violentmonkey/
+
       # 构建生产产物（E2E fixture 加载 .output/chrome-mv3），同时生成 .wxt 类型
       - name: Build extension
         run: pnpm run build
