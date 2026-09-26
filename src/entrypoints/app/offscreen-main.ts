@@ -38,13 +38,14 @@ import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/usersc
 // XHRStart / LeaseBlob 命令）+ chrome.runtime.onConnect 监听（与 SW 的 callOffscreen 端口对上）。
 // 不能用静态 `import '@/public/...'`（public 下的文件不进 Vite 模块图，不会参与打包），故运行时以
 // <script> 注入 —— 与 SW 侧 importScripts 同构。包本身是 VM 自带的经典 IIFE（非 ESM），加载即执行副作用。
-void (() => {
-  const url = chrome.runtime.getURL('gm-runtime/offscreen.js')
+// 仅真实 offscreen 文档（有 DOM）才注入 VM 运行时包；Node 单测 import 本模块取前缀常量时
+// document 不存在，跳过以免 ReferenceError 炸掉协议一致性测试（与下方 `typeof chrome` 守卫同思路）。
+if (typeof document !== 'undefined') {
   const s = document.createElement('script')
-  s.src = url
+  s.src = chrome.runtime.getURL('gm-runtime/offscreen.js')
   s.async = false
   document.head.appendChild(s)
-})()
+}
 // 读侧项目列表（IndexedDB 同源直读，project-store 明确标注 offscreen 可用）：
 // 心跳的条件门——没有启用脚本就不 ping SW（上游 #45 保活心跳；不引 handleBuildCommand——
 // ai:build 命令面已被统一保存语义删除，见 project-write.saveSource）
