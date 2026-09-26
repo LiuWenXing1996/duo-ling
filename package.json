@@ -1,7 +1,7 @@
 {
   "name": "duoling-plugin",
   "private": true,
-  "version": "0.4.0-alpha.2",
+  "version": "0.5.0-alpha.1",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@11.9.0",
