@@ -47,6 +47,15 @@ import '../vendor/violentmonkey/src/background/utils/page-menu-commands'
 import '../vendor/violentmonkey/src/background/utils/popup-tracker'
 import '../vendor/violentmonkey/src/background/utils/offscreen'
 import '../vendor/violentmonkey/src/background/utils/download-via-api'
+import callOffscreen from '../vendor/violentmonkey/src/background/utils/offscreen'
+
+// SetClipboard：VM 只在 background/index.js 里注册它（MV3 → 转发 offscreen 文档内 execCommand('copy') 写
+// 剪贴板），本 entry 刻意不引 index.js，导致 dispatch 对 SetClipboard 静默返回 undefined ——
+// GM_setClipboard 的 bridge.post 是 fire-and-forget，调用不抛但剪贴板没变（2026-09-26 真机实测）。
+// 这里补上；src 照 VM 原样透传（sendCmdTo 的 fakeSrc 通道）。
+Object.assign(commands, {
+  SetClipboard: (data, src) => callOffscreen('SetClipboard', data, src),
+})
 
 export async function dispatch(msg, src) {
   if (init) return init.then(() => dispatch(msg, src))
