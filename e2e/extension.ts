@@ -50,6 +50,9 @@ export async function launchExtensionContext(userDataDir: string): Promise<Brows
   return chromium.launchPersistentContext(userDataDir, {
     channel: 'chromium',
     headless: true,
+    // 无头 Chromium 会给 http 页面套一层默认 CSP（拦 javascript: URL 与内联 script），
+    // 挡掉依赖内联注入的链路（如 gm-runtime 的 VM 注入件）—— 端测环境整体绕过。
+    bypassCSP: true,
     // 固定 locale：chrome://extensions WebUI 标签文案确定，DOM 匹配用
     locale: 'en-US',
     args: [

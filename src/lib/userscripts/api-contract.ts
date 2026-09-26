@@ -152,7 +152,7 @@ export interface FetchInit {
   requestId?: string
   /**
    * 要下载进度帧（`GM_xmlhttpRequest` 的 `onprogress`）。**缺省不推** —— 进度帧有成本，
-   * 只有脚本真给了 onprogress 才走流式读那条路（见 dl-bridge 的 readBodyStreaming）。
+   * 只有脚本真给了 onprogress 才走流式读那条路（自研桥的 readBodyStreaming 已随引擎废弃，流式读改由 VM 负责，见 Phase D）。
    */
   wantProgress?: boolean
   /** 进度帧的推送目标（包装层的 connId）；wantProgress 为真时必填 */
@@ -327,10 +327,6 @@ export type ApiRequest =
   | { c: 'fetch.abort'; requestId: string }
   // 剪贴板：走 offscreen 执行（免用户手势）+ 支持富文本（clipboardWrite 权限）
   | { c: 'clipboard.write'; text?: string; html?: string }
-  // 标签页级存储（对齐 GM_getTab 系列）：tabId 由 SW 从 sender.tab.id 取，脚本世界拿不到
-  | { c: 'tab.get' }
-  | { c: 'tab.save'; value: Json }
-  | { c: 'tab.all' }
   // 系统能力
   | { c: 'notify'; message: string; title?: string; icon?: string }
   /**
@@ -359,12 +355,6 @@ export type ApiRequest =
   // tabId 缺省 = 发起命令的那个标签页（`window.close` / `window.focus` 的落点）
   | { c: 'tabs.close'; tabId?: number }
   | { c: 'tabs.focus'; tabId?: number }
-  // 音频（`GM_audio`）：作用于**当前标签页**（由 sender.tab.id 定），脚本不必也不该传 tabId。
-  // watch / unwatch 是订阅登记 —— 只有登记过的连接才会收到 audio.change 下行（省掉无谓广播）。
-  | { c: 'audio.setMute'; isMuted: boolean }
-  | { c: 'audio.getState' }
-  | { c: 'audio.watch'; connId: string }
-  | { c: 'audio.unwatch'; connId: string }
   // cookie（需 manifest 的 cookies 权限；域名门见 cookie-gate.ts）
   //   url 必填 —— 缺省语义由包装层填 location.href（SW 里没有「当前页面」概念），
   //   SW 侧不做兜底：url 缺失/非法一律 INVALID_ARG，不静默猜。
@@ -390,22 +380,14 @@ export type ApiRequest =
   // 事件订阅（控制面走请求-响应；订阅归属由 connId 定位到脚本世界自己的那条 Port）
   | { c: 'store.watch'; key: string; connId: string }
   | { c: 'store.unwatch'; key: string; connId: string }
-  // 全量订阅（Port 级布尔）：**只读值的脚本也必须有下行通道**，否则同步快照跨 tab 永久陈旧。
-  // 与 store.watch 同构，但**故意不配退订命令** —— 「读过值即常驻订阅」这个前提决定了撤销它等于
-  // 把同步读退回陈旧状态（那是缺陷，不是能力），故这里只有 watchAll。
-  | { c: 'store.watchAll'; connId: string }
 
 /**
  * 命令名的**运行时登记表**（键即 `ApiRequest.c` 的全集）。
  *
- * 为什么需要它：命令的**发送侧**是 gm-wrapper.ts 里那段注入源码**字符串**
- * （`__gmSend({ c: 'store.get' … })`），命令名对 typecheck 完全不可见 —— 拼错、或改了 dispatch
- * 漏改包装层，编译与分层单测都不报。故这里立一份可在运行时枚举的登记表，
- * 由 api-commands.test.ts 从真实注入源码反射发送侧、与它双向比对。
- *
  * 形状取 `Record<ApiRequest['c'], true>` 是刻意的：键约束 + 对象字面量的多余属性检查，
  * 使「契约加了命令、表没跟上」与「表里写了不存在的命令」**都编译报错** ——
- * 本表不可能成为第二真相源，也与 `default` 里的穷尽性检查互补（那条管分发侧，这条管发送侧）。
+ * 本表不可能成为第二真相源。GM 能力的发送侧现已由 VM 内核注入（不再有 duo-ling 自研注入源码），
+ * 此登记表仅用于运行时枚举命令名与兜底校验。
  *
  * 顺序按字母（前缀天然成簇）；新增命令时在此与 `ApiRequest` 各加一行即可。
  */
@@ -432,17 +414,9 @@ export const API_COMMANDS: Record<ApiRequest['c'], true> = {
   'store.setMany': true,
   'store.unwatch': true,
   'store.watch': true,
-  'store.watchAll': true,
-  'tab.all': true,
-  'tab.get': true,
-  'tab.save': true,
   'tabs.close': true,
   'tabs.focus': true,
   'tabs.open': true,
-  'audio.getState': true,
-  'audio.setMute': true,
-  'audio.unwatch': true,
-  'audio.watch': true,
 }
 
 /** 命令名（= `ApiRequest['c']`；`API_COMMANDS` 的键类型） */
@@ -451,11 +425,10 @@ export type ApiCommand = ApiRequest['c']
 /**
  * 后台 → 脚本世界 的推送事件，经 Port 下行（帧信封见 ApiEventFrame）。
  * 来源：contextMenus.onClicked → menu.click；store.ts 写出口直发 → store.change；
- * notifications.onClicked → notify.click；tabs.onUpdated → audio.change；请求 / 下载的进度与结局
+ * notifications.onClicked → notify.click；请求 / 下载的进度与结局
  * （xhr.progress / download.change）由各自发起方在 SW 侧推。`port.ready` 是内部握手帧。
  *
- * （**没有 URL 变化事件**：URL 变化在页面本地检测——见 gm-wrapper 的 history hook——
- * 不经 SW 推，故这里没有对应的事件类型。）
+ * （**没有 URL 变化事件**：URL 变化在页面本地检测，不经 SW 推，故这里没有对应的事件类型。）
  */
 export type ApiEvent =
   /** 内部帧（脚本作者不感知）：SW 建立 Port 后立即下发，包装层据此 flush 待注册队列 */
@@ -472,11 +445,6 @@ export type ApiEvent =
   | { t: 'store.change'; key: string; value: Json; oldValue: Json; remote: boolean }
   /** 通知点击。id = SW 创建通知时 mint 的 notificationId（notify 响应返回） */
   | { t: 'notify.click'; id: string }
-  /**
-   * 当前标签页的静音 / 发声状态变化（`GM_audio.addStateChangeListener` 的触发源）。
-   * **只推给登记过 `audio.watch` 的连接**；字段含义见 GmAudioChangeEvent（muted 是原因字符串或 false）。
-   */
-  | { t: 'audio.change'; muted?: string | false; audible?: boolean }
   /**
    * 下载进度（`GM_xmlhttpRequest` 的 `onprogress`）：按 requestId 找到发起它的那次请求。
    * **只在该请求要了进度时推**（`FetchInit.wantProgress`）；`total` 为 null = 响应没有 content-length。
@@ -504,9 +472,10 @@ export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
 
 /**
  * 脚本世界 → 后台 的单向事件（不等待响应，区别于 ApiRequest 的请求-响应）。两种信封：
- *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报：包装的
- *     window.onerror / unhandledrejection 收进错误日志（runtime 库 errors store）；
- *   · `{ __dlRunStart: true, uuid, name, runId }` —— 运行标识广播：包装注入即 mint 一次
+ *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报（自研 GM 包装发出，
+ *     随引擎废弃改由 VM adapter 触发，见 Phase D）：window.onerror / unhandledrejection
+ *     收进错误日志（runtime 库 errors store）；
+ *   · `{ __dlRunStart: true, uuid, name, runId }` —— 运行标识广播（同上，VM adapter 触发，Phase D）：
  *     「一次页面加载 = 一次运行」的 runId。SW 交对话界面页面监控按 tab 登记、并落盘运行统计
  *     （runtime 库 stats store）与运行日志（runlog store，name 快照），补播按 runId 去重。
  *
@@ -588,9 +557,6 @@ export interface GmGlobalFns {
   GM_xmlhttpRequest(details: GmXhrDetails): GmXhrHandle
   GM_download(details: GmDownloadDetails | string, name?: string): { abort(): void }
   GM_openInTab(url: string, options?: boolean | GmOpenInTabOptions): GmTabHandle
-  GM_getTab(cb: (tab: Json | undefined) => void): void
-  GM_saveTab(tab: Json, cb?: () => void): void
-  GM_getTabs(cb: (tabs: Record<string, Json>) => void): void
   /**
    * 取 `@resource` 的**文本**内容。**同步**（内容随注入体内联 —— 与油猴一致，返回值不是 Promise）。
    * 名字未声明、或该资源抓取失败 → 返回 undefined 并记一条运行日志（**不抛**）。
@@ -618,8 +584,6 @@ export interface GmGlobalObjects {
   GM_info: GmInfo
   /** cookie 读写删（`@grant GM_cookie`；TM 口径下只在全局，`GM.*` 里不重复提供） */
   GM_cookie: GmCookieApi
-  /** 当前标签页的静音 / 发声控制（`@grant GM_audio`；`GM.*` 侧是 `GM.audio`） */
-  GM_audio: GmAudioApi
 }
 
 /** `GM_cookie` 全局对象（TM 口径；回调式，回调可省 → 返回 Promise 便于 await） */
@@ -665,43 +629,6 @@ export interface GmCookieWrite extends GmCookieQuery {
   expirationDate?: number
 }
 
-/** 当前标签页的音频状态（`GM_audio.getState`；字段形状照 TM，缺字段用 undefined 而非 false） */
-export interface GmAudioState {
-  isMuted?: boolean
-  /** 被静音的原因：user（用户点了静音）/ capture（标签捕获）/ extension（扩展所为） */
-  muteReason?: 'user' | 'capture' | 'extension'
-  isAudible?: boolean
-}
-
-/**
- * 音频状态变化事件（`GM_audio.addStateChangeListener` 的回调入参）。
- *
- * 注意 `muted` **不是布尔**而是「静音原因字符串，未静音时为 false」—— 照 TM 的 @types 原样
- * （脚本常写 `if ('muted' in e)` 判是静音变化还是发声变化，故字段缺失与 false 含义不同）。
- */
-export interface GmAudioChangeEvent {
-  muted?: string | false
-  audible?: boolean
-}
-
-/** `GM_audio` 全局对象（TM v5.0+；回调可省 → 返回 Promise 便于 await） */
-export interface GmAudioApi {
-  /** 设置当前标签页的静音状态 */
-  setMute(details: { isMuted: boolean }, cb?: (error?: string) => void): Promise<void>
-  /** 读当前标签页的音频状态（TM 里回调是必需的，这里许可省掉回调直接 await） */
-  getState(cb?: (state: GmAudioState) => void): Promise<GmAudioState>
-  /** 注册状态变化监听（**传监听函数本身**，TM 没有 id 机制） */
-  addStateChangeListener(
-    listener: (ev: GmAudioChangeEvent) => void,
-    cb?: (error?: string) => void,
-  ): Promise<void>
-  /** 注销：必须传**同一个函数引用**（同 TM） */
-  removeStateChangeListener(
-    listener: (ev: GmAudioChangeEvent) => void,
-    cb?: (error?: string) => void,
-  ): Promise<void>
-}
-
 /**
  * `GM.*` 命名空间（Promise 化形态）。
  *
@@ -711,13 +638,6 @@ export interface GmAudioApi {
  */
 export interface GmApiNamespace {
   info: GmInfo
-  /** 音频控制（`@grant GM_audio`；与全局 `GM_audio` 同一套方法，都返回 Promise） */
-  audio: {
-    setMute(details: { isMuted: boolean }): Promise<void>
-    getState(): Promise<GmAudioState>
-    addStateChangeListener(listener: (ev: GmAudioChangeEvent) => void): Promise<void>
-    removeStateChangeListener(listener: (ev: GmAudioChangeEvent) => void): Promise<void>
-  }
   /**
    * 命名资源取值。TM 的 `GM.*` 形态是 **getResourceText / getResourceUrl**
    * （Url 的小写 r/l 与全局名 `GM_getResourceURL` 不一致，照 TM 原样）。
@@ -752,97 +672,5 @@ export interface GmApiNamespace {
   xmlHttpRequest(details: GmXhrDetails): Promise<GmXhrResponse>
   download(details: GmDownloadDetails | string, name?: string): Promise<void>
   openInTab(url: string, options?: boolean | GmOpenInTabOptions): GmTabHandle
-  getTab(): Promise<Json | undefined>
-  saveTab(tab: Json): Promise<void>
-  getTabs(): Promise<Record<string, Json>>
-
-  // —— 以下为**哆灵扩展**（非油猴标准，速查页与自产 .d.ts 必须标注）——
-  /** 清空本脚本全部存储（标准里无对应物） */
-  clearValues(): Promise<void>
-  /** 激活指定标签页（标准里无对应物：TM 只有 GM_openInTab 返回句柄的 close()） */
-  focusTab(tabId: number): Promise<void>
-  /** 页面世界访问（本扩展独有能力，本地实现，不经桥） */
-  page: GmPageApi
 }
 
-// ————————————————————— GM.page（页面世界能力） —————————————————————
-
-/** GM.page 自有错误码（不走 SW 桥的 ApiErrorCode） */
-export type PageErrorCode =
-  | 'PAGE_STUB_UNAVAILABLE'
-  | 'HANDSHAKE_FAILED'
-  | 'TIMEOUT'
-  | 'PERMISSION_DENIED'
-
-/** 页面事件摘要（stub 转发，只含可克隆字段；detail 克隆失败置 null） */
-export interface PageEventSummary {
-  type: string
-  /** 键盘事件的 key，非键盘事件缺省 */
-  key?: string
-  detail: Json | null
-  timeStamp: number
-}
-
-/** 页面 fetch 调用摘要（fetchHook 转发；body 仅文本化尝试，失败置 null） */
-export interface PageFetchSummary {
-  url: string
-  method: string
-  /** 可克隆部分（Headers 实例尝试摊平，失败为空对象） */
-  headers: Record<string, string>
-  body: string | null
-}
-
-/** 脚本对 fetchHook 的裁决：透传原调用，或由 stub 构造 Response 返回页面 */
-export type PageFetchAction =
-  | { action: 'passthrough' }
-  | { action: 'respond'; status: number; headers?: Record<string, string>; body?: string }
-
-/**
- * 页面 fetch 响应摘要。
- * 仅在 fetchHook 传了 opts.onResponse 且裁决为 passthrough 时出现：stub 克隆真实响应、
- * 读 body 后转发（响应体超过上限会被截断，truncated=true）。respond 伪造响应时无真实响应，不回调。
- */
-export interface PageResponseSummary {
-  /** 关联的出站请求 URL（与 fetchHook 回调收到的 call.url 同源，用于多请求下区分归属） */
-  url: string
-  /** HTTP 状态码（与页面拿到的真实响应一致） */
-  status: number
-  statusText: string
-  /** 响应头（可克隆部分，Headers 实例摊平失败为空对象） */
-  headers: Record<string, string>
-  /** 响应体文本（等于页面实际收到的响应体，可能被截断） */
-  body: string
-  /** 响应体超过 1MB 被截断时为 true（仅取前 1MB） */
-  truncated?: boolean
-}
-
-export interface PageListenOptions {
-  /** 只转发 target 命中该选择器（或其祖先命中）的事件 */
-  selector?: string
-  /** 命中一次后自动注销 */
-  once?: boolean
-}
-
-/**
- * GM.page API 面（均返回 off()）。
- * - listen：监听页面事件
- * - fetchHook：拦截页面 fetch。传 opts.onResponse 即可在 passthrough 时被动拿到响应体
- *   （stub 克隆真实响应、读 body 后转发，页面拿到的仍是原响应，零额外请求、零封号风险）
- */
-export interface GmPageApi {
-  listen(
-    type: string,
-    handler: (ev: PageEventSummary) => void,
-    opts?: PageListenOptions,
-  ): Promise<() => void>
-  /**
-   * 拦截页面世界的 fetch 调用。
-   * @param handler 裁决函数，收 PageFetchSummary，回 PageFetchAction（passthrough / respond）
-   * @param opts.onResponse 可选。提供时，passthrough 的每一次真实响应都会经 PageResponseSummary 回调
-   *   （respond 伪造响应的场景无真实响应，不回调）。不提供则不读响应体，零开销。
-   */
-  fetchHook(
-    handler: (call: PageFetchSummary) => PageFetchAction | Promise<PageFetchAction>,
-    opts?: { onResponse?: (resp: PageResponseSummary) => void },
-  ): Promise<() => void>
-}

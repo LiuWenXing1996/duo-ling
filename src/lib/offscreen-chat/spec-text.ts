@@ -76,16 +76,9 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
    \`responseType\` 只支持 text / json / arraybuffer / blob。
 5. \`unsafeWindow\` 就是**页面自己的 window**（脚本运行在页面主世界）：站点自定义的全局
    （框架实例、\`window.xxx\`）可直接读写，也能往页面上挂自己的东西。
-6. \`GM.page.*\` 页面世界能力（**哆灵扩展，非油猴标准**）：
-   - \`GM.page.listen(type, handler, opts?)\` 监听页面事件（摘要 { type, key?, detail, timeStamp }）；
-   - \`GM.page.fetchHook(fn, opts?)\` 拦截页面 fetch，fn 收 { url, method, headers, body }，回
-     { action: 'passthrough' } 或 { action: 'respond', status, headers?, body? }；传 opts.onResponse 可在
-     passthrough 时被动拿到真实响应体，零额外请求。
-   - **hook 拦的是页面世界（MAIN）的 fetch**。脚本自身也运行在这个世界，所以**脚本自己发的请求
-     同样会被拦到**——不想拦自己发的，在 handler 里按 URL 过滤掉。
-7. \`allFrames\` 默认 true：脚本可能在同页多个 frame 各跑一次，初始化逻辑要幂等（\`@noframes\` 可关）。
-8. 生成的脚本**不会自动生效**——先落盘为未启用状态，由用户确认后启用。不要假设「已经跑起来了」。
-9. 脚本运行在**页面主世界**：能不能用 \`eval\` / \`new Function\` 取决于**目标站点自己的 CSP**，
+6. \`allFrames\` 默认 true：脚本可能在同页多个 frame 各跑一次，初始化逻辑要幂等（\`@noframes\` 可关）。
+7. 生成的脚本**不会自动生效**——先落盘为未启用状态，由用户确认后启用。不要假设「已经跑起来了」。
+8. 脚本运行在**页面主世界**：能不能用 \`eval\` / \`new Function\` 取决于**目标站点自己的 CSP**，
    本扩展不再拦。别依赖动态代码生成（如 ajv 的编译校验器、Vue 的运行时模板编译器）——
    站点一旦收紧 CSP，这类代码会在目标页静默失败，排查成本极高。
 
@@ -95,7 +88,6 @@ ${renderCapabilities()}
 
 \`GM.*\` 是本批能力的 Promise 化形态（如 \`await GM.getValue(key)\`，每次回后台读、永远最新）；
 **\`GM.*\` 下没有 cookie**（按 Tampermonkey 口径），cookie 只用 \`GM_cookie\`。
-标着「哆灵扩展，标准里无对应物」的条目不是油猴标准，按本扩展的实现写。
 **用 \`GM_getResourceText\` / \`GM_getResourceURL\` 之前，必须先在头部声明 \`@resource 名字 地址\`** ——
 声明即预加载（内容随注入体一起就绪，所以这两个是**同步** API）；没声明的名字取到 undefined。
 
@@ -103,6 +95,7 @@ ${renderCapabilities()}
 - \`@connect\` 白名单（本扩展的跨域请求不需要声明）
 - \`GM_xmlhttpRequest\` 的 \`responseType: 'stream'\`（TM 有、本扩展暂无）
 - 同步 \`GM_xmlhttpRequest\`：TM 官方也明确不支持；\`responseType\` 的合法值只有 arraybuffer / blob / json / stream
+- 以下 TM / GM4 标准 API **本运行时（Violentmonkey 内核）不提供**，写了也不会生效：\`GM_getTab\` / \`GM_saveTab\` / \`GM_getTabs\`（标签页级存储）、\`GM_audio\`（v5.0+ 音频控制）、\`window.onurlchange\`（SPA 路由变化）—— 标准油猴脚本若依赖它们，在本扩展下会 ReferenceError 或取不到。
 
 ## \`@grant\` 怎么写
 

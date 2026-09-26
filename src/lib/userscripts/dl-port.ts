@@ -8,9 +8,9 @@
 //       dlPorts    Map<Port, {uuid, connId, tabId}>   连接寻址（menu.click 路由主键 = tabId）
 //       watches    Map<Port, Set<key>>                订阅跟随 Port 生命周期，断开自动清理
 //       notifyMap  Map<notificationId, uuid>          通知点击归属（内存，SW 重启窗口内点击丢失——已拍板接受）
-//   · 三个事件来源：contextMenus.onClicked / GM 值存储 写出口（store.ts 的 onGmValueChange，
-//     原为 storage.onChanged，GM 值存储 迁 duoling-usdata 后改为直发）/ notifications.onClicked。
-//   · 控制面（注册 / 注销 / 订阅）走 sendMessage 请求-响应（dl-bridge dispatch 调本文件导出的
+//   · 事件来源（GM 值变更已归 VM 内核原生处理，不再经这里下行）：contextMenus.onClicked /
+//     notifications.onClicked。
+//   · 控制面（注册 / 注销 / 订阅）走 sendMessage 请求-响应（事件底座函数现由 VM adapter 在 Phase D 调用；
 //     函数），Port 只承载下行推送帧 —— 控制面/数据面分离。
 //
 // 幂等（拍板修正）：contextMenus 注册持久于浏览器会话，SW 重启后脚本重放 menu.register 会撞
@@ -20,7 +20,6 @@
 // 竞态（connect → onConnect 就绪窗口）：SW 建立连接后立即下发 { t:'port.ready' } 内部帧，
 // 脚本包装层收到它才 flush 待注册队列 —— 见 engine.ts 包装层，脚本作者不感知。
 import type { ApiEvent, ApiEventFrame } from './api-contract'
-import { onGmValueChange } from './store'
 
 // —— 纯逻辑：解析与注册表（node 单测直接覆盖，不 mock chrome）——
 
@@ -53,14 +52,6 @@ export class DlPortRegistry {
   private ports = new Map<chrome.runtime.Port, DlPortMeta>()
   private watches = new Map<chrome.runtime.Port, Set<string>>()
   private notifyMap = new Map<string, string>()
-  /**
-   * 全量值订阅（`store.watchAll`）：Port 级布尔。
-   * 存在理由：只读值的脚本从不键级订阅，若不给它一条全量通道，别的标签页改的值它永远收不到，
-   * 同步快照会整个页面生命周期陈旧（见 gm-wrapper.ts 的 `__gmEnsureChannel`）。
-   */
-  private valueWatchers = new Set<chrome.runtime.Port>()
-  /** 登记过音频订阅（`GM_audio.addStateChangeListener`）的 Port —— 见 portsForAudioWatch */
-  private audioWatchers = new Set<chrome.runtime.Port>()
 
   addPort(port: chrome.runtime.Port, meta: DlPortMeta): void {
     this.ports.set(port, meta)
@@ -71,7 +62,6 @@ export class DlPortRegistry {
   removePort(port: chrome.runtime.Port): void {
     this.ports.delete(port)
     this.watches.delete(port)
-    this.valueWatchers.delete(port)
   }
 
   /** 该 Port 的连接身份（判 `store.change` 的 remote 用：与发起写者同 connId = 本实例自己写的） */
@@ -142,53 +132,6 @@ export class DlPortRegistry {
     return this.notifyMap.get(notificationId) ?? null
   }
 
-  /** 挂全量值订阅。找不到该 connId 的 Port（连接未就绪）返回 false，由调用方抛错 */
-  attachValueWatch(uuid: string, connId: string): boolean {
-    const targets = this.portsByConnId(uuid, connId)
-    if (!targets.length) return false
-    for (const port of targets) this.valueWatchers.add(port)
-    return true
-  }
-
-  detachValueWatch(uuid: string, connId: string): void {
-    for (const port of this.portsByConnId(uuid, connId)) this.valueWatchers.delete(port)
-  }
-
-  /** 某脚本上已开全量值订阅的全部 Port（任意键变更都要推给它） */
-  portsForValueChange(uuid: string): chrome.runtime.Port[] {
-    const out: chrome.runtime.Port[] = []
-    for (const [port, m] of this.ports) {
-      if (m.uuid === uuid && this.valueWatchers.has(port)) out.push(port)
-    }
-    return out
-  }
-
-  // —— 音频状态订阅（`GM_audio.addStateChangeListener`）——
-  //
-  // 与值订阅同构，但**按 tab 定位**：音频状态是「当前标签页」的属性，SW 收到
-  // chrome.tabs.onUpdated 时按 tabId 找订阅者。没登记就不推（音频变化可能很频繁，
-  // 不该往每个 tab 的每条连接都广播）。
-
-  /** 挂音频订阅（同 attachValueWatch：连接未就绪返回 false，由调用方决定怎么办） */
-  attachAudioWatch(uuid: string, connId: string): boolean {
-    const targets = this.portsByConnId(uuid, connId)
-    if (!targets.length) return false
-    for (const port of targets) this.audioWatchers.add(port)
-    return true
-  }
-
-  detachAudioWatch(uuid: string, connId: string): void {
-    for (const port of this.portsByConnId(uuid, connId)) this.audioWatchers.delete(port)
-  }
-
-  /** 某标签页里登记过音频订阅的 Port（audio.change 的推送目标） */
-  portsForAudioWatch(tabId: number): chrome.runtime.Port[] {
-    const out: chrome.runtime.Port[] = []
-    for (const [port, m] of this.ports) {
-      if (m.tabId === tabId && this.audioWatchers.has(port)) out.push(port)
-    }
-    return out
-  }
 }
 
 /** 向单条 Port 推一帧 ApiEvent；Port 已断时静默摘除（postMessage 可能抛 disconnected） */
@@ -203,7 +146,7 @@ export function pushEvent(registry: DlPortRegistry, port: chrome.runtime.Port, e
 
 // —— chrome 接线（SW 侧，只在 defineBackground 回调内调用）——
 
-/** 模块级单例：dl-bridge 的 dispatch（控制面）与事件监听器共用同一张注册表 */
+/** 模块级单例：VM adapter（Phase D）的 dispatch（控制面）与事件监听器共用同一张注册表 */
 let registrySingleton: DlPortRegistry | null = null
 
 /** 取注册表单例（控制面函数与监听器共用；未初始化时惰性创建） */
@@ -212,7 +155,7 @@ export function getDlPortRegistry(): DlPortRegistry {
   return registrySingleton
 }
 
-// —— 控制面（dl-bridge dispatch 调用；ApiRequest 的 menu.* / store.watch / store.unwatch）——
+// —— 控制面（VM adapter 在 Phase D 调用；menu.* / store.watch / store.unwatch）——
 
 /**
  * 登记扩展菜单项（GM_registerMenuCommand 的后台实现）。
@@ -259,34 +202,9 @@ export function detachScriptWatch(uuid: string, connId: string, key: string): vo
   getDlPortRegistry().detachWatch(uuid, connId, key)
 }
 
-/** 挂全量值订阅（控制面，ApiRequest store.watchAll）；Port 未就绪返回 false（竞态防御） */
-export function attachValueWatch(uuid: string, connId: string): boolean {
-  return getDlPortRegistry().attachValueWatch(uuid, connId)
-}
-
-export function detachValueWatch(uuid: string, connId: string): void {
-  getDlPortRegistry().detachValueWatch(uuid, connId)
-}
-
-// —— 音频状态订阅（控制面，ApiRequest audio.watch / audio.unwatch）——
-
-/** 挂音频订阅；Port 未就绪返回 false（竞态防御，同 attachValueWatch） */
-export function attachAudioWatch(uuid: string, connId: string): boolean {
-  return getDlPortRegistry().attachAudioWatch(uuid, connId)
-}
-
-export function detachAudioWatch(uuid: string, connId: string): void {
-  getDlPortRegistry().detachAudioWatch(uuid, connId)
-}
-
-/** 某标签页里登记过音频订阅的 Port（SW 收到 tabs.onUpdated 时用） */
-export function portsForAudioWatch(tabId: number): chrome.runtime.Port[] {
-  return getDlPortRegistry().portsForAudioWatch(tabId)
-}
-
 /**
  * 「帧推给谁」的兜底告警：命中 0 个连接意味着**脚本侧没建下行通道**（只调 GM_xmlhttpRequest /
- * GM_download 而不读值、不注册菜单、不订阅音频的脚本就是这样），帧会被静默丢掉，脚本侧只看到
+ * GM_download 而不读值、不注册菜单的脚本就是这样），帧会被静默丢掉，脚本侧只看到
  * 「回调永不触发」—— 2026-09-22 真机踩过，查了两轮才定位。
  *
  * 按连接只喊一次（否则每次推帧都刷屏）；SW 重启后集合归零，能再喊一遍。
@@ -298,14 +216,14 @@ function warnNoPort(kind: string, uuid: string, connId?: string): void {
   if (noPortWarned.has(key)) return
   noPortWarned.add(key)
   console.warn(
-    `[duoling:dl] ${kind} 帧无处可推：该脚本没有下行通道（它从未读值 / 注册菜单 / 订阅音频 / 用带回调的通知）。` +
+    `[duoling:dl] ${kind} 帧无处可推：该脚本没有下行通道（它从未读值 / 注册菜单 / 用带回调的通知）。` +
       `请求本身会照常完成，但脚本的回调收不到。uuid=${uuid}`,
   )
 }
 
 /**
  * 推一帧下载进度（`GM_xmlhttpRequest` 的 `onprogress`）给**发起该请求的连接**。
- * 按 uuid + connId 定位（与 audio.watch 同款寻址）；找不到（连接已断）就丢弃 —— 请求照常走完，
+ * 按 uuid + connId 定位；找不到（连接已断）就丢弃 —— 请求照常走完，
  * 进度只是锦上添花，不该因为它没推到而报错。
  */
 export function pushFetchProgress(
@@ -350,7 +268,7 @@ export function mintNotification(uuid: string): string {
 
 /**
  * 挂载 DL Port 全部监听（幂等由 chrome API 语义保证：重复 addListener 会重复触发，
- * 因此只允许在 SW 初始化路径调用一次——与 initDlBridge 同惯例）。
+ * 因此只允许在 SW 初始化路径调用一次——与 initNetCaptureReceiver 同惯例）。
  */
 export function initDlPort(): void {
   // 关键坑：userScripts 世界的 connect() 触发的是**专用事件** runtime.onUserScriptConnect，
@@ -367,7 +285,7 @@ export function initDlPort(): void {
   onScriptConnect.addListener((port) => {
     const parsed = parseDlPortName(port.name)
     if (!parsed) return // 非 DL Port（panel 等各自的监听器处理）
-    // 身份校验：与 dl-bridge 同款 —— sender.userScript 缺省时跳过（沿用旧 GM 桥实测结论）
+    // 身份校验：与脚本消息桥同款 —— sender.userScript 缺省时跳过（沿用旧 GM 桥实测结论）
     const scriptId = (port.sender as { userScript?: { scriptId?: string } } | undefined)?.userScript?.scriptId
     if (scriptId && scriptId !== parsed.uuid) {
       port.disconnect()
@@ -390,48 +308,6 @@ export function initDlPort(): void {
     if (!parsed || tab?.id == null) return
     const ports = registry.portsForMenuClick(parsed.uuid, tab.id)
     for (const port of ports) pushEvent(registry, port, { t: 'menu.click', id: parsed.menuId })
-  })
-
-  // 事件源 ②：值变更 → 推给订阅者。原经 storage.onChanged 兜底（落 chrome.storage 时代），
-  // 迁 duoling-usdata 库后 IDB 无变更通知，改为订阅 store.ts 的写出口直发（写入口仍收敛在
-  // store.ts 那几个函数，写+发不分离）。删除语义：deleted = true 时帧上 value 置 null。
-  //
-  // 两类订阅者并集：键级（store.watch）+ 全量（store.watchAll 给只读脚本的通道）。
-  // 同一 Port 可能同时命中两类 → 用 Set 去重，否则它会收到重复帧。
-  // remote：与发起写的实例同 connId 即「本实例自己写的」（false）；无 connId（后台内部写）算 true。
-  onGmValueChange(({ uuid, key, deleted, value, oldValue, writerConnId }) => {
-    const frameValue = (deleted ? null : value) as import('./api-contract').Json
-    const frameOldValue = (oldValue === undefined ? null : oldValue) as import('./api-contract').Json
-    const targets = new Set([
-      ...registry.watchersForKey(uuid, key),
-      ...registry.portsForValueChange(uuid),
-    ])
-    for (const port of targets) {
-      pushEvent(registry, port, {
-        t: 'store.change',
-        key,
-        value: frameValue,
-        oldValue: frameOldValue,
-        remote: !writerConnId || registry.connIdOf(port) !== writerConnId,
-      })
-    }
-  })
-
-  // 事件源：当前标签页的音频状态变化（GM_audio.addStateChangeListener）→ 只推给**登记过订阅**的连接。
-  // 只在 mutedInfo / audible 出现时才推：tabs.onUpdated 对加载进度也触发，不筛会产生大量无用帧。
-  // muted 字段照 TM：值是**静音原因字符串**（user/capture/extension），未静音时为 false（不是 boolean）。
-  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo.mutedInfo === undefined && changeInfo.audible === undefined) return
-    const targets = registry.portsForAudioWatch(tabId)
-    if (!targets.length) return
-    const info = changeInfo.mutedInfo
-    for (const port of targets) {
-      pushEvent(registry, port, {
-        t: 'audio.change',
-        ...(info ? { muted: info.muted ? (info.reason ?? 'user') : false } : {}),
-        ...(changeInfo.audible !== undefined ? { audible: changeInfo.audible } : {}),
-      })
-    }
   })
 
   // 事件源 ③：通知点击。SW 重启丢失映射时事件丢弃（拍板 ③：接受，不落盘）

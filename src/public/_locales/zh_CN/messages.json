@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "哆灵",
+    "description": "扩展名。右键菜单根标题与少数通知标题用（VM 内核 i18n('extName')）。"
+  },
+  "labelNoName": {
+    "message": "未命名脚本",
+    "description": "脚本未写 @name 时的兜底标题（VM getScriptName 的第 ③ 兜底，极罕见露面）。"
+  }
+}

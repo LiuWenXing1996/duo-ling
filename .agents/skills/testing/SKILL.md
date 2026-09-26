@@ -7,10 +7,10 @@ description: Use when writing, fixing, or debugging tests in this repo — choos
 
 本 skill 管**测试怎么写**。命令与 CI 组成见 [AGENTS.md](../../../AGENTS.md)「常用命令」与 [GIT_WORKFLOW.md](../../../GIT_WORKFLOW.md)。
 
-- `npm run test` → Vitest **双 project**（配置见 `vitest.config.ts`）：
+- `pnpm run test` → Vitest **双 project**（配置见 `vitest.config.ts`）：
   - **logic**（node 环境）：`src/lib/**/*.test.ts` 等纯逻辑测试；
   - **component**（happy-dom 环境）：`*.component.test.ts` 组件测试。
-- `npm run test:e2e` → Playwright 端测（`e2e/*.spec.ts`，无头、单 worker 串行）：跑 **`.output/chrome-mv3` 产物**（**先 `npm run build`**）、Playwright 捆绑 Chromium。除冒烟 `smoke.spec.ts` 外，按面拆分的还有编辑器交互 `editor.spec.ts`、GM 矩阵 `gm-matrix.spec.ts`、假模型对话 `chat-stub.spec.ts`、会话归属 `conversation-scope.spec.ts`、AI 生成 `agent-generate.spec.ts`。
+- `pnpm run test:e2e` → Playwright 端测（`e2e/*.spec.ts`，无头、单 worker 串行）：跑 **`.output/chrome-mv3` 产物**（**先 `pnpm run build`**）、Playwright 捆绑 Chromium。除冒烟 `smoke.spec.ts` 外，按面拆分的还有编辑器交互 `editor.spec.ts`、GM 矩阵 `gm-matrix.spec.ts`、假模型对话 `chat-stub.spec.ts`、会话归属 `conversation-scope.spec.ts`、AI 生成 `agent-generate.spec.ts`。
 
 ## 测试三件套（新增一个面板 / 一条链路时）
 
@@ -44,20 +44,18 @@ description: Use when writing, fixing, or debugging tests in this repo — choos
 
 ## 防漂移四处（新增 / 改动 GM API 时）
 
-GM API 的真身散在四处，任一处漏改都不会编译报错，故各有测试兜：
+GM API 的真相源在 **Violentmonkey 内核**；duo-ling 侧需同步的元数据散在四处，任一处漏改都不会编译报错，故各有测试兜：
 
 | 面 | 位置 | 兜它的测试 |
 | --- | --- | --- |
-| 契约：命令名 + 类型 | `api-contract.ts` 的 `ApiRequest` + `API_COMMANDS` | 类型层：`Record<ApiRequest['c'], true>` 两向约束（少一条 / 多一条都编译红） |
-| 注入侧：包装真身 | `gm-wrapper.ts` 的装配块与命令发送 | `api-commands.test.ts`（反射**生成的注入源码** ↔ 登记表双向） |
-| 展示侧：工作台面板 | `gm-api-catalog.ts` | `gm-api-catalog.test.ts`（反射装配块 ↔ 目录双向） |
-| 真机侧：手测矩阵 | `uscript-samples/gm-matrix/script.js` 顶部的 `@covers` 登记表 | `gm-api-coverage.test.ts`（目录 ↔ 登记表双向）；同一条矩阵另由 `e2e/gm-matrix.spec.ts` 在无头 CI 上自动跑（读同一份源码，人工两项用 Playwright 代做） |
+| 数据 + 类型：grant → 成员、GM 形态视图 | `gm-grants.ts`（纯数据，grant 名 → 它开启的成员）＋ `api-contract.ts`（`GM_*` / `GM.*` 形态 TS 视图——仅 duo-ling 实现的那部分能力：GM_cookie / GM_xmlhttpRequest / GM_download 等；标准 GM 由 VM 真身） | `gm-api-coverage.test.ts` 的 `DECLARED_PATHS` ↔ 目录双向；`spec-text.test.ts` 要求规范点名的成员都落在目录或登记为 `KNOWN_UNSUPPORTED` |
+| 展示：工作台速查页 + AI 规范能力清单 | `gm-api-catalog.ts` | `gm-api-catalog` 相关单测（反射装配块 ↔ 目录双向）；`spec-text.test.ts` 对齐 |
+| 真机：手测矩阵 | `uscript-samples/gm-matrix/script.js` 顶部的 `@covers` 登记表 | `gm-api-coverage.test.ts`（目录 ↔ 登记表双向，且要求 `@covers` 路径恰好覆盖目录、目录每条都被认领）；同一条矩阵另由 `e2e/gm-matrix.spec.ts` 在无头 CI 自动跑（读同一份源码） |
+| 规范文本：教 AI 写 `@grant` 清单 | `offscreen-chat/spec-text.ts` | `spec-text.test.ts`（点名的成员必须落在目录或 `KNOWN_UNSUPPORTED`；`KNOWN_UNSUPPORTED` 即 VM 不提供的 TM / GM4 标准 API） |
 
 **要验「需要 AI 回一句」的项**（会话归属 / 生成结果 / 修订…）：端测里用 `e2e/model-stub.ts` 的本地假模型服务顶替真模型 —— 经 `window.api.model.save/ setActive` 指到它，`chat:start` 即可跑完且回复内容由测试写死（见 `e2e/chat-stub.spec.ts`）。CI 里没有也不该有真 key。
 
-新增一条 API 的完整动作：① `ApiRequest` 加一项 + `API_COMMANDS` 加一行（类型层盯着这里，忘加就编译红）；
-② `gm-wrapper.ts` 挂成员并发命令；③ `gm-api-catalog.ts` 加条目（标题 / 签名 / 说明 / 返回）；
-④ 矩阵探针加一条用例 + `@covers` 认领一行。四处齐了 `npm run test` 才绿。
+新增一条 **duo-ling 实现**的 API（标准 GM 由 VM 内核提供，不在本表范围）完整动作：① `gm-grants.ts` 加 grant → 成员映射（恒注入的再进 `ALWAYS_*`）；② `api-contract.ts` 加 `ApiRequest` 命令（类型层盯防）；③ `gm-api-catalog.ts` 加展示条目（标题 / 签名 / 说明 / 返回）；④ `uscript-samples/gm-matrix/script.js` 加用例 + `@covers` 认领；⑤ 若需教 AI 写 `@grant`，在 `spec-text.ts` 点名它。四处（目录 / 展示 / 真机 / 规范）齐了 `pnpm run test` 才绿。
 
 **反射的写法**（三处同一套）：读源码文本 → 按锚点注释切片 → 正则提取 → 与另一侧双向比对。
 两条纪律：① 必须有一条「反射真的取到了」的断言，否则锚点失效会退化成**两边都空的假绿**；
@@ -75,7 +73,7 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 - 判据：动作路径上凡有一道**真实边界**（iframe / 进程 / 网络 / 存储），测试就该真穿过去；模拟只留给边界之外 —— 比如打开浮层的发起方是 popup，那一侧由组件测试兜，e2e 里用消息代过没问题。
 - 消息契约本身仍值得单独验（`float:open` / `float:collapse` 两端都要有覆盖），但它替代不了点真控件那一跳。
 
-**端测 spec 曾被类型检查漏在外面**（2026-09-22 已补）：Playwright 走 esbuild **只转译、不检查类型**，而根 `tsconfig.json` 的 `include` 原先只有 `src/**` —— spec 里写错类型不会被任何门禁拦住，只有真跑才暴露（当时的实例：一条用例假定上一条留下了某个弹窗状态，实际没有，白等了一次 120s 超时）。现在 `include` 已含 `e2e/**/*`，`npm run typecheck` 一并检查；往 `e2e/` 加代码时不必另配 tsconfig。
+**端测 spec 曾被类型检查漏在外面**（2026-09-22 已补）：Playwright 走 esbuild **只转译、不检查类型**，而根 `tsconfig.json` 的 `include` 原先只有 `src/**` —— spec 里写错类型不会被任何门禁拦住，只有真跑才暴露（当时的实例：一条用例假定上一条留下了某个弹窗状态，实际没有，白等了一次 120s 超时）。现在 `include` 已含 `e2e/**/*`，`pnpm run typecheck` 一并检查；往 `e2e/` 加代码时不必另配 tsconfig。
 
 ## 探针
 
@@ -88,4 +86,4 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 - **要驱动真实指针序列就别用合成事件**：`mouse.move(起点) → down() → move(终点, { steps: 8 }) → up()`。断言优先抓**不变量**（「开合状态没被误切换」）而不是绝对坐标—— 绝对坐标只能证明「数值等于我以为的公式」，不变量才能抓住行为回归。（本仓当前没有拖拽类交互，这条留作手势类测试的写法。）
 - **屏幕坐标与「距视口边距」差一个视口宽**：样式里定位写 `right` / `bottom`（距视口右 / 下）时，断言里 `rect.right` 得换算成 `视口宽 − right`，别拿指针落点直接比（2026-09-22 连栽两次，两次都长得像"实现坏了"）。真怀疑时加一条**故意失败的断言**把实际值回显出来（`expect({ 实际 }).toEqual({ 标记: 'debug' })`）——比 `console.log` 可靠：vitest 会把普通输出折叠掉，而 diff 一定显示。
 
-**要长期复用的探针**（人工点一次出结论的那种）放 `uscript-samples/`：`npm run pack:uscripts` 打成一包，扩展「脚本列表 → 导入」直接吃；**用法、要人动手的项与覆盖登记都写在探针文件的头部注释里**（例：`gm-matrix/script.js` 顶部有用法、四项人工动作、三态判读与 `@covers` 登记表）。
+**要长期复用的探针**（人工点一次出结论的那种）放 `uscript-samples/`：`pnpm run pack:uscripts` 打成一包，扩展「脚本列表 → 导入」直接吃；**用法、要人动手的项与覆盖登记都写在探针文件的头部注释里**（例：`gm-matrix/script.js` 顶部有用法、四项人工动作、三态判读与 `@covers` 登记表）。

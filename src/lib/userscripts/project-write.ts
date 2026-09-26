@@ -141,7 +141,7 @@ export async function createProject(): Promise<ScriptProject> {
 /**
  * AI 生成脚本落盘：
  * 收 name / config / code + enabled（默认 false）。
- * **不调用 registerScript**——「生成」与「生效」解耦，AI 产物默认零影响；
+ * **不调用 vmInstallScript**——「生成」与「生效」解耦，AI 产物默认零影响；
  * git 提交 note = AI summary（us-git 已支持，正好是提交信息）。
  */
 export async function createGeneratedProject(payload: {
@@ -153,8 +153,14 @@ export async function createGeneratedProject(payload: {
 }): Promise<ScriptProject> {
   const name = payload.name.trim()
   if (!name) throw new Error('脚本名称不能为空')
-  if (!payload.config.matches?.length) throw new Error('匹配规则（matches）至少一条')
+  // code 类型守卫必须置于解析之前：resolveConfigFromSource 内部 parseUserScriptMetadata 会
+  // 对 code 做 .split，code 非字符串（如 undefined）会先崩在内部，到不了下面的中文报错。
   if (typeof payload.code !== 'string') throw new Error('脚本源码必须是字符串')
+  // matches 可来自调用方给定的 config，也可来自源码的 @match 块：先归一化一次再校验，
+  // 避免「config 缺省但源码带了 @match」被误判为无匹配（resolveConfigFromSource 以源码为准）。
+  // config 缺省时交给源码归一化（applyMetadataToConfig 对 fallback 全程 ?? 兜底，不会崩）。
+  const resolvedConfig = resolveConfigFromSource(payload.code, payload.config).config
+  if (!resolvedConfig.matches.length) throw new Error('匹配规则（matches）至少一条')
   const ts = Date.now()
   const uuid = crypto.randomUUID()
   const outcome = await saveSource(uuid, payload.code, {
@@ -262,7 +268,7 @@ export async function renameProject(uuid: string, name: string): Promise<ScriptP
  *
  * 导入侧不是「校验 + 淘汰」，而是「尽量落盘 + 报告说明」——
  *  · 解码层配置由源码里的 `// ==UserScript==` 块派生（无块按默认配置），只剩「缺 script.js 源码文件」跳过；
- *  · matches 非法：不在这里拦（启用时 registerScript 会以中文报错，导入后可在编辑器改）。
+ *  · matches 非法：不在这里拦（启用时 vmInstallScript 会以中文报错，导入后可在编辑器改）。
  * 导入默认值：uuid 重生成、enabled 恒 false（先审后启）、保留原名（名字不拦重复，uuid 才是标识）。
  */
 export async function importScriptsZip(zipBase64: string): Promise<ImportReport> {

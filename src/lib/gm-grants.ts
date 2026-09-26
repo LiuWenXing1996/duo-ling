@@ -1,8 +1,8 @@
 // `@grant` 面的**纯数据单一来源**：grant 名 → 它开启的成员，以及「恒注入、不属于任何 grant」的成员。
 //
-// 三个消费方：注入侧（userscripts/gm-wrapper.ts 按它裁剪注入面）、展示侧（gm-api-catalog.ts 的速查页）、
-// 规范侧（offscreen-chat/spec-text.ts 教 AI 怎么写 @grant 清单）。谁 import gm-wrapper 都会把注入链路
-// （gm-wrapper 与注册链路）拖进产物，故抽成这份零依赖纯数据。
+// 三个消费方：注入侧（VM 接管后由 VM 按它裁剪注入面，原 gm-wrapper 已随 P4 删除）、
+// 展示侧（gm-api-catalog.ts 的速查页）、规范侧（offscreen-chat/spec-text.ts 教 AI 怎么写 @grant 清单）。
+// 本模块保持零依赖纯数据：GM 真身由 VM 注入，避免把注入链路拖进首屏产物。
 //
 // 对齐 TM：一个 grant 同时开全局与 `GM.*` 两种形态（例外见下）；`GM_cookie` 依 TM 口径不进 `GM.*`（故 `ns: []`）；
 // `window.close` / `window.focus` 开的是 window 属性，两种形态都不涉及。
@@ -31,12 +31,7 @@ export const GRANT_MEMBERS: Record<string, { globals: string[]; ns: string[] }> 
   GM_xmlhttpRequest: { globals: ['GM_xmlhttpRequest'], ns: ['xmlHttpRequest'] },
   GM_download: { globals: ['GM_download'], ns: ['download'] },
   GM_openInTab: { globals: ['GM_openInTab'], ns: ['openInTab'] },
-  GM_getTab: { globals: ['GM_getTab'], ns: ['getTab'] },
-  GM_saveTab: { globals: ['GM_saveTab'], ns: ['saveTab'] },
-  GM_getTabs: { globals: ['GM_getTabs'], ns: ['getTabs'] },
   GM_cookie: { globals: ['GM_cookie'], ns: [] },
-  // 音频控制（TM v5.0+）：对象型全局，`GM.*` 侧是 GM.audio（与 GM_cookie 不同，TM 给了这个镜像）
-  GM_audio: { globals: ['GM_audio'], ns: ['audio'] },
   // 命名资源（TM：`@resource` 声明即预加载，内容随注入体就绪）。
   // 注意 `GM.*` 形态是 **getResourceText / getResourceUrl** —— Url 的小写 r/l 照 TM 原样，不是笔误。
   GM_getResourceText: { globals: ['GM_getResourceText'], ns: ['getResourceText'] },
@@ -52,16 +47,17 @@ export const GRANT_MEMBERS: Record<string, { globals: string[]; ns: string[] }> 
 /** 恒注入、不需要 `@grant` 的全局（对齐 TM：`GM_info` / `unsafeWindow` 无需声明） */
 export const ALWAYS_GLOBALS = ['GM_info', 'unsafeWindow'] as const
 
-/** 恒注入的 `GM.*` 成员：`info` + 本扩展成员（非标准，不属于任何 grant） */
-export const ALWAYS_NS = ['info', 'clearValues', 'focusTab', 'page'] as const
+/** 恒注入的 `GM.*` 成员：`info`（其余能力均来自 `@grant` 或标准 API） */
+export const ALWAYS_NS = ['info'] as const
 
 /**
  * 恒注入、且与 `@grant` 清单完全无关的 `window` 级成员。
  *
- * 注入侧对它们没有 `GM_HAS` 分支（无条件 `defineProperty` / 包装 `addEventListener`），
- * 声明与不声明都一个样；登记在此只为让规范文本与速查页有单一来源可引用。
+ * VM 运行时下，脚本世界没有此类成员（历史上曾把 `window.onurlchange` 列在这里，
+ * 但它是 TM/GM4 标准、VM 不注入，故移除）；`window.close` / `window.focus` 是 `@grant` 项，不在此列。
+ * 保留这个导出（空数组）仅供规范文本与速查页的引用点稳定。
  */
-export const ALWAYS_WINDOW_MEMBERS = ['window.onurlchange'] as const
+export const ALWAYS_WINDOW_MEMBERS = [] as const
 
 /** 合法 grant 名（升序）：规范文本与速查页引用它，别在别处再手写一份清单 */
 export const GRANT_NAMES: string[] = Object.keys(GRANT_MEMBERS).sort()

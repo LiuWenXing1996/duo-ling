@@ -20,6 +20,7 @@
 // 它从哪来、去哪取新版。读下来只为「认领来源」与后续的更新提示用，**不改变注入行为**。
 // `@homepage` 与 `@homepageURL` 是同一件事的两种写法（TM 两者都认），见 SINGLE_KEYS 的归一。
 import type { ScriptConfig, ScriptResourceDecl } from './types'
+import { defaultConfig } from './types'
 import { isValidMatchPattern } from './project-store'
 import { parseMatchPattern } from '@/lib/match-pattern'
 
@@ -257,12 +258,14 @@ type Converted = { kind: 'match'; value: string } | { kind: 'glob'; value: strin
 const CHROME_HOST_RE = /^(?:\*|(?:\*\.)?[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)$/
 
 /**
- * 是否是可安全交给 `chrome.userScripts.register` 的 match pattern。
+ * 是否是可交给注入运行时的 match pattern。
  *
  * 比项目自己的 `isValidMatchPattern` **更严**：`MATCH_PATTERN_RE` 的 host 段是 `[^/*]*`，两个宽松点
- * 都会让 Chrome 拒收：① 可为空 → `*:///foo/*` 被判合法；② 允许冒号 → `https://example.com:8443/*`
- * （match pattern 语法不表达端口）被判合法。解析器不允许产出这类 pattern —— 否则错误会一路拖到
- * 注册期才以 Chrome 的英文异常冒出（对齐 project-store 文件头「非法值在导入 / 启用当场拦下」的意图）。
+ * 会让 Chrome 拒收：① 可为空 → `*:///foo/*` 被判合法；② 允许冒号 → `https://example.com:8443/*`
+ * （match pattern 语法不表达端口）。其中 ① 仍按原意拦截（空 host 一律非法，file/urn 例外）；
+ * ② **已放开**：VM 是实际注入运行时，其 @match 语义要求 host+port 整段参与匹配（与 Chrome 忽略端口不同，
+ * 见 gm-runtime README 条目 15），localhost 开发服务器常带端口，故主机名合法 + 带端口的写法放行，
+ * 端口随原始 pattern 原样交给 VM。仅主机名参与本处校验，端口不参与。
  *
  * `file:` / `urn:` 的 host 段天然为空，属合法例外（见 project-store 的语法注释）。
  */
@@ -270,8 +273,10 @@ function isChromeSafeMatch(pattern: string): boolean {
   if (!isValidMatchPattern(pattern)) return false
   const parsed = parseMatchPattern(pattern)
   if (!parsed) return false
-  if (parsed.host === '') return parsed.scheme === 'file' || parsed.scheme === 'urn'
-  return CHROME_HOST_RE.test(parsed.host)
+  // 端口不纳入主机名校验：剥离 `host:port` 的端口部分，只验主机名（端口交给 VM 按其语义处理）
+  const host = parsed.host.split(':')[0]
+  if (host === '') return parsed.scheme === 'file' || parsed.scheme === 'urn'
+  return CHROME_HOST_RE.test(host)
 }
 
 /**
@@ -405,9 +410,13 @@ export function applyMetadataToConfig(
  */
 export function resolveConfigFromSource(
   code: string,
-  fallback: ScriptConfig,
+  fallback?: ScriptConfig,
 ): MetadataApplyResult {
+  // fallback 缺省 = 调用方没给兜底配置：视作「无 overrides」，与显式传 defaultConfig([]) 等价。
+  // 不能原样透传 undefined —— applyMetadataToConfig 内部读 fallback.allFrames 等字段会先崩在
+  // `undefined.allFrames` 上（它的 ?? 只能兜底「字段值」，兜不住「fallback 整体缺失」）。
+  const fb = fallback ?? defaultConfig([])
   const parsed = parseUserScriptMetadata(code)
-  if (!parsed) return { config: fallback, notes: [] }
-  return applyMetadataToConfig(parsed, fallback)
+  if (!parsed) return { config: fb, notes: [] }
+  return applyMetadataToConfig(parsed, fb)
 }

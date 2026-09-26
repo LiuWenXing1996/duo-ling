@@ -5,8 +5,8 @@
 //
 // 为什么单独一份、而不是直接读 api-contract：
 //   api-contract.ts 只有类型（编译后不留任何东西），面板要展示的是文本（签名 / 说明 / 坑）；
-//   而真身（注入脚本世界的 `GM_*` / `GM.*`）是 gm-wrapper.ts 里的一段**源码字符串**，
-//   工作台页面 import gm-wrapper 会把注入链路（含桥客户端）拖进首屏产物。故抽成这份纯数据。
+//   而真身（注入脚本世界的 `GM_*` / `GM.*`）由 VM 注入（原 gm-wrapper 已随 P4 删除）。
+//   本模块刻意保持零依赖纯数据，避免把 VM 的注入链路拖进首屏产物。
 //
 // 一条能力 = 两种形态（`GM_getValue` 同步 + `GM.getValue` 异步），故**只写一张能力表**，
 // 由它生成两条条目 —— 否则同一段说明要维护两遍，必然漂移。
@@ -21,7 +21,6 @@
 //   三条都不靠人工对照。
 import type {
   GmApiNamespace,
-  GmAudioApi,
   GmCookieApi,
   GmGlobalFns,
   GmGlobalObjects,
@@ -39,13 +38,7 @@ export type GmNsName = Exclude<keyof GmApiNamespace, 'page'>
  */
 export type GmObjectPath =
   | `GM_cookie.${keyof GmCookieApi & string}`
-  | `GM_audio.${keyof GmAudioApi & string}`
-  | 'GM.page.listen'
-  | 'GM.page.fetchHook'
-  | 'GM.clearValues'
-  | 'GM.focusTab'
   | 'unsafeWindow'
-  | 'window.onurlchange'
 
 /** 目录须覆盖的全部路径（真身源码由源码反射单测比对） */
 export type GmApiPath = GmGlobalName | `GM.${GmNsName}` | GmObjectPath
@@ -60,10 +53,10 @@ export type GmApiBridge =
 /** 分组（顺序 = 面板左栏顺序） */
 export const GM_API_GROUPS = [
   { id: 'basics', title: '基础', desc: '自省 / 输出 / 注入样式：多为本地实现' },
-  { id: 'storage', title: '存储', desc: '脚本私有存储 + 标签页级存储（按脚本隔离）' },
+  { id: 'storage', title: '存储', desc: '脚本私有存储（按脚本隔离）' },
   { id: 'net', title: '网络', desc: '免跨域限制的请求（可中止）' },
   { id: 'system', title: '系统能力', desc: '通知 / 剪贴板 / 下载 / 标签页' },
-  { id: 'page', title: '站点与页面', desc: 'cookie / 菜单 / URL 变化 / 页面事件' },
+  { id: 'page', title: '站点与页面', desc: 'cookie / 菜单 / 页面事件' },
 ] as const
 
 export type GmApiGroupId = (typeof GM_API_GROUPS)[number]['id']
@@ -260,39 +253,6 @@ const CAPABILITIES = {
     bridge: 'local',
     group: 'storage',
   },
-  GM_getTab: {
-    ns: 'getTab',
-    title: '读标签页存储',
-    sigGlobal: 'GM_getTab(cb)',
-    sigNs: 'GM.getTab()',
-    summary: '取当前标签页的持久对象（对齐 GM_getTab）',
-    detail: '随标签页生命周期，关 tab 即清；跨同源导航保留。标签页标识由扩展自动对应，脚本不必自己传。**回调式**（TM 语义）。',
-    returns: 'void（回调收对象）/ Promise<Json | undefined>',
-    bridge: 'bridge',
-    group: 'storage',
-  },
-  GM_saveTab: {
-    ns: 'saveTab',
-    title: '写标签页存储',
-    sigGlobal: 'GM_saveTab(tab, cb?)',
-    sigNs: 'GM.saveTab(tab)',
-    summary: '整体覆盖当前标签页的对象（对齐 GM_saveTab）',
-    detail: '是整体覆盖而非合并——要保留旧字段就先 get 再改再 save。',
-    returns: 'void（cb 可选）/ Promise<void>',
-    bridge: 'bridge',
-    group: 'storage',
-  },
-  GM_getTabs: {
-    ns: 'getTabs',
-    title: '全部标签页快照',
-    sigGlobal: 'GM_getTabs(cb)',
-    sigNs: 'GM.getTabs()',
-    summary: '所有标签页的对象快照，键为 tabId（对齐 GM_getTabs）',
-    detail: '看「别的标签页里这个脚本存了什么」用。是快照，不随后续写入更新。',
-    returns: 'void（回调收 Record<tabId, Json>）/ Promise<Record<string, Json>>',
-    bridge: 'bridge',
-    group: 'storage',
-  },
   GM_xmlhttpRequest: {
     ns: 'xmlHttpRequest',
     title: '免 CORS 请求',
@@ -421,20 +381,6 @@ const CAPABILITIES = {
     bridge: 'local',
     group: 'storage',
   },
-  // 对象型全局（方法逐条列在 OBJECT_ENTRIES）；`GM.*` 侧是 GM.audio（TM 给了这个镜像）
-  GM_audio: {
-    ns: 'audio',
-    title: '标签页音频控制',
-    sigGlobal: 'GM_audio',
-    summary: '当前标签页的静音 / 发声控制（TM v5.0+）',
-    detail:
-      '**四个成员**：`setMute({ isMuted })`、`getState(cb?)`、`addStateChangeListener(fn, cb?)`、' +
-      '`removeStateChangeListener(fn, cb?)` —— 最后两个都收**同一个函数引用**（TM 没有 id 机制）。' +
-      '一律作用于**当前标签页**（没有 tabId 参数）。回调可省 → 返回 Promise。',
-    returns: '回调式 + Promise',
-    bridge: 'bridge',
-    group: 'system',
-  },
   // window 级成员：名字就是属性路径（挂到 window 上，不是脚本作用域里的标识符），
   // 且 TM 口径下都没有 `GM.*` 形态 —— 故 ns 为 null。
   'window.close': {
@@ -476,60 +422,6 @@ const OBJECT_ENTRIES = {
     bridge: 'local',
     group: 'basics',
   },
-  'window.onurlchange': {
-    title: 'URL 变化订阅',
-    signature: 'window.onurlchange = fn / addEventListener("urlchange", fn)',
-    summary: '当前标签页 URL 变化（含 SPA 路由），回调收 { url }',
-    detail:
-      '**两种写法都支持**（TM 形态）。**与 `@grant` 清单无关**：写不写进清单都会提供，照 TM 习惯把它写进清单也无妨' +
-      '（清单里没认出的名字一律忽略，不会因此少注入什么）。' +
-      '只推「监听生效之后」的变化——首屏 URL 自己读 location.href。推送可能比框架自己的路由回调晚一拍。' +
-      '监听器拦在本地、不派发真实事件（派发会把事件泄漏给页面）。',
-    returns: 'void',
-    bridge: 'bridge',
-    group: 'page',
-  },
-  'GM_audio.setMute': {
-    title: '静音 / 取消静音',
-    signature: 'GM_audio.setMute({ isMuted }, cb?)',
-    summary: '设置**当前标签页**的静音状态',
-    detail: 'cb 收 error（失败才带值），省掉回调就用返回的 Promise。只影响当前标签页，不动其它标签。',
-    returns: 'Promise<void>（回调同收 error）',
-    bridge: 'bridge',
-    group: 'system',
-  },
-  'GM_audio.getState': {
-    title: '读音频状态',
-    signature: 'GM_audio.getState(cb?)',
-    summary: '读当前标签页的 `{ isMuted, muteReason, isAudible }`',
-    detail:
-      'muteReason 是 `user`（用户点的）/ `capture`（标签捕获）/ `extension`（扩展所为）。' +
-      '取不到的字段**省略**（不是 false）—— 用 `\'x\' in state` 判断，别当布尔用。',
-    returns: 'Promise<GmAudioState>（回调同收）',
-    bridge: 'bridge',
-    group: 'system',
-  },
-  'GM_audio.addStateChangeListener': {
-    title: '监听音频变化',
-    signature: 'GM_audio.addStateChangeListener(fn, cb?)',
-    summary: '注册静音 / 发声变化监听（**传函数本身**，TM 没有 id）',
-    detail:
-      '回调收 `{ muted?, audible? }`：**muted 是静音原因字符串或 false**（不是布尔），' +
-      '字段可能缺 —— 脚本常用 `\'muted\' in e` 区分「静音变化」与「发声变化」。' +
-      '只在真有监听时订阅（没监听就不收帧），注销传**同一个函数引用**。',
-    returns: 'Promise<void>（回调同收 error）',
-    bridge: 'bridge',
-    group: 'system',
-  },
-  'GM_audio.removeStateChangeListener': {
-    title: '注销音频监听',
-    signature: 'GM_audio.removeStateChangeListener(fn, cb?)',
-    summary: '注销先前注册的监听（必须传**同一个函数引用**）',
-    detail: '传的不是同一个函数引用就找不到（与 TM 同）。全部注销后退订，不再收音频帧。',
-    returns: 'Promise<void>（回调同收 error）',
-    bridge: 'bridge',
-    group: 'system',
-  },
   'GM_cookie.list': {
     title: '读 cookie',
     signature: 'GM_cookie.list({ url?, name? }, cb?)',
@@ -557,51 +449,6 @@ const OBJECT_ENTRIES = {
     detail: '同样过域名门。删不存在的 cookie 不报错。回调签名 (error)。',
     returns: 'Promise<void>（回调同收）',
     bridge: 'bridge',
-    group: 'page',
-  },
-  'GM.clearValues': {
-    title: '清空存储',
-    signature: 'GM.clearValues()',
-    summary: '清掉本脚本的全部键值（**哆灵扩展，标准里无对应物**）',
-    detail:
-      '不可撤销。**不逐个发变更事件**（清空是一次性操作，watch 侧请自行重拉）。同步缓存一并清掉。',
-    returns: 'Promise<void>',
-    bridge: 'bridge',
-    group: 'storage',
-  },
-  'GM.focusTab': {
-    title: '激活标签页',
-    signature: 'GM.focusTab(tabId)',
-    summary: '激活指定标签页并聚焦其所在窗口（**哆灵扩展，标准里无对应物**）',
-    detail: '标准里只有 `GM_openInTab` 返回句柄的 `close()`，没有「激活某个已打开标签页」的 API。抢用户视线，谨慎用。',
-    returns: 'Promise<void>',
-    bridge: 'bridge',
-    group: 'system',
-  },
-  'GM.page.listen': {
-    title: '听页面事件',
-    signature: 'GM.page.listen(type, handler, opts?)',
-    summary: '监听页面自身触发的事件',
-    detail:
-      '**哆灵扩展，非油猴标准。** opts.selector 只转发命中该选择器（或其祖先）的事件，opts.once 命中一次后自动注销。' +
-      '回调收到的是事件摘要（可克隆字段），不是原生事件对象。返回注销函数。',
-    returns: 'Promise<() => void>（注销）',
-    bridge: 'local',
-    group: 'page',
-  },
-  'GM.page.fetchHook': {
-    title: '拦页面 fetch',
-    signature: 'GM.page.fetchHook(handler, opts?)',
-    summary: '拦截页面自身的 fetch，可被动读取响应体',
-    detail:
-      '**哆灵扩展，非油猴标准。** 裁决返回 { action: "passthrough" } 放行，或 { action: "respond", status, headers?, body? } ' +
-      '由页面侧直接构造 Response 返回；脚本回调抛异常一律按放行处理（不会把页面搞挂）。' +
-      '传 opts.onResponse 后，passthrough 的每次真实响应都会以 { url, status, statusText, headers, body, truncated? } 回调' +
-      '（零额外请求，页面拿到的仍是原响应）。' +
-      '注意：脚本自身也运行在页面世界，**它自己发出的 fetch 同样会经过本钩子**；' +
-      '不想拦自己发的请求，就在 handler 里按 URL 过滤掉。',
-    returns: 'Promise<() => void>（注销）',
-    bridge: 'local',
     group: 'page',
   },
 } satisfies Record<GmObjectPath, Omit<GmApiEntry, 'path'>>
@@ -639,7 +486,7 @@ function globalEntries(): GmApiEntry[] {
   return (Object.entries(CAPABILITIES) as [GmGlobalName, Capability][]).map(([name, cap]) => globalEntry(name, cap))
 }
 
-/** 对象型 / 变量型条目（`GM_cookie.*` / `GM.page.*` / 扩展成员 / `unsafeWindow` / `window.onurlchange`） */
+/** 对象型 / 变量型条目（`GM_cookie.*` / `unsafeWindow`） */
 function objectEntries(): GmApiEntry[] {
   return (Object.entries(OBJECT_ENTRIES) as [GmObjectPath, Omit<GmApiEntry, 'path'>][]).map(([path, entry]) => ({
     path,

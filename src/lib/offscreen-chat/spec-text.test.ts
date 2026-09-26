@@ -12,13 +12,13 @@ import { ALWAYS_WINDOW_MEMBERS, GRANT_NAMES } from '@/lib/gm-grants'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
 /** 规范文本里**故意**点名、但不在能力目录里的成员（目录 = 已实现的成员） */
-const KNOWN_UNSUPPORTED: string[] = []
+const KNOWN_UNSUPPORTED: string[] = ['GM_getTab', 'GM_saveTab', 'GM_getTabs', 'GM_audio']
 
 /** `@grant` 的特殊值（不是 API 名） */
 const GRANT_SPECIAL_VALUES = ['none']
 
 /**
- * 文本里提到的成员名（只取首段：`GM_info.script` 记 `GM_info`，`GM.page.listen` 记 `GM.page`）。
+ * 文本里提到的成员名（只取首段：`GM_info.script` 记 `GM_info`，`GM_cookie.list` 记 `GM_cookie`）。
  * `GM_*` / `GM.*` 这两个通配写法不会被匹配（后面不是字母）。
  */
 function mentionedNames(text: string): Set<string> {
@@ -38,7 +38,7 @@ function mentionedNames(text: string): Set<string> {
   return out
 }
 
-/** 目录里的路径有没有被文本提到（允许只提到容器名，如 `GM.page` 代表 `GM.page.listen`） */
+/** 目录里的路径有没有被文本提到（允许只提到容器名，如 `GM_cookie` 代表 `GM_cookie.list`） */
 function isMentioned(path: string, mentioned: Set<string>): boolean {
   const segs = path.split('.')
   for (let n = segs.length; n > 0; n--) {

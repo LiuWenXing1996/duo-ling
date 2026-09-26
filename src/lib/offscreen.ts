@@ -12,6 +12,11 @@
 // 说明：Chrome 不会自动启动 offscreen，必须显式 createDocument。策略是常驻：offscreen 不自关，
 // 仅在 `offscreen:close` 调试命令下主动关。
 
+// 探测发送走「VM 改写前捕获」的原始 sendMessage（见 pingOffscreen 注释）；仅 SW 侧引用本模块，
+// vm-runtime-host 在同一 SW bundle 内必然已评估，原始引用捕获先于 VM 的 importScripts 改写。
+import { sendRuntimeMessage } from '@/lib/userscripts/vm-runtime-host'
+import type { RuntimeResponse } from '@/shared/extension-ipc'
+
 /** 与 src/entrypoints/offscreen.html 对应 */
 const OFFSCREEN_PATH = 'offscreen.html'
 
@@ -77,22 +82,25 @@ const PING_INTERVAL_MS = 50
  * `createDocument` resolve 只说明文档建好了，其 onMessage 未必注册完——此时发业务命令会得到
  * 「The message port closed before a response was received」。故就绪判据必须是「能应答一条消息」。
  * 用 `fs:ping`（不触碰文件系统），由 offscreen 侧 handleFsCommand 应答。
+ *
+ * 必须走 vm-runtime-host 捕获的**原始** sendMessage：VM 内核 importScripts 时包装了
+ * runtime.sendMessage（2 参回调形式直接报 No matching signature），裸用会让探测恒失败、
+ * 探测循环空转满 2s 超时——每笔 writeViaOffscreen 白等约 2s（2026-09-26 手测实锤）。
  */
 function pingOffscreen(): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    const done = (v: boolean) => resolve(v)
     // 超时兜底：sendResponse 永不回调的情况（容器刚被销毁）不能把 promise 挂死
-    const timer = setTimeout(() => done(false), PING_TIMEOUT_MS)
-    try {
-      chrome.runtime.sendMessage({ kind: 'fs:ping' }, (response) => {
+    const timer = setTimeout(() => resolve(false), PING_TIMEOUT_MS)
+    sendRuntimeMessage<RuntimeResponse<unknown> | undefined>({ kind: 'fs:ping' })
+      .then((response) => {
         clearTimeout(timer)
-        // 不读 chrome.runtime.lastError：无响应本身就判未就绪，不需要区分原因
-        done(response?.ok === true)
+        resolve(response?.ok === true)
       })
-    } catch {
-      clearTimeout(timer)
-      done(false)
-    }
+      .catch(() => {
+        // 无响应本身就判未就绪，不需要区分原因（容器刚被销毁 / 对端让路未应答）
+        clearTimeout(timer)
+        resolve(false)
+      })
   })
 }
 

@@ -83,6 +83,17 @@ export default defineConfig({
   publicDir: 'src/public',
   vite: () => ({
     plugins: [vue(), tailwindcss()],
+    // buffer / process 是 Node 内置名：dev 下 Vite 默认给的是「抛错 Proxy 垫片」
+    // （"Module buffer has been externalized for browser compatibility"），SW 顶层
+    // 求值访问即炸 → Service worker registration failed 15。显式 alias 到浏览器
+    // polyfill 包（buffer@6 / process@0.11.10，已在 devDependencies），让 dev/prod
+    // 都拿到真实实现，SW 才能正常注册。
+    resolve: {
+      alias: {
+        buffer: 'buffer/',
+        process: 'process/browser',
+      },
+    },
     // service worker 里没有 Node 的 `global`，而 isomorphic-git/lightning-fs 的
     // 打包代码写的是 `global.TextEncoder`。构建期把 `global` 别名成原生 globalThis
     // （SW 里自带 TextEncoder/TextDecoder），否则加载即抛
@@ -101,6 +112,9 @@ export default defineConfig({
     },
   }),
   manifest: {
+    // 含 _locales 时 Chrome 强制要求 default_locale（否则扩展加载报错）。当前仅 zh_CN，
+    // 浏览器语言不匹配时回退到此值。新增语言只需再加 src/public/_locales/<lang>/messages.json。
+    default_locale: 'zh_CN',
     name: '哆灵',
     description: '哆灵 AI 用户脚本工坊 · 扩展版（网页浮层对话 + 标签页工作台）',
     // 扩展 ID 固定：manifest 带 key 时 Chrome 用 SHA256(公钥) 派生 ID，不再按扩展目录的

@@ -13,7 +13,7 @@
 // 轮询是唯一检测手段（因此保活层不可省）。
 
 import type { UserScriptsAvailability } from './types'
-import { getUserScriptsStatus } from './engine'
+import { getUserScriptsStatus } from './availability'
 
 /** 一次可用性变化（previous → current；两个方向都会通知，消费方自行筛选） */
 export interface AvailabilityChange {

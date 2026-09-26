@@ -56,7 +56,6 @@ describe('GmApiPanel', () => {
     const paths = cardPaths(wrapper)
     expect(paths).toContain('GM_getValue')
     expect(paths).toContain('GM.getValue')
-    expect(paths).toContain('GM_getTab')
     expect(paths.some((p) => p.startsWith('GM_cookie'))).toBe(false)
     expect(paths).not.toContain('GM_xmlhttpRequest')
   })

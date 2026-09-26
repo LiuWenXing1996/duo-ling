@@ -1,0 +1,7 @@
+# VM 源码不入库（复现方式见 README.md），转正时改为 git submodule
+vendor/
+# 构建产物
+dist/
+node_modules/
+# VM 构建脚本在配置构造期会往这里写（见 build/webpack.lib.cjs 的说明）
+vendor/violentmonkey/dist-mv3/

@@ -9,7 +9,7 @@
 // 脚本/tab 删除；观测数据（错误日志 / 运行统计）是我们自己生成的、有环形上限，两者
 // 信任级与演进节奏不同。「删脚本 = 清该脚本数据」在这库里就是一次 range delete。
 //
-// 单写方约定：写 API 只许 SW 调用（写侧全部经 dl-bridge / store.ts 汇入）；
+// 单写方约定：写 API 只许 SW 调用（写侧全部经 store.ts 汇入；自研 GM 桥废弃后 tab 存储改由 VM 负责，见 Phase D）；
 // 本模块不感知 chrome API，node 单测用 fake-indexeddb/auto 直测。
 //
 // 范围查询的键序技巧（已弃用）：最初想用 bound([uuid,''],[uuid,[]]) 的「array > string」

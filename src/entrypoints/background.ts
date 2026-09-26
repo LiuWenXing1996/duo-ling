@@ -15,7 +15,7 @@
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
-import { FLOAT_OPEN_REQUEST, FLOAT_PANEL_OPEN_PORT } from '@/shared/extension-ipc'
+import { FLOAT_PANEL_OPEN_PORT } from '@/shared/extension-ipc'
 import type {
   ModelProfileState,
   NotificationSnapshot,
@@ -26,21 +26,27 @@ import type {
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
 import type { InjectedBuildInfo } from '@/lib/build-info'
 
-// 用户脚本管理器（v2 方案）：引擎 + 存储 + GM 桥 + 类型
+// 用户脚本管理器：可用性检测 + 引擎类型（仅保留与 VM 无关的可用性查询；安装/卸载/对账见下方 vm-script-manager）
 import {
-  configureUserScriptsWorld,
-  ensureWorldsConfigured,
+  vmReady,
+  addRuntimeMessageListener,
+  sendRuntimeMessage,
+} from '@/lib/userscripts/vm-runtime-host'
+// 可用性检测（与注入引擎无关，VM / 自研引擎共用 chrome.userScripts API）
+import {
   isUserScriptsAvailable,
   getUserScriptsStatus,
-  registerAllEnabled,
-  recoverOnUpdate,
-  registerScript,
-  unregisterScripts,
-  refreshBuiltinScripts,
-  refreshNetRecorder,
-  collectCspWarnings,
-  resolveInjectCode,
-} from '@/lib/userscripts/engine'
+} from '@/lib/userscripts/availability'
+// 网络录制件同步（dl-recorder：MAIN 捕获 + USER_SCRIPT 转发，独立于脚本引擎）
+import { refreshNetRecorder } from '@/lib/userscripts/net-recorder-sync'
+// P4：脚本安装 / 卸载 / 对账改走 VM 运行时
+import {
+  vmInstallScript,
+  vmUninstallScript,
+  vmSetEnabled,
+  vmReconcile,
+} from '@/lib/userscripts/vm-script-manager'
+import { collectCspWarnings } from '@/lib/userscripts/csp-check'
 // metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
 // 真正的归一化在写入口一处（project-write.saveSource），此处不写回任何东西
 import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
@@ -59,7 +65,7 @@ import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/
 // 新版本检查：SW 在浏览器启动 / 安装更新时各查一次，结果落 duoling-app 库供 popup 与设置页读
 import { runUpdateCheck } from '@/lib/update-check'
 // 网页浮层开关的补齐动作已随站点开关一并移除：右键菜单只负责发「调出浮层」请求
-import { initDlBridge } from '@/lib/userscripts/dl-bridge'
+import { initNetCaptureReceiver } from '@/lib/userscripts/net-capture-receiver'
 // DL Port 事件底座：脚本世界 ↔ SW 长连接下行通道 + 三事件源接入
 import { initDlPort } from '@/lib/userscripts/dl-port'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
@@ -142,25 +148,23 @@ export const SW_KIND_PREFIXES = [
  */
 type SwRequest = Extract<RuntimeRequest, { kind: `${(typeof SW_KIND_PREFIXES)[number]}${string}` }>
 
-/** SW → offscreen 的请求封装：转发 ai:*（git 历史）与 state:*（项目状态库写侧）命令面。统一信封解包。 */
+/**
+ * SW → offscreen 的请求封装：转发 ai:*（git 历史）与 state:*（项目状态库写侧）命令面。统一信封解包。
+ *
+ * 必须用「改写前捕获」的原始 sendMessage（sendRuntimeMessage）—— VM 库（common/browser.js）
+ * 在 importScripts 时重写 runtime.sendMessage：2 参回调形式被追加第三 cb 导致 Chrome 报
+ * No matching signature；且会把 {ok,data} 信封当 VM 元组 [result,error] 只取 response[0]=true 破坏信封。
+ * 原始版本恢复原生 promise 形态（见 vm-runtime-host.ts ①-0）。
+ */
 function sendToOffscreen<T>(request: RuntimeRequest): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    chrome.runtime.sendMessage(request, (response: RuntimeResponse<T> | undefined) => {
-      const lastError = chrome.runtime.lastError
-      if (lastError) {
-        reject(new Error(lastError.message))
-        return
-      }
-      if (!response) {
-        reject(new Error('扩展服务未响应，请重试'))
-        return
-      }
-      if (!response.ok) {
-        reject(new Error(response.error))
-        return
-      }
-      resolve(response.data as T)
-    })
+  return sendRuntimeMessage<RuntimeResponse<T> | undefined>(request).then((response) => {
+    if (!response) {
+      throw new Error('扩展服务未响应，请重试')
+    }
+    if (!response.ok) {
+      throw new Error(response.error)
+    }
+    return response.data as T
   })
 }
 
@@ -201,9 +205,8 @@ async function registerOrLog(project: ScriptProject): Promise<string | undefined
     return '用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限'
   }
   try {
-    // 先同步内置注册（MAIN 桩，启用脚本集合可能变化），再注册脚本——保证桩与包装密钥同代
-    await refreshBuiltinScripts().catch(() => {})
-    await registerScript(project)
+    // P4：VM 接管注入，不再需要自研「内置桩」注册（refreshBuiltinScripts）；直接安装脚本到 VM
+    await vmInstallScript(project)
     return undefined
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
@@ -310,12 +313,13 @@ const handlers: {
       actor: msg.actor,
     })
     const next = outcome.project
-    await unregisterScripts([next.uuid]).catch(() => {})
-    const registerError = next.enabled ? await registerOrLog(next) : undefined
+    // P4：VM 接管注入。保存即重新安装到 VM（parseScript 按 uri upsert，enabled 跟随 project.enabled）；
+    // 关停态（enabled=false）装进去也是 enabled=0，getScriptsByURL 不会注入——无需先 uninstall。
+    const registerError = await registerOrLog(next)
     return {
       // metadata 解析提示（@include 放宽 / 正则被丢弃 / @match 不合法…）与 CSP 警告同一通道到编辑器，
       // 提示由写侧一处产出（SaveOutcome.notes）——避免 SW 再解析一遍、拿不到当时那个 fallback 而误报
-      warnings: [...collectCspWarnings(resolveInjectCode(next)), ...outcome.notes],
+      warnings: [...collectCspWarnings(next.source.code), ...outcome.notes],
       registerError,
     }
   },
@@ -327,7 +331,7 @@ const handlers: {
     return {
       uuid: project.uuid,
       name: project.name,
-      warnings: collectCspWarnings(resolveInjectCode(project)),
+      warnings: collectCspWarnings(project.source.code),
       registerError,
     }
   },
@@ -349,9 +353,9 @@ const handlers: {
       uuid: project.uuid,
       name: project.name,
       warnings: [
-        ...collectCspWarnings(resolveInjectCode(project)),
+        ...collectCspWarnings(project.source.code),
         // AI 产物可能自带 metadata 块：SW 手上有当时的 fallback（msg.config），可精确算出提示
-        ...resolveConfigFromSource(resolveInjectCode(project), msg.config).notes,
+        ...resolveConfigFromSource(project.source.code, msg.config).notes,
       ],
       registerError,
     }
@@ -360,16 +364,12 @@ const handlers: {
   // 删除：注销 → offscreen 清状态库记录 + git 仓 → 清该脚本的 GM 值 + 报错记录。
   // 仓的删除原先只能靠 offscreen 启动对账兜（删完会滞留一阵），现在写侧同在 offscreen，一步清干净。
   'userscript:remove': async (msg): Promise<void> => {
-    // 注销失败不能纯静默：状态库删掉后这条 uuid 不再出现在任何对账清单里，
-    // 幽灵注册会一直注入到下次 SW 冷启动（registerAllEnabled 全量对账）才被清
-    await unregisterScripts([msg.uuid]).catch((e) =>
-      console.warn('[duoling:sw] 删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
+    // P4：VM 接管注入，删除 = 标记 removed 让 VM 停止注入（storage 惰性残留无害，无需自研注销）
+    await vmUninstallScript(msg.uuid).catch((e) =>
+      console.warn('[duoling:sw] 删除前 VM 卸载失败（下次启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
     )
     await writeViaOffscreen<void>({ kind: 'state:remove', uuid: msg.uuid })
-    // 该脚本对内置并集的贡献随状态库删除而消失，MAIN 桩可能需要注销。
-    // 必须放在清库**之后**：清库前读库还算得进这个脚本，并集「未变」、桩被已在位检查跳过，
-    // 桩就带着已删脚本的 matches 残留（removeAll 之前整体漏调同属这一族问题）
-    await refreshBuiltinScripts().catch(() => {})
+    // VM 按 uuid 对账：状态库删除后该 uuid 不再出现在清单内，下次启动 vmReconcile 会标记其 removed
     await clearGMValues(msg.uuid)
     // 报错记录同属该脚本的残留：不清就会在错误日志里留下一个已删脚本的孤儿分组
     // （按 uuid 清，不碰「未归属」那种本就没有脚本上下文的记录）
@@ -383,26 +383,21 @@ const handlers: {
   // uuid 由 SW 直读状态库（不经容器，与 userscript:list 同源），用于注销与清残留。
   'userscript:removeAll': async (): Promise<{ removed: number }> => {
     const uuids = (await listProjects()).map((p) => p.uuid)
-    // 注销失败不能纯静默（与单删/关停同语义）：吞掉后这批 uuid 成幽灵注册——
-    // 页面刷新照样注入；且刚删完没有启用脚本、offscreen 心跳停止保活前 SW 一直活着，
-    // registerAllEnabled 的冷启动对账不会跑，幽灵能一路活到下次浏览器重启
-    await unregisterScripts(uuids).catch((e) =>
-      console.warn('[duoling:sw] 全部删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', uuids, e),
+    // P4：VM 接管注入，全部删除 = 先把 VM 库全部标记 removed（对账到空清单），避免删除期间页面仍注入
+    await vmReconcile([]).catch((e) =>
+      console.warn('[duoling:sw] 全部删除前 VM 对账失败（下次启动对账会清，但期间页面刷新仍会注入）：', uuids, e),
     )
     try {
       const removed = await writeViaOffscreen<number>({ kind: 'state:removeAll' })
-      // 状态库清空后再同步内置并集：此时读库必为空 → 中继件与录制转发件整体注销。
-      // 此前整体漏调，中继件带着旧并集（如 ["*://*/*"]）残留注册，白占每个页面的注入面
-      await refreshBuiltinScripts().catch(() => {})
+      // VM 已按空清单标记全部 removed，无需自研「内置并集」刷新（relay/录制桩随 VM 接管而废）
       for (const uuid of uuids) await clearGMValues(uuid)
       // 报错记录逐 uuid 清（与单删同一条语义：删脚本 = 清该脚本名下的一切）
       for (const uuid of uuids) await clearUserScriptErrors(uuid)
       for (const uuid of uuids) await clearRunStats(uuid)
       return { removed }
     } catch (e) {
-      // 注销在前、落盘在后，落盘失败会留下「记录还标 enabled、实际已注销」的偏差
-      // （删了一部分时更明显）——按状态库重新对齐注册，再抛出真实错误
-      await registerAllEnabled().catch(() => {})
+      // 落盘失败会留下「记录还在、VM 已标记 removed」的偏差——重新按空清单对齐，再抛出真实错误
+      await vmReconcile([]).catch(() => {})
       throw e
     }
   },
@@ -419,12 +414,11 @@ const handlers: {
       enabled: msg.enabled,
     })
     if (msg.enabled) return { registerError: await registerOrLog(next) }
-    // 同 userscript:remove：关停注销失败别静默，否则开关显示已关、页面里还在注入
-    await unregisterScripts([msg.uuid]).catch((e) =>
-      console.warn('[duoling:sw] 关停注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
+    // P4：VM 接管注入。关停 = 改 VM 脚本的 enabled 标志（getScriptsByURL 以 !enabled 拦截注入），
+    // 脚本留在库里、可随时再启；removed 是「删库」语义（见 userscript:remove），不能用于关停。
+    await vmSetEnabled(msg.uuid, false).catch((e) =>
+      console.warn('[duoling:sw] 关停 VM 脚本失败（下次启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
     )
-    // 关停后内置并集可能缩小，MAIN 桩可能需要注销
-    await refreshBuiltinScripts().catch(() => {})
     return {}
   },
 
@@ -575,7 +569,7 @@ const handlers: {
 
 /** 用户脚本管理器启动：挂载 GM 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用项目 */
 async function initUserScripts(): Promise<void> {
-  initDlBridge() // DL 后台桥（独立于 world 配置，只需注册一次）
+  initNetCaptureReceiver() // 网络录制接收（duo-ling 原生抓包，独立于 VM/GM 桥，只挂一次）
   initDlPort() // DL Port 事件底座（菜单点击 / 存储变更 / 通知点击的下行回推，同上只挂一次）
   // chrome.userScripts 仅在已开启「Allow User Scripts」（Chrome ≥138）或全局开发者模式
   // （Chrome <138）/ 已授权 userScripts 权限（Firefox）时存在；否则为 undefined，
@@ -587,7 +581,9 @@ async function initUserScripts(): Promise<void> {
     )
     return
   }
-  await configureUserScriptsWorld()
+  // P4：VM 接管注入，默认 USER_SCRIPT 世界的 messaging 配置已废（VM 用独立 worldId:'vm'）；
+  // 先等 VM 装配就绪，再对账脚本库
+  await vmReady
   const ok = await isUserScriptsAvailable()
   if (!ok) {
     console.warn(
@@ -596,7 +592,8 @@ async function initUserScripts(): Promise<void> {
     )
     return
   }
-  await registerAllEnabled()
+  // 启动对账：把 VM 脚本库对齐到当前项目清单（启用脚本经 VM 注入，禁用/删除标记 removed）
+  await vmReconcile(await listProjects())
 }
 
 // 非 HTML 入口的构建信息：由 wxt.config.ts 的 vite.define 在配置加载期（dev = server 启动 /
@@ -736,10 +733,11 @@ async function abortConversationOfClosedTab(tabId: number): Promise<void> {
   if (!conversationId) return
   if (!runningConversations.has(conversationId)) return // 没在跑就不必惊动 offscreen
   abortedByTabClose.add(conversationId)
-  try {
-    // 命令面归 offscreen（chat: 前缀）：由 SW 发出去，offscreen 收到后中止任务
-    await chrome.runtime.sendMessage({ kind: 'chat:abort', conversationId } satisfies RuntimeRequest)
-  } catch {
+    try {
+      // 命令面归 offscreen（chat: 前缀）：由 SW 发出去，offscreen 收到后中止任务。
+      // 用原始 sendMessage 绕过 VM 对 runtime.sendMessage 的包装（见 sendToOffscreen 说明）
+      await sendRuntimeMessage({ kind: 'chat:abort', conversationId } satisfies RuntimeRequest)
+    } catch {
     abortedByTabClose.delete(conversationId) // 没送到就别留着这个标记
   }
 }
@@ -826,67 +824,6 @@ function mountProposal2Listeners(): void {
   initPageMonitorPorts()
 }
 
-// —— 浮层的右键菜单入口 ——
-//
-// 对话框的入口全在页面之外：工具栏 popup 里的「对话浮层」按钮，以及这个右键菜单。菜单这条由
-// 浏览器渲染，页面里的东西遮不住它，也不依赖内容脚本已经挂上 UI。
-//
-// id 带 `duoling:` 前缀：与用户脚本的 GM_registerMenuCommand 共用 contextMenus 命名空间，
-// 脚本侧是 `us:<uuid>:<menuId>`（见 dl-port.ts 的 parseMenuitemId —— 它只认那个前缀，本条会被放行）。
-const FLOAT_MENU_ID = 'duoling:open-float'
-
-/** 通知图标（打包资源，即 src/public/notify-icon.png；与用户脚本通知的兜底图标同一个文件） */
-const NOTIFY_ICON = 'notify-icon.png'
-
-/**
- * 注册本扩展自己的菜单项（幂等）。
- *
- * 先摘再建，而不是 create 撞上 duplicate id 就吞掉：那样虽不影响既有项，但菜单文案 / 作用域
- * 改过之后旧项会一直留着 —— 卸载重建才能让改动生效，而本函数在每次 SW 冷启动时都会跑一遍。
- * 首次安装时该 id 不存在，remove 报的 lastError 属正常路径，读一下就消掉。
- */
-function ensureFloatMenuItem(): void {
-  chrome.contextMenus.remove(FLOAT_MENU_ID, () => {
-    void chrome.runtime.lastError
-    chrome.contextMenus.create({
-      id: FLOAT_MENU_ID,
-      title: '打开哆灵对话',
-      contexts: ['page'],
-      // 与 popup 的判据一致：只对普通网页出现（内部页 / 扩展页 / file:// 上浮层挂不了）
-      documentUrlPatterns: ['*://*/*'],
-    })
-  })
-}
-
-/**
- * 在当前标签页把对话浮层调出来（右键菜单用；动作与 popup 那颗按钮同一套）。
- *
- * 与 popup 的差别只有失败反馈的渠道：那里能留在面板里写字，这里没有面板，只能弹一条系统通知
- * —— 菜单点了毫无动静是最糟的结果，用户会以为功能坏了。
- */
-async function openFloatPanelInTab(tab: chrome.tabs.Tab): Promise<void> {
-  const tabId = tab.id
-  if (tabId == null) return
-  try {
-    await chrome.tabs.sendMessage(tabId, FLOAT_OPEN_REQUEST)
-  } catch {
-    await chrome.notifications.create('duoling:float-open-failed', {
-      type: 'basic',
-      iconUrl: NOTIFY_ICON,
-      title: '哆灵',
-      message: '这个页面还没接上哆灵，刷新页面后再试。',
-    })
-  }
-}
-
-function mountFloatMenu(): void {
-  ensureFloatMenuItem()
-  chrome.contextMenus.onClicked.addListener((info, tab) => {
-    if (info.menuItemId !== FLOAT_MENU_ID || !tab) return
-    void openFloatPanelInTab(tab)
-  })
-}
-
 export default defineBackground(() => {
   // 启动自证：console 第一条就是构建信息，「SW 是不是新包」不用再靠猜
   console.log(`[duoling:sw] SW 启动 · 构建 ${__BUILD_INFO__.time} · 分支 ${__BUILD_INFO__.branch}`)
@@ -905,27 +842,33 @@ export default defineBackground(() => {
   startAvailabilityWatch()
   onAvailabilityChange(({ previous, current }) => {
     if (!previous && current.available) {
-      void ensureWorldsConfigured()
-        .then(() => registerAllEnabled())
-        .catch((e) => console.error('[duoling:userscript] 可用性翻转补注册失败', e))
+      void vmReady
+        .then(async () => {
+          await vmReconcile(await listProjects())
+        })
+        .catch((e) => console.error('[duoling:userscript] 可用性翻转对账失败', e))
     }
-    // SW 收不到自己发的消息，广播只到扩展页；无接收方（没开任何页面）属常态，静默
+    // SW 收不到自己发的消息，广播只到扩展页；无接收方（没开任何页面）属常态，静默。
+    // 用原始 sendMessage 绕过 VM 对 runtime.sendMessage 的包装（见 sendToOffscreen 说明）
     const push = { kind: 'userscript:availabilityChanged' as const, availability: current, changedAt: Date.now() }
-    void chrome.runtime.sendMessage(push).catch(() => {})
+    void sendRuntimeMessage(push).catch(() => {})
   })
 
   // 对话界面监控 / 面板端口 / 任务状态 / 深链跳转的监听器
   mountProposal2Listeners()
 
-  // 浮层的右键菜单入口（与 popup 的按钮同一条路：对话框平时不在页面里）
-  mountFloatMenu()
+  // VM 运行时（Violentmonkey 库）的宿主装配：模块导入即触发（vmReady 在 vm-runtime-host.ts 顶层
+  // 求值），垫片 + importScripts 库加载 + 世界配置 + 监听已在模块加载期完成；VM 空库并存形态下零注入。
 
   // offscreen 需「随时可用」：安装 / 更新 / 浏览器启动都立即确保容器在场。
   // Chrome 不会自动启动 offscreen，且 idle 自关未实现，故改为常驻策略（退出条件见 offscreen.ts）。
   chrome.runtime.onInstalled.addListener((details) => {
     void ensureOffscreen().catch((e) => console.error('[duoling:offscreen] ensure failed', e))
     if (details.reason === 'update') {
-      void recoverOnUpdate().catch((e) => console.error('[duoling:userscript] recover failed', e))
+      // P4：VM 脚本库存于 chrome.storage，更新后仍在；重新对账一遍确保注入面与当前项目清单一致
+      void listProjects()
+        .then((projects) => vmReconcile(projects))
+        .catch((e) => console.error('[duoling:userscript] recover failed', e))
     }
     // 装完 / 更新完顺带查一次新版本
     void runUpdateCheck().catch((e) => console.warn('[duoling:update] 检查失败', e))
@@ -945,7 +888,10 @@ export default defineBackground(() => {
   // 它落盘成功后自己广播 `model` 域（扩展页回拉）并推送 offscreen:configChanged（offscreen
   // 的 profile-cache 回拉）。SW 这里不再需要 storage.onChanged 兜底。
 
-  chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
+  // 用 VM 改写前的原始 addListener 注册：VM 库（common/browser.js）会包装 onMessage.addListener，
+  // 把应答强制包成元组信封 [result, error]，劫持我们的 userscript:* 应答；用原始版本恢复原生
+  // return true + 异步 sendResponse 的 {ok,data} 契约（见 vm-runtime-host.ts ①-0）。
+  addRuntimeMessageListener((raw, sender, sendResponse) => {
     const msg = raw as RuntimeRequest | undefined
     if (!msg?.kind) return
 
@@ -954,15 +900,15 @@ export default defineBackground(() => {
     const offscreenPush = msg as { kind: string; conversationId?: string }
     if (offscreenPush.kind === 'chat:running' && offscreenPush.conversationId) {
       handleChatRunningPush(offscreenPush.conversationId)
-      return false
+      return
     }
     if (offscreenPush.kind === 'chat:finished' && offscreenPush.conversationId) {
       handleChatFinishedPush(offscreenPush.conversationId)
-      return false
+      return
     }
 
     // 路由：只响应归 SW 管辖的 kind，其余静默让路给 offscreen（见 SW_KIND_PREFIXES）
-    if (!SW_KIND_PREFIXES.some((p) => msg.kind.startsWith(p))) return false
+    if (!SW_KIND_PREFIXES.some((p) => msg.kind.startsWith(p))) return
 
     // 走到这里 msg.kind 必属 SW 管辖（上面按 SW_KIND_PREFIXES 过滤过），故可安全收窄
     const handler = handlers[msg.kind as SwRequest['kind']] as
@@ -970,7 +916,7 @@ export default defineBackground(() => {
       | undefined
     if (!handler) {
       sendResponse({ ok: false, error: `未知消息类型：${msg.kind}` })
-      return false
+      return
     }
 
     handler(msg, sender)
