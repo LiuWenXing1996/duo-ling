@@ -117,8 +117,10 @@
 // @covers GM_download / GM.download :: GM_download GM.download
 // @covers GM_getTab / GM_saveTab / GM_getTabs（回调形态） :: GM_getTab GM_saveTab GM_getTabs
 // @covers GM.getTab / GM.saveTab / GM.getTabs（Promise 形态） :: GM.getTab GM.saveTab GM.getTabs
-// @covers GM_cookie.list（读） :: GM_cookie GM_cookie.list
-// @covers GM_cookie.set / delete（写读删） :: GM_cookie.set GM_cookie.delete
+// @covers GM.cookie.list（读） :: GM.cookie GM.cookie.list
+// @covers GM.cookie.set / delete（写读删） :: GM.cookie.set GM.cookie.delete
+// @covers GM_cookie.list（读，全局回调形态） :: GM_cookie GM_cookie.list
+// @covers GM_cookie.set / delete（写读删，全局回调形态） :: GM_cookie.set GM_cookie.delete
 // @covers window.onurlchange（含置 null 退订） :: window.onurlchange
 // @covers GM_registerMenuCommand / GM_unregisterMenuCommand :: GM_registerMenuCommand GM_unregisterMenuCommand GM.registerMenuCommand GM.unregisterMenuCommand
 // @covers run-at document-body（注入时 body 已存在）
@@ -848,42 +850,84 @@
 
   // —— 站点与页面 ——
 
-  add('站点与页面', 'GM_cookie.list（读）', async function () {
+  add('站点与页面', 'GM.cookie.list（读）', async function () {
     if (!isHttpPage()) return unknown('非 http(s) 页面（' + location.protocol + '）')
-    if (typeof GM_cookie !== 'object' || !GM_cookie) return unknown('GM_cookie 未挂载（VM 未提供）')
-    var list = await GM_cookie.list()
-    // MV 的 cookie 后端（MV3 同步桥缺口，独立 follow-up：归「?」而非失败）
-    if (!Array.isArray(list)) return unknown('VM cookie 后端未接通（MV3 同步桥缺口，独立 follow-up）：没返回数组')
+    // GM.cookie.* 是 GM4 点分 Promise 形态（@grant GM.cookie）；与 TM 行为一致，list 恒返回数组
+    if (typeof GM.cookie !== 'object' || !GM.cookie) return unknown('GM.cookie 未挂载（@grant 漏写？）')
+    var list = await GM.cookie.list()
+    if (!Array.isArray(list)) return unknown('list 没返回数组：' + JSON.stringify(list))
     return pass('返回 ' + list.length + ' 条（恒数组）')
   })
 
-  add('站点与页面', 'GM_cookie.set / delete（写读删）', async function () {
+  add('站点与页面', 'GM.cookie.set / delete（写读删）', async function () {
     if (!isHttpPage()) return unknown('非 http(s) 页面（' + location.protocol + '）')
     var name = PFX + 'cookie'
     if (!AUTO && !window.confirm('GM 可用性矩阵：这一条会往当前站点写一条 cookie（' + name + '）随后立刻删掉，继续？')) {
       return unknown('用户跳过（会写 cookie）')
     }
     try {
-      // domain / path 照 TM 收下（这里给 domain = location.hostname，即与 url 同域的那种合法写法；
-      // 真机上若浏览器拒收，这一条会红 —— 正是想验的点）
-      await GM_cookie.set({ name: name, value: 'v1', domain: location.hostname, path: '/' })
-      var hit = await GM_cookie.list({ name: name })
-      // VM cookie 后端（MV3 同步桥缺口，独立 follow-up：归「?」而非失败）
+      // GM.cookie.* 是 Promise 形态（@grant GM.cookie）：set 写、list 读回、delete 删，三连
+      // domain 给 location.hostname（与 url 同域的合法写法）；浏览器若拒收这一条会红 —— 正是想验的点
+      await GM.cookie.set({ name: name, value: 'v1', domain: location.hostname, path: '/' })
+      var hit = await GM.cookie.list({ name: name })
       if (!Array.isArray(hit) || hit.length !== 1 || hit[0].value !== 'v1') {
-        return unknown('VM cookie 后端未接通（MV3 同步桥缺口，独立 follow-up）：写后读回 ' + JSON.stringify(hit))
+        return unknown('写后读回不对：' + JSON.stringify(hit))
       }
       // 判据容忍前导点：chrome 对 domain == host 的写法可能存成 ".example.com" 形态
       var gotDomain = String(hit[0].domain || '').replace(/^\./, '')
-      if (gotDomain !== location.hostname) return unknown('domain 没落上（MV3 同步桥缺口，独立 follow-up）：' + hit[0].domain)
-      await GM_cookie.delete({ name: name })
-      var gone = await GM_cookie.list({ name: name })
-      return Array.isArray(gone) && gone.length === 0 ? pass('写 → 读回 → 删掉，页面 cookie 无残留') : unknown('删后仍读得到（MV3 同步桥缺口，独立 follow-up）')
+      if (gotDomain !== location.hostname) return unknown('domain 没落上：' + hit[0].domain)
+      await GM.cookie.delete({ name: name })
+      var gone = await GM.cookie.list({ name: name })
+      return Array.isArray(gone) && gone.length === 0 ? pass('写 → 读回 → 删掉，页面 cookie 无残留') : unknown('删后仍读得到：' + JSON.stringify(gone))
     } catch (e) {
       // 清理失败也要说清楚（别把探针 cookie 留在站点上）
-      try { await GM_cookie.delete({ name: name }) } catch (e2) { /* 已尽量 */ }
-      // VM cookie 后端（MV3 同步桥缺口，独立 follow-up：归「?」而非失败）
-      return unknown(code(e) + msg(e) + '（MV3 同步桥缺口，独立 follow-up）')
+      try { await GM.cookie.delete({ name: name }) } catch (e2) { /* 已尽量 */ }
+      return unknown(code(e) + msg(e))
     }
+  })
+
+  // —— 全局回调形态（GM_cookie.*，@grant GM_cookie）：TM 兼容；list 回调 (cookies, err)，set/delete 回调只收 error
+  add('站点与页面', 'GM_cookie.list（读，全局回调形态）', function () {
+    if (!isHttpPage()) return unknown('非 http(s) 页面（' + location.protocol + '）')
+    if (typeof GM_cookie !== 'object' || !GM_cookie) return unknown('GM_cookie 未挂载（@grant 漏写？）')
+    return new Promise(function (resolve) {
+      GM_cookie.list({}, function (list, err) {
+        if (err) return resolve(unknown('list 回调报 error：' + code(err) + msg(err)))
+        if (!Array.isArray(list)) return resolve(unknown('list 回调没给数组：' + JSON.stringify(list)))
+        resolve(pass('返回 ' + list.length + ' 条（恒数组）'))
+      })
+    })
+  })
+
+  add('站点与页面', 'GM_cookie.set / delete（写读删，全局回调形态）', function () {
+    if (!isHttpPage()) return unknown('非 http(s) 页面（' + location.protocol + '）')
+    var name = PFX + 'cookie-g'
+    if (!AUTO && !window.confirm('GM 可用性矩阵：这一条会往当前站点写一条 cookie（' + name + '）随后立刻删掉，继续？')) {
+      return unknown('用户跳过（会写 cookie）')
+    }
+    return new Promise(function (resolve) {
+      // set 回调只收 error（VM 把 res 丢弃）；成功则 error 为 undefined
+      GM_cookie.set({ name: name, value: 'v1', domain: location.hostname, path: '/' }, function (err) {
+        if (err) return resolve(unknown('set 报 error：' + code(err) + msg(err)))
+        GM_cookie.list({ name: name }, function (hit, lerr) {
+          if (lerr) return resolve(unknown('list 报 error：' + code(lerr) + msg(lerr)))
+          if (!Array.isArray(hit) || hit.length !== 1 || hit[0].value !== 'v1') {
+            return resolve(unknown('写后读回不对：' + JSON.stringify(hit)))
+          }
+          var gotDomain = String(hit[0].domain || '').replace(/^\./, '')
+          if (gotDomain !== location.hostname) return resolve(unknown('domain 没落上：' + hit[0].domain))
+          GM_cookie.delete({ name: name }, function (derr) {
+            if (derr) return resolve(unknown('delete 报 error：' + code(derr) + msg(derr)))
+            GM_cookie.list({ name: name }, function (gone, gerr) {
+              if (gerr) return resolve(unknown('list 报 error：' + code(gerr) + msg(gerr)))
+              resolve(Array.isArray(gone) && gone.length === 0
+                ? pass('写 → 读回 → 删掉，页面 cookie 无残留')
+                : unknown('删后仍读得到：' + JSON.stringify(gone)))
+            })
+          })
+        })
+      })
+    })
   })
 
   add('站点与页面', 'window.onurlchange（含置 null 退订）', function () {

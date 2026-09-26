@@ -11,10 +11,10 @@
 //   · GM_setClipboard     —— 给该 origin 授 clipboard-read 权限后走 navigator.clipboard.readText()
 //     自动验「写进去的到底是什么」（**自动**）
 //   · GM_registerMenuCommand —— 点的是浏览器**原生右键菜单**，Playwright 碰不到 → 只验「四种调用」，记「?」
-// 故这里的预期是：✗ = 0（无伪失败，契约误判已重校）、? ≈ 9（3 条 cookie/clipboard 后端缺口
-// [cookie 是 MV3 同步桥独立 follow-up、clipboard 无头隔离] + 6 条 VM 未实现的标准 API
-// [GM_audio / GM_getTab·saveTab·getTabs / window.onurlchange，均非 duo-ling 独有]）、
-// ✓ ≈ 24（XHR/download 经 VM requests.js + offscreen 已接通）、无 ⋯。
+// 故这里的预期是：✗ = 0（无伪失败，契约误判已重校）、? ≈ 5（VM 未实现的标准 API
+// [GM_audio ×2 / GM_getTab·saveTab·getTabs ×2 / window.onurlchange ×1，均非 duo-ling 独有]；
+// cookie 两形态 GM.cookie.*（Promise）与 GM_cookie.*（全局回调）均已接通、clipboard 经授权自动验，均已不归 ?）、
+// ✓ ≈ 28（XHR/download 经 VM requests.js + offscreen 已接通；cookie 4 用例全 ✓）、无 ⋯。
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import * as http from 'node:http'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -162,7 +162,7 @@ test.describe.serial('GM 可用性矩阵（真机自动化）', () => {
 
     expect(bad, `有 API 在真机上是 ✗（契约误判已重校，这里只该是 VM 真缺口）：\n${panelText}`).toBe(0)
     expect(pending, `还有人工项没收尾：\n${panelText}`).toBe(0)
-    expect(total, '矩阵条目数变了（新增 / 删除了用例？）').toBe(33)
+    expect(total, '矩阵条目数变了（新增 / 删除了用例？）').toBe(35)
     // VM 下 ? 是真实状态：3 条 cookie/clipboard 后端缺口（cookie 是 MV3 同步桥独立 follow-up、
     // clipboard 无头隔离）+ 6 条 VM 未实现的标准 API（GM_audio / GM_getTab·saveTab·getTabs /
     // window.onurlchange，均非 duo-ling 独有）。这里只兜底上限，避免矩阵悄悄缩水。
