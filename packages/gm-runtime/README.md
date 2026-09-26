@@ -21,12 +21,12 @@
 本包是**仓库 workspace 成员**（根 `pnpm-workspace.yaml` 的 `packages/*`），依赖一律从仓库根用 pnpm 装。
 
 ```bash
-cd packages/gm-runtime
-mkdir -p vendor/violentmonkey
-git clone --depth 1 --branch v2.49.0 https://github.com/violentmonkey/violentmonkey /tmp/vm
-cp -R /tmp/vm/src /tmp/vm/scripts /tmp/vm/babel.config.js /tmp/vm/package.json vendor/violentmonkey/
-cd ../.. && pnpm install
+node scripts/fetch-vm-runtime.mjs   # 拉 vendor/violentmonkey（唯一配方，版本钉在里面）
+pnpm install
 ```
+
+> 拉取配方**只有 `scripts/fetch-vm-runtime.mjs` 一处**（CI 的 release / e2e 两个 workflow 也跑它）。
+> 升 VM 版本改那里的 `VM_VERSION`；重复跑会跳过，想重拉先删掉 `vendor/violentmonkey`。
 
 ## 构建与验证
 

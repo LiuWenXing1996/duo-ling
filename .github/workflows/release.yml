@@ -126,6 +126,12 @@ jobs:
       - name: Generate WXT types (.wxt/tsconfig.json)
         run: pnpm exec wxt prepare
 
+      # VM 运行时源码不入库（见 packages/gm-runtime/.gitignore），根 build 的第一步就是
+      # gm-runtime 的 build:runtime，缺了它整条产物链路在开头就挂 —— 必须先拉。
+      # 拉取配方只有 scripts/fetch-vm-runtime.mjs 一处（含钉定版本），CI 与本机共用同一份。
+      - name: Fetch Violentmonkey runtime source
+        run: node scripts/fetch-vm-runtime.mjs
+
       - name: Build chrome-mv3
         run: pnpm run build
 
