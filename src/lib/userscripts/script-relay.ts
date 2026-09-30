@@ -108,6 +108,18 @@ export function buildScriptRelaySource(secret: string): string {
     if (d.kind === 'hello') { send(uuid, { kind: 'hello_ack', v: VERSION }); return }
     if (d.kind === 'connect') { ensurePort(uuid, String(d.connId || '')); return }
     if (d.kind === 'req') { forward(uuid, seq, d.req); return }
+    // 单向上行（fire-and-forget）：运行广播（__dlRunStart）/ 错误上报（__dlEvent），
+    // 原样转给 SW（dl-bridge 的 onUserScriptMessage 收，读 uuid/name/event 等字段；
+    // seq/proof 已在上面统一验过）。无应答，失败静默——监控与日志不该反向打扰脚本。
+    if (d.__dlRunStart === true || d.__dlEvent === true) {
+      var rt = runtimeOf()
+      if (rt && typeof rt.sendMessage === 'function') {
+        try {
+          rt.sendMessage(d, function () { void rt.lastError /* SW 未就绪：丢弃 */ })
+        } catch (e) { /* 同上 */ }
+      }
+      return
+    }
     // 未知 kind 静默忽略：不给探测反馈
   })
 })();`

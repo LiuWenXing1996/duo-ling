@@ -17,6 +17,7 @@ type MsgListener = (ev: { source: unknown; data: unknown }) => void
 interface BridgeApi {
   call: (req: unknown) => Promise<unknown>
   connect: (connId: string) => Promise<void>
+  emit: (payload: unknown) => void
   onEvent: (fn: (ev: unknown) => void) => void
 }
 
@@ -203,6 +204,50 @@ describe('脚本主世界桥（bridge + relay 真源码对跑）', () => {
 
     stub.ports[0]!.emit({ __dlApiEvent: true, ev: { t: 'port.ready' } })
     expect(seen).toEqual([{ t: 'port.ready' }])
+  })
+
+  it('emit 单向上行：运行广播不经握手原样转给扩展侧（fire-and-forget）', () => {
+    const { api, stub } = setup({ handler: () => undefined })
+
+    expect(api.emit({ __dlRunStart: true, name: '探针', runId: 'r-1' })).toBeUndefined()
+    expect(stub.sent).toHaveLength(1)
+    expect(stub.sent[0]).toMatchObject({
+      __dlRunStart: true,
+      uuid: UUID,
+      name: '探针',
+      runId: 'r-1',
+    })
+  })
+
+  it('emit 的错误上报帧（__dlEvent）同样原样转发', () => {
+    const { api, stub } = setup({ handler: () => undefined })
+
+    api.emit({
+      __dlEvent: true,
+      name: '探针',
+      event: { t: 'error', phase: 'runtime', message: '炸了', url: 'https://page.test/' },
+    })
+    expect(stub.sent).toHaveLength(1)
+    expect(stub.sent[0]).toMatchObject({
+      __dlEvent: true,
+      uuid: UUID,
+      event: { t: 'error', message: '炸了' },
+    })
+  })
+
+  it('伪造 proof 的事件帧被中继件丢弃（单向上行同样过防伪）', () => {
+    const { win, stub } = setup({ handler: () => undefined })
+
+    win.postMessage({
+      __dlBridge: 1,
+      __dlEvent: true,
+      uuid: UUID,
+      seq: 7,
+      proof: 'deadbeef',
+      name: 'x',
+      event: { t: 'error', message: '冒充' },
+    })
+    expect(stub.sent).toHaveLength(0)
   })
 
   it('中继件拿不到扩展 API 时回 RELAY_UNAVAILABLE（配置问题要报出来，不能静默）', async () => {
