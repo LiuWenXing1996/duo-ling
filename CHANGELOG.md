@@ -5,6 +5,15 @@
 
 
 
+
+## [0.6.0-alpha.1] - 2026-09-30
+
+### Changed
+- 回退 pnpm workspace 与 VM（Violentmonkey fork）runtime 集成，恢复自研 GM 链路（`gm-wrapper` / `script-relay` / `dl-bridge`）与 npm 包管理，代码形态回到 0.4.0（#127）。v0.5.0-alpha.1 属 VM 线唯一发布版，其条目随回退不再保留（GitHub Release 页仍可查）
+
+### Fixed
+- 同步 package-lock 内嵌版本字段（此前发版流程不更新 lockfile 版本，遗留漂移）
+
 ## [0.4.0-alpha.2] - 2026-09-23
 
 ### Added
