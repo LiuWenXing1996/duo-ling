@@ -1,5 +1,6 @@
 // gm-wrapper 单测：① 注入源码**必须能解析**（它是字符串，语法错一次就静默全废）；
-// ② `@grant` 裁剪规则按预期放行 / 关闭成员。
+// ② `@grant` 裁剪规则按预期放行 / 关闭成员；③ 前缀与脚本正文的拼接点必须「语句级分离」
+// —— ASI 合并后的源码语法依然合法，parse 抓不住语法、但抓得住**结构**（见末尾回归用例）。
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
 import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS } from '../gm-grants'
@@ -29,7 +30,7 @@ function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
 }
 
 /** 产出**完整**的注入 code：engine 那边由「包装前缀 ＋ @require ＋ 脚本源码 ＋ 闭合后缀」拼成 */
-function build(grant?: string[]): string {
+function build(grant?: string[], body?: string): string {
   return (
     buildGmWrapperPrefix({
       uuid: 'u-test',
@@ -38,7 +39,9 @@ function build(grant?: string[]): string {
       info: info(),
       pageSecret: 'secret',
       ...(grant ? { grant } : {}),
-    }) + GM_WRAPPER_SUFFIX
+    }) +
+    (body ? '\n' + body + '\n' : '') +
+    GM_WRAPPER_SUFFIX
   )
 }
 
@@ -100,6 +103,40 @@ describe('buildGmWrapperPrefix', () => {
     // 也顺带免掉了「覆盖 window.addEventListener 做本地转发」对页面的侵入
     expect(src).not.toContain("c: 'url.watch'")
     expect(src).not.toContain("c: 'url.unwatch'")
+  })
+
+  it('前缀与脚本正文的拼接分号安全：正文以 ( 开头时不被 ASI 并进上一条语句（真机回归）', () => {
+    // 复现 2026-09-30 真机事故：模板收尾的 addEventListener('hashchange', …) 曾缺分号，
+    // 脚本正文（含 ==UserScript== 注释头）以 IIFE 开头 → ASI 把两句并成一条调用表达式
+    // addEventListener(...)(function(){…})()，正文从未执行，报
+    // window.addEventListener(...) is not a function。合并后的源码语法合法、parse 不报错，
+    // 但 AST 结构变了：脚本的 IIFE 调用不再是独立语句，而是挂在 addEventListener 调用上。
+    const body = [
+      '// ==UserScript==',
+      '// @name 分号回归',
+      '// ==/UserScript==',
+      '(function () {})()',
+      '//# sourceURL=asi-regression.js',
+    ].join('\n')
+    const src = build([], body)
+    expect(src).toContain("addEventListener('hashchange', __gmCheckUrl);")
+    // 外层 IIFE（前导 ; 是 EmptyStatement，取第一条表达式语句）的函数体里，最后一条
+    // 语句必须就是脚本自己的 IIFE 调用（callee 是函数表达式），而不是
+    // 「addEventListener(...) 被继续调用」的合并体
+    const program = parse(src, { ecmaVersion: 'latest' }) as unknown as {
+      body: Array<{
+        type: string
+        expression?: { callee: { body: { body: unknown[] } } }
+      }>
+    }
+    const iife = program.body.filter((s) => s.type === 'ExpressionStatement')[0]!
+    const inner = iife.expression!.callee.body.body
+    const last = inner[inner.length - 1] as {
+      expression?: { callee?: { type: string } }
+      type: string
+    }
+    expect(last.type).toBe('ExpressionStatement')
+    expect(last.expression!.callee!.type).toBe('FunctionExpression')
   })
 })
 
