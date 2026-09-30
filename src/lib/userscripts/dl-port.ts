@@ -149,10 +149,6 @@ export class DlPortRegistry {
     return true
   }
 
-  detachValueWatch(uuid: string, connId: string): void {
-    for (const port of this.portsByConnId(uuid, connId)) this.valueWatchers.delete(port)
-  }
-
   /** 某脚本上已开全量值订阅的全部 Port（任意键变更都要推给它） */
   portsForValueChange(uuid: string): chrome.runtime.Port[] {
     const out: chrome.runtime.Port[] = []
@@ -263,10 +259,6 @@ export function attachValueWatch(uuid: string, connId: string): boolean {
   return getDlPortRegistry().attachValueWatch(uuid, connId)
 }
 
-export function detachValueWatch(uuid: string, connId: string): void {
-  getDlPortRegistry().detachValueWatch(uuid, connId)
-}
-
 // —— 音频状态订阅（控制面，ApiRequest audio.watch / audio.unwatch）——
 
 /** 挂音频订阅；Port 未就绪返回 false（竞态防御，同 attachValueWatch） */
@@ -276,11 +268,6 @@ export function attachAudioWatch(uuid: string, connId: string): boolean {
 
 export function detachAudioWatch(uuid: string, connId: string): void {
   getDlPortRegistry().detachAudioWatch(uuid, connId)
-}
-
-/** 某标签页里登记过音频订阅的 Port（SW 收到 tabs.onUpdated 时用） */
-export function portsForAudioWatch(tabId: number): chrome.runtime.Port[] {
-  return getDlPortRegistry().portsForAudioWatch(tabId)
 }
 
 /**

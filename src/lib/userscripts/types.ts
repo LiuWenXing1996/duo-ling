@@ -173,8 +173,6 @@ export interface UserScriptErrorRecord {
 // 全部落 IndexedDB：GM 值存储 / GM tab → duoling-usdata（usdata-db.ts，复合主键）；
 // 观测数据（错误日志 / 运行统计 / 运行日志）→ duoling-runtime（runtime-db.ts）。
 
-/** 设置 / 黑名单：us:settings */
-export const SETTINGS_KEY = 'us:settings'
 /** 错误日志环形上限：超过后只留最近 N 条。
  *  写侧（store.ts）裁剪、UI 文案（错误日志标签页）都读这里 —— 上限只写一处，避免文案与实现漂移。 */
 export const ERROR_LOG_MAX = 50

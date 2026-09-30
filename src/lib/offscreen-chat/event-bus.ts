@@ -47,11 +47,6 @@ export function dropBuffer(conversationId: string): void {
   buffers.delete(conversationId)
 }
 
-/** 当前最新 seq（对话界面首次 resume 前查询用） */
-export function latestSeq(conversationId: string): number {
-  return buffers.get(conversationId)?.seq ?? 0
-}
-
 /** 追加一条事件：入缓冲、按 seq 推给观察者。返回该事件的 seq */
 export function pushChunk(conversationId: string, chunk: UIMessageChunk): number {
   const b = bufferOf(conversationId)
