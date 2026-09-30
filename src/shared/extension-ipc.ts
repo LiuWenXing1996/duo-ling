@@ -170,7 +170,7 @@ export type RuntimeRequest =
   // —— 项目状态库的**写**命令面——
   // 项目数据（源码搬运副本 / 配置 / enabled）落在独立 IndexedDB 库 duoling-state，
   // **写只归 offscreen**（单写方），写状态与 commit git 仓收在同一个上下文的同一个函数里，
-  // 消除原先「SW 写 storage + IPC 让 offscreen commit」两次分离操作带来的偏差缝隙。
+  // 没有跨上下文缝隙（写与 commit 分离、两个写方时，任一步失败即产生偏差）。
   // 读不进协议：SW 与扩展页直连 IDB（project-store），不经容器——注册链路不能押在容器存活上。
   | { kind: 'state:create' }
   | { kind: 'state:save'; uuid: string; code: string; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string; actor?: import('@/lib/userscripts/types').CommitActor }

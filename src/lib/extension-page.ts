@@ -44,7 +44,7 @@ export async function openOwnExtensionPage(chromeMajor = getChromeMajorVersion()
  * 三态是刻意的：`true` / `false` / `null`（探测不到）。null ≠ 「没权限」，调用方不得据此拦人，
  * 只能少给一句提示 —— 探测不到还硬拦会把能用的环境挡在门外。
  *
- * ⚠️ MV3 实测（Chromium 141，2026-09-19 无头探针）：该 API 已 **promise 化** ——
+ * ⚠️ MV3 实测（Chromium 141 无头探针）：该 API 已 **promise 化** ——
  * `chrome.extension.isAllowedFileSchemeAccess()` 不 await 会拿到一个 Promise 对象
  * （truthy、JSON 序列化成 `{}`），当布尔用必然判错（探针第一版就踩了这个，读数显示成 `{}`）。
  * 故这里同时兼容 promise 与同步返回；`@types/chrome` 的声明仍是回调形态，故整体收成 loose 签名。

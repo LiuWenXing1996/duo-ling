@@ -228,8 +228,7 @@ const handlers: {
 } = {
   // —— offscreen 容器——
   // A 组只做容器与通道：这几个命令供手动 / 调试触发；B 组的生成入口会直接调 ensureOffscreen()。
-  // 唤醒容器并**等到它真的能应答**才返回——调用方（fsClient 等）据此省掉了原先
-  // 「ensure 完 sleep 80ms 猜监听器注册好了没有」的兜底。
+  // 唤醒容器并**等到它真的能应答**才返回——调用方（fsClient 等）无须再 sleep 猜监听器是否注册好。
   // 常见路径几乎不等待：容器已在时第一次探测即成功。ready=false 表示超时未就绪，由调用方重试。
   'offscreen:ensure': async (): Promise<{ ready: boolean }> => ({
     ready: await ensureOffscreenReady(),
@@ -358,7 +357,7 @@ const handlers: {
   },
 
   // 删除：注销 → offscreen 清状态库记录 + git 仓 → 清该脚本的 GM 值 + 报错记录。
-  // 仓的删除原先只能靠 offscreen 启动对账兜（删完会滞留一阵），现在写侧同在 offscreen，一步清干净。
+  // 仓的删除与状态库同在 offscreen 写侧，一步清干净（不靠启动对账兜滞留）。
   'userscript:remove': async (msg): Promise<void> => {
     // 注销失败不能纯静默：状态库删掉后这条 uuid 不再出现在任何对账清单里，
     // 幽灵注册会一直注入到下次 SW 冷启动（registerAllEnabled 全量对账）才被清
@@ -392,7 +391,7 @@ const handlers: {
     try {
       const removed = await writeViaOffscreen<number>({ kind: 'state:removeAll' })
       // 状态库清空后再同步内置并集：此时读库必为空 → 中继件与录制转发件整体注销。
-      // 此前整体漏调，中继件带着旧并集（如 ["*://*/*"]）残留注册，白占每个页面的注入面
+      // 漏了这步的话，中继件会带着旧并集残留注册，白占每个页面的注入面
       await refreshBuiltinScripts().catch(() => {})
       for (const uuid of uuids) await clearGMValues(uuid)
       // 报错记录逐 uuid 清（与单删同一条语义：删脚本 = 清该脚本名下的一切）
@@ -617,7 +616,7 @@ declare const __BUILD_INFO__: InjectedBuildInfo
 // 「用户此刻在看对话界面吗」的判据 = **对话框展开 且 页面可见**：两条都成立时 content script 连上
 // FLOAT_PANEL_OPEN_PORT，否则断开（页面卸载 / 导航则端口自然断）。**不能拿「面板文档存活」判**：
 // 收起对话框只是 `display:none`，iframe 与面板文档都还在，端口永不断开 → 角标永不变
-// （2026-09-21 无头实测：收起后推 chat:finished，角标纹丝不动；把 iframe 真摘掉才亮）。
+// （无头实测：收起后推 chat:finished，角标纹丝不动；把 iframe 真摘掉才亮）。
 // 「页面可见」那条同样不能省：对话框还开着、人却切去别的标签页，那时他什么都看不见，照旧要提示。
 const openFloatPorts = new Set<chrome.runtime.Port>()
 /** 展开态连接 → 所属标签页（判「**这个** tab 的对话框开着吗」，决定要不要记未读通知） */
@@ -799,7 +798,7 @@ function mountProposal2Listeners(): void {
 
   // 「在看」端口在这里接（短寿命：对话框展开且页面可见时才连，其余时候断开）。判据不能是
   // 「面板文档还活着」：收起只给面板加 display:none，iframe 与文档都还在（草稿 / 滚动位置刻意
-  // 留着），那条端口永不断开，角标就永不亮（2026-09-21 无头实测确认）。
+  // 留着），那条端口永不断开，角标就永不亮（无头实测确认）。
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== FLOAT_PANEL_OPEN_PORT) return
     const tabId = port.sender?.tab?.id

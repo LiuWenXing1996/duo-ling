@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 每脚本一个的 git 历史标签页（us-history:<uuid>，WorkspaceTab.userscriptId 承载）。
 //
-// 2026-09-15：历史浏览 + 恢复从编辑器内嵌视图整体迁出——编辑器只管编辑 + 保存，
+// 历史浏览 + 恢复是独立标签页：编辑器只管编辑 + 保存，
 // 历史按钮经 openHistory 事件让宿主打开本标签页。恢复在此完成后发 restored 事件，
 // 宿主据此重载该脚本的编辑器标签（若开着），避免编辑态与已恢复数据脱节。
 // 复用链路：fsClient.history / readAt / restoreToCommit + userscriptClient.save（统一保存）+ CodeBlock。

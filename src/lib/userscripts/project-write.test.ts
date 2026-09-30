@@ -1,6 +1,6 @@
 // project-write.ts 单测（offscreen 写侧）：测试直调写 API，mock us-git（lightning-fs +
 // isomorphic-git）模拟 offscreen 上下文——真实环境里它依赖 lightning-fs，非被测靶心。
-// 被测重点是写侧自身的语义：**保存恒成功、保存即注入**（2026-09-20 单文件化：无构建流程，
+// 被测重点是写侧自身的语义：**保存恒成功、保存即注入**（无构建流程，
 // 源码原文进注册态）、守卫校验、提交失败不阻断、启停不产生提交、删除全部（记录批量清 +
 // 仓整目录清一次），以及导入（zip / 粘贴）「尽量导入」语义（单文件形态：配置由源码 metadata 派生）。
 // 存储分工：源码写 duoling-fs（writeSource + commitSource），状态库存注册态（元数据 + 源码搬运副本）。

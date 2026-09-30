@@ -1,9 +1,9 @@
 // 用户脚本项目状态库的 offscreen 侧命令面。
 //
 // 本模块是本方案的落点：注册态数据（源码搬运副本 / 元数据 / enabled）与源码库（duoling-fs，带 git）
-// 都在 offscreen 本地，**写**收敛到这一处。原先一次保存是「SW 写 chrome.storage」+「IPC 让 offscreen commit」
-// 两次分离操作、两个写方，任一步失败就产生「已保存但没 commit」的偏差；现在落盘与提交
-// 在同一个函数、同一个上下文里完成（project-write.ts），没有跨上下文的缝隙。
+// 都在 offscreen 本地，**写**收敛到这一处——落盘与提交在同一个函数、同一个上下文里完成
+// （project-write.ts），不存在跨上下文缝隙（写与 commit 分离、两个写方时，任一步失败即
+// 「已保存但没 commit」）。
 //
 // 只有**写**命令进协议：读由 SW 与扩展页直连 IndexedDB（project-store），不经容器——
 // 「脚本生不生效」不能押在 offscreen 存活上（源码读取例外：走 fs:* 命令，见 offscreen-fs-commands.ts）。
@@ -118,7 +118,7 @@ async function runStateCommand(msg: StateRequest): Promise<unknown> {
 /**
  * 最终一致对账：只清**孤儿仓**（仓有、状态库没有 → 删多余仓目录）。
  * 反方向（状态库有、仓没有）不补建——源码唯一来源就是 duoling-fs，仓没了源码就没了，
- * 没有可补建的材料（2026-09-19 源码迁入 duoling-fs 后不再有「状态库权威副本」可回种）。
+ * 没有可补建的材料（状态库没有「权威副本」可回种，源码唯一权威在 duoling-fs）。
  * 幂等，失败不阻断。触发点：offscreen 启动一次（offscreen-main.ts）。
  */
 export async function reconcileFs(): Promise<void> {

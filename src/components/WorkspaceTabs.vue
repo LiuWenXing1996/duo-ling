@@ -67,7 +67,7 @@ const emit = defineEmits<{
         <span class="truncate">{{ tab.title }}</span>
         <button
           v-if="tab.id !== props.pinnedTabId"
-          class="no-drag ml-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          class="ml-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
           type="button"
           aria-label="关闭标签"
           @mousedown.stop

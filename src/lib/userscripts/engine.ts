@@ -451,7 +451,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   } catch {
     // 存储暂时不可用：按空快照继续
   }
-  // @require（P2）：注册时由 SW 抓取源码、按序前置注入（见 require-cache.ts）。
+  // @require：注册时由 SW 抓取源码、按序前置注入（见 require-cache.ts）。
   // 抓取失败只记错误、跳过该依赖，不阻断脚本整体注入（记错误不静默）。
   const requireResults = project.config.requires?.length
     ? await fetchRequireSources(project.config.requires)
@@ -536,7 +536,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
  * 注销指定 id（ids 为空直接跳过）：逐个注销、逐个吞错。
  *
  * Chrome 的批量注销是**整批原子**：ids 里混进一个不在册的 id，整批抛
- * "Nonexistent script ID"、一个都不注销（2026-09-20 手测实锤）。故不传批量，
+ * "Nonexistent script ID"、一个都不注销（手测实锤）。故不传批量，
  * 循环单个注销——不在册的 id 无可注销、失败属预期（禁用的脚本从未注册过）；
  * 其余真实失败 warn 一笔、继续清剩下的，不向上抛（调用方的 catch 退化为兜底）。
  */

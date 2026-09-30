@@ -88,7 +88,7 @@ export interface GmCookie {
   domain: string
   path: string
   secure: boolean
-  /** HttpOnly：页面 JS 读不到，本 API 照原样暴露（2026-09-19 经评审确认，与油猴一致） */
+  /** HttpOnly：页面 JS 读不到，本 API 照原样暴露（与油猴一致） */
   httpOnly: boolean
   /** 会话 cookie（无过期时间）为 true */
   session: boolean
@@ -335,7 +335,7 @@ export type ApiRequest =
   | { c: 'notify'; message: string; title?: string; icon?: string }
   /**
    * 下载（`GM_download`）：交给**浏览器下载器**（`chrome.downloads`）—— 这是能弹「另存为」的唯一途径，
-   * 也让大文件流式落盘（旧实现是把整份读进内存转 base64 再经 data URL 点锚点）。
+   * 也让大文件流式落盘。
    * `requestId` + `connId` 给进度 / 结局帧寻址（与 `xhr.progress` 同款）；不给就只发起、不回报。
    */
   | {

@@ -24,7 +24,7 @@ export const BRIDGE_PROTOCOL_VERSION = 1
 /** 握手超时（ms）：中继件缺失（世界未配 messaging / 匹配规则不重合）时尽快报错 */
 export const BRIDGE_HANDSHAKE_TIMEOUT = 1000
 
-/** 请求-应答超时（ms）：与 GM 调用原本的 30s 兜底同量级 */
+/** 请求-应答超时（ms）：与 GM 调用的 30s 兜底同量级 */
 export const BRIDGE_CALL_TIMEOUT = 30000
 
 /**

@@ -504,7 +504,7 @@ describe('UserscriptListPanel 导入入口', () => {
     await flushPromises()
 
     expect(document.body.textContent).toContain('未识别到正确的 zip 内容')
-    // 前 4 字节这类诊断数据不进用户文案（2026-09-19 定稿）
+    // 前 4 字节这类诊断数据不进用户文案
     expect(document.body.textContent).not.toContain('3c 21 44 4f')
     expect(importZip).not.toHaveBeenCalled()
   })
@@ -523,7 +523,7 @@ describe('UserscriptListPanel 导入入口', () => {
     expect(importZip).not.toHaveBeenCalled()
 
     // 引导入口：emit 给宿主切到引导标签页（完整步骤只此一份），**并且自己先关弹窗** ——
-    // 宿主只切标签页，不关我们的弹窗（不关的话引导页上还压着这个弹窗，2026-09-19 手测发现）
+    // 宿主只切标签页，不关我们的弹窗（不关的话引导页上还压着这个弹窗）
     const guide = portalButton('查看启用引导')!
     expect(guide).toBeDefined()
     guide.click()

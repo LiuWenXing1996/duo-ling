@@ -58,7 +58,7 @@ describe('buildGmWrapperPrefix', () => {
     const src = build()
     // fetch 的 onprogress、download 的三个回调、notify 的 onclick —— 都靠 Port 推帧，而
     // __gmSend 只管请求-应答、不建通道。曾经三处都用 __gmSend 直发：请求 / 下载本身成功，
-    // 但回调全被静默丢掉（2026-09-22 真机查了两轮）。
+    // 但回调全被静默丢掉（真机实测）。
     expect(src).toContain('wantsProgress ? __gmSendAfterChannel : __gmSend')
     expect(src).toContain('wantsFrames ? __gmSendAfterChannel : __gmSend')
     expect(src).toContain("typeof onclick === 'function' ? __gmSendAfterChannel : __gmSend")
@@ -106,7 +106,7 @@ describe('buildGmWrapperPrefix', () => {
   })
 
   it('前缀与脚本正文的拼接分号安全：正文以 ( 开头时不被 ASI 并进上一条语句（真机回归）', () => {
-    // 复现 2026-09-30 真机事故：模板收尾的 addEventListener('hashchange', …) 曾缺分号，
+    // 真机事故复现：模板收尾的 addEventListener('hashchange', …) 曾缺分号，
     // 脚本正文（含 ==UserScript== 注释头）以 IIFE 开头 → ASI 把两句并成一条调用表达式
     // addEventListener(...)(function(){…})()，正文从未执行，报
     // window.addEventListener(...) is not a function。合并后的源码语法合法、parse 不报错，

@@ -1,6 +1,6 @@
 // 单测：落盘 ⇄ 渲染的唯一转换点（toPersistedMessage / toUiMessage）。
 //
-// 锁的语义（2026-09-19 事故，见 lib/conversation-message.ts 头注释）：
+// 锁的语义（事故背景见 lib/conversation-message.ts 头注释）：
 //   · 落盘必须同时写下 parts（真相源）与 content（派生值）——user 路径曾只写 content，
 //     结果"发送时看得到、重开会话后用户气泡全空"；
 //   · 落盘是深拷贝，落盘对象与传入的 UIMessage 不共享引用（Vue 代理结构化克隆会炸）；

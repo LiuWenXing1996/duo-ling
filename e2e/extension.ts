@@ -42,7 +42,7 @@ export async function launchExtensionContext(userDataDir: string): Promise<Brows
     // 固定 locale：chrome://extensions WebUI 标签文案确定，DOM 匹配用
     locale: 'en-US',
     args: [
-      // 捆绑 Chromium 支持 side-load flag（branded Chrome 137+ 已删除，不可用）
+      // 捆绑 Chromium 支持 side-load flag（branded Chrome 137+ 起没有这个 flag）
       `--disable-extensions-except=${EXTENSION_PATH}`,
       `--load-extension=${EXTENSION_PATH}`,
       '--no-first-run',

@@ -1,4 +1,4 @@
-// 工作区布局样式（左侧图标导航栏 + 右侧工作区；原全宽顶栏已于 2026-09-14 删除）
+// 工作区布局样式（左侧图标导航栏 + 右侧工作区）
 // 约定：Tailwind 负责通用工具类；Less 负责复杂业务样式与复用性较高的局部样式
 .workspace {
   display: flex;
@@ -7,9 +7,6 @@
   height: 100vh;
   overflow: hidden;
 
-  // 2026-09-14：原 &-topbar（46px 全宽顶栏，桌面版是窗口拖拽区）已删除 —— 浏览器标签页
-  // 没有红绿灯，它存在的唯一理由是承载那个居中的全局搜索框，而搜索框已移入工作区标签栏右侧。
-  // 现在 &-main 直接从窗口顶部开始铺满。
   // 左侧图标导航栏 + 右侧内容区
   &-main {
     display: flex;
@@ -18,7 +15,7 @@
     overflow: hidden;
   }
 
-  // 左侧图标导航栏（置顶工具 / 新建工具 / 设置）：从顶栏下方开始，高度铺满剩余空间
+  // 左侧图标导航栏（置顶工具 / 新建工具 / 设置）：高度铺满剩余空间
   &-nav {
     flex: none;
     display: flex;
@@ -83,8 +80,6 @@
 // 是 block（不是 flex 容器），只靠 flex: 1 撑不开、会塌成内容高度 —— 表现为面板没能铺满、
 // 内部滚动区高度算成内容高度而无法滚动。
 // 项目里不用本类的面板（ui-test-panel）也是用 position: absolute 撑满的，做法一致。
-// （2026-09-14 工具链路移除：原注释里列举的 tool-history / tool-code-browser /
-// tool-data-detail 三个面板已随工具链路删除。）
 .panel {
   display: flex;
   flex: 1;
@@ -101,7 +96,7 @@
     height: 48px;
     padding: 0 16px;
     border-bottom: 1px solid var(--border);
-    // 不设为拖拽区：拖动 header 不再移动窗口，控件可正常点击；窗口拖动由顶栏承担
+    // 禁止选中文本：栏位 header 上的双击/连点不应触发选择
     user-select: none;
   }
 
@@ -122,9 +117,4 @@
     color: var(--muted-foreground);
     font-size: 13px;
   }
-}
-
-// 拖拽区内的可交互元素须排除拖拽，否则点击被窗口拖动吞掉
-.no-drag {
-  -webkit-app-region: no-drag;
 }

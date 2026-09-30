@@ -10,7 +10,7 @@
  * （@grant / @require / @resource 与 GM_info 合成所需），不映射到注册字段。
  *
  * 来源：源码里的 `// ==UserScript==` 块（由 metadata.ts 解析后写入）**或**用户在 UI 里手改。
- * 写入后**不回写源码**（2026-09-20 拍板）—— metadata 只是输入，config 是唯一运行期事实源。
+ * 写入后**不回写源码**—— metadata 只是输入，config 是唯一运行期事实源。
  */
 export interface ScriptConfig {
   /** 必填，match pattern */

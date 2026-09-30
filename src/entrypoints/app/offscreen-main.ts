@@ -24,7 +24,7 @@
 // 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（→ offscreen-chat/task-store.ts）。
 //
 // 命令面：fs:*（源码库 duoling-fs 的读写）/ state:*（注册态库写侧）/
-// conv:*（会话写侧，唯一写方）/ chat:*（对话编排，2026-09-15 整条链路搬入）。
+// conv:*（会话写侧，唯一写方）/ chat:*（对话编排）。
 
 import '@/polyfills'
 import type { RuntimeRequest } from '@/shared/extension-ipc'

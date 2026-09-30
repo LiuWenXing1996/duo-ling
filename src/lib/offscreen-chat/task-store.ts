@@ -6,7 +6,7 @@
 //     对话界面据此提示「继续 / 丢弃」；
 //   · 任务正常收尾 / 用户中止时记录即删除——孤儿判定只认 running。
 //
-// 宿主差异说明：与会话同库（v3 并入，原独立库 duoling-chat-tasks 已废弃）——同域同写方
+// 宿主差异说明：与会话同库——同域同写方
 // （都归 offscreen），纯粹少开一个库。写只发生在 offscreen（对话链路的宿主），SW 与扩展页
 // 没有写入路径；库版本与 upgrade 由本模块与 conversation-store.ts 共同防御（都做 contains 检查）。
 import { DB_VERSION, TASKS } from '../conversation-store'

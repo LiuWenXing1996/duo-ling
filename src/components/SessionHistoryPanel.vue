@@ -209,7 +209,7 @@ function confirmRename(): void {
               <ui-button
                 variant="ghost"
                 size="icon"
-                class="no-drag size-7"
+                class="size-7"
                 aria-label="删除全部会话"
                 :disabled="!props.conversations.length"
                 @click.stop="openDelete({ type: 'all' })"
@@ -275,7 +275,7 @@ function confirmRename(): void {
                 <ui-button
                   variant="ghost"
                   size="icon"
-                  class="size-6 shrink-0 text-muted-foreground transition-opacity no-drag"
+                  class="size-6 shrink-0 text-muted-foreground transition-opacity"
                   :class="s.isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
                   aria-label="会话操作"
                   title="会话操作"
@@ -344,7 +344,7 @@ function confirmRename(): void {
                   <ui-button
                     variant="ghost"
                     size="icon"
-                    class="size-6 shrink-0 text-muted-foreground transition-opacity no-drag"
+                    class="size-6 shrink-0 text-muted-foreground transition-opacity"
                     :class="s.isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
                     aria-label="会话操作"
                     title="会话操作"

@@ -336,10 +336,6 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
     await page.close()
   })
 
-  // 原先这里还有两条：「两个同址标签页：状态只推给绑定了这条会话的那个」与「两页各有自己的
-  // 会话」—— 它们验的是悬浮按钮那套**按标签页分发**的就近状态位。按钮移除后，页面里不再有按
-  // tab 区分的状态位（角标是全局那一份），这两条失去载体，随之删除。
-  // 「未读通知带站点名」原先是前一条用例顺带断言的，挪到了下面「会话被删」那条里。
 
   test('点浮层里的停止：任务就地中止，半截照样落盘（带「已中断」）', async () => {
     // 首片之后再按住：这样「停止」时已经有一点内容，能验到「保住半截」这件事
@@ -593,7 +589,7 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
   // ⚠️ 这条**在无头下测不了**，故 skip（逻辑留着，环境支持时解开即可）。
   //
   // 内容脚本的判据是 `document.visibilityState`，而无头 Chromium 不模拟标签页可见性 ——
-  // 2026-09-22 实测：新开多个 tab 全程都是 `visible`，`bringToFront()` 也不变；想从浏览器层
+  // 实测：新开多个 tab 全程都是 `visible`，`bringToFront()` 也不变；想从浏览器层
   // 强制也不行（CDP 的 `Emulation.setPageVisibilityOverride` 在此版本不存在，
   // `Page.setWebLifecycleState({state:'frozen'})` 执行成功但 `visibilityState` 仍是 visible）；
   // 从页面侧伪装同样不行 —— `Object.defineProperty(document, ...)` 改的是 MAIN world，

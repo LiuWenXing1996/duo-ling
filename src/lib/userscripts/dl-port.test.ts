@@ -128,7 +128,7 @@ describe('pushEvent', () => {
   })
 })
 
-// 2026-09-22 真机踩过的坑：脚本只调 GM_xmlhttpRequest / GM_download（不读值、不注册菜单、不订阅
+// 真机踩过的坑：脚本只调 GM_xmlhttpRequest / GM_download（不读值、不注册菜单、不订阅
 // 音频）时页面侧从未建下行 Port → portsByConnId 命中 0 → 每一帧都被静默丢掉，脚本只看到「回调
 // 永不触发」。这里锁住「推不到时不抛、且喊一声」这条底线。
 describe('帧无人接收', () => {
