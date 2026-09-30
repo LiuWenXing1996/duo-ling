@@ -1,4 +1,4 @@
-// 会话归属按标签页（README 手测 #19 的可自动化子集）。
+// 会话归属按标签页的端测。
 //
 // 为什么以前做不了：「会话」只有走完一次 `chat:start` 才落库，而它要模型 ⇒ 只能人肉手测。
 // 现在用 `e2e/model-stub.ts` 的本地假模型顶替真模型，这条链路能在无头 CI 上跑完，于是：
@@ -110,7 +110,7 @@ test.describe.serial('会话归属按标签页', () => {
 
   // —— 删除门：**当前 harness 测不到，留了原因的 skip** ——
   //
-  // 试过并定位到根因（2026-09-21）：拦截判据是「归属映射里有这条会话 + 那个标签页还开着」
+  // 试过并定位到根因：拦截判据是「归属映射里有这条会话 + 那个标签页还开着」
   // （`conversation-tab-map.getActiveTabBindings`），而归属只在 `currentTabId != null` 时才写
   // （`use-global-conversation.ensureActiveConversation`）；`tab:identify` 的实现是
   // `sender.tab?.id ?? null`，源码注释明确写了「**扩展页发的消息本就没有 tab**」。

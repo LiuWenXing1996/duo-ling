@@ -33,7 +33,7 @@ beforeEach(async () => {
 
 describe('listProjects 排序', () => {
   // 钉「启用在前 + 组内按更新时间倒序（最近更新的在最上面）」；updatedAt 用显式数值断言，
-  // 不再依赖 localeCompare（旧实现按名称排序时的 locale 隐患已无关）
+  // 不依赖 localeCompare（locale 差异会让排序不稳定）
   it('启用在前，同组内按更新时间倒序（最近更新在最上）', async () => {
     await writeProject(makeProject({ name: 'beta', enabled: false, updatedAt: 100 }))
     await writeProject(makeProject({ name: 'delta', enabled: true, updatedAt: 300 }))

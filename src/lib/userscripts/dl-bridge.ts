@@ -481,7 +481,7 @@ function mountDownloadWatch(): void {
 }
 
 /**
- * 发起下载：交给**浏览器下载器**（能弹另存为、大文件流式落盘，旧实现是整份读进内存再走 data URL）。
+ * 发起下载：交给**浏览器下载器**（能弹另存为、大文件流式落盘）。
  * 返回 downloadId —— 下载器只承诺「已开始」，成败**稍后**经 `download.change` 帧回报。
  */
 async function doDownload(

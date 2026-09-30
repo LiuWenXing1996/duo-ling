@@ -367,7 +367,7 @@ async function runLoop(opts: {
     })
     idle.arm() // 覆盖首字节（TTFT）：provider 连第一个 token 都迟迟不给时也及时释放
 
-    // 历史消息：新任务用调用方带来的；续跑从会话库现取（含此前完整上下文）。
+    // 历史消息：新任务用调用方带来的；续跑从会话库现取（含之前完整上下文）。
     // 库记录 → UIMessage 走与面板同一个 toUiMessage（含 pageContext 挂回 metadata：
     // 气泡 chip 与「最近一次拾取」都认它）——这里以前手写过一份带"缺 parts 就用
     // reasoning+content 合成"的转换，是第二个转换点，已收敛（老数据不兼容是既定取舍）。

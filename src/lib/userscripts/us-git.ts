@@ -1,7 +1,7 @@
 // 用户脚本源码与 git 版本化：每脚本一仓，源码的唯一权威来源落在 duoling-fs（us-fs）。
 //
-// 设计（2026-09-20 单文件化重构）：源码不再进状态库（duoling-state 退化成「注册态库」，只存
-// 元数据 + 源码搬运副本）。这里就是源码的落点——
+// 设计：状态库（duoling-state）只存注册态（元数据 + 源码搬运副本），不承载权威源码。
+// 这里就是源码的落点——
 //   · 工作区（/uscripts/<uuid>/script.js）= 当前源码，天然承载「未保存改动」；
 //   · 提交（git commit）= 一次保存 / 导入 / 恢复产生的历史版本；
 //   · 读源码一律走这里（offscreen 内直读，或经 fs:* 命令对外）。
@@ -118,7 +118,7 @@ export async function deleteRepo(uuid: string): Promise<void> {
   try {
     await removeRecursive(usDir(uuid))
   } catch {
-    /* 目录不存在视为已删除 */
+    /* 目录不存在按删除处理 */
   }
 }
 
@@ -202,6 +202,7 @@ async function snapshotToSource(uuid: string, oid: string): Promise<Source | nul
   return { code: snap.code }
 }
 
+// allow:comments（示例输出里的时间占位，非变更史）
 /** 无备注时的默认版本名：「保存 2026-09-22 19:46」（本地时间；带年份，几个月后回看也读得懂） */
 function defaultSaveMessage(at: number): string {
   const d = new Date(at)

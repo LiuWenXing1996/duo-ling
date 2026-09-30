@@ -1,13 +1,8 @@
 // 扩展侧 `window.api` 的权威形状（PreloadApi）。
 //
-// 历史：桌面版这里是完整的 Electron IPC 契约 —— 通道常量表（CH / EVENT_CH）+
-// InvokeMap（preload 的 `invoke` ↔ 主进程 `handle` 的编译期对齐）+ PreloadApi。
-// 扩展版**没有 preload**（src/lib/window-api.ts 直接装配实现后挂到 window），
-// 故 2026-09-19 把这批桌面版残留清掉：
-//   · CH / EVENT_CH / InvokeMap —— 全部只服务于 preload↔main 的通道映射；
-//   · conversation.appendMessage —— 桌面版遗留的"渲染层直接写库"入口，平移后无调用方。
-//     落盘唯一写方是 offscreen，只认 chat:start（用户消息）与收尾（AI 消息）两条路径，
-//     且都走 lib/conversation-message.ts 的 toPersistedMessage 投影。
+// 扩展版**没有 preload**（src/lib/window-api.ts 直接装配实现后挂到 window），本文件只留类型。
+// 落盘唯一写方是 offscreen，只认 chat:start（用户消息）与收尾（AI 消息）两条路径，
+// 且都走 lib/conversation-message.ts 的 toPersistedMessage 投影。
 //
 // 下面两处是**有意保留、不是残留**，别再当死代码清掉：
 //   · agent.*           —— 未平移的 Agent 编排面，window-api 用 Proxy stub 兜底：调用即抛

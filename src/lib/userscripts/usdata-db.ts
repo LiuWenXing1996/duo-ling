@@ -1,20 +1,20 @@
 // 用户脚本「自己存的数据」的底层存储：独立 IndexedDB 库 duoling-usdata（SW 独占写）。
 //
-// 装两类数据（从 chrome.storage 迁入，键空间概念随之变成 object store）：
-//   · gm  —— GM 值（原 us:gm:<uuid>:<key>），复合主键 [uuid, key]
-//   · tab —— GM tab 标签页级存储（原 us:tab:<uuid>:<tabId>），复合主键 [uuid, tabId]
+// 装两类数据（键空间 = object store）：
+//   · gm  —— GM 值，复合主键 [uuid, key]
+//   · tab —— GM tab 标签页级存储，复合主键 [uuid, tabId]
 //
 // 为什么单独一库（与 duoling-runtime 观测数据分开）：这里放的是**脚本自己写的数据**
-// ——不可信、无上限（此前受 chrome.storage 10MB 配额约束，正是迁移动机）、生命周期随
+// ——不可信、无上限、生命周期随
 // 脚本/tab 删除；观测数据（错误日志 / 运行统计）是我们自己生成的、有环形上限，两者
 // 信任级与演进节奏不同。「删脚本 = 清该脚本数据」在这库里就是一次 range delete。
 //
 // 单写方约定：写 API 只许 SW 调用（写侧全部经 dl-bridge / store.ts 汇入）；
 // 本模块不感知 chrome API，node 单测用 fake-indexeddb/auto 直测。
 //
-// 范围查询的键序技巧（已弃用）：最初想用 bound([uuid,''],[uuid,[]]) 的「array > string」
-// 键序覆盖任意第二键——真实 Chrome 按 spec 支持，但 fake-indexeddb 的比较实现不认（实测
-// getAll 返回空，单测直接暴露）。故改用 by_uuid 二级索引：查询语义等价、实现也更直白。
+// 范围查询用 by_uuid 二级索引，不用 bound([uuid,''],[uuid,[]]) 的「array > string」键序覆盖
+// 任意第二键——真实 Chrome 按 spec 支持，但 fake-indexeddb 的比较实现不认（实测 getAll
+// 返回空，单测直接暴露）。
 
 const DB_NAME = 'duoling-usdata'
 const DB_VERSION = 1

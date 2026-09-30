@@ -23,7 +23,7 @@ import {
 import { Button as UiButton } from '@/components/ui/button'
 import { Input as UiInput } from '@/components/ui/input'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-// CodeMirror 6：顶层只装了经评审批准的 codemirror + @codemirror/lang-javascript 两个包，
+// CodeMirror 6：顶层只装 codemirror + @codemirror/lang-javascript 两个包，
 // 下面按需引用的都是 codemirror 的直接依赖（官方分包），不新增 package.json 条目。
 import { EditorState, type Extension } from '@codemirror/state'
 import {
@@ -249,7 +249,7 @@ function applySource(source: Source): void {
 
 /**
  * 装载：注册态记录（状态库）管元数据兜底、存在性与 createdAt，源码读 duoling-fs 工作树
- * （每次保存后工作树与 HEAD 一致；编辑内容只活在页面内存，不落盘——2026-09-19 经评审确认）。
+ * （每次保存后工作树与 HEAD 一致；编辑内容只活在页面内存，不落盘）。
  */
 async function load(): Promise<void> {
   loading.value = true

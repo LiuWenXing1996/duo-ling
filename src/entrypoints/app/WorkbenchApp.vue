@@ -98,9 +98,6 @@ onUnmounted(() => {
 
 <template>
   <div class="workspace">
-    <!-- 2026-09-14：原 46px 顶栏（存在的唯一理由是承载那个居中的全局搜索框）已删除；
-         同日工具链路移除后，该搜索框与置顶工具区一并消失，本组件不再持有任何工具状态。 -->
-
     <!-- 左侧图标导航栏 + 右侧工作区 -->
     <div class="workspace-main">
       <aside class="workspace-nav">

@@ -139,7 +139,7 @@ export function useGlobalConversation() {
   /**
    * 确保有当前激活会话：本 tab 还没有归属会话时新建一条并登记归属。返回会话 id。
    *
-   * 这是「惰性新建」的唯一落点 —— 只有用户真要发消息时才走到这里（`send` 的第一步），
+   * 这是「惰性新建」的唯一落点 —— 只有用户真要发消息时才走到这里（`send` 入口），
    * 所以随手点开的 tab 不会在会话列表里留下一串空会话。
    */
   async function ensureActiveConversation(): Promise<string> {
@@ -238,7 +238,7 @@ export function useGlobalConversation() {
     }
   }
 
-  // 孤儿横幅自动浮现：检测原本只在面板挂载时跑一次——用户若在孤儿判定保护窗
+  // 孤儿横幅自动浮现：检测若只跑在面板挂载那一刻，用户在孤儿判定保护窗
   // （5s）内就重开面板，横幅永远不会出现。轻轮询（15s，一条 sendMessage）兜住
   // 「宿主被杀 → 面板开着」的时间差；轮询随 composable 首次调用启动（面板页单实例）。
   if (!orphanPollStarted) {

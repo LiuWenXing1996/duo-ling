@@ -86,7 +86,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   /** 请求打开该脚本的编辑器标签页（由 WorkspaceHost 接管） */
   edit: [uuid: string, title: string]
-  /** 脚本已删除：宿主据此关掉它的编辑器标签（项目已不存在） */
+  /** 脚本删除后：宿主据此关掉它的编辑器标签（项目已不存在） */
   deleted: [uuid: string]
   /** 需要开权限（横幅）：请宿主切到引导标签页 */
   openGuide: []
@@ -649,7 +649,7 @@ async function openPathImport(): Promise<void> {
 /**
  * 从路径导入弹窗里的「查看启用引导」：**先关弹窗再切标签页**。
  * 宿主只负责切标签页（`openGuideTab`），它不知道也不该管本弹窗还开着 ——
- * 不自己收尾的话，用户切到引导页看到的仍是压在上面的这个弹窗（2026-09-19 手测发现）。
+ * 不自己收尾的话，用户切到引导页看到的仍是压在上面的这个弹窗。
  */
 function goToGuide(): void {
   pathImportOpen.value = false

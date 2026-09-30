@@ -239,7 +239,7 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
  * 必须在**单个 readwrite 事务**里完成读与写：拆成多个独立事务（查 existing → 写消息 →
  * 读+写会话）时，两个 append 并发交错会让后提交的用读到的旧标题覆盖先完成的自动命名
  * （部分会话标题会停在「新会话 N」）。
- * 命名条件也由此改为「该会话此前没有用户消息」（而非「没有任何消息」）——
+ * 命名条件是「该会话尚无用户消息」（而非「没有任何消息」）——
  * 异常收尾可能让 assistant 消息先落盘，按任意消息判断会让改名静默失效。
  */
 export async function appendMessage(message: Message): Promise<Message | null> {

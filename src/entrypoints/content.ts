@@ -302,7 +302,7 @@ export default defineContentScript({
       ui.root.style.display = picking ? 'none' : ''
     }
 
-    /** 挂上对话框并展开（页面里原本什么都没有） */
+    /** 挂上对话框并展开（页面里什么都没有） */
     const mountAndOpen = (): void => {
       if (!ui) {
         ui = buildFloatUi()

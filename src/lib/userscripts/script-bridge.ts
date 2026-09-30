@@ -4,7 +4,7 @@
 // `var __dlBridge = <源码>` 内联进 GM 包装，运行在**页面 MAIN 世界**。
 //
 // 职责：给同一份包装里的 GM 能力实现当「`chrome.runtime` 的替身」——
-//   · `call(req)` 请求-应答，对应原先的 `chrome.runtime.sendMessage` 回调式调用；
+//   · `call(req)` 请求-应答，对应 `chrome.runtime.sendMessage` 的回调式调用语义；
 //   · `connect(connId)` 建下行通道，对应 `chrome.runtime.connect`（事件由中继件转回来）；
 //   · `emit(payload)` 单向通知（运行广播 / 错误上报），fire-and-forget；
 //   · `onEvent(fn)` 收下行帧。

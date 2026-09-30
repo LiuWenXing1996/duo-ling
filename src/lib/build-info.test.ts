@@ -2,7 +2,7 @@
 //
 // 页面侧读的是 define 注入的裸标识符 —— vitest 里没有该注入，正好覆盖「缺失时走 null 兜底」；
 // SW 侧走 chrome.runtime.sendMessage，此处 stub 通道，覆盖「一次成功 / 抖动后重试成功 /
-// 重试耗尽 / lastError」四条路径（该重试逻辑原先埋在 WorkspaceTabs 组件里、无测试）。
+// 重试耗尽 / lastError」四条路径。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   fetchSwBuildStamp,

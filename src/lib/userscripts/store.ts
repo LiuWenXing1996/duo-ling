@@ -55,7 +55,7 @@ export interface GmValueChange {
   value: unknown
   /**
    * 变化前的值。支撑 `GM_addValueChangeListener(key, (k, oldValue, newValue, remote))` 的
-   * 第二参；键原先不存在时为 undefined。
+   * 第二参；键不存在时为 undefined。
    */
   oldValue?: unknown
   /**

@@ -1,5 +1,5 @@
 // UI 组件测试：UserscriptEditorPanel.vue（编辑器标签页的加载 / 保存 / 关闭确认逻辑）。
-// 数据流（2026-09-20 单文件化后）：元数据走 userscriptClient.getProject（状态库），
+// 数据流：元数据走 userscriptClient.getProject（状态库），
 // 源码走 fsClient.read（duoling-fs 工作树，单文件 Source = { code }）；配置全部由源码里的
 // // ==UserScript== 块决定，编辑器不暴露配置表单——保存只传 { note }。
 // 只验证交互逻辑：加载渲染、统一保存链路（note 传入 / 保存成功回写 / 注册失败提示 / 保存中禁用）。

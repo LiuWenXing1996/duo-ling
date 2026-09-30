@@ -5,7 +5,7 @@
 // `baseUrl`（`ModelProfile.baseUrl`；`useFullUrl=false` 时追加 `/chat/completions`），所以测试里
 // 起一个本地服务指过去即可 —— 回复内容由我们写死，断言因此是确定的、零成本、零网络。
 //
-// 覆盖两种请求形态（两条都在 2026-09-21 实测通过）：
+// 覆盖两种请求形态（均实测通过）：
 //   · 非流式 JSON —— `window.api.model.testChat()` 走这条（设置页的「测试连通性」）；
 //   · 流式 SSE —— 真对话链路走这条（offscreen 的 `@ai-sdk/openai-compatible`）。
 import * as http from 'node:http'

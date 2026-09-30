@@ -18,7 +18,7 @@
 //   · **同步读**：`GM_getValue` / `GM_listValues` 必须同步（油猴语义），故注册时把该脚本的
 //     全量值作为**快照**嵌进注入体（`GM_VALUES`），同步读走内存；写则「先更本地缓存、再异步过桥」
 //     （对齐 Violentmonkey `dumpValue()`：本地先落、`UpdateValue` 后发）。
-//   · **常驻通道**：只读值的脚本原本从不 connect（`store.get/set` 是一次性请求），
+//   · **常驻通道**：只读值的脚本不 connect 也能工作（`store.get/set` 是一次性请求），
 //     于是别的标签页改了值它永远收不到 → 同步快照会**长周期陈旧**。故「读过值」也触发 connect，
 //     并补 `store.watchAll`（全量订阅）与 connect 后的**一次全量校准**（覆盖就绪前的窗口）。
 //   · **`@grant` 裁剪**：只有写进清单的能力才注入；不写 `@grant` / `@grant none` → 只给恒注入集。

@@ -7,13 +7,12 @@
 //   · SW 注册表（全部内存态，SW 冷启动归零，靠脚本侧重连重放恢复）：
 //       dlPorts    Map<Port, {uuid, connId, tabId}>   连接寻址（menu.click 路由主键 = tabId）
 //       watches    Map<Port, Set<key>>                订阅跟随 Port 生命周期，断开自动清理
-//       notifyMap  Map<notificationId, uuid>          通知点击归属（内存，SW 重启窗口内点击丢失——已拍板接受）
-//   · 三个事件来源：contextMenus.onClicked / GM 值存储 写出口（store.ts 的 onGmValueChange，
-//     原为 storage.onChanged，GM 值存储 迁 duoling-usdata 后改为直发）/ notifications.onClicked。
+//       notifyMap  Map<notificationId, uuid>          通知点击归属（内存，SW 重启窗口内点击丢失——已接受的取舍）
+//   · 三个事件来源：contextMenus.onClicked / GM 值存储 写出口（store.ts 的 onGmValueChange 直发）/ notifications.onClicked。
 //   · 控制面（注册 / 注销 / 订阅）走 sendMessage 请求-响应（dl-bridge dispatch 调本文件导出的
 //     函数），Port 只承载下行推送帧 —— 控制面/数据面分离。
 //
-// 幂等（拍板修正）：contextMenus 注册持久于浏览器会话，SW 重启后脚本重放 menu.register 会撞
+// 幂等：contextMenus 注册持久于浏览器会话，SW 重启后脚本重放 menu.register 会撞
 // duplicate id —— create 撞 id 按成功处理（菜单在位即达标）；remove 不存在同理忽略。
 // contextMenus id 统一加 `us:` 前缀（`us:<uuid>:<menuId>`），避免与项目自身菜单撞 id。
 //
@@ -113,7 +112,7 @@ export class DlPortRegistry {
     return out
   }
 
-  /** 同 tab 全部 Port（menu.click 路由：拍板 ②——只推点击所在 tab，同 tab 多 frame 全触发） */
+  /** 同 tab 全部 Port（menu.click 路由：只推点击所在 tab，同 tab 多 frame 全触发） */
   portsForMenuClick(uuid: string, tabId: number): chrome.runtime.Port[] {
     const out: chrome.runtime.Port[] = []
     for (const [port, m] of this.ports) {
@@ -131,7 +130,7 @@ export class DlPortRegistry {
     return out
   }
 
-  // —— 通知点击归属（内存，见拍板 ③）——
+  // —— 通知点击归属（内存，重启即丢）——
 
   trackNotification(notificationId: string, uuid: string): void {
     this.notifyMap.set(notificationId, uuid)
@@ -217,7 +216,7 @@ export function getDlPortRegistry(): DlPortRegistry {
 /**
  * 登记扩展菜单项（GM_registerMenuCommand 的后台实现）。
  * contextMenus id 加 `us:` 前缀防与项目自身菜单撞；**撞 duplicate id 按成功处理**——
- * SW 重启后菜单持久在位，脚本重放 register 即幂等达标（拍板修正）。
+ * SW 重启后菜单持久在位，脚本重放 register 即幂等达标。
  */
 export function registerScriptMenu(uuid: string, menuId: string, title: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -287,7 +286,7 @@ export function portsForAudioWatch(tabId: number): chrome.runtime.Port[] {
 /**
  * 「帧推给谁」的兜底告警：命中 0 个连接意味着**脚本侧没建下行通道**（只调 GM_xmlhttpRequest /
  * GM_download 而不读值、不注册菜单、不订阅音频的脚本就是这样），帧会被静默丢掉，脚本侧只看到
- * 「回调永不触发」—— 2026-09-22 真机踩过，查了两轮才定位。
+ * 「回调永不触发」—— 真机踩过的坑。
  *
  * 按连接只喊一次（否则每次推帧都刷屏）；SW 重启后集合归零，能再喊一遍。
  */
@@ -384,7 +383,7 @@ export function initDlPort(): void {
     port.onDisconnect.addListener(() => registry.removePort(port))
   })
 
-  // 事件源 ①：菜单点击 → 只推点击所在 tab（拍板 ②）
+  // 事件源 ①：菜单点击 → 只推点击所在 tab
   chrome.contextMenus.onClicked.addListener((info, tab) => {
     const parsed = parseMenuitemId(info.menuItemId)
     if (!parsed || tab?.id == null) return
@@ -434,7 +433,7 @@ export function initDlPort(): void {
     }
   })
 
-  // 事件源 ③：通知点击。SW 重启丢失映射时事件丢弃（拍板 ③：接受，不落盘）
+  // 事件源 ③：通知点击。SW 重启丢失映射时事件丢弃（接受丢失，不落盘）
   chrome.notifications.onClicked.addListener((notificationId) => {
     const uuid = registry.ownerOfNotification(notificationId)
     if (!uuid) return

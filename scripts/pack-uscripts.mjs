@@ -27,6 +27,7 @@ import { fileURLToPath } from 'node:url'
 const SCRIPT_FILE = 'script.js'
 const DIR_NAME_MAX = 64
 
+// allow:comments（固定值日期，非变更史）
 /** 固定 DOS 时间戳（2020-01-01 00:00）：zip 条目时间不参与比对，固定掉更可复现 */
 const DOS_TIME = 0
 const DOS_DATE = (40 << 9) | (1 << 5) | 1

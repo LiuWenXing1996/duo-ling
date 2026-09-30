@@ -4,7 +4,7 @@
 // 「注册态库」只存元数据 + 源码搬运副本。**一切源码落盘都收敛到 saveSource 一个入口**：
 // 写工作树 → 提交 git 版本 → 写状态库（+ 出口广播由命令面 handleStateCommand 负责）。
 //
-// 保存语义（2026-09-20 单文件化）：**保存恒成功、保存即注入**——无构建流程，源码原文随落盘
+// 保存语义：**保存恒成功、保存即注入**——无构建流程，源码原文随落盘
 // 写入注册态（SW 读不到 lfs，注册的注入代码从注册态取）。语法错误不拦保存：坏了的脚本照样
 // 装（油猴同款），运行期报错走现成的错误日志 / 运行日志链路。
 //
@@ -195,8 +195,7 @@ export async function saveExisting(
 
 /**
  * 删除：状态库记录 + git 仓一起清。
- * 仓的删除原先要靠 offscreen 启动对账（reconcileFs）兜，删完脚本仓会滞留一段时间；
- * 现在写侧同在 offscreen，直接一步清干净。
+ * 仓与状态库记录同在 offscreen 写侧，一步清干净，不留待启动对账（reconcileFs）兜底。
  */
 export async function removeProjectAndRepo(uuid: string): Promise<void> {
   await removeProject(uuid)
@@ -208,7 +207,7 @@ export async function removeProjectAndRepo(uuid: string): Promise<void> {
 /**
  * 删除全部用户脚本（「全部删除」按钮的落点），返回删除条数。
  *
- * 范围（2026-09-17 经评审确认）：只有用户脚本——状态库项目 + 各自 git 仓。
+ * 范围：只有用户脚本——状态库项目 + 各自 git 仓。
  * 不含内置件（随扩展包分发，不在状态库）。
  *
  * 两步：① 记录逐条 removeProject（与单删同一删除入口）；② 仓整目录清一遍 /uscripts

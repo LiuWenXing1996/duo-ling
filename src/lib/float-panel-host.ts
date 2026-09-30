@@ -2,7 +2,7 @@
 //
 // 为什么只能按 **scheme** 判，不能直接从 tab.url 取 hostname：浏览器内部页（`chrome://`）、
 // 扩展页（`chrome-extension://`）上扩展根本读不到 url —— manifest 没有 `tabs` 权限，
-// 而 `<all_urls>` 不含这两个 scheme（2026-09-21 无头实测：`chrome://version` 与扩展自身页的
+// 而 `<all_urls>` 不含这两个 scheme（无头实测：`chrome://version` 与扩展自身页的
 // `tab.url` 都是 `undefined`，`tabs.query` 其他字段正常）。更要紧的是扩展页：
 // `chrome-extension://<id>/workbench.html` 的 hostname 就是**扩展自己的 id**，谁直接取
 // hostname 谁就会把这串 id 当成一个「网站」显示。

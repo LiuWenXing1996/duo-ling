@@ -1,10 +1,7 @@
-// AI 生成脚本的端测（README 手测 #11 的核心链路）。
+// AI 生成脚本的端测：在面板里描述需求 → 看进度流的工具卡（script_spec / script_read / script_apply）
+// → 生成卡片出现 → 点「启用并生效」→ 打开目标页确认脚本已生效。这条链路要模型**发工具调用**。
 //
-// 手测 #11 原本要：在面板里描述需求 → 看进度流的工具卡（script_spec / script_read / script_apply）
-// → 生成卡片出现 → 点「启用并生效」→ 打开目标页确认脚本已生效。这一整条以前只能人肉，因为
-// 它要模型**发工具调用**。
-//
-// 现在 stub 会发 OpenAI 形状的工具调用（见 e2e/model-stub.ts 的 `plan`），于是这条链路可以脚本化：
+// stub 会发 OpenAI 形状的工具调用（见 e2e/model-stub.ts 的 `plan`），链路因此可以脚本化：
 // 第 1 次请求 → 让它调 `script_spec`；第 2 次（带回 spec 结果）→ 让它调 `script_apply` 并给出源码；
 // 第 3 次收尾。断言落在三处：工具声明到了模型、工具结果回流了、**生成的脚本真的落进了项目**。
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'

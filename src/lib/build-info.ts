@@ -2,8 +2,8 @@
  * 构建信息（诊断）：回答「浏览器里跑的是哪次构建 / 哪次 dev 会话」。
  *
  * 唯一来源 = vite.define 注入的裸标识符 `__BUILD_INFO__`（见 wxt.config.ts），编译进所有 JS
- * bundle（页面 / SW / offscreen 三处同源）。早先的 HTML 内联注入（`window.__BUILD_INFO__`）
- * 已移除——它撞 MV3 extension_pages CSP（不含 `'unsafe-inline'`），生产环境拿不到值。
+ * bundle（页面 / SW / offscreen 三处同源）。不走 HTML 内联注入（`window.__BUILD_INFO__`）
+ * ——它撞 MV3 extension_pages CSP（不含 `'unsafe-inline'`），生产环境拿不到值。
  *
  * dev / build 语义不同（wxt.config.ts 定义）：
  *   - dev：define 在 dev server 启动时算一次 → 显示「本次 dev 会话的启动时刻」
