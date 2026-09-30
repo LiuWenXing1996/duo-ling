@@ -19,7 +19,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 | 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：**平时不往页面里放任何 DOM**，收到 `float:open` 才挂出 iframe 并展开，收到 `float:collapse` 收起（只加 `display:none`，iframe 与草稿都留着）；位置钉在视口右下角，拾取期间整块让位 |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 + 网页浮层的右键菜单入口 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
-| 注入世界 | MAIN（第三方页面内） | 用户脚本自身逻辑；GM API 由 **Violentmonkey 内核**注入（`GM_*` / `GM.*` 由 VM 原生提供，duo-ling 不再自研注入体），能力调用经 VM 的桥转 SW |
+| 注入世界 | MAIN（第三方页面内） | 用户脚本自身逻辑；GM 包装层（`gm-wrapper.ts`）在同一函数作用域里声明 `GM_*` / `GM.*`，能力调用经同帧 USER_SCRIPT 中继件（`script-relay.ts`）转 SW |
 
 各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的挂载细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级、收起语义）见 [src/entrypoints/content.ts](src/entrypoints/content.ts) 顶部注释。**打开入口都在页面之外**：工具栏 popup 的「对话浮层」按钮，与页面右键菜单（SW 注册，`documentUrlPatterns` 限 http/https）—— 对话框平时不在页面里，页面上没有任何可点的地方。两条都收敛到同一条定向消息（`FloatOpenRequest`，`tabs.sendMessage`，不经 SW），内容脚本收到就地挂出 UI 并展开。**收起走反向的另一条消息**（`FloatCollapseRequest`）：对话框顶栏那颗按钮在 iframe 里（跨源，父页拿不到它的事件），只能发消息叫父页把容器藏起来；刻意不用 `postMessage` —— 宿主网页的脚本挂在父 window 上，既能监听也能用 `iframe.contentWindow.postMessage` 伪造来源，那等于把「关掉扩展界面」开放给被注入的页面。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
 
@@ -61,17 +61,17 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 ## 脚本注入
 
-`chrome.userScripts` + **页面 MAIN 世界**注入；GM API 由 **Violentmonkey 内核**原生注入（VM 接管后 duo-ling 不再自研 `gm-wrapper.ts` 注入体，GM 值 / 菜单 / 通知等由 VM 按它自己的清单裁剪提供）。
+`chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`gm-wrapper.ts`）与 **USER_SCRIPT 中继件**（`script-relay.ts`）桥接（`src/lib/userscripts/`）。
 
-标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`；grant 名 → 它开启的成员这张对应表在 `gm-grants.ts`，速查页与 AI 规范两处共用这一份——注入由 VM 内核按它自己的清单裁剪，`gm-grants` 不参与）。能力表 `gm-api-catalog.ts` 一张生成速查页、`.d.ts` 与**给 AI 的能力清单**三形态（防漂移：类型层 `satisfies` 锚定 `api-contract.ts` 的 GM 形态视图 + 真机矩阵探针 `uscript-samples/gm-matrix` 的 `@covers` 登记表 ↔ 目录双向比对 `gm-api-coverage.test.ts` + 规范文本对齐单测 `spec-text.test.ts`；VM 内核是 GM 真身的唯一来源，目录只作展示 / 规范侧数据，不驱动注入）。
+标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`；grant 名 → 它开启的成员这张对应表在 `gm-grants.ts`，注入侧、速查页与 AI 规范三处共用这一份）；能力表 `gm-api-catalog.ts` 一张生成速查页、`.d.ts` 与**给 AI 的能力清单**三形态（50 条，三防漂移：类型层 `satisfies` + 从注入源码反射 + 规范文本对齐单测）。内部仍走 `dl-bridge.ts` 的 `__dl` 信封协议（协议稳定、与 DL 时代一致）。
 
 - **可用性前置**：`chrome.userScripts` 在用户未开启「运行用户脚本」时**不存在**，直接调用会让 SW 初始化崩溃。引擎每条入口都先判存在性（`isUserScriptsAvailable()` / `typeof chrome.userScripts.register === 'function'`）再优雅跳过；开启引导统一交给工作台「引导」标签页（各处只给「查看开启引导」入口，不各写一套步骤）。
 
 - **同步值快照**：注册时 SW 把 `duoling-usdata` 全量值快照嵌入注入体，`GM_getValue` / `GM_listValues` 纯内存读；写后 debounce `userScripts.update()` 刷新（阈值参照 VM `FLUSH_DELAY=100`）。`GM.getValue` 走实时桥读（永远新鲜）。
-- **事件下行通道**：菜单点击 / 通知点击 / 请求进度 / 下载进度等事件经 duo-ling 的 `dl-port.ts` 长连接 Port 推送给脚本。
+- **只读脚本的下行通道**：读写值 / 订阅变更的脚本经 `store.watchAll` 常驻 Port 接收变更；connect 成功后主动全量校准一次，覆盖 Port 建立前的窗口。**两条订阅的退订是不对称的，这是刻意的**：`url.watch` 配 `url.unwatch`（脚本摘完 `onurlchange` / `urlchange` 监听即退订，并复位注册重放位 —— 不复位则 Port 重连会把已无人要的订阅重新挂上）；`store.watchAll` **不配退订**，因为「读过值」本身就意味着要一直收（退订会让同步读退回陈旧，是缺陷不是能力），它的清理只随 Port 断开发生。
 - **靠下行帧的回调必须先等通道**：`GM_xmlhttpRequest` 的 `onprogress`、`GM_download` 的 `onprogress` / `onload` / `onerror`、`GM_notification` 的 `onclick` 都由 Port 推帧送达，而请求-应答（`sendMessage`）**不会**把 Port 建起来。只调这几个 API、不读值 / 不注册菜单 / 不订阅音频的脚本会踩到：SW 侧 `portsByConnId` 命中 0 个连接，帧全被丢掉，而请求 / 下载本身照常成功——表现为「回调永不触发」（2026-09-22 真机查了两轮才定位）。故这些命令统一先等通道再发（`__gmSendAfterChannel`）；通道建不起来也**照发**（降级不阻断），但 SW 侧 `warnNoPort` 会按连接喊一次，不做新的静默失败。
-- **`@grant` 精确注入**：语义对齐 TM —— **不写 `@grant` / `@grant none` 都等于空清单**（只剩恒注入项），写了才给对应成员。`unsafeWindow` 就是页面自身的 `window`（脚本跑在主世界）；`GM_info` 恒注入（不受 grant 限制）。
-- **脚本主世界注入 + 桥接**：脚本注入页面 MAIN 世界由 **VM 内核**完成（injected-web.js / injected.js，与 Tampermonkey 默认一致，`unsafeWindow` 即页面 window）。MAIN 世界没有 `chrome.*`，GM 能力调用经 VM 注入件内建的桥转 `onUserScriptMessage` → SW 的 `vm.dispatch`，由 duo-ling 实现具体能力（GM_cookie / GM_xmlhttpRequest / GM_download / 菜单 / 通知等）；桥协议与防伪造由 VM 内核负责，duo-ling 不另写注入体 / 中继件。
+- **`@grant` 精确注入**：语义对齐 TM —— **不写 `@grant` / `@grant none` 都等于空清单**（只剩恒注入项），写了才给对应成员。`unsafeWindow` 就是页面自身的 `window`（脚本跑在主世界）；`window.onurlchange` / `GM.page.*` / `GM_info` 恒注入（不受 grant 限制，这点比 TM 宽松）。
+- **脚本主世界注入 + 中继桥**：脚本注入页面 MAIN 世界（与 Tampermonkey 默认一致，`unsafeWindow` 因此就是页面 window）。MAIN 世界没有 `chrome.*`，能力调用经同帧的 `dl-script-relay`（独立 USER_SCRIPT 世界 `us-dl-bridge`，`messaging: true`）转给 SW，桥协议见 `bridge-protocol.ts`（每条消息带 `digest(secret, uuid:seq)` 防页面伪造与重放）。注入代码是「GM 包装前缀 ＋ `@require` ＋ 脚本源码 ＋ 闭合后缀」拼成的**一条** code —— MAIN 不支持 `worldId`，同帧多脚本共享一个 window，故 `GM_*` 一律声明在包装的函数作用域里（挂 window 会互相覆盖）。
 - **cookie 域名门**（红线索引见 [AGENTS.md](AGENTS.md)「硬性底线」「cookie 能力」）：入口为 `GM_cookie.list/set/delete`（原 `DL.cookie`），门仍在 SW 侧、只比 scheme + host，`set` 仍禁 domain / path 覆写。
 - **GM_xmlhttpRequest 的 forbidden header 覆写**（Cookie / Referer / UA 等）与 `redirect:'manual'` 走 DNR session 规则按请求挂/撤 + 观察型 webRequest（`dl-fetch-priv.ts`；权限 `declarativeNetRequestWithHostAccess` + `webRequest` 均不新增用户可见提示）。**DNR 的头修改不跨重定向 hop**（跨 host 的 hop 不套用，Chrome 平台限制，油猴同款）。
 - **GM_download 走浏览器下载器**（`chrome.downloads`，权限 `downloads`）：只有它能弹「另存为」（`saveAs`）、也只有它是流式落盘（旧实现要把整份文件读进内存再经 data URL 点锚点，大文件会炸）。`downloads` 是**用户可见权限**（安装 / 更新时提示「管理您的下载内容」）。进度靠 SW 轮询 `search()`（`onChanged` 不给下载中的字节数），由 offscreen 心跳保活常驻支撑。
@@ -144,7 +144,7 @@ IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 
 `wxt.config.ts` 通过 `vite().define` 把裸标识符 `__BUILD_INFO__`（`{ time, branch, version, repo }`）替换成字面量，**编译进所有 JS bundle**（页面 / SW / offscreen 三处同源）。这是构建信息的唯一来源。
 
 - `repo` 是 `owner/repo` 形式，**由构建期从 git remote 推导，不写死在源码里**：代码托管用户名属需脱敏的个人 ID，写死会随仓库分发出去；没有 origin 时降级 `unknown`，检查更新会自行跳过（用途见 `src/lib/update-check.ts`）。
-- **HTML 内联注入 `window.__BUILD_INFO__` 已废弃**：MV3 `extension_pages` CSP 不含 `'unsafe-inline'` → 内联脚本不执行，生产环境该字段恒 `undefined`，构建信息整列消失。WXT 只在 dev 注入宽松 CSP，因此这条 bug **在 dev 下不复现**，必须用生产产物（`pnpm run build` + 加载 `.output/chrome-mv3`）验证。
+- **HTML 内联注入 `window.__BUILD_INFO__` 已废弃**：MV3 `extension_pages` CSP 不含 `'unsafe-inline'` → 内联脚本不执行，生产环境该字段恒 `undefined`，构建信息整列消失。WXT 只在 dev 注入宽松 CSP，因此这条 bug **在 dev 下不复现**，必须用生产产物（`npm run build` + 加载 `.output/chrome-mv3`）验证。
 - 页面侧取数写法（`typeof` 守卫必需——未应用该 define 的环境里裸标识符不存在，`typeof` 读不存在的标识符不抛错）：
 
   ```ts
@@ -175,4 +175,4 @@ IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 
 
 - **重依赖一律按需加载**：markdown 渲染链路（micromark/mdast + shiki + katex）约 600KB、AI SDK（`ai` 核心 + zod）约 360KB —— 打开对话框那一刻两者都用不上（历史消息走 IndexedDB 直读），静态引入会把首屏从约 530KB 抬到约 1420KB。落点：`MessageResponse.vue` 用 `defineAsyncComponent` + `<Suspense>` 拉 `vue-stream-markdown`（组件与 CSS 一起 await）；shiki 在 `code-block/utils.ts` 首次高亮时动态 import；`useChat` 收进 `use-global-conversation.ts` 的 `ensureChat()`。`ai` 的 part 判定 helper 另有本地实现，理由见 `src/lib/ui-message-parts.ts` 顶部注释。
 - **首帧底色不能靠 JS，加载态必须是内联静态 DOM**：`body` 背景取 `--background`，而 `.dark` 由 `theme.ts` 在 JS 执行时才挂上（CSP 禁内联 `<script>`），故「CSS 已到、JS 未执行完」这一档 `body` 实测为纯白、深色系统下反差明显。做法是三个入口 HTML 的 `<head>` 内联 `.dl-boot` 加载层 + `<meta name="color-scheme">`：底色用 CSS 系统色 `Canvas` / `CanvasText`（不依赖 `prefers-color-scheme` —— Chrome 在部分环境下该媒体查询不可靠），转圈只能用纯 CSS 画，Vue mount 清空 `#app` 时自动消失。**三个入口的样式块刻意重复，改一处须同步其余两处**；逐条改造要点就地记在 `floatpanel.html` 的注释里。
-- **dev 冷启动的白屏不属此列**：`pnpm run dev` 首次自动打开浏览器时白屏数秒 —— 那几秒里 HTML 文档本身尚未送达（Vite/WXT 现场编译 entrypoint + 预构建依赖），任何前端手段都渲染不出加载态。生产产物是静态文件、没有这段窗口，验真实首屏体感须用 `pnpm run build` 的产物；dev 同样不适合验 CSP。
+- **dev 冷启动的白屏不属此列**：`npm run dev` 首次自动打开浏览器时白屏数秒 —— 那几秒里 HTML 文档本身尚未送达（Vite/WXT 现场编译 entrypoint + 预构建依赖），任何前端手段都渲染不出加载态。生产产物是静态文件、没有这段窗口，验真实首屏体感须用 `npm run build` 的产物；dev 同样不适合验 CSP。

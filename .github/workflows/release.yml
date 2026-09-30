@@ -1,7 +1,7 @@
 name: release
 
 # 合 main 后由 CI 自动发版：
-# 版本号由人在本地用 `pnpm run release` 决定，随「专门的 release PR」合入 main；
+# 版本号由人在本地用 `npm run release` 决定，随「专门的 release PR」合入 main；
 # 本 workflow 在 release PR 合入后读取合并 commit 的 package.json version → vX.Y.Z，
 # 打 annotated tag 并推送到 refs/tags/*（幂等：已存在则跳过），
 # 同时抽取 CHANGELOG.md 对应段作为 GitHub Release notes 自动建 Release（预发布版标 --prerelease），
@@ -110,30 +110,20 @@ jobs:
         with:
           ref: main
 
-      # 不传 version：pnpm/action-setup 读 package.json 的 packageManager 字段，
-      # 版本只有一处真相源，避免 workflow 与本地各写一个版本号后漂移。
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
+          cache: npm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       # .wxt/tsconfig.json 由 wxt prepare 生成，构建依赖它；显式 prepare 兜底（同 ci.yml）。
       - name: Generate WXT types (.wxt/tsconfig.json)
-        run: pnpm exec wxt prepare
-
-      # VM 运行时源码不入库（见 packages/gm-runtime/.gitignore），根 build 的第一步就是
-      # gm-runtime 的 build:runtime，缺了它整条产物链路在开头就挂 —— 必须先拉。
-      # 拉取配方只有 scripts/fetch-vm-runtime.mjs 一处（含钉定版本），CI 与本机共用同一份。
-      - name: Fetch Violentmonkey runtime source
-        run: node scripts/fetch-vm-runtime.mjs
+        run: npx wxt prepare
 
       - name: Build chrome-mv3
-        run: pnpm run build
+        run: npm run build
 
       # zip 内容直接是扩展目录本身（含 manifest.json），解压即得可「加载已解压的扩展」的目录。
       # 文件名带 tag，避免多个版本 asset 同名冲突。
