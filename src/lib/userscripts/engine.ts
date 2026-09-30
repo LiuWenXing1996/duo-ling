@@ -492,7 +492,10 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   // @run-at document-body：注入仍用 document_start（Chrome 的 runAt 只认三种），正文则由包装层的
   // 闸门推到 body 出现之后再跑 —— TM 的语义是 body 元素存在时才注入。
   const runAtBody = project.config.runAt === 'document_body'
-  const bodySource = [...requireCodes, rawCode].join('\n')
+  // @require 之间、@require 与脚本正文之间插一条空语句（;）：库源码结尾若缺分号、
+  // 下一段又以 ( 开头，换行拼接会被 ASI 并成一条表达式（与包装前缀收尾同款坑，
+  // 见 gm-wrapper.ts 末尾的注释）。
+  const bodySource = [...requireCodes, rawCode].join('\n;\n')
   const code = [
     buildGmWrapperPrefix({
       uuid: project.uuid,

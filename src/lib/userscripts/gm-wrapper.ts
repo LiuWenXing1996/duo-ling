@@ -1250,7 +1250,8 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     history.replaceState = function () { var r = __gmReplaceState.apply(this, arguments); setTimeout(__gmCheckUrl, 0); return r }
   } catch (e) { /* 极少数环境改不动 history：退化为只看 popstate / hashchange */ }
   window.addEventListener('popstate', __gmCheckUrl)
-  window.addEventListener('hashchange', __gmCheckUrl)
+  // 必须带分号：脚本正文以 ( 开头时会被 ASI 并进本句（真机踩过，parse 测试抓不住）
+  window.addEventListener('hashchange', __gmCheckUrl);
 `
 }
 

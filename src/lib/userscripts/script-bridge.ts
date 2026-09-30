@@ -6,6 +6,7 @@
 // 职责：给同一份包装里的 GM 能力实现当「`chrome.runtime` 的替身」——
 //   · `call(req)` 请求-应答，对应原先的 `chrome.runtime.sendMessage` 回调式调用；
 //   · `connect(connId)` 建下行通道，对应 `chrome.runtime.connect`（事件由中继件转回来）；
+//   · `emit(payload)` 单向通知（运行广播 / 错误上报），fire-and-forget；
 //   · `onEvent(fn)` 收下行帧。
 //
 // 传输层只做「发出去、按 seq 配回、超时兜底」，`resp.ok` 那层业务判断留在调用方
@@ -128,6 +129,12 @@ export function buildScriptBridgeSource(secret: string, uuid: string): string {
       return handshake().then(function () {
         send(sign({ kind: 'connect', connId: connId }))
       })
+    },
+    // 单向通知（fire-and-forget）：运行广播 / 错误上报这类「不等应答」的帧。
+    // 与 call 同一套 seq+proof 签名（中继件对所有帧统一验防伪）；不发就不回，
+    // 页面侧调用方自行兜底（包装层对返回值做了守卫，这里刻意不返回 Promise）。
+    emit: function (payload) {
+      send(sign(payload))
     },
     onEvent: function (fn) {
       if (typeof fn === 'function') eventHandlers.push(fn)
