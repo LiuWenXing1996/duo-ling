@@ -2,33 +2,17 @@
 //
 // 管理页是 duo-ling 的可信扩展页（独立 WXT 入口），可直接 chrome.runtime.sendMessage，
 // 因此不依赖 window.api 全局（window.api 是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
-// 这里复用与 window-api.ts 同构的 send 信封（统一解包 { ok, data|error }），
+// 这里 send 信封统一走 shared/runtime-send（与 window-api.ts 等各处同源），
 // 直接发 userscript:* 命令组（v2 方案）。
-import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
+import type { RuntimeRequest } from '@/shared/extension-ipc'
+import { runtimeSend } from '@/shared/runtime-send'
 import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptRunLogRow } from './types'
 import type { Source, UsCommit, UsSnapshot } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    chrome.runtime.sendMessage(request, (response: RuntimeResponse<T> | undefined) => {
-      const lastError = chrome.runtime.lastError
-      if (lastError) {
-        reject(new Error(lastError.message))
-        return
-      }
-      if (!response) {
-        reject(new Error('扩展服务未响应，请重试'))
-        return
-      }
-      if (!response.ok) {
-        reject(new Error(response.error))
-        return
-      }
-      resolve(response.data as T)
-    })
-  })
+  return runtimeSend<T>(request)
 }
 
 /**

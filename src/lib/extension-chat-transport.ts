@@ -15,31 +15,14 @@ import type {
   OffscreenPush,
   PageContextInfo,
   RuntimeRequest,
-  RuntimeResponse,
 } from '@/shared/extension-ipc'
+import { runtimeSend } from '@/shared/runtime-send'
 import { consumePendingPageContext, clearSentPageContext } from '@/lib/page-context-store'
 import { resolveOwningTabId } from '@/lib/owning-tab'
 
 /** 向 offscreen 发一次请求（共享总线，SW 对 chat: 前缀静默让路），统一解包信封 */
 function send<T>(request: RuntimeRequest): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    chrome.runtime.sendMessage(request, (response: RuntimeResponse<T> | undefined) => {
-      const lastError = chrome.runtime.lastError
-      if (lastError) {
-        reject(new Error(lastError.message))
-        return
-      }
-      if (!response) {
-        reject(new Error('扩展服务未响应，请重试'))
-        return
-      }
-      if (!response.ok) {
-        reject(new Error(response.error))
-        return
-      }
-      resolve(response.data as T)
-    })
-  })
+  return runtimeSend<T>(request)
 }
 
 /**

@@ -16,7 +16,8 @@
 // 这样比静默返回 undefined 更早暴露「这段界面还没接上」，也便于后续逐项替换成真实实现。
 
 import type { PreloadApi } from '@/shared/ipc'
-import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
+import type { RuntimeRequest } from '@/shared/extension-ipc'
+import { runtimeSend } from '@/shared/runtime-send'
 import type { ModelProfileInput } from '@/shared/types'
 import { getProviders } from './providers'
 import * as conversationStore from './conversation-store'
@@ -26,24 +27,7 @@ import * as modelStore from './model-store'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    chrome.runtime.sendMessage(request, (response: { ok: boolean; data?: T; error?: string } | undefined) => {
-      const lastError = chrome.runtime.lastError
-      if (lastError) {
-        reject(new Error(lastError.message))
-        return
-      }
-      if (!response) {
-        reject(new Error('扩展服务未响应，请重试'))
-        return
-      }
-      if (!response.ok) {
-        reject(new Error(response.error))
-        return
-      }
-      resolve(response.data as T)
-    })
-  })
+  return runtimeSend<T>(request)
 }
 
 /**
@@ -73,25 +57,7 @@ function createStubNamespace(path: string): unknown {
 
 /** 向 offscreen 发一次请求，统一解包 { ok, data|error }；「容器未响应」类错误先唤起再重试 */
 async function sendOffscreen<T>(request: RuntimeRequest): Promise<T> {
-  const sendOnce = () =>
-    new Promise<T>((resolve, reject) => {
-      chrome.runtime.sendMessage(request, (response: RuntimeResponse<T> | undefined) => {
-        const lastError = chrome.runtime.lastError
-        if (lastError) {
-          reject(new Error(lastError.message))
-          return
-        }
-        if (!response) {
-          reject(new Error('扩展服务未响应，请重试'))
-          return
-        }
-        if (!response.ok) {
-          reject(new Error(response.error))
-          return
-        }
-        resolve(response.data as T)
-      })
-    })
+  const sendOnce = () => runtimeSend<T>(request)
   try {
     return await sendOnce()
   } catch (e) {
