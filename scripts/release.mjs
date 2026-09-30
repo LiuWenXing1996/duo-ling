@@ -11,7 +11,7 @@
 //   同 base 迭代   release --pre X               → 当前须为预发；同 stage 则后缀+1，异 stage 则重置 .1
 //   显式版本       release x.y.z [--pre X]        → 直接指定 base（可选挂预发）
 //
-// 流程：typecheck 闸门 → bump package.json → CHANGELOG 起段 → 本地提交。
+// 流程：typecheck 闸门 → bump package.json → 同步 package-lock 内嵌版本 → CHANGELOG 起段 → 本地提交。
 // 注意：npm run 会吞掉脚本后的 --xxx（当成 npm 自己的参数）。两种调用都兼容：
 //   推荐：npm run release -- minor --pre alpha
 //   兜底：npm run release minor --pre alpha   （npm 注入 npm_config_pre 环境变量）
@@ -146,6 +146,24 @@ if (dryRun) {
   console.log(`· 已写 package.json version = ${next}`)
 }
 
+// 5b. 同步 package-lock.json 内嵌版本字段（漏同步会让 lock 漂移，之后每次 npm install
+// 都被顺手修正，混进无关提交的 diff 里）
+const lockPath = resolve(cwd, 'package-lock.json')
+const hasLock = existsSync(lockPath)
+if (dryRun) {
+  if (hasLock) console.log(`  (dry) 将同步 package-lock.json version = ${next}`)
+} else if (hasLock) {
+  try {
+    const lock = JSON.parse(readFileSync(lockPath, 'utf-8'))
+    lock.version = next
+    if (lock.packages?.['']) lock.packages[''].version = next
+    writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n')
+    console.log(`· 已同步 package-lock.json version = ${next}`)
+  } catch (e) {
+    fail(`同步 package-lock.json 失败：${e.message}（请手动核对 lock 内嵌版本字段）`)
+  }
+}
+
 // 6. CHANGELOG 起段
 const today = new Date().toISOString().slice(0, 10)
 const section =
@@ -185,11 +203,11 @@ if (dryRun) {
 const tag = `v${next}`
 if (dryRun) {
   console.log(
-    `  (dry) 将执行：git add package.json CHANGELOG.md && git commit -m "chore: release ${tag}"`,
+    `  (dry) 将执行：git add package.json${hasLock ? ' package-lock.json' : ''} CHANGELOG.md && git commit -m "chore: release ${tag}"`,
   )
 } else {
   try {
-    run('git add package.json CHANGELOG.md')
+    run(`git add package.json${hasLock ? ' package-lock.json' : ''} CHANGELOG.md`)
     run(`git commit -m "chore: release ${tag}"`)
     console.log(
       `✓ 已提交 release（${tag}）。下一步：推分支并开 release PR，合入 main 后由 CI 打 tag。`,
