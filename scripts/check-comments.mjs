@@ -15,7 +15,7 @@ import { join, relative } from 'node:path'
 
 const root = new URL('..', import.meta.url).pathname
 const scanDirs = ['src', 'packages', 'e2e', 'scripts']
-const extRe = /\.(ts|vue|js|mjs)$/
+const extRe = /\.(ts|vue|js|mjs|css|less)$/
 const selfRel = 'scripts/check-comments.mjs'
 
 const RULES = [
