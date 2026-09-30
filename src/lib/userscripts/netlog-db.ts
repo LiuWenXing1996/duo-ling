@@ -15,71 +15,30 @@ import {
   NET_HOST_RING_LIMIT,
   type NetCaptureRecord,
 } from './net-record-protocol'
+import { createIdbOpener, idbRequest as request, idbRunTx } from '../idb-core'
 
 const DB_NAME = 'duoling-netlog'
 const DB_VERSION = 1
 
 const CAPTURE_STORE = 'captures'
 
-let dbPromise: Promise<IDBDatabase> | undefined
+const opener = createIdbOpener({
+  name: DB_NAME,
+  version: DB_VERSION,
+  upgrade: (db) => {
+    if (!db.objectStoreNames.contains(CAPTURE_STORE)) {
+      const store = db.createObjectStore(CAPTURE_STORE, { keyPath: 'id', autoIncrement: true })
+      store.createIndex('by_host', 'host')
+    }
+  },
+  label: '录制数据',
+})
 
-function openDb(): Promise<IDBDatabase> {
-  if (!dbPromise) {
-    dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION)
-      req.onupgradeneeded = () => {
-        const db = req.result
-        if (!db.objectStoreNames.contains(CAPTURE_STORE)) {
-          const store = db.createObjectStore(CAPTURE_STORE, { keyPath: 'id', autoIncrement: true })
-          store.createIndex('by_host', 'host')
-        }
-      }
-      req.onsuccess = () => {
-        const db = req.result
-        // 别处要升级版本时先放手，否则对方一直 blocked；下次调用重新打开
-        db.onversionchange = () => {
-          db.close()
-          dbPromise = undefined
-        }
-        resolve(db)
-      }
-      req.onerror = () => reject(req.error ?? new Error('无法打开录制数据'))
-      req.onblocked = () => reject(new Error('录制数据被其它页面占用，无法升级'))
-    }).catch((e: unknown) => {
-      dbPromise = undefined // 失败不缓存，下次重试
-      throw e
-    })
-  }
-  return dbPromise
-}
-
-function request<T>(req: IDBRequest<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error ?? new Error('本地数据读取失败'))
-  })
-}
-
-// 连接已死（被外部删库 / 强制关闭）：transaction() 会同步抛 InvalidStateError
-function isDeadConnection(e: unknown): boolean {
-  return e instanceof DOMException && e.name === 'InvalidStateError'
-}
-
-async function runTx<T>(
+function runTx<T>(
   mode: IDBTransactionMode,
   run: (tx: IDBTransaction, store: IDBObjectStore) => Promise<T>,
 ): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    const db = await openDb()
-    try {
-      const tx = db.transaction(CAPTURE_STORE, mode)
-      return await run(tx, tx.objectStore(CAPTURE_STORE))
-    } catch (e) {
-      dbPromise = undefined
-      if (attempt < 2 && isDeadConnection(e)) continue
-      throw e
-    }
-  }
+  return idbRunTx(opener, CAPTURE_STORE, mode, (tx) => run(tx, tx.objectStore(CAPTURE_STORE)))
 }
 
 /** 事务收尾：等在 oncomplete 上（写路径必须等落盘，不能只在 request success 就返回） */

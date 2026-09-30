@@ -8,6 +8,8 @@
 // 抓取策略：注册时由 SW 内 fetch 抓取，受 <all_urls> host 权限豁免 CORS。
 // 失败策略：单条抓取失败只记错误、跳过该依赖，不阻断脚本整体注入。
 
+import { createIdbOpener } from '../idb-core'
+
 const DB_NAME = 'duoling-require-cache'
 const DB_VERSION = 1
 const STORE = 'requires'
@@ -18,36 +20,18 @@ interface RequireCacheRecord {
   fetchedAt: number
 }
 
-let dbPromise: Promise<IDBDatabase> | undefined
+const opener = createIdbOpener({
+  name: DB_NAME,
+  version: DB_VERSION,
+  upgrade: (db) => {
+    if (!db.objectStoreNames.contains(STORE)) {
+      db.createObjectStore(STORE, { keyPath: 'url' })
+    }
+  },
+  label: '依赖缓存',
+})
 
-function openDb(): Promise<IDBDatabase> {
-  if (!dbPromise) {
-    dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION)
-      req.onupgradeneeded = () => {
-        const db = req.result
-        if (!db.objectStoreNames.contains(STORE)) {
-          db.createObjectStore(STORE, { keyPath: 'url' })
-        }
-      }
-      req.onsuccess = () => {
-        const db = req.result
-        // 别处要升级版本时先放手，否则对方一直 blocked；下次调用重新打开
-        db.onversionchange = () => {
-          db.close()
-          dbPromise = undefined
-        }
-        resolve(db)
-      }
-      req.onerror = () => reject(req.error ?? new Error('无法打开依赖缓存'))
-      req.onblocked = () => reject(new Error('依赖缓存被其它页面占用，无法升级'))
-    }).catch((e: unknown) => {
-      dbPromise = undefined // 失败不缓存，下次重试
-      throw e
-    })
-  }
-  return dbPromise
-}
+const openDb = () => opener.open()
 
 /** 批量查缓存：返回 url → code（未命中不出现在 map 里） */
 export async function getRequireCache(urls: string[]): Promise<Map<string, string>> {
