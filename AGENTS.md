@@ -11,7 +11,7 @@
 **红线**（各领域规范与文档索引见下方「文档职责总表」）：
 
 - **UI 复用（强制）**：对话界面（网页浮层）用 `ChatApp` + `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列；popup 是独立的 `PopupPanel.vue`（纯配置面板，不装 `window.api`）。组件本体零改动（靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`）。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。
-  - **组件来源**：UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 走 —— 先 `pnpm dlx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，不手写组件。
+  - **组件来源**：UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 走 —— 先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，不手写组件。
   - **样式**：`class` 只用于布局，不覆盖组件配色与字体；颜色一律用语义 token（`bg-primary` / `text-muted-foreground`）；不写 `space-x-*` / `space-y-*`，不手写 `dark:` 覆盖。新增语义 token 时三处一起改（`@theme inline` 注册 + `:root` / `.dark` 取值），并**构建后 grep 产物 CSS 确认工具类真的生成了** —— Tailwind v4 对没注册的 token 静默忽略：不报错、不生效，typecheck 也看不出来。另注意本套 token 除 `--destructive` 外全是无彩色（`--primary` 就是黑/白），要给状态找颜色就新立语义 token，别借 `chart-*`（语义错配且会随图表配色漂）。
   - **Tooltip 组合约束（reka-ui 2.10 实测）**：`TooltipProvider` 不转发 attrs —— 任何 as-child 组件**隔在 Provider 与目标元素之间都会静默断链**（编译不报错、运行时无警告，事件与属性全丢）。故 Tooltip 包其他触发组件时，**Tooltip 在最外、目标组件在内**。
   - **菜单触发按钮不套 Tooltip（reka-ui 2.10 实测）**：即便顺序正确，`TooltipTrigger` 套在 `DropdownMenuTrigger` 外层仍会让 menu popper 失去定位（内容渲染到视口外，`translate(0,-200%)` 兜底，无任何报错；组件测试 / happy-dom 测不出来，只有真实浏览器可见性断言能抓到）。改用原生 `title`（`SessionHistoryPanel` 会话操作按钮即此例）。
@@ -31,26 +31,23 @@
 
 ## 常用命令
 
-> 本表是命令清单的登记处。包管理器是 **pnpm**（版本由 `package.json` 的 `packageManager` 字段锁定，CI 读同一个字段）。
+> 本表是命令清单的登记处。
 
 | 命令 | 说明 |
 | --- | --- |
-| `pnpm install` | **新 worktree 先跑它**：`node_modules` 不入库、也不跨 worktree 共享，缺了时所有 `pnpm run *` 与 `pnpm exec` 一律报错（`command not found` / `Cannot find module`），不是代码问题（约 10s） |
-| `pnpm install --frozen-lockfile` | 严格按 `pnpm-lock.yaml` 还原（CI 用这条）；加 / 改依赖后要提交更新过的锁文件 |
-| `pnpm exec <bin>` / `pnpm dlx <pkg>` | 跑包内可执行文件 / 临时跑未安装的包（原来写 `npx` 的地方按这两条分） |
-| `pnpm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev` |
-| `pnpm run build` | 构建，产出 `.output/chrome-mv3` |
-| `pnpm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
-| `pnpm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
-| `pnpm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
-| `pnpm run test:e2e` | Playwright 端测（全程无头、跑 build 产物；**先 `pnpm run build`**） |
-| `pnpm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
-| `pnpm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、疑似重复（**整理待办时跑**，提醒级不进 CI） |
-| `pnpm run pack:uscripts` | 生成用户脚本测试包：把仓库根 `uscript-samples/` 打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例目录再打） |
+| `npm ci` | **新 worktree 先跑它**：`node_modules` 不入库、也不跨 worktree 共享，缺了时所有 `npm run *` 与 `npx` 一律报错（`command not found` / `Cannot find module`），不是代码问题（约 10s） |
+| `npm install` | 首次装 / 加依赖（非锁定场景）；按 lockfile 精确还原用上面的 `npm ci` |
+| `npm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev` |
+| `npm run build` | 构建，产出 `.output/chrome-mv3` |
+| `npm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
+| `npm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
+| `npm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
+| `npm run test:e2e` | Playwright 端测（全程无头、跑 build 产物；**先 `npm run build`**） |
+| `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
+| `npm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、疑似重复（**整理待办时跑**，提醒级不进 CI） |
+| `npm run pack:uscripts` | 生成用户脚本测试包：把仓库根 `uscript-samples/` 打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例目录再打） |
 
-> **给脚本传参数一律写成 `pnpm run <script> -- <args>`**：位置参数与 `--pre` 即使不写 `--` 也能转发到脚本，但 `--dry-run` 这类与 pnpm 自身同名的选项不写 `--` 会被 pnpm 吞掉（脚本拿不到、误按真模式运行）。
->
-> **交付前验证**：`pnpm run typecheck` + `pnpm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
+> **交付前验证**：`npm run typecheck` + `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
 
 ## 文档职责总表（读哪 / 写哪）
 
@@ -157,8 +154,8 @@
 | manifest 权限 | 所需权限之外的不得添加（上架审查）；**没有 `sidePanel`** —— 一个 action 只能有一种默认行为，本项目给了 popup（页面外的入口），对话入口是 content script 按需挂进页面的浮层，故不用 `chrome.sidePanel`（加回来只会多出一个点不动的入口）。已批准权限集见 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」）；核对产物即拿它的 `permissions` 数组逐项比对，另需 `action`（含 `default_popup`，由 `entrypoints/popup.html` 自动写入）+ `host_permissions` | [wxt.config.ts](wxt.config.ts) |
 | cookie 能力（GM_cookie） | `cookies` 权限 + 已全域的 host（`<all_urls>`）= **SW 可读写全浏览器 cookie（含 HttpOnly）**，故必须与**域名门**绑定：url 须落在该脚本自身 `matches` 内、不命中 `excludeMatches`，只比 **scheme + host**（pattern 的 path 段一律忽略）；`set` 不开放 domain / path 覆写。**门只在 SW 侧，新增任何 cookie 命令都必经此门** | [cookie-gate.ts](src/lib/userscripts/cookie-gate.ts) / [api-contract.ts](src/lib/userscripts/api-contract.ts) |
 | SW 全局 | 引入依赖 Node 全局的库时，必须补 `src/polyfills.ts` 并在 `background.ts` **最前** import；漏掉时表现为加载期即抛「`global.TextEncoder` 读不到」 | [src/polyfills.ts](src/polyfills.ts) |
-| CSP / 沙箱 | 扩展页 CSP 保持 MV3 默认 `script-src 'self'`，**不要加任何 CSP 覆盖**；扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**注入页面 MAIN 世界：不受扩展 CSP 约束，但**能用的 CSP 由目标站点自己决定**（`eval` / `new Function` 在收紧的站点上会失败）；不享有扩展 API，GM 能力由 **Violentmonkey 内核**注入并桥接（`GM_*` / `GM.*` 经 VM 的桥转 SW） | [ARCHITECTURE.md](ARCHITECTURE.md)「脚本注入」/ [wxt.config.ts](wxt.config.ts) |
-| 消息协议 | 扩展页只能经 `window.api` → background 调用能力；用户脚本的 GM 能力由 **VM 内核**经桥转 background（GM API 由 VM 注入，duo-ling 不另写注入体），具体能力由 SW 的 `vm.dispatch` 路由到 duo-ling 实现，**两者都不得直接访问 `chrome.*`** | [src/lib/window-api.ts](src/lib/window-api.ts) / [vm-runtime-host.ts](src/lib/userscripts/vm-runtime-host.ts) |
+| CSP / 沙箱 | 扩展页 CSP 保持 MV3 默认 `script-src 'self'`，**不要加任何 CSP 覆盖**；扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**注入页面 MAIN 世界：不受扩展 CSP 约束，但**能用的 CSP 由目标站点自己决定**（`eval` / `new Function` 在收紧的站点上会失败）；不享有扩展 API，只能经 GM 包装层桥接（`GM_*` / `GM.*`，内部经中继件走 `__dl` 信封协议） | [ARCHITECTURE.md](ARCHITECTURE.md)「脚本注入」/ [wxt.config.ts](wxt.config.ts) |
+| 消息协议 | 扩展页只能经 `window.api` → background 调用能力；用户脚本只能经 GM 包装层（`GM_*` / `GM.*`）→ background，内部走 `dl-bridge.ts` 的 `__dl` 信封协议，**两者都不得直接访问 `chrome.*`** | [src/lib/window-api.ts](src/lib/window-api.ts) |
 | 权限引导 | 需用户在浏览器里开启的开关（当前两项：「运行用户脚本」「读取本地文件」——后者只对 Chrome 渲染）统一由工作台**「引导」标签页**承载（状态自检 + 分步指引 + 直达扩展管理页）；**别处一律只给「查看开启引导」入口，不各写一套步骤**。该页只放需要用户动手的项——无需操作的实现细节（如 CSP 相关的脚本限制）由保存警告与错误日志在恰当时机给出。**直达管理页用 `chrome.tabs.create`**（属 tabs API 免权限方法，可开 `chrome://extensions`——文档那句「chrome:// URLs are not linkable」只约束 `<a href>`）：Chrome ≥138 用 `?id=` 深链落**扩展详情页**，<138 退**列表页**（要开的是整页右上角的全局「开发者模式」）；Firefox 的 `about:addons` 是特权 URL，`tabs.create` 会被拒，故不提供该入口 | [src/lib/extension-page.ts](src/lib/extension-page.ts) |
 | 脚本 CSP | 脚本注入页面 MAIN 世界，能否用 `eval` / `new Function` 由**目标站点自己的 CSP** 决定 —— 本扩展既不拦也不放开。保存时 `collectCspWarnings` 对含 `eval` / `new Function` 的代码给非阻塞警告 | [ARCHITECTURE.md](ARCHITECTURE.md)「脚本注入」 |
 | 错误文案 | **平台英文报错不直达用户**：扩展 API 的原话（注入失败 / 访问被拒等）必须先归一成用户的下一步动作（典型「切到要操作的网页后重试」），能在调用前判掉的就在判据里判掉；同类失败面（内置页 / 扩展页 / 未授权）文案保持一致。注意 `<all_urls>` **不覆盖 `chrome-extension://` scheme** —— 往扩展页注入必失败（连本扩展自己的页面也一样），加 host 权限解决不了，只能在注入前按 scheme 拦 | [src/lib/element-picker-client.ts](src/lib/element-picker-client.ts) |

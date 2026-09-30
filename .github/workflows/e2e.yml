@@ -26,26 +26,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 不传 version：pnpm/action-setup 读 package.json 的 packageManager 字段，
-      # 版本只有一处真相源，避免 workflow 与本地各写一个版本号后漂移。
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
+          cache: npm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # VM 运行时源码不入库（见 packages/gm-runtime/.gitignore），build:runtime 依赖它。
-      # 拉取配方只有 scripts/fetch-vm-runtime.mjs 一处（含钉定版本 v2.49.0），别在 workflow 里手抄命令。
-      - name: Fetch Violentmonkey runtime source
-        run: node scripts/fetch-vm-runtime.mjs
+        run: npm ci
 
       # 构建生产产物（E2E fixture 加载 .output/chrome-mv3），同时生成 .wxt 类型
       - name: Build extension
-        run: pnpm run build
+        run: npm run build
 
       # 缓存 Playwright 浏览器二进制，避免每次重新下载。
       # GitHub 官方 runner 在海外，走 Playwright 官方 CDN 即可（稳定且快）；
@@ -54,18 +45,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: |
             playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium
 
-      # E2E 门禁隔离（PR #124）：editor / float-task-state / link-import / smoke 四个 spec
-      # 含预存 VM 集成失败（脚本注册 msgInvalidScript / 浮层 trySendFloat=false /
-      # 探针 MARKER_ATTR 未注入 / 编辑器存态），非本 PR 回归。
-      # Playwright CLI 没有 --exclude；按文件名反向过滤只能用 --grep-invert（它匹配
-      # titlePath，其中含文件名）。本地 `pnpm run test:e2e` 仍跑全量以保留回归信号；
-      # 修复后删掉 --grep-invert 即恢复全量门禁（见 TODO.md 相应待办）。
       - name: E2E smoke
-        run: pnpm exec playwright test --grep-invert "(editor|float-task-state|link-import|smoke)\.spec\.ts"
+        run: npm run test:e2e
