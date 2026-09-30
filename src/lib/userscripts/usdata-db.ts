@@ -16,6 +16,8 @@
 // 任意第二键——真实 Chrome 按 spec 支持，但 fake-indexeddb 的比较实现不认（实测 getAll
 // 返回空，单测直接暴露）。
 
+import { createIdbOpener, idbRequest as request, idbRunTx } from '../idb-core'
+
 const DB_NAME = 'duoling-usdata'
 const DB_VERSION = 1
 
@@ -34,71 +36,29 @@ interface TabRecord {
   value: unknown
 }
 
-let dbPromise: Promise<IDBDatabase> | undefined
-
-function openDb(): Promise<IDBDatabase> {
-  if (!dbPromise) {
-    dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION)
-      req.onupgradeneeded = () => {
-        const db = req.result
-        if (!db.objectStoreNames.contains(GM_STORE)) {
-          const gm = db.createObjectStore(GM_STORE, { keyPath: ['uuid', 'key'] })
-          gm.createIndex('by_uuid', 'uuid')
-        }
-        if (!db.objectStoreNames.contains(TAB_STORE)) {
-          const tab = db.createObjectStore(TAB_STORE, { keyPath: ['uuid', 'tabId'] })
-          tab.createIndex('by_uuid', 'uuid')
-          tab.createIndex('by_tabId', 'tabId')
-        }
-      }
-      req.onsuccess = () => {
-        const db = req.result
-        // 别处要升级版本时先放手，否则对方一直 blocked；下次调用重新打开
-        db.onversionchange = () => {
-          db.close()
-          dbPromise = undefined
-        }
-        resolve(db)
-      }
-      req.onerror = () => reject(req.error ?? new Error('无法打开脚本数据'))
-      req.onblocked = () => reject(new Error('脚本数据被其它页面占用，无法升级'))
-    }).catch((e: unknown) => {
-      dbPromise = undefined // 失败不缓存，下次重试
-      throw e
-    })
-  }
-  return dbPromise
-}
-
-function request<T>(req: IDBRequest<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error ?? new Error('本地数据读取失败'))
-  })
-}
-
-// 连接已死（被外部删库 / 强制关闭）：transaction() 会同步抛 InvalidStateError
-function isDeadConnection(e: unknown): boolean {
-  return e instanceof DOMException && e.name === 'InvalidStateError'
-}
+const opener = createIdbOpener({
+  name: DB_NAME,
+  version: DB_VERSION,
+  upgrade: (db) => {
+    if (!db.objectStoreNames.contains(GM_STORE)) {
+      const gm = db.createObjectStore(GM_STORE, { keyPath: ['uuid', 'key'] })
+      gm.createIndex('by_uuid', 'uuid')
+    }
+    if (!db.objectStoreNames.contains(TAB_STORE)) {
+      const tab = db.createObjectStore(TAB_STORE, { keyPath: ['uuid', 'tabId'] })
+      tab.createIndex('by_uuid', 'uuid')
+      tab.createIndex('by_tabId', 'tabId')
+    }
+  },
+  label: '脚本数据',
+})
 
 async function runTx<T>(
   storeName: string,
   mode: IDBTransactionMode,
   run: (tx: IDBTransaction, store: IDBObjectStore) => Promise<T>,
 ): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    const db = await openDb()
-    try {
-      const tx = db.transaction(storeName, mode)
-      return await run(tx, tx.objectStore(storeName))
-    } catch (e) {
-      dbPromise = undefined
-      if (attempt < 2 && isDeadConnection(e)) continue
-      throw e
-    }
-  }
+  return idbRunTx(opener, storeName, mode, (tx) => run(tx, tx.objectStore(storeName)))
 }
 
 async function withStore<T>(

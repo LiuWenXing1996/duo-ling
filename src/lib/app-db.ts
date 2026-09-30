@@ -12,6 +12,8 @@
 // 读写方：扩展页 / SW 都可用（同源 IndexedDB）；offscreen 不 import 本模块
 // （模型配置经 SW 命令 / 推送获取，见 offscreen-main.ts）。node 单测 fake-indexeddb/auto 直测。
 
+import { createIdbOpener, idbRequest as request, idbRunTx } from './idb-core'
+
 const DB_NAME = 'duoling-app'
 const DB_VERSION = 1
 
@@ -22,64 +24,22 @@ interface KvRecord {
   value: unknown
 }
 
-let dbPromise: Promise<IDBDatabase> | undefined
+const opener = createIdbOpener({
+  name: DB_NAME,
+  version: DB_VERSION,
+  upgrade: (db) => {
+    if (!db.objectStoreNames.contains(KV_STORE)) {
+      db.createObjectStore(KV_STORE, { keyPath: 'key' })
+    }
+  },
+  label: '本地数据',
+})
 
-function openDb(): Promise<IDBDatabase> {
-  if (!dbPromise) {
-    dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION)
-      req.onupgradeneeded = () => {
-        const db = req.result
-        if (!db.objectStoreNames.contains(KV_STORE)) {
-          db.createObjectStore(KV_STORE, { keyPath: 'key' })
-        }
-      }
-      req.onsuccess = () => {
-        const db = req.result
-        // 别处要升级版本时先放手，否则对方一直 blocked；下次调用重新打开
-        db.onversionchange = () => {
-          db.close()
-          dbPromise = undefined
-        }
-        resolve(db)
-      }
-      req.onerror = () => reject(req.error ?? new Error('无法打开本地数据'))
-      req.onblocked = () => reject(new Error('本地数据被其它页面占用，无法升级'))
-    }).catch((e: unknown) => {
-      dbPromise = undefined // 失败不缓存，下次重试
-      throw e
-    })
-  }
-  return dbPromise
-}
-
-function request<T>(req: IDBRequest<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error ?? new Error('本地数据读取失败'))
-  })
-}
-
-// 连接已死（被外部删库 / 强制关闭）：transaction() 会同步抛 InvalidStateError
-function isDeadConnection(e: unknown): boolean {
-  return e instanceof DOMException && e.name === 'InvalidStateError'
-}
-
-async function runTx<T>(
+function runTx<T>(
   mode: IDBTransactionMode,
   run: (tx: IDBTransaction) => Promise<T>,
 ): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    const db = await openDb()
-    try {
-      const tx = db.transaction(KV_STORE, mode)
-      return await run(tx)
-    } catch (e) {
-      dbPromise = undefined
-      if (attempt < 2 && isDeadConnection(e)) continue
-      throw e
-    }
-  }
+  return idbRunTx(opener, KV_STORE, mode, run)
 }
 
 /** 读一个键（不存在返回 undefined） */

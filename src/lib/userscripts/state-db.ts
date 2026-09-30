@@ -12,6 +12,7 @@
 // 「写了状态但没 commit」「已保存但没 commit」这类偏差就没有产生的缝隙。
 // 违反方式：在 offscreen 之外 import writeProject / removeProject 等。
 import type { ScriptGroup, ScriptProject } from './types'
+import { createIdbOpener, idbRequest as request, idbRunTx } from '../idb-core'
 
 const DB_NAME = 'duoling-state'
 const DB_VERSION = 2
@@ -21,75 +22,27 @@ const KEY_PATH = 'uuid'
 /** 分组对象库（脚本列表分组功能）；keyPath = id。与 projects 同库、同单写方约束 */
 const GROUPS_STORE = 'groups'
 
-let dbPromise: Promise<IDBDatabase> | undefined
+const opener = createIdbOpener({
+  name: DB_NAME,
+  version: DB_VERSION,
+  upgrade: (db) => {
+    if (!db.objectStoreNames.contains(STORE)) {
+      db.createObjectStore(STORE, { keyPath: KEY_PATH })
+    }
+    // v2 升级：新增 groups 对象库（已存在的库走 onupgradeneeded 补建，无数据迁移）
+    if (!db.objectStoreNames.contains(GROUPS_STORE)) {
+      db.createObjectStore(GROUPS_STORE, { keyPath: 'id' })
+    }
+  },
+  label: '脚本状态数据',
+})
 
-function openDb(): Promise<IDBDatabase> {
-  if (!dbPromise) {
-    dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION)
-      req.onupgradeneeded = () => {
-        const db = req.result
-        if (!db.objectStoreNames.contains(STORE)) {
-          db.createObjectStore(STORE, { keyPath: KEY_PATH })
-        }
-        // v2 升级：新增 groups 对象库（已存在的库走 onupgradeneeded 补建，无数据迁移）
-        if (!db.objectStoreNames.contains(GROUPS_STORE)) {
-          db.createObjectStore(GROUPS_STORE, { keyPath: 'id' })
-        }
-      }
-      req.onsuccess = () => {
-        const db = req.result
-        // 别处要升级版本时先放手，否则对方一直 blocked；下次调用重新打开
-        db.onversionchange = () => {
-          db.close()
-          dbPromise = undefined
-        }
-        resolve(db)
-      }
-      req.onerror = () => reject(req.error ?? new Error('无法打开脚本状态数据'))
-      req.onblocked = () => reject(new Error('脚本状态数据被其它页面占用，无法升级'))
-    }).catch((e: unknown) => {
-      dbPromise = undefined // 失败不缓存，下次重试
-      throw e
-    })
-  }
-  return dbPromise
-}
-
-function request<T>(req: IDBRequest<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error ?? new Error('本地数据读取失败'))
-  })
-}
-
-/** 连接已死（被外部删库 / 强制关闭）：transaction() 会同步抛 InvalidStateError "The database connection is closing" */
-function isDeadConnection(e: unknown): boolean {
-  return e instanceof DOMException && e.name === 'InvalidStateError'
-}
-
-/**
- * 开事务执行（含死连接兜底）。
- * 外部删库（如 DevTools 面板强删）不触发 onversionchange，缓存的连接死后 dbPromise 永不重置，
- * 之后每次 transaction 都报 "connection is closing"——故这里捕获后重置缓存、重开一次。
- * 库被删本身无害：重新 open 时 onupgradeneeded 会把表建回来。
- */
 async function runTx<T>(
   store: string,
   mode: IDBTransactionMode,
   run: (tx: IDBTransaction, store: IDBObjectStore) => Promise<T>,
 ): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    const db = await openDb()
-    try {
-      const tx = db.transaction(store, mode)
-      return await run(tx, tx.objectStore(store))
-    } catch (e) {
-      dbPromise = undefined
-      if (attempt < 2 && isDeadConnection(e)) continue
-      throw e
-    }
-  }
+  return idbRunTx(opener, store, mode, (tx) => run(tx, tx.objectStore(store)))
 }
 
 async function withStore<T>(

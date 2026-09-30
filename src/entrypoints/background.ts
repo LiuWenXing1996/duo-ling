@@ -21,8 +21,8 @@ import type {
   NotificationSnapshot,
   RunningNotice,
   RuntimeRequest,
-  RuntimeResponse,
 } from '@/shared/extension-ipc'
+import { runtimeSend } from '@/shared/runtime-send'
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
 import type { InjectedBuildInfo } from '@/lib/build-info'
 
@@ -144,24 +144,7 @@ type SwRequest = Extract<RuntimeRequest, { kind: `${(typeof SW_KIND_PREFIXES)[nu
 
 /** SW → offscreen 的请求封装：转发 ai:*（git 历史）与 state:*（项目状态库写侧）命令面。统一信封解包。 */
 function sendToOffscreen<T>(request: RuntimeRequest): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    chrome.runtime.sendMessage(request, (response: RuntimeResponse<T> | undefined) => {
-      const lastError = chrome.runtime.lastError
-      if (lastError) {
-        reject(new Error(lastError.message))
-        return
-      }
-      if (!response) {
-        reject(new Error('扩展服务未响应，请重试'))
-        return
-      }
-      if (!response.ok) {
-        reject(new Error(response.error))
-        return
-      }
-      resolve(response.data as T)
-    })
-  })
+  return runtimeSend<T>(request)
 }
 
 /**

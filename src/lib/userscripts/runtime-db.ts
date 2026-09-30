@@ -26,6 +26,7 @@ import type {
   UserScriptRunLogEntry,
   UserScriptRunStats,
 } from './types'
+import { createIdbOpener, idbRequest as request, idbRunTx } from '../idb-core'
 
 const DB_NAME = 'duoling-runtime'
 const DB_VERSION = 1
@@ -47,73 +48,30 @@ interface StatsRecord extends UserScriptRunStats {
   uuid: string
 }
 
-let dbPromise: Promise<IDBDatabase> | undefined
+const opener = createIdbOpener({
+  name: DB_NAME,
+  version: DB_VERSION,
+  upgrade: (db) => {
+    // errors / runlog 是单记录数组 store：in-line keyPath 'key'，全库只有一条 'all' 记录
+    if (!db.objectStoreNames.contains(ERRORS_STORE)) {
+      db.createObjectStore(ERRORS_STORE, { keyPath: 'key' })
+    }
+    if (!db.objectStoreNames.contains(STATS_STORE)) {
+      db.createObjectStore(STATS_STORE, { keyPath: 'uuid' })
+    }
+    if (!db.objectStoreNames.contains(RUNLOG_STORE)) {
+      db.createObjectStore(RUNLOG_STORE, { keyPath: 'key' })
+    }
+  },
+  label: '运行数据',
+})
 
-function openDb(): Promise<IDBDatabase> {
-  if (!dbPromise) {
-    dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION)
-      req.onupgradeneeded = () => {
-        const db = req.result
-        // errors / runlog 是单记录数组 store：in-line keyPath 'key'，全库只有一条 'all' 记录
-        if (!db.objectStoreNames.contains(ERRORS_STORE)) {
-          db.createObjectStore(ERRORS_STORE, { keyPath: 'key' })
-        }
-        if (!db.objectStoreNames.contains(STATS_STORE)) {
-          db.createObjectStore(STATS_STORE, { keyPath: 'uuid' })
-        }
-        if (!db.objectStoreNames.contains(RUNLOG_STORE)) {
-          db.createObjectStore(RUNLOG_STORE, { keyPath: 'key' })
-        }
-      }
-      req.onsuccess = () => {
-        const db = req.result
-        // 别处要升级版本时先放手，否则对方一直 blocked；下次调用重新打开
-        db.onversionchange = () => {
-          db.close()
-          dbPromise = undefined
-        }
-        resolve(db)
-      }
-      req.onerror = () => reject(req.error ?? new Error('无法打开运行数据'))
-      req.onblocked = () => reject(new Error('运行数据被其它页面占用，无法升级'))
-    }).catch((e: unknown) => {
-      dbPromise = undefined // 失败不缓存，下次重试
-      throw e
-    })
-  }
-  return dbPromise
-}
-
-function request<T>(req: IDBRequest<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error ?? new Error('本地数据读取失败'))
-  })
-}
-
-// 连接已死（被外部删库 / 强制关闭）：transaction() 会同步抛 InvalidStateError
-function isDeadConnection(e: unknown): boolean {
-  return e instanceof DOMException && e.name === 'InvalidStateError'
-}
-
-async function runTx<T>(
+function runTx<T>(
   storeNames: string | string[],
   mode: IDBTransactionMode,
   run: (tx: IDBTransaction) => Promise<T>,
 ): Promise<T> {
-  const names = Array.isArray(storeNames) ? storeNames : [storeNames]
-  for (let attempt = 1; ; attempt++) {
-    const db = await openDb()
-    try {
-      const tx = db.transaction(names, mode)
-      return await run(tx)
-    } catch (e) {
-      dbPromise = undefined
-      if (attempt < 2 && isDeadConnection(e)) continue
-      throw e
-    }
-  }
+  return idbRunTx(opener, storeNames, mode, run)
 }
 
 /** 事务收尾：oncomplete 才算成功（put/delete 排队后必须等事务提交，错误才真正落定） */

@@ -151,11 +151,6 @@ export function getProviders(): ModelProvider[] {
   return PROVIDERS
 }
 
-/** 扩展侧补充：按 id 取预设（ModelFormDialog 用它回填 providerId / 显示识别结果） */
-export function getProvider(id: string): ModelProvider | undefined {
-  return PROVIDERS.find((p) => p.id === id)
-}
-
 /**
  * 预设模型里**明确已知支持图片输入**的子集，供模型表单预置「支持图片」的默认值。
  *

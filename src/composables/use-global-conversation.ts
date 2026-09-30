@@ -32,7 +32,8 @@ import {
   unbindTab,
 } from '@/lib/conversation-tab-map'
 import { resolveOwningTabId } from '@/lib/owning-tab'
-import type { ChatOrphanRecord, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
+import type { ChatOrphanRecord, RuntimeRequest } from '@/shared/extension-ipc'
+import { runtimeSend } from '@/shared/runtime-send'
 import type { Conversation, TokenUsage } from '@/shared/types'
 
 /** 会话历史列表项展示所需的时间格式化；补上分钟，便于同日内区分多次会话 */
@@ -401,24 +402,7 @@ export function useGlobalConversation() {
 
 /** 向 offscreen 发 chat:* 命令，统一解包 { ok, data|error } 信封 */
 function sendChatCommand<T>(request: RuntimeRequest): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    chrome.runtime.sendMessage(request, (response: RuntimeResponse<T> | undefined) => {
-      const lastError = chrome.runtime.lastError
-      if (lastError) {
-        reject(new Error(lastError.message))
-        return
-      }
-      if (!response) {
-        reject(new Error('扩展服务未响应，请重试'))
-        return
-      }
-      if (!response.ok) {
-        reject(new Error(response.error))
-        return
-      }
-      resolve(response.data as T)
-    })
-  })
+  return runtimeSend<T>(request)
 }
 
 /** 孤儿任务的命令面（供本 composable 使用） */

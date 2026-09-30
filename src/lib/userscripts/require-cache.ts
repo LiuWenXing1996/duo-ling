@@ -8,6 +8,9 @@
 // 抓取策略：注册时由 SW 内 fetch 抓取，受 <all_urls> host 权限豁免 CORS。
 // 失败策略：单条抓取失败只记错误、跳过该依赖，不阻断脚本整体注入。
 
+import { createIdbOpener } from '../idb-core'
+import { cacheClear, cacheGetAll, cachePutAll, fetchWithTimeout } from './cache-common'
+
 const DB_NAME = 'duoling-require-cache'
 const DB_VERSION = 1
 const STORE = 'requires'
@@ -18,92 +21,38 @@ interface RequireCacheRecord {
   fetchedAt: number
 }
 
-let dbPromise: Promise<IDBDatabase> | undefined
-
-function openDb(): Promise<IDBDatabase> {
-  if (!dbPromise) {
-    dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION)
-      req.onupgradeneeded = () => {
-        const db = req.result
-        if (!db.objectStoreNames.contains(STORE)) {
-          db.createObjectStore(STORE, { keyPath: 'url' })
-        }
-      }
-      req.onsuccess = () => {
-        const db = req.result
-        // 别处要升级版本时先放手，否则对方一直 blocked；下次调用重新打开
-        db.onversionchange = () => {
-          db.close()
-          dbPromise = undefined
-        }
-        resolve(db)
-      }
-      req.onerror = () => reject(req.error ?? new Error('无法打开依赖缓存'))
-      req.onblocked = () => reject(new Error('依赖缓存被其它页面占用，无法升级'))
-    }).catch((e: unknown) => {
-      dbPromise = undefined // 失败不缓存，下次重试
-      throw e
-    })
-  }
-  return dbPromise
-}
+const opener = createIdbOpener({
+  name: DB_NAME,
+  version: DB_VERSION,
+  upgrade: (db) => {
+    if (!db.objectStoreNames.contains(STORE)) {
+      db.createObjectStore(STORE, { keyPath: 'url' })
+    }
+  },
+  label: '依赖缓存',
+})
 
 /** 批量查缓存：返回 url → code（未命中不出现在 map 里） */
 export async function getRequireCache(urls: string[]): Promise<Map<string, string>> {
-  if (!urls.length) return new Map()
-  const db = await openDb()
+  const recs = await cacheGetAll<RequireCacheRecord>(opener, STORE, urls, '依赖缓存')
   const out = new Map<string, string>()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readonly')
-    const store = tx.objectStore(STORE)
-    let remaining = urls.length
-    const done = () => {
-      if (--remaining === 0) resolve()
-    }
-    for (const url of urls) {
-      const req = store.get(url)
-      req.onsuccess = () => {
-        const rec = req.result as RequireCacheRecord | undefined
-        if (rec) out.set(url, rec.code)
-        done()
-      }
-      req.onerror = () => done() // 单条失败不阻断整批
-    }
-    tx.onerror = () => reject(tx.error ?? new Error('依赖缓存读取失败'))
-  })
+  for (const [url, rec] of recs) out.set(url, rec.code)
   return out
 }
 
 /** 批量写缓存（相同 url 覆盖）。写失败不阻断（下次重抓即可） */
 export async function setRequireCache(items: { url: string; code: string }[]): Promise<void> {
-  if (!items.length) return
-  let db: IDBDatabase
-  try {
-    db = await openDb()
-  } catch {
-    return
-  }
-  await new Promise<void>((resolve) => {
-    const tx = db.transaction(STORE, 'readwrite')
-    const store = tx.objectStore(STORE)
-    const now = Date.now()
-    for (const it of items) store.put({ url: it.url, code: it.code, fetchedAt: now })
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => resolve() // 写失败不阻断
-    tx.onabort = () => resolve()
-  })
+  const now = Date.now()
+  return cachePutAll(
+    opener,
+    STORE,
+    items.map((it) => ({ url: it.url, code: it.code, fetchedAt: now })),
+  )
 }
 
 /** 清空全部缓存（库更新后手动重抓用） */
-export async function clearRequireCache(): Promise<void> {
-  const db = await openDb()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite')
-    tx.objectStore(STORE).clear()
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error ?? new Error('依赖缓存清除失败'))
-  })
+export function clearRequireCache(): Promise<void> {
+  return cacheClear(opener, STORE, '依赖缓存')
 }
 
 // —— 抓取层（注册时抓）——
@@ -136,14 +85,7 @@ export async function fetchRequireSources(urls: string[]): Promise<RequireFetchR
       continue
     }
     try {
-      const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), REQUIRE_TIMEOUT_MS)
-      let resp: Response
-      try {
-        resp = await fetch(url, { credentials: 'omit', redirect: 'follow', signal: ctrl.signal })
-      } finally {
-        clearTimeout(timer)
-      }
+      const resp = await fetchWithTimeout(url, REQUIRE_TIMEOUT_MS)
       if (!resp.ok) {
         results.push({ url, ok: false, error: `HTTP ${resp.status}` })
         continue

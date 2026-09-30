@@ -86,11 +86,6 @@ function displayName(profile: ModelProfileState): string {
   return profile.name?.trim() || profile.model
 }
 
-/** 内部使用：完整配置（含 apiKey），供请求发起方读取 */
-export async function listProfileStates(): Promise<ModelProfileState[]> {
-  return (await readState()).profiles
-}
-
 /** UI 使用：剔除 apiKey 明文，仅保留 hasApiKey */
 export async function listProfiles(): Promise<ModelProfile[]> {
   return (await readState()).profiles.map(toPublic)
@@ -118,12 +113,6 @@ export async function getActiveProfileId(): Promise<string> {
 /** 当前生效配置（含 apiKey），未配置则 undefined */
 export async function getActiveProfileState(): Promise<ModelProfileState | undefined> {
   return getActiveProfile()
-}
-
-/** 当前默认模型是否可用（baseUrl + apiKey + model 齐全） */
-export async function isConfigured(): Promise<boolean> {
-  const profile = await getActiveProfile()
-  return Boolean(profile && profile.baseUrl && profile.apiKey && profile.model)
 }
 
 /** 读取指定配置的明文 API Key（编辑态连通性测试用，Key 未回显时回退） */

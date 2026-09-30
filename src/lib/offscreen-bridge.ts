@@ -11,30 +11,14 @@
 //
 // 注意：这里只用 `import type` 引类型（编译后消失，零运行时依赖）—— 引的 ScriptProject
 // 来自 userscripts/types.ts，那是纯类型 + 纯函数模块，不碰任何 chrome API。
-import type { ModelProfileState, PageSnapshotContext, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
+import type { ModelProfileState, PageSnapshotContext, RuntimeRequest } from '@/shared/extension-ipc'
+import { runtimeSend } from '@/shared/runtime-send'
 import type { ScriptConfig } from '@/lib/userscripts/types'
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 
 /** 向 SW 发一次请求，统一解包 { ok, data | error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    chrome.runtime.sendMessage(request, (response: RuntimeResponse<T> | undefined) => {
-      const lastError = chrome.runtime.lastError
-      if (lastError) {
-        reject(new Error(lastError.message))
-        return
-      }
-      if (!response) {
-        reject(new Error('扩展服务未响应，请重试'))
-        return
-      }
-      if (!response.ok) {
-        reject(new Error(response.error))
-        return
-      }
-      resolve(response.data as T)
-    })
-  })
+  return runtimeSend<T>(request)
 }
 
 /**
