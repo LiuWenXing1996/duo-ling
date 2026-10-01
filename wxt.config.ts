@@ -76,10 +76,11 @@ const buildInfoRepo = (() => {
 export default defineConfig({
   // 图标由 @wxt-dev/auto-icons 在构建期从 src/assets/icon.svg 自动生成（sharp 栅格化，
   // 输出产物 icons/{16,32,48,128}.png 并写入 manifest.icons；工具栏图标回退到 icons）。
-  // 不再手维护 src/public/icon-*.png，单一矢量母版即可。dev 模式图标自动灰度以区分开发版。
+  // 不再手维护 src/public/icon-*.png，单一矢量母版即可。关闭 dev 图标灰度（保留与正式版一致）。
   modules: ['@wxt-dev/auto-icons'],
   autoIcons: {
     baseIconPath: 'assets/icon.svg',
+    developmentIndicator: false,
   },
   // 源码根设为 src：WXT 内置别名 `@` / `~` 硬编码指向 srcDir 且覆盖用户配置
   // （见 wxt 的 resolve-config.mjs），只有把 srcDir 指到 src，代码里的 `@/...`
