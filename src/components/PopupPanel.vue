@@ -8,12 +8,19 @@
 // 说明：浏览器内部页 / 扩展页 / 应用商店上 content script 注入不了，用户在那些页面上打不开
 // 不是装坏了。严格 CSP 站点同理也挂不上，但那要等页面里的 iframe 真的加载失败才知道
 // —— popup 判不出来，那条由页面内的降级提示负责（见 content.ts）。
+//
+// 「用户脚本功能不可用」这张卡只在引擎开关关着时出现：那时角标已经亮着，用户顺着角标点进来
+// 得有个能落脚的地方。开法按浏览器/版本分三支，一行说不清，故这里只给一句现状 + 一个入口，
+// 步骤与「打开扩展管理页」都在工作台「引导」页（唯一权威说明处）。
 import { computed, onMounted, ref } from 'vue'
+import { TriangleAlert as UiTriangleAlert } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import PopupNotifications from './PopupNotifications.vue'
 import PopupPageScripts from './PopupPageScripts.vue'
 import { webHostname } from '@/lib/float-panel-host'
 import { readUpdateCheck, type UpdateCheckRecord } from '@/lib/update-check'
+import { userscriptClient } from '@/lib/userscripts/ui-client'
+import type { UserScriptsAvailability } from '@/lib/userscripts/types'
 import { FLOAT_OPEN_REQUEST } from '@/shared/extension-ipc'
 
 /** 当前标签页是不是普通网页（http/https）—— 只有这类页面 content script 能注入 */
@@ -33,10 +40,33 @@ const updateAvailable = computed(() =>
   update.value?.status.kind === 'update' ? update.value.status : null,
 )
 
+/**
+ * 用户脚本引擎可用性（`null` = 没查到）。
+ *
+ * 刻意**不订阅** `availabilityChanged`：popup 只在点开后的这几秒里存在，而开开关的唯一路径是
+ * 打开扩展管理页 —— 那一下立刻让 popup 失焦关闭。挂载时查一次就覆盖了它的整个生命周期。
+ */
+const availability = ref<UserScriptsAvailability | null>(null)
+
+/**
+ * 引擎不可用时的引导文案（可用 / 查不到都是空串 → 整张卡不渲染）。
+ *
+ * 「查不到」**不当作不可用**：SW 没响应（扩展正在更新）时宁可不提示，也不能把异常渲染成
+ * 「你的开关没开」—— 那会让人去改一个本来就正常的设置。
+ */
+const unavailableGuide = computed(() =>
+  availability.value && !availability.value.available ? availability.value.guideText : '',
+)
+
 async function refresh(): Promise<void> {
   update.value = await readUpdateCheck()
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
   currentIsWebPage.value = webHostname(tabs[0]?.url) !== ''
+  try {
+    availability.value = await userscriptClient.availability()
+  } catch {
+    availability.value = null
+  }
 }
 
 /**
@@ -67,6 +97,15 @@ async function openFloatPanel(): Promise<void> {
 
 async function openWorkbench(): Promise<void> {
   await chrome.tabs.create({ url: chrome.runtime.getURL('workbench.html') })
+  window.close()
+}
+
+/**
+ * 去工作台「引导」页：开引擎开关的分步说明都在那里（按浏览器/版本分三支，popup 塞不下）。
+ * 带 `#/guide` 深链直达（与对话界面「查看开启引导」同一条路）。
+ */
+async function openGuide(): Promise<void> {
+  await chrome.tabs.create({ url: `${chrome.runtime.getURL('workbench.html')}#/guide` })
   window.close()
 }
 
@@ -102,8 +141,30 @@ onMounted(() => {
       <span class="text-sm font-semibold">哆灵</span>
     </header>
 
-    <!-- 通知（进行中 + 跑完没看）：角标只有一个数字，具体是什么事在这里展开 -->
+    <!-- 通知（进行中 + 跑完没看）：角标只报脚本运行数，会话的事在这里展开 -->
     <PopupNotifications />
+
+    <!-- 引擎开关没开：角标亮着 `!`，点进来得有个落脚处。查询失败不渲染（宁缺勿错） -->
+    <div
+      v-if="unavailableGuide"
+      class="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3"
+      data-testid="userscript-unavailable"
+    >
+      <p class="flex items-center gap-1.5 text-sm font-medium text-amber-600 dark:text-amber-400">
+        <UiTriangleAlert class="size-3.5 shrink-0" />
+        用户脚本功能不可用
+      </p>
+      <p class="mt-1 text-xs leading-relaxed text-muted-foreground">{{ unavailableGuide }}</p>
+      <UiButton
+        class="mt-2 w-full"
+        variant="outline"
+        size="sm"
+        data-testid="open-userscript-guide"
+        @click="openGuide"
+      >
+        查看开启引导
+      </UiButton>
+    </div>
 
     <!-- 仅在有新版本时出现：常态下 popup 保持原样，不新增噪音 -->
     <div

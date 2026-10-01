@@ -203,9 +203,9 @@ async function focusTab(tabId: number): Promise<void> {
 /**
  * 会话删掉后，顺手清掉它的通知。
  *
- * 不清的话：弹层里会留一条点不开的通知（会话都没了），角标数字也一直挂着它。
- * 这一步**交给 SW**（而不是本页直接清库）—— 角标归 SW 维护，本页偷偷清了库它不知道，
- * 数字会挂着一个不对的值、又没有任何事件来纠正。
+ * 不清的话：弹层里会留一条点不开的通知（会话都没了，点开也没有落点）。
+ * 这一步**交给 SW**（而不是本页直接清库）—— 通知的写口在 SW（记 / 标已读 / 清），本页直接动库就
+ * 多出一个彼此不知情的写方。
  */
 async function dropNotifications(target: { conversationId?: string; all?: boolean }): Promise<void> {
   try {

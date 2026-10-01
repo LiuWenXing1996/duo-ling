@@ -142,7 +142,7 @@ async function clearBadge(): Promise<void> {
       <p class="text-sm font-medium">角标</p>
       <p class="mt-0.5 text-xs text-muted-foreground">
         把文字设到工具栏图标上，看不同长度的实际观感。角标约容纳 4
-        个字符，超出会被裁切；任务状态变化时角标会被重算覆盖。
+        个字符，超出会被裁切；正在跑脚本的标签页显示它自己的数，这个值只在其余标签页看得到。
       </p>
       <div class="mt-3 flex items-center gap-2">
         <UiInput

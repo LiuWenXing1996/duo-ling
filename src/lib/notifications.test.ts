@@ -1,6 +1,6 @@
 // notifications 单测：通知中心的读写往返，与两条封顶规则。
 //
-// 这里守的是「角标数字的来源」：未读数必须与列表一致；同一会话跑两次不能虚增两条（那是同一件事
+// 这里守的是「未读数与列表一致」（popup 的未读提示取自它）：同一会话跑两次不能虚增两条（那是同一件事
 // 的最新状态）；已读不能无限堆积（它不是历史记录，只是「刚看过的」）。脏数据（手改过库 / 旧格式）
 // 也必须能容错 —— 否则 popup 一打开就整块炸掉。
 import 'fake-indexeddb/auto'
@@ -40,7 +40,7 @@ describe('记一条与读回', () => {
     expect(await countUnread()).toBe(2)
   })
 
-  it('同一会话再跑一次只留一条（角标不虚增）', async () => {
+  it('同一会话再跑一次只留一条（未读数不虚增）', async () => {
     await addChatDone({ conversationId: 'c1', tabId: 7, host: 'a.com' })
     now = 2_000
     await addChatDone({ conversationId: 'c1', tabId: 7, host: 'a.com' })

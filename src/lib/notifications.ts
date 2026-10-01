@@ -1,13 +1,13 @@
-// 通知中心：需要用户回来看一眼的事。角标报数（未读 + 进行中），popup 给明细。
+// 通知中心：需要用户回来看一眼的事。popup 给明细（工具栏角标只报脚本运行数，与这里无关）。
 //
 // 为什么落 `duoling-app` 的 kv：与「标签页 → 会话」映射同类 —— 扩展自己的界面状态，量小、
 // 写频低，不值得单开库。写方有两处（SW 记通知、popup 标已读），故一律走 `appDb.update` 原子读改写，
 // 拆成 get + set 会互相覆盖。
 //
 // **只存「已发生的事」**：正在生成的任务不在这里 —— 它没有稳定落点（SW 被回收后无从对账），
-// 由 SW 的内存集合表达，popup 问的时候一并带上。角标数字 = 进行中数 + 这里的未读数。
+// 由 SW 的内存集合表达，popup 问的时候一并带上。
 //
-// 同一会话的未读只留一条（跑两次都还没看 = 一件事，留最新那条），否则角标数字会虚高；
+// 同一会话的未读只留一条（跑两次都还没看 = 一件事，留最新那条），否则弹层里会攒出一串重复条目；
 // 已读按条留、最多 20 条 —— 它不是历史记录，只是「刚才那几条」。
 
 import * as appDb from './app-db'
@@ -66,7 +66,7 @@ export async function listNotifications(): Promise<AppNotification[]> {
   return trimmed(normalize(await appDb.get(KEY)))
 }
 
-/** 未读条数（角标要用） */
+/** 未读条数（popup 的未读提示要用） */
 export async function countUnread(): Promise<number> {
   return (await listNotifications()).filter((n) => n.readAt == null).length
 }

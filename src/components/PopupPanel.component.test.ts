@@ -16,13 +16,17 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import PopupPanel from './PopupPanel.vue'
 
 const listScripts = vi.hoisted(() => vi.fn())
+/** 引擎可用性查询（引导卡的状态源）；默认「可用」，多数用例与那张卡无关 */
+const availabilityQuery = vi.hoisted(() => vi.fn())
 const readUpdateCheck = vi.hoisted(() => vi.fn())
 const tabsCreate = vi.hoisted(() => vi.fn())
 const tabsSendMessage = vi.hoisted(() => vi.fn())
 const tabsUpdate = vi.hoisted(() => vi.fn(async () => ({})))
 /** 通知区（PopupNotifications）经 runtime.sendMessage 问 SW —— 手写壳里补这一口 */
 const runtimeSendMessage = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/userscripts/ui-client', () => ({ userscriptClient: { list: listScripts } }))
+vi.mock('@/lib/userscripts/ui-client', () => ({
+  userscriptClient: { list: listScripts, availability: availabilityQuery },
+}))
 vi.mock('@/composables/use-data-sync', () => ({ useDataSync: vi.fn() }))
 // 新版本提示只读 SW 落下的结果，不在 popup 里发检查；mock 掉读侧即可完全控制它有 / 无
 vi.mock('@/lib/update-check', () => ({ readUpdateCheck }))
@@ -96,6 +100,8 @@ const toggle = (w: VueWrapper) => w.find('[data-testid="popup-page-scripts-toggl
 
 beforeEach(() => {
   listScripts.mockResolvedValue([{ uuid: 'u1', name: '示例脚本' }])
+  // 引擎可用性的默认答案：可用（引导卡不渲染；要测那张卡的用例自己覆写）
+  availabilityQuery.mockResolvedValue({ available: true, isFirefox: false, chromeMajor: 140, guideText: '' })
   // 通知区的默认答案：一条通知都没有（多数用例与它无关，给个空快照免得噪声）
   runtimeSendMessage.mockResolvedValue({ ok: true, data: { running: [], items: [] } })
 })
@@ -271,7 +277,49 @@ describe('popup 的新版本提示', () => {
   })
 })
 
-// 通知区：角标只有一个数字（说不清是什么事），明细落在这里。四个分支都要守 ——
+// 引导卡：引擎开关没开时，popup 得给一句现状 + 一个去「引导」页的入口（角标亮着 `!`，
+// 用户顺着点进来不能没有落脚处）。三个分支：没开 → 出卡；可用 → 不渲染；查询失败 → 不渲染
+// （宁可不提示，也不能把异常渲染成「你的开关没开」）。
+describe('popup 的引擎不可用引导卡', () => {
+  const box = (w: VueWrapper) => w.find('[data-testid="userscript-unavailable"]')
+
+  it('开关没开：出卡给引导文案，按钮深链到工作台「引导」页并关掉 popup', async () => {
+    stubChrome('https://example.com/page')
+    availabilityQuery.mockResolvedValue({
+      available: false,
+      isFirefox: false,
+      chromeMajor: 140,
+      guideText: 'Chrome ≥138：在扩展详情页开启「允许运行用户脚本」开关后即可使用。',
+    })
+    const close = vi.fn()
+    vi.stubGlobal('close', close)
+    const w = await mountPopup()
+
+    const card = box(w)
+    expect(card.exists()).toBe(true)
+    expect(card.text()).toContain('用户脚本功能不可用')
+    // 文案原样透传：版本分支是 engine 拼的，这里只负责展示，不复制分支逻辑
+    expect(card.text()).toContain('Chrome ≥138：在扩展详情页开启「允许运行用户脚本」开关后即可使用。')
+
+    await card.find('button').trigger('click')
+    await flushPromises()
+    expect(tabsCreate).toHaveBeenCalledWith({ url: 'chrome-extension://EXTID/workbench.html#/guide' })
+    expect(close).toHaveBeenCalled()
+  })
+
+  it('可用：整卡不渲染', async () => {
+    stubChrome('https://example.com/page')
+    expect(box(await mountPopup()).exists()).toBe(false)
+  })
+
+  it('查询失败：整卡不渲染（异常不当「没开」）', async () => {
+    stubChrome('https://example.com/page')
+    availabilityQuery.mockRejectedValue(new Error('扩展服务未响应，请重试'))
+    expect(box(await mountPopup()).exists()).toBe(false)
+  })
+})
+
+// 通知区：角标只报脚本运行数（会话的事它一个字都不提），明细落在这里。四个分支都要守 ——
 // 没通知不渲染（常态 popup 保持原样）、有内容成形、点条目跳过去并标已读、全部已读清空。
 describe('popup 的通知区', () => {
   const box = (w: VueWrapper) => w.find('[data-testid="popup-notifications"]')

@@ -6,6 +6,7 @@ import type { UserScriptErrorRecord } from './types'
 import {
   forgetPageTab,
   noteRunStart,
+  onPageRunsChanged,
   pageRunsByTab,
   pickErrorsForRuns,
   resetPageRuns,
@@ -49,6 +50,40 @@ describe('运行登记表（noteRunStart / resetPageRuns / forgetPageTab）', ()
     expect(pageRunsByTab.has(202)).toBe(false)
     // 重复 reset（无记录）不炸也不推送
     expect(() => resetPageRuns(201)).not.toThrow()
+  })
+
+  it('登记 / 清零 / 关 tab 各喊一声（角标靠它重算），无变化时不喊', () => {
+    let calls = 0
+    onPageRunsChanged(() => {
+      calls += 1
+    })
+    pageRunsByTab.delete(301)
+
+    noteRunStart(301, 'u1', 'r1')
+    expect(calls, '注入登记要喊').toBe(1)
+    resetPageRuns(301)
+    expect(calls, '换文档清零要喊').toBe(2)
+    resetPageRuns(301) // 本来就没有记录：没有变化
+    expect(calls, '没变化不该喊').toBe(2)
+    noteRunStart(301, 'u1', 'r1')
+    forgetPageTab(301)
+    expect(calls, '关 tab 也要喊（账面得跟着清）').toBe(4)
+    forgetPageTab(301)
+    expect(calls, '已经没有记录了：不喊').toBe(4)
+  })
+
+  it('订阅者抛错不影响写方，也不拖住其它订阅者', () => {
+    let reached = 0
+    onPageRunsChanged(() => {
+      throw new Error('订阅者自己炸了')
+    })
+    onPageRunsChanged(() => {
+      reached += 1
+    })
+    pageRunsByTab.delete(401)
+    expect(() => noteRunStart(401, 'u1', 'r1')).not.toThrow()
+    expect(reached, '前一个订阅者抛错不该拦下后一个').toBe(1)
+    pageRunsByTab.delete(401)
   })
 })
 
