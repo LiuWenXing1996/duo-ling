@@ -123,3 +123,44 @@ describe('设置 · 开发者分区', () => {
     expect(push).toBeUndefined()
   })
 })
+
+// 角标调试栏：文字要真的落到工具栏角标上（chrome.action 由测试基建的 fakeBrowser 承接），
+// 且清除要连输入框一起清空 —— 输入框里留着一段已经不在角标上的文字会让人以为它还在。
+describe('设置 · 开发者分区 · 角标调试栏', () => {
+  const input = (w: VueWrapper) => w.find('[data-testid="dev-badge-input"]')
+  const btn = (w: VueWrapper, testid: string) => w.find(`[data-testid="${testid}"]`)
+
+  it('应用：输入的文字设到角标上，并显示当前字数', async () => {
+    const w = await mountSection({ enabled: false, disabled: [] })
+    await input(w).setValue('9+')
+    expect(w.text()).toContain('2 字符')
+
+    await btn(w, 'dev-badge-apply').trigger('click')
+    await flushPromises()
+
+    expect(await chrome.action.getBadgeText({})).toBe('9+')
+  })
+
+  it('回车即应用（不必去点按钮）', async () => {
+    const w = await mountSection({ enabled: false, disabled: [] })
+    await input(w).setValue('•')
+    await input(w).trigger('keyup.enter')
+    await flushPromises()
+
+    expect(await chrome.action.getBadgeText({})).toBe('•')
+  })
+
+  it('清除：角标与输入框一起清空', async () => {
+    const w = await mountSection({ enabled: false, disabled: [] })
+    await input(w).setValue('12')
+    await btn(w, 'dev-badge-apply').trigger('click')
+    await flushPromises()
+    expect(await chrome.action.getBadgeText({})).toBe('12')
+
+    await btn(w, 'dev-badge-clear').trigger('click')
+    await flushPromises()
+
+    expect(await chrome.action.getBadgeText({})).toBe('')
+    expect((input(w).element as HTMLInputElement).value).toBe('')
+  })
+})
