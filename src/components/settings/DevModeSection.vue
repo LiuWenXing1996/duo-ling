@@ -6,6 +6,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import { Button as UiButton } from '@/components/ui/button'
+import { Input as UiInput } from '@/components/ui/input'
 import {
   DEV_PAGES,
   getDevModeState,
@@ -60,6 +61,29 @@ async function testNotify(): Promise<void> {
     message: '这是一条测试通知，用于确认通知图标的显示效果。',
   })
 }
+
+/**
+ * 角标底色。与 SW 里 refreshBadge 用的那一份必须同值 —— 调试要看的是真实观感，
+ * 底色不一致等于预览了一个假角标。不抽常量共享：SW 与扩展页是两个构建目标，
+ * 这里按「与工具栏同源」处理（同 NOTIFY_ICON）。
+ */
+const BADGE_BG = '#d93025'
+
+/** 待预览的角标文字（空串 = 无角标）。**刻意不落库**：它是一次性的观感试验，不是扩展状态 */
+const badgeText = ref('')
+
+/** 把输入的文字设到工具栏角标上。不给长度设上限 —— 要看的就是超长时角标怎么处理 */
+async function applyBadge(): Promise<void> {
+  const text = badgeText.value
+  if (text) await chrome.action.setBadgeBackgroundColor({ color: BADGE_BG })
+  await chrome.action.setBadgeText({ text })
+}
+
+/** 清空角标（连同输入框，免得输入框里留着一段已经不在角标上的文字） */
+async function clearBadge(): Promise<void> {
+  badgeText.value = ''
+  await chrome.action.setBadgeText({ text: '' })
+}
 </script>
 
 <template>
@@ -112,6 +136,32 @@ async function testNotify(): Promise<void> {
       <UiButton class="mt-3" variant="outline" @click="testNotify">
         发送测试通知
       </UiButton>
+    </div>
+
+    <div class="mt-6 rounded-md border p-4">
+      <p class="text-sm font-medium">角标</p>
+      <p class="mt-0.5 text-xs text-muted-foreground">
+        把文字设到工具栏图标上，看不同长度的实际观感。角标约容纳 4
+        个字符，超出会被裁切；任务状态变化时角标会被重算覆盖。
+      </p>
+      <div class="mt-3 flex items-center gap-2">
+        <UiInput
+          v-model="badgeText"
+          class="max-w-48"
+          aria-label="角标文字"
+          data-testid="dev-badge-input"
+          @keyup.enter="applyBadge"
+        />
+        <UiButton variant="outline" data-testid="dev-badge-apply" @click="applyBadge">
+          应用
+        </UiButton>
+        <UiButton variant="ghost" data-testid="dev-badge-clear" @click="clearBadge">
+          清除
+        </UiButton>
+        <span class="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums"
+          >{{ badgeText.length }} 字符</span
+        >
+      </div>
     </div>
   </div>
 </template>
