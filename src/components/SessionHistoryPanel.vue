@@ -38,6 +38,7 @@ import { Input as UiInput } from '@/components/ui/input'
 import SessionRunningBadge from './SessionRunningBadge.vue'
 import type { Conversation, ConversationSearchHit } from '@/shared/types'
 import { formatSessionTime } from '@/composables/use-global-conversation'
+import { formatTokens } from '@/lib/format'
 
 const props = defineProps<{
   conversations: Conversation[]
@@ -87,13 +88,6 @@ interface DisplayItem {
   tokens?: number
   preview: string
   isActive: boolean
-}
-
-/** token 量格式化：>=1k 用「1.2k」简写，否则原值 */
-function formatTokens(n?: number): string {
-  if (!n) return ''
-  if (n >= 1000) return n >= 10000 ? `${(n / 1000).toFixed(0)}k` : `${(n / 1000).toFixed(1)}k`
-  return String(n)
 }
 
 function toDisplayItem(c: Conversation, preview: string): DisplayItem {
