@@ -12,6 +12,7 @@
 /** 工具名（与 buildScriptTools 返回对象的键一一对应） */
 export type AgentToolName =
   | 'script_spec'
+  | 'script_find'
   | 'script_read'
   | 'script_apply'
   | 'element_read'
@@ -32,6 +33,10 @@ export const AGENT_RUNTIME_LIMITS = {
 export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
   script_spec:
     '获取哆灵用户脚本的完整规范（GM 能力 API、硬性约束、禁止事项）。写或改任何脚本前必须先调用它。',
+  script_find:
+    '按名字搜索已保存的脚本（大小写不敏感的子串匹配），返回 uuid 清单。' +
+    '用户提到某个脚本（如「改一下 XX 脚本」）但没给 uuid 时先调它拿 uuid，再 script_read 读源码、' +
+    'script_apply 带 updateUuid 原地更新——没有 uuid 就无法定位脚本。',
   script_read:
     '读取脚本源码。不带参数 = 读当前任务的内存源码（本任务已写入的内容）；带 uuid = 读一个已保存的脚本（修改现有脚本时用）。',
   script_apply:
@@ -63,6 +68,9 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
 
 /** 参数 description 原文（zod `.describe()` 的文本，模型同样看得到）：UI 与运行时共用 */
 export const TOOL_PARAM_DESCRIPTIONS = {
+  script_find: {
+    name: '脚本名或名字片段（子串匹配，大小写不敏感）',
+  },
   script_read: {
     uuid: '已保存脚本的 uuid；省略则读当前任务内存源码',
   },
@@ -126,6 +134,17 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
     params: [],
     returns: '{ spec: string } —— 规范全文',
     unavailable: '无入参、不会失败',
+  },
+  {
+    name: 'script_find',
+    title: '找脚本',
+    summary: '按名字模糊搜索已保存的脚本，拿 uuid',
+    description: TOOL_DESCRIPTIONS.script_find,
+    params: [
+      { name: 'name', type: 'string', required: true, desc: T.script_find.name },
+    ],
+    returns: '{ ok:true, matches:[{uuid, name, enabled}] }（空数组 = 没有命中，附 hint）',
+    unavailable: 'name 为空 → { ok:false, error }',
   },
   {
     name: 'script_read',

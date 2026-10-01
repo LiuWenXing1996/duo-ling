@@ -1,4 +1,4 @@
-// Agent 工具：script 三件套（script_spec / script_read / script_apply）+ element_read / page_snapshot（页面上下文）+ error_read（错误 ID 查询）。
+// Agent 工具：script 三件套（script_spec / script_find / script_read / script_apply）+ element_read / page_snapshot（页面上下文）+ error_read（错误 ID 查询）。
 //
 // 设计要点：
 //   · **script_apply 把「写」和「语法验证」合并成一步**：入参完整源码 → acorn parse
@@ -20,7 +20,7 @@ import {
   TOOL_DESCRIPTIONS,
   TOOL_PARAM_DESCRIPTIONS,
 } from '@/lib/agent-tools-catalog'
-import { getProject } from '@/lib/userscripts/project-store'
+import { getProject, listProjects } from '@/lib/userscripts/project-store'
 import { normalizeHost } from '@/lib/userscripts/net-record-protocol'
 import { readSource } from '@/lib/userscripts/us-git'
 import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
@@ -126,6 +126,30 @@ export function buildScriptTools(
       description: TOOL_DESCRIPTIONS.script_spec,
       inputSchema: z.object({}),
       execute: async () => ({ spec: SCRIPT_SPEC_TEXT }),
+    }),
+
+    script_find: tool({
+      description: TOOL_DESCRIPTIONS.script_find,
+      inputSchema: z.object({
+        name: z.string().describe(TOOL_PARAM_DESCRIPTIONS.script_find.name),
+      }),
+      execute: async ({ name }) => {
+        const q = name.trim().toLowerCase()
+        if (!q) return { ok: false, error: 'name 为空' }
+        const all = await listProjects()
+        const matches = all
+          .filter((p) => p.name.toLowerCase().includes(q))
+          .map((p) => ({ uuid: p.uuid, name: p.name, enabled: p.enabled }))
+        return {
+          ok: true,
+          matches,
+          ...(matches.length
+            ? {}
+            : {
+                hint: '没有名字含该关键词的脚本。可与用户确认准确的脚本名，或让用户在编辑器头部复制脚本 ID 后粘给你。',
+              }),
+        }
+      },
     }),
 
     script_read: tool({

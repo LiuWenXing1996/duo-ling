@@ -13,7 +13,7 @@
 // 配色一律用语义 token（AGENTS.md：颜色一律用语义 token）。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
-import { History as UiHistory, X as UiX } from '@lucide/vue'
+import { Check as UiCheck, Copy as UiCopy, History as UiHistory, X as UiX } from '@lucide/vue'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
@@ -83,6 +83,21 @@ const remoteChanged = ref(false)
 const saving = ref(false)
 // 保存备注（可选：填了记入历史，空则按保存时间命名）
 const saveNote = ref('')
+
+// —— 脚本 ID 复制（头部短形态）——
+// 透出 uuid 的唯一目的：AI 对话里定位脚本（script_find 按名字反查失败时，用户可粘完整 ID 兜底）。
+const copiedUuid = ref(false)
+let copyUuidTimer: number | undefined
+async function copyUuid(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(props.uuid)
+    copiedUuid.value = true
+    window.clearTimeout(copyUuidTimer)
+    copyUuidTimer = window.setTimeout(() => (copiedUuid.value = false), 1500)
+  } catch (e) {
+    error.value = '复制失败：' + (e instanceof Error ? e.message : String(e))
+  }
+}
 
 /**
  * 可保存 = 有改动且不在保存中。没改动时保存按钮就该是灰的：让用户点一下再被告知「没变化」，
@@ -286,6 +301,7 @@ let unsubscribeAvailability: (() => void) | null = null
 
 onBeforeUnmount(() => {
   unsubscribeAvailability?.()
+  window.clearTimeout(copyUuidTimer)
   cmView?.destroy()
   cmView = null
 })
@@ -381,12 +397,25 @@ defineExpose({ save: saveEdit })
       <div class="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
         <div class="min-w-0 flex-1">
           <h3 class="truncate text-sm leading-tight font-semibold">{{ scriptName || '脚本' }}</h3>
-          <p class="mt-0.5 truncate text-xs text-muted-foreground">
-            单文件脚本
-            <!-- 未保存用中性色加深：它不是错误（错误红留给下面那条真警告） -->
-            <span v-if="editDirty" class="font-medium text-foreground">· 有未保存改动</span>
-            <!-- 两个状态不互斥：本地有草稿时，「别处也改过、这次保存会盖掉那一次」同样必须看得见 -->
-            <span v-if="remoteChanged" class="text-destructive">· 已在别处修改，这次保存会覆盖那一次改动</span>
+          <p class="mt-0.5 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+            <span class="truncate">
+              单文件脚本
+              <!-- 未保存用中性色加深：它不是错误（错误红留给下面那条真警告） -->
+              <span v-if="editDirty" class="font-medium text-foreground">· 有未保存改动</span>
+              <!-- 两个状态不互斥：本地有草稿时，「别处也改过、这次保存会盖掉那一次」同样必须看得见 -->
+              <span v-if="remoteChanged" class="text-destructive">· 已在别处修改，这次保存会覆盖那一次改动</span>
+            </span>
+            <!-- 脚本 ID 短形态：AI 对话里定位脚本用（点击复制完整 uuid） -->
+            <button
+              type="button"
+              class="ml-auto flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted"
+              :title="`复制完整脚本 ID（发给 AI 可定位脚本）：${props.uuid}`"
+              @click="copyUuid"
+            >
+              <ui-check v-if="copiedUuid" class="size-3 text-green-600" />
+              <ui-copy v-else class="size-3" />
+              {{ props.uuid.slice(0, 8) }}
+            </button>
           </p>
         </div>
         <div class="flex shrink-0 items-center gap-0.5">
