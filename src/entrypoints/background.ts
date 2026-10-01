@@ -694,7 +694,7 @@ const BADGE_BG = '#d93025'
  * 未授权时角标的文本：「待授权」。badge 的字号不受扩展控制，但 Chrome 会按字符数自动缩排 ——
  * 三个字会被压到比单字符小得多的字号，观感比单字符或色块都清楚。四字是 badge 的上限，三字留有余量。
  */
-const BADGE_DOT = '待授权'
+const BADGE_UNAUTH = '待授权'
 
 /** 未授权的悬停文案：指路即可，不复述开启步骤（分步说明在工作台「引导」标签页） */
 const UNAUTHORIZED_TITLE = '用户脚本未授权，工作台「引导」有开启步骤'
@@ -760,7 +760,7 @@ function refreshBadge(): void {
     touchedTabs.clear()
     chrome.action.setTitle({ title: UNAUTHORIZED_TITLE }).catch(() => {})
     chrome.action.setBadgeBackgroundColor({ color: BADGE_BG }).catch(() => {})
-    chrome.action.setBadgeText({ text: BADGE_DOT }).catch(() => {})
+    chrome.action.setBadgeText({ text: BADGE_UNAUTH }).catch(() => {})
     return
   }
 
