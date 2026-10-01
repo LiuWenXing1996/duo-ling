@@ -10,7 +10,7 @@
 //
 // 覆盖：命中即亮 + 悬停文案与灵动岛同句；**按标签页各算各的**（一个页命中两个脚本、另一页只命中
 // 一个，且互不串页）；换文档后重新登记；禁用脚本后重载不再算它；扩展自己的页面不在任何脚本的
-// 注入面内 → 不亮，也不留全局兜底值。
+// 注入面内 → 不亮，也不留全局兜底值。另有一组前提**相反**的用例（不引导）：引擎未授权 → 全局红点。
 import { test, expect, type BrowserContext, type Page, type Worker } from '@playwright/test'
 import * as http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -118,7 +118,7 @@ test.describe.serial('工具栏角标（按标签页报脚本运行数）', () =
   const title = (tabId: number): Promise<string> =>
     sw.evaluate(async (id) => await chrome.action.getTitle({ tabId: id }), tabId)
 
-  /** 全局兜底值：角标一律按标签页设，它必须恒为空（留着的话每个标签页都会带上它） */
+  /** 全局兜底值：引擎可用时角标一律按标签页设，它必须恒为空（留着的话每个标签页都会带上它） */
   const globalBadge = (): Promise<string> => sw.evaluate(async () => await chrome.action.getBadgeText({}))
 
   /** 该地址当前开着的标签页 id（本 spec 每个地址只开一页） */
@@ -220,5 +220,63 @@ test.describe.serial('工具栏角标（按标签页报脚本运行数）', () =
     expect(await badge(msgTabId), '扩展自己的页面没有脚本在跑').toBe('')
     expect(await title(msgTabId)).toBe('')
     expect(await globalBadge()).toBe('')
+  })
+})
+
+// —— 引擎未授权：全局红点 ——
+//
+// 与上面那组**前提相反**：这里刻意不跑 Phase A 引导，让 `chrome.userScripts` 保持不存在 —— 这正是
+// 新装扩展的真实状态（Chrome ≥138 的「允许运行用户脚本」按扩展默认关着）。此时没有任何脚本注册得
+// 进去，「哪个页面在跑几个脚本」无从谈起，角标该是一枚**全局**红点：它说的是「这个扩展现在用不了
+// 用户脚本」，与具体标签页无关，因此不带 tabId、也不需要给谁设专属值。
+//
+// 若本环境的 Chrome 一上来就允许 userScripts（版本或启动参数差异），未授权态造不出来 —— 本组自动跳过。
+test.describe.serial('工具栏角标（引擎未授权 → 全局红点）', () => {
+  let context: BrowserContext | undefined
+  let sw: Worker
+  let profileDir = ''
+  let available = true
+
+  test.beforeAll(async () => {
+    profileDir = mkdtempSync(join(tmpdir(), 'duoling-badge-dot-e2e-'))
+    context = await launchExtensionContext(profileDir)
+    sw = await getServiceWorker(context)
+    available = await checkUserScriptsAvailable(sw)
+  })
+
+  test.afterAll(async () => {
+    const withTimeout = (p: Promise<unknown> | undefined, ms: number) =>
+      p ? Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]) : Promise.resolve()
+    try { await withTimeout(context?.close(), 30_000) } catch { /* 忽略 */ }
+    try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+  })
+
+  test('开关没开 → 全局红点：不带 tabId，也不报任何数字', async () => {
+    test.skip(available, '本环境 userScripts 默认可用，造不出未授权态')
+    await openMessengerPage(context!, extensionIdFromServiceWorker(sw))
+
+    // SW 冷启动那条重算（clearAllBadges → refreshBadge）落地后才有值，故轮询等它出现；
+    // 文案与字符同一轮设下去，一起断言省得两次等待各写一遍
+    await expect
+      .poll(
+        async () =>
+          await sw.evaluate(async () => ({
+            text: await chrome.action.getBadgeText({}),
+            title: await chrome.action.getTitle({}),
+          })),
+        { message: '引擎未授权该亮红点' },
+      )
+      .toEqual({ text: '●', title: '用户脚本未授权，工作台「引导」有开启步骤' })
+
+    // 「不分 tab」那层：红点设在**全局**、没有给任何标签页设专属值 —— 所以从标签页维度读回来不该是
+    // 数字（未授权时压根不存在「这一页在跑几个脚本」这回事）
+    const tabId = await sw.evaluate(
+      async () => ((await chrome.tabs.query({})).find((t) => t.id != null)?.id ?? -1),
+    )
+    expect(tabId, '应至少有一个标签页可读').toBeGreaterThan(0)
+    expect(
+      await sw.evaluate(async (id) => await chrome.action.getBadgeText({ tabId: id }), tabId),
+      '没有哪一页被设上专属数字',
+    ).not.toMatch(/^\d+$/)
   })
 })

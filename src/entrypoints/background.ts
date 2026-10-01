@@ -567,6 +567,7 @@ async function initUserScripts(): Promise<void> {
       '[duoling:userscript] 用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，' +
         'Chrome <138 需开启全局「开发者模式」；Firefox 需授权 userScripts 权限。用户脚本功能已禁用。',
     )
+    setEngineAvailable(false) // 角标红点：两种不可用情形（命名空间不在 / 命名空间在但实探抛错）都要标出来
     return
   }
   await configureUserScriptsWorld()
@@ -576,8 +577,10 @@ async function initUserScripts(): Promise<void> {
       '[duoling:userscript] 用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，' +
         'Chrome <138 需开启全局「开发者模式」；Firefox 需授权 userScripts 权限',
     )
+    setEngineAvailable(false)
     return
   }
+  setEngineAvailable(true)
   await registerAllEnabled()
 }
 
@@ -599,6 +602,12 @@ declare const __BUILD_INFO__: InjectedBuildInfo
 //
 // **只报数、不分类**：什么颜色代表什么状态是要用户记的额外约定，具体是哪些脚本去浮层灵动岛 /
 // popup 看。悬停文案把同一件事说成一句话（`N 个脚本在运行`），与灵动岛同一句。
+//
+// **没有授权就没有数可报**：Chrome 的「允许运行用户脚本」开关关着时（Chrome <138 是全局开发者
+// 模式、Firefox 是 userScripts 权限），`chrome.userScripts` 整个命名空间都不存在，任何脚本都注册
+// 不进去 —— 此时全局亮一枚红点，悬停写「用户脚本未授权，工作台「引导」有开启步骤」。
+// 这条**刻意是全局的、不带 tabId**：它说的不是某一页的状态，而是「这个扩展现在用不了用户脚本」，
+// 与具体标签页无关。红点同样由 refreshBadge 算出来（可用性翻转驱动它重算），不另开写口。
 //
 // 数字由 refreshBadge **重算**而来，不是「收到 runstart 时顺手加一」：登记表是唯一的真相源，
 // 重算才能保证角标与登记表不各说各话 —— 清空（换文档）、关标签页、重复广播各是一条路，逐条对齐
@@ -681,6 +690,28 @@ function titleOf(scriptCount: number): string {
 /** 角标底色（与设置页「开发者」分区那张角标调试栏同值：预览与实设必须是同一个观感） */
 const BADGE_BG = '#d93025'
 
+/** 未授权时角标的字符：一枚红点。badge 没有「只画圆点不写字」的原生形态，只能给一个点字符 */
+const BADGE_DOT = '●'
+
+/** 未授权的悬停文案：指路即可，不复述开启步骤（分步说明在工作台「引导」标签页） */
+const UNAUTHORIZED_TITLE = '用户脚本未授权，工作台「引导」有开启步骤'
+
+/**
+ * 用户脚本引擎此刻能不能注册脚本（= `getUserScriptsStatus().available` 的本地快照）：角标红点的判据。
+ *
+ * 初值取**同步**的存在性检查 —— 开关关着时该命名空间整个不存在，所以冷启动那一刻它已经准了，
+ * 不会「先亮一下红点、探明了再灭掉」。权威值随后由 initUserScripts 的一次实探、以及
+ * availability-watch 的翻转事件定下来：命名空间在但 getScripts 抛错这类情形只有实探能抓到。
+ */
+let engineAvailable = typeof chrome.userScripts !== 'undefined'
+
+/** 更新引擎可用性并按需重算角标。值没变就不动 —— 可用性监视每秒都可能调进来 */
+function setEngineAvailable(available: boolean): void {
+  if (engineAvailable === available) return
+  engineAvailable = available
+  refreshBadge()
+}
+
 /** 上一轮设过角标 / 文案的标签页：这一轮不再相关时按差集收干净（留着的数字就是假状态） */
 const touchedTabs = new Set<number>()
 
@@ -705,17 +736,31 @@ async function clearAllBadges(): Promise<void> {
 }
 
 /**
- * 按此刻**登记表里的真实情况**重算每个标签页的角标与悬停文案 —— **唯一**的角标写入口。
+ * 按此刻**引擎可用性与登记表的真实情况**重算角标与悬停文案 —— **唯一**的角标写入口（数字与红点
+ * 都走这里，谁都不许另开一处 setBadgeText）。
  *
- * 数字 = 该页运行集大小（与灵动岛 / popup 的页面脚本区同源）。没有脚本在跑的页不亮，并且要把
- * **上一轮设过、这一轮不再相关**的页收干净（见末尾的差集），否则那个数字会一直挂在那里 —— 页面
- * 早已换过文档，角标还说着旧话。
+ * 引擎不可用 → 全局一枚红点，见上方「没有授权就没有数可报」；可用 → 数字 = 该页运行集大小
+ * （与灵动岛 / popup 的页面脚本区同源）。没有脚本在跑的页不亮，并且要把**上一轮设过、这一轮不再
+ * 相关**的页收干净（见末尾的差集），否则那个数字会一直挂在那里 —— 页面早已换过文档，角标还说着
+ * 旧话。同理，恢复可用时要把全局那枚红点收掉：没设过专属值的标签页会回落到全局值。
  *
  * 为什么是「重算」而不是「在 noteRunStart 里加一」：登记表是唯一真相源，而它的变化有好几条路
  * （注入登记 / 换文档清零 / 关标签页清除 / 同 uuid 重复广播覆盖），逐条对齐迟早漏一条；整体重算
- * 的逻辑只有一个地方要维护，也天然容得下「一轮里表被改了两次」。
+ * 的逻辑只有一个地方要维护，也天然容得下「一轮里表被改了两次」。可用性翻转也接在这条重算上，
+ * 而不是在翻转回调里直接改角标。
  */
 function refreshBadge(): void {
+  // 引擎不可用：压根没有「哪个页面在跑几个脚本」这回事。先把 per-tab 那批收干净 —— 引擎是在
+  // 脚本运行途中被撤权的（用户改了开关），登记表里可能还留着旧账。
+  if (!engineAvailable) {
+    for (const tabId of touchedTabs) clearTabBadge(tabId)
+    touchedTabs.clear()
+    chrome.action.setTitle({ title: UNAUTHORIZED_TITLE }).catch(() => {})
+    chrome.action.setBadgeBackgroundColor({ color: BADGE_BG }).catch(() => {})
+    chrome.action.setBadgeText({ text: BADGE_DOT }).catch(() => {})
+    return
+  }
+
   /** 这一轮该亮 / 该有文案的标签页 → 脚本数 */
   const countsByTab = new Map<number, number>()
   for (const [tabId, runs] of pageRunsByTab) if (runs.size > 0) countsByTab.set(tabId, runs.size)
@@ -729,6 +774,10 @@ function refreshBadge(): void {
   for (const tabId of touchedTabs) if (!countsByTab.has(tabId)) clearTabBadge(tabId)
   touchedTabs.clear()
   for (const tabId of countsByTab.keys()) touchedTabs.add(tabId)
+
+  // 收掉未授权那枚全局红点（每轮都写：与上面 per-tab 的做法一致，重算不做变化检测）
+  chrome.action.setTitle({ title: '' }).catch(() => {})
+  chrome.action.setBadgeText({ text: '' }).catch(() => {})
 }
 
 /** 会话 → 还在用它的标签页（收尾时据此判「有没有人在看」并取站点名）；反查失败就当没人用 */
@@ -804,7 +853,8 @@ function mountProposal2Listeners(): void {
   // SW 冷启动（浏览器启动 / 扩展重载）：登记表是内存表，此刻必然为空，而 per-tab 的角标与悬停文案
   // 由浏览器保留着 —— 留着一批「哪个标签页该亮」已无从对证的专属值，只会把假状态显示给用户。
   // 一律先清干净（全局兜底值也要清，否则没设过专属值的标签页会回落到它），再按空表重算一遍
-  // （此刻什么都算不出来，是个 no-op；写成重算是为了这条路上的账面也由同一个出口收）。
+  // —— 这轮重算不是 no-op：引擎不可用时那枚全局红点正是由它设上的（全局值刚被上面清掉），该显示
+  // 什么一律由同一个出口决定，冷启动这条路上也不例外。
   // 之后浏览器启动会重载页面、runstart 自己回来；扩展重载后的既有页面要等下一次导航。
   // 至于「SW 空闲被回收」这条不必担心：有启用脚本时它由 offscreen 心跳保活（见 page-monitor 头注释）。
   void clearAllBadges()
@@ -926,12 +976,15 @@ export default defineBackground(() => {
   void initUserScripts().catch((e) => console.error('[duoling:userscript] init failed', e))
 
   // 引擎可用性监视（检测层）：SW 被保活的前提下自行轮询「运行用户脚本」开关（Chrome 对
-  // 开关变化无事件），状态变化时经订阅回调通知。这里挂两个消费方（事件消费层）：
-  //   ① 进程内自愈：不可用 → 可用（用户在扩展管理页开完开关）时补注册全部启用脚本——
+  // 开关变化无事件），状态变化时经订阅回调通知。这里挂三个消费方（事件消费层）：
+  //   ① 角标：翻转时重算（不可用 → 全局红点，可用 → 收回红点并正常报数）。放在最前，让角标
+  //      先跟上，后面那步补注册跑多久都不影响它；
+  //   ② 进程内自愈：不可用 → 可用（用户在扩展管理页开完开关）时补注册全部启用脚本——
   //      开关关闭期间启用的脚本只落库未注册，无人补注册就永远不生效；
-  //   ② 广播给扩展页：横幅 / 引导页订阅 availabilityChanged 更新显示（不再各自打补丁）。
+  //   ③ 广播给扩展页：横幅 / 引导页订阅 availabilityChanged 更新显示（不再各自打补丁）。
   startAvailabilityWatch()
   onAvailabilityChange(({ previous, current }) => {
+    setEngineAvailable(current.available)
     if (!previous && current.available) {
       void ensureWorldsConfigured()
         .then(() => registerAllEnabled())
