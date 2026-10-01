@@ -95,3 +95,18 @@ describe('SettingsPanel 分区导航', () => {
     expect(w.text()).not.toContain('配置 API key')
   })
 })
+
+describe('SettingsPanel 菜单里的「引导」入口', () => {
+  // 它不是设置分区（引导内容有自己的标签页），菜单里只给一个跳转入口
+  it('不进分区清单（不是 tab），点击 emit openGuide 由宿主切标签页', async () => {
+    const w = await mountPanel()
+    expect(navButtons(w).map((b) => b.text())).not.toContain('引导')
+
+    const entry = w.find('[data-testid="settings-open-guide"]')
+    expect(entry.exists()).toBe(true)
+    expect(entry.text()).toContain('引导')
+
+    await entry.trigger('click')
+    expect(w.emitted('openGuide')).toBeTruthy()
+  })
+})

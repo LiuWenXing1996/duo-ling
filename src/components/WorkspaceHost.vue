@@ -320,8 +320,8 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
       >
         <!-- 引导标签：需要用户去浏览器里开权限/开关的说明与直达入口（全局唯一） -->
         <guide-panel v-if="tab.kind === 'guide'" />
-        <!-- 设置标签：渲染设置面板 -->
-        <settings-panel v-else-if="tab.kind === 'settings'" />
+        <!-- 设置标签：渲染设置面板；面板菜单里的「引导」入口请求切到引导标签页 -->
+        <settings-panel v-else-if="tab.kind === 'settings'" @open-guide="openGuideTab" />
         <!-- AI 界面对话预览：mock 数据预览思考与执行过程展示方案 -->
         <ui-test-panel v-else-if="tab.kind === 'ui-test'" />
         <!-- 脚本列表：列出全部用户脚本 + 启停；「编辑」开对应的编辑器标签页 -->
