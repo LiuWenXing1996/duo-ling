@@ -33,7 +33,7 @@ mkdirSync(chromiumProfileDir, { recursive: true })
  *   （页面 / SW / offscreen 三处同源）。SW 启动日志用它自证「跑的是哪次构建」，页面侧用它
  *   展示版本号与构建分支。
  * ⚠️ 不走 HTML 内联注入：MV3 extension_pages CSP 不含 'unsafe-inline'，内联脚本在生产产物里
- *   会被拦 —— 此前用内联注入（window.__BUILD_INFO__），导致生产环境构建信息整列消失，已移除。
+ *   会被拦 —— 内联注入（window.__BUILD_INFO__）在生产环境会整列消失，故不走它。
  * 语义：define 在配置加载（= dev server 启动 / 构建开始）时算一次定格；dev 下整次会话不变
  * （重启 dev 才变），build 下 = 产物构建时刻。
  */
@@ -116,27 +116,25 @@ export default defineConfig({
     // IndexedDB / userScripts 授权）不再随安装位置重置。
     // 公钥非敏感（公开仓库可见、上架后商店也公开此值）；私钥单独保管、不入库，仅打包
     // CRX 自托管时才需要。生成方式与 ID 换算见 VERSIONING.md。
-    // 2026-09-22 经评审确认。
     key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAn48Pdu5rZ8jaljtXTNwFjwDOfj4b0phMH50lb6jhE4VGV2SRVbnWcoi34IOJw/Vlp8wVwM8Dpn6ZpRsmIdUWzx5lrjO8vc9DXI+5ORtH/2vl0jCxlmALDh3Wi/6wYnjb5QkXsPFzobhypeD+Aseaf1nREgo0Vp/W90awxDx7blBTuhVVdKVDNs6Mt8HluvDTMgUAWq0e1MDxhOkWvTjEMT5Q7pkLaBrapg1eA/FlBie5Hd3qj/uT2ykPHEKsZBZNd3ZHDizxtTM1c0LXAFX+7k5E6IS4B27uJhIoCxrv3GXOuo2BdVce5pLjNbwRa+JoHgSVJ1ZEsVQFWaUuGTBTCQIDAQAB',
     // action 的默认行为由 popup 承担：点工具栏图标弹 popup（entrypoints/popup.html 自动写入
     // default_popup）。对话入口是网页浮层，由 content script 注入，不占 action。
     // offscreen 是 AI 生成链路的执行宿主（定位 B）：
     // 对话 loop 与源码写侧（us-git / project-write）都跑在 offscreen document 里，
     // 「用户发起生成后可收起浮层、任务照跑完」。没有该权限 chrome.offscreen 不存在
-    // （Chrome 109+ / 仅 MV3）。2026-09-14 经评审确认。
+    // （Chrome 109+ / 仅 MV3）。
     // contextMenus = GM_registerMenuCommand（用户脚本扩展菜单，事件回推见 dl-port.ts）的载体 API，
-    // 未来项目自身菜单也走它。2026-09-19 经评审确认。
+    // 未来项目自身菜单也走它。
     // cookies = GM_cookie（list / set / delete）的载体 API。**注意：host 已是 <all_urls>，
     // 故此权限等价于「SW 可读写全浏览器 cookie（含 HttpOnly）」**，是能力面最大的一项权限。
     // 补偿措施是与权限绑定的域名门（cookie-gate.ts）：url 必须落在脚本自身 matches 内、
-    // 只比 scheme+host（cookie 是 host 级作用域，忽略 pattern 的 path 段）。2026-09-19 经评审确认。
+    // 只比 scheme+host（cookie 是 host 级作用域，忽略 pattern 的 path 段）。
     // clipboardWrite：GM_setClipboard 走 offscreen 免手势写剪贴板（含富文本 ClipboardItem），需此权限。
     // declarativeNetRequestWithHostAccess = GM_xmlhttpRequest forbidden header 覆写的载体
     // （SW fetch 改不了 Cookie/Referer 等，DNR session 规则按请求挂/撤在发头前套上）。
     // 选 WithHostAccess 变体：不进安装权限提示，且 modifyHeaders/重定向要求 host 权限——
     // 已有 <all_urls> 覆盖。webRequest（观察型，非 blocking）= redirect:'manual' 的
     // 3xx 响应读取通道（SW fetch 只拿得到 opaqueredirect）。均不新增用户可见权限。
-    // 2026-09-19 经评审确认（提案评审）。
     permissions: [
       'storage',
       'userScripts',
@@ -146,7 +144,7 @@ export default defineConfig({
       'cookies',
       'clipboardWrite',
       // 用户脚本的 GM_download 走**浏览器下载器**（chrome.downloads）：能弹「另存为」，
-      // 且大文件流式落盘（旧实现是整份读进内存再走 data URL）。见 dl-bridge 的 doDownload。
+      // 且大文件流式落盘（整份读进内存再走 data URL 会撑爆内存）。见 dl-bridge 的 doDownload。
       'downloads',
       'declarativeNetRequestWithHostAccess',
       'webRequest',
