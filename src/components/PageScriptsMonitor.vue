@@ -3,6 +3,7 @@
 //
 // 默认收起：深色小药丸 = 脚本数（+错误数徽标），一眼可读不占版面；
 // 点击原地展开：逐脚本一行 + 各自错误摘要。
+// **这个数就是工具栏角标报的那个数**（同一个 SW 侧登记表）：角标给「一眼」，这里给「是哪几个」。
 // 形变用 motion-v 的 spring 物理动画（width / height(auto) / borderRadius 一并插值），
 // 取代纯 CSS 过渡——CSS 动不了 height:auto，motion 由 JS 实测内容尺寸驱动形变。
 // 参考 inspira-ui ScrollIsland 的机制（layout + spring），但按本项目语义 token 规范重写。

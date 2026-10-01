@@ -338,7 +338,7 @@ async function runLoop(opts: {
   }
   runningByConversation.set(conversationId, task)
   resetBuffer(conversationId)
-  // 任务开始的唯一信号点（新任务与孤儿续跑都经这里起循环）：SW 据此点亮「进行中」角标。
+  // 任务开始的唯一信号点（新任务与孤儿续跑都经这里起循环）：SW 据此登记「进行中」。
   // 收尾配对是 chat:finished（cleanup / 异常分支）。
   notifyChatRunning(conversationId)
 
@@ -477,7 +477,7 @@ async function runLoop(opts: {
 
     // 任务收尾：删运行时记录 + 丢事件缓冲（缓冲只为进行中任务的重连服务；
     // 收尾后结果已在会话历史，保留缓冲反而会让重开面板 replay 出重复消息）。
-    // ok 顺路推 chat:finished：SW 旁听后视浮层展开态点亮完成角标（配对 chat:running）。
+    // ok 顺路推 chat:finished：SW 旁听后视「有没有人在看」决定记不记一条未读通知（配对 chat:running）。
     const cleanup = (ok: boolean) => {
       runningByConversation.delete(conversationId)
       void removeTask(taskId).catch(() => {})

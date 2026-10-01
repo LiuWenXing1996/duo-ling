@@ -76,8 +76,8 @@ export function replaySince(
 }
 
 /**
- * 任务开始推送（chat:running）：SW 旁听后点亮「进行中」角标。每个任务推一次
- * （细节进度在 chat:chunk 里，SW 不必逐条消费）。
+ * 任务开始推送（chat:running）：SW 旁听登记「进行中」（popup 的进行中组 + 「标签页被关要中止
+ * 任务」的判据）。每个任务推一次（细节进度在 chat:chunk 里，SW 不必逐条消费）。
  * 尽力而为：SW 未起 / 无接收方都会 reject，任务照跑。
  */
 export function notifyChatRunning(conversationId: string): void {
@@ -86,8 +86,8 @@ export function notifyChatRunning(conversationId: string): void {
 }
 
 /**
- * 任务收尾推送（chat:finished）：SW 旁听后在「浮层没展开」时点亮完成角标。
- * ok = 是否正常收敛（停止 / 异常为 false；徽章同亮同色，不区分）。
+ * 任务收尾推送（chat:finished）：SW 旁听后在「没人看着」时记一条未读通知（popup 给明细）。
+ * ok = 是否正常收敛（停止 / 异常为 false；通知不区分成败）。
  * 尽力而为：SW 未起 / 无接收方都会 reject，任务收尾不受影响。
  */
 export function notifyChatFinished(conversationId: string, ok: boolean): void {

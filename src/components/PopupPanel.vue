@@ -102,7 +102,7 @@ onMounted(() => {
       <span class="text-sm font-semibold">哆灵</span>
     </header>
 
-    <!-- 通知（进行中 + 跑完没看）：角标只有一个数字，具体是什么事在这里展开 -->
+    <!-- 通知（进行中 + 跑完没看）：角标只报脚本运行数，会话的事在这里展开 -->
     <PopupNotifications />
 
     <!-- 仅在有新版本时出现：常态下 popup 保持原样，不新增噪音 -->

@@ -1,7 +1,8 @@
-// 「页面脚本监控」的 SW 侧逻辑（运行时口径）——对话界面灵动岛与工具栏 popup 共用。
+// 「页面脚本监控」的 SW 侧逻辑（运行时口径）——三个消费方共用同一份数：
+// 对话界面灵动岛、popup 的「页面脚本」区、**工具栏角标**（数字 = 该标签页的运行集大小）。
 //
-// 两个面板显示的都是「它所属标签页」的运行集（归属怎么定见 lib/owning-tab.ts，不是 active tab），
-// 必须有一个地方替它们记住「每个 tab 当前文档里跑着哪些脚本」——就是这个按 tab 的运行登记表。
+// 三个消费方显示的都是「它所属标签页」的运行集（归属怎么定见 lib/owning-tab.ts，不是 active
+// tab），必须有一个地方替它们记住「每个 tab 当前文档里跑着哪些脚本」——就是这个按 tab 的运行登记表。
 //
 // 数据流（三个信号源，全部已在 dl-bridge / background 里存在，这里只是多接一根线）：
 //   · runstart 广播（GM 包装注入即发）→ noteRunStart：登记 + 推给所有连着的面板
@@ -12,9 +13,14 @@
 // 快照：面板切 tab / 刚打开时上行 page:snapshot，SW 按登记表回当前运行集；
 // 错误历史按 runId 从错误日志（runtime 库 errors store）反查（runtime 错误都带 runId）。
 //
-// 已知边界（刻意接受）：SW 被杀重启后登记表清空，且历史 runstart 不会重放
-// （广播是即发即弃的）——面板在「SW 重启后、页面未重新导航」的窗口里会显示为空。
-// 页面一刷新即恢复。
+// **登记表一变就喊一声**（onPageRunsChanged）：角标是「按登记表重算」出来的，不重算就停在旧
+// 数字上 —— 面板有快照可以拉，角标没有可拉的对象，只能由这里推。
+//
+// 已知边界（刻意接受）：登记表是内存表，**扩展重载 / 浏览器启动**后是空的，且历史 runstart 不会
+// 重放（广播是即发即弃的）——在那之后、页面重新导航之前，面板显示为空、角标也不亮。浏览器启动
+// 会重载页面、自己补回来；扩展重载后的既有页面要等下一次导航。
+// 注意这跟「SW 空闲被回收」不是一回事：有启用脚本时 SW 由 offscreen 心跳保活（offscreen-main.ts），
+// 不会空闲回收 —— 而登记表非空恰恰以「有启用脚本」为前提，两者不会撞上。
 
 import type {
   PageErrorItem,
@@ -33,15 +39,39 @@ const SNAPSHOT_ERROR_TRUNC = 200
 
 /**
  * 运行登记表：tabId → (uuid → 运行项)。**这是 SW 唯一的监控状态**，随 tab 生命周期增删：
- * 新文档导航清空（resetPageRuns）、tab 关闭清除（forgetPageTab）、SW 重启自然丢失（见文件头边界）。
+ * 新文档导航清空（resetPageRuns）、tab 关闭清除（forgetPageTab）、扩展重载自然丢失（见文件头边界）。
  * export 仅供单测直接断言登记行为。
  */
 export const pageRunsByTab = new Map<number, Map<string, PageRunItem>>()
 
 /**
+ * 登记表变化的订阅者（角标重算挂在它上面）。
+ *
+ * 为什么是订阅而不是让写方直接去设角标：写方在 dl-bridge（SW 与 dl-bridge 互相 import 会成环），
+ * 而「登记表变了」这个事实只属于本模块。
+ */
+const runsChangeListeners = new Set<() => void>()
+
+/** 订阅登记表变化（登记 / 清零 / tab 关闭各喊一次）。无退订：消费方是常驻的 SW 侧一处 */
+export function onPageRunsChanged(listener: () => void): void {
+  runsChangeListeners.add(listener)
+}
+
+/** 通知订阅者。单个订阅者抛错不该反噬写方，也不该拖住其它订阅者 */
+function notifyRunsChanged(): void {
+  for (const listener of runsChangeListeners) {
+    try {
+      listener()
+    } catch {
+      // 忽略：角标重算是它的私事
+    }
+  }
+}
+
+/**
  * 已登记的面板端口（寻址表：面板文档活着才有；断开即摘）。
  * 注意浮层那条**不代表「浮层展开着」**——收起浮层只是 display:none，面板文档照活着。
- * 「展开态」另有一条端口（`FLOAT_PANEL_OPEN_PORT`，见 background 的角标判定）。
+ * 「展开态」另有一条端口（`FLOAT_PANEL_OPEN_PORT`，见 background 的未读通知判定）。
  */
 const monitorPorts = new Set<chrome.runtime.Port>()
 
@@ -66,6 +96,7 @@ export function noteRunStart(tabId: number, uuid: string, runId: string): void {
   }
   runs.set(uuid, run)
   pushToPanels({ t: 'page:runstart', tabId, run })
+  notifyRunsChanged()
 }
 
 /** 推送一条运行时错误（错误已由调用方落盘；这里只负责让面板实时可见） */
@@ -76,15 +107,17 @@ export function notePageError(
   pushToPanels({ t: 'page:error', tabId, error: { ...error, time: Date.now() } })
 }
 
-/** 新文档导航开始：清空该 tab 的运行集并通知面板（SPA 软导航不会走到这——不换文档） */
+/** 新文档导航开始：清空该 tab 的运行集并通知面板 / 角标（SPA 软导航不会走到这——不换文档） */
 export function resetPageRuns(tabId: number): void {
   if (!pageRunsByTab.delete(tabId)) return
   pushToPanels({ t: 'page:reset', tabId })
+  notifyRunsChanged()
 }
 
-/** tab 关闭：静默清除（面板自己也在监听 onRemoved，无需推送） */
+/** tab 关闭：静默清除（面板自己也在监听 onRemoved，无需推送；角标随标签页消失，仅需重算账面） */
 export function forgetPageTab(tabId: number): void {
-  pageRunsByTab.delete(tabId)
+  if (!pageRunsByTab.delete(tabId)) return
+  notifyRunsChanged()
 }
 
 /** 纯函数内核（导出便于单测）：按运行集的 runId 过滤出相关错误，收窄成面板行。 */

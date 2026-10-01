@@ -76,10 +76,12 @@ import {
   listRunTimeline,
   clearRunLog,
 } from '@/lib/userscripts/store'
-// 对话界面页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口
+// 对话界面页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口 —— 工具栏角标的数字就是它
 import {
   forgetPageTab,
   initPageMonitorPorts,
+  onPageRunsChanged,
+  pageRunsByTab,
   resetPageRuns,
 } from '@/lib/userscripts/page-monitor'
 // 会话的标签页归属映射（duoling-app 库）：标签页关闭时在这里清（见 tabs.onRemoved 处说明）；
@@ -89,8 +91,8 @@ import {
   getConversationIdForTab,
   unbindTab,
 } from '@/lib/conversation-tab-map'
-// 通知中心（duoling-app 库）：任务收尾记一条未读通知，角标按「进行中」报数（未读只进悬停文案）、
-// popup 给明细
+// 通知中心（duoling-app 库）：任务收尾记一条未读通知（无人查看时），popup 给明细。
+// 与角标无关 —— 角标只报脚本运行数，通知不再进角标
 import {
   addChatDone,
   countUnread,
@@ -528,26 +530,23 @@ const handlers: {
     items: await listNotifications(),
   }),
 
-  // 标已读后顺手重算：角标只报在跑的，但悬停文案里那句「已完成 N」正是这个列表的未读数，两处必须一起变
+  // 标一条已读：只影响 popup 的明细（角标与悬停文案都不看未读，无需重算）
   'notify:read': async (msg): Promise<{ unread: number }> => {
     await markRead(msg.id)
-    await refreshBadge()
     return { unread: await countUnread() }
   },
 
   'notify:readAll': async (): Promise<{ unread: number }> => {
     await markAllRead()
-    await refreshBadge()
     return { unread: 0 }
   },
 
   // 会话被删 → 它的通知一并清掉（留着只会指向一个不存在的对话）。
-  // **这步必须走 SW**：角标与悬停文案都归 SW 维护，清库这种事若由工作台直接做，它不知道、也没人喊它
-  // 重算，悬停文案就会挂着一条已经不对的「已完成 N」。
+  // **走 SW 是为了单一写口**：通知由 SW 记、也由 SW 清（popup 的已读同样走命令面），工作台自己动库
+  // 就多出一个彼此不知情的写方。
   'notify:drop': async (msg): Promise<{ unread: number }> => {
     if (msg.all) await removeAll()
     else if (msg.conversationId) await removeByConversation(msg.conversationId)
-    await refreshBadge()
     return { unread: await countUnread() }
   },
 
@@ -588,25 +587,37 @@ async function initUserScripts(): Promise<void> {
 // 这里只做「非 undefined」的收窄（SW 侧该标识符必然存在），形状引自 src/lib/build-info.ts。
 declare const __BUILD_INFO__: InjectedBuildInfo
 
-// —— 任务状态：通知中心（角标报数）+ popup 明细 ——
+// —— 工具栏角标：这个标签页在跑几个脚本 ——
 //
-// 一份信号源 = offscreen 的 chat:running / chat:finished，两个出口各司其职：
+// 数字 = `pageRunsByTab`（page-monitor 的运行登记表）里**该标签页**的运行集大小 —— 与浮层灵动岛、
+// popup 的「页面脚本」区是**同一个数**（三处对不上就是在骗人）。归属天然按 tab：登记表本身就是按
+// tab 建的。没有脚本在跑的标签页不亮，别的页面上的脚本也不在这儿报数。
 //
-//   · 工具栏角标 = **按标签页各算各的**：红底白字，数字 = **该标签页上**正在跑的条数。
-//     只数「正在发生的事」—— 跑完没看**不点亮角标**（它是已经结束的历史，不是此刻的占用），
-//     那条信息由悬停文案与 popup 承担。没有在跑的任务时角标灭掉，别的页面上的事也不在这儿报数。
-//     **只报数、不分类**：什么颜色代表什么状态是额外的记忆负担，具体是什么事去 popup 看。
-//   · popup = **全局明细**：几条在进行中、哪几条跑完没看，点条目跳过去并标已读。
+// **为什么不是「会话在跑几个任务」**：那种数字只会是 0 / 1（一个标签页只归属一条会话，见
+// conversation-tab-map）—— 既报不出量，说的也不是「这个页面此刻是什么样」。脚本数才是这个页面
+// 自己的状态；会话那边的进度与结果由 popup 明细与浮层负责。
+//
+// **只报数、不分类**：什么颜色代表什么状态是要用户记的额外约定，具体是哪些脚本去浮层灵动岛 /
+// popup 看。悬停文案把同一件事说成一句话（`N 个脚本在运行`），与灵动岛同一句。
+//
+// 数字由 refreshBadge **重算**而来，不是「收到 runstart 时顺手加一」：登记表是唯一的真相源，
+// 重算才能保证角标与登记表不各说各话 —— 清空（换文档）、关标签页、重复广播各是一条路，逐条对齐
+// 迟早漏一条。
+//
+// —— 通知中心：任务收尾（会话口径）——
+//
+// offscreen 的 chat:running / chat:finished 旁听：任务收尾且**没人看着**时记一条未读通知，popup
+// 给明细（几条在进行中、哪几条跑完没看，点条目跳过去并标已读）。**与角标已无关系**：角标不报会话。
 //
 // 「用户此刻在看对话界面吗」的判据 = **对话框展开 且 页面可见**：两条都成立时 content script 连上
 // FLOAT_PANEL_OPEN_PORT，否则断开（页面卸载 / 导航则端口自然断）。**不能拿「面板文档存活」判**：
-// 收起对话框只是 `display:none`，iframe 与面板文档都还在，端口永不断开 → 角标永不变
-// （无头实测：收起后推 chat:finished，角标纹丝不动；把 iframe 真摘掉才亮）。
-// 「页面可见」那条同样不能省：对话框还开着、人却切去别的标签页，那时他什么都看不见，照旧要提示。
+// 收起对话框只是 `display:none`，iframe 与面板文档都还在、端口永不断开 → `isFloatOpenIn` 恒为真 →
+// 跑完那条通知永远记不上。页面卸载 / 导航才断得开，故收起走的是「只藏不销毁」那条路。
+// 「页面可见」那条同样不能省：对话框还开着、人却切去别的标签页，那时他什么都看不见，照旧要记。
 //
-// 这条端口连通 = 那个标签页上「对话界面开着且页面可见」，所以它只让**自己这个标签页**的角标让开
-// （见 refreshBadge），别的标签页该提示照提示。
-/** 展开态连接 → 所属标签页（「**这个** tab 的对话框开着吗」：决定要不要记未读通知、角标让不让开） */
+// 这条端口连通 = 那个标签页上「对话界面开着且页面可见」，故它只管**自己这个标签页**那条会话的
+// 通知归属（见 handleChatFinishedPush），别的标签页照记。
+/** 展开态连接 → 所属标签页（「**这个** tab 的对话框开着吗」：决定收尾要不要记未读通知） */
 const openFloatPortTab = new Map<chrome.runtime.Port, number>()
 
 /** 该标签页的对话界面此刻是否展开（= 进度与结果都在用户眼前） */
@@ -615,7 +626,10 @@ function isFloatOpenIn(tabId: number): boolean {
   return false
 }
 
-/** 角标数字：超过 9 显示 9+（角标最多 4 字符，两位数在工具栏尺寸下已经看不清） */
+/**
+ * 角标数字：超过 9 显示 9+（角标最多 4 字符，两位数在工具栏尺寸下已经看不清）。
+ * 一个页面上的脚本数没有上限（命中同一条 matches 的脚本可以有很多个），这条分支是真会走到的。
+ */
 function badgeCount(n: number): string {
   return n > 9 ? '9+' : String(n)
 }
@@ -624,12 +638,11 @@ function badgeCount(n: number): string {
  * 进行中的对话（chat:running 进来、chat:finished 出去）：会话 id → 开始时间。
  *
  * **刻意不落库**：它没有稳定落点 —— SW 被回收后内存里这份就没了，而库里若留着一条恒为
- * 「进行中」的记录，再不会有事件来收尾它，就成了假状态。所以进行中只活在内存：角标数它一份，
- * popup 问起时把当前快照给它。
+ * 「进行中」的记录，再不会有事件来收尾它，就成了假状态。所以进行中只活在内存，popup 问起时
+ * 把当前快照给它。
  *
- * **为什么要记而不是每次现算**：状态变化是事件驱动的，而「事件到达时用户在不在看」与之后可能
- * 不同 —— 任务开始时浮层还开着（当场判「不打扰」），用户随后收起就再没人喊一声，角标会一直不亮。
- * 收起那一刻得能按当前情况重算（见 refreshBadge）。
+ * **为什么要记而不是每次现算**：`runningConversations` 还是「标签页被关 → 中止它的任务」那条路
+ * 的判据（见 abortConversationOfClosedTab）—— 不在跑就不必惊动 offscreen。
  */
 const runningConversations = new Map<string, number>()
 
@@ -657,14 +670,12 @@ async function runningNotices(): Promise<RunningNotice[]> {
 }
 
 /**
- * 悬停文案。角标只数「在跑」的，跑完没看它一个字都不提 —— 这里把两样都补上，且**只给主动悬停的
- * 人看**（不占角标、不需要用户记任何约定）。空串 = 恢复默认（扩展名）。
+ * 悬停文案。与浮层灵动岛**同一个句式**（`N 个脚本在运行`）—— 两处说的是同一个数，措辞也要一致，
+ * 否则用户会以为它们各说各的。**只给主动悬停的人看**（不占角标、不需要用户记任何约定）。
+ * 空串 = 恢复默认（扩展名）。
  */
-function titleOf(runningCount: number, unreadCount: number): string {
-  const parts: string[] = []
-  if (runningCount > 0) parts.push(`进行中 ${runningCount}`)
-  if (unreadCount > 0) parts.push(`已完成 ${unreadCount}`)
-  return parts.join(' · ')
+function titleOf(scriptCount: number): string {
+  return scriptCount > 0 ? `${scriptCount} 个脚本在运行` : ''
 }
 
 /** 角标底色（与设置页「开发者」分区那张角标调试栏同值：预览与实设必须是同一个观感） */
@@ -694,60 +705,33 @@ async function clearAllBadges(): Promise<void> {
 }
 
 /**
- * 按此刻的真实情况重算**每个标签页**的角标与悬停文案 —— **唯一**的角标写入口。
+ * 按此刻**登记表里的真实情况**重算每个标签页的角标与悬停文案 —— **唯一**的角标写入口。
  *
- * 角标按标签页各算各的：数字 = 该页**正在跑**的条数，没有在跑的就不亮。归属两条路 ——
- * 进行中的会话经 conversation-tab-map 反查所属标签页（异步），未读通知自带 `tabId`。反查不到归属的
- * （会话还没绑定 / 标签页已关）不落到任何角标上，但 popup 仍看得到，不会凭空消失。
+ * 数字 = 该页运行集大小（与灵动岛 / popup 的页面脚本区同源）。没有脚本在跑的页不亮，并且要把
+ * **上一轮设过、这一轮不再相关**的页收干净（见末尾的差集），否则那个数字会一直挂在那里 —— 页面
+ * 早已换过文档，角标还说着旧话。
  *
- * 跑完没看**只进悬停文案**（`已完成 N`）与 popup，不点亮角标：角标报的是「此刻在占用什么」，
- * 一条已经结束、只是没人看过的任务不是此刻的事。
- *
- * 之所以是「重算」而不是「收到事件时顺手设一下」：事件到达的时刻与「用户此刻看得见吗」未必
- * 同时成立 —— 任务在浮层开着时开始、用户之后才收起，就是一个没有事件来过的时点
- * （见 runningConversations 处的说明），只有重算接得住。
- *
- * - 浮层展开着的那个标签页 → **只清它自己**的角标（进度与结果都在用户眼前）；悬停文案照报真实
- *   数量（它是状态镜像）。别的标签页不受影响 —— 这正是按页各算的意义。
- * - 其余标签页 → 数字 = 该页正在跑的条数，一条都没有就不亮；悬停文案仍按「进行中 + 已完成」报。
+ * 为什么是「重算」而不是「在 noteRunStart 里加一」：登记表是唯一真相源，而它的变化有好几条路
+ * （注入登记 / 换文档清零 / 关标签页清除 / 同 uuid 重复广播覆盖），逐条对齐迟早漏一条；整体重算
+ * 的逻辑只有一个地方要维护，也天然容得下「一轮里表被改了两次」。
  */
-async function refreshBadge(): Promise<void> {
-  const runningByTab = new Map<number, number>()
-  const unreadByTab = new Map<number, number>()
+function refreshBadge(): void {
+  /** 这一轮该亮 / 该有文案的标签页 → 脚本数 */
+  const countsByTab = new Map<number, number>()
+  for (const [tabId, runs] of pageRunsByTab) if (runs.size > 0) countsByTab.set(tabId, runs.size)
 
-  await Promise.all(
-    [...runningConversations.keys()].map(async (conversationId) => {
-      for (const tabId of await tabsOfConversation(conversationId)) {
-        runningByTab.set(tabId, (runningByTab.get(tabId) ?? 0) + 1)
-      }
-    }),
-  )
-  for (const notice of await listNotifications().catch(() => [])) {
-    if (notice.readAt != null || notice.tabId == null) continue
-    unreadByTab.set(notice.tabId, (unreadByTab.get(notice.tabId) ?? 0) + 1)
-  }
-
-  const touched = new Set<number>()
-  // 悬停文案要覆盖「只有未读」的标签页，故键集合取并集 —— 那些页角标是灭的，文案仍要有内容
-  for (const tabId of new Set([...runningByTab.keys(), ...unreadByTab.keys()])) {
-    touched.add(tabId)
-    const running = runningByTab.get(tabId) ?? 0
-    const unread = unreadByTab.get(tabId) ?? 0
-    chrome.action.setTitle({ tabId, title: titleOf(running, unread) }).catch(() => {})
-    if (isFloatOpenIn(tabId) || running === 0) {
-      chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {})
-      continue
-    }
+  for (const [tabId, count] of countsByTab) {
+    chrome.action.setTitle({ tabId, title: titleOf(count) }).catch(() => {})
     chrome.action.setBadgeBackgroundColor({ tabId, color: BADGE_BG }).catch(() => {})
-    chrome.action.setBadgeText({ tabId, text: badgeCount(running) }).catch(() => {})
+    chrome.action.setBadgeText({ tabId, text: badgeCount(count) }).catch(() => {})
   }
 
-  for (const tabId of touchedTabs) if (!touched.has(tabId)) clearTabBadge(tabId)
+  for (const tabId of touchedTabs) if (!countsByTab.has(tabId)) clearTabBadge(tabId)
   touchedTabs.clear()
-  for (const tabId of touched) touchedTabs.add(tabId)
+  for (const tabId of countsByTab.keys()) touchedTabs.add(tabId)
 }
 
-/** 会话 → 还在用它的标签页；反查失败（tab 已关 / 无绑定）就当没人需要页面内的提示 */
+/** 会话 → 还在用它的标签页（收尾时据此判「有没有人在看」并取站点名）；反查失败就当没人用 */
 function tabsOfConversation(conversationId: string): Promise<number[]> {
   return findTabsUsingConversation(conversationId).catch(() => [])
 }
@@ -787,13 +771,12 @@ async function abortConversationOfClosedTab(tabId: number): Promise<void> {
 
 /**
  * chat:running 观察（offscreen 推送，chat: 前缀按约定不进命令路由，这里只旁听）：任务开始。
- * 进行中角标只在「用户没在看对话界面」时亮 —— 展开的浮层里进度自明。
+ * **不碰角标** —— 角标只报脚本运行数，会话与它无关。
  */
 function handleChatRunningPush(conversationId: string): void {
   runningConversations.set(conversationId, Date.now())
   // 新任务开跑 → 上一次的「因关标签页而中止」标记作废，免得它误伤这次的收尾通知
   abortedByTabClose.delete(conversationId)
-  void refreshBadge()
 }
 
 /** chat:finished 观察：任务收尾（正常 / 异常同处理，通知不区分成败） */
@@ -801,17 +784,15 @@ function handleChatFinishedPush(conversationId: string): void {
   runningConversations.delete(conversationId)
   void tabsOfConversation(conversationId).then(async (tabIds) => {
     // 没人在看就记一条未读通知。**反查不到标签页时也要记**（tab 已关 / 还没绑定）——
-    // 那时 popup 是用户唯一的知情途径（角标与悬停文案都按标签页设，没有标签页就没有落点）。
+    // 那时 popup 是用户唯一的知情途径（通知按会话记，「哪条对话」这一栏取自标签页的站点名）。
     // 唯一的例外：这次收尾是「标签页被关」引发的中止（见 abortConversationOfClosedTab），
     // 那是用户自己停的，不必再告诉他「已完成」。
-    if (!abortedByTabClose.delete(conversationId) && !tabIds.some((tabId) => isFloatOpenIn(tabId))) {
-      await addChatDone({
-        conversationId,
-        tabId: tabIds[0] ?? null,
-        host: await hostOfTab(tabIds[0] ?? null),
-      }).catch(() => {})
-    }
-    await refreshBadge()
+    if (abortedByTabClose.delete(conversationId) || tabIds.some((tabId) => isFloatOpenIn(tabId))) return
+    await addChatDone({
+      conversationId,
+      tabId: tabIds[0] ?? null,
+      host: await hostOfTab(tabIds[0] ?? null),
+    }).catch(() => {})
   })
 }
 
@@ -820,13 +801,19 @@ function handleChatFinishedPush(conversationId: string): void {
 // 本文件会被协议一致性测试 import（取 SW_KIND_PREFIXES），模块顶层挂监听会在
 // Node/fakeBrowser 下炸（runtime.onConnect 未实现）——之前踩过。
 function mountProposal2Listeners(): void {
-  // SW 冷启动：内存里的进行中计数已丢，而 per-tab 的角标与悬停文案由浏览器保留 ——
-  // 留着一批「哪个标签页该亮」已无从对证的专属值，只会把假状态显示给用户。
-  // 一律先清干净（全局兜底值也要清，否则没设过专属值的标签页会回落到它），再按库里仍在的未读
-  // 重算一遍 —— 悬停文案里的「已完成 N」不该因为 SW 被回收就消失（角标只报在跑的，此刻必然全灭）。
+  // SW 冷启动（浏览器启动 / 扩展重载）：登记表是内存表，此刻必然为空，而 per-tab 的角标与悬停文案
+  // 由浏览器保留着 —— 留着一批「哪个标签页该亮」已无从对证的专属值，只会把假状态显示给用户。
+  // 一律先清干净（全局兜底值也要清，否则没设过专属值的标签页会回落到它），再按空表重算一遍
+  // （此刻什么都算不出来，是个 no-op；写成重算是为了这条路上的账面也由同一个出口收）。
+  // 之后浏览器启动会重载页面、runstart 自己回来；扩展重载后的既有页面要等下一次导航。
+  // 至于「SW 空闲被回收」这条不必担心：有启用脚本时它由 offscreen 心跳保活（见 page-monitor 头注释）。
   void clearAllBadges()
     .then(() => refreshBadge())
     .catch(() => {})
+
+  // 角标的重算时机：登记表一变就重算（注入登记 / 换文档清零 / 关标签页清除）。
+  // 角标不做持久化，也不自己维护计数 —— 数字永远是登记表现算出来的。
+  onPageRunsChanged(() => refreshBadge())
 
   // 对话界面监控：新文档导航开始 = 旧文档销毁，该 tab 的运行集清零。
   // 刻意用 status=loading（文档替换的准确时点），SPA 软导航只改 url、不换文档，不清。
@@ -844,7 +831,7 @@ function mountProposal2Listeners(): void {
 
   // 「在看」端口在这里接（短寿命：对话框展开且页面可见时才连，其余时候断开）。判据不能是
   // 「面板文档还活着」：收起只给面板加 display:none，iframe 与文档都还在（草稿 / 滚动位置刻意
-  // 留着），那条端口永不断开，角标就永不亮（无头实测确认）。
+  // 留着），那条端口永不断开 → isFloatOpenIn 恒为真 → 跑完那条通知永远记不上。
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== FLOAT_PANEL_OPEN_PORT) return
     const tabId = port.sender?.tab?.id
@@ -854,14 +841,12 @@ function mountProposal2Listeners(): void {
     if (tabId != null) {
       void getConversationIdForTab(tabId)
         .then((cid) => (cid ? markConversationRead(cid) : 0))
-        .then(() => refreshBadge())
         .catch(() => {})
     }
-    void refreshBadge()
     port.onDisconnect.addListener(() => {
       openFloatPortTab.delete(port)
-      // 收起瞬间按当前情况重算：还在跑就重新亮起来；只剩未读的话角标不亮，改的是悬停文案
-      void refreshBadge()
+      // 收起 = 又没人看着了：之后再收尾的任务照旧要记一条未读通知。
+      // 角标不用动 —— 它与「在看没看」无关，只数这个页面在跑几个脚本。
     })
   })
 
