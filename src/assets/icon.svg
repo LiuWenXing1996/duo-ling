@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- userSpaceOnUse：渐变按整形状统一坐标铺开，尾巴与气泡体颜色连续无缝 -->
+    <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1024" y2="1024">
+      <stop offset="0" stop-color="#5D60B4"/>
+      <stop offset="1" stop-color="#6E23A2"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 气泡体（横长矩形）四边贴画布边缘 + 左斜圆角尾巴，单一连续轮廓（顺时针） -->
+  <!-- 尾巴：底边 x 350..525 开口（整体偏左），向左下斜伸，尖端大圆角收尾（极值约 y=974，不出界） -->
+  <path fill="url(#tile)" d="M 160 0
+    L 864 0
+    A 160 160 0 0 1 1024 160
+    L 1024 670
+    A 160 160 0 0 1 864 830
+    L 525 830
+    L 342 938
+    Q 220 1010 272 938
+    L 350 830
+    L 160 830
+    A 160 160 0 0 1 0 670
+    L 0 160
+    A 160 160 0 0 1 160 0
+    Z"/>
+
+  <!-- code mark </>：居中于气泡体（y=415），三符号与斜杠之间各留约 36px 净空 -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="48" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 400 290 L 258 415 L 400 540"/>
+    <path d="M 624 290 L 766 415 L 624 540"/>
+    <path d="M 545 260 L 478 570"/>
+  </g>
+</svg>
