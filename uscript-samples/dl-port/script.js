@@ -15,7 +15,7 @@
 //   · 菜单「哆灵：点我」→ 本 tab 计数 +1（开两个同匹配页可验证 tab 路由：只有点击所在 tab 计数）
 //   · [set] / [delete] → 改 'counter' 键，watch 回调把新值打进面板（本 tab / 其他 tab 改都触发；
 //     delete 后 value 为 undefined，与「值恰为 undefined」帧上不可区分——契约已注明）
-//   · [通知] → 弹系统通知，点通知 → 面板提示（SW 重启后旧通知点击丢失属拍板预期）
+//   · [通知] → 弹系统通知，点通知 → 面板提示（SW 重启后旧通知点击丢失是已知取舍）
 //   · [注销菜单] → 验证 GM_unregisterMenuCommand 后菜单项消失
 //   · 重启 SW（chrome://serviceworker-internals 点 Stop）后：再点菜单 / 改键仍有效 = 重连重放生效
 ;(async () => {

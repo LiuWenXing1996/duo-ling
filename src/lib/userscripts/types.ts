@@ -59,7 +59,7 @@ export interface ScriptConfig {
   homepageUrl?: string
 }
 
-/** `@resource name url` 一条（资源体落库由 P2 实现） */
+/** `@resource name url` 一条（资源体已落库） */
 export interface ScriptResourceDecl {
   name: string
   url: string
