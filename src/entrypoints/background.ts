@@ -817,8 +817,8 @@ function mountProposal2Listeners(): void {
 // 脚本侧是 `us:<uuid>:<menuId>`（见 dl-port.ts 的 parseMenuitemId —— 它只认那个前缀，本条会被放行）。
 const FLOAT_MENU_ID = 'duoling:open-float'
 
-/** 通知图标（打包资源，即 src/public/notify-icon.png；与用户脚本通知的兜底图标同一个文件） */
-const NOTIFY_ICON = 'notify-icon.png'
+/** 通知图标（复用 auto-icons 构建生成的 icons/128.png，与工具栏图标同源；与用户脚本通知的兜底图标同一个文件） */
+const NOTIFY_ICON = 'icons/128.png'
 
 /**
  * 注册本扩展自己的菜单项（幂等）。

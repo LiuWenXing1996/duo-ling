@@ -87,7 +87,7 @@ export default defineConfig({
   // 才能正确解析到扩展侧的 src。
   srcDir: 'src',
   // WXT 的 publicDir 默认基于**项目根**（不是 srcDir），需显式指到 src 下，
-  // 否则 src/public/ 下的静态资产（如 notify-icon.png）不会进产物。
+  // 否则 src/public/ 下的静态资产（如 duoling-picker.js）不会进产物。
   publicDir: 'src/public',
   vite: () => ({
     plugins: [vue(), tailwindcss()],

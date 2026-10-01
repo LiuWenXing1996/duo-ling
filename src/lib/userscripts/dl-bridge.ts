@@ -69,9 +69,9 @@ import {
   handleObservation,
 } from './dl-fetch-priv'
 
-/** 通知兜底图标（打包资源）。MV3 的 notifications.create 不接受 data: URL 图标
+/** 通知兜底图标（复用 auto-icons 构建生成的 icons/128.png）。MV3 的 notifications.create 不接受 data: URL 图标
  * （报 "Unable to download all specified images."），必须用扩展内资源或 http(s) 图 */
-const FALLBACK_ICON = 'notify-icon.png' // 相对扩展根，即 src/public/notify-icon.png
+const FALLBACK_ICON = 'icons/128.png' // 相对扩展根，即构建产物 icons/128.png
 
 /**
  * 在飞行的特权请求：`requestId` → AbortController。
