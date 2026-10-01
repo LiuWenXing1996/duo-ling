@@ -9,6 +9,15 @@ vi.mock('@/lib/userscripts/us-git', () => ({
   readSource: vi.fn(async () => null),
 }))
 
+// script_find 走裸 IndexedDB 读侧（listProjects）：Node 无 indexedDB，mock 掉换测试数据
+const listProjectsMock = vi.hoisted(
+  () => vi.fn(async (): Promise<{ uuid: string; name: string; enabled: boolean }[]> => []),
+)
+vi.mock('@/lib/userscripts/project-store', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  listProjects: listProjectsMock,
+}))
+
 function makeWorkspace(): TaskWorkspace {
   return {
     taskId: 't-1',
@@ -115,8 +124,92 @@ describe('element_read', () => {
   })
 })
 
+describe('script_find（按名字反查脚本）', () => {
+  const PROJECTS = [
+    { uuid: 'u-1', name: '去广告助手', enabled: true },
+    { uuid: 'u-2', name: '夜间模式', enabled: false },
+    { uuid: 'u-3', name: '自动签到', enabled: true },
+  ]
+
+  function find(
+    tools: ReturnType<typeof buildScriptTools>,
+    name: string,
+  ): Promise<Record<string, unknown>> {
+    return tools.script_find.execute({ name }, execOpts) as unknown as Promise<
+      Record<string, unknown>
+    >
+  }
+
+  it('子串命中：返回 uuid / name / enabled 清单', async () => {
+    listProjectsMock.mockResolvedValue(PROJECTS)
+    const tools = makeTools(makeElement())
+    const out = await find(tools, '去广告')
+    expect(out.ok).toBe(true)
+    expect(out.matches).toEqual([{ uuid: 'u-1', name: '去广告助手', enabled: true }])
+  })
+
+  it('大小写不敏感（英文名）', async () => {
+    listProjectsMock.mockResolvedValue([
+      { uuid: 'u-9', name: 'Dark Mode Plus', enabled: true },
+    ])
+    const tools = makeTools(makeElement())
+    const out = await find(tools, 'dark mode')
+    expect(out.ok).toBe(true)
+    expect(out.matches).toEqual([{ uuid: 'u-9', name: 'Dark Mode Plus', enabled: true }])
+  })
+
+  it('无命中：ok=true + 空 matches + 可读 hint', async () => {
+    listProjectsMock.mockResolvedValue(PROJECTS)
+    const tools = makeTools(makeElement())
+    const out = await find(tools, '不存在的脚本')
+    expect(out.ok).toBe(true)
+    expect(out.matches).toEqual([])
+    expect(String(out.hint)).toContain('没有名字含该关键词的脚本')
+  })
+
+  it('name 为空（纯空白）：ok=false', async () => {
+    listProjectsMock.mockResolvedValue(PROJECTS)
+    const tools = makeTools(makeElement())
+    const out = await find(tools, '   ')
+    expect(out.ok).toBe(false)
+  })
+})
+
+describe('script_list（列出全部脚本）', () => {
+  it('返回全部脚本（uuid / name / enabled）+ total，顺序沿用 listProjects', async () => {
+    listProjectsMock.mockResolvedValue([
+      { uuid: 'u-1', name: '去广告助手', enabled: true },
+      { uuid: 'u-2', name: '夜间模式', enabled: false },
+    ])
+    const tools = makeTools(makeElement())
+    const out = (await tools.script_list.execute(
+      {},
+      execOpts,
+    )) as unknown as Record<string, unknown>
+    expect(out.ok).toBe(true)
+    expect(out.total).toBe(2)
+    expect(out.scripts).toEqual([
+      { uuid: 'u-1', name: '去广告助手', enabled: true },
+      { uuid: 'u-2', name: '夜间模式', enabled: false },
+    ])
+  })
+
+  it('一个脚本都没有：ok=true + 空数组 + 可读 hint', async () => {
+    listProjectsMock.mockResolvedValue([])
+    const tools = makeTools(makeElement())
+    const out = (await tools.script_list.execute(
+      {},
+      execOpts,
+    )) as unknown as Record<string, unknown>
+    expect(out.ok).toBe(true)
+    expect(out.scripts).toEqual([])
+    expect(out.total).toBe(0)
+    expect(String(out.hint)).toContain('还没有保存过任何脚本')
+  })
+})
+
 describe('script 三件套不受影响（回归）', () => {
-  it('script_spec / script_read / script_apply / error_read 仍然在工具表里', () => {
+  it('script_spec / script_find / script_list / script_read / script_apply / error_read 仍然在工具表里', () => {
     const tools = makeTools(makeElement())
     expect(Object.keys(tools).sort()).toEqual([
       'element_read',
@@ -125,6 +218,8 @@ describe('script 三件套不受影响（回归）', () => {
       'net_capture_read',
       'page_snapshot',
       'script_apply',
+      'script_find',
+      'script_list',
       'script_read',
       'script_spec',
     ])

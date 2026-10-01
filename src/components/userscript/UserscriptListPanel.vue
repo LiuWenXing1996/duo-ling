@@ -12,6 +12,7 @@ import {
   Check as UiCheck,
   ChevronDown as UiChevronDown,
   ClipboardPaste as UiClipboardPaste,
+  Copy as UiCopy,
   Download as UiDownload,
   FileQuestion as UiFileQuestion,
   FolderInput as UiFolderInput,
@@ -115,6 +116,21 @@ const removeAllOpen = ref(false)
 const removingAll = ref(false)
 /** 批量启停进行中：避免连点重复发起（与单条 toggling 互不阻塞，但入口都置灰） */
 const batchToggling = ref(false)
+
+// —— 脚本 ID（卡片常显短形态，点击复制完整 uuid）——
+// 常显的目的：与 AI 对话里说的脚本对上号（对话侧按名字反查不到时，把完整 ID 粘给 AI 兜底）。
+const copiedId = ref('')
+let copyIdTimer: number | undefined
+async function copyScriptId(uuid: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(uuid)
+    copiedId.value = uuid
+    window.clearTimeout(copyIdTimer)
+    copyIdTimer = window.setTimeout(() => (copiedId.value = ''), 1500)
+  } catch (e) {
+    error.value = '复制失败：' + (e instanceof Error ? e.message : String(e))
+  }
+}
 
 // —— 分组（脚本列表分组功能）——
 /** 分组定义（按 order 升序）；空 = 还没有任何分组 */
@@ -872,6 +888,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   unsubscribeAvailability?.()
+  window.clearTimeout(copyIdTimer)
 })
 
 // —— 保存状态标 ——
@@ -1229,8 +1246,8 @@ useDataSync('group', () => refreshGroups())
                   <ui-braces class="size-3.5" />
                 </span>
                 <div class="min-w-0 flex-1">
-                  <!-- 名称独占一行（超长省略，悬停 Tooltip 看全名）；状态标统一另起一行 ——
-                       避免窄卡片里 shrink-0 的状态标把可收缩的名称挤到只剩一个字 -->
+                  <!-- 名称独占一行（超长省略，悬停 Tooltip 看全名）；状态标与脚本 ID 统一另起一行 ——
+                       避免窄卡片里 shrink-0 的状态标 / ID 牌把可收缩的名称挤到只剩一个字 -->
                   <ui-tooltip-provider>
                     <!-- TooltipProvider：名称与状态标悬停时刻用 shadcn Tooltip（原生 title 有 ~1s 浏览器
                          延时）；Provider 默认 0ms 即显——TooltipRoot 必须有 Provider 上下文。
@@ -1263,6 +1280,18 @@ useDataSync('group', () => refreshGroups())
                         <ui-loader-circle class="size-3 animate-spin" />
                         保存中
                       </span>
+                      <!-- 脚本 ID 短形态（常显，标题下方）：与 AI 对话里说的脚本对上号；点击复制完整 uuid -->
+                      <button
+                        type="button"
+                        class="flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted"
+                        :title="`复制完整脚本 ID（发给 AI 可定位脚本）：${item.s.uuid}`"
+                        :aria-label="`复制「${item.s.name}」的脚本 ID`"
+                        @click="copyScriptId(item.s.uuid)"
+                      >
+                        <ui-check v-if="copiedId === item.s.uuid" class="size-3 text-green-600" />
+                        <ui-copy v-else class="size-3" />
+                        {{ item.s.uuid.slice(0, 8) }}
+                      </button>
                     </div>
                   </ui-tooltip-provider>
                 </div>

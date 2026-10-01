@@ -6,14 +6,13 @@
 //
 // 结构平移自桌面版 app.vue 的「顶栏 + 左侧导航 + 工作区」，只裁掉两栏聊天
 // （会话历史 | 当前会话已移入 side panel），保留的分支逐句照搬，未重写。
-// 导航项：引导 / 设置 / 脚本列表 / 运行日志 / 会话历史。
+// 导航项：设置 / 脚本列表 / 运行日志 / 会话历史（「引导」不单独占一项，入口在设置页菜单里）。
 // 另有五个调界面用的入口只在开发者模式下出现，且各自还能单独关掉：
 // AI 界面对话预览 / 脚本文件 / 会话数据 / AI 工具 / GM API（清单见 lib/dev-mode-store.ts）。
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
   Code as UiCode,
   History as UiHistory,
-  Compass as UiCompass,
   Database as UiDatabase,
   BotMessageSquare as UiBotMessageSquare,
   FolderTree as UiFolderTree,
@@ -50,7 +49,7 @@ function devVisible(id: DevPageId): boolean {
 //   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
 //   #/errors/<uuid> → 打开运行日志标签页并定位到该脚本（对话界面灵动岛点击脚本行跳转）
 //   #/settings    → 打开设置标签页
-//   #/guide       → 打开引导标签页（对话界面「查看开启引导」跳这里）
+//   #/guide       → 打开引导标签页（对话界面与设置页菜单里的「查看开启引导」都跳这里）
 //   #/sessions    → 打开会话历史标签页（对话界面顶栏「会话历史」跳这里）
 function handleHash(): void {
   const tool = location.hash.match(/^#\/tool\/([A-Za-z0-9-]+)/)
@@ -101,22 +100,6 @@ onUnmounted(() => {
     <!-- 左侧图标导航栏 + 右侧工作区 -->
     <div class="workspace-main">
       <aside class="workspace-nav">
-        <ui-tooltip-provider>
-          <!-- 引导：需要用户去浏览器里开权限/开关的集中说明页，各处「查看开启引导」都落这里 -->
-          <ui-tooltip>
-            <ui-tooltip-trigger as-child>
-              <button
-                class="workspace-nav-item"
-                type="button"
-                aria-label="引导"
-                @click="workspaceRef?.openGuideTab()"
-              >
-                <ui-compass class="size-5" />
-              </button>
-            </ui-tooltip-trigger>
-            <ui-tooltip-content side="right">引导</ui-tooltip-content>
-          </ui-tooltip>
-        </ui-tooltip-provider>
         <ui-tooltip-provider>
           <ui-tooltip>
             <ui-tooltip-trigger as-child>
