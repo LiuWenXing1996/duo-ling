@@ -1246,18 +1246,32 @@ useDataSync('group', () => refreshGroups())
                   <ui-braces class="size-3.5" />
                 </span>
                 <div class="min-w-0 flex-1">
-                  <!-- 名称独占一行（超长省略，悬停 Tooltip 看全名）；状态标统一另起一行 ——
+                  <!-- 名称 + 脚本 ID 一行（名称超长省略，悬停 Tooltip 看全名）；状态标统一另起一行 ——
                        避免窄卡片里 shrink-0 的状态标把可收缩的名称挤到只剩一个字 -->
                   <ui-tooltip-provider>
                     <!-- TooltipProvider：名称与状态标悬停时刻用 shadcn Tooltip（原生 title 有 ~1s 浏览器
                          延时）；Provider 默认 0ms 即显——TooltipRoot 必须有 Provider 上下文。
-                         Provider 只渲染 slot、不产元素，故名称与状态标行仍是本容器的直接块级子项 -->
-                    <ui-tooltip>
-                      <ui-tooltip-trigger as-child>
-                        <span class="block truncate text-sm font-medium">{{ item.s.name }}</span>
-                      </ui-tooltip-trigger>
-                      <ui-tooltip-content>{{ item.s.name }}</ui-tooltip-content>
-                    </ui-tooltip>
+                         Provider 只渲染 slot、不产元素，故名称行与状态标行仍是本容器的直接块级子项 -->
+                    <div class="flex items-center gap-1.5">
+                      <ui-tooltip>
+                        <ui-tooltip-trigger as-child>
+                          <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ item.s.name }}</span>
+                        </ui-tooltip-trigger>
+                        <ui-tooltip-content>{{ item.s.name }}</ui-tooltip-content>
+                      </ui-tooltip>
+                      <!-- 脚本 ID 短形态（常显）：与 AI 对话里说的脚本对上号；点击复制完整 uuid -->
+                      <button
+                        type="button"
+                        class="flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] hover:bg-muted"
+                        :title="`复制完整脚本 ID（发给 AI 可定位脚本）：${item.s.uuid}`"
+                        :aria-label="`复制「${item.s.name}」的脚本 ID`"
+                        @click="copyScriptId(item.s.uuid)"
+                      >
+                        <ui-check v-if="copiedId === item.s.uuid" class="size-3 text-green-600" />
+                        <ui-copy v-else class="size-3" />
+                        {{ item.s.uuid.slice(0, 8) }}
+                      </button>
+                    </div>
                     <div class="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1">
                       <span
                         v-if="justImported.includes(item.s.uuid) && !item.s.enabled"
@@ -1299,18 +1313,6 @@ useDataSync('group', () => refreshGroups())
                   class="shrink-0 text-destructive"
                   title="最近一次运行捕获的运行期错误数（详见运行日志标签页）"
                 >· 上次运行 {{ item.s.lastRunErrors }} 个错误</span>
-                <!-- 脚本 ID 短形态（常显）：与 AI 对话里说的脚本对上号；点击复制完整 uuid -->
-                <button
-                  type="button"
-                  class="ml-auto flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] hover:bg-muted"
-                  :title="`复制完整脚本 ID（发给 AI 可定位脚本）：${item.s.uuid}`"
-                  :aria-label="`复制「${item.s.name}」的脚本 ID`"
-                  @click="copyScriptId(item.s.uuid)"
-                >
-                  <ui-check v-if="copiedId === item.s.uuid" class="size-3 text-green-600" />
-                  <ui-copy v-else class="size-3" />
-                  {{ item.s.uuid.slice(0, 8) }}
-                </button>
               </div>
 
               <!-- 底部：启用开关 + 操作（编辑 / 移动 / 导出 / 删除） -->
