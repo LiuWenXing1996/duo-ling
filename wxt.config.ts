@@ -74,12 +74,20 @@ const buildInfoRepo = (() => {
 })()
 
 export default defineConfig({
+  // 图标由 @wxt-dev/auto-icons 在构建期从 src/assets/icon.svg 自动生成（sharp 栅格化，
+  // 输出产物 icons/{16,32,48,128}.png 并写入 manifest.icons；工具栏图标回退到 icons）。
+  // 不再手维护 src/public/icon-*.png，单一矢量母版即可。关闭 dev 图标灰度（保留与正式版一致）。
+  modules: ['@wxt-dev/auto-icons'],
+  autoIcons: {
+    baseIconPath: 'assets/icon.svg',
+    developmentIndicator: false,
+  },
   // 源码根设为 src：WXT 内置别名 `@` / `~` 硬编码指向 srcDir 且覆盖用户配置
   // （见 wxt 的 resolve-config.mjs），只有把 srcDir 指到 src，代码里的 `@/...`
   // 才能正确解析到扩展侧的 src。
   srcDir: 'src',
   // WXT 的 publicDir 默认基于**项目根**（不是 srcDir），需显式指到 src 下，
-  // 否则 src/public/ 下的静态资产（如 notify-icon.png）不会进产物。
+  // 否则 src/public/ 下的静态资产（如 duoling-picker.js）不会进产物。
   publicDir: 'src/public',
   vite: () => ({
     plugins: [vue(), tailwindcss()],

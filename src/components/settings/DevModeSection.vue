@@ -5,6 +5,7 @@
 // 想只留其中几个时打开总闸再逐个关。状态读写与订阅见 src/lib/dev-mode-store.ts。
 import { onMounted, onUnmounted, ref } from 'vue'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
+import { Button as UiButton } from '@/components/ui/button'
 import {
   DEV_PAGES,
   getDevModeState,
@@ -46,6 +47,19 @@ onMounted(async () => {
   })
 })
 onUnmounted(() => unsubscribe?.())
+
+/** 通知图标（与工具栏同源，复用 auto-icons 构建生成的 icons/128.png） */
+const NOTIFY_ICON = 'icons/128.png'
+
+/** 发送一条测试通知，确认通知图标的显示效果（开发自测用） */
+async function testNotify(): Promise<void> {
+  await chrome.notifications.create('duoling:dev-test', {
+    type: 'basic',
+    iconUrl: NOTIFY_ICON,
+    title: '哆灵',
+    message: '这是一条测试通知，用于确认通知图标的显示效果。',
+  })
+}
 </script>
 
 <template>
@@ -88,6 +102,16 @@ onUnmounted(() => unsubscribe?.())
           <UiSwitchThumb />
         </UiSwitch>
       </div>
+    </div>
+
+    <div class="mt-6 rounded-md border p-4">
+      <p class="text-sm font-medium">通知</p>
+      <p class="mt-0.5 text-xs text-muted-foreground">
+        发送一条系统通知，确认通知图标（与工具栏同源）的显示效果。
+      </p>
+      <UiButton class="mt-3" variant="outline" @click="testNotify">
+        发送测试通知
+      </UiButton>
     </div>
   </div>
 </template>
