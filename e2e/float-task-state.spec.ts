@@ -1,13 +1,9 @@
-// 任务状态外显的端测：对话框收起期间「在跑 / 跑完了」得有提示。
+// 会话状态外显的端测：**角标不参与**（它只报「这个标签页在跑几个脚本」，见 action-badge.spec.ts），
+// 会话这边只有一条落点 —— 没人在看时跑完，记一条未读通知（popup 明细的来源）。
 //
-// 提示位只有图标角标（真实消息路径：扩展页 → SW 旁听 chat:running / chat:finished →
-// chrome.action）：**在跑时报数，跑完即熄灭** —— 角标只数「正在发生的事」，跑完没看那条不进角标，
-// 只留在悬停文案与 popup 里。
-//
-// **角标按标签页各算各的**：只报**这个标签页**上正在跑的条数，没有在跑的就不亮。归属两条路 ——
-// 进行中的会话经 conversation-tab-map 反查所属标签页，未读通知自带 `tabId`（只喂悬停文案）；
-// 一个标签页只归属一条会话（见 conversation-tab-map）。故读 / 断言一律要指明是哪一页
-// （`chrome.action.getBadgeText({ tabId })` / `getTitle({ tabId })`）。
+// 于是本 spec 收窄成两件事：
+//   1. 会话状态与角标无关：在跑 / 跑完都不点亮角标（防回归 —— 这条曾经是角标的全部职责）；
+//   2. 通知的去向：没人看就记、回到「在看」就标已读、会话删了就连带清掉。
 //
 // 另有一条守「对话框的显隐」：页面里平时不注入任何 DOM，收到 float:open 才挂出来并连上
 // 「在看」端口（`duoling:panel-open`），收起又把端口断掉。
@@ -17,9 +13,10 @@
 // PopupPanel 的组件测试覆盖）。无头下也没有「在 iframe 里发消息」那条路，见 smoke.spec.ts
 // 头注释。
 //
-// 推假会话的那几条要先给它认领一个标签页（否则没有可报数的落点）：绑定直接写 convByTab
-// （duoling-app 库的键），见 bindConversations。绑定**怎么建立**由 conversation-tab-map 单测与
-// chat-stub 端测覆盖，这里只借它把状态推上来 —— 库名 / store / 键名改动时与本 spec 一起改。
+// 推假会话的那几条要先给它认领一个标签页（通知里带站点名、判「有没有人看着」都靠这条归属）：
+// 绑定直接写 convByTab（duoling-app 库的键），见 bindConversations。绑定**怎么建立**由
+// conversation-tab-map 单测与 chat-stub 端测覆盖，这里只借它把状态推上来 ——
+// 库名 / store / 键名改动时与本 spec 一起改。
 import { test, expect, type BrowserContext, type Frame, type Page, type Worker } from '@playwright/test'
 import * as http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -36,7 +33,7 @@ import { startModelStub } from './model-stub'
 /** 假会话 id：状态推送不需要真会话存在，给个不会与别的用例撞上的即可 */
 const CID = 'e2e-task-state'
 
-test.describe.serial('任务状态外显（图标角标 + 对话框显隐）', () => {
+test.describe.serial('任务状态外显（未读通知 + 对话框显隐）', () => {
   let context: BrowserContext | undefined
   let sw: Worker
   let messenger: Page
@@ -72,11 +69,11 @@ test.describe.serial('任务状态外显（图标角标 + 对话框显隐）', (
     try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
   })
 
-  /** 某个标签页的图标角标文字（空串 = 没亮）。角标按标签页各算各的，故必须指明是哪一页 */
+  /** 某个标签页的图标角标文字（空串 = 没亮）。只用来断言「会话的事不该点亮它」 */
   const badge = (tabId: number): Promise<string> =>
     sw.evaluate(async (id) => await chrome.action.getBadgeText({ tabId: id }), tabId)
 
-  /** 某个标签页的图标悬停文案（空串 = 已恢复默认） */
+  /** 某个标签页的图标悬停文案（空串 = 已恢复默认）。同上：它只该说脚本的事 */
   const title = (tabId: number): Promise<string> =>
     sw.evaluate(async (id) => await chrome.action.getTitle({ tabId: id }), tabId)
 
@@ -90,13 +87,12 @@ test.describe.serial('任务状态外显（图标角标 + 对话框显隐）', (
       void chrome.runtime.sendMessage(m).catch(() => {})
     }, msg)
 
-  test('角标：按标签页各算各的（只数在跑的），不串到别的标签页', async () => {
+  test('会话状态不进角标（角标只报脚本运行数）；未读通知照记、按会话标已读', async () => {
     const c1 = 'e2e-count-1'
     const c2 = 'e2e-count-2'
 
-    // 角标按标签页归属：假会话也得先认领一个标签页，否则它没有可报数的落点。
-    // 两条假会话分认两页 —— 一个标签页只归属一条会话（convByTab 是 tab → 单条会话），
-    // 正好用两页来验「各报各的、互不串页」。
+    // 通知里要带站点名、判「有没有人看着」也要靠会话的标签页归属，故先给两条假会话各认领一页。
+    // 一个标签页只归属一条会话（convByTab 是 tab → 单条会话），正好用两页来验「各算各的」。
     const page = await context!.newPage()
     await page.goto(probeUrl)
     const [msgTabId] = await tabIdsOf(sw, messenger.url())
@@ -106,53 +102,47 @@ test.describe.serial('任务状态外显（图标角标 + 对话框显隐）', (
     await bindConversations(messenger, msgTabId!, [c1])
     await bindConversations(page, probeTabId!, [c2])
 
+    // 起手：这两页上没有脚本在跑（本 spec 一个用户脚本都没装）→ 角标与文案都必须是空的
     await expect.poll(() => badge(msgTabId!), { message: '起手不该有角标' }).toBe('')
-    await expect.poll(() => badge(probeTabId!)).toBe('')
+    expect(await badge(probeTabId!)).toBe('')
     expect(await title(msgTabId!)).toBe('')
 
-    // c1 在跑 → 只落在它自己那一页
+    // 会话在跑：登记进「进行中」（popup 的进行中组靠它），**角标纹丝不动** —— 它只数脚本
     await pushOffscreen({ kind: 'chat:running', conversationId: c1 })
-    await expect.poll(() => badge(msgTabId!), { message: '在跑的会话认领了这页' }).toBe('1')
-    expect(await title(msgTabId!), '悬停文案要说清在跑什么').toBe('进行中 1')
-    expect(await badge(probeTabId!), '别的标签页不该跟着报数').toBe('')
+    await expect.poll(async () => (await notifySnapshot(messenger)).running).toEqual([c1])
+    expect(await badge(msgTabId!), '会话在跑不该点亮角标').toBe('')
+    expect(await title(msgTabId!), '悬停文案也只说脚本').toBe('')
 
-    // c2 在跑 → 两页各报各的 1
-    await pushOffscreen({ kind: 'chat:running', conversationId: c2 })
-    await expect.poll(() => badge(probeTabId!)).toBe('1')
-    await expect.poll(() => title(probeTabId!)).toBe('进行中 1')
-    await expect.poll(() => badge(msgTabId!)).toBe('1')
-
-    // c1 跑完没人在看 → 转成那页的未读：**角标随之熄灭**（它只数在跑的），那条信息挪进悬停文案
+    // 跑完且没人看着 → 记一条未读；角标依旧不亮（那条信息只在 popup 明细里）
     await pushOffscreen({ kind: 'chat:finished', conversationId: c1 })
-    await expect.poll(() => title(msgTabId!), { message: '跑完没人在看，该转成未读' }).toBe('已完成 1')
-    await expect.poll(() => badge(msgTabId!), { message: '跑完没看不再点亮角标' }).toBe('')
-    await expect.poll(() => title(probeTabId!), { message: '另一页不受影响' }).toBe('进行中 1')
-    expect(await badge(probeTabId!), '另一页照旧在跑，角标不该被牵连').toBe('1')
+    await expect
+      .poll(() => unreadOf(messenger), { message: '跑完没人在看，该记一条未读' })
+      .toEqual([c1])
+    expect(await badge(msgTabId!)).toBe('')
+    expect(await title(msgTabId!)).toBe('')
+    expect((await notifySnapshot(messenger)).running, '收尾后不该还挂在进行中').toEqual([])
 
-    // 全部已读：通知中心是全局的一份，读掉就是读掉 → 那页的悬停文案清空（角标本就不报未读）
+    // 全部已读：未读清掉（popup 那条随之消失）
     await messenger.evaluate(async () => await chrome.runtime.sendMessage({ kind: 'notify:readAll' }))
-    await expect.poll(() => title(msgTabId!), { message: '读过就该从文案里消失' }).toBe('')
-    await expect.poll(() => badge(msgTabId!)).toBe('')
+    await expect.poll(() => unreadOf(messenger)).toEqual([])
+
+    // 另一页同样：会话状态与它自己的角标无关
+    await pushOffscreen({ kind: 'chat:running', conversationId: c2 })
     await pushOffscreen({ kind: 'chat:finished', conversationId: c2 })
-    await messenger.evaluate(async () => await chrome.runtime.sendMessage({ kind: 'notify:readAll' }))
-    await expect.poll(() => badge(probeTabId!), { message: '在跑的那条一收尾就该熄灭' }).toBe('')
-    await expect.poll(() => title(probeTabId!)).toBe('')
+    await expect.poll(() => unreadOf(messenger)).toEqual([c2])
+    expect(await badge(probeTabId!), '这一页也没脚本在跑，角标不该亮').toBe('')
 
+    await messenger.evaluate(async () => await chrome.runtime.sendMessage({ kind: 'notify:readAll' }))
     await page.close()
   })
 
-  test('popup：通知区给出明细，「全部已读」清掉悬停文案', async () => {
+  test('popup：通知区给出明细，「全部已读」清掉该块', async () => {
     const id = extensionIdFromServiceWorker(sw)
-    // 清场后造一条：一个假会话跑完、没人看。假会话要先认领一个标签页，悬停文案才有落点
+    // 清场后造一条：一个假会话跑完、没人看（没人看着 = 那两个标签页上都没有展开的浮层）
     await messenger.evaluate(async () => await chrome.runtime.sendMessage({ kind: 'notify:readAll' }))
-    const [msgTabId] = await tabIdsOf(sw, messenger.url())
-    expect(msgTabId, 'messenger 页的 tabId 应能反查到').toBeGreaterThan(0)
-    await bindConversations(messenger, msgTabId!, ['e2e-popup-cid'])
     await pushOffscreen({ kind: 'chat:running', conversationId: 'e2e-popup-cid' })
     await pushOffscreen({ kind: 'chat:finished', conversationId: 'e2e-popup-cid' })
-    // 跑完没看：角标不亮（只数在跑的），这条未读落在悬停文案里
-    await expect.poll(() => title(msgTabId!)).toBe('已完成 1')
-    await expect.poll(() => badge(msgTabId!)).toBe('')
+    await expect.poll(() => unreadOf(messenger)).toEqual(['e2e-popup-cid'])
 
     const popup = await context!.newPage()
     await popup.goto(`chrome-extension://${id}/popup.html`)
@@ -160,7 +150,9 @@ test.describe.serial('任务状态外显（图标角标 + 对话框显隐）', (
     await expect(popup.locator('[data-testid="notify-item"]')).toHaveCount(1)
 
     await popup.locator('[data-testid="notify-read-all"]').click()
-    await expect.poll(() => title(msgTabId!), { message: '在 popup 里读过，文案就该清掉' }).toBe('')
+    await expect
+      .poll(() => unreadOf(messenger), { message: '在 popup 里读过，未读就该清零' })
+      .toEqual([])
     // 无通知时整块不渲染（常态 popup 保持原样）
     await expect(popup.locator('[data-testid="popup-notifications"]')).toHaveCount(0)
     await popup.close()
@@ -171,25 +163,31 @@ test.describe.serial('任务状态外显（图标角标 + 对话框显隐）', (
     await page.goto(probeUrl)
     const [tabId] = await tabIdsOf(sw, probeUrl)
     expect(tabId, '探针页的 tabId 应能反查到').toBeGreaterThan(0)
-    // 会话归属：本用例推的是假会话，得让它先认领这个标签页，角标才有落点
+    // 会话归属：本用例推的是假会话，得让它先认领这个标签页 —— 通知带站点名、判「在看」都靠它
     await bindConversations(page, tabId!, [CID])
 
     // 起手：页面里连根节点都没有 —— content script 只在收到 float:open 时才建
     await expect(page.locator('#duoling-float-root')).toHaveCount(0)
 
-    // 造一条「在跑」：没人看着的时候，角标得亮着。
-    // 用进行中而不是跑完未读 —— 打开浮层会把本页会话的未读标掉（用户回来就等于看到了），
-    // 那条读过的通知收起后不会再亮；「还在跑」没有这个问题，收起时照旧要报。
+    // 没人看着时跑完 → 记一条未读。这条正是「端口还没连上」的证据
     await pushOffscreen({ kind: 'chat:running', conversationId: CID })
-    await expect.poll(() => badge(tabId!), { message: '没人看，角标该亮' }).toBe('1')
+    await pushOffscreen({ kind: 'chat:finished', conversationId: CID })
+    await expect.poll(() => unreadOf(messenger), { message: '没人看，该记一条' }).toEqual([CID])
 
-    // 打开（popup 的按钮与页面右键菜单发的就是这条消息）
+    // 打开（popup 的按钮与页面右键菜单发的就是这条消息）→ 端口接上
     await expect
       .poll(() => trySendFloat(sw, tabId!, 'float:open'), { timeout: 15_000 })
       .toBe(true)
     const panel = await waitForPanelFrame(page)
     await expect(page.locator('#duoling-float-root .dl-float-container')).toHaveClass(/open/)
-    await expect.poll(() => badge(tabId!), { message: '人正看着对话界面，角标该收起' }).toBe('')
+    // 「人回来了并且看着它」：这条未读就地标掉
+    await expect.poll(() => unreadOf(messenger), { message: '看着就该标已读' }).toEqual([])
+
+    // 端口连着（= 在看）时收尾的任务不再打扰：等一小会儿，确认没有新通知冒出来
+    await pushOffscreen({ kind: 'chat:running', conversationId: CID })
+    await pushOffscreen({ kind: 'chat:finished', conversationId: CID })
+    await new Promise((resolve) => setTimeout(resolve, 1_500))
+    expect(await unreadOf(messenger), '人正看着，不该记未读').toEqual([])
 
     // 收起：点对话框顶栏那颗**真按钮** —— 它是这条链路里唯一跨源的一步（按钮在 iframe 里、
     // 容器在父页），拿「发一条消息」代过就只剩替身了。
@@ -197,11 +195,13 @@ test.describe.serial('任务状态外显（图标角标 + 对话框显隐）', (
     await expect(page.locator('#duoling-float-root .dl-float-container')).not.toHaveClass(/open/)
     // 只藏不销毁：容器仍在 DOM 里（iframe、草稿、滚动位置都留着，再打开就是原状态）
     await expect(page.locator('#duoling-float-root')).toHaveCount(1)
+    // 收起 = 又没人看着了 → 此后再收尾就要记
+    await pushOffscreen({ kind: 'chat:running', conversationId: CID })
+    await pushOffscreen({ kind: 'chat:finished', conversationId: CID })
     await expect
-      .poll(() => badge(tabId!), { message: '没人看了，还在跑的那条该重新报出来' })
-      .toBe('1')
+      .poll(() => unreadOf(messenger), { message: '没人看了，该重新记一条' })
+      .toEqual([CID])
 
-    await pushOffscreen({ kind: 'chat:finished', conversationId: CID }) // 别把假会话留在「进行中」
     await page.close()
   })
 })
@@ -214,13 +214,54 @@ async function tabIdsOf(sw: Worker, url: string): Promise<number[]> {
   )
 }
 
+/** 通知快照里用得上的两栏（形状见 extension-ipc 的 NotificationSnapshot） */
+interface NotifyView {
+  /** 进行中的会话 id */
+  running: string[]
+  /** 未读通知的会话 id（已读的不算） */
+  unread: string[]
+}
+
+/**
+ * 问 SW 要一份通知快照。
+ *
+ * 会话状态**不再进角标**（角标只报脚本运行数，见 action-badge.spec.ts），故本 spec 一律从通知中心
+ * 观察 —— 那正是「没人在看就跑完」这条链路唯一的落点（也是 popup 明细的来源）。
+ * 发送端必须是扩展页：runtime 消息不回环到 SW 自身上下文（见 extension.ts 的说明）。
+ * 命令没应答（SW 未起等）时给一份空快照，让断言自己等到超时，而不是在这里抛错。
+ */
+async function notifySnapshot(sender: Page): Promise<NotifyView> {
+  const res = (await sender.evaluate(
+    async () => await chrome.runtime.sendMessage({ kind: 'notify:list' }),
+  )) as
+    | {
+        ok: true
+        data: {
+          running: Array<{ conversationId: string }>
+          items: Array<{ conversationId: string; readAt?: number }>
+        }
+      }
+    | { ok: false; error: string }
+    | undefined
+  if (!res?.ok) return { running: [], unread: [] }
+  return {
+    running: res.data.running.map((r) => r.conversationId),
+    unread: res.data.items.filter((n) => n.readAt == null).map((n) => n.conversationId),
+  }
+}
+
+/** 未读通知的会话 id —— 「跑完且没人看」唯一的可见落点 */
+async function unreadOf(sender: Page): Promise<string[]> {
+  return (await notifySnapshot(sender)).unread
+}
+
 /**
  * 让若干会话认领一个标签页（直接写 duoling-app 库的 `convByTab` 键）。
  *
- * 角标按标签页归属：进行中的会话要靠 conversation-tab-map 反查所属标签页才算得出数字。本 spec 里
- * 有一组用例推的是不存在的假会话 id（只为验 SW 侧的分发），走不到「在面板里发消息」那条建立归属的
- * 真实路径，故在这里替它们认领一个。一个标签页只归属一条会话（见 conversation-tab-map），同一个
- * tabId 上后写的会覆盖先写的 —— 要验多条并行，就得各自认领一个标签页。
+ * 归属仍然要建：通知里那句站点名要靠 conversation-tab-map 反查所属标签页，判「有没有人看着」也走
+ * 同一条路。本 spec 里有一组用例推的是不存在的假会话 id（只为验 SW 侧的记录与分发），走不到「在
+ * 面板里发消息」那条建立归属的真实路径，故在这里替它们认领一个。一个标签页只归属一条会话（见
+ * conversation-tab-map），同一个 tabId 上后写的会覆盖先写的 —— 要验多条并行，就得各自认领一页。
  *
  * 库名 / store / 键名改动时与本 spec 一起改。
  */
@@ -330,15 +371,13 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
     try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
   })
 
-  /** 某个标签页的图标角标文字（空串 = 没亮）—— 角标按标签页各算各的，故必须指明是哪一页 */
+  /** 某个标签页的图标角标文字（空串 = 没亮）。只用来断言「会话的事不该点亮它」 */
   const badge = (tabId: number): Promise<string> =>
     sw.evaluate(async (id) => await chrome.action.getBadgeText({ tabId: id }), tabId)
 
-  /** 某个标签页的图标悬停文案：角标只数在跑的，跑完没看要靠它才看得到 */
-  const title = (tabId: number): Promise<string> =>
-    sw.evaluate(async (id) => await chrome.action.getTitle({ tabId: id }), tabId)
-
-  test('发消息 → 收起即亮角标 → 跑完熄灭（未读只进悬停文案） → 展开清零', async () => {
+  test('发消息：看着就不记未读；收起后跑完记一条，展开即标已读', async () => {
+    // 发送端先开（须在探针页之前）—— 后开的标签页才是前台那一个，而「页面可见」是「在看」的判据之一
+    const sender = await openMessengerPage(context!, extensionId)
     const page = await context!.newPage()
     await page.goto(probeUrl)
     const [tabId] = await tabIdsOf(sw, probeUrl)
@@ -369,26 +408,21 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
     await box.fill('你好')
     await box.press('Enter')
 
-    // 生成已开始（stub 收到请求）而对话框开着：进度就在面板里，角标不该来打扰
+    // 生成已开始（stub 收到请求）而对话框开着：人就在看 —— 这条任务收尾时不该进未读
     await expect.poll(() => stub.stub.hits.length, { timeout: 30_000 }).toBeGreaterThan(0)
-    expect(await badge(tabId!), '对话框开着时不该亮角标').toBe('')
+    expect(await badge(tabId!), '角标只报脚本运行数，会话在跑也不该亮').toBe('')
 
-    // 收起：进行中角标 1 —— 这一条正是「收起那一刻要按当前状态重算」
+    // 收起 = 人走了：跑完就得记一条未读（popup 明细的来源）
     await trySendFloat(sw, tabId!, 'float:collapse')
-    await expect.poll(() => title(tabId!), { timeout: 10_000 }).toBe('进行中 1')
-    await expect.poll(() => badge(tabId!), { timeout: 10_000 }).toBe('1')
-
-    // 生成收尾（收起态下没人看）：转成一条未读 —— **角标随之熄灭**（只数在跑的），口径挪进悬停文案
     await expect
-      .poll(() => title(tabId!), { timeout: 30_000, message: '跑完没人在看，该转成未读' })
-      .toBe('已完成 1')
-    await expect.poll(() => badge(tabId!), { timeout: 10_000, message: '跑完没看不再点亮角标' }).toBe('')
+      .poll(() => unreadOf(sender), { timeout: 30_000, message: '收起后跑完，该记一条未读' })
+      .toHaveLength(1)
 
-    // 展开看一眼：这条未读被就地标掉，悬停文案跟着清空
+    // 展开看一眼：这条未读被就地标掉
     await trySendFloat(sw, tabId!, 'float:open')
-    await expect.poll(() => title(tabId!), { timeout: 10_000 }).toBe('')
-    await expect.poll(() => badge(tabId!), { timeout: 10_000 }).toBe('')
+    await expect.poll(() => unreadOf(sender), { timeout: 10_000 }).toEqual([])
 
+    await sender.close()
     await page.close()
   })
 
@@ -540,7 +574,7 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
     await sender.close()
   })
 
-  test('会话被删：指向它的通知一并清掉，角标跟着归零', async () => {
+  test('会话被删：指向它的通知一并清掉', async () => {
     const sender = await openMessengerPage(context!, extensionId)
     interface Snapshot {
       running: Array<{ conversationId: string }>
@@ -592,8 +626,7 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
       .toBe(1)
     // 通知里要能认出「是哪条对话」：站点名从标签页现查（取不到就只剩一句「对话已完成」）
     expect((await ask())?.items[0]?.host, '通知要带站点名').toBe('127.0.0.1')
-    // 任务已跑完、只是没人看：角标不亮，这条未读只落在悬停文案里
-    await expect.poll(() => title(tabId!), { timeout: 10_000 }).toBe('已完成 1')
+    // 任务已跑完、只是没人看：角标不亮 —— 它只报脚本运行数，会话的事与它无关
     await expect.poll(() => badge(tabId!), { timeout: 10_000 }).toBe('')
 
     // 关掉标签页：任务其实已经跑完，这一步只是解绑归属 —— 会话变成「没被使用」才允许删
@@ -631,15 +664,15 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
       )
       .toBe(false)
 
-    // 通知要跟着走：不清的话，弹层里会留一条点不开的通知（角标只报在跑的，本来就没挂着它）
+    // 通知要跟着走：不清的话，弹层里会留一条点不开的通知（会话都没了，点开也没有落点）
     await expect
       .poll(async () => (await ask())?.items.length ?? -1, {
         timeout: 10_000,
         message: '会话删了，通知也该没',
       })
       .toBe(0)
-    // 那个标签页已经关了（会话要先「没人用」才允许删），它的角标与文案随标签页一起消失。这里验收尾
-    // 干净：新开的标签页不该继承任何数字 —— 全局兜底值若留着，每个新标签页都会自动带上别人的数。
+    // 这里验收尾干净：新开的标签页不该带上任何数字 —— 角标一律按标签页设，若哪里留了一个全局
+    // 兜底值，每个新标签页都会自动带上它（本 spec 一个用户脚本都没装，所以这一页必然不亮）。
     const fresh = await context!.newPage()
     await fresh.goto(probeUrl)
     const [freshTabId] = await tabIdsOf(sw, probeUrl)
@@ -662,8 +695,8 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
   // 从页面侧伪装同样不行 —— `Object.defineProperty(document, ...)` 改的是 MAIN world，
   // 内容脚本在 isolated world 读到的还是真实值（只有 DOM 事件能跨 world）。
   //
-  // 所以这条由手测覆盖：展开浮层 → 切到别的标签页（角标该亮）→ 切回来（该清）。
-  test.skip('切走标签页 = 用户没在看：该提示就提示，切回来就清', async () => {
+  // 所以这条由手测覆盖：展开浮层 → 切到别的标签页（这时收尾该记一条未读）→ 切回来（该标已读）。
+  test.skip('切走标签页 = 用户没在看：跑完要记一条未读，切回来就标已读', async () => {
     // 发送端用 popup 页（它不连「在看」端口，不会干扰判据）
     const sender = await openMessengerPage(context!, extensionId)
     const push = (msg: Record<string, unknown>): Promise<unknown> =>
@@ -674,14 +707,12 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
     const page = await context!.newPage()
     await page.goto(probeUrl) // 最后打开 → 它是当前激活页
     const [tabId] = await tabIdsOf(sw, probeUrl)
-    // 会话归属：假会话也得认领这个标签页，角标才有报数的落点
+    // 会话归属：假会话也得认领这个标签页，通知里才带得上站点名、判「在看」也有落点
     await bindConversations(page, tabId!, ['e2e-visibility'])
 
-    // 对话框展开着、人也在这一页 → 「在看」，一条在跑也不打扰
+    // 对话框展开着、人也在这一页 → 「在看」
     await expect.poll(() => trySendFloat(sw, tabId!, 'float:open'), { timeout: 15_000 }).toBe(true)
     await waitForPanelFrame(page)
-    await push({ kind: 'chat:running', conversationId: 'e2e-visibility' })
-    await expect.poll(() => badge(tabId!), { timeout: 10_000, message: '人正看着，不该亮' }).toBe('')
 
     // 切到别的标签页 = 页面不可见。
     // 这里直接把页面侧的判据伪造出来：**无头 Chromium 不模拟标签页可见性**（实测多个 tab 全程
@@ -694,12 +725,17 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
       }, state)
 
     await setVisible('hidden', page)
-    await expect.poll(() => badge(tabId!), { timeout: 10_000, message: '切走看不见了，要提示' }).toBe('1')
+    await push({ kind: 'chat:running', conversationId: 'e2e-visibility' })
+    await push({ kind: 'chat:finished', conversationId: 'e2e-visibility' })
+    await expect
+      .poll(() => unreadOf(sender), { timeout: 10_000, message: '看不见了，跑完就该记一条' })
+      .toEqual(['e2e-visibility'])
 
     await setVisible('visible', page)
-    await expect.poll(() => badge(tabId!), { timeout: 10_000, message: '回来看见了就清掉' }).toBe('')
+    await expect
+      .poll(() => unreadOf(sender), { timeout: 10_000, message: '回来看见就标已读' })
+      .toEqual([])
 
-    await push({ kind: 'chat:finished', conversationId: 'e2e-visibility' }) // 别把假会话留在「进行中」
     await sender.close()
     await page.close()
   })
