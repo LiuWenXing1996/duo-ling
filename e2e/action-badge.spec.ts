@@ -10,7 +10,7 @@
 //
 // 覆盖：命中即亮 + 悬停文案与灵动岛同句；**按标签页各算各的**（一个页命中两个脚本、另一页只命中
 // 一个，且互不串页）；换文档后重新登记；禁用脚本后重载不再算它；扩展自己的页面不在任何脚本的
-// 注入面内 → 不亮，也不留全局兜底值。另有一组前提**相反**的用例（不引导）：引擎未授权 → 全局红点。
+// 注入面内 → 不亮，也不留全局兜底值。另有一组前提**相反**的用例（不引导）：引擎未授权 → 全局感叹号。
 import { test, expect, type BrowserContext, type Page, type Worker } from '@playwright/test'
 import * as http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -57,6 +57,8 @@ test.describe.serial('工具栏角标（按标签页报脚本运行数）', () =
   let server: http.Server | undefined
   let baseUrl = ''
   let available = false
+  /** 「仅 A 页」那个脚本的 uuid（用例按 uuid 操作，不按名字查列表 —— 理由见 beforeAll） */
+  let uuidOfA = ''
 
   test.beforeAll(async () => {
     profileDir = mkdtempSync(join(tmpdir(), 'duoling-badge-e2e-'))
@@ -75,10 +77,15 @@ test.describe.serial('工具栏角标（按标签页报脚本运行数）', () =
     if (!available) return // 后面的 test.skip 兜住
 
     // 存成脚本：新建即启用，`userscript:save` 落库后立即重注册（保存即注入）
+    //
+    // **源码里的 `@name` 不进状态库**：编辑器保存语义不 adoptName（见 project-write.ts），脚本名
+    // 仍是新建时的自动编号，`@name` 只进 `GM_info`。所以「仅 A 页」那个脚本的 uuid 在这里记下来，
+    // 后面按 uuid 操作 —— 按名字查列表是查不到的。
     for (const code of [SCRIPT_ALL, SCRIPT_A]) {
       const created = await sendToSw<{ uuid: string }>(messenger, { kind: 'userscript:create' })
       expect(created.ok, 'userscript:create 应成功').toBe(true)
       if (!created.ok) return
+      if (code === SCRIPT_A) uuidOfA = created.data.uuid
       const saved = await sendToSw<{ warnings?: string[]; registerError?: string }>(messenger, {
         kind: 'userscript:save',
         uuid: created.data.uuid,
@@ -196,15 +203,9 @@ test.describe.serial('工具栏角标（按标签页报脚本运行数）', () =
     await expectMarks(page, ['data-e2e-all', 'data-e2e-a'])
     await expect.poll(() => badge(tabId), { message: '新文档要重新登记' }).toBe('2')
 
-    // 禁用「仅 A 页」那个脚本 → 重载后只剩全域那一个
-    const list = await sendToSw<Array<{ uuid: string; name: string }>>(messenger, {
-      kind: 'userscript:list',
-    })
-    expect(list.ok, 'userscript:list 应成功').toBe(true)
-    if (!list.ok) return
-    const target = list.data.find((s) => s.name === 'e2e 仅 A 页脚本')
-    expect(target, '该脚本应在列表里').toBeTruthy()
-    await sendToSw(messenger, { kind: 'userscript:toggle', uuid: target!.uuid, enabled: false })
+    // 禁用「仅 A 页」那个脚本 → 重载后只剩全域那一个（uuid 在 beforeAll 记下，不按名字反查）
+    expect(uuidOfA, 'beforeAll 里应已存下「仅 A 页」脚本').not.toBe('')
+    await sendToSw(messenger, { kind: 'userscript:toggle', uuid: uuidOfA, enabled: false })
 
     await page.reload()
     await expectMarks(page, ['data-e2e-all'])
@@ -215,23 +216,30 @@ test.describe.serial('工具栏角标（按标签页报脚本运行数）', () =
 
   test('扩展自己的页面不在注入面内 → 不亮，也不留全局兜底值', async () => {
     test.skip(!available, 'chrome.userScripts 引导失败，角标链路转手测')
-    // popup 页（chrome-extension://）不在任何脚本的 matches 里
-    const msgTabId = await tabIdOf(messenger.url())
-    expect(await badge(msgTabId), '扩展自己的页面没有脚本在跑').toBe('')
-    expect(await title(msgTabId)).toBe('')
+    // 这条**不能按 URL 反查扩展页的 tabId**：manifest 没有 `tabs` 权限，而 `<all_urls>` 不覆盖
+    // `chrome-extension://` —— 扩展自身页面的 `t.url` 在 SW 里根本读不到，按 URL 反查必落空。
+    // 换个更强的断言：此刻一个脚本都没在跑（前面的探针页都关了），于是**所有**标签页都该是空的。
+    const allIds = await sw.evaluate(async () =>
+      (await chrome.tabs.query({})).map((t) => t.id).filter((id): id is number => id != null),
+    )
+    expect(allIds.length, '应至少有一个标签页可查').toBeGreaterThan(0)
+    for (const id of allIds) {
+      expect(await badge(id), `标签页 ${id} 没有脚本在跑，不该亮`).toBe('')
+      expect(await title(id), `标签页 ${id} 的悬停文案该是默认`).toBe('')
+    }
     expect(await globalBadge()).toBe('')
   })
 })
 
-// —— 引擎未授权：全局红点 ——
+// —— 引擎未授权：全局感叹号 ——
 //
 // 与上面那组**前提相反**：这里刻意不跑 Phase A 引导，让 `chrome.userScripts` 保持不存在 —— 这正是
 // 新装扩展的真实状态（Chrome ≥138 的「允许运行用户脚本」按扩展默认关着）。此时没有任何脚本注册得
-// 进去，「哪个页面在跑几个脚本」无从谈起，角标该是一枚**全局**红点：它说的是「这个扩展现在用不了
+// 进去，「哪个页面在跑几个脚本」无从谈起，角标该是一枚**全局**感叹号：它说的是「这个扩展现在用不了
 // 用户脚本」，与具体标签页无关，因此不带 tabId、也不需要给谁设专属值。
 //
 // 若本环境的 Chrome 一上来就允许 userScripts（版本或启动参数差异），未授权态造不出来 —— 本组自动跳过。
-test.describe.serial('工具栏角标（引擎未授权 → 全局红点）', () => {
+test.describe.serial('工具栏角标（引擎未授权 → 全局感叹号）', () => {
   let context: BrowserContext | undefined
   let sw: Worker
   let profileDir = ''
@@ -251,7 +259,7 @@ test.describe.serial('工具栏角标（引擎未授权 → 全局红点）', ()
     try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
   })
 
-  test('开关没开 → 全局红点：不带 tabId，也不报任何数字', async () => {
+  test('开关没开 → 全局感叹号：不带 tabId，也不报任何数字', async () => {
     test.skip(available, '本环境 userScripts 默认可用，造不出未授权态')
     await openMessengerPage(context!, extensionIdFromServiceWorker(sw))
 
@@ -264,11 +272,11 @@ test.describe.serial('工具栏角标（引擎未授权 → 全局红点）', ()
             text: await chrome.action.getBadgeText({}),
             title: await chrome.action.getTitle({}),
           })),
-        { message: '引擎未授权该亮红点' },
+        { message: '引擎未授权该亮感叹号' },
       )
       .toEqual({ text: '!', title: '用户脚本未授权，工作台「引导」有开启步骤' })
 
-    // 「不分 tab」那层：红点设在**全局**、没有给任何标签页设专属值 —— 所以从标签页维度读回来不该是
+    // 「不分 tab」那层：感叹号设在**全局**、没有给任何标签页设专属值 —— 所以从标签页维度读回来不该是
     // 数字（未授权时压根不存在「这一页在跑几个脚本」这回事）
     const tabId = await sw.evaluate(
       async () => ((await chrome.tabs.query({})).find((t) => t.id != null)?.id ?? -1),
