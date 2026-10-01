@@ -1,7 +1,7 @@
 // 对话编排宿主（整条对话链路跑在 offscreen，不做任务类型分流）。
 //
 // 职责：
-//   · streamText + tools（script_spec / script_find / script_read / script_apply）+ stopWhen(maxSteps=8)；
+//   · streamText + tools（script_spec / script_find / script_list / script_read / script_apply）+ stopWhen(maxSteps=8)；
 //   · 事件缓冲（event-bus）+ 观察者推送（chat:chunk）+ 从头全量回放（chat:resume）；
 //   · 每步任务快照（task-store，覆盖写 + 心跳）→ 宿主被杀后可「继续 / 丢弃」；
 //   · 收敛后经 SW 落盘（userscript:createProject，单写方在 offscreen 侧的 state:createProject），

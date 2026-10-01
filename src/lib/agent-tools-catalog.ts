@@ -13,6 +13,7 @@
 export type AgentToolName =
   | 'script_spec'
   | 'script_find'
+  | 'script_list'
   | 'script_read'
   | 'script_apply'
   | 'element_read'
@@ -37,6 +38,9 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
     '按名字搜索已保存的脚本（大小写不敏感的子串匹配），返回 uuid 清单。' +
     '用户提到某个脚本（如「改一下 XX 脚本」）但没给 uuid 时先调它拿 uuid，再 script_read 读源码、' +
     'script_apply 带 updateUuid 原地更新——没有 uuid 就无法定位脚本。',
+  script_list:
+    '列出全部已保存的脚本（uuid / 名称 / 启停态）。想知道用户装了哪些脚本、' +
+    '或确认某个功能是否已有脚本在做时用它；已知名字片段则用 script_find 更省 token。',
   script_read:
     '读取脚本源码。不带参数 = 读当前任务的内存源码（本任务已写入的内容）；带 uuid = 读一个已保存的脚本（修改现有脚本时用）。',
   script_apply:
@@ -145,6 +149,15 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
     ],
     returns: '{ ok:true, matches:[{uuid, name, enabled}] }（空数组 = 没有命中，附 hint）',
     unavailable: 'name 为空 → { ok:false, error }',
+  },
+  {
+    name: 'script_list',
+    title: '列脚本',
+    summary: '列出全部已保存的脚本（uuid / 名称 / 启停态）',
+    description: TOOL_DESCRIPTIONS.script_list,
+    params: [],
+    returns: '{ ok:true, total, scripts:[{uuid, name, enabled}] }（空列表附 hint）',
+    unavailable: '无入参、不会失败',
   },
   {
     name: 'script_read',

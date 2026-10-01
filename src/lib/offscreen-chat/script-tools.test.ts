@@ -175,8 +175,41 @@ describe('script_find（按名字反查脚本）', () => {
   })
 })
 
+describe('script_list（列出全部脚本）', () => {
+  it('返回全部脚本（uuid / name / enabled）+ total，顺序沿用 listProjects', async () => {
+    listProjectsMock.mockResolvedValue([
+      { uuid: 'u-1', name: '去广告助手', enabled: true },
+      { uuid: 'u-2', name: '夜间模式', enabled: false },
+    ])
+    const tools = makeTools(makeElement())
+    const out = (await tools.script_list.execute(
+      {},
+      execOpts,
+    )) as unknown as Record<string, unknown>
+    expect(out.ok).toBe(true)
+    expect(out.total).toBe(2)
+    expect(out.scripts).toEqual([
+      { uuid: 'u-1', name: '去广告助手', enabled: true },
+      { uuid: 'u-2', name: '夜间模式', enabled: false },
+    ])
+  })
+
+  it('一个脚本都没有：ok=true + 空数组 + 可读 hint', async () => {
+    listProjectsMock.mockResolvedValue([])
+    const tools = makeTools(makeElement())
+    const out = (await tools.script_list.execute(
+      {},
+      execOpts,
+    )) as unknown as Record<string, unknown>
+    expect(out.ok).toBe(true)
+    expect(out.scripts).toEqual([])
+    expect(out.total).toBe(0)
+    expect(String(out.hint)).toContain('还没有保存过任何脚本')
+  })
+})
+
 describe('script 三件套不受影响（回归）', () => {
-  it('script_spec / script_find / script_read / script_apply / error_read 仍然在工具表里', () => {
+  it('script_spec / script_find / script_list / script_read / script_apply / error_read 仍然在工具表里', () => {
     const tools = makeTools(makeElement())
     expect(Object.keys(tools).sort()).toEqual([
       'element_read',
@@ -186,6 +219,7 @@ describe('script 三件套不受影响（回归）', () => {
       'page_snapshot',
       'script_apply',
       'script_find',
+      'script_list',
       'script_read',
       'script_spec',
     ])
