@@ -691,10 +691,11 @@ function titleOf(scriptCount: number): string {
 const BADGE_BG = '#d93025'
 
 /**
- * 未授权时角标的文本：「待授权」。badge 的字号不受扩展控制，但 Chrome 会按字符数自动缩排 ——
- * 三个字会被压到比单字符小得多的字号，观感比单字符或色块都清楚。四字是 badge 的上限，三字留有余量。
+ * 未授权时角标的文本：一个感叹号。**不写字** —— badge 的可用宽度就几个像素，汉字再少也得缩到
+ * 看不清（试过三字，观感不如单字符）；而单字符里它字号最大、最醒目，说「这里有事要处理」也够直白。
+ * 具体是什么事由悬停文案说（`UNAUTHORIZED_TITLE`）。
  */
-const BADGE_UNAUTH = '待授权'
+const BADGE_UNAUTH = '!'
 
 /** 未授权的悬停文案：指路即可，不复述开启步骤（分步说明在工作台「引导」标签页） */
 const UNAUTHORIZED_TITLE = '用户脚本未授权，工作台「引导」有开启步骤'
