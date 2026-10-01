@@ -12,6 +12,7 @@ import {
   Check as UiCheck,
   ChevronDown as UiChevronDown,
   ClipboardPaste as UiClipboardPaste,
+  Copy as UiCopy,
   Download as UiDownload,
   FileQuestion as UiFileQuestion,
   FolderInput as UiFolderInput,
@@ -115,6 +116,21 @@ const removeAllOpen = ref(false)
 const removingAll = ref(false)
 /** 批量启停进行中：避免连点重复发起（与单条 toggling 互不阻塞，但入口都置灰） */
 const batchToggling = ref(false)
+
+// —— 脚本 ID（卡片常显短形态，点击复制完整 uuid）——
+// 常显的目的：与 AI 对话里说的脚本对上号（对话侧按名字反查不到时，把完整 ID 粘给 AI 兜底）。
+const copiedId = ref('')
+let copyIdTimer: number | undefined
+async function copyScriptId(uuid: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(uuid)
+    copiedId.value = uuid
+    window.clearTimeout(copyIdTimer)
+    copyIdTimer = window.setTimeout(() => (copiedId.value = ''), 1500)
+  } catch (e) {
+    error.value = '复制失败：' + (e instanceof Error ? e.message : String(e))
+  }
+}
 
 // —— 分组（脚本列表分组功能）——
 /** 分组定义（按 order 升序）；空 = 还没有任何分组 */
@@ -872,6 +888,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   unsubscribeAvailability?.()
+  window.clearTimeout(copyIdTimer)
 })
 
 // —— 保存状态标 ——
@@ -1282,6 +1299,18 @@ useDataSync('group', () => refreshGroups())
                   class="shrink-0 text-destructive"
                   title="最近一次运行捕获的运行期错误数（详见运行日志标签页）"
                 >· 上次运行 {{ item.s.lastRunErrors }} 个错误</span>
+                <!-- 脚本 ID 短形态（常显）：与 AI 对话里说的脚本对上号；点击复制完整 uuid -->
+                <button
+                  type="button"
+                  class="ml-auto flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] hover:bg-muted"
+                  :title="`复制完整脚本 ID（发给 AI 可定位脚本）：${item.s.uuid}`"
+                  :aria-label="`复制「${item.s.name}」的脚本 ID`"
+                  @click="copyScriptId(item.s.uuid)"
+                >
+                  <ui-check v-if="copiedId === item.s.uuid" class="size-3 text-green-600" />
+                  <ui-copy v-else class="size-3" />
+                  {{ item.s.uuid.slice(0, 8) }}
+                </button>
               </div>
 
               <!-- 底部：启用开关 + 操作（编辑 / 移动 / 导出 / 删除） -->
