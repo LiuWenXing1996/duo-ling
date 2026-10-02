@@ -86,7 +86,10 @@ export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必
 
 ${renderCapabilities()}
 
-\`GM.*\` 是本批能力的 Promise 化形态（如 \`await GM.getValue(key)\`，每次回后台读、永远最新）；
+\`GM.*\` **不是「全都异步」**：存储 / 网络 / 通知 / 剪贴板 / 下载 / 标签页 / 菜单注册那批才是 Promise
+（如 \`await GM.getValue(key)\`，每次回后台读、永远最新）；\`GM.log\` / \`GM.addStyle\` / \`GM.addElement\` /
+\`GM.openInTab\` / \`GM.removeValueChangeListener\` / \`GM.unregisterMenuCommand\` 与全局形态**同一实现**、
+同步的照样同步（对它们 \`await\` 拿到的是 \`undefined\`）；\`GM.info\` / \`GM.audio\` 是属性不是函数。
 **\`GM.*\` 下没有 cookie**（按 Tampermonkey 口径），cookie 只用 \`GM_cookie\`。
 **用 \`GM_getResourceText\` / \`GM_getResourceURL\` 之前，必须先在头部声明 \`@resource 名字 地址\`** ——
 声明即预加载（内容随注入体一起就绪，所以这两个是**同步** API）；没声明的名字取到 undefined。

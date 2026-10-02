@@ -34,7 +34,7 @@ export type GmGlobalName = keyof GmGlobalFns | keyof GmGlobalObjects
 export type GmNsName = keyof GmApiNamespace
 
 /**
- * 对象型成员 / 变量 / 扩展成员的方法路径。
+ * 对象成员 / 变量 / window 属性的方法路径。
  * 这些不是「某能力的两形态」之一，类型层也取不到（对象成员 / defineProperty 挂的变量），故显式列出。
  */
 export type GmObjectPath =
@@ -571,11 +571,18 @@ function globalEntry(name: GmGlobalName, cap: Capability): GmApiEntry {
   }
 }
 
-/** 能力表 → `GM.*` 成员条目（同一能力，Promise 化形态） */
+/**
+ * 能力表 → `GM.*` 成员条目（同一能力，`GM.*` 形态）。
+ *
+ * **不在标题上标同步 / 异步**：`GM.*` 下两者混杂 —— `info` / `audio` 是属性，
+ * `log` / `addStyle` / `addElement` / `openInTab` / `removeValueChangeListener` /
+ * `unregisterMenuCommand` 与全局形态是同一实现（同步的照样同步）。一刀切标注必错，
+ * 差别由各能力的 `detail` 逐条交代。
+ */
 function nsEntry(cap: Capability, ns: GmNsName): GmApiEntry {
   return {
     path: `GM.${ns}`,
-    title: `${cap.title}（异步）`,
+    title: cap.title,
     signature: cap.sigNs ?? `GM.${ns}`,
     summary: cap.summary,
     detail: cap.detail,

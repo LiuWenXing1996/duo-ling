@@ -703,7 +703,8 @@ export interface GmAudioApi {
 }
 
 /**
- * `GM.*` 命名空间（Promise 化形态）。
+ * `GM.*` 命名空间（与全局形态同源）：存储 / 网络 / 通知那批是 Promise，
+ * `log` / `addStyle` / `addElement` / `openInTab` 等与全局形态同一实现、同步的照样同步。
  *
  * 口径按 **Tampermonkey**：TM 的 `GM.*` **没有** `cookie` / `webRequest` / `audio`
  * （VM 有 `GM.cookie` —— 差异是口径不同，不是谁错）。故本扩展的 `GM_cookie` 只在全局，
