@@ -187,7 +187,7 @@ async function registerOrLog(project: ScriptProject): Promise<string | undefined
     return '用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限'
   }
   try {
-    // 先同步内置注册（MAIN 桩，启用脚本集合可能变化），再注册脚本——保证桩与包装密钥同代
+    // 先同步内置注册（中继件，启用脚本集合可能变化），再注册脚本——保证中继件与包装密钥同代
     await refreshBuiltinScripts().catch(() => {})
     await registerScript(project)
     return undefined
@@ -351,9 +351,9 @@ const handlers: {
       console.warn('[duoling:sw] 删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
     )
     await writeViaOffscreen<void>({ kind: 'state:remove', uuid: msg.uuid })
-    // 该脚本对内置并集的贡献随状态库删除而消失，MAIN 桩可能需要注销。
-    // 必须放在清库**之后**：清库前读库还算得进这个脚本，并集「未变」、桩被已在位检查跳过，
-    // 桩就带着已删脚本的 matches 残留（removeAll 之前整体漏调同属这一族问题）
+    // 该脚本对内置并集的贡献随状态库删除而消失，中继件可能需要注销。
+    // 必须放在清库**之后**：清库前读库还算得进这个脚本，并集「未变」、中继件被已在位检查跳过，
+    // 中继件就带着已删脚本的 matches 残留（removeAll 之前整体漏调同属这一族问题）
     await refreshBuiltinScripts().catch(() => {})
     await clearGMValues(msg.uuid)
     // 报错记录同属该脚本的残留：不清就会在错误日志里留下一个已删脚本的孤儿分组
@@ -408,7 +408,7 @@ const handlers: {
     await unregisterScripts([msg.uuid]).catch((e) =>
       console.warn('[duoling:sw] 关停注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
     )
-    // 关停后内置并集可能缩小，MAIN 桩可能需要注销
+    // 关停后内置并集可能缩小，中继件可能需要注销
     await refreshBuiltinScripts().catch(() => {})
     return {}
   },

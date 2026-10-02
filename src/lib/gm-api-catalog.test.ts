@@ -1,8 +1,7 @@
 // GM API 目录（lib/gm-api-catalog.ts）的**防漂移**测试。
 //
-// 目录是工作台「GM API」面板的唯一数据来源，而真身是 gm-wrapper.ts 里那段注入源码的**装配块**
-// （GM.page 的两个方法在 gm-wrapper.ts 的 `__gmPageApi` 块）。两处一旦分叉，面板就在对着用户说谎（还看不出错），
-// 故这里从源码反射出真实挂载的键集合，与目录双向比对。
+// 目录是工作台「GM API」面板的唯一数据来源，而真身是 gm-wrapper.ts 里那段注入源码的**装配块**。
+// 两处一旦分叉，面板就在对着用户说谎（还看不出错），故这里从源码反射出真实挂载的键集合，与目录双向比对。
 //
 // 另一道防线在类型层：能力表的键必须恰好覆盖 `keyof GmGlobalFns`
 // （`satisfies Record<GmGlobalName, Capability>`），契约增删方法而目录没跟上 → typecheck 红。
@@ -72,25 +71,12 @@ function reflectObjectMethods(): string[] {
   return out.sort()
 }
 
-/** `GM.page` 的两个方法：包装里的 `__gmPageApi` 定义块（缩进 4 空格） */
-function reflectPagePaths(): string[] {
-  const i = WRAPPER_SRC.indexOf('var __gmPageApi = {')
-  if (i < 0) throw new Error('gm-wrapper.ts 里找不到 __gmPageApi 定义块')
-  const end = WRAPPER_SRC.indexOf('\n  }\n', i)
-  const block = WRAPPER_SRC.slice(i, end < 0 ? undefined : end)
-  return [...block.matchAll(/^ {4}(\w+):/gm)].map((m) => `GM.page.${m[1]!}`).sort()
-}
-
 describe('gm-api-catalog 与真实注入的 GM 面一致', () => {
   it('路径集合一致（目录没多写、没漏写）', () => {
-    const nsNames = reflectNs()
-    // `GM.page` 这个容器本身不单独成条目：它展开成 GM.page.listen / fetchHook 两条
-    expect(nsNames, '包装里已不再挂载 GM.page').toContain('page')
     const runtime = [
       ...reflectGlobals(),
-      ...nsNames.filter((n) => n !== 'page').map((n) => `GM.${n}`),
+      ...reflectNs().map((n) => `GM.${n}`),
       ...reflectObjectMethods(),
-      ...reflectPagePaths(),
       'unsafeWindow',
       'window.onurlchange',
       // window 级 @grant 项：走 defineProperty 挂载，不在 `GM_HAS.X` 赋值反射里
@@ -136,7 +122,7 @@ describe('gm-api-catalog 与真实注入的 GM 面一致', () => {
     const paths = GM_API_ENTRIES.map((e) => e.path)
     expect(new Set(paths).size).toBe(paths.length)
     const globals = paths.filter((p) => p.startsWith('GM_') && !p.includes('.'))
-    const ns = paths.filter((p) => p.startsWith('GM.') && !p.startsWith('GM.page.'))
+    const ns = paths.filter((p) => p.startsWith('GM.'))
     expect(ns.length).toBeGreaterThan(0)
     expect(globals.length).toBeGreaterThan(ns.length - 3)
   })

@@ -476,7 +476,6 @@ const CAPABILITY_LABELS: Record<string, string> = {
   tabs: '标签页操作',
   menu: '右键菜单',
   cookie: 'cookie 读写',
-  page: '页面事件监听',
 }
 
 function capabilityLabel(cap: string): string {

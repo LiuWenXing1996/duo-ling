@@ -46,7 +46,7 @@ function build(grant?: string[], body?: string): string {
 }
 
 describe('buildGmWrapperPrefix', () => {
-  it('产出的注入源码语法合法（acorn 解析；含内联的桥客户端与 GM.page 本地实现）', () => {
+  it('产出的注入源码语法合法（acorn 解析；含内联的桥客户端）', () => {
     const src = build()
     expect(() => parse(src, { ecmaVersion: 'latest' })).not.toThrow()
     // 模板体里绝不能残留未闭合的模板痕迹（反引号一旦漏进注入体，整份源码就废了）
@@ -185,9 +185,9 @@ describe('resolveGmExposure（@grant 裁剪）', () => {
     expect(flags.GM_xmlhttpRequest).toBe(false)
   })
 
-  it('恒注入集不受 grant 影响：GM_info / unsafeWindow / info / 本扩展成员', () => {
+  it('恒注入集不受 grant 影响：GM_info / unsafeWindow / info', () => {
     const flags = resolveGmExposure(['GM_getValue'])
-    for (const name of ['GM_info', 'unsafeWindow', 'info', 'clearValues', 'focusTab', 'page']) {
+    for (const name of ['GM_info', 'unsafeWindow', 'info']) {
       expect(flags[name], name).toBe(true)
     }
   })

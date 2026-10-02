@@ -36,7 +36,7 @@
 // GM 可用性矩阵：**逐个 API** 做一次最小真实调用，把结果铺成一张表。
 //
 // 与另外两个专包的分工（别重复）：
-//   · 本包只管「这个 API 能不能吃上饭」——最小调用是否成功，覆盖目录里的**全部 50 条路径**；
+//   · 本包只管「这个 API 能不能吃上饭」——最小调用是否成功，覆盖目录里的**全部路径**（条数见下面的覆盖登记表）；
 //   · dl-api-gapfill 管 GM_xmlhttpRequest 的**深语义**（timeout / 二进制体 / forbidden header 覆写 /
 //     redirect manual·error / 同 host 隔离）；
 //   · dl-cookie 管 GM_cookie 的**域名门**（越域拒绝 / path 不参与判定 / 非 http(s) 拒绝）。
@@ -49,17 +49,14 @@
 // 用法：`npm run pack:uscripts` → 工作台「脚本列表」导入 → 启用 → 打开任意 http(s) 页面
 //       → 点面板上的「跑全部」→ 跑完点「复制结果」整段贴回。
 //
-// 四项**要你动手**才判得准（其余全自动）。它们**不阻塞跑批**：跑批照常走完，这几项先落 `⋯`，
+// 两项**要你动手**才判得准（其余全自动）。它们**不阻塞跑批**：跑批照常走完，这两项先落 `⋯`，
 // 动作做完后自动翻成结果 —— 面板与左下角那个「待你完成」盒子都会实时更新，不限时（10 分钟兜底）：
-//   · GM.page.listen  —— 点一下页面任意处（点那个盒子也算；别指望晃鼠标，实测不发）
 //   · GM_setClipboard  —— 在盒子里那个输入框按一次 Cmd/Ctrl+V（读回写入的到底是什么）
 //   · GM_registerMenuCommand —— 在页面右键 → 点「GM 矩阵：点我试试」（验菜单点击链路）
-//   · GM.page.fetchHook —— 让页面**自己**发一个请求（换会拉接口的站点重跑；或在本页 DevTools
-//     Console 里执行 fetch(location.href)）。安静页面（如 example.com）会一直挂着当待办。
 //
 // 副作用（都已尽量自清）：网络用例出网 2 次；tabs 用例开 1 个 example.com 标签页（跑完自动关）；
 //       通知用例弹 1 条系统通知；下载与 cookie 写入两条**先 confirm** 再跑；剪贴板会覆盖你当前的
-//       剪贴板内容；菜单项跑完即注销；存储用例只动本脚本自己的键，最后一条 clearValues 会把它们清掉。
+//       剪贴板内容；菜单项跑完即注销；存储用例只动本脚本自己的键，跑批收尾时逐键清掉。
 // 测完请**停用或删除**本脚本：@match 是 *://*/*，长期开着逢页就注入。
 //
 // 三态：✓ 通过 / ✗ 失败（真问题）/ ? 未能判定（环境或人手原因：网络不可达 / 本页没发请求 /
@@ -90,17 +87,13 @@
 // @covers GM_notification / GM.notification :: GM_notification GM.notification
 // @covers GM_setClipboard / GM.setClipboard :: GM_setClipboard GM.setClipboard
 // @covers GM_openInTab / GM.openInTab :: GM_openInTab GM.openInTab
-// @covers GM.focusTab（扩展独有） :: GM.focusTab
 // @covers GM_download / GM.download :: GM_download GM.download
 // @covers GM_getTab / GM_saveTab / GM_getTabs（回调形态） :: GM_getTab GM_saveTab GM_getTabs
 // @covers GM.getTab / GM.saveTab / GM.getTabs（Promise 形态） :: GM.getTab GM.saveTab GM.getTabs
 // @covers GM_cookie.list（读） :: GM_cookie GM_cookie.list
 // @covers GM_cookie.set / delete（写读删） :: GM_cookie.set GM_cookie.delete
 // @covers window.onurlchange（含置 null 退订） :: window.onurlchange
-// @covers GM.page.listen（页面事件中继） :: GM.page.listen
-// @covers GM.page.fetchHook（页面 fetch 拦截） :: GM.page.fetchHook
 // @covers GM_registerMenuCommand / GM_unregisterMenuCommand :: GM_registerMenuCommand GM_unregisterMenuCommand GM.registerMenuCommand GM.unregisterMenuCommand
-// @covers GM.clearValues（扩展独有） :: GM.clearValues
 // @covers run-at document-body（注入时 body 已存在）
 // @covers GM_download（浏览器下载器） :: GM_download GM.download
 // @covers GM_xmlhttpRequest 的 onprogress（下载进度） :: GM_xmlhttpRequest GM.xmlHttpRequest
@@ -146,7 +139,6 @@
     b.textContent = label
     b.style.cssText = BTN_STYLE
     b.addEventListener('click', function () {
-      // 刻意不 stopPropagation：这一下也算一次真实页面点击（GM.page.listen 那项在听 body）
       if (act === 'run') {
         if (!running) runAll()
         return
@@ -333,15 +325,6 @@
       }, 250)
     })
   }
-
-  /**
-   * GM.page 的两项**不能靠「往页面注入内联 script」来触发**。
-   *
-   * 实测结论（记录在 uscript-samples/dl-fetchhook-test/script.js 头部）：从脚本世界往 DOM 插内联
-   * `<script>`，在本扩展的 USER_SCRIPT 世界里**不执行** —— 在 example.com 与 rebang.today 上都失败过，
-   * 而两站都没有 CSP（curl 实测），故**与页面 CSP 无关**，机制至今未定论（怀疑世界自身的默认 CSP）。
-   * 所以本包改用不依赖注入的两条路：真用户点击（listen）/ 被动等页面自己的请求（fetchHook）。
-   */
 
   /** 当前页是否 http(s)：cookie / urlchange 这类用例的前提 */
   function isHttpPage() {
@@ -697,17 +680,6 @@
     return pass('两形态都返回句柄，已关闭（期间应短暂出现 2 个后台标签页）')
   })
 
-  add('系统能力', 'GM.focusTab（扩展独有）', async function () {
-    // 脚本侧拿 tabId 的唯一公开途径：先把当前 tab 存进 tab 存储，再读回全部 tab 的键
-    await GM.saveTab({ probe: 'matrix' })
-    var tabs = await GM.getTabs()
-    var ids = Object.keys(tabs || {})
-    if (!ids.length) return unknown('tab 存储里没有本脚本的 tab（无法取到 tabId）')
-    if (typeof GM.focusTab !== 'function') throw new Error('GM.focusTab 未挂载')
-    await GM.focusTab(Number(ids[0]))
-    return pass('已激活 tabId=' + ids[0])
-  })
-
   add('存储', 'GM_getResourceText / GM_getResourceURL（未知名 → undefined）', function () {
     // 探针脚本**刻意不声明 @resource**：它的地址必须静态写死在 metadata 里，而真机端测的端口是
     // 运行时才分配的，写不死。「真取到内容」那条由 e2e/link-import.spec 验（那里的样本脚本在运行时
@@ -902,64 +874,6 @@
     })
   })
 
-  add('站点与页面', 'GM.page.listen（页面事件中继）', async function () {
-    if (typeof GM === 'undefined' || !GM.page || typeof GM.page.listen !== 'function') throw new Error('GM.page.listen 未挂载')
-    var got = null
-    var offs = []
-    // 挂两种事件：`click` 是**可靠的那条**（人肉点击与端测里的 Playwright 点击都验过）；
-    // `mousemove` 也挂上、但不稳 —— 端测里按固定坐标连续 move 90s 一次都没触发，而 Playwright
-    // 点击内部那次「移到元素中心」的移动却触发过。故待办文案只说「点一下页面」，别让人去晃鼠标。
-    var types = ['click', 'mousemove']
-    try {
-      for (var i = 0; i < types.length; i++) {
-        offs.push(
-          await GM.page.listen(
-            types[i],
-            (function (t) {
-              return function (ev) { if (!got) got = { t: t, ev: ev } }
-            })(types[i]),
-            { selector: 'body', once: true },
-          ),
-        )
-      }
-    } catch (e) {
-      return /PAGE_STUB_UNAVAILABLE|HANDSHAKE_FAILED|超时/.test(msg(e)) ? unknown('页面世界桩不可用：' + msg(e)) : fail(code(e) + msg(e))
-    }
-    var row = todoRow('点一下页面任意处（点这个盒子也行）—— 验 GM.page.listen 中继')
-    var acted = await waitUntil(function () { return !!got })
-    row.done()
-    for (var j = 0; j < offs.length; j++) {
-      try { offs[j]() } catch (e) { /* 已随导航消失也算摘干净 */ }
-    }
-    if (!acted) return unknown('10 分钟连 mousemove 都没收到 → 事件中继本身可能没工作（不是「没点到」）')
-    return pass('中继通了：收到页面 ' + got.t + '（ev.type=' + (got.ev && got.ev.type) + '）')
-  }, { pending: true })
-
-  add('站点与页面', 'GM.page.fetchHook（页面 fetch 拦截）', async function () {
-    if (typeof GM === 'undefined' || !GM.page || typeof GM.page.fetchHook !== 'function') throw new Error('GM.page.fetchHook 未挂载')
-    var decided = null
-    var off = null
-    try {
-      off = await GM.page.fetchHook(function (call) {
-        decided = call
-        return { action: 'passthrough' }
-      })
-    } catch (e) {
-      return /PAGE_STUB_UNAVAILABLE|HANDSHAKE_FAILED|超时/.test(msg(e)) ? unknown('页面世界桩不可用：' + msg(e)) : fail(code(e) + msg(e))
-    }
-    // 只能**被动等页面自己发请求**：脚本世界的 fetch 与页面被代理的不是同一个绑定（自己发测不到），
-    // 注入内联 script 又不执行。故**不设时限**：等到了就翻 ✓；安静页面（如 example.com）会一直挂着，
-    // 你换站点重跑即可。
-    var row = todoRow(
-      '让页面自己发一个请求（换会拉接口的站点重跑；或在此页 DevTools Console 里执行 fetch(location.href)）—— 验 GM.page.fetchHook',
-    )
-    var acted = await waitUntil(function () { return !!decided })
-    row.done()
-    if (off) off()
-    if (!acted) return unknown('10 分钟本页没发出请求 → 换个会拉接口的站点再跑这一项')
-    return pass('拦到页面 fetch：' + decided.method + ' ' + String(decided.url).slice(0, 60))
-  }, { pending: true })
-
   add('站点与页面', 'GM_registerMenuCommand / GM_unregisterMenuCommand', async function () {
     if (typeof GM_registerMenuCommand !== 'function' || typeof GM_unregisterMenuCommand !== 'function') {
       throw new Error('GM_registerMenuCommand / GM_unregisterMenuCommand 未挂载')
@@ -991,16 +905,6 @@
     if (!acted) return unknown('10 分钟没点菜单项 → 菜单可见性与点击链路都未验')
     return pass('点到菜单项后回调经 menu.click 推回（' + clicked + '）')
   }, { pending: true })
-
-  // —— 收尾：clearValues 放最后（它会清掉前面用例写的值）——
-
-  add('存储', 'GM.clearValues（扩展独有）', async function () {
-    if (!GM || typeof GM.clearValues !== 'function') throw new Error('GM.clearValues 未挂载')
-    await GM.setValue(PFX + 'wipe', 'x')
-    await GM.clearValues()
-    var left = await GM.listValues()
-    return Array.isArray(left) && left.length === 0 ? pass('清空后 listValues 为空') : fail('仍有 ' + (left && left.length) + ' 个键')
-  })
 
   // ————————————————————————— 跑批 —————————————————————————
 
@@ -1070,7 +974,12 @@
       }
       push(c.group, c.name, res)
     }
-    // 收尾：摘监听 / 卸样式 / 还原 URL（人工项自己收尾；clearValues 已把存储清干净）
+    // 收尾：摘监听 / 卸样式 / 还原 URL（人工项自己收尾），再清掉本包自己写的存储键
+    // —— 只动前缀 PFX 的键，逐键删
+    try {
+      var mine = (await GM.listValues()).filter(function (k) { return k.indexOf(PFX) === 0 })
+      if (mine.length) await GM.deleteValues(mine)
+    } catch (e) { /* 清不掉不改变矩阵结论 */ }
     for (var j = 0; j < cleanups.length; j++) {
       try { cleanups[j]() } catch (e) { /* 收尾失败不改变矩阵结论 */ }
     }
@@ -1107,9 +1016,9 @@
       render('GM_MISSING（本脚本世界没有 GM_info：扩展未注入包装？）')
       return
     }
-    // 存一个 tab 值：GM.focusTab 用例需要从 getTabs 的键里取 tabId（顺带覆盖 tab 存储）
+    // 存一个 tab 值：顺带覆盖 tab 存储
     try { GM.saveTab({ probe: 'boot' }) } catch (e) { /* 未连接时会被忽略 */ }
-    render('就绪 · 点「跑全部」开始（' + CASES.length + ' 项；其中 4 项要你动手，跑完在左下角盒子里做）')
+    render('就绪 · 点「跑全部」开始（' + CASES.length + ' 项；其中 2 项要你动手，跑完在左下角盒子里做）')
   }
 
   if (document.readyState === 'loading') {

@@ -27,7 +27,7 @@ const ALL = 'all'
 
 const keyword = ref('')
 const group = ref<GmApiGroupId | typeof ALL>(ALL)
-/** 每张卡片的展开状态（默认全收起：28 条全铺开根本没法扫） */
+/** 每张卡片的展开状态（默认全收起：全铺开根本没法扫） */
 const openMap = ref<Record<string, boolean>>({})
 
 const query = computed(() => keyword.value.trim().toLowerCase())

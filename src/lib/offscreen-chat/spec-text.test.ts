@@ -18,7 +18,7 @@ const KNOWN_UNSUPPORTED: string[] = []
 const GRANT_SPECIAL_VALUES = ['none']
 
 /**
- * 文本里提到的成员名（只取首段：`GM_info.script` 记 `GM_info`，`GM.page.listen` 记 `GM.page`）。
+ * 文本里提到的成员名（只取首段：`GM_info.script` 记 `GM_info`，`GM_cookie.list` 记 `GM_cookie`）。
  * `GM_*` / `GM.*` 这两个通配写法不会被匹配（后面不是字母）。
  */
 function mentionedNames(text: string): Set<string> {
@@ -38,7 +38,7 @@ function mentionedNames(text: string): Set<string> {
   return out
 }
 
-/** 目录里的路径有没有被文本提到（允许只提到容器名，如 `GM.page` 代表 `GM.page.listen`） */
+/** 目录里的路径有没有被文本提到（允许只提到容器名，如 `GM_cookie` 代表 `GM_cookie.list`） */
 function isMentioned(path: string, mentioned: Set<string>): boolean {
   const segs = path.split('.')
   for (let n = segs.length; n > 0; n--) {

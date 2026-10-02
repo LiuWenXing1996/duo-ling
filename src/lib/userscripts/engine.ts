@@ -31,7 +31,7 @@ import { enabledMatchUnion, sameMatchSet } from './match-union'
 
 // 不给脚本世界配置 csp：即**不放开** eval / new Function。脚本世界因此回落浏览器默认 CSP，
 // 动态执行字符串代码被禁。理由：AI 生成的脚本不可控，不额外给「执行任意字符串」的能力。
-// 注入链路自身零 eval —— GM 包装 / 页面中继 / MAIN 桩均不含，脚本源码注入前也静态检查
+// 注入链路自身零 eval —— GM 包装 / 页面中继均不含，脚本源码注入前也静态检查
 // eval / new Function（collectCspWarnings 在保存时提前提示）；真正受影响的只有内部用
 // new Function 做 codegen 的依赖库（如 ajv 编译校验器 / Vue runtime 编译器 / handlebars
 // 运行时模板），同样由 collectCspWarnings 在保存时提示。
@@ -264,14 +264,14 @@ async function getOrCreatePageSecret(): Promise<string> {
   try {
     await appDb.set(PAGE_SECRET_KEY, pageSecretCache)
   } catch {
-    // 写不进就只用缓存值：SW 重启后会换新密钥，脚本与桩在同一遍注册里仍保持一致
+    // 写不进就只用缓存值：SW 重启后会换新密钥，脚本与中继件在同一遍注册里仍保持一致
   }
   return pageSecretCache
 }
 
 /**
  * 轮换密钥（扩展 install/update 恢复时调用，「重注册即轮换」的落点）。
- * 轮换后必须紧跟着 registerAllEnabled：桩与全部启用脚本包装在同一遍里带上新密钥。
+ * 轮换后必须紧跟着 registerAllEnabled：中继件与全部启用脚本包装在同一遍里带上新密钥。
  */
 export async function rotatePageSecret(): Promise<void> {
   pageSecretCache = generateBridgeSecret()
@@ -281,8 +281,8 @@ export async function rotatePageSecret(): Promise<void> {
 /**
  * 按并集维护脚本桥中继件（幂等可重入；调用方负责串行化）。
  *
- * 触发条件与 MAIN 桩完全一致（都跟「启用脚本的匹配并集」）—— 脚本切到 MAIN 世界后
- * 没有 `chrome.*`，GM 能力全靠本件转给 SW，两者必须同时在场、同进同退。
+ * 注册条件是「启用脚本的匹配并集」—— 脚本切到 MAIN 世界后没有 `chrome.*`，
+ * GM 能力全靠本件转给 SW。
  * 并集未变且件已在位时跳过重注册（重注册会换注入源码，已加载页面要到下次导航才换新）。
  */
 async function syncScriptRelay(projects: ScriptProject[]): Promise<void> {
@@ -318,7 +318,7 @@ async function syncScriptRelay(projects: ScriptProject[]): Promise<void> {
     excludeMatches: union.excludeMatches,
     includeGlobs: union.includeGlobs,
     excludeGlobs: union.excludeGlobs,
-    // document_start：必须早于脚本默认的 document_idle 握手窗口（与 MAIN 桩同理）
+    // document_start：必须早于脚本默认的 document_idle 握手窗口
     runAt: 'document_start',
     allFrames: true,
   }
@@ -333,7 +333,7 @@ async function syncScriptRelay(projects: ScriptProject[]): Promise<void> {
 
 // —— 网络录制件（dl-recorder）：常驻 + 独立 per-host 门禁 ——
 //
-// 与 MAIN 桩完全独立：桩跟随「启用用户脚本并集」，录制件跟随「用户已同意录制的 host 集合」
+// 与中继件完全独立：中继件跟随「启用用户脚本并集」，录制件跟随「用户已同意录制的 host 集合」
 // （net-capture-gate.ts）。默认空集 = 两件都不注册，页面里没有任何录制代码。
 //
 // 为什么是两个注册：捕获必须在页面真实世界（MAIN）才拦得到 fetch/XHR，而 MAIN 无 chrome.*；
@@ -410,9 +410,8 @@ export function refreshNetRecorder(): Promise<void> {
 
 /**
  * 重算**内置注入脚本**的注册（挂 registerChain 串行队列）：脚本增删改 / 启停 / 删除后由 background 调用。
- * 两份子件，触发条件都是「启用脚本的匹配并集」：
- *   · GM.page MAIN 桩（world: 'MAIN'，页面世界能力代理）；
- *   · 脚本桥中继件（USER_SCRIPT，把 MAIN 世界脚本的 GM 调用转给 SW）。
+ * 只管脚本桥中继件（USER_SCRIPT，把 MAIN 世界脚本的 GM 调用转给 SW），触发条件是「启用脚本的匹配并集」；
+ * 网络录制那两件有自己的入口（`refreshNetRecorder`）。
  */
 export function refreshBuiltinScripts(): Promise<void> {
   const run = registerChain.then(async () => {
@@ -441,7 +440,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   // 非法值在此以中文报错拦下，不再拖到 chrome.userScripts.register 才以英文异常冒出
   validateMatchPatterns(project.config)
   const rawCode = resolveInjectCode(project)
-  // 密钥取自持久层（与 MAIN 桩同源）：单脚本注册路径（create/updateFiles/toggle）也可能
+  // 密钥取自持久层（与中继件同源）：单脚本注册路径（create/updateFiles/toggle）也可能
   // 在 SW 刚唤醒、尚未跑过 registerAllEnabled 时发生，必须能独立取到当前密钥。
   const pageSecret = await getOrCreatePageSecret()
   // **值快照**：同步 GM_getValue 的底座（见 gm-wrapper 的 `GM_VALUES` 快照块）。读不到不阻断注册——
@@ -574,7 +573,7 @@ async function runRegisterAllEnabled(): Promise<void> {
   const enabled = projects.filter((p) => p.enabled)
   try {
     const existing = await chrome.userScripts.getScripts()
-    // 全量重注册只清用户脚本——内置注册（MAIN 桩 / 录制件）在上一段刚按并集 / 门禁同步过，
+    // 全量重注册只清用户脚本——内置注册（中继件 / 录制件）在上一段刚按并集 / 门禁同步过，
     // 不能被这把误清（否则重注册后录制件消失，直到下次冷启动才补）
     const stale = existing.filter((s) => !BUILTIN_SCRIPT_IDS.includes(s.id))
     if (stale.length) await unregisterScripts(stale.map((s) => s.id))
@@ -606,7 +605,7 @@ async function runRegisterAllEnabled(): Promise<void> {
 export async function recoverOnUpdate(): Promise<void> {
   await configureUserScriptsWorld()
   // 扩展 install/update：轮换握手密钥（旧注册已被浏览器清空），随后的 registerAllEnabled
-  // 会把桩与全部启用脚本包装在同一遍里带上新密钥（重注册即轮换）
+  // 会把中继件与全部启用脚本包装在同一遍里带上新密钥（重注册即轮换）
   await rotatePageSecret().catch(() => {})
   await registerAllEnabled()
 }

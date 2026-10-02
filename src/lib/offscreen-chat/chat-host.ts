@@ -129,7 +129,6 @@ const CAPABILITY_PROBES: ReadonlyArray<readonly [string, RegExp]> = [
   ['clipboard', /GM_setClipboard|GM\.setClipboard\b/],
   ['menu', /GM_(un)?registerMenuCommand|GM\.(un)?registerMenuCommand\b/],
   ['cookie', /GM_cookie/],
-  ['page', /GM\.page\./],
 ]
 
 function scanCapabilities(code: string): string[] {
