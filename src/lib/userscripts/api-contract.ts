@@ -707,8 +707,9 @@ export interface GmAudioApi {
  * `log` / `addStyle` / `addElement` / `openInTab` 等与全局形态同一实现、同步的照样同步。
  *
  * 口径按 **Tampermonkey**：TM 的 `GM.*` **没有** `cookie` / `webRequest` / `audio`
- * （VM 有 `GM.cookie` —— 差异是口径不同，不是谁错）。故本扩展的 `GM_cookie` 只在全局，
- * `GM.*` 下不重复提供。
+ * （VM 有 `GM.cookie` —— 差异是口径不同，不是谁错）。这三样本扩展的处置各不相同：
+ * `GM_cookie` 只在全局、`GM.*` 下不重复提供；`GM_webRequest` 未实现（写了 `@grant` 也不暴露）；
+ * `audio` 是例外 —— 两侧都给（见成员声明）。
  */
 export interface GmApiNamespace {
   info: GmInfo
