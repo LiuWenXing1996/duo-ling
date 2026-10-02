@@ -7,13 +7,11 @@
 // 无 UI 走 chrome.developerPrivate）→ 同 profile 重启 → `chrome.userScripts` 由 undefined 变可用。
 // 这条路在 CI 上已被 smoke 证明可行（其中一条断言 available === true）。
 //
-// 矩阵里四项要人动手的，端测的处理：
-//   · GM.page.listen      —— Playwright 真点击 → 中继收到事件（**自动**）
-//   · GM.page.fetchHook   —— page.evaluate 在**页面主世界**发一个 fetch（等价于在 DevTools 里敲）（**自动**）
+// 矩阵里两项要人动手的，端测的处理：
 //   · GM_setClipboard     —— 给该 origin 授 clipboard-read 权限后走 navigator.clipboard.readText()
 //     自动验「写进去的到底是什么」（**自动**）
 //   · GM_registerMenuCommand —— 点的是浏览器**原生右键菜单**，Playwright 碰不到 → 只验「四种调用」，记「?」
-// 故这里的预期是：✗ = 0、? = 1、✓ = 其余 27 条、无 ⋯（端测下人工项不干等，见探针里的 AUTO）。
+// 故这里的预期是：✗ = 0、? = 1、✓ = 其余 32 条、无 ⋯（端测下人工项不干等，见探针里的 AUTO）。
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import * as http from 'node:http'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -33,9 +31,9 @@ import {
 const MATRIX_SRC = readFileSync(fileURLToPath(new URL('../uscript-samples/gm-matrix/script.js', import.meta.url)), 'utf8')
 /** 探针面板根节点 id */
 const PANEL = '#gm-matrix-probe'
-/** 自动化开关：跳过两处 confirm + 跳过两项端测做不了的人工项（见探针里的 AUTO 注释） */
+/** 自动化开关：跳过两处 confirm + 跳过端测做不了的原生右键菜单点击（见探针里的 AUTO 注释） */
 const PAGE_HASH = '#gm-matrix-auto'
-/** 面板底部汇总行：`—— ✓26 ✗0 ?2 / 共 28` */
+/** 面板底部汇总行：`—— ✓32 ✗0 ?1 / 共 33` */
 const SUMMARY_RE = /—— ✓(\d+) ✗(\d+) \?(\d+)(?: ⋯(\d+))? \/ 共 (\d+)/
 
 test.describe.serial('GM 可用性矩阵（真机自动化）', () => {
@@ -106,7 +104,7 @@ test.describe.serial('GM 可用性矩阵（真机自动化）', () => {
     try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
   })
 
-  test('全量 GM API 在真机上没有一条 ✗（两项人工项由 Playwright 代做）', async () => {
+  test('全量 GM API 在真机上没有一条 ✗（剪贴板人工项由 Playwright 代做）', async () => {
     test.skip(!available, 'chrome.userScripts 引导失败，注入面转手测')
     const page = await context!.newPage()
     await page.goto(`http://127.0.0.1:${port}/probe.html${PAGE_HASH}`)
@@ -117,27 +115,13 @@ test.describe.serial('GM 可用性矩阵（真机自动化）', () => {
 
     await page.getByRole('button', { name: '跑全部' }).click()
 
-    // 2. 代做两项人工项。人工项在跑批中途才「上膛」（不阻塞跑批），故边跑边驱动，直到两项都出结果。
-    //    驱动用 Playwright 的**元素点击**：它内部会先把鼠标移到元素中心再按下，实测足以让中继把事件
-    //    送到脚本（结果详情里报 `mousemove` 或 `click` 取决于哪次先到，两者都算通）。
-    //    别改用 `page.mouse.move(x, y)` 硬坐标驱动 —— 实测连续 move 90s 一次都没触发，不可靠。
+    // 2. 等跑批走完。剩一项人工项（原生右键菜单）端测做不了，探针直接记「?」，
+    //    故这里不需要在跑批中途驱动页面，等汇总行出现即可。
     const deadline = Date.now() + 90_000
     let panelText = ''
-    let fetched = false
     while (Date.now() < deadline) {
-      // 真点击（点页面上的 h1，与人类手测里成功的那条路同源）→ 桩把 click 中继给脚本
-      await page.locator('h1').click({ timeout: 5_000 })
-
       panelText = (await page.locator(PANEL).textContent()) ?? ''
-      // 汇总行出现 = 跑批结束 = 两个待办都已上膛 → 这时在**页面主世界**发一个 fetch，
-      // 交给 fetchHook 去拦（等价于在 DevTools Console 里敲 fetch(location.href)）
-      if (!fetched && /—— ✓/.test(panelText)) {
-        await page.evaluate(async () => {
-          try { await fetch(location.href, { cache: 'no-store' }) } catch { /* 拦不到也不影响断言 */ }
-        })
-        fetched = true
-      }
-      if (fetched && /拦到页面 fetch/.test(panelText) && /收到页面 (mousemove|click)/.test(panelText)) break
+      if (/—— ✓/.test(panelText)) break
       await page.waitForTimeout(1000)
     }
 
@@ -156,10 +140,10 @@ test.describe.serial('GM 可用性矩阵（真机自动化）', () => {
 
     expect(bad, `有 API 在真机上是 ✗：\n${panelText}`).toBe(0)
     expect(pending, `还有人工项没收尾：\n${panelText}`).toBe(0)
-    expect(total, '矩阵条目数变了（新增 / 删除了用例？）').toBe(37)
+    expect(total, '矩阵条目数变了（新增 / 删除了用例？）').toBe(33)
     expect(unknownCount, `未判定的行多于预期（只该剩「原生右键菜单」那一条）：\n${panelText}`).toBeLessThanOrEqual(1)
     expect(panelText, '剪贴板回读没成（应走 clipboard.readText()）').not.toContain('端测读不到剪贴板')
-    expect(ok, `通过数偏少（期望 36：37 减掉端测做不了的原生右键菜单点击）：\n${panelText}`).toBeGreaterThanOrEqual(36)
+    expect(ok, `通过数偏少（期望 32：33 减掉端测做不了的原生右键菜单点击）：\n${panelText}`).toBeGreaterThanOrEqual(32)
     await page.close()
   })
 })

@@ -51,7 +51,6 @@ import {
   getGMValues,
   listGMKeys,
   getAllGMValues,
-  clearGMValues,
   appendUserScriptError,
   recordRunStart,
 } from './store'
@@ -678,9 +677,6 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
     // 全量快照：注入时的值预载（注册链路直接调 store.ts）与包装层 connect 后的校准共用
     case 'store.all':
       return getAllGMValues(uuid)
-    case 'store.clear':
-      await clearGMValues(uuid, req.connId)
-      return undefined
     // 网络
     case 'fetch': {
       // 要了进度才建回调（且得能寻址到发起它的连接，否则推给谁都不知道）
