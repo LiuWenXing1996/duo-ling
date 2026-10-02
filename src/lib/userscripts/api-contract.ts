@@ -539,7 +539,7 @@ export type ApiErrorCode =
 /**
  * `GM_*` 全局函数集合。
  *
- * 这个接口有两个用途，两处都靠它兜漂移（catalog 的 `keyof` 镜像 + 自产 `.d.ts`）：
+ * 这个接口有两个用途，两处都靠它兜漂移（catalog 的 `keyof` 镜像 + 注入装配块反射）：
  *   ① 速查页的条目键必须恰好覆盖 `keyof GmGlobalFns`（类型层防线）；
  *   ② 注入包装的装配块由源码反射单测比对。
  * **故这里不要写函数重载**（`T[K] extends (...)= >unknown` 的反射对重载不稳），

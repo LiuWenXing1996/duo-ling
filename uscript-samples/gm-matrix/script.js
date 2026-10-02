@@ -139,7 +139,6 @@
     b.textContent = label
     b.style.cssText = BTN_STYLE
     b.addEventListener('click', function () {
-      // 刻意不 stopPropagation：按钮上的这一下就是一次真实页面点击，交给页面自己处理
       if (act === 'run') {
         if (!running) runAll()
         return
