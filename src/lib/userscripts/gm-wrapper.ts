@@ -6,7 +6,7 @@
 //     反射锚点落在本文件比落在 engine 的注册链路里稳（engine 会 import IDB / chrome API）。
 //
 // **与脚本源码同处一个函数作用域**：engine 把「本包装（未闭合）＋ `@require` ＋ 脚本源码 ＋
-// 闭合后缀」拼成**一条** code 注入。为什么必须这样：
+// 闭合后缀（收掉前缀末尾的 try 块）」拼成**一条** code 注入。为什么必须这样：
 //   · MAIN 世界不支持 `worldId`，同帧多脚本共享一个 `window` —— 若把 `GM_*` 挂到 window 上，
 //     后注入的脚本会把前一个的成员整个覆盖；
 //   · 故全部成员**声明为局部变量**，脚本按词法作用域找到它们；`unsafeWindow` 于是就是本世界
@@ -139,7 +139,24 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     try { console.log.apply(console, [NAME_PREFIX].concat([].slice.call(arguments))) } catch (e) {}
   }
 
-  // —— 运行期错误收集（错误日志面板）：本世界的未捕获异常 / 未处理拒绝经桥上报 ——
+  // —— 运行期错误收集（错误日志面板）——
+  // 归属是两层口径（同步靠 catch、异步靠栈过滤，缺一不可）：
+  //   · **同步**：正文（含 @require）整体包进 try 块（自此到闭合后缀的 catch），catch 到的
+  //     即为己出，直报不判栈 —— 栈过滤对无栈错误无能为力，这层是补位；
+  //   · **异步**：回调 / promise 里抛的错 try 管不到，落回 window 的 error /
+  //     unhandledrejection —— 但这两个监听是**全页共享**的，错误事件不携带来源信息，
+  //     页面自身的报错也会撞进来（无法与「脚本触发的」区分）。故只认栈帧带本脚本
+  //     sourceURL 标记的：engine 给整条注入体拼 //# sourceURL=duoling://script/<uuid>/…，
+  //     正文、@require 与包装层同属一个脚本源，它们的帧都带该标记；标记含 uuid，
+  //     多脚本同页时各包装层只认自己的，互不冒领。
+  // 刻意接受的盲区：无栈错误（throw 'str' / Promise.reject('str')）与跨域 Script error
+  // 的栈里没有标记，异步层收不到 —— 宁可漏报，不收页面噪声。
+  // 嵌串拼接不用嵌套模板：check-comments 的扫描器不认插值里的嵌套反引号，会把后续注入体
+  // 误判回代码态、翻出一堆假「注释」违规
+  var __gmSrcMark = ${jsonLiteral('duoling://script/' + opts.uuid + '/')}
+  function __gmOwnStack(stack) {
+    return typeof stack === 'string' && stack.indexOf(__gmSrcMark) !== -1
+  }
   function __gmReportError(message, stack, url) {
     try {
       var p = __dlBridge.emit({
@@ -153,13 +170,21 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
       console.warn('[duoling:userscript] 上报异常：' + ((e && e.message) || e))
     }
   }
+  // 正文同步错误的落点（闭合后缀的 catch 调它）：被 catch 即归属，无需再判栈
+  function __gmReportCaught(e) {
+    __gmReportError((e && e.message) || String(e), (e && e.stack) || '', location.href)
+  }
   window.addEventListener('error', function (e) {
     var err = e.error || {}
-    __gmReportError(e.message || 'Script error', (err && err.stack) || '', location.href)
+    var stack = (err && err.stack) || ''
+    if (!__gmOwnStack(stack)) return // 页面自身的报错：不归属本脚本
+    __gmReportError(e.message || 'Script error', stack, location.href)
   })
   window.addEventListener('unhandledrejection', function (e) {
     var r = (e && e.reason) || {}
-    __gmReportError('Unhandled rejection: ' + ((r && r.message) || String(e.reason)), (r && r.stack) || '', location.href)
+    var stack = (r && r.stack) || ''
+    if (!__gmOwnStack(stack)) return
+    __gmReportError('Unhandled rejection: ' + ((r && r.message) || String(e.reason)), stack, location.href)
   })
 
   // —— 桥请求：超时与传输都归 __dlBridge 管（见 bridge-protocol），这里只解释响应语义 ——
@@ -1252,11 +1277,17 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   window.addEventListener('popstate', __gmCheckUrl)
   // 必须带分号：脚本正文以 ( 开头时会被 ASI 并进本句（真机踩过，parse 测试抓不住）
   window.addEventListener('hashchange', __gmCheckUrl);
+
+  // —— 正文执行区：自此行到闭合后缀的 catch，中间全部是脚本正文（含 @require）。
+  //    整体包 try 是同步错误归属的前提（口径见上方错误收集段）；包装层成员、事件监听
+  //    与 runId 广播都在 try 之前就位，正文抛错不影响它们。——
+  try {
 `
 }
 
 /**
- * 包装的闭合后缀：engine 把它拼在「`@require` 源码 ＋ 脚本源码 ＋ sourceURL 注释」之后，
+ * 包装的闭合后缀：engine 把它拼在「`@require` 源码 ＋ 脚本源码」之后，收掉前缀末尾打开的
+ * try 块（catch 直报同步错误，归属口径见 buildGmWrapperPrefix 的错误收集段），
  * 与本前缀合起来才是完整的一条 code（见文件头对「同一函数作用域」的说明）。
  */
-export const GM_WRAPPER_SUFFIX = '\n})();'
+export const GM_WRAPPER_SUFFIX = '\n} catch (e) { __gmReportCaught(e) }\n})();'

@@ -121,8 +121,9 @@ describe('buildGmWrapperPrefix', () => {
     const src = build([], body)
     expect(src).toContain("addEventListener('hashchange', __gmCheckUrl);")
     // 外层 IIFE（前导 ; 是 EmptyStatement，取第一条表达式语句）的函数体里，最后一条
-    // 语句必须就是脚本自己的 IIFE 调用（callee 是函数表达式），而不是
-    // 「addEventListener(...) 被继续调用」的合并体
+    // 语句必须是 TryStatement（正文执行区整体包 try，见错误归属口径），
+    // 脚本自己的 IIFE 调用是 try 块内的最后一条独立语句（callee 是函数表达式），
+    // 而不是「addEventListener(...) 被继续调用」的合并体
     const program = parse(src, { ecmaVersion: 'latest' }) as unknown as {
       body: Array<{
         type: string
@@ -131,12 +132,33 @@ describe('buildGmWrapperPrefix', () => {
     }
     const iife = program.body.filter((s) => s.type === 'ExpressionStatement')[0]!
     const inner = iife.expression!.callee.body.body
-    const last = inner[inner.length - 1] as {
+    const tryStmt = inner[inner.length - 1] as {
+      type: string
+      block?: { body: unknown[] }
+      handler?: { type: string }
+    }
+    expect(tryStmt.type).toBe('TryStatement')
+    expect(tryStmt.handler!.type).toBe('CatchClause')
+    const tryBody = tryStmt.block!.body as Array<{
       expression?: { callee?: { type: string } }
       type: string
-    }
+    }>
+    const last = tryBody[tryBody.length - 1]
     expect(last.type).toBe('ExpressionStatement')
     expect(last.expression!.callee!.type).toBe('FunctionExpression')
+  })
+
+  it('错误归属口径：正文包 try（catch 直报）、异步监听按本脚本 sourceURL 标记过滤', () => {
+    const src = build()
+    // 同步层：后缀的 catch 直调 __gmReportCaught（被 catch 即归属，无需判栈）
+    expect(GM_WRAPPER_SUFFIX).toContain('__gmReportCaught(e)')
+    // 异步层：两个全局监听都先判栈，标记含本脚本 uuid（多脚本同页互不冒领）
+    expect(src).toContain('duoling://script/u-test/')
+    const guardCount = src.split('__gmOwnStack(').length - 1
+    // 1 处定义 + error / unhandledrejection 两个监听各守一次
+    expect(guardCount).toBe(3)
+    // 过滤必须发生在上报之前（守卫在 __gmReportError 调用前面）：直接断言监听体形状
+    expect(src).toMatch(/if \(!__gmOwnStack\(stack\)\) return [^\n]*\n\s*__gmReportError/)
   })
 })
 

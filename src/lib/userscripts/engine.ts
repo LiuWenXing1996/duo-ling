@@ -219,7 +219,8 @@ export function resolveInjectCode(project: ScriptProject): string {
   return project.source.code
 }
 
-/** DevTools 里的脚本显示名：duoling://script/<uuid>/<安全化的项目名>.js */
+/** DevTools 里的脚本显示名，也是错误归属的栈标记（包装层只认 `duoling://script/<uuid>/` 前缀的帧）：
+ * duoling://script/<uuid>/<安全化的项目名>.js。拼在**整条注入源码的最后**（惯例位置） */
 function sourceURLSuffix(project: ScriptProject): string {
   const safeName = project.name.replace(/[^\w.-]/g, '_') || 'script'
   return `\n//# sourceURL=duoling://script/${project.uuid}/${safeName}.js`
@@ -508,8 +509,8 @@ export async function registerScript(project: ScriptProject): Promise<void> {
       runAtBody,
     }),
     runAtBody ? '__gmRunAtBody(function () {\n' + bodySource + '\n})' : bodySource,
-    sourceURLSuffix(project),
     GM_WRAPPER_SUFFIX,
+    sourceURLSuffix(project),
   ].join('\n')
   const userScript: chrome.userScripts.RegisteredUserScript = {
     id: project.uuid,
