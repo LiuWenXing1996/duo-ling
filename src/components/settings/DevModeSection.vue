@@ -63,11 +63,11 @@ async function testNotify(): Promise<void> {
 }
 
 /**
- * 角标底色。与 SW 里 refreshBadge 用的那一份必须同值 —— 调试要看的是真实观感，
- * 底色不一致等于预览了一个假角标。不抽常量共享：SW 与扩展页是两个构建目标，
- * 这里按「与工具栏同源」处理（同 NOTIFY_ICON）。
+ * 角标底色（调试栏预览的是**运行数量**那一种角标）。与 SW 里 refreshBadge 用的那一份必须同值 ——
+ * 调试要看的是真实观感，底色不一致等于预览了一个假角标。不抽常量共享：SW 与扩展页是两个
+ * 构建目标，这里按「与工具栏同源」处理（同 NOTIFY_ICON）。
  */
-const BADGE_BG = '#d93025'
+const BADGE_BG = '#1a73e8'
 
 /** 待预览的角标文字（空串 = 无角标）。**刻意不落库**：它是一次性的观感试验，不是扩展状态 */
 const badgeText = ref('')
