@@ -63,25 +63,38 @@ async function testNotify(): Promise<void> {
 }
 
 /**
- * 角标底色（调试栏预览的是**运行数量**那一种角标）。与 SW 里 refreshBadge 用的那一份必须同值 ——
+ * 角标默认色（调试栏预览的是**运行数量**那一种角标）。与 SW 里 refreshBadge 用的那一份必须同值 ——
  * 调试要看的是真实观感，底色不一致等于预览了一个假角标。不抽常量共享：SW 与扩展页是两个
  * 构建目标，这里按「与工具栏同源」处理（同 NOTIFY_ICON）。
+ *
+ * 字色在生产里从未设过、走 Chrome 默认白；这里写成显式默认值，只是给取色器一个起点。
  */
 const BADGE_BG = '#1a73e8'
+const BADGE_FG = '#ffffff'
 
-/** 待预览的角标文字（空串 = 无角标）。**刻意不落库**：它是一次性的观感试验，不是扩展状态 */
+/** 待预览的文字与配色。**刻意不落库**：它是一次性的观感试验，不是扩展状态 */
 const badgeText = ref('')
+const badgeBg = ref(BADGE_BG)
+const badgeFg = ref(BADGE_FG)
 
-/** 把输入的文字设到工具栏角标上。不给长度设上限 —— 要看的就是超长时角标怎么处理 */
+/**
+ * 把文字与配色一并设到工具栏角标上。不给长度设上限 —— 要看的就是超长时角标怎么处理。
+ * 两个颜色都得设：只设底色的话，字色会一直停在上一次调出来的值。
+ */
 async function applyBadge(): Promise<void> {
   const text = badgeText.value
-  if (text) await chrome.action.setBadgeBackgroundColor({ color: BADGE_BG })
+  if (text) {
+    await chrome.action.setBadgeBackgroundColor({ color: badgeBg.value })
+    await chrome.action.setBadgeTextColor({ color: badgeFg.value })
+  }
   await chrome.action.setBadgeText({ text })
 }
 
-/** 清空角标（连同输入框，免得输入框里留着一段已经不在角标上的文字） */
+/** 清空角标（连同输入框与两个取色器，免得留着一段已经不在角标上的文字 / 刚才试的颜色） */
 async function clearBadge(): Promise<void> {
   badgeText.value = ''
+  badgeBg.value = BADGE_BG
+  badgeFg.value = BADGE_FG
   await chrome.action.setBadgeText({ text: '' })
 }
 </script>
@@ -141,7 +154,7 @@ async function clearBadge(): Promise<void> {
     <div class="mt-6 rounded-md border p-4">
       <p class="text-sm font-medium">角标</p>
       <p class="mt-0.5 text-xs text-muted-foreground">
-        把文字设到工具栏图标上，看不同长度的实际观感。角标约容纳 4
+        把文字与配色设到工具栏图标上，看不同长度与配色的实际观感。角标约容纳 4
         个字符，超出会被裁切；正在跑脚本的标签页显示它自己的数，这个值只在其余标签页看得到。
       </p>
       <div class="mt-3 flex items-center gap-2">
@@ -161,6 +174,28 @@ async function clearBadge(): Promise<void> {
         <span class="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums"
           >{{ badgeText.length }} 字符</span
         >
+      </div>
+      <div class="mt-3 flex items-center gap-4">
+        <label class="flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            v-model="badgeBg"
+            type="color"
+            class="h-7 w-9 cursor-pointer rounded-md border border-input bg-transparent p-0.5"
+            aria-label="角标底色"
+            data-testid="dev-badge-bg"
+          />
+          底色
+        </label>
+        <label class="flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            v-model="badgeFg"
+            type="color"
+            class="h-7 w-9 cursor-pointer rounded-md border border-input bg-transparent p-0.5"
+            aria-label="角标字色"
+            data-testid="dev-badge-fg"
+          />
+          字色
+        </label>
       </div>
     </div>
   </div>
