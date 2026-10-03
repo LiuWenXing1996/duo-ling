@@ -124,8 +124,9 @@ describe('设置 · 开发者分区', () => {
   })
 })
 
-// 角标调试栏：文字要真的落到工具栏角标上（chrome.action 由测试基建的 fakeBrowser 承接），
-// 且清除要连输入框一起清空 —— 输入框里留着一段已经不在角标上的文字会让人以为它还在。
+// 角标调试栏：文字与配色都要真的落到工具栏角标上（chrome.action 由测试基建的 fakeBrowser 承接），
+// 且清除要连输入框与两个取色器一起复位 —— 留着一段已经不在角标上的文字、或刚试出来的颜色，
+// 都会让人以为角标还是那个样子。
 describe('设置 · 开发者分区 · 角标调试栏', () => {
   const input = (w: VueWrapper) => w.find('[data-testid="dev-badge-input"]')
   const btn = (w: VueWrapper, testid: string) => w.find(`[data-testid="${testid}"]`)
@@ -162,5 +163,35 @@ describe('设置 · 开发者分区 · 角标调试栏', () => {
 
     expect(await chrome.action.getBadgeText({})).toBe('')
     expect((input(w).element as HTMLInputElement).value).toBe('')
+  })
+
+  // 颜色读回在 fakeBrowser 里是两套格式：底色给 RGBA 数组、字色给原始字符串。
+  // 断言按它的实际行为写 —— 照 Chrome 文档那套 ColorArray 去写，两条必挂。
+  it('应用：底色与字色一并落到角标上', async () => {
+    const w = await mountSection({ enabled: false, disabled: [] })
+    await input(w).setValue('5')
+    await btn(w, 'dev-badge-bg').setValue('#123456')
+    await btn(w, 'dev-badge-fg').setValue('#abcdef')
+
+    await btn(w, 'dev-badge-apply').trigger('click')
+    await flushPromises()
+
+    expect(await chrome.action.getBadgeBackgroundColor({})).toEqual([0x12, 0x34, 0x56, 255])
+    expect(await chrome.action.getBadgeTextColor({})).toBe('#abcdef')
+  })
+
+  it('清除：两个取色器一并复位，免得角标挂着刚试出来的颜色', async () => {
+    const w = await mountSection({ enabled: false, disabled: [] })
+    await input(w).setValue('3')
+    await btn(w, 'dev-badge-bg').setValue('#000000')
+    await btn(w, 'dev-badge-fg').setValue('#000000')
+    await btn(w, 'dev-badge-apply').trigger('click')
+    await flushPromises()
+
+    await btn(w, 'dev-badge-clear').trigger('click')
+    await flushPromises()
+
+    expect((btn(w, 'dev-badge-bg').element as HTMLInputElement).value).toBe('#1a73e8')
+    expect((btn(w, 'dev-badge-fg').element as HTMLInputElement).value).toBe('#ffffff')
   })
 })

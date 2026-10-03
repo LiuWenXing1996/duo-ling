@@ -687,8 +687,14 @@ function titleOf(scriptCount: number): string {
   return scriptCount > 0 ? `${scriptCount} 个脚本在运行` : ''
 }
 
-/** 角标底色（与设置页「开发者」分区那张角标调试栏同值：预览与实设必须是同一个观感） */
-const BADGE_BG = '#d93025'
+/** 运行数量角标的底色（与设置页「开发者」分区那张角标调试栏同值：预览与实设必须是同一个观感） */
+const BADGE_BG_COUNT = '#1a73e8'
+
+/**
+ * 未授权角标（那枚感叹号）的底色。**留红**：红色是警告语义，与数量角标的蓝色分工 ——
+ * 一眼就能分出「这里有事情要处理」和「这页在跑几个脚本」。
+ */
+const BADGE_BG_UNAUTH = '#d93025'
 
 /**
  * 未授权时角标的文本：一个感叹号。**不写字** —— badge 的可用宽度就几个像素，汉字再少也得缩到
@@ -760,7 +766,7 @@ function refreshBadge(): void {
     for (const tabId of touchedTabs) clearTabBadge(tabId)
     touchedTabs.clear()
     chrome.action.setTitle({ title: UNAUTHORIZED_TITLE }).catch(() => {})
-    chrome.action.setBadgeBackgroundColor({ color: BADGE_BG }).catch(() => {})
+    chrome.action.setBadgeBackgroundColor({ color: BADGE_BG_UNAUTH }).catch(() => {})
     chrome.action.setBadgeText({ text: BADGE_UNAUTH }).catch(() => {})
     return
   }
@@ -771,7 +777,7 @@ function refreshBadge(): void {
 
   for (const [tabId, count] of countsByTab) {
     chrome.action.setTitle({ tabId, title: titleOf(count) }).catch(() => {})
-    chrome.action.setBadgeBackgroundColor({ tabId, color: BADGE_BG }).catch(() => {})
+    chrome.action.setBadgeBackgroundColor({ tabId, color: BADGE_BG_COUNT }).catch(() => {})
     chrome.action.setBadgeText({ tabId, text: badgeCount(count) }).catch(() => {})
   }
 
