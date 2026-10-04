@@ -302,7 +302,7 @@ describe('UserscriptListPanel 横幅自动刷新', () => {
 describe('UserscriptListPanel 搜索 / 筛选 / 排序', () => {
   const searchInput = () => wrapper.find('input[placeholder="搜索名称或匹配规则…"]')
 
-  it('按名称过滤行，计数行显示「筛选显示 N 个」', async () => {
+  it('按名称过滤只留下匹配行', async () => {
     list.mockResolvedValue([summary('u1', '脚本A'), summary('u2', '脚本B')])
     wrapper = await mountPanel()
     expect(wrapper.findAll('button[aria-label="编辑脚本"]')).toHaveLength(2)
@@ -310,7 +310,6 @@ describe('UserscriptListPanel 搜索 / 筛选 / 排序', () => {
     await searchInput().setValue('脚本A')
     expect(wrapper.findAll('button[aria-label="编辑脚本"]')).toHaveLength(1)
     expect(rowText(0)).toContain('脚本A')
-    expect(wrapper.text()).toContain('筛选显示 1 个')
   })
 
   it('按匹配规则也能搜到（搜索域含 matches）', async () => {

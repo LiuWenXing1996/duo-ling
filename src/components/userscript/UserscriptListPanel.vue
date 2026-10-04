@@ -205,9 +205,6 @@ const statusFilter = ref<StatusFilter>('all')
 type SortKey = 'updatedAt' | 'name'
 const sortKey = ref<SortKey>('updatedAt')
 
-/** 是否处于筛选态（搜索或状态筛选生效中），用于计数行提示与空态文案分流 */
-const isFiltering = computed(() => query.value.trim() !== '' || statusFilter.value !== 'all')
-
 const statusFilters = computed(() => [
   { key: 'all' as StatusFilter, label: '全部', count: scripts.value.length },
   { key: 'enabled' as StatusFilter, label: '已启用', count: enabledCount.value },
@@ -922,15 +919,9 @@ useDataSync('group', () => refreshGroups())
 
 <template>
   <section class="panel">
-    <!-- 固定区：单行工具栏不随列表滚动 —— 计数 + 搜索 / 筛选 / 排序 / 批量操作 + 刷新 / 导入 / 新建，列表再长入口也始终可见 -->
+    <!-- 固定区：单行工具栏不随列表滚动 —— 搜索 / 筛选 / 排序 / 批量操作 + 刷新 / 导入 / 新建，列表再长入口也始终可见 -->
     <div class="mx-auto w-full max-w-6xl shrink-0 px-5 pt-4">
       <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
-        <p class="shrink-0 text-xs text-muted-foreground">
-          共 {{ scripts.length }} 个脚本
-          <template v-if="scripts.length">· {{ enabledCount }} 个已启用</template>
-          <template v-if="isFiltering">· 筛选显示 {{ visibleScripts.length }} 个</template>
-        </p>
-
         <!-- 搜索 / 筛选 / 排序 / 批量：管理工具，没有脚本时整段隐藏 -->
         <template v-if="scripts.length">
           <!-- 搜索：按名称 / 匹配规则；有关键词时显示一键清空 -->
