@@ -1288,9 +1288,9 @@ useDataSync('group', () => refreshGroups())
                 </div>
               </div>
 
-              <!-- 匹配规则（占满一行，截断） -->
-              <p class="mt-2 truncate font-mono text-xs text-muted-foreground">
-                {{ item.s.matches.join(', ') || '（无匹配规则）' }}
+              <!-- 匹配规则（占满一行，截断）：标签与元信息三行同款，只有模式串用等宽 -->
+              <p class="mt-2 truncate text-xs text-muted-foreground">
+                匹配规则：<span class="font-mono">{{ item.s.matches.join(', ') || '无' }}</span>
               </p>
               <!-- 元信息：更新时间 / 上次运行 / 上次日志，一行一条 —— 横向拼行时两个完整时间戳自身就宽于卡片，会顶出边框 -->
               <div class="mt-1 space-y-0.5 text-xs text-muted-foreground tabular-nums">

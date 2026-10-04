@@ -394,9 +394,9 @@ describe('UserscriptListPanel 卡片布局', () => {
     list.mockResolvedValue([s])
     wrapper = await mountPanel()
     const card = wrapper.findAll('.bg-card').find((el) => el.text().includes('脚本A'))!
-    expect(card.element.textContent).toContain('a.example')
+    expect(card.element.textContent).toContain('匹配规则：https://a.example/*')
     // 元信息行（更新时间 / 运行统计）存在：本 fixture 无运行统计，只渲染更新时间
-    expect(card.element.textContent).not.toBe('')
+    expect(card.element.textContent).toContain('更新时间：')
   })
 })
 
