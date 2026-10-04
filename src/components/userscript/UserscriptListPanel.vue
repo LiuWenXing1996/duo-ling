@@ -205,9 +205,6 @@ const statusFilter = ref<StatusFilter>('all')
 type SortKey = 'updatedAt' | 'name'
 const sortKey = ref<SortKey>('updatedAt')
 
-/** 是否处于筛选态（搜索或状态筛选生效中），用于计数行提示与空态文案分流 */
-const isFiltering = computed(() => query.value.trim() !== '' || statusFilter.value !== 'all')
-
 const statusFilters = computed(() => [
   { key: 'all' as StatusFilter, label: '全部', count: scripts.value.length },
   { key: 'enabled' as StatusFilter, label: '已启用', count: enabledCount.value },
@@ -922,15 +919,9 @@ useDataSync('group', () => refreshGroups())
 
 <template>
   <section class="panel">
-    <!-- 固定区：单行工具栏不随列表滚动 —— 计数 + 搜索 / 筛选 / 排序 / 批量操作 + 刷新 / 导入 / 新建，列表再长入口也始终可见 -->
+    <!-- 固定区：单行工具栏不随列表滚动 —— 搜索 / 筛选 / 排序 / 批量操作 + 刷新 / 导入 / 新建，列表再长入口也始终可见 -->
     <div class="mx-auto w-full max-w-6xl shrink-0 px-5 pt-4">
       <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
-        <p class="shrink-0 text-xs text-muted-foreground">
-          共 {{ scripts.length }} 个脚本
-          <template v-if="scripts.length">· {{ enabledCount }} 个已启用</template>
-          <template v-if="isFiltering">· 筛选显示 {{ visibleScripts.length }} 个</template>
-        </p>
-
         <!-- 搜索 / 筛选 / 排序 / 批量：管理工具，没有脚本时整段隐藏 -->
         <template v-if="scripts.length">
           <!-- 搜索：按名称 / 匹配规则；有关键词时显示一键清空 -->
@@ -1297,24 +1288,26 @@ useDataSync('group', () => refreshGroups())
                 </div>
               </div>
 
-              <!-- 匹配规则（占满一行，截断） -->
-              <p class="mt-2 truncate font-mono text-xs text-muted-foreground">
-                {{ item.s.matches.join(', ') || '（无匹配规则）' }}
+              <!-- 匹配规则（占满一行，截断）：标签与元信息三行同款，只有模式串用等宽 -->
+              <p class="mt-2 truncate text-xs text-muted-foreground">
+                匹配规则：<span class="font-mono">{{ item.s.matches.join(', ') || '无' }}</span>
               </p>
-              <!-- 元信息：更新时间 / 运行统计（窄卡片自动换行） -->
-              <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
-                <span v-if="updatedAtLabel(item.s.updatedAt)" class="shrink-0">{{ updatedAtLabel(item.s.updatedAt) }}</span>
-                <!-- 运行统计（有统计才渲染；runstats 域广播驱动实时回拉） -->
-                <span v-if="item.s.runCount !== undefined" class="shrink-0" data-testid="run-stats">· 运行 {{ item.s.runCount }} 次<template v-if="item.s.lastRunAt">，上次 {{ updatedAtLabel(item.s.lastRunAt) }}</template></span>
-                <span
-                  v-if="item.s.lastRunErrors"
-                  class="shrink-0 text-destructive"
-                  title="最近一次运行捕获的运行期错误数（详见运行日志标签页）"
-                >· 上次运行 {{ item.s.lastRunErrors }} 个错误</span>
+              <!-- 元信息：更新时间 / 上次运行 / 上次日志，一行一条 —— 横向拼行时两个完整时间戳自身就宽于卡片，会顶出边框。
+                   三行恒渲染（没跑过落「无」），同排卡片行数一致，分隔线与底行才对得齐 -->
+              <div class="mb-3 mt-1 space-y-0.5 text-xs text-muted-foreground tabular-nums">
+                <p>更新时间：{{ updatedAtLabel(item.s.updatedAt) || '无' }}</p>
+                <!-- 运行统计：lastRunAt 与 runCount 同源，没跑过两行都落「无」；runstats 域广播驱动实时回拉 -->
+                <p data-testid="run-stats">上次运行：{{ item.s.lastRunAt ? updatedAtLabel(item.s.lastRunAt) : '无' }}</p>
+                <p
+                  :class="item.s.lastRunErrors ? 'text-destructive' : ''"
+                  :title="item.s.lastRunErrors ? '最近一次运行捕获到错误，详情见「运行日志」标签页' : undefined"
+                >
+                  上次日志：{{ item.s.lastRunAt ? (item.s.lastRunErrors ? '有错误' : '正常') : '无' }}
+                </p>
               </div>
 
-              <!-- 底部：启用开关 + 操作（编辑 / 移动 / 导出 / 删除） -->
-              <div class="mt-3 flex items-center justify-between gap-2 border-t pt-2.5">
+              <!-- 底部：启用开关 + 操作（编辑 / 移动 / 导出 / 删除）；mt-auto 把底行钉在卡片底（网格同排卡片等高），内容长短不齐时分隔线也对齐 -->
+              <div class="mt-auto flex items-center justify-between gap-2 border-t pt-2.5">
                 <ui-switch
                   :model-value="item.s.enabled"
                   :disabled="toggling === item.s.uuid"
