@@ -1292,23 +1292,22 @@ useDataSync('group', () => refreshGroups())
               <p class="mt-2 truncate text-xs text-muted-foreground">
                 匹配规则：<span class="font-mono">{{ item.s.matches.join(', ') || '无' }}</span>
               </p>
-              <!-- 元信息：更新时间 / 上次运行 / 上次日志，一行一条 —— 横向拼行时两个完整时间戳自身就宽于卡片，会顶出边框 -->
-              <div class="mt-1 space-y-0.5 text-xs text-muted-foreground tabular-nums">
-                <p v-if="updatedAtLabel(item.s.updatedAt)">更新时间：{{ updatedAtLabel(item.s.updatedAt) }}</p>
-                <!-- 运行统计：有统计才有（lastRunAt 与 runCount 同源），runstats 域广播驱动实时回拉 -->
-                <template v-if="item.s.lastRunAt">
-                  <p data-testid="run-stats">上次运行：{{ updatedAtLabel(item.s.lastRunAt) }}</p>
-                  <p
-                    :class="item.s.lastRunErrors ? 'text-destructive' : ''"
-                    :title="item.s.lastRunErrors ? '最近一次运行捕获到错误，详情见「运行日志」标签页' : undefined"
-                  >
-                    上次日志：{{ item.s.lastRunErrors ? '有错误' : '正常' }}
-                  </p>
-                </template>
+              <!-- 元信息：更新时间 / 上次运行 / 上次日志，一行一条 —— 横向拼行时两个完整时间戳自身就宽于卡片，会顶出边框。
+                   三行恒渲染（没跑过落「无」），同排卡片行数一致，分隔线与底行才对得齐 -->
+              <div class="mb-3 mt-1 space-y-0.5 text-xs text-muted-foreground tabular-nums">
+                <p>更新时间：{{ updatedAtLabel(item.s.updatedAt) || '无' }}</p>
+                <!-- 运行统计：lastRunAt 与 runCount 同源，没跑过两行都落「无」；runstats 域广播驱动实时回拉 -->
+                <p data-testid="run-stats">上次运行：{{ item.s.lastRunAt ? updatedAtLabel(item.s.lastRunAt) : '无' }}</p>
+                <p
+                  :class="item.s.lastRunErrors ? 'text-destructive' : ''"
+                  :title="item.s.lastRunErrors ? '最近一次运行捕获到错误，详情见「运行日志」标签页' : undefined"
+                >
+                  上次日志：{{ item.s.lastRunAt ? (item.s.lastRunErrors ? '有错误' : '正常') : '无' }}
+                </p>
               </div>
 
-              <!-- 底部：启用开关 + 操作（编辑 / 移动 / 导出 / 删除） -->
-              <div class="mt-3 flex items-center justify-between gap-2 border-t pt-2.5">
+              <!-- 底部：启用开关 + 操作（编辑 / 移动 / 导出 / 删除）；mt-auto 把底行钉在卡片底（网格同排卡片等高），内容长短不齐时分隔线也对齐 -->
+              <div class="mt-auto flex items-center justify-between gap-2 border-t pt-2.5">
                 <ui-switch
                   :model-value="item.s.enabled"
                   :disabled="toggling === item.s.uuid"
