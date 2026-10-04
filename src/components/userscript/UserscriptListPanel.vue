@@ -1292,16 +1292,19 @@ useDataSync('group', () => refreshGroups())
               <p class="mt-2 truncate font-mono text-xs text-muted-foreground">
                 {{ item.s.matches.join(', ') || '（无匹配规则）' }}
               </p>
-              <!-- 元信息：更新时间 / 运行统计（窄卡片自动换行） -->
-              <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
-                <span v-if="updatedAtLabel(item.s.updatedAt)" class="shrink-0">{{ updatedAtLabel(item.s.updatedAt) }}</span>
-                <!-- 运行统计（有统计才渲染；runstats 域广播驱动实时回拉） -->
-                <span v-if="item.s.runCount !== undefined" class="shrink-0" data-testid="run-stats">· 运行 {{ item.s.runCount }} 次<template v-if="item.s.lastRunAt">，上次 {{ updatedAtLabel(item.s.lastRunAt) }}</template></span>
-                <span
-                  v-if="item.s.lastRunErrors"
-                  class="shrink-0 text-destructive"
-                  title="最近一次运行捕获的运行期错误数（详见运行日志标签页）"
-                >· 上次运行 {{ item.s.lastRunErrors }} 个错误</span>
+              <!-- 元信息：更新时间 / 上次运行 / 上次日志，一行一条 —— 横向拼行时两个完整时间戳自身就宽于卡片，会顶出边框 -->
+              <div class="mt-1 space-y-0.5 text-xs text-muted-foreground tabular-nums">
+                <p v-if="updatedAtLabel(item.s.updatedAt)">更新时间：{{ updatedAtLabel(item.s.updatedAt) }}</p>
+                <!-- 运行统计：有统计才有（lastRunAt 与 runCount 同源），runstats 域广播驱动实时回拉 -->
+                <template v-if="item.s.lastRunAt">
+                  <p data-testid="run-stats">上次运行：{{ updatedAtLabel(item.s.lastRunAt) }}</p>
+                  <p
+                    :class="item.s.lastRunErrors ? 'text-destructive' : ''"
+                    :title="item.s.lastRunErrors ? '最近一次运行捕获到错误，详情见「运行日志」标签页' : undefined"
+                  >
+                    上次日志：{{ item.s.lastRunErrors ? '有错误' : '正常' }}
+                  </p>
+                </template>
               </div>
 
               <!-- 底部：启用开关 + 操作（编辑 / 移动 / 导出 / 删除） -->
