@@ -27,7 +27,6 @@ import * as conversationStore from '@/lib/conversation-store'
 import { getToolName, isToolUIPart } from '@/lib/ui-message-parts'
 import { useDataSync } from '@/composables/use-data-sync'
 import {
-  AGENT_RUNTIME_LIMITS,
   AGENT_TOOL_TITLES,
   AGENT_TOOL_VIEWS,
   type AgentToolView,
@@ -229,12 +228,6 @@ function block(value: unknown): string {
           </span>
         </button>
       </div>
-
-      <!-- 两道闸：与运行时同源（AGENT_RUNTIME_LIMITS） -->
-      <footer class="flex flex-col gap-1 border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
-        <span>单任务最多 {{ AGENT_RUNTIME_LIMITS.maxSteps }} 步</span>
-        <span>script_apply 连败 {{ AGENT_RUNTIME_LIMITS.maxApplyFailures }} 次即停手</span>
-      </footer>
     </aside>
 
     <!-- 右栏：选中工具的契约 + 调用轨迹 -->
