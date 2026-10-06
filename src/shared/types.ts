@@ -83,8 +83,6 @@ export interface ModelProfile {
   baseUrl: string
   /** 模型 ID，如 deepseek-chat（请求时作为 model 字段） */
   model: string
-  /** 是否已在模型列表中启用（开关） */
-  enabled: boolean
   /** baseUrl 是否为完整接口地址：true 时不追加 /chat/completions */
   useFullUrl: boolean
   /** API 格式，目前仅支持 OpenAI Chat Completions */
@@ -119,7 +117,6 @@ export interface ModelProfileInput {
   baseUrl: string
   apiKey: string
   model: string
-  enabled?: boolean
   useFullUrl?: boolean
   contextOutputToken?: number
   temperature?: number

@@ -4,7 +4,7 @@
 //   1. **展示名为空时回退模型 ID**（契约见 `shared/types.ts` 的 `ModelProfile.name`）。
 //      ChatPanel 的模型 chip 与下拉只读 `name`、不做回退，因此回退必须在存储层完成，
 //      否则会渲染出空白项（桌面版正是在 toPublic / saveProfile 两处做的）。
-//   2. **activeProfileId 始终指向一条「已启用」配置**，唯一出口是 syncActiveProfileId；
+//   2. **activeProfileId 始终指向一条存在的配置**，唯一出口是 syncActiveProfileId；
 //      读取时不做事后兜底（避免「界面显示的当前模型」与「实际发送用的模型」不一致）。
 //
 // ⚠️ 安全边界：浏览器扩展没有 safeStorage 等价物，apiKey 经 AES-GCM 加密后落盘
@@ -52,7 +52,7 @@ async function readState(): Promise<ModelState> {
     }),
   )
   const state: ModelState = { profiles, activeProfileId: stored.activeProfileId }
-  // 自愈：扩展早期版本保存时未维护 activeProfileId（可能悬空或指向已停用项）。
+  // 自愈：扩展早期版本保存时未维护 activeProfileId（可能悬空）。
   // 仅在确实不一致时回写一次；此后读路径不再兜底，保持「activeProfileId 即真源」的严格语义。
   const before = state.activeProfileId
   syncActiveProfileId(state)
@@ -97,15 +97,15 @@ function toPublic(s: ModelProfileState): ModelProfile {
 }
 
 /**
- * 当前生效配置（含 apiKey）：activeProfileId 指向的**已启用**模型，否则视为未配置。
+ * 当前生效配置（含 apiKey）：activeProfileId 指向的模型，否则视为未配置。
  * 此处不做运行时兜底——回退统一由 syncActiveProfileId 保证，避免隐含状态。
  */
 async function getActiveProfile(): Promise<ModelProfileState | undefined> {
   const state = await readState()
-  return state.profiles.find((p) => p.id === state.activeProfileId && p.enabled !== false)
+  return state.profiles.find((p) => p.id === state.activeProfileId)
 }
 
-/** 当前真正生效的模型 id（始终指向一条启用配置；无则空串） */
+/** 当前真正生效的模型 id（始终指向一条存在的配置；无则空串） */
 export async function getActiveProfileId(): Promise<string> {
   return (await getActiveProfile())?.id ?? ''
 }
@@ -122,13 +122,12 @@ export async function getProfileApiKey(id: string): Promise<string> {
 }
 
 /**
- * 保证 activeProfileId 指向一条已启用配置；没有启用配置时置空串。
+ * 保证 activeProfileId 指向一条存在的配置；没有配置时置空串。
  * profiles 任何变更后都要经由此处收敛（原地修改并返回同一对象，调用方随后 writeState）。
  */
 function syncActiveProfileId(state: ModelState): ModelState {
-  const enabled = state.profiles.filter((p) => p.enabled !== false)
-  if (!enabled.some((p) => p.id === state.activeProfileId)) {
-    state.activeProfileId = enabled[0]?.id ?? ''
+  if (!state.profiles.some((p) => p.id === state.activeProfileId)) {
+    state.activeProfileId = state.profiles[0]?.id ?? ''
   }
   return state
 }
@@ -157,7 +156,6 @@ export async function saveProfile(input: ModelProfileInput): Promise<ModelProfil
     // 末尾斜杠会与 openai-compatible 的 /chat/completions 拼出双斜杠，统一在此剥离
     baseUrl: input.baseUrl.trim().replace(/\/+$/, ''),
     model: input.model.trim(),
-    enabled: input.enabled ?? existing?.enabled ?? true,
     useFullUrl: input.useFullUrl ?? existing?.useFullUrl ?? false,
     apiFormat: 'openai',
     hasApiKey: Boolean(apiKey) || Boolean(existing?.apiKey),
@@ -183,14 +181,6 @@ export async function saveProfile(input: ModelProfileInput): Promise<ModelProfil
 export async function removeProfile(id: string): Promise<void> {
   const state = await readState()
   state.profiles = state.profiles.filter((p) => p.id !== id)
-  await writeState(syncActiveProfileId(state))
-}
-
-/** 启用/停用某条模型配置（对应 ModelFormDialog 的开关）；停用当前模型会自动改选其它启用项 */
-export async function setProfileEnabled(id: string, enabled: boolean): Promise<void> {
-  const state = await readState()
-  if (!state.profiles.some((p) => p.id === id)) return
-  state.profiles = state.profiles.map((p) => (p.id === id ? { ...p, enabled } : p))
   await writeState(syncActiveProfileId(state))
 }
 

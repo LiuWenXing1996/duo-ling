@@ -97,7 +97,6 @@ const model: PreloadApi['model'] = {
   save: (profile: ModelProfileInput) => modelStore.saveProfile(profile),
   delete: (id) => modelStore.removeProfile(id),
   setActive: (id) => modelStore.setActiveProfile(id),
-  toggle: (id, enabled) => modelStore.setProfileEnabled(id, enabled),
   // 桌面版由主进程返回 { ok, error } 而不抛错；此处把 store 抛出的异常收敛为同一形状。
   // 编辑态 Key 未回显时（apiKey 为空串）回退到该配置已保存的 Key —— 对应桌面版 ipc/model.ts。
   testChat: async (config) => {

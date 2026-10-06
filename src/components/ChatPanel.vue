@@ -155,13 +155,11 @@ function refreshModelStatus(data: {
     baseUrl: string
     model: string
     hasApiKey: boolean
-    enabled?: boolean
     vision?: boolean
   }>
   activeId: string
 }): void {
-  const enabled = data.profiles.filter((p) => p.enabled !== false)
-  profiles.value = enabled
+  profiles.value = data.profiles
   activeModelId.value = data.activeId
 }
 
