@@ -32,7 +32,6 @@ export interface PreloadApi {
     save: (profile: ModelProfileInput) => Promise<ModelProfile>
     delete: (id: string) => Promise<void>
     setActive: (id: string) => Promise<void>
-    toggle: (id: string, enabled: boolean) => Promise<void>
     testChat: (config: ModelTestChatConfig) => Promise<TestChatResult>
   }
   provider: {

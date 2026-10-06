@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+// 添加/编辑模型弹窗：三步 —— 选服务商 → 输入 API Key → 选模型 ID。
+// 接口地址取自服务商预设，展示名默认用模型 ID，图片支持按预设白名单自动判定。
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { Button as UiButton } from '@/components/ui/button'
 import { Input as UiInput } from '@/components/ui/input'
 import {
@@ -15,22 +17,7 @@ import {
   SelectTrigger as UiSelectTrigger,
   SelectValue as UiSelectValue
 } from '@/components/ui/select'
-import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
-import {
-  Tooltip as UiTooltip,
-  TooltipContent as UiTooltipContent,
-  TooltipProvider as UiTooltipProvider,
-  TooltipTrigger as UiTooltipTrigger
-} from '@/components/ui/tooltip'
-import {
-  ChevronRight as UiChevronRight,
-  Eye as UiEye,
-  EyeOff as UiEyeOff,
-  Info as UiInfo,
-  Link as UiLink,
-  X as UiX
-} from '@lucide/vue'
-import { cn } from '@/lib/utils'
+import { Eye as UiEye, EyeOff as UiEyeOff, X as UiX } from '@lucide/vue'
 import { isKnownVisionModel } from '@/lib/providers'
 import type { ModelProfile, ModelProvider } from '@/types/model'
 
@@ -44,157 +31,90 @@ const emit = defineEmits<{ 'update:open': [value: boolean]; saved: [] }>()
 
 const saving = ref(false)
 const showKey = ref(false)
-// 连通性测试：按钮触发，状态用弹窗提示
+// 连通性测试：按钮触发，状态用弹窗内覆盖层提示
 const testing = ref(false)
 const testResult = ref<{ ok: boolean; message: string } | null>(null)
-// 高级配置折叠
-const advancedOpen = ref(false)
-// 「服务商快捷填入」地址框旁快捷下拉的选中值
-const quickProviderId = ref('')
 
 const form = reactive({
-  name: '',
-  model: '',
-  baseUrl: '',
-  useFullUrl: false,
+  providerId: '',
   apiKey: '',
-  // 模型能力声明：能否接收图片（对话栏的附件入口据此决定可用性）
-  vision: false,
-  // 高级配置
-  contextOutputToken: '',
-  temperature: '',
-  topP: '',
-  topK: '',
-  streamIdleTimeoutSec: ''
+  model: ''
 })
 
 const editingId = computed(() => props.editing?.id ?? null)
 const isEditing = computed(() => Boolean(props.editing))
 
-// 打开弹窗时按「新增/编辑」初始化表单
+// 可选服务商：仅支持 Bearer 鉴权直接使用的预设
+const providerOptions = computed(() => props.providers.filter((p) => p.supported))
+
+const selectedProvider = computed(
+  () => props.providers.find((p) => p.id === form.providerId) ?? null
+)
+
+// 打开弹窗时按「新增/编辑」初始化表单。
+// restoring 标记：回填 providerId 会触发下方「切服务商清模型」的 watch，
+// 不跳过的话编辑态首次打开时刚回填的模型 ID 会被清空（服务商没变时不触发，所以第二次打开才正常）
+let restoring = false
 watch(
   () => props.open,
   (open) => {
     if (!open) return
+    restoring = true
     showKey.value = false
-    advancedOpen.value = false
     saving.value = false
+    if (props.editing) {
+      form.providerId = props.editing.providerId
+      form.model = props.editing.model
+      form.apiKey = '' // 不回显明文，留空表示保存时保留
+    } else {
+      form.providerId = ''
+      form.model = ''
+      form.apiKey = ''
+    }
     testing.value = false
     testResult.value = null
-    quickProviderId.value = ''
-    if (props.editing) {
-      form.name = props.editing.name ?? props.editing.model
-      form.model = props.editing.model
-      form.baseUrl = props.editing.baseUrl
-      form.useFullUrl = props.editing.useFullUrl
-      form.apiKey = '' // 不回显明文，留空表示保存时保留
-      form.vision = props.editing.vision ?? false
-      form.contextOutputToken = props.editing.contextOutputToken != null ? String(props.editing.contextOutputToken) : ''
-      form.temperature = props.editing.temperature != null ? String(props.editing.temperature) : ''
-      form.topP = props.editing.topP != null ? String(props.editing.topP) : ''
-      form.topK = props.editing.topK != null ? String(props.editing.topK) : ''
-      form.streamIdleTimeoutSec = props.editing.streamIdleTimeoutSec != null ? String(props.editing.streamIdleTimeoutSec) : ''
-    } else {
-      resetForm()
-    }
+    nextTick(() => {
+      restoring = false
+    })
   }
 )
 
-function resetForm(): void {
-  form.baseUrl = ''
-  form.model = ''
-  form.name = ''
-  form.useFullUrl = false
-  form.apiKey = ''
-  form.vision = false
-  testResult.value = null
-  testing.value = false
-  form.contextOutputToken = ''
-  form.temperature = ''
-  form.topP = ''
-  form.topK = ''
-  form.streamIdleTimeoutSec = ''
-}
+// 用户切换服务商后原模型 ID 不再适用，清空待重选；初始化回填不算切换
+watch(
+  () => form.providerId,
+  () => {
+    if (restoring) return
+    form.model = ''
+  }
+)
 
-/** 数字输入转数值；空串或非法值返回 undefined */
-function numberOrUndefined(value: string): number | undefined {
-  const trimmed = value.trim()
-  if (trimmed === '') return undefined
-  const n = Number(trimmed)
-  return Number.isNaN(n) ? undefined : n
-}
+// 模型 ID：输入框自由手输，下方「快速填入」芯片列出所选服务商的预置模型，点一下填入
+const presetModels = computed(() => selectedProvider.value?.models ?? [])
 
-// 上下文窗口快捷值
-const outputTokenChips = [
-  { label: '4k', value: 4000 },
-  { label: '16k', value: 16000 },
-  { label: '32k', value: 32000 },
-  { label: '128k', value: 128000 }
-]
+const canSave = computed(() => {
+  return Boolean(form.providerId && form.model && (isEditing.value || form.apiKey.trim()))
+})
 
 function close(): void {
   emit('update:open', false)
 }
 
-function openKeyUrl(): void {
-  const url = matchedProvider.value?.keyUrl
-  if (url) window.open(url, '_blank')
-}
-
-// 依据填写的接口地址，识别匹配的预设服务商（作为模型快捷填入与 Key 链接的依据）
-const matchedProvider = computed<ModelProvider | null>(() => {
-  const url = form.baseUrl.trim().replace(/\/+$/, '')
-  if (!url) return null
-  return (
-    props.providers.find((p) => {
-      const base = p.baseUrl.trim().replace(/\/+$/, '')
-      if (!base) return false
-      return url === base || url.startsWith(base + '/')
-    }) ?? null
-  )
-})
-
-// 「服务商快捷填入」下拉的可选项：仅展示支持预填的预设服务商（supported）
-const quickProviders = computed(() => props.providers.filter((p) => p.supported))
-
-// 「服务商快捷填入」- 地址框旁下拉选到预设服务商后，填入其预设地址
-watch(quickProviderId, (id) => {
-  if (!id) return
-  const p = props.providers.find((x) => x.id === id)
-  if (p) form.baseUrl = p.baseUrl
-  quickProviderId.value = ''
-})
-
-/** 模型快捷填入：点击预设计算出的候选模型 ID。
- *  同时按预设表把「支持图片」预置到已知的视觉模型上（手输模型 ID 不联动，
- *  免得打字过程中来回改用户的勾选；拿不准的一律保持原样，由用户自己判断）。 */
-function fillModel(model: string): void {
-  form.model = model
-  form.vision = isKnownVisionModel(model)
-}
-
-const canSave = computed(() => {
-  // 新增 / 编辑：模型 ID 与请求地址必填；apiKey 非必须（允许先建后补）
-  return Boolean(form.model.trim() && form.baseUrl.trim())
-})
-
-// 连通性测试：按钮主动触发，结果用弹窗提示
+// 连通性测试：地址取自所选服务商预设，向接口发一次最小请求
 async function runTest(): Promise<void> {
   if (testing.value) return
-  const baseUrl = form.baseUrl.trim()
-  const model = form.model.trim()
-  if (!baseUrl || !model) {
-    testResult.value = { ok: false, message: '请先填写接口地址与模型 ID' }
+  const provider = selectedProvider.value
+  if (!provider || !form.model) {
+    testResult.value = { ok: false, message: '请先选择服务商与模型' }
     return
   }
   testing.value = true
   testResult.value = null
   try {
     const res = await window.api.model.testChat({
-      baseUrl,
+      baseUrl: provider.baseUrl,
       apiKey: form.apiKey,
-      model,
-      useFullUrl: form.useFullUrl,
+      model: form.model,
+      useFullUrl: false,
       // 编辑态 Key 未回显：传 profileId 由主进程回退已保存的 Key
       profileId: editingId.value ?? undefined
     })
@@ -219,21 +139,18 @@ async function save(): Promise<void> {
   if (!canSave.value || saving.value) return
   saving.value = true
   try {
+    const provider = selectedProvider.value
     await window.api.model.save({
       id: editingId.value ?? undefined,
-      name: form.name.trim(),
-      providerId: matchedProvider.value?.id,
-      baseUrl: form.baseUrl.trim(),
+      // 展示名沿用编辑前的设置；新增时直接用模型 ID
+      name: props.editing?.name || form.model,
+      providerId: form.providerId,
+      baseUrl: provider?.baseUrl ?? '',
       apiKey: form.apiKey,
-      model: form.model.trim(),
-      useFullUrl: form.useFullUrl,
-      enabled: props.editing?.enabled ?? true,
-      vision: form.vision,
-      contextOutputToken: numberOrUndefined(form.contextOutputToken),
-      temperature: numberOrUndefined(form.temperature),
-      topP: numberOrUndefined(form.topP),
-      topK: numberOrUndefined(form.topK),
-      streamIdleTimeoutSec: numberOrUndefined(form.streamIdleTimeoutSec)
+      model: form.model,
+      // 预设地址都不是完整接口地址，统一追加 /chat/completions
+      useFullUrl: false,
+      vision: isKnownVisionModel(form.model)
     })
     emit('saved')
     close()
@@ -245,8 +162,9 @@ async function save(): Promise<void> {
 
 <template>
   <ui-dialog :open="open" @update:open="emit('update:open', $event)">
-    <ui-dialog-content class="flex max-w-2xl max-h-[85vh] flex-col p-0 gap-0 overflow-hidden" :show-close-button="false">
-      <ui-tooltip-provider>
+    <!-- 不加 relative：cn/tailwind-merge 会用它覆盖基础组件的 fixed，弹窗将掉出视口；
+         fixed 本身即绝对定位的参照 -->
+    <ui-dialog-content class="flex max-w-md max-h-[85vh] flex-col p-0 gap-0" :show-close-button="false">
       <!-- 统一 header -->
       <div class="flex shrink-0 items-center justify-between border-b px-5 py-3">
         <ui-dialog-title class="text-base font-semibold">
@@ -262,147 +180,32 @@ async function save(): Promise<void> {
         </button>
       </div>
 
-      <div class="min-h-0 flex-1 overflow-y-auto scroll-gap p-5">
+      <div class="min-h-0 flex-1 overflow-y-auto p-5">
         <div class="space-y-4">
-          <!-- API 格式 -->
+          <!-- 第一步：选择服务商 -->
           <div class="space-y-1">
-            <label class="flex items-center text-xs font-medium">
-              <span class="text-destructive">*</span>
-              <span class="ml-0.5">API 格式</span>
-            </label>
-            <ui-select model-value="openai">
-              <ui-select-trigger>
-                <ui-select-value>OpenAI Chat Completions 格式</ui-select-value>
+            <label class="text-xs font-medium">服务商</label>
+            <!-- 编辑态禁用切换：服务商决定接口地址与模型清单，改动等于换一个模型配置 -->
+            <ui-select v-model="form.providerId" :disabled="isEditing">
+              <ui-select-trigger class="w-full">
+                <ui-select-value placeholder="选择服务商" />
               </ui-select-trigger>
-              <ui-select-content>
-                <ui-select-item value="openai">OpenAI Chat Completions 格式</ui-select-item>
+              <ui-select-content class="max-h-64">
+                <ui-select-item v-for="p in providerOptions" :key="p.id" :value="p.id">
+                  {{ p.name }}
+                </ui-select-item>
               </ui-select-content>
             </ui-select>
           </div>
 
-          <!-- 请求地址 -->
+          <!-- 第二步：输入 API Key -->
           <div class="space-y-1">
-            <div class="flex items-center justify-between text-xs font-medium">
-              <label class="flex items-center">
-                <span class="text-destructive">*</span>
-                <span class="ml-0.5">接口地址</span>
-              </label>
-              <span class="flex items-center gap-1.5 text-muted-foreground">
-                <label for="use-full-url" class="inline-flex cursor-pointer items-center gap-1">
-                  <ui-link class="size-3.5" />
-                  完整 URL
-                </label>
-                <ui-switch id="use-full-url" v-model="form.useFullUrl" aria-label="使用完整 URL">
-                  <ui-switch-thumb />
-                </ui-switch>
-              </span>
-            </div>
-            <ui-input
-              v-model="form.baseUrl"
-              :placeholder="form.useFullUrl ? '例如 https://api.openai.com/v1/chat/completions' : '例如 https://api.openai.com/v1'"
-            />
-            <p class="text-xs leading-relaxed text-muted-foreground">
-              请填写兼容 OpenAI API 的服务端点地址，不要以斜杠结尾。{{
-                form.useFullUrl ? '作为完整接口地址直接请求。' : '/chat/completions 将会被补充到你填写的地址末尾。'
-              }}
-            </p>
-            <!-- 服务商快捷填入：选预设服务商即填入地址；已识别服务商时提示 -->
-            <div class="flex items-center gap-2">
-              <ui-select v-model="quickProviderId">
-                <ui-select-trigger class="h-7 w-auto px-2 text-xs">
-                  <ui-select-value placeholder="从服务商快捷填入" />
-                </ui-select-trigger>
-                <ui-select-content>
-                  <ui-select-item v-for="p in quickProviders" :key="p.id" :value="p.id">
-                    {{ p.name }}
-                  </ui-select-item>
-                </ui-select-content>
-              </ui-select>
-              <span
-                v-if="matchedProvider"
-                class="inline-flex items-center gap-1 text-xs text-muted-foreground"
-              >
-                <ui-info class="size-3.5" />
-                识别为：{{ matchedProvider.name }}
-              </span>
-            </div>
-          </div>
-
-          <!-- 模型 -->
-          <div class="space-y-1">
-            <label class="flex items-center text-xs font-medium">
-              <span class="text-destructive">*</span>
-              <span class="ml-0.5">模型</span>
-            </label>
-            <ui-input v-model="form.model" placeholder="输入模型 ID，如 gpt-4o" />
-            <!-- 根据地址识别到的服务商，给出可快速填入的模型 -->
-            <div
-              v-if="matchedProvider?.models.length"
-              class="flex flex-wrap items-center gap-1.5"
-            >
-              <span class="text-xs text-muted-foreground">快速填入：</span>
-              <button
-                v-for="m in matchedProvider.models"
-                :key="m"
-                type="button"
-                class="rounded border px-2 py-0.5 text-xs transition-colors"
-                :class="form.model === m ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'"
-                @click="fillModel(m)"
-              >
-                {{ m }}
-              </button>
-            </div>
-          </div>
-
-          <!-- 模型展示名称 -->
-          <div class="space-y-1">
-            <label class="text-xs font-medium">模型展示名称</label>
-            <p class="text-xs text-muted-foreground">
-              在模型列表中展示的名称，未设置时默认显示 Model ID。
-            </p>
-            <div class="relative">
-              <ui-input v-model="form.name" maxlength="32" placeholder="请输入模型展示名称" class="pr-12" />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                {{ form.name.length }}/32
-              </span>
-            </div>
-          </div>
-
-          <!-- 是否支持图片：对话栏的附件入口据此判断能否发送图片 -->
-          <div class="space-y-1">
-            <div class="flex items-center justify-between">
-              <label for="model-vision" class="cursor-pointer text-xs font-medium">支持图片</label>
-              <ui-switch id="model-vision" v-model="form.vision" aria-label="支持图片">
-                <ui-switch-thumb />
-              </ui-switch>
-            </div>
-            <p class="text-xs leading-relaxed text-muted-foreground">
-              开启后可在对话中把图片发给这个模型；模型读不了图时，请求会直接失败。
-            </p>
-          </div>
-
-          <!-- API 密钥 -->
-          <div class="space-y-1">
-            <div class="flex items-center justify-between text-xs font-medium">
-              <label class="flex items-center">
-                <span class="text-destructive">*</span>
-                <span class="ml-0.5">API 密钥</span>
-              </label>
-              <button
-                v-if="matchedProvider"
-                type="button"
-                class="inline-flex items-center gap-1 text-xs text-primary transition-colors hover:text-primary/80"
-                @click="openKeyUrl"
-              >
-                <ui-link class="size-3.5" />
-                获取 API 密钥
-              </button>
-            </div>
+            <label class="text-xs font-medium">API 密钥</label>
             <div class="relative">
               <ui-input
                 v-model="form.apiKey"
                 :type="showKey ? 'text' : 'password'"
-                :placeholder="isEditing ? '留空则保留已有 Key' : '请输入 API Key'"
+                :placeholder="isEditing ? '留空则保留已有密钥' : '输入 API Key'"
                 class="pr-9"
               />
               <button
@@ -415,112 +218,32 @@ async function save(): Promise<void> {
                 <ui-eye v-else class="size-4" />
               </button>
             </div>
-            <p class="text-xs leading-relaxed text-muted-foreground">
-              Key 将加密存储在本机，但浏览器扩展无法做到绝对安全。建议使用单独或有限额的 Key。
-            </p>
           </div>
-        </div>
 
-        <!-- 高级配置 -->
-        <div class="mt-4 border-t pt-3">
-          <button
-            type="button"
-            class="flex w-full items-center justify-between text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-            @click="advancedOpen = !advancedOpen"
-          >
-            <span>高级配置</span>
-            <ui-chevron-right
-              class="size-4 transition-transform"
-              :class="{ 'rotate-90': advancedOpen }"
+          <!-- 第三步：模型 ID —— 手输，下方预置模型快速填入 -->
+          <div class="space-y-1">
+            <label class="text-xs font-medium">模型 ID</label>
+            <ui-input
+              v-model="form.model"
+              :disabled="!form.providerId"
+              :placeholder="form.providerId ? '输入模型 ID' : '先选择服务商'"
             />
-          </button>
-
-          <div v-if="advancedOpen" class="space-y-4 pt-3">
-            <!-- 输出 Token（max_tokens） -->
-            <div class="space-y-2">
-              <label class="text-xs font-medium text-muted-foreground">输出 Token（max_tokens）</label>
-              <div class="flex items-center gap-2">
-                <label class="flex w-10 shrink-0 items-center gap-1 text-xs font-medium">
-                  <span>输出</span>
-                  <ui-tooltip>
-                    <ui-tooltip-trigger as-child>
-                      <span class="inline-flex"><ui-info class="size-3" /></span>
-                    </ui-tooltip-trigger>
-                    <ui-tooltip-content class="max-w-[260px] whitespace-normal leading-relaxed">对应请求参数 max_tokens，限制模型一次生成（输出）的最大 token 数。留空则不带该参数，由模型服务商默认决定。</ui-tooltip-content>
-                  </ui-tooltip>
-                </label>
-                <ui-input
-                  v-model="form.contextOutputToken"
-                  placeholder="请输入数值，留空则不携带该参数"
-                  class="h-8"
-                />
-                <div class="flex shrink-0 gap-1">
-                  <button
-                    v-for="c in outputTokenChips"
-                    :key="c.label"
-                    type="button"
-                    class="rounded border px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-                    @click="form.contextOutputToken = String(c.value)"
-                  >
-                    {{ c.label }}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- 采样参数 -->
-            <div class="space-y-2">
-              <label class="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                采样参数
-                <ui-tooltip>
-                  <ui-tooltip-trigger as-child>
-                    <span class="inline-flex"><ui-info class="size-3" /></span>
-                  </ui-tooltip-trigger>
-                  <ui-tooltip-content class="max-w-[260px] whitespace-normal leading-relaxed">控制模型生成回答时的采样策略，影响输出的概率分布与多样性。参数相互耦合，留空则该参数不随请求发送，由模型服务商按默认采样配置处理。</ui-tooltip-content>
-                </ui-tooltip>
-              </label>
-              <div class="flex items-center gap-2">
-                <span class="w-[5.5rem] shrink-0 text-sm">Temperature</span>
-                <ui-input
-                  v-model="form.temperature"
-                  placeholder="留空则该参数不随请求发送，或输入 0 ~ 2 之间的数值"
-                  class="h-8"
-                />
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="w-[5.5rem] shrink-0 text-sm">Top P</span>
-                <ui-input
-                  v-model="form.topP"
-                  placeholder="留空则该参数不随请求发送，或输入 0 ~ 1 之间的数值"
-                  class="h-8"
-                />
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="w-[5.5rem] shrink-0 text-sm">Top K</span>
-                <ui-input
-                  v-model="form.topK"
-                  placeholder="留空则该参数不随请求发送，或输入 1 ~ 100 之间的数值"
-                  class="h-8"
-                />
-              </div>
-            </div>
-
-            <!-- 流式超时（防限流） -->
-            <div class="space-y-2">
-              <label class="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                流式超时（秒）
-                <ui-tooltip>
-                  <ui-tooltip-trigger as-child>
-                    <span class="inline-flex"><ui-info class="size-3" /></span>
-                  </ui-tooltip-trigger>
-                  <ui-tooltip-content class="max-w-[260px] whitespace-normal leading-relaxed">两次回复间隔超过该值即判定服务卡死并中止生成，避免请求长期占用连接、触发限流。留空使用默认 60 秒。</ui-tooltip-content>
-                </ui-tooltip>
-              </label>
-              <ui-input
-                v-model="form.streamIdleTimeoutSec"
-                placeholder="留空使用默认 60 秒"
-                class="h-8"
-              />
+            <div v-if="presetModels.length" class="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <span class="text-xs text-muted-foreground">快速填入：</span>
+              <button
+                v-for="m in presetModels"
+                :key="m"
+                type="button"
+                class="rounded border px-2 py-0.5 text-xs transition-colors"
+                :class="
+                  form.model === m
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:text-foreground'
+                "
+                @click="form.model = m"
+              >
+                {{ m }}
+              </button>
             </div>
           </div>
         </div>
@@ -542,17 +265,9 @@ async function save(): Promise<void> {
               取消
             </ui-button>
             <ui-button
-              variant="ghost"
-              size="sm"
-              :disabled="saving"
-              @click="resetForm"
-            >
-              重置
-            </ui-button>
-            <ui-button
               size="sm"
               :disabled="!canSave || saving"
-              :class="cn('bg-background text-foreground border', saving && 'opacity-50')"
+              class="bg-foreground text-background hover:bg-foreground/90"
               @click="save"
             >
               {{ saving ? '保存中…' : isEditing ? '保存' : '添加模型' }}
@@ -603,7 +318,6 @@ async function save(): Promise<void> {
           </template>
         </div>
       </div>
-      </ui-tooltip-provider>
     </ui-dialog-content>
-    </ui-dialog>
+  </ui-dialog>
 </template>
