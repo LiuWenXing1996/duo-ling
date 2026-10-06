@@ -230,6 +230,17 @@ describe('GM_xmlhttpRequest forbidden header 覆写（DNR session 规则）', ()
     expect(detach.addRules).toBeUndefined()
   })
 
+  it('URL 带自定义端口时按主机名匹配（DNR 的域比对不含端口，传 host 会静默失配）', async () => {
+    fetchMock.mockResolvedValue(new Response('ok'))
+    await sendToBridge({
+      c: 'fetch',
+      url: 'http://127.0.0.1:5178/headers',
+      init: { headers: { Cookie: 'a=1' } },
+    })
+    const rule = dnrMocks.updateSessionRules.mock.calls[0]![0].addRules[0]
+    expect(rule.condition.requestDomains).toEqual(['127.0.0.1'])
+  })
+
   it('纯 fetch（无禁设头）不挂 DNR 规则', async () => {
     fetchMock.mockResolvedValue(new Response('ok'))
     await sendToBridge({ c: 'fetch', url: 'https://x.test/', init: { headers: { 'X-Ok': '1' } } })
