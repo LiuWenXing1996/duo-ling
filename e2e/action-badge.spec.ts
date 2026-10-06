@@ -5,7 +5,7 @@
 // 包装广播出来的 —— 整条链路（注入 → 登记 → 重算 → `chrome.action`）都在被测范围内。伪造一条
 // runstart 只能证明「重算函数会跑」，证明不了「页面里跑着的脚本会不会被数上」。
 //
-// 引导姿势与 gm-matrix.spec.ts 共用：Phase A 程序化开 userScripts 开关 → 同 profile 重启 →
+// 引导姿势与 omni-probe.spec.ts 共用：Phase A 程序化开 userScripts 开关 → 同 profile 重启 →
 // `chrome.userScripts` 由 undefined 变可用（开关状态随 profile 持久化）。
 //
 // 覆盖：命中即亮 + 悬停文案与灵动岛同句；**按标签页各算各的**（一个页命中两个脚本、另一页只命中

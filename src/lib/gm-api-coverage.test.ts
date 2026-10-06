@@ -1,6 +1,6 @@
-// 「GM 可用性矩阵」探针 ↔ 目录（gm-api-catalog）的**覆盖对齐**测试。
+// 「GM 全能探针」用例 ↔ 目录（gm-api-catalog）的**覆盖对齐**测试。
 //
-// 目录是「有哪些 GM API」的唯一清单源；矩阵探针（uscript-samples/gm-matrix/gm-matrix.user.js）是
+// 目录是「有哪些 GM API」的唯一清单源；探针（uscript-samples/omni-probe/omni-probe.user.js）是
 // **真机那一层**的唯一验收入口。两边一分叉就会出现「目录里新加了 API，但没人手测过它」——
 // 这正是已定位的缺口。故探针顶部挂一张覆盖登记表：
 //
@@ -16,7 +16,7 @@ import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
 import { GM_API_ENTRIES } from './gm-api-catalog'
 
-const PROBE_SRC = readFileSync(new URL('../../uscript-samples/gm-matrix/gm-matrix.user.js', import.meta.url), 'utf8')
+const PROBE_SRC = readFileSync(new URL('../../uscript-samples/omni-probe/omni-probe.user.js', import.meta.url), 'utf8')
 
 interface Declared {
   /** 认领方（探针里的用例名，须一字不差） */
@@ -50,7 +50,7 @@ const CATALOG: string[] = GM_API_ENTRIES.map((e) => e.path).sort()
 /** 登记表里出现过的全部路径 */
 const DECLARED_PATHS = [...new Set(declared().flatMap((d) => d.paths))].sort()
 
-describe('GM 可用性矩阵探针覆盖目录', () => {
+describe('GM 全能探针覆盖目录', () => {
   it('探针源码语法合法（acorn 解析；它是手测脚本，语法错一次就静默全废）', () => {
     expect(() => parse(PROBE_SRC, { ecmaVersion: 'latest' })).not.toThrow()
   })
@@ -80,9 +80,9 @@ describe('GM 可用性矩阵探针覆盖目录', () => {
     expect(cases.filter((n) => !claimed.includes(n)), '探针里有没进登记表的用例（漏登记）').toEqual([])
   })
 
-  it('目录里的每条路径都被认领（矩阵不留空行）', () => {
+  it('目录里的每条路径都被认领（探针不留空行）', () => {
     const uncovered = CATALOG.filter((p) => !DECLARED_PATHS.includes(p))
-    expect(uncovered, `目录里有、矩阵探针没覆盖的路径：${uncovered.join(', ')}`).toEqual([])
+    expect(uncovered, `目录里有、探针没覆盖的路径：${uncovered.join(', ')}`).toEqual([])
   })
 
   it('登记表里的路径都还在目录里（防留下已下架的路径）', () => {
