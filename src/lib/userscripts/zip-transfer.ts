@@ -125,8 +125,8 @@ export function parseScriptsZip(bytes: Uint8Array): ScriptsZipParse {
   const scripts: ParsedScript[] = []
   const ignored: ParsedIgnored[] = []
 
-  // 按路径排序遍历：导入顺序不随 zip 写入顺序漂移，报告读起来也可复现
-  for (const path of Object.keys(unzipped).sort()) {
+  // 按 zip 内条目顺序遍历：包里先写的先导入，导出 → 导入往返保序（顺序由包本身确定，无需另排）
+  for (const path of Object.keys(unzipped)) {
     if (path.endsWith('/')) continue // 目录占位条目：不是文件
     if (!isSourcePath(path)) {
       ignored.push({ path, reason: `非 ${SCRIPT_EXT} 文件，未导入` })
