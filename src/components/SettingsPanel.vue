@@ -17,8 +17,18 @@ import {
   TabsTrigger as UiTabsTrigger
 } from '@/components/ui/tabs'
 import { SETTINGS_SECTIONS } from './settings/sections'
+import type { WorkspaceTabKind } from '@/shared/types'
 
-const emit = defineEmits<{ openGuide: [] }>()
+const emit = defineEmits<{
+  openGuide: []
+  /** 分区里的「打开某面板」请求（当前只有开发者分区会发）；标题由分区一并给，宿主不再各写一份 */
+  openTab: [kind: WorkspaceTabKind, title: string]
+}>()
+
+/** 转发分区发来的打开请求：监听器直接引用本函数，免得在模板里写无类型可依的内联箭头 */
+function forwardOpenTab(kind: WorkspaceTabKind, title: string): void {
+  emit('openTab', kind, title)
+}
 
 // 默认选中首个分区（注册表第一项）
 const activeSection = ref(SETTINGS_SECTIONS[0]?.id ?? '')
@@ -67,7 +77,9 @@ const activeSection = ref(SETTINGS_SECTIONS[0]?.id ?? '')
           :value="section.id"
           class="mt-0"
         >
-          <component :is="section.component" />
+          <!-- 分区 emit openTab 时往上转（当前只有开发者分区会发）；其余分区没声明这个事件，
+               Vue 会把监听器落到它们的根元素上：不触发，无副作用 -->
+          <component :is="section.component" @open-tab="forwardOpenTab" />
         </ui-tabs-content>
       </div>
     </ui-tabs>

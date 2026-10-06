@@ -1,126 +1,57 @@
-// 组件测试：设置 · 开发者分区（DevModeSection.vue）—— 总开关 + 每个入口各自的开关。
+// 组件测试：设置 · 开发者分区（DevModeSection.vue）—— 调试面板入口 + 通知 / 角标两个自测工具。
 //
-// 守四条：初值从存储读、总闸关时各页开关禁用、点开关写回存储、外部改动经订阅回填。
-// 边界 mock：只把三个读写函数与订阅替掉，DEV_PAGES 用真实清单（顺序即渲染顺序）。
-import { afterEach, describe, expect, it, vi } from 'vitest'
+// 守三条：清单里的面板各有一行入口、点某行把 kind 与标题交给宿主（emit openTab）、
+// 分区里不再有「控制显示与否」的开关。
+import { afterEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import DevModeSection from './DevModeSection.vue'
-import { DEV_PAGES } from '@/lib/dev-mode-store'
 
-const getDevModeState = vi.hoisted(() => vi.fn())
-const setDevMode = vi.hoisted(() => vi.fn(async () => {}))
-const setDevPageEnabled = vi.hoisted(() => vi.fn(async () => {}))
-const subscribeDevMode = vi.hoisted(() => vi.fn())
-
-let push: ((s: { enabled: boolean; disabled: string[] }) => void) | undefined
-subscribeDevMode.mockImplementation((cb: (s: { enabled: boolean; disabled: string[] }) => void) => {
-  push = cb
-  return () => {
-    push = undefined
-  }
-})
-
-vi.mock('@/lib/dev-mode-store', async () => {
-  const actual =
-    await vi.importActual<typeof import('@/lib/dev-mode-store')>('@/lib/dev-mode-store')
-  return {
-    DEV_PAGES: actual.DEV_PAGES,
-    getDevModeState,
-    setDevMode,
-    setDevPageEnabled,
-    subscribeDevMode,
-  }
-})
+/** 入口清单（顺序即渲染顺序）：kind → 面板名 */
+const PANELS = [
+  ['ui-test', 'AI 界面对话预览'],
+  ['lfs-browser', '脚本文件'],
+  ['chat-data', '会话数据'],
+  ['agent-tools', 'AI 工具'],
+  ['gm-api', 'GM API'],
+] as const
 
 const wrappers: VueWrapper[] = []
 
-async function mountSection(state: { enabled: boolean; disabled: string[] }): Promise<VueWrapper> {
-  getDevModeState.mockResolvedValue(state)
+function mountSection(): VueWrapper {
   const w = mount(DevModeSection)
   wrappers.push(w)
-  await flushPromises()
   return w
 }
 
-/** 全部开关：第 0 个是总闸，之后按 DEV_PAGES 顺序 */
-const switches = (w: VueWrapper) => w.findAll('[role="switch"]')
-const master = (w: VueWrapper) => switches(w)[0]!
-const page = (w: VueWrapper, i: number) => switches(w)[i + 1]!
+/** 某面板的入口行 */
+const entry = (w: VueWrapper, kind: string) => w.find(`[data-testid="dev-open-${kind}"]`)
 
 afterEach(() => {
   for (const w of wrappers) w.unmount()
   wrappers.length = 0
-  push = undefined
-  vi.clearAllMocks()
 })
 
 describe('设置 · 开发者分区', () => {
-  it('总闸 + 每个入口各一个开关', async () => {
-    const w = await mountSection({ enabled: false, disabled: [] })
-    expect(switches(w)).toHaveLength(1 + DEV_PAGES.length)
-    for (const p of DEV_PAGES) expect(w.text()).toContain(p.label)
-  })
-
-  it('总闸关着：各页开关禁用且都是关态', async () => {
-    const w = await mountSection({ enabled: false, disabled: [] })
-    expect(master(w).attributes('data-state')).toBe('unchecked')
-    for (let i = 0; i < DEV_PAGES.length; i++) {
-      expect(page(w, i).attributes('disabled')).toBeDefined()
-      expect(page(w, i).attributes('data-state')).toBe('unchecked')
+  it('每个调试面板各一行入口，文案即面板名', () => {
+    const w = mountSection()
+    for (const [kind, label] of PANELS) {
+      const row = entry(w, kind)
+      expect(row.exists()).toBe(true)
+      expect(row.text()).toBe(label)
     }
+    // 入口不多不少：多出来的行只会在设置页里变成噪音
+    expect(w.findAll('[data-testid^="dev-open-"]')).toHaveLength(PANELS.length)
   })
 
-  it('总闸打开：各页开关可用、默认全开；被单独关掉的页除外', async () => {
-    const w = await mountSection({ enabled: true, disabled: ['gm-api'] })
-    expect(master(w).attributes('data-state')).toBe('checked')
-
-    const offIndex = DEV_PAGES.findIndex((p) => p.id === 'gm-api')
-    for (let i = 0; i < DEV_PAGES.length; i++) {
-      expect(page(w, i).attributes('disabled')).toBeUndefined()
-      const expected = i === offIndex ? 'unchecked' : 'checked'
-      expect(page(w, i).attributes('data-state')).toBe(expected)
-    }
+  it('点某一行：把 kind 与标题一并交给宿主', async () => {
+    const w = mountSection()
+    await entry(w, 'gm-api').trigger('click')
+    expect(w.emitted('openTab')).toEqual([['gm-api', 'GM API']])
   })
 
-  it('点总闸：写回总开关', async () => {
-    const w = await mountSection({ enabled: false, disabled: [] })
-    await master(w).trigger('click')
-    await flushPromises()
-    expect(setDevMode).toHaveBeenCalledWith(true)
-  })
-
-  it('点某一页：只改那一页（关掉 → setDevPageEnabled(id, false)）', async () => {
-    const w = await mountSection({ enabled: true, disabled: [] })
-    const offIndex = DEV_PAGES.findIndex((p) => p.id === 'chat-data')
-
-    await page(w, offIndex).trigger('click')
-    await flushPromises()
-
-    expect(setDevPageEnabled).toHaveBeenCalledWith('chat-data', false)
-    expect(setDevMode).not.toHaveBeenCalled()
-    expect(page(w, offIndex).attributes('data-state')).toBe('unchecked')
-  })
-
-  it('外部改动经订阅回填', async () => {
-    const w = await mountSection({ enabled: false, disabled: [] })
-    expect(master(w).attributes('data-state')).toBe('unchecked')
-
-    push?.({ enabled: true, disabled: ['agent-tools'] })
-    await flushPromises()
-
-    expect(master(w).attributes('data-state')).toBe('checked')
-    const offIndex = DEV_PAGES.findIndex((p) => p.id === 'agent-tools')
-    expect(page(w, offIndex).attributes('data-state')).toBe('unchecked')
-    // 外部改动不该反过来再写一次存储
-    expect(setDevMode).not.toHaveBeenCalled()
-    expect(setDevPageEnabled).not.toHaveBeenCalled()
-  })
-
-  it('卸载时退订', async () => {
-    const w = await mountSection({ enabled: false, disabled: [] })
-    expect(subscribeDevMode).toHaveBeenCalledTimes(1)
-    w.unmount()
-    expect(push).toBeUndefined()
+  it('分区里没有开关：入口只负责打开，不控制显示与否', () => {
+    const w = mountSection()
+    expect(w.findAll('[role="switch"]')).toHaveLength(0)
   })
 })
 
@@ -132,7 +63,7 @@ describe('设置 · 开发者分区 · 角标调试栏', () => {
   const btn = (w: VueWrapper, testid: string) => w.find(`[data-testid="${testid}"]`)
 
   it('应用：输入的文字设到角标上，并显示当前字数', async () => {
-    const w = await mountSection({ enabled: false, disabled: [] })
+    const w = mountSection()
     await input(w).setValue('9+')
     expect(w.text()).toContain('2 字符')
 
@@ -143,7 +74,7 @@ describe('设置 · 开发者分区 · 角标调试栏', () => {
   })
 
   it('回车即应用（不必去点按钮）', async () => {
-    const w = await mountSection({ enabled: false, disabled: [] })
+    const w = mountSection()
     await input(w).setValue('•')
     await input(w).trigger('keyup.enter')
     await flushPromises()
@@ -152,7 +83,7 @@ describe('设置 · 开发者分区 · 角标调试栏', () => {
   })
 
   it('清除：角标与输入框一起清空', async () => {
-    const w = await mountSection({ enabled: false, disabled: [] })
+    const w = mountSection()
     await input(w).setValue('12')
     await btn(w, 'dev-badge-apply').trigger('click')
     await flushPromises()
@@ -168,7 +99,7 @@ describe('设置 · 开发者分区 · 角标调试栏', () => {
   // 颜色读回在 fakeBrowser 里是两套格式：底色给 RGBA 数组、字色给原始字符串。
   // 断言按它的实际行为写 —— 照 Chrome 文档那套 ColorArray 去写，两条必挂。
   it('应用：底色与字色一并落到角标上', async () => {
-    const w = await mountSection({ enabled: false, disabled: [] })
+    const w = mountSection()
     await input(w).setValue('5')
     await btn(w, 'dev-badge-bg').setValue('#123456')
     await btn(w, 'dev-badge-fg').setValue('#abcdef')
@@ -181,7 +112,7 @@ describe('设置 · 开发者分区 · 角标调试栏', () => {
   })
 
   it('清除：两个取色器一并复位，免得角标挂着刚试出来的颜色', async () => {
-    const w = await mountSection({ enabled: false, disabled: [] })
+    const w = mountSection()
     await input(w).setValue('3')
     await btn(w, 'dev-badge-bg').setValue('#000000')
     await btn(w, 'dev-badge-fg').setValue('#000000')

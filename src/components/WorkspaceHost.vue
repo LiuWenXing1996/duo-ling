@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 工作区多标签宿主：引导 / 设置 / AI 界面对话预览 / 脚本列表 / 脚本编辑器 / 脚本历史 / 脚本产物。
+// 工作区多标签宿主：渲染开着的标签页（标签种类见 shared/types 的 WorkspaceTabKind）。
 import { computed, ref, watch } from 'vue'
 import { AlertTriangle as UiAlertTriangle } from '@lucide/vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
@@ -17,6 +17,7 @@ import SessionHistoryTab from '@/components/SessionHistoryTab.vue'
 import AgentToolsPanel from '@/components/AgentToolsPanel.vue'
 import GmApiPanel from '@/components/GmApiPanel.vue'
 import type { WorkspaceTab } from '@/types/tab'
+import type { WorkspaceTabKind } from '@/shared/types'
 import {
   Tabs as UiTabs,
   TabsContent as UiTabsContent
@@ -131,12 +132,13 @@ function openSettingsTab(): void {
   activate('settings')
 }
 
-// 打开 AI 界面对话预览标签页：若已打开则激活，否则新开一个
-function openUiTestTab(): void {
-  if (!openTabs.value.some((t) => t.kind === 'ui-test')) {
-    openTabs.value.push({ kind: 'ui-test', id: 'ui-test', title: 'AI 界面对话预览' })
+// 打开某调试面板标签页：全局仅一个，已打开则激活。入口只在「设置 · 开发者」分区里给，
+// 不占左侧导航 —— 面板清单与标题见 DevModeSection（title 由它一并传来）。
+function openDevTab(kind: WorkspaceTabKind, title: string): void {
+  if (!openTabs.value.some((t) => t.kind === kind)) {
+    openTabs.value.push({ kind, id: kind, title })
   }
-  activate('ui-test')
+  activate(kind)
 }
 
 // 打开脚本列表标签页：若已打开则激活，否则新开一个。
@@ -171,22 +173,6 @@ function openErrorLogTab(focusUuid?: string | null): void {
   activate('error-log')
 }
 
-// 打开「脚本文件」标签页：只读视图（脚本工作区整库文件树，含版本记录），全局仅一个
-function openLfsBrowserTab(): void {
-  if (!openTabs.value.some((t) => t.kind === 'lfs-browser')) {
-    openTabs.value.push({ kind: 'lfs-browser', id: 'lfs-browser', title: '脚本文件' })
-  }
-  activate('lfs-browser')
-}
-
-// 打开会话数据标签页：只读调试视图（IndexedDB 会话库落盘原始记录），全局仅一个
-function openChatDataTab(): void {
-  if (!openTabs.value.some((t) => t.kind === 'chat-data')) {
-    openTabs.value.push({ kind: 'chat-data', id: 'chat-data', title: '会话数据' })
-  }
-  activate('chat-data')
-}
-
 // 打开会话历史标签页：回看/管理历史会话（列表 + 只读消息回放），全局仅一个。
 // 对话界面（网页浮层）的会话归属由标签页决定，历史会话的入口收在这里。
 function openSessionHistoryTab(): void {
@@ -194,23 +180,6 @@ function openSessionHistoryTab(): void {
     openTabs.value.push({ kind: 'session-history', id: 'session-history', title: '会话历史' })
   }
   activate('session-history')
-}
-
-// 打开 AI 工具标签页：agent 工具契约 + 调用轨迹（只读），全局仅一个。
-// 契约读静态目录（lib/agent-tools-catalog.ts），轨迹读会话库落盘的 tool parts。
-function openAgentToolsTab(): void {
-  if (!openTabs.value.some((t) => t.kind === 'agent-tools')) {
-    openTabs.value.push({ kind: 'agent-tools', id: 'agent-tools', title: 'AI 工具' })
-  }
-  activate('agent-tools')
-}
-
-// 打开 GM API 标签页：脚本作用域里 GM 的能力速查（纯静态目录，与注入真身同源），全局仅一个
-function openGmApiTab(): void {
-  if (!openTabs.value.some((t) => t.kind === 'gm-api')) {
-    openTabs.value.push({ kind: 'gm-api', id: 'gm-api', title: 'GM API' })
-  }
-  activate('gm-api')
 }
 
 // 打开某脚本的历史标签页：每脚本一个（id = us-history:<uuid>），已打开则激活复用。
@@ -288,14 +257,14 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「引导 / 设置 / 脚本列表 / 错误日志 / 会话历史」与脚本管理器的「编辑」入口；
-// 另有五个标签页只在开发者模式下有入口，且可逐个关掉（清单见 lib/dev-mode-store.ts）
-defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListTab, openErrorLogTab, openLfsBrowserTab, openChatDataTab, openSessionHistoryTab, openAgentToolsTab, openGmApiTab, openUserscriptEditor })
+// 暴露给根布局：左侧导航栏「引导 / 设置 / 脚本列表 / 错误日志 / 会话历史」与脚本管理器的「编辑」入口。
+// 调试面板不走这里 —— 它的入口在设置分区里，经 @open-tab 到 openDevTab
+defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openErrorLogTab, openSessionHistoryTab, openUserscriptEditor })
 </script>
 
 <template>
   <div class="workspace-host">
-    <!-- 标签栏 + 内容面板：使用 shadcn Tabs（脚本列表 / 设置 / AI 界面对话预览 / 脚本编辑器 / 版本历史 / 构建产物 / lfs 浏览 / 会话数据） -->
+    <!-- 标签栏 + 内容面板：使用 shadcn Tabs（标签种类见 shared/types 的 WorkspaceTabKind） -->
     <ui-tabs
       v-model="activeTabId"
       :default-value="LIST_TAB_ID"
@@ -320,8 +289,12 @@ defineExpose({ openGuideTab, openSettingsTab, openUiTestTab, openUserscriptListT
       >
         <!-- 引导标签：需要用户去浏览器里开权限/开关的说明与直达入口（全局唯一） -->
         <guide-panel v-if="tab.kind === 'guide'" />
-        <!-- 设置标签：渲染设置面板；面板菜单里的「引导」入口请求切到引导标签页 -->
-        <settings-panel v-else-if="tab.kind === 'settings'" @open-guide="openGuideTab" />
+        <!-- 设置标签：渲染设置面板；面板里的「引导」与调试面板入口都由宿主接住切标签页 -->
+        <settings-panel
+          v-else-if="tab.kind === 'settings'"
+          @open-guide="openGuideTab"
+          @open-tab="openDevTab"
+        />
         <!-- AI 界面对话预览：mock 数据预览思考与执行过程展示方案 -->
         <ui-test-panel v-else-if="tab.kind === 'ui-test'" />
         <!-- 脚本列表：列出全部用户脚本 + 启停；「编辑」开对应的编辑器标签页 -->
