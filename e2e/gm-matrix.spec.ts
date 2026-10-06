@@ -1,6 +1,6 @@
 // GM 可用性矩阵的端测（L3 · 真机自动化）。
 //
-// 把手测探针搬进无头 CI：源码从 `uscript-samples/gm-matrix/script.js` **读盘**（真身与手测同一份，
+// 把手测探针搬进无头 CI：源码从 `uscript-samples/gm-matrix/gm-matrix.user.js` **读盘**（真身与手测同一份，
 // 不另写一套），经命令面存成脚本注入，打开本地探针页跑一遍，断言行里没有 ✗。
 //
 // 引导姿势与 smoke.spec.ts 共用 `e2e/extension.ts`：Phase A 程序化开 userScripts 开关（chrome
@@ -28,7 +28,7 @@ import {
 } from './extension'
 
 /** 探针源码（与手测同一份） */
-const MATRIX_SRC = readFileSync(fileURLToPath(new URL('../uscript-samples/gm-matrix/script.js', import.meta.url)), 'utf8')
+const MATRIX_SRC = readFileSync(fileURLToPath(new URL('../uscript-samples/gm-matrix/gm-matrix.user.js', import.meta.url)), 'utf8')
 /** 探针面板根节点 id */
 const PANEL = '#gm-matrix-probe'
 /** 自动化开关：跳过两处 confirm + 跳过端测做不了的原生右键菜单点击（见探针里的 AUTO 注释） */

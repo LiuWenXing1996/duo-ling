@@ -37,7 +37,7 @@ export async function handleFsCommand(msg: FsRequest): Promise<unknown> {
       for (const uuid of msg.uuids) {
         const source = await readSource(uuid).catch(() => null)
         if (!source) continue
-        // 单文件形态：只打包 script.js；配置由源码派生，name 优先取源码 @name 否则用 uuid
+        // 单文件形态：每脚本只打包一份 <脚本名>.user.js；配置由源码派生，name 优先取源码 @name 否则用 uuid
         const derived = resolveConfigFromSource(source.code, defaultConfig([]))
         const name = derived.name?.trim() || uuid
         payloads.push({ name, code: source.code })
