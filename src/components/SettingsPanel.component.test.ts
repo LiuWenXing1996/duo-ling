@@ -40,7 +40,7 @@ beforeEach(() => {
     version: '9.9.9-alpha.2',
   })
   vi.stubGlobal('api', {
-    model: { list: modelList, toggle: vi.fn(), delete: vi.fn() },
+    model: { list: modelList, delete: vi.fn() },
     provider: { list: providerList },
   })
 })
@@ -70,8 +70,8 @@ describe('SettingsPanel 分区导航', () => {
   it('默认选中首个分区，右栏渲染其内容', async () => {
     const w = await mountPanel()
     expect(navButtons(w)[0].attributes('data-state')).toBe('active')
-    // 首个分区（模型管理）正文已渲染
-    expect(w.text()).toContain('配置 API key')
+    // 首个分区（模型管理）正文已渲染 —— 用分区自带的「添加模型」按钮做哨兵
+    expect(w.text()).toContain('添加模型')
     // 未选中的「关于」不渲染（分区按需挂载）
     expect(w.text()).not.toContain('当前安装的扩展版本')
   })
@@ -92,7 +92,7 @@ describe('SettingsPanel 分区导航', () => {
     expect(w.text()).toContain('页面')
     expect(w.text()).toContain('Service Worker')
     expect(w.text()).not.toContain('未响应')
-    expect(w.text()).not.toContain('配置 API key')
+    expect(w.text()).not.toContain('添加模型')
   })
 })
 
