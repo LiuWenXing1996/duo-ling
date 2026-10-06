@@ -8,7 +8,6 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  enableDevMode,
   enableUserScripts,
   extensionIdFromServiceWorker,
   getServiceWorker,
@@ -17,6 +16,16 @@ import {
   sendToSw,
   type UserScriptsBootstrap,
 } from './extension'
+
+/**
+ * 打开某个调试面板标签页：设置 → 开发者分区 → 点该面板入口。
+ * 这些面板不占左侧导航（那里只放日常要用的几处），入口只在设置里的开发者分区给。
+ */
+async function openDevPanel(page: Page, kind: string): Promise<void> {
+  await page.locator('button[aria-label="设置"]').click()
+  await page.locator('[role="tab"]').filter({ hasText: '开发者' }).click()
+  await page.locator(`[data-testid="dev-open-${kind}"]`).click()
+}
 
 test.describe.serial('哆灵扩展端测冒烟', () => {
   let context: BrowserContext | undefined
@@ -50,8 +59,6 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     sw = await getServiceWorker(context)
     extensionId = extensionIdFromServiceWorker(sw)
     messenger = await openMessengerPage(context, extensionId)
-    // 工作台那几个调试入口默认不显示（开发者模式关闭），端测要验它们就得先开总闸
-    await enableDevMode(messenger)
     const availability = await sendToSw<{ available: boolean }>(messenger, { kind: 'userscript:availability' })
     userScriptsAvailable = availability.ok === true && availability.data.available === true
 
@@ -125,8 +132,8 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     const page = await context!.newPage()
     await page.goto(`chrome-extension://${extensionId}/workbench.html`)
 
-    // 左侧导航进入：面板挂载，左栏 6 个工具全部来自静态目录（与运行时同源，见单测防漂移）
-    await page.locator('button[aria-label="AI 工具"]').click()
+    // 从设置里的开发者分区进入：面板挂载，左栏 6 个工具全部来自静态目录（与运行时同源，见单测防漂移）
+    await openDevPanel(page, 'agent-tools')
     await expect(page.locator('[data-testid="agent-tools-panel"]')).toBeVisible()
     for (const name of ['script_spec', 'script_read', 'script_apply', 'element_read', 'page_snapshot', 'error_read']) {
       await expect(page.locator(`[data-testid="agent-tools-select-${name}"]`)).toBeVisible()
@@ -152,8 +159,8 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     const page = await context!.newPage()
     await page.goto(`chrome-extension://${extensionId}/workbench.html`)
 
-    // 左侧导航进入：面板挂载，脚本世界 GM 的能力清单来自静态目录（与注入真身同源，见单测防漂移）
-    await page.locator('button[aria-label="GM API"]').click()
+    // 从设置里的开发者分区进入：面板挂载，脚本世界 GM 的能力清单来自静态目录（与注入真身同源，见单测防漂移）
+    await openDevPanel(page, 'gm-api')
     await expect(page.locator('[data-testid="gm-api-panel"]')).toBeVisible()
     for (const path of ['GM_getValue', 'GM_xmlhttpRequest', 'GM_cookie.set', 'GM.setValue']) {
       await expect(page.locator(`[data-testid="gm-api-card-${path}"]`)).toBeVisible()

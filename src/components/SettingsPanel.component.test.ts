@@ -110,3 +110,18 @@ describe('SettingsPanel 菜单里的「引导」入口', () => {
     expect(w.emitted('openGuide')).toBeTruthy()
   })
 })
+
+describe('设置分区往上转的「打开面板」请求', () => {
+  // 分区只管发意图（emit openTab），开哪个标签页由宿主决定 —— 设置外壳不做标签页的事
+  it('开发者分区的入口点了 → emit openTab，kind 与标题原样转给宿主', async () => {
+    const w = await mountPanel()
+    const dev = navButtons(w).find((b) => b.text().includes('开发者'))
+    expect(dev).toBeTruthy()
+    // reka-ui 的 TabsTrigger 在 mousedown 上激活（同上一节）
+    await dev!.trigger('mousedown')
+    await flushPromises()
+
+    await w.find('[data-testid="dev-open-gm-api"]').trigger('click')
+    expect(w.emitted('openTab')).toEqual([['gm-api', 'GM API']])
+  })
+})
