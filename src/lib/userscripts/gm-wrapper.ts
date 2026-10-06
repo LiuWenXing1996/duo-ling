@@ -507,7 +507,10 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   }
   /** 把 data（string/Blob/FormData/ArrayBuffer/TypedArray/DataView）编码成可跨桥的 init */
   function __gmEncodeBody(raw) {
-    if (raw == null || typeof raw === 'string') return Promise.resolve(null)
+    if (raw == null) return Promise.resolve(null)
+    // 字符串体也必须由包装器挂到 body 上：__gmXhr 的 init 字面量里没有 body 字段，
+    // 不在这里交出去，文本体会在过桥前无声丢掉（契约侧 FetchInit.body 本就接受 string）
+    if (typeof raw === 'string') return Promise.resolve(function (s) { var c = __gmCopyInit(s); c.body = raw; return c })
     if (typeof Blob !== 'undefined' && raw instanceof Blob) {
       return raw.arrayBuffer().then(function (buf) {
         var env = { __dlBinaryBody: true, base64: __gmBytesToBase64(new Uint8Array(buf)) }
@@ -684,7 +687,8 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     var abortEarly = false
     function __gmAbortDownload() {
       if (typeof downloadId === 'number') {
-        __gmUnregisterDownload(requestId)
+        // **不在这里注销处理器**：cancel 后 SW 会推 interrupted 终帧，onerror（TM 语义：取消也算
+        // onerror）靠它送达；终帧处理自己会注销（一次性）。提前删 = onerror 永不触发，调用方挂死。
         __gmSend({ c: 'download.cancel', id: downloadId }).catch(function () {})
       } else {
         abortEarly = true

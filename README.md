@@ -40,7 +40,7 @@
 │  ├─ shared/                     # 跨上下文契约：types / ipc（window.api 形状）/ extension-ipc（渲染页 ⇄ SW 协议）
 │  ├─ assets/                     # Tailwind 主题变量与全局样式
 │  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（元素拾取器）
-├─ scripts/                       # 仓库维护脚本：verify-skills / check-todo / pack-uscripts
+├─ scripts/                       # 仓库维护脚本：verify-skills / check-todo / pack-uscripts / probe-target（本机测试靶站）/ dev（dev 与靶站一起起）
 ├─ uscript-samples/               # pack-uscripts 的源目录（注入探针 / GM 桥 / 语法错误样本等测试脚本）
 ├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟）
 └─ .github/workflows/             # ci / e2e / release / sync-release-notes（作用见 GIT_WORKFLOW.md 与 VERSIONING.md）

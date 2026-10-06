@@ -37,7 +37,8 @@
 | --- | --- |
 | `npm ci` | **新 worktree 先跑它**：`node_modules` 不入库、也不跨 worktree 共享，缺了时所有 `npm run *` 与 `npx` 一律报错（`command not found` / `Cannot find module`），不是代码问题（约 10s） |
 | `npm install` | 首次装 / 加依赖（非锁定场景）；按 lockfile 精确还原用上面的 `npm ci` |
-| `npm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev` |
+| `npm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev`。入口是 `scripts/dev.mjs`：随机端口起本机靶站 → 探针页经 `DL_PROBE_URL` 交给 WXT 自动打开（一条命令即可，靶站随 dev 起停）。靶站见下一行 |
+| `npm run probe:serve` | 起本机测试靶站（`scripts/probe-target.mjs`，默认端口 5178）：手测探针的出网目标 + 探针页宿主，端点见该文件头部。**不跑 dev 的手测**（加载 `.output` 产物）先起它；探针从页面 `<meta name="dl-probe-target">` 取基址，读不到才回落默认端口 |
 | `npm run build` | 构建，产出 `.output/chrome-mv3` |
 | `npm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
 | `npm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
