@@ -730,13 +730,15 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
     case 'download.cancel': {
       // 中止：cancel 之后 onChanged 会报 interrupted（error: USER_CANCELED）→ 由 download.change 的
       // 终帧回到脚本的 onerror（TM 语义：取消也算 onerror）。id 查不到就静默 —— 连续 abort 是合法调用。
+      // **登记必须留给终帧**：这里若提前删，onChanged 查不到登记、终帧被整个丢掉，脚本的
+      // onerror 永不触发（abort 调用方就此挂死 —— 全能探针 abort 用例整轮停在「运行中」即此因）。
+      // 终帧处理自带「删登记 + 清 timer」；cancel 抛错（下载已不存在等）才就地清 —— 那之后不会再有终帧。
       const entry = downloadWatch.get(req.id)
-      if (entry?.timer) clearInterval(entry.timer)
-      downloadWatch.delete(req.id)
       try {
         await downloadsApi().cancel(req.id)
       } catch {
-        // 已被浏览器清掉 / 不存在：幂等处理
+        if (entry?.timer) clearInterval(entry.timer)
+        downloadWatch.delete(req.id)
       }
       return undefined
     }

@@ -687,7 +687,8 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     var abortEarly = false
     function __gmAbortDownload() {
       if (typeof downloadId === 'number') {
-        __gmUnregisterDownload(requestId)
+        // **不在这里注销处理器**：cancel 后 SW 会推 interrupted 终帧，onerror（TM 语义：取消也算
+        // onerror）靠它送达；终帧处理自己会注销（一次性）。提前删 = onerror 永不触发，调用方挂死。
         __gmSend({ c: 'download.cancel', id: downloadId }).catch(function () {})
       } else {
         abortEarly = true

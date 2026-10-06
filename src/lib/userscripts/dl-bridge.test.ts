@@ -418,6 +418,30 @@ describe('download（浏览器下载器）', () => {
     const again = await sendToBridge({ c: 'download.cancel', id: 5 }, COOKIE_UUID)
     expect(again).toEqual({ ok: true, data: undefined })
   })
+
+  it('download.cancel 后 interrupted 终帧仍会推给脚本（onerror 回路；登记提前删 = 终帧被丢 = 调用方挂死）', async () => {
+    const dlPort = await import('./dl-port')
+    const pushSpy = vi.spyOn(dlPort, 'pushDownloadChange')
+    // 带 requestId + connId 发起：doDownload 才会把这次下载登记进 downloadWatch
+    downloadsMocks.download.mockResolvedValueOnce(9)
+    downloadsMocks.search.mockResolvedValueOnce([{ id: 9, totalBytes: 100, bytesReceived: 0 }])
+    await sendToBridge(
+      { c: 'download', url: 'https://x.test/big.bin', requestId: 'dl1', connId: 'c1' },
+      COOKIE_UUID,
+    )
+    pushSpy.mockClear()
+    await sendToBridge({ c: 'download.cancel', id: 9 }, COOKIE_UUID)
+    expect(downloadsMocks.cancel).toHaveBeenCalledWith(9)
+    // 浏览器回报 interrupted（USER_CANCELED）：终帧必须还能寻到登记、带着 error 推出去
+    const onChangedCb = downloadsMocks.onChanged.addListener.mock.calls[0]![0] as (d: unknown) => void
+    onChangedCb({ id: 9, state: { previous: 'in_progress', current: 'interrupted' }, error: { current: 'USER_CANCELED' } })
+    expect(pushSpy).toHaveBeenCalledWith(
+      COOKIE_UUID,
+      'c1',
+      expect.objectContaining({ requestId: 'dl1', state: 'interrupted', error: 'USER_CANCELED' }),
+    )
+    pushSpy.mockRestore()
+  })
 })
 
 describe('GM_cookie（cookies 权限 + 域名门）', () => {
