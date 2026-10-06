@@ -230,13 +230,16 @@ export type UserScriptRunLogRow =
     }
   | { kind: 'error'; record: UserScriptErrorRecord }
 
-/** zip 内源码文件的固定文件名（每脚本目录只此一个 script.js，单文件形态） */
-export const SCRIPT_FILE = 'script.js'
+/**
+ * zip 内源码文件的后缀：**路径以它结尾的条目即源码**（文件名叫什么都行）。
+ * 用 `.user.js` 而不另立名字：从 GreasyFork / GitHub 直下的脚本落进 zip 就能导入，不必先改名。
+ */
+export const SCRIPT_EXT = '.user.js'
 
 // —— zip 导入报告——
 //
-// 导入只拦原则项，其余一律导入并说明，留给脚本编辑器修。故 ok 条目可带 notes（字段兜底提示），
-// failed 只剩结构性原因（缺 script.js 源码文件 / 非脚本目录）。
+// 导入不淘汰脚本：凡以 `.user.js` 结尾的条目都落盘并说明，其余文件列进 ignored 报告。
+// 故 ok 条目可带 notes（字段兜底提示）；failed 只留给落盘本身出错（写源码 / 写状态库抛错）。
 
 /** 导入成功的条目（uuid 为导入方新生成；enabled 恒 false） */
 export interface ImportItemOk {
@@ -249,17 +252,17 @@ export interface ImportItemOk {
   notes?: string[]
 }
 
-/** 导入失败的条目——**只剩原则项**（没有可解析的 manifest，构造不出记录） */
+/** 导入失败的条目——落盘本身出错（写源码 / 写状态库抛错） */
 export interface ImportItemFailed {
   status: 'failed'
-  /** 解析期跳过时为 zip 顶层目录名 */
+  /** 出错脚本的名字（落盘前已取到的那个） */
   name: string
   reason: string
 }
 
 export type ImportItemResult = ImportItemOk | ImportItemFailed
 
-/** 导入时未导入的文件（顶层散文件 / 非 files/ 条目 / 路径不安全被过滤；仅展示） */
+/** 导入时未导入的文件（非 `.user.js` 条目；仅展示） */
 export interface ImportItemIgnored {
   status: 'ignored'
   /** zip 内原始路径 */
@@ -272,7 +275,7 @@ export interface ImportReport {
   succeeded: number
   failed: number
   results: ImportItemResult[]
-  /** 未导入的文件（非脚本项 / 路径不安全被过滤），仅展示、不影响成功/失败计数 */
+  /** 未导入的文件（非 `.user.js` 条目），仅展示、不影响成功/失败计数 */
   ignored: ImportItemIgnored[]
 }
 

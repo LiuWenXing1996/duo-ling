@@ -1,6 +1,6 @@
 // 「GM 可用性矩阵」探针 ↔ 目录（gm-api-catalog）的**覆盖对齐**测试。
 //
-// 目录是「有哪些 GM API」的唯一清单源；矩阵探针（uscript-samples/gm-matrix/script.js）是
+// 目录是「有哪些 GM API」的唯一清单源；矩阵探针（uscript-samples/gm-matrix/gm-matrix.user.js）是
 // **真机那一层**的唯一验收入口。两边一分叉就会出现「目录里新加了 API，但没人手测过它」——
 // 这正是已定位的缺口。故探针顶部挂一张覆盖登记表：
 //
@@ -16,7 +16,7 @@ import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
 import { GM_API_ENTRIES } from './gm-api-catalog'
 
-const PROBE_SRC = readFileSync(new URL('../../uscript-samples/gm-matrix/script.js', import.meta.url), 'utf8')
+const PROBE_SRC = readFileSync(new URL('../../uscript-samples/gm-matrix/gm-matrix.user.js', import.meta.url), 'utf8')
 
 interface Declared {
   /** 认领方（探针里的用例名，须一字不差） */

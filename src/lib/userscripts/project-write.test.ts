@@ -292,8 +292,8 @@ describe('提交失败策略', () => {
 
 // —— 导入（zip / 粘贴；两条入口共用 importOneScript 落盘）——
 //
-// 单文件形态：zip 内只有 script.js，配置由源码里的 // ==UserScript== 块派生。
-// makeZipBase64 直接把给定 code（可含 metadata 块）落成 <dir>/script.js。
+// 单文件形态：zip 内每条源码是一个 <名字>.user.js（导出席每脚本一个目录），配置由源码里的
+// // ==UserScript== 块派生。makeZipBase64 把给定 code（可含 metadata 块）落成 <dir>/<dir>.user.js。
 
 /** 构造带 metadata 块的源码（name / matches 派生配置） */
 function withMeta(name: string, code = 'console.log(1)', matches: string[] = []): string {
@@ -303,11 +303,11 @@ function withMeta(name: string, code = 'console.log(1)', matches: string[] = [])
   return lines.join('\n') + '\n' + code
 }
 
-/** 构造一个 zip 的 base64：每个脚本一个平级目录 → script.js */
+/** 构造一个 zip 的 base64：每个脚本一个平级目录 → <目录名>.user.js */
 function makeZipBase64(scripts: Array<{ dir: string; code?: string }>): string {
   const entries: Record<string, Uint8Array> = {}
   for (const s of scripts) {
-    entries[`${s.dir}/script.js`] = strToU8(s.code ?? 'console.log(1)')
+    entries[`${s.dir}/${s.dir}.user.js`] = strToU8(s.code ?? 'console.log(1)')
   }
   return bytesToBase64(zipSync(entries))
 }
@@ -363,29 +363,27 @@ describe('importScriptsZip', () => {
     expect(mockCommitSource).toHaveBeenCalledTimes(2)
   })
 
-  it('缺 script.js：该条跳过进 failed（原则项），其余照常导入', async () => {
+  it('非 .user.js 条目进 ignored 报告：不产生失败条目，成功计数只算脚本', async () => {
     const entries: Record<string, Uint8Array> = {
       'empty/notes.txt': strToU8('not a script'),
-      'demo/script.js': strToU8(withMeta('演示', 'console.log(1)')),
+      'demo/demo.user.js': strToU8(withMeta('演示', 'console.log(1)')),
     }
     const report = await importScriptsZip(bytesToBase64(zipSync(entries)))
     expect(report.succeeded).toBe(1)
-    expect(report.failed).toBe(1)
-    expect(report.results.find((r) => r.status === 'failed')).toMatchObject({
-      name: 'empty',
-    })
+    expect(report.failed).toBe(0)
+    expect(report.ignored.map((i) => i.path)).toEqual(['empty/notes.txt'])
   })
 
-  it('无 @name：目录名兜底，原因随报告 notes 展示', async () => {
+  it('无 @name：文件名兜底，原因随报告 notes 展示', async () => {
     const entries: Record<string, Uint8Array> = {
-      'noname/script.js': strToU8('console.log(1)'),
+      'noname/my-script.user.js': strToU8('console.log(1)'),
     }
     const report = await importScriptsZip(bytesToBase64(zipSync(entries)))
     expect(report.succeeded).toBe(1)
     const item = report.results[0] as { status: string; name: string; notes?: string[] }
     expect(item.status).toBe('ok')
-    expect(item.name).toBe('noname')
-    expect(item.notes?.[0]).toContain('目录名')
+    expect(item.name).toBe('my-script')
+    expect(item.notes?.[0]).toContain('文件名')
   })
 
   it('matches 非法不拦：照常导入并原样落库（坏规则被丢弃并提示，报错留给启用时 registerScript）', async () => {
@@ -402,7 +400,7 @@ describe('importScriptsZip', () => {
 
   it('未导入的文件（顶层散文件 / 脚本目录内非脚本条目）汇进报告 ignored，不影响成功计数', async () => {
     const entries: Record<string, Uint8Array> = {
-      'demo/script.js': strToU8(withMeta('演示', 'console.log(1)')),
+      'demo/demo.user.js': strToU8(withMeta('演示', 'console.log(1)')),
       'demo/data/x.json': strToU8('{}'),
       'loose.txt': strToU8('x'),
     }

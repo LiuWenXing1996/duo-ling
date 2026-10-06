@@ -260,7 +260,8 @@ export async function renameProject(uuid: string, name: string): Promise<ScriptP
  * zip 导入（state:import 的落点）：解码 → 逐脚本**尽量导入**。
  *
  * 导入侧不是「校验 + 淘汰」，而是「尽量落盘 + 报告说明」——
- *  · 解码层配置由源码里的 `// ==UserScript==` 块派生（无块按默认配置），只剩「缺 script.js 源码文件」跳过；
+ *  · 解码层只按后缀认源码（`.user.js`，见 zip-transfer），配置由源码里的 `// ==UserScript==`
+ *    块派生（无块按默认配置），没有会让脚本被跳过的情形；
  *  · matches 非法：不在这里拦（启用时 registerScript 会以中文报错，导入后可在编辑器改）。
  * 导入默认值：uuid 重生成、enabled 恒 false（先审后启）、保留原名（名字不拦重复，uuid 才是标识）。
  */
@@ -269,9 +270,6 @@ export async function importScriptsZip(zipBase64: string): Promise<ImportReport>
   const results: ImportItemResult[] = []
   for (const script of parsed.scripts) {
     results.push(await importOneScript(script, '从 zip 导入'))
-  }
-  for (const s of parsed.skipped) {
-    results.push({ status: 'failed', name: s.dirName, reason: s.reason })
   }
   return {
     succeeded: results.filter((r) => r.status === 'ok').length,
@@ -287,7 +285,7 @@ export async function importScriptsZip(zipBase64: string): Promise<ImportReport>
  * 与 zip 导入**同一条落盘路径**（importOneScript），语义也照抄：尽量导入、报告说明、
  * uuid 重生成、enabled 恒 false（先审后启）、指纹去重提示照给。
  * 两处差异都来自「没有 zip 容器」：① 无解码期 notes；② 源码没声明 `@name` 时用自动编号名
- * （zip 那边用目录名兜底）—— 故此处先取名再交给 importOneScript 的 name 字段。
+ * （zip 那边用文件名兜底）—— 故此处先取名再交给 importOneScript 的 name 字段。
  * 匹配规则兜底为空数组：没写 `@match` 就落「不匹配任何页面」，由报告里的提示指引用户补，
  * 不替他放宽成全域。
  */

@@ -52,7 +52,7 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 | 契约：命令名 + 类型 | `api-contract.ts` 的 `ApiRequest` + `API_COMMANDS` | 类型层：`Record<ApiRequest['c'], true>` 两向约束（少一条 / 多一条都编译红） |
 | 注入侧：包装真身 | `gm-wrapper.ts` 的装配块与命令发送 | `api-commands.test.ts`（反射**生成的注入源码** ↔ 登记表双向） |
 | 展示侧：工作台面板 | `gm-api-catalog.ts` | `gm-api-catalog.test.ts`（反射装配块 ↔ 目录双向） |
-| 真机侧：手测矩阵 | `uscript-samples/gm-matrix/script.js` 顶部的 `@covers` 登记表 | `gm-api-coverage.test.ts`（目录 ↔ 登记表双向）；同一条矩阵另由 `e2e/gm-matrix.spec.ts` 在无头 CI 上自动跑（读同一份源码，人工两项用 Playwright 代做） |
+| 真机侧：手测矩阵 | `uscript-samples/gm-matrix/gm-matrix.user.js` 顶部的 `@covers` 登记表 | `gm-api-coverage.test.ts`（目录 ↔ 登记表双向）；同一条矩阵另由 `e2e/gm-matrix.spec.ts` 在无头 CI 上自动跑（读同一份源码，人工两项用 Playwright 代做） |
 
 **要验「需要 AI 回一句」的项**（会话归属 / 生成结果 / 修订…）：端测里用 `e2e/model-stub.ts` 的本地假模型服务顶替真模型 —— 经 `window.api.model.save/ setActive` 指到它，`chat:start` 即可跑完且回复内容由测试写死（见 `e2e/chat-stub.spec.ts`）。CI 里没有也不该有真 key。
 
@@ -89,4 +89,4 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 - **要驱动真实指针序列就别用合成事件**：`mouse.move(起点) → down() → move(终点, { steps: 8 }) → up()`。断言优先抓**不变量**（「开合状态没被误切换」）而不是绝对坐标—— 绝对坐标只能证明「数值等于我以为的公式」，不变量才能抓住行为回归。（本仓当前没有拖拽类交互，这条留作手势类测试的写法。）
 - **屏幕坐标与「距视口边距」差一个视口宽**：样式里定位写 `right` / `bottom`（距视口右 / 下）时，断言里 `rect.right` 得换算成 `视口宽 − right`，别拿指针落点直接比（2026-09-22 连栽两次，两次都长得像"实现坏了"）。真怀疑时加一条**故意失败的断言**把实际值回显出来（`expect({ 实际 }).toEqual({ 标记: 'debug' })`）——比 `console.log` 可靠：vitest 会把普通输出折叠掉，而 diff 一定显示。
 
-**要长期复用的探针**（人工点一次出结论的那种）放 `uscript-samples/`：`npm run pack:uscripts` 打成一包，扩展「脚本列表 → 导入」直接吃；**用法、要人动手的项与覆盖登记都写在探针文件的头部注释里**（例：`gm-matrix/script.js` 顶部有用法、四项人工动作、三态判读与 `@covers` 登记表）。
+**要长期复用的探针**（人工点一次出结论的那种）放 `uscript-samples/`：`npm run pack:uscripts` 打成一包，扩展「脚本列表 → 导入」直接吃；**用法、要人动手的项与覆盖登记都写在探针文件的头部注释里**（例：`gm-matrix/gm-matrix.user.js` 顶部有用法、四项人工动作、三态判读与 `@covers` 登记表）。

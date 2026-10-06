@@ -8,13 +8,13 @@
 //
 // 产出 zip 的布局必须与 src/lib/userscripts/zip-transfer.ts 的 buildScriptZip / parseScriptsZip
 // 对齐（那一对函数才是编解码侧的真相源）：
-//     <目录名>/script.js            单文件源码（配置由源码里的 // ==UserScript== 块派生，不进 zip）
+//     <目录名>/<目录名>.user.js     单文件源码（配置由源码里的 // ==UserScript== 块派生，不进 zip）
 //
 // 本脚本**不 import** 那个模块，两条原因：① src 是扩展运行时代码，其扩展名省略的 TS 导入在
 // node ESM 下解析不了；② 本工具刻意零依赖——没装 node_modules 也能跑（打测试包不该先 npm i）。
 // 对齐靠两点保障：
 //   ① 写完立刻回读 zip 自检（--no-verify 关）：解析中央目录 + 逐条比对本地文件头与 CRC；
-//   ② 样例目录只放 script.js（与单文件形态一致）；若某样例想带名字，在源码里写 // @name。
+//   ② 样例目录只放一份 *.user.js（与单文件形态一致）；若某样例想带名字，在源码里写 // @name。
 //
 // 用法见 `--help`；常规用法 `npm run pack:uscripts`（打包全部样例 → tmp/）。
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
@@ -23,8 +23,8 @@ import { fileURLToPath } from 'node:url'
 
 // —— 常量：与 src/lib/userscripts/zip-transfer.ts 保持一致 ——
 
-/** 单文件源码文件名（types.ts 的 SCRIPT_FILE） */
-const SCRIPT_FILE = 'script.js'
+/** 单文件源码后缀（types.ts 的 SCRIPT_EXT）：样例目录里唯一的 *.user.js 即源码 */
+const SCRIPT_EXT = '.user.js'
 const DIR_NAME_MAX = 64
 
 // allow:comments（固定值日期，非变更史）
@@ -182,10 +182,22 @@ function sanitizeDirName(name) {
   return cleaned || 'script'
 }
 
+/** 在样例目录里定位源码：后缀 .user.js、且只此一份（素材目录自己的约定，打出的包不带歧义） */
+function findSourceFile(absDir, label) {
+  const candidates = readdirSync(absDir)
+    .filter((f) => statSync(join(absDir, f)).isFile() && f.toLowerCase().endsWith(SCRIPT_EXT))
+    .sort()
+  if (!candidates.length) throw new Error(`${label}：缺少 ${SCRIPT_EXT} 源码文件`)
+  if (candidates.length > 1) {
+    throw new Error(`${label}：目录里有多个 ${SCRIPT_EXT} 文件（${candidates.join('、')}），只留一份`)
+  }
+  return join(absDir, candidates[0])
+}
+
 /**
  * 读一个素材目录 → 脚本定义。
  *
- * 单文件摆放：<dir>/script.js。配置由源码里的 // ==UserScript== 块决定；
+ * 单文件摆放：<dir>/<任意名>.user.js（目录里只此一份源码）。配置由源码里的 // ==UserScript== 块决定；
  * name 优先取源码里的 @name，否则用目录名。
  */
 function readScriptDef(dir, overrides) {
@@ -195,10 +207,7 @@ function readScriptDef(dir, overrides) {
   }
   const label = basename(absDir)
 
-  const sourcePath = join(absDir, SCRIPT_FILE)
-  if (!existsSync(sourcePath)) {
-    throw new Error(`${label}：缺少 ${SCRIPT_FILE}（单文件源码）`)
-  }
+  const sourcePath = findSourceFile(absDir, label)
   const code = readFileSync(sourcePath, 'utf8')
 
   const metaName = (code.match(/^\s*\/\/\s*@name\s+(.+?)\s*$/m) || [])[1]
@@ -207,22 +216,24 @@ function readScriptDef(dir, overrides) {
   return { label, name, code }
 }
 
-/** 脚本定义 → zip 条目（只 script.js；目录名重名加 -2 后缀，与 buildScriptZip 同规则） */
+/** 脚本定义 → zip 条目（每脚本一份 <名字>.user.js；目录名重名加 -2 后缀，与 buildScriptZip 同规则） */
 function toZipEntries(scripts) {
   const entries = []
   const used = new Set()
   for (const s of scripts) {
-    let dir = sanitizeDirName(s.name)
+    // 名字已带 .user.js 后缀时先剥掉，免得打成 foo.user.js.user.js（与 buildScriptZip 同规则）
+    const base = sanitizeDirName(s.name.replace(/\.user\.js$/i, ''))
+    let dir = base
     if (used.has(dir)) {
       for (let n = 2; ; n++) {
-        if (!used.has(`${dir}-${n}`)) {
-          dir = `${dir}-${n}`
+        if (!used.has(`${base}-${n}`)) {
+          dir = `${base}-${n}`
           break
         }
       }
     }
     used.add(dir)
-    entries.push({ name: `${dir}/${SCRIPT_FILE}`, data: Buffer.from(s.code, 'utf8') })
+    entries.push({ name: `${dir}/${base}${SCRIPT_EXT}`, data: Buffer.from(s.code, 'utf8') })
   }
   return entries
 }
@@ -245,7 +256,7 @@ const HELP = `用户脚本包生成器：把脚本素材目录打成扩展可导
   -h, --help              显示本帮助
 
 素材目录摆法（单文件形态）：
-  <目录>/script.js   # 配置写在源码里的 // ==UserScript== 块；与导出 zip 解开的形态一致
+  <目录>/<名字>.user.js   # 配置写在源码里的 // ==UserScript== 块；与导出 zip 解开的形态一致
 `
 
 function parseArgs(argv) {
