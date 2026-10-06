@@ -1512,7 +1512,9 @@
   // ═════════════════════════ 系统能力（需人动手的两条 + 富文本剪贴板）════════════════════════
 
   add('系统能力', 'clipboard.writeHtml（富文本）', function () {
-    return Promise.resolve(GM.setClipboard('<b>富文本</b> <i>duo-ling</i>', { type: 'text/html' }))
+    // info 走字符串形态（'text/plain' | 'text/html'）：TM 的 {type} 对象形态本扩展不收，
+    // 传对象会静默落到纯文本分支，剪贴板里只剩 text/plain —— 断言就会假红
+    return Promise.resolve(GM.setClipboard('<b>富文本</b> <i>duo-ling</i>', 'text/html'))
       .then(function () {
         // 写入成功不等于写对了：有 clipboard-read 权限时把富文本形态读回来比对，读不到就记未判定
         if (!navigator.clipboard || typeof navigator.clipboard.read !== 'function') {
