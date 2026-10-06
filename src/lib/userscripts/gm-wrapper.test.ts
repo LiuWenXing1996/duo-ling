@@ -66,6 +66,15 @@ describe('buildGmWrapperPrefix', () => {
     expect(src).toContain('下行通道未就绪，本次调用的进度 / 完成回调会收不到')
   })
 
+  it('文本体也在这里挂上 body（init 字面量不含 body 字段，漏了就整段丢）', () => {
+    const src = build()
+    // 曾经 string data 在 __gmEncodeBody 里被当成「没有体」直接返回，而 __gmXhr 组装 init 的
+    // 字面量里也没有 body 字段：两头都不带，POST 的文本体在过桥前就没了，服务端收到空体（真机实测）。
+    expect(src).toContain(
+      "if (typeof raw === 'string') return Promise.resolve(function (s) { var c = __gmCopyInit(s); c.body = raw; return c })",
+    )
+  })
+
   it('嵌入了值快照、GM_info 与按 grant 算出的成员表', () => {
     const src = build(['GM_getValue'])
     expect(src).toContain('"k":"v"') // 值快照

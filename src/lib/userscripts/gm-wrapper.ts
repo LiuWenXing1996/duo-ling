@@ -507,7 +507,10 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   }
   /** 把 data（string/Blob/FormData/ArrayBuffer/TypedArray/DataView）编码成可跨桥的 init */
   function __gmEncodeBody(raw) {
-    if (raw == null || typeof raw === 'string') return Promise.resolve(null)
+    if (raw == null) return Promise.resolve(null)
+    // 字符串体也必须由包装器挂到 body 上：__gmXhr 的 init 字面量里没有 body 字段，
+    // 不在这里交出去，文本体会在过桥前无声丢掉（契约侧 FetchInit.body 本就接受 string）
+    if (typeof raw === 'string') return Promise.resolve(function (s) { var c = __gmCopyInit(s); c.body = raw; return c })
     if (typeof Blob !== 'undefined' && raw instanceof Blob) {
       return raw.arrayBuffer().then(function (buf) {
         var env = { __dlBinaryBody: true, base64: __gmBytesToBase64(new Uint8Array(buf)) }
