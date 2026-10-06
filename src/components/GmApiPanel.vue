@@ -108,10 +108,6 @@ function setOpen(path: string, v: boolean): void {
           <span class="mt-0.5 block truncate text-[11px] text-muted-foreground">{{ g.desc }}</span>
         </button>
       </div>
-
-      <footer class="border-t border-border px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-        清单与注入脚本作用域的 <code class="font-mono">GM</code> / <code class="font-mono">GM_*</code> 同源
-      </footer>
     </aside>
 
     <!-- 右栏：条目卡片 -->
