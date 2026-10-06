@@ -131,7 +131,9 @@ onUnmounted(() => {
             <span
               class="ml-auto text-xs"
               :class="
-                availability.available ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-400'
+                availability.available
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-amber-600 dark:text-amber-400'
               "
             >
               {{ availability.available ? '已开启' : '未开启' }}
@@ -146,8 +148,12 @@ onUnmounted(() => {
             </p>
 
             <!-- 已开启：无需行动，不给步骤（避免读一屏用不上的说明） -->
-            <p v-if="availability.available" class="text-xs text-muted-foreground">
-              当前环境已可用，无需操作。
+            <p
+              v-if="availability.available"
+              class="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400"
+            >
+              <ui-check class="size-3.5 shrink-0" />
+              已就绪 —— 已启用的脚本会在页面加载时自动注入。
             </p>
 
             <template v-else>
@@ -203,7 +209,9 @@ onUnmounted(() => {
             <span
               class="ml-auto text-xs"
               :class="
-                fileAccess === true ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-400'
+                fileAccess === true
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-amber-600 dark:text-amber-400'
               "
               data-testid="guide-file-access-status"
             >
@@ -217,8 +225,12 @@ onUnmounted(() => {
               用「选择 zip 文件…」导入不受影响。
             </p>
 
-            <p v-if="fileAccess === true" class="text-xs text-muted-foreground">
-              当前环境已可用，无需操作。
+            <p
+              v-if="fileAccess === true"
+              class="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400"
+            >
+              <ui-check class="size-3.5 shrink-0" />
+              已就绪 —— 「从路径导入」可直接读本地 zip。
             </p>
 
             <template v-else>
