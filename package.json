@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "postinstall": "wxt prepare",
-    "dev": "wxt",
+    "dev": "node scripts/dev.mjs",
+    "probe:serve": "node scripts/probe-target.mjs",
     "build": "wxt build",
     "build:firefox": "wxt build --browser firefox",
     "typecheck": "vue-tsc --noEmit",
