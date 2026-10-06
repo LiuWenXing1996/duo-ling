@@ -8,9 +8,9 @@
 // 故不用点「跑全部」；万一没起来（AUTO 没生效），兜底点一次。出网目标也是本机的：`scripts/probe-target.mjs` 起的靶站。
 //
 // 人工档 4 项（剪贴板读回 / 浏览器原生右键菜单点击 / `saveAs` 的另存为框 / 系统通知点击）在无头下
-// 做不了，探针在 `#omni-probe-auto`（AUTO）下直接记 `?`；另有 3 项会因环境记 `?`：
-//   · `@resource` —— 地址写在元数据里（只能是固定值、指向靶站默认端口），故这里优先占默认端口起靶站；
-//   · 剪贴板富文本 —— 读回被拒（未授权 / 页面未聚焦）；
+// 做不了，探针在 `#omni-probe-auto`（AUTO）下直接记 `?`；另有少数项会因环境记 `?`：
+//   · `@resource` —— 地址写在元数据里（只能是固定值、指向靶站默认端口），靶站没占到默认端口就取不到；
+//   · 剪贴板富文本 —— 读回被拒（未授权 / 页面未聚焦）时只判到「写入没报错」；
 //   · `@require` 的 CDN 依赖 —— 离线时抓不到（抓取失败不阻断注册，见 require-cache 的约定）。
 // 故预期：✗ = 0、⋯ = 0、`?` ≤ 7、其余 ✓。总数写死 —— 用例被增删时这条断言负责红。
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
@@ -66,6 +66,13 @@ test.describe.serial('GM 全能探针（真机自动化）', () => {
     available = availability.ok === true && availability.data.available === true
     if (!available) return // 后面的 test.skip 兜住
 
+    // 本地靶站：既是探针页宿主，也是探针的出网目标。**必须先起**——脚本注册（下一步的
+    // `userscript:save`）时 SW 就会去抓 @resource 的地址，靶站还没监听就抓空、那份资源就此
+    // 落空（那条用例只能记 ?）。优先占默认端口：@resource 的地址写在元数据里、只能是固定值，
+    // 占到默认端口那条用例才验得了；占用失败退回随机端口。
+    target = await startProbeTarget({ port: DEFAULT_PORT }).catch(() => undefined)
+    if (!target) target = await startProbeTarget({ port: 0 })
+
     // 存成脚本：单文件源码（探针的 @grant 清单写全，覆盖全部 API）
     const created = await sendToSw<{ uuid: string }>(messenger, { kind: 'userscript:create' })
     expect(created.ok, 'userscript:create 应成功').toBe(true)
@@ -79,11 +86,6 @@ test.describe.serial('GM 全能探针（真机自动化）', () => {
     expect(saved.ok, 'userscript:save 应成功').toBe(true)
     // @require 抓不到不阻断注册（require-cache 的约定），故这里只要求没报注册错误
     if (saved.ok) expect(saved.data.registerError, '注册不应报错').toBeUndefined()
-
-    // 本地靶站：既是探针页宿主，也是探针的出网目标。优先占默认端口 —— 探针的 @resource 地址写在
-    // 元数据里、只能是固定值（默认端口），占到了那条用例才验得了；占用失败退回随机端口。
-    target = await startProbeTarget({ port: DEFAULT_PORT }).catch(() => undefined)
-    if (!target) target = await startProbeTarget({ port: 0 })
 
     // 剪贴板用例在 AUTO 下走 navigator.clipboard.read() / readText()：授了权限才能自动验
     // 「写进去的到底是什么」，不必等人按 Cmd+V
