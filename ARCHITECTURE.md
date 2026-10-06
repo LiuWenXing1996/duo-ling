@@ -108,7 +108,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 ④ **观测数据库 `duoling-runtime`**（`runtime-db.ts`，**写只归 SW**）：错误日志（errors store，单记录环形 ≤ `ERROR_LOG_MAX`）、运行统计（stats store，每脚本一记录：总次数 / 最后运行时间 / 最近一次运行错误数）与运行日志（runlog store，全局环形 ≤ `RUN_LOG_MAX`）——统计与日志**并进同一事务写入**（`mutateStatsAndLog` 跨 store，逐条日志不额外放大写入）；读改写在事务内天然原子；错误明细按 runId 与日志关联，工作台「运行日志」标签页 = 时间线（运行行 + 孤儿错误行，`listRunTimeline` 合并读）。用户脚本的存储**全部落 IndexedDB**；GM 存储写出口发变更事件（`onGmValueChange`，值未变 / 删不存在键不发）。
 
-⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`——**密钥同存本机，属防扫描级而非保密级**）、key-cipher DEK、脚本桥握手密钥（`pageSecret`）、**标签页 → 会话的归属映射（`convByTab`，见 `conversation-tab-map.ts`）**、**新版本检查结果（`updateCheck`，见 `update-check.ts`）**——扩展自己的小数据。`chrome.storage.local` 只剩开发者模式开关这类零星设置（`dev-mode-store.ts`，storage 键的读写与订阅都集中在该模块）。归属映射是**整表一个键**，而写方有两处（面板登记新会话 / SW 在 tab 关闭时清理），可能交错，故写入一律走 `app-db.update` 的单事务「读-改-写」（拆成 get+set 会丢更新）。
+⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`——**密钥同存本机，属防扫描级而非保密级**）、key-cipher DEK、脚本桥握手密钥（`pageSecret`）、**标签页 → 会话的归属映射（`convByTab`，见 `conversation-tab-map.ts`）**、**新版本检查结果（`updateCheck`，见 `update-check.ts`）**——扩展自己的小数据。`chrome.storage.local` 现已无使用者（原先只放开发者模式开关，该开关随调试入口改版一并移除）。归属映射是**整表一个键**，而写方有两处（面板登记新会话 / SW 在 tab 关闭时清理），可能交错，故写入一律走 `app-db.update` 的单事务「读-改-写」（拆成 get+set 会丢更新）。
 
 ⑥ **会话库 `duoling-chat`**（`conversation-store.ts` 读写，**唯一写方 = offscreen**，读侧（对话界面 / 工作台会话历史）只读订阅）：会话与消息 + 生成任务快照（tasks store，宿主被杀后可续）——它不在 userScripts 链路里，故与 `duoling-state` 分开。
 
@@ -143,7 +143,7 @@ IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 
 
 - 广播埋在写出口：offscreen `handleStateCommand`（`script` 域）、`conversation-store` 写函数（`conversation`）、`userscripts/store.ts`（`error`）、`userscripts/usdata-db` 写出口经 store.ts（gm 变更事件）与 `model-store.ts` 写出口（`model`）。
 - **新增写路径必须同步埋广播**；前端新面板按域接 `useDataSync`，不再靠手动刷新兜底。编辑器有未保存改动时不自动重载，只提示「已在别处修改，这次保存会覆盖那一次改动」；编辑器自己保存触发的广播会被忽略——否则刚保存就被当成「别处修改」挂上提示。
-- **只适用于 IDB**。落在 `chrome.storage.local` 的设置在**模块内封一层订阅**即可 —— 原生 `chrome.storage.onChanged` 已跨上下文通知（扩展页 / popup / 内容脚本都收得到），不必自建通道：`dev-mode-store.ts` 的 `subscribeDevMode` 即此例。键名与 area 过滤都封在 store 里，调用方不写字面量。
+- **只适用于 IDB**。落在 `chrome.storage.local` 的设置在**模块内封一层订阅**即可 —— 原生 `chrome.storage.onChanged` 已跨上下文通知（扩展页 / popup / 内容脚本都收得到），不必自建通道；键名与 area 过滤一并封在该模块内，调用方不写字面量。
 
 ## 构建信息注入（单一通道：`vite.define`）
 

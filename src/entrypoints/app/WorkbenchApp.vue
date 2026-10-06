@@ -7,19 +7,13 @@
 // 结构平移自桌面版 app.vue 的「顶栏 + 左侧导航 + 工作区」，只裁掉两栏聊天
 // （会话历史 | 当前会话已移入 side panel），保留的分支逐句照搬，未重写。
 // 导航项：设置 / 脚本列表 / 运行日志 / 会话历史（「引导」不单独占一项，入口在设置页菜单里）。
-// 另有五个调界面用的入口只在开发者模式下出现，且各自还能单独关掉：
-// AI 界面对话预览 / 脚本文件 / 会话数据 / AI 工具 / GM API（清单见 lib/dev-mode-store.ts）。
+// 调界面用的几个调试面板不在这里 —— 入口收在「设置 · 开发者」分区里（见 DevModeSection）。
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
-  Code as UiCode,
   History as UiHistory,
-  Database as UiDatabase,
-  BotMessageSquare as UiBotMessageSquare,
-  FolderTree as UiFolderTree,
   List as UiList,
   MessagesSquare as UiMessagesSquare,
-  Settings as UiSettings,
-  Wrench as UiWrench
+  Settings as UiSettings
 } from '@lucide/vue'
 import WorkspaceHost from '@/components/WorkspaceHost.vue'
 import {
@@ -29,21 +23,9 @@ import {
   TooltipTrigger as UiTooltipTrigger
 } from '@/components/ui/tooltip'
 import { getProject } from '@/lib/userscripts/project-store'
-import { getDevModeState, subscribeDevMode, type DevPageId } from '@/lib/dev-mode-store'
 
 // 左侧导航栏「设置」「脚本列表」等：调用工作区的对应方法
 const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
-
-// 开发者模式：控制下面这几个调界面用的入口是否出现在左侧导航（总开关 × 单页开关）。
-// 设置页是同一文档里的一个标签页，开关改动经 storage.onChanged 回到这里
-const devEnabled = ref(false)
-const devDisabled = ref<DevPageId[]>([])
-let unsubDevMode: (() => void) | undefined
-
-/** 某开发者入口此刻是否显示 */
-function devVisible(id: DevPageId): boolean {
-  return devEnabled.value && !devDisabled.value.includes(id)
-}
 
 // hash 深链（openWorkbench 的约定）：
 //   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
@@ -75,23 +57,14 @@ function handleHash(): void {
   if (location.hash === '#/settings') workspaceRef.value?.openSettingsTab()
 }
 
-onMounted(async () => {
+onMounted(() => {
   handleHash()
   // 已打开的工作台被再次深链时，SW 走的是 chrome.tabs.update 只改 hash（文档不重载），
   // 只靠 onMounted 会「点了没反应」——必须接住 hashchange。
   window.addEventListener('hashchange', handleHash)
-
-  const dev = await getDevModeState()
-  devEnabled.value = dev.enabled
-  devDisabled.value = dev.disabled
-  unsubDevMode = subscribeDevMode((s) => {
-    devEnabled.value = s.enabled
-    devDisabled.value = s.disabled
-  })
 })
 onUnmounted(() => {
   window.removeEventListener('hashchange', handleHash)
-  unsubDevMode?.()
 })
 </script>
 
@@ -113,21 +86,6 @@ onUnmounted(() => {
               </button>
             </ui-tooltip-trigger>
             <ui-tooltip-content side="right">设置</ui-tooltip-content>
-          </ui-tooltip>
-        </ui-tooltip-provider>
-        <ui-tooltip-provider v-if="devVisible('ui-test')">
-          <ui-tooltip>
-            <ui-tooltip-trigger as-child>
-              <button
-                class="workspace-nav-item"
-                type="button"
-                aria-label="AI 界面对话预览"
-                @click="workspaceRef?.openUiTestTab()"
-              >
-                <ui-bot-message-square class="size-5" />
-              </button>
-            </ui-tooltip-trigger>
-            <ui-tooltip-content side="right">AI 界面对话预览</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
         <ui-tooltip-provider>
@@ -160,36 +118,6 @@ onUnmounted(() => {
             <ui-tooltip-content side="right">运行日志</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
-        <ui-tooltip-provider v-if="devVisible('lfs-browser')">
-          <ui-tooltip>
-            <ui-tooltip-trigger as-child>
-              <button
-                class="workspace-nav-item"
-                type="button"
-                aria-label="脚本文件"
-                @click="workspaceRef?.openLfsBrowserTab()"
-              >
-                <ui-folder-tree class="size-5" />
-              </button>
-            </ui-tooltip-trigger>
-            <ui-tooltip-content side="right">脚本文件</ui-tooltip-content>
-          </ui-tooltip>
-        </ui-tooltip-provider>
-        <ui-tooltip-provider v-if="devVisible('chat-data')">
-          <ui-tooltip>
-            <ui-tooltip-trigger as-child>
-              <button
-                class="workspace-nav-item"
-                type="button"
-                aria-label="会话数据"
-                @click="workspaceRef?.openChatDataTab()"
-              >
-                <ui-database class="size-5" />
-              </button>
-            </ui-tooltip-trigger>
-            <ui-tooltip-content side="right">会话数据</ui-tooltip-content>
-          </ui-tooltip>
-        </ui-tooltip-provider>
         <ui-tooltip-provider>
           <ui-tooltip>
             <ui-tooltip-trigger as-child>
@@ -203,36 +131,6 @@ onUnmounted(() => {
               </button>
             </ui-tooltip-trigger>
             <ui-tooltip-content side="right">会话历史</ui-tooltip-content>
-          </ui-tooltip>
-        </ui-tooltip-provider>
-        <ui-tooltip-provider v-if="devVisible('agent-tools')">
-          <ui-tooltip>
-            <ui-tooltip-trigger as-child>
-              <button
-                class="workspace-nav-item"
-                type="button"
-                aria-label="AI 工具"
-                @click="workspaceRef?.openAgentToolsTab()"
-              >
-                <ui-wrench class="size-5" />
-              </button>
-            </ui-tooltip-trigger>
-            <ui-tooltip-content side="right">AI 工具</ui-tooltip-content>
-          </ui-tooltip>
-        </ui-tooltip-provider>
-        <ui-tooltip-provider v-if="devVisible('gm-api')">
-          <ui-tooltip>
-            <ui-tooltip-trigger as-child>
-              <button
-                class="workspace-nav-item"
-                type="button"
-                aria-label="GM API"
-                @click="workspaceRef?.openGmApiTab()"
-              >
-                <ui-code class="size-5" />
-              </button>
-            </ui-tooltip-trigger>
-            <ui-tooltip-content side="right">GM API</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
       </aside>

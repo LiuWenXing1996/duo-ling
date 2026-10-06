@@ -9,7 +9,6 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  enableDevMode,
   enableUserScripts,
   extensionIdFromServiceWorker,
   getServiceWorker,
@@ -39,7 +38,6 @@ test.describe.serial('脚本编辑器交互（真机）', () => {
     const sw = await getServiceWorker(context)
     extensionId = extensionIdFromServiceWorker(sw)
     messenger = await openMessengerPage(context, extensionId)
-    await enableDevMode(messenger)
 
     // 铺一个有两个历史版本的脚本：历史面板的「最新版不可恢复」「可回旧版」都要用到
     const created = await sendToSw<{ uuid: string; name: string }>(messenger, {
