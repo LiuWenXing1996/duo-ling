@@ -149,7 +149,7 @@ const removeGroupTarget = ref<string | null>(null)
 const groupById = computed(() => new Map(groups.value.map((g) => [g.id, g])))
 
 /**
- * 分组展示节：按 groups 顺序，末尾追加「未分组」节（仅当存在未分组脚本）。
+ * 分组展示节：「未分组」节置顶（仅当存在未分组脚本），其余按 groups 顺序排其后。
  * 每节含其下脚本（已含搜索 / 状态筛选 / 排序）。筛选后某节无脚本则整节不显示。
  */
 const groupSections = computed(() => {
@@ -161,12 +161,12 @@ const groupSections = computed(() => {
     else byGroup.set(key, [s])
   }
   const sections: Array<{ id: string; name: string; scripts: ScriptSummary[] }> = []
+  const ungrouped = byGroup.get(UNGROUPED_KEY)
+  if (ungrouped) sections.push({ id: UNGROUPED_KEY, name: '未分组', scripts: ungrouped })
   for (const g of groups.value) {
     const scripts = byGroup.get(g.id)
     if (scripts) sections.push({ id: g.id, name: g.name, scripts })
   }
-  const ungrouped = byGroup.get(UNGROUPED_KEY)
-  if (ungrouped) sections.push({ id: UNGROUPED_KEY, name: '未分组', scripts: ungrouped })
   return sections
 })
 
