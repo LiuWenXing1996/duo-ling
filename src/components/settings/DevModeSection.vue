@@ -7,6 +7,7 @@ import { ref } from 'vue'
 import { ChevronRight as UiChevronRight } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import { Input as UiInput } from '@/components/ui/input'
+import { EXTENSION_NAME } from '@/lib/extension-identity'
 import type { WorkspaceTabKind } from '@/shared/types'
 
 const emit = defineEmits<{ openTab: [kind: WorkspaceTabKind, title: string] }>()
@@ -28,7 +29,7 @@ async function testNotify(): Promise<void> {
   await chrome.notifications.create('duoling:dev-test', {
     type: 'basic',
     iconUrl: NOTIFY_ICON,
-    title: '哆灵',
+    title: EXTENSION_NAME,
     message: '这是一条测试通知，用于确认通知图标的显示效果。',
   })
 }

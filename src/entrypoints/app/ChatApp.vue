@@ -29,6 +29,7 @@ import {
   TooltipTrigger as UiTooltipTrigger
 } from '@/components/ui/tooltip'
 import { useGlobalConversation } from '@/composables/use-global-conversation'
+import { EXTENSION_NAME } from '@/lib/extension-identity'
 import { readPinnedTabId } from '@/lib/owning-tab'
 import { FLOAT_COLLAPSE_REQUEST } from '@/shared/extension-ipc'
 
@@ -47,7 +48,7 @@ const {
 } = useGlobalConversation()
 
 const activeTitle = computed(
-  () => conversations.value.find((c) => c.id === activeConversationId.value)?.title || '哆灵'
+  () => conversations.value.find((c) => c.id === activeConversationId.value)?.title || EXTENSION_NAME
 )
 
 /** 工作台是独立标签页，用 hash 指定初始落点（#/sessions、#/settings、#/guide 等） */

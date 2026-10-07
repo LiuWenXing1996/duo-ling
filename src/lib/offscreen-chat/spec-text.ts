@@ -13,6 +13,7 @@
 
 import { GM_API_GROUPS, specEntries } from '@/lib/gm-api-catalog'
 import { ALWAYS_GLOBALS, ALWAYS_NS, ALWAYS_WINDOW_MEMBERS, GRANT_NAMES } from '@/lib/gm-grants'
+import { EXTENSION_NAME } from '@/lib/extension-identity'
 
 /** 能力清单段：按速查页的分组顺序，一条一行（签名 + 一句话作用） */
 function renderCapabilities(): string {
@@ -39,7 +40,7 @@ function renderGrantSection(): string {
   ].join('\n')
 }
 
-export const SCRIPT_SPEC_TEXT = `# 哆灵用户脚本规范（生成脚本前必读）
+export const SCRIPT_SPEC_TEXT = `# ${EXTENSION_NAME}用户脚本规范（生成脚本前必读）
 
 ## 形态
 脚本 = **单文件纯 JS 源码**（无构建流程，保存即注入匹配页面）。

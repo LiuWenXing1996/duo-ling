@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS } from '../gm-grants'
 import type { GmInfo } from './api-contract'
 import { GM_WRAPPER_SUFFIX, buildGmWrapperPrefix, resolveGmExposure } from './gm-wrapper'
+import { EXTENSION_NAME } from '@/lib/extension-identity'
 
 /** 造一份最小 GM_info（userAgent / isIncognito 由包装运行时就地补，故不传） */
 function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
@@ -21,7 +22,7 @@ function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
       resources: {},
     },
     scriptMetaStr: '',
-    scriptHandler: '哆灵',
+    scriptHandler: EXTENSION_NAME,
     version: '0.0.0-test',
     uuid: 'u-test',
     sandboxMode: 'raw',
@@ -78,7 +79,7 @@ describe('buildGmWrapperPrefix', () => {
   it('嵌入了值快照、GM_info 与按 grant 算出的成员表', () => {
     const src = build(['GM_getValue'])
     expect(src).toContain('"k":"v"') // 值快照
-    expect(src).toContain('"scriptHandler":"哆灵"')
+    expect(src).toContain(`"scriptHandler":"${EXTENSION_NAME}"`)
     expect(src).toContain('"GM_getValue":true')
     expect(src).toContain('"GM_setValue":false')
   })

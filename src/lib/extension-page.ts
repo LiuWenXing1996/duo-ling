@@ -1,6 +1,6 @@
 // 把用户送到「本扩展的扩展管理页」的入口（引导开启「允许运行用户脚本」这类开关时用）。
 //
-// 为什么要程序化打开：原引导文案让用户「自己敲 chrome://extensions → 哆灵 → 详情」，
+// 为什么要程序化打开：原引导文案让用户「自己敲 chrome://extensions → 找到本扩展 → 详情」，
 // 三步且要手打 URL；直接开标签可把用户送到目标页，省掉找路。
 //
 // 目标页分版本（同一开关在两代 Chrome 里位置不同）：
@@ -14,6 +14,8 @@
 //
 // Firefox 不适用：about:addons 属特权 about: URL，tabs.create 会拒绝（MDN 明列），
 // 调用方应自行判断不给入口。
+
+import { EXTENSION_NAME } from '@/lib/extension-identity'
 
 /** 浏览器主版本号：取 UA 里的 Chrome/xx；Firefox 等解析不到时返回 0 */
 export function getChromeMajorVersion(): number {
@@ -79,7 +81,7 @@ export function userScriptsGuideSteps(browser: { isFirefox: boolean; chromeMajor
   if (browser.isFirefox) {
     return [
       { title: '打开扩展管理页', detail: '地址栏输入 about:addons' },
-      { title: '进入「哆灵」的偏好设置', detail: '扩展卡片上的「偏好」标签' },
+      { title: `进入「${EXTENSION_NAME}」的偏好设置`, detail: '扩展卡片上的「偏好」标签' },
       { title: '勾选「User Scripts」权限', detail: '改完回到本页点「重新检测」' }
     ]
   }
@@ -130,7 +132,7 @@ export function fileAccessGuideSteps(chromeMajor: number): GuideStep[] {
   }
   return [
     { title: '打开扩展管理页', detail: '下面按钮直接打开' },
-    { title: '进入「哆灵」的详情页', detail: '卡片上的「详情」按钮' },
+    { title: `进入「${EXTENSION_NAME}」的详情页`, detail: '卡片上的「详情」按钮' },
     openSwitch,
     restart,
     redetect

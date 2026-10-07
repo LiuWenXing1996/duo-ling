@@ -12,6 +12,7 @@ import {
   readPageBuildStamp,
   type BuildStamp,
 } from '@/lib/build-info'
+import { EXTENSION_NAME } from '@/lib/extension-identity'
 import { readUpdateCheck, runUpdateCheck, type UpdateCheckRecord } from '@/lib/update-check'
 
 const injected = readInjectedBuildInfo()
@@ -80,7 +81,7 @@ onMounted(async () => {
     <div>
       <h3 class="text-base font-semibold">关于</h3>
       <p class="mt-1 text-xs text-muted-foreground">
-        哆灵 · AI 用户脚本工坊（浏览器扩展）。
+        {{ EXTENSION_NAME }} · AI 用户脚本工坊（浏览器扩展）。
       </p>
     </div>
 

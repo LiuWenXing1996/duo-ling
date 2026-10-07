@@ -3,6 +3,8 @@
 // 一个脚本 = 一个单文件源码 + 一份配置，直接映射 chrome.userScripts 原生字段。
 // 无构建流程：保存即注入（源码原文进注册态），对齐油猴单文件形态。
 
+import { EXTENSION_NAME } from '@/lib/extension-identity'
+
 /**
  * 脚本配置：**运行期唯一事实源**。
  *
@@ -306,7 +308,7 @@ export function defaultSource(): string {
     '// @grant none',
     '// ==/UserScript==',
     '',
-    "console.log('[哆灵脚本] 已注入', location.href)",
+    `console.log('[${EXTENSION_NAME}脚本] 已注入', location.href)`,
     '',
   ].join('\n')
 }

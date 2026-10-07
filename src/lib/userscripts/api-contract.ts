@@ -51,7 +51,7 @@ export interface GmInfo {
   script: GmScriptMeta
   /** 原始 metadata 块文本（无块时为空串） */
   scriptMetaStr: string
-  /** 脚本管理器名（本扩展固定返回「哆灵」） */
+  /** 脚本管理器名 */
   scriptHandler: string
   /** 本扩展版本 */
   version: string

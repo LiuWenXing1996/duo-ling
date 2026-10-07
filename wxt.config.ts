@@ -1,13 +1,14 @@
 import { resolve } from 'node:path'
 import { execSync } from 'node:child_process'
 import { mkdirSync, readFileSync } from 'node:fs'
+import type { Plugin } from 'vite'
 import { defineConfig } from 'wxt'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 import { providerOrigins } from './src/lib/providers'
+import { EXTENSION_NAME } from './src/lib/extension-identity'
 
-// 哆灵 · 浏览器扩展版
-// 不依赖已下架的 @wxt/vue，直接用 vite 的 vue 插件编译 .vue 组件。
+// 浏览器扩展版：不依赖已下架的 @wxt/vue，直接用 vite 的 vue 插件编译 .vue 组件。
 //
 // 载体分工：
 //   网页浮层    → 对话界面 = content script 按需注入的 iframe（entrypoints/content.ts
@@ -73,6 +74,19 @@ const buildInfoRepo = (() => {
   }
 })()
 
+/**
+ * 四个 html 入口的 `<title>` 里写占位符 `%EXT_NAME%`，由这里在构建期替换成扩展显示名。
+ *
+ * 为什么要插件而不直接在 html 里写名字：html 是静态文件、拿不到 TS 常量，改名时漏改
+ * 一处就是「工作台页签还叫旧名」。四个入口由 WXT 以 multi-page 模式交给 Vite 构建，
+ * transformIndexHtml 钩子会跑到（WXT 自己的 dev-html-prerender 插件就挂在这个钩子上）。
+ * 不走 Vite 内置的 `%VITE_*%` 替换：那条要求值出现在 env 里、依赖注入时序，不如插件可控。
+ */
+const htmlExtensionName = (): Plugin => ({
+  name: 'duoling:html-extension-name',
+  transformIndexHtml: (html) => html.replaceAll('%EXT_NAME%', EXTENSION_NAME),
+})
+
 export default defineConfig({
   // 图标由 @wxt-dev/auto-icons 在构建期从 src/assets/icon.svg 自动生成（sharp 栅格化，
   // 输出产物 icons/{16,32,48,128}.png 并写入 manifest.icons；工具栏图标回退到 icons）。
@@ -90,7 +104,7 @@ export default defineConfig({
   // 否则 src/public/ 下的静态资产（如 duoling-picker.js）不会进产物。
   publicDir: 'src/public',
   vite: () => ({
-    plugins: [vue(), tailwindcss()],
+    plugins: [vue(), tailwindcss(), htmlExtensionName()],
     // service worker 里没有 Node 的 `global`，而 isomorphic-git/lightning-fs 的
     // 打包代码写的是 `global.TextEncoder`。构建期把 `global` 别名成原生 globalThis
     // （SW 里自带 TextEncoder/TextDecoder），否则加载即抛
@@ -109,8 +123,8 @@ export default defineConfig({
     },
   }),
   manifest: {
-    name: '哆灵',
-    description: '哆灵 AI 用户脚本工坊 · 扩展版（网页浮层对话 + 标签页工作台）',
+    name: EXTENSION_NAME,
+    description: `${EXTENSION_NAME} AI 用户脚本工坊 · 扩展版（网页浮层对话 + 标签页工作台）`,
     // 扩展 ID 固定：manifest 带 key 时 Chrome 用 SHA256(公钥) 派生 ID，不再按扩展目录的
     // 绝对路径算 —— 换 worktree、换解压目录、换机器都是同一个 ID，本地数据（storage /
     // IndexedDB / userScripts 授权）不再随安装位置重置。
@@ -161,8 +175,10 @@ export default defineConfig({
     'minimum_chrome_version': '135',
     // default_popup 不在此手写：WXT 按文件名把 entrypoints/popup.html 识别为 popup 入口
     // 并自动写入 manifest（同 content.ts 成为内容脚本的机制）。
+    // action 标题的唯一来源：popup 入口刻意不写 <title>（否则 WXT 会拿它覆盖本字段，
+    // 说明见 popup.html）。它是工具栏图标的悬停提示，改文案时留意这句面向用户。
     action: {
-      default_title: '打开哆灵',
+      default_title: EXTENSION_NAME,
     },
     // 网页浮层：content script 在第三方页面里用 iframe 加载 floatpanel.html，
     // 该扩展页必须对目标站点可访问，否则 Chrome 会拦截 iframe 加载。

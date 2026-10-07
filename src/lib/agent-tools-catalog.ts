@@ -9,6 +9,8 @@
 // 漂移防护：工具名集合与各工具的参数名集合由单测从运行时 schema 反射比对
 // （见 src/lib/agent-tools-catalog.test.ts），改了 tools 忘了改本文件会红。
 
+import { EXTENSION_NAME } from '@/lib/extension-identity'
+
 /** 工具名（与 buildScriptTools 返回对象的键一一对应） */
 export type AgentToolName =
   | 'script_spec'
@@ -33,7 +35,7 @@ export const AGENT_RUNTIME_LIMITS = {
 /** 工具 description 原文：**模型实际收到的就是这些字**，面板也展示这一份 */
 export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
   script_spec:
-    '获取哆灵用户脚本的完整规范（GM 能力 API、硬性约束、禁止事项）。写或改任何脚本前必须先调用它。',
+    `获取${EXTENSION_NAME}用户脚本的完整规范（GM 能力 API、硬性约束、禁止事项）。写或改任何脚本前必须先调用它。`,
   script_find:
     '按名字搜索已保存的脚本（大小写不敏感的子串匹配），返回 uuid 清单。' +
     '用户提到某个脚本（如「改一下 XX 脚本」）但没给 uuid 时先调它拿 uuid，再 script_read 读源码、' +

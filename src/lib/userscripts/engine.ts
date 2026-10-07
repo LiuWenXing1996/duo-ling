@@ -11,6 +11,7 @@ import type { ScriptConfig, ScriptProject } from './types'
 import type { GmInfo, Json } from './api-contract'
 // 版本判断与「打开扩展管理页」入口同源（引导文案按 <138 / ≥138 分支，UI 侧按钮也按同一分支取 URL）
 import { getChromeMajorVersion } from '@/lib/extension-page'
+import { EXTENSION_NAME } from '@/lib/extension-identity'
 import * as appDb from '@/lib/app-db'
 // 项目读自状态库（IndexedDB，SW 与 offscreen 共用）：注册链路不能在 offscreen 存活上下注
 import { listProjects, validateMatchPatterns } from './project-store'
@@ -64,7 +65,7 @@ export async function getUserScriptsStatus(): Promise<import('./types').UserScri
   let guideText = ''
   if (!available) {
     if (isFirefox) {
-      guideText = 'Firefox：在扩展管理页（about:addons → 哆灵 → 偏好）勾选「User Scripts」权限后即可使用。'
+      guideText = `Firefox：在扩展管理页（about:addons → ${EXTENSION_NAME} → 偏好）勾选「User Scripts」权限后即可使用。`
     } else if (chromeMajor >= 138) {
       guideText = 'Chrome ≥138：在扩展详情页开启「允许运行用户脚本」开关后即可使用。'
     } else {
@@ -196,7 +197,7 @@ function buildGmInfo(
       resources,
     },
     scriptMetaStr: parsed?.raw ?? '',
-    scriptHandler: '哆灵',
+    scriptHandler: EXTENSION_NAME,
     version: chrome.runtime.getManifest().version,
     uuid: project.uuid,
     sandboxMode: 'raw',

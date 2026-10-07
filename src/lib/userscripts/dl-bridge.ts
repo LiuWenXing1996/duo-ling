@@ -22,6 +22,7 @@ import type {
   FetchPayload,
   Json,
 } from './api-contract'
+import { EXTENSION_NAME } from '@/lib/extension-identity'
 // Port 事件底座：控制面实现（菜单登记 / 键级与全量值订阅 / 通知归属 / URL 订阅）
 import {
   registerScriptMenu,
@@ -713,7 +714,7 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       await chrome.notifications.create(id, {
         type: 'basic',
         iconUrl: req.icon || FALLBACK_ICON,
-        title: req.title || '哆灵用户脚本',
+        title: req.title || `${EXTENSION_NAME}用户脚本`,
         message: req.message || '',
       })
       return { id }
