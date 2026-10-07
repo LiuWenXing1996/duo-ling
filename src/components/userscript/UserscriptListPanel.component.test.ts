@@ -607,6 +607,10 @@ describe('UserscriptListPanel 粘贴导入', () => {
 })
 
 describe('UserscriptListPanel 分组', () => {
+  /** 分组头按钮：按 testid 取 —— 页面上另有带 aria-expanded 的排序下拉触发器，
+   *  按属性撞会把它一起捞进来 */
+  const groupHeaders = () => wrapper.findAll('[data-testid="group-header"]')
+
   it('groups() 返回分组时按分组头分块，未分组脚本进「未分组」节', async () => {
     groups.mockResolvedValue([{ id: 'g1', name: '购物助手', order: 0 }])
     list.mockResolvedValue([
@@ -618,6 +622,47 @@ describe('UserscriptListPanel 分组', () => {
     expect(wrapper.text()).toContain('购物助手')
     expect(wrapper.text()).toContain('未分组')
     expect(wrapper.findAll('button[aria-label="编辑脚本"]')).toHaveLength(2)
+  })
+
+  it('未分组排在真实分组之前（新建的脚本默认落这里，不该埋在列表底部）', async () => {
+    groups.mockResolvedValue([
+      { id: 'g1', name: '购物助手', order: 0 },
+      { id: 'g2', name: '效率工具', order: 1 },
+    ])
+    list.mockResolvedValue([
+      { ...summary('u1', '脚本A'), group: 'g1' },
+      summary('u2', '脚本B'),
+    ])
+    wrapper = await mountPanel()
+
+    const headers = groupHeaders().map((b) => b.text())
+    expect(headers[0]).toContain('未分组')
+    expect(headers[1]).toContain('购物助手')
+  })
+
+  it('空分组也渲染（计数 0）：重命名 / 删除入口不随成员一起消失', async () => {
+    groups.mockResolvedValue([
+      { id: 'g1', name: '空分组', order: 0 },
+      { id: 'g2', name: '有货分组', order: 1 },
+    ])
+    list.mockResolvedValue([{ ...summary('u1', '脚本A'), group: 'g2' }])
+    wrapper = await mountPanel()
+
+    const header = groupHeaders().find((b) => b.text().includes('空分组'))
+    expect(header).toBeDefined()
+    expect(header!.text()).toContain('0')
+    expect(wrapper.findAll('button[title="分组操作"]')).toHaveLength(2)
+  })
+
+  it('整列表被筛空时不让一屏空组头挡住提示（空状态优先于分组渲染）', async () => {
+    groups.mockResolvedValue([{ id: 'g1', name: '购物助手', order: 0 }])
+    list.mockResolvedValue([{ ...summary('u1', '脚本A'), group: 'g1' }])
+    wrapper = await mountPanel()
+    // 搜索框只在「搜索 / 筛选 / 排序」那组里有局部 helper，这里直接按 placeholder 取
+    await wrapper.find('input[placeholder="搜索名称或匹配规则…"]').setValue('不存在的脚本')
+
+    expect(wrapper.text()).toContain('没有匹配的脚本')
+    expect(wrapper.text()).not.toContain('购物助手')
   })
 
   it('「新建分组」按钮打开命名弹窗，填写后调用 createGroup', async () => {
@@ -636,6 +681,35 @@ describe('UserscriptListPanel 分组', () => {
     portalButton('创建')!.click()
     await flushPromises()
     expect(createGroup).toHaveBeenCalledWith('我的分组')
+  })
+
+  it('移动到分组：点行内按钮开弹窗，列出未分组与全部分组，点一项即落定', async () => {
+    groups.mockResolvedValue([
+      { id: 'g1', name: '购物助手', order: 0 },
+      { id: 'g2', name: '效率工具', order: 1 },
+    ])
+    list.mockResolvedValue([summary('u1', '脚本A')])
+    wrapper = await mountPanel()
+
+    await wrapper.find('button[aria-label="移动到分组"]').trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('「脚本A」归入哪个分组？')
+    // 当前所在项（未分组）留着但点不动：点了等于没点，禁用才不会骗人
+    expect(portalButton('未分组')!.disabled).toBe(true)
+    portalButton('效率工具')!.click()
+    await flushPromises()
+    expect(setGroup).toHaveBeenCalledWith('u1', 'g2')
+  })
+
+  it('移动到分组：还没有分组时给出提示，而不是只剩一个点不动的选项', async () => {
+    groups.mockResolvedValue([])
+    wrapper = await mountPanel()
+
+    await wrapper.find('button[aria-label="移动到分组"]').trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('还没有分组')
   })
 })
 
