@@ -3,7 +3,7 @@
 // 这条链路的三个分支都在渲染层，故用组件测试守：
 //   A. 有运行脚本 → 摘要行给计数，默认**收起**（列表不占版面），展开后列出脚本名与状态；
 //   B. 无运行脚本 → 摘要行就是空态，不给可点性、不渲染列表；
-//   C. 非普通网页 → 整块不渲染（与上面那条「不能显示浮层」的提示并列只会互相打架）。
+//   C. 非普通网页 → 整块不渲染（这些页面上 content script 注入不了，计数必然是空的）。
 //
 // 边界 mock：
 //   · chrome —— 手写壳，只需 tabs.query / tabs.get / tabs.onUpdated / runtime.connect。
@@ -145,13 +145,15 @@ describe('popup 的「本页脚本」分区', () => {
     expect(rows(w)).toHaveLength(0)
   })
 
-  it('非普通网页：整块不渲染，只留「不能显示浮层」那条提示', async () => {
+  it('非普通网页：整块不渲染，页面里也不留一条独立的浮层不可用提示', async () => {
     // chrome:// 等页面上扩展读不到 url（manifest 无 tabs 权限），归位空
     stubChrome(undefined)
     const w = await mountPopup()
 
     expect(w.find('[data-testid="popup-page-scripts"]').exists()).toBe(false)
-    expect(w.find('[data-testid="float-unsupported"]').exists()).toBe(true)
+    // 不可用的原因改挂在「打开会话」图标的悬停提示上（tooltip 悬停才挂载，不进组件树）：
+    // popup 正文里不再有那条独立说明
+    expect(w.text()).not.toContain('当前页面不能显示浮层')
   })
 
   it('脚本出过错：行内给错误条数；摘要行给错误徽标', async () => {
@@ -172,20 +174,20 @@ describe('popup 的「本页脚本」分区', () => {
   })
 })
 
-describe('popup 的扩展管理页入口', () => {
-  it('点了打开 chrome://extensions，URL 带本扩展 id', async () => {
+describe('popup 的工作台入口', () => {
+  it('点了新建 workbench 标签页，不带 hash（落默认面板）', async () => {
     stubChrome('https://example.com/page')
     const w = await mountPopup()
 
-    await w.find('[data-testid="open-extensions-page"]').trigger('click')
+    await w.find('[data-testid="open-workbench"]').trigger('click')
     await flushPromises()
-    expect(tabsCreate).toHaveBeenCalledWith({ url: 'chrome://extensions/?id=EXTID' })
+    expect(tabsCreate).toHaveBeenCalledWith({ url: 'chrome-extension://EXTID/workbench.html' })
   })
 })
 
-// 对话浮层入口：对话框平时不在页面里（content script 默认不往页面放 DOM），这里是它的常规打开
-// 方式。这条链路的关键在「定向消息发给谁」与「失败时说得出话」。
-describe('popup 的「对话浮层」入口', () => {
+// 「打开会话」入口：对话框平时不在页面里（content script 默认不往页面放 DOM），这里是它的常规
+// 打开方式。这条链路的关键在「定向消息发给谁」与「失败时说得出话」。
+describe('popup 的「打开会话」入口', () => {
   const openBtn = (w: VueWrapper) => w.find('[data-testid="open-float-panel"]')
 
   /** 假的 window.close：真关窗在 happy-dom 里没有可观测效果，换 spy 才能断言「关没关」 */
