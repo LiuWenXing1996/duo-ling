@@ -14,7 +14,7 @@
 // 派生口径：content = textOfMessage(parts)（写侧落盘时拍平，供自动命名 / 检索 / 调试视图），
 // reasoning 同理；两者都是"派生"，parts 才是真相源 —— 与 ai-elements 的渲染口径一致。
 import type { UIMessage } from 'ai'
-import type { Message, TokenUsage } from '@/shared/types'
+import type { Message, MessageModelRef, TokenUsage } from '@/shared/types'
 import type { MessagePageContext } from '@/shared/extension-ipc'
 import { reasoningOfMessage, textOfMessage } from '@/lib/ui-message-parts'
 
@@ -37,6 +37,8 @@ export function toPersistedMessage(
     pageContext?: MessagePageContext
     /** 本次生成消耗（只有 assistant 路径会带） */
     usage?: TokenUsage
+    /** 本次生成实际使用的模型（只有 assistant 路径会带，见 AssistantMessage.model） */
+    model?: MessageModelRef
   },
 ): Message {
   const base = {
@@ -68,6 +70,7 @@ export function toPersistedMessage(
     content: text.trim() || '（模型未生成回复内容）',
     ...(reasoning.trim() ? { reasoning } : {}),
     ...(ctx.usage ? { usage: ctx.usage } : {}),
+    ...(ctx.model ? { model: ctx.model } : {}),
   }
 }
 

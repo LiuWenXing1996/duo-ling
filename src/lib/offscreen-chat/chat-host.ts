@@ -35,6 +35,7 @@ import type {
   PageContextInfo,
   RuntimeRequest,
 } from '@/shared/extension-ipc'
+import type { MessageModelRef } from '@/shared/types'
 import {
   dropBuffer,
   notifyChatFinished,
@@ -285,6 +286,8 @@ async function persistInterruptedOutput(opts: {
   chunks: UIMessageChunk[]
   /** 工具执行中途手工推的 part（同意卡那类），同样要进落盘序列 */
   midParts: UIMessageChunk[]
+  /** 本轮使用的模型（profile 没取到时为 undefined，该字段随之不落盘） */
+  model?: MessageModelRef
 }): Promise<void> {
   const mark = {
     type: 'data-interrupted',
@@ -310,7 +313,11 @@ async function persistInterruptedOutput(opts: {
   await appendMessage(
     toPersistedMessage(
       { ...message, parts },
-      { conversationId: opts.conversationId, id: message.id || opts.messageId },
+      {
+        conversationId: opts.conversationId,
+        id: message.id || opts.messageId,
+        ...(opts.model ? { model: opts.model } : {}),
+      },
     ),
   ).catch((e) => console.error('[duoling:chat] 中止落盘失败', e))
 }
@@ -346,10 +353,14 @@ async function runLoop(opts: {
   // 收集发生在下面，异常更早抛出时它们就是空数组，落盘那步自然会跳过。
   const allChunks: UIMessageChunk[] = []
   const midStreamParts: UIMessageChunk[] = []
+  // 本轮实际使用的模型快照，同样声明在 try 之外：catch 分支也要落盘半截内容，
+  // 而 profile 是在 try 里取的，出了 try 就取不到（落盘字段见 AssistantMessage.model）。
+  let usedModel: MessageModelRef | undefined
 
   try {
     const profile = getActiveProfile()
     if (!profile) throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
+    usedModel = { providerId: profile.providerId, id: profile.model }
 
     // 流式静默守卫：provider 卡死（有连接但不吐 token）时主动中止，释放网关连接/并发配额。
     // 时长优先取模型配置里的 streamIdleTimeoutSec（秒），缺省回退 STREAM_IDLE_TIMEOUT_MS（60s）。
@@ -493,6 +504,7 @@ async function runLoop(opts: {
           messageId: task.messageId,
           chunks: allChunks,
           midParts: midStreamParts,
+          model: usedModel,
         })
         if (!sawAbort) pushChunk(conversationId, { type: 'abort' })
         cleanup(false)
@@ -512,6 +524,7 @@ async function runLoop(opts: {
         messageId: task.messageId,
         chunks: allChunks,
         midParts: midStreamParts,
+        model: usedModel,
       })
       if (!sawAbort) pushChunk(conversationId, { type: 'abort' })
       cleanup(false)
@@ -579,6 +592,7 @@ async function runLoop(opts: {
           conversationId,
           id: persisted.id || task.messageId,
           ...(usageData ? { usage: usageData } : {}),
+          ...(usedModel ? { model: usedModel } : {}),
         }),
       ).catch((e) => {
         console.error('[duoling:chat] assistant 消息落盘失败', e)
@@ -616,6 +630,7 @@ async function runLoop(opts: {
       messageId: task.messageId,
       chunks: allChunks,
       midParts: midStreamParts,
+      model: usedModel,
     })
     pushChunk(conversationId, { type: 'abort' })
     await removeTask(taskId).catch(() => {})

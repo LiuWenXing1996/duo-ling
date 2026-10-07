@@ -56,6 +56,19 @@ export interface UserMessage extends MessageBase {
   pageContext?: import('./extension-ipc').MessagePageContext
 }
 
+/** 本次生成实际使用的模型快照（发起那一刻从当前配置取）。
+ *
+ * **为什么必须带 providerId 而不只是模型 ID**：同一个模型 ID 会出现在多家预设里
+ * （`MiniMax-M3` 有 CN / Global 两家、`glm-5.3` 有三家），`volcengine` 与 `modelark`
+ * 更是连 baseUrl 都完全相同 —— 只记 ID 事后分不清来源，而端点在两者之间根本没有区分力。
+ * providerId 是预设表的受控枚举（`lib/providers.ts`），既无歧义也不含用户资产。 */
+export interface MessageModelRef {
+  /** 服务商预设 id（`ModelProvider.id`，如 deepseek / volcengine / ppio 这类受控枚举） */
+  providerId: string
+  /** 模型 ID，即请求体 model 字段的原值 —— 可能自身含 `/`（如 `deepseek-ai/DeepSeek-V4-Pro`） */
+  id: string
+}
+
 /** AI 消息：思考过程与 token 用量只在这条路径上有 */
 export interface AssistantMessage extends MessageBase {
   role: 'assistant'
@@ -65,6 +78,11 @@ export interface AssistantMessage extends MessageBase {
   reasoning?: string
   /** 本次生成消耗的 token，持久化为会话累计与单条耗时的唯一来源 */
   usage?: TokenUsage
+  /** 本次生成用的模型（发起那一刻从当前配置取的快照，见 MessageModelRef）。
+   * 刻意与模型配置解耦：模型是可随时切换的运行时选择，落盘这一份是事后唯一能回答
+   * 「这条是哪个模型答的」的凭据 —— 用户改配置 / 换激活模型都不会改写历史记录。
+   * 目前没有程序读侧（同 `reasoning`），调试面板的原始 JSON 看得到。 */
+  model?: MessageModelRef
 }
 
 /** 落盘消息（会话库 duoling-chat 的记录形状）。按 role 判别：
