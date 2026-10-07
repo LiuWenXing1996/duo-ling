@@ -1,6 +1,4 @@
 <script setup lang="ts">
-// 工具栏 popup 的「本页脚本」分区：一行摘要（脚本数 + 错误数）+ 默认收起的列表。
-//
 // 数据来源与对话界面灵动岛（PageScriptsMonitor）同一条 —— SW 的运行登记表经 duoling:panel
 // 端口按 tabId 回快照，见 composables/use-page-monitor。两处差异只在归属与形态：
 //   · 归属传 resolveActiveTabId：popup 是用户点开那一刻弹出来的，此刻的激活页就是答案。
