@@ -678,6 +678,35 @@ describe('UserscriptListPanel 分组', () => {
     await flushPromises()
     expect(createGroup).toHaveBeenCalledWith('我的分组')
   })
+
+  it('移动到分组：点行内按钮开弹窗，列出未分组与全部分组，点一项即落定', async () => {
+    groups.mockResolvedValue([
+      { id: 'g1', name: '购物助手', order: 0 },
+      { id: 'g2', name: '效率工具', order: 1 },
+    ])
+    list.mockResolvedValue([summary('u1', '脚本A')])
+    wrapper = await mountPanel()
+
+    await wrapper.find('button[aria-label="移动到分组"]').trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('「脚本A」归入哪个分组？')
+    // 当前所在项（未分组）留着但点不动：点了等于没点，禁用才不会骗人
+    expect(portalButton('未分组')!.disabled).toBe(true)
+    portalButton('效率工具')!.click()
+    await flushPromises()
+    expect(setGroup).toHaveBeenCalledWith('u1', 'g2')
+  })
+
+  it('移动到分组：还没有分组时给出提示，而不是只剩一个点不动的选项', async () => {
+    groups.mockResolvedValue([])
+    wrapper = await mountPanel()
+
+    await wrapper.find('button[aria-label="移动到分组"]').trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('还没有分组')
+  })
 })
 
 describe('UserscriptListPanel 重命名脚本', () => {

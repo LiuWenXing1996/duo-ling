@@ -106,8 +106,6 @@ const creating = ref(false)
  * （关掉工作台标签页就没了，符合「刚」的时效语义；脚本被删了行也没了，无需额外清理）。
  */
 const justCreated = ref<string[]>([])
-/** 正在移动的脚本 uuid（移动到分组）：避免连点重复调用 */
-const movingUuid = ref<string | null>(null)
 /** 正在删除的脚本 uuid：避免连点重复发起 */
 const removing = ref<string | null>(null)
 /** 「全部删除」确认弹窗是否打开 */
@@ -394,9 +392,11 @@ async function reorderGroup(id: string, dir: -1 | 1): Promise<void> {
   }
 }
 
+/** 移动到分组弹窗的待移动脚本（null = 弹窗关闭） */
+const moveTarget = ref<ScriptSummary | null>(null)
+
 /** 把脚本移动到分组（groupId 为空 = 退回未分组）；乐观更新本行 group，广播回来再校准 */
 async function moveToGroup(s: ScriptSummary, groupId: string): Promise<void> {
-  movingUuid.value = null
   error.value = ''
   try {
     await userscriptClient.setGroup(s.uuid, groupId)
@@ -404,6 +404,26 @@ async function moveToGroup(s: ScriptSummary, groupId: string): Promise<void> {
   } catch (e) {
     error.value = `「${s.name}」移动失败：` + (e instanceof Error ? e.message : String(e))
   }
+}
+
+/**
+ * 移动到分组弹窗的可选项：未分组 + 全部分组，当前所在项标为已选并禁用。
+ * 当前所在项禁用而非摘掉：留着才知道「现在在哪」，也免得点它等于白点一次。
+ */
+const moveOptions = computed(() => {
+  const current = moveTarget.value?.group ?? ''
+  return [
+    { id: '', name: '未分组', current: !current },
+    ...groups.value.map((g) => ({ id: g.id, name: g.name, current: current === g.id })),
+  ]
+})
+
+/** 选中即落定并关弹窗：这里没有第二个要确认的动作 */
+async function confirmMove(groupId: string): Promise<void> {
+  const s = moveTarget.value
+  if (!s) return
+  moveTarget.value = null
+  await moveToGroup(s, groupId)
 }
 
 /** 折叠 / 展开分组 */
@@ -1352,36 +1372,23 @@ useDataSync('group', () => refreshGroups())
                       <ui-tooltip-content>重命名脚本</ui-tooltip-content>
                     </ui-tooltip>
                   </ui-tooltip-provider>
-                  <!-- 移动到分组：列出全部分组 + 未分组，当前所在项禁用 -->
-                  <ui-dropdown-menu>
-                    <ui-dropdown-menu-trigger as-child>
-                      <ui-button
-                        variant="ghost"
-                        size="icon"
-                        class="size-6"
-                        aria-label="移动到分组"
-                        title="移动到分组"
-                      >
-                        <ui-folder-symlink class="size-3.5" />
-                      </ui-button>
-                    </ui-dropdown-menu-trigger>
-                    <ui-dropdown-menu-content align="end" class="max-h-64 overflow-y-auto">
-                      <ui-dropdown-menu-item
-                        :disabled="!item.s.group"
-                        @click="moveToGroup(item.s, '')"
-                      >
-                        未分组
-                      </ui-dropdown-menu-item>
-                      <ui-dropdown-menu-item
-                        v-for="g in groups"
-                        :key="g.id"
-                        :disabled="item.s.group === g.id"
-                        @click="moveToGroup(item.s, g.id)"
-                      >
-                        {{ g.name }}
-                      </ui-dropdown-menu-item>
-                    </ui-dropdown-menu-content>
-                  </ui-dropdown-menu>
+                  <!-- 移动到分组：点开弹窗选分组（不用下拉菜单 —— 菜单触发器套不了 Tooltip，见 AGENTS.md） -->
+                  <ui-tooltip-provider>
+                    <ui-tooltip>
+                      <ui-tooltip-trigger as-child>
+                        <ui-button
+                          variant="ghost"
+                          size="icon"
+                          class="size-6"
+                          aria-label="移动到分组"
+                          @click="moveTarget = item.s"
+                        >
+                          <ui-folder-symlink class="size-3.5" />
+                        </ui-button>
+                      </ui-tooltip-trigger>
+                      <ui-tooltip-content>移动到分组</ui-tooltip-content>
+                    </ui-tooltip>
+                  </ui-tooltip-provider>
                   <!-- 导出（zip）：确认弹窗统一带隐私提示 -->
                   <ui-tooltip-provider>
                     <ui-tooltip>
@@ -1882,6 +1889,39 @@ useDataSync('group', () => refreshGroups())
           >
             删除
           </ui-button>
+        </ui-dialog-footer>
+      </ui-dialog-content>
+    </ui-dialog>
+
+    <!-- 移动到分组弹窗：列出未分组 + 全部分组，点一项即落定 -->
+    <ui-dialog
+      :open="!!moveTarget"
+      @update:open="(v: boolean) => { if (!v) moveTarget = null }"
+    >
+      <ui-dialog-content class="max-w-md">
+        <ui-dialog-title class="text-base font-semibold">移动到分组</ui-dialog-title>
+        <ui-dialog-description class="text-sm text-muted-foreground">
+          「{{ moveTarget?.name }}」归入哪个分组？只影响列表里的归类，脚本源码与匹配规则不变。
+        </ui-dialog-description>
+        <div class="mt-3 flex max-h-64 flex-col gap-1 overflow-y-auto">
+          <ui-button
+            v-for="opt in moveOptions"
+            :key="opt.id || '__ungrouped__'"
+            variant="ghost"
+            size="sm"
+            class="w-full justify-start"
+            :disabled="opt.current"
+            @click="confirmMove(opt.id)"
+          >
+            <span class="truncate">{{ opt.name }}</span>
+            <ui-check v-if="opt.current" class="ml-auto size-3.5 shrink-0" />
+          </ui-button>
+          <p v-if="!groups.length" class="px-1 pt-1 text-xs text-muted-foreground">
+            还没有分组。可先在上方「新建分组」创建一个。
+          </p>
+        </div>
+        <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
+          <ui-button variant="ghost" size="sm" @click="moveTarget = null">取消</ui-button>
         </ui-dialog-footer>
       </ui-dialog-content>
     </ui-dialog>
