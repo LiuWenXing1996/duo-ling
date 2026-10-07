@@ -3,10 +3,11 @@
 // 这条链路的三个分支都在渲染层，故用组件测试守：
 //   A. 有运行脚本 → 摘要行给计数，默认**收起**（列表不占版面），展开后列出脚本名与状态；
 //   B. 无运行脚本 → 摘要行就是空态，不给可点性、不渲染列表；
-//   C. 非普通网页 → 卡片照常渲染，摘要行改说不能运行、不给可点性（藏起整块会让人以为没这功能）。
+//   C. 注入不了内容脚本的页面（探活无人应答）→ 卡片照常渲染，摘要行改说不能运行、不给可点性。
 //
 // 边界 mock：
-//   · chrome —— 手写壳，只需 tabs.query / tabs.get / tabs.onUpdated / runtime.connect。
+//   · chrome —— 手写壳，只需 tabs.query / tabs.get / tabs.onUpdated / tabs.sendMessage
+//     （内容脚本探活与「打开会话」的定向消息共用这一口）/ runtime.connect。
 //     假端口留一个 push 口模拟 SW 的快照应答（真 SW 不在测试里），并记录 postMessage
 //     以便断言上行报文。
 //   · userscripts/ui-client（名字补齐）、use-data-sync（变更订阅）—— 都与分区渲染无关，
@@ -57,9 +58,19 @@ function createFakePort(): FakePort {
 const TAB_ID = 7
 let port: FakePort
 
-function stubChrome(url: string | undefined): void {
+/**
+ * 装 chrome 壳。
+ *
+ * `contentScriptPresent` = 内容脚本探活是否应答：popup 挂载时会向当前标签页发一条
+ * `content:ping`，无人应答即「这个页面注入不了」（chrome:// 页 / 应用商店 / 站点权限设成
+ * 「点击时」的站点都是这一档）。缺省应答 —— 普通网页的常态。
+ */
+function stubChrome(url: string | undefined, contentScriptPresent = true): void {
   port = createFakePort()
   tabsCreate.mockResolvedValue(undefined)
+  tabsSendMessage.mockImplementation(async () =>
+    contentScriptPresent ? { ok: true } : undefined,
+  )
   vi.stubGlobal('chrome', {
     runtime: {
       id: 'EXTID',
@@ -145,9 +156,9 @@ describe('popup 的「本页脚本」分区', () => {
     expect(rows(w)).toHaveLength(0)
   })
 
-  it('非普通网页：卡片照常渲染，摘要行改说不能运行、不给可点性', async () => {
-    // chrome:// 等页面上扩展读不到 url（manifest 无 tabs 权限），归位空
-    stubChrome(undefined)
+  it('注入不了内容脚本（探活无人应答）：卡片照常渲染，摘要行改说不能运行、不给可点性', async () => {
+    // chrome:// 等页面上扩展读不到 url（manifest 无 tabs 权限），内容脚本也没注入
+    stubChrome(undefined, false)
     const w = await mountPopup()
 
     expect(w.find('[data-testid="popup-page-scripts"]').exists()).toBe(true)
@@ -158,9 +169,26 @@ describe('popup 的「本页脚本」分区', () => {
     expect(w.text()).not.toContain('当前页面不能显示浮层')
   })
 
-  it('判据说不能注入但确有运行记录（本地文件页开了文件访问）：以记录为准，不误报不能运行', async () => {
-    // file:// 按 scheme 不算普通网页，但开了「允许访问文件网址」后其实注入得了
+  it('scheme 上是普通网页、探活却无人应答（应用商店 / 站点权限设成「点击时」）：也说不能运行', async () => {
+    // url 判不出这一类 —— 拦注入的是 Chrome 注入策略 / 站点授权，只有探活认得出来
+    stubChrome('https://chromewebstore.google.com/detail/x', false)
+    const w = await mountPopup()
+
+    expect(toggle(w).text()).toContain('当前页面不能运行脚本')
+    expect(toggle(w).attributes('disabled')).toBeDefined()
+  })
+
+  it('scheme 说不是普通网页、探活却应答（本地文件页开了文件访问）：照常给空态', async () => {
     stubChrome('file:///tmp/demo.html')
+    const w = await mountPopup()
+    await replySnapshot(w, [])
+
+    expect(toggle(w).text()).toContain('本页没有运行中的脚本')
+  })
+
+  it('探活无人应答却仍有运行记录：以记录为准，不误报不能运行', async () => {
+    // 探活答的是「此刻」，可能滞后于登记表（页面刚导航、内容脚本还没跑起来时探活说不在）
+    stubChrome('https://example.com/page', false)
     const w = await mountPopup()
     await replySnapshot(w, [{ uuid: 'u1', runId: 'r1', startedAt: 1 }])
 
@@ -239,8 +267,13 @@ describe('popup 的「打开会话」入口', () => {
     expect(close).not.toHaveBeenCalled()
   })
 
-  it('非普通网页：按钮不可用（这些页面上内容脚本注入不了）', async () => {
-    stubChrome(undefined)
+  it('注入不了内容脚本：按钮不可用（探活无人应答的页面都算）', async () => {
+    stubChrome(undefined, false)
+    expect(openBtn(await mountPopup()).attributes('disabled')).toBeDefined()
+  })
+
+  it('scheme 上是普通网页、探活却无人应答（应用商店 / 站点权限设成「点击时」）：同样不可用', async () => {
+    stubChrome('https://chromewebstore.google.com/detail/x', false)
     expect(openBtn(await mountPopup()).attributes('disabled')).toBeDefined()
   })
 })

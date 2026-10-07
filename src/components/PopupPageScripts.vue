@@ -9,8 +9,8 @@
 //
 // 这张卡在任何界面都渲染，判据只决定它给数量还是给原因：默认收起（popup 宽 340px，展开后的
 // 列表限高内滚，免得面板被脚本数撑高）；没有脚本在跑时不给可点性、也不渲染列表，摘要行给空态。
-// 非普通网页上 content script 注入不了、计数必然为空，藏起整块会让用户以为没有这个功能 ——
-// 故照常渲染、摘要行改说原因（能不能注入由 PopupPanel 传入）。
+// 注入不了内容脚本的页面上计数必然为空，藏起整块会让用户以为没有这个功能 —— 故照常渲染、
+// 摘要行改说原因（能不能注入由 PopupPanel 探活后传入）。
 import { computed, ref } from 'vue'
 import { ChevronDown as UiChevronDown } from '@lucide/vue'
 import { Badge as UiBadge } from '@/components/ui/badge'
@@ -31,9 +31,9 @@ const expanded = ref(false)
 /**
  * 摘要行的计数文案。
  *
- * 「不能运行」只在**确无运行记录**时才说：本地文件页开了「允许访问文件网址」后 content script
- * 其实注入得了（判据按 scheme 判，读不出这一点），那时 runs 非空、照常给数量 —— 否则等于把
- * 真实记录藏起来。
+ * 「不能运行」只在**确无运行记录**时才说：探活答的是「此刻」，可能滞后于登记表（页面刚导航、
+ * 内容脚本还没跑起来时探活说不在，而记录还在）—— 那种时候照常给数量，否则会出现「说不能运行、
+ * 却又能展开列出 2 条」的自相矛盾。
  */
 const summary = computed(() => {
   if (runs.value.length) return `${runs.value.length} 个在运行`

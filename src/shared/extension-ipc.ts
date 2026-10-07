@@ -437,6 +437,25 @@ export interface FloatCollapseRequest {
 /** 上面那条消息的唯一构造处（理由同 FLOAT_OPEN_REQUEST） */
 export const FLOAT_COLLAPSE_REQUEST: FloatCollapseRequest = { kind: 'float:collapse' }
 
+/**
+ * popup → **当前标签页内容脚本**的探活消息（同 `tabs.sendMessage`，不经 SW）。
+ *
+ * 用途：判断这个页面**此刻**能不能跑内容脚本（进而能不能挂浮层）。url 判不出来 ——
+ * 应用商店 scheme 上就是 https（拦它的是 Chrome 注入策略）、站点访问权限设成「点击时」的站点
+ * 在 url 上毫无痕迹；反过来，开了「允许访问文件网址」的本地文件页其实注入得了。唯一说了算的
+ * 答案就是问一句内容脚本在不在：有应答 = 在，无人应答 / 抛错 = 不在。
+ *
+ * 为什么不让调用方随手发一条别的消息充当探活（省掉这个 kind）：那是在赌「接收方不认识它也会
+ * 有人把 sendMessage 兑现」——语义不可读，且接收方一改成异步应答就静默失效。显式 pong 让
+ * 判据与协议同进退。
+ */
+export interface ContentPingRequest {
+  kind: 'content:ping'
+}
+
+/** 上面那条消息的唯一构造处（理由同 FLOAT_OPEN_REQUEST） */
+export const CONTENT_PING_REQUEST: ContentPingRequest = { kind: 'content:ping' }
+
 // —— 页面脚本监控（对话界面 · 运行时口径）——
 // 信号源：GM 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。
 // 浮层认定**自己所属的标签页**（见 lib/owning-tab.ts —— 不跟随 active tab），

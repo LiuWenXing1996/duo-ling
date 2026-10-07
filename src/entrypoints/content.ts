@@ -21,17 +21,21 @@
 //     SW 靠它判「用户此刻在看对话界面吗」（跑完要不要记一条未读通知）。两条缺一
 //     不可：收起对话框他看不见对话内容；切到后台（切标签页 / 最小化）对话框虽还开着，他同样什么
 //     都看不见。见该常量处说明。
-//   - 入口全在页面之外：popup 的「对话浮层」按钮与页面右键菜单各发一条 float:open
+//   - 入口全在页面之外：popup 的「打开会话」按钮与页面右键菜单各发一条 float:open
 //     （见 FloatOpenRequest）；收起由对话框顶栏那颗按钮发 float:collapse 回来 —— 那颗按钮在
 //     iframe 里，跨源只能靠消息（见 FloatCollapseRequest）。
+//   - 兼作探活：popup 问一句 `content:ping` 即知本页此刻注入得了内容脚本（判据见
+//     lib/float-panel-host.ts 的 probeContentScript）。不往页面放 DOM 也照样应答这条。
 //
 // WXT 按文件名 content.ts 自动识别为 content script；matches 经 defineContentScript 声明。
 
 import { defineContentScript } from '#imports'
 import {
+  CONTENT_PING_REQUEST,
   FLOAT_COLLAPSE_REQUEST,
   FLOAT_OPEN_REQUEST,
   FLOAT_PANEL_OPEN_PORT,
+  type ContentPingRequest,
   type FloatCollapseRequest,
   type FloatOpenRequest,
   type RuntimeRequest,
@@ -126,6 +130,15 @@ function isFloatCollapseRequest(raw: unknown): raw is FloatCollapseRequest {
     typeof raw === 'object' &&
     raw !== null &&
     (raw as { kind?: unknown }).kind === FLOAT_COLLAPSE_REQUEST.kind
+  )
+}
+
+/** 同上的探活消息：popup 靠它确认本页此刻注入得了内容脚本（见 ContentPingRequest） */
+function isContentPingRequest(raw: unknown): raw is ContentPingRequest {
+  return (
+    typeof raw === 'object' &&
+    raw !== null &&
+    (raw as { kind?: unknown }).kind === CONTENT_PING_REQUEST.kind
   )
 }
 
@@ -321,8 +334,14 @@ export default defineContentScript({
      *
      * 就地挂 UI 并展开 —— 对话框平时不在页面里，这条消息就是它的来源。
      */
-    chrome.runtime.onMessage.addListener((raw: unknown) => {
+    chrome.runtime.onMessage.addListener((raw: unknown, _sender, sendResponse) => {
       if (!ctx.isValid) return
+      // 探活：应答一声，popup 据此判断本页注入得了内容脚本（见 ContentPingRequest）。
+      // 同步应答即可，不必 return true 吊住通道。
+      if (isContentPingRequest(raw)) {
+        sendResponse({ ok: true })
+        return
+      }
       if (isFloatOpenRequest(raw)) {
         mountAndOpen()
         return

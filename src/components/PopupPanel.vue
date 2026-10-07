@@ -1,14 +1,15 @@
 <script setup lang="ts">
 // 「打开会话」= 把当前页的对话浮层调出来。对话框平时不在页面里（content script 默认不往页面放
 // DOM，见 content.ts），这颗按钮是它的常规打开方式（另一条是页面右键菜单）。
-// 浏览器内部页 / 扩展页 / 应用商店上 content script 注入不了，用户在那些页面上打不开不是装坏了 ——
-// 这个原因挂在按钮的 tooltip 上（不可用时按钮禁灰、提示改显原因），不单独占一行。
+// 注入不了内容脚本的页面（浏览器内部页 / 扩展页 / 应用商店 / 站点权限设成「点击时」的站点…）
+// 上打不开不是装坏了 —— 这个原因挂在按钮的 tooltip 上（不可用时按钮禁灰、提示改显原因），
+// 不单独占一行。
 // 严格 CSP 站点同理也挂不上，但那要等页面里的 iframe 真的加载失败才知道 —— popup 判不出来，
 // 那条由页面内的降级提示负责（见 content.ts）。
 //
 // 「本页脚本」分区（PopupPageScripts）复用页面监控那条链路，任何界面都渲染 —— 能否注入只决定
-// 它给数量还是给原因：非普通网页上 content script 注入不了、计数必然为空，藏起整块会让用户
-// 以为没有这个功能，故保留卡片、摘要行改说原因（判据由本组件传入）。
+// 它给数量还是给原因：注入不了的页面上计数必然为空，藏起整块会让用户以为没有这个功能，
+// 故保留卡片、摘要行改说原因（判据由本组件传入）。
 //
 // 「用户脚本功能不可用」这张卡只在引擎开关关着时出现：那时角标已经亮着，用户顺着角标点进来
 // 得有个能落脚的地方。开法按浏览器/版本分三支，一行说不清，故这里只给一句现状 + 一个入口，
@@ -29,16 +30,25 @@ import {
 import PopupNotifications from './PopupNotifications.vue'
 import PopupPageScripts from './PopupPageScripts.vue'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
-import { webHostname } from '@/lib/float-panel-host'
+import { probeContentScript, webHostname } from '@/lib/float-panel-host'
 import { readUpdateCheck, type UpdateCheckRecord } from '@/lib/update-check'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import type { UserScriptsAvailability } from '@/lib/userscripts/types'
 import { FLOAT_OPEN_REQUEST } from '@/shared/extension-ipc'
 
-/** 当前标签页是不是普通网页（http/https）—— 只有这类页面 content script 能注入 */
+/** 当前标签页是不是普通网页（http/https）—— 探活回话之前的初值，判「能不能注入」以 contentScriptPresent 为准 */
 const currentIsWebPage = ref(true)
+/** 内容脚本探活结论（null = 还没问回来），判据见 lib/float-panel-host.ts */
+const contentScriptPresent = ref<boolean | null>(null)
 /** 「打开」没打通时的说明（只在 popup 里显示，成功就直接关了） */
 const openError = ref('')
+
+/**
+ * 当前页面能不能跑脚本 / 挂浮层：以探活为准 —— scheme 判不出三类（应用商店、站点访问权限设成
+ * 「点击时」的站点、开了文件访问的本地文件页，见 lib/float-panel-host.ts）。探活回话之前用
+ * scheme 判据垫着，否则普通网页上首帧会闪一下「不能运行脚本」。
+ */
+const injectable = computed(() => contentScriptPresent.value ?? currentIsWebPage.value)
 
 /**
  * 上次检查到的版本结论（SW 在开浏览器 / 安装更新时写入 duoling-app，这里只读）。
@@ -76,7 +86,10 @@ const openFloatHint = '当前页面不能显示对话浮层'
 async function refresh(): Promise<void> {
   update.value = await readUpdateCheck()
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
+  const tabId = tabs[0]?.id
   currentIsWebPage.value = webHostname(tabs[0]?.url) !== ''
+  // 取不到标签页（异常态）保持 null：交给 scheme 判据垫着，好过断言「注入不了」
+  contentScriptPresent.value = tabId == null ? null : await probeContentScript(tabId)
   try {
     availability.value = await userscriptClient.availability()
   } catch {
@@ -179,7 +192,7 @@ onMounted(() => {
       </UiButton>
     </div>
 
-    <PopupPageScripts :injectable="currentIsWebPage" />
+    <PopupPageScripts :injectable="injectable" />
 
     <!--
       入口按钮：沉到 popup 底部、各占一半行宽 —— 上面的通知 / 引导 / 本页脚本都是「状态」，
@@ -198,7 +211,7 @@ onMounted(() => {
               <ui-button
                 variant="outline"
                 class="w-full"
-                :disabled="!currentIsWebPage"
+                :disabled="!injectable"
                 data-testid="open-float-panel"
                 @click="openFloatPanel"
               >
@@ -207,7 +220,7 @@ onMounted(() => {
               </ui-button>
             </span>
           </ui-tooltip-trigger>
-          <ui-tooltip-content v-if="!currentIsWebPage" side="top" class="max-w-64">
+          <ui-tooltip-content v-if="!injectable" side="top" class="max-w-64">
             {{ openFloatHint }}
           </ui-tooltip-content>
         </ui-tooltip>
