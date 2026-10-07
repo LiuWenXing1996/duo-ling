@@ -4,7 +4,7 @@
 //   · 落盘必须同时写下 parts（真相源）与 content（派生值）——user 路径曾只写 content，
 //     结果"发送时看得到、重开会话后用户气泡全空"；
 //   · 落盘是深拷贝，落盘对象与传入的 UIMessage 不共享引用（Vue 代理结构化克隆会炸）；
-//   · 角色专有字段只落在对应分支（user → pageContext；assistant → reasoning / usage）；
+//   · 角色专有字段只落在对应分支（user → pageContext；assistant → reasoning / usage / model）；
 //   · 回显只认 parts，且缺 parts 时不炸（库里可能躺着旧记录）。
 import { describe, expect, it } from 'vitest'
 import type { UIMessage } from 'ai'
@@ -71,7 +71,7 @@ describe('toPersistedMessage', () => {
     expect(Number.isNaN(Date.parse(other.createdAt))).toBe(false)
   })
 
-  it('assistant：正文空时给可见兜底，reasoning / usage 有值才写', () => {
+  it('assistant：正文空时给可见兜底，reasoning / usage / model 有值才写', () => {
     const empty = toPersistedMessage(
       ui({ role: 'assistant', parts: [{ type: 'text', text: '   ' }] }),
       { conversationId: 'c1' },
@@ -80,25 +80,41 @@ describe('toPersistedMessage', () => {
     expect(empty.content).toBe('（模型未生成回复内容）')
     expect('reasoning' in empty).toBe(false)
     expect('usage' in empty).toBe(false)
+    expect('model' in empty).toBe(false)
 
     const full = toPersistedMessage(
       ui({
         role: 'assistant',
         parts: [{ type: 'reasoning', text: '想想' }, { type: 'text', text: '答案' }],
       }),
-      { conversationId: 'c1', usage: { totalTokens: 42 } },
+      {
+        conversationId: 'c1',
+        usage: { totalTokens: 42 },
+        // 故意用带 `/` 的模型 ID：providerId 与 id 是两个字段，id 原样存不切分
+        model: { providerId: 'siliconflow', id: 'deepseek-ai/DeepSeek-V4-Pro' },
+      },
     )
     expect(full.content).toBe('答案')
     expect(full.role === 'assistant' && full.reasoning).toBe('想想')
     expect(full.role === 'assistant' && full.usage).toEqual({ totalTokens: 42 })
+    expect(full.role === 'assistant' && full.model).toEqual({
+      providerId: 'siliconflow',
+      id: 'deepseek-ai/DeepSeek-V4-Pro',
+    })
   })
 
-  it('角色专有字段不串门：assistant 落盘不带 pageContext', () => {
-    const m = toPersistedMessage(
+  it('角色专有字段不串门：assistant 落盘不带 pageContext，user 落盘不带 model', () => {
+    const assistant = toPersistedMessage(
       ui({ role: 'assistant', parts: [{ type: 'text', text: '好的' }] }),
       { conversationId: 'c1', pageContext: { element: elementCtx } },
     )
-    expect('pageContext' in m).toBe(false)
+    expect('pageContext' in assistant).toBe(false)
+
+    const user = toPersistedMessage(ui(), {
+      conversationId: 'c1',
+      model: { providerId: 'deepseek', id: 'deepseek-flash' },
+    })
+    expect('model' in user).toBe(false)
   })
 })
 

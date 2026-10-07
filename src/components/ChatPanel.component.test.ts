@@ -1,9 +1,7 @@
 // 对话面板的附件链路（输入区那一侧）：入口可用性与提示、附件 chip、提交时的分流。
 //
-// 这里只覆盖 DOM 层验得了的部分：
-//   · 图片压缩走 createImageBitmap + canvas，happy-dom 没有这两个 —— 图片的实际压缩
-//     由手测与端测兜（组件测试只验「图片被拦下/放行」这类判定）；
-//   · 「模型读不读得了图」取决于模型配置的 vision 字段，用两份 profile 分别验入口文案。
+// 这里只覆盖 DOM 层验得了的部分：图片压缩走 createImageBitmap + canvas，happy-dom
+// 没有这两个 —— 图片的实际压缩由手测与端测兜，组件测试只验「图片被放行」这类判定。
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import type { UIMessage } from 'ai'
@@ -17,12 +15,12 @@ vi.mock('@/lib/element-picker-client', () => ({
 }))
 vi.mock('@/lib/userscripts/ui-client', () => ({ userscriptClient: {} }))
 
-function setModelProfile(vision: boolean): void {
+function setModelProfile(): void {
   ;(window as unknown as { api: unknown }).api = {
     model: {
       list: vi.fn(async () => ({
         profiles: [
-          { id: 'm1', name: '测试模型', baseUrl: 'https://example.test/v1', model: 'test', hasApiKey: true, vision },
+          { id: 'm1', name: '测试模型', baseUrl: 'https://example.test/v1', model: 'test', hasApiKey: true },
         ],
         activeId: 'm1',
       })),
@@ -30,10 +28,10 @@ function setModelProfile(vision: boolean): void {
   }
 }
 
-async function mountPanel(vision: boolean, messages: UIMessage[] = []): Promise<VueWrapper> {
-  setModelProfile(vision)
+async function mountPanel(messages: UIMessage[] = []): Promise<VueWrapper> {
+  setModelProfile()
   const w = mount(ChatPanel, { props: { messages, usageByMessageId: {}, streaming: false } })
-  await flushPromises() // onMounted 里拉模型列表，拉完 promptSupportsImages 才有值
+  await flushPromises() // onMounted 里拉模型列表
   return w
 }
 
@@ -44,7 +42,7 @@ async function submit(w: VueWrapper, text: string): Promise<void> {
   await flushPromises()
 }
 
-/** 一条带图片的历史消息：模拟「上一个模型下发的图」——它每轮都会随请求重发 */
+/** 一条带图片的历史消息：它每轮都会随请求重发 */
 function imageHistoryMessage(): UIMessage {
   return {
     id: 'm-with-image',
@@ -71,16 +69,9 @@ describe('附件入口', () => {
     document.body.innerHTML = ''
   })
 
-  it('模型支持图片：入口说明可以加图片或文本文件', async () => {
-    const w = await mountPanel(true)
+  it('入口说明可以加图片或文本文件', async () => {
+    const w = await mountPanel()
     expect(attachmentButton(w).attributes('aria-label')).toBe('添加图片或文件')
-    w.unmount()
-  })
-
-  it('模型不支持图片：入口仍在（不是隐藏），说明改成只能加文本文件', async () => {
-    const w = await mountPanel(false)
-    expect(attachmentButton(w).exists()).toBe(true)
-    expect(attachmentButton(w).attributes('aria-label')).toBe('添加文本文件（当前模型不支持图片）')
     w.unmount()
   })
 })
@@ -91,13 +82,13 @@ describe('附件 chip', () => {
   })
 
   it('没有附件时不渲染 chip 区', async () => {
-    const w = await mountPanel(true)
+    const w = await mountPanel()
     expect(w.find('[data-testid="attachment-chips"]').exists()).toBe(false)
     w.unmount()
   })
 
   it('选中的文本文件出现在 chip 区，点了 × 就移除', async () => {
-    const w = await mountPanel(true)
+    const w = await mountPanel()
     await attach(w, new File(['x'], 'notes.md', { type: 'text/markdown' }))
 
     const chips = w.find('[data-testid="attachment-chips"]')
@@ -108,18 +99,6 @@ describe('附件 chip', () => {
     expect(w.find('[data-testid="attachment-chips"]').exists()).toBe(false)
     w.unmount()
   })
-
-  it('模型不支持图片时选中图片：被拦下并给出可行动的说明', async () => {
-    const w = await mountPanel(false)
-    await attach(w, new File(['x'], 'shot.png', { type: 'image/png' }))
-
-    expect(w.find('[data-testid="attachment-chips"]').exists()).toBe(false)
-    const error = w.find('[data-testid="attachment-error"]')
-    expect(error.exists()).toBe(true)
-    expect(error.text()).toContain('当前模型不支持图片')
-    expect(error.text()).toContain('文本文件')
-    w.unmount()
-  })
 })
 
 describe('提交分流', () => {
@@ -128,14 +107,14 @@ describe('提交分流', () => {
   })
 
   it('纯文字：正文原样发出，附件为空', async () => {
-    const w = await mountPanel(true)
+    const w = await mountPanel()
     await submit(w, '你好')
     expect(w.emitted('send')).toEqual([['你好', []]])
     w.unmount()
   })
 
   it('带文本附件：文件内容拼进正文，不产生图片 part', async () => {
-    const w = await mountPanel(true)
+    const w = await mountPanel()
     await attach(w, new File(['key=value'], 'config.json', { type: 'application/json' }))
     await submit(w, '看看这个配置')
 
@@ -148,7 +127,7 @@ describe('提交分流', () => {
   })
 
   it('只有附件没有文字：照发，正文为空串（纯图提问同理）', async () => {
-    const w = await mountPanel(true)
+    const w = await mountPanel()
     await attach(w, new File(['data'], 'a.txt', { type: 'text/plain' }))
     await submit(w, '')
 
@@ -160,32 +139,20 @@ describe('提交分流', () => {
   })
 
   it('既没有文字也没有附件：什么都不发', async () => {
-    const w = await mountPanel(true)
+    const w = await mountPanel()
     await submit(w, '   ')
     expect(w.emitted('send')).toBeUndefined()
     w.unmount()
   })
 })
 
-describe('会话历史里有图片、又切到读不了图的模型', () => {
+describe('会话历史里有图片', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
   })
 
-  it('拦下并说明原因，而不是让用户每轮都看一次上游报错', async () => {
-    const w = await mountPanel(false, [imageHistoryMessage()])
-    await submit(w, '接着聊')
-
-    expect(w.emitted('send'), '这一轮不可能成功（历史里的图每轮都会重发），不该白跑').toBeUndefined()
-    const error = w.find('[data-testid="attachment-error"]')
-    expect(error.exists()).toBe(true)
-    expect(error.text()).toContain('这个会话里发过图片')
-    expect(error.text(), '要说清两条出路').toContain('新对话')
-    w.unmount()
-  })
-
-  it('模型支持图片时照常发出（历史有图不构成阻碍）', async () => {
-    const w = await mountPanel(true, [imageHistoryMessage()])
+  it('照常发出（图随每轮请求重发，与当前模型无关）', async () => {
+    const w = await mountPanel([imageHistoryMessage()])
     await submit(w, '接着聊')
     expect(w.emitted('send')).toEqual([['接着聊', []]])
     w.unmount()
@@ -198,7 +165,7 @@ describe('图片预览', () => {
   })
 
   it('点气泡里的缩略图：面板内弹出大图 + 下载，而不是跳走', async () => {
-    const w = await mountPanel(true, [imageHistoryMessage()])
+    const w = await mountPanel([imageHistoryMessage()])
 
     const chip = w.find('[data-testid="preview-image"]')
     expect(chip.exists(), '缩略图应可点（button 而不是纯展示）').toBe(true)
