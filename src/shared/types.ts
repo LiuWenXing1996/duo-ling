@@ -75,13 +75,13 @@ export type Message = UserMessage | AssistantMessage
 /** 渲染进程可见的模型配置（apiKey 不回传明文，只暴露是否已设置） */
 export interface ModelProfile {
   id: string
-  /** 模型展示名，如 DeepSeek-V3；未设置时回退为模型 ID */
+  /** 模型展示名，如 DeepSeek-V4.1-Flash；未设置时回退为模型 ID */
   name: string
   /** 所属服务商（预设 id），自定义模型为空字符串 */
   providerId: string
-  /** OpenAI 兼容接口地址，如 https://api.deepseek.com/v1 */
+  /** OpenAI 兼容接口地址，如 https://api.deepseek.com */
   baseUrl: string
-  /** 模型 ID，如 deepseek-chat（请求时作为 model 字段） */
+  /** 模型 ID，如 deepseek-flash（请求时作为 model 字段） */
   model: string
   /** baseUrl 是否为完整接口地址：true 时不追加 /chat/completions */
   useFullUrl: boolean
