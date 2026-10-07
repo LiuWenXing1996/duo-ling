@@ -17,10 +17,10 @@ import {
   FileQuestion as UiFileQuestion,
   FolderInput as UiFolderInput,
   FolderPlus as UiFolderPlus,
+  FolderSymlink as UiFolderSymlink,
   Link as UiLink,
   ListFilter as UiListFilter,
   LoaderCircle as UiLoaderCircle,
-  Move as UiMove,
   Pencil as UiPencil,
   Plus as UiPlus,
   RefreshCw as UiRefreshCw,
@@ -1362,7 +1362,7 @@ useDataSync('group', () => refreshGroups())
                         aria-label="移动到分组"
                         title="移动到分组"
                       >
-                        <ui-move class="size-3.5" />
+                        <ui-folder-symlink class="size-3.5" />
                       </ui-button>
                     </ui-dropdown-menu-trigger>
                     <ui-dropdown-menu-content align="end" class="max-h-64 overflow-y-auto">
