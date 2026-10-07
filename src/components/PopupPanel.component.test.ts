@@ -3,7 +3,7 @@
 // 这条链路的三个分支都在渲染层，故用组件测试守：
 //   A. 有运行脚本 → 摘要行给计数，默认**收起**（列表不占版面），展开后列出脚本名与状态；
 //   B. 无运行脚本 → 摘要行就是空态，不给可点性、不渲染列表；
-//   C. 非普通网页 → 整块不渲染（这些页面上 content script 注入不了，计数必然是空的）。
+//   C. 非普通网页 → 卡片照常渲染，摘要行改说不能运行、不给可点性（藏起整块会让人以为没这功能）。
 //
 // 边界 mock：
 //   · chrome —— 手写壳，只需 tabs.query / tabs.get / tabs.onUpdated / runtime.connect。
@@ -145,15 +145,30 @@ describe('popup 的「本页脚本」分区', () => {
     expect(rows(w)).toHaveLength(0)
   })
 
-  it('非普通网页：整块不渲染，页面里也不留一条独立的浮层不可用提示', async () => {
+  it('非普通网页：卡片照常渲染，摘要行改说不能运行、不给可点性', async () => {
     // chrome:// 等页面上扩展读不到 url（manifest 无 tabs 权限），归位空
     stubChrome(undefined)
     const w = await mountPopup()
 
-    expect(w.find('[data-testid="popup-page-scripts"]').exists()).toBe(false)
-    // 不可用的原因改挂在「打开会话」图标的悬停提示上（tooltip 悬停才挂载，不进组件树）：
-    // popup 正文里不再有那条独立说明
+    expect(w.find('[data-testid="popup-page-scripts"]').exists()).toBe(true)
+    expect(toggle(w).text()).toContain('当前页面不能运行脚本')
+    expect(toggle(w).attributes('disabled')).toBeDefined()
+    expect(rows(w)).toHaveLength(0)
+    // 浮层那枚按钮的原因挂在悬停提示上（tooltip 悬停才挂载，不进组件树），正文里没有那条独立说明
     expect(w.text()).not.toContain('当前页面不能显示浮层')
+  })
+
+  it('判据说不能注入但确有运行记录（本地文件页开了文件访问）：以记录为准，不误报不能运行', async () => {
+    // file:// 按 scheme 不算普通网页，但开了「允许访问文件网址」后其实注入得了
+    stubChrome('file:///tmp/demo.html')
+    const w = await mountPopup()
+    await replySnapshot(w, [{ uuid: 'u1', runId: 'r1', startedAt: 1 }])
+
+    expect(toggle(w).text()).toContain('1 个在运行')
+
+    await toggle(w).trigger('click')
+    await flushPromises()
+    expect(rows(w)).toHaveLength(1)
   })
 
   it('脚本出过错：行内给错误条数；摘要行给错误徽标', async () => {
