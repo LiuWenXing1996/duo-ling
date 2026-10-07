@@ -58,7 +58,6 @@ function seedScript(uuid: string, matches: string[], excludeMatches?: string[]):
     group: '',
     source: { code: '// x', savedAt: 1 },
     createdAt: 1,
-    updatedAt: 1,
   }
   return writeProject(project)
 }

@@ -21,7 +21,6 @@ function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {
     group: '',
     source: { code: '// x', savedAt: 1000 },
     createdAt: 1000,
-    updatedAt: 1000,
     ...overrides,
   }
 }
@@ -32,16 +31,17 @@ beforeEach(async () => {
 })
 
 describe('listProjects 排序', () => {
-  // 钉「启用在前 + 组内按更新时间倒序（最近更新的在最上面）」；updatedAt 用显式数值断言，
+  // 钉「启用在前 + 组内按源码保存时间倒序（最近保存的在最上面）」；savedAt 用显式数值断言，
   // 不依赖 localeCompare（locale 差异会让排序不稳定）
-  it('启用在前，同组内按更新时间倒序（最近更新在最上）', async () => {
-    await writeProject(makeProject({ name: 'beta', enabled: false, updatedAt: 100 }))
-    await writeProject(makeProject({ name: 'delta', enabled: true, updatedAt: 300 }))
-    await writeProject(makeProject({ name: 'alpha', enabled: false, updatedAt: 200 }))
-    await writeProject(makeProject({ name: 'gamma', enabled: true, updatedAt: 400 }))
+  it('启用在前，同组内按源码保存时间倒序（最近保存在最上）', async () => {
+    const src = (savedAt: number) => ({ code: '// x', savedAt })
+    await writeProject(makeProject({ name: 'beta', enabled: false, source: src(100) }))
+    await writeProject(makeProject({ name: 'delta', enabled: true, source: src(300) }))
+    await writeProject(makeProject({ name: 'alpha', enabled: false, source: src(200) }))
+    await writeProject(makeProject({ name: 'gamma', enabled: true, source: src(400) }))
 
     const list = await listProjects()
-    // 启用组按 updatedAt 降序：gamma(400) > delta(300)；未启用组：alpha(200) > beta(100)
+    // 启用组按 savedAt 降序：gamma(400) > delta(300)；未启用组：alpha(200) > beta(100)
     expect(list.map((p) => p.name)).toEqual(['gamma', 'delta', 'alpha', 'beta'])
   })
 })

@@ -36,7 +36,6 @@ function makeState(
   code: string,
   savedAt: number,
   createdAt: number,
-  updatedAt: number,
 ): ScriptProject {
   return {
     v: 2,
@@ -47,7 +46,6 @@ function makeState(
     group,
     source: { code, savedAt },
     createdAt,
-    updatedAt,
   }
 }
 
@@ -115,7 +113,6 @@ export async function saveSource(
     code,
     savedAt,
     opts.createdAt,
-    savedAt,
   )
   await writeProject(project)
   return { project, notes: resolved.notes }
@@ -231,13 +228,12 @@ export async function setProjectEnabled(uuid: string, enabled: boolean): Promise
   const project = await getProject(uuid)
   if (!project) throw new Error('脚本不存在')
   project.enabled = enabled
-  project.updatedAt = Date.now()
   await writeProject(project)
   return project
 }
 
 /**
- * 重命名脚本：只改状态库里的 name + updatedAt。
+ * 重命名脚本：只改状态库里的 name。
  *
  * 名字是**管理面标识**（列表 / 标签页 / GM_info / 错误日志分组名都用它），不入 git 仓——
  * 仓里的名字是源码的 `// @name`，两者互不覆盖：这里改名不动源码，改源码的 `@name`
@@ -249,7 +245,6 @@ export async function renameProject(uuid: string, name: string): Promise<ScriptP
   const project = await getProject(uuid)
   if (!project) throw new Error('脚本不存在')
   project.name = trimmed
-  project.updatedAt = Date.now()
   await writeProject(project)
   return project
 }
@@ -337,7 +332,7 @@ async function importOneScript(
     const ts = Date.now()
     const uuid = crypto.randomUUID()
     await persistSource(uuid, script.code, note)
-    await writeProject(makeState(uuid, name, false, resolved.config, '', script.code, ts, ts, ts))
+    await writeProject(makeState(uuid, name, false, resolved.config, '', script.code, ts, ts))
     return {
       status: 'ok',
       uuid,
@@ -404,11 +399,9 @@ export async function removeGroupAndReassign(id: string): Promise<void> {
   const group = await readGroupSafe(id, { silent: true })
   if (!group) return
   const projects = await listProjects()
-  const ts = Date.now()
   for (const p of projects) {
     if (p.group === id) {
       p.group = ''
-      p.updatedAt = ts
       await writeProject(p)
     }
   }
@@ -428,13 +421,12 @@ export async function reorderGroups(orderedIds: string[]): Promise<void> {
 
 /**
  * 把脚本移动到某分组（groupId 为空字符串 = 归未分组）。
- * 只改 group 字段 + updatedAt，不产生 git 提交（group 不入仓）。
+ * 只改 group 字段，不产生 git 提交（group 不入仓）。
  */
 export async function setProjectGroup(uuid: string, groupId: string): Promise<ScriptProject> {
   const project = await getProject(uuid)
   if (!project) throw new Error('脚本不存在')
   project.group = groupId
-  project.updatedAt = Date.now()
   await writeProject(project)
   return project
 }

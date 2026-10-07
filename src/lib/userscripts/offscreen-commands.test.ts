@@ -77,7 +77,6 @@ const PROJECT: ScriptProject = {
   group: '',
   source: { code: CODE, savedAt: 1 },
   createdAt: 0,
-  updatedAt: 0,
 }
 
 // ============================== (b) 分发全覆盖 ==============================

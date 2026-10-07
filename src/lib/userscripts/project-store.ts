@@ -9,11 +9,11 @@
 import { readAllGroups, readAllProjects, readProject } from './state-db'
 import type { ScriptConfig, ScriptProject, ScriptGroup } from './types'
 
-/** 列出全部项目：启用在前，组内按更新时间倒序（最近更新的排在最上面） */
+/** 列出全部项目：启用在前，组内按源码保存时间倒序（最近保存的排在最上面） */
 export async function listProjects(): Promise<ScriptProject[]> {
   const all = await readAllProjects()
   return all.sort(
-    (a, b) => Number(b.enabled) - Number(a.enabled) || b.updatedAt - a.updatedAt,
+    (a, b) => Number(b.enabled) - Number(a.enabled) || b.source.savedAt - a.source.savedAt,
   )
 }
 

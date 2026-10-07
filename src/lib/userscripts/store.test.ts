@@ -43,7 +43,6 @@ function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {
     group: '',
     source: { code: '// x', savedAt: 1 },
     createdAt: 1,
-    updatedAt: 42,
     ...overrides,
   }
 }
@@ -58,19 +57,19 @@ describe('listSummaries', () => {
       enabled: true,
       matches: ['*://a.com/*'],
       group: '',
-      updatedAt: 42,
+      savedAt: 1,
     })
     expect('source' in summaries[0]).toBe(false)
   })
 
-  it('排序：启用在前，组内按更新时间倒序', async () => {
+  it('排序：启用在前，组内按源码保存时间倒序', async () => {
     const projects = [
-      makeProject({ uuid: 'p-off', name: 'b停用', enabled: false, updatedAt: 100 }),
-      makeProject({ uuid: 'p-z', name: 'z启用', enabled: true, updatedAt: 300 }),
-      makeProject({ uuid: 'p-a', name: 'a启用', enabled: true, updatedAt: 400 }),
+      makeProject({ uuid: 'p-off', name: 'b停用', enabled: false, source: { code: '// x', savedAt: 100 } }),
+      makeProject({ uuid: 'p-z', name: 'z启用', enabled: true, source: { code: '// x', savedAt: 300 } }),
+      makeProject({ uuid: 'p-a', name: 'a启用', enabled: true, source: { code: '// x', savedAt: 400 } }),
     ]
     const summaries = await listSummaries(projects)
-    // 启用组按 updatedAt 降序：p-a(400) > p-z(300)，均排在未启用 p-off(100) 之前
+    // 启用组按 savedAt 降序：p-a(400) > p-z(300)，均排在未启用 p-off(100) 之前
     expect(summaries.map((s) => s.name)).toEqual(['a启用', 'z启用', 'b停用'])
   })
 })

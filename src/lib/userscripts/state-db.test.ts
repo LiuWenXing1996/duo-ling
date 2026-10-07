@@ -29,7 +29,6 @@ function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {
     group: '',
     source: { code: '// x', savedAt: 1000 },
     createdAt: 1000,
-    updatedAt: 1000,
     ...overrides,
   }
 }
