@@ -8,8 +8,7 @@
 //     没法当文件发（OpenAI 兼容接口不支持任意文件上传），只能进提示词。
 //
 // 一个反直觉但重要的约束：压缩必须在**发出前**完成。图片一旦随 user 消息落盘，
-// 它就是历史的一部分、每轮都会被重发（见 shared/types 的 ModelProfile.vision），
-// 事后再想「换张小的」已经改不动了。
+// 它就是历史的一部分、每轮都会被重发，事后再想「换张小的」已经改不动了。
 
 /** 单张图片的原始大小上限（压缩前）；超出直接拒收并提示 */
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -43,9 +42,6 @@ const TEXT_EXTENSIONS = ['.txt', '.md', '.json', '.csv', '.log', '.yml', '.yaml'
  * 不收 PDF / DOCX 之类：模型读不了，本扩展也不打算在客户端引入解析库。
  */
 export const ATTACHMENT_ACCEPT = [...IMAGE_TYPES, ...TEXT_EXTENSIONS].join(',')
-
-/** 只收文本文件时用的 accept（当前模型不支持图片时替换上去，见 ChatPanel） */
-export const TEXT_ONLY_ACCEPT = TEXT_EXTENSIONS.join(',')
 
 /** 附件的最小结构：prompt-input 的 AttachmentFile 与 File 都能满足 */
 export interface IncomingAttachment {

@@ -36,8 +36,8 @@ async function makePngBuffer(page: Page, width = 2, height = 2): Promise<Buffer>
 
 /**
  * 真实粘贴路径（Ctrl+V）：走 textarea 的 paste 事件。
- * 为什么不用 setInputFiles：那是直塞隐藏 input，绕过了粘贴这条分支（附件类型校验、
- * 以及「模型不支持图片时粘贴该被拦下」都在这条分支上）。
+ * 为什么不用 setInputFiles：那是直塞隐藏 input，绕过了粘贴这条分支（附件类型校验
+ * 就走在这条分支上）。
  */
 async function pasteImage(page: Page, png: Buffer, name = 'pasted.png'): Promise<void> {
   await page.evaluate(
@@ -106,7 +106,7 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
   })
 
   /** 存一份模型配置并激活（设置页保存模型走的就是这两个 API） */
-  async function configureModel(page: Awaited<ReturnType<BrowserContext['newPage']>>, vision: boolean): Promise<void> {
+  async function configureModel(page: Awaited<ReturnType<BrowserContext['newPage']>>): Promise<void> {
     await page.evaluate(
       async (cfg) => {
         const api = (
@@ -117,7 +117,7 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
         const p = await api.model.save(cfg)
         await api.model.setActive(p.id)
       },
-      { name: 'stub', baseUrl: stub.stub.baseUrl, apiKey: 'sk-stub', model: 'stub-model', vision },
+      { name: 'stub', baseUrl: stub.stub.baseUrl, apiKey: 'sk-stub', model: 'stub-model' },
     )
   }
 
@@ -125,9 +125,9 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
     const page = await context!.newPage()
     await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    await configureModel(page, true)
+    await configureModel(page)
 
-    // 附件入口随能力声明启用（vision: true 时说明里可以发图片）
+    // 附件入口：说明里可以发图片
     const entry = page.locator('[data-testid="add-attachment-button"]')
     await expect(entry).toHaveAttribute('aria-label', '添加图片或文件')
 
@@ -162,11 +162,7 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
     const page = await context!.newPage()
     await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    await configureModel(page, false)
-
-    // 模型不支持图片：入口仍在，但说明改成只能加文本文件（不隐藏入口）
-    const entry = page.locator('[data-testid="add-attachment-button"]')
-    await expect(entry).toHaveAttribute('aria-label', '添加文本文件（当前模型不支持图片）')
+    await configureModel(page)
 
     await page.setInputFiles('input[type="file"]', {
       name: 'notes.md',
@@ -184,7 +180,7 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     expect(text).toContain('读一下附件')
     expect(text, '文本附件以带文件名的围栏进正文').toContain('【附件：notes.md】')
     expect(text).toContain('这条来自附件')
-    // 纯文本模型上不该混进图片
+    // 只带文本文件时不该混进图片
     expect(text).not.toContain('image_url')
     await page.close()
   })
@@ -193,7 +189,7 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
     const page = await context!.newPage()
     await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    await configureModel(page, true)
+    await configureModel(page)
 
     await page.setInputFiles('input[type="file"]', [
       { name: 'shot.png', mimeType: 'image/png', buffer: await makePngBuffer(page, 4, 4) },
@@ -224,7 +220,7 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
     const page = await context!.newPage()
     await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    await configureModel(page, true)
+    await configureModel(page)
 
     await page.setInputFiles('input[type="file"]', {
       name: 'only-image.png',
@@ -247,7 +243,7 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
     const page = await context!.newPage()
     await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    await configureModel(page, true)
+    await configureModel(page)
     const png = await makePngBuffer(page, 4, 4)
 
     // ① 粘贴
@@ -274,7 +270,7 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
     const page = await context!.newPage()
     await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    await configureModel(page, true)
+    await configureModel(page)
 
     // 3000×2000 的纯色图：PNG 本身很小（纯色压得动），但像素尺寸必须被压下来
     await page.setInputFiles('input[type="file"]', {
@@ -307,7 +303,7 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
     const page = await context!.newPage()
     await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    await configureModel(page, true)
+    await configureModel(page)
 
     await page.setInputFiles('input[type="file"]', {
       name: 'shot.png',

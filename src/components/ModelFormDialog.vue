@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 添加/编辑模型弹窗：三步 —— 选服务商 → 输入 API Key → 选模型 ID。
-// 接口地址取自服务商预设，展示名默认用模型 ID，图片支持按预设白名单自动判定。
+// 接口地址取自服务商预设，展示名默认用模型 ID。
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { Button as UiButton } from '@/components/ui/button'
 import { Input as UiInput } from '@/components/ui/input'
@@ -18,7 +18,6 @@ import {
   SelectValue as UiSelectValue
 } from '@/components/ui/select'
 import { Eye as UiEye, EyeOff as UiEyeOff, X as UiX } from '@lucide/vue'
-import { isKnownVisionModel } from '@/lib/providers'
 import type { ModelProfile, ModelProvider } from '@/types/model'
 
 const props = defineProps<{
@@ -149,8 +148,7 @@ async function save(): Promise<void> {
       apiKey: form.apiKey,
       model: form.model,
       // 预设地址都不是完整接口地址，统一追加 /chat/completions
-      useFullUrl: false,
-      vision: isKnownVisionModel(form.model)
+      useFullUrl: false
     })
     emit('saved')
     close()

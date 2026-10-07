@@ -105,7 +105,6 @@ import {
   ATTACHMENT_ACCEPT,
   MAX_ATTACHMENTS,
   MAX_IMAGE_BYTES,
-  TEXT_ONLY_ACCEPT,
   composeMessageText,
   isImageAttachment,
   prepareAttachments
@@ -137,8 +136,6 @@ interface ModelOption {
   name: string
   hasApiKey: boolean
   enabled?: boolean
-  /** 模型能力声明：能否接收图片（见 shared/types 的 ModelProfile.vision） */
-  vision?: boolean
 }
 
 const profiles = ref<ModelOption[]>([])
@@ -155,32 +152,12 @@ function refreshModelStatus(data: {
     baseUrl: string
     model: string
     hasApiKey: boolean
-    vision?: boolean
   }>
   activeId: string
 }): void {
   profiles.value = data.profiles
   activeModelId.value = data.activeId
 }
-
-/** 当前模型是否声明支持图片：附件入口、粘贴与提交校验都以它为准。
- *  未声明（老配置 / 拿不准的模型）一律按不支持 —— 图片发错了会让整条会话变地雷，见 ModelProfile.vision */
-const promptSupportsImages = computed(
-  () => profiles.value.find((p) => p.id === activeModelId.value)?.vision === true
-)
-
-/** 这里能选什么文件：模型不支持图片时把图片从选择器与校验里一起去掉。
- *  注意能收的仍是「图片 + 文本文件」两类 —— 不支持图片不等于不支持附件。 */
-const attachmentAccept = computed(() =>
-  promptSupportsImages.value ? ATTACHMENT_ACCEPT : TEXT_ONLY_ACCEPT
-)
-
-/** 本会话历史里有没有图片。
- *  用途单一但关键：请求体带的是**整段历史**（服务端无状态），图片每轮都会跟着重发 ——
- *  所以一旦当前模型读不了图，这个会话的**每一轮**都会失败，而不是只失败带图的那一轮。 */
-const historyHasImages = computed(() =>
-  props.messages.some((m) => m.parts.some((part) => part.type === 'file'))
-)
 
 async function switchModel(id: string): Promise<void> {
   if (!id || id === activeModelId.value) {
@@ -607,18 +584,11 @@ async function copyMessage(m: UIMessage): Promise<void> {
 // 输入区的附件状态由本组件持有：在这里自己建 prompt-input 的上下文，<ui-prompt-input>
 // 会继承它（PromptInput.vue 的双模式：外层已 provide 就直接用、不再自建）。于是附件 chip、
 // 入口按钮、提交处理都留在对话面板里，不用把对话特有的逻辑塞进通用组件。
-//
-// 模型不支持图片时入口**保留但禁用**并说明原因：直接隐藏会让人以为「没这个功能」，
-// 而不是「换个模型就能用」。
 const attachmentError = ref('')
 
-/** 附件被拒 / 处理失败时给用户的说明；文案随当前模型能力分叉 */
+/** 附件被拒 / 处理失败时给用户的说明 */
 function attachmentErrorMessage(err: { code: string, message: string }): string {
-  if (err.code === 'accept') {
-    return promptSupportsImages.value
-      ? '这类文件不能发：可以发图片，或 txt / md / json / csv 等文本文件'
-      : '当前模型不支持图片，只能添加 txt / md / json / csv 等文本文件'
-  }
+  if (err.code === 'accept') return '这类文件不能发：可以发图片，或 txt / md / json / csv 等文本文件'
   if (err.code === 'max_file_size') return `文件超过 ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)}MB 上限`
   if (err.code === 'max_files') return `最多添加 ${MAX_ATTACHMENTS} 个附件`
   return err.message
@@ -630,17 +600,7 @@ async function prepareAndSend(payload: PromptInputMessage): Promise<void> {
     emit('stop')
     return
   }
-  // 先过「会话历史与当前模型是否兼容」这道门：历史里的图每轮都会随请求重发，
-  // 不拦下的话用户只会看到一次上游原文报错（而且每轮都看到），不知道是模型读不了图。
-  if (historyHasImages.value && !promptSupportsImages.value) {
-    throw new Error('这个会话里发过图片，当前模型读不了图。换成支持图片的模型，或在新标签页里开新对话')
-  }
   const prepared = await prepareAttachments(payload.files)
-  if (prepared.images.length && !promptSupportsImages.value) {
-    // 兜底路径：入口与粘贴都按 accept 拦过一道，走到这里说明是「先加图、再切模型」。
-    // 抛错是为了让 prompt-input 保留附件与已输入的文字（它只在提交成功时清空）。
-    throw new Error('当前模型不支持图片，请先移除图片或切换到支持图片的模型')
-  }
   const text = composeMessageText(payload.text.trim(), prepared.textBlocks)
   if (!text && !prepared.images.length) return
 
@@ -651,10 +611,7 @@ async function prepareAndSend(payload: PromptInputMessage): Promise<void> {
 }
 
 const promptInput = usePromptInputProvider({
-  // accept 用 getter：provider 建好之后就只读 props 的当前值了，而模型是随时可切的
-  get accept() {
-    return attachmentAccept.value
-  },
+  accept: ATTACHMENT_ACCEPT,
   maxFiles: MAX_ATTACHMENTS,
   maxFileSize: MAX_IMAGE_BYTES,
   onSubmit: prepareAndSend,
@@ -1264,7 +1221,7 @@ function userScriptsUnavailableMessageSafe(): string {
           </ui-button>
         </div>
         <!-- accept / multiple 传给隐藏的 file input（校验那一侧走上面 provider 的 accept） -->
-        <ui-prompt-input :accept="attachmentAccept" multiple>
+        <ui-prompt-input :accept="ATTACHMENT_ACCEPT" multiple>
           <ui-prompt-input-textarea
             placeholder="输入消息…"
             :disabled="props.streaming"
@@ -1272,8 +1229,7 @@ function userScriptsUnavailableMessageSafe(): string {
           <ui-prompt-input-footer>
             <!-- 工具区：附件 + 页面拾取 + 模型选择（页面快照已改 AI 工具采集，无用户面入口） -->
             <ui-prompt-input-tools>
-              <!-- 附件入口：模型不支持图片时入口仍在（文本文件照发），把限制挂在提示上 ——
-                   隐藏或整枚禁用都会让人以为「没有这个功能」或「附件全不能用」 -->
+              <!-- 附件入口：收图片与文本文件两类，能收什么由 ATTACHMENT_ACCEPT 定 -->
               <ui-tooltip-provider>
                 <ui-tooltip>
                   <ui-tooltip-trigger as-child>
@@ -1282,7 +1238,7 @@ function userScriptsUnavailableMessageSafe(): string {
                         type="button"
                         variant="outline"
                         size="xs"
-                        :aria-label="promptSupportsImages ? '添加图片或文件' : '添加文本文件（当前模型不支持图片）'"
+                        aria-label="添加图片或文件"
                         data-testid="add-attachment-button"
                         @click="promptInput.openFileDialog()"
                       >
@@ -1292,7 +1248,7 @@ function userScriptsUnavailableMessageSafe(): string {
                     </span>
                   </ui-tooltip-trigger>
                   <ui-tooltip-content>
-                    {{ promptSupportsImages ? '添加图片或文本文件' : '当前模型不支持图片，可在「设置 - 模型」里开启' }}
+                    添加图片或文本文件
                   </ui-tooltip-content>
                 </ui-tooltip>
               </ui-tooltip-provider>

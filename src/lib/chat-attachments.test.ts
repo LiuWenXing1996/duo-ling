@@ -3,7 +3,6 @@ import {
   ATTACHMENT_ACCEPT,
   MAX_IMAGE_BYTES,
   MAX_TEXT_CHARS,
-  TEXT_ONLY_ACCEPT,
   buildTextAttachmentBlock,
   composeMessageText,
   isImageAttachment,
@@ -41,15 +40,14 @@ describe('附件类型判定', () => {
     expect(isTextAttachment({ filename: 'archive.zip' })).toBe(false)
   })
 
-  it('两套 accept 同源：只收文本的那套是全集里的文本部分，都不放行 pdf', () => {
+  it('accept 覆盖图片与文本两类，都不放行 pdf / zip', () => {
     const all = ATTACHMENT_ACCEPT.split(',')
-    const textOnly = TEXT_ONLY_ACCEPT.split(',')
-    expect(textOnly.every((item) => all.includes(item))).toBe(true)
-    expect(textOnly.some((item) => item.startsWith('image/'))).toBe(false)
+    expect(all.some((item) => item.startsWith('image/'))).toBe(true)
+    expect(all).toContain('.md')
     expect(all).not.toContain('.pdf')
-    // 反射有效性：确认真的取到了内容，否则上面几条会退化成「两边都空」的假绿
-    expect(textOnly.length).toBeGreaterThan(0)
-    expect(all.length).toBeGreaterThan(textOnly.length)
+    expect(all).not.toContain('.zip')
+    // 反射有效性：确认真的取到了内容，否则上面几条会退化成「空集恒真」的假绿
+    expect(all.length).toBeGreaterThan(0)
   })
 })
 

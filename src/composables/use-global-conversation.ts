@@ -342,8 +342,7 @@ export function useGlobalConversation() {
    *
    * files 是随消息发出的附件（图片已压缩成 data URL）。它们是 UIMessage 的
    * file part，与正文同源：落盘、回读、每轮重发给模型都按 parts 走 ——
-   * 所以模型读不了图时不是「这一轮失败」，而是这条消息在会话里永久变成地雷
-   * （见 shared/types 的 ModelProfile.vision）。
+   * 图片因此会随每一轮请求重发，这也是它必须在发出前就压好的原因。
    * 只有附件、没有文字也是合法的（纯图提问），此时 text 传空串。
    */
   async function send(text: string, files: FileUIPart[] = []): Promise<void> {
