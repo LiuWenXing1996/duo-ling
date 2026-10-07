@@ -435,8 +435,10 @@ describe('popup 的通知区', () => {
     stubChrome('https://example.com/page')
     runtimeSendMessage.mockResolvedValue(snapshot({ items: [UNREAD] }))
     vi.stubGlobal('close', vi.fn())
-    tabsSendMessage.mockRejectedValueOnce(new Error('Receiving end does not exist'))
     const w = await mountPopup()
+    // 必须在挂载之后再埋：挂载时 popup 会向当前标签页发一条 content:ping 探活，走的是同一个
+    // tabs.sendMessage —— 提前埋会被探活先吃掉，等点通知时这一发就正常返回、兜底分支不触发。
+    tabsSendMessage.mockRejectedValueOnce(new Error('Receiving end does not exist'))
 
     await items(w)[0]!.trigger('click')
     await flushPromises()
