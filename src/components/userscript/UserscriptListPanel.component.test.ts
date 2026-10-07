@@ -65,7 +65,7 @@ const summary = (uuid: string, name: string): ScriptSummary => ({
   name,
   enabled: true,
   matches: ['https://a.example/*'],
-  updatedAt: 0,
+  savedAt: 0,
   group: '',
 })
 
@@ -339,9 +339,9 @@ describe('UserscriptListPanel 搜索 / 筛选 / 排序', () => {
     expect(wrapper.text()).not.toContain('还没有用户脚本')
   })
 
-  it('默认按更新时间新在前（createdAt 同值时保持原序）', async () => {
-    const older = { ...summary('u1', '旧脚本'), updatedAt: 100 }
-    const newer = { ...summary('u2', '新脚本'), updatedAt: 200 }
+  it('默认按更新时间（源码保存时刻）新在前', async () => {
+    const older = { ...summary('u1', '旧脚本'), savedAt: 100 }
+    const newer = { ...summary('u2', '新脚本'), savedAt: 200 }
     list.mockResolvedValue([older, newer])
     wrapper = await mountPanel()
     expect(rowText(0)).toContain('新脚本')
@@ -390,7 +390,7 @@ describe('UserscriptListPanel 批量操作菜单', () => {
 
 describe('UserscriptListPanel 卡片布局', () => {
   it('同一张卡片内同时展示匹配规则与元信息（更新时间）', async () => {
-    const s = { ...summary('u1', '脚本A'), updatedAt: 1758200000000 }
+    const s = { ...summary('u1', '脚本A'), savedAt: 1758200000000 }
     list.mockResolvedValue([s])
     wrapper = await mountPanel()
     const card = wrapper.findAll('.bg-card').find((el) => el.text().includes('脚本A'))!

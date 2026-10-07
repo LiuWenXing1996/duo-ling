@@ -23,7 +23,7 @@ import * as usdata from './usdata-db'
 import * as runtime from './runtime-db'
 
 /**
- * 列表视图：项目摘要（不含源码与构建产物），未启用在后、启用在前，组内按更新时间倒序。
+ * 列表视图：项目摘要（不含源码与构建产物），未启用在后、启用在前，组内按源码保存时间倒序。
  * 项目由调用方传入（读自状态库，见 background.ts）——本文件已不再持有项目数据。
  */
 export async function listSummaries(projects: ScriptProject[]): Promise<ScriptSummary[]> {
@@ -33,10 +33,10 @@ export async function listSummaries(projects: ScriptProject[]): Promise<ScriptSu
     enabled: p.enabled,
     matches: p.config.matches ?? [],
     group: p.group ?? '',
-    updatedAt: p.updatedAt,
+    savedAt: p.source.savedAt,
   }))
   return [...projectSummaries].sort(
-    (a, b) => Number(b.enabled) - Number(a.enabled) || b.updatedAt - a.updatedAt,
+    (a, b) => Number(b.enabled) - Number(a.enabled) || b.savedAt - a.savedAt,
   )
 }
 

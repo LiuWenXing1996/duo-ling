@@ -202,9 +202,9 @@ const query = ref('')
 /** 状态筛选 */
 type StatusFilter = 'all' | 'enabled' | 'disabled'
 const statusFilter = ref<StatusFilter>('all')
-/** 排序：默认按更新时间新在前 */
-type SortKey = 'updatedAt' | 'name'
-const sortKey = ref<SortKey>('updatedAt')
+/** 排序：默认按更新时间（源码保存时刻）新在前 */
+type SortKey = 'savedAt' | 'name'
+const sortKey = ref<SortKey>('savedAt')
 
 const statusFilters = computed(() => [
   { key: 'all' as StatusFilter, label: '全部', count: scripts.value.length },
@@ -227,7 +227,7 @@ const visibleScripts = computed(() => {
   else if (statusFilter.value === 'disabled') list = list.filter((s) => !s.enabled)
   const sorted = [...list]
   if (sortKey.value === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'))
-  else sorted.sort((a, b) => b.updatedAt - a.updatedAt)
+  else sorted.sort((a, b) => b.savedAt - a.savedAt)
   return sorted
 })
 
@@ -891,8 +891,8 @@ async function confirmRemoveAll(): Promise<void> {
   }
 }
 
-/** updatedAt 是毫秒时间戳，而 formatTimestamp 收的是 Unix 秒，需换算 */
-function updatedAtLabel(ts: number): string {
+/** 列表里的时间戳（savedAt / lastRunAt）都是毫秒，而 formatTimestamp 收的是 Unix 秒，需换算 */
+function timeLabel(ts: number): string {
   return ts ? formatTimestamp(Math.floor(ts / 1000)) : ''
 }
 
@@ -994,7 +994,7 @@ useDataSync('group', () => refreshGroups())
               <ui-select-value />
             </ui-select-trigger>
             <ui-select-content>
-              <ui-select-item value="updatedAt">按更新时间</ui-select-item>
+              <ui-select-item value="savedAt">按更新时间</ui-select-item>
               <ui-select-item value="name">按名称</ui-select-item>
             </ui-select-content>
           </ui-select>
@@ -1319,9 +1319,9 @@ useDataSync('group', () => refreshGroups())
               <!-- 元信息：更新时间 / 上次运行 / 上次日志，一行一条 —— 横向拼行时两个完整时间戳自身就宽于卡片，会顶出边框。
                    三行恒渲染（没跑过落「无」），同排卡片行数一致，分隔线与底行才对得齐 -->
               <div class="mb-3 mt-1 space-y-0.5 text-xs text-muted-foreground tabular-nums">
-                <p>更新时间：{{ updatedAtLabel(item.s.updatedAt) || '无' }}</p>
+                <p>更新时间：{{ timeLabel(item.s.savedAt) || '无' }}</p>
                 <!-- 运行统计：lastRunAt 与 runCount 同源，没跑过两行都落「无」；runstats 域广播驱动实时回拉 -->
-                <p data-testid="run-stats">上次运行：{{ item.s.lastRunAt ? updatedAtLabel(item.s.lastRunAt) : '无' }}</p>
+                <p data-testid="run-stats">上次运行：{{ item.s.lastRunAt ? timeLabel(item.s.lastRunAt) : '无' }}</p>
                 <p
                   :class="item.s.lastRunErrors ? 'text-destructive' : ''"
                   :title="item.s.lastRunErrors ? '最近一次运行捕获到错误，详情见「运行日志」标签页' : undefined"

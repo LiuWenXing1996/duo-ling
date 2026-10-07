@@ -21,7 +21,6 @@ function projectWith(config: Partial<ScriptConfig>): ScriptProject {
     group: '',
     source: { code: '// x', savedAt: 1 },
     createdAt: 1,
-    updatedAt: 1,
   }
 }
 

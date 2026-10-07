@@ -95,7 +95,6 @@ export interface ScriptProject {
    */
   source: { code: string; savedAt: number }
   createdAt: number
-  updatedAt: number
 }
 
 /**
@@ -111,7 +110,13 @@ export interface ScriptSummary {
   name: string
   enabled: boolean
   matches: string[]
-  updatedAt: number
+  /**
+   * 源码最后保存时刻（ms）= `ScriptProject.source.savedAt`；列表按它排序并展示为「更新时间」。
+   *
+   * 只认源码落盘这一件事：启停 / 改名 / 挪分组都不刷新它（那些不改源码，也不产生 git 提交），
+   * 与用户理解的「脚本更新了」保持一致。
+   */
+  savedAt: number
   /** 所属分组 id（空字符串 = 未分组）；与 groups 对象库里的定义对应 */
   group: string
   /** 累计运行次数（一次页面加载 = 一次）；缺省 = 还没有运行统计 */

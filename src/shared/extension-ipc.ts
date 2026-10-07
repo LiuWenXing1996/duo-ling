@@ -179,7 +179,7 @@ export type RuntimeRequest =
   // 与 state:remove 同处一地的好处：记录与仓的删除不跨上下文，不留无主仓。
   | { kind: 'state:removeAll' }
   | { kind: 'state:toggle'; uuid: string; enabled: boolean }
-  // 重命名脚本的落点（SW 的 userscript:rename 转发到此）：只改状态库里的 name + updatedAt，
+  // 重命名脚本的落点（SW 的 userscript:rename 转发到此）：只改状态库里的 name，
   // 不碰源码、不产生 git 提交（名字不入仓）。
   | { kind: 'state:rename'; uuid: string; name: string }
   // AI 生成脚本的落盘：SW 的 userscript:createProject

@@ -36,7 +36,6 @@ const project: ScriptProject = {
   group: '',
   source: { code: CODE, savedAt: 0 },
   createdAt: 0,
-  updatedAt: 0,
 }
 
 /** 已保存源码（fs:read 的应答；单文件 Source 只有 code，无并行元数据文件） */

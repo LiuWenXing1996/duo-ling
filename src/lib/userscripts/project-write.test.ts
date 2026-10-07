@@ -103,7 +103,8 @@ describe('saveExisting', () => {
     expect(outcome.project.name).toBe('改名') // 名称去空白
     expect(outcome.project.source.code).toBe('// v2')
     expect(outcome.project.enabled).toBe(false)
-    expect(outcome.project.updatedAt).toBeGreaterThanOrEqual(p.updatedAt)
+    // 保存刷新的是源码保存时刻（列表的「更新时间」与排序都认它）
+    expect(outcome.project.source.savedAt).toBeGreaterThanOrEqual(p.source.savedAt)
     expect(mockWriteSource).toHaveBeenCalledOnce()
     expect(mockWriteSource.mock.calls[0]![1]).toBe('// v2')
     expect(mockCommitSource).toHaveBeenCalledOnce()
