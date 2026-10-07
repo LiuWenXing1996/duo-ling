@@ -25,6 +25,7 @@ import type {
 import { runtimeSend } from '@/shared/runtime-send'
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
 import type { InjectedBuildInfo } from '@/lib/build-info'
+import { EXTENSION_NAME } from '@/lib/extension-identity'
 
 // 用户脚本管理器（v2 方案）：引擎 + 存储 + GM 桥 + 类型
 import {
@@ -938,7 +939,7 @@ function ensureFloatMenuItem(): void {
     void chrome.runtime.lastError
     chrome.contextMenus.create({
       id: FLOAT_MENU_ID,
-      title: '打开哆灵对话',
+      title: `打开${EXTENSION_NAME}对话`,
       contexts: ['page'],
       // 与 popup 的判据一致：只对普通网页出现（内部页 / 扩展页 / file:// 上浮层挂不了）
       documentUrlPatterns: ['*://*/*'],
@@ -961,8 +962,8 @@ async function openFloatPanelInTab(tab: chrome.tabs.Tab): Promise<void> {
     await chrome.notifications.create('duoling:float-open-failed', {
       type: 'basic',
       iconUrl: NOTIFY_ICON,
-      title: '哆灵',
-      message: '这个页面还没接上哆灵，刷新页面后再试。',
+      title: EXTENSION_NAME,
+      message: `这个页面还没接上${EXTENSION_NAME}，刷新页面后再试。`,
     })
   }
 }

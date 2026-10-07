@@ -37,6 +37,7 @@ import {
   type RuntimeRequest,
   type RuntimeResponse,
 } from '@/shared/extension-ipc'
+import { EXTENSION_NAME } from '@/lib/extension-identity'
 
 // 注入根 id（全局唯一，防止重复注入）
 const ROOT_ID = 'duoling-float-root'
@@ -153,7 +154,7 @@ function buildFloatUi(): {
 
   const iframe = document.createElement('iframe')
   iframe.className = 'dl-float-iframe'
-  iframe.title = '哆灵对话'
+  iframe.title = `${EXTENSION_NAME}对话`
   panel.appendChild(iframe)
 
   let opened = false
@@ -225,7 +226,7 @@ function buildFloatUi(): {
     iframe.remove()
     const fb = document.createElement('div')
     fb.className = 'dl-float-fallback'
-    fb.textContent = '该网站限制了内嵌框架，浮层无法显示——哆灵在这个网站上用不了。'
+    fb.textContent = `该网站限制了内嵌框架，浮层无法显示——${EXTENSION_NAME}在这个网站上用不了。`
     panel.appendChild(fb)
   }
 

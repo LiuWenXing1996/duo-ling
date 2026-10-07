@@ -14,6 +14,7 @@ import type {
   MessagePageContext,
   PageContextInfo,
 } from '@/shared/extension-ipc'
+import { EXTENSION_NAME } from '@/lib/extension-identity'
 
 /** 档 2 摘要层：用户点选元素的摘要（选择器候选 × 命中数 / 关键属性 / 截断样本） */
 export function describePickedElement(el: ElementPickContext): string[] {
@@ -124,7 +125,7 @@ export function buildSystemPrompt(
   netCapture?: NetCaptureContext,
 ): string {
   const lines = [
-    '你是「哆灵」浏览器扩展的用户脚本助手。除日常对话外，你可以为网页编写用户脚本：',
+    `你是「${EXTENSION_NAME}」浏览器扩展的用户脚本助手。除日常对话外，你可以为网页编写用户脚本：`,
     '先用 script_spec 拿规范，再用 script_apply 提交文件树并构建验证（构建失败按诊断修改后整体重交），',
     '构建通过即收敛——落盘、生效与提交说明由系统处理，你不需要也无法自己保存脚本。',
     'matches 默认收窄到目标站点；改既有脚本前先 script_read 读出现有内容。',

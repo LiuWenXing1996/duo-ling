@@ -15,6 +15,7 @@
 //   · 内置页（chrome:// 等）与扩展页（chrome-extension://）不可注入；
 //   · 快照：页面关闭 / 导航 → 60 秒超时兜底。
 
+import { EXTENSION_NAME } from '@/lib/extension-identity'
 import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
 
 /** 拾取器世界：独立世界（与每脚本一世界惯例一致） */
@@ -61,7 +62,7 @@ export function pageInjectionBlockReason(url: string | undefined): string | null
     const ownPrefix =
       typeof chrome !== 'undefined' && chrome.runtime?.getURL ? chrome.runtime.getURL('') : ''
     return ownPrefix && url.startsWith(ownPrefix)
-      ? '当前标签页是哆灵自己的页面（工作台等）'
+      ? `当前标签页是${EXTENSION_NAME}自己的页面（工作台等）`
       : '当前标签页是其他扩展的页面'
   }
   if (/^(chrome|edge|about|devtools|view-source):/i.test(url)) {
@@ -79,7 +80,7 @@ export function friendlyInjectError(e: unknown): Error {
   const raw = e instanceof Error ? e.message : String(e)
   if (/must request permission to access this host|Cannot access contents of url/i.test(raw)) {
     return new Error(
-      '当前页面不支持哆灵（浏览器内置页 / 扩展页，或未开启「允许访问文件网址」），请切到普通网页后重试'
+      `当前页面不支持${EXTENSION_NAME}（浏览器内置页 / 扩展页，或未开启「允许访问文件网址」），请切到普通网页后重试`
     )
   }
   return e instanceof Error ? e : new Error(raw)

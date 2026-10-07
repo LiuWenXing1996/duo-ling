@@ -7,7 +7,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <title>哆灵</title>
+    <!--
+      刻意不写 <title>：WXT 把 popup 入口的 <title> 当作 manifest 的 action.default_title
+      （find-entrypoints 的 getPopupEntrypoint 把 title 映射为 defaultTitle，再覆盖 config 里的
+      同名字段），而它读的是 HTML 源文件、早于替换 %EXT_NAME% 的那支 vite 插件 —— 写占位符会把
+      字面量 "%EXT_NAME%" 原样落进 manifest。标题统一由 wxt.config.ts 的 action.default_title 提供。
+    -->
     <!--
       popup = 点工具栏图标弹出的配置面板。WXT 按文件名自动识别本入口并写入
       manifest 的 action.default_popup，无需在 wxt.config.ts 手写。

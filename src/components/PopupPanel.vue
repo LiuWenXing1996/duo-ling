@@ -17,6 +17,7 @@ import { TriangleAlert as UiTriangleAlert } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import PopupNotifications from './PopupNotifications.vue'
 import PopupPageScripts from './PopupPageScripts.vue'
+import { EXTENSION_NAME } from '@/lib/extension-identity'
 import { webHostname } from '@/lib/float-panel-host'
 import { readUpdateCheck, type UpdateCheckRecord } from '@/lib/update-check'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
@@ -89,7 +90,7 @@ async function openFloatPanel(): Promise<void> {
   try {
     await chrome.tabs.sendMessage(tabId, FLOAT_OPEN_REQUEST)
   } catch {
-    openError.value = '页面还没接上哆灵，刷新页面后再试。'
+    openError.value = `页面还没接上${EXTENSION_NAME}，刷新页面后再试。`
     return
   }
   window.close()
@@ -138,7 +139,7 @@ onMounted(() => {
 <template>
   <div class="flex w-full flex-col gap-3 px-4 py-3">
     <header class="flex items-center gap-2">
-      <span class="text-sm font-semibold">哆灵</span>
+      <span class="text-sm font-semibold">{{ EXTENSION_NAME }}</span>
     </header>
 
     <!-- 通知（进行中 + 跑完没看）：角标只报脚本运行数，会话的事在这里展开 -->

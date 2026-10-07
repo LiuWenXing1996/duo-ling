@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 import type { GmInfo } from './api-contract'
 import { API_COMMANDS } from './api-contract'
 import { buildGmWrapperPrefix } from './gm-wrapper'
+import { EXTENSION_NAME } from '@/lib/extension-identity'
 
 /** 造一份最小 GM_info（userAgent / isIncognito 由包装运行时就地补，故不传） */
 function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
@@ -28,7 +29,7 @@ function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
       resources: {},
     },
     scriptMetaStr: '',
-    scriptHandler: '哆灵',
+    scriptHandler: EXTENSION_NAME,
     version: '0.0.0-test',
     uuid: 'u-cmd',
     sandboxMode: 'raw',
