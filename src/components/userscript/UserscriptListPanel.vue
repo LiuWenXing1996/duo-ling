@@ -149,8 +149,12 @@ const removeGroupTarget = ref<string | null>(null)
 const groupById = computed(() => new Map(groups.value.map((g) => [g.id, g])))
 
 /**
- * 分组展示节：「未分组」节置顶（仅当存在未分组脚本），其余按 groups 顺序排其后。
- * 每节含其下脚本（已含搜索 / 状态筛选 / 排序）。筛选后某节无脚本则整节不显示。
+ * 分组展示节：「未分组」节置顶（仅当存在未分组脚本），其后按 groups 顺序列出**全部**分组。
+ * 每节含其下脚本（已含搜索 / 状态筛选 / 排序）。
+ *
+ * 空分组（无成员、或成员都被滤掉）也照常渲染、计数为 0：分组头是重命名 / 删除 / 重排的唯一入口，
+ * 不渲染等于把空组的管理入口一起藏了 —— 想删掉一个空组就无处可点。豁免只有一种：整列表为空时
+ * （无脚本 / 全被滤掉）由上方空状态接管，此时不渲染分组，免得用一屏空组头挡住「调整筛选条件」的提示。
  */
 const groupSections = computed(() => {
   const byGroup = new Map<string, ScriptSummary[]>()
@@ -164,8 +168,7 @@ const groupSections = computed(() => {
   const ungrouped = byGroup.get(UNGROUPED_KEY)
   if (ungrouped) sections.push({ id: UNGROUPED_KEY, name: '未分组', scripts: ungrouped })
   for (const g of groups.value) {
-    const scripts = byGroup.get(g.id)
-    if (scripts) sections.push({ id: g.id, name: g.name, scripts })
+    sections.push({ id: g.id, name: g.name, scripts: byGroup.get(g.id) ?? [] })
   }
   return sections
 })
