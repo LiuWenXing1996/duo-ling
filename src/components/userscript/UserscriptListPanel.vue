@@ -1192,6 +1192,7 @@ useDataSync('group', () => refreshGroups())
               <button
                 type="button"
                 class="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                data-testid="group-header"
                 :aria-expanded="!collapsed[item.id]"
                 @click="toggleCollapse(item.id)"
               >

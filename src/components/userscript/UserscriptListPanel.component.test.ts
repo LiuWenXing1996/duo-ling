@@ -607,6 +607,10 @@ describe('UserscriptListPanel 粘贴导入', () => {
 })
 
 describe('UserscriptListPanel 分组', () => {
+  /** 分组头按钮：按 testid 取 —— 页面上另有带 aria-expanded 的排序下拉触发器，
+   *  按属性撞会把它一起捞进来 */
+  const groupHeaders = () => wrapper.findAll('[data-testid="group-header"]')
+
   it('groups() 返回分组时按分组头分块，未分组脚本进「未分组」节', async () => {
     groups.mockResolvedValue([{ id: 'g1', name: '购物助手', order: 0 }])
     list.mockResolvedValue([
@@ -631,7 +635,7 @@ describe('UserscriptListPanel 分组', () => {
     ])
     wrapper = await mountPanel()
 
-    const headers = wrapper.findAll('button[aria-expanded]').map((b) => b.text())
+    const headers = groupHeaders().map((b) => b.text())
     expect(headers[0]).toContain('未分组')
     expect(headers[1]).toContain('购物助手')
   })
@@ -644,7 +648,7 @@ describe('UserscriptListPanel 分组', () => {
     list.mockResolvedValue([{ ...summary('u1', '脚本A'), group: 'g2' }])
     wrapper = await mountPanel()
 
-    const header = wrapper.findAll('button[aria-expanded]').find((b) => b.text().includes('空分组'))
+    const header = groupHeaders().find((b) => b.text().includes('空分组'))
     expect(header).toBeDefined()
     expect(header!.text()).toContain('0')
     expect(wrapper.findAll('button[title="分组操作"]')).toHaveLength(2)
