@@ -15,13 +15,13 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 | --- | --- | --- |
 | 扩展页 | `floatpanel.html`（网页浮层 iframe） | **对话界面（唯一入口）**：指令入口与观察窗；显示**它所在标签页**的会话（tab 身份由 content script 经 iframe URL 传入） |
 | 扩展页 | `workbench.html`（标签页） | 重界面工作区（脚本管理 / 运行日志 / 会话历史 / 设置等） |
-| 扩展页 | `popup.html`（工具栏 popup） | 页面外的入口：打开当前页的对话浮层（**对话框的常规打开方式**）+ 本页脚本（本页在跑的脚本与报错）+「打开工作台」，并说明当前页面为何挂不了浮层；引擎开关没开时给一句现状 + 「查看开启引导」入口（与角标 `!` 同一判据、同走 `userscript:availability`）；**不承载对话**（不装 `window.api`） |
-| 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：**平时不往页面里放任何 DOM**，收到 `float:open` 才挂出 iframe 并展开，收到 `float:collapse` 收起（只加 `display:none`，iframe 与草稿都留着）；位置钉在视口右下角，拾取期间整块让位 |
+| 扩展页 | `popup.html`（工具栏 popup） | 页面外的入口：打开当前页的对话浮层（**对话框的常规打开方式**）+ 本页脚本（本页在跑的脚本与报错）+「打开工作台」—— 两个入口都是图标 + 文字按钮、沉在 popup 底部等宽两列；挂不了浮层的页面上「打开会话」禁用（判据 = 向该标签页探活内容脚本，`probeContentScript`）、原因挂在它的悬停提示里；引擎开关没开时给一句现状 + 「查看开启引导」入口（与角标 `!` 同一判据、同走 `userscript:availability`）；**不承载对话**（不装 `window.api`） |
+| 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：**平时不往页面里放任何 DOM**，收到 `float:open` 才挂出 iframe 并展开，收到 `float:collapse` 收起（只加 `display:none`，iframe 与草稿都留着），应答 `content:ping`（popup 靠它判本页此刻注入得了内容脚本 —— 见 `lib/float-panel-host.ts`）；位置钉在视口右下角，拾取期间整块让位 |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 + 网页浮层的右键菜单入口 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
 | 注入世界 | MAIN（第三方页面内） | 用户脚本自身逻辑；GM 包装层（`gm-wrapper.ts`）在同一函数作用域里声明 `GM_*` / `GM.*`，能力调用经同帧 USER_SCRIPT 中继件（`script-relay.ts`）转 SW |
 
-各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的挂载细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级、收起语义）见 [src/entrypoints/content.ts](src/entrypoints/content.ts) 顶部注释。**打开入口都在页面之外**：工具栏 popup 的「对话浮层」按钮，与页面右键菜单（SW 注册，`documentUrlPatterns` 限 http/https）—— 对话框平时不在页面里，页面上没有任何可点的地方。两条都收敛到同一条定向消息（`FloatOpenRequest`，`tabs.sendMessage`，不经 SW），内容脚本收到就地挂出 UI 并展开。**收起走反向的另一条消息**（`FloatCollapseRequest`）：对话框顶栏那颗按钮在 iframe 里（跨源，父页拿不到它的事件），只能发消息叫父页把容器藏起来；刻意不用 `postMessage` —— 宿主网页的脚本挂在父 window 上，既能监听也能用 `iframe.contentWindow.postMessage` 伪造来源，那等于把「关掉扩展界面」开放给被注入的页面。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
+各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的挂载细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级、收起语义）见 [src/entrypoints/content.ts](src/entrypoints/content.ts) 顶部注释。**打开入口都在页面之外**：工具栏 popup 的「打开会话」按钮，与页面右键菜单（SW 注册，`documentUrlPatterns` 限 http/https）—— 对话框平时不在页面里，页面上没有任何可点的地方。两条都收敛到同一条定向消息（`FloatOpenRequest`，`tabs.sendMessage`，不经 SW），内容脚本收到就地挂出 UI 并展开。**收起走反向的另一条消息**（`FloatCollapseRequest`）：对话框顶栏那颗按钮在 iframe 里（跨源，父页拿不到它的事件），只能发消息叫父页把容器藏起来；刻意不用 `postMessage` —— 宿主网页的脚本挂在父 window 上，既能监听也能用 `iframe.contentWindow.postMessage` 伪造来源，那等于把「关掉扩展界面」开放给被注入的页面。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
 
 ## 对话链路
 

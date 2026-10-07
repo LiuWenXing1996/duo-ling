@@ -1,7 +1,6 @@
 name: CI
 
-# PR 门禁：只跑快测（类型检查 + 单元测试），不碰 E2E。
-# E2E 见 e2e.yml（独立 workflow，手动 / nightly / push main 触发）。
+# 快测：类型检查 + 单元测试。E2E 是独立 workflow，触发面见 e2e.yml 顶部。
 on:
   push:
     branches: [main]

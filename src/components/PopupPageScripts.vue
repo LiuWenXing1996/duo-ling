@@ -1,6 +1,4 @@
 <script setup lang="ts">
-// 工具栏 popup 的「本页脚本」分区：一行摘要（脚本数 + 错误数）+ 默认收起的列表。
-//
 // 数据来源与对话界面灵动岛（PageScriptsMonitor）同一条 —— SW 的运行登记表经 duoling:panel
 // 端口按 tabId 回快照，见 composables/use-page-monitor。两处差异只在归属与形态：
 //   · 归属传 resolveActiveTabId：popup 是用户点开那一刻弹出来的，此刻的激活页就是答案。
@@ -9,19 +7,38 @@
 //   · 形态是 popup 里的常驻卡片，不是浮在页面上的灵动岛：不绝对定位、不做形变动画、
 //     配色跟随 popup 的卡片（灵动岛用反色面 + motion 弹簧，那是浮层的表达）。
 //
-// 默认收起：popup 宽 340px，展开后的列表限高内滚，免得面板被脚本数撑高。
-// 没有脚本在跑时不给可点性、也不渲染列表，摘要行直接就是空态。
-import { ref } from 'vue'
+// 这张卡在任何界面都渲染，判据只决定它给数量还是给原因：默认收起（popup 宽 340px，展开后的
+// 列表限高内滚，免得面板被脚本数撑高）；没有脚本在跑时不给可点性、也不渲染列表，摘要行给空态。
+// 注入不了内容脚本的页面上计数必然为空，藏起整块会让用户以为没有这个功能 —— 故照常渲染、
+// 摘要行改说原因（能不能注入由 PopupPanel 探活后传入）。
+import { computed, ref } from 'vue'
 import { ChevronDown as UiChevronDown } from '@lucide/vue'
 import { Badge as UiBadge } from '@/components/ui/badge'
 import { usePageMonitor } from '@/composables/use-page-monitor'
 import { resolveActiveTabId } from '@/lib/owning-tab'
+
+const props = defineProps<{
+  /** 当前标签页能不能注入 content script（判据见 lib/float-panel-host.ts） */
+  injectable: boolean
+}>()
 
 const { runs, errors, displayName, errorsOf, openErrors } = usePageMonitor({
   resolveTabId: resolveActiveTabId,
 })
 
 const expanded = ref(false)
+
+/**
+ * 摘要行的计数文案。
+ *
+ * 「不能运行」只在**确无运行记录**时才说：探活答的是「此刻」，可能滞后于登记表（页面刚导航、
+ * 内容脚本还没跑起来时探活说不在，而记录还在）—— 那种时候照常给数量，否则会出现「说不能运行、
+ * 却又能展开列出 2 条」的自相矛盾。
+ */
+const summary = computed(() => {
+  if (runs.value.length) return `${runs.value.length} 个在运行`
+  return props.injectable ? '本页没有运行中的脚本' : '当前页面不能运行脚本'
+})
 
 /**
  * 点脚本行 → 深链到工作台该脚本的错误日志，随后关掉面板。
@@ -43,10 +60,7 @@ function openScript(uuid: string): void {
       @click="expanded = !expanded"
     >
       <span class="text-sm font-medium">本页脚本</span>
-      <span v-if="runs.length" class="text-xs text-muted-foreground tabular-nums">
-        {{ runs.length }} 个在运行
-      </span>
-      <span v-else class="text-xs text-muted-foreground">本页没有运行中的脚本</span>
+      <span class="text-xs text-muted-foreground tabular-nums">{{ summary }}</span>
       <span class="ml-auto flex shrink-0 items-center gap-1.5">
         <UiBadge
           v-if="errors.length"
