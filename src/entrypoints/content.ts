@@ -10,8 +10,9 @@
 //   - 身份传递：首次展开时先向 SW 取本 tab 的 id（content script 拿不到 chrome.tabs），
 //     拼进 iframe URL（floatpanel.html?tab=<id>）—— 浮层据此认定自己的会话归属（每 tab 一条会话）。
 //     取不到就退回不带参数：浮层侧归属退化为「不绑定」，好过错绑到别人的 tab。
-//   - 位置固定：钉在视口右下角，不做拖拽（抓手在 iframe 里，父页拿不到它的事件，为这个再开一条
-//     跨源通道不划算）。
+//   - 位置：默认钉在视口右下角（CSS 里的 right/bottom），可拖走 —— 把手是父页盖在 iframe 顶栏上的
+//     一条拖拽条（`.dl-float-drag-strip`），整个手势在本页完成（为什么这样做，见 startDrag 的说明）。
+//     位置只在本次页面内有效：不落库，「不注入 → 重挂」与刷新后都回到右下角。
 //   - CSP 降级：iframe 加载失败（严格 frame-src 拦扩展 iframe）时给一句可读提示
 //     （对话框是唯一对话载体，这些站点上就是用不了 —— 不能指向已不存在的载体）。
 //     两点实现约束：部分站点拦载**不触发** iframe 的 error 事件，可靠性靠 load 超时兜底；
@@ -36,6 +37,7 @@ import {
   type RuntimeRequest,
   type RuntimeResponse,
 } from '@/shared/extension-ipc'
+import { clampFloatPoint } from '@/lib/float-panel-drag'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 
 // 注入根 id（全局唯一，防止重复注入）
@@ -58,8 +60,19 @@ const FLOAT_CSS = `
   z-index: 2147483647;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
-.dl-float-panel { display: none; }
+.dl-float-panel { position: relative; display: none; }
 .dl-float-container.open .dl-float-panel { display: block; }
+.dl-float-drag-strip {
+  /* 盖在 iframe 顶栏上的拖拽把手：right 留出顶栏右侧的三颗按钮（合计约 104px），点击照常落进 iframe */
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 120px;
+  height: 44px;
+  z-index: 1;
+  cursor: grab;
+}
+.dl-float-drag-strip.dragging { cursor: grabbing; }
 .dl-float-iframe {
   width: 384px;
   height: 560px;
@@ -165,10 +178,17 @@ function buildFloatUi(): {
   iframe.title = `${EXTENSION_NAME}对话`
   panel.appendChild(iframe)
 
+  // 拖拽把手：盖在 iframe 顶栏上的父页元素（为什么必须在父页，见 startDrag 的说明）
+  const strip = document.createElement('div')
+  strip.className = 'dl-float-drag-strip'
+  panel.appendChild(strip)
+
   let loaded = false
   /** src 是否已指派（含「正在取 tabId」的在途态）：重复展开不该指派两回、加载两回 */
   let srcAssigned = false
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null
+  /** 拖动进行中（防重入：捕获与监听器只装一份） */
+  let dragging = false
 
   const showFallback = (): void => {
     iframe.remove()
@@ -177,6 +197,80 @@ function buildFloatUi(): {
     fb.textContent = `该网站限制了内嵌框架，浮层无法显示——${EXTENSION_NAME}在这个网站上用不了。`
     panel.appendChild(fb)
   }
+
+  /**
+   * 拖动把手（`.dl-float-drag-strip`，盖在 iframe 顶栏上的一条）按下：整个手势从这里开始，
+   * 全程在本页完成，零跨进程消息。
+   *
+   * 为什么把手是父页盖上去的一条、而不是 iframe 顶栏本身 —— 两条实测的坑：
+   *   · 按在 iframe 里的鼠标手势会被 Chromium 一路路由给 iframe（浏览器级的拖拽捕获），父页用
+   *     pointer-events 让位 / 铺接管层都收不到后续事件 —— 跨 iframe 接管指针走不通；
+   *   · 若退回「iframe 逐帧发位移消息」，跨进程一来一回延迟忽快忽慢，面板追一步顿一步；且逐帧改
+   *     fixed 元素的 left/top 会触发整页 style/layout/paint。故本实现拖动中只写 **transform**
+   *     （合成器搬运，不重排），松手才把终位沉淀回 left/top。
+   *
+   * 把手 `right: 120px` 留出顶栏右侧的三颗按钮，点击照常落进 iframe；标题区被把手盖住，
+   * 代价只是标题不响应悬停提示，无功能损失。
+   */
+  const startDrag = (event: PointerEvent): void => {
+    if (dragging || event.button !== 0) return
+    dragging = true
+    // 拖动期间不选中文本、不触发原生拖拽
+    event.preventDefault()
+
+    // 基准位：把容器从 CSS 的「右下贴边」换成「左上定坐标」。贴边由 right/bottom 定的位，只写
+    // left/top 不会生效 —— 两边同时给值时，浏览器按文档方向挑 left、right 里的一个，另一套要显式 auto。
+    const base = container.getBoundingClientRect()
+    container.style.left = `${base.left}px`
+    container.style.top = `${base.top}px`
+    container.style.right = 'auto'
+    container.style.bottom = 'auto'
+
+    let last = { x: base.left, y: base.top }
+    // 抓取点相对面板左上角的偏移：面板落点 = 指针位置 - 偏移，面板才会「按住哪就从哪动」
+    const grabX = event.clientX - base.left
+    const grabY = event.clientY - base.top
+
+    const clampTo = (move: PointerEvent): { x: number; y: number } =>
+      clampFloatPoint(
+        { x: move.clientX - grabX, y: move.clientY - grabY },
+        { width: container.offsetWidth, height: container.offsetHeight },
+        { width: window.innerWidth, height: window.innerHeight },
+      )
+    const place = (next: { x: number; y: number }): void => {
+      last = next
+      // 位移只走 transform（相对基准位），松手才沉淀成 left/top —— 见上方说明
+      container.style.transform = `translate(${next.x - base.left}px, ${next.y - base.top}px)`
+    }
+    const onMove = (move: PointerEvent): void => {
+      place(clampTo(move))
+    }
+    const finish = (): void => {
+      if (!dragging) return
+      dragging = false
+      container.style.transform = ''
+      container.style.left = `${last.x}px`
+      container.style.top = `${last.y}px`
+      strip.classList.remove('dragging')
+      strip.removeEventListener('pointermove', onMove)
+      strip.removeEventListener('pointerup', onEnd)
+      strip.removeEventListener('pointercancel', onEnd)
+    }
+    const onEnd = (move: PointerEvent): void => {
+      place(clampTo(move))
+      finish()
+    }
+
+    // 指针捕获：快速拖动 / 甩出浏览器窗口时事件流不断，松手一定收得到（同文档捕获，无跨文档问题）
+    strip.setPointerCapture(event.pointerId)
+    strip.classList.add('dragging')
+    strip.addEventListener('pointermove', onMove)
+    strip.addEventListener('pointerup', onEnd)
+    strip.addEventListener('pointercancel', onEnd)
+    // capture 被释放 = 手势无论如何结束了（正常松手 / 系统打断），兜一把清理；finish 幂等
+    strip.addEventListener('lostpointercapture', finish, { once: true })
+  }
+  strip.addEventListener('pointerdown', startDrag)
 
   const open = (): void => {
     container.classList.add('open')
