@@ -8,6 +8,16 @@ export function formatTimestamp(ts: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/** ISO 时间格式化为 MM-DD HH:mm（消息气泡下方的时间）。带月份日期而不只到分钟：
+ *  一条会话可能跨天，只有 HH:mm 时「昨天下午三点」和「今天下午三点」长得一样。
+ *  解析不了（空串 / 旧记录缺时间）返回空串 —— 调用方据此不渲染，而不是画一个 Invalid Date。 */
+export function formatMessageTime(iso: string): string {
+  const d = new Date(iso)
+  if (!iso || Number.isNaN(d.getTime())) return ''
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 /** token 量按量级缩写：千位以下原值；千位级一位小数（1.2k）；万位级取整（12k）；百万级换 M（1.2M / 12M） */
 export function formatTokens(n?: number): string {
   if (!n) return ''

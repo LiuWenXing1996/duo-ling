@@ -76,6 +76,14 @@ export interface MessagePageContext {
 /** UIMessage.metadata 的约定形状（AI SDK 的 metadata 字段是 unknown，此处是全应用唯一合法形状） */
 export interface ChatMessageMetadata {
   pageContext?: MessagePageContext
+  /**
+   * 气泡下方展示的消息时间（ISO 8601）。
+   *
+   * 存在的理由：UIMessage 本身没有时间字段，而落盘时间（Message.createdAt）只活在会话库里 —
+   * 面板不读库、也拿不到 offscreen 落盘的那一刻，本地视图（刚发出 / 刚回完）需要有个地方放时间。
+   * 历史消息由 toUiMessage 从库里带上，实时消息由面板在发出 / 收尾时就地取（见 lib/conversation-message.ts）。
+   */
+  createdAt?: string
 }
 
 /** 渲染页 → service worker 的请求（kind 可辨识联合，background 按 kind 分发） */

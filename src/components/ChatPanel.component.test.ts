@@ -28,9 +28,9 @@ function setModelProfile(): void {
   }
 }
 
-async function mountPanel(messages: UIMessage[] = []): Promise<VueWrapper> {
+async function mountPanel(messages: UIMessage[] = [], streaming = false): Promise<VueWrapper> {
   setModelProfile()
-  const w = mount(ChatPanel, { props: { messages, usageByMessageId: {}, streaming: false } })
+  const w = mount(ChatPanel, { props: { messages, usageByMessageId: {}, streaming } })
   await flushPromises() // onMounted 里拉模型列表
   return w
 }
@@ -155,6 +155,68 @@ describe('会话历史里有图片', () => {
     const w = await mountPanel([imageHistoryMessage()])
     await submit(w, '接着聊')
     expect(w.emitted('send')).toEqual([['接着聊', []]])
+    w.unmount()
+  })
+})
+
+describe('消息时间', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  const timed = (role: 'user' | 'assistant', text: string): UIMessage => ({
+    id: `${role}-1`,
+    role,
+    parts: [{ type: 'text', text }],
+    metadata: { createdAt: '2026-09-19T04:08:44.000Z' },
+  })
+
+  /** 行内先后：a 是否排在 b 前面（DOM 顺序；行的镜像类另行断言，两者合起来锁视觉顺序） */
+  function precedes(a: Element, b: Element): boolean {
+    return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+  }
+
+  it('气泡下方常显时间，与复制按钮同一行；用户消息时间在左、复制按钮贴右缘', async () => {
+    const w = await mountPanel([timed('user', '你好')])
+
+    const time = w.find('[data-testid="message-time"]')
+    expect(time.exists()).toBe(true)
+    expect(time.text()).toMatch(/^\d{2}-\d{2} \d{2}:\d{2}$/)
+
+    const copy = w.find('[data-testid="copy-message"]')
+    expect(time.element.parentElement?.contains(copy.element)).toBe(true)
+    const row = time.element.parentElement as HTMLElement
+    expect(row.className).toContain('flex-row-reverse')
+    expect(precedes(copy.element, time.element)).toBe(true)
+
+    w.unmount()
+  })
+
+  it('AI 回复：复制按钮在时间左侧（不镜像）', async () => {
+    const w = await mountPanel([timed('assistant', '你好呀')])
+
+    const time = w.find('[data-testid="message-time"]')
+    const copy = w.find('[data-testid="copy-message"]')
+    const row = time.element.parentElement as HTMLElement
+    expect(row.className).not.toContain('flex-row-reverse')
+    expect(precedes(copy.element, time.element)).toBe(true)
+
+    w.unmount()
+  })
+
+  it('没有时间的消息不渲染那一格（旧记录 / 还没收尾），复制按钮照常在', async () => {
+    const w = await mountPanel([
+      { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: '答案' }] },
+    ])
+    expect(w.find('[data-testid="message-time"]').exists()).toBe(false)
+    expect(w.find('[data-testid="copy-message"]').exists()).toBe(true)
+    w.unmount()
+  })
+
+  it('流式中的最后一条：整行都不渲染（正文还在变）', async () => {
+    const w = await mountPanel([timed('assistant', '写作中')], true)
+    expect(w.find('[data-testid="message-time"]').exists()).toBe(false)
+    expect(w.find('[data-testid="copy-message"]').exists()).toBe(false)
     w.unmount()
   })
 })

@@ -24,7 +24,7 @@ import { useDataSync } from '@/composables/use-data-sync'
 import type { UseChatHelpers } from '@ai-sdk/vue'
 import type { ChatInit, ChatStatus, FileUIPart, UIMessage } from 'ai'
 import { ExtensionChatTransport } from '@/lib/extension-chat-transport'
-import { toUiMessage } from '@/lib/conversation-message'
+import { toUiMessage, withMessageTime } from '@/lib/conversation-message'
 import { getPickedElement } from '@/lib/page-context-store'
 import {
   bindTabToConversation,
@@ -32,7 +32,7 @@ import {
   unbindTab,
 } from '@/lib/conversation-tab-map'
 import { resolveOwningTabId } from '@/lib/owning-tab'
-import type { ChatOrphanRecord, RuntimeRequest } from '@/shared/extension-ipc'
+import type { ChatMessageMetadata, ChatOrphanRecord, RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
 import type { Conversation, TokenUsage } from '@/shared/types'
 
@@ -131,6 +131,21 @@ export function useGlobalConversation() {
    *  否则读视图源。仅供 useChat 回调内部判定用（那些回调只可能由已加载的客户端触发）。 */
   function currentMessages(): UIMessage[] {
     return chat.value ? chat.value.messages.value : messages.value
+  }
+
+  /**
+   * 给某条消息补挂展示时间（metadata.createdAt）。
+   *
+   * assistant 消息的时间由 offscreen 在收尾落盘时产生，面板不读库拿不到 ——
+   * 故在收尾回调里就地取当前时刻，两者同为「这一轮结束」的瞬间。
+   * 消息不在当前列表（切了会话、或列表里本就没这条）时静默返回。
+   */
+  function stampMessageTime(id: string | undefined): void {
+    if (!id) return
+    const list = currentMessages()
+    if (!list.some((m) => m.id === id)) return
+    const iso = new Date().toISOString()
+    setMessages(list.map((m) => (m.id === id ? withMessageTime(m, iso) : m)))
   }
 
   /** 是否正在生成（驱动输入禁用与发送/停止切换）；客户端未加载时必然不在生成 */
@@ -292,7 +307,8 @@ export function useGlobalConversation() {
 
   /**
    * 回复完成回调（useChat onFinish）：落盘已由 offscreen 在收尾时完成（唯一写方），
-   * 这里只做两件事——读推送来的 token 用量（data-usage part）、刷新会话列表
+   * 这里只做三件事——补挂这条回复的展示时间（落盘时间面板拿不到，见 stampMessageTime）、
+   * 读推送来的 token 用量（data-usage part）、刷新会话列表
    * （标题自动命名 / 累计 token 都由写侧维护）。
    */
   async function handleChatFinish({
@@ -302,6 +318,10 @@ export function useGlobalConversation() {
     message: UIMessage
     isAbort: boolean
   }): Promise<void> {
+    // 时间先补、且不跳过 abort：被中止的那条照样留在列表里（带「已中断」标记），一样要有时间。
+    // 放在刷新列表之前是为了不给「先冒出一行没有时间的复制按钮」留窗口 —— 回调进来时
+    // status 已经不再是 streaming，那一行当即就画出来了。
+    stampMessageTime(message.id)
     // abort 也刷新列表：标题改名发生在 chat:start（offscreen 侧），中止的会话
     // 不刷新的话面板头部一直显示「新会话 N」旧标题
     try {
@@ -316,7 +336,8 @@ export function useGlobalConversation() {
     if (usage) usageByMessageId.value = { ...usageByMessageId.value, [message.id]: usage }
   }
 
-  /** 出错回调（useChat onError）：错误文案透出到面板（chatError），并移除空副本站避免残留空白气泡 */
+  /** 出错回调（useChat onError）：错误文案透出到面板（chatError），移除空副本站避免残留空白气泡，
+   *  并把留下来那条的时间补上（否则它成了列表里唯一没有时间的消息） */
   function handleChatError(error?: Error): void {
     chatError.value = error?.message || '生成失败，请稍后重试'
     const list = currentMessages()
@@ -331,7 +352,11 @@ export function useGlobalConversation() {
     )
     if (last && last.role === 'assistant' && !hasVisibleContent) {
       setMessages(list.slice(0, -1))
+      return
     }
+    // 留着的那条（出错前已经生成出来的半截正文）同样要有时间：它夹在两条带时间的气泡中间，
+    // 独独缺一个时间反而显眼
+    if (last?.role === 'assistant') stampMessageTime(last.id)
   }
 
   /**
@@ -350,17 +375,22 @@ export function useGlobalConversation() {
     chatError.value = ''
     await ensureActiveConversation()
     const element = getPickedElement()
-    const metadata = element ? { pageContext: { element } } : undefined
+    // 发出时刻随消息走（metadata.createdAt）：面板不写会话库，本地这条气泡的时间只能在此取。
+    // 与 offscreen 落盘时的 createdAt 相差毫秒级——展示到分钟，看不出差别，故不为此多开一条回传。
+    const metadata: ChatMessageMetadata = {
+      createdAt: new Date().toISOString(),
+      ...(element ? { pageContext: { element } } : {})
+    }
     const instance = await ensureChat()
     if (text) {
       await instance.sendMessage({
         text,
         ...(files.length ? { files } : {}),
-        ...(metadata ? { metadata } : {})
+        metadata
       })
       return
     }
-    await instance.sendMessage({ files, ...(metadata ? { metadata } : {}) })
+    await instance.sendMessage({ files, metadata })
   }
 
   /**
