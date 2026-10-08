@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatTimestamp, formatTokens } from './format'
+import { formatMessageTime, formatTimestamp, formatTokens } from './format'
 
 describe('formatTokens', () => {
   it('空值与零返回空串', () => {
@@ -40,5 +40,16 @@ describe('formatTimestamp', () => {
   it('Unix 秒格式化为 YYYY-MM-DD HH:mm', () => {
     // 固定时区下核对格式；本地时区只影响数值不影响形状
     expect(formatTimestamp(1700000000)).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
+  })
+})
+
+describe('formatMessageTime', () => {
+  it('ISO 时间格式化为 MM-DD HH:mm（本地时区只影响数值不影响形状）', () => {
+    expect(formatMessageTime('2026-09-19T04:08:44.000Z')).toMatch(/^\d{2}-\d{2} \d{2}:\d{2}$/)
+  })
+
+  it('解析不了就返回空串，不画 Invalid Date', () => {
+    expect(formatMessageTime('')).toBe('')
+    expect(formatMessageTime('不是时间')).toBe('')
   })
 })

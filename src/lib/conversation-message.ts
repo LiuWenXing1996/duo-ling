@@ -15,7 +15,7 @@
 // reasoning 同理；两者都是"派生"，parts 才是真相源 —— 与 ai-elements 的渲染口径一致。
 import type { UIMessage } from 'ai'
 import type { Message, MessageModelRef, TokenUsage } from '@/shared/types'
-import type { MessagePageContext } from '@/shared/extension-ipc'
+import type { MessagePageContext, ChatMessageMetadata } from '@/shared/extension-ipc'
 import { reasoningOfMessage, textOfMessage } from '@/lib/ui-message-parts'
 
 /**
@@ -78,17 +78,39 @@ export function toPersistedMessage(
  * 回显：Message → UIMessage（读侧唯一入口，面板 activateConversation 用）。
  *
  * pageContext 元数据挂回 metadata：气泡 chip 与「最近一次拾取」prompt 注入都认它。
+ * createdAt 同挂 metadata：气泡下方的时间只从这一处读（见 `messageTime`），
+ * 历史消息因此天然带时间，与实时流那侧（面板就地取，见 `withMessageTime`）走同一个字段。
  * 注意这里**不**用 content 造 part 兜底：正文只认 parts（写入侧已保证必填），
  * 缺 parts 的历史记录按空渲染，不凭空造一份可能失真的正文。
  */
 export function toUiMessage(m: Message): UIMessage {
-  const metadata = m.role === 'user' && m.pageContext ? { pageContext: m.pageContext } : undefined
+  const metadata: ChatMessageMetadata = {
+    // createdAt 类型上必填，但库里可能躺着旧记录：缺了就是空串，气泡不渲染时间（不抛错）
+    createdAt: m.createdAt ?? '',
+    ...(m.role === 'user' && m.pageContext ? { pageContext: m.pageContext } : {}),
+  }
   return {
     id: m.id,
     role: m.role,
     // ?? [] 仅是防炸护栏：类型上 parts 必填，但库里可能躺着旧记录（parts 缺失），
     // 直接读 .parts 会让 textOfMessage 抛错、整个面板白屏 —— 空渲染比崩掉好。
     parts: m.parts ?? [],
-    ...(metadata ? { metadata } : {}),
+    metadata,
   }
+}
+
+/** 读消息的展示时间（metadata.createdAt）。空串 = 这条还没收尾 / 旧记录没有时间，调用方据此不渲染 */
+export function messageTime(m: UIMessage): string {
+  return (m.metadata as ChatMessageMetadata | undefined)?.createdAt ?? ''
+}
+
+/**
+ * 补挂展示时间，返回新对象（不改原引用 —— Vue 对同一引用的 props 会跳过更新，面板写不回去）。
+ *
+ * 为什么需要「补」：assistant 消息的时间只有 offscreen 落盘那一刻才产生，面板不读库拿不到，
+ * 故在收尾回调（useChat onFinish / onError）里就地取当前时刻 —— 与落盘时刻同为收尾瞬间。
+ */
+export function withMessageTime(m: UIMessage, iso: string): UIMessage {
+  const metadata = m.metadata as ChatMessageMetadata | undefined
+  return { ...m, metadata: { ...metadata, createdAt: iso } }
 }
