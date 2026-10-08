@@ -17,10 +17,6 @@
 //     两点实现约束：部分站点拦载**不触发** iframe 的 error 事件，可靠性靠 load 超时兜底；
 //     floatpanel.html 必须进 web_accessible_resources（见 wxt.config.ts），否则 Chrome 直接拦。
 //   - 拾取让位：页面元素拾取（点选元素 / 快照）期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
-//   - 「在看」上报：**对话框展开 且 页面可见**时连一条 FLOAT_PANEL_OPEN_PORT 端口，否则断开 ——
-//     SW 靠它判「用户此刻在看对话界面吗」（跑完要不要记一条未读通知）。两条缺一
-//     不可：收起对话框他看不见对话内容；切到后台（切标签页 / 最小化）对话框虽还开着，他同样什么
-//     都看不见。见该常量处说明。
 //   - 入口全在页面之外：popup 的「打开会话」按钮与页面右键菜单各发一条 float:open
 //     （见 FloatOpenRequest）；收起由对话框顶栏那颗按钮发 float:collapse 回来 —— 那颗按钮在
 //     iframe 里，跨源只能靠消息（见 FloatCollapseRequest）。
@@ -34,7 +30,6 @@ import {
   CONTENT_PING_REQUEST,
   FLOAT_COLLAPSE_REQUEST,
   FLOAT_OPEN_REQUEST,
-  FLOAT_PANEL_OPEN_PORT,
   type ContentPingRequest,
   type FloatCollapseRequest,
   type FloatOpenRequest,
@@ -170,70 +165,10 @@ function buildFloatUi(): {
   iframe.title = `${EXTENSION_NAME}对话`
   panel.appendChild(iframe)
 
-  let opened = false
   let loaded = false
   /** src 是否已指派（含「正在取 tabId」的在途态）：重复展开不该指派两回、加载两回 */
   let srcAssigned = false
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null
-  /** 「在看」端口：非 null = 此刻用户正看着这条对话（SW 靠它的生死判「要不要打扰他」） */
-  let openPort: chrome.runtime.Port | null = null
-  /** 页面此刻是否可见（切到后台 → 对话框虽还开着，用户已经看不见它了） */
-  let pageVisible = document.visibilityState === 'visible'
-
-  /**
-   * 上报「用户正看着这条对话」。
-   *
-   * 判据**两条缺一不可**：
-   *   · 对话框**已展开** —— 收起时他看不见对话内容（但也不能拿「面板文档是否活着」判：收起只是
-   *     `display:none`，iframe 与文档都还在、草稿与滚动位置要留着，那条端口永远不会断）；
-   *   · 页面**可见** —— 对话框还开着、人却切到别的标签页去忙了，他同样什么都看不见。这条漏了的
-   *     话，切走期间端口照旧连着 → SW 以为他还在看 → 跑完不记通知，他一点提示都没有。
-   *
-   * SW 被回收时端口会被掐断，而用户可能还看着 → 补连一次（断开只在 SW 真被回收时发生，
-   * 不会变成热循环）。
-   */
-  const reportOpen = (open: boolean): void => {
-    if (!open) {
-      try {
-        openPort?.disconnect()
-      } catch {
-        // 已断开：忽略
-      }
-      openPort = null
-      return
-    }
-    if (openPort) return
-    try {
-      const port = chrome.runtime.connect({ name: FLOAT_PANEL_OPEN_PORT })
-      openPort = port
-      port.onDisconnect.addListener(() => {
-        if (openPort !== port) return
-        openPort = null
-        if (opened && pageVisible) reportOpen(true)
-      })
-    } catch {
-      openPort = null // SW 未起等场景：尽力而为，退化为「当用户没在看」
-    }
-  }
-
-  /** 两个条件里的任意一个变了都重报一次（开合对话框、切走 / 切回标签页） */
-  const syncOpenReport = (): void => {
-    reportOpen(opened && pageVisible)
-  }
-
-  /**
-   * 页面可见性变化 = 用户离开 / 回到这一页。
-   *
-   * 只用 `visibilityState`，**不掺窗口焦点**（`document.hasFocus()`）：点一下地址栏、书签栏或
-   * 浏览器菜单都会让文档失焦，那会造成判据无意义地翻一次 —— 用户其实没离开这个页面，却先断后连
-   * 地报了两遍「没在看 / 在看」。
-   * 代价是「Chrome 窗口在前台、人去用了别的应用」仍算在看，这个边角先认了。
-   */
-  const onVisibilityChange = (): void => {
-    pageVisible = document.visibilityState === 'visible'
-    syncOpenReport()
-  }
-  document.addEventListener('visibilitychange', onVisibilityChange)
 
   const showFallback = (): void => {
     iframe.remove()
@@ -245,8 +180,6 @@ function buildFloatUi(): {
 
   const open = (): void => {
     container.classList.add('open')
-    opened = true
-    syncOpenReport()
     if (srcAssigned) return
     srcAssigned = true
     loaded = false
@@ -269,8 +202,6 @@ function buildFloatUi(): {
    */
   const collapse = (): void => {
     container.classList.remove('open')
-    opened = false
-    syncOpenReport()
   }
 
   iframe.addEventListener('load', () => {

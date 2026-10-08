@@ -200,21 +200,6 @@ async function focusTab(tabId: number): Promise<void> {
  * 拦截放在这里而不是 SessionHistoryPanel：面板只管列表与交互，业务规则归宿主。
  */
 
-/**
- * 会话删掉后，顺手清掉它的通知。
- *
- * 不清的话：弹层里会留一条点不开的通知（会话都没了，点开也没有落点）。
- * 这一步**交给 SW**（而不是本页直接清库）—— 通知的写口在 SW（记 / 标已读 / 清），本页直接动库就
- * 多出一个彼此不知情的写方。
- */
-async function dropNotifications(target: { conversationId?: string; all?: boolean }): Promise<void> {
-  try {
-    await chrome.runtime.sendMessage({ kind: 'notify:drop', ...target } satisfies RuntimeRequest)
-  } catch {
-    // SW 不在（扩展更新中 / 被禁用）：残留的通知指向已删会话，点开落工作台会话历史，不拦主流程
-  }
-}
-
 async function onDelete(payload: {
   type: 'session' | 'all'
   id?: string
@@ -249,7 +234,6 @@ async function onDelete(payload: {
     if (payload.type === 'all') {
       await window.api.conversation.deleteAll()
       await unbindAll().catch(() => {})
-      await dropNotifications({ all: true })
       conversations.value = []
       selectedId.value = ''
       messages.value = []
@@ -260,8 +244,6 @@ async function onDelete(payload: {
     await window.api.conversation.delete(payload.id)
     // 清掉指向它的归属绑定：否则对应标签页的映射会一直指着一条已不存在的会话
     await unbindConversation(payload.id).catch(() => {})
-    // 通知同理：会话没了，指向它的那几条也该跟着走
-    await dropNotifications({ conversationId: payload.id })
   } catch {
     // 同上：交给广播回拉兜底
   }

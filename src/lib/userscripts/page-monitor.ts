@@ -70,8 +70,7 @@ function notifyRunsChanged(): void {
 
 /**
  * 已登记的面板端口（寻址表：面板文档活着才有；断开即摘）。
- * 注意浮层那条**不代表「浮层展开着」**——收起浮层只是 display:none，面板文档照活着。
- * 「展开态」另有一条端口（`FLOAT_PANEL_OPEN_PORT`，见 background 的未读通知判定）。
+ * 注意这条**不代表「浮层展开着」**——收起浮层只是 display:none，面板文档照活着。
  */
 const monitorPorts = new Set<chrome.runtime.Port>()
 

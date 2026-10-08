@@ -19,7 +19,7 @@
     「收起时留在 DOM 但不可见」（表单与编辑态始终同源、组件测试定位控件不受折叠影响）只能给**根组件** `<ui-collapsible :unmount-on-hide="false">`：内容带 `hidden` 属性，属性值经 Vue 归一为空串（测试只断言存在性，不断言 `until-found`）。`UserscriptEditorPanel` 脚本配置区即此例（默认收起，收起态用摘要行交代当前注入面）。
   - **会话归属按标签页（2026-09-21）**：一个 tab 一条会话（映射见 `src/lib/conversation-tab-map.ts`）。对话界面（`ChatApp`）里**不得**加回会话列表或「新建会话」—— 历史会话的入口在工作台「会话历史」标签页。归属解析与惰性新建**只在 `use-global-conversation.ts` 一处**；「本载体属于哪个 tab」**只在 `src/lib/owning-tab.ts` 一处**（乱查 `tabs.query({active})` 会串到别人的标签页），面板组件不做这类判断。
     **删除会话必须先过「是否正被标签页使用」这道门**（`conversation-tab-map` 的 `getActiveTabBindings`：映射里有 **且** 该标签页还开着）—— 新增任何删除入口都要走它，别只查映射。
-    **标签页关闭时，它那条会话正在跑的任务要一并中止**（`background` 的 `tabs.onRemoved` → `abortConversationOfClosedTab`：先按归属映射找到会话、再解绑，然后发 `chat:abort`）。任务跑在 offscreen、与页面无关是刻意的，但会话按标签页归属 —— 页面没了就没人看结果、也没处按停止，不喊停它会一路跑完烧 token。这种中止**不记未读通知**（用户自己关的）。用户侧的就地停止入口在工作台「会话历史」的「生成中」标上。
+    **标签页关闭时，它那条会话正在跑的任务要一并中止**（`background` 的 `tabs.onRemoved` → `abortConversationOfClosedTab`：先按归属映射找到会话、再解绑，然后发 `chat:abort`）。任务跑在 offscreen、与页面无关是刻意的，但会话按标签页归属 —— 页面没了就没人看结果、也没处按停止，不喊停它会一路跑完烧 token。用户侧的就地停止入口在工作台「会话历史」的「生成中」标上。
     **凡是「对这个标签页做点什么」的新入口，判据必须是会话归属，不是 `tabs.query({active})`**：命中页只可能是「用户此刻正看着的那页」（拾取 —— 用户点按钮时面板必然在激活页上），其余一律认归属（页面快照走 `findTabsUsingConversation` 反查，见 `background.ts` 的 `'page:snapshot'`）—— 生成期间用户随时可能切走。
 - **对话附件（图片 / 文本文件，2026-09-22）**：转换全在**发出前**完成，集中一处（`src/lib/chat-attachments.ts`），下游 transport / offscreen / provider 不感知附件的存在 —— 机制见 [ARCHITECTURE.md](ARCHITECTURE.md)「对话链路」。一条不得改坏：
   - **任何新的附件入口都必须过那份类型白名单**：将来加拖拽 / 选择器 / 导入之类的入口时，别绕开 `prepareAttachments` 自己处理文件，否则会把 zip / pdf 当文本读进提示词。

@@ -15,13 +15,8 @@
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
-import { FLOAT_OPEN_REQUEST, FLOAT_PANEL_OPEN_PORT } from '@/shared/extension-ipc'
-import type {
-  ModelProfileState,
-  NotificationSnapshot,
-  RunningNotice,
-  RuntimeRequest,
-} from '@/shared/extension-ipc'
+import { FLOAT_OPEN_REQUEST } from '@/shared/extension-ipc'
+import type { ModelProfileState, RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
 import type { InjectedBuildInfo } from '@/lib/build-info'
@@ -92,18 +87,6 @@ import {
   getConversationIdForTab,
   unbindTab,
 } from '@/lib/conversation-tab-map'
-// 通知中心（duoling-app 库）：任务收尾记一条未读通知（无人查看时），popup 给明细。
-// 与角标无关 —— 角标只报脚本运行数，通知不再进角标
-import {
-  addChatDone,
-  countUnread,
-  listNotifications,
-  markAllRead,
-  markConversationRead,
-  markRead,
-  removeAll,
-  removeByConversation,
-} from '@/lib/notifications'
 import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主）
@@ -135,7 +118,6 @@ export const SW_KIND_PREFIXES = [
   'sw:',
   'page:',
   'tab:',
-  'notify:',
 ] as const
 
 /**
@@ -524,32 +506,9 @@ const handlers: {
     await clearRunLog(target)
   },
 
-  // —— 通知中心（popup 是唯一消费方）——
-  // 进行中那份不落库（见 runningConversations），所以这里把内存快照与库里的列表合成一个答复。
-  'notify:list': async (): Promise<NotificationSnapshot> => ({
-    running: await runningNotices(),
-    items: await listNotifications(),
-  }),
-
-  // 标一条已读：只影响 popup 的明细（角标与悬停文案都不看未读，无需重算）
-  'notify:read': async (msg): Promise<{ unread: number }> => {
-    await markRead(msg.id)
-    return { unread: await countUnread() }
-  },
-
-  'notify:readAll': async (): Promise<{ unread: number }> => {
-    await markAllRead()
-    return { unread: 0 }
-  },
-
-  // 会话被删 → 它的通知一并清掉（留着只会指向一个不存在的对话）。
-  // **走 SW 是为了单一写口**：通知由 SW 记、也由 SW 清（popup 的已读同样走命令面），工作台自己动库
-  // 就多出一个彼此不知情的写方。
-  'notify:drop': async (msg): Promise<{ unread: number }> => {
-    if (msg.all) await removeAll()
-    else if (msg.conversationId) await removeByConversation(msg.conversationId)
-    return { unread: await countUnread() }
-  },
+  // 进行中的会话（工作台「会话历史」的「生成中」标与停止入口）。只回 id：那张表就是 id 集合，
+  // 站点名 / 标签页这类展示信息 UI 侧自己按 id 取，不在这里多拼一份会过期的。
+  'sw:runningChats': async (): Promise<string[]> => [...runningConversations],
 
   // SW 自证：把 define 注入的构建信息回给 UI（页面显示用，不依赖 SW DevTools 在场）。
   // 消息本身会唤醒休眠的 SW，唤醒后执行的这段代码持有的就是当前生效的 __BUILD_INFO__。
@@ -599,7 +558,7 @@ declare const __BUILD_INFO__: InjectedBuildInfo
 //
 // **为什么不是「会话在跑几个任务」**：那种数字只会是 0 / 1（一个标签页只归属一条会话，见
 // conversation-tab-map）—— 既报不出量，说的也不是「这个页面此刻是什么样」。脚本数才是这个页面
-// 自己的状态；会话那边的进度与结果由 popup 明细与浮层负责。
+// 自己的状态；会话那边的进度与结果由工作台「会话历史」与浮层负责。
 //
 // **只报数、不分类**：什么颜色代表什么状态是要用户记的额外约定，具体是哪些脚本去浮层灵动岛 /
 // popup 看。悬停文案把同一件事说成一句话（`N 个脚本在运行`），与灵动岛同一句。
@@ -613,28 +572,6 @@ declare const __BUILD_INFO__: InjectedBuildInfo
 // 数字由 refreshBadge **重算**而来，不是「收到 runstart 时顺手加一」：登记表是唯一的真相源，
 // 重算才能保证角标与登记表不各说各话 —— 清空（换文档）、关标签页、重复广播各是一条路，逐条对齐
 // 迟早漏一条。
-//
-// —— 通知中心：任务收尾（会话口径）——
-//
-// offscreen 的 chat:running / chat:finished 旁听：任务收尾且**没人看着**时记一条未读通知，popup
-// 给明细（几条在进行中、哪几条跑完没看，点条目跳过去并标已读）。**与角标已无关系**：角标不报会话。
-//
-// 「用户此刻在看对话界面吗」的判据 = **对话框展开 且 页面可见**：两条都成立时 content script 连上
-// FLOAT_PANEL_OPEN_PORT，否则断开（页面卸载 / 导航则端口自然断）。**不能拿「面板文档存活」判**：
-// 收起对话框只是 `display:none`，iframe 与面板文档都还在、端口永不断开 → `isFloatOpenIn` 恒为真 →
-// 跑完那条通知永远记不上。页面卸载 / 导航才断得开，故收起走的是「只藏不销毁」那条路。
-// 「页面可见」那条同样不能省：对话框还开着、人却切去别的标签页，那时他什么都看不见，照旧要记。
-//
-// 这条端口连通 = 那个标签页上「对话界面开着且页面可见」，故它只管**自己这个标签页**那条会话的
-// 通知归属（见 handleChatFinishedPush），别的标签页照记。
-/** 展开态连接 → 所属标签页（「**这个** tab 的对话框开着吗」：决定收尾要不要记未读通知） */
-const openFloatPortTab = new Map<chrome.runtime.Port, number>()
-
-/** 该标签页的对话界面此刻是否展开（= 进度与结果都在用户眼前） */
-function isFloatOpenIn(tabId: number): boolean {
-  for (const tab of openFloatPortTab.values()) if (tab === tabId) return true
-  return false
-}
 
 /**
  * 角标数字：超过 9 显示 9+（角标最多 4 字符，两位数在工具栏尺寸下已经看不清）。
@@ -645,39 +582,16 @@ function badgeCount(n: number): string {
 }
 
 /**
- * 进行中的对话（chat:running 进来、chat:finished 出去）：会话 id → 开始时间。
+ * 进行中的会话（chat:running 登记进来、chat:finished 撤下）。
  *
  * **刻意不落库**：它没有稳定落点 —— SW 被回收后内存里这份就没了，而库里若留着一条恒为
- * 「进行中」的记录，再不会有事件来收尾它，就成了假状态。所以进行中只活在内存，popup 问起时
- * 把当前快照给它。
+ * 「进行中」的记录，再不会有事件来收尾它，就成了假状态。故只活在内存，工作台问起时把当前
+ * 快照给它（`sw:runningChats`）。
  *
- * **为什么要记而不是每次现算**：`runningConversations` 还是「标签页被关 → 中止它的任务」那条路
- * 的判据（见 abortConversationOfClosedTab）—— 不在跑就不必惊动 offscreen。
+ * **为什么要记而不是每次现算**：它还是「标签页被关 → 中止它的任务」那条路的判据
+ * （见 abortConversationOfClosedTab）—— 不在跑就不必惊动 offscreen。
  */
-const runningConversations = new Map<string, number>()
-
-/** 标签页 → 站点名（通知里用它区分「是哪条对话」；取不到就空串） */
-async function hostOfTab(tabId: number | null): Promise<string> {
-  if (tabId == null || !chrome.tabs?.get) return ''
-  try {
-    const url = (await chrome.tabs.get(tabId)).url
-    if (!url) return ''
-    const u = new URL(url)
-    return u.protocol === 'http:' || u.protocol === 'https:' ? u.hostname : ''
-  } catch {
-    return ''
-  }
-}
-
-/** 进行中的快照（popup 的「进行中」那一组）：站点名与标签页现查，不缓一份会过期的 */
-async function runningNotices(): Promise<RunningNotice[]> {
-  return Promise.all(
-    [...runningConversations].map(async ([conversationId, startedAt]) => {
-      const tabId = (await findTabsUsingConversation(conversationId))[0] ?? null
-      return { conversationId, startedAt, tabId, host: await hostOfTab(tabId) }
-    }),
-  )
-}
+const runningConversations = new Set<string>()
 
 /**
  * 悬停文案。与浮层灵动岛**同一个句式**（`N 个脚本在运行`）—— 两处说的是同一个数，措辞也要一致，
@@ -791,21 +705,6 @@ function refreshBadge(): void {
   chrome.action.setBadgeText({ text: '' }).catch(() => {})
 }
 
-/** 会话 → 还在用它的标签页（收尾时据此判「有没有人在看」并取站点名）；反查失败就当没人用 */
-function tabsOfConversation(conversationId: string): Promise<number[]> {
-  return findTabsUsingConversation(conversationId).catch(() => [])
-}
-
-/**
- * 被「标签页关闭」中止掉的会话：收尾时据此**不记**未读通知。
- *
- * 为什么：通知的语义是「有事发生而你不在场」；这次是用户自己把页面关掉、任务随之停下，
- * 他知道会停 —— 再记一条「对话已完成」反而误导（点开只有半截结果）。
- *
- * 只在内存里，且会被这次收尾或下一条 chat:running 消费掉，所以不会长期误伤同一会话。
- */
-const abortedByTabClose = new Set<string>()
-
 /**
  * 标签页被关掉时的收尾：**中止它那条会话正在跑的任务**。
  *
@@ -820,12 +719,12 @@ async function abortConversationOfClosedTab(tabId: number): Promise<void> {
   await unbindTab(tabId).catch(() => {})
   if (!conversationId) return
   if (!runningConversations.has(conversationId)) return // 没在跑就不必惊动 offscreen
-  abortedByTabClose.add(conversationId)
+  // 命令面归 offscreen（chat: 前缀）：由 SW 发出去，offscreen 收到后中止任务。
+  // 送不到就没法中止（offscreen 同时不可用），登记留着也不误导谁 —— 它下次收尾时照样会被撤下。
   try {
-    // 命令面归 offscreen（chat: 前缀）：由 SW 发出去，offscreen 收到后中止任务
     await chrome.runtime.sendMessage({ kind: 'chat:abort', conversationId } satisfies RuntimeRequest)
   } catch {
-    abortedByTabClose.delete(conversationId) // 没送到就别留着这个标记
+    // 忽略：这里没有可做的补救
   }
 }
 
@@ -834,26 +733,12 @@ async function abortConversationOfClosedTab(tabId: number): Promise<void> {
  * **不碰角标** —— 角标只报脚本运行数，会话与它无关。
  */
 function handleChatRunningPush(conversationId: string): void {
-  runningConversations.set(conversationId, Date.now())
-  // 新任务开跑 → 上一次的「因关标签页而中止」标记作废，免得它误伤这次的收尾通知
-  abortedByTabClose.delete(conversationId)
+  runningConversations.add(conversationId)
 }
 
-/** chat:finished 观察：任务收尾（正常 / 异常同处理，通知不区分成败） */
+/** chat:finished 观察：任务收尾（正常 / 异常同处理）：从进行中撤下，无其它副作用 */
 function handleChatFinishedPush(conversationId: string): void {
   runningConversations.delete(conversationId)
-  void tabsOfConversation(conversationId).then(async (tabIds) => {
-    // 没人在看就记一条未读通知。**反查不到标签页时也要记**（tab 已关 / 还没绑定）——
-    // 那时 popup 是用户唯一的知情途径（通知按会话记，「哪条对话」这一栏取自标签页的站点名）。
-    // 唯一的例外：这次收尾是「标签页被关」引发的中止（见 abortConversationOfClosedTab），
-    // 那是用户自己停的，不必再告诉他「已完成」。
-    if (abortedByTabClose.delete(conversationId) || tabIds.some((tabId) => isFloatOpenIn(tabId))) return
-    await addChatDone({
-      conversationId,
-      tabId: tabIds[0] ?? null,
-      host: await hostOfTab(tabIds[0] ?? null),
-    }).catch(() => {})
-  })
 }
 
 // —— 对话界面监控 + 任务状态的事件挂载 ——
@@ -888,27 +773,6 @@ function mountProposal2Listeners(): void {
     // 面板没开的时候标签页照样会被关，只有常驻的 SW 不漏，所以这一步必须在这里做
     // （漏了它会留在 offscreen 里跑完 —— 没人看结果、也没处按停止，纯粹烧 token）。
     void abortConversationOfClosedTab(tabId)
-  })
-
-  // 「在看」端口在这里接（短寿命：对话框展开且页面可见时才连，其余时候断开）。判据不能是
-  // 「面板文档还活着」：收起只给面板加 display:none，iframe 与文档都还在（草稿 / 滚动位置刻意
-  // 留着），那条端口永不断开 → isFloatOpenIn 恒为真 → 跑完那条通知永远记不上。
-  chrome.runtime.onConnect.addListener((port) => {
-    if (port.name !== FLOAT_PANEL_OPEN_PORT) return
-    const tabId = port.sender?.tab?.id
-    if (tabId != null) openFloatPortTab.set(port, tabId)
-    // 「用户回来了（并且看着它）」：**这个标签页那条会话**的通知就地标已读。按会话标、不搞全局
-    // 清空 —— 看过没看过是各标签页各自的，不该替用户读掉别人的未读。
-    if (tabId != null) {
-      void getConversationIdForTab(tabId)
-        .then((cid) => (cid ? markConversationRead(cid) : 0))
-        .catch(() => {})
-    }
-    port.onDisconnect.addListener(() => {
-      openFloatPortTab.delete(port)
-      // 收起 = 又没人看着了：之后再收尾的任务照旧要记一条未读通知。
-      // 角标不用动 —— 它与「在看没看」无关，只数这个页面在跑几个脚本。
-    })
   })
 
   // 页面脚本监控端口（另一条连接 'duoling:panel'：上行快照请求 + 推送寻址）

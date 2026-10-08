@@ -86,8 +86,8 @@ export function notifyChatRunning(conversationId: string): void {
 }
 
 /**
- * 任务收尾推送（chat:finished）：SW 旁听后在「没人看着」时记一条未读通知（popup 给明细）。
- * ok = 是否正常收敛（停止 / 异常为 false；通知不区分成败）。
+ * 任务收尾推送（chat:finished）：SW 旁听后把该会话从「进行中」登记表里撤下。
+ * ok = 是否正常收敛（停止 / 异常为 false；登记表不看这个）。
  * 尽力而为：SW 未起 / 无接收方都会 reject，任务收尾不受影响。
  */
 export function notifyChatFinished(conversationId: string, ok: boolean): void {
