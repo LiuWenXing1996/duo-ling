@@ -258,17 +258,14 @@ export type RuntimeRequest =
   // （SW 是唯一知道发送方 tab 的一方），再拼进 iframe URL 传给浮层。
   | { kind: 'tab:identify' }
 
+  // —— SW 内存态（自答）——
+  // 正在生成的会话 id 列表：SW 旁听 offscreen 的 chat:running / chat:finished 登记，是**内存表**
+  // （SW 被回收即空，见 background 的 runningConversations）。工作台「会话历史」靠它给「生成中」标
+  // 与停止入口 —— 任务跑在 offscreen、与页面无关，用户可能压根没打开那个标签页的浮层。
+  | { kind: 'sw:runningChats' }
+
   // —— SW 自证（诊断）——
   // SW 的 define 注入构建信息（wxt.config.ts）不是 HTML，页面看不见；UI 经此命令取回并展示。
-  // —— notify:*（SW：通知中心）——
-  // 通知的写方是 SW（任务收尾时记一条），popup 只读列表、标已读。
-  // 进行中的任务不落库（SW 重启后无从对账），由 SW 内存表达，故列表命令把两者一并回给 popup。
-  | { kind: 'notify:list' }
-  | { kind: 'notify:read'; id: string }
-  | { kind: 'notify:readAll' }
-  /** 清掉某条会话的通知（会话被删）/ 全部通知（删除全部会话）。**走 SW 是为了单一写口** —— 通知由它记、也由它清 */
-  | { kind: 'notify:drop'; conversationId?: string; all?: boolean }
-
   // 发消息本身会把休眠的 SW 唤醒，故返回的总是「此刻 SW 上下文」的构建信息——正是想要的语义。
   | { kind: 'sw:buildInfo' }
 
@@ -280,60 +277,20 @@ export type RuntimeRequest =
  * 对话界面按 seq 去重（重连回放与实时推送短暂重叠时防重）。SW 不消费（前缀不在白名单）。
  *
  * chat:running —— offscreen → SW（观察者）：任务**开始**（新任务 / 孤儿续跑）通知。
- * 与 chat:finished 配对，构成 SW 侧的任务生命周期信号：**进行中那份**供 popup 的「进行中」组与
- * 「标签页被关要中止任务」判断用（角标只报脚本运行数，不看这里）。
+ * 与 chat:finished 配对，构成 SW 侧的任务生命周期信号：**进行中那份**供工作台「会话历史」的
+ * 「生成中」标（经 `sw:runningChats` 取）与「标签页被关要中止任务」判断用
+ * （角标只报脚本运行数，不看这里）。
  * 每个任务只推一次：**细节进度仍在 chat:chunk 流里，SW 不消费**（逐 token 唤醒 SW 不划算）。
  *
- * chat:finished —— offscreen → SW（观察者）：任务收尾（正常 / 异常）通知，SW 据此在**无人查看**
- * 时记一条未读通知（popup 给明细）；有人正看着就不打扰。
+ * chat:finished —— offscreen → SW（观察者）：任务收尾（正常 / 异常）通知，SW 据此把该会话从
+ * 进行中登记表里撤下（无其它副作用）。
  * 注意 `chat:` 前缀对 RuntimeRequest 是 offscreen 保留前缀；OffscreenPush 不进命令面，不受此限。
  */
 export type OffscreenPush =
   | { kind: 'offscreen:configChanged' }
   | { kind: 'chat:chunk'; conversationId: string; seq: number; chunk: import('ai').UIMessageChunk }
   | { kind: 'chat:running'; conversationId: string }
-  | { kind: 'chat:finished'; conversationId: string; /** true = 正常收敛；false = 停止 / 异常（通知不区分成败） */ ok: boolean }
-
-// —— 通知中心 ——
-//
-// 一期的通知模型：**一条通知有生命周期**（进行中 → 跑完没看 → 看过），不是一个瞬间的旗子。
-// 存放与读写见 lib/notifications.ts；形状放这里是因为它是跨上下文契约（SW 写、popup 读）。
-
-/**
- * 一条「已发生」的通知。
- *
- * 加新类型时 popup 不用改：它只认 `kind → 文案 / 落点` 这张映射表。
- */
-export interface AppNotification {
-  id: string
-  /** 通知类型。本期只有任务完成 */
-  kind: 'chat-done'
-  /** 来源会话：跳转落点与「看过即已读」都靠它 */
-  conversationId: string
-  /** 来源标签页（跳转用；写下时可能有效，跳之前要再验一次存活） */
-  tabId: number | null
-  /** 站点名 —— 区分「是哪条对话」最省事的办法；拿不到（tab 已关）时为空串 */
-  host: string
-  createdAt: number
-  /** 已读时间；不设 = 未读（popup 只列未读的那些） */
-  readAt?: number
-}
-
-/** 正在生成的对话（SW 内存态：不落库，故只有 popup 主动问时才有值） */
-export interface RunningNotice {
-  conversationId: string
-  /** 站点名（同 AppNotification.host）；拿不到为空串 */
-  host: string
-  /** 那条对话所在标签页（点「正在进行」跳过去用）；反查不到为 null */
-  tabId: number | null
-  startedAt: number
-}
-
-/** `notify:list` 的返回：进行中 + 已发生的通知（含已读） */
-export interface NotificationSnapshot {
-  running: RunningNotice[]
-  items: AppNotification[]
-}
+  | { kind: 'chat:finished'; conversationId: string; /** true = 正常收敛；false = 停止 / 异常 */ ok: boolean }
 
 // —— 数据变更广播（写侧 → 全部前端实例）——
 //
@@ -389,23 +346,6 @@ export type BuildPhase = 'saving'
 // —— 端口名约定（跨上下文长连接）——
 // 'duoling:panel'（定义在 lib/userscripts/page-monitor.ts）= 对话界面文档 ↔ SW 的监控通道
 // （岛推送寻址 + 快照请求），页面脚本监控在用。
-
-/**
- * 「**用户正看着这条对话**」端口名：content script 在**浮层展开 且 页面可见**时连上，否则断开。
- *
- * 为什么单独要一条：`duoling:panel` 那条是**面板文档的存活信号**，而收起草稿浮层只是给它加
- * `display:none`（iframe 与面板文档都还在 —— 这是刻意的：草稿、滚动位置、拾取 chip 都留在
- * 原位，重开不必重载），端口根本不会断。于是「面板开着没」若拿文档存活来判就**恒为真**，
- * 收尾那条未读通知（chat:finished 到达时若无人查看才记）永远记不上。
- *
- * 两个条件都要，只有 content script 知道（对话框的开合在它手里，页面可见性也在页面侧）：
- *   · 收起浮层 = 看不见对话内容；
- *   · 页面切到后台（切标签页 / 最小化）= 浮层虽还展开着，他同样什么都看不见 —— 这种时候照旧要
- *     记一条未读（跑完记通知），否则用户切去别处忙一趟回来，才发现早已跑完。
- *
- * 页面卸载 / 导航时端口自动断开，天然等于「收起」。
- */
-export const FLOAT_PANEL_OPEN_PORT = 'duoling:panel-open'
 
 // —— 浮层的页面外入口 ——
 /**

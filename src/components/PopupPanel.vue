@@ -27,7 +27,6 @@ import {
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger,
 } from '@/components/ui/tooltip'
-import PopupNotifications from './PopupNotifications.vue'
 import PopupPageScripts from './PopupPageScripts.vue'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 import { probeContentScript, webHostname } from '@/lib/float-panel-host'
@@ -153,9 +152,6 @@ onMounted(() => {
     <header class="flex items-center gap-2">
       <span class="text-sm font-semibold">{{ EXTENSION_NAME }}</span>
     </header>
-
-    <!-- 通知（进行中 + 跑完没看）：角标只报脚本运行数，会话的事在这里展开 -->
-    <PopupNotifications />
 
     <!-- 引擎开关没开：角标亮着 `!`，点进来得有个落脚处。查询失败不渲染（宁缺勿错） -->
     <div

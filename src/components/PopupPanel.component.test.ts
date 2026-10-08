@@ -23,8 +23,6 @@ const readUpdateCheck = vi.hoisted(() => vi.fn())
 const tabsCreate = vi.hoisted(() => vi.fn())
 const tabsSendMessage = vi.hoisted(() => vi.fn())
 const tabsUpdate = vi.hoisted(() => vi.fn(async () => ({})))
-/** 通知区（PopupNotifications）经 runtime.sendMessage 问 SW —— 手写壳里补这一口 */
-const runtimeSendMessage = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/userscripts/ui-client', () => ({
   userscriptClient: { list: listScripts, availability: availabilityQuery },
 }))
@@ -76,7 +74,6 @@ function stubChrome(url: string | undefined, contentScriptPresent = true): void 
       id: 'EXTID',
       getURL: (p: string) => `chrome-extension://EXTID/${p}`,
       connect: vi.fn(() => port as unknown as chrome.runtime.Port),
-      sendMessage: runtimeSendMessage,
     },
     tabs: {
       query: vi.fn(async () => [{ id: TAB_ID, url }]),
@@ -113,8 +110,6 @@ beforeEach(() => {
   listScripts.mockResolvedValue([{ uuid: 'u1', name: '示例脚本' }])
   // 引擎可用性的默认答案：可用（引导卡不渲染；要测那张卡的用例自己覆写）
   availabilityQuery.mockResolvedValue({ available: true, isFirefox: false, chromeMajor: 140, guideText: '' })
-  // 通知区的默认答案：一条通知都没有（多数用例与它无关，给个空快照免得噪声）
-  runtimeSendMessage.mockResolvedValue({ ok: true, data: { running: [], items: [] } })
 })
 
 afterEach(() => {
@@ -366,103 +361,5 @@ describe('popup 的引擎不可用引导卡', () => {
     stubChrome('https://example.com/page')
     availabilityQuery.mockRejectedValue(new Error('扩展服务未响应，请重试'))
     expect(box(await mountPopup()).exists()).toBe(false)
-  })
-})
-
-// 通知区：角标只报脚本运行数（会话的事它一个字都不提），明细落在这里。四个分支都要守 ——
-// 没通知不渲染（常态 popup 保持原样）、有内容成形、点条目跳过去并标已读、全部已读清空。
-describe('popup 的通知区', () => {
-  const box = (w: VueWrapper) => w.find('[data-testid="popup-notifications"]')
-  const items = (w: VueWrapper) => w.findAll('[data-testid="notify-item"]')
-
-  /** 构造一份 notify:list 的应答 */
-  const snapshot = (over: { running?: unknown[]; items?: unknown[] } = {}) => ({
-    ok: true as const,
-    data: { running: over.running ?? [], items: over.items ?? [] },
-  })
-
-  const UNREAD = {
-    id: 'n1',
-    kind: 'chat-done',
-    conversationId: 'c1',
-    tabId: 8,
-    host: 'b.com',
-    createdAt: Date.now(),
-  }
-
-  it('没有通知：整块不渲染', async () => {
-    stubChrome('https://example.com/page')
-    expect(box(await mountPopup()).exists()).toBe(false)
-  })
-
-  it('进行中与未读分别成行，各自带上站点名', async () => {
-    stubChrome('https://example.com/page')
-    runtimeSendMessage.mockResolvedValue(
-      snapshot({
-        running: [{ conversationId: 'c-run', host: 'a.com', tabId: 7, startedAt: 1 }],
-        items: [UNREAD],
-      }),
-    )
-    const w = await mountPopup()
-
-    expect(box(w).exists()).toBe(true)
-    const runningRow = w.find('[data-testid="notify-running"]')
-    expect(runningRow.text()).toContain('正在生成')
-    expect(runningRow.text()).toContain('a.com')
-    expect(items(w)).toHaveLength(1)
-    expect(items(w)[0]!.text()).toContain('对话已完成')
-    expect(items(w)[0]!.text()).toContain('b.com')
-  })
-
-  it('点未读那条：先标已读，再唤起那个标签页的浮层', async () => {
-    stubChrome('https://example.com/page')
-    runtimeSendMessage.mockResolvedValue(snapshot({ items: [UNREAD] }))
-    const close = vi.fn()
-    vi.stubGlobal('close', close)
-    const w = await mountPopup()
-
-    await items(w)[0]!.trigger('click')
-    await flushPromises()
-
-    expect(runtimeSendMessage).toHaveBeenCalledWith({ kind: 'notify:read', id: 'n1' })
-    // 那个标签页还开着 → 翻到前台并把浮层叫出来（用户就是去看那条结果）
-    expect(tabsUpdate).toHaveBeenCalledWith(8, { active: true })
-    expect(tabsSendMessage).toHaveBeenCalledWith(8, { kind: 'float:open' })
-    expect(close).toHaveBeenCalled()
-  })
-
-  it('标签页已关：落到工作台会话历史，不让这一下点击石沉大海', async () => {
-    stubChrome('https://example.com/page')
-    runtimeSendMessage.mockResolvedValue(snapshot({ items: [UNREAD] }))
-    vi.stubGlobal('close', vi.fn())
-    const w = await mountPopup()
-    // 必须在挂载之后再埋：挂载时 popup 会向当前标签页发一条 content:ping 探活，走的是同一个
-    // tabs.sendMessage —— 提前埋会被探活先吃掉，等点通知时这一发就正常返回、兜底分支不触发。
-    tabsSendMessage.mockRejectedValueOnce(new Error('Receiving end does not exist'))
-
-    await items(w)[0]!.trigger('click')
-    await flushPromises()
-
-    expect(tabsCreate).toHaveBeenCalledWith({ url: 'chrome-extension://EXTID/workbench.html#/sessions' })
-  })
-
-  it('「全部已读」：上行 readAll，读回后未读行消失', async () => {
-    stubChrome('https://example.com/page')
-    let readAll = false
-    runtimeSendMessage.mockImplementation(async (msg: { kind: string }) => {
-      if (msg.kind === 'notify:readAll') {
-        readAll = true
-        return { ok: true, data: { unread: 0 } }
-      }
-      return readAll ? snapshot() : snapshot({ items: [UNREAD] })
-    })
-    const w = await mountPopup()
-    expect(items(w)).toHaveLength(1)
-
-    await w.find('[data-testid="notify-read-all"]').trigger('click')
-    await flushPromises()
-
-    expect(runtimeSendMessage).toHaveBeenCalledWith({ kind: 'notify:readAll' })
-    expect(items(w)).toHaveLength(0)
   })
 })

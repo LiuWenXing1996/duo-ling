@@ -487,7 +487,7 @@ async function runLoop(opts: {
 
     // 任务收尾：删运行时记录 + 丢事件缓冲（缓冲只为进行中任务的重连服务；
     // 收尾后结果已在会话历史，保留缓冲反而会让重开面板 replay 出重复消息）。
-    // ok 顺路推 chat:finished：SW 旁听后视「有没有人在看」决定记不记一条未读通知（配对 chat:running）。
+    // ok 顺路推 chat:finished：SW 旁听后把该会话从「进行中」登记表里撤下（配对 chat:running）。
     const cleanup = (ok: boolean) => {
       runningByConversation.delete(conversationId)
       void removeTask(taskId).catch(() => {})
