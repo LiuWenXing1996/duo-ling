@@ -286,7 +286,11 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
     // 首片文本到了 = 已生成一点内容，而 stub 正按住第二片 —— 此刻点停止。
     // 浮层里流式中的那个提交按钮就是停止按钮（见 ChatPanel.onPromptSubmit）。
     await expect(panel.getByText(/stub/).first()).toBeVisible({ timeout: 20_000 })
+    // 生成中：页面盖着遮罩（对话界面经 float:busy 报的）—— 面板本体在遮罩之上，故这颗按钮点得到
+    await expect(page.locator('#duoling-float-root .dl-page-mask')).toBeVisible()
     await panel.getByLabel('Submit').click()
+    // 停止 = 不再生成 → 遮罩撤掉
+    await expect(page.locator('#duoling-float-root .dl-page-mask')).toBeHidden()
 
     // 落盘：最新那条会话里应有半截 assistant 消息，并带「已中断」标记。
     // （不断言浮层当场显示 —— 点停止时 UI 已本地断流，标记是给回看用的。）
@@ -354,6 +358,10 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
       .toBe(1)
     const conversationId = (await runningOf(sender))[0]
     expect(conversationId, '生成中应能在进行中登记里看到').toBeTruthy()
+
+    // 收起浮层不影响遮罩：判据只有「在不在生成」，收起只是收起对话界面，页面照样在被读
+    await trySendFloat(sw, tabId!, 'float:collapse')
+    await expect(page.locator('#duoling-float-root .dl-page-mask')).toBeVisible()
 
     // 关掉这个标签页 = 那条会话的现场没了 → 任务应当被就地中止（否则它在 offscreen 里跑完，
     // 用户既看不到结果、也没处按停止）

@@ -386,6 +386,28 @@ export interface FloatCollapseRequest {
 export const FLOAT_COLLAPSE_REQUEST: FloatCollapseRequest = { kind: 'float:collapse' }
 
 /**
+ * 对话界面 → **本浮层所属标签页内容脚本**：这条会话是否正在生成，用来决定页面要不要盖遮罩。
+ *
+ * 为什么要盖：生成期间 AI 随时可能读这个页面（元素拾取 / 页面快照），用户此刻点页面、改表单会让
+ * 读到的状态与他看到的不一致 —— 遮罩挡掉指针交互，并把这件事说出来（文案在 content.ts）。
+ *
+ * 为什么由对话界面发、不由内容脚本自己判：生成状态只有 offscreen 知道，内容脚本既不知道哪条会话
+ * 属于自己这个标签页，也不该为此多接一条 offscreen 的广播线。发送通道与 float:collapse 同一条
+ * （`chrome.tabs.sendMessage` 定向到本 tab）。
+ *
+ * 与开合那两条的区别：**带载荷** —— 生成开始与结束共用一个 kind，靠 busy 区分（两条消息一对，
+ * 单开一个 kind 只会让「结束」那条多写一份字符串）。
+ */
+export interface FloatBusyRequest {
+  kind: 'float:busy'
+  /** true = 生成中，盖上；false = 收尾，撤掉 */
+  busy: boolean
+}
+
+/** 上面那条消息的 kind 唯一构造处（载荷随状态变，故只固定 kind） */
+export const FLOAT_BUSY_REQUEST_KIND = 'float:busy' as const
+
+/**
  * popup → **当前标签页内容脚本**的探活消息（同 `tabs.sendMessage`，不经 SW）。
  *
  * 用途：判断这个页面**此刻**能不能跑内容脚本（进而能不能挂浮层）。url 判不出来 ——
