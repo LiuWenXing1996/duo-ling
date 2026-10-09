@@ -15,7 +15,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 | --- | --- | --- |
 | 扩展页 | `floatpanel.html`（网页浮层 iframe） | **对话界面（唯一入口）**：指令入口与观察窗；显示**它所在标签页**的会话（tab 身份由 content script 经 iframe URL 传入） |
 | 扩展页 | `workbench.html`（标签页） | 重界面工作区（脚本管理 / 运行日志 / 会话历史 / 设置等） |
-| 扩展页 | `popup.html`（工具栏 popup） | 页面外的入口：打开当前页的对话浮层（**对话框的常规打开方式**）+ 本页脚本（本页在跑的脚本与报错）+「打开工作台」—— 两个入口都是图标 + 文字按钮、沉在 popup 底部等宽两列；挂不了浮层的页面上「打开会话」禁用（判据 = 向该标签页探活内容脚本，`probeContentScript`）、原因挂在它的悬停提示里；引擎开关没开时给一句现状 + 「查看开启引导」入口（与角标 `!` 同一判据、同走 `userscript:availability`）；**不承载对话**（不装 `window.api`） |
+| 扩展页 | `popup.html`（工具栏 popup） | 按**标签页**看现状与去处：①「当前页面」（`PopupCurrentPage`）= 本页在跑的脚本与报错 + 这条页面的对话浮层入口（**对话框的常规打开方式**）与是否正在回话；②「其他页面」（`PopupOtherPages`）= 其他打开的普通网页各自的脚本与会话，点一行切过去；③「打开工作台」。两块共用一条 `page:overview` 命令（SW 侧一处聚合运行登记 / 会话归属 / 进行中，见「脚本注入」的运行登记表）—— popup 只活几秒，取一次快照即可，不维持推送通道。挂不了浮层的页面上「打开会话」禁用（判据 = 向该标签页探活内容脚本，`probeContentScript`）、原因挂在它的悬停提示里；引擎开关没开时另有「查看开启引导」卡（与角标 `!` 同一判据、同走 `userscript:availability`）；**不承载对话**（不装 `window.api`） |
 | 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：**平时不往页面里放任何 DOM**，收到 `float:open` 才挂出 iframe 并展开，收到 `float:collapse` 收起（只加 `display:none`，iframe 与草稿都留着），收到 `float:busy` 按「这条会话正在生成」开关页面遮罩（盖住视口挡指针交互，**只看生成中、与浮层开合无关** —— 收起浮层遮罩照留着；对话框本体在遮罩之上 —— 点得到停止），应答 `content:ping`（popup 靠它判本页此刻注入得了内容脚本 —— 见 `lib/float-panel-host.ts`）；位置钉在视口右下角，拾取期间整块让位 |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 + 网页浮层的右键菜单入口 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
@@ -28,7 +28,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 指令入口（网页浮层）只做观察；整条链路（`streamText` + tools）跑在 **offscreen document**，入口经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权。offscreen 容器按需创建（`src/lib/offscreen.ts`）。
 
 - **会话归属按标签页**：一个 tab 一条会话，切 tab 即切会话。归属映射（tabId → conversationId）存 `duoling-app` 的 `convByTab` 键（`src/lib/conversation-tab-map.ts`）—— **既不进会话库、也不进对话链路**：任务与流的键始终是 conversationId（`chat-host.ts` 的 `runningByConversation`、transport 的 `consumers`），所以这套绑定对执行层零影响，断了本地流任务照跑、切回来 resumeStream 接上。
-  - 归属解析**只在 `lib/owning-tab.ts` 一处**：浮层认 content script 经 iframe URL 传来的 `?tab=<id>`（固定归属）—— 不能跟「当前激活标签页」走，浮层可能挂在一个已经不是激活的标签页上；popup 认点开那一刻的激活页（`resolveActiveTabId`）—— 它没有固定归属、也从不与某个标签页长驻绑定。会话归属（`use-global-conversation`）、随消息发出的页面上下文（`extension-chat-transport`）、页面脚本运行集（`use-page-monitor`：浮层传 owning、popup 传 active）都经它取 tab。
+  - 归属解析**只在 `lib/owning-tab.ts` 一处**：浮层认 content script 经 iframe URL 传来的 `?tab=<id>`（固定归属）—— 不能跟「当前激活标签页」走，浮层可能挂在一个已经不是激活的标签页上；「点开才生成的扩展页」认弹出那一刻的激活页（`resolveActiveTabId`），它没有固定归属、也从不与某个标签页长驻绑定。会话归属（`use-global-conversation`）、随消息发出的页面上下文（`extension-chat-transport`）、页面脚本运行集（`use-page-monitor`，浮层）都经它取 tab；popup 的页面概览是**例外**：它要的是一份跨标签页的现状，归属由 SW 聚合时判定（`page:overview`），popup 只按 tabId 认领「哪一行是我」。
   - **惰性新建**：tab 没有归属会话时不建、不落库、不进历史列表（未绑定态），发出第一条消息时才 create 并登记。
   - 归属映射的清理归 **SW 的 `tabs.onRemoved`** —— 面板没开时 tab 照样会被关，只有常驻的 SW 不漏。
   - 历史会话的查看 / 改名 / 删除在工作台「会话历史」标签页（`SessionHistoryTab.vue`：列表复用 `SessionHistoryPanel`，右栏用 `ChatPanel` 的只读模式回放）；对话界面里没有会话列表，也没有「新建会话」。
@@ -42,11 +42,10 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 - **assistant 消息落盘记下本轮用的模型**（`AssistantMessage.model`，形如 `{ providerId, id }`）：值在发起那一刻从当前配置取快照，之后改配置 / 换激活模型都不改写历史 —— 模型是可随时切换的运行时选择，会话与消息本身不绑定它，这份落盘是事后唯一能回答「这条是哪个模型答的」的凭据。**只记在消息上、不记在会话上**（同一个会话里可以换模型，会话级的记录必然失真）。**必须连 providerId 一起记**：同一个模型 ID 会出现在多家预设里（`MiniMax-M3` 有 CN / Global 两家、`glm-5.3` 有三家），`volcengine` 与 `modelark` 更是连 baseUrl 都相同 —— 只记 ID 分不清来源，而端点在这两者之间没有区分力。目前没有程序读侧（同 `reasoning`），调试面板的原始 JSON 看得到。
 
-- **消息显示时间借 metadata 过河**（`ChatMessageMetadata.createdAt`，真相源仍是 `Message.createdAt`）：UIMessage 自身没有时间字段，气泡下方那行时间只能挂 metadata —— 历史消息由 `toUiMessage` 从库带上，而刚发出 / 刚回完的那条**面板不读库、也拿不到 offscreen 落盘的瞬间**，故 user 在 `send` 时取、assistant 在收尾回调（`onFinish` / `onError`，含中止那条）里就地取；两侧与落盘时刻相差毫秒级，展示到分钟看不出差别，不必为此多开一条时间回传。读取只经 `messageTime` 一处，缺失（还没收尾 / 旧记录）就渲染空。
-
-- **任务状态外显**：offscreen 在任务开始 / 收尾各推一条（`chat:running` / `chat:finished`，`OffscreenPush`），SW 旁听后维护内存里的「进行中」登记表（`runningConversations`，**刻意不落库** —— SW 被回收后库里那条恒为「进行中」的记录再不会有事件来收尾它，成了假状态）。两个消费方：
+- **任务状态外显**：offscreen 在任务开始 / 收尾各推一条（`chat:running` / `chat:finished`，`OffscreenPush`），SW 旁听后维护内存里的「进行中」登记表（`runningConversations`，**刻意不落库** —— SW 被回收后库里那条恒为「进行中」的记录再不会有事件来收尾它，成了假状态）。三个消费方：
   - **工作台「会话历史」的「生成中」标与就地停止按钮**（`useChatRunning` 经 `sw:runningChats` 取 id 列表，`chat:abort` 由上层发出）。任务跑在 offscreen、与页面无关，用户可能压根没打开那个标签页的浮层 —— 不给这个入口就只能看着它跑完烧 token。
   - **「标签页被关 → 中止它的任务」的判据**（见「会话随标签页结束」）。
+  - **popup 页面概览的「正在生成」**（`page:overview` 命令一次取全：进行中集合 + 会话归属 + 运行登记表，见「脚本注入」的运行登记表）。
   工具栏角标**不报会话**（它只报脚本运行数，见「脚本注入」的运行登记表）。
 
 - **流式静默超时（防限流）**：`runLoop` 泵流期间挂 `createIdleGuard`（`src/lib/offscreen-chat/idle-guard.ts`），两次 chunk 间隔超 `STREAM_IDLE_TIMEOUT_MS`（默认 60s，可在模型高级配置里按 provider 调整 `streamIdleTimeoutSec` 秒）即判定 provider 卡死（有连接但不吐 token），主动 `abort` 并推 error 块「请求超时…已自动中止」。避免静默卡死的请求长期占用网关连接/并发配额、累积触发限流；用户手动停止走 `abortChat`，与此计时无关。模型配置探活 `testChat` 另有 15s 超时。
@@ -83,7 +82,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
   - **录制的 AI 路径**（用户同意是硬门槛）：`net_capture_enable` 工具**只出同意卡、不开录制**——开启的唯一入口是用户点卡片上的按钮（`userscriptClient.netCaptureEnable` → SW 写门禁 + 重注册）。卡片走 `data-net-capture` data part（同生成卡片的机制，随消息落盘，重开面板仍在）；开启后引导用户点**浏览器的刷新按钮**——录制是前向的，钩子只在文档开头挂，不刷新就录不到已跑完的首屏请求。读回走 `net_capture_read`（`net-record-digest.ts` 压两档：摘要档常驻 prompt、全量档给工具），`system-prompt.ts` 有对应档位。
 - **MAIN 世界多包装者共存**：`dl-recorder` 会替换 `window.fetch`，用户脚本自己也可能包一层（同帧多脚本共享一个 window）。故各方的记录与还原一律取**当时链下的实际值**（钩住时取当前 `window.fetch` 作 `prev`、摘钩时还原被摘元素的 `prev`），**不得用注入期快照**——否则后安装的那个包装者会被摘钩还原掉，在该页余下生命周期里永久失效。
 
-- **运行登记表 = 「这个标签页在跑哪些脚本」的真相源**（`page-monitor.ts`）：GM 包装注入即广播 runstart（`document_start` 的极早广播还配一次 load 补播），SW 按 tab 记成 `tabId → (uuid → 运行项)`；**换文档**（`tabs.onUpdated` status=loading）清零、**标签页关闭**清除（SPA 软导航不换文档，故不清）。三个消费方共用这**一份**数：浮层灵动岛（`PageScriptsMonitor`）、popup 的「页面脚本」区、**工具栏角标**。
+- **运行登记表 = 「这个标签页在跑哪些脚本」的真相源**（`page-monitor.ts`）：GM 包装注入即广播 runstart（`document_start` 的极早广播还配一次 load 补播），SW 按 tab 记成 `tabId → (uuid → 运行项)`；**换文档**（`tabs.onUpdated` status=loading）清零、**标签页关闭**清除（SPA 软导航不换文档，故不清）。三处共用这**一份**数：浮层灵动岛（`PageScriptsMonitor`，经 `duoling:panel` 端口）、**工具栏角标**（按登记表重算数字）、popup 的页面概览（`page:overview` 命令一次取全，见「载体与运行时」的 popup 一行）。
   - **角标 = 该标签页的运行集大小**（`background` 的 `refreshBadge`）：红底白字，悬停文案与灵动岛同一句（`N 个脚本在运行`），`>9` 显示 `9+`。**按标签页各设各的** —— 没有脚本在跑的页不亮，别的页面上的脚本不该在这儿报数（`chrome.action.setBadgeText({ tabId })`）。`refreshBadge` 是唯一写入口，且由登记表变化驱动（`onPageRunsChanged`）**整体重算**，不是「收到 runstart 时加一」：登记表的变化有好几条路，逐条对齐迟早漏一条。引擎可用性翻转也接在同一条重算上（`setEngineAvailable`）。
   - **引擎不可用（未授权）→ 全局一个 `!`**：`chrome.userScripts` 的开关关着时（Chrome ≥138 是扩展详情页的「允许运行用户脚本」、Chrome <138 是全局开发者模式、Firefox 是 userScripts 权限），该命名空间整个不存在、谁都注册不进去 —— 此时**不带 `tabId`** 地亮一个感叹号（badge 可用宽度只有几像素，汉字再少也得缩到看不清，单字符才有足够字号；事由交给悬停文案说），悬停写「用户脚本未授权，工作台「引导」有开启步骤」。**刻意是全局的**：它说的是「这个扩展现在用不了用户脚本」，与具体标签页无关，故不参与上面那套 per-tab 的差集清理；恢复可用时由同一次重算收回。
   - **为什么不报会话**：会话那边一个标签页只归属一条（见「会话归属按标签页」），数字只可能是 0 / 1 —— 既报不出量，说的也不是「这个页面此刻是什么样」。会话的进度与结果由工作台「会话历史」与浮层承担。

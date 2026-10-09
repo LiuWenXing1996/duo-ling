@@ -1,60 +1,54 @@
-// UI 组件测试：PopupPanel.vue 里的「本页脚本」分区（PopupPageScripts.vue）。
+// UI 组件测试：PopupPanel.vue 的两个区块（PopupCurrentPage / PopupOtherPages）。
 //
-// 这条链路的三个分支都在渲染层，故用组件测试守：
-//   A. 有运行脚本 → 摘要行给计数，默认**收起**（列表不占版面），展开后列出脚本名与状态；
-//   B. 无运行脚本 → 摘要行就是空态，不给可点性、不渲染列表；
-//   C. 注入不了内容脚本的页面（探活无人应答）→ 卡片照常渲染，摘要行改说不能运行、不给可点性。
+// 这条链路的分支都在渲染层，故用组件测试守：
+//   A. 「当前页面」：本页在跑的脚本（头部给计数、列表常显、点行跳错误日志）、
+//      对话浮层入口与回话状态；
+//   B. 「当前页面」注入不了内容脚本（探活无人应答）→ 头部改说原因、浮层入口禁用；
+//   C. 「其他页面」：列出本页以外的标签页（脚本数 / 会话与生成中），点「去这里」切过去；没有别的页面给空态。
 //
 // 边界 mock：
-//   · chrome —— 手写壳，只需 tabs.query / tabs.get / tabs.onUpdated / tabs.sendMessage
-//     （内容脚本探活与「打开会话」的定向消息共用这一口）/ runtime.connect。
-//     假端口留一个 push 口模拟 SW 的快照应答（真 SW 不在测试里），并记录 postMessage
-//     以便断言上行报文。
-//   · userscripts/ui-client（名字补齐）、use-data-sync（变更订阅）—— 都与分区渲染无关，
-//     mock 掉避免牵进 IDB 与消息总线。
+//   · chrome —— 手写壳，只需 tabs.query / tabs.update / tabs.create / tabs.sendMessage
+//     （内容脚本探活与「打开会话」的定向消息共用这一口）+ runtime.sendMessage（命令面）。
+//     两块的数据全由 page:overview 一条命令喂进来（真 SW 不在测试里）。
+//   · userscripts/ui-client（引擎可用性）、update-check（新版本结论）—— mock 掉，
+//     避免牵进 IDB 与消息总线。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import PopupPanel from './PopupPanel.vue'
 
-const listScripts = vi.hoisted(() => vi.fn())
 /** 引擎可用性查询（引导卡的状态源）；默认「可用」，多数用例与那张卡无关 */
 const availabilityQuery = vi.hoisted(() => vi.fn())
 const readUpdateCheck = vi.hoisted(() => vi.fn())
 const tabsCreate = vi.hoisted(() => vi.fn())
 const tabsSendMessage = vi.hoisted(() => vi.fn())
 const tabsUpdate = vi.hoisted(() => vi.fn(async () => ({})))
+/** 命令面（page:overview）—— 手写壳里补这一口 */
+const runtimeSendMessage = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/userscripts/ui-client', () => ({
-  userscriptClient: { list: listScripts, availability: availabilityQuery },
+  userscriptClient: { availability: availabilityQuery },
 }))
-vi.mock('@/composables/use-data-sync', () => ({ useDataSync: vi.fn() }))
 // 新版本提示只读 SW 落下的结果，不在 popup 里发检查；mock 掉读侧即可完全控制它有 / 无
 vi.mock('@/lib/update-check', () => ({ readUpdateCheck }))
 
-/** 假端口：保留 push 口喂 SW → 面板的下行推送，并记录面板的上行 postMessage */
-interface FakePort {
-  postMessage: ReturnType<typeof vi.fn>
-  onMessage: { addListener: (fn: (msg: unknown) => void) => void }
-  onDisconnect: { addListener: (fn: () => void) => void }
-  disconnect: ReturnType<typeof vi.fn>
-  push: (msg: unknown) => void
-}
-
-function createFakePort(): FakePort {
-  const listeners: ((msg: unknown) => void)[] = []
-  return {
-    postMessage: vi.fn(),
-    onMessage: { addListener: (fn) => listeners.push(fn) },
-    onDisconnect: { addListener: vi.fn() },
-    disconnect: vi.fn(),
-    push: (msg) => {
-      for (const fn of listeners) fn(msg)
-    },
-  }
-}
-
 /** 页面 tag 的归属答案：id 固定 7；url 传 undefined 模拟读不到地址的非普通网页 */
 const TAB_ID = 7
-let port: FakePort
+
+/** page:overview 的应答（用例按需覆盖）；默认只有当前页一行 */
+let overviewRows: unknown[] = []
+
+/** 概览里的一行（默认：无脚本、无会话） */
+function overviewRow(tabId: number, over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    tabId,
+    url: 'https://example.com/page',
+    title: '示例页',
+    scripts: [],
+    conversationId: null,
+    conversationTitle: null,
+    generating: false,
+    ...over,
+  }
+}
 
 /**
  * 装 chrome 壳。
@@ -64,52 +58,56 @@ let port: FakePort
  * 「点击时」的站点都是这一档）。缺省应答 —— 普通网页的常态。
  */
 function stubChrome(url: string | undefined, contentScriptPresent = true): void {
-  port = createFakePort()
   tabsCreate.mockResolvedValue(undefined)
   tabsSendMessage.mockImplementation(async () =>
     contentScriptPresent ? { ok: true } : undefined,
   )
+  runtimeSendMessage.mockImplementation(async (msg: { kind: string }) => {
+    if (msg.kind === 'page:overview') return { ok: true, data: overviewRows }
+    return { ok: true, data: {} }
+  })
   vi.stubGlobal('chrome', {
     runtime: {
       id: 'EXTID',
       getURL: (p: string) => `chrome-extension://EXTID/${p}`,
-      connect: vi.fn(() => port as unknown as chrome.runtime.Port),
+      sendMessage: runtimeSendMessage,
     },
     tabs: {
       query: vi.fn(async () => [{ id: TAB_ID, url }]),
-      get: vi.fn(async () => ({ id: TAB_ID, url })),
       update: tabsUpdate,
       create: tabsCreate,
       sendMessage: tabsSendMessage,
-      onUpdated: { addListener: vi.fn(), removeListener: vi.fn() },
     },
   })
 }
 
 const wrappers: VueWrapper[] = []
 
-/** 挂载 + 等首帧的两轮异步：PopupPanel.refresh() 与 usePageMonitor 的归属解析各一轮 */
+/** 挂载 + 等几轮异步：refresh() 里 update / 探活 / 引擎可用性 / 概览四条各一轮 */
 async function mountPopup(): Promise<VueWrapper> {
   const w = mount(PopupPanel)
   wrappers.push(w)
   await flushPromises()
   await flushPromises()
+  await flushPromises()
   return w
 }
 
-/** 模拟 SW 回一份快照 */
-async function replySnapshot(w: VueWrapper, runs: unknown[] = [], errors: unknown[] = []): Promise<void> {
-  port.push({ t: 'page:snapshot', tabId: TAB_ID, runs, errors })
-  await flushPromises()
+/** 假的 window.close：真关窗在 happy-dom 里没有可观测效果，换 spy 才能断言「关没关」 */
+function spyClose(): ReturnType<typeof vi.fn> {
+  const close = vi.fn()
+  vi.stubGlobal('close', close)
+  return close
 }
 
-const rows = (w: VueWrapper) => w.findAll('[data-testid="popup-page-scripts-row"]')
-const toggle = (w: VueWrapper) => w.find('[data-testid="popup-page-scripts-toggle"]')
-
 beforeEach(() => {
-  listScripts.mockResolvedValue([{ uuid: 'u1', name: '示例脚本' }])
-  // 引擎可用性的默认答案：可用（引导卡不渲染；要测那张卡的用例自己覆写）
-  availabilityQuery.mockResolvedValue({ available: true, isFirefox: false, chromeMajor: 140, guideText: '' })
+  overviewRows = [overviewRow(TAB_ID)]
+  availabilityQuery.mockResolvedValue({
+    available: true,
+    isFirefox: false,
+    chromeMajor: 140,
+    guideText: '',
+  })
 })
 
 afterEach(() => {
@@ -119,96 +117,188 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('popup 的「本页脚本」分区', () => {
-  it('有运行脚本：摘要行给计数，默认收起，展开后列出脚本名', async () => {
+describe('popup 的「当前页面」区块', () => {
+  const summary = (w: VueWrapper) => w.find('[data-testid="popup-current-scripts-summary"]')
+  const scriptRows = (w: VueWrapper) => w.findAll('[data-testid="popup-current-scripts-row"]')
+  const conversation = (w: VueWrapper) => w.find('[data-testid="popup-current-conversation"]')
+
+  it('头部给站点名；本页在跑脚本：头部给计数，列表直接列出（不折叠）', async () => {
     stubChrome('https://example.com/page')
+    overviewRows = [
+      overviewRow(TAB_ID, { scripts: [{ uuid: 'u1', name: '示例脚本', errorCount: 0 }] }),
+    ]
     const w = await mountPopup()
 
-    // 挂载即按归属 tab 拉快照（上行报文带的是 popup 打开时的激活页）
-    expect(port.postMessage).toHaveBeenCalledWith({ t: 'page:snapshot', tabId: TAB_ID })
+    expect(w.find('[data-testid="popup-current-host"]').text()).toBe('example.com')
+    expect(summary(w).text()).toContain('1 个在运行')
+    // 不折叠：打开即见列表（脚本多时列表自己滚，卡高不涨）
+    expect(scriptRows(w)).toHaveLength(1)
+    expect(scriptRows(w)[0]!.text()).toContain('示例脚本')
+    expect(scriptRows(w)[0]!.text()).toContain('运行中')
+  })
 
-    await replySnapshot(w, [{ uuid: 'u1', runId: 'r1', startedAt: 1 }])
+  it('脚本出过错：头部给错误条数，行内也标出条数', async () => {
+    stubChrome('https://example.com/page')
+    overviewRows = [
+      overviewRow(TAB_ID, { scripts: [{ uuid: 'u1', name: '示例脚本', errorCount: 2 }] }),
+    ]
+    const w = await mountPopup()
 
-    expect(toggle(w).text()).toContain('本页脚本')
-    expect(toggle(w).text()).toContain('1 个在运行')
-    // 默认收起：列表不占版面
-    expect(rows(w)).toHaveLength(0)
+    expect(w.find('[data-testid="popup-current-scripts-error-count"]').text()).toBe('2')
+    expect(scriptRows(w)[0]!.text()).toContain('⚠ 2')
+  })
 
-    await toggle(w).trigger('click')
+  it('点脚本行：上行 page:openErrors 并关掉 popup', async () => {
+    stubChrome('https://example.com/page')
+    overviewRows = [
+      overviewRow(TAB_ID, { scripts: [{ uuid: 'u1', name: '示例脚本', errorCount: 0 }] }),
+    ]
+    const w = await mountPopup()
+    const close = spyClose()
+
+    await scriptRows(w)[0]!.trigger('click')
     await flushPromises()
-    expect(rows(w)).toHaveLength(1)
-    expect(rows(w)[0]!.text()).toContain('示例脚本')
-    expect(rows(w)[0]!.text()).toContain('运行中')
+    // 关闭延后一帧（上行是异步投递，同一 tick 里关掉文档会让它悬空）——让那个定时器跑完
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(runtimeSendMessage).toHaveBeenCalledWith({ kind: 'page:openErrors', uuid: 'u1' })
+    expect(close).toHaveBeenCalled()
   })
 
-  it('无运行脚本：摘要行就是空态，不给可点性、不渲染列表', async () => {
+  it('本页没有脚本：头部给空态文案，不渲染列表', async () => {
     stubChrome('https://example.com/page')
     const w = await mountPopup()
-    await replySnapshot(w, [])
 
-    expect(toggle(w).text()).toContain('本页没有运行中的脚本')
-    expect(toggle(w).attributes('disabled')).toBeDefined()
-    expect(rows(w)).toHaveLength(0)
+    expect(summary(w).text()).toContain('本页没有运行中的脚本')
+    expect(scriptRows(w)).toHaveLength(0)
   })
 
-  it('注入不了内容脚本（探活无人应答）：卡片照常渲染，摘要行改说不能运行、不给可点性', async () => {
+  it('注入不了内容脚本（探活无人应答）：头部改说不能运行', async () => {
     // chrome:// 等页面上扩展读不到 url（manifest 无 tabs 权限），内容脚本也没注入
     stubChrome(undefined, false)
     const w = await mountPopup()
 
-    expect(w.find('[data-testid="popup-page-scripts"]').exists()).toBe(true)
-    expect(toggle(w).text()).toContain('当前页面不能运行脚本')
-    expect(toggle(w).attributes('disabled')).toBeDefined()
-    expect(rows(w)).toHaveLength(0)
+    expect(w.find('[data-testid="popup-current-page"]').exists()).toBe(true)
+    expect(summary(w).text()).toContain('当前页面不能运行脚本')
     // 浮层那枚按钮的原因挂在悬停提示上（tooltip 悬停才挂载，不进组件树），正文里没有那条独立说明
     expect(w.text()).not.toContain('当前页面不能显示浮层')
   })
 
-  it('scheme 上是普通网页、探活却无人应答（应用商店 / 站点权限设成「点击时」）：也说不能运行', async () => {
-    // url 判不出这一类 —— 拦注入的是 Chrome 注入策略 / 站点授权，只有探活认得出来
-    stubChrome('https://chromewebstore.google.com/detail/x', false)
+  it('回话中：对话行只报「AI 正在回话」，浮层入口点开即唤起当前页浮层', async () => {
+    stubChrome('https://example.com/page')
+    overviewRows = [
+      overviewRow(TAB_ID, {
+        conversationId: 'c1',
+        conversationTitle: '新会话 3',
+        generating: true,
+      }),
+    ]
     const w = await mountPopup()
+    const close = spyClose()
 
-    expect(toggle(w).text()).toContain('当前页面不能运行脚本')
-    expect(toggle(w).attributes('disabled')).toBeDefined()
-  })
-
-  it('scheme 说不是普通网页、探活却应答（本地文件页开了文件访问）：照常给空态', async () => {
-    stubChrome('file:///tmp/demo.html')
-    const w = await mountPopup()
-    await replySnapshot(w, [])
-
-    expect(toggle(w).text()).toContain('本页没有运行中的脚本')
-  })
-
-  it('探活无人应答却仍有运行记录：以记录为准，不误报不能运行', async () => {
-    // 探活答的是「此刻」，可能滞后于登记表（页面刚导航、内容脚本还没跑起来时探活说不在）
-    stubChrome('https://example.com/page', false)
-    const w = await mountPopup()
-    await replySnapshot(w, [{ uuid: 'u1', runId: 'r1', startedAt: 1 }])
-
-    expect(toggle(w).text()).toContain('1 个在运行')
-
-    await toggle(w).trigger('click')
+    expect(conversation(w).text()).toContain('AI 正在回话')
+    // 标题不进这一行（那是浮层与工作台的事）
+    expect(conversation(w).text()).not.toContain('新会话 3')
+    await w.find('[data-testid="open-float-panel"]').trigger('click')
     await flushPromises()
-    expect(rows(w)).toHaveLength(1)
+
+    expect(tabsSendMessage).toHaveBeenCalledWith(TAB_ID, { kind: 'float:open' })
+    expect(close).toHaveBeenCalled()
   })
 
-  it('脚本出过错：行内给错误条数；摘要行给错误徽标', async () => {
+  it('不在回话：对话行没有状态文案（会话空闲、未绑定都不占位）', async () => {
+    stubChrome('https://example.com/page')
+    overviewRows = [overviewRow(TAB_ID, { conversationId: 'c1', conversationTitle: '新会话 3' })]
+    expect(conversation(await mountPopup()).text()).toBe('')
+
+    overviewRows = [overviewRow(TAB_ID)]
+    expect(conversation(await mountPopup()).text()).toBe('')
+  })
+
+  it('注入不了内容脚本：浮层入口禁用（探活无人应答的页面都算）', async () => {
+    stubChrome(undefined, false)
+    const w = await mountPopup()
+    expect(w.find('[data-testid="open-float-panel"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('页面接不上（消息发不出去）：留在 popup 里说明原因，不关窗', async () => {
     stubChrome('https://example.com/page')
     const w = await mountPopup()
-    await replySnapshot(
-      w,
-      [{ uuid: 'u1', runId: 'r1', startedAt: 1 }],
-      [{ uuid: 'u1', name: '示例脚本', message: 'boom', time: 2, runId: 'r1' }],
-    )
+    const close = spyClose()
+    // 必须在挂载之后再埋：挂载时 popup 会向当前标签页发一条 content:ping 探活，走的是同一个
+    // tabs.sendMessage —— 提前埋会被探活先吃掉，等点按钮时这一发就正常返回、失败分支不触发。
+    tabsSendMessage.mockRejectedValueOnce(new Error('Receiving end does not exist'))
 
-    // 收起态也能看见错误计数（徽标常驻摘要行）
-    expect(w.find('[data-testid="popup-page-scripts-error-count"]').text()).toBe('1')
-
-    await toggle(w).trigger('click')
+    await w.find('[data-testid="open-float-panel"]').trigger('click')
     await flushPromises()
-    expect(rows(w)[0]!.text()).toContain('⚠ 1')
+
+    expect(w.find('[data-testid="open-float-error"]').exists()).toBe(true)
+    // 关掉就没地方说话了
+    expect(close).not.toHaveBeenCalled()
+  })
+})
+
+describe('popup 的「其他页面」区块', () => {
+  const otherRows = (w: VueWrapper) => w.findAll('[data-testid="popup-other-page-row"]')
+
+  it('列出本页以外的页面：第 1 行给站点名，第 2 行给脚本数与会话状态', async () => {
+    stubChrome('https://example.com/page')
+    overviewRows = [
+      overviewRow(TAB_ID),
+      overviewRow(8, {
+        url: 'https://b.com/x',
+        title: 'B 页',
+        scripts: [{ uuid: 'u2', name: '脚本乙', errorCount: 0 }],
+        conversationId: 'c2',
+        conversationTitle: '新会话 2',
+        generating: true,
+      }),
+      // 什么活动都没有的页面也列（列表口径 = 所有打开的页面），第二行退化为页面标题
+      overviewRow(9, { url: 'https://c.com/', title: 'C 页' }),
+    ]
+    const w = await mountPopup()
+
+    expect(otherRows(w)).toHaveLength(2)
+    const first = otherRows(w)[0]!.text()
+    expect(first).toContain('b.com')
+    expect(first).toContain('1 个脚本')
+    expect(first).toContain('正在生成「新会话 2」')
+    expect(otherRows(w)[1]!.text()).toContain('c.com')
+    expect(otherRows(w)[1]!.text()).toContain('C 页')
+  })
+
+  it('内容区不可点：点它不切换（切换只归「去这里」按钮）', async () => {
+    stubChrome('https://example.com/page')
+    overviewRows = [overviewRow(TAB_ID), overviewRow(8, { url: 'https://b.com/x' })]
+    const w = await mountPopup()
+    const close = spyClose()
+
+    await otherRows(w)[0]!.trigger('click')
+    await flushPromises()
+
+    expect(tabsUpdate).not.toHaveBeenCalled()
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it('「去这里」按钮：点了切过去并关窗', async () => {
+    stubChrome('https://example.com/page')
+    overviewRows = [overviewRow(TAB_ID), overviewRow(8, { url: 'https://b.com/x' })]
+    const w = await mountPopup()
+    const close = spyClose()
+
+    await w.find('[data-testid="popup-other-page-go"]').trigger('click')
+    await flushPromises()
+
+    expect(tabsUpdate).toHaveBeenCalledWith(8, { active: true })
+    expect(close).toHaveBeenCalled()
+  })
+
+  it('只有当前页：给空态', async () => {
+    stubChrome('https://example.com/page')
+    const w = await mountPopup()
+
+    expect(otherRows(w)).toHaveLength(0)
+    expect(w.find('[data-testid="popup-other-pages-empty"]').text()).toContain('没有其他打开的页面')
   })
 })
 
@@ -220,56 +310,6 @@ describe('popup 的工作台入口', () => {
     await w.find('[data-testid="open-workbench"]').trigger('click')
     await flushPromises()
     expect(tabsCreate).toHaveBeenCalledWith({ url: 'chrome-extension://EXTID/workbench.html' })
-  })
-})
-
-// 「打开会话」入口：对话框平时不在页面里（content script 默认不往页面放 DOM），这里是它的常规
-// 打开方式。这条链路的关键在「定向消息发给谁」与「失败时说得出话」。
-describe('popup 的「打开会话」入口', () => {
-  const openBtn = (w: VueWrapper) => w.find('[data-testid="open-float-panel"]')
-
-  /** 假的 window.close：真关窗在 happy-dom 里没有可观测效果，换 spy 才能断言「关没关」 */
-  function spyClose(): ReturnType<typeof vi.fn> {
-    const close = vi.fn()
-    vi.stubGlobal('close', close)
-    return close
-  }
-
-  it('点开：向当前标签页发定向消息，成功后关掉 popup', async () => {
-    stubChrome('https://example.com/page')
-    const w = await mountPopup()
-    const close = spyClose()
-
-    await openBtn(w).trigger('click')
-    await flushPromises()
-
-    // tabId 是 popup 打开时的激活页 —— 内容脚本按它认自己属于哪个标签页
-    expect(tabsSendMessage).toHaveBeenCalledWith(TAB_ID, { kind: 'float:open' })
-    expect(close).toHaveBeenCalled()
-  })
-
-  it('页面接不上（消息发不出去）：留在 popup 里说明原因，不关窗', async () => {
-    stubChrome('https://example.com/page')
-    const w = await mountPopup()
-    const close = spyClose()
-    tabsSendMessage.mockRejectedValueOnce(new Error('Receiving end does not exist'))
-
-    await openBtn(w).trigger('click')
-    await flushPromises()
-
-    expect(w.find('[data-testid="open-float-error"]').exists()).toBe(true)
-    // 关掉就没地方说话了
-    expect(close).not.toHaveBeenCalled()
-  })
-
-  it('注入不了内容脚本：按钮不可用（探活无人应答的页面都算）', async () => {
-    stubChrome(undefined, false)
-    expect(openBtn(await mountPopup()).attributes('disabled')).toBeDefined()
-  })
-
-  it('scheme 上是普通网页、探活却无人应答（应用商店 / 站点权限设成「点击时」）：同样不可用', async () => {
-    stubChrome('https://chromewebstore.google.com/detail/x', false)
-    expect(openBtn(await mountPopup()).attributes('disabled')).toBeDefined()
   })
 })
 
@@ -336,8 +376,7 @@ describe('popup 的引擎不可用引导卡', () => {
       chromeMajor: 140,
       guideText: 'Chrome ≥138：在扩展详情页开启「允许运行用户脚本」开关后即可使用。',
     })
-    const close = vi.fn()
-    vi.stubGlobal('close', close)
+    const close = spyClose()
     const w = await mountPopup()
 
     const card = box(w)
