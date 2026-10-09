@@ -210,6 +210,9 @@ export interface UserScriptRunStats {
  * 运行日志条目（runtime 库 runlog store，全局环形按时间排；写侧 store.ts，SW 独占）。
  * 只记「一次运行发生了」——错误明细不复制进这里，仍在 errors store 按 runId 关联；
  * name 是落盘时的快照（脚本删除后日志条目仍可读）。
+ *
+ * url / savedAt **可缺省**：本字段落地前写入的记录没有它们，读侧一律按可选处理，
+ * 不因缺字段判记录无效。
  */
 export interface UserScriptRunLogEntry {
   runId: string
@@ -218,6 +221,18 @@ export interface UserScriptRunLogEntry {
   name: string
   /** 运行开始时刻（ms） */
   time: number
+  /**
+   * 本次运行所在页面。
+   * 与「脚本没跑」区分得开：脚本可能在别的页跑了、只是这页不在它的匹配面内；
+   * 错误记录里的 url 只说错误出在哪页，答不出「它本该在哪些页跑」。
+   */
+  url?: string
+  /**
+   * 注入时的源码版本（注册态 `source.savedAt`）。
+   * 编辑器里的源码与页面上正跑的可能不是同一版（改了没存 / 存了没刷新），
+   * 而读源码拿到的是**已提交版本**——靠这个值才能判断错误出自哪一版源码。
+   */
+  savedAt?: number
 }
 
 /**
@@ -233,6 +248,10 @@ export type UserScriptRunLogRow =
       uuid: string
       name: string
       time: number
+      /** 运行所在页面（见 UserScriptRunLogEntry；老记录缺省） */
+      url?: string
+      /** 注入时的源码版本（见 UserScriptRunLogEntry；老记录缺省） */
+      savedAt?: number
       errors: UserScriptErrorRecord[]
     }
   | { kind: 'error'; record: UserScriptErrorRecord }

@@ -975,7 +975,14 @@ export function initDlBridge(): void {
     }
 
     // 运行标识广播（GM 包装注入即发）：交对话界面监控按 tab 登记。
-    const run = raw as { __dlRunStart?: true; uuid?: string; name?: string; runId?: string }
+    const run = raw as {
+      __dlRunStart?: true
+      uuid?: string
+      name?: string
+      runId?: string
+      url?: string
+      savedAt?: number
+    }
     if (run && run.__dlRunStart === true) {
       const tabId = sender.tab?.id
       if (tabId != null && run.uuid && run.runId) {
@@ -984,8 +991,13 @@ export function initDlBridge(): void {
       }
       // 运行统计 + 运行日志（runtime 库 stats/runlog store，按脚本聚合落盘）：与 tab 无关，
       // 有无 tabId 都记；同一 runId 的 load 补播在写侧按 lastRunId 去重。失败不影响监控登记。
+      // url / savedAt 是**载荷字段、非可信输入**（经页面可伪造的通道），故只做类型收窄：
+      // 形状不对就当没传——它们只是给日志多两条定位线索，不值得为它拦下这次记账。
       if (run.uuid && run.runId) {
-        void recordRunStart(run.uuid, run.runId, run.name).catch(() => {})
+        void recordRunStart(run.uuid, run.runId, run.name, {
+          ...(typeof run.url === 'string' ? { url: run.url } : {}),
+          ...(typeof run.savedAt === 'number' ? { savedAt: run.savedAt } : {}),
+        }).catch(() => {})
       }
       return undefined // 仅登记，无需响应
     }

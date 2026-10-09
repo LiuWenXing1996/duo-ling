@@ -111,7 +111,9 @@ export type RuntimeRequest =
   // 引擎保活应答（offscreen → SW，5s 一次）：offscreen 心跳的**唯一职责是给 SW 保活**
   // （重置 30s 空闲计时），不做任何检测——检测在 SW 自身的轮询（availability-watch.ts）。
   | { kind: 'userscript:healthCheck' }
-  // 运行日志时间线：运行行（runtime 库 runlog store）+ 无法归属的错误行按时间倒序混排（listRunTimeline）
+  // 运行日志时间线：运行行（runtime 库 runlog store）+ 无法归属的错误行按时间倒序混排（listRunTimeline）。
+  // 两个消费方：工作台「运行日志」标签页、AI 的 run_log_read 工具 —— 两侧都取全量，
+  // 各自按自己的展示 / token 需要裁剪（命令面只认「全量时间线」这一个语义）。
   | { kind: 'userscript:runlog' }
   // 清错误日志（runtime 库 errors store；「全部/该脚本」范围同时清 runlog store 对应条目）。三态靠「字段在不在」区分，**不可用 falsy 判定**：
   //   不带该字段 = 清全部；uuid: string = 只清该脚本；uuid: null = 只清「未归属」错误记录（run-log 不动）。

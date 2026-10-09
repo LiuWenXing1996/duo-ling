@@ -1,7 +1,13 @@
 // element_read 工具测试（验收：
 // 「`element_read` 工具可拉全量属性 / outerHTML / parent 链（单测覆盖工具）」）。
 import { describe, expect, it, vi } from 'vitest'
-import { buildScriptTools, type NetCaptureHooks, type TaskWorkspace } from './script-tools'
+import {
+  buildRunLogView,
+  buildScriptTools,
+  type NetCaptureHooks,
+  type TaskWorkspace,
+} from './script-tools'
+import type { UserScriptErrorRecord, UserScriptRunLogRow } from '@/lib/userscripts/types'
 import type { ElementPickContext } from '@/shared/extension-ipc'
 
 // us-git 顶层 import 会实例化 lightning-fs（Node 无 indexedDB → 未处理 rejection）→ 一并 mock
@@ -209,7 +215,7 @@ describe('script_list（列出全部脚本）', () => {
 })
 
 describe('script 三件套不受影响（回归）', () => {
-  it('script_spec / script_find / script_list / script_read / script_apply / error_read 仍然在工具表里', () => {
+  it('工具表 = 既有工具 + 观测类工具（error_read / run_log_read / net_capture_*）', () => {
     const tools = makeTools(makeElement())
     expect(Object.keys(tools).sort()).toEqual([
       'element_read',
@@ -217,6 +223,7 @@ describe('script 三件套不受影响（回归）', () => {
       'net_capture_enable',
       'net_capture_read',
       'page_snapshot',
+      'run_log_read',
       'script_apply',
       'script_find',
       'script_list',
@@ -375,6 +382,133 @@ describe('error_read（错误 ID 查询）', () => {
   function execTool(tools: ReturnType<typeof buildScriptTools>, id: string) {
     return tools.error_read.execute({ id }, execOpts as never) as unknown as Promise<Record<string, unknown>>
   }
+})
+
+describe('run_log_read（运行日志查询）', () => {
+  /** 造一行运行记录（默认无错误） */
+  function mkRun(over: Partial<Extract<UserScriptRunLogRow, { kind: 'run' }>> = {}): UserScriptRunLogRow {
+    return {
+      kind: 'run',
+      runId: 'r1',
+      uuid: 'u1',
+      name: '甲',
+      time: 100,
+      errors: [],
+      ...over,
+    }
+  }
+
+  /** 造一条无法归属到运行的错误行（uuid 缺省为 null = 不属于任何脚本） */
+  function mkOrphan(over: Partial<UserScriptErrorRecord> = {}): UserScriptRunLogRow {
+    return {
+      kind: 'error',
+      record: {
+        id: 'e1',
+        uuid: null,
+        name: '甲',
+        phase: 'register',
+        message: '未生效',
+        time: 90,
+        ...over,
+      },
+    }
+  }
+
+  /** 挂在某次运行上的运行期错误 */
+  function mkRuntimeError(over: Partial<UserScriptErrorRecord> = {}): UserScriptErrorRecord {
+    return {
+      id: 'e9',
+      uuid: 'u1',
+      name: '甲',
+      phase: 'runtime',
+      message: 'boom',
+      stack: 'at x',
+      url: 'https://a.example/',
+      time: 110,
+      runId: 'r1',
+      ...over,
+    }
+  }
+
+  it('运行行带 url / savedAt，错误随行带走（错误字段口径与 error_read 一致）', () => {
+    const out = buildRunLogView(
+      [mkRun({ url: 'https://a.example/', savedAt: 777, errors: [mkRuntimeError()] })],
+      undefined,
+      20,
+    )
+    expect(out.ok).toBe(true)
+    expect(out.total).toBe(1)
+    expect(out.runs[0]).toMatchObject({
+      runId: 'r1',
+      uuid: 'u1',
+      name: '甲',
+      url: 'https://a.example/',
+      savedAt: 777,
+    })
+    expect(out.runs[0].errors).toEqual([
+      {
+        errorId: 'e9',
+        uuid: 'u1',
+        name: '甲',
+        phase: 'runtime',
+        message: 'boom',
+        stack: 'at x',
+        pageUrl: 'https://a.example/',
+        time: 110,
+      },
+    ])
+  })
+
+  it('老记录没有 url / savedAt：整条不写该字段（不是 undefined 占位）', () => {
+    const out = buildRunLogView([mkRun()], undefined, 20)
+    expect(out.runs[0]).not.toHaveProperty('url')
+    expect(out.runs[0]).not.toHaveProperty('savedAt')
+  })
+
+  it('limit 只截运行行、total 仍是全量（模型据此知道还有更多）', () => {
+    const rows = [
+      mkRun({ runId: 'r3', time: 300 }),
+      mkRun({ runId: 'r2', time: 200 }),
+      mkRun({ runId: 'r1', time: 100 }),
+    ]
+    const out = buildRunLogView(rows, undefined, 2)
+    expect(out.total).toBe(3)
+    // 顺序即时间线顺序（最新在前）—— 这里只截断、不重排
+    expect(out.runs.map((r) => r.runId)).toEqual(['r3', 'r2'])
+  })
+
+  it('uuid 过滤：运行行与孤错行都按该脚本过（漏掉后者会丢它的无归属错误）', () => {
+    const rows: UserScriptRunLogRow[] = [
+      mkRun({ runId: 'r2', uuid: 'u2', time: 200 }),
+      mkRun({ runId: 'r1', uuid: 'u1', time: 100 }),
+      mkOrphan({ id: 'e2', uuid: 'u2', time: 190 }),
+      mkOrphan({ id: 'e1', uuid: 'u1', time: 90 }),
+      mkOrphan({ id: 'e0', uuid: null, time: 80 }),
+    ]
+    const out = buildRunLogView(rows, 'u1', 20)
+    expect(out.total).toBe(1)
+    expect(out.runs.map((r) => r.runId)).toEqual(['r1'])
+    // uid 为 null 的「未归属」错误不属于任何脚本，按 uuid 过滤时必须被挡在外面
+    expect(out.orphanErrors.map((e) => e.errorId)).toEqual(['e1'])
+  })
+
+  it('未归属的错误不进 runs，只在 orphanErrors（否则会被读成「这次运行报了它」）', () => {
+    const out = buildRunLogView([mkRun(), mkOrphan()], undefined, 20)
+    expect(out.runs).toHaveLength(1)
+    expect(out.runs[0].errors).toEqual([])
+    expect(out.orphanErrors).toHaveLength(1)
+    expect(out.orphanErrors[0]).toMatchObject({ errorId: 'e1', phase: 'register' })
+  })
+
+  it('未接运行日志通道：ok=false 带可读错误（不抛）', async () => {
+    const tools = buildScriptTools(makeWorkspace(), async () => {})
+    const out = (await tools.run_log_read.execute({ limit: 20 }, execOpts as never)) as Record<
+      string,
+      unknown
+    >
+    expect(out.ok).toBe(false)
+    expect(String(out.error)).toContain('不可用')
+  })
 })
 
 describe('page_snapshot（快照改 AI 工具采集）', () => {

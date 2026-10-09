@@ -512,6 +512,8 @@ export async function registerScript(project: ScriptProject): Promise<void> {
       grant: project.config.grant,
       resources,
       runAtBody,
+      // 注入的就是这一版源码：随运行标识广播，运行日志据此与 AI 读到的源码版本对齐
+      savedAt: project.source.savedAt,
     }),
     runAtBody ? '__gmRunAtBody(function () {\n' + bodySource + '\n})' : bodySource,
     GM_WRAPPER_SUFFIX,

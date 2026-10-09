@@ -288,15 +288,30 @@ export async function findUserScriptError(id: string): Promise<UserScriptErrorLo
  * 同一 runId 的重复广播（engine 的 load 补救补播）按 lastRunId 去重，是 no-op——
  * 补播若重置 lastRunErrors 会抹掉两次广播之间已上报的错误，故去重必须整体跳过
  * （运行日志条目也随之不重复追加）。
+ *
+ * @param extra 运行所在页面与注入时的源码版本（见 UserScriptRunLogEntry）：
+ *   两条都是「这次运行到底跑的是哪一版、在哪一页」的定位线索，缺省即不写该字段。
  */
-export function recordRunStart(uuid: string, runId: string, name?: string): Promise<void> {
+export function recordRunStart(
+  uuid: string,
+  runId: string,
+  name?: string,
+  extra?: { url?: string; savedAt?: number },
+): Promise<void> {
   return runtime
     .mutateStatsAndLog(uuid, (cur, log) => {
       if (cur?.lastRunId === runId) return { stats: null, log: null, recorded: false } // 同一次运行的补播
       // name 快照由调用方传（dl-bridge 手上有注册表）；没传就留空，UI 回退短 uuid
       const logNext: UserScriptRunLogEntry[] = [
         ...log.slice(-(RUN_LOG_MAX - 1)),
-        { runId, uuid, name: name ?? '', time: Date.now() },
+        {
+          runId,
+          uuid,
+          name: name ?? '',
+          time: Date.now(),
+          ...(extra?.url != null ? { url: extra.url } : {}),
+          ...(extra?.savedAt != null ? { savedAt: extra.savedAt } : {}),
+        },
       ]
       const next: UserScriptRunStats = {
         totalRuns: (cur?.totalRuns ?? 0) + 1,
@@ -378,6 +393,9 @@ export async function listRunTimeline(): Promise<UserScriptRunLogRow[]> {
       uuid: r.uuid,
       name: r.name,
       time: r.time,
+      // 老记录没有这两个字段：缺了就整条不写，保持「无值 = 字段不存在」的一致口径
+      ...(r.url != null ? { url: r.url } : {}),
+      ...(r.savedAt != null ? { savedAt: r.savedAt } : {}),
       errors: byRun.get(r.runId) ?? [],
     })),
     ...loose.map((e) => ({ kind: 'error' as const, record: e })),

@@ -52,6 +52,11 @@ export interface GmWrapperOptions {
    * 但**正文**被包进「等 body 出现」的闸门里再跑（见 `__gmRunAtBody`）—— TM 的语义是 body 存在时才注入。
    */
   runAtBody?: boolean
+  /**
+   * 本次注入所用源码的保存时刻（注册态 `source.savedAt`）：随运行标识一起广播，
+   * 让运行日志能标明「这一版源码跑的」。缺省不传 → 日志里该字段留空。
+   */
+  savedAt?: number
 }
 
 /**
@@ -125,9 +130,18 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     try { return crypto.randomUUID() }
     catch (e) { return 'r-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10) }
   })()
+  // 本版源码的保存时刻（注册侧内联的常量），随运行标识一起上报；不传即为 null（日志留空）
+  var __gmSrcSavedAt = ${jsonLiteral(opts.savedAt ?? null)}
   function __gmAnnounceRun() {
     try {
-      var p = __dlBridge.emit({ __dlRunStart: true, name: GM_INFO.script.name, runId: __gmRunId })
+      var p = __dlBridge.emit({
+        __dlRunStart: true,
+        name: GM_INFO.script.name,
+        runId: __gmRunId,
+        // 广播时刻的地址：load 补播与首次广播同属一个文档，SPA 内导航改的是它，取当下值即可
+        url: location.href,
+        savedAt: __gmSrcSavedAt,
+      })
       if (p && typeof p.catch === 'function') p.catch(function () { /* 中继件未就位：丢弃 */ })
     } catch (e) { /* 同上 */ }
   }

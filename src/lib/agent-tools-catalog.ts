@@ -23,6 +23,7 @@ export type AgentToolName =
   | 'net_capture_enable'
   | 'net_capture_read'
   | 'error_read'
+  | 'run_log_read'
 
 /** 运行时闸门：面板展示的阈值与运行时真身共用这一份（改这里即改行为，别再各写一份） */
 export const AGENT_RUNTIME_LIMITS = {
@@ -30,6 +31,14 @@ export const AGENT_RUNTIME_LIMITS = {
   maxSteps: 8,
   /** script_apply 连续失败上限：达到即让模型停手；再多一次 apply 直接中止整个任务 */
   maxApplyFailures: 6,
+  /** run_log_read 不传 limit 时的返回条数 */
+  runLogReadDefault: 20,
+  /**
+   * run_log_read 的返回条数上限（入参超过即按此收窄，而非报错）。
+   * 运行日志是全局 500 条环形、每条还挂着错误明细，一次全灌给模型既费 token
+   * 又淹没最近的失败——需要的从来是「最近发生了什么」。
+   */
+  runLogReadMax: 50,
 } as const
 
 /** 工具 description 原文：**模型实际收到的就是这些字**，面板也展示这一份 */
@@ -72,6 +81,12 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
     '按错误 ID 查询一条脚本错误记录。用户可能直接粘贴一个错误 ID（脚本运行出错后，' +
     '工作台错误日志里每条错误旁都展示，前 8 位短形态）要求修复。返回错误详情（message / stack / ' +
     '报错页面 url）与脚本 uuid——uuid 可直接交给 script_read 读源码，改完带 updateUuid 调 script_apply 原地更新。',
+  run_log_read:
+    '查询脚本的运行日志（最近的运行 + 每次运行报的错），按时间倒序。用于回答「这脚本到底跑没跑」' +
+    '「最近报什么错」——比 error_read 更主动：不必等用户粘贴错误 ID。' +
+    '每条运行行带所在页面 url 与源码版本 savedAt（可与 script_read 的 savedAt 比对，' +
+    '判断错误出自哪一版源码；不等即用户改了没保存、或保存后没刷新页面）。' +
+    '想聚焦某个脚本就传它的 uuid。',
 }
 
 /** 参数 description 原文（zod `.describe()` 的文本，模型同样看得到）：UI 与运行时共用 */
@@ -100,6 +115,10 @@ export const TOOL_PARAM_DESCRIPTIONS = {
   },
   error_read: {
     id: '错误 ID：完整 id，或至少 8 位的前缀（多命中会报不唯一）',
+  },
+  run_log_read: {
+    uuid: '只看这一个脚本的运行记录；省略 = 全部脚本按时间混排',
+    limit: '最多返回多少条运行记录（默认 20，上限 50）',
   },
 } as const
 
@@ -177,7 +196,9 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
       },
     ],
     returns:
-      '{ ok:true, config, code }；带 uuid 时另有 { uuid, name, enabled }',
+      '{ ok:true, config, code }；带 uuid 时另有 { uuid, name, enabled, savedAt } —— ' +
+      'savedAt 是已提交源码的保存时刻，与 run_log_read 运行记录里的 savedAt 比对，' +
+      '可判断报错的是不是手上这一版源码',
     unavailable: '源码库不可用 / 已损坏 → { ok:false, error }',
   },
   {
@@ -302,6 +323,26 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
     returns:
       '{ ok:true, errorId, scriptUuid, scriptName, phase, message, stack?, pageUrl?, time }',
     unavailable: '未接查询通道 / 前缀多命中 / 记录已被环形日志（最近 50 条）挤掉 → { ok:false, error }',
+  },
+  {
+    name: 'run_log_read',
+    title: '查运行日志',
+    summary: '查最近的运行与每次运行报的错（不必等用户粘贴错误 ID）',
+    description: TOOL_DESCRIPTIONS.run_log_read,
+    params: [
+      { name: 'uuid', type: 'string', required: false, desc: T.run_log_read.uuid },
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        default: String(AGENT_RUNTIME_LIMITS.runLogReadDefault),
+        desc: T.run_log_read.limit,
+      },
+    ],
+    returns:
+      '{ ok:true, total, runs:[{ runId, uuid, name, time, url?, savedAt?, errors:[{ phase, message, stack?, url?, time }] }], ' +
+      'orphanErrors:[{ uuid, name, phase, message, stack?, url?, time }] }',
+    unavailable: '未接查询通道 → { ok:false, error }；没有记录时两个数组为空（不是错误）',
   },
 ]
 
