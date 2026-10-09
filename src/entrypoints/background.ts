@@ -16,7 +16,7 @@
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
 import { FLOAT_OPEN_REQUEST } from '@/shared/extension-ipc'
-import type { ModelProfileState, RuntimeRequest } from '@/shared/extension-ipc'
+import type { ModelProfileState, PageOverviewTab, RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
 import type { InjectedBuildInfo } from '@/lib/build-info'
@@ -77,16 +77,24 @@ import {
   forgetPageTab,
   initPageMonitorPorts,
   onPageRunsChanged,
+  openWorkbenchErrors,
   pageRunsByTab,
   resetPageRuns,
+  snapshotForTabs,
 } from '@/lib/userscripts/page-monitor'
 // 会话的标签页归属映射（duoling-app 库）：标签页关闭时在这里清（见 tabs.onRemoved 处说明）；
-// page:snapshot 也用它反查「这条会话在哪个标签页上」（会话按 tab 归属）
+// page:snapshot 也用它反查「这条会话在哪个标签页上」（会话按 tab 归属）；
+// popup 的页面概览靠它回答「这个页面归属哪条会话」
 import {
   findTabsUsingConversation,
   getConversationIdForTab,
+  getTabConversationMap,
   unbindTab,
 } from '@/lib/conversation-tab-map'
+// 会话库（duoling-chat，**写只归 offscreen**）：页面概览里显示会话标题，这里只读
+import { listConversations } from '@/lib/conversation-store'
+// 「popup 能不能给这个页面挂浮层」的判据（scheme 那一半）：页面概览只收普通网页
+import { webHostname } from '@/lib/float-panel-host'
 import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主）
@@ -187,6 +195,36 @@ async function registerOrLog(project: ScriptProject): Promise<string | undefined
   }
 }
 
+// —— popup 页面概览的三份查表 ——
+// 都是「读侧尽力而为」：库读不出来就交白卷，行内退化成 uuid 前缀 / 只显示状态，不叫整条命令失败。
+
+/** uuid → 脚本展示名（概览的脚本行用） */
+async function scriptNameByUuid(): Promise<Map<string, string>> {
+  try {
+    return new Map((await listSummaries(await listProjects())).map((s) => [s.uuid, s.name]))
+  } catch {
+    return new Map()
+  }
+}
+
+/** 会话 id → 标题（概览里显示会话用） */
+async function conversationTitleById(): Promise<Map<string, string>> {
+  try {
+    return new Map((await listConversations()).map((c) => [c.id, c.title]))
+  } catch {
+    return new Map()
+  }
+}
+
+/** tabId → 会话 id（归属映射读不出来时当作全未绑定，好过让整条概览失败） */
+async function conversationBindings(): Promise<Record<string, string>> {
+  try {
+    return await getTabConversationMap()
+  } catch {
+    return {}
+  }
+}
+
 // 第二个参数是 chrome 的消息发送方：只有需要「回 sender 自己的东西」的命令才用得上
 // （现仅 tab:identify 取 sender.tab.id）；其余 handler 少写一个参数即可，TS 允许。
 const handlers: {
@@ -241,6 +279,47 @@ const handlers: {
     const blocked = pageInjectionBlockReason(tab?.url)
     if (blocked) throw new Error(`${blocked}，无法采集页面快照`)
     return capturePageSnapshotFromTab(tabId)
+  },
+
+  // —— popup 的页面概览（「当前页面 / 其他页面」两个区块的数据源）——
+  // 为什么在 SW 一处聚齐：运行登记表（pageRunsByTab）、进行中会话（runningConversations）、
+  // 会话归属（duoling-app 的 convByTab）分属三方，popup 自己拼会拼出三份时间点不同的快照。
+  'page:overview': async (): Promise<PageOverviewTab[]> => {
+    const tabs = await chrome.tabs.query({}).catch(() => [])
+    // 只收普通网页：内部页 / 扩展页上既跑不了脚本也挂不了浮层（读不到 url 的页正是这两类）
+    const web = tabs.filter((t) => t.id != null && webHostname(t.url) !== '')
+    const [snapshots, bindings, names, titles] = await Promise.all([
+      snapshotForTabs(web.map((t) => t.id as number)),
+      conversationBindings(),
+      scriptNameByUuid(),
+      conversationTitleById(),
+    ])
+    return web.map((t) => {
+      const tabId = t.id as number
+      const snap = snapshots.get(tabId)
+      const runs = [...(snap?.runs ?? [])].sort((a, b) => b.startedAt - a.startedAt)
+      const errors = snap?.errors ?? []
+      const conversationId = bindings[String(tabId)] ?? null
+      return {
+        tabId,
+        url: t.url ?? '',
+        title: t.title ?? '',
+        scripts: runs.map((r) => ({
+          uuid: r.uuid,
+          name: names.get(r.uuid) ?? r.uuid.slice(0, 8),
+          errorCount: errors.filter((e) => e.uuid === r.uuid).length,
+        })),
+        conversationId,
+        conversationTitle: conversationId ? (titles.get(conversationId) ?? null) : null,
+        generating: conversationId ? runningConversations.has(conversationId) : false,
+      }
+    })
+  },
+
+  // 点脚本行 → 打开 / 聚焦工作台并深链到该脚本的错误（与浮层灵动岛共用同一实现）
+  'page:openErrors': async (msg): Promise<{ ok: true }> => {
+    await openWorkbenchErrors(msg.uuid)
+    return { ok: true }
   },
 
   // —— 内容脚本自证身份 ——
@@ -553,7 +632,7 @@ declare const __BUILD_INFO__: InjectedBuildInfo
 // —— 工具栏角标：这个标签页在跑几个脚本 ——
 //
 // 数字 = `pageRunsByTab`（page-monitor 的运行登记表）里**该标签页**的运行集大小 —— 与浮层灵动岛、
-// popup 的「页面脚本」区是**同一个数**（三处对不上就是在骗人）。归属天然按 tab：登记表本身就是按
+// popup 的页面概览是**同一个数**（三处对不上就是在骗人）。归属天然按 tab：登记表本身就是按
 // tab 建的。没有脚本在跑的标签页不亮，别的页面上的脚本也不在这儿报数。
 //
 // **为什么不是「会话在跑几个任务」**：那种数字只会是 0 / 1（一个标签页只归属一条会话，见

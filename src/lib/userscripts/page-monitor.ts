@@ -1,8 +1,11 @@
-// 「页面脚本监控」的 SW 侧逻辑（运行时口径）——三个消费方共用同一份数：
-// 对话界面灵动岛、popup 的「页面脚本」区、**工具栏角标**（数字 = 该标签页的运行集大小）。
+// 「页面脚本监控」的 SW 侧逻辑（运行时口径）——三处共用同一份数：
+// 对话界面灵动岛、**工具栏角标**（数字 = 该标签页的运行集大小）、popup 的页面概览。
 //
-// 三个消费方显示的都是「它所属标签页」的运行集（归属怎么定见 lib/owning-tab.ts，不是 active
+// 三处显示的都是「它所属标签页」的运行集（归属怎么定见 lib/owning-tab.ts，不是 active
 // tab），必须有一个地方替它们记住「每个 tab 当前文档里跑着哪些脚本」——就是这个按 tab 的运行登记表。
+// 前两处按 tab 取：灵动岛经 'duoling:panel' 端口收推送 / 拉快照，角标直接读登记表重算；
+// popup 要的是**所有标签页的一次性概览**（它几秒就关，不值得维持长连接），由 background 的
+// page:overview 命令调 snapshotForTabs 一次取齐。
 //
 // 数据流（三个信号源，全部已在 dl-bridge / background 里存在，这里只是多接一根线）：
 //   · runstart 广播（GM 包装注入即发）→ noteRunStart：登记 + 推给所有连着的面板
@@ -10,7 +13,7 @@
 //     面板不回查错误日志——落盘记录无 tabId，按 tab 归属只能靠这条实时通道）
 //   · 新文档导航（tabs.onUpdated status=loading）→ resetPageRuns：旧文档销毁，运行集清零
 //
-// 快照：面板切 tab / 刚打开时上行 page:snapshot，SW 按登记表回当前运行集；
+// 快照：切 tab / 刚打开时上行 page:snapshot，SW 按登记表回当前运行集；
 // 错误历史按 runId 从错误日志（runtime 库 errors store）反查（runtime 错误都带 runId）。
 //
 // **登记表一变就喊一声**（onPageRunsChanged）：角标是「按登记表重算」出来的，不重算就停在旧
@@ -141,14 +144,29 @@ export async function snapshotFor(tabId: number): Promise<{
   runs: PageRunItem[]
   errors: PageErrorItem[]
 }> {
-  const runs = [...(pageRunsByTab.get(tabId)?.values() ?? [])]
-  let errors: PageErrorItem[] = []
+  const byTab = await snapshotForTabs([tabId])
+  return byTab.get(tabId) ?? { runs: [], errors: [] }
+}
+
+/**
+ * 一次给多个标签页组快照（popup 的页面概览用）：错误日志**只读一次**，再按各 tab 的运行集分配。
+ * 逐 tab 调 snapshotFor 会各读一次同一个库 —— 标签页一多就是 N 次全量读。
+ */
+export async function snapshotForTabs(
+  tabIds: number[],
+): Promise<Map<number, { runs: PageRunItem[]; errors: PageErrorItem[] }>> {
+  let allErrors: UserScriptErrorRecord[] = []
   try {
-    errors = pickErrorsForRuns(await listUserScriptErrors(), runs)
+    allErrors = await listUserScriptErrors()
   } catch {
-    // 错误日志读不出来就只回运行集（快照是尽力而为的面板数据，不值得失败）
+    // 错误日志读不出来就只给运行集（快照是尽力而为的面板数据，不值得失败）
   }
-  return { runs, errors }
+  const out = new Map<number, { runs: PageRunItem[]; errors: PageErrorItem[] }>()
+  for (const tabId of tabIds) {
+    const runs = [...(pageRunsByTab.get(tabId)?.values() ?? [])]
+    out.set(tabId, { runs, errors: pickErrorsForRuns(allErrors, runs) })
+  }
+  return out
 }
 
 /**

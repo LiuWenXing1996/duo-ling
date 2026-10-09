@@ -168,7 +168,7 @@
 
    **popup 是例外**（html 上带 .dl-popup，见 entrypoints/popup.html）：它的窗口尺寸由
    内容决定，铺满视口等于把自己锁死 —— #app 恒等于 100% 视口高，内容折叠后浏览器量到的
-   文档高度还是那么高，窗口就再也缩不回去（实测：popup 里「本页脚本」列表
+   文档高度还是那么高，窗口就再也缩不回去（实测：popup 里「当前页面」的脚本列表
    展开再折叠，底部留一片空白）。故整条规则排除 popup 载体。 */
 html:not(.dl-popup),
 html:not(.dl-popup) body,

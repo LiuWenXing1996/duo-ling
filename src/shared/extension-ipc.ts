@@ -252,6 +252,14 @@ export type RuntimeRequest =
   // 注意前缀：`chat:` 是「SW 静默让路给 offscreen」的保留前缀，SW 自答的命令不能用
   | { kind: 'page:snapshot'; conversationId?: string }
 
+  // —— popup 的页面概览（「当前页面 / 其他页面」两个区块的数据源）——
+  // 一次取回全部标签页的「跑着哪些脚本 / 归属哪条会话 / 是不是正在生成」：这三份数分属运行登记表、
+  // 会话归属映射与 SW 内存里的进行中集合，popup 自己拼会拼出三份时间点不同的快照（还各要一次 IPC）。
+  | { kind: 'page:overview' }
+  // 点脚本行 → 打开 / 聚焦工作台并深链到该脚本的错误。复用 SW 的 openWorkbenchErrors ——
+  // 「已有工作台标签页就改 hash、不新开」这条判据只该有一处实现。
+  | { kind: 'page:openErrors'; uuid: string }
+
   // —— 内容脚本自证身份 ——
   // content script 拿不到 chrome.tabs，而网页浮层（扩展页 iframe）必须知道「自己属于哪个
   // 标签页」才能认定该 tab 的会话归属。故 content script 经本命令取回 sender.tab.id
@@ -428,8 +436,10 @@ export const CONTENT_PING_REQUEST: ContentPingRequest = { kind: 'content:ping' }
 
 // —— 页面脚本监控（对话界面 · 运行时口径）——
 // 信号源：GM 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。
-// 浮层认定**自己所属的标签页**（见 lib/owning-tab.ts —— 不跟随 active tab），
-// SW 侧按 tab 登记运行集并经 'duoling:panel' 端口推送。
+// 承载方是**对话界面浮层的灵动岛**：它认定**自己所属的标签页**（见 lib/owning-tab.ts ——
+// 不跟随 active tab），SW 侧按 tab 登记运行集并经 'duoling:panel' 端口推送。
+// 工具栏 popup 不在本通道上：它要的是「所有标签页的一次性概览」，走 `page:overview` 命令
+// （见下方 PageOverviewTab）—— 命令面按需取一份，比长连接更贴合它几秒的寿命。
 
 /** 当前 tab 的一次运行（一次页面加载 = 一个 runId；SPA 软导航不换文档、runId 不变） */
 export interface PageRunItem {
@@ -447,7 +457,7 @@ export interface PageErrorItem {
   runId: string | null
 }
 
-/** SW → 面板的监控推送（对话界面浮层 / 工具栏 popup 经 `runtime.connect({ name: 'duoling:panel' })` 建连） */
+/** SW → 面板的监控推送（对话界面浮层经 `runtime.connect({ name: 'duoling:panel' })` 建连） */
 export type PanelMonitorPush =
   /** 脚本注入即广播：登记一次运行 */
   | { t: 'page:runstart'; tabId: number; run: PageRunItem }
@@ -462,8 +472,40 @@ export type PanelMonitorPush =
 export type PanelMonitorUp =
   /** 按面板自己归属的那个 tab 拉快照（面板刚打开 / 挂载时；归属怎么定见 lib/owning-tab.ts） */
   | { t: 'page:snapshot'; tabId: number }
-  /** 点击脚本行 → SW 打开/聚焦工作台并深链到该脚本的错误 */
+  /** 点击脚本行 → SW 打开/聚焦工作台并深链到该脚本的错误（popup 走同名的 RuntimeRequest） */
   | { t: 'page:openErrors'; uuid: string }
+
+// —— popup 的页面概览（`page:overview` 的应答形状）——
+//
+// popup 是纯展示面板（不装 window.api、不直连会话库），而它要的两块内容各需好几处数据。故形状
+// 定成**展示形态而非原始数据**：脚本名与错误条数在 SW 侧就算好（名字表与错误日志都归那边），
+// popup 拿到即可渲染，不必为一块内容再发几条命令。
+
+/** 一个标签页此刻的状况（「当前页面」与「其他页面」两个区块共用） */
+export interface PageOverviewTab {
+  tabId: number
+  /** 页面地址（只有普通网页会进这个列表，判据见 lib/float-panel-host.ts 的 webHostname） */
+  url: string
+  /** 页面标题（读不到为空串） */
+  title: string
+  /** 当前文档里跑着的脚本（运行时口径，启动时间新的在前） */
+  scripts: PageOverviewScript[]
+  /** 该标签页归属的会话；未绑定为 null */
+  conversationId: string | null
+  /** 会话标题（读会话库；未绑定 / 读不到为 null） */
+  conversationTitle: string | null
+  /** 该会话是否正在生成（SW 内存态：它不落库，故只有现问现取） */
+  generating: boolean
+}
+
+/** 概览里的一条运行脚本：名字与错误条数都已在 SW 侧解析好 */
+export interface PageOverviewScript {
+  uuid: string
+  /** 脚本展示名；查不到名字时退化为 uuid 前 8 位 */
+  name: string
+  /** 该脚本在当前文档里的错误条数 */
+  errorCount: number
+}
 
 /**
  * SW → 扩展页的单向广播。SW 不会收到自己发出的 sendMessage，故 SW 侧自身的消费

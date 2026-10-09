@@ -106,8 +106,10 @@ const ALL_KINDS = [
   { kind: 'clipboard:write', side: 'offscreen' },
   // —— model:*（SW：配置中转）——
   { kind: 'model:getActiveProfile', side: 'sw' },
-  // —— page:*（SW：AI 工具支路，page_snapshot 经 SW 调 userScripts.execute）——
+  // —— page:*（SW：AI 工具支路 page_snapshot 经 SW 调 userScripts.execute；后两条供 popup 的页面概览）——
   { kind: 'page:snapshot', side: 'sw' },
+  { kind: 'page:overview', side: 'sw' },
+  { kind: 'page:openErrors', side: 'sw' },
   // —— tab:*（SW：内容脚本自证身份，回 sender.tab.id 供浮层认定会话归属）——
   { kind: 'tab:identify', side: 'sw' },
   // —— conv:*（offscreen：会话写侧，唯一写方；SW 对前缀静默让路）——
