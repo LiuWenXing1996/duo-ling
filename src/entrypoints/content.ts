@@ -21,6 +21,9 @@
 //   - 入口全在页面之外：popup 的「打开会话」按钮与页面右键菜单各发一条 float:open
 //     （见 FloatOpenRequest）；收起由对话框顶栏那颗按钮发 float:collapse 回来 —— 那颗按钮在
 //     iframe 里，跨源只能靠消息（见 FloatCollapseRequest）。
+//   - 生成遮罩：对话界面报「这条会话正在生成」时，给页面盖一层挡指针的全屏遮罩
+//     （见 FloatBusyRequest 与 mask 处说明）——生成期间 AI 可能随时读这个页面，
+//     用户此刻动页面会让读到的状态与他看到的不一致。
 //   - 兼作探活：popup 问一句 `content:ping` 即知本页此刻注入得了内容脚本（判据见
 //     lib/float-panel-host.ts 的 probeContentScript）。不往页面放 DOM 也照样应答这条。
 //
@@ -29,9 +32,11 @@
 import { defineContentScript } from '#imports'
 import {
   CONTENT_PING_REQUEST,
+  FLOAT_BUSY_REQUEST_KIND,
   FLOAT_COLLAPSE_REQUEST,
   FLOAT_OPEN_REQUEST,
   type ContentPingRequest,
+  type FloatBusyRequest,
   type FloatCollapseRequest,
   type FloatOpenRequest,
   type RuntimeRequest,
@@ -60,7 +65,7 @@ const FLOAT_CSS = `
   z-index: 2147483647;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
-.dl-float-panel { position: relative; display: none; }
+.dl-float-panel { position: relative; display: none; z-index: 2; }
 .dl-float-container.open .dl-float-panel { display: block; }
 .dl-float-drag-strip {
   /* 盖在 iframe 顶栏上的拖拽把手：right 留出顶栏右侧的三颗按钮（合计约 104px），点击照常落进 iframe */
@@ -82,6 +87,53 @@ const FLOAT_CSS = `
   border-radius: 14px;
   background: #fff;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.32);
+}
+/* 生成遮罩：盖住整个视口挡掉指针交互，但**不挡对话框**（面板 z-index 更高）——
+   否则用户点不到面板里的「停止」。底色与四边光晕取靛蓝系（与页面内容区分得开、又不至于刺眼）；
+   卡片用 CSS 系统色 Canvas/CanvasText 打底，自动跟随系统深浅色，免得深色页面上弹出一块刺眼的白
+   （与 floatpanel.html 首帧加载态同一取舍）。 */
+.dl-page-mask {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  /* 靠上不居中：页面主体内容多半在中下部，卡片压在那儿反而挡住用户想看的区域 */
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 24px 24px;
+  background: rgba(30, 27, 75, 0.42);
+  /* 内发光：光从四边往中间散，四边亮、中央淡 —— 越靠边越亮才有「边框在发光」的观感 */
+  box-shadow: inset 0 0 120px rgba(99, 102, 241, 0.38);
+}
+.dl-float-container.dl-busy .dl-page-mask { display: flex; }
+.dl-page-mask-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 320px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(129, 140, 248, 0.35);
+  background: Canvas;
+  color: CanvasText;
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.32),
+    0 0 24px rgba(99, 102, 241, 0.35);
+}
+/* 转圈只能用纯 CSS 画（同 floatpanel.html 首帧加载态的理由，内容脚本这边也一样不引图标库） */
+.dl-page-mask-spinner {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid color-mix(in srgb, #818cf8 25%, Canvas);
+  border-top-color: #818cf8;
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dl-page-mask-spinner { animation: dl-page-mask-spin 0.7s linear infinite; }
+  @keyframes dl-page-mask-spin { to { transform: rotate(360deg); } }
 }
 .dl-float-fallback {
   width: 260px;
@@ -150,11 +202,21 @@ function isContentPingRequest(raw: unknown): raw is ContentPingRequest {
   )
 }
 
-/** 构建对话框 UI（挂进 DOM 由调用方做），返回宿主根元素与开合两个操作口 */
+/** 生成遮罩的开关消息（对话界面发来，带 busy 载荷，见 FloatBusyRequest） */
+function isFloatBusyRequest(raw: unknown): raw is FloatBusyRequest {
+  return (
+    typeof raw === 'object' &&
+    raw !== null &&
+    (raw as { kind?: unknown }).kind === FLOAT_BUSY_REQUEST_KIND
+  )
+}
+
+/** 构建对话框 UI（挂进 DOM 由调用方做），返回宿主根元素与开合 / 遮罩三个操作口 */
 function buildFloatUi(): {
   root: HTMLElement
   open: () => void
   collapse: () => void
+  setBusy: (busy: boolean) => void
 } {
   const root = document.createElement('div')
   root.id = ROOT_ID
@@ -168,6 +230,21 @@ function buildFloatUi(): {
   const container = document.createElement('div')
   container.className = 'dl-float-container'
   shadow.appendChild(container)
+
+  // 生成遮罩常驻 DOM（只切 class 显隐）：它跟着容器一起建、一起没，无需另一套增删逻辑。
+  // 放在面板**之前**、z-index 更低，故对话框始终在遮罩之上（见 FLOAT_CSS 处说明）。
+  const mask = document.createElement('div')
+  mask.className = 'dl-page-mask'
+  const maskCard = document.createElement('div')
+  maskCard.className = 'dl-page-mask-card'
+  maskCard.setAttribute('role', 'status')
+  const maskSpinner = document.createElement('div')
+  maskSpinner.className = 'dl-page-mask-spinner'
+  const maskText = document.createElement('span')
+  maskText.textContent = 'AI 正在读取页面信息，暂时请不要操作该页面'
+  maskCard.append(maskSpinner, maskText)
+  mask.appendChild(maskCard)
+  container.appendChild(mask)
 
   const panel = document.createElement('div')
   panel.className = 'dl-float-panel'
@@ -298,6 +375,17 @@ function buildFloatUi(): {
     container.classList.remove('open')
   }
 
+  /**
+   * 生成遮罩的开关（对话界面经 float:busy 报来）。
+   *
+   * **判据只有生成中这一条，与浮层开合无关**：收起浮层只是收起对话界面，AI 该读页面还在读 ——
+   * 遮罩跟着浮层一起藏，用户就会以为「收起来就没事了」，然后在页面被读的过程中照动不误。
+   * 所以收起时遮罩照留（想撤掉得等生成结束，或从 popup / 右键菜单重开浮层点停止）。
+   */
+  const setBusy = (busy: boolean): void => {
+    container.classList.toggle('dl-busy', busy)
+  }
+
   iframe.addEventListener('load', () => {
     loaded = true
     if (fallbackTimer) {
@@ -310,7 +398,7 @@ function buildFloatUi(): {
     if (!loaded) showFallback()
   })
 
-  return { root, open, collapse }
+  return { root, open, collapse, setBusy }
 }
 
 export default defineContentScript({
@@ -373,6 +461,9 @@ export default defineContentScript({
       }
       // 收起：只给容器加 display:none，UI 与 iframe 留着（见 collapse 的说明）
       if (isFloatCollapseRequest(raw)) ui?.collapse()
+      // 生成遮罩开关：页面里还没有浮层时收到（浮层尚未挂出 / 已被页面导航带走）静默忽略 ——
+      // 没有对话界面就没有「AI 在读这个页面」这回事。
+      if (isFloatBusyRequest(raw)) ui?.setBusy(raw.busy)
     })
 
     // 拾取器插/删遮罩 → 同步对话框显隐。只盯 documentElement 的直接子节点：

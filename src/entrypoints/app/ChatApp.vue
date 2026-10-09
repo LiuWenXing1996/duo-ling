@@ -15,7 +15,11 @@
 // 本组件不做任何会话归属的判断。
 //
 // 顶栏标题取当前会话标题；未绑定态（这个 tab 还没发过消息）显示应用名。
-import { computed, onMounted } from 'vue'
+//
+// **生成期间遮罩宿主页面**：这轮生成随时可能读这个页面（元素拾取 / 页面快照），用户此刻点页面、
+// 改表单会让读到的状态与他看到的不一致，故在页面侧盖一层提示遮罩（落地在 content.ts）。状态源就是
+// 本组件的 streaming，报给父页即可 —— 遮罩只按「在不在生成」裁，与浮层开合无关，本组件不参与判断。
+import { computed, onMounted, watch } from 'vue'
 import {
   History as UiHistory,
   LayoutDashboard as UiLayoutDashboard,
@@ -34,7 +38,7 @@ import {
 import { useGlobalConversation } from '@/composables/use-global-conversation'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 import { readPinnedTabId } from '@/lib/owning-tab'
-import { FLOAT_COLLAPSE_REQUEST } from '@/shared/extension-ipc'
+import { FLOAT_BUSY_REQUEST_KIND, FLOAT_COLLAPSE_REQUEST } from '@/shared/extension-ipc'
 
 const {
   conversations,
@@ -72,6 +76,20 @@ function collapse(): void {
   if (tabId == null) return
   chrome.tabs.sendMessage(tabId, FLOAT_COLLAPSE_REQUEST).catch(() => {})
 }
+
+/**
+ * 报「这条会话是否正在生成」给父页的内容脚本（遮罩开关，见文件头）。
+ *
+ * 与 collapse 同一条定向通道、同样的静默失败：页面已导航走 / 扩展刚更新时发不出去，而这只是
+ * 提示层，不值得为此报错。immediate 是为了覆盖「挂载时就在生成中」（浮层在别的载体里被重开）。
+ */
+function setPageMask(busy: boolean): void {
+  const tabId = readPinnedTabId()
+  if (tabId == null) return
+  chrome.tabs.sendMessage(tabId, { kind: FLOAT_BUSY_REQUEST_KIND, busy }).catch(() => {})
+}
+
+watch(streaming, (busy) => setPageMask(busy), { immediate: true })
 
 onMounted(() => {
   void loadConversations()
