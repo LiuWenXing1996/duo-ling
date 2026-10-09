@@ -4,7 +4,9 @@
 // 因世界已 configureWorld({messaging:true})，被路由到本文件的 runtime.onUserScriptMessage（而非通用 onMessage）。
 //
 // 消息分流（契约定义；信封名保持 __dl 前缀）：
-//   { __dl: true, uuid, req: ApiRequest }        —— 请求-响应，按 req.c 强类型分发（穷尽性检查）
+//   { __dl: true, uuid, runId?, req: ApiRequest } —— 请求-响应，按 req.c 强类型分发（穷尽性检查）。
+//       runId = 发起这次调用的运行（包装层注入时 mint，见 gm-wrapper 的 __gmRunId）。老包装层不带它，
+//       那时这条请求产生的观测数据（运行事件 / 桥调用失败）就挂不到具体运行上，只能落进孤儿行
 //   { __dlEvent: true, uuid, name, event: DlEvent } —— 单向错误上报，收进错误日志（runtime 库）
 //   { __dlRunStart: true, uuid, name, runId }    —— 运行标识广播：交对话界面监控按 tab 登记
 //
@@ -54,6 +56,7 @@ import {
   listGMKeys,
   getAllGMValues,
   appendUserScriptError,
+  recordRunEvent,
   recordRunStart,
 } from './store'
 // offscreen 容器就绪（SW 侧模块；dl-bridge 与 background 同属 SW，不触及 offscreen 专有 runtime API）
@@ -678,6 +681,56 @@ async function writeClipboardViaOffscreen(text?: string, html?: string): Promise
     }
   })
 }
+/** 事件摘要里 url / 文本的展示上限（超出截断：一行被超长 URL 撑爆就没法看了） */
+const EVENT_TEXT_MAX = 120
+
+/** 截到展示上限，尾部加省略号 */
+function clipText(s: string): string {
+  return s.length > EVENT_TEXT_MAX ? `${s.slice(0, EVENT_TEXT_MAX)}…` : s
+}
+
+/**
+ * 把一条 GM 请求收窄成「时间线上的一行」；返回 null = 这类命令不进时间线。
+ *
+ * 只收**有副作用 / 有外呼**的动作：读类（store.get / cookie.get / audio.getState…）与订阅类
+ * （watch / unwatch）高频且不改外部状态，采了只会把有信息量的埋掉。
+ *
+ * **摘要一律不含值本体**：GM 值的本体、剪贴板内容、请求体都可能是脚本私有数据或凭据 ——
+ * 时间线是给人看的观察面、不是数据副本，故只留「做了什么」的轮廓（键名 / 方法 + URL）。
+ *
+ * 纯函数（只读 req），便于单测直接枚举各命令。
+ */
+export function summarizeRunEvent(req: ApiRequest): { kind: string; detail: string } | null {
+  switch (req.c) {
+    case 'fetch':
+      return { kind: 'fetch', detail: clipText(`${(req.init?.method ?? 'GET').toUpperCase()} ${req.url}`) }
+    case 'download':
+      return { kind: 'download', detail: clipText(req.url) }
+    case 'notify':
+      return { kind: 'notify', detail: clipText(req.title || '通知') }
+    case 'tabs.open':
+      return { kind: 'tabs.open', detail: clipText(req.url) }
+    case 'clipboard.write':
+      return { kind: 'clipboard.write', detail: req.html ? '写入富文本剪贴板' : '写入剪贴板' }
+    case 'store.set':
+    case 'store.delete':
+      return { kind: req.c, detail: clipText(req.key) }
+    case 'store.setMany':
+      return { kind: 'store.setMany', detail: `${Object.keys(req.entries).length} 个键` }
+    case 'store.deleteMany':
+      return { kind: 'store.deleteMany', detail: `${req.keys.length} 个键` }
+    case 'tab.save':
+      return { kind: 'tab.save', detail: '保存标签页数据' }
+    case 'cookie.set':
+    case 'cookie.remove':
+      return { kind: req.c, detail: clipText(req.name) }
+    case 'menu.register':
+      return { kind: 'menu.register', detail: clipText(req.title) }
+    default:
+      return null
+  }
+}
+
 /** 按命令分发（已确认 __dl 标记与身份）。参数见 ApiRequest 契约注释 */
 async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.MessageSender): Promise<unknown> {
   const tabId = sender.tab?.id
@@ -939,6 +992,15 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
 
 let initialized = false
 
+/**
+ * uuid → 脚本名快照（运行广播时登记）。
+ *
+ * 服务于「自己不带可读脚本名」的观测记录：桥调用失败时手上只有 uuid，
+ * 不查这张表就只能把 uuid 填进 name 位，面板「全部」视图里那行会显示一串 uuid 而非脚本名。
+ * 尽力而为：广播即发即弃、扩展重载后表空，拿不到就由调用方回退 uuid。
+ */
+const scriptNameByUuid = new Map<string, string>()
+
 /** 注册 GM 桥监听（幂等：SW 闲置重启后会再次 init，避免重复监听） */
 export function initDlBridge(): void {
   if (initialized) return
@@ -989,6 +1051,8 @@ export function initDlBridge(): void {
         // 对话界面监控：SW 侧按 tab 登记运行集，浮层挂载时靠它出快照
         noteRunStart(tabId, run.uuid, run.runId)
       }
+      // 记下脚本名，供桥调用失败那类「自身不带脚本上下文」的记录复用
+      if (run.uuid && run.name) scriptNameByUuid.set(run.uuid, run.name)
       // 运行统计 + 运行日志（runtime 库 stats/runlog store，按脚本聚合落盘）：与 tab 无关，
       // 有无 tabId 都记；同一 runId 的 load 补播在写侧按 lastRunId 去重。失败不影响监控登记。
       // url / savedAt 是**载荷字段、非可信输入**（经页面可伪造的通道），故只做类型收窄：
@@ -1033,7 +1097,7 @@ export function initDlBridge(): void {
     }
 
     // 请求-响应
-    const msg = raw as { __dl?: true; uuid?: string; req?: ApiRequest }
+    const msg = raw as { __dl?: true; uuid?: string; runId?: string; req?: ApiRequest }
     if (!msg || msg.__dl !== true || !msg.req) {
       sendResponse({ ok: false, error: '非 DL 消息' } satisfies ApiResponse)
       return undefined
@@ -1052,6 +1116,14 @@ export function initDlBridge(): void {
       return undefined
     }
 
+    // 运行事件采集：把这次调用收窄成时间线上的一行（读类 / 订阅类返回 null，不入线）。
+    // 采集点在 dispatch 之前、且不看结果 —— 记的是「脚本发起了什么」；失败另有 phase:'bridge'
+    // 的错误行兜底。落盘失败静默：观察数据不该反过来影响脚本的调用。
+    if (msg.runId) {
+      const ev = summarizeRunEvent(msg.req)
+      if (ev) void recordRunEvent(uuid, msg.runId, { ...ev, time: Date.now() }).catch(() => {})
+    }
+
     void dispatch(uuid, msg.req, sender)
       .then((data) => {
         // 运行时值受契约约束（结构化克隆 + chrome.storage 兼容），这里收窄回 Json | void
@@ -1060,8 +1132,16 @@ export function initDlBridge(): void {
       .catch((e: unknown) => {
         const message = e instanceof Error ? e.message : String(e)
         const code = e instanceof ApiError ? e.code : 'INTERNAL'
-        // 桥调用失败也进错误日志（面板可见）
-        void appendUserScriptError({ uuid, name: uuid, phase: 'bridge', message }).catch(() => {})
+        // 桥调用失败也进错误日志（面板可见）。它发生在某次运行**之中**，故带上信封里的 runId
+        // 挂到那次运行下 —— 否则只能单列成孤儿行，看不出「脚本跑到哪一步挂的」。
+        // 脚本名取自运行广播登记的表（尽力而为：表空时回退 uuid）。
+        void appendUserScriptError({
+          uuid,
+          name: scriptNameByUuid.get(uuid) ?? uuid,
+          phase: 'bridge',
+          message,
+          ...(msg.runId ? { runId: msg.runId } : {}),
+        }).catch(() => {})
         sendResponse({ ok: false, error: message, code } satisfies ApiResponse)
       })
     return true // 保持消息通道打开，dispatch 完成后经 sendResponse 回传

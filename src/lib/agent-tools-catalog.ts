@@ -82,11 +82,12 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
     '工作台错误日志里每条错误旁都展示，前 8 位短形态）要求修复。返回错误详情（message / stack / ' +
     '报错页面 url）与脚本 uuid——uuid 可直接交给 script_read 读源码，改完带 updateUuid 调 script_apply 原地更新。',
   run_log_read:
-    '查询脚本的运行日志（最近的运行 + 每次运行报的错），按时间倒序。用于回答「这脚本到底跑没跑」' +
-    '「最近报什么错」——比 error_read 更主动：不必等用户粘贴错误 ID。' +
-    '每条运行行带所在页面 url 与源码版本 savedAt（可与 script_read 的 savedAt 比对，' +
-    '判断错误出自哪一版源码；不等即用户改了没保存、或保存后没刷新页面）。' +
-    '想聚焦某个脚本就传它的 uuid。',
+    '查询脚本的运行日志（最近的运行 + 每次运行报的错 + 运行期间的关键动作），按时间倒序。用于回答' +
+    '「这脚本到底跑没跑」「最近报什么错」「跑的路上干了什么、卡在哪一步」——比 error_read 更主动：不必等用户粘贴错误 ID。' +
+    '每条运行行带所在页面 url、源码版本 savedAt（可与 script_read 的 savedAt 比对，判断错误出自哪一版源码），' +
+    '以及运行期间的关键动作 events（网络请求 / 下载 / 写值等，只记摘要不记值）。' +
+    '运行已结束的还带 endedAt 与 endReason（navigated = 被导航顶掉 / closed = 标签页关闭）——' +
+    '缺它们表示还在跑或结束信号没赶上，不要臆断为「已结束」。想聚焦某个脚本就传它的 uuid。',
 }
 
 /** 参数 description 原文（zod `.describe()` 的文本，模型同样看得到）：UI 与运行时共用 */
@@ -340,7 +341,8 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
       },
     ],
     returns:
-      '{ ok:true, total, runs:[{ runId, uuid, name, time, url?, savedAt?, errors:[{ phase, message, stack?, url?, time }] }], ' +
+      '{ ok:true, total, runs:[{ runId, uuid, name, time, url?, savedAt?, endedAt?, endReason?, ' +
+      'events?:[{ kind, detail, time }], errors:[{ phase, message, stack?, url?, time }] }], ' +
       'orphanErrors:[{ uuid, name, phase, message, stack?, url?, time }] }',
     unavailable: '未接查询通道 → { ok:false, error }；没有记录时两个数组为空（不是错误）',
   },

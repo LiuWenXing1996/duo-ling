@@ -20,10 +20,23 @@ import { Button as UiButton } from '@/components/ui/button'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
   RUN_LOG_MAX,
+  type RunEndReason,
   type ScriptSummary,
   type UserScriptErrorRecord,
   type UserScriptRunLogRow
 } from '@/lib/userscripts/types'
+
+/** 时间线里的一行（运行内事件 / 运行期错误混排）；RunRow 见下 */
+type RunRow = Extract<UserScriptRunLogRow, { kind: 'run' }>
+interface TimelineItem {
+  kind: 'event' | 'error'
+  time: number
+  /** 事件才有：命令名与已脱敏的一行摘要 */
+  label: string
+  detail: string
+  /** 错误才有 */
+  record?: UserScriptErrorRecord
+}
 
 /** 深链定位：对话界面灵动岛「点击脚本行」→ workbench.html#/errors/<uuid> → 宿主传入。
  *  带 focusSeq（宿主每次定位请求递增）：标签页常驻不重挂，对同一脚本再点一次时
@@ -224,12 +237,63 @@ function phaseBadgeClass(p: UserScriptErrorRecord['phase']): string {
 function formatTime(t: number): string {
   return new Date(t).toLocaleString()
 }
-/** 错误 ID 展示短形态（前 8 位；复制按钮复制完整 id，供 AI 代查） */
-function shortErrorId(id: string): string {
-  return id.slice(0, 8)
+/** 时间线节点上的时刻：只到秒，日期在卡头已有，重复一遍是噪声 */
+function formatClock(t: number): string {
+  return new Date(t).toLocaleTimeString()
+}
+/** 存活时长：跨度可能从几秒到几小时，逐级降精度（秒 → 分秒 → 时分） */
+function formatDuration(ms: number): string {
+  const sec = Math.max(0, Math.round(ms / 1000))
+  if (sec < 60) return `${sec} 秒`
+  const min = Math.floor(sec / 60)
+  const rsec = sec % 60
+  if (min < 60) return rsec ? `${min} 分 ${rsec} 秒` : `${min} 分`
+  const hour = Math.floor(min / 60)
+  const rmin = min % 60
+  return rmin ? `${hour} 小时 ${rmin} 分` : `${hour} 小时`
+}
+const END_REASON_LABEL: Record<RunEndReason, string> = {
+  navigated: '页面导航离开',
+  closed: '标签页关闭'
+}
+/** 结束原因文案；endedAt 在而 endReason 缺（老记录/异常写入）时给中性说法，不猜 */
+function endReasonLabel(reason: RunEndReason | undefined): string {
+  return reason ? END_REASON_LABEL[reason] : '结束原因未记录'
+}
+
+/** 一次运行的节点流：运行内事件恒显示，错误仅在展开时并入（避免默认刷屏），按发生时刻升序 */
+function timelineOf(row: RunRow, withErrors: boolean): TimelineItem[] {
+  const items: TimelineItem[] = (row.events ?? []).map((e) => ({
+    kind: 'event',
+    time: e.time,
+    label: e.kind,
+    detail: e.detail
+  }))
+  if (withErrors) {
+    for (const e of row.errors) {
+      items.push({ kind: 'error', time: e.time, label: '', detail: '', record: e })
+    }
+  }
+  return items.sort((a, b) => a.time - b.time)
+}
+
+/** runId → 该次运行的节点流（展开态一并算，模板直接取，避免在渲染里反复算） */
+const timelineByRunId = computed<Map<string, TimelineItem[]>>(() => {
+  const expanded = expandedRunIds.value
+  const m = new Map<string, TimelineItem[]>()
+  for (const r of rows.value) {
+    if (r.kind !== 'run') continue
+    m.set(r.runId, timelineOf(r, expanded.has(r.runId)))
+  }
+  return m
+})
+/** 错误 ID 展示短形态（前 8 位；复制按钮复制完整 id，供 AI 代查）。容忍 undefined：时间线节点上取 record 是可选的 */
+function shortErrorId(id: string | undefined): string {
+  return id ? id.slice(0, 8) : ''
 }
 const copiedErrorId = ref('')
-async function copyErrorId(id: string): Promise<void> {
+async function copyErrorId(id: string | undefined): Promise<void> {
+  if (!id) return
   try {
     await navigator.clipboard.writeText(id)
     copiedErrorId.value = id
@@ -443,7 +507,7 @@ onMounted(() => {
             脚本「{{ navItems.find((i) => i.key === selectedKey)?.name }}」暂未运行。启用并访问命中的页面后，每次运行都会记在这里。
           </p>
 
-          <ul v-if="rows.length" class="mt-2 flex flex-col gap-2">
+          <ul v-if="rows.length" class="run-log-timeline mt-2 flex flex-col gap-2">
             <li v-for="row in visibleRows" :key="row.kind === 'run' ? row.runId : row.record.id">
               <!-- 运行行：一次页面加载一条，出错可展开明细 -->
               <div v-if="row.kind === 'run'" class="rounded-md border bg-card p-3 text-xs">
@@ -470,48 +534,89 @@ onMounted(() => {
                   >
                     {{ expandedRunIds.has(row.runId) ? '收起 · ' : '' }}{{ row.errors.length }} 个错误
                   </button>
+                  <!-- 只陈述「没挂错误」这一事实：运行日志没有结束状态，「正常结束」会暗示脚本跑完了 -->
                   <span
                     v-else
                     class="text-[10px] text-muted-foreground"
-                    :title="`runId：${row.runId}`"
+                    :title="`这次运行没有报错（runId：${row.runId}）`"
                   >
-                    正常结束
+                    无错误
                   </span>
                 </div>
                 <!-- 运行所在页面：与错误行的 url 同一形态（单行截断，hover 看全量）；老记录没有则不渲染 -->
                 <p v-if="row.url" class="mt-1 truncate text-muted-foreground" :title="row.url">
                   {{ row.url }}
                 </p>
-                <!-- 展开的错误明细 -->
-                <div v-if="row.kind === 'run' && expandedRunIds.has(row.runId)" class="mt-2 flex flex-col gap-1.5">
-                  <div
-                    v-for="e in row.errors"
-                    :key="e.id"
-                    class="rounded border border-destructive/20 p-2"
+                <!-- 运行时间线：脚本过桥做过的事（事件）与报的错（展开时并入）按时刻混排 -->
+                <ul
+                  v-if="timelineByRunId.get(row.runId)?.length"
+                  class="mt-2 flex flex-col gap-1.5"
+                >
+                  <li
+                    v-for="(item, i) in timelineByRunId.get(row.runId) ?? []"
+                    :key="i"
+                    class="flex items-start gap-1.5"
                   >
-                    <div class="flex flex-wrap items-center gap-1.5">
-                      <span class="text-muted-foreground">{{ formatTime(e.time) }}</span>
-                      <button
-                        type="button"
-                        class="ml-auto flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted"
-                        :title="`复制完整错误 ID（发给 AI 可自动查询修复）：${e.id}`"
-                        @click="copyErrorId(e.id)"
-                      >
-                        <ui-check v-if="copiedErrorId === e.id" class="size-3 text-green-600" />
-                        <ui-copy v-else class="size-3" />
-                        {{ shortErrorId(e.id) }}
-                      </button>
-                    </div>
-                    <p class="mt-1 break-all text-destructive">{{ e.message }}</p>
-                    <p v-if="e.url" class="mt-0.5 truncate text-muted-foreground" :title="e.url">
-                      {{ e.url }}
-                    </p>
-                    <pre
-                      v-if="e.stack"
-                      class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-[11px] leading-relaxed"
-                    >{{ e.stack }}</pre>
-                  </div>
-                </div>
+                    <!-- 事件节点：灰点 + 时刻 + 命令名 + 一行摘要（摘要已脱敏，可安全展示） -->
+                    <template v-if="item.kind === 'event'">
+                      <span class="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/40" />
+                      <span class="shrink-0 tabular-nums text-muted-foreground">
+                        {{ formatClock(item.time) }}
+                      </span>
+                      <span class="shrink-0 font-mono text-muted-foreground">{{ item.label }}</span>
+                      <span class="min-w-0 flex-1 truncate" :title="item.detail">{{ item.detail }}</span>
+                    </template>
+                    <!-- 错误节点：红色点 + 时刻 + message，附可复制 ID 与栈 -->
+                    <template v-else>
+                      <span class="mt-1.5 size-1.5 shrink-0 rounded-full bg-destructive" />
+                      <span class="shrink-0 tabular-nums text-muted-foreground">
+                        {{ formatClock(item.time) }}
+                      </span>
+                      <div class="min-w-0 flex-1">
+                        <div class="flex flex-wrap items-start gap-1.5">
+                          <span class="min-w-0 flex-1 break-all text-destructive">
+                            {{ item.record?.message }}
+                          </span>
+                          <button
+                            type="button"
+                            class="flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted"
+                            :title="`复制完整错误 ID（发给 AI 可自动查询修复）：${item.record?.id}`"
+                            @click="copyErrorId(item.record?.id)"
+                          >
+                            <ui-check
+                              v-if="copiedErrorId === item.record?.id"
+                              class="size-3 text-green-600"
+                            />
+                            <ui-copy v-else class="size-3" />
+                            {{ shortErrorId(item.record?.id) }}
+                          </button>
+                        </div>
+                        <p
+                          v-if="item.record?.url"
+                          class="truncate text-muted-foreground"
+                          :title="item.record.url"
+                        >
+                          {{ item.record.url }}
+                        </p>
+                        <pre
+                          v-if="item.record?.stack"
+                          class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-[11px] leading-relaxed"
+                        >{{ item.record.stack }}</pre>
+                      </div>
+                    </template>
+                  </li>
+                </ul>
+                <!-- 结束节点：只有真收到结束信号才画——老记录与仍在跑的都没有 endedAt，一律沉默，不臆断「结束了」 -->
+                <p
+                  v-if="row.endedAt"
+                  class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border pt-2 text-[10px] text-muted-foreground"
+                >
+                  <span class="size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
+                  <span>
+                    已结束 · {{ endReasonLabel(row.endReason) }} · 存活
+                    {{ formatDuration(row.endedAt - row.time) }}
+                  </span>
+                </p>
               </div>
 
               <!-- 孤儿错误行：无运行上下文（注册/桥失败）或所属运行已滑出环形 -->

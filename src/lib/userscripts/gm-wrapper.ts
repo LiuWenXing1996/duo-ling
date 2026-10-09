@@ -203,7 +203,8 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
 
   // —— 桥请求：超时与传输都归 __dlBridge 管（见 bridge-protocol），这里只解释响应语义 ——
   function __gmSend(req) {
-    return __dlBridge.call(req).then(function (resp) {
+    // 随请求带上运行标识：SW 据此把这次调用产生的事件 / 桥错误归属到具体某次运行
+    return __dlBridge.call(req, __gmRunId).then(function (resp) {
       if (!resp) {
         var e = new Error('GM 调用无响应：' + (req && req.c))
         e.code = 'BRIDGE_NO_RESPONSE'

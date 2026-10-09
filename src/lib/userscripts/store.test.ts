@@ -15,14 +15,16 @@ import {
   listRunTimeline,
   listSummaries,
   listUserScriptErrors,
+  markRunEnd,
   onGmValueChange,
+  recordRunEvent,
   recordRunStart,
   setGMValue,
   withRunStats,
 } from './store'
 import { clearAllForTests as clearRuntime, getStats } from './runtime-db'
 import { clearAllForTests as clearUsdata } from './usdata-db'
-import { RUN_LOG_MAX, type ScriptProject } from './types'
+import { RUN_EVENT_MAX, RUN_LOG_MAX, type ScriptProject } from './types'
 
 beforeEach(async () => {
   await Promise.all([clearUsdata(), clearRuntime()])
@@ -424,5 +426,50 @@ describe('运行日志（runtime 库 runlog 环形 + listRunTimeline 时间线�
     const rows = await listRunTimeline()
     expect(rows.some((r) => r.kind === 'run' && r.uuid === 'u1')).toBe(false)
     expect(rows.some((r) => r.kind === 'run' && r.uuid === 'u2')).toBe(true)
+  })
+
+  it('recordRunEvent：事件按 runId 追加到所属运行条目；归属不到的运行不补造记录', async () => {
+    await recordRunStart('u1', 'r1', '甲')
+    await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: 'GET https://a.test/', time: 1100 })
+    await recordRunEvent('u1', 'r1', { kind: 'store.set', detail: 'token', time: 1200 })
+    await recordRunEvent('u1', 'gone', { kind: 'fetch', detail: 'x', time: 1300 }) // 环形已挤掉 / 未登记
+
+    const rows = await listRunTimeline()
+    const r1 = rows.find((r) => r.kind === 'run' && r.runId === 'r1')
+    if (!r1 || r1.kind !== 'run') throw new Error('运行行缺失')
+    expect(r1.events?.map((e) => e.kind)).toEqual(['fetch', 'store.set'])
+    expect(rows.filter((r) => r.kind === 'run')).toHaveLength(1) // 没为 'gone' 补造一条
+  })
+
+  it('recordRunEvent：超过 RUN_EVENT_MAX 停止收集，末条为截断标记', async () => {
+    await recordRunStart('u1', 'r1', '甲')
+    for (let i = 0; i < RUN_EVENT_MAX + 5; i++) {
+      await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: `u${i}`, time: 1000 + i })
+    }
+    const rows = await listRunTimeline()
+    const r1 = rows.find((r) => r.kind === 'run' && r.runId === 'r1')
+    if (!r1 || r1.kind !== 'run') throw new Error('运行行缺失')
+    expect(r1.events).toHaveLength(RUN_EVENT_MAX)
+    expect(r1.events?.[RUN_EVENT_MAX - 1]?.kind).toBe('truncated')
+  })
+
+  it('markRunEnd：给结束的运行盖戳；已带 endedAt 的不再改写（幂等），其余保持「还在跑」', async () => {
+    const nowSpy = vi.spyOn(Date, 'now')
+    nowSpy.mockReturnValue(5000)
+    await recordRunStart('u1', 'r1', '甲')
+    await recordRunStart('u2', 'r2', '乙')
+    await markRunEnd(['r1'], 'navigated')
+    nowSpy.mockReturnValue(9999)
+    await markRunEnd(['r1'], 'closed') // 幂等：首次的结束戳与原因不被覆盖
+    await markRunEnd(['gone'], 'closed') // 环形已挤掉：no-op
+    nowSpy.mockRestore()
+
+    const rows = await listRunTimeline()
+    const r1 = rows.find((r) => r.kind === 'run' && r.runId === 'r1')
+    const r2 = rows.find((r) => r.kind === 'run' && r.runId === 'r2')
+    if (!r1 || r1.kind !== 'run' || !r2 || r2.kind !== 'run') throw new Error('运行行缺失')
+    expect(r1.endedAt).toBe(5000)
+    expect(r1.endReason).toBe('navigated')
+    expect(r2.endedAt).toBeUndefined() // 不在这次结束集里 = 还在跑
   })
 })

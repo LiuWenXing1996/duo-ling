@@ -10,10 +10,13 @@
 // 写入后发。
 import {
   ERROR_LOG_MAX,
+  RUN_EVENT_MAX,
   RUN_LOG_MAX,
+  type RunEndReason,
   type ScriptProject,
   type ScriptSummary,
   type UserScriptErrorRecord,
+  type UserScriptRunEvent,
   type UserScriptRunLogEntry,
   type UserScriptRunLogRow,
   type UserScriptRunStats,
@@ -328,6 +331,68 @@ export function recordRunStart(
 }
 
 /**
+ * 追加一条运行内事件（dl-bridge 的 dispatch 采集后调用）。
+ *
+ * 事件内嵌在所属运行日志条目里，故按 runId 找到那条记录就地追加；找不到（已被环形挤掉、
+ * 或该次运行压根没登记）即 no-op —— 事件是观察数据，不值得为它补造一条运行记录。
+ * 追加到 RUN_EVENT_MAX 后停止收集，只把末条替换成一次截断标记，让面板能说明「还有更多」。
+ */
+export function recordRunEvent(uuid: string, runId: string, event: UserScriptRunEvent): Promise<void> {
+  return runtime
+    .mutateRunLog((log) => {
+      const idx = log.findIndex((r) => r.runId === runId)
+      if (idx < 0) return null
+      const cur = log[idx]
+      const events = cur.events ?? []
+      if (events.length >= RUN_EVENT_MAX) {
+        // 到上限后只在末条还守着旧事件时改写一次；已经是截断标记就不再写
+        if (events[events.length - 1]?.kind === 'truncated') return null
+        const capped: UserScriptRunEvent[] = [
+          ...events.slice(0, RUN_EVENT_MAX - 1),
+          { kind: 'truncated', detail: '事件过多，后续已省略', time: event.time },
+        ]
+        const logNext = [...log]
+        logNext[idx] = { ...cur, events: capped }
+        return logNext
+      }
+      const logNext = [...log]
+      logNext[idx] = { ...cur, events: [...events, event] }
+      return logNext
+    })
+    .then((changed) => {
+      if (changed) broadcastDataChange('runstats', uuid)
+    })
+}
+
+/**
+ * 回写一批运行的结束（文档被导航替换 / 标签页被关时调用，见 background 的 tabs 监听）。
+ *
+ * 结束信号来自 tab 事件，此刻该次运行的记录**可能已被环形挤掉**（连开数百次页面），
+ * 找不到就 no-op。已带 endedAt 的条目不再改写（幂等），避免事件重入把时长越算越长。
+ *
+ * @param runIds 同一个 tab 当时跑着的全部运行（一个页面可能同时跑多个脚本）
+ * @param reason 结束原因；与 endedAt 一起写入，成对出现
+ */
+export function markRunEnd(runIds: string[], reason: RunEndReason): Promise<void> {
+  if (!runIds.length) return Promise.resolve()
+  const ids = new Set(runIds)
+  const endedAt = Date.now()
+  return runtime
+    .mutateRunLog((log) => {
+      let touched = false
+      const logNext = log.map((r) => {
+        if (!ids.has(r.runId) || r.endedAt != null) return r
+        touched = true
+        return { ...r, endedAt, endReason: reason }
+      })
+      return touched ? logNext : null
+    })
+    .then((changed) => {
+      if (changed) broadcastDataChange('runstats')
+    })
+}
+
+/**
  * 运行期错误计入「最近一次运行」的错误数（appendUserScriptError 的汇合点调用）。
  * 仅当错误带 uuid + runId 且 runId 与最近一次运行一致才计数——旧运行的迟到错误、
  * register/bridge 类无运行上下文的错误都不算（后者不是「脚本运行挂了」）。
@@ -393,9 +458,12 @@ export async function listRunTimeline(): Promise<UserScriptRunLogRow[]> {
       uuid: r.uuid,
       name: r.name,
       time: r.time,
-      // 老记录没有这两个字段：缺了就整条不写，保持「无值 = 字段不存在」的一致口径
+      // 老记录没有这些字段：缺了就整条不写，保持「无值 = 字段不存在」的一致口径
       ...(r.url != null ? { url: r.url } : {}),
       ...(r.savedAt != null ? { savedAt: r.savedAt } : {}),
+      ...(r.events?.length ? { events: r.events } : {}),
+      ...(r.endedAt != null ? { endedAt: r.endedAt } : {}),
+      ...(r.endReason != null ? { endReason: r.endReason } : {}),
       errors: byRun.get(r.runId) ?? [],
     })),
     ...loose.map((e) => ({ kind: 'error' as const, record: e })),

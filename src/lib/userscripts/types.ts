@@ -170,7 +170,8 @@ export interface UserScriptErrorRecord {
    * 运行标识：**一次页面加载 = 一个 runId**（GM 包装注入即 mint，见 gm-wrapper 的 buildGmWrapperSource）。
    * 用途：日志是全量环形（历次运行混存），对话界面页面监控只显「本次运行」的错误——
    * 按当前 tab 登记的运行集里有没有该 runId 来判定。
-   * `register`（注册失败）与 `bridge`（桥调用失败）没有页面/运行上下文，恒为 null / 缺省。
+   * `register`（注册失败）发生在任何一次运行之前，恒为 null / 缺省；
+   * `bridge`（桥调用失败）由请求信封带回运行标识（见 ApiRequest 的信封约定），能挂到触发它的那次运行上。
    */
   runId?: string | null
 }
@@ -185,6 +186,13 @@ export interface UserScriptErrorRecord {
 export const ERROR_LOG_MAX = 50
 /** 运行日志环形上限：全局混存（跨脚本按时间排），超过后只留最近 N 条 */
 export const RUN_LOG_MAX = 500
+/**
+ * 单次运行的事件上限：达到后丢弃后续事件，并把末条换成截断标记。
+ *
+ * 运行事件**内嵌在所属运行日志条目里**（见 UserScriptRunLogEntry.events），不另立环形——
+ * 故上限卡在这条边上：防一次失控运行（循环里发请求）把单条记录撑爆、连带拖慢整条 runlog 的读改写。
+ */
+export const RUN_EVENT_MAX = 30
 
 /**
  * 脚本运行统计（duoling-runtime 库 stats store，keyPath uuid；写侧 store.ts，SW 独占）。
@@ -207,12 +215,39 @@ export interface UserScriptRunStats {
 }
 
 /**
+ * 一次运行期间脚本做过的关键动作（网络 / 下载 / 通知 / 写值…）。
+ *
+ * 时间线若只有「开始」加挂上来的错误，脚本中途干了什么、卡在哪一步就看不见 ——
+ * 对不使用 devtools 的用户，工作台是唯一的信息面，这类动作必须落在能显示的地方。
+ *
+ * **只记摘要、不记值**：detail 是一行可读文本（method + url、键名…），不含 GM 值的本体、
+ * 剪贴板内容与请求体 —— 那些是脚本私有数据，时间线是观察面而不是数据副本。
+ */
+export interface UserScriptRunEvent {
+  /** 事件族（即 GM 命令名，如 fetch / download / store.set） */
+  kind: string
+  /** 一行摘要（已脱敏，可直接展示） */
+  detail: string
+  /** 发生时刻（ms） */
+  time: number
+}
+
+/**
+ * 运行结束原因。结束信号来自文档销毁，故只有两种：
+ * navigated = 新文档导航顶掉了它；closed = 标签页被关。
+ *
+ * 它描述的是**文档生命周期的终结**，不等于「脚本跑完了」——同步部分早就跑完的脚本
+ * 在页面上会一直挂到导航离开，那时记的也是 navigated。
+ */
+export type RunEndReason = 'navigated' | 'closed'
+
+/**
  * 运行日志条目（runtime 库 runlog store，全局环形按时间排；写侧 store.ts，SW 独占）。
- * 只记「一次运行发生了」——错误明细不复制进这里，仍在 errors store 按 runId 关联；
+ * 记「一次运行从加载到文档销毁发生了什么」——错误明细不复制进这里，仍在 errors store 按 runId 关联；
  * name 是落盘时的快照（脚本删除后日志条目仍可读）。
  *
- * url / savedAt **可缺省**：本字段落地前写入的记录没有它们，读侧一律按可选处理，
- * 不因缺字段判记录无效。
+ * 除 runId / uuid / name / time 外**全部可缺省**：这些字段落地前写入的记录没有它们，
+ * 读侧一律按可选处理，不因缺字段判记录无效。
  */
 export interface UserScriptRunLogEntry {
   runId: string
@@ -233,6 +268,16 @@ export interface UserScriptRunLogEntry {
    * 而读源码拿到的是**已提交版本**——靠这个值才能判断错误出自哪一版源码。
    */
   savedAt?: number
+  /** 运行内事件（上限 RUN_EVENT_MAX，超出后末条为截断标记） */
+  events?: UserScriptRunEvent[]
+  /**
+   * 运行结束时刻（ms）：文档被导航替换或标签页关闭时回写。
+   * 缺省 = 还在跑，或结束信号没赶上（SW 已被回收 / 扩展重载，那时登记表已空）——
+   * UI 据此不显示时长，而不是当作 0。
+   */
+  endedAt?: number
+  /** 结束原因（见 RunEndReason）；与 endedAt 同来同往，成对出现 */
+  endReason?: RunEndReason
 }
 
 /**
@@ -252,6 +297,11 @@ export type UserScriptRunLogRow =
       url?: string
       /** 注入时的源码版本（见 UserScriptRunLogEntry；老记录缺省） */
       savedAt?: number
+      /** 运行内事件（见 UserScriptRunLogEntry；老记录与尚未产生事件的运行缺省） */
+      events?: UserScriptRunEvent[]
+      /** 结束时刻与原因（见 UserScriptRunLogEntry；未结束或结束信号没赶上时缺省） */
+      endedAt?: number
+      endReason?: RunEndReason
       errors: UserScriptErrorRecord[]
     }
   | { kind: 'error'; record: UserScriptErrorRecord }

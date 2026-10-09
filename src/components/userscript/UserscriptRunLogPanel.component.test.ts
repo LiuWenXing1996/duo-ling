@@ -6,8 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import UserscriptRunLogPanel from './UserscriptRunLogPanel.vue'
 import type {
+  RunEndReason,
   ScriptSummary,
   UserScriptErrorRecord,
+  UserScriptRunEvent,
   UserScriptRunLogRow
 } from '@/lib/userscripts/types'
 
@@ -40,6 +42,9 @@ function runRow(over: {
   time?: number
   url?: string
   savedAt?: number
+  events?: UserScriptRunEvent[]
+  endedAt?: number
+  endReason?: RunEndReason
   errors?: UserScriptErrorRecord[]
 }): UserScriptRunLogRow {
   return {
@@ -48,9 +53,11 @@ function runRow(over: {
     uuid: over.uuid,
     name: over.name ?? '某脚本',
     time: over.time ?? 500,
-    // 老记录没有这两个字段：缺了就整条不写（与 listRunTimeline 的口径一致）
+    // 老记录没有这些字段：缺了就整条不写（与 listRunTimeline 的口径一致）
     ...(over.url != null ? { url: over.url } : {}),
     ...(over.savedAt != null ? { savedAt: over.savedAt } : {}),
+    ...(over.events ? { events: over.events } : {}),
+    ...(over.endedAt != null ? { endedAt: over.endedAt, endReason: over.endReason } : {}),
     errors: over.errors ?? [],
   }
 }
@@ -94,7 +101,7 @@ async function clickClear(): Promise<void> {
 }
 
 /** 右栏时间线文本（不含左栏导航——导航里永远列着全部脚本名，断言行内容时必须排除） */
-const timelineText = () => wrapper.find('ul').text()
+const timelineText = () => wrapper.find('.run-log-timeline').text()
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -107,7 +114,7 @@ afterEach(() => {
 })
 
 describe('UserscriptRunLogPanel 时间线', () => {
-  it('运行行按数据顺序渲染（倒序由 listRunTimeline 保证）；无错误的运行标「正常结束」', async () => {
+  it('运行行按数据顺序渲染（倒序由 listRunTimeline 保证）；无错误的运行标「无错误」', async () => {
     runlog.mockResolvedValue([
       runRow({ runId: 'r2', uuid: 'u1', name: '脚本A', time: 300 }),
       runRow({ runId: 'r1', uuid: 'u2', name: '脚本B', time: 100 }),
@@ -116,7 +123,9 @@ describe('UserscriptRunLogPanel 时间线', () => {
 
     expect(wrapper.text()).toContain('脚本A')
     expect(wrapper.text()).toContain('脚本B')
-    expect(wrapper.text()).toContain('正常结束')
+    // 只陈述「没挂错误」，不暗示脚本跑完了（运行日志没有结束状态）
+    expect(wrapper.text()).toContain('无错误')
+    expect(wrapper.text()).not.toContain('正常结束')
     // 无错误时不渲染错误徽标
     expect(wrapper.text()).not.toContain('个错误')
   })
@@ -128,7 +137,7 @@ describe('UserscriptRunLogPanel 时间线', () => {
     ])
     wrapper = await mountPanel()
 
-    const items = wrapper.findAll('ul > li')
+    const items = wrapper.findAll('.run-log-timeline > li')
     expect(items[0].text()).toContain('https://a.example/x')
     expect(items[1].text()).not.toContain('https://')
   })
@@ -147,7 +156,7 @@ describe('UserscriptRunLogPanel 时间线', () => {
     ])
     wrapper = await mountPanel()
 
-    const items = wrapper.findAll('ul > li')
+    const items = wrapper.findAll('.run-log-timeline > li')
     expect(items[0].text()).toContain('旧版源码')
     expect(items[1].text()).not.toContain('旧版源码')
     expect(items[2].text()).not.toContain('旧版源码')
@@ -177,6 +186,65 @@ describe('UserscriptRunLogPanel 时间线', () => {
     await toggle!.trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('boom-stack')
+  })
+
+  it('运行时间线：事件恒显示（摘要已脱敏）；错误仅在展开时并入同一列表', async () => {
+    runlog.mockResolvedValue([
+      runRow({
+        runId: 'r1',
+        uuid: 'u1',
+        name: '脚本A',
+        time: 1000,
+        events: [
+          { kind: 'fetch', detail: 'GET https://a.example/api', time: 1200 },
+          { kind: 'store.set', detail: 'token', time: 1400 },
+        ],
+        errors: [
+          rec({ uuid: 'u1', name: '脚本A', phase: 'runtime', message: 'boom-late', time: 1300 }),
+        ],
+      }),
+    ])
+    wrapper = await mountPanel()
+
+    const before = timelineText()
+    expect(before).toContain('fetch')
+    expect(before).toContain('GET https://a.example/api')
+    expect(before).toContain('store.set')
+    // 默认不并入错误（避免刷屏）
+    expect(before).not.toContain('boom-late')
+
+    const toggle = wrapper.findAll('button').find((b) => b.text().includes('个错误'))
+    await toggle!.trigger('click')
+    await flushPromises()
+
+    // 展开后错误并入同一时间线，并按时刻排在两条事件之间
+    const after = timelineText()
+    expect(after).toContain('boom-late')
+    expect(after.indexOf('fetch')).toBeLessThan(after.indexOf('boom-late'))
+    expect(after.indexOf('boom-late')).toBeLessThan(after.indexOf('store.set'))
+  })
+
+  it('结束节点：有 endedAt 才画（含原因与存活时长）；老记录与仍在跑的沉默', async () => {
+    runlog.mockResolvedValue([
+      runRow({
+        runId: 'r1',
+        uuid: 'u1',
+        name: '脚本A',
+        time: 1000,
+        endedAt: 96_000,
+        endReason: 'navigated',
+      }),
+      runRow({ runId: 'r2', uuid: 'u2', name: '脚本B', time: 2000 }),
+    ])
+    wrapper = await mountPanel()
+
+    const items = wrapper.findAll('.run-log-timeline > li')
+    expect(items[0].text()).toContain('已结束')
+    expect(items[0].text()).toContain('页面导航离开')
+    expect(items[0].text()).toContain('1 分 35 秒')
+    // 无 endedAt：不臆断「结束了」，也不编造时长
+    expect(items[1].text()).not.toContain('已结束')
+    expect(items[1].text()).not.toContain('存活')
   })
 
   it('左栏过滤：全部 / 未归属（仅当有孤儿错误）/ 各脚本，选中后右栏只剩该范围', async () => {
@@ -249,7 +317,7 @@ describe('UserscriptRunLogPanel 时间线', () => {
     wrapper = await mountPanel({ focusUuid: 'u2' })
 
     // 单脚本视图刻意不重复显示脚本名（showNameInRows），断言只剩该脚本的一行
-    expect(wrapper.findAll('ul > li')).toHaveLength(1)
+    expect(wrapper.findAll('.run-log-timeline > li')).toHaveLength(1)
   })
 
   it('深链目标在列表里但暂无日志 → 落到该脚本的空视图（左栏同样可见、不静默无反应）', async () => {
@@ -262,7 +330,7 @@ describe('UserscriptRunLogPanel 时间线', () => {
     // 左栏里有这个脚本（含尚无日志的），且右栏给一句空提示
     expect(navNames()).toContain('脚本Z')
     expect(wrapper.text()).toContain('脚本「脚本Z」暂未运行')
-    expect(wrapper.findAll('ul > li')).toHaveLength(0)
+    expect(wrapper.findAll('.run-log-timeline > li')).toHaveLength(0)
   })
 
   it('深链目标既不在日志也不在列表（已彻底删除）→ 落「全部」并说明一句', async () => {

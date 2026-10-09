@@ -73,6 +73,7 @@ import {
   findUserScriptError,
   listRunTimeline,
   clearRunLog,
+  markRunEnd,
 } from '@/lib/userscripts/store'
 // 对话界面页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口 —— 工具栏角标的数字就是它
 import {
@@ -97,7 +98,13 @@ import {
 import { listConversations } from '@/lib/conversation-store'
 // 「popup 能不能给这个页面挂浮层」的判据（scheme 那一半）：页面概览只收普通网页
 import { webHostname } from '@/lib/float-panel-host'
-import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
+import type {
+  ImportReport,
+  RunEndReason,
+  ScriptProject,
+  ScriptSummary,
+  UserScriptsAvailability,
+} from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主）
 import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady } from '@/lib/offscreen'
@@ -910,13 +917,31 @@ function mountProposal2Listeners(): void {
   // 角标不做持久化，也不自己维护计数 —— 数字永远是登记表现算出来的。
   onPageRunsChanged(() => refreshBadge())
 
+  /**
+   * 给某标签页此刻跑着的运行盖上结束戳（导航替换 / 标签页关闭）。
+   * 必须在 resetPageRuns / forgetPageTab **之前**调用 —— 那两步一执行，登记表里就查不到 runId 了。
+   * 落盘失败静默：这是观察数据，不该反过来影响标签页的正常收尾。
+   */
+  function endRunsOfTab(tabId: number, reason: RunEndReason): void {
+    const runs = [...(pageRunsByTab.get(tabId)?.values() ?? [])]
+    if (!runs.length) return
+    void markRunEnd(
+      runs.map((r) => r.runId),
+      reason,
+    ).catch(() => {})
+  }
+
   // 对话界面监控：新文档导航开始 = 旧文档销毁，该 tab 的运行集清零。
   // 刻意用 status=loading（文档替换的准确时点），SPA 软导航只改 url、不换文档，不清。
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo.status === 'loading') resetPageRuns(tabId)
+    if (changeInfo.status === 'loading') {
+      endRunsOfTab(tabId, 'navigated')
+      resetPageRuns(tabId)
+    }
   })
 
   chrome.tabs.onRemoved.addListener((tabId) => {
+    endRunsOfTab(tabId, 'closed')
     forgetPageTab(tabId)
     // 归属收尾：按映射找到那条会话并**中止它的任务**，再解绑。
     // 面板没开的时候标签页照样会被关，只有常驻的 SW 不漏，所以这一步必须在这里做

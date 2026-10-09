@@ -463,6 +463,28 @@ describe('run_log_read（运行日志查询）', () => {
     const out = buildRunLogView([mkRun()], undefined, 20)
     expect(out.runs[0]).not.toHaveProperty('url')
     expect(out.runs[0]).not.toHaveProperty('savedAt')
+    // 未结束 / 无事件同理：缺字段 = 无从判断，不写 undefined 占位
+    expect(out.runs[0]).not.toHaveProperty('endedAt')
+    expect(out.runs[0]).not.toHaveProperty('events')
+  })
+
+  it('结束信息与运行事件随行透出（endedAt 与 endReason 成对出现）', () => {
+    const out = buildRunLogView(
+      [
+        mkRun({
+          endedAt: 999,
+          endReason: 'closed',
+          events: [{ kind: 'fetch', detail: 'GET https://a.example/', time: 120 }],
+        }),
+      ],
+      undefined,
+      20,
+    )
+    expect(out.runs[0]).toMatchObject({
+      endedAt: 999,
+      endReason: 'closed',
+      events: [{ kind: 'fetch', detail: 'GET https://a.example/', time: 120 }],
+    })
   })
 
   it('limit 只截运行行、total 仍是全量（模型据此知道还有更多）', () => {

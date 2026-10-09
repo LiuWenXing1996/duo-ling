@@ -463,7 +463,8 @@ function toErrorView(e: UserScriptErrorRecord): Record<string, unknown> {
  * 三条裁剪口径：
  *   · uuid 给定时只留该脚本 —— 运行行按 row.uuid 过、孤错行按 record.uuid 过，两条都要，
  *     漏掉后者会让「只看这个脚本」丢掉它那些 runId 已滑出环形的错误；
- *   · runs 取最近 max 条（时间线本身已时间倒序，不重排），每条挂的运行期错误随行带走；
+ *   · runs 取最近 max 条（时间线本身已时间倒序，不重排），每条挂的运行期错误随行带走，
+ *     并透出 endedAt / endReason / events（后两者可缺省，缺就不写该字段）。
  *   · 无法归属到任何运行行的错误单独进 orphanErrors —— 混进 runs 会被读成
  *     「这次运行报了它」。这类记录本就少（全局错误环形上限即天然上界），故不截断。
  *
@@ -497,7 +498,11 @@ export function buildRunLogView(
       time: r.time,
       ...(r.url != null ? { url: r.url } : {}),
       ...(r.savedAt != null ? { savedAt: r.savedAt } : {}),
+      // 结束信息成对透出：缺 = 还在跑或结束信号没赶上，模型据此不臆断「已结束」
+      ...(r.endedAt != null ? { endedAt: r.endedAt, endReason: r.endReason } : {}),
       errors: r.errors.map(toErrorView),
+      // 事件形状本就是展示用的（kind / detail / time，detail 已脱敏），直接透传
+      ...(r.events?.length ? { events: r.events } : {}),
     })),
     orphanErrors: mineOrphans.map((r) => toErrorView(r.record)),
   }
