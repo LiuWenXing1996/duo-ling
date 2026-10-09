@@ -38,6 +38,8 @@ function runRow(over: {
   uuid: string
   name?: string
   time?: number
+  url?: string
+  savedAt?: number
   errors?: UserScriptErrorRecord[]
 }): UserScriptRunLogRow {
   return {
@@ -46,6 +48,9 @@ function runRow(over: {
     uuid: over.uuid,
     name: over.name ?? '某脚本',
     time: over.time ?? 500,
+    // 老记录没有这两个字段：缺了就整条不写（与 listRunTimeline 的口径一致）
+    ...(over.url != null ? { url: over.url } : {}),
+    ...(over.savedAt != null ? { savedAt: over.savedAt } : {}),
     errors: over.errors ?? [],
   }
 }
@@ -54,8 +59,8 @@ function errRow(recOver: Partial<UserScriptErrorRecord> & { message: string }): 
   return { kind: 'error', record: rec(recOver) }
 }
 
-function summary(uuid: string, name: string): ScriptSummary {
-  return { uuid, name, enabled: true, matches: [], savedAt: 0, group: '' }
+function summary(uuid: string, name: string, savedAt = 0): ScriptSummary {
+  return { uuid, name, enabled: true, matches: [], savedAt, group: '' }
 }
 
 let wrapper: VueWrapper
@@ -114,6 +119,39 @@ describe('UserscriptRunLogPanel 时间线', () => {
     expect(wrapper.text()).toContain('正常结束')
     // 无错误时不渲染错误徽标
     expect(wrapper.text()).not.toContain('个错误')
+  })
+
+  it('运行行显示运行所在页面；老记录没有 url 就不多出一行', async () => {
+    runlog.mockResolvedValue([
+      runRow({ runId: 'r1', uuid: 'u1', name: '脚本A', url: 'https://a.example/x' }),
+      runRow({ runId: 'r2', uuid: 'u2', name: '脚本B' }),
+    ])
+    wrapper = await mountPanel()
+
+    const items = wrapper.findAll('ul > li')
+    expect(items[0].text()).toContain('https://a.example/x')
+    expect(items[1].text()).not.toContain('https://')
+  })
+
+  it('运行跑的源码版本与脚本当前已保存的版本不一致 → 标「旧版源码」（无从判断的一律不标）', async () => {
+    runlog.mockResolvedValue([
+      runRow({ runId: 'r1', uuid: 'u1', name: '脚本A', savedAt: 100 }),
+      runRow({ runId: 'r2', uuid: 'u2', name: '脚本B', savedAt: 200 }),
+      runRow({ runId: 'r3', uuid: 'u3', name: '脚本C' }), // 老记录：没有 savedAt
+      runRow({ runId: 'r4', uuid: 'u4', name: '脚本D', savedAt: 300 }), // 脚本已删：列表里没有
+    ])
+    list.mockResolvedValue([
+      summary('u1', '脚本A', 999), // 那之后又被改过
+      summary('u2', '脚本B', 200), // 与运行时刻一致
+      summary('u3', '脚本C', 500),
+    ])
+    wrapper = await mountPanel()
+
+    const items = wrapper.findAll('ul > li')
+    expect(items[0].text()).toContain('旧版源码')
+    expect(items[1].text()).not.toContain('旧版源码')
+    expect(items[2].text()).not.toContain('旧版源码')
+    expect(items[3].text()).not.toContain('旧版源码')
   })
 
   it('有错误的运行显示错误数徽标，点开看明细；孤儿错误行带阶段徽标与信息', async () => {

@@ -129,6 +129,27 @@ const navItems = computed<NavItem[]>(() => {
   return [...items, ...logItems, ...noLogItems]
 })
 
+/** 脚本 uuid → 当前已保存源码的版本时刻（ScriptSummary.savedAt），用于判断某次运行跑的是哪一版 */
+const currentSavedAtByUuid = computed<Map<string, number>>(() => {
+  const m = new Map<string, number>()
+  for (const s of scriptList.value) m.set(s.uuid, s.savedAt)
+  return m
+})
+
+/**
+ * 这次运行跑的是不是「已经不是当前那一版」的源码：运行行记的 savedAt 与脚本现在已保存的版本不同。
+ * 脚本已删 / 脚本列表还没拉到 / 老记录没有 savedAt —— 都无从判断，一律不提示（宁可不标，不误报）。
+ */
+function ranStaleSource(row: { uuid: string; savedAt?: number }): boolean {
+  if (row.savedAt == null) return false
+  const now = currentSavedAtByUuid.value.get(row.uuid)
+  return now != null && now !== row.savedAt
+}
+
+function staleSourceHint(row: { savedAt?: number }): string {
+  return `页面里跑的是 ${formatTime(row.savedAt ?? 0)} 保存的源码；脚本在那之后又被改过`
+}
+
 /** 当前选中的是某个具体脚本、且其时间线为空（只在单脚本视图下给一句空提示，全部/未归属不提示） */
 const selectedScriptEmpty = computed(
   () =>
@@ -430,6 +451,14 @@ onMounted(() => {
                   <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                     运行
                   </span>
+                  <!-- 跑的源码已不是当前这一版：只有比对得出「不一致」时才标，一致时不必占位 -->
+                  <span
+                    v-if="ranStaleSource(row)"
+                    class="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                    :title="staleSourceHint(row)"
+                  >
+                    旧版源码
+                  </span>
                   <span v-if="showNameInRows" class="truncate font-medium">{{ row.name || row.uuid.slice(0, 8) }}</span>
                   <span class="text-muted-foreground">{{ formatTime(row.time) }}</span>
                   <button
@@ -449,6 +478,10 @@ onMounted(() => {
                     正常结束
                   </span>
                 </div>
+                <!-- 运行所在页面：与错误行的 url 同一形态（单行截断，hover 看全量）；老记录没有则不渲染 -->
+                <p v-if="row.url" class="mt-1 truncate text-muted-foreground" :title="row.url">
+                  {{ row.url }}
+                </p>
                 <!-- 展开的错误明细 -->
                 <div v-if="row.kind === 'run' && expandedRunIds.has(row.runId)" class="mt-2 flex flex-col gap-1.5">
                   <div
