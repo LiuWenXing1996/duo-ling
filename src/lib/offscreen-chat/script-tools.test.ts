@@ -2,12 +2,17 @@
 // 「`element_read` 工具可拉全量属性 / outerHTML / parent 链（单测覆盖工具）」）。
 import { describe, expect, it, vi } from 'vitest'
 import {
+  buildRunEventsView,
   buildRunLogView,
   buildScriptTools,
   type NetCaptureHooks,
   type TaskWorkspace,
 } from './script-tools'
-import type { UserScriptErrorRecord, UserScriptRunLogRow } from '@/lib/userscripts/types'
+import type {
+  UserScriptErrorRecord,
+  UserScriptRunEvent,
+  UserScriptRunLogRow,
+} from '@/lib/userscripts/types'
 import type { ElementPickContext } from '@/shared/extension-ipc'
 
 // us-git 顶层 import 会实例化 lightning-fs（Node 无 indexedDB → 未处理 rejection）→ 一并 mock
@@ -463,28 +468,22 @@ describe('run_log_read（运行日志查询）', () => {
     const out = buildRunLogView([mkRun()], undefined, 20)
     expect(out.runs[0]).not.toHaveProperty('url')
     expect(out.runs[0]).not.toHaveProperty('savedAt')
-    // 未结束 / 无事件同理：缺字段 = 无从判断，不写 undefined 占位
+    // 未结束 / 无动作同理：缺字段 = 无从判断，不写 undefined 占位
     expect(out.runs[0]).not.toHaveProperty('endedAt')
+    expect(out.runs[0]).not.toHaveProperty('eventCount')
+    // 动作明细从不随列表返回（要带 runId 再拉），这里永远没有 events
     expect(out.runs[0]).not.toHaveProperty('events')
   })
 
-  it('结束信息与运行事件随行透出（endedAt 与 endReason 成对出现）', () => {
+  it('结束信息与动作数随行透出（endedAt 与 endReason 成对出现；明细不随行）', () => {
     const out = buildRunLogView(
-      [
-        mkRun({
-          endedAt: 999,
-          endReason: 'closed',
-          events: [{ kind: 'fetch', detail: 'GET https://a.example/', time: 120 }],
-        }),
-      ],
+      [mkRun({ endedAt: 999, endReason: 'closed', eventCount: 3 })],
       undefined,
       20,
     )
-    expect(out.runs[0]).toMatchObject({
-      endedAt: 999,
-      endReason: 'closed',
-      events: [{ kind: 'fetch', detail: 'GET https://a.example/', time: 120 }],
-    })
+    expect(out.runs[0]).toMatchObject({ endedAt: 999, endReason: 'closed', eventCount: 3 })
+    // 动作明细要带 runId 再拉（buildRunEventsView），列表里不带
+    expect(out.runs[0]).not.toHaveProperty('events')
   })
 
   it('limit 只截运行行、total 仍是全量（模型据此知道还有更多）', () => {
@@ -528,6 +527,50 @@ describe('run_log_read（运行日志查询）', () => {
       string,
       unknown
     >
+    expect(out.ok).toBe(false)
+    expect(String(out.error)).toContain('不可用')
+  })
+
+  it('buildRunEventsView：动作按 runId 返回，超 max 收窄并给出实存条数', () => {
+    const events: UserScriptRunEvent[] = [
+      { kind: 'fetch', detail: 'GET /a', time: 1 },
+      { kind: 'store.set', detail: 'token', time: 2 },
+      { kind: 'notify', detail: '标题', time: 3 },
+    ]
+    const out = buildRunEventsView('r1', events, 2)
+    expect(out.ok).toBe(true)
+    expect(out.runId).toBe('r1')
+    expect(out.total).toBe(3)
+    expect(out.events.map((e) => e.kind)).toEqual(['fetch', 'store.set'])
+  })
+
+  it('run_log_read 带 runId：改走动作通道，返回该次运行的动作明细', async () => {
+    const tools = buildScriptTools(
+      makeWorkspace(),
+      async () => {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async () => [{ kind: 'fetch', detail: 'GET /a', time: 1 }],
+    )
+    const out = (await tools.run_log_read.execute(
+      { runId: 'r1', limit: 20 },
+      execOpts as never,
+    )) as unknown as Record<string, unknown>
+    expect(out.ok).toBe(true)
+    expect(out.runId).toBe('r1')
+    expect(out.events).toEqual([{ kind: 'fetch', detail: 'GET /a', time: 1 }])
+  })
+
+  it('run_log_read 带 runId 但未接动作通道：ok=false 带可读错误（不抛）', async () => {
+    const tools = buildScriptTools(makeWorkspace(), async () => {})
+    const out = (await tools.run_log_read.execute(
+      { runId: 'r1', limit: 20 },
+      execOpts as never,
+    )) as unknown as Record<string, unknown>
     expect(out.ok).toBe(false)
     expect(String(out.error)).toContain('不可用')
   })

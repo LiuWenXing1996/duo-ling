@@ -1053,7 +1053,7 @@ export function initDlBridge(): void {
       }
       // 记下脚本名，供桥调用失败那类「自身不带脚本上下文」的记录复用
       if (run.uuid && run.name) scriptNameByUuid.set(run.uuid, run.name)
-      // 运行统计 + 运行日志（runtime 库 stats/runlog store，按脚本聚合落盘）：与 tab 无关，
+      // 运行统计 + 运行条目（runtime 库 stats / runs store，按脚本聚合落盘）：与 tab 无关，
       // 有无 tabId 都记；同一 runId 的 load 补播在写侧按 lastRunId 去重。失败不影响监控登记。
       // url / savedAt 是**载荷字段、非可信输入**（经页面可伪造的通道），故只做类型收窄：
       // 形状不对就当没传——它们只是给日志多两条定位线索，不值得为它拦下这次记账。

@@ -13,7 +13,7 @@
 // 来自 userscripts/types.ts，那是纯类型 + 纯函数模块，不碰任何 chrome API。
 import type { ModelProfileState, PageSnapshotContext, RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
-import type { ScriptConfig, UserScriptRunLogRow } from '@/lib/userscripts/types'
+import type { ScriptConfig, UserScriptRunEvent, UserScriptRunLogRow } from '@/lib/userscripts/types'
 import type { NetRecordSession } from '@/lib/userscripts/net-record-protocol'
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 
@@ -86,6 +86,14 @@ export const offscreenBridge = {
    * 裁剪交给调用方：SW 一侧只认「全量时间线」这一个语义。
    */
   readRunLog: (): Promise<UserScriptRunLogRow[]> => send({ kind: 'userscript:runlog' }),
+
+  /**
+   * 读某次运行的运行内事件（AI 的 run_log_read 带 runId 时用）。
+   * 事件单独一表：时间线列表不再随行返回——跟随运行数全量读会线性膨胀，
+   * 看哪一次才拉哪一次。
+   */
+  readRunEvents: (runId: string): Promise<UserScriptRunEvent[]> =>
+    send({ kind: 'userscript:runEvents', runId }),
 
   /**
    * 网络录制 · 读回某站点已录的接口语料（net_capture_read 工具 + 常驻 prompt 摘要档）。

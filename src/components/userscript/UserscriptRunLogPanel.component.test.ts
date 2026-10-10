@@ -14,11 +14,12 @@ import type {
 } from '@/lib/userscripts/types'
 
 const runlog = vi.hoisted(() => vi.fn())
+const runEvents = vi.hoisted(() => vi.fn())
 const clearErrors = vi.hoisted(() => vi.fn())
 const list = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/userscripts/ui-client', () => ({
-  userscriptClient: { runlog, clearErrors, list },
+  userscriptClient: { runlog, runEvents, clearErrors, list },
 }))
 
 let seq = 0
@@ -42,7 +43,7 @@ function runRow(over: {
   time?: number
   url?: string
   savedAt?: number
-  events?: UserScriptRunEvent[]
+  eventCount?: number
   endedAt?: number
   endReason?: RunEndReason
   errors?: UserScriptErrorRecord[]
@@ -56,7 +57,8 @@ function runRow(over: {
     // 老记录没有这些字段：缺了就整条不写（与 listRunTimeline 的口径一致）
     ...(over.url != null ? { url: over.url } : {}),
     ...(over.savedAt != null ? { savedAt: over.savedAt } : {}),
-    ...(over.events ? { events: over.events } : {}),
+    // 动作明细不在这一行返回（要展开才拉），行上只有计数
+    ...(over.eventCount != null ? { eventCount: over.eventCount } : {}),
     ...(over.endedAt != null ? { endedAt: over.endedAt, endReason: over.endReason } : {}),
     errors: over.errors ?? [],
   }
@@ -107,6 +109,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   clearErrors.mockResolvedValue(undefined)
   list.mockResolvedValue([])
+  runEvents.mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -181,47 +184,67 @@ describe('UserscriptRunLogPanel 时间线', () => {
     expect(wrapper.text()).toContain('注册失败详情')
     expect(wrapper.text()).not.toContain('boom-stack')
 
-    // 点徽标展开：错误明细（message）可见
-    const toggle = wrapper.findAll('button').find((b) => b.text().includes('个错误'))
+    // 点「展开」：错误明细（message）可见
+    const toggle = wrapper.findAll('button').find((b) => b.text() === '展开')
     await toggle!.trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('boom-stack')
   })
 
-  it('运行时间线：事件恒显示（摘要已脱敏）；错误仅在展开时并入同一列表', async () => {
+  it('动作明细按需拉：折叠时不请求，展开才调 runEvents，且与错误按时刻混排', async () => {
     runlog.mockResolvedValue([
       runRow({
         runId: 'r1',
         uuid: 'u1',
         name: '脚本A',
         time: 1000,
-        events: [
-          { kind: 'fetch', detail: 'GET https://a.example/api', time: 1200 },
-          { kind: 'store.set', detail: 'token', time: 1400 },
-        ],
+        eventCount: 2,
         errors: [
           rec({ uuid: 'u1', name: '脚本A', phase: 'runtime', message: 'boom-late', time: 1300 }),
         ],
       }),
     ])
+    runEvents.mockResolvedValue([
+      { kind: 'fetch', detail: 'GET https://a.example/api', time: 1200 },
+      { kind: 'store.set', detail: 'token', time: 1400 },
+    ] satisfies UserScriptRunEvent[])
     wrapper = await mountPanel()
 
+    // 列表不带动作明细（事件单独一表）：折叠时既看不到内容，也不该去拉
     const before = timelineText()
-    expect(before).toContain('fetch')
-    expect(before).toContain('GET https://a.example/api')
-    expect(before).toContain('store.set')
-    // 默认不并入错误（避免刷屏）
+    expect(before).not.toContain('fetch')
     expect(before).not.toContain('boom-late')
+    expect(wrapper.text()).toContain('2 个动作')
+    expect(runEvents).not.toHaveBeenCalled()
 
-    const toggle = wrapper.findAll('button').find((b) => b.text().includes('个错误'))
+    const toggle = wrapper.findAll('button').find((b) => b.text() === '展开')
     await toggle!.trigger('click')
     await flushPromises()
 
-    // 展开后错误并入同一时间线，并按时刻排在两条事件之间
+    // 展开那一刻才按 runId 拉；事件与错误并入同一条时间线，按时刻排
+    expect(runEvents).toHaveBeenCalledWith('r1')
     const after = timelineText()
+    expect(after).toContain('fetch')
+    expect(after).toContain('GET https://a.example/api')
+    expect(after).toContain('store.set')
     expect(after).toContain('boom-late')
     expect(after.indexOf('fetch')).toBeLessThan(after.indexOf('boom-late'))
     expect(after.indexOf('boom-late')).toBeLessThan(after.indexOf('store.set'))
+  })
+
+  it('动作超单次运行上限：展开后说明「还有 N 个已省略」', async () => {
+    runlog.mockResolvedValue([runRow({ runId: 'r1', uuid: 'u1', name: '脚本A', eventCount: 5 })])
+    runEvents.mockResolvedValue([
+      { kind: 'fetch', detail: 'GET /a', time: 1 },
+    ] satisfies UserScriptRunEvent[])
+    wrapper = await mountPanel()
+
+    const toggle = wrapper.findAll('button').find((b) => b.text() === '展开')
+    await toggle!.trigger('click')
+    await flushPromises()
+
+    // 计数 5 而实存 1 条 → 差额就是被上限省略掉的部分
+    expect(wrapper.text()).toContain('还有 4 个动作已省略')
   })
 
   it('结束节点：有 endedAt 才画（含原因与存活时长）；老记录与仍在跑的沉默', async () => {

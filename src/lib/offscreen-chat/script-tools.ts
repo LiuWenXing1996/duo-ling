@@ -25,7 +25,12 @@ import { normalizeHost } from '@/lib/userscripts/net-record-protocol'
 import { readSource } from '@/lib/userscripts/us-git'
 import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
 import { defaultConfig } from '@/lib/userscripts/types'
-import type { ScriptConfig, UserScriptErrorRecord, UserScriptRunLogRow } from '@/lib/userscripts/types'
+import type {
+  ScriptConfig,
+  UserScriptErrorRecord,
+  UserScriptRunEvent,
+  UserScriptRunLogRow,
+} from '@/lib/userscripts/types'
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
@@ -112,6 +117,7 @@ function checkSyntax(code: string): string | null {
  * captureSnapshot：页面快照采集（经 SW 调 userScripts.execute，AI 判断需要时调用；未提供 = 工具返回不可用）。
  * netCapture：接口录制（requestConsent 出同意卡 / read 读回语料；未提供 = 工具返回不可用）。
  * readRunLog：运行日志读取（SW 侧 duoling-runtime 库，offscreen 拿不到；未提供 = 工具返回不可用）。
+ * readRunEvents：某次运行的动作明细（同一通道，按 runId 拉；未提供 = 工具返回不可用）。
  */
 export function buildScriptTools(
   ws: TaskWorkspace,
@@ -122,6 +128,7 @@ export function buildScriptTools(
   readError?: (id: string) => Promise<UserScriptErrorLookup>,
   netCapture?: NetCaptureHooks,
   readRunLog?: () => Promise<UserScriptRunLogRow[]>,
+  readRunEvents?: (runId: string) => Promise<UserScriptRunEvent[]>,
 ) {
   const tools = {
     script_spec: tool({
@@ -410,6 +417,7 @@ export function buildScriptTools(
       description: TOOL_DESCRIPTIONS.run_log_read,
       inputSchema: z.object({
         uuid: z.string().optional().describe(TOOL_PARAM_DESCRIPTIONS.run_log_read.uuid),
+        runId: z.string().optional().describe(TOOL_PARAM_DESCRIPTIONS.run_log_read.runId),
         limit: z
           .number()
           .int()
@@ -417,7 +425,19 @@ export function buildScriptTools(
           .default(AGENT_RUNTIME_LIMITS.runLogReadDefault)
           .describe(TOOL_PARAM_DESCRIPTIONS.run_log_read.limit),
       }),
-      execute: async ({ uuid, limit }) => {
+      execute: async ({ uuid, runId, limit }) => {
+        // 带 runId = 看这一次运行做过的事。动作单独一表、不随运行行列表返回，故单开一条读路径
+        if (runId) {
+          if (!readRunEvents) {
+            return { ok: false, error: '运行动作通道不可用' }
+          }
+          try {
+            const events = await readRunEvents(runId)
+            return buildRunEventsView(runId, events, AGENT_RUNTIME_LIMITS.runEventsReadMax)
+          } catch (e) {
+            return { ok: false, error: e instanceof Error ? e.message : String(e) }
+          }
+        }
         if (!readRunLog) {
           return { ok: false, error: '运行日志通道不可用' }
         }
@@ -464,9 +484,12 @@ function toErrorView(e: UserScriptErrorRecord): Record<string, unknown> {
  *   · uuid 给定时只留该脚本 —— 运行行按 row.uuid 过、孤错行按 record.uuid 过，两条都要，
  *     漏掉后者会让「只看这个脚本」丢掉它那些 runId 已滑出环形的错误；
  *   · runs 取最近 max 条（时间线本身已时间倒序，不重排），每条挂的运行期错误随行带走，
- *     并透出 endedAt / endReason / events（后两者可缺省，缺就不写该字段）。
+ *     并透出 endedAt / endReason / eventCount（都可缺省，缺就不写该字段）。
  *   · 无法归属到任何运行行的错误单独进 orphanErrors —— 混进 runs 会被读成
  *     「这次运行报了它」。这类记录本就少（全局错误环形上限即天然上界），故不截断。
+ *
+ * **不带动作明细**：动作单独一表，跟随运行数全量读会线性膨胀；运行行只给 eventCount，
+ * 模型据此挑出要看的那一次，再带 runId 调一次拿明细（buildRunEventsView）。
  *
  * total = 裁剪前的运行行总数，模型据此知道还有更多、需要时调大 limit。
  */
@@ -500,10 +523,35 @@ export function buildRunLogView(
       ...(r.savedAt != null ? { savedAt: r.savedAt } : {}),
       // 结束信息成对透出：缺 = 还在跑或结束信号没赶上，模型据此不臆断「已结束」
       ...(r.endedAt != null ? { endedAt: r.endedAt, endReason: r.endReason } : {}),
+      // 动作数：这次运行一共做过多少次过桥调用（明细要带 runId 再拉一次）
+      ...(r.eventCount != null ? { eventCount: r.eventCount } : {}),
       errors: r.errors.map(toErrorView),
-      // 事件形状本就是展示用的（kind / detail / time，detail 已脱敏），直接透传
-      ...(r.events?.length ? { events: r.events } : {}),
     })),
     orphanErrors: mineOrphans.map((r) => toErrorView(r.record)),
+  }
+}
+
+/**
+ * 某次运行的动作明细 → 给模型看的一块（run_log_read 带 runId 时的返回值；独立成函数便于单测）。
+ *
+ * max 条封顶：单次运行的落盘上限（RUN_EVENT_MAX）是 1000 条，全给模型太费 token。
+ * total 是这次运行实际落盘的动作条数（触顶时小于「收到总数」，差额即被省略的部分）。
+ */
+export function buildRunEventsView(
+  runId: string,
+  events: UserScriptRunEvent[],
+  max: number,
+): {
+  ok: true
+  runId: string
+  total: number
+  events: { kind: string; detail: string; time: number }[]
+} {
+  return {
+    ok: true,
+    runId,
+    total: events.length,
+    // 形状本就是展示用的（kind / detail / time，detail 已脱敏），直接透传
+    events: events.slice(0, max).map((e) => ({ kind: e.kind, detail: e.detail, time: e.time })),
   }
 }

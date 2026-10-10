@@ -72,6 +72,7 @@ import {
   appendUserScriptError,
   findUserScriptError,
   listRunTimeline,
+  listRunEvents,
   clearRunLog,
   markRunEnd,
 } from '@/lib/userscripts/store'
@@ -540,6 +541,10 @@ const handlers: {
   // 运行日志时间线：运行行 + 孤儿错误行混排（运行日志标签页）
   'userscript:runlog': async (): Promise<ReturnType<typeof listRunTimeline>> => listRunTimeline(),
 
+  // 某次运行的运行内事件（面板展开卡片时按需拉；AI 的 run_log_read 带 runId 时同路）
+  'userscript:runEvents': async (msg): Promise<ReturnType<typeof listRunEvents>> =>
+    listRunEvents(msg.runId),
+
   // 错误 ID 修复闭环：AI 的 error_read 工具经 offscreenBridge 到此代查。
   // 精确 id 或唯一 8 位前缀；多命中 / 不存在由信封里的 reason 区分（调用方给可读文案）
   'userscript:errorRead': async (msg): Promise<ReturnType<typeof findUserScriptError>> =>
@@ -611,7 +616,7 @@ const handlers: {
     return { host }
   },
 
-  // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清运行日志 runlog store 的对应条目——
+  // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清 runs store 的对应条目——
   // 时间线上「清空」应一条语义清两个存储，否则运行行清不掉）。三态必须靠「字段在不在」区分
   // （`!msg.uuid` 会把「未归属」误判成「全部」）：
   //   字段缺失 = 清全部；string = 只清该脚本；null = 只清「未归属」错误记录（run-log 无此形态，不动）

@@ -12,6 +12,7 @@ import {
   findUserScriptError,
   getGMValue,
   listGMKeys,
+  listRunEvents,
   listRunTimeline,
   listSummaries,
   listUserScriptErrors,
@@ -353,7 +354,7 @@ describe('运行统计（runtime 库 stats store，按脚本聚合计数）', ()
   })
 })
 
-describe('运行日志（runtime 库 runlog 环形 + listRunTimeline 时间线）', () => {
+describe('运行日志（runs store 环形 + run_events 事件 + listRunTimeline 时间线）', () => {
   it('每次运行记一条日志（含名字快照）；补播去重不重复记', async () => {
     await recordRunStart('u1', 'r1', '脚本甲')
     await recordRunStart('u2', 'r9', '脚本乙')
@@ -428,20 +429,25 @@ describe('运行日志（runtime 库 runlog 环形 + listRunTimeline 时间线�
     expect(rows.some((r) => r.kind === 'run' && r.uuid === 'u2')).toBe(true)
   })
 
-  it('recordRunEvent：事件按 runId 追加到所属运行条目；归属不到的运行不补造记录', async () => {
+  it('recordRunEvent：事件落在独立的事件表，运行行只带计数；归属不到的运行不补造记录', async () => {
     await recordRunStart('u1', 'r1', '甲')
     await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: 'GET https://a.test/', time: 1100 })
     await recordRunEvent('u1', 'r1', { kind: 'store.set', detail: 'token', time: 1200 })
     await recordRunEvent('u1', 'gone', { kind: 'fetch', detail: 'x', time: 1300 }) // 环形已挤掉 / 未登记
 
+    // 事件单独一表：时间线不带明细，只在运行行上带计数
     const rows = await listRunTimeline()
     const r1 = rows.find((r) => r.kind === 'run' && r.runId === 'r1')
     if (!r1 || r1.kind !== 'run') throw new Error('运行行缺失')
-    expect(r1.events?.map((e) => e.kind)).toEqual(['fetch', 'store.set'])
+    expect(r1.eventCount).toBe(2)
+    expect(r1.events).toBeUndefined()
     expect(rows.filter((r) => r.kind === 'run')).toHaveLength(1) // 没为 'gone' 补造一条
+    // 明细按 runId 单拉
+    expect((await listRunEvents('r1')).map((e) => e.kind)).toEqual(['fetch', 'store.set'])
+    expect(await listRunEvents('gone')).toEqual([])
   })
 
-  it('recordRunEvent：超过 RUN_EVENT_MAX 停止收集，末条为截断标记', async () => {
+  it('recordRunEvent：超过 RUN_EVENT_MAX 后不再落盘事件，计数继续涨（读侧据此看出被截断）', async () => {
     await recordRunStart('u1', 'r1', '甲')
     for (let i = 0; i < RUN_EVENT_MAX + 5; i++) {
       await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: `u${i}`, time: 1000 + i })
@@ -449,8 +455,9 @@ describe('运行日志（runtime 库 runlog 环形 + listRunTimeline 时间线�
     const rows = await listRunTimeline()
     const r1 = rows.find((r) => r.kind === 'run' && r.runId === 'r1')
     if (!r1 || r1.kind !== 'run') throw new Error('运行行缺失')
-    expect(r1.events).toHaveLength(RUN_EVENT_MAX)
-    expect(r1.events?.[RUN_EVENT_MAX - 1]?.kind).toBe('truncated')
+    expect(await listRunEvents('r1')).toHaveLength(RUN_EVENT_MAX)
+    // 计数是「收到总数」，大于实存条数 —— 面板与 AI 靠这个差额说明「还有更多已省略」
+    expect(r1.eventCount).toBe(RUN_EVENT_MAX + 5)
   })
 
   it('markRunEnd：给结束的运行盖戳；已带 endedAt 的不再改写（幂等），其余保持「还在跑」', async () => {
@@ -471,5 +478,44 @@ describe('运行日志（runtime 库 runlog 环形 + listRunTimeline 时间线�
     expect(r1.endedAt).toBe(5000)
     expect(r1.endReason).toBe('navigated')
     expect(r2.endedAt).toBeUndefined() // 不在这次结束集里 = 还在跑
+  })
+
+  it('级联删除：运行条被挤出环形时，它的事件一并消失（不留孤儿事件）', async () => {
+    await recordRunStart('u1', 'oldest', '甲')
+    await recordRunEvent('u1', 'oldest', { kind: 'fetch', detail: 'x', time: 1 })
+    // 塞满环形：最旧那条被挤出，它的事件必须同事务删掉
+    for (let i = 0; i < RUN_LOG_MAX; i++) await recordRunStart('u1', `r${i}`, '甲')
+
+    expect((await listRunTimeline()).some((r) => r.kind === 'run' && r.runId === 'oldest')).toBe(false)
+    expect(await listRunEvents('oldest')).toEqual([])
+  })
+
+  it('级联删除：clearRunLog(该脚本) 带走它的运行条与事件，另一个脚本的不动', async () => {
+    await recordRunStart('u1', 'r1', '甲')
+    await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: 'x', time: 1 })
+    await recordRunStart('u2', 'r2', '乙')
+    await recordRunEvent('u2', 'r2', { kind: 'fetch', detail: 'y', time: 2 })
+
+    await clearRunLog('u1')
+    expect(await listRunEvents('r1')).toEqual([])
+    expect(await listRunEvents('r2')).toHaveLength(1)
+  })
+
+  it('级联删除：clearRunLog() 清全部时事件也一并清空', async () => {
+    await recordRunStart('u1', 'r1', '甲')
+    await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: 'x', time: 1 })
+
+    await clearRunLog()
+    expect(await listRunEvents('r1')).toEqual([])
+    expect(await listRunTimeline()).toHaveLength(0)
+  })
+
+  it('级联删除：clearRunStats（删脚本）连带清掉运行条与事件', async () => {
+    await recordRunStart('u1', 'r1', '甲')
+    await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: 'x', time: 1 })
+
+    await clearRunStats('u1')
+    expect(await listRunEvents('r1')).toEqual([])
+    expect(await listRunTimeline()).toHaveLength(0)
   })
 })

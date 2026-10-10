@@ -187,19 +187,20 @@ export const ERROR_LOG_MAX = 50
 /** 运行日志环形上限：全局混存（跨脚本按时间排），超过后只留最近 N 条 */
 export const RUN_LOG_MAX = 500
 /**
- * 单次运行的事件上限：达到后丢弃后续事件，并把末条换成截断标记。
+ * 单次运行的事件上限：达到后不再落盘后续事件，只在运行条目的 eventCount 上继续累计。
  *
- * 运行事件**内嵌在所属运行日志条目里**（见 UserScriptRunLogEntry.events），不另立环形——
- * 故上限卡在这条边上：防一次失控运行（循环里发请求）把单条记录撑爆、连带拖慢整条 runlog 的读改写。
+ * 事件逐条落在 run_events store（见 runtime-db.ts），追加是 O(1)，上限不再受写放大绑架——
+ * 数值只由「存得下多少」与「读侧一次拉多少」决定。触顶本身是有用信号：
+ * 正常脚本一次运行几次到几十次调用，刷到上限说明它在循环里反复发。
  */
-export const RUN_EVENT_MAX = 30
+export const RUN_EVENT_MAX = 1000
 
 /**
  * 脚本运行统计（duoling-runtime 库 stats store，keyPath uuid；写侧 store.ts，SW 独占）。
  *
- * 聚合计数器（总次数 / 最后运行时间 / 最近一次运行的错误数），与运行日志（runlog store）
- * **并进同一事务写入**（store.recordRunStart 经 runtime-db.mutateStatsAndLog）——每次页面
- * 加载仍只付一次存储事务，写放大不因逐条日志翻倍。
+ * 聚合计数器（总次数 / 最后运行时间 / 最近一次运行的错误数），与运行条目（runs store）
+ * **并进同一事务写入**（store.recordRunStart 经 runtime-db.startRun）——每次页面
+ * 加载仍只付一次存储事务，逐条落盘不额外放大写入。
  * 「最近错误数」口径 = 最近一次运行（runId 相同）捕获的运行期错误数：新运行开始时清零，
  * 旧运行的迟到错误（runId 对不上）不计入（运行日志里按 runId 关联展示）。
  */
@@ -222,6 +223,9 @@ export interface UserScriptRunStats {
  *
  * **只记摘要、不记值**：detail 是一行可读文本（method + url、键名…），不含 GM 值的本体、
  * 剪贴板内容与请求体 —— 那些是脚本私有数据，时间线是观察面而不是数据副本。
+ *
+ * 一条事件一条记录，落在 run_events store（按 runId 索引，见 runtime-db.ts）：不内嵌在
+ * 运行条目里，故列表读取不带它们——展开某次运行时才按 runId 拉那一组。
  */
 export interface UserScriptRunEvent {
   /** 事件族（即 GM 命令名，如 fetch / download / store.set） */
@@ -242,8 +246,9 @@ export interface UserScriptRunEvent {
 export type RunEndReason = 'navigated' | 'closed'
 
 /**
- * 运行日志条目（runtime 库 runlog store，全局环形按时间排；写侧 store.ts，SW 独占）。
- * 记「一次运行从加载到文档销毁发生了什么」——错误明细不复制进这里，仍在 errors store 按 runId 关联；
+ * 运行条目（runtime 库 runs store，keyPath runId；写侧 store.ts，SW 独占）。
+ * 记「一次运行从加载到文档销毁发生了什么」——错误明细在 errors store 按 runId 关联、
+ * 动作明细在 run_events store 按 runId 索引，两边都不复制进本条目；
  * name 是落盘时的快照（脚本删除后日志条目仍可读）。
  *
  * 除 runId / uuid / name / time 外**全部可缺省**：这些字段落地前写入的记录没有它们，
@@ -268,8 +273,13 @@ export interface UserScriptRunLogEntry {
    * 而读源码拿到的是**已提交版本**——靠这个值才能判断错误出自哪一版源码。
    */
   savedAt?: number
-  /** 运行内事件（上限 RUN_EVENT_MAX，超出后末条为截断标记） */
-  events?: UserScriptRunEvent[]
+  /**
+   * 本次运行收到的事件数（超过 RUN_EVENT_MAX 后仍在涨）。
+   * 事件本体逐条落在 run_events store（按 runId 索引），本条目只留计数：
+   * 列表视图靠它显示「N 个动作」，也靠它判断哪次运行值得展开；超过上限时
+   * 计数大于实存条数，读侧据此说明「还有更多已省略」。
+   */
+  eventCount?: number
   /**
    * 运行结束时刻（ms）：文档被导航替换或标签页关闭时回写。
    * 缺省 = 还在跑，或结束信号没赶上（SW 已被回收 / 扩展重载，那时登记表已空）——
@@ -282,7 +292,8 @@ export interface UserScriptRunLogEntry {
 
 /**
  * 运行日志时间线的一行（listRunTimeline 的产物，UI 直接渲染）。
- * 运行行 = runlog store 的一次运行，其运行期错误按 runId 挂在 errors 上（可展开看明细）；
+ * 运行行 = runs store 的一次运行，其运行期错误按 runId 挂在 errors 上（可展开看明细），
+ * 运行内事件不在本行返回、展开时才按 runId 拉（见该类型的 events 字段）；
  * 错误行 = 无法归属到时间线内任何一次运行的错误（无 runId 的注册/桥错误，
  * 或该 runId 的运行已滑出环形）——单独成行，不丢。
  */
@@ -297,7 +308,12 @@ export type UserScriptRunLogRow =
       url?: string
       /** 注入时的源码版本（见 UserScriptRunLogEntry；老记录缺省） */
       savedAt?: number
-      /** 运行内事件（见 UserScriptRunLogEntry；老记录与尚未产生事件的运行缺省） */
+      /** 本次运行收到的事件数（见 UserScriptRunLogEntry.eventCount） */
+      eventCount?: number
+      /**
+       * 运行内事件。listRunTimeline **不填**这个字段——事件单独一表，跟随运行数全量读会
+       * 线性膨胀（500 次运行 × 上限 1000 条）；展开某次运行时才经 store.listRunEvents 拉一次。
+       */
       events?: UserScriptRunEvent[]
       /** 结束时刻与原因（见 UserScriptRunLogEntry；未结束或结束信号没赶上时缺省） */
       endedAt?: number

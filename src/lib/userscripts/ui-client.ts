@@ -6,7 +6,7 @@
 // 直接发 userscript:* 命令组（v2 方案）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
-import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptRunLogRow } from './types'
+import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
 import type { Source, UsCommit, UsSnapshot } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
 import type { NetRecordSession } from './net-record-protocol'
@@ -138,9 +138,13 @@ export const userscriptClient = {
   /** 运行日志时间线：运行行 + 孤儿错误行按时间倒序混排（运行日志标签页） */
   runlog: (): Promise<UserScriptRunLogRow[]> => send({ kind: 'userscript:runlog' }),
 
-  /** 清空错误日志（runtime 库 errors store；「全部/该脚本」范围连带清运行日志 runlog store 对应条目）。
+  /** 某次运行的运行内事件（展开时间线卡片时按需拉；列表视图不带事件） */
+  runEvents: (runId: string): Promise<UserScriptRunEvent[]> =>
+    send({ kind: 'userscript:runEvents', runId }),
+
+  /** 清空错误日志（runtime 库 errors store；「全部/该脚本」范围连带清 runs store 对应条目）。
    *  缺省清全部；传 uuid 只清该脚本；传 null 只清「未归属」记录（errors store 里 uuid 为 null 的，
-   *  runlog 条目必带 uuid，此形态下不动）。「清全部」必须**省略字段**而非传 undefined——
+   *  运行条必带 uuid，此形态下不动）。「清全部」必须**省略字段**而非传 undefined——
    *  undefined 值在部分序列化路径下与字段缺失无法区分。 */
   clearErrors: (uuid?: string | null): Promise<void> =>
     send(uuid === undefined ? { kind: 'userscript:clearErrors' } : { kind: 'userscript:clearErrors', uuid }),

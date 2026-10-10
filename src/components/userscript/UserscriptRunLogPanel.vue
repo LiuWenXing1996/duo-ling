@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 运行日志标签页：按时间倒序的运行流水（一行 = 一次运行），运行期错误按 runId 挂到所属
-// 运行行下展开看明细；无法归属的错误（注册/桥类无 runId、或所属运行已滑出环形）单独成行。
+// 运行行下、运行内动作按 runId 索引存放——**都只在展开时才呈现**（动作更是展开那一刻才拉，
+// 列表不随行返回）；无法归属的错误（注册/桥类无 runId、或所属运行已滑出环形）单独成行。
 //
 // 运行 + 错误合并成一条时间线（不按脚本分组）——「什么时候跑过、那次挂没挂、挂了什么」一眼一条线看完。
 //
@@ -23,6 +24,7 @@ import {
   type RunEndReason,
   type ScriptSummary,
   type UserScriptErrorRecord,
+  type UserScriptRunEvent,
   type UserScriptRunLogRow
 } from '@/lib/userscripts/types'
 
@@ -56,8 +58,16 @@ const error = ref('')
 const selectedKey = ref<string>(ALL_KEY)
 /** 深链目标在当前日志里不存在时的说明（否则用户只看到「点了没反应」） */
 const focusMissName = ref('')
-/** 展开错误明细的运行行（runId 集合；折叠时间线，点开才看错误明细） */
+/** 展开的运行行（runId 集合；展开才拉那一组事件并显示错误明细） */
 const expandedRunIds = ref<Set<string>>(new Set())
+/**
+ * 已拉回的事件（runId → 事件列表）：展开时按需拉，拉过就缓存。
+ * 列表视图不带事件——事件单独一表，跟随运行数全量读会线性膨胀（运行数 × 事件上限），
+ * 面板只在这张卡片被展开时才问一次 SW。
+ */
+const eventsByRunId = ref<Map<string, UserScriptRunEvent[]>>(new Map())
+/** 正在拉事件的运行行（展开瞬间显示加载态） */
+const loadingRunIds = ref<Set<string>>(new Set())
 
 /** 已加载的脚本全量列表（userscriptClient.list）；与日志合并出左栏，让没日志的脚本也可见 */
 const scriptList = ref<ScriptSummary[]>([])
@@ -261,32 +271,44 @@ function endReasonLabel(reason: RunEndReason | undefined): string {
   return reason ? END_REASON_LABEL[reason] : '结束原因未记录'
 }
 
-/** 一次运行的节点流：运行内事件恒显示，错误仅在展开时并入（避免默认刷屏），按发生时刻升序 */
-function timelineOf(row: RunRow, withErrors: boolean): TimelineItem[] {
-  const items: TimelineItem[] = (row.events ?? []).map((e) => ({
+/** 一次运行的节点流：已拉回的事件 + 这次运行挂上的错误，按发生时刻升序混排 */
+function timelineOf(events: UserScriptRunEvent[], row: RunRow): TimelineItem[] {
+  const items: TimelineItem[] = events.map((e) => ({
     kind: 'event',
     time: e.time,
     label: e.kind,
     detail: e.detail
   }))
-  if (withErrors) {
-    for (const e of row.errors) {
-      items.push({ kind: 'error', time: e.time, label: '', detail: '', record: e })
-    }
+  for (const e of row.errors) {
+    items.push({ kind: 'error', time: e.time, label: '', detail: '', record: e })
   }
   return items.sort((a, b) => a.time - b.time)
 }
 
-/** runId → 该次运行的节点流（展开态一并算，模板直接取，避免在渲染里反复算） */
+/**
+ * runId → 该次运行的节点流：**只算展开态**（折叠时卡体什么都不画）。
+ * 事件靠展开触发的按需拉取，还没拉回来就只显示错误节点。
+ */
 const timelineByRunId = computed<Map<string, TimelineItem[]>>(() => {
   const expanded = expandedRunIds.value
+  const loaded = eventsByRunId.value
   const m = new Map<string, TimelineItem[]>()
   for (const r of rows.value) {
-    if (r.kind !== 'run') continue
-    m.set(r.runId, timelineOf(r, expanded.has(r.runId)))
+    if (r.kind !== 'run' || !expanded.has(r.runId)) continue
+    m.set(r.runId, timelineOf(loaded.get(r.runId) ?? [], r))
   }
   return m
 })
+
+/** 已拉回的事件条数（与运行条目的 eventCount 比对，得出「还有多少条没显示」） */
+function loadedEventCount(runId: string): number {
+  return eventsByRunId.value.get(runId)?.length ?? 0
+}
+
+/** 没显示出来的事件条数：eventCount 是收到总数，落盘条数受 RUN_EVENT_MAX 封顶 */
+function omittedEventCount(row: RunRow): number {
+  return Math.max(0, (row.eventCount ?? 0) - loadedEventCount(row.runId))
+}
 /** 错误 ID 展示短形态（前 8 位；复制按钮复制完整 id，供 AI 代查）。容忍 undefined：时间线节点上取 record 是可选的 */
 function shortErrorId(id: string | undefined): string {
   return id ? id.slice(0, 8) : ''
@@ -303,12 +325,35 @@ async function copyErrorId(id: string | undefined): Promise<void> {
   }
 }
 
-/** 展开 / 折叠一次运行的错误明细 */
-function toggleExpand(runId: string): void {
+/**
+ * 展开 / 折叠一次运行：展开时按 runId 拉那一组事件（懒加载，拉过就缓存）。
+ * 列表视图不带事件——事件单独一表，跟随运行数全量读会线性膨胀，看哪一次才拉哪一次。
+ */
+async function toggleExpand(row: RunRow): Promise<void> {
+  const runId = row.runId
   const next = new Set(expandedRunIds.value)
-  if (next.has(runId)) next.delete(runId)
-  else next.add(runId)
+  if (next.has(runId)) {
+    next.delete(runId)
+    expandedRunIds.value = next
+    return
+  }
+  next.add(runId)
   expandedRunIds.value = next
+  // 没有动作的运行（eventCount 缺省 / 为 0）只有错误可看，不必拉事件
+  if (!row.eventCount || eventsByRunId.value.has(runId)) return
+  loadingRunIds.value = new Set(loadingRunIds.value).add(runId)
+  try {
+    const events = await userscriptClient.runEvents(runId)
+    const cached = new Map(eventsByRunId.value)
+    cached.set(runId, events)
+    eventsByRunId.value = cached
+  } catch (e) {
+    error.value = '拉取运行动作失败：' + (e instanceof Error ? e.message : String(e))
+  } finally {
+    const busy = new Set(loadingRunIds.value)
+    busy.delete(runId)
+    loadingRunIds.value = busy
+  }
 }
 
 async function load(): Promise<void> {
@@ -353,6 +398,7 @@ async function onClear(): Promise<void> {
   try {
     await userscriptClient.clearErrors(clearTarget.value)
     expandedRunIds.value = new Set()
+    eventsByRunId.value = new Map()
     await load()
     fallbackSelectionIfGone()
   } catch (e) {
@@ -525,15 +571,12 @@ onMounted(() => {
                   </span>
                   <span v-if="showNameInRows" class="truncate font-medium">{{ row.name || row.uuid.slice(0, 8) }}</span>
                   <span class="text-muted-foreground">{{ formatTime(row.time) }}</span>
-                  <button
+                  <span
                     v-if="row.errors.length"
-                    type="button"
-                    class="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive hover:bg-destructive/20"
-                    :title="`展开/折叠这次运行的 ${row.errors.length} 条错误明细`"
-                    @click="toggleExpand(row.runId)"
+                    class="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
                   >
-                    {{ expandedRunIds.has(row.runId) ? '收起 · ' : '' }}{{ row.errors.length }} 个错误
-                  </button>
+                    {{ row.errors.length }} 个错误
+                  </span>
                   <!-- 只陈述「没挂错误」这一事实：运行日志没有结束状态，「正常结束」会暗示脚本跑完了 -->
                   <span
                     v-else
@@ -542,14 +585,39 @@ onMounted(() => {
                   >
                     无错误
                   </span>
+                  <!-- 动作数取自运行条目上的 eventCount：事件本体要展开才拉，这里只报个数 -->
+                  <span v-if="row.eventCount" class="text-[10px] text-muted-foreground">
+                    {{ row.eventCount }} 个动作
+                  </span>
+                  <!-- 展开入口：有动作或错误才有内容可看；动作在这一刻才按需拉 -->
+                  <button
+                    v-if="row.errors.length || row.eventCount"
+                    type="button"
+                    class="rounded border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted"
+                    :title="
+                      expandedRunIds.has(row.runId)
+                        ? '收起这次运行做过的事与报的错'
+                        : '展开这次运行做过的事与报的错'
+                    "
+                    @click="toggleExpand(row)"
+                  >
+                    {{ expandedRunIds.has(row.runId) ? '收起' : '展开' }}
+                  </button>
                 </div>
                 <!-- 运行所在页面：与错误行的 url 同一形态（单行截断，hover 看全量）；老记录没有则不渲染 -->
                 <p v-if="row.url" class="mt-1 truncate text-muted-foreground" :title="row.url">
                   {{ row.url }}
                 </p>
-                <!-- 运行时间线：脚本过桥做过的事（事件）与报的错（展开时并入）按时刻混排 -->
+                <!-- 展开才拉动作：给一句加载态，避免「点了没反应」 -->
+                <p
+                  v-if="expandedRunIds.has(row.runId) && loadingRunIds.has(row.runId)"
+                  class="mt-2 text-[10px] text-muted-foreground"
+                >
+                  加载动作…
+                </p>
+                <!-- 运行时间线：脚本过桥做过的事（事件）与报的错按时刻混排 -->
                 <ul
-                  v-if="timelineByRunId.get(row.runId)?.length"
+                  v-else-if="timelineByRunId.get(row.runId)?.length"
                   class="mt-2 flex flex-col gap-1.5"
                 >
                   <li
@@ -606,6 +674,13 @@ onMounted(() => {
                     </template>
                   </li>
                 </ul>
+                <!-- 事件被上限截掉时说明一句：eventCount 是收到总数，落盘条数封顶 -->
+                <p
+                  v-if="expandedRunIds.has(row.runId) && omittedEventCount(row)"
+                  class="mt-1.5 text-[10px] text-muted-foreground"
+                >
+                  还有 {{ omittedEventCount(row) }} 个动作已省略（超过单次运行上限）
+                </p>
                 <!-- 结束节点：只有真收到结束信号才画——老记录与仍在跑的都没有 endedAt，一律沉默，不臆断「结束了」 -->
                 <p
                   v-if="row.endedAt"

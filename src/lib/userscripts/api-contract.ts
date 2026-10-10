@@ -508,7 +508,7 @@ export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
  *     标记（`duoling://script/<uuid>/`）的，页面自身的报错不归属（无标记不收）。
  *   · `{ __dlRunStart: true, uuid, name, runId }` —— 运行标识广播：包装注入即 mint 一次
  *     「一次页面加载 = 一次运行」的 runId。SW 交对话界面页面监控按 tab 登记、并落盘运行统计
- *     （runtime 库 stats store）与运行日志（runlog store，name 快照），补播按 runId 去重。
+ *     （runtime 库 stats store）与运行条目（runs store，name 快照），补播按 runId 去重。
  *
  * 信封名保持 `dl` 前缀（内部协议面不改名，改它是纯 churn）。
  */
