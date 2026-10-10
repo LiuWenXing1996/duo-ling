@@ -67,6 +67,7 @@ const ALL_KINDS = [
   { kind: 'userscript:netCaptureEnable', side: 'sw' },
   { kind: 'userscript:netCaptureDisable', side: 'sw' },
   { kind: 'userscript:netCaptureRead', side: 'sw' },
+  { kind: 'userscript:netLogClear', side: 'sw' },
   { kind: 'userscript:groups', side: 'sw' },
   { kind: 'userscript:setGroup', side: 'sw' },
   { kind: 'userscript:group-create', side: 'sw' },

@@ -39,7 +39,8 @@ import {
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
 // 网络录制：转发件送来的采集载荷在 SW 侧白名单化后落 duoling-netlog
-import { normalizeCapture } from './net-record-protocol'
+import { normalizeCapture, normalizeHost } from './net-record-protocol'
+import { getNetCaptureSessions } from './net-capture-gate'
 import * as netlog from './netlog-db'
 // 对话界面页面脚本监控（运行时口径）：runstart 登记 + 错误实时推送（跨文档观察者，SW 按 tab 登记）
 import { notePageError, noteRunStart } from './page-monitor'
@@ -628,6 +629,30 @@ async function reconcileOrphanTabKeys(): Promise<void> {
   }
 }
 
+/**
+ * 采集入站：把转发件送来的载荷归到「发消息的那个标签页当前正在录的会话」上再落库。
+ *
+ * 这里是录制门禁真正生效的地方。注册是按 host 装的（声明式注册没有 tab 维度），
+ * 所以同一 host 的**其他标签页**页面里也有录制件；它们的数据到这里被丢掉。
+ *
+ * 判据取 sender.tab.id 而不是载荷里的字段：载荷途径页面可伪造的 postMessage，
+ * 让它自己声明归属等于没有门禁。host 也要一起比 —— tabId 会被浏览器复用，
+ * 且跨源 iframe 里的请求带着 iframe 自己的 host（它不该记进这个站点）。
+ */
+async function ingestNetCapture(hostRaw: unknown, capture: unknown, tabId: number | undefined): Promise<void> {
+  try {
+    if (tabId == null) return
+    const host = normalizeHost(String(hostRaw ?? ''))
+    if (!host) return
+    const session = (await getNetCaptureSessions()).find((s) => s.tabId === tabId && s.host === host)
+    if (!session) return
+    const record = normalizeCapture(host, capture, session.id)
+    if (record) await netlog.appendCapture(record)
+  } catch {
+    // 录制不该影响页面网络层：任何一步失败都静默丢弃这条
+  }
+}
+
 /** 经 offscreen 写剪贴板（免用户手势；writeText / ClipboardItem 双轨）。超时即报，不挂死 */
 async function writeClipboardViaOffscreen(text?: string, html?: string): Promise<void> {
   if (!text && !html) throw new ApiError('INVALID_ARG', 'GM_setClipboard：text 与 html 至少给一个')
@@ -945,8 +970,7 @@ export function initDlBridge(): void {
     // 白名单化；无响应，仅落库，失败静默（录制不该影响页面网络层）。
     const net = raw as { __dlNetCapture?: true; host?: string; capture?: unknown }
     if (net && net.__dlNetCapture === true) {
-      const record = normalizeCapture(net.host, net.capture)
-      if (record) void netlog.appendCapture(record).catch(() => {})
+      void ingestNetCapture(net.host, net.capture, sender.tab?.id)
       return undefined
     }
 

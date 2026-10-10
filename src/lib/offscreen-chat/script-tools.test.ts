@@ -279,7 +279,7 @@ describe('net_capture_enable / net_capture_read（接口录制）', () => {
     expect(consents).toEqual(['example.com'])
   })
 
-  it('net_capture_read：未开启 / 无数据 / 有数据三种返回各自说清缺哪一步', async () => {
+  it('net_capture_read：无记录 / 在录但没数据 / 有数据，三种返回各自说清缺哪一步', async () => {
     const disabled = makeTools(
       makeElement(),
       undefined,
@@ -288,7 +288,7 @@ describe('net_capture_enable / net_capture_read（接口录制）', () => {
     )
     const off = await runRead(disabled, 'example.com')
     expect(off.ok).toBe(false)
-    expect(String(off.error)).toContain('未开启')
+    expect(String(off.error)).toContain('没有接口记录')
 
     const empty = makeTools(
       makeElement(),
@@ -309,8 +309,22 @@ describe('net_capture_enable / net_capture_read（接口录制）', () => {
       }).hooks,
     )
     const ok = await runRead(ready, 'example.com')
-    expect(ok).toMatchObject({ ok: true, host: 'example.com', count: 3 })
+    expect(ok).toMatchObject({ ok: true, host: 'example.com', recording: true, count: 3 })
     expect(String(ok.captures)).toContain('https://x.test/api')
+  })
+
+  it('net_capture_read：录制已停但记录还在——照读不误，只是标 recording:false', async () => {
+    const tools = makeTools(
+      makeElement(),
+      undefined,
+      undefined,
+      makeHooks({
+        read: async () => ({ enabled: false, count: 2, text: '[1] GET https://x.test/old → 200（xhr）' }),
+      }).hooks,
+    )
+    const out = await runRead(tools, 'example.com')
+    expect(out).toMatchObject({ ok: true, recording: false, count: 2 })
+    expect(String(out.captures)).toContain('https://x.test/old')
   })
 })
 

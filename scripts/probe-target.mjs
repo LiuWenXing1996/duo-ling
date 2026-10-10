@@ -142,6 +142,81 @@ function sendBytes(res, n, chunk, gap) {
   tick()
 }
 
+/** 探针页的追加样式（素颜工具页，跟着系统字体走，不引任何外部资源） */
+const PROBE_STYLE = `
+<style>
+  h2 { font-size: 13px; font-weight: 600; margin: 22px 0 6px; }
+  .hint { color: #666; }
+  #cases { display: flex; flex-wrap: wrap; gap: 6px; }
+  #cases button {
+    font: inherit; padding: 4px 10px; border: 1px solid #d0d0d0; border-radius: 6px;
+    background: #fafafa; cursor: pointer;
+  }
+  #cases button:hover { background: #f0f0f0; }
+  #log {
+    margin-top: 10px; padding: 8px 10px; min-height: 56px; border: 1px solid #e4e4e4;
+    border-radius: 6px; background: #fbfbfb; white-space: pre-wrap; font-size: 12px; line-height: 1.7;
+  }
+</style>
+`
+
+/**
+ * 探针页的「接口录制素材」区：一组按钮 + 回显。
+ *
+ * 为什么要有它：接口录制件只拦**页面自己**发出的 fetch / XHR，而探针页原本一个请求都不发 ——
+ * 开录制、刷新之后必然录到 0 条，看起来像坏了。这组按钮覆盖录制件要采的各种形状
+ * （方法 / 体类型 / 鉴权头 / 凭据 query / XHR / 慢响应 / 错误码 / 大 body / 重定向），
+ * 手测时点几下就有稳定素材。
+ *
+ * 带 `?auto` 打开则加载即发，用来验「刷新后首屏请求也录得到」（钩子在 document_start 挂）。
+ */
+const PROBE_RECORD_PANEL = `
+<h2>接口录制素材</h2>
+<p class="hint">下列请求由页面自己发出（fetch / XHR）——录制件只拦这一路，GM 渠道的请求拦不到。</p>
+<div id="cases"></div>
+<pre id="log"></pre>
+<script>
+  const CASES = [
+    { label: 'fetch GET', run: () => fetch('/get?a=1&b=2') },
+    { label: 'POST JSON', run: () => fetch('/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ hello: 'world', n: 42 }) }) },
+    { label: 'POST 表单', run: () => fetch('/post', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'k=v&n=1' }) },
+    { label: '鉴权头', run: () => fetch('/headers', { headers: { authorization: 'Bearer SECRET-TOKEN', 'x-api-key': 'sk-live-123' } }) },
+    { label: '凭据 query', run: () => fetch('/get?token=SECRET-TOKEN&ok=1') },
+    { label: 'XHR GET', run: () => new Promise((ok, no) => { const x = new XMLHttpRequest(); x.open('GET', '/get?via=xhr'); x.onload = () => ok(x.status); x.onerror = no; x.send() }) },
+    { label: '慢响应 2s', run: () => fetch('/delay/2') },
+    { label: '404', run: () => fetch('/no-such-endpoint') },
+    { label: '大 body 4KB', run: () => fetch('/bytes/4096') },
+    { label: '重定向 ×2', run: () => fetch('/absolute-redirect/2') },
+  ]
+
+  const log = document.getElementById('log')
+  const cases = document.getElementById('cases')
+  const note = (line) => { log.textContent += line + '\\n' }
+
+  const send = (one) =>
+    Promise.resolve()
+      .then(one.run)
+      .then((res) => note(one.label + ' → ' + (typeof res === 'number' ? res : res.status)))
+      .catch((e) => note(one.label + ' → 失败：' + (e && e.message ? e.message : e)))
+
+  for (const one of CASES) {
+    const b = document.createElement('button')
+    b.textContent = one.label
+    b.onclick = () => send(one)
+    cases.appendChild(b)
+  }
+  const all = document.createElement('button')
+  all.textContent = '全部发一遍'
+  all.onclick = () => { note('—— 全部发一遍 ——'); CASES.forEach(send) }
+  cases.appendChild(all)
+
+  if (new URLSearchParams(location.search).has('auto')) {
+    note('—— auto：加载即发（验首屏请求能否录到）——')
+    CASES.forEach(send)
+  }
+</script>
+`
+
 function handle(req, res, base) {
   const url = new URL(req.url || '/', base)
   const path = url.pathname
@@ -150,9 +225,12 @@ function handle(req, res, base) {
     const html =
       '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>哆灵探针页</title>' +
       `<meta name="${TARGET_META_NAME}" content="${base}">` +
+      PROBE_STYLE +
       '</head><body><h1>probe</h1>' +
       `<p>靶站基址：<code>${base}</code></p>` +
-      '<p>要测的脚本 @match 需覆盖本页地址。</p></body></html>'
+      '<p>要测的脚本 @match 需覆盖本页地址。</p>' +
+      PROBE_RECORD_PANEL +
+      '</body></html>'
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
     return res.end(html)
   }

@@ -9,6 +9,7 @@ import { runtimeSend } from '@/shared/runtime-send'
 import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, UserScriptsAvailability, UserScriptRunLogRow } from './types'
 import type { Source, UsCommit, UsSnapshot } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
+import type { NetRecordSession } from './net-record-protocol'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -147,16 +148,26 @@ export const userscriptClient = {
   // —— 网络录制（dl-recorder）——
   // 录制件与门禁都归 SW：UI 只发命令，不直连 duoling-app / duoling-netlog。
 
-  /** 已同意录制的站点集合（同意卡的初始状态；以 SW 为权威，不信卡里落盘时的快照） */
-  netCaptureState: (): Promise<{ hosts: string[] }> => send({ kind: 'userscript:netCaptureState' }),
+  /** 正在录制的会话（含各自所在标签页）。UI 按自己的 tabId 认领「本页在不在录」 */
+  netCaptureState: (): Promise<{ sessions: NetRecordSession[] }> => send({ kind: 'userscript:netCaptureState' }),
 
-  /** 开启某站点的录制。**唯一入口是用户点同意卡上的按钮**——AI 工具只出卡，不调这条 */
-  netCaptureEnable: (host: string): Promise<{ host: string; hosts: string[] }> =>
-    send({ kind: 'userscript:netCaptureEnable', host }),
+  /**
+   * 在某个标签页上开启录制。调用方都是**用户手势**（浮层同意卡上的按钮 / popup 当前页面里的
+   * 开关）——AI 工具只出卡，不调这条。会话的辨认信息（页面地址与标题）由 SW 从该标签页现取，
+   * 不由 UI 带过来。
+   */
+  netCaptureEnable: (input: {
+    tabId: number
+    host: string
+  }): Promise<{ session: NetRecordSession; sessions: NetRecordSession[] }> =>
+    send({ kind: 'userscript:netCaptureEnable', ...input }),
 
-  /** 关闭某站点的录制；**已录到的记录保留**（用户可能还要让 AI 读） */
-  netCaptureDisable: (host: string): Promise<{ host: string; hosts: string[] }> =>
-    send({ kind: 'userscript:netCaptureDisable', host }),
+  /** 停止某个标签页的录制；**已录记录与归档会话都保留**（用户还要在「接口数据」里看） */
+  netCaptureDisable: (tabId: number): Promise<{ sessions: NetRecordSession[] }> =>
+    send({ kind: 'userscript:netCaptureDisable', tabId }),
+
+  /** 清空某站点的录制数据（记录 + 归档会话）；写路径归 SW，参数用归一 host */
+  netLogClear: (host: string): Promise<{ host: string }> => send({ kind: 'userscript:netLogClear', host }),
 }
 
 /**

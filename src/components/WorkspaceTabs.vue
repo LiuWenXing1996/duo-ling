@@ -10,6 +10,7 @@ import {
   List as UiList,
   MessagesSquare as UiMessagesSquare,
   Pencil as UiPencil,
+  Radio as UiRadio,
   Settings as UiSettings,
   Wrench as UiWrench,
   X as UiX
@@ -52,6 +53,7 @@ const emit = defineEmits<{
         <ui-wrench v-else-if="tab.kind === 'agent-tools'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-code v-else-if="tab.kind === 'gm-api'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-messages-square v-else-if="tab.kind === 'session-history'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <ui-radio v-else-if="tab.kind === 'net-log'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <!--
           未保存标记：夹在图标与标题之间，**不紧贴标题** —— 紧贴时不管什么颜色都会被读成名字的一部分
