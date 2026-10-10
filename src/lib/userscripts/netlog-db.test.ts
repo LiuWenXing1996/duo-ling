@@ -1,20 +1,25 @@
-// netlog-db.ts 单测：网络采集落库、按 host 隔离、环形裁剪与清理。
+// netlog-db.ts 单测：网络采集落库、按 host 隔离、环形裁剪与清理，以及录制会话的归档与清除。
 // fake-indexeddb 提供全局 indexedDB；用例间 clearAllForTests 保证隔离。
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { NET_HOST_RING_LIMIT, type NetCaptureRecord } from './net-record-protocol'
+import { NET_HOST_RING_LIMIT, type NetCaptureRecord, type NetRecordSession } from './net-record-protocol'
 import {
   appendCapture,
+  archiveSession,
   clearAllForTests,
   clearCapturesByHost,
+  clearHostData,
   countCapturesByHost,
   listCapturedHosts,
   listCapturesByHost,
+  listSessionHosts,
+  listSessionsByHost,
 } from './netlog-db'
 
-function rec(host: string, url: string, t: number): NetCaptureRecord {
+function rec(host: string, url: string, t: number, sessionId = 'sess-1'): NetCaptureRecord {
   return {
     host,
+    sessionId,
     type: 'fetch',
     url,
     method: 'GET',
@@ -24,6 +29,18 @@ function rec(host: string, url: string, t: number): NetCaptureRecord {
     respHeaders: {},
     respBody: '{}',
     t,
+  }
+}
+
+function session(host: string, startedAt: number, over: Partial<NetRecordSession> = {}): NetRecordSession {
+  return {
+    id: `sess-${host}-${startedAt}`,
+    tabId: 1,
+    host,
+    url: `https://${host}/p`,
+    title: '示例页',
+    startedAt,
+    ...over,
   }
 }
 
@@ -84,5 +101,42 @@ describe('netlog-db', () => {
     expect(await listCapturesByHost('nope.test')).toEqual([])
     expect(await countCapturesByHost('nope.test')).toBe(0)
     expect(await listCapturedHosts()).toEqual([])
+  })
+})
+
+describe('录制会话归档', () => {
+  it('archive / list 往返，同 host 按开始时刻升序', async () => {
+    await archiveSession(session('a.test', 200))
+    await archiveSession(session('a.test', 100))
+    const rows = await listSessionsByHost('a.test')
+    expect(rows.map((s) => s.startedAt)).toEqual([100, 200])
+  })
+
+  it('重复归档同一 id 即覆盖（关标签页与主动停止可能先后触发）', async () => {
+    const s = session('a.test', 100)
+    await archiveSession(s)
+    await archiveSession({ ...s, endedAt: 999 })
+    const rows = await listSessionsByHost('a.test')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].endedAt).toBe(999)
+  })
+
+  it('listSessionHosts 去重枚举（录到 0 条请求的会话也上榜）', async () => {
+    await archiveSession(session('a.test', 1))
+    await archiveSession(session('a.test', 2))
+    await archiveSession(session('b.test', 1))
+    expect(await listSessionHosts()).toEqual(['a.test', 'b.test'])
+  })
+
+  it('clearHostData 连记录带会话一起清，且只清该 host', async () => {
+    await appendCapture(rec('a.test', 'https://a.test/1', 1))
+    await archiveSession(session('a.test', 1))
+    await appendCapture(rec('b.test', 'https://b.test/1', 1))
+    await archiveSession(session('b.test', 1))
+    await clearHostData('a.test')
+    expect(await countCapturesByHost('a.test')).toBe(0)
+    expect(await listSessionsByHost('a.test')).toEqual([])
+    expect(await countCapturesByHost('b.test')).toBe(1)
+    expect(await listSessionsByHost('b.test')).toHaveLength(1)
   })
 })

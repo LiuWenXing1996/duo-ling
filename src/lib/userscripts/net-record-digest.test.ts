@@ -16,6 +16,7 @@ import {
 function rec(partial: Partial<NetCaptureRecord> = {}): NetCaptureRecord {
   return {
     host: 'example.com',
+    sessionId: 'sess-1',
     type: 'fetch',
     url: 'https://example.com/api/list',
     method: 'GET',

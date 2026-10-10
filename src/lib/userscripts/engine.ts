@@ -25,7 +25,7 @@ import { generateBridgeSecret } from './bridge-protocol'
 // 网络录制：MAIN 捕获件 + USER_SCRIPT 转发件 + per-host 门禁（默认关，按站点显式开）
 import { buildNetRecorderSource } from './net-recorder'
 import { buildNetForwarderSource } from './net-forwarder'
-import { getNetCaptureHosts } from './net-capture-gate'
+import { getRecordingHosts } from './net-capture-gate'
 import { hostToMatchPattern } from './net-record-protocol'
 // 内置注入脚本共用：匹配并集与「未变则跳过」比对
 import { enabledMatchUnion, sameMatchSet } from './match-union'
@@ -334,20 +334,25 @@ async function syncScriptRelay(projects: ScriptProject[]): Promise<void> {
 
 // —— 网络录制件（dl-recorder）：常驻 + 独立 per-host 门禁 ——
 //
-// 与中继件完全独立：中继件跟随「启用用户脚本并集」，录制件跟随「用户已同意录制的 host 集合」
-// （net-capture-gate.ts）。默认空集 = 两件都不注册，页面里没有任何录制代码。
+// 与中继件完全独立：中继件跟随「启用用户脚本并集」，录制件跟随「正在录制的会话所在 host」
+// （net-capture-gate.ts）。默认无会话 = 两件都不注册，页面里没有任何录制代码。
+//
+// **host 只是注册粒度，不是门禁粒度**：声明式注册没有 tab 维度（RegisteredUserScript 的
+// 匹配字段全是 URL），所以「某标签页在录」只能按 host 装上；真正的裁剪在入站处
+// （dl-bridge 按 sender.tab.id 认领会话）。代价是：某 host 上有会话在录时，该 host 的
+// 其他标签页也会被装上录制件——数据在 SW 侧丢弃，而不是页面里没有代码。
 //
 // 为什么是两个注册：捕获必须在页面真实世界（MAIN）才拦得到 fetch/XHR，而 MAIN 无 chrome.*；
 // 故 MAIN 捕获件 postMessage 给同帧的 USER_SCRIPT 转发件，再由它 sendMessage 到 SW。
 
 /**
- * 按门禁集合维护录制件注册（幂等可重入；调用方负责串行化）。
+ * 按正在录制的 host 维护录制件注册（幂等可重入；调用方负责串行化）。
  * 集合为空 → 注销两件；否则对 `*://<host>/*` 注册 MAIN 捕获件 + USER_SCRIPT 转发件。
  * 集合未变且两件都在位时跳过重注册（重注册会换注入源码，已加载页面要到下次导航才换新）。
  */
 async function syncNetRecorder(): Promise<void> {
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
-  const hosts = await getNetCaptureHosts()
+  const hosts = await getRecordingHosts()
   const matches = hosts.map(hostToMatchPattern).filter(Boolean)
   let existing: chrome.userScripts.RegisteredUserScript[] = []
   try {
@@ -568,8 +573,8 @@ async function runRegisterAllEnabled(): Promise<void> {
   const projects = await listProjects()
   // 先同步内置注册（启用脚本集合可能变化），再重注册脚本——同一遍里保持中继件与包装密钥一致
   await syncScriptRelay(projects).catch(() => {})
-  // 录制件跟随 per-host 门禁（与脚本集合无关）：SW 冷启动 / 扩展更新恢复时一并同步，
-  // 保证「用户已同意录制的站点」在重注册后依然生效
+  // 录制件跟随「正在录制的会话所在 host」（与脚本集合无关）：SW 冷启动 / 扩展更新恢复时一并同步，
+  // 保证「正在录制的站点」在重注册后依然生效
   await syncNetRecorder().catch(() => {})
   const enabled = projects.filter((p) => p.enabled)
   try {

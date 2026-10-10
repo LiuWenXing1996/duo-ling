@@ -123,16 +123,23 @@ export type RuntimeRequest =
   // 错误日志（runtime 库，offscreen 拿不到）。id = 完整记录 id 或唯一 8 位前缀
   | { kind: 'userscript:errorRead'; id: string }
   // —— 网络录制（dl-recorder）——
-  // 授权态（duoling-app 的 netCaptureHosts）与录到的记录（duoling-netlog 库）都归 SW 管辖，
+  // 门禁（duoling-app 的 netCaptureSessions）与录到的记录（duoling-netlog 库）都归 SW 管辖，
   // 故 offscreen 侧的两个 agent 工具经 offscreenBridge 走这组命令，UI 的同意卡也直接调它。
+  //
+  // 录制按标签页划分：开 / 关都锚在**发起命令的那个标签页**上（tabId 由浮层从 iframe URL 带过来，
+  // 与它的会话归属同源）。扩展页没有 tab，故它发起的开启会被拒。
   //
   // 为什么 enable / disable 单独成命令、不给工具直接用：**开启录制必须由用户手势触发**
   // （点同意卡上的按钮）。工具只能出卡 + 等用户点（见 agent-tools-catalog 的 net_capture_enable）。
   | { kind: 'userscript:netCaptureState' }
-  | { kind: 'userscript:netCaptureEnable'; host: string }
-  | { kind: 'userscript:netCaptureDisable'; host: string }
+  | { kind: 'userscript:netCaptureEnable'; tabId: number; host: string }
+  // tabId 而非 host：停止关的是**这个标签页**的录制，同站点其他标签页不受影响
+  | { kind: 'userscript:netCaptureDisable'; tabId: number }
   // mode：digest = 摘要档（接口清单，常驻 prompt 用）；full = 逐条采样（工具读回用）
   | { kind: 'userscript:netCaptureRead'; host: string; mode: 'digest' | 'full' }
+  // 清空某站点的录制数据（记录 + 归档会话）：工作台「接口数据」面板的清理入口。
+  // 写路径归 SW（netlog 单写方），故面板不直连库、只发这条。
+  | { kind: 'userscript:netLogClear'; host: string }
 
   // zip 导入：UI 读 zip 文件转 base64，SW 纯转发 offscreen
   // 单写方（解码 + 落盘同处）。enabled 恒 false——先审后启，故无注册动作。
@@ -496,6 +503,11 @@ export interface PageOverviewTab {
   conversationTitle: string | null
   /** 该会话是否正在生成（SW 内存态：它不落库，故只有现问现取） */
   generating: boolean
+  /**
+   * 这个标签页此刻是否正在接口录制。判据是**标签页维度**：录制会话锚在开启它的那个标签页上，
+   * 同一站点的其他标签页不看这条（要录得各自开一次） —— 见 net-capture-gate。
+   */
+  netRecording: boolean
 }
 
 /** 概览里的一条运行脚本：名字与错误条数都已在 SW 侧解析好 */

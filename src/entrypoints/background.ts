@@ -40,15 +40,17 @@ import {
 // metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
 // 真正的归一化在写入口一处（project-write.saveSource），此处不写回任何东西
 import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
-// 网络录制（dl-recorder）：per-host 门禁 + 录到的记录 + 语料压缩。
+// 网络录制（dl-recorder）：per-tab 门禁 + 录到的记录 + 语料压缩。
 // 三者都归 SW：门禁在 duoling-app、记录在 duoling-netlog，offscreen 与扩展页都不直连。
+// 会话的生成 / 结束都在这里，因为「标签页关闭」这个收尾时点只有常驻的 SW 不漏。
 import {
-  disableNetCapture,
-  enableNetCapture,
-  getNetCaptureHosts,
+  getNetCaptureSessions,
+  reconcileNetSessions,
+  startNetSession,
+  stopNetSessionsByTab,
 } from '@/lib/userscripts/net-capture-gate'
-import { normalizeHost } from '@/lib/userscripts/net-record-protocol'
-import { listCapturesByHost } from '@/lib/userscripts/netlog-db'
+import { normalizeHost, type NetRecordSession } from '@/lib/userscripts/net-record-protocol'
+import { archiveSession, clearHostData, listCapturesByHost } from '@/lib/userscripts/netlog-db'
 import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts/net-record-digest'
 // 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
 import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/availability-watch'
@@ -288,11 +290,13 @@ const handlers: {
     const tabs = await chrome.tabs.query({}).catch(() => [])
     // 只收普通网页：内部页 / 扩展页上既跑不了脚本也挂不了浮层（读不到 url 的页正是这两类）
     const web = tabs.filter((t) => t.id != null && webHostname(t.url) !== '')
-    const [snapshots, bindings, names, titles] = await Promise.all([
+    const [snapshots, bindings, names, titles, captureSessions] = await Promise.all([
       snapshotForTabs(web.map((t) => t.id as number)),
       conversationBindings(),
       scriptNameByUuid(),
       conversationTitleById(),
+      // 录制门禁是 tab 维度：取一次会话列表再按 tabId 认领，不给每个 tab 各读一次 IDB
+      getNetCaptureSessions(),
     ])
     return web.map((t) => {
       const tabId = t.id as number
@@ -312,6 +316,7 @@ const handlers: {
         conversationId,
         conversationTitle: conversationId ? (titles.get(conversationId) ?? null) : null,
         generating: conversationId ? runningConversations.has(conversationId) : false,
+        netRecording: captureSessions.some((s) => s.tabId === tabId),
       }
     })
   },
@@ -534,45 +539,69 @@ const handlers: {
     findUserScriptError(msg.id),
 
   // —— 网络录制（dl-recorder）——
-  // 授权态（已同意录制的 host 集合）：UI 卡片的初始状态与 AI 工具判「是否已开」都读它
-  'userscript:netCaptureState': async (): Promise<{ hosts: string[] }> => ({
-    hosts: await getNetCaptureHosts(),
+  // 正在录制的会话（各自带着所在标签页）：同意卡 / popup / 查询界面据此判「本标签页是否在录」。
+  // 判据是 tab 而不是 host —— 同一个站点的不同标签页各自开各自的。
+  'userscript:netCaptureState': async (): Promise<{ sessions: NetRecordSession[] }> => ({
+    sessions: await getNetCaptureSessions(),
   }),
 
-  // 开启录制：**唯一入口是用户点同意卡上的按钮**（AI 工具只负责出卡，不调这条）。
+  // 开启录制：入口都是**用户手势**（浮层同意卡上的按钮 / popup 当前页面里的开关），AI 工具只出卡，不调这条。
+  // 会话锚在发起命令的那个标签页上（tabId 由浮层给，与它的会话归属同源；扩展页没有 tab，
+  // 故缺 tabId 时由门禁直接拒绝）。
   // 门禁落盘后同步注册——注册影响的是**下次导航**，当前页面必须由用户刷新才挂得上钩子。
-  'userscript:netCaptureEnable': async (msg): Promise<{ host: string; hosts: string[] }> => {
-    const host = normalizeHost(msg.host)
-    if (!host) throw new Error(`无效的站点：${msg.host}`)
-    const hosts = await enableNetCapture(host)
+  'userscript:netCaptureEnable': async (
+    msg,
+  ): Promise<{ session: NetRecordSession; sessions: NetRecordSession[] }> => {
+    // 会话的辨认信息由 SW 从标签页现取（UI 侧只有 host，且它跑在 iframe 里看不到宿主页的 url）
+    const tab = await chrome.tabs.get(msg.tabId).catch(() => null)
+    const { session, sessions, replaced } = await startNetSession({
+      tabId: msg.tabId,
+      host: msg.host,
+      url: tab?.url ?? '',
+      title: tab?.title ?? '',
+    })
+    // 同一标签页换站点时被顶掉的旧会话：先归档再注册，中途失败也让它的元信息已留档
+    for (const s of replaced) await archiveSession(s).catch(() => {})
     await refreshNetRecorder().catch(() => {})
-    return { host, hosts }
+    return { session, sessions }
   },
 
-  // 关闭录制：撤门禁 + 注销两件。**已录记录保留**（用户可能还要让 AI 读），清理另走后续入口。
-  'userscript:netCaptureDisable': async (msg): Promise<{ host: string; hosts: string[] }> => {
-    const host = normalizeHost(msg.host)
-    if (!host) throw new Error(`无效的站点：${msg.host}`)
-    const hosts = await disableNetCapture(host)
-    await refreshNetRecorder().catch(() => {})
-    return { host, hosts }
+  // 停止录制：结束该标签页的会话并归档，再重算注册（没有会话的 host 就此注销）。
+  // **已录记录与归档会话都保留** —— 数据要留给查询界面与 AI 读，清理另走 netLogClear。
+  'userscript:netCaptureDisable': async (msg): Promise<{ sessions: NetRecordSession[] }> => {
+    const { sessions, ended } = await stopNetSessionsByTab(msg.tabId)
+    for (const s of ended) await archiveSession(s).catch(() => {})
+    if (ended.length) await refreshNetRecorder().catch(() => {})
+    return { sessions }
   },
 
   // 读回录制语料：AI 的 net_capture_read 工具与常驻 prompt 摘要档共用同一条命令，
-  // 只按 mode 换压缩档位。未授权时也返回（enabled:false）——调用方据此给准确提示，
+  // 只按 mode 换压缩档位。未开录制时也返回（enabled:false）——调用方据此给准确提示，
   // 比抛错更好用（「没开录制」和「开了但没数据」要能分开说）。
+  //
+  // enabled 只表示「此刻有标签页在录这个站点」，**不约束能不能读到记录**：停止录制只摘门禁、
+  // 不清数据，之前录的照样读得到（否则「录完关掉再看」这条最自然的用法就没法走）。
   'userscript:netCaptureRead': async (
     msg,
   ): Promise<{ enabled: boolean; host: string; count: number; text: string }> => {
     const host = normalizeHost(msg.host)
     if (!host) throw new Error(`无效的站点：${msg.host}`)
-    const enabled = (await getNetCaptureHosts()).includes(host)
-    const records = enabled ? await listCapturesByHost(host) : []
+    const enabled = (await getNetCaptureSessions()).some((s) => s.host === host)
+    const records = await listCapturesByHost(host)
     const text =
       msg.mode === 'digest'
         ? describeCaptureDigest(records).join('\n')
         : describeCaptureRecords(records)
     return { enabled, host, count: records.length, text }
+  },
+
+  // 清空某站点的录制数据（记录 + 归档会话）：查询界面的清理入口。
+  // 写路径归 SW（netlog 的单写方约定），故扩展页不直连库、只发这条命令。
+  'userscript:netLogClear': async (msg): Promise<{ host: string }> => {
+    const host = normalizeHost(msg.host)
+    if (!host) throw new Error(`无效的站点：${msg.host}`)
+    await clearHostData(host)
+    return { host }
   },
 
   // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清运行日志 runlog store 的对应条目——
@@ -620,6 +649,8 @@ async function initUserScripts(): Promise<void> {
     return
   }
   setEngineAvailable(true)
+  // 先对账会话（清掉指向已关标签页的门禁），再重注册 —— 否则这一步注册的是过期集合
+  await reconcileRecordingSessions()
   await registerAllEnabled()
 }
 
@@ -808,6 +839,45 @@ async function abortConversationOfClosedTab(tabId: number): Promise<void> {
 }
 
 /**
+ * 标签页被关掉时的录制收尾：结束它的录制会话并归档，再重算注册。
+ *
+ * 只摘门禁、归档会话元信息，**已录记录一条不动** —— 用户还要在「接口数据」里看、让 AI 读。
+ *
+ * 与 abortConversationOfClosedTab 同一个理由必须挂在常驻的 SW 上：面板没开的时候标签页照样会被关。
+ */
+async function stopRecordingOfClosedTab(tabId: number): Promise<void> {
+  let ended: NetRecordSession[] = []
+  try {
+    ended = (await stopNetSessionsByTab(tabId)).ended
+  } catch {
+    return
+  }
+  if (!ended.length) return
+  for (const s of ended) await archiveSession(s).catch(() => {})
+  await refreshNetRecorder().catch(() => {})
+}
+
+/**
+ * SW 启动对账：门禁里指向已不存在标签页的会话，就此结掉并归档。
+ *
+ * 为什么需要：标签页可能趁 SW 睡着时被关掉，onRemoved 的收尾要等 SW 下次醒来才补上；
+ * 若它再没醒（用户就此收工），库里就留着一份指向不存在标签页的门禁 —— 注册集合虚扩，
+ * 且那个 tabId 被别的页面复用后会被误判成「正在录」。
+ *
+ * 在 registerAllEnabled 之前调用：让它按对账后的会话重新算注册集合。
+ */
+async function reconcileRecordingSessions(): Promise<void> {
+  try {
+    const tabs = await chrome.tabs.query({})
+    const alive = new Set(tabs.map((t) => t.id).filter((id): id is number => id != null))
+    const { ended } = await reconcileNetSessions(alive)
+    for (const s of ended) await archiveSession(s).catch(() => {})
+  } catch {
+    // 对账失败不阻断启动：门禁脏一条不影响其余链路
+  }
+}
+
+/**
  * chat:running 观察（offscreen 推送，chat: 前缀按约定不进命令路由，这里只旁听）：任务开始。
  * **不碰角标** —— 角标只报脚本运行数，会话与它无关。
  */
@@ -852,6 +922,9 @@ function mountProposal2Listeners(): void {
     // 面板没开的时候标签页照样会被关，只有常驻的 SW 不漏，所以这一步必须在这里做
     // （漏了它会留在 offscreen 里跑完 —— 没人看结果、也没处按停止，纯粹烧 token）。
     void abortConversationOfClosedTab(tabId)
+    // 录制收尾：录制按标签页划分，页面没了就没有「这一页的请求」可录。同上一行同理，
+    // 这里漏了会让门禁一直挂着已消失的标签页（注册集合虚扩，tabId 复用后误判）。
+    void stopRecordingOfClosedTab(tabId)
   })
 
   // 页面脚本监控端口（另一条连接 'duoling:panel'：上行快照请求 + 推送寻址）

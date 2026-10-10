@@ -48,12 +48,39 @@ export const NET_SENSITIVE_PARAM =
 /** 脱敏后的占位值（ASCII，避免 URL 编码把占位符自己也编码掉） */
 export const NET_MASK = '***'
 
+/**
+ * 一次接口录制会话：从用户在某标签页点「开启录制」起，到该标签页关闭 / 主动停止止。
+ *
+ * 门禁的粒度就是它 —— 录制按标签页划分，同站点的另一个标签页要录得各自开一次；
+ * 标签页关掉即结束会话，但已录记录不随之清除，故结束后的会话要归档（含站点信息），
+ * 供事后在查询界面认出「这是哪一次录制、录的哪个页面」。
+ *
+ * tabId 是会话的**实时判据**（入站按 sender.tab.id 认领），但浏览器会复用 tabId，
+ * 故它不是身份：归档与记录归属一律用 id，tabId 只用于「此刻这条消息来自哪个会话」。
+ */
+export interface NetRecordSession {
+  /** 会话 id（记录以它为归属键，故必须是稳定、不可复用的字符串） */
+  id: string
+  /** 录制所在的标签页（仅实时判据用；不进归档的判断依据） */
+  tabId: number
+  /** 录制所在的站点（与记录同口径的归一 host） */
+  host: string
+  /** 开启那一刻页面的地址与标题：标签页关掉后凭它认出录的是哪个页面 */
+  url: string
+  title: string
+  startedAt: number
+  /** 结束时刻（归档时填；进行中的会话没有） */
+  endedAt?: number
+}
+
 /** 采集记录（落 duoling-netlog captures store 的形状；id 为自增主键，写侧不填） */
 export interface NetCaptureRecord {
   /** 自增主键（IndexedDB autoIncrement 生成） */
   id?: number
   /** 采集发生的页面 host（location.hostname，环形分区键，也是 by_host 索引值） */
   host: string
+  /** 产生这条记录的录制会话 id。会话结束后记录仍留着，凭它把记录归到某次录制 */
+  sessionId: string
   /** 请求方式来源 */
   type: 'fetch' | 'xhr'
   url: string
@@ -72,8 +99,11 @@ export interface NetCaptureRecord {
   t: number
 }
 
-/** 采集载荷：转发件负责补 host，捕获件只产这些字段 */
-export type NetCapturePayload = Omit<NetCaptureRecord, 'id' | 'host'>
+/**
+ * 采集载荷：捕获件只产这些字段。
+ * host 由转发件补（它知道自己的 location），sessionId 由 SW 补（只有它能判消息来自哪个标签页）。
+ */
+export type NetCapturePayload = Omit<NetCaptureRecord, 'id' | 'host' | 'sessionId'>
 
 /**
  * 把一个 host 归一化成「小写裸主机名」；非法返回空串。
@@ -212,8 +242,15 @@ export function stripUrlSecrets(raw: string): string {
  * 入站归一化：把转发件送来的未知载荷收窄成 NetCaptureRecord（非法即 null，静默丢弃）。
  * 消息经过 MAIN 世界（页面可伪造 postMessage）与两次结构化克隆，SW 不能信其形状——
  * 所有字段白名单化、类型强转、长度封顶、鉴权头再剥、URL 凭据再脱敏。
+ *
+ * sessionId 由调用方（SW）给定而非载荷携带：它要按 sender.tab.id 查出来，
+ * 载荷里那一段来自页面世界，认了就等于让页面自己声明归属。
  */
-export function normalizeCapture(hostRaw: unknown, captureRaw: unknown): NetCaptureRecord | null {
+export function normalizeCapture(
+  hostRaw: unknown,
+  captureRaw: unknown,
+  sessionId: string,
+): NetCaptureRecord | null {
   const host = str(hostRaw).toLowerCase()
   if (!host) return null
   if (!captureRaw || typeof captureRaw !== 'object') return null
@@ -224,6 +261,7 @@ export function normalizeCapture(hostRaw: unknown, captureRaw: unknown): NetCapt
   if (!url) return null
   return {
     host,
+    sessionId,
     type,
     url: stripUrlSecrets(url).slice(0, 4096),
     method: (str(c.method) || 'GET').toUpperCase(),
