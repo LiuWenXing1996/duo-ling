@@ -11,6 +11,7 @@ const PANELS = [
   ['ui-test', 'AI 界面对话预览'],
   ['lfs-browser', '脚本文件'],
   ['chat-data', '会话数据'],
+  ['net-log', '接口数据'],
   ['agent-tools', 'AI 工具'],
   ['gm-api', 'GM API'],
 ] as const

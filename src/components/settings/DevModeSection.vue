@@ -17,6 +17,7 @@ const DEV_PANELS: { kind: WorkspaceTabKind; label: string }[] = [
   { kind: 'ui-test', label: 'AI 界面对话预览' },
   { kind: 'lfs-browser', label: '脚本文件' },
   { kind: 'chat-data', label: '会话数据' },
+  { kind: 'net-log', label: '接口数据' },
   { kind: 'agent-tools', label: 'AI 工具' },
   { kind: 'gm-api', label: 'GM API' },
 ]
