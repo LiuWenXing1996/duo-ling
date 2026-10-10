@@ -91,9 +91,9 @@ export interface PrevGeneratedScript {
  */
 export interface NetCaptureContext {
   host: string
-  /** 用户是否已授权录制该站点 */
+  /** 该站点是否有正在进行的录制会话（跨标签页：同站点别的标签页在录也算） */
   enabled: boolean
-  /** 已录到的条数 */
+  /** 该站点已录到的条数（跨会话累计，不随录制停止而清零） */
   count: number
   /** 摘要档文本（net-record-digest 压好的接口清单；无数据时为空串） */
   text: string
@@ -163,6 +163,7 @@ export function buildSystemPrompt(
     lines.push(
       `\n该站点（${netCapture.host}）的接口录制已开启，但还没有录到数据——` +
         '录制只能抓开启之后的请求，钩子挂在文档开头，需要用户点浏览器的刷新按钮重载页面；' +
+        '录制锚在开启它的那个标签页，刷新也要在同一个标签页里做。' +
         '用户刷新完再调 net_capture_read 读回。',
     )
   }

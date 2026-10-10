@@ -58,14 +58,16 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
     '需要了解页面整体结构、找脚本目标节点的上下文、或摘要信息不够用时调用。' +
     '内置页（chrome:// 等）与非活动窗口不可采，返回 ok:false 带原因。',
   net_capture_enable:
-    '为该站点开启接口录制（页面发出的 fetch / XHR）。调用后会在对话里出一张开启卡片，' +
+    '为该站点开启接口录制（页面发出的 fetch / XHR）。录制按标签页进行，' +
+    '卡片上的确认按钮为**用户当前所在的那个标签页**开启——调用后会在对话里出一张开启卡片，' +
     '**必须由用户点确认**——你不能替用户决定，卡片出现后就把话交给用户，不要重复调用。' +
     '用户点开启后，还要请其点浏览器的刷新按钮重载页面：钩子只在文档开头挂，' +
     '不刷新就录不到已经跑完的首屏请求。用户刷新完再调 net_capture_read 读回。',
   net_capture_read:
     '读回该站点已录制的接口语料（地址 / 方法 / 请求体 / 响应结构采样；鉴权头在采集时已剥离，' +
-    '所以鉴权信息是缺的，别据此推断登录态）。需先 net_capture_enable 拿到用户同意、且用户已刷新过页面，' +
-    '否则没有数据（返回 ok:false 并说明缺哪一步）。',
+    '所以鉴权信息是缺的，别据此推断登录态）。读的是**这个站点的全部历史录制**（含已经停掉的会话），' +
+    '不需要先 net_capture_enable；只有从未录过（返回 ok:false 并说明缺哪一步）才需要先开录制、' +
+    '并由用户在那个标签页里刷新页面。',
   error_read:
     '按错误 ID 查询一条脚本错误记录。用户可能直接粘贴一个错误 ID（脚本运行出错后，' +
     '工作台错误日志里每条错误旁都展示，前 8 位短形态）要求修复。返回错误详情（message / stack / ' +
@@ -269,7 +271,7 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
   {
     name: 'net_capture_enable',
     title: '开启接口录制',
-    summary: '出录制同意卡（用户点确认），为该站点开接口录制',
+    summary: '出同意卡（用户点确认），为该标签页开该站点的接口录制',
     description: TOOL_DESCRIPTIONS.net_capture_enable,
     params: [
       { name: 'host', type: 'string', required: true, desc: T.net_capture_enable.host },
@@ -286,8 +288,8 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
     params: [
       { name: 'host', type: 'string', required: true, desc: T.net_capture_read.host },
     ],
-    returns: '{ ok:true, host, count, captures }（captures 为逐条文本）',
-    unavailable: '该站点未开启录制、或用户还没刷新过页面（无数据）→ { ok:false, error }',
+    returns: '{ ok:true, host, recording, count, captures }（captures 为逐条文本）',
+    unavailable: '该站点没有任何录制记录、或正在录但用户还没刷新过页面 → { ok:false, error }',
   },
   {
     name: 'error_read',

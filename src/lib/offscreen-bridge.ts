@@ -14,6 +14,7 @@
 import type { ModelProfileState, PageSnapshotContext, RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
 import type { ScriptConfig } from '@/lib/userscripts/types'
+import type { NetRecordSession } from '@/lib/userscripts/net-record-protocol'
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 
 /** 向 SW 发一次请求，统一解包 { ok, data | error } */
@@ -90,9 +91,10 @@ export const offscreenBridge = {
     send({ kind: 'userscript:netCaptureRead', host, mode }),
 
   /**
-   * 网络录制 · 已同意录制的 host 集合。
-   * net_capture_enable 工具据此判「已开则不必再出卡」——出卡是请用户确认，
+   * 网络录制 · 进行中的录制会话（按标签页）。
+   * net_capture_enable 工具据此判「该站点已在录，不必再出卡」——出卡是请用户确认，
    * 已开还出卡会让用户以为要重复点一次。
    */
-  netCaptureHosts: (): Promise<{ hosts: string[] }> => send({ kind: 'userscript:netCaptureState' }),
+  netCaptureSessions: (): Promise<{ sessions: NetRecordSession[] }> =>
+    send({ kind: 'userscript:netCaptureState' }),
 }

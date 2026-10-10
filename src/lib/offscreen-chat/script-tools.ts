@@ -76,7 +76,7 @@ export type ApplyConfigInput = z.infer<typeof applyConfigSchema>
  * conversationId 与事件缓冲），工具只负责「要一张卡」。
  */
 export interface NetCaptureHooks {
-  /** 已同意录制的 host 集合（判「已开则不再出卡」） */
+  /** 有录制会话在进行（按标签页）的 host 集合（判「已开则不再出卡」） */
   hosts: () => Promise<string[]>
   /** 读回语料：digest = 接口清单 / full = 逐条采样 */
   read: (
@@ -347,21 +347,19 @@ export function buildScriptTools(
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) }
         }
-        if (!r.enabled) {
-          return {
-            ok: false,
-            error: `「${h}」的接口录制未开启。需要接口数据时先调 net_capture_enable，由用户确认开启。`,
-          }
-        }
+        // r.enabled 只表示「此刻有会话在录该站点」。记录不随录制停止而清，故未在录也可能有数据——
+        // 先看有没有数据，再决定提示用户去录还是去刷新。
         if (!r.count) {
           return {
             ok: false,
-            error:
-              `「${h}」已开启录制但还没有数据：录制是前向的，钩子只在文档开头挂。` +
-              '请用户点浏览器的刷新按钮重载页面，首屏请求才会被录到；刷新后再调本工具。',
+            error: r.enabled
+              ? `「${h}」正在录制但还没有数据：录制是前向的，钩子只在文档开头挂。` +
+                '请用户点浏览器的刷新按钮重载页面，首屏请求才会被录到；刷新后再调本工具。'
+              : `「${h}」没有接口记录。需要接口数据时先调 net_capture_enable，` +
+                '由用户确认开启并刷新页面。',
           }
         }
-        return { ok: true, host: h, count: r.count, captures: r.text }
+        return { ok: true, host: h, recording: r.enabled, count: r.count, captures: r.text }
       },
     }),
 

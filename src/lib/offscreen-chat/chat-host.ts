@@ -417,7 +417,8 @@ async function runLoop(opts: {
       () => offscreenBridge.capturePageSnapshot(conversationId),
       (id) => offscreenBridge.readError(id),
       {
-        hosts: async () => (await offscreenBridge.netCaptureHosts()).hosts,
+        // 会话按标签页，但工具只认站点：取「有会话在录」的 host 去重集合即可
+        hosts: async () => [...new Set((await offscreenBridge.netCaptureSessions()).sessions.map((s) => s.host))],
         read: (host, mode) => offscreenBridge.readNetCapture(host, mode),
         requestConsent: async (host) => {
           // 卡片 id 按 host 派生：同一站点重复请求同意只留一张（UI 也按 host 去重）
