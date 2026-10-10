@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 「当前页面」区块：本页在跑哪些脚本 + 这条页面的对话浮层（快捷入口与「是否正在回话」）。
+// 「当前页面」区块：本标签页的接口录制开关（常显）+ 本页在跑哪些脚本 +
+// 这条页面的对话浮层（快捷入口与「是否正在回话」）。
 //
 // 判据都不在这里现算：PopupPanel 挂载时经一条 page:overview 命令取回，再传进来 —— popup 是纯
 // 展示面板（不装 window.api、不直连会话库），聚合口径统一在 SW 侧一处（见 shared/extension-ipc
@@ -14,11 +15,12 @@
 // 脚本多时列表自己滚，卡高不跟着涨。没脚本时头部给空态说法，按「能不能注入」分 —— 藏起整卡会让
 // 用户以为没有这个功能。
 //
-// 布局：卡片套卡片 —— 外卡是「当前页面」（头部 + 站点名），脚本 / 对话各是里面的一张子卡。
+// 布局：卡片套卡片 —— 外卡是「当前页面」（头部 + 站点名），接口录制 / 脚本 / 对话各是里面的一张子卡。
 import { computed, ref } from 'vue'
 import { MessageSquare as UiMessageSquare } from '@lucide/vue'
 import { Badge as UiBadge } from '@/components/ui/badge'
 import { Button as UiButton } from '@/components/ui/button'
+import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@/components/ui/switch'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
@@ -26,7 +28,7 @@ import {
   TooltipTrigger as UiTooltipTrigger,
 } from '@/components/ui/tooltip'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
-import { FLOAT_OPEN_REQUEST, type PageOverviewTab } from '@/shared/extension-ipc'
+import { FLOAT_OPEN_REQUEST, type PageOverviewTab, type RuntimeResponse } from '@/shared/extension-ipc'
 
 const props = defineProps<{
   /** 当前页的站点名（拿不到 url 的内部页上是空串） */
@@ -37,11 +39,40 @@ const props = defineProps<{
   tab: PageOverviewTab | null
 }>()
 
+/** 录制开关切换成功后上抛给父组件（popup 不维持推送通道，由父组件就地更新这一行的录制标） */
+const emit = defineEmits<{ recordingChanged: [tabId: number, recording: boolean] }>()
+
 /** 「打开会话」没打通时的说明（成功就直接关窗了） */
 const openError = ref('')
 
 const scripts = computed(() => props.tab?.scripts ?? [])
 const errorCount = computed(() => scripts.value.reduce((n, s) => n + s.errorCount, 0))
+
+/** 这个标签页是否正在接口录制（判据在 SW，见 PageOverviewTab.netRecording） */
+const recording = computed(() => props.tab?.netRecording === true)
+
+/**
+ * 这个标签页能不能录制：要在概览里（拿得到 tabId）且是普通网页（拿得到站点名）。
+ * 内部页 / 扩展页两样都缺 —— 那种页面上开关禁灰，状态位改说原因。
+ */
+const canRecord = computed(() => props.tab != null && props.host !== '')
+
+/** 开关在途（禁灰，防连点重复发命令） */
+const toggleBusy = ref(false)
+/** 开关失败的说明（成功就不必说，状态位自己会变） */
+const toggleError = ref('')
+
+/**
+ * 刚被扳开、还没刷新过页面。
+ *
+ * 录制件是声明式注册（匹配粒度是站点、钩子在 `document_start` 挂），扳开关时页面早已跑完 ——
+ * 首屏请求录不到，得重载。这不是缺陷，是「不刷新就注入不了钩子」的必然结果，故当面说清，
+ * 免得用户以为开关一扳就在录了。
+ */
+const justEnabled = ref(false)
+
+/** 未录制时状态位的说法：能录就说「未开启」，不能录就说清是这一档 */
+const idleLabel = computed(() => (canRecord.value ? '未开启' : '当前页面不支持'))
 
 /**
  * 脚本卡头部行的计数文案。
@@ -95,6 +126,39 @@ async function openFloatPanel(): Promise<void> {
   }
   window.close()
 }
+
+/**
+ * 扳动这个标签页的接口录制开关。
+ *
+ * 门禁是 tab 维度（见 SW 的 netCaptureEnable / netCaptureDisable）：开与关都只落在这**一个
+ * 标签页**上，同站点的其他标签页各录各的。开启动作必须由人发起 —— AI 工具只能出同意卡，这里
+ * 与浮层同意卡走的是同一条命令，只是挪到一个不必先打开浮层就能按到的地方。
+ *
+ * 关掉不清数据：已录记录与会话归档都留着（清理在「接口数据」面板里）。
+ * 失败时留在面板里把话说出来（与「打开会话」同款：关了就没地方说了）；成功上抛给父组件。
+ */
+async function toggleRecording(next: boolean): Promise<void> {
+  const tabId = props.tab?.tabId
+  if (toggleBusy.value || tabId == null) return
+  toggleBusy.value = true
+  toggleError.value = ''
+  try {
+    const res = (await chrome.runtime.sendMessage(
+      next
+        ? { kind: 'userscript:netCaptureEnable', tabId, host: props.host }
+        : { kind: 'userscript:netCaptureDisable', tabId },
+    )) as RuntimeResponse<unknown> | undefined
+    if (!res?.ok) throw new Error(res?.error || '未知错误')
+    emit('recordingChanged', tabId, next)
+    justEnabled.value = next
+  } catch (e) {
+    toggleError.value = e instanceof Error ? e.message : String(e)
+    // 这一发没成，别让上一次成功留下的「刚开启」提示继续挂在卡片上
+    justEnabled.value = false
+  } finally {
+    toggleBusy.value = false
+  }
+}
 </script>
 
 <template>
@@ -108,6 +172,53 @@ async function openFloatPanel(): Promise<void> {
 
     <!-- 子卡比外卡低一档圆角（rounded-md），嵌套层次才看得出来 -->
     <div class="flex flex-col gap-2 p-2">
+      <!--
+        接口录制卡：常显 —— 开本身是个状态（开着是隐形的、最容易忘了关），藏起来用户就没地方
+        确认此刻在不在录。放在子卡最上面：它答的是「这个标签页此刻在录什么」，而脚本列表随时都在，
+        不必占第一位。开关只落在这一个标签页上，同站点的其他标签页各录各的。
+      -->
+      <div class="rounded-md border border-border" data-testid="popup-current-recording">
+        <div class="flex items-center gap-2 px-2.5 py-1.5">
+          <span class="shrink-0 text-xs text-muted-foreground">接口录制</span>
+          <span
+            class="flex min-w-0 flex-1 items-center gap-1.5"
+            data-testid="popup-current-recording-state"
+          >
+            <template v-if="recording">
+              <span class="size-1.5 shrink-0 rounded-full bg-primary" />
+              <span class="min-w-0 truncate text-xs">正在录制</span>
+            </template>
+            <span v-else class="min-w-0 truncate text-xs text-muted-foreground">{{ idleLabel }}</span>
+          </span>
+          <ui-switch
+            :model-value="recording"
+            :disabled="toggleBusy || !canRecord"
+            aria-label="接口录制"
+            data-testid="popup-toggle-recording"
+            @update:model-value="toggleRecording"
+          >
+            <ui-switch-thumb />
+          </ui-switch>
+        </div>
+
+        <!-- 刚扳开、页面还没重载：钩子只在文档开头挂，这一句是「开关已开但还没在录」的唯一解释 -->
+        <p
+          v-if="justEnabled"
+          class="border-t border-border px-2.5 py-1.5 text-xs text-muted-foreground"
+          data-testid="popup-recording-hint"
+        >
+          刷新页面后开始记录
+        </p>
+
+        <p
+          v-if="toggleError"
+          class="border-t border-border px-2.5 py-1.5 text-xs text-destructive"
+          data-testid="popup-recording-error"
+        >
+          {{ toggleError }}
+        </p>
+      </div>
+
       <!-- 脚本卡：头部给计数与错误徽标，列表常显（脚本多时自己滚，见 max-h） -->
       <div class="rounded-md border border-border">
         <div class="flex items-center gap-2 px-2.5 py-1.5">

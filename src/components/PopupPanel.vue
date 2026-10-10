@@ -2,7 +2,8 @@
 // popup = 点工具栏图标弹出的面板（**纯配置面板，不装 window.api**，也不承载对话）。
 //
 // 主体是两个区块，数据来自同一条 page:overview 命令（SW 侧一处聚合，见 shared/extension-ipc）：
-//   · 「当前页面」（PopupCurrentPage）：本页在跑哪些脚本 + 这条页面的对话浮层入口与回话状态；
+//   · 「当前页面」（PopupCurrentPage）：本标签页的接口录制开关（常显的子卡，可就地开与关）
+//     + 本页在跑哪些脚本 + 这条页面的对话浮层入口与回话状态；
 //   · 「其他页面」（PopupOtherPages）：其他打开的页面各自的脚本与会话，点一行切过去。
 // popup 只活几秒，故取一次快照即可，不维持推送通道 —— 页面上的脚本在 popup 打开前就已经登记好了。
 //
@@ -123,6 +124,17 @@ async function openRelease(): Promise<void> {
   window.close()
 }
 
+/**
+ * 录制开关切换成功后，就地更新那一行的录制标。
+ *
+ * 门禁是 tab 维度，故只动这一行（同站点的其他标签页各录各的，不该跟着变）。命令即真相，
+ * 不再回查一遍概览（popup 只活几秒，重跑会把四条查询再来一遍）。
+ */
+function onRecordingChanged(tabId: number, recording: boolean): void {
+  const row = overview.value.find((t) => t.tabId === tabId)
+  if (row) row.netRecording = recording
+}
+
 onMounted(() => {
   void refresh()
 })
@@ -169,7 +181,12 @@ onMounted(() => {
       </UiButton>
     </div>
 
-    <PopupCurrentPage :host="webHostname(currentUrl)" :injectable="injectable" :tab="currentTab" />
+    <PopupCurrentPage
+      :host="webHostname(currentUrl)"
+      :injectable="injectable"
+      :tab="currentTab"
+      @recording-changed="onRecordingChanged"
+    />
 
     <PopupOtherPages :tabs="otherTabs" />
 

@@ -96,6 +96,7 @@ import {
   subscribePageContext
 } from '@/lib/page-context-store'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
+import { readPinnedTabId } from '@/lib/owning-tab'
 import { formatMessageTime, formatTokens } from '@/lib/format'
 import type { DynamicToolUIPart, FileUIPart, TextUIPart, ToolUIPart, UIMessage } from 'ai'
 // 这几个 part 判定 helper 走本地实现：静态 import 'ai' 会把整块 ~360KB 的核心
@@ -501,23 +502,31 @@ async function removeCard(card: GenerationCardData): Promise<void> {
 
 // —— 接口录制同意卡（data-net-capture data part，两态 = 未开启 / 录制中）——
 // AI 判断写脚本需要目标站点的真实接口时出这张卡（net_capture_enable 工具，由 offscreen 推 part）。
-// 卡片是用户唯一的操作入口，也是隐私边界的落点：录什么是写死的，开关只在当前站点生效。
+// 卡片是用户唯一的操作入口，也是隐私边界的落点：录什么是写死的，开关只在**开启它的那个标签页**生效
+// （录制按标签页划分，同站点的其他标签页不看这张卡的状态）。
 // 开启后引导点**浏览器的刷新按钮**——录制只能抓开启之后的请求，钩子挂在文档开头。
 interface NetCaptureCardData {
   host: string
 }
 
-/** 已开启录制的站点（SW 为权威；这里是渲染用的本地视图，点击后即时更新） */
+/**
+ * 本载体所属的标签页 —— 录制会话锚在它上面。浮层在页面内嵌的 iframe 里，归属由 content script
+ * 经 iframe URL 传入（与它的会话归属同一处解析，见 lib/owning-tab.ts）；在工作台里只读回看历史
+ * 会话时读不到，此时卡片不给操作（录制无标签页可锚）。
+ */
+const ownerTabId = readPinnedTabId()
+
+/** 本标签页正在录制的站点（SW 为权威；这里是渲染用的本地视图，点击后即时更新） */
 const captureHosts = reactive(new Set<string>())
 const captureBusy = reactive(new Set<string>())
 const captureErrors = reactive(new Map<string, string>())
 
-/** 拉一次授权态：历史卡片的状态以 SW 为准，不能只信卡片落盘那一刻的快照 */
+/** 拉一次状态：历史卡片的状态以 SW 为准，不能只信卡片落盘那一刻的快照 */
 async function loadCaptureHosts(): Promise<void> {
   try {
-    const { hosts } = await userscriptClient.netCaptureState()
+    const { sessions } = await userscriptClient.netCaptureState()
     captureHosts.clear()
-    for (const h of hosts) captureHosts.add(h)
+    for (const s of sessions) if (s.tabId === ownerTabId) captureHosts.add(s.host)
   } catch {
     // 读不到就按未开启渲染（用户点开启时会看到真实错误）
   }
@@ -542,10 +551,11 @@ function captureCardsOf(m: UIMessage): NetCaptureCardData[] {
 }
 
 async function enableCapture(host: string): Promise<void> {
+  if (ownerTabId == null) return
   captureBusy.add(host)
   captureErrors.delete(host)
   try {
-    await userscriptClient.netCaptureEnable(host)
+    await userscriptClient.netCaptureEnable({ tabId: ownerTabId, host })
     captureHosts.add(host)
   } catch (e) {
     captureErrors.set(host, e instanceof Error ? e.message : String(e))
@@ -555,10 +565,11 @@ async function enableCapture(host: string): Promise<void> {
 }
 
 async function disableCapture(host: string): Promise<void> {
+  if (ownerTabId == null) return
   captureBusy.add(host)
   captureErrors.delete(host)
   try {
-    await userscriptClient.netCaptureDisable(host)
+    await userscriptClient.netCaptureDisable(ownerTabId)
     captureHosts.delete(host)
   } catch (e) {
     captureErrors.set(host, e instanceof Error ? e.message : String(e))
@@ -986,7 +997,7 @@ function userScriptsUnavailableMessageSafe(): string {
                   </div>
                   <div class="flex min-w-0 gap-1.5">
                     <dt class="shrink-0">存放位置</dt>
-                    <dd class="min-w-0 break-all">仅本机，只对 {{ card.host }} 生效</dd>
+                    <dd class="min-w-0 break-all">仅本机，只对这个标签页生效</dd>
                   </div>
                   <div class="flex min-w-0 gap-1.5">
                     <dt class="shrink-0">保留条数</dt>
@@ -998,7 +1009,7 @@ function userScriptsUnavailableMessageSafe(): string {
                     v-if="!captureHosts.has(card.host)"
                     type="button"
                     size="xs"
-                    :disabled="captureBusy.has(card.host)"
+                    :disabled="captureBusy.has(card.host) || ownerTabId == null"
                     title="只记录当前站点，数据留在本机"
                     @click="enableCapture(card.host)"
                   >
@@ -1019,7 +1030,13 @@ function userScriptsUnavailableMessageSafe(): string {
                   </ui-button>
                 </div>
                 <p
-                  v-if="captureHosts.has(card.host)"
+                  v-if="ownerTabId == null"
+                  class="mt-2 text-xs leading-relaxed text-muted-foreground"
+                >
+                  录制按标签页进行，请到目标页面的 popup 或对话浮层里开启。
+                </p>
+                <p
+                  v-else-if="captureHosts.has(card.host)"
                   class="mt-2 text-xs leading-relaxed text-muted-foreground"
                 >
                   用浏览器的刷新按钮重新加载页面，从首屏请求开始记录。
