@@ -152,7 +152,7 @@ export interface UserScriptsAvailability {
   guideText: string
 }
 
-/** 脚本错误记录（runtime 库 errors store，单记录环形；环形保留最近 N 条，供错误日志面板） */
+/** 脚本错误记录（runtime 库 errors store，逐条 + 环形；保留最近 N 条，供错误日志面板） */
 export interface UserScriptErrorRecord {
   id: string
   uuid: string | null // 运行期/注册错误有；部分桥错误可能无
@@ -179,10 +179,11 @@ export interface UserScriptErrorRecord {
 // —— 存储约定 ——
 //
 // 全部落 IndexedDB：GM 值存储 / GM tab → duoling-usdata（usdata-db.ts，复合主键）；
-// 观测数据（错误日志 / 运行统计 / 运行日志）→ duoling-runtime（runtime-db.ts）。
+// 观测数据（错误日志 / 运行统计 / 运行条目 / 运行内事件）→ duoling-runtime（runtime-db.ts）。
 
 /** 错误日志环形上限：超过后只留最近 N 条。
- *  写侧（store.ts）裁剪、UI 文案（错误日志标签页）都读这里 —— 上限只写一处，避免文案与实现漂移。 */
+ *  裁剪在写侧（runtime-db.ts，经 store.ts 汇入）、UI 文案（错误日志标签页）都读这里 ——
+ *  上限只写一处，避免文案与实现漂移。 */
 export const ERROR_LOG_MAX = 50
 /** 运行日志环形上限：全局混存（跨脚本按时间排），超过后只留最近 N 条 */
 export const RUN_LOG_MAX = 500

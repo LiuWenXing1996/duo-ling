@@ -206,8 +206,8 @@ const showNameInRows = computed(() => selectedKey.value === ALL_KEY || selectedK
 
 /**
  * 清空参数三态（与 userscriptClient.clearErrors 的契约一一对应）：
- * undefined = 清全部；string = 清该脚本（后台连带清该脚本的运行日志条目）；
- * null = 清「未归属」错误（run-log 条目必带 uuid，此范围下 run-log 不动）。
+ * undefined = 清全部；string = 清该脚本（后台连带清该脚本的运行条）；
+ * null = 清「未归属」错误（运行条必带 uuid，此范围下不动）。
  * 注意**不能**写 `selected.value?.uuid ?? undefined` —— null 是 nullish，
  * 那样会把「未归属」悄悄退化成「清空全部」。
  */
@@ -577,7 +577,8 @@ onMounted(() => {
                   >
                     {{ row.errors.length }} 个错误
                   </span>
-                  <!-- 只陈述「没挂错误」这一事实：运行日志没有结束状态，「正常结束」会暗示脚本跑完了 -->
+                  <!-- 这一格只陈述「没挂错误」：结束信号（endedAt / endReason）记的是文档生命周期
+                       终结，不等于脚本跑完（同步部分早跑完的脚本也一直挂到导航离开），故不写「正常结束」 -->
                   <span
                     v-else
                     class="text-[10px] text-muted-foreground"

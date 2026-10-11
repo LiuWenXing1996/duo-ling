@@ -119,9 +119,9 @@ export type RuntimeRequest =
   | { kind: 'userscript:runlog' }
   // 某次运行的运行内事件（按 runId；消费方同上：面板展开卡片 / AI 的 run_log_read 带 runId）
   | { kind: 'userscript:runEvents'; runId: string }
-  // 清错误日志（runtime 库 errors store；「全部/该脚本」范围同时清 runs store 对应条目）。三态靠「字段在不在」区分，**不可用 falsy 判定**：
-  //   不带该字段 = 清全部；uuid: string = 只清该脚本；uuid: null = 只清「未归属」错误记录（run-log 不动）。
-  //   不带该字段 = 清全部；uuid: string = 只清该脚本；uuid: null = 只清「未归属」记录。
+  // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清 runs store 的对应条目）。
+  // 三态靠「字段在不在」区分，**不可用 falsy 判定**：字段缺失 = 清全部；uuid: string =
+  // 只清该脚本；uuid: null = 只清「未归属」错误记录（运行条必带 uuid，此形态下不动）。
   // unassigned 用显式 null 而非 undefined：结构化克隆会保留 null，而 undefined 值在部分
   // 序列化路径下与「字段缺失」无法区分（Firefox / JSON 回退），故调用方必须省略字段而非传 undefined。
   | { kind: 'userscript:clearErrors'; uuid?: string | null }

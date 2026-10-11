@@ -414,7 +414,7 @@ describe('运行日志（runs store 环形 + run_events 事件 + listRunTimeline
     let rows = await listRunTimeline()
     expect(rows.some((r) => r.kind === 'run' && r.runId === 'r1')).toBe(false)
     expect(rows.some((r) => r.kind === 'run' && r.runId === 'r2')).toBe(true)
-    await clearRunLog(null) // 未归属范围：run-log 不动
+    await clearRunLog(null) // 未归属范围：运行条不动
     expect(await listRunTimeline()).toHaveLength(1)
     await clearRunLog()
     expect(await listRunTimeline()).toHaveLength(0)

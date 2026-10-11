@@ -2,7 +2,7 @@
 //
 // 项目数据（源码/配置/产物/enabled）的权威在 IndexedDB 状态库 duoling-state
 // （读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
-// 本文件管三块，全部落 IndexedDB：GM 值（duoling-usdata 库，见 usdata-db.ts）、
+// 本文件管两块存储，全部落 IndexedDB：GM 值（duoling-usdata 库，见 usdata-db.ts）、
 // 观测数据 = 错误日志 / 运行统计 / 运行条目 / 运行内事件（duoling-runtime 库，见 runtime-db.ts）。
 //
 // 观测数据的读改写在 runtime-db 的同一事务内完成（天然原子），故这里不再需要
