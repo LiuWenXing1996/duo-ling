@@ -220,8 +220,10 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   }
 
   // —— Port 事件底座：控制面走 sendMessage 请求-响应；Port 只收下行推送帧。
-  //    SW 注册表是内存态、冷启动归零，靠脚本侧重连重放恢复；菜单是浏览器级资源，
-  //    其 id 由标题确定性派生（djb2）——随机 id 会让每次刷新都堆一条菜单。
+  //    控制面请求一律**等 port.ready 之后再发**（见 __gmRegSend）—— 登记一次即成，
+  //    不需要「重连后把活跃注册补发一遍」：SW 由 offscreen 心跳保活、不会空闲重启，
+  //    而那条路在首连时只会把在飞的注册重复发一遍。
+  //    菜单是浏览器级资源，其 id 由标题确定性派生（djb2）——随机 id 会让每次刷新都堆一条菜单。
   var __gmConnId = (function () {
     try { return crypto.randomUUID() }
     catch (e) { return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10) }
@@ -230,9 +232,6 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   var __gmConnectStarted = false
   var __gmPortReady = false
   var __gmReadyWaiters = []
-  var __gmActiveMenus = {}
-  var __gmActiveWatches = {}
-  var __gmActiveValueWatch = false
   var __gmMenuHandlers = {}
   var __gmWatchHandlers = {}
   var __gmNotifyHandlers = {}
@@ -259,25 +258,10 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   function __gmHandleEvent(ev) {
     if (!ev) return
     if (ev.t === 'port.ready') {
+      // 下行通道就绪：放行全部等在 __gmWaitReady 上的控制面请求（注册 / 订阅 / 靠帧的命令）
       __gmPortReady = true
       var ws = __gmReadyWaiters.splice(0)
       for (var wi = 0; wi < ws.length; wi++) ws[wi].resolve()
-      // SW 冷启动重放：注册表归零 → 重发全部活跃注册（菜单撞 id 幂等由 SW 侧处理）
-      var rreqs = []
-      for (var mid in __gmActiveMenus) rreqs.push({ c: 'menu.register', id: mid, title: __gmActiveMenus[mid] })
-      for (var wkey in __gmActiveWatches) rreqs.push({ c: 'store.watch', key: wkey, connId: __gmConnId })
-      if (__gmActiveValueWatch) rreqs.push({ c: 'store.watchAll', connId: __gmConnId })
-      for (var ri = 0; ri < rreqs.length; ri++) {
-        __gmSend(rreqs[ri]).catch(function (e) { console.warn(NAME_PREFIX + ' 重放注册失败', e) })
-      }
-      return
-    }
-    if (ev.t === 'relay.port.closed') {
-      // 中继件那侧 Port 断了（SW 重启 / 页面里换了代的中继件）：复位后重连。
-      // SW 接通会重新推 port.ready，届时上面的重放逻辑把活跃注册补回来。
-      __gmConnectStarted = false
-      __gmPortReady = false
-      setTimeout(__gmConnect, 100)
       return
     }
     if (ev.t === 'menu.click') {
@@ -406,7 +390,6 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
       __gmConnect()
       __gmWaitReady()
         .then(function () {
-          __gmActiveValueWatch = true
           return __gmRegSend({ c: 'store.watchAll', connId: __gmConnId })
         })
         .then(function () {
@@ -792,7 +775,6 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     var title = typeof options === 'object' && options && typeof options.title === 'string' ? options.title : caption
     var id = __gmMenuKey(caption)
     __gmMenuHandlers[id] = onClick
-    __gmActiveMenus[id] = title
     __gmEnsureChannel()
     __gmRegSend({ c: 'menu.register', id: id, title: title }).catch(function (e) {
       __gmLog('GM_registerMenuCommand 登记失败：' + ((e && e.message) || e))
@@ -802,7 +784,6 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   function __gmUnregisterMenu(idOrCaption) {
     var id = typeof idOrCaption === 'number' ? 'm-' + (idOrCaption >>> 0).toString(36) : __gmMenuKey(idOrCaption)
     delete __gmMenuHandlers[id]
-    delete __gmActiveMenus[id]
     __gmRegSend({ c: 'menu.unregister', id: id }).catch(function () {})
   }
 
@@ -850,7 +831,6 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     var id = ++__gmListenerSeq
     if (!__gmWatchHandlers[key]) __gmWatchHandlers[key] = []
     __gmWatchHandlers[key].push({ id: id, fn: cb })
-    __gmActiveWatches[key] = true
     __gmEnsureChannel()
     __gmRegSend({ c: 'store.watch', key: key, connId: __gmConnId }).catch(function (e) {
       __gmLog('GM_addValueChangeListener 订阅失败：' + ((e && e.message) || e))
@@ -866,7 +846,6 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
         arr.splice(i, 1)
         if (!arr.length) {
           delete __gmWatchHandlers[key]
-          delete __gmActiveWatches[key]
           __gmRegSend({ c: 'store.unwatch', key: key, connId: __gmConnId }).catch(function () {})
         }
         return
