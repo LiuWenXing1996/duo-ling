@@ -4,7 +4,7 @@
 //   · Port 生命周期 —— 脚本世界主动 connect（SW 无法反向连接脚本世界，脚本是唯一发起端），
 //     lazy 建立（首次 menu.register / store.watch / notify(onClick) 时）；SW 侧按 name
 //     解析身份并校验 sender.userScript.scriptId。
-//   · SW 注册表（全部内存态，SW 冷启动归零，靠脚本侧重连重放恢复）：
+//   · SW 注册表（全部内存态；控制面请求都等 port.ready 之后才发，故建起连接即登记到位）：
 //       dlPorts    Map<Port, {uuid, connId, tabId}>   连接寻址（menu.click 路由主键 = tabId）
 //       watches    Map<Port, Set<key>>                订阅跟随 Port 生命周期，断开自动清理
 //       notifyMap  Map<notificationId, uuid>          通知点击归属（内存，SW 重启窗口内点击丢失——已接受的取舍）
@@ -12,8 +12,8 @@
 //   · 控制面（注册 / 注销 / 订阅）走 sendMessage 请求-响应（dl-bridge dispatch 调本文件导出的
 //     函数），Port 只承载下行推送帧 —— 控制面/数据面分离。
 //
-// 幂等：contextMenus 注册持久于浏览器会话，SW 重启后脚本重放 menu.register 会撞
-// duplicate id —— create 撞 id 按成功处理（菜单在位即达标）；remove 不存在同理忽略。
+// 幂等：contextMenus 注册持久于浏览器会话，同一脚本每次页面加载都会 create 同一个
+// id（由标题确定性派生）—— 撞 duplicate id 按成功处理（菜单在位即达标）；remove 不存在同理忽略。
 // contextMenus id 统一加 `us:` 前缀（`us:<uuid>:<menuId>`），避免与项目自身菜单撞 id。
 //
 // 竞态（connect → onConnect 就绪窗口）：SW 建立连接后立即下发 { t:'port.ready' } 内部帧，
@@ -46,7 +46,7 @@ export interface DlPortMeta {
 
 /**
  * SW 侧注册表（内存态）。Port 断开即摘连接与订阅；菜单是脚本级资源、由 contextMenus
- * 自身持久（SW 侧重启后由脚本重放兜底），不在此登记。
+ * 自身持久，不在此登记。
  */
 export class DlPortRegistry {
   private ports = new Map<chrome.runtime.Port, DlPortMeta>()
@@ -212,7 +212,7 @@ export function getDlPortRegistry(): DlPortRegistry {
 /**
  * 登记扩展菜单项（GM_registerMenuCommand 的后台实现）。
  * contextMenus id 加 `us:` 前缀防与项目自身菜单撞；**撞 duplicate id 按成功处理**——
- * SW 重启后菜单持久在位，脚本重放 register 即幂等达标。
+ * 菜单持久于浏览器会话，同一脚本每次页面加载都发同一个 id，撞上即说明它已在位。
  */
 export function registerScriptMenu(uuid: string, menuId: string, title: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -225,7 +225,7 @@ export function registerScriptMenu(uuid: string, menuId: string, title: string):
           return resolve()
         }
         if (/duplicate/i.test(err.message ?? '')) {
-          console.log('[duoling:dl] 菜单已在位（重放幂等）：', `us:${uuid}:${menuId}`)
+          console.log('[duoling:dl] 菜单已在位（同 id 已存在，幂等）：', `us:${uuid}:${menuId}`)
           return resolve() // 幂等：菜单已在位
         }
         console.warn('[duoling:dl] 菜单登记失败：', `us:${uuid}:${menuId}`, err.message)
@@ -365,7 +365,7 @@ export function initDlPort(): void {
       tabId: port.sender?.tab?.id ?? null,
     }
     registry.addPort(port, meta)
-    // 就绪握手：包装层据此 flush 首次注册 / 重放队列（消除 connect→onConnect 竞态）
+    // 就绪握手：包装层据此放行待发的控制面请求（消除 connect→onConnect 竞态）
     pushEvent(registry, port, { t: 'port.ready' })
     port.onDisconnect.addListener(() => registry.removePort(port))
   })

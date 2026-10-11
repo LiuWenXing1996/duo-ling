@@ -431,6 +431,9 @@ async function runLoop(opts: {
           pushChunk(conversationId, chunk)
         },
       },
+      // 运行日志（AI 的 run_log_read）：errors / runs / run_events 都在 SW 侧的 duoling-runtime 库
+      () => offscreenBridge.readRunLog(),
+      (runId) => offscreenBridge.readRunEvents(runId),
     )
 
     const result = streamText({

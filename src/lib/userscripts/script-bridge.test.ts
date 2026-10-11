@@ -15,7 +15,7 @@ const UUID = 'uuid-1111-2222'
 type MsgListener = (ev: { source: unknown; data: unknown }) => void
 
 interface BridgeApi {
-  call: (req: unknown) => Promise<unknown>
+  call: (req: unknown, runId?: string) => Promise<unknown>
   connect: (connId: string) => Promise<void>
   emit: (payload: unknown) => void
   onEvent: (fn: (ev: unknown) => void) => void
@@ -130,6 +130,17 @@ describe('脚本主世界桥（bridge + relay 真源码对跑）', () => {
       uuid: UUID,
       req: { c: 'store.get', key: 'k' },
     })
+  })
+
+  it('runId 随请求帧原样带到 SW（观测数据据此归属到具体某次运行）', async () => {
+    const { api, stub } = setup({ handler: () => ({ ok: true }) })
+
+    await api.call({ c: 'store.get', key: 'k' }, 'run-42')
+    expect(stub.sent[0]).toMatchObject({ __dl: true, uuid: UUID, runId: 'run-42' })
+
+    // 老包装层不带 runId：帧里为 undefined，SW 侧按「无归属」处理，不崩
+    await api.call({ c: 'store.get', key: 'k' })
+    expect(stub.sent[1].runId).toBeUndefined()
   })
 
   it('响应里的 ok:false 原样交给调用方（桥只做传输，不解释语义）', async () => {

@@ -644,3 +644,57 @@ describe('GM tab', () => {
     expect(resp).toMatchObject({ ok: false, code: 'INVALID_ARG' })
   })
 })
+
+describe('summarizeRunEvent（运行事件摘要）', () => {
+  /** 取一份模块实例里的纯函数（沿用本文件 resetModules 的语义，不另建 import 面） */
+  async function summarize(req: ApiRequest) {
+    const { summarizeRunEvent } = await import('./dl-bridge')
+    return summarizeRunEvent(req)
+  }
+
+  it('有副作用 / 外呼的动作进时间线，摘要为可读一行', async () => {
+    expect(await summarize({ c: 'fetch', url: 'https://x.test/a', init: { method: 'post' } })).toEqual({
+      kind: 'fetch',
+      detail: 'POST https://x.test/a',
+    })
+    // method 缺省即 GET
+    expect(await summarize({ c: 'fetch', url: 'https://x.test/a' })).toEqual({
+      kind: 'fetch',
+      detail: 'GET https://x.test/a',
+    })
+    expect(await summarize({ c: 'store.set', key: 'token', value: 'v' })).toEqual({
+      kind: 'store.set',
+      detail: 'token',
+    })
+    expect(await summarize({ c: 'download', url: 'https://x.test/f.bin' })).toEqual({
+      kind: 'download',
+      detail: 'https://x.test/f.bin',
+    })
+  })
+
+  it('摘要不含值本体：写值只留键名、剪贴板只留动作（时间线是观察面，不是数据副本）', async () => {
+    const set = await summarize({ c: 'store.set', key: 'token', value: 'SUPER-SECRET' })
+    expect(set?.detail).toBe('token')
+    expect(set?.detail).not.toContain('SUPER-SECRET')
+
+    expect(await summarize({ c: 'clipboard.write', text: 'secret-text' })).toEqual({
+      kind: 'clipboard.write',
+      detail: '写入剪贴板',
+    })
+    expect(await summarize({ c: 'clipboard.write', html: '<b>x</b>' })).toEqual({
+      kind: 'clipboard.write',
+      detail: '写入富文本剪贴板',
+    })
+  })
+
+  it('读类命令不入时间线（高频且不改外部状态，采了只会埋掉有信息量的）', async () => {
+    expect(await summarize({ c: 'store.get', key: 'k' })).toBeNull()
+    expect(await summarize({ c: 'cookie.get', url: 'https://a.test/' })).toBeNull()
+  })
+
+  it('超长 url 截断到展示上限，尾部省略号（一行不该被超长 URL 撑爆）', async () => {
+    const ev = await summarize({ c: 'fetch', url: `https://x.test/${'a'.repeat(300)}` })
+    expect(ev?.detail.length).toBe(121)
+    expect(ev?.detail.endsWith('…')).toBe(true)
+  })
+})

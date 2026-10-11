@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 运行日志标签页：按时间倒序的运行流水（一行 = 一次运行），运行期错误按 runId 挂到所属
-// 运行行下展开看明细；无法归属的错误（注册/桥类无 runId、或所属运行已滑出环形）单独成行。
+// 运行行下、运行内动作按 runId 索引存放——**都只在展开时才呈现**（动作更是展开那一刻才拉，
+// 列表不随行返回）；无法归属的错误（注册/桥类无 runId、或所属运行已滑出环形）单独成行。
 //
 // 运行 + 错误合并成一条时间线（不按脚本分组）——「什么时候跑过、那次挂没挂、挂了什么」一眼一条线看完。
 //
@@ -20,10 +21,24 @@ import { Button as UiButton } from '@/components/ui/button'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
   RUN_LOG_MAX,
+  type RunEndReason,
   type ScriptSummary,
   type UserScriptErrorRecord,
+  type UserScriptRunEvent,
   type UserScriptRunLogRow
 } from '@/lib/userscripts/types'
+
+/** 时间线里的一行（运行内事件 / 运行期错误混排）；RunRow 见下 */
+type RunRow = Extract<UserScriptRunLogRow, { kind: 'run' }>
+interface TimelineItem {
+  kind: 'event' | 'error'
+  time: number
+  /** 事件才有：命令名与已脱敏的一行摘要 */
+  label: string
+  detail: string
+  /** 错误才有 */
+  record?: UserScriptErrorRecord
+}
 
 /** 深链定位：对话界面灵动岛「点击脚本行」→ workbench.html#/errors/<uuid> → 宿主传入。
  *  带 focusSeq（宿主每次定位请求递增）：标签页常驻不重挂，对同一脚本再点一次时
@@ -43,8 +58,16 @@ const error = ref('')
 const selectedKey = ref<string>(ALL_KEY)
 /** 深链目标在当前日志里不存在时的说明（否则用户只看到「点了没反应」） */
 const focusMissName = ref('')
-/** 展开错误明细的运行行（runId 集合；折叠时间线，点开才看错误明细） */
+/** 展开的运行行（runId 集合；展开才拉那一组事件并显示错误明细） */
 const expandedRunIds = ref<Set<string>>(new Set())
+/**
+ * 已拉回的事件（runId → 事件列表）：展开时按需拉，拉过就缓存。
+ * 列表视图不带事件——事件单独一表，跟随运行数全量读会线性膨胀（运行数 × 事件上限），
+ * 面板只在这张卡片被展开时才问一次 SW。
+ */
+const eventsByRunId = ref<Map<string, UserScriptRunEvent[]>>(new Map())
+/** 正在拉事件的运行行（展开瞬间显示加载态） */
+const loadingRunIds = ref<Set<string>>(new Set())
 
 /** 已加载的脚本全量列表（userscriptClient.list）；与日志合并出左栏，让没日志的脚本也可见 */
 const scriptList = ref<ScriptSummary[]>([])
@@ -129,6 +152,27 @@ const navItems = computed<NavItem[]>(() => {
   return [...items, ...logItems, ...noLogItems]
 })
 
+/** 脚本 uuid → 当前已保存源码的版本时刻（ScriptSummary.savedAt），用于判断某次运行跑的是哪一版 */
+const currentSavedAtByUuid = computed<Map<string, number>>(() => {
+  const m = new Map<string, number>()
+  for (const s of scriptList.value) m.set(s.uuid, s.savedAt)
+  return m
+})
+
+/**
+ * 这次运行跑的是不是「已经不是当前那一版」的源码：运行行记的 savedAt 与脚本现在已保存的版本不同。
+ * 脚本已删 / 脚本列表还没拉到 / 老记录没有 savedAt —— 都无从判断，一律不提示（宁可不标，不误报）。
+ */
+function ranStaleSource(row: { uuid: string; savedAt?: number }): boolean {
+  if (row.savedAt == null) return false
+  const now = currentSavedAtByUuid.value.get(row.uuid)
+  return now != null && now !== row.savedAt
+}
+
+function staleSourceHint(row: { savedAt?: number }): string {
+  return `页面里跑的是 ${formatTime(row.savedAt ?? 0)} 保存的源码；脚本在那之后又被改过`
+}
+
 /** 当前选中的是某个具体脚本、且其时间线为空（只在单脚本视图下给一句空提示，全部/未归属不提示） */
 const selectedScriptEmpty = computed(
   () =>
@@ -162,8 +206,8 @@ const showNameInRows = computed(() => selectedKey.value === ALL_KEY || selectedK
 
 /**
  * 清空参数三态（与 userscriptClient.clearErrors 的契约一一对应）：
- * undefined = 清全部；string = 清该脚本（后台连带清该脚本的运行日志条目）；
- * null = 清「未归属」错误（run-log 条目必带 uuid，此范围下 run-log 不动）。
+ * undefined = 清全部；string = 清该脚本（后台连带清该脚本的运行条）；
+ * null = 清「未归属」错误（运行条必带 uuid，此范围下不动）。
  * 注意**不能**写 `selected.value?.uuid ?? undefined` —— null 是 nullish，
  * 那样会把「未归属」悄悄退化成「清空全部」。
  */
@@ -203,12 +247,75 @@ function phaseBadgeClass(p: UserScriptErrorRecord['phase']): string {
 function formatTime(t: number): string {
   return new Date(t).toLocaleString()
 }
-/** 错误 ID 展示短形态（前 8 位；复制按钮复制完整 id，供 AI 代查） */
-function shortErrorId(id: string): string {
-  return id.slice(0, 8)
+/** 时间线节点上的时刻：只到秒，日期在卡头已有，重复一遍是噪声 */
+function formatClock(t: number): string {
+  return new Date(t).toLocaleTimeString()
+}
+/** 存活时长：跨度可能从几秒到几小时，逐级降精度（秒 → 分秒 → 时分） */
+function formatDuration(ms: number): string {
+  const sec = Math.max(0, Math.round(ms / 1000))
+  if (sec < 60) return `${sec} 秒`
+  const min = Math.floor(sec / 60)
+  const rsec = sec % 60
+  if (min < 60) return rsec ? `${min} 分 ${rsec} 秒` : `${min} 分`
+  const hour = Math.floor(min / 60)
+  const rmin = min % 60
+  return rmin ? `${hour} 小时 ${rmin} 分` : `${hour} 小时`
+}
+const END_REASON_LABEL: Record<RunEndReason, string> = {
+  navigated: '页面导航离开',
+  closed: '标签页关闭'
+}
+/** 结束原因文案；endedAt 在而 endReason 缺（老记录/异常写入）时给中性说法，不猜 */
+function endReasonLabel(reason: RunEndReason | undefined): string {
+  return reason ? END_REASON_LABEL[reason] : '结束原因未记录'
+}
+
+/** 一次运行的节点流：已拉回的事件 + 这次运行挂上的错误，按发生时刻升序混排 */
+function timelineOf(events: UserScriptRunEvent[], row: RunRow): TimelineItem[] {
+  const items: TimelineItem[] = events.map((e) => ({
+    kind: 'event',
+    time: e.time,
+    label: e.kind,
+    detail: e.detail
+  }))
+  for (const e of row.errors) {
+    items.push({ kind: 'error', time: e.time, label: '', detail: '', record: e })
+  }
+  return items.sort((a, b) => a.time - b.time)
+}
+
+/**
+ * runId → 该次运行的节点流：**只算展开态**（折叠时卡体什么都不画）。
+ * 事件靠展开触发的按需拉取，还没拉回来就只显示错误节点。
+ */
+const timelineByRunId = computed<Map<string, TimelineItem[]>>(() => {
+  const expanded = expandedRunIds.value
+  const loaded = eventsByRunId.value
+  const m = new Map<string, TimelineItem[]>()
+  for (const r of rows.value) {
+    if (r.kind !== 'run' || !expanded.has(r.runId)) continue
+    m.set(r.runId, timelineOf(loaded.get(r.runId) ?? [], r))
+  }
+  return m
+})
+
+/** 已拉回的事件条数（与运行条目的 eventCount 比对，得出「还有多少条没显示」） */
+function loadedEventCount(runId: string): number {
+  return eventsByRunId.value.get(runId)?.length ?? 0
+}
+
+/** 没显示出来的事件条数：eventCount 是收到总数，落盘条数受 RUN_EVENT_MAX 封顶 */
+function omittedEventCount(row: RunRow): number {
+  return Math.max(0, (row.eventCount ?? 0) - loadedEventCount(row.runId))
+}
+/** 错误 ID 展示短形态（前 8 位；复制按钮复制完整 id，供 AI 代查）。容忍 undefined：时间线节点上取 record 是可选的 */
+function shortErrorId(id: string | undefined): string {
+  return id ? id.slice(0, 8) : ''
 }
 const copiedErrorId = ref('')
-async function copyErrorId(id: string): Promise<void> {
+async function copyErrorId(id: string | undefined): Promise<void> {
+  if (!id) return
   try {
     await navigator.clipboard.writeText(id)
     copiedErrorId.value = id
@@ -218,12 +325,35 @@ async function copyErrorId(id: string): Promise<void> {
   }
 }
 
-/** 展开 / 折叠一次运行的错误明细 */
-function toggleExpand(runId: string): void {
+/**
+ * 展开 / 折叠一次运行：展开时按 runId 拉那一组事件（懒加载，拉过就缓存）。
+ * 列表视图不带事件——事件单独一表，跟随运行数全量读会线性膨胀，看哪一次才拉哪一次。
+ */
+async function toggleExpand(row: RunRow): Promise<void> {
+  const runId = row.runId
   const next = new Set(expandedRunIds.value)
-  if (next.has(runId)) next.delete(runId)
-  else next.add(runId)
+  if (next.has(runId)) {
+    next.delete(runId)
+    expandedRunIds.value = next
+    return
+  }
+  next.add(runId)
   expandedRunIds.value = next
+  // 没有动作的运行（eventCount 缺省 / 为 0）只有错误可看，不必拉事件
+  if (!row.eventCount || eventsByRunId.value.has(runId)) return
+  loadingRunIds.value = new Set(loadingRunIds.value).add(runId)
+  try {
+    const events = await userscriptClient.runEvents(runId)
+    const cached = new Map(eventsByRunId.value)
+    cached.set(runId, events)
+    eventsByRunId.value = cached
+  } catch (e) {
+    error.value = '拉取运行动作失败：' + (e instanceof Error ? e.message : String(e))
+  } finally {
+    const busy = new Set(loadingRunIds.value)
+    busy.delete(runId)
+    loadingRunIds.value = busy
+  }
 }
 
 async function load(): Promise<void> {
@@ -268,6 +398,7 @@ async function onClear(): Promise<void> {
   try {
     await userscriptClient.clearErrors(clearTarget.value)
     expandedRunIds.value = new Set()
+    eventsByRunId.value = new Map()
     await load()
     fallbackSelectionIfGone()
   } catch (e) {
@@ -422,7 +553,7 @@ onMounted(() => {
             脚本「{{ navItems.find((i) => i.key === selectedKey)?.name }}」暂未运行。启用并访问命中的页面后，每次运行都会记在这里。
           </p>
 
-          <ul v-if="rows.length" class="mt-2 flex flex-col gap-2">
+          <ul v-if="rows.length" class="run-log-timeline mt-2 flex flex-col gap-2">
             <li v-for="row in visibleRows" :key="row.kind === 'run' ? row.runId : row.record.id">
               <!-- 运行行：一次页面加载一条，出错可展开明细 -->
               <div v-if="row.kind === 'run'" class="rounded-md border bg-card p-3 text-xs">
@@ -430,55 +561,138 @@ onMounted(() => {
                   <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                     运行
                   </span>
+                  <!-- 跑的源码已不是当前这一版：只有比对得出「不一致」时才标，一致时不必占位 -->
+                  <span
+                    v-if="ranStaleSource(row)"
+                    class="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                    :title="staleSourceHint(row)"
+                  >
+                    旧版源码
+                  </span>
                   <span v-if="showNameInRows" class="truncate font-medium">{{ row.name || row.uuid.slice(0, 8) }}</span>
                   <span class="text-muted-foreground">{{ formatTime(row.time) }}</span>
-                  <button
+                  <span
                     v-if="row.errors.length"
-                    type="button"
-                    class="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive hover:bg-destructive/20"
-                    :title="`展开/折叠这次运行的 ${row.errors.length} 条错误明细`"
-                    @click="toggleExpand(row.runId)"
+                    class="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
                   >
-                    {{ expandedRunIds.has(row.runId) ? '收起 · ' : '' }}{{ row.errors.length }} 个错误
-                  </button>
+                    {{ row.errors.length }} 个错误
+                  </span>
+                  <!-- 这一格只陈述「没挂错误」：结束信号（endedAt / endReason）记的是文档生命周期
+                       终结，不等于脚本跑完（同步部分早跑完的脚本也一直挂到导航离开），故不写「正常结束」 -->
                   <span
                     v-else
                     class="text-[10px] text-muted-foreground"
-                    :title="`runId：${row.runId}`"
+                    :title="`这次运行没有报错（runId：${row.runId}）`"
                   >
-                    正常结束
+                    无错误
                   </span>
-                </div>
-                <!-- 展开的错误明细 -->
-                <div v-if="row.kind === 'run' && expandedRunIds.has(row.runId)" class="mt-2 flex flex-col gap-1.5">
-                  <div
-                    v-for="e in row.errors"
-                    :key="e.id"
-                    class="rounded border border-destructive/20 p-2"
+                  <!-- 动作数取自运行条目上的 eventCount：事件本体要展开才拉，这里只报个数 -->
+                  <span v-if="row.eventCount" class="text-[10px] text-muted-foreground">
+                    {{ row.eventCount }} 个动作
+                  </span>
+                  <!-- 展开入口：有动作或错误才有内容可看；动作在这一刻才按需拉 -->
+                  <button
+                    v-if="row.errors.length || row.eventCount"
+                    type="button"
+                    class="rounded border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted"
+                    :title="
+                      expandedRunIds.has(row.runId)
+                        ? '收起这次运行做过的事与报的错'
+                        : '展开这次运行做过的事与报的错'
+                    "
+                    @click="toggleExpand(row)"
                   >
-                    <div class="flex flex-wrap items-center gap-1.5">
-                      <span class="text-muted-foreground">{{ formatTime(e.time) }}</span>
-                      <button
-                        type="button"
-                        class="ml-auto flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted"
-                        :title="`复制完整错误 ID（发给 AI 可自动查询修复）：${e.id}`"
-                        @click="copyErrorId(e.id)"
-                      >
-                        <ui-check v-if="copiedErrorId === e.id" class="size-3 text-green-600" />
-                        <ui-copy v-else class="size-3" />
-                        {{ shortErrorId(e.id) }}
-                      </button>
-                    </div>
-                    <p class="mt-1 break-all text-destructive">{{ e.message }}</p>
-                    <p v-if="e.url" class="mt-0.5 truncate text-muted-foreground" :title="e.url">
-                      {{ e.url }}
-                    </p>
-                    <pre
-                      v-if="e.stack"
-                      class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-[11px] leading-relaxed"
-                    >{{ e.stack }}</pre>
-                  </div>
+                    {{ expandedRunIds.has(row.runId) ? '收起' : '展开' }}
+                  </button>
                 </div>
+                <!-- 运行所在页面：与错误行的 url 同一形态（单行截断，hover 看全量）；老记录没有则不渲染 -->
+                <p v-if="row.url" class="mt-1 truncate text-muted-foreground" :title="row.url">
+                  {{ row.url }}
+                </p>
+                <!-- 展开才拉动作：给一句加载态，避免「点了没反应」 -->
+                <p
+                  v-if="expandedRunIds.has(row.runId) && loadingRunIds.has(row.runId)"
+                  class="mt-2 text-[10px] text-muted-foreground"
+                >
+                  加载动作…
+                </p>
+                <!-- 运行时间线：脚本过桥做过的事（事件）与报的错按时刻混排 -->
+                <ul
+                  v-else-if="timelineByRunId.get(row.runId)?.length"
+                  class="mt-2 flex flex-col gap-1.5"
+                >
+                  <li
+                    v-for="(item, i) in timelineByRunId.get(row.runId) ?? []"
+                    :key="i"
+                    class="flex items-start gap-1.5"
+                  >
+                    <!-- 事件节点：灰点 + 时刻 + 命令名 + 一行摘要（摘要已脱敏，可安全展示） -->
+                    <template v-if="item.kind === 'event'">
+                      <span class="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/40" />
+                      <span class="shrink-0 tabular-nums text-muted-foreground">
+                        {{ formatClock(item.time) }}
+                      </span>
+                      <span class="shrink-0 font-mono text-muted-foreground">{{ item.label }}</span>
+                      <span class="min-w-0 flex-1 truncate" :title="item.detail">{{ item.detail }}</span>
+                    </template>
+                    <!-- 错误节点：红色点 + 时刻 + message，附可复制 ID 与栈 -->
+                    <template v-else>
+                      <span class="mt-1.5 size-1.5 shrink-0 rounded-full bg-destructive" />
+                      <span class="shrink-0 tabular-nums text-muted-foreground">
+                        {{ formatClock(item.time) }}
+                      </span>
+                      <div class="min-w-0 flex-1">
+                        <div class="flex flex-wrap items-start gap-1.5">
+                          <span class="min-w-0 flex-1 break-all text-destructive">
+                            {{ item.record?.message }}
+                          </span>
+                          <button
+                            type="button"
+                            class="flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted"
+                            :title="`复制完整错误 ID（发给 AI 可自动查询修复）：${item.record?.id}`"
+                            @click="copyErrorId(item.record?.id)"
+                          >
+                            <ui-check
+                              v-if="copiedErrorId === item.record?.id"
+                              class="size-3 text-green-600"
+                            />
+                            <ui-copy v-else class="size-3" />
+                            {{ shortErrorId(item.record?.id) }}
+                          </button>
+                        </div>
+                        <p
+                          v-if="item.record?.url"
+                          class="truncate text-muted-foreground"
+                          :title="item.record.url"
+                        >
+                          {{ item.record.url }}
+                        </p>
+                        <pre
+                          v-if="item.record?.stack"
+                          class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-[11px] leading-relaxed"
+                        >{{ item.record.stack }}</pre>
+                      </div>
+                    </template>
+                  </li>
+                </ul>
+                <!-- 事件被上限截掉时说明一句：eventCount 是收到总数，落盘条数封顶 -->
+                <p
+                  v-if="expandedRunIds.has(row.runId) && omittedEventCount(row)"
+                  class="mt-1.5 text-[10px] text-muted-foreground"
+                >
+                  还有 {{ omittedEventCount(row) }} 个动作已省略（超过单次运行上限）
+                </p>
+                <!-- 结束节点：只有真收到结束信号才画——老记录与仍在跑的都没有 endedAt，一律沉默，不臆断「结束了」 -->
+                <p
+                  v-if="row.endedAt"
+                  class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border pt-2 text-[10px] text-muted-foreground"
+                >
+                  <span class="size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
+                  <span>
+                    已结束 · {{ endReasonLabel(row.endReason) }} · 存活
+                    {{ formatDuration(row.endedAt - row.time) }}
+                  </span>
+                </p>
               </div>
 
               <!-- 孤儿错误行：无运行上下文（注册/桥失败）或所属运行已滑出环形 -->

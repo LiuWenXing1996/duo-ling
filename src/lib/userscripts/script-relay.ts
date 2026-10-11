@@ -76,14 +76,15 @@ export function buildScriptRelaySource(secret: string): string {
   }
 
   // —— 请求-应答：替脚本 sendMessage，回调到达后按 seq 回给发起方 ——
-  function forward(uuid, seq, req) {
+  // runId 原样透传给 SW（来自 MAIN 世界的帧），本件不解释它
+  function forward(uuid, seq, req, runId) {
     var rt = runtimeOf()
     if (!rt || typeof rt.sendMessage !== 'function') {
       unavailable(uuid, seq, '中继件拿不到扩展 API：脚本世界未开 messaging')
       return
     }
     try {
-      rt.sendMessage({ __dl: true, uuid: uuid, req: req }, function (resp) {
+      rt.sendMessage({ __dl: true, uuid: uuid, req: req, runId: runId }, function (resp) {
         void rt.lastError // 后台未就绪 / SW 冷启动窗口：按「无响应」回传，脚本侧报明确错误
         reply(uuid, seq, resp || null)
       })
@@ -107,7 +108,7 @@ export function buildScriptRelaySource(secret: string): string {
 
     if (d.kind === 'hello') { send(uuid, { kind: 'hello_ack', v: VERSION }); return }
     if (d.kind === 'connect') { ensurePort(uuid, String(d.connId || '')); return }
-    if (d.kind === 'req') { forward(uuid, seq, d.req); return }
+    if (d.kind === 'req') { forward(uuid, seq, d.req, d.runId); return }
     // 单向上行（fire-and-forget）：运行广播（__dlRunStart）/ 错误上报（__dlEvent），
     // 原样转给 SW（dl-bridge 的 onUserScriptMessage 收，读 uuid/name/event 等字段；
     // seq/proof 已在上面统一验过）。无应答，失败静默——监控与日志不该反向打扰脚本。

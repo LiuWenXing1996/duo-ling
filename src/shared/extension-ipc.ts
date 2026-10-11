@@ -111,11 +111,17 @@ export type RuntimeRequest =
   // 引擎保活应答（offscreen → SW，5s 一次）：offscreen 心跳的**唯一职责是给 SW 保活**
   // （重置 30s 空闲计时），不做任何检测——检测在 SW 自身的轮询（availability-watch.ts）。
   | { kind: 'userscript:healthCheck' }
-  // 运行日志时间线：运行行（runtime 库 runlog store）+ 无法归属的错误行按时间倒序混排（listRunTimeline）
+  // 运行日志时间线：运行行（runs store）+ 无法归属的错误行按时间倒序混排（listRunTimeline）。
+  // 两个消费方：工作台「运行日志」标签页、AI 的 run_log_read 工具 —— 两侧都取全量，
+  // 各自按自己的展示 / token 需要裁剪（命令面只认「全量时间线」这一个语义）。
+  // **不含运行内事件**：事件单独一表，随运行数全量读会线性膨胀（运行数 × 事件上限），
+  // 展开某次运行时再走下面的 runEvents 按 runId 拉那一组。
   | { kind: 'userscript:runlog' }
-  // 清错误日志（runtime 库 errors store；「全部/该脚本」范围同时清 runlog store 对应条目）。三态靠「字段在不在」区分，**不可用 falsy 判定**：
-  //   不带该字段 = 清全部；uuid: string = 只清该脚本；uuid: null = 只清「未归属」错误记录（run-log 不动）。
-  //   不带该字段 = 清全部；uuid: string = 只清该脚本；uuid: null = 只清「未归属」记录。
+  // 某次运行的运行内事件（按 runId；消费方同上：面板展开卡片 / AI 的 run_log_read 带 runId）
+  | { kind: 'userscript:runEvents'; runId: string }
+  // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清 runs store 的对应条目）。
+  // 三态靠「字段在不在」区分，**不可用 falsy 判定**：字段缺失 = 清全部；uuid: string =
+  // 只清该脚本；uuid: null = 只清「未归属」错误记录（运行条必带 uuid，此形态下不动）。
   // unassigned 用显式 null 而非 undefined：结构化克隆会保留 null，而 undefined 值在部分
   // 序列化路径下与「字段缺失」无法区分（Firefox / JSON 回退），故调用方必须省略字段而非传 undefined。
   | { kind: 'userscript:clearErrors'; uuid?: string | null }

@@ -112,9 +112,12 @@ export function buildScriptBridgeSource(secret: string, uuid: string): string {
   }
 
   return {
-    call: function (payload) {
+    // runId = 该请求所属的运行（包装层注入时 mint，见 gm-wrapper 的 __gmRunId）。
+    // 传输层不解释它，只随帧带到 SW —— SW 据此把这条请求产生的观测数据（运行事件 / 桥调用失败）
+    // 归属到具体某一次运行，否则它们只能落在「挂不上任何运行」的孤儿行里。
+    call: function (payload, runId) {
       return handshake().then(function () {
-        var m = sign({ kind: 'req', req: payload })
+        var m = sign({ kind: 'req', req: payload, runId: runId })
         return new Promise(function (resolve, reject) {
           var timer = setTimeout(function () {
             delete pending[m.seq]

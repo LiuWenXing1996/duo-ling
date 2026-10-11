@@ -13,7 +13,7 @@
 // 来自 userscripts/types.ts，那是纯类型 + 纯函数模块，不碰任何 chrome API。
 import type { ModelProfileState, PageSnapshotContext, RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
-import type { ScriptConfig } from '@/lib/userscripts/types'
+import type { ScriptConfig, UserScriptRunEvent, UserScriptRunLogRow } from '@/lib/userscripts/types'
 import type { NetRecordSession } from '@/lib/userscripts/net-record-protocol'
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 
@@ -78,6 +78,22 @@ export const offscreenBridge = {
    */
   readError: (id: string): Promise<UserScriptErrorLookup> =>
     send({ kind: 'userscript:errorRead', id }),
+
+  /**
+   * 读运行日志时间线（AI 的 run_log_read 工具用）：运行行 + 挂载其上的运行期错误 +
+   * 无法归属的错误行，全部按时间倒序混排（listRunTimeline）。
+   * 与错误日志同因由走 SW —— duoling-runtime 库 offscreen 拿不到（写侧也归 SW）。
+   * 裁剪交给调用方：SW 一侧只认「全量时间线」这一个语义。
+   */
+  readRunLog: (): Promise<UserScriptRunLogRow[]> => send({ kind: 'userscript:runlog' }),
+
+  /**
+   * 读某次运行的运行内事件（AI 的 run_log_read 带 runId 时用）。
+   * 事件单独一表：时间线列表不再随行返回——跟随运行数全量读会线性膨胀，
+   * 看哪一次才拉哪一次。
+   */
+  readRunEvents: (runId: string): Promise<UserScriptRunEvent[]> =>
+    send({ kind: 'userscript:runEvents', runId }),
 
   /**
    * 网络录制 · 读回某站点已录的接口语料（net_capture_read 工具 + 常驻 prompt 摘要档）。

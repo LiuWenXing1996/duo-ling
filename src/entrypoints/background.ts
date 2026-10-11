@@ -10,8 +10,8 @@
 //     写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
 //   · 源码 —— 唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
 //     SW 读不到 lfs，源码读写一律走 fs:* 命令向 offscreen 取（见 offscreen-fs-commands.ts）。
-// GM 值存储 / GM tab 值在 IndexedDB 库 duoling-usdata；错误日志 / 运行统计 / 运行日志
-// （观测数据）在 IndexedDB 库 duoling-runtime——两者都 SW 直写、写侧收敛在 store.ts。
+// GM 值存储 / GM tab 值在 IndexedDB 库 duoling-usdata；错误日志 / 运行统计 / 运行条目 /
+// 运行内事件（观测数据）在 IndexedDB 库 duoling-runtime——两者都 SW 直写、写侧收敛在 store.ts。
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
@@ -72,7 +72,9 @@ import {
   appendUserScriptError,
   findUserScriptError,
   listRunTimeline,
+  listRunEvents,
   clearRunLog,
+  markRunEnd,
 } from '@/lib/userscripts/store'
 // 对话界面页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口 —— 工具栏角标的数字就是它
 import {
@@ -97,7 +99,13 @@ import {
 import { listConversations } from '@/lib/conversation-store'
 // 「popup 能不能给这个页面挂浮层」的判据（scheme 那一半）：页面概览只收普通网页
 import { webHostname } from '@/lib/float-panel-host'
-import type { ImportReport, ScriptProject, ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
+import type {
+  ImportReport,
+  RunEndReason,
+  ScriptProject,
+  ScriptSummary,
+  UserScriptsAvailability,
+} from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主）
 import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady } from '@/lib/offscreen'
@@ -533,6 +541,10 @@ const handlers: {
   // 运行日志时间线：运行行 + 孤儿错误行混排（运行日志标签页）
   'userscript:runlog': async (): Promise<ReturnType<typeof listRunTimeline>> => listRunTimeline(),
 
+  // 某次运行的运行内事件（面板展开卡片时按需拉；AI 的 run_log_read 带 runId 时同路）
+  'userscript:runEvents': async (msg): Promise<ReturnType<typeof listRunEvents>> =>
+    listRunEvents(msg.runId),
+
   // 错误 ID 修复闭环：AI 的 error_read 工具经 offscreenBridge 到此代查。
   // 精确 id 或唯一 8 位前缀；多命中 / 不存在由信封里的 reason 区分（调用方给可读文案）
   'userscript:errorRead': async (msg): Promise<ReturnType<typeof findUserScriptError>> =>
@@ -604,10 +616,10 @@ const handlers: {
     return { host }
   },
 
-  // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清运行日志 runlog store 的对应条目——
+  // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清 runs store 的对应条目——
   // 时间线上「清空」应一条语义清两个存储，否则运行行清不掉）。三态必须靠「字段在不在」区分
   // （`!msg.uuid` 会把「未归属」误判成「全部」）：
-  //   字段缺失 = 清全部；string = 只清该脚本；null = 只清「未归属」错误记录（run-log 无此形态，不动）
+  //   字段缺失 = 清全部；string = 只清该脚本；null = 只清「未归属」错误记录（运行条无此形态，不动）
   'userscript:clearErrors': async (msg): Promise<void> => {
     const target = 'uuid' in msg ? (msg.uuid ?? null) : undefined
     await clearUserScriptErrors(target)
@@ -910,13 +922,31 @@ function mountProposal2Listeners(): void {
   // 角标不做持久化，也不自己维护计数 —— 数字永远是登记表现算出来的。
   onPageRunsChanged(() => refreshBadge())
 
+  /**
+   * 给某标签页此刻跑着的运行盖上结束戳（导航替换 / 标签页关闭）。
+   * 必须在 resetPageRuns / forgetPageTab **之前**调用 —— 那两步一执行，登记表里就查不到 runId 了。
+   * 落盘失败静默：这是观察数据，不该反过来影响标签页的正常收尾。
+   */
+  function endRunsOfTab(tabId: number, reason: RunEndReason): void {
+    const runs = [...(pageRunsByTab.get(tabId)?.values() ?? [])]
+    if (!runs.length) return
+    void markRunEnd(
+      runs.map((r) => r.runId),
+      reason,
+    ).catch(() => {})
+  }
+
   // 对话界面监控：新文档导航开始 = 旧文档销毁，该 tab 的运行集清零。
   // 刻意用 status=loading（文档替换的准确时点），SPA 软导航只改 url、不换文档，不清。
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo.status === 'loading') resetPageRuns(tabId)
+    if (changeInfo.status === 'loading') {
+      endRunsOfTab(tabId, 'navigated')
+      resetPageRuns(tabId)
+    }
   })
 
   chrome.tabs.onRemoved.addListener((tabId) => {
+    endRunsOfTab(tabId, 'closed')
     forgetPageTab(tabId)
     // 归属收尾：按映射找到那条会话并**中止它的任务**，再解绑。
     // 面板没开的时候标签页照样会被关，只有常驻的 SW 不漏，所以这一步必须在这里做
