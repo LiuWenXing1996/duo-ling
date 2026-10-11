@@ -21,6 +21,24 @@ export default defineConfig({
     onConsoleLog(log) {
       if (log.includes('Missing `Description` or `aria-describedby')) return false
     },
+    // 覆盖率：**只在 `npm run test:coverage` 时生效**（采集由 `--coverage` 打开，`npm run test` 不采）。
+    // ⚠️ 与 onConsoleLog 同理，coverage 属根级 NonProjectOptions —— 写进 project 会被静默忽略。
+    coverage: {
+      provider: 'v8',
+      // text-summary 给总量，html 供逐文件下钻；不要 text —— 几百行的逐文件表会刷屏
+      reporter: ['text-summary', 'html'],
+      reportsDirectory: 'coverage',
+      // **给了 include 才是「全量口径」**：没有被任何用例加载的源文件也以 0% 进报表；
+      // 不给则只统计跑到的文件，盲区正好看不见。故这行是覆盖率能当盲区地图用的前提。
+      include: ['src/**/*.{ts,vue}'],
+      exclude: [
+        'src/**/*.test.ts',
+        'src/**/*.d.ts',
+        // 上游生成 / 搬运的组件（shadcn-vue 与 ai-elements）：本仓只用不改，算进分母只稀释信号
+        'src/components/ui/**',
+        'src/components/ai-elements/**',
+      ],
+    },
     projects: [
       {
         plugins: [WxtVitest()],
