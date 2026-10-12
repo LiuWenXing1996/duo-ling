@@ -415,6 +415,8 @@ async function runLoop(opts: {
       // 快照目标 = 本会话所属标签页：把 conversationId 带过去让 SW 反查（AI 决定采快照时
       // 用户可能已经切走，按「当前激活页」采会把别人的 DOM 喂给模型）
       () => offscreenBridge.capturePageSnapshot(conversationId),
+      // 页面环境读数走同一条通道、同一个目标页判据（同样带 conversationId 反查）
+      () => offscreenBridge.capturePageEnv(conversationId),
       (id) => offscreenBridge.readError(id),
       {
         // 会话按标签页，但工具只认站点：取「有会话在录」的 host 去重集合即可

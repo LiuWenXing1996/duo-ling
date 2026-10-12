@@ -69,6 +69,7 @@ function makeTools(
   captureSnapshot?: () => Promise<import('@/shared/extension-ipc').PageSnapshotContext>,
   readError?: (id: string) => Promise<import('@/lib/userscripts/store').UserScriptErrorLookup>,
   netCapture?: NetCaptureHooks,
+  capturePageEnv?: () => Promise<import('@/shared/extension-ipc').PageEnvContext>,
 ) {
   const ws = makeWorkspace()
   return buildScriptTools(
@@ -77,6 +78,7 @@ function makeTools(
     undefined,
     element,
     captureSnapshot,
+    capturePageEnv,
     readError,
     netCapture,
   )
@@ -220,13 +222,15 @@ describe('script_list（列出全部脚本）', () => {
 })
 
 describe('script 三件套不受影响（回归）', () => {
-  it('工具表 = 既有工具 + 观测类工具（error_read / run_log_read / net_capture_*）', () => {
+  it('工具表 = 全量工具（脚本读写 / 页面上下文 / 环境读取 / 网络录制 / 诊断）', () => {
     const tools = makeTools(makeElement())
     expect(Object.keys(tools).sort()).toEqual([
       'element_read',
+      'env_read',
       'error_read',
       'net_capture_enable',
       'net_capture_read',
+      'page_env_read',
       'page_snapshot',
       'run_log_read',
       'script_apply',
@@ -554,6 +558,7 @@ describe('run_log_read（运行日志查询）', () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       async () => [{ kind: 'fetch', detail: 'GET /a', time: 1 }],
     )
     const out = (await tools.run_log_read.execute(
@@ -607,6 +612,69 @@ describe('page_snapshot（快照改 AI 工具采集）', () => {
     const out = (await tools.page_snapshot.execute({}, execOpts3)) as Record<string, unknown>
     expect(out.ok).toBe(false)
     expect(String(out.error)).toContain('不可用')
+  })
+})
+
+describe('env_read（本机环境）', () => {
+  const execOptsEnv = execOpts as Parameters<
+    ReturnType<typeof buildScriptTools>['env_read']['execute']
+  >[1]
+
+  // 取数逐项降级的行为在 env-snapshot.test.ts 里覆盖；这里证明接线通了，
+  // 且「某项探测不到」不会变成一次失败调用（否则模型会把空值读成「这台机器有毛病」）
+  it('恒 ok:true：各分组都在（取不到的项留空，不算失败）', async () => {
+    const out = (await makeTools().env_read.execute({}, execOptsEnv)) as Record<string, unknown>
+    expect(out.ok).toBe(true)
+    for (const key of ['os', 'cpu', 'browser', 'extension', 'display', 'locale', 'prefs']) {
+      expect(out, key).toHaveProperty(key)
+    }
+    expect(out.os).toHaveProperty('platform')
+    expect(out.os).toHaveProperty('arch')
+    expect(out).toHaveProperty('collectedAt')
+  })
+})
+
+describe('page_env_read（页面侧环境读数）', () => {
+  const execOptsPageEnv = execOpts as Parameters<
+    ReturnType<typeof buildScriptTools>['page_env_read']['execute']
+  >[1]
+
+  /** 只关心页面环境回路：其余回调留空（参数位依次是 element / snapshot / error / netCapture） */
+  const withEnv = (fn: () => Promise<import('@/shared/extension-ipc').PageEnvContext>) =>
+    makeTools(undefined, undefined, undefined, undefined, fn)
+
+  it('接了通道：透出页面读数（视口 / 像素比 / 页面 UA）', async () => {
+    const tools = withEnv(async () => ({
+      capturedAt: 1758000000000,
+      pageUrl: 'https://example.com/page',
+      viewport: { width: 800, height: 600 },
+      dpr: 2,
+      ua: 'Mozilla/5.0 (iPhone)',
+    }))
+    const out = (await tools.page_env_read.execute({}, execOptsPageEnv)) as Record<string, unknown>
+    expect(out).toEqual({
+      ok: true,
+      pageUrl: 'https://example.com/page',
+      capturedAt: 1758000000000,
+      viewport: { width: 800, height: 600 },
+      dpr: 2,
+      ua: 'Mozilla/5.0 (iPhone)',
+    })
+  })
+
+  it('未接通道 → ok:false 带可读错误', async () => {
+    const tools = makeTools()
+    const out = (await tools.page_env_read.execute({}, execOptsPageEnv)) as Record<string, unknown>
+    expect(out).toEqual({ ok: false, error: '页面环境读取不可用' })
+  })
+
+  it('采集失败 → ok:false 带原因（不抛）', async () => {
+    const tools = withEnv(async () => {
+      throw new Error('当前标签页是浏览器内置页面（chrome:// 等），无法读取页面环境')
+    })
+    const out = (await tools.page_env_read.execute({}, execOptsPageEnv)) as Record<string, unknown>
+    expect(out.ok).toBe(false)
+    expect(String(out.error)).toContain('无法读取页面环境')
   })
 })
 

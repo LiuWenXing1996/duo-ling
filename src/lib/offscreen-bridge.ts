@@ -11,7 +11,12 @@
 //
 // 注意：这里只用 `import type` 引类型（编译后消失，零运行时依赖）—— 引的 ScriptProject
 // 来自 userscripts/types.ts，那是纯类型 + 纯函数模块，不碰任何 chrome API。
-import type { ModelProfileState, PageSnapshotContext, RuntimeRequest } from '@/shared/extension-ipc'
+import type {
+  ModelProfileState,
+  PageEnvContext,
+  PageSnapshotContext,
+  RuntimeRequest,
+} from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
 import type { ScriptConfig, UserScriptRunEvent, UserScriptRunLogRow } from '@/lib/userscripts/types'
 import type { NetRecordSession } from '@/lib/userscripts/net-record-protocol'
@@ -71,6 +76,14 @@ export const offscreenBridge = {
    */
   capturePageSnapshot: (conversationId?: string): Promise<PageSnapshotContext> =>
     send({ kind: 'page:snapshot', conversationId }),
+
+  /**
+   * 页面环境读数（AI 的 page_env_read 工具用）：SW 代为对本会话所属标签页执行拾取器的
+   * env 模式。与快照同一条执行通道、同一个目标页判据（会话归属），conversationId 由
+   * chat-host 注入 —— 理由同上一行：AI 决定要读时用户可能已经切走。
+   */
+  capturePageEnv: (conversationId?: string): Promise<PageEnvContext> =>
+    send({ kind: 'page:env', conversationId }),
 
   /**
    * 按错误 ID 查一条错误记录：错误日志在 duoling-runtime 库（SW 侧 IDB），

@@ -20,6 +20,8 @@ export type AgentToolName =
   | 'script_apply'
   | 'element_read'
   | 'page_snapshot'
+  | 'env_read'
+  | 'page_env_read'
   | 'net_capture_enable'
   | 'net_capture_read'
   | 'error_read'
@@ -71,7 +73,21 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
   page_snapshot:
     '抓取当前页面的**渲染后 DOM** 快照（documentElement.outerHTML，截断 ~32KB，拾取时刻快照非实时）。' +
     '需要了解页面整体结构、找脚本目标节点的上下文、或摘要信息不够用时调用。' +
-    '内置页（chrome:// 等）与非活动窗口不可采，返回 ok:false 带原因。',
+    '采不到的情形（内置页 / 未开启「允许运行用户脚本」）返回 ok:false 带原因；' +
+    '目标页是本会话所属的标签页，不必是当前激活页。',
+  env_read:
+    '读取这台机器的运行环境：操作系统与版本、芯片架构、CPU 核数、内存档次、浏览器与扩展版本、' +
+    '屏幕尺寸与像素比、语言与时区、系统明暗与减弱动效偏好。' +
+    '判断平台 / 版本兼容性时先读它（脚本在不同系统或浏览器版本上行为不同时尤其需要），' +
+    '不要让用户手动报「你是什么系统」——直接调用。' +
+    '**不含当前网页的信息**：页面视口与页面里读到的 UA 走 page_env_read。' +
+    '架构来自浏览器的 UA Client Hints，拿不到时该项留空 —— 留空是「未知」，别对着空值推断成 x86。',
+  page_env_read:
+    '读取**当前网页**自己的环境读数：视口尺寸、页面此刻的设备像素比、页面里读到的 UA。' +
+    '与 env_read 的分工：那个读这台机器的真值，这个读这个页面看到的事实 —— ' +
+    '用户开了设备模拟、或页面上的脚本改写了 navigator.userAgent 时两者会不一致，' +
+    '而脚本跑在页面里、看到的是这一份。写响应式或依赖视口尺寸的脚本时读它。' +
+    '需要「允许运行用户脚本」开关已开启；内置页与扩展页读不到，返回 ok:false 带原因。',
   net_capture_enable:
     '为该站点开启接口录制（页面发出的 fetch / XHR）。录制按标签页进行，' +
     '卡片上的确认按钮为**用户当前所在的那个标签页**开启——调用后会在对话里出一张开启卡片，' +
@@ -299,7 +315,31 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
     description: TOOL_DESCRIPTIONS.page_snapshot,
     params: [],
     returns: '{ ok:true, pageUrl, capturedAt, html }',
-    unavailable: '未接采集通道 / 内置页（chrome://）/ 非活动窗口 → { ok:false, error }',
+    unavailable: '未接采集通道 / 内置页（chrome://）/ 找不到会话所属的标签页 → { ok:false, error }',
+  },
+  {
+    name: 'env_read',
+    title: '读本机环境',
+    summary: '取本机 OS / 芯片架构 / 浏览器与扩展版本 / 屏幕与语言偏好',
+    description: TOOL_DESCRIPTIONS.env_read,
+    params: [],
+    returns:
+      '{ ok:true, collectedAt, os{platform,version,arch,bitness}, cpu{cores,memoryGB}, ' +
+      'browser{name,version,ua}, extension{version,dev}, ' +
+      'display{width,height,availWidth,availHeight,colorDepth,dpr}, ' +
+      'locale{language,languages,timeZone}, prefs{darkMode,reducedMotion,touchPoints} }' +
+      '（取不到的项为空串或 null）',
+    unavailable: '无入参、不会整体失败；单项取不到只让那一项为空',
+  },
+  {
+    name: 'page_env_read',
+    title: '读页面环境',
+    summary: '取当前页视口尺寸 / 设备像素比 / 页面里读到的 UA',
+    description: TOOL_DESCRIPTIONS.page_env_read,
+    params: [],
+    returns: '{ ok:true, pageUrl, capturedAt, viewport{width,height}, dpr, ua }',
+    unavailable:
+      '未接采集通道 / 未开启「允许运行用户脚本」/ 内置页与扩展页 → { ok:false, error }',
   },
   {
     name: 'net_capture_enable',

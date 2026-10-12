@@ -114,8 +114,13 @@ import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady
 import { getActiveProfileState } from '@/lib/model-store'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
 import { broadcastBuildPhase } from '@/lib/data-broadcast'
-// AI 工具支路：page_snapshot 工具经 SW 调 userScripts.execute（offscreen 不可达该 API）
-import { capturePageSnapshotFromTab, pageInjectionBlockReason } from '@/lib/element-picker-client'
+// AI 工具支路：page_snapshot / page_env_read 两条工具经 SW 调 userScripts.execute
+// （offscreen 不可达该 API）
+import {
+  capturePageEnvFromTab,
+  capturePageSnapshotFromTab,
+  pageInjectionBlockReason,
+} from '@/lib/element-picker-client'
 
 /**
  * SW 管辖的 kind 前缀（路由白名单）。
@@ -235,6 +240,37 @@ async function conversationBindings(): Promise<Record<string, string>> {
   }
 }
 
+/**
+ * 定位「这条会话所属的标签页」并在注入前拦掉不可注入的页。
+ *
+ * 两条 AI 支路共用（页面快照 / 页面环境读数）：判据必须一致 —— 会话按标签页归属，而这类读取
+ * 都是 AI 在生成中途自己决定发起的，那时用户完全可能已经切走；查「当前激活页」会把别人那一页
+ * 的数据喂给模型。反查走归属映射，自带 tab 存活校验（tab 已关的残留项会被判掉）。
+ *
+ * what 只进报错文案，让两条支路各自说清「读不到的是什么」。
+ */
+async function resolveAiTargetTab(
+  conversationId: string | undefined,
+  what: string,
+): Promise<number> {
+  if (!chrome.tabs?.query) throw new Error('无法定位目标标签页')
+  const owned = conversationId ? await findTabsUsingConversation(conversationId) : []
+  let tabId: number | undefined = owned[0]
+  if (tabId == null) {
+    // 兜底：会话没绑标签页（那条 tab 已关 / 映射缺项）→ 退回最后聚焦窗口的激活页，
+    // 总比直接失败强；SW 无窗口上下文，lastFocusedWindow 语义 = 用户最后聚焦的窗口
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+    tabId = tab?.id
+  }
+  if (tabId == null) throw new Error('未找到目标标签页')
+  // 内置页 / 扩展页拦在注入前（判据与拾取器共用，见 pageInjectionBlockReason——扩展页连自己
+  // 的也不行，<all_urls> 不覆盖 chrome-extension scheme）
+  const tab = await chrome.tabs.get(tabId).catch(() => null)
+  const blocked = pageInjectionBlockReason(tab?.url)
+  if (blocked) throw new Error(`${blocked}，无法${what}`)
+  return tabId
+}
+
 // 第二个参数是 chrome 的消息发送方：只有需要「回 sender 自己的东西」的命令才用得上
 // （现仅 tab:identify 取 sender.tab.id）；其余 handler 少写一个参数即可，TS 允许。
 const handlers: {
@@ -265,31 +301,18 @@ const handlers: {
   'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> => getActiveProfileState(),
 
   // —— AI 工具支路 ——
-  // page_snapshot 工具（offscreen 经此命令请 SW 代办）：定位目标标签后执行拾取器快照模式。
-  // chrome.userScripts 在 SW 可用（与注册链路同源，138+ 逐扩展开关门控），offscreen 不可达。
-  // 快照 = AI 判断需要时才采集。
-  //
-  // **目标页 = 本会话所属的标签页**，不是「当前激活标签页」：会话按 tab 归属（一个 tab 一条
-  // 会话），而快照是 AI 在生成中途决定采的，那时用户完全可能已经切到别的页 —— 查「激活」会把
-  // 别人那一页的 DOM 喂给模型。反查走归属映射，自带存活校验（tab 已关的残留项会被判掉）。
-  'page:snapshot': async (msg): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
-    if (!chrome.tabs?.query) throw new Error('无法定位目标标签页')
-    const owned = msg.conversationId ? await findTabsUsingConversation(msg.conversationId) : []
-    let tabId: number | undefined = owned[0]
-    if (tabId == null) {
-      // 兜底：会话没绑标签页（那条 tab 已关 / 映射缺项）→ 退回最后聚焦窗口的激活页，
-      // 总比直接失败强；SW 无窗口上下文，lastFocusedWindow 语义 = 用户最后聚焦的窗口
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-      tabId = tab?.id
-    }
-    if (tabId == null) throw new Error('未找到目标标签页')
-    // 内置页 / 扩展页拦在注入前（判据与拾取器共用，见 pageInjectionBlockReason——扩展页连自己
-    // 的也不行，<all_urls> 不覆盖 chrome-extension scheme）
-    const tab = await chrome.tabs.get(tabId).catch(() => null)
-    const blocked = pageInjectionBlockReason(tab?.url)
-    if (blocked) throw new Error(`${blocked}，无法采集页面快照`)
-    return capturePageSnapshotFromTab(tabId)
-  },
+  // 两条都请 SW 代办：chrome.userScripts.execute 在 offscreen 不可达，而在 SW 与注册链路同源
+  // （受 138+ 逐扩展开关管控）。page_snapshot 取页面 DOM，page_env_read 取页面侧环境读数。
+  // 目标页判据见 resolveAiTargetTab —— 两条共用，别在这里另写一份。
+  'page:snapshot': async (
+    msg,
+  ): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> =>
+    capturePageSnapshotFromTab(await resolveAiTargetTab(msg.conversationId, '采集页面快照')),
+
+  'page:env': async (
+    msg,
+  ): Promise<Awaited<ReturnType<typeof capturePageEnvFromTab>>> =>
+    capturePageEnvFromTab(await resolveAiTargetTab(msg.conversationId, '读取页面环境')),
 
   // —— popup 的页面概览（「当前页面 / 其他页面」两个区块的数据源）——
   // 为什么在 SW 一处聚齐：运行登记表（pageRunsByTab）、进行中会话（runningConversations）、

@@ -132,7 +132,7 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     const page = await context!.newPage()
     await page.goto(`chrome-extension://${extensionId}/workbench.html`)
 
-    // 从设置里的开发者分区进入：面板挂载，左栏 6 个工具全部来自静态目录（与运行时同源，见单测防漂移）
+    // 从设置里的开发者分区进入：面板挂载，左栏全部工具来自静态目录（与运行时同源，见单测防漂移）
     await openDevPanel(page, 'agent-tools')
     await expect(page.locator('[data-testid="agent-tools-panel"]')).toBeVisible()
     for (const name of ['script_spec', 'script_read', 'script_apply', 'element_read', 'page_snapshot', 'error_read']) {
