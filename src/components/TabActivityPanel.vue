@@ -33,6 +33,7 @@
 // 冒出来，要等下次回拉（刷新按钮 / 重开本页）—— 不为它单独加广播通道，是这版刻意的取舍。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
+import { useVirtualList } from '@/composables/use-virtual-list'
 import {
   Check as UiCheck,
   Clock as UiClock,
@@ -44,7 +45,7 @@ import { Button as UiButton } from '@/components/ui/button'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { webHostname } from '@/lib/float-panel-host'
 import { routeOf } from '@/lib/userscripts/net-record-digest'
-import { listCapturesByTabSession, listSessionsByTabSession } from '@/lib/userscripts/netlog-db'
+import { listCapturesByTabSession } from '@/lib/userscripts/netlog-db'
 import type { NetCaptureRecord, NetRecordSession } from '@/lib/userscripts/net-record-protocol'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
@@ -63,14 +64,14 @@ type RunRow = Extract<UserScriptRunLogRow, { kind: 'run' }>
 const UNKNOWN_TAB_KEY = '__unknown_tab__'
 
 /**
- * 时间线节点：页面的两个生命周期端点 + 这一页的刷新 / 地址变更与记录开关 + 接口录制段 +
- * 脚本运行 + 归不到运行的错误，按时刻混排。它们都只是「同一根时间轴上的点」，渲染各成一行、
- * 互不从属 —— 录制段虽然跨一段时间，落点仍取它的**开始时刻**，与别的节点同级。
+ * 时间线节点：页面的两个生命周期端点 + 这一页的刷新 / 地址变更与记录开关 + 录到的每一条
+ * 请求 + 脚本运行 + 归不到运行的错误，按时刻混排。它们都只是「同一根时间轴上的点」，渲染
+ * 各成一行、互不从属 —— 请求行按自己的发生时刻落位，与刷新、运行同级。
  */
 type TimelineNode =
   | { kind: 'lifecycle'; label: '页面打开' | '页面关闭'; time: number }
   | { kind: 'tabEvent'; event: TabEventRecord }
-  | { kind: 'netSession'; session: NetRecordSession; records: NetCaptureRecord[] }
+  | { kind: 'netRequest'; rec: NetCaptureRecord }
   | { kind: 'run'; row: RunRow }
   | { kind: 'error'; record: UserScriptErrorRecord }
 
@@ -105,8 +106,7 @@ const sessions = ref<TabSessionRecord[]>([])
 /** 存续轴上的事件（刷新 / 地址变更 / 记录开关）：时间线的一类节点，与运行条按时刻混排 */
 const tabEvents = ref<TabEventRecord[]>([])
 const rows = ref<UserScriptRunLogRow[]>([])
-/** 选中页录到的接口：会话与采样分开存，渲染时按 sessionId 把采样挂回会话 */
-const netSessions = ref<NetRecordSession[]>([])
+/** 选中页录到的采样：时间线只画采样本身，会话表不参与渲染 */
 const netRecords = ref<NetCaptureRecord[]>([])
 /** 正在录制的会话（SW 为权威）：左栏的「正在录」圆点与就地停止入口据此显示 */
 const recordingSessions = ref<NetRecordSession[]>([])
@@ -221,7 +221,8 @@ const selectedLiveTabId = computed<number | null>(() => {
   return sel ? liveTabIdOf(sel.id) : null
 })
 
-/** 右栏时间线：生命周期端点 + 该页的刷新 / 地址变更与记录开关 + 该页的运行 + 归到该页的错误，最新在前 */
+/** 右栏时间线：生命周期端点 + 该页的刷新 / 地址变更与记录开关 + 该页的运行 + 归到该页的错误 +
+ *  它录到的每一条请求，全部平铺在同一根轴上，最新在前 */
 const timelineNodes = computed<TimelineNode[]>(() => {
   const sel = selected.value
   if (!sel) return []
@@ -237,14 +238,9 @@ const timelineNodes = computed<TimelineNode[]>(() => {
     if (tabKeyOf(row) !== sel.id) continue
     nodes.push(row.kind === 'run' ? { kind: 'run', row } : { kind: 'error', record: row.record })
   }
-  // 接口录制段：一段（开始 → 结束）一个节点，采样按 sessionId 挂回所属会话
-  for (const session of netSessions.value) {
-    nodes.push({
-      kind: 'netSession',
-      session,
-      records: netRecords.value.filter((r) => r.sessionId === session.id)
-    })
-  }
+  // 录到的采样：一条一个节点，按自己的发生时刻落位 —— 这样「刷新后先发了哪个请求、紧接着
+  // 跑了哪个脚本」在轴上一眼看得出。
+  for (const rec of netRecords.value) nodes.push({ kind: 'netRequest', rec })
   // 最新在前；时刻缺省的排在最前 —— 与 listTabEvents 的升序口径一致（它按定义发生在该行
   // 所有已知节点之后，比如划断补的那条「结束记录」）
   return nodes.sort((a, b) => (nodeTime(b) ?? Infinity) - (nodeTime(a) ?? Infinity))
@@ -254,7 +250,7 @@ function nodeTime(node: TimelineNode): number | undefined {
   if (node.kind === 'run') return node.row.time
   if (node.kind === 'error') return node.record.time
   if (node.kind === 'tabEvent') return node.event.time
-  if (node.kind === 'netSession') return node.session.startedAt
+  if (node.kind === 'netRequest') return node.rec.t
   return node.time
 }
 
@@ -264,9 +260,19 @@ function nodeKey(node: TimelineNode): string {
   if (node.kind === 'tabEvent') {
     return `tabevent:${node.event.tabSessionId}:${node.event.time}:${node.event.kind}`
   }
-  if (node.kind === 'netSession') return `netsession:${node.session.id}`
+  if (node.kind === 'netRequest') return `netreq:${String(node.rec.id)}`
   return `life:${node.label}`
 }
+
+/** 时间线的滚动容器：窗口化要读它的视口高与 scrollTop，reset 时也要把它拨回顶部 */
+const scrollRef = ref<HTMLElement | null>(null)
+
+/**
+ * 时间线的窗口化渲染：录到的采样全平铺后，单页行数可能上千，故只渲染视口内的行。
+ * 行高不等（运行卡展开会变高、错误卡带 stack），交给 composable 实测 —— 见它的文件头。
+ */
+const { onScroll, totalHeight, offsetTop, visibleRows, setRowRef, reset: resetVirtual } =
+  useVirtualList<TimelineNode>(timelineNodes, scrollRef)
 
 /** 选中项消失（被裁掉 / 数据重拉）时回落第一项：停在空视图上会像页面坏了 */
 function fallbackSelection(): void {
@@ -303,16 +309,10 @@ async function load(): Promise<void> {
  * 给每一页都拉一遍纯属浪费。切页时重拉。
  */
 async function loadPageCaptures(tabSessionId: string): Promise<void> {
-  netSessions.value = []
   netRecords.value = []
   if (!tabSessionId) return
   try {
-    const [sess, recs] = await Promise.all([
-      listSessionsByTabSession(tabSessionId),
-      listCapturesByTabSession(tabSessionId)
-    ])
-    netSessions.value = sess
-    netRecords.value = recs
+    netRecords.value = await listCapturesByTabSession(tabSessionId)
   } catch (e) {
     error.value = '读取接口录制失败：' + (e instanceof Error ? e.message : String(e))
   }
@@ -320,8 +320,11 @@ async function loadPageCaptures(tabSessionId: string): Promise<void> {
 
 onMounted(() => void load())
 
-// 切页就换一份接口录制；首屏的选中项由 load 里的 fallbackSelection 定下，这里同样会收到
-watch(selectedId, (id) => void loadPageCaptures(id))
+// 切页就换一份接口录制，并把窗口化渲染的实测高度清掉（行内容整批换了，旧高度会错位）
+watch(selectedId, (id) => {
+  resetVirtual()
+  void loadPageCaptures(id)
+})
 
 // 跑脚本会广播这两个域（运行统计 / 错误）：接上就不用手动刷新也能看到新记录。
 // 存续表自身没有广播域（见文件头），顺带靠这两次回拉一起更新。
@@ -334,8 +337,7 @@ useDataSync('error', async () => {
 
 // —— 接口录制（融合自原「接口数据」面板：录制与活动记录本就是同一枚开关的两半）——
 
-/** 展开的录制段与其中的请求行：两套 key 分开存，折叠一段不影响别段里已展开的行 */
-const expandedNetSessionIds = ref<Set<string>>(new Set())
+/** 展开的请求行：逐条点开才看头体 */
 const openNetRows = ref<Set<string>>(new Set())
 /** 停止录制在途（禁灰，防连点重复发命令） */
 const stoppingTabId = ref<number | null>(null)
@@ -375,11 +377,9 @@ function stopSelectedRecording(): void {
   if (tabId != null) void stopRecording(tabId)
 }
 
-function toggleNetSession(id: string): void {
-  const next = new Set(expandedNetSessionIds.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  expandedNetSessionIds.value = next
+/** 请求行的展开态 key：rec.id 自增且唯一 */
+function netRowKey(rec: NetCaptureRecord): string {
+  return String(rec.id)
 }
 
 function toggleNetRow(key: string): void {
@@ -389,24 +389,12 @@ function toggleNetRow(key: string): void {
   openNetRows.value = next
 }
 
-/** 录制段的副标题：起止时刻 + 状态 + 采到的条数 */
-function netSessionMeta(session: NetRecordSession, count: number): string {
-  const span = session.endedAt
-    ? `${formatClock(session.startedAt)} → ${formatClock(session.endedAt)}`
-    : `${formatClock(session.startedAt)} · 进行中`
-  return `${span} · ${count} 条`
-}
-
-/** 录制段的标题（录入时为空则回落到从地址取路径） */
-function netSessionTitle(session: NetRecordSession): string {
-  const title = session.title?.trim()
-  if (title) return title
-  try {
-    const u = new URL(session.url)
-    return u.pathname === '/' ? u.host : u.pathname
-  } catch {
-    return session.host
-  }
+/** 时间线圆点配色：请求行淡一档，免得一屏采样把别的节点全压过去 */
+function dotBg(node: TimelineNode): string {
+  if (node.kind === 'lifecycle' || node.kind === 'tabEvent') return 'bg-muted-foreground/40'
+  if (node.kind === 'netRequest') return 'bg-primary/40'
+  if (node.kind === 'run' && !node.row.errors.length) return 'bg-muted-foreground/60'
+  return 'bg-destructive'
 }
 
 /** 头字典的展示文本（展开请求行时逐行列出） */
@@ -750,13 +738,13 @@ function onConfirmedAction(): void {
         </nav>
       </div>
 
-      <!-- 右栏：选中标签页的活动时间线（最新在前） -->
-      <div class="min-w-0 flex-1 overflow-y-auto">
-        <div class="mx-auto max-w-3xl p-4">
-          <p v-if="!selected" class="text-xs text-muted-foreground">从左边选一个标签页看它的活动。</p>
+      <!-- 右栏：选中标签页的活动（头部常驻，时间线独立滚动 —— 长列表滚动时头部不跟着走） -->
+      <div class="flex min-w-0 flex-1 flex-col" data-testid="tab-activity-detail">
+        <div class="shrink-0 px-4 pt-4">
+          <div class="mx-auto max-w-3xl">
+            <p v-if="!selected" class="text-xs text-muted-foreground">从左边选一个标签页看它的活动。</p>
 
-          <template v-else>
-            <header class="border-b border-border pb-3">
+            <header v-else class="border-b border-border pb-3">
               <div class="flex flex-wrap items-center gap-2">
                 <span class="min-w-0 truncate text-sm font-medium">{{ selected.label }}</span>
                 <span class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -799,206 +787,167 @@ function onConfirmedAction(): void {
                 {{ momentsText }}<template v-if="aliveText"> · {{ aliveText }}</template>
               </p>
             </header>
+          </div>
+        </div>
 
-            <!-- 活动时间线：生命周期端点与每次运行混排，最新在前 -->
-            <ol v-if="timelineNodes.length" class="tab-activity-timeline relative mt-3 flex flex-col">
-              <li
-                v-for="node in timelineNodes"
-                :key="nodeKey(node)"
+        <!--
+          时间线独立滚动：头部常驻，长列表滚起来时它不跟着走。
+          全部节点平铺在同一根轴上 —— 录到的每一条请求都与刷新、运行同级，按各自的时刻落位。
+          行数可能上千，故只渲染视口内的行（窗口化）。竖线由背景层统一画：视口外的行不在 DOM 里，
+          逐行画会断成一段一段。
+        -->
+        <div ref="scrollRef" class="min-h-0 flex-1 overflow-y-auto" @scroll="onScroll">
+          <div class="mx-auto max-w-3xl px-4 pb-4">
+            <div
+              v-if="selected && timelineNodes.length"
+              class="tab-activity-timeline relative mt-3"
+              :style="{ height: `${totalHeight}px`, paddingTop: `${offsetTop}px` }"
+            >
+              <span
+                class="pointer-events-none absolute top-0 left-2.5 h-full w-px bg-border"
+                aria-hidden="true"
+              />
+              <div
+                v-for="r in visibleRows"
+                :key="nodeKey(r.item)"
+                :ref="(el) => setRowRef(r.index, el as Element | null)"
                 class="grid grid-cols-[1.25rem_minmax(0,1fr)] items-start"
               >
-                <div class="relative flex h-full justify-center">
-                  <span class="absolute inset-y-0 w-px bg-border" aria-hidden="true" />
-                  <span
-                    class="relative mt-2 size-1.5 rounded-full"
-                    :class="
-                      node.kind === 'lifecycle' || node.kind === 'tabEvent'
-                        ? 'bg-muted-foreground/40'
-                        : node.kind === 'netSession'
-                          ? 'bg-primary'
-                          : node.kind === 'run' && !node.row.errors.length
-                            ? 'bg-muted-foreground/60'
-                            : 'bg-destructive'
-                    "
-                    aria-hidden="true"
-                  />
+                <div class="flex justify-center pt-2">
+                  <span class="size-1.5 rounded-full" :class="dotBg(r.item)" aria-hidden="true" />
                 </div>
 
                 <div class="min-w-0 pb-2.5">
                   <!-- 页面生命周期端点：只在记到了时刻才画（缺时刻的说明在卡头） -->
                   <p
-                    v-if="node.kind === 'lifecycle'"
+                    v-if="r.item.kind === 'lifecycle'"
                     class="flex flex-wrap items-center gap-1.5 pt-1 text-[11px] text-muted-foreground"
                   >
-                    <span>{{ node.label }}</span>
-                    <span class="tabular-nums">{{ formatDateTime(node.time) }}</span>
+                    <span>{{ r.item.label }}</span>
+                    <span class="tabular-nums">{{ formatDateTime(r.item.time) }}</span>
                   </p>
 
                   <!-- 标签页事件（刷新 / 地址变更 / 记录开关）：没有脚本参与，一行小字说清发生了什么，不占卡片 -->
                   <p
-                    v-else-if="node.kind === 'tabEvent'"
+                    v-else-if="r.item.kind === 'tabEvent'"
                     class="flex flex-wrap items-baseline gap-1.5 pt-1 text-[11px] text-muted-foreground"
                   >
-                    <span>{{ tabEventLabel(node.event) }}</span>
-                    <span class="tabular-nums">{{ tabEventClock(node.event) }}</span>
+                    <span>{{ tabEventLabel(r.item.event) }}</span>
+                    <span class="tabular-nums">{{ tabEventClock(r.item.event) }}</span>
                     <span
-                      v-if="node.event.kind === 'url' && node.event.url"
+                      v-if="r.item.event.kind === 'url' && r.item.event.url"
                       class="min-w-0 truncate"
-                      :title="node.event.url"
+                      :title="r.item.event.url"
                     >
-                      {{ node.event.url }}
+                      {{ r.item.event.url }}
                     </span>
                   </p>
 
-                  <!--
-                    接口录制段：一段一张卡。它与刷新、运行同轴混排 —— 这正是融合的价值：
-                    「这一页怎么变的」与「每次变化后拉了哪些接口」原本要分两个面板对不齐。
-                  -->
-                  <div v-else-if="node.kind === 'netSession'" class="rounded-md border bg-card p-2.5 text-xs">
-                    <div class="flex flex-wrap items-center gap-1.5">
-                      <span class="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                        接口录制
+                  <!-- 录到的一条请求：与刷新、运行同级平铺，按自己的发生时刻落位 -->
+                  <div v-else-if="r.item.kind === 'netRequest'" class="rounded-md border border-border bg-card">
+                    <button
+                      type="button"
+                      class="flex w-full items-center gap-1.5 px-1.5 py-1 text-left hover:bg-muted/50"
+                      @click="toggleNetRow(netRowKey(r.item.rec))"
+                    >
+                      <span class="shrink-0 font-mono text-[10px] font-medium">{{ r.item.rec.method }}</span>
+                      <span class="min-w-0 flex-1 truncate font-mono text-[10px]" :title="r.item.rec.url">
+                        {{ routeOf(r.item.rec.url) }}
                       </span>
-                      <span class="min-w-0 truncate font-medium" :title="node.session.url">
-                        {{ netSessionTitle(node.session) }}
+                      <span class="shrink-0 tabular-nums text-[10px] text-muted-foreground">
+                        {{ formatClock(r.item.rec.t) }}
                       </span>
                       <span
-                        v-if="!node.session.endedAt"
-                        class="size-1.5 shrink-0 rounded-full bg-primary"
-                        title="正在录制"
-                      />
-                      <span class="text-[10px] text-muted-foreground">
-                        {{ netSessionMeta(node.session, node.records.length) }}
-                      </span>
-                      <button
-                        v-if="node.records.length"
-                        type="button"
-                        class="rounded border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted"
-                        :title="
-                          expandedNetSessionIds.has(node.session.id)
-                            ? '收起这一段录到的请求'
-                            : '展开这一段录到的请求'
+                        class="shrink-0 rounded px-1 text-[10px] tabular-nums"
+                        :class="
+                          r.item.rec.status >= 400
+                            ? 'bg-destructive/10 text-destructive'
+                            : 'bg-muted text-muted-foreground'
                         "
-                        @click="toggleNetSession(node.session.id)"
                       >
-                        {{ expandedNetSessionIds.has(node.session.id) ? '收起' : '展开' }}
-                      </button>
-                    </div>
-
-                    <div v-if="expandedNetSessionIds.has(node.session.id)" class="mt-2 flex flex-col gap-1">
-                      <p v-if="!node.records.length" class="text-[10px] text-muted-foreground">
-                        这一段没录到请求（开启后还没刷新页面时，钩子尚未挂上）
+                        {{ r.item.rec.status }}
+                      </span>
+                    </button>
+                    <div
+                      v-if="openNetRows.has(netRowKey(r.item.rec))"
+                      class="border-t border-border/60 px-2 py-1.5"
+                    >
+                      <p class="font-mono text-[10px] leading-relaxed break-all">
+                        {{ r.item.rec.url }}（{{ r.item.rec.type }}）
                       </p>
-                      <div
-                        v-for="rec in node.records"
-                        :key="`${node.session.id}-${String(rec.id)}`"
-                        class="rounded border border-border"
-                      >
-                        <button
-                          type="button"
-                          class="flex w-full items-center gap-1.5 px-1.5 py-1 text-left hover:bg-muted/50"
-                          @click="toggleNetRow(`${node.session.id}-${String(rec.id)}`)"
-                        >
-                          <span class="shrink-0 font-mono text-[10px] font-medium">{{ rec.method }}</span>
-                          <span class="min-w-0 flex-1 truncate font-mono text-[10px]" :title="rec.url">
-                            {{ routeOf(rec.url) }}
-                          </span>
-                          <span class="shrink-0 tabular-nums text-[10px] text-muted-foreground">
-                            {{ formatClock(rec.t) }}
-                          </span>
-                          <span
-                            class="shrink-0 rounded px-1 text-[10px] tabular-nums"
-                            :class="
-                              rec.status >= 400
-                                ? 'bg-destructive/10 text-destructive'
-                                : 'bg-muted text-muted-foreground'
-                            "
-                          >
-                            {{ rec.status }}
-                          </span>
-                        </button>
-                        <div
-                          v-if="openNetRows.has(`${node.session.id}-${String(rec.id)}`)"
-                          class="border-t border-border/60 px-2 py-1.5"
-                        >
-                          <p class="font-mono text-[10px] leading-relaxed break-all">
-                            {{ rec.url }}（{{ rec.type }}）
-                          </p>
-                          <template v-if="Object.keys(rec.reqHeaders).length">
-                            <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                              请求头
-                            </h4>
-                            <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ headerText(rec.reqHeaders) }}</pre>
-                          </template>
-                          <template v-if="rec.reqBody">
-                            <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                              请求体
-                            </h4>
-                            <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ rec.reqBody }}</pre>
-                          </template>
-                          <template v-if="Object.keys(rec.respHeaders).length">
-                            <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                              响应头
-                            </h4>
-                            <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ headerText(rec.respHeaders) }}</pre>
-                          </template>
-                          <template v-if="rec.respBody">
-                            <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                              响应结构
-                            </h4>
-                            <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ rec.respBody }}</pre>
-                          </template>
-                        </div>
-                      </div>
+                      <template v-if="Object.keys(r.item.rec.reqHeaders).length">
+                        <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          请求头
+                        </h4>
+                        <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ headerText(r.item.rec.reqHeaders) }}</pre>
+                      </template>
+                      <template v-if="r.item.rec.reqBody">
+                        <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          请求体
+                        </h4>
+                        <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ r.item.rec.reqBody }}</pre>
+                      </template>
+                      <template v-if="Object.keys(r.item.rec.respHeaders).length">
+                        <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          响应头
+                        </h4>
+                        <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ headerText(r.item.rec.respHeaders) }}</pre>
+                      </template>
+                      <template v-if="r.item.rec.respBody">
+                        <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          响应结构
+                        </h4>
+                        <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ r.item.rec.respBody }}</pre>
+                      </template>
                     </div>
                   </div>
 
                   <!-- 运行行：一次页面加载一条，出错 / 有动作可展开 -->
-                  <div v-else-if="node.kind === 'run'" class="rounded-md border bg-card p-2.5 text-xs">
+                  <div v-else-if="r.item.kind === 'run'" class="rounded-md border bg-card p-2.5 text-xs">
                     <div class="flex flex-wrap items-center gap-1.5">
                       <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                         运行
                       </span>
                       <span class="min-w-0 truncate font-medium">
-                        {{ node.row.name || node.row.uuid.slice(0, 8) }}
+                        {{ r.item.row.name || r.item.row.uuid.slice(0, 8) }}
                       </span>
-                      <span class="text-muted-foreground">{{ formatClock(node.row.time) }}</span>
+                      <span class="text-muted-foreground">{{ formatClock(r.item.row.time) }}</span>
                       <span
-                        v-if="node.row.errors.length"
+                        v-if="r.item.row.errors.length"
                         class="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
                       >
-                        {{ node.row.errors.length }} 个错误
+                        {{ r.item.row.errors.length }} 个错误
                       </span>
                       <!-- 这一格只陈述「没挂错误」：结束信号记的是文档生命周期终结，不等于脚本跑完 -->
                       <span v-else class="text-[10px] text-muted-foreground">无错误</span>
-                      <span v-if="node.row.eventCount" class="text-[10px] text-muted-foreground">
-                        {{ node.row.eventCount }} 个动作
+                      <span v-if="r.item.row.eventCount" class="text-[10px] text-muted-foreground">
+                        {{ r.item.row.eventCount }} 个动作
                       </span>
                       <button
-                        v-if="node.row.errors.length || node.row.eventCount"
+                        v-if="r.item.row.errors.length || r.item.row.eventCount"
                         type="button"
                         class="rounded border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted"
                         :title="
-                          expandedRunIds.has(node.row.runId)
+                          expandedRunIds.has(r.item.row.runId)
                             ? '收起这次运行做过的事与报的错'
                             : '展开这次运行做过的事与报的错'
                         "
-                        @click="toggleExpand(node.row)"
+                        @click="toggleExpand(r.item.row)"
                       >
-                        {{ expandedRunIds.has(node.row.runId) ? '收起' : '展开' }}
+                        {{ expandedRunIds.has(r.item.row.runId) ? '收起' : '展开' }}
                       </button>
                     </div>
 
                     <p
-                      v-if="expandedRunIds.has(node.row.runId) && loadingRunIds.has(node.row.runId)"
+                      v-if="expandedRunIds.has(r.item.row.runId) && loadingRunIds.has(r.item.row.runId)"
                       class="mt-2 text-[10px] text-muted-foreground"
                     >
                       加载动作…
                     </p>
                     <!-- 运行内混排：脚本过桥做过的事（动作）与报的错，按时刻升序 -->
-                    <ul v-else-if="timelineByRunId.get(node.row.runId)?.length" class="mt-2 flex flex-col gap-1.5">
+                    <ul v-else-if="timelineByRunId.get(r.item.row.runId)?.length" class="mt-2 flex flex-col gap-1.5">
                       <li
-                        v-for="(item, i) in timelineByRunId.get(node.row.runId) ?? []"
+                        v-for="(item, i) in timelineByRunId.get(r.item.row.runId) ?? []"
                         :key="i"
                         class="flex items-start gap-1.5"
                       >
@@ -1043,20 +992,20 @@ function onConfirmedAction(): void {
                       </li>
                     </ul>
                     <p
-                      v-if="expandedRunIds.has(node.row.runId) && omittedEventCount(node.row)"
+                      v-if="expandedRunIds.has(r.item.row.runId) && omittedEventCount(r.item.row)"
                       class="mt-1.5 text-[10px] text-muted-foreground"
                     >
-                      还有 {{ omittedEventCount(node.row) }} 个动作已省略（超过单次运行上限）
+                      还有 {{ omittedEventCount(r.item.row) }} 个动作已省略（超过单次运行上限）
                     </p>
                     <!-- 结束节点：只有真收到结束信号才画 —— 没有 endedAt 的一律沉默，不臆断「结束了」 -->
                     <p
-                      v-if="node.row.endedAt"
+                      v-if="r.item.row.endedAt"
                       class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border pt-2 text-[10px] text-muted-foreground"
                     >
                       <span class="size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
                       <span>
-                        已结束 · {{ endReasonLabel(node.row.endReason) }} · 存活
-                        {{ formatDuration(node.row.endedAt - node.row.time) }}
+                        已结束 · {{ endReasonLabel(r.item.row.endReason) }} · 存活
+                        {{ formatDuration(r.item.row.endedAt - r.item.row.time) }}
                       </span>
                     </p>
                   </div>
@@ -1064,35 +1013,35 @@ function onConfirmedAction(): void {
                   <!-- 归不到某次运行的错误（注册 / 桥类，或所属运行已滑出环形）：单独一条不丢 -->
                   <div v-else class="rounded-md border bg-card p-2.5 text-xs">
                     <div class="flex flex-wrap items-center gap-1.5">
-                      <span :class="phaseBadgeClass(node.record.phase)" class="rounded px-1.5 py-0.5 text-[10px] font-medium">
-                        {{ phaseLabel(node.record.phase) }}
+                      <span :class="phaseBadgeClass(r.item.record.phase)" class="rounded px-1.5 py-0.5 text-[10px] font-medium">
+                        {{ phaseLabel(r.item.record.phase) }}
                       </span>
-                      <span class="min-w-0 truncate font-medium">{{ node.record.name }}</span>
-                      <span class="text-muted-foreground">{{ formatClock(node.record.time) }}</span>
+                      <span class="min-w-0 truncate font-medium">{{ r.item.record.name }}</span>
+                      <span class="text-muted-foreground">{{ formatClock(r.item.record.time) }}</span>
                       <button
                         type="button"
                         class="ml-auto flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted"
-                        :title="`复制完整错误 ID（发给 AI 可自动查询修复）：${node.record.id}`"
-                        @click="copyErrorId(node.record.id)"
+                        :title="`复制完整错误 ID（发给 AI 可自动查询修复）：${r.item.record.id}`"
+                        @click="copyErrorId(r.item.record.id)"
                       >
-                        <ui-check v-if="copiedErrorId === node.record.id" class="size-3 text-green-600" />
+                        <ui-check v-if="copiedErrorId === r.item.record.id" class="size-3 text-green-600" />
                         <ui-copy v-else class="size-3" />
-                        {{ shortErrorId(node.record.id) }}
+                        {{ shortErrorId(r.item.record.id) }}
                       </button>
                     </div>
-                    <p class="mt-1 break-all text-destructive">{{ node.record.message }}</p>
-                    <p v-if="node.record.url" class="mt-0.5 truncate text-muted-foreground" :title="node.record.url">
-                      {{ node.record.url }}
+                    <p class="mt-1 break-all text-destructive">{{ r.item.record.message }}</p>
+                    <p v-if="r.item.record.url" class="mt-0.5 truncate text-muted-foreground" :title="r.item.record.url">
+                      {{ r.item.record.url }}
                     </p>
                     <pre
-                      v-if="node.record.stack"
+                      v-if="r.item.record.stack"
                       class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-[11px] leading-relaxed"
-                    >{{ node.record.stack }}</pre>
+                    >{{ r.item.record.stack }}</pre>
                   </div>
                 </div>
-              </li>
-            </ol>
-          </template>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

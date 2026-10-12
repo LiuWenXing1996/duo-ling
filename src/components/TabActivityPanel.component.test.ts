@@ -24,7 +24,6 @@ const tabActivityDelete = vi.hoisted(() => vi.fn())
 const tabActivityDisable = vi.hoisted(() => vi.fn())
 const netCaptureState = vi.hoisted(() => vi.fn())
 const listCapturesByTabSession = vi.hoisted(() => vi.fn())
-const listSessionsByTabSession = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/userscripts/ui-client', () => ({
   userscriptClient: {
@@ -42,7 +41,6 @@ vi.mock('@/lib/userscripts/ui-client', () => ({
 // 面板直连 netlog-db 读选中页录到的接口（与原「接口数据」面板同款直读口径）
 vi.mock('@/lib/userscripts/netlog-db', () => ({
   listCapturesByTabSession,
-  listSessionsByTabSession,
 }))
 
 let seq = 0
@@ -166,7 +164,7 @@ const timelineText = (): string => {
 }
 
 /** 右栏整体文本（含卡头，时间线为空时也该能看到状态与说明） */
-const detailText = () => wrapper.find('.min-w-0.flex-1.overflow-y-auto').text()
+const detailText = () => wrapper.find('[data-testid="tab-activity-detail"]').text()
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -179,7 +177,6 @@ beforeEach(() => {
   tabActivityDisable.mockResolvedValue({ tabId: 1, recording: false })
   netCaptureState.mockResolvedValue({ sessions: [] })
   listCapturesByTabSession.mockResolvedValue([])
-  listSessionsByTabSession.mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -465,25 +462,35 @@ describe('TabActivityPanel 活动历史', () => {
     expect(timelineText()).toContain('开始记录')
   })
 
-  it('选中页的接口录制段出现在时间线上（融合自原「接口数据」面板）', async () => {
+  it('选中页录到的请求铺在时间线上（融合自原「接口数据」面板）', async () => {
     tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
-    listSessionsByTabSession.mockResolvedValue([
-      netSess({ id: 's1', tabSessionId: 't1', title: '接口页', startedAt: 550, endedAt: 650 }),
-    ])
     listCapturesByTabSession.mockResolvedValue([
       netRec({ url: 'https://a.example/api/list', sessionId: 's1', tabSessionId: 't1' }),
     ])
     wrapper = await mountPanel()
 
+    // 轴上只有采样本身，没有「接口录制」那种段头卡
     const text = timelineText()
-    expect(text).toContain('接口录制')
-    expect(text).toContain('接口页')
-    expect(text).toContain('1 条')
+    expect(text).toContain('/api/list')
+    expect(text).not.toContain('接口录制')
   })
 
-  it('录制段展开才铺请求行，再展开单条看请求头与响应结构', async () => {
+  it('正在录的页：已实时落库的采样照样铺在轴上（不必等停止归档）', async () => {
     tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
-    listSessionsByTabSession.mockResolvedValue([netSess({ id: 's1', tabSessionId: 't1' })])
+    // 会话要等停止 / 关页才归档进会话表，采样却是实时落库的
+    netCaptureState.mockResolvedValue({
+      sessions: [netSess({ id: 'live1', tabSessionId: 't1', tabId: 7, startedAt: 550 })],
+    })
+    listCapturesByTabSession.mockResolvedValue([
+      netRec({ url: 'https://a.example/api/list', sessionId: 'live1', tabSessionId: 't1' }),
+    ])
+    wrapper = await mountPanel()
+
+    expect(timelineText()).toContain('/api/list')
+  })
+
+  it('录到的请求直接铺在时间线上，点单条才看请求头与响应结构', async () => {
+    tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
     listCapturesByTabSession.mockResolvedValue([
       netRec({
         url: 'https://a.example/api/list',
@@ -495,22 +502,33 @@ describe('TabActivityPanel 活动历史', () => {
     ])
     wrapper = await mountPanel()
 
-    // 默认折叠：请求行的路径不铺出来
-    expect(detailText()).not.toContain('/api/list')
+    // 平铺：请求行本身就在轴上；明细仍要点开才出
+    const text = timelineText()
+    expect(text).toContain('/api/list')
+    expect(text).not.toContain('x-req')
 
-    const expand = wrapper.findAll('button').find((b) => b.text() === '展开')
-    if (!expand) throw new Error('没有找到「展开」按钮')
-    await expand.trigger('click')
-    await flushPromises()
-    expect(detailText()).toContain('/api/list')
-
-    // 再点这一条请求展开详情
+    // 点这一条请求展开详情
     const row = wrapper.findAll('button').find((b) => b.text().includes('/api/list'))
     if (!row) throw new Error('没有找到请求行按钮')
     await row.trigger('click')
     await flushPromises()
     expect(detailText()).toContain('x-req')
     expect(detailText()).toContain('{"ok":true}')
+  })
+
+  it('录到的请求与刷新、运行同轴混排：各自按发生时刻落位，不受段归属约束', async () => {
+    tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
+    runlog.mockResolvedValue([runRow({ runId: 'r1', tabSessionId: 't1', name: '脚本A', time: 500 })])
+    tabEvents.mockResolvedValue([tabEvent({ kind: 'reload', tabSessionId: 't1', time: 900 })])
+    listCapturesByTabSession.mockResolvedValue([
+      netRec({ url: 'https://a.example/api/mid', sessionId: 's1', tabSessionId: 't1', t: 700 }),
+    ])
+    wrapper = await mountPanel()
+
+    // 最新在前：刷新（900）→ 请求（700）→ 运行（500）
+    const text = timelineText()
+    expect(text.indexOf('页面刷新')).toBeLessThan(text.indexOf('/api/mid'))
+    expect(text.indexOf('/api/mid')).toBeLessThan(text.indexOf('脚本A'))
   })
 
   it('正在录的页：卡头给「停止记录」，点了用实时 tabId 发 tabActivityDisable（关的就是同一枚开关）', async () => {
