@@ -93,8 +93,8 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 ## 页面上下文
 
 - **点选元素**：`chrome.userScripts.execute()` 按需注入内置拾取器，产物暂存后随下一条消息发出。目标 = **当前窗口的活动标签页**（拾取由用户在看得见的面板上点按钮发起，那一刻它就在激活页上）。
-- **页面快照**：AI 侧 `page_snapshot` 工具经 SW 采集。目标 = **这条会话所属的标签页**（不是「当前激活页」：快照是 AI 在生成中途自己决定要采的，那时用户可能已经切到别处）。反查走归属映射（`findTabsUsingConversation`，自带 tab 存活校验），会话没绑标签页时才退回最后聚焦窗口的激活页。
-- **注入前先按 scheme 拦**：`<all_urls>` **不覆盖 `chrome-extension://`**（连本扩展自己的页面也一样），未授权的 `file://` 也报同一句 —— 往上注入必失败，加 host 权限解决不了。判据在 `element-picker-client.ts` 的 `pageInjectionBlockReason`（拾取与 SW 快照共用），平台英文报错经 `friendlyInjectError` 归一成用户的下一步动作。
+- **页面快照 / 页面环境读数**：AI 侧 `page_snapshot`（渲染后 DOM）与 `page_env_read`（视口尺寸 / 设备像素比 / 页面里读到的 UA）两个工具经 SW 采集，各是拾取器的一个模式（`duoling-picker.js` 的 `snapshot` / `env`）—— **加模式必须同时 bump 该文件的 `PICKER_VERSION`**：同版本守卫会把旧版函数留在世界全局里，新模式会被旧版吞掉。目标 = **这条会话所属的标签页**（不是「当前激活页」：这类读取是 AI 在生成中途自己决定发起的，那时用户可能已经切到别处），统一走 `background.ts` 的 `resolveAiTargetTab`（`findTabsUsingConversation` 反查，自带 tab 存活校验；会话没绑标签页时才退回最后聚焦窗口的激活页）。另有一个不经页面的 `env_read`（本机 OS / 芯片架构 / 浏览器与扩展版本等）—— 那是 offscreen 就地读 `navigator` 与构建注入值，不涉注入通道，见 `lib/env-snapshot.ts`。
+- **注入前先按 scheme 拦**：`<all_urls>` **不覆盖 `chrome-extension://`**（连本扩展自己的页面也一样），未授权的 `file://` 也报同一句 —— 往上注入必失败，加 host 权限解决不了。判据在 `element-picker-client.ts` 的 `pageInjectionBlockReason`（拾取与两条 SW 侧读取共用，拦在 `resolveAiTargetTab` 里），平台英文报错经 `friendlyInjectError` 归一成用户的下一步动作。
 
 ## 存储（IndexedDB 分库：源码 / 注册态 / 脚本数据 / 观测数据 / 应用配置 / 会话 / 网络录制，2026-09-19 重构）
 
