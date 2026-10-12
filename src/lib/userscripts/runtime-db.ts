@@ -562,6 +562,31 @@ function trimEndedTabSessions(store: IDBObjectStore, excess: number): Promise<vo
 
 // —— 测试辅助（仅单测使用；清空全部记录保证用例隔离）——
 
+/**
+ * 灌入成表的行（**绕开取号与裁剪**），给环形裁剪用例备料。
+ *
+ * 为什么要它：裁剪只在表满时才触发，逐条走取号得先建满整条上限才够得着那个边界，
+ * 而那条路自有别的用例覆盖；这里要测的只是「表满之后裁剪挑了哪几条」。
+ *
+ * 入参顺序 = 由旧到新：`firstSeenAt` 按顺序递增（它就是裁剪排序键）。
+ */
+export async function seedTabSessionsForTests(
+  rows: Array<{ tabId: number; ended?: boolean }>,
+): Promise<void> {
+  await runTx(TAB_SESSIONS_STORE, 'readwrite', async (tx) => {
+    const store = tx.objectStore(TAB_SESSIONS_STORE)
+    rows.forEach((row, i) => {
+      store.put({
+        tabSessionId: crypto.randomUUID(),
+        tabId: row.tabId,
+        ...(row.ended ? { ended: true } : {}),
+        firstSeenAt: i,
+      } satisfies TabSessionRow)
+    })
+    await txDone(tx, '灌入标签页存续数据')
+  })
+}
+
 export async function clearAllForTests(): Promise<void> {
   for (const name of [ERRORS_STORE, STATS_STORE, RUNS_STORE, RUN_EVENTS_STORE, TAB_SESSIONS_STORE]) {
     await runTx(name, 'readwrite', async (tx) => {

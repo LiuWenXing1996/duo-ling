@@ -5,7 +5,7 @@
 // 记得到就必须有值，记不到就必须缺省（不许拿别的时刻顶上）。
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { clearAllForTests, listTabSessions } from './runtime-db'
+import { clearAllForTests, listTabSessions, seedTabSessionsForTests } from './runtime-db'
 import { noteTabClosed, noteTabCreated, noteTabUrl, splitTabSessionsAtBrowserStart, tabSessionIdFor } from './tab-sessions'
 import { TAB_SESSION_MAX } from './types'
 
@@ -89,9 +89,15 @@ describe('标签页存续登记', () => {
 
 describe('标签页存续表的环形裁剪', () => {
   it('只裁已结束的行：还开着的一行都不删（活账优先于上限）', async () => {
-    for (let tabId = 1; tabId <= TAB_SESSION_MAX; tabId += 1) await tabSessionIdFor(tabId)
-    // 关掉最早登记的 5 个（tabId 1..5）——它们成为可裁的候选
-    for (let tabId = 1; tabId <= 5; tabId += 1) await noteTabClosed(tabId)
+    // 备料一次灌满：裁剪只在表满时才触发，而逐条取号建满上限纯属耗时 ——
+    // 取号那条路自有上一组用例覆盖，这里只测「表满之后裁掉哪几条」。
+    // 最早的 5 行已结束（它们是仅有的可裁候选），其余都还开着。
+    await seedTabSessionsForTests(
+      Array.from({ length: TAB_SESSION_MAX }, (_, i) => ({
+        tabId: i + 1,
+        ...(i < 5 ? { ended: true } : {}),
+      })),
+    )
     // 再登记三个新的：必然触发裁剪，只该裁已结束的那几条
     await tabSessionIdFor(9001)
     await tabSessionIdFor(9002)
