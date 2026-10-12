@@ -135,6 +135,9 @@ export type RuntimeRequest =
   // **不含运行内事件**：事件单独一表，随运行数全量读会线性膨胀（运行数 × 事件上限），
   // 展开某次运行时再走下面的 runEvents 按 runId 拉那一组。
   | { kind: 'userscript:runlog' }
+  // 标签页存续表全量（见 TabSessionRecord）：运行日志按标签页分组时用它取名字与时刻
+  //（分组键是运行条目上的 tabSessionId；表里查不到的旧组回落到运行自己的 url）。
+  | { kind: 'userscript:tabSessions' }
   // 某次运行的运行内事件（按 runId；消费方同上：面板展开卡片 / AI 的 run_log_read 带 runId）
   | { kind: 'userscript:runEvents'; runId: string }
   // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清 runs store 的对应条目）。

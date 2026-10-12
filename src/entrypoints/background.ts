@@ -58,6 +58,14 @@ import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/
 import { runUpdateCheck } from '@/lib/update-check'
 // 网页浮层开关的补齐动作已随站点开关一并移除：右键菜单只负责发「调出浮层」请求
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
+// 标签页存续（tabId 的稳定替身）：登记 / 盖章 / 启动划断都归 SW ——
+// 「标签页什么时候开的、什么时候关的」只有常驻 SW 看得见，扩展页与 offscreen 都不该各记一份。
+import {
+  noteTabClosed,
+  noteTabCreated,
+  noteTabUrl,
+  splitTabSessionsAtBrowserStart,
+} from '@/lib/userscripts/tab-sessions'
 // DL Port 事件底座：脚本世界 ↔ SW 长连接下行通道 + 三事件源接入
 import { initDlPort } from '@/lib/userscripts/dl-port'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
@@ -76,6 +84,8 @@ import {
   clearRunLog,
   markRunEnd,
 } from '@/lib/userscripts/store'
+// 观测数据的底层表（duoling-runtime 库）：标签页存续表全量给「运行日志按标签页看」用
+import { listTabSessions } from '@/lib/userscripts/runtime-db'
 // 对话界面页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口 —— 工具栏角标的数字就是它
 import {
   forgetPageTab,
@@ -564,6 +574,9 @@ const handlers: {
   // 运行日志时间线：运行行 + 孤儿错误行混排（运行日志标签页）
   'userscript:runlog': async (): Promise<ReturnType<typeof listRunTimeline>> => listRunTimeline(),
 
+  // 标签页存续表全量：运行日志按标签页分组时取名字与时刻（分组键在运行条目上，表只补名字）
+  'userscript:tabSessions': async (): Promise<ReturnType<typeof listTabSessions>> => listTabSessions(),
+
   // 某次运行的运行内事件（面板展开卡片时按需拉；AI 的 run_log_read 带 runId 时同路）
   'userscript:runEvents': async (msg): Promise<ReturnType<typeof listRunEvents>> =>
     listRunEvents(msg.runId),
@@ -966,6 +979,18 @@ function mountProposal2Listeners(): void {
       endRunsOfTab(tabId, 'navigated')
       resetPageRuns(tabId)
     }
+    // 标签页存续：地址变了就刷新「这个标签页最近去哪了」。SPA 软导航只带 url、不带 status，
+    // 所以这条不能并进上面的分支（那样软导航会被漏掉）。空值 = 拿不到地址（chrome:// 等无 host 权限的页），不写。
+    if (typeof changeInfo.url === 'string') void noteTabUrl(tabId, changeInfo.url).catch(() => {})
+  })
+
+  // 标签页存续登记：给 tabId 一个稳定替身（见表头注释与 tab-sessions）。
+  // 只做「记得到就记」—— 没有对账扫描，取不到的时刻就留空，读侧显示「未知」。
+  chrome.tabs.onCreated.addListener((tab) => {
+    if (tab.id == null) return
+    // 新标签页此刻可能还没开始导航，url / pendingUrl 都拿不到就空着
+    const url = tab.pendingUrl ?? tab.url
+    void noteTabCreated(tab.id, url || undefined).catch(() => {})
   })
 
   chrome.tabs.onRemoved.addListener((tabId) => {
@@ -978,6 +1003,8 @@ function mountProposal2Listeners(): void {
     // 录制收尾：录制按标签页划分，页面没了就没有「这一页的请求」可录。同上一行同理，
     // 这里漏了会让门禁一直挂着已消失的标签页（注册集合虚扩，tabId 复用后误判）。
     void stopRecordingOfClosedTab(tabId)
+    // 存续收尾：盖上关闭时刻。没登记过的标签页不补行（它连出生时刻都没有，补一条只会占位）
+    void noteTabClosed(tabId).catch(() => {})
   })
 
   // 页面脚本监控端口（另一条连接 'duoling:panel'：上行快照请求 + 推送寻址）
@@ -1097,6 +1124,10 @@ export default defineBackground(() => {
     // 每次开浏览器查一次。注意 onStartup **只在浏览器启动时**触发，SW 被挂起后唤醒不触发它
     // —— 本次启动若正好离线就会错过一轮，靠设置页「关于」里的手动检查补。
     void runUpdateCheck().catch((e) => console.warn('[duoling:update] 检查失败', e))
+    // 划断标签页存续：tabId 是本次浏览器运行内的流水号，重启后重排、会被复用 ——
+    // 上个会话残留的未结束行必须在此收口，否则新会话同号的标签页会被挂到旧行上。
+    // 只在这里做（浏览器启动），不能在 SW 冷启动做：那时「未结束」的行正是本会话还开着的标签页。
+    void splitTabSessionsAtBrowserStart().catch(() => {})
   })
 
   // SW 冷启动即确保 offscreen 在场（与上面监听器互补：SW 被终止后重启时，首条事件会触发本回调）

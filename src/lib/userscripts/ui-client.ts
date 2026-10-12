@@ -6,7 +6,7 @@
 // 直接发 userscript:* 命令组（v2 方案）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
-import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
+import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
 import type { Source, UsCommit, UsSnapshot } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
 import type { NetRecordSession } from './net-record-protocol'
@@ -137,6 +137,9 @@ export const userscriptClient = {
 
   /** 运行日志时间线：运行行 + 孤儿错误行按时间倒序混排（运行日志标签页） */
   runlog: (): Promise<UserScriptRunLogRow[]> => send({ kind: 'userscript:runlog' }),
+
+  /** 标签页存续表全量：运行日志按标签页分组时取名字与时刻（分组键在运行条目上） */
+  tabSessions: (): Promise<TabSessionRecord[]> => send({ kind: 'userscript:tabSessions' }),
 
   /** 某次运行的运行内事件（展开时间线卡片时按需拉；列表视图不带事件） */
   runEvents: (runId: string): Promise<UserScriptRunEvent[]> =>

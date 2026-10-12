@@ -269,6 +269,11 @@ export interface UserScriptRunLogEntry {
    */
   url?: string
   /**
+   * 本次运行所在标签页的存续 id（见 TabSessionRecord）—— 运行日志按标签页看时的分组键。
+   * 缺省 = 当时取不到（扩展刚重载、这个标签页还没登记）：不补记，读侧归「未知标签页」。
+   */
+  tabSessionId?: string
+  /**
    * 注入时的源码版本（注册态 `source.savedAt`）。
    * 编辑器里的源码与页面上正跑的可能不是同一版（改了没存 / 存了没刷新），
    * 而读源码拿到的是**已提交版本**——靠这个值才能判断错误出自哪一版源码。
@@ -292,6 +297,47 @@ export interface UserScriptRunLogEntry {
 }
 
 /**
+ * 标签页存续条目（duoling-runtime 库 tab_sessions store，keyPath tabSessionId；写侧 SW 独占）。
+ *
+ * **这张表是 tabId 的唯一登记处**：别的面要指「哪个标签页」时一律引用 tabSessionId，不自己存 tabId
+ * —— tabId 是浏览器本次运行内的流水号（易失、重启重排、会被复用），只配当实时判据。
+ *
+ * 时刻一律「**记得到就记、记不到就没有**」：不做补造，也不拿「发现它不在的时刻」冒充关闭时刻。
+ * 缺省的字段就是未知，UI 如实显示「未知」，不去猜。
+ */
+export interface TabSessionRecord {
+  /** 稳定身份：登记时 randomUUID，此后不变（tabId 被复用也影响不到它） */
+  tabSessionId: string
+  /** 浏览器本次运行内的标签页编号；只在同一浏览器会话内有意义 */
+  tabId: number
+  /**
+   * 最近一次被观察到的页面地址（登记时取 `pendingUrl ?? url`，之后随 `onUpdated` 的 url 刷新）。
+   *
+   * 与运行条目上的 url **不是同一事实**：那是「那次运行所在页面」的写死快照，
+   * 这条是「这个标签页最近去过哪」——导航之后又没再跑脚本时，两者必然不一致。
+   */
+  url?: string
+  /** 观察到它出生的时刻；缺省 = 没看着它出生（装扩展前就在、或扩展重载期间打开的） */
+  createdAt?: number
+  /** 观察到它关闭的时刻；缺省 = 未知（扩展重载期间关的、或浏览器直接退出） */
+  closedAt?: number
+  /** 已判定结束（收到了关闭事件，或浏览器启动时判定它已不在）；缺省 = 仍开着 */
+  ended?: true
+}
+
+/**
+ * 标签页存续表的环形上限：运行日志（`RUN_LOG_MAX`）的 4 倍。
+ *
+ * 为何比日志宽：这张表不只服务日志 —— `tabs.onCreated` 给**每个**新标签页取号，
+ * 开过但没跑过脚本的标签页也占行，所以同一段时间里它比日志消耗得快。留足余量才不至于
+ * 「日志里还有的这次运行，在表里已经查不到是哪个标签页」，那样按标签页看时只剩一堆无名的组。
+ *
+ * 体积不构成约束：单行只有 uuid + url + 几个数字，几千行仍是百 KB 量级，离存储配额很远。
+ * 裁掉的是超限时**最旧登记的已结束行**（还开着的不动，见 runtime-db 的 trimEndedTabSessions）。
+ */
+export const TAB_SESSION_MAX = 2000
+
+/**
  * 运行日志时间线的一行（listRunTimeline 的产物，UI 直接渲染）。
  * 运行行 = runs store 的一次运行，其运行期错误按 runId 挂在 errors 上（可展开看明细），
  * 运行内事件不在本行返回、展开时才按 runId 拉（见该类型的 events 字段）；
@@ -307,6 +353,8 @@ export type UserScriptRunLogRow =
       time: number
       /** 运行所在页面（见 UserScriptRunLogEntry；老记录缺省） */
       url?: string
+      /** 运行所在标签页的存续 id（见 UserScriptRunLogEntry；取不到时缺省） */
+      tabSessionId?: string
       /** 注入时的源码版本（见 UserScriptRunLogEntry；老记录缺省） */
       savedAt?: number
       /** 本次运行收到的事件数（见 UserScriptRunLogEntry.eventCount） */

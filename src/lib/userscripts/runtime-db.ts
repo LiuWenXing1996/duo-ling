@@ -1,10 +1,12 @@
 // 用户脚本「观测数据」的底层存储：独立 IndexedDB 库 duoling-runtime（SW 独占写）。
 //
-// 装四类数据，全部「一条一记录」：
+// 装五类数据，全部「一条一记录」：
 //   · errors     —— 错误日志（自增主键；环形 ≤ ERROR_LOG_MAX 条，插入序 = 时间序，裁最旧 = 删最小主键）
 //   · stats      —— 每脚本运行计数器（keyPath uuid，一脚本一记录）
 //   · runs       —— 运行条目（keyPath runId；环形 ≤ RUN_LOG_MAX 条，靠 by_time 索引裁最旧）
 //   · run_events —— 运行内事件（自增主键 + by_runId 索引，随所属运行条被裁而级联删除）
+//   · tab_sessions —— 标签页存续（keyPath tabSessionId；环形 ≤ TAB_SESSION_MAX 条，靠 by_seen 索引裁最旧的
+//                      **已结束**行 —— 还开着的行不裁，见 trimEndedTabSessions）
 //
 // 为什么逐条而不是「单记录数组」：数组形状下任何一次追加都要读出整条记录、改完再整条写回
 // （写放大 = 全量），上限因此被压得很小——500 条运行 × 上千条事件的量级根本走不通。
@@ -20,6 +22,7 @@
 //
 // 迁移：v1 的 errors / runlog 是「单记录数组」形状（keyPath 'key'），与逐条形状的主键
 // 不兼容，就地升级无从谈起——upgrade 里删表重建，旧观测数据一并丢弃（无长期价值）。
+// tab_sessions 是 v3 新增，同样走这次删表重建（旧日志随之清空，是刻意的）。
 //
 // 原子性：读改写在**同一个事务**内完成，事务对同 store 天然串行，无需进程内队列。
 // startRun 的「统计 + 运行条 + 溢出裁剪」跨三个 store 用一个事务打开，原子性同保。
@@ -32,7 +35,9 @@ import {
   ERROR_LOG_MAX,
   RUN_EVENT_MAX,
   RUN_LOG_MAX,
+  TAB_SESSION_MAX,
   type RunEndReason,
+  type TabSessionRecord,
   type UserScriptErrorRecord,
   type UserScriptRunEvent,
   type UserScriptRunLogEntry,
@@ -41,18 +46,21 @@ import {
 import { createIdbOpener, idbRequest as request, idbRunTx } from '../idb-core'
 
 const DB_NAME = 'duoling-runtime'
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 const ERRORS_STORE = 'errors'
 const STATS_STORE = 'stats'
 const RUNS_STORE = 'runs'
 const RUN_EVENTS_STORE = 'run_events'
+const TAB_SESSIONS_STORE = 'tab_sessions'
 /** v1 的运行日志 store 名（单记录数组形状），升级时删掉 */
 const LEGACY_RUNLOG_STORE = 'runlog'
 
 const RUNS_BY_TIME = 'by_time'
 const RUNS_BY_UUID = 'by_uuid'
 const EVENTS_BY_RUN = 'by_runId'
+const TABS_BY_TAB = 'by_tabId'
+const TABS_BY_SEEN = 'by_seen'
 
 interface StatsRecord extends UserScriptRunStats {
   uuid: string
@@ -63,12 +71,27 @@ interface RunEventRecord extends UserScriptRunEvent {
   runId: string
 }
 
+/**
+ * tab_sessions 的记录体 = 公开类型 + 一个内部字段。
+ * `firstSeenAt` 只用于裁剪排序（「谁先登记的」），不是给用户看的时刻——公开类型里不含它，
+ * 免得读侧误以为它是「标签页出生时刻」（那得看 createdAt）。
+ */
+interface TabSessionRow extends TabSessionRecord {
+  firstSeenAt: number
+}
+
 const opener = createIdbOpener({
   name: DB_NAME,
   version: DB_VERSION,
   upgrade: (db) => {
     // v1 的 errors / runlog 与逐条形状的主键不同，就地升级无从谈起：删表重建，旧数据丢弃
-    for (const name of [ERRORS_STORE, LEGACY_RUNLOG_STORE, RUNS_STORE, RUN_EVENTS_STORE]) {
+    for (const name of [
+      ERRORS_STORE,
+      LEGACY_RUNLOG_STORE,
+      RUNS_STORE,
+      RUN_EVENTS_STORE,
+      TAB_SESSIONS_STORE,
+    ]) {
       if (db.objectStoreNames.contains(name)) db.deleteObjectStore(name)
     }
     db.createObjectStore(ERRORS_STORE, { autoIncrement: true })
@@ -77,6 +100,9 @@ const opener = createIdbOpener({
     runs.createIndex(RUNS_BY_UUID, 'uuid') // 清某脚本的运行条（连带它的事件）
     const events = db.createObjectStore(RUN_EVENTS_STORE, { autoIncrement: true })
     events.createIndex(EVENTS_BY_RUN, 'runId') // 按运行拉事件 / 级联删除
+    const tabs = db.createObjectStore(TAB_SESSIONS_STORE, { keyPath: 'tabSessionId' })
+    tabs.createIndex(TABS_BY_TAB, 'tabId') // 实时判据：按 tabId 找还开着的那一行
+    tabs.createIndex(TABS_BY_SEEN, 'firstSeenAt') // 环形裁剪：按登记先后找最旧
     // stats 是每脚本一记录、按 uuid 定点读写，形状没有变，保留不重建
     if (!db.objectStoreNames.contains(STATS_STORE)) {
       db.createObjectStore(STATS_STORE, { keyPath: 'uuid' })
@@ -378,10 +404,166 @@ export async function listRunEvents(runId: string): Promise<UserScriptRunEvent[]
   return (recs ?? []).map(({ runId: _owner, ...event }) => event)
 }
 
+// —— 标签页存续（tab_sessions store，keyPath tabSessionId）——
+//
+// 这张表给 tabId 一个稳定替身：别的面引用 tabSessionId、不引用 tabId（理由见 TabSessionRecord）。
+// 时刻一律「记得到就记」，故这里没有任何补造逻辑 —— 缺省的字段就是未知，读侧如实显示。
+
+/**
+ * 登记一个标签页（取号）。
+ *
+ * `createdAt` 由调用方决定传不传：`tabs.onCreated` 传（确实看着它出生），
+ * 其他入口「要号时顺手补建」不传 —— 没看着它出生就是不知道，不拿发现它的时刻冒充。
+ *
+ * @returns 新行的 tabSessionId
+ */
+export async function mintTabSession(input: {
+  tabId: number
+  url?: string
+  createdAt?: number
+}): Promise<string> {
+  const tabSessionId = crypto.randomUUID()
+  await runTx(TAB_SESSIONS_STORE, 'readwrite', async (tx) => {
+    const store = tx.objectStore(TAB_SESSIONS_STORE)
+    const existing = await request<number>(store.count())
+    store.put({
+      tabSessionId,
+      tabId: input.tabId,
+      ...(input.url ? { url: input.url } : {}),
+      ...(input.createdAt != null ? { createdAt: input.createdAt } : {}),
+      firstSeenAt: Date.now(),
+    } satisfies TabSessionRow)
+    const excess = existing + 1 - TAB_SESSION_MAX
+    if (excess > 0) await trimEndedTabSessions(store, excess)
+    await txDone(tx, '登记标签页')
+  })
+  return tabSessionId
+}
+
+/**
+ * 该 tabId 现在开着的那一行。同一浏览器会话内至多一行 —— 跨会话的残留行已由 endOpenTabSessions 盖章，
+ * 同会话内同一 tabId 只会在缺失时补建一次（见 tab-sessions 的取号策略）。
+ */
+export async function findOpenTabSession(tabId: number): Promise<TabSessionRecord | undefined> {
+  const row = await runTx(TAB_SESSIONS_STORE, 'readonly', async (tx) =>
+    openRowOf(tx.objectStore(TAB_SESSIONS_STORE), tabId),
+  )
+  return row ? toPublic(row) : undefined
+}
+
+/**
+ * 记下这个标签页最近的地址（`tabs.onUpdated` 带回 url 时调）。
+ * @returns 是否真改到了（表里没有它、或地址没变 → false，不落盘）
+ */
+export async function setTabSessionUrl(tabId: number, url: string): Promise<boolean> {
+  return runTx(TAB_SESSIONS_STORE, 'readwrite', async (tx) => {
+    const store = tx.objectStore(TAB_SESSIONS_STORE)
+    const row = await openRowOf(store, tabId)
+    if (!row || row.url === url) {
+      await txDone(tx, '记录标签页地址')
+      return false
+    }
+    store.put({ ...row, url })
+    await txDone(tx, '记录标签页地址')
+    return true
+  })
+}
+
+/**
+ * 盖上关闭时刻（`tabs.onRemoved` 调）。表里没有这个标签页就什么都不做 —— 没登记过的标签页
+ * 不需要一条幽灵行（它连出生时刻都没有，留着只会占位与占上限）。
+ * @returns 是否真有条目被改写（调用方据此决定要不要广播）
+ */
+export async function closeTabSession(tabId: number, closedAt: number): Promise<boolean> {
+  return runTx(TAB_SESSIONS_STORE, 'readwrite', async (tx) => {
+    const store = tx.objectStore(TAB_SESSIONS_STORE)
+    const row = await openRowOf(store, tabId)
+    if (!row) {
+      await txDone(tx, '标记标签页关闭')
+      return false
+    }
+    store.put({ ...row, ended: true, closedAt })
+    await txDone(tx, '标记标签页关闭')
+    return true
+  })
+}
+
+/**
+ * 浏览器启动划断：把所有还「开着」的行盖章结束，**时刻留空**（它究竟何时关的，没人知道）。
+ *
+ * 为什么必须做：tabId 是浏览器本次运行内的流水号，重启后重排、且会被复用。不划断的话，
+ * 上个会话残留的未结束行会与新会话里同号的标签页撞在一起（新标签页的运行被挂到旧行上）。
+ *
+ * 只在 `runtime.onStartup` 调，**不在 SW 冷启动调** —— 冷启动时那些「未结束」的行正是本会话
+ * 还开着的标签页，那时盖章等于把活账全结掉。
+ *
+ * @returns 被盖章的行数
+ */
+export async function endOpenTabSessions(): Promise<number> {
+  return runTx(TAB_SESSIONS_STORE, 'readwrite', async (tx) => {
+    const store = tx.objectStore(TAB_SESSIONS_STORE)
+    let ended = 0
+    // 用 cursor.update 就地改写：同事务内 put 同一主键会让游标重访该记录
+    await eachCursor(store.openCursor(), Infinity, (cursor) => {
+      const row = cursor.value as TabSessionRow
+      if (row.ended === true) return
+      cursor.update({ ...row, ended: true } satisfies TabSessionRow)
+      ended += 1
+    })
+    await txDone(tx, '划断标签页存续')
+    return ended
+  })
+}
+
+/** 全量表（按登记先后升序）。消费方：运行日志按标签页分组时取名字与时刻 */
+export async function listTabSessions(): Promise<TabSessionRecord[]> {
+  const rows = await runTx(TAB_SESSIONS_STORE, 'readonly', async (tx) =>
+    request<TabSessionRow[]>(tx.objectStore(TAB_SESSIONS_STORE).index(TABS_BY_SEEN).getAll()),
+  )
+  return (rows ?? []).map(toPublic)
+}
+
+/** 剥掉内部字段：裁剪排序键不该出现在任何读侧结果里（它不是用户能理解的时刻） */
+function toPublic({ firstSeenAt: _trimKey, ...row }: TabSessionRow): TabSessionRecord {
+  return row
+}
+
+/** 该 tabId 现在开着的那一行（未结束 = 还开着；已盖章的不算） */
+async function openRowOf(store: IDBObjectStore, tabId: number): Promise<TabSessionRow | undefined> {
+  const rows = await request<TabSessionRow[]>(store.index(TABS_BY_TAB).getAll(tabId))
+  return (rows ?? []).find((r) => r.ended !== true)
+}
+
+/**
+ * 裁掉最旧登记的**已结束**行，直到删够 excess 条。
+ *
+ * 未结束的行一律跳过：那是还开着的账，删掉等于凭空丢掉正在开的标签页。极端情况（未结束的行
+ * 比上限还多）会删不满，那就到此为止 —— 宁可暂时超一点，也不动活账。
+ */
+function trimEndedTabSessions(store: IDBObjectStore, excess: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let removed = 0
+    const req = store.index(TABS_BY_SEEN).openCursor()
+    req.onsuccess = () => {
+      const cursor = req.result
+      if (!cursor || removed >= excess) {
+        resolve()
+        return
+      }
+      if ((cursor.value as TabSessionRow).ended === true) {
+        cursor.delete()
+        removed += 1
+      }
+      cursor.continue()
+    }
+    req.onerror = () => reject(req.error ?? new Error('裁剪标签页存续表失败'))
+  })
+}
+
 // —— 测试辅助（仅单测使用；清空全部记录保证用例隔离）——
 
 export async function clearAllForTests(): Promise<void> {
-  for (const name of [ERRORS_STORE, STATS_STORE, RUNS_STORE, RUN_EVENTS_STORE]) {
+  for (const name of [ERRORS_STORE, STATS_STORE, RUNS_STORE, RUN_EVENTS_STORE, TAB_SESSIONS_STORE]) {
     await runTx(name, 'readwrite', async (tx) => {
       tx.objectStore(name).clear()
       await txDone(tx, '清空观测数据')
