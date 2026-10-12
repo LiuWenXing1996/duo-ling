@@ -7,16 +7,19 @@
 // 这正是它相对「运行日志」的独有价值：那边以**日志**为准，只有产生过记录的脚本会出现；
 // 这边以**标签页**为准，页在列表里、右侧如实说明「还没有运行记录」。
 //
-// 右栏 = 选中那一页的活动时间线：打开 / 关闭两个生命周期节点，与每一次脚本运行按时刻混排
-// （最新在前），单次运行可展开看它做过的动作与报的错。
+// 右栏 = 选中那一页的活动时间线：打开 / 关闭两个生命周期节点、这一页的**刷新与地址变更**、
+// 每一次脚本运行，三者按时刻混排（最新在前）；单次运行可展开看它做过的动作与报的错。
+//
+// 刷新 / 地址变更来自 tab_events（见 TabEventRecord）：SW 在标签页事件里判出来的**文档级**事件，
+// 与运行无关 —— 「这一页刷新过 5 次」和「某个脚本在其中一次里跑了多少请求」是两件事。
 //
 // 归不到标签页的记录单独一档「未知标签页」：这一页当时没开活动记录、老日志没有 tabSessionId、
 // 扩展刚重载那会儿记的，以及无法归属到任何一次运行的错误（注册 / 桥类，或所属运行已滑出环形）——
 // 不列出来它们在这一页就完全不可见。「未知标签页」档只能看记录本身，答不出它当时在哪一页。
 //
 // 数据通道：userscriptClient（workbench 是可信扩展页，可直接 chrome.runtime.sendMessage）。
-// 读侧三条**既有**命令：tabSessions（存续表）/ runlog（全量时间线）/ runEvents（展开时按需拉）；
-// 写侧两条本条新增：tabActivityDelete（删某一页）/ tabActivityClear（清空全部）。
+// 读侧四条命令：tabSessions（存续表）/ tabEvents（刷新与地址变更）/ runlog（全量时间线）/
+// runEvents（展开时按需拉）；写侧两条本条新增：tabActivityDelete（删某一页）/ tabActivityClear（清空全部）。
 //
 // 删除 / 清空**连带运行记录**是刻意的：面板展示的是存续表与运行日志的合成，只删存续行会让
 // 这一页以「表里已查不到」的残影留在列表里（它的运行还在）。代价是这些运行在「运行日志」
@@ -41,6 +44,7 @@ import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
   RUN_LOG_MAX,
   type RunEndReason,
+  type TabEventRecord,
   type TabSessionRecord,
   type UserScriptErrorRecord,
   type UserScriptRunEvent,
@@ -53,9 +57,13 @@ type RunRow = Extract<UserScriptRunLogRow, { kind: 'run' }>
 /** 「未知标签页」档的 key：不指向任何一页，只是一个收容所（只在真有这类记录时出现） */
 const UNKNOWN_TAB_KEY = '__unknown_tab__'
 
-/** 时间线节点：页面的两个生命周期端点 + 脚本运行 + 归不到运行的错误，按时刻混排 */
+/**
+ * 时间线节点：页面的两个生命周期端点 + 这一页的刷新 / 地址变更 + 脚本运行 + 归不到运行的错误，
+ * 按时刻混排。它们都只是「同一根时间轴上的点」，渲染各成一行、互不从属。
+ */
 type TimelineNode =
   | { kind: 'lifecycle'; label: '页面打开' | '页面关闭'; time: number }
+  | { kind: 'tabEvent'; event: TabEventRecord }
   | { kind: 'run'; row: RunRow }
   | { kind: 'error'; record: UserScriptErrorRecord }
 
@@ -87,6 +95,8 @@ interface TabItem {
 }
 
 const sessions = ref<TabSessionRecord[]>([])
+/** 存续轴上的事件（刷新 / 地址变更）：时间线的第三类节点，与运行条按时刻混排 */
+const tabEvents = ref<TabEventRecord[]>([])
 const rows = ref<UserScriptRunLogRow[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -193,7 +203,7 @@ const selected = computed<TabItem | null>(
 /** 有活动（跑过脚本或出过错）的页数：头部概览用 */
 const activeCount = computed(() => tabItems.value.filter((i) => i.runs || i.errors).length)
 
-/** 右栏时间线：生命周期端点 + 该页的运行 + 归到该页的错误，最新在前 */
+/** 右栏时间线：生命周期端点 + 该页的刷新 / 地址变更 + 该页的运行 + 归到该页的错误，最新在前 */
 const timelineNodes = computed<TimelineNode[]>(() => {
   const sel = selected.value
   if (!sel) return []
@@ -201,6 +211,10 @@ const timelineNodes = computed<TimelineNode[]>(() => {
   // 生命周期端点只在**记到了**时刻时才画：缺省就是未知，不拿别的时刻顶上
   if (sel.createdAt) nodes.push({ kind: 'lifecycle', label: '页面打开', time: sel.createdAt })
   if (sel.closedAt) nodes.push({ kind: 'lifecycle', label: '页面关闭', time: sel.closedAt })
+  // 事件自带归属，只按 id 相等收：「未知标签页」档不是一页，一条也收不到（它本就没有 tabSessionId）
+  for (const event of tabEvents.value) {
+    if (event.tabSessionId === sel.id) nodes.push({ kind: 'tabEvent', event })
+  }
   for (const row of rows.value) {
     if (tabKeyOf(row) !== sel.id) continue
     nodes.push(row.kind === 'run' ? { kind: 'run', row } : { kind: 'error', record: row.record })
@@ -211,19 +225,26 @@ const timelineNodes = computed<TimelineNode[]>(() => {
 function nodeTime(node: TimelineNode): number {
   if (node.kind === 'run') return node.row.time
   if (node.kind === 'error') return node.record.time
+  if (node.kind === 'tabEvent') return node.event.time
   return node.time
 }
 
 function nodeKey(node: TimelineNode): string {
   if (node.kind === 'run') return `run:${node.row.runId}`
   if (node.kind === 'error') return `err:${node.record.id}`
+  if (node.kind === 'tabEvent') {
+    return `tabevent:${node.event.tabSessionId}:${node.event.time}:${node.event.kind}`
+  }
   return `life:${node.label}`
 }
 
 /** 选中项对应的那一页有没有任何记录（没有就给一句空提示，而不是空白） */
 const selectedHasActivity = computed(() => {
   const sel = selected.value
-  return !!sel && sel.runs + sel.errors > 0
+  if (!sel) return false
+  // 刷新 / 地址变更也算记录：只刷过页、一次脚本都没跑的页，不该被说成「还没有运行记录」。
+  // 注意生命周期端点**不算** —— 它只说明这一页还开着，不是「发生过什么」。
+  return sel.runs + sel.errors > 0 || tabEvents.value.some((e) => e.tabSessionId === sel.id)
 })
 
 /** 选中项消失（被裁掉 / 数据重拉）时回落第一项：停在空视图上会像页面坏了 */
@@ -237,11 +258,13 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const [sessionList, logRows] = await Promise.all([
+    const [sessionList, eventList, logRows] = await Promise.all([
       userscriptClient.tabSessions(),
+      userscriptClient.tabEvents(),
       userscriptClient.runlog()
     ])
     sessions.value = sessionList
+    tabEvents.value = eventList
     rows.value = logRows
     fallbackSelection()
   } catch (e) {
@@ -403,6 +426,11 @@ const END_REASON_LABEL: Record<RunEndReason, string> = {
 /** 结束原因文案；endedAt 在而 endReason 缺（老记录 / 异常写入）时给中性说法，不猜 */
 function endReasonLabel(reason: RunEndReason | undefined): string {
   return reason ? END_REASON_LABEL[reason] : '结束原因未记录'
+}
+
+/** 标签页事件文案：刷新与地址变更是两件不同的事（一个换了文档、一个换了去处），别混成一句「页面变化」 */
+function tabEventLabel(event: TabEventRecord): string {
+  return event.kind === 'reload' ? '页面刷新' : '地址变更'
 }
 
 /** 错误 ID 展示短形态（前 8 位；复制按钮复制完整 id，供 AI 代查） */
@@ -640,7 +668,7 @@ function onConfirmedAction(): void {
                   <span
                     class="relative mt-2 size-1.5 rounded-full"
                     :class="
-                      node.kind === 'lifecycle'
+                      node.kind === 'lifecycle' || node.kind === 'tabEvent'
                         ? 'bg-muted-foreground/40'
                         : node.kind === 'run' && !node.row.errors.length
                           ? 'bg-muted-foreground/60'
@@ -658,6 +686,22 @@ function onConfirmedAction(): void {
                   >
                     <span>{{ node.label }}</span>
                     <span class="tabular-nums">{{ formatDateTime(node.time) }}</span>
+                  </p>
+
+                  <!-- 标签页事件（刷新 / 地址变更）：没有脚本参与，一行小字说清发生了什么，不占卡片 -->
+                  <p
+                    v-else-if="node.kind === 'tabEvent'"
+                    class="flex flex-wrap items-baseline gap-1.5 pt-1 text-[11px] text-muted-foreground"
+                  >
+                    <span>{{ tabEventLabel(node.event) }}</span>
+                    <span class="tabular-nums">{{ formatClock(node.event.time) }}</span>
+                    <span
+                      v-if="node.event.kind === 'url' && node.event.url"
+                      class="min-w-0 truncate"
+                      :title="node.event.url"
+                    >
+                      {{ node.event.url }}
+                    </span>
                   </p>
 
                   <!-- 运行行：一次页面加载一条，出错 / 有动作可展开 -->

@@ -138,6 +138,9 @@ export type RuntimeRequest =
   // 标签页存续表全量（见 TabSessionRecord）：运行日志按标签页分组时用它取名字与时刻
   //（分组键是运行条目上的 tabSessionId；表里查不到的旧组回落到运行自己的 url）。
   | { kind: 'userscript:tabSessions' }
+  // 标签页存续轴上的事件全量（刷新 / 地址变更，见 TabEventRecord）。消费方是「活动历史」右栏：
+  // 它与运行条按时刻混排成这一页的时间线；「属于哪一页」由事件自带的 tabSessionId 说了算。
+  | { kind: 'userscript:tabEvents' }
   // 打开 / 关掉**这一个标签页**的活动记录（popup 的开关）。建行、撤号都在 SW 侧完成；
   // 地址由 SW 自己从标签页现取，命令只带 tabId。它只决定「要不要记」，不动运行日志本身。
   | { kind: 'userscript:tabActivityEnable'; tabId: number }

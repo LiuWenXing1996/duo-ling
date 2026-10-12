@@ -58,11 +58,12 @@ import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/
 import { runUpdateCheck } from '@/lib/update-check'
 // 网页浮层开关的补齐动作已随站点开关一并移除：右键菜单只负责发「调出浮层」请求
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
-// 标签页存续（tabId 的稳定替身）：开关 / 盖章 / 启动划断都归 SW ——
-// 「这一页在不在记活动、什么时候关的」只有常驻 SW 看得见，扩展页与 offscreen 都不该各记一份。
+// 标签页存续（tabId 的稳定替身）：开关 / 事件（刷新、地址变更）/ 盖章 / 启动划断都归 SW ——
+// 「这一页在不在记活动、经历了什么、什么时候关的」只有常驻 SW 看得见，扩展页与 offscreen 都不该各记一份。
 import {
   noteTabClosed,
-  noteTabUrl,
+  noteTabReloaded,
+  noteTabUrlChanged,
   setTabRecording,
   splitTabSessionsAtBrowserStart,
 } from '@/lib/userscripts/tab-sessions'
@@ -87,7 +88,7 @@ import {
   deleteTabActivity,
 } from '@/lib/userscripts/store'
 // 观测数据的底层表（duoling-runtime 库）：标签页存续表全量给「运行日志按标签页看」用
-import { listTabSessions } from '@/lib/userscripts/runtime-db'
+import { listTabEvents, listTabSessions } from '@/lib/userscripts/runtime-db'
 // 对话界面页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口 —— 工具栏角标的数字就是它
 import {
   forgetPageTab,
@@ -586,6 +587,9 @@ const handlers: {
   // 标签页存续表全量：运行日志按标签页分组时取名字与时刻（分组键在运行条目上，表只补名字）
   'userscript:tabSessions': async (): Promise<ReturnType<typeof listTabSessions>> => listTabSessions(),
 
+  // 标签页存续轴上的事件全量（刷新 / 地址变更）：「活动历史」右栏把它与运行条混排成这一页的时间线
+  'userscript:tabEvents': async (): Promise<ReturnType<typeof listTabEvents>> => listTabEvents(),
+
   // 打开 / 关掉**这一页**的活动记录（popup 的开关）。判据落在标签页上：同一站点的其他页各开
   // 各的。地址由 SW 现取（与录制门禁同一条口径），不由 popup 带 —— 它手里只有一个 host。
   // 打开时会顺手建行，好让这一页立刻出现在「活动历史」里（此后跑不跑脚本都无所谓）。
@@ -1016,10 +1020,21 @@ function mountProposal2Listeners(): void {
     if (changeInfo.status === 'loading') {
       endRunsOfTab(tabId, 'navigated')
       resetPageRuns(tabId)
+      // 存续轴：文档重开了，记一条「刷新」—— 但若这其实是一次导航（url 回调还没到），
+      // 由 tab-sessions 拿此刻的真实地址比出来、改记「地址变更」。地址只有 SW 现取得到。
+      void chrome.tabs
+        .get(tabId)
+        .then((t) => t.url)
+        .catch(() => undefined)
+        .then((url) => noteTabReloaded(tabId, url))
+        .catch(() => {})
     }
-    // 标签页存续：地址变了就刷新「这个标签页最近去哪了」。SPA 软导航只带 url、不带 status，
-    // 所以这条不能并进上面的分支（那样软导航会被漏掉）。空值 = 拿不到地址（chrome:// 等无 host 权限的页），不写。
-    if (typeof changeInfo.url === 'string') void noteTabUrl(tabId, changeInfo.url).catch(() => {})
+    // 存续轴：地址变了就记一条「地址变更」，并顺手刷新「这个标签页最近去哪了」。
+    // 这条不能并进上面的分支：SPA 软导航只带 url、不带 status，并进去就被漏掉了。
+    // 空值 = 拿不到地址（chrome:// 等无 host 权限的页），不写。
+    if (typeof changeInfo.url === 'string') {
+      void noteTabUrlChanged(tabId, changeInfo.url).catch(() => {})
+    }
   })
 
   // 标签页存续的维护：给 tabId 一个稳定替身（见表头注释与 tab-sessions）。

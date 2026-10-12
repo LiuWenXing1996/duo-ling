@@ -349,6 +349,40 @@ export interface TabSessionRecord {
 export const TAB_SESSION_MAX = 2000
 
 /**
+ * 标签页存续轴上的事件（duoling-runtime 库 tab_events store，自增主键；写侧 SW 独占）。
+ *
+ * 与 `run_events` 的分工：那是「**一次运行内**脚本干了什么」（GM 命令级），这是「**这一页**
+ * 经历了什么」（文档级）。两者不是一个轴，也不互相替代 —— 一页刷新过 5 次，与某个脚本在
+ * 其中某一次里跑了多少条请求，是两件事。
+ *
+ * 只记两种，因为只有这两种是 SW 能确凿观察到的文档级事件：
+ *   · reload —— 文档重新开始，且地址没变（用户按刷新 / 前进后退回到本地址）
+ *   · url    —— 地址变了：导航到新地址，或 SPA 软导航（只改地址、不换文档）
+ * 一次文档重新开始至多落一条，判据见 tab-sessions 的 noteTabUrlChanged / noteTabReloaded。
+ */
+export interface TabEventRecord {
+  /** 所属标签页存续行（见 TabSessionRecord）—— 时间线按它归组 */
+  tabSessionId: string
+  kind: 'reload' | 'url'
+  /** 事件时刻（ms）。取 SW 收到标签页事件的那一刻，不是文档开始加载的精确时刻 */
+  time: number
+  /** kind = 'url' 时是新地址；'reload' 时是当时取到的地址（取不到就不带） */
+  url?: string
+}
+
+/**
+ * tab_events 的环形上限。
+ *
+ * 为何是这个量级：一次页面加载至多贡献 1~2 条（同址刷新一条；导航则一条地址变更），
+ * 比运行日志「一跑一条」更稀；但开着记录的页会被反复刷。取 1000 与 RUN_EVENT_MAX 同档，
+ * 装得下一个重度调试会话，又不至于把库撑起来。
+ *
+ * 裁剪按插入序（自增主键 = 时间序）删最旧，与 errors 同一套；行本身被删（用户清空 /
+ * 环形裁掉已结束行）时，它的事件同事务级联删除。
+ */
+export const TAB_EVENT_MAX = 1000
+
+/**
  * 运行日志时间线的一行（listRunTimeline 的产物，UI 直接渲染）。
  * 运行行 = runs store 的一次运行，其运行期错误按 runId 挂在 errors 上（可展开看明细），
  * 运行内事件不在本行返回、展开时才按 runId 拉（见该类型的 events 字段）；

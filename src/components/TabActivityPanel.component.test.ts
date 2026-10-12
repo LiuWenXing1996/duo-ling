@@ -1,12 +1,14 @@
 // UI 组件测试：TabActivityPanel.vue 的活动历史视图（左栏标签页列表 + 右栏该页活动时间线）。
 // 覆盖易回归语义：左栏以**存续表**为准（没跑过脚本的页也在列表里）、右栏只显示选中那一页的记录、
 // 生命周期端点只在记到时刻时才画（缺时刻不拿别的时刻顶上）、展开才看错误明细、
-// 归不到标签页的记录落「未知标签页」档、空态；删除 / 清空走确认弹窗（确认后才发命令）。
+// 归不到标签页的记录落「未知标签页」档、空态；刷新 / 地址变更与运行条同轴混排；
+// 删除 / 清空走确认弹窗（确认后才发命令）。
 // 边界 mock：ui-client（IPC 客户端）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import TabActivityPanel from './TabActivityPanel.vue'
 import type {
+  TabEventRecord,
   TabSessionRecord,
   UserScriptErrorRecord,
   UserScriptRunLogRow
@@ -15,11 +17,12 @@ import type {
 const runlog = vi.hoisted(() => vi.fn())
 const runEvents = vi.hoisted(() => vi.fn())
 const tabSessions = vi.hoisted(() => vi.fn())
+const tabEvents = vi.hoisted(() => vi.fn())
 const tabActivityClear = vi.hoisted(() => vi.fn())
 const tabActivityDelete = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/userscripts/ui-client', () => ({
-  userscriptClient: { runlog, runEvents, tabSessions, tabActivityClear, tabActivityDelete },
+  userscriptClient: { runlog, runEvents, tabSessions, tabEvents, tabActivityClear, tabActivityDelete },
 }))
 
 let seq = 0
@@ -64,6 +67,21 @@ function session(over: TabSessionRecord): TabSessionRecord {
   return over
 }
 
+/** 存续轴上的事件（刷新 / 地址变更）：右栏时间线的第三类节点 */
+function tabEvent(over: {
+  kind: 'reload' | 'url'
+  tabSessionId: string
+  time?: number
+  url?: string
+}): TabEventRecord {
+  return {
+    tabSessionId: over.tabSessionId,
+    kind: over.kind,
+    time: over.time ?? 900,
+    ...(over.url != null ? { url: over.url } : {}),
+  }
+}
+
 let wrapper: VueWrapper
 
 async function mountPanel(): Promise<VueWrapper> {
@@ -103,6 +121,7 @@ beforeEach(() => {
   runlog.mockResolvedValue([])
   runEvents.mockResolvedValue([])
   tabSessions.mockResolvedValue([])
+  tabEvents.mockResolvedValue([])
   tabActivityClear.mockResolvedValue(undefined)
   tabActivityDelete.mockResolvedValue(undefined)
 })
@@ -291,5 +310,55 @@ describe('TabActivityPanel 活动历史', () => {
 
     expect(tabButtons()[0].text()).toContain('未知标签页')
     expect(wrapper.find('[data-testid="tab-activity-delete"]').exists()).toBe(false)
+  })
+
+  it('只刷过页、一次脚本都没跑的页：时间线上有刷新条目，不再说「还没有运行记录」', async () => {
+    tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
+    tabEvents.mockResolvedValue([tabEvent({ kind: 'reload', tabSessionId: 't1', time: 700 })])
+    wrapper = await mountPanel()
+
+    expect(timelineText()).toContain('页面刷新')
+    expect(detailText()).not.toContain('还没有运行记录')
+  })
+
+  it('地址变更条目带新地址；刷新条目只说刷新（地址没变，不重复报一遍）', async () => {
+    tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
+    tabEvents.mockResolvedValue([
+      tabEvent({ kind: 'url', tabSessionId: 't1', time: 800, url: 'https://b.example/p' }),
+      tabEvent({ kind: 'reload', tabSessionId: 't1', time: 700 }),
+    ])
+    wrapper = await mountPanel()
+
+    const text = timelineText()
+    expect(text).toContain('地址变更')
+    expect(text).toContain('https://b.example/p')
+    expect(text).toContain('页面刷新')
+  })
+
+  it('刷新与运行在同一根时间轴上按时刻混排（最新在前）', async () => {
+    tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
+    runlog.mockResolvedValue([runRow({ runId: 'r1', tabSessionId: 't1', name: '脚本A', time: 500 })])
+    tabEvents.mockResolvedValue([tabEvent({ kind: 'reload', tabSessionId: 't1', time: 900 })])
+    wrapper = await mountPanel()
+
+    const text = timelineText()
+    // 刷新（900）比这次运行（500）新：两类节点同轴，只按时刻排、互不从属
+    expect(text.indexOf('页面刷新')).toBeLessThan(text.indexOf('脚本A'))
+  })
+
+  it('别页的事件不串进这一页（时间线只收 tabSessionId 相等的事件）', async () => {
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' }),
+      session({ tabSessionId: 't2', tabId: 2, url: 'https://b.example/y' }),
+    ])
+    runlog.mockResolvedValue([runRow({ runId: 'r2', tabSessionId: 't2', name: '脚本B', time: 900 })])
+    tabEvents.mockResolvedValue([tabEvent({ kind: 'reload', tabSessionId: 't2', time: 950 })])
+    wrapper = await mountPanel()
+
+    // 默认选中 t2（活动更近）：它的刷新在
+    expect(timelineText()).toContain('页面刷新')
+
+    await clickTab('a.example')
+    expect(timelineText()).not.toContain('页面刷新')
   })
 })

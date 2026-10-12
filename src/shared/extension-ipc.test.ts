@@ -59,6 +59,7 @@ const ALL_KINDS = [
   { kind: 'userscript:healthCheck', side: 'sw' },
   { kind: 'userscript:runlog', side: 'sw' },
   { kind: 'userscript:tabSessions', side: 'sw' },
+  { kind: 'userscript:tabEvents', side: 'sw' },
   { kind: 'userscript:tabActivityEnable', side: 'sw' },
   { kind: 'userscript:tabActivityDisable', side: 'sw' },
   { kind: 'userscript:tabActivityDelete', side: 'sw' },

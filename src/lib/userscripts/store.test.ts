@@ -25,7 +25,14 @@ import {
   setGMValue,
   withRunStats,
 } from './store'
-import { clearAllForTests as clearRuntime, getStats, listTabSessions, mintTabSession } from './runtime-db'
+import {
+  appendTabEvent,
+  clearAllForTests as clearRuntime,
+  getStats,
+  listTabEvents,
+  listTabSessions,
+  mintTabSession,
+} from './runtime-db'
 import { clearAllForTests as clearUsdata } from './usdata-db'
 import { RUN_EVENT_MAX, RUN_LOG_MAX, type ScriptProject } from './types'
 
@@ -572,5 +579,28 @@ describe('活动历史（存续表 + 运行日志的删除 / 清空）', () => {
     await recordRunStart('u1', 'r1', '甲')
     await deleteTabActivity('不存在的页')
     expect(await listRunTimeline()).toHaveLength(1)
+  })
+
+  it('删除某一页：这一页的刷新 / 地址变更事件一并走，别的页的事件不动', async () => {
+    const t1 = await mintTabSession({ tabId: 1, url: 'https://1.test/' })
+    const t2 = await mintTabSession({ tabId: 2, url: 'https://2.test/' })
+    await appendTabEvent(t1, 'reload', 'https://1.test/')
+    await appendTabEvent(t2, 'url', 'https://2.test/next')
+
+    await deleteTabActivity(t1)
+
+    const events = await listTabEvents()
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ tabSessionId: t2, kind: 'url' })
+  })
+
+  it('清空全部：事件也一并清掉（不留孤儿）', async () => {
+    const t1 = await mintTabSession({ tabId: 1, url: 'https://1.test/' })
+    await appendTabEvent(t1, 'reload', 'https://1.test/')
+
+    await clearTabActivity()
+
+    expect(await listTabSessions()).toHaveLength(0)
+    expect(await listTabEvents()).toHaveLength(0)
   })
 })

@@ -6,7 +6,7 @@
 // 直接发 userscript:* 命令组（v2 方案）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
-import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
+import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabEventRecord, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
 import type { Source, UsCommit, UsSnapshot } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
 import type { NetRecordSession } from './net-record-protocol'
@@ -140,6 +140,9 @@ export const userscriptClient = {
 
   /** 标签页存续表全量：运行日志按标签页分组时取名字与时刻（分组键在运行条目上） */
   tabSessions: (): Promise<TabSessionRecord[]> => send({ kind: 'userscript:tabSessions' }),
+
+  /** 标签页存续轴上的事件全量（刷新 / 地址变更）：活动历史右栏与运行条混排成时间线 */
+  tabEvents: (): Promise<TabEventRecord[]> => send({ kind: 'userscript:tabEvents' }),
 
   /** 给**这一个标签页**打开 / 关掉活动记录（popup 的开关）。关掉不删记录，只是不再记新的 */
   tabActivityEnable: (tabId: number): Promise<{ tabId: number; recording: boolean }> =>
