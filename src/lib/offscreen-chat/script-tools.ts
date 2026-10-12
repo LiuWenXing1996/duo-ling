@@ -1,4 +1,4 @@
-// Agent 工具：script 四件套（script_spec / script_find / script_list / script_read / script_apply）+ element_read / page_snapshot（页面上下文）+ error_read（错误 ID 查询）。
+// Agent 工具集：脚本读写（script_*）+ 页面上下文（element_read / page_snapshot）+ 环境读取（env_read / page_env_read）+ 网络录制（net_capture_*）+ 诊断查询（error_read / run_log_read）。
 //
 // 设计要点：
 //   · **script_apply 把「写」和「语法验证」合并成一步**：入参完整源码 → acorn parse
@@ -15,6 +15,7 @@
 import { Parser } from 'acorn'
 import { tool } from 'ai'
 import { z } from 'zod'
+import { readEnvSnapshot } from '@/lib/env-snapshot'
 import {
   AGENT_RUNTIME_LIMITS,
   TOOL_DESCRIPTIONS,
@@ -32,7 +33,7 @@ import type {
   UserScriptRunLogRow,
 } from '@/lib/userscripts/types'
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
-import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
+import type { ElementPickContext, PageEnvContext, PageSnapshotContext } from '@/shared/extension-ipc'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
 /** 连续 apply 失败上限：达到即让模型停手、把诊断交给用户。
@@ -115,6 +116,7 @@ function checkSyntax(code: string): string | null {
  * 任务（stop 提示只是文案，模型会无视继续烧步数）。
  * elementContext：本请求携带的拾取元素快照（用户显式点选；undefined = 本次没有）。
  * captureSnapshot：页面快照采集（经 SW 调 userScripts.execute，AI 判断需要时调用；未提供 = 工具返回不可用）。
+ * capturePageEnv：页面侧环境读数（同一通道取视口 / 像素比 / 页面 UA；未提供 = 工具返回不可用）。
  * netCapture：接口录制（requestConsent 出同意卡 / read 读回语料；未提供 = 工具返回不可用）。
  * readRunLog：运行日志读取（SW 侧 duoling-runtime 库，offscreen 拿不到；未提供 = 工具返回不可用）。
  * readRunEvents：某次运行的动作明细（同一通道，按 runId 拉；未提供 = 工具返回不可用）。
@@ -125,6 +127,7 @@ export function buildScriptTools(
   onFatal?: () => void,
   elementContext?: ElementPickContext,
   captureSnapshot?: () => Promise<PageSnapshotContext>,
+  capturePageEnv?: () => Promise<PageEnvContext>,
   readError?: (id: string) => Promise<UserScriptErrorLookup>,
   netCapture?: NetCaptureHooks,
   readRunLog?: () => Promise<UserScriptRunLogRow[]>,
@@ -301,6 +304,38 @@ export function buildScriptTools(
             pageUrl: snap.pageUrl,
             capturedAt: snap.capturedAt,
             html: snap.html,
+          }
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+        }
+      },
+    }),
+    env_read: tool({
+      description: TOOL_DESCRIPTIONS.env_read,
+      inputSchema: z.object({}),
+      // 直读本机（offscreen 文档里 navigator / screen / Intl 都在场），不经 IPC：
+      // 取数侧逐项降级，故这里没有失败分支——「什么系统」这种问题不该因为某一项探测不到就问不出来
+      execute: async () => {
+        const env = await readEnvSnapshot()
+        return { ok: true, ...env }
+      },
+    }),
+    page_env_read: tool({
+      description: TOOL_DESCRIPTIONS.page_env_read,
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!capturePageEnv) {
+          return { ok: false, error: '页面环境读取不可用' }
+        }
+        try {
+          const env = await capturePageEnv()
+          return {
+            ok: true,
+            pageUrl: env.pageUrl,
+            capturedAt: env.capturedAt,
+            viewport: env.viewport,
+            dpr: env.dpr,
+            ua: env.ua,
           }
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) }
