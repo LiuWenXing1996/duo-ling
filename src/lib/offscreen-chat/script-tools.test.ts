@@ -558,6 +558,7 @@ describe('run_log_read（运行日志查询）', () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       async () => [{ kind: 'fetch', detail: 'GET /a', time: 1 }],
     )
     const out = (await tools.run_log_read.execute(
