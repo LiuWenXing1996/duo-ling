@@ -272,14 +272,21 @@ export function defaultEnvDeps(): EnvSnapshotDeps {
         return UNKNOWN
       }
     },
-    extension: () => ({
-      version:
-        readInjectedBuildInfo()?.version ??
-        (typeof chrome !== 'undefined' && chrome.runtime?.getManifest
-          ? chrome.runtime.getManifest().version
-          : UNKNOWN),
-      dev: import.meta.env.DEV,
-    }),
+    // 取数侧对 collectEnvSnapshot 的契约是**不抛**：单项拿不到只让那一项为空，不能让整份快照失败。
+    // 扩展版本依赖外部注入的 build-info 与宿主 chrome 全局，两者都不是本模块能假定的，故整体兜底。
+    extension: () => {
+      let version: string = UNKNOWN
+      try {
+        version =
+          readInjectedBuildInfo()?.version ??
+          (typeof chrome !== 'undefined' && chrome.runtime?.getManifest
+            ? chrome.runtime.getManifest().version
+            : UNKNOWN)
+      } catch {
+        version = UNKNOWN
+      }
+      return { version, dev: import.meta.env.DEV }
+    },
   }
 }
 
