@@ -8,7 +8,8 @@
 //   · tab_sessions —— 标签页存续（keyPath tabSessionId；环形 ≤ TAB_SESSION_MAX 条，靠 by_seen 索引裁最旧的
 //                      **已结束**行 —— 还开着的行不裁，见 trimEndedTabSessions）
 //   · tab_events —— 标签页存续轴上的事件（自增主键 + by_tabSessionId 索引；环形 ≤ TAB_EVENT_MAX 条，
-//                      插入序 = 时间序；随所属存续行被删而级联删除）
+//                      插入序 = 时间序；随所属存续行被删而级联删除）。两支：文档级（刷新 / 地址变更，
+//                      由 SW 从标签页事件判出）与记录开关（开始 / 结束记录，随开关变化与记录终止落盘）
 //
 // 为什么逐条而不是「单记录数组」：数组形状下任何一次追加都要读出整条记录、改完再整条写回
 // （写放大 = 全量），上限因此被压得很小——500 条运行 × 上千条事件的量级根本走不通。
@@ -423,28 +424,38 @@ export async function listRunEvents(runId: string): Promise<UserScriptRunEvent[]
 /**
  * 建一行（取号）。
  *
- * 只有两处会调它：用户给这一页打开活动记录、脚本在这一页跑起来（取号逻辑见 tab-sessions）。
- * 两者都不是标签页出生的时刻，故**不写 `createdAt`** —— 没看着它出生就是不知道。
+ * 只有一处会调它：用户给这一页打开活动记录（见 tab-sessions 的 setTabRecording，加上单测直调）。
+ * 那不是标签页出生的时刻，故**不写 `createdAt`** —— 没看着它出生就是不知道。
+ *
+ * 开记录建行时顺手落一条「开始记录」事件（同事务）：这一页的时间线因此从「几时开始记的」起头。
  *
  * @returns 新行的 tabSessionId
  */
 export async function mintTabSession(input: {
   tabId: number
   url?: string
-  /** 建行即开启记录（popup 的开关走这条）；缺省 = 这行只作历史起点，不接着记 */
+  /** 建行即开启记录（popup 的开关走这条）；缺省 = 这行只作历史起点，不接着记（也就没有开始记录那一条） */
   recording?: boolean
 }): Promise<string> {
   const tabSessionId = crypto.randomUUID()
   await runTx([TAB_SESSIONS_STORE, TAB_EVENTS_STORE], 'readwrite', async (tx) => {
     const store = tx.objectStore(TAB_SESSIONS_STORE)
     const existing = await request<number>(store.count())
+    const now = Date.now()
     store.put({
       tabSessionId,
       tabId: input.tabId,
       ...(input.url ? { url: input.url } : {}),
       ...(input.recording ? { recording: true } : {}),
-      firstSeenAt: Date.now(),
+      firstSeenAt: now,
     } satisfies TabSessionRow)
+    if (input.recording) {
+      await addTabEvent(tx.objectStore(TAB_EVENTS_STORE), {
+        tabSessionId,
+        kind: 'recordOn',
+        time: now,
+      })
+    }
     const excess = existing + 1 - TAB_SESSION_MAX
     if (excess > 0) await trimEndedTabSessions(store, tx.objectStore(TAB_EVENTS_STORE), excess)
     await txDone(tx, '登记标签页')
@@ -471,10 +482,13 @@ export async function findOpenTabSession(tabId: number): Promise<TabSessionRecor
  *
  * 关掉时把字段整个删掉而非写 false：缺省即「没开」，读侧（取号与概览）只有一条判据。
  *
- * @returns 是否真改到了（没这行、或本来就是这个值 → false，不落盘）
+ * 真发生了切换才落一条「开始记录」/「结束记录」（同事务）：状态与「几点开的记录」是一件事的
+ * 两面，分两次写会留下「行说没在记、时间线却说刚开始记」这种自相矛盾的状态。
+ *
+ * @returns 是否真改到了（没这行、或本来就是这个值 → false，不落盘也不落事件）
  */
 export async function setTabSessionRecording(tabId: number, recording: boolean): Promise<boolean> {
-  return runTx(TAB_SESSIONS_STORE, 'readwrite', async (tx) => {
+  return runTx([TAB_SESSIONS_STORE, TAB_EVENTS_STORE], 'readwrite', async (tx) => {
     const store = tx.objectStore(TAB_SESSIONS_STORE)
     const row = await openRowOf(store, tabId)
     if (!row || (row.recording === true) === recording) {
@@ -483,6 +497,11 @@ export async function setTabSessionRecording(tabId: number, recording: boolean):
     }
     const { recording: _wasOn, ...rest } = row
     store.put(recording ? { ...rest, recording: true } : rest)
+    await addTabEvent(tx.objectStore(TAB_EVENTS_STORE), {
+      tabSessionId: row.tabSessionId,
+      kind: recording ? 'recordOn' : 'recordOff',
+      time: Date.now(),
+    })
     await txDone(tx, '切换标签页记录')
     return true
   })
@@ -491,10 +510,14 @@ export async function setTabSessionRecording(tabId: number, recording: boolean):
 /**
  * 盖上关闭时刻（`tabs.onRemoved` 调）。表里没有这个标签页就什么都不做 —— 没登记过的标签页
  * 不需要一条幽灵行（它连出生时刻都没有，留着只会占位与占上限）。
+ *
+ * 关闭时还在记的，替它收个尾（落一条「结束记录」，时刻就是关闭时刻）；用户自己关掉开关的不补
+ * —— 那一段已经收过尾，再补一条是同一段收两次。
+ *
  * @returns 是否真有条目被改写（调用方据此决定要不要广播）
  */
 export async function closeTabSession(tabId: number, closedAt: number): Promise<boolean> {
-  return runTx(TAB_SESSIONS_STORE, 'readwrite', async (tx) => {
+  return runTx([TAB_SESSIONS_STORE, TAB_EVENTS_STORE], 'readwrite', async (tx) => {
     const store = tx.objectStore(TAB_SESSIONS_STORE)
     const row = await openRowOf(store, tabId)
     if (!row) {
@@ -502,6 +525,13 @@ export async function closeTabSession(tabId: number, closedAt: number): Promise<
       return false
     }
     store.put({ ...row, ended: true, closedAt })
+    if (row.recording === true) {
+      await addTabEvent(tx.objectStore(TAB_EVENTS_STORE), {
+        tabSessionId: row.tabSessionId,
+        kind: 'recordOff',
+        time: closedAt,
+      })
+    }
     await txDone(tx, '标记标签页关闭')
     return true
   })
@@ -516,19 +546,29 @@ export async function closeTabSession(tabId: number, closedAt: number): Promise<
  * 只在 `runtime.onStartup` 调，**不在 SW 冷启动调** —— 冷启动时那些「未结束」的行正是本会话
  * 还开着的标签页，那时盖章等于把活账全结掉。
  *
+ * 当时还在记的行同样补一条「结束记录」（记录确实终止了）；但那条事件**不带时刻** ——
+ * 与 closedAt 留空同一口径：不知道上一次会话几点结束的，就不拿「现在」顶上。
+ *
  * @returns 被盖章的行数
  */
 export async function endOpenTabSessions(): Promise<number> {
-  return runTx(TAB_SESSIONS_STORE, 'readwrite', async (tx) => {
+  return runTx([TAB_SESSIONS_STORE, TAB_EVENTS_STORE], 'readwrite', async (tx) => {
     const store = tx.objectStore(TAB_SESSIONS_STORE)
+    const events = tx.objectStore(TAB_EVENTS_STORE)
     let ended = 0
+    const stillRecording: string[] = []
     // 用 cursor.update 就地改写：同事务内 put 同一主键会让游标重访该记录
     await eachCursor(store.openCursor(), Infinity, (cursor) => {
       const row = cursor.value as TabSessionRow
       if (row.ended === true) return
       cursor.update({ ...row, ended: true } satisfies TabSessionRow)
+      if (row.recording === true) stillRecording.push(row.tabSessionId)
       ended += 1
     })
+    // 收尾事件放在游标走完之后补：游标回调是同步的，逐条 await 塞不进去（同 startRun 的 victims）
+    for (const tabSessionId of stillRecording) {
+      await addTabEvent(events, { tabSessionId, kind: 'recordOff' })
+    }
     await txDone(tx, '划断标签页存续')
     return ended
   })
@@ -621,7 +661,24 @@ function deleteSessionEvents(store: IDBObjectStore, tabSessionId: string): Promi
 }
 
 /**
- * 往某一存续行上追加一条事件（刷新 / 地址变更），并按主键序裁到 TAB_EVENT_MAX 条。
+ * 追加一条事件并裁到 TAB_EVENT_MAX 条 —— **在调用方已打开的事务里**做，不自己开事务。
+ *
+ * 为什么要这个「事务内的裸操作」：事件必须与引发它的那次写入同事务（开关状态、行内地址、
+ * 结束盖章都是），而那些写入各有自己的事务，只能在事务里追加一次，不能再套一层
+ * runTx（IndexedDB 的事务不可嵌套）。
+ */
+async function addTabEvent(store: IDBObjectStore, event: TabEventRecord): Promise<void> {
+  const existing = await request<number>(store.count())
+  store.add(event)
+  const excess = existing + 1 - TAB_EVENT_MAX
+  if (excess > 0) await eachCursor(store.openCursor(), excess, (cursor) => cursor.delete())
+}
+
+/**
+ * 往某一存续行上追加一条事件（文档级那两支的入口：刷新 / 地址变更），并按主键序裁到 TAB_EVENT_MAX 条。
+ *
+ * 开关事件不走这里 —— 它们由引发它们的写入（建行 / 切开关 / 盖章）在同一事务里顺带落，
+ * 见 addTabEvent。
  *
  * 行不存在就 no-op：事件只属于「用户开着记录的那一页」，行都没了说明这页本就不在记
  * （或刚被清掉）—— 观察数据不值得为它补造一行。
@@ -644,27 +701,28 @@ export async function appendTabEvent(
       return false
     }
     if (nextUrl && row.url !== nextUrl) sessions.put({ ...row, url: nextUrl })
-    const store = tx.objectStore(TAB_EVENTS_STORE)
-    const existing = await request<number>(store.count())
-    store.add({
+    await addTabEvent(tx.objectStore(TAB_EVENTS_STORE), {
       tabSessionId,
       kind,
       time: Date.now(),
       ...(nextUrl ? { url: nextUrl } : {}),
-    } satisfies TabEventRecord)
-    const excess = existing + 1 - TAB_EVENT_MAX
-    if (excess > 0) await eachCursor(store.openCursor(), excess, (cursor) => cursor.delete())
+    })
     await txDone(tx, '写入标签页事件')
     return true
   })
 }
 
-/** 事件全量（按时刻升序）。消费方：活动历史右栏的时间线（与运行条混排） */
+/**
+ * 事件全量（按时刻升序）。消费方：活动历史右栏的时间线（与运行条混排）。
+ *
+ * 时刻缺省的排在最末：目前唯一的来源是划断补的那条「结束记录」，它按定义发生在该行所有已知
+ * 事件之后（浏览器都退出了），排在末尾与事实一致 —— 而不是给它猜一个数出来。
+ */
 export async function listTabEvents(): Promise<TabEventRecord[]> {
   const rows = await runTx(TAB_EVENTS_STORE, 'readonly', async (tx) =>
     request<TabEventRecord[]>(tx.objectStore(TAB_EVENTS_STORE).getAll()),
   )
-  return (rows ?? []).sort((a, b) => a.time - b.time)
+  return (rows ?? []).sort((a, b) => (a.time ?? Infinity) - (b.time ?? Infinity))
 }
 
 /**

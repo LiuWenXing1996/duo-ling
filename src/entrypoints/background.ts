@@ -58,8 +58,9 @@ import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/
 import { runUpdateCheck } from '@/lib/update-check'
 // 网页浮层开关的补齐动作已随站点开关一并移除：右键菜单只负责发「调出浮层」请求
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
-// 标签页存续（tabId 的稳定替身）：开关 / 事件（刷新、地址变更）/ 盖章 / 启动划断都归 SW ——
-// 「这一页在不在记活动、经历了什么、什么时候关的」只有常驻 SW 看得见，扩展页与 offscreen 都不该各记一份。
+// 标签页存续（tabId 的稳定替身）：开关（连同「开始 / 结束记录」两条标记）、事件（刷新、地址变更）、
+// 盖章与启动划断（都替当时还在记的行收个尾）都归 SW ——「这一页在不在记活动、经历了什么、
+// 什么时候关的」只有常驻 SW 看得见，扩展页与 offscreen 都不该各记一份。
 import {
   noteTabClosed,
   noteTabReloaded,
@@ -587,7 +588,7 @@ const handlers: {
   // 标签页存续表全量：运行日志按标签页分组时取名字与时刻（分组键在运行条目上，表只补名字）
   'userscript:tabSessions': async (): Promise<ReturnType<typeof listTabSessions>> => listTabSessions(),
 
-  // 标签页存续轴上的事件全量（刷新 / 地址变更）：「活动历史」右栏把它与运行条混排成这一页的时间线
+  // 标签页存续轴上的事件全量（刷新 / 地址变更 / 记录开关）：「活动历史」右栏把它与运行条混排成这一页的时间线
   'userscript:tabEvents': async (): Promise<ReturnType<typeof listTabEvents>> => listTabEvents(),
 
   // 打开 / 关掉**这一页**的活动记录（popup 的开关）。判据落在标签页上：同一站点的其他页各开

@@ -9,14 +9,17 @@
 //   · 用户在 popup 里给**这一页**打开活动记录 → 建行（recording: true），此后这一页的运行被记
 //   · 脚本在这一页跑起来而要取号             → 只**复用**记着的那一行，没有就不取号（不建行）
 // 关掉开关只撤 recording，行留着：历史不该被一次关开关抹掉。
+// 开与关都在这一页的时间线上留一条（开始记录 / 结束记录）：同一行可以被反复开关，一段一段地记。
 //
 // 维护已有行的四条线（都不建行，表里没这行就什么都不做）：
 //   · `tabs.onUpdated` 带回 url   → 记一条「地址变更」，刷新「这个标签页最近去哪了」
 //   · `tabs.onUpdated` status=loading → 记一条「页面刷新」，或补记「地址变更」
 //                                   （两者怎么分见 noteTabReloaded）
-//   · `tabs.onRemoved`            → 盖关闭时刻
+//   · `tabs.onRemoved`            → 盖关闭时刻；当时还在记的行再收个尾（一条「结束记录」）
 //   · 浏览器启动（`runtime.onStartup`）→ 划断：把还开着的行盖章结束、时刻留空（理由见
-//                                   runtime-db 的 endOpenTabSessions）
+//                                   runtime-db 的 endOpenTabSessions）；当时还在记的行同样
+//                                   收尾，只是那条「结束记录」**不带时刻**（没人知道上一
+//                                   次会话几点停的）
 //
 // 于是「有时刻」与「没时刻」在这张表里是常态并存的，读侧一律按可选处理，缺了就显示「未知」。
 // `createdAt` 自被动化起**恒缺省**：建行的两个时机都不是标签页出生的时刻（见 TabSessionRecord）。
@@ -62,6 +65,9 @@ export async function recordingTabSessionId(tabId: number): Promise<string | und
  * （哪怕它此后一次脚本都没跑），顺手记下此刻的地址。
  *
  * 关掉只撤 recording、不删行：历史留着，只是不再长出新记录。
+ *
+ * 两种切换都在这一页的时间线上落一条（开始记录 / 结束记录），与落盘同事务 —— 由 runtime-db
+ * 的 mintTabSession / setTabSessionRecording 一并完成，这里只管「什么时候该切」。
  */
 export async function setTabRecording(tabId: number, on: boolean, url?: string): Promise<void> {
   if (on && !(await findOpenTabSession(tabId))) {

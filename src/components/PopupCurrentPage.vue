@@ -177,6 +177,7 @@ const activityError = ref('')
  *
  * 与接口录制同一条路子：判据落在**这一个标签页**上，命令只带 tabId，地址由 SW 现取。
  * 打开时 SW 顺手给这页建行 —— 「活动历史」里立刻就能看到它；关掉不删记录，只是不再长新的。
+ * 开与关都会给这一页的时间线留一条（开始记录 / 结束记录），于是「哪一段在记」在那边看得见。
  */
 async function toggleTabActivity(next: boolean): Promise<void> {
   const tabId = props.tab?.tabId

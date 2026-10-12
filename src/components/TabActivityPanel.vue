@@ -5,20 +5,23 @@
 // 记录是**被动**的：不为每个新标签页建行，只有用户在 popup 里给某一页打开了「活动记录」，
 // 那一页才进这张表（哪怕它此后一次脚本都没跑，也照样列着）；从此它的运行带上标签页归属。
 // 这正是它相对「运行日志」的独有价值：那边以**日志**为准，只有产生过记录的脚本会出现；
-// 这边以**标签页**为准，页在列表里、右侧如实说明「还没有运行记录」。
+// 这边以**标签页**为准：页在列表里，哪怕它一次脚本都没跑 —— 右栏那时只有它经历过的事件。
 //
 // 右栏 = 选中那一页的活动时间线：打开 / 关闭两个生命周期节点、这一页的**刷新与地址变更**、
-// 每一次脚本运行，三者按时刻混排（最新在前）；单次运行可展开看它做过的动作与报的错。
+// **记录开关的启停**（开始 / 结束记录）、每一次脚本运行，按时刻混排（最新在前）；
+// 单次运行可展开看它做过的动作与报的错。
 //
-// 刷新 / 地址变更来自 tab_events（见 TabEventRecord）：SW 在标签页事件里判出来的**文档级**事件，
-// 与运行无关 —— 「这一页刷新过 5 次」和「某个脚本在其中一次里跑了多少请求」是两件事。
+// 刷新 / 地址变更与记录开关来自 tab_events（见 TabEventRecord）—— 一张表上两根子轴：文档级
+// 事件（SW 从标签页事件里判出来的）与记录开关（用户在 popup 里开 / 关这一页的「活动记录」，
+// 加上标签页关闭、浏览器划断这两种被动收尾）。事件与运行也不是一回事 —— 「这一页刷新过 5 次」
+// 和「某个脚本在其中一次里跑了多少请求」是两个问题。
 //
 // 归不到标签页的记录单独一档「未知标签页」：这一页当时没开活动记录、老日志没有 tabSessionId、
 // 扩展刚重载那会儿记的，以及无法归属到任何一次运行的错误（注册 / 桥类，或所属运行已滑出环形）——
 // 不列出来它们在这一页就完全不可见。「未知标签页」档只能看记录本身，答不出它当时在哪一页。
 //
 // 数据通道：userscriptClient（workbench 是可信扩展页，可直接 chrome.runtime.sendMessage）。
-// 读侧四条命令：tabSessions（存续表）/ tabEvents（刷新与地址变更）/ runlog（全量时间线）/
+// 读侧四条命令：tabSessions（存续表）/ tabEvents（刷新与地址变更、记录开关）/ runlog（全量时间线）/
 // runEvents（展开时按需拉）；写侧两条本条新增：tabActivityDelete（删某一页）/ tabActivityClear（清空全部）。
 //
 // 删除 / 清空**连带运行记录**是刻意的：面板展示的是存续表与运行日志的合成，只删存续行会让
@@ -42,7 +45,6 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { webHostname } from '@/lib/float-panel-host'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
-  RUN_LOG_MAX,
   type RunEndReason,
   type TabEventRecord,
   type TabSessionRecord,
@@ -58,8 +60,8 @@ type RunRow = Extract<UserScriptRunLogRow, { kind: 'run' }>
 const UNKNOWN_TAB_KEY = '__unknown_tab__'
 
 /**
- * 时间线节点：页面的两个生命周期端点 + 这一页的刷新 / 地址变更 + 脚本运行 + 归不到运行的错误，
- * 按时刻混排。它们都只是「同一根时间轴上的点」，渲染各成一行、互不从属。
+ * 时间线节点：页面的两个生命周期端点 + 这一页的刷新 / 地址变更与记录开关 + 脚本运行 +
+ * 归不到运行的错误，按时刻混排。它们都只是「同一根时间轴上的点」，渲染各成一行、互不从属。
  */
 type TimelineNode =
   | { kind: 'lifecycle'; label: '页面打开' | '页面关闭'; time: number }
@@ -95,7 +97,7 @@ interface TabItem {
 }
 
 const sessions = ref<TabSessionRecord[]>([])
-/** 存续轴上的事件（刷新 / 地址变更）：时间线的第三类节点，与运行条按时刻混排 */
+/** 存续轴上的事件（刷新 / 地址变更 / 记录开关）：时间线的一类节点，与运行条按时刻混排 */
 const tabEvents = ref<TabEventRecord[]>([])
 const rows = ref<UserScriptRunLogRow[]>([])
 const loading = ref(false)
@@ -203,7 +205,7 @@ const selected = computed<TabItem | null>(
 /** 有活动（跑过脚本或出过错）的页数：头部概览用 */
 const activeCount = computed(() => tabItems.value.filter((i) => i.runs || i.errors).length)
 
-/** 右栏时间线：生命周期端点 + 该页的刷新 / 地址变更 + 该页的运行 + 归到该页的错误，最新在前 */
+/** 右栏时间线：生命周期端点 + 该页的刷新 / 地址变更与记录开关 + 该页的运行 + 归到该页的错误，最新在前 */
 const timelineNodes = computed<TimelineNode[]>(() => {
   const sel = selected.value
   if (!sel) return []
@@ -219,10 +221,12 @@ const timelineNodes = computed<TimelineNode[]>(() => {
     if (tabKeyOf(row) !== sel.id) continue
     nodes.push(row.kind === 'run' ? { kind: 'run', row } : { kind: 'error', record: row.record })
   }
-  return nodes.sort((a, b) => nodeTime(b) - nodeTime(a))
+  // 最新在前；时刻缺省的排在最前 —— 与 listTabEvents 的升序口径一致（它按定义发生在该行
+  // 所有已知节点之后，比如划断补的那条「结束记录」）
+  return nodes.sort((a, b) => (nodeTime(b) ?? Infinity) - (nodeTime(a) ?? Infinity))
 })
 
-function nodeTime(node: TimelineNode): number {
+function nodeTime(node: TimelineNode): number | undefined {
   if (node.kind === 'run') return node.row.time
   if (node.kind === 'error') return node.record.time
   if (node.kind === 'tabEvent') return node.event.time
@@ -237,15 +241,6 @@ function nodeKey(node: TimelineNode): string {
   }
   return `life:${node.label}`
 }
-
-/** 选中项对应的那一页有没有任何记录（没有就给一句空提示，而不是空白） */
-const selectedHasActivity = computed(() => {
-  const sel = selected.value
-  if (!sel) return false
-  // 刷新 / 地址变更也算记录：只刷过页、一次脚本都没跑的页，不该被说成「还没有运行记录」。
-  // 注意生命周期端点**不算** —— 它只说明这一页还开着，不是「发生过什么」。
-  return sel.runs + sel.errors > 0 || tabEvents.value.some((e) => e.tabSessionId === sel.id)
-})
 
 /** 选中项消失（被裁掉 / 数据重拉）时回落第一项：停在空视图上会像页面坏了 */
 function fallbackSelection(): void {
@@ -428,9 +423,20 @@ function endReasonLabel(reason: RunEndReason | undefined): string {
   return reason ? END_REASON_LABEL[reason] : '结束原因未记录'
 }
 
-/** 标签页事件文案：刷新与地址变更是两件不同的事（一个换了文档、一个换了去处），别混成一句「页面变化」 */
+/** 标签页事件文案：四类各是一件事（换了文档 / 换了去处 / 开始记 / 不再记），别混成一句「页面变化」 */
+const TAB_EVENT_LABEL: Record<TabEventRecord['kind'], string> = {
+  reload: '页面刷新',
+  url: '地址变更',
+  recordOn: '开始记录',
+  recordOff: '结束记录'
+}
 function tabEventLabel(event: TabEventRecord): string {
-  return event.kind === 'reload' ? '页面刷新' : '地址变更'
+  return TAB_EVENT_LABEL[event.kind]
+}
+
+/** 事件上的钟点；时刻缺省时不编一个顶上，如实写「时刻未知」（见 TabEventRecord.time） */
+function tabEventClock(event: TabEventRecord): string {
+  return event.time === undefined ? '时刻未知' : formatClock(event.time)
 }
 
 /** 错误 ID 展示短形态（前 8 位；复制按钮复制完整 id，供 AI 代查） */
@@ -641,21 +647,6 @@ function onConfirmedAction(): void {
               </p>
             </header>
 
-            <!-- 这一页还没有任何记录：说清为什么，而不是留一片空白 -->
-            <p
-              v-if="!selectedHasActivity"
-              class="mt-3 flex flex-col gap-1.5 rounded-md border bg-card px-3 py-3 text-xs text-muted-foreground"
-            >
-              <span class="flex items-center gap-1.5">
-                <ui-clock class="size-3.5" />
-                {{ loading ? '加载中…' : '这一页还没有运行记录。' }}
-              </span>
-              <span v-if="!loading">
-                页面加载时命中某个已启用的脚本才会产生记录；脚本被禁用、或这页不在任何脚本的匹配面内，就不会有。
-                记录只保留最近 {{ RUN_LOG_MAX }} 次运行，更早的可能已经不在列表里。
-              </span>
-            </p>
-
             <!-- 活动时间线：生命周期端点与每次运行混排，最新在前 -->
             <ol v-if="timelineNodes.length" class="tab-activity-timeline relative mt-3 flex flex-col">
               <li
@@ -688,13 +679,13 @@ function onConfirmedAction(): void {
                     <span class="tabular-nums">{{ formatDateTime(node.time) }}</span>
                   </p>
 
-                  <!-- 标签页事件（刷新 / 地址变更）：没有脚本参与，一行小字说清发生了什么，不占卡片 -->
+                  <!-- 标签页事件（刷新 / 地址变更 / 记录开关）：没有脚本参与，一行小字说清发生了什么，不占卡片 -->
                   <p
                     v-else-if="node.kind === 'tabEvent'"
                     class="flex flex-wrap items-baseline gap-1.5 pt-1 text-[11px] text-muted-foreground"
                   >
                     <span>{{ tabEventLabel(node.event) }}</span>
-                    <span class="tabular-nums">{{ formatClock(node.event.time) }}</span>
+                    <span class="tabular-nums">{{ tabEventClock(node.event) }}</span>
                     <span
                       v-if="node.event.kind === 'url' && node.event.url"
                       class="min-w-0 truncate"

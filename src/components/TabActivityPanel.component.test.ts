@@ -1,8 +1,8 @@
 // UI 组件测试：TabActivityPanel.vue 的活动历史视图（左栏标签页列表 + 右栏该页活动时间线）。
 // 覆盖易回归语义：左栏以**存续表**为准（没跑过脚本的页也在列表里）、右栏只显示选中那一页的记录、
 // 生命周期端点只在记到时刻时才画（缺时刻不拿别的时刻顶上）、展开才看错误明细、
-// 归不到标签页的记录落「未知标签页」档、空态；刷新 / 地址变更与运行条同轴混排；
-// 删除 / 清空走确认弹窗（确认后才发命令）。
+// 归不到标签页的记录落「未知标签页」档；刷新 / 地址变更 / 记录开关与运行条同轴混排
+// （缺时刻的节点也不编钟点）；删除 / 清空走确认弹窗（确认后才发命令）。
 // 边界 mock：ui-client（IPC 客户端）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
@@ -67,9 +67,9 @@ function session(over: TabSessionRecord): TabSessionRecord {
   return over
 }
 
-/** 存续轴上的事件（刷新 / 地址变更）：右栏时间线的第三类节点 */
+/** 存续轴上的事件（刷新 / 地址变更 / 记录开关）：右栏时间线的一类节点 */
 function tabEvent(over: {
-  kind: 'reload' | 'url'
+  kind: TabEventRecord['kind']
   tabSessionId: string
   time?: number
   url?: string
@@ -77,7 +77,8 @@ function tabEvent(over: {
   return {
     tabSessionId: over.tabSessionId,
     kind: over.kind,
-    time: over.time ?? 900,
+    // 时刻缺省就不带：划断补的那条「结束记录」本就没有时刻，mock 也不该替它编一个
+    ...(over.time != null ? { time: over.time } : {}),
     ...(over.url != null ? { url: over.url } : {}),
   }
 }
@@ -132,7 +133,7 @@ afterEach(() => {
 })
 
 describe('TabActivityPanel 活动历史', () => {
-  it('左栏以存续表为准：没跑过脚本的页也在列表里，右栏如实说明「还没有运行记录」', async () => {
+  it('左栏以存续表为准：没跑过脚本的页也在列表里', async () => {
     tabSessions.mockResolvedValue([
       session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x', createdAt: 100 }),
     ])
@@ -143,10 +144,8 @@ describe('TabActivityPanel 活动历史', () => {
     expect(tabButtons()[0].text()).toContain('a.example')
     expect(tabButtons()[0].text()).toContain('无运行记录')
 
-    // 右栏：说明为什么没有记录，而不是一片空白
+    // 右栏：卡头是这一页自己（地址 + 生命周期端点），记到了就画
     expect(detailText()).toContain('a.example')
-    expect(detailText()).toContain('这一页还没有运行记录')
-    // 生命周期端点记到了就画
     expect(detailText()).toContain('页面打开')
   })
 
@@ -312,13 +311,12 @@ describe('TabActivityPanel 活动历史', () => {
     expect(wrapper.find('[data-testid="tab-activity-delete"]').exists()).toBe(false)
   })
 
-  it('只刷过页、一次脚本都没跑的页：时间线上有刷新条目，不再说「还没有运行记录」', async () => {
+  it('只刷过页、一次脚本都没跑的页：时间线上有刷新条目', async () => {
     tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
     tabEvents.mockResolvedValue([tabEvent({ kind: 'reload', tabSessionId: 't1', time: 700 })])
     wrapper = await mountPanel()
 
     expect(timelineText()).toContain('页面刷新')
-    expect(detailText()).not.toContain('还没有运行记录')
   })
 
   it('地址变更条目带新地址；刷新条目只说刷新（地址没变，不重复报一遍）', async () => {
@@ -360,5 +358,55 @@ describe('TabActivityPanel 活动历史', () => {
 
     await clickTab('a.example')
     expect(timelineText()).not.toContain('页面刷新')
+  })
+
+  it('记录开关的启停也在时间线上：开始记录 / 结束记录，与运行同轴按时刻排', async () => {
+    tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
+    runlog.mockResolvedValue([runRow({ runId: 'r1', tabSessionId: 't1', name: '脚本A', time: 500 })])
+    tabEvents.mockResolvedValue([
+      tabEvent({ kind: 'recordOn', tabSessionId: 't1', time: 100 }),
+      tabEvent({ kind: 'recordOff', tabSessionId: 't1', time: 900 }),
+    ])
+    wrapper = await mountPanel()
+
+    const text = timelineText()
+    expect(text).toContain('开始记录')
+    expect(text).toContain('结束记录')
+    // 最新在前：结束记录（900）→ 运行（500）→ 开始记录（100）
+    expect(text.indexOf('结束记录')).toBeLessThan(text.indexOf('脚本A'))
+    expect(text.indexOf('脚本A')).toBeLessThan(text.indexOf('开始记录'))
+  })
+
+  it('结束记录缺时刻（划断补的那条）：如实写「时刻未知」，不编一个钟点', async () => {
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x', ended: true }),
+    ])
+    tabEvents.mockResolvedValue([tabEvent({ kind: 'recordOff', tabSessionId: 't1' })])
+    wrapper = await mountPanel()
+
+    const text = timelineText()
+    expect(text).toContain('结束记录')
+    expect(text).toContain('时刻未知')
+  })
+
+  it('缺时刻的节点排在最前（最新端）：与存储层「升序排末尾」的口径互为倒数', async () => {
+    tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
+    runlog.mockResolvedValue([runRow({ runId: 'r1', tabSessionId: 't1', name: '脚本A', time: 500 })])
+    tabEvents.mockResolvedValue([
+      tabEvent({ kind: 'recordOn', tabSessionId: 't1', time: 100 }),
+      tabEvent({ kind: 'recordOff', tabSessionId: 't1' }),
+    ])
+    wrapper = await mountPanel()
+
+    const text = timelineText()
+    expect(text.indexOf('结束记录')).toBeLessThan(text.indexOf('脚本A'))
+  })
+
+  it('刚打开记录、什么都还没发生的页：右栏就是它的时间线（一条「开始记录」）', async () => {
+    tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
+    tabEvents.mockResolvedValue([tabEvent({ kind: 'recordOn', tabSessionId: 't1', time: 300 })])
+    wrapper = await mountPanel()
+
+    expect(timelineText()).toContain('开始记录')
   })
 })
