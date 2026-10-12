@@ -153,7 +153,7 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     try { console.log.apply(console, [NAME_PREFIX].concat([].slice.call(arguments))) } catch (e) {}
   }
 
-  // —— 运行期错误收集（错误日志面板）——
+  // —— 运行期错误收集（写 errors 表，活动历史里可见）——
   // 归属是两层口径（同步靠 catch、异步靠栈过滤，缺一不可）：
   //   · **同步**：正文（含 @require）整体包进 try 块（自此到闭合后缀的 catch），catch 到的
   //     即为己出，直报不判栈 —— 栈过滤对无栈错误无能为力，这层是补位；

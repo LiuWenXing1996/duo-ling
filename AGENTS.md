@@ -148,11 +148,11 @@
 | bug 层级 | 首选工具 | 说明 |
 | --- | --- | --- |
 | 对话界面 UI（Vue 状态/交互） | 浮层内右键 → 检查 → Console | 直接读组件状态与 DOM 真实文本 |
-| 用户脚本（注入第三方页面） | 目标页 DevTools Console + 工作台「运行日志」标签页（运行流水 + 错误日志按 runId 关联展示） | 脚本崩了不影响扩展，错误只进日志 |
+| 用户脚本（注入第三方页面） | 目标页 DevTools Console + 工作台「活动历史」标签页（选中这一页的时间线上，每次运行按 runId 关联展示它报的错） | 脚本崩了不影响扩展；报错只在**该页开着「活动记录」**时记进活动历史（未开记录的页是观测盲区，不落盘也不推送） |
 | background（能力运行时） | `chrome://extensions` → 该扩展的「Service Worker」→ Console | SW 报错不会出现在面板 Console |
 | 消息链路（扩展页 → background → offscreen） | 三段各打一条日志，确认消息形状与 `uuid` | 跨上下文流转必须按边界验证 |
 | AI 工具调用（模型调了哪些工具、入参/结果、契约原文） | 工作台「AI 工具」标签页 | 轨迹 = 会话库落盘的 tool parts（只读）；契约与模型所见同源（`agent-tools-catalog.ts`） |
-| 持久化 | DevTools → Application → IndexedDB（**按库名过滤**，七个 `duoling-*` 库的分工见 [ARCHITECTURE.md](ARCHITECTURE.md)「存储」） | 以落盘数据事实为准 |
+| 持久化 | DevTools → Application → IndexedDB（**按库名过滤**，六个 `duoling-*` 库的分工见 [ARCHITECTURE.md](ARCHITECTURE.md)「存储」） | 以落盘数据事实为准 |
 | 构建/产物 | 直接查 `.output/chrome-mv3/manifest.json` 与产物 JS | manifest 权限错误只能在此确认 |
 
 边界：改了配置要走**重启 dev** 那条路（见 [wxt](.agents/skills/wxt/SKILL.md) 硬约束），再到 `chrome://extensions` 点刷新图标重载扩展。

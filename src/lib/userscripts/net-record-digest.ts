@@ -14,7 +14,7 @@ import type { NetCaptureRecord } from './net-record-protocol'
 
 /** 摘要档字符上限（常驻 system prompt，与元素摘要同量级） */
 export const CAPTURE_DIGEST_MAX_CHARS = 2048
-/** 全量档最多列几条（环形库上限 200，一次全塞给模型没有意义） */
+/** 全量档最多列几条（一次全塞给模型没有意义） */
 export const CAPTURE_FULL_MAX_RECORDS = 40
 /** 全量档单条体采样截断（记录本身已封顶 2KB；一条条全给会撑爆上下文） */
 const FULL_BODY_MAX_CHARS = 600
@@ -113,7 +113,7 @@ function headerLine(h: Record<string, string>): string {
 
 /**
  * 全量档（net_capture_read 的返回文本）：逐条列采样体。
- * 取最近 CAPTURE_FULL_MAX_RECORDS 条——环形库里最近的最相关，且总量可控。
+ * 取最近 CAPTURE_FULL_MAX_RECORDS 条——最近的最相关，且总量可控。
  */
 export function describeCaptureRecords(records: NetCaptureRecord[]): string {
   if (!records.length) return ''

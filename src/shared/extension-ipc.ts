@@ -121,7 +121,7 @@ export type RuntimeRequest =
   // 不含内置件（随扩展包分发）。SW 注销全部 → 转发 state:removeAll → 清各脚本 GM 值。
   | { kind: 'userscript:removeAll' }
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
-  // 重命名脚本：只改管理面标识（列表 / 标签页 / GM_info / 错误日志分组名），**不入 git 仓**
+  // 重命名脚本：只改管理面标识（列表 / 标签页 / GM_info / 错误日志里的脚本名），**不入 git 仓**
   // （仓里的名字是源码 `@name`，两者互不覆盖，见 project-write.saveSource 的 adoptName 说明）。
   // 启用中的脚本改名后由 SW 重注册——已注入的脚本否则仍顶旧名。
   | { kind: 'userscript:rename'; uuid: string; name: string }
@@ -129,40 +129,44 @@ export type RuntimeRequest =
   // 引擎保活应答（offscreen → SW，5s 一次）：offscreen 心跳的**唯一职责是给 SW 保活**
   // （重置 30s 空闲计时），不做任何检测——检测在 SW 自身的轮询（availability-watch.ts）。
   | { kind: 'userscript:healthCheck' }
-  // 运行日志时间线：运行行（runs store）+ 无法归属的错误行按时间倒序混排（listRunTimeline）。
-  // 两个消费方：工作台「运行日志」标签页、AI 的 run_log_read 工具 —— 两侧都取全量，
-  // 各自按自己的展示 / token 需要裁剪（命令面只认「全量时间线」这一个语义）。
-  // **不含运行内事件**：事件单独一表，随运行数全量读会线性膨胀（运行数 × 事件上限），
-  // 展开某次运行时再走下面的 runEvents 按 runId 拉那一组。
+  // 运行时间线：运行条（tab_events 里 kind = 'run'）+ 与本次读取对不上的错误行按时间倒序混排
+  // （listRunTimeline）。消费方是 AI 的 run_log_read —— 活动历史面板按页读整根轴，不走这条。
+  // **不含动作**：动作随运行数全量读会线性膨胀（运行数 × 动作上限），要看某次运行干了什么
+  // 再走下面的 runEvents 按 runId 拉那一组。
   | { kind: 'userscript:runlog' }
-  // 某次运行的运行内事件（按 runId；消费方同上：面板展开卡片 / AI 的 run_log_read 带 runId）
+  // 标签页存续表全量（见 TabSessionRecord）：活动历史按标签页分组时用它取名字与时刻
+  //（分组键是运行条目上的 tabSessionId；表里查不到的旧组回落到运行自己的 url）。
+  | { kind: 'userscript:tabSessions' }
+  // 某一页的整条时间线：存续轴事件（刷新 / 地址变更 / 记录开关，见 TabEventRecord）与它录到的
+  // 接口采样（见 NetCaptureRecord）在 tab_events 里同表，故一次查回、按两类返回。消费方是
+  // 「活动历史」右栏：与运行条按时刻混排成这一页的时间线。
+  //
+  // **按页拉而非全量**：采样单条可达数 KB，全量等于把整库搬过消息边界。
+  | { kind: 'userscript:tabTimeline'; tabSessionId: string }
+  // 打开 / 关掉**这一个标签页**的记录开关（popup 的那一枚）。建行、撤号都在 SW 侧完成；
+  // 地址由 SW 自己从标签页现取，命令只带 tabId。
+  //
+  // 它是**唯一的开关**：同时驱动存续行（连带事件与运行记账）与接口录制两条写链，接口录制的
+  // 归属挂在刚建 / 刚开的那一列上。它不动运行日志本身，也不删已经录下的内容。
+  | { kind: 'userscript:tabActivityEnable'; tabId: number }
+  | { kind: 'userscript:tabActivityDisable'; tabId: number }
+  | { kind: 'userscript:tabActivityDelete'; tabSessionId: string }
+  | { kind: 'userscript:tabActivityClear' }
+  // 某次运行的动作（按 runId；消费方：AI 的 run_log_read 带 runId 时拉那一组）
   | { kind: 'userscript:runEvents'; runId: string }
-  // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清 runs store 的对应条目）。
-  // 三态靠「字段在不在」区分，**不可用 falsy 判定**：字段缺失 = 清全部；uuid: string =
-  // 只清该脚本；uuid: null = 只清「未归属」错误记录（运行条必带 uuid，此形态下不动）。
-  // unassigned 用显式 null 而非 undefined：结构化克隆会保留 null，而 undefined 值在部分
-  // 序列化路径下与「字段缺失」无法区分（Firefox / JSON 回退），故调用方必须省略字段而非传 undefined。
-  | { kind: 'userscript:clearErrors'; uuid?: string | null }
   // 错误 ID 修复闭环：AI 的 error_read 工具经 SW 代查
   // 错误日志（runtime 库，offscreen 拿不到）。id = 完整记录 id 或唯一 8 位前缀
   | { kind: 'userscript:errorRead'; id: string }
   // —— 网络录制（dl-recorder）——
-  // 门禁（duoling-app 的 netCaptureSessions）与录到的记录（duoling-netlog 库）都归 SW 管辖，
-  // 故 offscreen 侧的两个 agent 工具经 offscreenBridge 走这组命令，UI 的同意卡也直接调它。
+  // 门禁（duoling-app 的 netCaptureSessions）与录到的采样（duoling-runtime 的 tab_events）都归 SW 管辖。
   //
-  // 录制按标签页划分：开 / 关都锚在**发起命令的那个标签页**上（tabId 由浮层从 iframe URL 带过来，
-  // 与它的会话归属同源）。扩展页没有 tab，故它发起的开启会被拒。
-  //
-  // 为什么 enable / disable 单独成命令、不给工具直接用：**开启录制必须由用户手势触发**
-  // （点同意卡上的按钮）。工具只能出卡 + 等用户点（见 agent-tools-catalog 的 net_capture_enable）。
+  // **开关不在这组里**：录制与活动记录由同一枚开关触发（见 userscript:tabActivityEnable），
+  // 而开启必须由用户手势发起 —— AI 工具只出卡 + 等用户点（见 agent-tools-catalog 的
+  // net_capture_enable）。这里只剩「读」与「清理」两条。
   | { kind: 'userscript:netCaptureState' }
-  | { kind: 'userscript:netCaptureEnable'; tabId: number; host: string }
-  // tabId 而非 host：停止关的是**这个标签页**的录制，同站点其他标签页不受影响
-  | { kind: 'userscript:netCaptureDisable'; tabId: number }
   // mode：digest = 摘要档（接口清单，常驻 prompt 用）；full = 逐条采样（工具读回用）
   | { kind: 'userscript:netCaptureRead'; host: string; mode: 'digest' | 'full' }
-  // 清空某站点的录制数据（记录 + 归档会话）：工作台「接口数据」面板的清理入口。
-  // 写路径归 SW（netlog 单写方），故面板不直连库、只发这条。
+  // 清空某站点的接口采样（不动这一页的刷新 / 记录开关）。写路径归 SW（runtime 单写方），调用方不直连库。
   | { kind: 'userscript:netLogClear'; host: string }
 
   // zip 导入：UI 读 zip 文件转 base64，SW 纯转发 offscreen
@@ -290,9 +294,6 @@ export type RuntimeRequest =
   // 一次取回全部标签页的「跑着哪些脚本 / 归属哪条会话 / 是不是正在生成」：这三份数分属运行登记表、
   // 会话归属映射与 SW 内存里的进行中集合，popup 自己拼会拼出三份时间点不同的快照（还各要一次 IPC）。
   | { kind: 'page:overview' }
-  // 点脚本行 → 打开 / 聚焦工作台并深链到该脚本的错误。复用 SW 的 openWorkbenchErrors ——
-  // 「已有工作台标签页就改 hash、不新开」这条判据只该有一处实现。
-  | { kind: 'page:openErrors'; uuid: string }
 
   // —— 内容脚本自证身份 ——
   // content script 拿不到 chrome.tabs，而网页浮层（扩展页 iframe）必须知道「自己属于哪个
@@ -354,10 +355,10 @@ export type DataDomain =
   | 'conversation'
   /** 模型配置（duoling-app 库） */
   | 'model'
-  /** 用户脚本错误日志（runtime 库 errors store） */
+  /** 用户脚本错误记录（runtime 库 tab_events，kind = 'error'） */
   | 'error'
-  /** 用户脚本运行统计（runtime 库 stats store，按脚本聚合计数） */
-  | 'runstats'
+  /** 运行观测（运行条目 / 动作）变了 —— 活动历史与 AI 的运行面据此回拉 */
+  | 'runlog'
   /** 脚本列表分组定义（duoling-state 的 groups 对象库） */
   | 'group'
 
@@ -506,8 +507,6 @@ export type PanelMonitorPush =
 export type PanelMonitorUp =
   /** 按面板自己归属的那个 tab 拉快照（面板刚打开 / 挂载时；归属怎么定见 lib/owning-tab.ts） */
   | { t: 'page:snapshot'; tabId: number }
-  /** 点击脚本行 → SW 打开/聚焦工作台并深链到该脚本的错误（popup 走同名的 RuntimeRequest） */
-  | { t: 'page:openErrors'; uuid: string }
 
 // —— popup 的页面概览（`page:overview` 的应答形状）——
 //
@@ -531,10 +530,13 @@ export interface PageOverviewTab {
   /** 该会话是否正在生成（SW 内存态：它不落库，故只有现问现取） */
   generating: boolean
   /**
-   * 这个标签页此刻是否正在接口录制。判据是**标签页维度**：录制会话锚在开启它的那个标签页上，
-   * 同一站点的其他标签页不看这条（要录得各自开一次） —— 见 net-capture-gate。
+   * 这个标签页此刻是否在记录（用户在 popup 里给这一页打开的那枚开关，见 TabSessionRecord.recording）。
+   *
+   * **一个字段答两件事**：它同时表示这一页在记活动、也在录接口 —— 两者由同一枚开关触发，
+   * 没有「记着活动却没录接口」的中间态（非网页页取不到 host 时只记活动、不录接口，但那种页
+   * 进不了这份概览）。判据是标签页维度：同一站点的其他页各开各的。
    */
-  netRecording: boolean
+  tabRecording: boolean
 }
 
 /** 概览里的一条运行脚本：名字与错误条数都已在 SW 侧解析好 */

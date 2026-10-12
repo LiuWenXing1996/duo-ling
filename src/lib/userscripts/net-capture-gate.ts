@@ -1,7 +1,7 @@
 // 网络录制 · per-tab 门禁（隐私边界的第一层）。
 //
 // 录制是**默认关、按标签页显式开**：这里维护「正在录制的会话」——每个会话锚在一个标签页上，
-// 存扩展自有 kv（duoling-app）——它有固定键、写频极低，与 netlog 的观测数据分属两类。
+// 存扩展自有 kv（duoling-app）——它有固定键、写频极低，与观测数据库里的采样记录分属两类。
 //
 // 注册侧消费：engine.syncNetRecorder 读本模块的 host 集合 → 只对这些 host 注册捕获件/转发件
 // （见 engine.ts）。注意 host 只是**注册粒度**（声明式注册没有 tab 维度，Chrome 的
@@ -10,8 +10,8 @@
 // 「该 host 的所有标签页都在录」。
 //
 // 会话随标签页消亡：标签页关闭即结束会话（background 的 tabs.onRemoved），同站点的其他标签页
-// 要录得各自开一次。结束只摘门禁，不动已录记录 —— 记录留在 netlog 里，会话元信息归档后
-// 供查询界面辨认。
+// 要录得各自开一次。结束只摘门禁，不动已录采样 —— 采样留在 duoling-runtime 的 tab_events 里，
+// 会话本身不另存（起止由这一页时间线上的记录开关标出）。
 //
 // 与 cookie-gate.ts 的分工：cookie 门在 SW 请求链路逐次校验（url 维度）；
 // 这里在注册链路给 host 装上注入、在入站链路按 tab 裁（两者都只比 scheme/host，path 不参与）。
@@ -40,6 +40,7 @@ function normalizeSession(raw: unknown): NetRecordSession | null {
       typeof s.startedAt === 'number' && Number.isFinite(s.startedAt) ? Math.trunc(s.startedAt) : Date.now(),
   }
   if (typeof s.endedAt === 'number' && Number.isFinite(s.endedAt)) out.endedAt = Math.trunc(s.endedAt)
+  if (typeof s.tabSessionId === 'string' && s.tabSessionId) out.tabSessionId = s.tabSessionId
   return out
 }
 
@@ -95,6 +96,11 @@ export async function startNetSession(input: {
   host: string
   url?: string
   title?: string
+  /**
+   * 这一页的存续行 id。录制与活动记录现在由同一个开关触发，故调用方手上必有；
+   * 缺省只出现在「目录绕过开关直接开录制」的路径上，那种录制事后无处归属。
+   */
+  tabSessionId?: string
 }): Promise<{ session: NetRecordSession; sessions: NetRecordSession[]; replaced: NetRecordSession[] }> {
   const host = normalizeHost(input.host)
   if (!host) throw new Error(`无效的站点：${input.host}`)
@@ -109,6 +115,7 @@ export async function startNetSession(input: {
   const session: NetRecordSession = {
     id: crypto.randomUUID(),
     tabId: input.tabId,
+    ...(input.tabSessionId ? { tabSessionId: input.tabSessionId } : {}),
     host,
     url: input.url ?? '',
     title: input.title ?? '',

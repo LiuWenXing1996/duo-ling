@@ -430,7 +430,7 @@ export function buildScriptTools(
             ok: false,
             error:
               r.reason === 'ambiguous'
-                ? '该前缀命中多条错误记录，请让用户复制完整错误 ID（工作台错误日志的复制按钮）'
+                ? '该前缀命中多条错误记录，请让用户复制完整错误 ID（工作台「活动历史」里错误条的复制按钮）'
                 : '错误记录不存在（环形日志只保留最近 50 条，可能已被挤出；请让用户确认 ID）',
           }
         }
@@ -461,7 +461,7 @@ export function buildScriptTools(
           .describe(TOOL_PARAM_DESCRIPTIONS.run_log_read.limit),
       }),
       execute: async ({ uuid, runId, limit }) => {
-        // 带 runId = 看这一次运行做过的事。动作单独一表、不随运行行列表返回，故单开一条读路径
+        // 带 runId = 看这一次运行做过的事。动作在活动轴上单独成行、不随运行行列表返回，故单开一条读路径
         if (runId) {
           if (!readRunEvents) {
             return { ok: false, error: '运行动作通道不可用' }
@@ -523,7 +523,7 @@ function toErrorView(e: UserScriptErrorRecord): Record<string, unknown> {
  *   · 无法归属到任何运行行的错误单独进 orphanErrors —— 混进 runs 会被读成
  *     「这次运行报了它」。这类记录本就少（全局错误环形上限即天然上界），故不截断。
  *
- * **不带动作明细**：动作单独一表，跟随运行数全量读会线性膨胀；运行行只给 eventCount，
+ * **不带动作明细**：动作在活动轴上单独成行，跟随运行数全量读会线性膨胀；运行行只给 eventCount，
  * 模型据此挑出要看的那一次，再带 runId 调一次拿明细（buildRunEventsView）。
  *
  * total = 裁剪前的运行行总数，模型据此知道还有更多、需要时调大 limit。

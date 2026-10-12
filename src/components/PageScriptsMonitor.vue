@@ -16,7 +16,7 @@ import { ChevronDown as UiChevronDown, FlaskConical as UiFlaskConical } from '@l
 import { motion, MotionConfig } from 'motion-v'
 import { usePageMonitor } from '@/composables/use-page-monitor'
 
-const { host, visible, runs, errors, displayName, errorsOf, openErrors } = usePageMonitor()
+const { host, visible, runs, errors, displayName, errorsOf } = usePageMonitor()
 const expanded = ref(false)
 
 // 收起/展开两态的目标尺寸（px）：收起宽度按「含错误徽标的最坏文案」定，
@@ -65,16 +65,15 @@ const HEADER_H = 28
         </button>
 
         <!-- 展开面板：常驻挂载，靠 motion 的 height auto↔HEADER_H 形变 + overflow-hidden 裁切。
-             行结构：脚本名 + 右侧状态（运行中 / ⚠ N），
-             错误详情挂 hover title，行可点 → 工作台运行日志 -->
+             行结构：脚本名 + 右侧状态（运行中 / ⚠ N），错误详情挂 hover title；
+             行只读——报错的历史在活动历史面板里按页看，这里只用角标报「这一页有几个错」 -->
         <div class="max-h-44 shrink-0 overflow-y-auto border-t border-background/15 px-3 py-1">
           <div v-if="host" class="truncate py-1 text-xs font-semibold opacity-80">{{ host }}</div>
-          <button
+          <div
             v-for="run in runs"
             :key="run.uuid"
-            class="flex w-full items-center gap-2 border-b border-background/10 py-1.5 text-left last:border-b-0"
+            class="flex w-full items-center gap-2 border-b border-background/10 py-1.5 last:border-b-0"
             :title="run.uuid"
-            @click="openErrors(run.uuid)"
           >
             <span class="min-w-0 flex-1 truncate text-xs font-medium">
               {{ displayName(run.uuid) }}
@@ -89,13 +88,10 @@ const HEADER_H = 28
             <!-- 岛面反色（bg-foreground），dark: 变体跟页面主题走、方向相反不适用；
                  green-600 在黑/白两种岛面上对比度都够 -->
             <span v-else class="shrink-0 text-[10px] text-green-600">运行中</span>
-          </button>
+          </div>
           <div v-if="!runs.length" class="py-1.5 text-xs opacity-70">
             本页没有运行中的脚本
           </div>
-        </div>
-        <div class="shrink-0 border-t border-background/15 bg-background/5 px-3 py-1 text-[10px] opacity-50">
-          点击脚本 → 工作台运行日志
         </div>
       </motion.div>
     </MotionConfig>

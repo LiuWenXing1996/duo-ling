@@ -4,13 +4,12 @@
 // 顶栏只留标签本身。取数实现见 src/lib/build-info.ts。
 import type { WorkspaceTab } from '@/types/tab'
 import {
+  Clock as UiClock,
   Code as UiCode,
-  History as UiHistory,
   Compass as UiCompass,
   List as UiList,
   MessagesSquare as UiMessagesSquare,
   Pencil as UiPencil,
-  Radio as UiRadio,
   Settings as UiSettings,
   Wrench as UiWrench,
   X as UiX
@@ -47,13 +46,12 @@ const emit = defineEmits<{
         class="gap-1.5 text-[12.5px]"
       >
         <ui-list v-if="tab.kind === 'userscript-list'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
-        <ui-history v-else-if="tab.kind === 'error-log'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-pencil v-else-if="tab.kind === 'userscript-edit'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-compass v-else-if="tab.kind === 'guide'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-wrench v-else-if="tab.kind === 'agent-tools'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-code v-else-if="tab.kind === 'gm-api'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-messages-square v-else-if="tab.kind === 'session-history'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
-        <ui-radio v-else-if="tab.kind === 'net-log'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <ui-clock v-else-if="tab.kind === 'tab-activity'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <!--
           未保存标记：夹在图标与标题之间，**不紧贴标题** —— 紧贴时不管什么颜色都会被读成名字的一部分

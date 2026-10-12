@@ -101,7 +101,7 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
     '并由用户在那个标签页里刷新页面。',
   error_read:
     '按错误 ID 查询一条脚本错误记录。用户可能直接粘贴一个错误 ID（脚本运行出错后，' +
-    '工作台错误日志里每条错误旁都展示，前 8 位短形态）要求修复。返回错误详情（message / stack / ' +
+    '工作台「活动历史」里每条错误旁都展示，前 8 位短形态）要求修复。返回错误详情（message / stack / ' +
     '报错页面 url）与脚本 uuid——uuid 可直接交给 script_read 读源码，改完带 updateUuid 调 script_apply 原地更新。',
   run_log_read:
     '查询脚本的运行日志（最近的运行 + 每次运行报的错 + 每次运行做过多少动作），按时间倒序。用于回答' +
@@ -111,7 +111,9 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
     '运行已结束的还带 endedAt 与 endReason（navigated = 被导航顶掉 / closed = 标签页关闭）——' +
     '缺它们表示还在跑或结束信号没赶上，不要臆断为「已结束」。想知道某次运行具体干了什么' +
     '（网络请求 / 下载 / 写值等，只记摘要不记值），带它的 runId 再调一次本工具：' +
-    '动作明细不随列表返回，一次拉一组。想聚焦某个脚本就传它的 uuid。',
+    '动作明细不随列表返回，一次拉一组。想聚焦某个脚本就传它的 uuid。' +
+    '注意：运行日志只在用户给那一页打开「活动记录」（popup「当前页面」里那枚开关）时才产生 —— ' +
+    '空结果既可能是没跑过，也可能是没开记录，别据此断定「脚本没运行」。',
 }
 
 /** 参数 description 原文（zod `.describe()` 的文本，模型同样看得到）：UI 与运行时共用 */

@@ -6,10 +6,13 @@
 // 直接发 userscript:* 命令组（v2 方案）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
-import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
+import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
 import type { Source, UsCommit, UsSnapshot } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
 import type { NetRecordSession } from './net-record-protocol'
+// 按页的整根活动轴（runtime-db 的读侧产物，六类行分五组）。**type-only**：UI 侧只要形状，
+// 不把存储层（idb-core）拖进扩展页 bundle。
+import type { TabTimeline } from './runtime-db'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -135,42 +138,48 @@ export const userscriptClient = {
   reorderGroups: (orderedIds: string[]): Promise<void> =>
     send({ kind: 'userscript:group-reorder', orderedIds }),
 
-  /** 运行日志时间线：运行行 + 孤儿错误行按时间倒序混排（运行日志标签页） */
+  /** 运行时间线：运行条 + 对不上的错误行按时间倒序混排（AI 的 run_log_read；面板不走这条） */
   runlog: (): Promise<UserScriptRunLogRow[]> => send({ kind: 'userscript:runlog' }),
 
-  /** 某次运行的运行内事件（展开时间线卡片时按需拉；列表视图不带事件） */
+  /** 标签页存续表全量：活动历史按标签页分组时取名字与时刻（分组键在运行条目上） */
+  tabSessions: (): Promise<TabSessionRecord[]> => send({ kind: 'userscript:tabSessions' }),
+
+  /**
+   * 某一页的整根活动轴：文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误一次查回、
+   * 分五组给出来自 tab_events 同表的六类行 —— 面板据此铺这一页的时间线，不必自己直连库。
+   */
+  tabTimeline: (tabSessionId: string): Promise<TabTimeline> =>
+    send({ kind: 'userscript:tabTimeline', tabSessionId }),
+
+  /** 删掉某一页的全部活动（存续行 + 它在 tab_events 上的整根轴）——「活动历史」的删除 */
+  tabActivityDelete: (tabSessionId: string): Promise<void> =>
+    send({ kind: 'userscript:tabActivityDelete', tabSessionId }),
+  /** 清空「活动历史」的全部记录（存续行 + tab_events 整根轴，含无归属错误行） */
+  tabActivityClear: (): Promise<void> => send({ kind: 'userscript:tabActivityClear' }),
+
+  /** 某次运行的动作（按需拉；时间线列表不带动作） */
   runEvents: (runId: string): Promise<UserScriptRunEvent[]> =>
     send({ kind: 'userscript:runEvents', runId }),
 
-  /** 清空错误日志（runtime 库 errors store；「全部/该脚本」范围连带清 runs store 对应条目）。
-   *  缺省清全部；传 uuid 只清该脚本；传 null 只清「未归属」记录（errors store 里 uuid 为 null 的，
-   *  运行条必带 uuid，此形态下不动）。「清全部」必须**省略字段**而非传 undefined——
-   *  undefined 值在部分序列化路径下与字段缺失无法区分。 */
-  clearErrors: (uuid?: string | null): Promise<void> =>
-    send(uuid === undefined ? { kind: 'userscript:clearErrors' } : { kind: 'userscript:clearErrors', uuid }),
-
   // —— 网络录制（dl-recorder）——
-  // 录制件与门禁都归 SW：UI 只发命令，不直连 duoling-app / duoling-netlog。
+  // 录制件与门禁都归 SW：UI 只发命令，不直连 duoling-app / duoling-runtime。
 
   /** 正在录制的会话（含各自所在标签页）。UI 按自己的 tabId 认领「本页在不在录」 */
   netCaptureState: (): Promise<{ sessions: NetRecordSession[] }> => send({ kind: 'userscript:netCaptureState' }),
 
   /**
-   * 在某个标签页上开启录制。调用方都是**用户手势**（浮层同意卡上的按钮 / popup 当前页面里的
-   * 开关）——AI 工具只出卡，不调这条。会话的辨认信息（页面地址与标题）由 SW 从该标签页现取，
-   * 不由 UI 带过来。
+   * 扳动某个标签页的记录开关（**唯一的开关**：存续行与接口录制都由它驱动）。
+   * 调用方都是**用户手势**（浮层同意卡上的按钮 / popup 当前页面里的开关）——
+   * AI 工具只出卡，不调这条。地址由 SW 从该标签页现取，不由 UI 带过来。
    */
-  netCaptureEnable: (input: {
-    tabId: number
-    host: string
-  }): Promise<{ session: NetRecordSession; sessions: NetRecordSession[] }> =>
-    send({ kind: 'userscript:netCaptureEnable', ...input }),
+  tabActivityEnable: (tabId: number): Promise<{ tabId: number; recording: boolean }> =>
+    send({ kind: 'userscript:tabActivityEnable', tabId }),
 
-  /** 停止某个标签页的录制；**已录记录与归档会话都保留**（用户还要在「接口数据」里看） */
-  netCaptureDisable: (tabId: number): Promise<{ sessions: NetRecordSession[] }> =>
-    send({ kind: 'userscript:netCaptureDisable', tabId }),
+  /** 关掉某个标签页的记录开关；**已录内容保留**（历史留着，只是不再长新的） */
+  tabActivityDisable: (tabId: number): Promise<{ tabId: number; recording: boolean }> =>
+    send({ kind: 'userscript:tabActivityDisable', tabId }),
 
-  /** 清空某站点的录制数据（记录 + 归档会话）；写路径归 SW，参数用归一 host */
+  /** 清空某站点的接口采样（不动这一页的刷新 / 记录开关）；写路径归 SW，参数用归一 host */
   netLogClear: (host: string): Promise<{ host: string }> => send({ kind: 'userscript:netLogClear', host }),
 }
 

@@ -6,9 +6,10 @@ import {
   appendUserScriptError,
   clearGMValues,
   clearRunLog,
-  clearRunStats,
+  clearTabActivity,
   clearUserScriptErrors,
   deleteGMValue,
+  deleteTabActivity,
   findUserScriptError,
   getGMValue,
   listGMKeys,
@@ -21,19 +22,47 @@ import {
   recordRunEvent,
   recordRunStart,
   setGMValue,
-  withRunStats,
 } from './store'
-import { clearAllForTests as clearRuntime, getStats } from './runtime-db'
+import {
+  appendTabCapture,
+  appendTabEvent,
+  clearAllForTests as clearRuntime,
+  listTabEvents,
+  listTabSessions,
+  listTabTimeline,
+  mintTabSession,
+} from './runtime-db'
 import { clearAllForTests as clearUsdata } from './usdata-db'
+import type { NetCaptureRecord } from './net-record-protocol'
 import { RUN_EVENT_MAX, RUN_LOG_MAX, type ScriptProject } from './types'
 
 beforeEach(async () => {
   await Promise.all([clearUsdata(), clearRuntime()])
 })
 
-/** appendUserScriptError 内部的运行统计记账是 void 后台异步，等它排干再断言 */
-async function flushStats(): Promise<void> {
-  await new Promise((r) => setTimeout(r, 0))
+/** 一键一页：造一个「开着活动记录」的页，返回它的存续 id —— 运行条目只在这样的页上产生 */
+let tabSeq = 0
+function newRecordingTab(): Promise<string> {
+  tabSeq += 1
+  return mintTabSession({ tabId: tabSeq, recording: true })
+}
+
+/** 一条挂在某存续行上的录制采样（活动历史连带清录制时用） */
+function cap(host: string, url: string, sessionId: string, tabSessionId: string): NetCaptureRecord {
+  return {
+    host,
+    sessionId,
+    tabSessionId,
+    type: 'fetch',
+    url,
+    method: 'GET',
+    reqHeaders: {},
+    reqBody: null,
+    status: 200,
+    respHeaders: {},
+    respBody: '{}',
+    t: 1,
+  }
 }
 
 function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {
@@ -163,7 +192,7 @@ describe('GM 值（duoling-usdata 库）', () => {
   })
 })
 
-describe('错误日志（runtime 库，环形保留）', () => {
+describe('错误记录（runtime 库 tab_events，判据键 kind = \'error\'，环形保留）', () => {
   it('追加后可读，缺省 id / time 自动补', async () => {
     await appendUserScriptError({
       uuid: 'u1',
@@ -231,7 +260,7 @@ describe('错误日志（runtime 库，环形保留）', () => {
     ])
   })
 
-  it('clearUserScriptErrors(null) 只清「未归属」记录（不清 string uuid 的）', async () => {
+  it('clearUserScriptErrors(null) 只清「无脚本上下文」记录（不清 string uuid 的）', async () => {
     await appendUserScriptError({ uuid: null, name: 's', phase: 'register', message: 'orphan-1', time: 1 })
     await appendUserScriptError({ uuid: 'u1', name: 'a', phase: 'runtime', message: 'u1-1', time: 2 })
     await appendUserScriptError({ uuid: null, name: 's', phase: 'bridge', message: 'orphan-2', time: 3 })
@@ -251,6 +280,22 @@ describe('错误日志（runtime 库，环形保留）', () => {
     await appendUserScriptError({ uuid: 'u1', name: 'a', phase: 'runtime', message: 'm', time: 1 })
     await clearUserScriptErrors('u1')
     await expect(listUserScriptErrors()).resolves.toEqual([])
+  })
+
+  it('页归属由写侧从所属运行条继承：运行期错误不必调用方自己带 tabSessionId', async () => {
+    const t = await newRecordingTab()
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t })
+    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'boom', runId: 'r1' })
+    expect((await listUserScriptErrors())[0]!.tabSessionId).toBe(t)
+  })
+
+  it('注册失败（无 runId）恒无页归属 —— 只落盘，按页查不到', async () => {
+    const t = await newRecordingTab()
+    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'register', message: 'reg' })
+    const [rec] = await listUserScriptErrors()
+    expect(rec!.tabSessionId).toBeUndefined()
+    // 「按页查不到」由索引天然保证：合表后无归属行不进 by_tabSessionId
+    expect((await listTabTimeline(t)).errors).toEqual([])
   })
 
   describe('findUserScriptError（错误 ID 查询）', () => {
@@ -291,180 +336,95 @@ describe('错误日志（runtime 库，环形保留）', () => {
   })
 })
 
-describe('运行统计（runtime 库 stats store，按脚本聚合计数）', () => {
-  it('recordRunStart 累计次数并记录最后运行时刻；withRunStats 挂到摘要上', async () => {
-    await recordRunStart('u1', 'r1')
-    await recordRunStart('u1', 'r2')
-    const [s] = await withRunStats(await listSummaries([makeProject({ uuid: 'u1' })]))
-    expect(s!.runCount).toBe(2)
-    expect(s!.lastRunAt).toBeGreaterThan(0)
+describe('运行条目（tab_events 里 kind = \'run\'：一次运行一行）', () => {
+  it('没有所在页的存续 id 就不记 —— 一切观测只在开着活动记录的页上产生', async () => {
+    await recordRunStart('u1', 'r1', '甲')
+    expect(await listRunTimeline()).toEqual([])
   })
 
-  it('同一 runId 的补播去重：不重复计数、不抹掉已计的错误数', async () => {
-    await recordRunStart('u1', 'r1')
-    await appendUserScriptError({ uuid: 'u1', name: 's', phase: 'runtime', message: 'boom', runId: 'r1' })
-    await flushStats()
-    await recordRunStart('u1', 'r1') // engine 的 load 补救补播
-    const [s] = await withRunStats(await listSummaries([makeProject({ uuid: 'u1' })]))
-    expect(s!.runCount).toBe(1)
-    expect(s!.lastRunErrors).toBe(1)
-  })
-
-  it('runtime 错误只计入最近一次运行；旧运行的迟到错误不计', async () => {
-    await recordRunStart('u1', 'r1')
-    await recordRunStart('u1', 'r2')
-    await appendUserScriptError({ uuid: 'u1', name: 's', phase: 'runtime', message: 'late', runId: 'r1' })
-    await appendUserScriptError({ uuid: 'u1', name: 's', phase: 'runtime', message: 'boom', runId: 'r2' })
-    await flushStats()
-    const [s] = await withRunStats(await listSummaries([makeProject({ uuid: 'u1' })]))
-    expect(s!.runCount).toBe(2)
-    expect(s!.lastRunErrors).toBe(1)
-  })
-
-  it('register / bridge 错误（无 runId）不影响运行统计', async () => {
-    await recordRunStart('u1', 'r1')
-    await appendUserScriptError({ uuid: 'u1', name: 's', phase: 'register', message: 'reg' })
-    await appendUserScriptError({ uuid: 'u1', name: 's', phase: 'bridge', message: 'bridge' })
-    await flushStats()
-    const [s] = await withRunStats(await listSummaries([makeProject({ uuid: 'u1' })]))
-    expect(s!.runCount).toBe(1)
-    expect(s!.lastRunErrors).toBeUndefined()
-  })
-
-  it('多脚本互不串数；无统计的脚本保持缺省（不渲染该列）', async () => {
-    await recordRunStart('u1', 'r1')
-    const [a, b] = await withRunStats(
-      await listSummaries([makeProject({ uuid: 'u1' }), makeProject({ uuid: 'u2' })]),
-    )
-    expect(a!.runCount).toBe(1)
-    expect(b!.runCount).toBeUndefined()
-    expect('lastRunAt' in b!).toBe(false)
-  })
-
-  it('clearRunStats 清掉该脚本的统计（删脚本时调用）', async () => {
-    await recordRunStart('u1', 'r1')
-    await recordRunStart('u2', 'r9')
-    await clearRunStats('u1')
-    const [a, b] = await withRunStats(
-      await listSummaries([makeProject({ uuid: 'u1' }), makeProject({ uuid: 'u2' })]),
-    )
-    expect(a!.runCount).toBeUndefined()
-    expect(b!.runCount).toBe(1)
-    await expect(getStats('u1')).resolves.toBeUndefined()
-  })
-})
-
-describe('运行日志（runs store 环形 + run_events 事件 + listRunTimeline 时间线）', () => {
-  it('每次运行记一条日志（含名字快照）；补播去重不重复记', async () => {
-    await recordRunStart('u1', 'r1', '脚本甲')
-    await recordRunStart('u2', 'r9', '脚本乙')
-    await recordRunStart('u1', 'r1', '脚本甲') // load 补播：整体 no-op
+  it('开着记录的页上每次运行记一条（含名字快照与页归属）；同一 runId 的补播整体 no-op', async () => {
+    const t = await newRecordingTab()
+    await recordRunStart('u1', 'r1', '脚本甲', { tabSessionId: t })
+    await recordRunStart('u1', 'r1', '脚本甲', { tabSessionId: t }) // engine 的 load 补救补播
     const rows = await listRunTimeline()
-    const runs = rows.filter((r) => r.kind === 'run')
-    expect(runs).toHaveLength(2)
-    expect(runs.find((r) => r.runId === 'r1')).toMatchObject({ uuid: 'u1', name: '脚本甲' })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ kind: 'run', uuid: 'u1', name: '脚本甲', tabSessionId: t })
   })
 
-  it('时间线按时间倒序；runtime 错误按 runId 挂到所属运行行', async () => {
+  it('时间线按时间倒序；运行期错误按 runId 挂到所属运行条上', async () => {
     // 同毫秒内多次写入会让排序不稳定：mock Date.now 给每个事件可区分的时刻
     const nowSpy = vi.spyOn(Date, 'now')
     nowSpy.mockReturnValue(1000)
-    await recordRunStart('u1', 'r1', '甲')
+    const t = await newRecordingTab()
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t })
     nowSpy.mockReturnValue(1001)
     await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'boom', runId: 'r1' })
     nowSpy.mockReturnValue(1002)
-    await recordRunStart('u1', 'r2', '甲')
+    await recordRunStart('u1', 'r2', '甲', { tabSessionId: t })
     nowSpy.mockRestore()
-    await flushStats()
     const rows = await listRunTimeline()
     expect(rows.map((r) => (r.kind === 'run' ? r.runId : 'err'))).toEqual(['r2', 'r1']) // 最新在前
     const r1 = rows.find((r) => r.kind === 'run' && r.runId === 'r1')
-    const r2 = rows.find((r) => r.kind === 'run' && r.runId === 'r2')
-    if (!r1 || r1.kind !== 'run' || !r2 || r2.kind !== 'run') throw new Error('运行行缺失')
-    expect(r1.errors).toHaveLength(1)
-    expect(r1.errors[0]!.message).toBe('boom')
-    expect(r2.errors).toHaveLength(0)
+    if (!r1 || r1.kind !== 'run') throw new Error('运行行缺失')
+    expect(r1.errors.map((e) => e.message)).toEqual(['boom'])
   })
 
-  it('无 runId 的错误（注册/桥）单独成行；runId 落空（运行滑出环形）的错误也单独成行', async () => {
-    await recordRunStart('u1', 'r1', '甲')
+  it('无 runId 的错误（注册 / 依赖抓取）单独成行；runId 对不上任何运行条的错误也单独成行', async () => {
+    const t = await newRecordingTab()
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t })
     await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'register', message: 'reg', time: 2001 })
     await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'late', runId: 'gone', time: 2002 })
-    await flushStats()
     const rows = await listRunTimeline()
     const loose = rows.filter((r) => r.kind === 'error')
     expect(loose).toHaveLength(2)
     expect(loose.map((r) => (r.kind === 'error' ? r.record.message : ''))).toEqual(['late', 'reg']) // 倒序
   })
 
-  it('环形裁剪：超过 RUN_LOG_MAX 只留最近 N 条', async () => {
-    for (let i = 0; i < RUN_LOG_MAX + 10; i++) {
-      await recordRunStart('u1', `r${i}`, '甲')
-    }
+  it('环形裁剪：超过 RUN_LOG_MAX 只留最近 N 条；被挤出的运行条连带删掉它的动作', async () => {
+    const t = await newRecordingTab()
+    await recordRunStart('u1', 'oldest', '甲', { tabSessionId: t })
+    await recordRunEvent('u1', 'oldest', { kind: 'fetch', detail: 'x', time: 1 })
+    for (let i = 0; i < RUN_LOG_MAX; i++) await recordRunStart('u1', `r${i}`, '甲', { tabSessionId: t })
+
     const rows = await listRunTimeline()
     expect(rows).toHaveLength(RUN_LOG_MAX)
-    expect(rows.some((r) => r.kind === 'run' && r.runId === 'r0')).toBe(false) // 最老的被挤出
-    expect(rows.some((r) => r.kind === 'run' && r.runId === `r${RUN_LOG_MAX + 9}`)).toBe(true)
+    expect(rows.some((r) => r.kind === 'run' && r.runId === 'oldest')).toBe(false) // 最老的被挤出
+    expect(rows.some((r) => r.kind === 'run' && r.runId === `r${RUN_LOG_MAX - 1}`)).toBe(true)
+    expect(await listRunEvents('oldest')).toEqual([]) // 动作不留孤儿
   })
 
   it('clearRunLog：缺省清全部；带 uuid 只清该脚本；null 不动', async () => {
-    await recordRunStart('u1', 'r1', '甲')
-    await recordRunStart('u2', 'r2', '乙')
+    const t = await newRecordingTab()
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t })
+    await recordRunStart('u2', 'r2', '乙', { tabSessionId: t })
     await clearRunLog('u1')
     let rows = await listRunTimeline()
     expect(rows.some((r) => r.kind === 'run' && r.runId === 'r1')).toBe(false)
     expect(rows.some((r) => r.kind === 'run' && r.runId === 'r2')).toBe(true)
-    await clearRunLog(null) // 未归属范围：运行条不动
+    await clearRunLog(null) // 无 uuid 范围：运行条不动
     expect(await listRunTimeline()).toHaveLength(1)
     await clearRunLog()
     expect(await listRunTimeline()).toHaveLength(0)
   })
 
-  it('clearRunStats 连带清该脚本的日志条目（删脚本 = 清该脚本名下的一切）', async () => {
-    await recordRunStart('u1', 'r1', '甲')
-    await recordRunStart('u2', 'r2', '乙')
-    await clearRunStats('u1')
-    const rows = await listRunTimeline()
-    expect(rows.some((r) => r.kind === 'run' && r.uuid === 'u1')).toBe(false)
-    expect(rows.some((r) => r.kind === 'run' && r.uuid === 'u2')).toBe(true)
-  })
+  it('clearRunLog(该脚本) 连带删掉它的动作，另一个脚本的不动', async () => {
+    const t = await newRecordingTab()
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t })
+    await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: 'x', time: 1 })
+    await recordRunStart('u2', 'r2', '乙', { tabSessionId: t })
+    await recordRunEvent('u2', 'r2', { kind: 'fetch', detail: 'y', time: 2 })
 
-  it('recordRunEvent：事件落在独立的事件表，运行行只带计数；归属不到的运行不补造记录', async () => {
-    await recordRunStart('u1', 'r1', '甲')
-    await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: 'GET https://a.test/', time: 1100 })
-    await recordRunEvent('u1', 'r1', { kind: 'store.set', detail: 'token', time: 1200 })
-    await recordRunEvent('u1', 'gone', { kind: 'fetch', detail: 'x', time: 1300 }) // 环形已挤掉 / 未登记
-
-    // 事件单独一表：时间线不带明细，只在运行行上带计数
-    const rows = await listRunTimeline()
-    const r1 = rows.find((r) => r.kind === 'run' && r.runId === 'r1')
-    if (!r1 || r1.kind !== 'run') throw new Error('运行行缺失')
-    expect(r1.eventCount).toBe(2)
-    expect(r1.events).toBeUndefined()
-    expect(rows.filter((r) => r.kind === 'run')).toHaveLength(1) // 没为 'gone' 补造一条
-    // 明细按 runId 单拉
-    expect((await listRunEvents('r1')).map((e) => e.kind)).toEqual(['fetch', 'store.set'])
-    expect(await listRunEvents('gone')).toEqual([])
-  })
-
-  it('recordRunEvent：超过 RUN_EVENT_MAX 后不再落盘事件，计数继续涨（读侧据此看出被截断）', async () => {
-    await recordRunStart('u1', 'r1', '甲')
-    for (let i = 0; i < RUN_EVENT_MAX + 5; i++) {
-      await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: `u${i}`, time: 1000 + i })
-    }
-    const rows = await listRunTimeline()
-    const r1 = rows.find((r) => r.kind === 'run' && r.runId === 'r1')
-    if (!r1 || r1.kind !== 'run') throw new Error('运行行缺失')
-    expect(await listRunEvents('r1')).toHaveLength(RUN_EVENT_MAX)
-    // 计数是「收到总数」，大于实存条数 —— 面板与 AI 靠这个差额说明「还有更多已省略」
-    expect(r1.eventCount).toBe(RUN_EVENT_MAX + 5)
+    await clearRunLog('u1')
+    expect(await listRunEvents('r1')).toEqual([])
+    expect(await listRunEvents('r2')).toHaveLength(1)
   })
 
   it('markRunEnd：给结束的运行盖戳；已带 endedAt 的不再改写（幂等），其余保持「还在跑」', async () => {
+    const t = await newRecordingTab()
     const nowSpy = vi.spyOn(Date, 'now')
     nowSpy.mockReturnValue(5000)
-    await recordRunStart('u1', 'r1', '甲')
-    await recordRunStart('u2', 'r2', '乙')
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t })
+    await recordRunStart('u2', 'r2', '乙', { tabSessionId: t })
     await markRunEnd(['r1'], 'navigated')
     nowSpy.mockReturnValue(9999)
     await markRunEnd(['r1'], 'closed') // 幂等：首次的结束戳与原因不被覆盖
@@ -479,43 +439,142 @@ describe('运行日志（runs store 环形 + run_events 事件 + listRunTimeline
     expect(r1.endReason).toBe('navigated')
     expect(r2.endedAt).toBeUndefined() // 不在这次结束集里 = 还在跑
   })
+})
 
-  it('级联删除：运行条被挤出环形时，它的事件一并消失（不留孤儿事件）', async () => {
-    await recordRunStart('u1', 'oldest', '甲')
-    await recordRunEvent('u1', 'oldest', { kind: 'fetch', detail: 'x', time: 1 })
-    // 塞满环形：最旧那条被挤出，它的事件必须同事务删掉
-    for (let i = 0; i < RUN_LOG_MAX; i++) await recordRunStart('u1', `r${i}`, '甲')
+describe('运行动作（tab_events 里 kind = \'act\'：一条动作一行，按 runId 索引）', () => {
+  it('动作落在轴上、运行条只带计数；归属不到的运行条不补造记录', async () => {
+    const t = await newRecordingTab()
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t })
+    await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: 'GET https://a.test/', time: 1100 })
+    await recordRunEvent('u1', 'r1', { kind: 'store.set', detail: 'token', time: 1200 })
+    await recordRunEvent('u1', 'gone', { kind: 'fetch', detail: 'x', time: 1300 }) // 环形已挤掉 / 未登记
 
-    expect((await listRunTimeline()).some((r) => r.kind === 'run' && r.runId === 'oldest')).toBe(false)
-    expect(await listRunEvents('oldest')).toEqual([])
+    // 动作不与运行条同字段：时间线列表只带计数，明细按 runId 单拉
+    const rows = await listRunTimeline()
+    const r1 = rows.find((r) => r.kind === 'run' && r.runId === 'r1')
+    if (!r1 || r1.kind !== 'run') throw new Error('运行行缺失')
+    expect(r1.eventCount).toBe(2)
+    expect(r1.events).toBeUndefined()
+    expect(rows.filter((r) => r.kind === 'run')).toHaveLength(1) // 没为 'gone' 补造一条
+    expect((await listRunEvents('r1')).map((e) => e.kind)).toEqual(['fetch', 'store.set'])
+    expect(await listRunEvents('gone')).toEqual([])
   })
 
-  it('级联删除：clearRunLog(该脚本) 带走它的运行条与事件，另一个脚本的不动', async () => {
-    await recordRunStart('u1', 'r1', '甲')
-    await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: 'x', time: 1 })
-    await recordRunStart('u2', 'r2', '乙')
-    await recordRunEvent('u2', 'r2', { kind: 'fetch', detail: 'y', time: 2 })
-
-    await clearRunLog('u1')
-    expect(await listRunEvents('r1')).toEqual([])
-    expect(await listRunEvents('r2')).toHaveLength(1)
+  it('动作从所属运行条继承页归属（合表后按页读整根轴就能一并拿到）', async () => {
+    const t = await newRecordingTab()
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t })
+    await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: 'GET https://a.test/', time: 1 })
+    const timeline = await listTabTimeline(t)
+    expect(timeline.acts.map((a) => a.event.kind)).toEqual(['fetch'])
+    expect(timeline.acts[0]!.runId).toBe('r1')
   })
 
-  it('级联删除：clearRunLog() 清全部时事件也一并清空', async () => {
-    await recordRunStart('u1', 'r1', '甲')
+  it('超过 RUN_EVENT_MAX 后不再落盘动作，计数继续涨（读侧据此看出被截断）', async () => {
+    const t = await newRecordingTab()
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t })
+    for (let i = 0; i < RUN_EVENT_MAX + 5; i++) {
+      await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: `u${i}`, time: 1000 + i })
+    }
+    const rows = await listRunTimeline()
+    const r1 = rows.find((r) => r.kind === 'run' && r.runId === 'r1')
+    if (!r1 || r1.kind !== 'run') throw new Error('运行行缺失')
+    expect(await listRunEvents('r1')).toHaveLength(RUN_EVENT_MAX)
+    // 计数是「收到总数」，大于实存条数 —— 面板与 AI 靠这个差额说明「还有更多已省略」
+    expect(r1.eventCount).toBe(RUN_EVENT_MAX + 5)
+  })
+})
+
+describe('活动历史（存续表 + 整根活动轴的删除 / 清空）', () => {
+  it('删除某一页：存续行 + 它的运行条与错误一起走，别的页不动', async () => {
+    const t1 = await mintTabSession({ tabId: 1, url: 'https://1.test/', recording: true })
+    const t2 = await mintTabSession({ tabId: 2, url: 'https://2.test/', recording: true })
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t1 })
+    await recordRunStart('u1', 'r2', '甲', { tabSessionId: t2 })
+    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'boom1', runId: 'r1' })
+    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'boom2', runId: 'r2' })
+
+    await deleteTabActivity(t1)
+
+    const runs = await listRunTimeline()
+    expect(runs.some((r) => r.kind === 'run' && r.runId === 'r1')).toBe(false)
+    expect(runs.some((r) => r.kind === 'run' && r.runId === 'r2')).toBe(true)
+    // 错误行与运行条同页：合表后靠索引一次删干净，不必按 runId 反查
+    const errors = await listUserScriptErrors()
+    expect(errors.some((e) => e.message === 'boom1')).toBe(false)
+    expect(errors.some((e) => e.message === 'boom2')).toBe(true)
+    expect(await listTabSessions()).toHaveLength(1)
+  })
+
+  it('删除某一页：它的动作也级联清掉（不留孤儿）', async () => {
+    const t1 = await newRecordingTab()
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t1 })
     await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: 'x', time: 1 })
 
-    await clearRunLog()
+    await deleteTabActivity(t1)
     expect(await listRunEvents('r1')).toEqual([])
+  })
+
+  it('清空全部：存续行、运行条、错误（含无归属的）一并清掉', async () => {
+    const t1 = await newRecordingTab()
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t1 })
+    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'x', runId: 'r1' })
+    await appendUserScriptError({ uuid: null, name: '甲', phase: 'register', message: '无归属' })
+
+    await clearTabActivity()
+
+    expect(await listTabSessions()).toHaveLength(0)
     expect(await listRunTimeline()).toHaveLength(0)
+    expect(await listUserScriptErrors()).toHaveLength(0)
   })
 
-  it('级联删除：clearRunStats（删脚本）连带清掉运行条与事件', async () => {
-    await recordRunStart('u1', 'r1', '甲')
-    await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: 'x', time: 1 })
+  it('删一个不存在的页：no-op，不动任何数据', async () => {
+    const t = await newRecordingTab()
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t })
+    await deleteTabActivity('不存在的页')
+    expect(await listRunTimeline()).toHaveLength(1)
+  })
 
-    await clearRunStats('u1')
-    expect(await listRunEvents('r1')).toEqual([])
-    expect(await listRunTimeline()).toHaveLength(0)
+  it('删除某一页：这一页的刷新 / 地址变更事件一并走，别的页的事件不动', async () => {
+    const t1 = await mintTabSession({ tabId: 1, url: 'https://1.test/' })
+    const t2 = await mintTabSession({ tabId: 2, url: 'https://2.test/' })
+    await appendTabEvent(t1, 'reload', 'https://1.test/')
+    await appendTabEvent(t2, 'url', 'https://2.test/next')
+
+    await deleteTabActivity(t1)
+
+    const events = await listTabEvents()
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ tabSessionId: t2, kind: 'url' })
+  })
+
+  it('清空全部：事件也一并清掉（不留孤儿）', async () => {
+    const t1 = await mintTabSession({ tabId: 1, url: 'https://1.test/' })
+    await appendTabEvent(t1, 'reload', 'https://1.test/')
+
+    await clearTabActivity()
+
+    expect(await listTabSessions()).toHaveLength(0)
+    expect(await listTabEvents()).toHaveLength(0)
+  })
+
+  it('删除某一页：它录到的接口采样一并清掉（同表一次清完），别的页不动', async () => {
+    const t1 = await mintTabSession({ tabId: 1, url: 'https://1.test/' })
+    const t2 = await mintTabSession({ tabId: 2, url: 'https://2.test/' })
+    await appendTabCapture(cap('1.test', 'https://1.test/api', 'sess-1', t1))
+    await appendTabCapture(cap('2.test', 'https://2.test/api', 'sess-2', t2))
+
+    await deleteTabActivity(t1)
+
+    expect((await listTabTimeline(t1)).captures).toEqual([])
+    expect((await listTabTimeline(t2)).captures.map((r) => r.url)).toEqual(['https://2.test/api'])
+  })
+
+  it('清空全部：接口采样也一并清掉', async () => {
+    const t1 = await mintTabSession({ tabId: 1, url: 'https://1.test/' })
+    await appendTabCapture(cap('1.test', 'https://1.test/api', 'sess-1', t1))
+
+    await clearTabActivity()
+
+    expect((await listTabTimeline(t1)).captures).toEqual([])
   })
 })

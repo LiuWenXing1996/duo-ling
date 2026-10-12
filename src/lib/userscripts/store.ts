@@ -3,11 +3,15 @@
 // 项目数据（源码/配置/产物/enabled）的权威在 IndexedDB 状态库 duoling-state
 // （读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
 // 本文件管两块存储，全部落 IndexedDB：GM 值（duoling-usdata 库，见 usdata-db.ts）、
-// 观测数据 = 错误日志 / 运行统计 / 运行条目 / 运行内事件（duoling-runtime 库，见 runtime-db.ts）。
+// 观测数据（duoling-runtime 库，见 runtime-db.ts —— 标签页存续 + 一根活动轴：
+// 文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误）。
 //
 // 观测数据的读改写在 runtime-db 的同一事务内完成（天然原子），故这里不再需要
 // chrome.storage 时代的进程内串行队列；「无变化不落盘」语义原样保留，广播只在实际
-// 写入后发。环形裁剪与拆表后的级联删除都在 runtime-db 内完成，本层只表达业务语义。
+// 写入后发。环形裁剪与级联删除都在 runtime-db 内完成，本层只表达业务语义。
+//
+// 「一切观测只在开着活动记录的页上产生」这条口径的判据落在 recordRunStart（没有
+// tabSessionId 直接不写）；错误侧由 runtime-db 从所属运行条继承页归属，存储层保证一致。
 import {
   type RunEndReason,
   type ScriptProject,
@@ -16,7 +20,6 @@ import {
   type UserScriptRunEvent,
   type UserScriptRunLogEntry,
   type UserScriptRunLogRow,
-  type UserScriptRunStats,
 } from './types'
 import { broadcastDataChange } from '../data-broadcast'
 import * as usdata from './usdata-db'
@@ -205,18 +208,25 @@ export async function clearGMValues(uuid: string, writerConnId?: string): Promis
   }
 }
 
-// —— 错误日志（duoling-runtime 库 errors store，逐条 + 环形）——
+// —— 错误记录（duoling-runtime 库 tab_events，kind = 'error'）——
 //
-// 运行期错误经 GM 包装转发到 onUserScriptMessage 后被收集；注册/桥失败在后台直接收集。
-// 环形保留最近 N 条，避免无限增长（上限定义在 types.ts，供 UI 文案同源引用）。
+// 运行期错误经 GM 包装转发到 onUserScriptMessage 后被收集；注册失败与依赖 / 资源抓取失败
+// 在后台直接收集 —— 后三类与任何一页无关，落盘但不带页归属（见 runtime-db 的 appendErrorRow）。
+// 环形保留最近 N 条，避免无限增长（上限定义在 types.ts，与实现同源）。
 // 追加 / 裁剪 / 删除都在 runtime-db 的事务内原子完成，无需进程内队列串行。
 
-/** 追加一条错误（自动补 id；time 缺省用当前时间）。 */
+/**
+ * 追加一条错误（自动补 id；time 缺省用当前时间）。
+ *
+ * 页归属不在这里定：有 runId 的（运行期 / 桥错误）由 runtime-db 从所属运行条继承
+ * tabSessionId，没有的（注册失败 / 依赖抓取失败）恒无归属 —— 于是它们只落盘、
+ * 不出现在任何一页的面板里。
+ */
 export async function appendUserScriptError(
   // time 由本函数兜底（rec.time || Date.now()），故对调用方可选
   rec: Omit<UserScriptErrorRecord, 'id' | 'time'> & { id?: string; time?: number },
 ): Promise<void> {
-  await runtime.appendError({
+  await runtime.appendErrorRow({
     ...rec,
     id: rec.id || crypto.randomUUID(),
     time: rec.time || Date.now(),
@@ -225,8 +235,6 @@ export async function appendUserScriptError(
   // engine 两处、dl-bridge 的脚本消息转发），这里是唯一汇合点。
   // 崩溃风暴的高频 append 由广播侧的合并窗口（100ms）兜住，前端不会被打爆。
   broadcastDataChange('error', rec.uuid ?? undefined)
-  // 运行期错误同步计入该脚本的「最近一次运行」错误数（独立事务，失败不影响错误记录本身）
-  void noteRunError(rec.uuid ?? null, typeof rec.runId === 'string' ? rec.runId : null).catch(() => {})
 }
 
 /** 列出全部错误（最新在前） */
@@ -237,8 +245,8 @@ export async function listUserScriptErrors(): Promise<UserScriptErrorRecord[]> {
 /**
  * 清空错误日志。
  *
- * @param uuid 缺省 = 清全部；字符串 = 只清该脚本的记录；**null = 只清「未归属」记录**
- *   （uuid 为 null 的那些：注册失败无脚本上下文、部分桥错误）。
+ * @param uuid 缺省 = 清全部；字符串 = 只清该脚本的记录；**null = 只清「无脚本上下文」记录**
+ *   （uuid 为 null 的那些：注册失败 —— 它发生在任何脚本上下文之前）。
  *   三态各自独立，故判定用 `=== undefined` 而非 falsy —— `null` 是有效目标，不是「没传」。
  */
 export async function clearUserScriptErrors(uuid?: string | null): Promise<void> {
@@ -263,65 +271,70 @@ export type UserScriptErrorLookup =
   | { found: false; reason: 'not-found' | 'ambiguous' }
 
 export async function findUserScriptError(id: string): Promise<UserScriptErrorLookup> {
-  const list = await listUserScriptErrors()
-  const exact = list.find((e) => e.id === id)
+  // 走 by_errId 索引按前缀取，不扫全表：合表后表里还躺着接口采样（条数无上限），
+  // 「全量读回来再筛」在真实数据量下不可行（见 runtime-db 的 findErrorsByIdPrefix）
+  const hits = await runtime.findErrorsByIdPrefix(id)
+  if (!hits.length) return { found: false, reason: 'not-found' }
+  const exact = hits.find((e) => e.id === id)
   if (exact) return { found: true, record: exact }
+  // 前缀下限 8 位：工作台展示的就是前 8 位，太短碰撞概率失控（精确 id 已在上面判过）
   if (id.length < 8) return { found: false, reason: 'not-found' }
-  const matches = list.filter((e) => e.id.startsWith(id))
-  if (matches.length === 1) return { found: true, record: matches[0]! }
-  if (matches.length > 1) return { found: false, reason: 'ambiguous' }
-  return { found: false, reason: 'not-found' }
+  if (hits.length > 1) return { found: false, reason: 'ambiguous' }
+  return { found: true, record: hits[0]! }
 }
 
-// —— 运行统计（stats store）与运行条目 / 运行内事件（runs / run_events store）——
+// —— 运行条目 / 动作（tab_events 里 kind = 'run' / 'act' 的行）——
 //
-// 统计 = 每脚本一个小计数器对象；运行条 = 一条一次运行（keyPath runId）；
-// 运行内事件 = 一条一个动作（按 runId 索引，展开某次运行时才拉）。
-// 登记运行开始把「统计 + 运行条 + 溢出裁剪」并进同一事务写入（runtime.startRun）：
-// 每次页面加载仍只付一次存储事务，逐条落盘不额外放大写入。「无变化不落盘」：
-// 补播去重 / 已结束条目重复回写都直接跳过，不写也不广播。
+// 运行条 = 一条一次运行；动作 = 一条一个动作（按 runId 索引，读整根轴时一并带出）。
+// 「无变化不落盘」：补播去重 / 已结束条目重复回写都直接跳过，不写也不广播。
 
 /**
- * 登记一次运行开始（dl-bridge 收到 __dlRunStart 广播时调用，有无 tabId 都记）。
- * 同一 runId 的重复广播（engine 的 load 补救补播）按 lastRunId 去重，是 no-op——
- * 补播若重置 lastRunErrors 会抹掉两次广播之间已上报的错误，故去重必须整体跳过
- * （运行条目也随之不重复追加）。
+ * 登记一次运行开始（dl-bridge 收到 __dlRunStart 广播时调用）。
  *
- * @param extra 运行所在页面与注入时的源码版本（见 UserScriptRunLogEntry）：
- *   两条都是「这次运行到底跑的是哪一版、在哪一页」的定位线索，缺省即不写该字段。
+ * **没有 tabSessionId 就不记**：一切观测只在「这一页开着活动记录」时产生，而运行条是动作与
+ * 错误的归属锚，无归属的运行没有意义（判据统一见 runtime-db 文件头）。判据落在这一层而不是
+ * 各调用方：调用点有两处（首次广播与 load 补救补播），漏一处就漏一处观测。
+ *
+ * 同一 runId 的重复广播（engine 的 load 补救补播）由 runtime-db 按「该 runId 是否已有运行条」
+ * 去重、整体跳过 —— 补播若重写运行条会抹掉两次广播之间已收集的动作计数。
+ *
+ * @param extra 运行所在页面、注入时的源码版本与所在标签页的存续 id（见 UserScriptRunLogEntry）
  */
 export function recordRunStart(
   uuid: string,
   runId: string,
   name?: string,
-  extra?: { url?: string; savedAt?: number },
+  extra?: { url?: string; savedAt?: number; tabSessionId?: string },
 ): Promise<void> {
+  const tabSessionId = extra?.tabSessionId
+  if (!tabSessionId) return Promise.resolve()
   const entry: UserScriptRunLogEntry = {
     runId,
     uuid,
     // name 快照由调用方传（dl-bridge 手上有注册表）；没传就留空，UI 回退短 uuid
     name: name ?? '',
     time: Date.now(),
+    tabSessionId,
     ...(extra?.url != null ? { url: extra.url } : {}),
     ...(extra?.savedAt != null ? { savedAt: extra.savedAt } : {}),
   }
-  return runtime.startRun(uuid, entry).then((recorded) => {
-    // 管理页的运行统计列与运行日志标签页靠这条广播实时回拉（合并窗口防导航风暴）
-    if (recorded) broadcastDataChange('runstats', uuid)
+  return runtime.appendRun(entry).then((recorded) => {
+    // 「活动历史」面板靠这条广播实时回拉（合并窗口防导航风暴）
+    if (recorded) broadcastDataChange('runlog', uuid)
   })
 }
 
 /**
- * 追加一条运行内事件（dl-bridge 的 dispatch 采集后调用）。
+ * 追加一条动作（dl-bridge 的 dispatch 采集后调用，见 UserScriptRunEvent）。
  *
- * 事件逐条落在 run_events，同事务内把所属运行条目的 eventCount 加一；找不到所属运行条
- * （已被环形挤掉、或该次运行压根没登记）即 no-op —— 事件是观察数据，不值得为它补造
- * 一条运行记录。到 RUN_EVENT_MAX 后不再落盘事件本体，只涨计数（读侧据此说明「已省略」）。
+ * 落进所属运行条的同一页（tabSessionId 由 runtime-db 从运行条继承）；找不到所属运行条
+ * （已被环形挤掉、或该次运行压根没登记）即 no-op —— 动作是观察数据，不值得为它补造一条
+ * 运行记录。到 RUN_EVENT_MAX 后不再落盘动作本体，只涨计数（读侧据此说明「已省略」）。
  */
 export function recordRunEvent(uuid: string, runId: string, event: UserScriptRunEvent): Promise<void> {
-  return runtime.appendRunEvent(runId, event).then((written) => {
-    // 到上限后不再有新事件落盘，也就不必再让面板白回拉一次
-    if (written) broadcastDataChange('runstats', uuid)
+  return runtime.appendAct(runId, event).then((written) => {
+    // 到上限后不再有新动作落盘，也就不必再让面板白回拉一次
+    if (written) broadcastDataChange('runlog', uuid)
   })
 }
 
@@ -336,57 +349,19 @@ export function recordRunEvent(uuid: string, runId: string, event: UserScriptRun
  */
 export function markRunEnd(runIds: string[], reason: RunEndReason): Promise<void> {
   return runtime.endRuns(runIds, Date.now(), reason).then((changed) => {
-    if (changed) broadcastDataChange('runstats')
+    if (changed) broadcastDataChange('runlog')
   })
 }
 
 /**
- * 运行期错误计入「最近一次运行」的错误数（appendUserScriptError 的汇合点调用）。
- * 仅当错误带 uuid + runId 且 runId 与最近一次运行一致才计数——旧运行的迟到错误、
- * register/bridge 类无运行上下文的错误都不算（后者不是「脚本运行挂了」）。
- */
-export function noteRunError(uuid: string | null, runId: string | null): Promise<void> {
-  if (!uuid || !runId) return Promise.resolve()
-  return runtime
-    .mutateStats(uuid, (cur) => {
-      // 从未登记过运行（runstart 丢失 / 尚未处理）或错误属于更早的运行：不计
-      if (!cur || cur.lastRunId !== runId) return null
-      return { ...cur, lastRunErrors: (cur.lastRunErrors ?? 0) + 1 }
-    })
-    .then((changed) => {
-      if (changed) broadcastDataChange('runstats', uuid)
-    })
-}
-
-/** 给列表摘要挂上运行统计（无统计的脚本保持缺省，UI 据此不渲染该列） */
-export async function withRunStats(summaries: ScriptSummary[]): Promise<ScriptSummary[]> {
-  if (!summaries.length) return summaries
-  const all = await runtime.getAllRunStats()
-  const byUuid = new Map<string, UserScriptRunStats>()
-  for (const s of summaries) {
-    const st = all[s.uuid]
-    if (st) byUuid.set(s.uuid, st)
-  }
-  if (!byUuid.size) return summaries
-  return summaries.map((s) => {
-    const st = byUuid.get(s.uuid)
-    if (!st) return s
-    return {
-      ...s,
-      runCount: st.totalRuns,
-      ...(st.lastRunAt ? { lastRunAt: st.lastRunAt } : {}),
-      // 只在有错误时带出：UI 的「最近错误」标只在 >0 时渲染，语义单一
-      ...(st.lastRunErrors ? { lastRunErrors: st.lastRunErrors } : {}),
-    }
-  })
-}
-
-/**
- * 运行日志时间线：运行行（runs）+ 无法归属的错误行（errors 里 runId 落空 /
- * 无 runId 的记录）按时间倒序混排。运行期错误按 runId 挂到所属运行行上（不复制明细）。
+ * 运行时间线（消费方是 AI 的 run_log_read）：运行条（tab_events 里 kind = 'run'）+
+ * 与本次读取的运行集对不上的错误行（无 runId 的注册 / 依赖抓取失败，或该 runId 的运行
+ * 已滑出环形）按时间倒序混排。运行期错误按 runId 挂到所属运行条上（不复制明细）。
  *
- * **不带运行内事件**：事件单独一表，跟着运行数全量读会线性膨胀（500 次运行 × 上限
- * 1000 条）；运行行只带 eventCount，展开某次运行时再经 listRunEvents 拉一次。
+ * **不带动作**：动作跟着运行数全量读会线性膨胀（500 条运行 × 上限 1000 条），运行条只带
+ * eventCount，要看某次运行干了什么再经 listRunEvents 按 runId 拉。
+ *
+ * 活动历史面板不走这条 —— 它按页读整根轴（见 runtime-db 的 listTabTimeline）。
  */
 export async function listRunTimeline(): Promise<UserScriptRunLogRow[]> {
   const [runs, errors] = await Promise.all([runtime.listRuns(), listUserScriptErrors()])
@@ -411,6 +386,7 @@ export async function listRunTimeline(): Promise<UserScriptRunLogRow[]> {
       time: r.time,
       // 老记录没有这些字段：缺了就整条不写，保持「无值 = 字段不存在」的一致口径
       ...(r.url != null ? { url: r.url } : {}),
+      ...(r.tabSessionId != null ? { tabSessionId: r.tabSessionId } : {}),
       ...(r.savedAt != null ? { savedAt: r.savedAt } : {}),
       ...(r.eventCount != null ? { eventCount: r.eventCount } : {}),
       ...(r.endedAt != null ? { endedAt: r.endedAt } : {}),
@@ -423,26 +399,49 @@ export async function listRunTimeline(): Promise<UserScriptRunLogRow[]> {
 }
 
 /**
- * 某次运行的全部事件（按发生先后升序）。
- * 面板与 AI 都只在要看「这次运行干了什么」时调它——列表视图不带事件。
+ * 某次运行的全部动作（按发生先后升序）。
+ * 面板与 AI 都只在要看「这次运行干了什么」时调它——时间线列表不带动作。
  */
 export async function listRunEvents(runId: string): Promise<UserScriptRunEvent[]> {
   return runtime.listRunEvents(runId)
 }
 
 /**
- * 清运行条目（各自的事件一并级联删除，在 runtime-db 内同一事务完成）。
+ * 清运行条目（各自的动作一并级联删除，在 runtime-db 内同一事务完成）。
  * @param uuid 缺省 = 清全部；字符串 = 只清该脚本的条目；null = no-op
  *   （运行条必带 uuid，「未归属」只存在于错误日志，由 clearUserScriptErrors 管）。
  */
 export function clearRunLog(uuid?: string | null): Promise<void> {
   if (uuid === null) return Promise.resolve()
   return runtime.clearRuns(uuid ?? undefined).then((changed) => {
-    if (changed) broadcastDataChange('runstats')
+    if (changed) broadcastDataChange('runlog')
   })
 }
 
-/** 删除脚本时清掉它的运行统计与运行条目（与 clearGMValues / clearUserScriptErrors 同一条删除语义） */
-export function clearRunStats(uuid: string): Promise<void> {
-  return Promise.all([runtime.deleteStats(uuid), clearRunLog(uuid)]).then(() => {})
+/**
+ * 「活动历史」删掉某一页的全部活动 —— 存续行 + 它在 tab_events 上的每一行（文档事件 /
+ * 记录开关 / 接口采样 / 运行条目 / 动作 / 错误，六类一起走）。
+ *
+ * 一起删是刻意的：面板展示的是它们的合成。只删存续行，这一页会以「表里已查不到」的残影
+ * 留在列表里（它的轴行还在）；六类同表 + 同归属键，故整件事在 runtime-db 内一条索引删、
+ * 一个事务完成（见 clearTabActivity），不会留下「行没了、轴行还在」的中间态。
+ *
+ * **只清已记录的内容**，不动门禁里的进行中会话。
+ */
+export async function deleteTabActivity(tabSessionId: string): Promise<void> {
+  if (!(await runtime.clearTabActivity([tabSessionId]))) return
+  // 整根轴一趟清掉，运行线与错误两个消费域都要回拉（重复通知只是让消费方多读一次）
+  broadcastDataChange('runlog')
+  broadcastDataChange('error')
+}
+
+/**
+ * 「活动历史」清空全部 —— 存续行 + tab_events 上的整根轴（含无归属的错误行）。
+ *
+ * **不动门禁**：正在录的那一页照常录，清历史不该把它停掉。
+ */
+export async function clearTabActivity(): Promise<void> {
+  if (!(await runtime.clearTabActivity())) return
+  broadcastDataChange('runlog')
+  broadcastDataChange('error')
 }

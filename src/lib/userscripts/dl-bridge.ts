@@ -40,12 +40,13 @@ import {
 } from './dl-port'
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
-// 网络录制：转发件送来的采集载荷在 SW 侧白名单化后落 duoling-netlog
+// 网络录制：转发件送来的采集载荷在 SW 侧白名单化后落 runtime 的 tab_events（与标签页事件同表）
 import { normalizeCapture, normalizeHost } from './net-record-protocol'
 import { getNetCaptureSessions } from './net-capture-gate'
-import * as netlog from './netlog-db'
+import * as runtime from './runtime-db'
 // 对话界面页面脚本监控（运行时口径）：runstart 登记 + 错误实时推送（跨文档观察者，SW 按 tab 登记）
 import { notePageError, noteRunStart } from './page-monitor'
+import { recordingTabSessionId } from './tab-sessions'
 import {
   getGMValue,
   setGMValue,
@@ -649,8 +650,8 @@ async function ingestNetCapture(hostRaw: unknown, capture: unknown, tabId: numbe
     if (!host) return
     const session = (await getNetCaptureSessions()).find((s) => s.tabId === tabId && s.host === host)
     if (!session) return
-    const record = normalizeCapture(host, capture, session.id)
-    if (record) await netlog.appendCapture(record)
+    const record = normalizeCapture(host, capture, session.id, session.tabSessionId)
+    if (record) await runtime.appendTabCapture(record)
   } catch {
     // 录制不该影响页面网络层：任何一步失败都静默丢弃这条
   }
@@ -1053,15 +1054,28 @@ export function initDlBridge(): void {
       }
       // 记下脚本名，供桥调用失败那类「自身不带脚本上下文」的记录复用
       if (run.uuid && run.name) scriptNameByUuid.set(run.uuid, run.name)
-      // 运行统计 + 运行条目（runtime 库 stats / runs store，按脚本聚合落盘）：与 tab 无关，
-      // 有无 tabId 都记；同一 runId 的 load 补播在写侧按 lastRunId 去重。失败不影响监控登记。
+      // 运行条目（runtime 库 tab_events，kind = 'run'）：与脚本运行一一对应，落盘后活动历史
+      // 才有「这一页跑过什么」的锚。写侧按 runId 去重（同一 runId 的 load 补播是 no-op）。
       // url / savedAt 是**载荷字段、非可信输入**（经页面可伪造的通道），故只做类型收窄：
       // 形状不对就当没传——它们只是给日志多两条定位线索，不值得为它拦下这次记账。
-      if (run.uuid && run.runId) {
-        void recordRunStart(run.uuid, run.runId, run.name, {
+      const uuid = run.uuid
+      const runId = run.runId
+      if (uuid && runId && tabId != null) {
+        const extra = {
           ...(typeof run.url === 'string' ? { url: run.url } : {}),
           ...(typeof run.savedAt === 'number' ? { savedAt: run.savedAt } : {}),
-        }).catch(() => {})
+        }
+        // 标签页归属：活动历史按标签页分档的分组键（语义见 TabSessionRecord）。**被动取号** ——
+        // 只有用户在 popup 里给这一页打开了活动记录才有号（见 tab-sessions），没号就**不记**：
+        // 一切观测只在开着活动记录的页上产生（判据统一，见 store.recordRunStart）。
+        // 取号失败（存储不可用）同样不记 —— 此页是观测盲区，不因存储故障给它补一份无归属的记录。
+        void recordingTabSessionId(tabId)
+          .then((tabSessionId) =>
+            tabSessionId
+              ? recordRunStart(uuid, runId, run.name, { ...extra, tabSessionId })
+              : undefined,
+          )
+          .catch(() => {})
       }
       return undefined // 仅登记，无需响应
     }
@@ -1069,28 +1083,34 @@ export function initDlBridge(): void {
     // 单向错误上报（GM 包装的 window.onerror / unhandledrejection）
     const evt = raw as { __dlEvent?: true; uuid?: string; name?: string; event?: DlEvent }
     if (evt && evt.__dlEvent === true) {
-      void appendUserScriptError({
-        uuid: evt.uuid ?? null,
-        name: evt.name || '未知脚本',
-        phase: 'runtime',
-        message: evt.event?.message || '',
-        stack: evt.event?.stack,
-        url: evt.event?.url,
-        // 本次运行标识：对话界面监控据此把错误归属到对应 tab 的运行（缺省视作非本次）
-        runId: typeof evt.event?.runId === 'string' ? evt.event.runId : null,
-      })
-        .then(() => {
-          // sender.tab 定位出错页面（userScript 世界消息 sender 带 tab）；拿不到就跳过
-          const tabId = sender.tab?.id
-          if (tabId != null) {
-            // 对话界面监控：错误行随推送走（落盘记录无 tabId，面板按 tab 归属只能靠这条实时通道）
+      // sender.tab 定位出错页面（userScript 世界消息 sender 带 tab）；拿不到就无从判归属
+      const tabId = sender.tab?.id
+      if (tabId == null) return undefined
+      // 归属判据与运行条目同源：只有这一页开着活动记录才记。没开 = 观测盲区 ——
+      // 不落盘、不广播、也不推给浮层 / 角标（判据前移，appendUserScriptError 本身不设判据）。
+      void recordingTabSessionId(tabId)
+        .then((tabSessionId) => {
+          if (!tabSessionId) return
+          return appendUserScriptError({
+            uuid: evt.uuid ?? null,
+            name: evt.name || '未知脚本',
+            phase: 'runtime',
+            message: evt.event?.message || '',
+            stack: evt.event?.stack,
+            url: evt.event?.url,
+            // 本次运行标识：对话界面监控据此把错误归属到对应 tab 的运行（缺省视作非本次）
+            runId: typeof evt.event?.runId === 'string' ? evt.event.runId : null,
+            // 页归属直接带上（不必等写侧从运行条继承）：这一页此刻确实开着记录
+            tabSessionId,
+          }).then(() => {
+            // 对话界面监控：错误行随推送走（面板只要「当前这次运行」，实时通道一条推送就到）
             notePageError(tabId, {
               uuid: evt.uuid ?? null,
               name: evt.name || '未知脚本',
               message: evt.event?.message || '',
               runId: typeof evt.event?.runId === 'string' ? evt.event.runId : null,
             })
-          }
+          })
         })
         .catch(() => {})
       return undefined // 仅记录，无需响应
@@ -1132,7 +1152,7 @@ export function initDlBridge(): void {
       .catch((e: unknown) => {
         const message = e instanceof Error ? e.message : String(e)
         const code = e instanceof ApiError ? e.code : 'INTERNAL'
-        // 桥调用失败也进错误日志（面板可见）。它发生在某次运行**之中**，故带上信封里的 runId
+        // 桥调用失败也进错误日志（活动历史里可见）。它发生在某次运行**之中**，故带上信封里的 runId
         // 挂到那次运行下 —— 否则只能单列成孤儿行，看不出「脚本跑到哪一步挂的」。
         // 脚本名取自运行广播登记的表（尽力而为：表空时回退 uuid）。
         void appendUserScriptError({

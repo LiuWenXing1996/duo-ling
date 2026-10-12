@@ -502,13 +502,15 @@ export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
 
 /**
  * 脚本世界 → 后台 的单向事件（不等待响应，区别于 ApiRequest 的请求-响应）。两种信封：
- *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报：包装层收进错误日志
- *     （runtime 库 errors store）。归属口径两层：正文同步错误由包装内 try/catch 直报；
+ *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报：包装层收进错误记录
+ *     （runtime 库 tab_events，kind = 'error'）。归属口径两层：正文同步错误由包装内 try/catch 直报；
  *     异步错误经 window.onerror / unhandledrejection，只收栈帧带本脚本 sourceURL
  *     标记（`duoling://script/<uuid>/`）的，页面自身的报错不归属（无标记不收）。
+ *     **写侧另有页判据**：只有这一页开着活动记录时才落盘 + 推送（见 dl-bridge），没开就是观测盲区。
  *   · `{ __dlRunStart: true, uuid, name, runId }` —— 运行标识广播：包装注入即 mint 一次
- *     「一次页面加载 = 一次运行」的 runId。SW 交对话界面页面监控按 tab 登记、并落盘运行统计
- *     （runtime 库 stats store）与运行条目（runs store，name 快照），补播按 runId 去重。
+ *     「一次页面加载 = 一次运行」的 runId。SW 交对话界面页面监控按 tab 登记，并落运行条目
+ *     （runtime 库 tab_events，kind = 'run'，name 快照）——同样只在开着活动记录的页上；
+ *     同一 runId 的补播按 runId 去重。
  *
  * 信封名保持 `dl` 前缀（内部协议面不改名，改它是纯 churn）。
  */

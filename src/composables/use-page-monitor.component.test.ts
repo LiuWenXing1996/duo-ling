@@ -200,18 +200,6 @@ describe('挂载与端口', () => {
     await mountMonitor()
 
     expect(state().visible.value).toBe(false)
-    expect(() => state().openErrors('u1')).not.toThrow()
-  })
-
-  it('上行发不出去（端口已断）：静默，不影响面板状态', async () => {
-    port.postMessage.mockImplementation(() => {
-      throw new Error('端口已断')
-    })
-
-    await mountMonitor()
-
-    expect(state().visible.value).toBe(false)
-    expect(() => state().openErrors('u1')).not.toThrow()
   })
 })
 
@@ -333,13 +321,6 @@ describe('展示名与错误归属', () => {
     expect(state().errorsOf('c')).toEqual([])
   })
 
-  it('点脚本行：经端口上行 uuid（由 SW 打开工作台并深链）', async () => {
-    await mountMonitor()
-
-    state().openErrors('u1')
-
-    expect(port.postMessage).toHaveBeenCalledWith({ t: 'page:openErrors', uuid: 'u1' })
-  })
 })
 
 describe('名字补齐（自愈）', () => {

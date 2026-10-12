@@ -1,8 +1,8 @@
 // UI 组件测试：PopupPanel.vue 的两个区块（PopupCurrentPage / PopupOtherPages）。
 //
 // 这条链路的分支都在渲染层，故用组件测试守：
-//   A. 「当前页面」：接口录制开关（常显，可就地开与关，状态随命令改口）、
-//      本页在跑的脚本（头部给计数、列表常显、点行跳错误日志）、对话浮层入口与回话状态；
+//   A. 「当前页面」：两个按页开关（接口录制 / 活动记录，都常显、可就地开与关、状态随命令改口）、
+//      本页在跑的脚本（头部给计数、列表常显、行只读不跳转）、对话浮层入口与回话状态；
 //   B. 「当前页面」注入不了内容脚本（探活无人应答）→ 头部改说原因、浮层入口禁用；
 //   C. 「其他页面」：列出本页以外的标签页（脚本数 / 会话与生成中），点「去这里」切过去；没有别的页面给空态。
 //
@@ -36,7 +36,7 @@ const TAB_ID = 7
 /** page:overview 的应答（用例按需覆盖）；默认只有当前页一行 */
 let overviewRows: unknown[] = []
 
-/** 概览里的一行（默认：无脚本、无会话、未开录制） */
+/** 概览里的一行（默认：无脚本、无会话、未开记录） */
 function overviewRow(tabId: number, over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     tabId,
@@ -46,7 +46,7 @@ function overviewRow(tabId: number, over: Record<string, unknown> = {}): Record<
     conversationId: null,
     conversationTitle: null,
     generating: false,
-    netRecording: false,
+    tabRecording: false,
     ...over,
   }
 }
@@ -122,9 +122,9 @@ describe('popup 的「当前页面」区块', () => {
   const summary = (w: VueWrapper) => w.find('[data-testid="popup-current-scripts-summary"]')
   const scriptRows = (w: VueWrapper) => w.findAll('[data-testid="popup-current-scripts-row"]')
   const conversation = (w: VueWrapper) => w.find('[data-testid="popup-current-conversation"]')
-  const recordingCard = (w: VueWrapper) => w.find('[data-testid="popup-current-recording"]')
-  const recordingState = (w: VueWrapper) => w.find('[data-testid="popup-current-recording-state"]')
-  const recordingToggle = (w: VueWrapper) => w.find('[data-testid="popup-toggle-recording"]')
+  const recordCard = (w: VueWrapper) => w.find('[data-testid="popup-current-tab-activity"]')
+  const recordState = (w: VueWrapper) => w.find('[data-testid="popup-current-tab-activity-state"]')
+  const recordToggle = (w: VueWrapper) => w.find('[data-testid="popup-toggle-tab-activity"]')
 
   it('头部给站点名；本页在跑脚本：头部给计数，列表直接列出（不折叠）', async () => {
     stubChrome('https://example.com/page')
@@ -152,21 +152,22 @@ describe('popup 的「当前页面」区块', () => {
     expect(scriptRows(w)[0]!.text()).toContain('⚠ 2')
   })
 
-  it('点脚本行：上行 page:openErrors 并关掉 popup', async () => {
+  it('脚本行只读：点了不上行、也不关 popup', async () => {
     stubChrome('https://example.com/page')
     overviewRows = [
       overviewRow(TAB_ID, { scripts: [{ uuid: 'u1', name: '示例脚本', errorCount: 0 }] }),
     ]
     const w = await mountPopup()
     const close = spyClose()
+    const sentBefore = runtimeSendMessage.mock.calls.length
 
     await scriptRows(w)[0]!.trigger('click')
     await flushPromises()
-    // 关闭延后一帧（上行是异步投递，同一 tick 里关掉文档会让它悬空）——让那个定时器跑完
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(runtimeSendMessage).toHaveBeenCalledWith({ kind: 'page:openErrors', uuid: 'u1' })
-    expect(close).toHaveBeenCalled()
+    // 这一行只是「本页跑着哪几个脚本」的展示（错误数走行内角标），点了不该有任何跳转
+    expect(runtimeSendMessage.mock.calls.length).toBe(sentBefore)
+    expect(close).not.toHaveBeenCalled()
   })
 
   it('本页没有脚本：头部给空态文案，不渲染列表', async () => {
@@ -241,62 +242,61 @@ describe('popup 的「当前页面」区块', () => {
     expect(close).not.toHaveBeenCalled()
   })
 
-  it('录制卡常显：没在录也在，开关为关、状态说「未开启」', async () => {
+  it('记录开关常显：没开也在，开关为关、状态说「未开启」', async () => {
     stubChrome('https://example.com/page')
     const w = await mountPopup()
 
-    expect(recordingCard(w).exists()).toBe(true)
-    expect(recordingState(w).text()).toContain('未开启')
-    expect(recordingToggle(w).attributes('aria-checked')).toBe('false')
-    // 没开录制时不给「刷新页面」那句 —— 那是刚扳开开关才有的话
+    expect(recordCard(w).exists()).toBe(true)
+    expect(recordState(w).text()).toContain('未开启')
+    expect(recordToggle(w).attributes('aria-checked')).toBe('false')
+    // 没开记录时不给「刷新页面」那句 —— 那是刚扳开开关才有的话
     expect(w.find('[data-testid="popup-recording-hint"]').exists()).toBe(false)
   })
 
-  it('正在录制：开关为开、状态说「正在录制」，其余子卡照常', async () => {
+  it('记录开着：开关为开、状态说「正在记录」，其余子卡照常', async () => {
     stubChrome('https://example.com/page')
-    overviewRows = [overviewRow(TAB_ID, { netRecording: true })]
+    overviewRows = [overviewRow(TAB_ID, { tabRecording: true })]
     const w = await mountPopup()
 
-    expect(recordingState(w).text()).toContain('正在录制')
-    expect(recordingToggle(w).attributes('aria-checked')).toBe('true')
-    // 录制卡是加在既有两张子卡之上的，不挤掉它们
+    expect(recordState(w).text()).toContain('正在记录')
+    expect(recordToggle(w).attributes('aria-checked')).toBe('true')
+    // 开关卡是加在既有两张子卡之上的，不挤掉它们
     expect(scriptRows(w)).toHaveLength(0)
     expect(conversation(w).exists()).toBe(true)
   })
 
-  it('扳开开关：按标签页上行开启命令，成功后状态改口并提示刷新页面', async () => {
+  it('扳开：按标签页上行开启命令，状态改口并提示接口录制要刷新页面', async () => {
     stubChrome('https://example.com/page')
     const w = await mountPopup()
     const close = spyClose()
 
-    await recordingToggle(w).trigger('click')
+    await recordToggle(w).trigger('click')
     await flushPromises()
 
     expect(runtimeSendMessage).toHaveBeenCalledWith({
-      kind: 'userscript:netCaptureEnable',
+      kind: 'userscript:tabActivityEnable',
       tabId: TAB_ID,
-      host: 'example.com',
     })
-    expect(recordingState(w).text()).toContain('正在录制')
-    // 钩子只在文档开头挂：刚扳开还没重载，得当面说清「还没在录」
+    expect(recordState(w).text()).toContain('正在记录')
+    // 接口录制那半的钩子只在文档开头挂：刚扳开还没重载，得当面说清「首屏请求没录到」
     expect(w.find('[data-testid="popup-recording-hint"]').text()).toContain('刷新页面')
     expect(close).not.toHaveBeenCalled()
   })
 
-  it('扳回开关：按标签页上行关闭命令，状态回到「未开启」且不关窗', async () => {
+  it('扳回：按标签页上行关闭命令，状态回到「未开启」且不关窗', async () => {
     stubChrome('https://example.com/page')
-    overviewRows = [overviewRow(TAB_ID, { netRecording: true })]
+    overviewRows = [overviewRow(TAB_ID, { tabRecording: true })]
     const w = await mountPopup()
     const close = spyClose()
 
-    await recordingToggle(w).trigger('click')
+    await recordToggle(w).trigger('click')
     await flushPromises()
 
     expect(runtimeSendMessage).toHaveBeenCalledWith({
-      kind: 'userscript:netCaptureDisable',
+      kind: 'userscript:tabActivityDisable',
       tabId: TAB_ID,
     })
-    expect(recordingState(w).text()).toContain('未开启')
+    expect(recordState(w).text()).toContain('未开启')
     // 与「打开会话」不同：关完不关窗，popup 里还有脚本 / 会话可看
     expect(close).not.toHaveBeenCalled()
   })
@@ -305,24 +305,24 @@ describe('popup 的「当前页面」区块', () => {
     stubChrome('https://example.com/page')
     const w = await mountPopup()
     // 挂载时的那次 page:overview 已用掉默认实现，这里只覆盖接下来这一发
-    runtimeSendMessage.mockImplementationOnce(async () => ({ ok: false, error: '无效的站点' }))
+    runtimeSendMessage.mockImplementationOnce(async () => ({ ok: false, error: '标签页不存在' }))
 
-    await recordingToggle(w).trigger('click')
+    await recordToggle(w).trigger('click')
     await flushPromises()
 
-    expect(w.find('[data-testid="popup-recording-error"]').text()).toContain('无效的站点')
-    expect(recordingState(w).text()).toContain('未开启')
+    expect(w.find('[data-testid="popup-tab-activity-error"]').text()).toContain('标签页不存在')
+    expect(recordState(w).text()).toContain('未开启')
   })
 
   it('不在概览里的页面（内部页 / 扩展页）：开关禁灰，状态说「当前页面不支持」', async () => {
-    // 读不到 url 的页面上概览里没有这一行，也就拿不到 tabId 与站点名 —— 开不了录制
+    // 读不到 url 的页面上概览里没有这一行，也就拿不到 tabId 与站点名 —— 开关开不了
     stubChrome(undefined, false)
     overviewRows = []
     const w = await mountPopup()
 
-    expect(recordingCard(w).exists()).toBe(true)
-    expect(recordingState(w).text()).toContain('当前页面不支持')
-    expect(recordingToggle(w).attributes('disabled')).toBeDefined()
+    expect(recordCard(w).exists()).toBe(true)
+    expect(recordState(w).text()).toContain('当前页面不支持')
+    expect(recordToggle(w).attributes('disabled')).toBeDefined()
   })
 })
 

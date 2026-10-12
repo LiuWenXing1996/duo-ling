@@ -3,18 +3,24 @@
 // 三个消费方必须逐字节一致，故集中在这里：
 //   · net-recorder.ts（MAIN 世界捕获件）—— 字符串模板，插值 constants；
 //   · net-forwarder.ts（USER_SCRIPT 转发件）—— 字符串模板，插值 TAG；
-//   · netlog-db.ts / dl-bridge.ts（SW 落库 + 入站归一化）—— 直接 import。
+//   · runtime-db.ts / dl-bridge.ts（SW 落库 + 入站归一化）—— 直接 import。
 //
 // 与 bridge-protocol.ts 同款：模板源码无法 import，只能靠常量插值保持一致。
 
 /** 消息信封标记：MAIN 捕获件 postMessage 与转发件 → SW 的 sendMessage 都用它 */
 export const NET_CAPTURE_TAG = '__dlNetCapture'
 
+/**
+ * 接口采样落在 tab_events store 时的判别键：与标签页存续轴事件**同表**（见 runtime-db 的文件头），
+ * 靠它把两类记录分开 —— 存续轴事件用 reload / url / recordOn / recordOff。
+ *
+ * 放这里而不是落库模块：它是**跨读写两端的形状约定**（写侧打标、读侧据它分流），
+ * 与 normalizeCapture 之于入站载荷同理。
+ */
+export const NET_TAB_KIND = 'net'
+
 /** 请求体 / 响应体采样上限（字符数）——采样只用于给 AI 看结构，不是全量留档 */
 export const NET_BODY_LIMIT = 2048
-
-/** 每 host 环形保留条数（超限删最旧）——写侧 netlog-db 裁剪，隐私与体积双控 */
-export const NET_HOST_RING_LIMIT = 200
 
 /**
  * 剥离的鉴权头（小写名，精确匹配）。请求侧与响应侧同一份：
@@ -51,36 +57,46 @@ export const NET_MASK = '***'
 /**
  * 一次接口录制会话：从用户在某标签页点「开启录制」起，到该标签页关闭 / 主动停止止。
  *
- * 门禁的粒度就是它 —— 录制按标签页划分，同站点的另一个标签页要录得各自开一次；
- * 标签页关掉即结束会话，但已录记录不随之清除，故结束后的会话要归档（含站点信息），
- * 供事后在查询界面认出「这是哪一次录制、录的哪个页面」。
+ * 门禁的粒度就是它 —— 录制按标签页划分，同站点的另一个标签页要录得各自开一次。
+ * 标签页关掉即结束会话，但已录采样不随之清除：它们落在 tab_events 上，按页读时与这一页的
+ * 刷新 / 记录开关同轴展示，故会话本身不必再另存一份归档。
  *
  * tabId 是会话的**实时判据**（入站按 sender.tab.id 认领），但浏览器会复用 tabId，
- * 故它不是身份：归档与记录归属一律用 id，tabId 只用于「此刻这条消息来自哪个会话」。
+ * 故它不是身份：采样归属一律用 id 与 tabSessionId，tabId 只用于「此刻这条消息来自哪个会话」。
  */
 export interface NetRecordSession {
-  /** 会话 id（记录以它为归属键，故必须是稳定、不可复用的字符串） */
+  /** 会话 id（每条采样带着它，故必须是稳定、不可复用的字符串） */
   id: string
-  /** 录制所在的标签页（仅实时判据用；不进归档的判断依据） */
+  /** 录制所在的标签页（仅实时判据用，不作身份） */
   tabId: number
-  /** 录制所在的站点（与记录同口径的归一 host） */
+  /**
+   * 这次录制归属的标签页存续行（见 TabSessionRecord）。
+   *
+   * 与 tabId 的分工：tabId 只答「此刻这条消息来自哪个标签页」，它答「把这段录制挂到哪一页」。
+   * 两者不是一回事 —— tabId 会被浏览器复用、重启后重排，故跨会话的归属只能认它。
+   * 录制与活动记录由同一个开关触发后必填；合并前录下的老会话没有，读侧按「未归属」处理。
+   */
+  tabSessionId?: string
+  /** 录制所在的站点（与采样同口径的归一 host） */
   host: string
-  /** 开启那一刻页面的地址与标题：标签页关掉后凭它认出录的是哪个页面 */
+  /** 开启那一刻页面的地址与标题：会话随门禁消亡后，凭它认出录的是哪个页面（采样上不带标题） */
   url: string
   title: string
   startedAt: number
-  /** 结束时刻（归档时填；进行中的会话没有） */
+  /** 结束时刻（会话结束 / 启动对账清出时填；进行中的会话没有） */
   endedAt?: number
 }
 
-/** 采集记录（落 duoling-netlog captures store 的形状；id 为自增主键，写侧不填） */
+/** 采集采样（落 duoling-runtime 的 tab_events store，判别键 kind = NET_TAB_KIND；id 为自增主键，写侧不填） */
 export interface NetCaptureRecord {
   /** 自增主键（IndexedDB autoIncrement 生成） */
   id?: number
-  /** 采集发生的页面 host（location.hostname，环形分区键，也是 by_host 索引值） */
+  /** 采集发生的页面 host（location.hostname，也是 by_host 索引值；存续轴事件没有它） */
   host: string
-  /** 产生这条记录的录制会话 id。会话结束后记录仍留着，凭它把记录归到某次录制 */
+  /** 产生这条采样的录制会话 id。会话结束后采样仍留着，凭它把采样归到某次录制 */
   sessionId: string
+  /** 归属的标签页存续行（由会话透传，见 NetRecordSession.tabSessionId）；老采样缺省，按未归属处理 */
+  tabSessionId?: string
   /** 请求方式来源 */
   type: 'fetch' | 'xhr'
   url: string
@@ -103,7 +119,7 @@ export interface NetCaptureRecord {
  * 采集载荷：捕获件只产这些字段。
  * host 由转发件补（它知道自己的 location），sessionId 由 SW 补（只有它能判消息来自哪个标签页）。
  */
-export type NetCapturePayload = Omit<NetCaptureRecord, 'id' | 'host' | 'sessionId'>
+export type NetCapturePayload = Omit<NetCaptureRecord, 'id' | 'host' | 'sessionId' | 'tabSessionId'>
 
 /**
  * 把一个 host 归一化成「小写裸主机名」；非法返回空串。
@@ -243,13 +259,14 @@ export function stripUrlSecrets(raw: string): string {
  * 消息经过 MAIN 世界（页面可伪造 postMessage）与两次结构化克隆，SW 不能信其形状——
  * 所有字段白名单化、类型强转、长度封顶、鉴权头再剥、URL 凭据再脱敏。
  *
- * sessionId 由调用方（SW）给定而非载荷携带：它要按 sender.tab.id 查出来，
+ * sessionId 与 tabSessionId 都由调用方（SW）给定而非载荷携带：它们要按 sender.tab.id 查出来，
  * 载荷里那一段来自页面世界，认了就等于让页面自己声明归属。
  */
 export function normalizeCapture(
   hostRaw: unknown,
   captureRaw: unknown,
   sessionId: string,
+  tabSessionId?: string,
 ): NetCaptureRecord | null {
   const host = str(hostRaw).toLowerCase()
   if (!host) return null
@@ -262,6 +279,7 @@ export function normalizeCapture(
   return {
     host,
     sessionId,
+    ...(tabSessionId ? { tabSessionId } : {}),
     type,
     url: stripUrlSecrets(url).slice(0, 4096),
     method: (str(c.method) || 'GET').toUpperCase(),

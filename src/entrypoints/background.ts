@@ -10,8 +10,9 @@
 //     写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
 //   · 源码 —— 唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
 //     SW 读不到 lfs，源码读写一律走 fs:* 命令向 offscreen 取（见 offscreen-fs-commands.ts）。
-// GM 值存储 / GM tab 值在 IndexedDB 库 duoling-usdata；错误日志 / 运行统计 / 运行条目 /
-// 运行内事件（观测数据）在 IndexedDB 库 duoling-runtime——两者都 SW 直写、写侧收敛在 store.ts。
+// GM 值存储 / GM tab 值在 IndexedDB 库 duoling-usdata；观测数据（标签页存续 + 一根活动轴：
+// 文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误）在 IndexedDB 库 duoling-runtime
+// ——两者都 SW 直写、写侧收敛在 store.ts。
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
@@ -40,8 +41,8 @@ import {
 // metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
 // 真正的归一化在写入口一处（project-write.saveSource），此处不写回任何东西
 import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
-// 网络录制（dl-recorder）：per-tab 门禁 + 录到的记录 + 语料压缩。
-// 三者都归 SW：门禁在 duoling-app、记录在 duoling-netlog，offscreen 与扩展页都不直连。
+// 网络录制（dl-recorder）：per-tab 门禁 + 录到的采样 + 语料压缩。
+// 三者都归 SW：门禁在 duoling-app、采样在 duoling-runtime 的 tab_events，offscreen 与扩展页都不直连。
 // 会话的生成 / 结束都在这里，因为「标签页关闭」这个收尾时点只有常驻的 SW 不漏。
 import {
   getNetCaptureSessions,
@@ -49,8 +50,7 @@ import {
   startNetSession,
   stopNetSessionsByTab,
 } from '@/lib/userscripts/net-capture-gate'
-import { normalizeHost, type NetRecordSession } from '@/lib/userscripts/net-record-protocol'
-import { archiveSession, clearHostData, listCapturesByHost } from '@/lib/userscripts/netlog-db'
+import { hostFromUrl, normalizeHost, type NetRecordSession } from '@/lib/userscripts/net-record-protocol'
 import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts/net-record-digest'
 // 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
 import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/availability-watch'
@@ -58,30 +58,47 @@ import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/
 import { runUpdateCheck } from '@/lib/update-check'
 // 网页浮层开关的补齐动作已随站点开关一并移除：右键菜单只负责发「调出浮层」请求
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
+// 标签页存续（tabId 的稳定替身）：开关（连同「开始 / 结束记录」两条标记）、事件（刷新、地址变更）、
+// 盖章与启动划断（都替当时还在记的行收个尾）都归 SW ——「这一页在不在记活动、经历了什么、
+// 什么时候关的」只有常驻 SW 看得见，扩展页与 offscreen 都不该各记一份。
+import {
+  noteTabClosed,
+  noteTabReloaded,
+  noteTabUrlChanged,
+  setTabRecording,
+  splitTabSessionsAtBrowserStart,
+} from '@/lib/userscripts/tab-sessions'
 // DL Port 事件底座：脚本世界 ↔ SW 长连接下行通道 + 三事件源接入
 import { initDlPort } from '@/lib/userscripts/dl-port'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listGroups, listProjects } from '@/lib/userscripts/project-store'
-// chrome.storage 侧：GM 值、错误日志、运行统计
+// 观测数据的写出口：GM 值、错误日志、运行条目与动作
 import {
   listSummaries,
-  withRunStats,
   clearGMValues,
-  clearRunStats,
+  clearRunLog,
   clearUserScriptErrors,
   appendUserScriptError,
   findUserScriptError,
   listRunTimeline,
   listRunEvents,
-  clearRunLog,
   markRunEnd,
+  clearTabActivity,
+  deleteTabActivity,
 } from '@/lib/userscripts/store'
+// 观测数据的底层表（duoling-runtime 库）：存续表全量给「活动历史」按标签页分档用；
+// 按页的时间线（存续轴事件 + 接口采样）与按站点的采样各有专门读法
+import {
+  clearTabCapturesByHost,
+  listTabCapturesByHost,
+  listTabSessions,
+  listTabTimeline,
+} from '@/lib/userscripts/runtime-db'
 // 对话界面页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口 —— 工具栏角标的数字就是它
 import {
   forgetPageTab,
   initPageMonitorPorts,
   onPageRunsChanged,
-  openWorkbenchErrors,
   pageRunsByTab,
   resetPageRuns,
   snapshotForTabs,
@@ -178,7 +195,7 @@ async function writeViaOffscreen<T>(request: RuntimeRequest): Promise<T> {
 }
 
 /**
- * 注册失败：记入错误日志面板，并返回错误文案给 UI 展示。
+ * 注册失败：记入错误日志（在活动历史的「未知标签页」档里看），并返回错误文案给 UI 展示。
  *
  * **不 throw**——调用方（create / updateFiles / toggle）在注册前已完成数据写
  * （状态库 + git 快照都落了盘），注册只是让脚本「生效」的最后一环。把注册失败判成整个
@@ -321,14 +338,18 @@ const handlers: {
     const tabs = await chrome.tabs.query({}).catch(() => [])
     // 只收普通网页：内部页 / 扩展页上既跑不了脚本也挂不了浮层（读不到 url 的页正是这两类）
     const web = tabs.filter((t) => t.id != null && webHostname(t.url) !== '')
-    const [snapshots, bindings, names, titles, captureSessions] = await Promise.all([
+    const [snapshots, bindings, names, titles, tabSessions] = await Promise.all([
       snapshotForTabs(web.map((t) => t.id as number)),
       conversationBindings(),
       scriptNameByUuid(),
       conversationTitleById(),
-      // 录制门禁是 tab 维度：取一次会话列表再按 tabId 认领，不给每个 tab 各读一次 IDB
-      getNetCaptureSessions(),
+      // 记录开关按 tab 认领（表里只有被打开过记录的页）
+      listTabSessions(),
     ])
+    // 正在记活动的标签页：未结束 + 开着记录才算 —— 已结束的行只是历史痕迹
+    const recordingTabs = new Set(
+      tabSessions.filter((s) => s.ended !== true && s.recording === true).map((s) => s.tabId),
+    )
     return web.map((t) => {
       const tabId = t.id as number
       const snap = snapshots.get(tabId)
@@ -347,15 +368,9 @@ const handlers: {
         conversationId,
         conversationTitle: conversationId ? (titles.get(conversationId) ?? null) : null,
         generating: conversationId ? runningConversations.has(conversationId) : false,
-        netRecording: captureSessions.some((s) => s.tabId === tabId),
+        tabRecording: recordingTabs.has(tabId),
       }
     })
-  },
-
-  // 点脚本行 → 打开 / 聚焦工作台并深链到该脚本的错误（与浮层灵动岛共用同一实现）
-  'page:openErrors': async (msg): Promise<{ ok: true }> => {
-    await openWorkbenchErrors(msg.uuid)
-    return { ok: true }
   },
 
   // —— 内容脚本自证身份 ——
@@ -368,9 +383,9 @@ const handlers: {
   }),
 
   // —— 用户脚本管理器（IPC 命令名沿用既有，载荷为项目形态）——
-  // 列表视图：项目读自状态库（直连 IDB）；运行统计（runtime 库 stats store）同样 SW 直读，这里挂上
-  'userscript:list': async (): Promise<ScriptSummary[]> =>
-    withRunStats(await listSummaries(await listProjects())),
+  // 列表视图：项目读自状态库（直连 IDB）——运行观测已不在摘要里（合表后只按页/按运行读），
+  // 故这里就是纯项目摘要
+  'userscript:list': async (): Promise<ScriptSummary[]> => listSummaries(await listProjects()),
 
   // 读注册态记录（元数据 + 源码搬运副本；duoling-fs 里另有带 git 历史的权威源码，编辑器经 fs:read 取）
   'userscript:getProject': async (msg): Promise<ScriptProject | undefined> => getProject(msg.uuid),
@@ -457,8 +472,8 @@ const handlers: {
     // 报错记录同属该脚本的残留：不清就会在错误日志里留下一个已删脚本的孤儿分组
     // （按 uuid 清，不碰「未归属」那种本就没有脚本上下文的记录）
     await clearUserScriptErrors(msg.uuid)
-    // 运行统计同理：不清就会在重建同名脚本时继承旧计数
-    await clearRunStats(msg.uuid)
+    // 运行条目与动作同理：不清就会在「活动历史」里留下已删脚本的孤儿运行条
+    await clearRunLog(msg.uuid)
   },
 
   // 删除全部用户脚本（「全部删除」按钮）：注销全部 → offscreen 清状态库 + 各仓 → 清各脚本
@@ -480,7 +495,7 @@ const handlers: {
       for (const uuid of uuids) await clearGMValues(uuid)
       // 报错记录逐 uuid 清（与单删同一条语义：删脚本 = 清该脚本名下的一切）
       for (const uuid of uuids) await clearUserScriptErrors(uuid)
-      for (const uuid of uuids) await clearRunStats(uuid)
+      for (const uuid of uuids) await clearRunLog(uuid)
       return { removed }
     } catch (e) {
       // 注销在前、落盘在后，落盘失败会留下「记录还标 enabled、实际已注销」的偏差
@@ -512,7 +527,7 @@ const handlers: {
   },
 
   // 重命名脚本：只改状态库的 name（不入仓、不产生提交），落库后启用中则重注册——
-  // 名字进 GM_info 与错误日志分组名，不重注册的话已注入的脚本仍顶旧名。
+  // 名字进 GM_info 与错误日志里的脚本名，不重注册的话已注入的脚本仍顶旧名。
   // 同 toggle：注册失败只降级为警告，不把改名判失败（名字已落库）。
   'userscript:rename': async (msg): Promise<{ registerError?: string }> => {
     if (!(await getProject(msg.uuid))) throw new Error('脚本不存在')
@@ -561,10 +576,72 @@ const handlers: {
   // **不做任何检测**——检测在 SW 自身的轮询（startAvailabilityWatch），职责分离见 availability-watch.ts
   'userscript:healthCheck': async (): Promise<{ alive: true }> => ({ alive: true }),
 
-  // 运行日志时间线：运行行 + 孤儿错误行混排（运行日志标签页）
+  // 运行时间线：运行条 + 对不上运行集的错误行混排（消费方是 AI 的 run_log_read；
+  // 活动历史面板按页读整根轴，不走这条）
   'userscript:runlog': async (): Promise<ReturnType<typeof listRunTimeline>> => listRunTimeline(),
 
-  // 某次运行的运行内事件（面板展开卡片时按需拉；AI 的 run_log_read 带 runId 时同路）
+  // 标签页存续表全量：活动历史按标签页分组时取名字与时刻（分组键在运行条目上，表只补名字）
+  'userscript:tabSessions': async (): Promise<ReturnType<typeof listTabSessions>> => listTabSessions(),
+
+  // 某一页的整根活动轴：文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误（六类都在
+  // tab_events 同表）一次查回、分五组返回。「活动历史」右栏用它铺这一页的时间线。
+  // **按页而不是全量**：采样单条可达数 KB，全量拉等于把整库搬过来。
+  'userscript:tabTimeline': async (msg): Promise<ReturnType<typeof listTabTimeline>> =>
+    listTabTimeline(msg.tabSessionId),
+
+  // 打开 / 关掉**这一页**的活动记录（popup 的开关）。判据落在标签页上：同一站点的其他页各开
+  // 各的。地址由 SW 现取（与录制门禁同一条口径），不由 popup 带 —— 它手里只有一个 host。
+  // 打开时会顺手建行，好让这一页立刻出现在「活动历史」里（此后跑不跑脚本都无所谓）。
+  //
+  // **这一个开关就是录制开关**：它同时驱动两条写链 —— 存续行（连带事件与运行记账）与接口录制。
+  // 接口录制的归属挂在刚建 / 刚开的那一列上（tabSessionId 现取现传），故录制不会再落到
+  // 「事后不知道是哪一页」的状态。非网页页取不到 host，那就只开活动记录、不录接口。
+  //
+  // 录制件是声明式注册、钩子挂在文档开头，故本条影响的是**下次导航**：当前页面要用户刷新才挂得上。
+  'userscript:tabActivityEnable': async (msg): Promise<{ tabId: number; recording: boolean }> => {
+    const tab = await chrome.tabs.get(msg.tabId).catch(() => null)
+    const url = tab?.url
+    const tabSessionId = await setTabRecording(msg.tabId, true, url)
+    const host = hostFromUrl(url)
+    if (host) {
+      try {
+        // 结果不用接：同标签页换站点时被顶掉的旧会话自此结束，而会话本身不再另存一份
+        // （它录到的采样留在 tab_events 上，起止由存续轴上的「开始 / 结束记录」标出）
+        await startNetSession({
+          tabId: msg.tabId,
+          host,
+          url: url ?? '',
+          title: tab?.title ?? '',
+          ...(tabSessionId ? { tabSessionId } : {}),
+        })
+        await refreshNetRecorder().catch(() => {})
+      } catch {
+        // 录制没开起来不该让开关整体失败：活动记录已落盘，用户至少拿到了那一半
+      }
+    }
+    return { tabId: msg.tabId, recording: true }
+  },
+
+  // 关掉只撤开关、不删记录：这一页的历史与已录接口都留着，只是不再长新的
+  'userscript:tabActivityDisable': async (msg): Promise<{ tabId: number; recording: boolean }> => {
+    await setTabRecording(msg.tabId, false)
+    const { ended } = await stopNetSessionsByTab(msg.tabId)
+    if (ended.length) await refreshNetRecorder().catch(() => {})
+    return { tabId: msg.tabId, recording: false }
+  },
+
+  // 「活动历史」删掉某一页：存续行 + 它在 tab_events 上的整根轴一起删（只删存续行会让这一页以
+  // 「表里已查不到」的残影留在列表里）。
+  'userscript:tabActivityDelete': async (msg): Promise<void> => {
+    await deleteTabActivity(msg.tabSessionId)
+  },
+
+  // 「活动历史」清空全部：存续行 + tab_events 整根轴（含归不到标签页的无归属错误行）
+  'userscript:tabActivityClear': async (): Promise<void> => {
+    await clearTabActivity()
+  },
+
+  // 某次运行的动作（面板按需拉；AI 的 run_log_read 带 runId 时同路）
   'userscript:runEvents': async (msg): Promise<ReturnType<typeof listRunEvents>> =>
     listRunEvents(msg.runId),
 
@@ -580,36 +657,6 @@ const handlers: {
     sessions: await getNetCaptureSessions(),
   }),
 
-  // 开启录制：入口都是**用户手势**（浮层同意卡上的按钮 / popup 当前页面里的开关），AI 工具只出卡，不调这条。
-  // 会话锚在发起命令的那个标签页上（tabId 由浮层给，与它的会话归属同源；扩展页没有 tab，
-  // 故缺 tabId 时由门禁直接拒绝）。
-  // 门禁落盘后同步注册——注册影响的是**下次导航**，当前页面必须由用户刷新才挂得上钩子。
-  'userscript:netCaptureEnable': async (
-    msg,
-  ): Promise<{ session: NetRecordSession; sessions: NetRecordSession[] }> => {
-    // 会话的辨认信息由 SW 从标签页现取（UI 侧只有 host，且它跑在 iframe 里看不到宿主页的 url）
-    const tab = await chrome.tabs.get(msg.tabId).catch(() => null)
-    const { session, sessions, replaced } = await startNetSession({
-      tabId: msg.tabId,
-      host: msg.host,
-      url: tab?.url ?? '',
-      title: tab?.title ?? '',
-    })
-    // 同一标签页换站点时被顶掉的旧会话：先归档再注册，中途失败也让它的元信息已留档
-    for (const s of replaced) await archiveSession(s).catch(() => {})
-    await refreshNetRecorder().catch(() => {})
-    return { session, sessions }
-  },
-
-  // 停止录制：结束该标签页的会话并归档，再重算注册（没有会话的 host 就此注销）。
-  // **已录记录与归档会话都保留** —— 数据要留给查询界面与 AI 读，清理另走 netLogClear。
-  'userscript:netCaptureDisable': async (msg): Promise<{ sessions: NetRecordSession[] }> => {
-    const { sessions, ended } = await stopNetSessionsByTab(msg.tabId)
-    for (const s of ended) await archiveSession(s).catch(() => {})
-    if (ended.length) await refreshNetRecorder().catch(() => {})
-    return { sessions }
-  },
-
   // 读回录制语料：AI 的 net_capture_read 工具与常驻 prompt 摘要档共用同一条命令，
   // 只按 mode 换压缩档位。未开录制时也返回（enabled:false）——调用方据此给准确提示，
   // 比抛错更好用（「没开录制」和「开了但没数据」要能分开说）。
@@ -622,7 +669,7 @@ const handlers: {
     const host = normalizeHost(msg.host)
     if (!host) throw new Error(`无效的站点：${msg.host}`)
     const enabled = (await getNetCaptureSessions()).some((s) => s.host === host)
-    const records = await listCapturesByHost(host)
+    const records = await listTabCapturesByHost(host)
     const text =
       msg.mode === 'digest'
         ? describeCaptureDigest(records).join('\n')
@@ -630,23 +677,13 @@ const handlers: {
     return { enabled, host, count: records.length, text }
   },
 
-  // 清空某站点的录制数据（记录 + 归档会话）：查询界面的清理入口。
-  // 写路径归 SW（netlog 的单写方约定），故扩展页不直连库、只发这条命令。
+  // 清空某站点的录制数据（只清接口采样，不动这一页的刷新 / 记录开关）。
+  // 写路径归 SW（runtime 的单写方约定），故扩展页不直连库、只发这条命令。
   'userscript:netLogClear': async (msg): Promise<{ host: string }> => {
     const host = normalizeHost(msg.host)
     if (!host) throw new Error(`无效的站点：${msg.host}`)
-    await clearHostData(host)
+    await clearTabCapturesByHost(host)
     return { host }
-  },
-
-  // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清 runs store 的对应条目——
-  // 时间线上「清空」应一条语义清两个存储，否则运行行清不掉）。三态必须靠「字段在不在」区分
-  // （`!msg.uuid` 会把「未归属」误判成「全部」）：
-  //   字段缺失 = 清全部；string = 只清该脚本；null = 只清「未归属」错误记录（运行条无此形态，不动）
-  'userscript:clearErrors': async (msg): Promise<void> => {
-    const target = 'uuid' in msg ? (msg.uuid ?? null) : undefined
-    await clearUserScriptErrors(target)
-    await clearRunLog(target)
   },
 
   // 进行中的会话（工作台「会话历史」的「生成中」标与停止入口）。只回 id：那张表就是 id 集合，
@@ -874,9 +911,9 @@ async function abortConversationOfClosedTab(tabId: number): Promise<void> {
 }
 
 /**
- * 标签页被关掉时的录制收尾：结束它的录制会话并归档，再重算注册。
+ * 标签页被关掉时的录制收尾：结束它的录制会话，再重算注册。
  *
- * 只摘门禁、归档会话元信息，**已录记录一条不动** —— 用户还要在「接口数据」里看、让 AI 读。
+ * 只摘门禁，**已录的采样一条不动** —— 用户还要在「活动历史」里看、让 AI 读。
  *
  * 与 abortConversationOfClosedTab 同一个理由必须挂在常驻的 SW 上：面板没开的时候标签页照样会被关。
  */
@@ -888,12 +925,11 @@ async function stopRecordingOfClosedTab(tabId: number): Promise<void> {
     return
   }
   if (!ended.length) return
-  for (const s of ended) await archiveSession(s).catch(() => {})
   await refreshNetRecorder().catch(() => {})
 }
 
 /**
- * SW 启动对账：门禁里指向已不存在标签页的会话，就此结掉并归档。
+ * SW 启动对账：门禁里指向已不存在标签页的会话，就此结掉。
  *
  * 为什么需要：标签页可能趁 SW 睡着时被关掉，onRemoved 的收尾要等 SW 下次醒来才补上；
  * 若它再没醒（用户就此收工），库里就留着一份指向不存在标签页的门禁 —— 注册集合虚扩，
@@ -905,8 +941,7 @@ async function reconcileRecordingSessions(): Promise<void> {
   try {
     const tabs = await chrome.tabs.query({})
     const alive = new Set(tabs.map((t) => t.id).filter((id): id is number => id != null))
-    const { ended } = await reconcileNetSessions(alive)
-    for (const s of ended) await archiveSession(s).catch(() => {})
+    await reconcileNetSessions(alive)
   } catch {
     // 对账失败不阻断启动：门禁脏一条不影响其余链路
   }
@@ -965,9 +1000,26 @@ function mountProposal2Listeners(): void {
     if (changeInfo.status === 'loading') {
       endRunsOfTab(tabId, 'navigated')
       resetPageRuns(tabId)
+      // 存续轴：文档重开了，记一条「刷新」—— 但若这其实是一次导航（url 回调还没到），
+      // 由 tab-sessions 拿此刻的真实地址比出来、改记「地址变更」。地址只有 SW 现取得到。
+      void chrome.tabs
+        .get(tabId)
+        .then((t) => t.url)
+        .catch(() => undefined)
+        .then((url) => noteTabReloaded(tabId, url))
+        .catch(() => {})
+    }
+    // 存续轴：地址变了就记一条「地址变更」，并顺手刷新「这个标签页最近去哪了」。
+    // 这条不能并进上面的分支：SPA 软导航只带 url、不带 status，并进去就被漏掉了。
+    // 空值 = 拿不到地址（chrome:// 等无 host 权限的页），不写。
+    if (typeof changeInfo.url === 'string') {
+      void noteTabUrlChanged(tabId, changeInfo.url).catch(() => {})
     }
   })
 
+  // 标签页存续的维护：给 tabId 一个稳定替身（见表头注释与 tab-sessions）。
+  // **不监听 onCreated**：建行只发生在「用户给这一页打开活动记录」那一刻（见 tabActivityEnable），
+  // 否则每开一页都留一行，绝大多数与脚本毫无关系。这里与上面一样，只维护已存在的行。
   chrome.tabs.onRemoved.addListener((tabId) => {
     endRunsOfTab(tabId, 'closed')
     forgetPageTab(tabId)
@@ -978,6 +1030,8 @@ function mountProposal2Listeners(): void {
     // 录制收尾：录制按标签页划分，页面没了就没有「这一页的请求」可录。同上一行同理，
     // 这里漏了会让门禁一直挂着已消失的标签页（注册集合虚扩，tabId 复用后误判）。
     void stopRecordingOfClosedTab(tabId)
+    // 存续收尾：盖上关闭时刻。没登记过的标签页不补行 —— 没开记录又没跑过脚本的页本就不留痕
+    void noteTabClosed(tabId).catch(() => {})
   })
 
   // 页面脚本监控端口（另一条连接 'duoling:panel'：上行快照请求 + 推送寻址）
@@ -1097,6 +1151,10 @@ export default defineBackground(() => {
     // 每次开浏览器查一次。注意 onStartup **只在浏览器启动时**触发，SW 被挂起后唤醒不触发它
     // —— 本次启动若正好离线就会错过一轮，靠设置页「关于」里的手动检查补。
     void runUpdateCheck().catch((e) => console.warn('[duoling:update] 检查失败', e))
+    // 划断标签页存续：tabId 是本次浏览器运行内的流水号，重启后重排、会被复用 ——
+    // 上个会话残留的未结束行必须在此收口，否则新会话同号的标签页会被挂到旧行上。
+    // 只在这里做（浏览器启动），不能在 SW 冷启动做：那时「未结束」的行正是本会话还开着的标签页。
+    void splitTabSessionsAtBrowserStart().catch(() => {})
   })
 
   // SW 冷启动即确保 offscreen 在场（与上面监听器互补：SW 被终止后重启时，首条事件会触发本回调）

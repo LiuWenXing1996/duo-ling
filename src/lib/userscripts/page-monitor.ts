@@ -10,11 +10,13 @@
 // 数据流（三个信号源，全部已在 dl-bridge / background 里存在，这里只是多接一根线）：
 //   · runstart 广播（GM 包装注入即发）→ noteRunStart：登记 + 推给所有连着的面板
 //   · 运行错误落盘（__dlEvent 上报）→ notePageError：推给对话界面（错误本体随推送走，
-//     面板不回查错误日志——落盘记录无 tabId，按 tab 归属只能靠这条实时通道）
+//     面板不回查错误日志——按 runId 反查要连库带 join，实时通道一条推送就到）
 //   · 新文档导航（tabs.onUpdated status=loading）→ resetPageRuns：旧文档销毁，运行集清零
 //
 // 快照：切 tab / 刚打开时上行 page:snapshot，SW 按登记表回当前运行集；
-// 错误历史按 runId 从错误日志（runtime 库 errors store）反查（runtime 错误都带 runId）。
+// 错误历史按 runId 从错误记录（runtime 库 tab_events，kind = 'error'）反查（runtime 错误都带 runId）。
+// 能反查到什么取决于写侧判据：只有「这一页开着活动记录」时错误才落盘（见 store / dl-bridge），
+// 故未开记录的页上脚本报错，这里本就查不到 —— 与「未开记录的页 = 观测盲区」同一口径。
 //
 // **登记表一变就喊一声**（onPageRunsChanged）：角标是「按登记表重算」出来的，不重算就停在旧
 // 数字上 —— 面板有快照可以拉，角标没有可拉的对象，只能由这里推。
@@ -196,25 +198,6 @@ export function initPageMonitorPorts(): void {
           .catch(() => {})
         return
       }
-      // 点击脚本行 → 打开/聚焦工作台错误日志
-      if (msg.t === 'page:openErrors' && msg.uuid) void openWorkbenchErrors(msg.uuid).catch(() => {})
     })
   })
-}
-
-/**
- * 上行：点击脚本行 → 打开 / 聚焦工作台并深链定位到该脚本的错误（workbench.html#/errors/<uuid>）。
- * 已打开工作台时更新 hash 并激活（hash 变化不重载页面，WorkbenchApp 的 hash 处理器接管）。
- */
-export async function openWorkbenchErrors(uuid: string): Promise<void> {
-  const base = chrome.runtime.getURL('workbench.html')
-  const url = `${base}#/errors/${encodeURIComponent(uuid)}`
-  const tabs = await chrome.tabs.query({ url: `${base}*` })
-  const existing = tabs.find((t) => t.id != null)
-  if (existing?.id != null) {
-    await chrome.tabs.update(existing.id, { url, active: true })
-    if (existing.windowId != null) await chrome.windows.update(existing.windowId, { focused: true }).catch(() => {})
-  } else {
-    await chrome.tabs.create({ url })
-  }
 }

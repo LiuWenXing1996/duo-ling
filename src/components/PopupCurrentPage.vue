@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 「当前页面」区块：本标签页的接口录制开关（常显）+ 本页在跑哪些脚本 +
-// 这条页面的对话浮层（快捷入口与「是否正在回话」）。
+// 「当前页面」区块：本标签页的按页开关（**只有一枚**，常显）—— 活动记录，它同时管着接口录制；
+// 另有本页在跑哪些脚本、这条页面的对话浮层（快捷入口与「是否正在回话」）。
 //
 // 判据都不在这里现算：PopupPanel 挂载时经一条 page:overview 命令取回，再传进来 —— popup 是纯
 // 展示面板（不装 window.api、不直连会话库），聚合口径统一在 SW 侧一处（见 shared/extension-ipc
@@ -15,7 +15,7 @@
 // 脚本多时列表自己滚，卡高不跟着涨。没脚本时头部给空态说法，按「能不能注入」分 —— 藏起整卡会让
 // 用户以为没有这个功能。
 //
-// 布局：卡片套卡片 —— 外卡是「当前页面」（头部 + 站点名），接口录制 / 脚本 / 对话各是里面的一张子卡。
+// 布局：卡片套卡片 —— 外卡是「当前页面」（头部 + 站点名），两个开关 / 脚本 / 对话各是里面的一张子卡。
 import { computed, ref } from 'vue'
 import { MessageSquare as UiMessageSquare } from '@lucide/vue'
 import { Badge as UiBadge } from '@/components/ui/badge'
@@ -39,8 +39,10 @@ const props = defineProps<{
   tab: PageOverviewTab | null
 }>()
 
-/** 录制开关切换成功后上抛给父组件（popup 不维持推送通道，由父组件就地更新这一行的录制标） */
-const emit = defineEmits<{ recordingChanged: [tabId: number, recording: boolean] }>()
+/** 开关切换成功后上抛给父组件（popup 不维持推送通道，由父组件就地更新这一行的状态位） */
+const emit = defineEmits<{
+  tabRecordingChanged: [tabId: number, recording: boolean]
+}>()
 
 /** 「打开会话」没打通时的说明（成功就直接关窗了） */
 const openError = ref('')
@@ -48,12 +50,13 @@ const openError = ref('')
 const scripts = computed(() => props.tab?.scripts ?? [])
 const errorCount = computed(() => scripts.value.reduce((n, s) => n + s.errorCount, 0))
 
-/** 这个标签页是否正在接口录制（判据在 SW，见 PageOverviewTab.netRecording） */
-const recording = computed(() => props.tab?.netRecording === true)
+/** 这个标签页是否在记活动 —— 记录是被动的，靠它决定要不要给这页的运行带上标签页归属 */
+const tabRecording = computed(() => props.tab?.tabRecording === true)
 
 /**
- * 这个标签页能不能录制：要在概览里（拿得到 tabId）且是普通网页（拿得到站点名）。
- * 内部页 / 扩展页两样都缺 —— 那种页面上开关禁灰，状态位改说原因。
+ * 这个标签页能不能用这枚开关：要在概览里（拿得到 tabId）且是普通网页（拿得到站点名）。
+ * 内部页 / 扩展页两样都缺 —— 那种页面上开关禁灰，状态位改说原因；脚本在那类页面上也根本不会跑，
+ * 开了没东西可记。
  */
 const canRecord = computed(() => props.tab != null && props.host !== '')
 
@@ -65,13 +68,13 @@ const toggleError = ref('')
 /**
  * 刚被扳开、还没刷新过页面。
  *
- * 录制件是声明式注册（匹配粒度是站点、钩子在 `document_start` 挂），扳开关时页面早已跑完 ——
+ * 接口录制那半是声明式注册（匹配粒度是站点、钩子在 `document_start` 挂），扳开关时页面早已跑完 ——
  * 首屏请求录不到，得重载。这不是缺陷，是「不刷新就注入不了钩子」的必然结果，故当面说清，
- * 免得用户以为开关一扳就在录了。
+ * 免得用户以为开关一扳就在录了。活动记录那半不受它影响，拨开即生效。
  */
 const justEnabled = ref(false)
 
-/** 未录制时状态位的说法：能录就说「未开启」，不能录就说清是这一档 */
+/** 没开时状态位的说法：能开就说「未开启」，不能开就说清是这一档 */
 const idleLabel = computed(() => (canRecord.value ? '未开启' : '当前页面不支持'))
 
 /**
@@ -98,15 +101,6 @@ const conversationLabel = computed(() => (props.tab?.generating ? 'AI 正在回�
 const openFloatHint = '当前页面不能显示对话浮层'
 
 /**
- * 点脚本行 → 深链到工作台该脚本的错误日志，随后关掉面板。
- * 关闭延后一帧：上行是异步投递，同一 tick 里关掉文档会让这条消息悬空。
- */
-function openScript(uuid: string): void {
-  void chrome.runtime.sendMessage({ kind: 'page:openErrors', uuid }).catch(() => {})
-  setTimeout(() => window.close(), 0)
-}
-
-/**
  * 把当前页面的对话浮层调出来。
  *
  * 收不到（页面在扩展更新前就打开、或在扩展管理页里单独禁掉了本站点的访问权）只能让用户刷新；
@@ -128,16 +122,17 @@ async function openFloatPanel(): Promise<void> {
 }
 
 /**
- * 扳动这个标签页的接口录制开关。
+ * 扳动这一页的开关（**唯一的一枚**）。
  *
- * 门禁是 tab 维度（见 SW 的 netCaptureEnable / netCaptureDisable）：开与关都只落在这**一个
- * 标签页**上，同站点的其他标签页各录各的。开启动作必须由人发起 —— AI 工具只能出同意卡，这里
- * 与浮层同意卡走的是同一条命令，只是挪到一个不必先打开浮层就能按到的地方。
+ * 判据落在**这一个标签页**上，命令只带 tabId，地址由 SW 现取。它同时开两件事：给这页建 / 开
+ * 存续行（「活动历史」里立刻就能看到它），以及这一页的接口录制。开启必须由人发起 —— AI 工具只能
+ * 出同意卡，浮层那张卡与这里走同一条命令，只是挪到一个不必先打开浮层就能按到的地方。
  *
- * 关掉不清数据：已录记录与会话归档都留着（清理在「接口数据」面板里）。
+ * 开与关都会给这一页的时间线留一条（开始记录 / 结束记录），「哪一段在记」在那边看得见。
+ * 关掉不清任何内容：已录接口、存续行与运行记录都留着（清理在「活动历史」面板里）。
  * 失败时留在面板里把话说出来（与「打开会话」同款：关了就没地方说了）；成功上抛给父组件。
  */
-async function toggleRecording(next: boolean): Promise<void> {
+async function toggleTabActivity(next: boolean): Promise<void> {
   const tabId = props.tab?.tabId
   if (toggleBusy.value || tabId == null) return
   toggleBusy.value = true
@@ -145,11 +140,11 @@ async function toggleRecording(next: boolean): Promise<void> {
   try {
     const res = (await chrome.runtime.sendMessage(
       next
-        ? { kind: 'userscript:netCaptureEnable', tabId, host: props.host }
-        : { kind: 'userscript:netCaptureDisable', tabId },
+        ? { kind: 'userscript:tabActivityEnable', tabId }
+        : { kind: 'userscript:tabActivityDisable', tabId },
     )) as RuntimeResponse<unknown> | undefined
     if (!res?.ok) throw new Error(res?.error || '未知错误')
-    emit('recordingChanged', tabId, next)
+    emit('tabRecordingChanged', tabId, next)
     justEnabled.value = next
   } catch (e) {
     toggleError.value = e instanceof Error ? e.message : String(e)
@@ -173,47 +168,52 @@ async function toggleRecording(next: boolean): Promise<void> {
     <!-- 子卡比外卡低一档圆角（rounded-md），嵌套层次才看得出来 -->
     <div class="flex flex-col gap-2 p-2">
       <!--
-        接口录制卡：常显 —— 开本身是个状态（开着是隐形的、最容易忘了关），藏起来用户就没地方
-        确认此刻在不在录。放在子卡最上面：它答的是「这个标签页此刻在录什么」，而脚本列表随时都在，
-        不必占第一位。开关只落在这一个标签页上，同站点的其他标签页各录各的。
+        记录开关（常显，**只有这一枚**）。开本身是个状态（开着是隐形的、最容易忘了关），
+        藏起来用户就没地方确认此刻在不在记。它同时给这一页开两件事 —— 活动记录（存续行 + 事件
+        + 脚本运行记账）与接口录制。记录是被动的：开着时这页的运行才带上标签页归属，「活动历史」
+        里才找得到它；接口录制同理，录到的请求也挂在这同一页上。
+        开关只落在**这一个标签页**上，同站点的其他页各开各的；关掉不清任何已录内容。
       -->
-      <div class="rounded-md border border-border" data-testid="popup-current-recording">
+      <div class="rounded-md border border-border" data-testid="popup-current-tab-activity">
         <div class="flex items-center gap-2 px-2.5 py-1.5">
-          <span class="shrink-0 text-xs text-muted-foreground">接口录制</span>
+          <span class="shrink-0 text-xs text-muted-foreground">活动记录</span>
           <span
             class="flex min-w-0 flex-1 items-center gap-1.5"
-            data-testid="popup-current-recording-state"
+            data-testid="popup-current-tab-activity-state"
           >
-            <template v-if="recording">
+            <template v-if="tabRecording">
               <span class="size-1.5 shrink-0 rounded-full bg-primary" />
-              <span class="min-w-0 truncate text-xs">正在录制</span>
+              <span class="min-w-0 truncate text-xs">正在记录</span>
             </template>
             <span v-else class="min-w-0 truncate text-xs text-muted-foreground">{{ idleLabel }}</span>
           </span>
           <ui-switch
-            :model-value="recording"
+            :model-value="tabRecording"
             :disabled="toggleBusy || !canRecord"
-            aria-label="接口录制"
-            data-testid="popup-toggle-recording"
-            @update:model-value="toggleRecording"
+            aria-label="活动记录"
+            data-testid="popup-toggle-tab-activity"
+            @update:model-value="toggleTabActivity"
           >
             <ui-switch-thumb />
           </ui-switch>
         </div>
 
-        <!-- 刚扳开、页面还没重载：钩子只在文档开头挂，这一句是「开关已开但还没在录」的唯一解释 -->
+        <!--
+          刚扳开、页面还没重载：接口录制那半的钩子只在文档开头挂，这一句是「开关已开、
+          首屏请求没录到」的唯一解释（活动记录那半不受影响，拨开即生效）。
+        -->
         <p
           v-if="justEnabled"
           class="border-t border-border px-2.5 py-1.5 text-xs text-muted-foreground"
           data-testid="popup-recording-hint"
         >
-          刷新页面后开始记录
+          接口录制要刷新页面后才开始
         </p>
 
         <p
           v-if="toggleError"
           class="border-t border-border px-2.5 py-1.5 text-xs text-destructive"
-          data-testid="popup-recording-error"
+          data-testid="popup-tab-activity-error"
         >
           {{ toggleError }}
         </p>
@@ -240,13 +240,12 @@ async function toggleRecording(next: boolean): Promise<void> {
           v-if="scripts.length"
           class="max-h-40 overflow-y-auto border-t border-border px-2.5 py-0.5"
         >
-          <button
+          <div
             v-for="script in scripts"
             :key="script.uuid"
-            class="flex w-full items-center gap-2 border-b border-border py-1.5 text-left last:border-b-0"
+            class="flex w-full items-center gap-2 border-b border-border py-1.5 last:border-b-0"
             :title="script.uuid"
             data-testid="popup-current-scripts-row"
-            @click="openScript(script.uuid)"
           >
             <span class="min-w-0 flex-1 truncate text-xs font-medium">{{ script.name }}</span>
             <span
@@ -256,7 +255,7 @@ async function toggleRecording(next: boolean): Promise<void> {
               ⚠ {{ script.errorCount }}
             </span>
             <span v-else class="shrink-0 text-[10px] text-muted-foreground">运行中</span>
-          </button>
+          </div>
         </div>
       </div>
 

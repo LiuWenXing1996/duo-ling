@@ -1,6 +1,6 @@
 // UI 组件测试：UserscriptListPanel.vue 的两组易回归语义。
 //
-// A. **列表不承载报错展示**：报错属历史信息，由独立「错误日志」标签页承载，
+// A. **列表不承载报错展示**：报错属历史信息，在「活动历史」面板里按页看，
 //    脚本列表本身不展示任何脚本报错 —— 环境级问题（引擎不可用）只靠 availability 横幅一处兜底。
 // B. **新建脚本动线**：新建**不**跳编辑器（不 emit edit），改为在该行标「刚新建」，
 //    点该行「编辑」进过一次即摘标。
@@ -55,7 +55,6 @@ vi.mock('@/lib/userscripts/ui-client', () => ({
     rename,
     removeGroup,
     reorderGroups,
-    clearErrors: vi.fn(),
   },
   subscribeAvailability,
 }))
@@ -249,7 +248,7 @@ describe('UserscriptListPanel 不承载报错展示', () => {
     expect(errors).not.toHaveBeenCalled()
   })
 
-  it('有报错的脚本行也不显示行内入口（报错不按脚本逐条复述，归独立标签页）', async () => {
+  it('有报错的脚本行也不显示行内入口（报错不按脚本逐条复述，不在列表展示）', async () => {
     list.mockResolvedValue([summary('u1', '脚本A'), summary('u2', '脚本B')])
     wrapper = await mountPanel()
     expect(errorChips()).toHaveLength(0)
@@ -395,10 +394,9 @@ describe('UserscriptListPanel 卡片布局', () => {
     wrapper = await mountPanel()
     const card = wrapper.findAll('.bg-card').find((el) => el.text().includes('脚本A'))!
     expect(card.element.textContent).toContain('匹配规则：https://a.example/*')
-    // 元信息三行恒渲染：本 fixture 无运行统计，运行两行落「无」（同排卡片行数才对得齐）
+    // 元信息只剩「更新时间」——运行观测按页收在「活动历史」，列表不再重复一行计数
     expect(card.element.textContent).toContain('更新时间：')
-    expect(card.element.textContent).toContain('上次运行：无')
-    expect(card.element.textContent).toContain('上次日志：无')
+    expect(card.element.textContent).not.toContain('上次运行：')
   })
 })
 
@@ -430,9 +428,9 @@ describe('UserscriptListPanel 新建脚本', () => {
   })
 
   // 与上游同名的用例不同：上游断言「列表页弹出注册失败警告」，这里断言相反 ——
-  // 注册失败**不在列表页报错**（报错属历史信息，归错误日志标签页；环境态由 availability 横幅兜底，
+  // 注册失败**不在列表页报错**（报错属历史信息，归活动历史面板；环境态由 availability 横幅兜底，
   // 在列表再说一遍是同一件事两次）。数据已落库这一点由「仍然标刚新建」体现。
-  it('注册失败仍标「刚新建」，但不在列表页报错（归错误日志标签页）', async () => {
+  it('注册失败仍标「刚新建」，但不在列表页报错（归活动历史面板）', async () => {
     wrapper = await mountPanel()
     list.mockResolvedValue([summary('u2', '新建的脚本 1'), summary('u1', '已有脚本')])
     create.mockResolvedValue({ uuid: 'u2', name: '新建的脚本 1', registerError: '未开启 Allow User Scripts' })

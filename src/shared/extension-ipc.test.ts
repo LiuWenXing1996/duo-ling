@@ -58,15 +58,18 @@ const ALL_KINDS = [
   { kind: 'userscript:availability', side: 'sw' },
   { kind: 'userscript:healthCheck', side: 'sw' },
   { kind: 'userscript:runlog', side: 'sw' },
+  { kind: 'userscript:tabSessions', side: 'sw' },
+  { kind: 'userscript:tabTimeline', side: 'sw' },
+  { kind: 'userscript:tabActivityEnable', side: 'sw' },
+  { kind: 'userscript:tabActivityDisable', side: 'sw' },
+  { kind: 'userscript:tabActivityDelete', side: 'sw' },
+  { kind: 'userscript:tabActivityClear', side: 'sw' },
   { kind: 'userscript:runEvents', side: 'sw' },
   { kind: 'userscript:errorRead', side: 'sw' },
-  { kind: 'userscript:clearErrors', side: 'sw' },
   { kind: 'userscript:import', side: 'sw' },
   { kind: 'userscript:importText', side: 'sw' },
-  // 网络录制（dl-recorder）：门禁在 duoling-app、记录在 duoling-netlog，都归 SW
+  // 网络录制（dl-recorder）：门禁在 duoling-app、采样在 duoling-runtime 的 tab_events，都归 SW
   { kind: 'userscript:netCaptureState', side: 'sw' },
-  { kind: 'userscript:netCaptureEnable', side: 'sw' },
-  { kind: 'userscript:netCaptureDisable', side: 'sw' },
   { kind: 'userscript:netCaptureRead', side: 'sw' },
   { kind: 'userscript:netLogClear', side: 'sw' },
   { kind: 'userscript:groups', side: 'sw' },
@@ -113,7 +116,6 @@ const ALL_KINDS = [
   { kind: 'page:snapshot', side: 'sw' },
   { kind: 'page:env', side: 'sw' },
   { kind: 'page:overview', side: 'sw' },
-  { kind: 'page:openErrors', side: 'sw' },
   // —— tab:*（SW：内容脚本自证身份，回 sender.tab.id 供浮层认定会话归属）——
   { kind: 'tab:identify', side: 'sw' },
   // —— conv:*（offscreen：会话写侧，唯一写方；SW 对前缀静默让路）——
