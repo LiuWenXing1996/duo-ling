@@ -73,7 +73,8 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
   page_snapshot:
     '抓取当前页面的**渲染后 DOM** 快照（documentElement.outerHTML，截断 ~32KB，拾取时刻快照非实时）。' +
     '需要了解页面整体结构、找脚本目标节点的上下文、或摘要信息不够用时调用。' +
-    '内置页（chrome:// 等）与非活动窗口不可采，返回 ok:false 带原因。',
+    '采不到的情形（内置页 / 未开启「允许运行用户脚本」）返回 ok:false 带原因；' +
+    '目标页是本会话所属的标签页，不必是当前激活页。',
   env_read:
     '读取这台机器的运行环境：操作系统与版本、芯片架构、CPU 核数、内存档次、浏览器与扩展版本、' +
     '屏幕尺寸与像素比、语言与时区、系统明暗与减弱动效偏好。' +
@@ -314,7 +315,7 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
     description: TOOL_DESCRIPTIONS.page_snapshot,
     params: [],
     returns: '{ ok:true, pageUrl, capturedAt, html }',
-    unavailable: '未接采集通道 / 内置页（chrome://）/ 非活动窗口 → { ok:false, error }',
+    unavailable: '未接采集通道 / 内置页（chrome://）/ 找不到会话所属的标签页 → { ok:false, error }',
   },
   {
     name: 'env_read',
