@@ -6,17 +6,27 @@ import { NET_HOST_RING_LIMIT, type NetCaptureRecord, type NetRecordSession } fro
 import {
   appendCapture,
   archiveSession,
+  clearAllCaptureData,
   clearAllForTests,
   clearCapturesByHost,
   clearHostData,
+  clearTabSessionData,
   countCapturesByHost,
   listCapturedHosts,
   listCapturesByHost,
+  listCapturesByTabSession,
   listSessionHosts,
   listSessionsByHost,
+  listSessionsByTabSession,
 } from './netlog-db'
 
-function rec(host: string, url: string, t: number, sessionId = 'sess-1'): NetCaptureRecord {
+function rec(
+  host: string,
+  url: string,
+  t: number,
+  sessionId = 'sess-1',
+  tabSessionId?: string,
+): NetCaptureRecord {
   return {
     host,
     sessionId,
@@ -29,6 +39,7 @@ function rec(host: string, url: string, t: number, sessionId = 'sess-1'): NetCap
     respHeaders: {},
     respBody: '{}',
     t,
+    ...(tabSessionId ? { tabSessionId } : {}),
   }
 }
 
@@ -138,5 +149,62 @@ describe('录制会话归档', () => {
     expect(await listSessionsByHost('a.test')).toEqual([])
     expect(await countCapturesByHost('b.test')).toBe(1)
     expect(await listSessionsByHost('b.test')).toHaveLength(1)
+  })
+})
+
+describe('按标签页存续行（tabSessionId）读与清', () => {
+  it('listCapturesByTabSession 只捞本存续行的记录', async () => {
+    await appendCapture(rec('a.test', 'https://a.test/1', 1, 'sess-1', 'tab-A'))
+    await appendCapture(rec('a.test', 'https://a.test/2', 2, 'sess-1', 'tab-A'))
+    await appendCapture(rec('a.test', 'https://a.test/3', 3, 'sess-2', 'tab-B'))
+    expect((await listCapturesByTabSession('tab-A')).map((r) => r.url)).toEqual([
+      'https://a.test/1',
+      'https://a.test/2',
+    ])
+    expect((await listCapturesByTabSession('tab-B')).map((r) => r.url)).toEqual(['https://a.test/3'])
+  })
+
+  it('无 tabSessionId 的旧记录不进索引：按 host 查得到、按存续行查不到', async () => {
+    await appendCapture(rec('a.test', 'https://a.test/old', 1)) // 缺 tabSessionId
+    await appendCapture(rec('a.test', 'https://a.test/new', 2, 'sess-1', 'tab-A'))
+    expect((await listCapturesByHost('a.test')).map((r) => r.url)).toEqual([
+      'https://a.test/old',
+      'https://a.test/new',
+    ])
+    expect((await listCapturesByTabSession('tab-A')).map((r) => r.url)).toEqual(['https://a.test/new'])
+  })
+
+  it('listSessionsByTabSession 按开始时刻升序、只捞本存续行', async () => {
+    await archiveSession(session('a.test', 200, { tabSessionId: 'tab-A' }))
+    await archiveSession(session('a.test', 100, { tabSessionId: 'tab-A' }))
+    await archiveSession(session('b.test', 50, { tabSessionId: 'tab-B' }))
+    expect((await listSessionsByTabSession('tab-A')).map((s) => s.startedAt)).toEqual([100, 200])
+    expect(await listSessionsByTabSession('tab-B')).toHaveLength(1)
+  })
+
+  it('clearTabSessionData 连记录带会话清掉，且不波及同 host 的别页', async () => {
+    await appendCapture(rec('a.test', 'https://a.test/1', 1, 'sess-1', 'tab-A'))
+    await archiveSession(session('a.test', 1, { tabSessionId: 'tab-A' }))
+    await appendCapture(rec('a.test', 'https://a.test/2', 2, 'sess-2', 'tab-B'))
+    await archiveSession(session('a.test', 2, { tabSessionId: 'tab-B' }))
+    await clearTabSessionData('tab-A')
+    expect(await listCapturesByTabSession('tab-A')).toEqual([])
+    expect(await listSessionsByTabSession('tab-A')).toEqual([])
+    // 同 host 的另一页原样 —— 这是「按存续行清」才有的粒度
+    expect((await listCapturesByTabSession('tab-B')).map((r) => r.url)).toEqual(['https://a.test/2'])
+    expect(await listSessionsByTabSession('tab-B')).toHaveLength(1)
+    expect((await listCapturesByHost('a.test')).map((r) => r.url)).toEqual(['https://a.test/2'])
+  })
+
+  it('clearAllCaptureData 清空两张表（记录 + 会话）', async () => {
+    await appendCapture(rec('a.test', 'https://a.test/1', 1, 'sess-1', 'tab-A'))
+    await archiveSession(session('a.test', 1, { tabSessionId: 'tab-A' }))
+    await appendCapture(rec('b.test', 'https://b.test/1', 2, 'sess-2', 'tab-B'))
+    await archiveSession(session('b.test', 2, { tabSessionId: 'tab-B' }))
+    await clearAllCaptureData()
+    expect(await listCapturedHosts()).toEqual([])
+    expect(await listSessionHosts()).toEqual([])
+    expect(await listCapturesByTabSession('tab-A')).toEqual([])
+    expect(await listSessionsByTabSession('tab-B')).toEqual([])
   })
 })

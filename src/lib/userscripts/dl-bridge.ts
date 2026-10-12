@@ -650,7 +650,7 @@ async function ingestNetCapture(hostRaw: unknown, capture: unknown, tabId: numbe
     if (!host) return
     const session = (await getNetCaptureSessions()).find((s) => s.tabId === tabId && s.host === host)
     if (!session) return
-    const record = normalizeCapture(host, capture, session.id)
+    const record = normalizeCapture(host, capture, session.id, session.tabSessionId)
     if (record) await netlog.appendCapture(record)
   } catch {
     // 录制不该影响页面网络层：任何一步失败都静默丢弃这条

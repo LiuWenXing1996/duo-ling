@@ -40,6 +40,7 @@ function normalizeSession(raw: unknown): NetRecordSession | null {
       typeof s.startedAt === 'number' && Number.isFinite(s.startedAt) ? Math.trunc(s.startedAt) : Date.now(),
   }
   if (typeof s.endedAt === 'number' && Number.isFinite(s.endedAt)) out.endedAt = Math.trunc(s.endedAt)
+  if (typeof s.tabSessionId === 'string' && s.tabSessionId) out.tabSessionId = s.tabSessionId
   return out
 }
 
@@ -95,6 +96,11 @@ export async function startNetSession(input: {
   host: string
   url?: string
   title?: string
+  /**
+   * 这一页的存续行 id。录制与活动记录现在由同一个开关触发，故调用方手上必有；
+   * 缺省只出现在「目录绕过开关直接开录制」的路径上，那种录制事后无处归属。
+   */
+  tabSessionId?: string
 }): Promise<{ session: NetRecordSession; sessions: NetRecordSession[]; replaced: NetRecordSession[] }> {
   const host = normalizeHost(input.host)
   if (!host) throw new Error(`无效的站点：${input.host}`)
@@ -109,6 +115,7 @@ export async function startNetSession(input: {
   const session: NetRecordSession = {
     id: crypto.randomUUID(),
     tabId: input.tabId,
+    ...(input.tabSessionId ? { tabSessionId: input.tabSessionId } : {}),
     host,
     url: input.url ?? '',
     title: input.title ?? '',

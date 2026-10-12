@@ -63,6 +63,14 @@ export interface NetRecordSession {
   id: string
   /** 录制所在的标签页（仅实时判据用；不进归档的判断依据） */
   tabId: number
+  /**
+   * 这次录制归属的标签页存续行（见 TabSessionRecord）。
+   *
+   * 与 tabId 的分工：tabId 只答「此刻这条消息来自哪个标签页」，它答「事后把这段录制挂到哪一页」。
+   * 两者不是一回事 —— tabId 会被浏览器复用、重启后重排，故归档归属只能认它。
+   * 录制与活动记录由同一个开关触发后必填；合并前录下的老会话没有，读侧按「未归属」处理。
+   */
+  tabSessionId?: string
   /** 录制所在的站点（与记录同口径的归一 host） */
   host: string
   /** 开启那一刻页面的地址与标题：标签页关掉后凭它认出录的是哪个页面 */
@@ -81,6 +89,8 @@ export interface NetCaptureRecord {
   host: string
   /** 产生这条记录的录制会话 id。会话结束后记录仍留着，凭它把记录归到某次录制 */
   sessionId: string
+  /** 归属的标签页存续行（由会话透传，见 NetRecordSession.tabSessionId）；老记录缺省，按未归属处理 */
+  tabSessionId?: string
   /** 请求方式来源 */
   type: 'fetch' | 'xhr'
   url: string
@@ -103,7 +113,7 @@ export interface NetCaptureRecord {
  * 采集载荷：捕获件只产这些字段。
  * host 由转发件补（它知道自己的 location），sessionId 由 SW 补（只有它能判消息来自哪个标签页）。
  */
-export type NetCapturePayload = Omit<NetCaptureRecord, 'id' | 'host' | 'sessionId'>
+export type NetCapturePayload = Omit<NetCaptureRecord, 'id' | 'host' | 'sessionId' | 'tabSessionId'>
 
 /**
  * 把一个 host 归一化成「小写裸主机名」；非法返回空串。
@@ -243,13 +253,14 @@ export function stripUrlSecrets(raw: string): string {
  * 消息经过 MAIN 世界（页面可伪造 postMessage）与两次结构化克隆，SW 不能信其形状——
  * 所有字段白名单化、类型强转、长度封顶、鉴权头再剥、URL 凭据再脱敏。
  *
- * sessionId 由调用方（SW）给定而非载荷携带：它要按 sender.tab.id 查出来，
+ * sessionId 与 tabSessionId 都由调用方（SW）给定而非载荷携带：它们要按 sender.tab.id 查出来，
  * 载荷里那一段来自页面世界，认了就等于让页面自己声明归属。
  */
 export function normalizeCapture(
   hostRaw: unknown,
   captureRaw: unknown,
   sessionId: string,
+  tabSessionId?: string,
 ): NetCaptureRecord | null {
   const host = str(hostRaw).toLowerCase()
   if (!host) return null
@@ -262,6 +273,7 @@ export function normalizeCapture(
   return {
     host,
     sessionId,
+    ...(tabSessionId ? { tabSessionId } : {}),
     type,
     url: stripUrlSecrets(url).slice(0, 4096),
     method: (str(c.method) || 'GET').toUpperCase(),
