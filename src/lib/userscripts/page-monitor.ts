@@ -196,25 +196,6 @@ export function initPageMonitorPorts(): void {
           .catch(() => {})
         return
       }
-      // 点击脚本行 → 打开/聚焦工作台错误日志
-      if (msg.t === 'page:openErrors' && msg.uuid) void openWorkbenchErrors(msg.uuid).catch(() => {})
     })
   })
-}
-
-/**
- * 上行：点击脚本行 → 打开 / 聚焦工作台并深链定位到该脚本的错误（workbench.html#/errors/<uuid>）。
- * 已打开工作台时更新 hash 并激活（hash 变化不重载页面，WorkbenchApp 的 hash 处理器接管）。
- */
-export async function openWorkbenchErrors(uuid: string): Promise<void> {
-  const base = chrome.runtime.getURL('workbench.html')
-  const url = `${base}#/errors/${encodeURIComponent(uuid)}`
-  const tabs = await chrome.tabs.query({ url: `${base}*` })
-  const existing = tabs.find((t) => t.id != null)
-  if (existing?.id != null) {
-    await chrome.tabs.update(existing.id, { url, active: true })
-    if (existing.windowId != null) await chrome.windows.update(existing.windowId, { focused: true }).catch(() => {})
-  } else {
-    await chrome.tabs.create({ url })
-  }
 }

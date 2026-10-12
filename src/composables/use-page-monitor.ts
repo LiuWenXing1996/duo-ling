@@ -203,16 +203,6 @@ export function usePageMonitor() {
     return errors.value.filter((e) => e.uuid === uuid)
   }
 
-  /** 点击脚本行：经端口上行，由 SW 打开/聚焦工作台并深链到该脚本的错误。
-   *  popup 侧的调用方点完要自行关闭面板（新标签页激活后 popup 未必立刻消失） */
-  function openErrors(uuid: string): void {
-    try {
-      monitorPort?.postMessage({ t: 'page:openErrors', uuid })
-    } catch {
-      // 端口已断：静默（下次展开面板时快照会刷新状态）
-    }
-  }
-
   return {
     host,
     visible,
@@ -220,6 +210,5 @@ export function usePageMonitor() {
     errors,
     displayName,
     errorsOf,
-    openErrors,
   }
 }

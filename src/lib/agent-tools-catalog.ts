@@ -101,7 +101,7 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
     '并由用户在那个标签页里刷新页面。',
   error_read:
     '按错误 ID 查询一条脚本错误记录。用户可能直接粘贴一个错误 ID（脚本运行出错后，' +
-    '工作台错误日志里每条错误旁都展示，前 8 位短形态）要求修复。返回错误详情（message / stack / ' +
+    '工作台「活动历史」里每条错误旁都展示，前 8 位短形态）要求修复。返回错误详情（message / stack / ' +
     '报错页面 url）与脚本 uuid——uuid 可直接交给 script_read 读源码，改完带 updateUuid 调 script_apply 原地更新。',
   run_log_read:
     '查询脚本的运行日志（最近的运行 + 每次运行报的错 + 每次运行做过多少动作），按时间倒序。用于回答' +

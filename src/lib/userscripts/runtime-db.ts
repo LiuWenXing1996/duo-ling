@@ -597,7 +597,7 @@ export async function endOpenTabSessions(): Promise<number> {
   })
 }
 
-/** 全量表（按登记先后升序）。消费方：运行日志按标签页分组时取名字与时刻 */
+/** 全量表（按登记先后升序）。消费方：活动历史按标签页分档时取名字与时刻 */
 export async function listTabSessions(): Promise<TabSessionRecord[]> {
   const rows = await runTx(TAB_SESSIONS_STORE, 'readonly', async (tx) =>
     request<TabSessionRow[]>(tx.objectStore(TAB_SESSIONS_STORE).index(TABS_BY_SEEN).getAll()),

@@ -7,7 +7,6 @@ import GuidePanel from '@/components/GuidePanel.vue'
 import UiTestPanel from '@/components/UiTestPanel.vue'
 import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
 import UserscriptListPanel from '@/components/userscript/UserscriptListPanel.vue'
-import UserscriptRunLogPanel from '@/components/userscript/UserscriptRunLogPanel.vue'
 import UserscriptEditorPanel from '@/components/userscript/UserscriptEditorPanel.vue'
 import LfsBrowserPanel from '@/components/userscript/LfsBrowserPanel.vue'
 import UserscriptHistoryPanel from '@/components/userscript/UserscriptHistoryPanel.vue'
@@ -150,30 +149,6 @@ function openUserscriptListTab(): void {
   activate('userscript-list')
 }
 
-/**
- * 打开运行日志标签页：全局仅一个（运行日志是全局视图，每脚本开一个没有意义）。
- * focusUuid：灵动岛深链 #/errors/<uuid> / 列表页入口进来时按该脚本定位；
- * 传 null（或不传）则保持用户当前选择，不强行跳分组。
- *
- * 定位请求用对象包一层（seq 递增）而不是直接存 uuid 字符串：标签页常驻不重挂
- * （ui-tabs 的 unmount-on-hide=false），若只存字符串，对**同一个脚本**再点一次时值不变、
- * 面板的 watch 不触发，表现成「点了没反应」。
- */
-const errorLogFocus = ref<{ uuid: string; seq: number } | null>(null)
-let errorLogFocusSeq = 0
-/**
- * 运行日志重拉信号：脚本被删除后其报错记录已在后台一并清掉，但标签页常驻不重挂，
- * 不通知就还显示着「已删脚本」的旧分组。自增即让面板重新拉一次。
- */
-const errorLogReloadSeq = ref(0)
-function openErrorLogTab(focusUuid?: string | null): void {
-  if (focusUuid) errorLogFocus.value = { uuid: focusUuid, seq: ++errorLogFocusSeq }
-  if (!openTabs.value.some((t) => t.kind === 'error-log')) {
-    openTabs.value.push({ kind: 'error-log', id: 'error-log', title: '运行日志' })
-  }
-  activate('error-log')
-}
-
 // 打开会话历史标签页：回看/管理历史会话（列表 + 只读消息回放），全局仅一个。
 // 对话界面（网页浮层）的会话归属由标签页决定，历史会话的入口收在这里。
 function openSessionHistoryTab(): void {
@@ -184,7 +159,7 @@ function openSessionHistoryTab(): void {
 }
 
 // 打开活动历史标签页：以**标签页**为主线的历史视图（左栏标签页列表 + 右栏该页活动时间线），
-// 全局仅一个。与「运行日志」互补：那边以日志为准（没跑过脚本的页不出现），这边把每一页都列出来。
+// 全局仅一个。运行与错误的唯一 UI 落点 —— 没开活动记录的页归「未知标签页」那一档。
 function openTabActivityTab(): void {
   if (!openTabs.value.some((t) => t.kind === 'tab-activity')) {
     openTabs.value.push({ kind: 'tab-activity', id: 'tab-activity', title: '活动历史' })
@@ -244,14 +219,12 @@ function openUserscriptEditor(uuid: string, title: string): void {
 /**
  * 脚本被删除（列表页广播）：关掉它可能开着的编辑器标签页。
  * 先清脏标记再关 —— 脚本连 git 仓都被删了，未保存的改动已无处可存，不该再弹确认。
- * 同时让运行日志标签页重拉：该脚本的报错记录已随删除清掉，不重拉页面上还留着它的分组。
  */
 function onUserscriptDeleted(uuid: string): void {
   for (const id of [editorTabId(uuid)]) {
     delete dirtyTabs.value[id]
     if (openTabs.value.some((t) => t.id === id)) closeTab(id)
   }
-  errorLogReloadSeq.value++
 }
 
 // 工作区 tab 状态上报主进程：agent_workspace_tabs 工具据此回答「当前打开了哪些页面」。
@@ -267,9 +240,9 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「引导 / 设置 / 脚本列表 / 错误日志 / 活动历史 / 会话历史」与脚本管理器的「编辑」入口。
+// 暴露给根布局：左侧导航栏「设置 / 脚本列表 / 活动历史 / 会话历史」与脚本管理器的「编辑」入口。
 // 调试面板不走这里 —— 它的入口在设置分区里，经 @open-tab 到 openDevTab
-defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openErrorLogTab, openSessionHistoryTab, openTabActivityTab, openUserscriptEditor })
+defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openSessionHistoryTab, openTabActivityTab, openUserscriptEditor })
 </script>
 
 <template>
@@ -314,13 +287,6 @@ defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openErrorLo
           @edit="openUserscriptEditor"
           @deleted="onUserscriptDeleted"
           @open-guide="openGuideTab"
-        />
-        <!-- 运行日志：按时间的运行流水视图（全局仅一个标签页） -->
-        <userscript-run-log-panel
-          v-else-if="tab.kind === 'error-log'"
-          :focus-uuid="errorLogFocus?.uuid ?? null"
-          :focus-seq="errorLogFocus?.seq ?? 0"
-          :reload-seq="errorLogReloadSeq"
         />
         <!-- 用户脚本编辑器：每脚本一个标签页；脏状态上报给 closeTab 做关闭前确认；
              历史按钮请求开历史标签页；恢复完成后 editorReloadTick 变更强制重载编辑态 -->

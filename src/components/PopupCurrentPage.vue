@@ -101,15 +101,6 @@ const conversationLabel = computed(() => (props.tab?.generating ? 'AI 正在回�
 const openFloatHint = '当前页面不能显示对话浮层'
 
 /**
- * 点脚本行 → 深链到工作台该脚本的错误日志，随后关掉面板。
- * 关闭延后一帧：上行是异步投递，同一 tick 里关掉文档会让这条消息悬空。
- */
-function openScript(uuid: string): void {
-  void chrome.runtime.sendMessage({ kind: 'page:openErrors', uuid }).catch(() => {})
-  setTimeout(() => window.close(), 0)
-}
-
-/**
  * 把当前页面的对话浮层调出来。
  *
  * 收不到（页面在扩展更新前就打开、或在扩展管理页里单独禁掉了本站点的访问权）只能让用户刷新；
@@ -249,13 +240,12 @@ async function toggleTabActivity(next: boolean): Promise<void> {
           v-if="scripts.length"
           class="max-h-40 overflow-y-auto border-t border-border px-2.5 py-0.5"
         >
-          <button
+          <div
             v-for="script in scripts"
             :key="script.uuid"
-            class="flex w-full items-center gap-2 border-b border-border py-1.5 text-left last:border-b-0"
+            class="flex w-full items-center gap-2 border-b border-border py-1.5 last:border-b-0"
             :title="script.uuid"
             data-testid="popup-current-scripts-row"
-            @click="openScript(script.uuid)"
           >
             <span class="min-w-0 flex-1 truncate text-xs font-medium">{{ script.name }}</span>
             <span
@@ -265,7 +255,7 @@ async function toggleTabActivity(next: boolean): Promise<void> {
               ⚠ {{ script.errorCount }}
             </span>
             <span v-else class="shrink-0 text-[10px] text-muted-foreground">运行中</span>
-          </button>
+          </div>
         </div>
       </div>
 

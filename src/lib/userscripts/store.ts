@@ -308,7 +308,7 @@ export function recordRunStart(
     ...(extra?.tabSessionId != null ? { tabSessionId: extra.tabSessionId } : {}),
   }
   return runtime.startRun(uuid, entry).then((recorded) => {
-    // 管理页的运行统计列与运行日志标签页靠这条广播实时回拉（合并窗口防导航风暴）
+    // 管理页的运行统计列与「活动历史」面板靠这条广播实时回拉（合并窗口防导航风暴）
     if (recorded) broadcastDataChange('runstats', uuid)
   })
 }

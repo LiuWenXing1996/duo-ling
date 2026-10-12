@@ -2,7 +2,7 @@
 //
 // 这条链路的分支都在渲染层，故用组件测试守：
 //   A. 「当前页面」：两个按页开关（接口录制 / 活动记录，都常显、可就地开与关、状态随命令改口）、
-//      本页在跑的脚本（头部给计数、列表常显、点行跳错误日志）、对话浮层入口与回话状态；
+//      本页在跑的脚本（头部给计数、列表常显、行只读不跳转）、对话浮层入口与回话状态；
 //   B. 「当前页面」注入不了内容脚本（探活无人应答）→ 头部改说原因、浮层入口禁用；
 //   C. 「其他页面」：列出本页以外的标签页（脚本数 / 会话与生成中），点「去这里」切过去；没有别的页面给空态。
 //
@@ -152,21 +152,22 @@ describe('popup 的「当前页面」区块', () => {
     expect(scriptRows(w)[0]!.text()).toContain('⚠ 2')
   })
 
-  it('点脚本行：上行 page:openErrors 并关掉 popup', async () => {
+  it('脚本行只读：点了不上行、也不关 popup', async () => {
     stubChrome('https://example.com/page')
     overviewRows = [
       overviewRow(TAB_ID, { scripts: [{ uuid: 'u1', name: '示例脚本', errorCount: 0 }] }),
     ]
     const w = await mountPopup()
     const close = spyClose()
+    const sentBefore = runtimeSendMessage.mock.calls.length
 
     await scriptRows(w)[0]!.trigger('click')
     await flushPromises()
-    // 关闭延后一帧（上行是异步投递，同一 tick 里关掉文档会让它悬空）——让那个定时器跑完
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(runtimeSendMessage).toHaveBeenCalledWith({ kind: 'page:openErrors', uuid: 'u1' })
-    expect(close).toHaveBeenCalled()
+    // 这一行只是「本页跑着哪几个脚本」的展示（错误数走行内角标），点了不该有任何跳转
+    expect(runtimeSendMessage.mock.calls.length).toBe(sentBefore)
+    expect(close).not.toHaveBeenCalled()
   })
 
   it('本页没有脚本：头部给空态文案，不渲染列表', async () => {

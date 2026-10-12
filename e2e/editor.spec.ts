@@ -298,43 +298,6 @@ test.describe.serial('脚本编辑器交互（真机）', () => {
     await page.close()
   })
 
-  test('注册失败的记录在运行日志里标「未生效」（不再叫「注册」）', async () => {
-    // 造一条确定的注册失败：塞非法 matches（与冒烟同一路子，不必开页面等运行期错误）
-    const created = await sendToSw<{ uuid: string; name: string }>(messenger, {
-      kind: 'userscript:create',
-    })
-    if (!created.ok) throw new Error('创建脚本失败：' + created.error)
-    const badUuid = created.data.uuid
-    const bad = await sendToSw<{ registerError?: string }>(messenger, {
-      kind: 'userscript:save',
-      uuid: badUuid,
-      code: "console.log('e2e')",
-      config: { matches: ['not-a-match-pattern'], allFrames: true, runAt: 'document_end' },
-    })
-    expect(bad.ok, `userscript:save 失败：${bad.ok ? '' : bad.error}`).toBe(true)
-
-    // 错误记录是 fire-and-forget 落盘，轮询等它出现（同冒烟做法）
-    await expect
-      .poll(
-        async () => {
-          const res = await sendToSw<Array<{ kind: string; record?: { uuid: string | null } }>>(
-            messenger,
-            { kind: 'userscript:runlog' },
-          )
-          return res.ok ? res.data.map((r) => r.record?.uuid ?? '') : []
-        },
-        { timeout: 15_000 },
-      )
-      .toContain(badUuid)
-
-    const page = await context.newPage()
-    await page.goto(`chrome-extension://${extensionId}/workbench.html`)
-    await page.locator('button[aria-label="运行日志"]').click()
-    // 阶段徽标：这条错误的阶段是 register，界面用「未生效」而不是机制词「注册」
-    await expect(page.getByText('未生效').first()).toBeVisible({ timeout: 15_000 })
-    await page.close()
-  })
-
   test('版本来源：AI 落盘那版标「AI 修改」，用户自己的标「你」', async () => {
     // 用命令面模拟 AI 落盘 —— 与 AI 桥接层发的是同一条命令（actor 由桥接层固定传 'ai'），
     // 所以这里能覆盖「来源真的写进 git、又能被历史面板读出来」这条真实往返

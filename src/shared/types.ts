@@ -175,7 +175,6 @@ export type WorkspaceTabKind =
   | 'session-history'
   | 'agent-tools'
   | 'gm-api'
-  | 'error-log'
   | 'tab-activity'
 
 /** 工作区打开标签页快照（渲染层 → 主进程上报，供 Agent 工具查询当前打开的 tab 页） */

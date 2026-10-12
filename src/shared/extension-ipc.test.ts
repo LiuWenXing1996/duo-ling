@@ -66,7 +66,6 @@ const ALL_KINDS = [
   { kind: 'userscript:tabActivityClear', side: 'sw' },
   { kind: 'userscript:runEvents', side: 'sw' },
   { kind: 'userscript:errorRead', side: 'sw' },
-  { kind: 'userscript:clearErrors', side: 'sw' },
   { kind: 'userscript:import', side: 'sw' },
   { kind: 'userscript:importText', side: 'sw' },
   // 网络录制（dl-recorder）：门禁在 duoling-app、采样在 duoling-runtime 的 tab_events，都归 SW
@@ -117,7 +116,6 @@ const ALL_KINDS = [
   { kind: 'page:snapshot', side: 'sw' },
   { kind: 'page:env', side: 'sw' },
   { kind: 'page:overview', side: 'sw' },
-  { kind: 'page:openErrors', side: 'sw' },
   // —— tab:*（SW：内容脚本自证身份，回 sender.tab.id 供浮层认定会话归属）——
   { kind: 'tab:identify', side: 'sw' },
   // —— conv:*（offscreen：会话写侧，唯一写方；SW 对前缀静默让路）——

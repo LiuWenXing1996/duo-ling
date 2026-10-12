@@ -1065,7 +1065,7 @@ export function initDlBridge(): void {
           ...(typeof run.url === 'string' ? { url: run.url } : {}),
           ...(typeof run.savedAt === 'number' ? { savedAt: run.savedAt } : {}),
         }
-        // 标签页归属：运行日志按标签页看时的分组键（语义见 TabSessionRecord）。**被动取号** —— 只有用户在
+        // 标签页归属：活动历史按标签页分档时的分组键（语义见 TabSessionRecord）。**被动取号** —— 只有用户在
         // popup 里给这一页打开了活动记录才有号（见 tab-sessions），没开就没有归属，读侧归
         // 「未知标签页」。取号失败（存储不可用）同样不拦记账：归属缺失不该让这次运行消失。
         if (tabId == null) {
@@ -1152,7 +1152,7 @@ export function initDlBridge(): void {
       .catch((e: unknown) => {
         const message = e instanceof Error ? e.message : String(e)
         const code = e instanceof ApiError ? e.code : 'INTERNAL'
-        // 桥调用失败也进错误日志（面板可见）。它发生在某次运行**之中**，故带上信封里的 runId
+        // 桥调用失败也进错误日志（活动历史里可见）。它发生在某次运行**之中**，故带上信封里的 runId
         // 挂到那次运行下 —— 否则只能单列成孤儿行，看不出「脚本跑到哪一步挂的」。
         // 脚本名取自运行广播登记的表（尽力而为：表空时回退 uuid）。
         void appendUserScriptError({

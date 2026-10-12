@@ -254,10 +254,10 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
 
   // —————————————————————— 删除脚本的连带清理 ——————————————————————
 
-  test('删除脚本连带清掉它的报错记录（运行日志不留已删脚本的孤儿行）', async () => {
+  test('删除脚本连带清掉它的报错记录（时间线不留已删脚本的孤儿行）', async () => {
     test.skip(!userScriptsAvailable, 'chrome.userScripts 在无头 Chromium 下不可用（引导失败），转手测')
 
-    /** 运行日志时间线里当前出现过的脚本 uuid（运行行取 uuid，错误行取 record.uuid；
+    /** 运行日志时间线（userscript:runlog）里当前出现过的脚本 uuid（运行行取 uuid，错误行取 record.uuid；
      *  经 SW 读命令；信封异常时回空数组，由断言兜底） */
     const errorUuids = async (): Promise<string[]> => {
       const res = await sendToSw<Array<{ kind: string; uuid?: string; record?: { uuid: string | null } }>>(
@@ -292,9 +292,9 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     // 注册失败写记录是 fire-and-forget（后台不 await），故轮询等它落盘
     await expect.poll(errorUuids, { timeout: 15_000 }).toContain(uuid)
 
-    // 3. 删除脚本：它的报错记录必须一并消失，否则运行日志留下一个已删脚本的孤儿行
+    // 3. 删除脚本：它的报错记录必须一并消失，否则时间线上留下一个已删脚本的孤儿行
     const removed = await sendToSw<void>(messenger!, { kind: 'userscript:remove', uuid })
     expect(removed.ok, `userscript:remove 失败：${removed.ok ? '' : removed.error}`).toBe(true)
-    expect(await errorUuids(), '运行日志不该留下已删脚本的记录').not.toContain(uuid)
+    expect(await errorUuids(), '时间线不该留下已删脚本的记录').not.toContain(uuid)
   })
 })

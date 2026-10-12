@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 用户脚本列表标签页：脚本管理的唯一入口 —— 列表 + 启停 + 零输入新建 + 可用性横幅。
-// 错误日志是历史信息，由独立「运行日志」标签页承载（左侧导航进入），本页不展示任何脚本报错
+// 错误日志是历史信息，在「活动历史」面板里按页看（左侧导航进入），本页不展示任何脚本报错
 // —— 环境级问题仅靠下方 availability 横幅兜底。
 //
 // 数据通道：userscriptClient。workbench 是可信扩展页，可直接 chrome.runtime.sendMessage，
@@ -192,7 +192,7 @@ const viewItems = computed(() => {
 const firstGroupId = computed(() => groups.value[0]?.id ?? '')
 const lastGroupId = computed(() => groups.value[groups.value.length - 1]?.id ?? '')
 
-// 脚本列表不展示错误日志：报错属于历史信息，由独立「运行日志」标签页承载（左侧导航进入）。
+// 脚本列表不展示错误日志：报错属于历史信息，在「活动历史」面板里按页看（左侧导航进入）。
 // 环境级问题（如引擎不可用）由下方 availability 横幅统一兜底，不按脚本逐条复述。
 const enabledCount = computed(() => scripts.value.filter((s) => s.enabled).length)
 
@@ -261,7 +261,7 @@ async function detectAvailability(): Promise<void> {
 
 /**
  * 启停：数据写（enabled 落状态库）成功即更新开关，注册失败不回拨开关。
- * 注册失败的原因由 background 写进错误日志（独立标签页查看），本页不展示脚本报错。
+ * 注册失败的原因由 background 写进错误日志（在「活动历史」的「未知标签页」档里看），本页不展示脚本报错。
  */
 async function onToggle(s: ScriptSummary, next: boolean): Promise<void> {
   if (toggling.value) return
@@ -282,7 +282,7 @@ async function onToggle(s: ScriptSummary, next: boolean): Promise<void> {
  * 批量启停：列表页本地循环复用单条 toggle（不新增后端批量命令——命令面保持最小）。
  * 只对状态待变的脚本发起；逐条容错，任一失败不中断，最后汇总报错。
  * 与单条 onToggle 的「数据写成功即更新开关」语义一致：注册失败不回拨开关，
- * 原因归运行日志标签页，这里只报传输层失败。
+ * 原因归错误日志（「活动历史」面板里按页看），这里只报传输层失败。
  */
 async function onToggleAll(next: boolean): Promise<void> {
   if (batchToggling.value) return
@@ -437,7 +437,7 @@ async function onCreate(): Promise<void> {
   error.value = ''
   try {
     // 注册失败不算创建失败（数据已落库），行标照打、人在列表里按需进编辑器。
-    // **不在这里报注册失败**：报错属历史信息，由独立「运行日志」标签页承载；环境级失败
+    // **不在这里报注册失败**：报错属历史信息，在「活动历史」面板里按页看；环境级失败
     // （userScripts 未授权）由上方 availability 横幅兜底——在列表再说一遍就是同一件事两次。
     const { uuid } = await userscriptClient.create()
     justCreated.value = [...justCreated.value, uuid]
@@ -476,7 +476,7 @@ const renaming = ref(false)
 
 /**
  * 点「重命名」：开弹窗并预填当前名字。
- * 名字是管理面标识（列表 / 标签页 / GM_info / 错误日志分组名），改它不动源码、不产生版本。
+ * 名字是管理面标识（列表 / 标签页 / GM_info / 错误日志里的脚本名），改它不动源码、不产生版本。
  */
 function askRename(s: ScriptSummary): void {
   renameTarget.value = s
@@ -1324,7 +1324,7 @@ useDataSync('group', () => refreshGroups())
                 <p data-testid="run-stats">上次运行：{{ item.s.lastRunAt ? timeLabel(item.s.lastRunAt) : '无' }}</p>
                 <p
                   :class="item.s.lastRunErrors ? 'text-destructive' : ''"
-                  :title="item.s.lastRunErrors ? '最近一次运行捕获到错误，详情见「运行日志」标签页' : undefined"
+                  :title="item.s.lastRunErrors ? '最近一次运行捕获到错误，详情见「活动历史」' : undefined"
                 >
                   上次日志：{{ item.s.lastRunAt ? (item.s.lastRunErrors ? '有错误' : '正常') : '无' }}
                 </p>

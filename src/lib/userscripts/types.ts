@@ -152,7 +152,7 @@ export interface UserScriptsAvailability {
   guideText: string
 }
 
-/** 脚本错误记录（runtime 库 errors store，逐条 + 环形；保留最近 N 条，供错误日志面板） */
+/** 脚本错误记录（runtime 库 errors store，逐条 + 环形；保留最近 N 条，供活动历史里的错误条） */
 export interface UserScriptErrorRecord {
   id: string
   uuid: string | null // 运行期/注册错误有；部分桥错误可能无
@@ -182,7 +182,7 @@ export interface UserScriptErrorRecord {
 // 观测数据（错误日志 / 运行统计 / 运行条目 / 运行内事件）→ duoling-runtime（runtime-db.ts）。
 
 /** 错误日志环形上限：超过后只留最近 N 条。
- *  裁剪在写侧（runtime-db.ts，经 store.ts 汇入）、UI 文案（错误日志标签页）都读这里 ——
+ *  裁剪在写侧（runtime-db.ts，经 store.ts 汇入）、UI 文案（活动历史里的错误条）都读这里 ——
  *  上限只写一处，避免文案与实现漂移。 */
 export const ERROR_LOG_MAX = 50
 /** 运行日志环形上限：全局混存（跨脚本按时间排），超过后只留最近 N 条 */
@@ -269,7 +269,7 @@ export interface UserScriptRunLogEntry {
    */
   url?: string
   /**
-   * 本次运行所在标签页的存续 id（见 TabSessionRecord）—— 运行日志按标签页看时的分组键。
+   * 本次运行所在标签页的存续 id（见 TabSessionRecord）—— 活动历史按标签页分档时的分组键。
    * 缺省 = 这一页没在记活动（记录由用户在 popup 里逐页打开）：不补记，读侧归「未知标签页」。
    */
   tabSessionId?: string

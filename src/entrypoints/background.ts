@@ -82,12 +82,11 @@ import {
   findUserScriptError,
   listRunTimeline,
   listRunEvents,
-  clearRunLog,
   markRunEnd,
   clearTabActivity,
   deleteTabActivity,
 } from '@/lib/userscripts/store'
-// 观测数据的底层表（duoling-runtime 库）：存续表全量给「运行日志按标签页看」用；
+// 观测数据的底层表（duoling-runtime 库）：存续表全量给「活动历史」按标签页分档用；
 // 按页的时间线（存续轴事件 + 接口采样）与按站点的采样各有专门读法
 import {
   clearTabCapturesByHost,
@@ -100,7 +99,6 @@ import {
   forgetPageTab,
   initPageMonitorPorts,
   onPageRunsChanged,
-  openWorkbenchErrors,
   pageRunsByTab,
   resetPageRuns,
   snapshotForTabs,
@@ -197,7 +195,7 @@ async function writeViaOffscreen<T>(request: RuntimeRequest): Promise<T> {
 }
 
 /**
- * 注册失败：记入错误日志面板，并返回错误文案给 UI 展示。
+ * 注册失败：记入错误日志（在活动历史的「未知标签页」档里看），并返回错误文案给 UI 展示。
  *
  * **不 throw**——调用方（create / updateFiles / toggle）在注册前已完成数据写
  * （状态库 + git 快照都落了盘），注册只是让脚本「生效」的最后一环。把注册失败判成整个
@@ -375,12 +373,6 @@ const handlers: {
     })
   },
 
-  // 点脚本行 → 打开 / 聚焦工作台并深链到该脚本的错误（与浮层灵动岛共用同一实现）
-  'page:openErrors': async (msg): Promise<{ ok: true }> => {
-    await openWorkbenchErrors(msg.uuid)
-    return { ok: true }
-  },
-
   // —— 内容脚本自证身份 ——
   // 回 sender 自己的 tab id：content script 拿不到 chrome.tabs，而网页浮层（扩展页 iframe）
   // 必须知道「自己属于哪个 tab」才能认定会话归属（每 tab 一条会话）。
@@ -535,7 +527,7 @@ const handlers: {
   },
 
   // 重命名脚本：只改状态库的 name（不入仓、不产生提交），落库后启用中则重注册——
-  // 名字进 GM_info 与错误日志分组名，不重注册的话已注入的脚本仍顶旧名。
+  // 名字进 GM_info 与错误日志里的脚本名，不重注册的话已注入的脚本仍顶旧名。
   // 同 toggle：注册失败只降级为警告，不把改名判失败（名字已落库）。
   'userscript:rename': async (msg): Promise<{ registerError?: string }> => {
     if (!(await getProject(msg.uuid))) throw new Error('脚本不存在')
@@ -584,10 +576,10 @@ const handlers: {
   // **不做任何检测**——检测在 SW 自身的轮询（startAvailabilityWatch），职责分离见 availability-watch.ts
   'userscript:healthCheck': async (): Promise<{ alive: true }> => ({ alive: true }),
 
-  // 运行日志时间线：运行行 + 孤儿错误行混排（运行日志标签页）
+  // 运行日志时间线：运行行 + 孤儿错误行混排（「活动历史」右栏 + AI 的 run_log_read 都取它）
   'userscript:runlog': async (): Promise<ReturnType<typeof listRunTimeline>> => listRunTimeline(),
 
-  // 标签页存续表全量：运行日志按标签页分组时取名字与时刻（分组键在运行条目上，表只补名字）
+  // 标签页存续表全量：活动历史按标签页分组时取名字与时刻（分组键在运行条目上，表只补名字）
   'userscript:tabSessions': async (): Promise<ReturnType<typeof listTabSessions>> => listTabSessions(),
 
   // 某一页的整条时间线：存续轴事件（刷新 / 地址变更 / 记录开关）与它录到的接口采样
@@ -691,16 +683,6 @@ const handlers: {
     if (!host) throw new Error(`无效的站点：${msg.host}`)
     await clearTabCapturesByHost(host)
     return { host }
-  },
-
-  // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清 runs store 的对应条目——
-  // 时间线上「清空」应一条语义清两个存储，否则运行行清不掉）。三态必须靠「字段在不在」区分
-  // （`!msg.uuid` 会把「未归属」误判成「全部」）：
-  //   字段缺失 = 清全部；string = 只清该脚本；null = 只清「未归属」错误记录（运行条无此形态，不动）
-  'userscript:clearErrors': async (msg): Promise<void> => {
-    const target = 'uuid' in msg ? (msg.uuid ?? null) : undefined
-    await clearUserScriptErrors(target)
-    await clearRunLog(target)
   },
 
   // 进行中的会话（工作台「会话历史」的「生成中」标与停止入口）。只回 id：那张表就是 id 集合，
