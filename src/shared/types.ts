@@ -175,7 +175,6 @@ export type WorkspaceTabKind =
   | 'session-history'
   | 'agent-tools'
   | 'gm-api'
-  | 'net-log'
   | 'error-log'
   | 'tab-activity'
 

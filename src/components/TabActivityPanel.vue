@@ -31,7 +31,7 @@
 // 一处已知的新鲜度缺口：存续表由 SW 在标签页事件里直接写 IDB，**没有广播域**（跑脚本时写运行日志
 // 会广播 runstats / error，顺带把表一起拉新）。所以「开过但一次脚本都没跑过的新标签页」不会自己
 // 冒出来，要等下次回拉（刷新按钮 / 重开本页）—— 不为它单独加广播通道，是这版刻意的取舍。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import {
   Check as UiCheck,
@@ -43,6 +43,9 @@ import {
 import { Button as UiButton } from '@/components/ui/button'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { webHostname } from '@/lib/float-panel-host'
+import { routeOf } from '@/lib/userscripts/net-record-digest'
+import { listCapturesByTabSession, listSessionsByTabSession } from '@/lib/userscripts/netlog-db'
+import type { NetCaptureRecord, NetRecordSession } from '@/lib/userscripts/net-record-protocol'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
   type RunEndReason,
@@ -60,12 +63,14 @@ type RunRow = Extract<UserScriptRunLogRow, { kind: 'run' }>
 const UNKNOWN_TAB_KEY = '__unknown_tab__'
 
 /**
- * 时间线节点：页面的两个生命周期端点 + 这一页的刷新 / 地址变更与记录开关 + 脚本运行 +
- * 归不到运行的错误，按时刻混排。它们都只是「同一根时间轴上的点」，渲染各成一行、互不从属。
+ * 时间线节点：页面的两个生命周期端点 + 这一页的刷新 / 地址变更与记录开关 + 接口录制段 +
+ * 脚本运行 + 归不到运行的错误，按时刻混排。它们都只是「同一根时间轴上的点」，渲染各成一行、
+ * 互不从属 —— 录制段虽然跨一段时间，落点仍取它的**开始时刻**，与别的节点同级。
  */
 type TimelineNode =
   | { kind: 'lifecycle'; label: '页面打开' | '页面关闭'; time: number }
   | { kind: 'tabEvent'; event: TabEventRecord }
+  | { kind: 'netSession'; session: NetRecordSession; records: NetCaptureRecord[] }
   | { kind: 'run'; row: RunRow }
   | { kind: 'error'; record: UserScriptErrorRecord }
 
@@ -100,6 +105,11 @@ const sessions = ref<TabSessionRecord[]>([])
 /** 存续轴上的事件（刷新 / 地址变更 / 记录开关）：时间线的一类节点，与运行条按时刻混排 */
 const tabEvents = ref<TabEventRecord[]>([])
 const rows = ref<UserScriptRunLogRow[]>([])
+/** 选中页录到的接口：会话与采样分开存，渲染时按 sessionId 把采样挂回会话 */
+const netSessions = ref<NetRecordSession[]>([])
+const netRecords = ref<NetCaptureRecord[]>([])
+/** 正在录制的会话（SW 为权威）：左栏的「正在录」圆点与就地停止入口据此显示 */
+const recordingSessions = ref<NetRecordSession[]>([])
 const loading = ref(false)
 const error = ref('')
 /** 当前选中的标签页 key（tabSessionId / UNKNOWN_TAB_KEY）；空 = 左栏还没有任何一行 */
@@ -205,6 +215,12 @@ const selected = computed<TabItem | null>(
 /** 有活动（跑过脚本或出过错）的页数：头部概览用 */
 const activeCount = computed(() => tabItems.value.filter((i) => i.runs || i.errors).length)
 
+/** 选中页此刻的实时 tabId（在录才有）：卡头「停止记录」的显隐与参数都由它决定 */
+const selectedLiveTabId = computed<number | null>(() => {
+  const sel = selected.value
+  return sel ? liveTabIdOf(sel.id) : null
+})
+
 /** 右栏时间线：生命周期端点 + 该页的刷新 / 地址变更与记录开关 + 该页的运行 + 归到该页的错误，最新在前 */
 const timelineNodes = computed<TimelineNode[]>(() => {
   const sel = selected.value
@@ -221,6 +237,14 @@ const timelineNodes = computed<TimelineNode[]>(() => {
     if (tabKeyOf(row) !== sel.id) continue
     nodes.push(row.kind === 'run' ? { kind: 'run', row } : { kind: 'error', record: row.record })
   }
+  // 接口录制段：一段（开始 → 结束）一个节点，采样按 sessionId 挂回所属会话
+  for (const session of netSessions.value) {
+    nodes.push({
+      kind: 'netSession',
+      session,
+      records: netRecords.value.filter((r) => r.sessionId === session.id)
+    })
+  }
   // 最新在前；时刻缺省的排在最前 —— 与 listTabEvents 的升序口径一致（它按定义发生在该行
   // 所有已知节点之后，比如划断补的那条「结束记录」）
   return nodes.sort((a, b) => (nodeTime(b) ?? Infinity) - (nodeTime(a) ?? Infinity))
@@ -230,6 +254,7 @@ function nodeTime(node: TimelineNode): number | undefined {
   if (node.kind === 'run') return node.row.time
   if (node.kind === 'error') return node.record.time
   if (node.kind === 'tabEvent') return node.event.time
+  if (node.kind === 'netSession') return node.session.startedAt
   return node.time
 }
 
@@ -239,6 +264,7 @@ function nodeKey(node: TimelineNode): string {
   if (node.kind === 'tabEvent') {
     return `tabevent:${node.event.tabSessionId}:${node.event.time}:${node.event.kind}`
   }
+  if (node.kind === 'netSession') return `netsession:${node.session.id}`
   return `life:${node.label}`
 }
 
@@ -253,14 +279,17 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const [sessionList, eventList, logRows] = await Promise.all([
+    const [sessionList, eventList, logRows, captureState] = await Promise.all([
       userscriptClient.tabSessions(),
       userscriptClient.tabEvents(),
-      userscriptClient.runlog()
+      userscriptClient.runlog(),
+      // 哪些页正在录（判据归 SW）：左栏据此画圆点、给就地停止的地方
+      userscriptClient.netCaptureState()
     ])
     sessions.value = sessionList
     tabEvents.value = eventList
     rows.value = logRows
+    recordingSessions.value = captureState.sessions
     fallbackSelection()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -269,7 +298,30 @@ async function load(): Promise<void> {
   }
 }
 
+/**
+ * 拉选中页录到的接口（**只拉这一页**，不做全量预取）：接口采样可能上百条，
+ * 给每一页都拉一遍纯属浪费。切页时重拉。
+ */
+async function loadPageCaptures(tabSessionId: string): Promise<void> {
+  netSessions.value = []
+  netRecords.value = []
+  if (!tabSessionId) return
+  try {
+    const [sess, recs] = await Promise.all([
+      listSessionsByTabSession(tabSessionId),
+      listCapturesByTabSession(tabSessionId)
+    ])
+    netSessions.value = sess
+    netRecords.value = recs
+  } catch (e) {
+    error.value = '读取接口录制失败：' + (e instanceof Error ? e.message : String(e))
+  }
+}
+
 onMounted(() => void load())
+
+// 切页就换一份接口录制；首屏的选中项由 load 里的 fallbackSelection 定下，这里同样会收到
+watch(selectedId, (id) => void loadPageCaptures(id))
 
 // 跑脚本会广播这两个域（运行统计 / 错误）：接上就不用手动刷新也能看到新记录。
 // 存续表自身没有广播域（见文件头），顺带靠这两次回拉一起更新。
@@ -279,6 +331,90 @@ useDataSync('runstats', async () => {
 useDataSync('error', async () => {
   await load()
 })
+
+// —— 接口录制（融合自原「接口数据」面板：录制与活动记录本就是同一枚开关的两半）——
+
+/** 展开的录制段与其中的请求行：两套 key 分开存，折叠一段不影响别段里已展开的行 */
+const expandedNetSessionIds = ref<Set<string>>(new Set())
+const openNetRows = ref<Set<string>>(new Set())
+/** 停止录制在途（禁灰，防连点重复发命令） */
+const stoppingTabId = ref<number | null>(null)
+
+/** 正在录制的 tabSessionId（左栏圆点的判据）。老会话没带这个 id，故要过滤一遍 */
+const recordingTabSessionIds = computed(
+  () => new Set(recordingSessions.value.flatMap((s) => (s.tabSessionId ? [s.tabSessionId] : [])))
+)
+
+/** 某个 tabSessionId 此刻对应的实时 tabId（停录制要用它发命令）；没在录返回 null */
+function liveTabIdOf(tabSessionId: string): number | null {
+  return recordingSessions.value.find((s) => s.tabSessionId === tabSessionId)?.tabId ?? null
+}
+
+/**
+ * 就地停掉某一页的录制 —— 它就是关掉那一页的记录开关（录制与活动记录同一枚开关）。
+ * 存续行与已录内容都留着，只是不再长新的；停完重拉，时间线上会多出一条「结束记录」。
+ */
+async function stopRecording(tabId: number): Promise<void> {
+  if (stoppingTabId.value != null) return
+  stoppingTabId.value = tabId
+  error.value = ''
+  try {
+    await userscriptClient.tabActivityDisable(tabId)
+    await load()
+    await loadPageCaptures(selectedId.value)
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    stoppingTabId.value = null
+  }
+}
+
+/** 卡头那颗按钮的落点：从派生量里取一次实时 tabId，取不到就当这一页此刻并不在录 */
+function stopSelectedRecording(): void {
+  const tabId = selectedLiveTabId.value
+  if (tabId != null) void stopRecording(tabId)
+}
+
+function toggleNetSession(id: string): void {
+  const next = new Set(expandedNetSessionIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedNetSessionIds.value = next
+}
+
+function toggleNetRow(key: string): void {
+  const next = new Set(openNetRows.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  openNetRows.value = next
+}
+
+/** 录制段的副标题：起止时刻 + 状态 + 采到的条数 */
+function netSessionMeta(session: NetRecordSession, count: number): string {
+  const span = session.endedAt
+    ? `${formatClock(session.startedAt)} → ${formatClock(session.endedAt)}`
+    : `${formatClock(session.startedAt)} · 进行中`
+  return `${span} · ${count} 条`
+}
+
+/** 录制段的标题（录入时为空则回落到从地址取路径） */
+function netSessionTitle(session: NetRecordSession): string {
+  const title = session.title?.trim()
+  if (title) return title
+  try {
+    const u = new URL(session.url)
+    return u.pathname === '/' ? u.host : u.pathname
+  } catch {
+    return session.host
+  }
+}
+
+/** 头字典的展示文本（展开请求行时逐行列出） */
+function headerText(h: Record<string, string>): string {
+  return Object.entries(h)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n')
+}
 
 /**
  * 展开 / 折叠一次运行：展开时按 runId 拉那一组动作（懒加载，拉过就缓存）。
@@ -602,6 +738,11 @@ function onConfirmedAction(): void {
           >
             <span class="flex w-full items-center gap-1.5">
               <span class="size-1.5 shrink-0 rounded-full" :class="dotClass(item)" />
+              <span
+                v-if="recordingTabSessionIds.has(item.id)"
+                class="size-1.5 shrink-0 rounded-full bg-primary"
+                title="正在记录"
+              />
               <span class="min-w-0 flex-1 truncate">{{ item.label }}</span>
             </span>
             <span class="truncate pl-3 text-[10px] text-muted-foreground">{{ itemSummary(item) }}</span>
@@ -625,6 +766,18 @@ function onConfirmedAction(): void {
                 <span class="shrink-0 text-xs text-muted-foreground">
                   运行 {{ selected.runs }} 次<template v-if="selected.errors"> · 错误 {{ selected.errors }} 条</template>
                 </span>
+                <ui-button
+                  v-if="selectedLiveTabId != null"
+                  variant="ghost"
+                  size="sm"
+                  class="h-6 shrink-0 px-2 text-xs text-muted-foreground"
+                  title="停掉这一页的记录（存续行与已录内容都留着）"
+                  data-testid="tab-activity-stop"
+                  :disabled="stoppingTabId != null"
+                  @click="stopSelectedRecording"
+                >
+                  停止记录
+                </ui-button>
                 <ui-button
                   v-if="canDeleteSelected"
                   variant="ghost"
@@ -661,9 +814,11 @@ function onConfirmedAction(): void {
                     :class="
                       node.kind === 'lifecycle' || node.kind === 'tabEvent'
                         ? 'bg-muted-foreground/40'
-                        : node.kind === 'run' && !node.row.errors.length
-                          ? 'bg-muted-foreground/60'
-                          : 'bg-destructive'
+                        : node.kind === 'netSession'
+                          ? 'bg-primary'
+                          : node.kind === 'run' && !node.row.errors.length
+                            ? 'bg-muted-foreground/60'
+                            : 'bg-destructive'
                     "
                     aria-hidden="true"
                   />
@@ -694,6 +849,109 @@ function onConfirmedAction(): void {
                       {{ node.event.url }}
                     </span>
                   </p>
+
+                  <!--
+                    接口录制段：一段一张卡。它与刷新、运行同轴混排 —— 这正是融合的价值：
+                    「这一页怎么变的」与「每次变化后拉了哪些接口」原本要分两个面板对不齐。
+                  -->
+                  <div v-else-if="node.kind === 'netSession'" class="rounded-md border bg-card p-2.5 text-xs">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <span class="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                        接口录制
+                      </span>
+                      <span class="min-w-0 truncate font-medium" :title="node.session.url">
+                        {{ netSessionTitle(node.session) }}
+                      </span>
+                      <span
+                        v-if="!node.session.endedAt"
+                        class="size-1.5 shrink-0 rounded-full bg-primary"
+                        title="正在录制"
+                      />
+                      <span class="text-[10px] text-muted-foreground">
+                        {{ netSessionMeta(node.session, node.records.length) }}
+                      </span>
+                      <button
+                        v-if="node.records.length"
+                        type="button"
+                        class="rounded border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted"
+                        :title="
+                          expandedNetSessionIds.has(node.session.id)
+                            ? '收起这一段录到的请求'
+                            : '展开这一段录到的请求'
+                        "
+                        @click="toggleNetSession(node.session.id)"
+                      >
+                        {{ expandedNetSessionIds.has(node.session.id) ? '收起' : '展开' }}
+                      </button>
+                    </div>
+
+                    <div v-if="expandedNetSessionIds.has(node.session.id)" class="mt-2 flex flex-col gap-1">
+                      <p v-if="!node.records.length" class="text-[10px] text-muted-foreground">
+                        这一段没录到请求（开启后还没刷新页面时，钩子尚未挂上）
+                      </p>
+                      <div
+                        v-for="rec in node.records"
+                        :key="`${node.session.id}-${String(rec.id)}`"
+                        class="rounded border border-border"
+                      >
+                        <button
+                          type="button"
+                          class="flex w-full items-center gap-1.5 px-1.5 py-1 text-left hover:bg-muted/50"
+                          @click="toggleNetRow(`${node.session.id}-${String(rec.id)}`)"
+                        >
+                          <span class="shrink-0 font-mono text-[10px] font-medium">{{ rec.method }}</span>
+                          <span class="min-w-0 flex-1 truncate font-mono text-[10px]" :title="rec.url">
+                            {{ routeOf(rec.url) }}
+                          </span>
+                          <span class="shrink-0 tabular-nums text-[10px] text-muted-foreground">
+                            {{ formatClock(rec.t) }}
+                          </span>
+                          <span
+                            class="shrink-0 rounded px-1 text-[10px] tabular-nums"
+                            :class="
+                              rec.status >= 400
+                                ? 'bg-destructive/10 text-destructive'
+                                : 'bg-muted text-muted-foreground'
+                            "
+                          >
+                            {{ rec.status }}
+                          </span>
+                        </button>
+                        <div
+                          v-if="openNetRows.has(`${node.session.id}-${String(rec.id)}`)"
+                          class="border-t border-border/60 px-2 py-1.5"
+                        >
+                          <p class="font-mono text-[10px] leading-relaxed break-all">
+                            {{ rec.url }}（{{ rec.type }}）
+                          </p>
+                          <template v-if="Object.keys(rec.reqHeaders).length">
+                            <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                              请求头
+                            </h4>
+                            <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ headerText(rec.reqHeaders) }}</pre>
+                          </template>
+                          <template v-if="rec.reqBody">
+                            <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                              请求体
+                            </h4>
+                            <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ rec.reqBody }}</pre>
+                          </template>
+                          <template v-if="Object.keys(rec.respHeaders).length">
+                            <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                              响应头
+                            </h4>
+                            <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ headerText(rec.respHeaders) }}</pre>
+                          </template>
+                          <template v-if="rec.respBody">
+                            <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                              响应结构
+                            </h4>
+                            <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ rec.respBody }}</pre>
+                          </template>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
 
                   <!-- 运行行：一次页面加载一条，出错 / 有动作可展开 -->
                   <div v-else-if="node.kind === 'run'" class="rounded-md border bg-card p-2.5 text-xs">

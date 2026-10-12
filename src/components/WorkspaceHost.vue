@@ -16,7 +16,6 @@ import ChatDataPanel from '@/components/ChatDataPanel.vue'
 import SessionHistoryTab from '@/components/SessionHistoryTab.vue'
 import AgentToolsPanel from '@/components/AgentToolsPanel.vue'
 import GmApiPanel from '@/components/GmApiPanel.vue'
-import NetLogPanel from '@/components/NetLogPanel.vue'
 import TabActivityPanel from '@/components/TabActivityPanel.vue'
 import type { WorkspaceTab } from '@/types/tab'
 import type { WorkspaceTabKind } from '@/shared/types'
@@ -345,8 +344,6 @@ defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openErrorLo
         <agent-tools-panel v-else-if="tab.kind === 'agent-tools'" />
         <!-- GM API：脚本作用域里 GM 的能力速查（纯静态目录，与注入真身同源） -->
         <gm-api-panel v-else-if="tab.kind === 'gm-api'" />
-        <!-- 接口数据：录制到的页面接口流量（只读浏览 + 清空该站点 + 正在录制的标签页就地停） -->
-        <net-log-panel v-else-if="tab.kind === 'net-log'" />
         <!-- 活动历史：以标签页为主线的历史视图（左栏标签页列表 + 右栏该页活动时间线，全局仅一个） -->
         <tab-activity-panel v-else-if="tab.kind === 'tab-activity'" />
         <!-- 脚本历史：每脚本一个标签页，浏览 + 恢复；恢复后重载对应编辑器 -->

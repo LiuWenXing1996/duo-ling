@@ -11,7 +11,6 @@ import {
   List as UiList,
   MessagesSquare as UiMessagesSquare,
   Pencil as UiPencil,
-  Radio as UiRadio,
   Settings as UiSettings,
   Wrench as UiWrench,
   X as UiX
@@ -54,7 +53,6 @@ const emit = defineEmits<{
         <ui-wrench v-else-if="tab.kind === 'agent-tools'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-code v-else-if="tab.kind === 'gm-api'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-messages-square v-else-if="tab.kind === 'session-history'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
-        <ui-radio v-else-if="tab.kind === 'net-log'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-clock v-else-if="tab.kind === 'tab-activity'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <!--
