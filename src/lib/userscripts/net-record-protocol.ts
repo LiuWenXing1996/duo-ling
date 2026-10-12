@@ -13,9 +13,6 @@ export const NET_CAPTURE_TAG = '__dlNetCapture'
 /** 请求体 / 响应体采样上限（字符数）——采样只用于给 AI 看结构，不是全量留档 */
 export const NET_BODY_LIMIT = 2048
 
-/** 每 host 环形保留条数（超限删最旧）——写侧 netlog-db 裁剪，隐私与体积双控 */
-export const NET_HOST_RING_LIMIT = 200
-
 /**
  * 剥离的鉴权头（小写名，精确匹配）。请求侧与响应侧同一份：
  * 页面 JS 本就读不到 HttpOnly Cookie，但能读到 document.cookie / 自设的 Authorization，
@@ -85,7 +82,7 @@ export interface NetRecordSession {
 export interface NetCaptureRecord {
   /** 自增主键（IndexedDB autoIncrement 生成） */
   id?: number
-  /** 采集发生的页面 host（location.hostname，环形分区键，也是 by_host 索引值） */
+  /** 采集发生的页面 host（location.hostname，也是 by_host 索引值） */
   host: string
   /** 产生这条记录的录制会话 id。会话结束后记录仍留着，凭它把记录归到某次录制 */
   sessionId: string

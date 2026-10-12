@@ -6,7 +6,7 @@
 // 「清某 host 的录制」变成跨表手术。
 //
 // 两张表：
-//   · captures —— 采集记录本身（按 host 环形裁剪，见下）；
+//   · captures —— 采集记录本身；
 //   · sessions —— 录制会话的**归档**（元信息：哪个页面、什么时候录的）。
 // 进行中的会话不在库里（它在 net-capture-gate 的门禁中），结束后才归档进来；
 // 记录与归档都按 host 索引，因为「看某个站点录到了什么」是唯一的查询入口。
@@ -14,14 +14,10 @@
 // 单写方：写 API 只许 SW 调用（写入口是 dl-bridge 的 __dlNetCapture 分支与会话归档）；
 // 本模块不感知 chrome API，node 单测用 fake-indexeddb/auto 直测。
 //
-// 环形：每 host 保留最近 NET_HOST_RING_LIMIT 条，超出删最旧——隐私（少留）与
-// 体积（不涨）双控，且「该站点已观测接口」的摘要天然反映最近一次访问。
+// 不设每 host 上限：采样一直留着，只在用户显式清（清某页 / 清某站 / 清全部）时消失 ——
+// 活动历史面板要铺出完整时间线，写侧截断会让「这一页到底发了哪些请求」看不全。
 
-import {
-  NET_HOST_RING_LIMIT,
-  type NetCaptureRecord,
-  type NetRecordSession,
-} from './net-record-protocol'
+import { type NetCaptureRecord, type NetRecordSession } from './net-record-protocol'
 import { createIdbOpener, idbRequest as request, idbRunTx } from '../idb-core'
 
 const DB_NAME = 'duoling-netlog'
@@ -83,7 +79,7 @@ function txDone(tx: IDBTransaction, label: string): Promise<void> {
   })
 }
 
-/** 按某个索引的某个键游标遍历骨架（环形裁剪 / 清空 / 按标签页清共用） */
+/** 按某个索引的某个键游标遍历骨架（清空 / 按标签页清共用） */
 function eachIndexRecord(
   store: IDBObjectStore,
   indexName: string,
@@ -115,26 +111,16 @@ function eachHostRecord(
 }
 
 /**
- * 追加一条采集记录，并按 host 做环形裁剪（超 NET_HOST_RING_LIMIT 删最旧）。
- * 主键自增（调用方传入的 id 一律忽略）；环形与插入在同一事务里完成，
- * 避免并发写把上限冲破。
+ * 追加一条采集记录。主键自增（调用方传入的 id 一律忽略）。
+ *
+ * 写侧不裁剪：采样一直留着，只在用户显式清（清某页 / 清某站 / 清全部）时消失 ——
+ * 活动历史面板要铺出完整时间线，写侧截断会让「这一页到底发了哪些请求」看不全。
  */
 export async function appendCapture(rec: NetCaptureRecord): Promise<void> {
   await captureTx('readwrite', async (tx, store) => {
     const { id: _ignored, ...payload } = rec
     void _ignored
-    const existing = await request<number>(store.index('by_host').count(rec.host))
     store.add(payload)
-    const excess = existing + 1 - NET_HOST_RING_LIMIT
-    if (excess > 0) {
-      let removed = 0
-      await eachHostRecord(store, rec.host, (cursor) => {
-        if (removed >= excess) return false
-        cursor.delete()
-        removed++
-        return true
-      })
-    }
     await txDone(tx, '保存录制数据失败')
   })
 }
@@ -147,7 +133,7 @@ export async function listCapturesByHost(host: string): Promise<NetCaptureRecord
   })
 }
 
-/** 某 host 当前记录数（上限断言 / UI 展示用） */
+/** 某 host 当前记录数（UI 展示用） */
 export async function countCapturesByHost(host: string): Promise<number> {
   return captureTx('readonly', async (_tx, store) => {
     return request<number>(store.index('by_host').count(host))

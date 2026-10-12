@@ -1,8 +1,8 @@
-// netlog-db.ts 单测：网络采集落库、按 host 隔离、环形裁剪与清理，以及录制会话的归档与清除。
+// netlog-db.ts 单测：网络采集落库、按 host 隔离与清理，以及录制会话的归档与清除。
 // fake-indexeddb 提供全局 indexedDB；用例间 clearAllForTests 保证隔离。
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { NET_HOST_RING_LIMIT, type NetCaptureRecord, type NetRecordSession } from './net-record-protocol'
+import { type NetCaptureRecord, type NetRecordSession } from './net-record-protocol'
 import {
   appendCapture,
   archiveSession,
@@ -76,20 +76,19 @@ describe('netlog-db', () => {
     expect((await listCapturesByHost('a.test')).map((r) => r.url)).toEqual(['https://a.test/1'])
   })
 
-  it('环形：超过上限删最旧，只留最近 N 条', async () => {
-    const total = NET_HOST_RING_LIMIT + 5
+  it('不裁剪：写多少留多少，最早的也在（面板要铺完整时间线）', async () => {
+    const total = 260 // 写得多也不丢：最后一条与第一条都在
     for (let i = 0; i < total; i++) await appendCapture(rec('ring.test', `https://ring.test/${i}`, i))
-    expect(await countCapturesByHost('ring.test')).toBe(NET_HOST_RING_LIMIT)
+    expect(await countCapturesByHost('ring.test')).toBe(total)
     const rows = await listCapturesByHost('ring.test')
-    // 最旧的 5 条（0..4）被删，剩下 5..total-1
-    expect(rows[0].url).toBe('https://ring.test/5')
+    expect(rows[0].url).toBe('https://ring.test/0')
     expect(rows[rows.length - 1].url).toBe(`https://ring.test/${total - 1}`)
   })
 
-  it('环形裁剪只作用于本 host，不误伤别站', async () => {
-    for (let i = 0; i < NET_HOST_RING_LIMIT + 3; i++) await appendCapture(rec('hot.test', `https://hot.test/${i}`, i))
+  it('多写几条也不影响别站', async () => {
+    for (let i = 0; i < 210; i++) await appendCapture(rec('hot.test', `https://hot.test/${i}`, i))
     await appendCapture(rec('cold.test', 'https://cold.test/1', 1))
-    expect(await countCapturesByHost('hot.test')).toBe(NET_HOST_RING_LIMIT)
+    expect(await countCapturesByHost('hot.test')).toBe(210)
     expect(await countCapturesByHost('cold.test')).toBe(1)
   })
 
