@@ -90,7 +90,7 @@ describe('接口采样（与存续轴事件同表）', () => {
   })
 })
 
-describe('按页读整条时间线（两类记录分流）', () => {
+describe('按页读整根活动轴（六类分流）', () => {
   it('事件与采样各自成组，只捞本页', async () => {
     const t1 = await mintTabSession({ tabId: 1, url: 'https://a.test/' })
     const t2 = await mintTabSession({ tabId: 2, url: 'https://b.test/' })
@@ -125,7 +125,13 @@ describe('删一页 / 清全部：采样与事件一起走', () => {
 
     await clearTabActivity([t1])
 
-    expect(await listTabTimeline(t1)).toEqual({ events: [], captures: [] })
+    expect(await listTabTimeline(t1)).toEqual({
+      events: [],
+      captures: [],
+      runs: [],
+      acts: [],
+      errors: [],
+    })
     const other = await listTabTimeline(t2)
     expect(other.events.map((e) => e.kind)).toEqual(['reload'])
     expect(other.captures).toHaveLength(1)
@@ -138,7 +144,13 @@ describe('删一页 / 清全部：采样与事件一起走', () => {
 
     expect(await clearTabActivity()).toBe(true)
 
-    expect(await listTabTimeline(t)).toEqual({ events: [], captures: [] })
+    expect(await listTabTimeline(t)).toEqual({
+      events: [],
+      captures: [],
+      runs: [],
+      acts: [],
+      errors: [],
+    })
     expect(await listTabCapturesByHost('a.test')).toEqual([])
   })
 })

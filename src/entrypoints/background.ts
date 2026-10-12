@@ -10,8 +10,9 @@
 //     写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
 //   · 源码 —— 唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
 //     SW 读不到 lfs，源码读写一律走 fs:* 命令向 offscreen 取（见 offscreen-fs-commands.ts）。
-// GM 值存储 / GM tab 值在 IndexedDB 库 duoling-usdata；错误日志 / 运行统计 / 运行条目 /
-// 运行内事件（观测数据）在 IndexedDB 库 duoling-runtime——两者都 SW 直写、写侧收敛在 store.ts。
+// GM 值存储 / GM tab 值在 IndexedDB 库 duoling-usdata；观测数据（标签页存续 + 一根活动轴：
+// 文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误）在 IndexedDB 库 duoling-runtime
+// ——两者都 SW 直写、写侧收敛在 store.ts。
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
@@ -71,12 +72,11 @@ import {
 import { initDlPort } from '@/lib/userscripts/dl-port'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listGroups, listProjects } from '@/lib/userscripts/project-store'
-// chrome.storage 侧：GM 值、错误日志、运行统计
+// 观测数据的写出口：GM 值、错误日志、运行条目与动作
 import {
   listSummaries,
-  withRunStats,
   clearGMValues,
-  clearRunStats,
+  clearRunLog,
   clearUserScriptErrors,
   appendUserScriptError,
   findUserScriptError,
@@ -383,9 +383,9 @@ const handlers: {
   }),
 
   // —— 用户脚本管理器（IPC 命令名沿用既有，载荷为项目形态）——
-  // 列表视图：项目读自状态库（直连 IDB）；运行统计（runtime 库 stats store）同样 SW 直读，这里挂上
-  'userscript:list': async (): Promise<ScriptSummary[]> =>
-    withRunStats(await listSummaries(await listProjects())),
+  // 列表视图：项目读自状态库（直连 IDB）——运行观测已不在摘要里（合表后只按页/按运行读），
+  // 故这里就是纯项目摘要
+  'userscript:list': async (): Promise<ScriptSummary[]> => listSummaries(await listProjects()),
 
   // 读注册态记录（元数据 + 源码搬运副本；duoling-fs 里另有带 git 历史的权威源码，编辑器经 fs:read 取）
   'userscript:getProject': async (msg): Promise<ScriptProject | undefined> => getProject(msg.uuid),
@@ -472,8 +472,8 @@ const handlers: {
     // 报错记录同属该脚本的残留：不清就会在错误日志里留下一个已删脚本的孤儿分组
     // （按 uuid 清，不碰「未归属」那种本就没有脚本上下文的记录）
     await clearUserScriptErrors(msg.uuid)
-    // 运行统计同理：不清就会在重建同名脚本时继承旧计数
-    await clearRunStats(msg.uuid)
+    // 运行条目与动作同理：不清就会在「活动历史」里留下已删脚本的孤儿运行条
+    await clearRunLog(msg.uuid)
   },
 
   // 删除全部用户脚本（「全部删除」按钮）：注销全部 → offscreen 清状态库 + 各仓 → 清各脚本
@@ -495,7 +495,7 @@ const handlers: {
       for (const uuid of uuids) await clearGMValues(uuid)
       // 报错记录逐 uuid 清（与单删同一条语义：删脚本 = 清该脚本名下的一切）
       for (const uuid of uuids) await clearUserScriptErrors(uuid)
-      for (const uuid of uuids) await clearRunStats(uuid)
+      for (const uuid of uuids) await clearRunLog(uuid)
       return { removed }
     } catch (e) {
       // 注销在前、落盘在后，落盘失败会留下「记录还标 enabled、实际已注销」的偏差
@@ -576,14 +576,15 @@ const handlers: {
   // **不做任何检测**——检测在 SW 自身的轮询（startAvailabilityWatch），职责分离见 availability-watch.ts
   'userscript:healthCheck': async (): Promise<{ alive: true }> => ({ alive: true }),
 
-  // 运行日志时间线：运行行 + 孤儿错误行混排（「活动历史」右栏 + AI 的 run_log_read 都取它）
+  // 运行时间线：运行条 + 对不上运行集的错误行混排（消费方是 AI 的 run_log_read；
+  // 活动历史面板按页读整根轴，不走这条）
   'userscript:runlog': async (): Promise<ReturnType<typeof listRunTimeline>> => listRunTimeline(),
 
   // 标签页存续表全量：活动历史按标签页分组时取名字与时刻（分组键在运行条目上，表只补名字）
   'userscript:tabSessions': async (): Promise<ReturnType<typeof listTabSessions>> => listTabSessions(),
 
-  // 某一页的整条时间线：存续轴事件（刷新 / 地址变更 / 记录开关）与它录到的接口采样
-  // （两者在 tab_events 里同表）一次查回、按两类返回。「活动历史」右栏把它们与运行条混排。
+  // 某一页的整根活动轴：文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误（六类都在
+  // tab_events 同表）一次查回、分五组返回。「活动历史」右栏用它铺这一页的时间线。
   // **按页而不是全量**：采样单条可达数 KB，全量拉等于把整库搬过来。
   'userscript:tabTimeline': async (msg): Promise<ReturnType<typeof listTabTimeline>> =>
     listTabTimeline(msg.tabSessionId),
@@ -629,18 +630,18 @@ const handlers: {
     return { tabId: msg.tabId, recording: false }
   },
 
-  // 「活动历史」删掉某一页：存续行 + 它的运行与错误一起删（只删存续行会让这一页以
+  // 「活动历史」删掉某一页：存续行 + 它在 tab_events 上的整根轴一起删（只删存续行会让这一页以
   // 「表里已查不到」的残影留在列表里）。
   'userscript:tabActivityDelete': async (msg): Promise<void> => {
     await deleteTabActivity(msg.tabSessionId)
   },
 
-  // 「活动历史」清空全部：存续行 + 运行日志 + 错误（含归不到标签页的「未知标签页」档）
+  // 「活动历史」清空全部：存续行 + tab_events 整根轴（含归不到标签页的无归属错误行）
   'userscript:tabActivityClear': async (): Promise<void> => {
     await clearTabActivity()
   },
 
-  // 某次运行的运行内事件（面板展开卡片时按需拉；AI 的 run_log_read 带 runId 时同路）
+  // 某次运行的动作（面板按需拉；AI 的 run_log_read 带 runId 时同路）
   'userscript:runEvents': async (msg): Promise<ReturnType<typeof listRunEvents>> =>
     listRunEvents(msg.runId),
 

@@ -433,7 +433,8 @@ async function runLoop(opts: {
           pushChunk(conversationId, chunk)
         },
       },
-      // 运行日志（AI 的 run_log_read）：errors / runs / run_events 都在 SW 侧的 duoling-runtime 库
+      // 运行观测（AI 的 run_log_read）：运行条与错误行都在 SW 侧的 duoling-runtime 库
+      // （tab_events 一张表），动作按 runId 单独拉 —— offscreen 都拿不到，全部经 SW 代读
       () => offscreenBridge.readRunLog(),
       (runId) => offscreenBridge.readRunEvents(runId),
     )

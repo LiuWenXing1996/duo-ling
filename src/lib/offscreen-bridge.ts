@@ -93,16 +93,16 @@ export const offscreenBridge = {
     send({ kind: 'userscript:errorRead', id }),
 
   /**
-   * 读运行日志时间线（AI 的 run_log_read 工具用）：运行行 + 挂载其上的运行期错误 +
-   * 无法归属的错误行，全部按时间倒序混排（listRunTimeline）。
+   * 读运行时间线（AI 的 run_log_read 工具用）：运行条 + 挂载其上的运行期错误 +
+   * 对不上运行集的错误行，全部按时间倒序混排（listRunTimeline）。
    * 与错误日志同因由走 SW —— duoling-runtime 库 offscreen 拿不到（写侧也归 SW）。
    * 裁剪交给调用方：SW 一侧只认「全量时间线」这一个语义。
    */
   readRunLog: (): Promise<UserScriptRunLogRow[]> => send({ kind: 'userscript:runlog' }),
 
   /**
-   * 读某次运行的运行内事件（AI 的 run_log_read 带 runId 时用）。
-   * 事件单独一表：时间线列表不再随行返回——跟随运行数全量读会线性膨胀，
+   * 读某次运行的动作（AI 的 run_log_read 带 runId 时用）。
+   * 动作独立成行：时间线列表不再随行返回——跟随运行数全量读会线性膨胀，
    * 看哪一次才拉哪一次。
    */
   readRunEvents: (runId: string): Promise<UserScriptRunEvent[]> =>

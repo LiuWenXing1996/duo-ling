@@ -891,7 +891,7 @@ async function confirmRemoveAll(): Promise<void> {
   }
 }
 
-/** 列表里的时间戳（savedAt / lastRunAt）都是毫秒，而 formatTimestamp 收的是 Unix 秒，需换算 */
+/** 列表里的时间戳（savedAt）是毫秒，而 formatTimestamp 收的是 Unix 秒，需换算 */
 function timeLabel(ts: number): string {
   return ts ? formatTimestamp(Math.floor(ts / 1000)) : ''
 }
@@ -931,10 +931,6 @@ useDataSync('script', (push) => {
   }
   return refresh()
 })
-
-// 运行统计（runtime 库 stats store）在 SW 侧随脚本注入 / 运行期错误落盘后广播 `runstats` 域，
-// 这里接住回拉，运行计数与「上次运行」时刻不必手动刷新
-useDataSync('runstats', () => refresh())
 
 // 分组定义变化（新建 / 重命名 / 删除 / 重排）由 offscreen 广播 `group` 域，这里回拉分组列表
 useDataSync('group', () => refreshGroups())
@@ -1316,18 +1312,9 @@ useDataSync('group', () => refreshGroups())
               <p class="mt-2 truncate text-xs text-muted-foreground">
                 匹配规则：<span class="font-mono">{{ item.s.matches.join(', ') || '无' }}</span>
               </p>
-              <!-- 元信息：更新时间 / 上次运行 / 上次日志，一行一条 —— 横向拼行时两个完整时间戳自身就宽于卡片，会顶出边框。
-                   三行恒渲染（没跑过落「无」），同排卡片行数一致，分隔线与底行才对得齐 -->
+              <!-- 元信息：源码最后保存时刻。运行观测按页收在「活动历史」里，列表不重复一行计数 -->
               <div class="mb-3 mt-1 space-y-0.5 text-xs text-muted-foreground tabular-nums">
                 <p>更新时间：{{ timeLabel(item.s.savedAt) || '无' }}</p>
-                <!-- 运行统计：lastRunAt 与 runCount 同源，没跑过两行都落「无」；runstats 域广播驱动实时回拉 -->
-                <p data-testid="run-stats">上次运行：{{ item.s.lastRunAt ? timeLabel(item.s.lastRunAt) : '无' }}</p>
-                <p
-                  :class="item.s.lastRunErrors ? 'text-destructive' : ''"
-                  :title="item.s.lastRunErrors ? '最近一次运行捕获到错误，详情见「活动历史」' : undefined"
-                >
-                  上次日志：{{ item.s.lastRunAt ? (item.s.lastRunErrors ? '有错误' : '正常') : '无' }}
-                </p>
               </div>
 
               <!-- 底部：启用开关 + 操作（编辑 / 移动 / 导出 / 删除）；mt-auto 把底行钉在卡片底（网格同排卡片等高），内容长短不齐时分隔线也对齐 -->

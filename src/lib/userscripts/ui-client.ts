@@ -6,10 +6,13 @@
 // 直接发 userscript:* 命令组（v2 方案）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
-import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabEventRecord, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
+import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
 import type { Source, UsCommit, UsSnapshot } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
-import type { NetCaptureRecord, NetRecordSession } from './net-record-protocol'
+import type { NetRecordSession } from './net-record-protocol'
+// 按页的整根活动轴（runtime-db 的读侧产物，六类行分五组）。**type-only**：UI 侧只要形状，
+// 不把存储层（idb-core）拖进扩展页 bundle。
+import type { TabTimeline } from './runtime-db'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -135,28 +138,26 @@ export const userscriptClient = {
   reorderGroups: (orderedIds: string[]): Promise<void> =>
     send({ kind: 'userscript:group-reorder', orderedIds }),
 
-  /** 运行日志时间线：运行行 + 孤儿错误行按时间倒序混排（「活动历史」右栏 + AI 的 run_log_read） */
+  /** 运行时间线：运行条 + 对不上的错误行按时间倒序混排（AI 的 run_log_read；面板不走这条） */
   runlog: (): Promise<UserScriptRunLogRow[]> => send({ kind: 'userscript:runlog' }),
 
   /** 标签页存续表全量：活动历史按标签页分组时取名字与时刻（分组键在运行条目上） */
   tabSessions: (): Promise<TabSessionRecord[]> => send({ kind: 'userscript:tabSessions' }),
 
   /**
-   * 某一页的整条时间线：存续轴事件（刷新 / 地址变更 / 记录开关）与它录到的接口采样。
-   * 两者在 tab_events 里同表，故一次命令查回、由 SW 按两类拆好 —— 面板不必自己直连库。
+   * 某一页的整根活动轴：文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误一次查回、
+   * 分五组给出来自 tab_events 同表的六类行 —— 面板据此铺这一页的时间线，不必自己直连库。
    */
-  tabTimeline: (
-    tabSessionId: string,
-  ): Promise<{ events: TabEventRecord[]; captures: NetCaptureRecord[] }> =>
+  tabTimeline: (tabSessionId: string): Promise<TabTimeline> =>
     send({ kind: 'userscript:tabTimeline', tabSessionId }),
 
-  /** 删掉某一页的全部活动（存续行 + 它的运行与错误）——「活动历史」的删除 */
+  /** 删掉某一页的全部活动（存续行 + 它在 tab_events 上的整根轴）——「活动历史」的删除 */
   tabActivityDelete: (tabSessionId: string): Promise<void> =>
     send({ kind: 'userscript:tabActivityDelete', tabSessionId }),
-  /** 清空「活动历史」的全部记录（存续行 + 运行日志 + 错误） */
+  /** 清空「活动历史」的全部记录（存续行 + tab_events 整根轴，含无归属错误行） */
   tabActivityClear: (): Promise<void> => send({ kind: 'userscript:tabActivityClear' }),
 
-  /** 某次运行的运行内事件（展开时间线卡片时按需拉；列表视图不带事件） */
+  /** 某次运行的动作（按需拉；时间线列表不带动作） */
   runEvents: (runId: string): Promise<UserScriptRunEvent[]> =>
     send({ kind: 'userscript:runEvents', runId }),
 

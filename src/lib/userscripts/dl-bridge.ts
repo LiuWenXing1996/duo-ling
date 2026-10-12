@@ -1054,34 +1054,28 @@ export function initDlBridge(): void {
       }
       // 记下脚本名，供桥调用失败那类「自身不带脚本上下文」的记录复用
       if (run.uuid && run.name) scriptNameByUuid.set(run.uuid, run.name)
-      // 运行统计 + 运行条目（runtime 库 stats / runs store，按脚本聚合落盘）：与 tab 无关，
-      // 有无 tabId 都记；同一 runId 的 load 补播在写侧按 lastRunId 去重。失败不影响监控登记。
+      // 运行条目（runtime 库 tab_events，kind = 'run'）：与脚本运行一一对应，落盘后活动历史
+      // 才有「这一页跑过什么」的锚。写侧按 runId 去重（同一 runId 的 load 补播是 no-op）。
       // url / savedAt 是**载荷字段、非可信输入**（经页面可伪造的通道），故只做类型收窄：
       // 形状不对就当没传——它们只是给日志多两条定位线索，不值得为它拦下这次记账。
       const uuid = run.uuid
       const runId = run.runId
-      if (uuid && runId) {
+      if (uuid && runId && tabId != null) {
         const extra = {
           ...(typeof run.url === 'string' ? { url: run.url } : {}),
           ...(typeof run.savedAt === 'number' ? { savedAt: run.savedAt } : {}),
         }
-        // 标签页归属：活动历史按标签页分档时的分组键（语义见 TabSessionRecord）。**被动取号** —— 只有用户在
-        // popup 里给这一页打开了活动记录才有号（见 tab-sessions），没开就没有归属，读侧归
-        // 「未知标签页」。取号失败（存储不可用）同样不拦记账：归属缺失不该让这次运行消失。
-        if (tabId == null) {
-          void recordRunStart(uuid, runId, run.name, extra).catch(() => {})
-        } else {
-          void recordingTabSessionId(tabId)
-            .then(
-              (tabSessionId) =>
-                recordRunStart(uuid, runId, run.name, {
-                  ...extra,
-                  ...(tabSessionId ? { tabSessionId } : {}),
-                }),
-              () => recordRunStart(uuid, runId, run.name, extra),
-            )
-            .catch(() => {})
-        }
+        // 标签页归属：活动历史按标签页分档的分组键（语义见 TabSessionRecord）。**被动取号** ——
+        // 只有用户在 popup 里给这一页打开了活动记录才有号（见 tab-sessions），没号就**不记**：
+        // 一切观测只在开着活动记录的页上产生（判据统一，见 store.recordRunStart）。
+        // 取号失败（存储不可用）同样不记 —— 此页是观测盲区，不因存储故障给它补一份无归属的记录。
+        void recordingTabSessionId(tabId)
+          .then((tabSessionId) =>
+            tabSessionId
+              ? recordRunStart(uuid, runId, run.name, { ...extra, tabSessionId })
+              : undefined,
+          )
+          .catch(() => {})
       }
       return undefined // 仅登记，无需响应
     }
@@ -1089,20 +1083,26 @@ export function initDlBridge(): void {
     // 单向错误上报（GM 包装的 window.onerror / unhandledrejection）
     const evt = raw as { __dlEvent?: true; uuid?: string; name?: string; event?: DlEvent }
     if (evt && evt.__dlEvent === true) {
-      void appendUserScriptError({
-        uuid: evt.uuid ?? null,
-        name: evt.name || '未知脚本',
-        phase: 'runtime',
-        message: evt.event?.message || '',
-        stack: evt.event?.stack,
-        url: evt.event?.url,
-        // 本次运行标识：对话界面监控据此把错误归属到对应 tab 的运行（缺省视作非本次）
-        runId: typeof evt.event?.runId === 'string' ? evt.event.runId : null,
-      })
-        .then(() => {
-          // sender.tab 定位出错页面（userScript 世界消息 sender 带 tab）；拿不到就跳过
-          const tabId = sender.tab?.id
-          if (tabId != null) {
+      // sender.tab 定位出错页面（userScript 世界消息 sender 带 tab）；拿不到就无从判归属
+      const tabId = sender.tab?.id
+      if (tabId == null) return undefined
+      // 归属判据与运行条目同源：只有这一页开着活动记录才记。没开 = 观测盲区 ——
+      // 不落盘、不广播、也不推给浮层 / 角标（判据前移，appendUserScriptError 本身不设判据）。
+      void recordingTabSessionId(tabId)
+        .then((tabSessionId) => {
+          if (!tabSessionId) return
+          return appendUserScriptError({
+            uuid: evt.uuid ?? null,
+            name: evt.name || '未知脚本',
+            phase: 'runtime',
+            message: evt.event?.message || '',
+            stack: evt.event?.stack,
+            url: evt.event?.url,
+            // 本次运行标识：对话界面监控据此把错误归属到对应 tab 的运行（缺省视作非本次）
+            runId: typeof evt.event?.runId === 'string' ? evt.event.runId : null,
+            // 页归属直接带上（不必等写侧从运行条继承）：这一页此刻确实开着记录
+            tabSessionId,
+          }).then(() => {
             // 对话界面监控：错误行随推送走（面板只要「当前这次运行」，实时通道一条推送就到）
             notePageError(tabId, {
               uuid: evt.uuid ?? null,
@@ -1110,7 +1110,7 @@ export function initDlBridge(): void {
               message: evt.event?.message || '',
               runId: typeof evt.event?.runId === 'string' ? evt.event.runId : null,
             })
-          }
+          })
         })
         .catch(() => {})
       return undefined // 仅记录，无需响应

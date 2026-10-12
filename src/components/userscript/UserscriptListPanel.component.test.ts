@@ -394,10 +394,9 @@ describe('UserscriptListPanel 卡片布局', () => {
     wrapper = await mountPanel()
     const card = wrapper.findAll('.bg-card').find((el) => el.text().includes('脚本A'))!
     expect(card.element.textContent).toContain('匹配规则：https://a.example/*')
-    // 元信息三行恒渲染：本 fixture 无运行统计，运行两行落「无」（同排卡片行数才对得齐）
+    // 元信息只剩「更新时间」——运行观测按页收在「活动历史」，列表不再重复一行计数
     expect(card.element.textContent).toContain('更新时间：')
-    expect(card.element.textContent).toContain('上次运行：无')
-    expect(card.element.textContent).toContain('上次日志：无')
+    expect(card.element.textContent).not.toContain('上次运行：')
   })
 })
 

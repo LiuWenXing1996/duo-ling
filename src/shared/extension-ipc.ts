@@ -129,11 +129,10 @@ export type RuntimeRequest =
   // 引擎保活应答（offscreen → SW，5s 一次）：offscreen 心跳的**唯一职责是给 SW 保活**
   // （重置 30s 空闲计时），不做任何检测——检测在 SW 自身的轮询（availability-watch.ts）。
   | { kind: 'userscript:healthCheck' }
-  // 运行日志时间线：运行行（runs store）+ 无法归属的错误行按时间倒序混排（listRunTimeline）。
-  // 两个消费方：工作台「活动历史」面板、AI 的 run_log_read 工具 —— 两侧都取全量，
-  // 各自按自己的展示 / token 需要裁剪（命令面只认「全量时间线」这一个语义）。
-  // **不含运行内事件**：事件单独一表，随运行数全量读会线性膨胀（运行数 × 事件上限），
-  // 展开某次运行时再走下面的 runEvents 按 runId 拉那一组。
+  // 运行时间线：运行条（tab_events 里 kind = 'run'）+ 与本次读取对不上的错误行按时间倒序混排
+  // （listRunTimeline）。消费方是 AI 的 run_log_read —— 活动历史面板按页读整根轴，不走这条。
+  // **不含动作**：动作随运行数全量读会线性膨胀（运行数 × 动作上限），要看某次运行干了什么
+  // 再走下面的 runEvents 按 runId 拉那一组。
   | { kind: 'userscript:runlog' }
   // 标签页存续表全量（见 TabSessionRecord）：活动历史按标签页分组时用它取名字与时刻
   //（分组键是运行条目上的 tabSessionId；表里查不到的旧组回落到运行自己的 url）。
@@ -153,7 +152,7 @@ export type RuntimeRequest =
   | { kind: 'userscript:tabActivityDisable'; tabId: number }
   | { kind: 'userscript:tabActivityDelete'; tabSessionId: string }
   | { kind: 'userscript:tabActivityClear' }
-  // 某次运行的运行内事件（按 runId；消费方同上：面板展开卡片 / AI 的 run_log_read 带 runId）
+  // 某次运行的动作（按 runId；消费方：AI 的 run_log_read 带 runId 时拉那一组）
   | { kind: 'userscript:runEvents'; runId: string }
   // 错误 ID 修复闭环：AI 的 error_read 工具经 SW 代查
   // 错误日志（runtime 库，offscreen 拿不到）。id = 完整记录 id 或唯一 8 位前缀
@@ -356,10 +355,10 @@ export type DataDomain =
   | 'conversation'
   /** 模型配置（duoling-app 库） */
   | 'model'
-  /** 用户脚本错误日志（runtime 库 errors store） */
+  /** 用户脚本错误记录（runtime 库 tab_events，kind = 'error'） */
   | 'error'
-  /** 用户脚本运行统计（runtime 库 stats store，按脚本聚合计数） */
-  | 'runstats'
+  /** 运行观测（运行条目 / 动作）变了 —— 活动历史与 AI 的运行面据此回拉 */
+  | 'runlog'
   /** 脚本列表分组定义（duoling-state 的 groups 对象库） */
   | 'group'
 
