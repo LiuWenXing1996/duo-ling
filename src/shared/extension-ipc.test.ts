@@ -61,6 +61,8 @@ const ALL_KINDS = [
   { kind: 'userscript:tabSessions', side: 'sw' },
   { kind: 'userscript:tabActivityEnable', side: 'sw' },
   { kind: 'userscript:tabActivityDisable', side: 'sw' },
+  { kind: 'userscript:tabActivityDelete', side: 'sw' },
+  { kind: 'userscript:tabActivityClear', side: 'sw' },
   { kind: 'userscript:runEvents', side: 'sw' },
   { kind: 'userscript:errorRead', side: 'sw' },
   { kind: 'userscript:clearErrors', side: 'sw' },

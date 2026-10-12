@@ -448,3 +448,34 @@ export function clearRunLog(uuid?: string | null): Promise<void> {
 export function clearRunStats(uuid: string): Promise<void> {
   return Promise.all([runtime.deleteStats(uuid), clearRunLog(uuid)]).then(() => {})
 }
+
+/**
+ * 「活动历史」删掉某一页的全部活动 —— 存续行 + 它的运行条目（连带事件与错误）。
+ *
+ * 三层一起删是刻意的：面板展示的是它们的合成。只删存续行，这一页会以「表里已查不到」的
+ * 残影留在列表里（它的运行还在）；只删运行，则留下一个空壳行。错误不带 tabSessionId，
+ * 只能拿运行条上的 runIds 反查（与 listRunTimeline 同一口径）。
+ */
+export async function deleteTabActivity(tabSessionId: string): Promise<void> {
+  const runIds = new Set(await runtime.clearRunsByTabSession([tabSessionId]))
+  const rowsChanged = await runtime.clearTabSessions([tabSessionId])
+  const errorsChanged = runIds.size
+    ? await runtime.deleteErrors((e) => !!e.runId && runIds.has(e.runId))
+    : false
+  if (runIds.size || rowsChanged) broadcastDataChange('runstats')
+  if (errorsChanged) broadcastDataChange('error')
+}
+
+/**
+ * 「活动历史」清空全部 —— 存续行 + 运行日志 + 错误。
+ *
+ * 范围含「未知标签页」档（没开记录的页留下的运行与无 runId 的错误）：这个面板把它们也
+ * 列了出来，清空自当一并清掉，否则清完左栏还留着那一档。
+ */
+export async function clearTabActivity(): Promise<void> {
+  const runsChanged = await runtime.clearRuns()
+  const rowsChanged = await runtime.clearTabSessions()
+  const errorsChanged = await runtime.deleteErrors(() => true)
+  if (runsChanged || rowsChanged) broadcastDataChange('runstats')
+  if (errorsChanged) broadcastDataChange('error')
+}

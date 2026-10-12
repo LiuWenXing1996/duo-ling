@@ -7,8 +7,10 @@ import {
   clearGMValues,
   clearRunLog,
   clearRunStats,
+  clearTabActivity,
   clearUserScriptErrors,
   deleteGMValue,
+  deleteTabActivity,
   findUserScriptError,
   getGMValue,
   listGMKeys,
@@ -23,7 +25,7 @@ import {
   setGMValue,
   withRunStats,
 } from './store'
-import { clearAllForTests as clearRuntime, getStats } from './runtime-db'
+import { clearAllForTests as clearRuntime, getStats, listTabSessions, mintTabSession } from './runtime-db'
 import { clearAllForTests as clearUsdata } from './usdata-db'
 import { RUN_EVENT_MAX, RUN_LOG_MAX, type ScriptProject } from './types'
 
@@ -517,5 +519,58 @@ describe('运行日志（runs store 环形 + run_events 事件 + listRunTimeline
     await clearRunStats('u1')
     expect(await listRunEvents('r1')).toEqual([])
     expect(await listRunTimeline()).toHaveLength(0)
+  })
+})
+
+describe('活动历史（存续表 + 运行日志的删除 / 清空）', () => {
+  it('删除某一页：存续行 + 它的运行与错误一起走，别的页不动', async () => {
+    const t1 = await mintTabSession({ tabId: 1, url: 'https://1.test/' })
+    const t2 = await mintTabSession({ tabId: 2, url: 'https://2.test/' })
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t1 })
+    await recordRunStart('u1', 'r2', '甲', { tabSessionId: t2 })
+    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'boom1', runId: 'r1' })
+    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'boom2', runId: 'r2' })
+    await flushStats()
+
+    await deleteTabActivity(t1)
+
+    const runs = await listRunTimeline()
+    expect(runs.some((r) => r.kind === 'run' && r.runId === 'r1')).toBe(false)
+    expect(runs.some((r) => r.kind === 'run' && r.runId === 'r2')).toBe(true)
+    // 错误不带 tabSessionId，靠 runId 反查：r1 那条走了、r2 的还在
+    const errors = await listUserScriptErrors()
+    expect(errors.some((e) => e.message === 'boom1')).toBe(false)
+    expect(errors.some((e) => e.message === 'boom2')).toBe(true)
+    expect((await listTabSessions()).map((r) => r.tabSessionId)).toEqual([t2])
+  })
+
+  it('删除某一页：它的运行事件也级联清掉（不留孤儿事件）', async () => {
+    const t1 = await mintTabSession({ tabId: 1 })
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t1 })
+    await recordRunEvent('u1', 'r1', { kind: 'fetch', detail: 'x', time: 1 })
+
+    await deleteTabActivity(t1)
+    expect(await listRunEvents('r1')).toEqual([])
+  })
+
+  it('清空全部：存续行、运行日志、错误（含归不到标签页的）一并清掉', async () => {
+    const t1 = await mintTabSession({ tabId: 1 })
+    await recordRunStart('u1', 'r1', '甲', { tabSessionId: t1 })
+    await recordRunStart('u2', 'r2', '乙') // 没开记录 → 归「未知标签页」
+    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'x', runId: 'r1' })
+    await appendUserScriptError({ uuid: null, name: '甲', phase: 'register', message: '无归属' })
+    await flushStats()
+
+    await clearTabActivity()
+
+    expect(await listTabSessions()).toHaveLength(0)
+    expect(await listRunTimeline()).toHaveLength(0)
+    expect(await listUserScriptErrors()).toHaveLength(0)
+  })
+
+  it('删一个不存在的页：no-op，不动任何数据', async () => {
+    await recordRunStart('u1', 'r1', '甲')
+    await deleteTabActivity('不存在的页')
+    expect(await listRunTimeline()).toHaveLength(1)
   })
 })

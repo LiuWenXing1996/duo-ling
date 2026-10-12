@@ -83,6 +83,8 @@ import {
   listRunEvents,
   clearRunLog,
   markRunEnd,
+  clearTabActivity,
+  deleteTabActivity,
 } from '@/lib/userscripts/store'
 // 观测数据的底层表（duoling-runtime 库）：标签页存续表全量给「运行日志按标签页看」用
 import { listTabSessions } from '@/lib/userscripts/runtime-db'
@@ -600,6 +602,17 @@ const handlers: {
   'userscript:tabActivityDisable': async (msg): Promise<{ tabId: number; recording: boolean }> => {
     await setTabRecording(msg.tabId, false)
     return { tabId: msg.tabId, recording: false }
+  },
+
+  // 「活动历史」删掉某一页：存续行 + 它的运行与错误一起删（只删存续行会让这一页以
+  // 「表里已查不到」的残影留在列表里）。
+  'userscript:tabActivityDelete': async (msg): Promise<void> => {
+    await deleteTabActivity(msg.tabSessionId)
+  },
+
+  // 「活动历史」清空全部：存续行 + 运行日志 + 错误（含归不到标签页的「未知标签页」档）
+  'userscript:tabActivityClear': async (): Promise<void> => {
+    await clearTabActivity()
   },
 
   // 某次运行的运行内事件（面板展开卡片时按需拉；AI 的 run_log_read 带 runId 时同路）

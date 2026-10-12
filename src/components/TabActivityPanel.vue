@@ -15,7 +15,12 @@
 // 不列出来它们在这一页就完全不可见。「未知标签页」档只能看记录本身，答不出它当时在哪一页。
 //
 // 数据通道：userscriptClient（workbench 是可信扩展页，可直接 chrome.runtime.sendMessage）。
-// 三条**既有**命令就够，未新增命令面：tabSessions（存续表）/ runlog（全量时间线）/ runEvents（展开时按需拉）。
+// 读侧三条**既有**命令：tabSessions（存续表）/ runlog（全量时间线）/ runEvents（展开时按需拉）；
+// 写侧两条本条新增：tabActivityDelete（删某一页）/ tabActivityClear（清空全部）。
+//
+// 删除 / 清空**连带运行记录**是刻意的：面板展示的是存续表与运行日志的合成，只删存续行会让
+// 这一页以「表里已查不到」的残影留在列表里（它的运行还在）。代价是这些运行在「运行日志」
+// 面板里也一并消失 —— 同一份数据、两个视角，删了就两边都没有了。
 //
 // 一处已知的新鲜度缺口：存续表由 SW 在标签页事件里直接写 IDB，**没有广播域**（跑脚本时写运行日志
 // 会广播 runstats / error，顺带把表一起拉新）。所以「开过但一次脚本都没跑过的新标签页」不会自己
@@ -26,9 +31,11 @@ import {
   Check as UiCheck,
   Clock as UiClock,
   Copy as UiCopy,
-  RefreshCw as UiRefreshCw
+  RefreshCw as UiRefreshCw,
+  Trash2 as UiTrash2
 } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { webHostname } from '@/lib/float-panel-host'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
@@ -428,6 +435,74 @@ const aliveText = computed(() => {
   if (!sel?.createdAt || !sel?.closedAt) return ''
   return `存活 ${formatDuration(sel.closedAt - sel.createdAt)}`
 })
+
+/** 删除 / 清空进行中：按钮置灰，防连点（清空不可撤销） */
+const mutating = ref(false)
+const confirmOpen = ref(false)
+const confirmKind = ref<'clear' | 'delete'>('clear')
+
+/** 只有**具体的一页**可删：「未知标签页」不是一页（它的记录没有标签页归属），谈不上删它 */
+const canDeleteSelected = computed(() => !!selected.value && selected.value.id !== UNKNOWN_TAB_KEY)
+
+const confirmTitle = computed(() =>
+  confirmKind.value === 'clear' ? '清空活动历史' : '删除这一页的活动记录'
+)
+const confirmDescription = computed(() => {
+  if (confirmKind.value === 'clear') {
+    return '将删除全部标签页的活动记录，连同它们的运行与错误。删除后无法恢复。'
+  }
+  const label = selected.value?.label ?? ''
+  return `将删除「${label}」的活动记录，连同它的运行与错误。删除后无法恢复。`
+})
+
+function askClear(): void {
+  confirmKind.value = 'clear'
+  confirmOpen.value = true
+}
+function askDelete(): void {
+  confirmKind.value = 'delete'
+  confirmOpen.value = true
+}
+
+/** 清空 / 删除后丢掉「展开态」与已拉回的事件缓存：它们指向的运行已经没了 */
+function resetRunCaches(): void {
+  expandedRunIds.value = new Set()
+  eventsByRunId.value = new Map()
+  loadingRunIds.value = new Set()
+}
+
+async function doClear(): Promise<void> {
+  mutating.value = true
+  try {
+    await userscriptClient.tabActivityClear()
+    resetRunCaches()
+    await load() // load 末尾会回落选中项：清空后停留在已消失的页上会像坏了
+  } catch (e) {
+    error.value = '清空失败：' + (e instanceof Error ? e.message : String(e))
+  } finally {
+    mutating.value = false
+  }
+}
+
+async function doDelete(): Promise<void> {
+  const sel = selected.value
+  if (!sel || sel.id === UNKNOWN_TAB_KEY) return
+  mutating.value = true
+  try {
+    await userscriptClient.tabActivityDelete(sel.id)
+    resetRunCaches()
+    await load()
+  } catch (e) {
+    error.value = '删除失败：' + (e instanceof Error ? e.message : String(e))
+  } finally {
+    mutating.value = false
+  }
+}
+
+function onConfirmedAction(): void {
+  const kind = confirmKind.value
+  void (kind === 'clear' ? doClear() : doDelete())
+}
 </script>
 
 <template>
@@ -441,6 +516,19 @@ const aliveText = computed(() => {
         共 {{ tabItems.length }} 个标签页<template v-if="activeCount"> · {{ activeCount }} 个有活动</template>
       </span>
       <span class="flex-1" />
+      <ui-button
+        v-if="tabItems.length"
+        variant="ghost"
+        size="sm"
+        class="h-7 gap-1 px-2.5 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+        title="删除全部标签页的活动记录（含它们的运行与错误），不可撤销"
+        data-testid="tab-activity-clear"
+        :disabled="mutating || loading"
+        @click="askClear"
+      >
+        <ui-trash-2 class="size-3.5" />
+        清空
+      </ui-button>
       <ui-button
         variant="ghost"
         size="sm"
@@ -503,6 +591,19 @@ const aliveText = computed(() => {
                 <span class="shrink-0 text-xs text-muted-foreground">
                   运行 {{ selected.runs }} 次<template v-if="selected.errors"> · 错误 {{ selected.errors }} 条</template>
                 </span>
+                <ui-button
+                  v-if="canDeleteSelected"
+                  variant="ghost"
+                  size="sm"
+                  class="h-6 shrink-0 gap-1 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  title="删除这一页的活动记录（含它的运行与错误），不可撤销"
+                  data-testid="tab-activity-delete"
+                  :disabled="mutating"
+                  @click="askDelete"
+                >
+                  <ui-trash-2 class="size-3" />
+                  删除
+                </ui-button>
               </div>
               <p v-if="selected.url" class="mt-1 truncate text-xs text-muted-foreground" :title="selected.url">
                 {{ selected.url }}
@@ -702,5 +803,15 @@ const aliveText = computed(() => {
         </div>
       </div>
     </div>
+
+    <!-- 删 / 清都是不可撤销的：走确认弹窗，别让一次误点抹掉历史 -->
+    <ConfirmDialog
+      v-model:open="confirmOpen"
+      danger
+      :title="confirmTitle"
+      :description="confirmDescription"
+      :confirm-text="confirmKind === 'clear' ? '清空' : '删除'"
+      @confirm="onConfirmedAction"
+    />
   </div>
 </template>

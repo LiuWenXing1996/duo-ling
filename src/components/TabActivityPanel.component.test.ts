@@ -1,7 +1,7 @@
 // UI 组件测试：TabActivityPanel.vue 的活动历史视图（左栏标签页列表 + 右栏该页活动时间线）。
 // 覆盖易回归语义：左栏以**存续表**为准（没跑过脚本的页也在列表里）、右栏只显示选中那一页的记录、
 // 生命周期端点只在记到时刻时才画（缺时刻不拿别的时刻顶上）、展开才看错误明细、
-// 归不到标签页的记录落「未知标签页」档、空态。
+// 归不到标签页的记录落「未知标签页」档、空态；删除 / 清空走确认弹窗（确认后才发命令）。
 // 边界 mock：ui-client（IPC 客户端）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
@@ -15,9 +15,11 @@ import type {
 const runlog = vi.hoisted(() => vi.fn())
 const runEvents = vi.hoisted(() => vi.fn())
 const tabSessions = vi.hoisted(() => vi.fn())
+const tabActivityClear = vi.hoisted(() => vi.fn())
+const tabActivityDelete = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/userscripts/ui-client', () => ({
-  userscriptClient: { runlog, runEvents, tabSessions },
+  userscriptClient: { runlog, runEvents, tabSessions, tabActivityClear, tabActivityDelete },
 }))
 
 let seq = 0
@@ -65,7 +67,9 @@ function session(over: TabSessionRecord): TabSessionRecord {
 let wrapper: VueWrapper
 
 async function mountPanel(): Promise<VueWrapper> {
-  const w = mount(TabActivityPanel)
+  // 确认弹窗经 Portal teleport 到 body 且异步挂载：attachTo 让面板自身也在 body 里（查询走
+  // [role="dialog"] 限定到弹窗，避免误命中面板自己的「删除」按钮）。
+  const w = mount(TabActivityPanel, { attachTo: document.body })
   await flushPromises()
   await flushPromises()
   return w
@@ -99,10 +103,13 @@ beforeEach(() => {
   runlog.mockResolvedValue([])
   runEvents.mockResolvedValue([])
   tabSessions.mockResolvedValue([])
+  tabActivityClear.mockResolvedValue(undefined)
+  tabActivityDelete.mockResolvedValue(undefined)
 })
 
 afterEach(() => {
   wrapper?.unmount()
+  document.body.innerHTML = ''
 })
 
 describe('TabActivityPanel 活动历史', () => {
@@ -212,6 +219,15 @@ describe('TabActivityPanel 活动历史', () => {
     expect(detailText()).not.toContain('活动中')
   })
 
+  /** 确认弹窗里的按钮（限定在 role=dialog 内，避免误命中面板自己的「删除」按钮） */
+  function dialogButton(text: string): HTMLButtonElement {
+    const dialog = document.body.querySelector('[role="dialog"]')
+    if (!dialog) throw new Error('确认弹窗没出现')
+    const btn = [...dialog.querySelectorAll('button')].find((b) => b.textContent?.trim() === text)
+    if (!btn) throw new Error(`弹窗里没有「${text}」按钮`)
+    return btn as HTMLButtonElement
+  }
+
   it('空态：既没有存续行也没有日志时，两侧各给一句说明', async () => {
     wrapper = await mountPanel()
 
@@ -219,5 +235,61 @@ describe('TabActivityPanel 活动历史', () => {
     // 空态得指出去哪开记录，否则用户只会以为这个面板坏了
     expect(wrapper.text()).toContain('活动记录')
     expect(wrapper.text()).toContain('从左边选一个标签页看它的活动')
+  })
+
+  it('清空：先过确认弹窗，确认后才发命令', async () => {
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' }),
+    ])
+    wrapper = await mountPanel()
+
+    await wrapper.find('[data-testid="tab-activity-clear"]').trigger('click')
+    await flushPromises()
+
+    // 弹窗出现，但还没发命令
+    expect(document.body.textContent).toContain('清空活动历史')
+    expect(tabActivityClear).not.toHaveBeenCalled()
+
+    dialogButton('清空').click()
+    await flushPromises()
+    expect(tabActivityClear).toHaveBeenCalledTimes(1)
+  })
+
+  it('清空取消：不发命令', async () => {
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' }),
+    ])
+    wrapper = await mountPanel()
+
+    await wrapper.find('[data-testid="tab-activity-clear"]').trigger('click')
+    await flushPromises()
+    dialogButton('取消').click()
+    await flushPromises()
+    expect(tabActivityClear).not.toHaveBeenCalled()
+  })
+
+  it('删除：按选中那一页的 tabSessionId 发命令（默认选最近有活动的那页）', async () => {
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' }),
+      session({ tabSessionId: 't2', tabId: 2, url: 'https://b.example/y' }),
+    ])
+    runlog.mockResolvedValue([runRow({ runId: 'r2', tabSessionId: 't2', time: 900 })])
+    wrapper = await mountPanel()
+
+    await wrapper.find('[data-testid="tab-activity-delete"]').trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain('删除这一页的活动记录')
+
+    dialogButton('删除').click()
+    await flushPromises()
+    expect(tabActivityDelete).toHaveBeenCalledWith('t2')
+  })
+
+  it('「未知标签页」档不给删除入口（它不是一页，谈不上删它）', async () => {
+    runlog.mockResolvedValue([runRow({ runId: 'r1', name: '脚本A' })])
+    wrapper = await mountPanel()
+
+    expect(tabButtons()[0].text()).toContain('未知标签页')
+    expect(wrapper.find('[data-testid="tab-activity-delete"]').exists()).toBe(false)
   })
 })

@@ -147,6 +147,12 @@ export const userscriptClient = {
   tabActivityDisable: (tabId: number): Promise<{ tabId: number; recording: boolean }> =>
     send({ kind: 'userscript:tabActivityDisable', tabId }),
 
+  /** 删掉某一页的全部活动（存续行 + 它的运行与错误）——「活动历史」的删除 */
+  tabActivityDelete: (tabSessionId: string): Promise<void> =>
+    send({ kind: 'userscript:tabActivityDelete', tabSessionId }),
+  /** 清空「活动历史」的全部记录（存续行 + 运行日志 + 错误） */
+  tabActivityClear: (): Promise<void> => send({ kind: 'userscript:tabActivityClear' }),
+
   /** 某次运行的运行内事件（展开时间线卡片时按需拉；列表视图不带事件） */
   runEvents: (runId: string): Promise<UserScriptRunEvent[]> =>
     send({ kind: 'userscript:runEvents', runId }),

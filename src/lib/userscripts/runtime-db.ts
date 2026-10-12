@@ -554,6 +554,61 @@ function toPublic({ firstSeenAt: _trimKey, ...row }: TabSessionRow): TabSessionR
   return row
 }
 
+/**
+ * 删掉标签页存续行：不传 ids = 清空整张表。
+ *
+ * **只删这张表** —— 「活动历史」面板展示的是存续行与运行日志的合成，两层要一起删才不留
+ * 「表里已查不到」的残影，故它的编排在 store.ts（clearTabActivity / deleteTabActivity）。
+ *
+ * @returns 是否真删掉了东西（调用方据此决定要不要广播）
+ */
+export async function clearTabSessions(tabSessionIds?: string[]): Promise<boolean> {
+  return runTx(TAB_SESSIONS_STORE, 'readwrite', async (tx) => {
+    const store = tx.objectStore(TAB_SESSIONS_STORE)
+    let removed = 0
+    if (tabSessionIds === undefined) {
+      removed = (await request<number>(store.count())) ?? 0
+      store.clear()
+    } else {
+      for (const id of tabSessionIds) {
+        const hit = await request<unknown>(store.get(id))
+        if (hit === undefined) continue
+        store.delete(id)
+        removed += 1
+      }
+    }
+    await txDone(tx, '删除标签页存续记录')
+    return removed > 0
+  })
+}
+
+/**
+ * 删掉归属若干标签页的运行条目（各自的事件同事务级联删除）。
+ *
+ * 运行条自带登记那一刻取的 `tabSessionId`（缺省 = 那一页当时没开记录），按它定点筛。
+ * @returns 删掉的 runIds —— 错误记录不带 tabSessionId，只能经 runId 归属，调用方拿这组
+ *   id 接着删（见 store 的编排）。
+ */
+export async function clearRunsByTabSession(tabSessionIds: string[]): Promise<string[]> {
+  const wanted = new Set(tabSessionIds)
+  if (!wanted.size) return []
+  return runTx([RUNS_STORE, RUN_EVENTS_STORE], 'readwrite', async (tx) => {
+    const runs = tx.objectStore(RUNS_STORE)
+    const events = tx.objectStore(RUN_EVENTS_STORE)
+    const victims: string[] = []
+    await eachCursor(runs.openCursor(), Infinity, (cursor) => {
+      const run = cursor.value as UserScriptRunLogEntry
+      if (run.tabSessionId && wanted.has(run.tabSessionId)) {
+        victims.push(run.runId)
+        cursor.delete()
+      }
+    })
+    for (const runId of victims) await deleteEventsOf(events, runId)
+    await txDone(tx, '删除标签页的运行记录')
+    return victims
+  })
+}
+
 /** 该 tabId 现在开着的那一行（未结束 = 还开着；已盖章的不算） */
 async function openRowOf(store: IDBObjectStore, tabId: number): Promise<TabSessionRow | undefined> {
   const rows = await request<TabSessionRow[]>(store.index(TABS_BY_TAB).getAll(tabId))

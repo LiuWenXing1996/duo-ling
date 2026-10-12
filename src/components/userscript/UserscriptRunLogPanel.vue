@@ -335,8 +335,9 @@ const showNameInRows = computed(() =>
  * 注意**不能**写 `selected.value?.uuid ?? undefined` —— null 是 nullish，
  * 那样会把「未归属」悄悄退化成「清空全部」。
  *
- * 后端的清空范围只有「全部 / 某脚本」两种，**没有「按标签页清」**（运行条不按标签页删），
+ * 本面板的清空走 `clearErrors`，范围只有「全部 / 某脚本」两种，**没有「按标签页清」**，
  * 故按标签页轴下整个按钮不出现 —— 宁可没有这个入口，也不给一个语义对不上的按钮。
+ * 按标签页的删在「活动历史」面板（`tabActivityDelete`，连带删该页的运行与错误），不在这里。
  */
 const clearTarget = computed<string | null | undefined>(() => {
   if (selectedKey.value === ALL_KEY) return undefined
@@ -674,7 +675,7 @@ onMounted(() => {
         <div class="mx-auto max-w-3xl p-4">
           <header class="flex items-center justify-between gap-2">
             <p class="text-xs text-muted-foreground">{{ selectedTitle }}（最新在前）</p>
-            <!-- 清空只在按脚本轴提供：后端清空范围是「全部 / 某脚本」，没有「按标签页清」 -->
+            <!-- 清空只在按脚本轴提供：本面板的清空范围是「全部 / 某脚本」；按标签页的删在「活动历史」 -->
             <ui-button
               v-if="axis === 'script'"
               variant="ghost"

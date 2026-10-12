@@ -142,6 +142,8 @@ export type RuntimeRequest =
   // 地址由 SW 自己从标签页现取，命令只带 tabId。它只决定「要不要记」，不动运行日志本身。
   | { kind: 'userscript:tabActivityEnable'; tabId: number }
   | { kind: 'userscript:tabActivityDisable'; tabId: number }
+  | { kind: 'userscript:tabActivityDelete'; tabSessionId: string }
+  | { kind: 'userscript:tabActivityClear' }
   // 某次运行的运行内事件（按 runId；消费方同上：面板展开卡片 / AI 的 run_log_read 带 runId）
   | { kind: 'userscript:runEvents'; runId: string }
   // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清 runs store 的对应条目）。
