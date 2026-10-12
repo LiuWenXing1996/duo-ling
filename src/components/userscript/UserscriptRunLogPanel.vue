@@ -5,6 +5,8 @@
 //
 // 时间线本身不分组，左栏给两种**分组轴**切法：按脚本（谁的日志）/ 按标签页（哪一页的日志）——
 // 「什么时候跑过、那次挂没挂、挂了什么」一眼一条线看完，换轴只换过滤维度。
+// 注意「按标签页」轴只对**开着活动记录**的页成立：归属是逐页在 popup 里打开的（见 tab-sessions），
+// 没开的页其运行没有归属，全落进「未知标签页」那一档 —— 这是被动记录的必然结果，不是记录丢了。
 //
 // 数据通道：userscriptClient（workbench 是可信扩展页，可直接 chrome.runtime.sendMessage，
 // 不走 window.api —— 那是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
@@ -53,7 +55,7 @@ const props = defineProps<{ focusUuid?: string | null; focusSeq?: number; reload
 const ALL_KEY = '__all__'
 /** 「未归属」分组 key：无运行上下文的错误（注册失败无脚本上下文、部分桥错误） */
 const ORPHAN_KEY = '__orphan__'
-/** 「未知标签页」分组 key：归不到任何标签页的运行与错误（老记录、扩展刚重载那会儿记的） */
+/** 「未知标签页」分组 key：归不到任何标签页的运行与错误（那一页没开活动记录、老记录、扩展刚重载） */
 const UNKNOWN_TAB_KEY = '__unknown_tab__'
 
 /**
@@ -248,7 +250,7 @@ const tabNavItems = computed<NavItem[]>(() => {
       key: UNKNOWN_TAB_KEY,
       name: '未知标签页',
       count: unknown.runs + unknown.errors,
-      hint: '当时没记下所在标签页（老记录，或扩展刚重载那会儿）',
+      hint: '当时这一页没开活动记录',
       hasLogs: true
     })
   }

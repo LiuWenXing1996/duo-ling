@@ -1,7 +1,7 @@
 // UI 组件测试：PopupPanel.vue 的两个区块（PopupCurrentPage / PopupOtherPages）。
 //
 // 这条链路的分支都在渲染层，故用组件测试守：
-//   A. 「当前页面」：接口录制开关（常显，可就地开与关，状态随命令改口）、
+//   A. 「当前页面」：两个按页开关（接口录制 / 活动记录，都常显、可就地开与关、状态随命令改口）、
 //      本页在跑的脚本（头部给计数、列表常显、点行跳错误日志）、对话浮层入口与回话状态；
 //   B. 「当前页面」注入不了内容脚本（探活无人应答）→ 头部改说原因、浮层入口禁用；
 //   C. 「其他页面」：列出本页以外的标签页（脚本数 / 会话与生成中），点「去这里」切过去；没有别的页面给空态。
@@ -47,6 +47,7 @@ function overviewRow(tabId: number, over: Record<string, unknown> = {}): Record<
     conversationTitle: null,
     generating: false,
     netRecording: false,
+    tabRecording: false,
     ...over,
   }
 }
@@ -125,6 +126,9 @@ describe('popup 的「当前页面」区块', () => {
   const recordingCard = (w: VueWrapper) => w.find('[data-testid="popup-current-recording"]')
   const recordingState = (w: VueWrapper) => w.find('[data-testid="popup-current-recording-state"]')
   const recordingToggle = (w: VueWrapper) => w.find('[data-testid="popup-toggle-recording"]')
+  const activityCard = (w: VueWrapper) => w.find('[data-testid="popup-current-tab-activity"]')
+  const activityState = (w: VueWrapper) => w.find('[data-testid="popup-current-tab-activity-state"]')
+  const activityToggle = (w: VueWrapper) => w.find('[data-testid="popup-toggle-tab-activity"]')
 
   it('头部给站点名；本页在跑脚本：头部给计数，列表直接列出（不折叠）', async () => {
     stubChrome('https://example.com/page')
@@ -314,8 +318,63 @@ describe('popup 的「当前页面」区块', () => {
     expect(recordingState(w).text()).toContain('未开启')
   })
 
-  it('不在概览里的页面（内部页 / 扩展页）：开关禁灰，状态说「当前页面不支持」', async () => {
-    // 读不到 url 的页面上概览里没有这一行，也就拿不到 tabId 与站点名 —— 开不了录制
+  it('活动记录卡常显：没开也在，开关为关、状态说「未开启」', async () => {
+    stubChrome('https://example.com/page')
+    const w = await mountPopup()
+
+    expect(activityCard(w).exists()).toBe(true)
+    expect(activityState(w).text()).toContain('未开启')
+    expect(activityToggle(w).attributes('aria-checked')).toBe('false')
+  })
+
+  it('扳开活动记录：按标签页上行开启命令，状态改口「正在记录」', async () => {
+    stubChrome('https://example.com/page')
+    const w = await mountPopup()
+    const close = spyClose()
+
+    await activityToggle(w).trigger('click')
+    await flushPromises()
+
+    expect(runtimeSendMessage).toHaveBeenCalledWith({
+      kind: 'userscript:tabActivityEnable',
+      tabId: TAB_ID,
+    })
+    expect(activityState(w).text()).toContain('正在记录')
+    // 与录制不同，这里不需要重载页面：钩子在文档开头挂，而记录是从下一次运行开始的
+    expect(activityCard(w).text()).not.toContain('刷新页面')
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it('扳回活动记录：按标签页上行关闭命令，状态回到「未开启」', async () => {
+    stubChrome('https://example.com/page')
+    overviewRows = [overviewRow(TAB_ID, { tabRecording: true })]
+    const w = await mountPopup()
+
+    await activityToggle(w).trigger('click')
+    await flushPromises()
+
+    expect(runtimeSendMessage).toHaveBeenCalledWith({
+      kind: 'userscript:tabActivityDisable',
+      tabId: TAB_ID,
+    })
+    expect(activityState(w).text()).toContain('未开启')
+  })
+
+  it('活动记录开关失败：状态不动并说明原因（不装成成功）', async () => {
+    stubChrome('https://example.com/page')
+    const w = await mountPopup()
+    // 挂载时的那次 page:overview 已用掉默认实现，这里只覆盖接下来这一发
+    runtimeSendMessage.mockImplementationOnce(async () => ({ ok: false, error: '标签页不存在' }))
+
+    await activityToggle(w).trigger('click')
+    await flushPromises()
+
+    expect(w.find('[data-testid="popup-tab-activity-error"]').text()).toContain('标签页不存在')
+    expect(activityState(w).text()).toContain('未开启')
+  })
+
+  it('不在概览里的页面（内部页 / 扩展页）：两个开关都禁灰，状态说「当前页面不支持」', async () => {
+    // 读不到 url 的页面上概览里没有这一行，也就拿不到 tabId 与站点名 —— 两个开关都开不了
     stubChrome(undefined, false)
     overviewRows = []
     const w = await mountPopup()
@@ -323,6 +382,8 @@ describe('popup 的「当前页面」区块', () => {
     expect(recordingCard(w).exists()).toBe(true)
     expect(recordingState(w).text()).toContain('当前页面不支持')
     expect(recordingToggle(w).attributes('disabled')).toBeDefined()
+    expect(activityState(w).text()).toContain('当前页面不支持')
+    expect(activityToggle(w).attributes('disabled')).toBeDefined()
   })
 })
 

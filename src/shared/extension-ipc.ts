@@ -138,6 +138,10 @@ export type RuntimeRequest =
   // 标签页存续表全量（见 TabSessionRecord）：运行日志按标签页分组时用它取名字与时刻
   //（分组键是运行条目上的 tabSessionId；表里查不到的旧组回落到运行自己的 url）。
   | { kind: 'userscript:tabSessions' }
+  // 打开 / 关掉**这一个标签页**的活动记录（popup 的开关）。建行、撤号都在 SW 侧完成；
+  // 地址由 SW 自己从标签页现取，命令只带 tabId。它只决定「要不要记」，不动运行日志本身。
+  | { kind: 'userscript:tabActivityEnable'; tabId: number }
+  | { kind: 'userscript:tabActivityDisable'; tabId: number }
   // 某次运行的运行内事件（按 runId；消费方同上：面板展开卡片 / AI 的 run_log_read 带 runId）
   | { kind: 'userscript:runEvents'; runId: string }
   // 清错误日志（runtime 库 errors store；「全部/该脚本」范围连带清 runs store 的对应条目）。
@@ -538,6 +542,11 @@ export interface PageOverviewTab {
    * 同一站点的其他标签页不看这条（要录得各自开一次） —— 见 net-capture-gate。
    */
   netRecording: boolean
+  /**
+   * 这个标签页此刻是否在记活动（用户在 popup 里给这一页打开的开关，见 TabSessionRecord.recording）。
+   * 同样按标签页算：同一站点的其他页各开各的，开关只落在这一个标签页上。
+   */
+  tabRecording: boolean
 }
 
 /** 概览里的一条运行脚本：名字与错误条数都已在 SW 侧解析好 */

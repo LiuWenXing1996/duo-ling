@@ -310,7 +310,7 @@ describe('UserscriptRunLogPanel 时间线', () => {
       // 同一个标签页上的第二次运行（换了页内地址）——仍属同一组
       runRow({ runId: 'r2', uuid: 'u2', name: '脚本B', url: 'https://a.example/y', tabSessionId: 't1' }),
       runRow({ runId: 'r3', uuid: 'u1', name: '脚本A', url: 'https://b.example/p', tabSessionId: 't2' }),
-      // 老记录：当时没记下所在标签页
+      // 归属缺失：那一页当时没开活动记录（老记录同理）
       runRow({ runId: 'r4', uuid: 'u2', name: '脚本B' }),
     ])
     tabSessions.mockResolvedValue([

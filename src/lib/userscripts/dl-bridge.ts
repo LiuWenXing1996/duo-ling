@@ -46,7 +46,7 @@ import { getNetCaptureSessions } from './net-capture-gate'
 import * as netlog from './netlog-db'
 // 对话界面页面脚本监控（运行时口径）：runstart 登记 + 错误实时推送（跨文档观察者，SW 按 tab 登记）
 import { notePageError, noteRunStart } from './page-monitor'
-import { tabSessionIdFor } from './tab-sessions'
+import { recordingTabSessionId } from './tab-sessions'
 import {
   getGMValue,
   setGMValue,
@@ -1065,14 +1065,19 @@ export function initDlBridge(): void {
           ...(typeof run.url === 'string' ? { url: run.url } : {}),
           ...(typeof run.savedAt === 'number' ? { savedAt: run.savedAt } : {}),
         }
-        // 标签页归属：运行日志按标签页看时的分组键（见表头说明）。取号失败（存储不可用）不拦记账，
-        // 那种情况下只是这条运行没有标签页归属，读侧归「未知标签页」。
+        // 标签页归属：运行日志按标签页看时的分组键（语义见 TabSessionRecord）。**被动取号** —— 只有用户在
+        // popup 里给这一页打开了活动记录才有号（见 tab-sessions），没开就没有归属，读侧归
+        // 「未知标签页」。取号失败（存储不可用）同样不拦记账：归属缺失不该让这次运行消失。
         if (tabId == null) {
           void recordRunStart(uuid, runId, run.name, extra).catch(() => {})
         } else {
-          void tabSessionIdFor(tabId, extra.url)
+          void recordingTabSessionId(tabId)
             .then(
-              (tabSessionId) => recordRunStart(uuid, runId, run.name, { ...extra, tabSessionId }),
+              (tabSessionId) =>
+                recordRunStart(uuid, runId, run.name, {
+                  ...extra,
+                  ...(tabSessionId ? { tabSessionId } : {}),
+                }),
               () => recordRunStart(uuid, runId, run.name, extra),
             )
             .catch(() => {})

@@ -410,17 +410,18 @@ export async function listRunEvents(runId: string): Promise<UserScriptRunEvent[]
 // 时刻一律「记得到就记」，故这里没有任何补造逻辑 —— 缺省的字段就是未知，读侧如实显示。
 
 /**
- * 登记一个标签页（取号）。
+ * 建一行（取号）。
  *
- * `createdAt` 由调用方决定传不传：`tabs.onCreated` 传（确实看着它出生），
- * 其他入口「要号时顺手补建」不传 —— 没看着它出生就是不知道，不拿发现它的时刻冒充。
+ * 只有两处会调它：用户给这一页打开活动记录、脚本在这一页跑起来（取号逻辑见 tab-sessions）。
+ * 两者都不是标签页出生的时刻，故**不写 `createdAt`** —— 没看着它出生就是不知道。
  *
  * @returns 新行的 tabSessionId
  */
 export async function mintTabSession(input: {
   tabId: number
   url?: string
-  createdAt?: number
+  /** 建行即开启记录（popup 的开关走这条）；缺省 = 这行只作历史起点，不接着记 */
+  recording?: boolean
 }): Promise<string> {
   const tabSessionId = crypto.randomUUID()
   await runTx(TAB_SESSIONS_STORE, 'readwrite', async (tx) => {
@@ -430,7 +431,7 @@ export async function mintTabSession(input: {
       tabSessionId,
       tabId: input.tabId,
       ...(input.url ? { url: input.url } : {}),
-      ...(input.createdAt != null ? { createdAt: input.createdAt } : {}),
+      ...(input.recording ? { recording: true } : {}),
       firstSeenAt: Date.now(),
     } satisfies TabSessionRow)
     const excess = existing + 1 - TAB_SESSION_MAX
@@ -465,6 +466,31 @@ export async function setTabSessionUrl(tabId: number, url: string): Promise<bool
     }
     store.put({ ...row, url })
     await txDone(tx, '记录标签页地址')
+    return true
+  })
+}
+
+/**
+ * 打开 / 关掉这一页的活动记录（popup 的开关）。
+ *
+ * 只改还开着的那一行：行已结束说明这个 tabId 早已不是当初那页，改它就是改错人。
+ * **关掉不删行** —— 历史留着，只是不再长出新记录。
+ *
+ * 关掉时把字段整个删掉而非写 false：缺省即「没开」，读侧（取号与概览）只有一条判据。
+ *
+ * @returns 是否真改到了（没这行、或本来就是这个值 → false，不落盘）
+ */
+export async function setTabSessionRecording(tabId: number, recording: boolean): Promise<boolean> {
+  return runTx(TAB_SESSIONS_STORE, 'readwrite', async (tx) => {
+    const store = tx.objectStore(TAB_SESSIONS_STORE)
+    const row = await openRowOf(store, tabId)
+    if (!row || (row.recording === true) === recording) {
+      await txDone(tx, '切换标签页记录')
+      return false
+    }
+    const { recording: _wasOn, ...rest } = row
+    store.put(recording ? { ...rest, recording: true } : rest)
+    await txDone(tx, '切换标签页记录')
     return true
   })
 }

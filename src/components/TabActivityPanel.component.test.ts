@@ -150,7 +150,8 @@ describe('TabActivityPanel 活动历史', () => {
     ])
     wrapper = await mountPanel()
 
-    expect(detailText()).toContain('打开时刻未知')
+    // 缺时刻就是缺：卡头不挂「打开时刻未知」这类恒空的话（记录改为被动后它必空）
+    expect(detailText()).not.toContain('打开时刻未知')
     // 一个节点都画不出来：时间线整块不出现（不是画一条「页面打开 · 未知」顶上）
     expect(wrapper.find('.tab-activity-timeline').exists()).toBe(false)
   })
@@ -215,6 +216,8 @@ describe('TabActivityPanel 活动历史', () => {
     wrapper = await mountPanel()
 
     expect(wrapper.text()).toContain('还没有标签页记录')
+    // 空态得指出去哪开记录，否则用户只会以为这个面板坏了
+    expect(wrapper.text()).toContain('活动记录')
     expect(wrapper.text()).toContain('从左边选一个标签页看它的活动')
   })
 })

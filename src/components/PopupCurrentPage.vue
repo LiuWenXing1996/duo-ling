@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 「当前页面」区块：本标签页的接口录制开关（常显）+ 本页在跑哪些脚本 +
-// 这条页面的对话浮层（快捷入口与「是否正在回话」）。
+// 「当前页面」区块：本标签页的两个按页开关（常显）—— 接口录制、活动记录 ——
+// + 本页在跑哪些脚本 + 这条页面的对话浮层（快捷入口与「是否正在回话」）。
 //
 // 判据都不在这里现算：PopupPanel 挂载时经一条 page:overview 命令取回，再传进来 —— popup 是纯
 // 展示面板（不装 window.api、不直连会话库），聚合口径统一在 SW 侧一处（见 shared/extension-ipc
@@ -15,7 +15,7 @@
 // 脚本多时列表自己滚，卡高不跟着涨。没脚本时头部给空态说法，按「能不能注入」分 —— 藏起整卡会让
 // 用户以为没有这个功能。
 //
-// 布局：卡片套卡片 —— 外卡是「当前页面」（头部 + 站点名），接口录制 / 脚本 / 对话各是里面的一张子卡。
+// 布局：卡片套卡片 —— 外卡是「当前页面」（头部 + 站点名），两个开关 / 脚本 / 对话各是里面的一张子卡。
 import { computed, ref } from 'vue'
 import { MessageSquare as UiMessageSquare } from '@lucide/vue'
 import { Badge as UiBadge } from '@/components/ui/badge'
@@ -39,8 +39,11 @@ const props = defineProps<{
   tab: PageOverviewTab | null
 }>()
 
-/** 录制开关切换成功后上抛给父组件（popup 不维持推送通道，由父组件就地更新这一行的录制标） */
-const emit = defineEmits<{ recordingChanged: [tabId: number, recording: boolean] }>()
+/** 两个开关切换成功后都上抛给父组件（popup 不维持推送通道，由父组件就地更新这一行的状态位） */
+const emit = defineEmits<{
+  recordingChanged: [tabId: number, recording: boolean]
+  tabRecordingChanged: [tabId: number, recording: boolean]
+}>()
 
 /** 「打开会话」没打通时的说明（成功就直接关窗了） */
 const openError = ref('')
@@ -51,9 +54,13 @@ const errorCount = computed(() => scripts.value.reduce((n, s) => n + s.errorCoun
 /** 这个标签页是否正在接口录制（判据在 SW，见 PageOverviewTab.netRecording） */
 const recording = computed(() => props.tab?.netRecording === true)
 
+/** 这个标签页是否在记活动 —— 记录是被动的，靠它决定要不要给这页的运行带上标签页归属 */
+const tabRecording = computed(() => props.tab?.tabRecording === true)
+
 /**
- * 这个标签页能不能录制：要在概览里（拿得到 tabId）且是普通网页（拿得到站点名）。
- * 内部页 / 扩展页两样都缺 —— 那种页面上开关禁灰，状态位改说原因。
+ * 这个标签页能不能用这两个按页开关：要在概览里（拿得到 tabId）且是普通网页（拿得到站点名）。
+ * 内部页 / 扩展页两样都缺 —— 那种页面上开关禁灰，状态位改说原因。活动记录同理：脚本在那类
+ * 页面上根本不会跑，开了也没东西可记。
  */
 const canRecord = computed(() => props.tab != null && props.host !== '')
 
@@ -71,7 +78,7 @@ const toggleError = ref('')
  */
 const justEnabled = ref(false)
 
-/** 未录制时状态位的说法：能录就说「未开启」，不能录就说清是这一档 */
+/** 没开时状态位的说法（两个开关共用）：能开就说「未开启」，不能开就说清是这一档 */
 const idleLabel = computed(() => (canRecord.value ? '未开启' : '当前页面不支持'))
 
 /**
@@ -159,6 +166,37 @@ async function toggleRecording(next: boolean): Promise<void> {
     toggleBusy.value = false
   }
 }
+
+/** 活动记录开关在途（禁灰，防连点重复发命令） */
+const activityBusy = ref(false)
+/** 开关失败的说明（成功不必说，状态位自己会变） */
+const activityError = ref('')
+
+/**
+ * 扳动这一页的活动记录开关。
+ *
+ * 与接口录制同一条路子：判据落在**这一个标签页**上，命令只带 tabId，地址由 SW 现取。
+ * 打开时 SW 顺手给这页建行 —— 「活动历史」里立刻就能看到它；关掉不删记录，只是不再长新的。
+ */
+async function toggleTabActivity(next: boolean): Promise<void> {
+  const tabId = props.tab?.tabId
+  if (activityBusy.value || tabId == null) return
+  activityBusy.value = true
+  activityError.value = ''
+  try {
+    const res = (await chrome.runtime.sendMessage(
+      next
+        ? { kind: 'userscript:tabActivityEnable', tabId }
+        : { kind: 'userscript:tabActivityDisable', tabId },
+    )) as RuntimeResponse<unknown> | undefined
+    if (!res?.ok) throw new Error(res?.error || '未知错误')
+    emit('tabRecordingChanged', tabId, next)
+  } catch (e) {
+    activityError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    activityBusy.value = false
+  }
+}
 </script>
 
 <template>
@@ -216,6 +254,45 @@ async function toggleRecording(next: boolean): Promise<void> {
           data-testid="popup-recording-error"
         >
           {{ toggleError }}
+        </p>
+      </div>
+
+      <!--
+        活动记录卡：给**这一页**开一个记录开关（常显，与接口录制并列）。
+        记录是被动的：开着时这一页的脚本运行才带上标签页归属，「活动历史」里才找得到它；
+        关着不影响运行日志本身，只是那些运行归到「未知标签页」。关掉不清历史（记录留着）。
+        没给「刷新页面」的提示：与录制不同，这里开关一扳就生效 —— 下一次运行就会被记。
+      -->
+      <div class="rounded-md border border-border" data-testid="popup-current-tab-activity">
+        <div class="flex items-center gap-2 px-2.5 py-1.5">
+          <span class="shrink-0 text-xs text-muted-foreground">活动记录</span>
+          <span
+            class="flex min-w-0 flex-1 items-center gap-1.5"
+            data-testid="popup-current-tab-activity-state"
+          >
+            <template v-if="tabRecording">
+              <span class="size-1.5 shrink-0 rounded-full bg-primary" />
+              <span class="min-w-0 truncate text-xs">正在记录</span>
+            </template>
+            <span v-else class="min-w-0 truncate text-xs text-muted-foreground">{{ idleLabel }}</span>
+          </span>
+          <ui-switch
+            :model-value="tabRecording"
+            :disabled="activityBusy || !canRecord"
+            aria-label="活动记录"
+            data-testid="popup-toggle-tab-activity"
+            @update:model-value="toggleTabActivity"
+          >
+            <ui-switch-thumb />
+          </ui-switch>
+        </div>
+
+        <p
+          v-if="activityError"
+          class="border-t border-border px-2.5 py-1.5 text-xs text-destructive"
+          data-testid="popup-tab-activity-error"
+        >
+          {{ activityError }}
         </p>
       </div>
 

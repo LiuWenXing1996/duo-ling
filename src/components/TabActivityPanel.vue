@@ -1,16 +1,18 @@
 <script setup lang="ts">
 // 活动历史标签页：以**标签页**为主线的历史视图。
 //
-// 左栏 = 标签页存续表（`duoling-runtime` 的 tab_sessions）全量 —— 含从没跑过脚本的页。
-// 这正是它相对「运行日志」的独有价值：那边以**日志**为准，只有产生过记录的脚本会出现，
-// 没跑过的页根本不列；这边以**标签页**为准，页在列表里、右侧如实说明「还没有运行记录」。
+// 左栏 = 标签页存续表（`duoling-runtime` 的 tab_sessions）—— 即「被打开过活动记录的页」。
+// 记录是**被动**的：不为每个新标签页建行，只有用户在 popup 里给某一页打开了「活动记录」，
+// 那一页才进这张表（哪怕它此后一次脚本都没跑，也照样列着）；从此它的运行带上标签页归属。
+// 这正是它相对「运行日志」的独有价值：那边以**日志**为准，只有产生过记录的脚本会出现；
+// 这边以**标签页**为准，页在列表里、右侧如实说明「还没有运行记录」。
 //
 // 右栏 = 选中那一页的活动时间线：打开 / 关闭两个生命周期节点，与每一次脚本运行按时刻混排
 // （最新在前），单次运行可展开看它做过的动作与报的错。
 //
-// 归不到标签页的记录单独一档「未知标签页」：老日志没有 tabSessionId、扩展刚重载那会儿记的，
-// 以及无法归属到任何一次运行的错误（注册 / 桥类，或所属运行已滑出环形）—— 不列出来它们在这一页
-// 就完全不可见。「未知标签页」档只能看这些记录本身，答不出它当时在哪一页（那时没记下来）。
+// 归不到标签页的记录单独一档「未知标签页」：这一页当时没开活动记录、老日志没有 tabSessionId、
+// 扩展刚重载那会儿记的，以及无法归属到任何一次运行的错误（注册 / 桥类，或所属运行已滑出环形）——
+// 不列出来它们在这一页就完全不可见。「未知标签页」档只能看记录本身，答不出它当时在哪一页。
 //
 // 数据通道：userscriptClient（workbench 是可信扩展页，可直接 chrome.runtime.sendMessage）。
 // 三条**既有**命令就够，未新增命令面：tabSessions（存续表）/ runlog（全量时间线）/ runEvents（展开时按需拉）。
@@ -401,13 +403,20 @@ function shortErrorId(id: string | undefined): string {
   return id ? id.slice(0, 8) : ''
 }
 
-/** 卡头那行时刻：缺的部分如实写「未知」，不拿别的时刻顶上 */
+/**
+ * 卡头那行时刻：缺的部分如实写「未知」，不拿别的时刻顶上。
+ *
+ * 「打开」只在真有时刻时才说：记录改为被动后，建行发生在「用户打开记录」或「脚本跑起来」，
+ * 都不是标签页出生的时刻，故 `createdAt` 对新记录恒缺省（见 TabSessionRecord）——
+ * 天天挂一句「打开时刻未知」只是噪音，而关闭时刻仍缺不得（那是真会缺的）。
+ */
 const momentsText = computed(() => {
   const sel = selected.value
   if (!sel) return ''
   if (sel.id === UNKNOWN_TAB_KEY) return '这些记录没有记下所在标签页，只能看记录本身'
   if (!sel.inTable) return '存续表里已查不到这一页（记录可能已被环形裁剪），时刻未知'
-  const parts: string[] = [sel.createdAt ? `打开 ${formatDateTime(sel.createdAt)}` : '打开时刻未知']
+  const parts: string[] = []
+  if (sel.createdAt) parts.push(`打开 ${formatDateTime(sel.createdAt)}`)
   if (sel.closedAt) parts.push(`关闭 ${formatDateTime(sel.closedAt)}`)
   else if (sel.status === 'closed') parts.push('关闭时刻未知')
   return parts.join(' · ')
@@ -458,7 +467,7 @@ const aliveText = computed(() => {
       <div class="flex w-64 shrink-0 flex-col border-r border-border">
         <nav class="min-h-0 flex-1 overflow-y-auto py-2" aria-label="标签页列表">
           <p v-if="!tabItems.length" class="px-3 py-2 text-xs text-muted-foreground">
-            {{ loading ? '加载中…' : '还没有标签页记录。' }}
+            {{ loading ? '加载中…' : '还没有标签页记录。在 popup 里给页面打开「活动记录」后，这里会列出来。' }}
           </p>
           <button
             v-for="item in tabItems"
@@ -498,7 +507,7 @@ const aliveText = computed(() => {
               <p v-if="selected.url" class="mt-1 truncate text-xs text-muted-foreground" :title="selected.url">
                 {{ selected.url }}
               </p>
-              <p class="mt-1 text-[11px] text-muted-foreground">
+              <p v-if="momentsText" class="mt-1 text-[11px] text-muted-foreground">
                 {{ momentsText }}<template v-if="aliveText"> · {{ aliveText }}</template>
               </p>
             </header>

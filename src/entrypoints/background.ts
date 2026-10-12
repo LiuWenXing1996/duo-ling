@@ -58,12 +58,12 @@ import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/
 import { runUpdateCheck } from '@/lib/update-check'
 // 网页浮层开关的补齐动作已随站点开关一并移除：右键菜单只负责发「调出浮层」请求
 import { initDlBridge } from '@/lib/userscripts/dl-bridge'
-// 标签页存续（tabId 的稳定替身）：登记 / 盖章 / 启动划断都归 SW ——
-// 「标签页什么时候开的、什么时候关的」只有常驻 SW 看得见，扩展页与 offscreen 都不该各记一份。
+// 标签页存续（tabId 的稳定替身）：开关 / 盖章 / 启动划断都归 SW ——
+// 「这一页在不在记活动、什么时候关的」只有常驻 SW 看得见，扩展页与 offscreen 都不该各记一份。
 import {
   noteTabClosed,
-  noteTabCreated,
   noteTabUrl,
+  setTabRecording,
   splitTabSessionsAtBrowserStart,
 } from '@/lib/userscripts/tab-sessions'
 // DL Port 事件底座：脚本世界 ↔ SW 长连接下行通道 + 三事件源接入
@@ -331,14 +331,20 @@ const handlers: {
     const tabs = await chrome.tabs.query({}).catch(() => [])
     // 只收普通网页：内部页 / 扩展页上既跑不了脚本也挂不了浮层（读不到 url 的页正是这两类）
     const web = tabs.filter((t) => t.id != null && webHostname(t.url) !== '')
-    const [snapshots, bindings, names, titles, captureSessions] = await Promise.all([
+    const [snapshots, bindings, names, titles, captureSessions, tabSessions] = await Promise.all([
       snapshotForTabs(web.map((t) => t.id as number)),
       conversationBindings(),
       scriptNameByUuid(),
       conversationTitleById(),
       // 录制门禁是 tab 维度：取一次会话列表再按 tabId 认领，不给每个 tab 各读一次 IDB
       getNetCaptureSessions(),
+      // 活动记录的开关同样按 tab 认领，走同一条路子（表里只有被打开过记录的页）
+      listTabSessions(),
     ])
+    // 正在记活动的标签页：未结束 + 开着记录才算 —— 已结束的行只是历史痕迹
+    const recordingTabs = new Set(
+      tabSessions.filter((s) => s.ended !== true && s.recording === true).map((s) => s.tabId),
+    )
     return web.map((t) => {
       const tabId = t.id as number
       const snap = snapshots.get(tabId)
@@ -358,6 +364,7 @@ const handlers: {
         conversationTitle: conversationId ? (titles.get(conversationId) ?? null) : null,
         generating: conversationId ? runningConversations.has(conversationId) : false,
         netRecording: captureSessions.some((s) => s.tabId === tabId),
+        tabRecording: recordingTabs.has(tabId),
       }
     })
   },
@@ -576,6 +583,24 @@ const handlers: {
 
   // 标签页存续表全量：运行日志按标签页分组时取名字与时刻（分组键在运行条目上，表只补名字）
   'userscript:tabSessions': async (): Promise<ReturnType<typeof listTabSessions>> => listTabSessions(),
+
+  // 打开 / 关掉**这一页**的活动记录（popup 的开关）。判据落在标签页上：同一站点的其他页各开
+  // 各的。地址由 SW 现取（与录制门禁同一条口径），不由 popup 带 —— 它手里只有一个 host。
+  // 打开时会顺手建行，好让这一页立刻出现在「活动历史」里（此后跑不跑脚本都无所谓）。
+  'userscript:tabActivityEnable': async (msg): Promise<{ tabId: number; recording: boolean }> => {
+    const url = await chrome.tabs
+      .get(msg.tabId)
+      .then((t) => t.url)
+      .catch(() => undefined)
+    await setTabRecording(msg.tabId, true, url)
+    return { tabId: msg.tabId, recording: true }
+  },
+
+  // 关掉只撤开关、不删记录：这一页的历史留着，只是不再长新的
+  'userscript:tabActivityDisable': async (msg): Promise<{ tabId: number; recording: boolean }> => {
+    await setTabRecording(msg.tabId, false)
+    return { tabId: msg.tabId, recording: false }
+  },
 
   // 某次运行的运行内事件（面板展开卡片时按需拉；AI 的 run_log_read 带 runId 时同路）
   'userscript:runEvents': async (msg): Promise<ReturnType<typeof listRunEvents>> =>
@@ -984,15 +1009,9 @@ function mountProposal2Listeners(): void {
     if (typeof changeInfo.url === 'string') void noteTabUrl(tabId, changeInfo.url).catch(() => {})
   })
 
-  // 标签页存续登记：给 tabId 一个稳定替身（见表头注释与 tab-sessions）。
-  // 只做「记得到就记」—— 没有对账扫描，取不到的时刻就留空，读侧显示「未知」。
-  chrome.tabs.onCreated.addListener((tab) => {
-    if (tab.id == null) return
-    // 新标签页此刻可能还没开始导航，url / pendingUrl 都拿不到就空着
-    const url = tab.pendingUrl ?? tab.url
-    void noteTabCreated(tab.id, url || undefined).catch(() => {})
-  })
-
+  // 标签页存续的维护：给 tabId 一个稳定替身（见表头注释与 tab-sessions）。
+  // **不监听 onCreated**：建行只发生在「用户给这一页打开活动记录」那一刻（见 tabActivityEnable），
+  // 否则每开一页都留一行，绝大多数与脚本毫无关系。这里与上面一样，只维护已存在的行。
   chrome.tabs.onRemoved.addListener((tabId) => {
     endRunsOfTab(tabId, 'closed')
     forgetPageTab(tabId)
@@ -1003,7 +1022,7 @@ function mountProposal2Listeners(): void {
     // 录制收尾：录制按标签页划分，页面没了就没有「这一页的请求」可录。同上一行同理，
     // 这里漏了会让门禁一直挂着已消失的标签页（注册集合虚扩，tabId 复用后误判）。
     void stopRecordingOfClosedTab(tabId)
-    // 存续收尾：盖上关闭时刻。没登记过的标签页不补行（它连出生时刻都没有，补一条只会占位）
+    // 存续收尾：盖上关闭时刻。没登记过的标签页不补行 —— 没开记录又没跑过脚本的页本就不留痕
     void noteTabClosed(tabId).catch(() => {})
   })
 

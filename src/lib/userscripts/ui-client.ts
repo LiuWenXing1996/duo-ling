@@ -141,6 +141,12 @@ export const userscriptClient = {
   /** 标签页存续表全量：运行日志按标签页分组时取名字与时刻（分组键在运行条目上） */
   tabSessions: (): Promise<TabSessionRecord[]> => send({ kind: 'userscript:tabSessions' }),
 
+  /** 给**这一个标签页**打开 / 关掉活动记录（popup 的开关）。关掉不删记录，只是不再记新的 */
+  tabActivityEnable: (tabId: number): Promise<{ tabId: number; recording: boolean }> =>
+    send({ kind: 'userscript:tabActivityEnable', tabId }),
+  tabActivityDisable: (tabId: number): Promise<{ tabId: number; recording: boolean }> =>
+    send({ kind: 'userscript:tabActivityDisable', tabId }),
+
   /** 某次运行的运行内事件（展开时间线卡片时按需拉；列表视图不带事件） */
   runEvents: (runId: string): Promise<UserScriptRunEvent[]> =>
     send({ kind: 'userscript:runEvents', runId }),
