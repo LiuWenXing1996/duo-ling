@@ -49,7 +49,7 @@ import {
   startNetSession,
   stopNetSessionsByTab,
 } from '@/lib/userscripts/net-capture-gate'
-import { normalizeHost, type NetRecordSession } from '@/lib/userscripts/net-record-protocol'
+import { hostFromUrl, normalizeHost, type NetRecordSession } from '@/lib/userscripts/net-record-protocol'
 import { archiveSession, clearHostData, listCapturesByHost } from '@/lib/userscripts/netlog-db'
 import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts/net-record-digest'
 // 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
@@ -335,14 +335,12 @@ const handlers: {
     const tabs = await chrome.tabs.query({}).catch(() => [])
     // 只收普通网页：内部页 / 扩展页上既跑不了脚本也挂不了浮层（读不到 url 的页正是这两类）
     const web = tabs.filter((t) => t.id != null && webHostname(t.url) !== '')
-    const [snapshots, bindings, names, titles, captureSessions, tabSessions] = await Promise.all([
+    const [snapshots, bindings, names, titles, tabSessions] = await Promise.all([
       snapshotForTabs(web.map((t) => t.id as number)),
       conversationBindings(),
       scriptNameByUuid(),
       conversationTitleById(),
-      // 录制门禁是 tab 维度：取一次会话列表再按 tabId 认领，不给每个 tab 各读一次 IDB
-      getNetCaptureSessions(),
-      // 活动记录的开关同样按 tab 认领，走同一条路子（表里只有被打开过记录的页）
+      // 记录开关按 tab 认领（表里只有被打开过记录的页）
       listTabSessions(),
     ])
     // 正在记活动的标签页：未结束 + 开着记录才算 —— 已结束的行只是历史痕迹
@@ -367,7 +365,6 @@ const handlers: {
         conversationId,
         conversationTitle: conversationId ? (titles.get(conversationId) ?? null) : null,
         generating: conversationId ? runningConversations.has(conversationId) : false,
-        netRecording: captureSessions.some((s) => s.tabId === tabId),
         tabRecording: recordingTabs.has(tabId),
       }
     })
@@ -594,18 +591,42 @@ const handlers: {
   // 打开 / 关掉**这一页**的活动记录（popup 的开关）。判据落在标签页上：同一站点的其他页各开
   // 各的。地址由 SW 现取（与录制门禁同一条口径），不由 popup 带 —— 它手里只有一个 host。
   // 打开时会顺手建行，好让这一页立刻出现在「活动历史」里（此后跑不跑脚本都无所谓）。
+  //
+  // **这一个开关就是录制开关**：它同时驱动两条写链 —— 存续行（连带事件与运行记账）与接口录制。
+  // 接口录制的归属挂在刚建 / 刚开的那一列上（tabSessionId 现取现传），故录制不会再落到
+  // 「事后不知道是哪一页」的状态。非网页页取不到 host，那就只开活动记录、不录接口。
+  //
+  // 录制件是声明式注册、钩子挂在文档开头，故本条影响的是**下次导航**：当前页面要用户刷新才挂得上。
   'userscript:tabActivityEnable': async (msg): Promise<{ tabId: number; recording: boolean }> => {
-    const url = await chrome.tabs
-      .get(msg.tabId)
-      .then((t) => t.url)
-      .catch(() => undefined)
-    await setTabRecording(msg.tabId, true, url)
+    const tab = await chrome.tabs.get(msg.tabId).catch(() => null)
+    const url = tab?.url
+    const tabSessionId = await setTabRecording(msg.tabId, true, url)
+    const host = hostFromUrl(url)
+    if (host) {
+      try {
+        const { replaced } = await startNetSession({
+          tabId: msg.tabId,
+          host,
+          url: url ?? '',
+          title: tab?.title ?? '',
+          ...(tabSessionId ? { tabSessionId } : {}),
+        })
+        // 同一标签页换站点时被顶掉的旧会话：先归档再注册，中途失败也让它的元信息已留档
+        for (const s of replaced) await archiveSession(s).catch(() => {})
+        await refreshNetRecorder().catch(() => {})
+      } catch {
+        // 录制没开起来不该让开关整体失败：活动记录已落盘，用户至少拿到了那一半
+      }
+    }
     return { tabId: msg.tabId, recording: true }
   },
 
-  // 关掉只撤开关、不删记录：这一页的历史留着，只是不再长新的
+  // 关掉只撤开关、不删记录：这一页的历史与已录接口都留着，只是不再长新的
   'userscript:tabActivityDisable': async (msg): Promise<{ tabId: number; recording: boolean }> => {
     await setTabRecording(msg.tabId, false)
+    const { ended } = await stopNetSessionsByTab(msg.tabId)
+    for (const s of ended) await archiveSession(s).catch(() => {})
+    if (ended.length) await refreshNetRecorder().catch(() => {})
     return { tabId: msg.tabId, recording: false }
   },
 
@@ -635,36 +656,6 @@ const handlers: {
   'userscript:netCaptureState': async (): Promise<{ sessions: NetRecordSession[] }> => ({
     sessions: await getNetCaptureSessions(),
   }),
-
-  // 开启录制：入口都是**用户手势**（浮层同意卡上的按钮 / popup 当前页面里的开关），AI 工具只出卡，不调这条。
-  // 会话锚在发起命令的那个标签页上（tabId 由浮层给，与它的会话归属同源；扩展页没有 tab，
-  // 故缺 tabId 时由门禁直接拒绝）。
-  // 门禁落盘后同步注册——注册影响的是**下次导航**，当前页面必须由用户刷新才挂得上钩子。
-  'userscript:netCaptureEnable': async (
-    msg,
-  ): Promise<{ session: NetRecordSession; sessions: NetRecordSession[] }> => {
-    // 会话的辨认信息由 SW 从标签页现取（UI 侧只有 host，且它跑在 iframe 里看不到宿主页的 url）
-    const tab = await chrome.tabs.get(msg.tabId).catch(() => null)
-    const { session, sessions, replaced } = await startNetSession({
-      tabId: msg.tabId,
-      host: msg.host,
-      url: tab?.url ?? '',
-      title: tab?.title ?? '',
-    })
-    // 同一标签页换站点时被顶掉的旧会话：先归档再注册，中途失败也让它的元信息已留档
-    for (const s of replaced) await archiveSession(s).catch(() => {})
-    await refreshNetRecorder().catch(() => {})
-    return { session, sessions }
-  },
-
-  // 停止录制：结束该标签页的会话并归档，再重算注册（没有会话的 host 就此注销）。
-  // **已录记录与归档会话都保留** —— 数据要留给查询界面与 AI 读，清理另走 netLogClear。
-  'userscript:netCaptureDisable': async (msg): Promise<{ sessions: NetRecordSession[] }> => {
-    const { sessions, ended } = await stopNetSessionsByTab(msg.tabId)
-    for (const s of ended) await archiveSession(s).catch(() => {})
-    if (ended.length) await refreshNetRecorder().catch(() => {})
-    return { sessions }
-  },
 
   // 读回录制语料：AI 的 net_capture_read 工具与常驻 prompt 摘要档共用同一条命令，
   // 只按 mode 换压缩档位。未开录制时也返回（enabled:false）——调用方据此给准确提示，
@@ -932,7 +923,7 @@ async function abortConversationOfClosedTab(tabId: number): Promise<void> {
 /**
  * 标签页被关掉时的录制收尾：结束它的录制会话并归档，再重算注册。
  *
- * 只摘门禁、归档会话元信息，**已录记录一条不动** —— 用户还要在「接口数据」里看、让 AI 读。
+ * 只摘门禁、归档会话元信息，**已录记录一条不动** —— 用户还要在「活动历史」里看、让 AI 读。
  *
  * 与 abortConversationOfClosedTab 同一个理由必须挂在常驻的 SW 上：面板没开的时候标签页照样会被关。
  */

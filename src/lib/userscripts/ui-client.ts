@@ -144,12 +144,6 @@ export const userscriptClient = {
   /** 标签页存续轴上的事件全量（刷新 / 地址变更 / 记录开关）：活动历史右栏与运行条混排成时间线 */
   tabEvents: (): Promise<TabEventRecord[]> => send({ kind: 'userscript:tabEvents' }),
 
-  /** 给**这一个标签页**打开 / 关掉活动记录（popup 的开关）。关掉不删记录，只是不再记新的 */
-  tabActivityEnable: (tabId: number): Promise<{ tabId: number; recording: boolean }> =>
-    send({ kind: 'userscript:tabActivityEnable', tabId }),
-  tabActivityDisable: (tabId: number): Promise<{ tabId: number; recording: boolean }> =>
-    send({ kind: 'userscript:tabActivityDisable', tabId }),
-
   /** 删掉某一页的全部活动（存续行 + 它的运行与错误）——「活动历史」的删除 */
   tabActivityDelete: (tabSessionId: string): Promise<void> =>
     send({ kind: 'userscript:tabActivityDelete', tabSessionId }),
@@ -174,19 +168,16 @@ export const userscriptClient = {
   netCaptureState: (): Promise<{ sessions: NetRecordSession[] }> => send({ kind: 'userscript:netCaptureState' }),
 
   /**
-   * 在某个标签页上开启录制。调用方都是**用户手势**（浮层同意卡上的按钮 / popup 当前页面里的
-   * 开关）——AI 工具只出卡，不调这条。会话的辨认信息（页面地址与标题）由 SW 从该标签页现取，
-   * 不由 UI 带过来。
+   * 扳动某个标签页的记录开关（**唯一的开关**：存续行与接口录制都由它驱动）。
+   * 调用方都是**用户手势**（浮层同意卡上的按钮 / popup 当前页面里的开关）——
+   * AI 工具只出卡，不调这条。地址由 SW 从该标签页现取，不由 UI 带过来。
    */
-  netCaptureEnable: (input: {
-    tabId: number
-    host: string
-  }): Promise<{ session: NetRecordSession; sessions: NetRecordSession[] }> =>
-    send({ kind: 'userscript:netCaptureEnable', ...input }),
+  tabActivityEnable: (tabId: number): Promise<{ tabId: number; recording: boolean }> =>
+    send({ kind: 'userscript:tabActivityEnable', tabId }),
 
-  /** 停止某个标签页的录制；**已录记录与归档会话都保留**（用户还要在「接口数据」里看） */
-  netCaptureDisable: (tabId: number): Promise<{ sessions: NetRecordSession[] }> =>
-    send({ kind: 'userscript:netCaptureDisable', tabId }),
+  /** 关掉某个标签页的记录开关；**已录内容与归档会话都保留**（历史留着，只是不再长新的） */
+  tabActivityDisable: (tabId: number): Promise<{ tabId: number; recording: boolean }> =>
+    send({ kind: 'userscript:tabActivityDisable', tabId }),
 
   /** 清空某站点的录制数据（记录 + 归档会话）；写路径归 SW，参数用归一 host */
   netLogClear: (host: string): Promise<{ host: string }> => send({ kind: 'userscript:netLogClear', host }),

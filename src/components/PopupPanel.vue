@@ -125,17 +125,11 @@ async function openRelease(): Promise<void> {
 }
 
 /**
- * 录制开关切换成功后，就地更新那一行的录制标。
+ * 开关切换成功后，就地更新那一行的记录标。
  *
- * 门禁是 tab 维度，故只动这一行（同站点的其他标签页各录各的，不该跟着变）。命令即真相，
- * 不再回查一遍概览（popup 只活几秒，重跑会把四条查询再来一遍）。
+ * 判据是 tab 维度，故只动这一行（同站点的其他标签页各开各的，不该跟着变）。命令即真相，
+ * 不再回查一遍概览（popup 只活几秒，重跑会把几条查询再来一遍）。
  */
-function onRecordingChanged(tabId: number, recording: boolean): void {
-  const row = overview.value.find((t) => t.tabId === tabId)
-  if (row) row.netRecording = recording
-}
-
-/** 活动记录开关切换成功：同上一行，也只动这一行（判据同样是 tab 维度） */
 function onTabRecordingChanged(tabId: number, recording: boolean): void {
   const row = overview.value.find((t) => t.tabId === tabId)
   if (row) row.tabRecording = recording
@@ -191,7 +185,6 @@ onMounted(() => {
       :host="webHostname(currentUrl)"
       :injectable="injectable"
       :tab="currentTab"
-      @recording-changed="onRecordingChanged"
       @tab-recording-changed="onTabRecordingChanged"
     />
 

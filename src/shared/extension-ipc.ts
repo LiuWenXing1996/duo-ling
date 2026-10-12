@@ -141,8 +141,11 @@ export type RuntimeRequest =
   // 标签页存续轴上的事件全量（刷新 / 地址变更 / 记录开关，见 TabEventRecord）。消费方是「活动历史」右栏：
   // 它与运行条按时刻混排成这一页的时间线；「属于哪一页」由事件自带的 tabSessionId 说了算。
   | { kind: 'userscript:tabEvents' }
-  // 打开 / 关掉**这一个标签页**的活动记录（popup 的开关）。建行、撤号都在 SW 侧完成；
-  // 地址由 SW 自己从标签页现取，命令只带 tabId。它只决定「要不要记」，不动运行日志本身。
+  // 打开 / 关掉**这一个标签页**的记录开关（popup 的那一枚）。建行、撤号都在 SW 侧完成；
+  // 地址由 SW 自己从标签页现取，命令只带 tabId。
+  //
+  // 它是**唯一的开关**：同时驱动存续行（连带事件与运行记账）与接口录制两条写链，接口录制的
+  // 归属挂在刚建 / 刚开的那一列上。它不动运行日志本身，也不删已经录下的内容。
   | { kind: 'userscript:tabActivityEnable'; tabId: number }
   | { kind: 'userscript:tabActivityDisable'; tabId: number }
   | { kind: 'userscript:tabActivityDelete'; tabSessionId: string }
@@ -159,22 +162,15 @@ export type RuntimeRequest =
   // 错误日志（runtime 库，offscreen 拿不到）。id = 完整记录 id 或唯一 8 位前缀
   | { kind: 'userscript:errorRead'; id: string }
   // —— 网络录制（dl-recorder）——
-  // 门禁（duoling-app 的 netCaptureSessions）与录到的记录（duoling-netlog 库）都归 SW 管辖，
-  // 故 offscreen 侧的两个 agent 工具经 offscreenBridge 走这组命令，UI 的同意卡也直接调它。
+  // 门禁（duoling-app 的 netCaptureSessions）与录到的记录（duoling-netlog 库）都归 SW 管辖。
   //
-  // 录制按标签页划分：开 / 关都锚在**发起命令的那个标签页**上（tabId 由浮层从 iframe URL 带过来，
-  // 与它的会话归属同源）。扩展页没有 tab，故它发起的开启会被拒。
-  //
-  // 为什么 enable / disable 单独成命令、不给工具直接用：**开启录制必须由用户手势触发**
-  // （点同意卡上的按钮）。工具只能出卡 + 等用户点（见 agent-tools-catalog 的 net_capture_enable）。
+  // **开关不在这组里**：录制与活动记录由同一枚开关触发（见 userscript:tabActivityEnable），
+  // 而开启必须由用户手势发起 —— AI 工具只出卡 + 等用户点（见 agent-tools-catalog 的
+  // net_capture_enable）。这里只剩「读」与「清理」两条。
   | { kind: 'userscript:netCaptureState' }
-  | { kind: 'userscript:netCaptureEnable'; tabId: number; host: string }
-  // tabId 而非 host：停止关的是**这个标签页**的录制，同站点其他标签页不受影响
-  | { kind: 'userscript:netCaptureDisable'; tabId: number }
   // mode：digest = 摘要档（接口清单，常驻 prompt 用）；full = 逐条采样（工具读回用）
   | { kind: 'userscript:netCaptureRead'; host: string; mode: 'digest' | 'full' }
-  // 清空某站点的录制数据（记录 + 归档会话）：工作台「接口数据」面板的清理入口。
-  // 写路径归 SW（netlog 单写方），故面板不直连库、只发这条。
+  // 清空某站点的录制数据（记录 + 归档会话）。写路径归 SW（netlog 单写方），调用方不直连库。
   | { kind: 'userscript:netLogClear'; host: string }
 
   // zip 导入：UI 读 zip 文件转 base64，SW 纯转发 offscreen
@@ -543,13 +539,11 @@ export interface PageOverviewTab {
   /** 该会话是否正在生成（SW 内存态：它不落库，故只有现问现取） */
   generating: boolean
   /**
-   * 这个标签页此刻是否正在接口录制。判据是**标签页维度**：录制会话锚在开启它的那个标签页上，
-   * 同一站点的其他标签页不看这条（要录得各自开一次） —— 见 net-capture-gate。
-   */
-  netRecording: boolean
-  /**
-   * 这个标签页此刻是否在记活动（用户在 popup 里给这一页打开的开关，见 TabSessionRecord.recording）。
-   * 同样按标签页算：同一站点的其他页各开各的，开关只落在这一个标签页上。
+   * 这个标签页此刻是否在记录（用户在 popup 里给这一页打开的那枚开关，见 TabSessionRecord.recording）。
+   *
+   * **一个字段答两件事**：它同时表示这一页在记活动、也在录接口 —— 两者由同一枚开关触发，
+   * 没有「记着活动却没录接口」的中间态（非网页页取不到 host 时只记活动、不录接口，但那种页
+   * 进不了这份概览）。判据是标签页维度：同一站点的其他页各开各的。
    */
   tabRecording: boolean
 }

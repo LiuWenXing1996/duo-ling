@@ -555,7 +555,8 @@ async function enableCapture(host: string): Promise<void> {
   captureBusy.add(host)
   captureErrors.delete(host)
   try {
-    await userscriptClient.netCaptureEnable({ tabId: ownerTabId, host })
+    // 走的是**同一枚开关**（活动记录）：它同时开接口录制，故同意卡不再另有一条命令
+    await userscriptClient.tabActivityEnable(ownerTabId)
     captureHosts.add(host)
   } catch (e) {
     captureErrors.set(host, e instanceof Error ? e.message : String(e))
@@ -569,7 +570,7 @@ async function disableCapture(host: string): Promise<void> {
   captureBusy.add(host)
   captureErrors.delete(host)
   try {
-    await userscriptClient.netCaptureDisable(ownerTabId)
+    await userscriptClient.tabActivityDisable(ownerTabId)
     captureHosts.delete(host)
   } catch (e) {
     captureErrors.set(host, e instanceof Error ? e.message : String(e))

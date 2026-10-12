@@ -69,12 +69,17 @@ export async function recordingTabSessionId(tabId: number): Promise<string | und
  * 两种切换都在这一页的时间线上落一条（开始记录 / 结束记录），与落盘同事务 —— 由 runtime-db
  * 的 mintTabSession / setTabSessionRecording 一并完成，这里只管「什么时候该切」。
  */
-export async function setTabRecording(tabId: number, on: boolean, url?: string): Promise<void> {
+export async function setTabRecording(
+  tabId: number,
+  on: boolean,
+  url?: string,
+): Promise<string | undefined> {
   if (on && !(await findOpenTabSession(tabId))) {
-    await mintTabSession({ tabId, ...(url ? { url } : {}), recording: true })
-    return
+    return mintTabSession({ tabId, ...(url ? { url } : {}), recording: true })
   }
   await setTabSessionRecording(tabId, on)
+  // 开的时候要把这一行的 id 交出去：接口录制挂在同一个开关上，它的归属就是这一行
+  return on ? (await findOpenTabSession(tabId))?.tabSessionId : undefined
 }
 
 /**

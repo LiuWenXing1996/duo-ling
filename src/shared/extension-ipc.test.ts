@@ -71,8 +71,6 @@ const ALL_KINDS = [
   { kind: 'userscript:importText', side: 'sw' },
   // 网络录制（dl-recorder）：门禁在 duoling-app、记录在 duoling-netlog，都归 SW
   { kind: 'userscript:netCaptureState', side: 'sw' },
-  { kind: 'userscript:netCaptureEnable', side: 'sw' },
-  { kind: 'userscript:netCaptureDisable', side: 'sw' },
   { kind: 'userscript:netCaptureRead', side: 'sw' },
   { kind: 'userscript:netLogClear', side: 'sw' },
   { kind: 'userscript:groups', side: 'sw' },
