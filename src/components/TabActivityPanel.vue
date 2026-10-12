@@ -6,31 +6,27 @@
 // 那一页才进这张表（哪怕它此后一次脚本都没跑，也照样列着）；从此它的运行带上标签页归属。
 // 视角以**标签页**为准：页在列表里，哪怕它一次脚本都没跑 —— 右栏那时只有它经历过的事件。
 //
-// 右栏 = 选中那一页的活动时间线：打开 / 关闭两个生命周期节点、这一页的**刷新与地址变更**、
-// **记录开关的启停**（开始 / 结束记录）、每一次脚本运行，按时刻混排（最新在前）；
-// 单次运行可展开看它做过的动作与报的错。
+// 右栏 = 选中那一页的活动轴，**全部平铺**：打开 / 关闭两个生命周期节点、这一页的刷新与地址变更、
+// 记录开关的启停、脚本过桥做过的每个动作、报的每条错、录到的每个请求 —— 都是轴上的一行，
+// 按时刻混排（最新在前），没有卡片可展开。动作行与错误行带脚本名（同一次运行的归属靠 runId 对上）。
 //
-// 刷新 / 地址变更与记录开关来自 tab_events（见 TabEventRecord）—— 一张表上两根子轴：文档级
-// 事件（SW 从标签页事件里判出来的）与记录开关（用户在 popup 里开 / 关这一页的「活动记录」，
-// 加上标签页关闭、浏览器划断这两种被动收尾）。事件与运行也不是一回事 —— 「这一页刷新过 5 次」
-// 和「某个脚本在其中一次里跑了多少请求」是两个问题。
+// 一条命令取整根轴：六类行同住 tab_events（见 runtime-db 文件头），故 tabTimeline(tabSessionId)
+// 一次查询就够，读侧零 join —— 这是合表换来的主要红利。
 //
-// 归不到标签页的记录单独一档「未知标签页」：这一页当时没开活动记录、老日志没有 tabSessionId、
-// 扩展刚重载那会儿记的，以及无法归属到任何一次运行的错误（注册 / 桥类，或所属运行已滑出环形）——
-// 不列出来它们在这一页就完全不可见。「未知标签页」档只能看记录本身，答不出它当时在哪一页。
+// 「一切观测只在开着活动记录的页上产生」的可见后果：轴上的行必然都带 tabSessionId，于是这个面板
+// 天然看不到别的页的记录，也看不到注册失败 / 依赖抓取失败那类无归属错误（它们只落盘、不出口，
+// 见 store.appendUserScriptError）。左栏的计数同样按 tabSessionId 归组。
 //
 // 数据通道：userscriptClient（workbench 是可信扩展页，可直接 chrome.runtime.sendMessage）。
-// 读侧三条命令：tabSessions（存续表）/ runlog（全量时间线）/ tabTimeline（**选中页**的整条时间线：
-// 存续轴事件与它录到的接口采样 —— 两者落 tab_events 同一张表，故一次拉回）；
-// runEvents（展开某次运行时按需拉）；写侧两条：tabActivityDelete（删某一页）/ tabActivityClear（清空全部）。
-// 采样按页拉而不是随首屏全量拉：单条可达数 KB，全量等于把整库搬过消息边界。
+// 读侧两条命令：tabSessions（存续表，左栏取名字与时刻）/ runlog（全量时间线，左栏数「跑过几次」）；
+// 选中页的整根轴另走 tabTimeline（**按页拉**：采样单条可达数 KB，全量等于把整库搬过消息边界）。
+// 写侧两条：tabActivityDelete（删某一页）/ tabActivityClear（清空全部）。
 //
-// 删除 / 清空**连带运行记录**是刻意的：面板展示的是存续表与运行记录的合成，只删存续行会让
-// 这一页以「表里已查不到」的残影留在列表里（它的运行还在）。连带删干净 —— 同一份数据，删了
-// 就没有了。
+// 删除 / 清空**连整根轴一起删**是刻意的：面板展示的是它们的合成，只删存续行会让这一页以
+// 「表里已查不到」的残影留在列表里（它的轴行还在）。连带删干净 —— 同一份数据，删了就没有了。
 //
-// 一处已知的新鲜度缺口：存续表由 SW 在标签页事件里直接写 IDB，**没有广播域**（跑脚本时写运行日志
-// 会广播 runstats / error，顺带把表一起拉新）。所以「开过但一次脚本都没跑过的新标签页」不会自己
+// 一处已知的新鲜度缺口：存续表由 SW 在标签页事件里直接写 IDB，**没有广播域**（跑脚本时写运行条目
+// 会广播 runlog / error，顺带把表一起拉新）。所以「开过但一次脚本都没跑过的新标签页」不会自己
 // 冒出来，要等下次回拉（刷新按钮 / 重开本页）—— 不为它单独加广播通道，是这版刻意的取舍。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
@@ -49,7 +45,6 @@ import { routeOf } from '@/lib/userscripts/net-record-digest'
 import type { NetCaptureRecord, NetRecordSession } from '@/lib/userscripts/net-record-protocol'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
-  type RunEndReason,
   type TabEventRecord,
   type TabSessionRecord,
   type UserScriptErrorRecord,
@@ -57,43 +52,26 @@ import {
   type UserScriptRunLogRow
 } from '@/lib/userscripts/types'
 
-/** 运行行（时间线上的主角）；错误行见 TimelineItem 与 TimelineNode 的 error 分支 */
-type RunRow = Extract<UserScriptRunLogRow, { kind: 'run' }>
-
-/** 「未知标签页」档的 key：不指向任何一页，只是一个收容所（只在真有这类记录时出现） */
-const UNKNOWN_TAB_KEY = '__unknown_tab__'
-
 /**
  * 时间线节点：页面的两个生命周期端点 + 这一页的刷新 / 地址变更与记录开关 + 录到的每一条
- * 请求 + 脚本运行 + 归不到运行的错误，按时刻混排。它们都只是「同一根时间轴上的点」，渲染
- * 各成一行、互不从属 —— 请求行按自己的发生时刻落位，与刷新、运行同级。
+ * 请求 + 脚本做过的每一个动作 + 报的每一条错，按时刻混排。它们都只是「同一根时间轴上的点」，
+ * 渲染各成一行、互不从属 —— 动作与错误按自己的发生时刻落位，与刷新、请求同级。
  */
 type TimelineNode =
   | { kind: 'lifecycle'; label: '页面打开' | '页面关闭'; time: number }
   | { kind: 'tabEvent'; event: TabEventRecord }
   | { kind: 'netRequest'; rec: NetCaptureRecord }
-  | { kind: 'run'; row: RunRow }
+  | { kind: 'act'; key: string; runId: string; name: string; event: UserScriptRunEvent }
   | { kind: 'error'; record: UserScriptErrorRecord }
 
-/** 运行内混排的一行（动作 / 错误）；见 timelineOf */
-interface TimelineItem {
-  kind: 'event' | 'error'
-  time: number
-  label: string
-  detail: string
-  record?: UserScriptErrorRecord
-}
-
-/** 左栏一行：一个标签页（或「未知标签页」这一档） */
+/** 左栏一行：一个标签页 */
 interface TabItem {
   id: string
-  /** 左栏显示名：地址能解析出主机就显示主机，否则给一句「地址未知」；「未知标签页」档用固定名 */
+  /** 左栏显示名：地址能解析出主机就显示主机，否则给一句「地址未知」 */
   label: string
-  /** 这一页最近一次被观察到的地址（表里的为准；老记录回落到该页最近一次运行自己的 url） */
+  /** 这一页最近一次被观察到的地址（存续表里的为准） */
   url?: string
-  /** 存续表里还查得到这一行吗：false = 只从运行日志反推出来的老记录（行已被环形裁掉） */
-  inTable: boolean
-  status: 'open' | 'closed' | 'unknown'
+  status: 'open' | 'closed'
   runs: number
   errors: number
   createdAt?: number
@@ -103,109 +81,77 @@ interface TabItem {
 }
 
 const sessions = ref<TabSessionRecord[]>([])
-/** 存续轴上的事件（刷新 / 地址变更 / 记录开关）：时间线的一类节点，与运行条按时刻混排 */
+/** 存续轴上的事件（刷新 / 地址变更 / 记录开关）：时间线的一类节点，与动作 / 错误按时刻混排 */
 const tabEvents = ref<TabEventRecord[]>([])
 const rows = ref<UserScriptRunLogRow[]>([])
 /** 选中页录到的采样：时间线只画采样本身，会话表不参与渲染 */
 const netRecords = ref<NetCaptureRecord[]>([])
+/** 选中页的动作（带所属 runId）：轴上平铺的一类节点 */
+const pageActs = ref<Array<{ runId: string; event: UserScriptRunEvent }>>([])
+/** 选中页的错误：轴上平铺的一类节点（自己带脚本名，不必回查运行） */
+const pageErrors = ref<UserScriptErrorRecord[]>([])
+/** runId → 这次运行的脚本名与动作总数：动作行挂上脚本名、被截断的动作数由它算 */
+const runMetaById = ref<Map<string, { name: string; eventCount: number }>>(new Map())
 /** 正在录制的会话（SW 为权威）：左栏的「正在录」圆点与就地停止入口据此显示 */
 const recordingSessions = ref<NetRecordSession[]>([])
 const loading = ref(false)
 const error = ref('')
-/** 当前选中的标签页 key（tabSessionId / UNKNOWN_TAB_KEY）；空 = 左栏还没有任何一行 */
+/** 当前选中的标签页（tabSessionId）；空 = 左栏还没有任何一行 */
 const selectedId = ref('')
-const expandedRunIds = ref<Set<string>>(new Set())
-/** 已拉回的动作（runId → 事件列表）：展开才拉，拉过就缓存（列表不随行返回事件） */
-const eventsByRunId = ref<Map<string, UserScriptRunEvent[]>>(new Map())
-const loadingRunIds = ref<Set<string>>(new Set())
 const copiedErrorId = ref('')
 
 /**
- * runId → 该次运行所在的标签页 key。运行条目自带 tabSessionId，但**错误记录没有这个字段**，
- * 只能靠 runId 反查它所属运行的那一页 —— 那次运行自己的 tabSessionId 是唯一口径。
+ * 一行属于哪个标签页。`tabSessionId` 就是轴上的归属键，运行条与错误行都直接带它 ——
+ * 不必再靠 runId 反查运行（合表把归属键铺到了每一类行上）。
+ *
+ * 缺省 = 无归属（注册失败 / 依赖抓取失败那类）：它们只落盘、不出口，本面板一律跳过。
  */
-const runTabKeyById = computed<Map<string, string>>(() => {
-  const m = new Map<string, string>()
-  for (const row of rows.value) {
-    if (row.kind === 'run') m.set(row.runId, row.tabSessionId ?? UNKNOWN_TAB_KEY)
-  }
-  return m
-})
-
-/** 一行属于哪个标签页；挂不上（本身无运行上下文、或那次运行已被环形挤掉）归「未知标签页」 */
-function tabKeyOf(row: UserScriptRunLogRow): string {
-  if (row.kind === 'run') return row.tabSessionId ?? UNKNOWN_TAB_KEY
-  return (row.record.runId && runTabKeyById.value.get(row.record.runId)) || UNKNOWN_TAB_KEY
+function tabIdOf(row: UserScriptRunLogRow): string | undefined {
+  return row.kind === 'run' ? row.tabSessionId : row.record.tabSessionId
 }
 
-/** 左栏列表：存续表全量（含没跑过脚本的页）+ 日志里有而表里已查不到的 + 「未知标签页」档 */
+/**
+ * 左栏列表：存续表全量（含一次脚本都没跑过的页）。
+ *
+ * 计数取自全量运行时间线，按归属键归组：运行条数 + 它挂着的错误数 + 单独成行的错误数。
+ * 无归属的行（注册失败 / 依赖抓取失败）在这里被跳过 —— 它们不出口，左栏也不给它们留格子。
+ */
 const tabItems = computed<TabItem[]>(() => {
-  // 先按标签页 key 聚合日志：运行 / 错误各计一次，顺带记下最近时刻与兜底地址
-  const stat = new Map<string, { runs: number; errors: number; last: number; url?: string }>()
+  const stat = new Map<string, { runs: number; errors: number; last: number }>()
   for (const row of rows.value) {
-    const key = tabKeyOf(row)
-    const cur = stat.get(key) ?? { runs: 0, errors: 0, last: 0 }
-    let time: number
+    const id = tabIdOf(row)
+    if (!id) continue
+    const cur = stat.get(id) ?? { runs: 0, errors: 0, last: 0 }
     if (row.kind === 'run') {
       cur.runs += 1
-      time = row.time
-      if (!cur.url && row.url) cur.url = row.url
+      cur.last = Math.max(cur.last, row.time)
+      // 挂在这次运行上的错误：它们不是单独的行，计数得在这里一并算上
+      for (const e of row.errors) {
+        cur.errors += 1
+        cur.last = Math.max(cur.last, e.time)
+      }
     } else {
       cur.errors += 1
-      time = row.record.time
+      cur.last = Math.max(cur.last, row.record.time)
     }
-    cur.last = Math.max(cur.last, time)
-    stat.set(key, cur)
+    stat.set(id, cur)
   }
-
-  const items: TabItem[] = []
-  const inTable = new Set<string>()
-  for (const s of sessions.value) {
-    inTable.add(s.tabSessionId)
-    const agg = stat.get(s.tabSessionId)
-    const url = s.url ?? agg?.url
-    items.push({
-      id: s.tabSessionId,
-      label: webHostname(url) || '地址未知',
-      url,
-      inTable: true,
-      status: s.ended === true ? 'closed' : 'open',
-      runs: agg?.runs ?? 0,
-      errors: agg?.errors ?? 0,
-      createdAt: s.createdAt,
-      closedAt: s.closedAt,
-      sortAt: agg?.last ?? s.createdAt ?? s.closedAt ?? 0
+  return sessions.value
+    .map((s): TabItem => {
+      const agg = stat.get(s.tabSessionId)
+      return {
+        id: s.tabSessionId,
+        label: webHostname(s.url) || '地址未知',
+        url: s.url,
+        status: s.ended === true ? 'closed' : 'open',
+        runs: agg?.runs ?? 0,
+        errors: agg?.errors ?? 0,
+        createdAt: s.createdAt,
+        closedAt: s.closedAt,
+        sortAt: agg?.last ?? s.createdAt ?? s.closedAt ?? 0
+      }
     })
-  }
-  // 日志里有、表里已查不到（行被环形裁掉的老记录）：照样列出来，名字回落到运行自己的地址
-  for (const [key, agg] of stat) {
-    if (key === UNKNOWN_TAB_KEY || inTable.has(key)) continue
-    items.push({
-      id: key,
-      label: webHostname(agg.url) || '地址未知',
-      url: agg.url,
-      inTable: false,
-      status: 'unknown',
-      runs: agg.runs,
-      errors: agg.errors,
-      sortAt: agg.last
-    })
-  }
-  items.sort((a, b) => b.sortAt - a.sortAt)
-  // 「未知标签页」垫底：它不是一个具体的页，只在真有这类记录时出现
-  const unknown = stat.get(UNKNOWN_TAB_KEY)
-  if (unknown) {
-    items.push({
-      id: UNKNOWN_TAB_KEY,
-      label: '未知标签页',
-      inTable: false,
-      status: 'unknown',
-      runs: unknown.runs,
-      errors: unknown.errors,
-      sortAt: unknown.last
-    })
-  }
-  return items
+    .sort((a, b) => b.sortAt - a.sortAt)
 })
 
 const selected = computed<TabItem | null>(
@@ -221,7 +167,7 @@ const selectedLiveTabId = computed<number | null>(() => {
   return sel ? liveTabIdOf(sel.id) : null
 })
 
-/** 右栏时间线：生命周期端点 + 该页的刷新 / 地址变更与记录开关 + 该页的运行 + 归到该页的错误 +
+/** 右栏时间线：生命周期端点 + 该页的刷新 / 地址变更与记录开关 + 该页的动作与错误 +
  *  它录到的每一条请求，全部平铺在同一根轴上，最新在前 */
 const timelineNodes = computed<TimelineNode[]>(() => {
   const sel = selected.value
@@ -230,15 +176,22 @@ const timelineNodes = computed<TimelineNode[]>(() => {
   // 生命周期端点只在**记到了**时刻时才画：缺省就是未知，不拿别的时刻顶上
   if (sel.createdAt) nodes.push({ kind: 'lifecycle', label: '页面打开', time: sel.createdAt })
   if (sel.closedAt) nodes.push({ kind: 'lifecycle', label: '页面关闭', time: sel.closedAt })
-  // 存续轴事件与接口采样都是**选中的这一页**的（按页拉，见 loadPageTimeline），直接铺上去；
-  // 运行与错误同理按选中页筛（它们来自全量时间线，故要按归属键过一遍）
+  // 文档事件 / 记录开关 / 动作 / 错误 / 采样都是**选中的这一页**的（一条命令按页拉，见
+  // loadPageTimeline），直接铺上去即可 —— 不必再按归属键筛一遍
   for (const event of tabEvents.value) nodes.push({ kind: 'tabEvent', event })
-  for (const row of rows.value) {
-    if (tabKeyOf(row) !== sel.id) continue
-    nodes.push(row.kind === 'run' ? { kind: 'run', row } : { kind: 'error', record: row.record })
-  }
+  pageActs.value.forEach((act, i) => {
+    nodes.push({
+      // 动作行没有独立的存储身份传过来，用「运行 + 在这页动作里的序号」当行 key（同一页内唯一）
+      kind: 'act',
+      key: `act:${act.runId}:${i}`,
+      runId: act.runId,
+      name: runMetaById.value.get(act.runId)?.name ?? '',
+      event: act.event
+    })
+  })
+  for (const record of pageErrors.value) nodes.push({ kind: 'error', record })
   // 录到的采样：一条一个节点，按自己的发生时刻落位 —— 这样「刷新后先发了哪个请求、紧接着
-  // 跑了哪个脚本」在轴上一眼看得出。
+  // 脚本做了什么」在轴上一眼看得出。
   for (const rec of netRecords.value) nodes.push({ kind: 'netRequest', rec })
   // 最新在前；时刻缺省的排在最前 —— 与 tabTimeline 侧事件的升序口径一致（它按定义发生在该行
   // 所有已知节点之后，比如划断补的那条「结束记录」）
@@ -246,7 +199,7 @@ const timelineNodes = computed<TimelineNode[]>(() => {
 })
 
 function nodeTime(node: TimelineNode): number | undefined {
-  if (node.kind === 'run') return node.row.time
+  if (node.kind === 'act') return node.event.time
   if (node.kind === 'error') return node.record.time
   if (node.kind === 'tabEvent') return node.event.time
   if (node.kind === 'netRequest') return node.rec.t
@@ -254,7 +207,7 @@ function nodeTime(node: TimelineNode): number | undefined {
 }
 
 function nodeKey(node: TimelineNode): string {
-  if (node.kind === 'run') return `run:${node.row.runId}`
+  if (node.kind === 'act') return node.key
   if (node.kind === 'error') return `err:${node.record.id}`
   if (node.kind === 'tabEvent') {
     return `tabevent:${node.event.tabSessionId}:${node.event.time}:${node.event.kind}`
@@ -302,20 +255,29 @@ async function load(): Promise<void> {
 }
 
 /**
- * 拉选中页的整条时间线：存续轴事件（刷新 / 地址变更 / 记录开关）与它录到的接口采样。
- * 两者在 tab_events 里同表，故一条命令一次拉回、由 SW 拆成两类。
+ * 拉选中页的整根活动轴：文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误六类同住
+ * tab_events，故一条命令一次拉回。运行条目只取名字与动作总数（动作行要挂脚本名、被截断的
+ * 要报数），本体不再单独成行。
  *
- * **只拉这一页**，不做全量预取：采样单条可达数 KB，给每一页都拉一遍纯属浪费（也是采样
- * 与事件同表之后不能沿用「事件全量 + 采样按页」两段式的原因）。切页时重拉。
+ * **只拉这一页**，不做全量预取：采样单条可达数 KB，给每一页都拉一遍纯属浪费。切页时重拉。
  */
 async function loadPageTimeline(tabSessionId: string): Promise<void> {
   tabEvents.value = []
   netRecords.value = []
+  pageActs.value = []
+  pageErrors.value = []
+  runMetaById.value = new Map()
   if (!tabSessionId) return
   try {
-    const { events, captures } = await userscriptClient.tabTimeline(tabSessionId)
+    const { events, captures, runs, acts, errors } =
+      await userscriptClient.tabTimeline(tabSessionId)
     tabEvents.value = events
     netRecords.value = captures
+    pageActs.value = acts
+    pageErrors.value = errors
+    runMetaById.value = new Map(
+      runs.map((r) => [r.runId, { name: r.name, eventCount: r.eventCount ?? 0 }])
+    )
   } catch (e) {
     error.value = '读取这一页的活动失败：' + (e instanceof Error ? e.message : String(e))
   }
@@ -329,9 +291,9 @@ watch(selectedId, (id) => {
   void loadPageTimeline(id)
 })
 
-// 跑脚本会广播这两个域（运行统计 / 错误）：接上就不用手动刷新也能看到新记录。
+// 跑脚本会广播这两个域（运行条目 / 错误）：接上就不用手动刷新也能看到新记录。
 // 存续表自身没有广播域（见文件头），顺带靠这两次回拉一起更新。
-useDataSync('runstats', async () => {
+useDataSync('runlog', async () => {
   await load()
 })
 useDataSync('error', async () => {
@@ -392,12 +354,12 @@ function toggleNetRow(key: string): void {
   openNetRows.value = next
 }
 
-/** 时间线圆点配色：请求行淡一档，免得一屏采样把别的节点全压过去 */
+/** 时间线圆点配色：请求行与动作行都淡一档，免得一屏采样把错误行压过去 */
 function dotBg(node: TimelineNode): string {
   if (node.kind === 'lifecycle' || node.kind === 'tabEvent') return 'bg-muted-foreground/40'
   if (node.kind === 'netRequest') return 'bg-primary/40'
-  if (node.kind === 'run' && !node.row.errors.length) return 'bg-muted-foreground/60'
-  return 'bg-destructive'
+  if (node.kind === 'error') return 'bg-destructive'
+  return 'bg-muted-foreground/60'
 }
 
 /** 头字典的展示文本（展开请求行时逐行列出） */
@@ -405,37 +367,6 @@ function headerText(h: Record<string, string>): string {
   return Object.entries(h)
     .map(([k, v]) => `${k}: ${v}`)
     .join('\n')
-}
-
-/**
- * 展开 / 折叠一次运行：展开时按 runId 拉那一组动作（懒加载，拉过就缓存）。
- * 列表不随行返回动作 —— 事件单独一表，跟随运行数全量读会线性膨胀。
- */
-async function toggleExpand(row: RunRow): Promise<void> {
-  const runId = row.runId
-  const next = new Set(expandedRunIds.value)
-  if (next.has(runId)) {
-    next.delete(runId)
-    expandedRunIds.value = next
-    return
-  }
-  next.add(runId)
-  expandedRunIds.value = next
-  // 没有动作的运行（eventCount 缺省 / 为 0）只有错误可看，不必拉动作
-  if (!row.eventCount || eventsByRunId.value.has(runId)) return
-  loadingRunIds.value = new Set(loadingRunIds.value).add(runId)
-  try {
-    const events = await userscriptClient.runEvents(runId)
-    const cached = new Map(eventsByRunId.value)
-    cached.set(runId, events)
-    eventsByRunId.value = cached
-  } catch (e) {
-    error.value = '拉取运行动作失败：' + (e instanceof Error ? e.message : String(e))
-  } finally {
-    const busy = new Set(loadingRunIds.value)
-    busy.delete(runId)
-    loadingRunIds.value = busy
-  }
 }
 
 async function copyErrorId(id: string | undefined): Promise<void> {
@@ -449,37 +380,19 @@ async function copyErrorId(id: string | undefined): Promise<void> {
   }
 }
 
-/** 一次运行的节点流：已拉回的动作 + 这次运行挂上的错误，按发生时刻升序混排 */
-function timelineOf(events: UserScriptRunEvent[], row: RunRow): TimelineItem[] {
-  const items: TimelineItem[] = events.map((e) => ({
-    kind: 'event',
-    time: e.time,
-    label: e.kind,
-    detail: e.detail
-  }))
-  for (const e of row.errors) {
-    items.push({ kind: 'error', time: e.time, label: '', detail: '', record: e })
+/**
+ * 轴上没显示出来的动作条数：运行条的 eventCount 是收到总数，落盘条数受单次运行上限封顶。
+ * 平铺后动作行各占一行，这条差额改在轴尾单独说一句（它不再挂在某张运行卡上）。
+ */
+const omittedActCount = computed(() => {
+  const shown = new Map<string, number>()
+  for (const act of pageActs.value) shown.set(act.runId, (shown.get(act.runId) ?? 0) + 1)
+  let omitted = 0
+  for (const [runId, meta] of runMetaById.value) {
+    omitted += Math.max(0, meta.eventCount - (shown.get(runId) ?? 0))
   }
-  return items.sort((a, b) => a.time - b.time)
-}
-
-/** runId → 该次运行的动作 / 错误混排：**只算展开态**（折叠时卡体什么都不画） */
-const timelineByRunId = computed<Map<string, TimelineItem[]>>(() => {
-  const expanded = expandedRunIds.value
-  const loaded = eventsByRunId.value
-  const m = new Map<string, TimelineItem[]>()
-  for (const node of timelineNodes.value) {
-    if (node.kind !== 'run' || !expanded.has(node.row.runId)) continue
-    m.set(node.row.runId, timelineOf(loaded.get(node.row.runId) ?? [], node.row))
-  }
-  return m
+  return omitted
 })
-
-/** 没显示出来的动作条数：eventCount 是收到总数，落盘条数受单次运行上限封顶 */
-function omittedEventCount(row: RunRow): number {
-  const real = eventsByRunId.value.get(row.runId)?.length ?? 0
-  return Math.max(0, (row.eventCount ?? 0) - real)
-}
 
 const PHASE_LABEL: Record<UserScriptErrorRecord['phase'], string> = {
   runtime: '运行期',
@@ -505,11 +418,10 @@ function phaseBadgeClass(p: UserScriptErrorRecord['phase']): string {
 
 const STATUS_LABEL: Record<TabItem['status'], string> = {
   open: '活动中',
-  closed: '已关闭',
-  unknown: '状态未知'
+  closed: '已关闭'
 }
 /**
- * 状态点的颜色：绿点 = 观察到的活动中的页，灰点 = 已判定结束 / 状态未知。
+ * 状态点的颜色：绿点 = 还开着的页，灰点 = 已判定结束。
  * 已判定结束含「浏览器启动时划断」那种时刻留空的——它确实已经过去了。
  */
 function dotClass(item: TabItem): string {
@@ -541,15 +453,6 @@ function formatDuration(ms: number): string {
   const rmin = min % 60
   return rmin ? `${hour} 小时 ${rmin} 分` : `${hour} 小时`
 }
-const END_REASON_LABEL: Record<RunEndReason, string> = {
-  navigated: '页面导航离开',
-  closed: '标签页关闭'
-}
-/** 结束原因文案；endedAt 在而 endReason 缺（老记录 / 异常写入）时给中性说法，不猜 */
-function endReasonLabel(reason: RunEndReason | undefined): string {
-  return reason ? END_REASON_LABEL[reason] : '结束原因未记录'
-}
-
 /** 标签页事件文案：四类各是一件事（换了文档 / 换了去处 / 开始记 / 不再记），别混成一句「页面变化」 */
 const TAB_EVENT_LABEL: Record<TabEventRecord['kind'], string> = {
   reload: '页面刷新',
@@ -581,8 +484,6 @@ function shortErrorId(id: string | undefined): string {
 const momentsText = computed(() => {
   const sel = selected.value
   if (!sel) return ''
-  if (sel.id === UNKNOWN_TAB_KEY) return '这些记录没有记下所在标签页，只能看记录本身'
-  if (!sel.inTable) return '存续表里已查不到这一页（记录可能已被环形裁剪），时刻未知'
   const parts: string[] = []
   if (sel.createdAt) parts.push(`打开 ${formatDateTime(sel.createdAt)}`)
   if (sel.closedAt) parts.push(`关闭 ${formatDateTime(sel.closedAt)}`)
@@ -602,18 +503,18 @@ const mutating = ref(false)
 const confirmOpen = ref(false)
 const confirmKind = ref<'clear' | 'delete'>('clear')
 
-/** 只有**具体的一页**可删：「未知标签页」不是一页（它的记录没有标签页归属），谈不上删它 */
-const canDeleteSelected = computed(() => !!selected.value && selected.value.id !== UNKNOWN_TAB_KEY)
+/** 选中一页就能删它（列表里全是具体的一页） */
+const canDeleteSelected = computed(() => !!selected.value)
 
 const confirmTitle = computed(() =>
   confirmKind.value === 'clear' ? '清空活动历史' : '删除这一页的活动记录'
 )
 const confirmDescription = computed(() => {
+  const tail = '删除后无法恢复。'
   if (confirmKind.value === 'clear') {
-    return '将删除全部标签页的活动记录，连同它们的运行与错误。删除后无法恢复。'
+    return `将删除全部标签页的活动记录（各自的事件、录到的请求、脚本运行与错误）。${tail}`
   }
-  const label = selected.value?.label ?? ''
-  return `将删除「${label}」的活动记录，连同它的运行与错误。删除后无法恢复。`
+  return `将删除「${selected.value?.label ?? ''}」的活动记录（它的事件、录到的请求、脚本运行与错误）。${tail}`
 })
 
 function askClear(): void {
@@ -625,18 +526,10 @@ function askDelete(): void {
   confirmOpen.value = true
 }
 
-/** 清空 / 删除后丢掉「展开态」与已拉回的事件缓存：它们指向的运行已经没了 */
-function resetRunCaches(): void {
-  expandedRunIds.value = new Set()
-  eventsByRunId.value = new Map()
-  loadingRunIds.value = new Set()
-}
-
 async function doClear(): Promise<void> {
   mutating.value = true
   try {
     await userscriptClient.tabActivityClear()
-    resetRunCaches()
     await load() // load 末尾会回落选中项：清空后停留在已消失的页上会像坏了
   } catch (e) {
     error.value = '清空失败：' + (e instanceof Error ? e.message : String(e))
@@ -647,11 +540,10 @@ async function doClear(): Promise<void> {
 
 async function doDelete(): Promise<void> {
   const sel = selected.value
-  if (!sel || sel.id === UNKNOWN_TAB_KEY) return
+  if (!sel) return
   mutating.value = true
   try {
     await userscriptClient.tabActivityDelete(sel.id)
-    resetRunCaches()
     await load()
   } catch (e) {
     error.value = '删除失败：' + (e instanceof Error ? e.message : String(e))
@@ -795,7 +687,8 @@ function onConfirmedAction(): void {
 
         <!--
           时间线独立滚动：头部常驻，长列表滚起来时它不跟着走。
-          全部节点平铺在同一根轴上 —— 录到的每一条请求都与刷新、运行同级，按各自的时刻落位。
+          全部节点平铺在同一根轴上 —— 录到的每一条请求、脚本做过的每一个动作、报的每一条错
+          都与刷新同级，按各自的时刻落位，没有卡片要展开。
           行数可能上千，故只渲染视口内的行（窗口化）。竖线由背景层统一画：视口外的行不在 DOM 里，
           逐行画会断成一段一段。
         -->
@@ -905,115 +798,22 @@ function onConfirmedAction(): void {
                     </div>
                   </div>
 
-                  <!-- 运行行：一次页面加载一条，出错 / 有动作可展开 -->
-                  <div v-else-if="r.item.kind === 'run'" class="rounded-md border bg-card p-2.5 text-xs">
-                    <div class="flex flex-wrap items-center gap-1.5">
-                      <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                        运行
-                      </span>
-                      <span class="min-w-0 truncate font-medium">
-                        {{ r.item.row.name || r.item.row.uuid.slice(0, 8) }}
-                      </span>
-                      <span class="text-muted-foreground">{{ formatClock(r.item.row.time) }}</span>
-                      <span
-                        v-if="r.item.row.errors.length"
-                        class="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
-                      >
-                        {{ r.item.row.errors.length }} 个错误
-                      </span>
-                      <!-- 这一格只陈述「没挂错误」：结束信号记的是文档生命周期终结，不等于脚本跑完 -->
-                      <span v-else class="text-[10px] text-muted-foreground">无错误</span>
-                      <span v-if="r.item.row.eventCount" class="text-[10px] text-muted-foreground">
-                        {{ r.item.row.eventCount }} 个动作
-                      </span>
-                      <button
-                        v-if="r.item.row.errors.length || r.item.row.eventCount"
-                        type="button"
-                        class="rounded border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted"
-                        :title="
-                          expandedRunIds.has(r.item.row.runId)
-                            ? '收起这次运行做过的事与报的错'
-                            : '展开这次运行做过的事与报的错'
-                        "
-                        @click="toggleExpand(r.item.row)"
-                      >
-                        {{ expandedRunIds.has(r.item.row.runId) ? '收起' : '展开' }}
-                      </button>
-                    </div>
+                  <!-- 脚本做过的一个动作：平铺在轴上的一行，带脚本名前缀（同一次运行的归属靠 runId 对上） -->
+                  <p
+                    v-else-if="r.item.kind === 'act'"
+                    class="flex flex-wrap items-baseline gap-1.5 pt-1 text-[11px] text-muted-foreground"
+                  >
+                    <span class="shrink-0 font-medium text-foreground">
+                      {{ r.item.name || r.item.runId.slice(0, 8) }}
+                    </span>
+                    <span class="shrink-0 font-mono">{{ r.item.event.kind }}</span>
+                    <span class="shrink-0 tabular-nums">{{ formatClock(r.item.event.time) }}</span>
+                    <span class="min-w-0 flex-1 truncate" :title="r.item.event.detail">
+                      {{ r.item.event.detail }}
+                    </span>
+                  </p>
 
-                    <p
-                      v-if="expandedRunIds.has(r.item.row.runId) && loadingRunIds.has(r.item.row.runId)"
-                      class="mt-2 text-[10px] text-muted-foreground"
-                    >
-                      加载动作…
-                    </p>
-                    <!-- 运行内混排：脚本过桥做过的事（动作）与报的错，按时刻升序 -->
-                    <ul v-else-if="timelineByRunId.get(r.item.row.runId)?.length" class="mt-2 flex flex-col gap-1.5">
-                      <li
-                        v-for="(item, i) in timelineByRunId.get(r.item.row.runId) ?? []"
-                        :key="i"
-                        class="flex items-start gap-1.5"
-                      >
-                        <template v-if="item.kind === 'event'">
-                          <span class="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/40" />
-                          <span class="shrink-0 tabular-nums text-muted-foreground">
-                            {{ formatClock(item.time) }}
-                          </span>
-                          <span class="shrink-0 font-mono text-muted-foreground">{{ item.label }}</span>
-                          <span class="min-w-0 flex-1 truncate" :title="item.detail">{{ item.detail }}</span>
-                        </template>
-                        <template v-else>
-                          <span class="mt-1.5 size-1.5 shrink-0 rounded-full bg-destructive" />
-                          <span class="shrink-0 tabular-nums text-muted-foreground">
-                            {{ formatClock(item.time) }}
-                          </span>
-                          <div class="min-w-0 flex-1">
-                            <div class="flex flex-wrap items-start gap-1.5">
-                              <span class="min-w-0 flex-1 break-all text-destructive">
-                                {{ item.record?.message }}
-                              </span>
-                              <button
-                                type="button"
-                                class="flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted"
-                                :title="`复制完整错误 ID（发给 AI 可自动查询修复）：${item.record?.id}`"
-                                @click="copyErrorId(item.record?.id)"
-                              >
-                                <ui-check v-if="copiedErrorId === item.record?.id" class="size-3 text-green-600" />
-                                <ui-copy v-else class="size-3" />
-                                {{ shortErrorId(item.record?.id) }}
-                              </button>
-                            </div>
-                            <p v-if="item.record?.url" class="truncate text-muted-foreground" :title="item.record.url">
-                              {{ item.record.url }}
-                            </p>
-                            <pre
-                              v-if="item.record?.stack"
-                              class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-[11px] leading-relaxed"
-                            >{{ item.record.stack }}</pre>
-                          </div>
-                        </template>
-                      </li>
-                    </ul>
-                    <p
-                      v-if="expandedRunIds.has(r.item.row.runId) && omittedEventCount(r.item.row)"
-                      class="mt-1.5 text-[10px] text-muted-foreground"
-                    >
-                      还有 {{ omittedEventCount(r.item.row) }} 个动作已省略（超过单次运行上限）
-                    </p>
-                    <!-- 结束节点：只有真收到结束信号才画 —— 没有 endedAt 的一律沉默，不臆断「结束了」 -->
-                    <p
-                      v-if="r.item.row.endedAt"
-                      class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border pt-2 text-[10px] text-muted-foreground"
-                    >
-                      <span class="size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
-                      <span>
-                        已结束 · {{ endReasonLabel(r.item.row.endReason) }} · 存活
-                        {{ formatDuration(r.item.row.endedAt - r.item.row.time) }}
-                      </span>
-                    </p>
-                  </div>
-
-                  <!-- 归不到某次运行的错误（注册 / 桥类，或所属运行已滑出环形）：单独一条不丢 -->
+                  <!-- 报的一条错：与动作同轴平铺（阶段徽标 + 脚本名 + 消息；栈按需看） -->
                   <div v-else class="rounded-md border bg-card p-2.5 text-xs">
                     <div class="flex flex-wrap items-center gap-1.5">
                       <span :class="phaseBadgeClass(r.item.record.phase)" class="rounded px-1.5 py-0.5 text-[10px] font-medium">
@@ -1044,6 +844,10 @@ function onConfirmedAction(): void {
                 </div>
               </div>
             </div>
+            <!-- 触顶被截掉的动作：不挂在某张运行卡上，改在轴尾说一句（读侧靠计数差额得出） -->
+            <p v-if="omittedActCount" class="mt-1 pl-5 text-[11px] text-muted-foreground">
+              另有 {{ omittedActCount }} 个动作已省略（超过单次运行上限）
+            </p>
           </div>
         </div>
       </div>

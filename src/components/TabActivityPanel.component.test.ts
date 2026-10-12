@@ -1,22 +1,24 @@
-// UI 组件测试：TabActivityPanel.vue 的活动历史视图（左栏标签页列表 + 右栏该页活动时间线）。
+// UI 组件测试：TabActivityPanel.vue 的活动历史视图（左栏标签页列表 + 右栏该页活动轴）。
 // 覆盖易回归语义：左栏以**存续表**为准（没跑过脚本的页也在列表里）、右栏只显示选中那一页的记录、
-// 生命周期端点只在记到时刻时才画（缺时刻不拿别的时刻顶上）、展开才看错误明细、
-// 归不到标签页的记录落「未知标签页」档；刷新 / 地址变更 / 记录开关与运行条同轴混排
-// （缺时刻的节点也不编钟点）；删除 / 清空走确认弹窗（确认后才发命令）。
+// 生命周期端点只在记到时刻时才画（缺时刻不拿别的时刻顶上）、**动作与错误直接平铺在轴上**
+// （没有卡片要展开）、无归属的记录不出口（左栏也不给它们留格子）；刷新 / 地址变更 / 记录开关
+// 与动作、请求同轴混排（缺时刻的节点也不编钟点）；删除 / 清空走确认弹窗（确认后才发命令）。
 // 边界 mock：ui-client（IPC 客户端）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import TabActivityPanel from './TabActivityPanel.vue'
 import type {
+  RunEndReason,
   TabEventRecord,
   TabSessionRecord,
   UserScriptErrorRecord,
+  UserScriptRunEvent,
+  UserScriptRunLogEntry,
   UserScriptRunLogRow
 } from '@/lib/userscripts/types'
 import type { NetCaptureRecord, NetRecordSession } from '@/lib/userscripts/net-record-protocol'
 
 const runlog = vi.hoisted(() => vi.fn())
-const runEvents = vi.hoisted(() => vi.fn())
 const tabSessions = vi.hoisted(() => vi.fn())
 const tabTimeline = vi.hoisted(() => vi.fn())
 const tabActivityClear = vi.hoisted(() => vi.fn())
@@ -24,16 +26,18 @@ const tabActivityDelete = vi.hoisted(() => vi.fn())
 const tabActivityDisable = vi.hoisted(() => vi.fn())
 const netCaptureState = vi.hoisted(() => vi.fn())
 /**
- * 面板取选中页的数据只走一条命令（事件与接口采样在库里同表，故一次拉回 —— 见 tab-captures
- * 的单测）。这里把它拆成两个「填数据」的抓手：各用例只关心其中一样时，不必写全两个字段。
+ * 面板取选中页的数据只走一条命令（六类行在库里同表，故一次拉回 —— 见 tab-captures 的单测）。
+ * 这里把它拆成几个「填数据」的抓手：各用例只关心其中一样时，不必写全。
  */
 const pageEvents = vi.hoisted(() => vi.fn())
 const pageCaptures = vi.hoisted(() => vi.fn())
+const pageRuns = vi.hoisted(() => vi.fn())
+const pageActs = vi.hoisted(() => vi.fn())
+const pageErrors = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/userscripts/ui-client', () => ({
   userscriptClient: {
     runlog,
-    runEvents,
     tabSessions,
     tabTimeline,
     tabActivityClear,
@@ -57,14 +61,13 @@ function rec(over: Partial<UserScriptErrorRecord> & { message: string }): UserSc
   }
 }
 
-function runRow(over: {
+/** 左栏计数用的运行行（全量时间线的产物）：运行条 + 它挂着的错误 */
+function runLogRow(over: {
   runId: string
   uuid?: string
   name?: string
   time?: number
-  url?: string
   tabSessionId?: string
-  eventCount?: number
   errors?: UserScriptErrorRecord[]
 }): UserScriptRunLogRow {
   return {
@@ -73,11 +76,45 @@ function runRow(over: {
     uuid: over.uuid ?? 'u1',
     name: over.name ?? '脚本A',
     time: over.time ?? 500,
-    // 老记录没有这些字段：缺了就整条不写（与 listRunTimeline 的口径一致）
-    ...(over.url != null ? { url: over.url } : {}),
     ...(over.tabSessionId != null ? { tabSessionId: over.tabSessionId } : {}),
-    ...(over.eventCount != null ? { eventCount: over.eventCount } : {}),
     errors: over.errors ?? [],
+  }
+}
+
+/** 选中页的运行条目（整根轴的 runs 组）：只用来给动作行挂脚本名、算被截断的动作数 */
+function runEntry(over: {
+  runId: string
+  uuid?: string
+  name?: string
+  time?: number
+  eventCount?: number
+  endedAt?: number
+  endReason?: RunEndReason
+}): UserScriptRunLogEntry {
+  return {
+    runId: over.runId,
+    uuid: over.uuid ?? 'u1',
+    name: over.name ?? '脚本A',
+    time: over.time ?? 500,
+    ...(over.eventCount != null ? { eventCount: over.eventCount } : {}),
+    ...(over.endedAt != null ? { endedAt: over.endedAt } : {}),
+    ...(over.endReason != null ? { endReason: over.endReason } : {}),
+  }
+}
+
+/** 选中页的一个动作（整根轴的 acts 组） */
+function act(runId: string, over: Partial<UserScriptRunEvent> = {}): {
+  runId: string
+  event: UserScriptRunEvent
+} {
+  return {
+    runId,
+    event: {
+      kind: 'fetch',
+      detail: 'GET https://a.example/api',
+      time: 600,
+      ...over,
+    },
   }
 }
 
@@ -85,7 +122,7 @@ function session(over: TabSessionRecord): TabSessionRecord {
   return over
 }
 
-/** 存续轴上的事件（刷新 / 地址变更 / 记录开关）：右栏时间线的一类节点 */
+/** 存续轴上的事件（刷新 / 地址变更 / 记录开关）：活动轴的一类节点 */
 function tabEvent(over: {
   kind: TabEventRecord['kind']
   tabSessionId: string
@@ -101,7 +138,7 @@ function tabEvent(over: {
   }
 }
 
-/** 造一条录制采样（融合进时间线的接口数据） */
+/** 造一条录制采样（融合进活动轴的接口数据） */
 function netRec(over: Partial<NetCaptureRecord> = {}): NetCaptureRecord {
   return {
     host: 'a.example',
@@ -155,28 +192,33 @@ async function clickTab(text: string): Promise<void> {
 }
 
 /**
- * 右栏时间线文本（左栏永远列着全部标签页名，断言行内容时必须排除左栏）。
- * 一个节点都画不出来时整条时间线不渲染，这时给空串 —— 它本就不该在，而不是坏了。
+ * 右栏活动轴文本（左栏永远列着全部标签页名，断言行内容时必须排除左栏）。
+ * 一个节点都画不出来时整条轴不渲染，这时给空串 —— 它本就不该在，而不是坏了。
  */
 const timelineText = (): string => {
   const el = wrapper.find('.tab-activity-timeline')
   return el.exists() ? el.text() : ''
 }
 
-/** 右栏整体文本（含卡头，时间线为空时也该能看到状态与说明） */
+/** 右栏整体文本（含卡头，轴为空时也该能看到状态与说明） */
 const detailText = () => wrapper.find('[data-testid="tab-activity-detail"]').text()
 
 beforeEach(() => {
   vi.clearAllMocks()
   runlog.mockResolvedValue([])
-  runEvents.mockResolvedValue([])
   tabSessions.mockResolvedValue([])
   pageEvents.mockResolvedValue([])
   pageCaptures.mockResolvedValue([])
-  // 面板按选中页发一条命令；这里照旧让用例分两块填数据
+  pageRuns.mockResolvedValue([])
+  pageActs.mockResolvedValue([])
+  pageErrors.mockResolvedValue([])
+  // 面板按选中页发一条命令；这里照旧让用例分块填数据
   tabTimeline.mockImplementation(async () => ({
     events: await pageEvents(),
     captures: await pageCaptures(),
+    runs: await pageRuns(),
+    acts: await pageActs(),
+    errors: await pageErrors(),
   }))
   tabActivityClear.mockResolvedValue(undefined)
   tabActivityDelete.mockResolvedValue(undefined)
@@ -206,24 +248,96 @@ describe('TabActivityPanel 活动历史', () => {
     expect(detailText()).toContain('页面打开')
   })
 
-  it('默认选中最近有活动的那一页；右栏只显示这一页的运行', async () => {
+  it('默认选中最近有活动的那一页；右栏只显示这一页的动作与错误', async () => {
     tabSessions.mockResolvedValue([
       session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x', createdAt: 100 }),
       session({ tabSessionId: 't2', tabId: 2, url: 'https://b.example/y', createdAt: 200 }),
     ])
     runlog.mockResolvedValue([
-      runRow({ runId: 'r1', tabSessionId: 't1', name: '脚本A', time: 500 }),
-      runRow({ runId: 'r2', tabSessionId: 't2', name: '脚本B', time: 900 }),
+      runLogRow({ runId: 'r1', tabSessionId: 't1', name: '脚本A', time: 500 }),
+      runLogRow({ runId: 'r2', tabSessionId: 't2', name: '脚本B', time: 900 }),
     ])
+    // 服务端按页给数据：t1 有脚本A 的动作，t2 有脚本B 的动作
+    tabTimeline.mockImplementation(async (id: string) =>
+      id === 't1'
+        ? { events: [], captures: [], runs: [runEntry({ runId: 'r1', name: '脚本A' })], acts: [act('r1')], errors: [] }
+        : { events: [], captures: [], runs: [runEntry({ runId: 'r2', name: '脚本B' })], acts: [act('r2')], errors: [] }
+    )
     wrapper = await mountPanel()
 
-    // t2 的活动更近 → 默认选中它，右栏只有它的运行
+    // t2 的活动更近 → 默认选中它，右栏只有它的动作
     expect(timelineText()).toContain('脚本B')
     expect(timelineText()).not.toContain('脚本A')
 
     await clickTab('a.example')
     expect(timelineText()).toContain('脚本A')
     expect(timelineText()).not.toContain('脚本B')
+  })
+
+  it('动作平铺在轴上并带脚本名前缀（不必展开任何卡片）', async () => {
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' }),
+    ])
+    pageRuns.mockResolvedValue([runEntry({ runId: 'r1', name: '脚本甲', eventCount: 2 })])
+    pageActs.mockResolvedValue([
+      act('r1', { kind: 'fetch', detail: 'GET https://a.example/list', time: 700 }),
+      act('r1', { kind: 'store.set', detail: 'token', time: 720 }),
+    ])
+    wrapper = await mountPanel()
+
+    const text = timelineText()
+    expect(text).toContain('脚本甲')
+    expect(text).toContain('fetch')
+    expect(text).toContain('GET https://a.example/list')
+    expect(text).toContain('store.set')
+    // 没有「展开 / 收起」这类入口：平铺后不存在折叠态
+    expect(wrapper.findAll('button').some((b) => b.text() === '展开')).toBe(false)
+  })
+
+  it('被截断的动作不挂在某张卡上，改在轴尾说一句', async () => {
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' }),
+    ])
+    pageRuns.mockResolvedValue([runEntry({ runId: 'r1', name: '脚本甲', eventCount: 5 })])
+    pageActs.mockResolvedValue([act('r1', { time: 700 })])
+    wrapper = await mountPanel()
+
+    expect(detailText()).toContain('另有 4 个动作已省略')
+  })
+
+  it('错误平铺在轴上：阶段徽标 + 脚本名 + 消息 + 可复制的错误 ID', async () => {
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' }),
+    ])
+    pageErrors.mockResolvedValue([rec({ message: 'boom-stack', name: '脚本甲' })])
+    wrapper = await mountPanel()
+
+    const text = timelineText()
+    expect(text).toContain('运行期')
+    expect(text).toContain('脚本甲')
+    expect(text).toContain('boom-stack')
+  })
+
+  it('左栏计数把「挂在运行上的错误」也算进去', async () => {
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' }),
+    ])
+    runlog.mockResolvedValue([
+      runLogRow({ runId: 'r1', tabSessionId: 't1', time: 500, errors: [rec({ message: 'boom' })] }),
+    ])
+    wrapper = await mountPanel()
+
+    expect(tabButtons()[0].text()).toContain('跑过 1 次')
+    expect(tabButtons()[0].text()).toContain('错误 1 条')
+  })
+
+  it('无归属的记录（注册 / 依赖抓取失败）在这一页不出口：左栏也不为它留格子', async () => {
+    // 这类记录没有 tabSessionId，活动轴按页查不到它们
+    runlog.mockResolvedValue([{ kind: 'error', record: rec({ message: 'reg', uuid: null, name: '脚本A' }) }])
+    wrapper = await mountPanel()
+
+    expect(tabButtons()).toHaveLength(0)
+    expect(wrapper.text()).toContain('还没有标签页记录')
   })
 
   it('生命周期端点记到时刻才画：缺时刻就不画，也不拿别的时刻顶上', async () => {
@@ -234,7 +348,7 @@ describe('TabActivityPanel 活动历史', () => {
 
     // 缺时刻就是缺：卡头不挂「打开时刻未知」这类恒空的话（记录改为被动后它必空）
     expect(detailText()).not.toContain('打开时刻未知')
-    // 一个节点都画不出来：时间线整块不出现（不是画一条「页面打开 · 未知」顶上）
+    // 一个节点都画不出来：活动轴整块不出现（不是画一条「页面打开 · 未知」顶上）
     expect(wrapper.find('.tab-activity-timeline').exists()).toBe(false)
   })
 
@@ -247,51 +361,6 @@ describe('TabActivityPanel 活动历史', () => {
     expect(detailText()).toContain('已关闭')
     expect(detailText()).toContain('关闭时刻未知')
     expect(timelineText()).not.toContain('页面关闭')
-  })
-
-  it('展开某次运行才显示错误明细（默认只报数量）', async () => {
-    tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
-    runlog.mockResolvedValue([
-      runRow({
-        runId: 'r1',
-        tabSessionId: 't1',
-        errors: [rec({ message: 'boom-stack' })],
-      }),
-    ])
-    wrapper = await mountPanel()
-
-    expect(timelineText()).toContain('1 个错误')
-    expect(detailText()).not.toContain('boom-stack')
-
-    const expand = wrapper.findAll('button').find((b) => b.text() === '展开')
-    if (!expand) throw new Error('没有找到展开按钮')
-    await expand.trigger('click')
-    await flushPromises()
-
-    expect(detailText()).toContain('boom-stack')
-  })
-
-  it('归不到标签页的记录落「未知标签页」档：左栏出现该档，点它能看到那些记录', async () => {
-    // 老记录没有 tabSessionId（扩展刚重载那会儿记的）
-    runlog.mockResolvedValue([runRow({ runId: 'r1', name: '脚本A', time: 500 })])
-    wrapper = await mountPanel()
-
-    expect(tabButtons()).toHaveLength(1)
-    expect(tabButtons()[0].text()).toContain('未知标签页')
-    expect(detailText()).toContain('没有记下所在标签页')
-    expect(timelineText()).toContain('脚本A')
-  })
-
-  it('表里已查不到、日志里还有的标签页也列出来（老记录，名字回落到运行自己的地址）', async () => {
-    runlog.mockResolvedValue([
-      runRow({ runId: 'r1', tabSessionId: 'gone', url: 'https://c.example/y', time: 500 }),
-    ])
-    wrapper = await mountPanel()
-
-    expect(tabButtons()[0].text()).toContain('c.example')
-    expect(detailText()).toContain('存续表里已查不到这一页')
-    // 不把它当成「还开着的页」：这一条只是日志里的残迹
-    expect(detailText()).not.toContain('活动中')
   })
 
   /** 确认弹窗里的按钮（限定在 role=dialog 内，避免误命中面板自己的「删除」按钮） */
@@ -348,7 +417,7 @@ describe('TabActivityPanel 活动历史', () => {
       session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' }),
       session({ tabSessionId: 't2', tabId: 2, url: 'https://b.example/y' }),
     ])
-    runlog.mockResolvedValue([runRow({ runId: 'r2', tabSessionId: 't2', time: 900 })])
+    runlog.mockResolvedValue([runLogRow({ runId: 'r2', tabSessionId: 't2', time: 900 })])
     wrapper = await mountPanel()
 
     await wrapper.find('[data-testid="tab-activity-delete"]').trigger('click')
@@ -360,15 +429,7 @@ describe('TabActivityPanel 活动历史', () => {
     expect(tabActivityDelete).toHaveBeenCalledWith('t2')
   })
 
-  it('「未知标签页」档不给删除入口（它不是一页，谈不上删它）', async () => {
-    runlog.mockResolvedValue([runRow({ runId: 'r1', name: '脚本A' })])
-    wrapper = await mountPanel()
-
-    expect(tabButtons()[0].text()).toContain('未知标签页')
-    expect(wrapper.find('[data-testid="tab-activity-delete"]').exists()).toBe(false)
-  })
-
-  it('只刷过页、一次脚本都没跑的页：时间线上有刷新条目', async () => {
+  it('只刷过页、一次脚本都没跑的页：轴上有刷新条目', async () => {
     tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
     pageEvents.mockResolvedValue([tabEvent({ kind: 'reload', tabSessionId: 't1', time: 700 })])
     wrapper = await mountPanel()
@@ -390,14 +451,15 @@ describe('TabActivityPanel 活动历史', () => {
     expect(text).toContain('页面刷新')
   })
 
-  it('刷新与运行在同一根时间轴上按时刻混排（最新在前）', async () => {
+  it('刷新与动作在同一根轴上按时刻混排（最新在前）', async () => {
     tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
-    runlog.mockResolvedValue([runRow({ runId: 'r1', tabSessionId: 't1', name: '脚本A', time: 500 })])
+    pageRuns.mockResolvedValue([runEntry({ runId: 'r1', name: '脚本A' })])
+    pageActs.mockResolvedValue([act('r1', { time: 500 })])
     pageEvents.mockResolvedValue([tabEvent({ kind: 'reload', tabSessionId: 't1', time: 900 })])
     wrapper = await mountPanel()
 
     const text = timelineText()
-    // 刷新（900）比这次运行（500）新：两类节点同轴，只按时刻排、互不从属
+    // 刷新（900）比这次动作（500）新：两类节点同轴，只按时刻排、互不从属
     expect(text.indexOf('页面刷新')).toBeLessThan(text.indexOf('脚本A'))
   })
 
@@ -406,13 +468,19 @@ describe('TabActivityPanel 活动历史', () => {
       session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' }),
       session({ tabSessionId: 't2', tabId: 2, url: 'https://b.example/y' }),
     ])
-    runlog.mockResolvedValue([runRow({ runId: 'r2', tabSessionId: 't2', name: '脚本B', time: 900 })])
+    runlog.mockResolvedValue([runLogRow({ runId: 'r2', tabSessionId: 't2', name: '脚本B', time: 900 })])
     // 服务端按页给数据（真正的「别页不串」在按 tabSessionId 索引那侧，见 tab-captures /
     // store 的单测）：这里让 t1 有一条刷新、t2 什么都没有，验的是面板「按页取、换页就换」
     tabTimeline.mockImplementation(async (id: string) =>
       id === 't1'
-        ? { events: [tabEvent({ kind: 'reload', tabSessionId: 't1', time: 950 })], captures: [] }
-        : { events: [], captures: [] }
+        ? {
+            events: [tabEvent({ kind: 'reload', tabSessionId: 't1', time: 950 })],
+            captures: [],
+            runs: [],
+            acts: [],
+            errors: [],
+          }
+        : { events: [], captures: [], runs: [], acts: [], errors: [] }
     )
     wrapper = await mountPanel()
 
@@ -425,9 +493,10 @@ describe('TabActivityPanel 活动历史', () => {
     expect(timelineText()).toContain('页面刷新')
   })
 
-  it('记录开关的启停也在时间线上：开始记录 / 结束记录，与运行同轴按时刻排', async () => {
+  it('记录开关的启停也在轴上：开始记录 / 结束记录，与动作同轴按时刻排', async () => {
     tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
-    runlog.mockResolvedValue([runRow({ runId: 'r1', tabSessionId: 't1', name: '脚本A', time: 500 })])
+    pageRuns.mockResolvedValue([runEntry({ runId: 'r1', name: '脚本A' })])
+    pageActs.mockResolvedValue([act('r1', { time: 500 })])
     pageEvents.mockResolvedValue([
       tabEvent({ kind: 'recordOn', tabSessionId: 't1', time: 100 }),
       tabEvent({ kind: 'recordOff', tabSessionId: 't1', time: 900 }),
@@ -437,7 +506,7 @@ describe('TabActivityPanel 活动历史', () => {
     const text = timelineText()
     expect(text).toContain('开始记录')
     expect(text).toContain('结束记录')
-    // 最新在前：结束记录（900）→ 运行（500）→ 开始记录（100）
+    // 最新在前：结束记录（900）→ 动作（500）→ 开始记录（100）
     expect(text.indexOf('结束记录')).toBeLessThan(text.indexOf('脚本A'))
     expect(text.indexOf('脚本A')).toBeLessThan(text.indexOf('开始记录'))
   })
@@ -456,7 +525,8 @@ describe('TabActivityPanel 活动历史', () => {
 
   it('缺时刻的节点排在最前（最新端）：与存储层「升序排末尾」的口径互为倒数', async () => {
     tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
-    runlog.mockResolvedValue([runRow({ runId: 'r1', tabSessionId: 't1', name: '脚本A', time: 500 })])
+    pageRuns.mockResolvedValue([runEntry({ runId: 'r1', name: '脚本A' })])
+    pageActs.mockResolvedValue([act('r1', { time: 500 })])
     pageEvents.mockResolvedValue([
       tabEvent({ kind: 'recordOn', tabSessionId: 't1', time: 100 }),
       tabEvent({ kind: 'recordOff', tabSessionId: 't1' }),
@@ -467,7 +537,7 @@ describe('TabActivityPanel 活动历史', () => {
     expect(text.indexOf('结束记录')).toBeLessThan(text.indexOf('脚本A'))
   })
 
-  it('刚打开记录、什么都还没发生的页：右栏就是它的时间线（一条「开始记录」）', async () => {
+  it('刚打开记录、什么都还没发生的页：右栏就是它的轴（一条「开始记录」）', async () => {
     tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
     pageEvents.mockResolvedValue([tabEvent({ kind: 'recordOn', tabSessionId: 't1', time: 300 })])
     wrapper = await mountPanel()
@@ -475,7 +545,7 @@ describe('TabActivityPanel 活动历史', () => {
     expect(timelineText()).toContain('开始记录')
   })
 
-  it('选中页录到的请求铺在时间线上（融合自原「接口数据」面板）', async () => {
+  it('选中页录到的请求铺在轴上（融合自原「接口数据」面板）', async () => {
     tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
     pageCaptures.mockResolvedValue([
       netRec({ url: 'https://a.example/api/list', sessionId: 's1', tabSessionId: 't1' }),
@@ -502,7 +572,7 @@ describe('TabActivityPanel 活动历史', () => {
     expect(timelineText()).toContain('/api/list')
   })
 
-  it('录到的请求直接铺在时间线上，点单条才看请求头与响应结构', async () => {
+  it('录到的请求直接铺在轴上，点单条才看请求头与响应结构', async () => {
     tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
     pageCaptures.mockResolvedValue([
       netRec({
@@ -529,16 +599,17 @@ describe('TabActivityPanel 活动历史', () => {
     expect(detailText()).toContain('{"ok":true}')
   })
 
-  it('录到的请求与刷新、运行同轴混排：各自按发生时刻落位，不受段归属约束', async () => {
+  it('录到的请求与刷新、动作同轴混排：各自按发生时刻落位，不受段归属约束', async () => {
     tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
-    runlog.mockResolvedValue([runRow({ runId: 'r1', tabSessionId: 't1', name: '脚本A', time: 500 })])
+    pageRuns.mockResolvedValue([runEntry({ runId: 'r1', name: '脚本A' })])
+    pageActs.mockResolvedValue([act('r1', { time: 500 })])
     pageEvents.mockResolvedValue([tabEvent({ kind: 'reload', tabSessionId: 't1', time: 900 })])
     pageCaptures.mockResolvedValue([
       netRec({ url: 'https://a.example/api/mid', sessionId: 's1', tabSessionId: 't1', t: 700 }),
     ])
     wrapper = await mountPanel()
 
-    // 最新在前：刷新（900）→ 请求（700）→ 运行（500）
+    // 最新在前：刷新（900）→ 请求（700）→ 动作（500）
     const text = timelineText()
     expect(text.indexOf('页面刷新')).toBeLessThan(text.indexOf('/api/mid'))
     expect(text.indexOf('/api/mid')).toBeLessThan(text.indexOf('脚本A'))
