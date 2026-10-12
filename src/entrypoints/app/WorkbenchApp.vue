@@ -6,10 +6,11 @@
 //
 // 结构平移自桌面版 app.vue 的「顶栏 + 左侧导航 + 工作区」，只裁掉两栏聊天
 // （会话历史 | 当前会话已移入 side panel），保留的分支逐句照搬，未重写。
-// 导航项：设置 / 脚本列表 / 运行日志 / 会话历史（「引导」不单独占一项，入口在设置页菜单里）。
+// 导航项：设置 / 脚本列表 / 运行日志 / 活动历史 / 会话历史（「引导」不单独占一项，入口在设置页菜单里）。
 // 调界面用的几个调试面板不在这里 —— 入口收在「设置 · 开发者」分区里（见 DevModeSection）。
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
+  Clock as UiClock,
   History as UiHistory,
   List as UiList,
   MessagesSquare as UiMessagesSquare,
@@ -116,6 +117,21 @@ onUnmounted(() => {
               </button>
             </ui-tooltip-trigger>
             <ui-tooltip-content side="right">运行日志</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <button
+                class="workspace-nav-item"
+                type="button"
+                aria-label="活动历史"
+                @click="workspaceRef?.openTabActivityTab()"
+              >
+                <ui-clock class="size-5" />
+              </button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content side="right">活动历史</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
         <ui-tooltip-provider>

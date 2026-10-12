@@ -17,6 +17,7 @@ import SessionHistoryTab from '@/components/SessionHistoryTab.vue'
 import AgentToolsPanel from '@/components/AgentToolsPanel.vue'
 import GmApiPanel from '@/components/GmApiPanel.vue'
 import NetLogPanel from '@/components/NetLogPanel.vue'
+import TabActivityPanel from '@/components/TabActivityPanel.vue'
 import type { WorkspaceTab } from '@/types/tab'
 import type { WorkspaceTabKind } from '@/shared/types'
 import {
@@ -183,6 +184,15 @@ function openSessionHistoryTab(): void {
   activate('session-history')
 }
 
+// 打开活动历史标签页：以**标签页**为主线的历史视图（左栏标签页列表 + 右栏该页活动时间线），
+// 全局仅一个。与「运行日志」互补：那边以日志为准（没跑过脚本的页不出现），这边把每一页都列出来。
+function openTabActivityTab(): void {
+  if (!openTabs.value.some((t) => t.kind === 'tab-activity')) {
+    openTabs.value.push({ kind: 'tab-activity', id: 'tab-activity', title: '活动历史' })
+  }
+  activate('tab-activity')
+}
+
 // 打开某脚本的历史标签页：每脚本一个（id = us-history:<uuid>），已打开则激活复用。
 // 编辑器顶栏的历史按钮经 @open-history 走到这里；浏览 + 恢复都在这个标签页里。
 function openUserscriptHistoryTab(uuid: string, title: string): void {
@@ -258,9 +268,9 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「引导 / 设置 / 脚本列表 / 错误日志 / 会话历史」与脚本管理器的「编辑」入口。
+// 暴露给根布局：左侧导航栏「引导 / 设置 / 脚本列表 / 错误日志 / 活动历史 / 会话历史」与脚本管理器的「编辑」入口。
 // 调试面板不走这里 —— 它的入口在设置分区里，经 @open-tab 到 openDevTab
-defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openErrorLogTab, openSessionHistoryTab, openUserscriptEditor })
+defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openErrorLogTab, openSessionHistoryTab, openTabActivityTab, openUserscriptEditor })
 </script>
 
 <template>
@@ -337,6 +347,8 @@ defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openErrorLo
         <gm-api-panel v-else-if="tab.kind === 'gm-api'" />
         <!-- 接口数据：录制到的页面接口流量（只读浏览 + 清空该站点 + 正在录制的标签页就地停） -->
         <net-log-panel v-else-if="tab.kind === 'net-log'" />
+        <!-- 活动历史：以标签页为主线的历史视图（左栏标签页列表 + 右栏该页活动时间线，全局仅一个） -->
+        <tab-activity-panel v-else-if="tab.kind === 'tab-activity'" />
         <!-- 脚本历史：每脚本一个标签页，浏览 + 恢复；恢复后重载对应编辑器 -->
         <userscript-history-panel
           v-else-if="tab.kind === 'script-history'"

@@ -177,6 +177,7 @@ export type WorkspaceTabKind =
   | 'gm-api'
   | 'net-log'
   | 'error-log'
+  | 'tab-activity'
 
 /** 工作区打开标签页快照（渲染层 → 主进程上报，供 Agent 工具查询当前打开的 tab 页） */
 export interface WorkspaceTabSnapshot {

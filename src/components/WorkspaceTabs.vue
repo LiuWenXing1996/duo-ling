@@ -4,6 +4,7 @@
 // 顶栏只留标签本身。取数实现见 src/lib/build-info.ts。
 import type { WorkspaceTab } from '@/types/tab'
 import {
+  Clock as UiClock,
   Code as UiCode,
   History as UiHistory,
   Compass as UiCompass,
@@ -54,6 +55,7 @@ const emit = defineEmits<{
         <ui-code v-else-if="tab.kind === 'gm-api'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-messages-square v-else-if="tab.kind === 'session-history'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-radio v-else-if="tab.kind === 'net-log'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <ui-clock v-else-if="tab.kind === 'tab-activity'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <!--
           未保存标记：夹在图标与标题之间，**不紧贴标题** —— 紧贴时不管什么颜色都会被读成名字的一部分
