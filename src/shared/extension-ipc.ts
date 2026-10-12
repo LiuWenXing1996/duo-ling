@@ -54,6 +54,24 @@ export interface PageSnapshotContext {
   html: string
 }
 
+/**
+ * 页面环境读数（拾取器 env 模式静默采集；采集方 = AI 的 page_env_read 工具经 SW 调 execute()）。
+ *
+ * 与 env_read 报的机器真值刻意分家：这几个值**随页面而变** —— 设备模拟会改掉视口与像素比，
+ * 页面上的脚本可能改写 navigator.userAgent。想知道「脚本实际看到的运行环境」读这份，
+ * 想知道「这台机器是什么」读机器那份。
+ */
+export interface PageEnvContext {
+  capturedAt: number
+  pageUrl: string
+  /** 视口（CSS 像素，含滚动条的可见区域） */
+  viewport: { width: number; height: number }
+  /** 页面此刻的设备像素比 */
+  dpr: number
+  /** 页面里读到的 UA（可能已被页面脚本改写，未必等于浏览器真身） */
+  ua: string
+}
+
 /** chat:start 的页面上下文：档 0（URL/标题）+ 可选的档 2 元素拾取 / 页面快照 */
 export interface PageContextInfo {
   url?: string
@@ -264,6 +282,9 @@ export type RuntimeRequest =
   // 标签页，「当前激活页」不再等于「这条会话在聊的那个页」。不带 / 反查不到才退回激活页。
   // 注意前缀：`chat:` 是「SW 静默让路给 offscreen」的保留前缀，SW 自答的命令不能用
   | { kind: 'page:snapshot'; conversationId?: string }
+  // page_env_read 工具：同一条执行通道取页面侧环境读数（视口 / 设备像素比 / 页面里读到的 UA）。
+  // 与快照同因由带 conversationId —— 会话按标签页归属，AI 决定要读时用户可能已经切走。
+  | { kind: 'page:env'; conversationId?: string }
 
   // —— popup 的页面概览（「当前页面 / 其他页面」两个区块的数据源）——
   // 一次取回全部标签页的「跑着哪些脚本 / 归属哪条会话 / 是不是正在生成」：这三份数分属运行登记表、

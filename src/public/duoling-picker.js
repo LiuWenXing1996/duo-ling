@@ -7,7 +7,7 @@
  * 由对话界面以 `js: [{file}, {code: '__duolingPicker("pick")'}]` 两段注入：
  * 第一段定义运行器，第二段的**补全值**（Promise）作为 execute() 的返回值带回。
  *
- * 两个模式（由调用方的 epilogue code 指定）：
+ * 三个模式（由调用方的 epilogue code 指定）：
  *   pick     —— 拾取模式：亮高亮框 + 拦截点击，用户点选后 resolve 元素载荷；
  *               右键取消（resolve null）。Esc 取消挂在页面 document 上，只在页面
  *               恰好持有焦点时生效——拾取由对话界面发起时焦点在对话界面，主取消路径
@@ -15,13 +15,20 @@
  *               element-picker-client.ts）。返回「点选时才 resolve」的 Promise。
  *   snapshot —— 快照模式：不亮任何 UI，静默抓渲染后 documentElement.outerHTML
  *               （截断 ~32KB）resolve 回去。
+ *   env      —— 环境模式：不亮任何 UI，静默读页面侧环境（视口尺寸 / 设备像素比 /
+ *               页面里读到的 UA）resolve 回去。读的是**页面自己的事实**：设备模拟会
+ *               改掉视口与像素比，页面上的脚本可能改写 navigator.userAgent —— 这些
+ *               正是它与 offscreen 侧机器真值（env_read）分开的理由。
+ *
+ * 加模式必须同时 bump PICKER_VERSION：下文的同版本守卫按版本号跳过重定义，而 world 内的
+ * 全局变量跨注入持久——不 bump 的话，同一文档里先注入过旧版，新模式会被旧版接管。
  *
  * 取消指令（补注入）：`window.__duolingPickerActive.cancel()`——世界全局跨注入持久，
  * 双重注入守卫（再次 runPick 收掉旧拾取）走同一通路。
  *
  * 消息通道：不需要（载荷全走 execute() 返回值），世界 messaging 默认 false 正合适。
- * 结构约定与 src/shared/extension-ipc.ts 的 ElementPickContext / PageSnapshotContext 对齐，
- * 改形状必须两边同步。
+ * 结构约定与 src/shared/extension-ipc.ts 的 ElementPickContext / PageSnapshotContext /
+ * PageEnvContext 对齐，改形状必须两边同步。
  *
  * ⚠️ 跨世界契约：拾取遮罩的类名（CSS_NS + '-box'）是内容脚本判定「拾取进行中」的信号——
  * src/entrypoints/content.ts 用它在拾取期间隐藏网页浮层（否则浮层挡住待选元素、自身还会被
@@ -31,7 +38,7 @@
 ;(function () {
   'use strict'
 
-  var PICKER_VERSION = 1
+  var PICKER_VERSION = 2
   /** 摘要层 HTML 截断（字符） */
   var HTML_SAMPLE_LIMIT = 500
   /** 全量层 outerHTML 宽松上限（字符，防极端节点） */
@@ -257,10 +264,23 @@
     })
   }
 
+  /** 环境模式：无 UI，静默读页面侧环境（视口 / 像素比 / 页面里读到的 UA） */
+  function runEnv() {
+    return Promise.resolve({
+      capturedAt: Date.now(),
+      pageUrl: location.href,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      dpr: window.devicePixelRatio,
+      ua: navigator.userAgent,
+    })
+  }
+
   window.__duolingPickerVersion = PICKER_VERSION
   window.__duolingPicker = function (mode) {
     try {
-      return mode === 'snapshot' ? runSnapshot() : runPick()
+      if (mode === 'snapshot') return runSnapshot()
+      if (mode === 'env') return runEnv()
+      return runPick()
     } catch (e) {
       return Promise.reject(e instanceof Error ? e : new Error(String(e)))
     }

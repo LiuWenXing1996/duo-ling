@@ -16,7 +16,7 @@
 //   · 快照：页面关闭 / 导航 → 60 秒超时兜底。
 
 import { EXTENSION_NAME } from '@/lib/extension-identity'
-import type { ElementPickContext, PageSnapshotContext } from '@/shared/extension-ipc'
+import type { ElementPickContext, PageEnvContext, PageSnapshotContext } from '@/shared/extension-ipc'
 
 /** 拾取器世界：独立世界（与每脚本一世界惯例一致） */
 const PICKER_WORLD_ID = 'us-builtin-picker'
@@ -120,7 +120,7 @@ export function withTimeout<T>(p: Promise<T>, ms: number, message: string): Prom
 }
 
 /** chrome.userScripts.execute 的薄封装：注入失败时把 Chrome 的英文原话归一成用户可读文案 */
-async function executeInPickerWorld<T>(mode: 'pick' | 'snapshot', tabId: number) {
+async function executeInPickerWorld<T>(mode: 'pick' | 'snapshot' | 'env', tabId: number) {
   try {
     return await chrome.userScripts.execute<T>({
       target: { tabId },
@@ -133,7 +133,7 @@ async function executeInPickerWorld<T>(mode: 'pick' | 'snapshot', tabId: number)
 }
 
 /** 注入并执行拾取器（js 数组顺序执行，返回值取最后一段 code 的补全值——即运行器返回的 Promise） */
-async function executePicker<T>(mode: 'pick' | 'snapshot', tabId: number): Promise<T | null> {
+async function executePicker<T>(mode: 'pick' | 'snapshot' | 'env', tabId: number): Promise<T | null> {
   const results = await executeInPickerWorld<T>(mode, tabId)
   // execute 返回数组按注入目标各一项（我们只注入单个 tab），result 为注入脚本 Promise 的结算值
   const first = results[0]
@@ -192,5 +192,21 @@ export async function capturePageSnapshotFromTab(tabId: number): Promise<PageSna
     '页面快照采集失败：60 秒内未完成（页面可能已关闭或刷新）',
   )
   if (!ctx) throw new Error('页面快照采集失败：注入脚本未返回数据')
+  return ctx
+}
+
+/**
+ * 页面环境读数：静默读视口尺寸 / 设备像素比 / 页面里读到的 UA，不亮任何 UI。
+ * 调用方 = SW 的 'page:env' 命令（AI 的 page_env_read 工具触发）；
+ * tabId 由调用方定位（口径与快照一致：SW 侧按会话归属反查），本函数只管注入与取载荷。
+ */
+export async function capturePageEnvFromTab(tabId: number): Promise<PageEnvContext> {
+  ensureAvailable()
+  const ctx = await withTimeout(
+    executePicker<PageEnvContext>('env', tabId),
+    PICK_TIMEOUT_MS,
+    '页面环境读取失败：60 秒内未完成（页面可能已关闭或刷新）',
+  )
+  if (!ctx) throw new Error('页面环境读取失败：注入脚本未返回数据')
   return ctx
 }
