@@ -46,6 +46,7 @@ import { getNetCaptureSessions } from './net-capture-gate'
 import * as netlog from './netlog-db'
 // 对话界面页面脚本监控（运行时口径）：runstart 登记 + 错误实时推送（跨文档观察者，SW 按 tab 登记）
 import { notePageError, noteRunStart } from './page-monitor'
+import { tabSessionIdFor } from './tab-sessions'
 import {
   getGMValue,
   setGMValue,
@@ -1057,11 +1058,25 @@ export function initDlBridge(): void {
       // 有无 tabId 都记；同一 runId 的 load 补播在写侧按 lastRunId 去重。失败不影响监控登记。
       // url / savedAt 是**载荷字段、非可信输入**（经页面可伪造的通道），故只做类型收窄：
       // 形状不对就当没传——它们只是给日志多两条定位线索，不值得为它拦下这次记账。
-      if (run.uuid && run.runId) {
-        void recordRunStart(run.uuid, run.runId, run.name, {
+      const uuid = run.uuid
+      const runId = run.runId
+      if (uuid && runId) {
+        const extra = {
           ...(typeof run.url === 'string' ? { url: run.url } : {}),
           ...(typeof run.savedAt === 'number' ? { savedAt: run.savedAt } : {}),
-        }).catch(() => {})
+        }
+        // 标签页归属：运行日志按标签页看时的分组键（见表头说明）。取号失败（存储不可用）不拦记账，
+        // 那种情况下只是这条运行没有标签页归属，读侧归「未知标签页」。
+        if (tabId == null) {
+          void recordRunStart(uuid, runId, run.name, extra).catch(() => {})
+        } else {
+          void tabSessionIdFor(tabId, extra.url)
+            .then(
+              (tabSessionId) => recordRunStart(uuid, runId, run.name, { ...extra, tabSessionId }),
+              () => recordRunStart(uuid, runId, run.name, extra),
+            )
+            .catch(() => {})
+        }
       }
       return undefined // 仅登记，无需响应
     }
@@ -1083,7 +1098,7 @@ export function initDlBridge(): void {
           // sender.tab 定位出错页面（userScript 世界消息 sender 带 tab）；拿不到就跳过
           const tabId = sender.tab?.id
           if (tabId != null) {
-            // 对话界面监控：错误行随推送走（落盘记录无 tabId，面板按 tab 归属只能靠这条实时通道）
+            // 对话界面监控：错误行随推送走（面板只要「当前这次运行」，实时通道一条推送就到）
             notePageError(tabId, {
               uuid: evt.uuid ?? null,
               name: evt.name || '未知脚本',

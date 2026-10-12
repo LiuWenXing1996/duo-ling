@@ -1,6 +1,7 @@
 // UI 组件测试：UserscriptRunLogPanel.vue 的时间线行为。
 // 覆盖易回归语义：运行行渲染与错误展开、孤儿错误行、左栏过滤（全部/未归属/脚本）、
-// 清空范围跟随选中项（三态 IPC 参数）、深链定位（命中与落空）。
+// 左栏轴切换（按脚本 / 按标签页：分组与过滤）、清空范围跟随选中项（三态 IPC 参数）、
+// 深链定位（命中与落空）。
 // 边界 mock：ui-client（IPC 客户端）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
@@ -8,6 +9,7 @@ import UserscriptRunLogPanel from './UserscriptRunLogPanel.vue'
 import type {
   RunEndReason,
   ScriptSummary,
+  TabSessionRecord,
   UserScriptErrorRecord,
   UserScriptRunEvent,
   UserScriptRunLogRow
@@ -17,9 +19,10 @@ const runlog = vi.hoisted(() => vi.fn())
 const runEvents = vi.hoisted(() => vi.fn())
 const clearErrors = vi.hoisted(() => vi.fn())
 const list = vi.hoisted(() => vi.fn())
+const tabSessions = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/userscripts/ui-client', () => ({
-  userscriptClient: { runlog, runEvents, clearErrors, list },
+  userscriptClient: { runlog, runEvents, clearErrors, list, tabSessions },
 }))
 
 let seq = 0
@@ -42,6 +45,7 @@ function runRow(over: {
   name?: string
   time?: number
   url?: string
+  tabSessionId?: string
   savedAt?: number
   eventCount?: number
   endedAt?: number
@@ -56,6 +60,7 @@ function runRow(over: {
     time: over.time ?? 500,
     // 老记录没有这些字段：缺了就整条不写（与 listRunTimeline 的口径一致）
     ...(over.url != null ? { url: over.url } : {}),
+    ...(over.tabSessionId != null ? { tabSessionId: over.tabSessionId } : {}),
     ...(over.savedAt != null ? { savedAt: over.savedAt } : {}),
     // 动作明细不在这一行返回（要展开才拉），行上只有计数
     ...(over.eventCount != null ? { eventCount: over.eventCount } : {}),
@@ -102,6 +107,14 @@ async function clickClear(): Promise<void> {
   await flushPromises()
 }
 
+/** 点左栏顶部的轴切换（按脚本 / 按标签页）——它在 nav 之外，故不在 navButtons 里 */
+async function switchAxis(name: string): Promise<void> {
+  const btn = wrapper.findAll('button').find((b) => b.text() === name)
+  if (!btn) throw new Error(`没有找到轴切换「${name}」`)
+  await btn.trigger('click')
+  await flushPromises()
+}
+
 /** 右栏时间线文本（不含左栏导航——导航里永远列着全部脚本名，断言行内容时必须排除） */
 const timelineText = () => wrapper.find('.run-log-timeline').text()
 
@@ -110,6 +123,7 @@ beforeEach(() => {
   clearErrors.mockResolvedValue(undefined)
   list.mockResolvedValue([])
   runEvents.mockResolvedValue([])
+  tabSessions.mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -288,6 +302,46 @@ describe('UserscriptRunLogPanel 时间线', () => {
     await clickNav('未归属')
     expect(timelineText()).toContain('孤儿错误')
     expect(timelineText()).not.toContain('A 的落单错误')
+  })
+
+  it('按标签页轴：同一标签页的运行聚成一组，名字取表里最新地址（表里没有则回落到运行地址），归不到标签页的进「未知标签页」', async () => {
+    runlog.mockResolvedValue([
+      runRow({ runId: 'r1', uuid: 'u1', name: '脚本A', url: 'https://a.example/x', tabSessionId: 't1' }),
+      // 同一个标签页上的第二次运行（换了页内地址）——仍属同一组
+      runRow({ runId: 'r2', uuid: 'u2', name: '脚本B', url: 'https://a.example/y', tabSessionId: 't1' }),
+      runRow({ runId: 'r3', uuid: 'u1', name: '脚本A', url: 'https://b.example/p', tabSessionId: 't2' }),
+      // 老记录：当时没记下所在标签页
+      runRow({ runId: 'r4', uuid: 'u2', name: '脚本B' }),
+    ])
+    tabSessions.mockResolvedValue([
+      // 表里的地址比运行当时的更新（导航就会刷）——分组名用它
+      { tabSessionId: 't1', tabId: 7, url: 'https://a.example/latest' } as TabSessionRecord,
+      // 表里没有地址（还没观察到导航）：回落到该组最近一次运行的地址
+      { tabSessionId: 't2', tabId: 8 } as TabSessionRecord,
+    ])
+    wrapper = await mountPanel()
+    await switchAxis('按标签页')
+
+    expect(navNames()).toEqual(['全部', 'a.example', 'b.example', '未知标签页'])
+
+    // 选一个标签页 = 看那一页上跑过的全部脚本（跨脚本聚合，正是这个轴的意义）
+    await clickNav('a.example')
+    expect(timelineText()).toContain('脚本A')
+    expect(timelineText()).toContain('脚本B')
+    expect(timelineText()).not.toContain('b.example')
+
+    await clickNav('未知标签页')
+    expect(timelineText()).not.toContain('a.example')
+    expect(timelineText()).toContain('脚本B')
+  })
+
+  it('按标签页轴下没有清空入口（后端清空范围只有「全部 / 某脚本」，没有按标签页清）', async () => {
+    runlog.mockResolvedValue([runRow({ runId: 'r1', uuid: 'u1', name: '脚本A', tabSessionId: 't1' })])
+    wrapper = await mountPanel()
+    expect(wrapper.text()).toContain('清空全部')
+
+    await switchAxis('按标签页')
+    expect(wrapper.text()).not.toContain('清空')
   })
 
   it('列表里有但暂无日志的脚本也出现在左栏（置灰、计数 0），排在日志脚本之后', async () => {

@@ -287,14 +287,14 @@ export async function findUserScriptError(id: string): Promise<UserScriptErrorLo
  * 补播若重置 lastRunErrors 会抹掉两次广播之间已上报的错误，故去重必须整体跳过
  * （运行条目也随之不重复追加）。
  *
- * @param extra 运行所在页面与注入时的源码版本（见 UserScriptRunLogEntry）：
- *   两条都是「这次运行到底跑的是哪一版、在哪一页」的定位线索，缺省即不写该字段。
+ * @param extra 运行所在页面、注入时的源码版本（见 UserScriptRunLogEntry）与所在标签页的存续 id：
+ *   都是「这次运行到底跑的是哪一版、在哪一页、在哪个标签页」的定位线索，缺省即不写该字段。
  */
 export function recordRunStart(
   uuid: string,
   runId: string,
   name?: string,
-  extra?: { url?: string; savedAt?: number },
+  extra?: { url?: string; savedAt?: number; tabSessionId?: string },
 ): Promise<void> {
   const entry: UserScriptRunLogEntry = {
     runId,
@@ -304,6 +304,7 @@ export function recordRunStart(
     time: Date.now(),
     ...(extra?.url != null ? { url: extra.url } : {}),
     ...(extra?.savedAt != null ? { savedAt: extra.savedAt } : {}),
+    ...(extra?.tabSessionId != null ? { tabSessionId: extra.tabSessionId } : {}),
   }
   return runtime.startRun(uuid, entry).then((recorded) => {
     // 管理页的运行统计列与运行日志标签页靠这条广播实时回拉（合并窗口防导航风暴）
@@ -411,6 +412,7 @@ export async function listRunTimeline(): Promise<UserScriptRunLogRow[]> {
       time: r.time,
       // 老记录没有这些字段：缺了就整条不写，保持「无值 = 字段不存在」的一致口径
       ...(r.url != null ? { url: r.url } : {}),
+      ...(r.tabSessionId != null ? { tabSessionId: r.tabSessionId } : {}),
       ...(r.savedAt != null ? { savedAt: r.savedAt } : {}),
       ...(r.eventCount != null ? { eventCount: r.eventCount } : {}),
       ...(r.endedAt != null ? { endedAt: r.endedAt } : {}),

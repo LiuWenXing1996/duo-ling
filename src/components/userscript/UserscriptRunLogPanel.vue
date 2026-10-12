@@ -3,7 +3,8 @@
 // 运行行下、运行内动作按 runId 索引存放——**都只在展开时才呈现**（动作更是展开那一刻才拉，
 // 列表不随行返回）；无法归属的错误（注册/桥类无 runId、或所属运行已滑出环形）单独成行。
 //
-// 运行 + 错误合并成一条时间线（不按脚本分组）——「什么时候跑过、那次挂没挂、挂了什么」一眼一条线看完。
+// 时间线本身不分组，左栏给两种**分组轴**切法：按脚本（谁的日志）/ 按标签页（哪一页的日志）——
+// 「什么时候跑过、那次挂没挂、挂了什么」一眼一条线看完，换轴只换过滤维度。
 //
 // 数据通道：userscriptClient（workbench 是可信扩展页，可直接 chrome.runtime.sendMessage，
 // 不走 window.api —— 那是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
@@ -18,11 +19,13 @@ import {
 } from '@lucide/vue'
 import { Badge as UiBadge } from '@/components/ui/badge'
 import { Button as UiButton } from '@/components/ui/button'
+import { webHostname } from '@/lib/float-panel-host'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
   RUN_LOG_MAX,
   type RunEndReason,
   type ScriptSummary,
+  type TabSessionRecord,
   type UserScriptErrorRecord,
   type UserScriptRunEvent,
   type UserScriptRunLogRow
@@ -50,6 +53,23 @@ const props = defineProps<{ focusUuid?: string | null; focusSeq?: number; reload
 const ALL_KEY = '__all__'
 /** 「未归属」分组 key：无运行上下文的错误（注册失败无脚本上下文、部分桥错误） */
 const ORPHAN_KEY = '__orphan__'
+/** 「未知标签页」分组 key：归不到任何标签页的运行与错误（老记录、扩展刚重载那会儿记的） */
+const UNKNOWN_TAB_KEY = '__unknown_tab__'
+
+/**
+ * 分组轴：按脚本（谁的日志）/ 按标签页（哪一页的日志）。同一条时间线，只是左栏切法不同 ——
+ * 「这个脚本在各页表现如何」看前者，「这一页跑了哪几个脚本、出了什么错」看后者。
+ */
+const axis = ref<'script' | 'tab'>('script')
+
+/** 左栏轴切换的两枚按钮。文案写成「按 X」，免得被当成下面那串分组里的一个 */
+const AXES = [
+  { key: 'script', name: '按脚本' },
+  { key: 'tab', name: '按标签页' }
+] as const
+
+/** 标签页存续表快照（tabSessionId → 记录）：只用来给分组取名字（这个标签页最近去哪了） */
+const tabSessions = ref<Map<string, TabSessionRecord>>(new Map())
 
 const rows = ref<UserScriptRunLogRow[]>([])
 const loading = ref(false)
@@ -81,7 +101,7 @@ interface NavItem {
   /** 该脚本是否有日志：无日志的置灰、计数 0，提示「尚无运行记录」 */
   hasLogs: boolean
 }
-const navItems = computed<NavItem[]>(() => {
+const scriptNavItems = computed<NavItem[]>(() => {
   const runCountByUuid = new Map<string, number>()
   const errCountByUuid = new Map<string, number>()
   const lastTimeByUuid = new Map<string, number>()
@@ -152,6 +172,100 @@ const navItems = computed<NavItem[]>(() => {
   return [...items, ...logItems, ...noLogItems]
 })
 
+/** 运行 runId → 标签页分组 key：错误行没有标签页字段，靠它那次运行反查（见 tabKeyOf） */
+const runTabKeyById = computed<Map<string, string>>(() => {
+  const m = new Map<string, string>()
+  for (const row of rows.value) {
+    if (row.kind === 'run') m.set(row.runId, row.tabSessionId ?? UNKNOWN_TAB_KEY)
+  }
+  return m
+})
+
+/**
+ * 一行属于哪个标签页分组。运行行看它自己的 tabSessionId；错误行没这个字段，
+ * 按 runId 挂到它所属运行的那一页上 —— 挂不上（本身无运行上下文、或那次运行已被环形挤掉）归「未知」。
+ */
+function tabKeyOf(row: UserScriptRunLogRow): string {
+  if (row.kind === 'run') return row.tabSessionId ?? UNKNOWN_TAB_KEY
+  return (row.record.runId && runTabKeyById.value.get(row.record.runId)) || UNKNOWN_TAB_KEY
+}
+
+/** 左栏「按标签页」分组的累计（一次遍历算完） */
+interface TabGroupStat {
+  runs: number
+  errors: number
+  /** 该组最近一条记录的时刻——分组排序用 */
+  last: number
+  /** 该组最近一次运行的地址（表里查不到这个标签页时的名字兜底） */
+  url?: string
+}
+
+/** 左栏（按标签页）：哪些标签页跑过、各自几条记录。名字取「这个标签页最近去哪了」 */
+const tabNavItems = computed<NavItem[]>(() => {
+  const stat = new Map<string, TabGroupStat>()
+  for (const row of rows.value) {
+    const key = tabKeyOf(row)
+    const cur: TabGroupStat = stat.get(key) ?? { runs: 0, errors: 0, last: 0 }
+    let time: number
+    if (row.kind === 'run') {
+      cur.runs += 1
+      time = row.time
+      // 表里查不到这个标签页（老日志）时，拿该组最近一次运行的地址兜底
+      if (!cur.url && row.url) cur.url = row.url
+    } else {
+      cur.errors += 1
+      time = row.record.time
+    }
+    cur.last = Math.max(cur.last, time)
+    stat.set(key, cur)
+  }
+  const items: NavItem[] = [
+    {
+      key: ALL_KEY,
+      name: '全部',
+      count: rows.value.length,
+      hint: '全部运行与错误混排（最新在前）',
+      hasLogs: true
+    }
+  ]
+  const named = [...stat.entries()]
+    .filter(([key]) => key !== UNKNOWN_TAB_KEY)
+    .sort((a, b) => b[1].last - a[1].last)
+  for (const [key, s] of named) {
+    // 名字优先取表里那份地址（导航即更新，最新）；表里没有（老日志）回落到该组最近一次运行的地址
+    const url = tabSessions.value.get(key)?.url ?? s.url
+    items.push({
+      key,
+      name: webHostname(url) || '地址未知',
+      count: s.runs + s.errors,
+      hint: `${url ?? '地址未知'} · 运行 ${s.runs} 次 · 错误 ${s.errors} 条`,
+      hasLogs: true
+    })
+  }
+  const unknown = stat.get(UNKNOWN_TAB_KEY)
+  if (unknown) {
+    items.push({
+      key: UNKNOWN_TAB_KEY,
+      name: '未知标签页',
+      count: unknown.runs + unknown.errors,
+      hint: '当时没记下所在标签页（老记录，或扩展刚重载那会儿）',
+      hasLogs: true
+    })
+  }
+  return items
+})
+
+/** 左栏当前轴上的项 */
+const navItems = computed<NavItem[]>(() =>
+  axis.value === 'script' ? scriptNavItems.value : tabNavItems.value
+)
+
+/** 切轴：分组 key 是两套命名空间（脚本 uuid / tabSessionId），必须一起回到「全部」，留着旧 key 会落进空视图 */
+function setAxis(next: 'script' | 'tab'): void {
+  axis.value = next
+  selectedKey.value = ALL_KEY
+}
+
 /** 脚本 uuid → 当前已保存源码的版本时刻（ScriptSummary.savedAt），用于判断某次运行跑的是哪一版 */
 const currentSavedAtByUuid = computed<Map<string, number>>(() => {
   const m = new Map<string, number>()
@@ -173,9 +287,13 @@ function staleSourceHint(row: { savedAt?: number }): string {
   return `页面里跑的是 ${formatTime(row.savedAt ?? 0)} 保存的源码；脚本在那之后又被改过`
 }
 
-/** 当前选中的是某个具体脚本、且其时间线为空（只在单脚本视图下给一句空提示，全部/未归属不提示） */
+/**
+ * 当前选中的是某个具体脚本、且其时间线为空（只在单脚本视图下给一句空提示，全部/未归属不提示）。
+ * 按标签页轴上不会有这一态 —— 分组是从行里推出来的，选得中的组必然有行。
+ */
 const selectedScriptEmpty = computed(
   () =>
+    axis.value === 'script' &&
     selectedKey.value !== ALL_KEY &&
     selectedKey.value !== ORPHAN_KEY &&
     visibleRows.value.length === 0
@@ -184,6 +302,8 @@ const selectedScriptEmpty = computed(
 /** 过滤后的时间线 */
 const visibleRows = computed<UserScriptRunLogRow[]>(() => {
   if (selectedKey.value === ALL_KEY) return rows.value
+  // 按标签页轴：选中的是新 key 时按分组键过滤（含「未知标签页」这一档）
+  if (axis.value === 'tab') return rows.value.filter((r) => tabKeyOf(r) === selectedKey.value)
   if (selectedKey.value === ORPHAN_KEY) {
     return rows.value.filter((r) => r.kind === 'error' && r.record.uuid === null)
   }
@@ -201,8 +321,10 @@ const selectedTitle = computed(() => {
   return item ? `${item.name} · ${item.count} 条` : ''
 })
 
-/** 过滤器是否显示脚本名：全部 / 未归属视图下要（行来自不同脚本），单脚本视图下冗余 */
-const showNameInRows = computed(() => selectedKey.value === ALL_KEY || selectedKey.value === ORPHAN_KEY)
+/** 过滤器是否显示脚本名：行来自不同脚本时才要；单脚本视图下冗余（按标签页轴上各行脚本混杂，一律显示） */
+const showNameInRows = computed(() =>
+  axis.value === 'tab' ? true : selectedKey.value === ALL_KEY || selectedKey.value === ORPHAN_KEY
+)
 
 /**
  * 清空参数三态（与 userscriptClient.clearErrors 的契约一一对应）：
@@ -210,6 +332,9 @@ const showNameInRows = computed(() => selectedKey.value === ALL_KEY || selectedK
  * null = 清「未归属」错误（运行条必带 uuid，此范围下不动）。
  * 注意**不能**写 `selected.value?.uuid ?? undefined` —— null 是 nullish，
  * 那样会把「未归属」悄悄退化成「清空全部」。
+ *
+ * 后端的清空范围只有「全部 / 某脚本」两种，**没有「按标签页清」**（运行条不按标签页删），
+ * 故按标签页轴下整个按钮不出现 —— 宁可没有这个入口，也不给一个语义对不上的按钮。
  */
 const clearTarget = computed<string | null | undefined>(() => {
   if (selectedKey.value === ALL_KEY) return undefined
@@ -360,12 +485,14 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const [logRows, scripts] = await Promise.all([
+    const [logRows, scripts, sessions] = await Promise.all([
       userscriptClient.runlog(),
-      userscriptClient.list()
+      userscriptClient.list(),
+      userscriptClient.tabSessions()
     ])
     rows.value = logRows
     scriptList.value = scripts
+    tabSessions.value = new Map(sessions.map((s) => [s.tabSessionId, s]))
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -415,6 +542,8 @@ watch(
   async ([uuid]) => {
     if (!uuid) return
     await load()
+    // 深链的目标是脚本，落回脚本轴（分组 key 是 uuid，在按标签页轴上找不到）
+    setAxis('script')
     const hit = navItems.value.find((i) => i.key === uuid)
     if (hit) {
       selectedKey.value = uuid
@@ -495,33 +624,57 @@ onMounted(() => {
 
     <!-- 双栏常驻：即便一条日志都没有，左栏脚本列表也要可见（可看有哪些脚本、逐个选中看空提示） -->
     <div class="flex min-h-0 flex-1">
-      <!-- 左栏：脚本过滤（条数徽标，hover 看运行/错误拆解） -->
-      <nav class="w-56 shrink-0 overflow-y-auto border-r border-border py-2" aria-label="按脚本过滤">
-        <button
-          v-for="item in navItems"
-          :key="item.key"
-          type="button"
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted"
-          :class="[
-            item.key === selectedKey
-              ? 'bg-muted font-medium text-foreground'
-              : 'text-muted-foreground',
-            !item.hasLogs ? 'opacity-50' : ''
-          ]"
-          :title="item.hint"
-          @click="selectedKey = item.key"
+      <!-- 左栏：分组轴切换 + 该轴上的分组（条数徽标，hover 看运行/错误拆解） -->
+      <div class="flex w-56 shrink-0 flex-col border-r border-border">
+        <!-- 轴切换：同一条时间线的两种切法（谁的日志 / 哪一页的日志） -->
+        <div class="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
+          <button
+            v-for="a in AXES"
+            :key="a.key"
+            type="button"
+            class="rounded px-1.5 py-0.5 text-[11px]"
+            :class="
+              a.key === axis
+                ? 'bg-muted font-medium text-foreground'
+                : 'text-muted-foreground hover:bg-muted'
+            "
+            @click="setAxis(a.key)"
+          >
+            {{ a.name }}
+          </button>
+        </div>
+        <nav
+          class="min-h-0 flex-1 overflow-y-auto py-2"
+          :aria-label="axis === 'script' ? '按脚本过滤' : '按标签页过滤'"
         >
-          <span class="min-w-0 flex-1 truncate">{{ item.name }}</span>
-          <ui-badge variant="secondary" class="h-4 px-1.5 text-[10px]">{{ item.count }}</ui-badge>
-        </button>
-      </nav>
+          <button
+            v-for="item in navItems"
+            :key="item.key"
+            type="button"
+            class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted"
+            :class="[
+              item.key === selectedKey
+                ? 'bg-muted font-medium text-foreground'
+                : 'text-muted-foreground',
+              !item.hasLogs ? 'opacity-50' : ''
+            ]"
+            :title="item.hint"
+            @click="selectedKey = item.key"
+          >
+            <span class="min-w-0 flex-1 truncate">{{ item.name }}</span>
+            <ui-badge variant="secondary" class="h-4 px-1.5 text-[10px]">{{ item.count }}</ui-badge>
+          </button>
+        </nav>
+      </div>
 
       <!-- 右栏：时间线（最新在前） -->
       <div class="min-w-0 flex-1 overflow-y-auto">
         <div class="mx-auto max-w-3xl p-4">
           <header class="flex items-center justify-between gap-2">
             <p class="text-xs text-muted-foreground">{{ selectedTitle }}（最新在前）</p>
+            <!-- 清空只在按脚本轴提供：后端清空范围是「全部 / 某脚本」，没有「按标签页清」 -->
             <ui-button
+              v-if="axis === 'script'"
               variant="ghost"
               size="sm"
               class="h-6 gap-1 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
