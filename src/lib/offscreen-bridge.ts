@@ -110,7 +110,7 @@ export const offscreenBridge = {
 
   /**
    * 网络录制 · 读回某站点已录的接口语料（net_capture_read 工具 + 常驻 prompt 摘要档）。
-   * 门禁（duoling-app）与记录（duoling-netlog）都归 SW，offscreen 不直连。
+   * 门禁（duoling-app）与采样（duoling-runtime）都归 SW，offscreen 不直连。
    * mode：digest = 接口清单（常驻用）；full = 逐条采样（工具读回用）。
    */
   readNetCapture: (

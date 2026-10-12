@@ -26,26 +26,21 @@ import {
   withRunStats,
 } from './store'
 import {
+  appendTabCapture,
   appendTabEvent,
   clearAllForTests as clearRuntime,
   getStats,
   listTabEvents,
   listTabSessions,
+  listTabTimeline,
   mintTabSession,
 } from './runtime-db'
 import { clearAllForTests as clearUsdata } from './usdata-db'
-import {
-  appendCapture,
-  archiveSession,
-  clearAllForTests as clearNetlog,
-  listCapturesByTabSession,
-  listSessionsByTabSession,
-} from './netlog-db'
-import { type NetCaptureRecord, type NetRecordSession } from './net-record-protocol'
+import type { NetCaptureRecord } from './net-record-protocol'
 import { RUN_EVENT_MAX, RUN_LOG_MAX, type ScriptProject } from './types'
 
 beforeEach(async () => {
-  await Promise.all([clearUsdata(), clearRuntime(), clearNetlog()])
+  await Promise.all([clearUsdata(), clearRuntime()])
 })
 
 /** appendUserScriptError 内部的运行统计记账是 void 后台异步，等它排干再断言 */
@@ -68,19 +63,6 @@ function cap(host: string, url: string, sessionId: string, tabSessionId: string)
     respHeaders: {},
     respBody: '{}',
     t: 1,
-  }
-}
-
-/** 一个挂在某存续行上的录制会话归档 */
-function sess(id: string, host: string, tabSessionId: string): NetRecordSession {
-  return {
-    id,
-    tabId: 1,
-    host,
-    url: `https://${host}/p`,
-    title: '示例页',
-    startedAt: 1,
-    tabSessionId,
   }
 }
 
@@ -643,30 +625,24 @@ describe('活动历史（存续表 + 运行日志的删除 / 清空）', () => {
     expect(await listTabEvents()).toHaveLength(0)
   })
 
-  it('删除某一页：它录到的接口记录与会话一并清掉，别的页不动', async () => {
+  it('删除某一页：它录到的接口采样一并清掉（与存续轴事件同表，一次清完），别的页不动', async () => {
     const t1 = await mintTabSession({ tabId: 1, url: 'https://1.test/' })
     const t2 = await mintTabSession({ tabId: 2, url: 'https://2.test/' })
-    await appendCapture(cap('1.test', 'https://1.test/api', 'sess-1', t1))
-    await archiveSession(sess('sess-1', '1.test', t1))
-    await appendCapture(cap('2.test', 'https://2.test/api', 'sess-2', t2))
-    await archiveSession(sess('sess-2', '2.test', t2))
+    await appendTabCapture(cap('1.test', 'https://1.test/api', 'sess-1', t1))
+    await appendTabCapture(cap('2.test', 'https://2.test/api', 'sess-2', t2))
 
     await deleteTabActivity(t1)
 
-    expect(await listCapturesByTabSession(t1)).toEqual([])
-    expect(await listSessionsByTabSession(t1)).toEqual([])
-    expect((await listCapturesByTabSession(t2)).map((r) => r.url)).toEqual(['https://2.test/api'])
-    expect(await listSessionsByTabSession(t2)).toHaveLength(1)
+    expect((await listTabTimeline(t1)).captures).toEqual([])
+    expect((await listTabTimeline(t2)).captures.map((r) => r.url)).toEqual(['https://2.test/api'])
   })
 
-  it('清空全部：录制数据（记录 + 会话）也一并清掉', async () => {
+  it('清空全部：接口采样也一并清掉', async () => {
     const t1 = await mintTabSession({ tabId: 1, url: 'https://1.test/' })
-    await appendCapture(cap('1.test', 'https://1.test/api', 'sess-1', t1))
-    await archiveSession(sess('sess-1', '1.test', t1))
+    await appendTabCapture(cap('1.test', 'https://1.test/api', 'sess-1', t1))
 
     await clearTabActivity()
 
-    expect(await listCapturesByTabSession(t1)).toEqual([])
-    expect(await listSessionsByTabSession(t1)).toEqual([])
+    expect((await listTabTimeline(t1)).captures).toEqual([])
   })
 })

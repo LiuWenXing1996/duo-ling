@@ -21,8 +21,10 @@
 // 不列出来它们在这一页就完全不可见。「未知标签页」档只能看记录本身，答不出它当时在哪一页。
 //
 // 数据通道：userscriptClient（workbench 是可信扩展页，可直接 chrome.runtime.sendMessage）。
-// 读侧四条命令：tabSessions（存续表）/ tabEvents（刷新与地址变更、记录开关）/ runlog（全量时间线）/
-// runEvents（展开时按需拉）；写侧两条本条新增：tabActivityDelete（删某一页）/ tabActivityClear（清空全部）。
+// 读侧三条命令：tabSessions（存续表）/ runlog（全量时间线）/ tabTimeline（**选中页**的整条时间线：
+// 存续轴事件与它录到的接口采样 —— 两者落 tab_events 同一张表，故一次拉回）；
+// runEvents（展开某次运行时按需拉）；写侧两条：tabActivityDelete（删某一页）/ tabActivityClear（清空全部）。
+// 采样按页拉而不是随首屏全量拉：单条可达数 KB，全量等于把整库搬过消息边界。
 //
 // 删除 / 清空**连带运行记录**是刻意的：面板展示的是存续表与运行日志的合成，只删存续行会让
 // 这一页以「表里已查不到」的残影留在列表里（它的运行还在）。代价是这些运行在「运行日志」
@@ -45,7 +47,6 @@ import { Button as UiButton } from '@/components/ui/button'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { webHostname } from '@/lib/float-panel-host'
 import { routeOf } from '@/lib/userscripts/net-record-digest'
-import { listCapturesByTabSession } from '@/lib/userscripts/netlog-db'
 import type { NetCaptureRecord, NetRecordSession } from '@/lib/userscripts/net-record-protocol'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
@@ -230,10 +231,9 @@ const timelineNodes = computed<TimelineNode[]>(() => {
   // 生命周期端点只在**记到了**时刻时才画：缺省就是未知，不拿别的时刻顶上
   if (sel.createdAt) nodes.push({ kind: 'lifecycle', label: '页面打开', time: sel.createdAt })
   if (sel.closedAt) nodes.push({ kind: 'lifecycle', label: '页面关闭', time: sel.closedAt })
-  // 事件自带归属，只按 id 相等收：「未知标签页」档不是一页，一条也收不到（它本就没有 tabSessionId）
-  for (const event of tabEvents.value) {
-    if (event.tabSessionId === sel.id) nodes.push({ kind: 'tabEvent', event })
-  }
+  // 存续轴事件与接口采样都是**选中的这一页**的（按页拉，见 loadPageTimeline），直接铺上去；
+  // 运行与错误同理按选中页筛（它们来自全量时间线，故要按归属键过一遍）
+  for (const event of tabEvents.value) nodes.push({ kind: 'tabEvent', event })
   for (const row of rows.value) {
     if (tabKeyOf(row) !== sel.id) continue
     nodes.push(row.kind === 'run' ? { kind: 'run', row } : { kind: 'error', record: row.record })
@@ -241,7 +241,7 @@ const timelineNodes = computed<TimelineNode[]>(() => {
   // 录到的采样：一条一个节点，按自己的发生时刻落位 —— 这样「刷新后先发了哪个请求、紧接着
   // 跑了哪个脚本」在轴上一眼看得出。
   for (const rec of netRecords.value) nodes.push({ kind: 'netRequest', rec })
-  // 最新在前；时刻缺省的排在最前 —— 与 listTabEvents 的升序口径一致（它按定义发生在该行
+  // 最新在前；时刻缺省的排在最前 —— 与 tabTimeline 侧事件的升序口径一致（它按定义发生在该行
   // 所有已知节点之后，比如划断补的那条「结束记录」）
   return nodes.sort((a, b) => (nodeTime(b) ?? Infinity) - (nodeTime(a) ?? Infinity))
 })
@@ -285,15 +285,13 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const [sessionList, eventList, logRows, captureState] = await Promise.all([
+    const [sessionList, logRows, captureState] = await Promise.all([
       userscriptClient.tabSessions(),
-      userscriptClient.tabEvents(),
       userscriptClient.runlog(),
       // 哪些页正在录（判据归 SW）：左栏据此画圆点、给就地停止的地方
       userscriptClient.netCaptureState()
     ])
     sessions.value = sessionList
-    tabEvents.value = eventList
     rows.value = logRows
     recordingSessions.value = captureState.sessions
     fallbackSelection()
@@ -305,25 +303,31 @@ async function load(): Promise<void> {
 }
 
 /**
- * 拉选中页录到的接口（**只拉这一页**，不做全量预取）：接口采样可能上百条，
- * 给每一页都拉一遍纯属浪费。切页时重拉。
+ * 拉选中页的整条时间线：存续轴事件（刷新 / 地址变更 / 记录开关）与它录到的接口采样。
+ * 两者在 tab_events 里同表，故一条命令一次拉回、由 SW 拆成两类。
+ *
+ * **只拉这一页**，不做全量预取：采样单条可达数 KB，给每一页都拉一遍纯属浪费（也是采样
+ * 与事件同表之后不能沿用「事件全量 + 采样按页」两段式的原因）。切页时重拉。
  */
-async function loadPageCaptures(tabSessionId: string): Promise<void> {
+async function loadPageTimeline(tabSessionId: string): Promise<void> {
+  tabEvents.value = []
   netRecords.value = []
   if (!tabSessionId) return
   try {
-    netRecords.value = await listCapturesByTabSession(tabSessionId)
+    const { events, captures } = await userscriptClient.tabTimeline(tabSessionId)
+    tabEvents.value = events
+    netRecords.value = captures
   } catch (e) {
-    error.value = '读取接口录制失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '读取这一页的活动失败：' + (e instanceof Error ? e.message : String(e))
   }
 }
 
 onMounted(() => void load())
 
-// 切页就换一份接口录制，并把窗口化渲染的实测高度清掉（行内容整批换了，旧高度会错位）
+// 切页就换一份这一页的时间线，并把窗口化渲染的实测高度清掉（行内容整批换了，旧高度会错位）
 watch(selectedId, (id) => {
   resetVirtual()
-  void loadPageCaptures(id)
+  void loadPageTimeline(id)
 })
 
 // 跑脚本会广播这两个域（运行统计 / 错误）：接上就不用手动刷新也能看到新记录。
@@ -363,7 +367,7 @@ async function stopRecording(tabId: number): Promise<void> {
   try {
     await userscriptClient.tabActivityDisable(tabId)
     await load()
-    await loadPageCaptures(selectedId.value)
+    await loadPageTimeline(selectedId.value)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {

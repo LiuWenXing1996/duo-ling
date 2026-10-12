@@ -9,7 +9,7 @@ import { runtimeSend } from '@/shared/runtime-send'
 import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabEventRecord, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
 import type { Source, UsCommit, UsSnapshot } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
-import type { NetRecordSession } from './net-record-protocol'
+import type { NetCaptureRecord, NetRecordSession } from './net-record-protocol'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -141,8 +141,14 @@ export const userscriptClient = {
   /** 标签页存续表全量：运行日志按标签页分组时取名字与时刻（分组键在运行条目上） */
   tabSessions: (): Promise<TabSessionRecord[]> => send({ kind: 'userscript:tabSessions' }),
 
-  /** 标签页存续轴上的事件全量（刷新 / 地址变更 / 记录开关）：活动历史右栏与运行条混排成时间线 */
-  tabEvents: (): Promise<TabEventRecord[]> => send({ kind: 'userscript:tabEvents' }),
+  /**
+   * 某一页的整条时间线：存续轴事件（刷新 / 地址变更 / 记录开关）与它录到的接口采样。
+   * 两者在 tab_events 里同表，故一次命令查回、由 SW 按两类拆好 —— 面板不必自己直连库。
+   */
+  tabTimeline: (
+    tabSessionId: string,
+  ): Promise<{ events: TabEventRecord[]; captures: NetCaptureRecord[] }> =>
+    send({ kind: 'userscript:tabTimeline', tabSessionId }),
 
   /** 删掉某一页的全部活动（存续行 + 它的运行与错误）——「活动历史」的删除 */
   tabActivityDelete: (tabSessionId: string): Promise<void> =>
@@ -162,7 +168,7 @@ export const userscriptClient = {
     send(uuid === undefined ? { kind: 'userscript:clearErrors' } : { kind: 'userscript:clearErrors', uuid }),
 
   // —— 网络录制（dl-recorder）——
-  // 录制件与门禁都归 SW：UI 只发命令，不直连 duoling-app / duoling-netlog。
+  // 录制件与门禁都归 SW：UI 只发命令，不直连 duoling-app / duoling-runtime。
 
   /** 正在录制的会话（含各自所在标签页）。UI 按自己的 tabId 认领「本页在不在录」 */
   netCaptureState: (): Promise<{ sessions: NetRecordSession[] }> => send({ kind: 'userscript:netCaptureState' }),
@@ -175,11 +181,11 @@ export const userscriptClient = {
   tabActivityEnable: (tabId: number): Promise<{ tabId: number; recording: boolean }> =>
     send({ kind: 'userscript:tabActivityEnable', tabId }),
 
-  /** 关掉某个标签页的记录开关；**已录内容与归档会话都保留**（历史留着，只是不再长新的） */
+  /** 关掉某个标签页的记录开关；**已录内容保留**（历史留着，只是不再长新的） */
   tabActivityDisable: (tabId: number): Promise<{ tabId: number; recording: boolean }> =>
     send({ kind: 'userscript:tabActivityDisable', tabId }),
 
-  /** 清空某站点的录制数据（记录 + 归档会话）；写路径归 SW，参数用归一 host */
+  /** 清空某站点的接口采样（不动这一页的刷新 / 记录开关）；写路径归 SW，参数用归一 host */
   netLogClear: (host: string): Promise<{ host: string }> => send({ kind: 'userscript:netLogClear', host }),
 }
 

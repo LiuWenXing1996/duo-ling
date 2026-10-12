@@ -40,10 +40,10 @@ import {
 } from './dl-port'
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
-// 网络录制：转发件送来的采集载荷在 SW 侧白名单化后落 duoling-netlog
+// 网络录制：转发件送来的采集载荷在 SW 侧白名单化后落 runtime 的 tab_events（与标签页事件同表）
 import { normalizeCapture, normalizeHost } from './net-record-protocol'
 import { getNetCaptureSessions } from './net-capture-gate'
-import * as netlog from './netlog-db'
+import * as runtime from './runtime-db'
 // 对话界面页面脚本监控（运行时口径）：runstart 登记 + 错误实时推送（跨文档观察者，SW 按 tab 登记）
 import { notePageError, noteRunStart } from './page-monitor'
 import { recordingTabSessionId } from './tab-sessions'
@@ -651,7 +651,7 @@ async function ingestNetCapture(hostRaw: unknown, capture: unknown, tabId: numbe
     const session = (await getNetCaptureSessions()).find((s) => s.tabId === tabId && s.host === host)
     if (!session) return
     const record = normalizeCapture(host, capture, session.id, session.tabSessionId)
-    if (record) await netlog.appendCapture(record)
+    if (record) await runtime.appendTabCapture(record)
   } catch {
     // 录制不该影响页面网络层：任何一步失败都静默丢弃这条
   }

@@ -7,32 +7,43 @@
 //   · run_events —— 运行内事件（自增主键 + by_runId 索引，随所属运行条被裁而级联删除）
 //   · tab_sessions —— 标签页存续（keyPath tabSessionId；环形 ≤ TAB_SESSION_MAX 条，靠 by_seen 索引裁最旧的
 //                      **已结束**行 —— 还开着的行不裁，见 trimEndedTabSessions）
-//   · tab_events —— 标签页存续轴上的事件（自增主键 + by_tabSessionId 索引；环形 ≤ TAB_EVENT_MAX 条，
-//                      插入序 = 时间序；随所属存续行被删而级联删除）。两支：文档级（刷新 / 地址变更，
-//                      由 SW 从标签页事件判出）与记录开关（开始 / 结束记录，随开关变化与记录终止落盘）
+//   · tab_events —— 标签页存续轴上的记录（自增主键 + by_tabSessionId 索引 + by_host 索引；**不设上限**，
+//                      随所属存续行被删而级联删除）。两类同表，靠 kind 判别：
+//                      · 存续轴事件：文档级（刷新 / 地址变更，由 SW 从标签页事件判出）与记录开关
+//                        （开始 / 结束记录，随开关变化与记录终止落盘），归属键必填；
+//                      · 接口采样（kind = 'net'，见 net-record-protocol 的 NetCaptureRecord）：这一页
+//                        发出的每个请求一条，归属键可缺省（老记录 / 不经开关直接开录制的路径），
+//                        另带 host，故 by_host 索引天然只含它。
+//                      同表的理由：读侧本就是**一根轴**（面板把刷新、运行、请求按时刻混排），两者
+//                      的归属键与清空粒度（按页）又完全一致，分表只会让「删这一页」变成跨库手术
 //
 // 为什么逐条而不是「单记录数组」：数组形状下任何一次追加都要读出整条记录、改完再整条写回
 // （写放大 = 全量），上限因此被压得很小——500 条运行 × 上千条事件的量级根本走不通。
 // 逐条后追加是 store.add、裁剪是索引 count + 游标 delete，读写都是 O(1)，上限只由
-// 「存得下多少」决定。范式与 duoling-netlog 的 captures store 一致。
+// 「存得下多少」决定。tab_events 里的接口采样单条可达数 KB（头 + 体各封顶 2KB），
+// 故它整表不裁 —— 只在用户显式清时消失，写侧截断会让「这一页发了哪些请求」看不全。
 //
 // 主键为什么两种：运行条目与存续行**有身份**——前者要被 endRuns 按 runId 定点回写 endedAt，
 // 也要被 run_events / errors 引用，用身份做主键；errors / run_events / tab_events 是纯流水
 // （只追加、只按时间裁），用自增序号，裁剪就是「删最小的几个」。
+// 自增号**在不在记录里**是另一层：tab_events 走 keyPath（读侧要拿它当行身份），
+// errors / run_events 只在表里（读回来的记录上没有 id）。
 //
 // 级联删除：拆表后不再自动消失，必须显式做、且与主操作同一事务——
 // ① runs 裁剪挤出最旧条目时（连带它的事件）② clearRuns 带 uuid ③ clearRuns 不带 uuid（清全部）
-// ④ tab_sessions 被环形裁掉一行时（连带这一页的 tab_events）⑤ 清空 / 删某一页活动记录时
-// （见 clearTabSessions）。
+// ④ tab_sessions 被环形裁掉一行时（连带这一页在 tab_events 上的全部记录）
+// ⑤ 清空 / 删某一页活动记录时（一个事务跨五张表，见 clearTabActivity）。
 //
 // 迁移：v1 的 errors / runlog 是「单记录数组」形状（keyPath 'key'），与逐条形状的主键
 // 不兼容，就地升级无从谈起——upgrade 里删表重建，旧观测数据一并丢弃（无长期价值）。
-// 每次新增 store 都走这条路（tab_sessions 是 v3、tab_events 是 v4）：升级即清库，是刻意的。
+// 每次改表都走这条路（tab_sessions 是 v3、tab_events 是 v4、tab_events 收下接口采样是 v5）：
+// 升级即清库，是刻意的。
 //
 // 原子性：读改写在**同一个事务**内完成，事务对同 store 天然串行，无需进程内队列。
 // startRun 的「统计 + 运行条 + 溢出裁剪」跨三个 store 用一个事务打开，原子性同保。
 //
-// 单写方约定：写 API 只许 SW 调用（写侧全部经 store.ts 汇入）；广播不在此层——由调用方
+// 单写方约定：写 API 只许 SW 调用（观测侧全部经 store.ts 汇入；接口采样由 dl-bridge 的入站
+// 分支直接落 —— 它本就跑在 SW 内，且没有业务语义要经 store 中转）。广播不在此层——由调用方
 // 在写成功后发（失败不发，且「无变化不落盘」时不发）。本模块不感知 chrome API，
 // node 单测用 fake-indexeddb/auto 直测。
 
@@ -40,7 +51,6 @@ import {
   ERROR_LOG_MAX,
   RUN_EVENT_MAX,
   RUN_LOG_MAX,
-  TAB_EVENT_MAX,
   TAB_SESSION_MAX,
   type RunEndReason,
   type TabEventRecord,
@@ -50,10 +60,11 @@ import {
   type UserScriptRunLogEntry,
   type UserScriptRunStats,
 } from './types'
+import { NET_TAB_KIND, type NetCaptureRecord } from './net-record-protocol'
 import { createIdbOpener, idbRequest as request, idbRunTx } from '../idb-core'
 
 const DB_NAME = 'duoling-runtime'
-const DB_VERSION = 4
+const DB_VERSION = 5
 
 const ERRORS_STORE = 'errors'
 const STATS_STORE = 'stats'
@@ -70,6 +81,7 @@ const EVENTS_BY_RUN = 'by_runId'
 const TABS_BY_TAB = 'by_tabId'
 const TABS_BY_SEEN = 'by_seen'
 const TAB_EVENTS_BY_SESSION = 'by_tabSessionId'
+const TAB_EVENTS_BY_HOST = 'by_host'
 
 interface StatsRecord extends UserScriptRunStats {
   uuid: string
@@ -78,6 +90,14 @@ interface StatsRecord extends UserScriptRunStats {
 /** run_events 的记录体：事件本身 + 所属 runId（索引键） */
 interface RunEventRecord extends UserScriptRunEvent {
   runId: string
+}
+
+/**
+ * tab_events 里接口采样的存储体：采样本体 + 判别键（与存续轴事件同表）。
+ * 判别键只在存储层存在，读侧剥掉再交出去 —— 调用方拿到的仍是 NetCaptureRecord。
+ */
+interface TabCaptureRow extends NetCaptureRecord {
+  kind: typeof NET_TAB_KIND
 }
 
 /**
@@ -113,8 +133,11 @@ const opener = createIdbOpener({
     const tabs = db.createObjectStore(TAB_SESSIONS_STORE, { keyPath: 'tabSessionId' })
     tabs.createIndex(TABS_BY_TAB, 'tabId') // 实时判据：按 tabId 找还开着的那一行
     tabs.createIndex(TABS_BY_SEEN, 'firstSeenAt') // 环形裁剪：按登记先后找最旧
-    const tabEvents = db.createObjectStore(TAB_EVENTS_STORE, { autoIncrement: true })
-    tabEvents.createIndex(TAB_EVENTS_BY_SESSION, 'tabSessionId') // 按标签页拉事件 / 级联删除
+    // 主键写进记录本身（keyPath）：读侧要拿 id 当行身份（面板的列表 key 与展开态 key）。
+    // 那种「主键只在表里、记录上读不到」的写法读回来的行没有 id —— 这张表不能用它。
+    const tabEvents = db.createObjectStore(TAB_EVENTS_STORE, { keyPath: 'id', autoIncrement: true })
+    tabEvents.createIndex(TAB_EVENTS_BY_SESSION, 'tabSessionId') // 按标签页拉整条时间线 / 级联删除
+    tabEvents.createIndex(TAB_EVENTS_BY_HOST, 'host') // 按站点读接口采样；存续轴事件无 host，天然不进
     // stats 是每脚本一记录、按 uuid 定点读写，形状没有变，保留不重建
     if (!db.objectStoreNames.contains(STATS_STORE)) {
       db.createObjectStore(STATS_STORE, { keyPath: 'uuid' })
@@ -450,7 +473,7 @@ export async function mintTabSession(input: {
       firstSeenAt: now,
     } satisfies TabSessionRow)
     if (input.recording) {
-      await addTabEvent(tx.objectStore(TAB_EVENTS_STORE), {
+      addTabEvent(tx.objectStore(TAB_EVENTS_STORE), {
         tabSessionId,
         kind: 'recordOn',
         time: now,
@@ -497,7 +520,7 @@ export async function setTabSessionRecording(tabId: number, recording: boolean):
     }
     const { recording: _wasOn, ...rest } = row
     store.put(recording ? { ...rest, recording: true } : rest)
-    await addTabEvent(tx.objectStore(TAB_EVENTS_STORE), {
+    addTabEvent(tx.objectStore(TAB_EVENTS_STORE), {
       tabSessionId: row.tabSessionId,
       kind: recording ? 'recordOn' : 'recordOff',
       time: Date.now(),
@@ -526,7 +549,7 @@ export async function closeTabSession(tabId: number, closedAt: number): Promise<
     }
     store.put({ ...row, ended: true, closedAt })
     if (row.recording === true) {
-      await addTabEvent(tx.objectStore(TAB_EVENTS_STORE), {
+      addTabEvent(tx.objectStore(TAB_EVENTS_STORE), {
         tabSessionId: row.tabSessionId,
         kind: 'recordOff',
         time: closedAt,
@@ -567,7 +590,7 @@ export async function endOpenTabSessions(): Promise<number> {
     })
     // 收尾事件放在游标走完之后补：游标回调是同步的，逐条 await 塞不进去（同 startRun 的 victims）
     for (const tabSessionId of stillRecording) {
-      await addTabEvent(events, { tabSessionId, kind: 'recordOff' })
+      addTabEvent(events, { tabSessionId, kind: 'recordOff' })
     }
     await txDone(tx, '划断标签页存续')
     return ended
@@ -587,67 +610,9 @@ function toPublic({ firstSeenAt: _trimKey, ...row }: TabSessionRow): TabSessionR
   return row
 }
 
-/**
- * 删掉标签页存续行（连带这些行的事件）：不传 ids = 清空整张表。
- *
- * **只动这两张表** —— 「活动历史」面板展示的是存续行、它的事件与运行日志的合成，三层要一起
- * 删才不留「表里已查不到」的残影，故完整编排在 store.ts（clearTabActivity / deleteTabActivity）。
- *
- * @returns 是否真删掉了东西（调用方据此决定要不要广播）
- */
-export async function clearTabSessions(tabSessionIds?: string[]): Promise<boolean> {
-  return runTx([TAB_SESSIONS_STORE, TAB_EVENTS_STORE], 'readwrite', async (tx) => {
-    const store = tx.objectStore(TAB_SESSIONS_STORE)
-    const events = tx.objectStore(TAB_EVENTS_STORE)
-    let removed = 0
-    if (tabSessionIds === undefined) {
-      removed = (await request<number>(store.count())) ?? 0
-      store.clear()
-      events.clear()
-    } else {
-      for (const id of tabSessionIds) {
-        const hit = await request<unknown>(store.get(id))
-        if (hit === undefined) continue
-        store.delete(id)
-        await deleteSessionEvents(events, id)
-        removed += 1
-      }
-    }
-    await txDone(tx, '删除标签页存续记录')
-    return removed > 0
-  })
-}
+// —— 标签页存续轴（tab_events store：存续轴事件与接口采样同表，不设上限）——
 
-/**
- * 删掉归属若干标签页的运行条目（各自的事件同事务级联删除）。
- *
- * 运行条自带登记那一刻取的 `tabSessionId`（缺省 = 那一页当时没开记录），按它定点筛。
- * @returns 删掉的 runIds —— 错误记录不带 tabSessionId，只能经 runId 归属，调用方拿这组
- *   id 接着删（见 store 的编排）。
- */
-export async function clearRunsByTabSession(tabSessionIds: string[]): Promise<string[]> {
-  const wanted = new Set(tabSessionIds)
-  if (!wanted.size) return []
-  return runTx([RUNS_STORE, RUN_EVENTS_STORE], 'readwrite', async (tx) => {
-    const runs = tx.objectStore(RUNS_STORE)
-    const events = tx.objectStore(RUN_EVENTS_STORE)
-    const victims: string[] = []
-    await eachCursor(runs.openCursor(), Infinity, (cursor) => {
-      const run = cursor.value as UserScriptRunLogEntry
-      if (run.tabSessionId && wanted.has(run.tabSessionId)) {
-        victims.push(run.runId)
-        cursor.delete()
-      }
-    })
-    for (const runId of victims) await deleteEventsOf(events, runId)
-    await txDone(tx, '删除标签页的运行记录')
-    return victims
-  })
-}
-
-// —— 标签页事件（tab_events store，自增主键 + 环形）——
-
-/** 删掉某一存续行的全部事件（级联删除的唯一落点）。@returns 删掉的条数 */
+/** 删掉某一存续行的全部记录（存续轴事件 + 接口采样；级联删除的唯一落点）。@returns 删掉的条数 */
 function deleteSessionEvents(store: IDBObjectStore, tabSessionId: string): Promise<number> {
   let removed = 0
   return eachCursor(
@@ -661,21 +626,20 @@ function deleteSessionEvents(store: IDBObjectStore, tabSessionId: string): Promi
 }
 
 /**
- * 追加一条事件并裁到 TAB_EVENT_MAX 条 —— **在调用方已打开的事务里**做，不自己开事务。
+ * 追加一条存续轴事件 —— **在调用方已打开的事务里**做，不自己开事务。
  *
  * 为什么要这个「事务内的裸操作」：事件必须与引发它的那次写入同事务（开关状态、行内地址、
  * 结束盖章都是），而那些写入各有自己的事务，只能在事务里追加一次，不能再套一层
  * runTx（IndexedDB 的事务不可嵌套）。
+ *
+ * 不裁剪：这张表只在用户显式清时减记录（同表还放着接口采样，它整表不裁的理由见文件头）。
  */
-async function addTabEvent(store: IDBObjectStore, event: TabEventRecord): Promise<void> {
-  const existing = await request<number>(store.count())
+function addTabEvent(store: IDBObjectStore, event: TabEventRecord): void {
   store.add(event)
-  const excess = existing + 1 - TAB_EVENT_MAX
-  if (excess > 0) await eachCursor(store.openCursor(), excess, (cursor) => cursor.delete())
 }
 
 /**
- * 往某一存续行上追加一条事件（文档级那两支的入口：刷新 / 地址变更），并按主键序裁到 TAB_EVENT_MAX 条。
+ * 往某一存续行上追加一条事件（文档级那两支的入口：刷新 / 地址变更）。
  *
  * 开关事件不走这里 —— 它们由引发它们的写入（建行 / 切开关 / 盖章）在同一事务里顺带落，
  * 见 addTabEvent。
@@ -701,7 +665,7 @@ export async function appendTabEvent(
       return false
     }
     if (nextUrl && row.url !== nextUrl) sessions.put({ ...row, url: nextUrl })
-    await addTabEvent(tx.objectStore(TAB_EVENTS_STORE), {
+    addTabEvent(tx.objectStore(TAB_EVENTS_STORE), {
       tabSessionId,
       kind,
       time: Date.now(),
@@ -713,36 +677,161 @@ export async function appendTabEvent(
 }
 
 /**
- * 事件全量（按时刻升序）。消费方：活动历史右栏的时间线（与运行条混排）。
+ * 追加一条接口采样（kind = 'net'）。与存续轴事件同表，故读侧按页一次就能拿回整条时间线；
+ * 判别键只活在存储层，读出来的事件与采样各自还是原类型（见 listTabTimeline）。
  *
- * 时刻缺省的排在最末：目前唯一的来源是划断补的那条「结束记录」，它按定义发生在该行所有已知
- * 事件之后（浏览器都退出了），排在末尾与事实一致 —— 而不是给它猜一个数出来。
+ * 写侧不裁剪：采样一直留着，只在用户显式清（清某页 / 清某站 / 清全部）时消失 ——
+ * 面板要铺出完整时间线，写侧截断会让「这一页到底发了哪些请求」看不全。
+ *
+ * 不带归属键的采样（老记录 / 不经开关直接开录制的路径）照样落盘：它不进 by_tabSessionId
+ * 索引，故按页读不到它，但按站点读（listTabCapturesByHost）仍在。
  */
-export async function listTabEvents(): Promise<TabEventRecord[]> {
-  const rows = await runTx(TAB_EVENTS_STORE, 'readonly', async (tx) =>
-    request<TabEventRecord[]>(tx.objectStore(TAB_EVENTS_STORE).getAll()),
-  )
-  return (rows ?? []).sort((a, b) => (a.time ?? Infinity) - (b.time ?? Infinity))
+export async function appendTabCapture(rec: NetCaptureRecord): Promise<void> {
+  await runTx(TAB_EVENTS_STORE, 'readwrite', async (tx) => {
+    const { id: _generated, ...payload } = rec
+    void _generated
+    tx.objectStore(TAB_EVENTS_STORE).add({ ...payload, kind: NET_TAB_KIND } satisfies TabCaptureRow)
+    await txDone(tx, '保存录制数据')
+  })
 }
 
 /**
- * 删掉若干存续行的事件。不传 ids = 清空整张表。
+ * 某一存续行的**整条时间线**：存续轴事件（刷新 / 地址变更 / 记录开关）与它录到的接口采样
+ * 一次查回、按 kind 分成两组。两者同表同索引，故这是一次索引查询 —— 合成一张表的收益就在这。
+ *
+ * 时刻缺省的存续轴事件排在最末：目前唯一的来源是划断补的那条「结束记录」，它按定义发生在该行
+ * 所有已知事件之后（浏览器都退出了），排在末尾与事实一致 —— 而不是给它猜一个数出来。
+ */
+export async function listTabTimeline(
+  tabSessionId: string,
+): Promise<{ events: TabEventRecord[]; captures: NetCaptureRecord[] }> {
+  const rows = await runTx(TAB_EVENTS_STORE, 'readonly', async (tx) =>
+    request<Array<TabEventRecord | TabCaptureRow>>(
+      tx.objectStore(TAB_EVENTS_STORE).index(TAB_EVENTS_BY_SESSION).getAll(tabSessionId),
+    ),
+  )
+  const events: TabEventRecord[] = []
+  const captures: NetCaptureRecord[] = []
+  for (const row of rows ?? []) {
+    if (isCaptureRow(row)) captures.push(toCapture(row))
+    else events.push(row)
+  }
+  events.sort((a, b) => (a.time ?? Infinity) - (b.time ?? Infinity))
+  return { events, captures }
+}
+
+/**
+ * 存续轴事件全量（按时刻升序，**不含接口采样**）。
+ * 消费方是落盘顺序的观测面（单测据此断言写进去的是什么）。
+ */
+export async function listTabEvents(): Promise<TabEventRecord[]> {
+  const rows = await runTx(TAB_EVENTS_STORE, 'readonly', async (tx) =>
+    request<Array<TabEventRecord | TabCaptureRow>>(tx.objectStore(TAB_EVENTS_STORE).getAll()),
+  )
+  return (rows ?? [])
+    .filter((row): row is TabEventRecord => !isCaptureRow(row))
+    .sort((a, b) => (a.time ?? Infinity) - (b.time ?? Infinity))
+}
+
+/** 某 host 的接口采样（按采集先后升序）。消费方：AI 的 net_capture_read 按站点读回语料 */
+export async function listTabCapturesByHost(host: string): Promise<NetCaptureRecord[]> {
+  const rows = await runTx(TAB_EVENTS_STORE, 'readonly', async (tx) =>
+    request<TabCaptureRow[]>(tx.objectStore(TAB_EVENTS_STORE).index(TAB_EVENTS_BY_HOST).getAll(host)),
+  )
+  return (rows ?? []).map(toCapture)
+}
+
+/**
+ * 清空某 host 的接口采样。**只动采样** —— by_host 索引里没有存续轴事件（它们不带 host），
+ * 故「清这个站点的录制」不会顺手清掉这一页的刷新 / 记录开关记录。
+ */
+export async function clearTabCapturesByHost(host: string): Promise<void> {
+  await runTx(TAB_EVENTS_STORE, 'readwrite', async (tx) => {
+    const store = tx.objectStore(TAB_EVENTS_STORE)
+    await eachCursor(
+      store.index(TAB_EVENTS_BY_HOST).openCursor(IDBKeyRange.only(host)),
+      Infinity,
+      (cursor) => cursor.delete(),
+    )
+    await txDone(tx, '清空录制数据')
+  })
+}
+
+/** 存储行判别：接口采样带 kind = 'net'，存续轴事件带 reload / url / recordOn / recordOff */
+function isCaptureRow(row: TabEventRecord | TabCaptureRow): row is TabCaptureRow {
+  return (row as TabCaptureRow).kind === NET_TAB_KIND
+}
+
+/** 剥掉存储层的判别键，交回协议类型 */
+function toCapture({ kind: _discriminator, ...rec }: TabCaptureRow): NetCaptureRecord {
+  return rec
+}
+
+/**
+ * 删掉若干存续行的**全部活动**：存续行 + 它在 tab_events 上的记录（事件与接口采样）+ 它的运行
+ * （连带运行内事件）+ 经这些运行归属的错误。不传 ids = 清空全部（含「未知标签页」档：没有
+ * tabSessionId 的运行与无 runId 的错误 —— 面板把它们也列了出来，清空自当一并清掉）。
+ *
+ * 五张表一个事务：面板展示的正是这些记录的合成，分笔写会留下「行没了、运行还在」这类自相矛盾
+ * 的中间态（在此之前它是跨两个库的三笔，中间失败只能吞掉）。
+ *
+ * **不动门禁**（进行中的会话在 duoling-app 的 kv 里）：清历史不该把正在录的那一页停掉。
+ *
  * @returns 是否真删掉了东西（调用方据此决定要不要广播）
  */
-export async function clearTabEvents(tabSessionIds?: string[]): Promise<boolean> {
-  return runTx(TAB_EVENTS_STORE, 'readwrite', async (tx) => {
-    const store = tx.objectStore(TAB_EVENTS_STORE)
-    if (tabSessionIds === undefined) {
-      const removed = (await request<number>(store.count())) ?? 0
-      store.clear()
-      await txDone(tx, '清空标签页事件')
-      return removed > 0
-    }
-    let removed = 0
-    for (const id of tabSessionIds) removed += await deleteSessionEvents(store, id)
-    await txDone(tx, '删除标签页事件')
-    return removed > 0
-  })
+export async function clearTabActivity(tabSessionIds?: string[]): Promise<boolean> {
+  const wanted = tabSessionIds === undefined ? null : new Set(tabSessionIds)
+  if (wanted && !wanted.size) return false
+  return runTx(
+    [TAB_SESSIONS_STORE, TAB_EVENTS_STORE, RUNS_STORE, RUN_EVENTS_STORE, ERRORS_STORE],
+    'readwrite',
+    async (tx) => {
+      const sessions = tx.objectStore(TAB_SESSIONS_STORE)
+      const events = tx.objectStore(TAB_EVENTS_STORE)
+      const runs = tx.objectStore(RUNS_STORE)
+      const runEvents = tx.objectStore(RUN_EVENTS_STORE)
+      const errors = tx.objectStore(ERRORS_STORE)
+
+      // ① 存续行 + 它在 tab_events 上的全部记录（存续轴事件与接口采样同装一表，一次清完）
+      let rowsRemoved = 0
+      if (!wanted) {
+        rowsRemoved = (await request<number>(sessions.count())) ?? 0
+        sessions.clear()
+        events.clear()
+      } else {
+        for (const id of wanted) {
+          const hit = await request<unknown>(sessions.get(id))
+          if (hit === undefined) continue
+          sessions.delete(id)
+          await deleteSessionEvents(events, id)
+          rowsRemoved += 1
+        }
+      }
+
+      // ② 归属这些页的运行条目（连带运行内事件），收集 runIds 供 ③ 删错误
+      const runIds: string[] = []
+      await eachCursor(runs.openCursor(), Infinity, (cursor) => {
+        const run = cursor.value as UserScriptRunLogEntry
+        if (wanted && !(run.tabSessionId && wanted.has(run.tabSessionId))) return
+        runIds.push(run.runId)
+        cursor.delete()
+      })
+      for (const runId of runIds) await deleteEventsOf(runEvents, runId)
+
+      // ③ 错误不带 tabSessionId，只能经 runId 归属（与 listRunTimeline 同一口径）
+      const idSet = new Set(runIds)
+      let errorsRemoved = 0
+      await eachCursor(errors.openCursor(), Infinity, (cursor) => {
+        const rec = cursor.value as UserScriptErrorRecord
+        if (wanted && !(rec.runId && idSet.has(rec.runId))) return
+        cursor.delete()
+        errorsRemoved += 1
+      })
+
+      await txDone(tx, '清空活动历史')
+      return rowsRemoved > 0 || runIds.length > 0 || errorsRemoved > 0
+    },
+  )
 }
 
 /** 该 tabId 现在开着的那一行（未结束 = 还开着；已盖章的不算） */
@@ -752,12 +841,12 @@ async function openRowOf(store: IDBObjectStore, tabId: number): Promise<TabSessi
 }
 
 /**
- * 裁掉最旧登记的**已结束**行，直到删够 excess 条（连带这些行的事件）。
+ * 裁掉最旧登记的**已结束**行，直到删够 excess 条（连带这些行在 tab_events 上的全部记录）。
  *
  * 未结束的行一律跳过：那是还开着的账，删掉等于凭空丢掉正在开的标签页。极端情况（未结束的行
  * 比上限还多）会删不满，那就到此为止 —— 宁可暂时超一点，也不动活账。
  *
- * 事件不跟着行走就会变成孤儿（读侧按行归组，谁也认不出它属于哪儿），故同事务里一并删。
+ * 记录不跟着行走就会变成孤儿（读侧按行归组，谁也认不出它属于哪儿），故同事务里一并删。
  */
 async function trimEndedTabSessions(
   sessions: IDBObjectStore,

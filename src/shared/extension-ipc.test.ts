@@ -59,7 +59,7 @@ const ALL_KINDS = [
   { kind: 'userscript:healthCheck', side: 'sw' },
   { kind: 'userscript:runlog', side: 'sw' },
   { kind: 'userscript:tabSessions', side: 'sw' },
-  { kind: 'userscript:tabEvents', side: 'sw' },
+  { kind: 'userscript:tabTimeline', side: 'sw' },
   { kind: 'userscript:tabActivityEnable', side: 'sw' },
   { kind: 'userscript:tabActivityDisable', side: 'sw' },
   { kind: 'userscript:tabActivityDelete', side: 'sw' },
@@ -69,7 +69,7 @@ const ALL_KINDS = [
   { kind: 'userscript:clearErrors', side: 'sw' },
   { kind: 'userscript:import', side: 'sw' },
   { kind: 'userscript:importText', side: 'sw' },
-  // 网络录制（dl-recorder）：门禁在 duoling-app、记录在 duoling-netlog，都归 SW
+  // 网络录制（dl-recorder）：门禁在 duoling-app、采样在 duoling-runtime 的 tab_events，都归 SW
   { kind: 'userscript:netCaptureState', side: 'sw' },
   { kind: 'userscript:netCaptureRead', side: 'sw' },
   { kind: 'userscript:netLogClear', side: 'sw' },

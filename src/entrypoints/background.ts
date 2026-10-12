@@ -40,8 +40,8 @@ import {
 // metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
 // 真正的归一化在写入口一处（project-write.saveSource），此处不写回任何东西
 import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
-// 网络录制（dl-recorder）：per-tab 门禁 + 录到的记录 + 语料压缩。
-// 三者都归 SW：门禁在 duoling-app、记录在 duoling-netlog，offscreen 与扩展页都不直连。
+// 网络录制（dl-recorder）：per-tab 门禁 + 录到的采样 + 语料压缩。
+// 三者都归 SW：门禁在 duoling-app、采样在 duoling-runtime 的 tab_events，offscreen 与扩展页都不直连。
 // 会话的生成 / 结束都在这里，因为「标签页关闭」这个收尾时点只有常驻的 SW 不漏。
 import {
   getNetCaptureSessions,
@@ -50,7 +50,6 @@ import {
   stopNetSessionsByTab,
 } from '@/lib/userscripts/net-capture-gate'
 import { hostFromUrl, normalizeHost, type NetRecordSession } from '@/lib/userscripts/net-record-protocol'
-import { archiveSession, clearHostData, listCapturesByHost } from '@/lib/userscripts/netlog-db'
 import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts/net-record-digest'
 // 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
 import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/availability-watch'
@@ -88,8 +87,14 @@ import {
   clearTabActivity,
   deleteTabActivity,
 } from '@/lib/userscripts/store'
-// 观测数据的底层表（duoling-runtime 库）：标签页存续表全量给「运行日志按标签页看」用
-import { listTabEvents, listTabSessions } from '@/lib/userscripts/runtime-db'
+// 观测数据的底层表（duoling-runtime 库）：存续表全量给「运行日志按标签页看」用；
+// 按页的时间线（存续轴事件 + 接口采样）与按站点的采样各有专门读法
+import {
+  clearTabCapturesByHost,
+  listTabCapturesByHost,
+  listTabSessions,
+  listTabTimeline,
+} from '@/lib/userscripts/runtime-db'
 // 对话界面页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口 —— 工具栏角标的数字就是它
 import {
   forgetPageTab,
@@ -585,8 +590,11 @@ const handlers: {
   // 标签页存续表全量：运行日志按标签页分组时取名字与时刻（分组键在运行条目上，表只补名字）
   'userscript:tabSessions': async (): Promise<ReturnType<typeof listTabSessions>> => listTabSessions(),
 
-  // 标签页存续轴上的事件全量（刷新 / 地址变更 / 记录开关）：「活动历史」右栏把它与运行条混排成这一页的时间线
-  'userscript:tabEvents': async (): Promise<ReturnType<typeof listTabEvents>> => listTabEvents(),
+  // 某一页的整条时间线：存续轴事件（刷新 / 地址变更 / 记录开关）与它录到的接口采样
+  // （两者在 tab_events 里同表）一次查回、按两类返回。「活动历史」右栏把它们与运行条混排。
+  // **按页而不是全量**：采样单条可达数 KB，全量拉等于把整库搬过来。
+  'userscript:tabTimeline': async (msg): Promise<ReturnType<typeof listTabTimeline>> =>
+    listTabTimeline(msg.tabSessionId),
 
   // 打开 / 关掉**这一页**的活动记录（popup 的开关）。判据落在标签页上：同一站点的其他页各开
   // 各的。地址由 SW 现取（与录制门禁同一条口径），不由 popup 带 —— 它手里只有一个 host。
@@ -604,15 +612,15 @@ const handlers: {
     const host = hostFromUrl(url)
     if (host) {
       try {
-        const { replaced } = await startNetSession({
+        // 结果不用接：同标签页换站点时被顶掉的旧会话自此结束，而会话本身不再另存一份
+        // （它录到的采样留在 tab_events 上，起止由存续轴上的「开始 / 结束记录」标出）
+        await startNetSession({
           tabId: msg.tabId,
           host,
           url: url ?? '',
           title: tab?.title ?? '',
           ...(tabSessionId ? { tabSessionId } : {}),
         })
-        // 同一标签页换站点时被顶掉的旧会话：先归档再注册，中途失败也让它的元信息已留档
-        for (const s of replaced) await archiveSession(s).catch(() => {})
         await refreshNetRecorder().catch(() => {})
       } catch {
         // 录制没开起来不该让开关整体失败：活动记录已落盘，用户至少拿到了那一半
@@ -625,7 +633,6 @@ const handlers: {
   'userscript:tabActivityDisable': async (msg): Promise<{ tabId: number; recording: boolean }> => {
     await setTabRecording(msg.tabId, false)
     const { ended } = await stopNetSessionsByTab(msg.tabId)
-    for (const s of ended) await archiveSession(s).catch(() => {})
     if (ended.length) await refreshNetRecorder().catch(() => {})
     return { tabId: msg.tabId, recording: false }
   },
@@ -669,7 +676,7 @@ const handlers: {
     const host = normalizeHost(msg.host)
     if (!host) throw new Error(`无效的站点：${msg.host}`)
     const enabled = (await getNetCaptureSessions()).some((s) => s.host === host)
-    const records = await listCapturesByHost(host)
+    const records = await listTabCapturesByHost(host)
     const text =
       msg.mode === 'digest'
         ? describeCaptureDigest(records).join('\n')
@@ -677,12 +684,12 @@ const handlers: {
     return { enabled, host, count: records.length, text }
   },
 
-  // 清空某站点的录制数据（记录 + 归档会话）：查询界面的清理入口。
-  // 写路径归 SW（netlog 的单写方约定），故扩展页不直连库、只发这条命令。
+  // 清空某站点的录制数据（只清接口采样，不动这一页的刷新 / 记录开关）。
+  // 写路径归 SW（runtime 的单写方约定），故扩展页不直连库、只发这条命令。
   'userscript:netLogClear': async (msg): Promise<{ host: string }> => {
     const host = normalizeHost(msg.host)
     if (!host) throw new Error(`无效的站点：${msg.host}`)
-    await clearHostData(host)
+    await clearTabCapturesByHost(host)
     return { host }
   },
 
@@ -921,9 +928,9 @@ async function abortConversationOfClosedTab(tabId: number): Promise<void> {
 }
 
 /**
- * 标签页被关掉时的录制收尾：结束它的录制会话并归档，再重算注册。
+ * 标签页被关掉时的录制收尾：结束它的录制会话，再重算注册。
  *
- * 只摘门禁、归档会话元信息，**已录记录一条不动** —— 用户还要在「活动历史」里看、让 AI 读。
+ * 只摘门禁，**已录的采样一条不动** —— 用户还要在「活动历史」里看、让 AI 读。
  *
  * 与 abortConversationOfClosedTab 同一个理由必须挂在常驻的 SW 上：面板没开的时候标签页照样会被关。
  */
@@ -935,12 +942,11 @@ async function stopRecordingOfClosedTab(tabId: number): Promise<void> {
     return
   }
   if (!ended.length) return
-  for (const s of ended) await archiveSession(s).catch(() => {})
   await refreshNetRecorder().catch(() => {})
 }
 
 /**
- * SW 启动对账：门禁里指向已不存在标签页的会话，就此结掉并归档。
+ * SW 启动对账：门禁里指向已不存在标签页的会话，就此结掉。
  *
  * 为什么需要：标签页可能趁 SW 睡着时被关掉，onRemoved 的收尾要等 SW 下次醒来才补上；
  * 若它再没醒（用户就此收工），库里就留着一份指向不存在标签页的门禁 —— 注册集合虚扩，
@@ -952,8 +958,7 @@ async function reconcileRecordingSessions(): Promise<void> {
   try {
     const tabs = await chrome.tabs.query({})
     const alive = new Set(tabs.map((t) => t.id).filter((id): id is number => id != null))
-    const { ended } = await reconcileNetSessions(alive)
-    for (const s of ended) await archiveSession(s).catch(() => {})
+    await reconcileNetSessions(alive)
   } catch {
     // 对账失败不阻断启动：门禁脏一条不影响其余链路
   }

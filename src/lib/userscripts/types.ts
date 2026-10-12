@@ -365,8 +365,21 @@ export const TAB_SESSION_MAX = 2000
  *   · recordOff —— 不再记：用户关掉开关，或标签页关闭 / 浏览器启动划断时它还在记
  *   与文档支合表的理由：时间线上它们是同一根轴上的连续节点（「这一段在记」由前一条
  *   recordOn 划到后一条 recordOff），拆两张表反而要让读侧自己拼顺序。
+ *
+ * **同表还放着接口采样**（kind = NET_TAB_KIND，形状见 net-record-protocol 的
+ * NetCaptureRecord）：这一页发出的每个请求也是轴上一行。两者同表同理 —— 读侧本就把它们
+ * 按时刻混排成同一根时间线，归属键与清空粒度（按页）又完全一致，分表只会让「删这一页」
+ * 变成跨库手术（详见 runtime-db 文件头）。
  */
 export interface TabEventRecord {
+  /**
+   * 存储层主键：落库时由 IndexedDB 生成并写进记录，故**只有读回来的记录才有**。
+   * 写侧不要自己设 —— 设了就不是自增，撞号会直接报约束错。
+   *
+   * 与接口采样同表带来的同一件事：表按 keyPath 建主键，值里带着它，
+   * 于是读回来的每一行都有个稳定身份（面板拿它当列表 key / 展开态 key）。
+   */
+  id?: number
   /** 所属标签页存续行（见 TabSessionRecord）—— 时间线按它归组 */
   tabSessionId: string
   kind: 'reload' | 'url' | 'recordOn' | 'recordOff'
@@ -381,18 +394,6 @@ export interface TabEventRecord {
   /** kind = 'url' 时是新地址；'reload' 时是当时取到的地址（取不到就不带） */
   url?: string
 }
-
-/**
- * tab_events 的环形上限。
- *
- * 为何是这个量级：一次页面加载至多贡献 1~2 条（同址刷新一条；导航则一条地址变更），
- * 开关事件更稀（每次开 / 关才一条），比运行日志「一跑一条」更轻；但开着记录的页会被反复刷。
- * 取 1000 与 RUN_EVENT_MAX 同档，装得下一个重度调试会话，又不至于把库撑起来。
- *
- * 裁剪按插入序（自增主键 = 时间序）删最旧，与 errors 同一套；行本身被删（用户清空 /
- * 环形裁掉已结束行）时，它的事件同事务级联删除。
- */
-export const TAB_EVENT_MAX = 1000
 
 /**
  * 运行日志时间线的一行（listRunTimeline 的产物，UI 直接渲染）。

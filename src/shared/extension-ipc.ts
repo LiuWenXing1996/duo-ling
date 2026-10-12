@@ -138,9 +138,12 @@ export type RuntimeRequest =
   // 标签页存续表全量（见 TabSessionRecord）：运行日志按标签页分组时用它取名字与时刻
   //（分组键是运行条目上的 tabSessionId；表里查不到的旧组回落到运行自己的 url）。
   | { kind: 'userscript:tabSessions' }
-  // 标签页存续轴上的事件全量（刷新 / 地址变更 / 记录开关，见 TabEventRecord）。消费方是「活动历史」右栏：
-  // 它与运行条按时刻混排成这一页的时间线；「属于哪一页」由事件自带的 tabSessionId 说了算。
-  | { kind: 'userscript:tabEvents' }
+  // 某一页的整条时间线：存续轴事件（刷新 / 地址变更 / 记录开关，见 TabEventRecord）与它录到的
+  // 接口采样（见 NetCaptureRecord）在 tab_events 里同表，故一次查回、按两类返回。消费方是
+  // 「活动历史」右栏：与运行条按时刻混排成这一页的时间线。
+  //
+  // **按页拉而非全量**：采样单条可达数 KB，全量等于把整库搬过消息边界。
+  | { kind: 'userscript:tabTimeline'; tabSessionId: string }
   // 打开 / 关掉**这一个标签页**的记录开关（popup 的那一枚）。建行、撤号都在 SW 侧完成；
   // 地址由 SW 自己从标签页现取，命令只带 tabId。
   //
@@ -162,7 +165,7 @@ export type RuntimeRequest =
   // 错误日志（runtime 库，offscreen 拿不到）。id = 完整记录 id 或唯一 8 位前缀
   | { kind: 'userscript:errorRead'; id: string }
   // —— 网络录制（dl-recorder）——
-  // 门禁（duoling-app 的 netCaptureSessions）与录到的记录（duoling-netlog 库）都归 SW 管辖。
+  // 门禁（duoling-app 的 netCaptureSessions）与录到的采样（duoling-runtime 的 tab_events）都归 SW 管辖。
   //
   // **开关不在这组里**：录制与活动记录由同一枚开关触发（见 userscript:tabActivityEnable），
   // 而开启必须由用户手势发起 —— AI 工具只出卡 + 等用户点（见 agent-tools-catalog 的
@@ -170,7 +173,7 @@ export type RuntimeRequest =
   | { kind: 'userscript:netCaptureState' }
   // mode：digest = 摘要档（接口清单，常驻 prompt 用）；full = 逐条采样（工具读回用）
   | { kind: 'userscript:netCaptureRead'; host: string; mode: 'digest' | 'full' }
-  // 清空某站点的录制数据（记录 + 归档会话）。写路径归 SW（netlog 单写方），调用方不直连库。
+  // 清空某站点的接口采样（不动这一页的刷新 / 记录开关）。写路径归 SW（runtime 单写方），调用方不直连库。
   | { kind: 'userscript:netLogClear'; host: string }
 
   // zip 导入：UI 读 zip 文件转 base64，SW 纯转发 offscreen
