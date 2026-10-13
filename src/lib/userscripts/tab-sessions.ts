@@ -20,6 +20,10 @@
 //                                   runtime-db 的 endOpenTabSessions）；当时还在记的行同样
 //                                   收尾，只是那条「结束记录」**不带时刻**（没人知道上一
 //                                   次会话几点停的）
+//   · SW 冷启动（初始化时）        → 对账：把「还开着、但 tabId 已不存在」的行盖章结束
+//                                   （见 runtime-db 的 endDeadTabSessions）。它挡的是
+//                                   「标签页趁 SW 睡着时被关掉、而 SW 一直没醒」——那种情况下
+//                                   recording 会永远留在活账上，录制件于是全匹配挂着不摘
 //
 // 于是「有时刻」与「没时刻」在这张表里是常态并存的，读侧一律按可选处理，缺了就显示「未知」。
 // `createdAt` 自被动化起**恒缺省**：建行的两个时机都不是标签页出生的时刻（见 TabSessionRecord）。
@@ -27,6 +31,7 @@
 import {
   appendTabEvent,
   closeTabSession,
+  endDeadTabSessions,
   endOpenTabSessions,
   findOpenTabSession,
   mintTabSession,
@@ -135,6 +140,16 @@ export async function noteTabClosed(tabId: number): Promise<void> {
 /** 浏览器启动划断（`runtime.onStartup`）：见 runtime-db 的 endOpenTabSessions */
 export function splitTabSessionsAtBrowserStart(): Promise<number> {
   return endOpenTabSessions()
+}
+
+/**
+ * SW 冷启动对账：把「还开着、但 tabId 已不存在」的行盖章结束。
+ *
+ * 存活集合由调用方传入：本模块不感知 chrome API（`chrome.tabs` 只该出现在 SW 侧）。
+ * 必须在重注册之前调用 —— 否则这一步算出来的注册集合是过期的那一份。
+ */
+export function reconcileDeadTabSessions(aliveTabIds: Set<number>): Promise<number> {
+  return endDeadTabSessions(aliveTabIds)
 }
 
 // —— 测试辅助（仅单测使用）——

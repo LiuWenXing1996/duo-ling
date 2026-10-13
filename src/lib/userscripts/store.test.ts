@@ -33,7 +33,7 @@ import {
   mintTabSession,
 } from './runtime-db'
 import { clearAllForTests as clearUsdata } from './usdata-db'
-import type { NetCaptureRecord } from './net-record-protocol'
+import type { NetCaptureRecord } from './tab-record-protocol'
 import { RUN_EVENT_MAX, RUN_LOG_MAX, type ScriptProject } from './types'
 
 beforeEach(async () => {
@@ -47,11 +47,9 @@ function newRecordingTab(): Promise<string> {
   return mintTabSession({ tabId: tabSeq, recording: true })
 }
 
-/** 一条挂在某存续行上的录制采样（活动历史连带清录制时用） */
-function cap(host: string, url: string, sessionId: string, tabSessionId: string): NetCaptureRecord {
+/** 一条挂在某存续行上的录制采样（活动历史连带清录制时用）——归属只认 tabSessionId，没有站点维度 */
+function cap(url: string, tabSessionId: string): NetCaptureRecord {
   return {
-    host,
-    sessionId,
     tabSessionId,
     type: 'fetch',
     url,
@@ -560,8 +558,8 @@ describe('活动历史（存续表 + 整根活动轴的删除 / 清空）', () =
   it('删除某一页：它录到的接口采样一并清掉（同表一次清完），别的页不动', async () => {
     const t1 = await mintTabSession({ tabId: 1, url: 'https://1.test/' })
     const t2 = await mintTabSession({ tabId: 2, url: 'https://2.test/' })
-    await appendTabCapture(cap('1.test', 'https://1.test/api', 'sess-1', t1))
-    await appendTabCapture(cap('2.test', 'https://2.test/api', 'sess-2', t2))
+    await appendTabCapture(cap('https://1.test/api', t1))
+    await appendTabCapture(cap('https://2.test/api', t2))
 
     await deleteTabActivity(t1)
 
@@ -571,7 +569,7 @@ describe('活动历史（存续表 + 整根活动轴的删除 / 清空）', () =
 
   it('清空全部：接口采样也一并清掉', async () => {
     const t1 = await mintTabSession({ tabId: 1, url: 'https://1.test/' })
-    await appendTabCapture(cap('1.test', 'https://1.test/api', 'sess-1', t1))
+    await appendTabCapture(cap('https://1.test/api', t1))
 
     await clearTabActivity()
 

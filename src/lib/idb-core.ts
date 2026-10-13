@@ -22,8 +22,11 @@ export function createIdbOpener(options: {
    * 第二个参数是这次 versionchange 的事务：**给已存在的库补索引必须经它拿 store** ——
    * 升级期间 `db.transaction()` 拿不到那个正在跑的事务，只看 `db.objectStoreNames` 的
    * 「表在不在」写法对旧库永远补不上新索引。
+   *
+   * 第三个参数是升级前的版本号（`IDBVersionChangeEvent.oldVersion`；新建库为 0）。
+   * 有了它，「这个旧形状要不要推倒重建」才是可判的 —— 否则每次加一条索引都得连数据一起丢。
    */
-  upgrade: (db: IDBDatabase, tx: IDBTransaction) => void
+  upgrade: (db: IDBDatabase, tx: IDBTransaction, oldVersion: number) => void
   /** 错误文案主体：拼出「无法打开X」/「X被其它页面占用，无法升级」 */
   label: string
 }): IdbOpener {
@@ -33,9 +36,9 @@ export function createIdbOpener(options: {
       if (!dbPromise) {
         dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
           const req = indexedDB.open(options.name, options.version)
-          req.onupgradeneeded = () => {
+          req.onupgradeneeded = (event) => {
             const tx = req.transaction
-            if (tx) options.upgrade(req.result, tx)
+            if (tx) options.upgrade(req.result, tx, (event as IDBVersionChangeEvent).oldVersion)
           }
           req.onsuccess = () => {
             const db = req.result

@@ -51,11 +51,10 @@ import {
   mergePageContext,
   mostRecentGeneratedScript,
   mostRecentPageContext,
-  type NetCaptureContext,
+  type TabRecordContext,
 } from './system-prompt'
 import { buildScriptTools, type TaskWorkspace } from './script-tools'
 import { getTask, listRunningTasks, putTask, removeTask, type ChatTaskRecord } from './task-store'
-import { hostFromUrl } from '@/lib/userscripts/net-record-protocol'
 
 /** maxSteps 上限：沿用桌面版 agent-orchestrator 的 8。
  *  阈值取自 agent-tools-catalog（工作台「AI 工具」面板展示同一份，不再各写一份）。 */
@@ -137,13 +136,13 @@ function scanCapabilities(code: string): string[] {
 }
 
 /**
- * 取某站点的接口录制状态 + 摘要档（喂 system prompt 与 net_capture_* 工具）。
+ * 取本会话所属标签页的录制状态 + 摘要档（喂 system prompt 与 tab_record_* 工具）。
  * 失败静默降级为 undefined：录制是加分项，不该因为一次存储查询把整轮对话拦下来。
  */
-async function readNetCaptureContext(host: string): Promise<NetCaptureContext | undefined> {
+async function readTabRecordContext(conversationId: string): Promise<TabRecordContext | undefined> {
   try {
-    const r = await offscreenBridge.readNetCapture(host, 'digest')
-    return { host: r.host, enabled: r.enabled, count: r.count, text: r.text }
+    const r = await offscreenBridge.tabRecordRead(conversationId, 'digest')
+    return { enabled: r.enabled, count: r.count, text: r.text }
   } catch {
     return undefined
   }
@@ -390,10 +389,9 @@ async function runLoop(opts: {
     // 本会话最近落盘的脚本身份（来自历史生成卡片）：给模型指路「改既有脚本」用
     const prevScript = mostRecentGeneratedScript(uiMessages)
 
-    // 该站点的接口录制状态（站点级，取一次）：喂 system prompt 的摘要档 + net_capture_* 工具。
+    // 本会话所属标签页的录制状态（取一次）：喂 system prompt 的摘要档 + tab_record_* 工具。
     // 查询失败静默降级——录制只是加分项，不该因为一次存储查询把整轮对话拦下来。
-    const captureHost = hostFromUrl(promptContext?.url)
-    const netCapture = captureHost ? await readNetCaptureContext(captureHost) : undefined
+    const tabRecord = await readTabRecordContext(conversationId)
 
     // 本轮任务里**工具中途推的 data part**（同意卡）：收尾时插进落盘序列。
     // 不收集就只在流里闪一下——重开面板时卡片消失，而卡片恰是用户唯一的操作入口
@@ -419,15 +417,16 @@ async function runLoop(opts: {
       () => offscreenBridge.capturePageEnv(conversationId),
       (id) => offscreenBridge.readError(id),
       {
-        // 会话按标签页，但工具只认站点：取「有会话在录」的 host 去重集合即可
-        hosts: async () => [...new Set((await offscreenBridge.netCaptureSessions()).sessions.map((s) => s.host))],
-        read: (host, mode) => offscreenBridge.readNetCapture(host, mode),
-        requestConsent: async (host) => {
-          // 卡片 id 按 host 派生：同一站点重复请求同意只留一张（UI 也按 host 去重）
+        // 录制按标签页：目标恒是「本会话所属的那一页」，工具不接参数，指不了别处
+        isRecording: async () => (await offscreenBridge.tabRecordRead(conversationId, 'digest')).enabled,
+        read: (mode) => offscreenBridge.tabRecordRead(conversationId, mode),
+        requestConsent: async () => {
+          // 卡片 id 固定：一条对话至多一张同意卡（同一页重复请求同意不该叠出两张）
           const chunk = {
-            type: 'data-net-capture',
-            id: `net-${host}`,
-            data: { host },
+            type: 'data-tab-record',
+            id: 'tab-record',
+            // 卡面状态不由 part 承载（本页在不在录向 tabSessions 现问），占位空对象即可
+            data: {},
           } as UIMessageChunk
           midStreamParts.push(chunk)
           pushChunk(conversationId, chunk)
@@ -445,7 +444,7 @@ async function runLoop(opts: {
       messages: await convertToModelMessages(stripDataParts(uiMessages)),
       tools,
       stopWhen: stepCountIs(MAX_STEPS),
-      system: buildSystemPrompt(prompt, promptContext, continuing, prevScript, netCapture),
+      system: buildSystemPrompt(prompt, promptContext, continuing, prevScript, tabRecord),
       abortSignal: abort.signal,
       ...(profile.temperature != null ? { temperature: profile.temperature } : {}),
       ...(profile.topP != null ? { topP: profile.topP } : {}),

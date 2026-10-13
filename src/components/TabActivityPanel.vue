@@ -41,8 +41,8 @@ import {
 import { Button as UiButton } from '@/components/ui/button'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { webHostname } from '@/lib/float-panel-host'
-import { routeOf } from '@/lib/userscripts/net-record-digest'
-import type { NetCaptureRecord, NetRecordSession } from '@/lib/userscripts/net-record-protocol'
+import { routeOf } from '@/lib/userscripts/net-digest'
+import type { NetCaptureRecord } from '@/lib/userscripts/tab-record-protocol'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
   type TabEventRecord,
@@ -92,8 +92,6 @@ const pageActs = ref<Array<{ runId: string; event: UserScriptRunEvent }>>([])
 const pageErrors = ref<UserScriptErrorRecord[]>([])
 /** runId → 这次运行的脚本名与动作总数：动作行挂上脚本名、被截断的动作数由它算 */
 const runMetaById = ref<Map<string, { name: string; eventCount: number }>>(new Map())
-/** 正在录制的会话（SW 为权威）：左栏的「正在录」圆点与就地停止入口据此显示 */
-const recordingSessions = ref<NetRecordSession[]>([])
 const loading = ref(false)
 const error = ref('')
 /** 当前选中的标签页（tabSessionId）；空 = 左栏还没有任何一行 */
@@ -237,15 +235,12 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const [sessionList, logRows, captureState] = await Promise.all([
+    const [sessionList, logRows] = await Promise.all([
       userscriptClient.tabSessions(),
-      userscriptClient.runlog(),
-      // 哪些页正在录（判据归 SW）：左栏据此画圆点、给就地停止的地方
-      userscriptClient.netCaptureState()
+      userscriptClient.runlog()
     ])
     sessions.value = sessionList
     rows.value = logRows
-    recordingSessions.value = captureState.sessions
     fallbackSelection()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -300,21 +295,32 @@ useDataSync('error', async () => {
   await load()
 })
 
-// —— 接口录制（融合自原「接口数据」面板：录制与活动记录本就是同一枚开关的两半）——
+// —— 页面录制（融合自原「接口数据」面板：录制与活动记录本就是同一枚开关的两半）——
+//
+// 判据只有一个：存续行上的 `recording`（未结束的那一行）—— 录制与活动记录同一枚开关，
+// 故不需要另问一次「谁在录」。
 
 /** 展开的请求行：逐条点开才看头体 */
 const openNetRows = ref<Set<string>>(new Set())
 /** 停止录制在途（禁灰，防连点重复发命令） */
 const stoppingTabId = ref<number | null>(null)
 
-/** 正在录制的 tabSessionId（左栏圆点的判据）。老会话没带这个 id，故要过滤一遍 */
+/** 正在记录的 tabSessionId（左栏圆点的判据）：未结束 + recording，与取号同一条判据 */
 const recordingTabSessionIds = computed(
-  () => new Set(recordingSessions.value.flatMap((s) => (s.tabSessionId ? [s.tabSessionId] : [])))
+  () =>
+    new Set(
+      sessions.value
+        .filter((s) => s.recording === true && s.ended !== true)
+        .map((s) => s.tabSessionId)
+    )
 )
 
-/** 某个 tabSessionId 此刻对应的实时 tabId（停录制要用它发命令）；没在录返回 null */
+/** 某个 tabSessionId 此刻对应的实时 tabId（停记录要用它发命令）；没在录返回 null */
 function liveTabIdOf(tabSessionId: string): number | null {
-  return recordingSessions.value.find((s) => s.tabSessionId === tabSessionId)?.tabId ?? null
+  const row = sessions.value.find(
+    (s) => s.tabSessionId === tabSessionId && s.recording === true && s.ended !== true
+  )
+  return row?.tabId ?? null
 }
 
 /**

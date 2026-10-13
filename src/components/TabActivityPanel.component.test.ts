@@ -16,7 +16,7 @@ import type {
   UserScriptRunLogEntry,
   UserScriptRunLogRow
 } from '@/lib/userscripts/types'
-import type { NetCaptureRecord, NetRecordSession } from '@/lib/userscripts/net-record-protocol'
+import type { NetCaptureRecord } from '@/lib/userscripts/tab-record-protocol'
 
 const runlog = vi.hoisted(() => vi.fn())
 const tabSessions = vi.hoisted(() => vi.fn())
@@ -24,7 +24,6 @@ const tabTimeline = vi.hoisted(() => vi.fn())
 const tabActivityClear = vi.hoisted(() => vi.fn())
 const tabActivityDelete = vi.hoisted(() => vi.fn())
 const tabActivityDisable = vi.hoisted(() => vi.fn())
-const netCaptureState = vi.hoisted(() => vi.fn())
 /**
  * 面板取选中页的数据只走一条命令（六类行在库里同表，故一次拉回 —— 见 tab-captures 的单测）。
  * 这里把它拆成几个「填数据」的抓手：各用例只关心其中一样时，不必写全。
@@ -43,7 +42,6 @@ vi.mock('@/lib/userscripts/ui-client', () => ({
     tabActivityClear,
     tabActivityDelete,
     tabActivityDisable,
-    netCaptureState,
   },
 }))
 
@@ -138,11 +136,10 @@ function tabEvent(over: {
   }
 }
 
-/** 造一条录制采样（融合进活动轴的接口数据） */
+/** 造一条录制采样（融合进活动轴的接口数据）：归属只认存续行，记录上没有站点字段 */
 function netRec(over: Partial<NetCaptureRecord> = {}): NetCaptureRecord {
   return {
-    host: 'a.example',
-    sessionId: 'sess-1',
+    tabSessionId: 't1',
     type: 'fetch',
     method: 'GET',
     url: 'https://a.example/api',
@@ -152,19 +149,6 @@ function netRec(over: Partial<NetCaptureRecord> = {}): NetCaptureRecord {
     respHeaders: {},
     respBody: '{}',
     t: 600,
-    ...over,
-  }
-}
-
-/** 造一个录制会话（挂在某存续行上） */
-function netSess(over: Partial<NetRecordSession> = {}): NetRecordSession {
-  return {
-    id: 'sess-1',
-    tabId: 1,
-    host: 'a.example',
-    url: 'https://a.example/x',
-    title: '示例页',
-    startedAt: 550,
     ...over,
   }
 }
@@ -223,7 +207,6 @@ beforeEach(() => {
   tabActivityClear.mockResolvedValue(undefined)
   tabActivityDelete.mockResolvedValue(undefined)
   tabActivityDisable.mockResolvedValue({ tabId: 1, recording: false })
-  netCaptureState.mockResolvedValue({ sessions: [] })
 })
 
 afterEach(() => {
@@ -547,9 +530,7 @@ describe('TabActivityPanel 活动历史', () => {
 
   it('选中页录到的请求铺在轴上（融合自原「接口数据」面板）', async () => {
     tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
-    pageCaptures.mockResolvedValue([
-      netRec({ url: 'https://a.example/api/list', sessionId: 's1', tabSessionId: 't1' }),
-    ])
+    pageCaptures.mockResolvedValue([netRec({ url: 'https://a.example/api/list' })])
     wrapper = await mountPanel()
 
     // 轴上只有采样本身，没有「接口录制」那种段头卡
@@ -559,14 +540,12 @@ describe('TabActivityPanel 活动历史', () => {
   })
 
   it('正在录的页：已实时落库的采样照样铺在轴上（不必等停止归档）', async () => {
-    tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
-    // 会话要等停止 / 关页才归档进会话表，采样却是实时落库的
-    netCaptureState.mockResolvedValue({
-      sessions: [netSess({ id: 'live1', tabSessionId: 't1', tabId: 7, startedAt: 550 })],
-    })
-    pageCaptures.mockResolvedValue([
-      netRec({ url: 'https://a.example/api/list', sessionId: 'live1', tabSessionId: 't1' }),
+    // 「在录」与「已录到」同源（存续行的 recording + 同一根轴上的采样），
+    // 故这里只要行上开着记录，轴上的采样就该照常铺出来
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 7, url: 'https://a.example/x', recording: true }),
     ])
+    pageCaptures.mockResolvedValue([netRec({ url: 'https://a.example/api/list' })])
     wrapper = await mountPanel()
 
     expect(timelineText()).toContain('/api/list')
@@ -577,8 +556,6 @@ describe('TabActivityPanel 活动历史', () => {
     pageCaptures.mockResolvedValue([
       netRec({
         url: 'https://a.example/api/list',
-        sessionId: 's1',
-        tabSessionId: 't1',
         reqHeaders: { 'x-req': '1' },
         respBody: '{"ok":true}',
       }),
@@ -604,9 +581,7 @@ describe('TabActivityPanel 活动历史', () => {
     pageRuns.mockResolvedValue([runEntry({ runId: 'r1', name: '脚本A' })])
     pageActs.mockResolvedValue([act('r1', { time: 500 })])
     pageEvents.mockResolvedValue([tabEvent({ kind: 'reload', tabSessionId: 't1', time: 900 })])
-    pageCaptures.mockResolvedValue([
-      netRec({ url: 'https://a.example/api/mid', sessionId: 's1', tabSessionId: 't1', t: 700 }),
-    ])
+    pageCaptures.mockResolvedValue([netRec({ url: 'https://a.example/api/mid', t: 700 })])
     wrapper = await mountPanel()
 
     // 最新在前：刷新（900）→ 请求（700）→ 动作（500）
@@ -615,23 +590,29 @@ describe('TabActivityPanel 活动历史', () => {
     expect(text.indexOf('/api/mid')).toBeLessThan(text.indexOf('脚本A'))
   })
 
-  it('正在录的页：卡头给「停止记录」，点了用实时 tabId 发 tabActivityDisable（关的就是同一枚开关）', async () => {
-    tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
-    netCaptureState.mockResolvedValue({ sessions: [netSess({ id: 's1', tabSessionId: 't1', tabId: 7 })] })
+  it('正在录的页：卡头给「停止记录」，点了用行上的实时 tabId 发 tabActivityDisable（关的就是同一枚开关）', async () => {
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 7, url: 'https://a.example/x', recording: true }),
+    ])
     wrapper = await mountPanel()
 
     const stop = wrapper.find('[data-testid="tab-activity-stop"]')
     expect(stop.exists()).toBe(true)
     await stop.trigger('click')
     await flushPromises()
-    // 命令走的是会话里的实时 tabId（7），不是存续行的 tabId
+    // 命令走的是这一行记着的实时 tabId（7）
     expect(tabActivityDisable).toHaveBeenCalledWith(7)
   })
 
-  it('没在录的页不给「停止记录」按钮', async () => {
-    tabSessions.mockResolvedValue([session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' })])
+  it('没在录的页不给「停止记录」按钮（判据就是行上的 recording，未结束）', async () => {
+    tabSessions.mockResolvedValue([
+      // 已结束的历史行即便带 recording 也不算在录：账已经结了
+      session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x', recording: true, ended: true }),
+      session({ tabSessionId: 't2', tabId: 2, url: 'https://b.example/y' }),
+    ])
     wrapper = await mountPanel()
 
+    await clickTab('b.example')
     expect(wrapper.find('[data-testid="tab-activity-stop"]').exists()).toBe(false)
   })
 })

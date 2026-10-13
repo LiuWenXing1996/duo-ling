@@ -83,19 +83,21 @@ export interface PrevGeneratedScript {
 }
 
 /**
- * 该站点的接口录制状态（chat-host 在开跑前经 SW 取一次）。
+ * 本会话所属标签页的录制状态（chat-host 在开跑前经 SW 取一次）。
  *
- * 为什么常驻 prompt：录制是前向的——「有没有数据」直接决定 AI 该不该走 net_capture_* 这条路。
+ * 为什么常驻 prompt：录制是前向的——「有没有数据」直接决定 AI 该不该走 tab_record_* 这条路。
  * 不注入的话，模型只能在不知道有没有数据的情况下盲试一次工具调用（还常把
  * 「没开录制」和「开了没刷新」误判成同一个原因）。
+ *
+ * 为什么没有 host：录制按标签页划分，目标是「本会话所属的那一页」，不是某个站点——
+ * 那一页导航到哪里都继续录，喂给模型的也就该是「这一页录到了什么」。
  */
-export interface NetCaptureContext {
-  host: string
-  /** 该站点是否有正在进行的录制会话（跨标签页：同站点别的标签页在录也算） */
+export interface TabRecordContext {
+  /** 这一页的录制此刻开着没有 */
   enabled: boolean
-  /** 该站点已录到的条数（跨会话累计，不随录制停止而清零） */
+  /** 这一页已录到的条数（不随录制停止而清零） */
   count: number
-  /** 摘要档文本（net-record-digest 压好的接口清单；无数据时为空串） */
+  /** 摘要档文本（net-digest 压好的接口清单；无数据时为空串） */
   text: string
 }
 
@@ -122,7 +124,7 @@ export function buildSystemPrompt(
   pageContext?: PageContextInfo,
   continuing = false,
   prevScript?: PrevGeneratedScript,
-  netCapture?: NetCaptureContext,
+  tabRecord?: TabRecordContext,
 ): string {
   const lines = [
     `你是「${EXTENSION_NAME}」浏览器扩展的用户脚本助手。除日常对话外，你可以为网页编写用户脚本：`,
@@ -152,19 +154,19 @@ export function buildSystemPrompt(
   if (pageContext?.element) {
     lines.push(...describePickedElement(pageContext.element))
   }
-  if (netCapture?.count) {
+  if (tabRecord?.count) {
     lines.push(
-      `\n该站点（${netCapture.host}）已录到 ${netCapture.count} 条接口请求——用户已授权录制，` +
+      `\n当前标签页已录到 ${tabRecord.count} 条请求——用户已授权录制，` +
         '数据只在本机；鉴权头在采集时已剥离，别据此推断登录态：',
-      netCapture.text,
-      '需要某条接口的完整请求 / 响应采样时，用 net_capture_read 读回。',
+      tabRecord.text,
+      '需要某条请求的完整请求 / 响应采样时，用 tab_record_read 读回。',
     )
-  } else if (netCapture?.enabled) {
+  } else if (tabRecord?.enabled) {
     lines.push(
-      `\n该站点（${netCapture.host}）的接口录制已开启，但还没有录到数据——` +
+      '\n当前标签页的页面录制已开启，但还没有录到数据——' +
         '录制只能抓开启之后的请求，钩子挂在文档开头，需要用户点浏览器的刷新按钮重载页面；' +
         '录制锚在开启它的那个标签页，刷新也要在同一个标签页里做。' +
-        '用户刷新完再调 net_capture_read 读回。',
+        '用户刷新完再调 tab_record_read 读回。',
     )
   }
   if (continuing) {

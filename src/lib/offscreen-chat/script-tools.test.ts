@@ -5,7 +5,7 @@ import {
   buildRunEventsView,
   buildRunLogView,
   buildScriptTools,
-  type NetCaptureHooks,
+  type TabRecordHooks,
   type TaskWorkspace,
 } from './script-tools'
 import type {
@@ -68,7 +68,7 @@ function makeTools(
   element?: ElementPickContext,
   captureSnapshot?: () => Promise<import('@/shared/extension-ipc').PageSnapshotContext>,
   readError?: (id: string) => Promise<import('@/lib/userscripts/store').UserScriptErrorLookup>,
-  netCapture?: NetCaptureHooks,
+  tabRecord?: TabRecordHooks,
   capturePageEnv?: () => Promise<import('@/shared/extension-ipc').PageEnvContext>,
 ) {
   const ws = makeWorkspace()
@@ -80,7 +80,7 @@ function makeTools(
     captureSnapshot,
     capturePageEnv,
     readError,
-    netCapture,
+    tabRecord,
   )
 }
 
@@ -222,14 +222,12 @@ describe('script_list（列出全部脚本）', () => {
 })
 
 describe('script 三件套不受影响（回归）', () => {
-  it('工具表 = 全量工具（脚本读写 / 页面上下文 / 环境读取 / 网络录制 / 诊断）', () => {
+  it('工具表 = 全量工具（脚本读写 / 页面上下文 / 环境读取 / 页面录制 / 诊断）', () => {
     const tools = makeTools(makeElement())
     expect(Object.keys(tools).sort()).toEqual([
       'element_read',
       'env_read',
       'error_read',
-      'net_capture_enable',
-      'net_capture_read',
       'page_env_read',
       'page_snapshot',
       'run_log_read',
@@ -238,73 +236,80 @@ describe('script 三件套不受影响（回归）', () => {
       'script_list',
       'script_read',
       'script_spec',
+      'tab_record_enable',
+      'tab_record_read',
     ])
   })
 })
 
-describe('net_capture_enable / net_capture_read（接口录制）', () => {
-  /** 造一组录制钩子；`consents` 记录实际出过卡的 host（出卡即"请用户确认"） */
-  function makeHooks(over: Partial<NetCaptureHooks> = {}) {
-    const consents: string[] = []
-    const hooks: NetCaptureHooks = {
-      hosts: async () => [],
+describe('tab_record_enable / tab_record_read（页面录制）', () => {
+  /** 造一组录制钩子；`consents` 记下出过几次卡（出卡即「请用户确认」） */
+  function makeHooks(over: Partial<TabRecordHooks> = {}) {
+    const consents: number[] = []
+    const hooks: TabRecordHooks = {
+      isRecording: async () => false,
       read: async () => ({ enabled: false, count: 0, text: '' }),
-      requestConsent: async (host) => {
-        consents.push(host)
+      requestConsent: async () => {
+        consents.push(1)
       },
       ...over,
     }
     return { hooks, consents }
   }
 
-  async function runEnable(tools: ReturnType<typeof buildScriptTools>, host: string) {
-    return (await tools.net_capture_enable.execute({ host }, execOpts)) as Record<string, unknown>
+  async function runEnable(tools: ReturnType<typeof buildScriptTools>) {
+    return (await tools.tab_record_enable.execute({}, execOpts)) as Record<string, unknown>
   }
-  async function runRead(tools: ReturnType<typeof buildScriptTools>, host: string) {
-    return (await tools.net_capture_read.execute({ host }, execOpts)) as Record<string, unknown>
+  async function runRead(tools: ReturnType<typeof buildScriptTools>) {
+    return (await tools.tab_record_read.execute({}, execOpts)) as Record<string, unknown>
   }
 
   it('未接入录制通道时两个工具都返回不可用（不抛）', async () => {
     const tools = makeTools(makeElement())
-    expect(await runEnable(tools, 'example.com')).toMatchObject({ ok: false })
-    expect(await runRead(tools, 'example.com')).toMatchObject({ ok: false })
+    expect(await runEnable(tools)).toMatchObject({ ok: false })
+    expect(await runRead(tools)).toMatchObject({ ok: false })
   })
 
-  it('host 非法直接拒绝，且不出卡', async () => {
-    const { hooks, consents } = makeHooks()
+  it('定位不到本会话所属标签页时直接拒绝，且不出卡', async () => {
+    const { hooks, consents } = makeHooks({
+      isRecording: async () => {
+        throw new Error('未找到目标标签页')
+      },
+    })
     const tools = makeTools(makeElement(), undefined, undefined, hooks)
-    const out = await runEnable(tools, 'has space.com')
+    const out = await runEnable(tools)
     expect(out.ok).toBe(false)
+    expect(String(out.error)).toContain('未找到目标标签页')
     expect(consents).toEqual([])
   })
 
   it('已开启：不出卡，直接告知请用户刷新（避免让用户以为要重复确认）', async () => {
-    const { hooks, consents } = makeHooks({ hosts: async () => ['example.com'] })
+    const { hooks, consents } = makeHooks({ isRecording: async () => true })
     const tools = makeTools(makeElement(), undefined, undefined, hooks)
-    const out = await runEnable(tools, 'https://example.com/x?a=1')
-    expect(out).toMatchObject({ ok: true, enabled: true, host: 'example.com' })
+    const out = await runEnable(tools)
+    expect(out).toMatchObject({ ok: true, enabled: true })
     expect(String(out.hint)).toContain('刷新')
     expect(consents).toEqual([])
   })
 
-  it('未开启：出卡（host 归一化后）并返回 awaitingUser', async () => {
+  it('未开启：出卡并返回 awaitingUser', async () => {
     const { hooks, consents } = makeHooks()
     const tools = makeTools(makeElement(), undefined, undefined, hooks)
-    const out = await runEnable(tools, 'Example.COM')
-    expect(out).toMatchObject({ ok: true, awaitingUser: true, host: 'example.com' })
-    expect(consents).toEqual(['example.com'])
+    const out = await runEnable(tools)
+    expect(out).toMatchObject({ ok: true, awaitingUser: true })
+    expect(consents).toHaveLength(1)
   })
 
-  it('net_capture_read：无记录 / 在录但没数据 / 有数据，三种返回各自说清缺哪一步', async () => {
+  it('tab_record_read：无记录 / 在录但没数据 / 有数据，三种返回各自说清缺哪一步', async () => {
     const disabled = makeTools(
       makeElement(),
       undefined,
       undefined,
       makeHooks({ read: async () => ({ enabled: false, count: 0, text: '' }) }).hooks,
     )
-    const off = await runRead(disabled, 'example.com')
+    const off = await runRead(disabled)
     expect(off.ok).toBe(false)
-    expect(String(off.error)).toContain('没有接口记录')
+    expect(String(off.error)).toContain('没有录制记录')
 
     const empty = makeTools(
       makeElement(),
@@ -312,7 +317,7 @@ describe('net_capture_enable / net_capture_read（接口录制）', () => {
       undefined,
       makeHooks({ read: async () => ({ enabled: true, count: 0, text: '' }) }).hooks,
     )
-    const none = await runRead(empty, 'example.com')
+    const none = await runRead(empty)
     expect(none.ok).toBe(false)
     expect(String(none.error)).toContain('刷新')
 
@@ -324,12 +329,13 @@ describe('net_capture_enable / net_capture_read（接口录制）', () => {
         read: async () => ({ enabled: true, count: 3, text: '[1] GET https://x.test/api → 200（fetch）' }),
       }).hooks,
     )
-    const ok = await runRead(ready, 'example.com')
-    expect(ok).toMatchObject({ ok: true, host: 'example.com', recording: true, count: 3 })
+    const ok = await runRead(ready)
+    expect(ok).toMatchObject({ ok: true, recording: true, count: 3 })
+    expect(ok).not.toHaveProperty('host') // 录制按标签页，返回值不再带站点
     expect(String(ok.captures)).toContain('https://x.test/api')
   })
 
-  it('net_capture_read：录制已停但记录还在——照读不误，只是标 recording:false', async () => {
+  it('tab_record_read：录制已停但记录还在——照读不误，只是标 recording:false', async () => {
     const tools = makeTools(
       makeElement(),
       undefined,
@@ -338,7 +344,7 @@ describe('net_capture_enable / net_capture_read（接口录制）', () => {
         read: async () => ({ enabled: false, count: 2, text: '[1] GET https://x.test/old → 200（xhr）' }),
       }).hooks,
     )
-    const out = await runRead(tools, 'example.com')
+    const out = await runRead(tools)
     expect(out).toMatchObject({ ok: true, recording: false, count: 2 })
     expect(String(out.captures)).toContain('https://x.test/old')
   })
@@ -639,7 +645,7 @@ describe('page_env_read（页面侧环境读数）', () => {
     ReturnType<typeof buildScriptTools>['page_env_read']['execute']
   >[1]
 
-  /** 只关心页面环境回路：其余回调留空（参数位依次是 element / snapshot / error / netCapture） */
+  /** 只关心页面环境回路：其余回调留空（参数位依次是 element / snapshot / env / error / tabRecord） */
   const withEnv = (fn: () => Promise<import('@/shared/extension-ipc').PageEnvContext>) =>
     makeTools(undefined, undefined, undefined, undefined, fn)
 

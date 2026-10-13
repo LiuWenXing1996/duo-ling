@@ -68,10 +68,8 @@ const ALL_KINDS = [
   { kind: 'userscript:errorRead', side: 'sw' },
   { kind: 'userscript:import', side: 'sw' },
   { kind: 'userscript:importText', side: 'sw' },
-  // 网络录制（dl-recorder）：门禁在 duoling-app、采样在 duoling-runtime 的 tab_events，都归 SW
-  { kind: 'userscript:netCaptureState', side: 'sw' },
-  { kind: 'userscript:netCaptureRead', side: 'sw' },
-  { kind: 'userscript:netLogClear', side: 'sw' },
+  // 页面录制（tab-record）：采样落在 duoling-runtime 的 tab_events，写读都归 SW
+  { kind: 'userscript:tabRecordRead', side: 'sw' },
   { kind: 'userscript:groups', side: 'sw' },
   { kind: 'userscript:setGroup', side: 'sw' },
   { kind: 'userscript:group-create', side: 'sw' },

@@ -157,17 +157,17 @@ export type RuntimeRequest =
   // 错误 ID 修复闭环：AI 的 error_read 工具经 SW 代查
   // 错误日志（runtime 库，offscreen 拿不到）。id = 完整记录 id 或唯一 8 位前缀
   | { kind: 'userscript:errorRead'; id: string }
-  // —— 网络录制（dl-recorder）——
-  // 门禁（duoling-app 的 netCaptureSessions）与录到的采样（duoling-runtime 的 tab_events）都归 SW 管辖。
+  // —— 页面录制（tab-record）——
+  // 录到的采样落在 duoling-runtime 的 tab_events，归 SW 管辖；offscreen 与扩展页都不直连库。
   //
   // **开关不在这组里**：录制与活动记录由同一枚开关触发（见 userscript:tabActivityEnable），
   // 而开启必须由用户手势发起 —— AI 工具只出卡 + 等用户点（见 agent-tools-catalog 的
-  // net_capture_enable）。这里只剩「读」与「清理」两条。
-  | { kind: 'userscript:netCaptureState' }
-  // mode：digest = 摘要档（接口清单，常驻 prompt 用）；full = 逐条采样（工具读回用）
-  | { kind: 'userscript:netCaptureRead'; host: string; mode: 'digest' | 'full' }
-  // 清空某站点的接口采样（不动这一页的刷新 / 记录开关）。写路径归 SW（runtime 单写方），调用方不直连库。
-  | { kind: 'userscript:netLogClear'; host: string }
+  // tab_record_enable）。这里只剩「读」这一条。
+  //
+  // 参数是**会话 id 而不是站点**：录制按标签页，读也就按标签页 —— SW 反查这条会话所属的那一页
+  // 再取它存续行里的采样。mode：digest = 摘要档（接口清单，常驻 prompt 用）；
+  // full = 逐条采样（工具读回用）。
+  | { kind: 'userscript:tabRecordRead'; conversationId?: string; mode: 'digest' | 'full' }
 
   // zip 导入：UI 读 zip 文件转 base64，SW 纯转发 offscreen
   // 单写方（解码 + 落盘同处）。enabled 恒 false——先审后启，故无注册动作。

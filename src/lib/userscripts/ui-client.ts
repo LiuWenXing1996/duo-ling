@@ -9,7 +9,6 @@ import { runtimeSend } from '@/shared/runtime-send'
 import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
 import type { Source, UsCommit, UsSnapshot } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
-import type { NetRecordSession } from './net-record-protocol'
 // 按页的整根活动轴（runtime-db 的读侧产物，六类行分五组）。**type-only**：UI 侧只要形状，
 // 不把存储层（idb-core）拖进扩展页 bundle。
 import type { TabTimeline } from './runtime-db'
@@ -161,14 +160,12 @@ export const userscriptClient = {
   runEvents: (runId: string): Promise<UserScriptRunEvent[]> =>
     send({ kind: 'userscript:runEvents', runId }),
 
-  // —— 网络录制（dl-recorder）——
-  // 录制件与门禁都归 SW：UI 只发命令，不直连 duoling-app / duoling-runtime。
-
-  /** 正在录制的会话（含各自所在标签页）。UI 按自己的 tabId 认领「本页在不在录」 */
-  netCaptureState: (): Promise<{ sessions: NetRecordSession[] }> => send({ kind: 'userscript:netCaptureState' }),
+  // —— 页面录制（tab-record）——
+  // 录制件归 SW：UI 只扳开关，不直连 duoling-runtime。「本页在不在录」由 tabSessions 的
+  // `recording` 字段回答（录制与活动记录本就是同一枚开关的两半），故这里不再有单独的状态命令。
 
   /**
-   * 扳动某个标签页的记录开关（**唯一的开关**：存续行与接口录制都由它驱动）。
+   * 扳动某个标签页的记录开关（**唯一的开关**：存续行与页面录制都由它驱动）。
    * 调用方都是**用户手势**（浮层同意卡上的按钮 / popup 当前页面里的开关）——
    * AI 工具只出卡，不调这条。地址由 SW 从该标签页现取，不由 UI 带过来。
    */
@@ -178,9 +175,6 @@ export const userscriptClient = {
   /** 关掉某个标签页的记录开关；**已录内容保留**（历史留着，只是不再长新的） */
   tabActivityDisable: (tabId: number): Promise<{ tabId: number; recording: boolean }> =>
     send({ kind: 'userscript:tabActivityDisable', tabId }),
-
-  /** 清空某站点的接口采样（不动这一页的刷新 / 记录开关）；写路径归 SW，参数用归一 host */
-  netLogClear: (host: string): Promise<{ host: string }> => send({ kind: 'userscript:netLogClear', host }),
 }
 
 /**
