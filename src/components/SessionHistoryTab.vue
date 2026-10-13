@@ -5,8 +5,10 @@
 // —— 一个 tab 一条会话、切 tab 即切会话，所以那里既没有会话列表也没有「新建会话」。
 // 历史会话因此收进工作台这个重界面：它是「查看与管理」的落点，不是对话的落点。
 //
-// 布局：左栏复用 SessionHistoryPanel（搜索 / 日期分组 / 改名 / 删除），右栏用 ChatPanel 的
-// **只读模式**（readonly）回放选中会话的消息 —— 与对话界面同一套渲染，不另写回放视图。
+// 布局：左栏复用 SessionHistoryPanel（搜索 / 日期分组 / 改名 / 删除），右栏在两个视图之间
+// 切换（同一会话两个面，切换即对照）：**回放**用 ChatPanel 的只读模式（readonly）——与对话
+// 界面同一套渲染，不另写回放视图；**原始数据**用 ConversationRawView——落盘 Message 的
+// 原始字段（pageContext / parts / usage / 原始 JSON），排查落盘问题时直接对照库里的记录。
 //
 // 数据：列表与消息都直连 IndexedDB（conversation-store 读侧经 window.api 转发），写走
 // window.api.conversation.*（唯一写方仍是 offscreen）。删除会话时顺手清掉标签页归属映射
@@ -21,8 +23,9 @@
 // 「删除全部」可能有若干条摊在不同标签页上，就在弹框里逐条列出「哪条会话 · 哪个站点」，
 // 每条各配一个跳转按钮。跳转一律「先聚焦窗口再激活标签页」，且**不收起弹框** ——
 // 用户往往要连着关好几个，收起就得重新点一次删除才能看到剩下的。
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import ChatPanel from '@/components/ChatPanel.vue'
+import ConversationRawView from '@/components/ConversationRawView.vue'
 import SessionHistoryPanel from '@/components/SessionHistoryPanel.vue'
 import { useChatRunning } from '@/composables/use-chat-running'
 import { Button as UiButton } from '@/components/ui/button'
@@ -52,6 +55,26 @@ const selectedId = ref('')
 const messages = ref<UIMessage[]>([])
 /** 与消息同源的 token 用量（按 UIMessage.id 索引），assistant 气泡下方展示 */
 const usageByMessageId = ref<Record<string, TokenUsage>>({})
+
+// —— 右栏视图切换：回放（逻辑视图）↔ 原始数据（落盘视图），同一会话两个面 ——
+type SessionView = 'replay' | 'raw'
+const VIEW_OPTIONS: { value: SessionView; label: string }[] = [
+  { value: 'replay', label: '回放' },
+  { value: 'raw', label: '原始数据' },
+]
+const view = ref<SessionView>('replay')
+
+/** 选中会话的元数据（原始数据视图导出文件名 / payload 用）；列表里没有就是 null */
+const selectedConversation = computed(
+  () => conversations.value.find((c) => c.id === selectedId.value) ?? null
+)
+
+/** 开发者入口（设置 · 开发者分区的「会话数据」行）直达原始数据视图：宿主经 ref 调 */
+function showRawData(): void {
+  view.value = 'raw'
+}
+
+defineExpose({ showRawData })
 
 /** 拉列表；选中的会话若已不存在（本页删的 / 别处删的）就清空右侧 */
 async function loadList(): Promise<void> {
@@ -292,11 +315,28 @@ onMounted(() => void loadList())
       />
     </div>
 
-    <!-- 右栏：选中会话的消息回放（只读，无输入区） -->
-    <div class="min-h-0 min-w-0 flex-1">
+    <!-- 右栏：选中会话的两个视图。切到原始数据视图不换选中态 —— 对照排查时来回切，列表与选中都要留在原地 -->
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div v-if="selectedId" class="flex shrink-0 items-center justify-end border-b border-border px-3 py-1.5">
+        <div class="flex items-center rounded-md bg-muted p-0.5" data-testid="session-view-toggle">
+          <button
+            v-for="v in VIEW_OPTIONS"
+            :key="v.value"
+            type="button"
+            class="rounded px-2 py-0.5 text-xs transition-colors"
+            :class="view === v.value ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+            :data-testid="`session-view-${v.value}`"
+            @click="view = v.value"
+          >
+            {{ v.label }}
+          </button>
+        </div>
+      </div>
+
+      <!-- 回放：只读，无输入区 -->
       <chat-panel
-        v-if="selectedId"
-        class="h-full"
+        v-if="selectedId && view === 'replay'"
+        class="min-h-0 flex-1"
         readonly
         :messages="messages"
         :usage-by-message-id="usageByMessageId"
@@ -306,7 +346,10 @@ onMounted(() => void loadList())
         @open-settings="() => {}"
         @open-guide="() => {}"
       />
-      <div v-else class="flex h-full items-center justify-center">
+      <!-- 原始数据：落盘 Message 原始记录（只读调试视图） -->
+      <conversation-raw-view v-else-if="selectedId" class="min-h-0 flex-1" :conversation="selectedConversation" />
+
+      <div v-if="!selectedId" class="flex min-h-0 flex-1 items-center justify-center">
         <p class="text-sm text-muted-foreground">从左侧选一条会话查看</p>
       </div>
     </div>

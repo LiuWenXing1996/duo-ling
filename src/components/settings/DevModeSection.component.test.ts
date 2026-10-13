@@ -1,16 +1,16 @@
 // 组件测试：设置 · 开发者分区（DevModeSection.vue）—— 调试面板入口 + 通知 / 角标两个自测工具。
 //
-// 守三条：清单里的面板各有一行入口、点某行把 kind 与标题交给宿主（emit openTab）、
-// 分区里不再有「控制显示与否」的开关。
+// 守三条：清单里的面板各有一行入口、点某行把 kind 与标题交给宿主（emit openTab，
+// 「会话数据」特例发 openSessionData——它没有独立标签页）、分区里不再有「控制显示与否」的开关。
 import { afterEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import DevModeSection from './DevModeSection.vue'
 
-/** 入口清单（顺序即渲染顺序）：kind → 面板名 */
+/** 入口清单（顺序即渲染顺序）：kind → 面板名；session-data 是特例行（发 openSessionData） */
 const PANELS = [
   ['ui-test', 'AI 界面对话预览'],
   ['lfs-browser', '脚本文件'],
-  ['chat-data', '会话数据'],
+  ['session-data', '会话数据'],
   ['agent-tools', 'AI 工具'],
   ['gm-api', 'GM API'],
 ] as const
@@ -47,6 +47,13 @@ describe('设置 · 开发者分区', () => {
     const w = mountSection()
     await entry(w, 'gm-api').trigger('click')
     expect(w.emitted('openTab')).toEqual([['gm-api', 'GM API']])
+  })
+
+  it('「会话数据」是特例：发 openSessionData 而不是 openTab（它没有独立标签页）', async () => {
+    const w = mountSection()
+    await entry(w, 'session-data').trigger('click')
+    expect(w.emitted('openSessionData')).toHaveLength(1)
+    expect(w.emitted('openTab')).toBeUndefined()
   })
 
   it('分区里没有开关：入口只负责打开，不控制显示与否', () => {
