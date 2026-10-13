@@ -741,11 +741,13 @@ function userScriptsUnavailableMessageSafe(): string {
               class="flex flex-col gap-1.5"
               :class="m.role === 'user' ? 'items-end' : 'items-start'"
             >
-              <!-- 思考过程：思考/说明/工具卡按 parts 顺序交错成链，默认折叠 -->
+              <!-- 思考过程：思考/说明/工具卡按 parts 顺序交错成链，默认折叠。
+                   max-w-full 覆盖组件自带的 max-w-prose（65ch）—— 浮层里面板窄看不出，
+                   工作台右栏宽就会缩在半截（twMerge 同组后者胜，不用改组件本体） -->
               <ui-chain-of-thought
                 v-if="m.role === 'assistant' && hasProcess(m)"
                 :default-open="false"
-                class="w-full min-w-0"
+                class="w-full min-w-0 max-w-full"
                 data-testid="chain-of-thought"
               >
                 <ui-chain-of-thought-header>思考过程</ui-chain-of-thought-header>

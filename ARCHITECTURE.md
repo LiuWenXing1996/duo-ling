@@ -31,7 +31,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
   - 归属解析**只在 `lib/owning-tab.ts` 一处**：浮层认 content script 经 iframe URL 传来的 `?tab=<id>`（固定归属）—— 不能跟「当前激活标签页」走，浮层可能挂在一个已经不是激活的标签页上；「点开才生成的扩展页」认弹出那一刻的激活页（`resolveActiveTabId`），它没有固定归属、也从不与某个标签页长驻绑定。会话归属（`use-global-conversation`）、随消息发出的页面上下文（`extension-chat-transport`）、页面脚本运行集（`use-page-monitor`，浮层）都经它取 tab；popup 的页面概览是**例外**：它要的是一份跨标签页的现状，归属由 SW 聚合时判定（`page:overview`），popup 只按 tabId 认领「哪一行是我」。
   - **惰性新建**：tab 没有归属会话时不建、不落库、不进历史列表（未绑定态），发出第一条消息时才 create 并登记。
   - 归属映射的清理归 **SW 的 `tabs.onRemoved`** —— 面板没开时 tab 照样会被关，只有常驻的 SW 不漏。
-  - 历史会话的查看 / 改名 / 删除在工作台「会话历史」标签页（`SessionHistoryTab.vue`：列表复用 `SessionHistoryPanel`，右栏用 `ChatPanel` 的只读模式回放）；对话界面里没有会话列表，也没有「新建会话」。
+  - 历史会话的查看 / 改名 / 删除在工作台「会话历史」标签页（`SessionHistoryTab.vue`：列表复用 `SessionHistoryPanel`，右栏在「回放 / 原始数据」两个视图间切换——回放用 `ChatPanel` 的只读模式，原始数据用 `ConversationRawView` 展示落盘 Message 的原始字段，同一会话两个面切换即对照）；对话界面里没有会话列表，也没有「新建会话」。
   - **删除有前置门**：会话正被**开着的**标签页使用就不让删（它是那个标签页的现场）。判据在 `conversation-tab-map.ts` 的 `getActiveTabBindings` —— 「映射里有」**且**「该 tab 还活着」两条都成立才算在用：SW 的 `tabs.onRemoved` 负责及时清映射，但判据**不能只依赖它**（SW 可能被回收，残留项会把已关闭的标签页算成在用，用户就删不掉又找不到是哪个标签页）。无法判定 tab 存活时保守算作在用。
   - 被挡下时不只拒绝，还要**告诉用户去关谁**（`SessionHistoryTab.vue`）：单条删除给文案（带那个标签页的站点名，`chrome.tabs.get` 取 url）+ 一颗「去那个标签页」按钮；「删除全部」则在弹框里**逐条列出**「会话标题 · 站点」，每条各配跳转按钮。跳转一律先 `windows.update({focused})` 再 `tabs.update({active})`（跨窗口时只 active 不会把窗口翻上来），且**跳完不收起弹框**（多条场景要连着关好几个）。
   - **弹框形态按「哪种删除被挡」分（`blocked.kind`），不按目标条数分**：按条数分会出岔 —— 「删除全部」只碰到 1 个占用时，文案说「以下 1 条」而列表按「多于 1 条才显示」的规则不出现，成了指向空气的「以下」，按钮措辞也串成单条那套。

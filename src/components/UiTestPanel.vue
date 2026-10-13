@@ -322,7 +322,8 @@ function stepStatus(state: MockToolState): 'complete' | 'active' {
 
         <!-- 模拟对话：assistant 消息 -->
         <div class="flex flex-col items-start gap-1.5">
-          <ui-chain-of-thought :default-open="true" class="w-full min-w-0">
+          <!-- max-w-full 覆盖组件自带的 max-w-prose（同 ChatPanel 里的处理，保持两处预览一致） -->
+          <ui-chain-of-thought :default-open="true" class="w-full min-w-0 max-w-full">
             <ui-chain-of-thought-header>思考过程</ui-chain-of-thought-header>
             <ui-chain-of-thought-content class="pl-4">
               <template v-for="node in streamNodes" :key="node.key">

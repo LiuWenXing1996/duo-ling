@@ -10,16 +10,26 @@ import { Input as UiInput } from '@/components/ui/input'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 import type { WorkspaceTabKind } from '@/shared/types'
 
-const emit = defineEmits<{ openTab: [kind: WorkspaceTabKind, title: string] }>()
+const emit = defineEmits<{
+  openTab: [kind: WorkspaceTabKind, title: string]
+  /** 「会话数据」特例：没有独立标签页了，开的是会话历史标签页的「原始数据」视图（宿主转发） */
+  openSessionData: []
+}>()
 
-/** 面板清单：顺序即渲染顺序；label 同时是标签页标题，宿主不再各写一份 */
-const DEV_PANELS: { kind: WorkspaceTabKind; label: string }[] = [
+/** 面板清单：顺序即渲染顺序；label 同时是标签页标题，宿主不再各写一份。
+ * 「会话数据」是唯一的特例行——kind 'session-data' 不是 WorkspaceTabKind，只作本清单的行键。 */
+const DEV_PANELS: { kind: WorkspaceTabKind | 'session-data'; label: string }[] = [
   { kind: 'ui-test', label: 'AI 界面对话预览' },
   { kind: 'lfs-browser', label: '脚本文件' },
-  { kind: 'chat-data', label: '会话数据' },
+  { kind: 'session-data', label: '会话数据' },
   { kind: 'agent-tools', label: 'AI 工具' },
   { kind: 'gm-api', label: 'GM API' },
 ]
+
+function openPanel(kind: WorkspaceTabKind | 'session-data', label: string): void {
+  if (kind === 'session-data') emit('openSessionData')
+  else emit('openTab', kind, label)
+}
 
 /** 通知图标（与工具栏同源，复用 auto-icons 构建生成的 icons/128.png） */
 const NOTIFY_ICON = 'icons/128.png'
@@ -87,7 +97,7 @@ async function clearBadge(): Promise<void> {
         type="button"
         class="flex w-full cursor-pointer items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         :data-testid="`dev-open-${panel.kind}`"
-        @click="emit('openTab', panel.kind, panel.label)"
+        @click="openPanel(panel.kind, panel.label)"
       >
         <span class="min-w-0 flex-1 text-sm">{{ panel.label }}</span>
         <ui-chevron-right class="size-4 shrink-0 text-muted-foreground" />

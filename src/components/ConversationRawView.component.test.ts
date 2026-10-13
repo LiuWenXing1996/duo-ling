@@ -1,19 +1,18 @@
-// UI 组件测试：ChatDataPanel.vue（会话库落盘原始视图，只读调试面板）。
+// UI 组件测试：ConversationRawView.vue（会话库落盘原始视图，只读调试）。
 // mock conversation-store（IndexedDB 在 happy-dom 下不可用），验证：
-// 会话列表渲染、选中拉消息、pageContext 落盘标记、原始 JSON 展开/收起。
+// 挂载即拉取选中会话的消息、pageContext 落盘标记、原始 JSON 展开/收起、
+// 选中会话切换时重拉并重置展开、无选中时空态。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { AssistantMessage, Conversation, UserMessage } from '@/shared/types'
 
-const listConversations = vi.fn()
 const listMessages = vi.fn()
 
 vi.mock('@/lib/conversation-store', () => ({
-  listConversations: (...args: unknown[]) => listConversations(...args),
   listMessages: (...args: unknown[]) => listMessages(...args),
 }))
 
-import ChatDataPanel from './ChatDataPanel.vue'
+import ConversationRawView from './ConversationRawView.vue'
 
 const conv = (id: string, title: string): Conversation => ({
   id,
@@ -59,49 +58,35 @@ const elementCtx = {
   full: { attrs: {}, outerHTML: '<button id="submit">提交</button>', parentChain: [] },
 }
 
-function mountPanel() {
-  return mount(ChatDataPanel)
+function mountView(conversation: Conversation | null = conv('c1', '改按钮颜色')) {
+  return mount(ConversationRawView, { props: { conversation } })
 }
 
 afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('ChatDataPanel', () => {
-  it('渲染会话列表（标题 + token 概览）', async () => {
-    listConversations.mockResolvedValue([conv('c1', '改按钮颜色')])
-    const wrapper = mountPanel()
-    await flushPromises()
-    expect(wrapper.text()).toContain('改按钮颜色')
-    expect(wrapper.text()).toContain('128 tokens')
-  })
-
-  it('选中会话后拉取并渲染消息；带 pageContext 的消息显示落盘标记', async () => {
-    listConversations.mockResolvedValue([conv('c1', '改按钮颜色')])
+describe('ConversationRawView', () => {
+  it('挂载即拉取选中会话的消息；带 pageContext 的消息显示落盘标记', async () => {
     listMessages.mockResolvedValue([
       msg({ pageContext: { element: elementCtx } }),
       aiMsg({ usage: { totalTokens: 88 } }),
     ])
-    const wrapper = mountPanel()
-    await flushPromises()
-    await wrapper.find('[data-testid="chat-data-conv-c1"]').trigger('click')
+    const wrapper = mountView()
     await flushPromises()
     expect(listMessages).toHaveBeenCalledWith('c1')
     expect(wrapper.text()).toContain('把这个按钮改成红色')
-    expect(wrapper.find('[data-testid="chat-data-page-context"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="conv-raw-page-context"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('已点选 <button>')
   })
 
   it('无 pageContext 的消息不显示落盘标记；原始 JSON 可展开收起', async () => {
-    listConversations.mockResolvedValue([conv('c1', '改按钮颜色')])
     listMessages.mockResolvedValue([msg()])
-    const wrapper = mountPanel()
+    const wrapper = mountView()
     await flushPromises()
-    await wrapper.find('[data-testid="chat-data-conv-c1"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.find('[data-testid="chat-data-page-context"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="conv-raw-page-context"]').exists()).toBe(false)
 
-    const rawBtn = wrapper.find('[data-testid="chat-data-raw-m1"]')
+    const rawBtn = wrapper.find('[data-testid="conv-raw-raw-m1"]')
     expect(wrapper.find('pre').exists()).toBe(false)
     await rawBtn.trigger('click')
     expect(wrapper.text()).toContain('"conversationId"')
@@ -109,16 +94,38 @@ describe('ChatDataPanel', () => {
     expect(wrapper.find('pre').exists()).toBe(false)
   })
 
-  it('选中会话被删除（刷新后不在列表）时清掉选中态', async () => {
-    listConversations
-      .mockResolvedValueOnce([conv('c1', '改按钮颜色')])
-      .mockResolvedValueOnce([])
-    const wrapper = mountPanel()
+  it('选中会话切换：换会话重拉消息，展开态一并重置', async () => {
+    listMessages.mockResolvedValue([msg()])
+    const wrapper = mountView()
     await flushPromises()
-    await wrapper.find('[data-testid="chat-data-conv-c1"]').trigger('click')
+
+    await wrapper.find('[data-testid="conv-raw-raw-m1"]').trigger('click')
+    expect(wrapper.find('pre').exists()).toBe(true)
+
+    listMessages.mockResolvedValueOnce([aiMsg()])
+    await wrapper.setProps({ conversation: conv('c2', '另一条会话') })
     await flushPromises()
-    await wrapper.find('[data-testid="chat-data-refresh"]').trigger('click')
+    expect(listMessages).toHaveBeenLastCalledWith('c2')
+    expect(wrapper.find('pre').exists()).toBe(false)
+    expect(wrapper.text()).toContain('好的')
+  })
+
+  it('未选中会话：空态，不发起读取', async () => {
+    const wrapper = mountView(null)
     await flushPromises()
-    expect(wrapper.text()).toContain('左侧选择一个会话')
+    expect(listMessages).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('未选中会话')
+  })
+
+  it('手动刷新：重拉当前会话的消息', async () => {
+    listMessages.mockResolvedValue([msg()])
+    const wrapper = mountView()
+    await flushPromises()
+
+    listMessages.mockResolvedValueOnce([msg({ id: 'm3', content: '最新落盘' })])
+    await wrapper.find('[data-testid="conv-raw-refresh"]').trigger('click')
+    await flushPromises()
+    expect(listMessages).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('最新落盘')
   })
 })
