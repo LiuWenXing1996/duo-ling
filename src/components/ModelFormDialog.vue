@@ -216,6 +216,10 @@ async function save(): Promise<void> {
                 <ui-eye v-else class="size-4" />
               </button>
             </div>
+            <!-- break-all：允许行尾在 Key 内断行，首行尽量装满，避免整词挪下一行留大空 -->
+            <p class="break-all text-xs leading-relaxed text-muted-foreground">
+              Key 将加密存储在本机，但浏览器扩展无法做到绝对安全。建议使用单独或有限额的 Key。
+            </p>
           </div>
 
           <!-- 第三步：模型 ID —— 手输，下方预置模型快速填入 -->
