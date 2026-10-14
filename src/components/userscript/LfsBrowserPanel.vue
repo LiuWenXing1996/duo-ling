@@ -3,7 +3,7 @@
 // 用户脚本源码的唯一来源）。只读调试视图 —— 源码工作区、git 历史、.git 内部对象都在这一个库里，
 // 想看真实落盘形状（而不是各面板的逻辑视图）时用它。
 // 数据经 fs:lfsTree（offscreen 应答，含 .git 内部）；容器不在时 sendAi 会先唤起再取。
-// 点文件经 fs:lfsReadFile 拉内容，右栏预览（shiki 高亮，二进制提示不可预览，可复制）。
+// 点文件经 fs:lfsReadFile 拉内容，右栏预览（文本走 shiki 高亮、可复制；二进制里的图片直接显示，其余提示不可预览）。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import { Check as UiCheck, Copy as UiCopy, FileText as UiFileText, FolderTree as UiFolderTree, RefreshCw as UiRefreshCw } from '@lucide/vue'
@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/tooltip'
 import LfsTreeNode from './LfsTreeNode.vue'
 import { fsClient, userscriptClient } from '@/lib/userscripts/ui-client'
+import { mediaTypeOf } from '@/lib/userscripts/us-assets'
 import type { LfsNode, LfsFileContent } from '@/lib/userscripts/us-fs'
 
 const loading = ref(false)
@@ -33,6 +34,30 @@ const selectedPath = ref<string | undefined>(undefined)
 const preview = ref<LfsFileContent | null>(null)
 const previewLoading = ref(false)
 const previewError = ref('')
+
+/**
+ * 图片预览地址：二进制图片的字节本来就以 base64 形式带回来了，拼成 data: URL 交给 <img>。
+ * 为什么能这么用：data: URL 只是不允许顶层导航（Chrome 防钓鱼策略拦 <a href> / window.open），
+ * 作为 img 子资源是合法的 —— 顺便不用开新标签，看完就关。
+ */
+const previewImageUrl = computed(() => {
+  const p = preview.value
+  if (!p || !p.binary || !p.content) return ''
+  const mediaType = mediaTypeOf(p.path)
+  return mediaType.startsWith('image/') ? `data:${mediaType};base64,${p.content}` : ''
+})
+
+/** 浏览器解不出这张图（截断 / 非标准编码）时置位：退回一句提示，而不是留个破图 */
+const imageUndecodable = ref(false)
+
+/** 二进制不可预览时的提示语。图片解不出要明说「图片」，否则看着像「这文件不是图」 */
+const binaryHint = computed(() => {
+  const p = preview.value
+  if (!p) return ''
+  return imageUndecodable.value
+    ? `图片无法显示（${formatSize(p.size)}），可能已截断或不是标准图片。`
+    : `二进制文件（${formatSize(p.size)}），不支持预览。`
+})
 
 /** 路径 → 类型映射：用来区分点的是文件还是目录（目录不拉预览） */
 const nodeType = ref<Map<string, 'file' | 'folder'>>(new Map())
@@ -73,6 +98,8 @@ const defaultExpanded = computed(() => {
 
 /** 选中文件 → 拉取预览；选中目录 / 取消 → 清空预览 */
 watch(selectedPath, async (path) => {
+  // 换文件即清上一张的「解不出」标记，否则新图会被旧结论连累成一句提示
+  imageUndecodable.value = false
   if (!path || nodeType.value.get(path) !== 'file') {
     preview.value = null
     previewError.value = ''
@@ -237,8 +264,20 @@ useDataSync('script', () => load())
           <p v-if="!selectedPath || nodeType.get(selectedPath) !== 'file'" class="p-4 text-xs text-muted-foreground">点击左侧文件查看内容</p>
           <p v-else-if="previewLoading" class="p-4 text-xs text-muted-foreground">读取中…</p>
           <p v-else-if="previewError" class="p-4 text-xs text-destructive">读取失败：{{ previewError }}</p>
+          <!-- 二进制图片直接画出来（字节已在内存里，不必再取一次）；超上限截断时头部已标「预览前 X」 -->
+          <div
+            v-else-if="previewImageUrl && !imageUndecodable"
+            class="flex min-h-full items-center justify-center bg-muted/30 p-4"
+          >
+            <img
+              :src="previewImageUrl"
+              :alt="selectedPath"
+              class="max-h-[70vh] max-w-full object-contain"
+              @error="imageUndecodable = true"
+            >
+          </div>
           <p v-else-if="preview && preview.binary" class="p-4 text-xs leading-relaxed text-muted-foreground">
-            二进制文件（{{ formatSize(preview.size) }}），不支持预览。
+            {{ binaryHint }}
           </p>
           <CodeBlockContent
             v-else-if="preview"
