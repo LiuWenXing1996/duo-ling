@@ -112,14 +112,15 @@ function kindRunRange(kind: string, runId: string): IDBKeyRange {
 }
 
 /**
- * 某一页在轴上的键区间：`[页, sinceId]` 到 `[页, 上界]`。
+ * 某一页在轴上的键区间：`[页, sinceId]` 到 `[页, 上界]`，**下界开**（严格大于 `sinceId`）。
  *
- * `sinceId` 缺省 0 = 这一页的全部（`id` 是自增正整数，从 1 起，故 0 是安全的开下界）；
- * 传入上次的游标即「只要比它新的」。上界用 `MAX_SAFE_INTEGER` 而不是空数组那种技巧，
- * 是因为 id 的取值范围本来就确定（自增整数）。
+ * 开下界是游标语义的要求：`sinceId` 传的是上一批的 `maxId`，那一行上一批已经读回来了，
+ * 下界闭合会让每一批增量都把它再回一遍 —— 面板看着像是「最后一条重复出现」。
+ * `id` 是自增正整数（从 1 起），故缺省 0 与开下界不冲突：它等价于「从第一条起」。
+ * 上界用 `MAX_SAFE_INTEGER` 而不是空数组那种技巧，是因为 id 的取值范围本来就确定（自增整数）。
  */
 function sessionRange(tabSessionId: string, sinceId = 0): IDBKeyRange {
-  return IDBKeyRange.bound([tabSessionId, sinceId], [tabSessionId, Number.MAX_SAFE_INTEGER])
+  return IDBKeyRange.bound([tabSessionId, sinceId], [tabSessionId, Number.MAX_SAFE_INTEGER], true)
 }
 
 /** tab_events 里的运行条目：条目本体 + 判别键（主键 id 读回来才有，写侧不设） */
