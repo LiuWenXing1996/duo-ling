@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 工作区多标签宿主：渲染开着的标签页（标签种类见 shared/types 的 WorkspaceTabKind）。
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { AlertTriangle as UiAlertTriangle } from '@lucide/vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import GuidePanel from '@/components/GuidePanel.vue'
@@ -147,21 +147,13 @@ function openUserscriptListTab(): void {
   activate('userscript-list')
 }
 
-// 打开会话历史标签页：回看/管理历史会话（列表 + 只读消息回放），全局仅一个。
+// 打开会话历史标签页：回看/管理历史会话（列表 + 回放 / 原始数据双视图），全局仅一个。
 // 对话界面（网页浮层）的会话归属由标签页决定，历史会话的入口收在这里。
-// initialView='raw'：直接切到右栏「原始数据」视图（落盘 Message 的调试视图，入口在
-// 设置 · 开发者分区）——标签页已开着时也要能切，所以经组件 ref 下发而不是只靠挂载参数。
-const sessionHistoryRef = ref<InstanceType<typeof SessionHistoryTab> | null>(null)
-
-function openSessionHistoryTab(initialView?: 'raw'): void {
+function openSessionHistoryTab(): void {
   if (!openTabs.value.some((t) => t.kind === 'session-history')) {
     openTabs.value.push({ kind: 'session-history', id: 'session-history', title: '会话历史' })
   }
   activate('session-history')
-  if (initialView) {
-    // 新开标签页时组件要等本次渲染完 ref 才有值；已开着时 ref 已在，多等一拍无副作用
-    void nextTick(() => sessionHistoryRef.value?.showRawData())
-  }
 }
 
 // 打开活动历史标签页：以**标签页**为主线的历史视图（左栏标签页列表 + 右栏该页活动时间线），
@@ -287,13 +279,11 @@ defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openSession
       >
         <!-- 引导标签：需要用户去浏览器里开权限/开关的说明与直达入口（全局唯一） -->
         <guide-panel v-if="tab.kind === 'guide'" />
-        <!-- 设置标签：渲染设置面板；面板里的「引导」与调试面板入口都由宿主接住切标签页。
-             「会话数据」行没有独立标签页：转发为开会话历史并预切原始数据视图 -->
+        <!-- 设置标签：渲染设置面板；面板里的「引导」与调试面板入口都由宿主接住切标签页 -->
         <settings-panel
           v-else-if="tab.kind === 'settings'"
           @open-guide="openGuideTab"
           @open-tab="openDevTab"
-          @open-session-data="openSessionHistoryTab('raw')"
         />
         <!-- 脚本列表：列出全部用户脚本 + 启停；「编辑」开对应的编辑器标签页 -->
         <userscript-list-panel
@@ -317,12 +307,8 @@ defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openSession
         />
         <!-- 文件管理：脚本源码与对话图片的整库只读文件树 -->
         <lfs-browser-panel v-else-if="tab.kind === 'lfs-browser'" />
-        <!-- 会话历史：回看历史会话（列表 + 回放 / 原始数据双视图）、改名 / 删除；
-             ref 供「开发者分区 → 会话数据」入口直达原始数据视图 -->
-        <session-history-tab
-          v-else-if="tab.kind === 'session-history'"
-          ref="sessionHistoryRef"
-        />
+        <!-- 会话历史：回看历史会话（列表 + 回放 / 原始数据双视图）、改名 / 删除 -->
+        <session-history-tab v-else-if="tab.kind === 'session-history'" />
         <!-- AI 工具：agent 工具契约（与模型所见同源）+ 会话库里的真实调用轨迹 -->
         <agent-tools-panel v-else-if="tab.kind === 'agent-tools'" />
         <!-- GM API：脚本作用域里 GM 的能力速查（纯静态目录，与注入真身同源） -->

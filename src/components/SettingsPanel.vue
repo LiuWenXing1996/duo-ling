@@ -23,17 +23,11 @@ const emit = defineEmits<{
   openGuide: []
   /** 分区里的「打开某面板」请求（当前只有开发者分区会发）；标题由分区一并给，宿主不再各写一份 */
   openTab: [kind: WorkspaceTabKind, title: string]
-  /** 「会话数据」特例（开发者分区发）：开的是会话历史标签页的原始数据视图，宿主转发 */
-  openSessionData: []
 }>()
 
 /** 转发分区发来的打开请求：监听器直接引用本函数，免得在模板里写无类型可依的内联箭头 */
 function forwardOpenTab(kind: WorkspaceTabKind, title: string): void {
   emit('openTab', kind, title)
-}
-
-function forwardOpenSessionData(): void {
-  emit('openSessionData')
 }
 
 // 默认选中首个分区（注册表第一项）
@@ -83,12 +77,11 @@ const activeSection = ref(SETTINGS_SECTIONS[0]?.id ?? '')
           :value="section.id"
           class="mt-0"
         >
-          <!-- 分区 emit openTab / openSessionData 时往上转（当前只有开发者分区会发）；其余分区没声明这些事件，
+          <!-- 分区 emit openTab 时往上转（当前只有开发者分区会发）；其余分区没声明这个事件，
                Vue 会把监听器落到它们的根元素上：不触发，无副作用 -->
           <component
             :is="section.component"
             @open-tab="forwardOpenTab"
-            @open-session-data="forwardOpenSessionData"
           />
         </ui-tabs-content>
       </div>
