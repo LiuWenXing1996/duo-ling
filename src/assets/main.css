@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@plugin '@tailwindcss/typography';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -135,6 +136,98 @@
   border-top: 3px solid transparent;
   border-bottom: 3px solid transparent;
   border-right: 3px solid transparent;
+}
+
+/* —— 帮助页正文排版（typography 的 prose 类 + 一份映射）——
+   prose 默认自带一套灰色调变量（--tw-prose-*），跟扩展的语义 token 体系无关；逐个映射过去，
+   深色主题便自动跟随（token 本身在 .dark 下换值），无需再挂 prose-invert。
+   映射之外的少量覆盖只做中文说明文需要的收敛：标题字号 / 字重、段距、表格与行内代码。 */
+.help-prose {
+  --tw-prose-body: var(--foreground);
+  --tw-prose-headings: var(--foreground);
+  --tw-prose-lead: var(--muted-foreground);
+  --tw-prose-links: var(--foreground);
+  --tw-prose-bold: var(--foreground);
+  --tw-prose-counters: var(--muted-foreground);
+  --tw-prose-bullets: var(--muted-foreground);
+  --tw-prose-hr: var(--border);
+  --tw-prose-quotes: var(--muted-foreground);
+  --tw-prose-quote-borders: var(--border);
+  --tw-prose-captions: var(--muted-foreground);
+  --tw-prose-code: var(--foreground);
+  --tw-prose-pre-code: var(--foreground);
+  --tw-prose-pre-bg: var(--muted);
+  --tw-prose-th-borders: var(--border);
+  --tw-prose-td-borders: var(--border);
+}
+
+/* prose 的标题默认偏大偏粗（h1 2.25em / 字重 800），放在扩展里当说明页太重，收到正文可用的量级 */
+.help-prose :is(h1, h2, h3) {
+  font-weight: 600;
+}
+
+.help-prose h1 {
+  font-size: 1.375rem;
+  margin-bottom: 0.6em;
+}
+
+.help-prose h2 {
+  font-size: 1.0625rem;
+  margin-top: 2.2em;
+  margin-bottom: 0.8em;
+  padding-bottom: 0.35em;
+  border-bottom: 1px solid var(--border);
+}
+
+.help-prose h3 {
+  font-size: 0.9375rem;
+  margin-top: 1.6em;
+}
+
+/* 行内代码：prose 默认在两侧加反引号字符，中文正文里很怪，去掉 */
+.help-prose :is(code, kbd)::before,
+.help-prose :is(code, kbd)::after {
+  content: none;
+}
+
+.help-prose code {
+  font-size: 0.875em;
+  background: var(--muted);
+  padding: 0.15em 0.35em;
+  border-radius: var(--radius-sm);
+}
+
+.help-prose pre {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+/* 代码块内的 code 不重复上背景与内边距（要排在行内代码那条之后） */
+.help-prose pre code {
+  background: transparent;
+  padding: 0;
+}
+
+/* shiki 高亮的代码块：token 前景色默认是浅色主题的值（写在 span 的内联样式里），暗色下切到
+   --shiki-dark 变量（shiki 双主题产物自带，做法与渲染器的 .stream-markdown.dark 一致）；
+   背景统一用 muted —— !important 压掉 shiki 写在 pre 上的主题底色，高亮只贡献文字色。 */
+.help-prose pre.shiki {
+  background: var(--muted) !important;
+}
+
+.dark .help-prose pre.shiki,
+.dark .help-prose pre.shiki span {
+  color: var(--shiki-dark) !important;
+}
+
+.help-prose table {
+  font-size: 0.9375rem;
+}
+
+.help-prose th {
+  font-weight: 600;
+  text-align: left;
 }
 
 /* reka-ui 会注入一段无层级的样式，把 Select 下拉的滚动条隐藏（scrollbar-width:none + webkit display:none）。

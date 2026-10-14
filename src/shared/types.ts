@@ -163,6 +163,7 @@ export interface ModelProvider {
 export type WorkspaceTabKind =
   | 'settings'
   | 'guide'
+  | 'help'
   | 'userscript-list'
   | 'userscript-edit'
   | 'script-history'
