@@ -69,13 +69,6 @@ const selectedConversation = computed(
   () => conversations.value.find((c) => c.id === selectedId.value) ?? null
 )
 
-/** 开发者入口（设置 · 开发者分区的「会话数据」行）直达原始数据视图：宿主经 ref 调 */
-function showRawData(): void {
-  view.value = 'raw'
-}
-
-defineExpose({ showRawData })
-
 /** 拉列表；选中的会话若已不存在（本页删的 / 别处删的）就清空右侧 */
 async function loadList(): Promise<void> {
   try {

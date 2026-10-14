@@ -7,6 +7,7 @@ import {
   Clock as UiClock,
   Code as UiCode,
   Compass as UiCompass,
+  FolderTree as UiFolderTree,
   List as UiList,
   MessagesSquare as UiMessagesSquare,
   Pencil as UiPencil,
@@ -52,6 +53,8 @@ const emit = defineEmits<{
         <ui-code v-else-if="tab.kind === 'gm-api'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-messages-square v-else-if="tab.kind === 'session-history'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-clock v-else-if="tab.kind === 'tab-activity'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <!-- 文件管理：整库文件树，用目录树图标；不给它的话会落到兜底的齿轮，看着像「设置」 -->
+        <ui-folder-tree v-else-if="tab.kind === 'lfs-browser'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <!--
           未保存标记：夹在图标与标题之间，**不紧贴标题** —— 紧贴时不管什么颜色都会被读成名字的一部分

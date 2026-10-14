@@ -9,11 +9,30 @@
 // WebUI 后端 chrome.developerPrivate 程序化打开，随后重启扩展上下文（重载后
 // chrome.userScripts 才从 undefined 变为可用），并持久化 profile 后重新拉起验证。
 import { chromium, type BrowserContext, type Page, type Worker } from '@playwright/test'
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 
 /** E2E 只跑构建产物，不依赖 dev server */
 export const EXTENSION_PATH = resolve(fileURLToPath(new URL('../.output/chrome-mv3', import.meta.url)))
+
+/** 产物入口：判存在性用 manifest 而不是目录（空目录也「存在」） */
+const EXTENSION_MANIFEST = resolve(EXTENSION_PATH, 'manifest.json')
+
+/**
+ * 产物预检。缺产物时 Chromium 的 `--load-extension` 会**静默接受一个不存在的路径**，
+ * 症状是一批 spec 各自在 getServiceWorker 上等满 30s 超时（合计好几分钟）、
+ * 报错像「扩展崩了」——排查成本远高于在启动前拦一下。
+ */
+function assertExtensionBuilt(): void {
+  if (existsSync(EXTENSION_MANIFEST)) return
+  throw new Error(
+    `扩展产物不存在：${EXTENSION_MANIFEST}\n` +
+      '端测跑的是构建产物而非源码。从 `npm run test:e2e` 进来自动会构建；' +
+      '直接调 `npx playwright test` 时请先执行 `npm run build`。' +
+      '（产物落在 .output/chrome-mv3，该目录被 .gitignore 忽略。）',
+  )
+}
 
 /** userScripts 引导过程的探测记录（供断言与结论记录用） */
 export interface UserScriptsBootstrap {
@@ -36,6 +55,7 @@ export interface ExtensionContext {
 }
 
 export async function launchExtensionContext(userDataDir: string): Promise<BrowserContext> {
+  assertExtensionBuilt()
   return chromium.launchPersistentContext(userDataDir, {
     channel: 'chromium',
     headless: true,

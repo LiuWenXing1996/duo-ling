@@ -26,6 +26,7 @@ export type AgentToolName =
   | 'tab_record_read'
   | 'error_read'
   | 'run_log_read'
+  | 'image_ask'
 
 /** 运行时闸门：面板展示的阈值与运行时真身共用这一份（改这里即改行为，别再各写一份） */
 export const AGENT_RUNTIME_LIMITS = {
@@ -47,6 +48,12 @@ export const AGENT_RUNTIME_LIMITS = {
    * 超出部分不返回，由返回值里的 total 与已返回条数告知，别据此断定「就这些」。
    */
   runEventsReadMax: 200,
+  /**
+   * image_ask 单次识图调用的回答上限（token）。
+   * 识图子 Agent 的产出会**整段回到主对话上下文**里，不封顶等于让一次识图把主对话撑大；
+   * 而识图要的从来是「图上有什么」而不是一篇长文。
+   */
+  imageAskMaxOutputTokens: 800,
 } as const
 
 /** 工具 description 原文：**模型实际收到的就是这些字**，面板也展示这一份 */
@@ -114,6 +121,12 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
     '动作明细不随列表返回，一次拉一组。想聚焦某个脚本就传它的 uuid。' +
     '注意：运行日志只在用户给那一页打开「活动记录」（popup「当前页面」里那枚开关）时才产生 —— ' +
     '空结果既可能是没跑过，也可能是没开记录，别据此断定「脚本没运行」。',
+  image_ask:
+    '看消息里的某张图片并回答关于它的问题。**图片内容不在对话上下文里** —— ' +
+    '用户消息中的图片只留一行引用（形如「【图片 #<assetId>：<文件名>（…要看图请调 image_ask）】」），' +
+    '想看图、想引用图上的内容，只有调本工具这一条路；不看就回答等于瞎猜，不要假装看过。' +
+    '一次调用只答一个问题（不给 question 时给一张整体描述），所以请把要问的事一次问全：' +
+    '返回的是**文字**，不是图片，此后对话里也不会留下这份图。',
 }
 
 /** 参数 description 原文（zod `.describe()` 的文本，模型同样看得到）：UI 与运行时共用 */
@@ -143,6 +156,12 @@ export const TOOL_PARAM_DESCRIPTIONS = {
     runId:
       '拉这一次运行做过的事：从运行记录里取 runId 传进来，返回该次运行的动作明细' +
       '（传了它就不再返回运行行列表）',
+  },
+  image_ask: {
+    assetId: '消息里那行引用给出的图片 id（【图片 #××× …】里的那一串，原样照抄，别改写）',
+    question:
+      '想问这张图的什么。省略则要求一张整体描述。一次问全 —— 没有多轮追问，' +
+      '返回的是文字，之后你手里不会留下这张图',
   },
 } as const
 
@@ -390,6 +409,19 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
       'orphanErrors:[{ uuid, name, phase, message, stack?, url?, time }] }；' +
       '带 runId：{ ok:true, runId, total, events:[{ kind, detail, time }] }',
     unavailable: '未接查询通道 → { ok:false, error }；没有记录时数组为空（不是错误）',
+  },
+  {
+    name: 'image_ask',
+    title: '看图',
+    summary: '让识图子 Agent 看消息里某张图片并回答（图片本身不在上下文里）',
+    description: TOOL_DESCRIPTIONS.image_ask,
+    params: [
+      { name: 'assetId', type: 'string', required: true, desc: T.image_ask.assetId },
+      { name: 'question', type: 'string', required: false, desc: T.image_ask.question },
+    ],
+    returns: '{ ok:true, assetId, filename, answer } —— answer 是文字，图不会留在上下文里',
+    unavailable:
+      '资源已被清理 / assetId 写错 → { ok:false, error }；未接识图通道、或当前模型不支持读图 → { ok:false, error }',
   },
 ]
 

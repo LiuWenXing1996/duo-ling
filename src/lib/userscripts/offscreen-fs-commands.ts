@@ -4,9 +4,11 @@
 // SW 与扩展页读不到 lfs，源码的一切读写都经 fs:* 命令向本模块取，按 { ok, data | error } 信封回传。
 // 源码的**写**（统一保存）另走 state:save（offscreen-state-commands → project-write.saveSource）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
+import { parseDataUrl } from '@/lib/chat-assets'
 import { listHistory, readSource, readSnapshotAt, restoreToCommit } from './us-git'
 import { readLfsFile, readLfsTree } from './us-fs'
-import { buildScriptZip, bytesToBase64 } from './zip-transfer'
+import { putAsset, readAsset } from './us-assets'
+import { base64ToBytes, buildScriptZip, bytesToBase64 } from './zip-transfer'
 import { resolveConfigFromSource } from './metadata'
 import { defaultConfig } from './types'
 
@@ -54,5 +56,24 @@ export async function handleFsCommand(msg: FsRequest): Promise<unknown> {
     // 单文件预览：按完整路径读文件内容（含 .git 内部）
     case 'fs:lfsReadFile':
       return readLfsFile(msg.path)
+    // —— 对话资源库（/assets，与 /uscripts 平级）——
+    // 上传：data URL 过桥后拆回 (mime, base64)，落 /assets/<内容hash>/<文件名>。
+    // id 在 us-assets 里按内容现算（幂等由字节保证，不由调用方声明）；回传的 ref 即消息里那份引用。
+    case 'fs:assetPut': {
+      const { mediaType, base64 } = parseDataUrl(msg.dataUrl)
+      return putAsset({ filename: msg.filename, mediaType, bytes: base64ToBytes(base64) })
+    }
+    // 读回（面板 hydrate 显示 / 预览 / 下载）：对外只回 base64，内部不外泄 bytes
+    case 'fs:assetRead': {
+      const asset = await readAsset(msg.id)
+      if (!asset) return null
+      return {
+        id: asset.id,
+        filename: asset.filename,
+        mediaType: asset.mediaType,
+        size: asset.size,
+        base64: bytesToBase64(asset.bytes),
+      }
+    }
   }
 }

@@ -75,7 +75,7 @@ export interface LfsFileContent {
   truncated: boolean
   /** 'utf8' = 可读文本；'base64' = 二进制（content 为 base64 串） */
   encoding: 'utf8' | 'base64'
-  /** 是否二进制（UI 据此显示「不可预览」提示，不展示 content） */
+  /** 是否二进制（UI 据此不走文本渲染；图片仍可由 UI 解 content 的 base64 显示） */
   binary: boolean
   /** 文本为解码后的字符串；二进制为 base64 串 */
   content: string
@@ -110,7 +110,8 @@ function toBase64(bytes: Uint8Array): string {
 
 /**
  * 按完整路径读 lfs 库内单文件内容，**offscreen-only**（lfs 单实例约束）。
- * 文本文件原样解码 utf8 返回；二进制（含 .git 对象）返回 base64 + binary 标记，由 UI 提示不可预览。
+ * 文本文件原样解码 utf8 返回；二进制（含 .git 对象）返回 base64 + binary 标记，
+ * 图片类由 UI 用这份 base64 直接显示，其余二进制提示不可预览。
  * 超过 1MB 截断到前 1MB 并置 truncated（仍可看头部，如巨型打包文件）。
  */
 export async function readLfsFile(path: string): Promise<LfsFileContent> {

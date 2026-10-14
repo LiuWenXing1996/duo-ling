@@ -1,7 +1,8 @@
 // 对话编排宿主（整条对话链路跑在 offscreen，不做任务类型分流）。
 //
 // 职责：
-//   · streamText + tools（script_spec / script_find / script_list / script_read / script_apply）+ stopWhen(maxSteps=8)；
+//   · streamText + tools（script_spec / script_find / script_list / script_read / script_apply /
+//     image_ask）+ stopWhen(maxSteps=8)；
 //   · 事件缓冲（event-bus）+ 观察者推送（chat:chunk）+ 从头全量回放（chat:resume）；
 //   · 每步任务快照（task-store，覆盖写 + 心跳）→ 宿主被杀后可「继续 / 丢弃」；
 //   · 收敛后经 SW 落盘（userscript:createProject，单写方在 offscreen 侧的 state:createProject），
@@ -23,6 +24,7 @@ import {
 } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { AGENT_RUNTIME_LIMITS } from '@/lib/agent-tools-catalog'
+import { isAssetPart, messagesForModel } from '@/lib/chat-assets'
 import { appendMessage, listMessages } from '@/lib/conversation-store'
 import { toPersistedMessage, toUiMessage } from '@/lib/conversation-message'
 import { isPendingToolUIPart, textOfMessage } from '@/lib/ui-message-parts'
@@ -55,6 +57,7 @@ import {
 } from './system-prompt'
 import { buildScriptTools, type TaskWorkspace } from './script-tools'
 import { getTask, listRunningTasks, putTask, removeTask, type ChatTaskRecord } from './task-store'
+import { askImageAboutAsset } from './vision-agent'
 
 /** maxSteps 上限：沿用桌面版 agent-orchestrator 的 8。
  *  阈值取自 agent-tools-catalog（工作台「AI 工具」面板展示同一份，不再各写一份）。 */
@@ -100,13 +103,10 @@ const heartbeatTimer: unknown = setInterval(() => {
 // 正文 / 思考的拼接口径统一在 lib/ui-message-parts（读侧 ChatPanel 用同一份），
 // 这里不再各写一份：两处 drift 会让"落盘的 content"和"渲染的正文"对不上。
 
-/** 历史消息送模型前剥掉 data parts（data-generation / data-usage 是 UI 专用，不进模型上下文） */
-function stripDataParts(messages: UIMessage[]): UIMessage[] {
-  return messages.map((m) => ({
-    ...m,
-    parts: m.parts.filter((p) => !p.type.startsWith('data-')),
-  }))
-}
+/**
+ * 送模型前的收形口径在 lib/chat-assets（`messagesForModel`）—— 那里是「消息里怎么表达图片」
+ * 的唯一产地，且是纯函数（本模块只负责在开跑时调它一次）。
+ */
 
 /**
  * 静态扫描源码里的 GM 能力用法（生成卡片「会做什么」展示级软审查）。
@@ -382,6 +382,9 @@ async function runLoop(opts: {
     // reasoning+content 合成"的转换，是第二个转换点，已收敛（老数据不兼容是既定取舍）。
     const uiMessages =
       opts.messages ?? (await listMessages(conversationId)).map(toUiMessage)
+    // 本对话里有没有图片附件（决定 system prompt 要不要加「怎么看图」那一段）。
+    // 判据取消息里的资源引用 —— 与送模型时的替换口径同一个（见 messagesForModel）。
+    const hasAttachedImages = uiMessages.some((m) => m.parts.some(isAssetPart))
 
     // prompt 用的页面上下文：本请求的新鲜拾取优先，缺位回退历史里最近一次随消息附上的
     // （跨轮指代 / 重新生成 / 重开面板续聊都靠它接上；老快照不回注，见 mergePageContext）
@@ -406,6 +409,10 @@ async function runLoop(opts: {
       apiKey: profile.apiKey || 'not-needed',
       fetch: (_input, init) => fetch(profile.baseUrl, init),
     })
+
+    // 识图用的模型与主循环同一个（模型 id 相同、请求各自独立）——
+    // 「当前模型能不能读图」由服务端说了算，说不行就把错误原文交回模型
+    const visionModel = provider.chatModel(profile.model)
 
     const tools = buildScriptTools(
       workspace,
@@ -438,15 +445,19 @@ async function runLoop(opts: {
       // （tab_events 一张表），动作按 runId 单独拉 —— offscreen 都拿不到，全部经 SW 代读
       () => offscreenBridge.readRunLog(),
       (runId) => offscreenBridge.readRunEvents(runId),
+      // 识图（AI 的 image_ask）：主对话里只有图片引用，看图整条走这次独立调用。
+      // 用当前激活的模型 —— 它必须自己支持读图；不支持时错误原样回给模型，由它向用户说明。
+      // abortSignal 随主任务：主任务被停 / 超时，识图不该继续烧 token。
+      (assetId, question) => askImageAboutAsset(assetId, question, { model: visionModel, abortSignal: abort.signal }),
     )
 
     const result = streamText({
-      model: provider.chatModel(profile.model),
-      // 历史里的 data parts 不回传模型（UI 专用）
-      messages: await convertToModelMessages(stripDataParts(uiMessages)),
+      model: visionModel,
+      // 历史里的 data parts 不回传模型：资源引用换成一行文字引用，其余整条剥掉
+      messages: await convertToModelMessages(messagesForModel(uiMessages)),
       tools,
       stopWhen: stepCountIs(MAX_STEPS),
-      system: buildSystemPrompt(prompt, promptContext, continuing, prevScript, tabRecord),
+      system: buildSystemPrompt(prompt, promptContext, continuing, prevScript, tabRecord, hasAttachedImages),
       abortSignal: abort.signal,
       ...(profile.temperature != null ? { temperature: profile.temperature } : {}),
       ...(profile.topP != null ? { topP: profile.topP } : {}),
@@ -683,9 +694,10 @@ export async function startChat(msg: Extract<RuntimeRequest, { kind: 'chat:start
 
   const taskId = crypto.randomUUID()
   // 纯图片消息（只发了图、没写字）没有正文：系统提示里的「用户需求」会空着，
-  // 给个占位说明。图片本身在消息 parts 里，模型照常看得到。
+  // 给个占位说明。图片引用仍在消息 parts 里（送模型时换成一行 assetPlaceholderText），
+  // 模型据此知道「这条消息带了图、要看就调 image_ask」。
   const promptText = lastMessage ? textOfMessage(lastMessage) : ''
-  const prompt = promptText.trim() || (lastMessage?.parts.some((p) => p.type === 'file') ? '（见消息中的图片）' : '')
+  const prompt = promptText.trim() || (lastMessage?.parts.some(isAssetPart) ? '（见消息中的图片）' : '')
   await putTask({
     taskId,
     conversationId: msg.conversationId,

@@ -1,10 +1,17 @@
-// 对话附件的端测：把「选文件 → 压缩 → 发出去 → 落到模型请求里」这条链路在无头环境跑通。
+// 对话附件的端测：把「选文件 → 压缩 → 落资源库 → 发出去 → 落到模型请求里」这条链路在无头环境跑通。
+//
+// 本 spec 守的核心不变式只有一条：**图片字节永不进模型请求**。
+//   消息里挂的是一份 `data-asset` 引用（id + 文件名 + MIME + 大小，见 src/lib/chat-assets.ts），
+//   字节躺在 duoling-fs 的 `/assets/<内容hash>/`（见 src/lib/userscripts/us-assets.ts）；
+//   送模型前引用被换成一行文字（assetPlaceholderText），模型要看图只能调 image_ask。
+//   所以「请求体里出现 image_url / data:image」= 架构被改坏了，这里必须炸。
 //
 // 为什么必须端测（组件测试验不到）：
 //   · 图片压缩走 `createImageBitmap` + canvas，happy-dom 里没有这两个 —— 组件测试只能验
 //     「图片被放行 / 被拦下」，验不了真的压出可用的 data URL；
-//   · 「file part 会不会被转成模型认的 image_url」取决于 AI SDK 的 convertToModelMessages，
-//     那是跨层行为，只有让请求真的打到桩上才看得见（桩里能读到原始请求体）。
+//   · 「引用在送模型那一刻被换成什么」跨了面板 → offscreen → AI SDK 三层，
+//     只有让请求真的打到桩上才看得见（桩里能读到原始请求体）；
+//   · 落库与读回跨越 offscreen 的 lightning-fs，只有整条扩展跑起来才成立。
 // 真模型不会出现在 CI 里（没有 key、也不该为此花钱），所以用 `scripts/model-stub.mjs` 顶替。
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -16,7 +23,7 @@ import { startModelStub, type ModelStubHit } from '../scripts/model-stub.mjs'
 const APP_PAGE = 'floatpanel.html'
 
 /**
- * 生成一份**真能被解码**的 PNG 素材（2×2 纯色）。
+ * 生成一份**真能被解码**的 PNG 素材（纯色）。
  * 不要用硬编码的 base64 —— 手写的 1×1 PNG 片段看着像回事，浏览器一解就报
  * `InvalidStateError: The source image could not be decoded`，而失败点会落在压缩逻辑上，
  * 看起来像实现坏了。素材由同一个浏览器现产现用，编码差异不存在。
@@ -69,23 +76,60 @@ async function dropImage(page: Page, png: Buffer, name = 'dropped.png'): Promise
   )
 }
 
-/** 从 stub 收到的消息 content 里取出图片的 data URL（OpenAI 兼容形态） */
-function imageDataUrl(content: unknown): string {
-  const parts = Array.isArray(content) ? content : []
-  const part = parts.find((p) => (p as { type?: string })?.type === 'image_url')
-  return (part as { image_url?: { url?: string } } | undefined)?.image_url?.url ?? ''
-}
-
 /** 最后一次请求里最后一条 user 消息（附件就在它身上） */
 function lastUserMessage(hit: ModelStubHit | undefined): { content?: unknown } {
   const messages = hit?.messages ?? []
   return ([...messages].reverse().find((m) => m.role === 'user') ?? {}) as { content?: unknown }
 }
 
+/** 把 stub 收到的 content 拍平成一段文字（可能已是纯串，也可能是 part 数组） */
+function contentText(content: unknown): string {
+  if (typeof content === 'string') return content
+  const parts = Array.isArray(content) ? content : []
+  return parts.map((p) => (p as { text?: string })?.text ?? '').join('\n')
+}
+
+/** 最后一条 user 消息送给模型的文字 */
+function lastUserText(): string {
+  const streamed = stub.stub.hits.filter((h) => h.stream)
+  return contentText(lastUserMessage(streamed[streamed.length - 1]).content)
+}
+
+/** 断言请求体里没有任何图片字节的痕迹 —— 本 spec 的核心不变式 */
+function expectNoImageBytes(text: string): void {
+  expect(text, '图片不该以 image_url 形态发给模型').not.toContain('image_url')
+  expect(text, '图片字节不该出现在请求体里').not.toContain('data:image')
+  expect(text, '连 base64 的痕迹都不该有').not.toContain(';base64,')
+}
+
+/** 断言引用被换成了那一行文字（模型据此知道「有图，且要看图得调 image_ask」） */
+function expectAssetPlaceholder(text: string, filename: string): void {
+  expect(text, '引用应换成一行文字，而不是消失').toContain(`【图片 #`)
+  expect(text, `引用里应带上文件名（${filename}）`).toContain(`：${filename}`)
+  expect(text, '必须把取图的路告诉模型').toContain('image_ask')
+  expect(text, 'assetId 必须是完整的 64 位内容 hash').toMatch(/【图片 #[0-9a-f]{64}：/)
+}
+
+/** 气泡里的缩略图（字节是面板按引用现取回来的，不是消息里带的） */
+function thumbnail(page: Page) {
+  return page.locator('[data-testid="message-images"] img')
+}
+
+/** 等缩略图 hydrate 完成并取出它的 data URL */
+async function thumbDataUrl(page: Page): Promise<string> {
+  await expect(thumbnail(page), '气泡里应出现缩略图').toHaveCount(1)
+  await expect(thumbnail(page), '缩略图应由资源库取回（重编码统一 jpeg）').toHaveAttribute(
+    'src',
+    /^data:image\/jpeg/,
+  )
+  return (await thumbnail(page).getAttribute('src')) ?? ''
+}
+
+let stub: Awaited<ReturnType<typeof startModelStub>>
+
 test.describe.serial('对话附件（本地模型 stub）', () => {
   let context: BrowserContext | undefined
   let profileDir = ''
-  let stub: Awaited<ReturnType<typeof startModelStub>>
 
   test.beforeAll(async () => {
     profileDir = mkdtempSync(join(tmpdir(), 'duoling-attach-e2e-'))
@@ -121,11 +165,17 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     )
   }
 
-  test('图片：选图 → 压缩成 jpeg data URL → 以 image_url 进模型请求，并在气泡里回显', async () => {
+  /** 开一个配好模型的浮层页 */
+  async function openPanel(): Promise<Page> {
     const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
     const page = await context!.newPage()
     await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
     await configureModel(page)
+    return page
+  }
+
+  test('图片：选图 → 压缩成 jpeg 落资源库 → 消息里只留引用，模型拿到一行文字', async () => {
+    const page = await openPanel()
 
     // 附件入口：说明里可以发图片
     const entry = page.locator('[data-testid="add-attachment-button"]')
@@ -142,27 +192,46 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     const box = page.getByRole('textbox').first()
     await box.fill('看看这张图')
     await box.press('Enter')
-
     await expect(page.getByText(/stub 回复：/), '整条链路应跑完').toBeVisible({ timeout: 25_000 })
 
-    // ① 图片确实到了模型请求里，且是**压缩重编码后**的 jpeg（原始是 png —— 这条同时证明了压缩真的跑了）
-    const streamed = stub.stub.hits.filter((h) => h.stream)
-    const sent = JSON.stringify(lastUserMessage(streamed[streamed.length - 1]).content)
-    expect(sent, '图片要以 image_url 形态进请求').toContain('image_url')
-    expect(sent, '压缩统一输出 jpeg，所以不会是原始 png').toContain('data:image/jpeg')
+    // ① 核心不变式：请求体里没有图片字节，只有一行引用
+    const text = lastUserText()
+    expectNoImageBytes(text)
+    expect(text, '正文照常发出').toContain('看看这张图')
+    // 落库时扩展名按真实 MIME 归一：原图是 png，进库的是重编码后的 jpeg ⇒ 名字变 shot.jpg
+    expectAssetPlaceholder(text, 'shot.jpg')
 
-    // ② 落盘回显：气泡里能看到缩略图（data URL 随 parts 存进了会话库）
-    const thumb = page.locator('[data-testid="message-images"] img')
-    await expect(thumb).toHaveCount(1)
-    await expect(thumb).toHaveAttribute('src', /^data:image\/jpeg/)
+    // ② 落盘回显：气泡里的缩略图由面板按引用**回资源库取回**（消息里没有字节）
+    await thumbDataUrl(page)
+    await page.close()
+  })
+
+  test('刷新面板：缩略图仍能出来 ⇒ 字节确实在资源库里，不在消息里', async () => {
+    const page = await openPanel()
+
+    await page.setInputFiles('input[type="file"]', {
+      name: 'shot.png',
+      mimeType: 'image/png',
+      buffer: await makePngBuffer(page, 8, 8),
+    })
+    const box = page.getByRole('textbox').first()
+    await box.fill('刷新前后都该看得见')
+    await box.press('Enter')
+    await expect(page.getByText(/stub 回复：/)).toBeVisible({ timeout: 25_000 })
+    await thumbDataUrl(page)
+
+    // 刷新 ⇒ 面板从会话库读回消息（里面只有引用），再去资源库取字节。
+    // 消息里一旦混进过字节，这条会以另一种方式失效；而资源库若没真落盘，缩略图就出不来。
+    await page.reload()
+    // 等 AI 那轮回复重新渲染出来。锚点不能取用户原话 —— 那句话同时出现在会话标题栏
+    // 与假模型的回显里（stub 会复述最后一条 user 文本），getByText 会撞 strict mode。
+    await expect(page.getByText(/stub 回复：/), '刷新后历史消息还在').toBeVisible({ timeout: 20_000 })
+    await thumbDataUrl(page)
     await page.close()
   })
 
   test('文本文件：内容拼进正文（带文件名围栏）随消息发出', async () => {
-    const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
-    const page = await context!.newPage()
-    await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    await configureModel(page)
+    const page = await openPanel()
 
     await page.setInputFiles('input[type="file"]', {
       name: 'notes.md',
@@ -175,21 +244,17 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
 
     await expect(page.getByText(/stub 回复：/)).toBeVisible({ timeout: 25_000 })
 
-    const streamed = stub.stub.hits.filter((h) => h.stream)
-    const text = JSON.stringify(lastUserMessage(streamed[streamed.length - 1]).content)
+    const text = lastUserText()
     expect(text).toContain('读一下附件')
     expect(text, '文本附件以带文件名的围栏进正文').toContain('【附件：notes.md】')
     expect(text).toContain('这条来自附件')
-    // 只带文本文件时不该混进图片
-    expect(text).not.toContain('image_url')
+    // 只带文本文件时不该混进图片痕迹
+    expectNoImageBytes(text)
     await page.close()
   })
 
   test('同一轮里图片与文本文件并存：两条通路互不干扰', async () => {
-    const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
-    const page = await context!.newPage()
-    await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    await configureModel(page)
+    const page = await openPanel()
 
     await page.setInputFiles('input[type="file"]', [
       { name: 'shot.png', mimeType: 'image/png', buffer: await makePngBuffer(page, 4, 4) },
@@ -205,22 +270,18 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     await box.press('Enter')
     await expect(page.getByText(/stub 回复：/)).toBeVisible({ timeout: 25_000 })
 
-    const content = lastUserMessage(stub.stub.hits.filter((h) => h.stream).at(-1)).content
-    const parts = Array.isArray(content) ? (content as Array<{ type?: string, text?: string }>) : []
-    const text = parts.find((p) => p.type === 'text')?.text ?? ''
-    // 文本附件进正文（带围栏），图片仍以 image_url 单独走 —— 两条路各归各的
+    const text = lastUserText()
+    // 文本附件进正文（带围栏），图片换成一行引用 —— 两条路各归各的
     expect(text).toContain('图是界面，日志在附件里')
     expect(text).toContain('【附件：err.log】')
     expect(text).toContain('ERROR 第一行')
-    expect(JSON.stringify(content)).toContain('image_url')
+    expectNoImageBytes(text)
+    expectAssetPlaceholder(text, 'shot.jpg')
     await page.close()
   })
 
   test('纯图提问：不写字也能发出去（消息正文允许为空）', async () => {
-    const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
-    const page = await context!.newPage()
-    await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    await configureModel(page)
+    const page = await openPanel()
 
     await page.setInputFiles('input[type="file"]', {
       name: 'only-image.png',
@@ -233,17 +294,15 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     await expect(page.getByText(/stub 回复：/), '纯图消息应照常跑完（链路不要求正文非空）').toBeVisible({
       timeout: 25_000,
     })
-    const streamed = stub.stub.hits.filter((h) => h.stream)
-    const content = JSON.stringify(lastUserMessage(streamed[streamed.length - 1]).content)
-    expect(content, '没有文字也要把图片发出去').toContain('image_url')
+    const text = lastUserText()
+    // 没有正文，那这一行引用就是模型收到的全部内容 —— 它必须在这里
+    expectAssetPlaceholder(text, 'only-image.jpg')
+    expectNoImageBytes(text)
     await page.close()
   })
 
   test('粘贴图片（Ctrl+V）与拖拽进输入框：两条真实路径都能带图发出', async () => {
-    const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
-    const page = await context!.newPage()
-    await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    await configureModel(page)
+    const page = await openPanel()
     const png = await makePngBuffer(page, 4, 4)
 
     // ① 粘贴
@@ -261,16 +320,14 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     await box.press('Enter')
     await expect(page.getByText(/stub 回复：/)).toBeVisible({ timeout: 25_000 })
 
-    const streamed = stub.stub.hits.filter((h) => h.stream)
-    expect(JSON.stringify(lastUserMessage(streamed[streamed.length - 1]).content)).toContain('image_url')
+    const text = lastUserText()
+    expectAssetPlaceholder(text, 'dropped.jpg')
+    expectNoImageBytes(text)
     await page.close()
   })
 
   test('大图会被压到长边上限（不只是换了格式，尺寸真的降下来）', async () => {
-    const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
-    const page = await context!.newPage()
-    await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    await configureModel(page)
+    const page = await openPanel()
 
     // 3000×2000 的纯色图：PNG 本身很小（纯色压得动），但像素尺寸必须被压下来
     await page.setInputFiles('input[type="file"]', {
@@ -283,9 +340,9 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     await box.press('Enter')
     await expect(page.getByText(/stub 回复：/)).toBeVisible({ timeout: 25_000 })
 
-    const streamed = stub.stub.hits.filter((h) => h.stream)
-    const dataUrl = imageDataUrl(lastUserMessage(streamed[streamed.length - 1]).content)
-    expect(dataUrl, '压缩后的图应在请求体里').not.toBe('')
+    // 压缩后的字节取不到「从请求体里读」那条路了（字节本就不该进请求）——
+    // 改从气泡缩略图拿：它就是资源库里那份压缩后的原图，量的还是同一份数据
+    const dataUrl = await thumbDataUrl(page)
 
     // 在页面里解码收到的 data URL，量真实像素（等比缩放：3000×2000 → 1568×1045）
     const size = await page.evaluate(async (url) => {
@@ -300,10 +357,7 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
   })
 
   test('点气泡里的缩略图：面板内弹出大图 + 下载，不开新标签', async () => {
-    const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
-    const page = await context!.newPage()
-    await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    await configureModel(page)
+    const page = await openPanel()
 
     await page.setInputFiles('input[type="file"]', {
       name: 'shot.png',
@@ -314,6 +368,7 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     await box.fill('看一眼')
     await box.press('Enter')
     await expect(page.getByText(/stub 回复：/)).toBeVisible({ timeout: 25_000 })
+    await thumbDataUrl(page)
 
     const pagesBefore = context!.pages().length
     await page.locator('[data-testid="preview-image"]').click()
@@ -321,7 +376,8 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     const dialog = page.locator('[data-testid="image-preview"]')
     await expect(dialog, '应在面板内弹出预览').toBeVisible()
     await expect(dialog.locator('img')).toHaveAttribute('src', /^data:image\/jpeg/)
-    await expect(dialog.locator('[data-testid="download-image"]')).toHaveAttribute('download', 'shot.png')
+    // 下载名取自引用（落库时扩展名已按真实 MIME 归一），不是用户原始文件名
+    await expect(dialog.locator('[data-testid="download-image"]')).toHaveAttribute('download', 'shot.jpg')
 
     // 关键：没有新标签被打开 —— data: 不允许顶层导航，这正是走面板内弹窗的原因
     await page.waitForTimeout(400)

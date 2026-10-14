@@ -23,7 +23,7 @@
 // 生命周期：每扩展同时只能有一份；不主动关就一直活着，但**关窗口 / 扩展重载 / 浏览器崩溃
 // 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（→ offscreen-chat/task-store.ts）。
 //
-// 命令面：fs:*（源码库 duoling-fs 的读写）/ state:*（注册态库写侧）/
+// 命令面：fs:*（源码库 duoling-fs 的读写 + 对话资源库 /assets）/ state:*（注册态库写侧）/
 // conv:*（会话写侧，唯一写方）/ chat:*（对话编排）。
 
 import '@/polyfills'
@@ -47,6 +47,11 @@ import {
   deleteConversation,
   renameConversation,
 } from '@/lib/conversation-store'
+import {
+  assetIdsOf,
+  releaseAllAssets,
+  releaseUnreferencedAssets,
+} from '@/lib/offscreen-chat/asset-lifecycle'
 import { refreshActiveProfile } from '@/lib/offscreen-chat/profile-cache'
 
 /** 就绪握手：告知 SW 容器已起（SW 侧据此确认状态、排查启动问题） */
@@ -100,10 +105,21 @@ async function handleConvCommand(msg: RuntimeRequest): Promise<unknown> {
       return createConversation()
     case 'conv:rename':
       return renameConversation(msg.id, msg.title)
-    case 'conv:delete':
-      return deleteConversation(msg.id)
-    case 'conv:deleteAll':
-      return deleteAllConversations()
+    // 删会话连带回收图片资源：候选要**在删之前**取（删完就读不到这些消息了），
+    // 回收本身放在删之后（那时引用面才是「删完的真相」）。回收失败不影响删会话 ——
+    // 用户要的结果已经达成，留下的图最多是垃圾，下次再收（见 asset-lifecycle 文件头）。
+    case 'conv:delete': {
+      const candidates = await assetIdsOf(msg.id)
+      await deleteConversation(msg.id)
+      await releaseUnreferencedAssets(candidates).catch(() => {})
+      return undefined
+    }
+    // 清空全部会话 = 引用面必然为空，整库删
+    case 'conv:deleteAll': {
+      await deleteAllConversations()
+      await releaseAllAssets().catch(() => {})
+      return undefined
+    }
     default:
       throw new Error(`未知会话命令：${(msg as { kind: string }).kind}`)
   }

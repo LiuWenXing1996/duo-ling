@@ -1,28 +1,32 @@
-// 对话附件落地的唯一处理点：把用户选中的文件转成「能真正进模型」的东西。
+// 对话附件落地的唯一处理点：把用户选中的文件转成「能真正带进这条消息」的东西。
 //
-// 模型侧只认图片，别的格式都得先在本地变成文本 —— 于是分两条路：
-//   · 图片   → 画布重编码成 JPEG 的 data URL，作为 file part 随消息走。
-//     为什么必须压：原始截图动辄 1~3MB，而这条消息的 parts 会原样存进会话库，
-//     且**每轮对话都会重新发给模型** —— 不压就是存储与 token 双份开销。
+// 两条路：
+//   · 图片 → 画布重编码成 JPEG，再**落到资源库**（`/assets/<内容hash>/`，见 lib/userscripts/us-assets），
+//     消息里只留一份 `data-asset` 引用（形状见 lib/chat-assets）。
+//     为什么要压：这张图会被送去**识图调用**（见 offscreen-chat/vision-agent），
+//     原始截图动辄 1~3MB，不压就是白烧识图 token、白占库。
+//     为什么不进消息：消息 parts 会原样存进会话库、且每轮对话都整段重发 ——
+//     图片一旦作为字节躺在 parts 里，就是存储与 token 的双份开销（见 chat-assets 文件头）。
 //   · 文本文件（.txt / .md / .json / .csv 这类）→ 读成文本拼进正文。
 //     没法当文件发（OpenAI 兼容接口不支持任意文件上传），只能进提示词。
 //
-// 一个反直觉但重要的约束：压缩必须在**发出前**完成。图片一旦随 user 消息落盘，
-// 它就是历史的一部分、每轮都会被重发，事后再想「换张小的」已经改不动了。
+// 一个反直觉但重要的约束：重编码必须在**发出前**完成。资源一旦落库、引用一旦进消息，
+// 它就是历史的一部分了，事后再想「换张小的」得连带改引用。
+import type { ChatAssetRef } from '@/lib/chat-assets'
 
 /** 单张图片的原始大小上限（压缩前）；超出直接拒收并提示 */
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
-/** 单条消息最多附件数：图片会随每条消息重发给模型，数量本身就是持续的 token 成本 */
+/** 单条消息最多附件数 */
 export const MAX_ATTACHMENTS = 4
 
 /** 文本文件读入上限（字符数）：超出截断并在正文里留标记，避免一条消息把上下文撑爆 */
 export const MAX_TEXT_CHARS = 64 * 1024
 
-/** 压缩后的长边上限（像素）：再大对模型识别没帮助，只是白烧 token */
+/** 重编码后的长边上限（像素）：与各家视觉接口的建议上限对齐，再大对识别没帮助，只是白烧 token */
 const MAX_IMAGE_EDGE = 1568
 
-/** 压缩后的 JPEG 质量 */
+/** 重编码后的 JPEG 质量 */
 const JPEG_QUALITY = 0.85
 
 /** 图片扩展名（mediaType 缺失时按文件名兜底判断） */
@@ -53,20 +57,20 @@ export interface IncomingAttachment {
   file?: File
 }
 
-/** 处理结果：图片 part、要拼进正文的文本块，以及被跳过的附件（需告知用户） */
+/**
+ * 落库入口（面板注入 `fsClient.assetPut`）。
+ *
+ * 注入而非直接 import：本模块是纯函数（无 chrome / 无网络依赖），单测直接喂一个假 uploader 即可；
+ * 且 id 由内容在 offscreen 侧现算，这里只负责把 data URL 递过去、拿回那份引用。
+ */
+export type AssetUploader = (dataUrl: string, filename: string) => Promise<ChatAssetRef>
+
+/** 处理结果：资源引用、要拼进正文的文本块，以及被跳过的附件（需告知用户） */
 export interface PreparedAttachments {
-  images: PreparedImage[]
+  assets: ChatAssetRef[]
   textBlocks: string[]
   /** 被跳过的附件说明（文件名 + 原因），供界面提示 */
   skipped: string[]
-}
-
-/** 可直接进模型的图片（与 FileUIPart 同形，单独声明免得 lib 依赖 ai 的运行时类型） */
-export interface PreparedImage {
-  type: 'file'
-  mediaType: string
-  filename: string
-  url: string
 }
 
 /** 按 mediaType（缺失时按扩展名）判断是不是图片 */
@@ -107,13 +111,13 @@ export function composeMessageText(text: string, blocks: string[]): string {
 }
 
 /**
- * 图片压缩：长边降到上限以内、重编码为 JPEG 的 data URL。
+ * 图片重编码：长边降到上限以内、输出 JPEG 的 data URL（交出去落库，不进消息）。
  *
- * 统一输出 JPEG 是取「各家服务端的接受交集」：PNG 压不动体积，WebP 有相当一批
+ * 统一输出 JPEG 是取「各家视觉接口的接受交集」：PNG 压不动体积，WebP 有相当一批
  * OpenAI 兼容服务不认。代价是丢掉透明通道 —— 这里铺白底而非放任它变黑，
  * 对截图 / 设计稿这类场景没有影响。
  */
-async function compressImage(file: File): Promise<PreparedImage> {
+async function reencodeImage(file: File): Promise<{ filename: string; dataUrl: string }> {
   const bitmap = await createImageBitmap(file)
   try {
     const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height))
@@ -130,12 +134,7 @@ async function compressImage(file: File): Promise<PreparedImage> {
     ctx.fillRect(0, 0, width, height)
     ctx.drawImage(bitmap, 0, 0, width, height)
 
-    return {
-      type: 'file',
-      mediaType: 'image/jpeg',
-      filename: file.name,
-      url: canvas.toDataURL('image/jpeg', JPEG_QUALITY),
-    }
+    return { filename: file.name, dataUrl: canvas.toDataURL('image/jpeg', JPEG_QUALITY) }
   } finally {
     bitmap.close()
   }
@@ -149,8 +148,9 @@ async function compressImage(file: File): Promise<PreparedImage> {
  */
 export async function prepareAttachments(
   attachments: IncomingAttachment[],
+  upload: AssetUploader,
 ): Promise<PreparedAttachments> {
-  const images: PreparedImage[] = []
+  const assets: ChatAssetRef[] = []
   const textBlocks: string[] = []
   const skipped: string[] = []
 
@@ -158,28 +158,29 @@ export async function prepareAttachments(
     const name = attachment.filename?.trim() || '未命名附件'
 
     if (isImageAttachment(attachment)) {
-      if (!attachment.file) {
-        // 拿不到原始文件就退回它已有的 data URL（submitForm 已经把 blob 转过一次）
-        if (attachment.url?.startsWith('data:')) {
-          images.push({
-            type: 'file',
-            mediaType: attachment.mediaType || 'image/jpeg',
-            filename: name,
-            url: attachment.url,
-          })
-        } else {
-          skipped.push(`${name}：无法读取图片`)
+      let dataUrl = ''
+      if (attachment.file) {
+        if (attachment.file.size > MAX_IMAGE_BYTES) {
+          skipped.push(`${name}：超过 ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)}MB 上限`)
+          continue
         }
-        continue
-      }
-      if (attachment.file.size > MAX_IMAGE_BYTES) {
-        skipped.push(`${name}：超过 ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)}MB 上限`)
+        try {
+          dataUrl = (await reencodeImage(attachment.file)).dataUrl
+        } catch {
+          skipped.push(`${name}：图片处理失败`)
+          continue
+        }
+      } else if (attachment.url?.startsWith('data:')) {
+        // 拿不到原始文件就退回它已有的 data URL（submitForm 已经把 blob 转过一次）
+        dataUrl = attachment.url
+      } else {
+        skipped.push(`${name}：无法读取图片`)
         continue
       }
       try {
-        images.push(await compressImage(attachment.file))
+        assets.push(await upload(dataUrl, name))
       } catch {
-        skipped.push(`${name}：图片处理失败`)
+        skipped.push(`${name}：存入资源库失败`)
       }
       continue
     }
@@ -202,5 +203,5 @@ export async function prepareAttachments(
     }
   }
 
-  return { images, textBlocks, skipped }
+  return { assets, textBlocks, skipped }
 }

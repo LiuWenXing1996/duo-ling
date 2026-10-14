@@ -12,22 +12,19 @@ import type { WorkspaceTabKind } from '@/shared/types'
 
 const emit = defineEmits<{
   openTab: [kind: WorkspaceTabKind, title: string]
-  /** 「会话数据」特例：没有独立标签页了，开的是会话历史标签页的「原始数据」视图（宿主转发） */
-  openSessionData: []
 }>()
 
 /** 面板清单：顺序即渲染顺序；label 同时是标签页标题，宿主不再各写一份。
- * 「会话数据」是唯一的特例行——kind 'session-data' 不是 WorkspaceTabKind，只作本清单的行键。 */
-const DEV_PANELS: { kind: WorkspaceTabKind | 'session-data'; label: string }[] = [
-  { kind: 'lfs-browser', label: '脚本文件' },
-  { kind: 'session-data', label: '会话数据' },
+ * 「文件管理」不在这里：它已提为左侧导航的一项（宿主 openLfsTab）。
+ * 「会话数据」也已摘掉：它开的本来就是会话历史标签页的「原始数据」视图，那个视图在会话历史里
+ * 自己就能切（右栏 回放 / 原始数据 双视图），这里再放一条入口只是条捷径。 */
+const DEV_PANELS: { kind: WorkspaceTabKind; label: string }[] = [
   { kind: 'agent-tools', label: 'AI 工具' },
   { kind: 'gm-api', label: 'GM API' },
 ]
 
-function openPanel(kind: WorkspaceTabKind | 'session-data', label: string): void {
-  if (kind === 'session-data') emit('openSessionData')
-  else emit('openTab', kind, label)
+function openPanel(kind: WorkspaceTabKind, label: string): void {
+  emit('openTab', kind, label)
 }
 
 /** 通知图标（与工具栏同源，复用 auto-icons 构建生成的 icons/128.png） */
