@@ -223,6 +223,9 @@ const FLOAT_HOST_ID = 'dl-float-host'
  * 这个抢跑窗口真实存在、且**不能靠消息探活兜**：同一段链里页面检查器注册得更早（见
  * engine.ts 的 runRegisterAllEnabled），它也在这一页上收 `tabs.sendMessage` —— 于是「发消息没抛错」
  * 既可能来自浮层宿主，也可能只来自检查器，判不出来（这也是探活要看**应答**、不看通道的由来）。
+ *
+ * 过了这一道也还不等于「这一页上就能注入」：入册到 Chrome 侧生效之间另有一段窗口，那是
+ * openFloatPage 重载兜底要处理的事。
  */
 async function waitForFloatHostRegistered(sw: Worker): Promise<void> {
   await expect
@@ -258,6 +261,11 @@ async function pingFloatHost(sw: Worker, tabId: number): Promise<boolean> {
  *
  * 三步的顺序就是这条链路的顺序要求：注册早于开页（否则这一页上永远没有宿主件），开页早于探活
  * （否则问的是上一张页）。判据取探活而非「消息发得出去」的理由见 waitForFloatHostRegistered。
+ *
+ * 探活不通就**重载一次再来**：件进了注册表，Chrome 侧「把这条注册同步到自动注入」还有一段窗口
+ * （冷启动的 context 上最容易撞上，真机上同一个窗口的表现就是「刷新一下就能开」）。注入只在页面
+ * 开始加载那一刻发生，这一页错过了就补不回来 —— 所以是重载，不是多等一会儿。重载后仍不通才按
+ * 真失败报：那时不该再赖这个窗口。
  */
 async function openFloatPage(
   context: BrowserContext,
@@ -269,12 +277,20 @@ async function openFloatPage(
   await page.goto(url)
   const [tabId] = await tabIdsOf(sw, url)
   expect(tabId, '探针页的 tabId 应能反查到').toBeGreaterThan(0)
-  await expect
-    .poll(() => pingFloatHost(sw, tabId!), {
-      timeout: 15_000,
-      message: '浮层宿主没应答：这一页加载时它还没注册（或引擎引导失败）',
-    })
-    .toBe(true)
+
+  /** 探活到有应答为止；到点没应答就抛，由调用方决定要不要重载 */
+  const pingUntilReady = async (message: string): Promise<void> => {
+    await expect
+      .poll(() => pingFloatHost(sw, tabId!), { timeout: 15_000, message })
+      .toBe(true)
+  }
+
+  try {
+    await pingUntilReady('浮层宿主没应答：这一页加载时它还没注册（或引擎引导失败）')
+  } catch {
+    await page.reload()
+    await pingUntilReady('浮层宿主没应答：重载后仍没注入 —— 不是冷启动那个同步窗口了')
+  }
   return { page, tabId: tabId! }
 }
 
