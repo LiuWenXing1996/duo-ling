@@ -6,7 +6,7 @@
 //     后续的会话类断言（见 conversation-scope.spec.ts）可以建在它上面。
 //   · 在此之前，CI 里**没有任何**用例真正跑过对话链路（只有 SW 命令面 / 注入面 / 页面加载）。
 //
-// 做法：起一个 OpenAI 兼容的假模型服务（`e2e/model-stub.ts`），经 `window.api.model.save`
+// 做法：起一个 OpenAI 兼容的假模型服务（`scripts/model-stub.mjs`），经 `window.api.model.save`
 // 存进配置并激活（就是设置页走的那条路）——回复内容由我们写死，故断言确定、零成本、零网络。
 // 真模型不会出现在 CI 里：没有 key、不该为此花钱、回复不确定。
 import { test, expect, type BrowserContext } from '@playwright/test'
@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extensionIdFromServiceWorker, getServiceWorker, launchExtensionContext } from './extension'
-import { startModelStub } from './model-stub'
+import { startModelStub } from '../scripts/model-stub.mjs'
 
 /** 浮层页（`installWindowApi()` 在这里挂上 window.api，设置页同源） */
 const APP_PAGE = 'floatpanel.html'
@@ -87,6 +87,38 @@ test.describe.serial('对话链路（本地模型 stub）', () => {
     const streamed = stub.stub.hits.filter((h) => h.stream)
     expect(streamed.length, '真链路走流式').toBeGreaterThanOrEqual(1)
     expect(streamed[streamed.length - 1]?.lastUser, 'stub 收到了我们发的那句话').toContain('你好')
+    // baseUrl 就是完整端点地址、原样发出。SDK 默认会把 baseURL 与固定的 /chat/completions 拼起来，
+    // 若那层拼接没被 fetch 覆盖挡住，这里会看到 /chat/completions/chat/completions。
+    expect(streamed[streamed.length - 1]?.url, '地址原样发出，没有被二次拼接').toBe('/chat/completions')
+
+    // 用量看门：stub 在流末发一片「choices 空数组 + usage」，SDK 取走它写进 finish 事件，
+    // chat-host 再推成 data-usage part 并落盘到 message.usage。三环断掉任一环，这里都读不到正数。
+    const readUsage = async (): Promise<number> =>
+      await page.evaluate(async () => {
+        const api = (
+          window as unknown as {
+            api: {
+              conversation: {
+                list: () => Promise<Array<{ id: string }>>
+                messages: (
+                  id: string,
+                ) => Promise<Array<{ role: string; usage?: { totalTokens?: number } }>>
+              }
+            }
+          }
+        ).api
+        const list = await api.conversation.list()
+        if (!list.length) return 0
+        const msgs = await api.conversation.messages(list[0]!.id)
+        return msgs.find((m) => m.role === 'assistant')?.usage?.totalTokens ?? 0
+      })
+
+    await expect
+      .poll(readUsage, {
+        timeout: 10_000,
+        message: '用量应随 assistant 消息落盘（stub 末片的 usage 被 SDK 取到、再由 chat-host 写进 data-usage）',
+      })
+      .toBeGreaterThan(0)
     await page.close()
   })
 })

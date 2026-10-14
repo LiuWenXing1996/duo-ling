@@ -165,7 +165,7 @@ export default defineConfig({
     ],
     // 在线模型走 OpenAI 兼容接口，需要扩展页跨域 fetch，必须声明对应 host 权限。
     // 由服务商预设表推导（src/lib/providers.ts），避免申请不必要的全域权限；
-    // 自定义接口地址的按需授权后续用 optional_host_permissions 动态申请。
+    // 自定义端点的任意地址由下面那句 <all_urls> 一并覆盖（用户脚本注入本就要求它），无需动态申请。
     // 用户脚本管理器（userscript-manager）：userScripts 注入目标网页需全域 host 权限
     // （Chrome 文档明确要求），同时覆盖 GM_xmlhttpRequest 的跨域可达范围。
     host_permissions: [...providerOrigins(), '<all_urls>'],

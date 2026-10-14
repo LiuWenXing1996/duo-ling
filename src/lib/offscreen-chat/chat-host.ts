@@ -396,13 +396,15 @@ async function runLoop(opts: {
     // 本轮任务里**工具中途推的 data part**（同意卡）：收尾时插进落盘序列。
     // 不收集就只在流里闪一下——重开面板时卡片消失，而卡片恰是用户唯一的操作入口
     // （刷新页面后浮窗会关，用户回来就靠历史里这张卡开关录制）。数组声明在 try 之外，见上。
-    const baseURL = profile.useFullUrl
-      ? profile.baseUrl.replace(/\/chat\/completions\/?$/i, '')
-      : profile.baseUrl
+    // profile.baseUrl 就是完整端点地址，原样请求。SDK 必然把 baseURL 与固定的 /chat/completions
+    // 拼起来，而 provider 的 url 是闭包写死的、settings 层改不动（languageModel 的第二参数在
+    // 3.0.48 的实现里被直接丢弃），唯一可插手的公开出口是 settings 的 fetch —— 在此把地址固定回
+    // profile.baseUrl，SDK 拼出的那个 URL 只是被我们丢弃的形式参数。
     const provider = createOpenAICompatible({
       name: 'openaiCompatible',
-      baseURL,
+      baseURL: profile.baseUrl,
       apiKey: profile.apiKey || 'not-needed',
+      fetch: (_input, init) => fetch(profile.baseUrl, init),
     })
 
     const tools = buildScriptTools(

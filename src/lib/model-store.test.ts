@@ -6,7 +6,9 @@
 //   · activeProfileId 始终指向一条存在的配置，唯一收敛点是 syncActiveProfileId；
 //   · 读路径对**悬空**的 activeProfileId 自愈回写一次，此后不再事后兜底；
 //   · apiKey 不落明文：写盘只有密文载荷，明文只经 getActiveProfileState 过界；
-//   · 编辑时 apiKey 留空 = 保留原 Key（不是清空）；baseUrl 末尾斜杠在写入时剥离。
+//   · 编辑时 apiKey 留空 = 保留原 Key（不是清空）；
+//   · baseUrl 即**完整端点地址**，原样存（不再拼接路径，也就没有末尾斜杠剥离）；
+//   · 老数据存的是「基址」，读取时一次性迁移为完整端点地址（见 migrateEndpointBaseUrls）。
 //
 // 手法：fake-indexeddb 提供全局 indexedDB；真跑 key-cipher 的 AES-GCM 往返，
 // 因此能直接断言「落盘里搜不到明文」。整体 mock 掉 data-broadcast，并把
@@ -45,12 +47,14 @@ function input(overrides: Partial<ModelProfileInput> = {}): ModelProfileInput {
   }
 }
 
-/** 直接写库：造老数据 / 悬空状态，绕过 saveProfile 的规范化 */
+/** 直接写库：造老数据 / 悬空状态，绕过 saveProfile 的规范化。
+ *  刻意保留 useFullUrl —— 那是老数据的真实形态（字段已删），顺带验迁移会把它清掉。 */
 function rawProfile(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 'p1',
     name: '模型 A',
     providerId: '',
+    // 老数据的 baseUrl 是基址（不带 /chat/completions），正是迁移的输入
     baseUrl: 'https://api.example.com',
     model: 'm-a',
     useFullUrl: false,
@@ -177,6 +181,62 @@ describe('读路径自愈：悬空的 activeProfileId', () => {
   })
 })
 
+describe('一次性迁移：基址 → 完整端点地址', () => {
+  it('老数据的基址被补上 /chat/completions，且落盘', async () => {
+    await appDb.set(KEY, {
+      profiles: [rawProfile({ baseUrl: 'https://api.deepseek.com' })],
+      activeProfileId: 'p1',
+    })
+
+    expect((await listProfiles())[0].baseUrl).toBe('https://api.deepseek.com/chat/completions')
+    const stored = await appDb.get<{ profiles: Array<Record<string, unknown>> }>(KEY)
+    expect(stored?.profiles[0].baseUrl).toBe('https://api.deepseek.com/chat/completions')
+  })
+
+  it('已带后缀的地址不被重复追加（迁移幂等）', async () => {
+    await appDb.set(KEY, {
+      profiles: [rawProfile({ baseUrl: 'https://api.deepseek.com/v1/chat/completions' })],
+      activeProfileId: 'p1',
+    })
+
+    expect((await listProfiles())[0].baseUrl).toBe('https://api.deepseek.com/v1/chat/completions')
+  })
+
+  it('迁移只跑一次：此后新增的地址不再被改写', async () => {
+    await appDb.set(KEY, {
+      profiles: [rawProfile({ baseUrl: 'http://127.0.0.1:5199/chat/completions' })],
+      activeProfileId: 'p1',
+    })
+    await listProfiles() // 触发迁移，标记位落盘
+
+    // 自定义端点的路径不以 /chat/completions 结尾，不该被补后缀
+    await saveProfile(input({ baseUrl: 'https://gateway.example.com/api/llm' }))
+
+    expect((await listProfiles())[1].baseUrl).toBe('https://gateway.example.com/api/llm')
+  })
+
+  it('顺带清掉已删字段 useFullUrl 的落盘残留', async () => {
+    await appDb.set(KEY, {
+      profiles: [rawProfile({ baseUrl: 'https://api.deepseek.com' })],
+      activeProfileId: 'p1',
+    })
+
+    await listProfiles()
+
+    const stored = await appDb.get<{ profiles: Array<Record<string, unknown>> }>(KEY)
+    expect(stored?.profiles[0]).not.toHaveProperty('useFullUrl')
+  })
+
+  it('迁移标记落盘后不再反复回写', async () => {
+    await listProfiles() // 空库：首次读也要落一次标记
+    broadcast.mockClear()
+
+    await listProfiles()
+
+    expect(broadcast).not.toHaveBeenCalled()
+  })
+})
+
 describe('apiKey：落盘密文、读回明文', () => {
   it('新增：落盘只有密文载荷，没有明文 key', async () => {
     await saveProfile(input({ apiKey: 'sk-secret' }))
@@ -232,10 +292,10 @@ describe('apiKey：落盘密文、读回明文', () => {
 })
 
 describe('入参规范化与继承', () => {
-  it('baseUrl 末尾斜杠在写入时剥离', async () => {
-    const p = await saveProfile(input({ baseUrl: 'https://api.example.com///' }))
+  it('baseUrl 原样保存：只去首尾空白，不动路径（末尾斜杠保留）', async () => {
+    const p = await saveProfile(input({ baseUrl: '  https://api.example.com///  ' }))
 
-    expect(p.baseUrl).toBe('https://api.example.com')
+    expect(p.baseUrl).toBe('https://api.example.com///')
   })
 
   it('name 与 model 前后空白被 trim', async () => {
@@ -245,20 +305,18 @@ describe('入参规范化与继承', () => {
     expect(p.model).toBe('m1')
   })
 
-  it('新增时 providerId 缺省为空串、useFullUrl 缺省为 false', async () => {
+  it('新增时 providerId 缺省为空串', async () => {
     const p = await saveProfile(input())
 
     expect(p.providerId).toBe('')
-    expect(p.useFullUrl).toBe(false)
   })
 
-  it('编辑时缺省的 providerId 与 useFullUrl 继承已有配置', async () => {
-    const p = await saveProfile(input({ providerId: 'deepseek', useFullUrl: true }))
+  it('编辑时缺省的 providerId 继承已有配置', async () => {
+    const p = await saveProfile(input({ providerId: 'deepseek' }))
 
     const updated = await saveProfile(input({ id: p.id, name: 'B' }))
 
     expect(updated.providerId).toBe('deepseek')
-    expect(updated.useFullUrl).toBe(true)
   })
 })
 
@@ -309,14 +367,11 @@ describe('写出口通知', () => {
 })
 
 describe('testChat（连通性测试）', () => {
-  it('缺 baseUrl / apiKey / model：就地抛错，且一个请求都不发', async () => {
+  it('缺 baseUrl / model：就地抛错，且一个请求都不发', async () => {
     const fetchMock = stubFetch(() => Promise.resolve(okResponse()))
 
     await expect(testChat({ baseUrl: '  ', apiKey: 'k', model: 'm' })).rejects.toThrow(
       '请先填写接口地址',
-    )
-    await expect(testChat({ baseUrl: 'https://x', apiKey: ' ', model: 'm' })).rejects.toThrow(
-      '请先填写 API Key',
     )
     await expect(testChat({ baseUrl: 'https://x', apiKey: 'k', model: ' ' })).rejects.toThrow(
       '请先填写模型 ID',
@@ -324,19 +379,29 @@ describe('testChat（连通性测试）', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('地址拼接：useFullUrl 缺省时追加 /chat/completions，为 true 时原样使用', async () => {
+  it('地址原样使用：填什么请求什么，不做任何拼接', async () => {
     const fetchMock = stubFetch(() => Promise.resolve(okResponse()))
 
-    await testChat({ baseUrl: 'https://api.example.com/', apiKey: ' k ', model: ' m ' })
     await testChat({
-      baseUrl: 'https://api.example.com/v1/chat/completions/',
-      apiKey: 'k',
-      model: 'm',
-      useFullUrl: true,
+      baseUrl: 'https://api.example.com/v1/chat/completions',
+      apiKey: ' k ',
+      model: ' m ',
     })
+    await testChat({ baseUrl: 'http://127.0.0.1:5199/chat/completions', apiKey: '', model: 'm' })
 
-    expect(fetchMock.mock.calls[0][0]).toBe('https://api.example.com/chat/completions')
-    expect(fetchMock.mock.calls[1][0]).toBe('https://api.example.com/v1/chat/completions')
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.example.com/v1/chat/completions')
+    expect(fetchMock.mock.calls[1][0]).toBe('http://127.0.0.1:5199/chat/completions')
+  })
+
+  it('apiKey 可为空（本地端点没有 Key）：发占位哨兵，不在这里拦', async () => {
+    const fetchMock = stubFetch(() => Promise.resolve(okResponse()))
+
+    await expect(
+      testChat({ baseUrl: 'http://127.0.0.1:5199/chat/completions', apiKey: '  ', model: 'm' }),
+    ).resolves.toBeUndefined()
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer not-needed')
   })
 
   it('请求体与鉴权头：模型 ID 已 trim，非流式', async () => {

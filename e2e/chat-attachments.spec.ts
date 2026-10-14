@@ -5,13 +5,13 @@
 //     「图片被放行 / 被拦下」，验不了真的压出可用的 data URL；
 //   · 「file part 会不会被转成模型认的 image_url」取决于 AI SDK 的 convertToModelMessages，
 //     那是跨层行为，只有让请求真的打到桩上才看得见（桩里能读到原始请求体）。
-// 真模型不会出现在 CI 里（没有 key、也不该为此花钱），所以用 `e2e/model-stub.ts` 顶替。
+// 真模型不会出现在 CI 里（没有 key、也不该为此花钱），所以用 `scripts/model-stub.mjs` 顶替。
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extensionIdFromServiceWorker, getServiceWorker, launchExtensionContext } from './extension'
-import { startModelStub, type ModelStubHit } from './model-stub'
+import { startModelStub, type ModelStubHit } from '../scripts/model-stub.mjs'
 
 const APP_PAGE = 'floatpanel.html'
 
