@@ -14,7 +14,7 @@
 // 用例时长远小于该间隔，故轮询不会在测试期间触发。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { isRef, ref, toRaw, type Ref } from 'vue'
-import type { ChatStatus, FileUIPart, UIMessage } from 'ai'
+import type { ChatStatus, UIMessage } from 'ai'
 import type {
   ChatMessageMetadata,
   ChatOrphanRecord,
@@ -23,6 +23,7 @@ import type {
 } from '@/shared/extension-ipc'
 import type { AssistantMessage, Conversation, Message, TokenUsage, UserMessage } from '@/shared/types'
 import { messageTime } from '@/lib/conversation-message'
+import type { ChatAssetRef } from '@/lib/chat-assets'
 import { clearPickedElement, setPickedElement } from '@/lib/page-context-store'
 import { bindTabToConversation, getConversationIdForTab, unbindTab } from '@/lib/conversation-tab-map'
 import { resolveOwningTabId } from '@/lib/owning-tab'
@@ -120,8 +121,7 @@ interface FakeInit {
 }
 
 interface SentMessage {
-  text?: string
-  files?: FileUIPart[]
+  parts: UIMessage['parts']
   metadata: ChatMessageMetadata
 }
 
@@ -245,7 +245,7 @@ describe('惰性新建（发送入口）', () => {
     expect(transport().setConversationId).toHaveBeenLastCalledWith('c1')
     expect(vi.mocked(bindTabToConversation)).toHaveBeenCalledWith(7, 'c1')
     expect(lastChat().sendMessage).toHaveBeenCalledTimes(1)
-    expect(lastSent()).toMatchObject({ text: '你好' })
+    expect(lastSent().parts).toEqual([{ type: 'text', text: '你好' }])
   })
 
   it('已有归属会话时发送：复用当前会话，不重复新建', async () => {
@@ -255,7 +255,7 @@ describe('惰性新建（发送入口）', () => {
 
     expect(conversationApi.create).not.toHaveBeenCalled()
     expect(lastChat().sendMessage).toHaveBeenCalledTimes(2) // 热身那条 + 本条
-    expect(lastSent()).toMatchObject({ text: '接着聊' })
+    expect(lastSent().parts).toEqual([{ type: 'text', text: '接着聊' }])
   })
 
   it('取不到标签页归属：照常建会话与对话，只是不登记映射', async () => {
@@ -298,15 +298,33 @@ describe('惰性新建（发送入口）', () => {
     expect(chat.sendMessage).toHaveBeenCalledTimes(1)
   })
 
-  it('只带附件也能发送：正文缺省时不传 text 字段', async () => {
+  it('只带附件也能发送：正文缺省时不产生 text part，附件以 data-asset 挂在 parts 上', async () => {
     conversationApi.create.mockResolvedValue(conversation('c1'))
     const state = await stateLoaded()
-    const files: FileUIPart[] = [{ type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,AA' }]
+    const assets: ChatAssetRef[] = [
+      { id: 'a'.repeat(64), filename: 'shot.png', mediaType: 'image/png', size: 3 },
+    ]
 
-    await state.send('', files)
+    await state.send('', assets)
 
-    expect(lastSent()).toMatchObject({ files })
-    expect('text' in lastSent()).toBe(false)
+    expect(lastSent().parts).toEqual([
+      { type: 'data-asset', data: assets[0] },
+    ])
+  })
+
+  it('正文与附件都有：附件在前、正文在后（与 SDK 内部顺序一致）', async () => {
+    conversationApi.create.mockResolvedValue(conversation('c1'))
+    const state = await stateLoaded()
+    const assets: ChatAssetRef[] = [
+      { id: 'a'.repeat(64), filename: 'shot.png', mediaType: 'image/png', size: 3 },
+    ]
+
+    await state.send('看看这张', assets)
+
+    expect(lastSent().parts).toEqual([
+      { type: 'data-asset', data: assets[0] },
+      { type: 'text', text: '看看这张' },
+    ])
   })
 
   it('发送时带上 metadata.createdAt：面板不写会话库，气泡时间只能在此取', async () => {

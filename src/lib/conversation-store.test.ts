@@ -227,13 +227,16 @@ describe('列表派生字段', () => {
     expect((await listConversations())[0].lastMessagePreview).toBe('')
   })
 
-  it('正文为空但带图片：preview 给 [图片] 占位', async () => {
+  it('正文为空但带图片引用：preview 给 [图片] 占位', async () => {
     const c = await createConversation()
     await appendMessage(
       assistantMsg(c.id, '', {
         seconds: 1,
         parts: [
-          { type: 'file', mediaType: 'image/png', filename: 'a.png', url: 'data:image/png;base64,AA' },
+          {
+            type: 'data-asset',
+            data: { id: 'a'.repeat(64), filename: 'a.png', mediaType: 'image/png', size: 3 },
+          },
         ],
       }),
     )

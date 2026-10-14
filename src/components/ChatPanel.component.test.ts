@@ -13,7 +13,12 @@ vi.mock('@/lib/element-picker-client', () => ({
   pickElement: vi.fn(),
   cancelPick: vi.fn(),
 }))
-vi.mock('@/lib/userscripts/ui-client', () => ({ userscriptClient: {} }))
+// 资源库命令面的假身：面板识图只经 fsClient.assetRead 取字节（消息里只有引用）
+const fsMocks = vi.hoisted(() => ({
+  assetRead: vi.fn(),
+  assetPut: vi.fn(),
+}))
+vi.mock('@/lib/userscripts/ui-client', () => ({ userscriptClient: {}, fsClient: fsMocks }))
 
 function setModelProfile(): void {
   ;(window as unknown as { api: unknown }).api = {
@@ -42,13 +47,22 @@ async function submit(w: VueWrapper, text: string): Promise<void> {
   await flushPromises()
 }
 
-/** 一条带图片的历史消息：它每轮都会随请求重发 */
+/** 这条消息里那份图片引用的 id（内容 hash 的形态） */
+const ASSET_ID = 'a'.repeat(64)
+
+/**
+ * 造一条「带图片」的历史消息：消息里只有**引用**（id + 文件名 + MIME + 大小），
+ * 字节按 id 从资源库现取（面板那条 hydrate 路径 = fsClient.assetRead）。
+ */
 function imageHistoryMessage(): UIMessage {
   return {
     id: 'm-with-image',
     role: 'user',
     parts: [
-      { type: 'file', mediaType: 'image/jpeg', filename: 'shot.jpg', url: 'data:image/jpeg;base64,AAAA' },
+      {
+        type: 'data-asset',
+        data: { id: ASSET_ID, filename: 'shot.jpg', mediaType: 'image/jpeg', size: 3 },
+      },
       { type: 'text', text: '看这张图' },
     ],
   }
@@ -149,12 +163,47 @@ describe('提交分流', () => {
 describe('会话历史里有图片', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
+    fsMocks.assetRead.mockReset()
+    fsMocks.assetRead.mockResolvedValue({
+      id: ASSET_ID,
+      filename: 'shot.jpg',
+      mediaType: 'image/jpeg',
+      size: 3,
+      base64: 'AAAA',
+    })
   })
 
-  it('照常发出（图随每轮请求重发，与当前模型无关）', async () => {
+  it('照常发出：历史里的图片只以引用存在，不随本条消息重发', async () => {
     const w = await mountPanel([imageHistoryMessage()])
     await submit(w, '接着聊')
     expect(w.emitted('send')).toEqual([['接着聊', []]])
+    w.unmount()
+  })
+
+  it('缩略图按引用现取（消息里没有字节，标签页重开后仍能回看）', async () => {
+    const w = await mountPanel([imageHistoryMessage()])
+    await flushPromises()
+
+    expect(fsMocks.assetRead).toHaveBeenCalledWith(ASSET_ID)
+    const thumb = w.find('[data-testid="message-images"] img')
+    expect(thumb.exists()).toBe(true)
+    expect(thumb.attributes('src')).toBe('data:image/jpeg;base64,AAAA')
+    w.unmount()
+  })
+
+  it('资源取不回来（被清理过）：留空占位，点开不弹窗、不报错', async () => {
+    fsMocks.assetRead.mockResolvedValue(null)
+    const w = await mountPanel([imageHistoryMessage()])
+    await flushPromises()
+
+    // chip 还在（文件名仍有信息量），只是没有缩略图
+    const chip = w.find('[data-testid="preview-image"]')
+    expect(chip.exists()).toBe(true)
+    expect(w.find('[data-testid="message-images"] img').exists()).toBe(false)
+
+    await chip.trigger('click')
+    await flushPromises()
+    expect(document.querySelector('[data-testid="image-preview"]')).toBeNull()
     w.unmount()
   })
 })
@@ -224,10 +273,19 @@ describe('消息时间', () => {
 describe('图片预览', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
+    fsMocks.assetRead.mockReset()
+    fsMocks.assetRead.mockResolvedValue({
+      id: ASSET_ID,
+      filename: 'shot.jpg',
+      mediaType: 'image/jpeg',
+      size: 3,
+      base64: 'AAAA',
+    })
   })
 
   it('点气泡里的缩略图：面板内弹出大图 + 下载，而不是跳走', async () => {
     const w = await mountPanel([imageHistoryMessage()])
+    await flushPromises() // 等缩略图取回来（取回来之前点了不弹，见 assetUrl 的说明）
 
     const chip = w.find('[data-testid="preview-image"]')
     expect(chip.exists(), '缩略图应可点（button 而不是纯展示）').toBe(true)
