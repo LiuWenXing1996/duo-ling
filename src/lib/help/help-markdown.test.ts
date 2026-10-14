@@ -36,6 +36,15 @@ describe('renderHelpMarkdown', () => {
     expect(html).toContain('target="_blank"')
     expect(html).toContain('rel="noreferrer"')
   })
+
+  it('正文里的三张配图都渲染出 img，路径指向随包的 /help/ 资源（暗色换图靠 CSS，见 main.css）', () => {
+    const html = renderHelpMarkdown(helpContent)
+    for (const name of ['workbench', 'floatpanel', 'popup']) {
+      expect(html, `配图 ${name} 应以 <img> 形式嵌进正文`).toContain(
+        `<img src="/help/${name}.webp"`,
+      )
+    }
+  })
 })
 
 describe('fence 代码块（朴素态）', () => {

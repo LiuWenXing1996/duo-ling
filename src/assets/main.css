@@ -209,6 +209,28 @@
   padding: 0;
 }
 
+/* 配图：截图成对维护（scripts/help-screenshots.mjs，--dark 出暗色版落在同目录）。
+   边框兜住深浅两版的边缘（工作台图满幅、自身不带圆角）；暗色版用 content 换图 ——
+   走 .dark 类与主题切换同源，emulateMedia / 系统切换都跟得上 */
+.help-prose img {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.dark .help-prose img[src='/help/workbench.webp'] {
+  content: url('/help/workbench-dark.webp');
+}
+
+.dark .help-prose img[src='/help/floatpanel.webp'] {
+  content: url('/help/floatpanel-dark.webp');
+}
+
+.dark .help-prose img[src='/help/popup.webp'] {
+  content: url('/help/popup-dark.webp');
+}
+
 /* shiki 高亮的代码块：token 前景色默认是浅色主题的值（写在 span 的内联样式里），暗色下切到
    --shiki-dark 变量（shiki 双主题产物自带，做法与渲染器的 .stream-markdown.dark 一致）；
    背景统一用 muted —— !important 压掉 shiki 写在 pre 上的主题底色，高亮只贡献文字色。 */
