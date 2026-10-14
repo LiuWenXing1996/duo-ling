@@ -218,6 +218,19 @@ export type RuntimeRequest =
   // 单文件预览：按完整路径读 lfs 库内文件内容（含 .git 内部），「lfs 浏览」标签页点文件时拉取
   | { kind: 'fs:lfsReadFile'; path: string }
 
+  // —— 对话资源库命令面（fs:asset*，执行宿主 = offscreen）——
+  // 图片附件的**字节落点**：同一个 lfs 库（duoling-fs）里与 /uscripts 平级的 /assets/<内容hash>/<文件名>。
+  // 消息侧只留 `data-asset` 引用（见 lib/chat-assets.ts），于是「会话库不背 base64」与
+  // 「模型永远看不到图片字节」同时成立。与其余 fs:* 同宿主：SW 与扩展页读不到 lfs。
+  //
+  // 载荷为什么是 data URL 而不是二进制：chrome.runtime 的消息体是 JSON 序列化，
+  // Uint8Array 过不来；而 data URL 恰好把 MIME 也一起带了过来（服务端据此选扩展名）。
+  // id 由服务端按**内容 hash** 定，故写入天然幂等（同一张图重复附加只落一份）。
+  | { kind: 'fs:assetPut'; dataUrl: string; filename: string }
+  // 读回资源（面板 hydrate 显示 / 预览 / 下载；识图子 Agent 取原图在 offscreen 内直读，不经此命令）。
+  // 返回 null = 目录不存在（资源被清掉、或 id 写错）
+  | { kind: 'fs:assetRead'; id: string }
+
   // —— 项目状态库的**写**命令面——
   // 项目数据（源码搬运副本 / 配置 / enabled）落在独立 IndexedDB 库 duoling-state，
   // **写只归 offscreen**（单写方），写状态与 commit git 仓收在同一个上下文的同一个函数里，

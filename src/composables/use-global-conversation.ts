@@ -22,9 +22,10 @@
 import { computed, ref, shallowRef, watchEffect } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import type { UseChatHelpers } from '@ai-sdk/vue'
-import type { ChatInit, ChatStatus, FileUIPart, UIMessage } from 'ai'
+import type { ChatInit, ChatStatus, UIMessage } from 'ai'
 import { ExtensionChatTransport } from '@/lib/extension-chat-transport'
 import { toUiMessage, withMessageTime } from '@/lib/conversation-message'
+import { assetPartOf, type ChatAssetRef } from '@/lib/chat-assets'
 import { getPickedElement } from '@/lib/page-context-store'
 import {
   bindTabToConversation,
@@ -365,13 +366,14 @@ export function useGlobalConversation() {
    * 本地视图也带上它（气泡 chip 立即可见，不必等重开会话）。
    * 页面快照走 AI 工具采集，不走这条通道。
    *
-   * files 是随消息发出的附件（图片已压缩成 data URL）。它们是 UIMessage 的
-   * file part，与正文同源：落盘、回读、每轮重发给模型都按 parts 走 ——
-   * 图片因此会随每一轮请求重发，这也是它必须在发出前就压好的原因。
+   * assets 是随消息附上的资源引用（图片已落库，消息里只留 id + 文件名，见 lib/chat-assets）。
+   * 它们是 UIMessage 的 `data-asset` part，与正文同源：落盘、回读都按 parts 走 ——
+   * 但**每轮重发给模型时会被换成一行文字引用**（offscreen 的 chat-assets.messagesForModel），
+   * 这正是「会话库不背 base64、模型也不被图片刷屏」的落点。
    * 只有附件、没有文字也是合法的（纯图提问），此时 text 传空串。
    */
-  async function send(text: string, files: FileUIPart[] = []): Promise<void> {
-    if ((!text && files.length === 0) || streaming.value) return
+  async function send(text: string, assets: ChatAssetRef[] = []): Promise<void> {
+    if ((!text && assets.length === 0) || streaming.value) return
     chatError.value = ''
     await ensureActiveConversation()
     const element = getPickedElement()
@@ -382,15 +384,16 @@ export function useGlobalConversation() {
       ...(element ? { pageContext: { element } } : {})
     }
     const instance = await ensureChat()
-    if (text) {
-      await instance.sendMessage({
-        text,
-        ...(files.length ? { files } : {}),
-        metadata
-      })
-      return
-    }
-    await instance.sendMessage({ files, metadata })
+    // 自己拼 parts 而不走 { text, files } 那条捷径：SDK 只认「text/files 二选一」的形状，
+    // 塞不进自定义的 data-asset part（见 ai 的 sendMessage 重载）。
+    // 顺序与它内部一致：附件在前、正文在后。
+    await instance.sendMessage({
+      parts: [
+        ...assets.map(assetPartOf),
+        ...(text ? [{ type: 'text' as const, text }] : [])
+      ],
+      metadata
+    })
   }
 
   /**

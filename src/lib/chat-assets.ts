@@ -1,0 +1,110 @@
+// 对话资源引用（`data-asset` part）的**唯一形状定义**：消息里怎么表达「这条消息带了一张图」，
+// 以及这份引用在三个消费点各自的读法。纯数据 + 纯函数，零依赖（面板与 offscreen 都能 import）。
+//
+// 为什么不用 file part 装这张图：file part 的 `url` 只要不是 `data:` 开头，会被原样写进请求体的
+// `image_url.url` 交给服务端（见 @ai-sdk/openai-compatible 的消息转换），服务端够不到本机的
+// duoling-fs。改用自定义 `data-*` part 后，chat-host 送模型前过一道 messagesForModel
+// 天然把它拦在模型之外、换成一行文字引用 —— **模型永远看不到图片字节，但知道这条消息带了图**。
+//
+// 三个消费点（口径都取自本文件，别再各写一份）：
+//   · 面板（ChatPanel）：挑出 part，按 id 取回 data URL → 显示 / 预览 / 下载；
+//   · 发送侧（chat-host.messagesForModel）：换成 assetPlaceholderText 的一行文字；
+//   · 会话库预览（conversation-store.previewOf）：正文为空时显示「[图片]」。
+import type { UIMessage } from 'ai'
+
+/** 一份资源引用（对应 /assets/<id>/<文件名>，见 lib/userscripts/us-assets.ts） */
+export interface ChatAssetRef {
+  /** 内容 hash：既是 /assets 下的目录名，也是 image_ask 的 assetId */
+  id: string
+  /** 落盘的文件名（展示用；扩展名已按真实 MIME 归一） */
+  filename: string
+  mediaType: string
+  /** 字节数（展示用；不代表进模型的开销） */
+  size: number
+}
+
+/** 消息里表达「带了一份资源」的 part */
+export interface ChatAssetPart {
+  type: 'data-asset'
+  data: ChatAssetRef
+}
+
+/**
+ * 读回的一份资源：引用 + 字节（base64 形态）。
+ * 只在这条链路上用（`fs:assetRead` 的应答 → 面板拼 data URL 显示），不进消息、不进模型。
+ */
+export interface ChatAssetData extends ChatAssetRef {
+  base64: string
+}
+
+/** 判一个 part 是不是资源引用（运行时形状校验 + 类型收窄；库里可能躺着别的 data-* part） */
+export function isAssetPart(part: { type: string }): part is ChatAssetPart {
+  if (part.type !== 'data-asset') return false
+  const data = (part as { data?: unknown }).data as ChatAssetRef | undefined
+  return typeof data?.id === 'string' && data.id.length > 0
+}
+
+/** 引用 → 消息 part（面板发送时唯一一处拼法；offscreen 侧会把它换回一行文字，见 assetPlaceholderText） */
+export function assetPartOf(ref: ChatAssetRef): ChatAssetPart {
+  return { type: 'data-asset', data: ref }
+}
+
+/** 一条消息里的全部资源引用（面板渲染、删会话时的引用面统计都认它） */
+export function assetsOfMessage(m: UIMessage): ChatAssetRef[] {
+  return m.parts.filter(isAssetPart).map((p) => p.data)
+}
+
+/**
+ * 资源引用送给模型时的文字形态。
+ *
+ * 这一行是主 Agent **唯一**能看到的关于这张图的信息 —— 所以必须把 assetId 写进去、
+ * 并明说「内容不在消息里、要看图得调 image_ask」。缺了这句，模型会假装自己看过了。
+ */
+export function assetPlaceholderText(ref: ChatAssetRef): string {
+  return `【图片 #${ref.id}：${ref.filename}（内容未随消息发送，要看图请调 image_ask，assetId 传 ${ref.id}）】`
+}
+
+/**
+ * 送模型前把消息收成「模型该看到的样子」——两件事：
+ *   ① `data-asset`（图片资源引用）**换成一行文字**（assetPlaceholderText）：消息里本就没有图片字节，
+ *      模型拿到的是 assetId + 「要看图请调 image_ask」。这一步是「模型不被图片刷屏、也不会假装看过图」
+ *      的落点：它想知道图里有什么，只能真的去调工具。
+ *   ② 其余 `data-*`（data-generation / data-usage / data-tab-record 这类）整条丢掉：纯 UI 用，不进上下文。
+ *
+ * 为什么不在这里把图片读出来当图发：那等于绕开 image_ask 把图片塞回每一轮请求 ——
+ * 前面省的 token 全吐回去。
+ */
+export function messagesForModel(messages: UIMessage[]): UIMessage[] {
+  return messages.map((m) => {
+    const parts: UIMessage['parts'] = []
+    for (const p of m.parts) {
+      if (isAssetPart(p)) {
+        parts.push({ type: 'text', text: assetPlaceholderText(p.data) })
+        continue
+      }
+      if (p.type.startsWith('data-')) continue
+      parts.push(p)
+    }
+    return { ...m, parts }
+  })
+}
+
+/** 拆 data URL 的 `data:<mime>;base64,<正文>`：上传时服务端要把 mime 与 base64 分开 */
+export function parseDataUrl(dataUrl: string): { mediaType: string; base64: string } {
+  const comma = dataUrl.indexOf(',')
+  const header = comma >= 0 ? dataUrl.slice(5, comma) : ''
+  return {
+    mediaType: header.split(';')[0] || 'application/octet-stream',
+    base64: comma >= 0 ? dataUrl.slice(comma + 1) : '',
+  }
+}
+
+/** 读回的资源拼回 data URL（面板 <img src> / 预览 / 下载都吃它；与 parseDataUrl 互为逆） */
+export function dataUrlOf(asset: ChatAssetData): string {
+  return `data:${asset.mediaType};base64,${asset.base64}`
+}
+
+/** 只认图片（面板渲染与识图调用都先过这一道；将来收文本附件时在这里扩） */
+export function isImageMediaType(mediaType: string): boolean {
+  return mediaType.startsWith('image/')
+}

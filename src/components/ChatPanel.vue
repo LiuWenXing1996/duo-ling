@@ -95,23 +95,27 @@ import {
   setPickedElement,
   subscribePageContext
 } from '@/lib/page-context-store'
-import { userscriptClient } from '@/lib/userscripts/ui-client'
+import { fsClient, userscriptClient } from '@/lib/userscripts/ui-client'
 import { readPinnedTabId } from '@/lib/owning-tab'
 import { formatMessageTime, formatTokens } from '@/lib/format'
-import type { DynamicToolUIPart, FileUIPart, TextUIPart, ToolUIPart, UIMessage } from 'ai'
+import type { DynamicToolUIPart, TextUIPart, ToolUIPart, UIMessage } from 'ai'
 // 这几个 part 判定 helper 走本地实现：静态 import 'ai' 会把整块 ~360KB 的核心
 // （含 gateway / zod）钉进对话界面首屏静态图。详见该文件头部说明。
 import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, textOfMessage } from '@/lib/ui-message-parts'
 // 只取 messageTime 一个纯函数：该模块不含运行时代码（'ai' 与 shared/types 都是类型导入），
 // 不会破坏上面那条「静态 import 'ai' 会钉进首屏」的约束。
 import { messageTime } from '@/lib/conversation-message'
+// 资源引用的三个消费口径都取自这里（part 形状、拼 data URL、从消息里挑引用）：
+// 该模块同样零运行时依赖（'ai' 是类型导入），不破首屏约束。
+import { assetsOfMessage, dataUrlOf, type ChatAssetRef } from '@/lib/chat-assets'
 import {
   ATTACHMENT_ACCEPT,
   MAX_ATTACHMENTS,
   MAX_IMAGE_BYTES,
   composeMessageText,
   isImageAttachment,
-  prepareAttachments
+  prepareAttachments,
+  type AssetUploader
 } from '@/lib/chat-attachments'
 
 const props = defineProps<{
@@ -126,8 +130,8 @@ const props = defineProps<{
   readonly?: boolean
 }>()
 const emit = defineEmits<{
-  /** 发送一条消息：text 可以为空（纯图提问），files 是已压缩好的图片附件 */
-  send: [text: string, files: FileUIPart[]]
+  /** 发送一条消息：text 可以为空（纯图提问），assets 是随消息附上的资源引用（图片落库后的那份） */
+  send: [text: string, assets: ChatAssetRef[]]
   stop: []
   openSettings: []
   /** 需要开权限（拾取器不可用 / 启用脚本失败）：请宿主打开工作台引导标签页 */
@@ -208,9 +212,47 @@ function userText(m: UIMessage): string {
   return textOfMessage(m)
 }
 
-/** 用户气泡里的图片附件：parts 存的是压缩后的 data URL，所以重开会话、换标签页都还能回看 */
-function messageImages(m: UIMessage): FileUIPart[] {
-  return m.parts.filter((part): part is FileUIPart => part.type === 'file')
+/** 用户气泡里的图片附件：消息里存的是**引用**（内容 hash + 文件名），字节在资源库里按需取 */
+function messageImages(m: UIMessage): ChatAssetRef[] {
+  return assetsOfMessage(m)
+}
+
+/**
+ * 资源 id → data URL 的本地缓存（面板活着的期间有效）。
+ *
+ * 为什么要有缓存：消息里只有引用，缩略图每次渲染都得有图 —— 若每次渲染都去取，
+ * 同一条消息的 N 个缩略图会发 N 次跨进程请求。缓存键就是内容 hash，同一张图天然命中同一条。
+ *
+ * 为什么不 revoke：这里存的是 data URL（纯字符串），没有 objectURL 那种需要显式释放的句柄；
+ * 代价是查看过的图片会一直占着内存，上限 = 本次面板会话里出现过的不同图片数。
+ * 取不到的（资源被清过 / id 写错）记空串，同样是「不重复重试」而非反复发请求。
+ */
+const assetUrls = reactive<Record<string, string>>({})
+/** 已发起取回的 id（非响应式：它只防重复发请求，不该触发渲染） */
+const assetRequested = new Set<string>()
+
+/** 取某个资源的 data URL；首次调用发起取回并先返回空串，回来后会因 assetUrls 变化自动重渲染 */
+function assetUrl(ref: ChatAssetRef): string {
+  const cached = assetUrls[ref.id]
+  if (cached !== undefined) return cached
+  if (!assetRequested.has(ref.id)) {
+    assetRequested.add(ref.id)
+    void fsClient
+      .assetRead(ref.id)
+      .then((data) => {
+        assetUrls[ref.id] = data ? dataUrlOf(data) : ''
+      })
+      .catch(() => {
+        assetUrls[ref.id] = ''
+      })
+  }
+  return ''
+}
+
+/** 打开大图预览；图还没取回来时先不打开（点开一个空弹窗不如等一下） */
+function openPreview(ref: ChatAssetRef): void {
+  const url = assetUrl(ref)
+  if (url) previewImage.value = { url, filename: ref.filename }
 }
 
 /**
@@ -614,20 +656,24 @@ function attachmentErrorMessage(err: { code: string, message: string }): string 
   return err.message
 }
 
+/** 图片落库入口（交给 prepareAttachments 的那个注入点）：data URL 过桥，拿回落库后的引用 */
+const uploadAsset: AssetUploader = (dataUrl, filename) =>
+  fsClient.assetPut(dataUrl, filename).then((r) => r.ref)
+
 /** 提交：把附件整理成可发送的形态再交给宿主。流式中的提交是「停止」（发送按钮此时是停止图标） */
 async function prepareAndSend(payload: PromptInputMessage): Promise<void> {
   if (props.streaming) {
     emit('stop')
     return
   }
-  const prepared = await prepareAttachments(payload.files)
+  const prepared = await prepareAttachments(payload.files, uploadAsset)
   const text = composeMessageText(payload.text.trim(), prepared.textBlocks)
-  if (!text && !prepared.images.length) return
+  if (!text && !prepared.assets.length) return
 
   attachmentError.value = prepared.skipped.length
     ? `这些附件没能随消息发出：${prepared.skipped.join('；')}`
     : ''
-  emit('send', text, prepared.images)
+  emit('send', text, prepared.assets)
 }
 
 const promptInput = usePromptInputProvider({
@@ -891,7 +937,9 @@ function userScriptsUnavailableMessageSafe(): string {
                     </span>
                     <!-- 图片不展开成大图：只给「小缩略图 + 文件名」，与点选 chip 同一套外观。
                          窄面板里大图会把消息挤得很高，而回看时真正要找的是「我当时发了哪张」。
-                         底色同样用「背景色 + 描边」——外层是灰气泡，浅灰底会糊成一片。 -->
+                         底色同样用「背景色 + 描边」——外层是灰气泡，浅灰底会糊成一片。
+                         缩略图按需取（消息里只有引用，见 assetUrl）：取回来之前是空占位，
+                         取不到（资源被清过）就一直空着，不弹错。 -->
                     <div
                       v-if="messageImages(m).length"
                       class="flex flex-wrap gap-1.5"
@@ -904,15 +952,21 @@ function userScriptsUnavailableMessageSafe(): string {
                         type="button"
                         class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-background py-1 pl-1 pr-2.5 text-xs transition-colors hover:bg-muted/60"
                         :title="img.filename"
-                        :aria-label="`查看图片 ${img.filename ?? ''}`"
+                        :aria-label="`查看图片 ${img.filename}`"
                         data-testid="preview-image"
-                        @click="previewImage = { url: img.url, filename: img.filename ?? '图片' }"
+                        @click="openPreview(img)"
                       >
                         <img
-                          :src="img.url"
-                          :alt="img.filename ?? '图片附件'"
+                          v-if="assetUrl(img)"
+                          :src="assetUrl(img)"
+                          :alt="img.filename"
                           class="h-6 w-9 shrink-0 rounded-sm object-cover"
                         >
+                        <span
+                          v-else
+                          class="h-6 w-9 shrink-0 rounded-sm bg-muted"
+                          aria-hidden="true"
+                        />
                         <span class="truncate">{{ img.filename }}</span>
                       </button>
                     </div>

@@ -9,6 +9,10 @@ import { runtimeSend } from '@/shared/runtime-send'
 import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
 import type { Source, UsCommit, UsSnapshot } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
+// 对话资源引用（消息里那份 `data-asset` 的载荷形状）与写入结果。
+// **type-only**：资源库本体（lightning-fs）只在 offscreen 里，扩展页只要形状。
+import type { ChatAssetData } from '@/lib/chat-assets'
+import type { AssetWriteResult } from './us-assets'
 // 按页的整根活动轴（runtime-db 的读侧产物，六类行分五组）。**type-only**：UI 侧只要形状，
 // 不把存储层（idb-core）拖进扩展页 bundle。
 import type { TabTimeline } from './runtime-db'
@@ -218,4 +222,15 @@ export const fsClient = {
 
   /** 单文件预览：按完整路径读 lfs 库内文件内容（含 .git 内部） */
   lfsReadFile: (path: string): Promise<LfsFileContent> => sendAi({ kind: 'fs:lfsReadFile', path }),
+
+  /**
+   * 上传一份对话资源（图片附件）：面板把文件转成 data URL 送来即可，offscreen 拆出
+   * (mime, bytes) 落 `/assets/<内容hash>/`。**id 由内容决定**，故同一张图重复附加命中同一份字节。
+   * 返回的 ref 直接就是消息里那份 `data-asset` 的载荷（面板拿到即可挂上）。
+   */
+  assetPut: (dataUrl: string, filename: string): Promise<AssetWriteResult> =>
+    sendAi({ kind: 'fs:assetPut', dataUrl, filename }),
+
+  /** 读回资源（面板显示 / 预览 / 下载）。所指资源不在（被清理过 / id 写错）返回 null */
+  assetRead: (id: string): Promise<ChatAssetData | null> => sendAi({ kind: 'fs:assetRead', id }),
 }

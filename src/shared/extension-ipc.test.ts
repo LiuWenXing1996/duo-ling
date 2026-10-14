@@ -86,6 +86,9 @@ const ALL_KINDS = [
   { kind: 'fs:exportZip', side: 'offscreen' },
   { kind: 'fs:lfsTree', side: 'offscreen' },
   { kind: 'fs:lfsReadFile', side: 'offscreen' },
+  // 对话资源库（/assets，与 /uscripts 平级；同样是 lfs 库，故同宿主）
+  { kind: 'fs:assetPut', side: 'offscreen' },
+  { kind: 'fs:assetRead', side: 'offscreen' },
   // —— state:*（offscreen：项目状态库写侧，单写方）——
   { kind: 'state:create', side: 'offscreen' },
   { kind: 'state:createProject', side: 'offscreen' },

@@ -14,6 +14,7 @@ import type { ScriptConfig, ScriptProject } from './types'
 import { handleStateCommand, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
 import { handleFsCommand, type FsRequest } from '@/lib/userscripts/offscreen-fs-commands'
 import * as projectWrite from '@/lib/userscripts/project-write'
+import * as usAssets from '@/lib/userscripts/us-assets'
 import * as usGit from '@/lib/userscripts/us-git'
 import * as usFs from '@/lib/userscripts/us-fs'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
@@ -45,6 +46,12 @@ vi.mock('@/lib/userscripts/us-fs', () => ({
   pfs: { readdir: vi.fn() },
   readLfsFile: vi.fn(),
   readLfsTree: vi.fn(),
+}))
+// 资源库后端（真身落在 lightning-fs 上，本测试只看分发是否到位）
+vi.mock('@/lib/userscripts/us-assets', () => ({
+  putAsset: vi.fn(),
+  readAsset: vi.fn(),
+  hasAsset: vi.fn(),
 }))
 vi.mock('@/lib/userscripts/us-git', () => ({
   ensureRepo: vi.fn(),
@@ -212,6 +219,8 @@ describe('(b) handleFsCommand 分发全覆盖', () => {
     'fs:exportZip',
     'fs:lfsTree',
     'fs:lfsReadFile',
+    'fs:assetPut',
+    'fs:assetRead',
   ] as const satisfies readonly FsRequest['kind'][]
   const _exhaustive: Expect<
     Exclude<FsRequest['kind'], (typeof FS_KINDS)[number]> extends never ? true : false
@@ -254,6 +263,21 @@ describe('(b) handleFsCommand 分发全覆盖', () => {
       backend: vi.mocked(usFs.readLfsFile),
       args: ['/uscripts/u1/script.js'],
     },
+    'fs:assetPut': {
+      // data URL 在分发层就被拆成 (mime, bytes) —— 断言后端收到的是拆好的形状，
+      // 而不是把整串 data URL 原样往下传（后者会让 id 的算法依赖调用方）
+      msg: { kind: 'fs:assetPut', dataUrl: 'data:image/png;base64,AAAA', filename: 'shot.png' },
+      backend: vi.mocked(usAssets.putAsset),
+      args: [{ filename: 'shot.png', mediaType: 'image/png', bytes: new Uint8Array([0, 0, 0]) }],
+    },
+    'fs:assetRead': {
+      msg: { kind: 'fs:assetRead', id: 'abc123' },
+      backend: vi.mocked(usAssets.readAsset),
+      args: ['abc123'],
+      // 资源不在 → 原样回 null（面板据此显示占位而不是报错）
+      setup: () => vi.mocked(usAssets.readAsset).mockResolvedValue(null),
+      result: null,
+    },
   }
 
   beforeEach(() => vi.clearAllMocks())
@@ -269,8 +293,8 @@ describe('(b) handleFsCommand 分发全覆盖', () => {
       expect(c.backend, `${kind} 应触达后端`).toHaveBeenCalledTimes(1)
       expect(c.backend).toHaveBeenCalledWith(...(c.args ?? []))
     } else {
-      // 无后端的 kind（就绪探测）：任何 git / fs 后端都不该被碰
-      const touched = [...Object.values(usGit), ...Object.values(usFs)].some(
+      // 无后端的 kind（就绪探测）：任何 git / fs / 资源库后端都不该被碰
+      const touched = [...Object.values(usGit), ...Object.values(usFs), ...Object.values(usAssets)].some(
         (fn) => (fn as unknown as Mock).mock?.calls.length > 0,
       )
       expect(touched, `${kind} 不应触达任何后端`).toBe(false)
@@ -325,6 +349,8 @@ describe('(c) offscreen 应答信封 { ok, data | error }', () => {
     { kind: 'fs:exportZip', uuids: ['u1'] },
     { kind: 'fs:lfsTree' },
     { kind: 'fs:lfsReadFile', path: '/uscripts/u1/script.js' },
+    { kind: 'fs:assetPut', dataUrl: 'data:image/png;base64,AAAA', filename: 'shot.png' },
+    { kind: 'fs:assetRead', id: 'abc123' },
     { kind: 'state:create' },
     { kind: 'state:save', uuid: 'u1', code: CODE },
     { kind: 'state:remove', uuid: 'u1' },
