@@ -2,7 +2,7 @@
 //
 // 这条链路的分支都在渲染层，故用组件测试守：
 //   A. 「当前页面」：两个按页开关（接口录制 / 活动记录，都常显、可就地开与关、状态随命令改口）、
-//      本页在跑的脚本（头部给计数、列表常显、行只读不跳转）、对话浮层入口与回话状态；
+//      本页在跑的脚本（头部给计数、列表常显、行只读，右侧「管理脚本」开工作台）、对话浮层入口与回话状态；
 //   B. 「当前页面」注入不了内容脚本（探活无人应答）→ 头部改说原因、浮层入口禁用；
 //   C. 「其他页面」：列出本页以外的标签页（脚本数 / 会话与生成中），点「去这里」切过去；没有别的页面给空态。
 //
@@ -43,6 +43,7 @@ function overviewRow(tabId: number, over: Record<string, unknown> = {}): Record<
     url: 'https://example.com/page',
     title: '示例页',
     scripts: [],
+    builtins: [],
     conversationId: null,
     conversationTitle: null,
     generating: false,
@@ -178,6 +179,25 @@ describe('popup 的「当前页面」区块', () => {
     expect(scriptRows(w)).toHaveLength(0)
   })
 
+  it('内置件单独成组透出：不进脚本计数，也不带「运行中」', async () => {
+    stubChrome('https://example.com/page')
+    overviewRows = [
+      overviewRow(TAB_ID, {
+        scripts: [{ uuid: 's1', name: '脚本A', errorCount: 0 }],
+        builtins: [{ id: 'dl-script-relay', name: '脚本桥' }],
+      }),
+    ]
+    const w = await mountPopup()
+
+    // 计数只认用户脚本：内置件在，头部仍是「1 个在运行」
+    expect(summary(w).text()).toContain('1 个在运行')
+    const rows = w.findAll('[data-testid="popup-current-builtin-row"]')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.text()).toContain('脚本桥')
+    expect(rows[0]!.text()).toContain('内置')
+    expect(rows[0]!.text()).not.toContain('运行中')
+  })
+
   it('注入不了内容脚本（探活无人应答）：头部改说不能运行', async () => {
     // chrome:// 等页面上扩展读不到 url（manifest 无 tabs 权限），内容脚本也没注入
     stubChrome(undefined, false)
@@ -185,8 +205,10 @@ describe('popup 的「当前页面」区块', () => {
 
     expect(w.find('[data-testid="popup-current-page"]').exists()).toBe(true)
     expect(summary(w).text()).toContain('当前页面不能运行脚本')
-    // 浮层那枚按钮的原因挂在悬停提示上（tooltip 悬停才挂载，不进组件树），正文里没有那条独立说明
-    expect(w.text()).not.toContain('当前页面不能显示浮层')
+    // 浮层入口禁用的原因就地说在对话行中间（与「活动记录 / 脚本」两行对不可用状态的说法同款）
+    expect(w.find('[data-testid="popup-current-float-disabled"]').text()).toBe(
+      '当前页面不能显示对话浮层',
+    )
   })
 
   it('回话中：对话行只报「AI 正在回话」，浮层入口点开即唤起当前页浮层', async () => {
@@ -218,6 +240,20 @@ describe('popup 的「当前页面」区块', () => {
 
     overviewRows = [overviewRow(TAB_ID)]
     expect(conversation(await mountPopup()).text()).toBe('')
+  })
+
+  it('管理脚本：点「管理脚本」新建工作台标签页（默认落脚本列表）并关窗', async () => {
+    stubChrome('https://example.com/page')
+    const w = await mountPopup()
+    const close = spyClose()
+
+    await w.find('[data-testid="open-script-manager"]').trigger('click')
+    await flushPromises()
+
+    expect(tabsCreate).toHaveBeenCalledWith({
+      url: 'chrome-extension://EXTID/workbench.html',
+    })
+    expect(close).toHaveBeenCalled()
   })
 
   it('注入不了内容脚本：浮层入口禁用（探活无人应答的页面都算）', async () => {

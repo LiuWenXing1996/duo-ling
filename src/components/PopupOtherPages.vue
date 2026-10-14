@@ -10,7 +10,14 @@
 // 切换**只走「去这里」按钮**（不顺手把那一页的浮层调出来）：用户点它多半是去那个页面干活，未必
 // 是要跟它对上话（要对话，切过去再点「打开会话」，或者直接在那儿用页面右键菜单）。内容区刻意
 // 不可点 —— 整卡都是点击目标容易误触切走。
+import { ExternalLink as UiExternalLink } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
+import {
+  Tooltip as UiTooltip,
+  TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider,
+  TooltipTrigger as UiTooltipTrigger,
+} from '@/components/ui/tooltip'
 import { webHostname } from '@/lib/float-panel-host'
 import type { PageOverviewTab } from '@/shared/extension-ipc'
 
@@ -78,15 +85,23 @@ function metaOf(tab: PageOverviewTab): string {
           </div>
           <div class="min-w-0 truncate text-[11px] text-muted-foreground">{{ metaOf(tab) }}</div>
         </div>
-        <UiButton
-          variant="outline"
-          size="sm"
-          class="h-7 shrink-0 px-2 text-xs"
-          data-testid="popup-other-page-go"
-          @click="switchTo(tab.tabId)"
-        >
-          去这里
-        </UiButton>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <ui-button
+                variant="ghost"
+                size="icon"
+                class="size-7 shrink-0"
+                aria-label="去这里"
+                data-testid="popup-other-page-go"
+                @click="switchTo(tab.tabId)"
+              >
+                <ui-external-link class="size-3.5" />
+              </ui-button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content side="top">去这里</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
       </div>
     </div>
   </div>
