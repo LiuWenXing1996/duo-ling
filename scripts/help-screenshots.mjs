@@ -325,45 +325,58 @@ try {
   // 等内容脚本与用户脚本注入、探活就位
   await targetPage.waitForTimeout(2000)
 
-  for (const theme of themes) {
-    for (const shot of SHOTS) {
-      const page = await context.newPage()
-      await page.emulateMedia({ colorScheme: theme })
-      await page.setViewportSize(shot.viewport)
-      // popup 以普通标签页打开时「当前页面」是它自己（扩展页 → 全灰）；
-      // 把 tabs.query 包一层，让「当前标签页」指向那张豆瓣页 —— 判据链（探活 / 概览）都走真的
-      if (shot.name === 'popup') {
-        await page.addInitScript(popupTabOverride(DOUBAN_PAGE_URL))
-      }
-      await page.goto(`chrome-extension://${extensionId}/${shot.path}`)
-      // 等首屏渲染稳定（异步组件 / 首帧布局），固定延时比 networkidle 更可靠 —— 扩展页可能有心跳轮询
-      await page.waitForTimeout(1200)
-      // 浮层走真链路造一段演示对话；每次开新页都是新标签页会话，逐页造
-      if (shot.name === 'floatpanel') {
-        await seedConversation(page, demo)
-        console.log(`✓ 演示对话已就位`)
-      }
-      // popup 的窗口由内容决定（#app 固定宽、高度随内容）：实测后把视口收到贴住内容，
-      // 消掉真实弹窗里不存在的边缘空白
-      if (shot.name === 'popup') {
-        const size = await page.evaluate(() => {
-          const r = document.querySelector('#app')?.getBoundingClientRect()
-          return r ? { width: Math.ceil(r.width), height: Math.ceil(r.height) } : null
-        })
-        if (size) {
-          await page.setViewportSize(size)
-          await page.waitForTimeout(300)
-        }
-      }
-      const suffix = theme === 'dark' ? '-dark' : ''
-      await page.screenshot({
-        path: join(outDir, `${shot.name}${suffix}.webp`),
-        type: 'webp',
-        quality: 85,
-      })
-      await page.close()
-      console.log(`✓ ${shot.name}${suffix}.webp`)
+  /**
+   * 截一张图的完整流程（开页 → 主题 → 载体特调 → 出图）。
+   * 浮层的造数会把 AI 生成的脚本真落进项目库（script_apply 收敛落盘），
+   * 必须等全部工作台 / popup 图截完再做 —— 否则后截的列表里会多出一个重复脚本。
+   */
+  async function shoot(theme, shot) {
+    const page = await context.newPage()
+    await page.emulateMedia({ colorScheme: theme })
+    await page.setViewportSize(shot.viewport)
+    // popup 以普通标签页打开时「当前页面」是它自己（扩展页 → 全灰）；
+    // 把 tabs.query 包一层，让「当前标签页」指向那张豆瓣页 —— 判据链（探活 / 概览）都走真的
+    if (shot.name === 'popup') {
+      await page.addInitScript(popupTabOverride(DOUBAN_PAGE_URL))
     }
+    await page.goto(`chrome-extension://${extensionId}/${shot.path}`)
+    // 等首屏渲染稳定（异步组件 / 首帧布局），固定延时比 networkidle 更可靠 —— 扩展页可能有心跳轮询
+    await page.waitForTimeout(1200)
+    // 浮层走真链路造一段演示对话；每次开新页都是新标签页会话，逐页造
+    if (shot.name === 'floatpanel') {
+      await seedConversation(page, demo)
+      console.log(`✓ 演示对话已就位`)
+    }
+    // popup 的窗口由内容决定（#app 固定宽、高度随内容）：实测后把视口收到贴住内容，
+    // 消掉真实弹窗里不存在的边缘空白
+    if (shot.name === 'popup') {
+      const size = await page.evaluate(() => {
+        const r = document.querySelector('#app')?.getBoundingClientRect()
+        return r ? { width: Math.ceil(r.width), height: Math.ceil(r.height) } : null
+      })
+      if (size) {
+        await page.setViewportSize(size)
+        await page.waitForTimeout(300)
+      }
+    }
+    const suffix = theme === 'dark' ? '-dark' : ''
+    await page.screenshot({
+      path: join(outDir, `${shot.name}${suffix}.webp`),
+      type: 'webp',
+      quality: 85,
+    })
+    await page.close()
+    console.log(`✓ ${shot.name}${suffix}.webp`)
+  }
+
+  // 先把各主题的工作台 / popup 都截完，再统一造对话截浮层 —— 顺序即隔离
+  for (const theme of themes) {
+    for (const shot of SHOTS.filter((s) => s.name !== 'floatpanel')) {
+      await shoot(theme, shot)
+    }
+  }
+  for (const theme of themes) {
+    await shoot(theme, SHOTS.find((s) => s.name === 'floatpanel'))
   }
   await messenger.close()
 } finally {
