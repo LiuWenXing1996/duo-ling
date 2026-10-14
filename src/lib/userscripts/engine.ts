@@ -30,6 +30,8 @@ import { buildTabForwarderSource } from './tab-forwarder'
 import { hasRecordingTabSession } from './runtime-db'
 // 内置注入脚本共用：匹配并集与「未变则跳过」比对
 import { enabledMatchUnion, sameMatchSet } from './match-union'
+// 匹配面判定（scheme + host）：内置件「这一页用不用得上」与 cookie 域名门同一套判据
+import { matchPatternCoversUrl } from '@/lib/match-pattern'
 
 // 不给脚本世界配置 csp：即**不放开** eval / new Function。脚本世界因此回落浏览器默认 CSP，
 // 动态执行字符串代码被禁。理由：AI 生成的脚本不可控，不额外给「执行任意字符串」的能力。
@@ -250,6 +252,134 @@ const TAB_FORWARDER_WORLD_ID = 'us-dl-tab'
  * 不必为改名专门写一段清理。
  */
 const BUILTIN_SCRIPT_IDS = [SCRIPT_RELAY_ID, TAB_RECORDER_ID, TAB_FORWARDER_ID]
+
+/**
+ * 内置件的展示信息（UI 两处透出用：popup 的页面概览与工作台脚本列表）。
+ *
+ * 它们不是用户脚本项目（没有源码 / 启停 / git 历史），只是扩展自己注进页面的能力管道 ——
+ * 列表里给名字与世界，是让人看见「这一页上除了我的脚本还有扩展自己的东西在跑」。
+ */
+const BUILTIN_META: Record<string, { name: string; world: string; note: string }> = {
+  [SCRIPT_RELAY_ID]: {
+    name: '脚本桥',
+    world: '扩展世界',
+    note: 'GM 能力的中继件：脚本世界没有 chrome.*，靠它把 GM 调用转给扩展',
+  },
+  [TAB_RECORDER_ID]: {
+    name: '页面录制',
+    world: '页面主世界',
+    note: '在页面真实世界里捕获接口与控制台（录制开关打开时才工作）',
+  },
+  [TAB_FORWARDER_ID]: {
+    name: '录制转发',
+    world: '扩展世界',
+    note: '把主世界捕获到的采样转给扩展（主世界发不出扩展消息）',
+  },
+}
+
+/**
+ * 注册面之外的内置注入物。它们不在 `chrome.userScripts.getScripts()` 里（前者走
+ * manifest 的 content_scripts 通道、后者按需 execute 注入），但确实会进页面，
+ * 透出清单里不该缺位 —— 只是状态不能假装它们有「已注册 / 未注册」。
+ */
+const STATIC_BUILTINS: Array<BuiltinRegistration> = [
+  {
+    id: 'dl-content-host',
+    name: '浮层宿主',
+    world: '隔离世界（声明式）',
+    note: 'manifest 声明的内容脚本：浮层的挂载点，收到「打开会话」才建 DOM，平时页面里什么都没有',
+    matches: ['<all_urls>'],
+    // 声明式内容脚本跟着扩展包走，普通网页上恒在，不随引擎可用性变化
+    registered: true,
+    presence: 'declarative',
+  },
+  {
+    id: 'duoling-picker',
+    name: '元素拾取器',
+    world: '扩展世界（按需）',
+    note: '「点选元素 / 快照」时临时注入到已加载页面，结算完即走，不构成常驻状态',
+    matches: [],
+    registered: false,
+    presence: 'onDemand',
+  },
+]
+
+/** 一件内置注册的展示形态（两处 UI 共用） */
+export interface BuiltinRegistration {
+  /** 注册 id（稳定，UI 拿它当 key） */
+  id: string
+  /** 展示名（不是注册 id） */
+  name: string
+  /** 注入世界（展示用） */
+  world: string
+  /** 一句话作用 */
+  note: string
+  /** 注册匹配面；未注册 / 按需件为空数组 */
+  matches: string[]
+  /** 此刻是否真的在页面上（声明式恒 true；注册件看在册；按需件不构成状态，恒 false） */
+  registered: boolean
+  /**
+   * 注入形态，决定 UI 的状态标怎么读：
+   * - `registered`：走 userScripts 注册（「已注册 / 未注册」）
+   * - `declarative`：manifest 声明式内容脚本（「常驻」，不随引擎可用性变化）
+   * - `onDemand`：按需 execute 注入（「按需」，用完即走，没有状态可言）
+   */
+  presence: 'registered' | 'declarative' | 'onDemand'
+}
+
+/**
+ * 内置件此刻的注册状态（一次 getScripts 对账，附注册面之外的两类静态件）。
+ *
+ * 引擎不可用时三个注册件全部按未注册返回 —— 那是环境态，不是件本身的错，
+ * 上层已有可用性横幅兜底；声明式内容脚本不受影响。
+ */
+export async function listBuiltinRegistrations(): Promise<BuiltinRegistration[]> {
+  let existing: chrome.userScripts.RegisteredUserScript[] = []
+  try {
+    if (chrome.userScripts && typeof chrome.userScripts.getScripts === 'function') {
+      existing = await chrome.userScripts.getScripts()
+    }
+  } catch {
+    // 引擎不可用：注册件全部按未注册返回
+  }
+  const registered = BUILTIN_SCRIPT_IDS.map((id): BuiltinRegistration => {
+    const meta = BUILTIN_META[id]
+    const hit = existing.find((s) => s.id === id)
+    return {
+      id,
+      name: meta.name,
+      world: meta.world,
+      note: meta.note,
+      matches: hit?.matches ?? [],
+      registered: hit != null,
+      presence: 'registered',
+    }
+  })
+  // 注册件在前（跟随引擎状态变化），静态件在后（常驻 / 按需，位置固定）
+  return [...registered, ...STATIC_BUILTINS]
+}
+
+/**
+ * 某一页上此刻真正在用的内置件（popup 的页面概览用）。
+ *
+ * 录制两件是**全匹配注册**（判据是「有没有页在录」而非站点），故不能只看匹配面 ——
+ * 没开记录的页上它们虽然在册却不工作，列出来是噪音。判据因此多一道：录制件只在该页
+ * 正在记录时才算在用。按需件不列：用完即走，没有「此刻在用」的状态可言。
+ */
+export function builtinsOnPage(
+  all: readonly BuiltinRegistration[],
+  url: string,
+  recording: boolean,
+): BuiltinRegistration[] {
+  if (!url) return []
+  return all.filter((r) => {
+    if (r.presence === 'onDemand') return false
+    if (r.presence === 'declarative') return true // 普通网页上声明式内容脚本恒在（概览只收普通网页）
+    if (!r.registered) return false
+    if (r.id === TAB_RECORDER_ID || r.id === TAB_FORWARDER_ID) return recording
+    return r.matches.some((p) => matchPatternCoversUrl(p, url))
+  })
+}
 
 /** stubSecret 持久化键：MV3 SW 随时休眠，模块变量会归零，密钥必须落盘（duoling-app 库） */
 const PAGE_SECRET_KEY = 'pageSecret'

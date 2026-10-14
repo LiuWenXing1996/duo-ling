@@ -94,6 +94,19 @@ const emit = defineEmits<{
 }>()
 
 const scripts = ref<ScriptSummary[]>([])
+/**
+ * 扩展内置注入件（脚本桥 / 页面录制 / 录制转发）此刻的注册状态 —— 只读透出，不进上面的网格
+ * （它们不是用户脚本：没有源码 / 启停 / 删除，混进网格会被搜索、筛选与空态误伤）。
+ */
+const builtins = ref<import('@/lib/userscripts/engine').BuiltinRegistration[]>([])
+
+/** 内置件的状态标：注册件看在册，声明式常驻、按需注入没有「注册」可言 */
+function builtinStatusLabel(b: import('@/lib/userscripts/engine').BuiltinRegistration): string {
+  if (b.presence === 'declarative') return '常驻'
+  if (b.presence === 'onDemand') return '按需'
+  return b.registered ? '已注册' : '未注册'
+}
+
 const loading = ref(false)
 const error = ref('')
 /** 正在切换启停的脚本 uuid：避免连点造成重复注册/注销 */
@@ -244,6 +257,13 @@ async function refresh(): Promise<void> {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+  }
+  // 内置件的注册状态与脚本集合同步变化（中继件跟随启用脚本并集、录制件跟随记录开关），
+  // 故与列表同一遍回拉；拉不到就整段不显示（它不是这里的主体内容）。
+  try {
+    builtins.value = await userscriptClient.builtins()
+  } catch {
+    builtins.value = []
   }
 }
 
@@ -1418,6 +1438,45 @@ useDataSync('group', () => refreshGroups())
           </template>
         </div>
 
+        <!--
+          扩展内置件（只读）：扩展自己注进页面的能力管道，与用户脚本分开列 —— 它们没有源码 /
+          启停 / 删除，上面的网格操作对它们一律不适用。注册状态随「启用脚本并集」与「记录开关」
+          变化（中继件 / 录制件各自的判据），故跟着列表同一遍回拉。
+        -->
+        <div
+          v-if="builtins.length"
+          class="mt-4 border-t border-border pt-3"
+          data-testid="builtin-scripts-section"
+        >
+          <div class="flex items-baseline gap-2">
+            <span class="text-xs font-medium">扩展内置件</span>
+            <span class="text-[11px] text-muted-foreground">随扩展分发，不由你启停</span>
+          </div>
+          <div class="mt-2 flex flex-col gap-1.5">
+            <div
+              v-for="b in builtins"
+              :key="b.id"
+              class="rounded-md border border-dashed border-border px-3 py-2"
+              data-testid="builtin-script-row"
+            >
+              <div class="flex items-center gap-2">
+                <span class="min-w-0 truncate text-xs font-medium">{{ b.name }}</span>
+                <span class="shrink-0 text-[10px] text-muted-foreground">{{ b.world }}</span>
+                <span class="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                  {{ builtinStatusLabel(b) }}
+                </span>
+              </div>
+              <p class="mt-0.5 text-[11px] text-muted-foreground">{{ b.note }}</p>
+              <p
+                v-if="b.matches.length"
+                class="mt-0.5 truncate text-[11px] text-muted-foreground"
+                :title="b.matches.join(' ')"
+              >
+                {{ b.matches.join(' ') }}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 

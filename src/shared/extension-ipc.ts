@@ -181,6 +181,10 @@ export type RuntimeRequest =
   // 解析与落盘都在 offscreen 单写方，与 zip 导入共用同一条落盘路径，故此处也无注册动作。
   | { kind: 'userscript:importText'; code: string }
   // 脚本列表分组（读分组定义；写分组管理经 state: 单写方转发，见下方 state:group-*）
+  // 扩展内置注入件（脚本桥 / 页面录制 / 录制转发）此刻的注册状态，供两处只读透出：
+  // 工作台脚本列表底部的「扩展内置件」分区与 popup 的页面概览。它们不是用户脚本项目
+  // （没有源码 / 启停），故单列一条只读命令，不混进 userscript:list。
+  | { kind: 'userscript:builtins' }
   | { kind: 'userscript:groups' }
   | { kind: 'userscript:setGroup'; uuid: string; group: string }
   | { kind: 'userscript:group-create'; name: string }
@@ -526,6 +530,14 @@ export type PanelMonitorUp =
 // 定成**展示形态而非原始数据**：脚本名与错误条数在 SW 侧就算好（名字表与错误日志都归那边），
 // popup 拿到即可渲染，不必为一块内容再发几条命令。
 
+/** 页面上在用的**扩展内置件**（不是用户脚本：没有源码 / 启停，只读透出） */
+export interface PageOverviewBuiltin {
+  /** 内置件注册 id */
+  id: string
+  /** 展示名（SW 侧给好，popup 不认 id） */
+  name: string
+}
+
 /** 一个标签页此刻的状况（「当前页面」与「其他页面」两个区块共用） */
 export interface PageOverviewTab {
   tabId: number
@@ -535,6 +547,8 @@ export interface PageOverviewTab {
   title: string
   /** 当前文档里跑着的脚本（运行时口径，启动时间新的在前） */
   scripts: PageOverviewScript[]
+  /** 这一页上在用的扩展内置件（不含拾取器：它按需注入、用完即走，不构成常驻状态） */
+  builtins: PageOverviewBuiltin[]
   /** 该标签页归属的会话；未绑定为 null */
   conversationId: string | null
   /** 会话标题（读会话库；未绑定 / 读不到为 null） */

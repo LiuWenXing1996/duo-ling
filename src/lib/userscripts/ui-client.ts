@@ -69,6 +69,10 @@ export const userscriptClient = {
   /** 列出全部脚本（不含源码） */
   list: (): Promise<ScriptSummary[]> => send({ kind: 'userscript:list' }),
 
+  /** 扩展内置注入件（脚本桥 / 页面录制 / 录制转发）此刻的注册状态；只读，不是用户脚本 */
+  builtins: (): Promise<import('@/lib/userscripts/engine').BuiltinRegistration[]> =>
+    send({ kind: 'userscript:builtins' }),
+
   /** 读完整注册态记录（元数据 + 源码搬运副本；duoling-fs 里的 git 历史源码经 fsClient.read 取） */
   getProject: (uuid: string): Promise<ScriptProject | undefined> =>
     send({ kind: 'userscript:getProject', uuid }),

@@ -31,6 +31,7 @@ const renameGroup = vi.hoisted(() => vi.fn())
 const rename = vi.hoisted(() => vi.fn())
 const removeGroup = vi.hoisted(() => vi.fn())
 const reorderGroups = vi.hoisted(() => vi.fn())
+const builtins = vi.hoisted(() => vi.fn())
 const fetchMock = vi.hoisted(() => vi.fn())
 const subscribeAvailability = vi.hoisted(() =>
   vi.fn((cb: (a: UserScriptsAvailability) => void) => vi.fn()),
@@ -55,6 +56,7 @@ vi.mock('@/lib/userscripts/ui-client', () => ({
     rename,
     removeGroup,
     reorderGroups,
+    builtins,
   },
   subscribeAvailability,
 }))
@@ -231,6 +233,7 @@ beforeEach(() => {
   importZip.mockResolvedValue(okReport())
   importText.mockResolvedValue(okReport())
   groups.mockResolvedValue([])
+  builtins.mockResolvedValue([])
   vi.stubGlobal('fetch', fetchMock)
   setFileAccessAllowed(true)
 })
@@ -737,6 +740,47 @@ describe('UserscriptListPanel 重命名脚本', () => {
     portalButton('重命名')!.click()
     await flushPromises()
     expect(rename).not.toHaveBeenCalled()
+  })
+})
+
+describe('UserscriptListPanel 扩展内置件（只读透出）', () => {
+  it('有内置件：底部单独成区，给名字 / 世界 / 注册状态，不进脚本网格', async () => {
+    builtins.mockResolvedValue([
+      {
+        id: 'dl-script-relay',
+        name: '脚本桥',
+        world: '扩展世界',
+        note: 'GM 能力的中继件',
+        matches: ['https://a.example/*'],
+        registered: true,
+      },
+      {
+        id: 'dl-tab-recorder',
+        name: '页面录制',
+        world: '页面主世界',
+        note: '捕获接口与控制台',
+        matches: [],
+        registered: false,
+      },
+    ])
+    wrapper = await mountPanel()
+
+    const rows = wrapper.findAll('[data-testid="builtin-script-row"]')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]!.text()).toContain('脚本桥')
+    expect(rows[0]!.text()).toContain('已注册')
+    expect(rows[1]!.text()).toContain('页面录制')
+    expect(rows[1]!.text()).toContain('未注册')
+    // 内置件不是用户脚本：网格里仍然只有那一张脚本卡
+    expect(wrapper.findAll('button[aria-label="编辑脚本"]')).toHaveLength(1)
+  })
+
+  it('拿不到内置件（命令失败）：整段不显示，不影响脚本列表', async () => {
+    builtins.mockRejectedValue(new Error('不可用'))
+    wrapper = await mountPanel()
+
+    expect(wrapper.find('[data-testid="builtin-scripts-section"]').exists()).toBe(false)
+    expect(rowText(0)).toContain('已有脚本')
   })
 })
 

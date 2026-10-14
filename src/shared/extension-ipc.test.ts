@@ -68,6 +68,7 @@ const ALL_KINDS = [
   { kind: 'userscript:errorRead', side: 'sw' },
   { kind: 'userscript:import', side: 'sw' },
   { kind: 'userscript:importText', side: 'sw' },
+  { kind: 'userscript:builtins', side: 'sw' },
   // 页面录制（tab-record）：采样落在 duoling-runtime 的 tab_events，写读都归 SW
   { kind: 'userscript:tabRecordRead', side: 'sw' },
   { kind: 'userscript:groups', side: 'sw' },

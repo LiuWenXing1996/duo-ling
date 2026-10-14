@@ -35,9 +35,12 @@ import {
   unregisterScripts,
   refreshBuiltinScripts,
   refreshTabRecorder,
+  listBuiltinRegistrations,
+  builtinsOnPage,
   collectCspWarnings,
   resolveInjectCode,
 } from '@/lib/userscripts/engine'
+import type { BuiltinRegistration } from '@/lib/userscripts/engine'
 // metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
 // 真正的归一化在写入口一处（project-write.saveSource），此处不写回任何东西
 import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
@@ -326,13 +329,14 @@ const handlers: {
     const tabs = await chrome.tabs.query({}).catch(() => [])
     // 只收普通网页：内部页 / 扩展页上既跑不了脚本也挂不了浮层（读不到 url 的页正是这两类）
     const web = tabs.filter((t) => t.id != null && webHostname(t.url) !== '')
-    const [snapshots, bindings, names, titles, tabSessions] = await Promise.all([
+    const [snapshots, bindings, names, titles, tabSessions, builtins] = await Promise.all([
       snapshotForTabs(web.map((t) => t.id as number)),
       conversationBindings(),
       scriptNameByUuid(),
       conversationTitleById(),
       // 记录开关按 tab 认领（表里只有被打开过记录的页）
       listTabSessions(),
+      listBuiltinRegistrations(),
     ])
     // 正在记活动的标签页：未结束 + 开着记录才算 —— 已结束的行只是历史痕迹
     const recordingTabs = new Set(
@@ -344,6 +348,7 @@ const handlers: {
       const runs = [...(snap?.runs ?? [])].sort((a, b) => b.startedAt - a.startedAt)
       const errors = snap?.errors ?? []
       const conversationId = bindings[String(tabId)] ?? null
+      const recording = recordingTabs.has(tabId)
       return {
         tabId,
         url: t.url ?? '',
@@ -352,6 +357,10 @@ const handlers: {
           uuid: r.uuid,
           name: names.get(r.uuid) ?? r.uuid.slice(0, 8),
           errorCount: errors.filter((e) => e.uuid === r.uuid).length,
+        })),
+        builtins: builtinsOnPage(builtins, t.url ?? '', recording).map((b) => ({
+          id: b.id,
+          name: b.name,
         })),
         conversationId,
         conversationTitle: conversationId ? (titles.get(conversationId) ?? null) : null,
@@ -374,6 +383,9 @@ const handlers: {
   // 列表视图：项目读自状态库（直连 IDB）——运行观测已不在摘要里（合表后只按页/按运行读），
   // 故这里就是纯项目摘要
   'userscript:list': async (): Promise<ScriptSummary[]> => listSummaries(await listProjects()),
+
+  // 扩展内置注入件此刻的注册状态（只读透出，供工作台脚本列表底部的分区展示）
+  'userscript:builtins': async (): Promise<BuiltinRegistration[]> => listBuiltinRegistrations(),
 
   // 读注册态记录（元数据 + 源码搬运副本；duoling-fs 里另有带 git 历史的权威源码，编辑器经 fs:read 取）
   'userscript:getProject': async (msg): Promise<ScriptProject | undefined> => getProject(msg.uuid),
