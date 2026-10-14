@@ -30,31 +30,26 @@ import PopupCurrentPage from './PopupCurrentPage.vue'
 import PopupOtherPages from './PopupOtherPages.vue'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 import { readInjectedBuildInfo } from '@/lib/build-info'
-import { probeFloatHost, webHostname } from '@/lib/float-panel-host'
+import { webHostname } from '@/lib/web-hostname'
 import { readUpdateCheck, type UpdateCheckRecord } from '@/lib/update-check'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import type { UserScriptsAvailability } from '@/lib/userscripts/types'
 import type { PageOverviewTab, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 
-/** 当前标签页是不是普通网页（http/https）—— 探活回话之前的初值，判「能不能挂浮层」以 floatHostPresent 为准 */
-const currentIsWebPage = ref(true)
-/** 浮层宿主件探活结论（null = 还没问回来），判据见 lib/float-panel-host.ts */
-const floatHostPresent = ref<boolean | null>(null)
 /** 当前标签页 id 与地址（认领概览里「哪一行是我」） */
 const currentTabId = ref<number | null>(null)
 const currentUrl = ref('')
+/**
+ * 当前页的站点名（拿不到 url 的内部页 / 扩展页上是空串，判据见 lib/web-hostname.ts）。
+ *
+ * 它同时是「这一页能不能挂浮层」的判据 —— 下面几处子组件都按「有站点名 = 普通网页」用。
+ */
+const currentHost = computed(() => webHostname(currentUrl.value))
 
 /** 当前构建版本（含预发布标签）：构建期注入，源码里没有第二处版本真相源；缺失（如测试环境）时隐藏 */
 const version = readInjectedBuildInfo()?.version ?? ''
 /** 全部标签页的概览（含当前页；命令失败 / SW 不在时是空表，两块都退化成空态） */
 const overview = ref<PageOverviewTab[]>([])
-
-/**
- * 当前页面能不能挂浮层：以探活为准 —— scheme 判不出四类（应用商店、站点访问权限设成「点击时」的
- * 站点、开了文件访问的本地文件页、引擎开关没开，见 lib/float-panel-host.ts）。探活回话之前用
- * scheme 判据垫着，否则普通网页上首帧会闪一下「不能运行」。
- */
-const injectable = computed(() => floatHostPresent.value ?? currentIsWebPage.value)
 
 /** 当前页的概览；不在概览里（内部页 / 扩展页）时为 null，区块按空态渲染 */
 const currentTab = computed(() => overview.value.find((t) => t.tabId === currentTabId.value) ?? null)
@@ -106,10 +101,8 @@ async function refresh(): Promise<void> {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
   const tabId = tabs[0]?.id
   currentTabId.value = tabId ?? null
+  // 内部页 / 扩展页上扩展读不到 url（manifest 无 tabs 权限）—— 那种页面就是这个空串
   currentUrl.value = tabs[0]?.url ?? ''
-  currentIsWebPage.value = webHostname(tabs[0]?.url) !== ''
-  // 取不到标签页（异常态）保持 null：交给 scheme 判据垫着，好过断言「挂不了」
-  floatHostPresent.value = tabId == null ? null : await probeFloatHost(tabId)
   try {
     availability.value = await userscriptClient.availability()
   } catch {
@@ -258,8 +251,7 @@ onMounted(() => {
     </div>
 
     <PopupCurrentPage
-      :host="webHostname(currentUrl)"
-      :injectable="injectable"
+      :host="currentHost"
       :tab="currentTab"
       @tab-recording-changed="onTabRecordingChanged"
     />

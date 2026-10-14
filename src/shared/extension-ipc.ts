@@ -10,8 +10,8 @@
 import type { ModelProfile } from './types'
 
 // —— 页面上下文档位 ——
-// 拾取器（src/public/duoling-picker.js，USER_SCRIPT 世界 `us-builtin-picker` 的常驻件）的载荷形状。
-// ⚠️ 与拾取器的 vanilla JS 手写对齐，改形状必须两边同步。
+// 页面检查器（src/public/duoling-page-inspector.js，USER_SCRIPT 世界 `us-builtin-inspector` 的常驻件）的载荷形状。
+// ⚠️ 与页面检查器的 vanilla JS 手写对齐，改形状必须两边同步。
 
 /** 拾取元素的摘要层（≤2KB，随 chat:start 常驻 system prompt；同类计数必须在内——AI 自证选择器唯一性不该再花一次读取） */
 export interface ElementPickSummary {
@@ -46,7 +46,7 @@ export interface ElementPickContext {
   full: ElementPickFull
 }
 
-/** 页面快照（渲染后 DOM，拾取器快照模式静默采集；采集方 = AI 的 page_snapshot 工具经 SW 调 execute()） */
+/** 页面快照（渲染后 DOM，页面检查器快照模式静默采集；采集方 = AI 的 page_snapshot 工具经 SW 向该页下发指令） */
 export interface PageSnapshotContext {
   capturedAt: number
   pageUrl: string
@@ -55,7 +55,7 @@ export interface PageSnapshotContext {
 }
 
 /**
- * 页面环境读数（拾取器 env 模式静默采集；采集方 = AI 的 page_env_read 工具经 SW 调 execute()）。
+ * 页面环境读数（页面检查器 env 模式静默采集；采集方 = AI 的 page_env_read 工具经 SW 向该页下发指令）。
  *
  * 与 env_read 报的机器真值刻意分家：这几个值**随页面而变** —— 设备模拟会改掉视口与像素比，
  * 页面上的脚本可能改写 navigator.userAgent。想知道「脚本实际看到的运行环境」读这份，
@@ -301,8 +301,8 @@ export type RuntimeRequest =
   | { kind: 'model:getActiveProfile' }
 
   // —— AI 工具支路（offscreen 的 agent 工具经 SW 调 SW/扩展页才有的 chrome 能力）——
-  // page_snapshot 工具：SW 代为对**本会话所属的标签页**执行拾取器快照模式
-  // （chrome.userScripts.execute 在 offscreen 不可达）。为什么必须带 conversationId：
+  // page_snapshot 工具：SW 代为请**本会话所属的标签页**上的页面检查器采一次快照
+  // （chrome.tabs 在 offscreen 不可达）。为什么必须带 conversationId：
   // 会话按标签页归属，而快照是 AI 在生成中途决定要采的 —— 那时用户可能已经切到别的
   // 标签页，「当前激活页」不再等于「这条会话在聊的那个页」。不带 / 反查不到才退回激活页。
   // 注意前缀：`chat:` 是「SW 静默让路给 offscreen」的保留前缀，SW 自答的命令不能用
@@ -317,8 +317,8 @@ export type RuntimeRequest =
   | { kind: 'page:overview' }
 
   // —— 拾取（浮层 → SW）：用户显式点按钮发起 ——
-  // SW 取**激活标签页**（拾取那一刻浮层必然在用户看着的那一页上），再向该页的拾取器常驻件
-  // 下发指令；结果由件上报、SW 按 reqId 配对（见 lib/userscripts/picker-bridge.ts）。
+  // SW 取**激活标签页**（拾取那一刻浮层必然在用户看着的那一页上），再向该页的页面检查器常驻件
+  // 下发指令；结果由件上报、SW 按 reqId 配对（见 lib/userscripts/page-inspector-bridge.ts）。
   | { kind: 'picker:pick' }
   // 收工：与「开始」同一根线，SW 只负责转发到那一页
   | { kind: 'picker:cancel' }
@@ -497,12 +497,17 @@ export interface FloatBusyRequest {
 export const FLOAT_BUSY_REQUEST_KIND = 'float:busy' as const
 
 /**
- * popup → **当前标签页的浮层宿主件**的探活消息（同 `tabs.sendMessage`，不经 SW）。
+ * 浮层宿主件的**在岗探针**（同 `tabs.sendMessage`，不经 SW）。
  *
- * 用途：判断这个页面**此刻**能不能挂对话浮层。url 判不出来 —— 应用商店 scheme 上就是 https
- * （拦它的是 Chrome 注入策略）、站点访问权限设成「点击时」的站点在 url 上毫无痕迹；反过来，
- * 开了「允许访问文件网址」的本地文件页其实挂得上。唯一说了算的答案就是问一句宿主在不在：
- * 有应答 = 在，无人应答 / 抛错 = 不在。
+ * 宿主件是页面开始加载时由浏览器注入的，扩展侧收不到「这件到没到位」的任何通知；问一句是唯一
+ * 问得出来的办法。判据是**那声应答**，不是「消息发得出去」—— 同一标签页的各个世界都收
+ * `tabs.sendMessage`，页面检查器也在这一页上，只认通道会认错人。
+ *
+ * ⚠️ popup **不再拿它判**「这页能不能开对话浮层」：探活是一次性快照、没有重试，页面正在导航或
+ * 宿主件刚注入还没装监听时都会答「不在」，据此禁灰会把本来点得开的按钮锁死（真机复现过：件在册、
+ * world 配好、权限已授予，仍答不在）。现在改成乐观放行 + 回执判成败，理由与替代判据见
+ * lib/web-hostname.ts。目前用它的只剩 e2e —— 开探针页之前确认件已注入（见
+ * e2e/float-task-state.spec.ts 的 openFloatPage）。
  *
  * 为什么不让调用方随手发一条别的消息充当探活（省掉这个 kind）：那是在赌「接收方不认识它也会
  * 有人把 sendMessage 兑现」——语义不可读，且接收方一改成异步应答就静默失效。显式 pong 让
@@ -571,13 +576,13 @@ export interface PageOverviewBuiltin {
 /** 一个标签页此刻的状况（「当前页面」与「其他页面」两个区块共用） */
 export interface PageOverviewTab {
   tabId: number
-  /** 页面地址（只有普通网页会进这个列表，判据见 lib/float-panel-host.ts 的 webHostname） */
+  /** 页面地址（只有普通网页会进这个列表，判据见 lib/web-hostname.ts 的 webHostname） */
   url: string
   /** 页面标题（读不到为空串） */
   title: string
   /** 当前文档里跑着的脚本（运行时口径，启动时间新的在前） */
   scripts: PageOverviewScript[]
-  /** 这一页上在用的扩展内置件（含全站常驻的拾取器与浮层宿主：它们在每页都真的在跑） */
+  /** 这一页上在用的扩展内置件（含全站常驻的页面检查器与浮层宿主：它们在每页都真的在跑） */
   builtins: PageOverviewBuiltin[]
   /** 该标签页归属的会话；未绑定为 null */
   conversationId: string | null

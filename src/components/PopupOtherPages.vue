@@ -18,7 +18,7 @@ import {
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger,
 } from '@/components/ui/tooltip'
-import { webHostname } from '@/lib/float-panel-host'
+import { webHostname } from '@/lib/web-hostname'
 import type { PageOverviewTab } from '@/shared/extension-ipc'
 
 defineProps<{

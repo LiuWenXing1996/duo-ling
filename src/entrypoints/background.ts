@@ -105,8 +105,8 @@ import {
 } from '@/lib/conversation-tab-map'
 // 会话库（duoling-chat，**写只归 offscreen**）：页面概览里显示会话标题，这里只读
 import { listConversations } from '@/lib/conversation-store'
-// 「popup 能不能给这个页面挂浮层」的判据（scheme 那一半）：页面概览只收普通网页
-import { webHostname } from '@/lib/float-panel-host'
+// 「这一页是不是普通网页」的判据（页面概览只收普通网页，与 popup 的按钮判据同源）
+import { webHostname } from '@/lib/web-hostname'
 import type {
   ImportReport,
   RunEndReason,

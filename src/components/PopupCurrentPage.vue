@@ -7,9 +7,10 @@
 // 的 PageOverviewTab）。popup 只活几秒，故取一次快照即可，不维持推送通道。
 //
 // 浮层入口：对话框平时不在页面里（浮层宿主件不建任何 DOM，见 src/public/duoling-float-host.js），
-// 这颗按钮是它的常规打开方式（另一条是页面右键菜单）。挂不了浮层的页面（浏览器内部页 / 扩展页 /
-// 应用商店 / 站点权限设成「点击时」的站点 / 引擎开关没开…）上打不开不是装坏了 —— 不可用时按钮禁灰，
-// 原因就地说在对话行中间（与「活动记录 / 脚本」两行对不可用状态的说法同款），不单独占一行。
+// 这颗按钮是它的常规打开方式（另一条是页面右键菜单）。**禁用只留给拿不到网址的页面**（浏览器内部页 /
+// 扩展页）：那里连站点名都读不出来，「刷新页面后再试」会变成误导。普通网页一律让点 —— 能不能挂得上
+// 由点了之后的回执说话（见 openFloatPanel），不预先探活（理由见 lib/web-hostname.ts）。
+// 不可用的原因就地说在对话行中间（与「活动记录 / 脚本」两行对不可用状态的说法同款），不单独占一行。
 //
 // 脚本卡头部与列表常显（不做折叠）：这一卡本就是「这页在跑什么」的全部答案，藏起来还得再点一下；
 // 脚本多时列表自己滚，卡高不跟着涨。没脚本时头部给空态说法，按「能不能注入」分 —— 藏起整卡会让
@@ -31,10 +32,8 @@ import { EXTENSION_NAME } from '@/lib/extension-identity'
 import { floatOpenRequest, type PageOverviewTab, type RuntimeResponse } from '@/shared/extension-ipc'
 
 const props = defineProps<{
-  /** 当前页的站点名（拿不到 url 的内部页上是空串） */
+  /** 当前页的站点名（拿不到 url 的内部页上是空串，见 lib/web-hostname.ts） */
   host: string
-  /** 当前标签页能不能挂浮层（判据见 lib/float-panel-host.ts） */
-  injectable: boolean
   /** 当前标签页的概览；null = 这一页不在概览里（内部页 / 扩展页 / 读不到标签页） */
   tab: PageOverviewTab | null
 }>()
@@ -46,6 +45,14 @@ const emit = defineEmits<{
 
 /** 「打开会话」没打通时的说明（成功就直接关窗了） */
 const openError = ref('')
+
+/**
+ * 这一页是不是普通网页（http / https）—— 判据就是「有没有站点名」：内部页 / 扩展页上扩展读不到
+ * url，那份空串既是站点名缺失，也是「这一页跑不了脚本、挂不了浮层」的同一条事实（见
+ * lib/web-hostname.ts）。故不再单独传一个「能不能挂浮层」的布尔进来 —— 同一个事实两处进，
+ * 迟早对不上。
+ */
+const isWebPage = computed(() => props.host !== '')
 
 const scripts = computed(() => props.tab?.scripts ?? [])
 /**
@@ -65,7 +72,7 @@ const tabRecording = computed(() => props.tab?.tabRecording === true)
  * 内部页 / 扩展页两样都缺 —— 那种页面上开关禁灰，状态位改说原因；脚本在那类页面上也根本不会跑，
  * 开了没东西可记。
  */
-const canRecord = computed(() => props.tab != null && props.host !== '')
+const canRecord = computed(() => props.tab != null && isWebPage.value)
 
 /** 开关在途（禁灰，防连点重复发命令） */
 const toggleBusy = ref(false)
@@ -87,13 +94,13 @@ const idleLabel = computed(() => (canRecord.value ? '未开启' : '当前页面�
 /**
  * 脚本卡头部行的计数文案。
  *
- * 「不能运行」只在**确无运行记录**时才说：探活答的是「此刻」，可能滞后于登记表（页面刚导航、
- * 宿主件还没跑起来时探活说不在，而记录还在）—— 那种时候照常给数量，否则会出现「说不能运行、
- * 却又能列出 2 条」的自相矛盾。
+ * 「不能运行」只在**确无运行记录**时才说：记录非空就照常给数量。两样通常互斥（只有普通网页会
+ * 进概览、会有记录），唯一例外是 `file://` 那种 scheme 判不出来的页面 —— 这一挡保证不会出现
+ * 「说不能运行、却又能列出 2 条」的自相矛盾。
  */
 const scriptSummary = computed(() => {
   if (scripts.value.length) return `${scripts.value.length} 个在运行`
-  return props.injectable ? '本页没有运行中的脚本' : '当前页面不能运行脚本'
+  return isWebPage.value ? '本页没有运行中的脚本' : '当前页面不能运行脚本'
 })
 
 /**
@@ -108,12 +115,16 @@ const conversationLabel = computed(() => (props.tab?.generating ? 'AI 正在回�
 const openFloatHint = '打开会话'
 /**
  * 「打开会话」禁用时的原因，就地说在对话行中间 —— 与「活动记录 / 脚本」两行对不可用状态的
- * 说法同款（原因摆在它归属的那一行），tooltip 只管按钮名字，不背原因。
+ * 说法同款（原因摆在它归属的那一行），tooltip 只管按钮名字，不背原因。它只会在拿不到网址的
+ * 页面（浏览器内部页 / 扩展页）上出现，普通网页一律让点。
  */
 const openFloatDisabledHint = '当前页面不能显示对话浮层'
 
 /**
  * 把当前页面的对话浮层调出来。
+ *
+ * **这就是判成败的全部依据**：不预先探活（探活答的是「此刻」，答「不在」不等于真挂不上，见
+ * lib/web-hostname.ts），发了 `float:open` 收得到就开、收不到就地给提示。
  *
  * 收不到（页面在扩展更新前就打开、或在扩展管理页里单独禁掉了本站点的访问权）只能让用户刷新；
  * 这两种情况 popup 判不出来，所以文案不指向具体原因。失败时留在面板里把话说出来 —— 关了就没
@@ -329,7 +340,7 @@ async function toggleTabActivity(next: boolean): Promise<void> {
               <span class="min-w-0 truncate text-xs">{{ conversationLabel }}</span>
             </template>
             <span
-              v-else-if="!injectable"
+              v-else-if="!isWebPage"
               class="min-w-0 truncate text-xs text-muted-foreground"
               data-testid="popup-current-float-disabled"
             >
@@ -344,7 +355,7 @@ async function toggleTabActivity(next: boolean): Promise<void> {
                     variant="ghost"
                     size="icon"
                     class="size-7"
-                    :disabled="!injectable"
+                    :disabled="!isWebPage"
                     aria-label="打开会话"
                     data-testid="open-float-panel"
                     @click="openFloatPanel"

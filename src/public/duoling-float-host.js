@@ -11,7 +11,8 @@
  *   float:collapse  收起：容器回到 display:none，iframe 与面板文档都留着 —— 再打开就是原状态
  *                   （草稿、滚动位置、正在生成的那条消息的实时视图）
  *   float:busy      生成遮罩显隐，与浮层开合无关（理由见 setBusy）
- *   content:ping    探活：同步应答一声，popup 据此判「这页能不能挂浮层」
+ *   content:ping    在岗探针：同步应答一声（判据是这声应答，不是消息发得出去 —— 同一页上还
+ *                   有页面检查器在收同一条消息）
  *
  * 浮层页地址与扩展显示名都不在本件里写死：注册用的是**静态字符串**，而这两样只能现取
  * （`chrome.runtime.getURL` 与 `EXTENSION_NAME` 都只有扩展侧有），故在注册时作为参数递进来
@@ -424,8 +425,8 @@
   function handleMessage(raw, _sender, sendResponse) {
     if (!raw || typeof raw !== 'object') return
     var kind = raw.kind
-    // 探活：同步应答一声，popup 据此判断本页能不能挂浮层（见 ContentPingRequest）。
-    // 同步应答即可，不必 return true 吊住通道。
+    // 在岗探针：同步应答一声（见 ContentPingRequest —— popup 不再拿它判按钮状态，现由 e2e 用来
+    // 确认这件已注入本页）。同步应答即可，不必 return true 吊住通道。
     if (kind === KINDS.ping) {
       sendResponse({ ok: true })
       return

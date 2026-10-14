@@ -113,7 +113,7 @@ const ALL_KINDS = [
   { kind: 'clipboard:write', side: 'offscreen' },
   // —— model:*（SW：配置中转）——
   { kind: 'model:getActiveProfile', side: 'sw' },
-  // —— page:*（SW：AI 工具支路 page_snapshot / page_env_read 经 SW 调 userScripts.execute；
+  // —— page:*（SW：AI 工具支路 page_snapshot / page_env_read 经 SW 向页面里的页面检查器下发指令；
   // 后两条供 popup 的页面概览）——
   { kind: 'page:snapshot', side: 'sw' },
   { kind: 'page:env', side: 'sw' },
