@@ -123,8 +123,9 @@ function builtinPlan(hit) {
  *
  * @param {object} [opts]
  * @param {(lastUser: string, hit: object) => string} [opts.reply] 默认回复文本；缺省回显最后一条用户消息
- * @param {(hit: object, index: number) => ({ text?: string, toolCalls?: Array<{ name: string, args?: unknown }> } | undefined)} [opts.plan]
- *        按「第几次请求」脚本化回复 —— 多步工具循环靠它（第 1 次发 script_spec、第 2 次发 script_apply…）
+ * @param {(hit: object, index: number) => ({ reasoning?: string, text?: string, toolCalls?: Array<{ name: string, args?: unknown }> } | undefined)} [opts.plan]
+ *        按「第几次请求」脚本化回复 —— 多步工具循环靠它（第 1 次发 script_spec、第 2 次发 script_apply…）；
+ *        `reasoning` 非空时先吐一片 `reasoning_content`（OpenAI 兼容形状，SDK 转成思考过程），再吐正文/工具调用
  * @param {string} [opts.model] 回包里的 model 字段（默认 stub-model）
  * @param {number} [opts.holdAfterFirstChunkMs] **首片文本之后**的延时：制造「吐了半截还没完」的窗口（验中止落盘）
  * @param {number} [opts.delayMs] 响应前的延时：把「生成中」的窗口拉长（别越过 offscreen 的流式静默守卫，默认 60s）
@@ -165,6 +166,7 @@ export async function startModelStub(opts = {}) {
       const planned = opts.plan ? opts.plan(hit, hits.length - 1) : builtinPlan(hit)
       const text = planned?.text ?? replyText(hit.lastUser)
       const toolCalls = planned?.toolCalls ?? []
+      const reasoning = planned?.reasoning ?? opts.reasoning ?? ''
 
       // 延时在**记录之后、吐字节之前**：此刻 hits 里已有这条请求（断言「生成已开始」读得到），
       // 而对端还在等首字节 —— 正是「任务在跑」的形态。
@@ -222,6 +224,7 @@ export async function startModelStub(opts = {}) {
 
       if (toolCalls.length) {
         // OpenAI 形状的工具调用：先给 id/name/type，再逐片补 arguments，最后 finish_reason=tool_calls
+        if (reasoning) res.write(chunk({ role: 'assistant', reasoning_content: reasoning }, null))
         res.write(
           chunk(
             {
@@ -246,7 +249,8 @@ export async function startModelStub(opts = {}) {
         return
       }
 
-      // 流式文本：分两片吐字 + finish + [DONE]（AI SDK 认这个形状）
+      // 流式文本：分两片吐字 + finish + [DONE]（AI SDK 认这个形状）；带 reasoning 时先吐思考片
+      if (reasoning) res.write(chunk({ role: 'assistant', reasoning_content: reasoning }, null))
       res.write(chunk({ role: 'assistant', content: text.slice(0, 5) }, null))
       if (opts.holdAfterFirstChunkMs) {
         await new Promise((resolve) => setTimeout(resolve, opts.holdAfterFirstChunkMs))

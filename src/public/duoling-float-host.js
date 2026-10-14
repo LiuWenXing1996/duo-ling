@@ -80,7 +80,7 @@
 .dl-float-drag-strip.dragging { cursor: grabbing; }
 .dl-float-iframe {
   width: 384px;
-  height: 560px;
+  height: 600px;
   /* 视口不够高时按视口收（上下各留 20px，与容器贴边的距离一致） */
   max-height: calc(100vh - 40px);
   border: none;
