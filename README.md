@@ -12,7 +12,7 @@
 
 | 载体 | 角色 | 承载内容 |
 | --- | --- | --- |
-| **网页浮层 `floatpanel.html`**（content script 按需挂进页面的 iframe） | **对话界面**（唯一入口） | 当前标签页的会话（消息流、输入区含附件与拾取 chip、模型选择）+ 顶栏「会话历史 / 打开工作台 / 收起」三个去处；会话 = **它所在标签页**的会话（tab 身份由 content script 经 iframe URL 传入）；页面加载时不注入，从 popup 或页面右键菜单打开 |
+| **网页浮层 `floatpanel.html`**（由浮层宿主件按需挂进页面的 iframe） | **对话界面**（唯一入口） | 当前标签页的会话（消息流、输入区含附件与拾取 chip、模型选择）+ 顶栏「会话历史 / 打开工作台 / 收起」三个去处；会话 = **它所在标签页**的会话（tab 身份由浮层宿主件经 iframe URL 传入）；页面加载时不注入，从 popup 或页面右键菜单打开 |
 | **标签页 `workbench.html`** | 重界面工作区（按需打开） | 脚本列表（默认落点、不可关闭）/ 活动历史 / 脚本编辑器 / 脚本历史 / 脚本产物 / 会话历史（列表 + 右栏 回放 / 原始数据 双视图，后者是落盘 Message 的只读调试面）/ 文件管理（duoling-fs 整库只读文件树：脚本源码与 git 内部对象 + 对话图片资源）/ 设置 / 引导（入口在设置左栏菜单底部，不占左侧导航）；另有两个调试面板的入口只在「设置 → 开发者」里给（点了在工作台开对应标签页，不占左侧导航）：AI 工具 / GM API（接口录制没有独立面板，其查询面已并进「活动历史」） |
 | **popup**（点工具栏图标弹出） | 按标签页看现状与去处（点开即用、点外即关） | 「**当前页面**」区块：本标签页的活动记录开关（一枚开关两条写链：既记这一页的活动时间线、又录这一页的接口流量；常显、可就地开与关；接口录制要刷新页面后才生效）+ 本页在跑的脚本与报错（只读展示，右侧「管理脚本」按钮开工作台的脚本列表）+ 这一页上在用的扩展内置件（弱化行组，不进脚本计数）+ 这条页面的对话浮层入口（对话框的常规打开方式）与是否正在回话；「**其他页面**」区块：其他打开的普通网页各自的脚本与会话，点一行切过去；标题行右侧的「设置 / 打开工作台」两个图标入口（说明各自挂在悬停提示里）与当前版本号（构建期注入，构建信息缺失时隐藏）；另有新版本提示（只在有新版本时出现）。两块内容由一条 `page:overview` 命令在 SW 侧一次聚合；挂不了浮层的页面上「打开会话」禁用，原因就地说在对话行中间 |
 
@@ -30,7 +30,7 @@
 ├─ README.md / VERSIONING.md / GIT_WORKFLOW.md / CHANGELOG.md / TODO.md  # 工程介绍与目录结构 / 版本机制 / Git 工作流 / 变更记录 / 待办清单
 ├─ .agents/skills/                # 就地挂载的 Agent 规范（wxt / shadcn-vue / workbench-panel / testing）
 ├─ src/
-│  ├─ entrypoints/                # 载体入口与运行时宿主：background（SW 能力运行时）/ content（浮层宿主）/ offscreen（AI 生成宿主）
+│  ├─ entrypoints/                # 载体入口与运行时宿主：background（SW 能力运行时）/ offscreen（AI 生成宿主）
 │  ├─ components/                 # UI：对话（ChatPanel 系列）/ 工作台宿主与面板 / popup / 设置分区（sections.ts 注册表）/ ui / ai-elements
 │  ├─ composables/                # use-global-conversation：会话中枢（useChat + 流式）
 │  ├─ lib/                        # 运行时逻辑层；各库的写权限与机制见 ARCHITECTURE.md「存储」
@@ -39,7 +39,7 @@
 │  │  └─ 其他文件                 #   各 store（会话 / 模型 / 归属映射 / 浮层开关）/ 新版本检查 / transport / 元素拾取 / 构建信息取数
 │  ├─ shared/                     # 跨上下文契约：types / ipc（window.api 形状）/ extension-ipc（渲染页 ⇄ SW 协议）
 │  ├─ assets/                     # Tailwind 主题变量与全局样式
-│  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（元素拾取器）
+│  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（元素拾取器 / 浮层宿主件，均为不进打包链路的 vanilla JS）
 ├─ scripts/                       # 仓库维护脚本：verify-skills / check-todo / pack-uscripts / probe-target（本机测试靶站）/ model-stub（本机假模型，e2e 与 dev 共用）/ dev（dev 与靶站、假模型一起起）
 ├─ uscript-samples/               # pack-uscripts 的源目录（注入探针 / GM 桥 / 语法错误样本等测试脚本）
 ├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟）

@@ -30,16 +30,16 @@ import PopupCurrentPage from './PopupCurrentPage.vue'
 import PopupOtherPages from './PopupOtherPages.vue'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 import { readInjectedBuildInfo } from '@/lib/build-info'
-import { probeContentScript, webHostname } from '@/lib/float-panel-host'
+import { probeFloatHost, webHostname } from '@/lib/float-panel-host'
 import { readUpdateCheck, type UpdateCheckRecord } from '@/lib/update-check'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import type { UserScriptsAvailability } from '@/lib/userscripts/types'
 import type { PageOverviewTab, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
 
-/** 当前标签页是不是普通网页（http/https）—— 探活回话之前的初值，判「能不能注入」以 contentScriptPresent 为准 */
+/** 当前标签页是不是普通网页（http/https）—— 探活回话之前的初值，判「能不能挂浮层」以 floatHostPresent 为准 */
 const currentIsWebPage = ref(true)
-/** 内容脚本探活结论（null = 还没问回来），判据见 lib/float-panel-host.ts */
-const contentScriptPresent = ref<boolean | null>(null)
+/** 浮层宿主件探活结论（null = 还没问回来），判据见 lib/float-panel-host.ts */
+const floatHostPresent = ref<boolean | null>(null)
 /** 当前标签页 id 与地址（认领概览里「哪一行是我」） */
 const currentTabId = ref<number | null>(null)
 const currentUrl = ref('')
@@ -50,11 +50,11 @@ const version = readInjectedBuildInfo()?.version ?? ''
 const overview = ref<PageOverviewTab[]>([])
 
 /**
- * 当前页面能不能跑脚本 / 挂浮层：以探活为准 —— scheme 判不出三类（应用商店、站点访问权限设成
- * 「点击时」的站点、开了文件访问的本地文件页，见 lib/float-panel-host.ts）。探活回话之前用
- * scheme 判据垫着，否则普通网页上首帧会闪一下「不能运行脚本」。
+ * 当前页面能不能挂浮层：以探活为准 —— scheme 判不出四类（应用商店、站点访问权限设成「点击时」的
+ * 站点、开了文件访问的本地文件页、引擎开关没开，见 lib/float-panel-host.ts）。探活回话之前用
+ * scheme 判据垫着，否则普通网页上首帧会闪一下「不能运行」。
  */
-const injectable = computed(() => contentScriptPresent.value ?? currentIsWebPage.value)
+const injectable = computed(() => floatHostPresent.value ?? currentIsWebPage.value)
 
 /** 当前页的概览；不在概览里（内部页 / 扩展页）时为 null，区块按空态渲染 */
 const currentTab = computed(() => overview.value.find((t) => t.tabId === currentTabId.value) ?? null)
@@ -108,8 +108,8 @@ async function refresh(): Promise<void> {
   currentTabId.value = tabId ?? null
   currentUrl.value = tabs[0]?.url ?? ''
   currentIsWebPage.value = webHostname(tabs[0]?.url) !== ''
-  // 取不到标签页（异常态）保持 null：交给 scheme 判据垫着，好过断言「注入不了」
-  contentScriptPresent.value = tabId == null ? null : await probeContentScript(tabId)
+  // 取不到标签页（异常态）保持 null：交给 scheme 判据垫着，好过断言「挂不了」
+  floatHostPresent.value = tabId == null ? null : await probeFloatHost(tabId)
   try {
     availability.value = await userscriptClient.availability()
   } catch {

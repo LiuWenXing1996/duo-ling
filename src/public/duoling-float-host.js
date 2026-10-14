@@ -1,0 +1,484 @@
+/**
+ * 对话浮层宿主件 —— 页面里的对话挂载点（常驻，收到指令才建 DOM）。
+ *
+ * 运行位置：目标标签页的独立 USER_SCRIPT 世界 `us-dl-float`（engine 按全站匹配注册；该世界须开
+ * messaging，件靠 chrome.runtime 接指令）。本文件是**无依赖的 vanilla JS**，不进打包链路
+ * （src/public/ 随包分发），由注册的第二段 code 调 `init(浮层页地址, 扩展名)` 完成装配。
+ *
+ * 三条指令（都经 `chrome.tabs.sendMessage` 投向本标签页的各个世界，谁认这个 kind 谁来接；
+ * 发起方与载荷见 shared/extension-ipc.ts）：
+ *   float:open      挂上容器并展开。容器按需创建，iframe 懒加载（首次展开才设 src）
+ *   float:collapse  收起：容器回到 display:none，iframe 与面板文档都留着 —— 再打开就是原状态
+ *                   （草稿、滚动位置、正在生成的那条消息的实时视图）
+ *   float:busy      生成遮罩显隐，与浮层开合无关（理由见 setBusy）
+ *   content:ping    探活：同步应答一声，popup 据此判「这页能不能挂浮层」
+ *
+ * 浮层页地址与扩展显示名都不在本件里写死：注册用的是**静态字符串**，而这两样只能现取
+ * （`chrome.runtime.getURL` 与 `EXTENSION_NAME` 都只有扩展侧有），故在注册时作为参数递进来
+ * （见文件末的 init）。
+ *
+ * 位置只在本次页面内有效：不落库，刷新后回到右下角。
+ *
+ * CSP 降级：iframe 加载失败（严格 frame-src 拦扩展 iframe）时给一句可读提示 —— 对话框是唯一
+ * 对话载体，这些站点上就是用不了。两点实现约束：部分站点拦载**不触发** iframe 的 error 事件，
+ * 可靠性靠 load 超时兜底；floatpanel.html 必须进 web_accessible_resources（见 wxt.config.ts），
+ * 否则 Chrome 直接拦。
+ *
+ * 拾取让位：页面元素拾取期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
+ *
+ * ⚠️ 契约：本文件是纯 JS、不在类型检查范围内，消息 kind 与 shared/extension-ipc.ts 的对齐
+ * 由单测把守（lib/userscripts/float-host-source.test.ts 会真的执行本文件并比对 kind）。
+ */
+;(function () {
+  'use strict'
+
+  var HOOK = '__duolingFloatHost'
+  // 幂等：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态）
+  if (window[HOOK]) return
+
+  // 注入根 id（全局唯一，防止重复注入）
+  var ROOT_ID = 'duoling-float-root'
+
+  // 「点选元素正在页面里进行」的信号：拾取器亮拾取态时往 documentElement 插的遮罩类名
+  // （src/public/duoling-picker.js 的 CSS_NS + '-box'，仅拾取期间存在、finish() 即移除）。
+  //
+  // 为什么用 DOM 而不是广播：拾取器与本件分居两个世界，JS 互相不可见，共享面只有 DOM；而拾取
+  // 遮罩的生死恰好就是「拾取区间」本身，无需新增任何通道。
+  // 副作用还有一个好处：判定天然按 document 隔离——只有真正发起拾取的那个标签页会隐藏对话框。
+  // ⚠️ 契约：改拾取遮罩的类名必须同步改这里（拾取器文件顶部注释也标注了这条）。
+  var PICKER_BOX_SELECTOR = '.duoling-picker-box'
+
+  // 指令 kind：与 shared/extension-ipc.ts 的同名常量一一对应，单测逐条比对（改一处必须两处一起改）
+  var KINDS = {
+    open: 'float:open',
+    collapse: 'float:collapse',
+    busy: 'float:busy',
+    ping: 'content:ping',
+  }
+
+  var CSS = `
+.dl-float-container {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483647;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.dl-float-panel { position: relative; display: none; z-index: 2; }
+.dl-float-container.open .dl-float-panel { display: block; }
+.dl-float-drag-strip {
+  /* 盖在 iframe 顶栏上的拖拽把手：right 留出顶栏右侧的三颗按钮（合计约 104px），点击照常落进 iframe */
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 120px;
+  height: 44px;
+  z-index: 1;
+  cursor: grab;
+}
+.dl-float-drag-strip.dragging { cursor: grabbing; }
+.dl-float-iframe {
+  width: 384px;
+  height: 560px;
+  /* 视口不够高时按视口收（上下各留 20px，与容器贴边的距离一致） */
+  max-height: calc(100vh - 40px);
+  border: none;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.32);
+}
+/* 生成遮罩：盖住整个视口挡掉指针交互，但**不挡对话框**（面板 z-index 更高）——
+   否则用户点不到面板里的「停止」。底色与四边光晕取靛蓝系（与页面内容区分得开、又不至于刺眼）；
+   卡片用 CSS 系统色 Canvas/CanvasText 打底，自动跟随系统深浅色，免得深色页面上弹出一块刺眼的白
+   （与 floatpanel.html 首帧加载态同一取舍）。 */
+.dl-page-mask {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  /* 靠上不居中：页面主体内容多半在中下部，卡片压在那儿反而挡住用户想看的区域 */
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 24px 24px;
+  background: rgba(30, 27, 75, 0.42);
+  /* 内发光：光从四边往中间散，四边亮、中央淡 —— 越靠边越亮才有「边框在发光」的观感 */
+  box-shadow: inset 0 0 120px rgba(99, 102, 241, 0.38);
+}
+.dl-float-container.dl-busy .dl-page-mask { display: flex; }
+.dl-page-mask-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 320px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(129, 140, 248, 0.35);
+  background: Canvas;
+  color: CanvasText;
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.32),
+    0 0 24px rgba(99, 102, 241, 0.35);
+}
+/* 转圈只能用纯 CSS 画（同 floatpanel.html 首帧加载态的理由，这边也一样不引图标库） */
+.dl-page-mask-spinner {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid color-mix(in srgb, #818cf8 25%, Canvas);
+  border-top-color: #818cf8;
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dl-page-mask-spinner { animation: dl-page-mask-spin 0.7s linear infinite; }
+  @keyframes dl-page-mask-spin { to { transform: rotate(360deg); } }
+}
+.dl-float-fallback {
+  width: 260px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #fff;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.32);
+  text-align: center;
+}
+`
+
+  /** 浮层页地址（注册时递进来；空串 = 装不上，open 时按降级处理） */
+  var panelUrl = ''
+  /** 扩展显示名（注册时递进来；只用于 iframe 标题与降级文案 —— 改名的真相源仍只有 extension-identity.ts 一处） */
+  var extensionName = '扩展'
+  /** 当前对话框（null = 页面里还没有任何东西，即默认状态） */
+  var ui = null
+  /** 是否已因「拾取进行中」而隐藏（避免与拾取的实时状态重复写样式） */
+  var hiddenForPick = false
+  var installed = false
+
+  /**
+   * 把浮层落点夹进视口。
+   *
+   * 这是拖拽唯一的硬约束：不夹的话，浮层被拖出屏幕边缘后把手（顶栏）也跟着出屏，用户再也抓不
+   * 回来 —— 只能重载页面复位。浮层比视口还大时右 / 下界算出来是负数，此时取 0 贴左上，至少保证
+   * 把手可见（面板尺寸本身也按视口收过，见上面 .dl-float-iframe 的 max-height）。
+   */
+  function clampPoint(point, panel, viewport) {
+    return {
+      x: Math.min(Math.max(point.x, 0), Math.max(viewport.width - panel.width, 0)),
+      y: Math.min(Math.max(point.y, 0), Math.max(viewport.height - panel.height, 0)),
+    }
+  }
+
+  /**
+   * 构建对话框 UI（挂进 DOM 由调用方做），返回宿主根元素与开合 / 遮罩三个操作口。
+   *
+   * 样式打在 shadow root 里：对话框样式与页面互相隔离（页面样式进不来，我们的也不漏出去）。
+   */
+  function buildFloatUi() {
+    var root = document.createElement('div')
+    root.id = ROOT_ID
+
+    var shadow = root.attachShadow({ mode: 'open' })
+
+    var style = document.createElement('style')
+    style.textContent = CSS
+    shadow.appendChild(style)
+
+    var container = document.createElement('div')
+    container.className = 'dl-float-container'
+    shadow.appendChild(container)
+
+    // 生成遮罩常驻 DOM（只切 class 显隐）：它跟着容器一起建、一起没，无需另一套增删逻辑。
+    // 放在面板**之前**、z-index 更低，故对话框始终在遮罩之上（见 CSS 处说明）。
+    var mask = document.createElement('div')
+    mask.className = 'dl-page-mask'
+    var maskCard = document.createElement('div')
+    maskCard.className = 'dl-page-mask-card'
+    maskCard.setAttribute('role', 'status')
+    var maskSpinner = document.createElement('div')
+    maskSpinner.className = 'dl-page-mask-spinner'
+    var maskText = document.createElement('span')
+    maskText.textContent = 'AI 正在读取页面信息，暂时请不要操作该页面'
+    maskCard.append(maskSpinner, maskText)
+    mask.appendChild(maskCard)
+    container.appendChild(mask)
+
+    var panel = document.createElement('div')
+    panel.className = 'dl-float-panel'
+    container.appendChild(panel)
+
+    var iframe = document.createElement('iframe')
+    iframe.className = 'dl-float-iframe'
+    iframe.title = extensionName + '对话'
+    panel.appendChild(iframe)
+
+    // 拖拽把手：盖在 iframe 顶栏上的父页元素（为什么必须在父页，见 startDrag 的说明）
+    var strip = document.createElement('div')
+    strip.className = 'dl-float-drag-strip'
+    panel.appendChild(strip)
+
+    var loaded = false
+    var srcAssigned = false
+    var fallbackTimer = null
+    var dragging = false
+
+    var showFallback = function () {
+      iframe.remove()
+      var fb = document.createElement('div')
+      fb.className = 'dl-float-fallback'
+      fb.textContent = '该网站限制了内嵌框架，浮层无法显示——' + extensionName + '在这个网站上用不了。'
+      panel.appendChild(fb)
+    }
+
+    /**
+     * 拖动把手（.dl-float-drag-strip，盖在 iframe 顶栏上的一条）按下：整个手势从这里开始，
+     * 全程在本页完成，零跨进程消息。
+     *
+     * 为什么把手是父页盖上去的一条、而不是 iframe 顶栏本身 —— 两条实测的坑：
+     *   · 按在 iframe 里的鼠标手势会被 Chromium 一路路由给 iframe（浏览器级的拖拽捕获），父页用
+     *     pointer-events 让位 / 铺接管层都收不到后续事件 —— 跨 iframe 接管指针走不通；
+     *   · 若退回「iframe 逐帧发位移消息」，跨进程一来一回延迟忽快忽慢，面板追一步顿一步；且逐帧改
+     *     fixed 元素的 left/top 会触发整页 style/layout/paint。故本实现拖动中只写 **transform**
+     *     （合成器搬运，不重排），松手才把终位沉淀回 left/top。
+     *
+     * 把手 right: 120px 留出顶栏右侧的三颗按钮，点击照常落进 iframe；标题区被把手盖住，
+     * 代价只是标题不响应悬停提示，无功能损失。
+     */
+    var startDrag = function (event) {
+      if (dragging || event.button !== 0) return
+      dragging = true
+      // 拖动期间不选中文本、不触发原生拖拽
+      event.preventDefault()
+
+      // 基准位：把容器从 CSS 的「右下贴边」换成「左上定坐标」。贴边由 right/bottom 定的位，只写
+      // left/top 不会生效 —— 两边同时给值时，浏览器按文档方向挑 left、right 里的一个，另一套要显式 auto。
+      var base = container.getBoundingClientRect()
+      container.style.left = base.left + 'px'
+      container.style.top = base.top + 'px'
+      container.style.right = 'auto'
+      container.style.bottom = 'auto'
+
+      var last = { x: base.left, y: base.top }
+      // 抓取点相对面板左上角的偏移：面板落点 = 指针位置 - 偏移，面板才会「按住哪就从哪动」
+      var grabX = event.clientX - base.left
+      var grabY = event.clientY - base.top
+
+      var clampTo = function (move) {
+        return clampPoint(
+          { x: move.clientX - grabX, y: move.clientY - grabY },
+          { width: container.offsetWidth, height: container.offsetHeight },
+          { width: window.innerWidth, height: window.innerHeight },
+        )
+      }
+      var place = function (next) {
+        last = next
+        // 位移只走 transform（相对基准位），松手才沉淀成 left/top —— 见上方说明
+        container.style.transform = 'translate(' + (next.x - base.left) + 'px, ' + (next.y - base.top) + 'px)'
+      }
+      var onMove = function (move) {
+        place(clampTo(move))
+      }
+      var finish = function () {
+        if (!dragging) return
+        dragging = false
+        container.style.transform = ''
+        container.style.left = last.x + 'px'
+        container.style.top = last.y + 'px'
+        strip.classList.remove('dragging')
+        strip.removeEventListener('pointermove', onMove)
+        strip.removeEventListener('pointerup', onEnd)
+        strip.removeEventListener('pointercancel', onEnd)
+      }
+      var onEnd = function (move) {
+        place(clampTo(move))
+        finish()
+      }
+
+      // 指针捕获：快速拖动 / 甩出浏览器窗口时事件流不断，松手一定收得到（同文档捕获，无跨文档问题）
+      strip.setPointerCapture(event.pointerId)
+      strip.classList.add('dragging')
+      strip.addEventListener('pointermove', onMove)
+      strip.addEventListener('pointerup', onEnd)
+      strip.addEventListener('pointercancel', onEnd)
+      // capture 被释放 = 手势无论如何结束了（正常松手 / 系统打断），兜一把清理；finish 幂等
+      strip.addEventListener('lostpointercapture', finish, { once: true })
+    }
+    strip.addEventListener('pointerdown', startDrag)
+
+    /**
+     * 展开。iframe src 懒加载：首次展开才设 —— 页面一开就加载扩展页会白占资源。
+     *
+     * src 里的 tab 参数来自 float:open 指令（浮层靠它认定会话归属，每 tab 一条会话）。指令没带
+     * （数值不可用）就退回不带参数：浮层侧归属退化为「不绑定」，好过错绑到别人的 tab。
+     */
+    var open = function (tabId) {
+      container.classList.add('open')
+      if (srcAssigned) return
+      srcAssigned = true
+      loaded = false
+      var url = panelUrl
+      if (!url) {
+        showFallback()
+        return
+      }
+      iframe.src = typeof tabId === 'number' ? url + '?tab=' + tabId : url
+      fallbackTimer = setTimeout(function () {
+        if (!loaded) showFallback()
+      }, 2500)
+    }
+
+    /**
+     * 收起：容器回到 display:none，iframe 与面板文档原封不动留着。
+     *
+     * 再打开就是原状态（草稿、滚动位置、正在生成的那条消息的实时视图），也不必重新加载整个浮层页。
+     * 页面卸载时随文档一起消失 —— 没有需要额外收尾的东西。
+     */
+    var collapse = function () {
+      container.classList.remove('open')
+    }
+
+    /**
+     * 生成遮罩的开关（对话界面经 float:busy 报来）。
+     *
+     * **判据只有生成中这一条，与浮层开合无关**：收起浮层只是收起对话界面，AI 该读页面还在读 ——
+     * 遮罩跟着浮层一起藏，用户就会以为「收起来就没事了」，然后在页面被读的过程中照动不误。
+     * 所以收起时遮罩照留（想撤掉得等生成结束，或从 popup / 右键菜单重开浮层点停止）。
+     */
+    var setBusy = function (busy) {
+      container.classList.toggle('dl-busy', busy)
+    }
+
+    iframe.addEventListener('load', function () {
+      loaded = true
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer)
+        fallbackTimer = null
+      }
+    })
+    // 部分站点 CSP 拦 iframe 不触发 error，靠上面的 load 超时兜底；这里再兜一层
+    iframe.addEventListener('error', function () {
+      if (!loaded) showFallback()
+    })
+
+    return { root: root, open: open, collapse: collapse, setBusy: setBusy }
+  }
+
+  /**
+   * 拾取期间整块让位。
+   *
+   * 为什么必须隐藏：对话框钉在 z-index: 2147483647（见 CSS），而拾取器用
+   * document.elementFromPoint() 判定目标（duoling-picker.js）——对话框在时，用户点到它覆盖的
+   * 区域拿回的是对话框自己的元素（shadow 宿主 / iframe），既选错元素，也让被盖住的真实元素永远
+   * 点不到。
+   *
+   * 判据取「遮罩此刻在不在」这个 DOM 事实，而不是数插入/移除的次数：拾取器再次注入时会先收掉旧
+   * 拾取（移除旧遮罩）再插新遮罩，同一批 mutation 里一增一减，按次数计会算错。
+   */
+  function syncFloatVisibilityForPick() {
+    if (!ui) return
+    var picking = !!document.querySelector(PICKER_BOX_SELECTOR)
+    if (picking === hiddenForPick) return
+    hiddenForPick = picking
+    ui.root.style.display = picking ? 'none' : ''
+  }
+
+  /**
+   * 挂载点：优先 body（对话框的常规落点），骨架还没建好时退到 documentElement。
+   *
+   * 本件是 document_start 注入，理论上存在「body 还没被解析出来」的窗口；而打开指令由用户点
+   * 按钮发起，正常都在这之后 —— 这个退化只是不让那个窗口里的打开静默作废。
+   */
+  function mountPoint() {
+    return document.body || document.documentElement
+  }
+
+  /** 把已建好的对话框接到 DOM 上并展开 */
+  function attachRoot(tabId) {
+    mountPoint().appendChild(ui.root)
+    hiddenForPick = false // 新 root 默认可见，交给下面的同步裁决
+    syncFloatVisibilityForPick() // 拾取中挂上也要立即让位
+    ui.open(tabId)
+  }
+
+  /** 挂上对话框并展开（页面里什么都没有时） */
+  function mountAndOpen(tabId) {
+    if (ui) {
+      ui.open(tabId)
+      return
+    }
+    ui = buildFloatUi()
+    if (mountPoint()) {
+      attachRoot(tabId)
+      return
+    }
+    // 连 documentElement 都还没有：等文档骨架建好再挂，不把这次打开丢掉
+    document.addEventListener('DOMContentLoaded', function () { attachRoot(tabId) }, { once: true })
+  }
+
+  /**
+   * 指令入口：三个 kind 各自对应上面的动作，未知消息静默忽略（同一标签页的各个世界都会收到
+   * tabs.sendMessage，只认自己那几个 kind）。
+   */
+  function handleMessage(raw, _sender, sendResponse) {
+    if (!raw || typeof raw !== 'object') return
+    var kind = raw.kind
+    // 探活：同步应答一声，popup 据此判断本页能不能挂浮层（见 ContentPingRequest）。
+    // 同步应答即可，不必 return true 吊住通道。
+    if (kind === KINDS.ping) {
+      sendResponse({ ok: true })
+      return
+    }
+    if (kind === KINDS.open) {
+      mountAndOpen(raw.tabId)
+      return
+    }
+    // 收起：只给容器加 display:none，UI 与 iframe 留着（见 collapse 的说明）
+    if (kind === KINDS.collapse) {
+      if (ui) ui.collapse()
+      return
+    }
+    // 生成遮罩开关：页面里还没有浮层时收到（浮层尚未挂出 / 已被页面导航带走）静默忽略 ——
+    // 没有对话界面就没有「AI 在读这个页面」这回事。
+    if (kind === KINDS.busy) {
+      if (ui) ui.setBusy(raw.busy === true)
+    }
+  }
+
+  /**
+   * 装配（注册时的第二段 code 调）：先把浮层页地址与扩展名递进来，再挂消息面。
+   * 幂等 —— 同一文档重复装配只生效一次。
+   */
+  function init(url, name) {
+    if (installed) return
+    installed = true
+    panelUrl = typeof url === 'string' ? url : ''
+    if (typeof name === 'string' && name) extensionName = name
+    try {
+      chrome.runtime.onMessage.addListener(handleMessage)
+    } catch (e) {
+      // 世界未开 messaging：指令通道不可用，浮层挂不出来（属配置错误，出声比静默好）
+      console.warn('[duoling:float] 世界未开 messaging，浮层指令通道不可用')
+      return
+    }
+    // 拾取器插/删遮罩 → 同步对话框显隐。只盯 documentElement 的**直接子节点**：遮罩挂在 <html>
+    // 下，而对话框挂在 <body> 下，二者互不触发，不会自激（也不必开 subtree 去听整棵树的增删）。
+    // 骨架未建（document_start 极早期）就等文档就绪再装 —— 那个窗口里还没有对话框要隐藏。
+    function watchPickMask(target) {
+      new MutationObserver(function () {
+        syncFloatVisibilityForPick()
+      }).observe(target, { childList: true })
+    }
+    if (document.documentElement) {
+      watchPickMask(document.documentElement)
+    } else {
+      document.addEventListener('DOMContentLoaded', function () {
+        watchPickMask(document.documentElement)
+      }, { once: true })
+    }
+  }
+
+  // clamp 与 kinds 一并挂出只为单测（世界隔离，页面看不见这个对象）
+  window[HOOK] = { init: init, clamp: clampPoint, kinds: KINDS }
+})()

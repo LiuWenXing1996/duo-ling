@@ -11,9 +11,10 @@ import { EXTENSION_NAME } from './src/lib/extension-identity'
 // 浏览器扩展版：不依赖已下架的 @wxt/vue，直接用 vite 的 vue 插件编译 .vue 组件。
 //
 // 载体分工：
-//   网页浮层    → 对话界面 = content script 按需注入的 iframe（entrypoints/content.ts
-//                 加载 floatpanel.html，显示**它所在标签页**的会话；页面加载时不注入任何
-//                 DOM，从工具栏 popup 的按钮或页面右键菜单打开）
+//   网页浮层    → 对话界面 = 浮层宿主件（dl-float-host，注册用户脚本，见
+//                 src/lib/userscripts/float-host-source.ts）按需挂出的 iframe，加载
+//                 floatpanel.html，显示**它所在标签页**的会话；页面加载时不建任何 DOM，
+//                 从工具栏 popup 的按钮或页面右键菜单打开
 //   标签页      → 脚本工作区 = 脚本列表 / 编辑器 / 设置 / 会话历史（entrypoints/workbench.html）
 //   popup       → 会话与页面的快捷面板 = 点工具栏图标弹出（当前页面 / 其他页面两块，entrypoints/popup.html）
 // 三个载体的界面复用关系见 README.md「载体分工」。
@@ -132,7 +133,7 @@ export default defineConfig({
     // CRX 自托管时才需要。生成方式与 ID 换算见 VERSIONING.md。
     key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAn48Pdu5rZ8jaljtXTNwFjwDOfj4b0phMH50lb6jhE4VGV2SRVbnWcoi34IOJw/Vlp8wVwM8Dpn6ZpRsmIdUWzx5lrjO8vc9DXI+5ORtH/2vl0jCxlmALDh3Wi/6wYnjb5QkXsPFzobhypeD+Aseaf1nREgo0Vp/W90awxDx7blBTuhVVdKVDNs6Mt8HluvDTMgUAWq0e1MDxhOkWvTjEMT5Q7pkLaBrapg1eA/FlBie5Hd3qj/uT2ykPHEKsZBZNd3ZHDizxtTM1c0LXAFX+7k5E6IS4B27uJhIoCxrv3GXOuo2BdVce5pLjNbwRa+JoHgSVJ1ZEsVQFWaUuGTBTCQIDAQAB',
     // action 的默认行为由 popup 承担：点工具栏图标弹 popup（entrypoints/popup.html 自动写入
-    // default_popup）。对话入口是网页浮层，由 content script 注入，不占 action。
+    // default_popup）。对话入口是网页浮层，由浮层宿主件挂出，不占 action。
     // offscreen 是 AI 生成链路的执行宿主（定位 B）：
     // 对话 loop 与源码写侧（us-git / project-write）都跑在 offscreen document 里，
     // 「用户发起生成后可收起浮层、任务照跑完」。没有该权限 chrome.offscreen 不存在
@@ -169,18 +170,18 @@ export default defineConfig({
     // 用户脚本管理器（userscript-manager）：userScripts 注入目标网页需全域 host 权限
     // （Chrome 文档明确要求），同时覆盖 GM_xmlhttpRequest 的跨域可达范围。
     host_permissions: [...providerOrigins(), '<all_urls>'],
-    // 135 = chrome.userScripts.execute()（元素拾取器/页面快照的按需注入通道）
-    // + 自定义 USER_SCRIPT 世界（worldId，133+）：脚本桥中继件与录制转发件各占一个。
+    // 135 = chrome.userScripts.execute()（页面快照 / 环境读数的按需注入通道）
+    // + 自定义 USER_SCRIPT 世界（worldId，133+）：脚本桥 / 拾取器 / 浮层宿主 / 录制转发各占一个。
     // Chrome 规范字段是下划线 minimum_chrome_version；驼峰键会被 Chrome 忽略并报 Unrecognized。
     'minimum_chrome_version': '135',
     // default_popup 不在此手写：WXT 按文件名把 entrypoints/popup.html 识别为 popup 入口
-    // 并自动写入 manifest（同 content.ts 成为内容脚本的机制）。
+    // 并自动写入 manifest（workbench.html 等其余入口同一机制）。
     // action 标题的唯一来源：popup 入口刻意不写 <title>（否则 WXT 会拿它覆盖本字段，
     // 说明见 popup.html）。它是工具栏图标的悬停提示，改文案时留意这句面向用户。
     action: {
       default_title: EXTENSION_NAME,
     },
-    // 网页浮层：content script 在第三方页面里用 iframe 加载 floatpanel.html，
+    // 网页浮层：浮层宿主件在第三方页面里用 iframe 加载 floatpanel.html，
     // 该扩展页必须对目标站点可访问，否则 Chrome 会拦截 iframe 加载。
     web_accessible_resources: [
       {

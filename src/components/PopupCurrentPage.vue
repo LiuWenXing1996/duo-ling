@@ -6,9 +6,9 @@
 // 展示面板（不装 window.api、不直连会话库），聚合口径统一在 SW 侧一处（见 shared/extension-ipc
 // 的 PageOverviewTab）。popup 只活几秒，故取一次快照即可，不维持推送通道。
 //
-// 浮层入口：对话框平时不在页面里（content script 默认不往页面放任何 DOM，见 content.ts），
-// 这颗按钮是它的常规打开方式（另一条是页面右键菜单）。注入不了内容脚本的页面（浏览器内部页 /
-// 扩展页 / 应用商店 / 站点权限设成「点击时」的站点…）上打不开不是装坏了 —— 不可用时按钮禁灰，
+// 浮层入口：对话框平时不在页面里（浮层宿主件不建任何 DOM，见 src/public/duoling-float-host.js），
+// 这颗按钮是它的常规打开方式（另一条是页面右键菜单）。挂不了浮层的页面（浏览器内部页 / 扩展页 /
+// 应用商店 / 站点权限设成「点击时」的站点 / 引擎开关没开…）上打不开不是装坏了 —— 不可用时按钮禁灰，
 // 原因就地说在对话行中间（与「活动记录 / 脚本」两行对不可用状态的说法同款），不单独占一行。
 //
 // 脚本卡头部与列表常显（不做折叠）：这一卡本就是「这页在跑什么」的全部答案，藏起来还得再点一下；
@@ -28,12 +28,12 @@ import {
   TooltipTrigger as UiTooltipTrigger,
 } from '@/components/ui/tooltip'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
-import { FLOAT_OPEN_REQUEST, type PageOverviewTab, type RuntimeResponse } from '@/shared/extension-ipc'
+import { floatOpenRequest, type PageOverviewTab, type RuntimeResponse } from '@/shared/extension-ipc'
 
 const props = defineProps<{
   /** 当前页的站点名（拿不到 url 的内部页上是空串） */
   host: string
-  /** 当前标签页能不能注入内容脚本（判据见 lib/float-panel-host.ts） */
+  /** 当前标签页能不能挂浮层（判据见 lib/float-panel-host.ts） */
   injectable: boolean
   /** 当前标签页的概览；null = 这一页不在概览里（内部页 / 扩展页 / 读不到标签页） */
   tab: PageOverviewTab | null
@@ -88,7 +88,7 @@ const idleLabel = computed(() => (canRecord.value ? '未开启' : '当前页面�
  * 脚本卡头部行的计数文案。
  *
  * 「不能运行」只在**确无运行记录**时才说：探活答的是「此刻」，可能滞后于登记表（页面刚导航、
- * 内容脚本还没跑起来时探活说不在，而记录还在）—— 那种时候照常给数量，否则会出现「说不能运行、
+ * 宿主件还没跑起来时探活说不在，而记录还在）—— 那种时候照常给数量，否则会出现「说不能运行、
  * 却又能列出 2 条」的自相矛盾。
  */
 const scriptSummary = computed(() => {
@@ -125,7 +125,7 @@ async function openFloatPanel(): Promise<void> {
   // 读不到标签页时静默退场：这是 popup 与页面失联的异常态，给技术性报错只是噪音
   if (tab?.id == null) return
   try {
-    await chrome.tabs.sendMessage(tab.id, FLOAT_OPEN_REQUEST)
+    await chrome.tabs.sendMessage(tab.id, floatOpenRequest(tab.id))
   } catch {
     openError.value = `页面还没接上${EXTENSION_NAME}，刷新页面后再试。`
     return

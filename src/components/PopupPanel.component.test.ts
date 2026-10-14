@@ -3,12 +3,12 @@
 // 这条链路的分支都在渲染层，故用组件测试守：
 //   A. 「当前页面」：两个按页开关（接口录制 / 活动记录，都常显、可就地开与关、状态随命令改口）、
 //      本页在跑的脚本（头部给计数、列表常显、行只读，右侧「管理脚本」开工作台）、对话浮层入口与回话状态；
-//   B. 「当前页面」注入不了内容脚本（探活无人应答）→ 头部改说原因、浮层入口禁用；
+//   B. 「当前页面」挂不了浮层（探活无人应答）→ 头部改说原因、浮层入口禁用；
 //   C. 「其他页面」：列出本页以外的标签页（脚本数 / 会话与生成中），点「去这里」切过去；没有别的页面给空态。
 //
 // 边界 mock：
 //   · chrome —— 手写壳，只需 tabs.query / tabs.update / tabs.create / tabs.sendMessage
-//     （内容脚本探活与「打开会话」的定向消息共用这一口）+ runtime.sendMessage（命令面）。
+//     （浮层宿主件探活与「打开会话」的定向消息共用这一口）+ runtime.sendMessage（命令面）。
 //     两块的数据全由 page:overview 一条命令喂进来（真 SW 不在测试里）。
 //   · userscripts/ui-client（引擎可用性）、update-check（新版本结论）—— mock 掉，
 //     避免牵进 IDB 与消息总线。
@@ -55,15 +55,13 @@ function overviewRow(tabId: number, over: Record<string, unknown> = {}): Record<
 /**
  * 装 chrome 壳。
  *
- * `contentScriptPresent` = 内容脚本探活是否应答：popup 挂载时会向当前标签页发一条
- * `content:ping`，无人应答即「这个页面注入不了」（chrome:// 页 / 应用商店 / 站点权限设成
- * 「点击时」的站点都是这一档）。缺省应答 —— 普通网页的常态。
+ * `floatHostPresent` = 浮层宿主件探活是否应答：popup 挂载时会向当前标签页发一条
+ * `content:ping`，无人应答即「这个页面挂不了浮层」（chrome:// 页 / 应用商店 / 站点权限设成
+ * 「点击时」的站点 / 引擎开关没开都是这一档）。缺省应答 —— 普通网页的常态。
  */
-function stubChrome(url: string | undefined, contentScriptPresent = true): void {
+function stubChrome(url: string | undefined, floatHostPresent = true): void {
   tabsCreate.mockResolvedValue(undefined)
-  tabsSendMessage.mockImplementation(async () =>
-    contentScriptPresent ? { ok: true } : undefined,
-  )
+  tabsSendMessage.mockImplementation(async () => (floatHostPresent ? { ok: true } : undefined))
   runtimeSendMessage.mockImplementation(async (msg: { kind: string }) => {
     if (msg.kind === 'page:overview') return { ok: true, data: overviewRows }
     return { ok: true, data: {} }
@@ -198,8 +196,8 @@ describe('popup 的「当前页面」区块', () => {
     expect(rows[0]!.text()).not.toContain('运行中')
   })
 
-  it('注入不了内容脚本（探活无人应答）：头部改说不能运行', async () => {
-    // chrome:// 等页面上扩展读不到 url（manifest 无 tabs 权限），内容脚本也没注入
+  it('挂不了浮层（宿主件探活无人应答）：头部改说不能运行', async () => {
+    // chrome:// 等页面上扩展读不到 url（manifest 无 tabs 权限），宿主件也没注入
     stubChrome(undefined, false)
     const w = await mountPopup()
 
@@ -229,7 +227,7 @@ describe('popup 的「当前页面」区块', () => {
     await w.find('[data-testid="open-float-panel"]').trigger('click')
     await flushPromises()
 
-    expect(tabsSendMessage).toHaveBeenCalledWith(TAB_ID, { kind: 'float:open' })
+    expect(tabsSendMessage).toHaveBeenCalledWith(TAB_ID, { kind: 'float:open', tabId: TAB_ID })
     expect(close).toHaveBeenCalled()
   })
 
@@ -256,7 +254,7 @@ describe('popup 的「当前页面」区块', () => {
     expect(close).toHaveBeenCalled()
   })
 
-  it('注入不了内容脚本：浮层入口禁用（探活无人应答的页面都算）', async () => {
+  it('挂不了浮层：浮层入口禁用（探活无人应答的页面都算）', async () => {
     stubChrome(undefined, false)
     const w = await mountPopup()
     expect(w.find('[data-testid="open-float-panel"]').attributes('disabled')).toBeDefined()

@@ -16,7 +16,7 @@
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
-import { FLOAT_OPEN_REQUEST } from '@/shared/extension-ipc'
+import { floatOpenRequest } from '@/shared/extension-ipc'
 import type { ModelProfileState, PageOverviewTab, RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
@@ -406,9 +406,9 @@ const handlers: {
     })
   },
 
-  // —— 内容脚本自证身份 ——
-  // 回 sender 自己的 tab id：content script 拿不到 chrome.tabs，而网页浮层（扩展页 iframe）
-  // 必须知道「自己属于哪个 tab」才能认定会话归属（每 tab 一条会话）。
+  // —— 浮层宿主件自证身份 ——
+  // 回 sender 自己的 tab id：宿主件跑在用户脚本世界，那里拿不到 chrome.tabs，而网页浮层（扩展页
+  // iframe）必须知道「自己属于哪个 tab」才能认定会话归属（每 tab 一条会话）。
   // 取不到时回 null（扩展页发的消息本就没有 tab），由调用方降级——浮层拿不到 tabId 的
   // 情况下会话归属退化为「不绑定」，而不是错绑到别的 tab。
   'tab:identify': async (_msg, sender): Promise<{ tabId: number | null }> => ({
@@ -1051,7 +1051,7 @@ function mountProposal2Listeners(): void {
 // —— 浮层的右键菜单入口 ——
 //
 // 对话框的入口全在页面之外：工具栏 popup 里的「对话浮层」按钮，以及这个右键菜单。菜单这条由
-// 浏览器渲染，页面里的东西遮不住它，也不依赖内容脚本已经挂上 UI。
+// 浏览器渲染，页面里的东西遮不住它，也不依赖浮层宿主件已经挂上 UI。
 //
 // id 带 `duoling:` 前缀：与用户脚本的 GM_registerMenuCommand 共用 contextMenus 命名空间，
 // 脚本侧是 `us:<uuid>:<menuId>`（见 dl-port.ts 的 parseMenuitemId —— 它只认那个前缀，本条会被放行）。
@@ -1090,7 +1090,7 @@ async function openFloatPanelInTab(tab: chrome.tabs.Tab): Promise<void> {
   const tabId = tab.id
   if (tabId == null) return
   try {
-    await chrome.tabs.sendMessage(tabId, FLOAT_OPEN_REQUEST)
+    await chrome.tabs.sendMessage(tabId, floatOpenRequest(tabId))
   } catch {
     await chrome.notifications.create('duoling:float-open-failed', {
       type: 'basic',
@@ -1114,7 +1114,7 @@ export default defineBackground(() => {
   console.log(`[duoling:sw] SW 启动 · 构建 ${__BUILD_INFO__.time} · 分支 ${__BUILD_INFO__.branch}`)
 
   // 点击工具栏图标打开 popup（action.default_popup 由 popup.html 入口自动写入 manifest）——
-  // 这是 action 的唯一用途；对话入口是网页浮层（content script 注入），不占 action。
+  // 这是 action 的唯一用途；对话入口是网页浮层（由浮层宿主件挂出），不占 action。
 
   // 用户脚本管理器：启动配置世界并恢复已启用脚本
   void initUserScripts().catch((e) => console.error('[duoling:userscript] init failed', e))

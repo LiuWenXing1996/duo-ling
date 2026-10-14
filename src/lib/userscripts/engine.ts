@@ -22,6 +22,14 @@ import { buildScriptRelaySource } from './script-relay'
 // 拾取器常驻件：指令下发 / 结果上行的 USER_SCRIPT 世界那半（弹层的「点选元素」与 AI 的
 // 页面快照 / 环境读数共用同一件，见 syncPickerHost）
 import { buildPickerHostSource, PICKER_FILE, PICKER_HOST_ID, PICKER_HOST_WORLD_ID } from './picker-host'
+// 浮层宿主常驻件：对话浮层在页面里的挂载点（开关 / 收起 / 生成遮罩都经指令驱动，见 syncFloatHost）
+import {
+  buildFloatHostInit,
+  FLOAT_HOST_FILE,
+  FLOAT_HOST_ID,
+  FLOAT_HOST_WORLD_ID,
+  floatPanelUrl,
+} from './float-host-source'
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
 import { parseUserScriptMetadata } from './metadata'
 import { generateBridgeSecret } from './bridge-protocol'
@@ -254,7 +262,13 @@ const TAB_FORWARDER_WORLD_ID = 'us-dl-tab'
  * 残留的旧注册不在本名单里，于是下一遍 registerAllEnabled 的 stale 清扫会顺手注销它 ——
  * 不必为改名专门写一段清理。
  */
-const BUILTIN_SCRIPT_IDS = [SCRIPT_RELAY_ID, PICKER_HOST_ID, TAB_RECORDER_ID, TAB_FORWARDER_ID]
+const BUILTIN_SCRIPT_IDS = [
+  SCRIPT_RELAY_ID,
+  PICKER_HOST_ID,
+  FLOAT_HOST_ID,
+  TAB_RECORDER_ID,
+  TAB_FORWARDER_ID,
+]
 
 /**
  * 内置件的展示信息（UI 两处透出用：popup 的页面概览与工作台脚本列表）。
@@ -273,6 +287,11 @@ const BUILTIN_META: Record<string, { name: string; world: string; note: string }
     world: '用户脚本世界',
     note: '在页面里待命：收到指令才点选元素 / 抓快照 / 读环境，平时不亮任何 UI',
   },
+  [FLOAT_HOST_ID]: {
+    name: '浮层宿主',
+    world: '用户脚本世界',
+    note: '对话浮层的挂载点：收到「打开会话」才建 DOM 并展开 iframe，平时页面里什么都没有',
+  },
   [TAB_RECORDER_ID]: {
     name: '页面录制',
     world: '页面主世界',
@@ -286,24 +305,11 @@ const BUILTIN_META: Record<string, { name: string; world: string; note: string }
 }
 
 /**
- * 注册面之外的内置注入物：只剩浮层宿主一件。它走 manifest 的 content_scripts 通道、不在
- * `chrome.userScripts.getScripts()` 里，但确实会进页面（普通网页上恒在），透出清单里不该缺位 ——
- * 只是状态不能假装它有「已注册 / 未注册」。
+ * 一件内置注册的展示形态（两处 UI 共用）。
+ *
+ * 全部内置件都是 userScripts 注册件（浮层宿主切过来之后，「注册面之外的静态件」这一类就没有了），
+ * 于是状态只有「已注册 / 未注册」一档 —— 件与引擎可用性同进退。
  */
-const STATIC_BUILTINS: Array<BuiltinRegistration> = [
-  {
-    id: 'dl-content-host',
-    name: '浮层宿主',
-    world: '隔离世界',
-    note: 'manifest 声明的内容脚本：浮层的挂载点，收到「打开会话」才建 DOM，平时页面里什么都没有',
-    matches: ['<all_urls>'],
-    // 声明式内容脚本跟着扩展包走，普通网页上恒在，不随引擎可用性变化
-    registered: true,
-    presence: 'declarative',
-  },
-]
-
-/** 一件内置注册的展示形态（两处 UI 共用） */
 export interface BuiltinRegistration {
   /** 注册 id（稳定，UI 拿它当 key） */
   id: string
@@ -313,23 +319,16 @@ export interface BuiltinRegistration {
   world: string
   /** 一句话作用 */
   note: string
-  /** 注册匹配面；未注册 / 按需件为空数组 */
+  /** 注册匹配面；不在册时为空数组 */
   matches: string[]
-  /** 此刻是否真的在页面上（声明式恒 true；注册件看在册；按需件不构成状态，恒 false） */
+  /** 此刻是否真的在册（引擎不可用时全员 false —— 那是环境态，不是件本身的错） */
   registered: boolean
-  /**
-   * 注入形态，决定 UI 的状态标怎么读：
-   * - `registered`：走 userScripts 注册（「已注册 / 未注册」）
-   * - `declarative`：manifest 声明式内容脚本（「常驻」，不随引擎可用性变化）
-   */
-  presence: 'registered' | 'declarative'
 }
 
 /**
- * 内置件此刻的注册状态（一次 getScripts 对账，附注册面之外的两类静态件）。
+ * 内置件此刻的注册状态（一次 getScripts 对账）。
  *
- * 引擎不可用时三个注册件全部按未注册返回 —— 那是环境态，不是件本身的错，
- * 上层已有可用性横幅兜底；声明式内容脚本不受影响。
+ * 引擎不可用时全部按未注册返回 —— 那是环境态，不是件本身的错，上层已有可用性横幅兜底。
  */
 export async function listBuiltinRegistrations(): Promise<BuiltinRegistration[]> {
   let existing: chrome.userScripts.RegisteredUserScript[] = []
@@ -338,9 +337,9 @@ export async function listBuiltinRegistrations(): Promise<BuiltinRegistration[]>
       existing = await chrome.userScripts.getScripts()
     }
   } catch {
-    // 引擎不可用：注册件全部按未注册返回
+    // 引擎不可用：全部按未注册返回
   }
-  const registered = BUILTIN_SCRIPT_IDS.map((id): BuiltinRegistration => {
+  return BUILTIN_SCRIPT_IDS.map((id): BuiltinRegistration => {
     const meta = BUILTIN_META[id]
     const hit = existing.find((s) => s.id === id)
     return {
@@ -350,19 +349,16 @@ export async function listBuiltinRegistrations(): Promise<BuiltinRegistration[]>
       note: meta.note,
       matches: hit?.matches ?? [],
       registered: hit != null,
-      presence: 'registered',
     }
   })
-  // 注册件在前（跟随引擎状态变化），静态件在后（常驻 / 按需，位置固定）
-  return [...registered, ...STATIC_BUILTINS]
 }
 
 /**
  * 某一页上此刻真正在用的内置件（popup 的页面概览用）。
  *
- * 录制两件是**全匹配注册**（判据是「有没有页在录」而非站点），故不能只看匹配面 ——
- * 没开记录的页上它们虽然在册却不工作，列出来是噪音。判据因此多一道：录制件只在该页
- * 正在记录时才算在用。
+ * 不能只看匹配面：录制两件是**全匹配注册**（判据是「有没有页在录」而非站点），没开记录的页上它们
+ * 虽然在册却不工作，列出来是噪音。判据因此多一道：录制件只在该页正在记录时才算在用。
+ * 其余件（含全匹配的拾取器 / 浮层宿主）确实每页都在，按匹配面判即可。
  */
 export function builtinsOnPage(
   all: readonly BuiltinRegistration[],
@@ -371,7 +367,6 @@ export function builtinsOnPage(
 ): BuiltinRegistration[] {
   if (!url) return []
   return all.filter((r) => {
-    if (r.presence === 'declarative') return true // 普通网页上声明式内容脚本恒在（概览只收普通网页）
     if (!r.registered) return false
     if (r.id === TAB_RECORDER_ID || r.id === TAB_FORWARDER_ID) return recording
     return r.matches.some((p) => matchPatternCoversUrl(p, url))
@@ -515,6 +510,62 @@ async function syncPickerHost(): Promise<void> {
   }
 }
 
+/** 浮层宿主常驻件的匹配面：覆盖全部站点（理由见 syncFloatHost） */
+const FLOAT_HOST_MATCHES = ['<all_urls>']
+
+/**
+ * 维护浮层宿主常驻件的注册（幂等可重入；调用方负责串行化）。
+ *
+ * **为什么常驻**：打开浮层是「页面早已打开、用户刚点按钮」的动作，而注册件只在页面**开始加载**时
+ * 注入 —— 要在那之后还能挂上对话框，就只能加载即到位、待命等指令（与拾取器同因由）。
+ *
+ * **换来的是注册面收敛**：走 manifest 通道的声明式内容脚本不在 `getScripts()` 里，UI 只能标一句
+ * 「常驻」、回答不了「此刻到底在不在」；注册件则让内置件全在同一处同步、同一个口对账
+ * （listBuiltinRegistrations），「这一页上跑着什么」只剩一个答案。
+ *
+ * **代价（已确认接受）**：浮层的可用性从此与「允许运行用户脚本」开关**绑定** —— 开关关掉时浮层
+ * 也挂不出来（声明式内容脚本不受该开关影响）。表现是 popup 探活不应答，界面上已有可用性横幅
+ * 说明该开关在哪。
+ *
+ * **匹配面全站**：打开浮层的目标由用户点按钮那一刻决定，而注册没有 tab 维度
+ * （RegisteredUserScript 的匹配字段全是 URL），只能覆盖全部 —— 代价是每个普通网页里都有一份
+ * 待命代码（零 UI、零网络：只装一个消息监听与一个 MutationObserver，连 DOM 都不建）。
+ */
+async function syncFloatHost(): Promise<void> {
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
+  let existing: chrome.userScripts.RegisteredUserScript | undefined
+  try {
+    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === FLOAT_HOST_ID)
+  } catch {
+    return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
+  }
+  if (existing && sameMatchSet(existing, { matches: FLOAT_HOST_MATCHES })) return
+  const worldOk = await configureWorld(FLOAT_HOST_WORLD_ID)
+  if (!worldOk) {
+    console.warn(
+      '[duoling:userscript] 浮层宿主世界配置失败（无 messaging，浮层打不开）',
+      FLOAT_HOST_WORLD_ID,
+    )
+  }
+  await chrome.userScripts.unregister({ ids: [FLOAT_HOST_ID] }).catch(() => {})
+  const host: chrome.userScripts.RegisteredUserScript = {
+    id: FLOAT_HOST_ID,
+    worldId: FLOAT_HOST_WORLD_ID,
+    // 两段顺序不能换：前一段定义 window.__duolingFloatHost，后一段把浮层页地址与扩展名递进去调 init
+    js: [{ file: FLOAT_HOST_FILE }, { code: buildFloatHostInit(floatPanelUrl()) }],
+    matches: FLOAT_HOST_MATCHES,
+    // document_start：件只装监听与观察器，不碰 DOM，尽早到位可缩小「页面加载中点按钮」的空窗
+    runAt: 'document_start',
+  }
+  try {
+    await chrome.userScripts.register([host])
+    console.log('[duoling:sw] 浮层宿主常驻件注册成功：', JSON.stringify(FLOAT_HOST_MATCHES))
+  } catch (e) {
+    console.warn('[duoling:sw] 浮层宿主常驻件注册失败：', e)
+    throw e
+  }
+}
+
 // —— 标签页录制件（tab-record）：常驻 + 按**标签页**的门禁 ——
 //
 // 与中继件完全独立：中继件跟随「启用用户脚本并集」，录制件跟随「有没有标签页在记活动」。
@@ -606,9 +657,10 @@ export function refreshTabRecorder(): Promise<void> {
 
 /**
  * 重算**内置注入脚本**的注册（挂 registerChain 串行队列）：脚本增删改 / 启停 / 删除，以及启动与
- * 扩展更新恢复时由 background 调用。两件在这一处汇合：
+ * 扩展更新恢复时由 background 调用。三件在这一处汇合：
  *   · 脚本桥中继件 —— 跟随「启用脚本的匹配并集」（MAIN 世界脚本的 GM 调用靠它转给 SW）；
- *   · 拾取器常驻件 —— 与脚本集合无关、恒注册，搭这条队列只为少一处接线（幂等，注册面未变即跳过）。
+ *   · 拾取器常驻件 —— 与脚本集合无关、恒注册，搭这条队列只为少一处接线（幂等，注册面未变即跳过）；
+ *   · 浮层宿主常驻件 —— 同上，恒注册。
  * 录制那两件有自己的入口（`refreshTabRecorder`）。
  */
 export function refreshBuiltinScripts(): Promise<void> {
@@ -616,6 +668,7 @@ export function refreshBuiltinScripts(): Promise<void> {
     const projects = await listProjects()
     await syncScriptRelay(projects)
     await syncPickerHost()
+    await syncFloatHost()
   })
   registerChain = run.catch(() => {})
   return run
@@ -773,11 +826,13 @@ async function runRegisterAllEnabled(): Promise<void> {
   await syncTabRecorder().catch(() => {})
   // 拾取器常驻件同样与脚本集合无关：冷启动 / 扩展更新后必须补回（扩展更新会清空全部注册）
   await syncPickerHost().catch(() => {})
+  // 浮层宿主常驻件同理（它也是注册件，扩展更新清空注册后必须补回）
+  await syncFloatHost().catch(() => {})
   const enabled = projects.filter((p) => p.enabled)
   try {
     const existing = await chrome.userScripts.getScripts()
-    // 全量重注册只清用户脚本——内置注册（中继件 / 拾取器常驻件 / 录制件）在上一段刚按并集 / 门禁
-    // 同步过，不能被这把误清（否则重注册后录制件消失，直到下次冷启动才补）
+    // 全量重注册只清用户脚本——内置注册（中继件 / 拾取器 / 浮层宿主 / 录制两件）在上一段刚按并集 /
+    // 门禁同步过，不能被这把误清（否则重注册后录制件消失，直到下次冷启动才补）
     const stale = existing.filter((s) => !BUILTIN_SCRIPT_IDS.includes(s.id))
     if (stale.length) await unregisterScripts(stale.map((s) => s.id))
   } catch {

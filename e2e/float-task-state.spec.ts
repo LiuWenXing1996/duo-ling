@@ -6,11 +6,14 @@
 //   1. 会话状态与角标无关：在跑 / 跑完都不点亮角标（防回归 —— 这条曾经是角标的全部职责）；
 //   2. 进行中登记的进出：任务开跑就登记、收尾就撤下、关标签页要中止并撤下。
 //
-// 第 1 条的判据是「角标里不出现脚本计数」而非「角标为空」：本 spec 的 profile 不引导 userScripts，
-// 引擎未授权时角标是**全局** `!`（见 action-badge.spec.ts 的未授权那组），CI 上就是这个前提。
+// 第 1 条的判据是「角标里不出现脚本计数」而非「角标为空」：角标只报脚本运行数，而本 spec 一个用户
+// 脚本都没装 —— 引擎开了是空串，引擎引导失败是**全局** `!`（见 action-badge.spec.ts 的未授权那组）。
 //
-// 另有一条守「对话框的显隐」：页面里平时不注入任何 DOM，收到 float:open 才挂出来，收起只把容器
+// 另有一条守「对话框的显隐」：页面里平时不建任何 DOM，收到 float:open 才挂出来，收起只把容器
 // 藏起来（iframe 与面板文档留在原位，再打开就是原状态）。
+//
+// ⚠️ 本 spec 必须**引导 userScripts 引擎**：宿主件（`dl-float-host`）是注册用户脚本，引擎没开时
+// 页面里根本没有它、`float:open` 无人接（声明式内容脚本那条路才不受引擎开关影响）。
 //
 // 页面内没有可点的入口（对话框平时不在页面里），故打开 / 收起一律走那两条定向消息 ——
 // 与 popup 的按钮、页面右键菜单、对话框顶栏那颗「收起」是同一套契约（发送方那侧的行为由
@@ -24,6 +27,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  checkUserScriptsAvailable,
+  enableUserScripts,
   extensionIdFromServiceWorker,
   getServiceWorker,
   launchExtensionContext,
@@ -38,14 +43,26 @@ test.describe.serial('任务状态外显（进行中登记 + 对话框显隐）'
   let profileDir = ''
   let probe: http.Server | undefined
   let probeUrl = ''
+  /** 引擎是否真的可用（引导失败时对话框那一条转手测，其余用例不受影响，见文件头） */
+  let engineAvailable = false
 
   test.beforeAll(async () => {
     profileDir = mkdtempSync(join(tmpdir(), 'duoling-taskstate-e2e-'))
+
+    // Phase A：程序化打开 userScripts 开关（随 profile 持久化）—— 浮层宿主件是注册用户脚本，
+    // 引擎没开它就不在页面里（见文件头）。姿势与 action-badge.spec.ts 共用。
+    const bootstrapCtx = await launchExtensionContext(profileDir)
+    const bootstrapSw = await getServiceWorker(bootstrapCtx)
+    await enableUserScripts(bootstrapCtx, extensionIdFromServiceWorker(bootstrapSw))
+    await bootstrapCtx.close()
+
+    // Phase B：同 profile 重启，开关生效
     context = await launchExtensionContext(profileDir)
     sw = await getServiceWorker(context)
     messenger = await openMessengerPage(context, extensionIdFromServiceWorker(sw))
+    engineAvailable = await checkUserScriptsAvailable(sw)
 
-    // 本地探针页：content script 的 matches 是 http(s)，file:// 匹配不上（与 smoke 同做法）
+    // 本地探针页：走 http(s) —— file:// 要另开「允许访问文件网址」才注入得了（与 smoke 同做法）
     probe = http.createServer((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
       res.end('<!doctype html><html><body><h1>probe</h1></body></html>')
@@ -123,12 +140,13 @@ test.describe.serial('任务状态外显（进行中登记 + 对话框显隐）'
   })
 
   test('对话框：平时不注入，打开即挂出来，收起只藏不销毁', async () => {
+    test.skip(!engineAvailable, 'chrome.userScripts 引导失败：宿主件装不上，浮层链路转手测')
     const page = await context!.newPage()
     await page.goto(probeUrl)
     const [tabId] = await tabIdsOf(sw, probeUrl)
     expect(tabId, '探针页的 tabId 应能反查到').toBeGreaterThan(0)
 
-    // 起手：页面里连根节点都没有 —— content script 只在收到 float:open 时才建
+    // 起手：页面里连根节点都没有 —— 宿主件只在收到 float:open 时才建
     await expect(page.locator('#duoling-float-root')).toHaveCount(0)
 
     // 打开（popup 的按钮与页面右键菜单发的就是这条消息）
@@ -161,9 +179,9 @@ async function tabIdsOf(sw: Worker, url: string): Promise<number[]> {
  * 「会话没有点亮角标」的判据：角标只报「这个标签页在跑几个脚本」，而本 spec 一个用户脚本都没装 ——
  * 所以任何一页的角标都**不该出现脚本计数**。
  *
- * 刻意不写死空串：本 spec 的 profile 不引导 userScripts，引擎未授权时角标是**全局** `!`
- * （判据与文案见 action-badge.spec.ts 的未授权那组），CI 上跑的就是这种情形 —— 那是扩展级状态，
- * 与「有没有会话在跑」无关。悬停文案同理：它只该说脚本的事。
+ * 刻意不写死空串：角标本身随引擎状态变 —— 引擎引导失败时是**全局** `!`（判据与文案见
+ * action-badge.spec.ts 的未授权那组），而那是扩展级状态，与「有没有会话在跑」无关。悬停文案同理：
+ * 它只该说脚本的事。
  */
 async function expectNoScriptBadge(sw: Worker, tabId: number): Promise<void> {
   expect(
@@ -198,7 +216,7 @@ async function runningOf(sender: Page): Promise<string[]> {
  * 页面右键菜单、对话框顶栏那颗「收起」是同一套契约。发送方那侧的行为由 PopupPanel 的组件测试
  * 覆盖，这里只借扩展页代发一下。
  *
- * 幂等：重复发 float:open 只是再 open 一次，所以可以拿它当「内容脚本就绪了没」的探针重试。
+ * 幂等：重复发 float:open 只是再 open 一次，所以可以拿它当「宿主件就绪了没」的探针重试。
  */
 async function trySendFloat(
   sw: Worker,
@@ -208,13 +226,14 @@ async function trySendFloat(
   try {
     await sw.evaluate(
       async ({ id, k }) => {
-        await chrome.tabs.sendMessage(id, { kind: k })
+        // tabId 随消息带上：真发送方（popup / 右键菜单）都握有它，宿主件靠它拼 iframe URL 的 `?tab=`
+        await chrome.tabs.sendMessage(id, { kind: k, tabId: id })
       },
       { id: tabId, k: kind },
     )
     return true
   } catch {
-    return false // 页面还没接上扩展（内容脚本未注入完 / 扩展正在更新）
+    return false // 页面还没接上扩展（宿主件未注入完 / 扩展正在更新）
   }
 }
 
@@ -409,7 +428,7 @@ test.describe.serial('真实浮层链路（模型 stub + 页面内 iframe）', (
   })
 })
 
-/** 等对话框 iframe 出现（收到 float:open 后 content script 才去取 tabId、再给它设 src） */
+/** 等对话框 iframe 出现（收到 float:open 后宿主件才建 DOM、给它设 src） */
 async function waitForPanelFrame(page: Page): Promise<Frame> {
   for (let i = 0; i < 100; i++) {
     const frame = page.frames().find((f) => f.url().includes('floatpanel.html'))

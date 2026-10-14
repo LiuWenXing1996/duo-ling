@@ -121,7 +121,7 @@ const ALL_KINDS = [
   // —— picker:*（SW：浮层发起的拾取 —— 指令下发给页面里的常驻件，结果按 reqId 配对）——
   { kind: 'picker:pick', side: 'sw' },
   { kind: 'picker:cancel', side: 'sw' },
-  // —— tab:*（SW：内容脚本自证身份，回 sender.tab.id 供浮层认定会话归属）——
+  // —— tab:*（SW：浮层宿主件自证身份，回 sender.tab.id 供浮层认定会话归属）——
   { kind: 'tab:identify', side: 'sw' },
   // —— conv:*（offscreen：会话写侧，唯一写方；SW 对前缀静默让路）——
   { kind: 'conv:create', side: 'offscreen' },

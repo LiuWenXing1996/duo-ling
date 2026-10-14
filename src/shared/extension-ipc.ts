@@ -10,7 +10,7 @@
 import type { ModelProfile } from './types'
 
 // —— 页面上下文档位 ——
-// 拾取器（src/public/duoling-picker.js，USER_SCRIPT 世界经 execute() 注入）的载荷形状。
+// 拾取器（src/public/duoling-picker.js，USER_SCRIPT 世界 `us-builtin-picker` 的常驻件）的载荷形状。
 // ⚠️ 与拾取器的 vanilla JS 手写对齐，改形状必须两边同步。
 
 /** 拾取元素的摘要层（≤2KB，随 chat:start 常驻 system prompt；同类计数必须在内——AI 自证选择器唯一性不该再花一次读取） */
@@ -323,9 +323,9 @@ export type RuntimeRequest =
   // 收工：与「开始」同一根线，SW 只负责转发到那一页
   | { kind: 'picker:cancel' }
 
-  // —— 内容脚本自证身份 ——
-  // content script 拿不到 chrome.tabs，而网页浮层（扩展页 iframe）必须知道「自己属于哪个
-  // 标签页」才能认定该 tab 的会话归属。故 content script 经本命令取回 sender.tab.id
+  // —— 浮层宿主件自证身份 ——
+  // 宿主件跑在用户脚本世界，那里拿不到 chrome.tabs，而网页浮层（扩展页 iframe）必须知道「自己属于哪个
+  // 标签页」才能认定该 tab 的会话归属。故宿主件经本命令取回 sender.tab.id
   // （SW 是唯一知道发送方 tab 的一方），再拼进 iframe URL 传给浮层。
   | { kind: 'tab:identify' }
 
@@ -428,29 +428,38 @@ export type BuildPhase = 'saving'
 
 // —— 浮层的页面外入口 ——
 /**
- * popup / 页面右键菜单 → **当前标签页内容脚本**的定向消息（`chrome.tabs.sendMessage`，
+ * popup / 页面右键菜单 → **当前标签页的浮层宿主件**的定向消息（`chrome.tabs.sendMessage`，
  * 不经 SW 中转）。
  *
- * 为什么需要：对话框**按需挂载** —— 页面加载时 content script 不往页面里放任何 DOM，这两个
- * 页面之外的入口就是它的打开方式：popup 的「对话浮层」按钮与页面右键菜单都发这条消息。
+ * 为什么需要：对话框**按需挂载** —— 宿主进页面时一个字都不放，这两个页面之外的入口就是它的
+ * 打开方式：popup 的「对话浮层」按钮与页面右键菜单都发这条消息。
  *
  * 为什么不走 RuntimeRequest 总线（渲染页 → SW → 转发）：这条消息只对**某一个**标签页有意义，
- * 而 `tabs.sendMessage` 天然定向到那个 tab 的内容脚本，SW 参与不进来、也不需要它。
- * 内容脚本随 `matches: ['<all_urls>']` 常驻页面（不挂 UI 时也照跑，只为接住这条消息），
- * 故只要页面接上了扩展，消息就有人收。
+ * 而 `tabs.sendMessage` 天然投到那个标签页的各个世界，谁认这个 kind 谁来接（见
+ * lib/userscripts/float-host-source.ts），SW 不必参与转发。
  */
 export interface FloatOpenRequest {
   kind: 'float:open'
+  /**
+   * 发起方所在的标签页。
+   *
+   * 为什么必须带：宿主件跑在用户脚本世界，那里没有 `chrome.tabs`（拿不到自己是几号标签页），
+   * 而它要把 tabId 拼进浮层 iframe 的 URL（`floatpanel.html?tab=<id>`，浮层据此认定会话归属）。
+   * 发起方都天然知道它 —— popup 有 `tab.id`，右键菜单那条由 SW 代发（同样握有 tab）。
+   */
+  tabId: number
 }
 
 /** 上面那条消息的唯一构造处：发送方与接收方都取这里的 kind，避免两边各写一份字符串 */
-export const FLOAT_OPEN_REQUEST: FloatOpenRequest = { kind: 'float:open' }
+export function floatOpenRequest(tabId: number): FloatOpenRequest {
+  return { kind: 'float:open', tabId }
+}
 
 /**
- * 对话界面 → **本浮层所属标签页内容脚本**的定向消息（同样是 `chrome.tabs.sendMessage`）。
+ * 对话界面 → **本浮层所属标签页的浮层宿主件**的定向消息（同样是 `chrome.tabs.sendMessage`）。
  *
  * 来源是对话框顶栏那颗「收起」按钮：按钮在 iframe 里（对话界面本体），而容器的显隐握在父页的
- * 内容脚本手里，跨源拿不到对方，只能发一条消息。tabId 由对话界面从 iframe URL 的 `?tab=` 读出
+ * 宿主件手里，跨源拿不到对方，只能发一条消息。tabId 由对话界面从 iframe URL 的 `?tab=` 读出
  * （见 lib/owning-tab 的 readPinnedTabId）。
  *
  * 为什么不走 postMessage：宿主网页的脚本就挂在父 window 上，它既能监听、也能用
@@ -461,16 +470,17 @@ export interface FloatCollapseRequest {
   kind: 'float:collapse'
 }
 
-/** 上面那条消息的唯一构造处（理由同 FLOAT_OPEN_REQUEST） */
+/** 上面那条消息的唯一构造处（理由同 floatOpenRequest） */
 export const FLOAT_COLLAPSE_REQUEST: FloatCollapseRequest = { kind: 'float:collapse' }
 
 /**
- * 对话界面 → **本浮层所属标签页内容脚本**：这条会话是否正在生成，用来决定页面要不要盖遮罩。
+ * 对话界面 → **本浮层所属标签页的浮层宿主件**：这条会话是否正在生成，用来决定页面要不要盖遮罩。
  *
  * 为什么要盖：生成期间 AI 随时可能读这个页面（元素拾取 / 页面快照），用户此刻点页面、改表单会让
- * 读到的状态与他看到的不一致 —— 遮罩挡掉指针交互，并把这件事说出来（文案在 content.ts）。
+ * 读到的状态与他看到的不一致 —— 遮罩挡掉指针交互，并把这件事说出来（文案在
+ * src/public/duoling-float-host.js）。
  *
- * 为什么由对话界面发、不由内容脚本自己判：生成状态只有 offscreen 知道，内容脚本既不知道哪条会话
+ * 为什么由对话界面发、不由宿主自己判：生成状态只有 offscreen 知道，宿主既不知道哪条会话
  * 属于自己这个标签页，也不该为此多接一条 offscreen 的广播线。发送通道与 float:collapse 同一条
  * （`chrome.tabs.sendMessage` 定向到本 tab）。
  *
@@ -487,12 +497,12 @@ export interface FloatBusyRequest {
 export const FLOAT_BUSY_REQUEST_KIND = 'float:busy' as const
 
 /**
- * popup → **当前标签页内容脚本**的探活消息（同 `tabs.sendMessage`，不经 SW）。
+ * popup → **当前标签页的浮层宿主件**的探活消息（同 `tabs.sendMessage`，不经 SW）。
  *
- * 用途：判断这个页面**此刻**能不能跑内容脚本（进而能不能挂浮层）。url 判不出来 ——
- * 应用商店 scheme 上就是 https（拦它的是 Chrome 注入策略）、站点访问权限设成「点击时」的站点
- * 在 url 上毫无痕迹；反过来，开了「允许访问文件网址」的本地文件页其实注入得了。唯一说了算的
- * 答案就是问一句内容脚本在不在：有应答 = 在，无人应答 / 抛错 = 不在。
+ * 用途：判断这个页面**此刻**能不能挂对话浮层。url 判不出来 —— 应用商店 scheme 上就是 https
+ * （拦它的是 Chrome 注入策略）、站点访问权限设成「点击时」的站点在 url 上毫无痕迹；反过来，
+ * 开了「允许访问文件网址」的本地文件页其实挂得上。唯一说了算的答案就是问一句宿主在不在：
+ * 有应答 = 在，无人应答 / 抛错 = 不在。
  *
  * 为什么不让调用方随手发一条别的消息充当探活（省掉这个 kind）：那是在赌「接收方不认识它也会
  * 有人把 sendMessage 兑现」——语义不可读，且接收方一改成异步应答就静默失效。显式 pong 让
@@ -502,7 +512,7 @@ export interface ContentPingRequest {
   kind: 'content:ping'
 }
 
-/** 上面那条消息的唯一构造处（理由同 FLOAT_OPEN_REQUEST） */
+/** 上面那条消息的唯一构造处（理由同 floatOpenRequest） */
 export const CONTENT_PING_REQUEST: ContentPingRequest = { kind: 'content:ping' }
 
 // —— 页面脚本监控（对话界面 · 运行时口径）——
@@ -567,7 +577,7 @@ export interface PageOverviewTab {
   title: string
   /** 当前文档里跑着的脚本（运行时口径，启动时间新的在前） */
   scripts: PageOverviewScript[]
-  /** 这一页上在用的扩展内置件（不含拾取器：它按需注入、用完即走，不构成常驻状态） */
+  /** 这一页上在用的扩展内置件（含全站常驻的拾取器与浮层宿主：它们在每页都真的在跑） */
   builtins: PageOverviewBuiltin[]
   /** 该标签页归属的会话；未绑定为 null */
   conversationId: string | null

@@ -559,7 +559,7 @@ async function removeCard(card: GenerationCardData): Promise<void> {
 // 卡面上不写站点名：录制认的是标签页，这一页此后导航到哪都在录，标一个会过期的站点名反而误导。
 
 /**
- * 本载体所属的标签页 —— 录制锚在它上面。浮层在页面内嵌的 iframe 里，归属由 content script
+ * 本载体所属的标签页 —— 录制锚在它上面。浮层在页面内嵌的 iframe 里，归属由浮层宿主件
  * 经 iframe URL 传入（与它的会话归属同一处解析，见 lib/owning-tab.ts）；在工作台里只读回看历史
  * 会话时读不到，此时卡片不给操作（录制无标签页可锚）。
  */

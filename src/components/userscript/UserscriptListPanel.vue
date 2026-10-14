@@ -95,16 +95,10 @@ const emit = defineEmits<{
 
 const scripts = ref<ScriptSummary[]>([])
 /**
- * 扩展内置注入件（脚本桥 / 元素拾取器 / 页面录制 / 录制转发）此刻的注册状态 —— 只读透出，不进上面的网格
- * （它们不是用户脚本：没有源码 / 启停 / 删除，混进网格会被搜索、筛选与空态误伤）。
+ * 扩展内置注入件（脚本桥 / 元素拾取器 / 浮层宿主 / 页面录制 / 录制转发）此刻的注册状态 —— 只读透出，
+ * 不进上面的网格（它们不是用户脚本：没有源码 / 启停 / 删除，混进网格会被搜索、筛选与空态误伤）。
  */
 const builtins = ref<import('@/lib/userscripts/engine').BuiltinRegistration[]>([])
-
-/** 内置件的状态标：注册件看在册，声明式常驻没有「注册」可言 */
-function builtinStatusLabel(b: import('@/lib/userscripts/engine').BuiltinRegistration): string {
-  if (b.presence === 'declarative') return '常驻'
-  return b.registered ? '已注册' : '未注册'
-}
 
 const loading = ref(false)
 const error = ref('')
@@ -1439,8 +1433,8 @@ useDataSync('group', () => refreshGroups())
 
         <!--
           扩展内置件（只读）：扩展自己注进页面的能力管道，与用户脚本分开列 —— 它们没有源码 /
-          启停 / 删除，上面的网格操作对它们一律不适用。注册状态随「启用脚本并集」与「记录开关」
-          变化（中继件 / 录制件各自的判据），故跟着列表同一遍回拉。
+          启停 / 删除，上面的网格操作对它们一律不适用。状态随「启用脚本并集」「记录开关」与引擎
+          可用性变化，故跟着列表同一遍回拉。
         -->
         <div
           v-if="builtins.length"
@@ -1462,7 +1456,7 @@ useDataSync('group', () => refreshGroups())
                 <span class="min-w-0 truncate text-xs font-medium">{{ b.name }}</span>
                 <span class="shrink-0 text-[10px] text-muted-foreground">{{ b.world }}</span>
                 <span class="ml-auto shrink-0 text-[10px] text-muted-foreground">
-                  {{ builtinStatusLabel(b) }}
+                  {{ b.registered ? '已注册' : '未注册' }}
                 </span>
               </div>
               <p class="mt-0.5 text-[11px] text-muted-foreground">{{ b.note }}</p>
