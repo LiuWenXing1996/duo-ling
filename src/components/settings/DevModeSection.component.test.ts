@@ -8,7 +8,7 @@ import DevModeSection from './DevModeSection.vue'
 
 /** 入口清单（顺序即渲染顺序）：kind → 面板名；session-data 是特例行（发 openSessionData） */
 const PANELS = [
-  ['lfs-browser', '脚本文件'],
+  ['lfs-browser', '文件管理'],
   ['session-data', '会话数据'],
   ['agent-tools', 'AI 工具'],
   ['gm-api', 'GM API'],

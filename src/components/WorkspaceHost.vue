@@ -306,7 +306,7 @@ defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openSession
           @open-guide="openGuideTab"
           @name-change="(name) => syncScriptTabTitle(tab.id, name)"
         />
-        <!-- 脚本文件：脚本工作区整库只读文件树 -->
+        <!-- 文件管理：脚本源码与对话图片的整库只读文件树 -->
         <lfs-browser-panel v-else-if="tab.kind === 'lfs-browser'" />
         <!-- 会话历史：回看历史会话（列表 + 回放 / 原始数据双视图）、改名 / 删除；
              ref 供「开发者分区 → 会话数据」入口直达原始数据视图 -->

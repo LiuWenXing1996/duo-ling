@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// 「lfs 浏览」标签页：以文件树形式展示 offscreen 持有的 lightning-fs 库（'duoling-fs'，
-// 用户脚本源码的唯一来源）。只读调试视图 —— 源码工作区、git 历史、.git 内部对象都在这一个库里，
-// 想看真实落盘形状（而不是各面板的逻辑视图）时用它。
+// 「文件管理」标签页：以文件树形式展示 offscreen 持有的 duoling-fs 库的**全部内容** ——
+// `/uscripts/<uuid>/`（脚本源码 + git 历史 + .git 内部对象）与 `/assets/<hash>/`（对话图片资源）。
+// 只读调试视图：想看真实落盘形状（而不是各面板的逻辑视图）时用它。
 // 数据经 fs:lfsTree（offscreen 应答，含 .git 内部）；容器不在时 sendAi 会先唤起再取。
 // 点文件经 fs:lfsReadFile 拉内容，右栏预览（文本走 shiki 高亮、可复制；二进制里的图片直接显示，其余提示不可预览）。
 import { computed, onMounted, ref, watch } from 'vue'
@@ -188,7 +188,7 @@ useDataSync('script', () => load())
     <!-- 头部：说明 + 概览 + 刷新 -->
     <div class="flex items-center gap-2 border-b border-border px-4 py-2.5">
       <ui-folder-tree class="size-4 text-muted-foreground" />
-      <span class="text-sm font-medium">脚本文件</span>
+      <span class="text-sm font-medium">文件管理</span>
       <span v-if="tree" class="text-xs text-muted-foreground">
         {{ fileCount }} 个文件 · 只读
       </span>
@@ -214,7 +214,7 @@ useDataSync('script', () => load())
       v-else-if="!tree"
       class="px-4 py-4 text-xs leading-relaxed text-muted-foreground"
     >
-      库为空或尚未创建。保存任一脚本后会自动建库，届时点「刷新」。
+      库为空或尚未创建。保存脚本或发过带图的消息后会建库，届时点「刷新」。
     </p>
 
     <!-- 树 + 预览：左树右预览 -->
