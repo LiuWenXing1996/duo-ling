@@ -10,7 +10,7 @@ description: Use when writing, fixing, or debugging tests in this repo — choos
 - `npm run test` → Vitest **双 project**（配置见 `vitest.config.ts`）：
   - **logic**（node 环境）：`src/lib/**/*.test.ts` 等纯逻辑测试；
   - **component**（happy-dom 环境）：`*.component.test.ts` 组件测试。
-- `npm run test:e2e` → Playwright 端测（`e2e/*.spec.ts`，无头、单 worker 串行）：跑 **`.output/chrome-mv3` 产物**（**先 `npm run build`**）、Playwright 捆绑 Chromium。除冒烟 `smoke.spec.ts` 外，按面拆分的还有编辑器交互 `editor.spec.ts`、GM 全能探针 `omni-probe.spec.ts`、假模型对话 `chat-stub.spec.ts`、会话归属 `conversation-scope.spec.ts`、AI 生成 `agent-generate.spec.ts`。
+- `npm run test:e2e` → Playwright 端测（`e2e/*.spec.ts`，无头、单 worker 串行）：**脚本内先 `npm run build`**，再跑 **`.output/chrome-mv3` 产物**、Playwright 捆绑 Chromium。绕开脚本直接调 playwright 会跑上轮遗留的旧产物，须自己先构建。除冒烟 `smoke.spec.ts` 外，按面拆分的还有编辑器交互 `editor.spec.ts`、GM 全能探针 `omni-probe.spec.ts`、假模型对话 `chat-stub.spec.ts`、会话归属 `conversation-scope.spec.ts`、AI 生成 `agent-generate.spec.ts`。
 
 ## 测试三件套（新增一个面板 / 一条链路时）
 

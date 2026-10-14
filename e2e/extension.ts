@@ -28,8 +28,9 @@ function assertExtensionBuilt(): void {
   if (existsSync(EXTENSION_MANIFEST)) return
   throw new Error(
     `扩展产物不存在：${EXTENSION_MANIFEST}\n` +
-      '端测跑的是构建产物而非源码，请先在项目根目录执行 `pnpm run build`。' +
-      '（产物落在 .output/chrome-mv3，该目录被 .gitignore 忽略，新 worktree 首次运行必做。）',
+      '端测跑的是构建产物而非源码。从 `npm run test:e2e` 进来自动会构建；' +
+      '直接调 `npx playwright test` 时请先执行 `npm run build`。' +
+      '（产物落在 .output/chrome-mv3，该目录被 .gitignore 忽略。）',
   )
 }
 

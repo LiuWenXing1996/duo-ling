@@ -45,7 +45,7 @@
 | `npm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
 | `npm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
 | `npm run test:coverage` | 单测覆盖率（v8 provider，终端 `text-summary` + HTML 报表落 `coverage/`）。**只作本地看数，不进 CI**；统计口径与 exclude 见 `vitest.config.ts` 的 `coverage` 段 |
-| `npm run test:e2e` | Playwright 端测（全程无头、跑 build 产物；**先 `npm run build`**） |
+| `npm run test:e2e` | Playwright 端测（全程无头、跑 build 产物）。**脚本内先 `npm run build`**，不必手动先构建；也别绕开脚本直接调 playwright——端测读的是产物而非源码，产物陈旧时会静默跑旧代码（改了 `src/` 尤其注意） |
 | `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 | `npm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、疑似重复（**整理待办时跑**，提醒级不进 CI） |
 | `npm run check:comments` | 注释卫生门禁：扫 `src` / `packages` / `e2e` / `scripts` / `uscript-samples` **加仓库根散装源码**（配置类 `*.ts` 常驻根级），注释行命中黑名单（日期 / 评审引用 / 变更史 / 代号 / 小节号）即失败；另校验注释里「见 xxx.md」引用的文件真实存在（死指针）；豁免与孤儿检测见「注释与文案」 |

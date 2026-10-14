@@ -14,7 +14,7 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test",
+    "test:e2e": "npm run build && playwright test",
     "verify:skills": "node scripts/verify-skills.mjs",
     "check:todo": "python3 scripts/check-todo.py",
     "check:comments": "node scripts/check-comments.mjs",
