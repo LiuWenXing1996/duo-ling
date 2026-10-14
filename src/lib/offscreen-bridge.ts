@@ -68,8 +68,8 @@ export const offscreenBridge = {
     send({ kind: 'userscript:save', ...payload, actor: 'ai' }),
 
   /**
-   * 页面快照（AI 的 page_snapshot 工具用）：SW 代为对本会话所属标签页执行拾取器快照模式。
-   * chrome.userScripts.execute 在 offscreen 不可达，必须经 SW。
+   * 页面快照（AI 的 page_snapshot 工具用）：SW 代为请本会话所属标签页上的页面检查器采一次快照。
+   * chrome.tabs 在 offscreen 不可达，必须经 SW。
    * conversationId 由 chat-host 注入（它手里才有当前会话 id）——SW 靠它反查目标标签页，
    * 免得 AI 在用户已切走时采到别的页面。
    */
@@ -77,8 +77,8 @@ export const offscreenBridge = {
     send({ kind: 'page:snapshot', conversationId }),
 
   /**
-   * 页面环境读数（AI 的 page_env_read 工具用）：SW 代为对本会话所属标签页执行拾取器的
-   * env 模式。与快照同一条执行通道、同一个目标页判据（会话归属），conversationId 由
+   * 页面环境读数（AI 的 page_env_read 工具用）：SW 代为请本会话所属标签页上的页面检查器
+   * 读一次环境。与快照同一条执行通道、同一个目标页判据（会话归属），conversationId 由
    * chat-host 注入 —— 理由同上一行：AI 决定要读时用户可能已经切走。
    */
   capturePageEnv: (conversationId?: string): Promise<PageEnvContext> =>

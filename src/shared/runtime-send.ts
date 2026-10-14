@@ -1,5 +1,5 @@
 // chrome.runtime.sendMessage 的 Promise 包装（回调形态 + lastError 同步读取的样板收拢）。
-// 全扩展各运行时（SW / 扩展页 / offscreen document / content script）通用：
+// 全扩展各运行时（SW / 扩展页 / offscreen document）通用：
 // chrome.runtime 在这些上下文里都在场。
 import type { RuntimeRequest, RuntimeResponse } from './extension-ipc'
 

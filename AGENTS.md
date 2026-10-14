@@ -6,7 +6,7 @@
 
 ## 项目速览（形态 + 红线）
 
-**形态**：Chrome MV3 扩展（background service worker + 工作台标签页；对话界面是 content script 按需挂进网页的浮层，另有工具栏 popup）。**运行时架构见 [ARCHITECTURE.md](ARCHITECTURE.md)**。
+**形态**：Chrome MV3 扩展（background service worker + 工作台标签页；对话界面是按需挂进网页的浮层，另有工具栏 popup）。**运行时架构见 [ARCHITECTURE.md](ARCHITECTURE.md)**。
 
 **红线**（各领域规范与文档索引见下方「文档职责总表」）：
 
@@ -39,7 +39,7 @@
 | `npm install` | 首次装 / 加依赖（非锁定场景）；按 lockfile 精确还原用上面的 `npm ci` |
 | `npm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev`。入口是 `scripts/dev.mjs`：随机端口起本机靶站 → 探针页经 `DL_PROBE_URL` 交给 WXT 自动打开；同时在本机 5199 起假模型（地址打印在控制台，手填一次进「设置 → 添加模型 → 自定义」即可长期复用）。靶站与假模型都随 dev 起停 |
 | `npm run probe:serve` | 起本机测试靶站（`scripts/probe-target.mjs`，默认端口 5178）：手测探针的出网目标 + 探针页宿主，端点见该文件头部。**不跑 dev 的手测**（加载 `.output` 产物）先起它；探针从页面 `<meta name="dl-probe-target">` 取基址，读不到才回落默认端口 |
-| `npm run model:serve` | 起本机假模型（`scripts/model-stub.mjs`，默认端口 5199，可用 `DL_MODEL_STUB_PORT` 覆盖）：一个 OpenAI 兼容的假服务，开发/手测对话链路时顶替真模型（不花真 Key、回复确定）。地址填进「设置 → 添加模型 → 服务商选自定义 → 接口地址」，密钥留空即可。e2e 也从这里 import（同目录有 `.d.mts` 声明） |
+| `npm run model:serve` | 起本机假模型（`scripts/model-stub.mjs`，默认端口 5199，可用 `DL_MODEL_STUB_PORT` 覆盖）：一个 OpenAI 兼容的假服务，开发/手测对话链路时顶替真模型（不花真 Key、回复确定）。地址填进「设置 → 添加模型 → 服务商选自定义 → 接口地址」，密钥留空即可；**内置调试触发** —— 消息整句发「快照」或「页面环境」即回对应的工具调用，并把采集结果摘要成一句人话（含失败原因），手测 `page_snapshot` / `page_env_read` 这类要页面侧真跑一遍的工具链时不必写 plan（e2e 显式传 `plan` 时它不生效）。e2e 也从这里 import（同目录有 `.d.mts` 声明） |
 | `npm run build` | 构建，产出 `.output/chrome-mv3` |
 | `npm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
 | `npm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
@@ -163,7 +163,7 @@
 
 | 领域 | 一句话底线 | 详情 |
 | --- | --- | --- |
-| manifest 权限 | 所需权限之外的不得添加（上架审查）；**没有 `sidePanel`** —— 一个 action 只能有一种默认行为，本项目给了 popup（页面外的入口），对话入口是 content script 按需挂进页面的浮层，故不用 `chrome.sidePanel`（加回来只会多出一个点不动的入口）。已批准权限集见 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」）；核对产物即拿它的 `permissions` 数组逐项比对，另需 `action`（含 `default_popup`，由 `entrypoints/popup.html` 自动写入）+ `host_permissions` | [wxt.config.ts](wxt.config.ts) |
+| manifest 权限 | 所需权限之外的不得添加（上架审查）；**没有 `sidePanel`** —— 一个 action 只能有一种默认行为，本项目给了 popup（页面外的入口），对话入口是按需挂进页面的浮层（宿主件 `dl-float-host` 是注册用户脚本，见 [ARCHITECTURE.md](ARCHITECTURE.md)「载体与运行时」），故不用 `chrome.sidePanel`（加回来只会多出一个点不动的入口）。已批准权限集见 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」）；核对产物即拿它的 `permissions` 数组逐项比对，另需 `action`（含 `default_popup`，由 `entrypoints/popup.html` 自动写入）+ `host_permissions` | [wxt.config.ts](wxt.config.ts) |
 | cookie 能力（GM_cookie） | `cookies` 权限 + 已全域的 host（`<all_urls>`）= **SW 可读写全浏览器 cookie（含 HttpOnly）**，故必须与**域名门**绑定：url 须落在该脚本自身 `matches` 内、不命中 `excludeMatches`，只比 **scheme + host**（pattern 的 path 段一律忽略）；`set` 不开放 domain / path 覆写。**门只在 SW 侧，新增任何 cookie 命令都必经此门** | [cookie-gate.ts](src/lib/userscripts/cookie-gate.ts) / [api-contract.ts](src/lib/userscripts/api-contract.ts) |
 | SW 全局 | 引入依赖 Node 全局的库时，必须补 `src/polyfills.ts` 并在 `background.ts` **最前** import；漏掉时表现为加载期即抛「`global.TextEncoder` 读不到」 | [src/polyfills.ts](src/polyfills.ts) |
 | CSP / 沙箱 | 扩展页 CSP 保持 MV3 默认 `script-src 'self'`，**不要加任何 CSP 覆盖**；扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**注入页面 MAIN 世界：不受扩展 CSP 约束，但**能用的 CSP 由目标站点自己决定**（`eval` / `new Function` 在收紧的站点上会失败）；不享有扩展 API，只能经 GM 包装层桥接（`GM_*` / `GM.*`，内部经中继件走 `__dl` 信封协议） | [ARCHITECTURE.md](ARCHITECTURE.md)「脚本注入」/ [wxt.config.ts](wxt.config.ts) |

@@ -58,7 +58,7 @@ test('截图：<要看的那块>', async () => {
    取 base64。手写硬编码的 1×1 PNG 片段会让 `createImageBitmap` 报
    `InvalidStateError: The source image could not be decoded`，而失败点落在压缩逻辑上，
    看起来像实现坏了（2026-09-22 踩过）。
-3. **要模型回复就用 `e2e/model-stub.ts`**：`startModelStub()` 起本地假模型，经
+3. **要模型回复就用 `scripts/model-stub.mjs`**：`startModelStub()` 起本地假模型，经
    `window.api.model.save` + `setActive` 指过去即可，回复内容写死、离线可跑。
 4. **要渲染「落盘才有的数据」（如 pageContext 元数据）就直调命令面 + reload**：
 

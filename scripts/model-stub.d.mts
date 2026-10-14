@@ -40,6 +40,9 @@ export interface ModelStubOptions {
    * 按「第几次请求」脚本化回复 —— 多步工具循环要靠它：
    * 第 1 次请求（只有用户消息）发 script_spec、第 2 次（带回 spec 结果）发 script_apply、第 3 次收尾。
    * 返回 undefined 时退回 `reply` 的文本。
+   *
+   * **给了 plan 就完全按 plan**；不给时启用内置调试触发（消息整句是「快照」→ page_snapshot、
+   * 「页面环境」→ page_env_read，工具结果回流后自动收尾复述），供 dev 手测走通工具链。
    */
   plan?: (hit: ModelStubHit, index: number) => StubReply | undefined
   /** 模型 id（回包里的 model 字段，默认 stub-model） */

@@ -3,12 +3,13 @@
 // 这条链路的分支都在渲染层，故用组件测试守：
 //   A. 「当前页面」：两个按页开关（接口录制 / 活动记录，都常显、可就地开与关、状态随命令改口）、
 //      本页在跑的脚本（头部给计数、列表常显、行只读，右侧「管理脚本」开工作台）、对话浮层入口与回话状态；
-//   B. 「当前页面」注入不了内容脚本（探活无人应答）→ 头部改说原因、浮层入口禁用；
+//   B. 「当前页面」浮层入口只在**拿不到网址**的页面（内部页 / 扩展页）上禁用 —— 普通网页一律让点，
+//      成不成看点了之后的回执（真机上曾因探活假阴性把本来点得开的按钮禁灰）；
 //   C. 「其他页面」：列出本页以外的标签页（脚本数 / 会话与生成中），点「去这里」切过去；没有别的页面给空态。
 //
 // 边界 mock：
 //   · chrome —— 手写壳，只需 tabs.query / tabs.update / tabs.create / tabs.sendMessage
-//     （内容脚本探活与「打开会话」的定向消息共用这一口）+ runtime.sendMessage（命令面）。
+//     （「打开会话」的定向消息走这一口）+ runtime.sendMessage（命令面）。
 //     两块的数据全由 page:overview 一条命令喂进来（真 SW 不在测试里）。
 //   · userscripts/ui-client（引擎可用性）、update-check（新版本结论）—— mock 掉，
 //     避免牵进 IDB 与消息总线。
@@ -55,15 +56,13 @@ function overviewRow(tabId: number, over: Record<string, unknown> = {}): Record<
 /**
  * 装 chrome 壳。
  *
- * `contentScriptPresent` = 内容脚本探活是否应答：popup 挂载时会向当前标签页发一条
- * `content:ping`，无人应答即「这个页面注入不了」（chrome:// 页 / 应用商店 / 站点权限设成
- * 「点击时」的站点都是这一档）。缺省应答 —— 普通网页的常态。
+ * url 传 undefined 模拟读不到地址的页面（`chrome://` / 扩展页 —— manifest 无 tabs 权限），
+ * 那类页面上站点名是空串、浮层入口禁用。定向消息（`float:open`）默认发得出去，收不到的那条
+ * 分支由用例自己覆盖（见「页面接不上」）。
  */
-function stubChrome(url: string | undefined, contentScriptPresent = true): void {
+function stubChrome(url: string | undefined): void {
   tabsCreate.mockResolvedValue(undefined)
-  tabsSendMessage.mockImplementation(async () =>
-    contentScriptPresent ? { ok: true } : undefined,
-  )
+  tabsSendMessage.mockResolvedValue(undefined)
   runtimeSendMessage.mockImplementation(async (msg: { kind: string }) => {
     if (msg.kind === 'page:overview') return { ok: true, data: overviewRows }
     return { ok: true, data: {} }
@@ -85,7 +84,7 @@ function stubChrome(url: string | undefined, contentScriptPresent = true): void 
 
 const wrappers: VueWrapper[] = []
 
-/** 挂载 + 等几轮异步：refresh() 里 update / 探活 / 引擎可用性 / 概览四条各一轮 */
+/** 挂载 + 等几轮异步：refresh() 里 update / 引擎可用性 / 概览三条各一轮 */
 async function mountPopup(): Promise<VueWrapper> {
   const w = mount(PopupPanel)
   wrappers.push(w)
@@ -198,9 +197,9 @@ describe('popup 的「当前页面」区块', () => {
     expect(rows[0]!.text()).not.toContain('运行中')
   })
 
-  it('注入不了内容脚本（探活无人应答）：头部改说不能运行', async () => {
-    // chrome:// 等页面上扩展读不到 url（manifest 无 tabs 权限），内容脚本也没注入
-    stubChrome(undefined, false)
+  it('拿不到网址的页面（内部页 / 扩展页）：头部改说不能运行，浮层入口禁用', async () => {
+    // chrome:// 与扩展页上扩展读不到 url（manifest 无 tabs 权限），那类页面上脚本也跑不了
+    stubChrome(undefined)
     const w = await mountPopup()
 
     expect(w.find('[data-testid="popup-current-page"]').exists()).toBe(true)
@@ -229,7 +228,7 @@ describe('popup 的「当前页面」区块', () => {
     await w.find('[data-testid="open-float-panel"]').trigger('click')
     await flushPromises()
 
-    expect(tabsSendMessage).toHaveBeenCalledWith(TAB_ID, { kind: 'float:open' })
+    expect(tabsSendMessage).toHaveBeenCalledWith(TAB_ID, { kind: 'float:open', tabId: TAB_ID })
     expect(close).toHaveBeenCalled()
   })
 
@@ -256,18 +255,25 @@ describe('popup 的「当前页面」区块', () => {
     expect(close).toHaveBeenCalled()
   })
 
-  it('注入不了内容脚本：浮层入口禁用（探活无人应答的页面都算）', async () => {
-    stubChrome(undefined, false)
+  it('普通网页上只放着内置件：头部照常给空态，浮层入口可点', async () => {
+    // 真机上出过这一档：popup 同时列着「浮层宿主（内置）」与「当前页面不能显示对话浮层」，
+    // 按钮被禁灰 —— 判据来自探活的假阴性（件在册、world 配好、权限已授予，只是没答上来）。
+    // 现在按钮只看「是不是普通网页」，能不能挂上看点了之后的回执。
+    stubChrome('https://example.com/page')
+    overviewRows = [overviewRow(TAB_ID, { builtins: [{ id: 'dl-float-host', name: '浮层宿主' }] })]
     const w = await mountPopup()
-    expect(w.find('[data-testid="open-float-panel"]').attributes('disabled')).toBeDefined()
+
+    expect(w.find('[data-testid="popup-current-builtin-row"]').text()).toContain('浮层宿主')
+    expect(summary(w).text()).toContain('本页没有运行中的脚本')
+    expect(w.find('[data-testid="popup-current-float-disabled"]').exists()).toBe(false)
+    expect(w.find('[data-testid="open-float-panel"]').attributes('disabled')).toBeUndefined()
   })
 
   it('页面接不上（消息发不出去）：留在 popup 里说明原因，不关窗', async () => {
     stubChrome('https://example.com/page')
     const w = await mountPopup()
     const close = spyClose()
-    // 必须在挂载之后再埋：挂载时 popup 会向当前标签页发一条 content:ping 探活，走的是同一个
-    // tabs.sendMessage —— 提前埋会被探活先吃掉，等点按钮时这一发就正常返回、失败分支不触发。
+    // 这一发要抛错：页面在扩展更新前就打开、或站点访问权被单独关掉时，就是这样收不到
     tabsSendMessage.mockRejectedValueOnce(new Error('Receiving end does not exist'))
 
     await w.find('[data-testid="open-float-panel"]').trigger('click')
@@ -352,7 +358,7 @@ describe('popup 的「当前页面」区块', () => {
 
   it('不在概览里的页面（内部页 / 扩展页）：开关禁灰，状态说「当前页面不支持」', async () => {
     // 读不到 url 的页面上概览里没有这一行，也就拿不到 tabId 与站点名 —— 开关开不了
-    stubChrome(undefined, false)
+    stubChrome(undefined)
     overviewRows = []
     const w = await mountPopup()
 

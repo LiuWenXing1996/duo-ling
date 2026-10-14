@@ -16,7 +16,7 @@
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
-import { FLOAT_OPEN_REQUEST } from '@/shared/extension-ipc'
+import { floatOpenRequest } from '@/shared/extension-ipc'
 import type { ModelProfileState, PageOverviewTab, RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
@@ -105,8 +105,8 @@ import {
 } from '@/lib/conversation-tab-map'
 // 会话库（duoling-chat，**写只归 offscreen**）：页面概览里显示会话标题，这里只读
 import { listConversations } from '@/lib/conversation-store'
-// 「popup 能不能给这个页面挂浮层」的判据（scheme 那一半）：页面概览只收普通网页
-import { webHostname } from '@/lib/float-panel-host'
+// 「这一页是不是普通网页」的判据（页面概览只收普通网页，与 popup 的按钮判据同源）
+import { webHostname } from '@/lib/web-hostname'
 import type {
   ImportReport,
   RunEndReason,
@@ -122,13 +122,20 @@ import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady
 import { getActiveProfileState } from '@/lib/model-store'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
 import { broadcastBuildPhase } from '@/lib/data-broadcast'
-// AI 工具支路：page_snapshot / page_env_read 两条工具经 SW 调 userScripts.execute
+// AI 工具支路：page_snapshot / page_env_read 两条工具经 SW 向页面里的页面检查器下发指令
 // （offscreen 不可达该 API）
 import {
   capturePageEnvFromTab,
   capturePageSnapshotFromTab,
   pageInjectionBlockReason,
 } from '@/lib/element-picker-client'
+// 拾取指令的下发与配对（常驻件那半在页面里，件源码见 lib/userscripts/page-inspector-host.ts）
+import {
+  cancelPicker,
+  handleInspectorResult,
+  runInspectorCommand,
+} from '@/lib/userscripts/page-inspector-bridge'
+import type { ElementPickContext } from '@/shared/extension-ipc'
 
 /**
  * SW 管辖的 kind 前缀（路由白名单）。
@@ -148,6 +155,7 @@ export const SW_KIND_PREFIXES = [
   'offscreen:',
   'sw:',
   'page:',
+  'picker:',
   'tab:',
 ] as const
 
@@ -271,12 +279,32 @@ async function resolveAiTargetTab(
     tabId = tab?.id
   }
   if (tabId == null) throw new Error('未找到目标标签页')
-  // 内置页 / 扩展页拦在注入前（判据与拾取器共用，见 pageInjectionBlockReason——扩展页连自己
+  // 内置页 / 扩展页拦在注入前（判据与页面检查器共用，见 pageInjectionBlockReason——扩展页连自己
   // 的也不行，<all_urls> 不覆盖 chrome-extension scheme）
   const tab = await chrome.tabs.get(tabId).catch(() => null)
   const blocked = pageInjectionBlockReason(tab?.url)
   if (blocked) throw new Error(`${blocked}，无法${what}`)
   return tabId
+}
+
+/**
+ * 定位「用户此刻看着的标签页」并在下发前拦掉不可注入的页（拾取专用）。
+ *
+ * 与 resolveAiTargetTab 的口径刻意不同：那条认**会话归属**（AI 在生成中途自己决定要读，
+ * 那时用户可能已经切走）；这条认**激活页** —— 拾取由用户在看得见的面板上点按钮发起，
+ * 浮层只在自己那个 tab 可见，那一刻它必然在激活页上，不必也不该去查归属。SW 无窗口上下文，
+ * lastFocusedWindow 即用户最后聚焦的那个窗口。
+ *
+ * 名字避开 owning-tab 的 resolveActiveTabId：那个是「扩展页认自己属于哪个标签页」，
+ * 这条是「SW 替一次用户动作找目标页」，别混。
+ */
+async function resolvePickTargetTab(what: string): Promise<number> {
+  if (!chrome.tabs?.query) throw new Error('无法定位目标标签页')
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+  if (tab?.id == null) throw new Error('未找到活动标签页')
+  const blocked = pageInjectionBlockReason(tab.url)
+  if (blocked) throw new Error(`${blocked}，无法${what}，请切到要操作的网页后重试`)
+  return tab.id
 }
 
 // 第二个参数是 chrome 的消息发送方：只有需要「回 sender 自己的东西」的命令才用得上
@@ -309,7 +337,7 @@ const handlers: {
   'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> => getActiveProfileState(),
 
   // —— AI 工具支路 ——
-  // 两条都请 SW 代办：chrome.userScripts.execute 在 offscreen 不可达，而在 SW 与注册链路同源
+  // 两条都请 SW 代办：chrome.tabs 在 offscreen 不可达，而在 SW 与注册链路同源
   // （受 138+ 逐扩展开关管控）。page_snapshot 取页面 DOM，page_env_read 取页面侧环境读数。
   // 目标页判据见 resolveAiTargetTab —— 两条共用，别在这里另写一份。
   'page:snapshot': async (
@@ -321,6 +349,18 @@ const handlers: {
     msg,
   ): Promise<Awaited<ReturnType<typeof capturePageEnvFromTab>>> =>
     capturePageEnvFromTab(await resolveAiTargetTab(msg.conversationId, '读取页面环境')),
+
+  // —— 拾取（浮层发起的用户动作）——
+  // 目标页判据见 resolvePickTargetTab —— 与上面两条 AI 支路刻意不同，别在这里另写一份。
+  // 下发与结果配对都在 page-inspector-bridge：件在页面里常驻待命，指令经 chrome.tabs.sendMessage 进去，
+  // 结果由件 sendMessage 回来（dl-bridge 的 onUserScriptMessage 分流后交 handleInspectorResult）。
+  'picker:pick': async (): Promise<ElementPickContext | null> =>
+    runInspectorCommand<ElementPickContext>(await resolvePickTargetTab('点选元素'), 'pick'),
+
+  'picker:cancel': async (): Promise<null> => {
+    await cancelPicker()
+    return null
+  },
 
   // —— popup 的页面概览（「当前页面 / 其他页面」两个区块的数据源）——
   // 为什么在 SW 一处聚齐：运行登记表（pageRunsByTab）、进行中会话（runningConversations）、
@@ -370,9 +410,9 @@ const handlers: {
     })
   },
 
-  // —— 内容脚本自证身份 ——
-  // 回 sender 自己的 tab id：content script 拿不到 chrome.tabs，而网页浮层（扩展页 iframe）
-  // 必须知道「自己属于哪个 tab」才能认定会话归属（每 tab 一条会话）。
+  // —— 浮层宿主件自证身份 ——
+  // 回 sender 自己的 tab id：宿主件跑在用户脚本世界，那里拿不到 chrome.tabs，而网页浮层（扩展页
+  // iframe）必须知道「自己属于哪个 tab」才能认定会话归属（每 tab 一条会话）。
   // 取不到时回 null（扩展页发的消息本就没有 tab），由调用方降级——浮层拿不到 tabId 的
   // 情况下会话归属退化为「不绑定」，而不是错绑到别的 tab。
   'tab:identify': async (_msg, sender): Promise<{ tabId: number | null }> => ({
@@ -1015,7 +1055,7 @@ function mountProposal2Listeners(): void {
 // —— 浮层的右键菜单入口 ——
 //
 // 对话框的入口全在页面之外：工具栏 popup 里的「对话浮层」按钮，以及这个右键菜单。菜单这条由
-// 浏览器渲染，页面里的东西遮不住它，也不依赖内容脚本已经挂上 UI。
+// 浏览器渲染，页面里的东西遮不住它，也不依赖浮层宿主件已经挂上 UI。
 //
 // id 带 `duoling:` 前缀：与用户脚本的 GM_registerMenuCommand 共用 contextMenus 命名空间，
 // 脚本侧是 `us:<uuid>:<menuId>`（见 dl-port.ts 的 parseMenuitemId —— 它只认那个前缀，本条会被放行）。
@@ -1054,7 +1094,7 @@ async function openFloatPanelInTab(tab: chrome.tabs.Tab): Promise<void> {
   const tabId = tab.id
   if (tabId == null) return
   try {
-    await chrome.tabs.sendMessage(tabId, FLOAT_OPEN_REQUEST)
+    await chrome.tabs.sendMessage(tabId, floatOpenRequest(tabId))
   } catch {
     await chrome.notifications.create('duoling:float-open-failed', {
       type: 'basic',
@@ -1078,7 +1118,7 @@ export default defineBackground(() => {
   console.log(`[duoling:sw] SW 启动 · 构建 ${__BUILD_INFO__.time} · 分支 ${__BUILD_INFO__.branch}`)
 
   // 点击工具栏图标打开 popup（action.default_popup 由 popup.html 入口自动写入 manifest）——
-  // 这是 action 的唯一用途；对话入口是网页浮层（content script 注入），不占 action。
+  // 这是 action 的唯一用途；对话入口是网页浮层（由浮层宿主件挂出），不占 action。
 
   // 用户脚本管理器：启动配置世界并恢复已启用脚本
   void initUserScripts().catch((e) => console.error('[duoling:userscript] init failed', e))
@@ -1139,6 +1179,13 @@ export default defineBackground(() => {
   // 的 profile-cache 回拉）。SW 这里不再需要 storage.onChanged 兜底。
 
   chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
+    // 指令结果的兜底投递面：上行以 dl-bridge 的 onUserScriptMessage 为正门，这里认同一只
+    // 信封作保底 —— 结算按 reqId 幂等，两个面各送一次也无害（见 page-inspector-bridge.handleInspectorResult）。
+    if (handleInspectorResult(raw, sender)) {
+      sendResponse(true) // 收讫回执：件的 sendMessage 才会正常 resolve
+      return false
+    }
+
     const msg = raw as RuntimeRequest | undefined
     if (!msg?.kind) return
 

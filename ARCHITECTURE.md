@@ -7,28 +7,28 @@
 
 ## 形态
 
-Chrome MV3 扩展（background service worker + 工作台标签页；对话界面是 content script 按需挂进网页的浮层，另有工具栏 popup）。原 Electron 桌面版实现已不在工作区，需要参照时从 git 历史取回。
+Chrome MV3 扩展（background service worker + 工作台标签页；对话界面是按需挂进网页的浮层，另有工具栏 popup）。原 Electron 桌面版实现已不在工作区，需要参照时从 git 历史取回。
 
 ## 载体与运行时
 
 | 上下文 | 载体 | 角色 |
 | --- | --- | --- |
-| 扩展页 | `floatpanel.html`（网页浮层 iframe） | **对话界面（唯一入口）**：指令入口与观察窗；显示**它所在标签页**的会话（tab 身份由 content script 经 iframe URL 传入） |
+| 扩展页 | `floatpanel.html`（网页浮层 iframe） | **对话界面（唯一入口）**：指令入口与观察窗；显示**它所在标签页**的会话（tab 身份由浮层宿主件经 iframe URL 传入） |
 | 扩展页 | `workbench.html`（标签页） | 重界面工作区（脚本管理 / 活动历史 / 会话历史 / 设置等） |
-| 扩展页 | `popup.html`（工具栏 popup） | 按**标签页**看现状与去处：①「当前页面」（`PopupCurrentPage`）= 本页在跑的脚本与报错（右侧「管理脚本」按钮开工作台标签页，落默认的脚本列表面板）+ 这一页上在用的扩展内置件（弱化行组，不进脚本计数）+ 这条页面的对话浮层入口（**对话框的常规打开方式**）与是否正在回话；②「其他页面」（`PopupOtherPages`）= 其他打开的普通网页各自的脚本与会话，点一行切过去；③ 标题行右侧的「设置（`#/settings`）/ 打开工作台」两个图标入口（说明挂在悬停提示上）与当前版本号（构建期注入的构建信息，缺失时隐藏）。两块共用一条 `page:overview` 命令（SW 侧一处聚合运行登记 / 会话归属 / 进行中，见「脚本注入」的运行登记表）—— popup 只活几秒，取一次快照即可，不维持推送通道。挂不了浮层的页面上「打开会话」禁用（判据 = 向该标签页探活内容脚本，`probeContentScript`）、原因就地说在对话行中间；引擎开关没开时另有「查看开启引导」卡（与角标 `!` 同一判据、同走 `userscript:availability`）；**不承载对话**（不装 `window.api`） |
-| 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：**平时不往页面里放任何 DOM**，收到 `float:open` 才挂出 iframe 并展开，收到 `float:collapse` 收起（只加 `display:none`，iframe 与草稿都留着），收到 `float:busy` 按「这条会话正在生成」开关页面遮罩（盖住视口挡指针交互，**只看生成中、与浮层开合无关** —— 收起浮层遮罩照留着；对话框本体在遮罩之上 —— 点得到停止），应答 `content:ping`（popup 靠它判本页此刻注入得了内容脚本 —— 见 `lib/float-panel-host.ts`）；位置钉在视口右下角，拾取期间整块让位 |
+| 扩展页 | `popup.html`（工具栏 popup） | 按**标签页**看现状与去处：①「当前页面」（`PopupCurrentPage`）= 本页在跑的脚本与报错（右侧「管理脚本」按钮开工作台标签页，落默认的脚本列表面板）+ 这一页上在用的扩展内置件（弱化行组，不进脚本计数）+ 这条页面的对话浮层入口（**对话框的常规打开方式**）与是否正在回话；②「其他页面」（`PopupOtherPages`）= 其他打开的普通网页各自的脚本与会话，点一行切过去；③ 标题行右侧的「设置（`#/settings`）/ 打开工作台」两个图标入口（说明挂在悬停提示上）与当前版本号（构建期注入的构建信息，缺失时隐藏）。两块共用一条 `page:overview` 命令（SW 侧一处聚合运行登记 / 会话归属 / 进行中，见「脚本注入」的运行登记表）—— popup 只活几秒，取一次快照即可，不维持推送通道。「打开会话」只在**拿不到网址**的页面（浏览器内部页 / 扩展页）上禁用、原因就地说在对话行中间 —— 普通网页一律让点，成不成看点了之后的回执（发 `float:open`，收不到才提示「刷新页面后再试」；**不预先探活宿主件**，理由见 `lib/web-hostname.ts`）；引擎开关没开时另有「查看开启引导」卡（与角标 `!` 同一判据、同走 `userscript:availability`）；**不承载对话**（不装 `window.api`） |
+| 注入世界 | `duoling-float-host.js`（第三方页面 USER_SCRIPT 世界 `us-dl-float`，全站注册、`document_start`） | 网页浮层的宿主件：**平时不往页面里放任何 DOM**，收到 `float:open` 才挂出 iframe 并展开（`?tab=` 由发起方随指令带来的 tabId 拼出 —— 该世界没有 `chrome.tabs`），收到 `float:collapse` 收起（只加 `display:none`，iframe 与草稿都留着），收到 `float:busy` 按「这条会话正在生成」开关页面遮罩（盖住视口挡指针交互，**只看生成中、与浮层开合无关** —— 收起浮层遮罩照留着；对话框本体在遮罩之上 —— 点得到停止），应答 `content:ping`（在岗探针：判据是那声应答、不是消息发得出去 —— 同一页上还有页面检查器在收同一条消息；popup 不再拿它判按钮状态，现由 e2e 用来确认件已注入本页，见 [`e2e/float-task-state.spec.ts`](e2e/float-task-state.spec.ts) 的 `openFloatPage`）；位置钉在视口右下角，拾取期间整块让位 |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 + 网页浮层的右键菜单入口 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
 | 注入世界 | MAIN（第三方页面内） | 用户脚本自身逻辑；GM 包装层（`gm-wrapper.ts`）在同一函数作用域里声明 `GM_*` / `GM.*`，能力调用经同帧 USER_SCRIPT 中继件（`script-relay.ts`）转 SW |
 
-各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的挂载细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级、收起语义）见 [src/entrypoints/content.ts](src/entrypoints/content.ts) 顶部注释。**打开入口都在页面之外**：工具栏 popup 的「打开会话」按钮，与页面右键菜单（SW 注册，`documentUrlPatterns` 限 http/https）—— 对话框平时不在页面里，页面上没有任何可点的地方。两条都收敛到同一条定向消息（`FloatOpenRequest`，`tabs.sendMessage`，不经 SW），内容脚本收到就地挂出 UI 并展开。**收起走反向的另一条消息**（`FloatCollapseRequest`）：对话框顶栏那颗按钮在 iframe 里（跨源，父页拿不到它的事件），只能发消息叫父页把容器藏起来；刻意不用 `postMessage` —— 宿主网页的脚本挂在父 window 上，既能监听也能用 `iframe.contentWindow.postMessage` 伪造来源，那等于把「关掉扩展界面」开放给被注入的页面。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
+各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的挂载细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级、收起语义）见 [src/public/duoling-float-host.js](src/public/duoling-float-host.js) 顶部注释。**打开入口都在页面之外**：工具栏 popup 的「打开会话」按钮，与页面右键菜单（SW 注册，`documentUrlPatterns` 限 http/https）—— 对话框平时不在页面里，页面上没有任何可点的地方。两条都收敛到同一条定向消息（`FloatOpenRequest`，`tabs.sendMessage`，不经 SW），宿主件收到就地挂出 UI 并展开。**收起走反向的另一条消息**（`FloatCollapseRequest`）：对话框顶栏那颗按钮在 iframe 里（跨源，父页拿不到它的事件），只能发消息叫父页把容器藏起来；刻意不用 `postMessage` —— 宿主网页的脚本挂在父 window 上，既能监听也能用 `iframe.contentWindow.postMessage` 伪造来源，那等于把「关掉扩展界面」开放给被注入的页面。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
 
 ## 对话链路
 
 指令入口（网页浮层）只做观察；整条链路（`streamText` + tools）跑在 **offscreen document**，入口经 IPC 订阅事件流；跨域仍由 `host_permissions` 授权。offscreen 容器按需创建（`src/lib/offscreen.ts`）。
 
 - **会话归属按标签页**：一个 tab 一条会话，切 tab 即切会话。归属映射（tabId → conversationId）存 `duoling-app` 的 `convByTab` 键（`src/lib/conversation-tab-map.ts`）—— **既不进会话库、也不进对话链路**：任务与流的键始终是 conversationId（`chat-host.ts` 的 `runningByConversation`、transport 的 `consumers`），所以这套绑定对执行层零影响，断了本地流任务照跑、切回来 resumeStream 接上。
-  - 归属解析**只在 `lib/owning-tab.ts` 一处**：浮层认 content script 经 iframe URL 传来的 `?tab=<id>`（固定归属）—— 不能跟「当前激活标签页」走，浮层可能挂在一个已经不是激活的标签页上；「点开才生成的扩展页」认弹出那一刻的激活页（`resolveActiveTabId`），它没有固定归属、也从不与某个标签页长驻绑定。会话归属（`use-global-conversation`）、随消息发出的页面上下文（`extension-chat-transport`）、页面脚本运行集（`use-page-monitor`，浮层）都经它取 tab；popup 的页面概览是**例外**：它要的是一份跨标签页的现状，归属由 SW 聚合时判定（`page:overview`），popup 只按 tabId 认领「哪一行是我」。
+  - 归属解析**只在 `lib/owning-tab.ts` 一处**：浮层认浮层宿主件经 iframe URL 传来的 `?tab=<id>`（固定归属）—— 不能跟「当前激活标签页」走，浮层可能挂在一个已经不是激活的标签页上；「点开才生成的扩展页」认弹出那一刻的激活页（`resolveActiveTabId`），它没有固定归属、也从不与某个标签页长驻绑定。会话归属（`use-global-conversation`）、随消息发出的页面上下文（`extension-chat-transport`）、页面脚本运行集（`use-page-monitor`，浮层）都经它取 tab；popup 的页面概览是**例外**：它要的是一份跨标签页的现状，归属由 SW 聚合时判定（`page:overview`），popup 只按 tabId 认领「哪一行是我」。
   - **惰性新建**：tab 没有归属会话时不建、不落库、不进历史列表（未绑定态），发出第一条消息时才 create 并登记。
   - 归属映射的清理归 **SW 的 `tabs.onRemoved`** —— 面板没开时 tab 照样会被关，只有常驻的 SW 不漏。
   - 历史会话的查看 / 改名 / 删除在工作台「会话历史」标签页（`SessionHistoryTab.vue`：列表复用 `SessionHistoryPanel`，右栏在「回放 / 原始数据」两个视图间切换——回放用 `ChatPanel` 的只读模式，原始数据用 `ConversationRawView` 展示落盘 Message 的原始字段，同一会话两个面切换即对照）；对话界面里没有会话列表，也没有「新建会话」。
@@ -87,7 +87,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
   - 落库前 `normalizeNetCapture` 白名单化（载荷经页面可伪造的 postMessage + 两次结构化克隆，形状不可信）后落 `duoling-runtime` 的 `tab_events` store（与活动记录同表，见「存储」④）。采样剥鉴权头、**URL 的 query/fragment 凭据脱敏**（`stripUrlSecrets`：键名命中敏感词或值超长即换 `***`，键名保留）、请求/响应体各封顶 ≤2KB。
   - **记录不随录制停止而清，也没有「会话」这一层**：每条采样落库后一直留着，归属就是那一页的存续行（`tabSessionId`，由 SW 按 `sender.tab.id` 现查后补上，载荷不带）。起止由这一页时间线上的「开始记录 / 结束记录」标出。**记录上没有 host 字段**：同一页导航到哪都记在同一行下，要展示站点名时读侧从 `url` 现推。tab 关闭（`tabs.onRemoved` → `settleRecordingOfClosedTab`）与 SW 冷启动对账（`reconcileTabSessions` → `endDeadTabSessions`）两处结束存续行并按对账后的行重算注册，不留悬挂的「正在录」。
   - **录制的 AI 路径**（用户同意是硬门槛）：`tab_record_enable` 工具**只出同意卡、不开录制**——开启只能由用户发起：浮层同意卡上的按钮，或 popup「当前页面」里那枚「活动记录」开关（`userscriptClient.tabActivityEnable` → SW 查 `chrome.tabs.get` 补齐 url → 写 `tab_sessions` 那行 + 重注册）。卡片走 `data-tab-record` data part（同生成卡片的机制，随消息落盘，重开面板仍在），**卡面不写站点名**（录制认的是标签页，标一个会过期的站点名反而误导）；开关一开**活动记录立即生效、录制要刷新页面才生效**——录制是前向的，钩子只在文档开头挂，不刷新就录不到已跑完的首屏请求，故开启后引导用户点**浏览器的刷新按钮**。读回走 `tab_record_read`：不再按站点传参，目标恒是**这条会话所属标签页**（`resolveAiTargetTab` 反查，与页面快照 / 环境读数同一个判据）—— AI 决定要读时用户可能已经切走，按「当前激活页」读会把别人那页喂给模型。`net-digest.ts` 压两档（摘要档常驻 prompt、全量档给工具），`enabled` 只表示「这一页此刻还在录」，**不拦读**；`system-prompt.ts` 有对应档位。
-- **内置件的可见性（只读透出，不进脚本网格）**：扩展自己注进页面的五件 —— 三个 userScripts 注册件（`dl-script-relay` / `dl-tab-recorder` / `dl-tab-forwarder`）加两个注册面之外的静态件（声明式内容脚本「浮层宿主」与按需注入的「元素拾取器」，见 `STATIC_BUILTINS`）—— 都不是用户脚本项目：没有源码 / 启停 / 删除，故**不进**脚本列表的网格与「N 个在运行」计数（混进去会让计数对不上列表行数）。两处只读透出：①工作台「脚本列表」底部的「扩展内置件」分区（名字 / 注入世界 / 匹配面 / 状态标：注册件「已注册·未注册」、声明式「常驻」、按需「按需」，经 `userscript:builtins` 一次取回）；②popup「当前页面 · 脚本」卡里弱化的一行组，只列**这一页真正在用**的件 —— 中继件按匹配面判，录制件是全匹配注册、只在该页正在记录时才算在用，声明式件恒在（概览只收普通网页），按需件不列（用完即走，没有「此刻在用」的状态；判据都在 `builtinsOnPage`，否则没开记录的页上也会挂出「页面录制」）。引擎不可用时三个注册件都按未注册展示（声明式件不受影响），原因由可用性横幅统一说。
+- **内置件的可见性（只读透出，不进脚本网格）**：扩展自己注进页面的五件 userScripts 注册件 —— `dl-script-relay`（脚本桥）/ `dl-page-inspector`（页面检查器）/ `dl-float-host`（浮层宿主）/ `dl-tab-recorder`（页面录制）/ `dl-tab-forwarder`（录制转发）—— 都不是用户脚本项目：没有源码 / 启停 / 删除，故**不进**脚本列表的网格与「N 个在运行」计数（混进去会让计数对不上列表行数）。注册面因此收敛成一处（`engine.ts` 同步、`listBuiltinRegistrations` 对账），**已没有「注册面之外」的件**（五件同走注册通道；代价是浮层宿主的可用性也与「允许运行用户脚本」开关绑定 —— 声明式内容脚本不受该开关影响）。两处只读透出：①工作台「脚本列表」底部的「扩展内置件」分区（名字 / 注入世界 / 匹配面 / 状态标「已注册·未注册」，经 `userscript:builtins` 一次取回）；②popup「当前页面 · 脚本」卡里弱化的一行组，只列**这一页真正在用**的件 —— 中继件 / 页面检查器 / 浮层宿主按匹配面判（后两者全站匹配，普通网页上恒在），录制两件是全匹配注册、只在该页正在记录时才算在用（判据都在 `builtinsOnPage`，否则没开记录的页上也会挂出「页面录制」）。引擎不可用时五件都按未注册展示，原因由可用性横幅统一说。
 - **MAIN 世界多包装者共存**：`dl-tab-recorder` 会替换 `window.fetch`，用户脚本自己也可能包一层（同帧多脚本共享一个 window）。故各方的记录与还原一律取**当时链下的实际值**（钩住时取当前 `window.fetch` 作 `prev`、摘钩时还原被摘元素的 `prev`），**不得用注入期快照**——否则后安装的那个包装者会被摘钩还原掉，在该页余下生命周期里永久失效。
 
 - **运行登记表 = 「这个标签页在跑哪些脚本」的真相源**（`page-monitor.ts`）：GM 包装注入即广播 runstart（`document_start` 的极早广播还配一次 load 补播），SW 按 tab 记成 `tabId → (uuid → 运行项)`；**换文档**（`tabs.onUpdated` status=loading）清零、**标签页关闭**清除（SPA 软导航不换文档，故不清）。三处共用这**一份**数：浮层灵动岛（`PageScriptsMonitor`，经 `duoling:panel` 端口）、**工具栏角标**（按登记表重算数字）、popup 的页面概览（`page:overview` 命令一次取全，见「载体与运行时」的 popup 一行）。
@@ -98,9 +98,9 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 ## 页面上下文
 
-- **点选元素**：`chrome.userScripts.execute()` 按需注入内置拾取器，产物暂存后随下一条消息发出。目标 = **当前窗口的活动标签页**（拾取由用户在看得见的面板上点按钮发起，那一刻它就在激活页上）。
-- **页面快照 / 页面环境读数**：AI 侧 `page_snapshot`（渲染后 DOM）与 `page_env_read`（视口尺寸 / 设备像素比 / 页面里读到的 UA）两个工具经 SW 采集，各是拾取器的一个模式（`duoling-picker.js` 的 `snapshot` / `env`）—— **加模式必须同时 bump 该文件的 `PICKER_VERSION`**：同版本守卫会把旧版函数留在世界全局里，新模式会被旧版吞掉。目标 = **这条会话所属的标签页**（不是「当前激活页」：这类读取是 AI 在生成中途自己决定发起的，那时用户可能已经切到别处），统一走 `background.ts` 的 `resolveAiTargetTab`（`findTabsUsingConversation` 反查，自带 tab 存活校验；会话没绑标签页时才退回最后聚焦窗口的激活页）。另有一个不经页面的 `env_read`（本机 OS / 芯片架构 / 浏览器与扩展版本等）—— 那是 offscreen 就地读 `navigator` 与构建注入值，不涉注入通道，见 `lib/env-snapshot.ts`。
-- **注入前先按 scheme 拦**：`<all_urls>` **不覆盖 `chrome-extension://`**（连本扩展自己的页面也一样），未授权的 `file://` 也报同一句 —— 往上注入必失败，加 host 权限解决不了。判据在 `element-picker-client.ts` 的 `pageInjectionBlockReason`（拾取与两条 SW 侧读取共用，拦在 `resolveAiTargetTab` 里），平台英文报错经 `friendlyInjectError` 归一成用户的下一步动作。
+- **点选元素**：走**常驻件** —— 页面检查器随页面加载注入待命（`dl-page-inspector`，`us-builtin-inspector` 世界，全站匹配；平时零 UI、不动作），用户点按钮时 SW 取**当前聚焦窗口的活动标签页**（那一刻浮层必然在用户看着的那一页上，判据见 `background.ts` 的 `resolvePickTargetTab`）下发指令，件执行后经消息上报载荷、SW 按 `reqId` 配对（`page-inspector-bridge.ts`）。产物暂存后随下一条消息发出。
+- **页面快照 / 页面环境读数**：AI 侧 `page_snapshot`（渲染后 DOM）与 `page_env_read`（视口尺寸 / 设备像素比 / 页面里读到的 UA）两个工具经 SW 采集，各是页面检查器的一个模式（`duoling-page-inspector.js` 的 `snapshot` / `env`），与拾取走同一条指令线（下发 → 件执行 → 结果上行）。目标 = **这条会话所属的标签页**（不是「当前激活页」：这类读取是 AI 在生成中途自己决定发起的，那时用户可能已经切到别处），统一走 `background.ts` 的 `resolveAiTargetTab`（`findTabsUsingConversation` 反查，自带 tab 存活校验；会话没绑标签页时才退回最后聚焦窗口的激活页）。另有一个不经页面的 `env_read`（本机 OS / 芯片架构 / 浏览器与扩展版本等）—— 那是 offscreen 就地读 `navigator` 与构建注入值，不涉注入通道，见 `lib/env-snapshot.ts`。
+- **注入前先按 scheme 拦**：`<all_urls>` **不覆盖 `chrome-extension://`**（连本扩展自己的页面也一样），未授权的 `file://` 也报同一句 —— 往上注入必失败，加 host 权限解决不了。判据在 `element-picker-client.ts` 的 `pageInjectionBlockReason`（三条注入支路共用：拾取拦在 `background.ts` 的 `resolvePickTargetTab`；两条 SW 侧读取拦在 `resolveAiTargetTab`）。
 
 ## 存储（IndexedDB 分库：源码 / 注册态 / 脚本数据 / 观测数据 / 应用配置 / 会话，2026-09-19 重构）
 
@@ -153,7 +153,7 @@ IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 
 - 广播埋在写出口：offscreen `handleStateCommand`（`script` 域）、`conversation-store` 写函数（`conversation`）、`userscripts/store.ts`（`error`）、`userscripts/usdata-db` 写出口经 store.ts（gm 变更事件）与 `model-store.ts` 写出口（`model`）。
 - **`tabActivity`（标签页活动记录）是唯一按形态分流的域**：存续行的增减（建行 / 关页 / 开关记录 / 划断对账）与删除清空都由 `userscripts/tab-sessions.ts`、`store.ts` 发**不带 uuid**（=结构性变化），入站采样在最热的那条路上由 `dl-bridge.ingestTabRecord` 发**带 uuid**（=那一页的轴长了新行）。读侧据此分开：不带 uuid 两个视图一起整根重读，带 uuid 只对正在看的那一页按行号游标增量续拉（`tabTimeline` 的 `sinceId` / `maxId`）—— 采样每秒可达几十条且轴无上限，整根重读的代价会随轴长线性上涨，增量只与新增条数有关。
 - **新增写路径必须同步埋广播**；前端新面板按域接 `useDataSync`，不再靠手动刷新兜底。编辑器有未保存改动时不自动重载，只提示「已在别处修改，这次保存会覆盖那一次改动」；编辑器自己保存触发的广播会被忽略——否则刚保存就被当成「别处修改」挂上提示。
-- **只适用于 IDB**。落在 `chrome.storage.local` 的设置在**模块内封一层订阅**即可 —— 原生 `chrome.storage.onChanged` 已跨上下文通知（扩展页 / popup / 内容脚本都收得到），不必自建通道；键名与 area 过滤一并封在该模块内，调用方不写字面量。
+- **只适用于 IDB**。落在 `chrome.storage.local` 的设置在**模块内封一层订阅**即可 —— 原生 `chrome.storage.onChanged` 已跨上下文通知（扩展页 / popup 都收得到），不必自建通道；键名与 area 过滤一并封在该模块内，调用方不写字面量。
 
 ## 构建信息注入（单一通道：`vite.define`）
 
