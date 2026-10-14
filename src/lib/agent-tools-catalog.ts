@@ -22,8 +22,8 @@ export type AgentToolName =
   | 'page_snapshot'
   | 'env_read'
   | 'page_env_read'
-  | 'net_capture_enable'
-  | 'net_capture_read'
+  | 'tab_record_enable'
+  | 'tab_record_read'
   | 'error_read'
   | 'run_log_read'
 
@@ -88,16 +88,16 @@ export const TOOL_DESCRIPTIONS: Record<AgentToolName, string> = {
     '用户开了设备模拟、或页面上的脚本改写了 navigator.userAgent 时两者会不一致，' +
     '而脚本跑在页面里、看到的是这一份。写响应式或依赖视口尺寸的脚本时读它。' +
     '需要「允许运行用户脚本」开关已开启；内置页与扩展页读不到，返回 ok:false 带原因。',
-  net_capture_enable:
-    '为该站点开启接口录制（页面发出的 fetch / XHR）。录制按标签页进行，' +
-    '卡片上的确认按钮为**用户当前所在的那个标签页**开启——调用后会在对话里出一张开启卡片，' +
-    '**必须由用户点确认**——你不能替用户决定，卡片出现后就把话交给用户，不要重复调用。' +
-    '用户点开启后，还要请其点浏览器的刷新按钮重载页面：钩子只在文档开头挂，' +
-    '不刷新就录不到已经跑完的首屏请求。用户刷新完再调 net_capture_read 读回。',
-  net_capture_read:
-    '读回该站点已录制的接口语料（地址 / 方法 / 请求体 / 响应结构采样；鉴权头在采集时已剥离，' +
-    '所以鉴权信息是缺的，别据此推断登录态）。读的是**这个站点的全部历史录制**（含已经停掉的会话），' +
-    '不需要先 net_capture_enable；只有从未录过（返回 ok:false 并说明缺哪一步）才需要先开录制、' +
+  tab_record_enable:
+    '为当前标签页开启页面录制（页面发出的 fetch / XHR）。录制按标签页进行，没有站点参数——' +
+    '开启的是**这个会话所属的那个标签页**，它此后导航到哪里都继续录。' +
+    '调用后会在对话里出一张开启卡片，**必须由用户点确认**——你不能替用户决定，' +
+    '卡片出现后就把话交给用户，不要重复调用。用户点开启后，还要请其点浏览器的刷新按钮重载页面：' +
+    '钩子只在文档开头挂，不刷新就录不到已经跑完的首屏请求。用户刷新完再调 tab_record_read 读回。',
+  tab_record_read:
+    '读回当前标签页已录制的请求语料（地址 / 方法 / 请求体 / 响应结构采样；鉴权头在采集时已剥离，' +
+    '所以鉴权信息是缺的，别据此推断登录态）。读的是**这个标签页的全部历史录制**（含录制停掉之后留下的），' +
+    '不需要先 tab_record_enable；只有从未录过（返回 ok:false 并说明缺哪一步）才需要先开录制、' +
     '并由用户在那个标签页里刷新页面。',
   error_read:
     '按错误 ID 查询一条脚本错误记录。用户可能直接粘贴一个错误 ID（脚本运行出错后，' +
@@ -133,12 +133,6 @@ export const TOOL_PARAM_DESCRIPTIONS = {
   },
   element_read: {
     part: '只取一部分省 token；默认 all',
-  },
-  net_capture_enable: {
-    host: '目标站点主机名（如 example.com）。从 system prompt 的当前页面 URL 取；只填主机名，不带协议与路径',
-  },
-  net_capture_read: {
-    host: '目标站点主机名（与 net_capture_enable 同一个）',
   },
   error_read: {
     id: '错误 ID：完整 id，或至少 8 位的前缀（多命中会报不唯一）',
@@ -344,27 +338,23 @@ export const AGENT_TOOL_VIEWS: AgentToolView[] = [
       '未接采集通道 / 未开启「允许运行用户脚本」/ 内置页与扩展页 → { ok:false, error }',
   },
   {
-    name: 'net_capture_enable',
-    title: '开启接口录制',
-    summary: '出同意卡（用户点确认），为该标签页开该站点的接口录制',
-    description: TOOL_DESCRIPTIONS.net_capture_enable,
-    params: [
-      { name: 'host', type: 'string', required: true, desc: T.net_capture_enable.host },
-    ],
+    name: 'tab_record_enable',
+    title: '开启页面录制',
+    summary: '出同意卡（用户点确认），为当前标签页开启页面录制',
+    description: TOOL_DESCRIPTIONS.tab_record_enable,
+    params: [],
     returns:
-      '未开时 { ok:true, awaitingUser:true, host }（等用户点卡片）；已开时 { ok:true, enabled:true, host }',
-    unavailable: '当前环境未接入录制通道 → { ok:false, error }',
+      '未开时 { ok:true, awaitingUser:true }（等用户点卡片）；已开时 { ok:true, enabled:true }',
+    unavailable: '当前环境未接入录制通道 / 定位不到本会话所属标签页 → { ok:false, error }',
   },
   {
-    name: 'net_capture_read',
-    title: '读接口录制',
-    summary: '读回该站点已录的接口语料（请求 / 响应结构采样）',
-    description: TOOL_DESCRIPTIONS.net_capture_read,
-    params: [
-      { name: 'host', type: 'string', required: true, desc: T.net_capture_read.host },
-    ],
-    returns: '{ ok:true, host, recording, count, captures }（captures 为逐条文本）',
-    unavailable: '该站点没有任何录制记录、或正在录但用户还没刷新过页面 → { ok:false, error }',
+    name: 'tab_record_read',
+    title: '读页面录制',
+    summary: '读回当前标签页已录的请求语料（请求 / 响应结构采样）',
+    description: TOOL_DESCRIPTIONS.tab_record_read,
+    params: [],
+    returns: '{ ok:true, recording, count, captures }（captures 为逐条文本）',
+    unavailable: '这个标签页没有任何录制记录、或正在录但用户还没刷新过页面 → { ok:false, error }',
   },
   {
     name: 'error_read',

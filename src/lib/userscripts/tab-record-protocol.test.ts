@@ -1,63 +1,13 @@
-// net-record-protocol.ts 单测：入站载荷归一化（SW 的信任边界）、鉴权头剥离、
-// URL 凭据脱敏、host 归一化与 match pattern（跨上下文共用的纯函数）。
+// tab-record-protocol.ts 单测：入站载荷归一化（SW 的信任边界）、鉴权头剥离、URL 凭据脱敏。
 import { describe, expect, it } from 'vitest'
 import {
   NET_BODY_LIMIT,
   NET_MASK,
   NET_QUERY_VALUE_MAX,
-  hostFromUrl,
-  hostToMatchPattern,
-  normalizeCapture,
-  normalizeHost,
+  normalizeNetCapture,
   stripAuthHeaders,
   stripUrlSecrets,
-} from './net-record-protocol'
-
-describe('normalizeHost', () => {
-  it('小写、去空白、去首尾点', () => {
-    expect(normalizeHost('  Example.COM  ')).toBe('example.com')
-    expect(normalizeHost('.a.test.')).toBe('a.test')
-  })
-
-  it('容忍完整 URL 与端口', () => {
-    expect(normalizeHost('https://api.example.com/v1/users?x=1')).toBe('api.example.com')
-    expect(normalizeHost('example.com:8443')).toBe('example.com')
-  })
-
-  it('非法输入返回空串', () => {
-    expect(normalizeHost('')).toBe('')
-    expect(normalizeHost('   ')).toBe('')
-    expect(normalizeHost('has space.com')).toBe('')
-    expect(normalizeHost('a/b')).toBe('')
-  })
-
-  it('保留内网主机名里的下划线', () => {
-    expect(normalizeHost('my_host.internal')).toBe('my_host.internal')
-  })
-})
-
-describe('hostToMatchPattern', () => {
-  it('生成覆盖 http/https 的 pattern', () => {
-    expect(hostToMatchPattern('example.com')).toBe('*://example.com/*')
-  })
-})
-
-describe('hostFromUrl', () => {
-  it('从页面 URL 取归一化 host', () => {
-    expect(hostFromUrl('https://www.example.com/a/b?c=1')).toBe('www.example.com')
-  })
-
-  it('缺位 / 非法 URL 返回空串（不抛）', () => {
-    expect(hostFromUrl(undefined)).toBe('')
-    expect(hostFromUrl('')).toBe('')
-    expect(hostFromUrl('not a url')).toBe('')
-  })
-
-  it('非 http(s) 协议返回空串（录制件本来也注入不了）', () => {
-    expect(hostFromUrl('chrome://extensions')).toBe('')
-    expect(hostFromUrl('file:///tmp/a.html')).toBe('')
-  })
-})
+} from './tab-record-protocol'
 
 describe('stripAuthHeaders', () => {
   it('剥掉鉴权头（大小写不敏感），保留其余', () => {
@@ -133,21 +83,20 @@ describe('stripUrlSecrets', () => {
   })
 })
 
-describe('normalizeCapture', () => {
-  /** 会话 id 由 SW 给定（载荷里没有），用例统一填同一个值 */
+describe('normalizeNetCapture', () => {
+  /** 归属的存续行 id 由 SW 给定（载荷里没有），用例统一填同一个值 */
   const SID = 'sess-1'
 
   it('非法载荷一律返回 null（不落库）', () => {
-    expect(normalizeCapture('', { type: 'fetch', url: 'u' }, SID)).toBeNull()
-    expect(normalizeCapture('example.com', null, SID)).toBeNull()
-    expect(normalizeCapture('example.com', 'nope', SID)).toBeNull()
-    expect(normalizeCapture('example.com', { type: 'ws', url: 'u' }, SID)).toBeNull()
-    expect(normalizeCapture('example.com', { type: 'fetch' }, SID)).toBeNull() // 缺 url
+    expect(normalizeNetCapture('', SID)).toBeNull()
+    expect(normalizeNetCapture(null, SID)).toBeNull()
+    expect(normalizeNetCapture('nope', SID)).toBeNull()
+    expect(normalizeNetCapture({ type: 'ws', url: 'u' }, SID)).toBeNull()
+    expect(normalizeNetCapture({ type: 'fetch' }, SID)).toBeNull() // 缺 url
   })
 
-  it('收窄字段：host 小写、method 大写、status/t 取整、非字符串头丢弃、鉴权头再剥一次', () => {
-    const r = normalizeCapture(
-      'Example.COM',
+  it('收窄字段：method 大写、status/t 取整、非字符串头丢弃、鉴权头再剥一次', () => {
+    const r = normalizeNetCapture(
       {
         type: 'fetch',
         url: 'https://api.test/users',
@@ -162,8 +111,7 @@ describe('normalizeCapture', () => {
       SID,
     )
     expect(r).toMatchObject({
-      host: 'example.com',
-      sessionId: SID,
+      tabSessionId: SID,
       type: 'fetch',
       url: 'https://api.test/users',
       method: 'POST',
@@ -171,6 +119,7 @@ describe('normalizeCapture', () => {
       t: 1234,
       respBody: '[binary]',
     })
+    expect(r).not.toHaveProperty('host') // 录制按标签页，记录上没有站点字段
     expect(r!.reqHeaders).toEqual({ accept: 'application/json' }) // 鉴权头被剥、非字符串值被丢
     expect(r!.reqBody!.length).toBe(NET_BODY_LIMIT) // 请求体采样封顶
     expect(r!.respHeaders).toEqual({ 'content-type': 'application/json' }) // set-cookie 被剥
@@ -178,14 +127,19 @@ describe('normalizeCapture', () => {
 
   it('缺省字段兜底：method 默认 GET、status 默认 0、t 默认当前时刻、无体为 null', () => {
     const before = Date.now()
-    const r = normalizeCapture('h.com', { type: 'xhr', url: 'u' }, SID)
-    expect(r).toMatchObject({ host: 'h.com', type: 'xhr', method: 'GET', status: 0, reqBody: null, respBody: null })
+    const r = normalizeNetCapture({ type: 'xhr', url: 'u' }, SID)
+    expect(r).toMatchObject({ type: 'xhr', method: 'GET', status: 0, reqBody: null, respBody: null })
     expect(r!.t).toBeGreaterThanOrEqual(before)
   })
 
+  it('归属缺位时不写字段（老记录 / 清全部时才带走的那些）', () => {
+    const r = normalizeNetCapture({ type: 'fetch', url: 'https://a.test/x' })
+    expect(r).not.toBeNull()
+    expect(r).not.toHaveProperty('tabSessionId')
+  })
+
   it('落库前 URL 凭据已脱敏（与剥鉴权头同级的信任边界）', () => {
-    const r = normalizeCapture(
-      'a.test',
+    const r = normalizeNetCapture(
       { type: 'fetch', url: 'https://a.test/api/me?access_token=secret-value&page=1' },
       SID,
     )

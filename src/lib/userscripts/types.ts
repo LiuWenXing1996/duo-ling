@@ -177,7 +177,7 @@ export interface UserScriptErrorRecord {
    * 所属标签页的存续 id（见 TabSessionRecord）—— 活动历史按页分档的归属键。
    *
    * **只在「这一页开着活动记录」时才有**：运行期与桥错误从它所属的那次运行继承；注册失败 /
-   * 依赖与资源抓取失败与任何一页无关，恒缺省。合表后这类无归属行不进 `by_tabSessionId` 索引，
+   * 依赖与资源抓取失败与任何一页无关，恒缺省。合表后这类无归属行不进 `by_session_seq` 索引，
    * 故按页查询天然查不到 —— 它们只落盘，不出现在面板里，不需要额外过滤逻辑。
    */
   tabSessionId?: string
@@ -348,7 +348,7 @@ export const TAB_SESSION_MAX = 2000
 //
 // 一张表装下这一页的全部活动轴行，靠 kind 值区分（各 kind 的行形状见 runtime-db.ts 文件头）：
 //   · 'reload' | 'url' | 'recordOn' | 'recordOff' —— 文档事件与记录开关（见 TabEventRecord）
-//   · NET_TAB_KIND（'net'；常量在 net-record-protocol，与协议同处）—— 接口采样
+//   · NET_TAB_KIND（'net'；常量在 tab-record-protocol，与协议同处）—— 接口采样
 //   · 下面三个 —— 运行条目 / 动作 / 错误
 
 /** 运行条目（形状见 UserScriptRunLogEntry）：一次页面加载一行，动作与错误的归属锚 */

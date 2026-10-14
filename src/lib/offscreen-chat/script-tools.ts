@@ -1,4 +1,4 @@
-// Agent 工具集：脚本读写（script_*）+ 页面上下文（element_read / page_snapshot）+ 环境读取（env_read / page_env_read）+ 网络录制（net_capture_*）+ 诊断查询（error_read / run_log_read）。
+// Agent 工具集：脚本读写（script_*）+ 页面上下文（element_read / page_snapshot）+ 环境读取（env_read / page_env_read）+ 页面录制（tab_record_*）+ 诊断查询（error_read / run_log_read）。
 //
 // 设计要点：
 //   · **script_apply 把「写」和「语法验证」合并成一步**：入参完整源码 → acorn parse
@@ -22,7 +22,6 @@ import {
   TOOL_PARAM_DESCRIPTIONS,
 } from '@/lib/agent-tools-catalog'
 import { getProject, listProjects } from '@/lib/userscripts/project-store'
-import { normalizeHost } from '@/lib/userscripts/net-record-protocol'
 import { readSource } from '@/lib/userscripts/us-git'
 import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
 import { defaultConfig } from '@/lib/userscripts/types'
@@ -74,23 +73,24 @@ const applyConfigSchema = z.object({
 export type ApplyConfigInput = z.infer<typeof applyConfigSchema>
 
 /**
- * 网络录制回调组（由 chat-host 注入）。
+ * 页面录制回调组（由 chat-host 注入）。
  *
  * 为什么是回调而不是直接调 offscreenBridge：本模块的依赖边界是「acorn + project-store +
  * us-git + 纯数据模块」，offscreenBridge 属编排层的能力面。更关键的是
  * **requestConsent 要往对话流里推 data part**——那是 chat-host 的职责（它持有
  * conversationId 与事件缓冲），工具只负责「要一张卡」。
+ *
+ * 三条回调都**不接收任何参数**：录制按标签页进行，目标页恒是「本会话所属的那一页」——
+ * 由 chat-host 在注入时用 conversationId 钉死（与页面快照 / 环境读数同一个判据），
+ * 不让模型有机会指到别的页面上。
  */
-export interface NetCaptureHooks {
-  /** 有录制会话在进行（按标签页）的 host 集合（判「已开则不再出卡」） */
-  hosts: () => Promise<string[]>
+export interface TabRecordHooks {
+  /** 本会话所属标签页此刻是否在录（判「已开则不再出卡」） */
+  isRecording: () => Promise<boolean>
   /** 读回语料：digest = 接口清单 / full = 逐条采样 */
-  read: (
-    host: string,
-    mode: 'digest' | 'full',
-  ) => Promise<{ enabled: boolean; count: number; text: string }>
+  read: (mode: 'digest' | 'full') => Promise<{ enabled: boolean; count: number; text: string }>
   /** 出同意卡（推 data part，等用户点） */
-  requestConsent: (host: string) => Promise<void>
+  requestConsent: () => Promise<void>
 }
 
 /**
@@ -117,7 +117,7 @@ function checkSyntax(code: string): string | null {
  * elementContext：本请求携带的拾取元素快照（用户显式点选；undefined = 本次没有）。
  * captureSnapshot：页面快照采集（经 SW 调 userScripts.execute，AI 判断需要时调用；未提供 = 工具返回不可用）。
  * capturePageEnv：页面侧环境读数（同一通道取视口 / 像素比 / 页面 UA；未提供 = 工具返回不可用）。
- * netCapture：接口录制（requestConsent 出同意卡 / read 读回语料；未提供 = 工具返回不可用）。
+ * tabRecord：页面录制（requestConsent 出同意卡 / read 读回语料；未提供 = 工具返回不可用）。
  * readRunLog：运行日志读取（SW 侧 duoling-runtime 库，offscreen 拿不到；未提供 = 工具返回不可用）。
  * readRunEvents：某次运行的动作明细（同一通道，按 runId 拉；未提供 = 工具返回不可用）。
  */
@@ -129,7 +129,7 @@ export function buildScriptTools(
   captureSnapshot?: () => Promise<PageSnapshotContext>,
   capturePageEnv?: () => Promise<PageEnvContext>,
   readError?: (id: string) => Promise<UserScriptErrorLookup>,
-  netCapture?: NetCaptureHooks,
+  tabRecord?: TabRecordHooks,
   readRunLog?: () => Promise<UserScriptRunLogRow[]>,
   readRunEvents?: (runId: string) => Promise<UserScriptRunEvent[]>,
 ) {
@@ -342,18 +342,14 @@ export function buildScriptTools(
         }
       },
     }),
-    net_capture_enable: tool({
-      description: TOOL_DESCRIPTIONS.net_capture_enable,
-      inputSchema: z.object({
-        host: z.string().describe(TOOL_PARAM_DESCRIPTIONS.net_capture_enable.host),
-      }),
-      execute: async ({ host }) => {
-        if (!netCapture) return { ok: false, error: '录制通道不可用' }
-        const h = normalizeHost(host)
-        if (!h) return { ok: false, error: `无效的站点：${host}（只填主机名，如 example.com）` }
+    tab_record_enable: tool({
+      description: TOOL_DESCRIPTIONS.tab_record_enable,
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!tabRecord) return { ok: false, error: '录制通道不可用' }
         let enabled = false
         try {
-          enabled = (await netCapture.hosts()).includes(h)
+          enabled = await tabRecord.isRecording()
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) }
         }
@@ -361,17 +357,15 @@ export function buildScriptTools(
           return {
             ok: true,
             enabled: true,
-            host: h,
             hint:
-              '该站点的录制已开启。若用户在开启之后还没刷新过页面，请先让其点浏览器的刷新按钮，' +
-              '再调 net_capture_read 读回。',
+              '这一页的录制已开启。若用户在开启之后还没刷新过页面，请先让其点浏览器的刷新按钮，' +
+              '再调 tab_record_read 读回。',
           }
         }
-        await netCapture.requestConsent(h)
+        await tabRecord.requestConsent()
         return {
           ok: true,
           awaitingUser: true,
-          host: h,
           hint:
             '已向用户展示开启卡片，等其点「开启录制」并按卡片提示刷新页面。' +
             '在用户回话之前不要重复调用本工具。',
@@ -379,34 +373,30 @@ export function buildScriptTools(
       },
     }),
 
-    net_capture_read: tool({
-      description: TOOL_DESCRIPTIONS.net_capture_read,
-      inputSchema: z.object({
-        host: z.string().describe(TOOL_PARAM_DESCRIPTIONS.net_capture_read.host),
-      }),
-      execute: async ({ host }) => {
-        if (!netCapture) return { ok: false, error: '录制通道不可用' }
-        const h = normalizeHost(host)
-        if (!h) return { ok: false, error: `无效的站点：${host}（只填主机名，如 example.com）` }
+    tab_record_read: tool({
+      description: TOOL_DESCRIPTIONS.tab_record_read,
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!tabRecord) return { ok: false, error: '录制通道不可用' }
         let r: { enabled: boolean; count: number; text: string }
         try {
-          r = await netCapture.read(h, 'full')
+          r = await tabRecord.read('full')
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) }
         }
-        // r.enabled 只表示「此刻有会话在录该站点」。记录不随录制停止而清，故未在录也可能有数据——
+        // r.enabled 只表示「这一页此刻还在录」。记录不随录制停止而清，故未在录也可能有数据——
         // 先看有没有数据，再决定提示用户去录还是去刷新。
         if (!r.count) {
           return {
             ok: false,
             error: r.enabled
-              ? `「${h}」正在录制但还没有数据：录制是前向的，钩子只在文档开头挂。` +
+              ? '这一页正在录制但还没有数据：录制是前向的，钩子只在文档开头挂。' +
                 '请用户点浏览器的刷新按钮重载页面，首屏请求才会被录到；刷新后再调本工具。'
-              : `「${h}」没有接口记录。需要接口数据时先调 net_capture_enable，` +
+              : '这一页没有录制记录。需要请求语料时先调 tab_record_enable，' +
                 '由用户确认开启并刷新页面。',
           }
         }
-        return { ok: true, host: h, recording: r.enabled, count: r.count, captures: r.text }
+        return { ok: true, recording: r.enabled, count: r.count, captures: r.text }
       },
     }),
 

@@ -9,7 +9,7 @@
 //   请求-应答  MAIN → postMessage → 本件 → chrome.runtime.sendMessage → SW → 原路返回
 //   下行推送  SW → Port → 本件 → postMessage → MAIN
 //
-// 与 dl-net-forwarder（单向上报）的区别：本件要**双向**并维持请求配对，所以带
+// 与 dl-tab-forwarder（单向上报）的区别：本件要**双向**并维持请求配对，所以带
 // proof 校验与 seq 单调检查（见 bridge-protocol.ts）。同帧里可能有多个脚本共用本件，
 // 故一切按 uuid 路由。
 

@@ -40,13 +40,13 @@ import {
 } from './dl-port'
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
-// 网络录制：转发件送来的采集载荷在 SW 侧白名单化后落 runtime 的 tab_events（与标签页事件同表）
-import { normalizeCapture, normalizeHost } from './net-record-protocol'
-import { getNetCaptureSessions } from './net-capture-gate'
+// 标签页录制：转发件送来的采集载荷在 SW 侧按**种类**白名单化后落 runtime 的 tab_events（与标签页事件同表）
+import { normalizeNetCapture, NET_TAB_KIND, TAB_RECORD_TAG } from './tab-record-protocol'
 import * as runtime from './runtime-db'
 // 对话界面页面脚本监控（运行时口径）：runstart 登记 + 错误实时推送（跨文档观察者，SW 按 tab 登记）
 import { notePageError, noteRunStart } from './page-monitor'
 import { recordingTabSessionId } from './tab-sessions'
+import { broadcastDataChange } from '../data-broadcast'
 import {
   getGMValue,
   setGMValue,
@@ -634,24 +634,33 @@ async function reconcileOrphanTabKeys(): Promise<void> {
 }
 
 /**
- * 采集入站：把转发件送来的载荷归到「发消息的那个标签页当前正在录的会话」上再落库。
+ * 录制入站：把转发件送来的载荷归到「发消息的那个标签页」再落库。
  *
- * 这里是录制门禁真正生效的地方。注册是按 host 装的（声明式注册没有 tab 维度），
- * 所以同一 host 的**其他标签页**页面里也有录制件；它们的数据到这里被丢掉。
+ * 这里是录制门禁真正生效的地方。注册是**全匹配**的（一页录着，它接下来可能导航到任何
+ * host，钩子就必须处处在位），所以每个站点的每一帧页面里都有录制件；它们的数据到这里
+ * 按 tabId 判归属 —— 那一页没在录，整条丢掉。
  *
  * 判据取 sender.tab.id 而不是载荷里的字段：载荷途径页面可伪造的 postMessage，
- * 让它自己声明归属等于没有门禁。host 也要一起比 —— tabId 会被浏览器复用，
- * 且跨源 iframe 里的请求带着 iframe 自己的 host（它不该记进这个站点）。
+ * 让它自己声明归属等于没有门禁。
+ *
+ * 种类分流也在这一层：载荷的 kind 说它是哪一类信号；未知种类静默丢弃（版本错配 ——
+ * 比如页面里还挂着上一版注入的旧件）。
  */
-async function ingestNetCapture(hostRaw: unknown, capture: unknown, tabId: number | undefined): Promise<void> {
+async function ingestTabRecord(kindRaw: unknown, record: unknown, tabId: number | undefined): Promise<void> {
   try {
     if (tabId == null) return
-    const host = normalizeHost(String(hostRaw ?? ''))
-    if (!host) return
-    const session = (await getNetCaptureSessions()).find((s) => s.tabId === tabId && s.host === host)
-    if (!session) return
-    const record = normalizeCapture(host, capture, session.id, session.tabSessionId)
-    if (record) await runtime.appendTabCapture(record)
+    // 只认已知种类。将来种类多了，这里是分发点：未知一律丢弃，不猜。
+    if (kindRaw !== NET_TAB_KIND) return
+    // 归属：那一页此刻在录才收。取号与「要不要注册录制件」用的是同一条判据。
+    const tabSessionId = await recordingTabSessionId(tabId)
+    if (!tabSessionId) return
+    const rec = normalizeNetCapture(record, tabSessionId)
+    if (rec) {
+      await runtime.appendTabCapture(rec)
+      // 这是最热的一条路（录制中每秒可达几十条），**这里不攒批**：广播侧已按「域 + 页」合并
+      // 到一个 100ms 窗口，再攒一次只会让面板慢一拍。带页号 = 正在看这一页的面板增量续拉。
+      broadcastDataChange('tabActivity', tabSessionId)
+    }
   } catch {
     // 录制不该影响页面网络层：任何一步失败都静默丢弃这条
   }
@@ -1028,12 +1037,12 @@ export function initDlBridge(): void {
   // 响应机制：onUserScriptMessage 不支持「返回 Promise 作为响应」，必须调 sendResponse
   // 并返回 true 保持通道打开（沿用旧 GM 桥已验证的写法）。
   chrome.runtime.onUserScriptMessage.addListener((raw, sender, sendResponse) => {
-    // 网络录制入站：USER_SCRIPT 转发件（us-dl-net）把 MAIN 捕获件的采集送来落库。
-    // 载荷形状不可信（经页面可伪造的 postMessage + 两次结构化克隆），故先过 normalizeCapture
-    // 白名单化；无响应，仅落库，失败静默（录制不该影响页面网络层）。
-    const net = raw as { __dlNetCapture?: true; host?: string; capture?: unknown }
-    if (net && net.__dlNetCapture === true) {
-      void ingestNetCapture(net.host, net.capture, sender.tab?.id)
+    // 标签页录制入站：USER_SCRIPT 转发件（us-dl-tab）把 MAIN 件的采集送来落库。
+    // 载荷形状不可信（经页面可伪造的 postMessage + 两次结构化克隆），故先按种类白名单化；
+    // 无响应，仅落库，失败静默（录制不该影响页面网络层）。
+    const rec = raw as Record<string, unknown>
+    if (rec[TAB_RECORD_TAG] === true) {
+      void ingestTabRecord(rec.kind, rec.record, sender.tab?.id)
       return undefined
     }
 

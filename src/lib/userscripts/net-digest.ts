@@ -2,15 +2,15 @@
 //
 // 两档分工（与元素拾取同款分层，见 offscreen-chat/system-prompt.ts）：
 //   · describeCaptureDigest  —— 常驻 system prompt 的摘要档：接口清单 + 响应结构（≤2KB）；
-//   · describeCaptureRecords —— net_capture_read 的全量档：逐条含采样体。
+//   · describeCaptureRecords —— tab_record_read 的全量档：逐条含采样体。
 //
 // 纯函数、零依赖：SW（background 组装应答）与单测直接调用；不放 SW 专属模块，
 // 因为 offscreen 侧的工具也要判同一份格式（避免两处各写一套压缩口径）。
 //
-// 前提：记录里的 respBody 已由 MAIN 捕获件压成**结构摘要**（net-recorder 的 shapeOf：
+// 前提：记录里的 respBody 已由 MAIN 捕获件压成**结构摘要**（net-probe 的 shapeOf：
 // 类型与键形状，不是原始 JSON 文本），故这里不再解析 JSON——截断展示即可。
 
-import type { NetCaptureRecord } from './net-record-protocol'
+import type { NetCaptureRecord } from './tab-record-protocol'
 
 /** 摘要档字符上限（常驻 system prompt，与元素摘要同量级） */
 export const CAPTURE_DIGEST_MAX_CHARS = 2048
@@ -100,7 +100,7 @@ export function describeCaptureDigest(records: NetCaptureRecord[]): string[] {
     listed += 1
   }
   if (listed < routes.length) {
-    lines.push(`- （另有 ${routes.length - listed} 个接口未列出；完整采样用 net_capture_read）`)
+    lines.push(`- （另有 ${routes.length - listed} 个接口未列出；完整采样用 tab_record_read）`)
   }
   return lines
 }
@@ -112,7 +112,7 @@ function headerLine(h: Record<string, string>): string {
 }
 
 /**
- * 全量档（net_capture_read 的返回文本）：逐条列采样体。
+ * 全量档（tab_record_read 的返回文本）：逐条列采样体。
  * 取最近 CAPTURE_FULL_MAX_RECORDS 条——最近的最相关，且总量可控。
  */
 export function describeCaptureRecords(records: NetCaptureRecord[]): string {

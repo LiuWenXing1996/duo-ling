@@ -19,7 +19,6 @@ import type {
 } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
 import type { ScriptConfig, UserScriptRunEvent, UserScriptRunLogRow } from '@/lib/userscripts/types'
-import type { NetRecordSession } from '@/lib/userscripts/net-record-protocol'
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 
 /** 向 SW 发一次请求，统一解包 { ok, data | error } */
@@ -109,21 +108,16 @@ export const offscreenBridge = {
     send({ kind: 'userscript:runEvents', runId }),
 
   /**
-   * 网络录制 · 读回某站点已录的接口语料（net_capture_read 工具 + 常驻 prompt 摘要档）。
-   * 门禁（duoling-app）与采样（duoling-runtime）都归 SW，offscreen 不直连。
+   * 页面录制 · 读回本会话所属标签页已录的请求语料
+   * （tab_record_read 工具 + 常驻 prompt 摘要档）。
+   * 采样在 duoling-runtime 库（SW 独占写），offscreen 不直连，经 SW 代读。
+   * conversationId 由 chat-host 注入 —— SW 靠它反查目标标签页（与页面快照 / 环境读数同一个判据），
+   * 免得 AI 在用户已切走时读到别的页面。
    * mode：digest = 接口清单（常驻用）；full = 逐条采样（工具读回用）。
    */
-  readNetCapture: (
-    host: string,
+  tabRecordRead: (
+    conversationId: string | undefined,
     mode: 'digest' | 'full',
-  ): Promise<{ enabled: boolean; host: string; count: number; text: string }> =>
-    send({ kind: 'userscript:netCaptureRead', host, mode }),
-
-  /**
-   * 网络录制 · 进行中的录制会话（按标签页）。
-   * net_capture_enable 工具据此判「该站点已在录，不必再出卡」——出卡是请用户确认，
-   * 已开还出卡会让用户以为要重复点一次。
-   */
-  netCaptureSessions: (): Promise<{ sessions: NetRecordSession[] }> =>
-    send({ kind: 'userscript:netCaptureState' }),
+  ): Promise<{ enabled: boolean; count: number; text: string }> =>
+    send({ kind: 'userscript:tabRecordRead', conversationId, mode }),
 }

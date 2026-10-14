@@ -1,9 +1,9 @@
-// net-record-digest.ts 单测：接口去重与两档语料压缩。
+// net-digest.ts 单测：接口去重与两档语料压缩。
 //
 // 纯函数直测（零依赖、无 IDB）：摘要档要控在 2KB 内且**不静默截断**（得交代还剩多少），
 // 全量档要能逐条取到采样体——两条都是喂给模型的文本，压缩错了模型就跟着错。
 import { describe, expect, it } from 'vitest'
-import type { NetCaptureRecord } from './net-record-protocol'
+import type { NetCaptureRecord } from './tab-record-protocol'
 import {
   CAPTURE_DIGEST_MAX_CHARS,
   CAPTURE_FULL_MAX_RECORDS,
@@ -11,12 +11,11 @@ import {
   describeCaptureDigest,
   describeCaptureRecords,
   routeOf,
-} from './net-record-digest'
+} from './net-digest'
 
 function rec(partial: Partial<NetCaptureRecord> = {}): NetCaptureRecord {
   return {
-    host: 'example.com',
-    sessionId: 'sess-1',
+    tabSessionId: 'sess-1',
     type: 'fetch',
     url: 'https://example.com/api/list',
     method: 'GET',

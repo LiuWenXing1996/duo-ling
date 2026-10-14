@@ -18,16 +18,17 @@
 // 见 store.appendUserScriptError）。左栏的计数同样按 tabSessionId 归组。
 //
 // 数据通道：userscriptClient（workbench 是可信扩展页，可直接 chrome.runtime.sendMessage）。
-// 读侧两条命令：tabSessions（存续表，左栏取名字与时刻）/ runlog（全量时间线，左栏数「跑过几次」）；
+// 读侧两条命令：tabSessions（存续表，左栏取名字与时刻）/ runlog（全量时间线，供头部概览与卡头计数）；
 // 选中页的整根轴另走 tabTimeline（**按页拉**：采样单条可达数 KB，全量等于把整库搬过消息边界）。
 // 写侧两条：tabActivityDelete（删某一页）/ tabActivityClear（清空全部）。
 //
 // 删除 / 清空**连整根轴一起删**是刻意的：面板展示的是它们的合成，只删存续行会让这一页以
 // 「表里已查不到」的残影留在列表里（它的轴行还在）。连带删干净 —— 同一份数据，删了就没有了。
 //
-// 一处已知的新鲜度缺口：存续表由 SW 在标签页事件里直接写 IDB，**没有广播域**（跑脚本时写运行条目
-// 会广播 runlog / error，顺带把表一起拉新）。所以「开过但一次脚本都没跑过的新标签页」不会自己
-// 冒出来，要等下次回拉（刷新按钮 / 重开本页）—— 不为它单独加广播通道，是这版刻意的取舍。
+// 新鲜度：两条通知线合起来覆盖全部变化。跑脚本 / 报错广播 runlog 与 error（重拉左栏计数）；
+// 存续行与轴上的行广播 tabActivity —— 结构性变化不带页号（左栏与整根轴一起重读），轴上的新增
+// 带页号（只对正在看的那一页、只取游标之后的增量）。「刷新」由此退化成兜底按钮，不再是要不要
+// 手动更新的分界。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import { useVirtualList } from '@/composables/use-virtual-list'
@@ -41,8 +42,8 @@ import {
 import { Button as UiButton } from '@/components/ui/button'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { webHostname } from '@/lib/float-panel-host'
-import { routeOf } from '@/lib/userscripts/net-record-digest'
-import type { NetCaptureRecord, NetRecordSession } from '@/lib/userscripts/net-record-protocol'
+import { routeOf } from '@/lib/userscripts/net-digest'
+import type { NetCaptureRecord } from '@/lib/userscripts/tab-record-protocol'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
   type TabEventRecord,
@@ -92,8 +93,6 @@ const pageActs = ref<Array<{ runId: string; event: UserScriptRunEvent }>>([])
 const pageErrors = ref<UserScriptErrorRecord[]>([])
 /** runId → 这次运行的脚本名与动作总数：动作行挂上脚本名、被截断的动作数由它算 */
 const runMetaById = ref<Map<string, { name: string; eventCount: number }>>(new Map())
-/** 正在录制的会话（SW 为权威）：左栏的「正在录」圆点与就地停止入口据此显示 */
-const recordingSessions = ref<NetRecordSession[]>([])
 const loading = ref(false)
 const error = ref('')
 /** 当前选中的标签页（tabSessionId）；空 = 左栏还没有任何一行 */
@@ -114,6 +113,7 @@ function tabIdOf(row: UserScriptRunLogRow): string | undefined {
  * 左栏列表：存续表全量（含一次脚本都没跑过的页）。
  *
  * 计数取自全量运行时间线，按归属键归组：运行条数 + 它挂着的错误数 + 单独成行的错误数。
+ * 它们只喂头部概览与右栏卡头，**不在行内铺开**（行内只写主机名与状态词）。
  * 无归属的行（注册失败 / 依赖抓取失败）在这里被跳过 —— 它们不出口，左栏也不给它们留格子。
  */
 const tabItems = computed<TabItem[]>(() => {
@@ -237,15 +237,12 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const [sessionList, logRows, captureState] = await Promise.all([
+    const [sessionList, logRows] = await Promise.all([
       userscriptClient.tabSessions(),
-      userscriptClient.runlog(),
-      // 哪些页正在录（判据归 SW）：左栏据此画圆点、给就地停止的地方
-      userscriptClient.netCaptureState()
+      userscriptClient.runlog()
     ])
     sessions.value = sessionList
     rows.value = logRows
-    recordingSessions.value = captureState.sessions
     fallbackSelection()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -254,30 +251,41 @@ async function load(): Promise<void> {
   }
 }
 
+/** 选中页已拉到的位置（存储层给的 maxId）：增量续拉的游标，切页 / 整根重读时归零 */
+const timelineCursor = ref(0)
+
 /**
- * 拉选中页的整根活动轴：文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误六类同住
+ * 拉选中页的活动轴：文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误六类同住
  * tab_events，故一条命令一次拉回。运行条目只取名字与动作总数（动作行要挂脚本名、被截断的
  * 要报数），本体不再单独成行。
  *
  * **只拉这一页**，不做全量预取：采样单条可达数 KB，给每一页都拉一遍纯属浪费。切页时重拉。
+ *
+ * `append` = 只取比游标新的行接着拼：录制中轴一直在长，整根重读的代价随轴长线性上涨，
+ * 增量则只与新增条数有关。游标用存储层返回值里的 `maxId`，不在这里从各行自己求 —— 轴上的行
+ * 读出来是业务投影，不一定都带主键，漏算一类会让游标停住、时间线看着不涨。
  */
-async function loadPageTimeline(tabSessionId: string): Promise<void> {
-  tabEvents.value = []
-  netRecords.value = []
-  pageActs.value = []
-  pageErrors.value = []
-  runMetaById.value = new Map()
+async function loadPageTimeline(tabSessionId: string, append = false): Promise<void> {
+  if (!append) {
+    tabEvents.value = []
+    netRecords.value = []
+    pageActs.value = []
+    pageErrors.value = []
+    runMetaById.value = new Map()
+    timelineCursor.value = 0
+  }
   if (!tabSessionId) return
   try {
-    const { events, captures, runs, acts, errors } =
-      await userscriptClient.tabTimeline(tabSessionId)
-    tabEvents.value = events
-    netRecords.value = captures
-    pageActs.value = acts
-    pageErrors.value = errors
-    runMetaById.value = new Map(
-      runs.map((r) => [r.runId, { name: r.name, eventCount: r.eventCount ?? 0 }])
-    )
+    const res = await userscriptClient.tabTimeline(tabSessionId, timelineCursor.value)
+    // 增量一律拼在尾部、不重排：数组顺序就是落盘序，动作行的行 key 用它在这批里的序号
+    tabEvents.value = append ? [...tabEvents.value, ...res.events] : res.events
+    netRecords.value = append ? [...netRecords.value, ...res.captures] : res.captures
+    pageActs.value = append ? [...pageActs.value, ...res.acts] : res.acts
+    pageErrors.value = append ? [...pageErrors.value, ...res.errors] : res.errors
+    const meta = new Map(runMetaById.value)
+    for (const r of res.runs) meta.set(r.runId, { name: r.name, eventCount: r.eventCount ?? 0 })
+    runMetaById.value = meta
+    timelineCursor.value = res.maxId
   } catch (e) {
     error.value = '读取这一页的活动失败：' + (e instanceof Error ? e.message : String(e))
   }
@@ -291,30 +299,59 @@ watch(selectedId, (id) => {
   void loadPageTimeline(id)
 })
 
-// 跑脚本会广播这两个域（运行条目 / 错误）：接上就不用手动刷新也能看到新记录。
-// 存续表自身没有广播域（见文件头），顺带靠这两次回拉一起更新。
+// 跑脚本会广播这两个域（运行条目 / 错误）：它们计入左栏的计数，故接上就不用手动刷新。
+// 左栏的名单只跟存续表走，这两条只重拉左栏即可。
 useDataSync('runlog', async () => {
   await load()
 })
 useDataSync('error', async () => {
   await load()
 })
+// 标签页活动记录（存续表与轴上的行）：
+//   · 不带页号 = 结构性变化（建行 / 关页 / 开关记录 / 划断对账 / 删除清空）—— 左栏名单与
+//     右栏轴都可能整批变，两边一起重读（增量游标此时已无从续起，必须整根重新对齐）；
+//   · 带页号   = 只有那一页的轴长了新行 —— 正是**正在看的这一页**才增量续拉。别的页长什么
+//     样与当前视图无关；采样也不参与左栏计数，故左栏不必动。
+useDataSync('tabActivity', async (push) => {
+  if (push.uuid) {
+    // 带页号 = 只有那一页的轴长了新行：正在看它就增量续拉；别的页长什么样与当前视图无关
+    if (push.uuid === selectedId.value) await loadPageTimeline(push.uuid, true)
+    return
+  }
+  // 不带页号 = 结构性变化：左栏名单与右栏轴都可能整批变，两边一起重读。
+  // 选中项若被左栏重算换掉了（新页更近 / 当前页被删），这一根就不必再拉 —— watch 已经按
+  // 新的选中页拉过一整根，这里再拉一次等于把它的轴白读一遍。
+  const selected = selectedId.value
+  await load()
+  if (selectedId.value === selected) await loadPageTimeline(selected)
+})
 
-// —— 接口录制（融合自原「接口数据」面板：录制与活动记录本就是同一枚开关的两半）——
+// —— 页面录制（融合自原「接口数据」面板：录制与活动记录本就是同一枚开关的两半）——
+//
+// 判据只有一个：存续行上的 `recording`（未结束的那一行）—— 录制与活动记录同一枚开关，
+// 故不需要另问一次「谁在录」。
 
 /** 展开的请求行：逐条点开才看头体 */
 const openNetRows = ref<Set<string>>(new Set())
 /** 停止录制在途（禁灰，防连点重复发命令） */
 const stoppingTabId = ref<number | null>(null)
 
-/** 正在录制的 tabSessionId（左栏圆点的判据）。老会话没带这个 id，故要过滤一遍 */
+/** 正在记录的 tabSessionId（左栏圆点的判据）：未结束 + recording，与取号同一条判据 */
 const recordingTabSessionIds = computed(
-  () => new Set(recordingSessions.value.flatMap((s) => (s.tabSessionId ? [s.tabSessionId] : [])))
+  () =>
+    new Set(
+      sessions.value
+        .filter((s) => s.recording === true && s.ended !== true)
+        .map((s) => s.tabSessionId)
+    )
 )
 
-/** 某个 tabSessionId 此刻对应的实时 tabId（停录制要用它发命令）；没在录返回 null */
+/** 某个 tabSessionId 此刻对应的实时 tabId（停记录要用它发命令）；没在录返回 null */
 function liveTabIdOf(tabSessionId: string): number | null {
-  return recordingSessions.value.find((s) => s.tabSessionId === tabSessionId)?.tabId ?? null
+  const row = sessions.value.find(
+    (s) => s.tabSessionId === tabSessionId && s.recording === true && s.ended !== true
+  )
+  return row?.tabId ?? null
 }
 
 /**
@@ -421,18 +458,15 @@ const STATUS_LABEL: Record<TabItem['status'], string> = {
   closed: '已关闭'
 }
 /**
- * 状态点的颜色：绿点 = 还开着的页，灰点 = 已判定结束。
- * 已判定结束含「浏览器启动时划断」那种时刻留空的——它确实已经过去了。
+ * 行尾状态词：只写**非默认态**。
+ *
+ * 默认态 = 「页还开着、没在录」，列表里多数如此 —— 它不需要任何标记，于是「正在记录」与
+ * 「已关闭」一出现就是值得看一眼的那两行。两者互斥：标签页关闭时那一行会被盖章结束，
+ * 录制判据（未结束 + recording）随之失效。
  */
-function dotClass(item: TabItem): string {
-  return item.status === 'open' ? 'bg-green-600' : 'bg-muted-foreground/40'
-}
-
-function itemSummary(item: TabItem): string {
-  const parts: string[] = []
-  if (item.runs) parts.push(`跑过 ${item.runs} 次`)
-  if (item.errors) parts.push(`错误 ${item.errors} 条`)
-  return parts.length ? parts.join(' · ') : '无运行记录'
+function statusText(item: TabItem): string {
+  if (recordingTabSessionIds.value.has(item.id)) return '正在记录'
+  return item.status === 'closed' ? STATUS_LABEL.closed : ''
 }
 
 function formatDateTime(t: number): string {
@@ -604,7 +638,8 @@ function onConfirmedAction(): void {
 
     <!-- 双栏常驻：左栏是这一页的入口，即便一条记录都没有也要可见 -->
     <div class="flex min-h-0 flex-1">
-      <!-- 左栏：标签页列表（状态点 + 主机名 + 一行活动摘要） -->
+      <!-- 左栏：标签页列表（主机名 + 行尾状态词）—— 一行一项，不带活动摘要：摘要只数脚本，
+           在只录到请求的页上会被读成「这一页没活动」，而真值在右栏卡头 -->
       <div class="flex w-64 shrink-0 flex-col border-r border-border">
         <nav class="min-h-0 flex-1 overflow-y-auto py-2" aria-label="标签页列表">
           <p v-if="!tabItems.length" class="px-3 py-2 text-xs text-muted-foreground">
@@ -614,21 +649,17 @@ function onConfirmedAction(): void {
             v-for="item in tabItems"
             :key="item.id"
             type="button"
-            class="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left text-xs hover:bg-muted"
+            class="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs hover:bg-muted"
             :class="item.id === selectedId ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground'"
             :title="item.url ?? item.label"
             @click="selectedId = item.id"
           >
-            <span class="flex w-full items-center gap-1.5">
-              <span class="size-1.5 shrink-0 rounded-full" :class="dotClass(item)" />
-              <span
-                v-if="recordingTabSessionIds.has(item.id)"
-                class="size-1.5 shrink-0 rounded-full bg-primary"
-                title="正在记录"
-              />
-              <span class="min-w-0 flex-1 truncate">{{ item.label }}</span>
-            </span>
-            <span class="truncate pl-3 text-[10px] text-muted-foreground">{{ itemSummary(item) }}</span>
+            <span class="min-w-0 flex-1 truncate">{{ item.label }}</span>
+            <span
+              v-if="statusText(item)"
+              class="shrink-0 text-[10px]"
+              :class="recordingTabSessionIds.has(item.id) ? 'text-foreground' : ''"
+            >{{ statusText(item) }}</span>
           </button>
         </nav>
       </div>

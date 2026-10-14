@@ -22,11 +22,12 @@ import { buildScriptRelaySource } from './script-relay'
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
 import { parseUserScriptMetadata } from './metadata'
 import { generateBridgeSecret } from './bridge-protocol'
-// 网络录制：MAIN 捕获件 + USER_SCRIPT 转发件 + per-host 门禁（默认关，按站点显式开）
-import { buildNetRecorderSource } from './net-recorder'
-import { buildNetForwarderSource } from './net-forwarder'
-import { getRecordingHosts } from './net-capture-gate'
-import { hostToMatchPattern } from './net-record-protocol'
+// 标签页录制：MAIN 件 + USER_SCRIPT 转发件（默认关，按**标签页**显式开；见下面的 syncTabRecorder）。
+// MAIN 件是种类无关的框架，具体录什么在种类件里（当前 = net-probe.ts 的网络请求）。
+import { buildTabRecorderSource } from './tab-recorder'
+import { buildTabForwarderSource } from './tab-forwarder'
+// 注册判据就一句「有没有页在录」—— 直接查存续表，录制不再有第二本账
+import { hasRecordingTabSession } from './runtime-db'
 // 内置注入脚本共用：匹配并集与「未变则跳过」比对
 import { enabledMatchUnion, sameMatchSet } from './match-union'
 
@@ -234,15 +235,21 @@ export const SCRIPT_RELAY_ID = 'dl-script-relay'
 /** 中继件的独立世界 id：必须 configureWorld({ messaging: true })，否则世界内无 chrome.runtime */
 const SCRIPT_RELAY_WORLD_ID = 'us-dl-bridge'
 
-/** 网络录制 · MAIN 捕获件注册 ID（一个扩展一份） */
-export const NET_RECORDER_ID = 'dl-net-recorder'
-/** 网络录制 · USER_SCRIPT 转发件注册 ID（一个扩展一份） */
-export const NET_FORWARDER_ID = 'dl-net-forwarder'
+/** 标签页录制 · MAIN 件注册 ID（一个扩展一份） */
+export const TAB_RECORDER_ID = 'dl-tab-recorder'
+/** 标签页录制 · USER_SCRIPT 转发件注册 ID（一个扩展一份） */
+export const TAB_FORWARDER_ID = 'dl-tab-forwarder'
 /** 转发件的独立世界 id：必须 configureWorld({ messaging: true })，否则世界内无 chrome.runtime */
-const NET_FORWARDER_WORLD_ID = 'us-dl-net'
+const TAB_FORWARDER_WORLD_ID = 'us-dl-tab'
 
-/** 内置注册的 id 全集：全量重注册清「陈旧脚本」时必须排除它们（否则把自己刚同步的注册清掉） */
-const BUILTIN_SCRIPT_IDS = [SCRIPT_RELAY_ID, NET_RECORDER_ID, NET_FORWARDER_ID]
+/**
+ * 内置注册的 id 全集：全量重注册清「陈旧脚本」时必须排除它们（否则把自己刚同步的注册清掉）。
+ *
+ * 它同时是**旧 id 的自动回收面**：改名后（`dl-net-recorder` → `dl-tab-recorder`），
+ * 残留的旧注册不在本名单里，于是下一遍 registerAllEnabled 的 stale 清扫会顺手注销它 ——
+ * 不必为改名专门写一段清理。
+ */
+const BUILTIN_SCRIPT_IDS = [SCRIPT_RELAY_ID, TAB_RECORDER_ID, TAB_FORWARDER_ID]
 
 /** stubSecret 持久化键：MV3 SW 随时休眠，模块变量会归零，密钥必须落盘（duoling-app 库） */
 const PAGE_SECRET_KEY = 'pageSecret'
@@ -332,72 +339,79 @@ async function syncScriptRelay(projects: ScriptProject[]): Promise<void> {
   }
 }
 
-// —— 网络录制件（dl-recorder）：常驻 + 独立 per-host 门禁 ——
+// —— 标签页录制件（tab-record）：常驻 + 按**标签页**的门禁 ——
 //
-// 与中继件完全独立：中继件跟随「启用用户脚本并集」，录制件跟随「正在录制的会话所在 host」
-// （net-capture-gate.ts）。默认无会话 = 两件都不注册，页面里没有任何录制代码。
+// 与中继件完全独立：中继件跟随「启用用户脚本并集」，录制件跟随「有没有标签页在记活动」。
+// 默认无页在录 = 两件都不注册，页面里没有任何录制代码（空闲零注入）。
 //
-// **host 只是注册粒度，不是门禁粒度**：声明式注册没有 tab 维度（RegisteredUserScript 的
-// 匹配字段全是 URL），所以「某标签页在录」只能按 host 装上；真正的裁剪在入站处
-// （dl-bridge 按 sender.tab.id 认领会话）。代价是：某 host 上有会话在录时，该 host 的
-// 其他标签页也会被装上录制件——数据在 SW 侧丢弃，而不是页面里没有代码。
+// **为什么「有页在录就全匹配」**：录制的判据是标签页而非站点 —— 用户点的是「这一页在录」，
+// 此后这一页导航到哪个 host 都该继续录。而声明式注册没有 tab 维度（RegisteredUserScript 的
+// 匹配字段全是 URL），「这一页接下来会去哪」无从枚举，只能覆盖全部：有页在录 → 注册 `*://*/*`，
+// 没页在录 → 一件不留。
 //
-// 为什么是两个注册：捕获必须在页面真实世界（MAIN）才拦得到 fetch/XHR，而 MAIN 无 chrome.*；
-// 故 MAIN 捕获件 postMessage 给同帧的 USER_SCRIPT 转发件，再由它 sendMessage 到 SW。
+// **全匹配只保证钩子在位，不代表谁的请求都收**：真正的裁剪在入站处（dl-bridge 按
+// sender.tab.id 查那一页的 recording）。代价是录制期间所有站点的页面里都有代码 ——
+// 这是「录制绑标签页」这个语义绕不过去的唯一代价：页能去哪，钩子就得在哪。
+//
+// 为什么是两个注册：捕获必须在页面真实世界（MAIN）才拦得到 fetch / XHR / console，
+// 而 MAIN 无 chrome.*；故 MAIN 件 postMessage 给同帧的 USER_SCRIPT 转发件，再由它 sendMessage 到 SW。
 
-/**
- * 按正在录制的 host 维护录制件注册（幂等可重入；调用方负责串行化）。
- * 集合为空 → 注销两件；否则对 `*://<host>/*` 注册 MAIN 捕获件 + USER_SCRIPT 转发件。
- * 集合未变且两件都在位时跳过重注册（重注册会换注入源码，已加载页面要到下次导航才换新）。
- */
-async function syncNetRecorder(): Promise<void> {
+/** 录制期间两件的匹配面：覆盖全部站点（理由见上）。空集 = 不注册，由 syncTabRecorder 处理 */
+const TAB_RECORD_MATCHES = ['*://*/*']
+
+// 按「有没有页在录」维护录制件注册（幂等可重入；调用方负责串行化）。
+// 无页在录 → 注销两件；有 → 按 TAB_RECORD_MATCHES 注册 MAIN 件 + USER_SCRIPT 转发件。
+// 集合未变且两件都在位时跳过重注册（重注册会换注入源码，已加载页面要到下次导航才换新）。
+//
+// 注：本段刻意用行注释 —— 匹配串 `*://*/*` 里「*」紧跟「/」，写进块注释会被当成注释结束符，
+// 注释提前截断，连带后面一大片代码解析错位（症状是成片的语法错、错行还都在别处）。
+async function syncTabRecorder(): Promise<void> {
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
-  const hosts = await getRecordingHosts()
-  const matches = hosts.map(hostToMatchPattern).filter(Boolean)
+  const active = await hasRecordingTabSession()
   let existing: chrome.userScripts.RegisteredUserScript[] = []
   try {
     existing = (await chrome.userScripts.getScripts()).filter(
-      (s) => s.id === NET_RECORDER_ID || s.id === NET_FORWARDER_ID,
+      (s) => s.id === TAB_RECORDER_ID || s.id === TAB_FORWARDER_ID,
     )
   } catch {
     return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
   }
-  if (!matches.length) {
+  if (!active) {
     if (existing.length) {
       await unregisterScripts(existing.map((s) => s.id))
-      console.log('[duoling:sw] 录制门禁为空，已注销 dl-recorder')
+      console.log('[duoling:sw] 没有标签页在录，已注销 dl-tab-recorder / dl-tab-forwarder')
     }
     return
   }
-  const recorder = existing.find((s) => s.id === NET_RECORDER_ID)
-  const forwarder = existing.find((s) => s.id === NET_FORWARDER_ID)
-  const union = { matches }
+  const recorder = existing.find((s) => s.id === TAB_RECORDER_ID)
+  const forwarder = existing.find((s) => s.id === TAB_FORWARDER_ID)
+  const union = { matches: TAB_RECORD_MATCHES }
   if (recorder && forwarder && sameMatchSet(recorder, union) && sameMatchSet(forwarder, union)) {
     return
   }
   // 转发件的独立世界必须先开 messaging——自定义世界不继承默认世界配置，否则它没有
   // chrome.runtime、转发件 sendMessage 全静默失败（症状：录制件在、库里永远没数据）
-  const worldOk = await configureWorld(NET_FORWARDER_WORLD_ID)
+  const worldOk = await configureWorld(TAB_FORWARDER_WORLD_ID)
   if (!worldOk) {
-    console.warn('[duoling:userscript] 录制转发件世界配置失败（无 messaging，转发不可用）', NET_FORWARDER_WORLD_ID)
+    console.warn('[duoling:userscript] 录制转发件世界配置失败（无 messaging，转发不可用）', TAB_FORWARDER_WORLD_ID)
   }
-  await unregisterScripts([NET_RECORDER_ID, NET_FORWARDER_ID])
-  const common = { matches, runAt: 'document_start' as const, allFrames: true }
+  await unregisterScripts([TAB_RECORDER_ID, TAB_FORWARDER_ID])
+  const common = { matches: TAB_RECORD_MATCHES, runAt: 'document_start' as const, allFrames: true }
   const recorderScript: chrome.userScripts.RegisteredUserScript = {
-    id: NET_RECORDER_ID,
+    id: TAB_RECORDER_ID,
     world: 'MAIN',
-    js: [{ code: buildNetRecorderSource() }],
+    js: [{ code: buildTabRecorderSource() }],
     ...common,
   }
   const forwarderScript: chrome.userScripts.RegisteredUserScript = {
-    id: NET_FORWARDER_ID,
-    worldId: NET_FORWARDER_WORLD_ID,
-    js: [{ code: buildNetForwarderSource() }],
+    id: TAB_FORWARDER_ID,
+    worldId: TAB_FORWARDER_WORLD_ID,
+    js: [{ code: buildTabForwarderSource() }],
     ...common,
   }
   try {
     await chrome.userScripts.register([recorderScript, forwarderScript])
-    console.log('[duoling:sw] 录制件注册成功：', JSON.stringify(matches))
+    console.log('[duoling:sw] 录制件注册成功：', JSON.stringify(TAB_RECORD_MATCHES))
   } catch (e) {
     console.warn('[duoling:sw] 录制件注册失败：', e)
     throw e
@@ -405,11 +419,11 @@ async function syncNetRecorder(): Promise<void> {
 }
 
 /**
- * 重算录制件注册（挂 registerChain 串行队列）。门禁集合变更后（开启 / 关闭录制）由调用方触发。
- * 与 refreshBuiltinScripts 分开：录制件跟随的是 per-host 门禁，不是脚本集合。
+ * 重算录制件注册（挂 registerChain 串行队列）。录制开关变更后（开启 / 关闭 / 标签页关闭）由调用方触发。
+ * 与 refreshBuiltinScripts 分开：录制件跟随的是「有没有页在录」，不是脚本集合。
  */
-export function refreshNetRecorder(): Promise<void> {
-  const run = registerChain.then(() => syncNetRecorder())
+export function refreshTabRecorder(): Promise<void> {
+  const run = registerChain.then(() => syncTabRecorder())
   registerChain = run.catch(() => {})
   return run
 }
@@ -417,7 +431,7 @@ export function refreshNetRecorder(): Promise<void> {
 /**
  * 重算**内置注入脚本**的注册（挂 registerChain 串行队列）：脚本增删改 / 启停 / 删除后由 background 调用。
  * 只管脚本桥中继件（USER_SCRIPT，把 MAIN 世界脚本的 GM 调用转给 SW），触发条件是「启用脚本的匹配并集」；
- * 网络录制那两件有自己的入口（`refreshNetRecorder`）。
+ * 录制那两件有自己的入口（`refreshTabRecorder`）。
  */
 export function refreshBuiltinScripts(): Promise<void> {
   const run = registerChain.then(async () => {
@@ -575,9 +589,9 @@ async function runRegisterAllEnabled(): Promise<void> {
   const projects = await listProjects()
   // 先同步内置注册（启用脚本集合可能变化），再重注册脚本——同一遍里保持中继件与包装密钥一致
   await syncScriptRelay(projects).catch(() => {})
-  // 录制件跟随「正在录制的会话所在 host」（与脚本集合无关）：SW 冷启动 / 扩展更新恢复时一并同步，
-  // 保证「正在录制的站点」在重注册后依然生效
-  await syncNetRecorder().catch(() => {})
+  // 录制件跟随「有没有标签页在记活动」（与脚本集合无关）：SW 冷启动 / 扩展更新恢复时一并同步，
+  // 保证「正在录的那一页」在重注册后依然生效
+  await syncTabRecorder().catch(() => {})
   const enabled = projects.filter((p) => p.enabled)
   try {
     const existing = await chrome.userScripts.getScripts()

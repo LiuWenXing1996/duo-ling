@@ -500,82 +500,73 @@ async function removeCard(card: GenerationCardData): Promise<void> {
   }
 }
 
-// —— 接口录制同意卡（data-net-capture data part，两态 = 未开启 / 录制中）——
-// AI 判断写脚本需要目标站点的真实接口时出这张卡（net_capture_enable 工具，由 offscreen 推 part）。
+// —— 页面录制同意卡（data-tab-record data part，两态 = 未开启 / 录制中）——
+// AI 判断写脚本需要这个页面的真实请求时出这张卡（tab_record_enable 工具，由 offscreen 推 part）。
 // 卡片是用户唯一的操作入口，也是隐私边界的落点：录什么是写死的，开关只在**开启它的那个标签页**生效
 // （录制按标签页划分，同站点的其他标签页不看这张卡的状态）。
 // 开启后引导点**浏览器的刷新按钮**——录制只能抓开启之后的请求，钩子挂在文档开头。
-interface NetCaptureCardData {
-  host: string
-}
+//
+// 卡面上不写站点名：录制认的是标签页，这一页此后导航到哪都在录，标一个会过期的站点名反而误导。
 
 /**
- * 本载体所属的标签页 —— 录制会话锚在它上面。浮层在页面内嵌的 iframe 里，归属由 content script
+ * 本载体所属的标签页 —— 录制锚在它上面。浮层在页面内嵌的 iframe 里，归属由 content script
  * 经 iframe URL 传入（与它的会话归属同一处解析，见 lib/owning-tab.ts）；在工作台里只读回看历史
  * 会话时读不到，此时卡片不给操作（录制无标签页可锚）。
  */
 const ownerTabId = readPinnedTabId()
 
-/** 本标签页正在录制的站点（SW 为权威；这里是渲染用的本地视图，点击后即时更新） */
-const captureHosts = reactive(new Set<string>())
-const captureBusy = reactive(new Set<string>())
-const captureErrors = reactive(new Map<string, string>())
+/** 本标签页此刻在不在录（SW 为权威；这里是渲染用的本地视图，点击后即时更新） */
+const tabRecording = ref(false)
+const captureBusy = ref(false)
+const captureError = ref('')
 
 /** 拉一次状态：历史卡片的状态以 SW 为准，不能只信卡片落盘那一刻的快照 */
-async function loadCaptureHosts(): Promise<void> {
+async function loadTabRecording(): Promise<void> {
   try {
-    const { sessions } = await userscriptClient.netCaptureState()
-    captureHosts.clear()
-    for (const s of sessions) if (s.tabId === ownerTabId) captureHosts.add(s.host)
+    const list = await userscriptClient.tabSessions()
+    tabRecording.value = list.some(
+      (s) => s.tabId === ownerTabId && s.recording === true && s.ended !== true
+    )
   } catch {
     // 读不到就按未开启渲染（用户点开启时会看到真实错误）
   }
 }
 
 onMounted(() => {
-  void loadCaptureHosts()
+  void loadTabRecording()
 })
 
-/** 该消息里的同意卡（按 host 去重：同一站点被请求两次同意也只渲染一张） */
-function captureCardsOf(m: UIMessage): NetCaptureCardData[] {
-  const seen = new Set<string>()
-  const out: NetCaptureCardData[] = []
-  for (const p of m.parts) {
-    if (p.type !== 'data-net-capture') continue
-    const host = (p as { data?: NetCaptureCardData }).data?.host
-    if (!host || seen.has(host)) continue
-    seen.add(host)
-    out.push({ host })
-  }
-  return out
+/** 这条消息里有没有同意卡（录制按标签页，一条对话至多一张，故只回答「有没有」） */
+function hasTabRecordCard(m: UIMessage): boolean {
+  return m.parts.some((p) => p.type === 'data-tab-record')
 }
 
-async function enableCapture(host: string): Promise<void> {
+async function enableCapture(): Promise<void> {
   if (ownerTabId == null) return
-  captureBusy.add(host)
-  captureErrors.delete(host)
+  captureBusy.value = true
+  captureError.value = ''
   try {
-    // 走的是**同一枚开关**（活动记录）：它同时开接口录制，故同意卡不再另有一条命令
+    // 走的是**同一枚开关**（活动记录）：它同时开页面录制，故同意卡不再另有一条命令
     await userscriptClient.tabActivityEnable(ownerTabId)
-    captureHosts.add(host)
+    tabRecording.value = true
   } catch (e) {
-    captureErrors.set(host, e instanceof Error ? e.message : String(e))
+    captureError.value = e instanceof Error ? e.message : String(e)
   } finally {
-    captureBusy.delete(host)
+    captureBusy.value = false
   }
 }
 
-async function disableCapture(host: string): Promise<void> {
+async function disableCapture(): Promise<void> {
   if (ownerTabId == null) return
-  captureBusy.add(host)
-  captureErrors.delete(host)
+  captureBusy.value = true
+  captureError.value = ''
   try {
     await userscriptClient.tabActivityDisable(ownerTabId)
-    captureHosts.delete(host)
+    tabRecording.value = false
   } catch (e) {
-    captureErrors.set(host, e instanceof Error ? e.message : String(e))
+    captureError.value = e instanceof Error ? e.message : String(e)
   } finally {
-    captureBusy.delete(host)
+    captureBusy.value = false
   }
 }
 
@@ -973,24 +964,23 @@ function userScriptsUnavailableMessageSafe(): string {
                   {{ timeLabel(m) }}
                 </span>
               </div>
-              <!-- 接口录制同意卡：AI 要目标站点的真实接口时出（data-net-capture part，随消息落盘） -->
+              <!-- 页面录制同意卡：AI 要这个页面的真实请求时出（data-tab-record part，随消息落盘） -->
               <div
-                v-for="card in m.role === 'assistant' ? captureCardsOf(m) : []"
-                :key="`net-${card.host}`"
+                v-if="m.role === 'assistant' && hasTabRecordCard(m)"
                 class="w-full min-w-0 rounded-lg border border-border bg-card p-3 text-sm"
-                data-testid="net-capture-card"
+                data-testid="tab-record-card"
               >
                 <div class="flex items-center gap-2">
-                  <span class="min-w-0 truncate font-medium" :title="card.host">{{ card.host }}</span>
+                  <span class="min-w-0 truncate font-medium">页面录制</span>
                   <span
                     class="shrink-0 rounded-full px-2 py-0.5 text-xs"
                     :class="
-                      captureHosts.has(card.host)
+                      tabRecording
                         ? 'bg-green-600/15 text-green-600'
                         : 'bg-amber-500/15 text-amber-600'
                     "
                   >
-                    {{ captureHosts.has(card.host) ? '录制中' : '未开启' }}
+                    {{ tabRecording ? '录制中' : '未开启' }}
                   </span>
                 </div>
                 <dl class="mt-2 space-y-1 text-xs text-muted-foreground">
@@ -1009,12 +999,12 @@ function userScriptsUnavailableMessageSafe(): string {
                 </dl>
                 <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
                   <ui-button
-                    v-if="!captureHosts.has(card.host)"
+                    v-if="!tabRecording"
                     type="button"
                     size="xs"
-                    :disabled="captureBusy.has(card.host) || ownerTabId == null"
-                    title="只记录当前站点，数据留在本机"
-                    @click="enableCapture(card.host)"
+                    :disabled="captureBusy || ownerTabId == null"
+                    title="只记录这个标签页，数据留在本机"
+                    @click="enableCapture"
                   >
                     <ui-play class="size-3" />
                     开启录制
@@ -1024,9 +1014,9 @@ function userScriptsUnavailableMessageSafe(): string {
                     type="button"
                     variant="outline"
                     size="xs"
-                    :disabled="captureBusy.has(card.host)"
+                    :disabled="captureBusy"
                     title="关闭后已录到的内容保留"
-                    @click="disableCapture(card.host)"
+                    @click="disableCapture"
                   >
                     <ui-square class="size-3" />
                     关闭录制
@@ -1039,17 +1029,17 @@ function userScriptsUnavailableMessageSafe(): string {
                   录制按标签页进行，请到目标页面的 popup 或对话浮层里开启。
                 </p>
                 <p
-                  v-else-if="captureHosts.has(card.host)"
+                  v-else-if="tabRecording"
                   class="mt-2 text-xs leading-relaxed text-muted-foreground"
                 >
                   用浏览器的刷新按钮重新加载页面，从首屏请求开始记录。
                 </p>
                 <div
-                  v-if="captureErrors.get(card.host)"
+                  v-if="captureError"
                   class="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-xs leading-relaxed text-destructive"
                   role="alert"
                 >
-                  {{ captureErrors.get(card.host) }}
+                  {{ captureError }}
                 </div>
               </div>
               <!-- 生成卡片：offscreen 收敛落盘后随消息推送/回读（尚未启用 · 生效范围 · 会做什么） -->

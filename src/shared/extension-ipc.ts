@@ -142,7 +142,11 @@ export type RuntimeRequest =
   // 「活动历史」右栏：与运行条按时刻混排成这一页的时间线。
   //
   // **按页拉而非全量**：采样单条可达数 KB，全量等于把整库搬过消息边界。
-  | { kind: 'userscript:tabTimeline'; tabSessionId: string }
+  //
+  // `sinceId` 是**增量游标**（上一批拿到的那条 maxId）：只回比它新的行 —— 录制中面板要实时
+  // 跟着涨，而轴随时间无上限地变长，每次重拉整根就会越拉越慢；带游标后代价只与新增条数有关。
+  // 缺省 = 全量（首次进入、切页，以及轴被清理过之后）。
+  | { kind: 'userscript:tabTimeline'; tabSessionId: string; sinceId?: number }
   // 打开 / 关掉**这一个标签页**的记录开关（popup 的那一枚）。建行、撤号都在 SW 侧完成；
   // 地址由 SW 自己从标签页现取，命令只带 tabId。
   //
@@ -157,17 +161,17 @@ export type RuntimeRequest =
   // 错误 ID 修复闭环：AI 的 error_read 工具经 SW 代查
   // 错误日志（runtime 库，offscreen 拿不到）。id = 完整记录 id 或唯一 8 位前缀
   | { kind: 'userscript:errorRead'; id: string }
-  // —— 网络录制（dl-recorder）——
-  // 门禁（duoling-app 的 netCaptureSessions）与录到的采样（duoling-runtime 的 tab_events）都归 SW 管辖。
+  // —— 页面录制（tab-record）——
+  // 录到的采样落在 duoling-runtime 的 tab_events，归 SW 管辖；offscreen 与扩展页都不直连库。
   //
   // **开关不在这组里**：录制与活动记录由同一枚开关触发（见 userscript:tabActivityEnable），
   // 而开启必须由用户手势发起 —— AI 工具只出卡 + 等用户点（见 agent-tools-catalog 的
-  // net_capture_enable）。这里只剩「读」与「清理」两条。
-  | { kind: 'userscript:netCaptureState' }
-  // mode：digest = 摘要档（接口清单，常驻 prompt 用）；full = 逐条采样（工具读回用）
-  | { kind: 'userscript:netCaptureRead'; host: string; mode: 'digest' | 'full' }
-  // 清空某站点的接口采样（不动这一页的刷新 / 记录开关）。写路径归 SW（runtime 单写方），调用方不直连库。
-  | { kind: 'userscript:netLogClear'; host: string }
+  // tab_record_enable）。这里只剩「读」这一条。
+  //
+  // 参数是**会话 id 而不是站点**：录制按标签页，读也就按标签页 —— SW 反查这条会话所属的那一页
+  // 再取它存续行里的采样。mode：digest = 摘要档（接口清单，常驻 prompt 用）；
+  // full = 逐条采样（工具读回用）。
+  | { kind: 'userscript:tabRecordRead'; conversationId?: string; mode: 'digest' | 'full' }
 
   // zip 导入：UI 读 zip 文件转 base64，SW 纯转发 offscreen
   // 单写方（解码 + 落盘同处）。enabled 恒 false——先审后启，故无注册动作。
@@ -359,6 +363,14 @@ export type DataDomain =
   | 'error'
   /** 运行观测（运行条目 / 动作）变了 —— 活动历史与 AI 的运行面据此回拉 */
   | 'runlog'
+  /**
+   * 标签页活动记录（runtime 库）：存续行的增减与整根轴上的新行 —— 活动历史据此回拉。
+   *
+   * `uuid` 承载**这是哪一页**：带上它 = 只有这一页的轴长了新行（读侧正在看就增量续拉）；
+   * 缺省 = 结构性变化（建行 / 关页 / 开关记录 / 划断对账 / 删除清空），读侧一律全量重拉 ——
+   * 这种情况下整根轴上的行可能整批消失，增量游标会指向一个已经不存在的轴。
+   */
+  | 'tabActivity'
   /** 脚本列表分组定义（duoling-state 的 groups 对象库） */
   | 'group'
 

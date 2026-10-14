@@ -433,6 +433,8 @@ export async function deleteTabActivity(tabSessionId: string): Promise<void> {
   // 整根轴一趟清掉，运行线与错误两个消费域都要回拉（重复通知只是让消费方多读一次）
   broadcastDataChange('runlog')
   broadcastDataChange('error')
+  // 活动历史还要重算左栏（少了一行）；不带 uuid —— 整根轴都没了，增量游标无从续起
+  broadcastDataChange('tabActivity')
 }
 
 /**
@@ -444,4 +446,5 @@ export async function clearTabActivity(): Promise<void> {
   if (!(await runtime.clearTabActivity())) return
   broadcastDataChange('runlog')
   broadcastDataChange('error')
+  broadcastDataChange('tabActivity')
 }

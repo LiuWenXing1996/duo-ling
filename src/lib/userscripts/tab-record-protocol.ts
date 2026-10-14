@@ -1,21 +1,34 @@
-// 网络录制（dl-recorder）共享协议常量与记录形状。
+// 标签页录制 · 共享协议常量与记录形状。
 //
-// 三个消费方必须逐字节一致，故集中在这里：
-//   · net-recorder.ts（MAIN 世界捕获件）—— 字符串模板，插值 constants；
-//   · net-forwarder.ts（USER_SCRIPT 转发件）—— 字符串模板，插值 TAG；
+// **机制与种类分两层**（命名规则由此而来）：
+//   · 机制层 `tab-record-*` —— 按页挂载、信封、转发、落盘。与「录什么」无关。
+//   · 种类层 `net-*`       —— 具体录哪一类信号（怎么包 fetch / 怎么剥鉴权头 / 怎么压摘要）。
+//     网络是当前唯一的一类；`window.console` 之类将来平行加，不改机制层。
+//
+// 本文件是**机制层的形状约定**，三个消费方必须逐字节一致：
+//   · tab-recorder.ts（MAIN 世界件框架）—— 字符串模板，插值 TAB_RECORD_TAG；
+//   · tab-forwarder.ts（USER_SCRIPT 转发件）—— 字符串模板，插值 TAB_RECORD_TAG；
+//   · net-probe.ts（net 种类件）—— 字符串模板，插值 net 那一类的常量；
 //   · runtime-db.ts / dl-bridge.ts（SW 落库 + 入站归一化）—— 直接 import。
 //
 // 与 bridge-protocol.ts 同款：模板源码无法 import，只能靠常量插值保持一致。
 
-/** 消息信封标记：MAIN 捕获件 postMessage 与转发件 → SW 的 sendMessage 都用它 */
-export const NET_CAPTURE_TAG = '__dlNetCapture'
+/**
+ * 消息信封标记：MAIN 件 postMessage 给同帧、转发件 sendMessage 给 SW，都用它。
+ *
+ * 信封上另带 `kind`（种类判别键，见 NET_TAB_KIND）—— 同一条通道将来会走多个种类，
+ * 落库侧据此分流到各自的归一化函数。
+ */
+export const TAB_RECORD_TAG = '__dlTabRecord'
 
 /**
  * 接口采样落在 tab_events store 时的判别键：与标签页存续轴事件**同表**（见 runtime-db 的文件头），
  * 靠它把两类记录分开 —— 存续轴事件用 reload / url / recordOn / recordOff。
  *
+ * 它同时是**信封上的种类判别键**：同一条录制通道上，`kind` 说这条载荷属于哪一类信号。
+ *
  * 放这里而不是落库模块：它是**跨读写两端的形状约定**（写侧打标、读侧据它分流），
- * 与 normalizeCapture 之于入站载荷同理。
+ * 与 normalizeNetCapture 之于入站载荷同理。
  */
 export const NET_TAB_KIND = 'net'
 
@@ -55,47 +68,20 @@ export const NET_SENSITIVE_PARAM =
 export const NET_MASK = '***'
 
 /**
- * 一次接口录制会话：从用户在某标签页点「开启录制」起，到该标签页关闭 / 主动停止止。
+ * 一次接口采样的记录体（落 duoling-runtime 的 tab_events store，判别键 kind = NET_TAB_KIND。
+ * id 为自增主键，写侧不填）。
  *
- * 门禁的粒度就是它 —— 录制按标签页划分，同站点的另一个标签页要录得各自开一次。
- * 标签页关掉即结束会话，但已录采样不随之清除：它们落在 tab_events 上，按页读时与这一页的
- * 刷新 / 记录开关同轴展示，故会话本身不必再另存一份归档。
- *
- * tabId 是会话的**实时判据**（入站按 sender.tab.id 认领），但浏览器会复用 tabId，
- * 故它不是身份：采样归属一律用 id 与 tabSessionId，tabId 只用于「此刻这条消息来自哪个会话」。
+ * 归属：**只认 tabSessionId**（标签页存续行）。录制按标签页划分，不按站点 ——
+ * 同一标签页导航到哪个 host 都记在同一行下，故记录里没有 host 字段。
+ * 采样上的 host 若有需要，由读侧从 url 现推（纯展示）。
  */
-export interface NetRecordSession {
-  /** 会话 id（每条采样带着它，故必须是稳定、不可复用的字符串） */
-  id: string
-  /** 录制所在的标签页（仅实时判据用，不作身份） */
-  tabId: number
-  /**
-   * 这次录制归属的标签页存续行（见 TabSessionRecord）。
-   *
-   * 与 tabId 的分工：tabId 只答「此刻这条消息来自哪个标签页」，它答「把这段录制挂到哪一页」。
-   * 两者不是一回事 —— tabId 会被浏览器复用、重启后重排，故跨会话的归属只能认它。
-   * 录制与活动记录由同一个开关触发后必填；合并前录下的老会话没有，读侧按「未归属」处理。
-   */
-  tabSessionId?: string
-  /** 录制所在的站点（与采样同口径的归一 host） */
-  host: string
-  /** 开启那一刻页面的地址与标题：会话随门禁消亡后，凭它认出录的是哪个页面（采样上不带标题） */
-  url: string
-  title: string
-  startedAt: number
-  /** 结束时刻（会话结束 / 启动对账清出时填；进行中的会话没有） */
-  endedAt?: number
-}
-
-/** 采集采样（落 duoling-runtime 的 tab_events store，判别键 kind = NET_TAB_KIND；id 为自增主键，写侧不填） */
 export interface NetCaptureRecord {
   /** 自增主键（IndexedDB autoIncrement 生成） */
   id?: number
-  /** 采集发生的页面 host（location.hostname，也是 by_host 索引值；存续轴事件没有它） */
-  host: string
-  /** 产生这条采样的录制会话 id。会话结束后采样仍留着，凭它把采样归到某次录制 */
-  sessionId: string
-  /** 归属的标签页存续行（由会话透传，见 NetRecordSession.tabSessionId）；老采样缺省，按未归属处理 */
+  /**
+   * 归属的标签页存续行（由 SW 按 sender.tab.id 查出后给定，载荷不携带）。
+   * 缺省 = 归属不明的老记录，按页读不到它。
+   */
   tabSessionId?: string
   /** 请求方式来源 */
   type: 'fetch' | 'xhr'
@@ -116,58 +102,10 @@ export interface NetCaptureRecord {
 }
 
 /**
- * 采集载荷：捕获件只产这些字段。
- * host 由转发件补（它知道自己的 location），sessionId 由 SW 补（只有它能判消息来自哪个标签页）。
+ * 采集载荷：种类件只产这些字段。
+ * tabSessionId 由 SW 补（只有它知道消息来自哪个标签页），故不在载荷里。
  */
-export type NetCapturePayload = Omit<NetCaptureRecord, 'id' | 'host' | 'sessionId' | 'tabSessionId'>
-
-/**
- * 把一个 host 归一化成「小写裸主机名」；非法返回空串。
- * 容忍传入完整 URL / 带端口 / 大写——AI 工具与同意卡拿到的可能是任意形态。
- *
- * 放这里而不是门禁模块：归一化是**跨上下文的形状约定**（SW 门禁、engine 注册、
- * offscreen 侧工具都要判同一个 host），三方必须用同一份实现，否则
- * 「工具说已开、门禁说不认识」这类静默错配会出现。
- */
-export function normalizeHost(input: string): string {
-  let h = String(input ?? '').trim().toLowerCase()
-  if (!h) return ''
-  if (h.includes('://')) {
-    try {
-      h = new URL(h).hostname.toLowerCase()
-    } catch {
-      return ''
-    }
-  } else {
-    const m = /^([^/:]+)(?::\d+)?$/.exec(h)
-    h = m ? m[1] : h
-  }
-  h = h.replace(/^\.+|\.+$/g, '')
-  // 允许 a-z0-9 . - _（内网主机名常见下划线）；拒绝一切可能越界到 pattern 的字符
-  if (!/^[a-z0-9._-]+$/.test(h)) return ''
-  return h
-}
-
-/** host → match pattern：`*://` 同时覆盖 http / https（match pattern 里端口不参与匹配） */
-export function hostToMatchPattern(host: string): string {
-  return `*://${host}/*`
-}
-
-/**
- * 从页面 URL 里取归一化 host（AI 工具据当前页面推断目标站点用）；取不到返回空串。
- * 只认 http/https——录制件注册的 pattern 就是 `*://`，其余协议（chrome: / file: 等）
- * 本来也注入不了，早退回空串可以省掉一次无谓的门禁查询。
- */
-export function hostFromUrl(url: string | undefined): string {
-  if (!url) return ''
-  try {
-    const u = new URL(url)
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return ''
-    return normalizeHost(u.hostname)
-  } catch {
-    return ''
-  }
-}
+export type NetCapturePayload = Omit<NetCaptureRecord, 'id' | 'tabSessionId'>
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v : ''
@@ -183,7 +121,7 @@ function headerDict(v: unknown): Record<string, string> {
   return out
 }
 
-/** 去鉴权：再剥一遍（捕获件已剥过，这里是 SW 侧的防线——消息源不可信） */
+/** 去鉴权：再剥一遍（种类件已剥过，这里是 SW 侧的防线——消息源不可信） */
 export function stripAuthHeaders(headers: Record<string, string>): Record<string, string> {
   const banned = new Set<string>(NET_AUTH_HEADER_NAMES)
   const out: Record<string, string> = {}
@@ -259,26 +197,17 @@ export function stripUrlSecrets(raw: string): string {
  * 消息经过 MAIN 世界（页面可伪造 postMessage）与两次结构化克隆，SW 不能信其形状——
  * 所有字段白名单化、类型强转、长度封顶、鉴权头再剥、URL 凭据再脱敏。
  *
- * sessionId 与 tabSessionId 都由调用方（SW）给定而非载荷携带：它们要按 sender.tab.id 查出来，
+ * tabSessionId 由调用方（SW）给定而非载荷携带：它要按 sender.tab.id 查出来，
  * 载荷里那一段来自页面世界，认了就等于让页面自己声明归属。
  */
-export function normalizeCapture(
-  hostRaw: unknown,
-  captureRaw: unknown,
-  sessionId: string,
-  tabSessionId?: string,
-): NetCaptureRecord | null {
-  const host = str(hostRaw).toLowerCase()
-  if (!host) return null
-  if (!captureRaw || typeof captureRaw !== 'object') return null
-  const c = captureRaw as Record<string, unknown>
+export function normalizeNetCapture(recordRaw: unknown, tabSessionId?: string): NetCaptureRecord | null {
+  if (!recordRaw || typeof recordRaw !== 'object') return null
+  const c = recordRaw as Record<string, unknown>
   const type = c.type === 'xhr' ? 'xhr' : c.type === 'fetch' ? 'fetch' : null
   if (!type) return null
   const url = str(c.url)
   if (!url) return null
   return {
-    host,
-    sessionId,
     ...(tabSessionId ? { tabSessionId } : {}),
     type,
     url: stripUrlSecrets(url).slice(0, 4096),
