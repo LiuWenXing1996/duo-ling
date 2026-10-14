@@ -29,12 +29,17 @@ type StoredProfile = Omit<ModelProfileState, 'apiKey'> & { apiKeyEnc?: EncPayloa
 interface ModelState {
   profiles: ModelProfileState[]
   activeProfileId: string
+  /** 「baseUrl 由基址迁移为完整端点地址」是否已执行过（见 migrateEndpointBaseUrls） */
+  endpointMigrated?: boolean
 }
 
 async function readState(): Promise<ModelState> {
   const stored =
-    (await appDb.get<{ profiles: StoredProfile[]; activeProfileId: string }>(KEY)) ??
-    { profiles: [], activeProfileId: '' }
+    (await appDb.get<{
+      profiles: StoredProfile[]
+      activeProfileId: string
+      endpointMigrated?: boolean
+    }>(KEY)) ?? { profiles: [], activeProfileId: '' }
   // 解密为内部形态
   const profiles: ModelProfileState[] = await Promise.all(
     stored.profiles.map(async (p) => {
@@ -51,13 +56,41 @@ async function readState(): Promise<ModelState> {
       return { ...rest, apiKey: '' }
     }),
   )
-  const state: ModelState = { profiles, activeProfileId: stored.activeProfileId }
+  const state: ModelState = {
+    profiles,
+    activeProfileId: stored.activeProfileId,
+    endpointMigrated: stored.endpointMigrated,
+  }
+  // 一次性迁移（尾斜杠剥离 → 完整端点地址）：改了内容就要落盘，故与下面的自愈共用一个写回开关
+  let dirty = migrateEndpointBaseUrls(state)
   // 自愈：扩展早期版本保存时未维护 activeProfileId（可能悬空）。
   // 仅在确实不一致时回写一次；此后读路径不再兜底，保持「activeProfileId 即真源」的严格语义。
   const before = state.activeProfileId
   syncActiveProfileId(state)
-  if (state.activeProfileId !== before) await writeState(state)
+  if (state.activeProfileId !== before) dirty = true
+  if (dirty) await writeState(state)
   return state
+}
+
+/**
+ * 一次性迁移：早期版本 `baseUrl` 存的是**基址**，请求时由代码追加 `/chat/completions`
+ * （那个 `useFullUrl` 开关恒为 false）。现在 `baseUrl` 就是完整端点地址、原样请求 ——
+ * 老数据不补后缀的话会全部打到基址上 404，所以读取时补一次，并用标记位保证只跑一次。
+ *
+ * 判据只用「是否已以 /chat/completions 结尾」：旧版本没有任何路径能存进完整地址
+ * （表单硬编码 useFullUrl=false），故旧数据必然是基址；带后缀的只可能是迁移后的自己。
+ */
+function migrateEndpointBaseUrls(state: ModelState): boolean {
+  if (state.endpointMigrated) return false
+  state.endpointMigrated = true
+  for (const p of state.profiles) {
+    if (p.baseUrl && !/\/chat\/completions\/?$/i.test(p.baseUrl)) {
+      p.baseUrl = `${p.baseUrl}/chat/completions`
+    }
+    // 顺带清掉已删字段的落盘残留（类型里没了，旧数据对象上还在，展开写回会把它带下去）
+    delete (p as unknown as Record<string, unknown>).useFullUrl
+  }
+  return true
 }
 
 async function writeState(state: ModelState): Promise<void> {
@@ -67,7 +100,11 @@ async function writeState(state: ModelState): Promise<void> {
       return apiKey ? { ...rest, apiKeyEnc: await encryptApiKey(apiKey) } : rest
     }),
   )
-  await appDb.set(KEY, { profiles, activeProfileId: state.activeProfileId })
+  await appDb.set(KEY, {
+    profiles,
+    activeProfileId: state.activeProfileId,
+    endpointMigrated: state.endpointMigrated,
+  })
   // 写出口广播（见文件头）：扩展页回拉 + offscreen 的 profile-cache 回拉。
   // 推送尽力而为：offscreen 不在场就不为一条通知唤醒它。
   broadcastDataChange('model')
@@ -153,10 +190,9 @@ export async function saveProfile(input: ModelProfileInput): Promise<ModelProfil
     id,
     name: input.name.trim() || input.model.trim() || '未命名模型',
     providerId: input.providerId ?? existing?.providerId ?? '',
-    // 末尾斜杠会与 openai-compatible 的 /chat/completions 拼出双斜杠，统一在此剥离
-    baseUrl: input.baseUrl.trim().replace(/\/+$/, ''),
+    // 原样存：地址即完整端点、不做拼接，末尾斜杠无从拼出双斜杠（只去首尾空白）
+    baseUrl: input.baseUrl.trim(),
     model: input.model.trim(),
-    useFullUrl: input.useFullUrl ?? existing?.useFullUrl ?? false,
     apiFormat: 'openai',
     hasApiKey: Boolean(apiKey) || Boolean(existing?.apiKey),
     apiKey: apiKey || existing?.apiKey || '',
@@ -182,24 +218,28 @@ export async function removeProfile(id: string): Promise<void> {
 }
 
 /**
- * 连通性测试：发一次最小 chat 请求（非流式）。
- * 保持与桌面版 openai-client 相同的地址拼接规则（useFullUrl=false 时追加 /chat/completions）。
+ * 连通性测试：向 baseUrl 发一次最小 chat 请求（非流式）。
+ * 地址**原样使用** —— 它就是完整端点地址，与真实对话链路同一判据（chat-host 的 fetch 覆盖）。
+ * apiKey 可为空：ollama / vLLM / llama.cpp 这类本地端点本来就没有 Key，
+ * 与 chat-host 的 `apiKey || 'not-needed'` 同一口径，不在这里单独拦。
  */
 export async function testChat(config: ModelTestChatConfig): Promise<void> {
-  const baseUrl = config.baseUrl.trim().replace(/\/+$/, '')
+  const baseUrl = config.baseUrl.trim()
   const apiKey = config.apiKey.trim()
   const model = config.model.trim()
   if (!baseUrl) throw new Error('请先填写接口地址')
-  if (!apiKey) throw new Error('请先填写 API Key')
   if (!model) throw new Error('请先填写模型 ID')
 
-  const url = config.useFullUrl ? baseUrl : `${baseUrl}/chat/completions`
+  const url = baseUrl
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 15000)
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey || 'not-needed'}`,
+      },
       body: JSON.stringify({
         model,
         messages: [{ role: 'user', content: 'ping' }],

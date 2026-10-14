@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// 添加/编辑模型弹窗：三步 —— 选服务商 → 输入 API Key → 选模型 ID。
-// 接口地址取自服务商预设，展示名默认用模型 ID。
+// 添加/编辑模型弹窗：选服务商 → 输入 API 密钥 → 选模型 ID。
+// 预设服务商的地址随服务商固定；末尾的「自定义」项则开放地址栏，接任意 OpenAI 兼容端点
+// （自建网关 / 代理 / 本地模型）。地址一律是**完整的 Chat Completions 端点**，原样发出。
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { Button as UiButton } from '@/components/ui/button'
 import { Input as UiInput } from '@/components/ui/input'
@@ -28,6 +29,20 @@ const props = defineProps<{
 
 const emit = defineEmits<{ 'update:open': [value: boolean]; saved: [] }>()
 
+/**
+ * 「自定义」服务商：不进预设表 —— 它不是一份预设数据，而是一个入口，
+ * 选中后地址栏出现、由用户填任意 OpenAI 兼容端点。id 保持 'custom'：
+ * 设置页的服务商列按 id 查不到预设时已经回退显示「自定义」，两处正好对齐。
+ */
+const CUSTOM_PROVIDER: ModelProvider = {
+  id: 'custom',
+  name: '自定义',
+  baseUrl: '',
+  keyUrl: '',
+  models: [],
+  supported: true
+}
+
 const saving = ref(false)
 const showKey = ref(false)
 // 连通性测试：按钮触发，状态用弹窗内覆盖层提示
@@ -36,6 +51,7 @@ const testResult = ref<{ ok: boolean; message: string } | null>(null)
 
 const form = reactive({
   providerId: '',
+  baseUrl: '',
   apiKey: '',
   model: ''
 })
@@ -43,16 +59,36 @@ const form = reactive({
 const editingId = computed(() => props.editing?.id ?? null)
 const isEditing = computed(() => Boolean(props.editing))
 
-// 可选服务商：仅支持 Bearer 鉴权直接使用的预设
-const providerOptions = computed(() => props.providers.filter((p) => p.supported))
+// 可选服务商：仅支持 Bearer 鉴权直接使用的预设 + 末尾的自定义项
+const providerOptions = computed(() => [
+  ...props.providers.filter((p) => p.supported),
+  CUSTOM_PROVIDER
+])
 
 const selectedProvider = computed(
-  () => props.providers.find((p) => p.id === form.providerId) ?? null
+  () => providerOptions.value.find((p) => p.id === form.providerId) ?? null
 )
+
+/** 自定义端点：地址由用户手填；预设服务商的地址随服务商固定 */
+const isCustom = computed(() => form.providerId === CUSTOM_PROVIDER.id)
+
+/** 地址形状校验：只要带协议与主机的绝对地址（连通性交给「测试连接」，不在这里拦） */
+const addressValid = computed(() => {
+  const raw = form.baseUrl.trim()
+  if (!raw) return false
+  try {
+    const url = new URL(raw)
+    return (url.protocol === 'http:' || url.protocol === 'https:') && Boolean(url.host)
+  } catch {
+    return false
+  }
+})
 
 // 打开弹窗时按「新增/编辑」初始化表单。
 // restoring 标记：回填 providerId 会触发下方「切服务商清模型」的 watch，
 // 不跳过的话编辑态首次打开时刚回填的模型 ID 会被清空（服务商没变时不触发，所以第二次打开才正常）
+// immediate：open 初始即为 true 时（常驻父组件以 true 挂载 / 被 v-if 包在 true 分支里）
+// 必须同样走一次初始化 —— 否则表单会停在空态，地址栏这类依赖 providerId 的区块整块不渲染。
 let restoring = false
 watch(
   () => props.open,
@@ -63,10 +99,13 @@ watch(
     saving.value = false
     if (props.editing) {
       form.providerId = props.editing.providerId
+      // 地址按已保存值回显：自定义端点填错过是常态，编辑态要能就地改
+      form.baseUrl = props.editing.baseUrl
       form.model = props.editing.model
       form.apiKey = '' // 不回显明文，留空表示保存时保留
     } else {
       form.providerId = ''
+      form.baseUrl = ''
       form.model = ''
       form.apiKey = ''
     }
@@ -75,45 +114,47 @@ watch(
     nextTick(() => {
       restoring = false
     })
-  }
+  },
+  { immediate: true }
 )
 
-// 用户切换服务商后原模型 ID 不再适用，清空待重选；初始化回填不算切换
+// 用户切换服务商后原模型 ID 不再适用，清空待重选；地址随服务商换（自定义项留空待填）
 watch(
   () => form.providerId,
   () => {
     if (restoring) return
     form.model = ''
+    form.baseUrl = selectedProvider.value?.baseUrl ?? ''
   }
 )
 
 // 模型 ID：输入框自由手输，下方「快速填入」芯片列出所选服务商的预置模型，点一下填入
 const presetModels = computed(() => selectedProvider.value?.models ?? [])
 
+// 密钥不再强制：ollama / vLLM / llama.cpp 这类本地端点本就没有 Key，
+// 链路侧（chat-host / testChat）也早已按「空则发占位符」处理
 const canSave = computed(() => {
-  return Boolean(form.providerId && form.model && (isEditing.value || form.apiKey.trim()))
+  return Boolean(form.providerId && form.model && addressValid.value)
 })
 
 function close(): void {
   emit('update:open', false)
 }
 
-// 连通性测试：地址取自所选服务商预设，向接口发一次最小请求
+// 连通性测试：向当前填写的地址发一次最小请求
 async function runTest(): Promise<void> {
   if (testing.value) return
-  const provider = selectedProvider.value
-  if (!provider || !form.model) {
-    testResult.value = { ok: false, message: '请先选择服务商与模型' }
+  if (!addressValid.value || !form.model) {
+    testResult.value = { ok: false, message: '请先填写接口地址与模型 ID' }
     return
   }
   testing.value = true
   testResult.value = null
   try {
     const res = await window.api.model.testChat({
-      baseUrl: provider.baseUrl,
+      baseUrl: form.baseUrl,
       apiKey: form.apiKey,
       model: form.model,
-      useFullUrl: false,
       // 编辑态 Key 未回显：传 profileId 由主进程回退已保存的 Key
       profileId: editingId.value ?? undefined
     })
@@ -138,17 +179,14 @@ async function save(): Promise<void> {
   if (!canSave.value || saving.value) return
   saving.value = true
   try {
-    const provider = selectedProvider.value
     await window.api.model.save({
       id: editingId.value ?? undefined,
       // 展示名沿用编辑前的设置；新增时直接用模型 ID
       name: props.editing?.name || form.model,
       providerId: form.providerId,
-      baseUrl: provider?.baseUrl ?? '',
+      baseUrl: form.baseUrl,
       apiKey: form.apiKey,
-      model: form.model,
-      // 预设地址都不是完整接口地址，统一追加 /chat/completions
-      useFullUrl: false
+      model: form.model
     })
     emit('saved')
     close()
@@ -196,6 +234,26 @@ async function save(): Promise<void> {
             </ui-select>
           </div>
 
+          <!-- 接口地址：仅自定义端点需要填（预设服务商的地址随服务商固定） -->
+          <div v-if="isCustom" class="space-y-1">
+            <label class="text-xs font-medium">接口地址</label>
+            <ui-input
+              v-model="form.baseUrl"
+              placeholder="https://example.com/v1/chat/completions"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <p
+              v-if="form.baseUrl.trim() && !addressValid"
+              class="text-xs leading-relaxed text-destructive"
+            >
+              请填写完整的接口地址，以 http:// 或 https:// 开头。
+            </p>
+            <p v-else class="text-xs leading-relaxed text-muted-foreground">
+              完整的 Chat Completions 接口地址，需包含 /chat/completions 路径。
+            </p>
+          </div>
+
           <!-- 第二步：输入 API Key -->
           <div class="space-y-1">
             <label class="text-xs font-medium">API 密钥</label>
@@ -203,7 +261,7 @@ async function save(): Promise<void> {
               <ui-input
                 v-model="form.apiKey"
                 :type="showKey ? 'text' : 'password'"
-                :placeholder="isEditing ? '留空则保留已有密钥' : '输入 API Key'"
+                :placeholder="isEditing ? '留空则保留已有密钥' : '输入 API Key，可留空'"
                 class="pr-9"
               />
               <button

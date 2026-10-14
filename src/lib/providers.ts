@@ -4,6 +4,9 @@
 // - supported=true：用 Bearer 鉴权即可直接使用的服务商，一键添加
 // - supported=false：如 AWS Bedrock 走 Signature V4 鉴权，当前暂不支持一键添加（网格中置灰提示）
 //
+// baseUrl 是**完整的 Chat Completions 端点地址**（含 /chat/completions）：请求时原样使用，不做任何拼接。
+// 自定义端点（网关 / 代理 / 本地模型）由表单里的「自定义」项填入同样的完整地址。
+//
 // 维护提示：这张表是「数据」，改动要逐个字段核对 —— 漏过一次：少了 7 个服务商
 // （海外 MiniMax / Kimi、小米 MiMo、BytePlus、AWS、ModelArk、PPIO），且 bigmodel /
 // alibaba / tencent 的展示名不一致。
@@ -13,7 +16,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'deepseek',
     name: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com',
+    baseUrl: 'https://api.deepseek.com/chat/completions',
     keyUrl: 'https://platform.deepseek.com/api_keys',
     models: ['deepseek-flash', 'deepseek-v4-pro'],
     supported: true,
@@ -21,7 +24,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'volcengine',
     name: '火山引擎',
-    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
     keyUrl: 'https://console.volcengine.com/ark',
     models: [
       'doubao-seed-2-1-pro-260915',
@@ -33,7 +36,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'minimax-cn',
     name: 'MiniMax CN',
-    baseUrl: 'https://api.minimaxi.com/v1',
+    baseUrl: 'https://api.minimaxi.com/v1/chat/completions',
     keyUrl: 'https://platform.minimaxi.com',
     models: ['MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.7-highspeed'],
     supported: true,
@@ -41,7 +44,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'minimax-global',
     name: 'MiniMax Global',
-    baseUrl: 'https://api.minimax.io/v1',
+    baseUrl: 'https://api.minimax.io/v1/chat/completions',
     keyUrl: 'https://platform.minimaxi.com',
     models: ['MiniMax-M3', 'MiniMax-M2.7'],
     supported: true,
@@ -49,7 +52,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'bigmodel',
     name: 'Bigmodel',
-    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
     keyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
     models: ['glm-5.3', 'glm-5.3-flash', 'glm-4.7'],
     supported: true,
@@ -57,7 +60,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'alibaba',
     name: '阿里云',
-    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
     keyUrl: 'https://bailian.console.aliyun.com/?apiKey=1',
     models: ['qwen3.8-max', 'qwen3.8-flash', 'qwen3.7-plus'],
     supported: true,
@@ -65,7 +68,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'xiaomi-mimo',
     name: 'Xiaomi MIMO',
-    baseUrl: 'https://api-inference.modelscope.cn/v1',
+    baseUrl: 'https://api-inference.modelscope.cn/v1/chat/completions',
     keyUrl: 'https://platform.mimo.xiaomi.com',
     models: ['mimo-v2.6-pro', 'mimo-v2.6-flash'],
     supported: true,
@@ -73,7 +76,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'siliconflow',
     name: '硅基流动',
-    baseUrl: 'https://api.siliconflow.cn/v1',
+    baseUrl: 'https://api.siliconflow.cn/v1/chat/completions',
     keyUrl: 'https://cloud.siliconflow.cn/account/ak',
     models: ['deepseek-ai/DeepSeek-V4-Pro', 'deepseek-ai/DeepSeek-V4-Flash', 'zai-org/GLM-5.3'],
     supported: true,
@@ -81,7 +84,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'zai',
     name: 'Z.ai',
-    baseUrl: 'https://api.z.ai/api/paas/v4',
+    baseUrl: 'https://api.z.ai/api/paas/v4/chat/completions',
     keyUrl: 'https://z.ai/console',
     models: ['glm-5.3', 'glm-5.3-flash'],
     supported: true,
@@ -89,7 +92,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'openrouter',
     name: 'OpenRouter',
-    baseUrl: 'https://openrouter.ai/api/v1',
+    baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
     keyUrl: 'https://openrouter.ai/keys',
     models: ['openai/gpt-5.6-sol', 'anthropic/claude-sonnet-5', 'google/gemini-3.8-flash'],
     supported: true,
@@ -97,7 +100,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'kimi-cn',
     name: 'Kimi CN',
-    baseUrl: 'https://api.moonshot.cn/v1',
+    baseUrl: 'https://api.moonshot.cn/v1/chat/completions',
     keyUrl: 'https://platform.moonshot.cn/console',
     models: ['kimi-k3', 'kimi-k2.7-code', 'kimi-k2.6'],
     supported: true,
@@ -105,7 +108,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'kimi-global',
     name: 'Kimi Global',
-    baseUrl: 'https://api.moonshot.ai/v1',
+    baseUrl: 'https://api.moonshot.ai/v1/chat/completions',
     keyUrl: 'https://platform.moonshot.ai',
     models: ['kimi-k3', 'kimi-k2.7-code'],
     supported: true,
@@ -113,7 +116,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'byteplus',
     name: 'BytePlus',
-    baseUrl: 'https://ark.bytepluses.com/api/v3',
+    baseUrl: 'https://ark.bytepluses.com/api/v3/chat/completions',
     keyUrl: 'https://console.bytepluses.com/ark',
     models: ['dola-seed-2-1-turbo-260628', 'seed-2-0-pro-260328'],
     supported: true,
@@ -129,7 +132,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'tencent',
     name: '腾讯云',
-    baseUrl: 'https://api.hunyuan.cloud.tencent.com/v1',
+    baseUrl: 'https://api.hunyuan.cloud.tencent.com/v1/chat/completions',
     keyUrl: 'https://console.cloud.tencent.com/hunyuan',
     models: ['hy4-preview', 'hy3'],
     supported: true,
@@ -137,7 +140,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'modelark',
     name: '模力方舟',
-    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
     keyUrl: 'https://console.volcengine.com/ark',
     models: ['doubao-seed-2-1-lite-260915'],
     supported: true,
@@ -145,7 +148,7 @@ const PROVIDERS: ModelProvider[] = [
   {
     id: 'ppio',
     name: 'PPIO',
-    baseUrl: 'https://api.ppio.ai/v1',
+    baseUrl: 'https://api.ppio.ai/v1/chat/completions',
     keyUrl: 'https://www.ppio.ai',
     models: ['deepseek/deepseek-v4-pro-0813', 'minimax/minimax-m3', 'zai-org/glm-5.3'],
     supported: true,
@@ -159,8 +162,8 @@ export function getProviders(): ModelProvider[] {
 /**
  * 在线模型请求所需的 host 权限来源：由预设 baseUrl 推导 origin 通配。
  * 用于生成 manifest 的 host_permissions，避免上架时申请过度权限。
- * 只取 supported 的预设：不支持一键添加的服务商（如 AWS）用户也选不出来，
- * 没必要为它申请权限（自定义接口地址走 optional_host_permissions，见 README）。
+ * 只取 supported 的预设：不支持一键添加的服务商（如 AWS）用户也选不出来，没必要为它申请权限。
+ * 自定义端点的任意地址由 host_permissions 里的 <all_urls> 覆盖（用户脚本已需要它），无需单独声明。
  */
 export function providerOrigins(): string[] {
   const origins = new Set<string>()

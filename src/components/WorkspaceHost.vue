@@ -4,7 +4,6 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { AlertTriangle as UiAlertTriangle } from '@lucide/vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import GuidePanel from '@/components/GuidePanel.vue'
-import UiTestPanel from '@/components/UiTestPanel.vue'
 import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
 import UserscriptListPanel from '@/components/userscript/UserscriptListPanel.vue'
 import UserscriptEditorPanel from '@/components/userscript/UserscriptEditorPanel.vue'
@@ -287,8 +286,6 @@ defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openSession
           @open-tab="openDevTab"
           @open-session-data="openSessionHistoryTab('raw')"
         />
-        <!-- AI 界面对话预览：mock 数据预览思考与执行过程展示方案 -->
-        <ui-test-panel v-else-if="tab.kind === 'ui-test'" />
         <!-- 脚本列表：列出全部用户脚本 + 启停；「编辑」开对应的编辑器标签页 -->
         <userscript-list-panel
           v-else-if="tab.kind === 'userscript-list'"

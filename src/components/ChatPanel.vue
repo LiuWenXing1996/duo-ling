@@ -138,6 +138,8 @@ const emit = defineEmits<{
 interface ModelOption {
   id: string
   name: string
+  /** 服务商 id（自定义端点为 'custom'）：决定「缺 Key」算不算异常 */
+  providerId: string
   hasApiKey: boolean
   enabled?: boolean
 }
@@ -149,10 +151,16 @@ const activeModelName = computed(
   () => profiles.value.find((p) => p.id === activeModelId.value)?.name ?? '未选中模型'
 )
 
+/** 「缺 Key」只对预设服务商是异常：自定义端点（自建网关 / 本地模型）本来就可以不带 Key */
+function needsKeyHint(p: ModelOption): boolean {
+  return !p.hasApiKey && p.providerId !== 'custom'
+}
+
 function refreshModelStatus(data: {
   profiles: Array<{
     id: string
     name: string
+    providerId: string
     baseUrl: string
     model: string
     hasApiKey: boolean
@@ -1325,7 +1333,7 @@ function userScriptsUnavailableMessageSafe(): string {
                     @click="switchModel(p.id)"
                   >
                     <span class="truncate">
-                      {{ p.name }}{{ p.hasApiKey ? '' : '（缺 Key）' }}
+                      {{ p.name }}{{ needsKeyHint(p) ? '（缺 Key）' : '' }}
                     </span>
                     <ui-check v-if="p.id === activeModelId" class="size-3.5 shrink-0 text-primary" />
                   </button>

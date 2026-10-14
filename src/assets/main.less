@@ -79,7 +79,6 @@
 // height: 100% 是必需的：本类现在也用于工作台标签页内容，而工作区宿主的 TabsContent
 // 是 block（不是 flex 容器），只靠 flex: 1 撑不开、会塌成内容高度 —— 表现为面板没能铺满、
 // 内部滚动区高度算成内容高度而无法滚动。
-// 项目里不用本类的面板（ui-test-panel）也是用 position: absolute 撑满的，做法一致。
 .panel {
   display: flex;
   flex: 1;

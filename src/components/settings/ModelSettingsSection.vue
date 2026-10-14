@@ -86,7 +86,6 @@ async function testConnection(profile: ModelProfile): Promise<void> {
       baseUrl: profile.baseUrl,
       apiKey: '',
       model: profile.model,
-      useFullUrl: profile.useFullUrl,
       profileId: profile.id
     })
     if (res.ok) {

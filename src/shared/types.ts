@@ -97,12 +97,11 @@ export interface ModelProfile {
   name: string
   /** 所属服务商（预设 id），自定义模型为空字符串 */
   providerId: string
-  /** OpenAI 兼容接口地址，如 https://api.deepseek.com */
+  /** 完整的 Chat Completions 端点地址，如 https://api.deepseek.com/chat/completions。
+   *  请求时**原样使用**，不再拼接任何路径 —— 填什么用什么，填错由「测试连接」当场暴露 */
   baseUrl: string
   /** 模型 ID，如 deepseek-flash（请求时作为 model 字段） */
   model: string
-  /** baseUrl 是否为完整接口地址：true 时不追加 /chat/completions */
-  useFullUrl: boolean
   /** API 格式，目前仅支持 OpenAI Chat Completions */
   apiFormat: 'openai'
   hasApiKey: boolean
@@ -126,7 +125,6 @@ export interface ModelProfileInput {
   baseUrl: string
   apiKey: string
   model: string
-  useFullUrl?: boolean
   contextOutputToken?: number
   temperature?: number
   topP?: number
@@ -140,7 +138,6 @@ export interface ModelTestChatConfig {
   baseUrl: string
   apiKey: string
   model: string
-  useFullUrl?: boolean
   /** 编辑态 API Key 未回显时，回退到该已保存配置的 Key */
   profileId?: string
 }
@@ -152,7 +149,7 @@ export type TestChatResult = { ok: true } | { ok: false; error: string }
 export interface ModelProvider {
   id: string
   name: string
-  /** OpenAI 兼容接口地址（不强制以 /v1 结尾，多数加上 /chat/completions 即可） */
+  /** 完整的 Chat Completions 端点地址（含 /chat/completions，原样请求不做拼接） */
   baseUrl: string
   /** 服务商控制台获取 API Key 的链接 */
   keyUrl: string
@@ -166,7 +163,6 @@ export interface ModelProvider {
 export type WorkspaceTabKind =
   | 'settings'
   | 'guide'
-  | 'ui-test'
   | 'userscript-list'
   | 'userscript-edit'
   | 'script-history'
