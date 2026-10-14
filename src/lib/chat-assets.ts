@@ -16,7 +16,7 @@ import type { UIMessage } from 'ai'
 export interface ChatAssetRef {
   /** 内容 hash：既是 /assets 下的目录名，也是 image_ask 的 assetId */
   id: string
-  /** 落盘的文件名（展示用；扩展名已按真实 MIME 归一） */
+  /** 这次附件的文件名（展示用；扩展名已按真实 MIME 归一，见 us-assets.normalizeFilename） */
   filename: string
   mediaType: string
   /** 字节数（展示用；不代表进模型的开销） */

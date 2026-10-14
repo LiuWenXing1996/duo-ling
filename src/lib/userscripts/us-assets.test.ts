@@ -138,13 +138,19 @@ describe('putAsset', () => {
     expect(fake.count(), '不该多出任何目录或文件').toBe(before)
   })
 
-  it('同内容换个名字再附一次：引用里的文件名以盘上那份为准（不然引用会与落盘分叉）', async () => {
+  it('同内容换个名字再附一次：引用带**这次**的名字，盘上那份仍是首写者的', async () => {
     const bytes = bytesOf('same')
     await putAsset({ filename: 'screenshot.png', mediaType: 'image/jpeg', bytes })
     const again = await putAsset({ filename: 'copy.png', mediaType: 'image/jpeg', bytes })
 
     expect(again.stored).toBe(false)
-    expect(again.ref.filename, '照回这次传来的名字就会与 readAsset 读到的对不上').toBe('screenshot.jpg')
+    // 用户在气泡里/模型在引用行里看到的必须是他自己附的那份 —— 照回盘上名字会让
+    // 「附了 copy.png、气泡写着 screenshot.jpg」这种对不上（e2e/chat-attachments.spec.ts 抓到过）。
+    expect(again.ref.filename).toBe('copy.jpg')
+    // 盘上没被改写：存储层的名字只用来读回时判 MIME
+    const onDisk = await readAsset(again.ref.id)
+    expect(onDisk?.filename).toBe('screenshot.jpg')
+    expect(onDisk?.bytes).toEqual(bytes)
   })
 })
 
