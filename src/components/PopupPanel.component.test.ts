@@ -390,6 +390,24 @@ describe('popup 的「其他页面」区块', () => {
   })
 })
 
+describe('popup 的标题行版本号', () => {
+  it('标题旁显示当前构建版本（v 前缀）', async () => {
+    // 版本来自构建期注入的 __BUILD_INFO__（vitest 环境没有该 define，须手动垫）
+    vi.stubGlobal('__BUILD_INFO__', { time: 't', branch: 'b', version: '0.10.0', repo: 'o/r' })
+    stubChrome('https://example.com/page')
+    const w = await mountPopup()
+
+    expect(w.find('[data-testid="popup-version"]').text()).toBe('v0.10.0')
+  })
+
+  it('构建信息缺失：版本号不渲染（不显示成 v 空串）', async () => {
+    stubChrome('https://example.com/page')
+    const w = await mountPopup()
+
+    expect(w.find('[data-testid="popup-version"]').exists()).toBe(false)
+  })
+})
+
 describe('popup 的工作台入口', () => {
   it('点了新建 workbench 标签页，不带 hash（落默认面板）', async () => {
     stubChrome('https://example.com/page')

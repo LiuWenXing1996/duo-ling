@@ -15,7 +15,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 | --- | --- | --- |
 | 扩展页 | `floatpanel.html`（网页浮层 iframe） | **对话界面（唯一入口）**：指令入口与观察窗；显示**它所在标签页**的会话（tab 身份由 content script 经 iframe URL 传入） |
 | 扩展页 | `workbench.html`（标签页） | 重界面工作区（脚本管理 / 活动历史 / 会话历史 / 设置等） |
-| 扩展页 | `popup.html`（工具栏 popup） | 按**标签页**看现状与去处：①「当前页面」（`PopupCurrentPage`）= 本页在跑的脚本与报错 + 这条页面的对话浮层入口（**对话框的常规打开方式**）与是否正在回话；②「其他页面」（`PopupOtherPages`）= 其他打开的普通网页各自的脚本与会话，点一行切过去；③「打开工作台」。两块共用一条 `page:overview` 命令（SW 侧一处聚合运行登记 / 会话归属 / 进行中，见「脚本注入」的运行登记表）—— popup 只活几秒，取一次快照即可，不维持推送通道。挂不了浮层的页面上「打开会话」禁用（判据 = 向该标签页探活内容脚本，`probeContentScript`）、原因挂在它的悬停提示里；引擎开关没开时另有「查看开启引导」卡（与角标 `!` 同一判据、同走 `userscript:availability`）；**不承载对话**（不装 `window.api`） |
+| 扩展页 | `popup.html`（工具栏 popup） | 按**标签页**看现状与去处：①「当前页面」（`PopupCurrentPage`）= 本页在跑的脚本与报错 + 这条页面的对话浮层入口（**对话框的常规打开方式**）与是否正在回话；②「其他页面」（`PopupOtherPages`）= 其他打开的普通网页各自的脚本与会话，点一行切过去；③ 标题行右侧的「设置（`#/settings`）/ 打开工作台」两个图标入口（说明挂在悬停提示上）与当前版本号（构建期注入的构建信息，缺失时隐藏）。两块共用一条 `page:overview` 命令（SW 侧一处聚合运行登记 / 会话归属 / 进行中，见「脚本注入」的运行登记表）—— popup 只活几秒，取一次快照即可，不维持推送通道。挂不了浮层的页面上「打开会话」禁用（判据 = 向该标签页探活内容脚本，`probeContentScript`）、原因挂在它的悬停提示里；引擎开关没开时另有「查看开启引导」卡（与角标 `!` 同一判据、同走 `userscript:availability`）；**不承载对话**（不装 `window.api`） |
 | 内容脚本 | `content.ts`（第三方页面 ISOLATED world） | 网页浮层的宿主：**平时不往页面里放任何 DOM**，收到 `float:open` 才挂出 iframe 并展开，收到 `float:collapse` 收起（只加 `display:none`，iframe 与草稿都留着），收到 `float:busy` 按「这条会话正在生成」开关页面遮罩（盖住视口挡指针交互，**只看生成中、与浮层开合无关** —— 收起浮层遮罩照留着；对话框本体在遮罩之上 —— 点得到停止），应答 `content:ping`（popup 靠它判本页此刻注入得了内容脚本 —— 见 `lib/float-panel-host.ts`）；位置钉在视口右下角，拾取期间整块让位 |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 + 网页浮层的右键菜单入口 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
