@@ -37,6 +37,7 @@ import {
   mintTabSession,
   setTabSessionRecording,
 } from './runtime-db'
+import { broadcastDataChange } from '../data-broadcast'
 
 /**
  * tabId → 最近一次「地址变更」的时刻。
@@ -79,10 +80,15 @@ export async function setTabRecording(
   on: boolean,
   url?: string,
 ): Promise<string | undefined> {
+  // 结构性变化（建行 / 撤号）一律**不带 uuid** 地广播：读侧据此全量重拉 —— 行的增删会让
+  // 增量游标指向一段已经不存在的轴，那种情况下必须整根重读。
   if (on && !(await findOpenTabSession(tabId))) {
-    return mintTabSession({ tabId, ...(url ? { url } : {}), recording: true })
+    const minted = await mintTabSession({ tabId, ...(url ? { url } : {}), recording: true })
+    broadcastDataChange('tabActivity')
+    return minted
   }
-  await setTabSessionRecording(tabId, on)
+  const changed = await setTabSessionRecording(tabId, on)
+  if (changed) broadcastDataChange('tabActivity')
   // 开的时候要把这一行的 id 交出去：接口录制挂在同一个开关上，它的归属就是这一行
   return on ? (await findOpenTabSession(tabId))?.tabSessionId : undefined
 }
@@ -100,7 +106,9 @@ export async function noteTabUrlChanged(tabId: number, url: string): Promise<boo
   const row = await findOpenTabSession(tabId)
   if (!row || row.url === url) return false
   navPending.set(tabId, Date.now())
-  return appendTabEvent(row.tabSessionId, 'url', url)
+  const written = await appendTabEvent(row.tabSessionId, 'url', url)
+  if (written) broadcastDataChange('tabActivity', row.tabSessionId)
+  return written
 }
 
 /**
@@ -127,19 +135,24 @@ export async function noteTabReloaded(tabId: number, url?: string): Promise<bool
     navPending.delete(tabId)
     if (Date.now() - pendingAt < NAV_PENDING_MS) return false
   }
-  if (url && row.url && url !== row.url) return appendTabEvent(row.tabSessionId, 'url', url)
-  return appendTabEvent(row.tabSessionId, 'reload', url)
+  const kind = url && row.url && url !== row.url ? 'url' : 'reload'
+  const written = await appendTabEvent(row.tabSessionId, kind, url)
+  if (written) broadcastDataChange('tabActivity', row.tabSessionId)
+  return written
 }
 
 /** 标签页关闭（`tabs.onRemoved`）：盖关闭时刻。没登记过的标签页不补行 */
 export async function noteTabClosed(tabId: number): Promise<void> {
   navPending.delete(tabId)
-  await closeTabSession(tabId, Date.now())
+  // 盖章结束改的是**行本身**（不是轴的某一行），故不带 uuid：读侧要连左栏一起重算
+  if (await closeTabSession(tabId, Date.now())) broadcastDataChange('tabActivity')
 }
 
 /** 浏览器启动划断（`runtime.onStartup`）：见 runtime-db 的 endOpenTabSessions */
-export function splitTabSessionsAtBrowserStart(): Promise<number> {
-  return endOpenTabSessions()
+export async function splitTabSessionsAtBrowserStart(): Promise<number> {
+  const stamped = await endOpenTabSessions()
+  if (stamped > 0) broadcastDataChange('tabActivity')
+  return stamped
 }
 
 /**
@@ -148,8 +161,10 @@ export function splitTabSessionsAtBrowserStart(): Promise<number> {
  * 存活集合由调用方传入：本模块不感知 chrome API（`chrome.tabs` 只该出现在 SW 侧）。
  * 必须在重注册之前调用 —— 否则这一步算出来的注册集合是过期的那一份。
  */
-export function reconcileDeadTabSessions(aliveTabIds: Set<number>): Promise<number> {
-  return endDeadTabSessions(aliveTabIds)
+export async function reconcileDeadTabSessions(aliveTabIds: Set<number>): Promise<number> {
+  const stamped = await endDeadTabSessions(aliveTabIds)
+  if (stamped > 0) broadcastDataChange('tabActivity')
+  return stamped
 }
 
 // —— 测试辅助（仅单测使用）——

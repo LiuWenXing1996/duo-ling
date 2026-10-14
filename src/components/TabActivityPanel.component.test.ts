@@ -2,8 +2,9 @@
 // 覆盖易回归语义：左栏以**存续表**为准（没跑过脚本的页也在列表里）、右栏只显示选中那一页的记录、
 // 生命周期端点只在记到时刻时才画（缺时刻不拿别的时刻顶上）、**动作与错误直接平铺在轴上**
 // （没有卡片要展开）、无归属的记录不出口（左栏也不给它们留格子）；刷新 / 地址变更 / 记录开关
-// 与动作、请求同轴混排（缺时刻的节点也不编钟点）；删除 / 清空走确认弹窗（确认后才发命令）。
-// 边界 mock：ui-client（IPC 客户端）。
+// 与动作、请求同轴混排（缺时刻的节点也不编钟点）；删除 / 清空走确认弹窗（确认后才发命令）；
+// 数据变更到手就自动回拉（结构性变化两侧一起重读，单页新增只对选中页增量续拉）。
+// 边界 mock：ui-client（IPC 客户端）与数据变更的通道（useDataSync 本身要验，故留着）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import TabActivityPanel from './TabActivityPanel.vue'
@@ -44,6 +45,34 @@ vi.mock('@/lib/userscripts/ui-client', () => ({
     tabActivityDisable,
   },
 }))
+
+/**
+ * 数据变更广播的接入口。
+ *
+ * 只换通道、不换 useDataSync 本身：「按域过滤 + 重跑合并」也是要验的行为，mock 掉它等于
+ * 把待测逻辑一起拿掉。用例如调 pushDataChange 模拟「别处写了数据」。
+ */
+const dataListeners = vi.hoisted(
+  () => [] as Array<(push: { domain: string; uuid?: string; at: number }) => void>,
+)
+vi.mock('@/lib/data-broadcast', () => ({
+  // 退订要真摘掉：不然上一个用例挂的监听器还留在表里，pushDataChange 会连它一起喂，
+  // 让「谁被重读了」的计数断言失真。
+  subscribeDataChange: (fn: (push: never) => void) => {
+    const listener = fn as never
+    dataListeners.push(listener)
+    return () => {
+      const i = dataListeners.indexOf(listener)
+      if (i >= 0) dataListeners.splice(i, 1)
+    }
+  },
+  broadcastDataChange: () => {},
+}))
+
+/** 模拟别处广播了一次数据变更（缺 uuid = 结构性变化） */
+function pushDataChange(domain: string, uuid?: string): void {
+  for (const fn of dataListeners) fn({ domain, uuid, at: 1 })
+}
 
 let seq = 0
 /** 造一条错误记录；id 取 8 位以上（面板只展示前 8 位） */
@@ -189,6 +218,7 @@ const detailText = () => wrapper.find('[data-testid="tab-activity-detail"]').tex
 
 beforeEach(() => {
   vi.clearAllMocks()
+  dataListeners.length = 0
   runlog.mockResolvedValue([])
   tabSessions.mockResolvedValue([])
   pageEvents.mockResolvedValue([])
@@ -196,13 +226,15 @@ beforeEach(() => {
   pageRuns.mockResolvedValue([])
   pageActs.mockResolvedValue([])
   pageErrors.mockResolvedValue([])
-  // 面板按选中页发一条命令；这里照旧让用例分块填数据
+  // 面板按选中页发一条命令；这里照旧让用例分块填数据。
+  // 默认 maxId = 0（游标不动，每次都是整根读）；要验增量行为的用例自己覆盖它。
   tabTimeline.mockImplementation(async () => ({
     events: await pageEvents(),
     captures: await pageCaptures(),
     runs: await pageRuns(),
     acts: await pageActs(),
     errors: await pageErrors(),
+    maxId: 0,
   }))
   tabActivityClear.mockResolvedValue(undefined)
   tabActivityDelete.mockResolvedValue(undefined)
@@ -243,8 +275,22 @@ describe('TabActivityPanel 活动历史', () => {
     // 服务端按页给数据：t1 有脚本A 的动作，t2 有脚本B 的动作
     tabTimeline.mockImplementation(async (id: string) =>
       id === 't1'
-        ? { events: [], captures: [], runs: [runEntry({ runId: 'r1', name: '脚本A' })], acts: [act('r1')], errors: [] }
-        : { events: [], captures: [], runs: [runEntry({ runId: 'r2', name: '脚本B' })], acts: [act('r2')], errors: [] }
+        ? {
+            events: [],
+            captures: [],
+            runs: [runEntry({ runId: 'r1', name: '脚本A' })],
+            acts: [act('r1')],
+            errors: [],
+            maxId: 0,
+          }
+        : {
+            events: [],
+            captures: [],
+            runs: [runEntry({ runId: 'r2', name: '脚本B' })],
+            acts: [act('r2')],
+            errors: [],
+            maxId: 0,
+          }
     )
     wrapper = await mountPanel()
 
@@ -486,12 +532,12 @@ describe('TabActivityPanel 活动历史', () => {
     )
     wrapper = await mountPanel()
 
-    // 默认选中 t2（活动更近）：它没有事件
-    expect(tabTimeline).toHaveBeenCalledWith('t2')
+    // 默认选中 t2（活动更近）：它没有事件。游标从 0 起 = 整根读
+    expect(tabTimeline).toHaveBeenCalledWith('t2', 0)
     expect(timelineText()).not.toContain('页面刷新')
 
     await clickTab('a.example')
-    expect(tabTimeline).toHaveBeenCalledWith('t1')
+    expect(tabTimeline).toHaveBeenCalledWith('t1', 0)
     expect(timelineText()).toContain('页面刷新')
   })
 
@@ -633,5 +679,87 @@ describe('TabActivityPanel 活动历史', () => {
 
     await clickTab('b.example')
     expect(wrapper.find('[data-testid="tab-activity-stop"]').exists()).toBe(false)
+  })
+
+  // —— 自动更新：tabActivity 域的两种通知形态各管一边 ——
+
+  it('自动更新：结构性变化（不带页号）把左栏名单与右栏轴一起重读', async () => {
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' }),
+    ])
+    wrapper = await mountPanel()
+
+    const sessionsBefore = tabSessions.mock.calls.length
+    const timelineBefore = tabTimeline.mock.calls.length
+
+    pushDataChange('tabActivity')
+    await flushPromises()
+    await flushPromises()
+
+    // 名单可能整批变（建行 / 关页 / 删除）：左栏重读
+    expect(tabSessions.mock.calls.length).toBe(sessionsBefore + 1)
+    // 轴也可能整批变（划断补写 / 清空）：同样重读，且游标回零 —— 这时候拿着旧游标续拉，
+    // 会指向一个已经不存在的轴
+    expect(tabTimeline.mock.calls.length).toBe(timelineBefore + 1)
+    expect(tabTimeline).toHaveBeenLastCalledWith('t1', 0)
+  })
+
+  it('自动更新：正在看的那一页长了新行时，只增量续拉（带上一次的游标），旧行不重来', async () => {
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' }),
+    ])
+    // 首次整根读到 maxId=7；续拉的那批再回一条更新的（maxId=9）
+    tabTimeline
+      .mockResolvedValueOnce({
+        events: [],
+        captures: [netRec({ url: 'https://a.example/api/old' })],
+        runs: [],
+        acts: [],
+        errors: [],
+        maxId: 7,
+      })
+      .mockResolvedValueOnce({
+        events: [],
+        captures: [netRec({ url: 'https://a.example/api/new' })],
+        runs: [],
+        acts: [],
+        errors: [],
+        maxId: 9,
+      })
+    wrapper = await mountPanel()
+    expect(timelineText()).toContain('/api/old')
+
+    const sessionsBefore = tabSessions.mock.calls.length
+    pushDataChange('tabActivity', 't1')
+    await flushPromises()
+    await flushPromises()
+
+    // 续拉报的是上次回读的 maxId（7），不是 0 = 确实只取了游标之后的行
+    expect(tabTimeline).toHaveBeenLastCalledWith('t1', 7)
+    // 增量拼在尾部：先前那批还在轴上，新的一条也上来了
+    const text = timelineText()
+    expect(text).toContain('/api/old')
+    expect(text).toContain('/api/new')
+    // 名字与计数都在存续行上，这一页只是轴长了：左栏不必重读
+    expect(tabSessions.mock.calls.length).toBe(sessionsBefore)
+  })
+
+  it('自动更新：别的页长了新行，当前视图一动不动', async () => {
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x', createdAt: 900 }),
+      session({ tabSessionId: 't2', tabId: 2, url: 'https://b.example/y', createdAt: 100 }),
+    ])
+    wrapper = await mountPanel()
+    // 当前看的是 t1（活动更近的第一项）
+    expect(tabTimeline).toHaveBeenLastCalledWith('t1', 0)
+
+    const sessionsBefore = tabSessions.mock.calls.length
+    const timelineBefore = tabTimeline.mock.calls.length
+
+    pushDataChange('tabActivity', 't2')
+    await flushPromises()
+
+    expect(tabTimeline.mock.calls.length).toBe(timelineBefore)
+    expect(tabSessions.mock.calls.length).toBe(sessionsBefore)
   })
 })

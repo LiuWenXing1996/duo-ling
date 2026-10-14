@@ -46,6 +46,7 @@ import * as runtime from './runtime-db'
 // 对话界面页面脚本监控（运行时口径）：runstart 登记 + 错误实时推送（跨文档观察者，SW 按 tab 登记）
 import { notePageError, noteRunStart } from './page-monitor'
 import { recordingTabSessionId } from './tab-sessions'
+import { broadcastDataChange } from '../data-broadcast'
 import {
   getGMValue,
   setGMValue,
@@ -654,7 +655,12 @@ async function ingestTabRecord(kindRaw: unknown, record: unknown, tabId: number 
     const tabSessionId = await recordingTabSessionId(tabId)
     if (!tabSessionId) return
     const rec = normalizeNetCapture(record, tabSessionId)
-    if (rec) await runtime.appendTabCapture(rec)
+    if (rec) {
+      await runtime.appendTabCapture(rec)
+      // 这是最热的一条路（录制中每秒可达几十条），**这里不攒批**：广播侧已按「域 + 页」合并
+      // 到一个 100ms 窗口，再攒一次只会让面板慢一拍。带页号 = 正在看这一页的面板增量续拉。
+      broadcastDataChange('tabActivity', tabSessionId)
+    }
   } catch {
     // 录制不该影响页面网络层：任何一步失败都静默丢弃这条
   }

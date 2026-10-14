@@ -25,9 +25,10 @@
 // 删除 / 清空**连整根轴一起删**是刻意的：面板展示的是它们的合成，只删存续行会让这一页以
 // 「表里已查不到」的残影留在列表里（它的轴行还在）。连带删干净 —— 同一份数据，删了就没有了。
 //
-// 一处已知的新鲜度缺口：存续表由 SW 在标签页事件里直接写 IDB，**没有广播域**（跑脚本时写运行条目
-// 会广播 runlog / error，顺带把表一起拉新）。所以「开过但一次脚本都没跑过的新标签页」不会自己
-// 冒出来，要等下次回拉（刷新按钮 / 重开本页）—— 不为它单独加广播通道，是这版刻意的取舍。
+// 新鲜度：两条通知线合起来覆盖全部变化。跑脚本 / 报错广播 runlog 与 error（重拉左栏计数）；
+// 存续行与轴上的行广播 tabActivity —— 结构性变化不带页号（左栏与整根轴一起重读），轴上的新增
+// 带页号（只对正在看的那一页、只取游标之后的增量）。「刷新」由此退化成兜底按钮，不再是要不要
+// 手动更新的分界。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import { useVirtualList } from '@/composables/use-virtual-list'
@@ -249,30 +250,41 @@ async function load(): Promise<void> {
   }
 }
 
+/** 选中页已拉到的位置（存储层给的 maxId）：增量续拉的游标，切页 / 整根重读时归零 */
+const timelineCursor = ref(0)
+
 /**
- * 拉选中页的整根活动轴：文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误六类同住
+ * 拉选中页的活动轴：文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误六类同住
  * tab_events，故一条命令一次拉回。运行条目只取名字与动作总数（动作行要挂脚本名、被截断的
  * 要报数），本体不再单独成行。
  *
  * **只拉这一页**，不做全量预取：采样单条可达数 KB，给每一页都拉一遍纯属浪费。切页时重拉。
+ *
+ * `append` = 只取比游标新的行接着拼：录制中轴一直在长，整根重读的代价随轴长线性上涨，
+ * 增量则只与新增条数有关。游标用存储层返回值里的 `maxId`，不在这里从各行自己求 —— 轴上的行
+ * 读出来是业务投影，不一定都带主键，漏算一类会让游标停住、时间线看着不涨。
  */
-async function loadPageTimeline(tabSessionId: string): Promise<void> {
-  tabEvents.value = []
-  netRecords.value = []
-  pageActs.value = []
-  pageErrors.value = []
-  runMetaById.value = new Map()
+async function loadPageTimeline(tabSessionId: string, append = false): Promise<void> {
+  if (!append) {
+    tabEvents.value = []
+    netRecords.value = []
+    pageActs.value = []
+    pageErrors.value = []
+    runMetaById.value = new Map()
+    timelineCursor.value = 0
+  }
   if (!tabSessionId) return
   try {
-    const { events, captures, runs, acts, errors } =
-      await userscriptClient.tabTimeline(tabSessionId)
-    tabEvents.value = events
-    netRecords.value = captures
-    pageActs.value = acts
-    pageErrors.value = errors
-    runMetaById.value = new Map(
-      runs.map((r) => [r.runId, { name: r.name, eventCount: r.eventCount ?? 0 }])
-    )
+    const res = await userscriptClient.tabTimeline(tabSessionId, timelineCursor.value)
+    // 增量一律拼在尾部、不重排：数组顺序就是落盘序，动作行的行 key 用它在这批里的序号
+    tabEvents.value = append ? [...tabEvents.value, ...res.events] : res.events
+    netRecords.value = append ? [...netRecords.value, ...res.captures] : res.captures
+    pageActs.value = append ? [...pageActs.value, ...res.acts] : res.acts
+    pageErrors.value = append ? [...pageErrors.value, ...res.errors] : res.errors
+    const meta = new Map(runMetaById.value)
+    for (const r of res.runs) meta.set(r.runId, { name: r.name, eventCount: r.eventCount ?? 0 })
+    runMetaById.value = meta
+    timelineCursor.value = res.maxId
   } catch (e) {
     error.value = '读取这一页的活动失败：' + (e instanceof Error ? e.message : String(e))
   }
@@ -286,13 +298,31 @@ watch(selectedId, (id) => {
   void loadPageTimeline(id)
 })
 
-// 跑脚本会广播这两个域（运行条目 / 错误）：接上就不用手动刷新也能看到新记录。
-// 存续表自身没有广播域（见文件头），顺带靠这两次回拉一起更新。
+// 跑脚本会广播这两个域（运行条目 / 错误）：它们计入左栏的计数，故接上就不用手动刷新。
+// 左栏的名单只跟存续表走，这两条只重拉左栏即可。
 useDataSync('runlog', async () => {
   await load()
 })
 useDataSync('error', async () => {
   await load()
+})
+// 标签页活动记录（存续表与轴上的行）：
+//   · 不带页号 = 结构性变化（建行 / 关页 / 开关记录 / 划断对账 / 删除清空）—— 左栏名单与
+//     右栏轴都可能整批变，两边一起重读（增量游标此时已无从续起，必须整根重新对齐）；
+//   · 带页号   = 只有那一页的轴长了新行 —— 正是**正在看的这一页**才增量续拉。别的页长什么
+//     样与当前视图无关；采样也不参与左栏计数，故左栏不必动。
+useDataSync('tabActivity', async (push) => {
+  if (push.uuid) {
+    // 带页号 = 只有那一页的轴长了新行：正在看它就增量续拉；别的页长什么样与当前视图无关
+    if (push.uuid === selectedId.value) await loadPageTimeline(push.uuid, true)
+    return
+  }
+  // 不带页号 = 结构性变化：左栏名单与右栏轴都可能整批变，两边一起重读。
+  // 选中项若被左栏重算换掉了（新页更近 / 当前页被删），这一根就不必再拉 —— watch 已经按
+  // 新的选中页拉过一整根，这里再拉一次等于把它的轴白读一遍。
+  const selected = selectedId.value
+  await load()
+  if (selectedId.value === selected) await loadPageTimeline(selected)
 })
 
 // —— 页面录制（融合自原「接口数据」面板：录制与活动记录本就是同一枚开关的两半）——

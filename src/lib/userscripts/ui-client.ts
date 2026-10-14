@@ -144,11 +144,14 @@ export const userscriptClient = {
   tabSessions: (): Promise<TabSessionRecord[]> => send({ kind: 'userscript:tabSessions' }),
 
   /**
-   * 某一页的整根活动轴：文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误一次查回、
+   * 某一页的活动轴：文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误一次查回、
    * 分五组给出来自 tab_events 同表的六类行 —— 面板据此铺这一页的时间线，不必自己直连库。
+   *
+   * `sinceId` 传上一批的 `maxId` 即只取更新的行：录制中轴会持续长，整根重拉一次比一次贵，
+   * 带游标后每次的代价只与新增条数有关。缺省 = 整根（首次进入 / 切页 / 轴被清理过）。
    */
-  tabTimeline: (tabSessionId: string): Promise<TabTimeline> =>
-    send({ kind: 'userscript:tabTimeline', tabSessionId }),
+  tabTimeline: (tabSessionId: string, sinceId?: number): Promise<TabTimeline> =>
+    send({ kind: 'userscript:tabTimeline', tabSessionId, sinceId }),
 
   /** 删掉某一页的全部活动（存续行 + 它在 tab_events 上的整根轴）——「活动历史」的删除 */
   tabActivityDelete: (tabSessionId: string): Promise<void> =>

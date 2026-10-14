@@ -81,6 +81,7 @@ describe('接口采样（与存续轴事件同表）', () => {
       runs: [],
       acts: [],
       errors: [],
+      maxId: 0,
     })
     expect((await listTabTimeline(t2)).captures.map((r) => r.url)).toEqual(['https://b.test/1'])
   })
@@ -98,6 +99,7 @@ describe('接口采样（与存续轴事件同表）', () => {
       runs: [],
       acts: [],
       errors: [],
+      maxId: 0,
     })
     expect(await listTabEvents()).toEqual([])
   })
@@ -119,6 +121,7 @@ describe('接口采样（与存续轴事件同表）', () => {
       runs: [],
       acts: [],
       errors: [],
+      maxId: 0,
     })
   })
 })
@@ -145,6 +148,33 @@ describe('按页读整根活动轴（五类分流）', () => {
     expect(await listTabEvents()).toEqual([])
     expect((await listTabTimeline(t)).captures).toHaveLength(1)
   })
+
+  it('增量读：带上一次的 maxId 只回更新的行，游标随每批最大行号前进', async () => {
+    const t = await mintTabSession({ tabId: 1, url: 'https://a.test/' })
+    await appendTabCapture(rec('https://a.test/1', 1, t))
+    await appendTabCapture(rec('https://a.test/2', 2, t))
+
+    const first = await listTabTimeline(t)
+    expect(first.captures.map((r) => r.url)).toEqual(['https://a.test/1', 'https://a.test/2'])
+    expect(first.maxId).toBeGreaterThan(0)
+
+    // 没有新行：增量读是空的，游标原地不动（读侧据此知道不必往前挪）
+    const idle = await listTabTimeline(t, first.maxId)
+    expect(idle.captures).toEqual([])
+    expect(idle.maxId).toBe(first.maxId)
+
+    // 又落一条采样：只回它
+    await appendTabCapture(rec('https://a.test/3', 3, t))
+    const next = await listTabTimeline(t, first.maxId)
+    expect(next.captures.map((r) => r.url)).toEqual(['https://a.test/3'])
+    expect(next.maxId).toBeGreaterThan(first.maxId)
+
+    // 六类行共用同一个游标：这一批里的事件也照样按位置裁掉老的
+    await appendTabEvent(t, 'reload', 'https://a.test/')
+    const after = await listTabTimeline(t, next.maxId)
+    expect(after.events.map((e) => e.kind)).toEqual(['reload'])
+    expect(after.captures).toEqual([])
+  })
 })
 
 describe('删一页 / 清全部：采样与事件一起走', () => {
@@ -164,6 +194,7 @@ describe('删一页 / 清全部：采样与事件一起走', () => {
       runs: [],
       acts: [],
       errors: [],
+      maxId: 0,
     })
     const other = await listTabTimeline(t2)
     expect(other.events.map((e) => e.kind)).toEqual(['reload'])
@@ -183,6 +214,7 @@ describe('删一页 / 清全部：采样与事件一起走', () => {
       runs: [],
       acts: [],
       errors: [],
+      maxId: 0,
     })
     expect(await listTabEvents()).toEqual([])
   })

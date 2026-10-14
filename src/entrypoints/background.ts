@@ -575,7 +575,7 @@ const handlers: {
   // tab_events 同表）一次查回、分五组返回。「活动历史」右栏用它铺这一页的时间线。
   // **按页而不是全量**：采样单条可达数 KB，全量拉等于把整库搬过来。
   'userscript:tabTimeline': async (msg): Promise<ReturnType<typeof listTabTimeline>> =>
-    listTabTimeline(msg.tabSessionId),
+    listTabTimeline(msg.tabSessionId, msg.sinceId),
 
   // 打开 / 关掉**这一页**的活动记录（popup 的开关）。判据落在标签页上：同一站点的其他页各开
   // 各的。地址由 SW 现取，不由 popup 带过来。

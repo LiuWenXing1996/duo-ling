@@ -66,7 +66,7 @@ import { NET_TAB_KIND, type NetCaptureRecord } from './tab-record-protocol'
 import { createIdbOpener, idbRequest as request, idbRunTx } from '../idb-core'
 
 const DB_NAME = 'duoling-runtime'
-const DB_VERSION = 8
+const DB_VERSION = 9
 
 const TAB_SESSIONS_STORE = 'tab_sessions'
 const TAB_EVENTS_STORE = 'tab_events'
@@ -82,7 +82,15 @@ const MERGED_SCHEMA_VERSION = 7
 
 const TABS_BY_TAB = 'by_tabId'
 const TABS_BY_SEEN = 'by_seen'
-const EV_BY_SESSION = 'by_tabSessionId'
+/**
+ * 轴按页取行：`[tabSessionId, id]`（`id` 是表主键自增号，也就是落盘序）。
+ *
+ * 为什么要带上 `id`：面板要**增量**续拉新落盘的行，而增量只能在索引键上做范围裁剪
+ * （下界 `[本页, 上次最大 id + 1]`）。单键索引做不到，只能把整根轴读回来再筛 ——
+ * 轴不设上限、录得越久越长，那样每次「增量」都要付一次全量的读代价。
+ * 前缀查询与原用途完全等价（按页取全部 / 按页级联删除），且天然按落盘序排。
+ */
+const EV_BY_SESSION_SEQ = 'by_session_seq'
 const EV_BY_KIND_RUN = 'by_kind_run'
 const EV_BY_ERR = 'by_errId'
 const EV_BY_KIND = 'by_kind'
@@ -101,6 +109,17 @@ const EV_BY_KIND = 'by_kind'
  */
 function kindRunRange(kind: string, runId: string): IDBKeyRange {
   return IDBKeyRange.only([kind, runId])
+}
+
+/**
+ * 某一页在轴上的键区间：`[页, sinceId]` 到 `[页, 上界]`。
+ *
+ * `sinceId` 缺省 0 = 这一页的全部（`id` 是自增正整数，从 1 起，故 0 是安全的开下界）；
+ * 传入上次的游标即「只要比它新的」。上界用 `MAX_SAFE_INTEGER` 而不是空数组那种技巧，
+ * 是因为 id 的取值范围本来就确定（自增整数）。
+ */
+function sessionRange(tabSessionId: string, sinceId = 0): IDBKeyRange {
+  return IDBKeyRange.bound([tabSessionId, sinceId], [tabSessionId, Number.MAX_SAFE_INTEGER])
 }
 
 /** tab_events 里的运行条目：条目本体 + 判别键（主键 id 读回来才有，写侧不设） */
@@ -173,10 +192,19 @@ export interface TabTimeline {
   acts: Array<{ runId: string; event: UserScriptRunEvent }>
   /** 错误记录（按落盘序） */
   errors: UserScriptErrorRecord[]
+  /**
+   * 本批行的最大主键号 —— 读侧的**增量游标**：下次带它来就只取更新的行。
+   *
+   * 由存储层直接给，而不是让读侧从各行各求最大值：轴上的行读出来是各自的业务投影，
+   * 不一定都带 `id`，让读侧去算会把「某类行漏算」变成游标停住、时间线看着不涨。
+   */
+  maxId: number
 }
 
 /** v8 起退场的旧索引名：录制改按标签页后采样上不再有 host，该索引无从维护 */
 const LEGACY_EV_BY_HOST = 'by_host'
+/** v9 起退场的旧索引名：单键 by_tabSessionId 做不了增量范围裁剪，换成带 id 的复合索引 */
+const LEGACY_EV_BY_SESSION = 'by_tabSessionId'
 
 const opener = createIdbOpener({
   name: DB_NAME,
@@ -193,7 +221,17 @@ const opener = createIdbOpener({
     // v7 → v8：录制从「按站点」改为「按标签页」，采样不再带 host，by_host 索引随之退场。
     // 观测数据的形状本身没变，故**只摘索引、不动任何一行** —— 这一版没有任何理由清数据。
     const events = tx.objectStore(TAB_EVENTS_STORE)
-    if (events.indexNames.contains(LEGACY_EV_BY_HOST)) events.deleteIndex(LEGACY_EV_BY_HOST)
+    if (oldVersion < 8 && events.indexNames.contains(LEGACY_EV_BY_HOST)) {
+      events.deleteIndex(LEGACY_EV_BY_HOST)
+    }
+    // v8 → v9：面板按游标增量续拉，单键索引做不了「比某个 id 新」的裁剪，换成 [页, id]。
+    // 同款处理：只摘旧的、补新的，一行数据都不碰。
+    if (oldVersion < 9) {
+      if (events.indexNames.contains(LEGACY_EV_BY_SESSION)) events.deleteIndex(LEGACY_EV_BY_SESSION)
+      if (!events.indexNames.contains(EV_BY_SESSION_SEQ)) {
+        events.createIndex(EV_BY_SESSION_SEQ, ['tabSessionId', 'id'])
+      }
+    }
   },
   label: '运行数据',
 })
@@ -206,7 +244,7 @@ function createMergedStores(db: IDBDatabase): void {
   // 主键写进记录本身（keyPath）：读侧要拿 id 当行身份（面板的列表 key）。
   // 那种「主键只在表里、记录上读不到」的写法读回来的行没有 id —— 这张表不能用它。
   const events = db.createObjectStore(TAB_EVENTS_STORE, { keyPath: 'id', autoIncrement: true })
-  events.createIndex(EV_BY_SESSION, 'tabSessionId') // 按页拉整根轴 / 按页级联删除
+  events.createIndex(EV_BY_SESSION_SEQ, ['tabSessionId', 'id']) // 按页取整根轴 / 按页级联删除 / 按游标增量续拉
   events.createIndex(EV_BY_KIND_RUN, ['kind', 'runId']) // 按运行精确取那一行 / 按运行拉动作（见 kindRunRange）
   events.createIndex(EV_BY_ERR, 'errId') // 按错误 id 读（AI 的 error_read）
   events.createIndex(EV_BY_KIND, 'kind') // 按 kind 取全量（运行条目 / 错误）与环形裁剪
@@ -783,7 +821,7 @@ export async function hasRecordingTabSession(): Promise<boolean> {
 function deleteSessionEvents(store: IDBObjectStore, tabSessionId: string): Promise<number> {
   let removed = 0
   return eachCursor(
-    store.index(EV_BY_SESSION).openCursor(IDBKeyRange.only(tabSessionId)),
+    store.index(EV_BY_SESSION_SEQ).openCursor(sessionRange(tabSessionId)),
     Infinity,
     (cursor) => {
       cursor.delete()
@@ -869,17 +907,28 @@ export async function appendTabCapture(rec: NetCaptureRecord): Promise<void> {
  *
  * 面板把前四类按时刻混排成时间线（动作与错误自带所属 runId，用于并上脚本名前缀）。
  *
+ * `sinceId` 传上一批的 `maxId` 即只取更新的行（增量跟轴），缺省 0 = 整根轴。两者走同一个
+ * 索引、同一个区间构造，差别只在下界 —— 所以「增量」不需要第二条读路径。
+ *
  * 时刻缺省的存续轴事件排在最末：目前唯一的来源是划断补的那条「结束记录」，它按定义发生在该行
  * 所有已知事件之后（浏览器都退出了），排在末尾与事实一致 —— 而不是给它猜一个数出来。
  */
-export async function listTabTimeline(tabSessionId: string): Promise<TabTimeline> {
+export async function listTabTimeline(tabSessionId: string, sinceId = 0): Promise<TabTimeline> {
   const rows = await runTx(TAB_EVENTS_STORE, 'readonly', async (tx) =>
     request<TabTimelineRow[]>(
-      tx.objectStore(TAB_EVENTS_STORE).index(EV_BY_SESSION).getAll(tabSessionId),
+      tx.objectStore(TAB_EVENTS_STORE).index(EV_BY_SESSION_SEQ).getAll(sessionRange(tabSessionId, sinceId)),
     ),
   )
-  const out: TabTimeline = { events: [], captures: [], runs: [], acts: [], errors: [] }
+  const out: TabTimeline = {
+    events: [],
+    captures: [],
+    runs: [],
+    acts: [],
+    errors: [],
+    maxId: sinceId,
+  }
   for (const row of rows ?? []) {
+    if (typeof row.id === 'number' && row.id > out.maxId) out.maxId = row.id
     if (isSessionEventRow(row)) out.events.push(row)
     else if (row.kind === NET_TAB_KIND) out.captures.push(toCapture(row))
     else if (row.kind === RUN_TAB_KIND) out.runs.push(toRunEntry(row))
