@@ -39,7 +39,7 @@
 | `npm install` | 首次装 / 加依赖（非锁定场景）；按 lockfile 精确还原用上面的 `npm ci` |
 | `npm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev`。入口是 `scripts/dev.mjs`：随机端口起本机靶站 → 探针页经 `DL_PROBE_URL` 交给 WXT 自动打开；同时在本机 5199 起假模型（地址打印在控制台，手填一次进「设置 → 添加模型 → 自定义」即可长期复用）。靶站与假模型都随 dev 起停 |
 | `npm run probe:serve` | 起本机测试靶站（`scripts/probe-target.mjs`，默认端口 5178）：手测探针的出网目标 + 探针页宿主，端点见该文件头部。**不跑 dev 的手测**（加载 `.output` 产物）先起它；探针从页面 `<meta name="dl-probe-target">` 取基址，读不到才回落默认端口 |
-| `npm run model:serve` | 起本机假模型（`scripts/model-stub.mjs`，默认端口 5199，可用 `DL_MODEL_STUB_PORT` 覆盖）：一个 OpenAI 兼容的假服务，开发/手测对话链路时顶替真模型（不花真 Key、回复确定）。地址填进「设置 → 添加模型 → 服务商选自定义 → 接口地址」，密钥留空即可。e2e 也从这里 import（同目录有 `.d.mts` 声明） |
+| `npm run model:serve` | 起本机假模型（`scripts/model-stub.mjs`，默认端口 5199，可用 `DL_MODEL_STUB_PORT` 覆盖）：一个 OpenAI 兼容的假服务，开发/手测对话链路时顶替真模型（不花真 Key、回复确定）。地址填进「设置 → 添加模型 → 服务商选自定义 → 接口地址」，密钥留空即可；**内置调试触发** —— 消息整句发「快照」或「页面环境」即回对应的工具调用，并把采集结果摘要成一句人话（含失败原因），手测 `page_snapshot` / `page_env_read` 这类要页面侧真跑一遍的工具链时不必写 plan（e2e 显式传 `plan` 时它不生效）。e2e 也从这里 import（同目录有 `.d.mts` 声明） |
 | `npm run build` | 构建，产出 `.output/chrome-mv3` |
 | `npm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
 | `npm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
