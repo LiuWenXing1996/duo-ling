@@ -70,11 +70,12 @@ import {
   deleteAllAssets,
   deleteAssets,
   hasAsset,
-  mediaTypeOf,
   putAsset,
   readAsset,
   safeFilename,
 } from './us-assets'
+// 换算表本身已搬到叶子模块（不依赖 fs），故从它自己那儿取
+import { mediaTypeOf } from '@/lib/media-types'
 
 beforeEach(() => fake.reset())
 

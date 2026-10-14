@@ -14,6 +14,7 @@
 //
 // ⚠️ 单实例约束同 us-fs：只用这里 import 的 pfs，不要另 new LightningFS（内存索引互不可见）。
 import { pfs } from './us-fs'
+import { extForMediaType, mediaTypeOf } from '@/lib/media-types'
 import type { ChatAssetRef } from '@/lib/chat-assets'
 
 /** 资源库根目录（与 /uscripts 平级，见文件头「为什么」） */
@@ -43,45 +44,6 @@ export interface AssetContent {
   bytes: Uint8Array
 }
 
-/** 扩展名 → MIME（读回时按文件名还原；认不出给通用二进制类型） */
-const MEDIA_TYPES: Record<string, string> = {
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  webp: 'image/webp',
-  gif: 'image/gif',
-  bmp: 'image/bmp',
-  avif: 'image/avif',
-  txt: 'text/plain',
-  md: 'text/markdown',
-  json: 'application/json',
-  csv: 'text/csv',
-}
-
-/**
- * MIME → 扩展名（MEDIA_TYPES 的反查）。落盘时用真实 MIME 定扩展名，而不是沿用它自带的扩展名 ——
- * 附件在面板侧会被重编码（截图 `.png` 出来其实是 JPEG 字节），沿用原名会让读回时推出错 MIME。
- * 认不出的 MIME 保持原名（宁可不改，也不瞎猜）。
- */
-const EXT_BY_MEDIA_TYPE: Record<string, string> = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/webp': 'webp',
-  'image/gif': 'gif',
-  'image/bmp': 'bmp',
-  'image/avif': 'avif',
-  'text/plain': 'txt',
-  'text/markdown': 'md',
-  'application/json': 'json',
-  'text/csv': 'csv',
-}
-
-/** 按文件名（扩展名）推 MIME */
-export function mediaTypeOf(filename: string): string {
-  const ext = filename.slice(filename.lastIndexOf('.') + 1).toLowerCase()
-  return MEDIA_TYPES[ext] ?? 'application/octet-stream'
-}
-
 /** id 来自内容 hash，但仍防路径穿越（对齐 us-git.assertSafeUuid 的口径） */
 function assertSafeAssetId(id: unknown): asserts id is string {
   if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
@@ -100,10 +62,10 @@ export function safeFilename(name: string): string {
   return cleaned || 'file'
 }
 
-/** 收窄文件名 + 把扩展名换成 mediaType 对应的那个（见 EXT_BY_MEDIA_TYPE 的「为什么」） */
+/** 收窄文件名 + 把扩展名换成 mediaType 对应的那个（换算表与「为什么」在 media-types.ts） */
 function normalizeFilename(name: string, mediaType: string): string {
   const safe = safeFilename(name)
-  const ext = EXT_BY_MEDIA_TYPE[mediaType]
+  const ext = extForMediaType(mediaType)
   if (!ext) return safe
   const stem = safe.replace(/\.[^./]+$/, '') || 'file'
   return `${stem}.${ext}`

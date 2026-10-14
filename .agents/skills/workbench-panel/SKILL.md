@@ -27,6 +27,8 @@ description: Use when adding, changing, or debugging a workbench tab/panel in th
 工作台是**扩展页**上下文，而很多库只在 offscreen 可用：
 
 - ❌ 不能 import：`userscripts/us-git.ts`（duoling-fs，只许 offscreen 碰）、`userscripts/builder.ts`（esbuild）、`offscreen-chat/script-tools.ts`（拉了前者两个 + 裸 IDB 读侧）、任何 `offscreen-chat/*` 编排件。
+  - 判据：该模块**顶部 import 链里有没有 offscreen-only 的东西**，而不看它自己的名字。`userscripts/us-assets.ts` 的模块级 `import { pfs } from './us-fs'` 就会把 lightning-fs 单例带进扩展页（`new LightningFS`，白建一个实例）；组件测试里则表现为两条 `indexedDB is not defined` 的 unhandled rejection。
+  - 撞上这条时**先找纯函数能不能抽出来**：MIME 换算表已抽到 `lib/media-types.ts`、工具目录在 `lib/agent-tools-catalog.ts`，面板取叶子模块即可，别为此 import 整条链。
 - ✅ 可以直接用：只读 IDB 的 `lib/*-store.ts`（`conversation-store` / `project-store` 读侧）、纯数据模块。
 - 需要 offscreen 才有的数据，两条路：
   - **新增 IPC 命令**（走 SW / offscreen；代价是唤醒 offscreen、链路变长）；

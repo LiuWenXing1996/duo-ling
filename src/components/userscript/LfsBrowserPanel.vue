@@ -18,7 +18,8 @@ import {
 } from '@/components/ui/tooltip'
 import LfsTreeNode from './LfsTreeNode.vue'
 import { fsClient, userscriptClient } from '@/lib/userscripts/ui-client'
-import { mediaTypeOf } from '@/lib/userscripts/us-assets'
+// 换算表取自叶子模块而非 us-assets：后者会带出 lightning-fs 单例，面板只要一张表
+import { mediaTypeOf } from '@/lib/media-types'
 import type { LfsNode, LfsFileContent } from '@/lib/userscripts/us-fs'
 
 const loading = ref(false)
