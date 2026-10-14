@@ -18,7 +18,7 @@
 // 见 store.appendUserScriptError）。左栏的计数同样按 tabSessionId 归组。
 //
 // 数据通道：userscriptClient（workbench 是可信扩展页，可直接 chrome.runtime.sendMessage）。
-// 读侧两条命令：tabSessions（存续表，左栏取名字与时刻）/ runlog（全量时间线，左栏数「跑过几次」）；
+// 读侧两条命令：tabSessions（存续表，左栏取名字与时刻）/ runlog（全量时间线，供头部概览与卡头计数）；
 // 选中页的整根轴另走 tabTimeline（**按页拉**：采样单条可达数 KB，全量等于把整库搬过消息边界）。
 // 写侧两条：tabActivityDelete（删某一页）/ tabActivityClear（清空全部）。
 //
@@ -113,6 +113,7 @@ function tabIdOf(row: UserScriptRunLogRow): string | undefined {
  * 左栏列表：存续表全量（含一次脚本都没跑过的页）。
  *
  * 计数取自全量运行时间线，按归属键归组：运行条数 + 它挂着的错误数 + 单独成行的错误数。
+ * 它们只喂头部概览与右栏卡头，**不在行内铺开**（行内只写主机名与状态词）。
  * 无归属的行（注册失败 / 依赖抓取失败）在这里被跳过 —— 它们不出口，左栏也不给它们留格子。
  */
 const tabItems = computed<TabItem[]>(() => {
@@ -468,13 +469,6 @@ function statusText(item: TabItem): string {
   return item.status === 'closed' ? STATUS_LABEL.closed : ''
 }
 
-function itemSummary(item: TabItem): string {
-  const parts: string[] = []
-  if (item.runs) parts.push(`跑过 ${item.runs} 次`)
-  if (item.errors) parts.push(`错误 ${item.errors} 条`)
-  return parts.length ? parts.join(' · ') : '无运行记录'
-}
-
 function formatDateTime(t: number): string {
   return new Date(t).toLocaleString()
 }
@@ -644,7 +638,8 @@ function onConfirmedAction(): void {
 
     <!-- 双栏常驻：左栏是这一页的入口，即便一条记录都没有也要可见 -->
     <div class="flex min-h-0 flex-1">
-      <!-- 左栏：标签页列表（主机名 + 行尾状态词 + 一行活动摘要） -->
+      <!-- 左栏：标签页列表（主机名 + 行尾状态词）—— 一行一项，不带活动摘要：摘要只数脚本，
+           在只录到请求的页上会被读成「这一页没活动」，而真值在右栏卡头 -->
       <div class="flex w-64 shrink-0 flex-col border-r border-border">
         <nav class="min-h-0 flex-1 overflow-y-auto py-2" aria-label="标签页列表">
           <p v-if="!tabItems.length" class="px-3 py-2 text-xs text-muted-foreground">
@@ -654,20 +649,17 @@ function onConfirmedAction(): void {
             v-for="item in tabItems"
             :key="item.id"
             type="button"
-            class="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left text-xs hover:bg-muted"
+            class="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs hover:bg-muted"
             :class="item.id === selectedId ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground'"
             :title="item.url ?? item.label"
             @click="selectedId = item.id"
           >
-            <span class="flex w-full items-center gap-1.5">
-              <span class="min-w-0 flex-1 truncate">{{ item.label }}</span>
-              <span
-                v-if="statusText(item)"
-                class="shrink-0 text-[10px]"
-                :class="recordingTabSessionIds.has(item.id) ? 'text-foreground' : ''"
-              >{{ statusText(item) }}</span>
-            </span>
-            <span class="truncate text-[10px] text-muted-foreground">{{ itemSummary(item) }}</span>
+            <span class="min-w-0 flex-1 truncate">{{ item.label }}</span>
+            <span
+              v-if="statusText(item)"
+              class="shrink-0 text-[10px]"
+              :class="recordingTabSessionIds.has(item.id) ? 'text-foreground' : ''"
+            >{{ statusText(item) }}</span>
           </button>
         </nav>
       </div>

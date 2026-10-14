@@ -253,10 +253,11 @@ describe('TabActivityPanel 活动历史', () => {
     ])
     wrapper = await mountPanel()
 
-    // 左栏：这一页列出来了，摘要写「无运行记录」（不是 0 次运行的另一种说法）
+    // 左栏：这一页列出来了，整行只有主机名 —— 不带活动摘要（摘要只数脚本，在只录到请求的
+    // 页上会被读成「这一页没活动」；真值在右栏卡头）
     expect(tabButtons()).toHaveLength(1)
     expect(tabButtons()[0].text()).toContain('a.example')
-    expect(tabButtons()[0].text()).toContain('无运行记录')
+    expect(tabButtons()[0].text()).not.toContain('无运行记录')
 
     // 右栏：卡头是这一页自己（地址 + 生命周期端点），记到了就画
     expect(detailText()).toContain('a.example')
@@ -347,7 +348,7 @@ describe('TabActivityPanel 活动历史', () => {
     expect(text).toContain('boom-stack')
   })
 
-  it('左栏计数把「挂在运行上的错误」也算进去', async () => {
+  it('挂在运行上的错误也计入计数（右栏卡头据此显示运行与错误数）', async () => {
     tabSessions.mockResolvedValue([
       session({ tabSessionId: 't1', tabId: 1, url: 'https://a.example/x' }),
     ])
@@ -356,8 +357,9 @@ describe('TabActivityPanel 活动历史', () => {
     ])
     wrapper = await mountPanel()
 
-    expect(tabButtons()[0].text()).toContain('跑过 1 次')
-    expect(tabButtons()[0].text()).toContain('错误 1 条')
+    // 错误挂在运行条上（不是单独成行的一条），计数仍要算上
+    expect(detailText()).toContain('运行 1 次')
+    expect(detailText()).toContain('错误 1 条')
   })
 
   it('无归属的记录（注册 / 依赖抓取失败）在这一页不出口：左栏也不为它留格子', async () => {
