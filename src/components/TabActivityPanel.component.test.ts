@@ -346,6 +346,25 @@ describe('TabActivityPanel 活动历史', () => {
     expect(timelineText()).not.toContain('页面关闭')
   })
 
+  it('左栏状态词只写非默认态：录制的页「正在记录」、关闭的页「已关闭」，活着没在录的页不写', async () => {
+    tabSessions.mockResolvedValue([
+      session({ tabSessionId: 't1', tabId: 1, url: 'https://rec.example/x', recording: true }),
+      session({ tabSessionId: 't2', tabId: 2, url: 'https://gone.example/x', ended: true }),
+      session({ tabSessionId: 't3', tabId: 3, url: 'https://idle.example/x' }),
+    ])
+    wrapper = await mountPanel()
+
+    const rowText = (host: string): string => {
+      const btn = tabButtons().find((b) => b.text().includes(host))
+      if (!btn) throw new Error(`左栏没有 ${host}`)
+      return btn.text()
+    }
+    expect(rowText('rec.example')).toContain('正在记录')
+    expect(rowText('gone.example')).toContain('已关闭')
+    expect(rowText('idle.example')).not.toContain('正在记录')
+    expect(rowText('idle.example')).not.toContain('已关闭')
+  })
+
   /** 确认弹窗里的按钮（限定在 role=dialog 内，避免误命中面板自己的「删除」按钮） */
   function dialogButton(text: string): HTMLButtonElement {
     const dialog = document.body.querySelector('[role="dialog"]')

@@ -427,11 +427,15 @@ const STATUS_LABEL: Record<TabItem['status'], string> = {
   closed: '已关闭'
 }
 /**
- * 状态点的颜色：绿点 = 还开着的页，灰点 = 已判定结束。
- * 已判定结束含「浏览器启动时划断」那种时刻留空的——它确实已经过去了。
+ * 行尾状态词：只写**非默认态**。
+ *
+ * 默认态 = 「页还开着、没在录」，列表里多数如此 —— 它不需要任何标记，于是「正在记录」与
+ * 「已关闭」一出现就是值得看一眼的那两行。两者互斥：标签页关闭时那一行会被盖章结束，
+ * 录制判据（未结束 + recording）随之失效。
  */
-function dotClass(item: TabItem): string {
-  return item.status === 'open' ? 'bg-green-600' : 'bg-muted-foreground/40'
+function statusText(item: TabItem): string {
+  if (recordingTabSessionIds.value.has(item.id)) return '正在记录'
+  return item.status === 'closed' ? STATUS_LABEL.closed : ''
 }
 
 function itemSummary(item: TabItem): string {
@@ -610,7 +614,7 @@ function onConfirmedAction(): void {
 
     <!-- 双栏常驻：左栏是这一页的入口，即便一条记录都没有也要可见 -->
     <div class="flex min-h-0 flex-1">
-      <!-- 左栏：标签页列表（状态点 + 主机名 + 一行活动摘要） -->
+      <!-- 左栏：标签页列表（主机名 + 行尾状态词 + 一行活动摘要） -->
       <div class="flex w-64 shrink-0 flex-col border-r border-border">
         <nav class="min-h-0 flex-1 overflow-y-auto py-2" aria-label="标签页列表">
           <p v-if="!tabItems.length" class="px-3 py-2 text-xs text-muted-foreground">
@@ -626,15 +630,14 @@ function onConfirmedAction(): void {
             @click="selectedId = item.id"
           >
             <span class="flex w-full items-center gap-1.5">
-              <span class="size-1.5 shrink-0 rounded-full" :class="dotClass(item)" />
-              <span
-                v-if="recordingTabSessionIds.has(item.id)"
-                class="size-1.5 shrink-0 rounded-full bg-primary"
-                title="正在记录"
-              />
               <span class="min-w-0 flex-1 truncate">{{ item.label }}</span>
+              <span
+                v-if="statusText(item)"
+                class="shrink-0 text-[10px]"
+                :class="recordingTabSessionIds.has(item.id) ? 'text-foreground' : ''"
+              >{{ statusText(item) }}</span>
             </span>
-            <span class="truncate pl-3 text-[10px] text-muted-foreground">{{ itemSummary(item) }}</span>
+            <span class="truncate text-[10px] text-muted-foreground">{{ itemSummary(item) }}</span>
           </button>
         </nav>
       </div>
