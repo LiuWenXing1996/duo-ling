@@ -19,6 +19,9 @@ import { appendUserScriptError, getAllGMValues } from './store'
 import { fetchRequireSources } from './require-cache'
 import { fetchResourceSources } from './resource-cache'
 import { buildScriptRelaySource } from './script-relay'
+// 拾取器常驻件：指令下发 / 结果上行的 USER_SCRIPT 世界那半（弹层的「点选元素」与 AI 的
+// 页面快照 / 环境读数共用同一件，见 syncPickerHost）
+import { buildPickerHostSource, PICKER_FILE, PICKER_HOST_ID, PICKER_HOST_WORLD_ID } from './picker-host'
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
 import { parseUserScriptMetadata } from './metadata'
 import { generateBridgeSecret } from './bridge-protocol'
@@ -251,7 +254,7 @@ const TAB_FORWARDER_WORLD_ID = 'us-dl-tab'
  * 残留的旧注册不在本名单里，于是下一遍 registerAllEnabled 的 stale 清扫会顺手注销它 ——
  * 不必为改名专门写一段清理。
  */
-const BUILTIN_SCRIPT_IDS = [SCRIPT_RELAY_ID, TAB_RECORDER_ID, TAB_FORWARDER_ID]
+const BUILTIN_SCRIPT_IDS = [SCRIPT_RELAY_ID, PICKER_HOST_ID, TAB_RECORDER_ID, TAB_FORWARDER_ID]
 
 /**
  * 内置件的展示信息（UI 两处透出用：popup 的页面概览与工作台脚本列表）。
@@ -262,8 +265,13 @@ const BUILTIN_SCRIPT_IDS = [SCRIPT_RELAY_ID, TAB_RECORDER_ID, TAB_FORWARDER_ID]
 const BUILTIN_META: Record<string, { name: string; world: string; note: string }> = {
   [SCRIPT_RELAY_ID]: {
     name: '脚本桥',
-    world: '扩展世界',
+    world: '用户脚本世界',
     note: 'GM 能力的中继件：脚本世界没有 chrome.*，靠它把 GM 调用转给扩展',
+  },
+  [PICKER_HOST_ID]: {
+    name: '元素拾取器',
+    world: '用户脚本世界',
+    note: '在页面里待命：收到指令才点选元素 / 抓快照 / 读环境，平时不亮任何 UI',
   },
   [TAB_RECORDER_ID]: {
     name: '页面录制',
@@ -272,35 +280,26 @@ const BUILTIN_META: Record<string, { name: string; world: string; note: string }
   },
   [TAB_FORWARDER_ID]: {
     name: '录制转发',
-    world: '扩展世界',
+    world: '用户脚本世界',
     note: '把主世界捕获到的采样转给扩展（主世界发不出扩展消息）',
   },
 }
 
 /**
- * 注册面之外的内置注入物。它们不在 `chrome.userScripts.getScripts()` 里（前者走
- * manifest 的 content_scripts 通道、后者按需 execute 注入），但确实会进页面，
- * 透出清单里不该缺位 —— 只是状态不能假装它们有「已注册 / 未注册」。
+ * 注册面之外的内置注入物：只剩浮层宿主一件。它走 manifest 的 content_scripts 通道、不在
+ * `chrome.userScripts.getScripts()` 里，但确实会进页面（普通网页上恒在），透出清单里不该缺位 ——
+ * 只是状态不能假装它有「已注册 / 未注册」。
  */
 const STATIC_BUILTINS: Array<BuiltinRegistration> = [
   {
     id: 'dl-content-host',
     name: '浮层宿主',
-    world: '隔离世界（声明式）',
+    world: '隔离世界',
     note: 'manifest 声明的内容脚本：浮层的挂载点，收到「打开会话」才建 DOM，平时页面里什么都没有',
     matches: ['<all_urls>'],
     // 声明式内容脚本跟着扩展包走，普通网页上恒在，不随引擎可用性变化
     registered: true,
     presence: 'declarative',
-  },
-  {
-    id: 'duoling-picker',
-    name: '元素拾取器',
-    world: '扩展世界（按需）',
-    note: '「点选元素 / 快照」时临时注入到已加载页面，结算完即走，不构成常驻状态',
-    matches: [],
-    registered: false,
-    presence: 'onDemand',
   },
 ]
 
@@ -322,9 +321,8 @@ export interface BuiltinRegistration {
    * 注入形态，决定 UI 的状态标怎么读：
    * - `registered`：走 userScripts 注册（「已注册 / 未注册」）
    * - `declarative`：manifest 声明式内容脚本（「常驻」，不随引擎可用性变化）
-   * - `onDemand`：按需 execute 注入（「按需」，用完即走，没有状态可言）
    */
-  presence: 'registered' | 'declarative' | 'onDemand'
+  presence: 'registered' | 'declarative'
 }
 
 /**
@@ -364,7 +362,7 @@ export async function listBuiltinRegistrations(): Promise<BuiltinRegistration[]>
  *
  * 录制两件是**全匹配注册**（判据是「有没有页在录」而非站点），故不能只看匹配面 ——
  * 没开记录的页上它们虽然在册却不工作，列出来是噪音。判据因此多一道：录制件只在该页
- * 正在记录时才算在用。按需件不列：用完即走，没有「此刻在用」的状态可言。
+ * 正在记录时才算在用。
  */
 export function builtinsOnPage(
   all: readonly BuiltinRegistration[],
@@ -373,7 +371,6 @@ export function builtinsOnPage(
 ): BuiltinRegistration[] {
   if (!url) return []
   return all.filter((r) => {
-    if (r.presence === 'onDemand') return false
     if (r.presence === 'declarative') return true // 普通网页上声明式内容脚本恒在（概览只收普通网页）
     if (!r.registered) return false
     if (r.id === TAB_RECORDER_ID || r.id === TAB_FORWARDER_ID) return recording
@@ -469,6 +466,55 @@ async function syncScriptRelay(projects: ScriptProject[]): Promise<void> {
   }
 }
 
+/** 拾取器常驻件的匹配面：覆盖全部站点（理由见 syncPickerHost 的说明） */
+const PICKER_HOST_MATCHES = ['<all_urls>']
+
+/**
+ * 维护拾取器常驻件的注册（幂等可重入；调用方负责串行化）。
+ *
+ * **为什么常驻**：拾取的时刻是「页面早已打开、用户刚点按钮」，而注册件只在页面**开始加载**时
+ * 注入，两者差的正是这个时间点；且注册件没有返回值通道。于是走「加载即到位待命，指令与结果走
+ * 消息」：下发见 picker-bridge 的 runPickerCommand，上行由件 sendMessage 回 SW。
+ *
+ * **匹配面全站**：拾取的目标由用户点按钮那一刻决定，而注册没有 tab 维度（RegisteredUserScript
+ * 的匹配字段全是 URL），只能覆盖全部 —— 代价是每个普通网页里都有一份待命代码（零 UI、零网络，
+ * 只装一个消息监听）。与录制件同理，判据不同：录制看「有没有页在录」，本件恒在。
+ *
+ * **它的世界必须开 messaging**：件靠 chrome.runtime 收发指令与结果，而自定义世界不继承默认世界
+ * 配置（与中继件 / 转发件同一坑）。
+ */
+async function syncPickerHost(): Promise<void> {
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
+  let existing: chrome.userScripts.RegisteredUserScript | undefined
+  try {
+    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === PICKER_HOST_ID)
+  } catch {
+    return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
+  }
+  if (existing && sameMatchSet(existing, { matches: PICKER_HOST_MATCHES })) return
+  const worldOk = await configureWorld(PICKER_HOST_WORLD_ID)
+  if (!worldOk) {
+    console.warn('[duoling:userscript] 拾取器世界配置失败（无 messaging，拾取不可用）', PICKER_HOST_WORLD_ID)
+  }
+  await chrome.userScripts.unregister({ ids: [PICKER_HOST_ID] }).catch(() => {})
+  const host: chrome.userScripts.RegisteredUserScript = {
+    id: PICKER_HOST_ID,
+    worldId: PICKER_HOST_WORLD_ID,
+    // 两段顺序不能换：前一段只定义运行器，后一段装指令监听并调它（见 picker-host.ts）
+    js: [{ file: PICKER_FILE }, { code: buildPickerHostSource() }],
+    matches: PICKER_HOST_MATCHES,
+    // document_start：件只定义函数 + 装监听，不碰 DOM，尽早到位可缩小「页面加载中点按钮」的空窗
+    runAt: 'document_start',
+  }
+  try {
+    await chrome.userScripts.register([host])
+    console.log('[duoling:sw] 拾取器常驻件注册成功：', JSON.stringify(PICKER_HOST_MATCHES))
+  } catch (e) {
+    console.warn('[duoling:sw] 拾取器常驻件注册失败：', e)
+    throw e
+  }
+}
+
 // —— 标签页录制件（tab-record）：常驻 + 按**标签页**的门禁 ——
 //
 // 与中继件完全独立：中继件跟随「启用用户脚本并集」，录制件跟随「有没有标签页在记活动」。
@@ -559,14 +605,17 @@ export function refreshTabRecorder(): Promise<void> {
 }
 
 /**
- * 重算**内置注入脚本**的注册（挂 registerChain 串行队列）：脚本增删改 / 启停 / 删除后由 background 调用。
- * 只管脚本桥中继件（USER_SCRIPT，把 MAIN 世界脚本的 GM 调用转给 SW），触发条件是「启用脚本的匹配并集」；
+ * 重算**内置注入脚本**的注册（挂 registerChain 串行队列）：脚本增删改 / 启停 / 删除，以及启动与
+ * 扩展更新恢复时由 background 调用。两件在这一处汇合：
+ *   · 脚本桥中继件 —— 跟随「启用脚本的匹配并集」（MAIN 世界脚本的 GM 调用靠它转给 SW）；
+ *   · 拾取器常驻件 —— 与脚本集合无关、恒注册，搭这条队列只为少一处接线（幂等，注册面未变即跳过）。
  * 录制那两件有自己的入口（`refreshTabRecorder`）。
  */
 export function refreshBuiltinScripts(): Promise<void> {
   const run = registerChain.then(async () => {
     const projects = await listProjects()
     await syncScriptRelay(projects)
+    await syncPickerHost()
   })
   registerChain = run.catch(() => {})
   return run
@@ -722,11 +771,13 @@ async function runRegisterAllEnabled(): Promise<void> {
   // 录制件跟随「有没有标签页在记活动」（与脚本集合无关）：SW 冷启动 / 扩展更新恢复时一并同步，
   // 保证「正在录的那一页」在重注册后依然生效
   await syncTabRecorder().catch(() => {})
+  // 拾取器常驻件同样与脚本集合无关：冷启动 / 扩展更新后必须补回（扩展更新会清空全部注册）
+  await syncPickerHost().catch(() => {})
   const enabled = projects.filter((p) => p.enabled)
   try {
     const existing = await chrome.userScripts.getScripts()
-    // 全量重注册只清用户脚本——内置注册（中继件 / 录制件）在上一段刚按并集 / 门禁同步过，
-    // 不能被这把误清（否则重注册后录制件消失，直到下次冷启动才补）
+    // 全量重注册只清用户脚本——内置注册（中继件 / 拾取器常驻件 / 录制件）在上一段刚按并集 / 门禁
+    // 同步过，不能被这把误清（否则重注册后录制件消失，直到下次冷启动才补）
     const stale = existing.filter((s) => !BUILTIN_SCRIPT_IDS.includes(s.id))
     if (stale.length) await unregisterScripts(stale.map((s) => s.id))
   } catch {

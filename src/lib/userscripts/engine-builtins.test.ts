@@ -1,8 +1,8 @@
 // 内置件的注册查询与「这一页用不用得上」的推导（两处 UI 只读透出的数据源）。
 //
 // 四条语义各守一处：引擎不可用时注册件全部按未注册回退（不是件本身的错）、未注册的不算在用、
-// 录制件只在该页正在记录时才算在用、地址为空直接不给结论；注册面之外的静态件（声明式内容
-// 脚本恒在、按需拾取器永不算在用）各有一条专用判据。
+// 录制件只在该页正在记录时才算在用、地址为空直接不给结论；注册面之外的静态件（声明式内容脚本）
+// 单独一条判据。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { builtinsOnPage, listBuiltinRegistrations } from './engine'
 
@@ -18,15 +18,15 @@ afterEach(() => {
 })
 
 describe('listBuiltinRegistrations（内置件注册状态）', () => {
-  it('引擎不可用（getScripts 抛错）：三个注册件全部按未注册返回，不抛', async () => {
+  it('引擎不可用（getScripts 抛错）：四个注册件全部按未注册返回，不抛', async () => {
     vi.stubGlobal('chrome', {
       userScripts: { getScripts: async () => Promise.reject(new Error('不可用')) },
     })
     const all = await listBuiltinRegistrations()
-    // 五件全透出：三个注册件 + 两个注册面之外的静态件（声明式内容脚本 / 按需拾取器）
+    // 五件全透出：四个注册件 + 一个注册面之外的静态件（声明式内容脚本）
     expect(all).toHaveLength(5)
     const registeredOnes = all.filter((b) => b.presence === 'registered')
-    expect(registeredOnes).toHaveLength(3)
+    expect(registeredOnes).toHaveLength(4)
     expect(registeredOnes.every((b) => b.registered === false)).toBe(true)
     expect(registeredOnes.every((b) => b.matches.length === 0)).toBe(true)
   })
@@ -37,15 +37,12 @@ describe('listBuiltinRegistrations（内置件注册状态）', () => {
     expect(all.filter((b) => b.presence === 'registered').every((b) => !b.registered)).toBe(true)
   })
 
-  it('静态件不随引擎可用性变化：声明式内容脚本恒在，按需件不构成状态', async () => {
+  it('静态件不随引擎可用性变化：声明式内容脚本恒在', async () => {
     vi.stubGlobal('chrome', {})
     const all = await listBuiltinRegistrations()
     const host = all.find((b) => b.id === 'dl-content-host')!
     expect(host.presence).toBe('declarative')
     expect(host.registered).toBe(true) // 普通网页上恒在
-    const picker = all.find((b) => b.id === 'duoling-picker')!
-    expect(picker.presence).toBe('onDemand')
-    expect(picker.registered).toBe(false)
   })
 
   it('在册的件带回匹配面，不在册的 matches 为空', async () => {
@@ -65,7 +62,7 @@ describe('builtinsOnPage（某一页真正在用的内置件）', () => {
   const relay = {
     id: 'dl-script-relay',
     name: '脚本桥',
-    world: '扩展世界',
+    world: '用户脚本世界',
     note: 'x',
     matches: ['https://a.example/*'],
     registered: true,
@@ -86,11 +83,9 @@ describe('builtinsOnPage（某一页真正在用的内置件）', () => {
   }
   const picker = {
     ...relay,
-    id: 'duoling-picker',
+    id: 'dl-picker-host',
     name: '元素拾取器',
-    matches: [],
-    registered: false,
-    presence: 'onDemand' as const,
+    matches: ['<all_urls>'],
   }
 
   it('地址为空：直接不给结论（内部页 / 读不到 url 的页不在概览里）', () => {
@@ -117,9 +112,10 @@ describe('builtinsOnPage（某一页真正在用的内置件）', () => {
     ])
   })
 
-  it('声明式内容脚本恒算在用（概览只收普通网页），按需件永不算在用', () => {
+  it('声明式内容脚本恒算在用（概览只收普通网页），全匹配的拾取器件按匹配面同样算在用', () => {
     expect(builtinsOnPage([host, picker], 'https://a.example/p', false).map((b) => b.id)).toEqual([
       'dl-content-host',
+      'dl-picker-host',
     ])
   })
 })

@@ -749,7 +749,7 @@ describe('UserscriptListPanel 扩展内置件（只读透出）', () => {
       {
         id: 'dl-script-relay',
         name: '脚本桥',
-        world: '扩展世界',
+        world: '用户脚本世界',
         note: 'GM 能力的中继件',
         matches: ['https://a.example/*'],
         registered: true,

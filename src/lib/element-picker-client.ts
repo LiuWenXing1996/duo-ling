@@ -1,13 +1,16 @@
 // 元素拾取 / 页面快照的**发起侧**封装（对话界面与 SW 两个上下文共用）。
 //
-// 链路：chrome.userScripts.execute() 按 tabId 向**已加载页面**注入拾取器
-// （src/public/duoling-picker.js，独立世界 us-builtin-picker），注入脚本返回
-// 「点选时才 resolve」的 Promise，浏览器等结算后把载荷从 execute() 的返回值带回——
-// 无消息回传链、无 SW 参与（前置探针已验证扩展页可访问该 API）。
+// 两条支路的执行通道不同，别混：
+//   · 拾取（用户点按钮发起）—— 请 SW 向那一页的常驻件下发指令，件执行后把载荷上报回来
+//     （件源码、下发与配对见 userscripts/picker-host.ts、userscripts/picker-bridge.ts）。
+//     走常驻的理由：拾取发生在「页面早已打开、用户刚点按钮」，注册件只在页面开始加载时注入，
+//     两者差的正是这个时间点；而结果只能靠消息上行（注册件没有返回值通道）。
+//   · 快照 / 环境读数（AI 在生成中途发起）—— 仍走 chrome.userScripts.execute() 按需注入
+//     （src/public/duoling-picker.js，独立世界 us-builtin-picker）。
 //
-// 采集方归属：点选 = 用户在对话界面点按钮（用户显式）；
-// 快照 = AI 的 page_snapshot 工具经 SW 调 capturePageSnapshotFromTab（SW 按**会话归属**定位
-// 目标标签页，见 background.ts 的 'page:snapshot'）。
+// 目标页的选法两边不同、且刻意不同：拾取 = 用户此刻看着的那一页（SW 取激活页，判据见
+// picker-bridge 的调用处）；快照 = 按**会话归属**反查（见 background.ts 的 resolveAiTargetTab）
+// —— AI 决定要读时用户完全可能已经切走，取激活页会把别人那一页的数据喂给模型。
 //
 // 失败语义（都有明确文案，不静默）：
 //   · chrome.userScripts 不可用 —— 138+ 逐扩展「允许运行用户脚本」开关未开 /
@@ -16,16 +19,14 @@
 //   · 快照：页面关闭 / 导航 → 60 秒超时兜底。
 
 import { EXTENSION_NAME } from '@/lib/extension-identity'
+import { runtimeSend } from '@/shared/runtime-send'
 import type { ElementPickContext, PageEnvContext, PageSnapshotContext } from '@/shared/extension-ipc'
+// 拾取器的世界与文件名归件那侧持有（注册与注入按同一份常量走）：本文件只为快照 / 环境读数的
+// execute 注入 import 它们，不在两处各写一份
+import { PICKER_FILE, PICKER_HOST_WORLD_ID } from '@/lib/userscripts/picker-host'
 
-/** 拾取器世界：独立世界（与每脚本一世界惯例一致） */
-const PICKER_WORLD_ID = 'us-builtin-picker'
-/** 拾取器文件（src/public/ 随包分发到产物根目录） */
-const PICKER_FILE = 'duoling-picker.js'
-/** 拾取超时：用户拾取中关页 / 导航会让注入 Promise 永不结算，兜底视为取消 */
+/** 快照 / 环境读数的超时：注入期间用户关页 / 导航会让 Promise 永不结算，兜底视为失败 */
 const PICK_TIMEOUT_MS = 60_000
-/** 进行中拾取的目标 tab（cancelPick 用；null = 无进行中的拾取）。同一时刻至多一个发起方 */
-let activePickTabId: number | null = null
 
 /** chrome.userScripts（含 execute）是否可用；不可用 = 138+ 逐扩展开关未开或开发者模式未开 */
 export function isUserScriptsApiAvailable(): boolean {
@@ -86,22 +87,6 @@ export function friendlyInjectError(e: unknown): Error {
   return e instanceof Error ? e : new Error(raw)
 }
 
-/**
- * 拾取的目标标签页 = **当前窗口的活动标签页**。
- *
- * 与快照（SW 按会话归属反查）口径不同是刻意的：拾取由用户在**看得见的面板**上点按钮发起，
- * 那一刻它必然在激活标签页上（浮层只在自己那个 tab 可见），查激活页既准确又不必让面板
- * 传参；而快照是 AI 在生成中途自己决定的，那时用户可能已切走，必须认归属。
- */
-async function getTargetTabId(): Promise<number> {
-  if (!chrome.tabs?.query) throw new Error('无法定位目标标签页')
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  if (!tab?.id) throw new Error('未找到活动标签页')
-  const reason = pageInjectionBlockReason(tab.url)
-  if (reason) throw new Error(`${reason}，无法注入拾取器，请切到要操作的网页后重试`)
-  return tab.id
-}
-
 /** 超时兜底：Promise 永不结算时按文案超时（导出便于单测） */
 export function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -120,11 +105,11 @@ export function withTimeout<T>(p: Promise<T>, ms: number, message: string): Prom
 }
 
 /** chrome.userScripts.execute 的薄封装：注入失败时把 Chrome 的英文原话归一成用户可读文案 */
-async function executeInPickerWorld<T>(mode: 'pick' | 'snapshot' | 'env', tabId: number) {
+async function executeInPickerWorld<T>(mode: 'snapshot' | 'env', tabId: number) {
   try {
     return await chrome.userScripts.execute<T>({
       target: { tabId },
-      worldId: PICKER_WORLD_ID,
+      worldId: PICKER_HOST_WORLD_ID,
       js: [{ file: PICKER_FILE }, { code: `__duolingPicker(${JSON.stringify(mode)})` }],
     })
   } catch (e) {
@@ -133,7 +118,7 @@ async function executeInPickerWorld<T>(mode: 'pick' | 'snapshot' | 'env', tabId:
 }
 
 /** 注入并执行拾取器（js 数组顺序执行，返回值取最后一段 code 的补全值——即运行器返回的 Promise） */
-async function executePicker<T>(mode: 'pick' | 'snapshot' | 'env', tabId: number): Promise<T | null> {
+async function executePicker<T>(mode: 'snapshot' | 'env', tabId: number): Promise<T | null> {
   const results = await executeInPickerWorld<T>(mode, tabId)
   // execute 返回数组按注入目标各一项（我们只注入单个 tab），result 为注入脚本 Promise 的结算值
   const first = results[0]
@@ -141,19 +126,14 @@ async function executePicker<T>(mode: 'pick' | 'snapshot' | 'env', tabId: number
 }
 
 /**
- * 点选元素：页面亮拾取态，用户点选后 resolve 元素载荷（对话界面上下文调用，用户显式动作）。
- * 用户取消（右键 / 对话界面 Esc / 页面 Esc）返回 null（静默，不是错误）；超时 / 注入失败抛错。
+ * 点选元素：请 SW 向那一页的常驻件下发指令，用户点选后返回元素载荷（对话界面调用，用户显式动作）。
+ * 用户取消（右键 / 对话界面 Esc / 页面 Esc）返回 null（静默，不是错误）；超时 / 件不在位抛错。
+ *
+ * 可用性前置判断留在发起侧：开关没开时该命名空间在所有上下文都不存在，没必要白跑一趟 IPC。
  */
 export async function pickElement(): Promise<ElementPickContext | null> {
   ensureAvailable()
-  const tabId = await getTargetTabId()
-  activePickTabId = tabId
-  try {
-    const p = executePicker<ElementPickContext>('pick', tabId)
-    return await withTimeout(p, PICK_TIMEOUT_MS, '拾取已取消：60 秒内未完成点选（页面可能已关闭或刷新）')
-  } finally {
-    activePickTabId = null
-  }
+  return runtimeSend<ElementPickContext | null>({ kind: 'picker:pick' })
 }
 
 /**
@@ -161,22 +141,13 @@ export async function pickElement(): Promise<ElementPickContext | null> {
  *
  * 为什么不能只靠页面里的 Esc 监听：拾取期间键盘焦点在对话界面（发起按钮所在文档），
  * keydown 不会到达页面 document——除非先点页面，而点击会被拾取拦截成「选中」。
- * 所以取消的主路径在发起侧：向同一世界补注入一条 cancel 指令，世界全局
- * `__duolingPickerActive` 跨注入持久（duoling-picker.js），旧 Promise resolve null，
+ * 所以取消的主路径在发起侧，且走与「开始」同一根线（SW 下发收工指令，见 picker-bridge）：
+ * 件内的世界全局 `__duolingPickerActive` 收掉拾取，那条 pick 的 Promise resolve null，
  * 正在等待的 pickElement() 随之以「用户取消」收场。
  */
 export async function cancelPick(): Promise<void> {
-  const tabId = activePickTabId
-  if (tabId == null) return
-  try {
-    await chrome.userScripts.execute({
-      target: { tabId },
-      worldId: PICKER_WORLD_ID,
-      js: [{ code: 'window.__duolingPickerActive && window.__duolingPickerActive.cancel()' }],
-    })
-  } catch {
-    // 页面已关 / 已导航时补注入会失败：原 Promise 由超时兜底，这里静默
-  }
+  // 失败静默：没有进行中的拾取时本就没有可取消的东西，报错只会给用户一个无从处理的提示
+  await runtimeSend<null>({ kind: 'picker:cancel' }).catch(() => {})
 }
 
 /**

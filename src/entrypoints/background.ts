@@ -129,6 +129,9 @@ import {
   capturePageSnapshotFromTab,
   pageInjectionBlockReason,
 } from '@/lib/element-picker-client'
+// 拾取指令的下发与配对（常驻件那半在页面里，件源码见 lib/userscripts/picker-host.ts）
+import { cancelPicker, handlePickerResult, runPickerCommand } from '@/lib/userscripts/picker-bridge'
+import type { ElementPickContext } from '@/shared/extension-ipc'
 
 /**
  * SW 管辖的 kind 前缀（路由白名单）。
@@ -148,6 +151,7 @@ export const SW_KIND_PREFIXES = [
   'offscreen:',
   'sw:',
   'page:',
+  'picker:',
   'tab:',
 ] as const
 
@@ -279,6 +283,26 @@ async function resolveAiTargetTab(
   return tabId
 }
 
+/**
+ * 定位「用户此刻看着的标签页」并在下发前拦掉不可注入的页（拾取专用）。
+ *
+ * 与 resolveAiTargetTab 的口径刻意不同：那条认**会话归属**（AI 在生成中途自己决定要读，
+ * 那时用户可能已经切走）；这条认**激活页** —— 拾取由用户在看得见的面板上点按钮发起，
+ * 浮层只在自己那个 tab 可见，那一刻它必然在激活页上，不必也不该去查归属。SW 无窗口上下文，
+ * lastFocusedWindow 即用户最后聚焦的那个窗口。
+ *
+ * 名字避开 owning-tab 的 resolveActiveTabId：那个是「扩展页认自己属于哪个标签页」，
+ * 这条是「SW 替一次用户动作找目标页」，别混。
+ */
+async function resolvePickTargetTab(what: string): Promise<number> {
+  if (!chrome.tabs?.query) throw new Error('无法定位目标标签页')
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+  if (tab?.id == null) throw new Error('未找到活动标签页')
+  const blocked = pageInjectionBlockReason(tab.url)
+  if (blocked) throw new Error(`${blocked}，无法${what}，请切到要操作的网页后重试`)
+  return tab.id
+}
+
 // 第二个参数是 chrome 的消息发送方：只有需要「回 sender 自己的东西」的命令才用得上
 // （现仅 tab:identify 取 sender.tab.id）；其余 handler 少写一个参数即可，TS 允许。
 const handlers: {
@@ -321,6 +345,18 @@ const handlers: {
     msg,
   ): Promise<Awaited<ReturnType<typeof capturePageEnvFromTab>>> =>
     capturePageEnvFromTab(await resolveAiTargetTab(msg.conversationId, '读取页面环境')),
+
+  // —— 拾取（浮层发起的用户动作）——
+  // 目标页判据见 resolvePickTargetTab —— 与上面两条 AI 支路刻意不同，别在这里另写一份。
+  // 下发与结果配对都在 picker-bridge：件在页面里常驻待命，指令经 chrome.tabs.sendMessage 进去，
+  // 结果由件 sendMessage 回来（dl-bridge 的 onUserScriptMessage 分流后交 handlePickerResult）。
+  'picker:pick': async (): Promise<ElementPickContext | null> =>
+    runPickerCommand<ElementPickContext>(await resolvePickTargetTab('点选元素'), 'pick'),
+
+  'picker:cancel': async (): Promise<null> => {
+    await cancelPicker()
+    return null
+  },
 
   // —— popup 的页面概览（「当前页面 / 其他页面」两个区块的数据源）——
   // 为什么在 SW 一处聚齐：运行登记表（pageRunsByTab）、进行中会话（runningConversations）、
@@ -1139,6 +1175,13 @@ export default defineBackground(() => {
   // 的 profile-cache 回拉）。SW 这里不再需要 storage.onChanged 兜底。
 
   chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
+    // 拾取结果的兜底投递面：上行以 dl-bridge 的 onUserScriptMessage 为正门，这里认同一只
+    // 信封作保底 —— 结算按 reqId 幂等，两个面各送一次也无害（见 picker-bridge.handlePickerResult）。
+    if (handlePickerResult(raw, sender)) {
+      sendResponse(true) // 收讫回执：件的 sendMessage 才会正常 resolve
+      return false
+    }
+
     const msg = raw as RuntimeRequest | undefined
     if (!msg?.kind) return
 

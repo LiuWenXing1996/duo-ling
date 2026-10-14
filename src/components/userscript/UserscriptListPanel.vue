@@ -95,15 +95,14 @@ const emit = defineEmits<{
 
 const scripts = ref<ScriptSummary[]>([])
 /**
- * 扩展内置注入件（脚本桥 / 页面录制 / 录制转发）此刻的注册状态 —— 只读透出，不进上面的网格
+ * 扩展内置注入件（脚本桥 / 元素拾取器 / 页面录制 / 录制转发）此刻的注册状态 —— 只读透出，不进上面的网格
  * （它们不是用户脚本：没有源码 / 启停 / 删除，混进网格会被搜索、筛选与空态误伤）。
  */
 const builtins = ref<import('@/lib/userscripts/engine').BuiltinRegistration[]>([])
 
-/** 内置件的状态标：注册件看在册，声明式常驻、按需注入没有「注册」可言 */
+/** 内置件的状态标：注册件看在册，声明式常驻没有「注册」可言 */
 function builtinStatusLabel(b: import('@/lib/userscripts/engine').BuiltinRegistration): string {
   if (b.presence === 'declarative') return '常驻'
-  if (b.presence === 'onDemand') return '按需'
   return b.registered ? '已注册' : '未注册'
 }
 

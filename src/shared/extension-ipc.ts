@@ -316,6 +316,13 @@ export type RuntimeRequest =
   // 会话归属映射与 SW 内存里的进行中集合，popup 自己拼会拼出三份时间点不同的快照（还各要一次 IPC）。
   | { kind: 'page:overview' }
 
+  // —— 拾取（浮层 → SW）：用户显式点按钮发起 ——
+  // SW 取**激活标签页**（拾取那一刻浮层必然在用户看着的那一页上），再向该页的拾取器常驻件
+  // 下发指令；结果由件上报、SW 按 reqId 配对（见 lib/userscripts/picker-bridge.ts）。
+  | { kind: 'picker:pick' }
+  // 收工：与「开始」同一根线，SW 只负责转发到那一页
+  | { kind: 'picker:cancel' }
+
   // —— 内容脚本自证身份 ——
   // content script 拿不到 chrome.tabs，而网页浮层（扩展页 iframe）必须知道「自己属于哪个
   // 标签页」才能认定该 tab 的会话归属。故 content script 经本命令取回 sender.tab.id
