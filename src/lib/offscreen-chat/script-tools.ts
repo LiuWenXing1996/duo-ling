@@ -1,4 +1,4 @@
-// Agent 工具集：脚本读写（script_*）+ 页面上下文（element_read / page_snapshot）+ 环境读取（env_read / page_env_read）+ 页面录制（tab_record_*）+ 诊断查询（error_read / run_log_read）。
+// Agent 工具集：脚本读写（script_*）+ 页面上下文（element_read / page_snapshot）+ 环境读取（env_read / page_env_read）+ 页面录制（tab_record_*）+ 诊断查询（error_read / run_log_read）+ 识图（image_ask）。
 //
 // 设计要点：
 //   · **script_apply 把「写」和「语法验证」合并成一步**：入参完整源码 → acorn parse
@@ -38,6 +38,18 @@ import { SCRIPT_SPEC_TEXT } from './spec-text'
 /** 连续 apply 失败上限：达到即让模型停手、把诊断交给用户。
  *  阈值取自 agent-tools-catalog（工作台「AI 工具」面板展示同一份，不再各写一份）。 */
 export const MAX_APPLY_FAILURES = AGENT_RUNTIME_LIMITS.maxApplyFailures
+
+/**
+ * 识图回调（由 chat-host 注入，真身在 offscreen-chat/vision-agent）。
+ *
+ * 为什么不在这里直接调模型：本模块的依赖边界是「acorn + project-store + us-git + 纯数据模块」，
+ * 模型/provider 属编排层的能力面（chat-host 才持有 profile 与 provider）。注入后
+ * 本文件既不认识 provider，也不必知道识图是怎么发出去的。
+ */
+export type AskImage = (
+  assetId: string,
+  question: string | undefined,
+) => Promise<{ filename: string; answer: string }>
 
 /** 一次生成任务的内存工作区（chat-host 持有；「继续」时从任务快照播种） */
 export interface TaskWorkspace {
@@ -120,6 +132,7 @@ function checkSyntax(code: string): string | null {
  * tabRecord：页面录制（requestConsent 出同意卡 / read 读回语料；未提供 = 工具返回不可用）。
  * readRunLog：运行日志读取（SW 侧 duoling-runtime 库，offscreen 拿不到；未提供 = 工具返回不可用）。
  * readRunEvents：某次运行的动作明细（同一通道，按 runId 拉；未提供 = 工具返回不可用）。
+ * askImage：识图（读资源库原图 → 一次独立模型调用；未提供 = 工具返回不可用）。
  */
 export function buildScriptTools(
   ws: TaskWorkspace,
@@ -132,6 +145,7 @@ export function buildScriptTools(
   tabRecord?: TabRecordHooks,
   readRunLog?: () => Promise<UserScriptRunLogRow[]>,
   readRunEvents?: (runId: string) => Promise<UserScriptRunEvent[]>,
+  askImage?: AskImage,
 ) {
   const tools = {
     script_spec: tool({
@@ -474,6 +488,27 @@ export function buildScriptTools(
         }
         // 超上限不报错、按上限收窄：模型要 100 条也只是想「多看几条」，没必要让它重发一次
         return buildRunLogView(rows, uuid, Math.min(limit, AGENT_RUNTIME_LIMITS.runLogReadMax))
+      },
+    }),
+
+    image_ask: tool({
+      description: TOOL_DESCRIPTIONS.image_ask,
+      inputSchema: z.object({
+        assetId: z.string().describe(TOOL_PARAM_DESCRIPTIONS.image_ask.assetId),
+        question: z.string().optional().describe(TOOL_PARAM_DESCRIPTIONS.image_ask.question),
+      }),
+      execute: async ({ assetId, question }) => {
+        if (!askImage) {
+          return { ok: false, error: '识图通道不可用' }
+        }
+        try {
+          const r = await askImage(assetId, question)
+          // 只回文字：图片字节到此为止，不再进对话（这正是本方案省 token 的地方）
+          return { ok: true, assetId, filename: r.filename, answer: r.answer }
+        } catch (e) {
+          // 资源不在 / 模型调用失败（含「这个模型读不了图」）都在这里如实交回，不吞不掉
+          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+        }
       },
     }),
   }

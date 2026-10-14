@@ -125,6 +125,7 @@ export function buildSystemPrompt(
   continuing = false,
   prevScript?: PrevGeneratedScript,
   tabRecord?: TabRecordContext,
+  hasAttachedImages = false,
 ): string {
   const lines = [
     `你是「${EXTENSION_NAME}」浏览器扩展的用户脚本助手。除日常对话外，你可以为网页编写用户脚本：`,
@@ -139,6 +140,16 @@ export function buildSystemPrompt(
     '历史里可能出现中断的半截工具调用，那是用户主动停止留下的，不代表用户想要你续做；',
     '只有用户新消息里明确要求（如「继续」「把脚本写完」）才继续未完成的脚本工作。',
   ]
+  // 只有对话里真的出现了图片附件才加这一段：纯文本对话白背一条「怎么看图」是纯浪费
+  if (hasAttachedImages) {
+    lines.push(
+      '这条对话里有用户附上的图片，但**图片内容不在你看到的上下文里** —— ' +
+        '消息里只有一行引用（形如「【图片 #<assetId>：<文件名>（…要看图请调 image_ask）】」）。',
+      '用户的问题多半就是关于这张图的：那时必须先调 image_ask、把引用里那串 assetId 原样传进去，' +
+        '拿到文字答案再回答。不要凭文件名猜图上的内容，也不要假装看过。' +
+        '一次调用只答一个问题（要问的事一次问全），返回的是文字，之后你手里不会留下这张图。',
+    )
+  }
   // 测试豁免只进 dev 构建（手测停手机制用），prod 构建里静态消除
   if (import.meta.env.DEV) {
     lines.push(
