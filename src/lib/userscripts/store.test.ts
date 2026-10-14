@@ -292,7 +292,7 @@ describe('错误记录（runtime 库 tab_events，判据键 kind = \'error\'，�
     await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'register', message: 'reg' })
     const [rec] = await listUserScriptErrors()
     expect(rec!.tabSessionId).toBeUndefined()
-    // 「按页查不到」由索引天然保证：合表后无归属行不进 by_tabSessionId
+    // 「按页查不到」由索引天然保证：合表后无归属行不进 by_session_seq
     expect((await listTabTimeline(t)).errors).toEqual([])
   })
 

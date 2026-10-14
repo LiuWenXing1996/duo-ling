@@ -12,11 +12,11 @@
 // **六类为什么同表**：读侧本就是**一根轴**（面板把刷新、开关、请求、运行、动作、错误按时刻
 // 混排成这一页的时间线），而同表的归属键（tabSessionId）与清空粒度（按页）完全一致 ——
 // 分表只会让「删这一页」变成跨库手术、读侧还要 join。合成一张后「这一页经历了什么」是一次
-// 索引查询（by_tabSessionId.getAll），删这一页也是一条索引（同上，删）。
+// 索引查询（by_session_seq.getAll），删这一页也是一条索引（同上，删）。
 //
 // **判据统一**：一切观测只在「这一页开着活动记录」时产生（运行条目 / 动作 / 错误 / 采样）。
 // 唯一例外是注册失败、@require / @resource 抓取失败这类**与任何一页无关**的错误 ——
-// 它们照旧落盘，但不带 tabSessionId，故不进 by_tabSessionId 索引，按页查询天然查不到
+// 它们照旧落盘，但不带 tabSessionId，故不进 by_session_seq 索引，按页查询天然查不到
 // （IndexedDB 会跳过键值求值为 undefined 的记录）—— 写侧零过滤逻辑。
 //
 // **主键与身份**：表主键是自增序号（keyPath 'id'），读侧拿它当行身份（列表 key）。
@@ -509,7 +509,7 @@ function deleteActsOf(store: IDBObjectStore, runId: string): Promise<number> {
  * 追加一条错误，并按落盘序裁到 ERROR_LOG_MAX 条（追加与裁剪同一事务，崩溃风暴下的并发
  * append 不会把上限冲破）。
  *
- * 无归属的错误（注册失败 / 依赖抓取失败）不带 tabSessionId，故不进 by_tabSessionId 索引，
+ * 无归属的错误（注册失败 / 依赖抓取失败）不带 tabSessionId，故不进 by_session_seq 索引，
  * 按页查询天然查不到它们 —— 这正是「只落盘、不出现在面板里」的实现方式，写侧不需要过滤。
  */
 export async function appendErrorRow(rec: UserScriptErrorRecord): Promise<void> {
@@ -891,7 +891,7 @@ export async function appendTabEvent(
  * 面板要铺出完整时间线，写侧截断会让「这一页到底发了哪些请求」看不全。
  *
  * 归属键（tabSessionId）由调用方带上（SW 按 sender.tab.id 查出后给定，见 dl-bridge 的入站分支）；
- * 缺省时照样落盘，只是不进 by_tabSessionId 索引，按页读不到它 —— 只有清全部时一并带走。
+ * 缺省时照样落盘，只是不进 by_session_seq 索引，按页读不到它 —— 只有清全部时一并带走。
  */
 export async function appendTabCapture(rec: NetCaptureRecord): Promise<void> {
   await runTx(TAB_EVENTS_STORE, 'readwrite', async (tx) => {
@@ -956,7 +956,7 @@ export async function listTabEvents(): Promise<TabEventRecord[]> {
 /**
  * 删掉若干存续行的**全部活动**：存续行 + 它在 tab_events 上的每一行（六类一起走）。
  *
- * 合表后这件事只剩一条索引：轴上的行全带 tabSessionId，按 by_tabSessionId 一次删干净 ——
+ * 合表后这件事只剩一条索引：轴上的行全带 tabSessionId，按 by_session_seq 一次删干净 ——
  * 不必再按 runId 反查运行与错误（那是拆表时代的跨表手术）。
  *
  * 不传 ids = 清空全部，**含无归属的错误行**（注册失败 / 依赖抓取失败，它们没有 tabSessionId，

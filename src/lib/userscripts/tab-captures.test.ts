@@ -104,7 +104,7 @@ describe('接口采样（与存续轴事件同表）', () => {
     expect(await listTabEvents()).toEqual([])
   })
 
-  it('缺归属键的采样：按页读不到（不进 by_tabSessionId 索引），清全部时一并带走', async () => {
+  it('缺归属键的采样：按页读不到（不进 by_session_seq 索引），清全部时一并带走', async () => {
     const t = await mintTabSession({ tabId: 1, url: 'https://a.test/' })
     await appendTabCapture(rec('https://a.test/orphan', 1))
     await appendTabCapture(rec('https://a.test/kept', 2, t))
