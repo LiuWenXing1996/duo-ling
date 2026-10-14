@@ -586,7 +586,14 @@ const handlers: {
   // 归属就是这一行；故这里只需建行 + 重算注册，没有额外的「开启录制」动作。
   //
   // 录制件是声明式注册、钩子挂在文档开头，故本条影响的是**下次导航**：当前页面要用户刷新才挂得上。
+  //
+  // **引擎不可用就拒绝**：录制件靠 chrome.userScripts 注册，引擎不可用时 refreshTabRecorder 静默
+  // 空转，而库里已写下 recording: true —— 界面亮「正在记录」，实际脚本跑不了、请求也拦不到，是个
+  // 纯假状态。拦在这条唯一入口上即可覆盖全部调用方（popup 的开关、浮层同意卡），两处 UI 各自
+  // 已有错误展示位，不必另加。只拦开、不拦关：把假状态关掉是合法操作。
+  // 存量已开的行不在这里收 —— 引擎恢复时补注册那一遍会顺带重算录制件，它自然变成真的在录。
   'userscript:tabActivityEnable': async (msg): Promise<{ tabId: number; recording: boolean }> => {
+    if (!(await isUserScriptsAvailable())) throw new Error('用户脚本功能不可用，无法开始记录')
     const tab = await chrome.tabs.get(msg.tabId).catch(() => null)
     await setTabRecording(msg.tabId, true, tab?.url)
     await refreshTabRecorder().catch(() => {})
