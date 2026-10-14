@@ -137,7 +137,7 @@ async function clearBadge(): Promise<void> {
     <div class="mt-6 rounded-md border p-4">
       <p class="text-sm font-medium">通知</p>
       <p class="mt-0.5 text-xs text-muted-foreground">
-        发送一条系统通知，确认通知图标（与工具栏同源）的显示效果。
+        发送一条系统通知，确认通知图标（与工具栏同源）的显示效果。浏览器未获系统通知授权时，扩展同样无法发送通知。
       </p>
       <UiButton
         class="mt-3"
