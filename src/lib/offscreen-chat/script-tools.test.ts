@@ -5,6 +5,7 @@ import {
   buildRunEventsView,
   buildRunLogView,
   buildScriptTools,
+  type AskImage,
   type TabRecordHooks,
   type TaskWorkspace,
 } from './script-tools'
@@ -81,6 +82,26 @@ function makeTools(
     capturePageEnv,
     readError,
     tabRecord,
+  )
+}
+
+/**
+ * 只接识图通道的构造（askImage 是第 11 参，前面几路通道留空）。
+ * 识图是**独立**一路，不该为了测它把其余通道也搭起来。
+ */
+function makeToolsWithAsk(askImage: AskImage) {
+  return buildScriptTools(
+    makeWorkspace(),
+    async () => {},
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    askImage,
   )
 }
 
@@ -222,12 +243,13 @@ describe('script_list（列出全部脚本）', () => {
 })
 
 describe('script 三件套不受影响（回归）', () => {
-  it('工具表 = 全量工具（脚本读写 / 页面上下文 / 环境读取 / 页面录制 / 诊断）', () => {
+  it('工具表 = 全量工具（脚本读写 / 页面上下文 / 环境读取 / 页面录制 / 诊断 / 识图）', () => {
     const tools = makeTools(makeElement())
     expect(Object.keys(tools).sort()).toEqual([
       'element_read',
       'env_read',
       'error_read',
+      'image_ask',
       'page_env_read',
       'page_snapshot',
       'run_log_read',
@@ -239,6 +261,60 @@ describe('script 三件套不受影响（回归）', () => {
       'tab_record_enable',
       'tab_record_read',
     ])
+  })
+})
+
+describe('image_ask（问图）', () => {
+  const execOptsAsk = execOpts as Parameters<
+    ReturnType<typeof buildScriptTools>['image_ask']['execute']
+  >[1]
+
+  it('接入通道：透出文件名与文字答案，问题原样转给识图侧', async () => {
+    const id = 'a'.repeat(64)
+    const askImage = vi.fn(async () => ({ filename: 'shot.jpg', answer: '图上有一个「提交订单」按钮' }))
+    const tools = makeToolsWithAsk(askImage)
+    const out = (await tools.image_ask.execute(
+      { assetId: id, question: '图上有什么' },
+      execOptsAsk,
+    )) as Record<string, unknown>
+    expect(out).toEqual({
+      ok: true,
+      assetId: id,
+      filename: 'shot.jpg',
+      answer: '图上有一个「提交订单」按钮',
+    })
+    expect(askImage).toHaveBeenCalledWith(id, '图上有什么')
+  })
+
+  it('不带问题也能调（识图侧自带默认问法），question 透传为 undefined', async () => {
+    const id = 'b'.repeat(64)
+    const askImage = vi.fn(async () => ({ filename: 'shot.jpg', answer: '（识图没有返回内容）' }))
+    const tools = makeToolsWithAsk(askImage)
+    const out = (await tools.image_ask.execute({ assetId: id }, execOptsAsk)) as Record<string, unknown>
+    expect(out.ok).toBe(true)
+    expect(askImage).toHaveBeenCalledWith(id, undefined)
+  })
+
+  it('未接通道：ok=false 带可读错误（不抛）', async () => {
+    const tools = buildScriptTools(makeWorkspace(), async () => {})
+    const out = (await tools.image_ask.execute(
+      { assetId: 'a'.repeat(64) },
+      execOptsAsk,
+    )) as Record<string, unknown>
+    expect(out.ok).toBe(false)
+    expect(String(out.error)).toContain('识图通道不可用')
+  })
+
+  it('识图侧抛错（id 写错 / 资源已被回收）：收成 ok=false + 原因，不让整轮对话炸掉', async () => {
+    const tools = makeToolsWithAsk(async () => {
+      throw new Error('图片资源不存在（id：zzz）——可能已被清理，或 id 写错')
+    })
+    const out = (await tools.image_ask.execute(
+      { assetId: 'z'.repeat(64) },
+      execOptsAsk,
+    )) as Record<string, unknown>
+    expect(out.ok).toBe(false)
+    expect(String(out.error)).toContain('资源不存在')
   })
 })
 
