@@ -173,6 +173,15 @@ function openTabActivityTab(): void {
   activate('tab-activity')
 }
 
+// 打开文件管理标签页：duoling-fs 整库的只读文件树（脚本源码 + 对话图片资源），全局仅一个。
+// 它是唯一一个占左侧导航的调试类面板 —— 其余调试面板的入口仍在「设置 · 开发者」里（见 DevModeSection）。
+function openLfsTab(): void {
+  if (!openTabs.value.some((t) => t.kind === 'lfs-browser')) {
+    openTabs.value.push({ kind: 'lfs-browser', id: 'lfs-browser', title: '文件管理' })
+  }
+  activate('lfs-browser')
+}
+
 // 打开某脚本的历史标签页：每脚本一个（id = us-history:<uuid>），已打开则激活复用。
 // 编辑器顶栏的历史按钮经 @open-history 走到这里；浏览 + 恢复都在这个标签页里。
 function openUserscriptHistoryTab(uuid: string, title: string): void {
@@ -246,9 +255,9 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「设置 / 脚本列表 / 活动历史 / 会话历史」与脚本管理器的「编辑」入口。
-// 调试面板不走这里 —— 它的入口在设置分区里，经 @open-tab 到 openDevTab
-defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openSessionHistoryTab, openTabActivityTab, openUserscriptEditor })
+// 暴露给根布局：左侧导航栏「设置 / 脚本列表 / 活动历史 / 文件管理 / 会话历史」与脚本管理器的「编辑」入口。
+// 其余调试面板不走这里 —— 它们的入口在设置分区里，经 @open-tab 到 openDevTab
+defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openSessionHistoryTab, openTabActivityTab, openLfsTab, openUserscriptEditor })
 </script>
 
 <template>

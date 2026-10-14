@@ -2,13 +2,13 @@
 //
 // 守三条：清单里的面板各有一行入口、点某行把 kind 与标题交给宿主（emit openTab，
 // 「会话数据」特例发 openSessionData——它没有独立标签页）、分区里不再有「控制显示与否」的开关。
+// 「文件管理」已提为左侧导航的一项，不在本清单里（宿主 openLfsTab）。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import DevModeSection from './DevModeSection.vue'
 
 /** 入口清单（顺序即渲染顺序）：kind → 面板名；session-data 是特例行（发 openSessionData） */
 const PANELS = [
-  ['lfs-browser', '文件管理'],
   ['session-data', '会话数据'],
   ['agent-tools', 'AI 工具'],
   ['gm-api', 'GM API'],

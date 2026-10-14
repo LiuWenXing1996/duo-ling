@@ -17,9 +17,9 @@ const emit = defineEmits<{
 }>()
 
 /** 面板清单：顺序即渲染顺序；label 同时是标签页标题，宿主不再各写一份。
- * 「会话数据」是唯一的特例行——kind 'session-data' 不是 WorkspaceTabKind，只作本清单的行键。 */
+ * 「会话数据」是唯一的特例行——kind 'session-data' 不是 WorkspaceTabKind，只作本清单的行键。
+ * 「文件管理」不在这里：它已提为左侧导航的一项（宿主 openLfsTab）。 */
 const DEV_PANELS: { kind: WorkspaceTabKind | 'session-data'; label: string }[] = [
-  { kind: 'lfs-browser', label: '文件管理' },
   { kind: 'session-data', label: '会话数据' },
   { kind: 'agent-tools', label: 'AI 工具' },
   { kind: 'gm-api', label: 'GM API' },
