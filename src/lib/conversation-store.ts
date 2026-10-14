@@ -19,6 +19,7 @@
 // 落盘最终都汇到这里），所以广播埋在这里而不是埋在命令出口 —— 埋在 conv:* 命令出口会漏掉
 // chat-host 直接调 appendMessage 的那条路径（而它恰恰是最常见的：AI 回复落盘）。
 import type { Conversation, ConversationSearchHit, Message } from '../shared/types'
+import { isAssetPart } from './chat-assets'
 import { broadcastDataChange } from './data-broadcast'
 
 const DB_NAME = 'duoling-chat'
@@ -125,11 +126,31 @@ function truncateSnippet(text: string, max = 100): string {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat
 }
 
-/** 列表预览：正文空但带图片时给个可读占位 —— 只发了图的那条消息，预览不该是一片空白 */
+/** 列表预览：正文空但带图片引用时给个可读占位 —— 只发了图的那条消息，预览不该是一片空白 */
 function previewOf(m: Message): string {
   const text = truncateSnippet(m.content, 80)
   if (text) return text
-  return (m.parts ?? []).some((p) => p.type === 'file') ? '[图片]' : ''
+  return (m.parts ?? []).some(isAssetPart) ? '[图片]' : ''
+}
+
+/**
+ * 全库**还在被引用**的资源 id（消息里 `data-asset` 那份引用的全体）。
+ *
+ * 用途只有一个：删会话时算「哪些图片从此没人要了」——图片按内容 hash 存、可被多条会话共用，
+ * 所以判据必须是「删完之后全库还剩谁在引用」，而不是「被删那条消息带过什么」。
+ * 归属口径只有这一处（us-assets 只管删、不做引用判断）。
+ */
+export async function referencedAssetIds(): Promise<Set<string>> {
+  const { byConversation } = await readAll()
+  const ids = new Set<string>()
+  for (const list of byConversation.values()) {
+    for (const m of list) {
+      for (const p of m.parts ?? []) {
+        if (isAssetPart(p)) ids.add(p.data.id)
+      }
+    }
+  }
+  return ids
 }
 
 /**
