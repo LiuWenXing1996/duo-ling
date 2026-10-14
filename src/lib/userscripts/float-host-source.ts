@@ -8,7 +8,7 @@
 //   · 扩展显示名（EXTENSION_NAME，改名的唯一真相源在 lib/extension-identity.ts）
 // 件自己写死会漂移（改名漏改 / 地址带扩展 id），故在装配时当参数递进去。
 //
-// 与拾取器（picker-host.ts）同形：`js: [{ file }, { code }]` 两段落在**同一世界**，前一段定义
+// 与页面检查器（page-inspector-host.ts）同形：`js: [{ file }, { code }]` 两段落在**同一世界**，前一段定义
 // `window.__duolingFloatHost`，后一段调它的 init。顺序不能换。
 //
 // ⚠️ 契约：件的指令 kind 是手写字符串（vanilla JS 不在类型检查范围内），与
@@ -23,7 +23,7 @@ export const FLOAT_HOST_ID = 'dl-float-host'
  * 常驻件的独立世界 id。
  *
  * 必须单独 `configureWorld({ messaging: true })`：自定义世界**不继承**默认世界的配置（与中继件 /
- * 拾取器 / 录制转发件同一个坑），没配则该世界里没有 chrome.runtime，指令收不到、件形同不存在。
+ * 页面检查器 / 录制转发件同一个坑），没配则该世界里没有 chrome.runtime，指令收不到、件形同不存在。
  */
 export const FLOAT_HOST_WORLD_ID = 'us-dl-float'
 /** 宿主件文件（src/public/ 随包分发到产物根）：常驻注册的第一段 */
@@ -41,7 +41,7 @@ export function floatPanelUrl(): string {
  * 装配段源码：把运行期才知道的两样值递进件里再装配。
  *
  * 取不到 `window.__duolingFloatHost` = 两段 js 没落在同一世界（装配错误，浮层会静默挂不出来），
- * 故明确报一声 —— 与拾取器件缺运行器时同样出声。
+ * 故明确报一声 —— 与页面检查器件缺运行器时同样出声。
  */
 export function buildFloatHostInit(panelUrl: string): string {
   return `

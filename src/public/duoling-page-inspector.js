@@ -1,36 +1,27 @@
 /**
- * 页面元素拾取器 / 页面快照采集器。
+ * 页面检查器：按指令读页面，把结果交回去。
  *
- * 运行位置：目标标签页的独立 USER_SCRIPT 世界 `us-builtin-picker`。本文件是**无依赖的
- * vanilla JS**，不进打包链路（src/public/ 随包分发），两种方式落地到那个世界：
- *   · 常驻注册（engine.ts 的 syncPickerHost，全站匹配 + document_start）：加载只定义运行器
- *     就待命，用户点「点选元素」时由常驻件按 SW 下发的指令调它，结算值经消息上行回 SW；
- *   · 按需注入（chrome.userScripts.execute，快照 / 环境读数两条）：以
- *     `js: [{file}, {code: '__duolingPicker("snapshot")'}]` 两段注入，第二段的**补全值**
- *     （Promise）作为 execute() 的返回值带回。
+ * 运行位置：目标标签页的独立 USER_SCRIPT 世界 `us-builtin-inspector`。本文件是**无依赖的
+ * vanilla JS**，不进打包链路（src/public/ 随包分发），随页面加载注册进那个世界待命
+ * （engine.ts 的 syncPageInspector，全站匹配 + document_start）——加载只定义运行器，
+ * 不动作；收到指令才跑，结算值经消息上行回 SW。件侧的收发面见
+ * userscripts/page-inspector-host.ts，下发与配对见 userscripts/page-inspector-bridge.ts。
  *
- * 三个模式（调用方给模式名）：
- *   pick     —— 拾取模式：亮高亮框 + 拦截点击，用户点选后 resolve 元素载荷；
+ * 三个模式（指令给模式名）：
+ *   pick     —— 拾取：亮高亮框 + 拦截点击，用户点选后 resolve 元素载荷；
  *               右键取消（resolve null）。Esc 取消挂在页面 document 上，只在页面
  *               恰好持有焦点时生效——拾取由对话界面发起时焦点在对话界面，主取消路径
  *               是对话界面监听 Esc 后经 cancelPick() 请 SW 下发 cancel 指令
- *               （见 element-picker-client.ts、userscripts/picker-bridge.ts）。
- *               返回「点选时才 resolve」的 Promise，由常驻件把结算值上报回 SW。
- *   snapshot —— 快照模式：不亮任何 UI，静默抓渲染后 documentElement.outerHTML
- *               （截断 ~32KB）resolve 回去。
- *   env      —— 环境模式：不亮任何 UI，静默读页面侧环境（视口尺寸 / 设备像素比 /
- *               页面里读到的 UA）resolve 回去。读的是**页面自己的事实**：设备模拟会
- *               改掉视口与像素比，页面上的脚本可能改写 navigator.userAgent —— 这些
- *               正是它与 offscreen 侧机器真值（env_read）分开的理由。
+ *               （见 element-picker-client.ts）。返回「点选时才 resolve」的 Promise。
+ *   snapshot —— 快照：不亮任何 UI，静默抓渲染后 documentElement.outerHTML（截断 ~32KB）。
+ *   env      —— 环境读数：不亮任何 UI，静默读页面侧环境（视口尺寸 / 设备像素比 /
+ *               页面里读到的 UA）。读的是**页面自己的事实**：设备模拟会改掉视口与像素比，
+ *               页面上的脚本可能改写 navigator.userAgent —— 这些正是它与 offscreen 侧
+ *               机器真值（env_read）分开的理由。
  *
- * 加模式必须同时 bump PICKER_VERSION：下文的同版本守卫按版本号跳过重定义，而 world 内的
- * 全局变量跨注入持久——不 bump 的话，同一文档里先注入过旧版，新模式会被旧版接管。
+ * 取消指令：调 `window.__duolingPickerActive.cancel()`（SW 把 cancel 下发给宿主件，件代调）——
+ * 世界全局跨注入持久，重复发起时收掉旧拾取（再次 runPick）走同一通路。
  *
- * 取消指令：调 `window.__duolingPickerActive.cancel()`（SW 把 cancel 下发给常驻件，件代调）——
- * 世界全局跨注入持久，双重注入守卫（再次 runPick 收掉旧拾取）走同一通路。
- *
- * 消息通道：pick 的载荷走消息（该世界须 messaging: true，由注册时的 configureWorld 开），
- * 快照 / 环境读数仍走 execute() 返回值。件侧的收发面见 userscripts/picker-host.ts。
  * 结构约定与 src/shared/extension-ipc.ts 的 ElementPickContext / PageSnapshotContext /
  * PageEnvContext 对齐，改形状必须两边同步。
  *
@@ -42,7 +33,6 @@
 ;(function () {
   'use strict'
 
-  var PICKER_VERSION = 2
   /** 摘要层 HTML 截断（字符） */
   var HTML_SAMPLE_LIMIT = 500
   /** 全量层 outerHTML 宽松上限（字符，防极端节点） */
@@ -61,10 +51,6 @@
   var PATH_DEPTH = 4
   /** 高亮框样式命名空间前缀（不污染页面样式） */
   var CSS_NS = 'duoling-picker'
-
-  if (window.__duolingPickerVersion === PICKER_VERSION && typeof window.__duolingPicker === 'function') {
-    return // 同版本已定义：跳过重定义（world 内全局变量跨注入持久）
-  }
 
   function truncate(s, n) {
     s = String(s == null ? '' : s)
@@ -180,7 +166,7 @@
   /** 拾取模式：亮高亮框，返回「点选时才 resolve」的 Promise（取消 resolve null） */
   function runPick() {
     return new Promise(function (resolve) {
-      // 双重注入守卫：上一轮拾取还没结束时再次注入，先收掉旧的
+      // 上一次拾取还没结束时又发起一次：先收掉旧的
       if (window.__duolingPickerActive && typeof window.__duolingPickerActive.cancel === 'function') {
         window.__duolingPickerActive.cancel()
       }
@@ -279,8 +265,7 @@
     })
   }
 
-  window.__duolingPickerVersion = PICKER_VERSION
-  window.__duolingPicker = function (mode) {
+  window.__duolingInspector = function (mode) {
     try {
       if (mode === 'snapshot') return runSnapshot()
       if (mode === 'env') return runEnv()

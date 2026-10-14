@@ -122,15 +122,19 @@ import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady
 import { getActiveProfileState } from '@/lib/model-store'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
 import { broadcastBuildPhase } from '@/lib/data-broadcast'
-// AI 工具支路：page_snapshot / page_env_read 两条工具经 SW 调 userScripts.execute
+// AI 工具支路：page_snapshot / page_env_read 两条工具经 SW 向页面里的页面检查器下发指令
 // （offscreen 不可达该 API）
 import {
   capturePageEnvFromTab,
   capturePageSnapshotFromTab,
   pageInjectionBlockReason,
 } from '@/lib/element-picker-client'
-// 拾取指令的下发与配对（常驻件那半在页面里，件源码见 lib/userscripts/picker-host.ts）
-import { cancelPicker, handlePickerResult, runPickerCommand } from '@/lib/userscripts/picker-bridge'
+// 拾取指令的下发与配对（常驻件那半在页面里，件源码见 lib/userscripts/page-inspector-host.ts）
+import {
+  cancelPicker,
+  handleInspectorResult,
+  runInspectorCommand,
+} from '@/lib/userscripts/page-inspector-bridge'
 import type { ElementPickContext } from '@/shared/extension-ipc'
 
 /**
@@ -275,7 +279,7 @@ async function resolveAiTargetTab(
     tabId = tab?.id
   }
   if (tabId == null) throw new Error('未找到目标标签页')
-  // 内置页 / 扩展页拦在注入前（判据与拾取器共用，见 pageInjectionBlockReason——扩展页连自己
+  // 内置页 / 扩展页拦在注入前（判据与页面检查器共用，见 pageInjectionBlockReason——扩展页连自己
   // 的也不行，<all_urls> 不覆盖 chrome-extension scheme）
   const tab = await chrome.tabs.get(tabId).catch(() => null)
   const blocked = pageInjectionBlockReason(tab?.url)
@@ -333,7 +337,7 @@ const handlers: {
   'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> => getActiveProfileState(),
 
   // —— AI 工具支路 ——
-  // 两条都请 SW 代办：chrome.userScripts.execute 在 offscreen 不可达，而在 SW 与注册链路同源
+  // 两条都请 SW 代办：chrome.tabs 在 offscreen 不可达，而在 SW 与注册链路同源
   // （受 138+ 逐扩展开关管控）。page_snapshot 取页面 DOM，page_env_read 取页面侧环境读数。
   // 目标页判据见 resolveAiTargetTab —— 两条共用，别在这里另写一份。
   'page:snapshot': async (
@@ -348,10 +352,10 @@ const handlers: {
 
   // —— 拾取（浮层发起的用户动作）——
   // 目标页判据见 resolvePickTargetTab —— 与上面两条 AI 支路刻意不同，别在这里另写一份。
-  // 下发与结果配对都在 picker-bridge：件在页面里常驻待命，指令经 chrome.tabs.sendMessage 进去，
-  // 结果由件 sendMessage 回来（dl-bridge 的 onUserScriptMessage 分流后交 handlePickerResult）。
+  // 下发与结果配对都在 page-inspector-bridge：件在页面里常驻待命，指令经 chrome.tabs.sendMessage 进去，
+  // 结果由件 sendMessage 回来（dl-bridge 的 onUserScriptMessage 分流后交 handleInspectorResult）。
   'picker:pick': async (): Promise<ElementPickContext | null> =>
-    runPickerCommand<ElementPickContext>(await resolvePickTargetTab('点选元素'), 'pick'),
+    runInspectorCommand<ElementPickContext>(await resolvePickTargetTab('点选元素'), 'pick'),
 
   'picker:cancel': async (): Promise<null> => {
     await cancelPicker()
@@ -1175,9 +1179,9 @@ export default defineBackground(() => {
   // 的 profile-cache 回拉）。SW 这里不再需要 storage.onChanged 兜底。
 
   chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
-    // 拾取结果的兜底投递面：上行以 dl-bridge 的 onUserScriptMessage 为正门，这里认同一只
-    // 信封作保底 —— 结算按 reqId 幂等，两个面各送一次也无害（见 picker-bridge.handlePickerResult）。
-    if (handlePickerResult(raw, sender)) {
+    // 指令结果的兜底投递面：上行以 dl-bridge 的 onUserScriptMessage 为正门，这里认同一只
+    // 信封作保底 —— 结算按 reqId 幂等，两个面各送一次也无害（见 page-inspector-bridge.handleInspectorResult）。
+    if (handleInspectorResult(raw, sender)) {
       sendResponse(true) // 收讫回执：件的 sendMessage 才会正常 resolve
       return false
     }

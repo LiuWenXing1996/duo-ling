@@ -134,7 +134,7 @@ const emit = defineEmits<{
   send: [text: string, assets: ChatAssetRef[]]
   stop: []
   openSettings: []
-  /** 需要开权限（拾取器不可用 / 启用脚本失败）：请宿主打开工作台引导标签页 */
+  /** 需要开权限（页面读取不可用 / 启用脚本失败）：请宿主打开工作台引导标签页 */
   openGuide: []
 }>()
 
@@ -730,7 +730,7 @@ async function onPickElement(): Promise<void> {
   contextError.value = ''
   contextErrorNeedsGuide.value = false
   if (!isUserScriptsApiAvailable()) {
-    // 开关没开：不发起注入，直接给引导文案（探针结论：命名空间不存在时 execute 调用即失败）
+    // 开关没开：不发起下达，直接给引导文案（探针结论：命名空间不存在时注册与下发都无从谈起）
     contextError.value = userScriptsUnavailableMessageSafe()
     contextErrorNeedsGuide.value = true
     return
@@ -764,7 +764,7 @@ function onPanelKeydown(e: KeyboardEvent): void {
 function userScriptsUnavailableMessageSafe(): string {
   // 引导文案与 client 内部一致；单独 import 会造成循环依赖风险，故内联一份。
   // 具体步骤（按浏览器/版本分支）与「打开扩展管理页」按钮统一在工作台「引导」标签页，此处只指路
-  return '拾取器不可用：需要先开启「允许运行用户脚本」权限，开启后重试。'
+  return '拾取元素 / 读快照 / 读环境不可用：需要开启「允许运行用户脚本」'
 }
 </script>
 

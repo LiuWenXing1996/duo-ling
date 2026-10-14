@@ -19,9 +19,14 @@ import { appendUserScriptError, getAllGMValues } from './store'
 import { fetchRequireSources } from './require-cache'
 import { fetchResourceSources } from './resource-cache'
 import { buildScriptRelaySource } from './script-relay'
-// 拾取器常驻件：指令下发 / 结果上行的 USER_SCRIPT 世界那半（弹层的「点选元素」与 AI 的
-// 页面快照 / 环境读数共用同一件，见 syncPickerHost）
-import { buildPickerHostSource, PICKER_FILE, PICKER_HOST_ID, PICKER_HOST_WORLD_ID } from './picker-host'
+// 页面检查器常驻件：指令下发 / 结果上行的 USER_SCRIPT 世界那半（弹层的「点选元素」与 AI 的
+// 页面快照 / 环境读数共用同一件，见 syncPageInspector）
+import {
+  buildPageInspectorHostSource,
+  INSPECTOR_FILE,
+  INSPECTOR_HOST_ID,
+  INSPECTOR_HOST_WORLD_ID,
+} from './page-inspector-host'
 // 浮层宿主常驻件：对话浮层在页面里的挂载点（开关 / 收起 / 生成遮罩都经指令驱动，见 syncFloatHost）
 import {
   buildFloatHostInit,
@@ -264,7 +269,7 @@ const TAB_FORWARDER_WORLD_ID = 'us-dl-tab'
  */
 const BUILTIN_SCRIPT_IDS = [
   SCRIPT_RELAY_ID,
-  PICKER_HOST_ID,
+  INSPECTOR_HOST_ID,
   FLOAT_HOST_ID,
   TAB_RECORDER_ID,
   TAB_FORWARDER_ID,
@@ -282,8 +287,8 @@ const BUILTIN_META: Record<string, { name: string; world: string; note: string }
     world: '用户脚本世界',
     note: 'GM 能力的中继件：脚本世界没有 chrome.*，靠它把 GM 调用转给扩展',
   },
-  [PICKER_HOST_ID]: {
-    name: '元素拾取器',
+  [INSPECTOR_HOST_ID]: {
+    name: '页面检查器',
     world: '用户脚本世界',
     note: '在页面里待命：收到指令才点选元素 / 抓快照 / 读环境，平时不亮任何 UI',
   },
@@ -358,7 +363,7 @@ export async function listBuiltinRegistrations(): Promise<BuiltinRegistration[]>
  *
  * 不能只看匹配面：录制两件是**全匹配注册**（判据是「有没有页在录」而非站点），没开记录的页上它们
  * 虽然在册却不工作，列出来是噪音。判据因此多一道：录制件只在该页正在记录时才算在用。
- * 其余件（含全匹配的拾取器 / 浮层宿主）确实每页都在，按匹配面判即可。
+ * 其余件（含全匹配的页面检查器 / 浮层宿主）确实每页都在，按匹配面判即可。
  */
 export function builtinsOnPage(
   all: readonly BuiltinRegistration[],
@@ -461,15 +466,15 @@ async function syncScriptRelay(projects: ScriptProject[]): Promise<void> {
   }
 }
 
-/** 拾取器常驻件的匹配面：覆盖全部站点（理由见 syncPickerHost 的说明） */
-const PICKER_HOST_MATCHES = ['<all_urls>']
+/** 页面检查器常驻件的匹配面：覆盖全部站点（理由见 syncPageInspector 的说明） */
+const INSPECTOR_HOST_MATCHES = ['<all_urls>']
 
 /**
- * 维护拾取器常驻件的注册（幂等可重入；调用方负责串行化）。
+ * 维护页面检查器常驻件的注册（幂等可重入；调用方负责串行化）。
  *
  * **为什么常驻**：拾取的时刻是「页面早已打开、用户刚点按钮」，而注册件只在页面**开始加载**时
  * 注入，两者差的正是这个时间点；且注册件没有返回值通道。于是走「加载即到位待命，指令与结果走
- * 消息」：下发见 picker-bridge 的 runPickerCommand，上行由件 sendMessage 回 SW。
+ * 消息」：下发见 page-inspector-bridge 的 runInspectorCommand，上行由件 sendMessage 回 SW。
  *
  * **匹配面全站**：拾取的目标由用户点按钮那一刻决定，而注册没有 tab 维度（RegisteredUserScript
  * 的匹配字段全是 URL），只能覆盖全部 —— 代价是每个普通网页里都有一份待命代码（零 UI、零网络，
@@ -478,34 +483,37 @@ const PICKER_HOST_MATCHES = ['<all_urls>']
  * **它的世界必须开 messaging**：件靠 chrome.runtime 收发指令与结果，而自定义世界不继承默认世界
  * 配置（与中继件 / 转发件同一坑）。
  */
-async function syncPickerHost(): Promise<void> {
+async function syncPageInspector(): Promise<void> {
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
   let existing: chrome.userScripts.RegisteredUserScript | undefined
   try {
-    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === PICKER_HOST_ID)
+    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === INSPECTOR_HOST_ID)
   } catch {
     return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
   }
-  if (existing && sameMatchSet(existing, { matches: PICKER_HOST_MATCHES })) return
-  const worldOk = await configureWorld(PICKER_HOST_WORLD_ID)
+  if (existing && sameMatchSet(existing, { matches: INSPECTOR_HOST_MATCHES })) return
+  const worldOk = await configureWorld(INSPECTOR_HOST_WORLD_ID)
   if (!worldOk) {
-    console.warn('[duoling:userscript] 拾取器世界配置失败（无 messaging，拾取不可用）', PICKER_HOST_WORLD_ID)
+    console.warn(
+      '[duoling:userscript] 页面检查器世界配置失败（无 messaging，页面读取不可用）',
+      INSPECTOR_HOST_WORLD_ID,
+    )
   }
-  await chrome.userScripts.unregister({ ids: [PICKER_HOST_ID] }).catch(() => {})
+  await chrome.userScripts.unregister({ ids: [INSPECTOR_HOST_ID] }).catch(() => {})
   const host: chrome.userScripts.RegisteredUserScript = {
-    id: PICKER_HOST_ID,
-    worldId: PICKER_HOST_WORLD_ID,
-    // 两段顺序不能换：前一段只定义运行器，后一段装指令监听并调它（见 picker-host.ts）
-    js: [{ file: PICKER_FILE }, { code: buildPickerHostSource() }],
-    matches: PICKER_HOST_MATCHES,
+    id: INSPECTOR_HOST_ID,
+    worldId: INSPECTOR_HOST_WORLD_ID,
+    // 两段顺序不能换：前一段只定义运行器，后一段装指令监听并调它（见 page-inspector-host.ts）
+    js: [{ file: INSPECTOR_FILE }, { code: buildPageInspectorHostSource() }],
+    matches: INSPECTOR_HOST_MATCHES,
     // document_start：件只定义函数 + 装监听，不碰 DOM，尽早到位可缩小「页面加载中点按钮」的空窗
     runAt: 'document_start',
   }
   try {
     await chrome.userScripts.register([host])
-    console.log('[duoling:sw] 拾取器常驻件注册成功：', JSON.stringify(PICKER_HOST_MATCHES))
+    console.log('[duoling:sw] 页面检查器常驻件注册成功：', JSON.stringify(INSPECTOR_HOST_MATCHES))
   } catch (e) {
-    console.warn('[duoling:sw] 拾取器常驻件注册失败：', e)
+    console.warn('[duoling:sw] 页面检查器常驻件注册失败：', e)
     throw e
   }
 }
@@ -517,7 +525,7 @@ const FLOAT_HOST_MATCHES = ['<all_urls>']
  * 维护浮层宿主常驻件的注册（幂等可重入；调用方负责串行化）。
  *
  * **为什么常驻**：打开浮层是「页面早已打开、用户刚点按钮」的动作，而注册件只在页面**开始加载**时
- * 注入 —— 要在那之后还能挂上对话框，就只能加载即到位、待命等指令（与拾取器同因由）。
+ * 注入 —— 要在那之后还能挂上对话框，就只能加载即到位、待命等指令（与页面检查器同因由）。
  *
  * **换来的是注册面收敛**：走 manifest 通道的声明式内容脚本不在 `getScripts()` 里，UI 只能标一句
  * 「常驻」、回答不了「此刻到底在不在」；注册件则让内置件全在同一处同步、同一个口对账
@@ -659,7 +667,7 @@ export function refreshTabRecorder(): Promise<void> {
  * 重算**内置注入脚本**的注册（挂 registerChain 串行队列）：脚本增删改 / 启停 / 删除，以及启动与
  * 扩展更新恢复时由 background 调用。三件在这一处汇合：
  *   · 脚本桥中继件 —— 跟随「启用脚本的匹配并集」（MAIN 世界脚本的 GM 调用靠它转给 SW）；
- *   · 拾取器常驻件 —— 与脚本集合无关、恒注册，搭这条队列只为少一处接线（幂等，注册面未变即跳过）；
+ *   · 页面检查器常驻件 —— 与脚本集合无关、恒注册，搭这条队列只为少一处接线（幂等，注册面未变即跳过）；
  *   · 浮层宿主常驻件 —— 同上，恒注册。
  * 录制那两件有自己的入口（`refreshTabRecorder`）。
  */
@@ -667,7 +675,7 @@ export function refreshBuiltinScripts(): Promise<void> {
   const run = registerChain.then(async () => {
     const projects = await listProjects()
     await syncScriptRelay(projects)
-    await syncPickerHost()
+    await syncPageInspector()
     await syncFloatHost()
   })
   registerChain = run.catch(() => {})
@@ -824,14 +832,14 @@ async function runRegisterAllEnabled(): Promise<void> {
   // 录制件跟随「有没有标签页在记活动」（与脚本集合无关）：SW 冷启动 / 扩展更新恢复时一并同步，
   // 保证「正在录的那一页」在重注册后依然生效
   await syncTabRecorder().catch(() => {})
-  // 拾取器常驻件同样与脚本集合无关：冷启动 / 扩展更新后必须补回（扩展更新会清空全部注册）
-  await syncPickerHost().catch(() => {})
+  // 页面检查器常驻件同样与脚本集合无关：冷启动 / 扩展更新后必须补回（扩展更新会清空全部注册）
+  await syncPageInspector().catch(() => {})
   // 浮层宿主常驻件同理（它也是注册件，扩展更新清空注册后必须补回）
   await syncFloatHost().catch(() => {})
   const enabled = projects.filter((p) => p.enabled)
   try {
     const existing = await chrome.userScripts.getScripts()
-    // 全量重注册只清用户脚本——内置注册（中继件 / 拾取器 / 浮层宿主 / 录制两件）在上一段刚按并集 /
+    // 全量重注册只清用户脚本——内置注册（中继件 / 页面检查器 / 浮层宿主 / 录制两件）在上一段刚按并集 /
     // 门禁同步过，不能被这把误清（否则重注册后录制件消失，直到下次冷启动才补）
     const stale = existing.filter((s) => !BUILTIN_SCRIPT_IDS.includes(s.id))
     if (stale.length) await unregisterScripts(stale.map((s) => s.id))

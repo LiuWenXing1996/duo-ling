@@ -95,7 +95,7 @@ const emit = defineEmits<{
 
 const scripts = ref<ScriptSummary[]>([])
 /**
- * 扩展内置注入件（脚本桥 / 元素拾取器 / 浮层宿主 / 页面录制 / 录制转发）此刻的注册状态 —— 只读透出，
+ * 扩展内置注入件（脚本桥 / 页面检查器 / 浮层宿主 / 页面录制 / 录制转发）此刻的注册状态 —— 只读透出，
  * 不进上面的网格（它们不是用户脚本：没有源码 / 启停 / 删除，混进网格会被搜索、筛选与空态误伤）。
  */
 const builtins = ref<import('@/lib/userscripts/engine').BuiltinRegistration[]>([])

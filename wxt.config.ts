@@ -102,7 +102,7 @@ export default defineConfig({
   // 才能正确解析到扩展侧的 src。
   srcDir: 'src',
   // WXT 的 publicDir 默认基于**项目根**（不是 srcDir），需显式指到 src 下，
-  // 否则 src/public/ 下的静态资产（如 duoling-picker.js）不会进产物。
+  // 否则 src/public/ 下的静态资产（如 duoling-page-inspector.js）不会进产物。
   publicDir: 'src/public',
   vite: () => ({
     plugins: [vue(), tailwindcss(), htmlExtensionName()],
@@ -170,8 +170,8 @@ export default defineConfig({
     // 用户脚本管理器（userscript-manager）：userScripts 注入目标网页需全域 host 权限
     // （Chrome 文档明确要求），同时覆盖 GM_xmlhttpRequest 的跨域可达范围。
     host_permissions: [...providerOrigins(), '<all_urls>'],
-    // 135 = chrome.userScripts.execute()（页面快照 / 环境读数的按需注入通道）
-    // + 自定义 USER_SCRIPT 世界（worldId，133+）：脚本桥 / 拾取器 / 浮层宿主 / 录制转发各占一个。
+    // 135 = 本项目对内核的最低要求（自定义 USER_SCRIPT 世界的 worldId 需 133+，本项目取 135）：
+    // 脚本桥 / 页面检查器 / 浮层宿主 / 录制转发各占一个自定义世界。
     // Chrome 规范字段是下划线 minimum_chrome_version；驼峰键会被 Chrome 忽略并报 Unrecognized。
     'minimum_chrome_version': '135',
     // default_popup 不在此手写：WXT 按文件名把 entrypoints/popup.html 识别为 popup 入口

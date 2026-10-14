@@ -39,13 +39,13 @@
   // 注入根 id（全局唯一，防止重复注入）
   var ROOT_ID = 'duoling-float-root'
 
-  // 「点选元素正在页面里进行」的信号：拾取器亮拾取态时往 documentElement 插的遮罩类名
-  // （src/public/duoling-picker.js 的 CSS_NS + '-box'，仅拾取期间存在、finish() 即移除）。
+  // 「点选元素正在页面里进行」的信号：页面检查器亮拾取态时往 documentElement 插的遮罩类名
+  // （src/public/duoling-page-inspector.js 的 CSS_NS + '-box'，仅拾取期间存在、finish() 即移除）。
   //
-  // 为什么用 DOM 而不是广播：拾取器与本件分居两个世界，JS 互相不可见，共享面只有 DOM；而拾取
+  // 为什么用 DOM 而不是广播：页面检查器与本件分居两个世界，JS 互相不可见，共享面只有 DOM；而拾取
   // 遮罩的生死恰好就是「拾取区间」本身，无需新增任何通道。
   // 副作用还有一个好处：判定天然按 document 隔离——只有真正发起拾取的那个标签页会隐藏对话框。
-  // ⚠️ 契约：改拾取遮罩的类名必须同步改这里（拾取器文件顶部注释也标注了这条）。
+  // ⚠️ 契约：改拾取遮罩的类名必须同步改这里（页面检查器文件顶部注释也标注了这条）。
   var PICKER_BOX_SELECTOR = '.duoling-picker-box'
 
   // 指令 kind：与 shared/extension-ipc.ts 的同名常量一一对应，单测逐条比对（改一处必须两处一起改）
@@ -368,12 +368,12 @@
   /**
    * 拾取期间整块让位。
    *
-   * 为什么必须隐藏：对话框钉在 z-index: 2147483647（见 CSS），而拾取器用
-   * document.elementFromPoint() 判定目标（duoling-picker.js）——对话框在时，用户点到它覆盖的
+   * 为什么必须隐藏：对话框钉在 z-index: 2147483647（见 CSS），而页面检查器用
+   * document.elementFromPoint() 判定目标（duoling-page-inspector.js）——对话框在时，用户点到它覆盖的
    * 区域拿回的是对话框自己的元素（shadow 宿主 / iframe），既选错元素，也让被盖住的真实元素永远
    * 点不到。
    *
-   * 判据取「遮罩此刻在不在」这个 DOM 事实，而不是数插入/移除的次数：拾取器再次注入时会先收掉旧
+   * 判据取「遮罩此刻在不在」这个 DOM 事实，而不是数插入/移除的次数：页面检查器再次注入时会先收掉旧
    * 拾取（移除旧遮罩）再插新遮罩，同一批 mutation 里一增一减，按次数计会算错。
    */
   function syncFloatVisibilityForPick() {
@@ -462,7 +462,7 @@
       console.warn('[duoling:float] 世界未开 messaging，浮层指令通道不可用')
       return
     }
-    // 拾取器插/删遮罩 → 同步对话框显隐。只盯 documentElement 的**直接子节点**：遮罩挂在 <html>
+    // 页面检查器插/删遮罩 → 同步对话框显隐。只盯 documentElement 的**直接子节点**：遮罩挂在 <html>
     // 下，而对话框挂在 <body> 下，二者互不触发，不会自激（也不必开 subtree 去听整棵树的增删）。
     // 骨架未建（document_start 极早期）就等文档就绪再装 —— 那个窗口里还没有对话框要隐藏。
     function watchPickMask(target) {

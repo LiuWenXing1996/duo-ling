@@ -42,8 +42,8 @@ import {
 import { checkCookieUrl } from './cookie-gate'
 // 标签页录制：转发件送来的采集载荷在 SW 侧按**种类**白名单化后落 runtime 的 tab_events（与标签页事件同表）
 import { normalizeNetCapture, NET_TAB_KIND, TAB_RECORD_TAG } from './tab-record-protocol'
-// 拾取器常驻件的结果入站：按 reqId 结算 picker-bridge 里挂起的那次调用（分流见下方监听器）
-import { handlePickerResult } from './picker-bridge'
+// 页面检查器常驻件的结果入站：按 reqId 结算 page-inspector-bridge 里挂起的那次调用（分流见下方监听器）
+import { handleInspectorResult } from './page-inspector-bridge'
 import * as runtime from './runtime-db'
 // 对话界面页面脚本监控（运行时口径）：runstart 登记 + 错误实时推送（跨文档观察者，SW 按 tab 登记）
 import { notePageError, noteRunStart } from './page-monitor'
@@ -1044,9 +1044,9 @@ export function initDlBridge(): void {
     // 无响应，仅落库，失败静默（录制不该影响页面网络层）。
     const rec = raw as Record<string, unknown>
 
-    // 拾取器常驻件的执行结果：交 picker-bridge 按 reqId 结算挂起的那次调用。
+    // 页面检查器常驻件的执行结果：交 page-inspector-bridge 按 reqId 结算挂起的那次调用。
     // 返回值 = 是否认领这条消息：信封对上就认领（世界 id 不符也只丢弃，不再往下分流）。
-    if (handlePickerResult(raw, sender)) {
+    if (handleInspectorResult(raw, sender)) {
       // 收讫回执：件的 sendMessage 才会正常 resolve，否则页面控制台多一条「port closed」
       sendResponse(true)
       return undefined

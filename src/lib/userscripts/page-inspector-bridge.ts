@@ -1,18 +1,18 @@
-// 拾取指令桥（SW 侧）：把「开始拾取 / 采集快照 / 读环境 / 收工」下发到常驻件，
+// 页面检查器指令桥（SW 侧）：把「拾取 / 采集快照 / 读环境 / 收工」下发到常驻件，
 // 并在件上报结果时按 reqId 配对回发起方那次调用。
 //
 // 只在 SW 侧引用（发起方是浮层或 SW 自己）。与 element-picker-client 的分工：
 //   client —— 发起侧薄客户端：发命令、等应答、把失败文案交给 UI；
 //   本文件 —— SW 侧那半：下发、配对、超时兜底、进行中拾取的记账。
 //
-// 件的结果经 chrome.runtime.sendMessage 上来，两个投递面都交 handlePickerResult 结算：
+// 件的结果经 chrome.runtime.sendMessage 上来，两个投递面都交 handleInspectorResult 结算：
 // 正门是 dl-bridge 的 onUserScriptMessage，SW 常规 onMessage（background.ts）认同一只信封
 // 作保底 —— 上行的实际投递面若与文档口径不一致，结果也不会丢。
 //
 // 超时放在这一层（不重复设在发起侧）：件可能因页面卸载 / 导航而永远不上报，留一条兜底，
 // 文案按模式区分 —— 用户要能判断是「自己没点」还是「页面没了」。
 
-import { PICKER_CMD_TAG, PICKER_HOST_WORLD_ID, PICKER_RESULT_TAG } from './picker-host'
+import { INSPECTOR_CMD_TAG, INSPECTOR_HOST_WORLD_ID, INSPECTOR_RESULT_TAG } from './page-inspector-host'
 
 /** 单次调用的超时：用户点选可能很久不结算，但页面关掉 / 导航会让它永不结算，必须有兜底 */
 const PICK_TIMEOUT_MS = 60_000
@@ -24,23 +24,24 @@ const TIMEOUT_MESSAGE = {
   env: '页面环境读取失败：60 秒内未完成（页面可能已关闭或刷新）',
 } as const
 
-export type PickerMode = keyof typeof TIMEOUT_MESSAGE
+export type InspectorMode = keyof typeof TIMEOUT_MESSAGE
 
 /**
  * 件不在位时的文案。触发它的情形都长一个样（下发时无人接收）：扩展侧开关没开
  * （件根本没注册成）、目标页尚在加载（件还没到位）、页面在导航中（旧件已卸）。
  * 不逐条猜原因 —— 用户能做的是那条开关，其余「稍后重试」即可。
  */
-const NOT_READY = '拾取器未就绪：需先开启「允许运行用户脚本」（工作台「引导」标签页有开启步骤），或稍后重试'
+const NOT_READY =
+  '页面检查器未就绪：需先开启「允许运行用户脚本」（工作台「引导」标签页有开启步骤），或稍后重试'
 
-interface PendingPicker {
+interface PendingInspector {
   resolve: (v: unknown) => void
   reject: (e: Error) => void
   timer: ReturnType<typeof setTimeout>
 }
 
 /** 在进行中的指令：reqId → 结算器。SW 重启即丢（发起侧那条连接也一并断） */
-const pending = new Map<string, PendingPicker>()
+const pending = new Map<string, PendingInspector>()
 
 /** 进行中拾取的目标标签页（收工要往那一页发）。同一时刻至多一个拾取，与 UI 的单一入口一致 */
 let activePickTabId: number | null = null
@@ -48,14 +49,14 @@ let activePickTabId: number | null = null
 function mintReqId(): string {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
-    : `dlpick-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    : `dlinsp-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 /**
  * 下发一条指令并等件上报结果。pick 模式结算值可为 null（用户取消），其余模式结算值必为对象。
  * 失败路径：下发无人接收 → 立刻抛（不等超时）；件报错 → 抛件给的原因；永不结算 → 超时抛。
  */
-export async function runPickerCommand<T>(tabId: number, mode: PickerMode): Promise<T | null> {
+export async function runInspectorCommand<T>(tabId: number, mode: InspectorMode): Promise<T | null> {
   if (!chrome.tabs?.sendMessage) throw new Error(NOT_READY)
   const reqId = mintReqId()
   const wait = new Promise<unknown>((resolve, reject) => {
@@ -67,7 +68,7 @@ export async function runPickerCommand<T>(tabId: number, mode: PickerMode): Prom
   })
   if (mode === 'pick') activePickTabId = tabId
   try {
-    await chrome.tabs.sendMessage(tabId, { [PICKER_CMD_TAG]: true, cmd: mode, reqId })
+    await chrome.tabs.sendMessage(tabId, { [INSPECTOR_CMD_TAG]: true, cmd: mode, reqId })
   } catch {
     // 无人接收就是「件不在位」：即时失败，不必等满那 60 秒。
     // 从记账里摘掉并清掉定时器 —— 这条 wait 不会再有人 await，留着它只会得到一条
@@ -95,7 +96,7 @@ export async function cancelPicker(): Promise<void> {
   if (tabId == null || !chrome.tabs?.sendMessage) return
   try {
     await chrome.tabs.sendMessage(tabId, {
-      [PICKER_CMD_TAG]: true,
+      [INSPECTOR_CMD_TAG]: true,
       cmd: 'cancel',
       reqId: mintReqId(),
     })
@@ -115,12 +116,12 @@ export async function cancelPicker(): Promise<void> {
  *     调用的回执。世界 id 只做旁证：字段在且对不上时丢弃并出声；字段不在（常规面没有它）
  *     照常结算。
  */
-export function handlePickerResult(raw: unknown, sender: chrome.runtime.MessageSender): boolean {
+export function handleInspectorResult(raw: unknown, sender: chrome.runtime.MessageSender): boolean {
   const rec = raw as Record<string, unknown>
-  if (rec[PICKER_RESULT_TAG] !== true) return false
+  if (rec[INSPECTOR_RESULT_TAG] !== true) return false
   const worldId = (sender as { userScriptWorldId?: string }).userScriptWorldId
-  if (worldId != null && worldId !== PICKER_HOST_WORLD_ID) {
-    console.warn('[duoling:picker] 拾取结果来自别的世界，丢弃：', worldId)
+  if (worldId != null && worldId !== INSPECTOR_HOST_WORLD_ID) {
+    console.warn('[duoling:inspector] 指令结果来自别的世界，丢弃：', worldId)
     return true
   }
   const reqId = String(rec.reqId ?? '')
@@ -128,7 +129,7 @@ export function handlePickerResult(raw: unknown, sender: chrome.runtime.MessageS
   if (!entry) {
     // 有信封却没挂起的调用：SW 重启过（记账丢了）或同一消息被两个投递面各送了一次。
     // 结算按 reqId 幂等，重复投递无害；真丢了的调用由超时兜底。
-    console.warn('[duoling:picker] 拾取结果没对上挂起的调用（SW 重启过或重复投递）：', reqId)
+    console.warn('[duoling:inspector] 指令结果没对上挂起的调用（SW 重启过或重复投递）：', reqId)
     return true
   }
   pending.delete(reqId)
@@ -136,7 +137,7 @@ export function handlePickerResult(raw: unknown, sender: chrome.runtime.MessageS
   if (rec.ok === true) {
     entry.resolve(rec.payload ?? null)
   } else {
-    entry.reject(new Error(typeof rec.payload === 'string' ? rec.payload : '拾取器执行失败'))
+    entry.reject(new Error(typeof rec.payload === 'string' ? rec.payload : '页面读取失败'))
   }
   return true
 }
