@@ -49,11 +49,15 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
   工具栏角标**不报会话**（它只报脚本运行数，见「脚本注入」的运行登记表）。
 
 - **流式静默超时（防限流）**：`runLoop` 泵流期间挂 `createIdleGuard`（`src/lib/offscreen-chat/idle-guard.ts`），两次 chunk 间隔超 `STREAM_IDLE_TIMEOUT_MS`（默认 60s，可在模型高级配置里按 provider 调整 `streamIdleTimeoutSec` 秒）即判定 provider 卡死（有连接但不吐 token），主动 `abort` 并推 error 块「请求超时…已自动中止」。避免静默卡死的请求长期占用网关连接/并发配额、累积触发限流；用户手动停止走 `abortChat`，与此计时无关。模型配置探活 `testChat` 另有 15s 超时。
-- **对话流内的卡片走 `data-*` part**（`data-generation` 生成卡片、`data-tab-record` 录制同意卡）。两条硬约束：① 历史消息送模型前 `stripDataParts` 会剥掉全部 `data-*`（UI 专用，不进上下文）；② 卡片若由**工具执行中途**推送（同意卡的 `requestConsent` 回调即此例），必须在 `runLoop` 里收集（`midStreamParts`）并在收尾插进落盘序列——`allChunks` 只收 `streamText` 的输出流，中途手工推的 part 不在其中，不收集就只在流里闪一下、重开面板即消失（而卡片往往是用户唯一的操作入口）。
+- **对话流内的卡片走 `data-*` part**（`data-generation` 生成卡片、`data-tab-record` 录制同意卡、`data-asset` 图片资源引用）。两条硬约束：① 历史消息送模型前 `messagesForModel`（`lib/chat-assets.ts`）会处理全部 `data-*` —— 卡片类整条剥掉（UI 专用，不进上下文），`data-asset` 换成一行文字引用（见下「图片」）；② 卡片若由**工具执行中途**推送（同意卡的 `requestConsent` 回调即此例），必须在 `runLoop` 里收集（`midStreamParts`）并在收尾插进落盘序列——`allChunks` 只收 `streamText` 的输出流，中途手工推的 part 不在其中，不收集就只在流里闪一下、重开面板即消失（而卡片往往是用户唯一的操作入口）。
 
-- **附件（图片 / 文本文件）**：转换全部在**发出前**完成，链路下游（transport / offscreen / provider）不需要知道「附件」这个概念 —— 图片压成 data URL 的 file part 随消息走，落盘、回读、每轮重发都沿用 parts 的既有机制；文本文件读成文本拼进正文（OpenAI 兼容接口不支持任意文件上传）。**压缩只能在发出前做**：图片一旦随 user 消息落盘就是历史的一部分，以后每轮都会重新发给模型，事后再想换张小的已经改不动。处理逻辑集中在 `src/lib/chat-attachments.ts`。
-  - **图片统一转 JPEG**（长边 ≤1568、先铺白底）：JPEG 是各家兼容服务端的接受交集 —— PNG 压不动体积、WebP 有一批服务不认。代价是丢透明通道，对截图 / 设计稿无影响。
-  - **不按模型能力预判能否发图**：附件入口恒定同时收图片与文本文件，不看模型声明。读不了图的模型由服务端自行处理（返回参数错误，或把图片换成占位文本），本扩展不拦也不兜底 —— 拦错了会挡掉本可用的组合，代价比偶尔一次请求失败更大。
+- **附件（图片 / 文本文件）**：转换全部在**发出前**完成，链路下游（transport / offscreen / provider）不需要知道「附件」这个概念。处理逻辑集中在 `src/lib/chat-attachments.ts`；引用形状与三个消费点的读法集中在 `src/lib/chat-assets.ts`。**转换只能在发出前做**：附件一旦随 user 消息落盘就是历史的一部分，事后再想换掉已经改不动。
+  - **文本文件读成正文**：OpenAI 兼容接口不支持任意文件上传，只能拼进提示词（带文件名围栏，超长截断并留标记）。
+  - **图片不进消息，只落库 + 留引用**：重编码成 JPEG 后写到 `duoling-fs` 的 `/assets/<内容hash>/<文件名>`（`us-assets.ts`，与 `/uscripts` 平级 —— 源码库按「状态库 uuid ↔ 目录」清理孤儿，资源没有对应记录，塞进去会被当孤儿清掉），消息里只留一份 `data-asset`（`{ id, filename, mediaType, size }`）。**id 由内容 hash 定，唯一产地是 `us-assets.contentId`**：同一张图重复附加（同会话重发 / 多条会话引用）命中同一份字节，写入天然幂等；调用方不参与定 id，否则「同图同 id」就得靠各处自觉遵守。落盘文件名按真实 MIME 归一扩展名（重编码后截图常是 `.png` 名字 + JPEG 字节），否则读回时会推出错 MIME。
+  - **模型永远看不到图片字节**：送模型前 `messagesForModel` 把 `data-asset` 换成一行文字（`assetPlaceholderText`：assetId + 「内容未随消息发送，要看图请调 image_ask」）。看图只有一条路 —— `image_ask` 工具 → 识图子 Agent（`offscreen-chat/vision-agent.ts`）：读库原图 → 一次独立、无工具的模型调用 → 只把**文字**答案交回主对话。于是「一次识图只烧一次图 token，而不是此后每轮都重发」成立（旧做法最贵的地方正在这里：图片随每条历史消息整段重发）。识图**用当前激活的模型**（它必须自己支持读图；不支持时服务端报错原样交回模型，由它向用户说明 —— 不在客户端预判模型能力，拦错了会挡掉本可用的组合）。
+  - **图片统一转 JPEG**（长边 ≤1568、先铺白底）：JPEG 是各家视觉接口的接受交集 —— PNG 压不动体积、WebP 有一批服务不认。代价是丢透明通道，对截图 / 设计稿无影响。
+  - **面板按需 hydrate**：消息里只有引用，缩略图首次渲染时经 `fs:assetRead` 取回 data URL 并缓存（缓存键即内容 hash，同一条消息的多个缩略图只取一次）；取不到的（资源被清过 / id 写错）留空占位且不反复重试。
+  - **资源随会话删除回收**：删会话**先取候选 id、再删会话、最后回收**（`offscreen-chat/asset-lifecycle.ts`）—— 判据是「删完之后全库还剩谁在引用」（`conversation-store.referencedAssetIds`），而不是「这条会话带过什么」：图片可被多条会话共用，按后者删会把别人还在用的图删掉。清空全部会话时引用面必然为空，整库删。
   - 输入区的附件状态由 `ChatPanel` 自持：它在自己的 setup 里创建 prompt-input 的上下文，`PromptInput` 会继承外层的那个（组件的双模式）—— 于是附件 chip、入口按钮、提交分流都留在对话面板内，通用组件不用装对话特有的逻辑。
 
 ## 脚本注入
