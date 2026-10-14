@@ -223,7 +223,9 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     // 刷新 ⇒ 面板从会话库读回消息（里面只有引用），再去资源库取字节。
     // 消息里一旦混进过字节，这条会以另一种方式失效；而资源库若没真落盘，缩略图就出不来。
     await page.reload()
-    await expect(page.getByText(/刷新前后都该看得见/), '刷新后历史消息还在').toBeVisible({ timeout: 20_000 })
+    // 等 AI 那轮回复重新渲染出来。锚点不能取用户原话 —— 那句话同时出现在会话标题栏
+    // 与假模型的回显里（stub 会复述最后一条 user 文本），getByText 会撞 strict mode。
+    await expect(page.getByText(/stub 回复：/), '刷新后历史消息还在').toBeVisible({ timeout: 20_000 })
     await thumbDataUrl(page)
     await page.close()
   })
