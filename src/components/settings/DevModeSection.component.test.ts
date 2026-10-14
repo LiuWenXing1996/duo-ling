@@ -2,7 +2,7 @@
 //
 // 守三条：清单里的面板各有一行入口、点某行把 kind 与标题交给宿主（emit openTab，
 // 「会话数据」特例发 openSessionData——它没有独立标签页）、分区里不再有「控制显示与否」的开关。
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import DevModeSection from './DevModeSection.vue'
 
@@ -58,6 +58,92 @@ describe('设置 · 开发者分区', () => {
   it('分区里没有开关：入口只负责打开，不控制显示与否', () => {
     const w = mountSection()
     expect(w.findAll('[role="switch"]')).toHaveLength(0)
+  })
+})
+
+// 通知调试栏：`create` 被拒绝时（图标取不到等）原因必须留在面板上 —— 只进 console 的话，这个
+// 「确认通知能不能显示」的工具自己就成了「点了没反应」，看不出是发失败还是没发出去。
+// 另一路是 `create` 成功但系统不放行（denied），它没有报错可显示，故单独走权限判据。
+describe('设置 · 开发者分区 · 通知调试栏', () => {
+  const send = (w: VueWrapper) => w.find('[data-testid="dev-notify-send"]')
+  const errorLine = (w: VueWrapper) => w.find('[data-testid="dev-notify-error"]')
+  const deniedLine = (w: VueWrapper) => w.find('[data-testid="dev-notify-denied"]')
+
+  /**
+   * 把权限判据喂成给定值。`as never`：spyOn 落在 `getPermissionLevel(callback)` 那个重载上、
+   * 返回值类型成了 void，而真实实现返回的是 Promise。
+   */
+  function stubPermissionLevel(level: 'granted' | 'denied'): void {
+    vi.spyOn(chrome.notifications, 'getPermissionLevel').mockResolvedValue(level as never)
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('发送成功：通知真的交给 chrome.notifications，面板不留提示行', async () => {
+    const create = vi.spyOn(chrome.notifications, 'create')
+    stubPermissionLevel('granted')
+    const w = mountSection()
+
+    await send(w).trigger('click')
+    await flushPromises()
+
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(errorLine(w).exists()).toBe(false)
+    expect(deniedLine(w).exists()).toBe(false)
+  })
+
+  it('发送失败：原因就地显示', async () => {
+    vi.spyOn(chrome.notifications, 'create').mockRejectedValueOnce(
+      new Error('Unable to download all specified images.'),
+    )
+    const w = mountSection()
+
+    await send(w).trigger('click')
+    await flushPromises()
+
+    expect(errorLine(w).text()).toBe('Unable to download all specified images.')
+  })
+
+  it('发成功但系统不放行：提示这条通知不会显示（create 抓不到这一路）', async () => {
+    stubPermissionLevel('denied')
+    const w = mountSection()
+
+    await send(w).trigger('click')
+    await flushPromises()
+
+    expect(deniedLine(w).exists()).toBe(true)
+    expect(errorLine(w).exists()).toBe(false)
+  })
+
+  it('权限判据取不到：仍按已发送处理，不多出提示行', async () => {
+    // 判据是附加诊断 —— 它自己挂掉不能变成一个「发送失败」
+    vi.spyOn(chrome.notifications, 'getPermissionLevel').mockImplementation(() => {
+      throw new Error('not implemented')
+    })
+    const w = mountSection()
+
+    await send(w).trigger('click')
+    await flushPromises()
+
+    expect(errorLine(w).exists()).toBe(false)
+    expect(deniedLine(w).exists()).toBe(false)
+  })
+
+  it('失败之后恢复可用：再发一次成功，错误行随之消失', async () => {
+    const create = vi.spyOn(chrome.notifications, 'create')
+    stubPermissionLevel('granted')
+    create.mockRejectedValueOnce(new Error('boom'))
+    const w = mountSection()
+
+    await send(w).trigger('click')
+    await flushPromises()
+    expect(errorLine(w).exists()).toBe(true)
+
+    await send(w).trigger('click')
+    await flushPromises()
+    expect(errorLine(w).exists()).toBe(false)
   })
 })
 

@@ -33,14 +33,45 @@ function openPanel(kind: WorkspaceTabKind | 'session-data', label: string): void
 /** 通知图标（与工具栏同源，复用 auto-icons 构建生成的 icons/128.png） */
 const NOTIFY_ICON = 'icons/128.png'
 
+/**
+ * 发送失败的原因（空串 = 没有失败）。**必须留在面板上**：`create` 拒绝时只进 console 的话，
+ * 这个自测工具就退化成了「点了没反应」—— 而它存在的意义正是确认通知能不能显示出来。
+ */
+const notifyError = ref('')
+
+/**
+ * 系统层面不放行这条通知（权限判据返回 denied）。这是 `create` 抓不到的一路：它照样成功返回，
+ * 通知却被系统默默丢掉 —— 「没有报错、也没有通知」正是这种情况的样子。
+ */
+const notifyDenied = ref(false)
+
+/**
+ * 系统是否不放行本扩展的通知。探针自身失败时按**放行**处理 —— 它是附加诊断，不能反过来成为
+ * 发送流程的新失败点：判据取不到只是少一句解释，通知该发还是发。
+ */
+async function notificationDenied(): Promise<boolean> {
+  try {
+    return (await chrome.notifications.getPermissionLevel()) === 'denied'
+  } catch {
+    return false
+  }
+}
+
 /** 发送一条测试通知，确认通知图标的显示效果（开发自测用） */
 async function testNotify(): Promise<void> {
-  await chrome.notifications.create('duoling:dev-test', {
-    type: 'basic',
-    iconUrl: NOTIFY_ICON,
-    title: EXTENSION_NAME,
-    message: '这是一条测试通知，用于确认通知图标的显示效果。',
-  })
+  try {
+    await chrome.notifications.create('duoling:dev-test', {
+      type: 'basic',
+      iconUrl: NOTIFY_ICON,
+      title: EXTENSION_NAME,
+      message: '这是一条测试通知，用于确认通知图标的显示效果。',
+    })
+    notifyError.value = ''
+    notifyDenied.value = await notificationDenied()
+  } catch (err) {
+    notifyError.value = err instanceof Error ? err.message : String(err)
+    notifyDenied.value = false
+  }
 }
 
 /**
@@ -106,11 +137,31 @@ async function clearBadge(): Promise<void> {
     <div class="mt-6 rounded-md border p-4">
       <p class="text-sm font-medium">通知</p>
       <p class="mt-0.5 text-xs text-muted-foreground">
-        发送一条系统通知，确认通知图标（与工具栏同源）的显示效果。
+        发送一条系统通知。浏览器未获系统通知授权时，扩展同样无法发送通知。
       </p>
-      <UiButton class="mt-3" variant="outline" @click="testNotify">
+      <UiButton
+        class="mt-3"
+        variant="outline"
+        data-testid="dev-notify-send"
+        @click="testNotify"
+      >
         发送测试通知
       </UiButton>
+      <p
+        v-if="notifyError"
+        class="mt-2 text-xs text-destructive"
+        role="alert"
+        data-testid="dev-notify-error"
+      >
+        {{ notifyError }}
+      </p>
+      <p
+        v-else-if="notifyDenied"
+        class="mt-2 text-xs text-muted-foreground"
+        data-testid="dev-notify-denied"
+      >
+        系统未允许通知，这条不会显示。
+      </p>
     </div>
 
     <div class="mt-6 rounded-md border p-4">
