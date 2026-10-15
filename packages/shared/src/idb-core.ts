@@ -1,6 +1,9 @@
 // IndexedDB 打开与事务的共享样板。本扩展按信任级 / 生命周期分库（见 ARCHITECTURE.md
 // 「存储」），各库模块的 openDb / request / 死连接重试完全同构，收拢到此处；
 // 各库只保留自己的 schema（upgrade 回调）与业务读写。
+//
+// 归属 shared：纯样板与 userscript 语义无关，应用域（app-db / 会话 / 任务库）与
+// userscript 域（state-db / usdata-db / require / resource 缓存）两侧同源共用。
 
 export interface IdbOpener {
   open(): Promise<IDBDatabase>

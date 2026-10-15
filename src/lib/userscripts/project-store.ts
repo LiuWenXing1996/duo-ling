@@ -6,7 +6,7 @@
 //                       所以 SW 与 offscreen 都能直接用，offscreen 不必再经 SW 桥接取项目。
 //
 // 这里**没有写 API**：写全在 project-write.ts（offscreen 专属），见 state-db.ts 文件头的单写方约定。
-import { readAllGroups, readAllProjects, readProject } from './state-db'
+import { readAllGroups, readAllProjects, readProject } from '@duoling/userscript-runtime'
 import type { ScriptProject, ScriptGroup } from './types'
 
 /** 列出全部项目：启用在前，组内按源码保存时间倒序（最近保存的排在最上面） */

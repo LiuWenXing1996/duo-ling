@@ -43,7 +43,7 @@ import {
 import type { BuiltinRegistration } from '@/lib/userscripts/engine'
 // metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
 // 真正的归一化在写入口一处（project-write.saveSource），此处不写回任何东西
-import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
+import { resolveConfigFromSource } from '@duoling/userscript-runtime'
 // 标签页录制：录到的采样与语料压缩都归 SW（采样在 duoling-runtime 的 tab_events，
 // offscreen 与扩展页都不直连）。录制的开关跟着活动记录走，判据落在存续表上 —— 见 tab-sessions。
 import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts/net-digest'

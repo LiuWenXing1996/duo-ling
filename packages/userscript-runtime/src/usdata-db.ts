@@ -17,7 +17,7 @@
 // 任意第二键——真实 Chrome 按 spec 支持，但 fake-indexeddb 的比较实现不认（实测 getAll
 // 返回空，单测直接暴露）。
 
-import { createIdbOpener, idbRequest as request, idbRunTx } from './idb-core'
+import { createIdbOpener, idbRequest as request, idbRunTx } from '@duoling/shared'
 
 const DB_NAME = 'duoling-usdata'
 const DB_VERSION = 1

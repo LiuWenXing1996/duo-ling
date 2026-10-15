@@ -21,7 +21,7 @@
 import type { Conversation, ConversationSearchHit, Message } from '../shared/types'
 import { isAssetPart } from './chat-assets'
 import { broadcastDataChange } from './data-broadcast'
-import { createIdbOpener, idbRequest, idbRunTx } from './idb-core'
+import { createIdbOpener, idbRequest, idbRunTx } from '@duoling/shared'
 
 const DB_NAME = 'duoling-chat'
 /** v3：tasks store 并入（原独立库 duoling-chat-tasks，见 offscreen-chat/task-store.ts） */

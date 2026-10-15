@@ -12,7 +12,7 @@
 // 「写了状态但没 commit」「已保存但没 commit」这类偏差就没有产生的缝隙。
 // 违反方式：在 offscreen 之外 import writeProject / removeProject 等。
 import type { ScriptGroup, ScriptProject } from './script-project'
-import { createIdbOpener, idbRequest as request, idbRunTx } from './idb-core'
+import { createIdbOpener, idbRequest as request, idbRunTx } from '@duoling/shared'
 
 const DB_NAME = 'duoling-state'
 const DB_VERSION = 2

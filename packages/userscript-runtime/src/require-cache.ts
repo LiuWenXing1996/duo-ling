@@ -7,7 +7,7 @@
 // 缓存策略：url 不变即命中、永不过期，仅手动 clearRequireCache 时重抓。
 // 抓取策略：注册时由 SW 内 fetch 抓取，受 <all_urls> host 权限豁免 CORS。
 // 失败策略：单条抓取失败只记错误、跳过该依赖，不阻断脚本整体注入。
-import { createIdbOpener } from './idb-core'
+import { createIdbOpener } from '@duoling/shared'
 import { cacheClear, cacheGetAll, cachePutAll, fetchWithTimeout } from './cache-common'
 import { errorText } from './util'
 

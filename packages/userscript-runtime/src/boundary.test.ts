@@ -29,7 +29,6 @@ const FILES = [
 
 /** 宿主层（L2）：允许 IndexedDB（存储）与 chrome.*（SW 环境）的文件 */
 const HOST_LAYER = new Set([
-  'idb-core.ts',
   'state-db.ts',
   'usdata-db.ts',
   'gm-values.ts',
@@ -52,6 +51,7 @@ const HOST_LAYER = new Set([
   'cookie-gate.test.ts',
   'dl-port.test.ts',
   'dl-fetch-priv.test.ts',
+  'dl-bridge.test.ts',
   'host.test.ts',
   'registration.test.ts',
   'relay/sync.test.ts',

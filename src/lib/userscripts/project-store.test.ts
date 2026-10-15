@@ -6,7 +6,7 @@ import {
   nextScriptName,
   validateMatchPatterns,
 } from './project-store'
-import { readAllProjects, removeProjects, writeProject } from './state-db'
+import { readAllProjects, removeProjects, writeProject } from '@duoling/userscript-runtime'
 import type { ScriptProject } from './types'
 
 let seq = 0

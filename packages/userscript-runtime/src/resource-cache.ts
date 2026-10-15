@@ -12,7 +12,7 @@
 // 抓取策略：SW 内 fetch，受 <all_urls> host 权限豁免 CORS；url 不变即命中、永不过期。
 // 失败策略：单条失败只记错误、跳过该资源（脚本拿到 undefined），不阻断整体注入。
 
-import { createIdbOpener } from './idb-core'
+import { createIdbOpener } from '@duoling/shared'
 import { cacheClear, cacheGetAll, cachePutAll, fetchWithTimeout } from './cache-common'
 import { errorText } from './util'
 

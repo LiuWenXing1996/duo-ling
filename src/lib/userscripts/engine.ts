@@ -47,7 +47,7 @@ import {
   unregisterScripts,
 } from '@duoling/userscript-runtime'
 // 匹配面判定（scheme + host）：内置件「这一页用不用得上」与 cookie 域名门同一套判据
-import { matchPatternCoversUrl } from '@/lib/match-pattern'
+import { matchPatternCoversUrl } from '@duoling/userscript-runtime'
 
 // —— 通用引擎 re-export（调用点 import 路径不变）——
 export {

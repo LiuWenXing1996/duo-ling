@@ -1,7 +1,7 @@
 // @require / @resource 两个缓存库的共享底层。两库生命周期不同（依赖代码快照 vs
 // 素材数据），故分库（见各自文件头）；但「url 不变即命中、永不过期」的存储骨架与
 // 「单条失败不阻断整批 / 写失败不阻断」的容错策略完全同构，收拢到此处。
-import type { IdbOpener } from './idb-core'
+import type { IdbOpener } from '@duoling/shared'
 
 /** 批量查缓存：返回 url → 记录（未命中不出现在 map 里；单条失败不阻断整批） */
 export async function cacheGetAll<T>(
