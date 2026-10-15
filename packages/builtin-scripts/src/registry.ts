@@ -6,39 +6,12 @@
 //
 // 产物文件名不带目录前缀：构建脚本产出的 dist/*.js 由 wxt.config.ts 的 build:publicAssets
 // 钩子原样落到扩展产物根，`{ file }` 就写这个裸文件名。
+//
+// 注意：脚本桥中继件（relay）**不在本文件** —— 它已随 `@duoling/userscript-runtime` 包内化
+// （SCRIPT_RELAY_ID / SCRIPT_RELAY_WORLD_ID / buildRelayInit / syncScriptRelay 都在包的
+// relay/sync.ts，IIFE 以 `{ code }` 字符串注册，无公共资产文件）。
 
-import { BRIDGE_RELAY_BOOT_KEY, FLOAT_HOST_HOOK_KEY } from '@duoling/shared'
-
-// —— 脚本主世界桥 · 中继件 ——
-
-/** 注册 id（一个扩展一份） */
-export const SCRIPT_RELAY_ID = 'dl-script-relay'
-/** 独立世界 id：必须 configureWorld({ messaging: true })，否则世界内无 chrome.runtime */
-export const SCRIPT_RELAY_WORLD_ID = 'us-dl-bridge'
-/** 产物文件名（构建自包内 src/relay/entry.ts） */
-export const SCRIPT_RELAY_FILE = 'duoling-relay.js'
-
-/**
- * 中继件的装配段：运行器文件注入后由本段把运行期密钥递进去。
- *
- * 为什么必须两段：secret 每扩展一把、运行期才生成，塞不进文件；而 chrome.userScripts 的
- * js[] 只认 `{ file }` 与 `{ code }` 两种注入，两者按数组顺序在同一世界执行 —— 于是
- * 「文件装运行器 + 本段递参数」是唯一形态。
- *
- * 运行器缺失（两段没落在同一世界 / 文件没进产物）是装配错误，这里出声而不是静默：
- * 静默的话脚本侧只能等 GM 调用超时，看不出是装配问题。
- */
-export function buildRelayInit(secret: string): string {
-  const key = JSON.stringify(BRIDGE_RELAY_BOOT_KEY)
-  return `;(function () {
-  var boot = window[${key}]
-  if (typeof boot !== 'function') {
-    console.warn('[duoling:relay] 中继件运行器未装配到本世界，GM 桥不可用')
-    return
-  }
-  boot(${JSON.stringify(secret)})
-})()`
-}
+import { FLOAT_HOST_HOOK_KEY } from '@duoling/shared'
 
 // —— 标签页录制 · MAIN 捕获件 + USER_SCRIPT 转发件 ——
 

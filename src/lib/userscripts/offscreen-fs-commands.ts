@@ -9,7 +9,7 @@ import { listHistory, readSource, readSnapshotAt, restoreToCommit } from './us-g
 import { readLfsFile, readLfsTree } from './us-fs'
 import { putAsset, readAsset } from './us-assets'
 import { base64ToBytes, buildScriptZip, bytesToBase64 } from './zip-transfer'
-import { resolveConfigFromSource } from './metadata'
+import { resolveConfigFromSource } from '@duoling/userscript-runtime'
 import { defaultConfig } from './types'
 
 /** 收窄 fs: 前缀的命令（供 onMessage 分发时类型化） */

@@ -11,6 +11,7 @@
 //
 // 说明：Chrome 不会自动启动 offscreen，必须显式 createDocument。策略是常驻：offscreen 不自关，
 // 仅在 `offscreen:close` 调试命令下主动关。
+import { GM_OFFSCREEN_REASONS } from '@duoling/userscript-runtime/host'
 
 /** 与 src/entrypoints/offscreen.html 对应 */
 const OFFSCREEN_PATH = 'offscreen.html'
@@ -30,7 +31,8 @@ async function hasOffscreen(): Promise<boolean> {
 /**
  * 确保 offscreen document 已就绪（幂等；并发调用共享同一在途 promise）。
  *
- * reasons 取 BLOBS + WORKERS + CLIPBOARD：
+ * reasons 走包导出 GM_OFFSCREEN_REASONS（BLOBS + WORKERS + CLIPBOARD，与 GM 运行时实际
+ * 用到的能力同源收敛）：
  *   · BLOBS   —— 拿 URL.createObjectURL（agent loop 的流式数据通道依赖 blob，而 SW 里没有）
  *   · WORKERS —— 派生子 worker（ai SDK 的分词 / 嵌入等子任务用）
  *   · CLIPBOARD —— GM_setClipboard 在 offscreen 内写剪贴板（免用户手势 + 富文本）
@@ -44,7 +46,7 @@ export async function ensureOffscreen(): Promise<void> {
   }
   creating = chrome.offscreen.createDocument({
     url: OFFSCREEN_PATH,
-    reasons: ['BLOBS', 'WORKERS', 'CLIPBOARD'],
+    reasons: GM_OFFSCREEN_REASONS,
     justification: '运行 AI 生成脚本的编排循环、在 offscreen 内写剪贴板；需在扩展页面关闭后继续执行。',
   })
   try {

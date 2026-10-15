@@ -1,20 +1,41 @@
-// GM 语义内核：把 GM API 变成真的 —— 注入源码生成、API 契约与目录、grants 真相源。
+// 用户脚本运行时：把 GM API 变成真的。
 //
-// 边界：零应用依赖（不得出现 `@/lib/**`）、零 `chrome.*`、零 `indexedDB`、零 DOM 假设。
-// 只回答「GM API 长什么样、怎么实现」，不回答「什么时候装到哪个页面」。
-//
-// 不含（刻意的，不是暂时）：
-//   · `engine.ts` —— 宿主装配层（chrome.userScripts.register / 脚本库 / 生效域名 / app-db 接线），
-//     装配属于应用，不属于运行时；
-//   · `dl-bridge.ts` —— 混着 __dl 私有信封与 `chrome.*` 能力实现，属宿主侧。
-//
-// 消费方：应用侧取注入源码与契约（engine）、取目录与能力清单（工作台 GM API 面板 /
-// offscreen-chat 的规范文本）、取请求与响应形状（dl-bridge / dl-port）。
+// 两层：
+//   · 语义层（L1，零 chrome / 零 IDB / 零 DOM）—— 注入源码生成、API 契约与目录、grants 真相源、
+//     metadata 解析与脚本配置形状；
+//   · 宿主层（L2，SW 侧）—— 命令分发（dl-bridge）、事件底座（dl-port）、cookie 域名门
+//     （cookie-gate）、内置默认存储（state-db / usdata-db / gm-values）与数据变更广播。
+//     IndexedDB 样板（idb-core）归 @duoling/shared（纯样板，应用域同源共用）。
+//     chrome 由扩展环境提供（SW 全局）；应用耦合收敛为注入点（host-config.ts）：
+//     扩展身份 / offscreen 就绪 / 遥测全部可选，不注入 = 相应观测不发生，脚本行为不受损。
 //
 // 依赖方向：src → userscript-runtime → shared（无环）。契约名归 shared，本包只管实现侧。
 
+// —— 语义层（L1）——
 export * from './api-contract'
 export * from './gm-grants'
 export * from './gm-api-catalog'
 export * from './gm-wrapper'
 export * from './script-bridge'
+export * from './script-config'
+export * from './match-pattern'
+export * from './metadata'
+export * from './script-project'
+export * from './match-union'
+
+// —— 宿主层（L2）——
+export * from './state-db'
+export * from './usdata-db'
+export * from './gm-values'
+export * from './data-broadcast'
+export * from './cookie-gate'
+export * from './dl-fetch-priv'
+export * from './dl-port'
+export * from './dl-bridge'
+export * from './host-config'
+export * from './relay/sync'
+export * from './host'
+export * from './registration'
+export * from './require-cache'
+export * from './resource-cache'
+export * from './util'

@@ -62,9 +62,9 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 ## 脚本注入
 
-`chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`gm-wrapper.ts`）与 **USER_SCRIPT 中继件**（`packages/builtin-scripts/`）桥接。
+`chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`gm-wrapper.ts`）与 **USER_SCRIPT 中继件**（`@duoling/userscript-runtime` 包内：relay 源码 + IIFE 以 `{ code }` 注册，注册同步在全量链内置维护）桥接。
 
-标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`；grant 名 → 它开启的成员这张对应表在 `gm-grants.ts`，注入侧、速查页与 AI 规范三处共用这一份）；能力表 `gm-api-catalog.ts` 生成速查页与**给 AI 的能力清单**两形态（三防漂移：类型层 `satisfies` + 从注入源码反射 + 规范文本对齐单测）。内部仍走 `dl-bridge.ts` 的 `__dl` 信封协议（协议稳定、与 DL 时代一致）。
+标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`@duoling/userscript-runtime` 的 `metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`；grant 名 → 它开启的成员这张对应表在 `gm-grants.ts`，注入侧、速查页与 AI 规范三处共用这一份）；能力表 `gm-api-catalog.ts` 生成速查页与**给 AI 的能力清单**两形态（三防漂移：类型层 `satisfies` + 从注入源码反射 + 规范文本对齐单测）。内部仍走 `__dl` 信封协议（协议稳定、与 DL 时代一致；桥的真身与接线工厂都在 `@duoling/userscript-runtime`——background 调 `createServiceWorkerHost` 注入遥测 / 扩展身份 / offscreen 就绪并同步注册全部监听，应用侧 `dl-bridge.ts` / `dl-port.ts` 只是维持 import 路径的 re-export 桶，遥测对象在 `userscripts/telemetry.ts`）。
 
 - **可用性前置**：`chrome.userScripts` 在用户未开启「运行用户脚本」时**不存在**，直接调用会让 SW 初始化崩溃。引擎每条入口都先判存在性（`isUserScriptsAvailable()` / `typeof chrome.userScripts.register === 'function'`）再优雅跳过；开启引导统一交给工作台「引导」标签页（各处只给「查看开启引导」入口，不各写一套步骤）。
 
@@ -119,7 +119,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
   - **不在表里放不出场的东西**：没有对账扫描——被动记录下没开过记录开关的页本来就没有行，无幽灵行可言；裁剪**只动已结束的行**（还开着的是活账，宁可暂时超限也不删）。
   - 运行条目上的 `tabSessionId` 是它的消费方：工作台「活动历史」面板左栏列**开着活动记录的页**（含从没跑过脚本的页；关掉开关的行也留着，历史不因一次关开关消失），右栏是选中页的活动时间线 —— 这一页的刷新 / 地址变更、记录开关的启停、接口采样、每次运行、运行内动作与错误**全部按时刻平铺在同一根轴上**（运行不再折成卡 + 展开，动作与错误各自成行、带脚本名前缀），端点只在记到时刻时才画（`createdAt` 自被动化起恒缺省，故「打开」一般不出场）。**不带 `tabSessionId` 的轴行（注册失败 / 依赖抓取失败那类无归属错误）两侧都不出场** —— 它们只在库里，按页查天然查不到，面板不为它们单开一档。面板头的「清空」与选中页头部的「删除」（`userscript:tabActivityClear` / `userscript:tabActivityDelete`）会**连带**删掉该范围内的运行、动作与错误 —— 只删存续行会让这一页以「表里已查不到」的残影留在列表里。**页面录制的查询面也并进了这一页**（2026-10-12，原独立「接口数据」标签页已删）：选中页录到的请求**各自成行平铺在同一根轴上** —— 按自己的发生时刻与刷新 / 运行混排，单条点开才出 reqHeaders / respHeaders 与截断后的 body。时间线不画录制段的头（哪次录制、录到几条在轴上另有落点：段落边界由 tab_events 的「开始记录 / 结束记录」标出）。行数可能上千，故时间线走窗口化渲染（`use-virtual-list`：实测行高 + 估值回退，只渲染视口内的行；视口外的行不在 DOM 里，时间轴竖线故由背景层统一画）。左栏一行一项：主机名 + 行尾状态词（「正在记录」/「已关闭」；活着且没在录是默认态，不写），卡头给「停止记录」。采样是**实时**落进 `tab_events` 的（会话本身不另存归档），故面板一条命令按 `tabSessionId` 连事件带采样一次取回（`userscript:tabTimeline`）、不必等会话结束；「正在录」的判据与就地停止都取自存续行上的 `recording`（与取号、注册同一条判据）。删除 / 清空这一页时**连带**清掉它的接口采样（同一个 `clearTabActivity` 事务跨两个 store），免得「活动历史删了、录制记录还留着」。
 
-⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`——**密钥同存本机，属防扫描级而非保密级**）、key-cipher DEK、脚本桥握手密钥（`pageSecret`）、**标签页 → 会话的归属映射（`convByTab`，见 `conversation-tab-map.ts`）**、**新版本检查结果（`updateCheck`，见 `update-check.ts`）**——扩展自己的小数据。`chrome.storage.local` 现已无使用者（原先只放开发者模式开关，该开关随调试入口改版一并移除）。归属映射是**整表一个键**，而写方有两处（面板登记新会话 / SW 在 tab 关闭时清理），可能交错，故写入一律走 `app-db.update` 的单事务「读-改-写」（拆成 get+set 会丢更新）。
+⑤ **应用配置库 `duoling-app`**（`app-db.ts`，泛用 kv store）：模型配置（`modelProfiles`，API Key 经 AES-GCM 加密落盘，见 `src/lib/key-cipher.ts`——**密钥同存本机，属防扫描级而非保密级**）、key-cipher DEK、脚本桥握手密钥（`pageSecret`——**读写已归包**：`@duoling/userscript-runtime` 的注册引擎经 host-config 的 `secretStore` 注入本库存取，本仓不直接碰该键）、**标签页 → 会话的归属映射（`convByTab`，见 `conversation-tab-map.ts`）**、**新版本检查结果（`updateCheck`，见 `update-check.ts`）**——扩展自己的小数据。`chrome.storage.local` 现已无使用者（原先只放开发者模式开关，该开关随调试入口改版一并移除）。归属映射是**整表一个键**，而写方有两处（面板登记新会话 / SW 在 tab 关闭时清理），可能交错，故写入一律走 `app-db.update` 的单事务「读-改-写」（拆成 get+set 会丢更新）。
 
 ⑥ **会话库 `duoling-chat`**（`conversation-store.ts` 读写，**唯一写方 = offscreen**，读侧（对话界面 / 工作台会话历史）只读订阅）：会话与消息 + 生成任务快照（tasks store，宿主被杀后可续）——它不在 userScripts 链路里，故与 `duoling-state` 分开。
 

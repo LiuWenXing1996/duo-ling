@@ -7,14 +7,14 @@
 // 与 TM 的对应：`GM_getResourceText(name)` 拿文本、`GM_getResourceURL(name)` 拿 **base64 data URI**
 // （TM 文档原话：「获取在脚本头部用 @resource 标签预定义的的 base64 编码的 URI」）。两者都是**同步** API，
 // 所以内容必须在注入前就绪 —— 本模块在注册/注入路径上被调用，把内容备好，注入时内联进包装层
-// （与 @require 同款「注册时抓取、注入时就绪」，见 engine.ts）。
+// （与 @require 同款「注册时抓取、注入时就绪」，见 registration.ts）。
 //
 // 抓取策略：SW 内 fetch，受 <all_urls> host 权限豁免 CORS；url 不变即命中、永不过期。
 // 失败策略：单条失败只记错误、跳过该资源（脚本拿到 undefined），不阻断整体注入。
 
-import { createIdbOpener } from '../idb-core'
+import { createIdbOpener } from '@duoling/shared'
 import { cacheClear, cacheGetAll, cachePutAll, fetchWithTimeout } from './cache-common'
-import { errorText } from '@/lib/format'
+import { errorText } from './util'
 
 const DB_NAME = 'duoling-resource-cache'
 const DB_VERSION = 1

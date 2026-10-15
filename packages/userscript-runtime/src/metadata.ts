@@ -19,9 +19,8 @@
 // `@updateURL` / `@downloadURL` / `@homepageURL` 是油猴生态自带的分发约定：脚本自己在块里声明
 // 它从哪来、去哪取新版。读下来只为「认领来源」与后续的更新提示用，**不改变注入行为**。
 // `@homepage` 与 `@homepageURL` 是同一件事的两种写法（TM 两者都认），见 SINGLE_KEYS 的归一。
-import type { ScriptConfig, ScriptResourceDecl } from './types'
-import { isValidMatchPattern } from './project-store'
-import { parseMatchPattern } from '@/lib/match-pattern'
+import type { ScriptConfig, ScriptResourceDecl } from './script-config'
+import { isValidMatchPattern, parseMatchPattern } from './match-pattern'
 
 export type { ScriptResourceDecl }
 
@@ -35,7 +34,7 @@ export interface ParsedMetadata {
   description?: string
   author?: string
   icon?: string
-  /** `@updateURL`：脚本自声明的更新检查地址（油猴约定，本扩展只记录不改注入） */
+  /** `@updateURL`：脚本自声明的更新检查地址（油猴约定，宿主只记录不改注入） */
   updateUrl?: string
   /** `@downloadURL`：脚本自声明的新版下载地址 */
   downloadUrl?: string
@@ -57,7 +56,7 @@ export interface ParsedMetadata {
   requires: string[]
   /** `@resource name url`（保序） */
   resources: ScriptResourceDecl[]
-  /** `@connect` 全部值（本扩展 fetch 无需白名单，仅记录供展示） */
+  /** `@connect` 全部值（宿主 fetch 无需白名单，仅记录供展示） */
   connects: string[]
 }
 
@@ -72,7 +71,7 @@ const END_MARK = '==/UserScript=='
 /** 键行：`@key value` / `@key:locale value`（键名限定为字母开头 + 词/连字符） */
 const KEY_LINE_RE = /^@([A-Za-z][A-Za-z0-9-]*)(?::([A-Za-z0-9-]+))?\s*(.*)$/
 
-/** 正则形态的 @include / @exclude（TM 支持 `/re/flags`），本扩展不支持 */
+/** 正则形态的 @include / @exclude（TM 支持 `/re/flags`），本运行时不支持 */
 const REGEX_FORM_RE = /^\/.*\/[gimsuy]*$/
 
 /**
@@ -259,12 +258,12 @@ const CHROME_HOST_RE = /^(?:\*|(?:\*\.)?[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)$/
 /**
  * 是否是可安全交给 `chrome.userScripts.register` 的 match pattern。
  *
- * 比项目自己的 `isValidMatchPattern` **更严**：`MATCH_PATTERN_RE` 的 host 段是 `[^/*]*`，两个宽松点
+ * 比 `isValidMatchPattern` **更严**：`MATCH_PATTERN_RE` 的 host 段是 `[^/*]*`，两个宽松点
  * 都会让 Chrome 拒收：① 可为空 → `*:///foo/*` 被判合法；② 允许冒号 → `https://example.com:8443/*`
  * （match pattern 语法不表达端口）被判合法。解析器不允许产出这类 pattern —— 否则错误会一路拖到
- * 注册期才以 Chrome 的英文异常冒出（对齐 project-store 文件头「非法值在导入 / 启用当场拦下」的意图）。
+ * 注册期才以 Chrome 的英文异常冒出（非法值应在导入 / 启用当场拦下）。
  *
- * `file:` / `urn:` 的 host 段天然为空，属合法例外（见 project-store 的语法注释）。
+ * `file:` / `urn:` 的 host 段天然为空，属合法例外（语法如此，但仅这两个 scheme 合法）。
  */
 function isChromeSafeMatch(pattern: string): boolean {
   if (!isValidMatchPattern(pattern)) return false
@@ -291,7 +290,7 @@ function convertPattern(raw: string): Converted {
   const v = raw.trim()
   if (v === '*' || v === '<all_urls>') return { kind: 'match', value: '*://*/*' }
   if (isChromeSafeMatch(v)) return { kind: 'match', value: v }
-  // 纯路径（`/foo/*`、`/^https:\/\//`）必须在补 `*://` 之前分流：项目自己的 MATCH_PATTERN_RE
+  // 纯路径（`/foo/*`、`/^https:\/\//`）必须在补 `*://` 之前分流：isValidMatchPattern 的语法
   // 会接受空 host 的 `*:///foo/*`（Chrome 实际拒绝），先补就会产出注册必失败的 pattern。
   if (v.startsWith('/')) {
     if (REGEX_FORM_RE.test(v)) return { kind: 'drop', reason: `正则形式的写法暂不支持：${v}` }

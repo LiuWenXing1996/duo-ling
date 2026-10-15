@@ -6,8 +6,8 @@
 //                       所以 SW 与 offscreen 都能直接用，offscreen 不必再经 SW 桥接取项目。
 //
 // 这里**没有写 API**：写全在 project-write.ts（offscreen 专属），见 state-db.ts 文件头的单写方约定。
-import { readAllGroups, readAllProjects, readProject } from './state-db'
-import type { ScriptConfig, ScriptProject, ScriptGroup } from './types'
+import { readAllGroups, readAllProjects, readProject } from '@duoling/userscript-runtime'
+import type { ScriptProject, ScriptGroup } from './types'
 
 /** 列出全部项目：启用在前，组内按源码保存时间倒序（最近保存的排在最上面） */
 export async function listProjects(): Promise<ScriptProject[]> {
@@ -40,27 +40,8 @@ export async function nextScriptName(base = '新建的脚本'): Promise<string> 
  */
 
 // —— match pattern 校验——
-// 导入路径（project-write.importScriptsZip）与启用路径（engine.registerScript）共用：
+// 导入路径（project-write.importScriptsZip）与启用路径（registration.registerScript）共用：
 // 非法值在导入 / 启用当场拦下并指明哪条不合法，不拖到注册时才以 Chrome 的英文异常冒出。
-
-/**
- * Chrome match pattern 语法：<scheme>://<host><path>。
- * scheme：* / http / https / file / ftp / urn；host：* 、*.example.com 或字面量
- * （file/urn 可为空）；path 必须以 / 开头。`<all_urls>` 是等价特例。
- */
-const MATCH_PATTERN_RE = /^(?:\*|https?|file|ftp|urn):\/\/(?:\*|(?:\*\.)?[^/*]*)(?:\/.*)$/
-
-/** 单条 match pattern 是否合法（`<all_urls>` 特例恒合法） */
-export function isValidMatchPattern(pattern: string): boolean {
-  return pattern === '<all_urls>' || MATCH_PATTERN_RE.test(pattern)
-}
-
-/** 校验配置中的 match pattern（matches + excludeMatches），非法直接抛错并列出规则 */
-export function validateMatchPatterns(config: ScriptConfig): void {
-  const invalid = [...(config.matches ?? []), ...(config.excludeMatches ?? [])].filter(
-    (p) => !isValidMatchPattern(p),
-  )
-  if (invalid.length) {
-    throw new Error(`匹配规则不合法：${invalid.join('、')}`)
-  }
-}
+// 校验器与语法校验器（isValidMatchPattern）已上移进 `@duoling/userscript-runtime`
+// （registration.ts），此处 re-export 维持既有 import 路径不变。
+export { isValidMatchPattern, validateMatchPatterns } from '@duoling/userscript-runtime'

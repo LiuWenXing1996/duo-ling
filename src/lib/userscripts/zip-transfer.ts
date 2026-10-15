@@ -16,7 +16,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { SCRIPT_EXT, defaultConfig } from './types'
 import type { ScriptConfig } from './types'
-import { resolveConfigFromSource } from './metadata'
+import { resolveConfigFromSource } from '@duoling/userscript-runtime'
 
 /** zip schema 版本（历史字段；**解码侧不据此拦截**——开发期无版本规范） */
 export const ZIP_SCHEMA_VERSION = 2

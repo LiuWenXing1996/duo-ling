@@ -11,7 +11,7 @@
 // 没有写入路径；连接、库版本与建表统一由 conversation-store 的 chatDb 持有 —— 本模块不再
 // 自开连接（同一库挂两条连接时，升级与死连接处理会各管一半）。
 import { chatDb, TASKS } from '../conversation-store'
-import { idbRequest, idbRunTx } from '../idb-core'
+import { idbRequest, idbRunTx } from '@duoling/shared'
 
 /** 任务状态：running = 循环进行中（唯一参与孤儿判定的状态） */
 export type ChatTaskStatus = 'running'

@@ -1,10 +1,12 @@
-// match pattern ↔ url / hostname 判定（**运行期**）。纯匹配逻辑，不属任何子系统。
+// match pattern 解析与判定（**运行期**）。纯匹配逻辑，不属任何子系统。
 //
-// 消费者：用户脚本面 —— `@match` 解析（userscripts/metadata.ts）与 GM_cookie 域名门
-// （userscripts/cookie-gate.ts）；两条都只用到 host 段。
+// 消费者：metadata（@match 校验与转换）、cookie-gate（GM_cookie 域名门）；
+// 两条都只用到 host 段。
 //
-// 与 project-store.isValidMatchPattern 的分工：那里是「注册前校验 pattern 合法性」，
-// 这里是「运行期判某条 url 是否落在 pattern 范围内」。两者语法认知同源，职责不同，故不复用函数。
+// 两个函数的分工：
+//   · isValidMatchPattern —— 语法层校验（是否是一条合法 pattern，宽松：允许空 host / 带端口）；
+//   · parseMatchPattern / matchPatternCoversUrl —— 运行期判某条 url 是否落在 pattern 范围内。
+// 两者语法认知同源（同一套 MATCH_PATTERN_RE），职责不同。
 //
 // **关键语义：只比 scheme + host，pattern 的 path 段一律当 `/*` 处理。**
 // 理由：cookie 是 host 级作用域，不与路径相关 —— 只注入 https://example.com/foo/* 的脚本，
@@ -26,8 +28,13 @@ export interface ParsedMatchPattern {
   host: string
 }
 
-// 与 project-store.MATCH_PATTERN_RE 同一套语法，区别是**捕获** scheme / host 两段、丢掉 path。
+// 捕获 scheme / host 两段、丢掉 path。语法与 Chrome match pattern 对齐（不支持端口）。
 const MATCH_PATTERN_RE = /^(\*|https?|file|ftp|urn):\/\/(\*|(?:\*\.)?[^/*]*)(?:\/.*)$/
+
+/** 语法层校验：是否是一条合法 match pattern（宽松——host 可空、可带端口；Chrome 注册侧另有更严的收敛） */
+export function isValidMatchPattern(pattern: string): boolean {
+  return pattern === '<all_urls>' || MATCH_PATTERN_RE.test(pattern)
+}
 
 /** 解析 match pattern；`<all_urls>` 特例等价于任意 scheme + 任意 host。非法返回 null */
 export function parseMatchPattern(pattern: string): ParsedMatchPattern | null {

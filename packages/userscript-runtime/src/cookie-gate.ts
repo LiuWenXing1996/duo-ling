@@ -17,9 +17,9 @@
 //   · 只缓存配置，不缓存判定结果；
 //   · 收到任何 script 域变更就整表清空（脚本数量级很小，不做精细失效，避免漏清）；
 //   · 单测专门覆盖「配置改了 + 广播后门即时生效」（cookie-gate.test.ts）。
-import { subscribeDataChange } from '@/lib/data-broadcast'
-import { getProject } from './project-store'
-import { urlInCookieScope, type CookieScope } from '@/lib/match-pattern'
+import { subscribeDataChange } from './data-broadcast'
+import { readProject } from './state-db'
+import { urlInCookieScope, type CookieScope } from './match-pattern'
 
 /** 门判定结果：错误码与 ApiErrorCode 的同名项对齐，由调用方（dl-bridge）转成 ApiError */
 export type CookieGateResult =
@@ -59,7 +59,7 @@ async function scopeOf(uuid: string): Promise<CookieScope | null> {
   if (cached !== undefined) return cached
   let scope: CookieScope | null = null
   try {
-    const project = await getProject(uuid)
+    const project = await readProject(uuid)
     scope = project ? { matches: project.config.matches, excludeMatches: project.config.excludeMatches } : null
   } catch {
     // 状态库读取失败：宁可拒绝也不放行（不缓存失败结果，下次重试）

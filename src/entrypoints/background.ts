@@ -43,7 +43,7 @@ import {
 import type { BuiltinRegistration } from '@/lib/userscripts/engine'
 // metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
 // 真正的归一化在写入口一处（project-write.saveSource），此处不写回任何东西
-import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
+import { resolveConfigFromSource } from '@duoling/userscript-runtime'
 // 标签页录制：录到的采样与语料压缩都归 SW（采样在 duoling-runtime 的 tab_events，
 // offscreen 与扩展页都不直连）。录制的开关跟着活动记录走，判据落在存续表上 —— 见 tab-sessions。
 import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts/net-digest'
@@ -51,8 +51,11 @@ import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts
 import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/availability-watch'
 // 新版本检查：SW 在浏览器启动 / 安装更新时各查一次，结果落 duoling-app 库供 popup 与设置页读
 import { runUpdateCheck } from '@/lib/update-check'
-// 网页浮层开关的补齐动作已随站点开关一并移除：右键菜单只负责发「调出浮层」请求
-import { initDlBridge } from '@/lib/userscripts/dl-bridge'
+// GM 运行时接线：SW 侧工厂（配置注入 + 桥与 Port 监听注册同点完成，见 initUserScripts）
+import { createServiceWorkerHost } from '@duoling/userscript-runtime'
+import { duolingTelemetry } from '@/lib/userscripts/telemetry'
+// 产品内置件注入面：内置注册 id 全集（stale 清扫排除）与四件全量同步（挂包侧注册串行链）
+import { BUILTIN_SCRIPT_IDS, syncAllBuiltins } from '@/lib/userscripts/engine'
 // 标签页存续（tabId 的稳定替身）：开关（连同「开始 / 结束记录」两条标记）、事件（刷新、地址变更）、
 // 盖章与启动划断（都替当时还在记的行收个尾）都归 SW ——「这一页在不在记活动、经历了什么、
 // 什么时候关的」只有常驻 SW 看得见，扩展页与 offscreen 都不该各记一份。
@@ -64,10 +67,10 @@ import {
   setTabRecording,
   splitTabSessionsAtBrowserStart,
 } from '@/lib/userscripts/tab-sessions'
-// DL Port 事件底座：脚本世界 ↔ SW 长连接下行通道 + 三事件源接入
-import { initDlPort } from '@/lib/userscripts/dl-port'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listGroups, listProjects } from '@/lib/userscripts/project-store'
+// 握手密钥的持久化（经 secretStore 注入包侧）：duoling-app 库的 kv 读写
+import * as appDb from '@/lib/app-db'
 // 观测数据的写出口：GM 值、错误日志、运行条目与动作
 import {
   listSummaries,
@@ -717,8 +720,19 @@ const handlers: {
 
 /** 用户脚本管理器启动：挂载 GM 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用项目 */
 async function initUserScripts(): Promise<void> {
-  initDlBridge() // DL 后台桥（独立于 world 配置，只需注册一次）
-  initDlPort() // DL Port 事件底座（菜单点击 / 存储变更 / 通知点击的下行回推，同上只挂一次）
+  // GM 运行时接线（包工厂）：遥测 / 扩展身份 / offscreen 就绪在此注入，桥与 Port 的全部
+  // 监听在本调用内同步段挂上（第一帧纪律）。幂等：重复调用返回首例，不二次注册。
+  createServiceWorkerHost({
+    extensionName: EXTENSION_NAME,
+    notificationIcon: 'icons/128.png',
+    offscreen: { ensureReady: ensureOffscreenReady },
+    telemetry: duolingTelemetry,
+    // 握手密钥落 duoling-app 库（沿用既有键 pageSecret，零迁移）
+    secretStore: { get: (k) => appDb.get<string>(k), set: appDb.set },
+    // 产品内置件（中继件 / 检查器 / 浮层 / 录制件）挂进包侧全量链：
+    // registerAllEnabled 先同步这批件、stale 清扫排除这些 id
+    builtins: { ids: BUILTIN_SCRIPT_IDS, syncAll: syncAllBuiltins },
+  })
   // chrome.userScripts 仅在已开启「Allow User Scripts」（Chrome ≥138）或全局开发者模式
   // （Chrome <138）/ 已授权 userScripts 权限（Firefox）时存在；否则为 undefined，
   // 直接调用会令 SW 初始化崩溃。先判存在性，不可用则优雅跳过（UI 横幅会引导开启）。

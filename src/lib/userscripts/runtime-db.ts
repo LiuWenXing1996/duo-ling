@@ -63,7 +63,7 @@ import {
   type UserScriptRunLogEntry,
 } from './types'
 import { NET_TAB_KIND, type NetCaptureRecord } from '@duoling/shared'
-import { createIdbOpener, idbRequest as request, idbRunTx } from '../idb-core'
+import { createIdbOpener, idbRequest as request, idbRunTx } from '@duoling/shared'
 
 const DB_NAME = 'duoling-runtime'
 const DB_VERSION = 9

@@ -23,8 +23,7 @@ import type {
   FetchInit,
   FetchPayload,
   Json,
-} from '@duoling/userscript-runtime'
-import { EXTENSION_NAME } from '@/lib/extension-identity'
+} from './api-contract'
 // Port 事件底座：控制面实现（菜单登记 / 键级与全量值订阅 / 通知归属 / URL 订阅）
 import {
   registerScriptMenu,
@@ -40,15 +39,10 @@ import {
 } from './dl-port'
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
-// 标签页录制：转发件送来的采集载荷在 SW 侧按**种类**白名单化后落 runtime 的 tab_events（与标签页事件同表）
+// 标签页录制：转发件送来的采集载荷在 SW 侧按**种类**白名单化；落库走遥测 port（宿主注入）
 import { normalizeNetCapture, NET_TAB_KIND, TAB_RECORD_TAG } from '@duoling/shared'
-// 页面检查器常驻件的结果入站：按 reqId 结算 page-inspector-bridge 里挂起的那次调用（分流见下方监听器）
-import { handleInspectorResult } from './page-inspector-bridge'
-import * as runtime from './runtime-db'
-// 对话界面页面脚本监控（运行时口径）：runstart 登记 + 错误实时推送（跨文档观察者，SW 按 tab 登记）
-import { notePageError, noteRunStart } from './page-monitor'
-import { recordingTabSessionId } from './tab-sessions'
-import { broadcastDataChange } from '../data-broadcast'
+import { broadcastDataChange } from './data-broadcast'
+// GM 值写出口（duoling-usdata 库；store.change 变更事件从这里直发）
 import {
   getGMValue,
   setGMValue,
@@ -58,12 +52,7 @@ import {
   getGMValues,
   listGMKeys,
   getAllGMValues,
-  appendUserScriptError,
-  recordRunEvent,
-  recordRunStart,
-} from './store'
-// offscreen 容器就绪（SW 侧模块；dl-bridge 与 background 同属 SW，不触及 offscreen 专有 runtime API）
-import { ensureOffscreenReady } from '@/lib/offscreen'
+} from './gm-values'
 // GM_getTab 标签页级存储后端（duoling-usdata 库，SW 独占写）
 import * as usdata from './usdata-db'
 // GM_xmlhttpRequest 特权增强：forbidden header 覆写（DNR session 规则）+ redirect:'manual'（webRequest 观测）
@@ -75,11 +64,9 @@ import {
   registerManualWaiter,
   handleObservation,
 } from './dl-fetch-priv'
-import { errorText } from '@/lib/format'
-
-/** 通知兜底图标（复用 auto-icons 构建生成的 icons/128.png）。MV3 的 notifications.create 不接受 data: URL 图标
- * （报 "Unable to download all specified images."），必须用扩展内资源或 http(s) 图 */
-const FALLBACK_ICON = 'icons/128.png' // 相对扩展根，即构建产物 icons/128.png
+import { errorText } from './util'
+// 宿主注入点：扩展身份 / offscreen 就绪 / 遥测（运行日志与错误落盘是宿主的产品面）
+import { extensionName, notificationIcon, offscreenPort, telemetryPort } from './host-config'
 
 /**
  * 在飞行的特权请求：`requestId` → AbortController。
@@ -655,11 +642,11 @@ async function ingestTabRecord(kindRaw: unknown, record: unknown, tabId: number 
     // 只认已知种类。将来种类多了，这里是分发点：未知一律丢弃，不猜。
     if (kindRaw !== NET_TAB_KIND) return
     // 归属：那一页此刻在录才收。取号与「要不要注册录制件」用的是同一条判据。
-    const tabSessionId = await recordingTabSessionId(tabId)
+    const tabSessionId = await telemetryPort()?.recordingTabSessionId?.(tabId)
     if (!tabSessionId) return
     const rec = normalizeNetCapture(record, tabSessionId)
     if (rec) {
-      await runtime.appendTabCapture(rec)
+      await telemetryPort()?.appendTabCapture?.(rec)
       // 这是最热的一条路（录制中每秒可达几十条），**这里不攒批**：广播侧已按「域 + 页」合并
       // 到一个 100ms 窗口，再攒一次只会让面板慢一拍。带页号 = 正在看这一页的面板增量续拉。
       broadcastDataChange('tabActivity', tabSessionId)
@@ -672,7 +659,7 @@ async function ingestTabRecord(kindRaw: unknown, record: unknown, tabId: number 
 /** 经 offscreen 写剪贴板（免用户手势；writeText / ClipboardItem 双轨）。超时即报，不挂死 */
 async function writeClipboardViaOffscreen(text?: string, html?: string): Promise<void> {
   if (!text && !html) throw new ApiError('INVALID_ARG', 'GM_setClipboard：text 与 html 至少给一个')
-  const ready = await ensureOffscreenReady()
+  const ready = await offscreenPort()?.ensureReady?.()
   if (!ready) throw new ApiError('NOT_AVAILABLE', 'GM_setClipboard：剪贴板服务不可用')
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(
@@ -804,8 +791,8 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       const id = mintNotification(uuid)
       await chrome.notifications.create(id, {
         type: 'basic',
-        iconUrl: req.icon || FALLBACK_ICON,
-        title: req.title || `${EXTENSION_NAME}用户脚本`,
+        iconUrl: req.icon || notificationIcon(),
+        title: req.title || `${extensionName()}用户脚本`,
         message: req.message || '',
       })
       return { id }
@@ -1047,7 +1034,7 @@ export function initDlBridge(): void {
 
     // 页面检查器常驻件的执行结果：交 page-inspector-bridge 按 reqId 结算挂起的那次调用。
     // 返回值 = 是否认领这条消息：信封对上就认领（世界 id 不符也只丢弃，不再往下分流）。
-    if (handleInspectorResult(raw, sender)) {
+    if (telemetryPort()?.onInspectorResult?.(raw, sender)) {
       // 收讫回执：件的 sendMessage 才会正常 resolve，否则页面控制台多一条「port closed」
       sendResponse(true)
       return undefined
@@ -1070,8 +1057,8 @@ export function initDlBridge(): void {
     if (run && run.__dlRunStart === true) {
       const tabId = sender.tab?.id
       if (tabId != null && run.uuid && run.runId) {
-        // 对话界面监控：SW 侧按 tab 登记运行集，浮层挂载时靠它出快照
-        noteRunStart(tabId, run.uuid, run.runId)
+        // 页面监控（遥测 port）：SW 侧按 tab 登记运行集，浮层挂载时靠它出快照
+        telemetryPort()?.noteRunStart?.(tabId, run.uuid, run.runId)
       }
       // 记下脚本名，供桥调用失败那类「自身不带脚本上下文」的记录复用
       if (run.uuid && run.name) scriptNameByUuid.set(run.uuid, run.name)
@@ -1090,10 +1077,10 @@ export function initDlBridge(): void {
         // 只有用户在 popup 里给这一页打开了活动记录才有号（见 tab-sessions），没号就**不记**：
         // 一切观测只在开着活动记录的页上产生（判据统一，见 store.recordRunStart）。
         // 取号失败（存储不可用）同样不记 —— 此页是观测盲区，不因存储故障给它补一份无归属的记录。
-        void recordingTabSessionId(tabId)
+        void Promise.resolve(telemetryPort()?.recordingTabSessionId?.(tabId))
           .then((tabSessionId) =>
             tabSessionId
-              ? recordRunStart(uuid, runId, run.name, { ...extra, tabSessionId })
+              ? telemetryPort()?.recordRunStart?.(uuid, runId, run.name, { ...extra, tabSessionId })
               : undefined,
           )
           .catch(() => {})
@@ -1109,10 +1096,10 @@ export function initDlBridge(): void {
       if (tabId == null) return undefined
       // 归属判据与运行条目同源：只有这一页开着活动记录才记。没开 = 观测盲区 ——
       // 不落盘、不广播、也不推给浮层 / 角标（判据前移，appendUserScriptError 本身不设判据）。
-      void recordingTabSessionId(tabId)
+      void Promise.resolve(telemetryPort()?.recordingTabSessionId?.(tabId))
         .then((tabSessionId) => {
           if (!tabSessionId) return
-          return appendUserScriptError({
+          return telemetryPort()?.appendError?.({
             uuid: evt.uuid ?? null,
             name: evt.name || '未知脚本',
             phase: 'runtime',
@@ -1124,8 +1111,8 @@ export function initDlBridge(): void {
             // 页归属直接带上（不必等写侧从运行条继承）：这一页此刻确实开着记录
             tabSessionId,
           }).then(() => {
-            // 对话界面监控：错误行随推送走（面板只要「当前这次运行」，实时通道一条推送就到）
-            notePageError(tabId, {
+            // 页面监控（遥测 port）：错误行随推送走（面板只要「当前这次运行」，实时通道一条推送就到）
+            telemetryPort()?.notePageError?.(tabId, {
               uuid: evt.uuid ?? null,
               name: evt.name || '未知脚本',
               message: evt.event?.message || '',
@@ -1162,7 +1149,7 @@ export function initDlBridge(): void {
     // 的错误行兜底。落盘失败静默：观察数据不该反过来影响脚本的调用。
     if (msg.runId) {
       const ev = summarizeRunEvent(msg.req)
-      if (ev) void recordRunEvent(uuid, msg.runId, { ...ev, time: Date.now() }).catch(() => {})
+      if (ev) void telemetryPort()?.recordRunEvent?.(uuid, msg.runId, { ...ev, time: Date.now() }).catch(() => {})
     }
 
     void dispatch(uuid, msg.req, sender)
@@ -1176,7 +1163,7 @@ export function initDlBridge(): void {
         // 桥调用失败也进错误日志（活动历史里可见）。它发生在某次运行**之中**，故带上信封里的 runId
         // 挂到那次运行下 —— 否则只能单列成孤儿行，看不出「脚本跑到哪一步挂的」。
         // 脚本名取自运行广播登记的表（尽力而为：表空时回退 uuid）。
-        void appendUserScriptError({
+        void telemetryPort()?.appendError?.({
           uuid,
           name: scriptNameByUuid.get(uuid) ?? uuid,
           phase: 'bridge',

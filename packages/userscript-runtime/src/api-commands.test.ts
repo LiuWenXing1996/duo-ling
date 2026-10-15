@@ -10,10 +10,9 @@
 //   · `ApiRequest['c']` ↔ dispatch 的 switch：`default` 里的 `never` 穷尽性检查已覆盖。
 // 本文件只管**发送侧**那一条缝。
 import { describe, expect, it } from 'vitest'
-import type { GmInfo } from '@duoling/userscript-runtime'
-import { API_COMMANDS } from '@duoling/userscript-runtime'
-import { buildGmWrapperPrefix } from '@duoling/userscript-runtime'
-import { EXTENSION_NAME } from '@/lib/extension-identity'
+import type { GmInfo } from './api-contract'
+import { API_COMMANDS } from './api-contract'
+import { buildGmWrapperPrefix } from './gm-wrapper'
 
 /** 造一份最小 GM_info（userAgent / isIncognito 由包装运行时就地补，故不传） */
 function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
@@ -29,7 +28,7 @@ function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
       resources: {},
     },
     scriptMetaStr: '',
-    scriptHandler: EXTENSION_NAME,
+    scriptHandler: 'reflection-test',
     version: '0.0.0-test',
     uuid: 'u-cmd',
     sandboxMode: 'raw',
