@@ -8,9 +8,8 @@
       // 于是包没被装上也不会在解析上翻车 —— 装不装只影响 node_modules 里的符号链接。
       "@duoling/builtin-scripts": ["./packages/builtin-scripts/src/index.ts"],
       "@duoling/builtin-scripts/install": ["./packages/builtin-scripts/src/install.ts"],
-      // 跨世界契约包（件与应用两侧同取的信封、常量与形状）：同样直指源码。
-      "@duoling/shared": ["./packages/shared/src/index.ts"],
       // GM 语义内核（注入源码生成 / API 契约与目录 / grants 真相源）：同样直指源码。
+      // （shared 已 Vite lib 化，走标准 exports → dist，不再 paths 直指源码。）
       "@duoling/userscript-runtime": ["./packages/userscript-runtime/src/index.ts"]
     },
     "noUncheckedIndexedAccess": false,

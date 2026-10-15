@@ -41,7 +41,7 @@
 │  ├─ shared/                     # 应用内部契约：types / ipc（window.api 形状）/ extension-ipc（渲染页 ⇄ SW 协议）
 │  ├─ assets/                     # Tailwind 主题变量与全局样式
 │  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（只剩 help/ 帮助页配图）
-├─ packages/shared/               # 跨世界契约子包：件与应用两侧同取的信封 / 常量 / 形状（bridge / tab-record / inspector / page-context / float-host）
+├─ packages/shared/               # 跨世界契约子包：件与应用两侧同取的信封 / 常量 / 形状（bridge / tab-record / inspector / page-context / float-host；Vite lib 构建 dist 三件套，消费走 exports）
 ├─ packages/userscript-runtime/   # GM 语义内核子包：注入源码生成 / API 契约与目录 / grants 真相源（纯 TS 源码，无构建步骤；依赖 shared）
 ├─ packages/builtin-scripts/      # 内置注入件子包：TS 源码 + esbuild 打成 IIFE 产物（relay / recorder / forwarder / page-inspector / float-host；注册面见 AGENTS.md）
 ├─ scripts/                       # 仓库维护脚本：verify-skills / check-todo / pack-uscripts / probe-target（本机测试靶站）/ model-stub（本机假模型，e2e 与 dev 共用）/ help-screenshots（帮助页配图生成器，浅暗两版六张落 src/public/help/）/ dev（dev 与靶站、假模型一起起）
