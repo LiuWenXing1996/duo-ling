@@ -29,6 +29,7 @@
 ├─ AGENTS.md / ARCHITECTURE.md    # 协作约定与红线 / 运行时架构（改代码前先读这两份）
 ├─ README.md / VERSIONING.md / GIT_WORKFLOW.md / CHANGELOG.md / TODO.md  # 工程介绍与目录结构 / 版本机制 / Git 工作流 / 变更记录 / 待办清单
 ├─ .agents/skills/                # 就地挂载的 Agent 规范（wxt / shadcn-vue / workbench-panel / testing）
+├─ .codebuddy/skills · .trae/skills  # 宿主扫描入口，均是指向 .agents/skills 的 symlink（skill 只在 .agents/skills 一处维护）
 ├─ src/
 │  ├─ entrypoints/                # 载体入口与运行时宿主：background（SW 能力运行时）/ offscreen（AI 生成宿主）
 │  ├─ components/                 # UI：对话（ChatPanel 系列）/ 工作台宿主与面板 / popup / 设置分区（sections.ts 注册表）/ ui / ai-elements

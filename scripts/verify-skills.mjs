@@ -18,7 +18,15 @@ import { fileURLToPath } from 'node:url'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SKILLS_ROOT = resolve(ROOT, '.agents/skills')
 const AGENTS_FILE = resolve(ROOT, 'AGENTS.md')
-const SYMLINK = resolve(ROOT, '.codebuddy/skills')
+
+/**
+ * 各宿主按自己的约定目录扫 skill，这里逐条列出它们的扫描入口。
+ * 这些入口都只是指向 .agents/skills 的 symlink：内容只在 .agents/skills 一处维护。
+ */
+const HOST_MOUNTS = [
+  { path: '.codebuddy/skills', host: 'CodeBuddy' },
+  { path: '.trae/skills', host: 'Trae' },
+]
 
 const errors = []
 const warnings = []
@@ -85,10 +93,13 @@ for (const name of skills) {
   }
 }
 
-if (!existsSync(SYMLINK)) {
-  warnings.push('.codebuddy/skills: symlink 不存在，宿主（CodeBuddy）扫不到任何 skill')
-} else if (!isDirectory(SYMLINK)) {
-  warnings.push('.codebuddy/skills: 存在但无法解析为目录，symlink 可能已断裂')
+for (const { path, host } of HOST_MOUNTS) {
+  const mount = resolve(ROOT, path)
+  if (!existsSync(mount)) {
+    warnings.push(`${path}: symlink 不存在，宿主（${host}）扫不到任何 skill`)
+  } else if (!isDirectory(mount)) {
+    warnings.push(`${path}: 存在但无法解析为目录，symlink 可能已断裂`)
+  }
 }
 
 for (const warning of warnings) console.warn(`⚠️  ${warning}`)
