@@ -20,16 +20,11 @@
 // 所以 SW / offscreen / 扩展页三处都能用（与 project-store.ts 同一个道理）。
 
 import type { BuildPhase, DataChangedPush, DataDomain } from '@/shared/extension-ipc'
+import { DATA_BROADCAST_CHANNEL, DATA_MERGE_WINDOW_MS } from '@duoling/shared'
 
-/** 频道名（同一扩展内唯一即可；跨扩展不会串，因为 origin 含扩展 id） */
-const CHANNEL_NAME = 'duoling:data'
-
-/**
- * 合并窗口（ms）：窗口内同一「域 + uuid」的多次变更只发一条补发。
- * 防的是写侧风暴 —— AI 生成循环会连续落盘、编辑器有防抖草稿写、一轮对话要 append
- * 两条消息。前端重拉一次就够了，没必要每条都拉。
- */
-const MERGE_WINDOW_MS = 100
+// 频道名与合并窗口的真相源在 @duoling/shared（data-broadcast.ts）：与运行时包同频道互通
+// 是硬要求，各自写一份字面量只能靠注释对齐。合并窗口防的是写侧风暴 —— AI 生成循环会连续
+// 落盘、编辑器有防抖草稿写、一轮对话要 append 两条消息，前端重拉一次就够了。
 
 // 收发用**两个**实例：BroadcastChannel 不会把消息回发给发送它的那个实例，
 // 若收发共用一个，将来若有「页面内直接写」的路径就会出现「自己收不到自己的通知」。
@@ -41,7 +36,7 @@ function openChannel(slot: 'rx' | 'tx'): BroadcastChannel | null {
   if (cached !== undefined) return cached
   let created: BroadcastChannel | null = null
   try {
-    created = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(CHANNEL_NAME)
+    created = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(DATA_BROADCAST_CHANNEL)
   } catch {
     created = null // 环境不支持：走 sendMessage 降级
   }
@@ -82,7 +77,7 @@ export function broadcastDataChange(domain: DataDomain, uuid?: string): void {
   const last = lastSent.get(key) ?? 0
   const elapsed = now - last
 
-  if (elapsed >= MERGE_WINDOW_MS) {
+  if (elapsed >= DATA_MERGE_WINDOW_MS) {
     lastSent.set(key, now)
     emit({ kind: 'data:changed', domain, uuid, at: now })
     return
@@ -95,7 +90,7 @@ export function broadcastDataChange(domain: DataDomain, uuid?: string): void {
       const t = Date.now()
       lastSent.set(key, t)
       emit({ kind: 'data:changed', domain, uuid, at: t })
-    }, MERGE_WINDOW_MS - elapsed),
+    }, DATA_MERGE_WINDOW_MS - elapsed),
   )
 }
 
@@ -110,7 +105,8 @@ export function broadcastBuildPhase(domain: DataDomain, uuid: string, phase: Bui
   emit({ kind: 'data:changed', domain, uuid, at: Date.now(), phase })
 }
 
-/** 订阅数据变更；返回取消订阅的函数（组件卸载时调用） */export function subscribeDataChange(listener: (push: DataChangedPush) => void): () => void {
+/** 订阅数据变更；返回取消订阅的函数（组件卸载时调用） */
+export function subscribeDataChange(listener: (push: DataChangedPush) => void): () => void {
   const channel = openChannel('rx')
   if (channel) {
     const onMessage = (event: MessageEvent): void => {
