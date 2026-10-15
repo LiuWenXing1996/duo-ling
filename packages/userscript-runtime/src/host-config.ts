@@ -10,6 +10,8 @@
 // 配置时机：必须在 initDlBridge / initDlPort 之前调 configureUserscriptRuntime
 // （SW 入口的顶层同步段里，与 listener 注册同一条「第一帧」纪律）。
 
+import type { ScriptProject } from './script-project'
+
 /** 错误记录（观测面）。字段与宿主侧 UserScriptErrorRecord 同形；不注入遥测则无处落盘 */
 export interface UserscriptErrorRecord {
   id?: string
@@ -75,6 +77,25 @@ export interface UserscriptHostConfig {
   offscreen?: { ensureReady(): Promise<boolean> }
   /** 遥测 port；不注入 = 无运行日志 / 错误落盘 / 页面监控，脚本行为不受损 */
   telemetry?: UserscriptTelemetry
+  /**
+   * 握手密钥的持久化存储（推荐注入）：不注入 = 密钥只在 SW 存活期内有效，
+   * SW 重启换钥后要等下一遍全量重注册中继件与脚本才重新对上。
+   */
+  secretStore?: {
+    get(key: string): Promise<string | undefined>
+    set(key: string, value: string): Promise<void>
+  }
+  /**
+   * 宿主内置件（中继件 / 检查器 / 浮层 / 录制件等注册件）：
+   * registerAllEnabled 在重注册脚本前先调 syncAll（内置件跟随启用脚本的匹配并集 / 门禁走），
+   * stale 清扫排除 ids 里的注册。不注入 = 包只管脚本本身的注册与清扫。
+   */
+  builtins?: {
+    /** 内置注册 id 全集（stale 清扫排除面；也是旧 id 的自动回收面 —— 不在名单即被清） */
+    ids: string[]
+    /** 全量同步（幂等可重入；调用方已串行化，实现内不必再加锁） */
+    syncAll(projects: ScriptProject[]): Promise<void>
+  }
 }
 
 const DEFAULT_EXTENSION_NAME = 'UserScripts'
@@ -110,4 +131,14 @@ export function offscreenPort(): UserscriptHostConfig['offscreen'] {
 /** 读遥测 port（未注入为 undefined） */
 export function telemetryPort(): UserscriptTelemetry | undefined {
   return config.telemetry
+}
+
+/** 读密钥持久化存储（未注入为 undefined） */
+export function secretStorePort(): UserscriptHostConfig['secretStore'] {
+  return config.secretStore
+}
+
+/** 读内置件注入（未注入为 undefined） */
+export function builtinsPort(): UserscriptHostConfig['builtins'] {
+  return config.builtins
 }

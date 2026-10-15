@@ -81,6 +81,40 @@ describe('createServiceWorkerHost', () => {
     const { extensionName } = await import('./host-config')
     expect(extensionName()).toBe('测试扩展')
   })
+
+  it('addScript：传源码串自动建项目并注册（先自愈世界配置再走注册链）', async () => {
+    const registered: Array<{ id: string; js: unknown[]; matches?: string[] }> = []
+    vi.stubGlobal('chrome', {
+      runtime: {
+        id: 'test-ext-id',
+        onUserScriptMessage: { addListener: vi.fn() },
+        onUserScriptConnect: { addListener: vi.fn() },
+        onMessage: { addListener: vi.fn() },
+      },
+      tabs: { onRemoved: { addListener: vi.fn() }, onUpdated: { addListener: vi.fn() } },
+      contextMenus: { onClicked: { addListener: vi.fn() } },
+      notifications: { onClicked: { addListener: vi.fn() } },
+      webRequest: { onHeadersReceived: { addListener: vi.fn() } },
+      downloads: { onChanged: { addListener: vi.fn() } },
+      declarativeNetRequest: {
+        getSessionRules: vi.fn(async () => []),
+        updateSessionRules: vi.fn(async () => {}),
+      },
+      userScripts: {
+        getScripts: vi.fn(async () => []),
+        configureWorld: vi.fn(async () => {}),
+        register: vi.fn(async (scripts: typeof registered) => void registered.push(...scripts)),
+        unregister: vi.fn(async () => {}),
+      },
+    })
+    const { createServiceWorkerHost } = await loadHost()
+    const host = createServiceWorkerHost()
+    await host.addScript('// ==UserScript==\n// @match https://a.com/*\n// ==/UserScript==\nconsole.log(1)')
+    expect(registered).toHaveLength(1)
+    expect(registered[0]!.matches).toEqual(['https://a.com/*'])
+    // 注入体是一条 code（GM 包装 + 源码拼一条，见 registration.registerScript）
+    expect(registered[0]!.js).toEqual([expect.objectContaining({ code: expect.stringContaining('console.log(1)') })])
+  })
 })
 
 describe('createOffscreenHost', () => {

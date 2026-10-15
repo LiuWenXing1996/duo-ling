@@ -51,10 +51,11 @@ import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts
 import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/availability-watch'
 // 新版本检查：SW 在浏览器启动 / 安装更新时各查一次，结果落 duoling-app 库供 popup 与设置页读
 import { runUpdateCheck } from '@/lib/update-check'
-// 网页浮层开关的补齐动作已随站点开关一并移除：右键菜单只负责发「调出浮层」请求
 // GM 运行时接线：SW 侧工厂（配置注入 + 桥与 Port 监听注册同点完成，见 initUserScripts）
 import { createServiceWorkerHost } from '@duoling/userscript-runtime'
 import { duolingTelemetry } from '@/lib/userscripts/telemetry'
+// 产品内置件注入面：内置注册 id 全集（stale 清扫排除）与四件全量同步（挂包侧注册串行链）
+import { BUILTIN_SCRIPT_IDS, syncAllBuiltins } from '@/lib/userscripts/engine'
 // 标签页存续（tabId 的稳定替身）：开关（连同「开始 / 结束记录」两条标记）、事件（刷新、地址变更）、
 // 盖章与启动划断（都替当时还在记的行收个尾）都归 SW ——「这一页在不在记活动、经历了什么、
 // 什么时候关的」只有常驻 SW 看得见，扩展页与 offscreen 都不该各记一份。
@@ -68,6 +69,8 @@ import {
 } from '@/lib/userscripts/tab-sessions'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listGroups, listProjects } from '@/lib/userscripts/project-store'
+// 握手密钥的持久化（经 secretStore 注入包侧）：duoling-app 库的 kv 读写
+import * as appDb from '@/lib/app-db'
 // 观测数据的写出口：GM 值、错误日志、运行条目与动作
 import {
   listSummaries,
@@ -724,6 +727,11 @@ async function initUserScripts(): Promise<void> {
     notificationIcon: 'icons/128.png',
     offscreen: { ensureReady: ensureOffscreenReady },
     telemetry: duolingTelemetry,
+    // 握手密钥落 duoling-app 库（沿用既有键 pageSecret，零迁移）
+    secretStore: { get: (k) => appDb.get<string>(k), set: appDb.set },
+    // 产品内置件（中继件 / 检查器 / 浮层 / 录制件）挂进包侧全量链：
+    // registerAllEnabled 先同步这批件、stale 清扫排除这些 id
+    builtins: { ids: BUILTIN_SCRIPT_IDS, syncAll: syncAllBuiltins },
   })
   // chrome.userScripts 仅在已开启「Allow User Scripts」（Chrome ≥138）或全局开发者模式
   // （Chrome <138）/ 已授权 userScripts 权限（Firefox）时存在；否则为 undefined，

@@ -12,18 +12,23 @@
 // 剪贴板协议：SW 侧 dl-bridge 发 `{ kind: 'clipboard:write', text, html }`，应答信封
 // `{ ok: true }` / `{ ok: false, error }`（与 dl-bridge.writeClipboardViaOffscreen 对齐）。
 import type { UserscriptHostConfig } from './host-config'
+import type { ScriptProject } from './script-project'
 import { configureUserscriptRuntime } from './host-config'
 import { initDlBridge } from './dl-bridge'
 import { initDlPort } from './dl-port'
+import { ensureWorldsConfigured, registerScript, projectFromSource } from './registration'
 
 /** offscreen 文档的 reason 集（与 GM 运行时实际用到的能力对齐：剪贴板 + blob/worker 预留） */
 export const GM_OFFSCREEN_REASONS: `${chrome.offscreen.Reason}`[] = ['BLOBS', 'WORKERS', 'CLIPBOARD']
 
 /**
- * SW 侧宿主实例。本轮为占位（接线全在工厂调用内完成）；注册面（addScript / removeScript）
- * 随注册引擎上移后挂到本实例上。
+ * SW 侧宿主实例。接线全在工厂调用内完成；addScript 是注册面的入口
+ * （传源码串时包内自动建项目，metadata 块归一化进配置 —— 见 projectFromSource）。
  */
-export interface ServiceWorkerHost {}
+export interface ServiceWorkerHost {
+  /** 注册一个用户脚本（先自愈补配世界，再走注册串行链） */
+  addScript(src: string | ScriptProject): Promise<void>
+}
 
 /** offscreen 侧宿主实例：监听已由工厂注册；handle 供测试与自定义接线直调（抛原始异常，不包信封） */
 export interface OffscreenHost {
@@ -38,7 +43,13 @@ export function createServiceWorkerHost(cfg: UserscriptHostConfig = {}): Service
   configureUserscriptRuntime(cfg)
   initDlBridge()
   initDlPort()
-  swHostSingleton = {}
+  swHostSingleton = {
+    // 注册入口：先自愈补配世界（权限后开 / SW 重启归零的场景），再排注册串行链
+    async addScript(src) {
+      await ensureWorldsConfigured()
+      await registerScript(typeof src === 'string' ? projectFromSource(src) : src)
+    },
+  }
   return swHostSingleton
 }
 
