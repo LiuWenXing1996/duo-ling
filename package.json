@@ -44,6 +44,7 @@
     "@codemirror/view": "^6.43.11",
     "@duoling/builtin-scripts": "workspace:*",
     "@duoling/shared": "workspace:*",
+    "@duoling/userscript-runtime": "workspace:*",
     "@isomorphic-git/lightning-fs": "4.7.0",
     "@lezer/highlight": "^1.2.3",
     "@lucide/vue": "^1.45.0",

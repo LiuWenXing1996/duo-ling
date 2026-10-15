@@ -18,7 +18,7 @@
 //
 // 竞态（connect → onConnect 就绪窗口）：SW 建立连接后立即下发 { t:'port.ready' } 内部帧，
 // 脚本包装层收到它才 flush 待注册队列 —— 见 engine.ts 包装层，脚本作者不感知。
-import type { ApiEvent, ApiEventFrame } from './api-contract'
+import type { ApiEvent, ApiEventFrame, Json } from '@duoling/userscript-runtime'
 import { onGmValueChange } from './store'
 
 // —— 纯逻辑：解析与注册表（node 单测直接覆盖，不 mock chrome）——
@@ -386,8 +386,8 @@ export function initDlPort(): void {
   // 同一 Port 可能同时命中两类 → 用 Set 去重，否则它会收到重复帧。
   // remote：与发起写的实例同 connId 即「本实例自己写的」（false）；无 connId（后台内部写）算 true。
   onGmValueChange(({ uuid, key, deleted, value, oldValue, writerConnId }) => {
-    const frameValue = (deleted ? null : value) as import('./api-contract').Json
-    const frameOldValue = (oldValue === undefined ? null : oldValue) as import('./api-contract').Json
+    const frameValue = (deleted ? null : value) as Json
+    const frameOldValue = (oldValue === undefined ? null : oldValue) as Json
     const targets = new Set([
       ...registry.watchersForKey(uuid, key),
       ...registry.portsForValueChange(uuid),

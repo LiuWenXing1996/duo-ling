@@ -9,7 +9,9 @@
       "@duoling/builtin-scripts": ["./packages/builtin-scripts/src/index.ts"],
       "@duoling/builtin-scripts/install": ["./packages/builtin-scripts/src/install.ts"],
       // 跨世界契约包（件与应用两侧同取的信封、常量与形状）：同样直指源码。
-      "@duoling/shared": ["./packages/shared/src/index.ts"]
+      "@duoling/shared": ["./packages/shared/src/index.ts"],
+      // GM 语义内核（注入源码生成 / API 契约与目录 / grants 真相源）：同样直指源码。
+      "@duoling/userscript-runtime": ["./packages/userscript-runtime/src/index.ts"]
     },
     "noUncheckedIndexedAccess": false,
     "noUnusedLocals": true

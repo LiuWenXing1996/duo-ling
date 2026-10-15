@@ -1,4 +1,4 @@
-// GM 后台桥（协议契约 src/lib/userscripts/api-contract.ts）。
+// GM 后台桥（协议契约 @duoling/userscript-runtime 的 api-contract.ts）。
 //
 // 脚本桥中继件（包内 relay/install.ts，USER_SCRIPT 世界）经 chrome.runtime.sendMessage 发来的消息，
 // 因世界已 configureWorld({messaging:true})，被路由到本文件的 runtime.onUserScriptMessage（而非通用 onMessage）。
@@ -23,7 +23,7 @@ import type {
   FetchInit,
   FetchPayload,
   Json,
-} from './api-contract'
+} from '@duoling/userscript-runtime'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 // Port 事件底座：控制面实现（菜单登记 / 键级与全量值订阅 / 通知归属 / URL 订阅）
 import {

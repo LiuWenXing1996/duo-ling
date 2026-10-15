@@ -14,7 +14,7 @@
 import { readFileSync } from 'node:fs'
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
-import { GM_API_ENTRIES } from './gm-api-catalog'
+import { GM_API_ENTRIES } from '@duoling/userscript-runtime'
 
 const PROBE_SRC = readFileSync(new URL('../../uscript-samples/omni-probe/omni-probe.user.js', import.meta.url), 'utf8')
 

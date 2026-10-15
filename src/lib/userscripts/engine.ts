@@ -8,7 +8,7 @@
 // MAIN 世界没有 `chrome.*`：能力调用经同帧 USER_SCRIPT 中继件（包内 relay/install.ts）转给 SW，
 // SW 侧监听在 dl-bridge.ts。style / log / info / addElement 在包装内本地实现，不走桥。
 import type { ScriptConfig, ScriptProject } from './types'
-import type { GmInfo, Json } from './api-contract'
+import type { GmInfo, Json } from '@duoling/userscript-runtime'
 // 版本判断与「打开扩展管理页」入口同源（引导文案按 <138 / ≥138 分支，UI 侧按钮也按同一分支取 URL）
 import { getChromeMajorVersion } from '@/lib/extension-page'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
@@ -40,7 +40,7 @@ import {
 } from '@duoling/builtin-scripts'
 // 密钥生成器属跨世界契约（MAIN 侧脚本桥与 USER_SCRIPT 侧中继件必须同一把），故来自契约包
 import { generateBridgeSecret } from '@duoling/shared'
-import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
+import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from '@duoling/userscript-runtime'
 import { parseUserScriptMetadata } from './metadata'
 // 注册判据就一句「有没有页在录」—— 直接查存续表，录制不再有第二本账
 import { hasRecordingTabSession } from './runtime-db'

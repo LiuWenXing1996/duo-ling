@@ -1,6 +1,6 @@
 // `@grant` 面的**纯数据单一来源**：grant 名 → 它开启的成员，以及「恒注入、不属于任何 grant」的成员。
 //
-// 三个消费方：注入侧（userscripts/gm-wrapper.ts 按它裁剪注入面）、展示侧（gm-api-catalog.ts 的速查页）、
+// 三个消费方：注入侧（gm-wrapper.ts 按它裁剪注入面）、展示侧（gm-api-catalog.ts 的速查页）、
 // 规范侧（offscreen-chat/spec-text.ts 教 AI 怎么写 @grant 清单）。谁 import gm-wrapper 都会把注入链路
 // （gm-wrapper 与注册链路）拖进产物，故抽成这份零依赖纯数据。
 //

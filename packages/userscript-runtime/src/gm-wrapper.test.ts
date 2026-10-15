@@ -3,10 +3,11 @@
 // —— ASI 合并后的源码语法依然合法，parse 抓不住语法、但抓得住**结构**（见末尾回归用例）。
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
-import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS } from '../gm-grants'
+import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS } from './gm-grants'
 import type { GmInfo } from './api-contract'
 import { GM_WRAPPER_SUFFIX, buildGmWrapperPrefix, resolveGmExposure } from './gm-wrapper'
-import { EXTENSION_NAME } from '@/lib/extension-identity'
+/** 测试自造：断言生成源码里的 scriptHandler 跟随传入值。真值由应用侧传入，包内不持有。 */
+const EXTENSION_NAME = '测试扩展'
 
 /** 造一份最小 GM_info（userAgent / isIncognito 由包装运行时就地补，故不传） */
 function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {

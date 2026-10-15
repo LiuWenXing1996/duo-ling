@@ -240,6 +240,9 @@ importers:
       '@duoling/shared':
         specifier: workspace:*
         version: link:packages/shared
+      '@duoling/userscript-runtime':
+        specifier: workspace:*
+        version: link:packages/userscript-runtime
       '@isomorphic-git/lightning-fs':
         specifier: 4.7.0
         version: 4.7.0
@@ -379,6 +382,12 @@ importers:
         version: 0.28.2
 
   packages/shared: {}
+
+  packages/userscript-runtime:
+    dependencies:
+      '@duoling/shared':
+        specifier: workspace:*
+        version: link:../shared
 
 packages:
 

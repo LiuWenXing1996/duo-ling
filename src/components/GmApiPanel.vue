@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 「GM API」标签页：脚本世界里 `GM_*` / `GM.*` 的全部能力清单（只读速查）。
 //
-// 数据来源只有一处：lib/gm-api-catalog.ts —— 与注入脚本世界的真身同源，
+// 数据来源只有一处：@duoling/userscript-runtime 的 gm-api-catalog.ts —— 与注入脚本世界的真身同源，
 // 契约增删方法而目录没跟上由两条防线兜住（类型层 Record<GmGlobalName> + 源码反射单测），
 // 不靠人工对照。面板本身零请求、零存储：纯静态渲染，故不接 useDataSync。
 import { computed, ref } from 'vue'
@@ -20,7 +20,7 @@ import {
   entriesOfGroup,
   type GmApiEntry,
   type GmApiGroupId,
-} from '@/lib/gm-api-catalog'
+} from '@duoling/userscript-runtime'
 
 /** 左栏「全部」哨兵 */
 const ALL = 'all'
