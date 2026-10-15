@@ -102,12 +102,6 @@ export interface NetCaptureRecord {
   t: number
 }
 
-/**
- * 采集载荷：种类件只产这些字段。
- * tabSessionId 由 SW 补（只有它知道消息来自哪个标签页），故不在载荷里。
- */
-export type NetCapturePayload = Omit<NetCaptureRecord, 'id' | 'tabSessionId'>
-
 function str(v: unknown): string {
   return typeof v === 'string' ? v : ''
 }

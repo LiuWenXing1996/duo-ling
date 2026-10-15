@@ -31,6 +31,7 @@ import {
 } from '@/lib/extension-page'
 import { subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
 import type { UserScriptsAvailability } from '@/lib/userscripts/types'
+import { errorText } from '@/lib/format'
 
 const availability = ref<UserScriptsAvailability | null>(null)
 /** 「允许访问文件网址」状态（true / false / null=探测不到）—— 「从路径导入」读本地文件的前置开关 */
@@ -60,7 +61,7 @@ async function detect(): Promise<void> {
     fileAccess.value = await isFileSchemeAccessAllowed()
   } catch (e) {
     availability.value = null
-    detectError.value = e instanceof Error ? e.message : String(e)
+    detectError.value = errorText(e)
   } finally {
     loading.value = false
   }
@@ -72,7 +73,7 @@ async function openExtensionPage(): Promise<void> {
     // 显式传 availability.chromeMajor：与上面 steps 的版本分支同一判据（≥138 直落详情页）
     await openOwnExtensionPage(availability.value?.chromeMajor)
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = errorText(e)
   }
 }
 

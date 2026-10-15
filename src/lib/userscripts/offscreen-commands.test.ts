@@ -51,7 +51,6 @@ vi.mock('@/lib/userscripts/us-fs', () => ({
 vi.mock('@/lib/userscripts/us-assets', () => ({
   putAsset: vi.fn(),
   readAsset: vi.fn(),
-  hasAsset: vi.fn(),
 }))
 vi.mock('@/lib/userscripts/us-git', () => ({
   ensureRepo: vi.fn(),

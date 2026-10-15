@@ -47,3 +47,13 @@ export function mediaTypeOf(filename: string): string {
 export function extForMediaType(mediaType: string): string | undefined {
   return EXT_BY_MEDIA_TYPE[mediaType]
 }
+
+/**
+ * 是不是图片 MIME。
+ *
+ * 判据只有这一处：附件筛选（chat-attachments 收不收这张图）与文件面板（二进制里画不画它）
+ * 两侧共用，将来收文本附件要放宽判据时只改这里。
+ */
+export function isImageMediaType(mediaType: string): boolean {
+  return mediaType.startsWith('image/')
+}

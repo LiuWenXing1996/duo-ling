@@ -11,7 +11,6 @@ import {
   assetsOfMessage,
   dataUrlOf,
   isAssetPart,
-  isImageMediaType,
   messagesForModel,
   parseDataUrl,
   type ChatAssetRef,
@@ -113,10 +112,5 @@ describe('data URL 的拆与拼', () => {
     const url = 'data:image/jpeg;base64,AAAA'
     const parsed = parseDataUrl(url)
     expect(dataUrlOf({ ...REF, ...parsed })).toBe(url)
-  })
-
-  it('只认图片 MIME', () => {
-    expect(isImageMediaType('image/jpeg')).toBe(true)
-    expect(isImageMediaType('text/plain')).toBe(false)
   })
 })

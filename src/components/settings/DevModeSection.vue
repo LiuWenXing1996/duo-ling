@@ -9,6 +9,7 @@ import { Button as UiButton } from '@/components/ui/button'
 import { Input as UiInput } from '@/components/ui/input'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 import type { WorkspaceTabKind } from '@/shared/types'
+import { errorText } from '@/lib/format'
 
 const emit = defineEmits<{
   openTab: [kind: WorkspaceTabKind, title: string]
@@ -66,7 +67,7 @@ async function testNotify(): Promise<void> {
     notifyError.value = ''
     notifyDenied.value = await notificationDenied()
   } catch (err) {
-    notifyError.value = err instanceof Error ? err.message : String(err)
+    notifyError.value = errorText(err)
     notifyDenied.value = false
   }
 }

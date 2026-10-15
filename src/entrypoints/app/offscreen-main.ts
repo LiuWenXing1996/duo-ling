@@ -53,6 +53,7 @@ import {
   releaseUnreferencedAssets,
 } from '@/lib/offscreen-chat/asset-lifecycle'
 import { refreshActiveProfile } from '@/lib/offscreen-chat/profile-cache'
+import { errorText } from '@/lib/format'
 
 /** 就绪握手：告知 SW 容器已起（SW 侧据此确认状态、排查启动问题） */
 function announceReady(): void {
@@ -207,7 +208,7 @@ async function respond(
   try {
     sendResponse({ ok: true, data: await run() })
   } catch (e) {
-    sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) })
+    sendResponse({ ok: false, error: errorText(e) })
   }
 }
 

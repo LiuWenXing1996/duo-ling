@@ -97,7 +97,7 @@ import {
 } from '@/lib/page-context-store'
 import { fsClient, userscriptClient } from '@/lib/userscripts/ui-client'
 import { readPinnedTabId } from '@/lib/owning-tab'
-import { formatMessageTime, formatTokens } from '@/lib/format'
+import { errorText, formatMessageTime, formatTokens } from '@/lib/format'
 import type { DynamicToolUIPart, TextUIPart, ToolUIPart, UIMessage } from 'ai'
 // 这几个 part 判定 helper 走本地实现：静态 import 'ai' 会把整块 ~360KB 的核心
 // （含 gateway / zod）钉进对话界面首屏静态图。详见该文件头部说明。
@@ -532,7 +532,7 @@ async function enableCard(card: GenerationCardData): Promise<void> {
       cardEnabled.add(card.uuid)
     }
   } catch (e) {
-    cardErrors.set(card.uuid, e instanceof Error ? e.message : String(e))
+    cardErrors.set(card.uuid, errorText(e))
   } finally {
     cardBusy.delete(card.uuid)
   }
@@ -600,7 +600,7 @@ async function enableCapture(): Promise<void> {
     await userscriptClient.tabActivityEnable(ownerTabId)
     tabRecording.value = true
   } catch (e) {
-    captureError.value = e instanceof Error ? e.message : String(e)
+    captureError.value = errorText(e)
   } finally {
     captureBusy.value = false
   }
@@ -614,7 +614,7 @@ async function disableCapture(): Promise<void> {
     await userscriptClient.tabActivityDisable(ownerTabId)
     tabRecording.value = false
   } catch (e) {
-    captureError.value = e instanceof Error ? e.message : String(e)
+    captureError.value = errorText(e)
   } finally {
     captureBusy.value = false
   }
@@ -743,7 +743,7 @@ async function onPickElement(): Promise<void> {
     }
     // null = 用户取消（Esc / 右键）：静默
   } catch (e) {
-    contextError.value = e instanceof Error ? e.message : String(e)
+    contextError.value = errorText(e)
   } finally {
     contextBusy.value = null
   }

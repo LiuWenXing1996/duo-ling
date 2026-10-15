@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/tooltip'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 import { floatOpenRequest, type PageOverviewTab, type RuntimeResponse } from '@/shared/extension-ipc'
+import { errorText } from '@/lib/format'
 
 const props = defineProps<{
   /** 当前页的站点名（拿不到 url 的内部页上是空串，见 lib/web-hostname.ts） */
@@ -179,7 +180,7 @@ async function toggleTabActivity(next: boolean): Promise<void> {
     emit('tabRecordingChanged', tabId, next)
     justEnabled.value = next
   } catch (e) {
-    toggleError.value = e instanceof Error ? e.message : String(e)
+    toggleError.value = errorText(e)
     // 这一发没成，别让上一次成功留下的「刚开启」提示继续挂在卡片上
     justEnabled.value = false
   } finally {

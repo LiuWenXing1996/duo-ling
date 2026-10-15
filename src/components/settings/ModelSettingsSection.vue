@@ -30,6 +30,7 @@ import {
 import type { ModelProfile, ModelProvider } from '@/types/model'
 import ModelFormDialog from '@/components/ModelFormDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { errorText } from '@/lib/format'
 
 const profiles = ref<ModelProfile[]>([])
 const providers = ref<ModelProvider[]>([])
@@ -51,7 +52,7 @@ async function loadData(): Promise<void> {
     activeId.value = modelData.activeId
     loadError.value = ''
   } catch (error) {
-    loadError.value = error instanceof Error ? error.message : String(error)
+    loadError.value = errorText(error)
   }
 }
 
@@ -97,7 +98,7 @@ async function testConnection(profile: ModelProfile): Promise<void> {
     }
   } catch (error) {
     testState.value = 'fail'
-    testMessage.value = error instanceof Error ? error.message : String(error)
+    testMessage.value = errorText(error)
   }
 }
 

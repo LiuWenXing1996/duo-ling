@@ -443,9 +443,6 @@ export const API_COMMANDS: Record<ApiRequest['c'], true> = {
   'audio.watch': true,
 }
 
-/** 命令名（= `ApiRequest['c']`；`API_COMMANDS` 的键类型） */
-export type ApiCommand = ApiRequest['c']
-
 /**
  * 后台 → 脚本世界 的推送事件，经 Port 下行（帧信封见 ApiEventFrame）。
  * 来源：contextMenus.onClicked → menu.click；store.ts 写出口直发 → store.change；

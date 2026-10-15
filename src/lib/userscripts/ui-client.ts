@@ -16,6 +16,7 @@ import type { AssetWriteResult } from './us-assets'
 // 按页的整根活动轴（runtime-db 的读侧产物，六类行分五组）。**type-only**：UI 侧只要形状，
 // 不把存储层（idb-core）拖进扩展页 bundle。
 import type { TabTimeline } from './runtime-db'
+import { errorText } from '@/lib/format'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -54,7 +55,7 @@ async function sendAi<T>(request: RuntimeRequest): Promise<T> {
     try {
       return await send<T>(request)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
+      const msg = errorText(e)
       // 仅当是「容器未响应」类错误才重试；其它（业务异常 / 报文非法）直接抛出
       if (!/port closed|Receiving end does not exist|无响应/.test(msg)) throw e
       lastErr = e

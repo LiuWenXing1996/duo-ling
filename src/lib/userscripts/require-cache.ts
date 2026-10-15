@@ -10,6 +10,7 @@
 
 import { createIdbOpener } from '../idb-core'
 import { cacheClear, cacheGetAll, cachePutAll, fetchWithTimeout } from './cache-common'
+import { errorText } from '@/lib/format'
 
 const DB_NAME = 'duoling-require-cache'
 const DB_VERSION = 1
@@ -94,7 +95,7 @@ export async function fetchRequireSources(urls: string[]): Promise<RequireFetchR
       results.push({ url, ok: true, code })
       void setRequireCache([{ url, code }]).catch(() => {})
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
+      const msg = errorText(e)
       results.push({ url, ok: false, error: msg })
     }
   }

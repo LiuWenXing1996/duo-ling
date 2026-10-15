@@ -22,6 +22,7 @@ import type { ModelProfileInput } from '@/shared/types'
 import { getProviders } from './providers'
 import * as conversationStore from './conversation-store'
 import * as modelStore from './model-store'
+import { errorText } from '@/lib/format'
 
 // —— 与 service worker 的通道 ——
 
@@ -61,7 +62,7 @@ async function sendOffscreen<T>(request: RuntimeRequest): Promise<T> {
   try {
     return await sendOnce()
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = errorText(e)
     if (!/port closed|Receiving end does not exist|无响应/.test(msg)) throw e
     // 唤起容器并等它可应答（SW 侧处理 offscreen:ensure，内部轮询 fs:ping 到就绪为止）
     await send({ kind: 'offscreen:ensure' }).catch(() => {})
@@ -106,7 +107,7 @@ const model: PreloadApi['model'] = {
       await modelStore.testChat({ ...config, apiKey })
       return { ok: true }
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      return { ok: false, error: errorText(error) }
     }
   }
 }

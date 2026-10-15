@@ -52,6 +52,7 @@ import {
   type UserScriptRunEvent,
   type UserScriptRunLogRow
 } from '@/lib/userscripts/types'
+import { errorText } from '@/lib/format'
 
 /**
  * 时间线节点：页面的两个生命周期端点 + 这一页的刷新 / 地址变更与记录开关 + 录到的每一条
@@ -245,7 +246,7 @@ async function load(): Promise<void> {
     rows.value = logRows
     fallbackSelection()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = errorText(e)
   } finally {
     loading.value = false
   }
@@ -287,7 +288,7 @@ async function loadPageTimeline(tabSessionId: string, append = false): Promise<v
     runMetaById.value = meta
     timelineCursor.value = res.maxId
   } catch (e) {
-    error.value = '读取这一页的活动失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '读取这一页的活动失败：' + errorText(e)
   }
 }
 
@@ -367,7 +368,7 @@ async function stopRecording(tabId: number): Promise<void> {
     await load()
     await loadPageTimeline(selectedId.value)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = errorText(e)
   } finally {
     stoppingTabId.value = null
   }
@@ -413,7 +414,7 @@ async function copyErrorId(id: string | undefined): Promise<void> {
     copiedErrorId.value = id
     window.setTimeout(() => (copiedErrorId.value = ''), 1500)
   } catch (e) {
-    error.value = '复制失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '复制失败：' + errorText(e)
   }
 }
 
@@ -566,7 +567,7 @@ async function doClear(): Promise<void> {
     await userscriptClient.tabActivityClear()
     await load() // load 末尾会回落选中项：清空后停留在已消失的页上会像坏了
   } catch (e) {
-    error.value = '清空失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '清空失败：' + errorText(e)
   } finally {
     mutating.value = false
   }
@@ -580,7 +581,7 @@ async function doDelete(): Promise<void> {
     await userscriptClient.tabActivityDelete(sel.id)
     await load()
   } catch (e) {
-    error.value = '删除失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '删除失败：' + errorText(e)
   } finally {
     mutating.value = false
   }

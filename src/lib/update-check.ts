@@ -19,6 +19,7 @@
 
 import * as appDb from './app-db'
 import { readInjectedBuildInfo } from './build-info'
+import { errorText } from '@/lib/format'
 
 /** 检查结果在 duoling-app 库里的键 */
 const STORAGE_KEY = 'updateCheck'
@@ -213,6 +214,6 @@ export async function runUpdateCheck(): Promise<UpdateCheckRecord> {
         : { kind: 'current', latest: latestVersion },
     )
   } catch (e) {
-    return settle({ kind: 'unavailable', reason: e instanceof Error ? e.message : String(e) })
+    return settle({ kind: 'unavailable', reason: errorText(e) })
   }
 }

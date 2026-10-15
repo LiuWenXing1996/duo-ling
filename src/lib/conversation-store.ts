@@ -21,10 +21,11 @@
 import type { Conversation, ConversationSearchHit, Message } from '../shared/types'
 import { isAssetPart } from './chat-assets'
 import { broadcastDataChange } from './data-broadcast'
+import { createIdbOpener, idbRequest, idbRunTx } from './idb-core'
 
 const DB_NAME = 'duoling-chat'
 /** v3：tasks store 并入（原独立库 duoling-chat-tasks，见 offscreen-chat/task-store.ts） */
-export const DB_VERSION = 3
+const DB_VERSION = 3
 const CONVERSATIONS = 'conversations'
 const MESSAGES = 'messages'
 const META = 'meta'
@@ -33,49 +34,44 @@ export const TASKS = 'tasks'
 /** 新会话序号（meta store 键）：保证「新会话 N」不重号，清空会话时重置 */
 const SEQ_META_KEY = 'conversationSeq'
 
-let dbPromise: Promise<IDBDatabase> | null = null
-
-function openDb(): Promise<IDBDatabase> {
-  if (dbPromise) return dbPromise
-  dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION)
-    req.onupgradeneeded = () => {
-      const db = req.result
-      if (!db.objectStoreNames.contains(CONVERSATIONS)) {
-        const store = db.createObjectStore(CONVERSATIONS, { keyPath: 'id' })
-        store.createIndex('lastMessageAt', 'lastMessageAt')
-      }
-      if (!db.objectStoreNames.contains(MESSAGES)) {
-        const store = db.createObjectStore(MESSAGES, { keyPath: 'id' })
-        store.createIndex('conversationId', 'conversationId')
-      }
-      if (!db.objectStoreNames.contains(META)) {
-        db.createObjectStore(META)
-      }
-      // v3：任务快照并入本库（task-store.ts 与本模块各开各的连接，upgrade 都做 contains 防御）
-      if (!db.objectStoreNames.contains(TASKS)) {
-        db.createObjectStore(TASKS, { keyPath: 'taskId' })
-      }
+/**
+ * 会话库（duoling-chat）的**唯一打开器**：连接一份、升级回调一份。
+ *
+ * 为什么必须唯一：tasks store 与会话同库（同一写方 offscreen），若两个模块各 open 一次，
+ * 同一库上就挂两条独立连接 —— 升级时各自处理 versionchange、各自缓存版本，一方 close
+ * 另一方还握着旧连接。收拢到 createIdbOpener 之后，建表、连接活性、失败重试都只有一处实现。
+ */
+export const chatDb = createIdbOpener({
+  name: DB_NAME,
+  version: DB_VERSION,
+  label: '会话库',
+  upgrade: (db) => {
+    if (!db.objectStoreNames.contains(CONVERSATIONS)) {
+      const store = db.createObjectStore(CONVERSATIONS, { keyPath: 'id' })
+      store.createIndex('lastMessageAt', 'lastMessageAt')
     }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
-  return dbPromise
-}
+    if (!db.objectStoreNames.contains(MESSAGES)) {
+      const store = db.createObjectStore(MESSAGES, { keyPath: 'id' })
+      store.createIndex('conversationId', 'conversationId')
+    }
+    if (!db.objectStoreNames.contains(META)) {
+      db.createObjectStore(META)
+    }
+    // v3：任务快照并入本库（原 duoling-chat-tasks 库）
+    if (!db.objectStoreNames.contains(TASKS)) {
+      db.createObjectStore(TASKS, { keyPath: 'taskId' })
+    }
+  },
+})
 
+/** 单 store 上的一次请求读写（事务级错误与死连接重试由 idbRunTx 兜） */
 function tx<T>(
   storeName: string,
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
-  return openDb().then(
-    (db) =>
-      new Promise<T>((resolve, reject) => {
-        const transaction = db.transaction(storeName, mode)
-        const request = run(transaction.objectStore(storeName))
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error)
-      }),
+  return idbRunTx(chatDb, storeName, mode, (transaction) =>
+    idbRequest(run(transaction.objectStore(storeName))),
   )
 }
 
@@ -158,17 +154,17 @@ export async function referencedAssetIds(): Promise<Set<string>> {
  * 唯一写方是 offscreen（对话链路宿主）。
  */
 async function takeNextSeq(): Promise<number> {
-  const db = await openDb()
-  return new Promise<number>((resolve, reject) => {
-    const tx = db.transaction(META, 'readwrite')
-    const store = tx.objectStore(META)
-    const req = store.get(SEQ_META_KEY)
-    req.onsuccess = () => {
-      let seq = typeof req.result === 'number' && req.result > 0 ? req.result : 1
-      store.put(seq + 1, SEQ_META_KEY)
-      resolve(seq)
-    }
-    req.onerror = () => reject(req.error)
+  return idbRunTx(chatDb, META, 'readwrite', (transaction) => {
+    const store = transaction.objectStore(META)
+    return new Promise<number>((resolve, reject) => {
+      const req = store.get(SEQ_META_KEY)
+      req.onsuccess = () => {
+        const seq = typeof req.result === 'number' && req.result > 0 ? req.result : 1
+        store.put(seq + 1, SEQ_META_KEY)
+        resolve(seq)
+      }
+      req.onerror = () => reject(req.error ?? new Error('会话序号读取失败'))
+    })
   })
 }
 
@@ -211,44 +207,40 @@ export async function renameConversation(id: string, title: string): Promise<Con
 
 export async function deleteConversation(id: string): Promise<void> {
   const messages = await listMessages(id)
-  const db = await openDb()
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction([CONVERSATIONS, MESSAGES], 'readwrite')
-    transaction.objectStore(CONVERSATIONS).delete(id)
-    const messageStore = transaction.objectStore(MESSAGES)
-    for (const m of messages) messageStore.delete(m.id)
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error)
-  })
+  await idbRunTx(chatDb, [CONVERSATIONS, MESSAGES], 'readwrite', (transaction) =>
+    new Promise<void>((resolve, reject) => {
+      transaction.objectStore(CONVERSATIONS).delete(id)
+      const messageStore = transaction.objectStore(MESSAGES)
+      for (const m of messages) messageStore.delete(m.id)
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error ?? new Error('删除会话失败'))
+    }),
+  )
   broadcastDataChange('conversation', id)
 }
 
 /** 清空全部会话与消息，并把序号重置回 1（下次新建从「新会话 1」开始） */
 export async function deleteAllConversations(): Promise<void> {
-  const db = await openDb()
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction([CONVERSATIONS, MESSAGES, META], 'readwrite')
-    transaction.objectStore(CONVERSATIONS).clear()
-    transaction.objectStore(MESSAGES).clear()
-    transaction.objectStore(META).put(1, SEQ_META_KEY)
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error)
-  })
+  await idbRunTx(chatDb, [CONVERSATIONS, MESSAGES, META], 'readwrite', (transaction) =>
+    new Promise<void>((resolve, reject) => {
+      transaction.objectStore(CONVERSATIONS).clear()
+      transaction.objectStore(MESSAGES).clear()
+      transaction.objectStore(META).put(1, SEQ_META_KEY)
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error ?? new Error('清空会话失败'))
+    }),
+  )
   broadcastDataChange('conversation') // 无 uuid = 全量变化
 }
 
 // —— 消息 ——
 
 export async function listMessages(conversationId: string): Promise<Message[]> {
-  const index = await openDb().then((db) => {
-    const transaction = db.transaction(MESSAGES, 'readonly')
-    return transaction.objectStore(MESSAGES).index('conversationId')
-  })
-  const all = await new Promise<Message[]>((resolve, reject) => {
-    const request = index.getAll(conversationId)
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
-  })
+  const all = await idbRunTx(chatDb, MESSAGES, 'readonly', (transaction) =>
+    idbRequest<Message[]>(
+      transaction.objectStore(MESSAGES).index('conversationId').getAll(conversationId),
+    ),
+  )
   return all.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 }
 
@@ -264,38 +256,38 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
  * 异常收尾可能让 assistant 消息先落盘，按任意消息判断会让改名静默失效。
  */
 export async function appendMessage(message: Message): Promise<Message | null> {
-  const db = await openDb()
-  return new Promise<Message | null>((resolve, reject) => {
-    const transaction = db.transaction([CONVERSATIONS, MESSAGES], 'readwrite')
-    const messages = transaction.objectStore(MESSAGES)
-    const conversations = transaction.objectStore(CONVERSATIONS)
+  return idbRunTx(chatDb, [CONVERSATIONS, MESSAGES], 'readwrite', (transaction) =>
+    new Promise<Message | null>((resolve, reject) => {
+      const messages = transaction.objectStore(MESSAGES)
+      const conversations = transaction.objectStore(CONVERSATIONS)
 
-    // 请求按发出顺序执行：先读会话与既有消息，回调里再做写入（同事务，不会提前提交）
-    const convReq = conversations.get(message.conversationId)
-    const listReq = messages.index('conversationId').getAll(message.conversationId)
-    listReq.onsuccess = () => {
-      const conversation = convReq.result as Conversation | undefined
-      if (!conversation) return // 会话不存在：不写任何东西，oncomplete 时 resolve null
+      // 请求按发出顺序执行：先读会话与既有消息，回调里再做写入（同事务，不会提前提交）
+      const convReq = conversations.get(message.conversationId)
+      const listReq = messages.index('conversationId').getAll(message.conversationId)
+      listReq.onsuccess = () => {
+        const conversation = convReq.result as Conversation | undefined
+        if (!conversation) return // 会话不存在：不写任何东西，oncomplete 时 resolve null
 
-      messages.put(message)
-      const prior = listReq.result as Message[]
-      const next: Conversation = { ...conversation, lastMessageAt: message.createdAt }
-      const isFirstUserMessage = message.role === 'user' && !prior.some((m) => m.role === 'user')
-      if (isFirstUserMessage && /^新会话 \d+$/.test(next.title)) {
-        const trimmed = message.content.trim()
-        if (trimmed) next.title = trimmed.length > 20 ? `${trimmed.slice(0, 20)}…` : trimmed
+        messages.put(message)
+        const prior = listReq.result as Message[]
+        const next: Conversation = { ...conversation, lastMessageAt: message.createdAt }
+        const isFirstUserMessage = message.role === 'user' && !prior.some((m) => m.role === 'user')
+        if (isFirstUserMessage && /^新会话 \d+$/.test(next.title)) {
+          const trimmed = message.content.trim()
+          if (trimmed) next.title = trimmed.length > 20 ? `${trimmed.slice(0, 20)}…` : trimmed
+        }
+        conversations.put(next)
       }
-      conversations.put(next)
-    }
-    transaction.oncomplete = () => {
-      const existed = Boolean(convReq.result)
-      // 会话不存在时上面什么都没写，不该让前端白拉一次——只在真的落盘后才广播
-      if (existed) broadcastDataChange('conversation', message.conversationId)
-      resolve(existed ? message : null)
-    }
-    transaction.onerror = () => reject(transaction.error ?? new Error('写入消息失败'))
-    transaction.onabort = () => reject(transaction.error ?? new Error('写入消息被中止'))
-  })
+      transaction.oncomplete = () => {
+        const existed = Boolean(convReq.result)
+        // 会话不存在时上面什么都没写，不该让前端白拉一次——只在真的落盘后才广播
+        if (existed) broadcastDataChange('conversation', message.conversationId)
+        resolve(existed ? message : null)
+      }
+      transaction.onerror = () => reject(transaction.error ?? new Error('写入消息失败'))
+      transaction.onabort = () => reject(transaction.error ?? new Error('写入消息被中止'))
+    }),
+  )
 }
 
 /** 会话检索：空查询返回最近 limit 条；非空匹配标题或任意消息正文（大小写不敏感） */

@@ -19,8 +19,9 @@ import {
 import LfsTreeNode from './LfsTreeNode.vue'
 import { fsClient, userscriptClient } from '@/lib/userscripts/ui-client'
 // 换算表取自叶子模块而非 us-assets：后者会带出 lightning-fs 单例，面板只要一张表
-import { mediaTypeOf } from '@/lib/media-types'
+import { isImageMediaType, mediaTypeOf } from '@/lib/media-types'
 import type { LfsNode, LfsFileContent } from '@/lib/userscripts/us-fs'
+import { errorText } from '@/lib/format'
 
 const loading = ref(false)
 const error = ref('')
@@ -45,7 +46,7 @@ const previewImageUrl = computed(() => {
   const p = preview.value
   if (!p || !p.binary || !p.content) return ''
   const mediaType = mediaTypeOf(p.path)
-  return mediaType.startsWith('image/') ? `data:${mediaType};base64,${p.content}` : ''
+  return isImageMediaType(mediaType) ? `data:${mediaType};base64,${p.content}` : ''
 })
 
 /** 浏览器解不出这张图（截断 / 非标准编码）时置位：退回一句提示，而不是留个破图 */
@@ -113,7 +114,7 @@ watch(selectedPath, async (path) => {
   try {
     preview.value = await fsClient.lfsReadFile(path)
   } catch (e) {
-    previewError.value = e instanceof Error ? e.message : String(e)
+    previewError.value = errorText(e)
   } finally {
     previewLoading.value = false
   }
@@ -127,7 +128,7 @@ async function load(): Promise<void> {
     tree.value = t
     if (tree.value) buildTypeMap(tree.value)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = errorText(e)
   } finally {
     loading.value = false
   }

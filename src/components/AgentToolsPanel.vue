@@ -31,6 +31,7 @@ import {
   AGENT_TOOL_VIEWS,
   type AgentToolView,
 } from '@/lib/agent-tools-catalog'
+import { errorText, formatTimeWithSeconds } from '@/lib/format'
 
 /** 左栏「全部工具」哨兵值 */
 const ALL = '__all__'
@@ -101,7 +102,7 @@ async function load(): Promise<void> {
     traces.value = out
     scanned.value = conversations.length
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = errorText(e)
   } finally {
     loading.value = false
   }
@@ -139,13 +140,6 @@ function countOf(name: string): number {
 }
 
 // —— 展示辅助 ——
-
-function fmtTime(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
 
 /** 工具名 → 中文短名（未收录的工具照原名显示，不隐藏——新工具上线时这里要补） */
 function titleOf(name: string): string {
@@ -358,7 +352,7 @@ function block(value: unknown): string {
           <ui-tool-content>
             <div class="flex flex-col gap-2 p-3 text-xs">
               <div class="flex flex-wrap items-center gap-2 text-muted-foreground">
-                <span>{{ fmtTime(t.at) }}</span>
+                <span>{{ formatTimeWithSeconds(t.at) }}</span>
                 <span class="truncate">{{ t.conversationTitle }}</span>
               </div>
               <div>

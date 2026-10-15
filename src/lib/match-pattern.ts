@@ -67,18 +67,6 @@ function hostCovers(patternHost: string, urlHost: string): boolean {
 }
 
 /**
- * pattern 的 **host 段**是否覆盖该 hostname（不看 scheme 与 path）。
- *
- * 给「按站点」的用法（浮层按站点开关）：那份设置只关心站点，不分 scheme、也没有路径概念，
- * 条目一律写成 `*://<host>/*`。hostname 大小写不敏感，内部统一小写后比对；pattern 非法 → false。
- */
-export function matchPatternCoversHost(pattern: string, host: string): boolean {
-  const parsed = parseMatchPattern(pattern)
-  if (!parsed) return false
-  return hostCovers(parsed.host, host.toLowerCase())
-}
-
-/**
  * 单条 pattern 是否覆盖该 url（**只比 scheme + host**，path 见文件头）。
  * url 非法 / 非 http(s) / pattern 非法 → false。
  */

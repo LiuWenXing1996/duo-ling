@@ -58,6 +58,7 @@ import {
 import { buildScriptTools, type TaskWorkspace } from './script-tools'
 import { getTask, listRunningTasks, putTask, removeTask, type ChatTaskRecord } from './task-store'
 import { askImageAboutAsset } from './vision-agent'
+import { errorText } from '@/lib/format'
 
 /** maxSteps 上限：沿用桌面版 agent-orchestrator 的 8。
  *  阈值取自 agent-tools-catalog（工作台「AI 工具」面板展示同一份，不再各写一份）。 */
@@ -259,7 +260,7 @@ async function buildFinalMessageFromChunks(
   let last: UIMessage | undefined
   for await (const msg of readUIMessageStream({
     stream,
-    onError: (e) => errors.push(e instanceof Error ? e.message : String(e)),
+    onError: (e) => errors.push(errorText(e)),
   })) {
     last = msg
   }
@@ -558,7 +559,7 @@ async function runLoop(opts: {
     } catch (e) {
       pushChunk(conversationId, {
         type: 'error',
-        errorText: `脚本保存失败：${e instanceof Error ? e.message : String(e)}`,
+        errorText: `脚本保存失败：${errorText(e)}`,
       })
     }
 
@@ -617,7 +618,7 @@ async function runLoop(opts: {
         console.error('[duoling:chat] assistant 消息落盘失败', e)
         pushChunk(conversationId, {
           type: 'error',
-          errorText: `回复保存失败：${e instanceof Error ? e.message : String(e)}`,
+          errorText: `回复保存失败：${errorText(e)}`,
         })
       })
     } else {
@@ -641,7 +642,7 @@ async function runLoop(opts: {
     pushChunk(conversationId, { type: 'start', messageId: task.messageId })
     pushChunk(conversationId, {
       type: 'error',
-      errorText: e instanceof Error ? e.message : String(e),
+      errorText: errorText(e),
     })
     // 异常前吐出来的内容同样别丢（用户看到的文字是真金白银）
     await persistInterruptedOutput({

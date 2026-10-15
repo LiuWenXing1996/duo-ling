@@ -14,6 +14,7 @@
 //
 // ⚠️ 单实例约束同 us-fs：只用这里 import 的 pfs，不要另 new LightningFS（内存索引互不可见）。
 import { pfs } from './us-fs'
+import { ensureDir, removeRecursive } from './us-fs-ops'
 import { extForMediaType, mediaTypeOf } from '@/lib/media-types'
 import type { ChatAssetRef } from '@/lib/chat-assets'
 
@@ -84,35 +85,6 @@ export async function contentId(bytes: Uint8Array): Promise<string> {
 
 const assetDir = (id: string): string => `${ASSET_ROOT}/${id}`
 
-/** 递归建目录（幂等）；lightning-fs 的 mkdir 不递归、已存在会抛错 */
-async function ensureDir(dir: string): Promise<void> {
-  if (!dir) return
-  try {
-    await pfs.stat(dir)
-    return
-  } catch {
-    /* 不存在，继续建 */
-  }
-  const parent = dir.slice(0, dir.lastIndexOf('/'))
-  if (parent) await ensureDir(parent)
-  try {
-    await pfs.mkdir(dir)
-  } catch {
-    /* 并发或已存在 */
-  }
-}
-
-async function removeRecursive(path: string): Promise<void> {
-  const st = await pfs.stat(path)
-  if (st.type === 'dir') {
-    const entries = (await pfs.readdir(path)) as string[]
-    for (const name of entries) await removeRecursive(`${path}/${name}`)
-    await pfs.rmdir(path)
-  } else {
-    await pfs.unlink(path)
-  }
-}
-
 /** 列一个资源目录里的文件名；目录不存在回空数组（「没有」与「读不了」在这里不必区分） */
 async function listFiles(dir: string): Promise<string[]> {
   try {
@@ -120,12 +92,6 @@ async function listFiles(dir: string): Promise<string[]> {
   } catch {
     return []
   }
-}
-
-/** 这个 id 的资源在不在 */
-export async function hasAsset(id: string): Promise<boolean> {
-  assertSafeAssetId(id)
-  return (await listFiles(assetDir(id))).length > 0
 }
 
 /**

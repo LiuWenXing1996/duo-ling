@@ -8,8 +8,10 @@
 //
 // 宿主差异说明：与会话同库——同域同写方
 // （都归 offscreen），纯粹少开一个库。写只发生在 offscreen（对话链路的宿主），SW 与扩展页
-// 没有写入路径；库版本与 upgrade 由本模块与 conversation-store.ts 共同防御（都做 contains 检查）。
-import { DB_VERSION, TASKS } from '../conversation-store'
+// 没有写入路径；连接、库版本与建表统一由 conversation-store 的 chatDb 持有 —— 本模块不再
+// 自开连接（同一库挂两条连接时，升级与死连接处理会各管一半）。
+import { chatDb, TASKS } from '../conversation-store'
+import { idbRequest, idbRunTx } from '../idb-core'
 
 /** 任务状态：running = 循环进行中（唯一参与孤儿判定的状态） */
 export type ChatTaskStatus = 'running'
@@ -35,60 +37,33 @@ export interface ChatTaskRecord {
   heartbeat: number
 }
 
-const DB_NAME = 'duoling-chat'
 const STORE = TASKS
-
-let dbPromise: Promise<IDBDatabase> | null = null
-
-function openDb(): Promise<IDBDatabase> {
-  if (dbPromise) return dbPromise
-  dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION)
-    req.onupgradeneeded = () => {
-      const db = req.result
-      // 只管自己的 store：conversations/messages/meta 的创建归 conversation-store 的 upgrade
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: 'taskId' })
-      }
-    }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
-  return dbPromise
-}
-
-function request<T>(req: IDBRequest<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error ?? new Error('本地数据读取失败'))
-  })
-}
 
 /** 读一条任务记录；不存在返回 undefined */
 export async function getTask(taskId: string): Promise<ChatTaskRecord | undefined> {
-  const db = await openDb()
-  const tx = db.transaction(STORE, 'readonly')
-  return request(tx.objectStore(STORE).get(taskId))
+  return idbRunTx(chatDb, STORE, 'readonly', (transaction) =>
+    idbRequest(transaction.objectStore(STORE).get(taskId)),
+  )
 }
 
 /** 写入 / 覆盖一条任务记录（覆盖写，只留最新一份） */
 export async function putTask(record: ChatTaskRecord): Promise<void> {
-  const db = await openDb()
-  const tx = db.transaction(STORE, 'readwrite')
-  await request(tx.objectStore(STORE).put(record))
+  await idbRunTx(chatDb, STORE, 'readwrite', (transaction) =>
+    idbRequest(transaction.objectStore(STORE).put(record)),
+  )
 }
 
 /** 删除一条任务记录（任务收尾 / 用户丢弃时） */
 export async function removeTask(taskId: string): Promise<void> {
-  const db = await openDb()
-  const tx = db.transaction(STORE, 'readwrite')
-  await request(tx.objectStore(STORE).delete(taskId))
+  await idbRunTx(chatDb, STORE, 'readwrite', (transaction) =>
+    idbRequest(transaction.objectStore(STORE).delete(taskId)),
+  )
 }
 
 /** 全部 running 任务记录（孤儿判定由调用方按心跳过滤） */
 export async function listRunningTasks(): Promise<ChatTaskRecord[]> {
-  const db = await openDb()
-  const tx = db.transaction(STORE, 'readonly')
-  const all = await request<ChatTaskRecord[]>(tx.objectStore(STORE).getAll())
+  const all = await idbRunTx(chatDb, STORE, 'readonly', (transaction) =>
+    idbRequest<ChatTaskRecord[]>(transaction.objectStore(STORE).getAll()),
+  )
   return (all ?? []).filter((r) => r.status === 'running')
 }

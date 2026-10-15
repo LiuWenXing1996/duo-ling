@@ -19,6 +19,7 @@ import type {
 import { runtimeSend } from '@/shared/runtime-send'
 import { consumePendingPageContext, clearSentPageContext } from '@/lib/page-context-store'
 import { resolveOwningTabId } from '@/lib/owning-tab'
+import { errorText } from '@/lib/format'
 
 /** 向 offscreen 发一次请求（共享总线，SW 对 chat: 前缀静默让路），统一解包信封 */
 function send<T>(request: RuntimeRequest): Promise<T> {
@@ -33,7 +34,7 @@ async function sendChat<T>(request: RuntimeRequest): Promise<T> {
   try {
     return await send<T>(request)
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = errorText(e)
     if (!/port closed|Receiving end does not exist|无响应/.test(msg)) throw e
     await send({ kind: 'offscreen:ensure' }).catch(() => {})
     return await send<T>(request)
@@ -160,7 +161,7 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
           controller.enqueue({ type: 'start', messageId: options.messageId })
           controller.enqueue({
             type: 'error',
-            errorText: e instanceof Error ? e.message : String(e),
+            errorText: errorText(e),
           })
           controller.enqueue({ type: 'abort' })
           controller.close()

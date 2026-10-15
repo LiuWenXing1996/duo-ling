@@ -25,6 +25,7 @@ import type {
 import { base64ToBytes, parseScriptsZip, sourceFingerprint } from './zip-transfer'
 // metadata 归一化（唯一路径：写入口 saveSource 调用一次，不再另写第二套）
 import { resolveConfigFromSource } from './metadata'
+import { errorText } from '@/lib/format'
 
 /** 构造状态库记录（无源码权威；源码在 duoling-fs，这里只带搬运副本） */
 function makeState(
@@ -345,7 +346,7 @@ async function importOneScript(
     return {
       status: 'failed',
       name: script.name,
-      reason: e instanceof Error ? e.message : String(e),
+      reason: errorText(e),
     }
   }
 }

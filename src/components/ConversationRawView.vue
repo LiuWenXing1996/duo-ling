@@ -13,6 +13,7 @@ import { useDataSync } from '@/composables/use-data-sync'
 import { RefreshCw as UiRefreshCw } from '@lucide/vue'
 import * as conversationStore from '@/lib/conversation-store'
 import type { Conversation, Message } from '@/shared/types'
+import { errorText, formatTimeWithSeconds } from '@/lib/format'
 
 const props = defineProps<{
   /** 展示哪条会话的落盘记录；为 null 时显示空态（父层未选中 / 会话已被删） */
@@ -33,7 +34,7 @@ async function loadMessages(id: string): Promise<void> {
   try {
     messages.value = await conversationStore.listMessages(id)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = errorText(e)
   } finally {
     messagesLoading.value = false
   }
@@ -96,13 +97,6 @@ function exportConversation(): void {
 }
 
 // —— 展示辅助 ——
-
-function formatTime(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
 
 /** 单条消息的 token 用量（usage 只落在 assistant 分支，模板里读它需要先判角色，故收成 helper） */
 function usageTokens(m: Message): number | undefined {
@@ -184,7 +178,7 @@ function pageContextLabel(m: Message): string {
             >
               {{ m.role === 'user' ? '用户' : 'AI' }}
             </span>
-            <span>{{ formatTime(m.createdAt) }}</span>
+            <span>{{ formatTimeWithSeconds(m.createdAt) }}</span>
             <span v-if="usageTokens(m)">· {{ usageTokens(m) }} tokens</span>
             <span v-if="partTypes(m).length" class="min-w-0 truncate" :title="partTypes(m).join('，')">
               · {{ partTypes(m).join('，') }}

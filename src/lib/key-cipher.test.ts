@@ -2,7 +2,7 @@
 // DEK 落 duoling-app 库：fake-indexeddb/auto 供 IDB（Node 22 自带 crypto.subtle / btoa / atob）。
 import 'fake-indexeddb/auto'
 import { describe, expect, it } from 'vitest'
-import { decryptApiKey, encryptApiKey, isEncPayload } from './key-cipher'
+import { decryptApiKey, encryptApiKey } from './key-cipher'
 import { get as appGet } from './app-db'
 
 describe('encryptApiKey / decryptApiKey 往返', () => {
@@ -52,29 +52,5 @@ describe('DEK 持久化', () => {
     // 存的是 base64 的原始密钥字节（本来就非明文 API Key），关键是不存在明文 key 值
     expect(typeof stored).toBe('string')
     expect(stored).not.toContain('sk-')
-  })
-})
-
-describe('isEncPayload 判别', () => {
-  it('合法载荷为 true', () => {
-    expect(isEncPayload({ iv: 'a', ct: 'b' })).toBe(true)
-  })
-
-  it.each([
-    ['空对象', {}],
-    ['缺 ct', { iv: 'a' }],
-    ['缺 iv', { ct: 'b' }],
-    ['iv 非字符串', { iv: 1, ct: 'b' }],
-  ])('%s 为 false', (_label, input) => {
-    expect(isEncPayload(input)).toBe(false)
-  })
-
-  it.each<[unknown, string]>([
-    [null, 'null'],
-    [undefined, 'undefined'],
-    ['str', '字符串'],
-    [42, '数字'],
-  ])('非对象输入（%s）为 false', (_label, input) => {
-    expect(isEncPayload(input)).toBe(false)
   })
 })
