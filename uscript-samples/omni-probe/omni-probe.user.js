@@ -73,7 +73,7 @@
 // ————————————————————————— 覆盖登记（用例 ↔ 目录 的对齐表）—————————————————————————
 // 格式：`// @covers <用例名> :: <路径…>`；**不认领任何 API 的用例**（例如注入时机）写成 `// @covers <用例名>`。
 // 用例名须与下面 add(...) 的用例名**一字不差**，
-// 路径取自 src/lib/gm-api-catalog.ts（GM API 清单的唯一来源）。目录加了新 API 时**必须**
+// 路径取自 @duoling/userscript-runtime 的 gm-api-catalog.ts（GM API 清单的唯一来源）。目录加了新 API 时**必须**
 // 在这里认领一行，否则 src/lib/gm-api-coverage.test.ts 会红（这正是「探针不留空行」的机器保证）。
 // 单个用例最多认领 4 条路径——认领太多，报 ✗ 时定位不到是哪个 API。
 // @covers GM_info（全局） :: GM_info

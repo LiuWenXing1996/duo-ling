@@ -1,6 +1,6 @@
 // inspector/install.ts 单测：件在独立 USER_SCRIPT 世界跑，这里用最小假全局把它跑起来，
 // 验证指令通道两端 —— 下行认信封（非指令消息不响应）、上行按 reqId 配对回一条、载荷形状对得上
-// protocol/page-context.ts —— 以及幂等守卫。
+// @duoling/shared 的 page-context.ts —— 以及幂等守卫。
 //
 // 拾取模式（pick）**不在覆盖范围**：它要真实 hit-testing、事件流与渲染，最小桩测不出行为
 // （e2e 里也没有检查器用例），只能靠真机点选验证。这里测的是另外两个模式与通道本身。
@@ -8,7 +8,7 @@
 // 注入方式：件读裸全局（window / document / location / navigator / chrome），故这里把它们
 // 都装成全局再调安装函数 —— 与真注入同一条路径。
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { INSPECTOR_CMD_TAG, INSPECTOR_RESULT_TAG } from '../protocol/inspector'
+import { INSPECTOR_CMD_TAG, INSPECTOR_RESULT_TAG } from '@duoling/shared'
 import { installPageInspector } from './install'
 
 /** 一次微任务 + 定时器轮空：等 .then 链上的上报落到 sent 里 */

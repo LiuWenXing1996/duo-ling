@@ -33,7 +33,7 @@ import {
   mintTabSession,
 } from './runtime-db'
 import { clearAllForTests as clearUsdata } from './usdata-db'
-import type { NetCaptureRecord } from '@duoling/builtin-scripts'
+import type { NetCaptureRecord } from '@duoling/shared'
 import { RUN_EVENT_MAX, RUN_LOG_MAX, type ScriptProject } from './types'
 
 beforeEach(async () => {

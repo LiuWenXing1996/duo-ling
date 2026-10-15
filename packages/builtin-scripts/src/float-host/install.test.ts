@@ -6,7 +6,7 @@
 //
 // 与历史形态的差别：这份测试过去跑的是件源码（件当时还是 src/public 下的 vanilla JS，件以资产形态
 // 随包分发、不进类型检查，故靠「执行源码 + 比对 kind 字面量」兜住漂移）。件迁进包并 TS 化后，kind
-// 的真相源就是 protocol/float-host.ts，两侧 import 同一组常量、对齐由编译器守，那条防线随之退化为
+// 的真相源就是 @duoling/shared 的 float-host.ts，两侧 import 同一组常量、对齐由编译器守，那条防线随之退化为
 // 一条「接错线」检查（见下）—— 真正的形状约束现在来自类型。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -15,7 +15,7 @@ import {
   FLOAT_COLLAPSE_KIND,
   FLOAT_HOST_HOOK_KEY,
   FLOAT_OPEN_KIND,
-} from '../protocol/float-host'
+} from '@duoling/shared'
 import { clampPoint, installFloatHost, type FloatHostHook } from './install'
 
 const PANEL_URL = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/floatpanel.html'

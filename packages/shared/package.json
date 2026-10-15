@@ -1,0 +1,10 @@
+{
+  "name": "@duoling/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "跨世界契约：桥 / 录制 / 页面检查器 / 浮层宿主的信封、常量与形状（纯 TS 源码，无构建步骤）",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

@@ -15,7 +15,7 @@ import {
   NET_AUTH_HEADER_NAMES,
   NET_BODY_LIMIT,
   NET_TAB_KIND,
-} from '../protocol/tab-record'
+} from '@duoling/shared'
 import type { RecorderCtx } from './context'
 
 /** 一条采样记录：信封由机制层补，这里只产 record 本体 */

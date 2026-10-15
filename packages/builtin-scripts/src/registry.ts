@@ -7,8 +7,7 @@
 // 产物文件名不带目录前缀：构建脚本产出的 dist/*.js 由 wxt.config.ts 的 build:publicAssets
 // 钩子原样落到扩展产物根，`{ file }` 就写这个裸文件名。
 
-import { BRIDGE_RELAY_BOOT_KEY } from './protocol/bridge'
-import { FLOAT_HOST_HOOK_KEY } from './protocol/float-host'
+import { BRIDGE_RELAY_BOOT_KEY, FLOAT_HOST_HOOK_KEY } from '@duoling/shared'
 
 // —— 脚本主世界桥 · 中继件 ——
 
@@ -64,7 +63,7 @@ export const INSPECTOR_HOST_WORLD_ID = 'us-builtin-inspector'
  * 产物文件名（构建自包内 src/inspector/entry.ts）。
  *
  * 与中继件不同，注册时**只有这一段**（无装配段）—— 件没有运行期参数，注入即安装；
- * 指令信封的字面量由件自己从 protocol/inspector.ts import。
+ * 指令信封的字面量由件自己从 @duoling/shared 的 inspector.ts import。
  */
 export const INSPECTOR_HOST_FILE = 'duoling-page-inspector.js'
 
@@ -87,7 +86,7 @@ export const FLOAT_HOST_FILE = 'duoling-float-host.js'
  * **与页面检查器不同，本件必须两段**（页面检查器没有运行期参数，已合并单段）：件要用浮层页地址
  * （`chrome.runtime.getURL`）与扩展显示名（`EXTENSION_NAME`，真相源在应用侧
  * lib/extension-identity.ts），两样都只有扩展侧取得到，而注册项是**静态字符串** —— 值由应用侧取好
- * 当参数传进来，本包因此不认识 `chrome.*`、也不认识扩展身份（子包准入判据 ④）。
+ * 当参数传进来，本包因此不认识 `chrome.*`、也不认识扩展身份。
  *
  * 件没装到本世界（两段没落在同一世界 / 文件没进产物）是装配错误，这里出声而不是静默 ——
  * 静默的话浮层只会「点了没反应」。与中继件同形。

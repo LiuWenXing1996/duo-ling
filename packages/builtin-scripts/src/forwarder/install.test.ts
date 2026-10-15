@@ -2,7 +2,7 @@
 //
 // 注入方式：件读全局 window / chrome，故这里把两个假货装成全局再调安装函数（与真注入同一条路径）。
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { NET_TAB_KIND, TAB_RECORD_TAG } from '../protocol/tab-record'
+import { NET_TAB_KIND, TAB_RECORD_TAG } from '@duoling/shared'
 import { installTabForwarder } from './install'
 
 type AnyWin = Record<string, unknown>

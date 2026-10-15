@@ -38,10 +38,12 @@
 │  │  ├─ offscreen-chat/          #   对话编排：chat-host（agent loop）/ 工具面 / 事件缓冲 / 任务快照 / 模型缓存
 │  │  ├─ userscripts/             #   脚本链路：注册引擎（主世界注入 + 中继桥）/ lfs + git 存储 / dl-bridge 桥 / 匹配并集
 │  │  └─ 其他文件                 #   各 store（会话 / 模型 / 归属映射 / 浮层开关）/ 新版本检查 / transport / 元素拾取 / 构建信息取数
-│  ├─ shared/                     # 跨上下文契约：types / ipc（window.api 形状）/ extension-ipc（渲染页 ⇄ SW 协议）
+│  ├─ shared/                     # 应用内部契约：types / ipc（window.api 形状）/ extension-ipc（渲染页 ⇄ SW 协议）
 │  ├─ assets/                     # Tailwind 主题变量与全局样式
 │  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（只剩 help/ 帮助页配图）
-├─ packages/builtin-scripts/      # 内置注入件子包：TS 源码 + esbuild 打成 IIFE 产物（relay / recorder / forwarder / page-inspector / float-host；准入判据与注册面见 AGENTS.md）
+├─ packages/shared/               # 跨世界契约子包：件与应用两侧同取的信封 / 常量 / 形状（bridge / tab-record / inspector / page-context / float-host）
+├─ packages/userscript-runtime/   # GM 语义内核子包：注入源码生成 / API 契约与目录 / grants 真相源（纯 TS 源码，无构建步骤；依赖 shared）
+├─ packages/builtin-scripts/      # 内置注入件子包：TS 源码 + esbuild 打成 IIFE 产物（relay / recorder / forwarder / page-inspector / float-host；注册面见 AGENTS.md）
 ├─ scripts/                       # 仓库维护脚本：verify-skills / check-todo / pack-uscripts / probe-target（本机测试靶站）/ model-stub（本机假模型，e2e 与 dev 共用）/ help-screenshots（帮助页配图生成器，浅暗两版六张落 src/public/help/）/ dev（dev 与靶站、假模型一起起）
 ├─ uscript-samples/               # pack-uscripts 的源目录（注入探针 / GM 桥 / 语法错误样本等测试脚本）
 ├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟）

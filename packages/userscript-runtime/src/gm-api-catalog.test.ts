@@ -1,4 +1,4 @@
-// GM API 目录（lib/gm-api-catalog.ts）的**防漂移**测试。
+// GM API 目录（gm-api-catalog.ts）的**防漂移**测试。
 //
 // 目录是工作台「GM API」面板的唯一数据来源，而真身是 gm-wrapper.ts 里那段注入源码的**装配块**。
 // 两处一旦分叉，面板就在对着用户说谎（还看不出错），故这里从源码反射出真实挂载的键集合，与目录双向比对。
@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { GM_API_ENTRIES, GM_API_GROUPS } from './gm-api-catalog'
 import { GRANT_NAMES } from './gm-grants'
 
-const WRAPPER_SRC = readFileSync(new URL('./userscripts/gm-wrapper.ts', import.meta.url), 'utf8')
+const WRAPPER_SRC = readFileSync(new URL('./gm-wrapper.ts', import.meta.url), 'utf8')
 
 /** 装配块的起点注释；找不到即说明包装被重构过，反射锚点需同步更新（会让测试红，不会静默） */
 const ASSEMBLY_MARK = '// —— 组装成员（按 @grant 裁剪'

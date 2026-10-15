@@ -12,6 +12,9 @@
     "build": "node build.mjs",
     "dev": "node build.mjs --watch"
   },
+  "dependencies": {
+    "@duoling/shared": "workspace:*"
+  },
   "devDependencies": {
     "esbuild": "^0.28.2"
   }

@@ -1,6 +1,6 @@
 // 页面检查器的通道协议：下行指令信封 + 上行结果信封 + 拾取遮罩的类名。
 //
-// 与 protocol/page-context.ts 的分工：那边定义**载荷形状**（件造什么数据），这里定义**信封**
+// 与 page-context.ts 的分工：那边定义**载荷形状**（件造什么数据），这里定义**信封**
 // （数据怎么传）。两侧共用同一组字面量 —— 消费方是件（inspector/install.ts）与应用侧
 // page-inspector-bridge.ts，改名必须两边一起改。
 
@@ -24,7 +24,7 @@ export type InspectorMode = 'pick' | 'snapshot' | 'env'
  * 必须藏起来（否则浮层挡住待选元素、自身还会被 elementFromPoint 命中而误选）。两个世界 JS
  * 隔离、DOM 共享，遮罩的生死即拾取区间。
  *
- * 消费方是件侧的两个件（inspector/install.ts 造遮罩、float-host/install.ts 拼选择器），同包直接
- * 引用 —— 改名只需改这里一处，不再有手写链接。
+ * 消费方是件包的两个件（inspector/install.ts 造遮罩、float-host/install.ts 拼选择器）直接
+ * 引用本常量 —— 改名只需改这里一处，不再有手写链接。
  */
 export const INSPECTOR_PICKER_NS = 'duoling-picker'

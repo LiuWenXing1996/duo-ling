@@ -11,8 +11,8 @@ import type { ModelProfile } from './types'
 
 // —— 页面上下文档位 ——
 // 页面检查器（件本体见 @duoling/builtin-scripts 的 inspector/install.ts，USER_SCRIPT 世界
-// `us-builtin-inspector` 的常驻件）的载荷形状**定义在子包里**：件按这些形状造数据，而件不能
-// 依赖应用源码（子包准入判据），故真相源跟着件走。这里既转发又本地引用（本文件下游的
+// `us-builtin-inspector` 的常驻件）的载荷形状**定义在契约包里**：件按这些形状造数据，而件不能
+// 依赖应用源码，故真相源落在 @duoling/shared。这里既转发又本地引用（本文件下游的
 // PageContextInfo / MessagePageContext 用到），消费方 import 路径不变。
 import type {
   ElementPickContext,
@@ -20,7 +20,7 @@ import type {
   ElementPickSummary,
   PageEnvContext,
   PageSnapshotContext,
-} from '@duoling/builtin-scripts'
+} from '@duoling/shared'
 
 export type {
   ElementPickContext,
@@ -30,15 +30,15 @@ export type {
   PageSnapshotContext,
 }
 
-// 浮层四条指令的 kind：真相源同样在子包（件认这几个 kind，两边必须是同一个字面量）。这里是
+// 浮层四条指令的 kind：真相源同样在契约包（件认这几个 kind，两边必须是同一个字面量）。这里是
 // **值导入 + 派生类型** —— 编译器守住对齐，历史上「两边各写一份手写字符串、靠单测执行件源码比对」
-// 那条补丁随之删除（见 packages/builtin-scripts/src/protocol/float-host.ts）。
+// 那条补丁随之删除（见 @duoling/shared 的 float-host.ts）。
 import {
   CONTENT_PING_KIND,
   FLOAT_BUSY_KIND,
   FLOAT_COLLAPSE_KIND,
   FLOAT_OPEN_KIND,
-} from '@duoling/builtin-scripts'
+} from '@duoling/shared'
 
 /** chat:start 的页面上下文：档 0（URL/标题）+ 可选的档 2 元素拾取 / 页面快照 */
 export interface PageContextInfo {

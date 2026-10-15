@@ -8,10 +8,10 @@
 // `{ code }` 装配段调 `init(浮层页地址, 扩展显示名)`。合并不掉的理由：那两样值只有扩展侧取得到
 // （`chrome.runtime.getURL` 与 EXTENSION_NAME），而注册项是**静态字符串**，只能经第二段 code 递进来。
 // 装配段源码是 registry.ts 的 buildFloatHostInit —— 签名与中继件同形（值由应用侧取好传进来），
-// 故本件对应用源码零依赖（子包准入判据）。
+// 故本件对应用源码零依赖。
 //
 // 四条指令（都经 `chrome.tabs.sendMessage` 投向本标签页的各个世界，谁认这个 kind 谁来接；
-// 发送方见 shared/extension-ipc.ts，字面量真相源是本包 protocol/float-host.ts）：
+// 发送方见 src/shared/extension-ipc.ts，字面量真相源是 @duoling/shared 的 float-host.ts）：
 //   float:open      挂上容器并展开。容器按需创建，iframe 懒加载（首次展开才设 src）
 //   float:collapse  收起：容器回到 display:none，iframe 与面板文档都留着 —— 再打开就是原状态
 //                   （草稿、滚动位置、正在生成的那条消息的实时视图）
@@ -34,8 +34,8 @@ import {
   FLOAT_COLLAPSE_KIND,
   FLOAT_HOST_HOOK_KEY,
   FLOAT_OPEN_KIND,
-} from '../protocol/float-host'
-import { INSPECTOR_PICKER_NS } from '../protocol/inspector'
+  INSPECTOR_PICKER_NS,
+} from '@duoling/shared'
 
 /** 拖拽落点夹取用的两个尺寸形状 */
 export interface FloatHostPoint {
@@ -56,7 +56,7 @@ export interface FloatHostHook {
 
 declare global {
   interface Window {
-    /** 幂等守卫 + 装配交接点（见 protocol/float-host.ts 的 FLOAT_HOST_HOOK_KEY） */
+    /** 幂等守卫 + 装配交接点（见 @duoling/shared 的 float-host.ts 的 FLOAT_HOST_HOOK_KEY） */
     __duolingFloatHost?: FloatHostHook
   }
 }
@@ -67,14 +67,14 @@ const ROOT_ID = 'duoling-float-root'
 /**
  * 「点选元素正在页面里进行」的信号：页面检查器亮拾取态时往 documentElement 插的遮罩类名。
  *
- * 与页面检查器同包，直接由 INSPECTOR_PICKER_NS 拼（历史形态是手写 `.duoling-picker-box`，改类名
- * 得改两处、靠注释互相提醒）。为什么用 DOM 而不是广播：页面检查器与本件分居两个世界，JS 互相
+ * 与页面检查器同在一包，类名来自 @duoling/shared 的 INSPECTOR_PICKER_NS（历史形态是手写
+ * `.duoling-picker-box`，改类名得改两处、靠注释互相提醒）。为什么用 DOM 而不是广播：页面检查器与本件分居两个世界，JS 互相
  * 不可见，共享面只有 DOM；而拾取遮罩的生死恰好就是「拾取区间」本身，无需新增任何通道。
  * 副作用还有一个好处：判定天然按 document 隔离 —— 只有真正发起拾取的那个标签页会隐藏对话框。
  */
 const PICKER_BOX_SELECTOR = `.${INSPECTOR_PICKER_NS}-box`
 
-/** 指令 kind：真相源在 protocol/float-host.ts，单测比对挂钩子的取值与常量（接错线即红） */
+/** 指令 kind：真相源在 @duoling/shared 的 float-host.ts，单测比对挂钩子的取值与常量（接错线即红） */
 const KINDS = {
   open: FLOAT_OPEN_KIND,
   collapse: FLOAT_COLLAPSE_KIND,

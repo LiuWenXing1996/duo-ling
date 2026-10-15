@@ -1,0 +1,13 @@
+{
+  "name": "@duoling/userscript-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "GM 语义内核：注入源码生成、API 契约与目录、grants 真相源（纯 TS 源码，无构建步骤）",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@duoling/shared": "workspace:*"
+  }
+}

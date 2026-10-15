@@ -1,5 +1,10 @@
-# workspace 成员。目前只有内置件包：它的源码是扩展的一部分（TS 模块），产物却是**独立的
-# IIFE 文件**（chrome.userScripts 的 js[] 只认扩展内路径的文件），故单独成包、单独构建。
+# workspace 成员。三个包，形态不同：
+#   · builtin-scripts —— 源码是扩展的一部分（TS 模块），产物却是**独立的 IIFE 文件**
+#     （chrome.userScripts 的 js[] 只认扩展内路径的文件），故单独成包、单独构建。
+#   · shared —— 跨世界契约（件与应用两侧同取的信封 / 常量 / 形状），纯 TS 源码、无构建步骤，
+#     由扩展构建与件包直接 bundle。
+#   · userscript-runtime —— GM 语义内核（注入源码生成 / API 契约与目录 / grants 真相源），
+#     同为纯 TS 源码、无构建步骤，向上依赖 shared。
 packages:
   - packages/*
 
