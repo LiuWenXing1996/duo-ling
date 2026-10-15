@@ -24,7 +24,7 @@ import * as http from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 
-/** 默认端口：dev 与 `npm run model:serve` 共用。固定端口是刻意的 —— 已保存的模型配置里存的是
+/** 默认端口：dev 与 `pnpm run model:serve` 共用。固定端口是刻意的 —— 已保存的模型配置里存的是
  *  完整地址，随机端口会让它每次重启都失效。 */
 export const DEFAULT_PORT = 5199
 
@@ -276,7 +276,7 @@ export async function startModelStub(opts = {}) {
   }
 }
 
-// —— CLI：npm run model:serve / node scripts/model-stub.mjs ——
+// —— CLI：pnpm run model:serve / node scripts/model-stub.mjs ——
 // 用途：不跑 dev 的手测（加载已构建的 .output 产物）也要有个假模型可接，与 `probe:serve` 对称。
 const isCli = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])
 if (isCli) {

@@ -2,7 +2,7 @@
 // 三张导览图（亮色一套；--dark 追加暗色一套），落 --out 目录（默认 tmp/help-shots）。
 //
 // 这是帮助配图的维护方式 —— UI 改版后重跑一次，全部图同步更新，不手工截图：
-//   npm run build && node scripts/help-screenshots.mjs
+//   pnpm run build && node scripts/help-screenshots.mjs
 //
 // 截图前做两步铺垫，让画面是「用起来了」的状态而非首装空态：
 //   1. 引导 userScripts 开关（警告横幅由此而来）—— 逻辑与 e2e/extension.ts 的 enableUserScripts

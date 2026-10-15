@@ -21,7 +21,7 @@ export default defineConfig({
     onConsoleLog(log) {
       if (log.includes('Missing `Description` or `aria-describedby')) return false
     },
-    // 覆盖率：**只在 `npm run test:coverage` 时生效**（采集由 `--coverage` 打开，`npm run test` 不采）。
+    // 覆盖率：**只在 `pnpm run test:coverage` 时生效**（采集由 `--coverage` 打开，`pnpm run test` 不采）。
     // ⚠️ 与 onConsoleLog 同理，coverage 属根级 NonProjectOptions —— 写进 project 会被静默忽略。
     coverage: {
       provider: 'v8',

@@ -11,7 +11,7 @@
 **红线**（各领域规范与文档索引见下方「文档职责总表」）：
 
 - **UI 复用（强制）**：对话界面（网页浮层）用 `ChatApp` + `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列；popup 是独立的 `PopupPanel.vue`（纯配置面板，不装 `window.api`）。组件本体零改动（靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`）。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。
-  - **组件来源**：UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 走 —— 先 `npx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，不手写组件。
+  - **组件来源**：UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 走 —— 先 `pnpm dlx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，不手写组件。
   - **样式**：`class` 只用于布局，不覆盖组件配色与字体；颜色一律用语义 token（`bg-primary` / `text-muted-foreground`）；不写 `space-x-*` / `space-y-*`，不手写 `dark:` 覆盖。新增语义 token 时三处一起改（`@theme inline` 注册 + `:root` / `.dark` 取值），并**构建后 grep 产物 CSS 确认工具类真的生成了** —— Tailwind v4 对没注册的 token 静默忽略：不报错、不生效，typecheck 也看不出来。另注意本套 token 除 `--destructive` 外全是无彩色（`--primary` 就是黑/白），要给状态找颜色就新立语义 token，别借 `chart-*`（语义错配且会随图表配色漂）。
   - **Tooltip 组合约束（reka-ui 2.10 实测）**：`TooltipProvider` 不转发 attrs —— 任何 as-child 组件**隔在 Provider 与目标元素之间都会静默断链**（编译不报错、运行时无警告，事件与属性全丢）。故 Tooltip 包其他触发组件时，**Tooltip 在最外、目标组件在内**。
   - **菜单触发按钮不套 Tooltip（reka-ui 2.10 实测）**：即便顺序正确，`TooltipTrigger` 套在 `DropdownMenuTrigger` 外层仍会让 menu popper 失去定位（内容渲染到视口外，`translate(0,-200%)` 兜底，无任何报错；组件测试 / happy-dom 测不出来，只有真实浏览器可见性断言能抓到）。改用原生 `title`（`SessionHistoryPanel` 会话操作按钮即此例）。
@@ -31,27 +31,27 @@
 
 ## 常用命令
 
-> 本表是命令清单的登记处。
+> 本表是命令清单的登记处。**包管理固定 pnpm**（版本真相源是 `package.json` 的 `packageManager`）：用 npm 装依赖会被 `devEngines` 直接拦住（非警告）；另注意 pnpm 传参**不写 `--`**，脚本名之后的参数原样转发（写了 `--` 反而会被当成参数送进脚本 —— 与 npm 相反）。
 
 | 命令 | 说明 |
 | --- | --- |
-| `npm ci` | **新 worktree 先跑它**：`node_modules` 不入库、也不跨 worktree 共享，缺了时所有 `npm run *` 与 `npx` 一律报错（`command not found` / `Cannot find module`），不是代码问题（约 10s） |
-| `npm install` | 首次装 / 加依赖（非锁定场景）；按 lockfile 精确还原用上面的 `npm ci` |
-| `npm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev`。入口是 `scripts/dev.mjs`：随机端口起本机靶站 → 探针页经 `DL_PROBE_URL` 交给 WXT 自动打开；同时在本机 5199 起假模型（地址打印在控制台，手填一次进「设置 → 添加模型 → 自定义」即可长期复用）。靶站与假模型都随 dev 起停 |
-| `npm run probe:serve` | 起本机测试靶站（`scripts/probe-target.mjs`，默认端口 5178）：手测探针的出网目标 + 探针页宿主，端点见该文件头部。**不跑 dev 的手测**（加载 `.output` 产物）先起它；探针从页面 `<meta name="dl-probe-target">` 取基址，读不到才回落默认端口 |
-| `npm run model:serve` | 起本机假模型（`scripts/model-stub.mjs`，默认端口 5199，可用 `DL_MODEL_STUB_PORT` 覆盖）：一个 OpenAI 兼容的假服务，开发/手测对话链路时顶替真模型（不花真 Key、回复确定）。地址填进「设置 → 添加模型 → 服务商选自定义 → 接口地址」，密钥留空即可；**内置调试触发** —— 消息整句发「快照」或「页面环境」即回对应的工具调用，并把采集结果摘要成一句人话（含失败原因），手测 `page_snapshot` / `page_env_read` 这类要页面侧真跑一遍的工具链时不必写 plan（e2e 显式传 `plan` 时它不生效）。e2e 也从这里 import（同目录有 `.d.mts` 声明） |
-| `npm run build` | 构建，产出 `.output/chrome-mv3` |
-| `npm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
-| `npm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
-| `npm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
-| `npm run test:coverage` | 单测覆盖率（v8 provider，终端 `text-summary` + HTML 报表落 `coverage/`）。**只作本地看数，不进 CI**；统计口径与 exclude 见 `vitest.config.ts` 的 `coverage` 段 |
-| `npm run test:e2e` | Playwright 端测（全程无头、跑 build 产物）。**脚本内先 `npm run build`**，不必手动先构建；也别绕开脚本直接调 playwright——端测读的是产物而非源码，产物陈旧时会静默跑旧代码（改了 `src/` 尤其注意） |
-| `npm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
-| `npm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、疑似重复（**整理待办时跑**，提醒级不进 CI） |
-| `npm run check:comments` | 注释卫生门禁：扫 `src` / `packages` / `e2e` / `scripts` / `uscript-samples` **加仓库根散装源码**（配置类 `*.ts` 常驻根级），注释行命中黑名单（日期 / 评审引用 / 变更史 / 代号 / 小节号）即失败；另校验注释里「见 xxx.md」引用的文件真实存在（死指针）；豁免与孤儿检测见「注释与文案」 |
-| `npm run pack:uscripts` | 生成用户脚本测试包：把仓库根 `uscript-samples/` 打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例目录再打） |
+| `pnpm install` | **新 worktree 先跑它**：`node_modules` 不入库、也不跨 worktree 共享，缺了时所有 `pnpm run *` 与 `pnpm exec` 一律报错（`command not found` / `Cannot find module`），不是代码问题。有 `pnpm-lock.yaml` 即按它精确还原（CI 走 `pnpm install --frozen-lockfile`） |
+| `pnpm add <包>` | 加依赖（改写 `package.json` 与 `pnpm-lock.yaml`） |
+| `pnpm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev`。入口是 `scripts/dev.mjs`：随机端口起本机靶站 → 探针页经 `DL_PROBE_URL` 交给 WXT 自动打开；同时在本机 5199 起假模型（地址打印在控制台，手填一次进「设置 → 添加模型 → 自定义」即可长期复用）。靶站与假模型都随 dev 起停 |
+| `pnpm run probe:serve` | 起本机测试靶站（`scripts/probe-target.mjs`，默认端口 5178）：手测探针的出网目标 + 探针页宿主，端点见该文件头部。**不跑 dev 的手测**（加载 `.output` 产物）先起它；探针从页面 `<meta name="dl-probe-target">` 取基址，读不到才回落默认端口 |
+| `pnpm run model:serve` | 起本机假模型（`scripts/model-stub.mjs`，默认端口 5199，可用 `DL_MODEL_STUB_PORT` 覆盖）：一个 OpenAI 兼容的假服务，开发/手测对话链路时顶替真模型（不花真 Key、回复确定）。地址填进「设置 → 添加模型 → 服务商选自定义 → 接口地址」，密钥留空即可；**内置调试触发** —— 消息整句发「快照」或「页面环境」即回对应的工具调用，并把采集结果摘要成一句人话（含失败原因），手测 `page_snapshot` / `page_env_read` 这类要页面侧真跑一遍的工具链时不必写 plan（e2e 显式传 `plan` 时它不生效）。e2e 也从这里 import（同目录有 `.d.mts` 声明） |
+| `pnpm run build` | 构建，产出 `.output/chrome-mv3` |
+| `pnpm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
+| `pnpm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
+| `pnpm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
+| `pnpm run test:coverage` | 单测覆盖率（v8 provider，终端 `text-summary` + HTML 报表落 `coverage/`）。**只作本地看数，不进 CI**；统计口径与 exclude 见 `vitest.config.ts` 的 `coverage` 段 |
+| `pnpm run test:e2e` | Playwright 端测（全程无头、跑 build 产物）。**脚本内先 `pnpm run build`**，不必手动先构建；也别绕开脚本直接调 playwright——端测读的是产物而非源码，产物陈旧时会静默跑旧代码（改了 `src/` 尤其注意） |
+| `pnpm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
+| `pnpm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、疑似重复（**整理待办时跑**，提醒级不进 CI） |
+| `pnpm run check:comments` | 注释卫生门禁：扫 `src` / `packages` / `e2e` / `scripts` / `uscript-samples` **加仓库根散装源码**（配置类 `*.ts` 常驻根级），注释行命中黑名单（日期 / 评审引用 / 变更史 / 代号 / 小节号）即失败；另校验注释里「见 xxx.md」引用的文件真实存在（死指针）；豁免与孤儿检测见「注释与文案」 |
+| `pnpm run pack:uscripts` | 生成用户脚本测试包：把仓库根 `uscript-samples/` 打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例目录再打） |
 
-> **交付前验证**：`npm run typecheck` + `npm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
+> **交付前验证**：`pnpm run typecheck` + `pnpm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
 
 ## 文档职责总表（读哪 / 写哪）
 
@@ -101,7 +101,7 @@
 - **约束 + 原因**：把约束和它存在的原因写出来（`**常驻通道**：只读值的脚本也要 connect Port，否则别的标签页写的新值永远到不了本实例`）。
 - **实测结论 + 环境**：写现象、结论与影响结论适用性的环境（`Chromium 141 无头实测：该 API 已 promise 化`）。环境用版本号表达，不写日期。
 
-不允许出现（`npm run check:comments` 机械拦截，命中即失败）：
+不允许出现（`pnpm run check:comments` 机械拦截，命中即失败）：
 
 - **日期**：无检索入口、查无对证；时间性信息用版本号或现状描述表达。
 - **评审 / 拍板引用**：「经评审确认」「拍板」出自会话内讨论，没有入库产物可核对——把理由本身写出来。

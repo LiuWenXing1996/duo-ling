@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// `npm run dev` 的入口：先把靶站起在随机端口上，再起本机假模型，最后启动 WXT 开发模式。
+// `pnpm run dev` 的入口：先把靶站起在随机端口上，再起本机假模型，最后启动 WXT 开发模式。
 //
 // 为什么 dev 自带靶站：webExt.startUrls 打开的就是靶站探针页（地址由本脚本经环境变量注入，
 // 见 wxt.config.ts），靶站不在跑那个地址就是死的。不跑 dev 的场景（加载已构建的 .output 产物
-// 做手测）用 `npm run probe:serve` 单起靶站。
+// 做手测）用 `pnpm run probe:serve` 单起靶站。
 //
 // 端口用 0（随机）：本地可能同时开着别的靶站实例或 worktree，固定端口会撞。
 //
@@ -32,7 +32,7 @@ try {
 console.log(`[dev] 假模型已就绪：${model.stub.baseUrl}`)
 console.log('[dev] 手测对话链路：设置 → 添加模型 → 服务商选「自定义」→ 填入上面的地址（密钥可留空）')
 
-// 参数原样转给 wxt（如 `npm run dev -- popup`），靶站只负责提供出网目标
+// 参数原样转给 wxt（如 `pnpm run dev popup`），靶站只负责提供出网目标
 const bin = process.platform === 'win32' ? 'wxt.cmd' : 'wxt'
 const child = spawn(bin, process.argv.slice(2), {
   stdio: 'inherit',

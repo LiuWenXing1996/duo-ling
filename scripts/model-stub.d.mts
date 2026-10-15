@@ -2,7 +2,7 @@
 // （scripts/ 不在 tsconfig 的 include 里，allowJs 也未开）。契约见该 .mjs 的注释。
 import type * as http from 'node:http'
 
-/** 默认端口（dev 与 `npm run model:serve` 共用） */
+/** 默认端口（dev 与 `pnpm run model:serve` 共用） */
 export declare const DEFAULT_PORT: number
 
 export interface ModelStubHit {

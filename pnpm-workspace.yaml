@@ -1,0 +1,4 @@
+# 依赖构建脚本白名单：pnpm 默认拦截依赖的 install / postinstall，未列出的包脚本不执行。
+# vue-demi 的 postinstall 按装到的 Vue major 覆盖 lib 变体（本项目为 Vue 3），放行。
+allowBuilds:
+  vue-demi: true
