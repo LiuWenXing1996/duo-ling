@@ -63,7 +63,7 @@ import {
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger
 } from '@/components/ui/tooltip'
-import { formatTimestamp } from '@/lib/format'
+import { errorText, formatTimestamp } from '@/lib/format'
 import { isFileSchemeAccessAllowed } from '@/lib/extension-page'
 import { useDataSync } from '@/composables/use-data-sync'
 import { fsClient, subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
@@ -132,7 +132,7 @@ async function copyScriptId(uuid: string): Promise<void> {
     window.clearTimeout(copyIdTimer)
     copyIdTimer = window.setTimeout(() => (copiedId.value = ''), 1500)
   } catch (e) {
-    error.value = '复制失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '复制失败：' + errorText(e)
   }
 }
 
@@ -247,7 +247,7 @@ async function refresh(): Promise<void> {
   try {
     scripts.value = await userscriptClient.list()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = errorText(e)
   } finally {
     loading.value = false
   }
@@ -285,7 +285,7 @@ async function onToggle(s: ScriptSummary, next: boolean): Promise<void> {
     s.enabled = next
     if (next) justImported.value = justImported.value.filter((u) => u !== s.uuid) // 启用后摘掉「刚导入」标
   } catch (e) {
-    error.value = `「${s.name}」切换失败：` + (e instanceof Error ? e.message : String(e))
+    error.value = `「${s.name}」切换失败：` + errorText(e)
   } finally {
     toggling.value = null
   }
@@ -311,7 +311,7 @@ async function onToggleAll(next: boolean): Promise<void> {
         s.enabled = next
         if (next) justImported.value = justImported.value.filter((u) => u !== s.uuid) // 启用后摘掉「刚导入」标
       } catch (e) {
-        failures.push(`「${s.name}」：` + (e instanceof Error ? e.message : String(e)))
+        failures.push(`「${s.name}」：` + errorText(e))
       }
     }
     if (failures.length) {
@@ -364,7 +364,7 @@ async function confirmGroupDialog(): Promise<void> {
     else await userscriptClient.createGroup(name)
     await refreshGroups()
   } catch (e) {
-    error.value = (target ? '重命名分组失败：' : '新建分组失败：') + (e instanceof Error ? e.message : String(e))
+    error.value = (target ? '重命名分组失败：' : '新建分组失败：') + errorText(e)
   }
 }
 
@@ -382,7 +382,7 @@ async function confirmRemoveGroup(): Promise<void> {
     await userscriptClient.removeGroup(id)
     await refreshGroups()
   } catch (e) {
-    error.value = '删除分组失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '删除分组失败：' + errorText(e)
   }
 }
 
@@ -400,7 +400,7 @@ async function reorderGroup(id: string, dir: -1 | 1): Promise<void> {
   try {
     await userscriptClient.reorderGroups(arr.map((g) => g.id))
   } catch (e) {
-    error.value = '调整分组顺序失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '调整分组顺序失败：' + errorText(e)
     void refreshGroups()
   }
 }
@@ -415,7 +415,7 @@ async function moveToGroup(s: ScriptSummary, groupId: string): Promise<void> {
     await userscriptClient.setGroup(s.uuid, groupId)
     s.group = groupId
   } catch (e) {
-    error.value = `「${s.name}」移动失败：` + (e instanceof Error ? e.message : String(e))
+    error.value = `「${s.name}」移动失败：` + errorText(e)
   }
 }
 
@@ -456,7 +456,7 @@ async function onCreate(): Promise<void> {
     justCreated.value = [...justCreated.value, uuid]
     await refresh()
   } catch (e) {
-    error.value = '创建失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '创建失败：' + errorText(e)
   } finally {
     creating.value = false
   }
@@ -518,7 +518,7 @@ async function confirmRename(): Promise<void> {
     renameTarget.value = null
     await refresh()
   } catch (e) {
-    error.value = `「${target.name}」改名失败：` + (e instanceof Error ? e.message : String(e))
+    error.value = `「${target.name}」改名失败：` + errorText(e)
   } finally {
     renaming.value = false
   }
@@ -624,7 +624,7 @@ async function confirmExport(): Promise<void> {
     }
     downloadZip(base64ToBytes(zipBase64), filename)
   } catch (e) {
-    error.value = '导出失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '导出失败：' + errorText(e)
   } finally {
     exporting.value = false
   }
@@ -678,7 +678,7 @@ async function onImportFile(e: Event): Promise<void> {
   try {
     await runImport(new Uint8Array(await file.arrayBuffer()))
   } catch (err) {
-    error.value = '导入失败：' + (err instanceof Error ? err.message : String(err))
+    error.value = '导入失败：' + errorText(err)
   } finally {
     importing.value = false
   }
@@ -745,7 +745,7 @@ async function confirmPathImport(): Promise<void> {
     await runImport(bytes)
     pathImportOpen.value = false
   } catch (err) {
-    pathError.value = '导入失败：' + (err instanceof Error ? err.message : String(err))
+    pathError.value = '导入失败：' + errorText(err)
   } finally {
     importing.value = false
   }
@@ -777,7 +777,7 @@ async function confirmPasteImport(): Promise<void> {
     await finishImport(await userscriptClient.importText(pasteCode.value))
     pasteImportOpen.value = false
   } catch (err) {
-    pasteError.value = '导入失败：' + (err instanceof Error ? err.message : String(err))
+    pasteError.value = '导入失败：' + errorText(err)
   } finally {
     importing.value = false
   }
@@ -825,7 +825,7 @@ async function fetchFromLink(): Promise<void> {
     fetchedCode.value = text
   } catch (err) {
     // 域名解析不了 / 连接被拒 / 被拦截都落在这里：浏览器给的原因已是最准的，不另编一句
-    linkError.value = '抓取失败：' + (err instanceof Error ? err.message : String(err))
+    linkError.value = '抓取失败：' + errorText(err)
   } finally {
     linkFetching.value = false
   }
@@ -854,7 +854,7 @@ async function confirmLinkImport(): Promise<void> {
     linkImportOpen.value = false
     fetchedCode.value = null
   } catch (err) {
-    linkError.value = '导入失败：' + (err instanceof Error ? err.message : String(err))
+    linkError.value = '导入失败：' + errorText(err)
   } finally {
     importing.value = false
   }
@@ -875,7 +875,7 @@ async function confirmRemove(): Promise<void> {
     emit('deleted', target.uuid)
     await refresh()
   } catch (e) {
-    error.value = `「${target.name}」删除失败：` + (e instanceof Error ? e.message : String(e))
+    error.value = `「${target.name}」删除失败：` + errorText(e)
   } finally {
     removing.value = null
   }
@@ -898,7 +898,7 @@ async function confirmRemoveAll(): Promise<void> {
     for (const uuid of uuids) emit('deleted', uuid)
     await refresh()
   } catch (e) {
-    error.value = '删除全部脚本失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '删除全部脚本失败：' + errorText(e)
   } finally {
     removingAll.value = false
   }

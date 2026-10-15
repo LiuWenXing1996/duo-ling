@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select'
 import { Eye as UiEye, EyeOff as UiEyeOff, X as UiX } from '@lucide/vue'
 import type { ModelProfile, ModelProvider } from '@/types/model'
+import { errorText } from '@/lib/format'
 
 const props = defineProps<{
   open: boolean
@@ -164,7 +165,7 @@ async function runTest(): Promise<void> {
   } catch (error) {
     testResult.value = {
       ok: false,
-      message: error instanceof Error ? error.message : String(error)
+      message: errorText(error)
     }
   } finally {
     testing.value = false

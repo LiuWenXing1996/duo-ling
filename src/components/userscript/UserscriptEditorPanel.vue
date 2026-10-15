@@ -47,6 +47,7 @@ import { javascript } from '@codemirror/lang-javascript'
 import { userscriptClient, fsClient, subscribeAvailability } from '@/lib/userscripts/ui-client'
 import type { Source } from '@/lib/userscripts/us-git'
 import type { UserScriptsAvailability } from '@/lib/userscripts/types'
+import { errorText } from '@/lib/format'
 
 const props = defineProps<{ uuid: string }>()
 const emit = defineEmits<{
@@ -95,7 +96,7 @@ async function copyUuid(): Promise<void> {
     window.clearTimeout(copyUuidTimer)
     copyUuidTimer = window.setTimeout(() => (copiedUuid.value = false), 1500)
   } catch (e) {
-    error.value = '复制失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '复制失败：' + errorText(e)
   }
 }
 
@@ -288,7 +289,7 @@ async function load(): Promise<void> {
     applySource(source)
     editDirty.value = false
   } catch (e) {
-    error.value = '读取失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '读取失败：' + errorText(e)
   } finally {
     loading.value = false
   }
@@ -351,7 +352,7 @@ async function saveEdit(): Promise<boolean> {
     return true
   } catch (e) {
     // 这里只兜写盘与 IPC 层的意外
-    error.value = '保存失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '保存失败：' + errorText(e)
     return false
   } finally {
     saving.value = false

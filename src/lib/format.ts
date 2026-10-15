@@ -1,5 +1,17 @@
 // 通用格式化工具函数：纯函数，便于单测。
 
+/**
+ * 抛出物 → 可读文案。
+ *
+ * 全仓七十多处 catch 块要把它拼进提示语（面板的 error 文案、应答载荷的 error 字段）。
+ * 收到一处的意义不是省字，是一致性：漏掉 `String(e)` 兜底的那种写法，遇到非 Error 抛出物
+ * 会显示成 "[object Object]"。需要中文前缀的调用点自行拼接（如 `'保存失败：' + errorText(e)`）
+ * —— 本函数不掺文案。
+ */
+export function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
 /** Unix 秒的时间戳（如 isomorphic-git 的 author.timestamp）格式化为 YYYY-MM-DD HH:mm */
 export function formatTimestamp(ts: number): string {
   if (!ts) return ''
@@ -16,6 +28,16 @@ export function formatMessageTime(iso: string): string {
   if (!iso || Number.isNaN(d.getTime())) return ''
   const pad = (n: number): string => String(n).padStart(2, '0')
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** ISO 时间格式化为 MM-DD HH:mm:ss —— 调试视图用（同一分钟里可能并列多条事件，只到分钟分不开）。
+ *  与 formatMessageTime 的差别不止秒：解析不了时**原样回显输入串**，而不是给空串 ——
+ *  调试视图里宁可看见原始值，也不要一片空白。 */
+export function formatTimeWithSeconds(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 /** token 量按量级缩写：千位以下原值；千位级一位小数（1.2k）；万位级取整（12k）；百万级换 M（1.2M / 12M） */

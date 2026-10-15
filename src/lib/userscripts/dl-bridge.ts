@@ -75,6 +75,7 @@ import {
   registerManualWaiter,
   handleObservation,
 } from './dl-fetch-priv'
+import { errorText } from '@/lib/format'
 
 /** 通知兜底图标（复用 auto-icons 构建生成的 icons/128.png）。MV3 的 notifications.create 不接受 data: URL 图标
  * （报 "Unable to download all specified images."），必须用扩展内资源或 http(s) 图 */
@@ -315,7 +316,7 @@ async function doFetch(
           ],
         })
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
+        const msg = errorText(e)
         throw new ApiError('INTERNAL', `GM_xmlhttpRequest：设置请求头覆写规则失败：${msg}`)
       }
     }
@@ -1170,7 +1171,7 @@ export function initDlBridge(): void {
         sendResponse({ ok: true, data: data as Json | void } satisfies ApiResponse)
       })
       .catch((e: unknown) => {
-        const message = e instanceof Error ? e.message : String(e)
+        const message = errorText(e)
         const code = e instanceof ApiError ? e.code : 'INTERNAL'
         // 桥调用失败也进错误日志（活动历史里可见）。它发生在某次运行**之中**，故带上信封里的 runId
         // 挂到那次运行下 —— 否则只能单列成孤儿行，看不出「脚本跑到哪一步挂的」。

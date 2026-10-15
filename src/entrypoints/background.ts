@@ -136,6 +136,7 @@ import {
   runInspectorCommand,
 } from '@/lib/userscripts/page-inspector-bridge'
 import type { ElementPickContext } from '@/shared/extension-ipc'
+import { errorText } from '@/lib/format'
 
 /**
  * SW 管辖的 kind 前缀（路由白名单）。
@@ -186,7 +187,7 @@ async function writeViaOffscreen<T>(request: RuntimeRequest): Promise<T> {
   try {
     return await sendToOffscreen<T>(request)
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = errorText(e)
     if (!/port closed|Receiving end does not exist|无响应/.test(msg)) throw e
     await ensureOffscreenReady()
     return await sendToOffscreen<T>(request)
@@ -214,7 +215,7 @@ async function registerOrLog(project: ScriptProject): Promise<string | undefined
     await registerScript(project)
     return undefined
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
+    const message = errorText(e)
     // 到这里仍是脚本自身缺陷（缺 matches / match 非法 / 构建产物无效 / 世界配置失败等），属该脚本，写记录
     void appendUserScriptError({
       uuid: project.uuid,
@@ -1216,7 +1217,7 @@ export default defineBackground(() => {
     handler(msg, sender)
       .then((data) => sendResponse({ ok: true, data }))
       .catch((e: unknown) =>
-        sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }),
+        sendResponse({ ok: false, error: errorText(e) }),
       )
     return true // 保留消息通道用于异步回传
   })

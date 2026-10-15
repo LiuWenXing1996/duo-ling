@@ -34,6 +34,7 @@ import type {
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 import type { ElementPickContext, PageEnvContext, PageSnapshotContext } from '@/shared/extension-ipc'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
+import { errorText } from '@/lib/format'
 
 /** 连续 apply 失败上限：达到即让模型停手、把诊断交给用户。
  *  阈值取自 agent-tools-catalog（工作台「AI 工具」面板展示同一份，不再各写一份）。 */
@@ -318,7 +319,7 @@ export function buildScriptTools(
             html: snap.html,
           }
         } catch (e) {
-          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+          return { ok: false, error: errorText(e) }
         }
       },
     }),
@@ -350,7 +351,7 @@ export function buildScriptTools(
             ua: env.ua,
           }
         } catch (e) {
-          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+          return { ok: false, error: errorText(e) }
         }
       },
     }),
@@ -363,7 +364,7 @@ export function buildScriptTools(
         try {
           enabled = await tabRecord.isRecording()
         } catch (e) {
-          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+          return { ok: false, error: errorText(e) }
         }
         if (enabled) {
           return {
@@ -394,7 +395,7 @@ export function buildScriptTools(
         try {
           r = await tabRecord.read('full')
         } catch (e) {
-          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+          return { ok: false, error: errorText(e) }
         }
         // r.enabled 只表示「这一页此刻还在录」。记录不随录制停止而清，故未在录也可能有数据——
         // 先看有没有数据，再决定提示用户去录还是去刷新。
@@ -425,7 +426,7 @@ export function buildScriptTools(
         try {
           r = await readError(id)
         } catch (e) {
-          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+          return { ok: false, error: errorText(e) }
         }
         if (!r.found) {
           return {
@@ -472,7 +473,7 @@ export function buildScriptTools(
             const events = await readRunEvents(runId)
             return buildRunEventsView(runId, events, AGENT_RUNTIME_LIMITS.runEventsReadMax)
           } catch (e) {
-            return { ok: false, error: e instanceof Error ? e.message : String(e) }
+            return { ok: false, error: errorText(e) }
           }
         }
         if (!readRunLog) {
@@ -482,7 +483,7 @@ export function buildScriptTools(
         try {
           rows = await readRunLog()
         } catch (e) {
-          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+          return { ok: false, error: errorText(e) }
         }
         // 超上限不报错、按上限收窄：模型要 100 条也只是想「多看几条」，没必要让它重发一次
         return buildRunLogView(rows, uuid, Math.min(limit, AGENT_RUNTIME_LIMITS.runLogReadMax))
@@ -505,7 +506,7 @@ export function buildScriptTools(
           return { ok: true, assetId, filename: r.filename, answer: r.answer }
         } catch (e) {
           // 资源不在 / 模型调用失败（含「这个模型读不了图」）都在这里如实交回，不吞不掉
-          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+          return { ok: false, error: errorText(e) }
         }
       },
     }),

@@ -14,6 +14,7 @@
 
 import { createIdbOpener } from '../idb-core'
 import { cacheClear, cacheGetAll, cachePutAll, fetchWithTimeout } from './cache-common'
+import { errorText } from '@/lib/format'
 
 const DB_NAME = 'duoling-resource-cache'
 const DB_VERSION = 1
@@ -134,7 +135,7 @@ export async function fetchResourceSources(decls: ResourceDecl[]): Promise<Resou
       })
       fresh.push({ url: decl.url, mime, base64, text, fetchedAt: Date.now() })
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
+      const msg = errorText(e)
       results.push({ name: decl.name, url: decl.url, ok: false, error: msg })
     }
   }

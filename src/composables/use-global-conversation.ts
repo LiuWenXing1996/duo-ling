@@ -36,6 +36,7 @@ import { resolveOwningTabId } from '@/lib/owning-tab'
 import type { ChatMessageMetadata, ChatOrphanRecord, RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
 import type { Conversation, TokenUsage } from '@/shared/types'
+import { errorText } from '@/lib/format'
 
 /** 会话历史列表项展示所需的时间格式化；补上分钟，便于同日内区分多次会话 */
 export function formatSessionTime(iso: string): string {
@@ -297,7 +298,7 @@ export function useGlobalConversation() {
         await activateConversation(conversationId)
       }
     } catch (e) {
-      chatError.value = `孤儿任务处理失败：${e instanceof Error ? e.message : String(e)}`
+      chatError.value = `孤儿任务处理失败：${errorText(e)}`
       void refreshOrphans() // 重新拉一次：失败时横幅不该凭空消失
     }
   }

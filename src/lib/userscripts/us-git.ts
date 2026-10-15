@@ -10,6 +10,7 @@
 // 历史不丢脚本，所有失败都不阻断保存主链路。
 import git from 'isomorphic-git'
 import { fs, pfs } from './us-fs'
+import { ensureDir, removeRecursive } from './us-fs-ops'
 import type { CommitActor } from './types'
 
 /**
@@ -67,39 +68,10 @@ function assertSafeUuid(uuid: unknown): asserts uuid is string {
 
 const usDir = (uuid: string): string => `${US_ROOT}/${uuid}`
 
-/** 递归建目录（幂等）；lightning-fs 的 mkdir 不递归、已存在会抛错 */
-async function ensureDir(dir: string): Promise<void> {
-  if (!dir) return
-  try {
-    await pfs.stat(dir)
-    return
-  } catch {
-    /* 不存在，继续建 */
-  }
-  const parent = dir.slice(0, dir.lastIndexOf('/'))
-  if (parent) await ensureDir(parent)
-  try {
-    await pfs.mkdir(dir)
-  } catch {
-    /* 并发或已存在 */
-  }
-}
-
 async function writeRepoFile(uuid: string, rel: string, content: string): Promise<void> {
   const abs = `${usDir(uuid)}/${rel}`
   await ensureDir(abs.slice(0, abs.lastIndexOf('/')))
   await pfs.writeFile(abs, content)
-}
-
-async function removeRecursive(path: string): Promise<void> {
-  const st = await pfs.stat(path)
-  if (st.type === 'dir') {
-    const entries = (await pfs.readdir(path)) as string[]
-    for (const name of entries) await removeRecursive(`${path}/${name}`)
-    await pfs.rmdir(path)
-  } else {
-    await pfs.unlink(path)
-  }
 }
 
 export async function ensureRepo(uuid: string): Promise<void> {

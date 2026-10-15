@@ -13,6 +13,7 @@
 // 一个反直觉但重要的约束：重编码必须在**发出前**完成。资源一旦落库、引用一旦进消息，
 // 它就是历史的一部分了，事后再想「换张小的」得连带改引用。
 import type { ChatAssetRef } from '@/lib/chat-assets'
+import { isImageMediaType } from '@/lib/media-types'
 
 /** 单张图片的原始大小上限（压缩前）；超出直接拒收并提示 */
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -76,7 +77,7 @@ export interface PreparedAttachments {
 /** 按 mediaType（缺失时按扩展名）判断是不是图片 */
 export function isImageAttachment(attachment: IncomingAttachment): boolean {
   const mediaType = attachment.mediaType ?? ''
-  if (mediaType.startsWith('image/')) return true
+  if (isImageMediaType(mediaType)) return true
   return IMAGE_EXT_RE.test(attachment.filename ?? '')
 }
 

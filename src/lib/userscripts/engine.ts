@@ -48,6 +48,7 @@ import { hasRecordingTabSession } from './runtime-db'
 import { enabledMatchUnion, sameMatchSet } from './match-union'
 // 匹配面判定（scheme + host）：内置件「这一页用不用得上」与 cookie 域名门同一套判据
 import { matchPatternCoversUrl } from '@/lib/match-pattern'
+import { errorText } from '@/lib/format'
 
 // 不给脚本世界配置 csp：即**不放开** eval / new Function。脚本世界因此回落浏览器默认 CSP，
 // 动态执行字符串代码被禁。理由：AI 生成的脚本不可控，不额外给「执行任意字符串」的能力。
@@ -878,7 +879,7 @@ async function runRegisterAllEnabled(): Promise<void> {
         uuid: project.uuid,
         name: project.name,
         phase: 'register',
-        message: e instanceof Error ? e.message : String(e),
+        message: errorText(e),
       }).catch(() => {})
     }
   }

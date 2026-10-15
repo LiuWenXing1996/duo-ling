@@ -22,6 +22,7 @@ import { resolveConfigFromSource } from '@/lib/userscripts/metadata'
 import { defaultConfig } from '@/lib/userscripts/types'
 import type { CommitActor } from '@/lib/userscripts/types'
 import type { UsCommit, UsSnapshot } from '@/lib/userscripts/us-git'
+import { errorText } from '@/lib/format'
 
 const props = defineProps<{
   uuid: string
@@ -99,7 +100,7 @@ async function load(): Promise<void> {
       snap.value = null
     }
   } catch (e) {
-    error.value = '读取历史失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '读取历史失败：' + errorText(e)
   } finally {
     commitsLoading.value = false
   }
@@ -111,7 +112,7 @@ async function selectCommit(o: string): Promise<void> {
     oid.value = o
     snap.value = await fsClient.readAt(props.uuid, o)
   } catch (e) {
-    error.value = '读取快照失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '读取快照失败：' + errorText(e)
   }
 }
 
@@ -138,7 +139,7 @@ async function restoreCommit(): Promise<void> {
     // 恢复本身产生「回滚」提交，刷新时间线
     commits.value = await fsClient.history(props.uuid)
   } catch (e) {
-    error.value = '恢复失败：' + (e instanceof Error ? e.message : String(e))
+    error.value = '恢复失败：' + errorText(e)
   } finally {
     restoring.value = false
   }
