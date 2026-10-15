@@ -8,7 +8,7 @@
 // `{ code }` 装配段调 `init(浮层页地址, 扩展显示名)`。合并不掉的理由：那两样值只有扩展侧取得到
 // （`chrome.runtime.getURL` 与 EXTENSION_NAME），而注册项是**静态字符串**，只能经第二段 code 递进来。
 // 装配段源码是 registry.ts 的 buildFloatHostInit —— 签名与中继件同形（值由应用侧取好传进来），
-// 故本件对应用源码零依赖（子包准入判据）。
+// 故本件对应用源码零依赖。
 //
 // 四条指令（都经 `chrome.tabs.sendMessage` 投向本标签页的各个世界，谁认这个 kind 谁来接；
 // 发送方见 shared/extension-ipc.ts，字面量真相源是本包 protocol/float-host.ts）：

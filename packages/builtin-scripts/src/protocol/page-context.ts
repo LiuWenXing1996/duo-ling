@@ -1,6 +1,6 @@
 // 页面检查器的载荷形状：件（inspector/install.ts）按它造数据，应用侧按它消费。
 //
-// 定义为什么在包里：件不能依赖应用源码（子包准入判据 ④），而形状只能有一处真相源 ——
+// 定义为什么在包里：件不能依赖应用源码，而形状只能有一处真相源 ——
 // 于是它跟着件走。应用侧 src/shared/extension-ipc.ts 保留同名 re-export，消费方 import 路径不变。
 //
 // 同一份形状还活在聊天链路上（PageContextInfo / MessagePageContext / 历史气泡 chip / AI 工具参数），
