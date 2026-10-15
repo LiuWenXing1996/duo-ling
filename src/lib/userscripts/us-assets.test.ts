@@ -69,7 +69,6 @@ import {
   contentId,
   deleteAllAssets,
   deleteAssets,
-  hasAsset,
   putAsset,
   readAsset,
   safeFilename,
@@ -182,22 +181,13 @@ describe('readAsset', () => {
   })
 })
 
-describe('hasAsset', () => {
-  it('写过就在，没写过就不在', async () => {
-    const { ref } = await putAsset({ filename: 'a.png', mediaType: 'image/png', bytes: bytesOf('x') })
-    expect(await hasAsset(ref.id)).toBe(true)
-    expect(await hasAsset('0'.repeat(64))).toBe(false)
-  })
-})
-
 describe('deleteAssets / deleteAllAssets', () => {
   it('连目录一起递归删掉，回真正删掉的个数', async () => {
     const a = (await putAsset({ filename: 'a.png', mediaType: 'image/png', bytes: bytesOf('a') })).ref
     const b = (await putAsset({ filename: 'b.png', mediaType: 'image/png', bytes: bytesOf('b') })).ref
 
     expect(await deleteAssets([a.id])).toBe(1)
-    expect(await hasAsset(a.id)).toBe(false)
-    expect(await hasAsset(b.id), '别人的资源不该被牵连').toBe(true)
+    expect(await readAsset(b.id), '别人的资源不该被牵连').not.toBeNull()
     // 目录本身也得没（只 unlink 文件会留下空目录，越攒越多）
     expect(fake.dirs.has(`${ASSET_ROOT}/${a.id}`)).toBe(false)
     expect(await readAsset(a.id)).toBeNull()

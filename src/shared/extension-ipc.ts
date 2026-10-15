@@ -30,11 +30,10 @@ export type {
   PageSnapshotContext,
 }
 
-// 浮层四条指令的 kind：真相源同样在契约包（件认这几个 kind，两边必须是同一个字面量）。这里是
+// 浮层指令的 kind：真相源同样在契约包（件认这几个 kind，两边必须是同一个字面量）。这里是
 // **值导入 + 派生类型** —— 编译器守住对齐，历史上「两边各写一份手写字符串、靠单测执行件源码比对」
 // 那条补丁随之删除（见 @duoling/shared 的 float-host.ts）。
 import {
-  CONTENT_PING_KIND,
   FLOAT_BUSY_KIND,
   FLOAT_COLLAPSE_KIND,
   FLOAT_OPEN_KIND,
@@ -455,38 +454,8 @@ export const FLOAT_COLLAPSE_REQUEST: FloatCollapseRequest = { kind: FLOAT_COLLAP
  * 与开合那两条的区别：**带载荷** —— 生成开始与结束共用一个 kind，靠 busy 区分（两条消息一对，
  * 单开一个 kind 只会让「结束」那条多写一份字符串）。
  */
-export interface FloatBusyRequest {
-  kind: typeof FLOAT_BUSY_KIND
-  /** true = 生成中，盖上；false = 收尾，撤掉 */
-  busy: boolean
-}
-
 /** 上面那条消息的 kind 唯一构造处（载荷随状态变，故只固定 kind） */
 export const FLOAT_BUSY_REQUEST_KIND = FLOAT_BUSY_KIND
-
-/**
- * 浮层宿主件的**在岗探针**（同 `tabs.sendMessage`，不经 SW）。
- *
- * 宿主件是页面开始加载时由浏览器注入的，扩展侧收不到「这件到没到位」的任何通知；问一句是唯一
- * 问得出来的办法。判据是**那声应答**，不是「消息发得出去」—— 同一标签页的各个世界都收
- * `tabs.sendMessage`，页面检查器也在这一页上，只认通道会认错人。
- *
- * ⚠️ popup **不再拿它判**「这页能不能开对话浮层」：探活是一次性快照、没有重试，页面正在导航或
- * 宿主件刚注入还没装监听时都会答「不在」，据此禁灰会把本来点得开的按钮锁死（真机复现过：件在册、
- * world 配好、权限已授予，仍答不在）。现在改成乐观放行 + 回执判成败，理由与替代判据见
- * lib/web-hostname.ts。目前用它的只剩 e2e —— 开探针页之前确认件已注入（见
- * e2e/float-task-state.spec.ts 的 openFloatPage）。
- *
- * 为什么不让调用方随手发一条别的消息充当探活（省掉这个 kind）：那是在赌「接收方不认识它也会
- * 有人把 sendMessage 兑现」——语义不可读，且接收方一改成异步应答就静默失效。显式 pong 让
- * 判据与协议同进退。
- */
-export interface ContentPingRequest {
-  kind: typeof CONTENT_PING_KIND
-}
-
-/** 上面那条消息的唯一构造处（理由同 floatOpenRequest） */
-export const CONTENT_PING_REQUEST: ContentPingRequest = { kind: CONTENT_PING_KIND }
 
 // —— 页面脚本监控（对话界面 · 运行时口径）——
 // 信号源：GM 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。

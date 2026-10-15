@@ -122,12 +122,6 @@ async function listFiles(dir: string): Promise<string[]> {
   }
 }
 
-/** 这个 id 的资源在不在 */
-export async function hasAsset(id: string): Promise<boolean> {
-  assertSafeAssetId(id)
-  return (await listFiles(assetDir(id))).length > 0
-}
-
 /**
  * 落一份资源。幂等：内容 hash 相同即复用同一份字节，已存在就不写盘、也不改名。
  * 返回的 ref 直接就是消息里那份 `data-asset` 的载荷（面板拿到即可挂上，不必再拼）。

@@ -64,13 +64,3 @@ export async function decryptApiKey(payload: EncPayload): Promise<string> {
   )
   return new TextDecoder().decode(pt)
 }
-
-/** 密文载荷判别（读取时区分新老数据形态） */
-export function isEncPayload(value: unknown): value is EncPayload {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as EncPayload).iv === 'string' &&
-    typeof (value as EncPayload).ct === 'string'
-  )
-}

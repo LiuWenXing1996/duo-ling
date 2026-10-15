@@ -103,8 +103,3 @@ export function parseDataUrl(dataUrl: string): { mediaType: string; base64: stri
 export function dataUrlOf(asset: ChatAssetData): string {
   return `data:${asset.mediaType};base64,${asset.base64}`
 }
-
-/** 只认图片（面板渲染与识图调用都先过这一道；将来收文本附件时在这里扩） */
-export function isImageMediaType(mediaType: string): boolean {
-  return mediaType.startsWith('image/')
-}

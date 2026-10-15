@@ -82,8 +82,6 @@ const applyConfigSchema = z.object({
   runAt: z.enum(['document_start', 'document_body', 'document_end', 'document_idle']).default('document_idle'),
 })
 
-export type ApplyConfigInput = z.infer<typeof applyConfigSchema>
-
 /**
  * 页面录制回调组（由 chat-host 注入）。
  *
