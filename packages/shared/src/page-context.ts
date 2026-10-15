@@ -1,7 +1,7 @@
 // 页面检查器的载荷形状：件（inspector/install.ts）按它造数据，应用侧按它消费。
 //
-// 定义为什么在包里：件不能依赖应用源码，而形状只能有一处真相源 ——
-// 于是它跟着件走。应用侧 src/shared/extension-ipc.ts 保留同名 re-export，消费方 import 路径不变。
+// 定义为什么落在契约包里：件不能依赖应用源码，而形状只能有一处真相源 ——
+// 件与应用同取这一处。应用侧 src/shared/extension-ipc.ts 保留同名 re-export，消费方 import 路径不变。
 //
 // 同一份形状还活在聊天链路上（PageContextInfo / MessagePageContext / 历史气泡 chip / AI 工具参数），
 // 改字段会同时动到件与 UI —— 这正是「只有一份定义」要防的那件事。

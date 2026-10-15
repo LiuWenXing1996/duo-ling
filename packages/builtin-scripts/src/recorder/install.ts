@@ -16,7 +16,7 @@
 //
 // 本件没有运行期参数，故注册时只需一个 IIFE 文件（无装配段）。
 
-import { TAB_RECORD_TAG } from '../protocol/tab-record'
+import { TAB_RECORD_TAG } from '@duoling/shared'
 import type { RecorderCtx } from './context'
 import { installNetProbe } from './net-probe'
 

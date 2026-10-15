@@ -7,7 +7,7 @@
 //
 // 存在理由：脚本切到 MAIN 世界后没有 `chrome.*`，而 GM 能力（值存储 / 跨域请求 /
 // cookie / 菜单 / 通知）只有扩展侧能给。本件就是那层「`chrome.runtime` 的替身」，
-// 双向并维持请求配对，所以带 proof 校验与 seq 单调检查（见 protocol/bridge.ts）。
+// 双向并维持请求配对，所以带 proof 校验与 seq 单调检查（见 @duoling/shared 的 bridge.ts）。
 // 同帧里可能有多个脚本共用本件，故一切按 uuid 路由。
 //
 // 世界要求：注册到独立世界（worldId: 'us-dl-bridge'）且必须 configureWorld({ messaging: true })，
@@ -18,7 +18,7 @@ import {
   BRIDGE_MSG_TAG_VALUE,
   BRIDGE_PROTOCOL_VERSION,
   bridgeDigest,
-} from '../protocol/bridge'
+} from '@duoling/shared'
 
 declare global {
   interface Window {

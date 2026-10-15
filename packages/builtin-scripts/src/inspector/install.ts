@@ -5,7 +5,7 @@
 //
 // **一件两端** —— 运行器（怎么读页面）与指令监听（等谁喊、把结果交给谁）合在本文件里。
 // 历史上它们是两段注册（`{ file }` 装运行器 + `{ code }` 装配段递 tag），但那段装配段**没有任何
-// 运行期参数**，只有两个静态字面量，而字面量的真相源就在 protocol/inspector.ts —— 件直接 import
+// 运行期参数**，只有两个静态字面量，而字面量的真相源就在 @duoling/shared 的 inspector.ts —— 件直接 import
 // 即可，于是合并成单段。两段的顺序问题（「运行器与本段必须落在同一世界」）随之消失：
 // 同一文件自顶向下，不可能只装一半。
 //
@@ -25,7 +25,7 @@
 // Promise resolve null，结果照常由它自己上报 —— 保证「每次开始恰好一条上报」，
 // 发起侧无须区分两种收场。
 //
-// 载荷形状见 protocol/page-context.ts（同包，编译器挡住漂移）；信封字面量见 protocol/inspector.ts。
+// 载荷形状见 @duoling/shared 的 page-context.ts（契约层，编译器挡住漂移）；信封字面量见同包的 inspector.ts。
 //
 // 下行接收面用 `chrome.runtime.onMessage`（扩展经 chrome.tabs.sendMessage 投递）。若该世界
 // 收不到，退路是件启动即 `chrome.runtime.connect()` 建常驻 Port 由 SW 推指令，届时只改本件的
@@ -38,13 +38,11 @@ import {
   INSPECTOR_CMD_TAG,
   INSPECTOR_PICKER_NS,
   INSPECTOR_RESULT_TAG,
+  type ElementPickContext,
   type InspectorMode,
-} from '../protocol/inspector'
-import type {
-  ElementPickContext,
-  PageEnvContext,
-  PageSnapshotContext,
-} from '../protocol/page-context'
+  type PageEnvContext,
+  type PageSnapshotContext,
+} from '@duoling/shared'
 
 declare global {
   interface Window {
@@ -171,7 +169,7 @@ function candidateSelectors(el: Element): Array<{ selector: string; hitCount: nu
   return candidates.slice(0, 3)
 }
 
-/** 元素载荷（结构 = ElementPickContext，见 protocol/page-context.ts） */
+/** 元素载荷（结构 = ElementPickContext，见 @duoling/shared 的 page-context.ts） */
 function buildPayload(el: Element): ElementPickContext {
   const text = truncate((el.textContent || '').replace(/\s+/g, ' ').trim(), TEXT_LIMIT)
   return {

@@ -43,7 +43,7 @@ import { Button as UiButton } from '@/components/ui/button'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { webHostname } from '@/lib/web-hostname'
 import { routeOf } from '@/lib/userscripts/net-digest'
-import type { NetCaptureRecord } from '@duoling/builtin-scripts'
+import type { NetCaptureRecord } from '@duoling/shared'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import {
   type TabEventRecord,

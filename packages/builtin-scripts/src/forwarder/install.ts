@@ -10,7 +10,7 @@
 // 本件没有运行期参数，故注册时只需一个 IIFE 文件（无装配段）。
 // 世界要求：独立世界（worldId: 'us-dl-tab'）且必须 configureWorld({ messaging: true })。
 
-import { TAB_RECORD_TAG } from '../protocol/tab-record'
+import { TAB_RECORD_TAG } from '@duoling/shared'
 
 declare global {
   interface Window {

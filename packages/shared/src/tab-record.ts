@@ -6,9 +6,9 @@
 //     网络是当前唯一的一类；`window.console` 之类将来平行加，不改机制层。
 //
 // 本文件是**机制层的形状约定**，各消费方必须逐字节一致：
-//   · src/recorder/install.ts（MAIN 世界件框架）—— 直接 import，插值 TAB_RECORD_TAG；
-//   · src/recorder/net-probe.ts（net 种类件）—— 直接 import 它那一类的常量；
-//   · src/forwarder/install.ts（USER_SCRIPT 转发件）—— 直接 import，插值 TAB_RECORD_TAG；
+//   · 件包 recorder/install.ts（MAIN 世界件框架）—— 直接 import，插值 TAB_RECORD_TAG；
+//   · 件包 recorder/net-probe.ts（net 种类件）—— 直接 import 它那一类的常量；
+//   · 件包 forwarder/install.ts（USER_SCRIPT 转发件）—— 直接 import，插值 TAB_RECORD_TAG；
 //   · runtime-db.ts / dl-bridge.ts（SW 落库 + 入站归一化）—— 直接 import。
 //
 // 单消费方视角看，本文件是「读侧（SW）与写侧（页面件）」之间的唯一形状来源；件不再是字符串模板，

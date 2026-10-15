@@ -13,7 +13,7 @@
 // （包装里的 `__gmSend`），桥本身不解释语义。
 //
 // 密钥与中继件同源（SW 注册时同一把写入，见 engine.ts）；每条消息带
-// `digest(secret, uuid:seq)`，见包内 protocol/bridge.ts 的说明。
+// `digest(secret, uuid:seq)`，见 @duoling/shared 的 bridge.ts 的说明。
 
 import {
   BRIDGE_CALL_TIMEOUT,
@@ -22,7 +22,7 @@ import {
   BRIDGE_MSG_TAG,
   BRIDGE_MSG_TAG_VALUE,
   BRIDGE_PROTOCOL_VERSION,
-} from '@duoling/builtin-scripts'
+} from '@duoling/shared'
 
 export function buildScriptBridgeSource(secret: string, uuid: string): string {
   // 注意：本源码由 buildGmWrapperSource 以 `var __dlBridge = <源码>` 形式内联，

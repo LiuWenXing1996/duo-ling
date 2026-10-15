@@ -5,7 +5,7 @@
 // fake-indexeddb 提供全局 indexedDB；用例间 clearAllForTests 保证隔离。
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { NetCaptureRecord } from '@duoling/builtin-scripts'
+import type { NetCaptureRecord } from '@duoling/shared'
 import {
   appendTabCapture,
   appendTabEvent,

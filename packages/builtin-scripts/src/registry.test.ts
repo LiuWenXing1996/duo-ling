@@ -5,8 +5,7 @@
 // 这里直接比对两边，把这类改名漏改挡在 CI。
 import { describe, expect, it, vi } from 'vitest'
 import { ENTRY_POINTS } from '../esbuild.config.mjs'
-import { BRIDGE_RELAY_BOOT_KEY } from './protocol/bridge'
-import { FLOAT_HOST_HOOK_KEY } from './protocol/float-host'
+import { BRIDGE_RELAY_BOOT_KEY, FLOAT_HOST_HOOK_KEY } from '@duoling/shared'
 import {
   FLOAT_HOST_FILE,
   INSPECTOR_HOST_FILE,

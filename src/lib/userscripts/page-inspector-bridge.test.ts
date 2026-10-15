@@ -6,7 +6,8 @@
 // 真机上「tabs.sendMessage 能否投进 USER_SCRIPT 世界」靠实测，不在本文件的覆盖范围。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cancelPicker, handleInspectorResult, runInspectorCommand } from './page-inspector-bridge'
-import { INSPECTOR_CMD_TAG, INSPECTOR_HOST_WORLD_ID, INSPECTOR_RESULT_TAG } from '@duoling/builtin-scripts'
+import { INSPECTOR_CMD_TAG, INSPECTOR_RESULT_TAG } from '@duoling/shared'
+import { INSPECTOR_HOST_WORLD_ID } from '@duoling/builtin-scripts'
 
 type Sent = { tabId: number; msg: Record<string, unknown> }
 

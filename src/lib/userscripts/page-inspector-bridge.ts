@@ -12,7 +12,8 @@
 // 超时放在这一层（不重复设在发起侧）：件可能因页面卸载 / 导航而永远不上报，留一条兜底，
 // 文案按模式区分 —— 用户要能判断是「自己没点」还是「页面没了」。
 
-import { INSPECTOR_CMD_TAG, INSPECTOR_HOST_WORLD_ID, INSPECTOR_RESULT_TAG } from '@duoling/builtin-scripts'
+import { INSPECTOR_CMD_TAG, INSPECTOR_RESULT_TAG } from '@duoling/shared'
+import { INSPECTOR_HOST_WORLD_ID } from '@duoling/builtin-scripts'
 
 /** 单次调用的超时：用户点选可能很久不结算，但页面关掉 / 导航会让它永不结算，必须有兜底 */
 const PICK_TIMEOUT_MS = 60_000

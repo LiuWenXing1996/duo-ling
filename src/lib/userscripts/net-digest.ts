@@ -10,7 +10,7 @@
 // 前提：记录里的 respBody 已由 MAIN 捕获件压成**结构摘要**（包内种类件的 shapeOf：
 // 类型与键形状，不是原始 JSON 文本），故这里不再解析 JSON——截断展示即可。
 
-import type { NetCaptureRecord } from '@duoling/builtin-scripts'
+import type { NetCaptureRecord } from '@duoling/shared'
 
 /** 摘要档字符上限（常驻 system prompt，与元素摘要同量级） */
 export const CAPTURE_DIGEST_MAX_CHARS = 2048

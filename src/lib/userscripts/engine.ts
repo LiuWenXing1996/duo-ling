@@ -26,7 +26,6 @@ import {
   FLOAT_HOST_FILE,
   FLOAT_HOST_ID,
   FLOAT_HOST_WORLD_ID,
-  generateBridgeSecret,
   INSPECTOR_HOST_FILE,
   INSPECTOR_HOST_ID,
   INSPECTOR_HOST_WORLD_ID,
@@ -39,6 +38,8 @@ import {
   TAB_RECORDER_FILE,
   TAB_RECORDER_ID,
 } from '@duoling/builtin-scripts'
+// 密钥生成器属跨世界契约（MAIN 侧脚本桥与 USER_SCRIPT 侧中继件必须同一把），故来自契约包
+import { generateBridgeSecret } from '@duoling/shared'
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
 import { parseUserScriptMetadata } from './metadata'
 // 注册判据就一句「有没有页在录」—— 直接查存续表，录制不再有第二本账

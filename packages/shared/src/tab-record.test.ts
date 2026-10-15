@@ -1,4 +1,4 @@
-// protocol/tab-record.ts 单测：入站载荷归一化（SW 的信任边界）、鉴权头剥离、URL 凭据脱敏。
+// tab-record.ts 单测：入站载荷归一化（SW 的信任边界）、鉴权头剥离、URL 凭据脱敏。
 import { describe, expect, it } from 'vitest'
 import {
   NET_BODY_LIMIT,

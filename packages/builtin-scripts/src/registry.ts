@@ -7,8 +7,7 @@
 // 产物文件名不带目录前缀：构建脚本产出的 dist/*.js 由 wxt.config.ts 的 build:publicAssets
 // 钩子原样落到扩展产物根，`{ file }` 就写这个裸文件名。
 
-import { BRIDGE_RELAY_BOOT_KEY } from './protocol/bridge'
-import { FLOAT_HOST_HOOK_KEY } from './protocol/float-host'
+import { BRIDGE_RELAY_BOOT_KEY, FLOAT_HOST_HOOK_KEY } from '@duoling/shared'
 
 // —— 脚本主世界桥 · 中继件 ——
 
@@ -64,7 +63,7 @@ export const INSPECTOR_HOST_WORLD_ID = 'us-builtin-inspector'
  * 产物文件名（构建自包内 src/inspector/entry.ts）。
  *
  * 与中继件不同，注册时**只有这一段**（无装配段）—— 件没有运行期参数，注入即安装；
- * 指令信封的字面量由件自己从 protocol/inspector.ts import。
+ * 指令信封的字面量由件自己从 @duoling/shared 的 inspector.ts import。
  */
 export const INSPECTOR_HOST_FILE = 'duoling-page-inspector.js'
 

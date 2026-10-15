@@ -1,13 +1,13 @@
 // 浮层宿主件的通道协议：世界挂载键 + 四条指令的 kind 字面量。
 //
-// 与 protocol/inspector.ts 同形 —— 真相源在包内，两侧 import 同一组字面量：
-//   · 件侧：float-host/install.ts（认这几个 kind）；
-//   · 应用侧：shared/extension-ipc.ts（消息类型与构造函数由这里的字面量派生）。
+// 与 inspector.ts 同形 —— 同为契约层，件与应用两侧 import 同一组字面量：
+//   · 件侧：件包 builtin-scripts 的 float-host/install.ts（认这几个 kind）；
+//   · 应用侧：src/shared/extension-ipc.ts（消息类型与构造函数由这里的字面量派生）。
 // 改名只改本文件一处，漏改由编译器挡。历史形态是两边各写一份手写字符串、靠一个「执行件源码再
 // 逐条比对」的单测兜着 —— 真相源搬进包后那条防线由类型系统接管，那份测试随之删除。
 
 /**
- * 件挂在页面 `window` 上的键：装配段（registry.ts 的 buildFloatHostInit）按它取 `init`。
+ * 件挂在页面 `window` 上的键：装配段（件包 registry.ts 的 buildFloatHostInit）按它取 `init`。
  *
  * 为什么经 window 交接而不是直接执行：注册项是静态字符串，运行期才有的两样值（浮层页地址、
  * 扩展显示名）只能由第二段 `{ code }` 递进来，交接点就是这个世界级对象。

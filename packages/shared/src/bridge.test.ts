@@ -1,4 +1,4 @@
-// protocol/bridge.ts 单测：两版 digest（可 import 的函数版 / 供字符串拼装的片段版）必须同源。
+// bridge.ts 单测：两版 digest（可 import 的函数版 / 供字符串拼装的片段版）必须同源。
 //
 // 为什么两版并存：中继件是真 TS 模块（直接 import），而 MAIN 侧的脚本桥要被拼进 GM 包装的
 // 源码字符串（整条 code 里不能有 import），只能拿片段。两版一旦漂移，桥会静默不认对方的握手 ——

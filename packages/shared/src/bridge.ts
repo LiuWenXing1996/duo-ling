@@ -6,7 +6,7 @@
 //   下行推送  SW → Port → 中继件 → postMessage → MAIN
 //
 // 本文件是那条通道的形状约定，两个实现各取所需：
-//   · 中继件本体（src/relay/install.ts）—— 真 TS 模块，直接 import 本文件；
+//   · 中继件本体（件包 builtin-scripts 的 relay/install.ts）—— 真 TS 模块，直接 import 本文件；
 //   · MAIN 侧的脚本桥（script-bridge.ts）—— 它要被拼进 GM 包装的源码字符串（不能有 import），
 //     故下面另给一份**源码片段版**常量供它插值。
 // 两处的 digest 必须逐字节同源，由 bridge.test.ts 用同一批输入对跑比对把守。

@@ -41,7 +41,7 @@ import {
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
 // 标签页录制：转发件送来的采集载荷在 SW 侧按**种类**白名单化后落 runtime 的 tab_events（与标签页事件同表）
-import { normalizeNetCapture, NET_TAB_KIND, TAB_RECORD_TAG } from '@duoling/builtin-scripts'
+import { normalizeNetCapture, NET_TAB_KIND, TAB_RECORD_TAG } from '@duoling/shared'
 // 页面检查器常驻件的结果入站：按 reqId 结算 page-inspector-bridge 里挂起的那次调用（分流见下方监听器）
 import { handleInspectorResult } from './page-inspector-bridge'
 import * as runtime from './runtime-db'
