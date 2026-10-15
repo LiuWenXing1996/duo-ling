@@ -1,0 +1,113 @@
+// 宿主层注入点：应用耦合收敛成可配置的 port。
+//
+// 宿主层（dl-bridge / dl-port / cookie-gate）有三类事包内给不了默认实现或不应擅自决定：
+//   · 扩展身份 —— 通知标题、兜底图标是扩展的品牌面；
+//   · offscreen 后端 —— 剪贴板写入要经 offscreen 文档；文档由扩展自建（包不碰生命周期），
+//     就绪握手协议各扩展自定，故就绪探测注入；
+//   · 遥测与观测 —— 运行日志 / 错误落盘 / 页面监控是宿主的产品面（本仓的 duoling-runtime
+//     库 + 活动历史面板），包不自带；不注入 = 相应观测不发生，脚本行为不受损。
+//
+// 配置时机：必须在 initDlBridge / initDlPort 之前调 configureUserscriptRuntime
+// （SW 入口的顶层同步段里，与 listener 注册同一条「第一帧」纪律）。
+
+/** 错误记录（观测面）。字段与宿主侧 UserScriptErrorRecord 同形；不注入遥测则无处落盘 */
+export interface UserscriptErrorRecord {
+  id?: string
+  uuid?: string | null
+  name?: string
+  phase: 'runtime' | 'register' | 'bridge' | 'require' | 'resource'
+  message: string
+  stack?: string
+  url?: string
+  time?: number
+  runId?: string | null
+  tabSessionId?: string
+}
+
+/** 一次运行期间脚本做过的关键动作摘要（只记轮廓、不记值本体） */
+export interface UserscriptRunEvent {
+  kind: string
+  detail: string
+  time: number
+}
+
+/**
+ * 遥测 port（全部可选；不注入的钩子 = 该观测不发生）。
+ * 各钩子的语义见宿主侧同名函数（store.ts / page-monitor.ts / tab-sessions.ts / runtime-db.ts）。
+ */
+export interface UserscriptTelemetry {
+  /** 该 tab 此刻是否开着活动记录（开着才有号返回）；无号 = 观测盲区，运行/错误都不记 */
+  recordingTabSessionId?(tabId: number): Promise<string | undefined>
+  /** 登记一次运行开始（无 tabSessionId 的 extra 由宿主自行短路） */
+  recordRunStart?(
+    uuid: string,
+    runId: string,
+    name?: string,
+    extra?: { url?: string; savedAt?: number; tabSessionId?: string },
+  ): Promise<void>
+  /** 追加一条运行动作 */
+  recordRunEvent?(uuid: string, runId: string, event: UserscriptRunEvent): Promise<void>
+  /** 追加一条错误记录 */
+  appendError?(rec: UserscriptErrorRecord): Promise<void>
+  /** 运行广播（实时通道：按 tab 登记运行集，浮层快照用） */
+  noteRunStart?(tabId: number, uuid: string, runId: string): void
+  /** 运行期错误实时推送 */
+  notePageError?(
+    tabId: number,
+    info: { uuid: string | null; name: string; message: string; runId: string | null },
+  ): void
+  /** 标签页录制载荷落库 */
+  appendTabCapture?(rec: unknown): Promise<void>
+  /**
+   * 消息入站钩子（在 DL 信封分流**之前**调用）：返回 true 表示认领了这条消息
+   * （如页面检查器结果的结算），桥不再分流。缺省 = 无此钩子。
+   */
+  onInspectorResult?(raw: unknown, sender: chrome.runtime.MessageSender): boolean
+}
+
+/** 宿主配置（全部可选） */
+export interface UserscriptHostConfig {
+  /** 扩展显示名：GM_notification 兜底标题用（`<extensionName>用户脚本`） */
+  extensionName?: string
+  /** GM_notification 的兜底图标（扩展内相对路径；MV3 不接受 data: URL 图标） */
+  notificationIcon?: string
+  /** offscreen 就绪探测（剪贴板写入前调用）；不注入 = 剪贴板命令报 NOT_AVAILABLE */
+  offscreen?: { ensureReady(): Promise<boolean> }
+  /** 遥测 port；不注入 = 无运行日志 / 错误落盘 / 页面监控，脚本行为不受损 */
+  telemetry?: UserscriptTelemetry
+}
+
+const DEFAULT_EXTENSION_NAME = 'UserScripts'
+const DEFAULT_NOTIFICATION_ICON = 'icons/128.png'
+
+let config: UserscriptHostConfig = {}
+
+/** 注入宿主配置（SW 顶层同步段调用，先于 initDlBridge / initDlPort） */
+export function configureUserscriptRuntime(c: UserscriptHostConfig): void {
+  config = c
+}
+
+/** 测试与显式复位用：清空配置（恢复全默认 / 全无 port） */
+export function resetUserscriptRuntimeConfig(): void {
+  config = {}
+}
+
+/** 读扩展显示名（含默认值兜底） */
+export function extensionName(): string {
+  return config.extensionName ?? DEFAULT_EXTENSION_NAME
+}
+
+/** 读通知兜底图标 */
+export function notificationIcon(): string {
+  return config.notificationIcon ?? DEFAULT_NOTIFICATION_ICON
+}
+
+/** 读 offscreen port（未注入为 undefined） */
+export function offscreenPort(): UserscriptHostConfig['offscreen'] {
+  return config.offscreen
+}
+
+/** 读遥测 port（未注入为 undefined） */
+export function telemetryPort(): UserscriptTelemetry | undefined {
+  return config.telemetry
+}

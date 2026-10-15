@@ -5,8 +5,10 @@
 #     （dist：mjs / cjs / d.ts，vite.config 一份配置喂 build 与 vitest），消费方走标准
 #     exports 解析；改源码后须先 build（根 build / typecheck / test 均已前置），dev 长跑
 #     期间用包内 `dev` watch。
-#   · userscript-runtime —— GM 语义内核（注入源码生成 / API 契约与目录 / grants 真相源 /
-#     metadata 解析与脚本配置形状 / match-pattern），
+#   · userscript-runtime —— 用户脚本运行时（语义层：注入源码生成 / API 契约与目录 / grants
+#     真相源 / metadata 解析与脚本配置形状 / match-pattern；宿主层：dl-bridge 命令分发 /
+#     dl-port 事件底座 / cookie-gate / 内置默认存储 idb-core+state-db+usdata-db+gm-values，
+#     遥测与 offscreen 经 host-config 注入），
 #     同为 Vite lib 自构建包（@duoling/shared 外部化，依赖走 workspace 链接），向上依赖 shared。
 packages:
   - packages/*

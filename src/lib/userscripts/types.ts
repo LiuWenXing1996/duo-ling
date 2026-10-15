@@ -6,49 +6,14 @@
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 
 // ScriptConfig / ScriptResourceDecl / defaultConfig 已上移进 `@duoling/userscript-runtime`
-// （script-config.ts：配置是运行期事实源，随 metadata 解析一起归包）；此处 re-export
-// 维持既有 import 路径（`@/lib/userscripts/types` / `./types`）不变。
+// （script-config.ts：配置是运行期事实源，随 metadata 解析一起归包）；ScriptProject /
+// ScriptGroup 亦随内置默认存储归包（script-project.ts）。此处 re-export 维持既有 import
+// 路径（`@/lib/userscripts/types` / `./types`）不变。
 import type { ScriptConfig, ScriptResourceDecl } from '@duoling/userscript-runtime'
 
 export type { ScriptConfig, ScriptResourceDecl }
 export { defaultConfig } from '@duoling/userscript-runtime'
-
-/**
- * 一个脚本 = 一个单文件源码（落盘形状，所有创建路径均按此形状写入）。
- *
- * **源码已迁出到 duoling-fs 库**（offscreen 独占的 lightning-fs 实例，带 git 版本化），
- * 不在此处保存——dl 单写方约束下 SW / 扩展页读不到 lfs，故源码的唯一权威副本在
- * duoling-fs；本记录退化为「注册态库」：注册所需的元数据 + **源码搬运副本**（SW 读不到
- * lfs，注册时的注入代码从这里取——保存时由 offscreen 写侧随落盘一并写入）。
- * 改这份形状时务必同步 offscreen-fs-commands / us-git / project-write / ui-client / 各面板。
- */
-export interface ScriptProject {
-  /** schema 版本 */
-  v: 2
-  uuid: string
-  name: string
-  enabled: boolean
-  config: ScriptConfig
-  /**
-   * 所属分组 id（用户脚本列表的分组功能）。空字符串 = 未分组。
-   * 分组定义存于 duoling-state 的 groups 对象库（见 state-db.ts）；本字段只持有引用，
-   * 故分组改名不影响脚本、分组删除后脚本自动退回未分组（UI 按 id 查不到定义即按未分组渲染）。
-   */
-  group?: string
-  /**
-   * 源码搬运副本（保存时刻的源码原文）：SW 读不到 duoling-fs，chrome.userScripts.register
-   * 的注入代码从这里取。与 duoling-fs 的工作区同源（每次保存同批写入），无构建流程。
-   */
-  source: { code: string; savedAt: number }
-  createdAt: number
-}
-
-/**
- * 一次源码改动的来源：一套历史里要能分清是谁改的。
- * 存在版本记录的 author 上（见 us-git），**不拼进提交信息** —— 提交信息是给用户读的
- * 「改了什么」，来源是「谁改的」，分开存才不会互相污染。
- */
-export type CommitActor = 'user' | 'ai' | 'system'
+export type { ScriptProject, ScriptGroup } from '@duoling/userscript-runtime'
 
 /** 给 UI 列表用的精简视图（不含源码） */
 export interface ScriptSummary {
@@ -68,17 +33,11 @@ export interface ScriptSummary {
 }
 
 /**
- * 脚本列表分组（持久化于 duoling-state 的 groups 对象库，见 state-db.ts）。
- * 纯组织元数据：脚本只持有 group id（ScriptProject.group），改名 / 删除分组不影响脚本引用以外的内容。
+ * 一次源码改动的来源：一套历史里要能分清是谁改的。
+ * 存在版本记录的 author 上（见 us-git），**不拼进提交信息** —— 提交信息是给用户读的
+ * 「改了什么」，来源是「谁改的」，分开存才不会互相污染。
  */
-export interface ScriptGroup {
-  /** 分组唯一 id（脚本侧引用它；uuid 风格，但与脚本 uuid 命名空间隔离） */
-  id: string
-  /** 分组展示名（可改） */
-  name: string
-  /** 排序权重：数值越小越靠前；UI 按此升序排列，未分组恒在最后 */
-  order: number
-}
+export type CommitActor = 'user' | 'ai' | 'system'
 
 /** 用户脚本引擎可用性状态（供管理页状态横幅） */
 export interface UserScriptsAvailability {

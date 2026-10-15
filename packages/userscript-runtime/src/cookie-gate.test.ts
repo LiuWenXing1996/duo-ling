@@ -4,10 +4,11 @@
 // 不 mock project-store，这样「改了配置门还认旧值」这类缓存 bug 能被真抓到。
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { broadcastDataChange } from '@/lib/data-broadcast'
+import { broadcastDataChange } from './data-broadcast'
 import { checkCookieUrl, invalidateCookieScope } from './cookie-gate'
 import { removeProjects, writeProject } from './state-db'
-import type { ScriptProject, ScriptConfig } from './types'
+import type { ScriptProject } from './script-project'
+import type { ScriptConfig } from './script-config'
 
 const UUID = 'gate-test-uuid'
 

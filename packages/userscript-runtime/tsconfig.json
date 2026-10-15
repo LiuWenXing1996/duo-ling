@@ -2,7 +2,8 @@
   // 包内编辑器与 vite-plugin-dts 的类型解析基准（根 tsconfig 另有一套全仓口径，两者并行）。
   // lib 带 DOM：api-contract 的类型签名引用 Blob / FormData / ArrayBufferView（GmXhrDetails
   // 刻意与 TM 的 details 对齐）；「零 DOM 假设」是运行时边界，由 boundary.test 把守，
-  // 这里只是类型层声明。types 留空：不吃任何 @types（零 chrome.* / 零 node 类型）。
+  // 这里只是类型层声明。语义层（L1）仍是零 chrome —— chrome 类型只服务于宿主层
+  // （dl-bridge / dl-port 等）的类型标注；运行时 chrome 由扩展环境提供（SW 全局），单测整体 stub。
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
@@ -10,7 +11,7 @@
     "strict": true,
     "skipLibCheck": true,
     "lib": ["ES2022", "DOM"],
-    "types": []
+    "types": ["chrome"]
   },
   "include": ["src"]
 }
