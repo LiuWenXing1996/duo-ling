@@ -2,28 +2,19 @@
 //
 // 自 src/lib/data-broadcast.ts 收编：IDB 没有变更通知，写侧落盘后经此通知别处回拉。
 // 广播**只带「哪个域的哪条变了」，不带数据** —— 接收方自己去权威存储回拉，不新增
-// 第二份真相。频道名与推送形状必须与宿主侧保持一致（同扩展内互通是硬要求）。
+// 第二份真相。频道名 / 合并窗口 / 推送形状的真相源在 @duoling/shared（data-broadcast.ts，
+// 跨世界契约）：同扩展内互通是硬要求，字面量放两侧只能靠注释对齐。本文件只留实现体；
+// 包内只产出 / 消费 DataDomain 中的 'script' | 'error' | 'runlog' | 'tabActivity' 几个域。
 //
 // 通道选型：BroadcastChannel 优先（同源多播、**不会唤醒休眠的 SW**）；拿不到时降级
 // chrome.runtime.sendMessage（功能等价，只是多了唤醒代价）。
 
-/** 频道名（同一扩展内唯一即可；跨扩展不会串，因为 origin 含扩展 id）——与宿主侧一致 */
-const CHANNEL_NAME = 'duoling:data'
-
-/** 合并窗口（ms）：窗口内同一「域 + uuid」的多次变更只发一条补发（防写侧风暴） */
-const MERGE_WINDOW_MS = 100
-
-/** 变更域。包内只产出 / 消费这几个；与宿主侧 DataDomain 的子集同名互通 */
-export type DataDomain = 'script' | 'error' | 'runlog' | 'tabActivity'
-
-/** 推送形状（与宿主侧 extension-ipc 的 DataChangedPush 同形） */
-export interface DataChangedPush {
-  kind: 'data:changed'
-  domain: DataDomain
-  uuid?: string
-  /** 发送时刻（ms） */
-  at: number
-}
+import {
+  DATA_BROADCAST_CHANNEL,
+  DATA_MERGE_WINDOW_MS,
+  type DataChangedPush,
+  type DataDomain,
+} from '@duoling/shared'
 
 // 收发用**两个**实例：BroadcastChannel 不会把消息回发给发送它的那个实例，
 // 若收发共用一个，将来若有「页面内直接写」的路径就会出现「自己收不到自己的通知」。
@@ -35,7 +26,7 @@ function openChannel(slot: 'rx' | 'tx'): BroadcastChannel | null {
   if (cached !== undefined) return cached
   let created: BroadcastChannel | null = null
   try {
-    created = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(CHANNEL_NAME)
+    created = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(DATA_BROADCAST_CHANNEL)
   } catch {
     created = null // 环境不支持：走 sendMessage 降级
   }
@@ -76,7 +67,7 @@ export function broadcastDataChange(domain: DataDomain, uuid?: string): void {
   const last = lastSent.get(key) ?? 0
   const elapsed = now - last
 
-  if (elapsed >= MERGE_WINDOW_MS) {
+  if (elapsed >= DATA_MERGE_WINDOW_MS) {
     lastSent.set(key, now)
     emit({ kind: 'data:changed', domain, uuid, at: now })
     return
@@ -89,7 +80,7 @@ export function broadcastDataChange(domain: DataDomain, uuid?: string): void {
       const t = Date.now()
       lastSent.set(key, t)
       emit({ kind: 'data:changed', domain, uuid, at: t })
-    }, MERGE_WINDOW_MS - elapsed),
+    }, DATA_MERGE_WINDOW_MS - elapsed),
   )
 }
 
