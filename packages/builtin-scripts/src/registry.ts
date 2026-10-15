@@ -10,21 +10,17 @@
 // 注意：脚本桥中继件（relay）**不在本文件** —— 它已随 `@duoling/userscript-runtime` 包内化
 // （SCRIPT_RELAY_ID / SCRIPT_RELAY_WORLD_ID / buildRelayInit / syncScriptRelay 都在包的
 // relay/sync.ts，IIFE 以 `{ code }` 字符串注册，无公共资产文件）。
+// 标签页录制件已转**系统脚本**（走统一注册链，见应用侧 system-scripts.ts）：本文件只声明
+// 它的 id 与产物文件名，不再有独立世界与装配段。
 
 import { FLOAT_HOST_HOOK_KEY } from '@duoling/shared'
 
-// —— 标签页录制 · MAIN 捕获件 + USER_SCRIPT 转发件 ——
+// —— 标签页录制 · MAIN 捕获件（系统脚本，走统一注册链） ——
 
-/** MAIN 捕获件注册 id（一个扩展一份） */
+/** 注册 id（一个扩展一份；同时是系统脚本的固定 uuid） */
 export const TAB_RECORDER_ID = 'dl-tab-recorder'
-/** USER_SCRIPT 转发件注册 id（一个扩展一份） */
-export const TAB_FORWARDER_ID = 'dl-tab-forwarder'
-/** 转发件的独立世界 id：必须 configureWorld({ messaging: true })，否则世界内无 chrome.runtime */
-export const TAB_FORWARDER_WORLD_ID = 'us-dl-tab'
-/** 捕获件产物文件名（构建自包内 src/recorder/entry.ts） */
+/** 产物文件名（构建自包内 src/recorder/entry.ts；应用侧取其内容作系统脚本源码） */
 export const TAB_RECORDER_FILE = 'duoling-recorder.js'
-/** 转发件产物文件名（构建自包内 src/forwarder/entry.ts） */
-export const TAB_FORWARDER_FILE = 'duoling-forwarder.js'
 
 // —— 页面检查器 · 常驻件 ——
 

@@ -9,7 +9,7 @@
 // 模板字符串）与面板展示文本，两者都合法地含 `document.createElement` 这类页面侧写法；
 // 宿主层（dl-bridge / dl-port）更是直接跑在 SW 里用 chrome.*。chrome 由扩展环境提供，
 // 单测整体 stub（vi.stubGlobal）—— 纯度判据对宿主层的表达是「应用耦合只准走 host-config 注入」，
-// 由 import 判据 ① 加人工评审把守。
+// 由 import 判据 ① 加人工把关（改到宿主层时顺手核对有没有绕过注入点）。
 import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'

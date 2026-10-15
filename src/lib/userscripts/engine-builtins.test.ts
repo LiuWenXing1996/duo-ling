@@ -17,12 +17,12 @@ afterEach(() => {
 })
 
 describe('listBuiltinRegistrations（内置件注册状态）', () => {
-  it('引擎不可用（getScripts 抛错）：五件全部按未注册返回，不抛', async () => {
+  it('引擎不可用（getScripts 抛错）：四件全部按未注册返回，不抛', async () => {
     vi.stubGlobal('chrome', {
       userScripts: { getScripts: async () => Promise.reject(new Error('不可用')) },
     })
     const all = await listBuiltinRegistrations()
-    expect(all).toHaveLength(5)
+    expect(all).toHaveLength(4)
     expect(all.every((b) => b.registered === false)).toBe(true)
     expect(all.every((b) => b.matches.length === 0)).toBe(true)
   })

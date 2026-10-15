@@ -1,32 +1,21 @@
 // 标签页录制 · 共享协议常量与记录形状。
 //
 // **机制与种类分两层**（命名规则由此而来）：
-//   · 机制层 `tab-record-*` —— 按页挂载、信封、转发、落盘。与「录什么」无关。
+//   · 机制层 `tab-record-*` —— 按页挂载、上行、落库。与「录什么」无关。
 //   · 种类层 `net-*`       —— 具体录哪一类信号（怎么包 fetch / 怎么剥鉴权头 / 怎么压摘要）。
 //     网络是当前唯一的一类；`window.console` 之类将来平行加，不改机制层。
 //
-// 本文件是**机制层的形状约定**，各消费方必须逐字节一致：
-//   · 件包 recorder/install.ts（MAIN 世界件框架）—— 直接 import，插值 TAB_RECORD_TAG；
+// 本文件是**读侧（SW）与写侧（页面件）之间的唯一形状来源**，各消费方必须逐字节一致：
 //   · 件包 recorder/net-probe.ts（net 种类件）—— 直接 import 它那一类的常量；
-//   · 件包 forwarder/install.ts（USER_SCRIPT 转发件）—— 直接 import，插值 TAB_RECORD_TAG；
 //   · runtime-db.ts / dl-bridge.ts（SW 落库 + 入站归一化）—— 直接 import。
-//
-// 单消费方视角看，本文件是「读侧（SW）与写侧（页面件）」之间的唯一形状来源；件不再是字符串模板，
-// 故插值这件事只剩信封 TAG 一处（它在装配段里出现）。
-
-/**
- * 消息信封标记：MAIN 件 postMessage 给同帧、转发件 sendMessage 给 SW，都用它。
- *
- * 信封上另带 `kind`（种类判别键，见 NET_TAB_KIND）—— 同一条通道将来会走多个种类，
- * 落库侧据此分流到各自的归一化函数。
- */
-export const TAB_RECORD_TAG = '__dlTabRecord'
+// 上行信封不再在这里：录制系统脚本经脚本桥的 `__dlEvent` 信封上行（见 userscript-runtime
+// 的 api-contract.ts），本文件只管采样记录本身的形状。
 
 /**
  * 接口采样落在 tab_events store 时的判别键：与标签页存续轴事件**同表**（见 runtime-db 的文件头），
  * 靠它把两类记录分开 —— 存续轴事件用 reload / url / recordOn / recordOff。
  *
- * 它同时是**信封上的种类判别键**：同一条录制通道上，`kind` 说这条载荷属于哪一类信号。
+ * 它同时是**上行事件里的种类判别键**：同一条录制通道上，`kind` 说这条载荷属于哪一类信号。
  *
  * 放这里而不是落库模块：它是**跨读写两端的形状约定**（写侧打标、读侧据它分流），
  * 与 normalizeNetCapture 之于入站载荷同理。
@@ -188,8 +177,8 @@ export function stripUrlSecrets(raw: string): string {
 }
 
 /**
- * 入站归一化：把转发件送来的未知载荷收窄成 NetCaptureRecord（非法即 null，静默丢弃）。
- * 消息经过 MAIN 世界（页面可伪造 postMessage）与两次结构化克隆，SW 不能信其形状——
+ * 入站归一化：把录制系统脚本送来的未知载荷收窄成 NetCaptureRecord（非法即 null，静默丢弃）。
+ * 消息经过页面世界与多次结构化克隆，SW 不能信其形状——
  * 所有字段白名单化、类型强转、长度封顶、鉴权头再剥、URL 凭据再脱敏。
  *
  * tabSessionId 由调用方（SW）给定而非载荷携带：它要按 sender.tab.id 查出来，

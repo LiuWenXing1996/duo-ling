@@ -13,7 +13,6 @@ import { FLOAT_HOST_HOOK_KEY } from '@duoling/shared'
 import {
   FLOAT_HOST_FILE,
   INSPECTOR_HOST_FILE,
-  TAB_FORWARDER_FILE,
   TAB_RECORDER_FILE,
   buildFloatHostInit,
 } from './registry'
@@ -24,7 +23,6 @@ describe('产物文件名与构建入口表一致', () => {
       .map((key) => `${key}.js`)
       .sort()
     const declared = [
-      TAB_FORWARDER_FILE,
       TAB_RECORDER_FILE,
       INSPECTOR_HOST_FILE,
       FLOAT_HOST_FILE,
