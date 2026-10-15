@@ -1091,6 +1091,13 @@ export function initDlBridge(): void {
         )
         return undefined // 结算是宿主侧的事，桥只递送
       }
+      // 浮层宿主的在岗应答：交宿主侧按 reqId 结算挂起的那次探活（旁证同上）。
+      if (event && event.t === 'float.pong') {
+        telemetryPort()?.onFloatEvent?.(evt.uuid ?? '', sender.tab?.id ?? null, {
+          reqId: event.reqId,
+        })
+        return undefined // 结算是宿主侧的事，桥只递送
+      }
       // sender.tab 定位出错页面（userScript 世界消息 sender 带 tab）；拿不到就无从判归属
       const tabId = sender.tab?.id
       if (tabId == null) return undefined

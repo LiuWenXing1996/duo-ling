@@ -57,7 +57,7 @@ function overviewRow(tabId: number, over: Record<string, unknown> = {}): Record<
  * 装 chrome 壳。
  *
  * url 传 undefined 模拟读不到地址的页面（`chrome://` / 扩展页 —— manifest 无 tabs 权限），
- * 那类页面上站点名是空串、浮层入口禁用。定向消息（`float:open`）默认发得出去，收不到的那条
+ * 那类页面上站点名是空串、浮层入口禁用。浮层命令（`float:open`）默认成功，失败的那条
  * 分支由用例自己覆盖（见「页面接不上」）。
  */
 function stubChrome(url: string | undefined): void {
@@ -228,7 +228,7 @@ describe('popup 的「当前页面」区块', () => {
     await w.find('[data-testid="open-float-panel"]').trigger('click')
     await flushPromises()
 
-    expect(tabsSendMessage).toHaveBeenCalledWith(TAB_ID, { kind: 'float:open', tabId: TAB_ID })
+    expect(runtimeSendMessage).toHaveBeenCalledWith({ kind: 'float:open', tabId: TAB_ID })
     expect(close).toHaveBeenCalled()
   })
 
@@ -269,12 +269,17 @@ describe('popup 的「当前页面」区块', () => {
     expect(w.find('[data-testid="open-float-panel"]').attributes('disabled')).toBeUndefined()
   })
 
-  it('页面接不上（消息发不出去）：留在 popup 里说明原因，不关窗', async () => {
+  it('页面接不上（命令失败）：留在 popup 里说明原因，不关窗', async () => {
     stubChrome('https://example.com/page')
     const w = await mountPopup()
     const close = spyClose()
-    // 这一发要抛错：页面在扩展更新前就打开、或站点访问权被单独关掉时，就是这样收不到
-    tabsSendMessage.mockRejectedValueOnce(new Error('Receiving end does not exist'))
+    // 这一发要失败：SW 推不到（该页上没有宿主件的在岗连接 —— 页面在扩展更新前就打开、
+    // 或站点访问权被单独关掉）时，命令面回 { ok: false }
+    runtimeSendMessage.mockImplementationOnce(async (msg: { kind: string }) => {
+      if (msg.kind === 'float:open') return { ok: false, error: '浮层没接上' }
+      if (msg.kind === 'page:overview') return { ok: true, data: overviewRows }
+      return { ok: true, data: {} }
+    })
 
     await w.find('[data-testid="open-float-panel"]').trigger('click')
     await flushPromises()

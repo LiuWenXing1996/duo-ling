@@ -461,6 +461,12 @@ export type ApiEvent =
    * 脚本作者不感知：检查器是系统脚本，不走 GM 能力面。
    */
   | { t: 'inspector.cmd'; cmd: string; reqId: string }
+  /**
+   * 浮层宿主指令（SW → 浮层宿主系统脚本，经 Port 下行由中继件转回 MAIN 桥 onEvent）。
+   * `cmd`：open（tabId 随帧带，件拼进浮层 iframe 的 `?tab=`）/ collapse / busy（busy 定显隐）/
+   * ping（在岗探针，件回一条 float.pong）。脚本作者不感知：宿主件是系统脚本，不走 GM 能力面。
+   */
+  | { t: 'float.cmd'; cmd: string; reqId?: string; tabId?: number; busy?: boolean }
   /** 扩展菜单点击。id = 包装层 mint 的菜单标识 */
   | { t: 'menu.click'; id: string }
   /**
@@ -541,6 +547,11 @@ export type DlEvent =
    * （页面 DOM 摘要，住在页面里的脚本本来就能读），但旁证便宜，留着防串扰。
    */
   | { t: 'inspector.result'; reqId: string; ok: boolean; payload: unknown }
+  /**
+   * 浮层宿主的在岗应答（宿主系统脚本上行）。`reqId` 由 SW 现造随 ping 指令下发，结算认它；
+   * 旁证（uuid 必须是宿主件自己的）在宿主侧结算处校验（与 inspector.result 同款）。
+   */
+  | { t: 'float.pong'; reqId: string }
 
 /** 桥响应信封 */
 export type ApiResponse =

@@ -1,23 +1,20 @@
 // 浮层宿主常驻件本体：页面里的对话挂载点（常驻，零 UI，收到指令才建 DOM）。
 //
-// 运行位置：目标标签页的独立 USER_SCRIPT 世界 `us-dl-float`（全站匹配 + document_start，worldId 见
-// registry.ts）。该世界必须 configureWorld({ messaging: true })，否则世界内没有 chrome.runtime，
-// 指令收不到、件形同不存在。
+// 运行位置：目标标签页的**页面主世界（MAIN）系统脚本**（GM 包装注入，见应用侧
+// system-scripts.ts）—— 全站匹配 + document_start。加载只建通道、不动作。
 //
-// **一件两段** —— 与页面检查器（已并入单段）不同，本件必须保留两段注册：`{ file }` 装本件、
-// `{ code }` 装配段调 `init(浮层页地址, 扩展显示名)`。合并不掉的理由：那两样值只有扩展侧取得到
-// （`chrome.runtime.getURL` 与 EXTENSION_NAME），而注册项是**静态字符串**，只能经第二段 code 递进来。
-// 装配段源码是 registry.ts 的 buildFloatHostInit —— 签名与中继件同形（值由应用侧取好传进来），
-// 故本件对应用源码零依赖。
+// **运行期参数由构建产物里的占位符承担** —— 件要用浮层页地址与扩展显示名，两样只有扩展侧
+// 取得到，而注册项是静态字符串。做法：源码里写裸占位符（`__DL_FLOAT_PANEL_URL__` /
+// `__DL_FLOAT_EXT_NAME__`），应用侧组系统脚本源码时替换成 JSON 字面量（见 system-scripts.ts
+// 的 floatHostProject）。本件因此对应用源码零依赖，也不认识 chrome.*。
 //
-// 四条指令（都经 `chrome.tabs.sendMessage` 投向本标签页的各个世界，谁认这个 kind 谁来接；
-// 发送方见 src/shared/extension-ipc.ts，字面量真相源是 @duoling/shared 的 float-host.ts）：
-//   float:open      挂上容器并展开。容器按需创建，iframe 懒加载（首次展开才设 src）
-//   float:collapse  收起：容器回到 display:none，iframe 与面板文档都留着 —— 再打开就是原状态
-//                   （草稿、滚动位置、正在生成的那条消息的实时视图）
-//   float:busy      生成遮罩显隐，与浮层开合无关（理由见 setBusy）
-//   content:ping    在岗探针：同步应答一声（判据是这声应答，不是消息发得出去 —— 同一页上还
-//                   有页面检查器在收同一条消息）
+// 指令（下行帧形状真相源是 userscript-runtime 的 api-contract.ts 的 float.cmd）：
+//   open      挂上容器并展开。容器按需创建，iframe 懒加载（首次展开才设 src）；tabId 随帧带
+//             （拼进 iframe 的 `?tab=`，浮层据此认定会话归属）
+//   collapse  收起：容器回到 display:none，iframe 与面板文档都留着 —— 再打开就是原状态
+//             （草稿、滚动位置、正在生成的那条消息的实时视图）
+//   busy      生成遮罩显隐，与浮层开合无关（理由见 setBusy）
+//   ping      在岗探针：回一条 float.pong（reqId 原样带上；结算认它 —— e2e 探活用）
 //
 // 位置只在本次页面内有效：不落库，刷新后回到右下角。
 //
@@ -28,36 +25,12 @@
 //
 // 拾取让位：页面元素拾取期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
 
-import {
-  CONTENT_PING_KIND,
-  FLOAT_BUSY_KIND,
-  FLOAT_COLLAPSE_KIND,
-  FLOAT_HOST_HOOK_KEY,
-  FLOAT_OPEN_KIND,
-  INSPECTOR_PICKER_NS,
-} from '@duoling/shared'
-
-/** 拖拽落点夹取用的两个尺寸形状 */
-export interface FloatHostPoint {
-  x: number
-  y: number
-}
-export interface FloatHostSize {
-  width: number
-  height: number
-}
-
-/** 件挂在 `window` 上的三个口（只有这三个，其余都关在闭包里） */
-export interface FloatHostHook {
-  init: (url?: unknown, name?: unknown) => void
-  clamp: (point: FloatHostPoint, panel: FloatHostSize, viewport: FloatHostSize) => FloatHostPoint
-  kinds: Record<string, string>
-}
+import { INSPECTOR_PICKER_NS } from '@duoling/shared'
 
 declare global {
   interface Window {
-    /** 幂等守卫 + 装配交接点（见 @duoling/shared 的 float-host.ts 的 FLOAT_HOST_HOOK_KEY） */
-    __duolingFloatHost?: FloatHostHook
+    /** 幂等守卫：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态） */
+    __dlFloatHost?: boolean
   }
 }
 
@@ -67,20 +40,27 @@ const ROOT_ID = 'duoling-float-root'
 /**
  * 「点选元素正在页面里进行」的信号：页面检查器亮拾取态时往 documentElement 插的遮罩类名。
  *
- * 与页面检查器同在一包，类名来自 @duoling/shared 的 INSPECTOR_PICKER_NS（历史形态是手写
- * `.duoling-picker-box`，改类名得改两处、靠注释互相提醒）。为什么用 DOM 而不是广播：页面检查器与本件分居两个世界，JS 互相
- * 不可见，共享面只有 DOM；而拾取遮罩的生死恰好就是「拾取区间」本身，无需新增任何通道。
- * 副作用还有一个好处：判定天然按 document 隔离 —— 只有真正发起拾取的那个标签页会隐藏对话框。
+ * 类名来自 @duoling/shared 的 INSPECTOR_PICKER_NS。为什么用 DOM 而不是桥广播：拾取遮罩的
+ * 生死恰好就是「拾取区间」本身 —— 遮罩插上即拾取开始、移除即收场，盯 DOM 不必为此新增任何
+ * 下行指令。副作用还有一个好处：判定天然按 document 隔离 —— 只有真正发起拾取的那个标签页
+ * 会隐藏对话框。
  */
 const PICKER_BOX_SELECTOR = `.${INSPECTOR_PICKER_NS}-box`
 
-/** 指令 kind：真相源在 @duoling/shared 的 float-host.ts，单测比对挂钩子的取值与常量（接错线即红） */
-const KINDS = {
-  open: FLOAT_OPEN_KIND,
-  collapse: FLOAT_COLLAPSE_KIND,
-  busy: FLOAT_BUSY_KIND,
-  ping: CONTENT_PING_KIND,
+/**
+ * 脚本桥（GM 包装内联进同一作用域的 `__dlBridge`，恒注入）。
+ * 形状真相源是 userscript-runtime 的 script-bridge.ts；这里只声明本件用到的方法。
+ */
+declare const __dlBridge: {
+  connect(connId: string): Promise<void>
+  emit(envelope: Record<string, unknown>): void
+  onEvent(fn: (ev: Record<string, unknown>) => void): void
 }
+
+/** 常驻通道的 connId（DL Port name 尾段；SW 寻址只认 uuid+tabId，connId 仅做连接身份） */
+const CHANNEL_CONN_ID = 'float'
+/** 断链自愈的重发间隔：SW 重启后中继件侧连接已清，重发 connect 帧重建 Port */
+const CHANNEL_RECONNECT_MS = 15_000
 
 const CSS = `
 .dl-float-container {
@@ -173,6 +153,16 @@ const CSS = `
 }
 `
 
+/** 拖拽落点夹取用的两个尺寸形状 */
+export interface FloatHostPoint {
+  x: number
+  y: number
+}
+export interface FloatHostSize {
+  width: number
+  height: number
+}
+
 /**
  * 把浮层落点夹进视口。
  *
@@ -192,18 +182,24 @@ export function clampPoint(
 }
 
 /**
- * 安装本件 —— 挂出世界级 hook（装配段据此递参），装载本身不碰 DOM。
+ * 安装本件：建常驻通道 + 装指令接收。装载本身不碰 DOM。
  *
- * 幂等：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态）。`init` 另有一道幂等守卫（同一文档
- * 重复装配只生效一次），两者各管一段：本处防重复注入，init 防装配段被喊两遍。
+ * 幂等：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态）。
  */
 export function installFloatHost(): void {
-  if (window[FLOAT_HOST_HOOK_KEY]) return
+  if (window.__dlFloatHost) return
+  window.__dlFloatHost = true
 
-  /** 浮层页地址（注册时递进来；空串 = 装不上，open 时按降级处理） */
-  let panelUrl = ''
-  /** 扩展显示名（注册时递进来；只用于 iframe 标题与降级文案 —— 改名的真相源仍只有 extension-identity.ts 一处） */
-  let extensionName = '扩展'
+  /**
+   * 浮层页地址（构建期占位符，应用侧组系统脚本源码时替换成 JSON 字面量 —— 见文件头）。
+   * 替换没发生（空串）= 装不上，open 时按降级处理。
+   */
+  const panelUrl = '__DL_FLOAT_PANEL_URL__'
+  /**
+   * 扩展显示名（同上，占位符替换）。只用于 iframe 标题与降级文案 ——
+   * 改名的真相源仍只有应用侧 extension-identity.ts 一处。
+   */
+  const extensionName = '__DL_FLOAT_EXT_NAME__'
   /** 当前对话框（null = 页面里还没有任何东西，即默认状态） */
   let ui: {
     root: HTMLElement
@@ -213,7 +209,6 @@ export function installFloatHost(): void {
   } | null = null
   /** 是否已因「拾取进行中」而隐藏（避免与拾取的实时状态重复写样式） */
   let hiddenForPick = false
-  let installed = false
 
   /**
    * 构建对话框 UI（挂进 DOM 由调用方做），返回宿主根元素与开合 / 遮罩三个操作口。
@@ -353,7 +348,7 @@ export function installFloatHost(): void {
     /**
      * 展开。iframe src 懒加载：首次展开才设 —— 页面一开就加载扩展页会白占资源。
      *
-     * src 里的 tab 参数来自 float:open 指令（浮层靠它认定会话归属，每 tab 一条会话）。指令没带
+     * src 里的 tab 参数来自 open 指令（浮层靠它认定会话归属，每 tab 一条会话）。指令没带
      * （数值不可用）就退回不带参数：浮层侧归属退化为「不绑定」，好过错绑到别人的 tab。
      */
     const open = (tabId?: unknown) => {
@@ -383,7 +378,7 @@ export function installFloatHost(): void {
     }
 
     /**
-     * 生成遮罩的开关（对话界面经 float:busy 报来）。
+     * 生成遮罩的开关（对话界面经 busy 指令报来）。
      *
      * **判据只有生成中这一条，与浮层开合无关**：收起浮层只是收起对话界面，AI 该读页面还在读 ——
      * 遮罩跟着浮层一起藏，用户就会以为「收起来就没事了」，然后在页面被读的过程中照动不误。
@@ -462,74 +457,82 @@ export function installFloatHost(): void {
   }
 
   /**
-   * 指令入口：四个 kind 各自对应上面的动作，未知消息静默忽略（同一标签页的各个世界都会收到
-   * tabs.sendMessage，只认自己那几个 kind）。
+   * 指令入口：四个 cmd 各自对应上面的动作，未知帧静默忽略。
+   * 通道形状真相源是 userscript-runtime 的 api-contract.ts（float.cmd / float.pong）。
    */
-  function handleMessage(
-    raw: unknown,
-    _sender: unknown,
-    sendResponse: (response?: unknown) => void,
-  ): void {
-    if (!raw || typeof raw !== 'object') return
-    const msg = raw as { kind?: unknown; tabId?: unknown; busy?: unknown }
-    const kind = msg.kind
-    // 在岗探针：同步应答一声（见 CONTENT_PING_KIND —— popup 不再拿它判按钮状态，现由 e2e 用来
-    // 确认这件已注入本页）。同步应答即可，不必 return true 吊住通道。
-    if (kind === KINDS.ping) {
-      sendResponse({ ok: true })
+  function handleCommand(ev: Record<string, unknown>): void {
+    if (ev.t !== 'float.cmd') return
+    // 在岗探针：回一条带 reqId 的应答（结算认它 —— e2e 探活用来确认本件已注入本页；
+    // 与检查器的 reqId 配对同款，而不是旧 tabs.sendMessage 那声同步应答）。
+    if (ev.cmd === 'ping') {
+      const reqId = String(ev.reqId || '')
+      if (!reqId) return
+      try {
+        __dlBridge.emit({
+          __dlEvent: true,
+          name: '浮层宿主',
+          event: { t: 'float.pong', reqId },
+        })
+      } catch {
+        /* 桥不可用：丢弃，发起侧按超时收场 */
+      }
       return
     }
-    if (kind === KINDS.open) {
-      mountAndOpen(msg.tabId)
+    if (ev.cmd === 'open') {
+      mountAndOpen(ev.tabId)
       return
     }
     // 收起：只给容器加 display:none，UI 与 iframe 留着（见 collapse 的说明）
-    if (kind === KINDS.collapse) {
+    if (ev.cmd === 'collapse') {
       if (ui) ui.collapse()
       return
     }
     // 生成遮罩开关：页面里还没有浮层时收到（浮层尚未挂出 / 已被页面导航带走）静默忽略 ——
     // 没有对话界面就没有「AI 在读这个页面」这回事。
-    if (kind === KINDS.busy) {
-      if (ui) ui.setBusy(msg.busy === true)
+    if (ev.cmd === 'busy') {
+      if (ui) ui.setBusy(ev.busy === true)
     }
   }
 
-  /**
-   * 装配（注册时的第二段 code 调）：先把浮层页地址与扩展名递进来，再挂消息面。
-   * 幂等 —— 同一文档重复装配只生效一次。
-   */
-  function init(url?: unknown, name?: unknown): void {
-    if (installed) return
-    installed = true
-    panelUrl = typeof url === 'string' ? url : ''
-    if (typeof name === 'string' && name) extensionName = name
+  // 常驻通道：connect 幂等（中继件侧按 uuid 去重）；失败静默 —— 定时重发就是重试。
+  // 重发是**常备的**而非只在启动时：SW 重启 / Port 半死时靠它自愈（SW 端 addPort
+  // 对同 uuid+connId 替换旧 Port，重连不会产生双 Port 推两份指令）。
+  function keepChannel(): void {
     try {
-      chrome.runtime.onMessage.addListener(handleMessage)
+      __dlBridge.connect(CHANNEL_CONN_ID).catch(function () {
+        /* 握手失败（中继件未就位）：等下一轮 */
+      })
     } catch {
-      // 世界未开 messaging：指令通道不可用，浮层挂不出来（属配置错误，出声比静默好）
-      console.warn('[duoling:float] 世界未开 messaging，浮层指令通道不可用')
-      return
-    }
-    // 页面检查器插/删遮罩 → 同步对话框显隐。只盯 documentElement 的**直接子节点**：遮罩挂在 <html>
-    // 下，而对话框挂在 <body> 下，二者互不触发，不会自激（也不必开 subtree 去听整棵树的增删）。
-    // 骨架未建（document_start 极早期）就等文档就绪再装 —— 那个窗口里还没有对话框要隐藏。
-    const watchPickMask = (target: Node): void => {
-      new MutationObserver(() => {
-        syncFloatVisibilityForPick()
-      }).observe(target, { childList: true })
-    }
-    if (document.documentElement) {
-      watchPickMask(document.documentElement)
-    } else {
-      document.addEventListener(
-        'DOMContentLoaded',
-        () => watchPickMask(document.documentElement),
-        { once: true },
-      )
+      /* 桥未注入（异常注入时序）：等下一轮 */
     }
   }
+  keepChannel()
+  setInterval(keepChannel, CHANNEL_RECONNECT_MS)
 
-  // clamp 与 kinds 一并挂出只为单测（世界隔离，页面看不见这个对象）
-  window[FLOAT_HOST_HOOK_KEY] = { init, clamp: clampPoint, kinds: KINDS }
+  // 下行接收面：SW 经 DL Port 推 float.cmd，中继件转回桥 onEvent。
+  try {
+    __dlBridge.onEvent(handleCommand)
+  } catch {
+    // 桥不可用（异常时序）：指令通道不可用。常驻通道的重发还会继续试，
+    // 但 onEvent 挂不上就收不到指令 —— 这里报明确错误比静默好排查。
+    console.warn('[duoling:float] 脚本桥不可用，浮层指令通道未挂载')
+  }
+
+  // 页面检查器插/删遮罩 → 同步对话框显隐。只盯 documentElement 的**直接子节点**：遮罩挂在 <html>
+  // 下，而对话框挂在 <body> 下，二者互不触发，不会自激（也不必开 subtree 去听整棵树的增删）。
+  // 骨架未建（document_start 极早期）就等文档就绪再装 —— 那个窗口里还没有对话框要隐藏。
+  const watchPickMask = (target: Node): void => {
+    new MutationObserver(() => {
+      syncFloatVisibilityForPick()
+    }).observe(target, { childList: true })
+  }
+  if (document.documentElement) {
+    watchPickMask(document.documentElement)
+  } else {
+    document.addEventListener(
+      'DOMContentLoaded',
+      () => watchPickMask(document.documentElement),
+      { once: true },
+    )
+  }
 }

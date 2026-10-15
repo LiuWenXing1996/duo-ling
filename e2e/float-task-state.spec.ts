@@ -139,13 +139,13 @@ test.describe.serial('任务状态外显（进行中登记 + 对话框显隐）'
    */
   test.skip('对话框：平时不注入，打开即挂出来，收起只藏不销毁', async () => {
     test.skip(!engineAvailable, 'chrome.userScripts 引导失败：宿主件装不上，浮层链路转手测')
-    const { page, tabId } = await openFloatPage(context!, sw, probeUrl)
+    const { page, tabId } = await openFloatPage(context!, sw, messenger, probeUrl)
 
-    // 起手：页面里连根节点都没有 —— 宿主件只在收到 float:open 时才建
+    // 起手：页面里连根节点都没有 —— 宿主件只在收到 float:open 命令时才建
     await expect(page.locator('#duoling-float-root')).toHaveCount(0)
 
-    // 打开（popup 的按钮与页面右键菜单发的就是这条消息）
-    await sendFloat(sw, tabId, 'float:open')
+    // 打开（popup 的按钮与页面右键菜单发的就是这条命令）
+    await sendFloat(messenger, tabId, 'float:open')
     const panel = await waitForPanelFrame(page)
     await expect(page.locator('#duoling-float-root .dl-float-container')).toHaveClass(/open/)
 
@@ -248,14 +248,18 @@ async function waitForFloatHostRegistered(sw: Worker): Promise<void> {
     .toBe(true)
 }
 
-/** 浮层宿主件此刻在**这一页**上吗 —— 看应答（`content:ping` 只有它答），不看通道（见上） */
-async function pingFloatHost(sw: Worker, tabId: number): Promise<boolean> {
+/**
+ * 浮层宿主件此刻在**这一页**上吗 —— 看应答（`float:ping` 要件回 float.pong 才算），不看通道。
+ *
+ * 命令走 RuntimeRequest（经 SW 下发 DL Port 事件帧），发送端必须是扩展页：
+ * runtime 消息不回环到 SW 自身上下文（见 extension.ts 的说明）。
+ */
+async function pingFloatHost(messenger: Page, tabId: number): Promise<boolean> {
   try {
-    const pong = await sw.evaluate(
-      async (id) => await chrome.tabs.sendMessage(id, { kind: 'content:ping' }),
-      tabId,
-    )
-    return (pong as { ok?: boolean } | undefined)?.ok === true
+    const res = (await messenger.evaluate(async (id) => {
+      return await chrome.runtime.sendMessage({ kind: 'float:ping', tabId: id })
+    }, tabId)) as { ok: boolean; data?: { pong?: boolean } } | undefined
+    return res?.ok === true && res.data?.pong === true
   } catch {
     return false
   }
@@ -275,6 +279,7 @@ async function pingFloatHost(sw: Worker, tabId: number): Promise<boolean> {
 async function openFloatPage(
   context: BrowserContext,
   sw: Worker,
+  messenger: Page,
   url: string,
 ): Promise<{ page: Page; tabId: number }> {
   await waitForFloatHostRegistered(sw)
@@ -286,7 +291,7 @@ async function openFloatPage(
   /** 探活到有应答为止；到点没应答就抛，由调用方决定要不要重载 */
   const pingUntilReady = async (message: string): Promise<void> => {
     await expect
-      .poll(() => pingFloatHost(sw, tabId!), { timeout: 15_000, message })
+      .poll(() => pingFloatHost(messenger, tabId!), { timeout: 15_000, message })
       .toBe(true)
   }
 
@@ -300,24 +305,22 @@ async function openFloatPage(
 }
 
 /**
- * 给某标签页发一条浮层指令（`float:open` / `float:collapse`）。
+ * 给某标签页发一条浮层命令（`float:open` / `float:collapse`）。
  *
- * 页面里没有可点的入口（对话框平时不在页面里），这两条定向消息就是它的开关 —— 与 popup 的按钮、
- * 页面右键菜单、对话框顶栏那颗「收起」是同一套契约。发送方那侧的行为由 PopupPanel 的组件测试
- * 覆盖，这里只借扩展页代发一下。不吞错：宿主件已由 openFloatPage 探通，发不出去就是真失败。
+ * 页面里没有可点的入口（对话框平时不在页面里），这两条命令就是它的开关 —— 与 popup 的按钮、
+ * 页面右键菜单、对话框顶栏那颗「收起」是同一套契约（SW 经 DL Port 事件帧下发给宿主件）。
+ * 发送方那侧的行为由 PopupPanel 的组件测试覆盖，这里只借扩展页代发一下。
+ * 不吞错：宿主件已由 openFloatPage 探通，SW 推不到（回 { ok: false }）就是真失败。
  */
-async function sendFloat(
-  sw: Worker,
-  tabId: number,
-  kind: 'float:open' | 'float:collapse',
-): Promise<void> {
-  await sw.evaluate(
+async function sendFloat(messenger: Page, tabId: number, kind: 'float:open' | 'float:collapse'): Promise<void> {
+  const res = (await messenger.evaluate(
     async ({ id, k }) => {
-      // tabId 随消息带上：真发送方（popup / 右键菜单）都握有它，宿主件靠它拼 iframe URL 的 `?tab=`
-      await chrome.tabs.sendMessage(id, { kind: k, tabId: id })
+      // tabId 随命令带上：真发送方（popup / 右键菜单）都握有它，宿主件靠它拼 iframe URL 的 `?tab=`
+      return await chrome.runtime.sendMessage({ kind: k, tabId: id })
     },
     { id: tabId, k: kind },
-  )
+  )) as { ok: boolean; error?: string } | undefined
+  expect(res?.ok, `浮层命令 ${kind} 没发到位：${res?.error ?? 'SW 未应答'}`).toBe(true)
 }
 
 /**
@@ -326,13 +329,15 @@ async function sendFloat(
  * 之所以能这么走：stub 把「生成中」的窗口拉长，才来得及在生成期间做断言。
  *
  * ⚠️ **整组暂时跳过**：本组 `beforeAll` 开出的浮层探活会偶发失败 —— 宿主件已在注册表里、页面却不答，
- * `page.reload()` 也救不回，CI 上约三成运行由此整组塌。根因未定（怀疑自定义世界 `us-dl-float` 的
- * messaging 配置某一刻没生效），本地 20 轮未复现，症状疑似与 TODO.md 那条「dev 重启竞态」同源。
+ * `page.reload()` 也救不回，CI 上约三成运行由此整组塌。根因未定（当时的怀疑对象是自定义世界
+ * `us-dl-float` 的 messaging 配置某一刻没生效；该世界已随本件转系统脚本退役，这个病灶是否一并
+ * 消失要等恢复后观察），本地 20 轮未复现，症状疑似与 TODO.md 那条「dev 重启竞态」同源。
  * 恢复时去掉本行 `.skip`，并给 `describe` 带上 `serial` —— 两条用例有先后依赖。
  */
 test.describe.skip('真实浮层链路（模型 stub + 页面内 iframe）', () => {
   let context: BrowserContext | undefined
   let sw: Worker
+  let liveMessenger: Page
   let extensionId = ''
   let stub: Awaited<ReturnType<typeof startModelStub>>
   let profileDir = ''
@@ -350,6 +355,8 @@ test.describe.skip('真实浮层链路（模型 stub + 页面内 iframe）', () 
     sw = await getServiceWorker(context)
     extensionId = extensionIdFromServiceWorker(sw)
     engineAvailable = await checkUserScriptsAvailable(sw)
+    // 浮层命令的发送端（RuntimeRequest 不回环到 SW 自身上下文，必须借扩展页发）
+    liveMessenger = await openMessengerPage(context, extensionId)
 
     probe = http.createServer((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
@@ -366,8 +373,8 @@ test.describe.skip('真实浮层链路（模型 stub + 页面内 iframe）', () 
     // 模型指向本地 stub —— 本组用例的环境前提：真链路得先有能应答的模型，任务才跑得起来。
     // 只能在浮层这一侧配（`window.api` 只装给浮层，popup 是纯配置面板）；配完落进扩展存储，
     // 后面用例新开的浮层直接可用，故整组只在这里配一次。
-    const { page: setupPage, tabId: setupTabId } = await openFloatPage(context!, sw, probeUrl)
-    await sendFloat(sw, setupTabId, 'float:open')
+    const { page: setupPage, tabId: setupTabId } = await openFloatPage(context!, sw, liveMessenger, probeUrl)
+    await sendFloat(liveMessenger, setupTabId, 'float:open')
     await configureStubModel(await waitForPanelFrame(setupPage), stub.stub.baseUrl)
     await setupPage.close()
   })
@@ -388,8 +395,8 @@ test.describe.skip('真实浮层链路（模型 stub + 页面内 iframe）', () 
     // 首片之后再按住：这样「停止」时已经有一点内容，能验到「保住半截」这件事
     stub.setOptions({ delayMs: 0, holdAfterFirstChunkMs: 5_000 })
 
-    const { page, tabId } = await openFloatPage(context!, sw, probeUrl)
-    await sendFloat(sw, tabId, 'float:open')
+    const { page, tabId } = await openFloatPage(context!, sw, liveMessenger, probeUrl)
+    await sendFloat(liveMessenger, tabId, 'float:open')
     const panel = await waitForPanelFrame(page)
     const box = panel.getByRole('textbox').first()
     await box.fill('停我')
@@ -455,8 +462,8 @@ test.describe.skip('真实浮层链路（模型 stub + 页面内 iframe）', () 
     // 光在吐字节前卡住（delayMs）中止时什么都没生成，落盘自然也没什么可验。
     stub.setOptions({ delayMs: 0, holdAfterFirstChunkMs: 5_000 })
 
-    const { page, tabId } = await openFloatPage(context!, sw, probeUrl)
-    await sendFloat(sw, tabId, 'float:open')
+    const { page, tabId } = await openFloatPage(context!, sw, liveMessenger, probeUrl)
+    await sendFloat(liveMessenger, tabId, 'float:open')
     const box = (await waitForPanelFrame(page)).getByRole('textbox').first()
     await box.fill('你好')
     await box.press('Enter')
@@ -471,7 +478,7 @@ test.describe.skip('真实浮层链路（模型 stub + 页面内 iframe）', () 
     expect(conversationId, '生成中应能在进行中登记里看到').toBeTruthy()
 
     // 收起浮层不影响遮罩：判据只有「在不在生成」，收起只是收起对话界面，页面照样在被读
-    await sendFloat(sw, tabId, 'float:collapse')
+    await sendFloat(liveMessenger, tabId, 'float:collapse')
     await expect(page.locator('#duoling-float-root .dl-page-mask')).toBeVisible()
 
     // 关掉这个标签页 = 那条会话的现场没了 → 任务应当被就地中止（否则它在 offscreen 里跑完，

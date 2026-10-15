@@ -16,7 +16,6 @@
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
-import { floatOpenRequest } from '@/shared/extension-ipc'
 import type { ModelProfileState, PageOverviewTab, RuntimeRequest } from '@/shared/extension-ipc'
 import { runtimeSend } from '@/shared/runtime-send'
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
@@ -134,6 +133,12 @@ import {
 } from '@/lib/element-picker-client'
 // 拾取指令的下发与配对（常驻件那半在页面里，件源码见包的 inspector/install.ts）
 import { cancelPicker, runInspectorCommand } from '@/lib/userscripts/page-inspector-bridge'
+import {
+  collapseFloatPanel,
+  openFloatPanel,
+  pingFloatHost,
+  setFloatPanelBusy,
+} from '@/lib/userscripts/float-bridge'
 import type { ElementPickContext } from '@/shared/extension-ipc'
 import { errorText } from '@/lib/format'
 
@@ -156,6 +161,7 @@ export const SW_KIND_PREFIXES = [
   'sw:',
   'page:',
   'picker:',
+  'float:',
   'tab:',
 ] as const
 
@@ -361,6 +367,31 @@ const handlers: {
     await cancelPicker()
     return null
   },
+
+  // —— 浮层宿主命令面 ——
+  // 件已转 MAIN 世界系统脚本，tabs.sendMessage 到不了它：四条动作都在 SW 经
+  // float-bridge 下发（DL Port 事件帧 float.cmd，按系统脚本 uuid + tabId 寻址）。
+  // open 报错（推不到 = 该页上没有件的在岗连接），其余单向动作静默。
+  'float:open': async (msg): Promise<null> => {
+    if (!openFloatPanel(msg.tabId)) {
+      throw new Error('浮层没接上：页面可能还没加载完，刷新页面后再试')
+    }
+    return null
+  },
+
+  'float:collapse': async (msg): Promise<null> => {
+    collapseFloatPanel(msg.tabId)
+    return null
+  },
+
+  'float:busy': async (msg): Promise<null> => {
+    setFloatPanelBusy(msg.tabId, msg.busy)
+    return null
+  },
+
+  'float:ping': async (msg): Promise<{ pong: boolean }> => ({
+    pong: await pingFloatHost(msg.tabId),
+  }),
 
   // —— popup 的页面概览（「当前页面 / 其他页面」两个区块的数据源）——
   // 为什么在 SW 一处聚齐：运行登记表（pageRunsByTab）、进行中会话（runningConversations）、
@@ -1104,16 +1135,13 @@ function ensureFloatMenuItem(): void {
 async function openFloatPanelInTab(tab: chrome.tabs.Tab): Promise<void> {
   const tabId = tab.id
   if (tabId == null) return
-  try {
-    await chrome.tabs.sendMessage(tabId, floatOpenRequest(tabId))
-  } catch {
-    await chrome.notifications.create('duoling:float-open-failed', {
-      type: 'basic',
-      iconUrl: NOTIFY_ICON,
-      title: EXTENSION_NAME,
-      message: `这个页面还没接上${EXTENSION_NAME}，刷新页面后再试。`,
-    })
-  }
+  if (openFloatPanel(tabId)) return
+  await chrome.notifications.create('duoling:float-open-failed', {
+    type: 'basic',
+    iconUrl: NOTIFY_ICON,
+    title: EXTENSION_NAME,
+    message: `这个页面还没接上${EXTENSION_NAME}，刷新页面后再试。`,
+  })
 }
 
 function mountFloatMenu(): void {

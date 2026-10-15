@@ -4,25 +4,22 @@
 // **脚本桥中继件**（GM 桥 MAIN 世界侧，「跑全量 GM」的组成部分）已上移
 // `@duoling/userscript-runtime`（registration.ts / relay/sync.ts）；本文件保留本扩展自己的
 // 注入件的注册同步，并经 host-config 的 builtins 注入点挂进包的全量链：
-//   · 页面检查器常驻件 —— 恒注册（拾取「页面早已打开、用户刚点按钮」的场景）；
-//   · 浮层宿主常驻件 —— 恒注册（打开浮层同一时序问题）；
+//   · 页面检查器 / 浮层宿主常驻件 —— 恒注册（拾取 / 打开浮层都是「页面早已打开、用户刚点
+//     按钮」的场景，见 system-scripts.ts）；
 //   · 标签页录制 —— 已转**系统脚本**（见 system-scripts.ts），注册跟随「有没有页在录」。
-// 检查器 / 浮层两件的产物文件与注册 id 在 @duoling/builtin-scripts（registry.ts 是声明真相源），
-// 件与 SW 的协议对端（page-inspector-bridge / dl-port）都在本仓 —— 纯产品面。
+// 三件的注册 id 在 @duoling/builtin-scripts（registry.ts 是声明真相源），
+// 件与 SW 的协议对端（page-inspector-bridge / float-bridge / dl-port）都在本仓 —— 纯产品面。
 //
 // 包侧函数经本文件 re-export（registerScript / registerAllEnabled / recoverOnUpdate 等），
 // background 等调用点的 import 路径不变。
 import type { ScriptProject } from './types'
-// 检查器 / 浮层的注册面（注册 id / 独立世界 id / 产物文件名 / 装配段）由包声明：件在那儿
-// 源码化并构建成独立 IIFE 文件，扩展侧只按 id 与文件名注册（真相源见
+// 检查器 / 浮层 / 录制的注册面（注册 id / 产物文件名）由包声明：件在那儿源码化并构建成
+// 独立 IIFE 文件，扩展侧按 id 取其内容作系统脚本源码（真相源见
 // packages/builtin-scripts/src/registry.ts）。
 // 中继件（relay）例外：已随 `@duoling/userscript-runtime` 包内化（id / 装配段 / 注册同步都在包内，
-// IIFE 以 `{ code }` 注册，无公共资产文件）。录制件同理只有 id 声明（源码经系统脚本链注入）。
+// IIFE 以 `{ code }` 注册，无公共资产文件）。
 import {
-  buildFloatHostInit,
-  FLOAT_HOST_FILE,
   FLOAT_HOST_ID,
-  FLOAT_HOST_WORLD_ID,
   INSPECTOR_HOST_ID,
   TAB_RECORDER_ID,
 } from '@duoling/builtin-scripts'
@@ -31,8 +28,10 @@ import { EXTENSION_NAME } from '@/lib/extension-identity'
 import { listProjects } from './project-store'
 // 系统脚本（原内置件）：扩展随包分发、uuid 固定，与用户脚本走同一条 registerScript 注册链
 import {
+  SYSTEM_FLOAT_MATCHES,
   SYSTEM_INSPECTOR_MATCHES,
   SYSTEM_TAB_RECORD_MATCHES,
+  floatHostProject,
   pageInspectorProject,
   tabRecorderProject,
 } from './system-scripts'
@@ -42,7 +41,6 @@ import { hasRecordingTabSession } from './runtime-db'
 import { sameMatchSet } from '@duoling/userscript-runtime'
 // 通用引擎件（包内 registration.ts）：世界配置 / 注册 / 注销 / 串行队列 / 中继件注册同步
 import {
-  configureWorld,
   enqueueRegistration,
   registerScript,
   SCRIPT_RELAY_ID,
@@ -103,7 +101,7 @@ const BUILTIN_META: Record<string, { name: string; world: string; note: string }
   },
   [FLOAT_HOST_ID]: {
     name: '浮层宿主',
-    world: '用户脚本世界',
+    world: '页面主世界',
     note: '对话浮层的挂载点：收到「打开会话」才建 DOM 并展开 iframe，平时页面里什么都没有',
   },
   [TAB_RECORDER_ID]: {
@@ -218,25 +216,23 @@ async function syncPageInspector(): Promise<ScriptProject | null> {
   return project
 }
 
-/** 浮层宿主常驻件的匹配面：覆盖全部站点（理由见 syncFloatHost） */
-const FLOAT_HOST_MATCHES = ['<all_urls>']
-
 /**
- * 浮层页文件（`?tab=` 由件按指令里的 tabId 自行补，见 FloatOpenRequest）。
+ * 浮层页文件（`?tab=` 由件按指令里的 tabId 自行补，见 float:open 命令）。
  *
- * 留在这里的只有这一处取址：**它取的是扩展资源地址，不是件的注册面**（件的 id / 世界 / 产物文件名 /
- * 装配段都在包 registry.ts 里）。`web_accessible_resources` 声明的也是这个文件名（wxt.config.ts），
- * 少了那一条 Chrome 会直接拦 iframe。
+ * 留在这里的只有这一处取址：**它取的是扩展资源地址，不是件的注册面**（件的 id / 产物文件名 /
+ * 源码替换约定在 registry.ts 与 system-scripts.ts）。`web_accessible_resources` 声明的也是这个
+ * 文件名（wxt.config.ts），少了那一条 Chrome 会直接拦 iframe。
  */
 const FLOAT_PANEL_FILE = 'floatpanel.html'
 
-/** 浮层页的扩展内地址（装配段把它递给件，件再拼进 iframe 的 src） */
+/** 浮层页的扩展内地址（floatHostProject 把它替换进件源码，件再拼进 iframe 的 src） */
 function floatPanelUrl(): string {
   return chrome.runtime.getURL(FLOAT_PANEL_FILE)
 }
 
 /**
- * 维护浮层宿主常驻件的注册（幂等可重入；调用方负责串行化）。
+ * 维护浮层宿主系统脚本的注册（幂等可重入；调用方负责串行化）。返回在册时的项目对象
+ * （调用方把它算进中继件并集 —— 件的指令下行走桥，MAIN 世界没有它的注册就没有中继件）。
  *
  * **为什么常驻**：打开浮层是「页面早已打开、用户刚点按钮」的动作，而注册件只在页面**开始加载**时
  * 注入 —— 要在那之后还能挂上对话框，就只能加载即到位、待命等指令（与页面检查器同因由）。
@@ -251,50 +247,31 @@ function floatPanelUrl(): string {
  *
  * **匹配面全站**：打开浮层的目标由用户点按钮那一刻决定，而注册没有 tab 维度
  * （RegisteredUserScript 的匹配字段全是 URL），只能覆盖全部 —— 代价是每个普通网页里都有一份
- * 待命代码（零 UI、零网络：只装一个消息监听与一个 MutationObserver，连 DOM 都不建）。
+ * 待命代码（零 UI、零网络：只建一条通道与一个 MutationObserver，连 DOM 都不建）。
+ *
+ * MAIN 世界系统脚本：对话框的挂载与拖拽本来就是 DOM 面（页面看得见它做的一切，与旧独立世界形态
+ * 相比没有实质变化）；GM 包装 / 脚本桥 / 中继件随统一注册链自动就位，指令下行走 DL Port 事件帧
+ * （见 builtin-scripts 的 float-host/install.ts）。
  */
-async function syncFloatHost(): Promise<void> {
-  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
+async function syncFloatHost(): Promise<ScriptProject | null> {
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return null
   let existing: chrome.userScripts.RegisteredUserScript | undefined
   try {
     existing = (await chrome.userScripts.getScripts()).find((s) => s.id === FLOAT_HOST_ID)
   } catch {
-    return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
+    return null // 引擎不可用时静默跳过（上层已有状态横幅兜底）
   }
-  // 「没变就跳过」必须同时看**匹配面与注册形态**（与页面检查器同一条坑）：件是两段注册，只比
-  // matches 会误判成「没变」而跳过 —— 而形态的真相源是 registry.ts 的声明（本件两段、顺序是
-  // `{ file }` 在前、装配段在后），在册形态与声明不符就该重注册。
+  const project = await floatHostProject(floatPanelUrl(), EXTENSION_NAME)
+  // 「没变就跳过」看**匹配面与注册形态**：旧形态是独立世界「文件 + 装配段」两段注册，
+  // 形态不符即重注册（registerScript 会先注销同 id 旧注册，旧的两段残留由此清掉）。
   const jsSegs = existing?.js
-  const shapeOk =
-    !!jsSegs &&
-    jsSegs.length === 2 &&
-    jsSegs[0].file === FLOAT_HOST_FILE &&
-    typeof jsSegs[1].code === 'string'
-  if (existing && shapeOk && sameMatchSet(existing, { matches: FLOAT_HOST_MATCHES })) return
-  const worldOk = await configureWorld(FLOAT_HOST_WORLD_ID)
-  if (!worldOk) {
-    console.warn(
-      '[duoling:userscript] 浮层宿主世界配置失败（无 messaging，浮层打不开）',
-      FLOAT_HOST_WORLD_ID,
-    )
+  const shapeOk = !!jsSegs && jsSegs.length === 1 && typeof jsSegs[0].code === 'string'
+  if (existing && shapeOk && sameMatchSet(existing, { matches: SYSTEM_FLOAT_MATCHES })) {
+    return project
   }
-  await chrome.userScripts.unregister({ ids: [FLOAT_HOST_ID] }).catch(() => {})
-  const host: chrome.userScripts.RegisteredUserScript = {
-    id: FLOAT_HOST_ID,
-    worldId: FLOAT_HOST_WORLD_ID,
-    // 两段顺序不能换：前一段定义 window 上的浮层 hook，后一段把浮层页地址与扩展名递进去调 init
-    js: [{ file: FLOAT_HOST_FILE }, { code: buildFloatHostInit(floatPanelUrl(), EXTENSION_NAME) }],
-    matches: FLOAT_HOST_MATCHES,
-    // document_start：件只装监听与观察器，不碰 DOM，尽早到位可缩小「页面加载中点按钮」的空窗
-    runAt: 'document_start',
-  }
-  try {
-    await chrome.userScripts.register([host])
-    console.log('[duoling:sw] 浮层宿主常驻件注册成功：', JSON.stringify(FLOAT_HOST_MATCHES))
-  } catch (e) {
-    console.warn('[duoling:sw] 浮层宿主常驻件注册失败：', e)
-    throw e
-  }
+  await registerScript(project)
+  console.log('[duoling:sw] 浮层宿主系统脚本注册成功：', JSON.stringify(SYSTEM_FLOAT_MATCHES))
+  return project
 }
 
 // —— 标签页录制（tab-record）：系统脚本，注册跟随「有没有页在录」——
@@ -354,26 +331,27 @@ export async function syncAllBuiltins(projects: ScriptProject[]): Promise<void> 
   // 录制系统脚本跟随「有没有标签页在记活动」（与脚本集合无关）：SW 冷启动 / 扩展更新恢复时
   // 一并同步，保证「正在录的那一页」在重注册后依然生效
   const recorder = await syncTabRecorder().catch(() => null)
-  // 页面检查器系统脚本同样与脚本集合无关：冷启动 / 扩展更新后必须补回（扩展更新会清空全部注册）
+  // 页面检查器 / 浮层宿主系统脚本同样与脚本集合无关：冷启动 / 扩展更新后必须补回
+  // （扩展更新会清空全部注册）
   const inspector = await syncPageInspector().catch(() => null)
-  // 浮层宿主常驻件同理（它也是注册件，扩展更新清空注册后必须补回）
-  await syncFloatHost().catch(() => {})
-  // 中继件并集把在册系统脚本算上（录制 / 检查器上行走桥，页面里没有中继件就是断流）
-  const system = [recorder, inspector].filter((p): p is ScriptProject => p != null)
+  const float = await syncFloatHost().catch(() => null)
+  // 中继件并集把在册系统脚本算上（录制 / 检查器 / 浮层宿主都走桥，页面里没有中继件就是断流）
+  const system = [recorder, inspector, float].filter((p): p is ScriptProject => p != null)
   if (system.length) await syncScriptRelay([...projects, ...system])
 }
 
 /**
  * 重算录制系统脚本的注册（挂包侧注册串行队列）。录制开关变更后（开启 / 关闭 / 标签页关闭）
- * 由调用方触发。注册态变化后都要重汇中继件并集：在册系统脚本（录制 / 检查器）必须覆盖，
- * 不在册时并集回落为纯用户脚本。
+ * 由调用方触发。注册态变化后都要重汇中继件并集：在册系统脚本（录制 / 检查器 / 浮层宿主）必须
+ * 覆盖，不在册时并集回落为纯用户脚本。
  */
 export function refreshTabRecorder(): Promise<void> {
   return enqueueRegistration(async () => {
     const recorder = await syncTabRecorder()
     const inspector = await syncPageInspector()
+    const float = await syncFloatHost().catch(() => null)
     const projects = await listProjects()
-    const system = [recorder, inspector].filter((p): p is ScriptProject => p != null)
+    const system = [recorder, inspector, float].filter((p): p is ScriptProject => p != null)
     await syncScriptRelay(system.length ? [...projects, ...system] : projects)
   })
 }
@@ -383,21 +361,21 @@ export function refreshTabRecorder(): Promise<void> {
  * 扩展更新恢复时由 background 调用。汇合三路：
  *   · 页面检查器系统脚本 —— 与脚本集合无关、恒注册；
  *   · 中继件 —— 跟随「启用脚本的匹配并集」（包内 relay/sync.ts 的 syncScriptRelay），
- *     在册系统脚本（录制 / 检查器）必须算上 —— 否则录制期间改一次脚本，中继件缩回
- *     用户脚本并集，录制断流、检查器瞎掉；
- *   · 浮层宿主常驻件 —— 恒注册，搭这条队列只为少一处接线（幂等，注册面未变即跳过）。
+ *     在册系统脚本（录制 / 检查器 / 浮层宿主）必须算上 —— 否则录制期间改一次脚本，中继件缩回
+ *     用户脚本并集，录制断流、检查器瞎掉、浮层收不到指令；
+ *   · 浮层宿主系统脚本 —— 恒注册，搭这条队列只为少一处接线（幂等，注册面未变即跳过）。
  * 录制系统脚本有自己的入口（`refreshTabRecorder`）。
  */
 export function refreshBuiltinScripts(): Promise<void> {
   return enqueueRegistration(async () => {
     const inspector = await syncPageInspector()
+    const float = await syncFloatHost().catch(() => null)
     const projects = await listProjects()
     const recorder = (await hasRecordingTabSession())
       ? await tabRecorderProject().catch(() => null)
       : null
-    const system = [recorder, inspector].filter((p): p is ScriptProject => p != null)
+    const system = [recorder, inspector, float].filter((p): p is ScriptProject => p != null)
     await syncScriptRelay(system.length ? [...projects, ...system] : projects)
-    await syncFloatHost()
   })
 }
 

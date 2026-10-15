@@ -6,7 +6,14 @@
 // registerScript 路径（GM 包装 + 脚本桥一并内联，中继件并集须把系统脚本算上，
 // 见 engine.ts 的调用处）。
 import type { ScriptProject } from './types'
-import { INSPECTOR_HOST_FILE, INSPECTOR_HOST_ID, TAB_RECORDER_FILE, TAB_RECORDER_ID } from '@duoling/builtin-scripts'
+import {
+  FLOAT_HOST_FILE,
+  FLOAT_HOST_ID,
+  INSPECTOR_HOST_FILE,
+  INSPECTOR_HOST_ID,
+  TAB_RECORDER_FILE,
+  TAB_RECORDER_ID,
+} from '@duoling/builtin-scripts'
 import { defaultConfig } from '@duoling/userscript-runtime'
 
 /** 件文件内容缓存（同一扩展版本内产物不可变，读一次就够） */
@@ -30,6 +37,9 @@ export const SYSTEM_TAB_RECORD_MATCHES = ALWAYS_ON_MATCHES
 
 /** 页面检查器系统脚本的匹配面（engine 的「在册没变就跳过」比对面也用它） */
 export const SYSTEM_INSPECTOR_MATCHES = ALWAYS_ON_MATCHES
+
+/** 浮层宿主系统脚本的匹配面（engine 的「在册没变就跳过」比对面也用它） */
+export const SYSTEM_FLOAT_MATCHES = ALWAYS_ON_MATCHES
 
 /**
  * 页面检查器系统脚本的注册态（每次调用现取：源码有缓存，项目对象是廉价派生）。
@@ -62,6 +72,37 @@ export async function tabRecorderProject(): Promise<ScriptProject> {
     name: '页面录制',
     enabled: true,
     config: { ...defaultConfig(SYSTEM_TAB_RECORD_MATCHES), runAt: 'document_start', allFrames: true },
+    source: { code, savedAt: now },
+    createdAt: now,
+  }
+}
+
+/**
+ * 浮层宿主系统脚本的注册态（每次调用现取：源码有缓存，项目对象是廉价派生）。
+ * enabled 恒真 —— 它没有用户开关，与检查器同为「扩展托管、恒注册」。
+ *
+ * **占位符替换**：件源码里的 `__DL_FLOAT_PANEL_URL__` / `__DL_FLOAT_EXT_NAME__`
+ * 在这里替换成 JSON 字面量（浮层页地址与扩展显示名只有扩展侧取得到，而注册项是静态字符串；
+ * 件包因此不认识 chrome.* 与扩展身份）。按「引号包住的完整 token」替换 —— esbuild 的产物
+ * 一律用双引号输出字符串字面量，这个匹配形态是稳定的；找不到 token 说明产物变了，宁可炸出声。
+ */
+export async function floatHostProject(panelUrl: string, extensionName: string): Promise<ScriptProject> {
+  const raw = await loadSystemScriptCode(FLOAT_HOST_FILE)
+  const PANEL_TOKEN = '"__DL_FLOAT_PANEL_URL__"'
+  const NAME_TOKEN = '"__DL_FLOAT_EXT_NAME__"'
+  if (!raw.includes(PANEL_TOKEN) || !raw.includes(NAME_TOKEN)) {
+    throw new Error('浮层宿主件源码缺占位符（构建产物与替换约定不符）：' + FLOAT_HOST_FILE)
+  }
+  const code = raw
+    .replaceAll(PANEL_TOKEN, JSON.stringify(panelUrl))
+    .replaceAll(NAME_TOKEN, JSON.stringify(extensionName))
+  const now = Date.now()
+  return {
+    v: 2,
+    uuid: FLOAT_HOST_ID,
+    name: '浮层宿主',
+    enabled: true,
+    config: { ...defaultConfig(SYSTEM_FLOAT_MATCHES), runAt: 'document_start' },
     source: { code, savedAt: now },
     createdAt: now,
   }
