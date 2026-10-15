@@ -26,10 +26,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 版本不写在这里：本 action 会直接读 package.json 的 packageManager 字段，
+      # 保持单一真相源（两处都写且不一致时它会直接报 Multiple versions 错）
       - uses: pnpm/action-setup@v4
-        with:
-          # 与 package.json 的 packageManager 字段同改
-          version: 11.9.0
 
       - uses: actions/setup-node@v4
         with:

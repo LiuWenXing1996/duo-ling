@@ -243,10 +243,10 @@ function toZipEntries(scripts) {
 const HELP = `用户脚本包生成器：把脚本素材目录打成扩展可导入的 zip
 
 用法：
-  pnpm run pack:uscripts                    # 打包仓库根 uscript-samples/ 下全部样例 → tmp/
-  pnpm run pack:uscripts --list              # 列出可用样例
-  pnpm run pack:uscripts <目录> [<目录>…]     # 只打指定目录（素材目录，不是 zip）
-  pnpm run pack:uscripts <目录> -o 包.zip     # 指定输出路径
+  pnpm run pack:uscripts                   # 打包仓库根 uscript-samples/ 下全部样例 → tmp/
+  pnpm run pack:uscripts --list            # 列出可用样例
+  pnpm run pack:uscripts <目录> [<目录>…]  # 只打指定目录（素材目录，不是 zip）
+  pnpm run pack:uscripts <目录> -o 包.zip  # 指定输出路径
 
 选项：
   -o, --out <文件>        输出 zip 路径（默认 tmp/uscripts-<时间戳>.zip）

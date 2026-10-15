@@ -31,7 +31,7 @@
 
 ## 常用命令
 
-> 本表是命令清单的登记处。**包管理固定 pnpm**（版本真相源是 `package.json` 的 `packageManager`）：用 npm 装依赖会被 `devEngines` 直接拦住（非警告）；另注意 pnpm 传参**不写 `--`**，脚本名之后的参数原样转发（写了 `--` 反而会被当成参数送进脚本 —— 与 npm 相反）。
+> 本表是命令清单的登记处。**包管理固定 pnpm**（版本真相源是 `package.json` 的 `packageManager`）：用 npm 装依赖会被 `devEngines` 直接拦住（非警告）；另注意 pnpm 传参**不写 `--`**，脚本名之后的参数原样转发（写了 `--` 反而会被当成参数送进脚本 —— 与 npm 相反）。**pnpm 配置一律写 `pnpm-workspace.yaml`**（`nodeLinker` / 依赖构建白名单 / hoist 这类只有它读），`.npmrc` 只读 auth 与 registry —— 写错地方不报错、也不生效。
 
 | 命令 | 说明 |
 | --- | --- |
