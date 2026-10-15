@@ -48,7 +48,7 @@ describe('startSwKeepalive', () => {
     sendMessage.mockRejectedValue(new Error('Could not establish connection'))
     const { startSwKeepalive, SW_KEEPALIVE_INTERVAL_MS } = await loadKeepalive()
     startSwKeepalive()
-    await expect(vi.advanceTimersByTimeAsync(SW_KEEPALIVE_INTERVAL_MS)).resolves.toBeUndefined()
+    await vi.advanceTimersByTimeAsync(SW_KEEPALIVE_INTERVAL_MS)
     expect(sendMessage).toHaveBeenCalledTimes(2)
   })
 
