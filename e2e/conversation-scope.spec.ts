@@ -1,7 +1,7 @@
 // 会话归属按标签页的端测。
 //
 // 为什么以前做不了：「会话」只有走完一次 `chat:start` 才落库，而它要模型 ⇒ 只能人肉手测。
-// 现在用 `scripts/model-stub.mjs` 的本地假模型顶替真模型，这条链路能在无头 CI 上跑完，于是：
+// 现在用 `scripts/model-stub.mts` 的本地假模型顶替真模型，这条链路能在无头 CI 上跑完，于是：
 //   · 打开面板不产生会话（没发消息就没有会话）；
 //   · 在 A 发一条 ⇒ 会话归 A，新开的 B 看不到它（归属）；
 //   · 刷新 A ⇒ 会话不丢、不换、也不新建；
@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extensionIdFromServiceWorker, getServiceWorker, launchExtensionContext } from './extension'
-import { startModelStub } from '../scripts/model-stub.mjs'
+import { startModelStub } from '../scripts/model-stub.mts'
 
 /** 浮层对话页（`installWindowApi()` 在这里挂上 window.api） */
 const APP_PAGE = 'floatpanel.html'

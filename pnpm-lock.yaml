@@ -322,6 +322,9 @@ importers:
       '@types/chrome':
         specifier: ^0.2.9
         version: 0.2.9
+      '@types/node':
+        specifier: ^26.5.1
+        version: 26.5.1
       '@types/tampermonkey':
         specifier: ^5.5.0
         version: 5.5.0

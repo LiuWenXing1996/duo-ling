@@ -3,7 +3,7 @@
 // 供 release.yml（建 Release 时填 notes）与 sync-release-notes.yml（例外修正时重写 notes）共用，
 // 保证「正常建」与「例外改」使用同一套抽取逻辑、行为一致。
 //
-// 用法: node scripts/extract-changelog.mjs <tag>
+// 用法: node scripts/extract-changelog.mts <tag>
 //   tag 形如 v0.1.0 或 0.1.0；会匹配 CHANGELOG.md 中的 `## [0.1.0]` 段落，
 //   截取到下一个 `## ` 之前。空段（仅 header、无 Added/Changed/Fixed）输出友好占位。
 
@@ -12,7 +12,7 @@ import { resolve } from 'node:path'
 
 const tag = process.argv[2]
 if (!tag) {
-  console.error('用法: node scripts/extract-changelog.mjs <tag>  (如 v0.1.0)')
+  console.error('用法: node scripts/extract-changelog.mts <tag>  (如 v0.1.0)')
   process.exit(2)
 }
 
@@ -20,11 +20,11 @@ if (!tag) {
 const version = tag.replace(/^v/, '')
 
 const file = resolve(process.cwd(), 'CHANGELOG.md')
-let text
+let text: string
 try {
   text = readFileSync(file, 'utf8')
 } catch (err) {
-  console.error(`读取 ${file} 失败: ${err.message}`)
+  console.error(`读取 ${file} 失败: ${(err as Error).message}`)
   process.exit(4)
 }
 const lines = text.split('\n')
@@ -52,7 +52,7 @@ for (let i = start + 1; i < lines.length; i++) {
     break
   }
 }
-let block = lines.slice(start, end)
+const block = lines.slice(start, end)
 
 // 去掉首尾空行，但保留 header 行
 while (block.length && block[block.length - 1].trim() === '') block.pop()

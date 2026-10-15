@@ -51,19 +51,24 @@ const CRC_TABLE = (() => {
   return t
 })()
 
-function crc32(buf) {
+function crc32(buf: Uint8Array): number {
   let c = 0xffffffff
   for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8)
   return (c ^ 0xffffffff) >>> 0
+}
+
+interface ZipEntry {
+  name: string
+  data: Buffer
 }
 
 /**
  * 打成 zip（method = 0 STORE，flate 交给导入侧的 fflate 解压即可）。
  * 条目顺序 = 入参顺序（调用方已排序），故同样输入产出同样字节。
  */
-function zipStore(entries) {
-  const chunks = []
-  const central = []
+function zipStore(entries: ZipEntry[]): Buffer {
+  const chunks: Buffer[] = []
+  const central: Buffer[] = []
   let offset = 0
 
   for (const { name, data } of entries) {
@@ -127,16 +132,16 @@ function zipStore(entries) {
 /**
  * 回读刚写出的 zip 并逐条核对（防手写 zip 写出「能生成但导入侧读不出」的包）：
  * 走中央目录拿名字 / CRC / 本地头偏移，再跳到偏移处核对本地头与数据 CRC。
- * @returns {string[]} 问题列表（空 = 通过）
+ * 返回问题列表（空 = 通过）。
  */
-function verifyZip(buf, expected) {
-  const problems = []
+function verifyZip(buf: Buffer, expected: ZipEntry[]): string[] {
+  const problems: string[] = []
   if (buf.length < 22 || buf.readUInt32LE(buf.length - 22) !== 0x06054b50) {
     return ['找不到中央目录结束记录（EOCD）']
   }
   const count = buf.readUInt16LE(buf.length - 12) // EOCD: +10 条目总数（+8 是本磁盘条目数）
   let p = buf.readUInt32LE(buf.length - 6)
-  const seen = []
+  const seen: ZipEntry[] = []
   for (let i = 0; i < count; i++) {
     if (buf.readUInt32LE(p) !== 0x02014b50) return [`第 ${i + 1} 条中央目录签名不对`]
     const nameLen = buf.readUInt16LE(p + 28)
@@ -175,7 +180,7 @@ function verifyZip(buf, expected) {
 // ————————————————————————— 产物目录 → 脚本定义 —————————————————————————
 
 /** 目录名安全化：与 zip-transfer.sanitizeDirName 同规则 */
-function sanitizeDirName(name) {
+function sanitizeDirName(name: string): string {
   const cleaned = name
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_')
     .replace(/[\s.]+$/, '')
@@ -185,7 +190,7 @@ function sanitizeDirName(name) {
 }
 
 /** 在样例目录里定位源码：后缀 .user.js、且只此一份（产物目录自己的约定，打出的包不带歧义） */
-function findSourceFile(absDir, label) {
+function findSourceFile(absDir: string, label: string): string {
   const candidates = readdirSync(absDir)
     .filter((f) => statSync(join(absDir, f)).isFile() && f.toLowerCase().endsWith(SCRIPT_EXT))
     .sort()
@@ -202,7 +207,7 @@ function findSourceFile(absDir, label) {
  * 单文件摆放：<dir>/<任意名>.user.js（目录里只此一份）。配置由文件头部的 // ==UserScript== 块决定；
  * name 优先取头部 @name，否则用目录名。
  */
-function readScriptDef(dir, overrides) {
+function readScriptDef(dir: string, overrides: { name?: string }): { label: string; name: string; code: string } {
   const absDir = resolve(dir)
   if (!existsSync(absDir) || !statSync(absDir).isDirectory()) {
     throw new Error(`不是目录或不存在：${dir}`)
@@ -212,16 +217,16 @@ function readScriptDef(dir, overrides) {
   const sourcePath = findSourceFile(absDir, label)
   const code = readFileSync(sourcePath, 'utf8')
 
-  const metaName = (code.match(/^\s*\/\/\s*@name\s+(.+?)\s*$/m) || [])[1]
+  const metaName = code.match(/^\s*\/\/\s*@name\s+(.+?)\s*$/m)?.[1]
   const name = (overrides.name ?? (metaName && metaName.trim())) || label
 
   return { label, name, code }
 }
 
 /** 脚本定义 → zip 条目（每脚本一份 <名字>.user.js；目录名重名加 -2 后缀，与 buildScriptZip 同规则） */
-function toZipEntries(scripts) {
-  const entries = []
-  const used = new Set()
+function toZipEntries(scripts: Array<{ name: string; code: string }>): ZipEntry[] {
+  const entries: ZipEntry[] = []
+  const used = new Set<string>()
   for (const s of scripts) {
     // 名字已带 .user.js 后缀时先剥掉，免得打成 foo.user.js.user.js（与 buildScriptZip 同规则）
     const base = sanitizeDirName(s.name.replace(/\.user\.js$/i, ''))
@@ -261,8 +266,16 @@ const HELP = `用户脚本包生成器：把样例构建产物（packages/uscrip
   <目录>/<名字>.user.js   # 配置写在产物头部的 // ==UserScript== 块；与导出 zip 解开的形态一致
 `
 
-function parseArgs(argv) {
-  const opts = { dirs: [], verify: true, list: false }
+interface PackOpts {
+  dirs: string[]
+  verify: boolean
+  list: boolean
+  out?: string
+  name?: string
+}
+
+function parseArgs(argv: string[]): PackOpts {
+  const opts: PackOpts = { dirs: [], verify: true, list: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     switch (a) {
@@ -292,14 +305,14 @@ function parseArgs(argv) {
   return opts
 }
 
-function listSamples() {
+function listSamples(): string[] {
   if (!existsSync(SAMPLES_DIR)) return []
   return readdirSync(SAMPLES_DIR, { withFileTypes: true })
     .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
     .map((d) => d.name)
 }
 
-function main() {
+function main(): void {
   const opts = parseArgs(process.argv.slice(2))
 
   if (opts.list) {
@@ -353,13 +366,13 @@ function main() {
   )
 }
 
-function stamp() {
+function stamp(): string {
   const d = new Date()
-  const p = (n) => String(n).padStart(2, '0')
+  const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`
 }
 
-function rel(p) {
+function rel(p: string): string {
   return p.startsWith(REPO_ROOT) ? p.slice(REPO_ROOT.length + 1) : p
 }
 

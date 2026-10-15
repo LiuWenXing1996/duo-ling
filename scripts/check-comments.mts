@@ -19,16 +19,16 @@ const root = new URL('..', import.meta.url).pathname
 // 样例包（packages/uscript-samples）被 packages 一并覆盖：源码 TS 与 dist 产物（raw 原样拷贝
 // 与构建 banner）都扫得到。
 const scanDirs = ['src', 'packages', 'e2e', 'scripts']
-const rootFileRe = /\.(ts|mjs|js|vue|css)$/
+const rootFileRe = /\.(mts|ts|mjs|js|vue|css)$/
 const scanRootFiles = readdirSync(root, { withFileTypes: true })
   .filter((e) => e.isFile() && rootFileRe.test(e.name))
   .map((e) => join(root, e.name))
-const extRe = /\.(ts|vue|js|mjs|css|less)$/
-const selfRel = 'scripts/check-comments.mjs'
+const extRe = /\.(mts|ts|vue|js|mjs|css|less)$/
+const selfRel = 'scripts/check-comments.mts'
 
 // 每类都给足变体：只认「唯一写法」时，换个分隔符/大小写就绕过去了。
 // 刻意不收的：裸「之前/以前/旧版」这类 —— 「读之前」「可回旧版」是正常表述，收了全是误报。
-const RULES = [
+const RULES: Array<[string, RegExp]> = [
   ['评审引用', /评审|拍板/],
   ['变更史', /原本|此前|旧实现|已移除|已废弃|已删除|历史遗留|不再使用|(?<!还)原为|原先/],
   ['日期', /\b20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}\b|20\d{2}\s*年\s*\d{1,2}\s*月/],
@@ -41,8 +41,8 @@ const MARKER_RE = /^\*?\s*allow:comments/
 const DOC_REF_RE = /(?:见|参见|详见|参考)\s*([\w./-]+\.mdx?)/g
 
 /** 注释里引用的仓库文档不存在时报错（相对仓库根或引用所在目录解析）。 */
-function missingDocRefs(text, file) {
-  const out = []
+function missingDocRefs(text: string, file: string): string[] {
+  const out: string[] = []
   DOC_REF_RE.lastIndex = 0
   for (const m of text.matchAll(DOC_REF_RE)) {
     const ref = m[1]
@@ -53,8 +53,8 @@ function missingDocRefs(text, file) {
   return out
 }
 
-function listFiles(dir) {
-  const out = []
+function listFiles(dir: string): string[] {
+  const out: string[] = []
   let entries
   try {
     entries = readdirSync(dir, { withFileTypes: true })
@@ -71,9 +71,10 @@ function listFiles(dir) {
 }
 
 /** 从源码抠出注释行（// 行注释、块注释逐行、<!-- --> HTML 注释）；字符串与正则内容不算注释。 */
-function commentLines(code) {
-  const out = []
-  let state = 'code'
+function commentLines(code: string): Array<{ line: number; text: string }> {
+  const out: Array<{ line: number; text: string }> = []
+  type State = 'code' | 'line' | 'block' | 'html' | 'q1' | 'q2' | 'q3'
+  let state: State = 'code'
   let line = 1
   let buf = ''
   const push = () => {
@@ -146,7 +147,7 @@ function commentLines(code) {
   return out
 }
 
-function matchRules(text) {
+function matchRules(text: string): string[] {
   return RULES.filter(([, re]) => re.test(text)).map(([name]) => name)
 }
 
@@ -165,16 +166,16 @@ for (const file of files) {
   const comments = commentLines(code)
 
   // 标记行 → 豁免其物理下一行
-  const exemptLines = new Set()
+  const exemptLines = new Set<number>()
   for (const c of comments) {
     if (MARKER_RE.test(c.text)) exemptLines.add(c.line + 1)
   }
-  const suppressed = new Map() // 标记行 → 实际豁免次数（孤儿检测用）
+  const suppressed = new Map<number, number>() // 标记行 → 实际豁免次数（孤儿检测用）
   for (const c of comments) {
     if (MARKER_RE.test(c.text)) suppressed.set(c.line, 0)
   }
 
-  const hits = []
+  const hits: Array<{ line: number; text: string; names: string[] }> = []
   for (const c of comments) {
     if (MARKER_RE.test(c.text)) continue
     if (exemptLines.has(c.line)) {

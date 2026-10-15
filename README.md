@@ -53,5 +53,5 @@
 ## 后续接入
 
 - **权限引导**：后续新增需授权的权限一并并入「引导」标签页（承载约定与直达管理页的版本分支见 [AGENTS.md](AGENTS.md) 硬性底线「权限引导」）。
-- **自定义接口地址**：已支持 —— 「设置 → 添加模型」的服务商下拉末尾有「自定义」，选中后填任意 OpenAI 兼容端点（自建网关 / 代理 / 本地模型，如 ollama、vLLM）。地址填的是**完整的 Chat Completions 接口地址，请求时原样发出**，不做任何路径拼接；API 密钥可留空。权限无需额外申请：`host_permissions` 里的 `<all_urls>`（用户脚本注入本就要求）已覆盖任意地址的跨域 fetch。本机假模型的接法见 `scripts/model-stub.mjs`。
+- **自定义接口地址**：已支持 —— 「设置 → 添加模型」的服务商下拉末尾有「自定义」，选中后填任意 OpenAI 兼容端点（自建网关 / 代理 / 本地模型，如 ollama、vLLM）。地址填的是**完整的 Chat Completions 接口地址，请求时原样发出**，不做任何路径拼接；API 密钥可留空。权限无需额外申请：`host_permissions` 里的 `<all_urls>`（用户脚本注入本就要求）已覆盖任意地址的跨域 fetch。本机假模型的接法见 `scripts/model-stub.mts`。
 - **Firefox 跨端**：`build:firefox` 可构建，`sidebar_action` 适配待三期。

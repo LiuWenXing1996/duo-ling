@@ -209,7 +209,7 @@
   padding: 0;
 }
 
-/* 配图：截图成对维护（scripts/help-screenshots.mjs，--dark 出暗色版落在同目录）。
+/* 配图：截图成对维护（scripts/help-screenshots.mts，--dark 出暗色版落在同目录）。
    边框兜住深浅两版的边缘（工作台图满幅、自身不带圆角）；暗色版用 content 换图 ——
    走 .dark 类与主题切换同源，emulateMedia / 系统切换都跟得上 */
 .help-prose img {
