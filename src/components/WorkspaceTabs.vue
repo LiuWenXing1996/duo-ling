@@ -4,6 +4,7 @@
 // 顶栏只留标签本身。取数实现见 src/lib/build-info.ts。
 import type { WorkspaceTab } from '@/types/tab'
 import {
+  BookOpen as UiBookOpen,
   Clock as UiClock,
   Code as UiCode,
   Compass as UiCompass,
@@ -55,6 +56,7 @@ const emit = defineEmits<{
         <ui-clock v-else-if="tab.kind === 'tab-activity'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <!-- 文件管理：整库文件树，用目录树图标；不给它的话会落到兜底的齿轮，看着像「设置」 -->
         <ui-folder-tree v-else-if="tab.kind === 'lfs-browser'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <ui-book-open v-else-if="tab.kind === 'help'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
         <!--
           未保存标记：夹在图标与标题之间，**不紧贴标题** —— 紧贴时不管什么颜色都会被读成名字的一部分

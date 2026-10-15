@@ -161,7 +161,7 @@ describe('浮层宿主件 · init 装配', () => {
 })
 
 describe('浮层宿主件 · clamp（拖拽落点夹进视口）', () => {
-  const PANEL: Size = { width: 384, height: 560 }
+  const PANEL: Size = { width: 384, height: 600 }
   const VIEWPORT: Size = { width: 1280, height: 800 }
 
   it('视口内的落点原样保留', () => {

@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { AlertTriangle as UiAlertTriangle } from '@lucide/vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import GuidePanel from '@/components/GuidePanel.vue'
+import HelpPanel from '@/components/HelpPanel.vue'
 import WorkspaceTabs from '@/components/WorkspaceTabs.vue'
 import UserscriptListPanel from '@/components/userscript/UserscriptListPanel.vue'
 import UserscriptEditorPanel from '@/components/userscript/UserscriptEditorPanel.vue'
@@ -120,6 +121,15 @@ function openGuideTab(): void {
     openTabs.value.push({ kind: 'guide', id: 'guide', title: '引导' })
   }
   activate('guide')
+}
+
+// 打开帮助标签页：内置使用说明（全局仅一个）。左侧导航的「帮助」按钮与 `#/help` 深链都到这里。
+// 正文与目录都在包内（lib/help/），离线可读 —— 不依赖任何远程文档。
+function openHelpTab(): void {
+  if (!openTabs.value.some((t) => t.kind === 'help')) {
+    openTabs.value.push({ kind: 'help', id: 'help', title: '帮助' })
+  }
+  activate('help')
 }
 
 // 打开设置标签页：若已打开则激活，否则新开一个
@@ -247,9 +257,9 @@ watch(
   { deep: true, immediate: true }
 )
 
-// 暴露给根布局：左侧导航栏「设置 / 脚本列表 / 活动历史 / 文件管理 / 会话历史」与脚本管理器的「编辑」入口。
+// 暴露给根布局：左侧导航栏「设置 / 脚本列表 / 活动历史 / 文件管理 / 会话历史 / 帮助」与脚本管理器的「编辑」入口。
 // 其余调试面板不走这里 —— 它们的入口在设置分区里，经 @open-tab 到 openDevTab
-defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openSessionHistoryTab, openTabActivityTab, openLfsTab, openUserscriptEditor })
+defineExpose({ openGuideTab, openHelpTab, openSettingsTab, openUserscriptListTab, openSessionHistoryTab, openTabActivityTab, openLfsTab, openUserscriptEditor })
 </script>
 
 <template>
@@ -279,6 +289,8 @@ defineExpose({ openGuideTab, openSettingsTab, openUserscriptListTab, openSession
       >
         <!-- 引导标签：需要用户去浏览器里开权限/开关的说明与直达入口（全局唯一） -->
         <guide-panel v-if="tab.kind === 'guide'" />
+        <!-- 帮助标签：内置使用说明，正文与目录都在包内（全局唯一） -->
+        <help-panel v-else-if="tab.kind === 'help'" />
         <!-- 设置标签：渲染设置面板；面板里的「引导」与调试面板入口都由宿主接住切标签页 -->
         <settings-panel
           v-else-if="tab.kind === 'settings'"
