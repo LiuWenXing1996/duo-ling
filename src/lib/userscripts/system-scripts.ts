@@ -6,7 +6,7 @@
 // registerScript 路径（GM 包装 + 脚本桥一并内联，中继件并集须把系统脚本算上，
 // 见 engine.ts 的调用处）。
 import type { ScriptProject } from './types'
-import { TAB_RECORDER_FILE, TAB_RECORDER_ID } from '@duoling/builtin-scripts'
+import { INSPECTOR_HOST_FILE, INSPECTOR_HOST_ID, TAB_RECORDER_FILE, TAB_RECORDER_ID } from '@duoling/builtin-scripts'
 import { defaultConfig } from '@duoling/userscript-runtime'
 
 /** 件文件内容缓存（同一扩展版本内产物不可变，读一次就够） */
@@ -22,15 +22,32 @@ async function loadSystemScriptCode(file: string): Promise<string> {
   return code
 }
 
-// 录制系统脚本的匹配面：覆盖全部站点。录制绑**标签页**不绑站点 —— 用户点的是
-// 「这一页在录」，此后这一页导航到哪个 host 都该继续录；而注册没有 tab 维度
-// （RegisteredUserScript 的匹配字段全是 URL），只能覆盖全部。
-// 注意：本文件涉及这条匹配串的说明只用行注释 —— 串里的「*」紧跟「/」，写进块注释
-// 会被当成注释结束符，注释提前截断会连带大片代码解析错位。
-const TAB_RECORD_MATCHES = ['*://*/*']
+/** 常驻系统脚本的匹配面：覆盖全部站点（注册没有 tab 维度，目标页由用户动作那一刻决定） */
+const ALWAYS_ON_MATCHES = ['*://*/*']
 
 /** 录制系统脚本的匹配面（engine 的「在册没变就跳过」比对面也用它） */
-export const SYSTEM_TAB_RECORD_MATCHES = TAB_RECORD_MATCHES
+export const SYSTEM_TAB_RECORD_MATCHES = ALWAYS_ON_MATCHES
+
+/** 页面检查器系统脚本的匹配面（engine 的「在册没变就跳过」比对面也用它） */
+export const SYSTEM_INSPECTOR_MATCHES = ALWAYS_ON_MATCHES
+
+/**
+ * 页面检查器系统脚本的注册态（每次调用现取：源码有缓存，项目对象是廉价派生）。
+ * enabled 恒真 —— 它没有用户开关，与录制件同为「扩展托管、恒注册」。
+ */
+export async function pageInspectorProject(): Promise<ScriptProject> {
+  const code = await loadSystemScriptCode(INSPECTOR_HOST_FILE)
+  const now = Date.now()
+  return {
+    v: 2,
+    uuid: INSPECTOR_HOST_ID,
+    name: '页面检查器',
+    enabled: true,
+    config: { ...defaultConfig(SYSTEM_INSPECTOR_MATCHES), runAt: 'document_start' },
+    source: { code, savedAt: now },
+    createdAt: now,
+  }
+}
 
 /**
  * 录制系统脚本的注册态（每次调用现取：源码有缓存，项目对象是廉价派生）。
@@ -44,7 +61,7 @@ export async function tabRecorderProject(): Promise<ScriptProject> {
     uuid: TAB_RECORDER_ID,
     name: '页面录制',
     enabled: true,
-    config: { ...defaultConfig(TAB_RECORD_MATCHES), runAt: 'document_start', allFrames: true },
+    config: { ...defaultConfig(SYSTEM_TAB_RECORD_MATCHES), runAt: 'document_start', allFrames: true },
     source: { code, savedAt: now },
     createdAt: now,
   }

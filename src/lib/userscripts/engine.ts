@@ -23,16 +23,19 @@ import {
   FLOAT_HOST_FILE,
   FLOAT_HOST_ID,
   FLOAT_HOST_WORLD_ID,
-  INSPECTOR_HOST_FILE,
   INSPECTOR_HOST_ID,
-  INSPECTOR_HOST_WORLD_ID,
   TAB_RECORDER_ID,
 } from '@duoling/builtin-scripts'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 // 项目读自状态库（IndexedDB，SW 与 offscreen 共用）：注册链路不能在 offscreen 存活上下注
 import { listProjects } from './project-store'
 // 系统脚本（原内置件）：扩展随包分发、uuid 固定，与用户脚本走同一条 registerScript 注册链
-import { SYSTEM_TAB_RECORD_MATCHES, tabRecorderProject } from './system-scripts'
+import {
+  SYSTEM_INSPECTOR_MATCHES,
+  SYSTEM_TAB_RECORD_MATCHES,
+  pageInspectorProject,
+  tabRecorderProject,
+} from './system-scripts'
 // 注册判据就一句「有没有页在录」—— 直接查存续表，录制不再有第二本账
 import { hasRecordingTabSession } from './runtime-db'
 // 匹配并集比对（「未变则跳过」）：已上移包内，随 index 导出
@@ -95,7 +98,7 @@ const BUILTIN_META: Record<string, { name: string; world: string; note: string }
   },
   [INSPECTOR_HOST_ID]: {
     name: '页面检查器',
-    world: '用户脚本世界',
+    world: '页面主世界',
     note: '在页面里待命：收到指令才点选元素 / 抓快照 / 读环境，平时不亮任何 UI',
   },
   [FLOAT_HOST_ID]: {
@@ -179,62 +182,40 @@ export function builtinsOnPage(
   })
 }
 
-/** 页面检查器常驻件的匹配面：覆盖全部站点（理由见 syncPageInspector 的说明） */
-const INSPECTOR_HOST_MATCHES = ['<all_urls>']
-
 /**
- * 维护页面检查器常驻件的注册（幂等可重入；调用方负责串行化）。
+ * 维护页面检查器系统脚本的注册（幂等可重入；调用方负责串行化）。返回在册时的项目对象
+ * （调用方把它算进中继件并集 —— 件上行走桥，MAIN 世界没有它的注册就没有中继件）。
  *
  * **为什么常驻**：拾取的时刻是「页面早已打开、用户刚点按钮」，而注册件只在页面**开始加载**时
- * 注入，两者差的正是这个时间点；且注册件没有返回值通道。于是走「加载即到位待命，指令与结果走
- * 消息」：下发见 page-inspector-bridge 的 runInspectorCommand，上行由件 sendMessage 回 SW。
+ * 注入，两者差的正是这个时间点。于是走「加载即到位待命」：件启动即建常驻 Port，
+ * 指令经 DL Port 事件帧下去、结果经脚本桥 __dlEvent 信封上来（见 page-inspector-bridge）。
  *
  * **匹配面全站**：拾取的目标由用户点按钮那一刻决定，而注册没有 tab 维度（RegisteredUserScript
  * 的匹配字段全是 URL），只能覆盖全部 —— 代价是每个普通网页里都有一份待命代码（零 UI、零网络，
- * 只装一个消息监听）。与录制件同理，判据不同：录制看「有没有页在录」，本件恒在。
+ * 只建一条通道）。与录制件同理但判据不同：录制看「有没有页在录」，本件恒在。
  *
- * **它的世界必须开 messaging**：件靠 chrome.runtime 收发指令与结果，而自定义世界不继承默认世界
- * 配置（与中继件 / 转发件同一坑）。
+ * MAIN 世界系统脚本：件是只读观察者，页面看得见它做的一切（DOM 本就共享，与旧独立世界形态
+ * 相比没有实质变化）；世界配置 / GM 包装 / 脚本桥随统一注册链自动就位，不再单独 configureWorld。
  */
-async function syncPageInspector(): Promise<void> {
-  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
+async function syncPageInspector(): Promise<ScriptProject | null> {
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return null
   let existing: chrome.userScripts.RegisteredUserScript | undefined
   try {
     existing = (await chrome.userScripts.getScripts()).find((s) => s.id === INSPECTOR_HOST_ID)
   } catch {
-    return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
+    return null // 引擎不可用时静默跳过（上层已有状态横幅兜底）
   }
-  // 「没变就跳过」必须同时看**匹配面与注册形态**：件从两段（`{ file }` + 装配段 `{ code }`）改成
-  // 单段后，只比 matches 会误判成「没变」而跳过重注册 —— 旧的装配段留在册上，而它要找的运行器键
-  // 在新件里已不存在，结果件只会报「运行器未装配到本世界」。形态的真相源是 registry.ts 的声明，
-  // 在册形态与声明不符就该重注册。
+  const project = await pageInspectorProject()
+  // 「没变就跳过」看**匹配面与注册形态**：旧形态是独立世界 `{ file }` 注册，形态不符即重注册
+  // （registerScript 会先注销同 id 旧注册，旧的独立世界残留由此清掉）。
   const jsSegs = existing?.js
-  const shapeOk = !!jsSegs && jsSegs.length === 1 && jsSegs[0].file === INSPECTOR_HOST_FILE
-  if (existing && shapeOk && sameMatchSet(existing, { matches: INSPECTOR_HOST_MATCHES })) return
-  const worldOk = await configureWorld(INSPECTOR_HOST_WORLD_ID)
-  if (!worldOk) {
-    console.warn(
-      '[duoling:userscript] 页面检查器世界配置失败（无 messaging，页面读取不可用）',
-      INSPECTOR_HOST_WORLD_ID,
-    )
+  const shapeOk = !!jsSegs && jsSegs.length === 1 && typeof jsSegs[0].code === 'string'
+  if (existing && shapeOk && sameMatchSet(existing, { matches: SYSTEM_INSPECTOR_MATCHES })) {
+    return project
   }
-  await chrome.userScripts.unregister({ ids: [INSPECTOR_HOST_ID] }).catch(() => {})
-  const host: chrome.userScripts.RegisteredUserScript = {
-    id: INSPECTOR_HOST_ID,
-    worldId: INSPECTOR_HOST_WORLD_ID,
-    // 单段：件自己 import 指令信封常量并装监听（件本体 = 包内 src/inspector/entry.ts）
-    js: [{ file: INSPECTOR_HOST_FILE }],
-    matches: INSPECTOR_HOST_MATCHES,
-    // document_start：件只装一条监听、不碰 DOM，尽早到位可缩小「页面加载中点按钮」的空窗
-    runAt: 'document_start',
-  }
-  try {
-    await chrome.userScripts.register([host])
-    console.log('[duoling:sw] 页面检查器常驻件注册成功：', JSON.stringify(INSPECTOR_HOST_MATCHES))
-  } catch (e) {
-    console.warn('[duoling:sw] 页面检查器常驻件注册失败：', e)
-    throw e
-  }
+  await registerScript(project)
+  console.log('[duoling:sw] 页面检查器系统脚本注册成功：', JSON.stringify(SYSTEM_INSPECTOR_MATCHES))
+  return project
 }
 
 /** 浮层宿主常驻件的匹配面：覆盖全部站点（理由见 syncFloatHost） */
@@ -371,47 +352,51 @@ async function syncTabRecorder(): Promise<ScriptProject | null> {
 /** 全量同步内置件（host-config.builtins.syncAll 的注入实现；调用方已串行化）。 */
 export async function syncAllBuiltins(projects: ScriptProject[]): Promise<void> {
   // 录制系统脚本跟随「有没有标签页在记活动」（与脚本集合无关）：SW 冷启动 / 扩展更新恢复时
-  // 一并同步，保证「正在录的那一页」在重注册后依然生效；在册时中继件并集要把它算上
-  await syncTabRecorder()
-    .then((recorder) => (recorder ? syncScriptRelay([...projects, recorder]) : undefined))
-    .catch(() => {})
-  // 页面检查器常驻件同样与脚本集合无关：冷启动 / 扩展更新后必须补回（扩展更新会清空全部注册）
-  await syncPageInspector().catch(() => {})
+  // 一并同步，保证「正在录的那一页」在重注册后依然生效
+  const recorder = await syncTabRecorder().catch(() => null)
+  // 页面检查器系统脚本同样与脚本集合无关：冷启动 / 扩展更新后必须补回（扩展更新会清空全部注册）
+  const inspector = await syncPageInspector().catch(() => null)
   // 浮层宿主常驻件同理（它也是注册件，扩展更新清空注册后必须补回）
   await syncFloatHost().catch(() => {})
+  // 中继件并集把在册系统脚本算上（录制 / 检查器上行走桥，页面里没有中继件就是断流）
+  const system = [recorder, inspector].filter((p): p is ScriptProject => p != null)
+  if (system.length) await syncScriptRelay([...projects, ...system])
 }
 
 /**
  * 重算录制系统脚本的注册（挂包侧注册串行队列）。录制开关变更后（开启 / 关闭 / 标签页关闭）
- * 由调用方触发。注册态变化后都要重汇中继件并集：录制件在册时并集必须覆盖它（上行走桥），
+ * 由调用方触发。注册态变化后都要重汇中继件并集：在册系统脚本（录制 / 检查器）必须覆盖，
  * 不在册时并集回落为纯用户脚本。
  */
 export function refreshTabRecorder(): Promise<void> {
   return enqueueRegistration(async () => {
     const recorder = await syncTabRecorder()
+    const inspector = await syncPageInspector()
     const projects = await listProjects()
-    await syncScriptRelay(recorder ? [...projects, recorder] : projects)
+    const system = [recorder, inspector].filter((p): p is ScriptProject => p != null)
+    await syncScriptRelay(system.length ? [...projects, ...system] : projects)
   })
 }
 
 /**
  * 重算**内置注入脚本**的注册（挂包侧注册串行队列）：脚本增删改 / 启停 / 删除，以及启动与
  * 扩展更新恢复时由 background 调用。汇合三路：
- *   · 脚本桥中继件 —— 跟随「启用脚本的匹配并集」（包内 relay/sync.ts 的 syncScriptRelay）；
- *     录制系统脚本在册时并集必须带上它（否则录制期间改一次脚本，中继件缩回用户脚本并集，
- *     录制断流）；
- *   · 页面检查器常驻件 —— 与脚本集合无关、恒注册，搭这条队列只为少一处接线（幂等，注册面未变即跳过）；
- *   · 浮层宿主常驻件 —— 同上，恒注册。
+ *   · 页面检查器系统脚本 —— 与脚本集合无关、恒注册；
+ *   · 中继件 —— 跟随「启用脚本的匹配并集」（包内 relay/sync.ts 的 syncScriptRelay），
+ *     在册系统脚本（录制 / 检查器）必须算上 —— 否则录制期间改一次脚本，中继件缩回
+ *     用户脚本并集，录制断流、检查器瞎掉；
+ *   · 浮层宿主常驻件 —— 恒注册，搭这条队列只为少一处接线（幂等，注册面未变即跳过）。
  * 录制系统脚本有自己的入口（`refreshTabRecorder`）。
  */
 export function refreshBuiltinScripts(): Promise<void> {
   return enqueueRegistration(async () => {
+    const inspector = await syncPageInspector()
     const projects = await listProjects()
     const recorder = (await hasRecordingTabSession())
       ? await tabRecorderProject().catch(() => null)
       : null
-    await syncScriptRelay(recorder ? [...projects, recorder] : projects)
-    await syncPageInspector()
+    const system = [recorder, inspector].filter((p): p is ScriptProject => p != null)
+    await syncScriptRelay(system.length ? [...projects, ...system] : projects)
     await syncFloatHost()
   })
 }

@@ -455,6 +455,12 @@ export const API_COMMANDS: Record<ApiRequest['c'], true> = {
 export type ApiEvent =
   /** 内部帧（脚本作者不感知）：SW 建立 Port 后立即下发，包装层据此 flush 待注册队列 */
   | { t: 'port.ready' }
+  /**
+   * 页面检查器指令（SW → 检查器系统脚本，经 Port 下行由中继件转回 MAIN 桥 onEvent）。
+   * `cmd` 是模式名（pick / snapshot / env）或 'cancel'；`reqId` 由 SW 现造，结算认它。
+   * 脚本作者不感知：检查器是系统脚本，不走 GM 能力面。
+   */
+  | { t: 'inspector.cmd'; cmd: string; reqId: string }
   /** 扩展菜单点击。id = 包装层 mint 的菜单标识 */
   | { t: 'menu.click'; id: string }
   /**
@@ -529,6 +535,12 @@ export type DlEvent =
    * 归一化即信任边界）。
    */
   | { t: 'tab.record'; kind: string; record: Json }
+  /**
+   * 页面检查器指令结果（检查器系统脚本上行）。`reqId` 由 SW 现造随指令下发，结算认它；
+   * 来源旁证（uuid 必须是检查器系统脚本自己的）在宿主侧结算处校验 —— 信号本身不敏感
+   * （页面 DOM 摘要，住在页面里的脚本本来就能读），但旁证便宜，留着防串扰。
+   */
+  | { t: 'inspector.result'; reqId: string; ok: boolean; payload: unknown }
 
 /** 桥响应信封 */
 export type ApiResponse =

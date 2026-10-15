@@ -133,11 +133,7 @@ import {
   pageInjectionBlockReason,
 } from '@/lib/element-picker-client'
 // 拾取指令的下发与配对（常驻件那半在页面里，件源码见包的 inspector/install.ts）
-import {
-  cancelPicker,
-  handleInspectorResult,
-  runInspectorCommand,
-} from '@/lib/userscripts/page-inspector-bridge'
+import { cancelPicker, runInspectorCommand } from '@/lib/userscripts/page-inspector-bridge'
 import type { ElementPickContext } from '@/shared/extension-ipc'
 import { errorText } from '@/lib/format'
 
@@ -356,8 +352,8 @@ const handlers: {
 
   // —— 拾取（浮层发起的用户动作）——
   // 目标页判据见 resolvePickTargetTab —— 与上面两条 AI 支路刻意不同，别在这里另写一份。
-  // 下发与结果配对都在 page-inspector-bridge：件在页面里常驻待命，指令经 chrome.tabs.sendMessage 进去，
-  // 结果由件 sendMessage 回来（dl-bridge 的 onUserScriptMessage 分流后交 handleInspectorResult）。
+  // 下发与结果配对都在 page-inspector-bridge：件在页面里常驻待命，指令经 DL Port 事件帧下去，
+  // 结果由件经脚本桥 __dlEvent 信封上来（dl-bridge 分流后交 handleInspectorEvent）。
   'picker:pick': async (): Promise<ElementPickContext | null> =>
     runInspectorCommand<ElementPickContext>(await resolvePickTargetTab('点选元素'), 'pick'),
 
@@ -1194,13 +1190,6 @@ export default defineBackground(() => {
   // 的 profile-cache 回拉）。SW 这里不再需要 storage.onChanged 兜底。
 
   chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
-    // 指令结果的兜底投递面：上行以 dl-bridge 的 onUserScriptMessage 为正门，这里认同一只
-    // 信封作保底 —— 结算按 reqId 幂等，两个面各送一次也无害（见 page-inspector-bridge.handleInspectorResult）。
-    if (handleInspectorResult(raw, sender)) {
-      sendResponse(true) // 收讫回执：件的 sendMessage 才会正常 resolve
-      return false
-    }
-
     const msg = raw as RuntimeRequest | undefined
     if (!msg?.kind) return
 

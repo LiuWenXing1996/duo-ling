@@ -1028,14 +1028,6 @@ export function initDlBridge(): void {
   // 响应机制：onUserScriptMessage 不支持「返回 Promise 作为响应」，必须调 sendResponse
   // 并返回 true 保持通道打开（沿用旧 GM 桥已验证的写法）。
   chrome.runtime.onUserScriptMessage.addListener((raw, sender, sendResponse) => {
-    // 页面检查器常驻件的执行结果：交 page-inspector-bridge 按 reqId 结算挂起的那次调用。
-    // 返回值 = 是否认领这条消息：信封对上就认领（世界 id 不符也只丢弃，不再往下分流）。
-    if (telemetryPort()?.onInspectorResult?.(raw, sender)) {
-      // 收讫回执：件的 sendMessage 才会正常 resolve，否则页面控制台多一条「port closed」
-      sendResponse(true)
-      return undefined
-    }
-
     // 运行标识广播（GM 包装注入即发）：交对话界面监控按 tab 登记。
     const run = raw as {
       __dlRunStart?: true
@@ -1088,6 +1080,16 @@ export function initDlBridge(): void {
       if (event && event.t === 'tab.record') {
         void ingestTabRecord(event.kind, event.record, sender.tab?.id)
         return undefined
+      }
+      // 页面检查器指令结果：交宿主侧按 reqId 结算挂起的那次调用（uuid / tabId 一并带去，
+      // 旁证与页归属都在宿主侧定）。
+      if (event && event.t === 'inspector.result') {
+        telemetryPort()?.onInspectorEvent?.(
+          evt.uuid ?? '',
+          sender.tab?.id ?? null,
+          { reqId: event.reqId, ok: event.ok, payload: event.payload },
+        )
+        return undefined // 结算是宿主侧的事，桥只递送
       }
       // sender.tab 定位出错页面（userScript 世界消息 sender 带 tab）；拿不到就无从判归属
       const tabId = sender.tab?.id

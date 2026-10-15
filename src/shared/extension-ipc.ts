@@ -10,8 +10,8 @@
 import type { ModelProfile } from './types'
 
 // —— 页面上下文档位 ——
-// 页面检查器（件本体见 @duoling/builtin-scripts 的 inspector/install.ts，USER_SCRIPT 世界
-// `us-builtin-inspector` 的常驻件）的载荷形状**定义在契约包里**：件按这些形状造数据，而件不能
+// 页面检查器（件本体见 @duoling/builtin-scripts 的 inspector/install.ts，MAIN 世界系统脚本
+// `dl-page-inspector`）的载荷形状**定义在契约包里**：件按这些形状造数据，而件不能
 // 依赖应用源码，故真相源落在 @duoling/shared。这里既转发又本地引用（本文件下游的
 // PageContextInfo / MessagePageContext 用到），消费方 import 路径不变。
 import type {

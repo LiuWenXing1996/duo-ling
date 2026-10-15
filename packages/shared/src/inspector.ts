@@ -1,13 +1,7 @@
-// 页面检查器的通道协议：下行指令信封 + 上行结果信封 + 拾取遮罩的类名。
+// 页面检查器的通道协议：拾取遮罩的类名（信封已随脚本桥协议走 —— 下行 `inspector.cmd` 事件帧、
+// 上行 `inspector.result` __dlEvent 信封，字面量都在 userscript-runtime 的 api-contract.ts）。
 //
-// 与 page-context.ts 的分工：那边定义**载荷形状**（件造什么数据），这里定义**信封**
-// （数据怎么传）。两侧共用同一组字面量 —— 消费方是件（inspector/install.ts）与应用侧
-// page-inspector-bridge.ts，改名必须两边一起改。
-
-/** 下行指令信封字段（SW 经 chrome.tabs.sendMessage 投递；件侧与发起侧共用同一字面量） */
-export const INSPECTOR_CMD_TAG = '__dlInspectorCmd'
-/** 上行结果信封字段（同上） */
-export const INSPECTOR_RESULT_TAG = '__dlInspector'
+// 与 page-context.ts 的分工：那边定义**载荷形状**（件造什么数据），这里定义页面可见的约定。
 
 /**
  * 件的三个工作模式。

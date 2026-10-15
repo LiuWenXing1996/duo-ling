@@ -6,7 +6,7 @@ import type { UserscriptTelemetry } from '@duoling/userscript-runtime'
 import * as runtime from './runtime-db'
 import { notePageError, noteRunStart } from './page-monitor'
 import { recordingTabSessionId } from './tab-sessions'
-import { handleInspectorResult } from './page-inspector-bridge'
+import { handleInspectorEvent } from './page-inspector-bridge'
 import { appendUserScriptError, recordRunEvent, recordRunStart } from './store'
 
 export const duolingTelemetry: UserscriptTelemetry = {
@@ -17,5 +17,5 @@ export const duolingTelemetry: UserscriptTelemetry = {
   noteRunStart,
   notePageError,
   appendTabCapture: (rec) => runtime.appendTabCapture(rec as Parameters<typeof runtime.appendTabCapture>[0]),
-  onInspectorResult: handleInspectorResult,
+  onInspectorEvent: handleInspectorEvent,
 }

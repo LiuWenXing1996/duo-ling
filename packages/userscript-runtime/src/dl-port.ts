@@ -61,7 +61,22 @@ export class DlPortRegistry {
   /** 登记过音频订阅（`GM_audio.addStateChangeListener`）的 Port —— 见 portsForAudioWatch */
   private audioWatchers = new Set<chrome.runtime.Port>()
 
+  /**
+   * 登记连接。**同 uuid+connId 的旧 Port 先踢掉**（替换语义）：脚本侧有「断链后周期重发
+   * connect」的自愈（页面检查器件），SW 重启 / Port 半死时同一连接会重建 —— 不踢就出现
+   * 双 Port，指令推两份。旧 Port 必然已死或将被脚本侧放弃，disconnect 只是清尸。
+   */
   addPort(port: chrome.runtime.Port, meta: DlPortMeta): void {
+    for (const [old, m] of this.ports) {
+      if (m.uuid === meta.uuid && m.connId === meta.connId && old !== port) {
+        try {
+          old.disconnect()
+        } catch {
+          /* 已断 */
+        }
+        this.removePort(old)
+      }
+    }
     this.ports.set(port, meta)
     this.watches.set(port, new Set())
   }
@@ -305,6 +320,18 @@ export function pushFetchProgress(
   for (const port of ports) {
     pushEvent(registry, port, { t: 'xhr.progress', ...frame })
   }
+}
+
+/**
+ * 向**指定脚本在指定标签页**的全部 Port 推一帧事件（页面检查器指令下发走它：
+ * uuid 是系统脚本自己的 id，tabId 锁定目标页）。返回推到的 Port 数 —— 0 = 该页上
+ * 没有它的在岗连接（件未注入 / Port 未建 / 页面在导航），调用方据此即时失败。
+ */
+export function pushCommandTo(uuid: string, tabId: number, ev: ApiEvent): number {
+  const registry = getDlPortRegistry()
+  const ports = registry.portsForMenuClick(uuid, tabId)
+  for (const port of ports) pushEvent(registry, port, ev)
+  return ports.length
 }
 
 /** 推下载进度 / 结局（`GM_download`）给发起它的连接；寻址与 pushFetchProgress 同款 */
