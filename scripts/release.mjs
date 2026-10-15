@@ -11,10 +11,10 @@
 //   同 base 迭代   release --pre X               → 当前须为预发；同 stage 则后缀+1，异 stage 则重置 .1
 //   显式版本       release x.y.z [--pre X]        → 直接指定 base（可选挂预发）
 //
-// 流程：typecheck 闸门 → bump package.json → 同步 package-lock 内嵌版本 → CHANGELOG 起段 → 本地提交。
-// 注意：npm run 会吞掉脚本后的 --xxx（当成 npm 自己的参数）。两种调用都兼容：
-//   推荐：npm run release -- minor --pre alpha
-//   兜底：npm run release minor --pre alpha   （npm 注入 npm_config_pre 环境变量）
+// 流程：typecheck 闸门 → bump package.json → CHANGELOG 起段 → 本地提交。
+// 注意：pnpm 把脚本名之后的参数原样转发给脚本，**不写 `--`**（写了会被当成参数送进来）。
+//   正确：pnpm run release minor --pre alpha
+//   （下方对 npm_config_pre / npm_config_dry_run 的兜底读法保留，仅作 npm 式调用的后路）
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { execSync } from 'node:child_process'
@@ -91,7 +91,7 @@ if (stageArg) {
     if (!curPreObj)
       fail(
         `当前是稳定版 ${current}，"--pre ${stageArg}" 不能单独用。\n` +
-          `需配合 bump 起新预发线，例如：npm run release minor --pre ${stageArg}`,
+          `需配合 bump 起新预发线，例如：pnpm run release minor --pre ${stageArg}`,
       )
     nb = curBase
   }
@@ -106,7 +106,7 @@ if (stageArg) {
   else next = curBase
 } else {
   fail(
-    '用法：npm run release <patch|minor|major|x.y.z> [--pre <alpha|beta|rc>] [--push] [--dry-run]',
+    '用法：pnpm run release <patch|minor|major|x.y.z> [--pre <alpha|beta|rc>] [--push] [--dry-run]',
   )
 }
 
@@ -118,19 +118,19 @@ console.log(
 )
 
 // 4. 闸门：typecheck（只卡类型层；build 由发布前人工确认，避免构建环境偶发问题误伤发版）
-console.log('· 闸门：npm run typecheck')
+console.log('· 闸门：pnpm run typecheck')
 if (!dryRun) {
-  // 依赖不随仓库走（新 worktree / 新 clone 都没有 node_modules），此时 npm run typecheck
+  // 依赖不随仓库走（新 worktree / 新 clone 都没有 node_modules），此时 pnpm run typecheck
   // 只会报 command not found，看着像代码坏了。先查要用的那个命令在不在，给出真正的处置。
   const binDir = resolve(cwd, 'node_modules', '.bin')
   const hasVueTsc = ['vue-tsc', 'vue-tsc.cmd', 'vue-tsc.ps1'].some((b) =>
     existsSync(resolve(binDir, b)),
   )
   if (!hasVueTsc) {
-    fail('node_modules 里没有 vue-tsc，先跑 npm ci 装依赖再发版（新 worktree 不共享依赖）')
+    fail('node_modules 里没有 vue-tsc，先跑 pnpm install 装依赖再发版（新 worktree 不共享依赖）')
   }
   try {
-    run('npm run typecheck')
+    run('pnpm run typecheck')
   } catch {
     fail('typecheck 未通过，终止发版（先修掉再发）')
   }
@@ -144,24 +144,6 @@ if (dryRun) {
 } else {
   writeFileSync(pkgPath, pkgText)
   console.log(`· 已写 package.json version = ${next}`)
-}
-
-// 5b. 同步 package-lock.json 内嵌版本字段（漏同步会让 lock 漂移，之后每次 npm install
-// 都被顺手修正，混进无关提交的 diff 里）
-const lockPath = resolve(cwd, 'package-lock.json')
-const hasLock = existsSync(lockPath)
-if (dryRun) {
-  if (hasLock) console.log(`  (dry) 将同步 package-lock.json version = ${next}`)
-} else if (hasLock) {
-  try {
-    const lock = JSON.parse(readFileSync(lockPath, 'utf-8'))
-    lock.version = next
-    if (lock.packages?.['']) lock.packages[''].version = next
-    writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n')
-    console.log(`· 已同步 package-lock.json version = ${next}`)
-  } catch (e) {
-    fail(`同步 package-lock.json 失败：${e.message}（请手动核对 lock 内嵌版本字段）`)
-  }
 }
 
 // 6. CHANGELOG 起段
@@ -203,11 +185,11 @@ if (dryRun) {
 const tag = `v${next}`
 if (dryRun) {
   console.log(
-    `  (dry) 将执行：git add package.json${hasLock ? ' package-lock.json' : ''} CHANGELOG.md && git commit -m "chore: release ${tag}"`,
+    `  (dry) 将执行：git add package.json CHANGELOG.md && git commit -m "chore: release ${tag}"`,
   )
 } else {
   try {
-    run(`git add package.json${hasLock ? ' package-lock.json' : ''} CHANGELOG.md`)
+    run(`git add package.json CHANGELOG.md`)
     run(`git commit -m "chore: release ${tag}"`)
     console.log(
       `✓ 已提交 release（${tag}）。下一步：推分支并开 release PR，合入 main 后由 CI 打 tag。`,

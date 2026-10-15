@@ -57,8 +57,8 @@
 // **跑批由人点「跑全部」触发，载入不自动跑**：本脚本 `@match` 是 `*://*/*`，逢页就跑会到处落文件、
 // 弹通知、覆盖剪贴板。端测模式（URL hash 带 `omni-probe-auto`）例外 —— 无头下没人点按钮。
 //
-// 用法：`npm run probe:serve` 起本机靶站（或 `npm run dev`，它把靶站带起来并自动打开探针页）
-//       → `npm run pack:uscripts` → 工作台「脚本列表」导入 zip → 启用 → 打开 `http://127.0.0.1:5178/probe.html`
+// 用法：`pnpm run probe:serve` 起本机靶站（或 `pnpm run dev`，它把靶站带起来并自动打开探针页）
+//       → `pnpm run pack:uscripts` → 工作台「脚本列表」导入 zip → 启用 → 打开 `http://127.0.0.1:5178/probe.html`
 //       → 点右下角面板的「跑全部」→ 跑完点「复制结果」整段贴回。
 //
 // 副作用（都尽量自清）：出网全部指向本机靶站；往下载目录落约 10 个文件（下载类用例的产物，
@@ -382,7 +382,7 @@
 
   /**
    * 本机靶站基址：宿主页的 `<meta name="dl-probe-target">` 给出（端测用随机端口、手测靶站页自带），
-   * 读不到才回落到 `npm run probe:serve` 的默认端口。地址只在这里取一次，别在用例里散写。
+   * 读不到才回落到 `pnpm run probe:serve` 的默认端口。地址只在这里取一次，别在用例里散写。
    */
   function probeBase() {
     var m = document.querySelector('meta[name="dl-probe-target"]')
@@ -1555,7 +1555,7 @@
     var okUrl = typeof url === 'string' && url.length > 0
     if (!okText && !okUrl) {
       // @resource 的地址写在元数据里、只能是固定值，故它指向靶站默认端口；靶站没跑在默认端口上就取不到
-      return unknown('两项都没取到 —— 检查靶站默认端口 5178 是否在跑（`npm run probe:serve`）')
+      return unknown('两项都没取到 —— 检查靶站默认端口 5178 是否在跑（`pnpm run probe:serve`）')
     }
     var detail = '文本 ' + text.length + ' 字符 / data URI ' + url.length + ' 字符'
     return okText && okUrl ? pass(detail) : fail('只取到一项：text=' + okText + ' url=' + okUrl)

@@ -7,10 +7,10 @@ description: Use when writing, fixing, or debugging tests in this repo — choos
 
 本 skill 管**测试怎么写**。命令与 CI 组成见 [AGENTS.md](../../../AGENTS.md)「常用命令」与 [GIT_WORKFLOW.md](../../../GIT_WORKFLOW.md)。
 
-- `npm run test` → Vitest **双 project**（配置见 `vitest.config.ts`）：
+- `pnpm run test` → Vitest **双 project**（配置见 `vitest.config.ts`）：
   - **logic**（node 环境）：`src/lib/**/*.test.ts` 等纯逻辑测试；
   - **component**（happy-dom 环境）：`*.component.test.ts` 组件测试。
-- `npm run test:e2e` → Playwright 端测（`e2e/*.spec.ts`，无头、单 worker 串行）：**脚本内先 `npm run build`**，再跑 **`.output/chrome-mv3` 产物**、Playwright 捆绑 Chromium。绕开脚本直接调 playwright 会跑上轮遗留的旧产物，须自己先构建。除冒烟 `smoke.spec.ts` 外，按面拆分的还有编辑器交互 `editor.spec.ts`、GM 全能探针 `omni-probe.spec.ts`、假模型对话 `chat-stub.spec.ts`、会话归属 `conversation-scope.spec.ts`、AI 生成 `agent-generate.spec.ts`。
+- `pnpm run test:e2e` → Playwright 端测（`e2e/*.spec.ts`，无头、单 worker 串行）：**脚本内先 `pnpm run build`**，再跑 **`.output/chrome-mv3` 产物**、Playwright 捆绑 Chromium。绕开脚本直接调 playwright 会跑上轮遗留的旧产物，须自己先构建。除冒烟 `smoke.spec.ts` 外，按面拆分的还有编辑器交互 `editor.spec.ts`、GM 全能探针 `omni-probe.spec.ts`、假模型对话 `chat-stub.spec.ts`、会话归属 `conversation-scope.spec.ts`、AI 生成 `agent-generate.spec.ts`。
 
 ## 测试三件套（新增一个面板 / 一条链路时）
 
@@ -58,7 +58,7 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 
 新增一条 API 的完整动作：① `ApiRequest` 加一项 + `API_COMMANDS` 加一行（类型层盯着这里，忘加就编译红）；
 ② `gm-wrapper.ts` 挂成员并发命令；③ `gm-api-catalog.ts` 加条目（标题 / 签名 / 说明 / 返回）；
-④ 探针加一条用例 + `@covers` 认领一行。四处齐了 `npm run test` 才绿。
+④ 探针加一条用例 + `@covers` 认领一行。四处齐了 `pnpm run test` 才绿。
 
 **反射的写法**（三处同一套）：读源码文本 → 按锚点注释切片 → 正则提取 → 与另一侧双向比对。
 两条纪律：① 必须有一条「反射真的取到了」的断言，否则锚点失效会退化成**两边都空的假绿**；
@@ -76,7 +76,7 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 - 判据：动作路径上凡有一道**真实边界**（iframe / 进程 / 网络 / 存储），测试就该真穿过去；模拟只留给边界之外 —— 比如打开浮层的发起方是 popup，那一侧由组件测试兜，e2e 里用消息代过没问题。
 - 消息契约本身仍值得单独验（`float:open` / `float:collapse` 两端都要有覆盖），但它替代不了点真控件那一跳。
 
-**端测 spec 曾被类型检查漏在外面**（2026-09-22 已补）：Playwright 走 esbuild **只转译、不检查类型**，而根 `tsconfig.json` 的 `include` 原先只有 `src/**` —— spec 里写错类型不会被任何门禁拦住，只有真跑才暴露（当时的实例：一条用例假定上一条留下了某个弹窗状态，实际没有，白等了一次 120s 超时）。现在 `include` 已含 `e2e/**/*`，`npm run typecheck` 一并检查；往 `e2e/` 加代码时不必另配 tsconfig。
+**端测 spec 曾被类型检查漏在外面**（2026-09-22 已补）：Playwright 走 esbuild **只转译、不检查类型**，而根 `tsconfig.json` 的 `include` 原先只有 `src/**` —— spec 里写错类型不会被任何门禁拦住，只有真跑才暴露（当时的实例：一条用例假定上一条留下了某个弹窗状态，实际没有，白等了一次 120s 超时）。现在 `include` 已含 `e2e/**/*`，`pnpm run typecheck` 一并检查；往 `e2e/` 加代码时不必另配 tsconfig。
 
 ## 探针
 
@@ -89,4 +89,4 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 - **要驱动真实指针序列就别用合成事件**：`mouse.move(起点) → down() → move(终点, { steps: 8 }) → up()`。断言优先抓**不变量**（「开合状态没被误切换」）而不是绝对坐标—— 绝对坐标只能证明「数值等于我以为的公式」，不变量才能抓住行为回归。（本仓当前没有拖拽类交互，这条留作手势类测试的写法。）
 - **屏幕坐标与「距视口边距」差一个视口宽**：样式里定位写 `right` / `bottom`（距视口右 / 下）时，断言里 `rect.right` 得换算成 `视口宽 − right`，别拿指针落点直接比（2026-09-22 连栽两次，两次都长得像"实现坏了"）。真怀疑时加一条**故意失败的断言**把实际值回显出来（`expect({ 实际 }).toEqual({ 标记: 'debug' })`）——比 `console.log` 可靠：vitest 会把普通输出折叠掉，而 diff 一定显示。
 
-**要长期复用的探针**（人工点一次出结论的那种）放 `uscript-samples/`：`npm run pack:uscripts` 打成一包，扩展「脚本列表 → 导入」直接吃；**用法、要人动手的项与覆盖登记都写在探针文件的头部注释里**（例：`omni-probe/omni-probe.user.js` 顶部有用法、跑批的触发闸门（手测点「跑全部」/ 端测靠 `#omni-probe-auto` 载入即跑）、人工档 4 项、三态判读与 `@covers` 登记表）。
+**要长期复用的探针**（人工点一次出结论的那种）放 `uscript-samples/`：`pnpm run pack:uscripts` 打成一包，扩展「脚本列表 → 导入」直接吃；**用法、要人动手的项与覆盖登记都写在探针文件的头部注释里**（例：`omni-probe/omni-probe.user.js` 顶部有用法、跑批的触发闸门（手测点「跑全部」/ 端测靠 `#omni-probe-auto` 载入即跑）、人工档 4 项、三态判读与 `@covers` 登记表）。

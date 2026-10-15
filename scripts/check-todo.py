@@ -9,7 +9,7 @@
     python3 scripts/check-todo.py [文件]
 
     不带参数时查 TODO.md；传 [文件] 是为了拿别处的样例练手 / 验脚本自身，
-    日常就是 `npm run check:todo`。
+    日常就是 `pnpm run check:todo`。
 
 检查项：
     1. 「清单」分区下的条目 >100 字

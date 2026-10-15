@@ -19,7 +19,7 @@
 //   node scripts/probe-target.mjs                 # 默认端口（DEFAULT_PORT）
 //   node scripts/probe-target.mjs --port 0        # 随机端口，启动后打印实际地址
 //   DL_PROBE_PORT=6000 node scripts/probe-target.mjs
-// `npm run probe:serve` 是它的入口；`npm run dev` 也用它（见 scripts/dev.mjs）。
+// `pnpm run probe:serve` 是它的入口；`pnpm run dev` 也用它（见 scripts/dev.mjs）。
 
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
@@ -318,7 +318,7 @@ export function startProbeTarget({ port = DEFAULT_PORT, host = '127.0.0.1' } = {
   })
 }
 
-// —— CLI：npm run probe:serve / node scripts/probe-target.mjs ——
+// —— CLI：pnpm run probe:serve / node scripts/probe-target.mjs ——
 const isCli = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])
 if (isCli) {
   const argPort = process.argv.indexOf('--port')
