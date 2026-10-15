@@ -19,7 +19,7 @@
 //   openFloatPanel）。
 //
 // 依旧覆盖不了的：严格 CSP 的站点（宿主件在，但页面 `frame-src` 拦掉 iframe，从扩展侧判不出来）——
-// 由页面内的降级提示负责（见 src/public/duoling-float-host.js）。
+// 由页面内的降级提示负责（见 packages/builtin-scripts/src/float-host/install.ts）。
 //
 // 判据只此一处：调用方不要自己写 `new URL(url).hostname`，也不要自己判能否注入。
 

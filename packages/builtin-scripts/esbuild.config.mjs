@@ -26,6 +26,7 @@ export const ENTRY_POINTS = {
   'duoling-recorder': resolve(here, 'src/recorder/entry.ts'),
   'duoling-forwarder': resolve(here, 'src/forwarder/entry.ts'),
   'duoling-page-inspector': resolve(here, 'src/inspector/entry.ts'),
+  'duoling-float-host': resolve(here, 'src/float-host/entry.ts'),
 }
 
 /** esbuild 选项：构建脚本与任何外部消费方都从这里取同一份 */

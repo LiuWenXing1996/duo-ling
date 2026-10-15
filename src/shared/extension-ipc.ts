@@ -30,6 +30,16 @@ export type {
   PageSnapshotContext,
 }
 
+// 浮层四条指令的 kind：真相源同样在子包（件认这几个 kind，两边必须是同一个字面量）。这里是
+// **值导入 + 派生类型** —— 编译器守住对齐，历史上「两边各写一份手写字符串、靠单测执行件源码比对」
+// 那条补丁随之删除（见 packages/builtin-scripts/src/protocol/float-host.ts）。
+import {
+  CONTENT_PING_KIND,
+  FLOAT_BUSY_KIND,
+  FLOAT_COLLAPSE_KIND,
+  FLOAT_OPEN_KIND,
+} from '@duoling/builtin-scripts'
+
 /** chat:start 的页面上下文：档 0（URL/标题）+ 可选的档 2 元素拾取 / 页面快照 */
 export interface PageContextInfo {
   url?: string
@@ -394,10 +404,10 @@ export type BuildPhase = 'saving'
  *
  * 为什么不走 RuntimeRequest 总线（渲染页 → SW → 转发）：这条消息只对**某一个**标签页有意义，
  * 而 `tabs.sendMessage` 天然投到那个标签页的各个世界，谁认这个 kind 谁来接（见
- * lib/userscripts/float-host-source.ts），SW 不必参与转发。
+ * packages/builtin-scripts/src/float-host/install.ts），SW 不必参与转发。
  */
 export interface FloatOpenRequest {
-  kind: 'float:open'
+  kind: typeof FLOAT_OPEN_KIND
   /**
    * 发起方所在的标签页。
    *
@@ -408,9 +418,9 @@ export interface FloatOpenRequest {
   tabId: number
 }
 
-/** 上面那条消息的唯一构造处：发送方与接收方都取这里的 kind，避免两边各写一份字符串 */
+/** 上面那条消息的唯一构造处：发送方与接收方都取同一个 kind 字面量，不各写一份字符串 */
 export function floatOpenRequest(tabId: number): FloatOpenRequest {
-  return { kind: 'float:open', tabId }
+  return { kind: FLOAT_OPEN_KIND, tabId }
 }
 
 /**
@@ -425,18 +435,18 @@ export function floatOpenRequest(tabId: number): FloatOpenRequest {
  * 「关掉扩展界面」开放给被注入的页面。走扩展自己的消息通道则只有扩展上下文发得出来。
  */
 export interface FloatCollapseRequest {
-  kind: 'float:collapse'
+  kind: typeof FLOAT_COLLAPSE_KIND
 }
 
 /** 上面那条消息的唯一构造处（理由同 floatOpenRequest） */
-export const FLOAT_COLLAPSE_REQUEST: FloatCollapseRequest = { kind: 'float:collapse' }
+export const FLOAT_COLLAPSE_REQUEST: FloatCollapseRequest = { kind: FLOAT_COLLAPSE_KIND }
 
 /**
  * 对话界面 → **本浮层所属标签页的浮层宿主件**：这条会话是否正在生成，用来决定页面要不要盖遮罩。
  *
  * 为什么要盖：生成期间 AI 随时可能读这个页面（元素拾取 / 页面快照），用户此刻点页面、改表单会让
  * 读到的状态与他看到的不一致 —— 遮罩挡掉指针交互，并把这件事说出来（文案在
- * src/public/duoling-float-host.js）。
+ * packages/builtin-scripts/src/float-host/install.ts）。
  *
  * 为什么由对话界面发、不由宿主自己判：生成状态只有 offscreen 知道，宿主既不知道哪条会话
  * 属于自己这个标签页，也不该为此多接一条 offscreen 的广播线。发送通道与 float:collapse 同一条
@@ -446,13 +456,13 @@ export const FLOAT_COLLAPSE_REQUEST: FloatCollapseRequest = { kind: 'float:colla
  * 单开一个 kind 只会让「结束」那条多写一份字符串）。
  */
 export interface FloatBusyRequest {
-  kind: 'float:busy'
+  kind: typeof FLOAT_BUSY_KIND
   /** true = 生成中，盖上；false = 收尾，撤掉 */
   busy: boolean
 }
 
 /** 上面那条消息的 kind 唯一构造处（载荷随状态变，故只固定 kind） */
-export const FLOAT_BUSY_REQUEST_KIND = 'float:busy' as const
+export const FLOAT_BUSY_REQUEST_KIND = FLOAT_BUSY_KIND
 
 /**
  * 浮层宿主件的**在岗探针**（同 `tabs.sendMessage`，不经 SW）。
@@ -472,11 +482,11 @@ export const FLOAT_BUSY_REQUEST_KIND = 'float:busy' as const
  * 判据与协议同进退。
  */
 export interface ContentPingRequest {
-  kind: 'content:ping'
+  kind: typeof CONTENT_PING_KIND
 }
 
 /** 上面那条消息的唯一构造处（理由同 floatOpenRequest） */
-export const CONTENT_PING_REQUEST: ContentPingRequest = { kind: 'content:ping' }
+export const CONTENT_PING_REQUEST: ContentPingRequest = { kind: CONTENT_PING_KIND }
 
 // —— 页面脚本监控（对话界面 · 运行时口径）——
 // 信号源：GM 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。

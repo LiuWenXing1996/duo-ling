@@ -11,8 +11,8 @@ import { EXTENSION_NAME } from './src/lib/extension-identity'
 // 浏览器扩展版：不依赖已下架的 @wxt/vue，直接用 vite 的 vue 插件编译 .vue 组件。
 //
 // 载体分工：
-//   网页浮层    → 对话界面 = 浮层宿主件（dl-float-host，注册用户脚本，见
-//                 src/lib/userscripts/float-host-source.ts）按需挂出的 iframe，加载
+//   网页浮层    → 对话界面 = 浮层宿主件（dl-float-host，注册用户脚本，件源码见
+//                 packages/builtin-scripts/src/float-host/）按需挂出的 iframe，加载
 //                 floatpanel.html，显示**它所在标签页**的会话；页面加载时不建任何 DOM，
 //                 从工具栏 popup 的按钮或页面右键菜单打开
 //   标签页      → 脚本工作区 = 脚本列表 / 编辑器 / 设置 / 会话历史（entrypoints/workbench.html）

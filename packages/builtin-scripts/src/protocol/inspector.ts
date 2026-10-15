@@ -24,7 +24,7 @@ export type InspectorMode = 'pick' | 'snapshot' | 'env'
  * 必须藏起来（否则浮层挡住待选元素、自身还会被 elementFromPoint 命中而误选）。两个世界 JS
  * 隔离、DOM 共享，遮罩的生死即拾取区间。
  *
- * 浮层宿主尚未迁入本包（仍在 src/public/duoling-float-host.js），那边是小写的选择器字面量
- * `.duoling-picker-box`；它迁进来后改用本常量拼，这条手写链接届时才真正消失。
+ * 消费方是件侧的两个件（inspector/install.ts 造遮罩、float-host/install.ts 拼选择器），同包直接
+ * 引用 —— 改名只需改这里一处，不再有手写链接。
  */
 export const INSPECTOR_PICKER_NS = 'duoling-picker'

@@ -21,7 +21,11 @@ import { fetchResourceSources } from './resource-cache'
 // 内置件的注册面（注册 id / 独立世界 id / 产物文件名 / 装配段）由包声明：件在那儿源码化并构建成
 // 独立 IIFE 文件，扩展侧只按 id 与文件名注册（真相源见 packages/builtin-scripts/src/registry.ts）
 import {
+  buildFloatHostInit,
   buildRelayInit,
+  FLOAT_HOST_FILE,
+  FLOAT_HOST_ID,
+  FLOAT_HOST_WORLD_ID,
   generateBridgeSecret,
   INSPECTOR_HOST_FILE,
   INSPECTOR_HOST_ID,
@@ -35,14 +39,6 @@ import {
   TAB_RECORDER_FILE,
   TAB_RECORDER_ID,
 } from '@duoling/builtin-scripts'
-// 浮层宿主常驻件：对话浮层在页面里的挂载点（开关 / 收起 / 生成遮罩都经指令驱动，见 syncFloatHost）
-import {
-  buildFloatHostInit,
-  FLOAT_HOST_FILE,
-  FLOAT_HOST_ID,
-  FLOAT_HOST_WORLD_ID,
-  floatPanelUrl,
-} from './float-host-source'
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
 import { parseUserScriptMetadata } from './metadata'
 // 注册判据就一句「有没有页在录」—— 直接查存续表，录制不再有第二本账
@@ -520,6 +516,20 @@ async function syncPageInspector(): Promise<void> {
 const FLOAT_HOST_MATCHES = ['<all_urls>']
 
 /**
+ * 浮层页文件（`?tab=` 由件按指令里的 tabId 自行补，见 FloatOpenRequest）。
+ *
+ * 留在这里的只有这一处取址：**它取的是扩展资源地址，不是件的注册面**（件的 id / 世界 / 产物文件名 /
+ * 装配段都在包 registry.ts 里）。`web_accessible_resources` 声明的也是这个文件名（wxt.config.ts），
+ * 少了那一条 Chrome 会直接拦 iframe。
+ */
+const FLOAT_PANEL_FILE = 'floatpanel.html'
+
+/** 浮层页的扩展内地址（装配段把它递给件，件再拼进 iframe 的 src） */
+function floatPanelUrl(): string {
+  return chrome.runtime.getURL(FLOAT_PANEL_FILE)
+}
+
+/**
  * 维护浮层宿主常驻件的注册（幂等可重入；调用方负责串行化）。
  *
  * **为什么常驻**：打开浮层是「页面早已打开、用户刚点按钮」的动作，而注册件只在页面**开始加载**时
@@ -545,7 +555,16 @@ async function syncFloatHost(): Promise<void> {
   } catch {
     return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
   }
-  if (existing && sameMatchSet(existing, { matches: FLOAT_HOST_MATCHES })) return
+  // 「没变就跳过」必须同时看**匹配面与注册形态**（与页面检查器同一条坑）：件是两段注册，只比
+  // matches 会误判成「没变」而跳过 —— 而形态的真相源是 registry.ts 的声明（本件两段、顺序是
+  // `{ file }` 在前、装配段在后），在册形态与声明不符就该重注册。
+  const jsSegs = existing?.js
+  const shapeOk =
+    !!jsSegs &&
+    jsSegs.length === 2 &&
+    jsSegs[0].file === FLOAT_HOST_FILE &&
+    typeof jsSegs[1].code === 'string'
+  if (existing && shapeOk && sameMatchSet(existing, { matches: FLOAT_HOST_MATCHES })) return
   const worldOk = await configureWorld(FLOAT_HOST_WORLD_ID)
   if (!worldOk) {
     console.warn(
@@ -557,8 +576,8 @@ async function syncFloatHost(): Promise<void> {
   const host: chrome.userScripts.RegisteredUserScript = {
     id: FLOAT_HOST_ID,
     worldId: FLOAT_HOST_WORLD_ID,
-    // 两段顺序不能换：前一段定义 window.__duolingFloatHost，后一段把浮层页地址与扩展名递进去调 init
-    js: [{ file: FLOAT_HOST_FILE }, { code: buildFloatHostInit(floatPanelUrl()) }],
+    // 两段顺序不能换：前一段定义 window 上的浮层 hook，后一段把浮层页地址与扩展名递进去调 init
+    js: [{ file: FLOAT_HOST_FILE }, { code: buildFloatHostInit(floatPanelUrl(), EXTENSION_NAME) }],
     matches: FLOAT_HOST_MATCHES,
     // document_start：件只装监听与观察器，不碰 DOM，尽早到位可缩小「页面加载中点按钮」的空窗
     runAt: 'document_start',
