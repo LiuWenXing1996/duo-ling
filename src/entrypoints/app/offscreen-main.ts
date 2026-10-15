@@ -35,10 +35,6 @@ import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/usersc
 // GM 运行时的 offscreen 命令面（clipboard:write 应答）由包工厂注册：本入口只调一行，
 // 协议真相源在包内 host.ts（狗粮 /host 子路径，验证其真实解析）。
 import { createOffscreenHost } from '@duoling/userscript-runtime/host'
-// 读侧项目列表（IndexedDB 同源直读，project-store 明确标注 offscreen 可用）：
-// 心跳的条件门——没有启用脚本就不 ping SW（上游 #45 保活心跳；不引 handleBuildCommand——
-// ai:build 命令面已被统一保存语义删除，见 project-write.saveSource）
-import { listProjects } from '@/lib/userscripts/project-store'
 import {
   abortChat,
   listOrphans,
@@ -163,35 +159,8 @@ async function respond(
 
 announceReady()
 void refreshActiveProfile()
-// GM 运行时的 offscreen 命令面（clipboard:write）：包工厂自注册监听，一行接线
+// GM 运行时的 offscreen 命令面（clipboard:write 应答）：包工厂自注册监听，一行接线；
+// 同时启动 SW 保活心跳（GM 链路预设 SW 常驻，协议真相源在包内 keepalive.ts）
 createOffscreenHost()
 // 启动一次最终一致对账：补齐缺失仓、清理多余仓目录（幂等，失败不阻断）
 void reconcileFs()
-
-// —— SW 保活心跳 ——
-// Chrome 对「运行用户脚本」开关变化**没有任何事件**，而开关关闭期间启用的脚本只落库未注册；
-// SW 又活不过 30s 空闲、自身挂不了定时器。offscreen 是唯一不会被回收的宿主，由它定时 ping
-// SW 保活（重置空闲计时）——**心跳不做任何检测**；检测在 SW 自身的轮询（availability-watch.ts），
-// 变化后由 background 消费：补注册全部启用脚本 + 广播给扩展页更新横幅。
-//
-// 条件保活：先本地直读状态库（不经 SW、不唤醒它），**没有启用脚本就不 ping**——纯用户零成本。
-const ENGINE_HEALTH_INTERVAL_MS = 5000
-
-async function engineHealthTick(): Promise<void> {
-  try {
-    const projects = await listProjects()
-    if (!projects.some((p) => p.enabled)) return
-    await chrome.runtime.sendMessage({ kind: 'userscript:healthCheck' }).catch(() => {
-      // SW 暂未就绪 / 无响应：跳过本周期，下个周期再试
-    })
-  } catch {
-    // 状态库读失败等：跳过本周期，下个周期再试
-  }
-}
-
-// 仅在扩展运行时启动（chrome 存在）：Node 单测 import 本模块（协议一致性测试取前缀常量）
-// 时不得挂真实定时器——setInterval 活着会卡住 vitest worker，listProjects 也会碰不到 IndexedDB
-if (typeof chrome !== 'undefined') {
-  void engineHealthTick()
-  setInterval(() => void engineHealthTick(), ENGINE_HEALTH_INTERVAL_MS)
-}

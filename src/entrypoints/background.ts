@@ -553,7 +553,7 @@ const handlers: {
   'userscript:removeAll': async (): Promise<{ removed: number }> => {
     const uuids = (await listProjects()).map((p) => p.uuid)
     // 注销失败不能纯静默（与单删/关停同语义）：吞掉后这批 uuid 成幽灵注册——
-    // 页面刷新照样注入；且刚删完没有启用脚本、offscreen 心跳停止保活前 SW 一直活着，
+    // 页面刷新照样注入；且 SW 由 offscreen 心跳保活常驻（包内 keepalive.ts，无条件），
     // registerAllEnabled 的冷启动对账不会跑，幽灵能一路活到下次浏览器重启
     await unregisterScripts(uuids).catch((e) =>
       console.warn('[duoling:sw] 全部删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', uuids, e),
@@ -642,10 +642,6 @@ const handlers: {
     writeViaOffscreen<void>({ kind: 'state:group-reorder', orderedIds: msg.orderedIds }),
 
   'userscript:availability': async (): Promise<UserScriptsAvailability> => getUserScriptsStatus(),
-
-  // 引擎保活应答（offscreen 心跳 5s 一次）：只证明「SW 活着」并重置空闲计时，
-  // **不做任何检测**——检测在 SW 自身的轮询（startAvailabilityWatch），职责分离见 availability-watch.ts
-  'userscript:healthCheck': async (): Promise<{ alive: true }> => ({ alive: true }),
 
   // 运行时间线：运行条 + 对不上运行集的错误行混排（消费方是 AI 的 run_log_read；
   // 活动历史面板按页读整根轴，不走这条）
@@ -1029,7 +1025,7 @@ function mountProposal2Listeners(): void {
   // —— 这轮重算不是 no-op：引擎不可用时那枚全局感叹号正是由它设上的（全局值刚被上面清掉），该显示
   // 什么一律由同一个出口决定，冷启动这条路上也不例外。
   // 之后浏览器启动会重载页面、runstart 自己回来；扩展重载后的既有页面要等下一次导航。
-  // 至于「SW 空闲被回收」这条不必担心：有启用脚本时它由 offscreen 心跳保活（见 page-monitor 头注释）。
+  // 至于「SW 空闲被回收」这条不必担心：它由 offscreen 心跳保活（包内 keepalive.ts，见 page-monitor 头注释）。
   void clearAllBadges()
     .then(() => refreshBadge())
     .catch(() => {})

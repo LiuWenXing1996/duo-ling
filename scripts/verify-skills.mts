@@ -28,16 +28,16 @@ const HOST_MOUNTS = [
   { path: '.trae/skills', host: 'Trae' },
 ]
 
-const errors = []
-const warnings = []
+const errors: string[] = []
+const warnings: string[] = []
 
 /** 解析 SKILL.md 的 YAML frontmatter（只取顶层 key: value，无需依赖）。 */
-function parseFrontmatter(file) {
+function parseFrontmatter(file: string): Map<string, string> | null {
   const lines = readFileSync(file, 'utf8').split('\n')
   if (lines[0].trim() !== '---') return null
   const end = lines.indexOf('---', 1)
   if (end < 0) return null
-  const map = new Map()
+  const map = new Map<string, string>()
   for (const line of lines.slice(1, end)) {
     const matched = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line)
     if (matched) map.set(matched[1], matched[2].trim())
@@ -45,7 +45,7 @@ function parseFrontmatter(file) {
   return map
 }
 
-function isDirectory(path) {
+function isDirectory(path: string): boolean {
   return existsSync(path) && statSync(path).isDirectory()
 }
 
@@ -56,8 +56,8 @@ if (!existsSync(SKILLS_ROOT)) {
 
 const agentsText = existsSync(AGENTS_FILE) ? readFileSync(AGENTS_FILE, 'utf8') : ''
 const skills = readdirSync(SKILLS_ROOT, { withFileTypes: true })
-  .filter(entry => entry.isDirectory())
-  .map(entry => entry.name)
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
   .sort()
 
 for (const name of skills) {
@@ -79,17 +79,24 @@ for (const name of skills) {
   const description = frontmatter.get('description') ?? ''
 
   if (!declaredName) errors.push(`${relativeRoot}/SKILL.md: frontmatter 缺少 name`)
-  else if (declaredName !== name) errors.push(`${relativeRoot}/SKILL.md: name "${declaredName}" 与目录名 "${name}" 不一致`)
+  else if (declaredName !== name)
+    errors.push(`${relativeRoot}/SKILL.md: name "${declaredName}" 与目录名 "${name}" 不一致`)
   if (!description) errors.push(`${relativeRoot}/SKILL.md: frontmatter 缺少 description`)
 
   if (description && description.length < 40) {
-    warnings.push(`${relativeRoot}/SKILL.md: description 仅 ${description.length} 字符，太短不足以触发（建议 ≥ 40）`)
+    warnings.push(
+      `${relativeRoot}/SKILL.md: description 仅 ${description.length} 字符，太短不足以触发（建议 ≥ 40）`,
+    )
   }
   if (description && !/^use (when|before|after)\b/i.test(description)) {
-    warnings.push(`${relativeRoot}/SKILL.md: description 建议以 "Use when ..." 开头并写具体症状（上游第三方 skill 可忽略）`)
+    warnings.push(
+      `${relativeRoot}/SKILL.md: description 建议以 "Use when ..." 开头并写具体症状（上游第三方 skill 可忽略）`,
+    )
   }
   if (!agentsText.includes(`.agents/skills/${name}`)) {
-    warnings.push(`${relativeRoot}: AGENTS.md 未就地挂载 —— 实测宿主不会自动读 SKILL.md 全文，不挂载等于只装了一半`)
+    warnings.push(
+      `${relativeRoot}: AGENTS.md 未就地挂载 —— 实测宿主不会自动读 SKILL.md 全文，不挂载等于只装了一半`,
+    )
   }
 }
 

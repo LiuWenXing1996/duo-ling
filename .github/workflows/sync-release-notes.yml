@@ -6,7 +6,7 @@ name: sync-release-notes
 # 设计原则：
 # - 与正常发版主链路（release.yml）彻底分离——本文件出问题不波及自动发版。
 # - 仅重写 notes，绝不删 / 改 tag 或 commit（已发布 tag 指向的 commit 是对的，只改文字）。
-# - 抽取逻辑复用 scripts/extract-changelog.mjs，与 release.yml 共用，行为一致。
+# - 抽取逻辑复用 scripts/extract-changelog.mts，与 release.yml 共用，行为一致。
 #
 # 用法：Actions 页面手动 Run workflow，输入已发布 tag（如 v0.1.0）。
 # 前置：CHANGELOG.md 的修正需先合入 main，本 workflow checkout main 才能抽到修正后内容。
@@ -41,6 +41,6 @@ jobs:
             echo "Release $TAG 不存在，无法同步（若 tag 也未发布，请先走正常发版流程）。"
             exit 1
           fi
-          node scripts/extract-changelog.mjs "$TAG" > /tmp/release-notes.md
+          node scripts/extract-changelog.mts "$TAG" > /tmp/release-notes.md
           gh release edit "$TAG" --notes-file /tmp/release-notes.md
           echo "已用最新 CHANGELOG 段重写 $TAG 的 Release notes。"

@@ -87,9 +87,6 @@ export type RuntimeRequest =
   // 启用中的脚本改名后由 SW 重注册——已注入的脚本否则仍顶旧名。
   | { kind: 'userscript:rename'; uuid: string; name: string }
   | { kind: 'userscript:availability' }
-  // 引擎保活应答（offscreen → SW，5s 一次）：offscreen 心跳的**唯一职责是给 SW 保活**
-  // （重置 30s 空闲计时），不做任何检测——检测在 SW 自身的轮询（availability-watch.ts）。
-  | { kind: 'userscript:healthCheck' }
   // 运行时间线：运行条（tab_events 里 kind = 'run'）+ 与本次读取对不上的错误行按时间倒序混排
   // （listRunTimeline）。消费方是 AI 的 run_log_read —— 活动历史面板按页读整根轴，不走这条。
   // **不含动作**：动作随运行数全量读会线性膨胀（运行数 × 动作上限），要看某次运行干了什么
@@ -357,53 +354,11 @@ export type OffscreenPush =
 //
 // ⚠️ 刻意**不进 RuntimeRequest**：那里面全是「请求-应答」的命令，而广播没有应答方，
 // 塞进去会污染 extension-ipc.test.ts 的 kind 归属断言（每个 kind 恰被一端处理）。
-
-/** 数据域（与持久化分区一一对应） */
-export type DataDomain =
-  /** 项目状态库：源码 / 配置 / 构建产物 / enabled */
-  | 'script'
-  /** 会话与消息（duoling-chat） */
-  | 'conversation'
-  /** 模型配置（duoling-app 库） */
-  | 'model'
-  /** 用户脚本错误记录（runtime 库 tab_events，kind = 'error'） */
-  | 'error'
-  /** 运行观测（运行条目 / 动作）变了 —— 活动历史与 AI 的运行面据此回拉 */
-  | 'runlog'
-  /**
-   * 标签页活动记录（runtime 库）：存续行的增减与整根轴上的新行 —— 活动历史据此回拉。
-   *
-   * `uuid` 承载**这是哪一页**：带上它 = 只有这一页的轴长了新行（读侧正在看就增量续拉）；
-   * 缺省 = 结构性变化（建行 / 关页 / 开关记录 / 划断对账 / 删除清空），读侧一律全量重拉 ——
-   * 这种情况下整根轴上的行可能整批消失，增量游标会指向一个已经不存在的轴。
-   */
-  | 'tabActivity'
-  /** 脚本列表分组定义（duoling-state 的 groups 对象库） */
-  | 'group'
-
-/**
- * 一次落盘的变更通知：**只带「哪个域的哪条变了」，不带数据本身**。
- * 接收方自己去权威存储回拉——读侧仍是直连 IDB，不新增数据通道，也就没有第二份真相。
- *
- * `uuid` 缺省 = 该域整体起了变化（新建 / 删除 / 批量改动），接收方一律全量重拉；
- * 有值时接收方可自行判断「是不是我正在看的那条」，从而跳过无关重拉。
- *
- * `phase` = 保存链的**瞬态**阶段通知（不落库、不回拉）：script 域统一保存链上，
- * SW 收到 `userscript:save` 即广播 `saving`，offscreen 进入构建即广播 `building`，
- * 链路收尾仍是常规的落库广播（无 phase）——接收方据此切终态、清瞬态。
- */
-export type DataChangedPush = {
-  kind: 'data:changed'
-  domain: DataDomain
-  uuid?: string
-  /** 发送时刻（ms） */
-  at: number
-  /** 瞬态阶段（仅保存链中途广播）；缺省 = 落库完成的终态通知 */
-  phase?: BuildPhase
-}
-
-/** 保存链的瞬态阶段（前端列表据此显示「保存中」转圈；保存即注入，无构建阶段） */
-export type BuildPhase = 'saving'
+//
+// 形状真相源已上移 `@duoling/shared`（data-broadcast.ts）：频道与推送形状被运行时包
+// （dl-bridge / cookie-gate）同取，放这里就得靠注释对齐。此处 re-export 维持既有
+// import 路径（`@/shared/extension-ipc`）不变。
+export type { BuildPhase, DataChangedPush, DataDomain } from '@duoling/shared'
 
 // —— 端口名约定（跨上下文长连接）——
 // 'duoling:panel'（定义在 lib/userscripts/page-monitor.ts）= 对话界面文档 ↔ SW 的监控通道

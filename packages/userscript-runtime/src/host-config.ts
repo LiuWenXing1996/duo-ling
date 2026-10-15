@@ -12,7 +12,9 @@
 
 import type { ScriptProject } from './script-project'
 
-/** 错误记录（观测面）。字段与宿主侧 UserScriptErrorRecord 同形；不注入遥测则无处落盘 */
+/** 错误记录（观测面）。形状真相源在此（错误由包内产生：dl-bridge / registration 等）；
+ *  应用侧落库形态经继承收窄（见 src/lib/userscripts/types.ts 的 UserScriptErrorRecord）。
+ *  不注入遥测则无处落盘 */
 export interface UserscriptErrorRecord {
   id?: string
   uuid?: string | null

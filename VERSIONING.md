@@ -146,7 +146,7 @@ ID 由该 DER 的 SHA256 前 16 字节换算（每字节高 nibble、低 nibble 
 
 > 平时不用管这一节；**只在某次 notes 写错、需要重新同步时看**（属故障处置，不是日常发版步骤）。
 
-正常发版时，`release.yml` 在打 tag 后**自动从 `CHANGELOG.md` 对应段抽取内容生成 GitHub Release notes**（一次性快照），预发布版（tag 含 `-`，如 `v0.1.0-alpha.1`）自动标 `--prerelease`。抽取逻辑统一由 `scripts/extract-changelog.mjs` 提供，被 `release.yml` 与下方例外通道共用，保证行为一致。Release notes 是「发布那一瞬间的快照」，不随 CHANGELOG 后续改动自动更新。
+正常发版时，`release.yml` 在打 tag 后**自动从 `CHANGELOG.md` 对应段抽取内容生成 GitHub Release notes**（一次性快照），预发布版（tag 含 `-`，如 `v0.1.0-alpha.1`）自动标 `--prerelease`。抽取逻辑统一由 `scripts/extract-changelog.mts` 提供，被 `release.yml` 与下方例外通道共用，保证行为一致。Release notes 是「发布那一瞬间的快照」，不随 CHANGELOG 后续改动自动更新。
 
 **例外：某次 notes 写错了（即使 AI 初稿 + 人审，仍可能出错），如何重新同步：**
 

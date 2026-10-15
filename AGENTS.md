@@ -37,19 +37,19 @@
 | --- | --- |
 | `pnpm install` | **新 worktree 先跑它**：`node_modules` 不入库、也不跨 worktree 共享，缺了时所有 `pnpm run *` 与 `pnpm exec` 一律报错（`command not found` / `Cannot find module`），不是代码问题。有 `pnpm-lock.yaml` 即按它精确还原（CI 走 `pnpm install --frozen-lockfile`） |
 | `pnpm add <包>` | 加依赖（改写 `package.json` 与 `pnpm-lock.yaml`） |
-| `pnpm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev`。入口是 `scripts/dev.mjs`：随机端口起本机靶站 → 探针页经 `DL_PROBE_URL` 交给 WXT 自动打开；同时在本机 5199 起假模型（地址打印在控制台，手填一次进「设置 → 添加模型 → 自定义」即可长期复用）。靶站与假模型都随 dev 起停 |
-| `pnpm run probe:serve` | 起本机测试靶站（`scripts/probe-target.mjs`，默认端口 5178）：手测探针的出网目标 + 探针页宿主，端点见该文件头部。**不跑 dev 的手测**（加载 `.output` 产物）先起它；探针从页面 `<meta name="dl-probe-target">` 取基址，读不到才回落默认端口 |
-| `pnpm run model:serve` | 起本机假模型（`scripts/model-stub.mjs`，默认端口 5199，可用 `DL_MODEL_STUB_PORT` 覆盖）：一个 OpenAI 兼容的假服务，开发/手测对话链路时顶替真模型（不花真 Key、回复确定）。地址填进「设置 → 添加模型 → 服务商选自定义 → 接口地址」，密钥留空即可；**内置调试触发** —— 消息整句发「快照」或「页面环境」即回对应的工具调用，并把采集结果摘要成一句人话（含失败原因），手测 `page_snapshot` / `page_env_read` 这类要页面侧真跑一遍的工具链时不必写 plan（e2e 显式传 `plan` 时它不生效）。e2e 也从这里 import（同目录有 `.d.mts` 声明） |
+| `pnpm run dev` | 开发模式（HMR），产出 `.output/chrome-mv3-dev`。入口是 `scripts/dev.mts`：随机端口起本机靶站 → 探针页经 `DL_PROBE_URL` 交给 WXT 自动打开；同时在本机 5199 起假模型（地址打印在控制台，手填一次进「设置 → 添加模型 → 自定义」即可长期复用）。靶站与假模型都随 dev 起停 |
+| `pnpm run probe:serve` | 起本机测试靶站（`scripts/probe-target.mts`，默认端口 5178）：手测探针的出网目标 + 探针页宿主，端点见该文件头部。**不跑 dev 的手测**（加载 `.output` 产物）先起它；探针从页面 `<meta name="dl-probe-target">` 取基址，读不到才回落默认端口 |
+| `pnpm run model:serve` | 起本机假模型（`scripts/model-stub.mts`，默认端口 5199，可用 `DL_MODEL_STUB_PORT` 覆盖）：一个 OpenAI 兼容的假服务，开发/手测对话链路时顶替真模型（不花真 Key、回复确定）。地址填进「设置 → 添加模型 → 服务商选自定义 → 接口地址」，密钥留空即可；**内置调试触发** —— 消息整句发「快照」或「页面环境」即回对应的工具调用，并把采集结果摘要成一句人话（含失败原因），手测 `page_snapshot` / `page_env_read` 这类要页面侧真跑一遍的工具链时不必写 plan（e2e 显式传 `plan` 时它不生效）。e2e 直接 import 本 `.mts` 源码取类型 |
 | `pnpm run build` | 构建，产出 `.output/chrome-mv3` |
 | `pnpm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
-| `pnpm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
+| `pnpm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/` 与 `scripts/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
 | `pnpm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
 | `pnpm run test:coverage` | 单测覆盖率（v8 provider，终端 `text-summary` + HTML 报表落 `coverage/`）。**只作本地看数，不进 CI**；统计口径与 exclude 见 `vitest.config.ts` 的 `coverage` 段 |
 | `pnpm run test:e2e` | Playwright 端测（全程无头、跑 build 产物）。**脚本内先 `pnpm run build`**，不必手动先构建；也别绕开脚本直接调 playwright——端测读的是产物而非源码，产物陈旧时会静默跑旧代码（改了 `src/` 尤其注意） |
 | `pnpm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 | `pnpm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、疑似重复（**整理待办时跑**，提醒级不进 CI） |
-| `pnpm run check:comments` | 注释卫生门禁：扫 `src` / `packages` / `e2e` / `scripts` / `uscript-samples` **加仓库根散装源码**（配置类 `*.ts` 常驻根级），注释行命中黑名单（日期 / 评审引用 / 变更史 / 代号 / 小节号）即失败；另校验注释里「见 xxx.md」引用的文件真实存在（死指针）；豁免与孤儿检测见「注释与文案」 |
-| `pnpm run pack:uscripts` | 生成用户脚本测试包：把仓库根 `uscript-samples/` 打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例目录再打） |
+| `pnpm run check:comments` | 注释卫生门禁：扫 `src` / `packages`（含样例包源码与 dist 产物）/ `e2e` / `scripts` **加仓库根散装源码**（配置类 `*.ts` 常驻根级），注释行命中黑名单（日期 / 评审引用 / 变更史 / 代号 / 小节号）即失败；另校验注释里「见 xxx.md」引用的文件真实存在（死指针）；豁免与孤儿检测见「注释与文案」 |
+| `pnpm run pack:uscripts` | 生成用户脚本测试包：把 `packages/uscript-samples/dist/`（先 `pnpm -r build` 生成）打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例 TS 源码再 build 再打） |
 
 > **交付前验证**：`pnpm run typecheck` + `pnpm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
 

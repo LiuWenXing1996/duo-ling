@@ -2,14 +2,14 @@
 // 三张导览图（亮色一套；--dark 追加暗色一套），落 --out 目录（默认 tmp/help-shots）。
 //
 // 这是帮助配图的维护方式 —— UI 改版后重跑一次，全部图同步更新，不手工截图：
-//   pnpm run build && node scripts/help-screenshots.mjs
+//   pnpm run build && node scripts/help-screenshots.mts
 //
 // 截图前做两步铺垫，让画面是「用起来了」的状态而非首装空态：
 //   1. 引导 userScripts 开关（警告横幅由此而来）—— 逻辑与 e2e/extension.ts 的 enableUserScripts
 //      同源，走 chrome.developerPrivate + 详情页 cr-toggle，随 profile 持久化；开关生效需重启
 //      扩展上下文，故采用两段式启动（A 引导 → B 重启后截）。
 //   2. 经 SW 命令面造三个示例脚本（两个启用一个停用），列表与停用态都有内容可看。
-//   3. 浮层里走真对话链路造一段演示对话：起本地假模型（scripts/model-stub.mjs，与 e2e 同源），
+//   3. 浮层里走真对话链路造一段演示对话：起本地假模型（scripts/model-stub.mts，与 e2e 同源），
 //      经 window.api.model.save 存配置并激活，再真实发一句 —— 回复内容写死，对话气泡、
 //      模型选择、用量标记都是真渲染出来的，不是贴图。
 //
@@ -17,14 +17,15 @@
 // --load-extension，extensionId 从 SW URL 解析）；两边改动需互相检查。
 // 主题走 page.emulateMedia：theme.ts 用 matchMedia 订阅 prefers-color-scheme，模拟值实时生效。
 import { chromium } from '@playwright/test'
+import type { BrowserContext, Page } from '@playwright/test'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { startModelStub } from './model-stub.mjs'
+import { startModelStub } from './model-stub.mts'
 
 const args = process.argv.slice(2)
-function argValue(flag) {
+function argValue(flag: string): string | undefined {
   const i = args.indexOf(flag)
   return i >= 0 ? args[i + 1] : undefined
 }
@@ -32,7 +33,7 @@ function argValue(flag) {
 const outDir = argValue('--out') ?? 'tmp/help-shots'
 const extPath =
   argValue('--ext') ?? resolve(fileURLToPath(new URL('../.output/chrome-mv3', import.meta.url)))
-const themes = args.includes('--dark') ? ['light', 'dark'] : ['light']
+const themes: Array<'light' | 'dark'> = args.includes('--dark') ? ['light', 'dark'] : ['light']
 
 // 截图清单：真实载体尺寸 —— 工作台是全页标签页（按常见笔记本视口），浮层是 384×600 的
 // iframe（content.ts 的 .dl-float-iframe）。popup 尺寸由内容决定（#app 固定 340 宽、高度随内容），
@@ -42,6 +43,7 @@ const SHOTS = [
   { name: 'floatpanel', path: 'floatpanel.html', viewport: { width: 384, height: 600 } },
   { name: 'popup', path: 'popup.html', viewport: { width: 340, height: 620 } },
 ]
+type Shot = (typeof SHOTS)[number]
 
 // —— 示例脚本：帮助图里的列表内容。名字贴近真实用途，一个停用态展示开关。 ——
 const SAMPLE_SCRIPTS = [
@@ -54,7 +56,7 @@ const SAMPLE_SCRIPTS = [
       '// @name 豆瓣评分悬浮',
       '// @match *://movie.douban.com/*',
       '// @grant none',
-      '// ==UserScript==',
+      '// ==/UserScript==',
       '',
       'console.log("douban rating helper")',
     ].join('\n'),
@@ -68,7 +70,7 @@ const SAMPLE_SCRIPTS = [
       '// @name GitHub 侧栏目录',
       '// @match *://github.com/*',
       '// @grant none',
-      '// ==UserScript==',
+      '// ==/UserScript==',
       '',
       'console.log("github toc helper")',
     ].join('\n'),
@@ -82,7 +84,7 @@ const SAMPLE_SCRIPTS = [
       '// @name 网页翻译快捷键',
       '// @match *://*/*',
       '// @grant none',
-      '// ==UserScript==',
+      '// ==/UserScript==',
       '',
       'console.log("translate shortcut")',
     ].join('\n'),
@@ -121,7 +123,7 @@ const DOUBAN_PAGE_URL = 'https://movie.douban.com/subject/1292052/'
  * 返回的是用户正看的那页 —— 这里把 query 包一层，命中该形状时改返回豆瓣页的标签页，
  * 让 popup 按真实弹窗的视角取数。探活 / page:overview 仍走 SW 真链路，不造假数据。
  */
-const popupTabOverride = (targetUrl) => `
+const popupTabOverride = (targetUrl: string) => `
   const targetUrl = ${JSON.stringify(targetUrl)}
   const origQuery = chrome.tabs.query.bind(chrome.tabs)
   chrome.tabs.query = (q) => {
@@ -132,6 +134,9 @@ const popupTabOverride = (targetUrl) => `
   }
 `
 
+/** 起好的假模型实例（startModelStub 的返回，await 后的形状） */
+type Demo = Awaited<ReturnType<typeof startModelStub>>
+
 /**
  * 在浮层页里造一段演示对话：存模型配置（假模型地址）并激活 → 真实发一句 →
  * stub 发 script_spec → script_apply（生成卡片出现）→ 收尾文本；等卡片就位后点
@@ -139,7 +144,7 @@ const popupTabOverride = (targetUrl) => `
  * 思考过程 / 工具卡 / 生成卡片 / 用量标记都是真渲染。
  * stub 的 hits 跨会话累计，而 plan 按请求次序出招 —— 每次造数前清零重新计数。
  */
-async function seedConversation(page, demo) {
+async function seedConversation(page: Page, demo: Demo) {
   demo.stub.hits.length = 0
   await page.evaluate(
     async (cfg) => {
@@ -166,11 +171,11 @@ async function seedConversation(page, demo) {
 }
 
 /** 引导 userScripts 的两道开关（与 e2e/extension.ts 的 enableUserScripts 同源精简版） */
-async function enableUserScripts(context, extensionId) {
+async function enableUserScripts(context: BrowserContext, extensionId: string) {
   const page = await context.newPage()
   await page.goto('chrome://extensions/')
   await page.evaluate(async (id) => {
-    const dp = window.chrome?.developerPrivate
+    const dp = (window as unknown as { chrome?: { developerPrivate?: { updateProfileConfiguration: (o: { inDeveloperMode: boolean }) => Promise<void>; updateExtensionConfiguration: (o: { extensionId: string; userScriptsEnabled: boolean }) => Promise<void> } } }).chrome?.developerPrivate
     if (!dp) return
     try {
       await dp.updateProfileConfiguration({ inDeveloperMode: true })
@@ -183,12 +188,12 @@ async function enableUserScripts(context, extensionId) {
   await page.getByRole('button', { name: /详情|Details/ }).first().click()
   await page.waitForSelector('extensions-detail-view', { timeout: 15_000 })
   await page.evaluate(() => {
-    const walk = (root) => {
+    const walk = (root: Document | ShadowRoot) => {
       for (const el of Array.from(root.querySelectorAll('*'))) {
         if (el.tagName === 'EXTENSIONS-TOGGLE-ROW' && /用户脚本|user script/i.test(el.textContent ?? '')) {
           const toggle = el.shadowRoot?.querySelector('cr-toggle')
-          const checked = toggle?.hasAttribute('checked') || toggle?.checked === true
-          if (toggle && !checked) toggle.click()
+          const checked = toggle?.hasAttribute('checked') || (toggle as HTMLInputElement | null)?.checked === true
+          if (toggle && !checked) (toggle as HTMLElement).click()
         }
         if (el.shadowRoot) walk(el.shadowRoot)
       }
@@ -199,7 +204,7 @@ async function enableUserScripts(context, extensionId) {
 }
 
 /** SW 命令面发送端：扩展页上下文（SW 自发 runtime 消息不回环，必须经另一上下文） */
-async function openMessenger(context, extensionId) {
+async function openMessenger(context: BrowserContext, extensionId: string): Promise<Page> {
   const page = await context.newPage()
   await page.goto(`chrome-extension://${extensionId}/popup.html`)
   return page
@@ -330,7 +335,7 @@ try {
    * 浮层的造数会把 AI 生成的脚本真落进项目库（script_apply 收敛落盘），
    * 必须等全部工作台 / popup 图截完再做 —— 否则后截的列表里会多出一个重复脚本。
    */
-  async function shoot(theme, shot) {
+  async function shoot(theme: 'light' | 'dark', shot: Shot) {
     const page = await context.newPage()
     await page.emulateMedia({ colorScheme: theme })
     await page.setViewportSize(shot.viewport)
@@ -376,7 +381,7 @@ try {
     }
   }
   for (const theme of themes) {
-    await shoot(theme, SHOTS.find((s) => s.name === 'floatpanel'))
+    await shoot(theme, SHOTS.find((s) => s.name === 'floatpanel')!)
   }
   await messenger.close()
 } finally {

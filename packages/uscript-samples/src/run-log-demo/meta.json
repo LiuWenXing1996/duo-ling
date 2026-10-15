@@ -1,0 +1,24 @@
+{
+  "name": "运行日志样例",
+  "namespace": "duoling",
+  "version": "2.0.1",
+  "description": "一次页面加载造出脚本运行记录的全部形态：运行行、运行事件、各类错误行、结束节点",
+  "match": "*://*/*",
+  "grant": [
+    "GM_download",
+    "GM_xmlhttpRequest",
+    "GM_notification",
+    "GM_openInTab",
+    "GM_setClipboard",
+    "GM_setValue",
+    "GM_deleteValue",
+    "GM_setValues",
+    "GM_deleteValues",
+    "GM_saveTab",
+    "GM_cookie",
+    "GM_registerMenuCommand"
+  ],
+  "noframes": "",
+  "require": ["http://127.0.0.1:1/nope.js"],
+  "resource": ["demoIcon http://127.0.0.1:1/nope.ico"]
+}

@@ -1,11 +1,12 @@
 // GM 全能探针的端测（L3 · 真机自动化）。
 //
-// 把手测探针搬进无头 CI：源码从 `uscript-samples/omni-probe/omni-probe.user.js` **读盘**（真身与手测同一份，
-// 不另写一套），经命令面存成脚本注入，打开本机靶站的探针页跑一遍，断言行里没有 ✗。
+// 把手测探针搬进无头 CI：源码从样例包的**构建产物**（packages/uscript-samples/dist/omni-probe/
+// omni-probe.user.js）**读盘**——真身与手测导入的是同一份（TS 模块源码经 `pnpm -r build` 打成
+// 单文件，不另写一套），经命令面存成脚本注入，打开本机靶站的探针页跑一遍，断言行里没有 ✗。
 //
 // 探针**载入不自动跑**（`@match` 是 `*://*/*`，逢页跑会到处落文件 / 弹通知 / 覆盖剪贴板），
 // 只有 URL hash 带 `omni-probe-auto` 的端测模式才载入即跑 —— 本 spec 正是用 `PAGE_HASH` 走这条，
-// 故不用点「跑全部」；万一没起来（AUTO 没生效），兜底点一次。出网目标也是本机的：`scripts/probe-target.mjs` 起的靶站。
+// 故不用点「跑全部」；万一没起来（AUTO 没生效），兜底点一次。出网目标也是本机的：`scripts/probe-target.mts` 起的靶站。
 //
 // 人工档 4 项（剪贴板读回 / 浏览器原生右键菜单点击 / `saveAs` 的另存为框 / 系统通知点击）在无头下
 // 做不了，探针在 `#omni-probe-auto`（AUTO）下直接记 `?`；另有少数项会因环境记 `?`：
@@ -18,7 +19,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_PORT, startProbeTarget, type ProbeTarget } from '../scripts/probe-target.mjs'
+import { DEFAULT_PORT, startProbeTarget, type ProbeTarget } from '../scripts/probe-target.mts'
 import {
   enableUserScripts,
   extensionIdFromServiceWorker,
@@ -28,8 +29,8 @@ import {
   sendToSw,
 } from './extension'
 
-/** 探针源码（与手测同一份） */
-const PROBE_SRC = readFileSync(fileURLToPath(new URL('../uscript-samples/omni-probe/omni-probe.user.js', import.meta.url)), 'utf8')
+/** 探针源码（与手测导入同一份构建产物；test:e2e 脚本先 `pnpm run build`，dist 必已生成） */
+const PROBE_SRC = readFileSync(fileURLToPath(new URL('../packages/uscript-samples/dist/omni-probe/omni-probe.user.js', import.meta.url)), 'utf8')
 /** 探针面板根节点 id */
 const PANEL = '#omni-probe'
 /** 自动化开关：人工档直接记「?」，不干等（见探针里的 AUTO 注释） */

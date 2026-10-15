@@ -9,7 +9,13 @@ import { EXTENSION_NAME } from '@/lib/extension-identity'
 // （script-config.ts：配置是运行期事实源，随 metadata 解析一起归包）；ScriptProject /
 // ScriptGroup 亦随内置默认存储归包（script-project.ts）。此处 re-export 维持既有 import
 // 路径（`@/lib/userscripts/types` / `./types`）不变。
-import type { ScriptConfig, ScriptResourceDecl } from '@duoling/userscript-runtime'
+// 错误 / 运行动作的形状真相源同在包侧（host-config.ts：错误与动作由包内产生），见下。
+import type {
+  ScriptConfig,
+  ScriptResourceDecl,
+  UserscriptErrorRecord,
+  UserscriptRunEvent as UserScriptRunEventShape,
+} from '@duoling/userscript-runtime'
 
 export type { ScriptConfig, ScriptResourceDecl }
 export { defaultConfig } from '@duoling/userscript-runtime'
@@ -48,8 +54,13 @@ export type { UserScriptsAvailability } from '@duoling/userscript-runtime'
  *
  * 逐条 + 环形：保留最近 ERROR_LOG_MAX 条，裁剪在写侧（见 runtime-db 的 appendErrorRow）。
  * 合表后它与其它轴行同住 tab_events，故按页读整根轴时一次就能拿到它（见 listTabTimeline）。
+ *
+ * 形状真相源在 `@duoling/userscript-runtime`（host-config.ts 的 UserscriptErrorRecord：
+ * 错误由包内产生 —— dl-bridge / registration / 依赖与资源抓取）。此处继承它并收窄成
+ * **落库形态**：id / uuid / time 在落盘时必已补齐（见 store.appendUserScriptError），
+ * 读侧按必有字段处理。
  */
-export interface UserScriptErrorRecord {
+export interface UserScriptErrorRecord extends UserscriptErrorRecord {
   /** 记录 id：落盘时生成，UI 展示前 8 位、复制完整值给 AI 代查（见 findUserScriptError） */
   id: string
   uuid: string | null // 运行期/注册错误有；部分桥错误可能无
@@ -58,10 +69,7 @@ export interface UserScriptErrorRecord {
    * 错误阶段：runtime=用户脚本运行期报错；register=后台注册失败；bridge=GM 桥调用失败；
    * require=外部依赖抓取失败；resource=@resource 资源抓取失败（后两者都只记错误、不阻断注入）
    */
-  phase: 'runtime' | 'register' | 'bridge' | 'require' | 'resource'
-  message: string
-  stack?: string
-  url?: string // 运行期错误所在页面
+  phase: UserscriptErrorRecord['phase']
   time: number // 时间戳
   /**
    * 运行标识：**一次页面加载 = 一个 runId**（GM 包装注入即 mint，见 gm-wrapper 的 buildGmWrapperSource）。
@@ -117,15 +125,11 @@ export const RUN_EVENT_MAX = 1000
  * 一条动作一条记录，落 tab_events store（判别键 kind = ACT_TAB_KIND，带 runId 索引）：
  * 不内嵌在运行条目里，故列表读取不带它们 —— 按 runId 拉那一组时才读（见 listRunEvents）。
  * **只在「这一页开着活动记录」时产生**（与运行条目同一判据，见 store.recordRunEvent）。
+ *
+ * 形状真相源在 `@duoling/userscript-runtime`（host-config.ts 的 UserscriptRunEvent：
+ * 动作由 dl-bridge 的 dispatch 采集）。此处取别名维持既有名字与 import 路径不变。
  */
-export interface UserScriptRunEvent {
-  /** 动作族（即 GM 命令名，如 fetch / download / store.set） */
-  kind: string
-  /** 一行摘要（已脱敏，可直接展示） */
-  detail: string
-  /** 发生时刻（ms） */
-  time: number
-}
+export type UserScriptRunEvent = UserScriptRunEventShape
 
 /**
  * 运行结束原因。结束信号来自文档销毁，故只有两种：

@@ -13,12 +13,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 type Listener = (raw: unknown, sender: unknown, sendResponse: (r: unknown) => void) => unknown
 
 let messageListeners: Listener[]
+let swMessageListeners: Listener[]
 let portConnectListeners: Array<(port: unknown) => void>
 let contextMenuListeners: Array<(...args: unknown[]) => void>
 let notificationListeners: Array<(id: string) => void>
 
 beforeEach(() => {
   messageListeners = []
+  swMessageListeners = []
   portConnectListeners = []
   contextMenuListeners = []
   notificationListeners = []
@@ -27,7 +29,7 @@ beforeEach(() => {
       id: 'test-ext-id',
       onUserScriptMessage: { addListener: (fn: Listener) => messageListeners.push(fn) },
       onUserScriptConnect: { addListener: (fn: (p: unknown) => void) => portConnectListeners.push(fn) },
-      onMessage: { addListener: vi.fn() },
+      onMessage: { addListener: (fn: Listener) => swMessageListeners.push(fn) },
     },
     tabs: { onRemoved: { addListener: vi.fn() }, onUpdated: { addListener: vi.fn() } },
     contextMenus: { onClicked: { addListener: (fn: never) => contextMenuListeners.push(fn) } },
@@ -41,7 +43,10 @@ beforeEach(() => {
   })
 })
 
-afterEach(() => {
+afterEach(async () => {
+  // createOffscreenHost 会启动真实心跳定时器（chrome 已 stub），逐例停掉防悬挂
+  const { stopSwKeepalive } = await import('./keepalive')
+  stopSwKeepalive()
   vi.unstubAllGlobals()
 })
 
@@ -59,9 +64,25 @@ describe('createServiceWorkerHost', () => {
     // 消息面（onUserScriptMessage）与连接面（onUserScriptConnect）各一条
     expect(messageListeners).toHaveLength(1)
     expect(portConnectListeners).toHaveLength(1)
+    // onMessage 一条 = 保活心跳应答（keepalive.ts）
+    expect(swMessageListeners).toHaveLength(1)
     // 事件源三件：菜单点击 / 通知点击 / 音频状态（tabs.onUpdated）
     expect(contextMenuListeners).toHaveLength(1)
     expect(notificationListeners).toHaveLength(1)
+  })
+
+  it('保活心跳应答：ping kind 回 { alive: true }，其余 kind 让给宿主监听器', async () => {
+    const { createServiceWorkerHost } = await loadHost()
+    const { SW_KEEPALIVE_KIND } = await import('./keepalive')
+    createServiceWorkerHost()
+    const ack = swMessageListeners[0]!
+    const respond = (raw: unknown) =>
+      new Promise<unknown>((resolve) => {
+        const keepOpen = ack(raw, {}, resolve)
+        expect(keepOpen).toBe(false) // 同步应答，不保持通道
+      })
+    await expect(respond({ kind: SW_KEEPALIVE_KIND })).resolves.toEqual({ alive: true })
+    expect(ack({ kind: 'other:kind' }, {}, vi.fn())).toBe(false)
   })
 
   it('重复调用幂等：返回同一实例，监听不二次注册（initDlPort 无幂等保护，靠工厂兜住）', async () => {

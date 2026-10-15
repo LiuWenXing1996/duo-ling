@@ -6,7 +6,7 @@
 //     后续的会话类断言（见 conversation-scope.spec.ts）可以建在它上面。
 //   · 在此之前，CI 里**没有任何**用例真正跑过对话链路（只有 SW 命令面 / 注入面 / 页面加载）。
 //
-// 做法：起一个 OpenAI 兼容的假模型服务（`scripts/model-stub.mjs`），经 `window.api.model.save`
+// 做法：起一个 OpenAI 兼容的假模型服务（`scripts/model-stub.mts`），经 `window.api.model.save`
 // 存进配置并激活（就是设置页走的那条路）——回复内容由我们写死，故断言确定、零成本、零网络。
 // 真模型不会出现在 CI 里：没有 key、不该为此花钱、回复不确定。
 import { test, expect, type BrowserContext } from '@playwright/test'
@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extensionIdFromServiceWorker, getServiceWorker, launchExtensionContext } from './extension'
-import { startModelStub } from '../scripts/model-stub.mjs'
+import { startModelStub } from '../scripts/model-stub.mts'
 
 /** 浮层页（`installWindowApi()` 在这里挂上 window.api，设置页同源） */
 const APP_PAGE = 'floatpanel.html'

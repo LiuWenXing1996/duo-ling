@@ -12,8 +12,8 @@
 // 配置每次重启都失效。地址打印在下面，在「设置 → 添加模型 → 服务商选自定义」里填一次即可长期复用。
 
 import { spawn, spawnSync } from 'node:child_process'
-import { startProbeTarget } from './probe-target.mjs'
-import { DEFAULT_PORT, startModelStub } from './model-stub.mjs'
+import { startProbeTarget } from './probe-target.mts'
+import { DEFAULT_PORT, startModelStub } from './model-stub.mts'
 
 /** 假模型的固定端口（可经 DL_MODEL_STUB_PORT 覆盖）；被占则退回随机端口并提示重填地址 */
 const MODEL_STUB_PORT = Number(process.env.DL_MODEL_STUB_PORT || DEFAULT_PORT)
@@ -56,6 +56,7 @@ process.on('SIGINT', stop)
 process.on('SIGTERM', stop)
 
 child.on('exit', (code) => {
-  const closeModel = new Promise((resolve) => model.server.close(resolve))
+  const modelServer = model.server
+  const closeModel = new Promise((resolve) => modelServer.close(resolve))
   Promise.all([target.close(), closeModel]).finally(() => process.exit(code ?? 0))
 })

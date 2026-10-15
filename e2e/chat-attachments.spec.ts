@@ -12,13 +12,13 @@
 //   · 「引用在送模型那一刻被换成什么」跨了面板 → offscreen → AI SDK 三层，
 //     只有让请求真的打到桩上才看得见（桩里能读到原始请求体）；
 //   · 落库与读回跨越 offscreen 的 lightning-fs，只有整条扩展跑起来才成立。
-// 真模型不会出现在 CI 里（没有 key、也不该为此花钱），所以用 `scripts/model-stub.mjs` 顶替。
+// 真模型不会出现在 CI 里（没有 key、也不该为此花钱），所以用 `scripts/model-stub.mts` 顶替。
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extensionIdFromServiceWorker, getServiceWorker, launchExtensionContext } from './extension'
-import { startModelStub, type ModelStubHit } from '../scripts/model-stub.mjs'
+import { startModelStub, type ModelStubHit } from '../scripts/model-stub.mts'
 
 const APP_PAGE = 'floatpanel.html'
 

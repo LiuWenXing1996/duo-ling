@@ -34,7 +34,7 @@ import {
   launchExtensionContext,
   openMessengerPage,
 } from './extension'
-import { startModelStub } from '../scripts/model-stub.mjs'
+import { startModelStub } from '../scripts/model-stub.mts'
 
 test.describe.serial('任务状态外显（进行中登记 + 对话框显隐）', () => {
   let context: BrowserContext | undefined

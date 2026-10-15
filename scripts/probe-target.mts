@@ -16,12 +16,14 @@
 // 探针侧不需要知道端口号。
 //
 // 用法：
-//   node scripts/probe-target.mjs                 # 默认端口（DEFAULT_PORT）
-//   node scripts/probe-target.mjs --port 0        # 随机端口，启动后打印实际地址
-//   DL_PROBE_PORT=6000 node scripts/probe-target.mjs
-// `pnpm run probe:serve` 是它的入口；`pnpm run dev` 也用它（见 scripts/dev.mjs）。
+//   node scripts/probe-target.mts                 # 默认端口（DEFAULT_PORT）
+//   node scripts/probe-target.mts --port 0        # 随机端口，启动后打印实际地址
+//   DL_PROBE_PORT=6000 node scripts/probe-target.mts
+// `pnpm run probe:serve` 是它的入口；`pnpm run dev` 也用它（见 scripts/dev.mts）。
 
 import { createServer } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 
@@ -30,6 +32,13 @@ export const DEFAULT_PORT = 5178
 
 /** 宿主页下发给脚本的 meta 名 */
 export const TARGET_META_NAME = 'dl-probe-target'
+
+export interface ProbeTarget {
+  port: number
+  base: string
+  url: string
+  close: () => Promise<void>
+}
 
 /** 固定正文（长度稳定）：探针的「200 + 非空 body」判据用它 */
 const TARGET_HTML =
@@ -47,9 +56,9 @@ const ICON_PNG = Buffer.from(
   'base64',
 )
 
-function readBody(req) {
+function readBody(req: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const chunks = []
+    const chunks: Buffer[] = []
     req.on('data', (c) => chunks.push(c))
     req.on('end', () => resolve(Buffer.concat(chunks)))
     req.on('error', reject)
@@ -57,9 +66,9 @@ function readBody(req) {
 }
 
 /** multipart/form-data 拆成 form（普通字段）与 files（带 filename 的字段），值按 UTF-8 解码 */
-function parseMultipart(buf, boundary) {
-  const form = {}
-  const files = {}
+function parseMultipart(buf: Buffer, boundary: string) {
+  const form: Record<string, string> = {}
+  const files: Record<string, string> = {}
   for (const part of buf.toString('latin1').split(`--${boundary}`)) {
     const sep = part.indexOf('\r\n\r\n')
     if (sep < 0) continue
@@ -73,8 +82,8 @@ function parseMultipart(buf, boundary) {
   return { form, files }
 }
 
-function parseUrlencoded(text) {
-  const out = {}
+function parseUrlencoded(text: string): Record<string, string> {
+  const out: Record<string, string> = {}
   for (const kv of text.split('&')) {
     if (!kv) continue
     const i = kv.indexOf('=')
@@ -89,7 +98,7 @@ function parseUrlencoded(text) {
 }
 
 /** httpbin /post 形状的回显：data 是**原始体**（文本体原样，二进制体按 UTF-8 解码） */
-function bodyReport(req, buf, url) {
+function bodyReport(req: IncomingMessage, buf: Buffer, url: URL) {
   const type = String(req.headers['content-type'] || '')
   const text = buf.toString('utf8')
   const out = {
@@ -98,9 +107,9 @@ function bodyReport(req, buf, url) {
     method: req.method,
     url: url.href,
     data: text,
-    form: {},
-    files: {},
-    json: null,
+    form: {} as Record<string, string>,
+    files: {} as Record<string, string>,
+    json: null as unknown,
   }
   const boundary = /boundary=(?:"([^"]+)"|([^;]+))/.exec(type)
   if (type.includes('multipart/form-data') && boundary) {
@@ -119,14 +128,14 @@ function bodyReport(req, buf, url) {
   return out
 }
 
-function sendJson(res, payload, status = 200) {
+function sendJson(res: ServerResponse, payload: unknown, status = 200) {
   const body = JSON.stringify(payload)
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
   res.end(body)
 }
 
 /** 按 chunk/gap 慢发 n 字节：一次发完的话 onprogress 只收得到一帧，进度用例就失去意义 */
-function sendBytes(res, n, chunk, gap) {
+function sendBytes(res: ServerResponse, n: number, chunk: number, gap: number) {
   const buf = Buffer.alloc(n, 0x5a)
   res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': String(n) })
   if (!chunk || !gap) return res.end(buf)
@@ -217,7 +226,7 @@ const PROBE_RECORD_PANEL = `
 </script>
 `
 
-function handle(req, res, base) {
+function handle(req: IncomingMessage, res: ServerResponse, base: string) {
   const url = new URL(req.url || '/', base)
   const path = url.pathname
 
@@ -285,11 +294,8 @@ function handle(req, res, base) {
   return res.end(`未知端点：${path}`)
 }
 
-/**
- * 起靶站。port 传 0 用随机端口（端测用，避免与本地已占端口相撞）。
- * @returns {Promise<{ port: number, base: string, url: string, close: () => Promise<void> }>}
- */
-export function startProbeTarget({ port = DEFAULT_PORT, host = '127.0.0.1' } = {}) {
+/** 起靶站。port 传 0 用随机端口（端测用，避免与本地已占端口相撞）。 */
+export function startProbeTarget({ port = DEFAULT_PORT, host = '127.0.0.1' }: { port?: number; host?: string } = {}): Promise<ProbeTarget> {
   const server = createServer((req, res) => {
     try {
       handle(req, res, base)
@@ -302,14 +308,14 @@ export function startProbeTarget({ port = DEFAULT_PORT, host = '127.0.0.1' } = {
   return new Promise((resolve, reject) => {
     server.once('error', reject)
     server.listen(port, host, () => {
-      const actual = server.address().port
+      const actual = (server.address() as AddressInfo).port
       base = `http://${host}:${actual}`
       resolve({
         port: actual,
         base,
         url: `${base}/probe.html`,
         close: () =>
-          new Promise((done) => {
+          new Promise<void>((done) => {
             server.closeAllConnections()
             server.close(() => done())
           }),
@@ -318,8 +324,9 @@ export function startProbeTarget({ port = DEFAULT_PORT, host = '127.0.0.1' } = {
   })
 }
 
-// —— CLI：pnpm run probe:serve / node scripts/probe-target.mjs ——
-const isCli = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])
+// —— CLI：pnpm run probe:serve / node scripts/probe-target.mts ——
+const argv1 = process.argv[1]
+const isCli = !!argv1 && fileURLToPath(import.meta.url) === resolve(argv1)
 if (isCli) {
   const argPort = process.argv.indexOf('--port')
   const port = Number(argPort >= 0 ? process.argv[argPort + 1] : process.env.DL_PROBE_PORT || DEFAULT_PORT)
