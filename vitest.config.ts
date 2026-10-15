@@ -30,10 +30,16 @@ export default defineConfig({
       reportsDirectory: 'coverage',
       // **给了 include 才是「全量口径」**：没有被任何用例加载的源文件也以 0% 进报表；
       // 不给则只统计跑到的文件，盲区正好看不见。故这行是覆盖率能当盲区地图用的前提。
-      include: ['src/**/*.{ts,vue}'],
+      // packages = 内置件包的源码，与 src 同为交付代码，一并进分母。
+      include: ['src/**/*.{ts,vue}', 'packages/**/*.ts'],
       exclude: [
         'src/**/*.test.ts',
         'src/**/*.d.ts',
+        'packages/**/*.test.ts',
+        'packages/**/*.d.ts',
+        // 件入口是「注入世界里的两行接线」（esbuild 的入口，只在页面/件世界执行）：用例跑的是
+        // 安装函数本身，入口那条调用没有可断言的语义，算进分母只稀释信号。
+        'packages/**/entry.ts',
         // 上游生成 / 搬运的组件（shadcn-vue 与 ai-elements）：本仓只用不改，算进分母只稀释信号
         'src/components/ui/**',
         'src/components/ai-elements/**',
@@ -45,8 +51,8 @@ export default defineConfig({
         test: {
           name: 'logic',
           environment: 'node',
-          include: ['src/**/*.test.ts'],
-          exclude: ['src/**/*.component.test.ts', ...defaultExclude],
+          include: ['src/**/*.test.ts', 'packages/**/*.test.ts'],
+          exclude: ['src/**/*.component.test.ts', 'packages/**/*.component.test.ts', ...defaultExclude],
         },
       },
       {

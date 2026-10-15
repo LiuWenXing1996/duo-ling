@@ -5,7 +5,7 @@
 // 声明为局部变量（源码模板在 gm-wrapper.ts）—— MAIN 不支持 worldId，同帧多脚本共享一个
 // window，挂到 window 上会互相覆盖。
 // 注入代码与 @require 依赖**拼成一条** code（见 registerScript），包装只是它的头尾。
-// MAIN 世界没有 `chrome.*`：能力调用经同帧 USER_SCRIPT 中继件（script-relay.ts）转给 SW，
+// MAIN 世界没有 `chrome.*`：能力调用经同帧 USER_SCRIPT 中继件（包内 relay/install.ts）转给 SW，
 // SW 侧监听在 dl-bridge.ts。style / log / info / addElement 在包装内本地实现，不走桥。
 import type { ScriptConfig, ScriptProject } from './types'
 import type { GmInfo, Json } from './api-contract'
@@ -18,7 +18,20 @@ import { listProjects, validateMatchPatterns } from './project-store'
 import { appendUserScriptError, getAllGMValues } from './store'
 import { fetchRequireSources } from './require-cache'
 import { fetchResourceSources } from './resource-cache'
-import { buildScriptRelaySource } from './script-relay'
+// 内置件的注册面（注册 id / 独立世界 id / 产物文件名 / 装配段）由包声明：件在那儿源码化并构建成
+// 独立 IIFE 文件，扩展侧只按 id 与文件名注册（真相源见 packages/builtin-scripts/src/registry.ts）
+import {
+  buildRelayInit,
+  generateBridgeSecret,
+  SCRIPT_RELAY_FILE,
+  SCRIPT_RELAY_ID,
+  SCRIPT_RELAY_WORLD_ID,
+  TAB_FORWARDER_FILE,
+  TAB_FORWARDER_ID,
+  TAB_FORWARDER_WORLD_ID,
+  TAB_RECORDER_FILE,
+  TAB_RECORDER_ID,
+} from '@duoling/builtin-scripts'
 // 页面检查器常驻件：指令下发 / 结果上行的 USER_SCRIPT 世界那半（弹层的「点选元素」与 AI 的
 // 页面快照 / 环境读数共用同一件，见 syncPageInspector）
 import {
@@ -37,11 +50,6 @@ import {
 } from './float-host-source'
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
 import { parseUserScriptMetadata } from './metadata'
-import { generateBridgeSecret } from './bridge-protocol'
-// 标签页录制：MAIN 件 + USER_SCRIPT 转发件（默认关，按**标签页**显式开；见下面的 syncTabRecorder）。
-// MAIN 件是种类无关的框架，具体录什么在种类件里（当前 = net-probe.ts 的网络请求）。
-import { buildTabRecorderSource } from './tab-recorder'
-import { buildTabForwarderSource } from './tab-forwarder'
 // 注册判据就一句「有没有页在录」—— 直接查存续表，录制不再有第二本账
 import { hasRecordingTabSession } from './runtime-db'
 // 内置注入脚本共用：匹配并集与「未变则跳过」比对
@@ -246,19 +254,7 @@ function sourceURLSuffix(project: ScriptProject): string {
   return `\n//# sourceURL=duoling://script/${project.uuid}/${safeName}.js`
 }
 
-// —— 内置件的注册 ID 与共享密钥 ——
-
-/** 脚本主世界桥 · USER_SCRIPT 中继件注册 ID（一个扩展一份） */
-export const SCRIPT_RELAY_ID = 'dl-script-relay'
-/** 中继件的独立世界 id：必须 configureWorld({ messaging: true })，否则世界内无 chrome.runtime */
-const SCRIPT_RELAY_WORLD_ID = 'us-dl-bridge'
-
-/** 标签页录制 · MAIN 件注册 ID（一个扩展一份） */
-export const TAB_RECORDER_ID = 'dl-tab-recorder'
-/** 标签页录制 · USER_SCRIPT 转发件注册 ID（一个扩展一份） */
-export const TAB_FORWARDER_ID = 'dl-tab-forwarder'
-/** 转发件的独立世界 id：必须 configureWorld({ messaging: true })，否则世界内无 chrome.runtime */
-const TAB_FORWARDER_WORLD_ID = 'us-dl-tab'
+// —— 内置注册的 id 全集 ——
 
 /**
  * 内置注册的 id 全集：全量重注册清「陈旧脚本」时必须排除它们（否则把自己刚同步的注册清掉）。
@@ -448,7 +444,8 @@ async function syncScriptRelay(projects: ScriptProject[]): Promise<void> {
   const relay: chrome.userScripts.RegisteredUserScript = {
     id: SCRIPT_RELAY_ID,
     worldId: SCRIPT_RELAY_WORLD_ID,
-    js: [{ code: buildScriptRelaySource(secret) }],
+    // 两段顺序不能换：前一段（件文件）只把安装函数挂到 window 上，后一段把运行期密钥递进去调它
+    js: [{ file: SCRIPT_RELAY_FILE }, { code: buildRelayInit(secret) }],
     matches: union.matches,
     excludeMatches: union.excludeMatches,
     includeGlobs: union.includeGlobs,
@@ -632,16 +629,18 @@ async function syncTabRecorder(): Promise<void> {
   }
   await unregisterScripts([TAB_RECORDER_ID, TAB_FORWARDER_ID])
   const common = { matches: TAB_RECORD_MATCHES, runAt: 'document_start' as const, allFrames: true }
+  // 两件都没有运行期参数，故各只需一个件文件（无装配段）。捕获件是种类无关的框架，
+  // 具体录什么在包内的种类件里（当前 = 网络请求的 fetch / XHR）。
   const recorderScript: chrome.userScripts.RegisteredUserScript = {
     id: TAB_RECORDER_ID,
     world: 'MAIN',
-    js: [{ code: buildTabRecorderSource() }],
+    js: [{ file: TAB_RECORDER_FILE }],
     ...common,
   }
   const forwarderScript: chrome.userScripts.RegisteredUserScript = {
     id: TAB_FORWARDER_ID,
     worldId: TAB_FORWARDER_WORLD_ID,
-    js: [{ code: buildTabForwarderSource() }],
+    js: [{ file: TAB_FORWARDER_FILE }],
     ...common,
   }
   try {

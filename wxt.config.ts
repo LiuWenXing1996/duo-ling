@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { execSync } from 'node:child_process'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import type { Plugin } from 'vite'
 import { defineConfig } from 'wxt'
 import vue from '@vitejs/plugin-vue'
@@ -28,6 +28,11 @@ import { EXTENSION_NAME } from './src/lib/extension-identity'
 // 该目录是 gitignore 的本地产物，新 clone / 新建 git worktree 后必然缺失，故就近创建。
 const chromiumProfileDir = resolve(process.cwd(), '.chrome-dev-profile')
 mkdirSync(chromiumProfileDir, { recursive: true })
+
+// 内置件包的产物目录：件源码在 packages/builtin-scripts/，构建出来的是**独立 IIFE 文件**
+// （chrome.userScripts 的 js:[{ file }] 只认扩展内路径，件必须落进扩展产物）。产物留在包内，
+// 扩展侧只负责把它取进来 —— 见下面 build:publicAssets 钩子。
+const builtinScriptsDist = resolve(process.cwd(), 'packages/builtin-scripts/dist')
 
 /**
  * 构建信息注入（分支名 + 时间戳 + 版本号），单一通道：
@@ -104,6 +109,31 @@ export default defineConfig({
   // WXT 的 publicDir 默认基于**项目根**（不是 srcDir），需显式指到 src 下，
   // 否则 src/public/ 下的静态资产（如 duoling-page-inspector.js）不会进产物。
   publicDir: 'src/public',
+  /**
+   * 内置件包的产物进扩展产物：按引用往 WXT 的文件表里追加，由它自己的 copyPublicDirectory
+   * 落盘 —— 不引第二份 copy 脚本，也不在扩展侧留中间目录（产物住在包内）。
+   *
+   * 时机是安全的：钩子在**所有 entrypoint 构建之后**跑，不会被后续构建覆盖；dev 每次重建都会
+   * 重跑一遍（rebuild 必过 buildEntrypoints）。
+   *
+   * 产物缺失 = 包没构建，此时直接报错。静默跳过会得到「件注册成功、文件却不存在」这种最难定位的
+   * 失败 —— 页面里什么都不发生，日志里也什么都不报。
+   */
+  hooks: {
+    'build:publicAssets': (_wxt, files) => {
+      if (!existsSync(builtinScriptsDist)) {
+        throw new Error(
+          `内置件产物不存在：${builtinScriptsDist}\n` +
+            '先跑 pnpm --filter @duoling/builtin-scripts build（pnpm run build / pnpm run dev 已内置这一步）',
+        )
+      }
+      for (const name of readdirSync(builtinScriptsDist)) {
+        // 只取 .js：产物目录里若出现别的文件（如以后开 sourcemap 的 .map），不该进扩展产物
+        if (!name.endsWith('.js')) continue
+        files.push({ absoluteSrc: resolve(builtinScriptsDist, name), relativeDest: name })
+      }
+    },
+  },
   vite: () => ({
     plugins: [vue(), tailwindcss(), htmlExtensionName()],
     // service worker 里没有 Node 的 `global`，而 isomorphic-git/lightning-fs 的

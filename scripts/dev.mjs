@@ -11,7 +11,7 @@
 // 不必花真 Key。模型配置里存的是**完整端点地址**，所以这里用固定端口 —— 随机端口会让已保存的
 // 配置每次重启都失效。地址打印在下面，在「设置 → 添加模型 → 服务商选自定义」里填一次即可长期复用。
 
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { startProbeTarget } from './probe-target.mjs'
 import { DEFAULT_PORT, startModelStub } from './model-stub.mjs'
 
@@ -33,6 +33,16 @@ console.log(`[dev] 假模型已就绪：${model.stub.baseUrl}`)
 console.log('[dev] 手测对话链路：设置 → 添加模型 → 服务商选「自定义」→ 填入上面的地址（密钥可留空）')
 
 // 参数原样转给 wxt（如 `pnpm run dev popup`），靶站只负责提供出网目标
+
+// 内置件包的产物必须先进 dist/：wxt.config.ts 的 build:publicAssets 钩子把它取进扩展产物，
+// 缺了会直接报错（注册指向不存在的文件）。dev 下**只构建一次** —— 改件源码后重跑本命令生效。
+const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+const built = spawnSync(pnpm, ['--filter', '@duoling/builtin-scripts', 'build'], { stdio: 'inherit' })
+if (built.status !== 0) {
+  console.error('[dev] 内置件构建失败，先修好它再起 dev')
+  process.exit(built.status ?? 1)
+}
+
 const bin = process.platform === 'win32' ? 'wxt.cmd' : 'wxt'
 const child = spawn(bin, process.argv.slice(2), {
   stdio: 'inherit',

@@ -1,6 +1,6 @@
 // GM 后台桥（协议契约 src/lib/userscripts/api-contract.ts）。
 //
-// 脚本桥中继件（script-relay.ts，USER_SCRIPT 世界）经 chrome.runtime.sendMessage 发来的消息，
+// 脚本桥中继件（包内 relay/install.ts，USER_SCRIPT 世界）经 chrome.runtime.sendMessage 发来的消息，
 // 因世界已 configureWorld({messaging:true})，被路由到本文件的 runtime.onUserScriptMessage（而非通用 onMessage）。
 //
 // 消息分流（契约定义；信封名保持 __dl 前缀）：
@@ -41,7 +41,7 @@ import {
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
 // 标签页录制：转发件送来的采集载荷在 SW 侧按**种类**白名单化后落 runtime 的 tab_events（与标签页事件同表）
-import { normalizeNetCapture, NET_TAB_KIND, TAB_RECORD_TAG } from './tab-record-protocol'
+import { normalizeNetCapture, NET_TAB_KIND, TAB_RECORD_TAG } from '@duoling/builtin-scripts'
 // 页面检查器常驻件的结果入站：按 reqId 结算 page-inspector-bridge 里挂起的那次调用（分流见下方监听器）
 import { handleInspectorResult } from './page-inspector-bridge'
 import * as runtime from './runtime-db'

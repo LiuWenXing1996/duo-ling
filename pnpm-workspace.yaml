@@ -1,4 +1,12 @@
+# workspace 成员。目前只有内置件包：它的源码是扩展的一部分（TS 模块），产物却是**独立的
+# IIFE 文件**（chrome.userScripts 的 js[] 只认扩展内路径的文件），故单独成包、单独构建。
+packages:
+  - packages/*
+
 # 依赖构建脚本白名单：pnpm 默认拦截依赖的 install / postinstall，未列出的包脚本不执行。
 # vue-demi 的 postinstall 按装到的 Vue major 覆盖 lib 变体（本项目为 Vue 3），放行。
+# esbuild 的 postinstall 校验并落位**平台二进制**（打进内置件包的构建依赖）；不放行则
+# pnpm 报 ERR_PNPM_IGNORED_BUILDS，构建时拿不到可执行的 esbuild。
 allowBuilds:
+  esbuild: true
   vue-demi: true

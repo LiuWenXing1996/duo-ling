@@ -1,4 +1,4 @@
-// tab-record-protocol.ts 单测：入站载荷归一化（SW 的信任边界）、鉴权头剥离、URL 凭据脱敏。
+// protocol/tab-record.ts 单测：入站载荷归一化（SW 的信任边界）、鉴权头剥离、URL 凭据脱敏。
 import { describe, expect, it } from 'vitest'
 import {
   NET_BODY_LIMIT,
@@ -7,7 +7,7 @@ import {
   normalizeNetCapture,
   stripAuthHeaders,
   stripUrlSecrets,
-} from './tab-record-protocol'
+} from './tab-record'
 
 describe('stripAuthHeaders', () => {
   it('剥掉鉴权头（大小写不敏感），保留其余', () => {
@@ -132,7 +132,7 @@ describe('normalizeNetCapture', () => {
     expect(r!.t).toBeGreaterThanOrEqual(before)
   })
 
-  it('归属缺位时不写字段（老记录 / 清全部时才带走的那些）', () => {
+  it('归属缺位时不写字段（清全部时才带走的那些记录）', () => {
     const r = normalizeNetCapture({ type: 'fetch', url: 'https://a.test/x' })
     expect(r).not.toBeNull()
     expect(r).not.toHaveProperty('tabSessionId')

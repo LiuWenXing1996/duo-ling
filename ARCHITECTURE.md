@@ -19,7 +19,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 | 注入世界 | `duoling-float-host.js`（第三方页面 USER_SCRIPT 世界 `us-dl-float`，全站注册、`document_start`） | 网页浮层的宿主件：**平时不往页面里放任何 DOM**，收到 `float:open` 才挂出 iframe 并展开（`?tab=` 由发起方随指令带来的 tabId 拼出 —— 该世界没有 `chrome.tabs`），收到 `float:collapse` 收起（只加 `display:none`，iframe 与草稿都留着），收到 `float:busy` 按「这条会话正在生成」开关页面遮罩（盖住视口挡指针交互，**只看生成中、与浮层开合无关** —— 收起浮层遮罩照留着；对话框本体在遮罩之上 —— 点得到停止），应答 `content:ping`（在岗探针：判据是那声应答、不是消息发得出去 —— 同一页上还有页面检查器在收同一条消息；popup 不再拿它判按钮状态，现由 e2e 用来确认件已注入本页，见 [`e2e/float-task-state.spec.ts`](e2e/float-task-state.spec.ts) 的 `openFloatPage`）；位置钉在视口右下角，拾取期间整块让位 |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 + 网页浮层的右键菜单入口 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
-| 注入世界 | MAIN（第三方页面内） | 用户脚本自身逻辑；GM 包装层（`gm-wrapper.ts`）在同一函数作用域里声明 `GM_*` / `GM.*`，能力调用经同帧 USER_SCRIPT 中继件（`script-relay.ts`）转 SW |
+| 注入世界 | MAIN（第三方页面内） | 用户脚本自身逻辑；GM 包装层（`gm-wrapper.ts`）在同一函数作用域里声明 `GM_*` / `GM.*`，能力调用经同帧 USER_SCRIPT 中继件（包内 `relay/install.ts`）转 SW |
 
 各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的挂载细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级、收起语义）见 [src/public/duoling-float-host.js](src/public/duoling-float-host.js) 顶部注释。**打开入口都在页面之外**：工具栏 popup 的「打开会话」按钮，与页面右键菜单（SW 注册，`documentUrlPatterns` 限 http/https）—— 对话框平时不在页面里，页面上没有任何可点的地方。两条都收敛到同一条定向消息（`FloatOpenRequest`，`tabs.sendMessage`，不经 SW），宿主件收到就地挂出 UI 并展开。**收起走反向的另一条消息**（`FloatCollapseRequest`）：对话框顶栏那颗按钮在 iframe 里（跨源，父页拿不到它的事件），只能发消息叫父页把容器藏起来；刻意不用 `postMessage` —— 宿主网页的脚本挂在父 window 上，既能监听也能用 `iframe.contentWindow.postMessage` 伪造来源，那等于把「关掉扩展界面」开放给被注入的页面。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
 
@@ -62,7 +62,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 ## 脚本注入
 
-`chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`gm-wrapper.ts`）与 **USER_SCRIPT 中继件**（`script-relay.ts`）桥接（`src/lib/userscripts/`）。
+`chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`gm-wrapper.ts`）与 **USER_SCRIPT 中继件**（`packages/builtin-scripts/`）桥接。
 
 标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`；grant 名 → 它开启的成员这张对应表在 `gm-grants.ts`，注入侧、速查页与 AI 规范三处共用这一份）；能力表 `gm-api-catalog.ts` 生成速查页与**给 AI 的能力清单**两形态（三防漂移：类型层 `satisfies` + 从注入源码反射 + 规范文本对齐单测）。内部仍走 `dl-bridge.ts` 的 `__dl` 信封协议（协议稳定、与 DL 时代一致）。
 
@@ -73,7 +73,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 - **靠下行帧的回调必须先等通道**：`GM_xmlhttpRequest` 的 `onprogress`、`GM_download` 的 `onprogress` / `onload` / `onerror`、`GM_notification` 的 `onclick` 都由 Port 推帧送达，而请求-应答（`sendMessage`）**不会**把 Port 建起来。只调这几个 API、不读值 / 不注册菜单 / 不订阅音频的脚本会踩到：SW 侧 `portsByConnId` 命中 0 个连接，帧全被丢掉，而请求 / 下载本身照常成功——表现为「回调永不触发」（2026-09-22 真机查了两轮才定位）。故这些命令统一先等通道再发（`__gmSendAfterChannel`）；通道建不起来也**照发**（降级不阻断），但 SW 侧 `warnNoPort` 会按连接喊一次，不做新的静默失败。
 - **`@grant` 精确注入**：语义对齐 TM —— **不写 `@grant` / `@grant none` 都等于空清单**（只剩恒注入项），写了才给对应成员。`unsafeWindow` 就是页面自身的 `window`（脚本跑在主世界）；`window.onurlchange` / `GM_info` 恒注入（不受 grant 限制，这点比 TM 宽松）。
 - **运行期错误归属两层口径**：window 的 error / unhandledrejection 监听是全页共享的，页面自身的报错会撞进来且事件不携带来源信息。故正文（含 `@require`）整体包进 try 块——同步错误被 catch 即归属、直报不判栈；异步错误只认栈帧带本脚本 sourceURL 标记（`duoling://script/<uuid>/`，整条注入源码的末行）的，无标记不收（无栈错误与跨域 Script error 因此收不到，宁可漏报不收页面噪声）。口径定义在 `gm-wrapper.ts` 的错误收集段。
-- **脚本主世界注入 + 中继桥**：脚本注入页面 MAIN 世界（与 Tampermonkey 默认一致，`unsafeWindow` 因此就是页面 window）。MAIN 世界没有 `chrome.*`，能力调用经同帧的 `dl-script-relay`（独立 USER_SCRIPT 世界 `us-dl-bridge`，`messaging: true`）转给 SW，桥协议见 `bridge-protocol.ts`（每条消息带 `digest(secret, uuid:seq)` 防页面伪造与重放）。注入代码是「GM 包装前缀 ＋ `@require` ＋ 脚本源码 ＋ 闭合后缀」拼成的**一条** code —— MAIN 不支持 `worldId`，同帧多脚本共享一个 window，故 `GM_*` 一律声明在包装的函数作用域里（挂 window 会互相覆盖）。
+- **脚本主世界注入 + 中继桥**：脚本注入页面 MAIN 世界（与 Tampermonkey 默认一致，`unsafeWindow` 因此就是页面 window）。MAIN 世界没有 `chrome.*`，能力调用经同帧的 `dl-script-relay`（独立 USER_SCRIPT 世界 `us-dl-bridge`，`messaging: true`）转给 SW，桥协议见包内 `protocol/bridge.ts`（每条消息带 `digest(secret, uuid:seq)` 防页面伪造与重放）。注入代码是「GM 包装前缀 ＋ `@require` ＋ 脚本源码 ＋ 闭合后缀」拼成的**一条** code —— MAIN 不支持 `worldId`，同帧多脚本共享一个 window，故 `GM_*` 一律声明在包装的函数作用域里（挂 window 会互相覆盖）。
 - **cookie 域名门**（红线索引见 [AGENTS.md](AGENTS.md)「硬性底线」「cookie 能力」）：入口为 `GM_cookie.list/set/delete`（原 `DL.cookie`），门仍在 SW 侧、只比 scheme + host，`set` 仍禁 domain / path 覆写。
 - **GM_xmlhttpRequest 的 forbidden header 覆写**（Cookie / Referer / UA 等）与 `redirect:'manual'` 走 DNR session 规则按请求挂/撤 + 观察型 webRequest（`dl-fetch-priv.ts`；权限 `declarativeNetRequestWithHostAccess` + `webRequest` 均不新增用户可见提示）。**DNR 的头修改不跨重定向 hop**（跨 host 的 hop 不套用，Chrome 平台限制，油猴同款）。
 - **GM_download 走浏览器下载器**（`chrome.downloads`，权限 `downloads`）：只有它能弹「另存为」（`saveAs`）、也只有它是流式落盘（旧实现要把整份文件读进内存再经 data URL 点锚点，大文件会炸）。`downloads` 是**用户可见权限**（安装 / 更新时提示「管理您的下载内容」）。进度靠 SW 轮询 `search()`（`onChanged` 不给下载中的字节数），由 offscreen 心跳保活常驻支撑。

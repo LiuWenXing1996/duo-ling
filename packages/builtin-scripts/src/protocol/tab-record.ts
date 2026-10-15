@@ -5,13 +5,14 @@
 //   · 种类层 `net-*`       —— 具体录哪一类信号（怎么包 fetch / 怎么剥鉴权头 / 怎么压摘要）。
 //     网络是当前唯一的一类；`window.console` 之类将来平行加，不改机制层。
 //
-// 本文件是**机制层的形状约定**，三个消费方必须逐字节一致：
-//   · tab-recorder.ts（MAIN 世界件框架）—— 字符串模板，插值 TAB_RECORD_TAG；
-//   · tab-forwarder.ts（USER_SCRIPT 转发件）—— 字符串模板，插值 TAB_RECORD_TAG；
-//   · net-probe.ts（net 种类件）—— 字符串模板，插值 net 那一类的常量；
+// 本文件是**机制层的形状约定**，各消费方必须逐字节一致：
+//   · src/recorder/install.ts（MAIN 世界件框架）—— 直接 import，插值 TAB_RECORD_TAG；
+//   · src/recorder/net-probe.ts（net 种类件）—— 直接 import 它那一类的常量；
+//   · src/forwarder/install.ts（USER_SCRIPT 转发件）—— 直接 import，插值 TAB_RECORD_TAG；
 //   · runtime-db.ts / dl-bridge.ts（SW 落库 + 入站归一化）—— 直接 import。
 //
-// 与 bridge-protocol.ts 同款：模板源码无法 import，只能靠常量插值保持一致。
+// 单消费方视角看，本文件是「读侧（SW）与写侧（页面件）」之间的唯一形状来源；件不再是字符串模板，
+// 故插值这件事只剩信封 TAG 一处（它在装配段里出现）。
 
 /**
  * 消息信封标记：MAIN 件 postMessage 给同帧、转发件 sendMessage 给 SW，都用它。
@@ -80,7 +81,7 @@ export interface NetCaptureRecord {
   id?: number
   /**
    * 归属的标签页存续行（由 SW 按 sender.tab.id 查出后给定，载荷不携带）。
-   * 缺省 = 归属不明的老记录，按页读不到它。
+   * 缺省 = 归属不明的记录，按页读不到它。
    */
   tabSessionId?: string
   /** 请求方式来源 */
