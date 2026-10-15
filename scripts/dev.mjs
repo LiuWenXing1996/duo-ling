@@ -34,16 +34,15 @@ console.log('[dev] 手测对话链路：设置 → 添加模型 → 服务商选
 
 // 参数原样转给 wxt（如 `pnpm run dev popup`），靶站只负责提供出网目标
 
-// 子包产物必须先进各自 dist/：shared 走 exports 被应用源码直接 import（缺了类型与运行时
-// 全断），内置件包由 wxt.config.ts 的 build:publicAssets 钩子取进扩展产物（缺了注册指向
-// 不存在的文件）。dev 下**只构建一次** —— 改包源码后重跑本命令生效，长跑用包内 `dev` watch。
+// 子包产物必须先进各自 dist/：shared / userscript-runtime 走 exports 被应用源码直接 import
+// （缺了类型与运行时全断），内置件包由 wxt.config.ts 的 build:publicAssets 钩子取进扩展产物
+// （缺了注册指向不存在的文件）。`pnpm -r build` 按 workspace 依赖拓扑保证先后。
+// dev 下**只构建一次** —— 改包源码后重跑本命令生效，长跑用包内 `dev` watch。
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
-for (const pkg of ['@duoling/shared', '@duoling/builtin-scripts']) {
-  const built = spawnSync(pnpm, ['--filter', pkg, 'build'], { stdio: 'inherit' })
-  if (built.status !== 0) {
-    console.error(`[dev] ${pkg} 构建失败，先修好它再起 dev`)
-    process.exit(built.status ?? 1)
-  }
+const built = spawnSync(pnpm, ['-r', 'build'], { stdio: 'inherit' })
+if (built.status !== 0) {
+  console.error('[dev] 子包构建失败，先修好它再起 dev')
+  process.exit(built.status ?? 1)
 }
 
 const bin = process.platform === 'win32' ? 'wxt.cmd' : 'wxt'
