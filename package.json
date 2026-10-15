@@ -6,6 +6,7 @@
   "type": "module",
   "packageManager": "pnpm@11.9.0",
   "engines": {
+    "node": ">=22.18",
     "pnpm": ">=11.9.0"
   },
   "devEngines": {
@@ -17,20 +18,20 @@
   },
   "scripts": {
     "postinstall": "wxt prepare",
-    "dev": "node scripts/dev.mjs",
-    "probe:serve": "node scripts/probe-target.mjs",
-    "model:serve": "node scripts/model-stub.mjs",
+    "dev": "node scripts/dev.mts",
+    "probe:serve": "node scripts/probe-target.mts",
+    "model:serve": "node scripts/model-stub.mts",
     "build": "pnpm -r build && wxt build",
     "build:firefox": "pnpm -r build && wxt build --browser firefox",
     "typecheck": "pnpm -r build && pnpm -r typecheck && vue-tsc --noEmit",
     "test": "pnpm -r build && pnpm -r test && vitest run",
     "test:coverage": "pnpm -r build && vitest run --coverage",
     "test:e2e": "pnpm run build && playwright test",
-    "verify:skills": "node scripts/verify-skills.mjs",
-    "check:todo": "node scripts/check-todo.mjs",
-    "check:comments": "node scripts/check-comments.mjs",
-    "pack:uscripts": "node scripts/pack-uscripts.mjs",
-    "release": "node scripts/release.mjs"
+    "verify:skills": "node scripts/verify-skills.mts",
+    "check:todo": "node scripts/check-todo.mts",
+    "check:comments": "node scripts/check-comments.mts",
+    "pack:uscripts": "node scripts/pack-uscripts.mts",
+    "release": "node scripts/release.mts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.48",
@@ -73,6 +74,7 @@
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.3.3",
     "@types/chrome": "^0.2.9",
+    "@types/node": "^26.5.1",
     "@types/tampermonkey": "^5.5.0",
     "@vitejs/plugin-vue": "6.0.8",
     "@vitest/coverage-v8": "5.0.1",

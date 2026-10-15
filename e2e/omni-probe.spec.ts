@@ -6,7 +6,7 @@
 //
 // 探针**载入不自动跑**（`@match` 是 `*://*/*`，逢页跑会到处落文件 / 弹通知 / 覆盖剪贴板），
 // 只有 URL hash 带 `omni-probe-auto` 的端测模式才载入即跑 —— 本 spec 正是用 `PAGE_HASH` 走这条，
-// 故不用点「跑全部」；万一没起来（AUTO 没生效），兜底点一次。出网目标也是本机的：`scripts/probe-target.mjs` 起的靶站。
+// 故不用点「跑全部」；万一没起来（AUTO 没生效），兜底点一次。出网目标也是本机的：`scripts/probe-target.mts` 起的靶站。
 //
 // 人工档 4 项（剪贴板读回 / 浏览器原生右键菜单点击 / `saveAs` 的另存为框 / 系统通知点击）在无头下
 // 做不了，探针在 `#omni-probe-auto`（AUTO）下直接记 `?`；另有少数项会因环境记 `?`：
@@ -19,7 +19,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_PORT, startProbeTarget, type ProbeTarget } from '../scripts/probe-target.mjs'
+import { DEFAULT_PORT, startProbeTarget, type ProbeTarget } from '../scripts/probe-target.mts'
 import {
   enableUserScripts,
   extensionIdFromServiceWorker,
