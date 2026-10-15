@@ -1,16 +1,16 @@
 // 引擎可用性监视器（SW 专属）：轮询「运行用户脚本」开关，**只在状态变化时**发事件。
 //
 // 三层分工（解耦后的结构）：
-//   · 保活层 —— offscreen 心跳（offscreen-main.ts）：唯一职责是重置 SW 的 30s 空闲计时，
-//     不做任何检测。没有启用脚本时不保活。
+//   · 保活层 —— GM 运行时包内 keepalive（offscreen 宿主经 createOffscreenHost 接线即启，
+//     无条件 5s 一 ping）：唯一职责是重置 SW 的 30s 空闲计时，不做任何检测。
 //   · 检测层 —— 本模块：SW 活着时自己轮询引擎可用性，状态**变化**（两个方向都算）才通知。
 //   · 消费层 —— background 订阅：不可用 → 可用时补注册（开关后开场景的自愈），并向扩展页
 //     广播 availabilityChanged（UI 横幅 / 引导页订阅更新显示，不再各自打 visibilitychange 补丁）。
 //
-// 前提与边界：SW 活不过 30s 空闲，本定时器随之消亡——这**不是 bug**：没有启用脚本时
-// offscreen 不保活、SW 睡着，本无状态可检测；SW 被唤醒（UI 消息 / 导航事件）时
-// defineBackground 重跑、监视器重启、首个读数重建基线。Chrome 对开关变化没有事件，
-// 轮询是唯一检测手段（因此保活层不可省）。
+// 前提与边界：SW 活不过 30s 空闲，本定时器随之消亡——保活层在场时 SW 常驻、轮询持续跑；
+// offscreen 容器缺席（极端：容器被调试命令关闭 / 创建失败）时 SW 会睡，这**不是 bug**：
+// SW 被唤醒（UI 消息 / 导航事件）时 defineBackground 重跑、监视器重启、首个读数重建基线。
+// Chrome 对开关变化没有事件，轮询是唯一检测手段（因此保活层不可省）。
 
 import type { UserScriptsAvailability } from './types'
 import { getUserScriptsStatus } from './engine'

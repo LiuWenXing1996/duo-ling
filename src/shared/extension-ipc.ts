@@ -93,9 +93,6 @@ export type RuntimeRequest =
   // 启用中的脚本改名后由 SW 重注册——已注入的脚本否则仍顶旧名。
   | { kind: 'userscript:rename'; uuid: string; name: string }
   | { kind: 'userscript:availability' }
-  // 引擎保活应答（offscreen → SW，5s 一次）：offscreen 心跳的**唯一职责是给 SW 保活**
-  // （重置 30s 空闲计时），不做任何检测——检测在 SW 自身的轮询（availability-watch.ts）。
-  | { kind: 'userscript:healthCheck' }
   // 运行时间线：运行条（tab_events 里 kind = 'run'）+ 与本次读取对不上的错误行按时间倒序混排
   // （listRunTimeline）。消费方是 AI 的 run_log_read —— 活动历史面板按页读整根轴，不走这条。
   // **不含动作**：动作随运行数全量读会线性膨胀（运行数 × 动作上限），要看某次运行干了什么

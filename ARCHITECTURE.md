@@ -76,7 +76,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 - **脚本主世界注入 + 中继桥**：脚本注入页面 MAIN 世界（与 Tampermonkey 默认一致，`unsafeWindow` 因此就是页面 window）。MAIN 世界没有 `chrome.*`，能力调用经同帧的 `dl-script-relay`（独立 USER_SCRIPT 世界 `us-dl-bridge`，`messaging: true`）转给 SW，桥协议见 `@duoling/shared` 的 `bridge.ts`（每条消息带 `digest(secret, uuid:seq)` 防页面伪造与重放）。注入代码是「GM 包装前缀 ＋ `@require` ＋ 脚本源码 ＋ 闭合后缀」拼成的**一条** code —— MAIN 不支持 `worldId`，同帧多脚本共享一个 window，故 `GM_*` 一律声明在包装的函数作用域里（挂 window 会互相覆盖）。
 - **cookie 域名门**（红线索引见 [AGENTS.md](AGENTS.md)「硬性底线」「cookie 能力」）：入口为 `GM_cookie.list/set/delete`（原 `DL.cookie`），门仍在 SW 侧、只比 scheme + host，`set` 仍禁 domain / path 覆写。
 - **GM_xmlhttpRequest 的 forbidden header 覆写**（Cookie / Referer / UA 等）与 `redirect:'manual'` 走 DNR session 规则按请求挂/撤 + 观察型 webRequest（`dl-fetch-priv.ts`；权限 `declarativeNetRequestWithHostAccess` + `webRequest` 均不新增用户可见提示）。**DNR 的头修改不跨重定向 hop**（跨 host 的 hop 不套用，Chrome 平台限制，油猴同款）。
-- **GM_download 走浏览器下载器**（`chrome.downloads`，权限 `downloads`）：只有它能弹「另存为」（`saveAs`）、也只有它是流式落盘（旧实现要把整份文件读进内存再经 data URL 点锚点，大文件会炸）。`downloads` 是**用户可见权限**（安装 / 更新时提示「管理您的下载内容」）。进度靠 SW 轮询 `search()`（`onChanged` 不给下载中的字节数），由 offscreen 心跳保活常驻支撑。
+- **GM_download 走浏览器下载器**（`chrome.downloads`，权限 `downloads`）：只有它能弹「另存为」（`saveAs`）、也只有它是流式落盘（旧实现要把整份文件读进内存再经 data URL 点锚点，大文件会炸）。`downloads` 是**用户可见权限**（安装 / 更新时提示「管理您的下载内容」）。进度靠 SW 轮询 `search()`（`onChanged` 不给下载中的字节数），由 offscreen 心跳保活常驻支撑（GM 运行时包内 `keepalive.ts`，接线即启、无条件）。
 - **覆写期间同 host 互斥**（写优先读写锁，防规则污染并发请求）：DNR 规则只能按 host 匹配，没有「只作用于某一次请求」的粒度，故覆写挂起期间该 host 的**所有** GM_xmlhttpRequest 都会套上覆写头；生命周期三层兜底（settle finally 撤 → SW 启动对账自有 id 区间 → session 规则浏览器重启自清）。机制与验证路径见 `dl-fetch-priv.ts` 顶部注释。
 - **CSP 跟随目标站点**：脚本运行在页面 MAIN 世界，不再由本扩展配置 CSP —— `eval` / `new Function` 能否使用取决于站点自身策略。生成提示词与 `script_spec` 仍明令避开动态代码生成，保存时由 `collectCspWarnings` 对含 `eval` / `new Function` 的注入代码给非阻塞警告。
 - **页面录制（tab-record，两段式条件件）**：要拦页面**自己**发出的 `fetch`/`XMLHttpRequest`（将来还有 `window.console` 一类），钩子只能挂 MAIN 世界（USER_SCRIPT 各有独立 realm，挂它的 `window.fetch` 拦不到）；而 MAIN 世界无 `chrome.*`。故两件协作，**机制层与种类层分开命名**：机制件叫 `tab-record-*`（按页挂载、信封、转发、落盘，与「录什么」无关），种类件叫 `net-*`（网络是当前唯一一类；加一类就是多插一段片段、多调一次 install，不改机制件）。
@@ -94,7 +94,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
   - **角标 = 该标签页的运行集大小**（`background` 的 `refreshBadge`）：红底白字，悬停文案与灵动岛同一句（`N 个脚本在运行`），`>9` 显示 `9+`。**按标签页各设各的** —— 没有脚本在跑的页不亮，别的页面上的脚本不该在这儿报数（`chrome.action.setBadgeText({ tabId })`）。`refreshBadge` 是唯一写入口，且由登记表变化驱动（`onPageRunsChanged`）**整体重算**，不是「收到 runstart 时加一」：登记表的变化有好几条路，逐条对齐迟早漏一条。引擎可用性翻转也接在同一条重算上（`setEngineAvailable`）。
   - **引擎不可用（未授权）→ 全局一个 `!`**：`chrome.userScripts` 的开关关着时（Chrome ≥138 是扩展详情页的「允许运行用户脚本」、Chrome <138 是全局开发者模式、Firefox 是 userScripts 权限），该命名空间整个不存在、谁都注册不进去 —— 此时**不带 `tabId`** 地亮一个感叹号（badge 可用宽度只有几像素，汉字再少也得缩到看不清，单字符才有足够字号；事由交给悬停文案说），悬停写「用户脚本未授权，工作台「引导」有开启步骤」。**刻意是全局的**：它说的是「这个扩展现在用不了用户脚本」，与具体标签页无关，故不参与上面那套 per-tab 的差集清理；恢复可用时由同一次重算收回。
   - **为什么不报会话**：会话那边一个标签页只归属一条（见「会话归属按标签页」），数字只可能是 0 / 1 —— 既报不出量，说的也不是「这个页面此刻是什么样」。会话的进度与结果由工作台「会话历史」与浮层承担。
-  - **边界**：登记表是内存表，**扩展重载 / 浏览器启动**后为空、且历史 runstart 不重放 —— 那之后到该页重新导航之前，三个消费方都显示为空（浏览器启动会重载页面、自己补回来）。这跟「SW 空闲被回收」不是一回事：有启用脚本时 SW 由 offscreen 心跳保活（`offscreen-main.ts`），而登记表非空恰以「有启用脚本」为前提。
+  - **边界**：登记表是内存表，**扩展重载 / 浏览器启动**后为空、且历史 runstart 不重放 —— 那之后到该页重新导航之前，三个消费方都显示为空（浏览器启动会重载页面、自己补回来）。这跟「SW 空闲被回收」不是一回事：SW 由 offscreen 心跳保活常驻（GM 运行时包内 `keepalive.ts`，接线即启、无条件）。
 
 ## 页面上下文
 
