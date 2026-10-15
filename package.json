@@ -41,6 +41,7 @@
     "clsx": "^2.1.1",
     "fflate": "^0.8.3",
     "isomorphic-git": "1.42.2",
+    "markdown-it": "^15.0.2",
     "motion-v": "^2.4.4",
     "nanoid": "^6.0.1",
     "reka-ui": "^2.10.4",
@@ -52,6 +53,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
+    "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.3.3",
     "@types/chrome": "^0.2.9",
     "@types/tampermonkey": "^5.5.0",

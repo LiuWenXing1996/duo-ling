@@ -6,10 +6,11 @@
 //
 // 结构平移自桌面版 app.vue 的「顶栏 + 左侧导航 + 工作区」，只裁掉两栏聊天
 // （会话历史 | 当前会话已移入 side panel），保留的分支逐句照搬，未重写。
-// 导航项：设置 / 脚本列表 / 活动历史 / 会话历史 / 文件管理（「引导」不单独占一项，入口在设置页菜单里）。
+// 导航项：设置 / 脚本列表 / 活动历史 / 会话历史 / 文件管理 / 帮助（「引导」不单独占一项，入口在设置页菜单里）。
 // 调界面用的其余几个调试面板不在这里 —— 入口收在「设置 · 开发者」分区里（见 DevModeSection）。
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
+  BookOpen as UiBookOpen,
   Clock as UiClock,
   FolderTree as UiFolderTree,
   List as UiList,
@@ -32,6 +33,7 @@ const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)
 //   #/tool/<uuid> → 直达该脚本编辑器（AI 生成卡片「进编辑器」用，title 取状态库名称）
 //   #/settings    → 打开设置标签页
 //   #/guide       → 打开引导标签页（对话界面与设置页菜单里的「查看开启引导」都跳这里）
+//   #/help        → 打开帮助标签页（内置使用说明）
 //   #/sessions    → 打开会话历史标签页（对话界面顶栏「会话历史」跳这里）
 function handleHash(): void {
   const tool = location.hash.match(/^#\/tool\/([A-Za-z0-9-]+)/)
@@ -43,6 +45,10 @@ function handleHash(): void {
   }
   if (location.hash === '#/guide') {
     workspaceRef.value?.openGuideTab()
+    return
+  }
+  if (location.hash === '#/help') {
+    workspaceRef.value?.openHelpTab()
     return
   }
   if (location.hash === '#/sessions') {
@@ -141,6 +147,21 @@ onUnmounted(() => {
               </button>
             </ui-tooltip-trigger>
             <ui-tooltip-content side="right">文件管理</ui-tooltip-content>
+          </ui-tooltip>
+        </ui-tooltip-provider>
+        <ui-tooltip-provider>
+          <ui-tooltip>
+            <ui-tooltip-trigger as-child>
+              <button
+                class="workspace-nav-item"
+                type="button"
+                aria-label="帮助"
+                @click="workspaceRef?.openHelpTab()"
+              >
+                <ui-book-open class="size-5" />
+              </button>
+            </ui-tooltip-trigger>
+            <ui-tooltip-content side="right">帮助</ui-tooltip-content>
           </ui-tooltip>
         </ui-tooltip-provider>
       </aside>
