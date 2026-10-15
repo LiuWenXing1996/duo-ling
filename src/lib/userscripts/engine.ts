@@ -1,32 +1,30 @@
 // 用户脚本注册引擎 —— **产品内置件层**（本扩展自有的注入件）。
 //
-// 通用注册引擎（世界配置 / 单脚本注册 / 全量重注册串行链 / 可用性检测 / 握手密钥）
-// 已上移 `@duoling/userscript-runtime`（registration.ts）；本文件只保留**本扩展自己的
-// 内置件**的注册同步，并经 host-config 的 builtins 注入点挂进包的全量链：
-//   · 脚本桥中继件 —— 跟随「启用脚本的匹配并集」（MAIN 世界脚本的 GM 调用靠它转给 SW）；
+// 通用注册引擎（世界配置 / 单脚本注册 / 全量重注册串行链 / 可用性检测 / 握手密钥）与
+// **脚本桥中继件**（GM 桥 MAIN 世界侧，「跑全量 GM」的组成部分）已上移
+// `@duoling/userscript-runtime`（registration.ts / relay/sync.ts）；本文件只保留**本扩展
+// 自己的内置件**的注册同步，并经 host-config 的 builtins 注入点挂进包的全量链：
 //   · 页面检查器常驻件 —— 恒注册（拾取「页面早已打开、用户刚点按钮」的场景）；
 //   · 浮层宿主常驻件 —— 恒注册（打开浮层同一时序问题）；
 //   · 标签页录制两件 —— 跟随「有没有页在录」。
 // 这些件的产物文件与注册 id 在 @duoling/builtin-scripts（registry.ts 是声明真相源），
-// 件与 SW 的协议对端（dl-bridge / page-inspector-bridge / dl-port）都在本仓 —— 纯产品面。
+// 件与 SW 的协议对端（page-inspector-bridge / dl-port）都在本仓 —— 纯产品面。
 //
 // 包侧函数经本文件 re-export（registerScript / registerAllEnabled / recoverOnUpdate 等），
 // background 等调用点的 import 路径不变。
 import type { ScriptProject } from './types'
 // 内置件的注册面（注册 id / 独立世界 id / 产物文件名 / 装配段）由包声明：件在那儿源码化并构建成
-// 独立 IIFE 文件，扩展侧只按 id 与文件名注册（真相源见 packages/builtin-scripts/src/registry.ts）
+// 独立 IIFE 文件，扩展侧只按 id 与文件名注册（真相源见 packages/builtin-scripts/src/registry.ts）。
+// 中继件（relay）例外：已随 `@duoling/userscript-runtime` 包内化（id / 装配段 / 注册同步都在包内，
+// IIFE 以 `{ code }` 注册，无公共资产文件）。
 import {
   buildFloatHostInit,
-  buildRelayInit,
   FLOAT_HOST_FILE,
   FLOAT_HOST_ID,
   FLOAT_HOST_WORLD_ID,
   INSPECTOR_HOST_FILE,
   INSPECTOR_HOST_ID,
   INSPECTOR_HOST_WORLD_ID,
-  SCRIPT_RELAY_FILE,
-  SCRIPT_RELAY_ID,
-  SCRIPT_RELAY_WORLD_ID,
   TAB_FORWARDER_FILE,
   TAB_FORWARDER_ID,
   TAB_FORWARDER_WORLD_ID,
@@ -38,13 +36,14 @@ import { EXTENSION_NAME } from '@/lib/extension-identity'
 import { listProjects } from './project-store'
 // 注册判据就一句「有没有页在录」—— 直接查存续表，录制不再有第二本账
 import { hasRecordingTabSession } from './runtime-db'
-// 内置注入脚本共用：匹配并集与「未变则跳过」比对（已上移包内，随 index 导出）
-import { enabledMatchUnion, sameMatchSet } from '@duoling/userscript-runtime'
-// 通用引擎件（包内 registration.ts）：世界配置 / 密钥 / 注销 / 串行队列
+// 匹配并集比对（「未变则跳过」）：已上移包内，随 index 导出
+import { sameMatchSet } from '@duoling/userscript-runtime'
+// 通用引擎件（包内 registration.ts）：世界配置 / 注销 / 串行队列 / 中继件注册同步
 import {
   configureWorld,
   enqueueRegistration,
-  getOrCreatePageSecret,
+  SCRIPT_RELAY_ID,
+  syncScriptRelay,
   unregisterScripts,
 } from '@duoling/userscript-runtime'
 // 匹配面判定（scheme + host）：内置件「这一页用不用得上」与 cookie 域名门同一套判据
@@ -184,60 +183,6 @@ export function builtinsOnPage(
     if (r.id === TAB_RECORDER_ID || r.id === TAB_FORWARDER_ID) return recording
     return r.matches.some((p) => matchPatternCoversUrl(p, url))
   })
-}
-
-/**
- * 按并集维护脚本桥中继件（幂等可重入；调用方负责串行化）。
- *
- * 注册条件是「启用脚本的匹配并集」—— 脚本切到 MAIN 世界后没有 `chrome.*`，
- * GM 能力全靠本件转给 SW。
- * 并集未变且件已在位时跳过重注册（重注册会换注入源码，已加载页面要到下次导航才换新）。
- */
-async function syncScriptRelay(projects: ScriptProject[]): Promise<void> {
-  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
-  const union = enabledMatchUnion(projects)
-  let existing: chrome.userScripts.RegisteredUserScript | undefined
-  try {
-    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === SCRIPT_RELAY_ID)
-  } catch {
-    return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
-  }
-  if (!union) {
-    if (existing) await chrome.userScripts.unregister({ ids: [SCRIPT_RELAY_ID] }).catch(() => {})
-    return
-  }
-  if (existing && sameMatchSet(existing, union)) return
-  const secret = await getOrCreatePageSecret()
-  // 中继件的独立世界必须先开 messaging，否则件内没有 chrome.runtime，整条桥静默失效
-  // （自定义世界不继承默认世界配置，与录制转发件同理）。
-  const worldOk = await configureWorld(SCRIPT_RELAY_WORLD_ID)
-  if (!worldOk) {
-    console.warn(
-      '[duoling:userscript] 脚本桥中继件世界配置失败（无 messaging，GM 桥不可用）',
-      SCRIPT_RELAY_WORLD_ID,
-    )
-  }
-  await chrome.userScripts.unregister({ ids: [SCRIPT_RELAY_ID] }).catch(() => {})
-  const relay: chrome.userScripts.RegisteredUserScript = {
-    id: SCRIPT_RELAY_ID,
-    worldId: SCRIPT_RELAY_WORLD_ID,
-    // 两段顺序不能换：前一段（件文件）只把安装函数挂到 window 上，后一段把运行期密钥递进去调它
-    js: [{ file: SCRIPT_RELAY_FILE }, { code: buildRelayInit(secret) }],
-    matches: union.matches,
-    excludeMatches: union.excludeMatches,
-    includeGlobs: union.includeGlobs,
-    excludeGlobs: union.excludeGlobs,
-    // document_start：必须早于脚本默认的 document_idle 握手窗口
-    runAt: 'document_start',
-    allFrames: true,
-  }
-  try {
-    await chrome.userScripts.register([relay])
-    console.log('[duoling:sw] 脚本桥中继件注册成功：', JSON.stringify(union.matches))
-  } catch (e) {
-    console.warn('[duoling:sw] 脚本桥中继件注册失败：', e)
-    throw e
-  }
 }
 
 /** 页面检查器常驻件的匹配面：覆盖全部站点（理由见 syncPageInspector 的说明） */
@@ -458,9 +403,12 @@ async function syncTabRecorder(): Promise<void> {
   }
 }
 
-/** 全量同步四件内置件（host-config.builtins.syncAll 的注入实现；调用方已串行化） */
+/** 全量同步三件内置件（host-config.builtins.syncAll 的注入实现；调用方已串行化）。
+ *
+ * 中继件不在此列：它已随 `@duoling/userscript-runtime` 包内化，registerAllEnabled 全量链
+ * 在调本函数之前就同步过了（relay/sync.ts）。
+ */
 export async function syncAllBuiltins(projects: ScriptProject[]): Promise<void> {
-  await syncScriptRelay(projects).catch(() => {})
   // 录制件跟随「有没有标签页在记活动」（与脚本集合无关）：SW 冷启动 / 扩展更新恢复时一并同步，
   // 保证「正在录的那一页」在重注册后依然生效
   await syncTabRecorder().catch(() => {})
@@ -480,8 +428,8 @@ export function refreshTabRecorder(): Promise<void> {
 
 /**
  * 重算**内置注入脚本**的注册（挂包侧注册串行队列）：脚本增删改 / 启停 / 删除，以及启动与
- * 扩展更新恢复时由 background 调用。三件在这一处汇合：
- *   · 脚本桥中继件 —— 跟随「启用脚本的匹配并集」（MAIN 世界脚本的 GM 调用靠它转给 SW）；
+ * 扩展更新恢复时由 background 调用。汇合三路：
+ *   · 脚本桥中继件 —— 跟随「启用脚本的匹配并集」（包内 relay/sync.ts 的 syncScriptRelay）；
  *   · 页面检查器常驻件 —— 与脚本集合无关、恒注册，搭这条队列只为少一处接线（幂等，注册面未变即跳过）；
  *   · 浮层宿主常驻件 —— 同上，恒注册。
  * 录制那两件有自己的入口（`refreshTabRecorder`）。

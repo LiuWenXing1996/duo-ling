@@ -8,7 +8,7 @@
 // 中继件从包的 `./install` 出口取（详见该模块的文件头：那个出口就是为这类跨两侧用例准备的）。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { installRelay } from '@duoling/builtin-scripts/install'
+import { installRelay } from './relay/install'
 import { buildScriptBridgeSource } from './script-bridge'
 
 const SECRET = 'test-secret-0123456789abcdef'

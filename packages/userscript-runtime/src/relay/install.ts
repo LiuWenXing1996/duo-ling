@@ -1,6 +1,6 @@
 // 脚本主世界桥 · USER_SCRIPT 世界侧中继件本体。
 //
-// 注入形态是**两段**（见 registry.ts 的 buildRelayInit）：
+// 注入形态是**两段**（见 relay/sync.ts 的 buildRelayInit）：
 //   ① 本模块打成的 IIFE 文件 —— 把 installRelay 挂到 window[BRIDGE_RELAY_BOOT_KEY]，不自行安装；
 //   ② 装配段字符串 —— 由 SW 在注册时生成，把运行期密钥（每扩展一把）递进来调用它。
 // 密钥只存在于运行期，进不了文件，故必须两段。

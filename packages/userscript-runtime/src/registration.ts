@@ -1,8 +1,9 @@
 // 用户脚本注册引擎（通用部分，自 src/lib/userscripts/engine.ts 上移）。
 //
 // 职责：chrome.userScripts 的世界配置 + 单脚本注册（GM 包装拼装）+ 全量重注册串行链 +
-// 可用性检测 + 握手密钥。对任何接入扩展都成立；产品内置件（中继件 / 检查器 / 浮层 /
-// 录制件）的注册同步**不在这里** —— 它们经 host-config 的 builtins 注入点挂进全量链
+// 可用性检测 + 握手密钥。对任何接入扩展都成立；中继件（GM 桥 MAIN 世界侧）属「跑全量 GM」
+// 的组成部分，注册同步由本包内置维护（relay/sync.ts，全量链自动带上）；产品内置件
+// （检查器 / 浮层 / 录制件）经 host-config 的 builtins 注入点挂进全量链
 // （见 UserscriptHostConfig.builtins）。
 //
 // 主走 chrome.userScripts API：脚本注入**页面 MAIN 世界**（与 Tampermonkey 默认一致，
@@ -10,7 +11,7 @@
 // 声明为局部变量（源码模板在 gm-wrapper.ts）—— MAIN 不支持 worldId，同帧多脚本共享一个
 // window，挂到 window 上会互相覆盖。
 // 注入代码与 @require 依赖**拼成一条** code（见 registerScript），包装只是它的头尾。
-// MAIN 世界没有 `chrome.*`：能力调用经中继件转给 SW（中继件的注册同步属宿主内置件面，
+// MAIN 世界没有 `chrome.*`：能力调用经中继件转给 SW（中继件的注册同步在 relay/sync.ts，
 // SW 侧监听在 dl-bridge.ts）。style / log / info / addElement 在包装内本地实现，不走桥。
 //
 // 不给脚本世界配置 csp：即**不放开** eval / new Function。脚本世界因此回落浏览器默认 CSP，
@@ -31,6 +32,8 @@ import { fetchResourceSources } from './resource-cache'
 import { extensionName, secretStorePort, telemetryPort, builtinsPort } from './host-config'
 import { generateBridgeSecret } from '@duoling/shared'
 import { errorText } from './util'
+// 中继件（GM 桥的 MAIN 世界侧）注册面：包内置维护，registerAllEnabled 全量链自动带上
+import { SCRIPT_RELAY_ID, syncScriptRelay } from './relay/sync'
 
 // —— 可用性检测 / 版本分支 ——
 
@@ -496,15 +499,18 @@ export function registerAllEnabled(): Promise<void> {
 
 async function runRegisterAllEnabled(): Promise<void> {
   const projects = await listProjectsSorted()
-  // 先同步宿主内置件（启用脚本集合可能变化，内置件跟着并集 / 门禁走），再重注册脚本
+  // 先同步中继件（GM 桥的 MAIN 世界侧，包内置维护）：启用脚本集合变了，匹配并集跟着变。
+  // 失败不阻断后续（中继件缺失只是 GM 桥不可用，USER_SCRIPT 世界脚本仍在）
+  await syncScriptRelay(projects).catch(() => {})
+  // 再同步宿主内置件（启用脚本集合可能变化，内置件跟着并集 / 门禁走）
   const builtins = builtinsPort()
   if (builtins) await builtins.syncAll(projects).catch(() => {})
   const enabled = projects.filter((p) => p.enabled)
   try {
     const existing = await chrome.userScripts.getScripts()
-    // 全量重注册只清用户脚本——内置注册（中继件 / 检查器 / 浮层 / 录制件等）在上一段刚同步过，
-    // 不能被这把误清（排除名单由 builtins.ids 注入；不注入内置件则清全部非脚本 id 之外的残留）
-    const reserved = builtins?.ids ?? []
+    // 全量重注册只清用户脚本——中继件（上一段刚同步）与内置注册（同上）不能被这把误清
+    // （内置排除名单由 builtins.ids 注入；中继件 id 由包自行保留）
+    const reserved = [...(builtins?.ids ?? []), SCRIPT_RELAY_ID]
     const stale = existing.filter((s) => !reserved.includes(s.id))
     if (stale.length) await unregisterScripts(stale.map((s) => s.id))
   } catch {

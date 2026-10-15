@@ -405,6 +405,9 @@ importers:
       '@types/chrome':
         specifier: ^0.2.9
         version: 0.2.9
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
       fake-indexeddb:
         specifier: ^6.2.5
         version: 6.2.5

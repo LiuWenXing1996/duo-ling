@@ -65,5 +65,6 @@ await host.addScript(sourceCode)
 await host.addScript(project)
 ```
 
-> MAIN 世界脚本的 GM 调用经同帧 USER_SCRIPT **中继件**转给 SW；中继件的产物与注册同步
-> 目前在本仓 `@duoling/builtin-scripts`（归属收敛中）。
+> MAIN 世界脚本的 GM 调用经同帧 USER_SCRIPT **中继件**转给 SW —— 中继件随包内置：
+> `registerAllEnabled` 自动按「启用脚本的匹配并集」维护它的注册（IIFE 以 `{ code }` 注入，
+> 无公共资产文件），接入方零接线。
