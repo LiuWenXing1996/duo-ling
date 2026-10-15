@@ -86,6 +86,6 @@ await page.reload() // 从库里读回，才看得到「靠落盘元数据渲染
 ## 收尾
 
 探针**没有断言、跑完即删** —— 留在 `e2e/` 会被 CI 全量跑到，只是噪音。
-需要长期复用的探针按 [testing](../testing/SKILL.md) 的约定放 `uscript-samples/` 打包分发。
+需要长期复用的探针按 [testing](../testing/SKILL.md) 的约定放 `packages/uscript-samples/` 打包分发。
 
 截图落在 `tmp/`（不入库），给用户看时用 present 把它呈上去，别只描述「现在好看多了」。

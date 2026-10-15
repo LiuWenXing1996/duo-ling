@@ -16,7 +16,9 @@ import { dirname, join, relative } from 'node:path'
 
 const root = new URL('..', import.meta.url).pathname
 // 递归扫的目录 + 仓库根的散装源码文件（配置类 *.ts 常驻根级，漏掉它们等于放过一整类）。
-const scanDirs = ['src', 'packages', 'e2e', 'scripts', 'uscript-samples']
+// 样例包（packages/uscript-samples）被 packages 一并覆盖：源码 TS 与 dist 产物（raw 原样拷贝
+// 与构建 banner）都扫得到。
+const scanDirs = ['src', 'packages', 'e2e', 'scripts']
 const rootFileRe = /\.(ts|mjs|js|vue|css)$/
 const scanRootFiles = readdirSync(root, { withFileTypes: true })
   .filter((e) => e.isFile() && rootFileRe.test(e.name))
