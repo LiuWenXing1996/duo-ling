@@ -17,7 +17,7 @@ import type {
   UserScriptRunLogEntry,
   UserScriptRunLogRow
 } from '@/lib/userscripts/types'
-import type { NetCaptureRecord } from '@/lib/userscripts/tab-record-protocol'
+import type { NetCaptureRecord } from '@duoling/builtin-scripts'
 
 const runlog = vi.hoisted(() => vi.fn())
 const tabSessions = vi.hoisted(() => vi.fn())

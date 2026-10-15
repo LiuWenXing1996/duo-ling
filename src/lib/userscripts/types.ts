@@ -348,7 +348,7 @@ export const TAB_SESSION_MAX = 2000
 //
 // 一张表装下这一页的全部活动轴行，靠 kind 值区分（各 kind 的行形状见 runtime-db.ts 文件头）：
 //   · 'reload' | 'url' | 'recordOn' | 'recordOff' —— 文档事件与记录开关（见 TabEventRecord）
-//   · NET_TAB_KIND（'net'；常量在 tab-record-protocol，与协议同处）—— 接口采样
+//   · NET_TAB_KIND（'net'；常量在包内 protocol/tab-record.ts，与协议同处）—— 接口采样
 //   · 下面三个 —— 运行条目 / 动作 / 错误
 
 /** 运行条目（形状见 UserScriptRunLogEntry）：一次页面加载一行，动作与错误的归属锚 */

@@ -3,7 +3,7 @@
 // 纯函数直测（零依赖、无 IDB）：摘要档要控在 2KB 内且**不静默截断**（得交代还剩多少），
 // 全量档要能逐条取到采样体——两条都是喂给模型的文本，压缩错了模型就跟着错。
 import { describe, expect, it } from 'vitest'
-import type { NetCaptureRecord } from './tab-record-protocol'
+import type { NetCaptureRecord } from '@duoling/builtin-scripts'
 import {
   CAPTURE_DIGEST_MAX_CHARS,
   CAPTURE_FULL_MAX_RECORDS,

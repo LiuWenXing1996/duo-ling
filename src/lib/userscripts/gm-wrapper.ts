@@ -38,7 +38,7 @@ export interface GmWrapperOptions {
    * `userAgent` / `isIncognito` 不在其中：它们只能在页面里取到，由包装运行时就地补齐。
    */
   info: Omit<GmInfo, 'userAgent' | 'isIncognito'>
-  /** 脚本桥握手密钥（MAIN 侧 script-bridge 与 USER_SCRIPT 侧 script-relay 同源） */
+  /** 脚本桥握手密钥（MAIN 侧 script-bridge 与 USER_SCRIPT 侧中继件同源） */
   pageSecret: string
   /** `@grant` 声明（缺省 / 空 / 含 none → 空清单，只给恒注入集） */
   grant?: string[]

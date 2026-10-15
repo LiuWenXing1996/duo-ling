@@ -5,7 +5,7 @@
 // 声明为局部变量（源码模板在 gm-wrapper.ts）—— MAIN 不支持 worldId，同帧多脚本共享一个
 // window，挂到 window 上会互相覆盖。
 // 注入代码与 @require 依赖**拼成一条** code（见 registerScript），包装只是它的头尾。
-// MAIN 世界没有 `chrome.*`：能力调用经同帧 USER_SCRIPT 中继件（script-relay.ts）转给 SW，
+// MAIN 世界没有 `chrome.*`：能力调用经同帧 USER_SCRIPT 中继件（包内 relay/install.ts）转给 SW，
 // SW 侧监听在 dl-bridge.ts。style / log / info / addElement 在包装内本地实现，不走桥。
 import type { ScriptConfig, ScriptProject } from './types'
 import type { GmInfo, Json } from './api-contract'
@@ -18,30 +18,29 @@ import { listProjects, validateMatchPatterns } from './project-store'
 import { appendUserScriptError, getAllGMValues } from './store'
 import { fetchRequireSources } from './require-cache'
 import { fetchResourceSources } from './resource-cache'
-import { buildScriptRelaySource } from './script-relay'
-// 页面检查器常驻件：指令下发 / 结果上行的 USER_SCRIPT 世界那半（弹层的「点选元素」与 AI 的
-// 页面快照 / 环境读数共用同一件，见 syncPageInspector）
-import {
-  buildPageInspectorHostSource,
-  INSPECTOR_FILE,
-  INSPECTOR_HOST_ID,
-  INSPECTOR_HOST_WORLD_ID,
-} from './page-inspector-host'
-// 浮层宿主常驻件：对话浮层在页面里的挂载点（开关 / 收起 / 生成遮罩都经指令驱动，见 syncFloatHost）
+// 内置件的注册面（注册 id / 独立世界 id / 产物文件名 / 装配段）由包声明：件在那儿源码化并构建成
+// 独立 IIFE 文件，扩展侧只按 id 与文件名注册（真相源见 packages/builtin-scripts/src/registry.ts）
 import {
   buildFloatHostInit,
+  buildRelayInit,
   FLOAT_HOST_FILE,
   FLOAT_HOST_ID,
   FLOAT_HOST_WORLD_ID,
-  floatPanelUrl,
-} from './float-host-source'
+  generateBridgeSecret,
+  INSPECTOR_HOST_FILE,
+  INSPECTOR_HOST_ID,
+  INSPECTOR_HOST_WORLD_ID,
+  SCRIPT_RELAY_FILE,
+  SCRIPT_RELAY_ID,
+  SCRIPT_RELAY_WORLD_ID,
+  TAB_FORWARDER_FILE,
+  TAB_FORWARDER_ID,
+  TAB_FORWARDER_WORLD_ID,
+  TAB_RECORDER_FILE,
+  TAB_RECORDER_ID,
+} from '@duoling/builtin-scripts'
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
 import { parseUserScriptMetadata } from './metadata'
-import { generateBridgeSecret } from './bridge-protocol'
-// 标签页录制：MAIN 件 + USER_SCRIPT 转发件（默认关，按**标签页**显式开；见下面的 syncTabRecorder）。
-// MAIN 件是种类无关的框架，具体录什么在种类件里（当前 = net-probe.ts 的网络请求）。
-import { buildTabRecorderSource } from './tab-recorder'
-import { buildTabForwarderSource } from './tab-forwarder'
 // 注册判据就一句「有没有页在录」—— 直接查存续表，录制不再有第二本账
 import { hasRecordingTabSession } from './runtime-db'
 // 内置注入脚本共用：匹配并集与「未变则跳过」比对
@@ -246,19 +245,7 @@ function sourceURLSuffix(project: ScriptProject): string {
   return `\n//# sourceURL=duoling://script/${project.uuid}/${safeName}.js`
 }
 
-// —— 内置件的注册 ID 与共享密钥 ——
-
-/** 脚本主世界桥 · USER_SCRIPT 中继件注册 ID（一个扩展一份） */
-export const SCRIPT_RELAY_ID = 'dl-script-relay'
-/** 中继件的独立世界 id：必须 configureWorld({ messaging: true })，否则世界内无 chrome.runtime */
-const SCRIPT_RELAY_WORLD_ID = 'us-dl-bridge'
-
-/** 标签页录制 · MAIN 件注册 ID（一个扩展一份） */
-export const TAB_RECORDER_ID = 'dl-tab-recorder'
-/** 标签页录制 · USER_SCRIPT 转发件注册 ID（一个扩展一份） */
-export const TAB_FORWARDER_ID = 'dl-tab-forwarder'
-/** 转发件的独立世界 id：必须 configureWorld({ messaging: true })，否则世界内无 chrome.runtime */
-const TAB_FORWARDER_WORLD_ID = 'us-dl-tab'
+// —— 内置注册的 id 全集 ——
 
 /**
  * 内置注册的 id 全集：全量重注册清「陈旧脚本」时必须排除它们（否则把自己刚同步的注册清掉）。
@@ -448,7 +435,8 @@ async function syncScriptRelay(projects: ScriptProject[]): Promise<void> {
   const relay: chrome.userScripts.RegisteredUserScript = {
     id: SCRIPT_RELAY_ID,
     worldId: SCRIPT_RELAY_WORLD_ID,
-    js: [{ code: buildScriptRelaySource(secret) }],
+    // 两段顺序不能换：前一段（件文件）只把安装函数挂到 window 上，后一段把运行期密钥递进去调它
+    js: [{ file: SCRIPT_RELAY_FILE }, { code: buildRelayInit(secret) }],
     matches: union.matches,
     excludeMatches: union.excludeMatches,
     includeGlobs: union.includeGlobs,
@@ -491,7 +479,13 @@ async function syncPageInspector(): Promise<void> {
   } catch {
     return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
   }
-  if (existing && sameMatchSet(existing, { matches: INSPECTOR_HOST_MATCHES })) return
+  // 「没变就跳过」必须同时看**匹配面与注册形态**：件从两段（`{ file }` + 装配段 `{ code }`）改成
+  // 单段后，只比 matches 会误判成「没变」而跳过重注册 —— 旧的装配段留在册上，而它要找的运行器键
+  // 在新件里已不存在，结果件只会报「运行器未装配到本世界」。形态的真相源是 registry.ts 的声明，
+  // 在册形态与声明不符就该重注册。
+  const jsSegs = existing?.js
+  const shapeOk = !!jsSegs && jsSegs.length === 1 && jsSegs[0].file === INSPECTOR_HOST_FILE
+  if (existing && shapeOk && sameMatchSet(existing, { matches: INSPECTOR_HOST_MATCHES })) return
   const worldOk = await configureWorld(INSPECTOR_HOST_WORLD_ID)
   if (!worldOk) {
     console.warn(
@@ -503,10 +497,10 @@ async function syncPageInspector(): Promise<void> {
   const host: chrome.userScripts.RegisteredUserScript = {
     id: INSPECTOR_HOST_ID,
     worldId: INSPECTOR_HOST_WORLD_ID,
-    // 两段顺序不能换：前一段只定义运行器，后一段装指令监听并调它（见 page-inspector-host.ts）
-    js: [{ file: INSPECTOR_FILE }, { code: buildPageInspectorHostSource() }],
+    // 单段：件自己 import 指令信封常量并装监听（件本体 = 包内 src/inspector/entry.ts）
+    js: [{ file: INSPECTOR_HOST_FILE }],
     matches: INSPECTOR_HOST_MATCHES,
-    // document_start：件只定义函数 + 装监听，不碰 DOM，尽早到位可缩小「页面加载中点按钮」的空窗
+    // document_start：件只装一条监听、不碰 DOM，尽早到位可缩小「页面加载中点按钮」的空窗
     runAt: 'document_start',
   }
   try {
@@ -520,6 +514,20 @@ async function syncPageInspector(): Promise<void> {
 
 /** 浮层宿主常驻件的匹配面：覆盖全部站点（理由见 syncFloatHost） */
 const FLOAT_HOST_MATCHES = ['<all_urls>']
+
+/**
+ * 浮层页文件（`?tab=` 由件按指令里的 tabId 自行补，见 FloatOpenRequest）。
+ *
+ * 留在这里的只有这一处取址：**它取的是扩展资源地址，不是件的注册面**（件的 id / 世界 / 产物文件名 /
+ * 装配段都在包 registry.ts 里）。`web_accessible_resources` 声明的也是这个文件名（wxt.config.ts），
+ * 少了那一条 Chrome 会直接拦 iframe。
+ */
+const FLOAT_PANEL_FILE = 'floatpanel.html'
+
+/** 浮层页的扩展内地址（装配段把它递给件，件再拼进 iframe 的 src） */
+function floatPanelUrl(): string {
+  return chrome.runtime.getURL(FLOAT_PANEL_FILE)
+}
 
 /**
  * 维护浮层宿主常驻件的注册（幂等可重入；调用方负责串行化）。
@@ -547,7 +555,16 @@ async function syncFloatHost(): Promise<void> {
   } catch {
     return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
   }
-  if (existing && sameMatchSet(existing, { matches: FLOAT_HOST_MATCHES })) return
+  // 「没变就跳过」必须同时看**匹配面与注册形态**（与页面检查器同一条坑）：件是两段注册，只比
+  // matches 会误判成「没变」而跳过 —— 而形态的真相源是 registry.ts 的声明（本件两段、顺序是
+  // `{ file }` 在前、装配段在后），在册形态与声明不符就该重注册。
+  const jsSegs = existing?.js
+  const shapeOk =
+    !!jsSegs &&
+    jsSegs.length === 2 &&
+    jsSegs[0].file === FLOAT_HOST_FILE &&
+    typeof jsSegs[1].code === 'string'
+  if (existing && shapeOk && sameMatchSet(existing, { matches: FLOAT_HOST_MATCHES })) return
   const worldOk = await configureWorld(FLOAT_HOST_WORLD_ID)
   if (!worldOk) {
     console.warn(
@@ -559,8 +576,8 @@ async function syncFloatHost(): Promise<void> {
   const host: chrome.userScripts.RegisteredUserScript = {
     id: FLOAT_HOST_ID,
     worldId: FLOAT_HOST_WORLD_ID,
-    // 两段顺序不能换：前一段定义 window.__duolingFloatHost，后一段把浮层页地址与扩展名递进去调 init
-    js: [{ file: FLOAT_HOST_FILE }, { code: buildFloatHostInit(floatPanelUrl()) }],
+    // 两段顺序不能换：前一段定义 window 上的浮层 hook，后一段把浮层页地址与扩展名递进去调 init
+    js: [{ file: FLOAT_HOST_FILE }, { code: buildFloatHostInit(floatPanelUrl(), EXTENSION_NAME) }],
     matches: FLOAT_HOST_MATCHES,
     // document_start：件只装监听与观察器，不碰 DOM，尽早到位可缩小「页面加载中点按钮」的空窗
     runAt: 'document_start',
@@ -632,16 +649,18 @@ async function syncTabRecorder(): Promise<void> {
   }
   await unregisterScripts([TAB_RECORDER_ID, TAB_FORWARDER_ID])
   const common = { matches: TAB_RECORD_MATCHES, runAt: 'document_start' as const, allFrames: true }
+  // 两件都没有运行期参数，故各只需一个件文件（无装配段）。捕获件是种类无关的框架，
+  // 具体录什么在包内的种类件里（当前 = 网络请求的 fetch / XHR）。
   const recorderScript: chrome.userScripts.RegisteredUserScript = {
     id: TAB_RECORDER_ID,
     world: 'MAIN',
-    js: [{ code: buildTabRecorderSource() }],
+    js: [{ file: TAB_RECORDER_FILE }],
     ...common,
   }
   const forwarderScript: chrome.userScripts.RegisteredUserScript = {
     id: TAB_FORWARDER_ID,
     worldId: TAB_FORWARDER_WORLD_ID,
-    js: [{ code: buildTabForwarderSource() }],
+    js: [{ file: TAB_FORWARDER_FILE }],
     ...common,
   }
   try {

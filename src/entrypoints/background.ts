@@ -129,7 +129,7 @@ import {
   capturePageSnapshotFromTab,
   pageInjectionBlockReason,
 } from '@/lib/element-picker-client'
-// 拾取指令的下发与配对（常驻件那半在页面里，件源码见 lib/userscripts/page-inspector-host.ts）
+// 拾取指令的下发与配对（常驻件那半在页面里，件源码见包的 inspector/install.ts）
 import {
   cancelPicker,
   handleInspectorResult,

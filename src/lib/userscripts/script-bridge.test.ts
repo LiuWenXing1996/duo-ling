@@ -1,13 +1,15 @@
 // 脚本主世界桥 · 协议全链路测试。
 //
-// script-bridge（MAIN 世界侧）与 script-relay（USER_SCRIPT 世界侧）都是字符串模板源码，
-// 这里用最小假 frame 把两端接在同一个"窗口"上跑真源码，验证握手、请求-应答、防伪校验
-// 与下行事件转发。chrome.runtime 用最小桩替代（sendMessage 同步回调、connect 给可手动
-// 触发 onMessage 的 Port）。
+// 两侧分别住在仓库的两边：MAIN 侧的脚本桥是扩展里的源码模板（要被拼进 GM 包装的字符串），
+// USER_SCRIPT 侧的中继件是包里的真 TS 模块（构建成独立件文件）。本用例用最小假 frame 把两端
+// 接在同一个"窗口"上跑真实现，验证握手、请求-应答、防伪校验与下行事件转发。
+// chrome.runtime 用最小桩替代（sendMessage 同步回调、connect 给可手动触发 onMessage 的 Port）。
+//
+// 中继件从包的 `./install` 出口取（详见该模块的文件头：那个出口就是为这类跨两侧用例准备的）。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { installRelay } from '@duoling/builtin-scripts/install'
 import { buildScriptBridgeSource } from './script-bridge'
-import { buildScriptRelaySource } from './script-relay'
 
 const SECRET = 'test-secret-0123456789abcdef'
 const UUID = 'uuid-1111-2222'
@@ -86,8 +88,11 @@ function createChromeStub(handler: (msg: any) => unknown): {
   return { chrome, sent, ports }
 }
 
-function runRelay(src: string, win: any, chromeStub: unknown): void {
-  new Function('window', 'chrome', src)(win, chromeStub)
+/** 中继件读全局 window / chrome，故把假货装成全局再安装 */
+function runRelay(win: any, chromeStub: unknown, secret: string): void {
+  vi.stubGlobal('window', win)
+  vi.stubGlobal('chrome', chromeStub)
+  installRelay(secret)
 }
 
 // 客户端源码是表达式（IIFE），以 `var x = <源码>` 形式求值后取出返回的 API 对象
@@ -103,18 +108,19 @@ function setup(opts?: {
   const { win, posted } = createFakeWindow()
   const stub = createChromeStub(opts?.handler ?? (() => ({ ok: true, data: 'ok' })))
   if (opts?.withRelay !== false) {
-    runRelay(buildScriptRelaySource(opts?.relaySecret ?? SECRET), win, stub.chrome)
+    runRelay(win, stub.chrome, opts?.relaySecret ?? SECRET)
   }
   const api = runBridge(buildScriptBridgeSource(SECRET, UUID), win)
   return { win, posted, api, stub }
 }
 
-describe('脚本主世界桥（bridge + relay 真源码对跑）', () => {
+describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
   beforeEach(() => {
     vi.useFakeTimers()
   })
   afterEach(() => {
     vi.useRealTimers()
+    vi.unstubAllGlobals()
   })
 
   it('call 经中继件转发到扩展侧，响应原样带回', async () => {
@@ -138,7 +144,7 @@ describe('脚本主世界桥（bridge + relay 真源码对跑）', () => {
     await api.call({ c: 'store.get', key: 'k' }, 'run-42')
     expect(stub.sent[0]).toMatchObject({ __dl: true, uuid: UUID, runId: 'run-42' })
 
-    // 老包装层不带 runId：帧里为 undefined，SW 侧按「无归属」处理，不崩
+    // 不带 runId 的帧：字段为 undefined，SW 侧按「无归属」处理，不崩
     await api.call({ c: 'store.get', key: 'k' })
     expect(stub.sent[1].runId).toBeUndefined()
   })
@@ -264,7 +270,7 @@ describe('脚本主世界桥（bridge + relay 真源码对跑）', () => {
   it('中继件拿不到扩展 API 时回 RELAY_UNAVAILABLE（配置问题要报出来，不能静默）', async () => {
     const { win } = createFakeWindow()
     // runtime 在、sendMessage 不在 —— 对应「世界没开 messaging」的配置缺失
-    runRelay(buildScriptRelaySource(SECRET), win, { runtime: { lastError: undefined } })
+    runRelay(win, { runtime: { lastError: undefined } }, SECRET)
     const api = runBridge(buildScriptBridgeSource(SECRET, UUID), win)
 
     await expect(api.call({ c: 'store.get' })).resolves.toMatchObject({

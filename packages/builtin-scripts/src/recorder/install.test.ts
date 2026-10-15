@@ -1,13 +1,13 @@
-// tab-recorder.ts / net-probe.ts / tab-forwarder.ts 单测：三段都是字符串源码
-// （分别注入 MAIN / USER_SCRIPT 世界），这里用最小假 window 把真源码跑起来，
-// 验证信封形状、fetch / XHR 采集、鉴权头剥离、长度封顶与转发件中继。
+// recorder/install.ts + net-probe.ts 单测：件在 MAIN 世界跑（机制框架 + net 种类），
+// 这里用最小假 window 把它跑起来，验证信封形状、fetch / XHR 采集、鉴权头剥离与长度封顶。
 //
-// 机制层与种类层一起测：net-probe 的片段被 tab-recorder 插进同一作用域，单独跑不起来，
-// 故「机制 + 当前唯一一类」是一次注入的两半。
+// 机制层与种类层一起测：net-probe 由机制层在安装时挂上，单独跑不起来 ——
+// 「机制 + 当前唯一一类」是一次安装的两半。
+//
+// 注入方式：件读全局 window，故这里把假 window 装成全局再调安装函数（与真注入同一条路径）。
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { NET_BODY_LIMIT, NET_TAB_KIND, TAB_RECORD_TAG } from './tab-record-protocol'
-import { buildTabForwarderSource } from './tab-forwarder'
-import { buildTabRecorderSource } from './tab-recorder'
+import { NET_BODY_LIMIT, NET_TAB_KIND, TAB_RECORD_TAG } from '../protocol/tab-record'
+import { installTabRecorder } from './install'
 
 type AnyWin = Record<string, unknown>
 
@@ -46,16 +46,15 @@ class FakeXHR {
 }
 
 function createFakeWindow(origFetch: (input: unknown, init?: unknown) => Promise<Response>): AnyWin {
+  const posted: unknown[] = []
   const win: AnyWin = {
     location: { origin: 'https://page.test', href: 'https://page.test/app' },
-    postMessage: () => {},
+    // 捕获 postMessage 的载荷（保持原签名 (data, targetOrigin)）
+    postMessage: (data: unknown) => {
+      posted.push(data)
+    },
     fetch: origFetch,
     XMLHttpRequest: FakeXHR,
-  }
-  // 捕获 postMessage 的载荷（保持原签名 (data, targetOrigin)）
-  const posted: unknown[] = []
-  win.postMessage = (data: unknown) => {
-    posted.push(data)
   }
   ;(win as { __posted?: unknown[] }).__posted = posted
   return win
@@ -73,10 +72,12 @@ async function waitFor(fn: () => boolean, tries = 100): Promise<void> {
 }
 
 function runRecorder(win: AnyWin): void {
-  new Function('window', buildTabRecorderSource())(win)
+  vi.stubGlobal('window', win)
+  installTabRecorder()
 }
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
@@ -139,7 +140,7 @@ describe('dl-tab-recorder（MAIN 捕获件：机制框架 + net 种类）', () =
     const origFetch = vi.fn(async () => new Response(big, { status: 200 }))
     const win = createFakeWindow(origFetch)
     runRecorder(win)
-    await (win.fetch as (u: string, i?: unknown) => Promise<Response>)('https://api.test/big')
+    await (win.fetch as (u: string) => Promise<Response>)('https://api.test/big')
     await waitFor(() => postedOf(win).length > 0)
     expect(String(postedOf(win)[0].record.respBody).length).toBe(NET_BODY_LIMIT)
   })
@@ -186,57 +187,5 @@ describe('dl-tab-recorder（MAIN 捕获件：机制框架 + net 种类）', () =
     await waitFor(() => postedOf(win).length > 0)
     await new Promise((r) => setTimeout(r, 20))
     expect(postedOf(win)).toHaveLength(1)
-  })
-})
-
-describe('dl-tab-forwarder（USER_SCRIPT 转发件）', () => {
-  /** 装上假 chrome 与假 window，返回同帧那条 window 与收到的监听器列表 */
-  function setup(): {
-    win: AnyWin
-    listeners: Array<(e: { source: unknown; data: unknown }) => void>
-    sendMessage: ReturnType<typeof vi.fn>
-  } {
-    const listeners: Array<(e: { source: unknown; data: unknown }) => void> = []
-    const win: AnyWin = {
-      // 转发件不读 location：归属由 SW 按 sender.tab.id 自己认
-      addEventListener: (type: string, fn: (e: unknown) => void) => {
-        if (type === 'message') listeners.push(fn as (e: { source: unknown; data: unknown }) => void)
-      },
-    }
-    const sendMessage = vi.fn()
-    ;(globalThis as { chrome?: unknown }).chrome = { runtime: { sendMessage, lastError: undefined } }
-    new Function('window', buildTabForwarderSource())(win)
-    return { win, listeners, sendMessage }
-  }
-
-  it('把同帧的采集消息转给 SW（信封原样带 TAG 与种类判别键，不带任何归属）', () => {
-    const { win, listeners, sendMessage } = setup()
-    try {
-      const record = { type: 'fetch', url: 'https://api.shop.test/x', method: 'GET' }
-      for (const fn of listeners) {
-        fn({ source: win, data: { kind: NET_TAB_KIND, record, [TAB_RECORD_TAG]: true } })
-      }
-      expect(sendMessage).toHaveBeenCalledTimes(1)
-      const [out] = sendMessage.mock.calls[0] as [Record<string, unknown>]
-      expect(out).toEqual({ kind: NET_TAB_KIND, record, [TAB_RECORD_TAG]: true })
-      // 归属不在这里声明：录制按标签页，SW 用 sender.tab.id 自己认
-      expect(out).not.toHaveProperty('host')
-    } finally {
-      delete (globalThis as { chrome?: unknown }).chrome
-    }
-  })
-
-  it('忽略非本帧 / 非本协议的消息', () => {
-    const { win, listeners, sendMessage } = setup()
-    try {
-      for (const fn of listeners) fn({ source: {}, data: { kind: NET_TAB_KIND, record: {}, [TAB_RECORD_TAG]: true } }) // 非本帧
-      for (const fn of listeners) fn({ source: win, data: { other: 1 } }) // 非本协议
-      for (const fn of listeners) fn({ source: win, data: { kind: NET_TAB_KIND, [TAB_RECORD_TAG]: true } }) // 缺 record
-      for (const fn of listeners) fn({ source: win, data: { kind: 5, record: {}, [TAB_RECORD_TAG]: true } }) // kind 非串
-      for (const fn of listeners) fn({ source: win, data: { kind: NET_TAB_KIND, record: {} } }) // 缺 TAG
-      expect(sendMessage).not.toHaveBeenCalled()
-    } finally {
-      delete (globalThis as { chrome?: unknown }).chrome
-    }
   })
 })

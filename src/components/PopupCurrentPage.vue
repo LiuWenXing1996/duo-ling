@@ -6,7 +6,7 @@
 // 展示面板（不装 window.api、不直连会话库），聚合口径统一在 SW 侧一处（见 shared/extension-ipc
 // 的 PageOverviewTab）。popup 只活几秒，故取一次快照即可，不维持推送通道。
 //
-// 浮层入口：对话框平时不在页面里（浮层宿主件不建任何 DOM，见 src/public/duoling-float-host.js），
+// 浮层入口：对话框平时不在页面里（浮层宿主件不建任何 DOM，见 packages/builtin-scripts/src/float-host/），
 // 这颗按钮是它的常规打开方式（另一条是页面右键菜单）。**禁用只留给拿不到网址的页面**（浏览器内部页 /
 // 扩展页）：那里连站点名都读不出来，「刷新页面后再试」会变成误导。普通网页一律让点 —— 能不能挂得上
 // 由点了之后的回执说话（见 openFloatPanel），不预先探活（理由见 lib/web-hostname.ts）。
