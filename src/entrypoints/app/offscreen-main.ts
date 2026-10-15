@@ -15,7 +15,8 @@
 //
 // 模块归属（硬约束）：本入口只允许 import us-git.ts（纯 JS 的 git 栈 + lightning-fs）、
 // extension-chat-transport.ts、ai SDK、offscreen-bridge.ts、offscreen-chat/（对话编排，
-// 内部只引裸 IndexedDB 模块），以及 offscreen-only 的 lib/userscripts/offscreen-fs-commands.ts
+// 内部只引裸 IndexedDB 模块）、@duoling/userscript-runtime（纯函数 + SW/offscreen 环境代码，
+// import 期零副作用），以及 offscreen-only 的 lib/userscripts/offscreen-fs-commands.ts
 // （源码库 duoling-fs 的 fs:* 命令面）与 offscreen-state-commands.ts（注册态库的写侧）。
 // 一旦 import store.ts / fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报
 // chrome.storage is undefined —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
@@ -24,12 +25,16 @@
 // 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（→ offscreen-chat/task-store.ts）。
 //
 // 命令面：fs:*（源码库 duoling-fs 的读写 + 对话资源库 /assets）/ state:*（注册态库写侧）/
-// conv:*（会话写侧，唯一写方）/ chat:*（对话编排）。
+// conv:*（会话写侧，唯一写方）/ chat:*（对话编排）；clipboard: 由 GM 运行时的
+// createOffscreenHost() 自管（本入口只调一行，见文件尾）。
 
 import '@/polyfills'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { handleFsCommand, type FsRequest } from '@/lib/userscripts/offscreen-fs-commands'
 import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
+// GM 运行时的 offscreen 命令面（clipboard:write 应答）由包工厂注册：本入口只调一行，
+// 协议真相源在包内 host.ts（狗粮 /host 子路径，验证其真实解析）。
+import { createOffscreenHost } from '@duoling/userscript-runtime/host'
 // 读侧项目列表（IndexedDB 同源直读，project-store 明确标注 offscreen 可用）：
 // 心跳的条件门——没有启用脚本就不 ping SW（上游 #45 保活心跳；不引 handleBuildCommand——
 // ai:build 命令面已被统一保存语义删除，见 project-write.saveSource）
@@ -68,8 +73,9 @@ function announceReady(): void {
 /**
  * offscreen 应答的命令面前缀（与 SW 的 SW_KIND_PREFIXES 互补，两者并集须恰好覆盖
  * RuntimeRequest 的 kind 全集——归属一致性由 extension-ipc.test.ts 表驱动断言）。
+ * clipboard: 例外：不在本表 —— 它归 GM 运行时的 createOffscreenHost() 自管（自有监听器应答）。
  */
-export const OFFSCREEN_KIND_PREFIXES = ['fs:', 'state:', 'conv:', 'chat:', 'clipboard:'] as const
+export const OFFSCREEN_KIND_PREFIXES = ['fs:', 'state:', 'conv:', 'chat:'] as const
 
 /** 前缀 → 处理器（与 OFFSCREEN_KIND_PREFIXES 一一对应） */
 const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: RuntimeRequest) => Promise<unknown> } = {
@@ -77,7 +83,6 @@ const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: Runt
   'state:': (msg) => handleStateCommand(msg as StateRequest),
   'conv:': (msg) => handleConvCommand(msg),
   'chat:': (msg) => handleChatCommand(msg),
-  'clipboard:': (msg) => handleClipboardCommand(msg),
 }
 
 // 命令面：UI / SW 经 chrome.runtime.sendMessage 共享总线发来，offscreen 在此处理并回传。
@@ -144,62 +149,6 @@ async function handleChatCommand(msg: RuntimeRequest): Promise<unknown> {
   }
 }
 
-/**
- * clipboard:* —— offscreen 内直写剪贴板（clipboardWrite 权限已在 manifest 声明）。
- *
- * 注意：offscreen document 拿不到页面焦点，navigator.clipboard 会报
- * "Document is not focused"，所以这里走 document.execCommand('copy') + copy 事件
- * 注入自定义 clipboardData。这是 Chrome 团队推荐的 offscreen 剪贴板写法。
- */
-async function handleClipboardCommand(msg: RuntimeRequest): Promise<unknown> {
-  if (msg.kind !== 'clipboard:write') throw new Error(`未知剪贴板命令：${msg.kind}`)
-  const text = msg.text ?? null
-  const html = msg.html ?? null
-  if (!text && !html) throw new Error('clipboard.write 至少需要 text 或 html 之一')
-
-  // copy 事件处理器：把自定义数据写进 clipboardData，并 preventDefault 阻止默认。
-  const onCopy = (e: ClipboardEvent) => {
-    if (html) {
-      e.clipboardData?.setData('text/html', html)
-      e.clipboardData?.setData('text/plain', text ?? '')
-    } else {
-      e.clipboardData?.setData('text/plain', text as string)
-    }
-    e.preventDefault()
-  }
-  document.addEventListener('copy', onCopy as EventListener, { once: true })
-
-  const el = document.createElement(html ? 'div' : 'textarea')
-  el.style.position = 'fixed'
-  el.style.opacity = '0'
-  el.setAttribute('aria-hidden', 'true')
-  if (html) {
-    el.contentEditable = 'true'
-    el.innerHTML = html
-  } else {
-    ;(el as HTMLTextAreaElement).value = text as string
-  }
-  document.body.appendChild(el)
-  el.focus()
-
-  // 选中元素内容
-  const selection = window.getSelection()
-  const range = document.createRange()
-  range.selectNodeContents(el)
-  selection?.removeAllRanges()
-  selection?.addRange(range)
-
-  try {
-    const ok = document.execCommand('copy')
-    if (!ok) throw new Error('剪贴板写入失败：document.execCommand("copy") 返回 false')
-    return undefined
-  } finally {
-    selection?.removeAllRanges()
-    el.remove()
-    document.removeEventListener('copy', onCopy as EventListener)
-  }
-}
-
 /** 统一异步应答：把结果包成 { ok, data | error } 信封 */
 async function respond(
   sendResponse: (r: unknown) => void,
@@ -214,6 +163,8 @@ async function respond(
 
 announceReady()
 void refreshActiveProfile()
+// GM 运行时的 offscreen 命令面（clipboard:write）：包工厂自注册监听，一行接线
+createOffscreenHost()
 // 启动一次最终一致对账：补齐缺失仓、清理多余仓目录（幂等，失败不阻断）
 void reconcileFs()
 

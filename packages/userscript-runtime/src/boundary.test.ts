@@ -34,6 +34,7 @@ const HOST_LAYER = new Set([
   'dl-port.ts',
   'dl-bridge.ts',
   'host-config.ts',
+  'host.ts',
   'util.ts',
   // 测试文件随被测模块归层（存储类测试用 fake-indexeddb，桥测试整体 stub chrome）
   'state-db.test.ts',
@@ -41,6 +42,7 @@ const HOST_LAYER = new Set([
   'cookie-gate.test.ts',
   'dl-port.test.ts',
   'dl-fetch-priv.test.ts',
+  'host.test.ts',
 ])
 
 const SEMANTIC_FILES = FILES.filter((f) => !HOST_LAYER.has(f))
