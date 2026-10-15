@@ -22,7 +22,7 @@
     "model:serve": "node scripts/model-stub.mjs",
     "build": "pnpm -r build && wxt build",
     "build:firefox": "pnpm -r build && wxt build --browser firefox",
-    "typecheck": "pnpm -r build && vue-tsc --noEmit",
+    "typecheck": "pnpm -r build && pnpm -r typecheck && vue-tsc --noEmit",
     "test": "pnpm -r build && pnpm -r test && vitest run",
     "test:coverage": "pnpm -r build && vitest run --coverage",
     "test:e2e": "pnpm run build && playwright test",

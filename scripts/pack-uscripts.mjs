@@ -2,19 +2,21 @@
 // 用户脚本包生成器：把「写着具体内容的用户脚本」打成扩展可直接导入的 zip。
 //
 // 为什么要有它：手测 / 端测经常需要「有具体行为的脚本」——注入页面写标记、跑 DL 桥、故意报错……
-// 在扩展里新建再手粘代码太慢，写好的内容也没法进 git 复用。于是：脚本源码以普通目录形式躺在
-// 仓库根（uscript-samples/），本工具负责把它们打成 zip，扩展的「工作台 → 脚本列表 → 导入 zip」
-// 直接吃。脚本 = 单文件纯 JS 源码（保存即注入），所以这里**只有源码、不带产物**。
+// 在扩展里新建再手粘代码太慢，写好的内容也没法进 git 复用。于是：脚本源码以 TS 模块形式躺在
+// packages/uscript-samples/src/（真相源，跟 git），经 `pnpm -r build` 构建成 dist/ 下的单文件
+// .user.js（raw/ 里的坏源码样本原样拷入），本工具负责把 dist 打成 zip，扩展的
+// 「工作台 → 脚本列表 → 导入 zip」直接吃。脚本 = 单文件纯 JS 源码（保存即注入），打的是**产物**。
 //
 // 产出 zip 的布局必须与 src/lib/userscripts/zip-transfer.ts 的 buildScriptZip / parseScriptsZip
 // 对齐（那一对函数才是编解码侧的真相源）：
 //     <目录名>/<目录名>.user.js     单文件源码（配置由源码里的 // ==UserScript== 块派生，不进 zip）
 //
-// 本脚本**不 import** 那个模块，两条原因：① src 是扩展运行时代码，其扩展名省略的 TS 导入在
+// 本脚本**不 import** 任何仓库模块，两条原因：① src 是扩展运行时代码，其扩展名省略的 TS 导入在
 // node ESM 下解析不了；② 本工具刻意零依赖——没装 node_modules 也能跑（打测试包不该先 pnpm i）。
+// 但 dist 产物必须先有：`pnpm -r build`（根的 build / typecheck / test 都已前置）。
 // 对齐靠两点保障：
 //   ① 写完立刻回读 zip 自检（--no-verify 关）：解析中央目录 + 逐条比对本地文件头与 CRC；
-//   ② 样例目录只放一份 *.user.js（与单文件形态一致）；若某样例想带名字，在源码里写 // @name。
+//   ② 样例目录只放一份 *.user.js（与单文件形态一致）；若某样例想带名字，在产物头部写 // @name。
 //
 // 用法见 `--help`；常规用法 `pnpm run pack:uscripts`（打包全部样例 → tmp/）。
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
@@ -33,8 +35,8 @@ const DOS_TIME = 0
 const DOS_DATE = (40 << 9) | (1 << 5) | 1
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-/** 默认源目录（仓库根的 uscript-samples/：未压缩的脚本源码，跟 git） */
-const SAMPLES_DIR = join(REPO_ROOT, 'uscript-samples')
+/** 默认源目录（样例包的构建产物：packages/uscript-samples/dist，由 `pnpm -r build` 生成） */
+const SAMPLES_DIR = join(REPO_ROOT, 'packages', 'uscript-samples', 'dist')
 
 // ————————————————————————— zip 写入（STORE，零依赖）—————————————————————————
 
@@ -170,7 +172,7 @@ function verifyZip(buf, expected) {
   return problems
 }
 
-// ————————————————————————— 素材目录 → 脚本定义 —————————————————————————
+// ————————————————————————— 产物目录 → 脚本定义 —————————————————————————
 
 /** 目录名安全化：与 zip-transfer.sanitizeDirName 同规则 */
 function sanitizeDirName(name) {
@@ -182,7 +184,7 @@ function sanitizeDirName(name) {
   return cleaned || 'script'
 }
 
-/** 在样例目录里定位源码：后缀 .user.js、且只此一份（素材目录自己的约定，打出的包不带歧义） */
+/** 在样例目录里定位源码：后缀 .user.js、且只此一份（产物目录自己的约定，打出的包不带歧义） */
 function findSourceFile(absDir, label) {
   const candidates = readdirSync(absDir)
     .filter((f) => statSync(join(absDir, f)).isFile() && f.toLowerCase().endsWith(SCRIPT_EXT))
@@ -195,10 +197,10 @@ function findSourceFile(absDir, label) {
 }
 
 /**
- * 读一个素材目录 → 脚本定义。
+ * 读一个产物目录 → 脚本定义。
  *
- * 单文件摆放：<dir>/<任意名>.user.js（目录里只此一份源码）。配置由源码里的 // ==UserScript== 块决定；
- * name 优先取源码里的 @name，否则用目录名。
+ * 单文件摆放：<dir>/<任意名>.user.js（目录里只此一份）。配置由文件头部的 // ==UserScript== 块决定；
+ * name 优先取头部 @name，否则用目录名。
  */
 function readScriptDef(dir, overrides) {
   const absDir = resolve(dir)
@@ -240,23 +242,23 @@ function toZipEntries(scripts) {
 
 // ————————————————————————— CLI —————————————————————————
 
-const HELP = `用户脚本包生成器：把脚本素材目录打成扩展可导入的 zip
+const HELP = `用户脚本包生成器：把样例构建产物（packages/uscript-samples/dist）打成扩展可导入的 zip
 
 用法：
-  pnpm run pack:uscripts                   # 打包仓库根 uscript-samples/ 下全部样例 → tmp/
+  pnpm run pack:uscripts                   # 打包全部样例产物 → tmp/（先 pnpm -r build 生成 dist）
   pnpm run pack:uscripts --list            # 列出可用样例
-  pnpm run pack:uscripts <目录> [<目录>…]  # 只打指定目录（素材目录，不是 zip）
+  pnpm run pack:uscripts <目录> [<目录>…]  # 只打指定目录（产物目录，不是 zip）
   pnpm run pack:uscripts <目录> -o 包.zip  # 指定输出路径
 
 选项：
   -o, --out <文件>        输出 zip 路径（默认 tmp/uscripts-<时间戳>.zip）
-  -n, --name <名字>       覆盖脚本名（仅单目录时可用，覆盖源码 @name）
+  -n, --name <名字>       覆盖脚本名（仅单目录时可用，覆盖产物头部的 @name）
       --list              列出样例目录并退出
       --no-verify         跳过写后回读自检
   -h, --help              显示本帮助
 
-素材目录摆法（单文件形态）：
-  <目录>/<名字>.user.js   # 配置写在源码里的 // ==UserScript== 块；与导出 zip 解开的形态一致
+产物目录摆法（单文件形态，由 packages/uscript-samples 的 build.mjs 生成）：
+  <目录>/<名字>.user.js   # 配置写在产物头部的 // ==UserScript== 块；与导出 zip 解开的形态一致
 `
 
 function parseArgs(argv) {
@@ -311,7 +313,7 @@ function main() {
   }
 
   const dirs = opts.dirs.length ? opts.dirs : listSamples().map((n) => join(SAMPLES_DIR, n))
-  if (!dirs.length) throw new Error('没有可打包的目录：uscript-samples/ 是空的，或手动指定目录')
+  if (!dirs.length) throw new Error('没有可打包的目录：packages/uscript-samples/dist 是空的 —— 先跑 pnpm -r build 生成产物，或手动指定目录')
 
   const single = dirs.length === 1
   if (!single && opts.name) {

@@ -396,6 +396,18 @@ importers:
         specifier: ^5.0.1
         version: 5.0.1(@types/node@26.5.1)(@vitest/coverage-v8@5.0.1)(happy-dom@20.14.5)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(less@4.9.1))
 
+  packages/uscript-samples:
+    devDependencies:
+      '@types/tampermonkey':
+        specifier: ^5.5.0
+        version: 5.5.0
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
   packages/userscript-runtime:
     dependencies:
       '@duoling/shared':
