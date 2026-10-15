@@ -42,18 +42,11 @@ export async function nextScriptName(base = '新建的脚本'): Promise<string> 
 // —— match pattern 校验——
 // 导入路径（project-write.importScriptsZip）与启用路径（engine.registerScript）共用：
 // 非法值在导入 / 启用当场拦下并指明哪条不合法，不拖到注册时才以 Chrome 的英文异常冒出。
+// 语法校验器（isValidMatchPattern）已上移进 `@duoling/userscript-runtime`（match-pattern.ts），
+// 此处 re-export 维持既有 import 路径不变。
+export { isValidMatchPattern } from '@duoling/userscript-runtime'
 
-/**
- * Chrome match pattern 语法：<scheme>://<host><path>。
- * scheme：* / http / https / file / ftp / urn；host：* 、*.example.com 或字面量
- * （file/urn 可为空）；path 必须以 / 开头。`<all_urls>` 是等价特例。
- */
-const MATCH_PATTERN_RE = /^(?:\*|https?|file|ftp|urn):\/\/(?:\*|(?:\*\.)?[^/*]*)(?:\/.*)$/
-
-/** 单条 match pattern 是否合法（`<all_urls>` 特例恒合法） */
-export function isValidMatchPattern(pattern: string): boolean {
-  return pattern === '<all_urls>' || MATCH_PATTERN_RE.test(pattern)
-}
+import { isValidMatchPattern } from '@duoling/userscript-runtime'
 
 /** 校验配置中的 match pattern（matches + excludeMatches），非法直接抛错并列出规则 */
 export function validateMatchPatterns(config: ScriptConfig): void {

@@ -2,7 +2,7 @@
 //
 // 关注两件事（都是「标准油猴脚本能直接跑」的前提）：
 //   ① 解析忠实：TM 的取值规则（首个块、单值键首次胜、本地化后缀忽略）；
-//   ② 产出的 match pattern **一定是 Chrome 会接受的**：项目自己的 MATCH_PATTERN_RE 有个已知宽松点
+//   ② 产出的 match pattern **一定是 Chrome 会接受的**：isValidMatchPattern 的语法有个已知宽松点
 //      （host 段可为空 → `*:///foo/*` 被判合法），解析器必须绕开它，否则错误会拖到注册期才以英文异常冒出。
 import { describe, expect, it } from 'vitest'
 import {
@@ -11,9 +11,8 @@ import {
   resolveConfigFromSource,
 } from './metadata'
 import type { ParsedMetadata } from './metadata'
-import { isValidMatchPattern } from './project-store'
-import { parseMatchPattern } from '@/lib/match-pattern'
-import { defaultConfig } from './types'
+import { isValidMatchPattern, parseMatchPattern } from './match-pattern'
+import { defaultConfig } from './script-config'
 
 /** 造一个解析产物（只填关心的字段） */
 function mk(patch: Partial<ParsedMetadata>): ParsedMetadata {
