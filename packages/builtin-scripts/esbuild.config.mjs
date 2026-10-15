@@ -18,13 +18,14 @@ const here = dirname(fileURLToPath(import.meta.url))
 export const OUT_DIR = resolve(here, 'dist')
 
 /**
- * 入口表：键 = 产物文件名（不含扩展名）。键名带 `duoling-` 前缀的理由与既有的
- * `duoling-page-inspector.js` 一致：产物落在**扩展产物根**，前缀避免与扩展自身产物重名。
+ * 入口表：键 = 产物文件名（不含扩展名）。键名带 `duoling-` 前缀的理由：产物落在**扩展产物根**，
+ * 与扩展自身的产物同目录，前缀避免重名（与 icons / help 那类资产并列）。
  */
 export const ENTRY_POINTS = {
   'duoling-relay': resolve(here, 'src/relay/entry.ts'),
   'duoling-recorder': resolve(here, 'src/recorder/entry.ts'),
   'duoling-forwarder': resolve(here, 'src/forwarder/entry.ts'),
+  'duoling-page-inspector': resolve(here, 'src/inspector/entry.ts'),
 }
 
 /** esbuild 选项：构建脚本与任何外部消费方都从这里取同一份 */

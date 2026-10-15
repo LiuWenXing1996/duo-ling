@@ -23,6 +23,9 @@ import { fetchResourceSources } from './resource-cache'
 import {
   buildRelayInit,
   generateBridgeSecret,
+  INSPECTOR_HOST_FILE,
+  INSPECTOR_HOST_ID,
+  INSPECTOR_HOST_WORLD_ID,
   SCRIPT_RELAY_FILE,
   SCRIPT_RELAY_ID,
   SCRIPT_RELAY_WORLD_ID,
@@ -32,14 +35,6 @@ import {
   TAB_RECORDER_FILE,
   TAB_RECORDER_ID,
 } from '@duoling/builtin-scripts'
-// 页面检查器常驻件：指令下发 / 结果上行的 USER_SCRIPT 世界那半（弹层的「点选元素」与 AI 的
-// 页面快照 / 环境读数共用同一件，见 syncPageInspector）
-import {
-  buildPageInspectorHostSource,
-  INSPECTOR_FILE,
-  INSPECTOR_HOST_ID,
-  INSPECTOR_HOST_WORLD_ID,
-} from './page-inspector-host'
 // 浮层宿主常驻件：对话浮层在页面里的挂载点（开关 / 收起 / 生成遮罩都经指令驱动，见 syncFloatHost）
 import {
   buildFloatHostInit,
@@ -488,7 +483,13 @@ async function syncPageInspector(): Promise<void> {
   } catch {
     return // 引擎不可用时静默跳过（上层已有状态横幅兜底）
   }
-  if (existing && sameMatchSet(existing, { matches: INSPECTOR_HOST_MATCHES })) return
+  // 「没变就跳过」必须同时看**匹配面与注册形态**：件从两段（`{ file }` + 装配段 `{ code }`）改成
+  // 单段后，只比 matches 会误判成「没变」而跳过重注册 —— 旧的装配段留在册上，而它要找的运行器键
+  // 在新件里已不存在，结果件只会报「运行器未装配到本世界」。形态的真相源是 registry.ts 的声明，
+  // 在册形态与声明不符就该重注册。
+  const jsSegs = existing?.js
+  const shapeOk = !!jsSegs && jsSegs.length === 1 && jsSegs[0].file === INSPECTOR_HOST_FILE
+  if (existing && shapeOk && sameMatchSet(existing, { matches: INSPECTOR_HOST_MATCHES })) return
   const worldOk = await configureWorld(INSPECTOR_HOST_WORLD_ID)
   if (!worldOk) {
     console.warn(
@@ -500,10 +501,10 @@ async function syncPageInspector(): Promise<void> {
   const host: chrome.userScripts.RegisteredUserScript = {
     id: INSPECTOR_HOST_ID,
     worldId: INSPECTOR_HOST_WORLD_ID,
-    // 两段顺序不能换：前一段只定义运行器，后一段装指令监听并调它（见 page-inspector-host.ts）
-    js: [{ file: INSPECTOR_FILE }, { code: buildPageInspectorHostSource() }],
+    // 单段：件自己 import 指令信封常量并装监听（件本体 = 包内 src/inspector/entry.ts）
+    js: [{ file: INSPECTOR_HOST_FILE }],
     matches: INSPECTOR_HOST_MATCHES,
-    // document_start：件只定义函数 + 装监听，不碰 DOM，尽早到位可缩小「页面加载中点按钮」的空窗
+    // document_start：件只装一条监听、不碰 DOM，尽早到位可缩小「页面加载中点按钮」的空窗
     runAt: 'document_start',
   }
   try {

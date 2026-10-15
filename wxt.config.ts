@@ -107,7 +107,7 @@ export default defineConfig({
   // 才能正确解析到扩展侧的 src。
   srcDir: 'src',
   // WXT 的 publicDir 默认基于**项目根**（不是 srcDir），需显式指到 src 下，
-  // 否则 src/public/ 下的静态资产（如 duoling-page-inspector.js）不会进产物。
+  // 否则 src/public/ 下的静态资产（如 help/ 下的引导图）不会进产物。
   publicDir: 'src/public',
   /**
    * 内置件包的产物进扩展产物：按引用往 WXT 的文件表里追加，由它自己的 copyPublicDirectory

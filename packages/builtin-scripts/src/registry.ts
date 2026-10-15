@@ -5,7 +5,7 @@
 // registry.test.ts 会比对两边，改名漏一处即红。
 //
 // 产物文件名不带目录前缀：构建脚本产出的 dist/*.js 由 wxt.config.ts 的 build:publicAssets
-// 钩子原样落到扩展产物根，`{ file }` 就写这个裸文件名（与既有的 duoling-page-inspector.js 同规）。
+// 钩子原样落到扩展产物根，`{ file }` 就写这个裸文件名。
 
 import { BRIDGE_RELAY_BOOT_KEY } from './protocol/bridge'
 
@@ -52,3 +52,17 @@ export const TAB_FORWARDER_WORLD_ID = 'us-dl-tab'
 export const TAB_RECORDER_FILE = 'duoling-recorder.js'
 /** 转发件产物文件名（构建自包内 src/forwarder/entry.ts） */
 export const TAB_FORWARDER_FILE = 'duoling-forwarder.js'
+
+// —— 页面检查器 · 常驻件 ——
+
+/** 注册 id（一个扩展一份） */
+export const INSPECTOR_HOST_ID = 'dl-page-inspector'
+/** 独立世界 id：必须 configureWorld({ messaging: true })，否则世界内无 chrome.runtime */
+export const INSPECTOR_HOST_WORLD_ID = 'us-builtin-inspector'
+/**
+ * 产物文件名（构建自包内 src/inspector/entry.ts）。
+ *
+ * 与中继件不同，注册时**只有这一段**（无装配段）—— 件没有运行期参数，注入即安装；
+ * 指令信封的字面量由件自己从 protocol/inspector.ts import。
+ */
+export const INSPECTOR_HOST_FILE = 'duoling-page-inspector.js'

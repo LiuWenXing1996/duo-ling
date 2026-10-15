@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { ENTRY_POINTS } from '../esbuild.config.mjs'
 import { BRIDGE_RELAY_BOOT_KEY } from './protocol/bridge'
 import {
+  INSPECTOR_HOST_FILE,
   SCRIPT_RELAY_FILE,
   TAB_FORWARDER_FILE,
   TAB_RECORDER_FILE,
@@ -14,11 +15,16 @@ import {
 } from './registry'
 
 describe('产物文件名与构建入口表一致', () => {
-  it('注册面声明的三个文件名，正好是构建产物名的全集', () => {
+  it('注册面声明的文件名，正好是构建产物名的全集', () => {
     const built = Object.keys(ENTRY_POINTS)
       .map((key) => `${key}.js`)
       .sort()
-    const declared = [SCRIPT_RELAY_FILE, TAB_FORWARDER_FILE, TAB_RECORDER_FILE].sort()
+    const declared = [
+      SCRIPT_RELAY_FILE,
+      TAB_FORWARDER_FILE,
+      TAB_RECORDER_FILE,
+      INSPECTOR_HOST_FILE,
+    ].sort()
     expect(declared).toEqual(built)
   })
 })

@@ -99,7 +99,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 ## 页面上下文
 
 - **点选元素**：走**常驻件** —— 页面检查器随页面加载注入待命（`dl-page-inspector`，`us-builtin-inspector` 世界，全站匹配；平时零 UI、不动作），用户点按钮时 SW 取**当前聚焦窗口的活动标签页**（那一刻浮层必然在用户看着的那一页上，判据见 `background.ts` 的 `resolvePickTargetTab`）下发指令，件执行后经消息上报载荷、SW 按 `reqId` 配对（`page-inspector-bridge.ts`）。产物暂存后随下一条消息发出。
-- **页面快照 / 页面环境读数**：AI 侧 `page_snapshot`（渲染后 DOM）与 `page_env_read`（视口尺寸 / 设备像素比 / 页面里读到的 UA）两个工具经 SW 采集，各是页面检查器的一个模式（`duoling-page-inspector.js` 的 `snapshot` / `env`），与拾取走同一条指令线（下发 → 件执行 → 结果上行）。目标 = **这条会话所属的标签页**（不是「当前激活页」：这类读取是 AI 在生成中途自己决定发起的，那时用户可能已经切到别处），统一走 `background.ts` 的 `resolveAiTargetTab`（`findTabsUsingConversation` 反查，自带 tab 存活校验；会话没绑标签页时才退回最后聚焦窗口的激活页）。另有一个不经页面的 `env_read`（本机 OS / 芯片架构 / 浏览器与扩展版本等）—— 那是 offscreen 就地读 `navigator` 与构建注入值，不涉注入通道，见 `lib/env-snapshot.ts`。
+- **页面快照 / 页面环境读数**：AI 侧 `page_snapshot`（渲染后 DOM）与 `page_env_read`（视口尺寸 / 设备像素比 / 页面里读到的 UA）两个工具经 SW 采集，各是页面检查器的一个模式（包内 `inspector/install.ts` 的 `snapshot` / `env`），与拾取走同一条指令线（下发 → 件执行 → 结果上行）。目标 = **这条会话所属的标签页**（不是「当前激活页」：这类读取是 AI 在生成中途自己决定发起的，那时用户可能已经切到别处），统一走 `background.ts` 的 `resolveAiTargetTab`（`findTabsUsingConversation` 反查，自带 tab 存活校验；会话没绑标签页时才退回最后聚焦窗口的激活页）。另有一个不经页面的 `env_read`（本机 OS / 芯片架构 / 浏览器与扩展版本等）—— 那是 offscreen 就地读 `navigator` 与构建注入值，不涉注入通道，见 `lib/env-snapshot.ts`。
 - **注入前先按 scheme 拦**：`<all_urls>` **不覆盖 `chrome-extension://`**（连本扩展自己的页面也一样），未授权的 `file://` 也报同一句 —— 往上注入必失败，加 host 权限解决不了。判据在 `element-picker-client.ts` 的 `pageInjectionBlockReason`（三条注入支路共用：拾取拦在 `background.ts` 的 `resolvePickTargetTab`；两条 SW 侧读取拦在 `resolveAiTargetTab`）。
 
 ## 存储（IndexedDB 分库：源码 / 注册态 / 脚本数据 / 观测数据 / 应用配置 / 会话，2026-09-19 重构）

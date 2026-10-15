@@ -1,7 +1,7 @@
 // 拾取 / 页面读数的**发起侧**封装（对话界面与 SW 两个上下文共用）。
 //
 // 三条支路走同一条通道：请 SW 向那一页的常驻件下发指令，件执行后把载荷上报回来
-// （件源码、下发与配对见 userscripts/page-inspector-host.ts、userscripts/page-inspector-bridge.ts）。
+// （件源码见 @duoling/builtin-scripts 的 inspector/install.ts，下发与配对见 userscripts/page-inspector-bridge.ts）。
 // 走常驻的理由：指令的时刻是「页面早已打开」，而注册件只在页面开始加载时注入，两者差的正是
 // 这个时间点；而结果只能靠消息上行（注册件没有返回值通道）。
 //
@@ -84,7 +84,7 @@ export async function pickElement(): Promise<ElementPickContext | null> {
  * 为什么不能只靠页面里的 Esc 监听：拾取期间键盘焦点在对话界面（发起按钮所在文档），
  * keydown 不会到达页面 document——除非先点页面，而点击会被拾取拦截成「选中」。
  * 所以取消的主路径在发起侧，且走与「开始」同一根线（SW 下发收工指令，见 page-inspector-bridge）：
- * 件内的世界全局 `__duolingPickerActive` 收掉拾取，那条 pick 的 Promise resolve null，
+ * 件内的拾取句柄 activePick 收掉拾取，那条 pick 的 Promise resolve null，
  * 正在等待的 pickElement() 随之以「用户取消」收场。
  */
 export async function cancelPick(): Promise<void> {

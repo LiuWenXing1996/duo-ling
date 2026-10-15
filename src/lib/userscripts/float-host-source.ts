@@ -8,8 +8,9 @@
 //   · 扩展显示名（EXTENSION_NAME，改名的唯一真相源在 lib/extension-identity.ts）
 // 件自己写死会漂移（改名漏改 / 地址带扩展 id），故在装配时当参数递进去。
 //
-// 与页面检查器（page-inspector-host.ts）同形：`js: [{ file }, { code }]` 两段落在**同一世界**，前一段定义
-// `window.__duolingFloatHost`，后一段调它的 init。顺序不能换。
+// 与中继件（registry.ts 的 buildRelayInit）同形：`js: [{ file }, { code }]` 两段落在**同一世界**，
+// 前一段定义 `window.__duolingFloatHost`，后一段调它的 init。顺序不能换。
+// （页面检查器也曾是两段，但它没有运行期参数、已合并成单段；本件要为浮层递地址与扩展名，故保留。）
 //
 // ⚠️ 契约：件的指令 kind 是手写字符串（vanilla JS 不在类型检查范围内），与
 // shared/extension-ipc.ts 常量的对齐由单测把守 —— float-host-source.test.ts 会真的执行件源码

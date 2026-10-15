@@ -41,7 +41,7 @@
   var ROOT_ID = 'duoling-float-root'
 
   // 「点选元素正在页面里进行」的信号：页面检查器亮拾取态时往 documentElement 插的遮罩类名
-  // （src/public/duoling-page-inspector.js 的 CSS_NS + '-box'，仅拾取期间存在、finish() 即移除）。
+  // （包内 builtin-scripts 的 inspector/install.ts 里 INSPECTOR_PICKER_NS + '-box'，仅拾取期间存在、finish() 即移除）。
   //
   // 为什么用 DOM 而不是广播：页面检查器与本件分居两个世界，JS 互相不可见，共享面只有 DOM；而拾取
   // 遮罩的生死恰好就是「拾取区间」本身，无需新增任何通道。
@@ -370,7 +370,7 @@
    * 拾取期间整块让位。
    *
    * 为什么必须隐藏：对话框钉在 z-index: 2147483647（见 CSS），而页面检查器用
-   * document.elementFromPoint() 判定目标（duoling-page-inspector.js）——对话框在时，用户点到它覆盖的
+   * document.elementFromPoint() 判定目标（页面检查器件）——对话框在时，用户点到它覆盖的
    * 区域拿回的是对话框自己的元素（shadow 宿主 / iframe），既选错元素，也让被盖住的真实元素永远
    * 点不到。
    *

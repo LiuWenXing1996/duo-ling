@@ -10,4 +10,6 @@
 
 export * from './protocol/bridge'
 export * from './protocol/tab-record'
+export * from './protocol/inspector'
+export * from './protocol/page-context'
 export * from './registry'
