@@ -482,7 +482,7 @@ export type ApiEvent =
    *
    * 进度**为什么靠轮询**：`chrome.downloads.onChanged` 只给 state / totalBytes，**不给 bytesReceived**
    * （下载中的字节数只在 `search()` 的 DownloadItem 里）。轮询在 SW 里是安全的 —— SW 由 offscreen
-   * 心跳保活常驻（有启用脚本时 5s 一跳，见 availability-watch.ts），下载期间不会休眠。
+   * 心跳保活常驻（5s 一跳，见 keepalive.ts），下载期间不会休眠。
    * `state` 为 `complete` / `interrupted` 时是**终帧**（此后该 requestId 不再有帧）。
    */
   | {

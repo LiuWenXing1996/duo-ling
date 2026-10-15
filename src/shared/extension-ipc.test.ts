@@ -61,7 +61,6 @@ const ALL_KINDS = [
   { kind: 'userscript:toggle', side: 'sw' },
   { kind: 'userscript:rename', side: 'sw' },
   { kind: 'userscript:availability', side: 'sw' },
-  { kind: 'userscript:healthCheck', side: 'sw' },
   { kind: 'userscript:runlog', side: 'sw' },
   { kind: 'userscript:tabSessions', side: 'sw' },
   { kind: 'userscript:tabTimeline', side: 'sw' },
@@ -189,5 +188,11 @@ describe('(a) RuntimeRequest kind 归属唯一性', () => {
         (HOST_OWNED_KINDS as readonly string[]).includes(kind)
       expect(covered, kind).toBe(true)
     }
+  })
+
+  it('包内保活心跳 kind（usrt:keepalive）不落在任何宿主认领前缀内 —— 应答归包，宿主路由不得抢答', async () => {
+    const { SW_KEEPALIVE_KIND } = await import('@duoling/userscript-runtime')
+    expect(SW_KIND_PREFIXES.some((p) => SW_KEEPALIVE_KIND.startsWith(p))).toBe(false)
+    expect(OFFSCREEN_KIND_PREFIXES.some((p) => SW_KEEPALIVE_KIND.startsWith(p))).toBe(false)
   })
 })

@@ -1,10 +1,12 @@
 // 一站式接线入口：两个工厂函数把「接入本包」压到各一侧一行调用。
 //
 //   · createServiceWorkerHost —— SW 侧：注入宿主配置 + 同步段注册全部监听（第一帧纪律
-//     由工厂保证：dl-bridge 的消息监听与 dl-port 的事件源监听都在本调用内顶层 addListener）。
+//     由工厂保证：dl-bridge 的消息监听与 dl-port 的事件源监听都在本调用内顶层 addListener），
+//     并应答保活心跳（keepalive.ts）。
 //   · createOffscreenHost —— offscreen 侧：注册 onMessage 监听应答桥的 offscreen 协议
 //     （当前唯一命令 = clipboard:write，execCommand('copy') 写法；offscreen 文档由扩展自建，
-//     本包不碰生命周期 —— reasons 用 GM_OFFSCREEN_REASONS，创建时机与就绪握手见 README）。
+//     本包不碰生命周期 —— reasons 用 GM_OFFSCREEN_REASONS，创建时机与就绪握手见 README），
+//     并启动 SW 保活心跳（GM 链路预设 SW 常驻，保活是包的前置条件，见 keepalive.ts）。
 //
 // 幂等：createServiceWorkerHost 重复调用直接返回首个实例（initDlPort 无幂等保护，
 // 二次注册会让事件源监听翻倍）。测试需要重来时走 resetUserscriptRuntimeConfig + 模块重置。
@@ -17,6 +19,7 @@ import { configureUserscriptRuntime } from './host-config'
 import { initDlBridge } from './dl-bridge'
 import { initDlPort } from './dl-port'
 import { ensureWorldsConfigured, registerScript, projectFromSource } from './registration'
+import { SW_KEEPALIVE_KIND, startSwKeepalive } from './keepalive'
 
 /** offscreen 文档的 reason 集（与 GM 运行时实际用到的能力对齐：剪贴板 + blob/worker 预留） */
 export const GM_OFFSCREEN_REASONS: `${chrome.offscreen.Reason}`[] = ['BLOBS', 'WORKERS', 'CLIPBOARD']
@@ -41,6 +44,12 @@ let swHostSingleton: ServiceWorkerHost | null = null
 export function createServiceWorkerHost(cfg: UserscriptHostConfig = {}): ServiceWorkerHost {
   if (swHostSingleton) return swHostSingleton
   configureUserscriptRuntime(cfg)
+  // 保活心跳应答（offscreen 每 5s 一 ping）：只证明「SW 活着」并重置空闲计时，不做任何检测
+  chrome.runtime.onMessage.addListener((raw, _sender, sendResponse) => {
+    if ((raw as { kind?: unknown } | undefined)?.kind !== SW_KEEPALIVE_KIND) return false
+    sendResponse({ alive: true })
+    return false
+  })
   initDlBridge()
   initDlPort()
   swHostSingleton = {
@@ -114,8 +123,9 @@ async function handleClipboardWrite(raw: unknown): Promise<unknown> {
   }
 }
 
-/** offscreen 入口顶层调用：注册 onMessage 监听（只认自家命令面，其余让给宿主自己的监听器） */
+/** offscreen 入口顶层调用：启动保活心跳 + 注册 onMessage 监听（只认自家命令面，其余让给宿主自己的监听器） */
 export function createOffscreenHost(): OffscreenHost {
+  startSwKeepalive()
   chrome.runtime.onMessage.addListener((raw, _sender, sendResponse): boolean => {
     const kind = (raw as { kind?: unknown } | undefined)?.kind
     if (kind !== CLIPBOARD_WRITE_KIND) return false
