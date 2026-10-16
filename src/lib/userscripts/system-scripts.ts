@@ -42,6 +42,34 @@ export const SYSTEM_INSPECTOR_MATCHES = ALWAYS_ON_MATCHES
 export const SYSTEM_FLOAT_MATCHES = ALWAYS_ON_MATCHES
 
 /**
+ * 三件系统脚本的展示信息（名字 / 注入世界 / 一句话作用）。
+ *
+ * 消费方两处：engine 的 listBuiltinRegistrations 把它并进 BUILTIN_META（popup 的页面概览与
+ * 工作台「脚本列表」底部分区两处 UI 只读透出），以及本文件三个 project 构建器的 `name`
+ * —— 展示名单一来源，件「自己声明自己」。中继件（脚本桥）不在：它已随
+ * `@duoling/userscript-runtime` 包内化，不是系统脚本，展示条目由 engine 自行补。
+ */
+export const SYSTEM_SCRIPT_DISPLAY: Readonly<
+  Record<string, { name: string; world: string; note: string }>
+> = {
+  [INSPECTOR_HOST_ID]: {
+    name: '页面检查器',
+    world: '页面主世界',
+    note: '在页面里待命：收到指令才点选元素 / 抓快照 / 读环境，平时不亮任何 UI',
+  },
+  [FLOAT_HOST_ID]: {
+    name: '浮层宿主',
+    world: '页面主世界',
+    note: '对话浮层的挂载点：收到「打开会话」才建 DOM 并展开 iframe，平时页面里什么都没有',
+  },
+  [TAB_RECORDER_ID]: {
+    name: '页面录制',
+    world: '页面主世界',
+    note: '在页面真实世界里捕获网络请求（录制开关打开时才工作，经脚本桥上报）',
+  },
+}
+
+/**
  * 页面检查器系统脚本的注册态（每次调用现取：源码有缓存，项目对象是廉价派生）。
  * enabled 恒真 —— 它没有用户开关，与录制件同为「扩展托管、恒注册」。
  */
@@ -51,7 +79,7 @@ export async function pageInspectorProject(): Promise<ScriptProject> {
   return {
     v: 2,
     uuid: INSPECTOR_HOST_ID,
-    name: '页面检查器',
+    name: SYSTEM_SCRIPT_DISPLAY[INSPECTOR_HOST_ID].name,
     enabled: true,
     config: { ...defaultConfig(SYSTEM_INSPECTOR_MATCHES), runAt: 'document_start' },
     source: { code, savedAt: now },
@@ -69,7 +97,7 @@ export async function tabRecorderProject(): Promise<ScriptProject> {
   return {
     v: 2,
     uuid: TAB_RECORDER_ID,
-    name: '页面录制',
+    name: SYSTEM_SCRIPT_DISPLAY[TAB_RECORDER_ID].name,
     enabled: true,
     config: { ...defaultConfig(SYSTEM_TAB_RECORD_MATCHES), runAt: 'document_start', allFrames: true },
     source: { code, savedAt: now },
@@ -100,7 +128,7 @@ export async function floatHostProject(panelUrl: string, extensionName: string):
   return {
     v: 2,
     uuid: FLOAT_HOST_ID,
-    name: '浮层宿主',
+    name: SYSTEM_SCRIPT_DISPLAY[FLOAT_HOST_ID].name,
     enabled: true,
     config: { ...defaultConfig(SYSTEM_FLOAT_MATCHES), runAt: 'document_start' },
     source: { code, savedAt: now },

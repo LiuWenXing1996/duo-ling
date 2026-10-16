@@ -7,7 +7,9 @@
 //   · 页面检查器 / 浮层宿主常驻件 —— 恒注册（拾取 / 打开浮层都是「页面早已打开、用户刚点
 //     按钮」的场景，见 system-scripts.ts）；
 //   · 标签页录制 —— 已转**系统脚本**（见 system-scripts.ts），注册跟随「有没有页在录」。
-// 三件的注册 id 在 @duoling/builtin-scripts（registry.ts 是声明真相源），
+// 三件的注册 id 在 @duoling/builtin-scripts（registry.ts 是声明真相源），展示信息
+// （名字 / 世界 / 一句话作用）由 system-scripts.ts 的 SYSTEM_SCRIPT_DISPLAY 投影
+// （本文件并入中继件一条，见 BUILTIN_META）；
 // 件与 SW 的协议对端（page-inspector-bridge / float-bridge / dl-port）都在本仓 —— 纯产品面。
 //
 // 包侧函数经本文件 re-export（registerScript / registerAllEnabled / recoverOnUpdate 等），
@@ -30,6 +32,7 @@ import { listProjects } from './project-store'
 import {
   SYSTEM_FLOAT_MATCHES,
   SYSTEM_INSPECTOR_MATCHES,
+  SYSTEM_SCRIPT_DISPLAY,
   SYSTEM_TAB_RECORD_MATCHES,
   floatHostProject,
   pageInspectorProject,
@@ -87,6 +90,8 @@ export const BUILTIN_SCRIPT_IDS = [
  *
  * 它们不是用户脚本项目（没有源码 / 启停 / git 历史），只是扩展自己注进页面的能力管道 ——
  * 列表里给名字与世界，是让人看见「这一页上除了我的脚本还有扩展自己的东西在跑」。
+ * 三件系统脚本的条目吃 system-scripts 的投影（SYSTEM_SCRIPT_DISPLAY，件「自己声明自己」），
+ * 这里只补中继件一条 —— 它随 `@duoling/userscript-runtime` 包内化，不属件包声明面。
  */
 const BUILTIN_META: Record<string, { name: string; world: string; note: string }> = {
   [SCRIPT_RELAY_ID]: {
@@ -94,21 +99,7 @@ const BUILTIN_META: Record<string, { name: string; world: string; note: string }
     world: '用户脚本世界',
     note: 'GM 能力的中继件：脚本世界没有 chrome.*，靠它把 GM 调用转给扩展',
   },
-  [INSPECTOR_HOST_ID]: {
-    name: '页面检查器',
-    world: '页面主世界',
-    note: '在页面里待命：收到指令才点选元素 / 抓快照 / 读环境，平时不亮任何 UI',
-  },
-  [FLOAT_HOST_ID]: {
-    name: '浮层宿主',
-    world: '页面主世界',
-    note: '对话浮层的挂载点：收到「打开会话」才建 DOM 并展开 iframe，平时页面里什么都没有',
-  },
-  [TAB_RECORDER_ID]: {
-    name: '页面录制',
-    world: '页面主世界',
-    note: '在页面真实世界里捕获网络请求（录制开关打开时才工作，经脚本桥上报）',
-  },
+  ...SYSTEM_SCRIPT_DISPLAY,
 }
 
 /**
