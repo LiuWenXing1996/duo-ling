@@ -1,7 +1,7 @@
 {
   // 包内编辑器与 vite-plugin-dts 的类型解析基准（根 tsconfig 另有一套全仓口径，两者并行）。
   // offscreen document 是 DOM 环境：剪贴板写入用 document.execCommand('copy')，DOM 类型常驻；
-  // chrome.runtime 只用于消息收发与保活心跳，单测 stub。
+  // chrome.runtime 只用于消息收发，单测 stub。
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",

@@ -8,6 +8,9 @@ export default defineConfig({
       formats: ['es'],
       fileName: () => 'index.mjs',
     },
+    rollupOptions: {
+      external: ['@duoling/messaging'],
+    },
     sourcemap: true,
   },
   plugins: [

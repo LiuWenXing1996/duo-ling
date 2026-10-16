@@ -428,7 +428,7 @@ const downloadWatch = new Map<number, DownloadEntry>()
 /**
  * 进度轮询间隔。浏览器下载器**不发**字节数（`onChanged` 只有 state / totalBytes），只能主动查
  * `chrome.downloads.search()`；而 SW 由 offscreen 心跳保活常驻（5s 一跳，见
- * keepalive.ts），下载期间不会休眠 —— 所以轮询在 SW 里是可靠手段。
+ * @duoling/offscreen-document 的 keepalive），下载期间不会休眠 —— 所以轮询在 SW 里是可靠手段。
  */
 const DOWNLOAD_PROGRESS_MS = 500
 

@@ -54,6 +54,8 @@ import { onAvailabilityChange, startAvailabilityWatch } from '@duoling/userscrip
 import { runUpdateCheck } from '@/lib/update-check'
 // GM 运行时接线：SW 侧工厂（配置注入 + 桥与 Port 监听注册同点完成，见 initUserScripts）
 import { createServiceWorkerHost, swIpcHandlers, SW_IPC_OWNED_KINDS } from '@duoling/userscript-sw'
+// SW 保活应答（通用包）：认领一条 keepalive kind，由总线的首个 matcher 问询
+import { keepaliveHandler } from '@duoling/service-worker'
 // 标准化总线：本语境唯一的 onMessage 收口（serveIpc）+ 路由 matcher（前缀表 / 包命令面）
 import { serveIpc, prefixMatcher, packMatcher, ipcRequest, ipcNotify } from '@/shared/ipc-bus'
 import { duolingTelemetry } from '@/lib/userscripts/telemetry'
@@ -170,8 +172,8 @@ export const SW_KIND_PREFIXES = [
  * handlers 表只登记这些 kind：`ai:*`（git 历史）与 `state:*`（项目状态库写侧）都由 offscreen
  * 应答——它们不是 SW 的职责，不该为凑齐类型而塞进 handlers 表补死桩。
  *
- * 再减去包自管的 kind（SW_IPC_OWNED_KINDS）：管理面只读四条与保活由 @duoling/userscript-sw
- * 的 handler pack 应答，而 pack matcher 排在总线的问询首位——前缀表里不该出现它们的 handler。
+ * 再减去包自管的 kind（SW_IPC_OWNED_KINDS）：管理面只读四条由 @duoling/userscript-sw 的
+ * handler pack 应答，而 pack matcher 排在总线的问询首位——前缀表里不该出现它们的 handler。
  * 四条虽落在 `userscript:` 前缀内，归属由 matcher 顺序定，不靠前缀互斥；重复登记会被这张
  * 映射类型拒（编译期暴露，不会静默变成永不执行的分支）。
  */
@@ -557,7 +559,7 @@ const handlers: {
   'userscript:removeAll': async (): Promise<{ removed: number }> => {
     const uuids = (await listProjects()).map((p) => p.uuid)
     // 注销失败不能纯静默（与单删/关停同语义）：吞掉后这批 uuid 成幽灵注册——
-    // 页面刷新照样注入；且 SW 由 offscreen 心跳保活常驻（包内 keepalive.ts，无条件），
+    // 页面刷新照样注入；且 SW 由 offscreen 心跳保活常驻（@duoling/offscreen-document 的 keepalive，无条件），
     // registerAllEnabled 的冷启动对账不会跑，幽灵能一路活到下次浏览器重启
     await unregisterScripts(uuids).catch((e) =>
       console.warn('[duoling:sw] 全部删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', uuids, e),
@@ -1026,7 +1028,7 @@ function mountProposal2Listeners(): void {
   // —— 这轮重算不是 no-op：引擎不可用时那枚全局感叹号正是由它设上的（全局值刚被上面清掉），该显示
   // 什么一律由同一个出口决定，冷启动这条路上也不例外。
   // 之后浏览器启动会重载页面、runstart 自己回来；扩展重载后的既有页面要等下一次导航。
-  // 至于「SW 空闲被回收」这条不必担心：它由 offscreen 心跳保活（包内 keepalive.ts，见 page-monitor 头注释）。
+  // 至于「SW 空闲被回收」这条不必担心：它由 offscreen 心跳保活（@duoling/offscreen-document 的 keepalive，见 page-monitor 头注释）。
   void clearAllBadges()
     .then(() => refreshBadge())
     .catch(() => {})
@@ -1215,13 +1217,17 @@ export default defineBackground(() => {
   // 的 profile-cache 回拉）。SW 这里不再需要 storage.onChanged 兜底。
 
   // 本语境唯一的 onMessage 监听器（标准化信道）：问询顺序 =
-  //   ① 运行时包命令面（swIpcHandlers：保活应答 + 管理面只读四条）—— 包自管 kind 归包，
-  //      宿主前缀路由不得抢答（sendResponse 一条消息只有一次机会）；
-  //   ② 宿主前缀表（SW_KIND_PREFIXES + handlers）—— 其余归 SW 的 kind。
+  //   ① 保活应答（keepaliveHandler）与 ② 运行时包命令面（swIpcHandlers：管理面只读四条）
+  //      —— 包自管 kind 归包，宿主前缀路由不得抢答（sendResponse 一条消息只有一次机会）；
+  //   ③ 宿主前缀表（SW_KIND_PREFIXES + handlers）—— 其余归 SW 的 kind。
   // 旁听 offscreen 推送（chat:running / chat:finished：任务起止）：chat: 前缀对命令面是
   // offscreen 保留前缀，SW 静默让路，这里只观察不响应（推送方对响应本就尽力而为）。
   serveIpc({
-    matchers: [packMatcher(swIpcHandlers()), prefixMatcher(SW_KIND_PREFIXES, handlers)],
+    matchers: [
+      packMatcher(keepaliveHandler()),
+      packMatcher(swIpcHandlers()),
+      prefixMatcher(SW_KIND_PREFIXES, handlers),
+    ],
     observe: (msg) => {
       const push = msg as { kind: string; conversationId?: string }
       if (push.kind === 'chat:running' && push.conversationId) handleChatRunningPush(push.conversationId)

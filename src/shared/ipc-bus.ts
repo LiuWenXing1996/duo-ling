@@ -7,9 +7,9 @@
 //     offscreen 入口各调一次）。功能代码只写 handler 与 matcher，永不摸 addListener。
 //
 // 接收侧的问询顺序：matcher 数组依次问询，第一个认领的应答（sendResponse 一条消息只有
-// 一次机会，多端都接会抢答）。运行时包（@duoling/userscript-sw / -offscreen）的命令面
-// 以 pack matcher 形式插在最前 —— 包自管的 kind（保活 / 剪贴板 / 管理面只读四条）归包，
-// 宿主前缀路由不得抢答；其余 kind 归宿主前缀表（SW_KIND_PREFIXES / OFFSCREEN_KIND_PREFIXES）。
+// 一次机会，多端都接会抢答）。包自管的 kind（保活 / 剪贴板 / 管理面只读四条）以 pack
+// matcher 形式插在最前，归各包应答 —— 宿主前缀路由不得抢答；其余 kind 归宿主前缀表
+// （SW_KIND_PREFIXES / OFFSCREEN_KIND_PREFIXES）。
 import type { OffscreenPush, RuntimeRequest, SwPush } from './extension-ipc'
 import type { DataChangedPush } from '@duoling/shared'
 import { runtimeSend } from './runtime-send'

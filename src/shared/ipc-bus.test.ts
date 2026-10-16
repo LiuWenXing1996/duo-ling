@@ -168,18 +168,18 @@ describe('packMatcher —— 包自管命令面的问询式转发', () => {
   it('owns / handle 原样透传给包', async () => {
     const handled: string[] = []
     const matcher = packMatcher({
-      owns: (kind) => kind === 'usrt:keepalive',
+      owns: (kind) => kind === 'background:keepalive',
       handle: async (msg) => {
         handled.push(String(msg.kind))
         return 'pong'
       },
     })
 
-    expect(matcher.owns('usrt:keepalive')).toBe(true)
+    expect(matcher.owns('background:keepalive')).toBe(true)
     expect(matcher.owns('userscript:list')).toBe(false)
     // 包自管的 kind 不在宿主 RuntimeRequest 联合里 —— 这正是 pack matcher 存在的理由
-    expect(await matcher.handle({ kind: 'usrt:keepalive' } as never, {} as chrome.runtime.MessageSender)).toBe('pong')
-    expect(handled).toEqual(['usrt:keepalive'])
+    expect(await matcher.handle({ kind: 'background:keepalive' } as never, {} as chrome.runtime.MessageSender)).toBe('pong')
+    expect(handled).toEqual(['background:keepalive'])
   })
 })
 

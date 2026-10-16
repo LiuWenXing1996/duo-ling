@@ -2,7 +2,7 @@
 //
 // createServiceWorkerHost：同步注册断言 —— 调用返回时监听必须已全部挂上（第一帧纪律），
 // chrome 整体 stub，捕获 addListener 的注册函数来数监听面。**本包不自挂 onMessage**：
-// 保活应答与管理面命令面由 swIpcHandlers() 导出、宿主总线收口注册（见 management.ts），
+// 管理面命令面由 swIpcHandlers() 导出、宿主总线收口注册（见 management.ts），
 // 故这里 onMessage 面断言为 0 —— 多一条就说明包又自己造了通信（违背标准化信道）。
 //
 // 模块生命周期：host.ts / host-config.ts / dl-bridge / dl-port 全带单例或 initialized
@@ -10,7 +10,6 @@
 // 不能静态 import + beforeEach 里 resetModules：静态绑定永远指向首个模块实例，
 // 单例在旧实例里跨用例残留，resetModules 反而让动态重取的 host-config 分裂成新实例。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { IPC_SW_KEEPALIVE } from '@duoling/shared'
 
 type Listener = (raw: unknown, sender: unknown, sendResponse: (r: unknown) => void) => unknown
 
@@ -55,7 +54,7 @@ function loadHost(): Promise<typeof import('./host')> {
   return import('./host')
 }
 
-/** handler pack 的加载口（保活与管理面）：与 host 同一重载纪律 */
+/** handler pack 的加载口（管理面）：与 host 同一重载纪律 */
 function loadManagement(): Promise<typeof import('./management')> {
   vi.resetModules()
   return import('./management')
@@ -69,20 +68,25 @@ describe('createServiceWorkerHost', () => {
     // 消息面（onUserScriptMessage）与连接面（onUserScriptConnect）各一条
     expect(messageListeners).toHaveLength(1)
     expect(portConnectListeners).toHaveLength(1)
-    // onMessage 面 **0 条**：保活与管理面归 swIpcHandlers()（宿主总线注册），包不自挂
+    // onMessage 面 **0 条**：管理面归 swIpcHandlers()（宿主总线注册），包不自挂
     expect(swMessageListeners).toHaveLength(0)
     // 事件源两件：菜单点击 / 通知点击（tabs.onUpdated 走 vi.fn，不入本数组）
     expect(contextMenuListeners).toHaveLength(1)
     expect(notificationListeners).toHaveLength(1)
   })
 
-  it('保活心跳应答归 handler pack：认领 ping kind，其余 kind 不认领（让给宿主前缀路由）', async () => {
-    const { swIpcHandlers } = await loadManagement()
+  it('管理面只读四条归 handler pack：认领这四条，其余 kind 不认领（让给宿主前缀路由）', async () => {
+    const { swIpcHandlers, SW_IPC_OWNED_KINDS } = await loadManagement()
     const pack = swIpcHandlers()
-    expect(pack.owns(IPC_SW_KEEPALIVE)).toBe(true)
-    await expect(
-      pack.handle({ kind: IPC_SW_KEEPALIVE }, {} as chrome.runtime.MessageSender),
-    ).resolves.toEqual({ alive: true })
+    expect(SW_IPC_OWNED_KINDS).toEqual([
+      'userscript:list',
+      'userscript:getProject',
+      'userscript:groups',
+      'userscript:availability',
+    ])
+    for (const kind of SW_IPC_OWNED_KINDS) expect(pack.owns(kind)).toBe(true)
+    // 保活已移出本包（@duoling/service-worker 认领）：这里必须让路
+    expect(pack.owns('background:keepalive')).toBe(false)
     expect(pack.owns('other:kind')).toBe(false)
   })
 

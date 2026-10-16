@@ -4,6 +4,7 @@
 // fake timers 安全）。模块带单例 timer，跨用例经 loadKeepalive()（resetModules + 动态
 // import）重载归零。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { IPC_SW_KEEPALIVE } from '@duoling/messaging'
 
 let sendMessage: ReturnType<typeof vi.fn>
 
@@ -26,12 +27,12 @@ function loadKeepalive(): Promise<typeof import('./keepalive')> {
 }
 
 describe('startSwKeepalive', () => {
-  it('启动即 ping 一条，随后按周期续跳；报文 kind 是真相源常量', async () => {
-    const { startSwKeepalive, SW_KEEPALIVE_KIND, SW_KEEPALIVE_INTERVAL_MS } = await loadKeepalive()
+  it('启动即 ping 一条，随后按周期续跳；报文 kind 是契约常量', async () => {
+    const { startSwKeepalive, SW_KEEPALIVE_INTERVAL_MS } = await loadKeepalive()
     startSwKeepalive()
-    expect(SW_KEEPALIVE_KIND).toBe('usrt:keepalive')
+    expect(IPC_SW_KEEPALIVE).toBe('background:keepalive')
     expect(sendMessage).toHaveBeenCalledTimes(1)
-    expect(sendMessage).toHaveBeenCalledWith({ kind: SW_KEEPALIVE_KIND })
+    expect(sendMessage).toHaveBeenCalledWith({ kind: IPC_SW_KEEPALIVE })
     await vi.advanceTimersByTimeAsync(SW_KEEPALIVE_INTERVAL_MS * 2)
     expect(sendMessage).toHaveBeenCalledTimes(3)
   })

@@ -2,7 +2,7 @@
 //
 // 判据：import 源不得指向应用侧（`@/…` / `~/…`）、件包（`@duoling/builtin-scripts`）
 // 或兄弟包（userscript-core / userscript-sw）。本包与 sw 侧经 @duoling/shared 的
-// IPC 契约互通（clipboard:write / 保活 kind），互不 import。
+// IPC 契约互通（clipboard:write），互不 import。
 import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'

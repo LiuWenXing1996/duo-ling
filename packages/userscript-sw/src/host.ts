@@ -1,7 +1,7 @@
 // SW 侧一站式接线入口：注入宿主配置 + 同步段注册全部监听，压到一行调用。
 //
 // 第一帧纪律由工厂保证：dl-bridge 的消息监听与 dl-port 的事件源监听都在本调用内
-// 顶层 addListener。运行时包自身的 runtime.onMessage 命令面（保活应答 + 管理面）
+// 顶层 addListener。运行时包自身的 runtime.onMessage 命令面（管理面只读四条）
 // 不在这里自挂监听 —— 改由 swIpcHandlers() 导出、宿主总线注册（见 management.ts），
 // 宿主只保留一个 onMessage 监听器（标准化信道）。
 //

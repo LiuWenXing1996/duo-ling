@@ -11,7 +11,7 @@ GM 运行时的 **SW 侧宿主**。一个 Chrome 扩展接上本包，就能用 
 | 事件底座 —— 脚本世界 ↔ SW 长连接的下行通道（菜单点击 / 值变更 / 下载进度） | `dl-port` |
 | cookie 域名门 —— GM_cookie 的安全边界（scheme + host） | `cookie-gate` |
 | `@require` / `@resource` 的抓取与落库 | `require-cache` / `resource-cache` |
-| 运行时命令面 —— 保活应答 + 管理面只读四条 | `management` |
+| 运行时命令面 —— 管理面只读四条 | `management` |
 | 宿主注入点 —— 扩展身份 / offscreen 就绪 / 遥测 / 密钥存储 / 内置件 | `host-config` |
 
 依赖方向：本包 → `@duoling/userscript-core`（语义与存储）→ `@duoling/shared`（契约），无环。
@@ -55,7 +55,7 @@ chrome.offscreen.createDocument({
 
 ## 命令面交给宿主总线
 
-`createServiceWorkerHost` **不自挂 `onMessage`**。运行时自有命令面（保活应答 + 管理面只读四条：
+`createServiceWorkerHost` **不自挂 `onMessage`**。运行时自有命令面（管理面只读四条：
 `userscript:list` / `userscript:getProject` / `userscript:groups` / `userscript:availability`）由
 `swIpcHandlers()` 导出，交给宿主的消息总线问询应答 —— 每个语境只留一个监听器，功能侧不各造通信。
 
@@ -95,7 +95,7 @@ onAvailabilityChange(({ previous, current }) => {
 监视器**只报变化**，不做任何动作 —— 补注册 / 角标 / 广播都由消费方自己接。
 
 **前提**：SW 活不过 30s 空闲，监视定时器随之消亡。要让它持续跑需 offscreen 心跳保活
-（见 [`@duoling/userscript-offscreen`](../userscript-offscreen/README.md)）；容器缺席时 SW 会睡，
+（发送端在 `@duoling/offscreen-document` 的 `keepalive`）；容器缺席时 SW 会睡，
 被唤醒（UI 消息 / 导航事件）时入口重跑、监视重启、首个读数重建基线 —— 这不是缺陷。
 
 ## 装脚本

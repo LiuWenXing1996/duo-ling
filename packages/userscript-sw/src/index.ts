@@ -6,7 +6,7 @@
 //   · 事件底座（dl-port）—— 脚本世界 ↔ SW 的长连接下行通道（菜单点击 / 值变更 / 下载进度…）；
 //   · cookie 域名门（cookie-gate）—— GM_cookie 的安全边界；
 //   · require / resource 缓存 —— @require 与 @resource 的抓取与落库；
-//   · IPC handler pack（management）—— 保活应答 + 管理面只读四条，宿主总线注册；
+//   · IPC handler pack（management）—— 管理面只读四条，宿主总线注册；
 //   · 宿主注入点（host-config）—— 扩展身份 / offscreen 就绪 / 遥测 / 密钥存储全部可选，
 //     不注入 = 相应观测不发生，脚本行为不受损。
 //

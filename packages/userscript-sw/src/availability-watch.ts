@@ -1,7 +1,7 @@
 // 引擎可用性监视器（SW 专属）：轮询「运行用户脚本」开关，**只在状态变化时**发事件。
 //
 // 三层分工（解耦后的结构）：
-//   · 保活层 —— GM 运行时包内 keepalive（offscreen 宿主经 createOffscreenHost 接线即启，
+//   · 保活层 —— @duoling/offscreen-document 的 keepalive（宿主 offscreen 入口接线即启，
 //     无条件 5s 一 ping）：唯一职责是重置 SW 的 30s 空闲计时，不做任何检测。
 //   · 检测层 —— 本模块：SW 活着时自己轮询引擎可用性，状态**变化**（两个方向都算）才通知。
 //   · 消费层 —— SW 入口订阅：不可用 → 可用时补注册（开关后开场景的自愈），并向扩展页
@@ -44,7 +44,8 @@ export function onAvailabilityChange(listener: Listener): () => void {
  * 默认 1s：拨开关后最坏 ~1s 探到翻转、完成补注册。1s 与 2s 手测体感无差异
  * （「2s/1s 都有间隔感」是误测了重载前的
  * 5s 旧包），既然保活已付、探测又是廉价 IPC，取更快的 1s。SW 已由 offscreen
- * 心跳保活常驻，探测频次不额外增加存活成本；只在变化时才广播。
+ * 心跳保活常驻（见 @duoling/offscreen-document 的 keepalive），探测频次不额外增加存活成本；
+ * 只在变化时才广播。
  */
 export function startAvailabilityWatch(intervalMs = 1000): void {
   if (timer) return

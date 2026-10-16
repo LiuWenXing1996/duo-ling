@@ -44,7 +44,7 @@
 ├─ packages/shared/               # 跨世界契约子包：件与应用两侧同取的信封 / 常量 / 形状（bridge / tab-record / inspector / page-context；Vite lib 构建 dist 三件套，消费走 exports）
 ├─ packages/userscript-core/      # 运行时 · 语义与存储内核：L1 语义层（注入源码生成 / API 契约与目录 / grants 真相源 / metadata / match-pattern / script-bridge / script-config）+ 存储（state-db / usdata-db / gm-values）+ 数据变更广播（Vite lib 构建 dist 三件套，shared 外部化；依赖 shared）
 ├─ packages/userscript-sw/        # 运行时 · SW 宿主层：注册引擎 registration / 命令分发 dl-bridge / 事件底座 dl-port / cookie 域名门 cookie-gate / require+resource 缓存 / 管理面 handler pack / 宿主注入点 host-config（Vite lib；依赖 shared + userscript-core；构建前置 node build-relay.mjs 生成中继件）
-├─ packages/userscript-offscreen/ # 运行时 · offscreen 宿主层：保活心跳 keepalive / 剪贴板命令应答（Vite lib；依赖 shared）
+├─ packages/userscript-offscreen/ # 运行时 · offscreen 宿主层：剪贴板命令应答（Vite lib；依赖 shared）
 ├─ packages/builtin-scripts/      # 内置注入件子包：TS 源码 + esbuild 打成 IIFE 产物（recorder / page-inspector / float-host；中继件 relay 已随 userscript-sw 包内化，录制件走系统脚本链；注册面见 AGENTS.md）
 ├─ packages/uscript-samples/      # 用户脚本样例子包：TS 模块化源码 + esbuild 打成单文件 .user.js（metadata 由各样例 meta.json 生成；raw/ 放不参与构建的坏源码；dist 不入库，pnpm -r build 产出，pack:uscripts 打 zip 分发）
 ├─ scripts/                       # 仓库维护脚本：verify-skills / check-todo / pack-uscripts / probe-target（本机测试靶站）/ model-stub（本机假模型，e2e 与 dev 共用）/ help-screenshots（帮助页配图生成器，浅暗两版六张落 src/public/help/）/ dev（dev 与靶站、假模型一起起）

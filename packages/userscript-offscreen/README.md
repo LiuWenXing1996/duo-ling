@@ -1,6 +1,6 @@
 # @duoling/userscript-offscreen
 
-GM 运行时的 **offscreen 侧宿主**：剪贴板命令应答（免手势直写，纯文本 / 富文本）+ SW 保活心跳。
+GM 运行时的 **offscreen 侧宿主**：剪贴板命令应答（免手势直写，纯文本 / 富文本）。
 
 只依赖 `@duoling/shared`（协议契约）。offscreen 文档的**生命周期由扩展自建** —— 本包不碰创建与销毁，
 建文档时 `reasons` 取本包导出的 `GM_OFFSCREEN_REASONS`（`BLOBS` + `WORKERS` + `CLIPBOARD`，与运行时
@@ -17,7 +17,7 @@ GM 运行时的 **offscreen 侧宿主**：剪贴板命令应答（免手势直�
 ```ts
 import { createOffscreenHost } from '@duoling/userscript-offscreen'
 
-// 一行接线：启动 SW 保活心跳 + 自挂 onMessage 应答剪贴板命令
+// 一行接线：自挂 onMessage 应答剪贴板命令
 createOffscreenHost()
 ```
 
@@ -33,9 +33,7 @@ createOffscreenHost()
 offscreen 文档拿不到页面焦点，`navigator.clipboard` 会报 "Document is not focused"，故写入走
 `document.execCommand('copy')` + copy 事件注入 `clipboardData`。
 
-## 保活
+## 不在本包
 
-GM 的消息链路预设 SW 常驻（在途的 GM XHR 进度帧 / download 结局 / 通知点击回调都靠 SW 推），
-心跳是包正常工作的**前置条件**、无条件启用：`createOffscreenHost` 内即启，5s 一跳只重置 SW 的
-30s 空闲计时、不做任何检测（应答侧在 sw 包的 handler pack）。自管心跳时机可直调
-`startSwKeepalive` / `stopSwKeepalive`，间隔常量 `SW_KEEPALIVE_INTERVAL_MS`。
+SW 保活心跳：发送端是 `@duoling/offscreen-document` 的 `keepalive`，由宿主 offscreen 入口启动
+（不再是本包接线即启）。

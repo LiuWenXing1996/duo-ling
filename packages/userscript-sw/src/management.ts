@@ -1,4 +1,4 @@
-// 运行时包自身的 IPC 命令面（handler pack）：保活应答 + 管理面只读四条。
+// 运行时包自身的 IPC 命令面（handler pack）：管理面只读四条。
 //
 // 为什么收在这里：这些命令的应答只依赖本包与 core（读状态库 / 引擎可用性检测），
 // 不需要任何宿主自有机器（fs+git 持久化 / offscreen 转发 / 观测库都是宿主的）——
@@ -11,13 +11,11 @@
 // 覆盖面（刻意只读）：list / getProject / groups / availability。其余 userscript:*
 // 命令（save / toggle / import / tabActivity…）押着宿主机器（offscreen 单写方、
 // 重注册引擎、观测库），handler 留在宿主侧，不假装通用。
-import { IPC_SW_KEEPALIVE } from '@duoling/shared'
 import { listSummaries, readAllGroups, readAllProjects, readProject } from '@duoling/userscript-core'
 import { getUserScriptsStatus } from './registration'
 
-/** 本包认领的命令 kind（宿主总线的优先问询面；全部只读 + 保活） */
+/** 本包认领的命令 kind（宿主总线的优先问询面；全部只读） */
 const OWNED_KINDS = [
-  IPC_SW_KEEPALIVE,
   'userscript:list',
   'userscript:getProject',
   'userscript:groups',
@@ -43,9 +41,6 @@ export function swIpcHandlers(): SwIpcHandlers {
     },
     handle(msg, _sender) {
       switch (msg?.kind) {
-        case IPC_SW_KEEPALIVE:
-          // 保活应答：只证明「SW 活着」并重置空闲计时，不做任何检测
-          return Promise.resolve({ alive: true })
         case 'userscript:list':
           return readAllProjects().then(listSummaries)
         case 'userscript:getProject':

@@ -3,18 +3,15 @@
 // createOffscreenHost：走注册出的真实监听器端到端，验应答信封（{ ok, data | error }）；
 // handle 直调抛原始异常（不包信封）。GM_OFFSCREEN_REASONS 与 GM 运行时的 offscreen 能力对齐。
 //
-// chrome / document / window 全 stub（node 环境手工 fake 到 execCommand 为止）；
-// createOffscreenHost 会顺带启动真实心跳定时器，逐例停掉防悬挂。
+// chrome / document / window 全 stub（node 环境手工 fake 到 execCommand 为止）。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createOffscreenHost, GM_OFFSCREEN_REASONS } from './host'
-import { stopSwKeepalive } from './keepalive'
 
 type MsgListener = (raw: unknown, sender: unknown, sendResponse: (r: unknown) => void) => boolean
 
 let msgListener: MsgListener
 
 afterEach(() => {
-  stopSwKeepalive()
   vi.unstubAllGlobals()
 })
 

@@ -1,14 +1,12 @@
-// GM 运行时 offscreen 侧宿主：一站式接线（保活心跳 + 剪贴板命令应答）。
+// GM 运行时 offscreen 侧宿主：注册 onMessage 监听应答剪贴板命令。
 //
-//   · createOffscreenHost —— 注册 onMessage 监听应答剪贴板命令（execCommand('copy')
-//     写法；offscreen 文档由扩展自建，本包不碰生命周期 —— reasons 用 GM_OFFSCREEN_REASONS，
-//     创建时机与就绪握手见宿主侧），并启动 SW 保活心跳（GM 链路预设 SW 常驻，
-//     保活是包的前置条件，见 keepalive.ts）。
+//   · createOffscreenHost —— execCommand('copy') 写法应答剪贴板命令；offscreen 文档由
+//     扩展自建，本包不碰生命周期 —— reasons 用 GM_OFFSCREEN_REASONS，创建时机与就绪
+//     握手见宿主侧。
 //
 // 剪贴板协议：SW 侧发 `{ kind: 'clipboard:write', text, html }`（常量在 @duoling/shared
 // 的 ipc.ts），应答信封 `{ ok: true }` / `{ ok: false, error }`。
 import { IPC_CLIPBOARD_WRITE, type ClipboardWriteMessage, type IpcEnvelope } from '@duoling/shared'
-import { startSwKeepalive } from './keepalive'
 
 /** offscreen 文档的 reason 集（与 GM 运行时实际用到的能力对齐：剪贴板 + blob/worker 预留） */
 export const GM_OFFSCREEN_REASONS: `${chrome.offscreen.Reason}`[] = ['BLOBS', 'WORKERS', 'CLIPBOARD']
@@ -75,11 +73,10 @@ async function handleClipboardWrite(raw: unknown): Promise<unknown> {
   }
 }
 
-/** offscreen 入口顶层调用：启动保活心跳；`listen` 缺省自挂 onMessage 监听（只认自家命令面）。
+/** offscreen 入口顶层调用：`listen` 缺省自挂 onMessage 监听（只认自家命令面）。
  * 宿主有自己的消息总线（每语境唯一监听器）时传 `{ listen: false }`，改由总线经
  * `handle()` 问询应答 —— 功能侧不自挂监听（标准化信道）。 */
 export function createOffscreenHost(options: { listen?: boolean } = {}): OffscreenHost {
-  startSwKeepalive()
   if (options.listen === false) return { handle: handleClipboardWrite }
   chrome.runtime.onMessage.addListener((raw, _sender, sendResponse): boolean => {
     const kind = (raw as { kind?: unknown } | undefined)?.kind

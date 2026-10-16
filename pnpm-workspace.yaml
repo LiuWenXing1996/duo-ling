@@ -12,7 +12,7 @@
 #   · userscript-sw —— 运行时·SW 宿主层（注册引擎 registration / 命令分发 dl-bridge /
 #     事件底座 dl-port / cookie 域名门 cookie-gate / require+resource 缓存 / 管理面 handler pack /
 #     宿主注入点 host-config），Vite lib 自构建，依赖 shared + userscript-core。
-#   · userscript-offscreen —— 运行时·offscreen 宿主层（保活心跳 keepalive / 剪贴板命令应答），
+#   · userscript-offscreen —— 运行时·offscreen 宿主层（剪贴板命令应答），
 #     Vite lib 自构建，依赖 shared。
 #   · uscript-samples —— 用户脚本样例（手测 / 端测的真机脚本）：TS 模块化源码 + esbuild 打成
 #     单文件 .user.js（metadata 头由各样例 meta.json 生成；raw/ 是不参与构建的坏源码样本），

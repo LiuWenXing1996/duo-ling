@@ -15,10 +15,10 @@
 //
 // 模块归属（硬约束）：本入口只允许 import us-git.ts（纯 JS 的 git 栈 + lightning-fs）、
 // extension-chat-transport.ts、ai SDK、offscreen-bridge.ts、offscreen-chat/（对话编排，
-// 内部只引裸 IndexedDB 模块）、@duoling/userscript-offscreen / @duoling/userscript-core
-// （纯函数 + offscreen 环境代码，import 期零副作用），以及 offscreen-only 的
-// lib/userscripts/offscreen-fs-commands.ts（源码库 duoling-fs 的 fs:* 命令面）与
-// offscreen-state-commands.ts（注册态库的写侧）。
+// 内部只引裸 IndexedDB 模块）、@duoling/userscript-offscreen / @duoling/userscript-core /
+// @duoling/offscreen-document（纯函数 + offscreen 环境代码，import 期零副作用），
+// 以及 offscreen-only 的 lib/userscripts/offscreen-fs-commands.ts（源码库 duoling-fs 的
+// fs:* 命令面）与 offscreen-state-commands.ts（注册态库的写侧）。
 // 一旦 import store.ts / fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报
 // chrome.storage is undefined —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
 //
@@ -40,6 +40,8 @@ import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/usersc
 // GM 运行时的 offscreen 命令面（clipboard:write 应答）：包工厂不管生命周期与监听，
 // 监听由本入口的总线代挂（`{ listen: false }` + matcher 问询）—— 每语境只有一个监听器。
 import { createOffscreenHost } from '@duoling/userscript-offscreen'
+// SW 保活心跳的发送原语：同属 offscreen 侧职责，但启动点归宿主（包只出原语）
+import { startSwKeepalive } from '@duoling/offscreen-document'
 import {
   abortChat,
   listOrphans,
@@ -84,9 +86,11 @@ const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: Runt
   'chat:': (msg) => handleChatCommand(msg),
 }
 
-// GM 运行时的 offscreen 命令面实例：`listen: false` = 不自挂监听（本入口的总线代挂），
-// 工厂仍启动 SW 保活心跳（GM 链路预设 SW 常驻，协议真相源在包内 keepalive.ts）。
+// GM 运行时的 offscreen 命令面实例：`listen: false` = 不自挂监听（本入口的总线代挂）。
 const offscreenHost = createOffscreenHost({ listen: false })
+
+// 保活：SW 空闲 30s 即回收，而 GM 链路的在途操作全押在它常驻上 —— 入口顶层启一次即全程在线。
+startSwKeepalive()
 
 // 命令面：UI / SW 经共享总线发来，offscreen 在此处理并回传。
 // 本语境**唯一**的 onMessage 监听器（标准化信道）：问询顺序 =

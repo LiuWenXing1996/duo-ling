@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "GM 运行时 SW 侧宿主：注册引擎、脚本桥命令分发（dl-bridge）、下行事件底座（dl-port）、cookie 域名门、require/resource 缓存、保活应答与管理面 handler pack（Vite lib 模式构建）",
+  "description": "GM 运行时 SW 侧宿主：注册引擎、脚本桥命令分发（dl-bridge）、下行事件底座（dl-port）、cookie 域名门、require/resource 缓存、管理面 handler pack（Vite lib 模式构建）",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",

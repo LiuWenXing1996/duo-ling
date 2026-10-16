@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "GM 运行时 offscreen 侧宿主：剪贴板命令应答（免手势直写）与 SW 保活心跳（Vite lib 模式构建）",
+  "description": "GM 运行时 offscreen 侧宿主：剪贴板命令应答（免手势直写；Vite lib 模式构建）",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
