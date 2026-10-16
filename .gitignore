@@ -39,6 +39,7 @@ packages/userscript-offscreen/dist/
 packages/messaging/dist/
 packages/service-worker/dist/
 packages/offscreen-document/dist/
+packages/proxy-service-list/dist/
 
 # 样例包的构建产物（TS 源码 + esbuild 打成单文件 .user.js，由 pnpm -r build 重建，不入库防 drift）
 packages/uscript-samples/dist/
