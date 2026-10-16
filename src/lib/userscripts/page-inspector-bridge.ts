@@ -14,7 +14,7 @@
 // 文案按模式区分 —— 用户要能判断是「自己没点」还是「页面没了」。
 
 import { INSPECTOR_HOST_ID } from '@duoling/builtin-scripts'
-import { pushCommandTo } from '@duoling/userscript-runtime'
+import { pushCommandTo } from '@duoling/userscript-sw'
 
 /** 单次调用的超时：用户点选可能很久不结算，但页面关掉 / 导航会让它永不结算，必须有兜底 */
 const PICK_TIMEOUT_MS = 60_000

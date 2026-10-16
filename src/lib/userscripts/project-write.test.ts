@@ -27,7 +27,7 @@ import {
   saveExisting,
   setProjectEnabled,
 } from './project-write'
-import { readAllProjects, removeProjects } from '@duoling/userscript-runtime'
+import { readAllProjects, removeProjects } from '@duoling/userscript-core'
 import { bytesToBase64 } from './zip-transfer'
 import { defaultConfig } from './types'
 import { commitSource, deleteAllRepos, deleteRepo, readSource, writeSource } from './us-git'

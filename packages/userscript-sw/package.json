@@ -1,0 +1,39 @@
+{
+  "name": "@duoling/userscript-sw",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "GM 运行时 SW 侧宿主：注册引擎、脚本桥命令分发（dl-bridge）、下行事件底座（dl-port）、cookie 域名门、require/resource 缓存、保活应答与管理面 handler pack（Vite lib 模式构建）",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "node build-relay.mjs && vite build",
+    "dev": "node build-relay.mjs && vite build --watch",
+    "test": "node build-relay.mjs && vitest run"
+  },
+  "dependencies": {
+    "@duoling/shared": "workspace:*",
+    "@duoling/userscript-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.2.9",
+    "esbuild": "^0.28.2",
+    "fake-indexeddb": "^6.2.5",
+    "typescript": "^5.6.0",
+    "vite": "^8.3.0",
+    "vite-plugin-dts": "^5.1.1",
+    "vitest": "^5.0.1"
+  }
+}

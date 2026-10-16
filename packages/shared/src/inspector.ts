@@ -1,5 +1,5 @@
 // 页面检查器的通道协议：拾取遮罩的类名（信封已随脚本桥协议走 —— 下行 `inspector.cmd` 事件帧、
-// 上行 `inspector.result` __dlEvent 信封，字面量都在 userscript-runtime 的 api-contract.ts）。
+// 上行 `inspector.result` __dlEvent 信封，字面量都在 userscript-core 的 api-contract.ts）。
 //
 // 与 page-context.ts 的分工：那边定义**载荷形状**（件造什么数据），这里定义页面可见的约定。
 

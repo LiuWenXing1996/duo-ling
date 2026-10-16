@@ -21,7 +21,7 @@ export const OUT_DIR = resolve(here, 'dist')
  * 入口表：键 = 产物文件名（不含扩展名）。键名带 `duoling-` 前缀的理由：产物落在**扩展产物根**，
  * 与扩展自身的产物同目录，前缀避免重名（与 icons / help 那类资产并列）。
  *
- * 注意：脚本桥中继件（duoling-relay）**不在本表** —— 它已随 `@duoling/userscript-runtime`
+ * 注意：脚本桥中继件（duoling-relay）**不在本表** —— 它已随 `@duoling/userscript-sw`
  * 包内化（源码与 IIFE 生成物都在包里，以 `{ code }` 字符串注册，无公共资产文件）。
  */
 export const ENTRY_POINTS = {

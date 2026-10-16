@@ -15,6 +15,8 @@
  * 可靠的自证方式。
  */
 
+import { ipcRequest } from '@/shared/ipc-bus'
+
 /** 构建期由 vite.define 注入的结构（声明见 src/types/shims.d.ts） */
 export interface InjectedBuildInfo {
   /** ISO 时间戳：dev = dev server 启动时刻，build = 构建时刻 */
@@ -59,20 +61,9 @@ export function readPageBuildStamp(): BuildStamp | null {
   return info ? { branch: info.branch, time: fmtBuildTime(info.time) } : null
 }
 
-/** 单次 `sw:buildInfo` 请求：成功 resolve，失败 reject */
+/** 单次 `sw:buildInfo` 请求：成功 resolve，失败 reject（信封解包与 lastError 收拢都在总线） */
 function requestSwBuildInfo(): Promise<{ time: string; branch: string }> {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(
-      { kind: 'sw:buildInfo' },
-      (r: { ok?: boolean; data?: { time: string; branch: string }; error?: string } | undefined) => {
-        // lastError 必须在回调里同步读（chrome 的约定）
-        const lastError = chrome.runtime.lastError
-        if (lastError) return reject(new Error(lastError.message))
-        if (!r?.ok || !r.data) return reject(new Error(r?.error || 'SW 无应答'))
-        resolve(r.data)
-      }
-    )
-  })
+  return ipcRequest<{ time: string; branch: string }>({ kind: 'sw:buildInfo' })
 }
 
 /**

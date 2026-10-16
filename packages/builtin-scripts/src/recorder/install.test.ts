@@ -66,7 +66,7 @@ async function waitFor(fn: () => boolean, tries = 100): Promise<void> {
 function runRecorder(win: AnyWin): Emitted[] {
   const emitted: Emitted[] = []
   vi.stubGlobal('window', win)
-  // 假脚本桥：只实现件用到的 emit；真形状见 userscript-runtime 的 script-bridge.ts
+  // 假脚本桥：只实现件用到的 emit；真形状见 userscript-core 的 script-bridge.ts
   vi.stubGlobal('__dlBridge', {
     emit: (envelope: Emitted) => {
       emitted.push(envelope)

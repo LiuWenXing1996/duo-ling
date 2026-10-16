@@ -29,7 +29,8 @@ import {
   TooltipTrigger as UiTooltipTrigger,
 } from '@/components/ui/tooltip'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
-import { type PageOverviewTab, type RuntimeResponse } from '@/shared/extension-ipc'
+import { type PageOverviewTab } from '@/shared/extension-ipc'
+import { ipcRequest } from '@/shared/ipc-bus'
 import { errorText } from '@/lib/format'
 
 const props = defineProps<{
@@ -137,12 +138,8 @@ async function openFloatPanel(): Promise<void> {
   // 读不到标签页时静默退场：这是 popup 与页面失联的异常态，给技术性报错只是噪音
   if (tab?.id == null) return
   try {
-    // SW 侧对推不到（该页上没有宿主件的在岗连接）会回 { ok: false }，这里一并按失败说
-    const res = (await chrome.runtime.sendMessage({
-      kind: 'float:open',
-      tabId: tab.id,
-    })) as RuntimeResponse<null> | undefined
-    if (!res?.ok) throw new Error(res?.error ?? 'float:open 未响应')
+    // SW 侧对推不到（该页上没有宿主件的在岗连接）会回 { ok: false }，ipcRequest 据此抛错
+    await ipcRequest<null>({ kind: 'float:open', tabId: tab.id })
   } catch {
     openError.value = `页面还没接上${EXTENSION_NAME}，刷新页面后再试。`
     return
@@ -176,12 +173,11 @@ async function toggleTabActivity(next: boolean): Promise<void> {
   toggleBusy.value = true
   toggleError.value = ''
   try {
-    const res = (await chrome.runtime.sendMessage(
+    await ipcRequest<unknown>(
       next
         ? { kind: 'userscript:tabActivityEnable', tabId }
         : { kind: 'userscript:tabActivityDisable', tabId },
-    )) as RuntimeResponse<unknown> | undefined
-    if (!res?.ok) throw new Error(res?.error || '未知错误')
+    )
     emit('tabRecordingChanged', tabId, next)
     justEnabled.value = next
   } catch (e) {

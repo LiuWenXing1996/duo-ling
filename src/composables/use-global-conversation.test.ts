@@ -27,7 +27,7 @@ import type { ChatAssetRef } from '@/lib/chat-assets'
 import { clearPickedElement, setPickedElement } from '@/lib/page-context-store'
 import { bindTabToConversation, getConversationIdForTab, unbindTab } from '@/lib/conversation-tab-map'
 import { resolveOwningTabId } from '@/lib/owning-tab'
-import { runtimeSend } from '@/shared/runtime-send'
+import { ipcRequest } from '@/shared/ipc-bus'
 import { useGlobalConversation } from '@/composables/use-global-conversation'
 
 // vi.mock 工厂被提升到 import 之前，跨用例共享的登记容器须用 vi.hoisted 预置
@@ -79,7 +79,7 @@ vi.mock('@/lib/conversation-tab-map', () => ({
 }))
 
 vi.mock('@/lib/owning-tab', () => ({ resolveOwningTabId: vi.fn() }))
-vi.mock('@/shared/runtime-send', () => ({ runtimeSend: vi.fn() }))
+vi.mock('@/shared/ipc-bus', () => ({ ipcRequest: vi.fn() }))
 
 /** 会话列表项与消息的固定基准时刻 */
 const T0 = '2024-05-06T07:08:09.000Z'
@@ -198,7 +198,7 @@ beforeEach(() => {
   vi.mocked(getConversationIdForTab).mockResolvedValue(null)
   vi.mocked(bindTabToConversation).mockResolvedValue(undefined)
   vi.mocked(unbindTab).mockResolvedValue(undefined)
-  vi.mocked(runtimeSend).mockResolvedValue([])
+  vi.mocked(ipcRequest).mockResolvedValue([])
   conversationApi.create.mockResolvedValue(conversation('c-new'))
   conversationApi.list.mockResolvedValue([])
   conversationApi.messages.mockResolvedValue([])
@@ -567,21 +567,21 @@ describe('孤儿任务', () => {
   const orphan: ChatOrphanRecord = { taskId: 't1', conversationId: 'c1', step: 3, heartbeat: 1 }
 
   it('初次加载顺带拉一次孤儿任务', async () => {
-    vi.mocked(runtimeSend).mockResolvedValue([orphan])
+    vi.mocked(ipcRequest).mockResolvedValue([orphan])
     const state = await stateLoaded()
 
     expect(state.orphanTasks.value).toEqual([orphan])
   })
 
   it('孤儿任务拉取失败：置空而不抛错', async () => {
-    vi.mocked(runtimeSend).mockRejectedValue(new Error('SW 未响应'))
+    vi.mocked(ipcRequest).mockRejectedValue(new Error('SW 未响应'))
     const state = await stateLoaded()
 
     expect(state.orphanTasks.value).toEqual([])
   })
 
   it('「继续」：摘掉横幅项并跳到那条会话', async () => {
-    vi.mocked(runtimeSend).mockImplementation(async (request: RuntimeRequest): Promise<unknown> => {
+    vi.mocked(ipcRequest).mockImplementation(async (request: RuntimeRequest): Promise<unknown> => {
       if (request.kind === 'chat:orphans') return [orphan]
       return { conversationId: 'c1' }
     })
@@ -597,7 +597,7 @@ describe('孤儿任务', () => {
   })
 
   it('「丢弃」：只摘掉横幅项，不跳转', async () => {
-    vi.mocked(runtimeSend).mockImplementation(async (request: RuntimeRequest): Promise<unknown> => {
+    vi.mocked(ipcRequest).mockImplementation(async (request: RuntimeRequest): Promise<unknown> => {
       if (request.kind === 'chat:orphans') return [orphan]
       return { conversationId: 'c1' }
     })
@@ -612,7 +612,7 @@ describe('孤儿任务', () => {
 
   it('处理失败：文案透出到面板，并重新拉一次列表', async () => {
     let orphanPulls = 0
-    vi.mocked(runtimeSend).mockImplementation(async (request: RuntimeRequest): Promise<unknown> => {
+    vi.mocked(ipcRequest).mockImplementation(async (request: RuntimeRequest): Promise<unknown> => {
       if (request.kind === 'chat:orphans') {
         orphanPulls += 1
         return []

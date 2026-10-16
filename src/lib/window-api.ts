@@ -17,7 +17,7 @@
 
 import type { PreloadApi } from '@/shared/ipc'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
-import { runtimeSend } from '@/shared/runtime-send'
+import { ipcRequest } from '@/shared/ipc-bus'
 import type { ModelProfileInput } from '@/shared/types'
 import { getProviders } from './providers'
 import * as conversationStore from './conversation-store'
@@ -28,7 +28,7 @@ import { errorText } from '@/lib/format'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
-  return runtimeSend<T>(request)
+  return ipcRequest<T>(request)
 }
 
 /**
@@ -58,7 +58,7 @@ function createStubNamespace(path: string): unknown {
 
 /** 向 offscreen 发一次请求，统一解包 { ok, data|error }；「容器未响应」类错误先唤起再重试 */
 async function sendOffscreen<T>(request: RuntimeRequest): Promise<T> {
-  const sendOnce = () => runtimeSend<T>(request)
+  const sendOnce = () => ipcRequest<T>(request)
   try {
     return await sendOnce()
   } catch (e) {

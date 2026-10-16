@@ -34,7 +34,7 @@ import {
 } from '@/lib/conversation-tab-map'
 import { resolveOwningTabId } from '@/lib/owning-tab'
 import type { ChatMessageMetadata, ChatOrphanRecord, RuntimeRequest } from '@/shared/extension-ipc'
-import { runtimeSend } from '@/shared/runtime-send'
+import { ipcRequest } from '@/shared/ipc-bus'
 import type { Conversation, TokenUsage } from '@/shared/types'
 import { errorText } from '@/lib/format'
 
@@ -435,7 +435,7 @@ export function useGlobalConversation() {
 
 /** 向 offscreen 发 chat:* 命令，统一解包 { ok, data|error } 信封 */
 function sendChatCommand<T>(request: RuntimeRequest): Promise<T> {
-  return runtimeSend<T>(request)
+  return ipcRequest<T>(request)
 }
 
 /** 孤儿任务的命令面（供本 composable 使用） */

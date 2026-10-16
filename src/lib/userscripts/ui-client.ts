@@ -1,11 +1,11 @@
 // 用户脚本管理页的 UI 客户端（渲染页 ⇄ background）。
 //
-// 管理页是 duo-ling 的可信扩展页（独立 WXT 入口），可直接 chrome.runtime.sendMessage，
+// 管理页是 duo-ling 的可信扩展页（独立 WXT 入口），可直接发 runtime 消息，
 // 因此不依赖 window.api 全局（window.api 是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
-// 这里 send 信封统一走 shared/runtime-send（与 window-api.ts 等各处同源），
+// 这里 send 信封统一走共享总线（shared/ipc-bus，与 window-api.ts 等各处同源），
 // 直接发 userscript:* 命令组（v2 方案）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
-import { runtimeSend } from '@/shared/runtime-send'
+import { ipcRequest, ipcSubscribe } from '@/shared/ipc-bus'
 import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
 import type { Source, UsCommit, UsSnapshot } from './us-git'
 import type { LfsNode, LfsFileContent } from './us-fs'
@@ -20,7 +20,7 @@ import { errorText } from '@/lib/format'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
-  return runtimeSend<T>(request)
+  return ipcRequest<T>(request)
 }
 
 /**
@@ -30,13 +30,10 @@ function send<T>(request: RuntimeRequest): Promise<T> {
 export function subscribeAvailability(
   callback: (availability: UserScriptsAvailability) => void,
 ): () => void {
-  const listener = (raw: unknown): void => {
-    const msg = raw as { kind?: string; availability?: UserScriptsAvailability }
-    if (msg?.kind !== 'userscript:availabilityChanged' || !msg.availability) return
-    callback(msg.availability)
-  }
-  chrome.runtime.onMessage.addListener(listener)
-  return () => chrome.runtime.onMessage.removeListener(listener)
+  return ipcSubscribe('userscript:availabilityChanged', (msg) => {
+    const push = msg as { availability?: UserScriptsAvailability }
+    if (push.availability) callback(push.availability)
+  })
 }
 
 /**

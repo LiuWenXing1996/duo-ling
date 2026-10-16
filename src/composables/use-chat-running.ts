@@ -6,34 +6,30 @@
 // 实时性靠两条广播：offscreen 的 `chat:running` / `chat:finished` 会广播到所有扩展上下文，
 // 收到就重拉一次。这里**不做任何判断**（谁在跑归 SW 的内存），免得出现第二套口径。
 import { onMounted, onUnmounted, ref, type Ref } from 'vue'
-import type { RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
+import { ipcRequest, ipcSubscribe } from '@/shared/ipc-bus'
 
 export function useChatRunning(): { runningIds: Ref<string[]>; refresh: () => Promise<void> } {
   const runningIds = ref<string[]>([])
 
   async function refresh(): Promise<void> {
     try {
-      const res = (await chrome.runtime.sendMessage({
-        kind: 'sw:runningChats',
-      } satisfies RuntimeRequest)) as RuntimeResponse<string[]> | undefined
-      runningIds.value = res?.ok ? res.data : []
+      runningIds.value = await ipcRequest<string[]>({ kind: 'sw:runningChats' })
     } catch {
       // SW 不在（扩展更新中 / 被禁用）：退化成「没有在跑的」，列表照常展示
       runningIds.value = []
     }
   }
 
-  const onPush = (raw: unknown): void => {
-    const kind = (raw as { kind?: string } | undefined)?.kind
-    if (kind === 'chat:running' || kind === 'chat:finished') void refresh()
-  }
-
+  let offPush: (() => void) | undefined
   onMounted(() => {
     void refresh()
-    chrome.runtime.onMessage.addListener(onPush)
+    // 两条推送合一个订阅面：收到任一条就重拉（判据在回调里，与总线无关）
+    offPush = ipcSubscribe('chat:', (msg) => {
+      if (msg.kind === 'chat:running' || msg.kind === 'chat:finished') void refresh()
+    })
   })
   onUnmounted(() => {
-    chrome.runtime.onMessage.removeListener(onPush)
+    offPush?.()
   })
 
   return { runningIds, refresh }

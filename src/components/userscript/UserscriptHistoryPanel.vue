@@ -18,7 +18,7 @@ import {
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { CodeBlock } from '@/components/ai-elements/code-block'
 import { userscriptClient, fsClient } from '@/lib/userscripts/ui-client'
-import { resolveConfigFromSource } from '@duoling/userscript-runtime'
+import { resolveConfigFromSource } from '@duoling/userscript-core'
 import { defaultConfig } from '@/lib/userscripts/types'
 import type { CommitActor } from '@/lib/userscripts/types'
 import type { UsCommit, UsSnapshot } from '@/lib/userscripts/us-git'

@@ -2,7 +2,7 @@
 // （运行日志 / 错误落盘 / 页面监控 / 标签页录制 / 检查器结算）。
 // 由 background 调 createServiceWorkerHost 时显式传入（见 entrypoints/background.ts）；
 // 包内不自带观测面 —— 不注入 = 相应观测不发生，脚本行为不受损。
-import type { UserscriptTelemetry } from '@duoling/userscript-runtime'
+import type { UserscriptTelemetry } from '@duoling/userscript-sw'
 import * as runtime from './runtime-db'
 import { notePageError, noteRunStart } from './page-monitor'
 import { recordingTabSessionId } from './tab-sessions'
@@ -14,8 +14,8 @@ import { FLOAT_HOST_ID, INSPECTOR_HOST_ID, TAB_RECORDER_ID } from '@duoling/buil
 /**
  * 系统脚本的 uuid 集。三件都走统一 registerScript 链注入（带 GM 包装，注入即广播 runstart），
  * 但它们是扩展自己的机制件，**不该进用户脚本观测面**：角标 / 灵动岛 / popup 的「该页命中脚本数」
- * 与活动历史的运行条此前都不含内置件（旧形态是裸 `{ file }` 注册、无 GM 包装、不广播 runstart），
- * 转系统脚本后若不过滤，普通网页的角标会凭空 +2（检查器 / 浮层宿主全站匹配）。
+ * 与活动历史的运行条都不计它们：注入即广播 runstart，叠加检查器 / 浮层宿主全站匹配，
+ * 不过滤的话普通网页的角标会凭空 +2。
  *
  * 过滤在遥测接线这一处做（四个口一起拦）：包内 dl-bridge 不知道「谁是系统脚本」—— 那是
  * 应用侧的概念（id 真相源在 @duoling/builtin-scripts 的 registry.ts）；而观测的消费面

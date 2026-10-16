@@ -3,7 +3,7 @@
 // 为什么归本包：IDB 没有变更通知，写侧落盘后经此通知别处回拉 —— 广播只带
 // 「哪个域的哪条变了」，不带数据。频道与推送形状被两侧同取：
 //   · 应用侧（src/lib/data-broadcast.ts：SW / offscreen / 扩展页，多一个瞬态阶段广播）；
-//   · 运行时包（@duoling/userscript-runtime 的 dl-bridge / cookie-gate）。
+//   · 运行时包（@duoling/userscript-sw 的 dl-bridge / cookie-gate）。
 // 同一扩展内互通是硬要求，形状放在任何一侧，另一侧都只能靠注释对齐 —— 故上移这里
 // （BroadcastChannel 是 web 标准，零 chrome.*、零 DOM 假设，符合本包边界）。
 //

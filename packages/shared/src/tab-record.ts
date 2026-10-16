@@ -8,7 +8,7 @@
 // 本文件是**读侧（SW）与写侧（页面件）之间的唯一形状来源**，各消费方必须逐字节一致：
 //   · 件包 recorder/net-probe.ts（net 种类件）—— 直接 import 它那一类的常量；
 //   · runtime-db.ts / dl-bridge.ts（SW 落库 + 入站归一化）—— 直接 import。
-// 上行信封不再在这里：录制系统脚本经脚本桥的 `__dlEvent` 信封上行（见 userscript-runtime
+// 上行信封不再在这里：录制系统脚本经脚本桥的 `__dlEvent` 信封上行（见 userscript-core
 // 的 api-contract.ts），本文件只管采样记录本身的形状。
 
 /**

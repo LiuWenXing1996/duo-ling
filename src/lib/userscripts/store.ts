@@ -2,7 +2,7 @@
 //
 // 项目数据（源码/配置/产物/enabled）的权威在 IndexedDB 状态库 duoling-state
 // （读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
-// 本文件管两块存储：GM 值已上移进 `@duoling/userscript-runtime`（gm-values.ts，随内置
+// 本文件管两块存储：GM 值已上移进 `@duoling/userscript-core`（gm-values.ts，随内置
 // 默认存储归包，此处 re-export）；观测数据（duoling-runtime 库，见 runtime-db.ts ——
 // 标签页存续 + 一根活动轴：文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误）留在本文件。
 //
@@ -44,7 +44,7 @@ export async function listSummaries(projects: ScriptProject[]): Promise<ScriptSu
 
 // —— GM 值存储（duoling-usdata 库）——
 //
-// 已上移进 `@duoling/userscript-runtime`（gm-values.ts：写出口 + 变更事件直发枢纽，
+// 已上移进 `@duoling/userscript-core`（gm-values.ts：写出口 + 变更事件直发枢纽，
 // dl-port 的 store.change 推送从那里接线）。此处 re-export 维持既有 import 路径不变。
 export {
   type GmValueChange,
@@ -58,7 +58,7 @@ export {
   listGMKeys,
   getAllGMValues,
   clearGMValues,
-} from '@duoling/userscript-runtime'
+} from '@duoling/userscript-core'
 
 // —— 错误记录（duoling-runtime 库 tab_events，kind = 'error'）——
 //

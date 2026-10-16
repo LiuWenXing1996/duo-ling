@@ -17,13 +17,13 @@ import type {
   PageSnapshotContext,
   RuntimeRequest,
 } from '@/shared/extension-ipc'
-import { runtimeSend } from '@/shared/runtime-send'
+import { ipcRequest } from '@/shared/ipc-bus'
 import type { ScriptConfig, UserScriptRunEvent, UserScriptRunLogRow } from '@/lib/userscripts/types'
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
 
 /** 向 SW 发一次请求，统一解包 { ok, data | error } */
 function send<T>(request: RuntimeRequest): Promise<T> {
-  return runtimeSend<T>(request)
+  return ipcRequest<T>(request)
 }
 
 /**

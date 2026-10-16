@@ -33,10 +33,12 @@ packages/builtin-scripts/dist/
 
 # 子包的构建产物（Vite lib 模式：mjs / cjs / d.ts，消费方走 package.json exports）
 packages/shared/dist/
-packages/userscript-runtime/dist/
+packages/userscript-core/dist/
+packages/userscript-sw/dist/
+packages/userscript-offscreen/dist/
 
 # 样例包的构建产物（TS 源码 + esbuild 打成单文件 .user.js，由 pnpm -r build 重建，不入库防 drift）
 packages/uscript-samples/dist/
 
 # 中继件 IIFE 的生成物（build-relay.mjs 从 relay 源码生成，build / test 前置重建，不入库防 drift）
-packages/userscript-runtime/src/relay/relay-code.gen.ts
+packages/userscript-sw/src/relay/relay-code.gen.ts

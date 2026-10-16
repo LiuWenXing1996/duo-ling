@@ -34,7 +34,8 @@ import { webHostname } from '@/lib/web-hostname'
 import { readUpdateCheck, type UpdateCheckRecord } from '@/lib/update-check'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import type { UserScriptsAvailability } from '@/lib/userscripts/types'
-import type { PageOverviewTab, RuntimeRequest, RuntimeResponse } from '@/shared/extension-ipc'
+import type { PageOverviewTab, RuntimeRequest } from '@/shared/extension-ipc'
+import { ipcRequest } from '@/shared/ipc-bus'
 
 /** 当前标签页 id 与地址（认领概览里「哪一行是我」） */
 const currentTabId = ref<number | null>(null)
@@ -89,8 +90,7 @@ const unavailableGuide = computed(() =>
 /** 问一次命令面：SW 不在（扩展正在更新 / 刚被禁用）时静默返回 undefined，面板按空态渲染 */
 async function ask<T>(request: RuntimeRequest): Promise<T | undefined> {
   try {
-    const res = (await chrome.runtime.sendMessage(request)) as RuntimeResponse<T> | undefined
-    return res?.ok ? res.data : undefined
+    return await ipcRequest<T>(request)
   } catch {
     return undefined
   }

@@ -16,14 +16,14 @@ import type {
   PageContextInfo,
   RuntimeRequest,
 } from '@/shared/extension-ipc'
-import { runtimeSend } from '@/shared/runtime-send'
+import { ipcRequest, ipcSubscribe } from '@/shared/ipc-bus'
 import { consumePendingPageContext, clearSentPageContext } from '@/lib/page-context-store'
 import { resolveOwningTabId } from '@/lib/owning-tab'
 import { errorText } from '@/lib/format'
 
 /** 向 offscreen 发一次请求（共享总线，SW 对 chat: 前缀静默让路），统一解包信封 */
 function send<T>(request: RuntimeRequest): Promise<T> {
-  return runtimeSend<T>(request)
+  return ipcRequest<T>(request)
 }
 
 /**
@@ -79,14 +79,14 @@ function closeConsumer(conversationId: string): void {
   }
 }
 
-// 模块级订阅：只注册一次。offscreen → 对话界面的事件推送都从这里进流。
+// 模块级订阅：只注册一次。offscreen → 对话界面的事件推送都从这里进流（走标准总线订阅面）。
 let pushListenerInstalled = false
 function installPushListener(): void {
   if (pushListenerInstalled) return
   pushListenerInstalled = true
-  chrome.runtime.onMessage.addListener((raw) => {
-    const push = raw as OffscreenPush | undefined
-    if (push?.kind !== 'chat:chunk') return
+  ipcSubscribe('chat:chunk', (msg) => {
+    const push = msg as OffscreenPush
+    if (push.kind !== 'chat:chunk') return
     if (consumeChunk(push.conversationId, push.seq, push.chunk)) {
       closeConsumer(push.conversationId)
     }

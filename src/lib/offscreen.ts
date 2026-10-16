@@ -11,7 +11,8 @@
 //
 // 说明：Chrome 不会自动启动 offscreen，必须显式 createDocument。策略是常驻：offscreen 不自关，
 // 仅在 `offscreen:close` 调试命令下主动关。
-import { GM_OFFSCREEN_REASONS } from '@duoling/userscript-runtime/host'
+import { GM_OFFSCREEN_REASONS } from '@duoling/userscript-offscreen'
+import { ipcRequest } from '@/shared/ipc-bus'
 
 /** 与 src/entrypoints/offscreen.html 对应 */
 const OFFSCREEN_PATH = 'offscreen.html'
@@ -81,21 +82,12 @@ const PING_INTERVAL_MS = 50
  * 用 `fs:ping`（不触碰文件系统），由 offscreen 侧 handleFsCommand 应答。
  */
 function pingOffscreen(): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    const done = (v: boolean) => resolve(v)
-    // 超时兜底：sendResponse 永不回调的情况（容器刚被销毁）不能把 promise 挂死
-    const timer = setTimeout(() => done(false), PING_TIMEOUT_MS)
-    try {
-      chrome.runtime.sendMessage({ kind: 'fs:ping' }, (response) => {
-        clearTimeout(timer)
-        // 不读 chrome.runtime.lastError：无响应本身就判未就绪，不需要区分原因
-        done(response?.ok === true)
-      })
-    } catch {
-      clearTimeout(timer)
-      done(false)
-    }
-  })
+  // 超时兜底由总线提供：应答方永不回调（容器刚被销毁）时不把 promise 挂死。
+  // 不区分失败原因：无响应本身就判未就绪。
+  return ipcRequest({ kind: 'fs:ping' }, { timeoutMs: PING_TIMEOUT_MS }).then(
+    () => true,
+    () => false,
+  )
 }
 
 /**

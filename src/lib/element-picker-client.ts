@@ -17,7 +17,7 @@
 //   · 件不在位 / 页面关掉 / 导航 → 由 bridge 那一层即时失败或超时兜底。
 
 import { EXTENSION_NAME } from '@/lib/extension-identity'
-import { runtimeSend } from '@/shared/runtime-send'
+import { ipcRequest } from '@/shared/ipc-bus'
 import type { ElementPickContext, PageEnvContext, PageSnapshotContext } from '@/shared/extension-ipc'
 import { runInspectorCommand } from '@/lib/userscripts/page-inspector-bridge'
 
@@ -75,7 +75,7 @@ export function pageInjectionBlockReason(url: string | undefined): string | null
  */
 export async function pickElement(): Promise<ElementPickContext | null> {
   ensureAvailable()
-  return runtimeSend<ElementPickContext | null>({ kind: 'picker:pick' })
+  return ipcRequest<ElementPickContext | null>({ kind: 'picker:pick' })
 }
 
 /**
@@ -89,7 +89,7 @@ export async function pickElement(): Promise<ElementPickContext | null> {
  */
 export async function cancelPick(): Promise<void> {
   // 失败静默：没有进行中的拾取时本就没有可取消的东西，报错只会给用户一个无从处理的提示
-  await runtimeSend<null>({ kind: 'picker:cancel' }).catch(() => {})
+  await ipcRequest<null>({ kind: 'picker:cancel' }).catch(() => {})
 }
 
 /**

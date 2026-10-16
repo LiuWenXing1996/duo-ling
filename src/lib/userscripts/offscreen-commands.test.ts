@@ -312,7 +312,7 @@ describe('(b) handleFsCommand 分发全覆盖', () => {
 // ============================== (c) 应答信封形状 ==============================
 
 describe('(c) offscreen 应答信封 { ok, data | error }', () => {
-  // 走真实入口（offscreen-main.ts）注册的 onMessage 监听器：它内部经 respond() 统一包信封。
+  // 走真实入口（offscreen-main.ts）注册的 onMessage 监听器：它内部经总线 serveIpc 统一包信封。
   // fakeBrowser.runtime.sendMessage 会触发全部已注册监听器：监听器 return true 并回包 →
   // promise resolve 该包；return false 让路 → resolve undefined。
   beforeAll(async () => {

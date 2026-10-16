@@ -3,7 +3,7 @@
 // 错误日志是历史信息，在「活动历史」面板里按页看（左侧导航进入），本页不展示任何脚本报错
 // —— 环境级问题仅靠下方 availability 横幅兜底。
 //
-// 数据通道：userscriptClient。workbench 是可信扩展页，可直接 chrome.runtime.sendMessage，
+// 数据通道：userscriptClient。workbench 是可信扩展页，可直接发 runtime 消息，
 // 因此不走 window.api（那是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
@@ -70,7 +70,7 @@ import { fsClient, subscribeAvailability, userscriptClient } from '@/lib/userscr
 import { looksLikeZip, toFileUrl } from '@/lib/userscripts/local-path'
 import { base64ToBytes, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
 import { inspectFetchedText, toScriptUrl } from '@/lib/userscripts/script-url'
-import { parseUserScriptMetadata } from '@duoling/userscript-runtime'
+import { parseUserScriptMetadata } from '@duoling/userscript-core'
 import type { BuildPhase } from '@/shared/extension-ipc'
 import type {
   ImportReport,

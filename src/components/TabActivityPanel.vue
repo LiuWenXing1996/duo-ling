@@ -17,7 +17,7 @@
 // 天然看不到别的页的记录，也看不到注册失败 / 依赖抓取失败那类无归属错误（它们只落盘、不出口，
 // 见 store.appendUserScriptError）。左栏的计数同样按 tabSessionId 归组。
 //
-// 数据通道：userscriptClient（workbench 是可信扩展页，可直接 chrome.runtime.sendMessage）。
+// 数据通道：userscriptClient（workbench 是可信扩展页，可直接发 runtime 消息）。
 // 读侧两条命令：tabSessions（存续表，左栏取名字与时刻）/ runlog（全量时间线，供头部概览与卡头计数）；
 // 选中页的整根轴另走 tabTimeline（**按页拉**：采样单条可达数 KB，全量等于把整库搬过消息边界）。
 // 写侧两条：tabActivityDelete（删某一页）/ tabActivityClear（清空全部）。

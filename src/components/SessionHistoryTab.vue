@@ -45,8 +45,8 @@ import {
   unbindConversation
 } from '@/lib/conversation-tab-map'
 import type { TabConversationMap } from '@/lib/conversation-tab-map'
+import { ipcRequest } from '@/shared/ipc-bus'
 import type { Conversation, TokenUsage } from '@/shared/types'
-import type { RuntimeRequest } from '@/shared/extension-ipc'
 import type { UIMessage } from 'ai'
 
 const conversations = ref<Conversation[]>([])
@@ -282,7 +282,7 @@ const { runningIds } = useChatRunning()
  */
 async function onStop(id: string): Promise<void> {
   try {
-    await chrome.runtime.sendMessage({ kind: 'chat:abort', conversationId: id } satisfies RuntimeRequest)
+    await ipcRequest({ kind: 'chat:abort', conversationId: id })
   } catch {
     // 发不出去（SW 不在）：状态由列表下次刷新纠正，这里不额外报错
   }

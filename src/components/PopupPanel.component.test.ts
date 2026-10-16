@@ -54,6 +54,21 @@ function overviewRow(tabId: number, over: Record<string, unknown> = {}): Record<
 }
 
 /**
+ * 命令面应答：总线走**回调形态**（`chrome.runtime.sendMessage(msg, cb)`，见 shared/runtime-send），
+ * 故桩要把信封交给 cb；返回值也一并兑现成 resolved promise（无 cb 的写法同样能用）。
+ * 断言里回调位一律写 `expect.any(Function)`。
+ */
+function answerCommand(cb: unknown, payload: unknown): Promise<unknown> {
+  if (typeof cb === 'function') (cb as (r: unknown) => void)(payload)
+  return Promise.resolve(payload)
+}
+
+/** 默认命令面：page:overview 喂 overviewRows，其余回空载荷（用例可临时覆盖单发） */
+function replyCommand(msg: { kind: string }, cb?: unknown): Promise<unknown> {
+  return answerCommand(cb, msg.kind === 'page:overview' ? { ok: true, data: overviewRows } : { ok: true, data: {} })
+}
+
+/**
  * 装 chrome 壳。
  *
  * url 传 undefined 模拟读不到地址的页面（`chrome://` / 扩展页 —— manifest 无 tabs 权限），
@@ -63,10 +78,7 @@ function overviewRow(tabId: number, over: Record<string, unknown> = {}): Record<
 function stubChrome(url: string | undefined): void {
   tabsCreate.mockResolvedValue(undefined)
   tabsSendMessage.mockResolvedValue(undefined)
-  runtimeSendMessage.mockImplementation(async (msg: { kind: string }) => {
-    if (msg.kind === 'page:overview') return { ok: true, data: overviewRows }
-    return { ok: true, data: {} }
-  })
+  runtimeSendMessage.mockImplementation(replyCommand)
   vi.stubGlobal('chrome', {
     runtime: {
       id: 'EXTID',
@@ -228,7 +240,7 @@ describe('popup 的「当前页面」区块', () => {
     await w.find('[data-testid="open-float-panel"]').trigger('click')
     await flushPromises()
 
-    expect(runtimeSendMessage).toHaveBeenCalledWith({ kind: 'float:open', tabId: TAB_ID })
+    expect(runtimeSendMessage).toHaveBeenCalledWith({ kind: 'float:open', tabId: TAB_ID }, expect.any(Function))
     expect(close).toHaveBeenCalled()
   })
 
@@ -275,10 +287,10 @@ describe('popup 的「当前页面」区块', () => {
     const close = spyClose()
     // 这一发要失败：SW 推不到（该页上没有宿主件的在岗连接 —— 页面在扩展更新前就打开、
     // 或站点访问权被单独关掉）时，命令面回 { ok: false }
-    runtimeSendMessage.mockImplementationOnce(async (msg: { kind: string }) => {
-      if (msg.kind === 'float:open') return { ok: false, error: '浮层没接上' }
-      if (msg.kind === 'page:overview') return { ok: true, data: overviewRows }
-      return { ok: true, data: {} }
+    runtimeSendMessage.mockImplementationOnce((msg: { kind: string }, cb?: unknown) => {
+      if (msg.kind === 'float:open') return answerCommand(cb, { ok: false, error: '浮层没接上' })
+      if (msg.kind === 'page:overview') return answerCommand(cb, { ok: true, data: overviewRows })
+      return answerCommand(cb, { ok: true, data: {} })
     })
 
     await w.find('[data-testid="open-float-panel"]').trigger('click')
@@ -320,10 +332,13 @@ describe('popup 的「当前页面」区块', () => {
     await recordToggle(w).trigger('click')
     await flushPromises()
 
-    expect(runtimeSendMessage).toHaveBeenCalledWith({
-      kind: 'userscript:tabActivityEnable',
-      tabId: TAB_ID,
-    })
+    expect(runtimeSendMessage).toHaveBeenCalledWith(
+      {
+        kind: 'userscript:tabActivityEnable',
+        tabId: TAB_ID,
+      },
+      expect.any(Function),
+    )
     expect(recordState(w).text()).toContain('正在记录')
     // 接口录制那半的钩子只在文档开头挂：刚扳开还没重载，得当面说清「首屏请求没录到」
     expect(w.find('[data-testid="popup-recording-hint"]').text()).toContain('刷新页面')
@@ -339,10 +354,13 @@ describe('popup 的「当前页面」区块', () => {
     await recordToggle(w).trigger('click')
     await flushPromises()
 
-    expect(runtimeSendMessage).toHaveBeenCalledWith({
-      kind: 'userscript:tabActivityDisable',
-      tabId: TAB_ID,
-    })
+    expect(runtimeSendMessage).toHaveBeenCalledWith(
+      {
+        kind: 'userscript:tabActivityDisable',
+        tabId: TAB_ID,
+      },
+      expect.any(Function),
+    )
     expect(recordState(w).text()).toContain('未开启')
     // 与「打开会话」不同：关完不关窗，popup 里还有脚本 / 会话可看
     expect(close).not.toHaveBeenCalled()
@@ -352,7 +370,9 @@ describe('popup 的「当前页面」区块', () => {
     stubChrome('https://example.com/page')
     const w = await mountPopup()
     // 挂载时的那次 page:overview 已用掉默认实现，这里只覆盖接下来这一发
-    runtimeSendMessage.mockImplementationOnce(async () => ({ ok: false, error: '标签页不存在' }))
+    runtimeSendMessage.mockImplementationOnce((_msg: unknown, cb?: unknown) =>
+      answerCommand(cb, { ok: false, error: '标签页不存在' }),
+    )
 
     await recordToggle(w).trigger('click')
     await flushPromises()

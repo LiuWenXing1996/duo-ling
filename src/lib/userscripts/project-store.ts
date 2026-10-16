@@ -6,7 +6,7 @@
 //                       所以 SW 与 offscreen 都能直接用，offscreen 不必再经 SW 桥接取项目。
 //
 // 这里**没有写 API**：写全在 project-write.ts（offscreen 专属），见 state-db.ts 文件头的单写方约定。
-import { readAllGroups, readAllProjects, readProject } from '@duoling/userscript-runtime'
+import { readAllGroups, readAllProjects, readProject } from '@duoling/userscript-core'
 import type { ScriptProject, ScriptGroup } from './types'
 
 /** 列出全部项目：启用在前，组内按源码保存时间倒序（最近保存的排在最上面） */
@@ -42,6 +42,8 @@ export async function nextScriptName(base = '新建的脚本'): Promise<string> 
 // —— match pattern 校验——
 // 导入路径（project-write.importScriptsZip）与启用路径（registration.registerScript）共用：
 // 非法值在导入 / 启用当场拦下并指明哪条不合法，不拖到注册时才以 Chrome 的英文异常冒出。
-// 校验器与语法校验器（isValidMatchPattern）已上移进 `@duoling/userscript-runtime`
-// （registration.ts），此处 re-export 维持既有 import 路径不变。
-export { isValidMatchPattern, validateMatchPatterns } from '@duoling/userscript-runtime'
+// 语法校验器（isValidMatchPattern）在 `@duoling/userscript-core`（match-pattern.ts），
+// 语义校验器（validateMatchPatterns）在 `@duoling/userscript-sw`（registration.ts）——
+// 此处 re-export 维持既有 import 路径不变。
+export { isValidMatchPattern } from '@duoling/userscript-core'
+export { validateMatchPatterns } from '@duoling/userscript-sw'

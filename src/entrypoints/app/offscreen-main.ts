@@ -15,9 +15,10 @@
 //
 // 模块归属（硬约束）：本入口只允许 import us-git.ts（纯 JS 的 git 栈 + lightning-fs）、
 // extension-chat-transport.ts、ai SDK、offscreen-bridge.ts、offscreen-chat/（对话编排，
-// 内部只引裸 IndexedDB 模块）、@duoling/userscript-runtime（纯函数 + SW/offscreen 环境代码，
-// import 期零副作用），以及 offscreen-only 的 lib/userscripts/offscreen-fs-commands.ts
-// （源码库 duoling-fs 的 fs:* 命令面）与 offscreen-state-commands.ts（注册态库的写侧）。
+// 内部只引裸 IndexedDB 模块）、@duoling/userscript-offscreen / @duoling/userscript-core
+// （纯函数 + offscreen 环境代码，import 期零副作用），以及 offscreen-only 的
+// lib/userscripts/offscreen-fs-commands.ts（源码库 duoling-fs 的 fs:* 命令面）与
+// offscreen-state-commands.ts（注册态库的写侧）。
 // 一旦 import store.ts / fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报
 // chrome.storage is undefined —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
 //
@@ -25,16 +26,20 @@
 // 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（→ offscreen-chat/task-store.ts）。
 //
 // 命令面：fs:*（源码库 duoling-fs 的读写 + 对话资源库 /assets）/ state:*（注册态库写侧）/
-// conv:*（会话写侧，唯一写方）/ chat:*（对话编排）；clipboard: 由 GM 运行时的
-// createOffscreenHost() 自管（本入口只调一行，见文件尾）。
+// conv:*（会话写侧，唯一写方）/ chat:*（对话编排）；clipboard: 归 GM 运行时的 offscreen 包
+// （createOffscreenHost 的 handle，由本入口总线代挂监听，见文件中部与尾部的接线）。
 
 import '@/polyfills'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
+import { IPC_CLIPBOARD_WRITE } from '@duoling/shared'
+// 标准化总线：本语境唯一的 onMessage 收口（serveIpc）+ 前缀路由 matcher；
+// ipcNotify 为单向推送入口（就绪握手 / 配置回拉触发）
+import { serveIpc, prefixMatcher, ipcNotify } from '@/shared/ipc-bus'
 import { handleFsCommand, type FsRequest } from '@/lib/userscripts/offscreen-fs-commands'
 import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
-// GM 运行时的 offscreen 命令面（clipboard:write 应答）由包工厂注册：本入口只调一行，
-// 协议真相源在包内 host.ts（狗粮 /host 子路径，验证其真实解析）。
-import { createOffscreenHost } from '@duoling/userscript-runtime/host'
+// GM 运行时的 offscreen 命令面（clipboard:write 应答）：包工厂不管生命周期与监听，
+// 监听由本入口的总线代挂（`{ listen: false }` + matcher 问询）—— 每语境只有一个监听器。
+import { createOffscreenHost } from '@duoling/userscript-offscreen'
 import {
   abortChat,
   listOrphans,
@@ -54,13 +59,11 @@ import {
   releaseUnreferencedAssets,
 } from '@/lib/offscreen-chat/asset-lifecycle'
 import { refreshActiveProfile } from '@/lib/offscreen-chat/profile-cache'
-import { errorText } from '@/lib/format'
 
 /** 就绪握手：告知 SW 容器已起（SW 侧据此确认状态、排查启动问题） */
 function announceReady(): void {
-  chrome.runtime.sendMessage({ kind: 'offscreen:ready' }).catch(() => {
-    // 尽力而为：SW 未就绪或未注册该命令时，不阻断 offscreen 自身启动
-  })
+  // 经标准总线单向推送（尽力而为：SW 未就绪或未注册该命令时不阻断 offscreen 自身启动）
+  ipcNotify({ kind: 'offscreen:ready' })
 }
 
 // 模型配置写侧（model-store 写出口）的单向推送：offscreen 不 import model-store（SW 专属模块），
@@ -81,23 +84,23 @@ const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: Runt
   'chat:': (msg) => handleChatCommand(msg),
 }
 
-// 命令面：UI / SW 经 chrome.runtime.sendMessage 共享总线发来，offscreen 在此处理并回传。
-// 注意 return true —— 告诉 chrome.runtime 我们要异步 sendResponse（否则响应会被丢弃）。
-chrome.runtime.onMessage.addListener((raw, _sender, sendResponse): boolean => {
-  const msg = raw as RuntimeRequest | { kind: string } | undefined
-  if (msg?.kind === 'offscreen:configChanged') {
-    void refreshActiveProfile()
-    return false
-  }
-  const kind = msg?.kind
-  if (kind && typeof kind === 'string') {
-    const prefix = OFFSCREEN_KIND_PREFIXES.find((p) => kind.startsWith(p))
-    if (prefix) {
-      void respond(sendResponse, () => FS_HANDLERS[prefix](msg as RuntimeRequest))
-      return true
-    }
-  }
-  return false
+// GM 运行时的 offscreen 命令面实例：`listen: false` = 不自挂监听（本入口的总线代挂），
+// 工厂仍启动 SW 保活心跳（GM 链路预设 SW 常驻，协议真相源在包内 keepalive.ts）。
+const offscreenHost = createOffscreenHost({ listen: false })
+
+// 命令面：UI / SW 经共享总线发来，offscreen 在此处理并回传。
+// 本语境**唯一**的 onMessage 监听器（标准化信道）：问询顺序 =
+//   ① 宿主前缀表（fs: / state: / conv: / chat:）；
+//   ② GM 运行时 offscreen 包自管的命令面（clipboard:write，见文件尾的 createOffscreenHost）。
+// 功能代码只写 handler 与 matcher，不再各自 addListener。
+serveIpc({
+  matchers: [
+    prefixMatcher(OFFSCREEN_KIND_PREFIXES, FS_HANDLERS),
+    { owns: (kind) => kind === IPC_CLIPBOARD_WRITE, handle: (msg) => offscreenHost.handle(msg) },
+  ],
+  observe: (msg) => {
+    if (msg.kind === 'offscreen:configChanged') void refreshActiveProfile()
+  },
 })
 
 /** conv:* —— 会话写侧（唯一写方 = offscreen；UI 只经这些命令触发写） */
@@ -145,22 +148,7 @@ async function handleChatCommand(msg: RuntimeRequest): Promise<unknown> {
   }
 }
 
-/** 统一异步应答：把结果包成 { ok, data | error } 信封 */
-async function respond(
-  sendResponse: (r: unknown) => void,
-  run: () => Promise<unknown>,
-): Promise<void> {
-  try {
-    sendResponse({ ok: true, data: await run() })
-  } catch (e) {
-    sendResponse({ ok: false, error: errorText(e) })
-  }
-}
-
 announceReady()
 void refreshActiveProfile()
-// GM 运行时的 offscreen 命令面（clipboard:write 应答）：包工厂自注册监听，一行接线；
-// 同时启动 SW 保活心跳（GM 链路预设 SW 常驻，协议真相源在包内 keepalive.ts）
-createOffscreenHost()
 // 启动一次最终一致对账：补齐缺失仓、清理多余仓目录（幂等，失败不阻断）
 void reconcileFs()

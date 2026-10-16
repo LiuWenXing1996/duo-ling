@@ -32,7 +32,7 @@ import {
   listTabTimeline,
   mintTabSession,
 } from './runtime-db'
-import { clearAllForTests as clearUsdata } from '@duoling/userscript-runtime'
+import { clearAllForTests as clearUsdata } from '@duoling/userscript-core'
 import type { NetCaptureRecord } from '@duoling/shared'
 import { RUN_EVENT_MAX, RUN_LOG_MAX, type ScriptProject } from './types'
 

@@ -13,7 +13,7 @@
 // 件可能因页面卸载 / 导航而永不回话，留一条兜底。
 
 import { FLOAT_HOST_ID } from '@duoling/builtin-scripts'
-import { pushCommandTo } from '@duoling/userscript-runtime'
+import { pushCommandTo } from '@duoling/userscript-sw'
 
 /** 探活的超时：件在位时回话是毫秒级，到点没回就是不在位（页面在导航 / 件没注入） */
 const PING_TIMEOUT_MS = 5_000

@@ -1,13 +1,13 @@
 // UI 组件测试：GmApiPanel.vue 的三条核心语义。
 //
-// A. **清单来自静态目录**：渲染出来的就是 @duoling/userscript-runtime 的 gm-api-catalog.ts 的全部条目（与注入脚本世界的
+// A. **清单来自静态目录**：渲染出来的就是 @duoling/userscript-core 的 gm-api-catalog.ts 的全部条目（与注入脚本世界的
 //    `GM_*` / `GM.*` 同源，一致性由 catalog 的类型层 + 源码反射单测兜，这里只验渲染）。
 // B. **关键词搜索**：命中条数随关键词收窄，搜不到给出空状态（不回退成全量）。
 // C. **分组筛选**：只显示该组条目（左栏计数与右栏结果同源）。
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import GmApiPanel from './GmApiPanel.vue'
-import { GM_API_ENTRIES } from '@duoling/userscript-runtime'
+import { GM_API_ENTRIES } from '@duoling/userscript-core'
 
 /** 卡片根元素（过滤掉同前缀的 toggle，两者的 testid 都以 gm-api-card- 开头） */
 function cardPaths(wrapper: ReturnType<typeof mount>): string[] {

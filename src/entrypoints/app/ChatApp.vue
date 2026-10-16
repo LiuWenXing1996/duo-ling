@@ -39,6 +39,7 @@ import {
 import { useGlobalConversation } from '@/composables/use-global-conversation'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 import { readPinnedTabId } from '@/lib/owning-tab'
+import { ipcNotify } from '@/shared/ipc-bus'
 
 const {
   conversations,
@@ -75,7 +76,7 @@ function openWorkbench(hash = ''): void {
 function collapse(): void {
   const tabId = readPinnedTabId()
   if (tabId == null) return
-  void chrome.runtime.sendMessage({ kind: 'float:collapse', tabId }).catch(() => {})
+  ipcNotify({ kind: 'float:collapse', tabId })
 }
 
 /**
@@ -87,7 +88,7 @@ function collapse(): void {
 function setPageMask(busy: boolean): void {
   const tabId = readPinnedTabId()
   if (tabId == null) return
-  void chrome.runtime.sendMessage({ kind: 'float:busy', tabId, busy }).catch(() => {})
+  ipcNotify({ kind: 'float:busy', tabId, busy })
 }
 
 watch(streaming, (busy) => setPageMask(busy), { immediate: true })

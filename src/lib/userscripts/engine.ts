@@ -2,7 +2,7 @@
 //
 // 通用注册引擎（世界配置 / 单脚本注册 / 全量重注册串行链 / 可用性检测 / 握手密钥）与
 // **脚本桥中继件**（GM 桥 MAIN 世界侧，「跑全量 GM」的组成部分）已上移
-// `@duoling/userscript-runtime`（registration.ts / relay/sync.ts）；本文件保留本扩展自己的
+// `@duoling/userscript-sw`（registration.ts / relay/sync.ts）；本文件保留本扩展自己的
 // 注入件的注册同步，并经 host-config 的 builtins 注入点挂进包的全量链：
 //   · 页面检查器 / 浮层宿主常驻件 —— 恒注册（拾取 / 打开浮层都是「页面早已打开、用户刚点
 //     按钮」的场景，见 system-scripts.ts）；
@@ -18,7 +18,7 @@ import type { ScriptProject } from './types'
 // 检查器 / 浮层 / 录制的注册面（注册 id / 产物文件名）由包声明：件在那儿源码化并构建成
 // 独立 IIFE 文件，扩展侧按 id 取其内容作系统脚本源码（真相源见
 // packages/builtin-scripts/src/registry.ts）。
-// 中继件（relay）例外：已随 `@duoling/userscript-runtime` 包内化（id / 装配段 / 注册同步都在包内，
+// 中继件（relay）例外：已随 `@duoling/userscript-sw` 包内化（id / 装配段 / 注册同步都在包内，
 // IIFE 以 `{ code }` 注册，无公共资产文件）。
 import {
   FLOAT_HOST_ID,
@@ -41,7 +41,7 @@ import {
 // 注册判据就一句「有没有页在录」—— 直接查存续表，录制不再有第二本账
 import { hasRecordingTabSession } from './runtime-db'
 // 匹配并集比对（「未变则跳过」）：已上移包内，随 index 导出
-import { sameMatchSet } from '@duoling/userscript-runtime'
+import { sameMatchSet } from '@duoling/userscript-core'
 // 通用引擎件（包内 registration.ts）：世界配置 / 注册 / 注销 / 串行队列 / 中继件注册同步
 import {
   enqueueRegistration,
@@ -49,9 +49,9 @@ import {
   SCRIPT_RELAY_ID,
   syncScriptRelay,
   unregisterScripts,
-} from '@duoling/userscript-runtime'
+} from '@duoling/userscript-sw'
 // 匹配面判定（scheme + host）：内置件「这一页用不用得上」与 cookie 域名门同一套判据
-import { matchPatternCoversUrl } from '@duoling/userscript-runtime'
+import { matchPatternCoversUrl } from '@duoling/userscript-core'
 
 // —— 通用引擎 re-export（调用点 import 路径不变）——
 export {
@@ -67,7 +67,7 @@ export {
   resolveInjectCode,
   unregisterScripts,
   validateMatchPatterns,
-} from '@duoling/userscript-runtime'
+} from '@duoling/userscript-sw'
 
 // —— 内置注册的 id 全集 ——
 
@@ -91,7 +91,7 @@ export const BUILTIN_SCRIPT_IDS = [
  * 它们不是用户脚本项目（没有源码 / 启停 / git 历史），只是扩展自己注进页面的能力管道 ——
  * 列表里给名字与世界，是让人看见「这一页上除了我的脚本还有扩展自己的东西在跑」。
  * 三件系统脚本的条目吃 system-scripts 的投影（SYSTEM_SCRIPT_DISPLAY，件「自己声明自己」），
- * 这里只补中继件一条 —— 它随 `@duoling/userscript-runtime` 包内化，不属件包声明面。
+ * 这里只补中继件一条 —— 它随 `@duoling/userscript-sw` 包内化，不属件包声明面。
  */
 const BUILTIN_META: Record<string, { name: string; world: string; note: string }> = {
   [SCRIPT_RELAY_ID]: {

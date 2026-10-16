@@ -24,7 +24,7 @@
 // Promise resolve null，结果照常由它自己上报 —— 保证「每次开始恰好一条上报」，
 // 发起侧无须区分两种收场。
 //
-// 通道（脚本桥，形状真相源见 userscript-runtime 的 script-bridge.ts / api-contract.ts）：
+// 通道（脚本桥，形状真相源见 userscript-core 的 script-bridge.ts / api-contract.ts）：
 //   · 下行 —— Port 事件帧 `inspector.cmd`（SW 经 DL Port 推，中继件转回 MAIN 桥 onEvent）；
 //   · 上行 —— `__dlEvent` 信封 `inspector.result`（emit，fire-and-forget；结算认 reqId，
 //     送达失败由发起侧 60s 超时兜底 —— 与旧 sendMessage 失败同语义）；
@@ -303,7 +303,7 @@ function run(mode: InspectorMode): Promise<unknown> {
 
 /**
  * 脚本桥（GM 包装内联进同一作用域的 `__dlBridge`，恒注入）。
- * 形状真相源是 userscript-runtime 的 script-bridge.ts；这里只声明本件用到的方法。
+ * 形状真相源是 userscript-core 的 script-bridge.ts；这里只声明本件用到的方法。
  */
 declare const __dlBridge: {
   connect(connId: string): Promise<void>

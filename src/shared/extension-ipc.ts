@@ -18,6 +18,7 @@ import type {
   ElementPickContext,
   ElementPickFull,
   ElementPickSummary,
+  IpcEnvelope,
   PageEnvContext,
   PageSnapshotContext,
 } from '@duoling/shared'
@@ -463,8 +464,10 @@ export interface PageOverviewScript {
 export type SwPush =
   | { kind: 'userscript:availabilityChanged'; availability: import('@/lib/userscripts/types').UserScriptsAvailability; changedAt: number }
 
-/** 渲染页 → service worker 的应答：统一信封，调用方据 ok 分支 */
-export type RuntimeResponse<T> = { ok: true; data: T } | { ok: false; error: string }
+/** 渲染页 → service worker 的应答：统一信封，调用方据 ok 分支。
+ *  形状真相源在 @duoling/shared 的 IpcEnvelope —— 运行时包两半（sw / offscreen）与全应用
+ *  共用同一信封，两处各写一份必漂移。 */
+export type RuntimeResponse<T> = IpcEnvelope<T>
 
 /** chat:resume 的应答：idle = 无进行中任务（调用方以会话历史为准即可） */
 export type ChatResumeResult =

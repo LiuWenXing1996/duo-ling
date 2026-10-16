@@ -23,7 +23,7 @@ import {
 } from '@/lib/agent-tools-catalog'
 import { getProject, listProjects } from '@/lib/userscripts/project-store'
 import { readSource } from '@/lib/userscripts/us-git'
-import { resolveConfigFromSource } from '@duoling/userscript-runtime'
+import { resolveConfigFromSource } from '@duoling/userscript-core'
 import { defaultConfig } from '@/lib/userscripts/types'
 import type {
   ScriptConfig,

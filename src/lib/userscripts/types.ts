@@ -5,21 +5,17 @@
 
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 
-// ScriptConfig / ScriptResourceDecl / defaultConfig 已上移进 `@duoling/userscript-runtime`
+// ScriptConfig / ScriptResourceDecl / defaultConfig 已上移进 `@duoling/userscript-core`
 // （script-config.ts：配置是运行期事实源，随 metadata 解析一起归包）；ScriptProject /
 // ScriptGroup 亦随内置默认存储归包（script-project.ts）。此处 re-export 维持既有 import
 // 路径（`@/lib/userscripts/types` / `./types`）不变。
 // 错误 / 运行动作的形状真相源同在包侧（host-config.ts：错误与动作由包内产生），见下。
-import type {
-  ScriptConfig,
-  ScriptResourceDecl,
-  UserscriptErrorRecord,
-  UserscriptRunEvent as UserScriptRunEventShape,
-} from '@duoling/userscript-runtime'
+import type { ScriptConfig, ScriptResourceDecl } from '@duoling/userscript-core'
+import type { UserscriptErrorRecord, UserscriptRunEvent as UserScriptRunEventShape } from '@duoling/userscript-sw'
 
 export type { ScriptConfig, ScriptResourceDecl }
-export { defaultConfig } from '@duoling/userscript-runtime'
-export type { ScriptProject, ScriptGroup } from '@duoling/userscript-runtime'
+export { defaultConfig } from '@duoling/userscript-core'
+export type { ScriptProject, ScriptGroup } from '@duoling/userscript-core'
 
 /** 给 UI 列表用的精简视图（不含源码） */
 export interface ScriptSummary {
@@ -45,9 +41,9 @@ export interface ScriptSummary {
  */
 export type CommitActor = 'user' | 'ai' | 'system'
 
-// 用户脚本引擎可用性状态已上移进 `@duoling/userscript-runtime`（registration.ts，与
+// 用户脚本引擎可用性状态已上移进 `@duoling/userscript-sw`（registration.ts，与
 // getUserScriptsStatus 同文件）；此处 re-export 维持既有 import 路径不变。
-export type { UserScriptsAvailability } from '@duoling/userscript-runtime'
+export type { UserScriptsAvailability } from '@duoling/userscript-sw'
 
 /**
  * 脚本错误记录（落 duoling-runtime 的 tab_events store，判别键 kind = ERR_TAB_KIND）。
@@ -55,7 +51,7 @@ export type { UserScriptsAvailability } from '@duoling/userscript-runtime'
  * 逐条 + 环形：保留最近 ERROR_LOG_MAX 条，裁剪在写侧（见 runtime-db 的 appendErrorRow）。
  * 合表后它与其它轴行同住 tab_events，故按页读整根轴时一次就能拿到它（见 listTabTimeline）。
  *
- * 形状真相源在 `@duoling/userscript-runtime`（host-config.ts 的 UserscriptErrorRecord：
+ * 形状真相源在 `@duoling/userscript-sw`（host-config.ts 的 UserscriptErrorRecord：
  * 错误由包内产生 —— dl-bridge / registration / 依赖与资源抓取）。此处继承它并收窄成
  * **落库形态**：id / uuid / time 在落盘时必已补齐（见 store.appendUserScriptError），
  * 读侧按必有字段处理。
@@ -126,7 +122,7 @@ export const RUN_EVENT_MAX = 1000
  * 不内嵌在运行条目里，故列表读取不带它们 —— 按 runId 拉那一组时才读（见 listRunEvents）。
  * **只在「这一页开着活动记录」时产生**（与运行条目同一判据，见 store.recordRunEvent）。
  *
- * 形状真相源在 `@duoling/userscript-runtime`（host-config.ts 的 UserscriptRunEvent：
+ * 形状真相源在 `@duoling/userscript-sw`（host-config.ts 的 UserscriptRunEvent：
  * 动作由 dl-bridge 的 dispatch 采集）。此处取别名维持既有名字与 import 路径不变。
  */
 export type UserScriptRunEvent = UserScriptRunEventShape

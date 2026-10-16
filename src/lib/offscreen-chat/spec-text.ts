@@ -1,7 +1,7 @@
 // script_spec 的规范载荷：给模型读的「怎么写脚本」正文。
 //
 // 分工（改这份文件前先看这条）：
-//   · 「能力清单」与「@grant 怎么写」两段是**生成**的 —— 能力来自 @duoling/userscript-runtime 的 gm-api-catalog
+//   · 「能力清单」与「@grant 怎么写」两段是**生成**的 —— 能力来自 @duoling/userscript-core 的 gm-api-catalog
 //     （GM_API_GROUPS / specEntries），grant 名与恒注入集来自同包的 gm-grants。API 改名 / 新增只改
 //     数据，规范文本自动跟着变；两边不漂移由 spec-text.test.ts 断言。
 //   · 其余段落是**教导**（形态、硬性约束、边界、工作流），手写在下面 —— 这些推不出来（同步 /
@@ -11,8 +11,8 @@
 // 注意：本文件是 TS 模板字符串，**手写正文里的反引号必须逐个转义**（写成「反斜杠 + 反引号」，
 // 裸反引号会提前闭合模板）；生成段经 ${} 插值拼入，其中的反引号不受此限。
 
-import { GM_API_GROUPS, specEntries } from '@duoling/userscript-runtime'
-import { ALWAYS_GLOBALS, ALWAYS_NS, ALWAYS_WINDOW_MEMBERS, GRANT_NAMES } from '@duoling/userscript-runtime'
+import { GM_API_GROUPS, specEntries } from '@duoling/userscript-core'
+import { ALWAYS_GLOBALS, ALWAYS_NS, ALWAYS_WINDOW_MEMBERS, GRANT_NAMES } from '@duoling/userscript-core'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 
 /** 能力清单段：按速查页的分组顺序，一条一行（签名 + 一句话作用） */

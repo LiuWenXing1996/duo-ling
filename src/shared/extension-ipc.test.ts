@@ -45,12 +45,15 @@ vi.mock('@/lib/userscripts/offscreen-state-commands', async (importOriginal) => 
 /** 期望的 kind 归属（side 取值 = 应答端）。真相源：extension-ipc.ts 的联合 + 各端入口的路由注释 */
 type OwnershipRow = { kind: RuntimeRequest['kind']; side: 'sw' | 'offscreen' | 'host' }
 
-// host 自管命令面：GM 运行时包工厂 createOffscreenHost() 的自有监听器应答，
-// 不走 offscreen 前缀表（真相源：@duoling/userscript-runtime 的 host.ts）
+// host 自管命令面：GM 运行时 offscreen 包（@duoling/userscript-offscreen）应答，
+// 不走 offscreen 前缀表（kind 真相源：@duoling/shared 的 ipc.ts）
 const HOST_OWNED_KINDS = ['clipboard:write'] as const
 
 const ALL_KINDS = [
-  // —— userscript:*（SW）——
+  // —— userscript:*（SW 语境）——
+  // 其中 list / getProject / groups / availability 由 sw 包的 handler pack 应答（总线问询的
+  // 首位，见 ipc-bus 的 serveIpc），归口仍在 SW，故 side 记 sw；它们在背景页的类型表里已从
+  // 前缀推导中摘出，重复登记会被 typecheck 拒。
   { kind: 'userscript:list', side: 'sw' },
   { kind: 'userscript:getProject', side: 'sw' },
   { kind: 'userscript:save', side: 'sw' },
@@ -196,8 +199,8 @@ describe('(a) RuntimeRequest kind 归属唯一性', () => {
   })
 
   it('包内保活心跳 kind（usrt:keepalive）不落在任何宿主认领前缀内 —— 应答归包，宿主路由不得抢答', async () => {
-    const { SW_KEEPALIVE_KIND } = await import('@duoling/userscript-runtime')
-    expect(SW_KIND_PREFIXES.some((p) => SW_KEEPALIVE_KIND.startsWith(p))).toBe(false)
-    expect(OFFSCREEN_KIND_PREFIXES.some((p) => SW_KEEPALIVE_KIND.startsWith(p))).toBe(false)
+    const { IPC_SW_KEEPALIVE } = await import('@duoling/shared')
+    expect(SW_KIND_PREFIXES.some((p) => IPC_SW_KEEPALIVE.startsWith(p))).toBe(false)
+    expect(OFFSCREEN_KIND_PREFIXES.some((p) => IPC_SW_KEEPALIVE.startsWith(p))).toBe(false)
   })
 })
