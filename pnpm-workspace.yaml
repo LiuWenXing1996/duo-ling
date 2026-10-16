@@ -1,4 +1,4 @@
-# workspace 成员。六个包，形态不同：
+# workspace 成员。各包形态不同：
 #   · builtin-scripts —— 源码是扩展的一部分（TS 模块），产物却是**独立的 IIFE 文件**
 #     （chrome.userScripts 的 js[] 只认扩展内路径的文件），故单独成包、单独构建。
 #   · shared —— 跨世界契约（件与应用两侧同取的信封 / 常量 / 形状），Vite lib 模式自构建
