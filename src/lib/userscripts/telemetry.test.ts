@@ -86,7 +86,8 @@ describe('duolingTelemetry · 系统脚本不进用户脚本观测面', () => {
   it('用户脚本的运行日志照常落盘', async () => {
     await duolingTelemetry.recordRunStart?.('u1', 'r1')
     await duolingTelemetry.recordRunEvent?.('u1', 'r1', { kind: 'a', detail: 'd', time: 1 })
-    expect(recordRunStart).toHaveBeenCalledWith('u1', 'r1', undefined, undefined)
+    // 透传按剩余参数展开：调用方传几参就转发几参，不人为补 undefined
+    expect(recordRunStart).toHaveBeenCalledWith('u1', 'r1')
     expect(recordRunEvent).toHaveBeenCalled()
   })
 
