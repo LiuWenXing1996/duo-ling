@@ -198,7 +198,9 @@ describe('(a) RuntimeRequest kind 归属唯一性', () => {
     }
   })
 
-  it('保活心跳 kind（background:keepalive）不落在任何宿主认领前缀内 —— 应答归包，宿主路由不得抢答', async () => {
+  it('保活心跳 type（background:keepalive）不落在任何宿主认领前缀内 —— 命名空间不与命令面撞车', async () => {
+    // 保活已不走前缀路由（库独立 listener，报文无 kind，总线让路）；这里守的是命名空间
+    // 不重叠：真有人把它挪回总线，前缀路由会先抢答，应答永远轮不上。
     const { IPC_SW_KEEPALIVE } = await import('@duoling/messaging')
     expect(SW_KIND_PREFIXES.some((p) => IPC_SW_KEEPALIVE.startsWith(p))).toBe(false)
     expect(OFFSCREEN_KIND_PREFIXES.some((p) => IPC_SW_KEEPALIVE.startsWith(p))).toBe(false)

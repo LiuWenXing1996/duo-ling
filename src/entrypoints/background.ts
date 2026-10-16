@@ -54,9 +54,9 @@ import { onAvailabilityChange, startAvailabilityWatch } from '@duoling/userscrip
 import { runUpdateCheck } from '@/lib/update-check'
 // GM 运行时接线：SW 侧工厂（配置注入 + 桥与 Port 监听注册同点完成，见 initUserScripts）
 import { createServiceWorkerHost, swIpcHandlers, SW_IPC_OWNED_KINDS } from '@duoling/userscript-sw'
-// SW 保活应答（通用包）：认领一条 keepalive kind，由总线的首个 matcher 问询
-import { keepaliveHandler } from '@duoling/service-worker'
-// 标准化总线：本语境唯一的 onMessage 收口（serveIpc）+ 路由 matcher（前缀表 / 包命令面）
+// SW 保活应答（通用包）：向 @duoling/messaging 认领，独立于宿主总线（不占 matcher 位）
+import { registerKeepalive } from '@duoling/service-worker'
+// 标准化总线：本语境命令面唯一的 onMessage 收口（serveIpc）+ 路由 matcher（前缀表 / 包命令面）
 import { serveIpc, prefixMatcher, packMatcher, ipcRequest, ipcNotify } from '@/shared/ipc-bus'
 import { duolingTelemetry } from '@/lib/userscripts/telemetry'
 // 产品内置件注入面：内置注册 id 全集（stale 清扫排除）与四件全量同步（挂包侧注册串行链）
@@ -1216,18 +1216,18 @@ export default defineBackground(() => {
   // 它落盘成功后自己广播 `model` 域（扩展页回拉）并推送 offscreen:configChanged（offscreen
   // 的 profile-cache 回拉）。SW 这里不再需要 storage.onChanged 兜底。
 
-  // 本语境唯一的 onMessage 监听器（标准化信道）：问询顺序 =
-  //   ① 保活应答（keepaliveHandler）与 ② 运行时包命令面（swIpcHandlers：管理面只读四条）
-  //      —— 包自管 kind 归包，宿主前缀路由不得抢答（sendResponse 一条消息只有一次机会）；
-  //   ③ 宿主前缀表（SW_KIND_PREFIXES + handlers）—— 其余归 SW 的 kind。
+  // 保活应答：不占宿主总线（库自带的 runtime.onMessage listener，首次认领时同步挂上）。
+  // 它认的是无 kind 的库报文，总线对其静默让路 —— 通用基础设施不必借业务命令面的位子。
+  registerKeepalive()
+
+  // 本语境命令面唯一的 onMessage 监听器（标准化信道）：问询顺序 =
+  //   ① 运行时包命令面（swIpcHandlers：管理面只读四条）—— 包自管 kind 归包，
+  //      宿主前缀路由不得抢答（sendResponse 一条消息只有一次机会）；
+  //   ② 宿主前缀表（SW_KIND_PREFIXES + handlers）—— 其余归 SW 的 kind。
   // 旁听 offscreen 推送（chat:running / chat:finished：任务起止）：chat: 前缀对命令面是
   // offscreen 保留前缀，SW 静默让路，这里只观察不响应（推送方对响应本就尽力而为）。
   serveIpc({
-    matchers: [
-      packMatcher(keepaliveHandler()),
-      packMatcher(swIpcHandlers()),
-      prefixMatcher(SW_KIND_PREFIXES, handlers),
-    ],
+    matchers: [packMatcher(swIpcHandlers()), prefixMatcher(SW_KIND_PREFIXES, handlers)],
     observe: (msg) => {
       const push = msg as { kind: string; conversationId?: string }
       if (push.kind === 'chat:running' && push.conversationId) handleChatRunningPush(push.conversationId)

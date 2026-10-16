@@ -3,11 +3,12 @@
 // 三类原语，各语境只此一份：
 //   · 发送 —— ipcRequest（请求-应答，统一信封解包）与 ipcNotify（单向推送，尽力而为）；
 //   · 订阅 —— ipcSubscribe（按 kind 前缀收推送：chat:chunk / data:changed / availabilityChanged…）；
-//   · 接收 —— serveIpc（每语境**唯一**的 onMessage 监听器，入口在 defineBackground /
-//     offscreen 入口各调一次）。功能代码只写 handler 与 matcher，永不摸 addListener。
+//   · 接收 —— serveIpc（每语境**命令面**唯一的 onMessage 监听器，入口在 defineBackground /
+//     offscreen 入口各调一次）。功能代码只写 handler 与 matcher，永不摸 addListener；
+//     基础设施库自带的 listener（如 @duoling/messaging 的保活）与它并列，报文形状互斥。
 //
 // 接收侧的问询顺序：matcher 数组依次问询，第一个认领的应答（sendResponse 一条消息只有
-// 一次机会，多端都接会抢答）。包自管的 kind（保活 / 剪贴板 / 管理面只读四条）以 pack
+// 一次机会，多端都接会抢答）。包自管的 kind（剪贴板 / 管理面只读四条）以 pack
 // matcher 形式插在最前，归各包应答 —— 宿主前缀路由不得抢答；其余 kind 归宿主前缀表
 // （SW_KIND_PREFIXES / OFFSCREEN_KIND_PREFIXES）。
 import type { OffscreenPush, RuntimeRequest, SwPush } from './extension-ipc'
@@ -68,7 +69,7 @@ export function ipcSubscribe(prefix: string, callback: (msg: { kind: string }) =
 }
 
 /**
- * 接收口：挂本语境**唯一**的 onMessage 监听器（幂等性由调用点保证 —— 入口顶层只调一次）。
+ * 接收口：挂本语境命令面**唯一**的 onMessage 监听器（幂等性由调用点保证 —— 入口顶层只调一次）。
  *
  * 问询顺序 = matchers 数组顺序；第一个 owns 命中的执行并回统一信封。旁听推送
  * （observe）在问询前执行：观察方对响应本就尽力而为，不影响后续路由。

@@ -4,9 +4,9 @@
 // 不需要任何宿主自有机器（fs+git 持久化 / offscreen 转发 / 观测库都是宿主的）——
 // 谁接入本包，这四条管理命令就随包可用，宿主不必自己实现。
 //
-// 接线方式（标准化信道）：宿主的总线收口（每语境唯一的 onMessage 监听器）先问本
+// 接线方式（标准化信道）：宿主的总线收口（每语境命令面唯一的 onMessage 监听器）先问本
 // handler 认不认领这条消息，认领才执行；不认领继续走宿主自己的前缀路由。本包**不
-// 自挂 onMessage 监听**——宿主只保留一个监听器，功能侧不再各造通信。
+// 自挂 onMessage 监听**——命令面只有总线一个收口，功能侧不再各造通信。
 //
 // 覆盖面（刻意只读）：list / getProject / groups / availability。其余 userscript:*
 // 命令（save / toggle / import / tabActivity…）押着宿主机器（offscreen 单写方、

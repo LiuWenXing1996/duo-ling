@@ -9,10 +9,10 @@
 //
 // 启动点归宿主：本包只提供原语，offscreen 入口顶层调一次即全程在线（幂等、无 chrome 即 no-op）。
 //
-// kind 契约在 @duoling/messaging —— 发送侧（本包）与应答侧分属两包，字面量放任何一侧都只能
-// 靠注释对齐。该 kind **不得**落在宿主已认领的命令前缀内（如应用侧 IPC 的 `userscript:*`）：
-// 宿主路由会先抢答「未知消息类型」，应答永远轮不上（sendResponse 一条消息只有一次机会）。
-import { IPC_SW_KEEPALIVE, type KeepaliveMessage } from '@duoling/messaging'
+// 发送原语在 @duoling/messaging（库的 sendMessage）—— 发送侧（本包）与应答侧分属两包，
+// 报文形状由该包的一份 ProtocolMap 对齐，不占宿主总线的 matcher 位：库报文与总线报文
+// 形状互斥（前者无 kind、后者无 type/timestamp），两条 listener 并列而不互相抢答。
+import { sendSwKeepalive } from '@duoling/messaging'
 
 /** 心跳间隔：SW 空闲回收线是 30s，5s 一跳余量充足 */
 export const SW_KEEPALIVE_INTERVAL_MS = 5000
@@ -20,10 +20,8 @@ export const SW_KEEPALIVE_INTERVAL_MS = 5000
 let timer: ReturnType<typeof setInterval> | null = null
 
 async function ping(): Promise<void> {
-  // 载荷形状取自 messaging 的契约（应答侧按同一份声明认领）
-  const msg: KeepaliveMessage = { kind: IPC_SW_KEEPALIVE }
   try {
-    await chrome.runtime.sendMessage(msg)
+    await sendSwKeepalive()
   } catch {
     // SW 暂未就绪 / 无响应：跳过本周期，下个周期再试
   }
