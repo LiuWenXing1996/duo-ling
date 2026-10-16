@@ -3,19 +3,47 @@
 // 过滤只认 uuid 集（真相源 @duoling/builtin-scripts 的 registry.ts）；用户脚本一切照旧。
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const noteRunStart = vi.fn()
-const recordRunStart = vi.fn(() => Promise.resolve())
-const recordRunEvent = vi.fn(() => Promise.resolve())
-const appendUserScriptError = vi.fn(() => Promise.resolve())
+/** store.appendUserScriptError 的入参形状（Omit id/time 再补可选）—— mock 只关心 uuid 判定 */
+type ErrRec = {
+  phase: 'runtime' | 'register' | 'bridge' | 'require' | 'resource'
+  message: string
+  uuid?: string | null
+  name?: string
+  time?: number
+  id?: string
+}
+type RunStartArgs = [
+  uuid: string,
+  runId: string,
+  name?: string,
+  extra?: { url?: string; savedAt?: number; tabSessionId?: string },
+]
+type RunEventArgs = [uuid: string, runId: string, event: { kind: string; detail: string; time: number }]
+type PageErrorArgs = [tabId: number, info: { uuid: string | null; name: string; message: string; runId: string | null }]
+
+/** mock 须经 vi.hoisted（工厂被 vi.mock 提升到顶层 const 之前执行，直接引用会撞 TDZ） */
+const {
+  noteRunStart,
+  notePageError,
+  recordRunStart,
+  recordRunEvent,
+  appendUserScriptError,
+} = vi.hoisted(() => ({
+  noteRunStart: vi.fn<(tabId: number, uuid: string, runId: string) => void>(),
+  notePageError: vi.fn<(...args: PageErrorArgs) => void>(),
+  recordRunStart: vi.fn<(...args: RunStartArgs) => Promise<void>>(),
+  recordRunEvent: vi.fn<(...args: RunEventArgs) => Promise<void>>(),
+  appendUserScriptError: vi.fn<(rec: ErrRec) => Promise<void>>(),
+}))
 
 vi.mock('./page-monitor', () => ({
-  noteRunStart: (...args: unknown[]) => noteRunStart(...args),
-  notePageError: vi.fn(),
+  noteRunStart: (...args: [tabId: number, uuid: string, runId: string]) => noteRunStart(...args),
+  notePageError: (...args: PageErrorArgs) => notePageError(...args),
 }))
 vi.mock('./store', () => ({
-  recordRunStart: (...args: unknown[]) => recordRunStart(...args),
-  recordRunEvent: (...args: unknown[]) => recordRunEvent(...args),
-  appendUserScriptError: (...args: unknown[]) => appendUserScriptError(...args),
+  recordRunStart: (...args: RunStartArgs) => recordRunStart(...args),
+  recordRunEvent: (...args: RunEventArgs) => recordRunEvent(...args),
+  appendUserScriptError: (...args: [rec: ErrRec]) => appendUserScriptError(...args),
 }))
 vi.mock('./tab-sessions', () => ({ recordingTabSessionId: vi.fn() }))
 vi.mock('./runtime-db', () => ({ appendTabCapture: vi.fn(() => Promise.resolve()) }))
@@ -39,6 +67,13 @@ describe('duolingTelemetry · 系统脚本不进用户脚本观测面', () => {
   it('用户脚本的 runstart 照常登记', () => {
     duolingTelemetry.noteRunStart?.(1, 'u1', 'r1')
     expect(noteRunStart).toHaveBeenCalledWith(1, 'u1', 'r1')
+  })
+
+  it('系统脚本的错误不实时推送（快照侧按 runId 对不上本就不显示）；用户脚本的照推', () => {
+    duolingTelemetry.notePageError?.(1, { uuid: 'dl-float-host', name: 'x', message: 'm', runId: null })
+    expect(notePageError).not.toHaveBeenCalled()
+    duolingTelemetry.notePageError?.(1, { uuid: 'u1', name: 'x', message: 'm', runId: null })
+    expect(notePageError).toHaveBeenCalledTimes(1)
   })
 
   it('系统脚本的运行日志（runstart / act）不落盘', async () => {

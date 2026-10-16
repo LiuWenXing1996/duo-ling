@@ -35,12 +35,15 @@ export const duolingTelemetry: UserscriptTelemetry = {
   appendError: (rec) =>
     rec.uuid != null && SYSTEM_SCRIPT_UUIDS.has(rec.uuid)
       ? Promise.resolve()
-      : appendUserScriptError(rec),
+      : appendUserScriptError(rec as Parameters<typeof appendUserScriptError>[0]),
   noteRunStart: (tabId, uuid, runId) => {
     if (SYSTEM_SCRIPT_UUIDS.has(uuid)) return
     noteRunStart(tabId, uuid, runId)
   },
-  notePageError,
+  notePageError: (tabId, info) => {
+    if (info.uuid != null && SYSTEM_SCRIPT_UUIDS.has(info.uuid)) return
+    notePageError(tabId, info)
+  },
   appendTabCapture: (rec) => runtime.appendTabCapture(rec as Parameters<typeof runtime.appendTabCapture>[0]),
   onInspectorEvent: handleInspectorEvent,
   onFloatEvent: handleFloatEvent,
