@@ -85,8 +85,6 @@ describe('createServiceWorkerHost', () => {
       'userscript:availability',
     ])
     for (const kind of SW_IPC_OWNED_KINDS) expect(pack.owns(kind)).toBe(true)
-    // 保活已移出本包（@duoling/service-worker 认领）：这里必须让路
-    expect(pack.owns('background:keepalive')).toBe(false)
     expect(pack.owns('other:kind')).toBe(false)
   })
 

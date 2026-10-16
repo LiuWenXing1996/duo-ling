@@ -40,7 +40,7 @@ import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/usersc
 // GM 运行时的 offscreen 命令面（clipboard:write 应答）：包工厂不管生命周期与监听，
 // 监听由本入口的总线代挂（`{ listen: false }` + matcher 问询）—— 每语境只有一个监听器。
 import { createOffscreenHost } from '@duoling/userscript-offscreen'
-// SW 保活心跳的发送原语：同属 offscreen 侧职责，但启动点归宿主（包只出原语）
+// SW 保活轮询：同属 offscreen 侧职责，但启动点归宿主（包只出原语）
 import { startSwKeepalive } from '@duoling/offscreen-document'
 import {
   abortChat,

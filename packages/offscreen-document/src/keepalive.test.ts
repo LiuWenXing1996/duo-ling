@@ -1,14 +1,16 @@
-// keepalive.ts 单测：心跳协议与调度行为。
+// keepalive.ts 单测：轮询调度与报文形状。
 //
 // chrome 整体 stub：库的 sendMessage 走**回调形态**（chrome.runtime.sendMessage(msg, cb)），
-// 故桩必须回调才算完成一跳，lastError 也在回调时被库同步读。fake timers 驱动周期
-// （本模块不碰 IndexedDB，fake timers 安全）。模块带单例 timer，跨用例经 loadKeepalive()
-// （resetModules + 动态 import）重载归零。
+// 故桩必须回调才算完成一跳。fake timers 驱动周期（本模块不碰 IndexedDB，fake timers 安全）。
+// 模块带单例 timer，跨用例经 loadKeepalive()（resetModules + 动态 import）重载归零。
 //
-// 库在碰 chrome 之前先 await 一次（校验钩子位），故「发出去」总落后调用栈一个微任务 ——
-// 断言前需 flush。
+// 库在碰 chrome 之前先 await 一次，且代理调用再套一层 async，故「发出去」总落后调用栈
+// 若干微任务 —— 断言前需 flush。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { IPC_SW_KEEPALIVE } from '@duoling/messaging'
+import { SW_SERVICE_KEY } from '@duoling/proxy-service-list'
+
+/** 库把 key 拼成报文 type 后交给 chrome.runtime.sendMessage */
+const MESSAGE_KEY = `proxy-service.${SW_SERVICE_KEY}`
 
 type SendCallback = (response: unknown) => void
 type StubRuntime = { sendMessage: ReturnType<typeof vi.fn>; lastError?: { message?: string } }
@@ -17,11 +19,11 @@ let runtime: StubRuntime
 
 /** 让库的 await 链跑到底（假定时器下微任务照常推进） */
 async function flush(): Promise<void> {
-  for (let i = 0; i < 5; i++) await Promise.resolve()
+  for (let i = 0; i < 8; i++) await Promise.resolve()
 }
 
 beforeEach(() => {
-  runtime = { sendMessage: vi.fn((_msg: unknown, cb: SendCallback) => cb({ res: { alive: true } })) }
+  runtime = { sendMessage: vi.fn((_msg: unknown, cb: SendCallback) => cb({ res: true })) }
   vi.stubGlobal('chrome', { runtime })
   vi.useFakeTimers()
 })
@@ -39,15 +41,19 @@ function loadKeepalive(): Promise<typeof import('./keepalive')> {
 }
 
 describe('startSwKeepalive', () => {
-  it('启动即 ping 一条，随后按周期续跳；报文是库形状（认 type、无 kind）', async () => {
+  it('启动即 ping 一条，随后按周期续跳；报文经库发出（认 type、无 kind）', async () => {
     const { startSwKeepalive, SW_KEEPALIVE_INTERVAL_MS } = await loadKeepalive()
     startSwKeepalive()
     await flush()
 
-    expect(IPC_SW_KEEPALIVE).toBe('background:keepalive')
+    // key 值即断线点：两端共用同一字符串，改动等于同时改注册侧
+    expect(SW_SERVICE_KEY).toBe('sw-service')
     expect(runtime.sendMessage).toHaveBeenCalledTimes(1)
-    const [msg] = runtime.sendMessage.mock.calls[0] as [{ type?: string; kind?: unknown; timestamp?: number }]
-    expect(msg.type).toBe(IPC_SW_KEEPALIVE)
+    const [msg] = runtime.sendMessage.mock.calls[0] as [
+      { type?: string; data?: { path?: string[] }; kind?: unknown; timestamp?: number },
+    ]
+    expect(msg.type).toBe(MESSAGE_KEY)
+    expect(msg.data?.path).toEqual(['isAlive'])
     // 形状互斥：总线的 kind 契约不得混进这条报文（混了会被总线的 matcher 认走）
     expect(msg.kind).toBeUndefined()
     expect(typeof msg.timestamp).toBe('number')

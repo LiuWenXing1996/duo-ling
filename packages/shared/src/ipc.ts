@@ -8,8 +8,7 @@
 // 全量命令面 RuntimeRequest；这里只锁「运行时包自带的命令」与所有命令共用的应答信封。
 // 字面量值保持与既有线路一致（clipboard:write），改了就是断线。
 //
-// 保活心跳的 kind 不在这里：它的两端已分别落在 @duoling/offscreen-document 与
-// @duoling/service-worker，契约随两端进 @duoling/messaging。
+// 保活不走本包：报文无 kind，key 在 proxy-service-list。
 
 /** 统一应答信封：所有请求-应答命令共用，调用方据 ok 分支 */
 export type IpcEnvelope<T> = { ok: true; data: T } | { ok: false; error: string }

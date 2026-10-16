@@ -54,8 +54,10 @@ import { onAvailabilityChange, startAvailabilityWatch } from '@duoling/userscrip
 import { runUpdateCheck } from '@/lib/update-check'
 // GM 运行时接线：SW 侧工厂（配置注入 + 桥与 Port 监听注册同点完成，见 initUserScripts）
 import { createServiceWorkerHost, swIpcHandlers, SW_IPC_OWNED_KINDS } from '@duoling/userscript-sw'
-// SW 保活应答（通用包）：向 @duoling/messaging 认领，独立于宿主总线（不占 matcher 位）
-import { registerKeepalive } from '@duoling/service-worker'
+// SWService 注册侧：代理调用经库 listener 直达，不占总线 matcher 位
+import { SWService } from '@duoling/service-worker'
+import { SW_SERVICE_KEY } from '@duoling/proxy-service-list'
+import { registerService } from '@webext-core/proxy-service'
 // 标准化总线：本语境命令面唯一的 onMessage 收口（serveIpc）+ 路由 matcher（前缀表 / 包命令面）
 import { serveIpc, prefixMatcher, packMatcher, ipcRequest, ipcNotify } from '@/shared/ipc-bus'
 import { duolingTelemetry } from '@/lib/userscripts/telemetry'
@@ -1216,9 +1218,9 @@ export default defineBackground(() => {
   // 它落盘成功后自己广播 `model` 域（扩展页回拉）并推送 offscreen:configChanged（offscreen
   // 的 profile-cache 回拉）。SW 这里不再需要 storage.onChanged 兜底。
 
-  // 保活应答：不占宿主总线（库自带的 runtime.onMessage listener，首次认领时同步挂上）。
-  // 它认的是无 kind 的库报文，总线对其静默让路 —— 通用基础设施不必借业务命令面的位子。
-  registerKeepalive()
+  // SWService 注册：库自带 listener，首次注册即同步挂上，认的是无 kind 报文，
+  // 总线对其静默让路；offscreen 保活轮询就靠这条调用到达 SW。
+  registerService(SW_SERVICE_KEY, new SWService())
 
   // 本语境命令面唯一的 onMessage 监听器（标准化信道）：问询顺序 =
   //   ① 运行时包命令面（swIpcHandlers：管理面只读四条）—— 包自管 kind 归包，

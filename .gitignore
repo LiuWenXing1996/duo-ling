@@ -36,7 +36,6 @@ packages/shared/dist/
 packages/userscript-core/dist/
 packages/userscript-sw/dist/
 packages/userscript-offscreen/dist/
-packages/messaging/dist/
 packages/service-worker/dist/
 packages/offscreen-document/dist/
 packages/proxy-service-list/dist/

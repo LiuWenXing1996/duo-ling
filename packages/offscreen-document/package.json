@@ -21,7 +21,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@duoling/messaging": "workspace:*",
     "@duoling/proxy-service-list": "workspace:*",
     "@webext-core/proxy-service": "^3.0.2"
   },

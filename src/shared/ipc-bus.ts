@@ -5,7 +5,7 @@
 //   · 订阅 —— ipcSubscribe（按 kind 前缀收推送：chat:chunk / data:changed / availabilityChanged…）；
 //   · 接收 —— serveIpc（每语境**命令面**唯一的 onMessage 监听器，入口在 defineBackground /
 //     offscreen 入口各调一次）。功能代码只写 handler 与 matcher，永不摸 addListener；
-//     基础设施库自带的 listener（如 @duoling/messaging 的保活）与它并列，报文形状互斥。
+//     基础设施库自带的 listener（如 SWService 的代理调用）与它并列，报文形状互斥。
 //
 // 接收侧的问询顺序：matcher 数组依次问询，第一个认领的应答（sendResponse 一条消息只有
 // 一次机会，多端都接会抢答）。包自管的 kind（剪贴板 / 管理面只读四条）以 pack
