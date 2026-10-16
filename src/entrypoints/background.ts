@@ -45,7 +45,7 @@ import { resolveConfigFromSource } from '@duoling/userscript-core'
 // offscreen 与扩展页都不直连）。录制的开关跟着活动记录走，判据落在存续表上 —— 见 tab-sessions。
 import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts/net-digest'
 // 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
-import { onAvailabilityChange, startAvailabilityWatch } from '@/lib/userscripts/availability-watch'
+import { onAvailabilityChange, startAvailabilityWatch } from '@duoling/userscript-sw'
 // 新版本检查：SW 在浏览器启动 / 安装更新时各查一次，结果落 duoling-app 库供 popup 与设置页读
 import { runUpdateCheck } from '@/lib/update-check'
 // GM 运行时接线：SW 侧工厂（配置注入 + 桥与 Port 监听注册同点完成，见 initUserScripts）

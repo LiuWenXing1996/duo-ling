@@ -1,6 +1,7 @@
 // 用户脚本运行时 SW 侧宿主：把 GM 运行时在 service worker 里的职责凑齐。
 //
 //   · 注册引擎（registration）—— chrome.userScripts 的世界配置 / 单脚本与全量注册 / 可用性检测；
+//   · 可用性监视（availability-watch）—— SW 进程内轮询引擎可用性，只在状态翻转时通知消费层；
 //   · 命令分发（dl-bridge）—— 脚本桥中继件发来的 GM 请求（storage / xhr / download / menu / …）；
 //   · 事件底座（dl-port）—— 脚本世界 ↔ SW 的长连接下行通道（菜单点击 / 值变更 / 下载进度…）；
 //   · cookie 域名门（cookie-gate）—— GM_cookie 的安全边界；
@@ -13,6 +14,7 @@
 
 export * from './host-config'
 export * from './registration'
+export * from './availability-watch'
 export * from './cookie-gate'
 export * from './dl-fetch-priv'
 export * from './dl-port'

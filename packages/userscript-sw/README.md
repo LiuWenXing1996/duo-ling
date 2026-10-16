@@ -6,6 +6,7 @@ GM 运行时的 **SW 侧宿主**。一个 Chrome 扩展接上本包，就能用 
 | 职责 | 件 |
 | --- | --- |
 | 注册引擎 —— 世界配置 / 单脚本与全量注册 / 可用性检测 | `registration` |
+| 可用性监视 —— SW 进程内轮询引擎可用性，只在翻转时通知消费层 | `availability-watch` |
 | 命令分发 —— 中继件发来的 GM 请求（storage / xhr / download / menu…） | `dl-bridge` |
 | 事件底座 —— 脚本世界 ↔ SW 长连接的下行通道（菜单点击 / 值变更 / 下载进度） | `dl-port` |
 | cookie 域名门 —— GM_cookie 的安全边界（scheme + host） | `cookie-gate` |
@@ -75,6 +76,27 @@ chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
 
 宿主自管的命令（`userscript:save` / `toggle` / `import`…、`tab:*`）与包认领的 kind 不重叠：
 `SW_IPC_OWNED_KINDS` 是对外透出的认领白名单，宿主可据此把自己命令面的类型里与包重叠的 kind 摘掉。
+
+## 引擎可用性监视
+
+Chrome 对「允许运行用户脚本」开关**没有事件**，轮询是唯一检测手段。宿主在 SW 入口启一次监视，
+翻转时按需自愈：
+
+```ts
+import { onAvailabilityChange, registerAllEnabled, startAvailabilityWatch } from '@duoling/userscript-sw'
+
+startAvailabilityWatch() // 幂等；首个读数只建基线，不广播
+onAvailabilityChange(({ previous, current }) => {
+  // 开关后开：关闭期间启用的脚本只落库未注册，没人补注册就永远不生效
+  if (!previous && current.available) void registerAllEnabled()
+})
+```
+
+监视器**只报变化**，不做任何动作 —— 补注册 / 角标 / 广播都由消费方自己接。
+
+**前提**：SW 活不过 30s 空闲，监视定时器随之消亡。要让它持续跑需 offscreen 心跳保活
+（见 [`@duoling/userscript-offscreen`](../userscript-offscreen/README.md)）；容器缺席时 SW 会睡，
+被唤醒（UI 消息 / 导航事件）时入口重跑、监视重启、首个读数重建基线 —— 这不是缺陷。
 
 ## 装脚本
 

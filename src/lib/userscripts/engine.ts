@@ -58,7 +58,6 @@ export {
   collectCspWarnings,
   configureUserScriptsWorld,
   ensureWorldsConfigured,
-  getUserScriptsStatus,
   isUserScriptsAvailable,
   projectFromSource,
   recoverOnUpdate,

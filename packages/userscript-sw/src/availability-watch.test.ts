@@ -1,10 +1,10 @@
 // availability-watch.ts（检测层）单测：基线 / 变化广播 / 反向变化 / 幂等启动 / 探测失败保基线。
-// getUserScriptsStatus（engine）整体 mock——本文件只验证「变化才发事件」的语义。
+// getUserScriptsStatus（registration）整体 mock——本文件只验证「变化才发事件」的语义。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { UserScriptsAvailability } from './types'
+import type { UserScriptsAvailability } from './registration'
 
 const getUserScriptsStatus = vi.hoisted(() => vi.fn())
-vi.mock('./engine', () => ({ getUserScriptsStatus }))
+vi.mock('./registration', () => ({ getUserScriptsStatus }))
 
 const OFF: UserScriptsAvailability = { available: false, isFirefox: false, chromeMajor: 140, guideText: '' }
 const ON: UserScriptsAvailability = { available: true, isFirefox: false, chromeMajor: 140, guideText: '' }
