@@ -1,6 +1,6 @@
-// project-write.ts 单测（offscreen 写侧）：测试直调写 API，mock 掉源码库那半边
-// （lightning-fs + isomorphic-git，经 @duoling/offscreen-document 取用）—— 真实环境里
-// 它落在 lfs 上，非被测靶心；zip / base64 这类纯函数保留真身。
+// project-write.ts 单测（offscreen 写侧）：直调写 API，mock 掉源码库那半边
+// （../fs/git 背后的 lightning-fs + isomorphic-git）—— 真实环境里它落在 lfs 上，
+// 非被测靶心；zip / base64 这类纯函数（../fs/zip 与 @duoling/shared）保留真身。
 // 被测重点是写侧自身的语义：**保存恒成功、保存即注入**（无构建流程，
 // 源码原文进注册态）、守卫校验、提交失败不阻断、启停不产生提交、删除全部（记录批量清 +
 // 仓整目录清一次），以及导入（zip / 粘贴）「尽量导入」语义（单文件形态：配置由源码 metadata 派生）。
@@ -10,8 +10,8 @@ import { strToU8, zipSync } from 'fflate'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // 只替换落盘那五个（其余导出取真身）
-vi.mock('@duoling/offscreen-document', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@duoling/offscreen-document')>()),
+vi.mock('../fs/git', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../fs/git')>()),
   writeSource: vi.fn(async () => {}),
   commitSource: vi.fn(async () => ({ committed: true })),
   readSource: vi.fn(async () => null),
@@ -20,6 +20,8 @@ vi.mock('@duoling/offscreen-document', async (importOriginal) => ({
 }))
 
 import { bytesToBase64 } from '@duoling/shared'
+import { defaultConfig, readAllProjects, removeProjects } from '@duoling/userscript-core'
+import { commitSource, deleteAllRepos, deleteRepo, readSource, writeSource } from '../fs/git'
 import {
   createGeneratedProject,
   createProject,
@@ -31,15 +33,6 @@ import {
   saveExisting,
   setProjectEnabled,
 } from './project-write'
-import { readAllProjects, removeProjects } from '@duoling/userscript-core'
-import {
-  commitSource,
-  deleteAllRepos,
-  deleteRepo,
-  readSource,
-  writeSource,
-} from '@duoling/offscreen-document'
-import { defaultConfig } from './types'
 
 const mockWriteSource = vi.mocked(writeSource)
 const mockCommitSource = vi.mocked(commitSource)

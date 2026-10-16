@@ -105,7 +105,7 @@ export interface TabRecordHooks {
 }
 
 /**
- * acorn 语法检查（仅 AI loop 用；人工保存不做检查，见 project-write.saveSource）。
+ * acorn 语法检查（仅 AI loop 用；人工保存不做检查，见 offscreen 写侧的 saveSource）。
  * sourceType 固定 'script'：脚本世界按 classic script 执行，import/export 会被当场报错。
  * 返回 null = 通过；否则一条 行:列 诊断。
  */

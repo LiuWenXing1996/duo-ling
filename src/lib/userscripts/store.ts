@@ -1,7 +1,7 @@
 // 用户脚本的 SW 侧持久化（写出口汇聚层）。
 //
 // 项目数据（源码/配置/产物/enabled）的权威在 IndexedDB 状态库 duoling-state
-// （读侧 lib/userscripts/project-store.ts，写侧 project-write.ts，均不碰 chrome API）。
+// （读侧 lib/userscripts/project-store.ts 直连 IDB，写侧在包内 userstate/project-write）。
 // 本文件管观测数据（duoling-runtime 库，见 runtime-db.ts —— 标签页存续 + 一根活动轴：
 // 文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误）；GM 值存储（duoling-usdata 库）
 // 在 `@duoling/userscript-core` 的 gm-values.ts。

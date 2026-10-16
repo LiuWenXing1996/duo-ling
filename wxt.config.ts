@@ -167,7 +167,7 @@ export default defineConfig({
     // action 的默认行为由 popup 承担：点工具栏图标弹 popup（entrypoints/popup.html 自动写入
     // default_popup）。对话入口是网页浮层，由浮层宿主件挂出，不占 action。
     // offscreen 是 AI 生成链路的执行宿主（定位 B）：
-    // 对话 loop 与源码写侧（offscreen-document 的文件库 / project-write）都跑在 offscreen document 里，
+    // 对话 loop 与源码写侧（offscreen-document 的文件库 / userstate）都跑在 offscreen document 里，
     // 「用户发起生成后可收起浮层、任务照跑完」。没有该权限 chrome.offscreen 不存在
     // （Chrome 109+ / 仅 MV3）。
     // contextMenus = GM_registerMenuCommand（用户脚本扩展菜单，事件回推见 dl-port.ts）的载体 API，

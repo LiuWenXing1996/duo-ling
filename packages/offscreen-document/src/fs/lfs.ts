@@ -8,7 +8,7 @@
 // 全仓只允许从这里取实例，不要在别处 new LightningFS。
 //
 // 惰性初始化（不是顶层建实例）：本包声明 sideEffects:false，顶层副作用会被判成可摇掉的代码；
-// 且 Node 下（无 indexedDB）import 即产生未处理 rejection —— 首访才建，两件事一起解决。
+// 且 Node 下（无 indexedDB）会漏出未处理 rejection —— 取用时早失败堵住。
 import type { LfsFileContent, LfsNode } from '@duoling/proxy-service-list'
 import LightningFS from '@isomorphic-git/lightning-fs'
 
@@ -23,7 +23,13 @@ let instance: ReturnType<typeof createFs> | null = null
 
 /** 取 lfs 单例（首访建实例）—— 全仓唯一的取用口 */
 export function getFs(): ReturnType<typeof createFs> {
-  return (instance ??= createFs())
+  if (instance) return instance
+  // Node 单测没有 indexedDB：库内部会积下一串无人认领的 rejection，晚失败也接不住
+  if (typeof indexedDB === 'undefined') {
+    throw new Error('duoling-fs 依赖 IndexedDB，当前环境没有')
+  }
+  instance = createFs()
+  return instance
 }
 
 /** 单例的 promise 面：各 fs 操作统一从这里取 */

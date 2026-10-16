@@ -2,7 +2,7 @@
 //
 // 为什么 mock ./lfs：本模块的靶心是**它自己的三条约定** —— id 由内容定、落盘扩展名按真实 MIME
 // 归一、同内容幂等 —— 而不是 lightning-fs 吃不吃得下这些路径。后者由 e2e/chat-attachments.spec.ts
-// 在真扩展里验（与 project-write.test.ts mock 源码库是同一种分工）。故这里只搭一个够用的内存 fs：
+// 在真扩展里验（与 userstate/project-write.test.ts mock 源码库是同一种分工）。故这里只搭一个够用的内存 fs：
 // 路径语义（父子目录、ENOENT）按真身对齐，其余一概不做。
 import { mediaTypeOf } from '@duoling/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'

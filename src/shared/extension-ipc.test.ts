@@ -19,10 +19,10 @@ import { OFFSCREEN_KIND_PREFIXES } from '@/entrypoints/app/offscreen-main'
 // offscreen-main 的 import 链会带到 offscreen-document（文件库）：其 lfs 单例是**惰性**建的，
 // import 期不碰 indexedDB，故本文件不必再挡重依赖。只需把启动对账那一步换掉（见下）。
 // 启动对账会在 import 期真碰 fs/IDB，与本测试无关——保留其余真实导出
-vi.mock('@/lib/userscripts/offscreen-state-commands', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/userscripts/offscreen-state-commands')>()
-  return { ...actual, reconcileFs: vi.fn(async () => {}) }
-})
+vi.mock('@duoling/offscreen-document', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@duoling/offscreen-document')>()),
+  reconcileFs: vi.fn(async () => {}),
+}))
 
 /** 期望的 kind 归属（side 取值 = 应答端）。真相源：extension-ipc.ts 的联合 + 各端入口的路由注释 */
 type OwnershipRow = { kind: RuntimeRequest['kind']; side: 'sw' | 'offscreen' | 'host' }
@@ -69,21 +69,6 @@ const ALL_KINDS = [
   // —— fs:ping（offscreen：容器就绪探测，SW 静默让路）——
   // 源码库 / 资源库的读写已走 OffscreenService 代理（报文无 kind，不占总线），不在本表
   { kind: 'fs:ping', side: 'offscreen' },
-  // —— state:*（offscreen：项目状态库写侧，单写方）——
-  { kind: 'state:create', side: 'offscreen' },
-  { kind: 'state:createProject', side: 'offscreen' },
-  { kind: 'state:save', side: 'offscreen' },
-  { kind: 'state:remove', side: 'offscreen' },
-  { kind: 'state:removeAll', side: 'offscreen' },
-  { kind: 'state:toggle', side: 'offscreen' },
-  { kind: 'state:rename', side: 'offscreen' },
-  { kind: 'state:import', side: 'offscreen' },
-  { kind: 'state:import-text', side: 'offscreen' },
-  { kind: 'state:group-create', side: 'offscreen' },
-  { kind: 'state:group-rename', side: 'offscreen' },
-  { kind: 'state:group-remove', side: 'offscreen' },
-  { kind: 'state:group-reorder', side: 'offscreen' },
-  { kind: 'state:set-group', side: 'offscreen' },
   // —— offscreen:*（SW：容器管理）——
   { kind: 'offscreen:ensure', side: 'sw' },
   { kind: 'offscreen:close', side: 'sw' },

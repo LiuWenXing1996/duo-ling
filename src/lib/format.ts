@@ -1,16 +1,8 @@
 // 通用格式化工具函数：纯函数，便于单测。
-
-/**
- * 抛出物 → 可读文案。
- *
- * 全仓七十多处 catch 块要把它拼进提示语（面板的 error 文案、应答载荷的 error 字段）。
- * 收到一处的意义不是省字，是一致性：漏掉 `String(e)` 兜底的那种写法，遇到非 Error 抛出物
- * 会显示成 "[object Object]"。需要中文前缀的调用点自行拼接（如 `'保存失败：' + errorText(e)`）
- * —— 本函数不掺文案。
- */
-export function errorText(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
-}
+//
+// errorText 的实现已下沉 `@duoling/shared`（包侧写出口与 offscreen 上下文也要拼错误文案，
+// 真相源只能有一处）。本文件只维持既有 import 路径（`@/lib/format`）不变。
+export { errorText } from '@duoling/shared'
 
 /** Unix 秒的时间戳（如 isomorphic-git 的 author.timestamp）格式化为 YYYY-MM-DD HH:mm */
 export function formatTimestamp(ts: number): string {

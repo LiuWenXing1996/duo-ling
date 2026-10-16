@@ -108,7 +108,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 ① **源码唯一来源 `duoling-fs`**（lightning-fs，IndexedDB 后端，**只许 offscreen 碰**，`@duoling/offscreen-document` 的 `fs/lfs` 单例）：每脚本一仓 `/uscripts/<uuid>/`——`script.js`（单文件纯 JS 源码，2026-09-20 单文件化）即工作树（未提交改动 = 草稿），git 历史 = 每次保存的版本（同包 `fs/git`，仓损坏只丢历史不丢脚本）；配置由源码里的 `// ==UserScript==` 块派生（`resolveConfigFromSource`），**不再有并行元信息文件**；SW/扩展页读不到 lfs，**源码读写一律走 `OffscreenService` 代理向 offscreen 取**（同包 `offscreen-service`）。
 
-② **注册态库 `duoling-state`**（独立 IndexedDB，`state-db.ts`/`project-store.ts` 读、`project-write.ts` 写，**写只归 offscreen**）= 每脚本一条 `ScriptProject`：元数据 + enabled + **源码搬运副本 `source`**（SW 读不到 lfs，注册的注入代码从注册态取）——SW 注册直读 `source.code`，注册链路对 offscreen 存活零依赖（既定不变量）。
+② **注册态库 `duoling-state`**（独立 IndexedDB，`state-db.ts`/`project-store.ts` 读、offscreen 包的 `userstate/project-write.ts` 写，**写只归 offscreen**）= 每脚本一条 `ScriptProject`：元数据 + enabled + **源码搬运副本 `source`**（SW 读不到 lfs，注册的注入代码从注册态取）——SW 注册直读 `source.code`，注册链路对 offscreen 存活零依赖（既定不变量）。
 
 ③ **脚本数据库 `duoling-usdata`**（`usdata-db.ts`，**写只归 SW**）：`GM.*` 存储值（gm store，复合主键 `[uuid,key]`）与 `GM.*` 标签值（tab store，`[uuid,tabId]`）——**脚本自己写的数据**（不可信、无上限），复合主键 + 索引替代旧 chrome.storage 字符串键拼接，范围查询不再全库扫描。
 
@@ -127,11 +127,11 @@ DevTools 里按库名过滤：`duoling-fs` / `duoling-state` / `duoling-usdata` 
 
 ## 统一保存（2026-09-20 单文件化：保存恒成功、保存即注入）
 
-一切源码落盘（编辑器保存 / AI 收尾 / 历史恢复 / zip 导入 / 链接导入 / 粘贴导入 / 新建）收敛到 offscreen 单一入口 `project-write.saveSource`：写工作树 → git 提交 → 写状态库（含源码搬运副本）→ 出口广播。
+一切源码落盘（编辑器保存 / AI 收尾 / 历史恢复 / zip 导入 / 链接导入 / 粘贴导入 / 新建）收敛到 offscreen 单一入口 `userstate/project-write.saveSource`：写工作树 → git 提交 → 写状态库（含源码搬运副本）→ 出口广播。
 
 - **保存恒成功、保存即注入**：无构建流程，源码原文随落盘进注册态，注册的注入代码 = 源码本身。语法错误不拦保存：坏了的脚本照样装（油猴同款），运行期报错走现成的错误日志链路。
 - 编辑内容只活在页面内存（草稿机制已删）：有未保存改动时标签栏标题后点红点，关标签前弹确认（确认里可直接「保存并关闭」）；历史恢复会连草稿一并覆盖，恢复确认里按该脚本的编辑器脏状态追加提醒。
-- **脚本名不入仓**：改名（`renameProject` / `state:rename`）只改状态库记录的 `name`，不写源码、不产生提交——名字是管理面标识（列表 / 标签页 / `GM_info` / 活动历史里运行行的脚本名），与源码里的 `@name` 互不覆盖（见 `saveSource` 的 adoptName 说明）。
+- **脚本名不入仓**：改名（服务方法 `userscriptRename` → `renameProject`）只改状态库记录的 `name`，不写源码、不产生提交——名字是管理面标识（列表 / 标签页 / `GM_info` / 活动历史里运行行的脚本名），与源码里的 `@name` 互不覆盖（见 `saveSource` 的 adoptName 说明）。
 - **导入（zip / 本地路径 / 粘贴 / 链接）**：取内容方式不同（zip 解码 / 读本地文件 / 直接粘源码 / 抓远端脚本），落盘同在 offscreen（单写方），导入即完成（无后台构建队列）；解码只按后缀认源码（路径以 `*.user.js` 结尾即算，任意层级、同一个目录里多份都导入），其余文件列进报告说明（配置由源码里的 `// ==UserScript==` 块派生，缺 matches 提示补全）。四条入口都落「未启用」，由用户审过源码再手动启用。
 - **链接导入多一步**：远端内容在取回前不知道是什么，故它是两条动线 —— 先抓回并展示元数据摘要，用户确认后才落盘；其余三条内容已在手上，直接落盘 + 报告复述。
 - 后台链路不经命令面，写完状态库**必须自己发** `broadcastDataChange`。
@@ -150,7 +150,7 @@ DevTools 里按库名过滤：`duoling-fs` / `duoling-state` / `duoling-usdata` 
 
 IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 `src/lib/data-broadcast.ts` 补：写侧落盘成功后 `broadcastDataChange(域, uuid?)` 发一条**只含域+uuid、不带数据**的通知（BroadcastChannel 同源多播，不唤醒休眠 SW；无 BC 降级 `runtime.sendMessage`），读侧组件用 `useDataSync(域, reload)` 订阅后自行回拉权威存储（同 `domain+uuid` 100ms 合并防风暴）。频道名 / 合并窗口 / 推送形状（`DataChangedPush` / `DataDomain`）的真相源在 `@duoling/shared`（data-broadcast.ts）：运行时包（dl-bridge / cookie-gate）与宿主两侧同频道互通是硬要求，实现体两侧各留一份，共享的只有契约。
 
-- 广播埋在写出口：offscreen `handleStateCommand`（`script` 域）、`conversation-store` 写函数（`conversation`）、`userscripts/store.ts`（`error`）、`userscripts/usdata-db` 写出口经 store.ts（gm 变更事件）与 `model-store.ts` 写出口（`model`）。
+- 广播埋在写出口：offscreen 的 OffscreenService 写方法（`script` / `group` 域）、`conversation-store` 写函数（`conversation`）、`userscripts/store.ts`（`error`）、`userscripts/usdata-db` 写出口经 store.ts（gm 变更事件）与 `model-store.ts` 写出口（`model`）。
 - **`tabActivity`（标签页活动记录）是唯一按形态分流的域**：存续行的增减（建行 / 关页 / 开关记录 / 划断对账）与删除清空都由 `userscripts/tab-sessions.ts`、`store.ts` 发**不带 uuid**（=结构性变化），入站采样在最热的那条路上由 `dl-bridge.ingestTabRecord` 发**带 uuid**（=那一页的轴长了新行）。读侧据此分开：不带 uuid 两个视图一起整根重读，带 uuid 只对正在看的那一页按行号游标增量续拉（`tabTimeline` 的 `sinceId` / `maxId`）—— 采样每秒可达几十条且轴无上限，整根重读的代价会随轴长线性上涨，增量只与新增条数有关。
 - **新增写路径必须同步埋广播**；前端新面板按域接 `useDataSync`，不再靠手动刷新兜底。编辑器有未保存改动时不自动重载，只提示「已在别处修改，这次保存会覆盖那一次改动」；编辑器自己保存触发的广播会被忽略——否则刚保存就被当成「别处修改」挂上提示。
 - **只适用于 IDB**。落在 `chrome.storage.local` 的设置在**模块内封一层订阅**即可 —— 原生 `chrome.storage.onChanged` 已跨上下文通知（扩展页 / popup 都收得到），不必自建通道；键名与 area 过滤一并封在该模块内，调用方不写字面量。

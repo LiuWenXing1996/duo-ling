@@ -3,6 +3,7 @@
 //
 // 一个脚本 = 一个单文件源码 + 一份配置，直接映射 chrome.userScripts 原生字段。
 // 无构建流程：保存即注入（源码原文进注册态），对齐油猴单文件形态。
+import { EXTENSION_NAME } from '@duoling/shared'
 import type { ScriptConfig } from './script-config'
 
 /**
@@ -12,7 +13,7 @@ import type { ScriptConfig } from './script-config'
  * 不在此处保存——dl 单写方约束下 SW / 扩展页读不到 lfs，故源码的唯一权威副本在
  * duoling-fs；本记录退化为「注册态库」：注册所需的元数据 + **源码搬运副本**（SW 读不到
  * lfs，注册时的注入代码从这里取——保存时由 offscreen 写侧随落盘一并写入）。
- * 改这份形状时务必同步 offscreen-document 的 fs 层 / project-write / ui-client / 各面板。
+ * 改这份形状时务必同步 offscreen-document 的 fs 层与 userstate、ui-client、各面板。
  */
 export interface ScriptProject {
   /** schema 版本 */
@@ -68,7 +69,7 @@ export interface ScriptSummary {
 /**
  * 单文件源码在 zip 里的后缀：**路径以它结尾的条目即源码**（文件名叫什么都行）。
  * 用 `.user.js` 而不另立名字：从 GreasyFork / GitHub 直下的脚本落进 zip 就能导入，不必先改名。
- * 编解码两侧（offscreen-document 的 fs/zip 打包、project-write 的导入）共用这一处。
+ * 编解码两侧（offscreen-document 的 fs/zip 打包、userstate/project-write 的导入）共用这一处。
  */
 export const SCRIPT_EXT = '.user.js'
 
@@ -85,4 +86,24 @@ export function listSummaries(projects: ScriptProject[]): ScriptSummary[] {
   return [...projectSummaries].sort(
     (a, b) => Number(b.enabled) - Number(a.enabled) || b.savedAt - a.savedAt,
   )
+}
+
+/**
+ * 新建脚本的初始源码模板（零输入创建用）：单文件纯 JS，按 classic script 注入，保存即注入。
+ *
+ * 模板只有两样东西：一个现成的 metadata 块与一行能跑起来的示例 —— 块是配置的唯一入口
+ * （编辑器没有配置表单，`@match` / `@grant` 只能写在这里），示例证明脚本真的跑起来了。
+ * 刻意不写散文注释、不写 `@name`：它是给用户直接改的起点，名字归状态库。
+ * 匹配规则那一行与新建时的兜底配置同值（都是全站），保持一致免得两边打架。
+ */
+export function defaultSource(): string {
+  return [
+    '// ==UserScript==',
+    '// @match *://*/*',
+    '// @grant none',
+    '// ==/UserScript==',
+    '',
+    `console.log('[${EXTENSION_NAME}脚本] 已注入', location.href)`,
+    '',
+  ].join('\n')
 }

@@ -1,10 +1,11 @@
-// 契约与 key 同处：接口不引任何子包，实现在子包（依赖单向）。
+// 契约与 key 同处：接口只引类型包（userscript-core / shared），实现在子包（依赖单向）。
 import {
   createProxyService,
   registerService,
   type ProxyService,
   type ProxyServiceKey,
 } from '@webext-core/proxy-service'
+import type { ScriptConfig, ScriptGroup, ScriptProject } from '@duoling/userscript-core'
 import type { PromiseService } from './types'
 
 /** 这次改动是谁做的（历史面板据此显示来源标签） */
@@ -83,6 +84,57 @@ export interface AssetWriteResult {
   ref: ChatAssetRef
 }
 
+// —— 用户脚本状态库写侧的形状（写侧在 offscreen，本组是唯一的跨上下文调用面）——
+
+/** 保存结果：project = 落库后的注册态记录；notes = metadata 解析提示 */
+export interface SaveOutcome {
+  project: ScriptProject
+  notes: string[]
+}
+
+/**
+ * 导入不淘汰脚本：凡以 `.user.js` 结尾的条目都落盘并说明，其余文件列进 ignored 报告。
+ * 故 ok 条目可带 notes（字段兜底提示）；failed 只留给落盘本身出错（写源码 / 写状态库抛错）。
+ */
+
+/** 导入成功的条目（uuid 为导入方新生成；enabled 恒 false） */
+export interface ImportItemOk {
+  status: 'ok'
+  uuid: string
+  name: string
+  /** 内容指纹与现有脚本一致时的原脚本名（仅提示，仍已导入） */
+  duplicateOf?: string
+  /** 导入期需要告知用户的提示：字段缺失已补默认 / 未声明匹配规则 等 */
+  notes?: string[]
+}
+
+/** 导入失败的条目——落盘本身出错（写源码 / 写状态库抛错） */
+export interface ImportItemFailed {
+  status: 'failed'
+  /** 出错脚本的名字（落盘前已取到的那个） */
+  name: string
+  reason: string
+}
+
+export type ImportItemResult = ImportItemOk | ImportItemFailed
+
+/** 导入时未导入的文件（非 `.user.js` 条目；仅展示） */
+export interface ImportItemIgnored {
+  status: 'ignored'
+  /** zip 内原始路径 */
+  path: string
+  reason: string
+}
+
+/** 一次 zip / 粘贴导入的汇总报告 */
+export interface ImportReport {
+  succeeded: number
+  failed: number
+  results: ImportItemResult[]
+  /** 未导入的文件（非 `.user.js` 条目），仅展示、不影响成功/失败计数 */
+  ignored: ImportItemIgnored[]
+}
+
 /** fs 组契约：调用面与实现面同一形状，由它钉死 */
 export interface IOffscreenService extends PromiseService<{
   /** 读源码（工作树）。无源码返回 null */
@@ -103,6 +155,50 @@ export interface IOffscreenService extends PromiseService<{
   fsAssetPut(dataUrl: string, filename: string): Promise<AssetWriteResult>
   /** 读回资源；不在（被清理过 / id 写错）返回 null */
   fsAssetRead(id: string): Promise<ChatAssetData | null>
+
+  // —— 用户脚本状态库写侧（单写方 = offscreen；SW 只经此转发，不直写） ——
+  // 每个方法写成功后广播一次（script / group 域），前端据此回拉：IndexedDB 没有变更通知。
+  // 读不进本组：SW 与扩展页直连 IndexedDB（project-store），注册链路不押在容器存活上
+  //（源码读取是例外 —— 走 fsRead）。
+
+  /** 新建（零输入）：自动命名 + 初始模板 + 首次保存 */
+  userscriptCreate(): Promise<ScriptProject>
+  /** AI 生成落盘：写状态库 + git 快照（note = AI summary）；不注册（enabled 默认 false） */
+  userscriptCreateGenerated(payload: {
+    name: string
+    config: ScriptConfig
+    code: string
+    enabled: boolean
+    note?: string
+  }): Promise<ScriptProject>
+  /** 统一保存（编辑器 / AI 改脚本）：写 fs + 提交 + 落库；notes = metadata 解析提示 */
+  userscriptSave(
+    uuid: string,
+    code: string,
+    opts?: { name?: string; config?: ScriptConfig; note?: string; actor?: CommitActor },
+  ): Promise<SaveOutcome>
+  /** 删除：状态库记录 + git 仓一起清 */
+  userscriptRemove(uuid: string): Promise<void>
+  /** 删除全部用户脚本（不含内置件），返回删除条数 */
+  userscriptRemoveAll(): Promise<number>
+  /** 启停：只改 enabled，不产生提交 */
+  userscriptToggle(uuid: string, enabled: boolean): Promise<ScriptProject>
+  /** 重命名：只改状态库的 name，不入仓、不产生提交 */
+  userscriptRename(uuid: string, name: string): Promise<ScriptProject>
+  /** zip 导入：解码 + 逐脚本尽量落盘（uuid 重生成、enabled 恒 false） */
+  userscriptImportZip(zipBase64: string): Promise<ImportReport>
+  /** 粘贴导入：一段源码文本 → 一个未启用脚本 */
+  userscriptImportText(code: string): Promise<ImportReport>
+  /** 新建分组（自动生成 id 与 order） */
+  userscriptGroupCreate(name: string): Promise<ScriptGroup>
+  /** 重命名分组（仅改展示名；脚本只持有 id，不受影响） */
+  userscriptGroupRename(id: string, name: string): Promise<ScriptGroup>
+  /** 删除分组：成员先退回未分组，再删定义 */
+  userscriptGroupRemove(id: string): Promise<void>
+  /** 重排分组顺序（orderedIds 为目标顺序全集） */
+  userscriptGroupReorder(orderedIds: string[]): Promise<void>
+  /** 把脚本归入某分组（空字符串 = 未分组） */
+  userscriptSetGroup(uuid: string, group: string): Promise<ScriptProject>
 }> {}
 
 const OFFSCREEN_SERVICE_KEY = 'offscreen-service' as ProxyServiceKey<IOffscreenService>

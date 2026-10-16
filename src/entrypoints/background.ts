@@ -4,10 +4,10 @@
 // 对话、模型配置不走这里（各自直连 IndexedDB：duoling-chat / duoling-app）。
 //
 // 存储分工：
-//   · 注册态（bundle + 元数据 + enabled）—— 权威在独立 IndexedDB 库 duoling-state，
+//   · 注册态（元数据 + 源码搬运副本 + enabled）—— 权威在独立 IndexedDB 库 duoling-state，
 //     **写只归 offscreen**（单写方）：读 —— 本文件直连 project-store，**不经容器**，
 //     注册链路不能押在 offscreen 存活上，否则容器一挂所有脚本都不生效；
-//     写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
+//     写 —— 经 OffscreenService 的 userscript* 方法落盘，写完从状态库读回再注册。
 //   · 源码 —— 唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
 //     SW 读不到 lfs，源码读写一律走 OffscreenService 代理向 offscreen 取
 //     （实现落在 @duoling/offscreen-document）。
@@ -44,7 +44,7 @@ import {
 } from '@/lib/userscripts/engine'
 import type { BuiltinRegistration } from '@/lib/userscripts/engine'
 // metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
-// 真正的归一化在写入口一处（project-write.saveSource），此处不写回任何东西
+// 真正的归一化在写入口一处（offscreen 写侧的 saveSource），此处不写回任何东西
 import { resolveConfigFromSource } from '@duoling/userscript-core'
 // 标签页录制：录到的采样与语料压缩都归 SW（采样在 duoling-runtime 的 tab_events，
 // offscreen 与扩展页都不直连）。录制的开关跟着活动记录走，判据落在存续表上 —— 见 tab-sessions。
@@ -57,7 +57,8 @@ import { runUpdateCheck } from '@/lib/update-check'
 import { createServiceWorkerHost, swIpcHandlers, SW_IPC_OWNED_KINDS } from '@duoling/userscript-sw'
 // SWService 注册侧：代理调用经库 listener 直达，不占总线 matcher 位
 import { SWService } from '@duoling/service-worker'
-import { registerSWService } from '@duoling/proxy-service-list'
+// OffscreenService 消费侧：项目数据的写路径（见下方 offscreenService）
+import { createOffscreenService, registerSWService, type SaveOutcome } from '@duoling/proxy-service-list'
 // 标准化总线：本语境命令面唯一的 onMessage 收口（serveIpc）+ 路由 matcher（前缀表 / 包命令面）
 import { serveIpc, prefixMatcher, packMatcher, ipcRequest, ipcNotify } from '@/shared/ipc-bus'
 import { duolingTelemetry } from '@/lib/userscripts/telemetry'
@@ -118,7 +119,7 @@ import {
 import { listConversations } from '@/lib/conversation-store'
 // 「这一页是不是普通网页」的判据（页面概览只收普通网页，与 popup 的按钮判据同源）
 import { webHostname } from '@/lib/web-hostname'
-import type { ImportReport, RunEndReason, ScriptProject } from '@/lib/userscripts/types'
+import type { ImportReport, RunEndReason, ScriptGroup, ScriptProject } from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主）
 import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady } from '@/lib/offscreen'
@@ -149,7 +150,7 @@ import { errorText } from '@/lib/format'
  * SW 管辖的 kind 前缀（路由白名单）。
  *
  * offscreen 与 SW 同时在监听 runtime 消息，而 sendResponse 对一条消息只有一次机会 ——
- * SW 只应响应这里登记的前缀，其余（如将来 offscreen 的 ai: / chat: 指令）必须让路，
+ * SW 只应响应这里登记的前缀，其余（offscreen 的 fs: / conv: / chat:）必须让路，
  * 否则 SW 会抢答、把 offscreen 的响应挤掉。
  *
  * 新增命令时若忘了登记前缀，该命令会静默无响应（而不是报「未知消息类型」）——
@@ -171,7 +172,7 @@ export const SW_KIND_PREFIXES = [
 /**
  * SW 管辖的请求（由上面的前缀推导，两者必须同源）。
  *
- * handlers 表只登记这些 kind：`ai:*`（git 历史）与 `state:*`（项目状态库写侧）都由 offscreen
+ * handlers 表只登记这些 kind：`fs:*` / `conv:*` / `chat:*`（offscreen 管辖）都归 offscreen
  * 应答——它们不是 SW 的职责，不该为凑齐类型而塞进 handlers 表补死桩。
  *
  * 再减去包自管的 kind（SW_IPC_OWNED_KINDS）：管理面只读四条由 @duoling/userscript-sw 的
@@ -184,31 +185,20 @@ type SwRequest = Exclude<
   { kind: (typeof SW_IPC_OWNED_KINDS)[number] }
 >
 
-/** SW → offscreen 的请求封装：转发 ai:*（git 历史）与 state:*（项目状态库写侧）命令面。统一信封解包。 */
-function sendToOffscreen<T>(request: RuntimeRequest): Promise<T> {
-  return ipcRequest<T>(request)
-}
-
 /**
- * 写路径：项目数据的写只归 offscreen（单写方），SW 一律转发。
+ * 项目数据的写路径：写只归 offscreen（单写方），本处经服务代理调容器里的 OffscreenService。
  *
- * 先 `ensureOffscreenReady` 再发命令：容器刚被回收 / 扩展重载时会重建，
- * 就绪判据是「能应答 fs:ping」而不是「文档已存在」。
- *
- * 重试只对「容器没接上」类错误：业务异常（脚本不存在、文件树非法…）重试一次也是同样的错，
- * 只会让用户多等一轮。写命令都是读改写，重复执行一次不会产生第二份数据。
+ * 容器刚被回收 / 扩展重载后首次调用会失败（报文发不到监听方），故按**错误文案**判据重试一次：
+ * 命中即把容器拉起来（就绪判据是「能应答 fs:ping」而不是「文档已存在」），起来了才重试。
+ * 业务异常（脚本不存在、源码不是字符串…）不重试 —— 重试一次也是同样的错，只让用户白等。
+ * 写方法都是读改写，重复执行一次不会产生第二份数据。
+ * （UI → SW 那条链路的同款判据见 lib/userscripts/ui-client.ts。）
  */
-async function writeViaOffscreen<T>(request: RuntimeRequest): Promise<T> {
-  await ensureOffscreenReady()
-  try {
-    return await sendToOffscreen<T>(request)
-  } catch (e) {
-    const msg = errorText(e)
-    if (!/port closed|Receiving end does not exist|无响应/.test(msg)) throw e
-    await ensureOffscreenReady()
-    return await sendToOffscreen<T>(request)
-  }
-}
+const OFFSCREEN_GONE = /port closed|Receiving end does not exist|Could not establish connection|无响应/
+const offscreenService = createOffscreenService(async (error) => {
+  if (!OFFSCREEN_GONE.test(errorText(error))) return false
+  return await ensureOffscreenReady()
+})
 
 /**
  * 注册失败：记入错误日志（在活动历史的「未知标签页」档里看），并返回错误文案给 UI 展示。
@@ -477,10 +467,7 @@ const handlers: {
     // 转发前先广播「保存中」瞬态：列表行立即转圈（链路收尾的落库广播负责切终态
     // ——见 @duoling/shared 的 DataChangedPush.phase 说明）
     broadcastBuildPhase('script', msg.uuid, 'saving')
-    const outcome = await writeViaOffscreen<import('@/lib/userscripts/project-write').SaveOutcome>({
-      kind: 'state:save',
-      uuid: msg.uuid,
-      code: msg.code,
+    const outcome: SaveOutcome = await offscreenService.userscriptSave(msg.uuid, msg.code, {
       name: msg.name,
       config: msg.config,
       note: msg.note,
@@ -499,7 +486,7 @@ const handlers: {
 
   // 新建脚本（零输入）：命名 / 初始模板 / 首次快照全在 offscreen 侧完成，SW 只负责注册。
   'userscript:create': async (): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
-    const project = await writeViaOffscreen<ScriptProject>({ kind: 'state:create' })
+    const project = await offscreenService.userscriptCreate()
     const registerError = await registerOrLog(project)
     return {
       uuid: project.uuid,
@@ -513,8 +500,7 @@ const handlers: {
   // （写状态库 + git 快照，note = AI summary），enabled 为真才注册——生成与生效解耦，
   // AI 产物默认零影响；启用走现成的 userscript:toggle。
   'userscript:createProject': async (msg): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
-    const project = await writeViaOffscreen<ScriptProject>({
-      kind: 'state:createProject',
+    const project = await offscreenService.userscriptCreateGenerated({
       name: msg.name,
       config: msg.config,
       code: msg.code,
@@ -542,7 +528,7 @@ const handlers: {
     await unregisterScripts([msg.uuid]).catch((e) =>
       console.warn('[duoling:sw] 删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
     )
-    await writeViaOffscreen<void>({ kind: 'state:remove', uuid: msg.uuid })
+    await offscreenService.userscriptRemove(msg.uuid)
     // 该脚本对内置并集的贡献随状态库删除而消失，中继件可能需要注销。
     // 必须放在清库**之后**：清库前读库还算得进这个脚本，并集「未变」、中继件被已在位检查跳过，
     // 中继件就带着已删脚本的 matches 残留（removeAll 之前整体漏调同属这一族问题）
@@ -567,7 +553,7 @@ const handlers: {
       console.warn('[duoling:sw] 全部删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', uuids, e),
     )
     try {
-      const removed = await writeViaOffscreen<number>({ kind: 'state:removeAll' })
+      const removed = await offscreenService.userscriptRemoveAll()
       // 状态库清空后再同步内置并集：此时读库必为空 → 中继件与录制转发件整体注销。
       // 漏了这步的话，中继件会带着旧并集残留注册，白占每个页面的注入面
       await refreshBuiltinScripts().catch(() => {})
@@ -590,11 +576,7 @@ const handlers: {
     // 先读一次确认存在（状态库直读，不经容器），否则转发后才知道不存在、白搭一趟
     if (!(await getProject(msg.uuid))) throw new Error('脚本不存在')
     // enabled 不进 git 仓（buildContents 刻意排除），故只改状态库、不产生提交
-    const next = await writeViaOffscreen<ScriptProject>({
-      kind: 'state:toggle',
-      uuid: msg.uuid,
-      enabled: msg.enabled,
-    })
+    const next = await offscreenService.userscriptToggle(msg.uuid, msg.enabled)
     if (msg.enabled) return { registerError: await registerOrLog(next) }
     // 同 userscript:remove：关停注销失败别静默，否则开关显示已关、页面里还在注入
     await unregisterScripts([msg.uuid]).catch((e) =>
@@ -610,43 +592,35 @@ const handlers: {
   // 同 toggle：注册失败只降级为警告，不把改名判失败（名字已落库）。
   'userscript:rename': async (msg): Promise<{ registerError?: string }> => {
     if (!(await getProject(msg.uuid))) throw new Error('脚本不存在')
-    const next = await writeViaOffscreen<ScriptProject>({
-      kind: 'state:rename',
-      uuid: msg.uuid,
-      name: msg.name,
-    })
+    const next = await offscreenService.userscriptRename(msg.uuid, msg.name)
     return next.enabled ? { registerError: await registerOrLog(next) } : {}
   },
 
   // zip 导入：纯转发 offscreen 单写方（解码 + 落盘同处）。导入恒 enabled:false——「先审后启」
   // 是产品原则，落盘后由用户手动启用（userscript:toggle），故此处**无注册动作**（与 create / toggle 不同：不调 registerOrLog）。
   'userscript:import': async (msg): Promise<ImportReport> =>
-    writeViaOffscreen<ImportReport>({ kind: 'state:import', zipBase64: msg.zipBase64 }),
+    offscreenService.userscriptImportZip(msg.zipBase64),
 
   // 粘贴导入：一段脚本源码 → 一个脚本。解析与落盘都归 offscreen 单写方，SW 只转发；
   // 语义照抄 zip 导入——恒 enabled:false（先审后启），故此处同样**无注册动作**。
   'userscript:importText': async (msg): Promise<ImportReport> =>
-    writeViaOffscreen<ImportReport>({ kind: 'state:import-text', code: msg.code }),
+    offscreenService.userscriptImportText(msg.code),
 
   // 脚本列表分组读侧（userscript:groups）也归运行时包 handler pack（直连 IDB 的纯读）。
 
-  // 把脚本归入某分组 / 退回未分组：转发 offscreen 单写方（group 不入 git 仓，不产生提交）
-  'userscript:setGroup': async (msg): Promise<import('@/lib/userscripts/types').ScriptProject> =>
-    writeViaOffscreen<import('@/lib/userscripts/types').ScriptProject>({
-      kind: 'state:set-group',
-      uuid: msg.uuid,
-      group: msg.group,
-    }),
+  // 把脚本归入某分组 / 退回未分组：走 offscreen 单写方（group 不入 git 仓，不产生提交）
+  'userscript:setGroup': async (msg): Promise<ScriptProject> =>
+    offscreenService.userscriptSetGroup(msg.uuid, msg.group),
 
-  // 分组管理（新建 / 重命名 / 删除 / 重排）：纯转发 offscreen 单写方，SW 无副作用
-  'userscript:group-create': async (msg): Promise<import('@/lib/userscripts/types').ScriptGroup> =>
-    writeViaOffscreen<import('@/lib/userscripts/types').ScriptGroup>({ kind: 'state:group-create', name: msg.name }),
-  'userscript:group-rename': async (msg): Promise<import('@/lib/userscripts/types').ScriptGroup> =>
-    writeViaOffscreen<import('@/lib/userscripts/types').ScriptGroup>({ kind: 'state:group-rename', id: msg.id, name: msg.name }),
+  // 分组管理（新建 / 重命名 / 删除 / 重排）：同走 offscreen 单写方，SW 无副作用
+  'userscript:group-create': async (msg): Promise<ScriptGroup> =>
+    offscreenService.userscriptGroupCreate(msg.name),
+  'userscript:group-rename': async (msg): Promise<ScriptGroup> =>
+    offscreenService.userscriptGroupRename(msg.id, msg.name),
   'userscript:group-remove': async (msg): Promise<void> =>
-    writeViaOffscreen<void>({ kind: 'state:group-remove', id: msg.id }),
+    offscreenService.userscriptGroupRemove(msg.id),
   'userscript:group-reorder': async (msg): Promise<void> =>
-    writeViaOffscreen<void>({ kind: 'state:group-reorder', orderedIds: msg.orderedIds }),
+    offscreenService.userscriptGroupReorder(msg.orderedIds),
 
   // 运行时间线：运行条 + 对不上运行集的错误行混排（消费方是 AI 的 run_log_read；
   // 活动历史面板按页读整根轴，不走这条）

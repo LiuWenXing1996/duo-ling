@@ -78,7 +78,7 @@ test.describe.serial('工具栏角标（按标签页报脚本运行数）', () =
 
     // 存成脚本：新建即启用，`userscript:save` 落库后立即重注册（保存即注入）
     //
-    // **源码里的 `@name` 不进状态库**：编辑器保存语义不 adoptName（见 project-write.ts），脚本名
+    // **源码里的 `@name` 不进状态库**：编辑器保存语义不 adoptName（见 offscreen 写侧的 project-write），脚本名
     // 仍是新建时的自动编号，`@name` 只进 `GM_info`。所以「仅 A 页」那个脚本的 uuid 在这里记下来，
     // 后面按 uuid 操作 —— 按名字查列表是查不到的。
     for (const code of [SCRIPT_ALL, SCRIPT_A]) {

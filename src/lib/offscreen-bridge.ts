@@ -37,7 +37,7 @@ export const offscreenBridge = {
     send({ kind: 'model:getActiveProfile' }),
 
   /**
-   * AI 生成脚本落盘（经 SW：userscript:createProject → writeViaOffscreen → state:createProject）。
+   * AI 生成脚本落盘（经 SW：userscript:createProject → OffscreenService.userscriptCreateGenerated）。
    * 统一保存：写 fs + git 提交（note = AI summary）+ 落库都在 offscreen 单写方完成，
    * SW 负责注册（enabled 时）。虽然写侧就在本上下文，仍走 SW 命令面——保持「落盘入口唯一」。
    */
@@ -52,7 +52,7 @@ export const offscreenBridge = {
     send({ kind: 'userscript:createProject', ...payload, actor: 'ai' }),
 
   /**
-   * AI 改既有脚本落盘（经 SW：userscript:save → state:save）。
+   * AI 改既有脚本落盘（经 SW：userscript:save → OffscreenService.userscriptSave）。
    * 与编辑器保存同一条命令：统一保存（fs + git 提交 + 落库）在 offscreen 单写方完成，
    * SW 负责启用中脚本的注销重注册（AI 产物 enabled:false，通常为 no-op）。
    */

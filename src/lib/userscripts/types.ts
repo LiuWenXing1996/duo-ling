@@ -3,8 +3,6 @@
 // 一个脚本 = 一个单文件源码 + 一份配置，直接映射 chrome.userScripts 原生字段。
 // 无构建流程：保存即注入（源码原文进注册态），对齐油猴单文件形态。
 
-import { EXTENSION_NAME } from '@/lib/extension-identity'
-
 // ScriptConfig / defaultConfig 已上移进 `@duoling/userscript-core`（script-config.ts：配置是
 // 运行期事实源，随 metadata 解析一起归包）；ScriptProject / ScriptGroup 亦随内置默认存储归包
 // （script-project.ts）。此处 re-export 维持既有 import 路径（`@/lib/userscripts/types` /
@@ -335,72 +333,18 @@ export type UserScriptRunLogRow =
 // 此处 re-export 维持既有 import 路径（`@/lib/userscripts/types` / `./types`）不变。
 export { SCRIPT_EXT } from '@duoling/userscript-core'
 
-// —— zip 导入报告——
-//
-// 导入不淘汰脚本：凡以 `.user.js` 结尾的条目都落盘并说明，其余文件列进 ignored 报告。
-// 故 ok 条目可带 notes（字段兜底提示）；failed 只留给落盘本身出错（写源码 / 写状态库抛错）。
+// —— 导入报告与保存结果的形状已随写侧下沉 `@duoling/proxy-service-list` ——
+// 它们是服务方法的返回值（userscriptImportZip / userscriptSave…），与本文件其余 re-export 同理：
+// 真相源归契约，此处只维持既有 import 路径不变。
+export type {
+  ImportItemFailed,
+  ImportItemIgnored,
+  ImportItemOk,
+  ImportItemResult,
+  ImportReport,
+  SaveOutcome,
+} from '@duoling/proxy-service-list'
 
-/** 导入成功的条目（uuid 为导入方新生成；enabled 恒 false） */
-export interface ImportItemOk {
-  status: 'ok'
-  uuid: string
-  name: string
-  /** 内容指纹与现有脚本一致时的原脚本名（仅提示，仍已导入） */
-  duplicateOf?: string
-  /** 导入期需要告知用户的提示：构建失败（可在编辑器修）/ 字段缺失已补默认 等 */
-  notes?: string[]
-}
-
-/** 导入失败的条目——落盘本身出错（写源码 / 写状态库抛错） */
-export interface ImportItemFailed {
-  status: 'failed'
-  /** 出错脚本的名字（落盘前已取到的那个） */
-  name: string
-  reason: string
-}
-
-export type ImportItemResult = ImportItemOk | ImportItemFailed
-
-/** 导入时未导入的文件（非 `.user.js` 条目；仅展示） */
-export interface ImportItemIgnored {
-  status: 'ignored'
-  /** zip 内原始路径 */
-  path: string
-  reason: string
-}
-
-/** 一次 zip 导入的汇总报告 */
-export interface ImportReport {
-  succeeded: number
-  failed: number
-  results: ImportItemResult[]
-  /** 未导入的文件（非 `.user.js` 条目），仅展示、不影响成功/失败计数 */
-  ignored: ImportItemIgnored[]
-}
-
-/**
- * 新建脚本的初始源码模板（零输入创建用）。
- *
- * 单文件纯 JS：无依赖、无模块语法（按 classic script 注入，import/export 不可用），保存即注入。
- *
- * 模板只有两样东西：**一个现成的 metadata 块**与**一行能跑起来的示例**。
- * 块是配置的唯一入口（编辑器没有配置表单，匹配规则 `@match` 与能力 `@grant` 都只能写在这里），
- * 摆出来用户就知道该改哪儿；示例证明脚本真的跑起来了。
- *
- * **刻意不写散文注释**：这是给用户直接改的起点，不是说明书 —— 讲「得声明 grant」「配置住在源码里」
- * 归文档与工作台「GM API」页，放在模板里只会挡路。
- *
- * 块里也不写 `@name`：名字归状态库（列表里重命名不回写源码，写在这儿反而两处对不上）。
- * 匹配规则那一行与新建时的兜底配置同值（都是全站），保持一致免得两边打架。
- */
-export function defaultSource(): string {
-  return [
-    '// ==UserScript==',
-    '// @match *://*/*',
-    '// @grant none',
-    '// ==/UserScript==',
-    '',
-    `console.log('[${EXTENSION_NAME}脚本] 已注入', location.href)`,
-    '',
-  ].join('\n')
-}
+// 新建脚本的初始源码模板已随单文件形态约定下沉 `@duoling/userscript-core`（script-project.ts）
+// —— offscreen 的写侧（userstate/project-write）也要用它。此处 re-export 维持既有 import 路径不变。
+export { defaultSource } from '@duoling/userscript-core'

@@ -16,17 +16,16 @@
 // 模块归属（硬约束）：本入口只允许 import extension-chat-transport.ts、ai SDK、
 // offscreen-bridge.ts、offscreen-chat/（对话编排，内部只引裸 IndexedDB 模块）、
 // @duoling/userscript-offscreen / @duoling/userscript-core / @duoling/offscreen-document
-// （纯函数 + offscreen 环境代码，import 期零副作用；文件库 duoling-fs 的读写实现也在其中，
-// 经 OffscreenService 暴露），以及 offscreen-only 的 lib/userscripts/offscreen-state-commands.ts
-// （注册态库的写侧）。
+// （纯函数 + offscreen 环境代码，import 期零副作用；文件库 duoling-fs 与注册态库的写侧
+// 也在其中，经 OffscreenService 暴露）。
 // 一旦 import store.ts / fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报
 // chrome.storage is undefined —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
 //
 // 生命周期：每扩展同时只能有一份；不主动关就一直活着，但**关窗口 / 扩展重载 / 浏览器崩溃
 // 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（→ offscreen-chat/task-store.ts）。
 //
-// 命令面：fs:ping（就绪探测，留总线）/ state:*（注册态库写侧）/ conv:*（会话写侧，唯一写方）/
-// chat:*（对话编排）；fs 组的读写与资源库走 OffscreenService 代理（方法调用不占总线）；
+// 命令面：fs:ping（就绪探测，留总线）/ conv:*（会话写侧，唯一写方）/ chat:*（对话编排）；
+// fs 组读写、资源库与**注册态库写侧**（userscript*）都走 OffscreenService 代理（不占总线）；
 // clipboard: 归 GM 运行时的 offscreen 包（createOffscreenHost 的 handle，由本入口总线代挂监听）。
 
 import '@/polyfills'
@@ -35,12 +34,11 @@ import { IPC_CLIPBOARD_WRITE } from '@duoling/shared'
 // 标准化总线：本语境唯一的 onMessage 收口（serveIpc）+ 前缀路由 matcher；
 // ipcNotify 为单向推送入口（就绪握手 / 配置回拉触发）
 import { serveIpc, prefixMatcher, ipcNotify } from '@/shared/ipc-bus'
-import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
 // GM 运行时的 offscreen 命令面（clipboard:write 应答）：包工厂不管生命周期与监听，
 // 监听由本入口的总线代挂（`{ listen: false }` + matcher 问询）—— 每语境只有一个监听器。
 import { createOffscreenHost } from '@duoling/userscript-offscreen'
-// SW 保活轮询 + 本容器的服务实体：两者都出自包，启动 / 注册归宿主
-import { OffscreenService, startSwKeepalive } from '@duoling/offscreen-document'
+// SW 保活轮询 + 本容器的服务实体 + 启动对账：都出自包，启动 / 注册归宿主
+import { OffscreenService, reconcileFs, startSwKeepalive } from '@duoling/offscreen-document'
 import { registerOffscreenService } from '@duoling/proxy-service-list'
 import {
   abortChat,
@@ -76,13 +74,12 @@ function announceReady(): void {
  * RuntimeRequest 的 kind 全集——归属一致性由 extension-ipc.test.ts 表驱动断言）。
  * clipboard: 例外：不在本表 —— 它归 GM 运行时的 createOffscreenHost() 自管（自有监听器应答）。
  */
-export const OFFSCREEN_KIND_PREFIXES = ['fs:', 'state:', 'conv:', 'chat:'] as const
+export const OFFSCREEN_KIND_PREFIXES = ['fs:', 'conv:', 'chat:'] as const
 
 /** 前缀 → 处理器（与 OFFSCREEN_KIND_PREFIXES 一一对应） */
 const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: RuntimeRequest) => Promise<unknown> } = {
-  // fs: 只剩就绪探测 —— 其余 fs 命令走 OffscreenService 代理，不占总线
+  // fs: 只剩就绪探测 —— 其余 fs 命令与注册态库写侧（userscript*）走 OffscreenService 代理
   'fs:': async () => ({ ready: true }),
-  'state:': (msg) => handleStateCommand(msg as StateRequest),
   'conv:': (msg) => handleConvCommand(msg),
   'chat:': (msg) => handleChatCommand(msg),
 }
@@ -98,7 +95,7 @@ startSwKeepalive()
 
 // 命令面：UI / SW 经共享总线发来，offscreen 在此处理并回传。
 // 本语境**唯一**的 onMessage 监听器（标准化信道）：问询顺序 =
-//   ① 宿主前缀表（fs: / state: / conv: / chat:）；
+//   ① 宿主前缀表（fs: / conv: / chat:）；
 //   ② GM 运行时 offscreen 包自管的命令面（clipboard:write，见文件尾的 createOffscreenHost）。
 // 功能代码只写 handler 与 matcher，不再各自 addListener。
 serveIpc({
@@ -158,5 +155,5 @@ async function handleChatCommand(msg: RuntimeRequest): Promise<unknown> {
 
 announceReady()
 void refreshActiveProfile()
-// 启动一次最终一致对账：补齐缺失仓、清理多余仓目录（幂等，失败不阻断）
+// 启动一次对账：清掉无主的孤儿仓目录（幂等，失败不阻断）
 void reconcileFs()

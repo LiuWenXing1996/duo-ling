@@ -72,6 +72,22 @@ export async function readAllProjects(): Promise<ScriptProject[]> {
   return (all ?? []).filter((p) => p?.v === 2)
 }
 
+/** 列出全部项目：启用在前，组内按源码保存时间倒序（最近保存的排在最上面） */
+export async function listProjects(): Promise<ScriptProject[]> {
+  const all = await readAllProjects()
+  return all.sort(
+    (a, b) => Number(b.enabled) - Number(a.enabled) || b.source.savedAt - a.source.savedAt,
+  )
+}
+
+/** 生成不与现有项目重名的默认名称：「新建的脚本 1」→「2」→「3」…（序号从 1 起，跳过已占用号） */
+export async function nextScriptName(base = '新建的脚本'): Promise<string> {
+  const names = new Set((await listProjects()).map((p) => p.name))
+  let n = 1
+  while (names.has(`${base} ${n}`)) n += 1
+  return `${base} ${n}`
+}
+
 // —— 以下为写 API：只许 offscreen 调用（见文件头「单写方约定」）——
 
 /** 写入 / 覆盖一个项目 */

@@ -64,11 +64,11 @@ export type RuntimeRequest =
   | { kind: 'userscript:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; code: string; enabled: boolean; note?: string; actor?: import('@/lib/userscripts/types').CommitActor }
   | { kind: 'userscript:remove'; uuid: string }
   // 删除全部用户脚本：范围 = 用户脚本（状态库项目 + 各自 git 仓），
-  // 不含内置件（随扩展包分发）。SW 注销全部 → 转发 state:removeAll → 清各脚本 GM 值。
+  // 不含内置件（随扩展包分发）。SW 注销全部 → 调服务写侧清空状态库 → 清各脚本 GM 值。
   | { kind: 'userscript:removeAll' }
   | { kind: 'userscript:toggle'; uuid: string; enabled: boolean }
   // 重命名脚本：只改管理面标识（列表 / 标签页 / GM_info / 错误日志里的脚本名），**不入 git 仓**
-  // （仓里的名字是源码 `@name`，两者互不覆盖，见 project-write.saveSource 的 adoptName 说明）。
+  // （仓里的名字是源码 `@name`，两者互不覆盖，见写侧 saveSource 的 adoptName 说明）。
   // 启用中的脚本改名后由 SW 重注册——已注入的脚本否则仍顶旧名。
   | { kind: 'userscript:rename'; uuid: string; name: string }
   | { kind: 'userscript:availability' }
@@ -123,7 +123,7 @@ export type RuntimeRequest =
   // 粘贴导入：脚本源码文本 → 一个脚本（恒 enabled:false，同 zip 的先审后启）。
   // 解析与落盘都在 offscreen 单写方，与 zip 导入共用同一条落盘路径，故此处也无注册动作。
   | { kind: 'userscript:importText'; code: string }
-  // 脚本列表分组（读分组定义；写分组管理经 state: 单写方转发，见下方 state:group-*）
+  // 脚本列表分组（读分组定义；写分组管理经 OffscreenService 的 userscriptGroup* 单写方调用）
   // 扩展内置注入件（脚本桥 / 页面录制 / 录制转发）此刻的注册状态，供两处只读透出：
   // 工作台脚本列表底部的「扩展内置件」分区与 popup 的页面概览。它们不是用户脚本项目
   // （没有源码 / 启停），故单列一条只读命令，不混进 userscript:list。
@@ -145,36 +145,12 @@ export type RuntimeRequest =
   // 此时发命令会得到「port closed / Receiving end does not exist」。
   | { kind: 'fs:ping' }
 
-  // —— 项目状态库的**写**命令面——
+  // —— 项目状态库的**写**已并入 OffscreenService 代理（不在这张联合里）——
   // 项目数据（源码搬运副本 / 配置 / enabled）落在独立 IndexedDB 库 duoling-state，
-  // **写只归 offscreen**（单写方），写状态与 commit git 仓收在同一个上下文的同一个函数里，
-  // 没有跨上下文缝隙（写与 commit 分离、两个写方时，任一步失败即产生偏差）。
-  // 读不进协议：SW 与扩展页直连 IDB（project-store），不经容器——注册链路不能押在容器存活上。
-  | { kind: 'state:create' }
-  | { kind: 'state:save'; uuid: string; code: string; name?: string; config?: import('@/lib/userscripts/types').ScriptConfig; note?: string; actor?: import('@/lib/userscripts/types').CommitActor }
-  | { kind: 'state:remove'; uuid: string }
-  // 清空全部项目记录 + 各自仓（SW 的 userscript:removeAll 转发到此）；返回删除条数。
-  // 与 state:remove 同处一地的好处：记录与仓的删除不跨上下文，不留无主仓。
-  | { kind: 'state:removeAll' }
-  | { kind: 'state:toggle'; uuid: string; enabled: boolean }
-  // 重命名脚本的落点（SW 的 userscript:rename 转发到此）：只改状态库里的 name，
-  // 不碰源码、不产生 git 提交（名字不入仓）。
-  | { kind: 'state:rename'; uuid: string; name: string }
-  // AI 生成脚本的落盘：SW 的 userscript:createProject
-  // 转发到此（单写方），写状态库 + git 快照（note = AI summary），**不注册**（enabled:false 默认）。
-  | { kind: 'state:createProject'; name: string; config: import('@/lib/userscripts/types').ScriptConfig; code: string; enabled: boolean; note?: string; actor?: import('@/lib/userscripts/types').CommitActor }
-  // zip 导入的落点（SW 的 userscript:import 转发到此）：importScriptsZip 逐脚本
-  // 「落盘 → 快照」，报告 ImportReport（types.ts）。
-  | { kind: 'state:import'; zipBase64: string }
-  // 粘贴导入的落点（SW 的 userscript:importText 转发到此）：一段源码文本 → 一个脚本，
-  // 与 zip 导入走同一套落盘（project-write.importOneScript），报告同为 ImportReport。
-  | { kind: 'state:import-text'; code: string }
-  // 脚本列表分组（offscreen 单写方）：新建 / 重命名 / 删除（删前把成员退回未分组） / 重排 / 把脚本归入分组
-  | { kind: 'state:group-create'; name: string }
-  | { kind: 'state:group-rename'; id: string; name: string }
-  | { kind: 'state:group-remove'; id: string }
-  | { kind: 'state:group-reorder'; orderedIds: string[] }
-  | { kind: 'state:set-group'; uuid: string; group: string }
+  // **写只归 offscreen**（单写方）：服务方法 userscript* 在同一个上下文的同一个函数里
+  // 完成落盘与 commit，没有跨上下文缝隙（写与 commit 分离、两个写方时，任一步失败即产生偏差）。
+  // 报文无 kind、不占总线（同 fs 组的其余命令）；读同样不进协议：SW 与扩展页直连 IDB
+  // （project-store），不经容器——注册链路不能押在容器存活上。
 
   // —— 会话写侧（整条对话链路搬进 offscreen 后，会话历史唯一写入方 = offscreen）——
   // UI（对话界面 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 对 conv: 前缀静默让路。

@@ -106,7 +106,7 @@ type Handler = (msg: RuntimeRequest, sender: chrome.runtime.MessageSender) => Pr
  *
  * 表的键收两种写法（各自的组织粒度不同，不必为「查得到」把其中一方摊平）：
  *   · 完整 kind —— 逐条登记，一个 kind 一个处理器（SW 侧的表）；
- *   · kind 前缀 —— 按域分组，一个域一个穷尽分发的处理器（offscreen 的 'fs:' / 'state:'）。
+ *   · kind 前缀 —— 按域分组，一个域一个穷尽分发的处理器（offscreen 的 'fs:' / 'conv:'）。
  * 查找：完整 kind 命中优先，否则取**最长**匹配前缀。都查不到 = 前缀认领了却没有实现，
  * 报「未知消息类型」而非静默 undefined。
  *

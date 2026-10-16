@@ -21,6 +21,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@duoling/userscript-core": "workspace:*",
     "@webext-core/proxy-service": "^3.0.2"
   },
   "devDependencies": {

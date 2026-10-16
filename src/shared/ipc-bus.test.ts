@@ -8,6 +8,7 @@
 // chrome 用手写壳：只留总线用到的两口（onMessage 收发 / sendMessage 发送）。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ipcNotify, ipcRequest, ipcSubscribe, packMatcher, prefixMatcher, serveIpc } from './ipc-bus'
+import type { RuntimeRequest } from './extension-ipc'
 
 type SendResponse = (response: unknown) => void
 type Listener = (msg: unknown, sender: chrome.runtime.MessageSender, sendResponse: SendResponse) => unknown
@@ -134,36 +135,39 @@ describe('serveIpc —— 每语境唯一的接收口', () => {
 
 describe('prefixMatcher —— 表键收完整 kind 与 kind 前缀两种写法', () => {
   const senderOf = () => ({}) as chrome.runtime.MessageSender
+  // 本组测的是 matcher 的查表算法，与协议 union 的现役成员无关 —— 故按宽入参形态造消息
+  const req = (kind: string, extra: Record<string, unknown> = {}): RuntimeRequest =>
+    ({ kind, ...extra }) as RuntimeRequest
 
   it('前缀键 = 按域分发：该域的全部 kind 落到同一格', async () => {
-    const matcher = prefixMatcher(['fs:', 'state:'], {
+    const matcher = prefixMatcher(['fs:', 'conv:'], {
       'fs:': async () => 'fs 域',
-      'state:': async () => 'state 域',
+      'conv:': async () => 'conv 域',
     })
 
     expect(matcher.owns('fs:ping')).toBe(true)
-    expect(matcher.owns('state:save')).toBe(true)
+    expect(matcher.owns('conv:create')).toBe(true)
     expect(matcher.owns('chat:start')).toBe(false)
-    expect(await matcher.handle({ kind: 'fs:ping' }, senderOf())).toBe('fs 域')
-    expect(await matcher.handle({ kind: 'state:save', uuid: 'u1', code: 'x' }, senderOf())).toBe('state 域')
+    expect(await matcher.handle(req('fs:ping'), senderOf())).toBe('fs 域')
+    expect(await matcher.handle(req('conv:create', { id: 'c1' }), senderOf())).toBe('conv 域')
   })
 
   it('两种键混放：完整 kind 优先，其余取最长前缀', async () => {
-    const matcher = prefixMatcher(['state:'], {
-      'state:': async () => '短',
-      'state:group': async () => '中',
-      'state:group-create': async () => '长',
+    const matcher = prefixMatcher(['conv:'], {
+      'conv:': async () => '短',
+      'conv:group': async () => '中',
+      'conv:group-create': async () => '长',
     })
 
-    expect(await matcher.handle({ kind: 'state:group-create', name: 'g' }, senderOf())).toBe('长')
-    expect(await matcher.handle({ kind: 'state:group-rename', id: 'g1', name: 'n' }, senderOf())).toBe('中')
-    expect(await matcher.handle({ kind: 'state:create' }, senderOf())).toBe('短')
+    expect(await matcher.handle(req('conv:group-create'), senderOf())).toBe('长')
+    expect(await matcher.handle(req('conv:group-rename'), senderOf())).toBe('中')
+    expect(await matcher.handle(req('conv:create'), senderOf())).toBe('短')
   })
 
   it('前缀认领了却没有实现：报未知消息类型（不静默 undefined）', async () => {
-    const matcher = prefixMatcher(['state:', 'conv:'], { 'state:': async () => 'state 域' })
+    const matcher = prefixMatcher(['conv:', 'chat:'], { 'conv:': async () => 'conv 域' })
 
-    await expect(matcher.handle({ kind: 'conv:create' }, senderOf())).rejects.toThrow(/未知消息类型/)
+    await expect(matcher.handle(req('chat:start'), senderOf())).rejects.toThrow(/未知消息类型/)
   })
 })
 

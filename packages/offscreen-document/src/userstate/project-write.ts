@@ -1,8 +1,8 @@
-// 用户脚本项目数据的**写侧**（⚠️ offscreen 专属，见 state-db.ts 文件头的单写方约定）。
+// 用户脚本项目数据的**写侧**（offscreen 专属；单写方约定见 @duoling/userscript-core 的 state-db.ts）。
 //
-// 这里是本方案的落点：源码的唯一权威在 duoling-fs（offscreen-document 的 fs/git），状态库（duoling-state）退化为
-// 「注册态库」只存元数据 + 源码搬运副本。**一切源码落盘都收敛到 saveSource 一个入口**：
-// 写工作树 → 提交 git 版本 → 写状态库（+ 出口广播由命令面 handleStateCommand 负责）。
+// 源码的唯一权威在 duoling-fs（本包的 fs/git），状态库（duoling-state）退化为「注册态库」：
+// 只存元数据 + 源码搬运副本。**一切源码落盘都收敛到 saveSource 一个入口**：
+// 写工作树 → 提交 git 版本 → 写状态库；出口广播由服务实体（offscreen-service）在写成功后发。
 //
 // 保存语义：**保存恒成功、保存即注入**——无构建流程，源码原文随落盘
 // 写入注册态（SW 读不到 lfs，注册的注入代码从注册态取）。语法错误不拦保存：坏了的脚本照样
@@ -10,30 +10,30 @@
 //
 // 失败策略：git 提交失败只丢历史不丢源码——duoling-fs 就是源码唯一来源，提交失败时
 // 工作树仍持有本次内容，故只 warn（下次保存再提交）；写工作树失败才是真保存失败（源码没落地）。
-import { getProject, listGroups, listProjects, nextScriptName } from './project-store'
-import { readGroup, removeGroup, removeProject, writeGroup, writeProject } from '@duoling/userscript-core'
-import { base64ToBytes } from '@duoling/shared'
 import {
-  commitSource,
-  deleteAllRepos,
-  deleteRepo,
-  parseScriptsZip,
-  readSource,
-  sourceFingerprint,
-  writeSource,
-} from '@duoling/offscreen-document'
-import { defaultConfig, defaultSource } from './types'
+  defaultConfig,
+  defaultSource,
+  readProject,
+  readAllGroups,
+  listProjects,
+  nextScriptName,
+  readGroup,
+  removeGroup,
+  removeProject,
+  resolveConfigFromSource,
+  writeGroup,
+  writeProject,
+} from '@duoling/userscript-core'
+import type { ScriptConfig, ScriptGroup, ScriptProject } from '@duoling/userscript-core'
 import type {
   CommitActor,
   ImportItemResult,
   ImportReport,
-  ScriptConfig,
-  ScriptGroup,
-  ScriptProject
-} from './types'
-// metadata 归一化（唯一路径：写入口 saveSource 调用一次，不再另写第二套）
-import { resolveConfigFromSource } from '@duoling/userscript-core'
-import { errorText } from '@/lib/format'
+  SaveOutcome,
+} from '@duoling/proxy-service-list'
+import { base64ToBytes, errorText } from '@duoling/shared'
+import { commitSource, deleteAllRepos, deleteRepo, readSource, writeSource } from '../fs/git'
+import { parseScriptsZip, sourceFingerprint } from '../fs/zip'
 
 /** 构造状态库记录（无源码权威；源码在 duoling-fs，这里只带搬运副本） */
 function makeState(
@@ -56,12 +56,6 @@ function makeState(
     source: { code, savedAt },
     createdAt,
   }
-}
-
-/** 保存结果：project = 落库后的注册态记录；notes = metadata 解析提示（须经 warnings 通道给用户看） */
-export interface SaveOutcome {
-  project: ScriptProject
-  notes: string[]
 }
 
 /** 源码落盘（写工作树 + 提交 git）：saveSource 与导入共用的底层步骤。提交失败只丢历史不丢源码 */
@@ -182,7 +176,7 @@ export async function saveExisting(
   code: string,
   opts?: { name?: string; config?: ScriptConfig; note?: string; actor?: CommitActor },
 ): Promise<SaveOutcome> {
-  const project = await getProject(uuid)
+  const project = await readProject(uuid)
   if (!project) throw new Error('脚本不存在')
   if (typeof code !== 'string') throw new Error('脚本源码必须是字符串')
   const name = opts?.name?.trim() ?? project.name
@@ -201,7 +195,7 @@ export async function saveExisting(
 
 /**
  * 删除：状态库记录 + git 仓一起清。
- * 仓与状态库记录同在 offscreen 写侧，一步清干净，不留待启动对账（reconcileFs）兜底。
+ * 仓与状态库记录同在 offscreen 写侧，一步清干净，不留待启动对账（reconcile）兜底。
  */
 export async function removeProjectAndRepo(uuid: string): Promise<void> {
   await removeProject(uuid)
@@ -234,7 +228,7 @@ export async function removeAllProjects(): Promise<number> {
  * **不产生提交**——enabled 不入仓（commitSource 刻意排除它，否则每次启停都是一次「假变更」）。
  */
 export async function setProjectEnabled(uuid: string, enabled: boolean): Promise<ScriptProject> {
-  const project = await getProject(uuid)
+  const project = await readProject(uuid)
   if (!project) throw new Error('脚本不存在')
   project.enabled = enabled
   await writeProject(project)
@@ -251,7 +245,7 @@ export async function setProjectEnabled(uuid: string, enabled: boolean): Promise
 export async function renameProject(uuid: string, name: string): Promise<ScriptProject> {
   const trimmed = name.trim()
   if (!trimmed) throw new Error('脚本名不能为空')
-  const project = await getProject(uuid)
+  const project = await readProject(uuid)
   if (!project) throw new Error('脚本不存在')
   project.name = trimmed
   await writeProject(project)
@@ -261,10 +255,10 @@ export async function renameProject(uuid: string, name: string): Promise<ScriptP
 // —— 导入（zip / 粘贴）——
 
 /**
- * zip 导入（state:import 的落点）：解码 → 逐脚本**尽量导入**。
+ * zip 导入（服务方法 userscriptImportZip 的落点）：解码 → 逐脚本**尽量导入**。
  *
  * 导入侧不是「校验 + 淘汰」，而是「尽量落盘 + 报告说明」——
- *  · 解码层只按后缀认源码（`.user.js`，见 offscreen-document 的 fs/zip），配置由源码里的 `// ==UserScript==`
+ *  · 解码层只按后缀认源码（`.user.js`，见 ../fs/zip），配置由源码里的 `// ==UserScript==`
  *    块派生（无块按默认配置），没有会让脚本被跳过的情形；
  *  · matches 非法：不在这里拦（启用时 registerScript 会以中文报错，导入后可在编辑器改）。
  * 导入默认值：uuid 重生成、enabled 恒 false（先审后启）、保留原名（名字不拦重复，uuid 才是标识）。
@@ -284,7 +278,7 @@ export async function importScriptsZip(zipBase64: string): Promise<ImportReport>
 }
 
 /**
- * 粘贴导入（state:import-text 的落点）：把一段脚本源码落成一个脚本。
+ * 粘贴导入（服务方法 userscriptImportText 的落点）：把一段脚本源码落成一个脚本。
  *
  * 与 zip 导入**同一条落盘路径**（importOneScript），语义也照抄：尽量导入、报告说明、
  * uuid 重生成、enabled 恒 false（先审后启）、指纹去重提示照给。
@@ -371,7 +365,7 @@ async function findContentDuplicate(code: string): Promise<string | undefined> {
   return undefined
 }
 
-// —— 分组管理（脚本列表分组功能；全部为 offscreen 单写方，落库后由命令面广播 group 域） ——
+// —— 分组管理（脚本列表分组功能；全部为 offscreen 单写方，落库后由服务实体广播 group 域） ——
 
 /**
  * 新建分组：自动生成 id + order（现有最大 order + 1，空库从 0 起）。
@@ -380,7 +374,7 @@ async function findContentDuplicate(code: string): Promise<string | undefined> {
 export async function createGroup(name: string): Promise<ScriptGroup> {
   const trimmed = name.trim()
   if (!trimmed) throw new Error('分组名不能为空')
-  const existing = await listGroups()
+  const existing = await readAllGroups()
   const order =
     existing.length === 0 ? 0 : Math.max(...existing.map((g) => g.order)) + 1
   const group: ScriptGroup = { id: crypto.randomUUID(), name: trimmed, order }
@@ -419,7 +413,7 @@ export async function removeGroupAndReassign(id: string): Promise<void> {
 
 /** 重排分组顺序：orderedIds 为全部分组 id 的目标顺序，按索引设 order */
 export async function reorderGroups(orderedIds: string[]): Promise<void> {
-  const groups = await listGroups()
+  const groups = await readAllGroups()
   const byId = new Map(groups.map((g) => [g.id, g]))
   for (let i = 0; i < orderedIds.length; i++) {
     const g = byId.get(orderedIds[i]!)
@@ -433,7 +427,7 @@ export async function reorderGroups(orderedIds: string[]): Promise<void> {
  * 只改 group 字段，不产生 git 提交（group 不入仓）。
  */
 export async function setProjectGroup(uuid: string, groupId: string): Promise<ScriptProject> {
-  const project = await getProject(uuid)
+  const project = await readProject(uuid)
   if (!project) throw new Error('脚本不存在')
   project.group = groupId
   await writeProject(project)

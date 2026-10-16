@@ -1,7 +1,7 @@
 // 用户脚本 zip 导入导出的纯函数编解码层。
 //
 // 编码在导出侧（OffscreenService.fsExportZip 逐个取工作树源码后打包），解码在导入侧
-// （单写方，state:import → project-write.importScriptsZip）。两侧共用本模块——
+// （单写方，userscriptImportZip → userstate/project-write.importScriptsZip）。两侧共用本模块——
 // 故这里**不得 import 任何 chrome API**（offscreen 与单测的 node 环境都要能跑）。
 // 名字安全化与 base64 编解码归 @duoling/shared：面板侧还要用同一份（见其 archive-transfer）。
 //

@@ -5,7 +5,7 @@
 //     image_ask）+ stopWhen(maxSteps=8)；
 //   · 事件缓冲（event-bus）+ 观察者推送（chat:chunk）+ 从头全量回放（chat:resume）；
 //   · 每步任务快照（task-store，覆盖写 + 心跳）→ 宿主被杀后可「继续 / 丢弃」；
-//   · 收敛后经 SW 落盘（userscript:createProject，单写方在 offscreen 侧的 state:createProject），
+//   · 收敛后经 SW 落盘（userscript:createProject，单写方在 offscreen 侧的 OffscreenService），
 //     git 快照 note = AI summary；生成卡片（data-generation data part）随流推送并随消息落盘；
 //   · 会话历史唯一写入方：用户消息在 start 时落盘、assistant 消息在收尾时落盘（onFinish 的
 //     职责从对话界面收归这里，防双写）。
