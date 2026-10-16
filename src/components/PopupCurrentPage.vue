@@ -29,7 +29,7 @@ import {
   TooltipTrigger as UiTooltipTrigger,
 } from '@/components/ui/tooltip'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
-import { floatOpenRequest, type PageOverviewTab, type RuntimeResponse } from '@/shared/extension-ipc'
+import { type PageOverviewTab, type RuntimeResponse } from '@/shared/extension-ipc'
 import { errorText } from '@/lib/format'
 
 const props = defineProps<{
@@ -125,9 +125,9 @@ const openFloatDisabledHint = '当前页面不能显示对话浮层'
  * 把当前页面的对话浮层调出来。
  *
  * **这就是判成败的全部依据**：不预先探活（探活答的是「此刻」，答「不在」不等于真挂不上，见
- * lib/web-hostname.ts），发了 `float:open` 收得到就开、收不到就地给提示。
+ * lib/web-hostname.ts），命令下去了件接得到就开、推不到就地给提示。
  *
- * 收不到（页面在扩展更新前就打开、或在扩展管理页里单独禁掉了本站点的访问权）只能让用户刷新；
+ * 推不到（页面在扩展更新前就打开、或在扩展管理页里单独禁掉了本站点的访问权）只能让用户刷新；
  * 这两种情况 popup 判不出来，所以文案不指向具体原因。失败时留在面板里把话说出来 —— 关了就没
  * 地方说了。
  */
@@ -137,7 +137,12 @@ async function openFloatPanel(): Promise<void> {
   // 读不到标签页时静默退场：这是 popup 与页面失联的异常态，给技术性报错只是噪音
   if (tab?.id == null) return
   try {
-    await chrome.tabs.sendMessage(tab.id, floatOpenRequest(tab.id))
+    // SW 侧对推不到（该页上没有宿主件的在岗连接）会回 { ok: false }，这里一并按失败说
+    const res = (await chrome.runtime.sendMessage({
+      kind: 'float:open',
+      tabId: tab.id,
+    })) as RuntimeResponse<null> | undefined
+    if (!res?.ok) throw new Error(res?.error ?? 'float:open 未响应')
   } catch {
     openError.value = `页面还没接上${EXTENSION_NAME}，刷新页面后再试。`
     return

@@ -1,13 +1,12 @@
 // 页面检查器常驻件本体：按指令读页面，把结果交回去。
 //
-// 运行位置：目标标签页的独立 USER_SCRIPT 世界（worldId 见 registry.ts 的 INSPECTOR_HOST_WORLD_ID），
-// 全站匹配 + document_start。加载只装一条指令监听、不动作；收到指令才跑，结算值经消息上行回 SW。
+// 运行位置：目标标签页的**页面主世界（MAIN）系统脚本**（GM 包装注入，见应用侧
+// system-scripts.ts）—— 全站匹配 + document_start。加载只建通道、不动作；收到指令才跑。
 //
-// **一件两端** —— 运行器（怎么读页面）与指令监听（等谁喊、把结果交给谁）合在本文件里。
-// 历史上它们是两段注册（`{ file }` 装运行器 + `{ code }` 装配段递 tag），但那段装配段**没有任何
-// 运行期参数**，只有两个静态字面量，而字面量的真相源就在 @duoling/shared 的 inspector.ts —— 件直接 import
-// 即可，于是合并成单段。两段的顺序问题（「运行器与本段必须落在同一世界」）随之消失：
-// 同一文件自顶向下，不可能只装一半。
+// **一件两端** —— 运行器（怎么读页面）与指令通道（等谁喊、把结果交给谁）合在本文件里。
+// 历史上它们是两段注册（`{ file }` 装运行器 + `{ code }` 装配段递 tag），后合并成单段
+// （装配段没有运行期参数，字面量真相源在 @duoling/shared 的 inspector.ts，件直接 import）。
+// 现走统一脚本链，连 tag 字面量都省了：下行帧 / 上行信封都是脚本桥协议的一部分。
 //
 // 三个模式（指令给模式名）：
 //   pick     —— 拾取：亮高亮框 + 拦截点击，用户点选后 resolve 元素载荷；
@@ -25,19 +24,18 @@
 // Promise resolve null，结果照常由它自己上报 —— 保证「每次开始恰好一条上报」，
 // 发起侧无须区分两种收场。
 //
-// 载荷形状见 @duoling/shared 的 page-context.ts（契约层，编译器挡住漂移）；信封字面量见同包的 inspector.ts。
+// 通道（脚本桥，形状真相源见 userscript-runtime 的 script-bridge.ts / api-contract.ts）：
+//   · 下行 —— Port 事件帧 `inspector.cmd`（SW 经 DL Port 推，中继件转回 MAIN 桥 onEvent）；
+//   · 上行 —— `__dlEvent` 信封 `inspector.result`（emit，fire-and-forget；结算认 reqId，
+//     送达失败由发起侧 60s 超时兜底 —— 与旧 sendMessage 失败同语义）；
+//   · 常驻通道 —— 本件启动即 connect + 周期重发（Port 断链自愈：SW 重启后中继件侧连接
+//     已清，重发的 connect 帧会重建；SW 端 addPort 对同 uuid+connId 做替换，不会双 Port）。
 //
-// 下行接收面用 `chrome.runtime.onMessage`（扩展经 chrome.tabs.sendMessage 投递）。若该世界
-// 收不到，退路是件启动即 `chrome.runtime.connect()` 建常驻 Port 由 SW 推指令，届时只改本件的
-// 接收面（上行与发起侧不动）。
-//
-// 世界要求：注册到独立世界且必须 configureWorld({ messaging: true })，否则世界内没有
-// chrome.runtime，「世界未开 messaging」这条 warn 就是为它准备的。
+// 世界说明：MAIN 世界与页面同域 —— 本件是只读观察者，页面看得见它做的一切（高亮框、
+// 截断后的 HTML 采样），这个透明度与旧独立世界形态相比没有实质变化（DOM 本就共享）。
 
 import {
-  INSPECTOR_CMD_TAG,
   INSPECTOR_PICKER_NS,
-  INSPECTOR_RESULT_TAG,
   type ElementPickContext,
   type InspectorMode,
   type PageEnvContext,
@@ -303,49 +301,72 @@ function run(mode: InspectorMode): Promise<unknown> {
   }
 }
 
-/** 件本体：装指令监听（幂等，重复注入只装一遍） */
+/**
+ * 脚本桥（GM 包装内联进同一作用域的 `__dlBridge`，恒注入）。
+ * 形状真相源是 userscript-runtime 的 script-bridge.ts；这里只声明本件用到的方法。
+ */
+declare const __dlBridge: {
+  connect(connId: string): Promise<void>
+  emit(envelope: Record<string, unknown>): void
+  onEvent(fn: (ev: Record<string, unknown>) => void): void
+}
+
+/** 常驻通道的 connId（DL Port name 尾段；SW 寻址只认 uuid+tabId，connId 仅做连接身份） */
+const CHANNEL_CONN_ID = 'inspector'
+/** 断链自愈的重发间隔：SW 重启后中继件侧连接已清，重发 connect 帧重建 Port */
+const CHANNEL_RECONNECT_MS = 15_000
+
+/** 件本体：建常驻通道 + 装指令接收（幂等，重复注入只装一遍） */
 export function installPageInspector(): void {
-  // 幂等：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态）
   if (window.__dlInspectorHost) return
   window.__dlInspectorHost = true
 
   // 结果上行：每个 reqId 只回一条，把结果与发起侧那一次调用配对上。
-  // sendMessage 的失败有两种形态，都要出声：同步抛（世界没开 messaging）与 Promise 拒绝
-  // （SW 侧没接着）—— 静默的话发起侧只能干等超时，页面控制台这句 warn 就是诊断入口。
+  // emit 是 fire-and-forget：发不出去（中继件未就位等）本件无从得知，发起侧按超时收场 ——
+  // 与旧 chrome.runtime.sendMessage 失败的结局一致，只是页面控制台不再有那句被拒的 warn。
   function report(reqId: string, ok: boolean, payload: unknown): void {
-    const msg: Record<string, unknown> = {}
-    msg[INSPECTOR_RESULT_TAG] = true
-    msg.reqId = reqId
-    msg.ok = ok
-    msg.payload = payload
     try {
-      const sent = chrome.runtime.sendMessage(msg) as Promise<unknown> | undefined
-      if (sent && typeof sent.catch === 'function') {
-        sent.catch(function (e: unknown) {
-          console.warn('[duoling:inspector] 结果上行被拒：', (e as Error | undefined)?.message ?? e)
-        })
-      }
-    } catch (e) {
-      console.warn('[duoling:inspector] 结果上行发不出去：', (e as Error | undefined)?.message ?? e)
+      __dlBridge.emit({
+        __dlEvent: true,
+        name: '页面检查器',
+        event: { t: 'inspector.result', reqId, ok, payload: payload === undefined ? null : payload },
+      })
+    } catch {
+      /* 桥不可用：丢弃，发起侧超时兜底 */
     }
   }
 
+  // 常驻通道：connect 幂等（中继件侧按 uuid 去重）；失败静默 —— 定时重发就是重试。
+  // 重发是**常备的**而非只在启动时：SW 重启 / Port 半死时靠它自愈（SW 端 addPort
+  // 对同 uuid+connId 替换旧 Port，重连不会产生双 Port 推两份指令）。
+  function keepChannel(): void {
+    try {
+      __dlBridge.connect(CHANNEL_CONN_ID).catch(function () {
+        /* 握手失败（中继件未就位）：等下一轮 */
+      })
+    } catch {
+      /* 桥未注入（异常注入时序）：等下一轮 */
+    }
+  }
+  keepChannel()
+  setInterval(keepChannel, CHANNEL_RECONNECT_MS)
+
+  // 下行接收面：SW 经 DL Port 推 `inspector.cmd`，中继件转回桥 onEvent。
   try {
-    chrome.runtime.onMessage.addListener(function (msg: unknown) {
-      const m = msg as Record<string, unknown> | null
-      if (!m || m[INSPECTOR_CMD_TAG] !== true) return
-      const reqId = String(m.reqId || '')
+    __dlBridge.onEvent(function (ev) {
+      if (!ev || ev.t !== 'inspector.cmd') return
+      const reqId = String(ev.reqId || '')
       if (!reqId) return
 
-      if (m.cmd === 'cancel') {
+      if (ev.cmd === 'cancel') {
         if (activePick) activePick.cancel()
         return
       }
 
       try {
-        Promise.resolve(run(m.cmd as InspectorMode)).then(
+        Promise.resolve(run(ev.cmd as InspectorMode)).then(
           function (payload) {
-            report(reqId, true, payload === undefined ? null : payload)
+            report(reqId, true, payload)
           },
           function (e: unknown) {
             report(reqId, false, String((e as Error | undefined)?.message ?? e))
@@ -356,7 +377,8 @@ export function installPageInspector(): void {
       }
     })
   } catch {
-    // 世界未开 messaging：配置问题，报明确错误比让发起侧白等超时有价值
-    console.warn('[duoling:inspector] 世界未开 messaging，指令通道不可用')
+    // 桥不可用（异常时序）：指令通道不可用。常驻通道的重发还会继续试，
+    // 但 onEvent 挂不上就收不到指令 —— 这里报明确错误比静默好排查。
+    console.warn('[duoling:inspector] 脚本桥不可用，指令通道未挂载')
   }
 }

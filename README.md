@@ -41,9 +41,9 @@
 │  ├─ shared/                     # 应用内部契约：types / ipc（window.api 形状）/ extension-ipc（渲染页 ⇄ SW 协议）
 │  ├─ assets/                     # Tailwind 主题变量与全局样式
 │  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（只剩 help/ 帮助页配图）
-├─ packages/shared/               # 跨世界契约子包：件与应用两侧同取的信封 / 常量 / 形状（bridge / tab-record / inspector / page-context / float-host；Vite lib 构建 dist 三件套，消费走 exports）
+├─ packages/shared/               # 跨世界契约子包：件与应用两侧同取的信封 / 常量 / 形状（bridge / tab-record / inspector / page-context；Vite lib 构建 dist 三件套，消费走 exports）
 ├─ packages/userscript-runtime/   # 用户脚本运行时子包：语义层（注入源码生成 / API 契约与目录 / grants 真相源 / metadata / match-pattern）+ 宿主层（dl-bridge / dl-port / cookie-gate / 内置默认存储；遥测与 offscreen 经 host-config 注入）（Vite lib 构建 dist 三件套，shared 外部化；依赖 shared）
-├─ packages/builtin-scripts/      # 内置注入件子包：TS 源码 + esbuild 打成 IIFE 产物（relay / recorder / forwarder / page-inspector / float-host；注册面见 AGENTS.md）
+├─ packages/builtin-scripts/      # 内置注入件子包：TS 源码 + esbuild 打成 IIFE 产物（recorder / page-inspector / float-host；中继件 relay 已随 userscript-runtime 包内化，录制件走系统脚本链；注册面见 AGENTS.md）
 ├─ packages/uscript-samples/      # 用户脚本样例子包：TS 模块化源码 + esbuild 打成单文件 .user.js（metadata 由各样例 meta.json 生成；raw/ 放不参与构建的坏源码；dist 不入库，pnpm -r build 产出，pack:uscripts 打 zip 分发）
 ├─ scripts/                       # 仓库维护脚本：verify-skills / check-todo / pack-uscripts / probe-target（本机测试靶站）/ model-stub（本机假模型，e2e 与 dev 共用）/ help-screenshots（帮助页配图生成器，浅暗两版六张落 src/public/help/）/ dev（dev 与靶站、假模型一起起）
 ├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟）

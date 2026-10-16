@@ -26,7 +26,6 @@ export const OUT_DIR = resolve(here, 'dist')
  */
 export const ENTRY_POINTS = {
   'duoling-recorder': resolve(here, 'src/recorder/entry.ts'),
-  'duoling-forwarder': resolve(here, 'src/forwarder/entry.ts'),
   'duoling-page-inspector': resolve(here, 'src/inspector/entry.ts'),
   'duoling-float-host': resolve(here, 'src/float-host/entry.ts'),
 }

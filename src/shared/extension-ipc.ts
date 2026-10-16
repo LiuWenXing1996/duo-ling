@@ -10,8 +10,8 @@
 import type { ModelProfile } from './types'
 
 // —— 页面上下文档位 ——
-// 页面检查器（件本体见 @duoling/builtin-scripts 的 inspector/install.ts，USER_SCRIPT 世界
-// `us-builtin-inspector` 的常驻件）的载荷形状**定义在契约包里**：件按这些形状造数据，而件不能
+// 页面检查器（件本体见 @duoling/builtin-scripts 的 inspector/install.ts，MAIN 世界系统脚本
+// `dl-page-inspector`）的载荷形状**定义在契约包里**：件按这些形状造数据，而件不能
 // 依赖应用源码，故真相源落在 @duoling/shared。这里既转发又本地引用（本文件下游的
 // PageContextInfo / MessagePageContext 用到），消费方 import 路径不变。
 import type {
@@ -30,14 +30,8 @@ export type {
   PageSnapshotContext,
 }
 
-// 浮层指令的 kind：真相源同样在契约包（件认这几个 kind，两边必须是同一个字面量）。这里是
-// **值导入 + 派生类型** —— 编译器守住对齐，历史上「两边各写一份手写字符串、靠单测执行件源码比对」
-// 那条补丁随之删除（见 @duoling/shared 的 float-host.ts）。
-import {
-  FLOAT_BUSY_KIND,
-  FLOAT_COLLAPSE_KIND,
-  FLOAT_OPEN_KIND,
-} from '@duoling/shared'
+// 浮层指令的 kind 字面量已随脚本桥协议（api-contract 的 float.cmd）收编 —— 命令面
+// `float:*` 的 kind 在下面的 RuntimeRequest 联合里声明，件侧不再认 tabs.sendMessage。
 
 /** chat:start 的页面上下文：档 0（URL/标题）+ 可选的档 2 元素拾取 / 页面快照 */
 export interface PageContextInfo {
@@ -287,10 +281,32 @@ export type RuntimeRequest =
   // 收工：与「开始」同一根线，SW 只负责转发到那一页
   | { kind: 'picker:cancel' }
 
+  // —— 浮层宿主的命令面 ——
+  // 浮层宿主件已转 MAIN 世界系统脚本（走统一脚本链），那里没有 chrome.runtime，
+  // tabs.sendMessage 到不了 —— 四条动作全改走「RuntimeRequest → SW → DL Port 事件帧
+  // （float.cmd，见 lib/userscripts/float-bridge.ts）」的链路；件的接收面见
+  // packages/builtin-scripts/src/float-host/install.ts。
+  //
+  // open：popup 的「对话浮层」按钮与页面右键菜单发起。tabId 是目标标签页（发起方都握有它；
+  // 右键菜单由 SW 代发，SW 自己握有 tab）—— 件把它拼进浮层 iframe 的 URL（`?tab=<id>`，
+  // 浮层据此认定会话归属）。SW 推不到（该页上没有件的在岗连接）时命令报错，发起方据此提示。
+  | { kind: 'float:open'; tabId: number }
+  // collapse：对话界面顶栏那颗「收起」。按钮在 iframe 里（对话界面本体），而容器的显隐握在
+  // 父页的宿主件手里，跨源拿不到对方，只能发一条命令叫它收。tabId 由对话界面从 iframe URL
+  // 的 `?tab=` 读出（见 lib/owning-tab 的 readPinnedTabId）。单向动作，失败静默。
+  | { kind: 'float:collapse'; tabId: number }
+  // busy：对话界面报「这条会话是否正在生成」，宿主件据此开关页面遮罩（挡指针交互 + 一句提示）。
+  // 生成状态只有 offscreen 知道，宿主既不知道哪条会话属于自己这个标签页，也不该为此多接一条
+  // 广播线。生成开始与结束各报一次，busy 定显隐。单向动作，失败静默。
+  | { kind: 'float:busy'; tabId: number; busy: boolean }
+  // ping：在岗探活（e2e 用）。SW 下发 ping、件回 float.pong，reqId 配对结算 —— 判据是这声
+  // 应答，不是消息发得出去。返回 { pong: boolean }。
+  | { kind: 'float:ping'; tabId: number }
+
   // —— 浮层宿主件自证身份 ——
-  // 宿主件跑在用户脚本世界，那里拿不到 chrome.tabs，而网页浮层（扩展页 iframe）必须知道「自己属于哪个
-  // 标签页」才能认定该 tab 的会话归属。故宿主件经本命令取回 sender.tab.id
-  // （SW 是唯一知道发送方 tab 的一方），再拼进 iframe URL 传给浮层。
+  // 网页浮层（扩展页 iframe）必须知道「自己属于哪个标签页」才能认定该 tab 的会话归属。
+  // 故对话界面经本命令取回 sender.tab.id（SW 是唯一知道发送方 tab 的一方），再拼进
+  // iframe URL 传给浮层。
   | { kind: 'tab:identify' }
 
   // —— SW 内存态（自答）——
@@ -347,70 +363,6 @@ export type { BuildPhase, DataChangedPush, DataDomain } from '@duoling/shared'
 // —— 端口名约定（跨上下文长连接）——
 // 'duoling:panel'（定义在 lib/userscripts/page-monitor.ts）= 对话界面文档 ↔ SW 的监控通道
 // （岛推送寻址 + 快照请求），页面脚本监控在用。
-
-// —— 浮层的页面外入口 ——
-/**
- * popup / 页面右键菜单 → **当前标签页的浮层宿主件**的定向消息（`chrome.tabs.sendMessage`，
- * 不经 SW 中转）。
- *
- * 为什么需要：对话框**按需挂载** —— 宿主进页面时一个字都不放，这两个页面之外的入口就是它的
- * 打开方式：popup 的「对话浮层」按钮与页面右键菜单都发这条消息。
- *
- * 为什么不走 RuntimeRequest 总线（渲染页 → SW → 转发）：这条消息只对**某一个**标签页有意义，
- * 而 `tabs.sendMessage` 天然投到那个标签页的各个世界，谁认这个 kind 谁来接（见
- * packages/builtin-scripts/src/float-host/install.ts），SW 不必参与转发。
- */
-export interface FloatOpenRequest {
-  kind: typeof FLOAT_OPEN_KIND
-  /**
-   * 发起方所在的标签页。
-   *
-   * 为什么必须带：宿主件跑在用户脚本世界，那里没有 `chrome.tabs`（拿不到自己是几号标签页），
-   * 而它要把 tabId 拼进浮层 iframe 的 URL（`floatpanel.html?tab=<id>`，浮层据此认定会话归属）。
-   * 发起方都天然知道它 —— popup 有 `tab.id`，右键菜单那条由 SW 代发（同样握有 tab）。
-   */
-  tabId: number
-}
-
-/** 上面那条消息的唯一构造处：发送方与接收方都取同一个 kind 字面量，不各写一份字符串 */
-export function floatOpenRequest(tabId: number): FloatOpenRequest {
-  return { kind: FLOAT_OPEN_KIND, tabId }
-}
-
-/**
- * 对话界面 → **本浮层所属标签页的浮层宿主件**的定向消息（同样是 `chrome.tabs.sendMessage`）。
- *
- * 来源是对话框顶栏那颗「收起」按钮：按钮在 iframe 里（对话界面本体），而容器的显隐握在父页的
- * 宿主件手里，跨源拿不到对方，只能发一条消息。tabId 由对话界面从 iframe URL 的 `?tab=` 读出
- * （见 lib/owning-tab 的 readPinnedTabId）。
- *
- * 为什么不走 postMessage：宿主网页的脚本就挂在父 window 上，它既能监听、也能用
- * `iframe.contentWindow.postMessage` 伪造来源（`event.source` 校验挡不住这一手），等于把
- * 「关掉扩展界面」开放给被注入的页面。走扩展自己的消息通道则只有扩展上下文发得出来。
- */
-export interface FloatCollapseRequest {
-  kind: typeof FLOAT_COLLAPSE_KIND
-}
-
-/** 上面那条消息的唯一构造处（理由同 floatOpenRequest） */
-export const FLOAT_COLLAPSE_REQUEST: FloatCollapseRequest = { kind: FLOAT_COLLAPSE_KIND }
-
-/**
- * 对话界面 → **本浮层所属标签页的浮层宿主件**：这条会话是否正在生成，用来决定页面要不要盖遮罩。
- *
- * 为什么要盖：生成期间 AI 随时可能读这个页面（元素拾取 / 页面快照），用户此刻点页面、改表单会让
- * 读到的状态与他看到的不一致 —— 遮罩挡掉指针交互，并把这件事说出来（文案在
- * packages/builtin-scripts/src/float-host/install.ts）。
- *
- * 为什么由对话界面发、不由宿主自己判：生成状态只有 offscreen 知道，宿主既不知道哪条会话
- * 属于自己这个标签页，也不该为此多接一条 offscreen 的广播线。发送通道与 float:collapse 同一条
- * （`chrome.tabs.sendMessage` 定向到本 tab）。
- *
- * 与开合那两条的区别：**带载荷** —— 生成开始与结束共用一个 kind，靠 busy 区分（两条消息一对，
- * 单开一个 kind 只会让「结束」那条多写一份字符串）。
- */
-/** 上面那条消息的 kind 唯一构造处（载荷随状态变，故只固定 kind） */
-export const FLOAT_BUSY_REQUEST_KIND = FLOAT_BUSY_KIND
 
 // —— 页面脚本监控（对话界面 · 运行时口径）——
 // 信号源：GM 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。

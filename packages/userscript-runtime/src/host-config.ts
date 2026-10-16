@@ -63,10 +63,16 @@ export interface UserscriptTelemetry {
   /** 标签页录制载荷落库 */
   appendTabCapture?(rec: unknown): Promise<void>
   /**
-   * 消息入站钩子（在 DL 信封分流**之前**调用）：返回 true 表示认领了这条消息
-   * （如页面检查器结果的结算），桥不再分流。缺省 = 无此钩子。
+   * 页面检查器指令结果结算（检查器系统脚本经 __dlEvent 信封上行）。
+   * 旁证（uuid 必须是检查器系统脚本自己的）与页归属（tabId）都由宿主侧定；
+   * reqId 由 SW 现造随指令下发，结算认它（幂等，重复投递无害）。
    */
-  onInspectorResult?(raw: unknown, sender: chrome.runtime.MessageSender): boolean
+  onInspectorEvent?(uuid: string, tabId: number | null, rec: { reqId: string; ok: boolean; payload: unknown }): void
+  /**
+   * 浮层宿主的在岗应答结算（宿主系统脚本经 __dlEvent 信封上行）。与 onInspectorEvent 同款：
+   * 旁证（uuid）与页归属（tabId）由宿主侧定，结算认 SW 现造的 reqId（幂等）。
+   */
+  onFloatEvent?(uuid: string, tabId: number | null, rec: { reqId: string }): void
 }
 
 /** 宿主配置（全部可选） */

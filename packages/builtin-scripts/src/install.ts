@@ -8,4 +8,3 @@
 // 包内（包的 script-bridge.test 直接相对导入 ./relay/install），不再从这里出。
 
 export { installTabRecorder } from './recorder/install'
-export { installTabForwarder } from './forwarder/install'

@@ -4,19 +4,25 @@
 // USER_SCRIPT 世界是独立 realm，挂它的 window.fetch 拦不到。
 //
 // 本件只管**通道**，不管「录什么」：
-//   · 信封形状（TAB_RECORD_TAG + kind + record）、出口 emit、幂等守卫、postMessage 目标；
+//   · 上行信封（__dlEvent + t: 'tab.record'）、出口 emit、幂等守卫；
 //   · 各类信号的具体采法在**种类件**里（当前：net-probe.ts 的网络请求），
 //     由本件逐个 install —— 加一类就是多一个 install 调用，不改本件。
 // 这样命名与职责才对得上：本件叫 `tab-record`（按页录制的框架），不叫 `net-*`。
 //
-// 设计硬边界：
-//   - 无 chrome.*（MAIN 世界本就没有），采集后只靠同帧 window.postMessage 交给转发件；
-//   - 与页面同级、无特权：页面看得见它做的一切；
-//   - **不阻塞页面网络层**：这一条由种类件负责（本件只提供通道，不做任何采样）。
+// 运行位置：MAIN 世界的**系统脚本**（GM 包装注入，见应用侧 system-scripts.ts）——
+// 本件源码由 esbuild 打成 IIFE 资产，注册时经 registerScript 走统一脚本链，包装层把
+// `__dlBridge` 内联进同一作用域（形状真相源见 userscript-runtime 的 script-bridge.ts）。
+// 上行路径：emit → 中继件 → SW 的 __dlEvent 分流（ingestTabRecord）—— 与旧「MAIN 件
+// postMessage + USER_SCRIPT 转发件」的两件形态等跳数，转发件已退役。
 //
-// 本件没有运行期参数，故注册时只需一个 IIFE 文件（无装配段）。
+// 设计硬边界：
+//   - 无 chrome.*（MAIN 世界本就没有），一切上行走脚本桥；
+//   - 与页面同级、无特权：页面看得见它做的一切；
+//   - **不阻塞页面网络层**：这一条由种类件负责（本件只提供通道，不做任何采样）；
+//   - 桥不可用（中继件未就位 / 握手未完成）时静默丢弃采样，绝不阻塞页面。
+//
+// 本件没有运行期参数（幂等守卫 + GM_info 由包装层供给），注册走统一脚本链。
 
-import { TAB_RECORD_TAG } from '@duoling/shared'
 import type { RecorderCtx } from './context'
 import { installNetProbe } from './net-probe'
 
@@ -27,37 +33,39 @@ declare global {
   }
 }
 
+/**
+ * 脚本桥的上行口（GM 包装内联进同一作用域的 `__dlBridge`，恒注入）。
+ * 形状真相源是 userscript-runtime 的 script-bridge.ts；这里只声明本件用到的那一个方法。
+ */
+declare const __dlBridge: {
+  emit(envelope: Record<string, unknown>): void
+}
+
 export function installTabRecorder(): void {
   if (window.__dlTabRecorder) return
   window.__dlTabRecorder = true
 
-  function origin(): string {
-    try {
-      return window.location.origin || '*'
-    } catch {
-      return '*'
-    }
+  function now(): number {
+    return Date.now()
   }
 
   /**
-   * 种类件唯一的出口。信封三件套（TAG / kind / record）形状只在这里定，
-   * 种类件不必知道 TAG 叫什么、也不必自己拼信封。
+   * 种类件唯一的出口：把采样装进 `__dlEvent` 信封交脚本桥（fire-and-forget）。
+   * `kind` 是种类判别键，SW 侧按它分流到各类的归一化函数。
    */
   function emit(kind: string, record: unknown): void {
-    const m: Record<string, unknown> = { kind, record }
-    m[TAB_RECORD_TAG] = true
     try {
-      window.postMessage(m, origin())
+      __dlBridge.emit({
+        __dlEvent: true,
+        name: '页面录制',
+        event: { t: 'tab.record', kind, record },
+      })
     } catch {
-      /* 页面卸载中 */
+      /* 桥不可用（中继件未就位等）：丢弃这条，录制不阻塞页面 */
     }
   }
 
-  const ctx: RecorderCtx = {
-    emit,
-    now: () => Date.now(),
-    origin,
-  }
+  const ctx: RecorderCtx = { emit, now }
 
   installNetProbe(ctx)
 }

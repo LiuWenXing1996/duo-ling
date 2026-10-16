@@ -7,7 +7,8 @@
 //   { __dl: true, uuid, runId?, req: ApiRequest } —— 请求-响应，按 req.c 强类型分发（穷尽性检查）。
 //       runId = 发起这次调用的运行（包装层注入时 mint，见 gm-wrapper 的 __gmRunId）。老包装层不带它，
 //       那时这条请求产生的观测数据（运行事件 / 桥调用失败）就挂不到具体运行上，只能落进孤儿行
-//   { __dlEvent: true, uuid, name, event: DlEvent } —— 单向错误上报，收进错误日志（runtime 库）
+//   { __dlEvent: true, uuid, name, event: DlEvent } —— 单向上行：错误上报收进错误日志（runtime 库），
+//       录制系统脚本的页面采样（t: 'tab.record'）交 ingestTabRecord 归一化落库
 //   { __dlRunStart: true, uuid, name, runId }    —— 运行标识广播：交对话界面监控按 tab 登记
 //
 // 安全性：消息来源天然是「不可信用户脚本」，故校验 sender.userScript.scriptId 与消息里的 uuid 一致，
@@ -40,7 +41,7 @@ import {
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
 // 标签页录制：转发件送来的采集载荷在 SW 侧按**种类**白名单化；落库走遥测 port（宿主注入）
-import { normalizeNetCapture, NET_TAB_KIND, TAB_RECORD_TAG } from '@duoling/shared'
+import { normalizeNetCapture, NET_TAB_KIND } from '@duoling/shared'
 import { broadcastDataChange } from './data-broadcast'
 // GM 值写出口（duoling-usdata 库；store.change 变更事件从这里直发）
 import {
@@ -1027,24 +1028,6 @@ export function initDlBridge(): void {
   // 响应机制：onUserScriptMessage 不支持「返回 Promise 作为响应」，必须调 sendResponse
   // 并返回 true 保持通道打开（沿用旧 GM 桥已验证的写法）。
   chrome.runtime.onUserScriptMessage.addListener((raw, sender, sendResponse) => {
-    // 标签页录制入站：USER_SCRIPT 转发件（us-dl-tab）把 MAIN 件的采集送来落库。
-    // 载荷形状不可信（经页面可伪造的 postMessage + 两次结构化克隆），故先按种类白名单化；
-    // 无响应，仅落库，失败静默（录制不该影响页面网络层）。
-    const rec = raw as Record<string, unknown>
-
-    // 页面检查器常驻件的执行结果：交 page-inspector-bridge 按 reqId 结算挂起的那次调用。
-    // 返回值 = 是否认领这条消息：信封对上就认领（世界 id 不符也只丢弃，不再往下分流）。
-    if (telemetryPort()?.onInspectorResult?.(raw, sender)) {
-      // 收讫回执：件的 sendMessage 才会正常 resolve，否则页面控制台多一条「port closed」
-      sendResponse(true)
-      return undefined
-    }
-
-    if (rec[TAB_RECORD_TAG] === true) {
-      void ingestTabRecord(rec.kind, rec.record, sender.tab?.id)
-      return undefined
-    }
-
     // 运行标识广播（GM 包装注入即发）：交对话界面监控按 tab 登记。
     const run = raw as {
       __dlRunStart?: true
@@ -1088,9 +1071,33 @@ export function initDlBridge(): void {
       return undefined // 仅登记，无需响应
     }
 
-    // 单向错误上报（GM 包装的 window.onerror / unhandledrejection）
+    // 单向上行（GM 包装的错误收集 / 录制系统脚本的采样）
     const evt = raw as { __dlEvent?: true; uuid?: string; name?: string; event?: DlEvent }
     if (evt && evt.__dlEvent === true) {
+      const event = evt.event
+      // 标签页录制采样：录制系统脚本经桥上行。归属判据（那一页此刻在不在录）在
+      // ingestTabRecord 内，与错误路径「活动记录开着才收」是同一本账。
+      if (event && event.t === 'tab.record') {
+        void ingestTabRecord(event.kind, event.record, sender.tab?.id)
+        return undefined
+      }
+      // 页面检查器指令结果：交宿主侧按 reqId 结算挂起的那次调用（uuid / tabId 一并带去，
+      // 旁证与页归属都在宿主侧定）。
+      if (event && event.t === 'inspector.result') {
+        telemetryPort()?.onInspectorEvent?.(
+          evt.uuid ?? '',
+          sender.tab?.id ?? null,
+          { reqId: event.reqId, ok: event.ok, payload: event.payload },
+        )
+        return undefined // 结算是宿主侧的事，桥只递送
+      }
+      // 浮层宿主的在岗应答：交宿主侧按 reqId 结算挂起的那次探活（旁证同上）。
+      if (event && event.t === 'float.pong') {
+        telemetryPort()?.onFloatEvent?.(evt.uuid ?? '', sender.tab?.id ?? null, {
+          reqId: event.reqId,
+        })
+        return undefined // 结算是宿主侧的事，桥只递送
+      }
       // sender.tab 定位出错页面（userScript 世界消息 sender 带 tab）；拿不到就无从判归属
       const tabId = sender.tab?.id
       if (tabId == null) return undefined
@@ -1103,11 +1110,11 @@ export function initDlBridge(): void {
             uuid: evt.uuid ?? null,
             name: evt.name || '未知脚本',
             phase: 'runtime',
-            message: evt.event?.message || '',
-            stack: evt.event?.stack,
-            url: evt.event?.url,
+            message: event?.message || '',
+            stack: event?.stack,
+            url: event?.url,
             // 本次运行标识：对话界面监控据此把错误归属到对应 tab 的运行（缺省视作非本次）
-            runId: typeof evt.event?.runId === 'string' ? evt.event.runId : null,
+            runId: typeof event?.runId === 'string' ? event.runId : null,
             // 页归属直接带上（不必等写侧从运行条继承）：这一页此刻确实开着记录
             tabSessionId,
           }).then(() => {
@@ -1115,8 +1122,8 @@ export function initDlBridge(): void {
             telemetryPort()?.notePageError?.(tabId, {
               uuid: evt.uuid ?? null,
               name: evt.name || '未知脚本',
-              message: evt.event?.message || '',
-              runId: typeof evt.event?.runId === 'string' ? evt.event.runId : null,
+              message: event?.message || '',
+              runId: typeof event?.runId === 'string' ? event.runId : null,
             })
           })
         })

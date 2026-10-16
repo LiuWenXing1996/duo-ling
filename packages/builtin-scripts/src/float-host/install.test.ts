@@ -1,70 +1,59 @@
-// float-host/install.ts 单测：件在独立 USER_SCRIPT 世界跑，这里用最小假全局把它跑起来，
-// 验证三件事 —— 世界级 hook 的形状、装配（init）与消息面、拖拽落点的夹取。
+// float-host/install.ts 单测：件在 MAIN 世界系统脚本（GM 包装）里跑，这里用最小假全局把它跑起来，
+// 验证指令通道两端 —— 下行认桥事件帧（非指令帧不响应）、ping 按 reqId 回一条 float.pong、
+// open / collapse / busy 三个动作口，以及常驻通道（connect + 幂等守卫）。
 //
 // **件的 DOM 行为不在这里验** —— 挂容器、开合、拖拽、遮罩、拾取让位要真实渲染与事件流，最小桩
 // 测不出（也容易把桩的行为当件的行为），由 e2e/float-task-state.spec.ts 用真浏览器覆盖。
 //
-// 与历史形态的差别：这份测试过去跑的是件源码（件当时还是 src/public 下的 vanilla JS，件以资产形态
-// 随包分发、不进类型检查，故靠「执行源码 + 比对 kind 字面量」兜住漂移）。件迁进包并 TS 化后，kind
-// 的真相源就是 @duoling/shared 的 float-host.ts，两侧 import 同一组常量、对齐由编译器守，那条防线随之退化为
-// 一条「接错线」检查（见下）—— 真正的形状约束现在来自类型。
+// 注入方式：件读裸全局（window / document）与同作用域的 `__dlBridge`（GM 包装恒注入），
+// 故把它们都装成全局再调安装函数 —— 与真注入同一条路径。
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  CONTENT_PING_KIND,
-  FLOAT_BUSY_KIND,
-  FLOAT_COLLAPSE_KIND,
-  FLOAT_HOST_HOOK_KEY,
-  FLOAT_OPEN_KIND,
-} from '@duoling/shared'
-import { clampPoint, installFloatHost, type FloatHostHook } from './install'
+import { clampPoint, installFloatHost } from './install'
 
-const PANEL_URL = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/floatpanel.html'
-const EXTENSION_NAME = '测试扩展名'
-
-interface StubEnv {
-  hook: FloatHostHook
-  warns: string[]
-  addListener: ReturnType<typeof vi.fn>
+interface FakeBridge {
+  /** 件 emit 出去的信封（__dlEvent 上行） */
+  sent: Array<Record<string, unknown>>
+  /** 从 SW 下发一帧事件进件（模拟 DL Port → 中继件 → 桥 onEvent） */
+  fire: (ev: unknown) => void
+  /** 装接收时是否抛（桥不可用的形态） */
+  breakListener: () => void
+  /** connect 被调用的次数（常驻通道 + 重发自愈的观测面） */
+  connects: number[]
 }
 
-/**
- * 在最小壳里装载件（件读裸全局，故装成全局再调安装函数 —— 与真注入同一条路径）。
- *
- * 默认 `documentElement: null` → init 走「等文档就绪再装观察器」那条分支，正好一并覆盖到；
- * warn 的监视范围包住装载与 run 全程：init 里的警告（世界没开 messaging）恰恰是最要紧的诊断出口。
- */
-function stubEnv(
-  run?: (hook: FloatHostHook) => void,
-  opts: { runtime?: 'ok' | 'missing' } = {},
-): StubEnv {
-  const addListener = vi.fn()
-  const warns: string[] = []
+function stubBridge(): FakeBridge {
+  const sent: Array<Record<string, unknown>> = []
+  const handlers: Array<(ev: unknown) => void> = []
+  const connects: number[] = []
+  let broken = false
+
   vi.stubGlobal('window', {})
-  // documentElement 为 null：init 里那条 DOMContentLoaded 兜底路径也一并跑到
+  // documentElement 为 null：观察器走「等文档就绪再装」那条分支，一并覆盖到
   vi.stubGlobal('document', { documentElement: null, addEventListener: vi.fn() })
-  vi.stubGlobal(
-    'chrome',
-    opts.runtime === 'missing' ? {} : { runtime: { onMessage: { addListener } } },
-  )
-  vi.stubGlobal(
-    'MutationObserver',
-    class {
-      observe(): void {}
+  vi.stubGlobal('setInterval', () => 0) // 重发自愈的定时器：测试里不真跑
+  vi.stubGlobal('__dlBridge', {
+    connect: () => {
+      connects.push(1)
+      return Promise.resolve()
     },
-  )
-  const spy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
-    warns.push(args.map((a) => String(a)).join(' '))
+    emit: (envelope: Record<string, unknown>) => {
+      sent.push(envelope)
+    },
+    onEvent: (fn: (ev: unknown) => void) => {
+      if (broken) throw new Error('bridge unavailable')
+      handlers.push(fn)
+    },
   })
-  try {
-    installFloatHost()
-    const hook = (window as unknown as Record<string, FloatHostHook | undefined>)[
-      FLOAT_HOST_HOOK_KEY
-    ]
-    if (!hook) throw new Error('件没有挂出世界级 hook')
-    if (run) run(hook)
-    return { hook, warns, addListener }
-  } finally {
-    spy.mockRestore()
+
+  return {
+    sent,
+    fire: (ev: unknown) => {
+      for (const fn of handlers) fn(ev)
+    },
+    breakListener: () => {
+      broken = true
+    },
+    connects,
   }
 }
 
@@ -73,73 +62,71 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('dl-float-host（USER_SCRIPT 世界常驻件）· 世界级 hook', () => {
-  it('装载即挂出 hook，三个口都在；装载本身不出声、不碰 DOM', () => {
-    const { hook, warns } = stubEnv()
-    expect(typeof hook.init).toBe('function')
-    expect(typeof hook.clamp).toBe('function')
-    expect(typeof hook.kinds).toBe('object')
-    expect(warns).toEqual([])
-    // 只装 hook，不建任何 DOM（页面里那份待命代码零 UI）
-    expect(document.createElement).toBeUndefined()
-  })
-
-  it('kinds 四个口接的是各自那条指令（接错线时红）', () => {
-    const { hook } = stubEnv()
-    expect(hook.kinds).toEqual({
-      open: FLOAT_OPEN_KIND,
-      collapse: FLOAT_COLLAPSE_KIND,
-      busy: FLOAT_BUSY_KIND,
-      ping: CONTENT_PING_KIND,
-    })
+describe('dl-float-host（MAIN 世界系统脚本）· 常驻通道', () => {
+  it('装通道：安装即 connect（常驻 Port 由中继件代建）', () => {
+    const bridge = stubBridge()
+    installFloatHost()
+    expect(bridge.connects).toHaveLength(1)
   })
 
   it('同一 realm 重复注入只装一遍（重注册 / 导航竞态）', () => {
-    const first = stubEnv()
-    first.hook.init(PANEL_URL, EXTENSION_NAME)
-    expect(first.addListener).toHaveBeenCalledTimes(1)
-    installFloatHost() // 第二次注入：hook 已在，直接返回
-    expect(first.addListener).toHaveBeenCalledTimes(1)
+    const first = stubBridge()
+    installFloatHost()
+    installFloatHost() // 第二次应被 window.__dlFloatHost 挡下
+    expect(first.connects).toHaveLength(1)
+  })
+
+  it('桥不可用（装接收即抛）：记一条 warn 兜底，不让安装炸掉页面', () => {
+    const bridge = stubBridge()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    bridge.breakListener()
+
+    expect(() => installFloatHost()).not.toThrow()
+    expect(warn).toHaveBeenCalled()
   })
 })
 
-describe('dl-float-host · init 装配', () => {
-  it('装消息面且幂等；ping 同步应答，其余未知 kind 静默', () => {
-    const { addListener, warns } = stubEnv((hook) => {
-      hook.init(PANEL_URL, EXTENSION_NAME)
-      hook.init(PANEL_URL, EXTENSION_NAME) // 幂等：同一文档重复装配只生效一次
-    })
-    expect(addListener).toHaveBeenCalledTimes(1)
-    expect(warns).toEqual([]) // 装配正常时不该出声
+describe('dl-float-host · 指令接收', () => {
+  it('ping 指令：回一条 float.pong 信封，reqId 原样带上', async () => {
+    const bridge = stubBridge()
+    installFloatHost()
 
-    const listener = addListener.mock.calls[0]![0] as (
-      raw: unknown,
-      sender: unknown,
-      respond: (r: unknown) => void,
-    ) => void
+    bridge.fire({ t: 'float.cmd', cmd: 'ping', reqId: 'r1' })
+    await new Promise((r) => setTimeout(r, 0))
 
-    const respond = vi.fn()
-    listener({ kind: CONTENT_PING_KIND }, {}, respond)
-    expect(respond).toHaveBeenCalledWith({ ok: true })
-
-    // 同一标签页的各个世界都会收到 tabs.sendMessage：不认识的 kind 一律静默（连应答都不做）
-    const respond2 = vi.fn()
-    listener({ kind: 'float:不存在的指令' }, {}, respond2)
-    expect(respond2).not.toHaveBeenCalled()
+    expect(bridge.sent).toHaveLength(1)
+    const out = bridge.sent[0]
+    expect(out.__dlEvent).toBe(true)
+    expect(out.name).toBe('浮层宿主')
+    expect(out.event).toEqual({ t: 'float.pong', reqId: 'r1' })
   })
 
-  it('非对象载荷（null / 字符串）静默，不炸', () => {
-    const { addListener } = stubEnv((hook) => hook.init(PANEL_URL, EXTENSION_NAME))
-    const listener = addListener.mock.calls[0]![0] as (raw: unknown) => void
-    expect(() => listener(null)).not.toThrow()
-    expect(() => listener('float:open')).not.toThrow()
+  it('ping 没带 reqId：无从配对，静默不回', async () => {
+    const bridge = stubBridge()
+    installFloatHost()
+
+    bridge.fire({ t: 'float.cmd', cmd: 'ping' })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(bridge.sent).toHaveLength(0)
   })
 
-  it('世界未开 messaging（拿不到 chrome.runtime）时出声，不静默', () => {
-    const { warns } = stubEnv((hook) => hook.init(PANEL_URL, EXTENSION_NAME), {
-      runtime: 'missing',
-    })
-    expect(warns.some((w) => w.includes('messaging'))).toBe(true)
+  it('非指令帧不响应', async () => {
+    const bridge = stubBridge()
+    installFloatHost()
+
+    bridge.fire({ t: 'store.change', key: 'k' }) // 别的桥事件：静默忽略
+    bridge.fire({ t: 'float.cmd', cmd: 'collapse' }) // collapse 等动作不产生上行
+    await new Promise((r) => setTimeout(r, 0))
+    expect(bridge.sent).toHaveLength(0)
+  })
+
+  it('未知 cmd 静默；非对象载荷（null / 字符串）不炸', () => {
+    const bridge = stubBridge()
+    installFloatHost()
+
+    expect(() => bridge.fire({ t: 'float.cmd', cmd: '不存在的指令' })).not.toThrow()
+    expect(() => bridge.fire(null)).not.toThrow()
+    expect(() => bridge.fire('float:open')).not.toThrow()
   })
 })
 

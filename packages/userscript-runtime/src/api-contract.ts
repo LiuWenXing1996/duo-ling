@@ -455,6 +455,18 @@ export const API_COMMANDS: Record<ApiRequest['c'], true> = {
 export type ApiEvent =
   /** 内部帧（脚本作者不感知）：SW 建立 Port 后立即下发，包装层据此 flush 待注册队列 */
   | { t: 'port.ready' }
+  /**
+   * 页面检查器指令（SW → 检查器系统脚本，经 Port 下行由中继件转回 MAIN 桥 onEvent）。
+   * `cmd` 是模式名（pick / snapshot / env）或 'cancel'；`reqId` 由 SW 现造，结算认它。
+   * 脚本作者不感知：检查器是系统脚本，不走 GM 能力面。
+   */
+  | { t: 'inspector.cmd'; cmd: string; reqId: string }
+  /**
+   * 浮层宿主指令（SW → 浮层宿主系统脚本，经 Port 下行由中继件转回 MAIN 桥 onEvent）。
+   * `cmd`：open（tabId 随帧带，件拼进浮层 iframe 的 `?tab=`）/ collapse / busy（busy 定显隐）/
+   * ping（在岗探针，件回一条 float.pong）。脚本作者不感知：宿主件是系统脚本，不走 GM 能力面。
+   */
+  | { t: 'float.cmd'; cmd: string; reqId?: string; tabId?: number; busy?: boolean }
   /** 扩展菜单点击。id = 包装层 mint 的菜单标识 */
   | { t: 'menu.click'; id: string }
   /**
@@ -499,8 +511,10 @@ export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
 
 /**
  * 脚本世界 → 后台 的单向事件（不等待响应，区别于 ApiRequest 的请求-响应）。两种信封：
- *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报：包装层收进错误记录
- *     （runtime 库 tab_events，kind = 'error'）。归属口径两层：正文同步错误由包装内 try/catch 直报；
+ *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报与系统脚本上行：
+ *     包装层把错误收进错误记录（runtime 库 tab_events，kind = 'error'）；录制系统脚本
+ *     把页面采样（`t: 'tab.record'`）经同一条信封上行，归属判据在 SW 侧（见 dl-bridge）。
+ *     归属口径两层：正文同步错误由包装内 try/catch 直报；
  *     异步错误经 window.onerror / unhandledrejection，只收栈帧带本脚本 sourceURL
  *     标记（`duoling://script/<uuid>/`）的，页面自身的报错不归属（无标记不收）。
  *     **写侧另有页判据**：只有这一页开着活动记录时才落盘 + 推送（见 dl-bridge），没开就是观测盲区。
@@ -511,15 +525,33 @@ export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
  *
  * 信封名保持 `dl` 前缀（内部协议面不改名，改它是纯 churn）。
  */
-export type DlEvent = {
-  t: 'error'
-  phase: 'runtime'
-  message: string
-  stack?: string
-  url?: string
-  /** 本次运行的标识（一次页面加载 mint 一个）；对话界面监控据此把错误归属到对应运行 */
-  runId?: string
-}
+export type DlEvent =
+  | {
+      t: 'error'
+      phase: 'runtime'
+      message: string
+      stack?: string
+      url?: string
+      /** 本次运行的标识（一次页面加载 mint 一个）；对话界面监控据此把错误归属到对应运行 */
+      runId?: string
+    }
+  /**
+   * 标签页录制采样（录制系统脚本上行）。`kind` 是种类判别键（当前只有 NET_TAB_KIND 一类），
+   * `record` 的形状由各类自己约定 —— SW 侧按 kind 分流到各自的归一化函数（消息源不可信，
+   * 归一化即信任边界）。
+   */
+  | { t: 'tab.record'; kind: string; record: Json }
+  /**
+   * 页面检查器指令结果（检查器系统脚本上行）。`reqId` 由 SW 现造随指令下发，结算认它；
+   * 来源旁证（uuid 必须是检查器系统脚本自己的）在宿主侧结算处校验 —— 信号本身不敏感
+   * （页面 DOM 摘要，住在页面里的脚本本来就能读），但旁证便宜，留着防串扰。
+   */
+  | { t: 'inspector.result'; reqId: string; ok: boolean; payload: unknown }
+  /**
+   * 浮层宿主的在岗应答（宿主系统脚本上行）。`reqId` 由 SW 现造随 ping 指令下发，结算认它；
+   * 旁证（uuid 必须是宿主件自己的）在宿主侧结算处校验（与 inspector.result 同款）。
+   */
+  | { t: 'float.pong'; reqId: string }
 
 /** 桥响应信封 */
 export type ApiResponse =
