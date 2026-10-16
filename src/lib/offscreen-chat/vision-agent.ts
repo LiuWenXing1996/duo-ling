@@ -48,7 +48,7 @@ export async function askImageAboutAsset(
   question: string | undefined,
   deps: VisionDeps,
 ): Promise<{ filename: string; answer: string }> {
-  // 直读资源库（同进程，零 IPC）—— 面板那条 fs:assetRead 是给渲染用的，这里不需要过桥
+  // 直读资源库（同进程，零 IPC）—— 面板那条 fsAssetRead 是给渲染用的，这里不需要过桥
   const asset = await readAsset(assetId)
   if (!asset) throw new Error(`图片资源不存在（id：${assetId}）——可能已被清理，或 id 写错`)
 

@@ -333,7 +333,7 @@ const handlers: {
 } = {
   // —— offscreen 容器——
   // A 组只做容器与通道：这几个命令供手动 / 调试触发；B 组的生成入口会直接调 ensureOffscreen()。
-  // 唤醒容器并**等到它真的能应答**才返回——调用方（fsClient 等）无须再 sleep 猜监听器是否注册好。
+  // 唤醒容器并**等到它真的能应答**才返回——调用方（offscreenService 等）无须再 sleep 猜监听器是否注册好。
   // 常见路径几乎不等待：容器已在时第一次探测即成功。ready=false 表示超时未就绪，由调用方重试。
   'offscreen:ensure': async (): Promise<{ ready: boolean }> => ({
     ready: await ensureOffscreenReady(),

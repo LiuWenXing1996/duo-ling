@@ -7,7 +7,7 @@
 //   1. SW 模块冷启动（background.ts 顶层 void ensureOffscreen()）
 //   2. chrome.runtime.onInstalled（安装 / 更新）
 //   3. chrome.runtime.onStartup（浏览器启动）
-// 另：AI 生成入口与 fsClient 在发起请求前也会先 ensure，作为兜底。
+// 另：AI 生成入口与 offscreenService 在发起请求前也会先 ensure，作为兜底。
 //
 // 说明：Chrome 不会自动启动 offscreen，必须显式 createDocument。策略是常驻：offscreen 不自关，
 // 仅在 `offscreen:close` 调试命令下主动关。
@@ -79,7 +79,7 @@ const PING_INTERVAL_MS = 50
  *
  * `createDocument` resolve 只说明文档建好了，其 onMessage 未必注册完——此时发业务命令会得到
  * 「The message port closed before a response was received」。故就绪判据必须是「能应答一条消息」。
- * 用 `fs:ping`（不触碰文件系统），由 offscreen 侧 handleFsCommand 应答。
+ * 用 `fs:ping`（不触碰文件系统），由 offscreen 侧的就绪 matcher 应答。
  */
 function pingOffscreen(): Promise<boolean> {
   // 超时兜底由总线提供：应答方永不回调（容器刚被销毁）时不把 promise 挂死。

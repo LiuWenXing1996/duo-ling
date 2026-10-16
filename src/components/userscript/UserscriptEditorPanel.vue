@@ -44,7 +44,7 @@ import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } 
 import { searchKeymap } from '@codemirror/search'
 import { tags as t } from '@lezer/highlight'
 import { javascript } from '@codemirror/lang-javascript'
-import { userscriptClient, fsClient, subscribeAvailability } from '@/lib/userscripts/ui-client'
+import { userscriptClient, offscreenService, subscribeAvailability } from '@/lib/userscripts/ui-client'
 import type { Source } from '@/lib/userscripts/us-git'
 import type { UserScriptsAvailability } from '@/lib/userscripts/types'
 import { errorText } from '@/lib/format'
@@ -281,7 +281,7 @@ async function load(): Promise<void> {
     // 源码读取 try/catch：offscreen 不在等失败按无源码处理（best-effort，不挡住打开编辑器）
     let source: Source | null = null
     try {
-      source = await fsClient.read(props.uuid)
+      source = await offscreenService.fsRead(props.uuid)
     } catch {
       source = null
     }

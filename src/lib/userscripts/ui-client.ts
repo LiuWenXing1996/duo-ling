@@ -6,13 +6,8 @@
 // 直接发 userscript:* 命令组（v2 方案）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { ipcRequest, ipcSubscribe } from '@/shared/ipc-bus'
+import { createOffscreenService } from '@duoling/proxy-service-list'
 import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
-import type { Source, UsCommit, UsSnapshot } from './us-git'
-import type { LfsNode, LfsFileContent } from './us-fs'
-// 对话资源引用（消息里那份 `data-asset` 的载荷形状）与写入结果。
-// **type-only**：资源库本体（lightning-fs）只在 offscreen 里，扩展页只要形状。
-import type { ChatAssetData } from '@/lib/chat-assets'
-import type { AssetWriteResult } from './us-assets'
 // 按页的整根活动轴（runtime-db 的读侧产物，六类行分五组）。**type-only**：UI 侧只要形状，
 // 不把存储层（idb-core）拖进扩展页 bundle。
 import type { TabTimeline } from './runtime-db'
@@ -36,33 +31,6 @@ export function subscribeAvailability(
   })
 }
 
-/**
- * 向 offscreen 发 ai:* 命令（git 历史侧车 + 构建宿主）。
- * offscreen 常驻（SW 冷启动即 ensureOffscreen，不空闲自关）；但扩展重载 / 崩溃 / 关窗会销毁
- * 容器，这些情况下 ai:* 无人响应会报
- * 「The message port closed before a response was received」。故失败时先经 SW 唤起容器
- * （同时触发其启动对账、注册监听），再重试，最多 3 次。
- *
- * **就绪判据**：`offscreen:ensure` 等到容器**真的能应答**才返回（SW 侧轮询 `fs:ping`），故这里**不靠固定 sleep 猜时间**——
- * sleep 是在猜 offscreen 的 onMessage 有没有注册完，猜短了白重试、猜长了每次都白等。
- */
-async function sendAi<T>(request: RuntimeRequest): Promise<T> {
-  let lastErr: unknown
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      return await send<T>(request)
-    } catch (e) {
-      const msg = errorText(e)
-      // 仅当是「容器未响应」类错误才重试；其它（业务异常 / 报文非法）直接抛出
-      if (!/port closed|Receiving end does not exist|无响应/.test(msg)) throw e
-      lastErr = e
-    }
-    // 唤起容器并等它可应答（SW 侧处理 offscreen:ensure，内部轮询 fs:ping 到就绪为止）
-    await send({ kind: 'offscreen:ensure' }).catch(() => {})
-  }
-  throw lastErr
-}
-
 /** 管理页与 background 的脚本命令通道 */
 export const userscriptClient = {
   /** 引擎可用性状态（横幅引导用） */
@@ -75,7 +43,7 @@ export const userscriptClient = {
   builtins: (): Promise<import('@/lib/userscripts/engine').BuiltinRegistration[]> =>
     send({ kind: 'userscript:builtins' }),
 
-  /** 读完整注册态记录（元数据 + 源码搬运副本；duoling-fs 里的 git 历史源码经 fsClient.read 取） */
+  /** 读完整注册态记录（元数据 + 源码搬运副本；duoling-fs 里的 git 历史源码经 offscreenService.fsRead 取） */
   getProject: (uuid: string): Promise<ScriptProject | undefined> =>
     send({ kind: 'userscript:getProject', uuid }),
 
@@ -187,48 +155,18 @@ export const userscriptClient = {
 }
 
 /**
- * 用户脚本源码库命令面（fs:*，执行宿主 = offscreen）。
- * 源码唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
- * SW 与扩展页读不到 lfs——源码的一切读写都经本对象向 offscreen 取。
- * 与 userscriptClient 的区别：后者走 SW 管辖的 userscript:* 命令组；本对象的 fs:* 命令 SW 静默让路。
+ * 源码库 / 资源库的服务代理（执行宿主 = offscreen）。
+ * 形状来自 @duoling/proxy-service-list 的 IOffscreenService，消费侧不必引实现包。
+ *
+ * retry：offscreen 常驻，但扩展重载 / 崩溃 / 关窗会销毁容器，那之后首次调用会报
+ * 「port closed / Receiving end does not exist」。此时经 SW 唤起容器再试一次 —— ensure 内部
+ * 等到容器真能应答才返回（SW 侧轮询 fs:ping），故不靠固定 sleep 猜时间。
  */
-export const fsClient = {
-  /** 就绪探测（一般不直接用；offscreen:ensure 的就绪轮询内部即 fs:ping） */
-  ping: (): Promise<{ ready: boolean }> => sendAi({ kind: 'fs:ping' }),
-
-  /** 读源码（工作树；每次保存后与 HEAD 一致，无草稿概念）。无源码返回 null */
-  read: (uuid: string): Promise<Source | null> => sendAi({ kind: 'fs:read', uuid }),
-
-  /** git 历史：提交列表（新在前） */
-  history: (uuid: string): Promise<UsCommit[]> => sendAi({ kind: 'fs:history', uuid }),
-
-  /** 某提交的完整快照（当时元信息 + 源码） */
-  readAt: (uuid: string, oid: string): Promise<UsSnapshot> =>
-    sendAi({ kind: 'fs:readAt', uuid, oid }),
-
-  /** 恢复到某提交：目标快照物化回工作区 + 提交「回滚」记录。
-   *  返回恢复出的源码；随后经 userscriptClient.save 走统一保存（落库 + 重注册） */
-  restoreToCommit: (uuid: string, oid: string): Promise<{ committed: boolean; source: Source }> =>
-    sendAi({ kind: 'fs:restoreToCommit', uuid, oid }),
-
-  /** 导出 zip：offscreen 侧打包（读工作区源码），只回传 base64；单脚本时附带 name */
-  exportZip: (uuids: string[], meta?: { exporter?: string }): Promise<{ zipBase64: string; name?: string }> =>
-    sendAi({ kind: 'fs:exportZip', uuids, ...meta }),
-
-  /** 整库浏览（只读调试视图）：lfs 库的完整文件树（含 .git 内部） */
-  lfsTree: (): Promise<LfsNode> => sendAi({ kind: 'fs:lfsTree' }),
-
-  /** 单文件预览：按完整路径读 lfs 库内文件内容（含 .git 内部） */
-  lfsReadFile: (path: string): Promise<LfsFileContent> => sendAi({ kind: 'fs:lfsReadFile', path }),
-
-  /**
-   * 上传一份对话资源（图片附件）：面板把文件转成 data URL 送来即可，offscreen 拆出
-   * (mime, bytes) 落 `/assets/<内容hash>/`。**id 由内容决定**，故同一张图重复附加命中同一份字节。
-   * 返回的 ref 直接就是消息里那份 `data-asset` 的载荷（面板拿到即可挂上）。
-   */
-  assetPut: (dataUrl: string, filename: string): Promise<AssetWriteResult> =>
-    sendAi({ kind: 'fs:assetPut', dataUrl, filename }),
-
-  /** 读回资源（面板显示 / 预览 / 下载）。所指资源不在（被清理过 / id 写错）返回 null */
-  assetRead: (id: string): Promise<ChatAssetData | null> => sendAi({ kind: 'fs:assetRead', id }),
-}
+export const offscreenService = createOffscreenService(async (error) => {
+  // 仅「容器未响应」类错误才唤起重试；业务异常 / 报文非法直接透出去
+  if (!/port closed|Receiving end does not exist|Could not establish connection/.test(errorText(error))) {
+    return false
+  }
+  await ipcRequest({ kind: 'offscreen:ensure' }).catch(() => {})
+  return true
+})

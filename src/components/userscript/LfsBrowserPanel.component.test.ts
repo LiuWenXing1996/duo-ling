@@ -16,7 +16,7 @@ const lfsReadFile = vi.hoisted(() => vi.fn())
 const pick = vi.hoisted(() => ({ path: '' }))
 
 vi.mock('@/lib/userscripts/ui-client', () => ({
-  fsClient: { lfsTree, lfsReadFile },
+  offscreenService: { fsLfsTree: lfsTree, fsLfsReadFile: lfsReadFile },
   userscriptClient: { list },
 }))
 

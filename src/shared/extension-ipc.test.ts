@@ -84,18 +84,9 @@ const ALL_KINDS = [
   { kind: 'userscript:group-rename', side: 'sw' },
   { kind: 'userscript:group-remove', side: 'sw' },
   { kind: 'userscript:group-reorder', side: 'sw' },
-  // —— fs:*（offscreen：源码库 duoling-fs 命令面，SW 静默让路）——
+  // —— fs:ping（offscreen：容器就绪探测，SW 静默让路）——
+  // 源码库 / 资源库的读写已走 OffscreenService 代理（报文无 kind，不占总线），不在本表
   { kind: 'fs:ping', side: 'offscreen' },
-  { kind: 'fs:read', side: 'offscreen' },
-  { kind: 'fs:history', side: 'offscreen' },
-  { kind: 'fs:readAt', side: 'offscreen' },
-  { kind: 'fs:restoreToCommit', side: 'offscreen' },
-  { kind: 'fs:exportZip', side: 'offscreen' },
-  { kind: 'fs:lfsTree', side: 'offscreen' },
-  { kind: 'fs:lfsReadFile', side: 'offscreen' },
-  // 对话资源库（/assets，与 /uscripts 平级；同样是 lfs 库，故同宿主）
-  { kind: 'fs:assetPut', side: 'offscreen' },
-  { kind: 'fs:assetRead', side: 'offscreen' },
   // —— state:*（offscreen：项目状态库写侧，单写方）——
   { kind: 'state:create', side: 'offscreen' },
   { kind: 'state:createProject', side: 'offscreen' },

@@ -34,12 +34,8 @@ export interface ScriptSummary {
   group: string
 }
 
-/**
- * 一次源码改动的来源：一套历史里要能分清是谁改的。
- * 存在版本记录的 author 上（见 us-git），**不拼进提交信息** —— 提交信息是给用户读的
- * 「改了什么」，来源是「谁改的」，分开存才不会互相污染。
- */
-export type CommitActor = 'user' | 'ai' | 'system'
+// 一次源码改动的来源：形状归 @duoling/proxy-service-list（offscreen 服务契约）
+export type { CommitActor } from '@duoling/proxy-service-list'
 
 // 用户脚本引擎可用性状态已上移进 `@duoling/userscript-sw`（registration.ts，与
 // getUserScriptsStatus 同文件）；此处 re-export 维持既有 import 路径不变。

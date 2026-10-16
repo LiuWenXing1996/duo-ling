@@ -427,9 +427,6 @@ importers:
         specifier: ^3.0.2
         version: 3.0.2(@webext-core/messaging@4.0.0(@types/chrome@0.2.9))
     devDependencies:
-      '@duoling/service-worker':
-        specifier: workspace:*
-        version: link:../service-worker
       '@types/chrome':
         specifier: ^0.2.9
         version: 0.2.9
@@ -448,6 +445,9 @@ importers:
 
   packages/service-worker:
     devDependencies:
+      '@duoling/proxy-service-list':
+        specifier: workspace:*
+        version: link:../proxy-service-list
       '@types/chrome':
         specifier: ^0.2.9
         version: 0.2.9

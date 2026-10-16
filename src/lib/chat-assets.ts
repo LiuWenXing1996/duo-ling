@@ -11,30 +11,15 @@
 //   · 发送侧（chat-host.messagesForModel）：换成 assetPlaceholderText 的一行文字；
 //   · 会话库预览（conversation-store.previewOf）：正文为空时显示「[图片]」。
 import type { UIMessage } from 'ai'
+import type { ChatAssetData, ChatAssetRef } from '@duoling/proxy-service-list'
 
-/** 一份资源引用（对应 /assets/<id>/<文件名>，见 lib/userscripts/us-assets.ts） */
-export interface ChatAssetRef {
-  /** 内容 hash：既是 /assets 下的目录名，也是 image_ask 的 assetId */
-  id: string
-  /** 这次附件的文件名（展示用；扩展名已按真实 MIME 归一，见 us-assets.normalizeFilename） */
-  filename: string
-  mediaType: string
-  /** 字节数（展示用；不代表进模型的开销） */
-  size: number
-}
+// 资源引用的形状归 @duoling/proxy-service-list（offscreen 服务契约），re-export 维持既有路径
+export type { ChatAssetData, ChatAssetRef }
 
 /** 消息里表达「带了一份资源」的 part */
 export interface ChatAssetPart {
   type: 'data-asset'
   data: ChatAssetRef
-}
-
-/**
- * 读回的一份资源：引用 + 字节（base64 形态）。
- * 只在这条链路上用（`fs:assetRead` 的应答 → 面板拼 data URL 显示），不进消息、不进模型。
- */
-export interface ChatAssetData extends ChatAssetRef {
-  base64: string
 }
 
 /** 判一个 part 是不是资源引用（运行时形状校验 + 类型收窄；库里可能躺着别的 data-* part） */

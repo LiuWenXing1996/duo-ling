@@ -13,12 +13,12 @@ vi.mock('@/lib/element-picker-client', () => ({
   pickElement: vi.fn(),
   cancelPick: vi.fn(),
 }))
-// 资源库命令面的假身：面板识图只经 fsClient.assetRead 取字节（消息里只有引用）
+// 资源库命令面的假身：面板识图只经 offscreenService.fsAssetRead 取字节（消息里只有引用）
 const fsMocks = vi.hoisted(() => ({
-  assetRead: vi.fn(),
-  assetPut: vi.fn(),
+  fsAssetRead: vi.fn(),
+  fsAssetPut: vi.fn(),
 }))
-vi.mock('@/lib/userscripts/ui-client', () => ({ userscriptClient: {}, fsClient: fsMocks }))
+vi.mock('@/lib/userscripts/ui-client', () => ({ userscriptClient: {}, offscreenService: fsMocks }))
 
 function setModelProfile(): void {
   ;(window as unknown as { api: unknown }).api = {
@@ -52,7 +52,7 @@ const ASSET_ID = 'a'.repeat(64)
 
 /**
  * 造一条「带图片」的历史消息：消息里只有**引用**（id + 文件名 + MIME + 大小），
- * 字节按 id 从资源库现取（面板那条 hydrate 路径 = fsClient.assetRead）。
+ * 字节按 id 从资源库现取（面板那条 hydrate 路径 = offscreenService.fsAssetRead）。
  */
 function imageHistoryMessage(): UIMessage {
   return {
@@ -163,8 +163,8 @@ describe('提交分流', () => {
 describe('会话历史里有图片', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
-    fsMocks.assetRead.mockReset()
-    fsMocks.assetRead.mockResolvedValue({
+    fsMocks.fsAssetRead.mockReset()
+    fsMocks.fsAssetRead.mockResolvedValue({
       id: ASSET_ID,
       filename: 'shot.jpg',
       mediaType: 'image/jpeg',
@@ -184,7 +184,7 @@ describe('会话历史里有图片', () => {
     const w = await mountPanel([imageHistoryMessage()])
     await flushPromises()
 
-    expect(fsMocks.assetRead).toHaveBeenCalledWith(ASSET_ID)
+    expect(fsMocks.fsAssetRead).toHaveBeenCalledWith(ASSET_ID)
     const thumb = w.find('[data-testid="message-images"] img')
     expect(thumb.exists()).toBe(true)
     expect(thumb.attributes('src')).toBe('data:image/jpeg;base64,AAAA')
@@ -192,7 +192,7 @@ describe('会话历史里有图片', () => {
   })
 
   it('资源取不回来（被清理过）：留空占位，点开不弹窗、不报错', async () => {
-    fsMocks.assetRead.mockResolvedValue(null)
+    fsMocks.fsAssetRead.mockResolvedValue(null)
     const w = await mountPanel([imageHistoryMessage()])
     await flushPromises()
 
@@ -273,8 +273,8 @@ describe('消息时间', () => {
 describe('图片预览', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
-    fsMocks.assetRead.mockReset()
-    fsMocks.assetRead.mockResolvedValue({
+    fsMocks.fsAssetRead.mockReset()
+    fsMocks.fsAssetRead.mockResolvedValue({
       id: ASSET_ID,
       filename: 'shot.jpg',
       mediaType: 'image/jpeg',

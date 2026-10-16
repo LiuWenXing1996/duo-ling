@@ -2,8 +2,8 @@
 // 「文件管理」标签页：以文件树形式展示 offscreen 持有的 duoling-fs 库的**全部内容** ——
 // `/uscripts/<uuid>/`（脚本源码 + git 历史 + .git 内部对象）与 `/assets/<hash>/`（对话图片资源）。
 // 只读调试视图：想看真实落盘形状（而不是各面板的逻辑视图）时用它。
-// 数据经 fs:lfsTree（offscreen 应答，含 .git 内部）；容器不在时 sendAi 会先唤起再取。
-// 点文件经 fs:lfsReadFile 拉内容，右栏预览（文本走 shiki 高亮、可复制；二进制里的图片直接显示，其余提示不可预览）。
+// 数据经 fsLfsTree（offscreen 应答，含 .git 内部）；容器不在时先唤起再取。
+// 点文件经 fsLfsReadFile 拉内容，右栏预览（文本走 shiki 高亮、可复制；二进制里的图片直接显示，其余提示不可预览）。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import { Check as UiCheck, Copy as UiCopy, FileText as UiFileText, FolderTree as UiFolderTree, RefreshCw as UiRefreshCw } from '@lucide/vue'
@@ -17,7 +17,7 @@ import {
   TooltipTrigger as UiTooltipTrigger
 } from '@/components/ui/tooltip'
 import LfsTreeNode from './LfsTreeNode.vue'
-import { fsClient, userscriptClient } from '@/lib/userscripts/ui-client'
+import { offscreenService, userscriptClient } from '@/lib/userscripts/ui-client'
 // 换算表取自叶子模块而非 us-assets：后者会带出 lightning-fs 单例，面板只要一张表
 import { isImageMediaType, mediaTypeOf } from '@/lib/media-types'
 import type { LfsNode, LfsFileContent } from '@/lib/userscripts/us-fs'
@@ -112,7 +112,7 @@ watch(selectedPath, async (path) => {
   previewError.value = ''
   preview.value = null
   try {
-    preview.value = await fsClient.lfsReadFile(path)
+    preview.value = await offscreenService.fsLfsReadFile(path)
   } catch (e) {
     previewError.value = errorText(e)
   } finally {
@@ -124,7 +124,7 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const [t] = await Promise.all([fsClient.lfsTree(), loadScriptNames()])
+    const [t] = await Promise.all([offscreenService.fsLfsTree(), loadScriptNames()])
     tree.value = t
     if (tree.value) buildTypeMap(tree.value)
   } catch (e) {

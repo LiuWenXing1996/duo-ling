@@ -136,31 +136,34 @@ describe('prefixMatcher —— 表键收完整 kind 与 kind 前缀两种写法'
   const senderOf = () => ({}) as chrome.runtime.MessageSender
 
   it('前缀键 = 按域分发：该域的全部 kind 落到同一格', async () => {
-    const matcher = prefixMatcher(['fs:', 'state:'], { 'fs:': async () => 'fs 域' })
+    const matcher = prefixMatcher(['fs:', 'state:'], {
+      'fs:': async () => 'fs 域',
+      'state:': async () => 'state 域',
+    })
 
     expect(matcher.owns('fs:ping')).toBe(true)
     expect(matcher.owns('state:save')).toBe(true)
     expect(matcher.owns('chat:start')).toBe(false)
     expect(await matcher.handle({ kind: 'fs:ping' }, senderOf())).toBe('fs 域')
-    expect(await matcher.handle({ kind: 'fs:lfsTree' }, senderOf())).toBe('fs 域')
+    expect(await matcher.handle({ kind: 'state:save', uuid: 'u1', code: 'x' }, senderOf())).toBe('state 域')
   })
 
   it('两种键混放：完整 kind 优先，其余取最长前缀', async () => {
-    const matcher = prefixMatcher(['fs:'], {
-      'fs:': async () => '短',
-      'fs:lfs': async () => '中',
-      'fs:lfsTree': async () => '长',
+    const matcher = prefixMatcher(['state:'], {
+      'state:': async () => '短',
+      'state:group': async () => '中',
+      'state:group-create': async () => '长',
     })
 
-    expect(await matcher.handle({ kind: 'fs:lfsTree' }, senderOf())).toBe('长')
-    expect(await matcher.handle({ kind: 'fs:lfsReadFile', path: '/uscripts/u1/a.js' }, senderOf())).toBe('中')
-    expect(await matcher.handle({ kind: 'fs:read', uuid: 'u1' }, senderOf())).toBe('短')
+    expect(await matcher.handle({ kind: 'state:group-create', name: 'g' }, senderOf())).toBe('长')
+    expect(await matcher.handle({ kind: 'state:group-rename', id: 'g1', name: 'n' }, senderOf())).toBe('中')
+    expect(await matcher.handle({ kind: 'state:create' }, senderOf())).toBe('短')
   })
 
   it('前缀认领了却没有实现：报未知消息类型（不静默 undefined）', async () => {
-    const matcher = prefixMatcher(['fs:', 'state:'], { 'fs:': async () => 'fs 域' })
+    const matcher = prefixMatcher(['state:', 'conv:'], { 'state:': async () => 'state 域' })
 
-    await expect(matcher.handle({ kind: 'state:create' }, senderOf())).rejects.toThrow(/未知消息类型/)
+    await expect(matcher.handle({ kind: 'conv:create' }, senderOf())).rejects.toThrow(/未知消息类型/)
   })
 })
 

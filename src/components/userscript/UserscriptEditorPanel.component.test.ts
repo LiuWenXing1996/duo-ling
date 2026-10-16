@@ -1,6 +1,6 @@
 // UI 组件测试：UserscriptEditorPanel.vue（编辑器标签页的加载 / 保存 / 关闭确认逻辑）。
 // 数据流：元数据走 userscriptClient.getProject（状态库），
-// 源码走 fsClient.read（duoling-fs 工作树，单文件 Source = { code }）；配置全部由源码里的
+// 源码走 offscreenService.fsRead（duoling-fs 工作树，单文件 Source = { code }）；配置全部由源码里的
 // // ==UserScript== 块决定，编辑器不暴露配置表单——保存只传 { note }。
 // 只验证交互逻辑：加载渲染、统一保存链路（note 传入 / 保存成功回写 / 注册失败提示 / 保存中禁用）。
 // 边界 mock：ui-client（IPC 客户端）；CodeMirror 用真实实现（happy-dom 可跑）。
@@ -19,7 +19,7 @@ const subscribeAvailability = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/userscripts/ui-client', () => ({
   userscriptClient: { getProject, save, availability },
-  fsClient: { read },
+  offscreenService: { fsRead: read },
   // 编辑器订阅引擎可用性（决定注册失败时给不给「去开权限」引导入口）
   subscribeAvailability,
 }))
@@ -38,7 +38,7 @@ const project: ScriptProject = {
   createdAt: 0,
 }
 
-/** 已保存源码（fs:read 的应答；单文件 Source 只有 code，无并行元数据文件） */
+/** 已保存源码（fsRead 的应答；单文件 Source 只有 code，无并行元数据文件） */
 const headSource: Source = { code: CODE }
 
 const saveOk = () => ({})
@@ -128,7 +128,7 @@ describe('UserscriptEditorPanel 加载与渲染', () => {
     expect(wrapper.text()).toContain('读取失败：脚本不存在')
   })
 
-  it('源码读取失败（fs:read 抛错）展示读不到源码，不挡渲染', async () => {
+  it('源码读取失败（fsRead 抛错）展示读不到源码，不挡渲染', async () => {
     read.mockRejectedValue(new Error('ipc down'))
     wrapper = await mountEditor()
     expect(wrapper.text()).toContain('读取失败：脚本源码读不到')

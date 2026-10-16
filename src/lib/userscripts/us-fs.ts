@@ -6,26 +6,17 @@
 //
 // ⚠️ 单实例约束：lightning-fs 带内存索引层，同库多实例会互相看不见写入。
 // 全仓只允许从这里取实例，不要在别处 new LightningFS。
+import type { LfsFileContent, LfsNode } from '@duoling/proxy-service-list'
 import LightningFS from '@isomorphic-git/lightning-fs'
+
+// 树与文件预览的形状归 @duoling/proxy-service-list（offscreen 服务契约）
+export type { LfsFileContent, LfsNode }
 
 /** 库名 duoling-fs：源码唯一来源（与注册态库 duoling-state 分离） */
 export const fs = new LightningFS('duoling-fs')
 export const pfs = fs.promises
 
-// —— 整库浏览（只读调试视图，fs:lfsTree 的数据源）——
-
-/** lfs 树节点：目录含 children，文件含 size */
-export interface LfsNode {
-  /** 完整路径（根为 '/'） */
-  path: string
-  /** 展示名 */
-  name: string
-  type: 'file' | 'folder'
-  /** 仅文件：字节大小 */
-  size?: number
-  /** 仅目录 */
-  children?: LfsNode[]
-}
+// —— 整库浏览（只读调试视图，fsLfsTree 的数据源）——
 
 /** 节点数上限：防御性兜底，防异常状态把应答报文撑爆 */
 const LFS_TREE_MAX_NODES = 10000
@@ -61,25 +52,7 @@ export async function readLfsTree(root = '/'): Promise<LfsNode> {
   return walk(root, '根目录')
 }
 
-// —— 单文件预览（只读调试视图，fs:lfsReadFile 的数据源）——
-
-/** 单文件读取结果：文本走 utf8，二进制走 base64 + binary 标记 */
-export interface LfsFileContent {
-  /** 请求时的完整路径（与读到的路径一致） */
-  path: string
-  /** 文件真实字节大小 */
-  size: number
-  /** 实际读取的字节数（超过上限则 < size） */
-  read: number
-  /** 是否因超过上限而截断 */
-  truncated: boolean
-  /** 'utf8' = 可读文本；'base64' = 二进制（content 为 base64 串） */
-  encoding: 'utf8' | 'base64'
-  /** 是否二进制（UI 据此不走文本渲染；图片仍可由 UI 解 content 的 base64 显示） */
-  binary: boolean
-  /** 文本为解码后的字符串；二进制为 base64 串 */
-  content: string
-}
+// —— 单文件预览（只读调试视图，fsLfsReadFile 的数据源）——
 
 /** 预览读取上限：防御性兜底，防止巨型文件把应答报文撑爆 / 卡死渲染 */
 const LFS_READ_MAX_BYTES = 1024 * 1024

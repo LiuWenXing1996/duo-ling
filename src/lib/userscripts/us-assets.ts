@@ -13,10 +13,14 @@
 //   分工见 putAsset 的注释。
 //
 // ⚠️ 单实例约束同 us-fs：只用这里 import 的 pfs，不要另 new LightningFS（内存索引互不可见）。
+import type { AssetWriteResult } from '@duoling/proxy-service-list'
 import { pfs } from './us-fs'
 import { ensureDir, removeRecursive } from './us-fs-ops'
 import { extForMediaType, mediaTypeOf } from '@/lib/media-types'
 import type { ChatAssetRef } from '@/lib/chat-assets'
+
+// 写入结果的形状归 @duoling/proxy-service-list（offscreen 服务契约）
+export type { AssetWriteResult }
 
 /** 资源库根目录（与 /uscripts 平级，见文件头「为什么」） */
 export const ASSET_ROOT = '/assets'
@@ -28,12 +32,6 @@ export interface AssetWriteInput {
   /** 真实 MIME（来自 data URL 头，比扩展名可信） */
   mediaType: string
   bytes: Uint8Array
-}
-
-/** 写入结果：写入与否都回同一份引用（stored=false 表示同内容已在库里，这次没写） */
-export interface AssetWriteResult {
-  stored: boolean
-  ref: ChatAssetRef
 }
 
 /** 读到的一份资源（识图调用要在 offscreen 内直读字节，故这里给 bytes 而不是 base64） */

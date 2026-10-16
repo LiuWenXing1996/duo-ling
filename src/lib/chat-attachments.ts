@@ -59,7 +59,7 @@ export interface IncomingAttachment {
 }
 
 /**
- * 落库入口（面板注入 `fsClient.assetPut`）。
+ * 落库入口（面板注入 `offscreenService.fsAssetPut`）。
  *
  * 注入而非直接 import：本模块是纯函数（无 chrome / 无网络依赖），单测直接喂一个假 uploader 即可；
  * 且 id 由内容在 offscreen 侧现算，这里只负责把 data URL 递过去、拿回那份引用。

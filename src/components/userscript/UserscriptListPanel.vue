@@ -66,7 +66,7 @@ import {
 import { errorText, formatTimestamp } from '@/lib/format'
 import { isFileSchemeAccessAllowed } from '@/lib/extension-page'
 import { useDataSync } from '@/composables/use-data-sync'
-import { fsClient, subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
+import { offscreenService, subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
 import { looksLikeZip, toFileUrl } from '@/lib/userscripts/local-path'
 import { base64ToBytes, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
 import { inspectFetchedText, toScriptUrl } from '@/lib/userscripts/script-url'
@@ -525,7 +525,7 @@ async function confirmRename(): Promise<void> {
 }
 
 // —— zip 导入导出——
-// 导出：fs:exportZip 命令（offscreen 侧读源码并打包，大源码树不过消息桥），本页只触发下载。
+// 导出：fsExportZip（offscreen 侧读源码并打包，大源码树不过消息桥），本页只触发下载。
 // 导入：zip 文件转 base64 走 userscript:import 命令对，offscreen 单写方落盘。
 
 /** 导出确认弹窗的待办目标：非 null 即弹窗打开（每行导出与全部导出共用，隐私文案只写一处） */
@@ -596,7 +596,7 @@ function allExportFilename(): string {
   return `duoling-scripts-${ymd}.zip`
 }
 
-/** 确认导出：fs:exportZip（offscreen 侧读源码打包）→ base64 解码 → 触发下载 */
+/** 确认导出：fsExportZip（offscreen 侧读源码打包）→ base64 解码 → 触发下载 */
 async function confirmExport(): Promise<void> {
   const target = pendingExport.value
   if (!target || exporting.value) return
@@ -615,7 +615,7 @@ async function confirmExport(): Promise<void> {
       uuids = list.map((s) => s.uuid)
       filename = allExportFilename()
     }
-    const { zipBase64, name } = await fsClient.exportZip(uuids, {
+    const { zipBase64, name } = await offscreenService.fsExportZip(uuids, {
       exporter: `duoling/${chrome.runtime.getManifest().version}`,
     })
     if (target.kind === 'single') {

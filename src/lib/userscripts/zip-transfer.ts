@@ -1,6 +1,6 @@
 // 用户脚本 zip 导入导出的纯函数编解码层。
 //
-// 编码在导出侧（offscreen 的 fs:exportZip 逐个取工作树源码后打包），解码在导入侧
+// 编码在导出侧（offscreen 的 fsExportZip 逐个取工作树源码后打包），解码在导入侧
 // （单写方，state:import → project-write.importScriptsZip）。两侧共用本模块——
 // 故这里**不得 import 任何 chrome API**（offscreen 与单测的 node 环境都要能跑）。
 //

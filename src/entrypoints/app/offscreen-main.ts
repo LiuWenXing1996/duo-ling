@@ -18,16 +18,16 @@
 // 内部只引裸 IndexedDB 模块）、@duoling/userscript-offscreen / @duoling/userscript-core /
 // @duoling/offscreen-document（纯函数 + offscreen 环境代码，import 期零副作用），
 // 以及 offscreen-only 的 lib/userscripts/offscreen-fs-commands.ts（源码库 duoling-fs 的
-// fs:* 命令面）与 offscreen-state-commands.ts（注册态库的写侧）。
+// 处理器实现，经 OffscreenService 暴露）与 offscreen-state-commands.ts（注册态库的写侧）。
 // 一旦 import store.ts / fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报
 // chrome.storage is undefined —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
 //
 // 生命周期：每扩展同时只能有一份；不主动关就一直活着，但**关窗口 / 扩展重载 / 浏览器崩溃
 // 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（→ offscreen-chat/task-store.ts）。
 //
-// 命令面：fs:*（源码库 duoling-fs 的读写 + 对话资源库 /assets）/ state:*（注册态库写侧）/
-// conv:*（会话写侧，唯一写方）/ chat:*（对话编排）；clipboard: 归 GM 运行时的 offscreen 包
-// （createOffscreenHost 的 handle，由本入口总线代挂监听，见文件中部与尾部的接线）。
+// 命令面：fs:ping（就绪探测，留总线）/ state:*（注册态库写侧）/ conv:*（会话写侧，唯一写方）/
+// chat:*（对话编排）；fs 组的读写与资源库走 OffscreenService 代理（方法调用不占总线）；
+// clipboard: 归 GM 运行时的 offscreen 包（createOffscreenHost 的 handle，由本入口总线代挂监听）。
 
 import '@/polyfills'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
@@ -35,13 +35,14 @@ import { IPC_CLIPBOARD_WRITE } from '@duoling/shared'
 // 标准化总线：本语境唯一的 onMessage 收口（serveIpc）+ 前缀路由 matcher；
 // ipcNotify 为单向推送入口（就绪握手 / 配置回拉触发）
 import { serveIpc, prefixMatcher, ipcNotify } from '@/shared/ipc-bus'
-import { handleFsCommand, type FsRequest } from '@/lib/userscripts/offscreen-fs-commands'
+import { fsHandlers } from '@/lib/userscripts/offscreen-fs-commands'
 import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
 // GM 运行时的 offscreen 命令面（clipboard:write 应答）：包工厂不管生命周期与监听，
 // 监听由本入口的总线代挂（`{ listen: false }` + matcher 问询）—— 每语境只有一个监听器。
 import { createOffscreenHost } from '@duoling/userscript-offscreen'
-// SW 保活轮询：同属 offscreen 侧职责，但启动点归宿主（包只出原语）
-import { startSwKeepalive } from '@duoling/offscreen-document'
+// SW 保活轮询 + 本容器的服务实体：两者都出自包，启动 / 注册归宿主
+import { OffscreenService, startSwKeepalive } from '@duoling/offscreen-document'
+import { registerOffscreenService } from '@duoling/proxy-service-list'
 import {
   abortChat,
   listOrphans,
@@ -80,7 +81,8 @@ export const OFFSCREEN_KIND_PREFIXES = ['fs:', 'state:', 'conv:', 'chat:'] as co
 
 /** 前缀 → 处理器（与 OFFSCREEN_KIND_PREFIXES 一一对应） */
 const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: RuntimeRequest) => Promise<unknown> } = {
-  'fs:': (msg) => handleFsCommand(msg as FsRequest),
+  // fs: 只剩就绪探测 —— 其余 fs 命令走 OffscreenService 代理，不占总线
+  'fs:': async () => ({ ready: true }),
   'state:': (msg) => handleStateCommand(msg as StateRequest),
   'conv:': (msg) => handleConvCommand(msg),
   'chat:': (msg) => handleChatCommand(msg),
@@ -88,6 +90,9 @@ const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: Runt
 
 // GM 运行时的 offscreen 命令面实例：`listen: false` = 不自挂监听（本入口的总线代挂）。
 const offscreenHost = createOffscreenHost({ listen: false })
+
+// 服务实体：顶层同步注册，迟了会漏掉早到的调用（容器重建会重跑本入口，故无需去重）。
+registerOffscreenService(new OffscreenService(fsHandlers))
 
 // 保活：SW 空闲 30s 即回收，而 GM 链路的在途操作全押在它常驻上 —— 入口顶层启一次即全程在线。
 startSwKeepalive()

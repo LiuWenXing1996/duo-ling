@@ -54,7 +54,7 @@ export interface ChatMessageMetadata {
 export type RuntimeRequest =
   // 用户脚本管理器（单文件形态：无构建流程，保存即注入）
   | { kind: 'userscript:list' }
-  // 读注册态记录（元数据 + 源码搬运副本；duoling-fs 里还有一份带 git 历史的权威源码，编辑器经 fs:read 取）
+  // 读注册态记录（元数据 + 源码副本；权威源码在 duoling-fs，编辑器经 fsRead 取）
   | { kind: 'userscript:getProject'; uuid: string }
   // 保存源码（唯一保存入口）：传源码与元数据，offscreen 写 fs + git 提交 + 落库，保存恒成功。
   // 启用中脚本由 SW 落库后重注册（注入代码 = 源码原文）。
@@ -135,44 +135,15 @@ export type RuntimeRequest =
   | { kind: 'userscript:group-remove'; id: string }
   | { kind: 'userscript:group-reorder'; orderedIds: string[] }
 
-  // —— 用户脚本源码库命令面（fs:*，执行宿主 = offscreen）——
-  // 源码唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库，带 git 版本化，
-  // 见 us-fs.ts / us-git.ts）。SW 与扩展页读不到 lfs，**源码的一切读写都经这组命令
-  // 向 offscreen 取**。SW 的 onMessage 对 fs: 前缀静默让路（不在 SW_KIND_PREFIXES）。
-  // 就绪探测：SW 用来确认容器**真的在应答**（而不仅是「文档已存在」）。
-  // 判据必须是「应答」而非「存在」——createDocument 返回时，offscreen 的 onMessage
-  // 未必已注册完，此时发业务命令会得到「port closed / Receiving end does not exist」。
+  // —— 用户脚本源码库 / 对话资源库：就绪探测（执行宿主 = offscreen）——
+  // 源码唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库，带 git 版本化，见
+  // us-fs.ts / us-git.ts），SW 与扩展页读不到 lfs。
+  // 读写的其余命令已走 OffscreenService 代理（经 @duoling/proxy-service-list 的 key），
+  // 报文无 kind、不占总线 —— 故不在这张联合里。留下的只有这条就绪探测：
+  // SW 用它确认容器**真的在应答**（而不仅是「文档已存在」）。判据必须是「应答」而非
+  // 「存在」——createDocument 返回时 offscreen 的 onMessage 未必已注册完，
+  // 此时发命令会得到「port closed / Receiving end does not exist」。
   | { kind: 'fs:ping' }
-  // 读源码（工作树；每次保存后工作树与 HEAD 一致，无草稿概念）。无源码（仓损坏 / 从未保存）返回 null
-  | { kind: 'fs:read'; uuid: string }
-  // git 历史：提交列表（新在前）/ 某提交完整快照
-  | { kind: 'fs:history'; uuid: string }
-  | { kind: 'fs:readAt'; uuid: string; oid: string }
-  // 恢复到某提交：目标快照物化回工作区（= 当前源码）+ 提交一条「回滚」记录；
-  // 随后调用方经 userscript:save 保存（commit 为空提交守卫拦下，不重复提交；落库 + 重注册）。
-  // 返回恢复出的源码（meta + code）
-  | { kind: 'fs:restoreToCommit'; uuid: string; oid: string }
-  // 导出 zip：**在 offscreen 侧打包**（读各脚本工作区源码 → buildScriptZip），
-  // 只回传 base64——避免把全部源码过大消息桥。单脚本时附带 name（UI 定文件名用）；
-  // exporter = 导出方标识（写入 zip manifest 排障用）
-  | { kind: 'fs:exportZip'; uuids: string[]; exporter?: string }
-  // 整库浏览（只读调试视图）：递归列出 lfs 库的文件树（含 .git 内部），工作台「lfs 浏览」标签页用
-  | { kind: 'fs:lfsTree' }
-  // 单文件预览：按完整路径读 lfs 库内文件内容（含 .git 内部），「lfs 浏览」标签页点文件时拉取
-  | { kind: 'fs:lfsReadFile'; path: string }
-
-  // —— 对话资源库命令面（fs:asset*，执行宿主 = offscreen）——
-  // 图片附件的**字节落点**：同一个 lfs 库（duoling-fs）里与 /uscripts 平级的 /assets/<内容hash>/<文件名>。
-  // 消息侧只留 `data-asset` 引用（见 lib/chat-assets.ts），于是「会话库不背 base64」与
-  // 「模型永远看不到图片字节」同时成立。与其余 fs:* 同宿主：SW 与扩展页读不到 lfs。
-  //
-  // 载荷为什么是 data URL 而不是二进制：chrome.runtime 的消息体是 JSON 序列化，
-  // Uint8Array 过不来；而 data URL 恰好把 MIME 也一起带了过来（服务端据此选扩展名）。
-  // id 由服务端按**内容 hash** 定，故写入天然幂等（同一张图重复附加只落一份）。
-  | { kind: 'fs:assetPut'; dataUrl: string; filename: string }
-  // 读回资源（面板 hydrate 显示 / 预览 / 下载；识图子 Agent 取原图在 offscreen 内直读，不经此命令）。
-  // 返回 null = 目录不存在（资源被清掉、或 id 写错）
-  | { kind: 'fs:assetRead'; id: string }
 
   // —— 项目状态库的**写**命令面——
   // 项目数据（源码搬运副本 / 配置 / enabled）落在独立 IndexedDB 库 duoling-state，

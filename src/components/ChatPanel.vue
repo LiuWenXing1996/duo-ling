@@ -96,7 +96,7 @@ import {
   setPickedElement,
   subscribePageContext
 } from '@/lib/page-context-store'
-import { fsClient, userscriptClient } from '@/lib/userscripts/ui-client'
+import { offscreenService, userscriptClient } from '@/lib/userscripts/ui-client'
 import { readPinnedTabId } from '@/lib/owning-tab'
 import { errorText, formatMessageTime, formatTokens } from '@/lib/format'
 import type { DynamicToolUIPart, TextUIPart, ToolUIPart, UIMessage } from 'ai'
@@ -238,8 +238,8 @@ function assetUrl(ref: ChatAssetRef): string {
   if (cached !== undefined) return cached
   if (!assetRequested.has(ref.id)) {
     assetRequested.add(ref.id)
-    void fsClient
-      .assetRead(ref.id)
+    void offscreenService
+      .fsAssetRead(ref.id)
       .then((data) => {
         assetUrls[ref.id] = data ? dataUrlOf(data) : ''
       })
@@ -659,7 +659,7 @@ function attachmentErrorMessage(err: { code: string, message: string }): string 
 
 /** 图片落库入口（交给 prepareAttachments 的那个注入点）：data URL 过桥，拿回落库后的引用 */
 const uploadAsset: AssetUploader = (dataUrl, filename) =>
-  fsClient.assetPut(dataUrl, filename).then((r) => r.ref)
+  offscreenService.fsAssetPut(dataUrl, filename).then((r) => r.ref)
 
 /** 提交：把附件整理成可发送的形态再交给宿主。流式中的提交是「停止」（发送按钮此时是停止图标） */
 async function prepareAndSend(payload: PromptInputMessage): Promise<void> {

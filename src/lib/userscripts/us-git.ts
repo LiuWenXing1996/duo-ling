@@ -9,12 +9,15 @@
 // 单写方：本文件只被 offscreen 调用（project-write / offscreen-fs-commands），仓损坏只丢
 // 历史不丢脚本，所有失败都不阻断保存主链路。
 import git from 'isomorphic-git'
+import type { CommitActor, Source, UsCommit, UsSnapshot } from '@duoling/proxy-service-list'
 import { fs, pfs } from './us-fs'
 import { ensureDir, removeRecursive } from './us-fs-ops'
-import type { CommitActor } from './types'
+
+// 源码库的形状归 @duoling/proxy-service-list（offscreen 服务契约），re-export 维持既有路径
+export type { Source, UsCommit, UsSnapshot }
 
 /**
- * 改动来源的 git 身份映射：来源类型定义在 types.ts（IPC 契约也要引用，故不放实现文件里）。
+ * 改动来源的 git 身份映射：来源类型即 CommitActor（offscreen 服务契约，两端共用）。
  * 存进 git 的 author 字段、**不拼进 message** —— message 是给用户读的「改了什么」，
  * 来源是「谁改的」，两件事分开存，message 才不会被「AI：」这类前缀污染。
  */
@@ -33,25 +36,6 @@ function actorFromEmail(email: string | undefined): CommitActor {
 
 const US_ROOT = '/uscripts'
 const SOURCE_FILE = 'script.js'
-
-/** 一次读取到的源码（工作区或某次提交）；单文件形态下源码本身即全部事实，无并行元数据文件 */
-export interface Source {
-  code: string
-}
-
-export interface UsCommit {
-  oid: string
-  message: string
-  /** 毫秒时间戳（fs-store 的 ToolCommit 用秒，这里面向自有 UI，统一毫秒） */
-  time: number
-  /** 这次改动是谁做的：历史面板据此显示来源标签（user 不显示） */
-  actor: CommitActor
-}
-
-/** 某提交的完整快照：单文件形态下只有源码（历史版本同样不含并行元数据文件） */
-export interface UsSnapshot {
-  code?: string
-}
 
 /** uuid 来自 UI/消息层，防路径穿越（对齐 fs-store assertSafeToolId） */
 function assertSafeUuid(uuid: unknown): asserts uuid is string {

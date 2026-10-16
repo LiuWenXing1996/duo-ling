@@ -60,7 +60,7 @@ function respond(raw: unknown): Promise<unknown> {
 describe('createOffscreenHost', () => {
   it('只认领自家命令面：非 clipboard:write 一律 return false，让给宿主自己的监听器', () => {
     setupOffscreen()
-    expect(msgListener({ kind: 'fs:read' }, {}, vi.fn())).toBe(false)
+    expect(msgListener({ kind: 'fs:ping' }, {}, vi.fn())).toBe(false)
     expect(msgListener(undefined, {}, vi.fn())).toBe(false)
   })
 

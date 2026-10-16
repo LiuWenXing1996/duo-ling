@@ -1,9 +1,8 @@
 // 协议一致性测试 —— offscreen 端命令分发与应答信封。
 //
-// 断言 (b)：offscreen 两个 handle*（state / fs）对其 Request union 成员**全覆盖**。
-// offscreen-main 的路由是 `kind.startsWith('ai:'/'state:')` + `as` 断言，union 新增成员而
-// 分发处漏接 switch case 时编译器不报错（函数返回 Promise<unknown>，漏接 = 静默 undefined）
-// ——用「类型层穷尽性校验 + 表驱动派发 + 后端 mock 被触达」三道闸钉死。
+// 断言 (b)：offscreen 的两个分发面（state 命令 switch / fs 处理器表）对其契约成员**全覆盖**。
+// 分发处漏接成员时编译器不报错（返回 Promise<unknown>，漏接 = 静默 undefined）——
+// 用「类型层穷尽性校验 + 表驱动派发 + 后端 mock 被触达」三道闸钉死。
 //
 // 断言 (c)：应答信封恒为 { ok: boolean, data | error } 形状。走 offscreen-main 注册的真实
 // onMessage 监听器（经 fakeBrowser.runtime.sendMessage 端到端触发），成功 / 失败 / 让路三路都验。
@@ -12,7 +11,8 @@ import type { Mock } from 'vitest'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import type { ScriptConfig, ScriptProject } from './types'
 import { handleStateCommand, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
-import { handleFsCommand, type FsRequest } from '@/lib/userscripts/offscreen-fs-commands'
+import { fsHandlers } from '@/lib/userscripts/offscreen-fs-commands'
+import type { IOffscreenService } from '@duoling/proxy-service-list'
 import * as projectWrite from '@/lib/userscripts/project-write'
 import * as usAssets from '@/lib/userscripts/us-assets'
 import * as usGit from '@/lib/userscripts/us-git'
@@ -207,70 +207,64 @@ describe('(b) handleStateCommand 分发全覆盖', () => {
   })
 })
 
-describe('(b) handleFsCommand 分发全覆盖', () => {
-  // fs:* 全成员清单：typecheck 闸——新增成员而未登记 → Exclude 非 never → 编译失败
-  const FS_KINDS = [
-    'fs:ping',
-    'fs:read',
-    'fs:history',
-    'fs:readAt',
-    'fs:restoreToCommit',
-    'fs:exportZip',
-    'fs:lfsTree',
-    'fs:lfsReadFile',
-    'fs:assetPut',
-    'fs:assetRead',
-  ] as const satisfies readonly FsRequest['kind'][]
+describe('(b) fsHandlers 方法齐备且转发正确', () => {
+  // fs 组方法清单：typecheck 闸——IOffscreenService 新增成员而未实现 → Exclude 非 never → 编译失败
+  const FS_METHODS = [
+    'fsRead',
+    'fsHistory',
+    'fsReadAt',
+    'fsRestoreToCommit',
+    'fsExportZip',
+    'fsLfsTree',
+    'fsLfsReadFile',
+    'fsAssetPut',
+    'fsAssetRead',
+  ] as const satisfies readonly (keyof IOffscreenService)[]
   const _exhaustive: Expect<
-    Exclude<FsRequest['kind'], (typeof FS_KINDS)[number]> extends never ? true : false
+    Exclude<keyof IOffscreenService, (typeof FS_METHODS)[number]> extends never ? true : false
   > = true
   const CASES: Record<
-    (typeof FS_KINDS)[number],
-    { msg: FsRequest; backend?: Mock; args?: unknown[]; result?: unknown; setup?: () => void }
+    (typeof FS_METHODS)[number],
+    { run: () => Promise<unknown>; backend?: Mock; args?: unknown[]; result?: unknown; setup?: () => void }
   > = {
-    'fs:ping': {
-      // 就绪探测不触碰任何后端，直接返回常量
-      msg: { kind: 'fs:ping' },
-      result: { ready: true },
-    },
-    'fs:read': {
-      msg: { kind: 'fs:read', uuid: 'u1' },
-      backend: vi.mocked(usGit.readSource),
+    fsRead: { run: () => fsHandlers.fsRead('u1'), backend: vi.mocked(usGit.readSource), args: ['u1'] },
+    fsHistory: {
+      run: () => fsHandlers.fsHistory('u1'),
+      backend: vi.mocked(usGit.listHistory),
       args: ['u1'],
     },
-    'fs:history': { msg: { kind: 'fs:history', uuid: 'u1' }, backend: vi.mocked(usGit.listHistory), args: ['u1'] },
-    'fs:readAt': {
-      msg: { kind: 'fs:readAt', uuid: 'u1', oid: 'o1' },
+    fsReadAt: {
+      run: () => fsHandlers.fsReadAt('u1', 'o1'),
       backend: vi.mocked(usGit.readSnapshotAt),
       args: ['u1', 'o1'],
     },
-    'fs:restoreToCommit': {
-      msg: { kind: 'fs:restoreToCommit', uuid: 'u1', oid: 'o1' },
+    fsRestoreToCommit: {
+      run: () => fsHandlers.fsRestoreToCommit('u1', 'o1'),
       backend: vi.mocked(usGit.restoreToCommit),
       args: ['u1', 'o1'],
     },
-    'fs:exportZip': {
+    fsExportZip: {
       // readSource mock 返回 null → source 为 null → 空 payload 走真实 fflate 打包
-      msg: { kind: 'fs:exportZip', uuids: ['u1'] },
+      run: () => fsHandlers.fsExportZip(['u1']),
       backend: vi.mocked(usGit.readSource),
       args: ['u1'],
       setup: () => vi.mocked(usGit.readSource).mockResolvedValue(null),
     },
-    'fs:lfsTree': { msg: { kind: 'fs:lfsTree' }, backend: vi.mocked(usFs.readLfsTree), args: ['/'] },
-    'fs:lfsReadFile': {
-      msg: { kind: 'fs:lfsReadFile', path: '/uscripts/u1/script.js' },
+    fsLfsTree: { run: () => fsHandlers.fsLfsTree(), backend: vi.mocked(usFs.readLfsTree), args: ['/'] },
+    fsLfsReadFile: {
+      run: () => fsHandlers.fsLfsReadFile('/uscripts/u1/script.js'),
       backend: vi.mocked(usFs.readLfsFile),
       args: ['/uscripts/u1/script.js'],
     },
-    'fs:assetPut': {
-      // data URL 在分发层就被拆成 (mime, bytes) —— 断言后端收到的是拆好的形状，
+    fsAssetPut: {
+      // data URL 在实现层就被拆成 (mime, bytes) —— 断言后端收到的是拆好的形状，
       // 而不是把整串 data URL 原样往下传（后者会让 id 的算法依赖调用方）
-      msg: { kind: 'fs:assetPut', dataUrl: 'data:image/png;base64,AAAA', filename: 'shot.png' },
+      run: () => fsHandlers.fsAssetPut('data:image/png;base64,AAAA', 'shot.png'),
       backend: vi.mocked(usAssets.putAsset),
       args: [{ filename: 'shot.png', mediaType: 'image/png', bytes: new Uint8Array([0, 0, 0]) }],
     },
-    'fs:assetRead': {
-      msg: { kind: 'fs:assetRead', id: 'abc123' },
+    fsAssetRead: {
+      run: () => fsHandlers.fsAssetRead('abc123'),
       backend: vi.mocked(usAssets.readAsset),
       args: ['abc123'],
       // 资源不在 → 原样回 null（面板据此显示占位而不是报错）
@@ -281,31 +275,21 @@ describe('(b) handleFsCommand 分发全覆盖', () => {
 
   beforeEach(() => vi.clearAllMocks())
 
-  it('union 穷尽性闸就位（新增 fs:* 成员而漏登记时 typecheck 先失败）', () => {
+  it('方法清单与 IOffscreenService 严丝合缝（漏实现时 typecheck 先失败）', () => {
     expect(_exhaustive).toBe(true)
   })
 
-  it.each(Object.entries(CASES))('%s → 分发正确', async (kind, c) => {
+  it.each(Object.entries(CASES))('%s → 转发对应后端', async (name, c) => {
     c.setup?.()
-    const result = await handleFsCommand(c.msg)
-    if (c.backend) {
-      expect(c.backend, `${kind} 应触达后端`).toHaveBeenCalledTimes(1)
-      expect(c.backend).toHaveBeenCalledWith(...(c.args ?? []))
-    } else {
-      // 无后端的 kind（就绪探测）：任何 git / fs / 资源库后端都不该被碰
-      const touched = [...Object.values(usGit), ...Object.values(usFs), ...Object.values(usAssets)].some(
-        (fn) => (fn as unknown as Mock).mock?.calls.length > 0,
-      )
-      expect(touched, `${kind} 不应触达任何后端`).toBe(false)
-    }
+    const result = await c.run()
+    expect(c.backend, `${name} 应触达后端`).toHaveBeenCalledTimes(1)
+    expect(c.backend).toHaveBeenCalledWith(...(c.args ?? []))
     if (c.result !== undefined) expect(result).toEqual(c.result)
   })
 
-  it('fs:restoreToCommit 后端 throw → 原样向上抛（由分发层包成 error 信封）', async () => {
+  it('fsRestoreToCommit 后端 throw → 原样向上抛（由库侧包成 error）', async () => {
     vi.mocked(usGit.restoreToCommit).mockRejectedValueOnce(new Error('历史版本不存在或已损坏'))
-    await expect(handleFsCommand({ kind: 'fs:restoreToCommit', uuid: 'u1', oid: 'o1' })).rejects.toThrow(
-      '历史版本不存在或已损坏',
-    )
+    await expect(fsHandlers.fsRestoreToCommit('u1', 'o1')).rejects.toThrow('历史版本不存在或已损坏')
   })
 })
 
@@ -341,15 +325,6 @@ describe('(c) offscreen 应答信封 { ok, data | error }', () => {
   // 全部经真实监听器走一遍，任何一路信封走样（漏 data / 裸抛错误对象 / 多余字段）都会被抓住
   const OFFSCREEN_MSGS: RuntimeRequest[] = [
     { kind: 'fs:ping' },
-    { kind: 'fs:read', uuid: 'u1' },
-    { kind: 'fs:history', uuid: 'u1' },
-    { kind: 'fs:readAt', uuid: 'u1', oid: 'o1' },
-    { kind: 'fs:restoreToCommit', uuid: 'u1', oid: 'o1' },
-    { kind: 'fs:exportZip', uuids: ['u1'] },
-    { kind: 'fs:lfsTree' },
-    { kind: 'fs:lfsReadFile', path: '/uscripts/u1/script.js' },
-    { kind: 'fs:assetPut', dataUrl: 'data:image/png;base64,AAAA', filename: 'shot.png' },
-    { kind: 'fs:assetRead', id: 'abc123' },
     { kind: 'state:create' },
     { kind: 'state:save', uuid: 'u1', code: CODE },
     { kind: 'state:remove', uuid: 'u1' },
