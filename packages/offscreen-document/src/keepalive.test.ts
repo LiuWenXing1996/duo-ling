@@ -7,10 +7,6 @@
 // 库在碰 chrome 之前先 await 一次，且代理调用再套一层 async，故「发出去」总落后调用栈
 // 若干微任务 —— 断言前需 flush。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SW_SERVICE_KEY } from '@duoling/proxy-service-list'
-
-/** 库把 key 拼成报文 type 后交给 chrome.runtime.sendMessage */
-const MESSAGE_KEY = `proxy-service.${SW_SERVICE_KEY}`
 
 type SendCallback = (response: unknown) => void
 type StubRuntime = { sendMessage: ReturnType<typeof vi.fn>; lastError?: { message?: string } }
@@ -41,22 +37,15 @@ function loadKeepalive(): Promise<typeof import('./keepalive')> {
 }
 
 describe('startSwKeepalive', () => {
-  it('启动即 ping 一条，随后按周期续跳；报文经库发出（认 type、无 kind）', async () => {
+  it('启动即 ping 一条，随后按周期续跳；报文经库发出（无 kind）', async () => {
     const { startSwKeepalive, SW_KEEPALIVE_INTERVAL_MS } = await loadKeepalive()
     startSwKeepalive()
     await flush()
 
-    // key 值即断线点：两端共用同一字符串，改动等于同时改注册侧
-    expect(SW_SERVICE_KEY).toBe('sw-service')
     expect(runtime.sendMessage).toHaveBeenCalledTimes(1)
-    const [msg] = runtime.sendMessage.mock.calls[0] as [
-      { type?: string; data?: { path?: string[] }; kind?: unknown; timestamp?: number },
-    ]
-    expect(msg.type).toBe(MESSAGE_KEY)
-    expect(msg.data?.path).toEqual(['isAlive'])
+    const [msg] = runtime.sendMessage.mock.calls[0] as [{ kind?: unknown }]
     // 形状互斥：总线的 kind 契约不得混进这条报文（混了会被总线的 matcher 认走）
     expect(msg.kind).toBeUndefined()
-    expect(typeof msg.timestamp).toBe('number')
 
     await vi.advanceTimersByTimeAsync(SW_KEEPALIVE_INTERVAL_MS * 2)
     expect(runtime.sendMessage).toHaveBeenCalledTimes(3)

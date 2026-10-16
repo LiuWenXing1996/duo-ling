@@ -1,11 +1,11 @@
 // SW 空闲 30s 即被回收，而在途操作全押在它常驻上（上游 VM 同款做法）。
 // 故 offscreen 每 5s 轮询一次 isAlive()：到达即重置空闲计时，保活即如此。
-import { useSWService } from './sw-service'
+import { createSWService } from '@duoling/proxy-service-list'
 
 /** 心跳间隔：SW 空闲回收线是 30s，5s 一跳余量充足 */
 export const SW_KEEPALIVE_INTERVAL_MS = 5000
 
-const swService = useSWService()
+const swService = createSWService()
 let timer: ReturnType<typeof setInterval> | null = null
 
 async function ping(): Promise<void> {

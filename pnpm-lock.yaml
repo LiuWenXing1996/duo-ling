@@ -270,9 +270,6 @@ importers:
       '@vueuse/core':
         specifier: ^14.4.0
         version: 14.4.0(vue@3.5.42(typescript@5.9.3))
-      '@webext-core/proxy-service':
-        specifier: ^3.0.2
-        version: 3.0.2(@webext-core/messaging@4.0.0(@types/chrome@0.2.9))
       acorn:
         specifier: ^8.18.0
         version: 8.18.0
@@ -407,9 +404,6 @@ importers:
       '@duoling/proxy-service-list':
         specifier: workspace:*
         version: link:../proxy-service-list
-      '@webext-core/proxy-service':
-        specifier: ^3.0.2
-        version: 3.0.2(@webext-core/messaging@4.0.0(@types/chrome@0.2.9))
     devDependencies:
       '@types/chrome':
         specifier: ^0.2.9

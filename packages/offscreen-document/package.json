@@ -21,8 +21,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@duoling/proxy-service-list": "workspace:*",
-    "@webext-core/proxy-service": "^3.0.2"
+    "@duoling/proxy-service-list": "workspace:*"
   },
   "devDependencies": {
     "@types/chrome": "^0.2.9",

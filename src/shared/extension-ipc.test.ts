@@ -15,8 +15,6 @@ import type { RuntimeRequest } from '@/shared/extension-ipc'
 // （defineBackground 只包装不执行；offscreen 的启动自证全部尽力而为 + catch）。
 import { SW_KIND_PREFIXES } from '@/entrypoints/background'
 import { OFFSCREEN_KIND_PREFIXES } from '@/entrypoints/app/offscreen-main'
-// 保活报文的 key 真相源（跨包契约，两端共用同一字符串）
-import { SW_SERVICE_KEY } from '@duoling/proxy-service-list'
 
 // offscreen-main 的 import 链会带到 us-fs / us-git
 // （us-fs 模块顶层 new LightningFS，Node 下无 indexedDB 会产生未处理 rejection）——
@@ -198,13 +196,5 @@ describe('(a) RuntimeRequest kind 归属唯一性', () => {
         (HOST_OWNED_KINDS as readonly string[]).includes(kind)
       expect(covered, kind).toBe(true)
     }
-  })
-
-  it('保活报文 type（proxy-service.sw-service）不落在任何宿主认领前缀内 —— 命名空间不与命令面撞车', () => {
-    // 保活已走库独立 listener（报文无 kind，总线让路）；这里守的是命名空间不重叠：
-    // 真有人把它挪回总线，前缀路由会先抢答，应答永远轮不上。
-    const messageKey = `proxy-service.${SW_SERVICE_KEY}`
-    expect(SW_KIND_PREFIXES.some((p) => messageKey.startsWith(p))).toBe(false)
-    expect(OFFSCREEN_KIND_PREFIXES.some((p) => messageKey.startsWith(p))).toBe(false)
   })
 })

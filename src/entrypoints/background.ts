@@ -56,8 +56,7 @@ import { runUpdateCheck } from '@/lib/update-check'
 import { createServiceWorkerHost, swIpcHandlers, SW_IPC_OWNED_KINDS } from '@duoling/userscript-sw'
 // SWService 注册侧：代理调用经库 listener 直达，不占总线 matcher 位
 import { SWService } from '@duoling/service-worker'
-import { SW_SERVICE_KEY } from '@duoling/proxy-service-list'
-import { registerService } from '@webext-core/proxy-service'
+import { registerSWService } from '@duoling/proxy-service-list'
 // 标准化总线：本语境命令面唯一的 onMessage 收口（serveIpc）+ 路由 matcher（前缀表 / 包命令面）
 import { serveIpc, prefixMatcher, packMatcher, ipcRequest, ipcNotify } from '@/shared/ipc-bus'
 import { duolingTelemetry } from '@/lib/userscripts/telemetry'
@@ -1220,7 +1219,7 @@ export default defineBackground(() => {
 
   // SWService 注册：库自带 listener，首次注册即同步挂上，认的是无 kind 报文，
   // 总线对其静默让路；offscreen 保活轮询就靠这条调用到达 SW。
-  registerService(SW_SERVICE_KEY, new SWService())
+  registerSWService(new SWService())
 
   // 本语境命令面唯一的 onMessage 监听器（标准化信道）：问询顺序 =
   //   ① 运行时包命令面（swIpcHandlers：管理面只读四条）—— 包自管 kind 归包，

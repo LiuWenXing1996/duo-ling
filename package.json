@@ -55,7 +55,6 @@
     "@lezer/highlight": "^1.2.3",
     "@lucide/vue": "^1.45.0",
     "@vueuse/core": "^14.4.0",
-    "@webext-core/proxy-service": "^3.0.2",
     "acorn": "^8.18.0",
     "ai": "^7.0.99",
     "buffer": "^6.0.3",
