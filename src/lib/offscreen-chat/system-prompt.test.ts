@@ -9,10 +9,8 @@ import {
   mostRecentPageContext,
 } from './system-prompt'
 import type { UIMessage } from 'ai'
-import type {
-  ElementPickContext,
-  MessagePageContext,
-} from '@/shared/extension-ipc'
+import type { MessagePageContext } from '@/shared/extension-ipc'
+import type { ElementPickContext } from '@duoling/shared'
 
 function makeElement(overrides?: Partial<ElementPickContext>): ElementPickContext {
   return {

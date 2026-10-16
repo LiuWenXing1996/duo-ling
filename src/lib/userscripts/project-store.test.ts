@@ -1,11 +1,8 @@
 // project-store.ts 单测：读侧排序 / 默认命名 / match pattern 校验。
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  listProjects,
-  nextScriptName,
-  validateMatchPatterns,
-} from './project-store'
+import { listProjects, nextScriptName } from './project-store'
+import { validateMatchPatterns } from '@duoling/userscript-sw'
 import { readAllProjects, removeProjects, writeProject } from '@duoling/userscript-core'
 import type { ScriptProject } from './types'
 

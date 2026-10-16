@@ -14,8 +14,6 @@ import { initDlBridge } from './dl-bridge'
 import { initDlPort } from './dl-port'
 import { ensureWorldsConfigured, registerScript, projectFromSource } from './registration'
 
-export { swIpcHandlers, type SwIpcHandlers } from './management'
-
 /**
  * SW 侧宿主实例。接线全在工厂调用内完成；addScript 是注册面的入口
  * （传源码串时包内自动建项目，metadata 块归一化进配置 —— 见 projectFromSource）。

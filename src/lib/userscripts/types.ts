@@ -5,15 +5,15 @@
 
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 
-// ScriptConfig / ScriptResourceDecl / defaultConfig 已上移进 `@duoling/userscript-core`
-// （script-config.ts：配置是运行期事实源，随 metadata 解析一起归包）；ScriptProject /
-// ScriptGroup 亦随内置默认存储归包（script-project.ts）。此处 re-export 维持既有 import
-// 路径（`@/lib/userscripts/types` / `./types`）不变。
+// ScriptConfig / defaultConfig 已上移进 `@duoling/userscript-core`（script-config.ts：配置是
+// 运行期事实源，随 metadata 解析一起归包）；ScriptProject / ScriptGroup 亦随内置默认存储归包
+// （script-project.ts）。此处 re-export 维持既有 import 路径（`@/lib/userscripts/types` /
+// `./types`）不变。
 // 错误 / 运行动作的形状真相源同在包侧（host-config.ts：错误与动作由包内产生），见下。
-import type { ScriptConfig, ScriptResourceDecl } from '@duoling/userscript-core'
+import type { ScriptConfig } from '@duoling/userscript-core'
 import type { UserscriptErrorRecord, UserscriptRunEvent as UserScriptRunEventShape } from '@duoling/userscript-sw'
 
-export type { ScriptConfig, ScriptResourceDecl }
+export type { ScriptConfig }
 export { defaultConfig } from '@duoling/userscript-core'
 export type { ScriptProject, ScriptGroup } from '@duoling/userscript-core'
 

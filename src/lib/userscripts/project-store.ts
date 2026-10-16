@@ -39,11 +39,9 @@ export async function nextScriptName(base = '新建的脚本'): Promise<string> 
  * 文件树校验已随多文件形态移除：单文件源码无路径校验需求，保存恒成功（见 project-write.ts）。
  */
 
-// —— match pattern 校验——
-// 导入路径（project-write.importScriptsZip）与启用路径（registration.registerScript）共用：
-// 非法值在导入 / 启用当场拦下并指明哪条不合法，不拖到注册时才以 Chrome 的英文异常冒出。
-// 语法校验器（isValidMatchPattern）在 `@duoling/userscript-core`（match-pattern.ts），
-// 语义校验器（validateMatchPatterns）在 `@duoling/userscript-sw`（registration.ts）——
-// 此处 re-export 维持既有 import 路径不变。
-export { isValidMatchPattern } from '@duoling/userscript-core'
-export { validateMatchPatterns } from '@duoling/userscript-sw'
+// —— match pattern 校验 ——
+// 校验器不住在本模块：语法校验器是 `@duoling/userscript-core` 的 isValidMatchPattern
+// （match-pattern.ts），语义校验器是 `@duoling/userscript-sw` 的 validateMatchPatterns
+// （registration.ts）。导入路径（project-write.importScriptsZip）与启用路径
+// （registration.registerScript）共用它们：非法值在导入 / 启用当场拦下并指明哪条不合法，
+// 不拖到注册时才以 Chrome 的英文异常冒出。

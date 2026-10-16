@@ -14,7 +14,7 @@ import type {
   UserScriptRunEvent,
   UserScriptRunLogRow,
 } from '@/lib/userscripts/types'
-import type { ElementPickContext } from '@/shared/extension-ipc'
+import type { ElementPickContext } from '@duoling/shared'
 
 // us-git 顶层 import 会实例化 lightning-fs（Node 无 indexedDB → 未处理 rejection）→ 一并 mock
 vi.mock('@/lib/userscripts/us-git', () => ({
@@ -67,10 +67,10 @@ function makeElement(): ElementPickContext {
 
 function makeTools(
   element?: ElementPickContext,
-  captureSnapshot?: () => Promise<import('@/shared/extension-ipc').PageSnapshotContext>,
+  captureSnapshot?: () => Promise<import('@duoling/shared').PageSnapshotContext>,
   readError?: (id: string) => Promise<import('@/lib/userscripts/store').UserScriptErrorLookup>,
   tabRecord?: TabRecordHooks,
-  capturePageEnv?: () => Promise<import('@/shared/extension-ipc').PageEnvContext>,
+  capturePageEnv?: () => Promise<import('@duoling/shared').PageEnvContext>,
 ) {
   const ws = makeWorkspace()
   return buildScriptTools(
@@ -722,7 +722,7 @@ describe('page_env_read（页面侧环境读数）', () => {
   >[1]
 
   /** 只关心页面环境回路：其余回调留空（参数位依次是 element / snapshot / env / error / tabRecord） */
-  const withEnv = (fn: () => Promise<import('@/shared/extension-ipc').PageEnvContext>) =>
+  const withEnv = (fn: () => Promise<import('@duoling/shared').PageEnvContext>) =>
     makeTools(undefined, undefined, undefined, undefined, fn)
 
   it('接了通道：透出页面读数（视口 / 像素比 / 页面 UA）', async () => {

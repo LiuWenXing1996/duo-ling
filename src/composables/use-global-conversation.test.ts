@@ -18,9 +18,9 @@ import type { ChatStatus, UIMessage } from 'ai'
 import type {
   ChatMessageMetadata,
   ChatOrphanRecord,
-  ElementPickContext,
   RuntimeRequest,
 } from '@/shared/extension-ipc'
+import type { ElementPickContext } from '@duoling/shared'
 import type { AssistantMessage, Conversation, Message, TokenUsage, UserMessage } from '@/shared/types'
 import { messageTime } from '@/lib/conversation-message'
 import type { ChatAssetRef } from '@/lib/chat-assets'

@@ -11,9 +11,6 @@
 // （名字 / 世界 / 一句话作用）由 system-scripts.ts 的 SYSTEM_SCRIPT_DISPLAY 投影
 // （本文件并入中继件一条，见 BUILTIN_META）；
 // 件与 SW 的协议对端（page-inspector-bridge / float-bridge / dl-port）都在本仓 —— 纯产品面。
-//
-// 包侧函数经本文件 re-export（registerScript / registerAllEnabled / recoverOnUpdate 等），
-// background 等调用点的 import 路径不变。
 import type { ScriptProject } from './types'
 // 检查器 / 浮层 / 录制的注册面（注册 id / 产物文件名）由包声明：件在那儿源码化并构建成
 // 独立 IIFE 文件，扩展侧按 id 取其内容作系统脚本源码（真相源见
@@ -52,21 +49,6 @@ import {
 } from '@duoling/userscript-sw'
 // 匹配面判定（scheme + host）：内置件「这一页用不用得上」与 cookie 域名门同一套判据
 import { matchPatternCoversUrl } from '@duoling/userscript-core'
-
-// —— 通用引擎 re-export（调用点 import 路径不变）——
-export {
-  collectCspWarnings,
-  configureUserScriptsWorld,
-  ensureWorldsConfigured,
-  isUserScriptsAvailable,
-  projectFromSource,
-  recoverOnUpdate,
-  registerAllEnabled,
-  registerScript,
-  resolveInjectCode,
-  unregisterScripts,
-  validateMatchPatterns,
-} from '@duoling/userscript-sw'
 
 // —— 内置注册的 id 全集 ——
 

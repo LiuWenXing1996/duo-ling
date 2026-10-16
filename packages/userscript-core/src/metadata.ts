@@ -22,8 +22,6 @@
 import type { ScriptConfig, ScriptResourceDecl } from './script-config'
 import { isValidMatchPattern, parseMatchPattern } from './match-pattern'
 
-export type { ScriptResourceDecl }
-
 /** 一个 metadata 块的解析产物（原样值，未与 config 归一化） */
 export interface ParsedMetadata {
   /** 原始块文本（含首尾标记行）—— GM_info.scriptMetaStr 直接用 */

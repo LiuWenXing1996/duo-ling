@@ -6,8 +6,7 @@
       "@/*": ["./src/*"],
       // 内置件包：直指源码。构建（Vite / WXT 的 tsconfigPaths）与类型检查（vue-tsc）都走这条，
       // 于是包没被装上也不会在解析上翻车 —— 装不装只影响 node_modules 里的符号链接。
-      "@duoling/builtin-scripts": ["./packages/builtin-scripts/src/index.ts"],
-      "@duoling/builtin-scripts/install": ["./packages/builtin-scripts/src/install.ts"]
+      "@duoling/builtin-scripts": ["./packages/builtin-scripts/src/index.ts"]
       // shared 与三个运行时子包（userscript-core / userscript-sw / userscript-offscreen）
       // 已 Vite lib 化：走标准 exports → dist，不再 paths 直指源码。
       // builtin-scripts 的产物是「扩展内路径的文件」而非被 import 的模块，故仍 paths 直指源码。

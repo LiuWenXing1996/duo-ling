@@ -22,6 +22,7 @@ import type { InjectedBuildInfo } from '@/lib/build-info'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 
 // 用户脚本管理器（v2 方案）：引擎 + 存储 + GM 桥 + 类型
+// 通用引擎件直取包（世界配置 / 单脚本与全量注册 / 可用性检测 / CSP 收集 / 注入码解析）
 import {
   configureUserScriptsWorld,
   ensureWorldsConfigured,
@@ -30,12 +31,15 @@ import {
   recoverOnUpdate,
   registerScript,
   unregisterScripts,
+  collectCspWarnings,
+  resolveInjectCode,
+} from '@duoling/userscript-sw'
+// 本扩展自己的注入件注册同步（系统脚本 + 中继件并集）与内置件对账
+import {
   refreshBuiltinScripts,
   refreshTabRecorder,
   listBuiltinRegistrations,
   builtinsOnPage,
-  collectCspWarnings,
-  resolveInjectCode,
 } from '@/lib/userscripts/engine'
 import type { BuiltinRegistration } from '@/lib/userscripts/engine'
 // metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
@@ -70,10 +74,9 @@ import {
 import { getProject, listProjects } from '@/lib/userscripts/project-store'
 // 握手密钥的持久化（经 secretStore 注入包侧）：duoling-app 库的 kv 读写
 import * as appDb from '@/lib/app-db'
-// 观测数据的写出口：GM 值、错误日志、运行条目与动作
+// 观测数据的写出口：错误日志、运行条目与动作
 import {
   listSummaries,
-  clearGMValues,
   clearRunLog,
   clearUserScriptErrors,
   appendUserScriptError,
@@ -84,6 +87,8 @@ import {
   clearTabActivity,
   deleteTabActivity,
 } from '@/lib/userscripts/store'
+// GM 值存储（duoling-usdata 库）：脚本删除 / 清库时清各自的值
+import { clearGMValues } from '@duoling/userscript-core'
 // 观测数据的底层表（duoling-runtime 库）：存续表全量给「活动历史」按标签页分档用；
 // 某一页的整根活动轴（存续轴事件 + 接口采样）一次读回 —— 录制按标签页，读也就按标签页。
 import { findOpenTabSession, listTabSessions, listTabTimeline } from '@/lib/userscripts/runtime-db'
@@ -133,7 +138,7 @@ import {
   pingFloatHost,
   setFloatPanelBusy,
 } from '@/lib/userscripts/float-bridge'
-import type { ElementPickContext } from '@/shared/extension-ipc'
+import type { ElementPickContext } from '@duoling/shared'
 import { errorText } from '@/lib/format'
 
 /**
@@ -466,7 +471,7 @@ const handlers: {
     msg,
   ): Promise<{ warnings?: string[]; registerError?: string }> => {
     // 转发前先广播「保存中」瞬态：列表行立即转圈（链路收尾的落库广播负责切终态
-    // ——见 extension-ipc.ts DataChangedPush.phase 说明）
+    // ——见 @duoling/shared 的 DataChangedPush.phase 说明）
     broadcastBuildPhase('script', msg.uuid, 'saving')
     const outcome = await writeViaOffscreen<import('@/lib/userscripts/project-write').SaveOutcome>({
       kind: 'state:save',

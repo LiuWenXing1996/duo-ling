@@ -55,6 +55,12 @@ function loadHost(): Promise<typeof import('./host')> {
   return import('./host')
 }
 
+/** handler pack 的加载口（保活与管理面）：与 host 同一重载纪律 */
+function loadManagement(): Promise<typeof import('./management')> {
+  vi.resetModules()
+  return import('./management')
+}
+
 describe('createServiceWorkerHost', () => {
   it('同步段注册全部监听：调用返回时消息 / 连接 / 事件源监听已挂上（第一帧纪律）', async () => {
     const { createServiceWorkerHost } = await loadHost()
@@ -71,7 +77,7 @@ describe('createServiceWorkerHost', () => {
   })
 
   it('保活心跳应答归 handler pack：认领 ping kind，其余 kind 不认领（让给宿主前缀路由）', async () => {
-    const { swIpcHandlers } = await loadHost()
+    const { swIpcHandlers } = await loadManagement()
     const pack = swIpcHandlers()
     expect(pack.owns(IPC_SW_KEEPALIVE)).toBe(true)
     await expect(

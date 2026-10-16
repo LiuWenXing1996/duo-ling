@@ -11,12 +11,8 @@
 //
 // 注意：这里只用 `import type` 引类型（编译后消失，零运行时依赖）—— 引的 ScriptProject
 // 来自 userscripts/types.ts，那是纯类型 + 纯函数模块，不碰任何 chrome API。
-import type {
-  ModelProfileState,
-  PageEnvContext,
-  PageSnapshotContext,
-  RuntimeRequest,
-} from '@/shared/extension-ipc'
+import type { ModelProfileState, RuntimeRequest } from '@/shared/extension-ipc'
+import type { PageEnvContext, PageSnapshotContext } from '@duoling/shared'
 import { ipcRequest } from '@/shared/ipc-bus'
 import type { ScriptConfig, UserScriptRunEvent, UserScriptRunLogRow } from '@/lib/userscripts/types'
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'

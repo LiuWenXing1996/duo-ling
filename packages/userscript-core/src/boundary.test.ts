@@ -32,6 +32,7 @@ const STORAGE_LAYER = new Set([
   // 测试文件随被测模块归层（存储类测试用 fake-indexeddb）
   'state-db.test.ts',
   'usdata-db.test.ts',
+  'gm-values.test.ts',
 ])
 
 const SEMANTIC_FILES = FILES.filter((f) => !STORAGE_LAYER.has(f))

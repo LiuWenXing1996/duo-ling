@@ -18,7 +18,7 @@
 
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 import { ipcRequest } from '@/shared/ipc-bus'
-import type { ElementPickContext, PageEnvContext, PageSnapshotContext } from '@/shared/extension-ipc'
+import type { ElementPickContext, PageEnvContext, PageSnapshotContext } from '@duoling/shared'
 import { runInspectorCommand } from '@/lib/userscripts/page-inspector-bridge'
 
 /** chrome.userScripts（含 register）是否可用；不可用 = 138+ 逐扩展开关未开或开发者模式未开 */

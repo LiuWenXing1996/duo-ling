@@ -27,7 +27,7 @@ import {
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger
 } from '@/components/ui/tooltip'
-import type { ModelProfile, ModelProvider } from '@/types/model'
+import type { ModelProfile, ModelProvider } from '@/shared/types'
 import ModelFormDialog from '@/components/ModelFormDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { errorText } from '@/lib/format'

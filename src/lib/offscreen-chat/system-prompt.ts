@@ -10,10 +10,10 @@
 import type { UIMessage } from 'ai'
 import type {
   ChatMessageMetadata,
-  ElementPickContext,
   MessagePageContext,
   PageContextInfo,
 } from '@/shared/extension-ipc'
+import type { ElementPickContext } from '@duoling/shared'
 import { EXTENSION_NAME } from '@/lib/extension-identity'
 
 /** 档 2 摘要层：用户点选元素的摘要（选择器候选 × 命中数 / 关键属性 / 截断样本） */

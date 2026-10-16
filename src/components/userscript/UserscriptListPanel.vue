@@ -71,7 +71,7 @@ import { looksLikeZip, toFileUrl } from '@/lib/userscripts/local-path'
 import { base64ToBytes, bytesToBase64, sanitizeDirName } from '@/lib/userscripts/zip-transfer'
 import { inspectFetchedText, toScriptUrl } from '@/lib/userscripts/script-url'
 import { parseUserScriptMetadata } from '@duoling/userscript-core'
-import type { BuildPhase } from '@/shared/extension-ipc'
+import type { BuildPhase } from '@duoling/shared'
 import type {
   ImportReport,
   ScriptGroup,

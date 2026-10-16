@@ -32,7 +32,7 @@ import type {
   UserScriptRunLogRow,
 } from '@/lib/userscripts/types'
 import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
-import type { ElementPickContext, PageEnvContext, PageSnapshotContext } from '@/shared/extension-ipc'
+import type { ElementPickContext, PageEnvContext, PageSnapshotContext } from '@duoling/shared'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 import { errorText } from '@/lib/format'
 

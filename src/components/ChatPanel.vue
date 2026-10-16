@@ -83,7 +83,8 @@ import {
 } from '@/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@/components/ai-elements/prompt-input'
 import type { TokenUsage } from '@/shared/types'
-import type { ChatMessageMetadata, ElementPickContext, MessagePageContext } from '@/shared/extension-ipc'
+import type { ChatMessageMetadata, MessagePageContext } from '@/shared/extension-ipc'
+import type { ElementPickContext } from '@duoling/shared'
 import {
   cancelPick,
   isUserScriptsApiAvailable,

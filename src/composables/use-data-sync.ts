@@ -12,7 +12,7 @@
 
 import { onScopeDispose } from 'vue'
 import { subscribeDataChange } from '@/lib/data-broadcast'
-import type { DataChangedPush, DataDomain } from '@/shared/extension-ipc'
+import type { DataChangedPush, DataDomain } from '@duoling/shared'
 
 /**
  * 订阅一个或多个数据域的变更。

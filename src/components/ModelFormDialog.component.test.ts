@@ -3,7 +3,7 @@
 // reka-ui Dialog 经 teleport 挂到 body，故断言一律直接查 document.body（同 ConfirmDialog 的写法）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
-import type { ModelProfile, ModelProvider } from '@/types/model'
+import type { ModelProfile, ModelProvider } from '@/shared/types'
 import ModelFormDialog from './ModelFormDialog.vue'
 
 const ADDRESS_PLACEHOLDER = 'https://example.com/v1/chat/completions'

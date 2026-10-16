@@ -12,24 +12,8 @@ import type { ModelProfile } from './types'
 // —— 页面上下文档位 ——
 // 页面检查器（件本体见 @duoling/builtin-scripts 的 inspector/install.ts，MAIN 世界系统脚本
 // `dl-page-inspector`）的载荷形状**定义在契约包里**：件按这些形状造数据，而件不能
-// 依赖应用源码，故真相源落在 @duoling/shared。这里既转发又本地引用（本文件下游的
-// PageContextInfo / MessagePageContext 用到），消费方 import 路径不变。
-import type {
-  ElementPickContext,
-  ElementPickFull,
-  ElementPickSummary,
-  IpcEnvelope,
-  PageEnvContext,
-  PageSnapshotContext,
-} from '@duoling/shared'
-
-export type {
-  ElementPickContext,
-  ElementPickFull,
-  ElementPickSummary,
-  PageEnvContext,
-  PageSnapshotContext,
-}
+// 依赖应用源码，故真相源落在 @duoling/shared —— 消费方从那里自取，本文件不再转发。
+import type { ElementPickContext, IpcEnvelope, PageSnapshotContext } from '@duoling/shared'
 
 // 浮层指令的 kind 字面量已随脚本桥协议（api-contract 的 float.cmd）收编 —— 命令面
 // `float:*` 的 kind 在下面的 RuntimeRequest 联合里声明，件侧不再认 tabs.sendMessage。
@@ -356,10 +340,8 @@ export type OffscreenPush =
 // ⚠️ 刻意**不进 RuntimeRequest**：那里面全是「请求-应答」的命令，而广播没有应答方，
 // 塞进去会污染 extension-ipc.test.ts 的 kind 归属断言（每个 kind 恰被一端处理）。
 //
-// 形状真相源已上移 `@duoling/shared`（data-broadcast.ts）：频道与推送形状被运行时包
-// （dl-bridge / cookie-gate）同取，放这里就得靠注释对齐。此处 re-export 维持既有
-// import 路径（`@/shared/extension-ipc`）不变。
-export type { BuildPhase, DataChangedPush, DataDomain } from '@duoling/shared'
+// 形状真相源在 `@duoling/shared`（data-broadcast.ts）：频道与推送形状被运行时包
+// （dl-bridge / cookie-gate）同取，放这里就得靠注释对齐。
 
 // —— 端口名约定（跨上下文长连接）——
 // 'duoling:panel'（定义在 lib/userscripts/page-monitor.ts）= 对话界面文档 ↔ SW 的监控通道

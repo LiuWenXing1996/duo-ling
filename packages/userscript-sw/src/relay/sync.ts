@@ -17,9 +17,6 @@ import { RELAY_IIFE } from './relay-code.gen'
 import { enabledMatchUnion, sameMatchSet } from '@duoling/userscript-core'
 import { configureWorld, getOrCreatePageSecret } from '../registration'
 
-/** 中继件 IIFE 产物（re-export：接入方与全量链同取一处） */
-export { RELAY_IIFE }
-
 /** 注册 id（一个扩展一份） */
 export const SCRIPT_RELAY_ID = 'dl-script-relay'
 /** 独立世界 id：必须 configureWorld({ messaging: true })，否则世界内无 chrome.runtime */

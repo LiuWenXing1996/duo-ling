@@ -6,7 +6,7 @@
 // ExtensionChatTransport.collectPageContext 里组装（非组件树内），
 // store 必须与 transport、UI 双方可达；用最小 pub/sub 让 chip UI 订阅刷新。
 
-import type { ElementPickContext } from '@/shared/extension-ipc'
+import type { ElementPickContext } from '@duoling/shared'
 
 let element: ElementPickContext | null = null
 

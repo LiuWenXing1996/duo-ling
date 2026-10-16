@@ -19,7 +19,7 @@ import {
   SelectValue as UiSelectValue
 } from '@/components/ui/select'
 import { Eye as UiEye, EyeOff as UiEyeOff, X as UiX } from '@lucide/vue'
-import type { ModelProfile, ModelProvider } from '@/types/model'
+import type { ModelProfile, ModelProvider } from '@/shared/types'
 import { errorText } from '@/lib/format'
 
 const props = defineProps<{
