@@ -331,11 +331,9 @@ export type UserScriptRunLogRow =
     }
   | { kind: 'error'; record: UserScriptErrorRecord }
 
-/**
- * zip 内源码文件的后缀：**路径以它结尾的条目即源码**（文件名叫什么都行）。
- * 用 `.user.js` 而不另立名字：从 GreasyFork / GitHub 直下的脚本落进 zip 就能导入，不必先改名。
- */
-export const SCRIPT_EXT = '.user.js'
+// zip 编解码的判据常量已上移进 `@duoling/userscript-core`（与该形态的落盘形状同处）；
+// 此处 re-export 维持既有 import 路径（`@/lib/userscripts/types` / `./types`）不变。
+export { SCRIPT_EXT } from '@duoling/userscript-core'
 
 // —— zip 导入报告——
 //

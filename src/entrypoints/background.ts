@@ -9,7 +9,8 @@
 //     注册链路不能押在 offscreen 存活上，否则容器一挂所有脚本都不生效；
 //     写 —— 经 writeViaOffscreen 转 offscreen，写完从状态库读回再注册。
 //   · 源码 —— 唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
-//     SW 读不到 lfs，源码读写一律走 fs:* 命令向 offscreen 取（见 offscreen-fs-commands.ts）。
+//     SW 读不到 lfs，源码读写一律走 OffscreenService 代理向 offscreen 取
+//     （实现落在 @duoling/offscreen-document）。
 // GM 值存储 / GM tab 值在 IndexedDB 库 duoling-usdata；观测数据（标签页存续 + 一根活动轴：
 // 文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误）在 IndexedDB 库 duoling-runtime
 // ——两者都 SW 直写、写侧收敛在 store.ts。

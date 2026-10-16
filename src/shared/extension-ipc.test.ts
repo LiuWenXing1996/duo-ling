@@ -16,26 +16,8 @@ import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { SW_KIND_PREFIXES } from '@/entrypoints/background'
 import { OFFSCREEN_KIND_PREFIXES } from '@/entrypoints/app/offscreen-main'
 
-// offscreen-main 的 import 链会带到 us-fs / us-git
-// （us-fs 模块顶层 new LightningFS，Node 下无 indexedDB 会产生未处理 rejection）——
-// 这里只做前缀比对，把这些重依赖挡在 mock 层。
-vi.mock('@/lib/userscripts/us-fs', () => ({
-  fs: {},
-  pfs: { readdir: vi.fn() },
-  readLfsFile: vi.fn(),
-  readLfsTree: vi.fn(),
-}))
-vi.mock('@/lib/userscripts/us-git', () => ({
-  ensureRepo: vi.fn(),
-  deleteRepo: vi.fn(),
-  deleteAllRepos: vi.fn(),
-  listHistory: vi.fn(),
-  readSnapshotAt: vi.fn(),
-  restoreToCommit: vi.fn(),
-  writeSource: vi.fn(),
-  commitSource: vi.fn(),
-  readSource: vi.fn(),
-}))
+// offscreen-main 的 import 链会带到 offscreen-document（文件库）：其 lfs 单例是**惰性**建的，
+// import 期不碰 indexedDB，故本文件不必再挡重依赖。只需把启动对账那一步换掉（见下）。
 // 启动对账会在 import 期真碰 fs/IDB，与本测试无关——保留其余真实导出
 vi.mock('@/lib/userscripts/offscreen-state-commands', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/userscripts/offscreen-state-commands')>()

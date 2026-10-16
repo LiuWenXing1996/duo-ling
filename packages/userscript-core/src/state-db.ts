@@ -1,7 +1,7 @@
 // 用户脚本项目数据的底层存储：独立 IndexedDB 库（**与 lightning-fs 的 'duoling-fs' 库分开**）。
 //
 // 为什么另起一个库：
-// lfs 自带内存索引层，同库多实例会互相看不见写入（见 us-fs.ts 顶部的单实例约束），
+// lfs 自带内存索引层，同库多实例会互相看不见写入（见 @duoling/offscreen-document 的 fs/lfs 单实例约束），
 // 所以 SW / 扩展页根本读不到 lfs 里的内容——这也是当前「项目数据只能放 chrome.storage」的根因。
 // 裸 IndexedDB 是真正的共享存储：SW / offscreen / 扩展页打开同一个库名，看到的是同一份数据。
 // 已实测：浏览器冷启动、offscreen 尚未创建时，SW 已能读到上一轮 offscreen 写进 IDB 的内容。

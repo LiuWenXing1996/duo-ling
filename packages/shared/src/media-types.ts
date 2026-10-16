@@ -1,9 +1,8 @@
 // 扩展名 ↔ MIME 的换算表，**纯函数、不依赖任何运行时**（无 fs、无 chrome API）。
 //
-// 为什么单独成一个文件：这张表有两侧要用 —— 落库侧（us-assets 归一落盘扩展名）与
-// 界面侧（文件管理面板按扩展名决定「二进制里的图片要不要画出来」）。
-// 界面侧只需要一张表，**不该为它 import 出整个 lightning-fs 单例**：us-assets 会带出
-// `new LightningFS`（见 us-fs 的单实例约束），在扩展页里凭空多一个用不上的实例。
+// 为什么单独成一个模块：这张表有两侧要用 —— 落盘侧（offscreen-document 的 fs/assets 归一
+// 落盘扩展名）与界面侧（文件管理面板按扩展名决定「二进制里的图片要不要画出来」）。
+// 界面侧只需要一张表：让它从落盘侧取，会连带 import 出整个 lightning-fs 单例。
 
 /** 扩展名 → MIME（读回时按文件名还原；认不出给通用二进制类型） */
 const MEDIA_TYPES: Record<string, string> = {
@@ -51,8 +50,8 @@ export function extForMediaType(mediaType: string): string | undefined {
 /**
  * 是不是图片 MIME。
  *
- * 判据只有这一处：附件筛选（chat-attachments 收不收这张图）与文件面板（二进制里画不画它）
- * 两侧共用，将来收文本附件要放宽判据时只改这里。
+ * 判据只有这一处：附件筛选（收不收这张图）与文件面板（二进制里画不画它）两侧共用，
+ * 将来收文本附件要放宽判据时只改这里。
  */
 export function isImageMediaType(mediaType: string): boolean {
   return mediaType.startsWith('image/')

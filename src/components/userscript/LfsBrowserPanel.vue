@@ -18,9 +18,9 @@ import {
 } from '@/components/ui/tooltip'
 import LfsTreeNode from './LfsTreeNode.vue'
 import { offscreenService, userscriptClient } from '@/lib/userscripts/ui-client'
-// 换算表取自叶子模块而非 us-assets：后者会带出 lightning-fs 单例，面板只要一张表
-import { isImageMediaType, mediaTypeOf } from '@/lib/media-types'
-import type { LfsNode, LfsFileContent } from '@/lib/userscripts/us-fs'
+// 换算表取自 shared 的叶子模块而非文件库：后者会带出 lightning-fs 单例，面板只要一张表
+import { isImageMediaType, mediaTypeOf } from '@duoling/shared'
+import type { LfsFileContent, LfsNode } from '@duoling/proxy-service-list'
 import { errorText } from '@/lib/format'
 
 const loading = ref(false)

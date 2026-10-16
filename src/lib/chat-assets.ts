@@ -13,6 +13,10 @@
 import type { UIMessage } from 'ai'
 import type { ChatAssetData, ChatAssetRef } from '@duoling/proxy-service-list'
 
+// data URL 的拆 / 拼是纯字符串函数，归 @duoling/shared（offscreen 的文件库上传入口同为消费方），
+// 此处 re-export 维持既有 import 路径
+export { dataUrlOf, parseDataUrl } from '@duoling/shared'
+
 // 资源引用的形状归 @duoling/proxy-service-list（offscreen 服务契约），re-export 维持既有路径
 export type { ChatAssetData, ChatAssetRef }
 
@@ -72,19 +76,4 @@ export function messagesForModel(messages: UIMessage[]): UIMessage[] {
     }
     return { ...m, parts }
   })
-}
-
-/** 拆 data URL 的 `data:<mime>;base64,<正文>`：上传时服务端要把 mime 与 base64 分开 */
-export function parseDataUrl(dataUrl: string): { mediaType: string; base64: string } {
-  const comma = dataUrl.indexOf(',')
-  const header = comma >= 0 ? dataUrl.slice(5, comma) : ''
-  return {
-    mediaType: header.split(';')[0] || 'application/octet-stream',
-    base64: comma >= 0 ? dataUrl.slice(comma + 1) : '',
-  }
-}
-
-/** 读回的资源拼回 data URL（面板 <img src> / 预览 / 下载都吃它；与 parseDataUrl 互为逆） */
-export function dataUrlOf(asset: ChatAssetData): string {
-  return `data:${asset.mediaType};base64,${asset.base64}`
 }

@@ -1,6 +1,6 @@
 // 用户脚本项目数据的**写侧**（⚠️ offscreen 专属，见 state-db.ts 文件头的单写方约定）。
 //
-// 这里是本方案的落点：源码的唯一权威在 duoling-fs（us-git），状态库（duoling-state）退化为
+// 这里是本方案的落点：源码的唯一权威在 duoling-fs（offscreen-document 的 fs/git），状态库（duoling-state）退化为
 // 「注册态库」只存元数据 + 源码搬运副本。**一切源码落盘都收敛到 saveSource 一个入口**：
 // 写工作树 → 提交 git 版本 → 写状态库（+ 出口广播由命令面 handleStateCommand 负责）。
 //
@@ -12,7 +12,16 @@
 // 工作树仍持有本次内容，故只 warn（下次保存再提交）；写工作树失败才是真保存失败（源码没落地）。
 import { getProject, listGroups, listProjects, nextScriptName } from './project-store'
 import { readGroup, removeGroup, removeProject, writeGroup, writeProject } from '@duoling/userscript-core'
-import { deleteAllRepos, deleteRepo, writeSource, commitSource, readSource } from './us-git'
+import { base64ToBytes } from '@duoling/shared'
+import {
+  commitSource,
+  deleteAllRepos,
+  deleteRepo,
+  parseScriptsZip,
+  readSource,
+  sourceFingerprint,
+  writeSource,
+} from '@duoling/offscreen-document'
 import { defaultConfig, defaultSource } from './types'
 import type {
   CommitActor,
@@ -22,7 +31,6 @@ import type {
   ScriptGroup,
   ScriptProject
 } from './types'
-import { base64ToBytes, parseScriptsZip, sourceFingerprint } from './zip-transfer'
 // metadata 归一化（唯一路径：写入口 saveSource 调用一次，不再另写第二套）
 import { resolveConfigFromSource } from '@duoling/userscript-core'
 import { errorText } from '@/lib/format'
@@ -140,7 +148,7 @@ export async function createProject(): Promise<ScriptProject> {
  * AI 生成脚本落盘：
  * 收 name / config / code + enabled（默认 false）。
  * **不调用 registerScript**——「生成」与「生效」解耦，AI 产物默认零影响；
- * git 提交 note = AI summary（us-git 已支持，正好是提交信息）。
+ * git 提交 note = AI summary（commitSource 已支持，正好是提交信息）。
  */
 export async function createGeneratedProject(payload: {
   name: string
@@ -256,7 +264,7 @@ export async function renameProject(uuid: string, name: string): Promise<ScriptP
  * zip 导入（state:import 的落点）：解码 → 逐脚本**尽量导入**。
  *
  * 导入侧不是「校验 + 淘汰」，而是「尽量落盘 + 报告说明」——
- *  · 解码层只按后缀认源码（`.user.js`，见 zip-transfer），配置由源码里的 `// ==UserScript==`
+ *  · 解码层只按后缀认源码（`.user.js`，见 offscreen-document 的 fs/zip），配置由源码里的 `// ==UserScript==`
  *    块派生（无块按默认配置），没有会让脚本被跳过的情形；
  *  · matches 非法：不在这里拦（启用时 registerScript 会以中文报错，导入后可在编辑器改）。
  * 导入默认值：uuid 重生成、enabled 恒 false（先审后启）、保留原名（名字不拦重复，uuid 才是标识）。

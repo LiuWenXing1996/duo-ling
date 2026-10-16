@@ -12,7 +12,7 @@
 // 而不是编一段「图上好像有…」）。
 import { generateText, type LanguageModel } from 'ai'
 import { AGENT_RUNTIME_LIMITS } from '@/lib/agent-tools-catalog'
-import { readAsset } from '@/lib/userscripts/us-assets'
+import { readAsset } from '@duoling/offscreen-document'
 
 /**
  * 识图子 Agent 的身份。三条约束都是针对「主 Agent 拿到回答后会当真」这件事：

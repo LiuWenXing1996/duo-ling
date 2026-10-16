@@ -404,6 +404,21 @@ importers:
       '@duoling/proxy-service-list':
         specifier: workspace:*
         version: link:../proxy-service-list
+      '@duoling/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@duoling/userscript-core':
+        specifier: workspace:*
+        version: link:../userscript-core
+      '@isomorphic-git/lightning-fs':
+        specifier: 4.7.0
+        version: 4.7.0
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
+      isomorphic-git:
+        specifier: 1.42.2
+        version: 1.42.2
     devDependencies:
       '@types/chrome':
         specifier: ^0.2.9

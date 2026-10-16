@@ -2,7 +2,7 @@
 //
 // 为什么需要单独一处：图片按**内容 hash** 存（同一张图重复附加只落一份），所以「该不该删」
 // 不能按「谁带过它」判断 —— 必须是「删完之后全库还剩谁在引用它」。判据只有引用面一处
-// （conversation-store.referencedAssetIds），删除只有 us-assets 一处，这里只负责把两者接起来。
+// （conversation-store.referencedAssetIds），删除只有资源库一处，这里只负责把两者接起来。
 //
 // 时序也是刻意的：**先删会话、再算引用面**。反过来（先算再删）会把「只有这条会话引用的图」
 // 与「别的会话也在引用的图」混在一起，得多维护一份引用计数表 —— 而计数表是典型会漂的东西。
@@ -13,7 +13,7 @@
 // 归属：offscreen-only（要读 lfs）。
 import { isAssetPart } from '@/lib/chat-assets'
 import { listMessages, referencedAssetIds } from '@/lib/conversation-store'
-import { deleteAllAssets, deleteAssets } from '@/lib/userscripts/us-assets'
+import { deleteAllAssets, deleteAssets } from '@duoling/offscreen-document'
 
 /** 一条会话用到过的资源 id（删会话**之前**取，因为删完就再也读不到这些消息了） */
 export async function assetIdsOf(conversationId: string): Promise<string[]> {

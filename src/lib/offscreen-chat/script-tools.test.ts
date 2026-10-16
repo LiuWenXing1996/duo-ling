@@ -16,8 +16,8 @@ import type {
 } from '@/lib/userscripts/types'
 import type { ElementPickContext } from '@duoling/shared'
 
-// us-git 顶层 import 会实例化 lightning-fs（Node 无 indexedDB → 未处理 rejection）→ 一并 mock
-vi.mock('@/lib/userscripts/us-git', () => ({
+// 源码库真身在 lightning-fs 上（Node 无 indexedDB）→ 读源码这一步换成假身
+vi.mock('@duoling/offscreen-document', () => ({
   readSource: vi.fn(async () => null),
 }))
 

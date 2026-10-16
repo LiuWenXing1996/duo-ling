@@ -2,7 +2,7 @@
 //
 // 本 spec 守的核心不变式只有一条：**图片字节永不进模型请求**。
 //   消息里挂的是一份 `data-asset` 引用（id + 文件名 + MIME + 大小，见 src/lib/chat-assets.ts），
-//   字节躺在 duoling-fs 的 `/assets/<内容hash>/`（见 src/lib/userscripts/us-assets.ts）；
+//   字节躺在 duoling-fs 的 `/assets/<内容hash>/`（见 @duoling/offscreen-document 的 fs/assets）；
 //   送模型前引用被换成一行文字（assetPlaceholderText），模型要看图只能调 image_ask。
 //   所以「请求体里出现 image_url / data:image」= 架构被改坏了，这里必须炸。
 //

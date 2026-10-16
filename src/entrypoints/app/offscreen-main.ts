@@ -13,12 +13,12 @@
 //   · console 输出落在 **SW 的 inspector**（chrome://extensions → Service Worker），不在面板 DevTools
 //   · 不能聚焦；opener 恒为 null；URL 必须是打包进扩展的静态 HTML（即本文件对应的 offscreen.html）
 //
-// 模块归属（硬约束）：本入口只允许 import us-git.ts（纯 JS 的 git 栈 + lightning-fs）、
-// extension-chat-transport.ts、ai SDK、offscreen-bridge.ts、offscreen-chat/（对话编排，
-// 内部只引裸 IndexedDB 模块）、@duoling/userscript-offscreen / @duoling/userscript-core /
-// @duoling/offscreen-document（纯函数 + offscreen 环境代码，import 期零副作用），
-// 以及 offscreen-only 的 lib/userscripts/offscreen-fs-commands.ts（源码库 duoling-fs 的
-// 处理器实现，经 OffscreenService 暴露）与 offscreen-state-commands.ts（注册态库的写侧）。
+// 模块归属（硬约束）：本入口只允许 import extension-chat-transport.ts、ai SDK、
+// offscreen-bridge.ts、offscreen-chat/（对话编排，内部只引裸 IndexedDB 模块）、
+// @duoling/userscript-offscreen / @duoling/userscript-core / @duoling/offscreen-document
+// （纯函数 + offscreen 环境代码，import 期零副作用；文件库 duoling-fs 的读写实现也在其中，
+// 经 OffscreenService 暴露），以及 offscreen-only 的 lib/userscripts/offscreen-state-commands.ts
+// （注册态库的写侧）。
 // 一旦 import store.ts / fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报
 // chrome.storage is undefined —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
 //
@@ -35,7 +35,6 @@ import { IPC_CLIPBOARD_WRITE } from '@duoling/shared'
 // 标准化总线：本语境唯一的 onMessage 收口（serveIpc）+ 前缀路由 matcher；
 // ipcNotify 为单向推送入口（就绪握手 / 配置回拉触发）
 import { serveIpc, prefixMatcher, ipcNotify } from '@/shared/ipc-bus'
-import { fsHandlers } from '@/lib/userscripts/offscreen-fs-commands'
 import { handleStateCommand, reconcileFs, type StateRequest } from '@/lib/userscripts/offscreen-state-commands'
 // GM 运行时的 offscreen 命令面（clipboard:write 应答）：包工厂不管生命周期与监听，
 // 监听由本入口的总线代挂（`{ listen: false }` + matcher 问询）—— 每语境只有一个监听器。
@@ -92,7 +91,7 @@ const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: Runt
 const offscreenHost = createOffscreenHost({ listen: false })
 
 // 服务实体：顶层同步注册，迟了会漏掉早到的调用（容器重建会重跑本入口，故无需去重）。
-registerOffscreenService(new OffscreenService(fsHandlers))
+registerOffscreenService(new OffscreenService())
 
 // 保活：SW 空闲 30s 即回收，而 GM 链路的在途操作全押在它常驻上 —— 入口顶层启一次即全程在线。
 startSwKeepalive()

@@ -1,5 +1,5 @@
 // 「从本地路径导入」的路径文本 → file:// URL 归一与校验。
-// 纯函数、不碰任何 chrome API：offscreen 与 node 单测都要能跑（同 zip-transfer 的取向）。
+// 纯函数、不碰任何 chrome API：offscreen 与 node 单测都要能跑（同 fs/zip 的取向）。
 //
 // 为什么需要这一层：导入链路的入口只认「字节」，而本地路径取字节唯一可行的姿势是
 // `fetch('file:///…')`（扩展页 fetch + 已声明的 `<all_urls>` 已覆盖 `file:///*`，

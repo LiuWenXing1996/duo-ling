@@ -1,8 +1,9 @@
 // 用户脚本 zip 导入导出的纯函数编解码层。
 //
-// 编码在导出侧（offscreen 的 fsExportZip 逐个取工作树源码后打包），解码在导入侧
+// 编码在导出侧（OffscreenService.fsExportZip 逐个取工作树源码后打包），解码在导入侧
 // （单写方，state:import → project-write.importScriptsZip）。两侧共用本模块——
 // 故这里**不得 import 任何 chrome API**（offscreen 与单测的 node 环境都要能跑）。
+// 名字安全化与 base64 编解码归 @duoling/shared：面板侧还要用同一份（见其 archive-transfer）。
 //
 // 编码布局：每脚本一个平级目录，目录内一份 `<目录名>.user.js`（见 buildScriptZip）。
 //
@@ -13,16 +14,13 @@
 // 解码层**不拦任何脚本**：没有任何「构造不出记录」的情形——脚本名取自源码 `// @name`
 // （缺则用文件名兜底），配置由源码里的 `// ==UserScript==` 块派生（无块按默认配置）。
 // 这些缺失一律只产出 notes 提示，不阻断导入（缺 matches 也照装，提示用户补全）。
+import { sanitizeDirName } from '@duoling/shared'
+import { defaultConfig, resolveConfigFromSource, SCRIPT_EXT } from '@duoling/userscript-core'
+import type { ScriptConfig } from '@duoling/userscript-core'
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
-import { SCRIPT_EXT, defaultConfig } from './types'
-import type { ScriptConfig } from './types'
-import { resolveConfigFromSource } from '@duoling/userscript-core'
 
 /** zip schema 版本（历史字段；**解码侧不据此拦截**——开发期无版本规范） */
 export const ZIP_SCHEMA_VERSION = 2
-
-/** zip 目录名长度上限（超长截断，防极端名称撑爆解压路径） */
-const DIR_NAME_MAX = 64
 
 /** 单脚本的编码入参（zip 内只有一份源码，name 决定目录名与文件名，配置由源码派生） */
 export interface ZipScriptPayload {
@@ -67,16 +65,6 @@ export function buildScriptZip(scripts: ZipScriptPayload[]): Uint8Array {
     entries[`${dir}/${base}${SCRIPT_EXT}`] = strToU8(s.code)
   }
   return zipSync(entries)
-}
-
-/** 名字安全化（目录名与文件名共用）：替换 Windows 保留字符与控制符、去结尾点/空白、截断；空值兜底 */
-export function sanitizeDirName(name: string): string {
-  const cleaned = name
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_')
-    .replace(/[\s.]+$/, '')
-    .trim()
-    .slice(0, DIR_NAME_MAX)
-  return cleaned || 'script'
 }
 
 /** 重名目录去重：`x` 已占用 → `x-2` → `x-3` …（-2 后缀规则） */
@@ -152,25 +140,7 @@ export function parseScriptsZip(bytes: Uint8Array): ScriptsZipParse {
   return { scripts, ignored }
 }
 
-// —— 传输与指纹（两侧共用的小工具） ——
-
-/** Uint8Array → base64（分块避免 String.fromCharCode 爆栈；zip 几 MB 也在安全余量内） */
-export function bytesToBase64(bytes: Uint8Array): string {
-  let bin = ''
-  const CHUNK = 0x8000
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-  }
-  return btoa(bin)
-}
-
-/** base64 → Uint8Array（offscreen 解码入口用） */
-export function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-  return out
-}
+// —— 内容指纹 ——
 
 /**
  * 内容指纹（重复导入提示用）：源码整体 SHA-256。

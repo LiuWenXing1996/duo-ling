@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import LfsBrowserPanel from './LfsBrowserPanel.vue'
-import type { LfsNode, LfsFileContent } from '@/lib/userscripts/us-fs'
+import type { LfsFileContent, LfsNode } from '@duoling/proxy-service-list'
 import type { ScriptSummary } from '@/lib/userscripts/types'
 
 const lfsTree = vi.hoisted(() => vi.fn())

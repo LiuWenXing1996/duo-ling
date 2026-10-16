@@ -1,8 +1,9 @@
 // offscreen 侧的能力调用桥：凡 offscreen 自己拿不到的（chrome.storage / chrome.userScripts /
 // chrome.tabs），一律经 runtime 消息请 SW 代办。
 //
-// 为什么需要它（模块归属规则）：offscreen 只允许 import us-git.ts（纯 JS 的 git 栈 + lightning-fs）、
-// extension-chat-transport.ts、ai SDK 与本文件。若直接 import store.ts / model-store.ts /
+// 为什么需要它（模块归属规则）：offscreen 只允许 import @duoling/offscreen-document
+//（纯 JS 的 git 栈 + lightning-fs）、extension-chat-transport.ts、ai SDK 与本文件。
+// 若直接 import store.ts / model-store.ts /
 // fs-store.ts，会在运行时报 `chrome.storage is undefined` —— 本文件就是那条规则的正门：
 // 把「需要 SW 的东西」收敛成一组显式调用，让违规 import 变成编译器/运行时都能抓住的错误。
 //

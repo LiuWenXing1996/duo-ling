@@ -1,9 +1,10 @@
-// us-assets.ts 单测：对话资源库（`/assets/<内容hash>/<文件名>`）自身的语义。
+// fs/assets.ts 单测：对话资源库（`/assets/<内容hash>/<文件名>`）自身的语义。
 //
-// 为什么 mock us-fs：本模块的靶心是**它自己的三条约定** —— id 由内容定、落盘扩展名按真实 MIME
+// 为什么 mock ./lfs：本模块的靶心是**它自己的三条约定** —— id 由内容定、落盘扩展名按真实 MIME
 // 归一、同内容幂等 —— 而不是 lightning-fs 吃不吃得下这些路径。后者由 e2e/chat-attachments.spec.ts
-// 在真扩展里验（与 project-write.test.ts mock us-git 是同一种分工）。故这里只搭一个够用的内存 fs：
+// 在真扩展里验（与 project-write.test.ts mock 源码库是同一种分工）。故这里只搭一个够用的内存 fs：
 // 路径语义（父子目录、ENOENT）按真身对齐，其余一概不做。
+import { mediaTypeOf } from '@duoling/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const fake = vi.hoisted(() => {
@@ -62,7 +63,7 @@ const fake = vi.hoisted(() => {
   }
 })
 
-vi.mock('./us-fs', () => ({ pfs: fake.pfs }))
+vi.mock('./lfs', () => ({ getPfs: () => fake.pfs }))
 
 import {
   ASSET_ROOT,
@@ -72,9 +73,7 @@ import {
   putAsset,
   readAsset,
   safeFilename,
-} from './us-assets'
-// 换算表本身已搬到叶子模块（不依赖 fs），故从它自己那儿取
-import { mediaTypeOf } from '@/lib/media-types'
+} from './assets'
 
 beforeEach(() => fake.reset())
 

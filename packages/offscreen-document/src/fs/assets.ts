@@ -1,26 +1,22 @@
-// 对话资源文件库（`/assets/<内容hash>/<文件名>`）—— 对话附件（图片）的**字节落点**，offscreen-only。
+// 对话资源文件库（`/assets/<内容hash>/<文件名>`）—— 对话附件的**字节落点**，offscreen-only。
 //
 // 为什么与用户脚本源码库平行、而不是塞进 /uscripts：
 //   源码库的 `/uscripts/<uuid>` 由「状态库 uuid ↔ 目录」对账清理孤儿
-//   （offscreen-state-commands.reconcileFs：**不在状态库里的目录一律删掉**）。
+//   （reconcileFs：**不在状态库里的目录一律删掉**）。
 //   资源文件没有对应的状态库记录，塞进去会被当成孤儿仓清掉 —— 故与它平级。
 //
 // 为什么目录名用内容 hash：同一张图重复附加（同一会话重发 / 多条会话引用）命中同一份字节，
 //   写入天然幂等、读取不需要索引；结构又与源码库同形（`<id>/<文件>`），lfs 浏览面板直接可见。
-//   **id 只在本模块按内容现算**：调用方（面板 / IPC）不参与定 id，于是「同一张图 = 同一个 id」
+//   **id 只在本模块按内容现算**：调用方（面板 / 服务调用）不参与定 id，于是「同一张图 = 同一个 id」
 //   由字节本身保证，而不是靠各处各自算一遍 hash 的约定（那种约定迟早会漂）。
 //   代价是「同一份字节两个名字」在库里只能留一个盘上名 —— 引用带本次附件的名字，盘上沿首写者，
 //   分工见 putAsset 的注释。
 //
-// ⚠️ 单实例约束同 us-fs：只用这里 import 的 pfs，不要另 new LightningFS（内存索引互不可见）。
-import type { AssetWriteResult } from '@duoling/proxy-service-list'
-import { pfs } from './us-fs'
-import { ensureDir, removeRecursive } from './us-fs-ops'
-import { extForMediaType, mediaTypeOf } from '@/lib/media-types'
-import type { ChatAssetRef } from '@/lib/chat-assets'
-
-// 写入结果的形状归 @duoling/proxy-service-list（offscreen 服务契约）
-export type { AssetWriteResult }
+// ⚠️ 单实例约束同 fs/lfs：只用这里取到的 pfs，不要另 new LightningFS（内存索引互不可见）。
+import type { AssetWriteResult, ChatAssetRef } from '@duoling/proxy-service-list'
+import { extForMediaType, mediaTypeOf } from '@duoling/shared'
+import { getPfs } from './lfs'
+import { ensureDir, removeRecursive } from './lfs-ops'
 
 /** 资源库根目录（与 /uscripts 平级，见文件头「为什么」） */
 export const ASSET_ROOT = '/assets'
@@ -43,7 +39,7 @@ export interface AssetContent {
   bytes: Uint8Array
 }
 
-/** id 来自内容 hash，但仍防路径穿越（对齐 us-git.assertSafeUuid 的口径） */
+/** id 来自内容 hash，但仍防路径穿越（对齐 git.assertSafeUuid 的口径） */
 function assertSafeAssetId(id: unknown): asserts id is string {
   if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
     throw new Error('非法资源 id')
@@ -61,7 +57,7 @@ export function safeFilename(name: string): string {
   return cleaned || 'file'
 }
 
-/** 收窄文件名 + 把扩展名换成 mediaType 对应的那个（换算表与「为什么」在 media-types.ts） */
+/** 收窄文件名 + 把扩展名换成 mediaType 对应的那个（换算表在 @duoling/shared 的 media-types） */
 function normalizeFilename(name: string, mediaType: string): string {
   const safe = safeFilename(name)
   const ext = extForMediaType(mediaType)
@@ -86,7 +82,7 @@ const assetDir = (id: string): string => `${ASSET_ROOT}/${id}`
 /** 列一个资源目录里的文件名；目录不存在回空数组（「没有」与「读不了」在这里不必区分） */
 async function listFiles(dir: string): Promise<string[]> {
   try {
-    return (await pfs.readdir(dir)) as string[]
+    return (await getPfs().readdir(dir)) as string[]
   } catch {
     return []
   }
@@ -109,7 +105,7 @@ export async function putAsset(input: AssetWriteInput): Promise<AssetWriteResult
   const ref: ChatAssetRef = { id, filename, mediaType: input.mediaType, size: input.bytes.length }
   if ((await listFiles(assetDir(id))).length > 0) return { stored: false, ref }
   await ensureDir(assetDir(id))
-  await pfs.writeFile(`${assetDir(id)}/${filename}`, input.bytes)
+  await getPfs().writeFile(`${assetDir(id)}/${filename}`, input.bytes)
   return { stored: true, ref }
 }
 
@@ -118,7 +114,7 @@ export async function readAsset(id: string): Promise<AssetContent | null> {
   assertSafeAssetId(id)
   const filename = (await listFiles(assetDir(id)))[0]
   if (!filename) return null
-  const bytes = (await pfs.readFile(`${assetDir(id)}/${filename}`)) as Uint8Array
+  const bytes = (await getPfs().readFile(`${assetDir(id)}/${filename}`)) as Uint8Array
   return {
     id,
     filename,
@@ -130,7 +126,7 @@ export async function readAsset(id: string): Promise<AssetContent | null> {
 
 /**
  * 删除给定 id 的资源目录；返回真正删掉的个数。
- * 调用方负责算「哪些 id 已经没人引用」（见 offscreen-main 的会话删除收尾）——
+ * 调用方负责算「哪些 id 已经没人引用」（见 offscreen 的会话删除收尾）——
  * 这里只做删除，不做引用判断，避免两处各写一份归属口径。
  */
 export async function deleteAssets(ids: string[]): Promise<number> {

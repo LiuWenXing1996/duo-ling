@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('ai', () => ({ generateText: mocks.generateText }))
-vi.mock('@/lib/userscripts/us-assets', () => ({ readAsset: mocks.readAsset }))
+vi.mock('@duoling/offscreen-document', () => ({ readAsset: mocks.readAsset }))
 
 import { askImageAboutAsset } from './vision-agent'
 

@@ -10,8 +10,8 @@
 //   · 连续失败超阈值就停手：返回明确文案让模型把诊断抛给用户（防无限自修循环）。
 //
 // 模块归属：本文件只 import acorn（纯 JS parse）、project-store（裸 IndexedDB 读侧）与
-// us-git（duoling-fs 源码库，offscreen-only），可安全跑在 offscreen；不碰 chrome.storage /
-// chrome.userScripts。
+// @duoling/offscreen-document（duoling-fs 源码库读侧，offscreen-only），可安全跑在
+// offscreen；不碰 chrome.storage / chrome.userScripts。
 import { Parser } from 'acorn'
 import { tool } from 'ai'
 import { z } from 'zod'
@@ -22,7 +22,7 @@ import {
   TOOL_PARAM_DESCRIPTIONS,
 } from '@/lib/agent-tools-catalog'
 import { getProject, listProjects } from '@/lib/userscripts/project-store'
-import { readSource } from '@/lib/userscripts/us-git'
+import { readSource } from '@duoling/offscreen-document'
 import { resolveConfigFromSource } from '@duoling/userscript-core'
 import { defaultConfig } from '@/lib/userscripts/types'
 import type {
@@ -43,7 +43,7 @@ export const MAX_APPLY_FAILURES = AGENT_RUNTIME_LIMITS.maxApplyFailures
 /**
  * 识图回调（由 chat-host 注入，真身在 offscreen-chat/vision-agent）。
  *
- * 为什么不在这里直接调模型：本模块的依赖边界是「acorn + project-store + us-git + 纯数据模块」，
+ * 为什么不在这里直接调模型：本模块的依赖边界是「acorn + project-store + 源码库 + 纯数据模块」，
  * 模型/provider 属编排层的能力面（chat-host 才持有 profile 与 provider）。注入后
  * 本文件既不认识 provider，也不必知道识图是怎么发出去的。
  */
@@ -87,7 +87,7 @@ const applyConfigSchema = z.object({
  * 页面录制回调组（由 chat-host 注入）。
  *
  * 为什么是回调而不是直接调 offscreenBridge：本模块的依赖边界是「acorn + project-store +
- * us-git + 纯数据模块」，offscreenBridge 属编排层的能力面。更关键的是
+ * 源码库 + 纯数据模块」，offscreenBridge 属编排层的能力面。更关键的是
  * **requestConsent 要往对话流里推 data part**——那是 chat-host 的职责（它持有
  * conversationId 与事件缓冲），工具只负责「要一张卡」。
  *

@@ -1,7 +1,7 @@
 // Agent 工具目录：**工具契约与运行时闸门的展示侧单一来源**（纯数据、零依赖）。
 //
 // 为什么单独一份、而不是直接读 script-tools：
-//   script-tools.ts 是 offscreen 专属模块（import us-git 源码库 / 裸 IDB 读侧），
+//   script-tools.ts 是 offscreen 专属模块（import 源码库 / 裸 IDB 读侧），
 //   工作台页面 import 它既拖大首屏产物、又会碰到它访问不到的东西。故把「工具描述文本 + 运行时闸门」
 //   这两样纯数据抽到这里，运行时（script-tools / chat-host）与工作台「AI 工具」面板共用同一份 ——
 //   模型收到的 description 与面板展示的必然一致，不需要人工对照。

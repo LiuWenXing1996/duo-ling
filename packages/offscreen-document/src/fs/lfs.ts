@@ -1,20 +1,35 @@
 // 用户脚本源码与 git 仓的底层文件系统（lightning-fs 单例），**offscreen-only**。
 //
-// 这就是「duoling-fs」库——源码的唯一权威来源（见 AGENTS.md「存储」与 types.ts 的
+// 这就是「duoling-fs」库——源码的唯一权威来源（见 AGENTS.md「存储」与 userscript-core 的
 // ScriptProject 注释）：每个脚本的源码文件树与 git 历史都落在 `/uscripts/<uuid>/` 下，
-// 由 offscreen 独占读写；SW 与扩展页要读源码，一律经 fs:* 命令向 offscreen 取。
+// 由 offscreen 独占读写；SW 与扩展页要读源码，一律经本包的服务方法取。
 //
 // ⚠️ 单实例约束：lightning-fs 带内存索引层，同库多实例会互相看不见写入。
 // 全仓只允许从这里取实例，不要在别处 new LightningFS。
+//
+// 惰性初始化（不是顶层建实例）：本包声明 sideEffects:false，顶层副作用会被判成可摇掉的代码；
+// 且 Node 下（无 indexedDB）import 即产生未处理 rejection —— 首访才建，两件事一起解决。
 import type { LfsFileContent, LfsNode } from '@duoling/proxy-service-list'
 import LightningFS from '@isomorphic-git/lightning-fs'
 
-// 树与文件预览的形状归 @duoling/proxy-service-list（offscreen 服务契约）
-export type { LfsFileContent, LfsNode }
-
 /** 库名 duoling-fs：源码唯一来源（与注册态库 duoling-state 分离） */
-export const fs = new LightningFS('duoling-fs')
-export const pfs = fs.promises
+const FS_DB_NAME = 'duoling-fs'
+
+function createFs() {
+  return new LightningFS(FS_DB_NAME)
+}
+
+let instance: ReturnType<typeof createFs> | null = null
+
+/** 取 lfs 单例（首访建实例）—— 全仓唯一的取用口 */
+export function getFs(): ReturnType<typeof createFs> {
+  return (instance ??= createFs())
+}
+
+/** 单例的 promise 面：各 fs 操作统一从这里取 */
+export function getPfs(): ReturnType<typeof createFs>['promises'] {
+  return getFs().promises
+}
 
 // —— 整库浏览（只读调试视图，fsLfsTree 的数据源）——
 
@@ -31,6 +46,7 @@ function joinPath(dir: string, name: string): string {
  * 目录在前、按名称排序；超出节点上限直接抛错（宁可失败也不回半棵树）。
  */
 export async function readLfsTree(root = '/'): Promise<LfsNode> {
+  const pfs = getPfs()
   let count = 0
   async function walk(dir: string, name: string): Promise<LfsNode> {
     if (++count > LFS_TREE_MAX_NODES) {
@@ -88,7 +104,7 @@ function toBase64(bytes: Uint8Array): string {
  * 超过 1MB 截断到前 1MB 并置 truncated（仍可看头部，如巨型打包文件）。
  */
 export async function readLfsFile(path: string): Promise<LfsFileContent> {
-  const raw = (await pfs.readFile(path)) as Uint8Array
+  const raw = (await getPfs().readFile(path)) as Uint8Array
   const size = raw.length
   const truncated = size > LFS_READ_MAX_BYTES
   const view = truncated ? raw.subarray(0, LFS_READ_MAX_BYTES) : raw

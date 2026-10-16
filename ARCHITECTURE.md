@@ -53,7 +53,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 - **附件（图片 / 文本文件）**：转换全部在**发出前**完成，链路下游（transport / offscreen / provider）不需要知道「附件」这个概念。处理逻辑集中在 `src/lib/chat-attachments.ts`；引用形状与三个消费点的读法集中在 `src/lib/chat-assets.ts`。**转换只能在发出前做**：附件一旦随 user 消息落盘就是历史的一部分，事后再想换掉已经改不动。
   - **文本文件读成正文**：OpenAI 兼容接口不支持任意文件上传，只能拼进提示词（带文件名围栏，超长截断并留标记）。
-  - **图片不进消息，只落库 + 留引用**：重编码成 JPEG 后写到 `duoling-fs` 的 `/assets/<内容hash>/<文件名>`（`us-assets.ts`，与 `/uscripts` 平级 —— 源码库按「状态库 uuid ↔ 目录」清理孤儿，资源没有对应记录，塞进去会被当孤儿清掉），消息里只留一份 `data-asset`（`{ id, filename, mediaType, size }`）。**id 由内容 hash 定，唯一产地是 `us-assets.contentId`**：同一张图重复附加（同会话重发 / 多条会话引用）命中同一份字节，写入天然幂等；调用方不参与定 id，否则「同图同 id」就得靠各处自觉遵守。落盘文件名按真实 MIME 归一扩展名（重编码后截图常是 `.png` 名字 + JPEG 字节），否则读回时会推出错 MIME。
+  - **图片不进消息，只落库 + 留引用**：重编码成 JPEG 后写到 `duoling-fs` 的 `/assets/<内容hash>/<文件名>`（`@duoling/offscreen-document` 的 `fs/assets`，与 `/uscripts` 平级 —— 源码库按「状态库 uuid ↔ 目录」清理孤儿，资源没有对应记录，塞进去会被当孤儿清掉），消息里只留一份 `data-asset`（`{ id, filename, mediaType, size }`）。**id 由内容 hash 定，唯一产地是 `fs/assets` 的 `contentId`**：同一张图重复附加（同会话重发 / 多条会话引用）命中同一份字节，写入天然幂等；调用方不参与定 id，否则「同图同 id」就得靠各处自觉遵守。落盘文件名按真实 MIME 归一扩展名（重编码后截图常是 `.png` 名字 + JPEG 字节），否则读回时会推出错 MIME。
   - **模型永远看不到图片字节**：送模型前 `messagesForModel` 把 `data-asset` 换成一行文字（`assetPlaceholderText`：assetId + 「内容未随消息发送，要看图请调 image_ask」）。看图只有一条路 —— `image_ask` 工具 → 识图子 Agent（`offscreen-chat/vision-agent.ts`）：读库原图 → 一次独立、无工具的模型调用 → 只把**文字**答案交回主对话。于是「一次识图只烧一次图 token，而不是此后每轮都重发」成立（旧做法最贵的地方正在这里：图片随每条历史消息整段重发）。识图**用当前激活的模型**（它必须自己支持读图；不支持时服务端报错原样交回模型，由它向用户说明 —— 不在客户端预判模型能力，拦错了会挡掉本可用的组合）。
   - **图片统一转 JPEG**（长边 ≤1568、先铺白底）：JPEG 是各家视觉接口的接受交集 —— PNG 压不动体积、WebP 有一批服务不认。代价是丢透明通道，对截图 / 设计稿无影响。
   - **面板按需 hydrate**：消息里只有引用，缩略图首次渲染时经 `fsAssetRead` 取回 data URL 并缓存（缓存键即内容 hash，同一条消息的多个缩略图只取一次）；取不到的（资源被清过 / id 写错）留空占位且不反复重试。
@@ -106,7 +106,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 > 分库写权限是硬边界：**注册链路对 offscreen 存活零依赖**。
 
-① **源码唯一来源 `duoling-fs`**（lightning-fs，IndexedDB 后端，**只许 offscreen 碰**，`us-fs.ts` 单例）：每脚本一仓 `/uscripts/<uuid>/`——`script.js`（单文件纯 JS 源码，2026-09-20 单文件化）即工作树（未提交改动 = 草稿），git 历史 = 每次保存的版本（`us-git.ts`，仓损坏只丢历史不丢脚本）；配置由源码里的 `// ==UserScript==` 块派生（`resolveConfigFromSource`），**不再有并行元信息文件**；SW/扩展页读不到 lfs，**源码读写一律走 `fs:*` 命令向 offscreen 取**（`offscreen-fs-commands.ts`）。
+① **源码唯一来源 `duoling-fs`**（lightning-fs，IndexedDB 后端，**只许 offscreen 碰**，`@duoling/offscreen-document` 的 `fs/lfs` 单例）：每脚本一仓 `/uscripts/<uuid>/`——`script.js`（单文件纯 JS 源码，2026-09-20 单文件化）即工作树（未提交改动 = 草稿），git 历史 = 每次保存的版本（同包 `fs/git`，仓损坏只丢历史不丢脚本）；配置由源码里的 `// ==UserScript==` 块派生（`resolveConfigFromSource`），**不再有并行元信息文件**；SW/扩展页读不到 lfs，**源码读写一律走 `OffscreenService` 代理向 offscreen 取**（同包 `offscreen-service`）。
 
 ② **注册态库 `duoling-state`**（独立 IndexedDB，`state-db.ts`/`project-store.ts` 读、`project-write.ts` 写，**写只归 offscreen**）= 每脚本一条 `ScriptProject`：元数据 + enabled + **源码搬运副本 `source`**（SW 读不到 lfs，注册的注入代码从注册态取）——SW 注册直读 `source.code`，注册链路对 offscreen 存活零依赖（既定不变量）。
 

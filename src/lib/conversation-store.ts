@@ -134,7 +134,7 @@ function previewOf(m: Message): string {
  *
  * 用途只有一个：删会话时算「哪些图片从此没人要了」——图片按内容 hash 存、可被多条会话共用，
  * 所以判据必须是「删完之后全库还剩谁在引用」，而不是「被删那条消息带过什么」。
- * 归属口径只有这一处（us-assets 只管删、不做引用判断）。
+ * 归属口径只有这一处（资源库只管删、不做引用判断）。
  */
 export async function referencedAssetIds(): Promise<Set<string>> {
   const { byConversation } = await readAll()

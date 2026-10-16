@@ -2,7 +2,7 @@
 //
 // 与 local-path.ts 对称：那边把一段**本地路径文本**变成可 fetch 的 file: URL，这边把一段
 // **网络地址文本**变成可 fetch 的 http(s) URL。两层都只做「归一 + 说人话的原因」，取字节留在调用方。
-// 纯函数、不碰任何 chrome API（工作台页与 node 单测都要能跑，同 zip-transfer 的取向）。
+// 纯函数、不碰任何 chrome API（工作台页与 node 单测都要能跑，同 fs/zip 的取向）。
 //
 // 为什么地址要归一：用户手上拿到的是各种形态 —— GreasyFork 的 `/scripts/<id>/code/<name>.user.js`、
 // GitHub 的 raw 链接、Gist 的 raw、某个静态托管上的 .user.js。这些本来就是合法 URL，

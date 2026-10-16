@@ -11,8 +11,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { AGENT_RUNTIME_LIMITS, AGENT_TOOL_VIEWS, TOOL_DESCRIPTIONS } from './agent-tools-catalog'
 import { buildScriptTools, MAX_APPLY_FAILURES, type TaskWorkspace } from './offscreen-chat/script-tools'
 
-// 与 script-tools.test.ts 同因由：us-git 顶层 import 会实例化 lightning-fs（Node 无 indexedDB）。
-vi.mock('@/lib/userscripts/us-git', () => ({
+// 与 script-tools.test.ts 同因由：源码库真身在 lightning-fs 上（Node 无 indexedDB）。
+vi.mock('@duoling/offscreen-document', () => ({
   readSource: vi.fn(async () => null),
 }))
 

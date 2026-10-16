@@ -1,17 +1,10 @@
-// zip-transfer.ts 单测：编解码纯函数（zip 格式、后缀识别、字段兜底、目录去重、指纹）。
+// fs/zip.ts 单测：编解码纯函数（zip 格式、后缀识别、字段兜底、目录去重、指纹）。
 // 解码侧扫全包：路径以 .user.js 结尾即源码（任意层级、同目录多份都收），其余文件进未导入报告；
 // 配置由源码里的 // ==UserScript== 块派生（导入侧解析）。node 环境直跑（本模块零 chrome API）。
+// base64 往返与名字安全化归 @duoling/shared，测试在那边（archive-transfer.test.ts）。
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import {
-  ZIP_SCHEMA_VERSION,
-  base64ToBytes,
-  buildScriptZip,
-  bytesToBase64,
-  parseScriptsZip,
-  sanitizeDirName,
-  sourceFingerprint,
-} from './zip-transfer'
+import { ZIP_SCHEMA_VERSION, buildScriptZip, parseScriptsZip, sourceFingerprint } from './zip'
 
 /** 用字符串 entries 打一个 zip（测试辅助） */
 function makeZip(entries: Record<string, string>): Uint8Array {
@@ -69,14 +62,6 @@ describe('buildScriptZip + parseScriptsZip 往返', () => {
     // 目录名去重为 同名 / 同名-2，但导入名取 @name（=真名），不被目录名干扰
     expect(scripts.map((s) => s.name)).toEqual(['同名', '同名'])
     expect(scripts.map((s) => s.code)).toEqual([withMeta('同名', '// 1'), withMeta('同名', '// 2')])
-  })
-
-  it('目录名做 Windows 保留字符安全化', () => {
-    expect(sanitizeDirName('a/b:c*d?"<>|')).toBe('a_b_c_d_____')
-    expect(sanitizeDirName('  结尾点.  ')).toBe('结尾点')
-    expect(sanitizeDirName('///')).toBe('___') // 全部是保留字符：替换后仍可作为目录名
-    expect(sanitizeDirName('  ')).toBe('script') // 全空白才兜底
-    expect(sanitizeDirName('x'.repeat(100))).toHaveLength(64)
   })
 
   it('ZIP_SCHEMA_VERSION 保留为历史字段（=2），解码侧不据此拦截', () => {
@@ -183,12 +168,7 @@ describe('parseScriptsZip 解析（扫全包：后缀 .user.js 即源码）', ()
   })
 })
 
-describe('base64 传输与内容指纹', () => {
-  it('bytesToBase64 / base64ToBytes 往返保真（含非 ASCII 字节）', () => {
-    const bytes = new Uint8Array([0, 1, 2, 250, 251, 255, 128])
-    expect(base64ToBytes(bytesToBase64(bytes))).toEqual(bytes)
-  })
-
+describe('内容指纹', () => {
   it('sourceFingerprint：内容相同同指纹，内容不同指纹不同', async () => {
     const a = await sourceFingerprint('console.log(1)')
     const b = await sourceFingerprint('console.log(1)')

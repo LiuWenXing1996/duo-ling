@@ -5,11 +5,11 @@
 // 别的会话里那张图会变成打不开的空占位 —— 而不会有任何报错。
 //
 // 会话库走真身（conversation-store + fake-indexeddb）；资源库后端走假身（真身落在 lightning-fs 上，
-// 见 us-assets）—— 本用例只验「该删哪些 id」这一层判断，删字节那步由 us-assets 自己负责。
+// 见 fs/assets）—— 本用例只验「该删哪些 id」这一层判断，删字节那步由资源库自己负责。
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantMessage } from '@/shared/types'
-import { deleteAllAssets, deleteAssets } from '@/lib/userscripts/us-assets'
+import { deleteAllAssets, deleteAssets } from '@duoling/offscreen-document'
 import {
   appendMessage,
   createConversation,
@@ -18,7 +18,7 @@ import {
 } from '@/lib/conversation-store'
 import { assetIdsOf, releaseAllAssets, releaseUnreferencedAssets } from './asset-lifecycle'
 
-vi.mock('@/lib/userscripts/us-assets', () => ({
+vi.mock('@duoling/offscreen-document', () => ({
   deleteAssets: vi.fn(async () => 0),
   deleteAllAssets: vi.fn(async () => 0),
 }))

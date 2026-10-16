@@ -1,20 +1,17 @@
-// 用户脚本源码与 git 版本化：每脚本一仓，源码的唯一权威来源落在 duoling-fs（us-fs）。
+// 用户脚本源码与 git 版本化：每脚本一仓，源码的唯一权威来源落在 duoling-fs（fs/lfs）。
 //
 // 设计：状态库（duoling-state）只存注册态（元数据 + 源码搬运副本），不承载权威源码。
 // 这里就是源码的落点——
 //   · 工作区（/uscripts/<uuid>/script.js）= 当前源码，天然承载「未保存改动」；
 //   · 提交（git commit）= 一次保存 / 导入 / 恢复产生的历史版本；
-//   · 读源码一律走这里（offscreen 内直读，或经 fs:* 命令对外）。
+//   · 读源码一律走这里（offscreen 内直读，或经本包的服务方法对外）。
 //
-// 单写方：本文件只被 offscreen 调用（project-write / offscreen-fs-commands），仓损坏只丢
-// 历史不丢脚本，所有失败都不阻断保存主链路。
-import git from 'isomorphic-git'
+// 单写方：只被 offscreen 调用（project-write / OffscreenService），仓损坏只丢历史不丢脚本，
+// 所有失败都不阻断保存主链路。
 import type { CommitActor, Source, UsCommit, UsSnapshot } from '@duoling/proxy-service-list'
-import { fs, pfs } from './us-fs'
-import { ensureDir, removeRecursive } from './us-fs-ops'
-
-// 源码库的形状归 @duoling/proxy-service-list（offscreen 服务契约），re-export 维持既有路径
-export type { Source, UsCommit, UsSnapshot }
+import git from 'isomorphic-git'
+import { getFs, getPfs } from './lfs'
+import { ensureDir, removeRecursive } from './lfs-ops'
 
 /**
  * 改动来源的 git 身份映射：来源类型即 CommitActor（offscreen 服务契约，两端共用）。
@@ -37,7 +34,7 @@ function actorFromEmail(email: string | undefined): CommitActor {
 const US_ROOT = '/uscripts'
 const SOURCE_FILE = 'script.js'
 
-/** uuid 来自 UI/消息层，防路径穿越（对齐 fs-store assertSafeToolId） */
+/** uuid 来自 UI/消息层，防路径穿越（对齐资源库的 id 校验口径） */
 function assertSafeUuid(uuid: unknown): asserts uuid is string {
   if (
     typeof uuid !== 'string' ||
@@ -55,14 +52,14 @@ const usDir = (uuid: string): string => `${US_ROOT}/${uuid}`
 async function writeRepoFile(uuid: string, rel: string, content: string): Promise<void> {
   const abs = `${usDir(uuid)}/${rel}`
   await ensureDir(abs.slice(0, abs.lastIndexOf('/')))
-  await pfs.writeFile(abs, content)
+  await getPfs().writeFile(abs, content)
 }
 
 export async function ensureRepo(uuid: string): Promise<void> {
   assertSafeUuid(uuid)
   await ensureDir(usDir(uuid))
   try {
-    await git.init({ fs, dir: usDir(uuid), defaultBranch: 'main' })
+    await git.init({ fs: getFs(), dir: usDir(uuid), defaultBranch: 'main' })
   } catch {
     /* 已 init 则忽略 */
   }
@@ -78,14 +75,18 @@ export async function deleteRepo(uuid: string): Promise<void> {
   }
 }
 
+/** `/uscripts` 下的仓目录名（根不存在回空数组）—— 启动对账只认这一步，不必碰 pfs */
+export async function listRepoDirs(): Promise<string[]> {
+  try {
+    return (await getPfs().readdir(US_ROOT)) as string[]
+  } catch {
+    return []
+  }
+}
+
 /** 删除 /uscripts 下的**全部**仓目录（删除全部脚本时的收尾） */
 export async function deleteAllRepos(): Promise<number> {
-  let entries: string[] = []
-  try {
-    entries = (await pfs.readdir(US_ROOT)) as string[]
-  } catch {
-    return 0 // 根目录不存在 = 本来就没有仓
-  }
+  const entries = await listRepoDirs()
   for (const uuid of entries) {
     await deleteRepo(uuid).catch(() => {})
   }
@@ -95,7 +96,7 @@ export async function deleteAllRepos(): Promise<number> {
 /** HEAD 提交 oid（无任何提交时 undefined） */
 async function headOid(uuid: string): Promise<string | undefined> {
   try {
-    return await git.resolveRef({ fs, dir: usDir(uuid), ref: 'HEAD' })
+    return await git.resolveRef({ fs: getFs(), dir: usDir(uuid), ref: 'HEAD' })
   } catch {
     return undefined
   }
@@ -103,7 +104,7 @@ async function headOid(uuid: string): Promise<string | undefined> {
 
 async function readBlobText(uuid: string, oid: string, filepath: string): Promise<string | undefined> {
   try {
-    const { blob } = await git.readBlob({ fs, dir: usDir(uuid), oid, filepath })
+    const { blob } = await git.readBlob({ fs: getFs(), dir: usDir(uuid), oid, filepath })
     return new TextDecoder().decode(blob)
   } catch {
     return undefined
@@ -123,7 +124,7 @@ export async function writeSource(uuid: string, code: string): Promise<void> {
 /** 读工作区 script.js 源码；不存在返回 null */
 async function readWorktreeCode(uuid: string): Promise<string | null> {
   try {
-    const raw = await pfs.readFile(`${usDir(uuid)}/${SOURCE_FILE}`)
+    const raw = await getPfs().readFile(`${usDir(uuid)}/${SOURCE_FILE}`)
     const text = new TextDecoder().decode(raw)
     return text.length ? text : null
   } catch {
@@ -178,6 +179,7 @@ export async function commitSource(
 ): Promise<{ committed: boolean; oid?: string }> {
   assertSafeUuid(uuid)
   await ensureRepo(uuid)
+  const fs = getFs()
   const dir = usDir(uuid)
   const head = await headOid(uuid)
   const code = await readWorktreeCode(uuid)
@@ -201,7 +203,7 @@ export async function commitSource(
 export async function listHistory(uuid: string): Promise<UsCommit[]> {
   assertSafeUuid(uuid)
   try {
-    const log = await git.log({ fs, dir: usDir(uuid) })
+    const log = await git.log({ fs: getFs(), dir: usDir(uuid) })
     return log.map((entry) => ({
       oid: entry.oid,
       message: entry.commit.message.trim(),
@@ -242,7 +244,7 @@ export async function restoreToCommit(
   }
   let message = `回滚到 ${oid.slice(0, 8)}`
   try {
-    const { commit: target } = await git.readCommit({ fs, dir, oid })
+    const { commit: target } = await git.readCommit({ fs: getFs(), dir, oid })
     const original = target.message.trim()
     if (original) message = `${message}：${original}`
   } catch {

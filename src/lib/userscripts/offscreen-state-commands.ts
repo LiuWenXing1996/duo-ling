@@ -6,7 +6,7 @@
 // 「已保存但没 commit」）。
 //
 // 只有**写**命令进协议：读由 SW 与扩展页直连 IndexedDB（project-store），不经容器——
-// 「脚本生不生效」不能押在 offscreen 存活上（源码读取例外：走 fs:* 命令，见 offscreen-fs-commands.ts）。
+// 「脚本生不生效」不能押在 offscreen 存活上（源码读取例外：走 OffscreenService 代理）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { broadcastDataChange } from '@/lib/data-broadcast'
 import { listProjects } from './project-store'
@@ -27,8 +27,7 @@ import {
   setProjectGroup,
 } from './project-write'
 import type { ScriptProject } from './types'
-import { pfs } from './us-fs'
-import { deleteRepo } from './us-git'
+import { deleteRepo, listRepoDirs } from '@duoling/offscreen-document'
 
 /** 收窄 state: 前缀的命令（供 onMessage 分发时类型化） */
 export type StateRequest = Extract<RuntimeRequest, { kind: `state:${string}` }>
@@ -125,13 +124,7 @@ export async function reconcileFs(): Promise<void> {
   try {
     const projects: ScriptProject[] = await listProjects()
     const uuidsInStore = new Set(projects.map((p) => p.uuid))
-    let repos: string[] = []
-    try {
-      repos = (await pfs.readdir('/uscripts')) as string[]
-    } catch {
-      repos = []
-    }
-    for (const uuid of repos) {
+    for (const uuid of await listRepoDirs()) {
       if (!uuidsInStore.has(uuid)) {
         await deleteRepo(uuid).catch(() => {})
       }

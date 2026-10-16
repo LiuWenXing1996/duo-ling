@@ -12,7 +12,7 @@ import type { ScriptConfig } from './script-config'
  * 不在此处保存——dl 单写方约束下 SW / 扩展页读不到 lfs，故源码的唯一权威副本在
  * duoling-fs；本记录退化为「注册态库」：注册所需的元数据 + **源码搬运副本**（SW 读不到
  * lfs，注册时的注入代码从这里取——保存时由 offscreen 写侧随落盘一并写入）。
- * 改这份形状时务必同步 offscreen-fs-commands / us-git / project-write / ui-client / 各面板。
+ * 改这份形状时务必同步 offscreen-document 的 fs 层 / project-write / ui-client / 各面板。
  */
 export interface ScriptProject {
   /** schema 版本 */
@@ -64,6 +64,13 @@ export interface ScriptSummary {
   /** 所属分组 id（空字符串 = 未分组）；与 groups 对象库里的定义对应 */
   group: string
 }
+
+/**
+ * 单文件源码在 zip 里的后缀：**路径以它结尾的条目即源码**（文件名叫什么都行）。
+ * 用 `.user.js` 而不另立名字：从 GreasyFork / GitHub 直下的脚本落进 zip 就能导入，不必先改名。
+ * 编解码两侧（offscreen-document 的 fs/zip 打包、project-write 的导入）共用这一处。
+ */
+export const SCRIPT_EXT = '.user.js'
 
 /** 项目 → 列表精简视图（启用在前，组内按源码保存时间倒序） */
 export function listSummaries(projects: ScriptProject[]): ScriptSummary[] {

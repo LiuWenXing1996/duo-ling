@@ -6,7 +6,7 @@ import { computed } from 'vue'
 import { FileIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { FileTreeFile, FileTreeFolder, FileTreeIcon, FileTreeName } from '@/components/ai-elements/file-tree'
-import type { LfsNode } from '@/lib/userscripts/us-fs'
+import type { LfsNode } from '@duoling/proxy-service-list'
 
 const props = defineProps<{ node: LfsNode; scriptNames?: Map<string, string> }>()
 
