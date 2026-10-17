@@ -12,7 +12,7 @@
 
 ## CI 侧
 
-`.github/workflows/ci.yml` 的 `verify` job 也跑这两道门禁，都排在 `typecheck` 之前（命中即失败，不用等一分钟）：
+`.github/workflows/ci.yml` 只有一个 job `Gate`，跑 `pnpm run ci`；这两道门禁是它的前两步（在 typecheck 之前），命中即失败，不必等后面的构建与端测：
 
 | 门禁 | CI 里的范围 | 为什么这么定 |
 | --- | --- | --- |

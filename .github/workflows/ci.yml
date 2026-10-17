@@ -1,7 +1,15 @@
 name: CI
 
-# 快测：门禁（注释 / 密钥）+ 类型检查 + 单元测试。E2E 是独立 workflow，触发面见 e2e.yml 顶部。
+# 唯一的工作流：门禁（注释 / 密钥）、类型检查、单测、端到端冒烟，串行跑在同一个 job 里。
+# job 名 `Gate` 就是仓库 ruleset 绑定的必需检查（context 精确匹配）；
+# 以后加检查项只改 package.json 的 ci 脚本，这个字符串不用动。
+#
+# 触发面：PR、push main、每日定时、手动。
 on:
+  workflow_dispatch:
+  # 每日北京时间 02:00（UTC 18:00）全量跑一遍，抓产品级回归（如 CSP / 注入链路）
+  schedule:
+    - cron: '0 18 * * *'
   push:
     branches: [main]
   pull_request:
@@ -12,10 +20,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    # 这个名字是仓库 ruleset 里绑定的必需检查（context 精确匹配），改名会让 PR 永远等不到它而卡在 BLOCKED。
-    # 加步骤、加门禁都行，改这个字符串不行 —— 要改就得同步改 ruleset。
-    name: Typecheck & Unit tests
+  gate:
+    name: Gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,21 +38,27 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # 两个门禁排在类型检查之前：命中就失败，不必等一分钟的 typecheck。
-      # 钩子只覆盖暂存文件，这里扫全仓，兜住没装钩子或绕过钩子的提交。
-      - name: Comment gate
-        run: pnpm run check:comments
+      # 缓存 Playwright 浏览器二进制，避免每次重新下载。
+      # GitHub 官方 runner 在海外，走 Playwright 官方 CDN 即可（稳定且快）；
+      # 若改用国内自托管 runner，可加 env PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
-      - name: Secret gate (whole repo)
-        run: pnpm run check:secrets
+      # 浏览器与系统依赖属于环境准备，不进 npm 脚本：`--with-deps` 只在 Linux 上有意义
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       # .wxt/tsconfig.json 由 wxt prepare 生成（含 @ 别名与 #imports 虚拟模块类型），vue-tsc 与 vitest(WxtVitest) 都依赖它；
-      # 缺失报 "Failed to load tsconfig '.wxt/tsconfig.json'"；门禁不因缺 .wxt 假红——显式 prepare 兜底，防 postinstall 被跳过致 typecheck 假红。
+      # 缺失报 "Failed to load tsconfig '.wxt/tsconfig.json'"；显式 prepare 兜底，防 postinstall 被跳过致 typecheck 假红。
       - name: Generate WXT types (.wxt/tsconfig.json)
         run: pnpm exec wxt prepare
 
-      - name: Typecheck (vue-tsc --noEmit)
-        run: pnpm run typecheck
-
-      - name: Unit tests (vitest)
-        run: pnpm run test
+      # 门禁 → typecheck → 单测 → build → e2e 的顺序与内容见 package.json 的 ci 脚本。
+      # pnpm 会逐条打印子命令，失败即停，日志里能直接看到挂在哪一步。
+      - name: Run CI
+        run: pnpm run ci
