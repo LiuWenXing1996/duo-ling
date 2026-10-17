@@ -1,6 +1,21 @@
 {
-  "extends": "./.wxt/tsconfig.json",
+  // 不 extends ./.wxt/tsconfig.json：那份是 `wxt prepare` 的产物，而 prepare 要先能 import 入口
+  // （@duoling/* 走 exports → dist），必须晚于 `pnpm -r build`；反过来，构建期的 esbuild 与 oxc
+  // 会从包目录向上读到根 tsconfig —— 「构建要它、它要构建」成环，干净 checkout 上必挂。
+  // 下面 compilerOptions 抄自 WXT 0.21 的模板，升级 WXT 后对照 .wxt/tsconfig.json 核一遍。
   "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
     "paths": {
       "@": ["./src"],
       "@/*": ["./src/*"],
