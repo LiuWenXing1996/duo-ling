@@ -108,20 +108,20 @@
 
 - **保护构成**：**全部收在一个 Ruleset** `protect main - pr & no-force-push`（`enforcement: active`，作用域 `refs/heads/main`）里；经典分支保护**已不再使用**（`GET /branches/main/protection` 返回 404 —— 保护现状不经该接口查）。规则实际为：
   - 必须走 PR（`required_approving_review_count: 0`，**不强制人工审核**，未来多人协作时再开；**合并方式仅 Merge Commit**，见下「铁律」）
-  - **required status checks = `Typecheck & Unit tests` + `Playwright smoke (chromium)`**（两项都必过），且 `strict`（分支须基于最新 main，落后就得先更新再等一轮）
+  - **required status checks = `Gate`**（唯一一项，必过），且 `strict`（分支须基于最新 main，落后就得先更新再等一轮）
   - 禁强推（`non_fast_forward`）、禁删除该分支；`bypass_actors` 为空 —— **无人可绕过，含 admin**（2026-09-19 实测）
 - **合 main 标准流程**：
   1. 基于最新 `origin/main` 起功能分支（命名细则见上「分支命名」）；不在一个分支堆多件不相关的事。**若是同一件事的小修补，别另起分支 —— 搭当前分支的车，见下「小修补搭车」**
   2. 本地开发；交付前验证按 [AGENTS.md](AGENTS.md#常用命令) 的门禁，合并前**另加** `pnpm run test`（全套单测）
-  3. `git push -u origin <功能分支>`（**只 push 分支，不触发 CI**——两个 workflow 的 `push` 都限 `branches: [main]`）
-  4. 开 PR（`base: main`），描述按 [.github/pull_request_template.md](.github/pull_request_template.md) 填（动机 / 变更 / 测试证据三段）；PR 触发**两个**门禁：`ci.yml`（typecheck + 全部单测）+ `e2e.yml`（Playwright 冒烟，约 1 分钟），**两个 check 都绿才能合**
-  5. 等两个 check 绿 → 网页点 Merge 或 `gh pr merge --merge`（生成 merge commit 进 main，**等价**）
-  6. 合并自动触发 push main → `ci.yml` + `e2e.yml` **双跑复验**
+  3. `git push -u origin <功能分支>`（**只 push 分支，不触发 CI**——`ci.yml` 的 `push` 限 `branches: [main]`）
+  4. 开 PR（`base: main`），描述按 [.github/pull_request_template.md](.github/pull_request_template.md) 填（动机 / 变更 / 测试证据三段）；PR 触发唯一门禁 `ci.yml` 的 `Gate`（注释 / 密钥门禁 + typecheck + 全部单测 + Playwright 冒烟，串行约 3 分半），**它绿了才能合**
+  5. 等 `Gate` 绿 → 网页点 Merge 或 `gh pr merge --merge`（生成 merge commit 进 main，**等价**）
+  6. 合并自动触发 push main → `ci.yml` 再跑一遍复验
 - **铁律**：
   - ❌ 严禁 `git push origin <x>:main`（含之前的 refspec 绕过法），会被 `GH006: Protected branch update failed` 拒
   - ❌ 不将整分支 merge 进 main（只会产生重复 / 冲突提交）；单一改动走上面的 PR 流
-  - ⚠️ **gh 合并只允许 `--merge`（Merge Commit）**：`gh pr merge` 一律带 `--merge`，**禁止 `--squash` / `--rebase`**；网页点 Merge 也必须选「Create a merge commit」。约定统一保留线性 merge commit 历史，不把 PR 压平成单提交、也不变基。平台设置层未禁用另外两种（实测 `allow_squash_merge` / `allow_rebase_merge` 均为 `true`），这条禁令靠约定执行
-  - ⚠️ **E2E 在 PR 上就会跑**（`e2e.yml` 自 2026-09-19 起带 `pull_request` 触发；同 PR 连推由 `concurrency` 取消旧 run，只跑最新 commit）。**旧版本文件写的「e2e 无 PR 触发器 / PR 上永远不上报 / 设了会卡死合不了」已不成立**——那条告诫只在 E2E 尚无 PR 触发器时成立，不再据它判断合并时机或要求撤销该 check
+  - ⚠️ **gh 合并只允许 `--merge`（Merge Commit）**：`gh pr merge` 一律带 `--merge`，**禁止 `--squash` / `--rebase`**；网页点 Merge 也必须选「Create a merge commit」。约定统一保留线性 merge commit 历史，不把 PR 压平成单提交、也不变基。ruleset 的 `allowed_merge_methods` 已限成 `["merge"]`，另两种在平台层就会被拒
+  - ⚠️ **改 `ci.yml` 的 job 名等于换掉必需检查**：ruleset 的 `required_status_checks` 按 context 字符串精确匹配，把 `Gate` 改成别的字，PR 会一直显示等待、永远合不了（不会报错，只是卡住）。加检查项改 `package.json` 的 `ci` 脚本即可，不必碰这个字符串；真要改名，得同步改 ruleset，并把三步迁移（先并存、再切 ruleset、最后删旧名）走完
 - **即使改本文件 / CI 配置**，也走同样 PR 流（main 受保护，没有任何文件能直推）
 
 ## 小修补搭车（不单开分支 / PR）

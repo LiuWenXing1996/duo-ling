@@ -1,4 +1,6 @@
-// Agent 工具集：脚本读写（script_*）+ 页面上下文（element_read / page_snapshot）+ 环境读取（env_read / page_env_read）+ 页面录制（tab_record_*）+ 诊断查询（error_read / run_log_read）+ 识图（image_ask）。
+// Agent 工具集：脚本读写（script_*）、页面上下文（element_read / page_snapshot）、
+// 环境读取（env_read / page_env_read）、页面录制（tab_record_*）、
+// 诊断查询（error_read / run_log_read）、识图（image_ask）。
 //
 // 设计要点：
 //   · **script_apply 把「写」和「语法验证」合并成一步**：入参完整源码 → acorn parse
@@ -67,7 +69,10 @@ export interface TaskWorkspace {
   /** 最近一次成功 apply 的 AI summary（git 快照 note） */
   summary: string
   applyFailures: number
-  /** 本次任务要更新的既有脚本 uuid（script_apply 带 updateUuid 时设置；不带则清空 = 生成新脚本）。落盘时据此走更新或新建 */
+  /**
+   * 本次任务要更新的既有脚本 uuid（script_apply 带 updateUuid 时设置；不带则清空 = 生成新脚本）。
+   * 落盘时据此走更新或新建
+   */
   targetUuid?: string
   /** 最近一次成功 apply 的完整快照（收敛后由编排层落盘） */
   lastOk: {
@@ -137,8 +142,8 @@ export type ScriptToolSet = Record<
 >
 
 /**
- * 构建 Agent 工具（script 三件套 + element_read + page_snapshot）。snapshot 回调由 chat-host 提供（每步 apply 成功后把工作区
- * 快照进 IndexedDB 任务记录——覆盖写，宿主被杀后「继续」才有东西可继续）。
+ * 构建 Agent 工具（script 三件套 + element_read + page_snapshot）。snapshot 回调由 chat-host 提供
+ * （每步 apply 成功后把工作区快照进 IndexedDB 任务记录——覆盖写，宿主被杀后「继续」才有东西可继续）。
  * onFatal：硬停手回调——失败超阈值后模型仍再次 apply（无视 stop 提示）时中止整个
  * 任务（stop 提示只是文案，模型会无视继续烧步数）。
  * elementContext：本请求携带的拾取元素快照（用户显式点选；undefined = 本次没有）。

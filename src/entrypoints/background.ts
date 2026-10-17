@@ -632,7 +632,8 @@ const handlers: {
   },
 
   // zip 导入：纯转发 offscreen 单写方（解码 + 落盘同处）。导入恒 enabled:false——「先审后启」
-  // 是产品原则，落盘后由用户手动启用（userscript:toggle），故此处**无注册动作**（与 create / toggle 不同：不调 registerOrLog）。
+  // 是产品原则，落盘后由用户手动启用（userscript:toggle），故此处**无注册动作**
+  // （与 create / toggle 不同：不调 registerOrLog）。
   'userscript:import': async (msg): Promise<ImportReport> =>
     offscreenService.userscriptImportZip(msg.zipBase64),
 
@@ -1039,7 +1040,8 @@ function mountProposal2Listeners(): void {
   // —— 这轮重算不是 no-op：引擎不可用时那枚全局感叹号正是由它设上的（全局值刚被上面清掉），该显示
   // 什么一律由同一个出口决定，冷启动这条路上也不例外。
   // 之后浏览器启动会重载页面、runstart 自己回来；扩展重载后的既有页面要等下一次导航。
-  // 至于「SW 空闲被回收」这条不必担心：它由 offscreen 心跳保活（@duoling/offscreen-document 的 keepalive，见 page-monitor 头注释）。
+  // 至于「SW 空闲被回收」这条不必担心：它由 offscreen 心跳保活（@duoling/offscreen-document
+  // 的 keepalive，见 page-monitor 头注释）。
   void clearAllBadges()
     .then(() => refreshBadge())
     .catch(() => {})

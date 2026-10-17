@@ -1,7 +1,8 @@
 // GM 能力 API 目录：**工作台「GM API」面板的展示侧单一来源**（纯数据、零依赖）。
 //
-// 同时是**脚本规范文本的「能力清单」段来源**：`@duoling/offscreen-document` 的 `chat/spec-text.ts` 用 `specEntries()` 生成
-// 那段清单，故改名 / 新增 API 只要改这里，不必再人工同步一份散文。
+// 同时是**脚本规范文本的「能力清单」段来源**：`@duoling/offscreen-document` 的
+// `chat/spec-text.ts` 用 `specEntries()` 生成那段清单，故改名 / 新增 API 只要改这里，
+// 不必再人工同步一份散文。
 //
 // 为什么单独一份、而不是直接读 api-contract：
 //   api-contract.ts 只有类型（编译后不留任何东西），面板要展示的是文本（签名 / 说明 / 坑）；

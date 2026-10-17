@@ -9,8 +9,8 @@
  *   - dev：define 在 dev server 启动时算一次 → 显示「本次 dev 会话的启动时刻」
  *   - build：构建期定格 → 显示「产物构建时刻」
  *
- * SW 不是 HTML、页面读不到它 bundle 里的值，经 `sw:buildInfo` 命令取回（IPC 契约见
- * src/shared/extension-ipc.ts）。发消息本身会唤醒休眠的 SW，故拿到的总是「此刻 SW 上下文」的
+ * SW 不是 HTML、页面读不到它 bundle 里的值，经 `sw:buildInfo` 命令取回（契约见同包
+ * ipc 目录的 extension-ipc）。发消息本身会唤醒休眠的 SW，故拿到的总是「此刻 SW 上下文」的
  * 构建信息——MV3 SW console 不回放历史日志（启动日志在开 DevTools 前就打完了），这条通道才是
  * 可靠的自证方式。
  */

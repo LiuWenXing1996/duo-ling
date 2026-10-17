@@ -43,13 +43,17 @@
 | `pnpm run model:serve` | 起本机假模型（`scripts/model-stub.mts`，默认端口 5199，可用 `DL_MODEL_STUB_PORT` 覆盖）：一个 OpenAI 兼容的假服务，开发/手测对话链路时顶替真模型（不花真 Key、回复确定）。地址填进「设置 → 添加模型 → 服务商选自定义 → 接口地址」，密钥留空即可；**内置调试触发** —— 消息整句发「快照」或「页面环境」即回对应的工具调用，并把采集结果摘要成一句人话（含失败原因），手测 `page_snapshot` / `page_env_read` 这类要页面侧真跑一遍的工具链时不必写 plan（e2e 显式传 `plan` 时它不生效）。e2e 直接 import 本 `.mts` 源码取类型 |
 | `pnpm run build` | 构建，产出 `.output/chrome-mv3` |
 | `pnpm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
-| `pnpm run typecheck` | 类型检查：`pnpm -r build` → 逐包 `typecheck`（进程包 `tsc --noEmit`，四个页面包 `vue-tsc --noEmit`，共九个包）→ 根 `vue-tsc --noEmit`（`src` / `e2e` / `scripts` 与包源码）；当前全仓零错误。单包自检 `pnpm --filter @duoling/<包> run typecheck`，跨包 import 的**运行产物**走上游 `dist`（陈旧时先 `pnpm -r build`），页面包的类型面走各自源码（见 ARCHITECTURE.md「依赖方向与包边界」）。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有根那道门禁拦得住 |
+| `pnpm run typecheck` | 类型检查：`pnpm -r build` → `wxt prepare` → 逐包 `typecheck`（进程包 `tsc --noEmit`，四个页面包 `vue-tsc --noEmit`，共九个包）→ 根 `vue-tsc --noEmit`（`src` / `e2e` / `scripts` 与包源码）；当前全仓零错误。`wxt prepare` 不能提前：它解析 `@duoling/*` 走 exports → dist，包未构建时 resolve 必失败。单包自检 `pnpm --filter @duoling/<包> run typecheck`，跨包 import 的**运行产物**走上游 `dist`（陈旧时先 `pnpm -r build`），页面包的类型面走各自源码（见 ARCHITECTURE.md「依赖方向与包边界」）。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有根那道门禁拦得住 |
 | `pnpm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
 | `pnpm run test:coverage` | 单测覆盖率（v8 provider，终端 `text-summary` + HTML 报表落 `coverage/`）。**只作本地看数，不进 CI**；统计口径与 exclude 见 `vitest.config.ts` 的 `coverage` 段 |
 | `pnpm run test:e2e` | Playwright 端测（全程无头、跑 build 产物）。**脚本内先 `pnpm run build`**，不必手动先构建；也别绕开脚本直接调 playwright——端测读的是产物而非源码，产物陈旧时会静默跑旧代码（改了 `src/` 尤其注意） |
+| `pnpm run verify` | 交付前快检：两道门禁 + typecheck + 全部单测。typecheck / test 各自自带 `pnpm -r build` 与 `wxt prepare` 前置，但不跑 `pnpm run build`（wxt 产物）与端测。本地改完先跑它 |
+| `pnpm run ci` | CI 同款全量：`verify` → `build` → 端测。**CI 的 `Gate` job 跑的就是这一条**，本地想复现 CI 结果跑它即可（需先装好 Chromium） |
 | `pnpm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 | `pnpm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、疑似重复（**整理待办时跑**，提醒级不进 CI） |
-| `pnpm run check:comments` | 注释卫生门禁：扫 `src` / `packages`（含样例包源码与 dist 产物）/ `e2e` / `scripts` **加仓库根散装源码**（配置类 `*.ts` 常驻根级），注释行命中黑名单（日期 / 评审引用 / 变更史 / 代号 / 小节号）即失败；另校验注释里「见 xxx.md」引用的文件真实存在（死指针）；豁免与孤儿检测见「注释与文案」 |
+| `pnpm run check:comments` | 注释卫生门禁：扫 `src` / `packages` / `e2e` / `scripts` **加仓库根散装源码**（配置类 `*.ts` 常驻根级；各级 `dist` 一律跳过 —— 产物不入库、注释已被打包器剥掉），注释行命中黑名单（日期 / 评审引用 / 变更史 / 代号 / 小节号）即失败。另校验三类引用与形态：`见 xxx.md` 的文档、`src/` `packages/` 这类仓库路径、`pnpm run xxx` 的脚本名，均须真实存在（路径按仓库根 / 所在目录 / 所属包根三处解析）；注释行超 120 显示列（CJK 记 2）同样失败。豁免与孤儿检测见「注释与文案」 |
+| `pnpm run check:secrets` | 密钥门禁（Secretlint + 推荐规则预设，29 条规则）：扫全仓文本文件里的凭据 / 私钥 / 连接串，命中即非 0 退出。pre-commit 只扫暂存文件（`pnpm exec secretlint {staged_files}`），CI 的 `Gate` job（跑 `pnpm run ci`）扫全仓兜底，误报用 `// secretlint-disable` 豁免 —— 见 [GIT_HOOKS.md](GIT_HOOKS.md) |
+| `pnpm run check:comment-coverage` | 注释密度报告：注释行 / 非空行，按来源（自研 / 引入件）、目录与扩展名汇总，另附块长分布（整行注释的连续段按 1 / 2 / 3-4 / 5-9 / 10-19 / 20-49 / 50+ 分档，列出最长的 5 个块）、文件头覆盖与导出声明覆盖。**只报告、不卡阈值** —— 密度是描述指标，卡阈值会诱导为凑数写注释；口径与 `check:comments` 共用字符级状态机抠注释（字符串与模板串里的 `//`、`/*` 不算），排除类型声明 `.d.ts` / `.d.mts` 与各级 `dist`（产物注释已被打包器剥掉，计进来只会按产物体积稀释密度，并让构建过的机器与干净 clone 数字不一致）。`src/components` 下的 `ui` / `ai-elements` 是从组件库原样拉取的，单列一行 —— 它们几乎不带注释，混进总计会把自研代码的密度压低约 1.5 个百分点 |
 | `pnpm run pack:uscripts` | 生成用户脚本测试包：把 `packages/uscript-samples/dist/`（先 `pnpm -r build` 生成）打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例 TS 源码再 build 再打） |
 
 > **交付前验证**：`pnpm run typecheck` + `pnpm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。本地 lefthook 钩子（pre-commit / pre-push）自动跑其中两项，见 [GIT_HOOKS.md](GIT_HOOKS.md)。
@@ -109,6 +113,8 @@
 - **变更史**（与下节「协作与记录」同规）：「原本…已移除」「旧实现是…」「原为…」留给 git。
 - **实现期编号 / 代号**：`D1` / `决策 A1` / `方案 C` / `Phase 2` / `P2` / `手测 #11` 这类只在某次讨论里成立的标签。有约束就直接把约束写出来。
 - **指向不存在产物 / 小节号的指引**：`见 docs/xxx.md`、`见 §5`、`第 N 步`——编号与外部产物会失效，引用只指向仓库内真实存在的文件、函数名或章节（`见 xxx.md` 引用的文件由门禁校验存在性）。
+- **失效的路径与脚本名**：注释里写 `src/…` / `packages/…` 这类仓库路径、`pnpm run xxx` 的脚本名，都按真实存在校验——文件挪目录、扩展名从 `.mjs` 换 `.mts`、脚本改名，注释就地变成假话。写成相对于所在模块的说法（「同目录的 xxx」）比写绝对路径更耐改。
+- **超宽注释行**：超过 120 显示列（CJK 按 2 列计）即失败。prettier 不折注释，长段落只能靠这道门拦——需要长句就换行，别把一段话压成一行。
 
 豁免：个别注释确需命中黑名单（如技术常量里的日期），在**前一行**写一条 `// allow:comments`（可附一句原因），同 ESLint `eslint-disable-next-line` 约定；标记的下一行没命中任何规则时按「孤儿标记」报错，防止豁免随重构失效后无声残留。
 

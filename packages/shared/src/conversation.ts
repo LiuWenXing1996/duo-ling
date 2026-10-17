@@ -1,8 +1,7 @@
 // 会话与消息的落盘形状（会话库 duoling-chat 的记录 + 列表展示用的派生形状）。
 //
 // 为什么住在契约包：写侧（offscreen 的 conv:* 与 chat 落盘）、读侧（SW 的页面概览、
-// 扩展页的会话面板）分处三个语境，形状只能有一处真相源。应用侧 src/shared/types.ts
-// 保留同名 re-export，消费方的 import 路径不变。
+// 扩展页的会话面板）分处三个语境，形状只能有一处真相源 —— 消费方一律直接从这里取。
 import type { UIMessage } from 'ai'
 import type { MessagePageContext } from './page-context'
 
