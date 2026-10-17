@@ -14,7 +14,8 @@ import {
   writeGroup,
   writeProject,
 } from './state-db'
-import { STATE_DB_VERSION } from './db/state'
+import { idbRunTx } from './idb-core'
+import { STATE_PROJECTS_STORE, getStateDb } from './db/state'
 import type { ScriptProject } from './script-project'
 
 let seq = 0
@@ -69,18 +70,13 @@ describe('writeProject / readProject 往返', () => {
     await removeProject(p.uuid)
     // 手动写一条 v:1 旧形状
     const bad = { ...p, v: 1 as unknown as 2 }
-    const dbp = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open('duoling-state', STATE_DB_VERSION)
-      req.onsuccess = () => resolve(req.result)
-      req.onerror = () => reject(req.error)
-    })
-    await new Promise<void>((resolve, reject) => {
-      const tx = dbp.transaction('projects', 'readwrite')
-      tx.objectStore('projects').put(bad)
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error)
-    })
-    dbp.close()
+    await idbRunTx(getStateDb(), STATE_PROJECTS_STORE, 'readwrite', (tx) =>
+      new Promise<void>((resolve, reject) => {
+        tx.objectStore(STATE_PROJECTS_STORE).put(bad)
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error ?? new Error('写入失败'))
+      }),
+    )
     await expect(readProject(p.uuid)).resolves.toBeUndefined()
     await expect(readAllProjects()).resolves.toStrictEqual([])
     await removeProject(p.uuid) // 清理
