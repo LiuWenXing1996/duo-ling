@@ -3,6 +3,12 @@ pre-commit:
   jobs:
     - name: check:comments
       run: pnpm run check:comments
+    - name: secretlint
+      # 两个 glob 都要写：默认 glob 匹配器下 `**` 至少吞一层目录，只写 `**/*` 会漏掉仓库根文件
+      glob:
+        - "*.{ts,mts,js,cjs,mjs,json,json5,md,yml,yaml,toml,sh,vue,html}"
+        - "**/*.{ts,mts,js,cjs,mjs,json,json5,md,yml,yaml,toml,sh,vue,html}"
+      run: pnpm exec secretlint {staged_files}
 
 pre-push:
   parallel: true
