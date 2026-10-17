@@ -240,9 +240,6 @@ importers:
       '@duoling/offscreen-document':
         specifier: workspace:*
         version: link:packages/offscreen-document
-      '@duoling/proxy-service-list':
-        specifier: workspace:*
-        version: link:packages/proxy-service-list
       '@duoling/service-worker':
         specifier: workspace:*
         version: link:packages/service-worker
@@ -395,9 +392,6 @@ importers:
 
   packages/offscreen-document:
     dependencies:
-      '@duoling/proxy-service-list':
-        specifier: workspace:*
-        version: link:../proxy-service-list
       '@duoling/shared':
         specifier: workspace:*
         version: link:../shared
@@ -433,36 +427,8 @@ importers:
         specifier: ^5.0.1
         version: 5.0.1(@types/node@26.5.1)(@vitest/coverage-v8@5.0.1)(happy-dom@20.14.5)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(less@4.9.1))
 
-  packages/proxy-service-list:
-    dependencies:
-      '@duoling/userscript-core':
-        specifier: workspace:*
-        version: link:../userscript-core
-      '@webext-core/proxy-service':
-        specifier: ^3.0.2
-        version: 3.0.2(@webext-core/messaging@4.0.0(@types/chrome@0.2.9))
-    devDependencies:
-      '@types/chrome':
-        specifier: ^0.2.9
-        version: 0.2.9
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-      vite:
-        specifier: ^8.3.0
-        version: 8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(less@4.9.1)
-      vite-plugin-dts:
-        specifier: ^5.1.1
-        version: 5.1.2(@vue/language-core@3.3.11)(esbuild@0.28.2)(rolldown@1.2.8)(typescript@5.9.3)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(less@4.9.1))
-      vitest:
-        specifier: ^5.0.1
-        version: 5.0.1(@types/node@26.5.1)(@vitest/coverage-v8@5.0.1)(happy-dom@20.14.5)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(less@4.9.1))
-
   packages/service-worker:
     dependencies:
-      '@duoling/proxy-service-list':
-        specifier: workspace:*
-        version: link:../proxy-service-list
       '@duoling/shared':
         specifier: workspace:*
         version: link:../shared
@@ -493,6 +459,10 @@ importers:
         version: 5.0.1(@types/node@26.5.1)(@vitest/coverage-v8@5.0.1)(happy-dom@20.14.5)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(less@4.9.1))
 
   packages/shared:
+    dependencies:
+      '@webext-core/proxy-service':
+        specifier: ^3.0.2
+        version: 3.0.2(@webext-core/messaging@4.0.0(@types/chrome@0.2.9))
     devDependencies:
       typescript:
         specifier: ^5.6.0
