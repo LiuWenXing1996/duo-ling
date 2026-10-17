@@ -5,7 +5,7 @@ import {
   type ProxyService,
   type ProxyServiceKey,
 } from '@webext-core/proxy-service'
-import type { PromiseService } from './types'
+import type { PromiseService } from './promise-service'
 
 /** SW 侧服务契约：调用面由它钉死 */
 export interface ISWService extends PromiseService<{

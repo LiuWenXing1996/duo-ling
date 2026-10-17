@@ -5,7 +5,8 @@ import {
   type ProxyService,
   type ProxyServiceKey,
 } from '@webext-core/proxy-service'
-import type { ScriptConfig, ScriptGroup, ScriptProject } from '../script-project'
+import type { ScriptConfig } from '../script-config'
+import type { ScriptGroup, ScriptProject } from '../script-project'
 import type { PromiseService } from './promise-service'
 
 /** 这次改动是谁做的（历史面板据此显示来源标签） */
