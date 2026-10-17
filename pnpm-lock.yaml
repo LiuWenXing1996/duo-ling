@@ -455,6 +455,9 @@ importers:
         specifier: ^3.0.2
         version: 3.0.2(@webext-core/messaging@4.0.0(@types/chrome@0.2.9))
     devDependencies:
+      ai:
+        specifier: ^7.0.99
+        version: 7.0.99(zod@4.6.4)
       fake-indexeddb:
         specifier: ^6.2.5
         version: 6.2.5

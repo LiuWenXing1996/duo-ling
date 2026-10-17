@@ -13,7 +13,12 @@ import type { ModelProfile } from './types'
 // 页面检查器（件本体见 @duoling/builtin-scripts 的 inspector/install.ts，MAIN 世界系统脚本
 // `dl-page-inspector`）的载荷形状**定义在契约包里**：件按这些形状造数据，而件不能
 // 依赖应用源码，故真相源落在 @duoling/shared —— 消费方从那里自取，本文件不再转发。
-import type { ElementPickContext, IpcEnvelope, PageSnapshotContext } from '@duoling/shared'
+import type {
+  ElementPickContext,
+  IpcEnvelope,
+  MessagePageContext,
+  PageSnapshotContext,
+} from '@duoling/shared'
 
 // 浮层指令的 kind 字面量已随脚本桥协议（api-contract 的 float.cmd）收编 —— 命令面
 // `float:*` 的 kind 在下面的 RuntimeRequest 联合里声明，件侧不再认 tabs.sendMessage。
@@ -26,16 +31,8 @@ export interface PageContextInfo {
   snapshot?: PageSnapshotContext
 }
 
-/**
- * 随用户消息**持久化**的页面上下文（Message.pageContext / UIMessage.metadata.pageContext）。
- * 现只存用户显式点选的元素；档 0（URL/标题）每轮实时取，不落库；快照已改 AI 工具采集
- * （工具结果随 assistant 消息的 tool part 自然落盘，不再走这条元数据通道，snapshot 字段仅为旧数据兼容保留）。
- * 用途：历史气泡 chip 渲染 + 后续轮次 prompt「最近一次拾取」注入（跨轮指代靠它接上）。
- */
-export interface MessagePageContext {
-  element?: ElementPickContext
-  snapshot?: PageSnapshotContext
-}
+/** 随用户消息持久化的页面上下文：归 @duoling/shared（会话库要引它），此处仅转发 */
+export type { MessagePageContext }
 
 /** UIMessage.metadata 的约定形状（AI SDK 的 metadata 字段是 unknown，此处是全应用唯一合法形状） */
 export interface ChatMessageMetadata {

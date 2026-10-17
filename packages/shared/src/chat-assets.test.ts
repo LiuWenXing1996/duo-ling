@@ -5,15 +5,14 @@
 // 而不是任何可见的报错 —— 所以必须有断言钉住。
 import { describe, expect, it } from 'vitest'
 import type { UIMessage } from 'ai'
+import type { ChatAssetRef } from './service/offscreen-service'
+import { dataUrlOf, parseDataUrl } from './data-url'
 import {
   assetPartOf,
   assetPlaceholderText,
   assetsOfMessage,
-  dataUrlOf,
   isAssetPart,
   messagesForModel,
-  parseDataUrl,
-  type ChatAssetRef,
 } from './chat-assets'
 
 const REF: ChatAssetRef = {

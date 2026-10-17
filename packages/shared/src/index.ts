@@ -4,11 +4,13 @@
 // 以及摘要与脱敏这类「写侧剥一遍、读侧再剥一遍」必须同源的纯函数；另加放进应用侧或
 // 任一进程包都会让另一方反向依赖的模块：脚本形状（script-config / script-project）、
 // GM 语义（api-contract / gm-grants / gm-api-catalog / metadata）、状态库（state-db）、
-// 数据变更广播（data-broadcast 契约 + data-broadcast-runtime 实现）、跨进程服务契约（service/）。
+// 数据变更广播（data-broadcast 契约 + data-broadcast-runtime 实现）、跨进程服务契约（service/）、
+// 会话与消息形状 + 会话库（conversation / chat-assets / conversation-store）。
 //
 // 边界：零 DOM 假设。唯一碰宿主的是 data-broadcast-runtime 的降级通道 —— 它取
 // globalThis 上的结构形状，不吃 chrome 类型（本包 tsconfig 是 `types: []`）。
-// 唯一的第三方依赖是 @webext-core/proxy-service（契约的代理工厂）。
+// 运行依赖只有 @webext-core/proxy-service（契约的代理工厂）；ai 只作类型来源
+// （消息 parts 的形状），产物里不出现它的 import。
 //
 // 与 src/shared/ 的分工：那边是**应用内部**几个载体（SW / UI / offscreen）之间的信封，
 // 自身依赖件包；这里是**跨世界 + 跨进程**共享面，被件包、进程包与应用共同消费。
@@ -35,4 +37,7 @@ export * from './match-pattern'
 export * from './match-union'
 export * from './metadata'
 export * from './state-db'
+export * from './conversation'
+export * from './chat-assets'
+export * from './conversation-store'
 export * from './service'

@@ -13,8 +13,8 @@
 // 模块级连接单例跨用例共享，这是同一 fake 连接下唯一的整体复位手段。
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssistantMessage, TokenUsage, UserMessage } from '@/shared/types'
-import { broadcastDataChange } from './data-broadcast'
+import type { AssistantMessage, TokenUsage, UserMessage } from './conversation'
+import { broadcastDataChange } from './data-broadcast-runtime'
 import {
   appendMessage,
   createConversation,
@@ -26,7 +26,7 @@ import {
   searchConversations,
 } from './conversation-store'
 
-vi.mock('./data-broadcast', () => ({ broadcastDataChange: vi.fn() }))
+vi.mock('./data-broadcast-runtime', () => ({ broadcastDataChange: vi.fn() }))
 
 const broadcast = vi.mocked(broadcastDataChange)
 

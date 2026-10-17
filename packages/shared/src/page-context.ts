@@ -48,6 +48,17 @@ export interface PageSnapshotContext {
 }
 
 /**
+ * 随用户消息**持久化**的页面上下文（Message.pageContext / UIMessage.metadata.pageContext）。
+ * 现只存用户显式点选的元素；档 0（URL/标题）每轮实时取，不落库；快照已改 AI 工具采集
+ * （工具结果随 assistant 消息的 tool part 自然落盘，不再走这条元数据通道，snapshot 字段仅为旧数据兼容保留）。
+ * 用途：历史气泡 chip 渲染 + 后续轮次 prompt「最近一次拾取」注入（跨轮指代靠它接上）。
+ */
+export interface MessagePageContext {
+  element?: ElementPickContext
+  snapshot?: PageSnapshotContext
+}
+
+/**
  * 页面环境读数（页面检查器 env 模式静默采集；采集方 = AI 的 page_env_read 工具经 SW 向该页下发指令）。
  *
  * 与 env_read 报的机器真值刻意分家：这几个值**随页面而变** —— 设备模拟会改掉视口与像素比，
