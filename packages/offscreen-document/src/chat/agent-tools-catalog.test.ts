@@ -10,7 +10,7 @@
 //   ③ 每个工具的参数名集合一致（catalog 用点号表达嵌套，只比顶层键）。
 // 改了 tools 忘了改 catalog → 本文件红。
 import { describe, expect, it, vi } from 'vitest'
-import { AGENT_RUNTIME_LIMITS, AGENT_TOOL_VIEWS, TOOL_DESCRIPTIONS } from '@duoling/shared'
+import { AGENT_RUNTIME_LIMITS, agentToolViews, toolDescriptions } from '@duoling/shared'
 import { buildScriptTools, MAX_APPLY_FAILURES, type TaskWorkspace } from './script-tools'
 
 // 与 script-tools.test.ts 同因由：源码库真身在 lightning-fs 上（Node 无 indexedDB）。
@@ -44,20 +44,20 @@ function shapeKeys(schema: unknown): string[] {
 describe('agent-tools-catalog 与运行时工具集一致', () => {
   it('工具名集合一致', () => {
     const runtime = Object.keys(runtimeTools()).sort()
-    const catalog = AGENT_TOOL_VIEWS.map((t) => t.name).sort()
+    const catalog = agentToolViews().map((t) => t.name).sort()
     expect(catalog).toEqual(runtime)
   })
 
   it('description 取的就是 catalog 那一份（面板展示 = 模型所见）', () => {
     const tools = runtimeTools()
-    for (const view of AGENT_TOOL_VIEWS) {
-      expect(tools[view.name].description).toBe(TOOL_DESCRIPTIONS[view.name])
+    for (const view of agentToolViews()) {
+      expect(tools[view.name].description).toBe(toolDescriptions()[view.name])
     }
   })
 
   it('各工具的参数名一致（catalog 用点号表达嵌套，此处只比顶层键）', () => {
     const tools = runtimeTools()
-    for (const view of AGENT_TOOL_VIEWS) {
+    for (const view of agentToolViews()) {
       const declared = [...new Set(view.params.map((p) => p.name.split('.')[0]))].sort()
       expect(declared, `工具 ${view.name} 的参数表与运行时 schema 不一致`).toEqual(
         shapeKeys(tools[view.name].inputSchema).sort(),

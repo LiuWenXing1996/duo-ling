@@ -10,7 +10,7 @@
 // 故两边对照落在下游这侧，shared 不必反向知道包装的存在。
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { GM_API_ENTRIES, GM_API_GROUPS, GRANT_NAMES } from '@duoling/shared'
+import { GM_API_GROUPS, gmApiEntries, grantNames } from '@duoling/shared'
 
 const WRAPPER_SRC = readFileSync(new URL('./gm-wrapper.ts', import.meta.url), 'utf8')
 
@@ -85,7 +85,7 @@ describe('gm-api-catalog 与真实注入的 GM 面一致', () => {
       'window.close',
       'window.focus',
     ].sort()
-    const catalog = GM_API_ENTRIES.map((e) => e.path).sort()
+    const catalog = gmApiEntries().map((e) => e.path).sort()
     expect(runtime.length).toBeGreaterThan(40)
     expect(catalog).toEqual(runtime)
   })
@@ -100,7 +100,7 @@ describe('gm-api-catalog 与真实注入的 GM 面一致', () => {
   })
 
   it('每条都有签名 / 说明 / 返回说明，且 signature 能认出自己', () => {
-    for (const e of GM_API_ENTRIES) {
+    for (const e of gmApiEntries()) {
       expect(e.title, e.path).toBeTruthy()
       expect(e.summary, e.path).toBeTruthy()
       expect(e.detail, e.path).toBeTruthy()
@@ -114,14 +114,14 @@ describe('gm-api-catalog 与真实注入的 GM 面一致', () => {
 
   it('分组都是已声明的组，且每组都非空', () => {
     const ids = GM_API_GROUPS.map((g) => g.id)
-    for (const e of GM_API_ENTRIES) expect(ids).toContain(e.group)
+    for (const e of gmApiEntries()) expect(ids).toContain(e.group)
     for (const g of GM_API_GROUPS) {
-      expect(GM_API_ENTRIES.filter((e) => e.group === g.id).length, `分组 ${g.id} 为空`).toBeGreaterThan(0)
+      expect(gmApiEntries().filter((e) => e.group === g.id).length, `分组 ${g.id} 为空`).toBeGreaterThan(0)
     }
   })
 
   it('同一能力的两形态成对出现（全局 + GM.*），路径不重复', () => {
-    const paths = GM_API_ENTRIES.map((e) => e.path)
+    const paths = gmApiEntries().map((e) => e.path)
     expect(new Set(paths).size).toBe(paths.length)
     const globals = paths.filter((p) => p.startsWith('GM_') && !p.includes('.'))
     const ns = paths.filter((p) => p.startsWith('GM.'))
@@ -130,9 +130,9 @@ describe('gm-api-catalog 与真实注入的 GM 面一致', () => {
   })
 
   it('说明里提到的 `@grant` 名都是本扩展认得的（认不得的名字会被静默忽略，等于白写）', () => {
-    for (const e of GM_API_ENTRIES) {
+    for (const e of gmApiEntries()) {
       for (const m of e.detail.matchAll(/@grant\s+([A-Za-z_][\w.]*)/g)) {
-        expect(GRANT_NAMES, `${e.path} 的说明教了一个不认识的 @grant 名：${m[1]}`).toContain(m[1])
+        expect(grantNames(), `${e.path} 的说明教了一个不认识的 @grant 名：${m[1]}`).toContain(m[1])
       }
     }
   })

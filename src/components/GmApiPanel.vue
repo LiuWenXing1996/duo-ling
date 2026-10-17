@@ -14,16 +14,18 @@ import {
   CollapsibleTrigger as UiCollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import {
-  GM_API_ENTRIES,
   GM_API_GROUPS,
   GM_BRIDGE_LABELS,
   entriesOfGroup,
+  gmApiEntries,
   type GmApiEntry,
   type GmApiGroupId,
 } from '@duoling/shared'
 
 /** 左栏「全部」哨兵 */
 const ALL = 'all'
+/** 全库条目（派生值惰性 + 缓存，组件建立时取一次） */
+const ALL_ENTRIES = gmApiEntries()
 
 const keyword = ref('')
 const group = ref<GmApiGroupId | typeof ALL>(ALL)
@@ -35,14 +37,14 @@ const query = computed(() => keyword.value.trim().toLowerCase())
 /** 有关键词时不看分组，全库匹配（path / 中文名 / 签名 / 说明） */
 const matched = computed<GmApiEntry[] | null>(() => {
   if (!query.value) return null
-  return GM_API_ENTRIES.filter((e) =>
+  return ALL_ENTRIES.filter((e) =>
     `${e.path} ${e.title} ${e.signature} ${e.summary} ${e.detail}`.toLowerCase().includes(query.value),
   )
 })
 
 const visible = computed<GmApiEntry[]>(() => {
   if (matched.value) return matched.value
-  return group.value === ALL ? GM_API_ENTRIES : entriesOfGroup(group.value)
+  return group.value === ALL ? ALL_ENTRIES : entriesOfGroup(group.value)
 })
 
 const currentGroup = computed(() => GM_API_GROUPS.find((g) => g.id === group.value) ?? null)
@@ -66,7 +68,7 @@ function setOpen(path: string, v: boolean): void {
     <aside class="flex min-h-0 w-72 shrink-0 flex-col border-r border-border">
       <header class="flex items-center gap-1.5 border-b border-border px-3 py-2 text-sm font-medium">
         <ui-code class="size-4 text-muted-foreground" />
-        GM API（{{ GM_API_ENTRIES.length }}）
+        GM API（{{ ALL_ENTRIES.length }}）
       </header>
 
       <div class="relative border-b border-border p-2">
@@ -89,7 +91,7 @@ function setOpen(path: string, v: boolean): void {
           @click="group = ALL; keyword = ''"
         >
           <span class="min-w-0 flex-1 truncate text-sm">全部</span>
-          <span class="shrink-0 text-xs text-muted-foreground">{{ GM_API_ENTRIES.length }}</span>
+          <span class="shrink-0 text-xs text-muted-foreground">{{ ALL_ENTRIES.length }}</span>
         </button>
 
         <button

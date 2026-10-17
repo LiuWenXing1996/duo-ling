@@ -7,7 +7,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import GmApiPanel from './GmApiPanel.vue'
-import { GM_API_ENTRIES } from '@duoling/shared'
+import { gmApiEntries } from '@duoling/shared'
 
 /** 卡片根元素（过滤掉同前缀的 toggle，两者的 testid 都以 gm-api-card- 开头） */
 function cardPaths(wrapper: ReturnType<typeof mount>): string[] {
@@ -20,7 +20,7 @@ function cardPaths(wrapper: ReturnType<typeof mount>): string[] {
 describe('GmApiPanel', () => {
   it('默认渲染全部条目（来自静态目录，不依赖任何请求）；展开后显示说明', async () => {
     const wrapper = mount(GmApiPanel)
-    expect(cardPaths(wrapper)).toHaveLength(GM_API_ENTRIES.length)
+    expect(cardPaths(wrapper)).toHaveLength(gmApiEntries().length)
     expect(wrapper.find('[data-testid="gm-api-group-all"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="gm-api-group-storage"]').exists()).toBe(true)
 
@@ -43,7 +43,7 @@ describe('GmApiPanel', () => {
     expect(hit).toContain('GM_cookie')
     expect(hit).toContain('GM_cookie.list')
     expect(hit).toContain('GM_cookie.set')
-    expect(hit.length).toBeLessThan(GM_API_ENTRIES.length)
+    expect(hit.length).toBeLessThan(gmApiEntries().length)
 
     await wrapper.find('[data-testid="gm-api-search"]').setValue('zzz-not-exist')
     expect(cardPaths(wrapper)).toHaveLength(0)

@@ -3,7 +3,7 @@
 // —— ASI 合并后的源码语法依然合法，parse 抓不住语法、但抓得住**结构**（见末尾回归用例）。
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
-import { ALWAYS_GLOBALS, ALWAYS_NS, GM_ALL_GLOBALS, GM_ALL_NS, type GmInfo } from '@duoling/shared'
+import { ALWAYS_GLOBALS, ALWAYS_NS, type GmInfo, gmAllGlobals, gmAllNs } from '@duoling/shared'
 import { GM_WRAPPER_SUFFIX, buildGmWrapperPrefix, resolveGmExposure } from './gm-wrapper'
 /** 测试自造：断言生成源码里的 scriptHandler 跟随传入值。真值由应用侧传入，包内不持有。 */
 const EXTENSION_NAME = '测试扩展'
@@ -216,7 +216,7 @@ describe('resolveGmExposure（@grant 裁剪）', () => {
   })
 
   it('两张名单不重名（注入体按名直查一张扁平表的前提）', () => {
-    const overlap = GM_ALL_GLOBALS.filter((n) => GM_ALL_NS.includes(n))
+    const overlap = gmAllGlobals().filter((n) => gmAllNs().includes(n))
     expect(overlap).toEqual([])
   })
 })

@@ -13,6 +13,9 @@
 // 边界：零 DOM 假设。碰宿主的有两处 —— data-broadcast-runtime 的降级通道与
 // runtime-send 的总线原语，都只取 globalThis 上的结构形状，不吃 chrome 类型
 // （本包 tsconfig 是 `types: []`）。
+// 求值期纪律：模块顶层不做任何调用，派生值一律惰性 + 缓存。单文件产物下，
+// 一句顶层调用就让打包器整块保留本模块 —— package.json 的 `sideEffects: false`
+// 只在模块粒度生效，救不了文件内的语句。中继件的体积直接吃这条。
 // 运行依赖只有 @webext-core/proxy-service（契约的代理工厂）；ai 只作类型来源
 // （消息 parts 的形状），产物里不出现它的 import。
 //

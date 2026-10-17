@@ -68,10 +68,17 @@ function emit(push: DataChangedPush): void {
   }
 }
 
-/** 上一次真正投递的时刻，按「域:uuid」记 */
-const lastSent = new Map<string, number>()
-/** 合并窗口内待补发的定时器 */
-const pending = new Map<string, ReturnType<typeof setTimeout>>()
+/** 合并窗口的记账：上次投递时刻 + 待补发定时器，首次广播时才建 */
+let merge: {
+  /** 上次真正投递的时刻，按「域:uuid」记 */
+  lastSent: Map<string, number>
+  /** 窗口内待补发的定时器 */
+  pending: Map<string, ReturnType<typeof setTimeout>>
+} | null = null
+
+function mergeState(): NonNullable<typeof merge> {
+  return (merge ??= { lastSent: new Map(), pending: new Map() })
+}
 
 /**
  * 广播一次数据变更（写侧在落盘后调用）。
@@ -80,6 +87,7 @@ const pending = new Map<string, ReturnType<typeof setTimeout>>()
  * 窗口内的后续合并成一条、在窗口末尾补发（防风暴）。
  */
 export function broadcastDataChange(domain: DataDomain, uuid?: string): void {
+  const { lastSent, pending } = mergeState()
   const key = `${domain}:${uuid ?? ''}`
   const now = Date.now()
   const last = lastSent.get(key) ?? 0

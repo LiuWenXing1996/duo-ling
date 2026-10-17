@@ -17,7 +17,7 @@ import {
   ALWAYS_GLOBALS,
   ALWAYS_NS,
   ALWAYS_WINDOW_MEMBERS,
-  GRANT_NAMES,
+  grantNames,
   EXTENSION_NAME,
 } from '@duoling/shared'
 
@@ -38,10 +38,11 @@ function renderCapabilities(): string {
 /** `@grant` 段：合法名字与恒注入集都取自 gm-grants，规范里不留第二份名单 */
 function renderGrantSection(): string {
   const always: string[] = [...ALWAYS_GLOBALS, ...ALWAYS_NS.map((n) => `GM.${n}`), ...ALWAYS_WINDOW_MEMBERS]
+  const grants = grantNames()
   const quote = (names: readonly string[]) => names.map((n) => `\`${n}\``).join('、')
   return [
     `- 写了清单 → 只注入清单内的能力 + 恒注入项（${quote(always)}）；**不写 @grant 或写 \`@grant none\` → 只有恒注入项**（与 Tampermonkey 一致，别指望「不写就全都给」）。`,
-    `- 合法名字共 ${GRANT_NAMES.length} 个：${quote(GRANT_NAMES)}。**写别的名字会被静默忽略**，脚本里用了没注入的成员则 ReferenceError。`,
+    `- 合法名字共 ${grants.length} 个：${quote(grants)}。**写别的名字会被静默忽略**，脚本里用了没注入的成员则 ReferenceError。`,
     '- 一个 grant 同时开两种形态（`GM_setValue` 与 `GM.setValue`），不必为 `GM.*` 再写一行。',
   ].join('\n')
 }

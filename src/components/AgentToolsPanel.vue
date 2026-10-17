@@ -27,8 +27,8 @@ import * as conversationStore from '@/lib/conversation-store'
 import { getToolName, isToolUIPart } from '@/lib/ui-message-parts'
 import { useDataSync } from '@/composables/use-data-sync'
 import {
-  AGENT_TOOL_TITLES,
-  AGENT_TOOL_VIEWS,
+  agentToolTitle,
+  agentToolViews,
   type AgentToolView,
 } from '@/lib/agent-tools-catalog'
 import { errorText, formatTimeWithSeconds } from '@/lib/format'
@@ -126,8 +126,10 @@ const stats = computed(() => {
   return map
 })
 
+const toolViews = agentToolViews()
+
 const selectedView = computed<AgentToolView | null>(
-  () => AGENT_TOOL_VIEWS.find((t) => t.name === selected.value) ?? null,
+  () => toolViews.find((t) => t.name === selected.value) ?? null,
 )
 
 const tracesOfSelected = computed(() =>
@@ -143,7 +145,7 @@ function countOf(name: string): number {
 
 /** 工具名 → 中文短名（未收录的工具照原名显示，不隐藏——新工具上线时这里要补） */
 function titleOf(name: string): string {
-  return AGENT_TOOL_TITLES[name] ?? name
+  return agentToolTitle(name)
 }
 
 /** 拼 `tool-<name>`：ai 的 ToolUIPart['type'] 是模板字面量类型，动态拼出来的 string 需在此收窄一次 */
@@ -173,7 +175,7 @@ function block(value: unknown): string {
       <header class="flex items-center justify-between border-b border-border px-3 py-2">
         <div class="flex items-center gap-1.5 text-sm font-medium">
           <ui-wrench class="size-4 text-muted-foreground" />
-          AI 工具（{{ AGENT_TOOL_VIEWS.length }}）
+          AI 工具（{{ toolViews.length }}）
         </div>
         <button
           type="button"
@@ -200,7 +202,7 @@ function block(value: unknown): string {
         </button>
 
         <button
-          v-for="tool in AGENT_TOOL_VIEWS"
+          v-for="tool in toolViews"
           :key="tool.name"
           type="button"
           class="mb-1 w-full rounded-md px-2 py-1.5 text-left transition-colors"
@@ -311,7 +313,7 @@ function block(value: unknown): string {
               </p>
             </div>
             <div
-              v-for="tool in AGENT_TOOL_VIEWS"
+              v-for="tool in toolViews"
               :key="tool.name"
               class="flex cursor-pointer items-baseline gap-2 border-b border-border/40 px-3 py-2 last:border-b-0 hover:bg-muted/40"
               @click="selected = tool.name"

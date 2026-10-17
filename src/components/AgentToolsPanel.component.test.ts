@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import AgentToolsPanel from './AgentToolsPanel.vue'
-import { TOOL_DESCRIPTIONS } from '@/lib/agent-tools-catalog'
+import { toolDescriptions } from '@/lib/agent-tools-catalog'
 import type { Conversation, Message } from '@/shared/types'
 
 const listConversations = vi.hoisted(() => vi.fn())
@@ -79,12 +79,12 @@ describe('AgentToolsPanel', () => {
     const contract = wrapper.find('[data-testid="agent-tools-contract"]')
     // 默认收起：只留标题行（作用 + 入参数）—— 入参表可能很长，展开会把下方调用轨迹顶出屏幕
     expect(contract.text()).toContain('整文件提交源码并立刻做语法检查')
-    expect(contract.text()).not.toContain(TOOL_DESCRIPTIONS.script_apply.slice(0, 20))
+    expect(contract.text()).not.toContain(toolDescriptions().script_apply.slice(0, 20))
 
     // 展开：description 原文与入参表（含必填标记）才渲染
     await wrapper.find('[data-testid="agent-tools-contract-toggle"]').trigger('click')
     await flushPromises()
-    expect(contract.text()).toContain(TOOL_DESCRIPTIONS.script_apply.slice(0, 20))
+    expect(contract.text()).toContain(toolDescriptions().script_apply.slice(0, 20))
     expect(contract.text()).toContain('updateUuid')
     expect(contract.text()).toContain('必填')
   })

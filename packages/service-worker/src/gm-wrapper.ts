@@ -27,10 +27,10 @@
 import {
   ALWAYS_GLOBALS,
   ALWAYS_NS,
-  GM_ALL_GLOBALS,
-  GM_ALL_NS,
   type GmInfo,
   type Json,
+  gmAllGlobals,
+  gmAllNs,
   resolveGrant,
 } from '@duoling/shared'
 import { buildScriptBridgeSource } from './script-bridge'
@@ -81,7 +81,7 @@ export interface GmWrapperOptions {
 export function resolveGmExposure(grant: string[] | undefined): Record<string, boolean> {
   // 扁平一张表：全局名（`GM_xxxx`）与命名空间成员名（`getValue`）不重名，注入体里按名直查
   const flags: Record<string, boolean> = {}
-  for (const name of [...GM_ALL_GLOBALS, ...GM_ALL_NS]) flags[name] = false
+  for (const name of [...gmAllGlobals(), ...gmAllNs()]) flags[name] = false
   for (const name of ALWAYS_GLOBALS) flags[name] = true
   for (const name of ALWAYS_NS) flags[name] = true
   for (const g of grant ?? []) {

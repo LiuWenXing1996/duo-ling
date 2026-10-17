@@ -63,17 +63,28 @@ export const ALWAYS_NS = ['info'] as const
  */
 export const ALWAYS_WINDOW_MEMBERS = ['window.onurlchange'] as const
 
+let cachedGrantNames: string[] | null = null
+
 /** 合法 grant 名（升序）：规范文本与速查页引用它，别在别处再手写一份清单 */
-export const GRANT_NAMES: string[] = Object.keys(GRANT_MEMBERS).sort()
+export function grantNames(): string[] {
+  return (cachedGrantNames ??= Object.keys(GRANT_MEMBERS).sort())
+}
+
+let cachedAllGlobals: string[] | null = null
+let cachedAllNs: string[] | null = null
 
 /** 全部成员名的枚举（注入侧的 flags 初始化与单测共用；避免两处各写一份） */
-export const GM_ALL_GLOBALS: string[] = [
-  ...new Set([...ALWAYS_GLOBALS, ...Object.values(GRANT_MEMBERS).flatMap((m) => m.globals)]),
-].sort()
+export function gmAllGlobals(): string[] {
+  return (cachedAllGlobals ??= [
+    ...new Set([...ALWAYS_GLOBALS, ...Object.values(GRANT_MEMBERS).flatMap((m) => m.globals)]),
+  ].sort())
+}
 
-export const GM_ALL_NS: string[] = [
-  ...new Set([...ALWAYS_NS, ...Object.values(GRANT_MEMBERS).flatMap((m) => m.ns)]),
-].sort()
+export function gmAllNs(): string[] {
+  return (cachedAllNs ??= [
+    ...new Set([...ALWAYS_NS, ...Object.values(GRANT_MEMBERS).flatMap((m) => m.ns)]),
+  ].sort())
+}
 
 /**
  * 把单个 `@grant` 名解析成它开启的成员；认不出返回 `undefined`（调用方静默忽略）。
@@ -89,7 +100,7 @@ export function resolveGrant(name: string): { globals: string[]; ns: string[] } 
   if (canonical) return canonical
   if (name.startsWith('GM.')) {
     const member = name.slice('GM.'.length)
-    if (GM_ALL_NS.includes(member)) return { globals: [], ns: [member] }
+    if (gmAllNs().includes(member)) return { globals: [], ns: [member] }
   }
   return undefined
 }

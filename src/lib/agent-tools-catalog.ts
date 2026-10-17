@@ -2,9 +2,9 @@
 // 本文件只维持既有 import 路径（`@/lib/agent-tools-catalog`）不变。
 export {
   AGENT_RUNTIME_LIMITS,
-  AGENT_TOOL_TITLES,
-  AGENT_TOOL_VIEWS,
-  TOOL_DESCRIPTIONS,
   TOOL_PARAM_DESCRIPTIONS,
+  agentToolTitle,
+  agentToolViews,
+  toolDescriptions,
 } from '@duoling/shared'
 export type { AgentToolName, AgentToolParamView, AgentToolView } from '@duoling/shared'

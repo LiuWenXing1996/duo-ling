@@ -45,28 +45,28 @@ const STORE = TASKS
 
 /** 读一条任务记录；不存在返回 undefined */
 export async function getTask(taskId: string): Promise<ChatTaskRecord | undefined> {
-  return idbRunTx(chatDb, STORE, 'readonly', (transaction) =>
+  return idbRunTx(chatDb(), STORE, 'readonly', (transaction) =>
     idbRequest(transaction.objectStore(STORE).get(taskId)),
   )
 }
 
 /** 写入 / 覆盖一条任务记录（覆盖写，只留最新一份） */
 export async function putTask(record: ChatTaskRecord): Promise<void> {
-  await idbRunTx(chatDb, STORE, 'readwrite', (transaction) =>
+  await idbRunTx(chatDb(), STORE, 'readwrite', (transaction) =>
     idbRequest(transaction.objectStore(STORE).put(record)),
   )
 }
 
 /** 删除一条任务记录（任务收尾 / 用户丢弃时） */
 export async function removeTask(taskId: string): Promise<void> {
-  await idbRunTx(chatDb, STORE, 'readwrite', (transaction) =>
+  await idbRunTx(chatDb(), STORE, 'readwrite', (transaction) =>
     idbRequest(transaction.objectStore(STORE).delete(taskId)),
   )
 }
 
 /** 全部 running 任务记录（孤儿判定由调用方按心跳过滤） */
 export async function listRunningTasks(): Promise<ChatTaskRecord[]> {
-  const all = await idbRunTx(chatDb, STORE, 'readonly', (transaction) =>
+  const all = await idbRunTx(chatDb(), STORE, 'readonly', (transaction) =>
     idbRequest<ChatTaskRecord[]>(transaction.objectStore(STORE).getAll()),
   )
   return (all ?? []).filter((r) => r.status === 'running')

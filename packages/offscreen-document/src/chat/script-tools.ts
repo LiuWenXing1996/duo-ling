@@ -18,13 +18,13 @@ import { z } from 'zod'
 import { readEnvSnapshot } from './env-snapshot'
 import {
   AGENT_RUNTIME_LIMITS,
-  TOOL_DESCRIPTIONS,
   TOOL_PARAM_DESCRIPTIONS,
   getProject,
   listProjects,
   resolveConfigFromSource,
   defaultConfig,
   errorText,
+  toolDescriptions,
 } from '@duoling/shared'
 import type {
   AgentToolName,
@@ -162,15 +162,16 @@ export function buildScriptTools(
   readRunEvents?: (runId: string) => Promise<UserScriptRunEvent[]>,
   askImage?: AskImage,
 ): ScriptToolSet {
+  const D = toolDescriptions()
   const tools = {
     script_spec: tool({
-      description: TOOL_DESCRIPTIONS.script_spec,
+      description: D.script_spec,
       inputSchema: z.object({}),
       execute: async () => ({ spec: SCRIPT_SPEC_TEXT }),
     }),
 
     script_find: tool({
-      description: TOOL_DESCRIPTIONS.script_find,
+      description: D.script_find,
       inputSchema: z.object({
         name: z.string().describe(TOOL_PARAM_DESCRIPTIONS.script_find.name),
       }),
@@ -195,7 +196,7 @@ export function buildScriptTools(
     }),
 
     script_list: tool({
-      description: TOOL_DESCRIPTIONS.script_list,
+      description: D.script_list,
       inputSchema: z.object({}),
       execute: async () => {
         const all = await listProjects()
@@ -209,7 +210,7 @@ export function buildScriptTools(
     }),
 
     script_read: tool({
-      description: TOOL_DESCRIPTIONS.script_read,
+      description: D.script_read,
       inputSchema: z.object({
         uuid: z.string().optional().describe(TOOL_PARAM_DESCRIPTIONS.script_read.uuid),
       }),
@@ -244,7 +245,7 @@ export function buildScriptTools(
     }),
 
     script_apply: tool({
-      description: TOOL_DESCRIPTIONS.script_apply,
+      description: D.script_apply,
       inputSchema: z.object({
         summary: z.string().describe(TOOL_PARAM_DESCRIPTIONS.script_apply.summary),
         config: applyConfigSchema.describe(TOOL_PARAM_DESCRIPTIONS.script_apply.config),
@@ -296,7 +297,7 @@ export function buildScriptTools(
       },
     }),
     element_read: tool({
-      description: TOOL_DESCRIPTIONS.element_read,
+      description: D.element_read,
       inputSchema: z.object({
         part: z
           .enum(['attrs', 'html', 'parents', 'all'])
@@ -320,7 +321,7 @@ export function buildScriptTools(
       },
     }),
     page_snapshot: tool({
-      description: TOOL_DESCRIPTIONS.page_snapshot,
+      description: D.page_snapshot,
       inputSchema: z.object({}),
       execute: async () => {
         if (!captureSnapshot) {
@@ -340,7 +341,7 @@ export function buildScriptTools(
       },
     }),
     env_read: tool({
-      description: TOOL_DESCRIPTIONS.env_read,
+      description: D.env_read,
       inputSchema: z.object({}),
       // 直读本机（offscreen 文档里 navigator / screen / Intl 都在场），不经 IPC：
       // 取数侧逐项降级，故这里没有失败分支——「什么系统」这种问题不该因为某一项探测不到就问不出来
@@ -350,7 +351,7 @@ export function buildScriptTools(
       },
     }),
     page_env_read: tool({
-      description: TOOL_DESCRIPTIONS.page_env_read,
+      description: D.page_env_read,
       inputSchema: z.object({}),
       execute: async () => {
         if (!capturePageEnv) {
@@ -372,7 +373,7 @@ export function buildScriptTools(
       },
     }),
     tab_record_enable: tool({
-      description: TOOL_DESCRIPTIONS.tab_record_enable,
+      description: D.tab_record_enable,
       inputSchema: z.object({}),
       execute: async () => {
         if (!tabRecord) return { ok: false, error: '录制通道不可用' }
@@ -403,7 +404,7 @@ export function buildScriptTools(
     }),
 
     tab_record_read: tool({
-      description: TOOL_DESCRIPTIONS.tab_record_read,
+      description: D.tab_record_read,
       inputSchema: z.object({}),
       execute: async () => {
         if (!tabRecord) return { ok: false, error: '录制通道不可用' }
@@ -430,7 +431,7 @@ export function buildScriptTools(
     }),
 
     error_read: tool({
-      description: TOOL_DESCRIPTIONS.error_read,
+      description: D.error_read,
       inputSchema: z.object({
         id: z.string().describe(TOOL_PARAM_DESCRIPTIONS.error_read.id),
       }),
@@ -468,7 +469,7 @@ export function buildScriptTools(
       },
     }),
     run_log_read: tool({
-      description: TOOL_DESCRIPTIONS.run_log_read,
+      description: D.run_log_read,
       inputSchema: z.object({
         uuid: z.string().optional().describe(TOOL_PARAM_DESCRIPTIONS.run_log_read.uuid),
         runId: z.string().optional().describe(TOOL_PARAM_DESCRIPTIONS.run_log_read.runId),
@@ -507,7 +508,7 @@ export function buildScriptTools(
     }),
 
     image_ask: tool({
-      description: TOOL_DESCRIPTIONS.image_ask,
+      description: D.image_ask,
       inputSchema: z.object({
         assetId: z.string().describe(TOOL_PARAM_DESCRIPTIONS.image_ask.assetId),
         question: z.string().optional().describe(TOOL_PARAM_DESCRIPTIONS.image_ask.question),

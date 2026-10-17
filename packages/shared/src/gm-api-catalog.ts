@@ -605,13 +605,17 @@ function objectEntries(): GmApiEntry[] {
   }))
 }
 
+let cachedEntries: GmApiEntry[] | null = null
+
 /** 面板渲染用的 API 清单（顺序：基础 → 存储 → 网络 → 系统 → 页面；每能力先全局后 `GM.*`） */
-export const GM_API_ENTRIES: GmApiEntry[] = [
-  ...(Object.entries(CAPABILITIES) as [GmGlobalName, Capability][]).flatMap(([name, cap]) =>
-    cap.ns ? [globalEntry(name, cap), nsEntry(cap, cap.ns)] : [globalEntry(name, cap)],
-  ),
-  ...objectEntries(),
-]
+export function gmApiEntries(): GmApiEntry[] {
+  return (cachedEntries ??= [
+    ...(Object.entries(CAPABILITIES) as [GmGlobalName, Capability][]).flatMap(([name, cap]) =>
+      cap.ns ? [globalEntry(name, cap), nsEntry(cap, cap.ns)] : [globalEntry(name, cap)],
+    ),
+    ...objectEntries(),
+  ])
+}
 
 /**
  * 脚本规范文本用的清单：**每能力只列一条**（全局形态 + 对象 / 变量成员），不重复列 `GM.*` 镜像
@@ -623,7 +627,7 @@ export function specEntries(): GmApiEntry[] {
 
 /** 分组 id → 该组条目 */
 export function entriesOfGroup(group: GmApiGroupId): GmApiEntry[] {
-  return GM_API_ENTRIES.filter((e) => e.group === group)
+  return gmApiEntries().filter((e) => e.group === group)
 }
 
 /** 面板上的调用路径标记文案（bridge 值的展示名，改这里即改全部） */

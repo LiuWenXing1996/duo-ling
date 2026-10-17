@@ -8,10 +8,10 @@
 // 的脚本。能力清单与 `@grant` 一节已由数据生成，这里防的是「有人改回手写」与「手写段引用错名字」。
 import { describe, expect, it } from 'vitest'
 import {
-  GM_API_ENTRIES,
+  gmApiEntries,
   specEntries,
   ALWAYS_WINDOW_MEMBERS,
-  GRANT_NAMES,
+  grantNames,
 } from '@duoling/shared'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
@@ -36,7 +36,7 @@ function mentionedNames(text: string): Set<string> {
   // 否则 `window.addEventListener` 这类无关写法会被当成「引用了某个能力」。
   const windowMembers = [
     ...ALWAYS_WINDOW_MEMBERS,
-    ...GRANT_NAMES.filter((n) => n.startsWith('window.')),
+    ...grantNames().filter((n) => n.startsWith('window.')),
   ]
   for (const name of windowMembers) if (text.includes(name)) out.add(name)
   return out
@@ -53,7 +53,7 @@ function isMentioned(path: string, mentioned: Set<string>): boolean {
 
 const MENTIONED = mentionedNames(SCRIPT_SPEC_TEXT)
 /** 合法成员全集：面板清单（含 `GM.*` 镜像形态——规范里提到异步形态是合理的） */
-const ALL_PATHS = GM_API_ENTRIES.map((e) => e.path)
+const ALL_PATHS = gmApiEntries().map((e) => e.path)
 /** 规范应逐条列出的成员（每能力一条，不含镜像） */
 const LISTED_PATHS = specEntries().map((e) => e.path)
 
@@ -79,12 +79,12 @@ describe('规范文本与能力目录一致', () => {
 describe('规范文本与 `@grant` 名单一致', () => {
   it('文本里点到的 `@grant` 名都在合法名单里', () => {
     const declared = [...SCRIPT_SPEC_TEXT.matchAll(/@grant\s+([A-Za-z_][\w.]*)/g)].map((m) => m[1]!)
-    const bad = declared.filter((n) => !GRANT_NAMES.includes(n) && !GRANT_SPECIAL_VALUES.includes(n))
+    const bad = declared.filter((n) => !grantNames().includes(n) && !GRANT_SPECIAL_VALUES.includes(n))
     expect(bad, '规范教了一个本扩展不认识的 @grant 名（会被静默忽略）').toEqual([])
   })
 
   it('合法名字在文本里列全（清单由数据生成，别改成手写还漏几个）', () => {
-    const missing = GRANT_NAMES.filter((n) => !SCRIPT_SPEC_TEXT.includes(`\`${n}\``))
+    const missing = grantNames().filter((n) => !SCRIPT_SPEC_TEXT.includes(`\`${n}\``))
     expect(missing).toEqual([])
   })
 })

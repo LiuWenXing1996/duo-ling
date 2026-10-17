@@ -18,7 +18,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
-import { GM_API_ENTRIES } from '@duoling/shared'
+import { gmApiEntries } from '@duoling/shared'
 import { COVERS } from '../../packages/uscript-samples/src/omni-probe/covers'
 
 /** 探针构建产物（test 脚本先 `pnpm -r build`；单跑 vitest 前需先 build 一次） */
@@ -34,7 +34,7 @@ function probeDist(): string {
 const CASES_DIR = fileURLToPath(new URL('../../packages/uscript-samples/src/omni-probe/cases/', import.meta.url))
 
 /** 目录路径（收窄成 string：登记表那侧是自由文本，两边才好比） */
-const CATALOG: string[] = GM_API_ENTRIES.map((e) => e.path).sort()
+const CATALOG: string[] = gmApiEntries().map((e) => e.path).sort()
 /** 登记表里出现过的全部路径 */
 const DECLARED_PATHS = [...new Set(COVERS.flatMap((d) => d.paths))].sort()
 

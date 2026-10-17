@@ -79,7 +79,7 @@ const REGEX_FORM_RE = /^\/.*\/[gimsuy]*$/
  * 在查表前先归一到 `homepageurl` —— 否则两者同时出现时各自占位，后出现的会覆盖先出现的，
  * 破坏「首个胜」。
  */
-const SINGLE_KEYS = new Set([
+const SINGLE_KEYS = [
   'name',
   'namespace',
   'version',
@@ -90,7 +90,7 @@ const SINGLE_KEYS = new Set([
   'updateurl',
   'downloadurl',
   'homepageurl',
-])
+]
 
 /**
  * 定位第一个 metadata 块的首尾行号；找不到返回 null。
@@ -152,7 +152,7 @@ export function parseUserScriptMetadata(code: string): ParsedMetadata | null {
       out.noframes = true
       continue
     }
-    if (SINGLE_KEYS.has(key)) {
+    if (SINGLE_KEYS.includes(key)) {
       if (!value) continue // 空值不占位
       if (m[2] === undefined) {
         if (seenPlain.has(key)) continue
