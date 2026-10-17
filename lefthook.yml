@@ -1,0 +1,13 @@
+# Git hooks 配置（lefthook）——挂了什么、怎么跳过，见 GIT_HOOKS.md
+pre-commit:
+  jobs:
+    - name: check:comments
+      run: pnpm run check:comments
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: typecheck
+      run: pnpm run typecheck
+    - name: test
+      run: pnpm run test

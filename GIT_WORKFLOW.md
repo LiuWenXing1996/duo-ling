@@ -1,6 +1,8 @@
 # Git 工作流（文档约束）
 
-> 本项目以**文档约束** Git 工作流，不引入任何校验工具；**本文件即提交信息、分支命名、合并流程的唯一来源**。
+> 本项目以**文档约束** Git 工作流；**本文件即提交信息、分支命名、合并流程的唯一来源**。
+>
+> 本地自动校验由 lefthook 钩子承担（`pre-commit` 注释卫生、`pre-push` typecheck+test），见 [GIT_HOOKS.md](GIT_HOOKS.md)。
 >
 > 相关：[VERSIONING.md](VERSIONING.md)（发版 PR 的版本号与 tag）；[AGENTS.md](AGENTS.md)（文档职责总表、命令清单与交付前门禁）。
 
