@@ -28,22 +28,9 @@ coverage/
 # AI SDK DevTools 本地调试数据（明文交互内容，不入库）
 .devtools/
 
-# 内置件包的构建产物（件源码打成 IIFE，由 wxt.config.ts 的 publicAssets 钩子取进扩展产物）
-packages/builtin-scripts/dist/
-
-# 子包的构建产物（Vite lib 模式：mjs + d.ts，消费方走 package.json exports）
-packages/shared/dist/
-packages/service-worker/dist/
-packages/offscreen-document/dist/
-
-# 页面包的构建产物（lib + preserveModules：一个源文件对一个 .mjs，宿主按页面引用摇树）
-packages/ui/dist/
-packages/workbench/dist/
-packages/floatpanel/dist/
-packages/popup/dist/
-
-# 样例包的构建产物（TS 源码 + esbuild 打成单文件 .user.js，由 pnpm -r build 重建，不入库防 drift）
-packages/uscript-samples/dist/
+# 子包的构建产物（内置件 IIFE / Vite lib / preserveModules / esbuild 单文件——形态各异，
+# dist 一律不入库防 drift，由 pnpm -r build 重建）
+packages/*/dist/
 
 # 中继件 IIFE 的生成物（build-relay.mjs 从 relay 源码生成，build / test 前置重建，不入库防 drift）
 packages/service-worker/src/relay/relay-code.gen.ts

@@ -20,6 +20,8 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 打底只有 `shared`：跨世界契约 + 共享实现（含 `app/` 那批**两个进程都要用的应用侧实现** —— 模型配置、归属映射、新版本检查、构建信息、小数据 kv、抓包摘要）。
 
+另有一个**不占轴的资产包**：`shadcn-registry`（shadcn registry item 与生成件的落点，`shadcn-vue` CLI 从 `registry.ai-elements-vue.com` 与官方 registry 拉源码自持；Vite lib + preserveModules，构建口径同页面包，exports 只出 `./components/ui/*` 与 `./components/ai-elements/*` 子路径，样式 token 由消费方注入），零 `@duoling` 依赖、矩阵里零边。
+
 **依赖严格单向，反向即错**：
 
 ```

@@ -19,6 +19,10 @@
 #     单文件 .user.js（metadata 头由各样例 meta.json 生成；raw/ 是不参与构建的坏源码样本），
 #     产物 dist/ 不入库、由 pnpm -r build 重建；被 scripts/pack-uscripts.mts 打 zip 分发。
 #     类型面自持（宽松 globals.d.ts），不吃根的严格档。
+#   · shadcn-registry —— shadcn registry 资产包：shadcn-vue CLI 拉源码自持
+#     （17 类 shadcn 原语 + 7 类 ai-elements），Vite lib + preserveModules（同页面包口径），
+#     exports 只出 ./components/{ui,ai-elements}/* 子路径；样式 token 由消费方注入，
+#     无 @duoling 依赖、零边（check:packages 矩阵为空）。
 packages:
   - packages/*
 

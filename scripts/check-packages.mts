@@ -17,6 +17,7 @@ const MATRIX: Record<string, string[]> = {
   workbench: ['ui', 'shared'],
   floatpanel: ['ui', 'shared'],
   popup: ['ui', 'shared'],
+  'shadcn-registry': [],
 }
 
 const ROOT = process.cwd()
