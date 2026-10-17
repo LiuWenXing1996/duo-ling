@@ -1,6 +1,6 @@
 name: CI
 
-# 快测：类型检查 + 单元测试。E2E 是独立 workflow，触发面见 e2e.yml 顶部。
+# 快测：门禁（注释 / 密钥）+ 类型检查 + 单元测试。E2E 是独立 workflow，触发面见 e2e.yml 顶部。
 on:
   push:
     branches: [main]
@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Typecheck & Unit tests
+    name: Typecheck, tests & gates
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +29,14 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # 两个门禁排在类型检查之前：命中就失败，不必等一分钟的 typecheck。
+      # 钩子只覆盖暂存文件，这里扫全仓，兜住没装钩子或绕过钩子的提交。
+      - name: Comment gate
+        run: pnpm run check:comments
+
+      - name: Secret gate (whole repo)
+        run: pnpm run check:secrets
 
       # .wxt/tsconfig.json 由 wxt prepare 生成（含 @ 别名与 #imports 虚拟模块类型），vue-tsc 与 vitest(WxtVitest) 都依赖它；
       # 缺失报 "Failed to load tsconfig '.wxt/tsconfig.json'"；门禁不因缺 .wxt 假红——显式 prepare 兜底，防 postinstall 被跳过致 typecheck 假红。

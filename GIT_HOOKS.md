@@ -10,6 +10,17 @@
 | `pre-commit` | `pnpm exec secretlint {staged_files}` | 扫全部暂存文件里的密钥/凭据，命中即拦；不按扩展名过滤（env 文件、证书、无扩展名配置都在范围内），无暂存文件时整条跳过 |
 | `pre-push` | `pnpm run typecheck` + `pnpm run test`（并行） | 全量检查放 push 前，commit 前不跑 |
 
+## CI 侧
+
+`.github/workflows/ci.yml` 的 `verify` job 也跑这两道门禁，都排在 `typecheck` 之前（命中即失败，不用等一分钟）：
+
+| 门禁 | CI 里的范围 | 为什么这么定 |
+| --- | --- | --- |
+| `pnpm run check:comments` | 全仓源码 | 纯静态读文件，秒级 |
+| `pnpm run check:secrets` | 全仓（`secretlint "**/*"`，级联 `.gitignore`） | 钩子只扫暂存文件，全仓扫才能发现没装钩子 / 绕过钩子的提交，以及仓库里已经存在的凭据 |
+
+钩子可以用 `LEFTHOOK=0` 跳过，CI 不能 —— 这是这两层存在的分工。
+
 ## 激活与跳过
 
 - 激活：`pnpm install` 时由 lefthook 的 postinstall 自动 `lefthook install`；手动激活跑 `pnpm exec lefthook install`
