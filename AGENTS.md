@@ -51,7 +51,7 @@
 | `pnpm run check:comments` | 注释卫生门禁：扫 `src` / `packages`（含样例包源码与 dist 产物）/ `e2e` / `scripts` **加仓库根散装源码**（配置类 `*.ts` 常驻根级），注释行命中黑名单（日期 / 评审引用 / 变更史 / 代号 / 小节号）即失败；另校验注释里「见 xxx.md」引用的文件真实存在（死指针）；豁免与孤儿检测见「注释与文案」 |
 | `pnpm run pack:uscripts` | 生成用户脚本测试包：把 `packages/uscript-samples/dist/`（先 `pnpm -r build` 生成）打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例 TS 源码再 build 再打） |
 
-> **交付前验证**：`pnpm run typecheck` + `pnpm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。
+> **交付前验证**：`pnpm run typecheck` + `pnpm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。本地 lefthook 钩子（pre-commit / pre-push）自动跑其中两项，见 [GIT_HOOKS.md](GIT_HOOKS.md)。
 
 ## 文档职责总表（读哪 / 写哪）
 
