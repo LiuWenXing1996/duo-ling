@@ -10,6 +10,9 @@
 //   - 扫描面与 check-comments 一致：src / packages / e2e / scripts + 仓库根的散装源码。
 //   - 来源：从组件库原样拉取的件（src/components 下的 ui / ai-elements）单列 —— 它们几乎不带注释，
 //     且改不改不由本仓库决定，混进总计会把自研代码的密度压低一截。
+//   - 块长分布：把「独占整行的注释」按极大连续段切块，看密度是成片写成还是零散点写。
+//     行尾注释（代码行上跟一句）不参与切块 —— 它不构成独立的段；空行会切断段（块注释内部的空行同样），
+//     所以块长是「严格连续」的下界，中间隔一行空行的两段算两个块。
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { extname, join, relative, sep } from 'node:path'
@@ -27,8 +30,13 @@ interface Stats {
   comment: number
 }
 
-/** 逐字符扫描，按行记录「有代码 / 有注释」，再求并集作为非空行。 */
-function scan(code: string): { nonEmpty: number; comment: number } {
+/** 逐字符扫描，按行记录「有代码 / 有注释」，再求并集作为非空行；行号集合留给块长统计。 */
+function scan(code: string): {
+  nonEmpty: number
+  comment: number
+  codeLines: Set<number>
+  commentLines: Set<number>
+} {
   const codeLines = new Set<number>()
   const commentLines = new Set<number>()
   type State = 'code' | 'line' | 'block' | 'html' | 'q1' | 'q2' | 'q3'
@@ -100,7 +108,7 @@ function scan(code: string): { nonEmpty: number; comment: number } {
   }
   let nonEmpty = codeLines.size
   for (const l of commentLines) if (!codeLines.has(l)) nonEmpty++
-  return { nonEmpty, comment: commentLines.size }
+  return { nonEmpty, comment: commentLines.size, codeLines, commentLines }
 }
 
 function listFiles(dir: string): string[] {
@@ -132,6 +140,9 @@ const byExt = new Map<string, Stats>()
 const bySource = new Map<string, Stats>()
 const total: Stats = { ...empty }
 let silent = 0
+/** 连续注释段（块）：整行注释按行号连续性切出的极大段。 */
+const blocks: Array<{ len: number; file: string; line: number }> = []
+let commentOnly = 0
 
 for (const file of files) {
   let code: string
@@ -140,11 +151,19 @@ for (const file of files) {
   } catch {
     continue
   }
-  const { nonEmpty, comment } = scan(code)
+  const { nonEmpty, comment, codeLines, commentLines } = scan(code)
   if (nonEmpty === 0) continue
   if (comment === 0) silent++
 
   const rel = relative(root, file)
+  const only = [...commentLines].filter((l) => !codeLines.has(l)).sort((a, b) => a - b)
+  commentOnly += only.length
+  for (let i = 0; i < only.length; ) {
+    let j = i
+    while (j + 1 < only.length && only[j + 1] === only[j] + 1) j++
+    blocks.push({ len: j - i + 1, file: rel, line: only[i] })
+    i = j + 1
+  }
   const top = scanDirs.find((d) => rel.startsWith(d + sep)) ?? 'root'
   const ext = extname(file)
   const source = vendoredPrefixes.some((p) => rel.startsWith(p)) ? '引入件' : '自研'
@@ -197,4 +216,30 @@ table(
   [...byExt.entries()].sort((a, b) => b[1].nonEmpty - a[1].nonEmpty),
   '扩展名',
 )
+
+/** 块长分档：档位边界只描述形态，不设「合格线」。 */
+const buckets: Array<[string, (n: number) => boolean]> = [
+  ['1 行', (n) => n === 1],
+  ['2 行', (n) => n === 2],
+  ['3-4 行', (n) => n >= 3 && n <= 4],
+  ['5-9 行', (n) => n >= 5 && n <= 9],
+  ['10-19 行', (n) => n >= 10 && n <= 19],
+  ['20-49 行', (n) => n >= 20 && n <= 49],
+  ['50 行以上', (n) => n >= 50],
+]
+const trailing = total.comment - commentOnly
+console.log(`\n块长分布（整行注释的连续段：${blocks.length} 个块覆盖 ${commentOnly} 行；另有 ${trailing} 行行尾注释不构成块）`)
+console.log(`${pad('块长', 10)}${padStart('块数', 8)}${padStart('注释行', 10)}${padStart('占比', 9)}`)
+for (const [name, test] of buckets) {
+  const sel = blocks.filter((b) => test(b.len))
+  const lines = sel.reduce((s, b) => s + b.len, 0)
+  const share = commentOnly ? `${((lines / commentOnly) * 100).toFixed(1)}%` : '—'
+  console.log(`${pad(name, 10)}${padStart(String(sel.length), 8)}${padStart(String(lines), 10)}${padStart(share, 9)}`)
+}
+const longest = [...blocks].sort((a, b) => b.len - a.len).slice(0, 5)
+if (longest.length) {
+  console.log('最长 5 个块')
+  for (const b of longest) console.log(`  ${padStart(String(b.len), 2)} 行  ${b.file}:${b.line}`)
+}
+
 console.log(`\n零注释文件 ${silent} 个（密度按 0 计入总计）。`)
