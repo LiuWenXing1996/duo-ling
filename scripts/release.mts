@@ -134,7 +134,7 @@ if (dryRun) {
 // 6. CHANGELOG 起段
 const today = new Date().toISOString().slice(0, 10)
 const section =
-  `\n## [${next}] - ${today}\n\n` + '### Added\n- \n\n### Changed\n- \n\n### Fixed\n- \n'
+  `\n## [${next}] - ${today}\n\n` + '### 新增\n- \n\n### 变更\n- \n\n### 修复\n- \n'
 let changelogText: string
 let changelogChanged = false
 if (existsSync(changelogPath)) {
@@ -144,7 +144,7 @@ if (existsSync(changelogPath)) {
   } else {
     const idx = changelogText.search(/^## /m)
     if (idx === -1) {
-      changelogText = changelogText.replace(/#\s+Changelog\s*\n/i, `# Changelog\n${section}`)
+      changelogText = changelogText.replace(/^#\s+更新日志\s*\n/m, `# 更新日志\n${section}`)
     } else {
       changelogText = changelogText.slice(0, idx) + section + changelogText.slice(idx)
     }
@@ -152,7 +152,7 @@ if (existsSync(changelogPath)) {
   }
 } else {
   changelogText =
-    `# Changelog\n\n本文件记录哆灵扩展每个发布版本的变更。格式参考 Keep a Changelog，手动维护。${section}`
+    `# 更新日志\n\n本文件记录哆灵扩展每个发布版本的变更。格式参考 Keep a Changelog，手动维护。${section}`
   changelogChanged = true
 }
 if (dryRun) {
