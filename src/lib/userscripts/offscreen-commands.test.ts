@@ -9,7 +9,7 @@ import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 
 // 会话写侧会真碰 IndexedDB，把写函数换成假身以造确定性的成功 / 失败两路。
-// 其余导出（TASKS / chatDb…）必须保留真身：chat-host 的任务存储顶层就取 TASKS，全量替换会在 import 期炸。
+// 其余导出（TASKS / getChatDb…）必须保留真身：chat-host 的任务存储顶层就取 TASKS，全量替换会在 import 期炸。
 vi.mock('@duoling/shared', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@duoling/shared')>()),
   createConversation: vi.fn(),

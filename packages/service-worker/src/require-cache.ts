@@ -7,12 +7,12 @@
 // 缓存策略：url 不变即命中、永不过期，仅手动 clearRequireCache 时重抓。
 // 抓取策略：注册时由 SW 内 fetch 抓取，受 <all_urls> host 权限豁免 CORS。
 // 失败策略：单条抓取失败只记错误、跳过该依赖，不阻断脚本整体注入。
-import { createIdbOpener, errorText } from '@duoling/shared'
+import {
+  errorText,
+  getRequireCacheDb,
+  REQUIRE_CACHE_STORE as STORE,
+} from '@duoling/shared'
 import { cacheClear, cacheGetAll, cachePutAll, fetchWithTimeout } from './cache-common'
-
-const DB_NAME = 'duoling-require-cache'
-const DB_VERSION = 1
-const STORE = 'requires'
 
 interface RequireCacheRecord {
   url: string
@@ -20,20 +20,9 @@ interface RequireCacheRecord {
   fetchedAt: number
 }
 
-const opener = createIdbOpener({
-  name: DB_NAME,
-  version: DB_VERSION,
-  upgrade: (db) => {
-    if (!db.objectStoreNames.contains(STORE)) {
-      db.createObjectStore(STORE, { keyPath: 'url' })
-    }
-  },
-  label: '依赖缓存',
-})
-
 /** 批量查缓存：返回 url → code（未命中不出现在 map 里） */
 export async function getRequireCache(urls: string[]): Promise<Map<string, string>> {
-  const recs = await cacheGetAll<RequireCacheRecord>(opener, STORE, urls, '依赖缓存')
+  const recs = await cacheGetAll<RequireCacheRecord>(getRequireCacheDb(), STORE, urls, '依赖缓存')
   const out = new Map<string, string>()
   for (const [url, rec] of recs) out.set(url, rec.code)
   return out
@@ -43,7 +32,7 @@ export async function getRequireCache(urls: string[]): Promise<Map<string, strin
 export async function setRequireCache(items: { url: string; code: string }[]): Promise<void> {
   const now = Date.now()
   return cachePutAll(
-    opener,
+    getRequireCacheDb(),
     STORE,
     items.map((it) => ({ url: it.url, code: it.code, fetchedAt: now })),
   )
@@ -51,7 +40,7 @@ export async function setRequireCache(items: { url: string; code: string }[]): P
 
 /** 清空全部缓存（库更新后手动重抓用） */
 export function clearRequireCache(): Promise<void> {
-  return cacheClear(opener, STORE, '依赖缓存')
+  return cacheClear(getRequireCacheDb(), STORE, '依赖缓存')
 }
 
 // —— 抓取层（注册时抓）——

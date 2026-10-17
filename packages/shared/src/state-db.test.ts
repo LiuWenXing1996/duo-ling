@@ -11,10 +11,10 @@ import {
   removeGroup,
   removeProject,
   removeProjects,
-  STATE_DB_VERSION,
   writeGroup,
   writeProject,
 } from './state-db'
+import { STATE_DB_VERSION } from './db/state'
 import type { ScriptProject } from './script-project'
 
 let seq = 0

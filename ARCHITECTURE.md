@@ -105,6 +105,8 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 ## 存储（IndexedDB 分库：源码 / 注册态 / 脚本数据 / 观测数据 / 应用配置 / 会话，2026-09-19 重构）
 
 > 分库写权限是硬边界：**注册链路对 offscreen 存活零依赖**。
+>
+> 裸 IndexedDB 各库的**连接与建表**统一住 `@duoling/shared` 的 `db/`（一库一个 `getXxxDb()`，惰性单例）；业务文件只拿连接，不自己 `createIdbOpener` —— 同一个库被多个上下文打开时，各开一条连接会让版本升级与死连接处理各管一半。`duoling-fs` 例外：lightning-fs 实例归 offscreen 独占（见 ①）。
 
 ① **源码唯一来源 `duoling-fs`**（lightning-fs，IndexedDB 后端，**只许 offscreen 碰**，`@duoling/offscreen-document` 的 `fs/lfs` 单例）：每脚本一仓 `/uscripts/<uuid>/`——`script.js`（单文件纯 JS 源码，2026-09-20 单文件化）即工作树（未提交改动 = 草稿），git 历史 = 每次保存的版本（同包 `fs/git`，仓损坏只丢历史不丢脚本）；配置由源码里的 `// ==UserScript==` 块派生（`resolveConfigFromSource`），**不再有并行元信息文件**；SW/扩展页读不到 lfs，**源码读写一律走 `OffscreenService` 代理向 offscreen 取**（同包 `offscreen-service`）。
 

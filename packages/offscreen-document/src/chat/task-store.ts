@@ -8,11 +8,11 @@
 //
 // 宿主差异说明：与会话同库——同域同写方
 // （都归 offscreen），纯粹少开一个库。写只发生在 offscreen（对话链路的宿主），SW 与扩展页
-// 没有写入路径；连接、库版本与建表统一由 shared 的 conversation-store 持有 chatDb —— 本模块
+// 没有写入路径；连接、库版本与建表统一由 shared 的 db/chat 持有 getChatDb —— 本模块
 // 不再自开连接（同一库挂两条连接时，升级与死连接处理会各管一半）。
 import {
   TASKS,
-  chatDb,
+  getChatDb,
   idbRequest,
   idbRunTx,
 } from '@duoling/shared'
@@ -45,28 +45,28 @@ const STORE = TASKS
 
 /** 读一条任务记录；不存在返回 undefined */
 export async function getTask(taskId: string): Promise<ChatTaskRecord | undefined> {
-  return idbRunTx(chatDb(), STORE, 'readonly', (transaction) =>
+  return idbRunTx(getChatDb(), STORE, 'readonly', (transaction) =>
     idbRequest(transaction.objectStore(STORE).get(taskId)),
   )
 }
 
 /** 写入 / 覆盖一条任务记录（覆盖写，只留最新一份） */
 export async function putTask(record: ChatTaskRecord): Promise<void> {
-  await idbRunTx(chatDb(), STORE, 'readwrite', (transaction) =>
+  await idbRunTx(getChatDb(), STORE, 'readwrite', (transaction) =>
     idbRequest(transaction.objectStore(STORE).put(record)),
   )
 }
 
 /** 删除一条任务记录（任务收尾 / 用户丢弃时） */
 export async function removeTask(taskId: string): Promise<void> {
-  await idbRunTx(chatDb(), STORE, 'readwrite', (transaction) =>
+  await idbRunTx(getChatDb(), STORE, 'readwrite', (transaction) =>
     idbRequest(transaction.objectStore(STORE).delete(taskId)),
   )
 }
 
 /** 全部 running 任务记录（孤儿判定由调用方按心跳过滤） */
 export async function listRunningTasks(): Promise<ChatTaskRecord[]> {
-  const all = await idbRunTx(chatDb(), STORE, 'readonly', (transaction) =>
+  const all = await idbRunTx(getChatDb(), STORE, 'readonly', (transaction) =>
     idbRequest<ChatTaskRecord[]>(transaction.objectStore(STORE).getAll()),
   )
   return (all ?? []).filter((r) => r.status === 'running')

@@ -17,13 +17,13 @@
 // 任意第二键——真实 Chrome 按 spec 支持，但 fake-indexeddb 的比较实现不认（实测 getAll
 // 返回空，单测直接暴露）。
 
-import { createIdbOpener, idbRequest as request, idbRunTx } from '@duoling/shared'
-
-const DB_NAME = 'duoling-usdata'
-const DB_VERSION = 1
-
-const GM_STORE = 'gm'
-const TAB_STORE = 'tab'
+import {
+  getUsdataDb,
+  idbRequest as request,
+  idbRunTx,
+  USDATA_GM_STORE as GM_STORE,
+  USDATA_TAB_STORE as TAB_STORE,
+} from '@duoling/shared'
 
 interface GmRecord {
   uuid: string
@@ -37,29 +37,12 @@ interface TabRecord {
   value: unknown
 }
 
-const opener = createIdbOpener({
-  name: DB_NAME,
-  version: DB_VERSION,
-  upgrade: (db) => {
-    if (!db.objectStoreNames.contains(GM_STORE)) {
-      const gm = db.createObjectStore(GM_STORE, { keyPath: ['uuid', 'key'] })
-      gm.createIndex('by_uuid', 'uuid')
-    }
-    if (!db.objectStoreNames.contains(TAB_STORE)) {
-      const tab = db.createObjectStore(TAB_STORE, { keyPath: ['uuid', 'tabId'] })
-      tab.createIndex('by_uuid', 'uuid')
-      tab.createIndex('by_tabId', 'tabId')
-    }
-  },
-  label: '脚本数据',
-})
-
 async function runTx<T>(
   storeName: string,
   mode: IDBTransactionMode,
   run: (tx: IDBTransaction, store: IDBObjectStore) => Promise<T>,
 ): Promise<T> {
-  return idbRunTx(opener, storeName, mode, (tx) => run(tx, tx.objectStore(storeName)))
+  return idbRunTx(getUsdataDb(), storeName, mode, (tx) => run(tx, tx.objectStore(storeName)))
 }
 
 async function withStore<T>(

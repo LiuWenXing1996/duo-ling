@@ -12,43 +12,19 @@
 // 「写了状态但没 commit」「已保存但没 commit」这类偏差就没有产生的缝隙。
 // 违反方式：在 offscreen 之外 import writeProject / removeProject 等。
 import type { ScriptGroup, ScriptProject } from './script-project'
-import { createIdbOpener, idbRequest as request, idbRunTx, type IdbOpener } from './idb-core'
-
-const DB_NAME = 'duoling-state'
-const DB_VERSION = 2
-export const STATE_DB_VERSION = DB_VERSION
-const STORE = 'projects'
-const KEY_PATH = 'uuid'
-/** 分组对象库（脚本列表分组功能）；keyPath = id。与 projects 同库、同单写方约束 */
-const GROUPS_STORE = 'groups'
-
-let handle: IdbOpener | null = null
-
-/** 惰性构造：模块求值期不做调用，否则打包器整块裁不掉本模块 */
-function opener(): IdbOpener {
-  handle ??= createIdbOpener({
-    name: DB_NAME,
-    version: DB_VERSION,
-    upgrade: (db) => {
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: KEY_PATH })
-      }
-      // v2 升级：新增 groups 对象库（已存在的库走 onupgradeneeded 补建，无数据迁移）
-      if (!db.objectStoreNames.contains(GROUPS_STORE)) {
-        db.createObjectStore(GROUPS_STORE, { keyPath: 'id' })
-      }
-    },
-    label: '脚本状态数据',
-  })
-  return handle
-}
+import { idbRequest as request, idbRunTx } from './idb-core'
+import {
+  getStateDb,
+  STATE_GROUPS_STORE as GROUPS_STORE,
+  STATE_PROJECTS_STORE as STORE,
+} from './db'
 
 async function runTx<T>(
   store: string,
   mode: IDBTransactionMode,
   run: (tx: IDBTransaction, store: IDBObjectStore) => Promise<T>,
 ): Promise<T> {
-  return idbRunTx(opener(), store, mode, (tx) => run(tx, tx.objectStore(store)))
+  return idbRunTx(getStateDb(), store, mode, (tx) => run(tx, tx.objectStore(store)))
 }
 
 async function withStore<T>(

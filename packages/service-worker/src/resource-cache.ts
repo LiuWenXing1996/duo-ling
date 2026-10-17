@@ -12,12 +12,13 @@
 // 抓取策略：SW 内 fetch，受 <all_urls> host 权限豁免 CORS；url 不变即命中、永不过期。
 // 失败策略：单条失败只记错误、跳过该资源（脚本拿到 undefined），不阻断整体注入。
 
-import { bytesToBase64, createIdbOpener, errorText } from '@duoling/shared'
+import {
+  bytesToBase64,
+  errorText,
+  getResourceCacheDb,
+  RESOURCE_CACHE_STORE as STORE,
+} from '@duoling/shared'
 import { cacheClear, cacheGetAll, cachePutAll, fetchWithTimeout } from './cache-common'
-
-const DB_NAME = 'duoling-resource-cache'
-const DB_VERSION = 1
-const STORE = 'resources'
 
 /** 一条资源缓存记录：文本与 data URI 都存下来，注入时不必再解码（省一次 atob/TextDecoder） */
 export interface ResourceRecord {
@@ -31,30 +32,19 @@ export interface ResourceRecord {
   fetchedAt: number
 }
 
-const opener = createIdbOpener({
-  name: DB_NAME,
-  version: DB_VERSION,
-  upgrade: (db) => {
-    if (!db.objectStoreNames.contains(STORE)) {
-      db.createObjectStore(STORE, { keyPath: 'url' })
-    }
-  },
-  label: '资源缓存',
-})
-
 /** 批量查缓存：返回 url → 记录（未命中不出现在 map 里） */
 export function getResourceCache(urls: string[]): Promise<Map<string, ResourceRecord>> {
-  return cacheGetAll<ResourceRecord>(opener, STORE, urls, '资源缓存')
+  return cacheGetAll<ResourceRecord>(getResourceCacheDb(), STORE, urls, '资源缓存')
 }
 
 /** 批量写缓存（相同 url 覆盖）。写失败不阻断（下次重抓即可） */
 export function setResourceCache(items: ResourceRecord[]): Promise<void> {
-  return cachePutAll(opener, STORE, items)
+  return cachePutAll(getResourceCacheDb(), STORE, items)
 }
 
 /** 清空全部缓存（手动重抓用） */
 export function clearResourceCache(): Promise<void> {
-  return cacheClear(opener, STORE, '资源缓存')
+  return cacheClear(getResourceCacheDb(), STORE, '资源缓存')
 }
 
 // —— 抓取层（注册 / 注入时抓）——

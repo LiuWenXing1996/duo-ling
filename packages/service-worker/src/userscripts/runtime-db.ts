@@ -65,41 +65,19 @@ import {
 } from '@duoling/shared'
 import {
   NET_TAB_KIND,
-  createIdbOpener,
+  getRuntimeDb,
   idbRequest as request,
   idbRunTx,
+  RUNTIME_EV_BY_ERR as EV_BY_ERR,
+  RUNTIME_EV_BY_KIND as EV_BY_KIND,
+  RUNTIME_EV_BY_KIND_RUN as EV_BY_KIND_RUN,
+  RUNTIME_EV_BY_SESSION_SEQ as EV_BY_SESSION_SEQ,
+  RUNTIME_TAB_EVENTS_STORE as TAB_EVENTS_STORE,
+  RUNTIME_TAB_SESSIONS_STORE as TAB_SESSIONS_STORE,
+  RUNTIME_TABS_BY_SEEN as TABS_BY_SEEN,
+  RUNTIME_TABS_BY_TAB as TABS_BY_TAB,
   type NetCaptureRecord,
 } from '@duoling/shared'
-
-const DB_NAME = 'duoling-runtime'
-const DB_VERSION = 9
-
-const TAB_SESSIONS_STORE = 'tab_sessions'
-const TAB_EVENTS_STORE = 'tab_events'
-/** 拆表时代的旧 store 名（v7 起重建成合表形状，见下面的 upgrade） */
-const LEGACY_STORES = ['errors', 'runlog', 'stats', 'runs', 'run_events']
-
-/**
- * 合表形状首次落地的版本。
- * 早于它的库形状不兼容，要推倒重建；之后每加一条索引只做增量迁移 —— 重建等于把
- * 用户的活动历史整库抹掉，那是只有形状真变了才付得起的代价。
- */
-const MERGED_SCHEMA_VERSION = 7
-
-const TABS_BY_TAB = 'by_tabId'
-const TABS_BY_SEEN = 'by_seen'
-/**
- * 轴按页取行：`[tabSessionId, id]`（`id` 是表主键自增号，也就是落盘序）。
- *
- * 为什么要带上 `id`：面板要**增量**续拉新落盘的行，而增量只能在索引键上做范围裁剪
- * （下界 `[本页, 上次最大 id + 1]`）。单键索引做不到，只能把整根轴读回来再筛 ——
- * 轴不设上限、录得越久越长，那样每次「增量」都要付一次全量的读代价。
- * 前缀查询与原用途完全等价（按页取全部 / 按页级联删除），且天然按落盘序排。
- */
-const EV_BY_SESSION_SEQ = 'by_session_seq'
-const EV_BY_KIND_RUN = 'by_kind_run'
-const EV_BY_ERR = 'by_errId'
-const EV_BY_KIND = 'by_kind'
 
 /**
  * 复合索引 by_kind_run 的键：`[kind, runId]`。
@@ -187,61 +165,12 @@ interface TabSessionRow extends TabSessionRecord {
   firstSeenAt: number
 }
 
-/** v8 起退场的旧索引名：录制改按标签页后采样上不再有 host，该索引无从维护 */
-const LEGACY_EV_BY_HOST = 'by_host'
-/** v9 起退场的旧索引名：单键 by_tabSessionId 做不了增量范围裁剪，换成带 id 的复合索引 */
-const LEGACY_EV_BY_SESSION = 'by_tabSessionId'
-
-const opener = createIdbOpener({
-  name: DB_NAME,
-  version: DB_VERSION,
-  upgrade: (db, tx, oldVersion) => {
-    // 拆表时代的旧形状与合表后的形状不兼容：删表重建，旧数据丢弃
-    if (oldVersion < MERGED_SCHEMA_VERSION) {
-      for (const name of [...LEGACY_STORES, TAB_SESSIONS_STORE, TAB_EVENTS_STORE]) {
-        if (db.objectStoreNames.contains(name)) db.deleteObjectStore(name)
-      }
-      createMergedStores(db)
-      return
-    }
-    // v7 → v8：录制从「按站点」改为「按标签页」，采样不再带 host，by_host 索引随之退场。
-    // 观测数据的形状本身没变，故**只摘索引、不动任何一行** —— 这一版没有任何理由清数据。
-    const events = tx.objectStore(TAB_EVENTS_STORE)
-    if (oldVersion < 8 && events.indexNames.contains(LEGACY_EV_BY_HOST)) {
-      events.deleteIndex(LEGACY_EV_BY_HOST)
-    }
-    // v8 → v9：面板按游标增量续拉，单键索引做不了「比某个 id 新」的裁剪，换成 [页, id]。
-    // 同款处理：只摘旧的、补新的，一行数据都不碰。
-    if (oldVersion < 9) {
-      if (events.indexNames.contains(LEGACY_EV_BY_SESSION)) events.deleteIndex(LEGACY_EV_BY_SESSION)
-      if (!events.indexNames.contains(EV_BY_SESSION_SEQ)) {
-        events.createIndex(EV_BY_SESSION_SEQ, ['tabSessionId', 'id'])
-      }
-    }
-  },
-  label: '运行数据',
-})
-
-/** 合表形状的建表（v7 引入）。重建旧库与新建库都走它，免得索引清单在两处各写一份。 */
-function createMergedStores(db: IDBDatabase): void {
-  const tabs = db.createObjectStore(TAB_SESSIONS_STORE, { keyPath: 'tabSessionId' })
-  tabs.createIndex(TABS_BY_TAB, 'tabId') // 实时判据：按 tabId 找还开着的那一行
-  tabs.createIndex(TABS_BY_SEEN, 'firstSeenAt') // 环形裁剪：按登记先后找最旧
-  // 主键写进记录本身（keyPath）：读侧要拿 id 当行身份（面板的列表 key）。
-  // 那种「主键只在表里、记录上读不到」的写法读回来的行没有 id —— 这张表不能用它。
-  const events = db.createObjectStore(TAB_EVENTS_STORE, { keyPath: 'id', autoIncrement: true })
-  events.createIndex(EV_BY_SESSION_SEQ, ['tabSessionId', 'id']) // 按页取整根轴 / 按页级联删除 / 按游标增量续拉
-  events.createIndex(EV_BY_KIND_RUN, ['kind', 'runId']) // 按运行精确取那一行 / 按运行拉动作（见 kindRunRange）
-  events.createIndex(EV_BY_ERR, 'errId') // 按错误 id 读（AI 的 error_read）
-  events.createIndex(EV_BY_KIND, 'kind') // 按 kind 取全量（运行条目 / 错误）与环形裁剪
-}
-
 function runTx<T>(
   storeNames: string | string[],
   mode: IDBTransactionMode,
   run: (tx: IDBTransaction) => Promise<T>,
 ): Promise<T> {
-  return idbRunTx(opener, storeNames, mode, run)
+  return idbRunTx(getRuntimeDb(), storeNames, mode, run)
 }
 
 /** 事务收尾：oncomplete 才算成功（put/delete 排队后必须等事务提交，错误才真正落定） */

@@ -21,54 +21,16 @@
 import type { Conversation, ConversationSearchHit, Message } from './conversation'
 import { isAssetPart } from './chat-assets'
 import { broadcastDataChange } from './data-broadcast-runtime'
-import { createIdbOpener, idbRequest, idbRunTx, type IdbOpener } from './idb-core'
+import { idbRequest, idbRunTx } from './idb-core'
+import {
+  CHAT_CONVERSATIONS_STORE as CONVERSATIONS,
+  CHAT_MESSAGES_STORE as MESSAGES,
+  CHAT_META_STORE as META,
+  getChatDb,
+} from './db'
 
-const DB_NAME = 'duoling-chat'
-/** v3：tasks store 并入（原独立库 duoling-chat-tasks，见 @duoling/offscreen-document 的 chat/task-store.ts） */
-const DB_VERSION = 3
-const CONVERSATIONS = 'conversations'
-const MESSAGES = 'messages'
-const META = 'meta'
-/** 生成任务快照 store（chat-host 写，与 conversation 写侧同归 offscreen） */
-export const TASKS = 'tasks'
 /** 新会话序号（meta store 键）：保证「新会话 N」不重号，清空会话时重置 */
 const SEQ_META_KEY = 'conversationSeq'
-
-/**
- * 会话库（duoling-chat）的**唯一打开器**：连接一份、升级回调一份。
- *
- * 为什么必须唯一：tasks store 与会话同库（同一写方 offscreen），若两个模块各 open 一次，
- * 同一库上就挂两条独立连接 —— 升级时各自处理 versionchange、各自缓存版本，一方 close
- * 另一方还握着旧连接。收拢到 createIdbOpener 之后，建表、连接活性、失败重试都只有一处实现。
- *
- * 惰性构造：模块求值期不做调用，否则打包器整块裁不掉本模块。
- */
-let handle: IdbOpener | null = null
-
-export function chatDb(): IdbOpener {
-  return (handle ??= createIdbOpener({
-    name: DB_NAME,
-    version: DB_VERSION,
-    label: '会话库',
-    upgrade: (db) => {
-      if (!db.objectStoreNames.contains(CONVERSATIONS)) {
-        const store = db.createObjectStore(CONVERSATIONS, { keyPath: 'id' })
-        store.createIndex('lastMessageAt', 'lastMessageAt')
-      }
-      if (!db.objectStoreNames.contains(MESSAGES)) {
-        const store = db.createObjectStore(MESSAGES, { keyPath: 'id' })
-        store.createIndex('conversationId', 'conversationId')
-      }
-      if (!db.objectStoreNames.contains(META)) {
-        db.createObjectStore(META)
-      }
-      // v3：任务快照并入本库（原 duoling-chat-tasks 库）
-      if (!db.objectStoreNames.contains(TASKS)) {
-        db.createObjectStore(TASKS, { keyPath: 'taskId' })
-      }
-    },
-  }))
-}
 
 /** 单 store 上的一次请求读写（事务级错误与死连接重试由 idbRunTx 兜） */
 function tx<T>(
@@ -76,7 +38,7 @@ function tx<T>(
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
-  return idbRunTx(chatDb(), storeName, mode, (transaction) =>
+  return idbRunTx(getChatDb(), storeName, mode, (transaction) =>
     idbRequest(run(transaction.objectStore(storeName))),
   )
 }
@@ -160,7 +122,7 @@ export async function referencedAssetIds(): Promise<Set<string>> {
  * 唯一写方是 offscreen（对话链路宿主）。
  */
 async function takeNextSeq(): Promise<number> {
-  return idbRunTx(chatDb(), META, 'readwrite', (transaction) => {
+  return idbRunTx(getChatDb(), META, 'readwrite', (transaction) => {
     const store = transaction.objectStore(META)
     return new Promise<number>((resolve, reject) => {
       const req = store.get(SEQ_META_KEY)
@@ -213,7 +175,7 @@ export async function renameConversation(id: string, title: string): Promise<Con
 
 export async function deleteConversation(id: string): Promise<void> {
   const messages = await listMessages(id)
-  await idbRunTx(chatDb(), [CONVERSATIONS, MESSAGES], 'readwrite', (transaction) =>
+  await idbRunTx(getChatDb(), [CONVERSATIONS, MESSAGES], 'readwrite', (transaction) =>
     new Promise<void>((resolve, reject) => {
       transaction.objectStore(CONVERSATIONS).delete(id)
       const messageStore = transaction.objectStore(MESSAGES)
@@ -227,7 +189,7 @@ export async function deleteConversation(id: string): Promise<void> {
 
 /** 清空全部会话与消息，并把序号重置回 1（下次新建从「新会话 1」开始） */
 export async function deleteAllConversations(): Promise<void> {
-  await idbRunTx(chatDb(), [CONVERSATIONS, MESSAGES, META], 'readwrite', (transaction) =>
+  await idbRunTx(getChatDb(), [CONVERSATIONS, MESSAGES, META], 'readwrite', (transaction) =>
     new Promise<void>((resolve, reject) => {
       transaction.objectStore(CONVERSATIONS).clear()
       transaction.objectStore(MESSAGES).clear()
@@ -242,7 +204,7 @@ export async function deleteAllConversations(): Promise<void> {
 // —— 消息 ——
 
 export async function listMessages(conversationId: string): Promise<Message[]> {
-  const all = await idbRunTx(chatDb(), MESSAGES, 'readonly', (transaction) =>
+  const all = await idbRunTx(getChatDb(), MESSAGES, 'readonly', (transaction) =>
     idbRequest<Message[]>(
       transaction.objectStore(MESSAGES).index('conversationId').getAll(conversationId),
     ),
@@ -262,7 +224,7 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
  * 异常收尾可能让 assistant 消息先落盘，按任意消息判断会让改名静默失效。
  */
 export async function appendMessage(message: Message): Promise<Message | null> {
-  return idbRunTx(chatDb(), [CONVERSATIONS, MESSAGES], 'readwrite', (transaction) =>
+  return idbRunTx(getChatDb(), [CONVERSATIONS, MESSAGES], 'readwrite', (transaction) =>
     new Promise<Message | null>((resolve, reject) => {
       const messages = transaction.objectStore(MESSAGES)
       const conversations = transaction.objectStore(CONVERSATIONS)

@@ -12,34 +12,23 @@
 // 读写方：扩展页 / SW 都可用（同源 IndexedDB）；offscreen 不 import 本模块
 // （模型配置经 SW 命令 / 推送获取，见包内 bootstrap.ts）。node 单测 fake-indexeddb/auto 直测。
 
-import { createIdbOpener, idbRequest as request, idbRunTx } from '@duoling/shared'
-
-const DB_NAME = 'duoling-app'
-const DB_VERSION = 1
-
-const KV_STORE = 'kv'
+import {
+  APP_KV_STORE as KV_STORE,
+  getAppDb,
+  idbRequest as request,
+  idbRunTx,
+} from '@duoling/shared'
 
 interface KvRecord {
   key: string
   value: unknown
 }
 
-const opener = createIdbOpener({
-  name: DB_NAME,
-  version: DB_VERSION,
-  upgrade: (db) => {
-    if (!db.objectStoreNames.contains(KV_STORE)) {
-      db.createObjectStore(KV_STORE, { keyPath: 'key' })
-    }
-  },
-  label: '本地数据',
-})
-
 function runTx<T>(
   mode: IDBTransactionMode,
   run: (tx: IDBTransaction) => Promise<T>,
 ): Promise<T> {
-  return idbRunTx(opener, KV_STORE, mode, run)
+  return idbRunTx(getAppDb(), KV_STORE, mode, run)
 }
 
 /** 读一个键（不存在返回 undefined） */
