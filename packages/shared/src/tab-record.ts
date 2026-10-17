@@ -12,7 +12,7 @@
 // 的 api-contract.ts），本文件只管采样记录本身的形状。
 
 /**
- * 接口采样落在 tab_events store 时的判别键：与标签页存续轴事件**同表**（见 runtime-db 的文件头），
+ * 接口采样落在 tab_events store 时的判别键：与标签页存续轴事件**同表**（见 ARCHITECTURE.md「存储」节），
  * 靠它把两类记录分开 —— 存续轴事件用 reload / url / recordOn / recordOff。
  *
  * 它同时是**上行事件里的种类判别键**：同一条录制通道上，`kind` 说这条载荷属于哪一类信号。

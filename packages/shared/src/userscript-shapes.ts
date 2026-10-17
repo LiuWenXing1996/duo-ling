@@ -65,7 +65,7 @@ export type UserScriptErrorLookup =
 // 观测数据 → duoling-runtime（runtime-db.ts），两张 store 装下全部：
 //   · tab_sessions —— 标签页存续（被观察到的每一页一行）
 //   · tab_events   —— 这一页的活动轴（文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误）
-// 轴上的行靠 kind 判别，各 kind 的形状见 runtime-db.ts 的文件头。
+// 轴上的行靠 kind 判别，各 kind 的形状见 ARCHITECTURE.md「存储」节。
 
 /**
  * 错误记录的环形上限：超过后只留最近 N 条。
@@ -218,7 +218,7 @@ export const TAB_SESSION_MAX = 2000
 
 // —— tab_events 的行判别键 ——
 //
-// 一张表装下这一页的全部活动轴行，靠 kind 值区分（各 kind 的行形状见 runtime-db.ts 文件头）：
+// 一张表装下这一页的全部活动轴行，靠 kind 值区分（各 kind 的行形状见 ARCHITECTURE.md「存储」节）：
 //   · 'reload' | 'url' | 'recordOn' | 'recordOff' —— 文档事件与记录开关（见 TabEventRecord）
 //   · NET_TAB_KIND（'net'；常量在 @duoling/shared 的 tab-record.ts）—— 接口采样
 //   · 下面三个 —— 运行条目 / 动作 / 错误
@@ -237,7 +237,7 @@ export const ERR_TAB_KIND = 'error'
  * 这根轴上的行不止这一类：接口采样（NET_TAB_KIND）、运行条目（RUN_TAB_KIND）、动作
  * （ACT_TAB_KIND）、错误（ERR_TAB_KIND）都与它同住一张表 —— 读侧本就把它们按时刻混排成
  * 同一根时间线，归属键（tabSessionId）与清空粒度（按页）又完全一致，分表只会让「删这一页」
- * 变成跨库手术（六类行的形状见 runtime-db 文件头）。
+ * 变成跨库手术（六类行的形状见 ARCHITECTURE.md「存储」节）。
  *
  * 本类型描述其中**没有额外载荷**的两类（只有 kind + time，读侧当纯文本行渲染）：
  *

@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 // 注释密度报告：注释行占非空行的比例，按目录、扩展名与来源汇总。
-// 只报告、不卡阈值 —— 密度是描述指标，卡阈值会诱导为凑数写注释；注释该不该写由 check-comments 管。
+// 不设理想值 —— 密度是描述指标，卡绝对阈值会诱导为凑数写注释；注释该不该写由 check-comments 管。
+// 但接 ratchet 基线（comment-baseline.json，--update 生成 / --check 校验）：只拦明显上涨，
+// 防大段注释在代码里越积越多；治理注释把密度降下来后要显式刷新基线固化成果，否则一直顶着旧高位。
+// 另设目标基线（target）：到达之前密度每降一截，check 自动降基线兑现治理成果（涨回去即被新低位拦），
+// 到达 target 后锁定，不再自动更新。
 //
 // 口径：
 //   - 注释行：含注释的行（行注释、块注释逐行、HTML 注释）。行尾注释所在行只算注释行。
@@ -18,7 +22,7 @@
 //   - 覆盖（该有的注释有没有）：文件头（前 3 行内有注释）与导出声明（上一非空行是注释），都按来源分行。
 //     前者对应本仓库「文件头交代职责与判据」的写法；后者只看有没有紧邻注释，不判内容质量。
 
-import { readdirSync, readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { extname, join, relative, sep } from 'node:path'
 
 const root = new URL('..', import.meta.url).pathname
@@ -289,3 +293,80 @@ coverageSection('文件头覆盖（前 3 行有注释）', (c) => [c.headYes, c.
 coverageSection('导出声明注释覆盖（仅 .ts / .mts，上一非空行是注释）', (c) => [c.expDoc, c.expAll])
 
 console.log(`\n零注释文件 ${silent} 个（密度按 0 计入总计）。`)
+
+// —— ratchet 基线：只拦明显上涨，不设理想值 ——
+
+const TOLERANCE = 0.5
+const baselineFile = join(root, 'comment-baseline.json')
+interface Baseline {
+  density: number
+  /** 目标基线：到达之前密度降了就自动降基线，到达后锁定 */
+  target?: number
+  comment: number
+  nonEmpty: number
+}
+
+const argv = process.argv.slice(2)
+const mode = argv.includes('--update') ? 'update' : argv.includes('--check') ? 'check' : 'report'
+const density = (total.comment / total.nonEmpty) * 100
+
+function readBaseline(): Baseline | null {
+  try {
+    return JSON.parse(readFileSync(baselineFile, 'utf8')) as Baseline
+  } catch {
+    return null
+  }
+}
+
+if (mode === 'update') {
+  const prev = readBaseline()
+  const b: Baseline = {
+    density: +density.toFixed(2),
+    target: prev?.target,
+    comment: total.comment,
+    nonEmpty: total.nonEmpty,
+  }
+  writeFileSync(baselineFile, JSON.stringify(b, null, 2) + '\n')
+  console.log(`基线已更新：${b.density}%（注释 ${b.comment} 行 / 非空 ${b.nonEmpty} 行）→ comment-baseline.json`)
+} else {
+  const base = readBaseline()
+  if (!base) {
+    if (mode === 'check') {
+      console.error('基线文件 comment-baseline.json 不存在：先跑 pnpm run check:comment-baseline --update 生成。')
+      process.exit(1)
+    }
+  } else {
+    let baseDensity = base.density
+    // 未达目标前，密度降了就自动降基线：治理成果即时兑现，涨回去立刻被新低位拦住；到 target 锁定
+    if (base.target !== undefined && baseDensity > base.target && density < baseDensity - 0.01) {
+      const next = +Math.max(density, base.target).toFixed(2)
+      writeFileSync(
+        baselineFile,
+        JSON.stringify({ ...base, density: next, comment: total.comment, nonEmpty: total.nonEmpty }, null, 2) + '\n',
+      )
+      if (next <= base.target) {
+        console.log(`\n基线自动降至 ${next}%，已到达目标基线 ${base.target}%，此后不再自动更新。`)
+      } else {
+        console.log(
+          `\n基线自动降至 ${next}%（目标 ${base.target}%，还差 ${(next - base.target).toFixed(2)}pp）。基线文件的改动请随本次提交入库。`,
+        )
+      }
+      baseDensity = next
+    }
+    const diff = density - baseDensity
+    if (mode === 'check') {
+      if (diff > TOLERANCE) {
+        console.error(
+          `注释密度 ${density.toFixed(2)}% 高于基线 ${baseDensity}% 超过 ${TOLERANCE} 个百分点（差 +${diff.toFixed(2)}）。`,
+        )
+        console.error(
+          '大段设计说明该收进文档或精简；确属合理增注，跑 pnpm run check:comment-baseline --update 抬基线（diff 进 PR 评审）。',
+        )
+        process.exit(1)
+      }
+      console.log(`基线校验通过：${density.toFixed(2)}%（基线 ${baseDensity}%，容差 ${TOLERANCE}pp）。`)
+    } else {
+      console.log(`\n基线：${baseDensity}%（当前 ${density.toFixed(2)}%，${diff >= 0 ? '+' : ''}${diff.toFixed(2)}pp）。`)
+    }
+  }
+}

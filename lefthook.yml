@@ -3,6 +3,8 @@ pre-commit:
   jobs:
     - name: check:comments
       run: pnpm run check:comments
+    - name: check:comment-baseline
+      run: pnpm run check:comment-baseline
     - name: secretlint
       # 不列扩展名白名单：漏一个类型就是静默放行（env 文件、pem 证书、无扩展名配置都曾不在名单里）。
       # 四组都要写：`**` 至少吞一层目录，只写 `**/*` 会漏掉仓库根文件；且默认不匹配 dotfiles。
