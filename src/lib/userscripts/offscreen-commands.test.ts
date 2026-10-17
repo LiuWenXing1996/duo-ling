@@ -8,7 +8,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 
-// 会话写侧会真碰 IndexedDB，只替换 4 个写函数以造确定性的成功 / 失败两路。
+// 会话写侧会真碰 IndexedDB，把写函数换成假身以造确定性的成功 / 失败两路。
 // 其余导出（TASKS / chatDb…）必须保留真身：chat-host 的任务存储顶层就取 TASKS，全量替换会在 import 期炸。
 vi.mock('@/lib/conversation-store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/conversation-store')>()),
@@ -18,10 +18,11 @@ vi.mock('@/lib/conversation-store', async (importOriginal) => ({
   deleteAllConversations: vi.fn(),
 }))
 
-// 启动对账会在 import 期真碰文件库（本测试无关）——保留其余真实导出
+// 启动装配（服务实体 / 保活 / 首拉配置 / 对账）与本测试无关：入口顶层那一步换成空实现，
+// 其余导出保留真身（命令面还要用）
 vi.mock('@duoling/offscreen-document', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@duoling/offscreen-document')>()),
-  reconcileFs: vi.fn(async () => {}),
+  startOffscreenHost: vi.fn(),
 }))
 
 import { createConversation, renameConversation } from '@/lib/conversation-store'

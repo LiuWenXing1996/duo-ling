@@ -1,5 +1,5 @@
-// offscreen document 的基础设施包：SW 保活轮询 + duo-ling 文件库（duoling-fs）
-// + 用户脚本状态库的写侧（单写方）。
+// offscreen document 的基础设施包：容器启动装配 + SW 保活轮询 + duo-ling 文件库（duoling-fs）
+// + 用户脚本状态库的写侧（单写方）+ 对话编排。
 //
 // 文件库的定位：源码与对话资源的**唯一权威落点**，由 offscreen 独占读写（lfs 单实例约束，
 // 见 fs/lfs 文件头）。契约（IOffscreenService）在 @duoling/shared；本包既出实现
@@ -9,6 +9,8 @@ export { OffscreenService } from './offscreen-service'
 export { startSwKeepalive, stopSwKeepalive, SW_KEEPALIVE_INTERVAL_MS } from './keepalive'
 // 启动对账（清孤儿仓）：宿主入口顶层调一次，不是跨上下文能力，故不进服务
 export { reconcileFs } from './userstate/reconcile'
+// 容器启动装配：服务实体 + 保活 + 就绪握手 + 首拉配置 + 启动对账
+export { onConfigChanged, startOffscreenHost } from './bootstrap'
 
 // —— fs 层原语（offscreen 内部直用；对外读写走 OffscreenService） ——
 // base64 编解码与名字安全化在 @duoling/shared（下载侧同源，见其 archive-transfer）
@@ -33,6 +35,10 @@ export { buildScriptZip, parseScriptsZip, sourceFingerprint } from './fs/zip'
 export { abortChat, listOrphans, resolveOrphan, resumeChat, startChat } from './chat/chat-host'
 export type { ChatStartInput } from './chat/chat-host'
 export { assetIdsOf, releaseAllAssets, releaseUnreferencedAssets } from './chat/asset-lifecycle'
+export {
+  clearAllConversationsWithAssets,
+  deleteConversationWithAssets,
+} from './chat/conversation-delete'
 export { refreshActiveProfile } from './chat/profile-cache'
 
 export type { AssetContent, AssetWriteInput } from './fs/assets'

@@ -13,8 +13,9 @@
 //   · console 输出落在 **SW 的 inspector**（chrome://extensions → Service Worker），不在面板 DevTools
 //   · 不能聚焦；opener 恒为 null；URL 必须是打包进扩展的静态 HTML（即本文件对应的 offscreen.html）
 //
-// 模块归属（硬约束）：本入口只做装配 —— 服务实体、对话编排、文件库、注册态库写侧与
-// 剪贴板写入全在 @duoling/offscreen-document；本文件只引它、@duoling/shared 与总线。
+// 模块归属（硬约束）：本入口只做接线 —— 启动装配、服务实体、对话编排、会话删除的资源回收、
+// 文件库、注册态库写侧与剪贴板写入全在 @duoling/offscreen-document；本文件只引它、
+// @duoling/shared 与总线。
 // 一旦 import store.ts / fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报
 // chrome.storage is undefined —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
 //
@@ -27,40 +28,21 @@
 
 import '@/polyfills'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
-// 标准化总线：本语境唯一的 onMessage 收口（serveIpc）+ 前缀路由 matcher；
-// ipcNotify 为单向推送入口（就绪握手 / 配置回拉触发）
-import { serveIpc, prefixMatcher, ipcNotify } from '@/shared/ipc-bus'
-// SW 保活轮询 + 本容器的服务实体（含剪贴板写入）+ 启动对账：都出自包，启动 / 注册归宿主
+// 标准化总线：本语境唯一的 onMessage 收口（serveIpc）+ 前缀路由 matcher
+import { serveIpc, prefixMatcher } from '@/shared/ipc-bus'
+// 对话编排、会话删除的资源回收、启动装配都出自包；入口只接线
 import {
-  OffscreenService,
   abortChat,
-  assetIdsOf,
+  clearAllConversationsWithAssets,
+  deleteConversationWithAssets,
   listOrphans,
-  reconcileFs,
-  refreshActiveProfile,
-  releaseAllAssets,
-  releaseUnreferencedAssets,
+  onConfigChanged,
   resolveOrphan,
   resumeChat,
   startChat,
-  startSwKeepalive,
+  startOffscreenHost,
 } from '@duoling/offscreen-document'
-import { registerOffscreenService } from '@duoling/shared'
-import {
-  createConversation,
-  deleteAllConversations,
-  deleteConversation,
-  renameConversation,
-} from '@/lib/conversation-store'
-
-/** 就绪握手：告知 SW 容器已起（SW 侧据此确认状态、排查启动问题） */
-function announceReady(): void {
-  // 经标准总线单向推送（尽力而为：SW 未就绪或未注册该命令时不阻断 offscreen 自身启动）
-  ipcNotify({ kind: 'offscreen:ready' })
-}
-
-// 模型配置写侧（model-store 写出口）的单向推送：offscreen 不 import model-store（SW 专属模块），
-// 配置变更由写侧推 offscreen:configChanged、这里触发回拉。
+import { createConversation, renameConversation } from '@/lib/conversation-store'
 
 /**
  * offscreen 应答的命令面前缀（与 SW 的 SW_KIND_PREFIXES 互补，两者并集须恰好覆盖
@@ -77,11 +59,8 @@ const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: Runt
   'chat:': (msg) => handleChatCommand(msg),
 }
 
-// 服务实体：顶层同步注册，迟了会漏掉早到的调用（容器重建会重跑本入口，故无需去重）。
-registerOffscreenService(new OffscreenService())
-
-// 保活：SW 空闲 30s 即回收，而 GM 链路的在途操作全押在它常驻上 —— 入口顶层启一次即全程在线。
-startSwKeepalive()
+// 服务实体、保活、就绪握手、首拉配置与启动对账都在包内，入口只负责起它。
+startOffscreenHost()
 
 // 命令面：UI / SW 经共享总线发来，offscreen 在此处理并回传。
 // 本语境**唯一**的 onMessage 监听器（标准化信道）：问询顺序 = 宿主前缀表（fs: / conv: / chat:）。
@@ -90,7 +69,8 @@ startSwKeepalive()
 serveIpc({
   matchers: [prefixMatcher(OFFSCREEN_KIND_PREFIXES, FS_HANDLERS)],
   observe: (msg) => {
-    if (msg.kind === 'offscreen:configChanged') void refreshActiveProfile()
+    // 写侧推来配置变更（offscreen 不 import SW 专属的 model-store），旁听到就回拉
+    if (msg.kind === 'offscreen:configChanged') onConfigChanged()
   },
 })
 
@@ -101,21 +81,12 @@ async function handleConvCommand(msg: RuntimeRequest): Promise<unknown> {
       return createConversation()
     case 'conv:rename':
       return renameConversation(msg.id, msg.title)
-    // 删会话连带回收图片资源：候选要**在删之前**取（删完就读不到这些消息了），
-    // 回收本身放在删之后（那时引用面才是「删完的真相」）。回收失败不影响删会话 ——
-    // 用户要的结果已经达成，留下的图最多是垃圾，下次再收（见 asset-lifecycle 文件头）。
-    case 'conv:delete': {
-      const candidates = await assetIdsOf(msg.id)
-      await deleteConversation(msg.id)
-      await releaseUnreferencedAssets(candidates).catch(() => {})
-      return undefined
-    }
+    // 删会话连带回收图片：先取候选、删完再算引用面，时序在包内
+    case 'conv:delete':
+      return deleteConversationWithAssets(msg.id)
     // 清空全部会话 = 引用面必然为空，整库删
-    case 'conv:deleteAll': {
-      await deleteAllConversations()
-      await releaseAllAssets().catch(() => {})
-      return undefined
-    }
+    case 'conv:deleteAll':
+      return clearAllConversationsWithAssets()
     default:
       throw new Error(`未知会话命令：${(msg as { kind: string }).kind}`)
   }
@@ -138,8 +109,3 @@ async function handleChatCommand(msg: RuntimeRequest): Promise<unknown> {
       throw new Error(`未知对话命令：${msg.kind}`)
   }
 }
-
-announceReady()
-void refreshActiveProfile()
-// 启动一次对账：清掉无主的孤儿仓目录（幂等，失败不阻断）
-void reconcileFs()

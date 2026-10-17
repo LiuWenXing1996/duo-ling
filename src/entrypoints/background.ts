@@ -142,7 +142,7 @@ import {
   ensureOffscreenReady,
 } from '@/lib/offscreen'
 // 模型配置：offscreen 既不直连存储、也不 import model-store（SW 专属模块），一律由
-// SW 经命令中转；变更推送由 model-store 写出口直发（见 offscreen-main.ts）。
+// SW 经命令中转；变更推送由 model-store 写出口直发（offscreen 侧见包内 bootstrap.ts）。
 import { getActiveProfileState } from '@/lib/model-store'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
 import { broadcastBuildPhase } from '@/lib/data-broadcast'

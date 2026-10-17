@@ -10,7 +10,7 @@
 // 数据」的演进节奏都不同，一个泛用 kv store 即可，不必为它们各建 schema。
 //
 // 读写方：扩展页 / SW 都可用（同源 IndexedDB）；offscreen 不 import 本模块
-// （模型配置经 SW 命令 / 推送获取，见 offscreen-main.ts）。node 单测 fake-indexeddb/auto 直测。
+// （模型配置经 SW 命令 / 推送获取，见包内 bootstrap.ts）。node 单测 fake-indexeddb/auto 直测。
 
 import { createIdbOpener, idbRequest as request, idbRunTx } from '@duoling/shared'
 

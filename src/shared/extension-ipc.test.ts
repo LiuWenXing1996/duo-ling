@@ -17,11 +17,11 @@ import { SW_KIND_PREFIXES } from '@/entrypoints/background'
 import { OFFSCREEN_KIND_PREFIXES } from '@/entrypoints/app/offscreen-main'
 
 // offscreen-main 的 import 链会带到 offscreen-document（文件库）：其 lfs 单例是**惰性**建的，
-// import 期不碰 indexedDB，故本文件不必再挡重依赖。只需把启动对账那一步换掉（见下）。
-// 启动对账会在 import 期真碰 fs/IDB，与本测试无关——保留其余真实导出
+// import 期不碰 indexedDB，故本文件不必再挡重依赖。只需把启动装配换成空实现（见下）。
+// 启动装配会真碰 fs/IDB 并起轮询，与本测试无关——其余导出保留真身
 vi.mock('@duoling/offscreen-document', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@duoling/offscreen-document')>()),
-  reconcileFs: vi.fn(async () => {}),
+  startOffscreenHost: vi.fn(),
 }))
 
 /** 期望的 kind 归属（side 取值 = 应答端）。真相源：extension-ipc.ts 的联合 + 各端入口的路由注释 */
