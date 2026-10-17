@@ -7,7 +7,7 @@
 | hook | 命令 | 说明 |
 | --- | --- | --- |
 | `pre-commit` | `pnpm run check:comments` | 快，挡注释卫生问题，不拖提交节奏 |
-| `pre-commit` | `pnpm exec secretlint {staged_files}` | 扫暂存文件里的密钥/凭据，命中即拦；只看文本类扩展名，无暂存文件时整条跳过 |
+| `pre-commit` | `pnpm exec secretlint {staged_files}` | 扫全部暂存文件里的密钥/凭据，命中即拦；不按扩展名过滤（env 文件、证书、无扩展名配置都在范围内），无暂存文件时整条跳过 |
 | `pre-push` | `pnpm run typecheck` + `pnpm run test`（并行） | 全量检查放 push 前，commit 前不跑 |
 
 ## 激活与跳过
