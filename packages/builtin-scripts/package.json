@@ -9,7 +9,8 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "dev": "node build.mjs --watch"
+    "dev": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@duoling/shared": "workspace:*"

@@ -1,3 +1,4 @@
+/// <reference types="node" />
 // GM API 目录（gm-api-catalog.ts）的**防漂移**测试。
 //
 // 目录是工作台「GM API」面板的唯一数据来源，而真身是 gm-wrapper.ts 里那段注入源码的**装配块**。

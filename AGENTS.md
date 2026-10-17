@@ -42,7 +42,7 @@
 | `pnpm run model:serve` | 起本机假模型（`scripts/model-stub.mts`，默认端口 5199，可用 `DL_MODEL_STUB_PORT` 覆盖）：一个 OpenAI 兼容的假服务，开发/手测对话链路时顶替真模型（不花真 Key、回复确定）。地址填进「设置 → 添加模型 → 服务商选自定义 → 接口地址」，密钥留空即可；**内置调试触发** —— 消息整句发「快照」或「页面环境」即回对应的工具调用，并把采集结果摘要成一句人话（含失败原因），手测 `page_snapshot` / `page_env_read` 这类要页面侧真跑一遍的工具链时不必写 plan（e2e 显式传 `plan` 时它不生效）。e2e 直接 import 本 `.mts` 源码取类型 |
 | `pnpm run build` | 构建，产出 `.output/chrome-mv3` |
 | `pnpm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
-| `pnpm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/` 与 `scripts/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
+| `pnpm run typecheck` | 类型检查：`pnpm -r build` → 逐包 `tsc --noEmit`（五个包各有 `typecheck` 脚本）→ 根 `vue-tsc --noEmit`（`src` / `e2e` / `scripts` 与包源码）；当前全仓零错误。单包自检 `pnpm --filter @duoling/<包> run typecheck`，跨包 import 走的是上游 `dist`，陈旧时先 `pnpm -r build`。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有根那道门禁拦得住 |
 | `pnpm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
 | `pnpm run test:coverage` | 单测覆盖率（v8 provider，终端 `text-summary` + HTML 报表落 `coverage/`）。**只作本地看数，不进 CI**；统计口径与 exclude 见 `vitest.config.ts` 的 `coverage` 段 |
 | `pnpm run test:e2e` | Playwright 端测（全程无头、跑 build 产物）。**脚本内先 `pnpm run build`**，不必手动先构建；也别绕开脚本直接调 playwright——端测读的是产物而非源码，产物陈旧时会静默跑旧代码（改了 `src/` 尤其注意） |

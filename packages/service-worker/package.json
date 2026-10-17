@@ -19,6 +19,7 @@
   "scripts": {
     "build": "node build-relay.mjs && vite build",
     "dev": "node build-relay.mjs && vite build --watch",
+    "typecheck": "tsc --noEmit",
     "test": "node build-relay.mjs && vitest run"
   },
   "dependencies": {

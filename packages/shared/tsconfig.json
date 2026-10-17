@@ -1,15 +1,10 @@
 {
-  // 包内编辑器与 vite-plugin-dts 的类型解析基准（根 tsconfig 另有一套全仓口径，两者并行）。
+  // 包内类型门禁：检查项统一在 ../tsconfig.base.json（与根口径同档），这里只声明类型面。
   // lib 带 DOM：源码引用 URL / crypto.getRandomValues 这类全局的**类型**（URL、Crypto 均
   // 由 DOM lib 声明）；「零 DOM 假设」是运行时边界，由源码纪律把守，这里只是类型层声明。
   // types 留空：不吃任何 @types（本包只该看见 ES 与 DOM 类型，看不见 node / chrome 的类型）。
+  "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "skipLibCheck": true,
-    "lib": ["ES2022", "DOM"],
     "types": []
   },
   "include": ["src"]

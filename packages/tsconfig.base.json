@@ -1,0 +1,22 @@
+{
+  // 五个子包的包级检查口径（与根 tsconfig 同档），各包只覆盖自己的 types / include。
+  // 跨包 import 走上游 dist：单独跑某个包的 typecheck 前先 `pnpm -r build`。
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    // 三项与根（module: Preserve）的隐含默认对齐：CJS 依赖的默认导入与 JSON 读取照旧放行
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "moduleDetection": "force",
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": false,
+    "noUnusedLocals": true,
+    "lib": ["ESNext", "DOM", "DOM.Iterable"]
+  }
+}
