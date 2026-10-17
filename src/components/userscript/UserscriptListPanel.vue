@@ -66,11 +66,19 @@ import {
 import { errorText, formatTimestamp } from '@/lib/format'
 import { isFileSchemeAccessAllowed } from '@/lib/extension-page'
 import { useDataSync } from '@/composables/use-data-sync'
-import { offscreenService, subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
+import {
+  offscreenService,
+  subscribeAvailability,
+  userscriptClient,
+} from '@/lib/userscripts/ui-client'
 import { looksLikeZip, toFileUrl } from '@/lib/userscripts/local-path'
 import { inspectFetchedText, toScriptUrl } from '@/lib/userscripts/script-url'
-import { parseUserScriptMetadata } from '@duoling/userscript-core'
-import { base64ToBytes, bytesToBase64, sanitizeDirName } from '@duoling/shared'
+import {
+  parseUserScriptMetadata,
+  base64ToBytes,
+  bytesToBase64,
+  sanitizeDirName,
+} from '@duoling/shared'
 import type { BuildPhase } from '@duoling/shared'
 import type {
   ImportReport,

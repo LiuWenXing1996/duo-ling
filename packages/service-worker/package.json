@@ -22,8 +22,7 @@
     "test": "node build-relay.mjs && vitest run"
   },
   "dependencies": {
-    "@duoling/shared": "workspace:*",
-    "@duoling/userscript-core": "workspace:*"
+    "@duoling/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/chrome": "^0.2.9",

@@ -16,9 +16,10 @@ offscreen 容器能力约定。机制的来龙去脉见 [ARCHITECTURE.md](../../
 | 宿主注入点 —— 扩展身份 / offscreen 就绪 / 遥测 / 密钥存储 / 内置件 | `host-config` |
 | 服务实体 —— `SWService`（`ISWService` 实现：保活探针） | `sw-service` |
 | offscreen 容器能力约定 —— 建文档用的 reason 集 | `offscreen-reasons` |
+| 注入源码生成 —— GM 包装前缀 / MAIN 世界脚本桥模板 | `gm-wrapper` / `script-bridge` |
+| GM 值存储 —— `GM_setValue` 一族与 usdata 库（`GM_getTab` 等） | `gm-values` / `usdata-db` |
 
-依赖方向：本包 → `@duoling/userscript-core`（语义与存储）→ `@duoling/shared`（契约），
-并经 `@duoling/shared` 取 offscreen 服务代理，无环。
+依赖方向：本包 → `@duoling/shared`（契约 / GM 语义 / 状态库 / 服务契约），无环。
 offscreen 侧是同层的另一个**进程包** `@duoling/offscreen-document`，与本包**互不 import**。
 
 ## manifest.json

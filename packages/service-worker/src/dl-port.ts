@@ -18,8 +18,8 @@
 //
 // 竞态（connect → onConnect 就绪窗口）：SW 建立连接后立即下发 { t:'port.ready' } 内部帧，
 // 脚本包装层收到它才 flush 待注册队列 —— 见 engine.ts 包装层，脚本作者不感知。
-import type { ApiEvent, ApiEventFrame, Json } from '@duoling/userscript-core'
-import { onGmValueChange } from '@duoling/userscript-core'
+import type { ApiEvent, ApiEventFrame, Json } from '@duoling/shared'
+import { onGmValueChange } from './gm-values'
 
 // —— 纯逻辑：解析与注册表（node 单测直接覆盖，不 mock chrome）——
 

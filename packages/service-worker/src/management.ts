@@ -11,8 +11,7 @@
 // 覆盖面（刻意只读）：list / getProject / groups / availability。其余 userscript:*
 // 命令（save / toggle / import / tabActivity…）押着宿主机器（offscreen 单写方、
 // 重注册引擎、观测库），handler 留在宿主侧，不假装通用。
-import { readAllGroups, readAllProjects, readProject } from '@duoling/userscript-core'
-import { listSummaries } from '@duoling/shared'
+import { readAllGroups, readAllProjects, readProject, listSummaries } from '@duoling/shared'
 import { getUserScriptsStatus } from './registration'
 
 /** 本包认领的命令 kind（宿主总线的优先问询面；全部只读） */

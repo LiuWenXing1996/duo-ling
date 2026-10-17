@@ -4,7 +4,7 @@
 // （读侧 lib/userscripts/project-store.ts 直连 IDB，写侧在包内 userstate/project-write）。
 // 本文件管观测数据（duoling-runtime 库，见 runtime-db.ts —— 标签页存续 + 一根活动轴：
 // 文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误）；GM 值存储（duoling-usdata 库）
-// 在 `@duoling/userscript-core` 的 gm-values.ts。
+// 在 `@duoling/service-worker` 的 gm-values.ts。
 //
 // 观测数据的读改写在 runtime-db 的同一事务内完成（天然原子），故这里不再需要
 // chrome.storage 时代的进程内串行队列；「无变化不落盘」语义原样保留，广播只在实际

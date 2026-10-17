@@ -7,8 +7,7 @@
 // `@grant` 名，都不会有任何运行时报错 —— 只会让模型照着错的东西生成脚本，而用户看到的只是一份跑不通
 // 的脚本。能力清单与 `@grant` 一节已由数据生成，这里防的是「有人改回手写」与「手写段引用错名字」。
 import { describe, expect, it } from 'vitest'
-import { GM_API_ENTRIES, specEntries } from '@duoling/userscript-core'
-import { ALWAYS_WINDOW_MEMBERS, GRANT_NAMES } from '@duoling/userscript-core'
+import { GM_API_ENTRIES, specEntries, ALWAYS_WINDOW_MEMBERS, GRANT_NAMES } from '@duoling/shared'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
 /** 规范文本里**故意**点名、但不在能力目录里的成员（目录 = 已实现的成员） */

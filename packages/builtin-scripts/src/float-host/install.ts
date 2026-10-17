@@ -8,7 +8,7 @@
 // `__DL_FLOAT_EXT_NAME__`），应用侧组系统脚本源码时替换成 JSON 字面量（见 system-scripts.ts
 // 的 floatHostProject）。本件因此对应用源码零依赖，也不认识 chrome.*。
 //
-// 指令（下行帧形状真相源是 userscript-core 的 api-contract.ts 的 float.cmd）：
+// 指令（下行帧形状真相源是 shared 的 api-contract.ts 的 float.cmd）：
 //   open      挂上容器并展开。容器按需创建，iframe 懒加载（首次展开才设 src）；tabId 随帧带
 //             （拼进 iframe 的 `?tab=`，浮层据此认定会话归属）
 //   collapse  收起：容器回到 display:none，iframe 与面板文档都留着 —— 再打开就是原状态
@@ -49,7 +49,7 @@ const PICKER_BOX_SELECTOR = `.${INSPECTOR_PICKER_NS}-box`
 
 /**
  * 脚本桥（GM 包装内联进同一作用域的 `__dlBridge`，恒注入）。
- * 形状真相源是 userscript-core 的 script-bridge.ts；这里只声明本件用到的方法。
+ * 形状真相源是 service-worker 的 script-bridge.ts；这里只声明本件用到的方法。
  */
 declare const __dlBridge: {
   connect(connId: string): Promise<void>
@@ -458,7 +458,7 @@ export function installFloatHost(): void {
 
   /**
    * 指令入口：四个 cmd 各自对应上面的动作，未知帧静默忽略。
-   * 通道形状真相源是 userscript-core 的 api-contract.ts（float.cmd / float.pong）。
+   * 通道形状真相源是 shared 的 api-contract.ts（float.cmd / float.pong）。
    */
   function handleCommand(ev: Record<string, unknown>): void {
     if (ev.t !== 'float.cmd') return

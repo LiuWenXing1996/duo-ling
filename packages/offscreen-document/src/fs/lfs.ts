@@ -1,6 +1,6 @@
 // 用户脚本源码与 git 仓的底层文件系统（lightning-fs 单例），**offscreen-only**。
 //
-// 这就是「duoling-fs」库——源码的唯一权威来源（见 AGENTS.md「存储」与 userscript-core 的
+// 这就是「duoling-fs」库——源码的唯一权威来源（见 AGENTS.md「存储」与 shared 的
 // ScriptProject 注释）：每个脚本的源码文件树与 git 历史都落在 `/uscripts/<uuid>/` 下，
 // 由 offscreen 独占读写；SW 与扩展页要读源码，一律经本包的服务方法取。
 //

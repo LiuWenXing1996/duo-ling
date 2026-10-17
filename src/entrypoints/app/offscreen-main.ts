@@ -15,7 +15,7 @@
 //
 // 模块归属（硬约束）：本入口只允许 import extension-chat-transport.ts、ai SDK、
 // offscreen-bridge.ts、offscreen-chat/（对话编排，内部只引裸 IndexedDB 模块）、
-// @duoling/userscript-core / @duoling/offscreen-document（纯函数 + offscreen 环境代码，
+// @duoling/shared / @duoling/offscreen-document（纯函数 + offscreen 环境代码，
 // import 期零副作用；文件库 duoling-fs、注册态库写侧与剪贴板写入都在其中，分别经 fs
 // 原语与 OffscreenService 暴露）。
 // 一旦 import store.ts / fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报

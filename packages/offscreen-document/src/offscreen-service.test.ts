@@ -40,13 +40,13 @@ vi.mock('./userstate/project-write', () => ({
   setProjectEnabled: vi.fn(),
   setProjectGroup: vi.fn(),
 }))
-// 广播只换实现：断言「写完广播了 / 写失败不广播」要能数调用，其余 core 导出取真身
-vi.mock('@duoling/userscript-core', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@duoling/userscript-core')>()),
+// 广播只换实现：断言「写完广播了 / 写失败不广播」要能数调用，其余导出取真身
+vi.mock('@duoling/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@duoling/shared')>()),
   broadcastDataChange: vi.fn(),
 }))
 
-import { broadcastDataChange } from '@duoling/userscript-core'
+import { broadcastDataChange } from '@duoling/shared'
 import * as clipboard from './clipboard'
 import * as fsAssets from './fs/assets'
 import * as fsGit from './fs/git'

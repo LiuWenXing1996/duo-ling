@@ -4,7 +4,7 @@
 // 不 mock project-store，这样「改了配置门还认旧值」这类缓存 bug 能被真抓到。
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { broadcastDataChange, removeProjects, writeProject } from '@duoling/userscript-core'
+import { broadcastDataChange, removeProjects, writeProject } from '@duoling/shared'
 import { checkCookieUrl, invalidateCookieScope } from './cookie-gate'
 import type { ScriptConfig, ScriptProject } from '@duoling/shared'
 

@@ -1,9 +1,9 @@
-// 数据变更广播：跨语境广播的**唯一实现**（应用侧原 src/lib/data-broadcast.ts 已并入本文件）。
+// 数据变更广播：跨语境广播的**唯一实现**。
 //
 // IDB 没有变更通知，写侧落盘后经此通知别处回拉。广播**只带「哪个域的哪条变了」，不带数据**
-// —— 接收方自己去权威存储回拉，不新增第二份真相。频道名 / 合并窗口 / 推送形状的真相源在
-// @duoling/shared（data-broadcast.ts，跨世界契约）：同扩展内互通是硬要求，字面量放两侧只能靠
-// 注释对齐。消费方 = 本包（gm-values 写出口 / cookie-gate 订阅）+ 应用各载体。
+// —— 接收方自己去权威存储回拉，不新增第二份真相。频道名 / 合并窗口 / 推送形状见本包
+// data-broadcast.ts（跨世界契约）。消费方 = 两个进程包（gm-values 写出口 / cookie-gate 订阅
+// / offscreen 写侧）+ 应用各载体。
 //
 // 通道选型：BroadcastChannel 优先（同源多播、**不会唤醒休眠的 SW**）；拿不到时降级
 // chrome.runtime.sendMessage（功能等价，只是多了唤醒代价）。
@@ -14,7 +14,23 @@ import {
   type BuildPhase,
   type DataChangedPush,
   type DataDomain,
-} from '@duoling/shared'
+} from './data-broadcast'
+
+/**
+ * 降级通道：BroadcastChannel 拿不到时才用。
+ * 本包不吃 chrome 类型（tsconfig `types: []`），故就地取结构，不引全局声明。
+ */
+interface RuntimePort {
+  sendMessage(message: unknown): Promise<unknown>
+  onMessage?: {
+    addListener(fn: (raw: unknown) => void): void
+    removeListener(fn: (raw: unknown) => void): void
+  }
+}
+
+function runtimePort(): RuntimePort | null {
+  return (globalThis as { chrome?: { runtime?: RuntimePort } }).chrome?.runtime ?? null
+}
 
 // 收发用**两个**实例：BroadcastChannel 不会把消息回发给发送它的那个实例，
 // 若收发共用一个，将来若有「页面内直接写」的路径就会出现「自己收不到自己的通知」。
@@ -43,10 +59,12 @@ function emit(push: DataChangedPush): void {
     return
   }
   // 降级：sendMessage 无人接收时会产生 lastError，静默吞掉
+  const port = runtimePort()
+  if (!port) return
   try {
-    void chrome.runtime.sendMessage(push).catch(() => {})
+    void port.sendMessage(push).catch(() => {})
   } catch {
-    // chrome.runtime 不在（如纯 Node 测试环境）：广播本就是尽力而为，不影响主链路
+    // 广播本就是尽力而为，不影响主链路
   }
 }
 
@@ -108,14 +126,15 @@ export function subscribeDataChange(listener: (push: DataChangedPush) => void): 
   }
   // 降级：环境既无 BroadcastChannel 又无 chrome（如某些测试环境），
   // 广播本就是尽力而为，订阅直接静默 no-op，不能让组件挂载炸掉
+  const listeners = runtimePort()?.onMessage
+  if (!listeners) return () => {}
+  const onMessage = (raw: unknown): void => {
+    const push = raw as DataChangedPush | undefined
+    if (push?.kind === 'data:changed') listener(push)
+  }
   try {
-    if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage) return () => {}
-    const onMessage = (raw: unknown): void => {
-      const push = raw as DataChangedPush | undefined
-      if (push?.kind === 'data:changed') listener(push)
-    }
-    chrome.runtime.onMessage.addListener(onMessage)
-    return () => chrome.runtime.onMessage.removeListener(onMessage)
+    listeners.addListener(onMessage)
+    return () => listeners.removeListener(onMessage)
   } catch {
     return () => {}
   }

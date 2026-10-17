@@ -17,9 +17,12 @@
 //   · 只缓存配置，不缓存判定结果；
 //   · 收到任何 script 域变更就整表清空（脚本数量级很小，不做精细失效，避免漏清）；
 //   · 单测专门覆盖「配置改了 + 广播后门即时生效」（cookie-gate.test.ts）。
-import { subscribeDataChange } from '@duoling/userscript-core'
-import { readProject } from '@duoling/userscript-core'
-import { urlInCookieScope, type CookieScope } from '@duoling/userscript-core'
+import {
+  subscribeDataChange,
+  readProject,
+  urlInCookieScope,
+  type CookieScope,
+} from '@duoling/shared'
 
 /** 门判定结果：错误码与 ApiErrorCode 的同名项对齐，由调用方（dl-bridge）转成 ApiError */
 export type CookieGateResult =

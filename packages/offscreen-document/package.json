@@ -22,7 +22,6 @@
   },
   "dependencies": {
     "@duoling/shared": "workspace:*",
-    "@duoling/userscript-core": "workspace:*",
     "@isomorphic-git/lightning-fs": "4.7.0",
     "fflate": "^0.8.3",
     "isomorphic-git": "1.42.2"

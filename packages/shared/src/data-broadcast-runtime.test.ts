@@ -3,7 +3,7 @@
 // 模块的 rx / tx 是模块级单例，故每个用例前 vi.resetModules() 拿全新实例，
 // 否则「上一个用例已创建过 channel」会让降级路径根本走不到。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DataChangedPush } from '@duoling/shared'
+import type { DataChangedPush } from './data-broadcast'
 
 /** 内存版 BroadcastChannel：同频道互发，**不回发给发送实例**（与浏览器一致） */
 class FakeChannel {
@@ -26,9 +26,9 @@ class FakeChannel {
   }
 }
 
-async function fresh(): Promise<typeof import('./data-broadcast')> {
+async function fresh(): Promise<typeof import('./data-broadcast-runtime')> {
   vi.resetModules()
-  return import('./data-broadcast')
+  return import('./data-broadcast-runtime')
 }
 
 beforeEach(() => {

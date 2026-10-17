@@ -10,8 +10,7 @@
 //   · `ApiRequest['c']` ↔ dispatch 的 switch：`default` 里的 `never` 穷尽性检查已覆盖。
 // 本文件只管**发送侧**那一条缝。
 import { describe, expect, it } from 'vitest'
-import type { GmInfo } from './api-contract'
-import { API_COMMANDS } from './api-contract'
+import { API_COMMANDS, type GmInfo } from '@duoling/shared'
 import { buildGmWrapperPrefix } from './gm-wrapper'
 
 /** 造一份最小 GM_info（userAgent / isIncognito 由包装运行时就地补，故不传） */

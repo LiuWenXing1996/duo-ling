@@ -19,7 +19,7 @@
 // `@updateURL` / `@downloadURL` / `@homepageURL` 是油猴生态自带的分发约定：脚本自己在块里声明
 // 它从哪来、去哪取新版。读下来只为「认领来源」与后续的更新提示用，**不改变注入行为**。
 // `@homepage` 与 `@homepageURL` 是同一件事的两种写法（TM 两者都认），见 SINGLE_KEYS 的归一。
-import type { ScriptConfig, ScriptResourceDecl } from '@duoling/shared'
+import type { ScriptConfig, ScriptResourceDecl } from './script-config'
 import { isValidMatchPattern, parseMatchPattern } from './match-pattern'
 
 /** 一个 metadata 块的解析产物（原样值，未与 config 归一化） */

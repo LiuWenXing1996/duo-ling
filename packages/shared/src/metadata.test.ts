@@ -5,14 +5,10 @@
 //   ② 产出的 match pattern **一定是 Chrome 会接受的**：isValidMatchPattern 的语法有个已知宽松点
 //      （host 段可为空 → `*:///foo/*` 被判合法），解析器必须绕开它，否则错误会拖到注册期才以英文异常冒出。
 import { describe, expect, it } from 'vitest'
-import {
-  applyMetadataToConfig,
-  parseUserScriptMetadata,
-  resolveConfigFromSource,
-} from './metadata'
+import { applyMetadataToConfig, parseUserScriptMetadata, resolveConfigFromSource } from './metadata'
 import type { ParsedMetadata } from './metadata'
 import { isValidMatchPattern, parseMatchPattern } from './match-pattern'
-import { defaultConfig } from '@duoling/shared'
+import { defaultConfig } from './script-config'
 
 /** 造一个解析产物（只填关心的字段） */
 function mk(patch: Partial<ParsedMetadata>): ParsedMetadata {

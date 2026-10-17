@@ -12,9 +12,8 @@
 // 世界要求：注册到独立世界（worldId: SCRIPT_RELAY_WORLD_ID）且必须
 // configureWorld({ messaging: true })，否则世界内没有 chrome.runtime，整条桥静默失效。
 import type { ScriptProject } from '@duoling/shared'
-import { BRIDGE_RELAY_BOOT_KEY } from '@duoling/shared'
+import { BRIDGE_RELAY_BOOT_KEY, enabledMatchUnion, sameMatchSet } from '@duoling/shared'
 import { RELAY_IIFE } from './relay-code.gen'
-import { enabledMatchUnion, sameMatchSet } from '@duoling/userscript-core'
 import { configureWorld, getOrCreatePageSecret } from '../registration'
 
 /** 注册 id（一个扩展一份） */

@@ -9,7 +9,7 @@ import {
   pushEvent,
   pushFetchProgress,
 } from './dl-port'
-import type { ApiEvent } from '@duoling/userscript-core'
+import type { ApiEvent } from '@duoling/shared'
 
 function fakePort(name = 'duoling:dl:u1:c1'): chrome.runtime.Port {
   return { name, postMessage: () => {} } as unknown as chrome.runtime.Port

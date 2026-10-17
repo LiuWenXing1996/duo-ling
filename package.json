@@ -46,7 +46,6 @@
     "@duoling/offscreen-document": "workspace:*",
     "@duoling/service-worker": "workspace:*",
     "@duoling/shared": "workspace:*",
-    "@duoling/userscript-core": "workspace:*",
     "@isomorphic-git/lightning-fs": "4.7.0",
     "@lezer/highlight": "^1.2.3",
     "@lucide/vue": "^1.45.0",

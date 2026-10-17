@@ -33,7 +33,6 @@ packages/builtin-scripts/dist/
 
 # 子包的构建产物（Vite lib 模式：mjs / cjs / d.ts，消费方走 package.json exports）
 packages/shared/dist/
-packages/userscript-core/dist/
 packages/service-worker/dist/
 packages/offscreen-document/dist/
 

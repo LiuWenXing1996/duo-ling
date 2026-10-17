@@ -246,9 +246,6 @@ importers:
       '@duoling/shared':
         specifier: workspace:*
         version: link:packages/shared
-      '@duoling/userscript-core':
-        specifier: workspace:*
-        version: link:packages/userscript-core
       '@isomorphic-git/lightning-fs':
         specifier: 4.7.0
         version: 4.7.0
@@ -395,9 +392,6 @@ importers:
       '@duoling/shared':
         specifier: workspace:*
         version: link:../shared
-      '@duoling/userscript-core':
-        specifier: workspace:*
-        version: link:../userscript-core
       '@isomorphic-git/lightning-fs':
         specifier: 4.7.0
         version: 4.7.0
@@ -432,9 +426,6 @@ importers:
       '@duoling/shared':
         specifier: workspace:*
         version: link:../shared
-      '@duoling/userscript-core':
-        specifier: workspace:*
-        version: link:../userscript-core
     devDependencies:
       '@types/chrome':
         specifier: ^0.2.9
@@ -464,6 +455,9 @@ importers:
         specifier: ^3.0.2
         version: 3.0.2(@webext-core/messaging@4.0.0(@types/chrome@0.2.9))
     devDependencies:
+      fake-indexeddb:
+        specifier: ^6.2.5
+        version: 6.2.5
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -488,31 +482,6 @@ importers:
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
-
-  packages/userscript-core:
-    dependencies:
-      '@duoling/shared':
-        specifier: workspace:*
-        version: link:../shared
-    devDependencies:
-      '@types/chrome':
-        specifier: ^0.2.9
-        version: 0.2.9
-      fake-indexeddb:
-        specifier: ^6.2.5
-        version: 6.2.5
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-      vite:
-        specifier: ^8.3.0
-        version: 8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(less@4.9.1)
-      vite-plugin-dts:
-        specifier: ^5.1.1
-        version: 5.1.2(@vue/language-core@3.3.11)(esbuild@0.28.2)(rolldown@1.2.8)(typescript@5.9.3)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(less@4.9.1))
-      vitest:
-        specifier: ^5.0.1
-        version: 5.0.1(@types/node@26.5.1)(@vitest/coverage-v8@5.0.1)(happy-dom@20.14.5)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(less@4.9.1))
 
 packages:
 

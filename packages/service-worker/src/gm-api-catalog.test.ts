@@ -5,10 +5,12 @@
 //
 // 另一道防线在类型层：能力表的键必须恰好覆盖 `keyof GmGlobalFns`
 // （`satisfies Record<GmGlobalName, Capability>`），契约增删方法而目录没跟上 → typecheck 红。
+//
+// 用例住在 sw 包：目录在 shared、真身在本地 gm-wrapper.ts，依赖方向只允许 sw → shared，
+// 故两边对照落在下游这侧，shared 不必反向知道包装的存在。
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { GM_API_ENTRIES, GM_API_GROUPS } from './gm-api-catalog'
-import { GRANT_NAMES } from './gm-grants'
+import { GM_API_ENTRIES, GM_API_GROUPS, GRANT_NAMES } from '@duoling/shared'
 
 const WRAPPER_SRC = readFileSync(new URL('./gm-wrapper.ts', import.meta.url), 'utf8')
 

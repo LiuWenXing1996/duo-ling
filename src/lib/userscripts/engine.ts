@@ -38,7 +38,7 @@ import {
 // 注册判据就一句「有没有页在录」—— 直接查存续表，录制不再有第二本账
 import { hasRecordingTabSession } from './runtime-db'
 // 匹配并集比对（「未变则跳过」）：已上移包内，随 index 导出
-import { sameMatchSet } from '@duoling/userscript-core'
+import { sameMatchSet, matchPatternCoversUrl } from '@duoling/shared'
 // 通用引擎件（包内 registration.ts）：世界配置 / 注册 / 注销 / 串行队列 / 中继件注册同步
 import {
   enqueueRegistration,
@@ -48,7 +48,6 @@ import {
   unregisterScripts,
 } from '@duoling/service-worker'
 // 匹配面判定（scheme + host）：内置件「这一页用不用得上」与 cookie 域名门同一套判据
-import { matchPatternCoversUrl } from '@duoling/userscript-core'
 
 // —— 内置注册的 id 全集 ——
 

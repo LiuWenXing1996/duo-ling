@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url'
 
 // —— 常量：与 @duoling/offscreen-document 的 fs/zip 保持一致 ——
 
-/** 单文件源码后缀（@duoling/userscript-core 的 SCRIPT_EXT）：样例目录里唯一的 *.user.js 即源码 */
+/** 单文件源码后缀（@duoling/shared 的 SCRIPT_EXT）：样例目录里唯一的 *.user.js 即源码 */
 const SCRIPT_EXT = '.user.js'
 const DIR_NAME_MAX = 64
 

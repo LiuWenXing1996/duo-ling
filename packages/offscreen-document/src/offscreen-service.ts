@@ -17,8 +17,14 @@ import type {
   ScriptGroup,
   ScriptProject,
 } from '@duoling/shared'
-import { broadcastDataChange, resolveConfigFromSource } from '@duoling/userscript-core'
-import { defaultConfig, base64ToBytes, bytesToBase64, parseDataUrl } from '@duoling/shared'
+import {
+  broadcastDataChange,
+  resolveConfigFromSource,
+  defaultConfig,
+  base64ToBytes,
+  bytesToBase64,
+  parseDataUrl,
+} from '@duoling/shared'
 import { writeClipboard } from './clipboard'
 import { putAsset, readAsset } from './fs/assets'
 import { listHistory, readSnapshotAt, readSource, restoreToCommit } from './fs/git'

@@ -1,6 +1,6 @@
 // 样例脚本的 GM 类型面（自持、宽松）：只为编辑器提示与 tsc 消音，**不是运行时契约**。
 //
-// GM 真实形状的真相源是 @duoling/userscript-core 的 gm-api-catalog.ts / gm-grants.ts /
+// GM 真实形状的真相源是 @duoling/shared 的 gm-api-catalog.ts / gm-grants.ts /
 // spec-text.ts；本文件刻意只给 `any` 级声明 —— 样例要在哆灵与 Tampermonkey 两侧无缝运行，
 // 在这里写实形状等于开第三份真相源，必然 drift。
 declare const GM_info: any

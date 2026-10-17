@@ -1,4 +1,4 @@
-// GM 后台桥（协议契约 @duoling/userscript-core 的 api-contract.ts）。
+// GM 后台桥（协议契约 @duoling/shared 的 api-contract.ts）。
 //
 // 脚本桥中继件（包内 relay/install.ts，USER_SCRIPT 世界）经 chrome.runtime.sendMessage 发来的消息，
 // 因世界已 configureWorld({messaging:true})，被路由到本文件的 runtime.onUserScriptMessage（而非通用 onMessage）。
@@ -24,7 +24,7 @@ import type {
   FetchInit,
   FetchPayload,
   Json,
-} from '@duoling/userscript-core'
+} from '@duoling/shared'
 // Port 事件底座：控制面实现（菜单登记 / 键级与全量值订阅 / 通知归属 / URL 订阅）
 import {
   registerScriptMenu,
@@ -42,10 +42,14 @@ import {
 import { checkCookieUrl } from './cookie-gate'
 // 标签页录制：转发件送来的采集载荷在 SW 侧按**种类**白名单化；落库走遥测 port（宿主注入）
 // 同包的 createOffscreenService 替 SW 写剪贴板 —— document 只在 offscreen 里
-import { normalizeNetCapture, NET_TAB_KIND, createOffscreenService } from '@duoling/shared'
+import {
+  normalizeNetCapture,
+  NET_TAB_KIND,
+  createOffscreenService,
+  broadcastDataChange,
+} from '@duoling/shared'
 // GM 值写出口（duoling-usdata 库；store.change 变更事件从这里直发）
 import {
-  broadcastDataChange,
   getGMValue,
   setGMValue,
   deleteGMValue,
@@ -54,9 +58,9 @@ import {
   getGMValues,
   listGMKeys,
   getAllGMValues,
-} from '@duoling/userscript-core'
+} from './gm-values'
 // GM_getTab 标签页级存储后端（duoling-usdata 库，SW 独占写）
-import * as usdata from '@duoling/userscript-core'
+import * as usdata from './usdata-db'
 // GM_xmlhttpRequest 特权增强：forbidden header 覆写（DNR session 规则）+ redirect:'manual'（webRequest 观测）
 import {
   splitHeaders,

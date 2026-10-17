@@ -11,7 +11,7 @@
 //
 // 运行位置：MAIN 世界的**系统脚本**（GM 包装注入，见应用侧 system-scripts.ts）——
 // 本件源码由 esbuild 打成 IIFE 资产，注册时经 registerScript 走统一脚本链，包装层把
-// `__dlBridge` 内联进同一作用域（形状真相源见 userscript-core 的 script-bridge.ts）。
+// `__dlBridge` 内联进同一作用域（形状真相源见 service-worker 的 script-bridge.ts）。
 // 上行路径：emit → 中继件 → SW 的 __dlEvent 分流（ingestTabRecord）—— 与旧「MAIN 件
 // postMessage + USER_SCRIPT 转发件」的两件形态等跳数，转发件已退役。
 //
@@ -35,7 +35,7 @@ declare global {
 
 /**
  * 脚本桥的上行口（GM 包装内联进同一作用域的 `__dlBridge`，恒注入）。
- * 形状真相源是 userscript-core 的 script-bridge.ts；这里只声明本件用到的那一个方法。
+ * 形状真相源是 service-worker 的 script-bridge.ts；这里只声明本件用到的那一个方法。
  */
 declare const __dlBridge: {
   emit(envelope: Record<string, unknown>): void

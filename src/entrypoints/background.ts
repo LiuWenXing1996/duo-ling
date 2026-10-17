@@ -34,6 +34,13 @@ import {
   unregisterScripts,
   collectCspWarnings,
   resolveInjectCode,
+  onAvailabilityChange,
+  startAvailabilityWatch,
+  createServiceWorkerHost,
+  swIpcHandlers,
+  SW_IPC_OWNED_KINDS,
+  SWService,
+  clearGMValues,
 } from '@duoling/service-worker'
 // 本扩展自己的注入件注册同步（系统脚本 + 中继件并集）与内置件对账
 import {
@@ -41,33 +48,31 @@ import {
   refreshTabRecorder,
   listBuiltinRegistrations,
   builtinsOnPage,
+  BUILTIN_SCRIPT_IDS,
+  syncAllBuiltins,
 } from '@/lib/userscripts/engine'
 import type { BuiltinRegistration } from '@/lib/userscripts/engine'
 // metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
 // 真正的归一化在写入口一处（offscreen 写侧的 saveSource），此处不写回任何东西
-import { resolveConfigFromSource } from '@duoling/userscript-core'
+import {
+  resolveConfigFromSource,
+  createOffscreenService,
+  registerSWService,
+  type SaveOutcome,
+} from '@duoling/shared'
 // 标签页录制：录到的采样与语料压缩都归 SW（采样在 duoling-runtime 的 tab_events，
 // offscreen 与扩展页都不直连）。录制的开关跟着活动记录走，判据落在存续表上 —— 见 tab-sessions。
 import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts/net-digest'
 // 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
-import { onAvailabilityChange, startAvailabilityWatch } from '@duoling/service-worker'
 // 新版本检查：SW 在浏览器启动 / 安装更新时各查一次，结果落 duoling-app 库供 popup 与设置页读
 import { runUpdateCheck } from '@/lib/update-check'
 // GM 运行时接线：SW 侧工厂（配置注入 + 桥与 Port 监听注册同点完成，见 initUserScripts）
 // + SW 侧服务实体（代理调用经库 listener 直达，不占总线 matcher 位）
-import {
-  createServiceWorkerHost,
-  swIpcHandlers,
-  SW_IPC_OWNED_KINDS,
-  SWService,
-} from '@duoling/service-worker'
 // OffscreenService 消费侧：项目数据的写路径（见下方 offscreenService）
-import { createOffscreenService, registerSWService, type SaveOutcome } from '@duoling/shared'
 // 标准化总线：本语境命令面唯一的 onMessage 收口（serveIpc）+ 路由 matcher（前缀表 / 包命令面）
 import { serveIpc, prefixMatcher, packMatcher, ipcRequest, ipcNotify } from '@/shared/ipc-bus'
 import { duolingTelemetry } from '@/lib/userscripts/telemetry'
 // 产品内置件注入面：内置注册 id 全集（stale 清扫排除）与四件全量同步（挂包侧注册串行链）
-import { BUILTIN_SCRIPT_IDS, syncAllBuiltins } from '@/lib/userscripts/engine'
 // 标签页存续（tabId 的稳定替身）：开关（连同「开始 / 结束记录」两条标记）、事件（刷新、地址变更）、
 // 盖章与启动划断（都替当时还在记的行收个尾）都归 SW ——「这一页在不在记活动、经历了什么、
 // 什么时候关的」只有常驻 SW 看得见，扩展页与 offscreen 都不该各记一份。
@@ -97,7 +102,6 @@ import {
   deleteTabActivity,
 } from '@/lib/userscripts/store'
 // GM 值存储（duoling-usdata 库）：脚本删除 / 清库时清各自的值
-import { clearGMValues } from '@duoling/userscript-core'
 // 观测数据的底层表（duoling-runtime 库）：存续表全量给「活动历史」按标签页分档用；
 // 某一页的整根活动轴（存续轴事件 + 接口采样）一次读回 —— 录制按标签页，读也就按标签页。
 import { findOpenTabSession, listTabSessions, listTabTimeline } from '@/lib/userscripts/runtime-db'
@@ -123,10 +127,20 @@ import {
 import { listConversations } from '@/lib/conversation-store'
 // 「这一页是不是普通网页」的判据（页面概览只收普通网页，与 popup 的按钮判据同源）
 import { webHostname } from '@/lib/web-hostname'
-import type { ImportReport, RunEndReason, ScriptGroup, ScriptProject } from '@/lib/userscripts/types'
+import type {
+  ImportReport,
+  RunEndReason,
+  ScriptGroup,
+  ScriptProject,
+} from '@/lib/userscripts/types'
 
 // offscreen document 容器（AI 生成链路的执行宿主）
-import { ensureOffscreen, closeOffscreen, isOffscreenReady, ensureOffscreenReady } from '@/lib/offscreen'
+import {
+  ensureOffscreen,
+  closeOffscreen,
+  isOffscreenReady,
+  ensureOffscreenReady,
+} from '@/lib/offscreen'
 // 模型配置：offscreen 既不直连存储、也不 import model-store（SW 专属模块），一律由
 // SW 经命令中转；变更推送由 model-store 写出口直发（见 offscreen-main.ts）。
 import { getActiveProfileState } from '@/lib/model-store'

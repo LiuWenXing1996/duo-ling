@@ -18,7 +18,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
-import { GM_API_ENTRIES } from '@duoling/userscript-core'
+import { GM_API_ENTRIES } from '@duoling/shared'
 import { COVERS } from '../../packages/uscript-samples/src/omni-probe/covers'
 
 /** 探针构建产物（test 脚本先 `pnpm -r build`；单跑 vitest 前需先 build 一次） */

@@ -1,4 +1,4 @@
-// 用户脚本项目数据的**写侧**（offscreen 专属；单写方约定见 @duoling/userscript-core 的 state-db.ts）。
+// 用户脚本项目数据的**写侧**（offscreen 专属；单写方约定见 @duoling/shared 的 state-db.ts）。
 //
 // 源码的唯一权威在 duoling-fs（本包的 fs/git），状态库（duoling-state）退化为「注册态库」：
 // 只存元数据 + 源码搬运副本。**一切源码落盘都收敛到 saveSource 一个入口**：
@@ -21,8 +21,11 @@ import {
   resolveConfigFromSource,
   writeGroup,
   writeProject,
-} from '@duoling/userscript-core'
-import { defaultConfig, defaultSource, base64ToBytes, errorText } from '@duoling/shared'
+  defaultConfig,
+  defaultSource,
+  base64ToBytes,
+  errorText,
+} from '@duoling/shared'
 import type {
   ScriptConfig,
   ScriptGroup,

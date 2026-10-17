@@ -2,7 +2,7 @@ import { isAbsolute } from 'node:path'
 import dts from 'vite-plugin-dts'
 import { defineConfig } from 'vitest/config'
 
-// 跨世界契约包：一份 vite.config 同时喂构建（lib 模式）与单测（vitest）。
+// 共享层包（跨世界契约 + 共享实现）：一份 vite.config 同时喂构建（lib 模式）与单测（vitest）。
 //
 // 产物三件套（与 package.json 的 exports 三条件对齐）：
 //   dist/index.mjs（ESM）/ dist/index.cjs（CJS）/ dist/*.d.ts（类型出口，index.d.ts 为入口）。

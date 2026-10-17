@@ -14,7 +14,7 @@
 // 漂移防护（三道，方向互补）：
 //   ① **类型层**：能力表键必须恰好覆盖 `keyof GmGlobalFns`，缺一个 / 多一个 → typecheck 红；
 //   ② **源码层**：单测从 gm-wrapper.ts 的**装配块**反射真实挂载的键集合，与本目录双向比对
-//      （见同目录的 gm-api-catalog.test.ts）；
+//      （用例在 service-worker 包，见该包的 gm-api-catalog.test.ts）；
 //   ③ **规范层**：单测断言规范文本里提到的成员全在本目录、`@grant` 名全在 gm-grants
 //      （见 src/lib/offscreen-chat/spec-text.test.ts）；本文件说明里提到的 `@grant` 名同样受检
 //      （见本目录的单测）。

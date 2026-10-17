@@ -3,7 +3,7 @@
 // 反方向（状态库有、仓没有）不补建——源码唯一来源就是 duoling-fs，仓没了源码就没了，
 // 没有可补建的材料（状态库只有搬运副本，不是权威）。幂等，失败不阻断。
 // 触发点：offscreen 启动一次（宿主入口 offscreen-main.ts）。
-import { listProjects } from '@duoling/userscript-core'
+import { listProjects } from '@duoling/shared'
 import { deleteRepo, listRepoDirs } from '../fs/git'
 
 export async function reconcileFs(): Promise<void> {

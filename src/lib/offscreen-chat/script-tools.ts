@@ -23,7 +23,7 @@ import {
 } from '@/lib/agent-tools-catalog'
 import { getProject, listProjects } from '@/lib/userscripts/project-store'
 import { readSource } from '@duoling/offscreen-document'
-import { resolveConfigFromSource } from '@duoling/userscript-core'
+import { resolveConfigFromSource } from '@duoling/shared'
 import { defaultConfig } from '@/lib/userscripts/types'
 import type {
   ScriptConfig,
