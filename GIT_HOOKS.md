@@ -6,9 +6,12 @@
 
 | hook | 命令 | 说明 |
 | --- | --- | --- |
+| `commit-msg` | `pnpm exec commitlint --edit {1}` | 提交信息校验（`commitlint.config.mjs` 继承官方约定预设）：type 白名单、scope 形态、subject 非空与标点；Merge / Revert 开头的消息按默认规则放行。规则基线见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)「提交信息格式」 |
 | `pre-commit` | `pnpm run check:comments` | 快，挡注释卫生问题，不拖提交节奏 |
 | `pre-commit` | `pnpm run check:comment-baseline` | 注释密度 ratchet 基线，同为秒级静态扫描；高于基线 0.5pp 即拦，治理注释 / 合理增注需 `--update` 显式刷新基线后重提。未达目标基线（target）前密度降了会自动降基线，改动随本次提交入库 |
+| `pre-commit` | `pnpm run check:packages` | 包边界门禁，规则见 [AGENTS.md](AGENTS.md) 命令表对应行 |
 | `pre-commit` | `pnpm exec secretlint {staged_files}` | 扫全部暂存文件里的密钥/凭据，命中即拦；不按扩展名过滤（env 文件、证书、无扩展名配置都在范围内），无暂存文件时整条跳过 |
+| `pre-push` | `pnpm run check:branch` | 分支名合规检查，第一道（fail fast）；规则见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)「分支命名」 |
 | `pre-push` | `pnpm run typecheck` + `pnpm run test`（串行） | 全量检查放 push 前，commit 前不跑。**不能并行**：两个脚本各自带 `pnpm -r build`，同时清空并写入 `packages/*/dist` 会撞出 `ENOTEMPTY` |
 
 ## CI 侧

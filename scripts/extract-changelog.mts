@@ -5,7 +5,7 @@
 //
 // 用法: node scripts/extract-changelog.mts <tag>
 //   tag 形如 v0.1.0 或 0.1.0；会匹配 CHANGELOG.md 中的 `## [0.1.0]` 段落，
-//   截取到下一个 `## ` 之前。空段（仅 header、无 Added/Changed/Fixed）输出友好占位。
+//   截取到下一个 `## ` 之前。空段（仅 header、无 新增/变更/修复）输出友好占位。
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
