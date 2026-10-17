@@ -8,6 +8,8 @@
 
 ## 提交信息格式
 
+> 钩子已强制：commit-msg 跑 commitlint（`commitlint.config.mjs`），type 白名单、scope 形态、subject 非空与标点不合即拦，见 [GIT_HOOKS.md](GIT_HOOKS.md)。subject 中文、body / footer 语义等描述性要求仍属约定，钩子不管内容写得好不好。
+
 遵循 [Conventional Commits](https://www.conventionalcommits.org/)：
 
 ```

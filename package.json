@@ -79,6 +79,8 @@
     "zod": "^4.6.4"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
     "@playwright/test": "^1.63.0",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.7",
     "@tailwindcss/typography": "^0.5.20",

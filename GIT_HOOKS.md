@@ -6,6 +6,7 @@
 
 | hook | 命令 | 说明 |
 | --- | --- | --- |
+| `commit-msg` | `pnpm exec commitlint --edit {1}` | 提交信息校验（`commitlint.config.mjs` 继承官方约定预设）：type 白名单、scope 形态、subject 非空与标点；Merge / Revert 开头的消息按默认规则放行。规则基线见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)「提交信息格式」 |
 | `pre-commit` | `pnpm run check:comments` | 快，挡注释卫生问题，不拖提交节奏 |
 | `pre-commit` | `pnpm exec secretlint {staged_files}` | 扫全部暂存文件里的密钥/凭据，命中即拦；不按扩展名过滤（env 文件、证书、无扩展名配置都在范围内），无暂存文件时整条跳过 |
 | `pre-push` | `pnpm run check:branch` | 分支名合规检查，第一道（fail fast）；规则见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)「分支命名」 |
