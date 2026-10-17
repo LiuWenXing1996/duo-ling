@@ -8,6 +8,8 @@ pre-commit:
   jobs:
     - name: check:comments
       run: pnpm run check:comments
+    - name: check:comment-baseline
+      run: pnpm run check:comment-baseline
     - name: check:packages
       run: pnpm run check:packages
     - name: secretlint

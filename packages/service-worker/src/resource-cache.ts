@@ -1,16 +1,5 @@
 // `@resource` 命名资源的内容缓存 + 抓取（SW 独占读写；与 @require 缓存分库）。
-//
-// 为什么与 require-cache 分库：两者生命周期不同 —— require 是**代码**（同名 url 换了内容会直接影响
-// 脚本行为，故语义上属于「依赖快照」），resource 是**素材**（图标 / 样式 / 数据文件，通常很大且很少变）。
-// 混在一个库里的代价是清理粒度变粗（清 require 会把资源也清掉，反之亦然）。
-//
-// 与 TM 的对应：`GM_getResourceText(name)` 拿文本、`GM_getResourceURL(name)` 拿 **base64 data URI**
-// （TM 文档原话：「获取在脚本头部用 @resource 标签预定义的的 base64 编码的 URI」）。两者都是**同步** API，
-// 所以内容必须在注入前就绪 —— 本模块在注册/注入路径上被调用，把内容备好，注入时内联进包装层
-// （与 @require 同款「注册时抓取、注入时就绪」，见 registration.ts）。
-//
-// 抓取策略：SW 内 fetch，受 <all_urls> host 权限豁免 CORS；url 不变即命中、永不过期。
-// 失败策略：单条失败只记错误、跳过该资源（脚本拿到 undefined），不阻断整体注入。
+// 分库理由、同步就绪与失败策略见 docs/adr/0006-resource-cache-separate-db.md。
 
 import {
   bytesToBase64,

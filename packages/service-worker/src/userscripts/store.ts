@@ -106,7 +106,7 @@ export async function findUserScriptError(id: string): Promise<UserScriptErrorLo
  * 登记一次运行开始（dl-bridge 收到 __dlRunStart 广播时调用）。
  *
  * **没有 tabSessionId 就不记**：一切观测只在「这一页开着活动记录」时产生，而运行条是动作与
- * 错误的归属锚，无归属的运行没有意义（判据统一见 runtime-db 文件头）。判据落在这一层而不是
+ * 错误的归属锚，无归属的运行没有意义（判据统一见 ARCHITECTURE.md「存储」节）。判据落在这一层而不是
  * 各调用方：调用点有两处（首次广播与 load 补救补播），漏一处就漏一处观测。
  *
  * 同一 runId 的重复广播（engine 的 load 补救补播）由 runtime-db 按「该 runId 是否已有运行条」

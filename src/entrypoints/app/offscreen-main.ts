@@ -1,30 +1,7 @@
 // offscreen document 入口 —— AI 生成链路的执行宿主。
-//
-// 为什么需要这个容器（三种宿主的寿命对照）：
-//   · 对话界面 / 工作台（document）：用户一关即**立即销毁**（浮层收起时文档同样被销毁），连保存现场的时机都没有
-//   · background SW：空闲 30s 即回收，且单次调用有 5 分钟硬顶（不可绕过，官方不鼓励保活）
-//   · offscreen document：**不主动关就一直活着**（唯一）
-// 而 agent loop 要求宿主「不会在任务中途被回收」——用户关面板即销毁的载体全出局，offscreen 是唯一解。
-//
-// 能力边界（官方原话：runtime API is the only extensions API supported by offscreen documents）：
-//   · 只有 chrome.runtime 可用 —— chrome.storage / chrome.userScripts / chrome.tabs 全拿不到，
-//     需要它们时必须经消息请 SW 代办（见包内 chat/sw-bridge.ts）
-//   · IndexedDB 同源共享，可直连（会话历史与任务快照都在 duoling-chat 库，走这条，无需经 background 中转）
-//   · console 输出落在 **SW 的 inspector**（chrome://extensions → Service Worker），不在面板 DevTools
-//   · 不能聚焦；opener 恒为 null；URL 必须是打包进扩展的静态 HTML（即本文件对应的 offscreen.html）
-//
-// 模块归属（硬约束）：本入口只做接线 —— 启动装配、服务实体、对话编排、会话删除的资源回收、
-// 文件库、注册态库写侧与剪贴板写入全在 @duoling/offscreen-document；本文件只引它、
-// @duoling/shared 与总线。
-// 一旦 import store.ts / fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报
-// chrome.storage is undefined —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
-//
-// 生命周期：每扩展同时只能有一份；不主动关就一直活着，但**关窗口 / 扩展重载 / 浏览器崩溃
-// 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（→ 包内 chat/task-store.ts）。
-//
-// 命令面：fs:ping（就绪探测，留总线）/ conv:*（会话写侧，唯一写方）/ chat:*（对话编排）；
-// fs 组读写、资源库、**注册态库写侧**（userscript*）与剪贴板写入都走 OffscreenService 代理
-// （报文无 kind，不占总线）。
+// 为什么必须这个容器（三种宿主的寿命对照）、能力边界（只有 chrome.runtime）、
+// 模块归属硬约束（本入口只做接线，实体全在 @duoling/offscreen-document）、
+// 生命周期与命令面，见 ARCHITECTURE.md「对话链路」节的 offscreen 容器小节。
 
 import '@/polyfills'
 import type { RuntimeRequest } from '@duoling/shared'

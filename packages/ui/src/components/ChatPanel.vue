@@ -220,14 +220,8 @@ function messageImages(m: UIMessage): ChatAssetRef[] {
 }
 
 /**
- * 资源 id → data URL 的本地缓存（面板活着的期间有效）。
- *
- * 为什么要有缓存：消息里只有引用，缩略图每次渲染都得有图 —— 若每次渲染都去取，
- * 同一条消息的 N 个缩略图会发 N 次跨进程请求。缓存键就是内容 hash，同一张图天然命中同一条。
- *
- * 为什么不 revoke：这里存的是 data URL（纯字符串），没有 objectURL 那种需要显式释放的句柄；
- * 代价是查看过的图片会一直占着内存，上限 = 本次面板会话里出现过的不同图片数。
- * 取不到的（资源被清过 / id 写错）记空串，同样是「不重复重试」而非反复发请求。
+ * 资源 id → data URL 的本地缓存（面板活着期间有效；键 = 内容 hash）。
+ * 为什么缓存、为什么不 revoke 见 docs/adr/0037-chat-thumbnail-cache-no-revoke.md。
  */
 const assetUrls = reactive<Record<string, string>>({})
 /** 已发起取回的 id（非响应式：它只防重复发请求，不该触发渲染） */

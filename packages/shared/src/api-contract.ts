@@ -1,16 +1,6 @@
 // 用户脚本「能力 API」契约 —— 脚本侧 GM 包装与后台桥共用的唯一真相源。
-//
-// **对外面 = 油猴标准**（`GM_*` / `GM.*`），目标是标准油猴脚本可直接粘贴运行。
-// **内部面 = 自有桥协议**（`__dl` 信封 + `ApiRequest` 命令名），**保持稳定**：
-// 桥仍是「请求-响应 + Port 下行」两条通道，只增命令、不改形状。
-//
-// 与油猴的**已知差异**（速查页与 spec 必须标注，不能让人以为是实现缺陷）：
-//   · **`GM_xmlhttpRequest` 无流式**：`responseType` 不支持 stream（TM 的合法值只有
-//     arraybuffer / blob / json / stream，也没有 document）；`onprogress` 只给进度字段，
-//     不给 TM 那种「带完整 response 的进度对象」。
-//
-// 约束：所有跨桥值必须满足「结构化克隆」（存储层 IndexedDB 同样要求），
-// 故统一收窄为 Json 类型；函数、类实例、DOM 节点一律不可跨桥。
+// 对外面 = 油猴标准、内部面 = 自有桥协议（只增命令不改形状）、已知差异与克隆约束
+// 见 docs/adr/0002-gm-api-contract-dual-surface.md。
 
 /** 允许跨桥 / 落盘的值类型 */
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json }
@@ -398,18 +388,9 @@ export type ApiRequest =
   | { c: 'store.watchAll'; connId: string }
 
 /**
- * 命令名的**运行时登记表**（键即 `ApiRequest.c` 的全集）。
- *
- * 为什么需要它：命令的**发送侧**是 gm-wrapper.ts 里那段注入源码**字符串**
- * （`__gmSend({ c: 'store.get' … })`），命令名对 typecheck 完全不可见 —— 拼错、或改了 dispatch
- * 漏改包装层，编译与分层单测都不报。故这里立一份可在运行时枚举的登记表，
- * 由 api-commands.test.ts 从真实注入源码反射发送侧、与它双向比对。
- *
- * 形状取 `Record<ApiRequest['c'], true>` 是刻意的：键约束 + 对象字面量的多余属性检查，
- * 使「契约加了命令、表没跟上」与「表里写了不存在的命令」**都编译报错** ——
- * 本表不可能成为第二真相源，也与 `default` 里的穷尽性检查互补（那条管分发侧，这条管发送侧）。
- *
- * 顺序按字母（前缀天然成簇）；新增命令时在此与 `ApiRequest` 各加一行即可。
+ * 命令名的运行时登记表（键即 `ApiRequest.c` 的全集），发送侧 / 分发侧 / 防漂移测试三方共用；
+ * 为什么需要它、形状约束与增改方式见 docs/adr/0003-api-command-registry.md。
+ * 顺序按字母（前缀天然成簇）。
  */
 export const API_COMMANDS: Record<ApiRequest['c'], true> = {
   'clipboard.write': true,

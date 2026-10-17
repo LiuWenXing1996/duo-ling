@@ -264,15 +264,9 @@ export function useGlobalConversation() {
     setInterval(() => void refreshOrphans(), 15_000)
   }
 
-  // 别处增删改会话（新建 / 重命名 / 删除）落盘后已广播 `conversation` 域：
-  // 回拉列表即可，**不动当前激活会话**（避免打断进行中的对话）。本 composable 在
-  // 载体根组件顶层调用一次，订阅随页面生命周期存活。
-  //
-  // 唯一的例外是「当前会话被删了」——那条会话可能是在工作台「会话历史」里删的，
-  // 此时必须落到未绑定态：否则 activeConversationId 一直指着一条不存在的会话，
-  // 下一条消息会在 appendMessage 处因「会话不存在」静默落空。
-  // 判据刻意用「id 已不在列表里」而不是无条件重解析：流式期间每条消息落盘都会广播本域，
-  // 无条件重解析会把用户从「孤儿继续」之类临时覆盖的视图里拽走、打断正在进行的一轮对话。
+  // 会话域广播（别处新建 / 重命名 / 删除）到达：回拉列表、不动激活会话；
+  // 唯一例外「当前会话被删」落到未绑定态。判据与理由
+  // 见 docs/adr/0033-broadcast-pull-keeps-active-session.md。
   useDataSync('conversation', async () => {
     try {
       const list = await conversationClient.list()

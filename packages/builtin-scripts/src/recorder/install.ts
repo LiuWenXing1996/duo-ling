@@ -1,27 +1,12 @@
 // 标签页录制 · MAIN 世界件（机制层框架）。
+// 为什么必须 MAIN（USER_SCRIPT 世界拦不到页面自己的请求）、机制层 / 种类层分工、
+// 运行位置与上行路径、设计硬边界，见 ARCHITECTURE.md「脚本注入」节的「页面录制」条目。
 //
-// 为什么必须 MAIN：要拦页面**自己**发出的请求，钩子只能挂在页面世界 ——
-// USER_SCRIPT 世界是独立 realm，挂它的 window.fetch 拦不到。
-//
-// 本件只管**通道**，不管「录什么」：
-//   · 上行信封（__dlEvent + t: 'tab.record'）、出口 emit、幂等守卫；
-//   · 各类信号的具体采法在**种类件**里（当前：net-probe.ts 的网络请求），
-//     由本件逐个 install —— 加一类就是多一个 install 调用，不改本件。
-// 这样命名与职责才对得上：本件叫 `tab-record`（按页录制的框架），不叫 `net-*`。
-//
-// 运行位置：MAIN 世界的**系统脚本**（GM 包装注入，见应用侧 system-scripts.ts）——
-// 本件源码由 esbuild 打成 IIFE 资产，注册时经 registerScript 走统一脚本链，包装层把
-// `__dlBridge` 内联进同一作用域（形状真相源见 service-worker 的 script-bridge.ts）。
-// 上行路径：emit → 中继件 → SW 的 __dlEvent 分流（ingestTabRecord）—— 与旧「MAIN 件
-// postMessage + USER_SCRIPT 转发件」的两件形态等跳数，转发件已退役。
-//
-// 设计硬边界：
-//   - 无 chrome.*（MAIN 世界本就没有），一切上行走脚本桥；
-//   - 与页面同级、无特权：页面看得见它做的一切；
-//   - **不阻塞页面网络层**：这一条由种类件负责（本件只提供通道，不做任何采样）；
-//   - 桥不可用（中继件未就位 / 握手未完成）时静默丢弃采样，绝不阻塞页面。
-//
-// 本件没有运行期参数（幂等守卫 + GM_info 由包装层供给），注册走统一脚本链。
+// 本件只管**通道**，不管「录什么」：上行信封（__dlEvent + t: 'tab.record'）、出口 emit、
+// 幂等守卫；各类信号的具体采法在**种类件**里（当前：net-probe.ts 的网络请求），
+// 由本件逐个 install —— 加一类就是多一个 install 调用，不改本件。
+// 硬边界：无 chrome.*（一切上行走脚本桥）、与页面同级无特权、桥不可用时静默丢弃采样
+// 绝不阻塞页面。本件没有运行期参数，注册走统一脚本链。
 
 import type { RecorderCtx } from './context'
 import { installNetProbe } from './net-probe'

@@ -2,50 +2,10 @@
 //
 // 两张 store 装下全部：
 //   · tab_sessions —— 标签页存续（一行一个「被观察到的页」，keyPath tabSessionId）
-//   · tab_events   —— 这一页的**活动轴**（一行一个时间轴节点，自增主键），靠 kind 判别六类：
-//       'reload' | 'url' | 'recordOn' | 'recordOff' —— 文档事件与记录开关（见 TabEventRecord）
-//       NET_TAB_KIND（'net'）—— 接口采样
-//       RUN_TAB_KIND（'run'）—— 运行条目（一次页面加载一行，动作与错误的归属锚）
-//       ACT_TAB_KIND（'act'）—— 运行内动作（脚本过桥做过的事）
-//       ERR_TAB_KIND（'error'）—— 错误记录
+//   · tab_events   —— 这一页的活动轴（一行一个时间轴节点，自增主键），六类行靠 kind 判别
 //
-// **六类为什么同表**：读侧本就是**一根轴**（面板把刷新、开关、请求、运行、动作、错误按时刻
-// 混排成这一页的时间线），而同表的归属键（tabSessionId）与清空粒度（按页）完全一致 ——
-// 分表只会让「删这一页」变成跨库手术、读侧还要 join。合成一张后「这一页经历了什么」是一次
-// 索引查询（by_session_seq.getAll），删这一页也是一条索引（同上，删）。
-//
-// **判据统一**：一切观测只在「这一页开着活动记录」时产生（运行条目 / 动作 / 错误 / 采样）。
-// 唯一例外是注册失败、@require / @resource 抓取失败这类**与任何一页无关**的错误 ——
-// 它们照旧落盘，但不带 tabSessionId，故不进 by_session_seq 索引，按页查询天然查不到
-// （IndexedDB 会跳过键值求值为 undefined 的记录）—— 写侧零过滤逻辑。
-//
-// **主键与身份**：表主键是自增序号（keyPath 'id'），读侧拿它当行身份（列表 key）。
-// 各 kind 的业务身份另立字段 + 索引：运行条目与动作、错误都带 runId —— 同表的两种行靠
-// **复合索引** `[kind, runId]`（by_kind_run）分开（找运行条一击命中，不把整次运行的动作读回来），
-// 错误再带 errId（by_errId，主键名已被自增号占用，故业务 id 换个名字）。
-//
-// **环形裁剪**：只有运行条目与错误各自按 kind 裁最旧（RUN_LOG_MAX / ERROR_LOG_MAX，同事务）。
-// 其余 kind 不裁：采样单条可达数 KB 也不裁 —— 「这一页发了哪些请求、脚本做了什么」要能看全，
-// 只在用户显式清时消失。运行条被挤出时连带删它的动作行（那是「这次运行干了什么」，运行条没了
-// 就读不出来）；错误不跟着走，它有自己的环形，留在轴上仍按页可见。
-//
-// **级联删除**：① 删某一页活动时（存续行 + 它的全部轴行，一个事务一条索引）② 清某脚本 /
-// 清全部运行记录时（运行条 + 动作，同 runId 级联）③ tab_sessions 被环形裁掉一行时
-// （连带这一页在 tab_events 上的全部记录）。合表让这些从「跨三四张表」收成「一张表上的索引删」。
-//
-// **迁移**：v1 的 errors / runlog 是「单记录数组」形状（keyPath 'key'），与逐条形状的主键
-// 不兼容，就地升级无从谈起 —— upgrade 里删表重建，旧观测数据一并丢弃（无长期价值）。
-// 每次改表都走这条路（tab_sessions 是 v3、tab_events 是 v4、收下接口采样是 v5、
-// 收下运行条目 / 动作 / 错误并删掉 stats 是 v6、运行与动作的索引由单键 runId 换成复合
-// [kind, runId] 是 v7 —— **索引形状也是表形状**，改了就得再升一版，否则浏览器里那份
-// v6 库缺新索引、第一次写入就报 NotFoundError）：升级即清库，是刻意的。
-//
-// **原子性**：读改写在**同一个事务**内完成，事务对同 store 天然串行，无需进程内队列。
-//
-// **单写方约定**：写 API 只许 SW 调用（观测侧全部经 store.ts 汇入；接口采样由 dl-bridge 的
-// 入站分支直接落 —— 它本就跑在 SW 内，且没有业务语义要经 store 中转）。广播不在此层——由调用方
-// 在写成功后发（失败不发，且「无变化不落盘」时不发）。本模块不感知 chrome API，
-// node 单测用 fake-indexeddb/auto 直测。
+// 合表理由、判据统一、主键与复合索引、环形裁剪、级联删除、迁移策略（升级即清库）与
+// 单写方约定等设计决策见 ARCHITECTURE.md「存储」节的观测数据库。
 
 import {
   ACT_TAB_KIND,
@@ -80,16 +40,8 @@ import {
 } from '@duoling/shared'
 
 /**
- * 复合索引 by_kind_run 的键：`[kind, runId]`。
- *
- * 为什么不是单键 `runId` 索引：合表后运行条与它的动作行、错误行共用 `runId`，单键索引下
- * 「按 runId 找那条运行条」只能 `getAll` 把整次运行的**上千条动作**一起读回来 —— 每追加一条
- * 动作都要付这份代价，一次 1000 动作的运行就是 O(n²)（真实 IndexedDB 里能跑但白烧，
- * fake-indexeddb 下直接超时）。带上 `kind` 后，找运行条是 `['run', runId]` 精确一击（O(log n)），
- * 拉动作是 `['act', runId]`，两边互不串。
- *
- * 行不带 `runId`（文档事件、接口采样、无归属错误）时复合键含 `undefined` → **不进索引**，
- * 这与「按 runId 反查只该命中运行 / 动作 / 挂上运行条的错误」正好同向。
+ * 复合索引 by_kind_run 的键：`[kind, runId]`（找运行条一击、拉动作互不串；无 runId 的行不进索引）。
+ * 为什么不用单键 runId 见 docs/adr/0015-runtime-db-composite-indexes.md。
  */
 function kindRunRange(kind: string, runId: string): IDBKeyRange {
   return IDBKeyRange.only([kind, runId])

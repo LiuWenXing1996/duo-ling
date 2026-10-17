@@ -1,27 +1,7 @@
 // GM_xmlhttpRequest 特权增强：forbidden header 覆写 + redirect:'manual' 的
 // 机制层，与消息分流解耦（dl-bridge.ts 负责桥接与组装）。
-//
-// 机制（均经真机探针验证）：
-//   · SW 内 fetch 改不了 forbidden header（fetch 规范静默丢弃），改经 DNR session 规则
-//     modifyHeaders 在「发送请求头之前」套上。set/remove 无 header 白名单；append 有，
-//     故 v1 只做 set。
-//   · DNR 规则没有「只作用于某一次请求」的粒度：规则挂起期间，同 host 的任何 GM_xmlhttpRequest
-//     都会被套上覆写头。因此覆写请求 = 写者（独占该 host），纯请求 = 读者（共享）——
-//     写优先读写锁：覆写规则挂起期间该 host 的所有 GM_xmlhttpRequest 互斥排队，不同 host 之间照旧并行。
-//   · redirect:'manual'：SW fetch 对 3xx 只拿得到 opaqueredirect（status 0、headers 不可读），
-//     Location 由观察型 webRequest.onHeadersReceived 读取——manual 不跟随、单次响应、无竞态。
-//   · header 修改**不跨重定向 hop**：DNR 的头改动对跨 host 的 hop 不套用（Chrome 平台限制，
-//     油猴同款），3xx 之后的新请求拿不到覆写头。
-//
-// 规则生命周期（用后即撤，三层兜底）：
-//   ① fetch settle 的 finally 撤（幂等，dl-bridge）；
-//   ② SW 启动对账清自有 id 区间残留（sweepOrphanRules）；
-//   ③ session 规则浏览器重启自动清空——因此用 session 而非 dynamic rules，
-//     孤儿规则不会变永久幽灵。
-//
-// 验证路径：pnpm run probe:serve（起本机靶站）→ pnpm run pack:uscripts → 工作台「脚本列表」导入
-// → 启用「GM API 收口探针」→ 命中页右下角角标点一下。四项断言（覆写上线 / 同 host 隔离 /
-// manual 读 3xx / error 拒绝）全打在靶站的 /headers 回显上——覆写是否真上线只有服务端能作证。
+// 机制（DNR session 规则套头、写优先读写锁、三层兜底、manual 经观察型 webRequest 读 3xx、
+// 头修改不跨重定向 hop）与真机验证路径，见 ARCHITECTURE.md「脚本注入」节的 DNR 条目。
 
 /** 走 DNR 规则上线的 header（小写）：fetch 规范禁设头 + user-agent。
  * UA 在 fetch 规范里其实可设，但统一走 DNR 保证上线行为可预期（探针已验证该路径） */
