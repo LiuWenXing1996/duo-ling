@@ -30,6 +30,7 @@
     "verify:skills": "node scripts/verify-skills.mts",
     "check:todo": "node scripts/check-todo.mts",
     "check:comments": "node scripts/check-comments.mts",
+    "check:comment-coverage": "node scripts/check-comment-coverage.mts",
     "pack:uscripts": "node scripts/pack-uscripts.mts",
     "release": "node scripts/release.mts"
   },
