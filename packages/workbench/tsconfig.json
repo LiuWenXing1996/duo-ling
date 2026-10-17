@@ -1,0 +1,8 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // vite/client：`?raw` 的内联 markdown（帮助页正文）；chrome：设置页里的扩展 API 调用
+    "types": ["chrome", "vite/client"]
+  },
+  "include": ["src"]
+}

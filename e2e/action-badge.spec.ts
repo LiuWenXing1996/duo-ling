@@ -1,5 +1,5 @@
 // 工具栏角标的端测：**数字 = 这个标签页在跑几个脚本**（与浮层灵动岛、popup 的页面概览同源，
-// 见 src/lib/userscripts/page-monitor.ts 的运行登记表）。
+// 见 packages/service-worker/src/userscripts/page-monitor.ts 的运行登记表）。
 //
 // 这里不造假信号：脚本经命令面存进库、由 `chrome.userScripts` 真注入探针页，runstart 是真的从 GM
 // 包装广播出来的 —— 整条链路（注入 → 登记 → 重算 → `chrome.action`）都在被测范围内。伪造一条
@@ -78,7 +78,7 @@ test.describe.serial('工具栏角标（按标签页报脚本运行数）', () =
 
     // 存成脚本：新建即启用，`userscript:save` 落库后立即重注册（保存即注入）
     //
-    // **源码里的 `@name` 不进状态库**：编辑器保存语义不 adoptName（见 project-write.ts），脚本名
+    // **源码里的 `@name` 不进状态库**：编辑器保存语义不 adoptName（见 offscreen 写侧的 project-write），脚本名
     // 仍是新建时的自动编号，`@name` 只进 `GM_info`。所以「仅 A 页」那个脚本的 uuid 在这里记下来，
     // 后面按 uuid 操作 —— 按名字查列表是查不到的。
     for (const code of [SCRIPT_ALL, SCRIPT_A]) {

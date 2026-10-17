@@ -4,7 +4,7 @@
 // 表现为件静默不生效（系统脚本注册失败，页面里什么都不会发生）。
 // 这里直接比对两边，把这类改名漏改挡在 CI。
 //
-// 注意：脚本桥中继件（relay）已随 `@duoling/userscript-runtime` 包内化 —— 它没有公共资产
+// 注意：脚本桥中继件（relay）已随 `@duoling/service-worker` 包内化 —— 它没有公共资产
 // 文件（IIFE 以 `{ code }` 注册），不在本表的比对范围里（它的装配段契约测试在包内
 // relay/sync.test.ts）。
 import { describe, expect, it } from 'vitest'

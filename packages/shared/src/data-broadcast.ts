@@ -1,14 +1,13 @@
-// 数据变更广播的跨世界契约：频道名、合并窗口、推送形状。
+// 数据变更广播的契约：频道名、合并窗口、推送形状。
 //
 // 为什么归本包：IDB 没有变更通知，写侧落盘后经此通知别处回拉 —— 广播只带
-// 「哪个域的哪条变了」，不带数据。频道与推送形状被两侧同取：
-//   · 应用侧（src/lib/data-broadcast.ts：SW / offscreen / 扩展页，多一个瞬态阶段广播）；
-//   · 运行时包（@duoling/userscript-runtime 的 dl-bridge / cookie-gate）。
-// 同一扩展内互通是硬要求，形状放在任何一侧，另一侧都只能靠注释对齐 —— 故上移这里
-// （BroadcastChannel 是 web 标准，零 chrome.*、零 DOM 假设，符合本包边界）。
+// 「哪个域的哪条变了」，不带数据。频道与推送形状被三方同取：
+//   · 应用侧（本包的 data-broadcast-runtime.ts：SW / offscreen / 扩展页）；
+//   · 两个进程包（service-worker 的 dl-bridge / cookie-gate，offscreen-document 的写侧）。
+// 同一扩展内互通是硬要求，形状放在任何一侧，另一侧都只能靠注释对齐。
 //
-// 实现体不在这里：两侧各留一份（收发实例与降级路径不同），本文件只锁住
-// 「两端必须逐字节一致」的常量与形状。
+// 实现体见同包的 data-broadcast-runtime.ts（收发实例、合并节流、降级通道）；
+// 本文件只锁住「两端必须逐字节一致」的常量与形状。
 
 /** 广播频道名（同一扩展内唯一即可；跨扩展不会串，因为 origin 含扩展 id） */
 export const DATA_BROADCAST_CHANNEL = 'duoling:data'

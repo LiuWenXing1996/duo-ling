@@ -7,7 +7,7 @@
 // .user.js（raw/ 里的坏源码样本原样拷入），本工具负责把 dist 打成 zip，扩展的
 // 「工作台 → 脚本列表 → 导入 zip」直接吃。脚本 = 单文件纯 JS 源码（保存即注入），打的是**产物**。
 //
-// 产出 zip 的布局必须与 src/lib/userscripts/zip-transfer.ts 的 buildScriptZip / parseScriptsZip
+// 产出 zip 的布局必须与 @duoling/offscreen-document 的 fs/zip（buildScriptZip / parseScriptsZip）
 // 对齐（那一对函数才是编解码侧的真相源）：
 //     <目录名>/<目录名>.user.js     单文件源码（配置由源码里的 // ==UserScript== 块派生，不进 zip）
 //
@@ -23,9 +23,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// —— 常量：与 src/lib/userscripts/zip-transfer.ts 保持一致 ——
+// —— 常量：与 @duoling/offscreen-document 的 fs/zip 保持一致 ——
 
-/** 单文件源码后缀（types.ts 的 SCRIPT_EXT）：样例目录里唯一的 *.user.js 即源码 */
+/** 单文件源码后缀（@duoling/shared 的 SCRIPT_EXT）：样例目录里唯一的 *.user.js 即源码 */
 const SCRIPT_EXT = '.user.js'
 const DIR_NAME_MAX = 64
 
@@ -179,7 +179,7 @@ function verifyZip(buf: Buffer, expected: ZipEntry[]): string[] {
 
 // ————————————————————————— 产物目录 → 脚本定义 —————————————————————————
 
-/** 目录名安全化：与 zip-transfer.sanitizeDirName 同规则 */
+/** 目录名安全化：与 shared/archive-transfer 的 sanitizeDirName 同规则 */
 function sanitizeDirName(name: string): string {
   const cleaned = name
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_')

@@ -6,7 +6,7 @@
 // 指过去即可 —— 回复内容由我们写死，断言因此是确定的、零成本、零网络。
 //
 // 覆盖两种请求形态（均实测通过）：
-//   · 非流式 JSON —— `window.api.model.testChat()` 走这条（设置页的「测试连接」）；
+//   · 非流式 JSON —— 设置页的「测试连接」走这条（`model-store.testChatResult`）；
 //   · 流式 SSE —— 真对话链路走这条（offscreen 的 `@ai-sdk/openai-compatible`）。
 // 两条都带 token 用量：非流式的 `usage` 直接放回包里；流式按 OpenAI `include_usage` 的形状补一片
 // 「`choices` 空数组 + `usage`」的末片（SDK 取走它并写进 finish 事件 → 产品侧的 `data-usage`）。

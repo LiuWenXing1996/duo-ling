@@ -7,7 +7,7 @@
 // 产物文件名不带目录前缀：构建脚本产出的 dist/*.js 由 wxt.config.ts 的 build:publicAssets
 // 钩子原样落到扩展产物根，应用侧按文件名取内容作系统脚本源码。
 //
-// 注意：脚本桥中继件（relay）**不在本文件** —— 它已随 `@duoling/userscript-runtime` 包内化
+// 注意：脚本桥中继件（relay）**不在本文件** —— 它已随 `@duoling/service-worker` 包内化
 // （SCRIPT_RELAY_ID / buildRelayInit / syncScriptRelay 都在包的 relay/sync.ts，IIFE 以
 // `{ code }` 字符串注册，无公共资产文件）。
 // 三件内置件（录制 / 检查器 / 浮层宿主）都已转**系统脚本**（走统一注册链，见应用侧

@@ -1,0 +1,198 @@
+// 单测：落盘 ⇄ 渲染的唯一转换点（toPersistedMessage / toUiMessage）。
+//
+// 锁的语义（事故背景见 conversation-message.ts 头注释）：
+//   · 落盘必须同时写下 parts（真相源）与 content（派生值）——user 路径曾只写 content，
+//     结果"发送时看得到、重开会话后用户气泡全空"；
+//   · 落盘是深拷贝，落盘对象与传入的 UIMessage 不共享引用（Vue 代理结构化克隆会炸）；
+//   · 角色专有字段只落在对应分支（user → pageContext；assistant → reasoning / usage / model）；
+//   · 回显只认 parts，且缺 parts 时不炸（库里可能躺着旧记录）。
+//   · 展示时间走 metadata.createdAt：回读时从库里带、实时消息由面板补（withMessageTime）。
+import { describe, expect, it } from 'vitest'
+import type { UIMessage } from 'ai'
+import type { Message } from './conversation'
+import { toPersistedMessage, toUiMessage, messageTime, withMessageTime } from './conversation-message'
+
+const ui = (overrides?: Partial<UIMessage>): UIMessage => ({
+  id: 'u1',
+  role: 'user',
+  parts: [{ type: 'text', text: '把这个字体变大' }],
+  ...overrides,
+})
+
+const elementCtx = {
+  pickedAt: 1,
+  pageUrl: 'https://example.com',
+  summary: {
+    tag: 'h1',
+    classes: [],
+    attrs: {},
+    selectors: [{ selector: 'h1', hitCount: 1 }],
+    textSample: 'Example Domain',
+    htmlSample: '<h1>Example Domain</h1>',
+  },
+  full: { attrs: {}, outerHTML: '<h1>Example Domain</h1>', parentChain: [] },
+}
+
+describe('toPersistedMessage', () => {
+  it('user：parts 与 content 同时落盘（content 为 text parts 拼接）', () => {
+    const m = toPersistedMessage(ui(), { conversationId: 'c1' })
+    expect(m.role).toBe('user')
+    expect(m.parts).toEqual([{ type: 'text', text: '把这个字体变大' }])
+    expect(m.content).toBe('把这个字体变大')
+  })
+
+  it('user：多段 text part 按顺序拼接', () => {
+    const m = toPersistedMessage(
+      ui({ parts: [{ type: 'text', text: '前段' }, { type: 'text', text: '后段' }] }),
+      { conversationId: 'c1' },
+    )
+    expect(m.content).toBe('前段后段')
+  })
+
+  it('落盘是深拷贝：与传入的 UIMessage 不共享引用', () => {
+    const parts = [{ type: 'text' as const, text: '原文' }]
+    const m = toPersistedMessage(ui({ parts }), { conversationId: 'c1' })
+    expect(m.parts).not.toBe(parts)
+    parts[0].text = '改过了'
+    expect(m.parts[0]).toEqual({ type: 'text', text: '原文' })
+  })
+
+  it('user：pageContext 落盘；id / createdAt 可注入（缺省取 ui.id 与当前时刻）', () => {
+    const m = toPersistedMessage(ui(), {
+      conversationId: 'c1',
+      pageContext: { element: elementCtx },
+      createdAt: '2026-09-19T04:08:44.000Z',
+    })
+    expect(m.role === 'user' && m.pageContext).toEqual({ element: elementCtx })
+    expect(m.id).toBe('u1')
+    expect(m.createdAt).toBe('2026-09-19T04:08:44.000Z')
+
+    const other = toPersistedMessage(ui({ id: 'u2' }), { conversationId: 'c1', id: 'task-1' })
+    expect(other.id).toBe('task-1')
+    expect(Number.isNaN(Date.parse(other.createdAt))).toBe(false)
+  })
+
+  it('assistant：正文空时给可见兜底，reasoning / usage / model 有值才写', () => {
+    const empty = toPersistedMessage(
+      ui({ role: 'assistant', parts: [{ type: 'text', text: '   ' }] }),
+      { conversationId: 'c1' },
+    )
+    expect(empty.role).toBe('assistant')
+    expect(empty.content).toBe('（模型未生成回复内容）')
+    expect('reasoning' in empty).toBe(false)
+    expect('usage' in empty).toBe(false)
+    expect('model' in empty).toBe(false)
+
+    const full = toPersistedMessage(
+      ui({
+        role: 'assistant',
+        parts: [{ type: 'reasoning', text: '想想' }, { type: 'text', text: '答案' }],
+      }),
+      {
+        conversationId: 'c1',
+        usage: { totalTokens: 42 },
+        // 故意用带 `/` 的模型 ID：providerId 与 id 是两个字段，id 原样存不切分
+        model: { providerId: 'siliconflow', id: 'deepseek-ai/DeepSeek-V4-Pro' },
+      },
+    )
+    expect(full.content).toBe('答案')
+    expect(full.role === 'assistant' && full.reasoning).toBe('想想')
+    expect(full.role === 'assistant' && full.usage).toEqual({ totalTokens: 42 })
+    expect(full.role === 'assistant' && full.model).toEqual({
+      providerId: 'siliconflow',
+      id: 'deepseek-ai/DeepSeek-V4-Pro',
+    })
+  })
+
+  it('角色专有字段不串门：assistant 落盘不带 pageContext，user 落盘不带 model', () => {
+    const assistant = toPersistedMessage(
+      ui({ role: 'assistant', parts: [{ type: 'text', text: '好的' }] }),
+      { conversationId: 'c1', pageContext: { element: elementCtx } },
+    )
+    expect('pageContext' in assistant).toBe(false)
+
+    const user = toPersistedMessage(ui(), {
+      conversationId: 'c1',
+      model: { providerId: 'deepseek', id: 'deepseek-flash' },
+    })
+    expect('model' in user).toBe(false)
+  })
+})
+
+describe('toUiMessage', () => {
+  it('parts 原样回显（用户气泡正文的真相源）', () => {
+    const stored = toPersistedMessage(ui(), { conversationId: 'c1' })
+    expect(toUiMessage(stored).parts).toEqual([{ type: 'text', text: '把这个字体变大' }])
+  })
+
+  it('user 的 pageContext 挂回 metadata，且与落盘时间同在（两条都靠 metadata 过河）', () => {
+    const withCtx = toUiMessage(
+      toPersistedMessage(ui(), {
+        conversationId: 'c1',
+        pageContext: { element: elementCtx },
+        createdAt: '2026-09-19T04:08:44.000Z',
+      }),
+    )
+    expect(withCtx.metadata).toEqual({
+      createdAt: '2026-09-19T04:08:44.000Z',
+      pageContext: { element: elementCtx },
+    })
+
+    // 没有拾取上下文时 metadata 只剩时间：气泡 chip 不渲染，时间照常
+    const plain = toUiMessage(toPersistedMessage(ui(), { conversationId: 'c1' }))
+    expect(plain.metadata).not.toHaveProperty('pageContext')
+    expect(messageTime(plain)).not.toBe('')
+  })
+
+  it('旧记录缺 parts 时不炸（按空渲染）', () => {
+    const legacy = {
+      id: 'm-old',
+      conversationId: 'c1',
+      role: 'user',
+      content: '老消息',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    } as unknown as Message
+    expect(toUiMessage(legacy).parts).toEqual([])
+  })
+})
+
+describe('messageTime / withMessageTime', () => {
+  it('时间取落盘时间（历史消息一读就有，不必面板另补）', () => {
+    const stored = toPersistedMessage(ui(), { conversationId: 'c1', createdAt: '2026-09-19T04:08:44.000Z' })
+    expect(messageTime(toUiMessage(stored))).toBe('2026-09-19T04:08:44.000Z')
+  })
+
+  it('补时间返回新对象（不改原引用，Vue 的 props 比对才认得出变化）', () => {
+    const live: UIMessage = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: '答案' }] }
+    expect(messageTime(live)).toBe('')
+
+    const after = withMessageTime(live, '2026-09-19T05:00:00.000Z')
+    expect(after).not.toBe(live)
+    expect(after.parts).toEqual(live.parts)
+    expect(messageTime(after)).toBe('2026-09-19T05:00:00.000Z')
+  })
+
+  it('补时间不冲掉已有的 pageContext', () => {
+    const withCtx: UIMessage = {
+      id: 'u1',
+      role: 'user',
+      parts: [{ type: 'text', text: '把这个字体变大' }],
+      metadata: { pageContext: { element: elementCtx } },
+    }
+    expect(withMessageTime(withCtx, '2026-09-19T05:00:00.000Z').metadata).toEqual({
+      pageContext: { element: elementCtx },
+      createdAt: '2026-09-19T05:00:00.000Z',
+    })
+  })
+
+  it('旧记录缺 createdAt：空串而不是 undefined / Invalid Date', () => {
+    const legacy = {
+      id: 'm-old',
+      conversationId: 'c1',
+      role: 'assistant',
+      content: '老回复',
+      parts: [{ type: 'text', text: '老回复' }],
+    } as unknown as Message
+    expect(messageTime(toUiMessage(legacy))).toBe('')
+  })
+})

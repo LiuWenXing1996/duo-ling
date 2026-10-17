@@ -1,7 +1,7 @@
 // 页面检查器的载荷形状：件（inspector/install.ts）按它造数据，应用侧按它消费。
 //
 // 定义为什么落在契约包里：件不能依赖应用源码，而形状只能有一处真相源 ——
-// 件与应用同取这一处。应用侧 src/shared/extension-ipc.ts 保留同名 re-export，消费方 import 路径不变。
+// 件与应用同取这一处，消费方一律直接从这里取。
 //
 // 同一份形状还活在聊天链路上（PageContextInfo / MessagePageContext / 历史气泡 chip / AI 工具参数），
 // 改字段会同时动到件与 UI —— 这正是「只有一份定义」要防的那件事。
@@ -45,6 +45,17 @@ export interface PageSnapshotContext {
   pageUrl: string
   /** 渲染后 documentElement.outerHTML，截断 ~32KB */
   html: string
+}
+
+/**
+ * 随用户消息**持久化**的页面上下文（Message.pageContext / UIMessage.metadata.pageContext）。
+ * 现只存用户显式点选的元素；档 0（URL/标题）每轮实时取，不落库；快照已改 AI 工具采集
+ * （工具结果随 assistant 消息的 tool part 自然落盘，不再走这条元数据通道，snapshot 字段仅为旧数据兼容保留）。
+ * 用途：历史气泡 chip 渲染 + 后续轮次 prompt「最近一次拾取」注入（跨轮指代靠它接上）。
+ */
+export interface MessagePageContext {
+  element?: ElementPickContext
+  snapshot?: PageSnapshotContext
 }
 
 /**

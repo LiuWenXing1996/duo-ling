@@ -53,11 +53,13 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      # .wxt/tsconfig.json 由 wxt prepare 生成（含 @ 别名与 #imports 虚拟模块类型），vue-tsc 与 vitest(WxtVitest) 都依赖它；
-      # 缺失报 "Failed to load tsconfig '.wxt/tsconfig.json'"；显式 prepare 兜底，防 postinstall 被跳过致 typecheck 假红。
-      - name: Generate WXT types (.wxt/tsconfig.json)
-        run: pnpm exec wxt prepare
-
+      # .wxt/ 下的类型面（wxt.d.ts 与 #imports 声明）由 typecheck / test 脚本里的 `wxt prepare`
+      # 生成，vue-tsc 与 vitest(WxtVitest) 都依赖它。此处不能提前单独跑：WXT 解析 @duoling/*
+      # 走 exports → dist，包未构建时 resolve 必失败 —— 故它内建在 typecheck / test 里、
+      # 紧跟 `pnpm -r build`；postinstall 同理不跑（install 期 dist 还不存在）。
+      # 构建期不依赖这些生成物：根 tsconfig 自带 WXT 模板的 compilerOptions，不再 extends
+      # .wxt/tsconfig.json（否则干净 checkout 上构建期读不到它，见 tsconfig.json 的注释）。
+      #
       # 门禁 → typecheck → 单测 → build → e2e 的顺序与内容见 package.json 的 ci 脚本。
       # pnpm 会逐条打印子命令，失败即停，日志里能直接看到挂在哪一步。
       - name: Run CI

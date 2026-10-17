@@ -1,0 +1,285 @@
+// 模型配置存取（IndexedDB duoling-app 库替换桌面版的 electron-store + safeStorage）。
+//
+// 语义对齐桌面版原实现（model-store）：
+//   1. **展示名为空时回退模型 ID**（契约见 `shared/types.ts` 的 `ModelProfile.name`）。
+//      ChatPanel 的模型 chip 与下拉只读 `name`、不做回退，因此回退必须在存储层完成，
+//      否则会渲染出空白项（桌面版正是在 toPublic / saveProfile 两处做的）。
+//   2. **activeProfileId 始终指向一条存在的配置**，唯一出口是 syncActiveProfileId；
+//      读取时不做事后兜底（避免「界面显示的当前模型」与「实际发送用的模型」不一致）。
+//
+// ⚠️ 安全边界：浏览器扩展没有 safeStorage 等价物，apiKey 经 AES-GCM 加密后落盘
+// （`key-cipher.ts`，随机密钥同存本机扩展存储）——属防扫描级，非保密级；
+// 真实降损靠引导用户使用子 Key + 额度上限 + 定期轮换。
+//
+// 变更通知：IDB 没有跨上下文通知，写出口（writeState，唯一落盘点）负责广播 `model` 域
+// （扩展页的模型下拉 / 设置页回拉）并推送 offscreen:configChanged（offscreen 的
+// profile-cache 回拉，apiKey 只在它取用时过界）。原 chrome.storage.onChanged 钩子已随
+// 迁移删除。offscreen 不 import 本模块（SW 命令中转），故无循环依赖。
+import type { ModelProfile, ModelProfileInput, ModelProfileState, ModelTestChatConfig, TestChatResult } from '../model'
+import { decryptApiKey, encryptApiKey, type EncPayload } from './key-cipher'
+import * as appDb from './app-db'
+import { errorText } from '../error-text'
+import { broadcastDataChange } from '../data-broadcast-runtime'
+import { notifyRuntime } from '../runtime-send'
+
+const KEY = 'modelProfiles'
+
+/** 落盘形态：apiKey 不落明文，只存密文载荷（老数据的明文字段在读取时迁移） */
+type StoredProfile = Omit<ModelProfileState, 'apiKey'> & { apiKeyEnc?: EncPayload }
+
+interface ModelState {
+  profiles: ModelProfileState[]
+  activeProfileId: string
+  /** 「baseUrl 由基址迁移为完整端点地址」是否已执行过（见 migrateEndpointBaseUrls） */
+  endpointMigrated?: boolean
+}
+
+async function readState(): Promise<ModelState> {
+  const stored =
+    (await appDb.get<{
+      profiles: StoredProfile[]
+      activeProfileId: string
+      endpointMigrated?: boolean
+    }>(KEY)) ?? { profiles: [], activeProfileId: '' }
+  // 解密为内部形态
+  const profiles: ModelProfileState[] = await Promise.all(
+    stored.profiles.map(async (p) => {
+      const rest = p as Omit<ModelProfileState, 'apiKey'>
+      if (p.apiKeyEnc) {
+        let apiKey = ''
+        try {
+          apiKey = await decryptApiKey(p.apiKeyEnc)
+        } catch {
+          // 密钥丢失或载荷损坏：宁缺勿假，清空待用户重填
+        }
+        return { ...rest, apiKey }
+      }
+      return { ...rest, apiKey: '' }
+    }),
+  )
+  const state: ModelState = {
+    profiles,
+    activeProfileId: stored.activeProfileId,
+    endpointMigrated: stored.endpointMigrated,
+  }
+  // 一次性迁移（尾斜杠剥离 → 完整端点地址）：改了内容就要落盘，故与下面的自愈共用一个写回开关
+  let dirty = migrateEndpointBaseUrls(state)
+  // 自愈：扩展早期版本保存时未维护 activeProfileId（可能悬空）。
+  // 仅在确实不一致时回写一次；此后读路径不再兜底，保持「activeProfileId 即真源」的严格语义。
+  const before = state.activeProfileId
+  syncActiveProfileId(state)
+  if (state.activeProfileId !== before) dirty = true
+  if (dirty) await writeState(state)
+  return state
+}
+
+/**
+ * 一次性迁移：早期版本 `baseUrl` 存的是**基址**，请求时由代码追加 `/chat/completions`
+ * （那个 `useFullUrl` 开关恒为 false）。现在 `baseUrl` 就是完整端点地址、原样请求 ——
+ * 老数据不补后缀的话会全部打到基址上 404，所以读取时补一次，并用标记位保证只跑一次。
+ *
+ * 判据只用「是否已以 /chat/completions 结尾」：旧版本没有任何路径能存进完整地址
+ * （表单硬编码 useFullUrl=false），故旧数据必然是基址；带后缀的只可能是迁移后的自己。
+ */
+function migrateEndpointBaseUrls(state: ModelState): boolean {
+  if (state.endpointMigrated) return false
+  state.endpointMigrated = true
+  for (const p of state.profiles) {
+    if (p.baseUrl && !/\/chat\/completions\/?$/i.test(p.baseUrl)) {
+      p.baseUrl = `${p.baseUrl}/chat/completions`
+    }
+    // 顺带清掉已删字段的落盘残留（类型里没了，旧数据对象上还在，展开写回会把它带下去）
+    delete (p as unknown as Record<string, unknown>).useFullUrl
+  }
+  return true
+}
+
+async function writeState(state: ModelState): Promise<void> {
+  const profiles: StoredProfile[] = await Promise.all(
+    state.profiles.map(async (p) => {
+      const { apiKey, ...rest } = p
+      return apiKey ? { ...rest, apiKeyEnc: await encryptApiKey(apiKey) } : rest
+    }),
+  )
+  await appDb.set(KEY, {
+    profiles,
+    activeProfileId: state.activeProfileId,
+    endpointMigrated: state.endpointMigrated,
+  })
+  // 写出口广播（见文件头）：扩展页回拉 + offscreen 的 profile-cache 回拉。
+  // 后者尽力而为：offscreen 不在场就不为一条通知唤醒它。
+  broadcastDataChange('model')
+  notifyRuntime({ kind: 'offscreen:configChanged' })
+}
+
+/**
+ * 展示名回退：name 未填（或只有空白）时用模型 ID。
+ * 早期数据可能连 name 字段都没有，故用可选链读取。
+ */
+function displayName(profile: ModelProfileState): string {
+  return profile.name?.trim() || profile.model
+}
+
+/** UI 使用：剔除 apiKey 明文，仅保留 hasApiKey */
+export async function listProfiles(): Promise<ModelProfile[]> {
+  return (await readState()).profiles.map(toPublic)
+}
+
+/** UI 一次拿全：列表 + 当前生效 id。两次读同一份 state，避免调用方分两跑去拼 */
+export async function listModelState(): Promise<{
+  profiles: ModelProfile[]
+  activeId: string
+}> {
+  const state = await readState()
+  return { profiles: state.profiles.map(toPublic), activeId: state.activeProfileId }
+}
+
+function toPublic(s: ModelProfileState): ModelProfile {
+  const { apiKey, ...rest } = s
+  return { ...rest, name: displayName(s), hasApiKey: Boolean(apiKey) }
+}
+
+/**
+ * 当前生效配置（含 apiKey）：activeProfileId 指向的模型，否则视为未配置。
+ * 此处不做运行时兜底——回退统一由 syncActiveProfileId 保证，避免隐含状态。
+ */
+async function getActiveProfile(): Promise<ModelProfileState | undefined> {
+  const state = await readState()
+  return state.profiles.find((p) => p.id === state.activeProfileId)
+}
+
+/** 当前真正生效的模型 id（始终指向一条存在的配置；无则空串） */
+export async function getActiveProfileId(): Promise<string> {
+  return (await getActiveProfile())?.id ?? ''
+}
+
+/** 当前生效配置（含 apiKey），未配置则 undefined */
+export async function getActiveProfileState(): Promise<ModelProfileState | undefined> {
+  return getActiveProfile()
+}
+
+/** 读取指定配置的明文 API Key（编辑态连通性测试用，Key 未回显时回退） */
+export async function getProfileApiKey(id: string): Promise<string> {
+  const state = await readState()
+  return state.profiles.find((p) => p.id === id)?.apiKey ?? ''
+}
+
+/**
+ * 保证 activeProfileId 指向一条存在的配置；没有配置时置空串。
+ * profiles 任何变更后都要经由此处收敛（原地修改并返回同一对象，调用方随后 writeState）。
+ */
+function syncActiveProfileId(state: ModelState): ModelState {
+  if (!state.profiles.some((p) => p.id === state.activeProfileId)) {
+    state.activeProfileId = state.profiles[0]?.id ?? ''
+  }
+  return state
+}
+
+/** 切换当前默认模型；id 不存在时忽略（对应桌面版 setActiveProfile 的守卫） */
+export async function setActiveProfile(id: string): Promise<void> {
+  const state = await readState()
+  if (!state.profiles.some((p) => p.id === id)) return
+  state.activeProfileId = id
+  await writeState(state)
+}
+
+/**
+ * 新增或更新模型配置。新增时若还没有默认模型则自动成为默认；
+ * 编辑时 apiKey 为空保留原 Key；展示名为空回退为模型 ID。
+ */
+export async function saveProfile(input: ModelProfileInput): Promise<ModelProfile> {
+  const state = await readState()
+  const existing = input.id ? state.profiles.find((p) => p.id === input.id) : undefined
+  const id = existing?.id ?? crypto.randomUUID()
+  const apiKey = input.apiKey.trim()
+  const next: ModelProfileState = {
+    id,
+    name: input.name.trim() || input.model.trim() || '未命名模型',
+    providerId: input.providerId ?? existing?.providerId ?? '',
+    // 原样存：地址即完整端点、不做拼接，末尾斜杠无从拼出双斜杠（只去首尾空白）
+    baseUrl: input.baseUrl.trim(),
+    model: input.model.trim(),
+    apiFormat: 'openai',
+    hasApiKey: Boolean(apiKey) || Boolean(existing?.apiKey),
+    apiKey: apiKey || existing?.apiKey || '',
+      contextOutputToken: input.contextOutputToken,
+      temperature: input.temperature,
+      topP: input.topP,
+      topK: input.topK,
+      streamIdleTimeoutSec: input.streamIdleTimeoutSec ?? existing?.streamIdleTimeoutSec
+    }
+  state.profiles = existing
+    ? state.profiles.map((p) => (p.id === id ? next : p))
+    : [...state.profiles, next]
+  // 第一条配置自动成为默认模型
+  if (!state.activeProfileId) state.activeProfileId = next.id
+  await writeState(syncActiveProfileId(state))
+  return toPublic(next)
+}
+
+export async function removeProfile(id: string): Promise<void> {
+  const state = await readState()
+  state.profiles = state.profiles.filter((p) => p.id !== id)
+  await writeState(syncActiveProfileId(state))
+}
+
+/**
+ * 连通性测试：向 baseUrl 发一次最小 chat 请求（非流式）。
+ * 地址**原样使用** —— 它就是完整端点地址，与真实对话链路同一判据（chat-host 的 fetch 覆盖）。
+ * apiKey 可为空：ollama / vLLM / llama.cpp 这类本地端点本来就没有 Key，
+ * 与 chat-host 的 `apiKey || 'not-needed'` 同一口径，不在这里单独拦。
+ */
+export async function testChat(config: ModelTestChatConfig): Promise<void> {
+  const baseUrl = config.baseUrl.trim()
+  const apiKey = config.apiKey.trim()
+  const model = config.model.trim()
+  if (!baseUrl) throw new Error('请先填写接口地址')
+  if (!model) throw new Error('请先填写模型 ID')
+
+  const url = baseUrl
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 15000)
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey || 'not-needed'}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: 'ping' }],
+        stream: false,
+        max_tokens: 8,
+      }),
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      const text = (await res.text()).slice(0, 300)
+      throw new Error(`HTTP ${res.status}：${text}`)
+    }
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw new Error('请求超时（15s）')
+    throw e
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * 设置页的连通性测试：把结果收敛成 `{ ok, error }` 而非抛错。
+ * 调用方是表单（要就地显示失败原因），一条 request 失败不该走异常通道。
+ *
+ * Key 未回显（编辑态表单不回填明文）时按 profileId 回退到已存 Key —— 行内测试因此
+ * 永远不需要把密钥带进 UI。
+ */
+export async function testChatResult(config: ModelTestChatConfig): Promise<TestChatResult> {
+  try {
+    const apiKey =
+      config.apiKey.trim() || (config.profileId ? await getProfileApiKey(config.profileId) : '')
+    await testChat({ ...config, apiKey })
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: errorText(e) }
+  }
+}

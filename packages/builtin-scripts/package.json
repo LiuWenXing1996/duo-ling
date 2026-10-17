@@ -5,12 +5,12 @@
   "type": "module",
   "description": "内置注入件：TS 源码 + 构建成 IIFE 产物，供扩展的用户脚本注册消费",
   "exports": {
-    ".": "./src/index.ts",
-    "./install": "./src/install.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "build": "node build.mjs",
-    "dev": "node build.mjs --watch"
+    "dev": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@duoling/shared": "workspace:*"

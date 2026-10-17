@@ -1,0 +1,8 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // node 不进 types：要读源码的测试用文件级三斜线引用，包内仍看不见 node 全局
+    "types": ["chrome"]
+  },
+  "include": ["src"]
+}

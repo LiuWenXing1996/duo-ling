@@ -1,0 +1,140 @@
+/// <reference types="node" />
+// GM API 目录（gm-api-catalog.ts）的**防漂移**测试。
+//
+// 目录是工作台「GM API」面板的唯一数据来源，而真身是 gm-wrapper.ts 里那段注入源码的**装配块**。
+// 两处一旦分叉，面板就在对着用户说谎（还看不出错），故这里从源码反射出真实挂载的键集合，与目录双向比对。
+//
+// 另一道防线在类型层：能力表的键必须恰好覆盖 `keyof GmGlobalFns`
+// （`satisfies Record<GmGlobalName, Capability>`），契约增删方法而目录没跟上 → typecheck 红。
+//
+// 用例住在 sw 包：目录在 shared、真身在本地 gm-wrapper.ts，依赖方向只允许 sw → shared，
+// 故两边对照落在下游这侧，shared 不必反向知道包装的存在。
+import { readFileSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
+import { GM_API_GROUPS, gmApiEntries, grantNames } from '@duoling/shared'
+
+const WRAPPER_SRC = readFileSync(new URL('./gm-wrapper.ts', import.meta.url), 'utf8')
+
+/** 装配块的起点注释；找不到即说明包装被重构过，反射锚点需同步更新（会让测试红，不会静默） */
+const ASSEMBLY_MARK = '// —— 组装成员（按 @grant 裁剪'
+
+function assembly(): string {
+  const i = WRAPPER_SRC.indexOf(ASSEMBLY_MARK)
+  if (i < 0) throw new Error(`gm-wrapper.ts 里找不到装配块锚点：${ASSEMBLY_MARK}`)
+  return WRAPPER_SRC.slice(i)
+}
+
+/**
+ * 全局函数 / 全局对象：`if (GM_HAS.X) GM_x = …`。
+ * 注意是**局部声明**而非 `window.GM_x = …` —— MAIN 世界下同帧多脚本共享一个 window，
+ * 挂上去会互相覆盖，故全部改成函数作用域内的变量（见 gm-wrapper.ts 文件头）。
+ * `GM_VALUES` 要挡掉：那是值快照的赋值，不是成员。
+ */
+function reflectGlobals(): string[] {
+  const out = new Set<string>()
+  for (const m of assembly().matchAll(/(?:^|\n)\s*(?:if \(GM_HAS\.\w+\) )?(GM_(?!VALUES)[A-Za-z]+)\s*=/g)) {
+    out.add(m[1]!)
+  }
+  return [...out].sort()
+}
+
+/** `GM.*` 成员：`if (GM_HAS.x) GM.x = …` 与无条件的 `GM.y = …` */
+function reflectNs(): string[] {
+  const out = new Set<string>()
+  for (const m of assembly().matchAll(/(?:^|\n)\s*(?:if \(GM_HAS\.\w+\) )?GM\.(\w+)\s*=/g)) out.add(m[1]!)
+  return [...out].sort()
+}
+
+/**
+ * 对象型全局的方法（`GM_cookie.list` / `GM_audio.setMute`…）：类型层取不到，
+ * 从包装层里的对象定义块反射。**块尾按「下一个块的起点」切**，不用固定标记 ——
+ * 否则块内一旦出现同缩进的闭合括号就会提前截断、漏掉后面的方法。
+ */
+const OBJECT_BLOCKS: Array<[mark: string, prefix: string]> = [
+  ['var __gmCookie = {', 'GM_cookie'],
+  ['var __gmAudioApi = {', 'GM_audio'],
+]
+
+function reflectObjectMethods(): string[] {
+  const assemblyAt = WRAPPER_SRC.indexOf(ASSEMBLY_MARK)
+  if (assemblyAt < 0) throw new Error(`gm-wrapper.ts 里找不到装配块锚点：${ASSEMBLY_MARK}`)
+  const blocks = OBJECT_BLOCKS.map(([mark, prefix]) => {
+    const i = WRAPPER_SRC.indexOf(mark)
+    if (i < 0) throw new Error(`gm-wrapper.ts 里找不到对象定义块：${mark}`)
+    return { i, prefix }
+  }).sort((a, b) => a.i - b.i)
+
+  const out: string[] = []
+  for (let k = 0; k < blocks.length; k++) {
+    const from = blocks[k]!.i
+    const to = k + 1 < blocks.length ? blocks[k + 1]!.i : assemblyAt
+    const block = WRAPPER_SRC.slice(from, to)
+    out.push(...[...block.matchAll(/^\s{4}(\w+): function/gm)].map((m) => `${blocks[k]!.prefix}.${m[1]!}`))
+  }
+  return out.sort()
+}
+
+describe('gm-api-catalog 与真实注入的 GM 面一致', () => {
+  it('路径集合一致（目录没多写、没漏写）', () => {
+    const runtime = [
+      ...reflectGlobals(),
+      ...reflectNs().map((n) => `GM.${n}`),
+      ...reflectObjectMethods(),
+      'unsafeWindow',
+      'window.onurlchange',
+      // window 级 @grant 项：走 defineProperty 挂载，不在 `GM_HAS.X` 赋值反射里
+      'window.close',
+      'window.focus',
+    ].sort()
+    const catalog = gmApiEntries().map((e) => e.path).sort()
+    expect(runtime.length).toBeGreaterThan(40)
+    expect(catalog).toEqual(runtime)
+  })
+
+  it('不在赋值反射里的成员确实被挂载（局部声明 / defineProperty 两条路径）', () => {
+    // 反向断言：unsafeWindow 走局部声明（MAIN 世界下它就是 window），不是挂到 window 上的属性
+    expect(WRAPPER_SRC).toContain('var unsafeWindow = window')
+    expect(WRAPPER_SRC).toContain("Object.defineProperty(window, 'onurlchange'")
+    // window.close / window.focus 是 @grant 项，挂的同样是 window 属性（由 GM_HAS 决定挂不挂）
+    expect(WRAPPER_SRC).toContain("Object.defineProperty(window, 'close'")
+    expect(WRAPPER_SRC).toContain("Object.defineProperty(window, 'focus'")
+  })
+
+  it('每条都有签名 / 说明 / 返回说明，且 signature 能认出自己', () => {
+    for (const e of gmApiEntries()) {
+      expect(e.title, e.path).toBeTruthy()
+      expect(e.summary, e.path).toBeTruthy()
+      expect(e.detail, e.path).toBeTruthy()
+      expect(e.returns, e.path).toBeTruthy()
+      expect(e.signature, e.path).toBeTruthy()
+      // 签名里应出现该路径的「末段名」（`GM_cookie.list` → `list`；`window.onurlchange` → `onurlchange`）
+      const last = e.path.split('.').pop() as string
+      expect(e.signature.toLowerCase(), e.path).toContain(last.toLowerCase())
+    }
+  })
+
+  it('分组都是已声明的组，且每组都非空', () => {
+    const ids = GM_API_GROUPS.map((g) => g.id)
+    for (const e of gmApiEntries()) expect(ids).toContain(e.group)
+    for (const g of GM_API_GROUPS) {
+      expect(gmApiEntries().filter((e) => e.group === g.id).length, `分组 ${g.id} 为空`).toBeGreaterThan(0)
+    }
+  })
+
+  it('同一能力的两形态成对出现（全局 + GM.*），路径不重复', () => {
+    const paths = gmApiEntries().map((e) => e.path)
+    expect(new Set(paths).size).toBe(paths.length)
+    const globals = paths.filter((p) => p.startsWith('GM_') && !p.includes('.'))
+    const ns = paths.filter((p) => p.startsWith('GM.'))
+    expect(ns.length).toBeGreaterThan(0)
+    expect(globals.length).toBeGreaterThan(ns.length - 3)
+  })
+
+  it('说明里提到的 `@grant` 名都是本扩展认得的（认不得的名字会被静默忽略，等于白写）', () => {
+    for (const e of gmApiEntries()) {
+      for (const m of e.detail.matchAll(/@grant\s+([A-Za-z_][\w.]*)/g)) {
+        expect(grantNames(), `${e.path} 的说明教了一个不认识的 @grant 名：${m[1]}`).toContain(m[1])
+      }
+    }
+  })
+})

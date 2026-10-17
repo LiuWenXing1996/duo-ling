@@ -22,6 +22,7 @@
 //
 // 推假会话的几条不需要真会话存在：SW 只登记会话 id（站点名 / 标签页都不再拼给它），故不必代写归属。
 import { test, expect, type BrowserContext, type Frame, type Page, type Worker } from '@playwright/test'
+import { saveStubModel } from './model-config'
 import * as http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -371,11 +372,11 @@ test.describe.skip('真实浮层链路（模型 stub + 页面内 iframe）', () 
     if (!engineAvailable) return
 
     // 模型指向本地 stub —— 本组用例的环境前提：真链路得先有能应答的模型，任务才跑得起来。
-    // 只能在浮层这一侧配（`window.api` 只装给浮层，popup 是纯配置面板）；配完落进扩展存储，
+    // 配置只能在设置页做（浮层没有设置入口）；工作台与浮层同源共享存储，
     // 后面用例新开的浮层直接可用，故整组只在这里配一次。
-    const { page: setupPage, tabId: setupTabId } = await openFloatPage(context!, sw, liveMessenger, probeUrl)
-    await sendFloat(liveMessenger, setupTabId, 'float:open')
-    await configureStubModel(await waitForPanelFrame(setupPage), stub.stub.baseUrl)
+    const setupPage = await context!.newPage()
+    await setupPage.goto(`chrome-extension://${extensionId}/workbench.html`)
+    await saveStubModel(setupPage, { baseUrl: stub.stub.baseUrl })
     await setupPage.close()
   })
 
@@ -549,30 +550,3 @@ async function waitForPanelFrame(page: Page): Promise<Frame> {
   )
 }
 
-/**
- * 把模型 profile 指向本地 stub（`api.model.save` + `setActive`）—— 真链路才有东西可跑。
- *
- * 只能在浮层这一侧配：`window.api` 只装给浮层（popup 是纯配置面板）。配完落进扩展存储，
- * 之后新开的浮层直接可用，故整组用例只配一次（见上面 describe 的 beforeAll）。
- * 先等 `api.model` 挂上再动手 —— 浮层文档刚建好时 `window.api` 还没就绪。
- */
-async function configureStubModel(panel: Frame, baseUrl: string): Promise<void> {
-  await panel.waitForFunction(() => !!(window as unknown as { api?: { model?: unknown } }).api?.model)
-  await panel.evaluate(
-    async (cfg) => {
-      const api = (
-        window as unknown as {
-          api: {
-            model: {
-              save: (c: unknown) => Promise<{ id: string }>
-              setActive: (id: string) => Promise<void>
-            }
-          }
-        }
-      ).api
-      const p = await api.model.save(cfg)
-      await api.model.setActive(p.id)
-    },
-    { name: 'stub', baseUrl, apiKey: 'sk-stub', model: 'stub-model' },
-  )
-}

@@ -3,15 +3,13 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "跨世界契约：桥 / 录制 / 页面检查器 / 浮层宿主的信封、常量与形状（Vite lib 模式构建）",
-  "main": "./dist/index.cjs",
+  "description": "跨世界契约 + 共享实现：桥 / 录制 / 页面检查器 / 浮层宿主的信封与形状，脚本落盘形状，GM 语义与目录、元数据解析、状态库、数据变更广播，会话与消息形状 + 会话库，跨进程服务契约（Vite lib 模式构建）",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.cjs"
+      "import": "./dist/index.mjs"
     }
   },
   "files": [
@@ -21,9 +19,15 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite build --watch",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@webext-core/proxy-service": "^3.0.2"
+  },
   "devDependencies": {
+    "ai": "^7.0.99",
+    "fake-indexeddb": "^6.2.5",
     "typescript": "^5.6.0",
     "vite": "^8.3.0",
     "vite-plugin-dts": "^5.1.1",

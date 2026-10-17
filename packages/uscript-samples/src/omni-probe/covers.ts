@@ -1,8 +1,8 @@
-// GM 全能探针 · 覆盖登记表：用例 ↔ 目录（@duoling/userscript-runtime 的 gm-api-catalog）的对齐数据。
+// GM 全能探针 · 覆盖登记表：用例 ↔ 目录（@duoling/shared 的 gm-api-catalog）的对齐数据。
 //
 // 目录是「有哪些 GM API」的唯一清单源；探针是真机那一层的唯一验收入口，两边一分叉就会出现
 // 「目录里新加了 API，但没人手测过它」——这正是已定位的缺口。目录加了新 API 时**必须**
-// 在这里认领一行，否则 src/lib/gm-api-coverage.test.ts 会红（这正是「探针不留空行」的机器保证）。
+// 在这里认领一行，否则 src/gm-api-coverage.test.ts 会红（这正是「探针不留空行」的机器保证）。
 //
 // 行字段：
 //   probe —— 认领方（探针里的用例名，须与 cases/*.ts 里 add(...) 的第二参**一字不差**）；

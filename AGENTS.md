@@ -10,23 +10,24 @@
 
 **红线**（各领域规范与文档索引见下方「文档职责总表」）：
 
-- **UI 复用（强制）**：对话界面（网页浮层）用 `ChatApp` + `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列；popup 是独立的 `PopupPanel.vue`（纯配置面板，不装 `window.api`）。组件本体零改动（靠 `src/lib/window-api.ts` 按 `PreloadApi` 契约桥接 `window.api`）。**改 UI 前先查 `src/components/` 是否已有实现，禁止照着界面重写**。
+- **包边界（强制）**：`packages/` 按两条轴切 —— 进程（`service-worker` / `offscreen-document`）与宿主页（`ui` / `workbench` / `floatpanel` / `popup`），打底只有 `shared`。**依赖严格单向**：`页面包 → ui → shared ← 进程包`。进程侧（`background.ts` 与两个进程包）**不得 import 任何页面包** —— 一个模块只要 SW 也要用，它就该在 `shared`（`app/` 那批就是这样收进去的）；页面包之间除 `→ ui` 外互不 import。判据与两种构建形态见 [ARCHITECTURE.md](ARCHITECTURE.md)「依赖方向与包边界」。
+- **UI 复用（强制）**：对话界面（网页浮层）用 `ChatApp` + `ChatPanel` 系列，工作台标签页用 `app.vue` 裁剪出的宿主 + `WorkspaceHost` 系列；popup 是独立的 `PopupPanel.vue`（纯配置面板，不承载对话）。组件本体零改动 —— 数据一律从各包 `src/lib/` 的客户端模块取（会话 `conversation-client`、模型 `model-store`、服务商 `providers`），**不设 `window.api` 之类的全局中间层**。**改 UI 前先查 `packages/ui/src/components/` 是否已有实现，禁止照着界面重写**。
   - **组件来源**：UI / 表单 / 图标类改动按 [shadcn-vue](.agents/skills/shadcn-vue/SKILL.md) 走 —— 先 `pnpm dlx shadcn-vue@latest search` 找现成组件、再 `add` 拉取，不手写组件。
   - **样式**：`class` 只用于布局，不覆盖组件配色与字体；颜色一律用语义 token（`bg-primary` / `text-muted-foreground`）；不写 `space-x-*` / `space-y-*`，不手写 `dark:` 覆盖。新增语义 token 时三处一起改（`@theme inline` 注册 + `:root` / `.dark` 取值），并**构建后 grep 产物 CSS 确认工具类真的生成了** —— Tailwind v4 对没注册的 token 静默忽略：不报错、不生效，typecheck 也看不出来。另注意本套 token 除 `--destructive` 外全是无彩色（`--primary` 就是黑/白），要给状态找颜色就新立语义 token，别借 `chart-*`（语义错配且会随图表配色漂）。
   - **Tooltip 组合约束（reka-ui 2.10 实测）**：`TooltipProvider` 不转发 attrs —— 任何 as-child 组件**隔在 Provider 与目标元素之间都会静默断链**（编译不报错、运行时无警告，事件与属性全丢）。故 Tooltip 包其他触发组件时，**Tooltip 在最外、目标组件在内**。
   - **菜单触发按钮不套 Tooltip（reka-ui 2.10 实测）**：即便顺序正确，`TooltipTrigger` 套在 `DropdownMenuTrigger` 外层仍会让 menu popper 失去定位（内容渲染到视口外，`translate(0,-200%)` 兜底，无任何报错；组件测试 / happy-dom 测不出来，只有真实浏览器可见性断言能抓到）。改用原生 `title`（`SessionHistoryPanel` 会话操作按钮即此例）。
   - **Collapsible 折叠语义（reka-ui 2.10 实测）**：`force-mount` 加在 `CollapsibleContent` 上**不是「保持挂载但隐藏」**——它使 `present=true`、不写 `hidden` 属性，收起时内容照样显示。
     「收起时留在 DOM 但不可见」（表单与编辑态始终同源、组件测试定位控件不受折叠影响）只能给**根组件** `<ui-collapsible :unmount-on-hide="false">`：内容带 `hidden` 属性，属性值经 Vue 归一为空串（测试只断言存在性，不断言 `until-found`）。`UserscriptEditorPanel` 脚本配置区即此例（默认收起，收起态用摘要行交代当前注入面）。
-  - **会话归属按标签页（2026-09-21）**：一个 tab 一条会话（映射见 `src/lib/conversation-tab-map.ts`）。对话界面（`ChatApp`）里**不得**加回会话列表或「新建会话」—— 历史会话的入口在工作台「会话历史」标签页。归属解析与惰性新建**只在 `use-global-conversation.ts` 一处**；「本载体属于哪个 tab」**只在 `src/lib/owning-tab.ts` 一处**（乱查 `tabs.query({active})` 会串到别人的标签页），面板组件不做这类判断。
+  - **会话归属按标签页（2026-09-21）**：一个 tab 一条会话（映射见 `packages/shared/src/app/conversation-tab-map.ts`）。对话界面（`ChatApp`）里**不得**加回会话列表或「新建会话」—— 历史会话的入口在工作台「会话历史」标签页。归属解析与惰性新建**只在 `use-global-conversation.ts` 一处**；「本载体属于哪个 tab」**只在 `packages/ui/src/lib/owning-tab.ts` 一处**（乱查 `tabs.query({active})` 会串到别人的标签页），面板组件不做这类判断。
     **删除会话必须先过「是否正被标签页使用」这道门**（`conversation-tab-map` 的 `getActiveTabBindings`：映射里有 **且** 该标签页还开着）—— 新增任何删除入口都要走它，别只查映射。
     **标签页关闭时，它那条会话正在跑的任务要一并中止**（`background` 的 `tabs.onRemoved` → `abortConversationOfClosedTab`：先按归属映射找到会话、再解绑，然后发 `chat:abort`）。任务跑在 offscreen、与页面无关是刻意的，但会话按标签页归属 —— 页面没了就没人看结果、也没处按停止，不喊停它会一路跑完烧 token。用户侧的就地停止入口在工作台「会话历史」的「生成中」标上。
     **凡是「对这个标签页做点什么」的新入口，判据必须是会话归属，不是 `tabs.query({active})`**：命中页只可能是「用户此刻正看着的那页」（拾取 —— 用户点按钮时面板必然在激活页上），其余一律认归属（页面侧读取统一走 `background.ts` 的 `resolveAiTargetTab`，用 `findTabsUsingConversation` 反查）—— 生成期间用户随时可能切走。
-- **对话附件（图片 / 文本文件）**：转换全在**发出前**完成，集中一处（`src/lib/chat-attachments.ts`），下游 transport / offscreen / provider 不感知附件的存在 —— 机制见 [ARCHITECTURE.md](ARCHITECTURE.md)「对话链路」。两条不得改坏：
+- **对话附件（图片 / 文本文件）**：转换全在**发出前**完成，集中一处（`packages/ui/src/lib/chat-attachments.ts`），下游 transport / offscreen / provider 不感知附件的存在 —— 机制见 [ARCHITECTURE.md](ARCHITECTURE.md)「对话链路」。两条不得改坏：
   - **任何新的附件入口都必须过那份类型白名单**：将来加拖拽 / 选择器 / 导入之类的入口时，别绕开 `prepareAttachments` 自己处理文件，否则会把 zip / pdf 当文本读进提示词。
   - **图片字节永不进模型**：图片只进资源库（`/assets`）、消息里只留 `data-asset` 引用，送模型前由 `messagesForModel` 换成一行文字；主 Agent 想看内容必须调 `image_ask`。别在任何环节把图片「顺手」塞回消息 parts —— 那会让它随每轮历史重发，正是这条设计要避免的开销。
-- **主题**：**跟随系统**（`src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`）—— html 上不硬写 `class="dark"`，组件里不硬编码色值（一律用主题变量如 `--background`）。
+- **主题**：**跟随系统**（`packages/ui/src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`）—— html 上不硬写 `class="dark"`，组件里不硬编码色值（一律用主题变量如 `--background`）。
 - **工作台标签页（面板）**：新增 / 改动按 [workbench-panel](.agents/skills/workbench-panel/SKILL.md) 走 —— **接线固定 5 处（清单只在该 SKILL 罗列）**。
-  - **面板数据源不得 import offscreen 专属模块**（`us-git` / `builder` / `offscreen-chat/script-tools`）：要么新增 IPC，要么抽一份运行时与 UI 共用的纯数据模块，并配「从运行时反射比对」的防漂移单测。
+  - **面板数据源不得 import offscreen 专属模块**（`@duoling/offscreen-document` 的文件库读写 / `builder` / `@duoling/offscreen-document` 的 `chat/script-tools`）：要么新增 IPC，要么抽一份运行时与 UI 共用的纯数据模块（纯函数不算越界），并配「从运行时反射比对」的防漂移单测。
 - **依赖与权限**：**不自行升级 WXT 版本、不增删 manifest 权限**（需先与用户确认）—— 见 [wxt](.agents/skills/wxt/SKILL.md)「范围上限」与下方硬性底线。
 
 ## 常用命令
@@ -42,11 +43,11 @@
 | `pnpm run model:serve` | 起本机假模型（`scripts/model-stub.mts`，默认端口 5199，可用 `DL_MODEL_STUB_PORT` 覆盖）：一个 OpenAI 兼容的假服务，开发/手测对话链路时顶替真模型（不花真 Key、回复确定）。地址填进「设置 → 添加模型 → 服务商选自定义 → 接口地址」，密钥留空即可；**内置调试触发** —— 消息整句发「快照」或「页面环境」即回对应的工具调用，并把采集结果摘要成一句人话（含失败原因），手测 `page_snapshot` / `page_env_read` 这类要页面侧真跑一遍的工具链时不必写 plan（e2e 显式传 `plan` 时它不生效）。e2e 直接 import 本 `.mts` 源码取类型 |
 | `pnpm run build` | 构建，产出 `.output/chrome-mv3` |
 | `pnpm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
-| `pnpm run typecheck` | 类型检查（`vue-tsc --noEmit`，**含 `e2e/` 与 `scripts/`**）；当前全仓零错误。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有这道门禁拦得住 |
+| `pnpm run typecheck` | 类型检查：`pnpm -r build` → `wxt prepare` → 逐包 `typecheck`（进程包 `tsc --noEmit`，四个页面包 `vue-tsc --noEmit`，共九个包）→ 根 `vue-tsc --noEmit`（`src` / `e2e` / `scripts` 与包源码）；当前全仓零错误。`wxt prepare` 不能提前：它解析 `@duoling/*` 走 exports → dist，包未构建时 resolve 必失败。单包自检 `pnpm --filter @duoling/<包> run typecheck`，跨包 import 的**运行产物**走上游 `dist`（陈旧时先 `pnpm -r build`），页面包的类型面走各自源码（见 ARCHITECTURE.md「依赖方向与包边界」）。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有根那道门禁拦得住 |
 | `pnpm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
 | `pnpm run test:coverage` | 单测覆盖率（v8 provider，终端 `text-summary` + HTML 报表落 `coverage/`）。**只作本地看数，不进 CI**；统计口径与 exclude 见 `vitest.config.ts` 的 `coverage` 段 |
 | `pnpm run test:e2e` | Playwright 端测（全程无头、跑 build 产物）。**脚本内先 `pnpm run build`**，不必手动先构建；也别绕开脚本直接调 playwright——端测读的是产物而非源码，产物陈旧时会静默跑旧代码（改了 `src/` 尤其注意） |
-| `pnpm run verify` | 交付前快检：两道门禁 + typecheck + 全部单测（不含构建与端测）。本地改完先跑它 |
+| `pnpm run verify` | 交付前快检：两道门禁 + typecheck + 全部单测。typecheck / test 各自自带 `pnpm -r build` 与 `wxt prepare` 前置，但不跑 `pnpm run build`（wxt 产物）与端测。本地改完先跑它 |
 | `pnpm run ci` | CI 同款全量：`verify` → `build` → 端测。**CI 的 `Gate` job 跑的就是这一条**，本地想复现 CI 结果跑它即可（需先装好 Chromium） |
 | `pnpm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 | `pnpm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、疑似重复（**整理待办时跑**，提醒级不进 CI） |
@@ -170,14 +171,14 @@
 | 领域 | 一句话底线 | 详情 |
 | --- | --- | --- |
 | manifest 权限 | 所需权限之外的不得添加（上架审查）；**没有 `sidePanel`** —— 一个 action 只能有一种默认行为，本项目给了 popup（页面外的入口），对话入口是按需挂进页面的浮层（宿主件 `dl-float-host` 是注册用户脚本，见 [ARCHITECTURE.md](ARCHITECTURE.md)「载体与运行时」），故不用 `chrome.sidePanel`（加回来只会多出一个点不动的入口）。已批准权限集见 [wxt.config.ts](wxt.config.ts)（每项带「为什么需要」）；核对产物即拿它的 `permissions` 数组逐项比对，另需 `action`（含 `default_popup`，由 `entrypoints/popup.html` 自动写入）+ `host_permissions` | [wxt.config.ts](wxt.config.ts) |
-| cookie 能力（GM_cookie） | `cookies` 权限 + 已全域的 host（`<all_urls>`）= **SW 可读写全浏览器 cookie（含 HttpOnly）**，故必须与**域名门**绑定：url 须落在该脚本自身 `matches` 内、不命中 `excludeMatches`，只比 **scheme + host**（pattern 的 path 段一律忽略）；`set` 不开放 domain / path 覆写。**门只在 SW 侧，新增任何 cookie 命令都必经此门** | [cookie-gate.ts](src/lib/userscripts/cookie-gate.ts) / [api-contract.ts](packages/userscript-runtime/src/api-contract.ts) |
+| cookie 能力（GM_cookie） | `cookies` 权限 + 已全域的 host（`<all_urls>`）= **SW 可读写全浏览器 cookie（含 HttpOnly）**，故必须与**域名门**绑定：url 须落在该脚本自身 `matches` 内、不命中 `excludeMatches`，只比 **scheme + host**（pattern 的 path 段一律忽略）；`set` 不开放 domain / path 覆写。**门只在 SW 侧，新增任何 cookie 命令都必经此门** | [cookie-gate.ts](packages/service-worker/src/cookie-gate.ts) / [api-contract.ts](packages/shared/src/api-contract.ts) |
 | SW 全局 | 引入依赖 Node 全局的库时，必须补 `src/polyfills.ts` 并在 `background.ts` **最前** import；漏掉时表现为加载期即抛「`global.TextEncoder` 读不到」 | [src/polyfills.ts](src/polyfills.ts) |
 | CSP / 沙箱 | 扩展页 CSP 保持 MV3 默认 `script-src 'self'`，**不要加任何 CSP 覆盖**；扩展页内禁内联 `<script>`（桥接脚本须外置同源文件）。AI 生成的**用户脚本**注入页面 MAIN 世界：不受扩展 CSP 约束，但**能用的 CSP 由目标站点自己决定**（`eval` / `new Function` 在收紧的站点上会失败）；不享有扩展 API，只能经 GM 包装层桥接（`GM_*` / `GM.*`，内部经中继件走 `__dl` 信封协议） | [ARCHITECTURE.md](ARCHITECTURE.md)「脚本注入」/ [wxt.config.ts](wxt.config.ts) |
-| 消息协议 | 扩展页只能经 `window.api` → background 调用能力；用户脚本只能经 GM 包装层（`GM_*` / `GM.*`）→ background，内部走 `dl-bridge.ts` 的 `__dl` 信封协议，**两者都不得直接访问 `chrome.*`** | [src/lib/window-api.ts](src/lib/window-api.ts) |
-| 权限引导 | 需用户在浏览器里开启的开关（当前两项：「运行用户脚本」「读取本地文件」——后者只对 Chrome 渲染）统一由工作台**「引导」标签页**承载（状态自检 + 分步指引 + 直达扩展管理页；该页入口在设置左栏菜单底部，左侧导航不单独占一项）；**别处一律只给「查看开启引导」入口，不各写一套步骤**。该页只放需要用户动手的项——无需操作的实现细节（如 CSP 相关的脚本限制）由保存警告与错误日志在恰当时机给出。**直达管理页用 `chrome.tabs.create`**（属 tabs API 免权限方法，可开 `chrome://extensions`——文档那句「chrome:// URLs are not linkable」只约束 `<a href>`）：Chrome ≥138 用 `?id=` 深链落**扩展详情页**，<138 退**列表页**（要开的是整页右上角的全局「开发者模式」）；Firefox 的 `about:addons` 是特权 URL，`tabs.create` 会被拒，故不提供该入口 | [src/lib/extension-page.ts](src/lib/extension-page.ts) |
+| 消息协议 | 扩展页只能经 各包 `src/lib/` 的客户端模块（内部走 `@duoling/shared` 的总线（写）/ `src/shared/ipc-bus.ts`（读口） 发 runtime 消息）→ background 调用能力；用户脚本只能经 GM 包装层（`GM_*` / `GM.*`）→ background，内部走 `dl-bridge.ts` 的 `__dl` 信封协议，**两者都不得直接访问 `chrome.*`** | [src/shared/ipc-bus.ts](src/shared/ipc-bus.ts) |
+| 权限引导 | 需用户在浏览器里开启的开关（当前两项：「运行用户脚本」「读取本地文件」——后者只对 Chrome 渲染）统一由工作台**「引导」标签页**承载（状态自检 + 分步指引 + 直达扩展管理页；该页入口在设置左栏菜单底部，左侧导航不单独占一项）；**别处一律只给「查看开启引导」入口，不各写一套步骤**。该页只放需要用户动手的项——无需操作的实现细节（如 CSP 相关的脚本限制）由保存警告与错误日志在恰当时机给出。**直达管理页用 `chrome.tabs.create`**（属 tabs API 免权限方法，可开 `chrome://extensions`——文档那句「chrome:// URLs are not linkable」只约束 `<a href>`）：Chrome ≥138 用 `?id=` 深链落**扩展详情页**，<138 退**列表页**（要开的是整页右上角的全局「开发者模式」）；Firefox 的 `about:addons` 是特权 URL，`tabs.create` 会被拒，故不提供该入口 | [packages/workbench/src/lib/extension-page.ts](packages/workbench/src/lib/extension-page.ts) |
 | 脚本 CSP | 脚本注入页面 MAIN 世界，能否用 `eval` / `new Function` 由**目标站点自己的 CSP** 决定 —— 本扩展既不拦也不放开。保存时 `collectCspWarnings` 对含 `eval` / `new Function` 的代码给非阻塞警告 | [ARCHITECTURE.md](ARCHITECTURE.md)「脚本注入」 |
-| 错误文案 | **平台英文报错不直达用户**：扩展 API 的原话（注入失败 / 访问被拒等）必须先归一成用户的下一步动作（典型「切到要操作的网页后重试」），能在调用前判掉的就在判据里判掉；同类失败面（内置页 / 扩展页 / 未授权）文案保持一致。注意 `<all_urls>` **不覆盖 `chrome-extension://` scheme** —— 往扩展页注入必失败（连本扩展自己的页面也一样），加 host 权限解决不了，只能在注入前按 scheme 拦 | [src/lib/element-picker-client.ts](src/lib/element-picker-client.ts) |
+| 错误文案 | **平台英文报错不直达用户**：扩展 API 的原话（注入失败 / 访问被拒等）必须先归一成用户的下一步动作（典型「切到要操作的网页后重试」），能在调用前判掉的就在判据里判掉；同类失败面（内置页 / 扩展页 / 未授权）文案保持一致。注意 `<all_urls>` **不覆盖 `chrome-extension://` scheme** —— 往扩展页注入必失败（连本扩展自己的页面也一样），加 host 权限解决不了，只能在注入前按 scheme 拦 | [packages/shared/src/app/element-picker-client.ts](packages/shared/src/app/element-picker-client.ts) |
 | entrypoint | 同一名字不得同时存在 `x.html` 与 `x.ts`（WXT 判定同名冲突）；入口脚本用非约定名由 html 引用 | [wxt](.agents/skills/wxt/SKILL.md) 硬约束 3 |
 | 首屏体积 | 入口 HTML 的静态图就是打开面板要执行的代码：markdown 渲染链路 / AI SDK 等重依赖一律动态 import（静态引入会把首屏从约 530KB 抬到约 1420KB）；首帧加载态必须是内联静态 DOM（不靠 JS） | [ARCHITECTURE.md](ARCHITECTURE.md)「首帧加载态」 |
-| 测试 | 新增 / 改动逻辑必须配最小验证；**手写桥接层（`src/lib/*.ts` 中非平移的那些）必须逐函数自检「默认值回退 / 入参守卫 / 先校验后落盘 / 无变化就不做」四类语义并各补单测** | [testing](.agents/skills/testing/SKILL.md) |
+| 测试 | 新增 / 改动逻辑必须配最小验证；**手写桥接层（各包 `src/lib/*.ts` 中非平移的那些）必须逐函数自检「默认值回退 / 入参守卫 / 先校验后落盘 / 无变化就不做」四类语义并各补单测** | [testing](.agents/skills/testing/SKILL.md) |
 | 命名 | 文件与目录 kebab-case；组件 kebab-case；props / emits 脚本 camelCase、模板 kebab-case | 本表即约定，无独立文档 |

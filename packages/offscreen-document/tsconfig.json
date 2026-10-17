@@ -1,0 +1,8 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // 只吃 chrome 类型：本包无 SFC、无 ?raw / ?url 资源导入（dev 判据也改走注入值了）
+    "types": ["chrome"]
+  },
+  "include": ["src"]
+}
