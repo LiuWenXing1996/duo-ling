@@ -17,15 +17,14 @@
     }
   },
   "scripts": {
-    "postinstall": "wxt prepare",
     "dev": "node scripts/dev.mts",
     "probe:serve": "node scripts/probe-target.mts",
     "model:serve": "node scripts/model-stub.mts",
     "build": "pnpm -r build && wxt build",
     "build:firefox": "pnpm -r build && wxt build --browser firefox",
-    "typecheck": "pnpm -r build && pnpm -r typecheck && vue-tsc --noEmit",
-    "test": "pnpm -r build && pnpm -r test && vitest run",
-    "test:coverage": "pnpm -r build && vitest run --coverage",
+    "typecheck": "pnpm -r build && wxt prepare && pnpm -r typecheck && vue-tsc --noEmit",
+    "test": "pnpm -r build && wxt prepare && pnpm -r test && vitest run",
+    "test:coverage": "pnpm -r build && wxt prepare && vitest run --coverage",
     "test:e2e": "pnpm run build && playwright test",
     "verify:skills": "node scripts/verify-skills.mts",
     "check:todo": "node scripts/check-todo.mts",

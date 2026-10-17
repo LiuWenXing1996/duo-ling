@@ -30,11 +30,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # .wxt/tsconfig.json 由 wxt prepare 生成（含 @ 别名与 #imports 虚拟模块类型），vue-tsc 与 vitest(WxtVitest) 都依赖它；
-      # 缺失报 "Failed to load tsconfig '.wxt/tsconfig.json'"；门禁不因缺 .wxt 假红——显式 prepare 兜底，防 postinstall 被跳过致 typecheck 假红。
-      - name: Generate WXT types (.wxt/tsconfig.json)
-        run: pnpm exec wxt prepare
-
+      # .wxt/tsconfig.json 由 typecheck 脚本里的 `wxt prepare` 生成（含 @ 别名与 #imports 虚拟模块
+      # 类型，vue-tsc 与 vitest 都依赖它）。不能单独提前跑：WXT 解析 @duoling/* 走 exports → dist，
+      # 包还没构建时 resolve 必失败 —— 故它紧跟 `pnpm -r build`。
       - name: Typecheck (vue-tsc --noEmit)
         run: pnpm run typecheck
 

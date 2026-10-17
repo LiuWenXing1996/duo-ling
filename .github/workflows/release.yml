@@ -122,10 +122,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # .wxt/tsconfig.json 由 wxt prepare 生成，构建依赖它；显式 prepare 兜底（同 ci.yml）。
-      - name: Generate WXT types (.wxt/tsconfig.json)
-        run: pnpm exec wxt prepare
-
+      # 不单独跑 wxt prepare：WXT 解析 @duoling/* 走 exports → dist，包构建之前 resolve 必失败；
+      # `pnpm run build` 先 `pnpm -r build` 再 `wxt build`，.wxt 由后者生成。
       - name: Build chrome-mv3
         run: pnpm run build
 
