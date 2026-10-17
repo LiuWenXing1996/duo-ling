@@ -30,6 +30,8 @@ popup / floatpanel / workbench ──▶ ui ──▶ shared ◀── service-w
 - **页面包之间只许 `→ ui`**：三页互不 import。`ui` 的入口桶只出 `ChatPanel`（浮层与工作台共用它），其余走子路径，避免一个桶把整棵对话树塞进 popup。
 - **总线的两半分居两处**：发送/订阅（`ipcRequest` / `ipcNotify` / `ipcSubscribe`）在 `shared`，接收口（`serveIpc` + 三个 matcher）在 `src/shared/ipc-bus.ts` —— 后者要 `chrome.runtime.MessageSender` 的类型面，而 `shared` 是 `types: []`（零 chrome 类型是铁律，参见「共享层」的边界说明）。
 
+> 上面的方向约束由 `pnpm run check:packages` 机械强制（pre-commit 与 `verify` 都挂）：静态扫 `@duoling/*` import 与相对路径越界，对照 `scripts/check-packages.mts` 顶部 MATRIX 矩阵。矩阵与本文同源 —— 开新边两处一起改。
+
 **两种包形态并存，判据是「谁消费」**：
 
 | | 进程包（shared / sw / offscreen / builtin） | 页面包（ui / workbench / floatpanel / popup） |

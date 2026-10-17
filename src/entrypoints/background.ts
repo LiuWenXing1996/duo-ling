@@ -51,7 +51,8 @@ import {
   BUILTIN_SCRIPT_IDS,
   syncAllBuiltins,
 } from '@duoling/service-worker'
-import type { BuiltinRegistration } from '@duoling/service-worker'
+// BuiltinRegistration 是跨世界契约形状，真相源在 shared（engine 只是产生方）
+import type { BuiltinRegistration } from '@duoling/shared'
 // metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
 // 真正的归一化在写入口一处（offscreen 写侧的 saveSource），此处不写回任何东西
 import {
