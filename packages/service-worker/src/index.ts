@@ -8,7 +8,7 @@
 //
 // 依赖方向：本包 → proxy-service-list（服务契约）/ userscript-core（语义与存储）→ shared，无环。
 // offscreen 进程侧的包是 @duoling/offscreen-document，与本包**互不 import**：跨进程只有
-// chrome.runtime 消息一条路（服务代理报文 / 总线命令），两侧各有一条 boundary 测试守着。
+// chrome.runtime 消息一条路（服务代理报文 / 总线命令）。
 
 export * from './offscreen-reasons'
 export * from './sw-service'

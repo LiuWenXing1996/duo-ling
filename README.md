@@ -53,7 +53,7 @@
 └─ .github/workflows/             # ci / e2e / release / sync-release-notes（作用见 GIT_WORKFLOW.md 与 VERSIONING.md）
 ```
 
-> **包分组按「进程」切**：不属任何进程的三层打底 —— `shared`（跨世界契约）/ `proxy-service-list`（跨进程服务契约）/ `userscript-core`（语义与存储）；`service-worker` 与 `offscreen-document` 各占一个进程包（各含该进程的服务实体与宿主层），`builtin-scripts`（注入件）与 `uscript-samples`（样例）另计。两个进程包**互不 import**（各有一条 boundary 单测守线），跨进程只走 `chrome.runtime` 消息与服务代理。
+> **包分组按「进程」切**：不属任何进程的三层打底 —— `shared`（跨世界契约）/ `proxy-service-list`（跨进程服务契约）/ `userscript-core`（语义与存储）；`service-worker` 与 `offscreen-document` 各占一个进程包（各含该进程的服务实体与宿主层），`builtin-scripts`（注入件）与 `uscript-samples`（样例）另计。两个进程包**互不 import**，跨进程只走 `chrome.runtime` 消息与服务代理。
 
 ## 后续接入
 
