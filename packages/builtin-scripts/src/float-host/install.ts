@@ -1,28 +1,17 @@
 // 浮层宿主常驻件本体：页面里的对话挂载点（常驻，零 UI，收到指令才建 DOM）。
-//
-// 运行位置：目标标签页的**页面主世界（MAIN）系统脚本**（GM 包装注入，见应用侧
-// system-scripts.ts）—— 全站匹配 + document_start。加载只建通道、不动作。
-//
-// **运行期参数由构建产物里的占位符承担** —— 件要用浮层页地址与扩展显示名，两样只有扩展侧
-// 取得到，而注册项是静态字符串。做法：源码里写裸占位符（`__DL_FLOAT_PANEL_URL__` /
-// `__DL_FLOAT_EXT_NAME__`），应用侧组系统脚本源码时替换成 JSON 字面量（见 system-scripts.ts
-// 的 floatHostProject）。本件因此对应用源码零依赖，也不认识 chrome.*。
+// 运行位置：目标标签页的 MAIN 世界系统脚本（GM 包装注入，见应用侧 system-scripts.ts）；
+// 为什么常驻、注册面收敛与匹配面代价、占位符参数机制，见 ARCHITECTURE.md「脚本注入」节。
 //
 // 指令（下行帧形状真相源是 shared 的 api-contract.ts 的 float.cmd）：
-//   open      挂上容器并展开。容器按需创建，iframe 懒加载（首次展开才设 src）；tabId 随帧带
-//             （拼进 iframe 的 `?tab=`，浮层据此认定会话归属）
-//   collapse  收起：容器回到 display:none，iframe 与面板文档都留着 —— 再打开就是原状态
-//             （草稿、滚动位置、正在生成的那条消息的实时视图）
+//   open      挂上容器并展开，iframe 懒加载（首次展开才设 src）；tabId 随帧带（拼进 iframe
+//             的 `?tab=`，浮层据此认定会话归属）
+//   collapse  收起：容器 display:none，iframe 与面板文档都留着 —— 再打开就是原状态
 //   busy      生成遮罩显隐，与浮层开合无关（理由见 setBusy）
 //   ping      在岗探针：回一条 float.pong（reqId 原样带上；结算认它 —— e2e 探活用）
 //
 // 位置只在本次页面内有效：不落库，刷新后回到右下角。
-//
-// CSP 降级：iframe 加载失败（严格 frame-src 拦扩展 iframe）时给一句可读提示 —— 对话框是唯一
-// 对话载体，这些站点上就是用不了。两点实现约束：部分站点拦载**不触发** iframe 的 error 事件，
-// 可靠性靠 load 超时兜底；floatpanel.html 必须进 web_accessible_resources（见 wxt.config.ts），
-// 否则 Chrome 直接拦。
-//
+// CSP 降级：iframe 加载失败（严格 frame-src 拦扩展 iframe）给可读提示 —— 可靠性靠 load 超时
+// 兜底（部分站点拦载不触发 error 事件），floatpanel.html 必须进 web_accessible_resources。
 // 拾取让位：页面元素拾取期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
 
 import { INSPECTOR_PICKER_NS } from '@duoling/shared'

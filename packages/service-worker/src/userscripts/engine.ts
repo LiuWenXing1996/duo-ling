@@ -205,24 +205,8 @@ function floatPanelUrl(): string {
  * 维护浮层宿主系统脚本的注册（幂等可重入；调用方负责串行化）。返回在册时的项目对象
  * （调用方把它算进中继件并集 —— 件的指令下行走桥，MAIN 世界没有它的注册就没有中继件）。
  *
- * **为什么常驻**：打开浮层是「页面早已打开、用户刚点按钮」的动作，而注册件只在页面**开始加载**时
- * 注入 —— 要在那之后还能挂上对话框，就只能加载即到位、待命等指令（与页面检查器同因由）。
- *
- * **换来的是注册面收敛**：走 manifest 通道的声明式内容脚本不在 `getScripts()` 里，UI 只能标一句
- * 「常驻」、回答不了「此刻到底在不在」；注册件则让内置件全在同一处同步、同一个口对账
- * （listBuiltinRegistrations），「这一页上跑着什么」只剩一个答案。
- *
- * **代价（已确认接受）**：浮层的可用性从此与「允许运行用户脚本」开关**绑定** —— 开关关掉时浮层
- * 也挂不出来（声明式内容脚本不受该开关影响）。表现是 popup 探活不应答，界面上已有可用性横幅
- * 说明该开关在哪。
- *
- * **匹配面全站**：打开浮层的目标由用户点按钮那一刻决定，而注册没有 tab 维度
- * （RegisteredUserScript 的匹配字段全是 URL），只能覆盖全部 —— 代价是每个普通网页里都有一份
- * 待命代码（零 UI、零网络：只建一条通道与一个 MutationObserver，连 DOM 都不建）。
- *
- * MAIN 世界系统脚本：对话框的挂载与拖拽本来就是 DOM 面（页面看得见它做的一切，与旧独立世界形态
- * 相比没有实质变化）；GM 包装 / 脚本桥 / 中继件随统一注册链自动就位，指令下行走 DL Port 事件帧
- * （见 builtin-scripts 的 float-host/install.ts）。
+ * 为什么常驻、注册面收敛、可用性与「允许运行用户脚本」开关绑定、匹配面全站的代价 ——
+ * 见 ARCHITECTURE.md「脚本注入」节的常驻件条目。
  */
 async function syncFloatHost(): Promise<ScriptProject | null> {
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return null

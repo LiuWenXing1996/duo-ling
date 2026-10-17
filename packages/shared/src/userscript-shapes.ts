@@ -232,12 +232,7 @@ export const ERR_TAB_KIND = 'error'
 
 /**
  * 标签页活动轴上的一行 —— **只有文档级与记录开关两类**（duoling-runtime 库 tab_events store，
- * 自增主键；写侧 SW 独占）。
- *
- * 这根轴上的行不止这一类：接口采样（NET_TAB_KIND）、运行条目（RUN_TAB_KIND）、动作
- * （ACT_TAB_KIND）、错误（ERR_TAB_KIND）都与它同住一张表 —— 读侧本就把它们按时刻混排成
- * 同一根时间线，归属键（tabSessionId）与清空粒度（按页）又完全一致，分表只会让「删这一页」
- * 变成跨库手术（六类行的形状见 ARCHITECTURE.md「存储」节）。
+ * 自增主键；写侧 SW 独占）。六类行同住一张表的理由见 ARCHITECTURE.md「存储」节。
  *
  * 本类型描述其中**没有额外载荷**的两类（只有 kind + time，读侧当纯文本行渲染）：
  *
@@ -249,8 +244,6 @@ export const ERR_TAB_KIND = 'error'
  * 记录开关（用户在 popup 里给这一页开 / 关「活动记录」，或记录被动终止）：
  *   · recordOn  —— 开始记这一页
  *   · recordOff —— 不再记：用户关掉开关，或标签页关闭 / 浏览器启动划断时它还在记
- *   与文档支同表的理由：时间线上它们是同一根轴上的连续节点（「这一段在记」由前一条
- *   recordOn 划到后一条 recordOff），拆两张表反而要让读侧自己拼顺序。
  */
 export interface TabEventRecord {
   /**

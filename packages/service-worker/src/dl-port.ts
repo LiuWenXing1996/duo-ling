@@ -1,24 +1,8 @@
 // DL Port 事件底座：脚本世界 ↔ background SW 的长连接下行通道。
 //
-// 职责（协议契约见 api-contract.ts 的 ApiEvent / ApiEventFrame）：
-//   · Port 生命周期 —— 脚本世界主动 connect（SW 无法反向连接脚本世界，脚本是唯一发起端），
-//     lazy 建立（首次 menu.register / store.watch / notify(onClick) 时）；SW 侧按 name
-//     解析身份并校验 sender.userScript.scriptId。
-//   · SW 注册表（全部内存态；控制面请求都等 port.ready 之后才发，故建起连接即登记到位）：
-//       dlPorts    Map<Port, {uuid, connId, tabId}>   连接寻址（menu.click 路由主键 = tabId）
-//       watches    Map<Port, Set<key>>                订阅跟随 Port 生命周期，断开自动清理
-//       notifyMap  Map<notificationId, uuid>          通知点击归属（内存，SW 重启窗口内点击丢失——已接受的取舍）
-//   · 三个事件来源：contextMenus.onClicked / GM 值存储 写出口
-//     （gm-values.ts 的 onGmValueChange 直发）/ notifications.onClicked。
-//   · 控制面（注册 / 注销 / 订阅）走 sendMessage 请求-响应（dl-bridge dispatch 调本文件导出的
-//     函数），Port 只承载下行推送帧 —— 控制面/数据面分离。
-//
-// 幂等：contextMenus 注册持久于浏览器会话，同一脚本每次页面加载都会 create 同一个
-// id（由标题确定性派生）—— 撞 duplicate id 按成功处理（菜单在位即达标）；remove 不存在同理忽略。
-// contextMenus id 统一加 `us:` 前缀（`us:<uuid>:<menuId>`），避免与项目自身菜单撞 id。
-//
-// 竞态（connect → onConnect 就绪窗口）：SW 建立连接后立即下发 { t:'port.ready' } 内部帧，
-// 脚本包装层收到它才 flush 待注册队列 —— 见 engine.ts 包装层，脚本作者不感知。
+// 协议契约见 api-contract.ts 的 ApiEvent / ApiEventFrame；Port 生命周期（脚本世界唯一发起端、
+// lazy 建立）、SW 内存注册表、控制面 / 数据面分离、contextMenus 幂等与 `us:` 前缀、
+// connect → port.ready 竞态收口，见 ARCHITECTURE.md「脚本注入」节的 DL Port 条目。
 import type { ApiEvent, ApiEventFrame, Json } from '@duoling/shared'
 import { onGmValueChange } from './gm-values'
 

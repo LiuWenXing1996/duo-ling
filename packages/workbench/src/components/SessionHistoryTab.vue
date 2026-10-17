@@ -1,28 +1,10 @@
 <script setup lang="ts">
 // 工作台「会话历史」标签页：回看历史会话（列表 + 消息回放），改名与删除也在这里。
+// 布局（左栏 SessionHistoryPanel / 右栏「回放 / 原始数据」两视图切换）、删除前置门
+// 与「告诉用户去关谁」的交互设计，见 ARCHITECTURE.md「对话链路」节。
 //
-// 为什么会话历史需要一个独立去处：对话界面（网页浮层）的会话**归属由标签页决定**
-// —— 一个 tab 一条会话、切 tab 即切会话，所以那里既没有会话列表也没有「新建会话」。
-// 历史会话因此收进工作台这个重界面：它是「查看与管理」的落点，不是对话的落点。
-//
-// 布局：左栏复用 SessionHistoryPanel（搜索 / 日期分组 / 改名 / 删除），右栏在两个视图之间
-// 切换（同一会话两个面，切换即对照）：**回放**用 ChatPanel 的只读模式（readonly）——与对话
-// 界面同一套渲染，不另写回放视图；**原始数据**用 ConversationRawView——落盘 Message 的
-// 原始字段（pageContext / parts / usage / 原始 JSON），排查落盘问题时直接对照库里的记录。
-//
-// 数据：读走 conversationClient（直连 IndexedDB），写也走它（内部交 offscreen，唯一写方
-// 仍是 offscreen）。删除会话时顺手清掉标签页归属映射
-// （conversation-tab-map），免得留下指向已删会话的旧绑定。
-//
-// **删除有前置门**：会话正被开着的标签页使用就不让删 —— 它是那个标签页的现场。判据是
-// 「映射里有 + 那个标签页还开着」（不是「映射里有」：SW 没来得及清理的残留项会把已关闭的
-// 标签页算成在用，用户就删不掉又找不到是哪个标签页）。关掉标签页后即可删除；想接着聊，
-// 重新打开一个标签页就是一条新会话。
-//
-// 被挡下时不只是拒绝，还要**告诉用户去关谁**：单条删除给文案 + 一颗「去那个标签页」按钮；
-// 「删除全部」可能有若干条摊在不同标签页上，就在弹框里逐条列出「哪条会话 · 哪个站点」，
-// 每条各配一个跳转按钮。跳转一律「先聚焦窗口再激活标签页」，且**不收起弹框** ——
-// 用户往往要连着关好几个，收起就得重新点一次删除才能看到剩下的。
+// 数据：读与写都走 conversationClient（内部交 offscreen，唯一写方仍是 offscreen）；
+// 删除会话时顺手清掉 conversation-tab-map 里的旧绑定。
 import { computed, onMounted, ref } from 'vue'
 import { ChatPanel } from '@duoling/ui'
 import ConversationRawView from './ConversationRawView.vue'

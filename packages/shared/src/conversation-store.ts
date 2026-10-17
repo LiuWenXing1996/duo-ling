@@ -1,23 +1,8 @@
-// 会话与消息持久化（IndexedDB），替换桌面版主进程的 conversation-store。
-// 为什么不用 chrome.storage.local：会话消息写入频繁且体积增长快，IndexedDB 更适合；
-// 且 side panel / workbench / offscreen 同源，可直接共享该库，无需经 background 中转。
-//
-// **会话历史的唯一写入方 = offscreen**（对话界面只读 + 订阅，防双写）。
-// offscreen 只有 chrome.runtime，拿不到 chrome.storage —— 会话自增序号（SEQ）因此落在
-// 本库的 meta store，取号在一个 readwrite 事务内完成（原子自增）。
-//
-// 语义对齐桌面版原实现（conversation-store）：
-//   1. 新会话标题为「新会话 N」，N 来自**自增序号**（不是「当前会话数 + 1」，
-//      否则删掉一个会话再新建就会出现重号）；序号持久化在本库 meta store。
-//   2. **首条用户消息自动命名**：标题仍是默认「新会话 N」时，取消息内容前 20 字作标题。
-//      这段逻辑必须留在 appendMessage 里（桌面版就在此处），它是唯一的触发点。
-//   3. `renameConversation` trim 后为空则拒绝（不写空标题）。
-//   4. conversation.totalTokens 由消息 usage **派生**，不落库（桌面版同样"仅用于列表展示"）。
-//      派生而非累加：老数据、重新生成、消息删除都不会让显示值漂移。
-//
-// 变更广播：本文件的写函数是会话的**唯一写入口**（offscreen 的 conv:* 命令与 chat 链路的
-// 落盘最终都汇到这里），所以广播埋在这里而不是埋在命令出口 —— 埋在 conv:* 命令出口会漏掉
-// chat-host 直接调 appendMessage 的那条路径（而它恰恰是最常见的：AI 回复落盘）。
+// 会话与消息持久化（IndexedDB）。为什么不用 chrome.storage.local：消息写入频繁且体积增长快，
+// 且 side panel / workbench / offscreen 同源可直连该库，无需经 background 中转。
+// **唯一写入方 = offscreen**（对话界面只读 + 订阅，防双写）；序号取号在本库 meta store 的
+// 一个 readwrite 事务内原子自增。语义要点（自增序号 / 首条自动命名 / 空标题拒绝 /
+// totalTokens 派生）与广播埋点理由，见 ARCHITECTURE.md「存储」节的会话库。
 import type { Conversation, ConversationSearchHit, Message } from './conversation'
 import { isAssetPart } from './chat-assets'
 import { broadcastDataChange } from './data-broadcast-runtime'

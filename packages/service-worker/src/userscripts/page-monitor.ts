@@ -1,31 +1,12 @@
-// 「页面脚本监控」的 SW 侧逻辑（运行时口径）——三处共用同一份数：
-// 对话界面灵动岛、**工具栏角标**（数字 = 该标签页的运行集大小）、popup 的页面概览。
+// 「页面脚本监控」的 SW 侧逻辑（运行时口径）——三处共用同一份按 tab 的运行登记表：
+// 对话界面灵动岛、工具栏角标、popup 的页面概览（三处怎么取数见 ARCHITECTURE.md「脚本注入」节）。
 //
-// 三处显示的都是「它所属标签页」的运行集（归属怎么定见 `@duoling/ui/lib/owning-tab`，不是 active
-// tab），必须有一个地方替它们记住「每个 tab 当前文档里跑着哪些脚本」——就是这个按 tab 的运行登记表。
-// 前两处按 tab 取：灵动岛经 'duoling:panel' 端口收推送 / 拉快照，角标直接读登记表重算；
-// popup 要的是**所有标签页的一次性概览**（它几秒就关，不值得维持长连接），由 background 的
-// page:overview 命令调 snapshotForTabs 一次取齐。
-//
-// 数据流（三个信号源，全部已在 dl-bridge / background 里存在，这里只是多接一根线）：
-//   · runstart 广播（GM 包装注入即发）→ noteRunStart：登记 + 推给所有连着的面板
-//   · 运行错误落盘（__dlEvent 上报）→ notePageError：推给对话界面（错误本体随推送走，
-//     面板不回查错误日志——按 runId 反查要连库带 join，实时通道一条推送就到）
-//   · 新文档导航（tabs.onUpdated status=loading）→ resetPageRuns：旧文档销毁，运行集清零
-//
-// 快照：切 tab / 刚打开时上行 page:snapshot，SW 按登记表回当前运行集；
-// 错误历史按 runId 从错误记录（runtime 库 tab_events，kind = 'error'）反查（runtime 错误都带 runId）。
-// 能反查到什么取决于写侧判据：只有「这一页开着活动记录」时错误才落盘（见 store / dl-bridge），
-// 故未开记录的页上脚本报错，这里本就查不到 —— 与「未开记录的页 = 观测盲区」同一口径。
-//
-// **登记表一变就喊一声**（onPageRunsChanged）：角标是「按登记表重算」出来的，不重算就停在旧
-// 数字上 —— 面板有快照可以拉，角标没有可拉的对象，只能由这里推。
-//
-// 已知边界（刻意接受）：登记表是内存表，**扩展重载 / 浏览器启动**后是空的，且历史 runstart 不会
-// 重放（广播是即发即弃的）——在那之后、页面重新导航之前，面板显示为空、角标也不亮。浏览器启动
-// 会重载页面、自己补回来；扩展重载后的既有页面要等下一次导航。
-// 注意这跟「SW 空闲被回收」不是一回事：SW 由 offscreen 心跳保活常驻
-// （@duoling/offscreen-document 的 keepalive，宿主入口无条件启动），不会空闲回收。
+// 本文件的活：三个信号源（runstart 广播 → noteRunStart / 运行错误落盘 → notePageError /
+// 新文档导航 → resetPageRuns 清零）接进登记表，变化时喊 onPageRunsChanged
+//（角标只能由这里推着重算，面板另有快照可拉）；错误历史按 runId 从 tab_events 反查，
+// 能查到什么受写侧判据约束（未开记录的页 = 观测盲区，与「只观测开着记录的页」同一口径）。
+// 已知边界（内存表，扩展重载 / 浏览器启动后为空且 runstart 不重放）见 ARCHITECTURE.md「脚本注入」节。
+// 端口名与载荷形状归契约包（@duoling/shared 的 panel-monitor.ts）：面板侧也认同一份。
 
 // 端口名与载荷形状归契约包（@duoling/shared 的 panel-monitor.ts）：面板侧也认同一份。
 import { PANEL_MONITOR_PORT } from '@duoling/shared'

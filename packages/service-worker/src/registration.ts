@@ -3,21 +3,9 @@
 // 职责：chrome.userScripts 的世界配置 + 单脚本注册（GM 包装拼装）+ 全量重注册串行链 +
 // 可用性检测 + 握手密钥。对任何接入扩展都成立；中继件（GM 桥 MAIN 世界侧）属「跑全量 GM」
 // 的组成部分，注册同步由本包内置维护（relay/sync.ts，全量链自动带上）；产品内置件
-// （检查器 / 浮层 / 录制件）经 host-config 的 builtins 注入点挂进全量链
-// （见 UserscriptHostConfig.builtins）。
-//
-// 主走 chrome.userScripts API：脚本注入**页面 MAIN 世界**（与 Tampermonkey 默认一致，
-// `unsafeWindow` 因此就是页面自己的 window）。`GM_*` / `GM.*` 由包装在**同一函数作用域**里
-// 声明为局部变量（源码模板在 gm-wrapper.ts）—— MAIN 不支持 worldId，同帧多脚本共享一个
-// window，挂到 window 上会互相覆盖。
-// 注入代码与 @require 依赖**拼成一条** code（见 registerScript），包装只是它的头尾。
-// MAIN 世界没有 `chrome.*`：能力调用经中继件转给 SW（中继件的注册同步在 relay/sync.ts，
-// SW 侧监听在 dl-bridge.ts）。style / log / info / addElement 在包装内本地实现，不走桥。
-//
-// 不给脚本世界配置 csp：即**不放开** eval / new Function。脚本世界因此回落浏览器默认 CSP，
-// 动态执行字符串代码被禁。理由：AI 生成的脚本不可控，不额外给「执行任意字符串」的能力。
-// 注入链路自身零 eval —— GM 包装不含，脚本源码注入前也静态检查 eval / new Function
-// （collectCspWarnings 在保存时提前提示）。
+// （检查器 / 浮层 / 录制件）经 host-config 的 builtins 注入点挂进全量链。
+// 主走 MAIN 世界注入、GM 包装同函数作用域、注入代码与 @require 拼一条 code、
+// 不给脚本世界配 csp（不放开 eval）—— 机制与理由见 ARCHITECTURE.md「脚本注入」节。
 import type { ScriptProject, ScriptConfig, GmInfo, Json, UserScriptsAvailability } from '@duoling/shared'
 // 可用性形状归契约包（应用侧状态横幅与 offscreen 都认），此处 re-export 维持包内路径不变。
 export type { UserScriptsAvailability }

@@ -138,16 +138,9 @@ function rebuildFormData(body: FetchFormBody): FormData {
  * GM_xmlhttpRequest 的后台实现：SW 内特权请求，豁免 CORS。
  * 与旧 GM 版不同：非 2xx 不抛错——HTTP 状态属于正常响应内容，由 FetchPayload.ok 承载。
  *
- * forbidden header 覆写：Cookie/Referer/Origin 等（连同 User-Agent）由 DNR session 规则
- * 在发头前套上（fetch 规范对 Headers 里的禁设头是静默丢弃）。覆写请求挂规则期间对该 host
- * 独占（写者），纯请求共享（读者）——DNR 规则没有按请求的粒度，不互斥会把覆写头污染到
- * 同 host 的并发请求上。
- *
- * redirect：'manual' 时 3xx 响应经观察型 webRequest 读取（SW fetch 只拿得到 opaqueredirect）；
- * 'error' 交给 fetch 原生（遇 3xx 直接 reject，错误信息来自浏览器）。
- *
- * timeout：毫秒，0 / 不传不限。用 AbortController 在到点时中止请求（响应体读取同样受
- * 信号约束，慢响应读到一半也会被掐断）；中止后统一报 BRIDGE_TIMEOUT，不让脚本调用挂死。
+ * forbidden header 覆写（DNR session 规则）、redirect / timeout / 流式进度的机制与口径
+ * 见 ARCHITECTURE.md「脚本注入」节的 DNR 条目。覆写请求挂规则期间对该 host
+ * 独占（写者），纯请求共享（读者），读写锁在 dl-fetch-priv.ts。
  */
 /**
  * 读响应体；`onProgress` 存在时改成**流式读 + 边读边推进度**（读完照样拼成完整字节，返回路径不变）。

@@ -1,23 +1,11 @@
 // 「页面脚本监控」·面板侧（运行时口径）——对话界面浮层的灵动岛在用。
 //
-// 数据来源：SW 的运行登记表经 duoling:panel 端口按 tabId 回快照 / 推增量。归属认**浮层所属的
-// 那个标签页**（resolveOwningTabId）：浮层固定挂在某个 tab 上，用户切走后它还在原 tab，跟着
-// 「当前激活标签页」走会显示别人的脚本（判据见 lib/owning-tab.ts）。工具栏 popup 不走这条通道：
-// 它要的是「所有标签页的一次性概览」，由 SW 的 page:overview 命令一次取齐（popup 几秒就关，
-// 不值得维持长连接）。
-//
-// 职责三件：
-//   ① 认定本载体该看哪个标签页；
-//   ② 经 'duoling:panel' 端口接收 SW 推送（runstart / 错误 / 新文档清零 / 快照），
-//      只保留本 tab 的切片；挂载时向 SW 拉一次快照补齐；
-//   ③ 补齐运行项的脚本名（runstart 只带 uuid）：首拉 + 运行集出现未知 uuid 时补拉 +
-//      订阅 script 域数据广播跟随增删改——名字表是快照，必须自愈。
-//
-// 口径：显示的是「这个文档里实际启动过哪些脚本」（runstart 广播）+ 其 runtime 错误，
-// 不是「按 matches 计算会注入哪些」（那是静态口径，由原生 userScripts.register 决定）。
-//
-// 已知边界：SW 重启会清空其按 tab 的运行登记（广播即发即弃、不重放），
-// 此窗口期内面板显示为空，页面一刷新即恢复——详见 page-monitor.ts 文件头。
+// 职责三件：① 认定本载体该看哪个标签页（归属认**浮层所属的 tab**，resolveOwningTabId——
+// 不能跟「当前激活标签页」走，判据见 lib/owning-tab.ts）；② 经 'duoling:panel' 端口收 SW
+// 推送（runstart / 错误 / 新文档清零 / 快照），只留本 tab 切片，挂载时拉一次快照补齐；
+// ③ 补齐运行项的脚本名（runstart 只带 uuid，名字表是快照，必须自愈）。
+// 口径：显示「这个文档里实际启动过哪些脚本」（runstart 广播）+ 其 runtime 错误，
+// 不是按 matches 计算的静态注入口径。登记表语义与已知边界见 ARCHITECTURE.md「脚本注入」节。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type {
   PageErrorItem,
