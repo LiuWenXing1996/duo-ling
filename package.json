@@ -30,6 +30,7 @@
     "ci": "pnpm run verify && pnpm run build && playwright test",
     "verify:skills": "node scripts/verify-skills.mts",
     "check:todo": "node scripts/check-todo.mts",
+    "check:branch": "node scripts/check-branch-name.mts",
     "check:comments": "node scripts/check-comments.mts",
     "check:comment-coverage": "node scripts/check-comment-coverage.mts",
     "check:secrets": "secretlint \"**/*\"",

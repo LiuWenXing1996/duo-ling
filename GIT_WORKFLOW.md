@@ -76,6 +76,8 @@
 
 ## 分支命名（强制，push 前自查）
 
+> 钩子已强制：pre-push 第一道跑 `pnpm run check:branch`，名字不合规直接拦下（规则同本节，见 [GIT_HOOKS.md](GIT_HOOKS.md)）。
+
 功能分支一律 `<type>/<kebab-case 描述>`，type 取自上面的白名单（常用 `feat` / `fix` / `refactor` / `docs` / `chore` / `test` / `ci` / `build`）：
 
 | 场景 | 分支名 |

@@ -18,6 +18,9 @@ pre-commit:
 pre-push:
   parallel: false
   jobs:
+    # 分支名检查放最前：秒级 fail fast，名字不合规就别白跑后面的全量 typecheck 与 test。
+    - name: check:branch
+      run: pnpm run check:branch
     - name: typecheck
       run: pnpm run typecheck
     - name: test

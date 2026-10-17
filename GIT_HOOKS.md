@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | `pre-commit` | `pnpm run check:comments` | 快，挡注释卫生问题，不拖提交节奏 |
 | `pre-commit` | `pnpm exec secretlint {staged_files}` | 扫全部暂存文件里的密钥/凭据，命中即拦；不按扩展名过滤（env 文件、证书、无扩展名配置都在范围内），无暂存文件时整条跳过 |
+| `pre-push` | `pnpm run check:branch` | 分支名合规检查，第一道（fail fast）；规则见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)「分支命名」 |
 | `pre-push` | `pnpm run typecheck` + `pnpm run test`（串行） | 全量检查放 push 前，commit 前不跑。**不能并行**：两个脚本各自带 `pnpm -r build`，同时清空并写入 `packages/*/dist` 会撞出 `ENOTEMPTY` |
 
 ## CI 侧

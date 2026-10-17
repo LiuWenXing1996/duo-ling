@@ -51,6 +51,7 @@
 | `pnpm run ci` | CI 同款全量：`verify` → `build` → 端测。**CI 的 `Gate` job 跑的就是这一条**，本地想复现 CI 结果跑它即可（需先装好 Chromium） |
 | `pnpm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 | `pnpm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、疑似重复（**整理待办时跑**，提醒级不进 CI） |
+| `pnpm run check:branch` | 分支名合规检查：当前分支须为 `main` / `release/<版本>` / `<type>/<kebab-case>`（type 白名单同提交规范），违规非 0 退出并给改名提示。**pre-push 钩子第一道**（fail fast，别白跑 typecheck），规则见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)「分支命名」 |
 | `pnpm run check:comments` | 注释卫生门禁：扫 `src` / `packages` / `e2e` / `scripts` **加仓库根散装源码**（配置类 `*.ts` 常驻根级；各级 `dist` 一律跳过 —— 产物不入库、注释已被打包器剥掉），注释行命中黑名单（日期 / 评审引用 / 变更史 / 代号 / 小节号）即失败。另校验三类引用与形态：`见 xxx.md` 的文档、`src/` `packages/` 这类仓库路径、`pnpm run xxx` 的脚本名，均须真实存在（路径按仓库根 / 所在目录 / 所属包根三处解析）；注释行超 120 显示列（CJK 记 2）同样失败。豁免与孤儿检测见「注释与文案」 |
 | `pnpm run check:secrets` | 密钥门禁（Secretlint + 推荐规则预设，29 条规则）：扫全仓文本文件里的凭据 / 私钥 / 连接串，命中即非 0 退出。pre-commit 只扫暂存文件（`pnpm exec secretlint {staged_files}`），CI 的 `Gate` job（跑 `pnpm run ci`）扫全仓兜底，误报用 `// secretlint-disable` 豁免 —— 见 [GIT_HOOKS.md](GIT_HOOKS.md) |
 | `pnpm run check:comment-coverage` | 注释密度报告：注释行 / 非空行，按来源（自研 / 引入件）、目录与扩展名汇总，另附块长分布（整行注释的连续段按 1 / 2 / 3-4 / 5-9 / 10-19 / 20-49 / 50+ 分档，列出最长的 5 个块）、文件头覆盖与导出声明覆盖。**只报告、不卡阈值** —— 密度是描述指标，卡阈值会诱导为凑数写注释；口径与 `check:comments` 共用字符级状态机抠注释（字符串与模板串里的 `//`、`/*` 不算），排除类型声明 `.d.ts` / `.d.mts` 与各级 `dist`（产物注释已被打包器剥掉，计进来只会按产物体积稀释密度，并让构建过的机器与干净 clone 数字不一致）。`src/components` 下的 `ui` / `ai-elements` 是从组件库原样拉取的，单列一行 —— 它们几乎不带注释，混进总计会把自研代码的密度压低约 1.5 个百分点 |
