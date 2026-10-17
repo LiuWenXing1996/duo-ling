@@ -29,12 +29,12 @@ import {
   readAllProjects,
   defaultConfig,
   generateBridgeSecret,
+  errorText,
 } from '@duoling/shared'
 import { getAllGMValues } from './gm-values'
 import { fetchRequireSources } from './require-cache'
 import { fetchResourceSources } from './resource-cache'
 import { extensionName, secretStorePort, telemetryPort, builtinsPort } from './host-config'
-import { errorText } from './util'
 // 中继件（GM 桥的 MAIN 世界侧）注册面：包内置维护，registerAllEnabled 全量链自动带上
 import { SCRIPT_RELAY_ID, syncScriptRelay } from './relay/sync'
 

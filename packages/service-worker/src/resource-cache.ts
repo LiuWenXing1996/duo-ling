@@ -12,9 +12,8 @@
 // 抓取策略：SW 内 fetch，受 <all_urls> host 权限豁免 CORS；url 不变即命中、永不过期。
 // 失败策略：单条失败只记错误、跳过该资源（脚本拿到 undefined），不阻断整体注入。
 
-import { createIdbOpener } from '@duoling/shared'
+import { bytesToBase64, createIdbOpener, errorText } from '@duoling/shared'
 import { cacheClear, cacheGetAll, cachePutAll, fetchWithTimeout } from './cache-common'
-import { errorText } from './util'
 
 const DB_NAME = 'duoling-resource-cache'
 const DB_VERSION = 1
@@ -75,16 +74,6 @@ export interface ResourceFetchResult {
   dataUrl?: string
   text?: string
   error?: string
-}
-
-/** 把字节编成 base64（分块，避免 apply 参数上限） */
-function bytesToBase64(bytes: Uint8Array): string {
-  let s = ''
-  const chunk = 0x8000
-  for (let i = 0; i < bytes.length; i += chunk) {
-    s += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)))
-  }
-  return btoa(s)
 }
 
 /**

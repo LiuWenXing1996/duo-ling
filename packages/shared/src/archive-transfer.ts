@@ -17,8 +17,9 @@ export function sanitizeDirName(name: string): string {
   return cleaned || 'script'
 }
 
-/** Uint8Array → base64（分块避免 String.fromCharCode 爆栈；zip 几 MB 也在安全余量内） */
-export function bytesToBase64(bytes: Uint8Array): string {
+/** 字节（视图或裸 buffer）→ base64（分块避免 String.fromCharCode 爆栈；zip 几 MB 也在安全余量内） */
+export function bytesToBase64(source: Uint8Array | ArrayBuffer): string {
+  const bytes = source instanceof Uint8Array ? source : new Uint8Array(source)
   let bin = ''
   const CHUNK = 0x8000
   for (let i = 0; i < bytes.length; i += CHUNK) {
@@ -27,10 +28,11 @@ export function bytesToBase64(bytes: Uint8Array): string {
   return btoa(bin)
 }
 
-/** base64 → Uint8Array（与 bytesToBase64 互为逆；offscreen 解码入口用） */
-export function base64ToBytes(b64: string): Uint8Array {
+/** base64 → Uint8Array（与 bytesToBase64 互为逆；offscreen 解码入口用）。
+ *  返回类型钉 ArrayBuffer：SW 侧要把它直接当 fetch 的 body 用。 */
+export function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64)
-  const out = new Uint8Array(bin.length)
+  const out = new Uint8Array(new ArrayBuffer(bin.length))
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
   return out
 }

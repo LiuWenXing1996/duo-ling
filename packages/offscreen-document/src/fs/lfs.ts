@@ -10,6 +10,7 @@
 // 惰性初始化（不是顶层建实例）：本包声明 sideEffects:false，顶层副作用会被判成可摇掉的代码；
 // 且 Node 下（无 indexedDB）会漏出未处理 rejection —— 取用时早失败堵住。
 import type { LfsFileContent, LfsNode } from '@duoling/shared'
+import { bytesToBase64 } from '@duoling/shared'
 import LightningFS from '@isomorphic-git/lightning-fs'
 
 /** 库名 duoling-fs：源码唯一来源（与注册态库 duoling-state 分离） */
@@ -93,16 +94,6 @@ function isBinaryContent(bytes: Uint8Array): boolean {
   return nonText / sample > 0.1
 }
 
-/** Uint8Array → base64（分块避免 String.fromCharCode 展开超大数组爆栈） */
-function toBase64(bytes: Uint8Array): string {
-  let bin = ''
-  const chunk = 0x8000
-  for (let i = 0; i < bytes.length; i += chunk) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + chunk))
-  }
-  return btoa(bin)
-}
-
 /**
  * 按完整路径读 lfs 库内单文件内容，**offscreen-only**（lfs 单实例约束）。
  * 文本文件原样解码 utf8 返回；二进制（含 .git 对象）返回 base64 + binary 标记，
@@ -115,7 +106,7 @@ export async function readLfsFile(path: string): Promise<LfsFileContent> {
   const truncated = size > LFS_READ_MAX_BYTES
   const view = truncated ? raw.subarray(0, LFS_READ_MAX_BYTES) : raw
   if (isBinaryContent(view)) {
-    return { path, size, read: view.length, truncated, encoding: 'base64', binary: true, content: toBase64(view) }
+    return { path, size, read: view.length, truncated, encoding: 'base64', binary: true, content: bytesToBase64(view) }
   }
   const content = new TextDecoder('utf-8', { fatal: false }).decode(view)
   return { path, size, read: view.length, truncated, encoding: 'utf8', binary: false, content }

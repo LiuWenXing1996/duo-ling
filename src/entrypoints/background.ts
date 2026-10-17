@@ -85,12 +85,11 @@ import {
   splitTabSessionsAtBrowserStart,
 } from '@duoling/service-worker'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
-import { getProject, listProjects } from '@duoling/shared'
+import { getProject, listProjects, listSummaries } from '@duoling/shared'
 // 握手密钥的持久化（经 secretStore 注入包侧）：duoling-app 库的 kv 读写
 import * as appDb from '@/lib/app-db'
 // 观测数据的写出口：错误日志、运行条目与动作
 import {
-  listSummaries,
   clearRunLog,
   clearUserScriptErrors,
   appendUserScriptError,
@@ -262,7 +261,7 @@ async function registerOrLog(project: ScriptProject): Promise<string | undefined
 /** uuid → 脚本展示名（概览的脚本行用） */
 async function scriptNameByUuid(): Promise<Map<string, string>> {
   try {
-    return new Map((await listSummaries(await listProjects())).map((s) => [s.uuid, s.name]))
+    return new Map(listSummaries(await listProjects()).map((s) => [s.uuid, s.name]))
   } catch {
     return new Map()
   }

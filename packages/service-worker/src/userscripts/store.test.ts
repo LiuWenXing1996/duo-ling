@@ -10,7 +10,6 @@ import {
   deleteTabActivity,
   findUserScriptError,
   listRunTimeline,
-  listSummaries,
   listUserScriptErrors,
   markRunEnd,
   recordRunEvent,
@@ -27,7 +26,7 @@ import {
   mintTabSession,
 } from './runtime-db'
 import type { NetCaptureRecord } from '@duoling/shared'
-import { RUN_EVENT_MAX, RUN_LOG_MAX, type ScriptProject } from '@duoling/shared'
+import { RUN_EVENT_MAX, RUN_LOG_MAX } from '@duoling/shared'
 
 beforeEach(async () => {
   await clearRuntime()
@@ -55,47 +54,6 @@ function cap(url: string, tabSessionId: string): NetCaptureRecord {
     t: 1,
   }
 }
-
-function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {
-  return {
-    v: 2,
-    uuid: 'p1',
-    name: '项目一',
-    enabled: true,
-    config: { matches: ['*://a.com/*'], allFrames: true, runAt: 'document_end' },
-    group: '',
-    source: { code: '// x', savedAt: 1 },
-    createdAt: 1,
-    ...overrides,
-  }
-}
-
-describe('listSummaries', () => {
-  it('项目摘要不含源码搬运副本，只带列表所需字段', async () => {
-    const summaries = await listSummaries([makeProject()])
-    expect(summaries).toHaveLength(1)
-    expect(summaries[0]).toEqual({
-      uuid: 'p1',
-      name: '项目一',
-      enabled: true,
-      matches: ['*://a.com/*'],
-      group: '',
-      savedAt: 1,
-    })
-    expect('source' in summaries[0]).toBe(false)
-  })
-
-  it('排序：启用在前，组内按源码保存时间倒序', async () => {
-    const projects = [
-      makeProject({ uuid: 'p-off', name: 'b停用', enabled: false, source: { code: '// x', savedAt: 100 } }),
-      makeProject({ uuid: 'p-z', name: 'z启用', enabled: true, source: { code: '// x', savedAt: 300 } }),
-      makeProject({ uuid: 'p-a', name: 'a启用', enabled: true, source: { code: '// x', savedAt: 400 } }),
-    ]
-    const summaries = await listSummaries(projects)
-    // 启用组按 savedAt 降序：p-a(400) > p-z(300)，均排在未启用 p-off(100) 之前
-    expect(summaries.map((s) => s.name)).toEqual(['a启用', 'z启用', 'b停用'])
-  })
-})
 
 describe('错误记录（runtime 库 tab_events，判据键 kind = \'error\'，环形保留）', () => {
   it('追加后可读，缺省 id / time 自动补', async () => {

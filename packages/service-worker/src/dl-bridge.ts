@@ -47,6 +47,9 @@ import {
   NET_TAB_KIND,
   createOffscreenService,
   broadcastDataChange,
+  base64ToBytes,
+  bytesToBase64,
+  errorText,
 } from '@duoling/shared'
 // GM 值写出口（duoling-usdata 库；store.change 变更事件从这里直发）
 import {
@@ -70,7 +73,6 @@ import {
   registerManualWaiter,
   handleObservation,
 } from './dl-fetch-priv'
-import { errorText } from './util'
 // 宿主注入点：扩展身份 / offscreen 就绪 / 遥测（运行日志与错误落盘是宿主的产品面）
 import { extensionName, notificationIcon, offscreenPort, telemetryPort } from './host-config'
 
@@ -90,25 +92,6 @@ class ApiError extends Error {
     super(message)
     this.code = code
   }
-}
-
-/** 把 ArrayBuffer 转 base64（分块避免大数组爆栈） */
-function arrayBufferToBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf)
-  let binary = ''
-  const chunk = 0x8000
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk) as unknown as number[])
-  }
-  return btoa(binary)
-}
-
-/** 把 base64 解回二进制（fetch 二进制请求体信封的 SW 侧解码） */
-function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
-  const bin = atob(b64)
-  const bytes = new Uint8Array(new ArrayBuffer(bin.length))
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return bytes
 }
 
 /** 判定请求体是否为包装侧生成的二进制信封（非此形状的对象一律拒绝，不静默吞） */
@@ -355,7 +338,7 @@ async function doFetch(
     // 二进制无法结构化克隆过桥，转 base64（包装侧 arrayBuffer() 解码）
     const body =
       responseType === 'arraybuffer'
-        ? arrayBufferToBase64(bytes ?? (await resp.arrayBuffer()))
+        ? bytesToBase64(bytes ?? (await resp.arrayBuffer()))
         : bytes
           ? new TextDecoder().decode(bytes)
           : await resp.text()
