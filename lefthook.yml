@@ -13,8 +13,10 @@ pre-commit:
         - "**/.*"
       run: pnpm exec secretlint {staged_files}
 
+# 不能并行：typecheck 与 test 各自带 `pnpm -r build`，两边会同时清空并写入 packages/*/dist，
+# vite 的 prepare-out-dir 撞上就报 ENOTEMPTY（本机 push 时偶发）。
 pre-push:
-  parallel: true
+  parallel: false
   jobs:
     - name: typecheck
       run: pnpm run typecheck
