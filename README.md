@@ -41,7 +41,7 @@
 │  ├─ shared/                     # 应用内部契约：types / ipc（window.api 形状）/ extension-ipc（渲染页 ⇄ SW 协议）
 │  ├─ assets/                     # Tailwind 主题变量与全局样式
 │  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（只剩 help/ 帮助页配图）
-├─ packages/shared/               # 跨世界契约 + 共享实现：信封 / 常量 / 形状（bridge / tab-record / inspector / page-context）+ 脚本落盘形状（script-config / script-project）+ GM 语义与目录（api-contract / gm-grants / gm-api-catalog / metadata / match-pattern / match-union）+ 状态库（state-db）+ 数据变更广播（data-broadcast 契约 + data-broadcast-runtime 实现）+ 跨进程服务契约与代理工厂（service/）（Vite lib 构建 dist 三件套，消费走 exports）
+├─ packages/shared/               # 跨世界契约 + 共享实现：信封 / 常量 / 形状（bridge / tab-record / inspector / page-context）+ 脚本落盘形状（script-config / script-project）+ GM 语义与目录（api-contract / gm-grants / gm-api-catalog / metadata / match-pattern / match-union）+ 状态库（state-db）+ 数据变更广播（data-broadcast 契约 + data-broadcast-runtime 实现）+ 跨进程服务契约与代理工厂（service/）（Vite lib 构建 dist 两件套：mjs + d.ts，消费走 exports）
 ├─ packages/service-worker/       # 运行时 · SW 进程包：注册引擎 registration / 命令分发 dl-bridge / 事件底座 dl-port / cookie 域名门 cookie-gate / require+resource 缓存 / 管理面 handler pack / 宿主注入点 host-config / 服务实体 SWService / offscreen 容器能力约定 / GM 侧实现件（gm-wrapper / script-bridge / usdata-db / gm-values）（Vite lib；依赖 shared；构建前置 node build-relay.mjs 生成中继件）
 ├─ packages/offscreen-document/   # 运行时 · offscreen 进程包：服务实体 OffscreenService（fs 组 / GM 桥面 / 状态库写侧 / 剪贴板写入）+ offscreen 容器入口（Vite lib；依赖 shared）
 ├─ packages/builtin-scripts/      # 内置注入件子包：TS 源码 + esbuild 打成 IIFE 产物（recorder / page-inspector / float-host；中继件 relay 已随 service-worker 包内化，录制件走系统脚本链；注册面见 AGENTS.md）

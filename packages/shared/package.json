@@ -4,14 +4,12 @@
   "private": true,
   "type": "module",
   "description": "跨世界契约 + 共享实现：桥 / 录制 / 页面检查器 / 浮层宿主的信封与形状，脚本落盘形状，GM 语义与目录、元数据解析、状态库、数据变更广播，跨进程服务契约（Vite lib 模式构建）",
-  "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.cjs"
+      "import": "./dist/index.mjs"
     }
   },
   "files": [

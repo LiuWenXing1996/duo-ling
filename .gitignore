@@ -31,7 +31,7 @@ coverage/
 # 内置件包的构建产物（件源码打成 IIFE，由 wxt.config.ts 的 publicAssets 钩子取进扩展产物）
 packages/builtin-scripts/dist/
 
-# 子包的构建产物（Vite lib 模式：mjs / cjs / d.ts，消费方走 package.json exports）
+# 子包的构建产物（Vite lib 模式：mjs + d.ts，消费方走 package.json exports）
 packages/shared/dist/
 packages/service-worker/dist/
 packages/offscreen-document/dist/
