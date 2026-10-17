@@ -20,8 +20,8 @@ import { dirname, join, relative } from 'node:path'
 
 const root = new URL('..', import.meta.url).pathname
 // 递归扫的目录 + 仓库根的散装源码文件（配置类 *.ts 常驻根级，漏掉它们等于放过一整类）。
-// 样例包（packages/uscript-samples）被 packages 一并覆盖：源码 TS 与 dist 产物（raw 原样拷贝
-// 与构建 banner）都扫得到。
+// dist 整体跳过：产物不入库、由构建重建，其注释由打包器剥掉，留下的 banner 与 raw 拷贝
+// 都是同一份源码的回声 —— 扫它们只会让「构建过的机器」多出一批非源码的判定。
 const scanDirs = ['src', 'packages', 'e2e', 'scripts']
 const rootFileRe = /\.(mts|ts|mjs|js|vue|css)$/
 const scanRootFiles = readdirSync(root, { withFileTypes: true })
@@ -118,7 +118,7 @@ function listFiles(dir: string): string[] {
     return out
   }
   for (const entry of entries) {
-    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
+    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) continue
     const full = join(dir, entry.name)
     if (entry.isDirectory()) out.push(...listFiles(full))
     else if (extRe.test(entry.name)) out.push(full)

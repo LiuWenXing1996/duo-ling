@@ -8,6 +8,8 @@
 //   - 字符级状态机抠注释：字符串与模板串里的 // 、/* 不算注释，与 check-comments 同一套判定。
 //   - 排除 .d.ts / .d.mts：类型声明不是实现，计入会稀释密度。
 //   - 扫描面与 check-comments 一致：src / packages / e2e / scripts + 仓库根的散装源码。
+//   - 跳过 dist：构建产物不入库，注释已被 esbuild / vite 剥掉，计进来只是把密度按产物体积稀释，
+//     且会让「构建过的机器」与干净 clone 跑出不同数字。
 //   - 来源：从组件库原样拉取的件（src/components 下的 ui / ai-elements）单列 —— 它们几乎不带注释，
 //     且改不改不由本仓库决定，混进总计会把自研代码的密度压低一截。
 //   - 块长分布：把「独占整行的注释」按极大连续段切块，看密度是成片写成还是零散点写。
@@ -124,7 +126,7 @@ function listFiles(dir: string): string[] {
     return out
   }
   for (const entry of entries) {
-    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
+    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) continue
     const full = join(dir, entry.name)
     if (entry.isDirectory()) out.push(...listFiles(full))
     else if (extRe.test(entry.name) && !declRe.test(entry.name)) out.push(full)
