@@ -10,6 +10,9 @@ import { WxtVitest } from 'wxt/testing/vitest-plugin'
 // - projects 双环境分离：
 //   · logic（纯逻辑测试）：node 环境，收 `src/**/*.test.ts`，exclude 掉组件测试避免重复跑；
 //   · component（UI 组件测试）：happy-dom 环境，只收组件测试文件。
+// - 四个页面包（ui / workbench / floatpanel / popup）的用例一并收在这里：它们的源码已不在
+//   `src/` 下，但同样要 WxtVitest 的 `@` 别名与 chrome mock —— 各包再养一份测试基建只会漂。
+//   包内不设 `test` 脚本，`pnpm -r test` 因此跳过它们（不会跑两遍）。
 // - 命名约定：组件测试文件一律 `*.component.test.ts`，与纯逻辑 `*.test.ts` 并存不冲突
 //   （该约定由两个 project 的 include/exclude 共同保证）。
 export default defineConfig({
@@ -30,14 +33,16 @@ export default defineConfig({
       reportsDirectory: 'coverage',
       // **给了 include 才是「全量口径」**：没有被任何用例加载的源文件也以 0% 进报表；
       // 不给则只统计跑到的文件，盲区正好看不见。故这行是覆盖率能当盲区地图用的前提。
-      // packages 的测试与覆盖归各包内 vitest 自测（包内 vite.config 的 test 段），根报表不含。
-      include: ['src/**/*.{ts,vue}'],
+      // 四个页面包同属「根来测」的范畴（见文件头），故一并进分母。三个进程侧包各自
+      // 有自己的 `vitest run`，覆盖算在包内，根报表不含。
+      include: ['src/**/*.{ts,vue}', 'packages/{ui,workbench,floatpanel,popup}/src/**/*.{ts,vue}'],
       exclude: [
         'src/**/*.test.ts',
         'src/**/*.d.ts',
+        'packages/*/src/**/*.test.ts',
         // 上游生成 / 搬运的组件（shadcn-vue 与 ai-elements）：本仓只用不改，算进分母只稀释信号
-        'src/components/ui/**',
-        'src/components/ai-elements/**',
+        'packages/ui/src/components/ui/**',
+        'packages/ui/src/components/ai-elements/**',
       ],
     },
     projects: [
@@ -46,8 +51,8 @@ export default defineConfig({
         test: {
           name: 'logic',
           environment: 'node',
-          include: ['src/**/*.test.ts'],
-          exclude: ['src/**/*.component.test.ts', ...defaultExclude],
+          include: ['src/**/*.test.ts', 'packages/{ui,workbench,floatpanel,popup}/src/**/*.test.ts'],
+          exclude: ['**/*.component.test.ts', ...defaultExclude],
         },
       },
       {
@@ -55,7 +60,7 @@ export default defineConfig({
         test: {
           name: 'component',
           environment: 'happy-dom',
-          include: ['src/**/*.component.test.ts'],
+          include: ['src/**/*.component.test.ts', 'packages/{ui,workbench,floatpanel,popup}/src/**/*.component.test.ts'],
           exclude: [...defaultExclude],
         },
       },

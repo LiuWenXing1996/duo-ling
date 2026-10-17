@@ -1,0 +1,8 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // vite/client：SFC 与 `?raw` 的模块声明；chrome：组件里直调扩展 API 的那几处
+    "types": ["chrome", "vite/client"]
+  },
+  "include": ["src"]
+}

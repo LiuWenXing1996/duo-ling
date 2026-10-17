@@ -17,9 +17,9 @@
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
-import type { ModelProfileState, PageOverviewTab, RuntimeRequest } from '@/shared/extension-ipc'
+import type { ModelProfileState, PageOverviewTab, RuntimeRequest } from '@duoling/shared'
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
-import type { InjectedBuildInfo } from '@/lib/build-info'
+import type { InjectedBuildInfo } from '@duoling/shared'
 import { EXTENSION_NAME } from '@duoling/shared'
 
 // 用户脚本管理器（v2 方案）：引擎 + 存储 + GM 桥 + 类型
@@ -62,15 +62,16 @@ import {
 } from '@duoling/shared'
 // 标签页录制：录到的采样与语料压缩都归 SW（采样在 duoling-runtime 的 tab_events，
 // offscreen 与扩展页都不直连）。录制的开关跟着活动记录走，判据落在存续表上 —— 见 tab-sessions。
-import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts/net-digest'
+import { describeCaptureDigest, describeCaptureRecords } from '@duoling/shared'
 // 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
 // 新版本检查：SW 在浏览器启动 / 安装更新时各查一次，结果落 duoling-app 库供 popup 与设置页读
-import { runUpdateCheck } from '@/lib/update-check'
+import { runUpdateCheck } from '@duoling/shared'
 // GM 运行时接线：SW 侧工厂（配置注入 + 桥与 Port 监听注册同点完成，见 initUserScripts）
 // + SW 侧服务实体（代理调用经库 listener 直达，不占总线 matcher 位）
 // OffscreenService 消费侧：项目数据的写路径（见下方 offscreenService）
 // 标准化总线：本语境命令面唯一的 onMessage 收口（serveIpc）+ 路由 matcher（前缀表 / 包命令面）
-import { serveIpc, prefixMatcher, packMatcher, ipcRequest, ipcNotify } from '@/shared/ipc-bus'
+import { ipcNotify, ipcRequest } from '@duoling/shared'
+import { packMatcher, prefixMatcher, serveIpc } from '@/shared/ipc-bus'
 import { duolingTelemetry } from '@duoling/service-worker'
 // 产品内置件注入面：内置注册 id 全集（stale 清扫排除）与四件全量同步（挂包侧注册串行链）
 // 标签页存续（tabId 的稳定替身）：开关（连同「开始 / 结束记录」两条标记）、事件（刷新、地址变更）、
@@ -87,7 +88,7 @@ import {
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listProjects, listSummaries } from '@duoling/shared'
 // 握手密钥的持久化（经 secretStore 注入包侧）：duoling-app 库的 kv 读写
-import * as appDb from '@/lib/app-db'
+import * as appDb from '@duoling/shared'
 // 观测数据的写出口：错误日志、运行条目与动作
 import {
   clearRunLog,
@@ -121,11 +122,11 @@ import {
   getConversationIdForTab,
   getTabConversationMap,
   unbindTab,
-} from '@/lib/conversation-tab-map'
+} from '@duoling/shared'
 // 会话库（duoling-chat，**写只归 offscreen**）：页面概览里显示会话标题，这里只读
 import { listConversations } from '@duoling/shared'
 // 「这一页是不是普通网页」的判据（页面概览只收普通网页，与 popup 的按钮判据同源）
-import { webHostname } from '@/lib/web-hostname'
+import { webHostname } from '@duoling/shared'
 import type {
   ImportReport,
   RunEndReason,
@@ -142,7 +143,7 @@ import {
 } from '@duoling/service-worker'
 // 模型配置：offscreen 既不直连存储、也不 import model-store（SW 专属模块），一律由
 // SW 经命令中转；变更推送由 model-store 写出口直发（offscreen 侧见包内 bootstrap.ts）。
-import { getActiveProfileState } from '@/lib/model-store'
+import { getActiveProfileState } from '@duoling/shared'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
 import { broadcastBuildPhase } from '@duoling/shared'
 // AI 工具支路：page_snapshot / page_env_read 两条工具经 SW 向页面里的页面检查器下发指令
@@ -156,7 +157,7 @@ import {
   isUserScriptsApiAvailable,
   pageInjectionBlockReason,
   userScriptsUnavailableMessage,
-} from '@/lib/element-picker-client'
+} from '@duoling/shared'
 // 拾取指令的下发与配对（常驻件那半在页面里，件源码见包的 inspector/install.ts）
 import { cancelPicker, runInspectorCommand } from '@duoling/service-worker'
 import {
@@ -166,7 +167,7 @@ import {
   setFloatPanelBusy,
 } from '@duoling/service-worker'
 import type { ElementPickContext } from '@duoling/shared'
-import { errorText } from '@/lib/format'
+import { errorText } from '@duoling/shared'
 
 /**
  * SW 管辖的 kind 前缀（路由白名单）。
@@ -799,7 +800,7 @@ async function initUserScripts(): Promise<void> {
 // 非 HTML 入口的构建信息：由 wxt.config.ts 的 vite.define 在配置加载期（dev = server 启动 /
 // build = 构建开始）替换成字面量。SW 启动日志据此自证「跑的是哪次构建」——HTML 页面的
 // 时间戳每次刷新都会变，SW 的只在 dev 重启 / 重新构建时才变，两者语义见 wxt.config.ts 注释。
-// 这里只做「非 undefined」的收窄（SW 侧该标识符必然存在），形状引自 src/lib/build-info.ts。
+// 这里只做「非 undefined」的收窄（SW 侧该标识符必然存在），形状引自 @duoling/shared 的 app/build-info。
 declare const __BUILD_INFO__: InjectedBuildInfo
 
 // —— 工具栏角标：这个标签页在跑几个脚本 ——

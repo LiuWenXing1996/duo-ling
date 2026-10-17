@@ -2,7 +2,7 @@
 //
 // 为什么归本包：IDB 没有变更通知，写侧落盘后经此通知别处回拉 —— 广播只带
 // 「哪个域的哪条变了」，不带数据。频道与推送形状被三方同取：
-//   · 应用侧（src/lib/data-broadcast.ts：SW / offscreen / 扩展页）；
+//   · 应用侧（本包的 data-broadcast-runtime.ts：SW / offscreen / 扩展页）；
 //   · 两个进程包（service-worker 的 dl-bridge / cookie-gate，offscreen-document 的写侧）。
 // 同一扩展内互通是硬要求，形状放在任何一侧，另一侧都只能靠注释对齐。
 //

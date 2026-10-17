@@ -5,8 +5,8 @@
 import '@/assets/main.css'
 import '@/assets/main.less'
 import { createApp } from 'vue'
-import { installTheme } from '@/lib/theme'
-import ChatApp from './ChatApp.vue'
+import { installTheme } from '@duoling/ui/lib/theme'
+import { ChatApp } from '@duoling/floatpanel'
 
 // 早于首帧设置深浅色，避免闪烁
 installTheme()

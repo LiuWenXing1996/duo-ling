@@ -36,6 +36,12 @@ packages/shared/dist/
 packages/service-worker/dist/
 packages/offscreen-document/dist/
 
+# 页面包的构建产物（lib + preserveModules：一个源文件对一个 .mjs，宿主按页面引用摇树）
+packages/ui/dist/
+packages/workbench/dist/
+packages/floatpanel/dist/
+packages/popup/dist/
+
 # 样例包的构建产物（TS 源码 + esbuild 打成单文件 .user.js，由 pnpm -r build 重建，不入库防 drift）
 packages/uscript-samples/dist/
 

@@ -27,9 +27,9 @@
 // （报文无 kind，不占总线）。
 
 import '@/polyfills'
-import type { RuntimeRequest } from '@/shared/extension-ipc'
+import type { RuntimeRequest } from '@duoling/shared'
 // 标准化总线：本语境唯一的 onMessage 收口（serveIpc）+ 前缀路由 matcher
-import { serveIpc, prefixMatcher } from '@/shared/ipc-bus'
+import { prefixMatcher, serveIpc } from '@/shared/ipc-bus'
 // 对话编排、会话删除的资源回收、启动装配都出自包；入口只接线
 import {
   abortChat,

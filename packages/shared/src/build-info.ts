@@ -5,10 +5,15 @@
 // ——它撞 MV3 extension_pages CSP（不含 `'unsafe-inline'`），生产环境拿不到值。
 //
 // 本文件只放「读全局」这一半：它被 offscreen 的环境快照直接消费。展示格式化与 `sw:buildInfo`
-// 命令面需要 IPC 总线，归应用侧的 lib/build-info.ts。
+// 命令面需要 IPC 总线，归同包的 app/build-info.ts。
 
 /** 构建期由 vite.define 注入的结构 */
 export interface InjectedBuildInfo {
+  /**
+   * 是否 dev 构建。**页面包与进程包都只能读这个字段**：包是预构建的 lib 产物，
+   * 源码里的 `import.meta.env.DEV` 在包构建期就被静态替换成 `false`，读到的是假值。
+   */
+  dev: boolean
   /** ISO 时间戳：dev = dev server 启动时刻，build = 构建时刻 */
   time: string
   /** 构建所在分支 */

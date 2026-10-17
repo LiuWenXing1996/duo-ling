@@ -1,4 +1,4 @@
-// 标准信道自测 —— @/shared/ipc-bus 三条原语的路由与信封语义。
+// 标准信道自测 —— 收发口的路由与信封语义（发送/订阅在契约包，接收在 src/shared/ipc-bus）。
 //
 // 这是全扩展唯一的收发口（发送 ipcRequest / ipcNotify，订阅 ipcSubscribe，接收 serveIpc），
 // 故这里只钉「机制」不碰业务：认领顺序、无人认领让路、信封解包、超时兜底，以及
@@ -7,8 +7,9 @@
 //
 // chrome 用手写壳：只留总线用到的两口（onMessage 收发 / sendMessage 发送）。
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ipcNotify, ipcRequest, ipcSubscribe, packMatcher, prefixMatcher, serveIpc } from './ipc-bus'
-import type { RuntimeRequest } from './extension-ipc'
+import { ipcNotify, ipcRequest, ipcSubscribe } from '@duoling/shared'
+import { packMatcher, prefixMatcher, serveIpc } from './ipc-bus'
+import type { RuntimeRequest } from '@duoling/shared'
 
 type SendResponse = (response: unknown) => void
 type Listener = (msg: unknown, sender: chrome.runtime.MessageSender, sendResponse: SendResponse) => unknown

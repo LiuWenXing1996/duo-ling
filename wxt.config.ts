@@ -5,7 +5,9 @@ import type { Plugin } from 'vite'
 import { defineConfig } from 'wxt'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
-import { providerOrigins } from './src/lib/providers'
+// 服务商预设表：host_permissions 由它推导。config 期读的是**包内源码**（不走 exports → dist），
+// 与下一行 EXTENSION_NAME 同理：config 是构建的输入，不该押在构建产物上。
+import { providerOrigins } from './packages/workbench/src/lib/providers'
 // 直读包源码，不走 exports → dist：config 在 prepare / build / dev 的加载期就被求值，
 // 是构建的输入而非输出，不该押在包产物上。真相源仍是 packages/shared/src/extension-identity.ts。
 import { EXTENSION_NAME } from './packages/shared/src/extension-identity'
@@ -138,8 +140,13 @@ export default defineConfig({
       }
     },
   },
-  vite: () => ({
+  vite: ({ mode }) => ({
     plugins: [vue(), tailwindcss(), htmlExtensionName()],
+    // 四个页面包是 workspace 包：不预打包，改完组件等包 rebuild 出来即被 dev 重新取到，
+    // 预打包会把旧产物钉在缓存里（表现为「改了没反应」）。
+    optimizeDeps: {
+      exclude: ['@duoling/ui', '@duoling/workbench', '@duoling/floatpanel', '@duoling/popup'],
+    },
     // service worker 里没有 Node 的 `global`，而 isomorphic-git/lightning-fs 的
     // 打包代码写的是 `global.TextEncoder`。构建期把 `global` 别名成原生 globalThis
     // （SW 里自带 TextEncoder/TextDecoder），否则加载即抛
@@ -148,8 +155,10 @@ export default defineConfig({
       global: 'globalThis',
       // 裸标识符注入（构建信息唯一通道，编译进所有 JS bundle，CSP 安全）：
       // 页面 / SW / offscreen 都用它取构建信息；SW 启动日志靠它自证跑的是哪次构建；
-      // repo 供检查更新（src/lib/update-check.ts）调 GitHub Releases 用。
+      // repo 供检查更新（`@duoling/shared` 的 app/update-check）调 GitHub Releases 用。
       __BUILD_INFO__: JSON.stringify({
+        // 页面包 / 进程包是预构建产物，包内 `import.meta.env.DEV` 恒为 false，只能读这个字段
+        dev: mode === 'development',
         time: new Date().toISOString(),
         branch: buildInfoBranch,
         version: buildInfoVersion,
@@ -199,7 +208,7 @@ export default defineConfig({
       'webRequest',
     ],
     // 在线模型走 OpenAI 兼容接口，需要扩展页跨域 fetch，必须声明对应 host 权限。
-    // 由服务商预设表推导（src/lib/providers.ts），避免申请不必要的全域权限；
+    // 由服务商预设表推导（packages/workbench/src/lib/providers.ts），避免申请不必要的全域权限；
     // 自定义端点的任意地址由下面那句 <all_urls> 一并覆盖（用户脚本注入本就要求它），无需动态申请。
     // 用户脚本管理器（userscript-manager）：userScripts 注入目标网页需全域 host 权限
     // （Chrome 文档明确要求），同时覆盖 GM_xmlhttpRequest 的跨域可达范围。

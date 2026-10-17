@@ -287,7 +287,7 @@ export function defaultEnvDeps(): EnvSnapshotDeps {
       } catch {
         version = UNKNOWN
       }
-      return { version, dev: import.meta.env.DEV }
+      return { version, dev: readInjectedBuildInfo()?.dev ?? false }
     },
   }
 }

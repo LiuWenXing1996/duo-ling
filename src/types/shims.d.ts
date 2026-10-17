@@ -25,5 +25,5 @@ declare module 'process' {
  * 调用方须用 `typeof __BUILD_INFO__ !== 'undefined'` 兜底（typeof 读不存在的标识符不抛错）。
  */
 declare const __BUILD_INFO__:
-  | { time: string; branch: string; version: string; repo: string }
+  | { dev: boolean; time: string; branch: string; version: string; repo: string }
   | undefined

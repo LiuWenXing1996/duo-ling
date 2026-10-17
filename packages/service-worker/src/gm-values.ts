@@ -1,4 +1,4 @@
-// GM 值存储的写出口枢纽（自 src/lib/userscripts/store.ts 的 GM 段上移）。
+// GM 值存储的写出口枢纽。
 //
 // 落盘在 duoling-usdata 库（usdata-db.ts，复合主键 [uuid, key]）；本文件管的是
 // 「写 + 发事件」的语义层：值未变化的 set、删除不存在的键都不发事件

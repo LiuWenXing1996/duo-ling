@@ -8,13 +8,14 @@ description: Use when writing, fixing, or debugging tests in this repo — choos
 本 skill 管**测试怎么写**。命令与 CI 组成见 [AGENTS.md](../../../AGENTS.md)「常用命令」与 [GIT_WORKFLOW.md](../../../GIT_WORKFLOW.md)。
 
 - `pnpm run test` → Vitest **双 project**（配置见 `vitest.config.ts`）：
-  - **logic**（node 环境）：`src/lib/**/*.test.ts` 等纯逻辑测试；
+  - **logic**（node 环境）：`src/**/*.test.ts` 与四个页面包 `packages/{ui,workbench,floatpanel,popup}/src/**/*.test.ts`
+    （页面包的用例也由根 `vitest.config.ts` 收，包内不另设 test 脚本，避免跑两遍）；
   - **component**（happy-dom 环境）：`*.component.test.ts` 组件测试。
 - `pnpm run test:e2e` → Playwright 端测（`e2e/*.spec.ts`，无头、单 worker 串行）：**脚本内先 `pnpm run build`**，再跑 **`.output/chrome-mv3` 产物**、Playwright 捆绑 Chromium。绕开脚本直接调 playwright 会跑上轮遗留的旧产物，须自己先构建。除冒烟 `smoke.spec.ts` 外，按面拆分的还有编辑器交互 `editor.spec.ts`、GM 全能探针 `omni-probe.spec.ts`、假模型对话 `chat-stub.spec.ts`、会话归属 `conversation-scope.spec.ts`、AI 生成 `agent-generate.spec.ts`。
 
 ## 测试三件套（新增一个面板 / 一条链路时）
 
-1. **防漂移单测**（logic project，`src/lib/xxx.test.ts`，参考 `agent-tools-catalog.test.ts`）：UI 展示的元数据若与运行时共用常量，就断言二者一致 —— 工具名集合、参数名集合（`inputSchema.shape` 在 zod v3/v4 都可用）、description 相等。**不靠人工对照**。
+1. **防漂移单测**（logic project，`*.test.ts` 就近放在被测模块旁，参考 `packages/offscreen-document/src/chat/agent-tools-catalog.test.ts`）：UI 展示的元数据若与运行时共用常量，就断言二者一致 —— 工具名集合、参数名集合（`inputSchema.shape` 在 zod v3/v4 都可用）、description 相等。**不靠人工对照**。
 2. **组件测试**（component project，`*.component.test.ts`，参考 `AgentToolsPanel.component.test.ts`）：`vi.mock` 掉 store 与 `use-data-sync`，用 `data-testid` 断言；**空态必须断言**（空白 vs 有内容的空态是两种 bug）。
 3. **e2e 冒烟**（`e2e/smoke.spec.ts`）：`page.locator('button[aria-label="<导航名>"]').click()` → 断言面板 `data-testid` 可见 + 关键文本渲染。
 
@@ -22,7 +23,7 @@ description: Use when writing, fixing, or debugging tests in this repo — choos
 
 ## 手写桥接层：四类语义必须逐函数自检
 
-`src/lib/*.ts` 里**非平移**的那些（重写而非搬运）最容易丢四类**不在类型里**的语义：
+`@duoling/shared` 的 `app/*.ts` 里**非平移**的那些（重写而非搬运）最容易丢四类**不在类型里**的语义：
 
 1. **默认值回退**（如模型展示名）
 2. **入参守卫**（空提交 / 越界 id 防穿越）

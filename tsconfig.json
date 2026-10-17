@@ -23,5 +23,5 @@
   // 不吃根的严格档；它对根的类型面只暴露 covers.ts（纯类型化数据，经 coverage 测试的
   // import 仍会被 vue-tsc 以根档检查）。
   "include": ["src/**/*", "e2e/**/*", "packages/**/*", "scripts/**/*", ".wxt/wxt.d.ts"],
-  "exclude": ["node_modules", ".output", "tmp", "packages/uscript-samples"]
+  "exclude": ["node_modules", ".output", "tmp", "packages/uscript-samples", "packages/*/dist"]
 }

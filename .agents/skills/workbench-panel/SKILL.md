@@ -5,20 +5,22 @@ description: Use when adding, changing, or debugging a workbench tab/panel in th
 
 # 工作台标签页（新增 / 改动一个面板）
 
-工作台 = `WorkbenchApp.vue`（左侧图标导航）+ `WorkspaceHost.vue`（多标签宿主）+ 各面板组件。
+工作台 = `WorkbenchApp.vue`（左侧图标导航）+ `WorkspaceHost.vue`（多标签宿主）+ 各面板组件，三者都在
+`packages/workbench/src/` 下（标签栏与内容面板在 `components/`，`WorkbenchApp.vue` 在包根）。
 新增一个标签页是**机械接线 + 一个面板组件**，没有路由、没有注册表。
 
 ## 接线固定 5 处（缺一处就静默不生效）
 
 | # | 文件 | 改什么 |
 | --- | --- | --- |
-| 1 | `src/shared/types.ts` | `WorkspaceTabKind` 加 kind 字面量（如 `'agent-tools'`） |
-| 2 | `src/components/WorkspaceTabs.vue` | 标签栏图标分支 —— **必须插在 `v-else` 兜底之前**（兜底是 settings 图标，插后面始终走不到） |
-| 3 | `src/components/WorkspaceHost.vue` | ① `openXxxTab()`（幂等：已开则 activate，不重复 push）；② `<ui-tabs-content>` 里 `v-else-if="tab.kind === 'xxx'"`；③ `defineExpose` 补上方法名 |
-| 4 | `src/entrypoints/app/WorkbenchApp.vue` | 左侧导航 `<button class="workspace-nav-item" aria-label="…">` + `ui-tooltip`（`TooltipProvider > Tooltip > TooltipTrigger as-child > button`，顺序不能反）+ `@click="workspaceRef?.openXxxTab()"` |
+| 1 | `packages/workbench/src/types/tab.ts` | `WorkspaceTabKind` 加 kind 字面量（如 `'agent-tools'`） |
+| 2 | `packages/workbench/src/components/WorkspaceTabs.vue` | 标签栏图标分支 —— **必须插在 `v-else` 兜底之前**（兜底是 settings 图标，插后面始终走不到） |
+| 3 | `packages/workbench/src/components/WorkspaceHost.vue` | ① `openXxxTab()`（幂等：已开则 activate，不重复 push）；② `<ui-tabs-content>` 里 `v-else-if="tab.kind === 'xxx'"`；③ `defineExpose` 补上方法名 |
+| 4 | `packages/workbench/src/WorkbenchApp.vue` | 左侧导航 `<button class="workspace-nav-item" aria-label="…">` + `ui-tooltip`（`TooltipProvider > Tooltip > TooltipTrigger as-child > button`，顺序不能反）+ `@click="workspaceRef?.openXxxTab()"` |
 | 5 | `README.md` | 载体分工表的「承载内容」列 —— 标签页清单登记处 |
 
-`src/types/tab.ts` **不用改**：它的 `kind` 类型来自 `@/shared/types`，文件头注释只指向真相源。
+`types/tab.ts` 的 kind 清单就是唯一真相源，没有第二处类型要改；README 那张表只登记中文叫法，
+不重复维护一份类型清单。
 
 标签 id 约定：全局唯一视图用固定 id（`'agent-tools'`）；每实体一个的用 `前缀:<uuid>`（如 `us-edit:<uuid>`）。
 
@@ -26,19 +28,23 @@ description: Use when adding, changing, or debugging a workbench tab/panel in th
 
 工作台是**扩展页**上下文，而很多库只在 offscreen 可用：
 
-- ❌ 不能 import：`@duoling/offscreen-document` 的文件库读写（duoling-fs：lfs + git + 资源库，只许 offscreen 碰）、`userscripts/builder.ts`（esbuild）、`offscreen-chat/script-tools.ts`（拉了前者 + 裸 IDB 读侧）、任何 `offscreen-chat/*` 编排件。
+- ❌ 不能 import：`@duoling/offscreen-document` 的文件库读写（duoling-fs：lfs + git + 资源库，只许 offscreen 碰）、
+  `src/chat/script-tools.ts`（acorn 工具集，拉了本包 fs 层与裸 IDB 读侧）、任何 `src/chat/*` 编排件。
   - 判据：该模块**进入 offscreen 独占的数据 / 单例**没有，而不看它自己的名字。文件库的 lfs 是惰性单例（import 期不建实例），但**调用**它就会在扩展页里凭空多建一个 `LightningFS`（两库互不可见，还会有 `indexedDB is not defined` 的 rejection）。
-  - 撞上这条时**先找纯函数能不能抽出来**：MIME 换算表与 data URL 拆拼在 `@duoling/shared`、工具目录在 `lib/agent-tools-catalog.ts`，面板取叶子模块即可，别为此 import 整条链。包内那批**纯函数**（如 zip 编解码、base64 转换）不含 offscreen 独占状态，UI 取它们不算破戒。
-- ✅ 可以直接用：只读 IDB 的 `lib/*-store.ts`（`conversation-store` / `project-store` 读侧）、纯数据模块。
+  - 撞上这条时**先找纯函数能不能抽出来**：MIME 换算表与 data URL 拆拼在 `@duoling/shared`，工具目录在 `packages/shared/src/agent-tools-catalog.ts`，面板取叶子模块即可，别为此 import 整条链。包内那批**纯函数**（如 zip 编解码、base64 转换）不含 offscreen 独占状态，UI 取它们不算破戒。
+- ✅ 可以直接用：只读 IDB 的 `@duoling/shared` 读侧（`conversation-store` / `project-store`）、纯数据模块。
 - 需要 offscreen 才有的数据，两条路：
   - **新增 IPC 命令**（走 SW / offscreen；代价是唤醒 offscreen、链路变长）；
-  - **抽一份纯数据模块**（首选，见 `lib/agent-tools-catalog.ts`）：把文本 / 常量放进去，运行时与 UI 共用同一份，**再配一条从运行时对象反射比对的单测**（`Object.keys(tools)`、`schema.shape`）防漂移 —— 不靠人工对照。
+  - **抽一份纯数据模块**（首选，见 `packages/shared/src/agent-tools-catalog.ts`）：把文本 / 常量放进去，运行时与 UI 共用同一份，**再配一条从运行时对象反射比对的单测**（`Object.keys(tools)`、`schema.shape`）防漂移 —— 不靠人工对照。
 - 数据会变的面板：接 `useDataSync(域, reload)`；写侧一律走既有的写入口（写侧埋 `broadcastDataChange` 是铁律，不得绕过）——机制见 [ARCHITECTURE.md](../../../ARCHITECTURE.md)「数据变更广播」。
 
 ## 复用 vs 手写
 
-- 先搜现成实现：`src/components/`（业务组件）、`src/components/ui/`（shadcn）、`src/components/ai-elements/`（对话类）。
-- 只读调试视图的骨架照抄 `ChatDataPanel.vue`：外层 `flex h-full min-h-0 min-w-0`，左栏 `w-72 shrink-0 border-r`，滚动区 `min-h-0 flex-1 overflow-y-auto`。
+- 先搜现成实现：`packages/ui/src/components/`（`ChatPanel.vue`、`ai-elements/` 对话类、`ui/` shadcn 原语）、
+  `packages/workbench/src/components/`（只此一处的业务面板）。包内**不得用 `@/` 别名**（那是根 `src/` 的），
+  跨包只走 `@duoling/shared` / `@duoling/ui` 的 exports。
+- 只读调试视图的骨架照抄 `TabActivityPanel.vue`（根 `flex h-full min-h-0 flex-col`，头部 `shrink-0 border-b`，
+  主体 `flex min-h-0 flex-1` 左列表右详情），滚动区一律 `min-h-0 flex-1 overflow-y-auto`。
 - 展示 tool part 用 `ai-elements/tool` 的 `Tool` / `ToolHeader` / `ToolStatusBadge`（轻，只依赖 Collapsible + Badge）；
   **不用 `ToolInput` / `ToolOutput`** —— 它们走 `CodeBlock` → shiki（按需 ~200KB、动态 import），工作台里开销不值当。大 payload 自己 `<pre>` + 截断。
 - 样式：只语义 token（`bg-muted` / `text-muted-foreground` / `border-border` / `bg-destructive/10`），不写 `space-x-*` / `space-y-*` / 手写 `dark:`。

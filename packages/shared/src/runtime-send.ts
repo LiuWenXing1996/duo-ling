@@ -7,7 +7,7 @@
 //
 // 本包不吃 chrome 类型（tsconfig `types: []`），故就地取结构形状，与 data-broadcast-runtime 同款。
 
-import type { IpcEnvelope } from './ipc'
+import type { IpcEnvelope } from './ipc/envelope'
 
 /** chrome.runtime 里用得上的两个面（发送 + 回调内的 lastError） */
 interface RuntimePort {

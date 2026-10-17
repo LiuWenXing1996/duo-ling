@@ -31,15 +31,14 @@
 ├─ .agents/skills/                # 就地挂载的 Agent 规范（wxt / shadcn-vue / workbench-panel / testing）
 ├─ .codebuddy/skills · .trae/skills  # 宿主扫描入口，均是指向 .agents/skills 的 symlink（skill 只在 .agents/skills 一处维护）
 ├─ src/
-│  ├─ entrypoints/                # 载体入口与运行时宿主：background（SW 能力运行时）/ offscreen（AI 生成宿主）
-│  ├─ components/                 # UI：对话（ChatPanel 系列）/ 工作台宿主与面板 / popup / 设置分区（sections.ts 注册表）/ ui / ai-elements
-│  ├─ composables/                # use-global-conversation：会话中枢（useChat + 流式）
-│  ├─ lib/                        # 运行时逻辑层；各库的写权限与机制见 ARCHITECTURE.md「存储」
-│  │  ├─ userscripts/             #   脚本链路：注册引擎（主世界注入 + 中继桥）/ lfs + git 存储 / dl-bridge 桥 / 匹配并集
-│  │  └─ 其他文件                 #   各 store（会话 / 模型 / 归属映射 / 浮层开关）/ 新版本检查 / transport / 元素拾取 / 构建信息取数
-│  ├─ shared/                     # 应用内部契约：types / extension-ipc（渲染页 ⇄ SW 协议）
-│  ├─ assets/                     # Tailwind 主题变量与全局样式
+│  ├─ entrypoints/                # 四个载体入口 + 两个运行时宿主：background（SW 能力运行时）/ offscreen（AI 生成宿主）
+│  ├─ shared/ipc-bus.ts           # 总线**接收侧**（serveIpc + 三个 matcher）：要 chrome.runtime.MessageSender 的类型面，故留应用侧
+│  ├─ assets/                     # Tailwind 主题变量与全局样式（含指向四个页面包 dist 的 @source）
 │  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（只剩 help/ 帮助页配图）
+├─ packages/ui/                   # 页面包 · 通用层：三页中 ≥2 页可达的全部 UI（ChatPanel / ai-elements / shadcn 原语）+ 前端数据客户端（会话、模型、脚本、主题）+ composables（lib + preserveModules）
+├─ packages/workbench/            # 页面包 · 工作台：WorkbenchApp 与只此一处的界面（脚本编辑 / 设置分区 / GM API / 帮助 / 会话历史）
+├─ packages/floatpanel/           # 页面包 · 浮层：ChatApp（对话载体本体）+ 页面脚本监控
+├─ packages/popup/                # 页面包 · popup：工具栏弹窗三件（当前页面 / 其他页面 / 面板）
 ├─ packages/shared/               # 跨世界契约 + 共享实现：信封 / 常量 / 形状（bridge / tab-record / inspector / page-context）+ 脚本落盘形状（script-config / script-project）+ GM 语义与目录（api-contract / gm-grants / gm-api-catalog / metadata / match-pattern / match-union）+ 状态库（state-db）+ 会话与消息形状（conversation / chat-assets）+ 会话库（conversation-store）+ 会话投影（conversation-message / ui-message-parts）+ 对话载荷（chat-ipc / model）+ 工具目录（agent-tools-catalog）+ 项目读侧（project-store）+ 脚本形状（userscript-runtime / userscript-shapes）+ 总线原语（runtime-send）+ 构建注入（build-info）+ 数据变更广播（data-broadcast 契约 + data-broadcast-runtime 实现）+ 跨进程服务契约与代理工厂（service/）（Vite lib 构建 dist 两件套：mjs + d.ts，消费走 exports）
 ├─ packages/service-worker/       # 运行时 · SW 进程包：注册引擎 registration / 命令分发 dl-bridge / 事件底座 dl-port / cookie 域名门 cookie-gate / require+resource 缓存 / 管理面 handler pack / 宿主注入点 host-config / 服务实体 SWService / offscreen 容器能力约定 / GM 侧实现件（gm-wrapper / script-bridge / usdata-db / gm-values）（Vite lib；依赖 shared；构建前置 node build-relay.mjs 生成中继件）
 ├─ packages/offscreen-document/   # 运行时 · offscreen 进程包：服务实体 OffscreenService（fs 组 / GM 桥面 / 状态库写侧 / 剪贴板写入）+ 对话编排（chat/：agent loop / 工具面 / 事件缓冲 / 任务快照 / 环境快照 / 模型缓存 / SW 代办桥）+ 启动装配（bootstrap：服务实体注册 / 保活 / 就绪握手 / 首拉配置 / 对账）（Vite lib；依赖 shared）
@@ -50,7 +49,9 @@
 └─ .github/workflows/             # ci / e2e / release / sync-release-notes（作用见 GIT_WORKFLOW.md 与 VERSIONING.md）
 ```
 
-> **包分组按「进程」切**：不属任何进程的打底只有 `shared`（跨世界契约 / 共享实现 / 跨进程服务契约）；`service-worker` 与 `offscreen-document` 各占一个进程包（各含该进程的服务实体、宿主层与独占模块），`builtin-scripts`（注入件）与 `uscript-samples`（样例）另计。两个进程包**互不 import**，跨进程只走 `chrome.runtime` 消息与服务代理。
+> **包分组按「进程」切，页面按「宿主」切**：不属任何进程的打底只有 `shared`（跨世界契约 / 共享实现 / 跨进程服务契约）；`service-worker` 与 `offscreen-document` 各占一个进程包（各含该进程的服务实体、宿主层与独占模块），`builtin-scripts`（注入件）与 `uscript-samples`（样例）另计。两个进程包**互不 import**，跨进程只走 `chrome.runtime` 消息与服务代理。
+>
+> 四个页面包（`ui` / `workbench` / `floatpanel` / `popup`）是另一条轴：进来的判据不是「属于哪个进程」而是「被几个宿主用到」—— `ui` 装 ≥2 页可达的（以及所有前端数据客户端），其余三包只装本页独有的界面。依赖严格单向：`页面包 → ui → shared`；**进程侧不得 import 任何页面包**（SW 要用的那批模块一律在 `shared` 的 `app/` 下，见 ARCHITECTURE.md「依赖方向」）。
 
 ## 后续接入
 

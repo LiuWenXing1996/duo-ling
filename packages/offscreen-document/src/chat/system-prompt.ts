@@ -1,14 +1,14 @@
 // 系统提示组装（从 chat-host 抽出：纯函数、无运行时依赖，便于单测覆盖档位组合）。
 //
 // 组装顺序（每档独立成块，互不依赖）：
-//   基础规范 → dev 例外（仅 DEV 构建）→ 档 0 当前页面 → 档 2 元素拾取摘要
+//   基础规范 → dev 例外（仅 dev 构建）→ 档 0 当前页面 → 档 2 元素拾取摘要
 //   → 接口录制档 → 续跑说明 → 会话内既有脚本 → 用户需求。
 // 摘要层（ElementPickSummary）≤2KB 常驻 prompt，同类计数（命中数）必须在内——
 // AI 自证选择器唯一性不该再花一次读取；全量层走 element_read 工具按需读；
 // 页面整体结构走 page_snapshot 工具（AI 按需采集，不再常驻 / 回注 prompt）。
 
 import type { UIMessage } from 'ai'
-import { EXTENSION_NAME } from '@duoling/shared'
+import { EXTENSION_NAME, readInjectedBuildInfo } from '@duoling/shared'
 import type {
   ChatMessageMetadata,
   MessagePageContext,
@@ -150,8 +150,9 @@ export function buildSystemPrompt(
         '一次调用只答一个问题（要问的事一次问全），返回的是文字，之后你手里不会留下这张图。',
     )
   }
-  // 测试豁免只进 dev 构建（手测停手机制用），prod 构建里静态消除
-  if (import.meta.env.DEV) {
+  // 测试豁免只进 dev 构建（手测停手机制用）。判据取注入值：本包是预构建产物，
+  // import.meta.env.DEV 在包构建期就被替换成 false，读它等于这段永远不进
+  if (readInjectedBuildInfo()?.dev === true) {
     lines.push(
       '例外：用户明确要求提交注定构建失败的代码（如测试停手机制）时照做——不要"修正"、不要注释掉，',
       '按用户指定的错误原样提交；构建失败后也不要修复、不要自行决定停止或减少提交次数，',

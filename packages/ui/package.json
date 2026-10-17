@@ -1,0 +1,44 @@
+{
+  "name": "@duoling/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.mjs"
+    },
+    "./lib/*": {
+      "types": "./src/lib/*.ts",
+      "import": "./dist/lib/*.mjs"
+    },
+    "./composables/*": {
+      "types": "./src/composables/*.ts",
+      "import": "./dist/composables/*.mjs"
+    },
+    "./components/*": {
+      "types": "./src/components/*/index.ts",
+      "import": "./dist/components/*/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@duoling/shared": "workspace:*",
+    "vue": "3.5.42"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.8",
+    "typescript": "^5.6.0",
+    "vite": "^8.3.0",
+    "vue-tsc": "^3.3.11"
+  }
+}
