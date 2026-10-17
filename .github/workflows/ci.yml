@@ -13,7 +13,9 @@ concurrency:
 
 jobs:
   verify:
-    name: Typecheck, tests & gates
+    # 这个名字是仓库 ruleset 里绑定的必需检查（context 精确匹配），改名会让 PR 永远等不到它而卡在 BLOCKED。
+    # 加步骤、加门禁都行，改这个字符串不行 —— 要改就得同步改 ruleset。
+    name: Typecheck & Unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
