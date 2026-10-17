@@ -1,7 +1,7 @@
 // offscreen document 的 SW 侧容器管理（ensure / close）。
 //
-// 模块归属（模块归属规则）：本文件用 chrome.offscreen，属 **SW 专属** ——
-// 只允许被 src/entrypoints/background.ts 侧 import。offscreen 自己不能创建自己。
+// 归属：本文件是**全仓唯一**碰 chrome.offscreen 的模块（offscreen 自己不能创建自己），
+// 由 SW 入口（src/entrypoints/background.ts）使用。
 //
 // 触发点：offscreen 需「随时可用」，故在以下时机均确保容器在场（ensureOffscreen 幂等，重复调用无副作用）：
 //   1. SW 模块冷启动（background.ts 顶层 void ensureOffscreen()）
@@ -12,8 +12,8 @@
 // 说明：Chrome 不会自动启动 offscreen，必须显式 createDocument。策略是常驻：offscreen 不自关，
 // 仅在 `offscreen:close` 调试命令下主动关。
 // offscreen 容器的 reason 集：与 GM 运行时、对话链路实际用到的能力同源收敛
-import { GM_OFFSCREEN_REASONS } from '@duoling/service-worker'
-import { ipcRequest } from '@/shared/ipc-bus'
+import { sendRuntime } from '@duoling/shared'
+import { GM_OFFSCREEN_REASONS } from './offscreen-reasons'
 
 /** 与 src/entrypoints/offscreen.html 对应 */
 const OFFSCREEN_PATH = 'offscreen.html'
@@ -33,9 +33,8 @@ async function hasOffscreen(): Promise<boolean> {
 /**
  * 确保 offscreen document 已就绪（幂等；并发调用共享同一在途 promise）。
  *
- * reasons 取 @duoling/service-worker 的 GM_OFFSCREEN_REASONS（BLOBS + WORKERS + CLIPBOARD，
- * 三项都不带自动关闭，故容器可长活）—— 逐项含义与「为什么住 SW 进程包」见该包
- * offscreen-reasons.ts 的文件头。
+ * reasons 取包内 offscreen-reasons.ts 的 GM_OFFSCREEN_REASONS（BLOBS + WORKERS + CLIPBOARD，
+ * 三项都不带自动关闭，故容器可长活）—— 逐项含义见该文件的文件头。
  */
 export async function ensureOffscreen(): Promise<void> {
   if (await hasOffscreen()) return
@@ -80,12 +79,21 @@ const PING_INTERVAL_MS = 50
  * 用 `fs:ping`（不触碰文件系统），由 offscreen 侧的就绪 matcher 应答。
  */
 function pingOffscreen(): Promise<boolean> {
-  // 超时兜底由总线提供：应答方永不回调（容器刚被销毁）时不把 promise 挂死。
+  // 超时兜底：应答方永不回调（容器刚被销毁）时不把 promise 挂死。
   // 不区分失败原因：无响应本身就判未就绪。
-  return ipcRequest({ kind: 'fs:ping' }, { timeoutMs: PING_TIMEOUT_MS }).then(
-    () => true,
-    () => false,
-  )
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), PING_TIMEOUT_MS)
+    sendRuntime({ kind: 'fs:ping' }).then(
+      () => {
+        clearTimeout(timer)
+        resolve(true)
+      },
+      () => {
+        clearTimeout(timer)
+        resolve(false)
+      },
+    )
+  })
 }
 
 /**

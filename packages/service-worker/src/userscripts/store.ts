@@ -1,10 +1,10 @@
 // 用户脚本的 SW 侧持久化（写出口汇聚层）。
 //
 // 项目数据（源码/配置/产物/enabled）的权威在 IndexedDB 状态库 duoling-state
-// （读侧 lib/userscripts/project-store.ts 直连 IDB，写侧在包内 userstate/project-write）。
+// （读侧是 @duoling/shared 的 project-store 直连 IDB，写侧在包内 userstate/project-write）。
 // 本文件管观测数据（duoling-runtime 库，见 runtime-db.ts —— 标签页存续 + 一根活动轴：
 // 文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误）；GM 值存储（duoling-usdata 库）
-// 在 `@duoling/service-worker` 的 gm-values.ts。
+// 在包内 gm-values.ts。
 //
 // 观测数据的读改写在 runtime-db 的同一事务内完成（天然原子），故这里不再需要
 // chrome.storage 时代的进程内串行队列；「无变化不落盘」语义原样保留，广播只在实际
@@ -233,14 +233,6 @@ export async function listRunTimeline(): Promise<UserScriptRunLogRow[]> {
 }
 
 /**
- * 某次运行的全部动作（按发生先后升序）。
- * 面板与 AI 都只在要看「这次运行干了什么」时调它——时间线列表不带动作。
- */
-export async function listRunEvents(runId: string): Promise<UserScriptRunEvent[]> {
-  return runtime.listRunEvents(runId)
-}
-
-/**
  * 清运行条目（各自的动作一并级联删除，在 runtime-db 内同一事务完成）。
  * @param uuid 缺省 = 清全部；字符串 = 只清该脚本的条目；null = no-op
  *   （运行条必带 uuid，「未归属」只存在于错误日志，由 clearUserScriptErrors 管）。
@@ -258,7 +250,7 @@ export function clearRunLog(uuid?: string | null): Promise<void> {
  *
  * 一起删是刻意的：面板展示的是它们的合成。只删存续行，这一页会以「表里已查不到」的残影
  * 留在列表里（它的轴行还在）；六类同表 + 同归属键，故整件事在 runtime-db 内一条索引删、
- * 一个事务完成（见 clearTabActivity），不会留下「行没了、轴行还在」的中间态。
+ * 一个事务完成（见 runtime-db 的 clearTabActivity），不会留下「行没了、轴行还在」的中间态。
  *
  * **只清已记录的内容**，不动门禁里的进行中会话。
  */
@@ -276,7 +268,7 @@ export async function deleteTabActivity(tabSessionId: string): Promise<void> {
  *
  * **不动门禁**：正在录的那一页照常录，清历史不该把它停掉。
  */
-export async function clearTabActivity(): Promise<void> {
+export async function clearAllTabActivity(): Promise<void> {
   if (!(await runtime.clearTabActivity())) return
   broadcastDataChange('runlog')
   broadcastDataChange('error')

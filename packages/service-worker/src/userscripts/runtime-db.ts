@@ -58,6 +58,7 @@ import {
   type RunEndReason,
   type TabEventRecord,
   type TabSessionRecord,
+  type TabTimeline,
   type UserScriptErrorRecord,
   type UserScriptRunEvent,
   type UserScriptRunLogEntry,
@@ -184,27 +185,6 @@ type TabTimelineRow = TabEventRecord | TabCaptureRow | RunRow | ActRow | ErrRow
  */
 interface TabSessionRow extends TabSessionRecord {
   firstSeenAt: number
-}
-
-/** 某一页的整根活动轴（listTabTimeline 的产物，面板按它铺时间线） */
-export interface TabTimeline {
-  /** 文档事件与记录开关（按时刻升序；时刻缺省的排最末） */
-  events: TabEventRecord[]
-  /** 接口采样（按采集先后） */
-  captures: NetCaptureRecord[]
-  /** 运行条目（按落盘序） */
-  runs: UserScriptRunLogEntry[]
-  /** 动作，带所属 runId（按落盘序） */
-  acts: Array<{ runId: string; event: UserScriptRunEvent }>
-  /** 错误记录（按落盘序） */
-  errors: UserScriptErrorRecord[]
-  /**
-   * 本批行的最大主键号 —— 读侧的**增量游标**：下次带它来就只取更新的行。
-   *
-   * 由存储层直接给，而不是让读侧从各行各求最大值：轴上的行读出来是各自的业务投影，
-   * 不一定都带 `id`，让读侧去算会把「某类行漏算」变成游标停住、时间线看着不涨。
-   */
-  maxId: number
 }
 
 /** v8 起退场的旧索引名：录制改按标签页后采样上不再有 host，该索引无从维护 */
@@ -1063,7 +1043,8 @@ export async function seedTabSessionsForTests(
   })
 }
 
-export async function clearAllForTests(): Promise<void> {
+/** 清空本库两张表（用例隔离用；usdata-db 也有同名辅助，包根不能撞名） */
+export async function clearRuntimeDbForTests(): Promise<void> {
   for (const name of [TAB_SESSIONS_STORE, TAB_EVENTS_STORE]) {
     await runTx(name, 'readwrite', async (tx) => {
       tx.objectStore(name).clear()

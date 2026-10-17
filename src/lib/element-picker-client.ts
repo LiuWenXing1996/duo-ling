@@ -1,14 +1,11 @@
-// 拾取 / 页面读数的**发起侧**封装（对话界面与 SW 两个上下文共用）。
+// 拾取元素的**发起侧**封装：本文件只经命令面（`picker:pick` / `picker:cancel`）请 SW 下发。
 //
-// 三条支路走同一条通道：请 SW 向那一页的常驻件下发指令，件执行后把载荷上报回来
-// （件源码见 @duoling/builtin-scripts 的 inspector/install.ts，下发与配对见 userscripts/page-inspector-bridge.ts）。
-// 走常驻的理由：指令的时刻是「页面早已打开」，而注册件只在页面开始加载时注入，两者差的正是
-// 这个时间点；而结果只能靠消息上行（注册件没有返回值通道）。
+// 下发与配对不在这一侧 —— SW 的 handler 交给包内 page-inspector-bridge，件源码见
+// @duoling/builtin-scripts 的 inspector/install.ts。分两层是因为发起方在扩展页、件在页面里，
+// 中间必须过 SW；不是为了两处各写一份判据。
 //
-// 目标页的选法两边不同、且刻意不同：拾取 = 用户此刻看着的那一页（SW 取激活页，判据见
-// page-inspector-bridge 的调用处）；快照 / 环境读数 = 按**会话归属**反查（见 background.ts 的
-// resolveAiTargetTab）—— AI 决定要读时用户完全可能已经切走，取激活页会把别人那一页的数据
-// 喂给模型。
+// 快照 / 环境读数两条支路只在 SW 上下文里发起（AI 工具触发），下发封装随同一层进了包
+// （capturePageSnapshotFromTab / capturePageEnvFromTab），本文件不再参与。
 //
 // 失败语义（都有明确文案，不静默）：
 //   · chrome.userScripts 不可用 —— 138+ 逐扩展「允许运行用户脚本」开关未开 /
@@ -18,8 +15,7 @@
 
 import { EXTENSION_NAME } from '@duoling/shared'
 import { ipcRequest } from '@/shared/ipc-bus'
-import type { ElementPickContext, PageEnvContext, PageSnapshotContext } from '@duoling/shared'
-import { runInspectorCommand } from '@/lib/userscripts/page-inspector-bridge'
+import type { ElementPickContext } from '@duoling/shared'
 
 /** chrome.userScripts（含 register）是否可用；不可用 = 138+ 逐扩展开关未开或开发者模式未开 */
 export function isUserScriptsApiAvailable(): boolean {
@@ -30,7 +26,7 @@ export function isUserScriptsApiAvailable(): boolean {
 
 /** 不可用时的引导文案（给用户行动指引，不裸抛 API 名）。
  *  分步说明（按浏览器 / 版本分支）与「打开扩展管理页」按钮统一在工作台「引导」标签页，
- *  见 lib/extension-page.ts 的 userScriptsGuideSteps；此处只指路，不复述步骤。 */
+ *  见 src/lib/extension-page.ts 的 userScriptsGuideSteps；此处只指路，不复述步骤。 */
 export function userScriptsUnavailableMessage(): string {
   return '拾取元素 / 读快照 / 读环境不可用：需要开启「允许运行用户脚本」'
 }
@@ -90,28 +86,4 @@ export async function pickElement(): Promise<ElementPickContext | null> {
 export async function cancelPick(): Promise<void> {
   // 失败静默：没有进行中的拾取时本就没有可取消的东西，报错只会给用户一个无从处理的提示
   await ipcRequest<null>({ kind: 'picker:cancel' }).catch(() => {})
-}
-
-/**
- * 页面快照：静默抓渲染后 outerHTML（件内截断 ~32KB），不亮任何 UI。
- * 调用方 = SW 的 'page:snapshot' 命令（AI 的 page_snapshot 工具触发）；
- * tabId 由调用方定位（SW 侧按会话归属反查，兜底最后聚焦窗口的激活页），本函数只管下发与取载荷。
- */
-export async function capturePageSnapshotFromTab(tabId: number): Promise<PageSnapshotContext> {
-  ensureAvailable()
-  const ctx = await runInspectorCommand<PageSnapshotContext>(tabId, 'snapshot')
-  if (!ctx) throw new Error('页面快照采集失败：件未返回数据')
-  return ctx
-}
-
-/**
- * 页面环境读数：静默读视口尺寸 / 设备像素比 / 页面里读到的 UA，不亮任何 UI。
- * 调用方 = SW 的 'page:env' 命令（AI 的 page_env_read 工具触发）；
- * tabId 由调用方定位（口径与快照一致：SW 侧按会话归属反查），本函数只管下发与取载荷。
- */
-export async function capturePageEnvFromTab(tabId: number): Promise<PageEnvContext> {
-  ensureAvailable()
-  const ctx = await runInspectorCommand<PageEnvContext>(tabId, 'env')
-  if (!ctx) throw new Error('页面环境读取失败：件未返回数据')
-  return ctx
 }

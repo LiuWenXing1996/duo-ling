@@ -192,7 +192,7 @@ export type RuntimeRequest =
 
   // —— 拾取（浮层 → SW）：用户显式点按钮发起 ——
   // SW 取**激活标签页**（拾取那一刻浮层必然在用户看着的那一页上），再向该页的页面检查器常驻件
-  // 下发指令；结果由件上报、SW 按 reqId 配对（见 lib/userscripts/page-inspector-bridge.ts）。
+  // 下发指令；结果由件上报、SW 按 reqId 配对（见包内 userscripts/page-inspector-bridge.ts）。
   | { kind: 'picker:pick' }
   // 收工：与「开始」同一根线，SW 只负责转发到那一页
   | { kind: 'picker:cancel' }
@@ -200,7 +200,7 @@ export type RuntimeRequest =
   // —— 浮层宿主的命令面 ——
   // 浮层宿主件已转 MAIN 世界系统脚本（走统一脚本链），那里没有 chrome.runtime，
   // tabs.sendMessage 到不了 —— 四条动作全改走「RuntimeRequest → SW → DL Port 事件帧
-  // （float.cmd，见 lib/userscripts/float-bridge.ts）」的链路；件的接收面见
+  // （float.cmd，见包内 userscripts/float-bridge.ts）」的链路；件的接收面见
   // packages/builtin-scripts/src/float-host/install.ts。
   //
   // open：popup 的「对话浮层」按钮与页面右键菜单发起。tabId 是目标标签页（发起方都握有它；
@@ -269,49 +269,6 @@ export type RuntimeRequest =
 //
 // 形状真相源在 `@duoling/shared`（data-broadcast.ts）：频道与推送形状被运行时包
 // （dl-bridge / cookie-gate）同取，放这里就得靠注释对齐。
-
-// —— 端口名约定（跨上下文长连接）——
-// 'duoling:panel'（定义在 lib/userscripts/page-monitor.ts）= 对话界面文档 ↔ SW 的监控通道
-// （岛推送寻址 + 快照请求），页面脚本监控在用。
-
-// —— 页面脚本监控（对话界面 · 运行时口径）——
-// 信号源：GM 包装注入即广播 runstart（dl-bridge），运行错误落盘即上报。
-// 承载方是**对话界面浮层的灵动岛**：它认定**自己所属的标签页**（见 lib/owning-tab.ts ——
-// 不跟随 active tab），SW 侧按 tab 登记运行集并经 'duoling:panel' 端口推送。
-// 工具栏 popup 不在本通道上：它要的是「所有标签页的一次性概览」，走 `page:overview` 命令
-// （见下方 PageOverviewTab）—— 命令面按需取一份，比长连接更贴合它几秒的寿命。
-
-/** 当前 tab 的一次运行（一次页面加载 = 一个 runId；SPA 软导航不换文档、runId 不变） */
-export interface PageRunItem {
-  uuid: string
-  runId: string
-  startedAt: number
-}
-
-/** 面板展示的错误行（只含与本 tab 运行集相关的 runtime 错误；message 已截断） */
-export interface PageErrorItem {
-  uuid: string | null
-  name: string
-  message: string
-  time: number
-  runId: string | null
-}
-
-/** SW → 面板的监控推送（对话界面浮层经 `runtime.connect({ name: 'duoling:panel' })` 建连） */
-export type PanelMonitorPush =
-  /** 脚本注入即广播：登记一次运行 */
-  | { t: 'page:runstart'; tabId: number; run: PageRunItem }
-  /** 运行时错误落盘后同步推送 */
-  | { t: 'page:error'; tabId: number; error: PageErrorItem }
-  /** 新文档导航开始：该 tab 的运行集清零（SPA 软导航不触发——不换文档） */
-  | { t: 'page:reset'; tabId: number }
-  /** 快照应答：该 tab 的运行集 + 关联错误（面板切 tab / 建连时拉取） */
-  | { t: 'page:snapshot'; tabId: number; runs: PageRunItem[]; errors: PageErrorItem[] }
-
-/** 面板 → SW 的监控上行（同端口） */
-export type PanelMonitorUp =
-  /** 按面板自己归属的那个 tab 拉快照（面板刚打开 / 挂载时；归属怎么定见 lib/owning-tab.ts） */
-  | { t: 'page:snapshot'; tabId: number }
 
 // —— popup 的页面概览（`page:overview` 的应答形状）——
 //

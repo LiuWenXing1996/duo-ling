@@ -24,6 +24,7 @@
 
 export * from './bridge'
 export * from './tab-record'
+export * from './panel-monitor'
 export * from './inspector'
 export * from './page-context'
 export * from './idb-core'

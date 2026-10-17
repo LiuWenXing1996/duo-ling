@@ -8,9 +8,9 @@ import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { ipcRequest, ipcSubscribe } from '@/shared/ipc-bus'
 import { createOffscreenService } from '@duoling/shared'
 import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from '@duoling/shared'
-// 按页的整根活动轴（runtime-db 的读侧产物，六类行分五组）。**type-only**：UI 侧只要形状，
+// 按页的整根活动轴（六类行分五组）。**type-only**：UI 侧只要形状，
 // 不把存储层（idb-core）拖进扩展页 bundle。
-import type { TabTimeline } from './runtime-db'
+import type { TabTimeline } from '@duoling/shared'
 import { errorText } from '@/lib/format'
 
 /** 向 background 发一次请求，统一解包 { ok, data|error } */
@@ -40,7 +40,7 @@ export const userscriptClient = {
   list: (): Promise<ScriptSummary[]> => send({ kind: 'userscript:list' }),
 
   /** 扩展内置注入件（脚本桥 / 页面录制 / 录制转发）此刻的注册状态；只读，不是用户脚本 */
-  builtins: (): Promise<import('@/lib/userscripts/engine').BuiltinRegistration[]> =>
+  builtins: (): Promise<import('@duoling/service-worker').BuiltinRegistration[]> =>
     send({ kind: 'userscript:builtins' }),
 
   /** 读完整注册态记录（元数据 + 源码搬运副本；duoling-fs 里的 git 历史源码经 offscreenService.fsRead 取） */

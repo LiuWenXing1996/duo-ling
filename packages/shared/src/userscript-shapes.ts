@@ -10,6 +10,8 @@
 // 在这里再导一遍会让出口出现重名（`export *` 下同名符号会被双双丢弃，且不报错）。
 
 import type { UserscriptErrorRecord, UserscriptRunEvent as RuntimeRunEvent } from './userscript-runtime'
+// 接口采样的记录形状归 tab-record（写侧件与读侧 SW 同取）
+import type { NetCaptureRecord } from './tab-record'
 
 // ScriptSummary 在 script-project.ts（与 listSummaries 同处）：这里不再导一遍，
 // 同名符号在 `export *` 下会被双双丢弃。
@@ -271,6 +273,31 @@ export interface TabEventRecord {
   time?: number
   /** kind = 'url' 时是新地址；'reload' 时是当时取到的地址（取不到就不带） */
   url?: string
+}
+
+/**
+ * 某一页的整根活动轴（listTabTimeline 的产物，活动历史按它铺时间线）。
+ *
+ * 六类行在库里同表、读侧一次查回分组：面板看的是它们的合成，分批取会让各组落在不同时刻。
+ */
+export interface TabTimeline {
+  /** 文档事件与记录开关（按时刻升序；时刻缺省的排最末） */
+  events: TabEventRecord[]
+  /** 接口采样（按采集先后） */
+  captures: NetCaptureRecord[]
+  /** 运行条目（按落盘序） */
+  runs: UserScriptRunLogEntry[]
+  /** 动作，带所属 runId（按落盘序） */
+  acts: Array<{ runId: string; event: UserScriptRunEvent }>
+  /** 错误记录（按落盘序） */
+  errors: UserScriptErrorRecord[]
+  /**
+   * 本批行的最大主键号 —— 读侧的**增量游标**：下次带它来就只取更新的行。
+   *
+   * 由存储层直接给，而不是让读侧从各行各求最大值：轴上的行读出来是各自的业务投影，
+   * 不一定都带 `id`，让读侧去算会把「某类行漏算」变成游标停住、时间线看着不涨。
+   */
+  maxId: number
 }
 
 /**

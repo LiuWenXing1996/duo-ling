@@ -19,8 +19,13 @@
 // 已知边界：SW 重启会清空其按 tab 的运行登记（广播即发即弃、不重放），
 // 此窗口期内面板显示为空，页面一刷新即恢复——详见 page-monitor.ts 文件头。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import type { PageErrorItem, PageRunItem, PanelMonitorPush } from '@/shared/extension-ipc'
-import type { ScriptSummary } from '@duoling/shared'
+import type {
+  PageErrorItem,
+  PageRunItem,
+  PanelMonitorPush,
+  ScriptSummary,
+} from '@duoling/shared'
+import { PANEL_MONITOR_PORT } from '@duoling/shared'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import { resolveOwningTabId } from '@/lib/owning-tab'
 import { useDataSync } from './use-data-sync'
@@ -175,7 +180,7 @@ export function usePageMonitor() {
     void trackTab()
     scheduleNameRefresh()
     try {
-      monitorPort = chrome.runtime.connect({ name: 'duoling:panel' })
+      monitorPort = chrome.runtime.connect({ name: PANEL_MONITOR_PORT })
       monitorPort.onMessage.addListener(handlePush)
     } catch {
       monitorPort = null // SW 未起等场景：退化为「无实时推送」，挂载时的快照请求也可能失败

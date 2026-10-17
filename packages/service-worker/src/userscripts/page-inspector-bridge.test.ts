@@ -14,7 +14,7 @@ type Bridge = typeof import('./page-inspector-bridge')
 /** pushCommandTo 桩：记录每次下发；ports = 0 表示该页没有件的在岗连接（件不在位） */
 async function stubPush(ports = 1): Promise<{ sent: Sent[]; bridge: Bridge }> {
   const sent: Sent[] = []
-  vi.doMock('@duoling/service-worker', () => ({
+  vi.doMock('../dl-port', () => ({
     pushCommandTo: (_uuid: string, tabId: number, ev: Record<string, unknown>) => {
       if (ports === 0) return 0
       sent.push({ tabId, ev })
@@ -33,7 +33,7 @@ function result(reqId: string, payload: unknown, ok = true): { reqId: string; ok
 
 afterEach(() => {
   vi.useRealTimers()
-  vi.doUnmock('@duoling/service-worker')
+  vi.doUnmock('../dl-port')
   vi.resetModules()
 })
 

@@ -13,8 +13,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { defineComponent } from 'vue'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import type { PageErrorItem, PageRunItem, PanelMonitorPush } from '@/shared/extension-ipc'
-import type { ScriptSummary } from '@duoling/shared'
+import type {
+  PageErrorItem,
+  PageRunItem,
+  PanelMonitorPush,
+  ScriptSummary,
+} from '@duoling/shared'
 
 const listMock = vi.hoisted(() => vi.fn())
 const owningTabIdMock = vi.hoisted(() => vi.fn())

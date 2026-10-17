@@ -1,5 +1,5 @@
 // 工具栏角标的端测：**数字 = 这个标签页在跑几个脚本**（与浮层灵动岛、popup 的页面概览同源，
-// 见 src/lib/userscripts/page-monitor.ts 的运行登记表）。
+// 见 packages/service-worker/src/userscripts/page-monitor.ts 的运行登记表）。
 //
 // 这里不造假信号：脚本经命令面存进库、由 `chrome.userScripts` 真注入探针页，runstart 是真的从 GM
 // 包装广播出来的 —— 整条链路（注入 → 登记 → 重算 → `chrome.action`）都在被测范围内。伪造一条

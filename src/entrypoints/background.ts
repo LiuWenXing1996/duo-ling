@@ -50,8 +50,8 @@ import {
   builtinsOnPage,
   BUILTIN_SCRIPT_IDS,
   syncAllBuiltins,
-} from '@/lib/userscripts/engine'
-import type { BuiltinRegistration } from '@/lib/userscripts/engine'
+} from '@duoling/service-worker'
+import type { BuiltinRegistration } from '@duoling/service-worker'
 // metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
 // 真正的归一化在写入口一处（offscreen 写侧的 saveSource），此处不写回任何东西
 import {
@@ -71,7 +71,7 @@ import { runUpdateCheck } from '@/lib/update-check'
 // OffscreenService 消费侧：项目数据的写路径（见下方 offscreenService）
 // 标准化总线：本语境命令面唯一的 onMessage 收口（serveIpc）+ 路由 matcher（前缀表 / 包命令面）
 import { serveIpc, prefixMatcher, packMatcher, ipcRequest, ipcNotify } from '@/shared/ipc-bus'
-import { duolingTelemetry } from '@/lib/userscripts/telemetry'
+import { duolingTelemetry } from '@duoling/service-worker'
 // 产品内置件注入面：内置注册 id 全集（stale 清扫排除）与四件全量同步（挂包侧注册串行链）
 // 标签页存续（tabId 的稳定替身）：开关（连同「开始 / 结束记录」两条标记）、事件（刷新、地址变更）、
 // 盖章与启动划断（都替当时还在记的行收个尾）都归 SW ——「这一页在不在记活动、经历了什么、
@@ -83,7 +83,7 @@ import {
   reconcileDeadTabSessions,
   setTabRecording,
   splitTabSessionsAtBrowserStart,
-} from '@/lib/userscripts/tab-sessions'
+} from '@duoling/service-worker'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listProjects } from '@duoling/shared'
 // 握手密钥的持久化（经 secretStore 注入包侧）：duoling-app 库的 kv 读写
@@ -98,13 +98,13 @@ import {
   listRunTimeline,
   listRunEvents,
   markRunEnd,
-  clearTabActivity,
+  clearAllTabActivity,
   deleteTabActivity,
-} from '@/lib/userscripts/store'
+} from '@duoling/service-worker'
 // GM 值存储（duoling-usdata 库）：脚本删除 / 清库时清各自的值
 // 观测数据的底层表（duoling-runtime 库）：存续表全量给「活动历史」按标签页分档用；
 // 某一页的整根活动轴（存续轴事件 + 接口采样）一次读回 —— 录制按标签页，读也就按标签页。
-import { findOpenTabSession, listTabSessions, listTabTimeline } from '@/lib/userscripts/runtime-db'
+import { findOpenTabSession, listTabSessions, listTabTimeline } from '@duoling/service-worker'
 // 对话界面页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口 —— 工具栏角标的数字就是它
 import {
   forgetPageTab,
@@ -113,7 +113,7 @@ import {
   pageRunsByTab,
   resetPageRuns,
   snapshotForTabs,
-} from '@/lib/userscripts/page-monitor'
+} from '@duoling/service-worker'
 // 会话的标签页归属映射（duoling-app 库）：标签页关闭时在这里清（见 tabs.onRemoved 处说明）；
 // page:snapshot 也用它反查「这条会话在哪个标签页上」（会话按 tab 归属）；
 // popup 的页面概览靠它回答「这个页面归属哪条会话」
@@ -140,27 +140,32 @@ import {
   closeOffscreen,
   isOffscreenReady,
   ensureOffscreenReady,
-} from '@/lib/offscreen'
+} from '@duoling/service-worker'
 // 模型配置：offscreen 既不直连存储、也不 import model-store（SW 专属模块），一律由
 // SW 经命令中转；变更推送由 model-store 写出口直发（offscreen 侧见包内 bootstrap.ts）。
 import { getActiveProfileState } from '@/lib/model-store'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
 import { broadcastBuildPhase } from '@duoling/shared'
 // AI 工具支路：page_snapshot / page_env_read 两条工具经 SW 向页面里的页面检查器下发指令
-// （offscreen 不可达该 API）
+// （offscreen 不可达该 API）—— 下发封装与配对都在包内 page-inspector-bridge
 import {
   capturePageEnvFromTab,
   capturePageSnapshotFromTab,
+} from '@duoling/service-worker'
+// 目标页可注入判据与「引擎不可用」文案：与对话界面发起侧同一处
+import {
+  isUserScriptsApiAvailable,
   pageInjectionBlockReason,
+  userScriptsUnavailableMessage,
 } from '@/lib/element-picker-client'
 // 拾取指令的下发与配对（常驻件那半在页面里，件源码见包的 inspector/install.ts）
-import { cancelPicker, runInspectorCommand } from '@/lib/userscripts/page-inspector-bridge'
+import { cancelPicker, runInspectorCommand } from '@duoling/service-worker'
 import {
   collapseFloatPanel,
   openFloatPanel,
   pingFloatHost,
   setFloatPanelBusy,
-} from '@/lib/userscripts/float-bridge'
+} from '@duoling/service-worker'
 import type { ElementPickContext } from '@duoling/shared'
 import { errorText } from '@/lib/format'
 
@@ -332,6 +337,14 @@ async function resolvePickTargetTab(what: string): Promise<number> {
   return tab.id
 }
 
+/**
+ * 引擎不可用就不必白跑一趟下发。判据与文案都取发起侧那一份（element-picker-client）——
+ * 在这里另写一遍，两处说法迟早分叉。
+ */
+function ensureInspectorAvailable(): void {
+  if (!isUserScriptsApiAvailable()) throw new Error(userScriptsUnavailableMessage())
+}
+
 // 第二个参数是 chrome 的消息发送方：只有需要「回 sender 自己的东西」的命令才用得上
 // （现仅 tab:identify 取 sender.tab.id）；其余 handler 少写一个参数即可，TS 允许。
 const handlers: {
@@ -367,13 +380,17 @@ const handlers: {
   // 目标页判据见 resolveAiTargetTab —— 两条共用，别在这里另写一份。
   'page:snapshot': async (
     msg,
-  ): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> =>
-    capturePageSnapshotFromTab(await resolveAiTargetTab(msg.conversationId, '采集页面快照')),
+  ): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
+    ensureInspectorAvailable()
+    return capturePageSnapshotFromTab(await resolveAiTargetTab(msg.conversationId, '采集页面快照'))
+  },
 
   'page:env': async (
     msg,
-  ): Promise<Awaited<ReturnType<typeof capturePageEnvFromTab>>> =>
-    capturePageEnvFromTab(await resolveAiTargetTab(msg.conversationId, '读取页面环境')),
+  ): Promise<Awaited<ReturnType<typeof capturePageEnvFromTab>>> => {
+    ensureInspectorAvailable()
+    return capturePageEnvFromTab(await resolveAiTargetTab(msg.conversationId, '读取页面环境'))
+  },
 
   // —— 拾取（浮层发起的用户动作）——
   // 目标页判据见 resolvePickTargetTab —— 与上面两条 AI 支路刻意不同，别在这里另写一份。
@@ -692,7 +709,7 @@ const handlers: {
 
   // 「活动历史」清空全部：存续行 + tab_events 整根轴（含归不到标签页的无归属错误行）
   'userscript:tabActivityClear': async (): Promise<void> => {
-    await clearTabActivity()
+    await clearAllTabActivity()
   },
 
   // 某次运行的动作（面板按需拉；AI 的 run_log_read 带 runId 时同路）

@@ -435,6 +435,9 @@ importers:
 
   packages/service-worker:
     dependencies:
+      '@duoling/builtin-scripts':
+        specifier: workspace:*
+        version: link:../builtin-scripts
       '@duoling/shared':
         specifier: workspace:*
         version: link:../shared

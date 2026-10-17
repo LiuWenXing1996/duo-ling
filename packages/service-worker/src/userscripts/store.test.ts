@@ -1,15 +1,14 @@
 // store.ts 单测：观测数据（duoling-runtime 库）。
-// 全走 fake-indexeddb，用例间 clearAllForTests 清库保证隔离（不再依赖 fakeBrowser）。
+// 全走 fake-indexeddb，用例间 clearRuntimeDbForTests 清库保证隔离（不再依赖 fakeBrowser）。
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   appendUserScriptError,
+  clearAllTabActivity,
   clearRunLog,
-  clearTabActivity,
   clearUserScriptErrors,
   deleteTabActivity,
   findUserScriptError,
-  listRunEvents,
   listRunTimeline,
   listSummaries,
   listUserScriptErrors,
@@ -20,7 +19,8 @@ import {
 import {
   appendTabCapture,
   appendTabEvent,
-  clearAllForTests as clearRuntime,
+  clearRuntimeDbForTests as clearRuntime,
+  listRunEvents,
   listTabEvents,
   listTabSessions,
   listTabTimeline,
@@ -425,7 +425,7 @@ describe('活动历史（存续表 + 整根活动轴的删除 / 清空）', () =
     await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'x', runId: 'r1' })
     await appendUserScriptError({ uuid: null, name: '甲', phase: 'register', message: '无归属' })
 
-    await clearTabActivity()
+    await clearAllTabActivity()
 
     expect(await listTabSessions()).toHaveLength(0)
     expect(await listRunTimeline()).toHaveLength(0)
@@ -456,7 +456,7 @@ describe('活动历史（存续表 + 整根活动轴的删除 / 清空）', () =
     const t1 = await mintTabSession({ tabId: 1, url: 'https://1.test/' })
     await appendTabEvent(t1, 'reload', 'https://1.test/')
 
-    await clearTabActivity()
+    await clearAllTabActivity()
 
     expect(await listTabSessions()).toHaveLength(0)
     expect(await listTabEvents()).toHaveLength(0)
@@ -478,7 +478,7 @@ describe('活动历史（存续表 + 整根活动轴的删除 / 清空）', () =
     const t1 = await mintTabSession({ tabId: 1, url: 'https://1.test/' })
     await appendTabCapture(cap('https://1.test/api', t1))
 
-    await clearTabActivity()
+    await clearAllTabActivity()
 
     expect((await listTabTimeline(t1)).captures).toEqual([])
   })

@@ -1,7 +1,7 @@
 // 「页面脚本监控」的 SW 侧逻辑（运行时口径）——三处共用同一份数：
 // 对话界面灵动岛、**工具栏角标**（数字 = 该标签页的运行集大小）、popup 的页面概览。
 //
-// 三处显示的都是「它所属标签页」的运行集（归属怎么定见 lib/owning-tab.ts，不是 active
+// 三处显示的都是「它所属标签页」的运行集（归属怎么定见 src/lib/owning-tab.ts，不是 active
 // tab），必须有一个地方替它们记住「每个 tab 当前文档里跑着哪些脚本」——就是这个按 tab 的运行登记表。
 // 前两处按 tab 取：灵动岛经 'duoling:panel' 端口收推送 / 拉快照，角标直接读登记表重算；
 // popup 要的是**所有标签页的一次性概览**（它几秒就关，不值得维持长连接），由 background 的
@@ -27,17 +27,16 @@
 // 注意这跟「SW 空闲被回收」不是一回事：SW 由 offscreen 心跳保活常驻
 // （@duoling/offscreen-document 的 keepalive，宿主入口无条件启动），不会空闲回收。
 
+// 端口名与载荷形状归契约包（@duoling/shared 的 panel-monitor.ts）：面板侧也认同一份。
+import { PANEL_MONITOR_PORT } from '@duoling/shared'
 import type {
   PageErrorItem,
   PageRunItem,
   PanelMonitorPush,
   PanelMonitorUp,
-} from '@/shared/extension-ipc'
-import type { UserScriptErrorRecord } from '@duoling/shared'
+  UserScriptErrorRecord,
+} from '@duoling/shared'
 import { listUserScriptErrors } from './store'
-
-/** 面板端口名：脚本监控通道（对话界面浮层与工具栏 popup 都连它）—— 上行快照请求 + 下行推送寻址 */
-const PANEL_PORT_NAME = 'duoling:panel'
 
 /** 快照错误行的 message 截断（面板行内展示） */
 const SNAPSHOT_ERROR_TRUNC = 200
@@ -180,7 +179,7 @@ export async function snapshotForTabs(
 export function initPageMonitorPorts(): void {
   if (typeof chrome.runtime?.onConnect?.addListener !== 'function') return
   chrome.runtime.onConnect.addListener((port) => {
-    if (port.name !== PANEL_PORT_NAME) return
+    if (port.name !== PANEL_MONITOR_PORT) return
     monitorPorts.add(port)
     port.onDisconnect.addListener(() => monitorPorts.delete(port))
     port.onMessage.addListener((raw) => {

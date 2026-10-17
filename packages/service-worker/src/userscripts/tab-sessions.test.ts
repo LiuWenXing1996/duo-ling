@@ -6,7 +6,7 @@
 // 记得到就必须有值，记不到就必须缺省（不许拿别的时刻顶上）。
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { clearAllForTests, listTabEvents, listTabSessions, seedTabSessionsForTests } from './runtime-db'
+import { clearRuntimeDbForTests, listTabEvents, listTabSessions, seedTabSessionsForTests } from './runtime-db'
 import {
   noteTabClosed,
   noteTabReloaded,
@@ -21,7 +21,7 @@ import { TAB_SESSION_MAX } from '@duoling/shared'
 beforeEach(async () => {
   // 导航印记是内存态：不清它，上一个用例在同一 tabId 上留的印会把本用例的刷新判成「导航的后续」
   resetTabNavPendingForTests()
-  await clearAllForTests()
+  await clearRuntimeDbForTests()
 })
 
 /** 按 tabId 取那一行（表里同一 tabId 至多一行未结束的） */

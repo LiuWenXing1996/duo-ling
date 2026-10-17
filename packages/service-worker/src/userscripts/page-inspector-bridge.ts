@@ -1,9 +1,10 @@
 // 页面检查器指令桥（SW 侧）：把「拾取 / 采集快照 / 读环境 / 收工」下发到常驻件，
 // 并在件上报结果时按 reqId 配对回发起方那次调用。
 //
-// 只在 SW 侧引用（发起方是浮层或 SW 自己）。与 element-picker-client 的分工：
-//   client —— 发起侧薄客户端：发命令、等应答、把失败文案交给 UI；
-//   本文件 —— SW 侧那半：下发、配对、超时兜底、进行中拾取的记账。
+// 只在 SW 侧引用。与 element-picker-client（应用侧的发起薄客户端）的分工：
+//   那里 —— 只发命令面请求（picker:pick / picker:cancel），失败文案交给 UI；
+//   本文件 —— SW 侧那半：下发、配对、超时兜底、进行中拾取的记账，外加两条 AI 支路
+//   的下发封装（page:snapshot / page:env 的 handler 调 capturePage*FromTab）。
 //
 // 件已是 MAIN 世界系统脚本（走统一脚本链，见 system-scripts.ts），通道全走脚本桥：
 //   · 下行 —— DL Port 事件帧 `inspector.cmd`（按系统脚本 uuid + tabId 寻址，pushCommandTo）；
@@ -13,8 +14,9 @@
 // 超时放在这一层（不重复设在发起侧）：件可能因页面卸载 / 导航而永远不上报，留一条兜底，
 // 文案按模式区分 —— 用户要能判断是「自己没点」还是「页面没了」。
 
+import type { PageEnvContext, PageSnapshotContext } from '@duoling/shared'
 import { INSPECTOR_HOST_ID } from '@duoling/builtin-scripts'
-import { pushCommandTo } from '@duoling/service-worker'
+import { pushCommandTo } from '../dl-port'
 
 /** 单次调用的超时：用户点选可能很久不结算，但页面关掉 / 导航会让它永不结算，必须有兜底 */
 const PICK_TIMEOUT_MS = 60_000
@@ -139,4 +141,26 @@ export function handleInspectorEvent(
   } else {
     entry.reject(new Error(typeof rec.payload === 'string' ? rec.payload : '页面读取失败'))
   }
+}
+
+/**
+ * 页面快照：静默抓渲染后 outerHTML（件内截断 ~32KB），不亮任何 UI。
+ * 调用方 = SW 的 'page:snapshot' 命令（AI 的 page_snapshot 工具触发）；tabId 由调用方定位
+ * （按会话归属反查，兜底最后聚焦窗口的激活页），本函数只管下发与取载荷。
+ * 引擎可用性由调用方先判 —— 文案留应用侧一处，别在这里再写一句。
+ */
+export async function capturePageSnapshotFromTab(tabId: number): Promise<PageSnapshotContext> {
+  const ctx = await runInspectorCommand<PageSnapshotContext>(tabId, 'snapshot')
+  if (!ctx) throw new Error('页面快照采集失败：件未返回数据')
+  return ctx
+}
+
+/**
+ * 页面环境读数：静默读视口尺寸 / 设备像素比 / 页面里读到的 UA，不亮任何 UI。
+ * 调用方 = SW 的 'page:env' 命令（AI 的 page_env_read 工具触发）；tabId 口径与快照一致。
+ */
+export async function capturePageEnvFromTab(tabId: number): Promise<PageEnvContext> {
+  const ctx = await runInspectorCommand<PageEnvContext>(tabId, 'env')
+  if (!ctx) throw new Error('页面环境读取失败：件未返回数据')
+  return ctx
 }

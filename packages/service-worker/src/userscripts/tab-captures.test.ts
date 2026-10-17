@@ -2,14 +2,14 @@
 // 以及「两类记录同表但不互相污染」。
 // 归属只认 tabSessionId —— 录制按标签页划分，不按站点；同一页导航到哪个 host 都记在同一行下，
 // 故记录里没有 host 字段，读侧也没有「按站点查」这条路。
-// fake-indexeddb 提供全局 indexedDB；用例间 clearAllForTests 保证隔离。
+// fake-indexeddb 提供全局 indexedDB；用例间 clearRuntimeDbForTests 保证隔离。
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { NetCaptureRecord } from '@duoling/shared'
 import {
   appendTabCapture,
   appendTabEvent,
-  clearAllForTests,
+  clearRuntimeDbForTests,
   clearTabActivity,
   listTabEvents,
   listTabTimeline,
@@ -33,7 +33,7 @@ function rec(url: string, t: number, tabSessionId?: string): NetCaptureRecord {
 }
 
 beforeEach(async () => {
-  await clearAllForTests()
+  await clearRuntimeDbForTests()
 })
 
 describe('接口采样（与存续轴事件同表）', () => {

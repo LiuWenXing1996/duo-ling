@@ -22,6 +22,7 @@
     "test": "node build-relay.mjs && vitest run"
   },
   "dependencies": {
+    "@duoling/builtin-scripts": "workspace:*",
     "@duoling/shared": "workspace:*"
   },
   "devDependencies": {
