@@ -1,37 +1,15 @@
-// 页面检查器常驻件本体：按指令读页面，把结果交回去。
+// 页面检查器常驻件本体：按指令读页面（pick / snapshot / env 三模式），把结果交回去。
+// 运行位置（MAIN 世界系统脚本）、通道形状（下行帧 / 上行信封 / reqId 结算）与常驻缘由
+// 见 ARCHITECTURE.md「脚本注入」节与「页面上下文」节，协议真相源在 script-bridge.ts / api-contract.ts。
 //
-// 运行位置：目标标签页的**页面主世界（MAIN）系统脚本**（GM 包装注入，见应用侧
-// system-scripts.ts）—— 全站匹配 + document_start。加载只建通道、不动作；收到指令才跑。
-//
-// **一件两端** —— 运行器（怎么读页面）与指令通道（等谁喊、把结果交给谁）合在本文件里，
-// 单段注册；字面量真相源在 @duoling/shared 的 inspector.ts，件直接 import。
-// 走统一脚本链：下行帧 / 上行信封都是脚本桥协议的一部分，连 tag 字面量都省了。
-//
-// 三个模式（指令给模式名）：
-//   pick     —— 拾取：亮高亮框 + 拦截点击，用户点选后 resolve 元素载荷；
-//               右键取消（resolve null）。Esc 取消挂在页面 document 上，只在页面
-//               恰好持有焦点时生效——拾取由对话界面发起时焦点在对话界面，主取消路径
-//               是对话界面监听 Esc 后经 cancelPicker() 请 SW 下发 cancel 指令
-//               （见 element-picker-client.ts）。返回「点选时才 resolve」的 Promise。
-//   snapshot —— 快照：不亮任何 UI，静默抓渲染后 documentElement.outerHTML（截断 ~32KB）。
-//   env      —— 环境读数：不亮任何 UI，静默读页面侧环境（视口尺寸 / 设备像素比 /
-//               页面里读到的 UA）。读的是**页面自己的事实**：设备模拟会改掉视口与像素比，
-//               页面上的脚本可能改写 navigator.userAgent —— 这些正是它与 offscreen 侧
-//               机器真值（env_read）分开的理由。
-//
-// 取消指令：调 activePick.cancel()（SW 把 cancel 下发给本件，件代调）——让那条 pick 的
-// Promise resolve null，结果照常由它自己上报 —— 保证「每次开始恰好一条上报」，
-// 发起侧无须区分两种收场。
-//
-// 通道（脚本桥，形状真相源见 service-worker 的 script-bridge.ts / api-contract.ts）：
-//   · 下行 —— Port 事件帧 `inspector.cmd`（SW 经 DL Port 推，中继件转回 MAIN 桥 onEvent）；
-//   · 上行 —— `__dlEvent` 信封 `inspector.result`（emit，fire-and-forget；结算认 reqId，
-//     送达失败由发起侧 60s 超时兜底 —— 与旧 sendMessage 失败同语义）；
-//   · 常驻通道 —— 本件启动即 connect + 周期重发（Port 断链自愈：SW 重启后中继件侧连接
-//     已清，重发的 connect 帧会重建；SW 端 addPort 对同 uuid+connId 做替换，不会双 Port）。
-//
-// 世界说明：MAIN 世界与页面同域 —— 本件是只读观察者，页面看得见它做的一切（高亮框、
-// 截断后的 HTML 采样），这个透明度与旧独立世界形态相比没有实质变化（DOM 本就共享）。
+// 三个代码里看不见的「为什么」：
+//   · pick 的 Esc 取消挂在页面 document 上只在页面恰好持有焦点时生效——拾取由对话界面发起时
+//     焦点在对话界面，主取消路径是对话界面监听 Esc 后经 cancelPicker() 请 SW 下发 cancel 指令
+//     （见 element-picker-client.ts）。
+//   · env 读的是**页面自己的事实**：设备模拟会改掉视口与像素比，页面上的脚本可能改写
+//     navigator.userAgent——这正是它与 offscreen 侧机器真值（env_read）分开的理由，两者别统一。
+//   · 取消指令调 activePick.cancel() 让那条 pick 的 Promise resolve null，结果照常由它自己
+//     上报——保证「每次开始恰好一条上报」，发起侧无须区分两种收场。
 
 import {
   INSPECTOR_PICKER_NS,
