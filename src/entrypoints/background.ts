@@ -62,7 +62,7 @@ import {
   SWService,
 } from '@duoling/service-worker'
 // OffscreenService 消费侧：项目数据的写路径（见下方 offscreenService）
-import { createOffscreenService, registerSWService, type SaveOutcome } from '@duoling/proxy-service-list'
+import { createOffscreenService, registerSWService, type SaveOutcome } from '@duoling/shared'
 // 标准化总线：本语境命令面唯一的 onMessage 收口（serveIpc）+ 路由 matcher（前缀表 / 包命令面）
 import { serveIpc, prefixMatcher, packMatcher, ipcRequest, ipcNotify } from '@/shared/ipc-bus'
 import { duolingTelemetry } from '@/lib/userscripts/telemetry'

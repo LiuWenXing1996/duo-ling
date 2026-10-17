@@ -1,12 +1,12 @@
-// 契约与 key 同处：接口只引类型包（userscript-core / shared），实现在子包（依赖单向）。
+// 契约与 key 同处：接口只用本包的记录形状（script-project），实现在两个进程包（依赖单向）。
 import {
   createProxyService,
   registerService,
   type ProxyService,
   type ProxyServiceKey,
 } from '@webext-core/proxy-service'
-import type { ScriptConfig, ScriptGroup, ScriptProject } from '@duoling/userscript-core'
-import type { PromiseService } from './types'
+import type { ScriptConfig, ScriptGroup, ScriptProject } from '../script-project'
+import type { PromiseService } from './promise-service'
 
 /** 这次改动是谁做的（历史面板据此显示来源标签） */
 export type CommitActor = 'user' | 'ai' | 'system'

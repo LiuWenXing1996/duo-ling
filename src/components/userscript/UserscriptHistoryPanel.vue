@@ -21,7 +21,7 @@ import { userscriptClient, offscreenService } from '@/lib/userscripts/ui-client'
 import { resolveConfigFromSource } from '@duoling/userscript-core'
 import { defaultConfig } from '@/lib/userscripts/types'
 import type { CommitActor } from '@/lib/userscripts/types'
-import type { UsCommit, UsSnapshot } from '@duoling/proxy-service-list'
+import type { UsCommit, UsSnapshot } from '@duoling/shared'
 import { errorText } from '@/lib/format'
 
 const props = defineProps<{

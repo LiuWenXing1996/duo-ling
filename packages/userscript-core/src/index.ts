@@ -2,7 +2,7 @@
 //
 // 三块：
 //   · 语义层（L1，零 chrome / 零 IDB / 零 DOM）—— 注入源码生成、API 契约与目录、grants 真相源、
-//     metadata 解析与脚本配置形状；
+//     metadata 解析（脚本配置与项目形状归 shared）；
 //   · 存储（IDB）—— 内置默认存储（state-db / usdata-db / gm-values），IndexedDB 样板
 //     （idb-core）归 @duoling/shared（纯样板，应用域同源共用）；
 //   · 数据变更广播 —— 跨语境广播的唯一实现（BroadcastChannel 优先、sendMessage 降级），
@@ -16,8 +16,6 @@ export * from './gm-grants'
 export * from './gm-api-catalog'
 export * from './gm-wrapper'
 export * from './script-bridge'
-export * from './script-config'
-export * from './script-project'
 export * from './match-pattern'
 export * from './match-union'
 export * from './metadata'

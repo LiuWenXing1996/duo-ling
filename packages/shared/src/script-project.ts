@@ -1,9 +1,9 @@
-// 脚本项目与分组的落盘形状（自 src/lib/userscripts/types.ts 上移：state-db 的记录类型
-// 随内置默认存储一起归包）。
+// 脚本项目与分组的落盘形状（自 src/lib/userscripts/types.ts 上移，与 script-config 同住
+// 本包：SW / offscreen / 面板都要这一份）。
 //
 // 一个脚本 = 一个单文件源码 + 一份配置，直接映射 chrome.userScripts 原生字段。
 // 无构建流程：保存即注入（源码原文进注册态），对齐油猴单文件形态。
-import { EXTENSION_NAME } from '@duoling/shared'
+import { EXTENSION_NAME } from './extension-identity'
 import type { ScriptConfig } from './script-config'
 
 /**

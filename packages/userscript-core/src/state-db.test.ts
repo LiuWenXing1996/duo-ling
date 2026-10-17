@@ -15,7 +15,7 @@ import {
   writeGroup,
   writeProject,
 } from './state-db'
-import type { ScriptProject } from './script-project'
+import type { ScriptProject } from '@duoling/shared'
 
 let seq = 0
 function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {

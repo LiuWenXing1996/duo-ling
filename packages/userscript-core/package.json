@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "GM 语义与存储内核：注入源码生成、API 契约与目录、grants 真相源、metadata 解析、脚本配置形状、内置存储与数据变更广播（Vite lib 模式构建）",
+  "description": "GM 语义与存储内核：注入源码生成、API 契约与目录、grants 真相源、metadata 解析、内置存储与数据变更广播（脚本配置 / 项目形状归 shared；Vite lib 模式构建）",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",

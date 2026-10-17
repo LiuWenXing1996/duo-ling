@@ -138,7 +138,7 @@ export type RuntimeRequest =
   // —— 用户脚本源码库 / 对话资源库：就绪探测（执行宿主 = offscreen）——
   // 源码唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库，带 git 版本化，见
   // @duoling/offscreen-document 的 fs/lfs 与 fs/git），SW 与扩展页读不到 lfs。
-  // 读写的其余命令已走 OffscreenService 代理（经 @duoling/proxy-service-list 的 key），
+  // 读写的其余命令已走 OffscreenService 代理（经 @duoling/shared 的服务契约 key），
   // 报文无 kind、不占总线 —— 故不在这张联合里。留下的只有这条就绪探测：
   // SW 用它确认容器**真的在应答**（而不仅是「文档已存在」）。判据必须是「应答」而非
   // 「存在」——createDocument 返回时 offscreen 的 onMessage 未必已注册完，

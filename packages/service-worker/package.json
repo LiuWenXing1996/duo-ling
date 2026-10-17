@@ -22,7 +22,6 @@
     "test": "node build-relay.mjs && vitest run"
   },
   "dependencies": {
-    "@duoling/proxy-service-list": "workspace:*",
     "@duoling/shared": "workspace:*",
     "@duoling/userscript-core": "workspace:*"
   },

@@ -41,10 +41,11 @@ import {
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
 // 标签页录制：转发件送来的采集载荷在 SW 侧按**种类**白名单化；落库走遥测 port（宿主注入）
-import { normalizeNetCapture, NET_TAB_KIND } from '@duoling/shared'
-import { broadcastDataChange } from '@duoling/userscript-core'
+// 同包的 createOffscreenService 替 SW 写剪贴板 —— document 只在 offscreen 里
+import { normalizeNetCapture, NET_TAB_KIND, createOffscreenService } from '@duoling/shared'
 // GM 值写出口（duoling-usdata 库；store.change 变更事件从这里直发）
 import {
+  broadcastDataChange,
   getGMValue,
   setGMValue,
   deleteGMValue,
@@ -66,8 +67,6 @@ import {
   handleObservation,
 } from './dl-fetch-priv'
 import { errorText } from './util'
-// offscreen 侧服务代理：剪贴板写入是 offscreen 独占能力（SW 拿不到 document），须请容器代写
-import { createOffscreenService } from '@duoling/proxy-service-list'
 // 宿主注入点：扩展身份 / offscreen 就绪 / 遥测（运行日志与错误落盘是宿主的产品面）
 import { extensionName, notificationIcon, offscreenPort, telemetryPort } from './host-config'
 

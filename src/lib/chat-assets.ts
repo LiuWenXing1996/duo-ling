@@ -11,13 +11,13 @@
 //   · 发送侧（chat-host.messagesForModel）：换成 assetPlaceholderText 的一行文字；
 //   · 会话库预览（conversation-store.previewOf）：正文为空时显示「[图片]」。
 import type { UIMessage } from 'ai'
-import type { ChatAssetData, ChatAssetRef } from '@duoling/proxy-service-list'
+import type { ChatAssetData, ChatAssetRef } from '@duoling/shared'
 
 // data URL 的拆 / 拼是纯字符串函数，归 @duoling/shared（offscreen 的文件库上传入口同为消费方），
 // 此处 re-export 维持既有 import 路径
 export { dataUrlOf, parseDataUrl } from '@duoling/shared'
 
-// 资源引用的形状归 @duoling/proxy-service-list（offscreen 服务契约），re-export 维持既有路径
+// 资源引用的形状归 @duoling/shared（offscreen 服务契约），re-export 维持既有路径
 export type { ChatAssetData, ChatAssetRef }
 
 /** 消息里表达「带了一份资源」的 part */

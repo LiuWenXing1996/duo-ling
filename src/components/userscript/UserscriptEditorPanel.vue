@@ -45,7 +45,7 @@ import { searchKeymap } from '@codemirror/search'
 import { tags as t } from '@lezer/highlight'
 import { javascript } from '@codemirror/lang-javascript'
 import { userscriptClient, offscreenService, subscribeAvailability } from '@/lib/userscripts/ui-client'
-import type { Source } from '@duoling/proxy-service-list'
+import type { Source } from '@duoling/shared'
 import type { UserScriptsAvailability } from '@/lib/userscripts/types'
 import { errorText } from '@/lib/format'
 

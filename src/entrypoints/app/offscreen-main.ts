@@ -35,7 +35,7 @@ import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { serveIpc, prefixMatcher, ipcNotify } from '@/shared/ipc-bus'
 // SW 保活轮询 + 本容器的服务实体（含剪贴板写入）+ 启动对账：都出自包，启动 / 注册归宿主
 import { OffscreenService, reconcileFs, startSwKeepalive } from '@duoling/offscreen-document'
-import { registerOffscreenService } from '@duoling/proxy-service-list'
+import { registerOffscreenService } from '@duoling/shared'
 import {
   abortChat,
   listOrphans,

@@ -8,7 +8,7 @@
 // 全量命令面 RuntimeRequest；这里只锁所有命令共用的应答信封。
 //
 // 剪贴板写入不进本包：它已收进 OffscreenService（报文带 path / args、无 kind），
-// 形状在 @duoling/proxy-service-list。保活同理（报文无 kind，key 在 proxy-service-list）。
+// 形状在本包的 service/offscreen-service。保活同理（报文无 kind，key 在 service/sw-service）。
 
 /** 统一应答信封：所有请求-应答命令共用，调用方据 ok 分支 */
 export type IpcEnvelope<T> = { ok: true; data: T } | { ok: false; error: string }

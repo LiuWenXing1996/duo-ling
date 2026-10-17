@@ -10,7 +10,7 @@
 // 配置时机：必须在 initDlBridge / initDlPort 之前调 configureUserscriptRuntime
 // （SW 入口的顶层同步段里，与 listener 注册同一条「第一帧」纪律）。
 
-import type { ScriptProject } from '@duoling/userscript-core'
+import type { ScriptProject } from '@duoling/shared'
 
 /** 错误记录（观测面）。形状真相源在此（错误由包内产生：dl-bridge / registration 等）；
  *  应用侧落库形态经继承收窄（见 src/lib/userscripts/types.ts 的 UserScriptErrorRecord）。

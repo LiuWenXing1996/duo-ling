@@ -6,7 +6,7 @@
 // 直接发 userscript:* 命令组（v2 方案）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { ipcRequest, ipcSubscribe } from '@/shared/ipc-bus'
-import { createOffscreenService } from '@duoling/proxy-service-list'
+import { createOffscreenService } from '@duoling/shared'
 import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
 // 按页的整根活动轴（runtime-db 的读侧产物，六类行分五组）。**type-only**：UI 侧只要形状，
 // 不把存储层（idb-core）拖进扩展页 bundle。
@@ -156,7 +156,7 @@ export const userscriptClient = {
 
 /**
  * 源码库 / 资源库的服务代理（执行宿主 = offscreen）。
- * 形状来自 @duoling/proxy-service-list 的 IOffscreenService，消费侧不必引实现包。
+ * 形状来自 @duoling/shared 的 IOffscreenService，消费侧不必引实现包。
  *
  * retry：offscreen 常驻，但扩展重载 / 崩溃 / 关窗会销毁容器，那之后首次调用会报
  * 「port closed / Receiving end does not exist」。此时经 SW 唤起容器再试一次 —— ensure 内部

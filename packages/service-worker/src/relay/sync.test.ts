@@ -4,7 +4,7 @@
 // gen 产物（relay-code.gen.ts）由 test 脚本前置的 build-relay.mjs 生成后再跑测试。
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BRIDGE_RELAY_BOOT_KEY } from '@duoling/shared'
-import type { ScriptProject } from '@duoling/userscript-core'
+import type { ScriptProject } from '@duoling/shared'
 import { SCRIPT_RELAY_ID, SCRIPT_RELAY_WORLD_ID, buildRelayInit, syncScriptRelay } from './sync'
 
 /** 构造一个启用中的最小项目（matches 来自参数） */

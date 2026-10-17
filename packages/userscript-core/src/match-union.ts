@@ -5,7 +5,7 @@
 // 并集取四字段的并（exclude 也取并）意味着内置脚本的注入面可能略大于单脚本需求；
 // 中继件无特权、无会话，宁可多注入不可漏注入。
 
-import type { ScriptProject } from './script-project'
+import type { ScriptProject } from '@duoling/shared'
 
 /** 四字段匹配并集（= `userScripts.RegisteredUserScript` 匹配相关字段的子集） */
 export interface MatchUnion {

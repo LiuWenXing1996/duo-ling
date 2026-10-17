@@ -3,7 +3,7 @@
 // 漏接时编译器不报错（返回 Promise<unknown>，漏接 = 静默 undefined）—— 用「类型层穷尽性
 // 校验 + 表驱动派发 + 后端 mock 被触达」三道闸钉死。fs 层与状态库写侧一律 mock：真身落在
 // lightning-fs / isomorphic-git / IndexedDB 上，不是本用例的靶心（各由自己的单测负责）。
-import type { IOffscreenService } from '@duoling/proxy-service-list'
+import type { IOffscreenService } from '@duoling/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 

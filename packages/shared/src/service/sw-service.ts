@@ -1,4 +1,4 @@
-// 契约与 key 同处：接口不引任何子包，实现在子包（依赖单向）。
+// 契约与 key 同处：接口不引任何形状，实现在进程包（依赖单向）。
 import {
   createProxyService,
   registerService,

@@ -6,7 +6,7 @@ import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { broadcastDataChange, removeProjects, writeProject } from '@duoling/userscript-core'
 import { checkCookieUrl, invalidateCookieScope } from './cookie-gate'
-import type { ScriptConfig, ScriptProject } from '@duoling/userscript-core'
+import type { ScriptConfig, ScriptProject } from '@duoling/shared'
 
 const UUID = 'gate-test-uuid'
 

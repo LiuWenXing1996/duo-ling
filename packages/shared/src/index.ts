@@ -7,7 +7,9 @@
 // （@duoling/builtin-scripts 的 relay / recorder / inspector / float-host）、
 // 以及用户脚本运行时的桥脚本侧。放在三方中任何一方，另外两方都得反向依赖它。
 //
-// 边界：零依赖、零 `chrome.*`、零 DOM 假设、无副作用 —— 只有形状与纯函数，不含宿主能力。
+// 边界：零 `chrome.*`、零 DOM 假设、无副作用 —— 只有形状、纯函数与跨进程服务契约。
+// 唯一的第三方依赖是 @webext-core/proxy-service（契约的代理工厂）：不碰 DOM，
+// 只在真被调用时才碰 chrome，故 MAIN 世界侧引到它也不会提前炸。
 //
 // 与 src/shared/ 的分工：那边是**应用内部**几个载体（SW / UI / offscreen）之间的信封，
 // 自身依赖件包；这里是**跨世界**契约，被件包与应用共同消费。
@@ -24,3 +26,6 @@ export * from './data-url'
 export * from './archive-transfer'
 export * from './extension-identity'
 export * from './error-text'
+export * from './script-config'
+export * from './script-project'
+export * from './service'

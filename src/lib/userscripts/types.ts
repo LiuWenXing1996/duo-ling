@@ -3,17 +3,16 @@
 // 一个脚本 = 一个单文件源码 + 一份配置，直接映射 chrome.userScripts 原生字段。
 // 无构建流程：保存即注入（源码原文进注册态），对齐油猴单文件形态。
 
-// ScriptConfig / defaultConfig 已上移进 `@duoling/userscript-core`（script-config.ts：配置是
-// 运行期事实源，随 metadata 解析一起归包）；ScriptProject / ScriptGroup 亦随内置默认存储归包
-// （script-project.ts）。此处 re-export 维持既有 import 路径（`@/lib/userscripts/types` /
-// `./types`）不变。
+// ScriptConfig / defaultConfig 归 `@duoling/shared`（script-config.ts：配置是运行期事实源）；
+// ScriptProject / ScriptGroup 同住那里（script-project.ts）。此处 re-export 维持既有
+// import 路径（`@/lib/userscripts/types` / `./types`）不变。
 // 错误 / 运行动作的形状真相源同在包侧（host-config.ts：错误与动作由包内产生），见下。
-import type { ScriptConfig } from '@duoling/userscript-core'
+import type { ScriptConfig } from '@duoling/shared'
 import type { UserscriptErrorRecord, UserscriptRunEvent as UserScriptRunEventShape } from '@duoling/service-worker'
 
 export type { ScriptConfig }
-export { defaultConfig } from '@duoling/userscript-core'
-export type { ScriptProject, ScriptGroup } from '@duoling/userscript-core'
+export { defaultConfig } from '@duoling/shared'
+export type { ScriptProject, ScriptGroup } from '@duoling/shared'
 
 /** 给 UI 列表用的精简视图（不含源码） */
 export interface ScriptSummary {
@@ -32,8 +31,8 @@ export interface ScriptSummary {
   group: string
 }
 
-// 一次源码改动的来源：形状归 @duoling/proxy-service-list（offscreen 服务契约）
-export type { CommitActor } from '@duoling/proxy-service-list'
+// 一次源码改动的来源：形状归 @duoling/shared（offscreen 服务契约）
+export type { CommitActor } from '@duoling/shared'
 
 // 用户脚本引擎可用性状态已上移进 `@duoling/service-worker`（registration.ts，与
 // getUserScriptsStatus 同文件）；此处 re-export 维持既有 import 路径不变。
@@ -329,11 +328,11 @@ export type UserScriptRunLogRow =
     }
   | { kind: 'error'; record: UserScriptErrorRecord }
 
-// zip 编解码的判据常量已上移进 `@duoling/userscript-core`（与该形态的落盘形状同处）；
+// zip 编解码的判据常量已上移进 `@duoling/shared`（与该形态的落盘形状同处）；
 // 此处 re-export 维持既有 import 路径（`@/lib/userscripts/types` / `./types`）不变。
-export { SCRIPT_EXT } from '@duoling/userscript-core'
+export { SCRIPT_EXT } from '@duoling/shared'
 
-// —— 导入报告与保存结果的形状已随写侧下沉 `@duoling/proxy-service-list` ——
+// —— 导入报告与保存结果的形状已随写侧下沉 `@duoling/shared` ——
 // 它们是服务方法的返回值（userscriptImportZip / userscriptSave…），与本文件其余 re-export 同理：
 // 真相源归契约，此处只维持既有 import 路径不变。
 export type {
@@ -343,8 +342,8 @@ export type {
   ImportItemResult,
   ImportReport,
   SaveOutcome,
-} from '@duoling/proxy-service-list'
+} from '@duoling/shared'
 
-// 新建脚本的初始源码模板已随单文件形态约定下沉 `@duoling/userscript-core`（script-project.ts）
+// 新建脚本的初始源码模板已随单文件形态约定下沉 `@duoling/shared`（script-project.ts）
 // —— offscreen 的写侧（userstate/project-write）也要用它。此处 re-export 维持既有 import 路径不变。
-export { defaultSource } from '@duoling/userscript-core'
+export { defaultSource } from '@duoling/shared'

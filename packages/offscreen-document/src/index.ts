@@ -2,7 +2,7 @@
 // + 用户脚本状态库的写侧（单写方）。
 //
 // 文件库的定位：源码与对话资源的**唯一权威落点**，由 offscreen 独占读写（lfs 单实例约束，
-// 见 fs/lfs 文件头）。契约（IOffscreenService）在 @duoling/proxy-service-list；本包既出实现
+// 见 fs/lfs 文件头）。契约（IOffscreenService）在 @duoling/shared；本包既出实现
 // 实体（OffscreenService），也出 fs 层原语 —— offscreen 内的直读消费方（识图 / 脚本工具 /
 // 资源回收）不想过桥时直接用它们。
 export { OffscreenService } from './offscreen-service'

@@ -14,9 +14,9 @@
 // 解码层**不拦任何脚本**：没有任何「构造不出记录」的情形——脚本名取自源码 `// @name`
 // （缺则用文件名兜底），配置由源码里的 `// ==UserScript==` 块派生（无块按默认配置）。
 // 这些缺失一律只产出 notes 提示，不阻断导入（缺 matches 也照装，提示用户补全）。
-import { sanitizeDirName } from '@duoling/shared'
-import { defaultConfig, resolveConfigFromSource, SCRIPT_EXT } from '@duoling/userscript-core'
-import type { ScriptConfig } from '@duoling/userscript-core'
+import { sanitizeDirName, defaultConfig, SCRIPT_EXT } from '@duoling/shared'
+import { resolveConfigFromSource } from '@duoling/userscript-core'
+import type { ScriptConfig } from '@duoling/shared'
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 
 /** zip schema 版本（历史字段；**解码侧不据此拦截**——开发期无版本规范） */

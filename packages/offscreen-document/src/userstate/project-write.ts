@@ -11,8 +11,6 @@
 // 失败策略：git 提交失败只丢历史不丢源码——duoling-fs 就是源码唯一来源，提交失败时
 // 工作树仍持有本次内容，故只 warn（下次保存再提交）；写工作树失败才是真保存失败（源码没落地）。
 import {
-  defaultConfig,
-  defaultSource,
   readProject,
   readAllGroups,
   listProjects,
@@ -24,14 +22,16 @@ import {
   writeGroup,
   writeProject,
 } from '@duoling/userscript-core'
-import type { ScriptConfig, ScriptGroup, ScriptProject } from '@duoling/userscript-core'
+import { defaultConfig, defaultSource, base64ToBytes, errorText } from '@duoling/shared'
 import type {
+  ScriptConfig,
+  ScriptGroup,
+  ScriptProject,
   CommitActor,
   ImportItemResult,
   ImportReport,
   SaveOutcome,
-} from '@duoling/proxy-service-list'
-import { base64ToBytes, errorText } from '@duoling/shared'
+} from '@duoling/shared'
 import { commitSource, deleteAllRepos, deleteRepo, readSource, writeSource } from '../fs/git'
 import { parseScriptsZip, sourceFingerprint } from '../fs/zip'
 

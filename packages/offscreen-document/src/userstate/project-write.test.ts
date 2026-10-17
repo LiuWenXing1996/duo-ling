@@ -19,8 +19,8 @@ vi.mock('../fs/git', async (importOriginal) => ({
   deleteAllRepos: vi.fn(async () => 0),
 }))
 
-import { bytesToBase64 } from '@duoling/shared'
-import { defaultConfig, readAllProjects, removeProjects } from '@duoling/userscript-core'
+import { bytesToBase64, defaultConfig } from '@duoling/shared'
+import { readAllProjects, removeProjects } from '@duoling/userscript-core'
 import { commitSource, deleteAllRepos, deleteRepo, readSource, writeSource } from '../fs/git'
 import {
   createGeneratedProject,

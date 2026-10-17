@@ -21,7 +21,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@duoling/proxy-service-list": "workspace:*",
     "@duoling/shared": "workspace:*",
     "@duoling/userscript-core": "workspace:*",
     "@isomorphic-git/lightning-fs": "4.7.0",

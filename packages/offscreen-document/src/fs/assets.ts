@@ -13,7 +13,7 @@
 //   分工见 putAsset 的注释。
 //
 // ⚠️ 单实例约束同 fs/lfs：只用这里取到的 pfs，不要另 new LightningFS（内存索引互不可见）。
-import type { AssetWriteResult, ChatAssetRef } from '@duoling/proxy-service-list'
+import type { AssetWriteResult, ChatAssetRef } from '@duoling/shared'
 import { extForMediaType, mediaTypeOf } from '@duoling/shared'
 import { getPfs } from './lfs'
 import { ensureDir, removeRecursive } from './lfs-ops'

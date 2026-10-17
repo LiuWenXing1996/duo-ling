@@ -9,7 +9,7 @@
 //
 // 惰性初始化（不是顶层建实例）：本包声明 sideEffects:false，顶层副作用会被判成可摇掉的代码；
 // 且 Node 下（无 indexedDB）会漏出未处理 rejection —— 取用时早失败堵住。
-import type { LfsFileContent, LfsNode } from '@duoling/proxy-service-list'
+import type { LfsFileContent, LfsNode } from '@duoling/shared'
 import LightningFS from '@isomorphic-git/lightning-fs'
 
 /** 库名 duoling-fs：源码唯一来源（与注册态库 duoling-state 分离） */

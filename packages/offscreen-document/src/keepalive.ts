@@ -1,6 +1,6 @@
 // SW 空闲 30s 即被回收，而在途操作全押在它常驻上（上游 VM 同款做法）。
 // 故 offscreen 每 5s 轮询一次 isAlive()：到达即重置空闲计时，保活即如此。
-import { createSWService } from '@duoling/proxy-service-list'
+import { createSWService } from '@duoling/shared'
 
 /** 心跳间隔：SW 空闲回收线是 30s，5s 一跳余量充足 */
 export const SW_KEEPALIVE_INTERVAL_MS = 5000

@@ -8,7 +8,7 @@
 //
 // 单写方：只被 offscreen 调用（project-write / OffscreenService），仓损坏只丢历史不丢脚本，
 // 所有失败都不阻断保存主链路。
-import type { CommitActor, Source, UsCommit, UsSnapshot } from '@duoling/proxy-service-list'
+import type { CommitActor, Source, UsCommit, UsSnapshot } from '@duoling/shared'
 import git from 'isomorphic-git'
 import { getFs, getPfs } from './lfs'
 import { ensureDir, removeRecursive } from './lfs-ops'

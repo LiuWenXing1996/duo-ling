@@ -6,7 +6,7 @@
 //
 // 不做监听与信封：命令面收进 OffscreenService（报文走服务代理，无 kind），
 // 本模块只留写本体，异常原样上抛由服务方法带回调用方。
-import type { ClipboardWritePayload } from '@duoling/proxy-service-list'
+import type { ClipboardWritePayload } from '@duoling/shared'
 
 /** 写剪贴板（text / html 至少给一个；execCommand 返回 false 也算失败，不静默成功） */
 export async function writeClipboard(payload: ClipboardWritePayload): Promise<void> {

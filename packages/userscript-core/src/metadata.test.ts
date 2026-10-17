@@ -12,7 +12,7 @@ import {
 } from './metadata'
 import type { ParsedMetadata } from './metadata'
 import { isValidMatchPattern, parseMatchPattern } from './match-pattern'
-import { defaultConfig } from './script-config'
+import { defaultConfig } from '@duoling/shared'
 
 /** 造一个解析产物（只填关心的字段） */
 function mk(patch: Partial<ParsedMetadata>): ParsedMetadata {

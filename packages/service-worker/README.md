@@ -18,7 +18,7 @@ offscreen 容器能力约定。机制的来龙去脉见 [ARCHITECTURE.md](../../
 | offscreen 容器能力约定 —— 建文档用的 reason 集 | `offscreen-reasons` |
 
 依赖方向：本包 → `@duoling/userscript-core`（语义与存储）→ `@duoling/shared`（契约），
-并经 `@duoling/proxy-service-list` 取 offscreen 服务代理，无环。
+并经 `@duoling/shared` 取 offscreen 服务代理，无环。
 offscreen 侧是同层的另一个**进程包** `@duoling/offscreen-document`，与本包**互不 import**。
 
 ## manifest.json

@@ -14,7 +14,7 @@ import {
   TAB_RECORDER_FILE,
   TAB_RECORDER_ID,
 } from '@duoling/builtin-scripts'
-import { defaultConfig } from '@duoling/userscript-core'
+import { defaultConfig } from '@duoling/shared'
 
 /** 件文件内容缓存（同一扩展版本内产物不可变，读一次就够） */
 const codeCache = new Map<string, string>()

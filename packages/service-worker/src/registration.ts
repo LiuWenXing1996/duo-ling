@@ -18,19 +18,21 @@
 // 动态执行字符串代码被禁。理由：AI 生成的脚本不可控，不额外给「执行任意字符串」的能力。
 // 注入链路自身零 eval —— GM 包装不含，脚本源码注入前也静态检查 eval / new Function
 // （collectCspWarnings 在保存时提前提示）。
-import type { ScriptProject } from '@duoling/userscript-core'
-import type { ScriptConfig } from '@duoling/userscript-core'
+import type { ScriptProject, ScriptConfig } from '@duoling/shared'
 import type { GmInfo, Json } from '@duoling/userscript-core'
-import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from '@duoling/userscript-core'
-import { parseUserScriptMetadata, resolveConfigFromSource } from '@duoling/userscript-core'
-import { defaultConfig } from '@duoling/userscript-core'
-import { isValidMatchPattern } from '@duoling/userscript-core'
-import { readAllProjects } from '@duoling/userscript-core'
-import { getAllGMValues } from '@duoling/userscript-core'
+import {
+  buildGmWrapperPrefix,
+  GM_WRAPPER_SUFFIX,
+  parseUserScriptMetadata,
+  resolveConfigFromSource,
+  isValidMatchPattern,
+  readAllProjects,
+  getAllGMValues,
+} from '@duoling/userscript-core'
+import { defaultConfig, generateBridgeSecret } from '@duoling/shared'
 import { fetchRequireSources } from './require-cache'
 import { fetchResourceSources } from './resource-cache'
 import { extensionName, secretStorePort, telemetryPort, builtinsPort } from './host-config'
-import { generateBridgeSecret } from '@duoling/shared'
 import { errorText } from './util'
 // 中继件（GM 桥的 MAIN 世界侧）注册面：包内置维护，registerAllEnabled 全量链自动带上
 import { SCRIPT_RELAY_ID, syncScriptRelay } from './relay/sync'

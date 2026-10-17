@@ -1,4 +1,4 @@
-// offscreen 侧服务实体：契约（IOffscreenService）在 @duoling/proxy-service-list，本包出实现。
+// offscreen 侧服务实体：契约（IOffscreenService）在 @duoling/shared，本包出实现。
 //
 // 三组能力：
 //   · fs 组 —— 源码唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
@@ -13,10 +13,12 @@ import type {
   IOffscreenService,
   ImportReport,
   SaveOutcome,
-} from '@duoling/proxy-service-list'
-import type { ScriptConfig, ScriptGroup, ScriptProject } from '@duoling/userscript-core'
-import { broadcastDataChange, defaultConfig, resolveConfigFromSource } from '@duoling/userscript-core'
-import { base64ToBytes, bytesToBase64, parseDataUrl } from '@duoling/shared'
+  ScriptConfig,
+  ScriptGroup,
+  ScriptProject,
+} from '@duoling/shared'
+import { broadcastDataChange, resolveConfigFromSource } from '@duoling/userscript-core'
+import { defaultConfig, base64ToBytes, bytesToBase64, parseDataUrl } from '@duoling/shared'
 import { writeClipboard } from './clipboard'
 import { putAsset, readAsset } from './fs/assets'
 import { listHistory, readSnapshotAt, readSource, restoreToCommit } from './fs/git'

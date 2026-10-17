@@ -3,7 +3,8 @@
 // cookie 段的域名门与 GM tab 后端走真实 IndexedDB（fake-indexeddb 播种/断言），不 mock 存储层。
 import 'fake-indexeddb/auto'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
-import type { ApiRequest, ApiResponse, ScriptProject } from '@duoling/userscript-core'
+import type { ApiRequest, ApiResponse } from '@duoling/userscript-core'
+import type { ScriptProject } from '@duoling/shared'
 import {
   clearAllForTests,
   getTabValue as getTabRecord,

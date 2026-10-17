@@ -20,7 +20,7 @@ import LfsTreeNode from './LfsTreeNode.vue'
 import { offscreenService, userscriptClient } from '@/lib/userscripts/ui-client'
 // 换算表取自 shared 的叶子模块而非文件库：后者会带出 lightning-fs 单例，面板只要一张表
 import { isImageMediaType, mediaTypeOf } from '@duoling/shared'
-import type { LfsFileContent, LfsNode } from '@duoling/proxy-service-list'
+import type { LfsFileContent, LfsNode } from '@duoling/shared'
 import { errorText } from '@/lib/format'
 
 const loading = ref(false)

@@ -8,7 +8,7 @@
 // 幂等：重复调用直接返回首个实例（initDlPort 无幂等保护，二次注册会让事件源监听翻倍）。
 // 测试需要重来时走 resetUserscriptRuntimeConfig + 模块重置。
 import type { UserscriptHostConfig } from './host-config'
-import type { ScriptProject } from '@duoling/userscript-core'
+import type { ScriptProject } from '@duoling/shared'
 import { configureUserscriptRuntime } from './host-config'
 import { initDlBridge } from './dl-bridge'
 import { initDlPort } from './dl-port'
