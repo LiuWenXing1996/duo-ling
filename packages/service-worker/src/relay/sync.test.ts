@@ -113,4 +113,10 @@ describe('RELAY_IIFE（中继件 IIFE 产物）', () => {
     expect(RELAY_IIFE).not.toMatch(/^\s*(?:import|export)\b/m)
     expect(RELAY_IIFE).not.toMatch(/\bimport\s*\(/)
   })
+
+  it('体积守住：超阈值即 shared 长出顶层副作用锚点，无用簇整片被拖进来', async () => {
+    const { RELAY_IIFE } = await import('./relay-code.gen')
+    // 当前 3.6KB（装运行器 + 桥常量）；超 5KB 必是有别的东西混入
+    expect(RELAY_IIFE.length).toBeLessThan(5000)
+  })
 })
