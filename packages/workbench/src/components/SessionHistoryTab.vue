@@ -256,12 +256,8 @@ useDataSync('conversation', () => void loadList())
 const { runningIds } = useChatRunning()
 
 /**
- * 就地停止某条会话的生成。
- *
- * 为什么必须在这里也能停：会话按标签页归属，但任务跑在 offscreen、与页面无关 —— 用户可能正在
- * 工作台翻历史（压根没打开那个标签页的浮层）。不给入口就等于只能看着它在后台烧 token。
- *
- * 停完不动本地状态：状态归 SW（`chat:finished` 广播回来会触发重拉），这里只发命令、不做第二套口径。
+ * 就地停止某条会话的生成（状态归 SW，`chat:finished` 广播回来触发重拉，这里不做第二套口径）。
+ * 为什么必须在这里也能停见 docs/adr/0036-workbench-stop-generation-entry.md。
  */
 async function onStop(id: string): Promise<void> {
   try {

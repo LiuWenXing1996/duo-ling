@@ -1,14 +1,5 @@
-// 内置件构建的唯一真相源：入口表 + esbuild 选项。
-//
-// 形态为什么是「IIFE 单文件」：chrome.userScripts 的 js[] 只认两种注入 —— `{ file }`
-// （扩展内路径，浏览器直接跑）与 `{ code }`（字符串）。件以文件形态分发，就必须自包含、
-// 无 import/export 残留，故 bundle + format=iife。
-//
-// 为什么不开 splitting：iife 不支持代码分割（esbuild 只在 esm 下才允许）。副作用是共享的
-// 协议代码会被复制进引用它的每个件 —— 这躲不掉：userScripts 按世界注入，件之间无法共享模块实例。
-//
-// 入口表的**键即产物文件名**（relay → dist/relay.js）。`{ file }` 的字面量在 registry.ts 里声明，
-// 两边改名必须同步 —— registry.test.ts 会比对产物与注册面是否对得上。
+// 内置件构建的唯一真相源：入口表 + esbuild 选项（键即产物文件名，与 registry.ts 同步由 registry.test.ts 把守）。
+// 形态为什么是 IIFE 单文件见 docs/adr/0008-builtin-scripts-iife-build.md。
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 

@@ -1,6 +1,6 @@
 // 浮层宿主常驻件本体：页面里的对话挂载点（常驻，零 UI，收到指令才建 DOM）。
 // 运行位置：目标标签页的 MAIN 世界系统脚本（GM 包装注入，见应用侧 system-scripts.ts）；
-// 为什么常驻、注册面收敛与匹配面代价、占位符参数机制，见 ARCHITECTURE.md「脚本注入」节。
+// 为什么常驻、注册面收敛与匹配面代价、占位符参数机制，见 docs/adr/0009-builtin-resident-scripts-registration.md。
 //
 // 指令（下行帧形状真相源是 shared 的 api-contract.ts 的 float.cmd）：
 //   open      挂上容器并展开，iframe 懒加载（首次展开才设 src）；tabId 随帧带（拼进 iframe
@@ -263,16 +263,8 @@ export function installFloatHost(): void {
     /**
      * 拖动把手（.dl-float-drag-strip，盖在 iframe 顶栏上的一条）按下：整个手势从这里开始，
      * 全程在本页完成，零跨进程消息。
-     *
-     * 为什么把手是父页盖上去的一条、而不是 iframe 顶栏本身 —— 两条实测的坑：
-     *   · 按在 iframe 里的鼠标手势会被 Chromium 一路路由给 iframe（浏览器级的拖拽捕获），父页用
-     *     pointer-events 让位 / 铺接管层都收不到后续事件 —— 跨 iframe 接管指针走不通；
-     *   · 若退回「iframe 逐帧发位移消息」，跨进程一来一回延迟忽快忽慢，面板追一步顿一步；且逐帧改
-     *     fixed 元素的 left/top 会触发整页 style/layout/paint。故本实现拖动中只写 **transform**
-     *     （合成器搬运，不重排），松手才把终位沉淀回 left/top。
-     *
-     * 把手 right: 120px 留出顶栏右侧的三颗按钮，点击照常落进 iframe；标题区被把手盖住，
-     * 代价只是标题不响应悬停提示，无功能损失。
+     * 为什么把手是父页盖上去的一条而不是 iframe 顶栏本身、拖动只写 transform 的理由，
+     * 见 docs/adr/0010-float-drag-handle-in-parent-page.md。
      */
     const startDrag = (event: PointerEvent) => {
       if (dragging || event.button !== 0) return
@@ -393,15 +385,8 @@ export function installFloatHost(): void {
   }
 
   /**
-   * 拾取期间整块让位。
-   *
-   * 为什么必须隐藏：对话框钉在 z-index: 2147483647（见 CSS），而页面检查器用
-   * document.elementFromPoint() 判定目标（页面检查器件）——对话框在时，用户点到它覆盖的
-   * 区域拿回的是对话框自己的元素（shadow 宿主 / iframe），既选错元素，也让被盖住的真实元素永远
-   * 点不到。
-   *
-   * 判据取「遮罩此刻在不在」这个 DOM 事实，而不是数插入/移除的次数：页面检查器再次注入时会先收掉旧
-   * 拾取（移除旧遮罩）再插新遮罩，同一批 mutation 里一增一减，按次数计会算错。
+   * 拾取期间整块让位：为什么必须隐藏、判据为什么取「遮罩在不在」这个 DOM 事实，
+   * 见 docs/adr/0011-picker-yields-float-panel.md。
    */
   function syncFloatVisibilityForPick(): void {
     if (!ui) return

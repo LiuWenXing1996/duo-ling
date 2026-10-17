@@ -1,18 +1,6 @@
 // 对话资源文件库（`/assets/<内容hash>/<文件名>`）—— 对话附件的**字节落点**，offscreen-only。
-//
-// 为什么与用户脚本源码库平行、而不是塞进 /uscripts：
-//   源码库的 `/uscripts/<uuid>` 由「状态库 uuid ↔ 目录」对账清理孤儿
-//   （reconcileFs：**不在状态库里的目录一律删掉**）。
-//   资源文件没有对应的状态库记录，塞进去会被当成孤儿仓清掉 —— 故与它平级。
-//
-// 为什么目录名用内容 hash：同一张图重复附加（同一会话重发 / 多条会话引用）命中同一份字节，
-//   写入天然幂等、读取不需要索引；结构又与源码库同形（`<id>/<文件>`），lfs 浏览面板直接可见。
-//   **id 只在本模块按内容现算**：调用方（面板 / 服务调用）不参与定 id，于是「同一张图 = 同一个 id」
-//   由字节本身保证，而不是靠各处各自算一遍 hash 的约定（那种约定迟早会漂）。
-//   代价是「同一份字节两个名字」在库里只能留一个盘上名 —— 引用带本次附件的名字，盘上沿首写者，
-//   分工见 putAsset 的注释。
-//
-// ⚠️ 单实例约束同 fs/lfs：只用这里取到的 pfs，不要另 new LightningFS（内存索引互不可见）。
+// 设计决策（与源码库平行、内容 hash 目录、单实例约束、盘上名沿首写者）
+// 见 docs/adr/0021-asset-store-content-hash.md。
 import type { AssetWriteResult, ChatAssetRef } from '@duoling/shared'
 import { extForMediaType, mediaTypeOf } from '@duoling/shared'
 import { getPfs } from './lfs'

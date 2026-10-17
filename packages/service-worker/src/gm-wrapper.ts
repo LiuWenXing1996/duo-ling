@@ -1,29 +1,6 @@
 // GM 包装源码模板（注入到**页面 MAIN 世界**，先于脚本源码定义 `GM_*` / `GM.*`）。
-//
-// 为什么独立成文件（而不是塞回 engine.ts）：
-//   · 它是**注入到页面里的源码字符串**，语法错一次就静默全废，值得单文件可读可审；
-//   · 速查页（gm-api-catalog）的防漂移单测要从**源码反射**出真实挂载的键集合，
-//     反射锚点落在本文件比落在 engine 的注册链路里稳（engine 会 import IDB / chrome API）。
-//
-// **与脚本源码同处一个函数作用域**：engine 把「本包装（未闭合）＋ `@require` ＋ 脚本源码 ＋
-// 闭合后缀（收掉前缀末尾的 try 块）」拼成**一条** code 注入。为什么必须这样：
-//   · MAIN 世界不支持 `worldId`，同帧多脚本共享一个 `window` —— 若把 `GM_*` 挂到 window 上，
-//     后注入的脚本会把前一个的成员整个覆盖；
-//   · 故全部成员**声明为局部变量**，脚本按词法作用域找到它们；`unsafeWindow` 于是就是本世界
-//     的 `window`，不再需要别名与降级告警；
-//   · 副作用：脚本顶层 `var` 不再进页面全局（要挂页面请用 `unsafeWindow`）。
-//
-// 设计要点：
-//   · **无 `chrome.*`**：MAIN 世界没有扩展 API，一切经同帧中继件转 SW（`__dlBridge`，见 script-bridge.ts）。
-//   · **同步读**：`GM_getValue` / `GM_listValues` 必须同步（油猴语义），故注册时把该脚本的
-//     全量值作为**快照**嵌进注入体（`GM_VALUES`），同步读走内存；写则「先更本地缓存、再异步过桥」
-//     （对齐 Violentmonkey `dumpValue()`：本地先落、`UpdateValue` 后发）。
-//   · **常驻通道**：只读值的脚本不 connect 也能工作（`store.get/set` 是一次性请求），
-//     于是别的标签页改了值它永远收不到 → 同步快照会**长周期陈旧**。故「读过值」也触发 connect，
-//     并补 `store.watchAll`（全量订阅）与 connect 后的**一次全量校准**（覆盖就绪前的窗口）。
-//   · **`@grant` 裁剪**：只有写进清单的能力才注入；不写 `@grant` / `@grant none` → 只给恒注入集。
-//   · **降级项**（速查页与 spec 必须标注）：`GM_xmlhttpRequest` 的 `responseType` 不支持 `stream`；
-//     它的 `onprogress` 只给进度字段（不带完整 response）。
+// 设计决策（独立成文件 / 同作用域局部注入 / 同步值快照 / 常驻通道 / @grant 裁剪 / 降级项）
+// 见 docs/adr/0001-gm-wrapper-same-scope-injection.md；速查页防漂移单测从本文件源码反射。
 import {
   ALWAYS_GLOBALS,
   ALWAYS_NS,

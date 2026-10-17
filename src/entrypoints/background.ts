@@ -170,14 +170,8 @@ import type { ElementPickContext } from '@duoling/shared'
 import { errorText } from '@duoling/shared'
 
 /**
- * SW 管辖的 kind 前缀（路由白名单）。
- *
- * offscreen 与 SW 同时在监听 runtime 消息，而 sendResponse 对一条消息只有一次机会 ——
- * SW 只应响应这里登记的前缀，其余（offscreen 的 fs: / conv: / chat:）必须让路，
- * 否则 SW 会抢答、把 offscreen 的响应挤掉。
- *
- * 新增命令时若忘了登记前缀，该命令会静默无响应（而不是报「未知消息类型」）——
- * 这是刻意的：静默比一个假错误更诚实。
+ * SW 管辖的 kind 前缀（路由白名单）：只应答这里登记的，其余让路给 offscreen。
+ * 为什么（sendResponse 单次机会 / 静默无响应的取舍）见 docs/adr/0027-sw-message-route-whitelist.md。
  *
  * export 仅供协议一致性测试（extension-ipc.test.ts）做 kind 归属断言。
  */
@@ -724,16 +718,8 @@ const handlers: {
 
   // —— 页面录制（tab-record）——
   // 录到的采样在 duoling-runtime 的 tab_events，offscreen 拿不到那个库，故 AI 工具经此代读。
-  //
-  // 参数是**会话 id 而不是站点**：录制按标签页，读也就按标签页 —— 先由 SW 反查「这条会话所属的
-  // 那一页」（resolveAiTargetTab，与页面快照 / 环境读数同一个判据），再取那一页存续行整根轴里的
-  // 采样。AI 在生成中途自己决定要读时用户可能已经切走，按「当前激活页」读会把别人那页喂给模型。
-  //
-  // enabled 只表示「那一页此刻还开着录制」，**不约束能不能读到记录**：关掉开关只撤 recording、
-  // 不清数据，之前录的照样读得到（否则「录完关掉再看」这条最自然的用法就没法走）。
-  //
-  // 未开录制时也正常返回（enabled:false, count:0）——调用方据此给准确提示，比抛错更好用
-  // （「没开录制」和「开了但没刷新」要能分开说）。真正抛错的只有「定位不到那一页」。
+  // 按会话 id 定位（不按当前激活页）、enabled 不约束读、未开录制的返回形状
+  // 见 docs/adr/0032-ai-reads-recording-by-session.md。
   'userscript:tabRecordRead': async (
     msg,
   ): Promise<{ enabled: boolean; count: number; text: string }> => {
@@ -822,13 +808,7 @@ function badgeCount(n: number): string {
 
 /**
  * 进行中的会话（chat:running 登记进来、chat:finished 撤下）。
- *
- * **刻意不落库**：它没有稳定落点 —— SW 被回收后内存里这份就没了，而库里若留着一条恒为
- * 「进行中」的记录，再不会有事件来收尾它，就成了假状态。故只活在内存，工作台问起时把当前
- * 快照给它（`sw:runningChats`）。
- *
- * **为什么要记而不是每次现算**：它还是「标签页被关 → 中止它的任务」那条路的判据
- * （见 abortConversationOfClosedTab）—— 不在跑就不必惊动 offscreen。
+ * 刻意不落库（假状态风险）与「关标签页中止任务」判据见 docs/adr/0016-running-chats-memory-only.md。
  */
 const runningConversations = new Set<string>()
 
@@ -900,18 +880,8 @@ async function clearAllBadges(): Promise<void> {
 }
 
 /**
- * 按此刻**引擎可用性与登记表的真实情况**重算角标与悬停文案 —— **唯一**的角标写入口（数字与感叹号
- * 都走这里，谁都不许另开一处 setBadgeText）。
- *
- * 引擎不可用 → 全局一个感叹号，见上方「没有授权就没有数可报」；可用 → 数字 = 该页运行集大小
- * （与灵动岛 / popup 的页面脚本区同源）。没有脚本在跑的页不亮，并且要把**上一轮设过、这一轮不再
- * 相关**的页收干净（见末尾的差集），否则那个数字会一直挂在那里 —— 页面早已换过文档，角标还说着
- * 旧话。同理，恢复可用时要把全局那个感叹号收掉：没设过专属值的标签页会回落到全局值。
- *
- * 为什么是「重算」而不是「在 noteRunStart 里加一」：登记表是唯一真相源，而它的变化有好几条路
- * （注入登记 / 换文档清零 / 关标签页清除 / 同 uuid 重复广播覆盖），逐条对齐迟早漏一条；整体重算
- * 的逻辑只有一个地方要维护，也天然容得下「一轮里表被改了两次」。可用性翻转也接在这条重算上，
- * 而不是在翻转回调里直接改角标。
+ * 按此刻**引擎可用性与登记表的真实情况**重算角标与悬停文案 —— **唯一**的角标写入口。
+ * 为什么是重算而不是增量加减、感叹号与差集收尾见 docs/adr/0029-badge-recompute-single-writer.md。
  */
 function refreshBadge(): void {
   // 引擎不可用：压根没有「哪个页面在跑几个脚本」这回事。先把 per-tab 那批收干净 —— 引擎是在
@@ -945,13 +915,8 @@ function refreshBadge(): void {
 }
 
 /**
- * 标签页被关掉时的收尾：**中止它那条会话正在跑的任务**。
- *
- * 为什么必须中止：会话按标签页归属，标签页没了就没人会去看结果、也没处按停止；而任务跑在
- * offscreen、与页面无关（这是刻意的，见 chat-host），不显式喊停它就会一路跑完、静默消耗 token。
- * 用户侧还有第二个停止入口（工作台「会话历史」的生成中标记），但那要他主动去翻。
- *
- * 读归属必须在解绑之前 —— 解绑完就不知道这个标签页归哪条会话了。
+ * 标签页被关掉时的收尾：中止它那条会话正在跑的任务（读归属必须在解绑之前）。
+ * 为什么必须中止见 docs/adr/0030-tab-close-aborts-conversation.md。
  */
 async function abortConversationOfClosedTab(tabId: number): Promise<void> {
   const conversationId = await getConversationIdForTab(tabId).catch(() => null)
@@ -968,14 +933,8 @@ async function abortConversationOfClosedTab(tabId: number): Promise<void> {
 }
 
 /**
- * 标签页被关掉时的记录收尾：盖上关闭时刻（`noteTabClosed`，没登记过的页不补行），
- * 随后重算录制件注册。
- *
- * 顺序不能反：注册判据读的就是这一行（未结束 + recording），先算注册会读到还没盖章的旧状态 ——
- * 关掉的若是最后一页在录的，注册集合就该清空，否则录制件会一直全匹配挂在所有站点上。
- * 已录的采样**一条不动** —— 用户还要在「活动历史」里看、让 AI 读。
- *
- * 与 abortConversationOfClosedTab 同一个理由必须挂在常驻的 SW 上：面板没开的时候标签页照样会被关。
+ * 标签页被关掉时的记录收尾：先盖关闭时刻、再重算录制件注册（顺序不能反），已录采样一条不动。
+ * 见 docs/adr/0031-tab-close-record-finalize-order.md。
  */
 async function settleRecordingOfClosedTab(tabId: number): Promise<void> {
   await noteTabClosed(tabId)

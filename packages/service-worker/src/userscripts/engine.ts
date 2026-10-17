@@ -154,17 +154,7 @@ export function builtinsOnPage(
 /**
  * 维护页面检查器系统脚本的注册（幂等可重入；调用方负责串行化）。返回在册时的项目对象
  * （调用方把它算进中继件并集 —— 件上行走桥，MAIN 世界没有它的注册就没有中继件）。
- *
- * **为什么常驻**：拾取的时刻是「页面早已打开、用户刚点按钮」，而注册件只在页面**开始加载**时
- * 注入，两者差的正是这个时间点。于是走「加载即到位待命」：件启动即建常驻 Port，
- * 指令经 DL Port 事件帧下去、结果经脚本桥 __dlEvent 信封上来（见 page-inspector-bridge）。
- *
- * **匹配面全站**：拾取的目标由用户点按钮那一刻决定，而注册没有 tab 维度（RegisteredUserScript
- * 的匹配字段全是 URL），只能覆盖全部 —— 代价是每个普通网页里都有一份待命代码（零 UI、零网络，
- * 只建一条通道）。与录制件同理但判据不同：录制看「有没有页在录」，本件恒在。
- *
- * MAIN 世界系统脚本：件是只读观察者，页面看得见它做的一切（DOM 本就共享，与旧独立世界形态
- * 相比没有实质变化）；世界配置 / GM 包装 / 脚本桥随统一注册链自动就位，不再单独 configureWorld。
+ * 为什么常驻、匹配面全站的代价见 docs/adr/0009-builtin-resident-scripts-registration.md。
  */
 async function syncPageInspector(): Promise<ScriptProject | null> {
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return null

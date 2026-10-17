@@ -84,13 +84,7 @@ export interface PrevGeneratedScript {
 
 /**
  * 本会话所属标签页的录制状态（chat-host 在开跑前经 SW 取一次）。
- *
- * 为什么常驻 prompt：录制是前向的——「有没有数据」直接决定 AI 该不该走 tab_record_* 这条路。
- * 不注入的话，模型只能在不知道有没有数据的情况下盲试一次工具调用（还常把
- * 「没开录制」和「开了没刷新」误判成同一个原因）。
- *
- * 为什么没有 host：录制按标签页划分，目标是「本会话所属的那一页」，不是某个站点——
- * 那一页导航到哪里都继续录，喂给模型的也就该是「这一页录到了什么」。
+ * 为什么常驻 prompt、为什么不带 host 见 docs/adr/0026-recording-state-in-prompt.md。
  */
 export interface TabRecordContext {
   /** 这一页的录制此刻开着没有 */

@@ -40,16 +40,8 @@ import {
 } from '@duoling/shared'
 
 /**
- * 复合索引 by_kind_run 的键：`[kind, runId]`。
- *
- * 为什么不是单键 `runId` 索引：合表后运行条与它的动作行、错误行共用 `runId`，单键索引下
- * 「按 runId 找那条运行条」只能 `getAll` 把整次运行的**上千条动作**一起读回来 —— 每追加一条
- * 动作都要付这份代价，一次 1000 动作的运行就是 O(n²)（真实 IndexedDB 里能跑但白烧，
- * fake-indexeddb 下直接超时）。带上 `kind` 后，找运行条是 `['run', runId]` 精确一击（O(log n)），
- * 拉动作是 `['act', runId]`，两边互不串。
- *
- * 行不带 `runId`（文档事件、接口采样、无归属错误）时复合键含 `undefined` → **不进索引**，
- * 这与「按 runId 反查只该命中运行 / 动作 / 挂上运行条的错误」正好同向。
+ * 复合索引 by_kind_run 的键：`[kind, runId]`（找运行条一击、拉动作互不串；无 runId 的行不进索引）。
+ * 为什么不用单键 runId 见 docs/adr/0015-runtime-db-composite-indexes.md。
  */
 function kindRunRange(kind: string, runId: string): IDBKeyRange {
   return IDBKeyRange.only([kind, runId])

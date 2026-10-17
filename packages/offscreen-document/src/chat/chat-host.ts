@@ -273,16 +273,8 @@ async function buildFinalMessageFromChunks(
 }
 
 /**
- * 中止时落盘「已经生成出来的那部分」。
- *
- * 为什么不整条丢掉：用户按停止、或关掉那个标签页，只是不要后续了 —— 已经吐出来的文字仍然是他
- * 要的东西，丢掉就真没了。半截照样走同一条投影链（`buildFinalMessageFromChunks` 不依赖 finish
- * chunk），只是额外附一个 `data-interrupted` 标记，让界面与会话历史能标出「这条没说完」。
- *
- * 两条刻意不做：
- *   · **不落产物**（半截脚本没有意义，落盘反而让人以为生成完了）；
- *   · **不留没有结果的工具调用**（见 isPendingToolUIPart —— 否则历史里是一串转不完的卡片）。
- * 真正没内容可落时（除标记外一个 part 都没有）整条跳过，不写空消息。
+ * 中止时落盘「已经生成出来的那部分」（不落产物、不留没有结果的工具调用，无内容整条跳过）。
+ * 完整决策见 docs/adr/0023-interrupted-generation-partial-save.md。
  */
 async function persistInterruptedOutput(opts: {
   conversationId: string

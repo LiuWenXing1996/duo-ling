@@ -1,17 +1,5 @@
-// 对话附件落地的唯一处理点：把用户选中的文件转成「能真正带进这条消息」的东西。
-//
-// 两条路：
-//   · 图片 → 画布重编码成 JPEG，再**落到资源库**（`/assets/<内容hash>/`，见 offscreen-document 的 fs/assets），
-//     消息里只留一份 `data-asset` 引用（形状见 lib/chat-assets）。
-//     为什么要压：这张图会被送去**识图调用**（见 @duoling/offscreen-document 的 chat/vision-agent），
-//     原始截图动辄 1~3MB，不压就是白烧识图 token、白占库。
-//     为什么不进消息：消息 parts 会原样存进会话库、且每轮对话都整段重发 ——
-//     图片一旦作为字节躺在 parts 里，就是存储与 token 的双份开销（见 chat-assets 文件头）。
-//   · 文本文件（.txt / .md / .json / .csv 这类）→ 读成文本拼进正文。
-//     没法当文件发（OpenAI 兼容接口不支持任意文件上传），只能进提示词。
-//
-// 一个反直觉但重要的约束：重编码必须在**发出前**完成。资源一旦落库、引用一旦进消息，
-// 它就是历史的一部分了，事后再想「换张小的」得连带改引用。
+// 对话附件落地的唯一处理点：图片压码落资源库留引用，文本文件读成文本进正文。
+// 两条路的理由与「发送前完成」硬约束见 docs/adr/0020-chat-attachments-encode-before-send.md。
 import { isImageMediaType } from '@duoling/shared'
 import type { ChatAssetRef } from '@duoling/shared'
 

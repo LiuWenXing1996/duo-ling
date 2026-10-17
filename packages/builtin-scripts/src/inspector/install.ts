@@ -1,15 +1,6 @@
 // 页面检查器常驻件本体：按指令读页面（pick / snapshot / env 三模式），把结果交回去。
-// 运行位置（MAIN 世界系统脚本）、通道形状（下行帧 / 上行信封 / reqId 结算）与常驻缘由
-// 见 ARCHITECTURE.md「脚本注入」节与「页面上下文」节，协议真相源在 script-bridge.ts / api-contract.ts。
-//
-// 三个代码里看不见的「为什么」：
-//   · pick 的 Esc 取消挂在页面 document 上只在页面恰好持有焦点时生效——拾取由对话界面发起时
-//     焦点在对话界面，主取消路径是对话界面监听 Esc 后经 cancelPicker() 请 SW 下发 cancel 指令
-//     （见 element-picker-client.ts）。
-//   · env 读的是**页面自己的事实**：设备模拟会改掉视口与像素比，页面上的脚本可能改写
-//     navigator.userAgent——这正是它与 offscreen 侧机器真值（env_read）分开的理由，两者别统一。
-//   · 取消指令调 activePick.cancel() 让那条 pick 的 Promise resolve null，结果照常由它自己
-//     上报——保证「每次开始恰好一条上报」，发起侧无须区分两种收场。
+// 运行位置与通道形状见 ARCHITECTURE.md「脚本注入」「页面上下文」节；三个行为决策
+// （Esc 主取消路径 / env 与机器真值双源 / 单次上报契约）见 docs/adr/0012-page-inspector-cancel-and-env-duality.md。
 
 import {
   INSPECTOR_PICKER_NS,

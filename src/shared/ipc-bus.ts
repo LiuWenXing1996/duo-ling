@@ -1,14 +1,5 @@
-// IPC 总线的**接收侧**：每语境唯一的 onMessage 监听器 + 三种 matcher。
-//
-// 为什么接收侧留在应用层而发送侧在契约包：matcher 的 handle 收
-// chrome.runtime.MessageSender —— 那是 chrome 的类型面，而契约包 tsconfig 是 `types: []`
-// （零 chrome 类型，避免 SW 误用 node / 页面误用 chrome 那类错配被类型系统放过）。
-// 发送与订阅（ipcRequest / ipcNotify / ipcSubscribe）在 @duoling/shared 的 ipc/ipc-bus。
-//
-// 接收侧的问询顺序：matcher 数组依次问询，第一个认领的应答（sendResponse 一条消息只有
-// 一次机会，多端都接会抢答）。包自管的 kind（管理面只读四条）以 pack matcher 形式插在
-// 最前，归各包应答 —— 宿主前缀路由不得抢答；其余 kind 归宿主前缀表
-// （SW_KIND_PREFIXES / OFFSCREEN_KIND_PREFIXES）。
+// IPC 总线的**接收侧**：每语境唯一的 onMessage 监听器 + 三种 matcher（第一个认领的应答）。
+// 为什么接收侧留在应用层、问询顺序与 pack matcher 的位置见 docs/adr/0028-ipc-receiver-in-app-layer.md。
 import type { RuntimeRequest, IpcPush } from '@duoling/shared'
 import { errorText } from '@duoling/shared'
 

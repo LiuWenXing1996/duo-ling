@@ -1,22 +1,5 @@
 // GM_cookie 的**域名门**（安全边界，SW 侧唯一执行点）。
-//
-// 规则：
-//   · url 必须落在**该脚本自身**的 matches 内、不命中 excludeMatches —— 不与其它脚本取并集，
-//     脚本能碰的 cookie ⊆ 它能注入的页面能碰的 cookie，能力边界与注入面严格对齐；
-//   · 匹配只比 scheme + host（忽略 pattern 的 path 段，理由见 match-pattern.ts 文件头）；
-//   · matches 为空 / 项目不存在 → 一律拒绝。
-//   · **`domain` / `path` 不参与门判定**（`set` 照 TM 收下这两个字段）：门永远按 url 算 ——
-//     脚本没法用 domain 把判定挪到别的域上；「domain 必须与 url 同域或其父域」由 chrome.cookies.set
-//     自己保证（真越域会被浏览器拒）。门与注入面严格对齐这条不受影响。
-//
-// 为什么门在 SW 而不在包装层：包装层跑在页面里、是脚本改写得到的运行环境，身份与参数都不可信；
-// 包装层只负责填 url 缺省，安全判断全在这里。包装层传什么 url 都要过这道门。
-//
-// config 读取带缓存（cookie 调用可能成串），失效走数据变更广播的 `script` 域 ——
-// **缓存失效漏了就是安全 bug**（改了 matches 但门还用旧配置），故：
-//   · 只缓存配置，不缓存判定结果；
-//   · 收到任何 script 域变更就整表清空（脚本数量级很小，不做精细失效，避免漏清）；
-//   · 单测专门覆盖「配置改了 + 广播后门即时生效」（cookie-gate.test.ts）。
+// 规则（url ⊆ 自身注入面、只比 scheme+host、缓存失效口径）见 docs/adr/0005-gm-cookie-domain-gate.md。
 import {
   subscribeDataChange,
   readProject,

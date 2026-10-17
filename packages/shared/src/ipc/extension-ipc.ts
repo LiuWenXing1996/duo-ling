@@ -235,19 +235,8 @@ export type RuntimeRequest =
 // 形状见 @duoling/shared 的 chat-ipc.ts（含 offscreen:configChanged 与三条 chat 推送）
 
 // —— 数据变更广播（写侧 → 全部前端实例）——
-//
-// 为什么要有这条：项目状态库与会话都落在 IndexedDB，而 **IDB 没有变更通知**
-// （chrome.storage 有 onChanged，IDB 没有），所以「别处改了数据、这个页面还显示旧的」
-// 是结构性的必然，不是 bug。补的就是这条通知线。
-//
-// 与 OffscreenPush 的区别：那是「一个特定接收方」的点对点推送（SW→offscreen 等）；
-// 这是**多播**——同一工作台的其他标签页、另一个浏览器窗口的工作台、对话界面，全都要收到。
-//
-// ⚠️ 刻意**不进 RuntimeRequest**：那里面全是「请求-应答」的命令，而广播没有应答方，
-// 塞进去会污染 extension-ipc.test.ts 的 kind 归属断言（每个 kind 恰被一端处理）。
-//
-// 形状真相源在 `@duoling/shared`（data-broadcast.ts）：频道与推送形状被运行时包
-// （dl-bridge / cookie-gate）同取，放这里就得靠注释对齐。
+// 为什么要有这条（IDB 无变更通知）、与 OffscreenPush / RuntimeRequest 的分工
+// 见 docs/adr/0017-data-change-broadcast.md。
 
 // —— popup 的页面概览（`page:overview` 的应答形状）——
 //

@@ -23,11 +23,7 @@ export const RUNTIME_TABS_BY_TAB = 'by_tabId'
 export const RUNTIME_TABS_BY_SEEN = 'by_seen'
 /**
  * 轴按页取行：`[tabSessionId, id]`（`id` 是表主键自增号，也就是落盘序）。
- *
- * 为什么带上 `id`：面板要**增量**续拉新落盘的行，而增量只能在索引键上做范围裁剪
- * （下界 `[本页, 上次最大 id + 1]`）。单键索引做不到，只能把整根轴读回来再筛 ——
- * 轴不设上限、录得越久越长，那样每次「增量」都要付一次全量的读代价。
- * 前缀查询与原用途完全等价（按页取全部 / 按页级联删除），且天然按落盘序排。
+ * 为什么带上 id（增量续拉只能在索引键上做范围裁剪）见 docs/adr/0015-runtime-db-composite-indexes.md。
  */
 export const RUNTIME_EV_BY_SESSION_SEQ = 'by_session_seq'
 export const RUNTIME_EV_BY_KIND_RUN = 'by_kind_run'
