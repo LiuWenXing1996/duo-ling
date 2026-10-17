@@ -36,6 +36,7 @@ import type { ChatMessageMetadata, ChatOrphanRecord, RuntimeRequest } from '@/sh
 import { ipcRequest } from '@/shared/ipc-bus'
 import type { Conversation, TokenUsage } from '@/shared/types'
 import { errorText } from '@/lib/format'
+import { conversationClient } from '@/lib/conversation-client'
 
 /** 会话历史列表项展示所需的时间格式化；补上分钟，便于同日内区分多次会话 */
 export function formatSessionTime(iso: string): string {
@@ -161,7 +162,7 @@ export function useGlobalConversation() {
    */
   async function ensureActiveConversation(): Promise<string> {
     if (activeConversationId.value) return activeConversationId.value
-    const conv = await window.api.conversation.create()
+    const conv = await conversationClient.create()
     conversations.value = [conv, ...conversations.value]
     activeConversationId.value = conv.id
     transport.setConversationId(conv.id)
@@ -218,7 +219,7 @@ export function useGlobalConversation() {
     chatError.value = ''
     activeConversationId.value = id
     transport.setConversationId(id)
-    const msgs = await window.api.conversation.messages(id)
+    const msgs = await conversationClient.messages(id)
     setMessages(msgs.map(toUiMessage))
     // 回读各消息已落盘的 token 用量，供单条展示（id 与 UIMessage.id 一致）；
     // usage 只落在 assistant 分支，先按 role 收窄
@@ -240,7 +241,7 @@ export function useGlobalConversation() {
    * ensureActiveConversation）。顺带拉一次孤儿任务。
    */
   async function loadConversations(): Promise<void> {
-    const list = await window.api.conversation.list()
+    const list = await conversationClient.list()
     conversations.value = list
     await syncToTab(await resolveOwningTabId())
     void refreshOrphans()
@@ -274,7 +275,7 @@ export function useGlobalConversation() {
   // 无条件重解析会把用户从「孤儿继续」之类临时覆盖的视图里拽走、打断正在进行的一轮对话。
   useDataSync('conversation', async () => {
     try {
-      const list = await window.api.conversation.list()
+      const list = await conversationClient.list()
       conversations.value = list
       if (activeConversationId.value && !list.some((c) => c.id === activeConversationId.value)) {
         if (currentTabId.value != null) void unbindTab(currentTabId.value).catch(() => {})
@@ -304,7 +305,7 @@ export function useGlobalConversation() {
 
   // 会话的「新建 / 重命名 / 删除 / 清空」不再从这里出去：新建由 tab 归属驱动、且是惰性的
   // （见 ensureActiveConversation），改名与删除属**会话历史**的操作 —— 入口在工作台的
-  // 「会话历史」标签页，那里直接调 `window.api.conversation.*`。
+  // 「会话历史」标签页，那里直接调 `conversationClient.*`。
 
   /**
    * 回复完成回调（useChat onFinish）：落盘已由 offscreen 在收尾时完成（唯一写方），
@@ -326,7 +327,7 @@ export function useGlobalConversation() {
     // abort 也刷新列表：标题改名发生在 chat:start（offscreen 侧），中止的会话
     // 不刷新的话面板头部一直显示「新会话 N」旧标题
     try {
-      conversations.value = await window.api.conversation.list()
+      conversations.value = await conversationClient.list()
     } catch {
       // 列表刷新失败不影响主流程
     }

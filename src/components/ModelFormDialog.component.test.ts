@@ -6,6 +6,13 @@ import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import type { ModelProfile, ModelProvider } from '@/shared/types'
 import ModelFormDialog from './ModelFormDialog.vue'
 
+// 保存与连通性测试直连 model-store（不再经 window.api），在模块级替身里捕获入参
+const modelMocks = vi.hoisted(() => ({ saveProfile: vi.fn(), testChatResult: vi.fn() }))
+vi.mock('@/lib/model-store', () => ({
+  saveProfile: modelMocks.saveProfile,
+  testChatResult: modelMocks.testChatResult,
+}))
+
 const ADDRESS_PLACEHOLDER = 'https://example.com/v1/chat/completions'
 
 const PROVIDERS: ModelProvider[] = [
@@ -47,18 +54,16 @@ let testChatCalls: Array<Record<string, unknown>>
 beforeEach(() => {
   savedInput = undefined
   testChatCalls = []
-  ;(window as unknown as { api: unknown }).api = {
-    model: {
-      save: vi.fn(async (input: Record<string, unknown>) => {
-        savedInput = input
-        return {}
-      }),
-      testChat: vi.fn(async (cfg: Record<string, unknown>) => {
-        testChatCalls.push(cfg)
-        return { ok: true }
-      }),
-    },
-  }
+  modelMocks.saveProfile.mockReset()
+  modelMocks.testChatResult.mockReset()
+  modelMocks.saveProfile.mockImplementation(async (input: Record<string, unknown>) => {
+    savedInput = input
+    return {}
+  })
+  modelMocks.testChatResult.mockImplementation(async (cfg: Record<string, unknown>) => {
+    testChatCalls.push(cfg)
+    return { ok: true }
+  })
 })
 
 afterEach(() => {

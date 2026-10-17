@@ -2,10 +2,11 @@
 // 会话历史列表：工作台「会话历史」标签页的左栏（工具内各会话的列表 + 会话操作）。
 // 头部含标题与「会话数」徽标、删除全部 —— **没有「新建会话」**：会话由标签页产生（一个 tab 一条），
 // 没有「凭空建一条空会话」这回事；也没有「收起」，这里不是抽屉。
-// 标题下方搜索框（按标题/内容实时过滤，命中走 window.api.conversation.search）；
+// 标题下方搜索框（按标题/内容实时过滤，命中走 conversationClient.search）；
 // 非搜索态按「今天 / 昨天 / 日期」分组并展示最近一条消息预览，搜索态展示命中片段；
 // 每项的「更多」下拉菜单含重命名与删除，删除确认 / 重命名用 UI 弹窗，均由本组件自含单一实例。
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { conversationClient } from '@/lib/conversation-client'
 import {
   ListTodo as UiListTodo,
   MoreHorizontal as UiMoreHorizontal,
@@ -70,7 +71,7 @@ watch(query, (val) => {
   }
   searchTimer = setTimeout(async () => {
     try {
-      searchHits.value = await window.api.conversation.search(q)
+      searchHits.value = await conversationClient.search(q)
     } catch {
       searchHits.value = []
     }

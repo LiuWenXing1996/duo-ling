@@ -12,18 +12,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extensionIdFromServiceWorker, getServiceWorker, launchExtensionContext } from './extension'
+import { saveStubModel } from './model-config'
 import { startModelStub } from '../scripts/model-stub.mts'
+import { countConversations } from './chat-db'
 
-/** 浮层对话页（`installWindowApi()` 在这里挂上 window.api） */
+/** 浮层对话页（对话界面本体） */
 const APP_PAGE = 'floatpanel.html'
 
-/** 页面内取会话数（读侧直连 IndexedDB，见 window-api 的说明） */
-async function convCount(page: Page): Promise<number> {
-  return await page.evaluate(async () =>
-    ((await (window as unknown as { api: { conversation: { list: () => Promise<unknown[]> } } }).api.conversation.list()) ?? [])
-      .length,
-  )
-}
+/** 页面内取会话数：直接读会话库（读侧本来就是裸 IndexedDB） */
+const convCount = (page: Page): Promise<number> => countConversations(page)
 
 test.describe.serial('会话归属按标签页', () => {
   let context: BrowserContext | undefined
@@ -54,21 +51,11 @@ test.describe.serial('会话归属按标签页', () => {
     context = await launchExtensionContext(profileDir)
     extensionId = extensionIdFromServiceWorker(await getServiceWorker(context))
 
-    // 把模型指到 stub（设置页保存模型走的就是这两个方法）
-    const page = await openApp()
-    await page.evaluate(
-      async (cfg) => {
-        const api = (
-          window as unknown as {
-            api: { model: { save: (c: unknown) => Promise<{ id: string }>; setActive: (id: string) => Promise<void> } }
-          }
-        ).api
-        const p = await api.model.save(cfg)
-        await api.model.setActive(p.id)
-      },
-      { name: 'stub', baseUrl: stub.stub.baseUrl, apiKey: 'sk-stub', model: 'stub-model' },
-    )
-    await page.close()
+    // 模型只能在设置页配（浮层没有设置入口）。工作台与浮层同源共享存储，后面 openApp 开的面板直接可用。
+    const setup = await context.newPage()
+    await setup.goto(`chrome-extension://${extensionId}/workbench.html`)
+    await saveStubModel(setup, { baseUrl: stub.stub.baseUrl })
+    await setup.close()
   })
 
   test.afterAll(async () => {

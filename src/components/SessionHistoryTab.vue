@@ -10,8 +10,8 @@
 // 界面同一套渲染，不另写回放视图；**原始数据**用 ConversationRawView——落盘 Message 的
 // 原始字段（pageContext / parts / usage / 原始 JSON），排查落盘问题时直接对照库里的记录。
 //
-// 数据：列表与消息都直连 IndexedDB（conversation-store 读侧经 window.api 转发），写走
-// window.api.conversation.*（唯一写方仍是 offscreen）。删除会话时顺手清掉标签页归属映射
+// 数据：读走 conversationClient（直连 IndexedDB），写也走它（内部交 offscreen，唯一写方
+// 仍是 offscreen）。删除会话时顺手清掉标签页归属映射
 // （conversation-tab-map），免得留下指向已删会话的旧绑定。
 //
 // **删除有前置门**：会话正被开着的标签页使用就不让删 —— 它是那个标签页的现场。判据是
@@ -45,6 +45,7 @@ import {
   unbindConversation
 } from '@/lib/conversation-tab-map'
 import type { TabConversationMap } from '@/lib/conversation-tab-map'
+import { conversationClient } from '@/lib/conversation-client'
 import { ipcRequest } from '@/shared/ipc-bus'
 import type { Conversation, TokenUsage } from '@/shared/types'
 import type { UIMessage } from 'ai'
@@ -72,7 +73,7 @@ const selectedConversation = computed(
 /** 拉列表；选中的会话若已不存在（本页删的 / 别处删的）就清空右侧 */
 async function loadList(): Promise<void> {
   try {
-    conversations.value = await window.api.conversation.list()
+    conversations.value = await conversationClient.list()
   } catch {
     conversations.value = []
   }
@@ -92,7 +93,7 @@ async function loadList(): Promise<void> {
 async function select(id: string): Promise<void> {
   selectedId.value = id
   try {
-    const list = await window.api.conversation.messages(id)
+    const list = await conversationClient.messages(id)
     messages.value = list.map(toUiMessage)
     const usage: Record<string, TokenUsage> = {}
     for (const m of list) {
@@ -107,7 +108,7 @@ async function select(id: string): Promise<void> {
 
 async function onRename(payload: { id: string; title: string }): Promise<void> {
   try {
-    const updated = await window.api.conversation.rename(payload.id, payload.title)
+    const updated = await conversationClient.rename(payload.id, payload.title)
     if (updated) {
       const idx = conversations.value.findIndex((c) => c.id === payload.id)
       if (idx !== -1) conversations.value[idx] = updated
@@ -248,7 +249,7 @@ async function onDelete(payload: {
 
   try {
     if (payload.type === 'all') {
-      await window.api.conversation.deleteAll()
+      await conversationClient.deleteAll()
       await unbindAll().catch(() => {})
       conversations.value = []
       selectedId.value = ''
@@ -257,7 +258,7 @@ async function onDelete(payload: {
       return
     }
     if (!payload.id) return
-    await window.api.conversation.delete(payload.id)
+    await conversationClient.delete(payload.id)
     // 清掉指向它的归属绑定：否则对应标签页的映射会一直指着一条已不存在的会话
     await unbindConversation(payload.id).catch(() => {})
   } catch {

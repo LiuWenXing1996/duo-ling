@@ -15,10 +15,16 @@
 // （扩展页的模型下拉 / 设置页回拉）并推送 offscreen:configChanged（offscreen 的
 // profile-cache 回拉，apiKey 只在它取用时过界）。原 chrome.storage.onChanged 钩子已随
 // 迁移删除。offscreen 不 import 本模块（SW 命令中转），故无循环依赖。
-import type { ModelProfile, ModelProfileInput, ModelTestChatConfig } from '../shared/types'
+import type {
+  ModelProfile,
+  ModelProfileInput,
+  ModelTestChatConfig,
+  TestChatResult,
+} from '../shared/types'
 import type { ModelProfileState } from '../shared/extension-ipc'
 import { decryptApiKey, encryptApiKey, type EncPayload } from './key-cipher'
 import * as appDb from './app-db'
+import { errorText } from './format'
 import { broadcastDataChange } from '@duoling/shared'
 
 const KEY = 'modelProfiles'
@@ -126,6 +132,15 @@ function displayName(profile: ModelProfileState): string {
 /** UI 使用：剔除 apiKey 明文，仅保留 hasApiKey */
 export async function listProfiles(): Promise<ModelProfile[]> {
   return (await readState()).profiles.map(toPublic)
+}
+
+/** UI 一次拿全：列表 + 当前生效 id。两次读同一份 state，避免调用方分两跑去拼 */
+export async function listModelState(): Promise<{
+  profiles: ModelProfile[]
+  activeId: string
+}> {
+  const state = await readState()
+  return { profiles: state.profiles.map(toPublic), activeId: state.activeProfileId }
 }
 
 function toPublic(s: ModelProfileState): ModelProfile {
@@ -257,5 +272,23 @@ export async function testChat(config: ModelTestChatConfig): Promise<void> {
     throw e
   } finally {
     clearTimeout(timer)
+  }
+}
+
+/**
+ * 设置页的连通性测试：把结果收敛成 `{ ok, error }` 而非抛错。
+ * 调用方是表单（要就地显示失败原因），一条 request 失败不该走异常通道。
+ *
+ * Key 未回显（编辑态表单不回填明文）时按 profileId 回退到已存 Key —— 行内测试因此
+ * 永远不需要把密钥带进 UI。
+ */
+export async function testChatResult(config: ModelTestChatConfig): Promise<TestChatResult> {
+  try {
+    const apiKey =
+      config.apiKey.trim() || (config.profileId ? await getProfileApiKey(config.profileId) : '')
+    await testChat({ ...config, apiKey })
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: errorText(e) }
   }
 }

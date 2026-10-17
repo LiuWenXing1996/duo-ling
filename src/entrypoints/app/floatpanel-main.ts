@@ -5,12 +5,9 @@
 import '@/assets/main.css'
 import '@/assets/main.less'
 import { createApp } from 'vue'
-import { installWindowApi } from '@/lib/window-api'
 import { installTheme } from '@/lib/theme'
 import ChatApp from './ChatApp.vue'
 
-// 必须在挂载前装配：ChatPanel 等平移来的组件在 onMounted 就会读 window.api
-installWindowApi()
 // 早于首帧设置深浅色，避免闪烁
 installTheme()
 createApp(ChatApp).mount('#app')

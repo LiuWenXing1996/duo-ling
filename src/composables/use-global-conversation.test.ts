@@ -2,7 +2,7 @@
 //
 // 本文件不必挂载组件 —— 该 composable 只用 ref / computed / watchEffect，没有 onMounted。
 // 依赖面较宽，故除 vue 与纯函数模块外一律换替身：
-//   · window.api.conversation.*  —— 会话库读面（stubGlobal）
+//   · @/lib/conversation-client  —— 会话库读面（模块替身）
 //   · ExtensionChatTransport     —— 只验它收到哪些调用（构造即实例化，故整体替身掉）
 //   · @ai-sdk/vue                —— 动态 import，替身返回可手控的 useChat 句柄
 //   · conversation-tab-map       —— IDB 归属映射（本仓另有专项测试），此处只验调用参数
@@ -37,6 +37,14 @@ const h = vi.hoisted(() => ({
   chatInstances: [] as unknown[],
   dataSync: [] as Array<{ domains: string[]; reload: (push: { domain: string }) => unknown }>,
 }))
+
+/** 会话库读面替身：composable 直接 import 该模块，故在模块级替身（默认值在 beforeEach 给） */
+const conversationApi = vi.hoisted(() => ({
+  create: vi.fn(),
+  list: vi.fn(),
+  messages: vi.fn(),
+}))
+vi.mock('@/lib/conversation-client', () => ({ conversationClient: conversationApi }))
 
 vi.mock('@/lib/extension-chat-transport', () => ({
   ExtensionChatTransport: class {
@@ -125,11 +133,6 @@ interface SentMessage {
   metadata: ChatMessageMetadata
 }
 
-const conversationApi = {
-  create: vi.fn(async (): Promise<Conversation> => conversation('c-new')),
-  list: vi.fn(async (): Promise<Conversation[]> => []),
-  messages: vi.fn(async (_id: string): Promise<Message[]> => []),
-}
 
 const chatAt = (index = -1): FakeChat => h.chatInstances[index < 0 ? h.chatInstances.length + index : index] as FakeChat
 const lastChat = (): FakeChat => chatAt()
@@ -193,7 +196,6 @@ beforeEach(() => {
   h.chatInits.length = 0
   h.chatInstances.length = 0
   h.dataSync.length = 0
-  vi.stubGlobal('window', { api: { conversation: conversationApi } })
   vi.mocked(resolveOwningTabId).mockResolvedValue(null)
   vi.mocked(getConversationIdForTab).mockResolvedValue(null)
   vi.mocked(bindTabToConversation).mockResolvedValue(undefined)
@@ -205,7 +207,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  vi.unstubAllGlobals()
   clearPickedElement()
 })
 

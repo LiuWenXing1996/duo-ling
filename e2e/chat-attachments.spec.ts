@@ -18,6 +18,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extensionIdFromServiceWorker, getServiceWorker, launchExtensionContext } from './extension'
+import { saveStubModel } from './model-config'
 import { startModelStub, type ModelStubHit } from '../scripts/model-stub.mts'
 
 const APP_PAGE = 'floatpanel.html'
@@ -135,7 +136,12 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     profileDir = mkdtempSync(join(tmpdir(), 'duoling-attach-e2e-'))
     stub = await startModelStub()
     context = await launchExtensionContext(profileDir)
-    await getServiceWorker(context)
+    const id = extensionIdFromServiceWorker(await getServiceWorker(context))
+    // 模型只能在设置页配（浮层没有设置入口）。工作台与浮层同源共享存储，后面新开的面板直接可用。
+    const setup = await context.newPage()
+    await setup.goto(`chrome-extension://${id}/workbench.html`)
+    await saveStubModel(setup, { baseUrl: stub.stub.baseUrl })
+    await setup.close()
   })
 
   test.afterAll(async () => {
@@ -149,28 +155,11 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
   })
 
-  /** 存一份模型配置并激活（设置页保存模型走的就是这两个 API） */
-  async function configureModel(page: Awaited<ReturnType<BrowserContext['newPage']>>): Promise<void> {
-    await page.evaluate(
-      async (cfg) => {
-        const api = (
-          window as unknown as {
-            api: { model: { save: (c: unknown) => Promise<{ id: string }>; setActive: (id: string) => Promise<void> } }
-          }
-        ).api
-        const p = await api.model.save(cfg)
-        await api.model.setActive(p.id)
-      },
-      { name: 'stub', baseUrl: stub.stub.baseUrl, apiKey: 'sk-stub', model: 'stub-model' },
-    )
-  }
-
-  /** 开一个配好模型的浮层页 */
+  /** 开一个浮层页（模型已在 beforeAll 配好，同源共享） */
   async function openPanel(): Promise<Page> {
     const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
     const page = await context!.newPage()
     await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    await configureModel(page)
     return page
   }
 

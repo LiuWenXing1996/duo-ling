@@ -5,7 +5,7 @@
 // pageContext / parts / usage）无处可看——切会话 chip 丢失这类 bug 需要直接对照库里的记录。
 // 本视图与逻辑回放（ChatPanel readonly）同挂一栏，切换即对照，不需要再隔着标签页翻。
 //
-// 读走 conversation-store 直连 IndexedDB（与 window-api 同款姿势，工作台是扩展页同源可读）；
+// 读走 conversation-store 直连 IndexedDB（与 conversation-client 同款姿势，工作台是扩展页同源可读）；
 // 本视图**只读**，写入仍唯一归 offscreen。选中会话由父层给定（不自带列表），列表管理与
 // 删除前置门都归父层。
 import { ref, watch } from 'vue'

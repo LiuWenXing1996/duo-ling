@@ -12,6 +12,7 @@
 // 附件的加入 / 压缩 / 提交都在本组件：输入区的 prompt-input 上下文由这里创建（见下方「附件」）。
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
+import { listModelState, setActiveProfile } from '@/lib/model-store'
 import {
   Check as UiCheck,
   ChevronsDown as UiChevronsDown,
@@ -182,8 +183,8 @@ async function switchModel(id: string): Promise<void> {
     return
   }
   try {
-    await window.api.model.setActive(id)
-    refreshModelStatus(await window.api.model.list())
+    await setActiveProfile(id)
+    refreshModelStatus(await listModelState())
   } catch (error) {
     console.error('切换模型失败：', error)
   } finally {
@@ -197,12 +198,12 @@ function goToSettings(): void {
 }
 
 onMounted(() => {
-  void window.api.model.list().then(refreshModelStatus)
+  void listModelState().then(refreshModelStatus)
 })
 
 // 模型配置在别处变更（工作台模型管理 / 其它窗口的设置页）时自动重拉列表，
 // 否则对话界面下拉会停留在挂载时的旧数据（useDataSync 自带在途合并，挂载即订阅、卸载自动退订）
-useDataSync('model', () => window.api.model.list().then(refreshModelStatus))
+useDataSync('model', () => listModelState().then(refreshModelStatus))
 
 // —— 消息渲染：UIMessage parts -> 气泡正文 / 思考与执行过程 ——
 

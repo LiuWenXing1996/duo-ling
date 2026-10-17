@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// popup = 点工具栏图标弹出的面板（**纯配置面板，不装 window.api**，也不承载对话）。
+// popup = 点工具栏图标弹出的面板（**纯配置面板，不承载对话**）。
 //
 // 主体是两个区块，数据来自同一条 page:overview 命令（SW 侧一处聚合，见 shared/extension-ipc）：
 //   · 「当前页面」（PopupCurrentPage）：本标签页的两个按页开关（常显的子卡，可就地开与关）——

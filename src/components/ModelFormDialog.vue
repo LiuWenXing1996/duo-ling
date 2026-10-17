@@ -21,6 +21,7 @@ import {
 import { Eye as UiEye, EyeOff as UiEyeOff, X as UiX } from '@lucide/vue'
 import type { ModelProfile, ModelProvider } from '@/shared/types'
 import { errorText } from '@/lib/format'
+import { saveProfile, testChatResult } from '@/lib/model-store'
 
 const props = defineProps<{
   open: boolean
@@ -152,7 +153,7 @@ async function runTest(): Promise<void> {
   testing.value = true
   testResult.value = null
   try {
-    const res = await window.api.model.testChat({
+    const res = await testChatResult({
       baseUrl: form.baseUrl,
       apiKey: form.apiKey,
       model: form.model,
@@ -180,7 +181,7 @@ async function save(): Promise<void> {
   if (!canSave.value || saving.value) return
   saving.value = true
   try {
-    await window.api.model.save({
+    await saveProfile({
       id: editingId.value ?? undefined,
       // 展示名沿用编辑前的设置；新增时直接用模型 ID
       name: props.editing?.name || form.model,

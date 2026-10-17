@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extensionIdFromServiceWorker, getServiceWorker, launchExtensionContext, openMessengerPage, sendToSw } from './extension'
+import { saveStubModel } from './model-config'
 import { startModelStub } from '../scripts/model-stub.mts'
 
 const APP_PAGE = 'floatpanel.html'
@@ -64,21 +65,11 @@ test.describe.serial('AI 生成脚本（本地模型 stub 发工具调用）', (
     extensionId = extensionIdFromServiceWorker(await getServiceWorker(context))
     messenger = await openMessengerPage(context, extensionId)
 
-    const page = await context.newPage()
-    await page.goto(`chrome-extension://${extensionId}/${APP_PAGE}`)
-    await page.evaluate(
-      async (cfg) => {
-        const api = (
-          window as unknown as {
-            api: { model: { save: (c: unknown) => Promise<{ id: string }>; setActive: (id: string) => Promise<void> } }
-          }
-        ).api
-        const p = await api.model.save(cfg)
-        await api.model.setActive(p.id)
-      },
-      { name: 'stub', baseUrl: stub.stub.baseUrl, apiKey: 'sk-stub', model: 'stub-model' },
-    )
-    await page.close()
+    // 模型只能在设置页配（浮层没有设置入口）。工作台与浮层同源共享存储，用例里新开的面板直接可用。
+    const setup = await context.newPage()
+    await setup.goto(`chrome-extension://${extensionId}/workbench.html`)
+    await saveStubModel(setup, { baseUrl: stub.stub.baseUrl })
+    await setup.close()
   })
 
   test.afterAll(async () => {

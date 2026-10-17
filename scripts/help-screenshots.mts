@@ -10,8 +10,8 @@
 //      扩展上下文，故采用两段式启动（A 引导 → B 重启后截）。
 //   2. 经 SW 命令面造三个示例脚本（两个启用一个停用），列表与停用态都有内容可看。
 //   3. 浮层里走真对话链路造一段演示对话：起本地假模型（scripts/model-stub.mts，与 e2e 同源），
-//      经 window.api.model.save 存配置并激活，再真实发一句 —— 回复内容写死，对话气泡、
-//      模型选择、用量标记都是真渲染出来的，不是贴图。
+//      在工作台设置页经真实表单存配置并激活（e2e/model-config.ts 的 saveStubModel，与端测同源），
+//      再真实发一句 —— 回复内容写死，对话气泡、模型选择、用量标记都是真渲染出来的，不是贴图。
 //
 // 加载姿势与 e2e/extension.ts 保持一致（launchPersistentContext + 捆绑 Chromium +
 // --load-extension，extensionId 从 SW URL 解析）；两边改动需互相检查。
@@ -23,6 +23,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startModelStub } from './model-stub.mts'
+import { saveStubModel } from '../e2e/model-config.ts'
 
 const args = process.argv.slice(2)
 function argValue(flag: string): string | undefined {
@@ -138,22 +139,13 @@ const popupTabOverride = (targetUrl: string) => `
 type Demo = Awaited<ReturnType<typeof startModelStub>>
 
 /**
- * 在浮层页里造一段演示对话：存模型配置（假模型地址）并激活 → 真实发一句 →
- * stub 发 script_spec → script_apply（生成卡片出现）→ 收尾文本；等卡片就位后点
- * 「启用并生效」，让卡片翻到「已启用」态。走的是真人路径（chat:start 全链路落库），
- * 思考过程 / 工具卡 / 生成卡片 / 用量标记都是真渲染。
- * stub 的 hits 跨会话累计，而 plan 按请求次序出招 —— 每次造数前清零重新计数。
+ * 在浮层页里造一段演示对话：真实发一句 → stub 发 script_spec → script_apply（生成卡片出现）
+ * → 收尾文本；等卡片就位后点「启用并生效」，让卡片翻到「已启用」态。走的是真人路径
+ * （chat:start 全链路落库），思考过程 / 工具卡 / 生成卡片 / 用量标记都是真渲染。
+ * 模型配置须先经 seedModel 配好；stub 的 hits 跨会话累计，plan 按请求次序出招 —— 每次造数前清零。
  */
 async function seedConversation(page: Page, demo: Demo) {
   demo.stub.hits.length = 0
-  await page.evaluate(
-    async (cfg) => {
-      const api = window.api
-      const saved = await api.model.save(cfg)
-      await api.model.setActive(saved.id)
-    },
-    { name: '演示模型', baseUrl: demo.stub.baseUrl, apiKey: 'sk-demo', model: 'duoling-demo' },
-  )
   const box = page.getByRole('textbox').first()
   await box.fill(DEMO_QUESTION)
   await box.press('Enter')
@@ -168,6 +160,17 @@ async function seedConversation(page: Page, demo: Demo) {
   await card.getByRole('button', { name: /启用并生效/ }).click()
   await page.waitForFunction(() => document.body.innerText.includes('已启用'), undefined, { timeout: 15_000 })
   await page.waitForTimeout(800)
+}
+
+/**
+ * 配一条指向假模型的配置并激活。浮层没有设置入口，故开一张工作台页走设置页表单 ——
+ * 与浮层同源共享存储，配一次后面每张浮层图都可用。展示名取模型 ID（表单没有名称字段）。
+ */
+async function seedModel(context: BrowserContext, extensionId: string, baseUrl: string) {
+  const page = await context.newPage()
+  await page.goto(`chrome-extension://${extensionId}/workbench.html`)
+  await saveStubModel(page, { baseUrl, apiKey: 'sk-demo', model: '演示模型' })
+  await page.close()
 }
 
 /** 引导 userScripts 的两道开关（与 e2e/extension.ts 的 enableUserScripts 同源精简版） */
@@ -380,6 +383,9 @@ try {
       await shoot(theme, shot)
     }
   }
+  // 浮层图要真应答：模型指向本地假模型。放在这里而非更早 —— 配置了模型后气泡区与
+  // 选择器才有内容，工作台 / popup 的图不该受它影响
+  await seedModel(context, extensionId, demo.stub.baseUrl)
   for (const theme of themes) {
     await shoot(theme, SHOTS.find((s) => s.name === 'floatpanel')!)
   }

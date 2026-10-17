@@ -4,7 +4,7 @@
 // —— 环境级问题仅靠下方 availability 横幅兜底。
 //
 // 数据通道：userscriptClient。workbench 是可信扩展页，可直接发 runtime 消息，
-// 因此不走 window.api（那是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
+// 因此不依赖全局中间层，直接经 lib/userscripts/ui-client.ts 发命令。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   AlertTriangle as UiAlertTriangle,

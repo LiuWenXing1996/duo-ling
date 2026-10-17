@@ -3,7 +3,7 @@
 // 另有本页在跑哪些脚本、这条页面的对话浮层（快捷入口与「是否正在回话」）。
 //
 // 判据都不在这里现算：PopupPanel 挂载时经一条 page:overview 命令取回，再传进来 —— popup 是纯
-// 展示面板（不装 window.api、不直连会话库），聚合口径统一在 SW 侧一处（见 shared/extension-ipc
+// 展示面板（不直连会话库），聚合口径统一在 SW 侧一处（见 shared/extension-ipc
 // 的 PageOverviewTab）。popup 只活几秒，故取一次快照即可，不维持推送通道。
 //
 // 浮层入口：对话框平时不在页面里（浮层宿主件不建任何 DOM，见 packages/builtin-scripts/src/float-host/），

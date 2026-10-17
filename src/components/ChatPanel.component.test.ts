@@ -19,18 +19,20 @@ const fsMocks = vi.hoisted(() => ({
   fsAssetPut: vi.fn(),
 }))
 vi.mock('@/lib/userscripts/ui-client', () => ({ userscriptClient: {}, offscreenService: fsMocks }))
+// 模型列表直连 model-store（不再经 window.api），模块级替身：默认一条可用模型
+const modelMocks = vi.hoisted(() => ({ listModelState: vi.fn(), setActiveProfile: vi.fn() }))
+vi.mock('@/lib/model-store', () => ({
+  listModelState: modelMocks.listModelState,
+  setActiveProfile: modelMocks.setActiveProfile,
+}))
 
 function setModelProfile(): void {
-  ;(window as unknown as { api: unknown }).api = {
-    model: {
-      list: vi.fn(async () => ({
-        profiles: [
-          { id: 'm1', name: '测试模型', baseUrl: 'https://example.test/v1', model: 'test', hasApiKey: true },
-        ],
-        activeId: 'm1',
-      })),
-    },
-  }
+  modelMocks.listModelState.mockResolvedValue({
+    profiles: [
+      { id: 'm1', name: '测试模型', baseUrl: 'https://example.test/v1', model: 'test', hasApiKey: true },
+    ],
+    activeId: 'm1',
+  })
 }
 
 async function mountPanel(messages: UIMessage[] = [], streaming = false): Promise<VueWrapper> {

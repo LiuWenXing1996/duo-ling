@@ -31,6 +31,8 @@ import type { ModelProfile, ModelProvider } from '@/shared/types'
 import ModelFormDialog from '@/components/ModelFormDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { errorText } from '@/lib/format'
+import { getProviders } from '@/lib/providers'
+import { listModelState, removeProfile, testChatResult } from '@/lib/model-store'
 
 const profiles = ref<ModelProfile[]>([])
 const providers = ref<ModelProvider[]>([])
@@ -44,8 +46,8 @@ const editing = ref<ModelProfile | null>(null)
 async function loadData(): Promise<void> {
   try {
     const [modelData, providerData] = await Promise.all([
-      window.api.model.list(),
-      window.api.provider.list()
+      listModelState(),
+      getProviders()
     ])
     profiles.value = modelData.profiles
     providers.value = providerData
@@ -83,7 +85,7 @@ async function testConnection(profile: ModelProfile): Promise<void> {
   testMessage.value = ''
   testOpen.value = true
   try {
-    const res = await window.api.model.testChat({
+    const res = await testChatResult({
       baseUrl: profile.baseUrl,
       apiKey: '',
       model: profile.model,
@@ -115,7 +117,7 @@ async function confirmRemoveModel(): Promise<void> {
   const profile = pendingRemove.value
   if (!profile) return
   try {
-    await window.api.model.delete(profile.id)
+    await removeProfile(profile.id)
     await loadData()
   } catch (error) {
     console.error('删除模型失败：', error)

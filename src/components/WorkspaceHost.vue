@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 工作区多标签宿主：渲染开着的标签页（标签种类见 shared/types 的 WorkspaceTabKind）。
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { AlertTriangle as UiAlertTriangle } from '@lucide/vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import GuidePanel from '@/components/GuidePanel.vue'
@@ -243,19 +243,6 @@ function onUserscriptDeleted(uuid: string): void {
     if (openTabs.value.some((t) => t.id === id)) closeTab(id)
   }
 }
-
-// 工作区 tab 状态上报主进程：agent_workspace_tabs 工具据此回答「当前打开了哪些页面」。
-// immediate：挂载即上报，避免查询时为空。
-watch(
-  [openTabs, activeTabId],
-  () => {
-    void window.api.workspace.tabsChanged({
-      tabs: openTabs.value.map((t) => ({ ...t })),
-      activeTabId: activeTabId.value
-    })
-  },
-  { deep: true, immediate: true }
-)
 
 // 暴露给根布局：左侧导航栏「设置 / 脚本列表 / 活动历史 / 文件管理 / 会话历史 / 帮助」与脚本管理器的「编辑」入口。
 // 其余调试面板不走这里 —— 它们的入口在设置分区里，经 @open-tab 到 openDevTab

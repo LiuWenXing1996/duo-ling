@@ -1,8 +1,8 @@
 // 用户脚本管理页的 UI 客户端（渲染页 ⇄ background）。
 //
 // 管理页是 duo-ling 的可信扩展页（独立 WXT 入口），可直接发 runtime 消息，
-// 因此不依赖 window.api 全局（window.api 是给平移来的桌面版 UI 组件用的 PreloadApi 契约）。
-// 这里 send 信封统一走共享总线（shared/ipc-bus，与 window-api.ts 等各处同源），
+// 因此不依赖任何全局中间层，直接发 runtime 消息。
+// send 信封统一走共享总线（shared/ipc-bus，与 lib/conversation-client.ts 等处同源），
 // 直接发 userscript:* 命令组（v2 方案）。
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { ipcRequest, ipcSubscribe } from '@/shared/ipc-bus'

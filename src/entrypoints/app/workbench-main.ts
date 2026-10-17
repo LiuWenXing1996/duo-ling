@@ -3,10 +3,8 @@
 import '@/assets/main.css'
 import '@/assets/main.less'
 import { createApp } from 'vue'
-import { installWindowApi } from '@/lib/window-api'
 import { installTheme } from '@/lib/theme'
 import WorkbenchApp from './WorkbenchApp.vue'
 
-installWindowApi()
 installTheme()
 createApp(WorkbenchApp).mount('#app')

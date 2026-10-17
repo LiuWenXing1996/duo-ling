@@ -2,7 +2,7 @@
 //
 // 只验证「注册表 → 界面」的映射与切换，不测样式；这正是「新增设置菜单只需改
 // settings/sections.ts」这一扩展契约的守卫：注册表加一项，左栏就应多一个导航项。
-// 边界 mock：模型分区走 window.api（IPC）与数据广播，二者都置空以保持用例自包含。
+// 边界 mock：模型分区读 model-store / providers 与数据广播，三者都置空以保持用例自包含。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import SettingsPanel from './SettingsPanel.vue'
@@ -19,6 +19,18 @@ vi.mock('@duoling/shared', async (importOriginal) => ({
 
 const modelList = vi.hoisted(() => vi.fn(async () => ({ profiles: [], activeId: '' })))
 const providerList = vi.hoisted(() => vi.fn(async () => []))
+
+// 模型分区直接读这两个模块（不再经 window.api），故在模块级替身
+vi.mock('@/lib/model-store', () => ({
+  listModelState: modelList,
+  removeProfile: vi.fn(),
+  saveProfile: vi.fn(),
+  testChatResult: vi.fn(),
+}))
+vi.mock('@/lib/providers', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/providers')>()),
+  getProviders: providerList,
+}))
 
 let wrapper: VueWrapper | null = null
 
@@ -40,10 +52,6 @@ beforeEach(() => {
     time: '2026-01-01T00:00:00.000Z',
     branch: 'test-branch',
     version: '9.9.9-alpha.2',
-  })
-  vi.stubGlobal('api', {
-    model: { list: modelList, delete: vi.fn() },
-    provider: { list: providerList },
   })
 })
 

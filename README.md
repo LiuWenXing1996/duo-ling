@@ -20,7 +20,7 @@
 
 > **会话归属按标签页**：一个 tab 一条会话，切 tab 即切会话 —— 所以对话界面里没有会话列表、也没有「新建会话」（要开新对话就开个新标签页，要回看旧对话去工作台「会话历史」）；没发过消息的 tab 不建会话，正被开着的标签页使用的会话不可删。归属机制与删除前置门见 [ARCHITECTURE.md](ARCHITECTURE.md)「对话链路」。
 
-> **三个载体的界面均为现成实现，别照着界面重写**：对话界面 `ChatApp` + `ChatPanel`，工作台 `WorkbenchApp` + `WorkspaceHost`，popup 是独立的 `PopupPanel`（不装 `window.api`），其中「当前页面」区块（`PopupCurrentPage.vue`）与「其他页面」区块（`PopupOtherPages.vue`）都用 SW 的 `page:overview` 命令取数 —— 页面监控的实时链路（`use-page-monitor` + `duoling:panel` 端口）只服务对话界面灵动岛。复用铁律与组件桥接契约见 [AGENTS.md](AGENTS.md)「UI 复用」；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`，不经 `window.api`。
+> **三个载体的界面均为现成实现，别照着界面重写**：对话界面 `ChatApp` + `ChatPanel`，工作台 `WorkbenchApp` + `WorkspaceHost`，popup 是独立的 `PopupPanel`（纯配置面板），其中「当前页面」区块（`PopupCurrentPage.vue`）与「其他页面」区块（`PopupOtherPages.vue`）都用 SW 的 `page:overview` 命令取数 —— 页面监控的实时链路（`use-page-monitor` + `duoling:panel` 端口）只服务对话界面灵动岛。复用铁律与客户端模块归属见 [AGENTS.md](AGENTS.md)「UI 复用」；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`。
 
 ## 目录结构
 
@@ -37,7 +37,7 @@
 │  ├─ lib/                        # 运行时逻辑层；各库的写权限与机制见 ARCHITECTURE.md「存储」
 │  │  ├─ userscripts/             #   脚本链路：注册引擎（主世界注入 + 中继桥）/ lfs + git 存储 / dl-bridge 桥 / 匹配并集
 │  │  └─ 其他文件                 #   各 store（会话 / 模型 / 归属映射 / 浮层开关）/ 新版本检查 / transport / 元素拾取 / 构建信息取数
-│  ├─ shared/                     # 应用内部契约：types / ipc（window.api 形状）/ extension-ipc（渲染页 ⇄ SW 协议）
+│  ├─ shared/                     # 应用内部契约：types / extension-ipc（渲染页 ⇄ SW 协议）
 │  ├─ assets/                     # Tailwind 主题变量与全局样式
 │  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（只剩 help/ 帮助页配图）
 ├─ packages/shared/               # 跨世界契约 + 共享实现：信封 / 常量 / 形状（bridge / tab-record / inspector / page-context）+ 脚本落盘形状（script-config / script-project）+ GM 语义与目录（api-contract / gm-grants / gm-api-catalog / metadata / match-pattern / match-union）+ 状态库（state-db）+ 会话与消息形状（conversation / chat-assets）+ 会话库（conversation-store）+ 会话投影（conversation-message / ui-message-parts）+ 对话载荷（chat-ipc / model）+ 工具目录（agent-tools-catalog）+ 项目读侧（project-store）+ 脚本形状（userscript-runtime / userscript-shapes）+ 总线原语（runtime-send）+ 构建注入（build-info）+ 数据变更广播（data-broadcast 契约 + data-broadcast-runtime 实现）+ 跨进程服务契约与代理工厂（service/）（Vite lib 构建 dist 两件套：mjs + d.ts，消费走 exports）

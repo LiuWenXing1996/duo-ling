@@ -18,17 +18,6 @@ declare module 'process' {
 }
 
 /**
- * 从桌面版平移来的 UI 组件直接调用 `window.api.*`：
- * 桌面版由 preload 经 contextBridge 注入（权威形状见 src/shared/ipc.ts 的 PreloadApi）；
- * 扩展版没有 preload，改由 src/lib/window-api.ts 装配后挂载到 window。
- * 这里补上全局声明（`import(...)` 类型语法不引入顶层 import，保持本文件 ambient），
- * 组件侧因此无需任何改动。
- */
-interface Window {
-  api: import('@/shared/ipc').PreloadApi
-}
-
-/**
  * 构建期 vite.define 注入的裸标识符（wxt.config.ts 的 vite.define）：
  * 编译期被替换成字面量、写进 JS bundle，**不受 extension_pages CSP 限制**，
  * 是页面 / SW / offscreen 三处都能用的构建信息来源。
