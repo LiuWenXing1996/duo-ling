@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 注释密度报告：注释行占非空行的比例，按目录与扩展名汇总。
+// 注释密度报告：注释行占非空行的比例，按目录、扩展名与来源汇总。
 // 只报告、不卡阈值 —— 密度是描述指标，卡阈值会诱导为凑数写注释；注释该不该写由 check-comments 管。
 //
 // 口径：
@@ -8,6 +8,8 @@
 //   - 字符级状态机抠注释：字符串与模板串里的 // 、/* 不算注释，与 check-comments 同一套判定。
 //   - 排除 .d.ts / .d.mts：类型声明不是实现，计入会稀释密度。
 //   - 扫描面与 check-comments 一致：src / packages / e2e / scripts + 仓库根的散装源码。
+//   - 来源：从组件库原样拉取的件（src/components 下的 ui / ai-elements）单列 —— 它们几乎不带注释，
+//     且改不改不由本仓库决定，混进总计会把自研代码的密度压低一截。
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { extname, join, relative, sep } from 'node:path'
@@ -16,6 +18,8 @@ const root = new URL('..', import.meta.url).pathname
 const scanDirs = ['src', 'packages', 'e2e', 'scripts']
 const extRe = /\.(mts|ts|vue|js|mjs|css|less)$/
 const declRe = /\.d\.(ts|mts)$/
+/** 组件库原样件所在目录（shadcn 的 ui、ai-elements）；其余一律算自研。 */
+const vendoredPrefixes = [join('src', 'components', 'ui'), join('src', 'components', 'ai-elements')].map((p) => p + sep)
 
 interface Stats {
   files: number
@@ -125,6 +129,7 @@ const files = [...new Set([...scanDirs.flatMap((dir) => listFiles(join(root, dir
 const empty: Stats = { files: 0, nonEmpty: 0, comment: 0 }
 const byDir = new Map<string, Stats>()
 const byExt = new Map<string, Stats>()
+const bySource = new Map<string, Stats>()
 const total: Stats = { ...empty }
 let silent = 0
 
@@ -142,9 +147,11 @@ for (const file of files) {
   const rel = relative(root, file)
   const top = scanDirs.find((d) => rel.startsWith(d + sep)) ?? 'root'
   const ext = extname(file)
+  const source = vendoredPrefixes.some((p) => rel.startsWith(p)) ? '引入件' : '自研'
   for (const [map, key] of [
     [byDir, top],
     [byExt, ext],
+    [bySource, source],
   ] as const) {
     const cur = map.get(key) ?? { ...empty }
     cur.files++
@@ -167,7 +174,7 @@ const pad = (s: string, w: number) => s + ' '.repeat(Math.max(0, w - width(s)))
 const padStart = (s: string, w: number) => ' '.repeat(Math.max(0, w - width(s))) + s
 const pct = (s: Stats) => (s.nonEmpty ? `${((s.comment / s.nonEmpty) * 100).toFixed(2)}%` : '—')
 
-function table(title: string, rows: Array<[string, Stats]>, label: string) {
+function table(title: string, rows: Array<[string, Stats]>, label: string, withTotal = true) {
   const nameW = Math.max(width(label), ...rows.map(([k]) => width(k)))
   console.log(`\n${title}`)
   console.log(`${pad(label, nameW)}${padStart('文件', 6)}${padStart('非空行', 10)}${padStart('注释行', 10)}${padStart('密度', 9)}`)
@@ -176,12 +183,14 @@ function table(title: string, rows: Array<[string, Stats]>, label: string) {
       `${pad(name, nameW)}${padStart(String(s.files), 6)}${padStart(String(s.nonEmpty), 10)}${padStart(String(s.comment), 10)}${padStart(pct(s), 9)}`,
     )
   }
+  if (!withTotal) return
   console.log(
     `${pad('总计', nameW)}${padStart(String(total.files), 6)}${padStart(String(total.nonEmpty), 10)}${padStart(String(total.comment), 10)}${padStart(pct(total), 9)}`,
   )
 }
 
 console.log(`注释密度 ${pct(total)}：注释 ${total.comment} 行 / 非空 ${total.nonEmpty} 行，${total.files} 个文件。`)
+table('按来源', [...bySource.entries()].sort((a, b) => b[1].nonEmpty - a[1].nonEmpty), '来源', false)
 table('按目录', [...byDir.entries()].sort((a, b) => b[1].nonEmpty - a[1].nonEmpty), '目录')
 table(
   '按扩展名',
