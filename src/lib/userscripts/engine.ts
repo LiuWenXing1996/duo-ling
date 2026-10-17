@@ -11,7 +11,7 @@
 // （名字 / 世界 / 一句话作用）由 system-scripts.ts 的 SYSTEM_SCRIPT_DISPLAY 投影
 // （本文件并入中继件一条，见 BUILTIN_META）；
 // 件与 SW 的协议对端（page-inspector-bridge / float-bridge / dl-port）都在本仓 —— 纯产品面。
-import type { ScriptProject } from './types'
+import type { ScriptProject } from '@duoling/shared'
 // 检查器 / 浮层 / 录制的注册面（注册 id / 产物文件名）由包声明：件在那儿源码化并构建成
 // 独立 IIFE 文件，扩展侧按 id 取其内容作系统脚本源码（真相源见
 // packages/builtin-scripts/src/registry.ts）。
@@ -22,9 +22,9 @@ import {
   INSPECTOR_HOST_ID,
   TAB_RECORDER_ID,
 } from '@duoling/builtin-scripts'
-import { EXTENSION_NAME } from '@/lib/extension-identity'
+import { EXTENSION_NAME } from '@duoling/shared'
 // 项目读自状态库（IndexedDB，SW 与 offscreen 共用）：注册链路不能在 offscreen 存活上下注
-import { listProjects } from './project-store'
+import { listProjects } from '@duoling/shared'
 // 系统脚本（原内置件）：扩展随包分发、uuid 固定，与用户脚本走同一条 registerScript 注册链
 import {
   SYSTEM_FLOAT_MATCHES,

@@ -15,7 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import UserscriptListPanel from './UserscriptListPanel.vue'
-import type { ScriptSummary, UserScriptsAvailability } from '@/lib/userscripts/types'
+import type { ScriptSummary, UserScriptsAvailability } from '@duoling/shared'
 
 const list = vi.hoisted(() => vi.fn())
 const errors = vi.hoisted(() => vi.fn())

@@ -11,7 +11,7 @@
 import { ref, watch } from 'vue'
 import { useDataSync } from '@/composables/use-data-sync'
 import { RefreshCw as UiRefreshCw } from '@lucide/vue'
-import * as conversationStore from '@/lib/conversation-store'
+import { listMessages } from '@duoling/shared'
 import type { Conversation, Message } from '@/shared/types'
 import { errorText, formatTimeWithSeconds } from '@/lib/format'
 
@@ -32,7 +32,7 @@ async function loadMessages(id: string): Promise<void> {
   if (!id) return
   messagesLoading.value = true
   try {
-    messages.value = await conversationStore.listMessages(id)
+    messages.value = await listMessages(id)
   } catch (e) {
     error.value = errorText(e)
   } finally {

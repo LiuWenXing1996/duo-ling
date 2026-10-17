@@ -15,7 +15,7 @@
 // 与广播都在 SW，见 availability-watch.ts），本页只消费——不用自己盯 visibilitychange。
 // 挂载查一次给初值；「重新检测」按钮保留，给想立即确认的场景。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { EXTENSION_NAME } from '@/lib/extension-identity'
+import { EXTENSION_NAME } from '@duoling/shared'
 import {
   Check as UiCheck,
   ExternalLink as UiExternalLink,
@@ -30,7 +30,7 @@ import {
   userScriptsGuideSteps
 } from '@/lib/extension-page'
 import { subscribeAvailability, userscriptClient } from '@/lib/userscripts/ui-client'
-import type { UserScriptsAvailability } from '@/lib/userscripts/types'
+import type { UserScriptsAvailability } from '@duoling/shared'
 import { errorText } from '@/lib/format'
 
 const availability = ref<UserScriptsAvailability | null>(null)

@@ -20,7 +20,7 @@
 // 此窗口期内面板显示为空，页面一刷新即恢复——详见 page-monitor.ts 文件头。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { PageErrorItem, PageRunItem, PanelMonitorPush } from '@/shared/extension-ipc'
-import type { ScriptSummary } from '@/lib/userscripts/types'
+import type { ScriptSummary } from '@duoling/shared'
 import { userscriptClient } from '@/lib/userscripts/ui-client'
 import { resolveOwningTabId } from '@/lib/owning-tab'
 import { useDataSync } from './use-data-sync'

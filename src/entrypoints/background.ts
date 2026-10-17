@@ -20,7 +20,7 @@ import { defineBackground } from '#imports'
 import type { ModelProfileState, PageOverviewTab, RuntimeRequest } from '@/shared/extension-ipc'
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
 import type { InjectedBuildInfo } from '@/lib/build-info'
-import { EXTENSION_NAME } from '@/lib/extension-identity'
+import { EXTENSION_NAME } from '@duoling/shared'
 
 // 用户脚本管理器（v2 方案）：引擎 + 存储 + GM 桥 + 类型
 // 通用引擎件直取包（世界配置 / 单脚本与全量注册 / 可用性检测 / CSP 收集 / 注入码解析）
@@ -85,7 +85,7 @@ import {
   splitTabSessionsAtBrowserStart,
 } from '@/lib/userscripts/tab-sessions'
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
-import { getProject, listProjects } from '@/lib/userscripts/project-store'
+import { getProject, listProjects } from '@duoling/shared'
 // 握手密钥的持久化（经 secretStore 注入包侧）：duoling-app 库的 kv 读写
 import * as appDb from '@/lib/app-db'
 // 观测数据的写出口：错误日志、运行条目与动作
@@ -124,7 +124,7 @@ import {
   unbindTab,
 } from '@/lib/conversation-tab-map'
 // 会话库（duoling-chat，**写只归 offscreen**）：页面概览里显示会话标题，这里只读
-import { listConversations } from '@/lib/conversation-store'
+import { listConversations } from '@duoling/shared'
 // 「这一页是不是普通网页」的判据（页面概览只收普通网页，与 popup 的按钮判据同源）
 import { webHostname } from '@/lib/web-hostname'
 import type {
@@ -132,7 +132,7 @@ import type {
   RunEndReason,
   ScriptGroup,
   ScriptProject,
-} from '@/lib/userscripts/types'
+} from '@duoling/shared'
 
 // offscreen document 容器（AI 生成链路的执行宿主）
 import {
@@ -145,7 +145,7 @@ import {
 // SW 经命令中转；变更推送由 model-store 写出口直发（offscreen 侧见包内 bootstrap.ts）。
 import { getActiveProfileState } from '@/lib/model-store'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
-import { broadcastBuildPhase } from '@/lib/data-broadcast'
+import { broadcastBuildPhase } from '@duoling/shared'
 // AI 工具支路：page_snapshot / page_env_read 两条工具经 SW 向页面里的页面检查器下发指令
 // （offscreen 不可达该 API）
 import {

@@ -20,7 +20,7 @@ import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { ipcRequest } from '@/shared/ipc-bus'
 import type { ModelProfileInput } from '@/shared/types'
 import { getProviders } from './providers'
-import * as conversationStore from './conversation-store'
+import { listConversations, listMessages, searchConversations } from '@duoling/shared'
 import * as modelStore from './model-store'
 import { errorText } from '@/lib/format'
 
@@ -74,9 +74,9 @@ async function sendOffscreen<T>(request: RuntimeRequest): Promise<T> {
 
 const conversation: PreloadApi['conversation'] = {
   // 读：直连 IndexedDB（同源共享）
-  list: () => conversationStore.listConversations(),
-  search: (query) => conversationStore.searchConversations(query),
-  messages: (conversationId) => conversationStore.listMessages(conversationId),
+  list: () => listConversations(),
+  search: (query) => searchConversations(query),
+  messages: (conversationId) => listMessages(conversationId),
 
   // 写：路由 offscreen（唯一写方）。见文件头说明。
   create: () => sendOffscreen({ kind: 'conv:create' }),

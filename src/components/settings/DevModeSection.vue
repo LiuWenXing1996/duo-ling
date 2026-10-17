@@ -7,7 +7,7 @@ import { ref } from 'vue'
 import { ChevronRight as UiChevronRight } from '@lucide/vue'
 import { Button as UiButton } from '@/components/ui/button'
 import { Input as UiInput } from '@/components/ui/input'
-import { EXTENSION_NAME } from '@/lib/extension-identity'
+import { EXTENSION_NAME } from '@duoling/shared'
 import type { WorkspaceTabKind } from '@/shared/types'
 import { errorText } from '@/lib/format'
 

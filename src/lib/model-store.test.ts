@@ -17,7 +17,7 @@ import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ModelProfileInput } from '@/shared/types'
 import * as appDb from './app-db'
-import { broadcastDataChange } from './data-broadcast'
+import { broadcastDataChange } from '@duoling/shared'
 import {
   getActiveProfileId,
   getActiveProfileState,
@@ -29,7 +29,11 @@ import {
   testChat,
 } from './model-store'
 
-vi.mock('./data-broadcast', () => ({ broadcastDataChange: vi.fn() }))
+// mock 落在包根：shared 是单包，spread 保其余符号真身
+vi.mock('@duoling/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@duoling/shared')>()),
+  broadcastDataChange: vi.fn(),
+}))
 
 const broadcast = vi.mocked(broadcastDataChange)
 const sendMessage = vi.fn((): Promise<void> => Promise.resolve())

@@ -19,23 +19,40 @@ async function loadReg(cfg: UserscriptHostConfig = {}): Promise<typeof import('.
 }
 
 describe('validateMatchPatterns', () => {
-  it('合法规则不抛（含排除规则）', async () => {
+  const config = (matches: string[], excludeMatches?: string[]) => ({
+    matches,
+    ...(excludeMatches ? { excludeMatches } : {}),
+    allFrames: true,
+    runAt: 'document_end' as const,
+  })
+
+  it('合法规则不抛（通配 / 具体 host / file 无 host / 带端口 / all_urls / 排除规则）', async () => {
     const { validateMatchPatterns } = await loadReg()
-    expect(() =>
-      validateMatchPatterns({
-        matches: ['https://example.com/*', '*://*.duolingo.cn/*'],
-        excludeMatches: ['https://secret.example.com/*'],
-        allFrames: true,
-        runAt: 'document_idle',
-      }),
-    ).not.toThrow()
+    expect(() => validateMatchPatterns(config(['*://*/*']))).not.toThrow()
+    expect(() => validateMatchPatterns(config(['https://example.com/foo/*bar']))).not.toThrow()
+    expect(() => validateMatchPatterns(config(['file:///foo*']))).not.toThrow()
+    expect(() => validateMatchPatterns(config(['http://127.0.0.1:8080/*']))).not.toThrow()
+    expect(() => validateMatchPatterns(config(['<all_urls>']))).not.toThrow()
+    expect(() => validateMatchPatterns(config(['*://*/*'], ['*://evil.example/*']))).not.toThrow()
   })
 
   it('非法规则抛错并列出全部不合法项（不拖到 chrome.register 才以英文异常冒出）', async () => {
     const { validateMatchPatterns } = await loadReg()
-    expect(() =>
-      validateMatchPatterns({ matches: ['https://a.com/*', 'not-a-pattern'], allFrames: true, runAt: 'document_idle' }),
-    ).toThrow(/not-a-pattern/)
+    for (const bad of [
+      'example.com/*',
+      'https://example.com',
+      'http://foo.*.bar/baz',
+      'javascript:alert(1)',
+      '',
+    ]) {
+      expect(() => validateMatchPatterns(config([bad]))).toThrow(/匹配规则不合法/)
+    }
+    expect(() => validateMatchPatterns(config(['*://*/*', 'bad-rule']))).toThrow(/bad-rule/)
+  })
+
+  it('excludeMatches 同样受校验', async () => {
+    const { validateMatchPatterns } = await loadReg()
+    expect(() => validateMatchPatterns(config(['*://*/*'], ['not-a-pattern']))).toThrow(/not-a-pattern/)
   })
 })
 

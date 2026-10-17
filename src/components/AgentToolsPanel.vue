@@ -23,14 +23,13 @@ import {
   ToolContent as UiToolContent,
   ToolHeader as UiToolHeader,
 } from '@/components/ai-elements/tool'
-import * as conversationStore from '@/lib/conversation-store'
-import { getToolName, isToolUIPart } from '@/lib/ui-message-parts'
+import { getToolName, isToolUIPart, listConversations, listMessages } from '@duoling/shared'
 import { useDataSync } from '@/composables/use-data-sync'
 import {
   agentToolTitle,
   agentToolViews,
   type AgentToolView,
-} from '@/lib/agent-tools-catalog'
+} from '@duoling/shared'
 import { errorText, formatTimeWithSeconds } from '@/lib/format'
 
 /** 左栏「全部工具」哨兵值 */
@@ -71,13 +70,13 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const conversations = (await conversationStore.listConversations())
+    const conversations = (await listConversations())
       .slice()
       .sort((a, b) => (a.lastMessageAt < b.lastMessageAt ? 1 : -1))
       .slice(0, SCAN_CONVERSATIONS)
     const out: ToolTrace[] = []
     for (const c of conversations) {
-      const messages = await conversationStore.listMessages(c.id)
+      const messages = await listMessages(c.id)
       for (const m of messages) {
         // 工具调用只可能出现在 assistant 分支
         if (m.role !== 'assistant') continue

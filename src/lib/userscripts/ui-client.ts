@@ -7,7 +7,7 @@
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 import { ipcRequest, ipcSubscribe } from '@/shared/ipc-bus'
 import { createOffscreenService } from '@duoling/shared'
-import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from './types'
+import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from '@duoling/shared'
 // 按页的整根活动轴（runtime-db 的读侧产物，六类行分五组）。**type-only**：UI 侧只要形状，
 // 不把存储层（idb-core）拖进扩展页 bundle。
 import type { TabTimeline } from './runtime-db'

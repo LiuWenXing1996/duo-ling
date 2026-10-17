@@ -37,7 +37,7 @@ import {
   mintTabSession,
   setTabSessionRecording,
 } from './runtime-db'
-import { broadcastDataChange } from '../data-broadcast'
+import { broadcastDataChange } from '@duoling/shared'
 
 /**
  * tabId → 最近一次「地址变更」的时刻。

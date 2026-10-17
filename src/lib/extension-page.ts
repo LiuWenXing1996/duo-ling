@@ -15,7 +15,7 @@
 // Firefox 不适用：about:addons 属特权 about: URL，tabs.create 会拒绝（MDN 明列），
 // 调用方应自行判断不给入口。
 
-import { EXTENSION_NAME } from '@/lib/extension-identity'
+import { EXTENSION_NAME } from '@duoling/shared'
 
 /** 浏览器主版本号：取 UA 里的 Chrome/xx；Firefox 等解析不到时返回 0 */
 export function getChromeMajorVersion(): number {

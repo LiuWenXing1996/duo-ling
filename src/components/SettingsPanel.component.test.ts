@@ -9,7 +9,9 @@ import SettingsPanel from './SettingsPanel.vue'
 import { SETTINGS_SECTIONS } from './settings/sections'
 
 // 分区内容会订阅数据变更广播：置空，避免依赖 BroadcastChannel / chrome 消息通道
-vi.mock('@/lib/data-broadcast', () => ({
+// mock 落在包根：shared 是单包，spread 保其余符号真身
+vi.mock('@duoling/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@duoling/shared')>()),
   subscribeDataChange: () => () => {},
   broadcastDataChange: () => {},
   broadcastBuildPhase: () => {},

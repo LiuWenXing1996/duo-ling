@@ -102,13 +102,13 @@ import { errorText, formatMessageTime, formatTokens } from '@/lib/format'
 import type { DynamicToolUIPart, TextUIPart, ToolUIPart, UIMessage } from 'ai'
 // 这几个 part 判定 helper 走本地实现：静态 import 'ai' 会把整块 ~360KB 的核心
 // （含 gateway / zod）钉进对话界面首屏静态图。详见该文件头部说明。
-import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, textOfMessage } from '@/lib/ui-message-parts'
+import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, textOfMessage } from '@duoling/shared'
 // 只取 messageTime 一个纯函数：该模块不含运行时代码（'ai' 与 shared/types 都是类型导入），
 // 不会破坏上面那条「静态 import 'ai' 会钉进首屏」的约束。
-import { messageTime } from '@/lib/conversation-message'
+import { messageTime } from '@duoling/shared'
 // 资源引用的三个消费口径都取自这里（part 形状、拼 data URL、从消息里挑引用）：
 // 该模块同样零运行时依赖（'ai' 是类型导入），不破首屏约束。
-import { assetsOfMessage, dataUrlOf, type ChatAssetRef } from '@/lib/chat-assets'
+import { assetsOfMessage, dataUrlOf, type ChatAssetRef } from '@duoling/shared'
 import {
   ATTACHMENT_ACCEPT,
   MAX_ATTACHMENTS,

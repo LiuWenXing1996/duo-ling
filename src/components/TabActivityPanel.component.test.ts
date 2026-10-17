@@ -16,7 +16,7 @@ import type {
   UserScriptRunEvent,
   UserScriptRunLogEntry,
   UserScriptRunLogRow
-} from '@/lib/userscripts/types'
+} from '@duoling/shared'
 import type { NetCaptureRecord } from '@duoling/shared'
 
 const runlog = vi.hoisted(() => vi.fn())
@@ -55,7 +55,9 @@ vi.mock('@/lib/userscripts/ui-client', () => ({
 const dataListeners = vi.hoisted(
   () => [] as Array<(push: { domain: string; uuid?: string; at: number }) => void>,
 )
-vi.mock('@/lib/data-broadcast', () => ({
+// mock 落在包根：shared 是单包，spread 保其余符号真身
+vi.mock('@duoling/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@duoling/shared')>()),
   // 退订要真摘掉：不然上一个用例挂的监听器还留在表里，pushDataChange 会连它一起喂，
   // 让「谁被重读了」的计数断言失真。
   subscribeDataChange: (fn: (push: never) => void) => {

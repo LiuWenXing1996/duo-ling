@@ -12,7 +12,7 @@ import {
   readPageBuildStamp,
   type BuildStamp,
 } from '@/lib/build-info'
-import { EXTENSION_NAME } from '@/lib/extension-identity'
+import { EXTENSION_NAME } from '@duoling/shared'
 import { readUpdateCheck, runUpdateCheck, type UpdateCheckRecord } from '@/lib/update-check'
 
 const injected = readInjectedBuildInfo()

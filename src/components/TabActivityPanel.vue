@@ -51,7 +51,7 @@ import {
   type UserScriptErrorRecord,
   type UserScriptRunEvent,
   type UserScriptRunLogRow
-} from '@/lib/userscripts/types'
+} from '@duoling/shared'
 import { errorText } from '@/lib/format'
 
 /**

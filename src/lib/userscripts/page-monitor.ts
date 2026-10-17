@@ -33,7 +33,7 @@ import type {
   PanelMonitorPush,
   PanelMonitorUp,
 } from '@/shared/extension-ipc'
-import type { UserScriptErrorRecord } from './types'
+import type { UserScriptErrorRecord } from '@duoling/shared'
 import { listUserScriptErrors } from './store'
 
 /** 面板端口名：脚本监控通道（对话界面浮层与工具栏 popup 都连它）—— 上行快照请求 + 下行推送寻址 */

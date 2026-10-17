@@ -1,10 +1,14 @@
-// project-store.ts 单测：读侧排序 / 默认命名 / match pattern 校验。
+// 单测：项目口径的派生读（排序 / 默认命名），实现住 state-db。
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { listProjects, nextScriptName } from './project-store'
-import { validateMatchPatterns } from '@duoling/service-worker'
-import { readAllProjects, removeProjects, writeProject } from '@duoling/shared'
-import type { ScriptProject } from './types'
+import {
+  listProjects,
+  nextScriptName,
+  readAllProjects,
+  removeProjects,
+  writeProject,
+} from './state-db'
+import type { ScriptProject } from './script-project'
 
 let seq = 0
 function makeProject(overrides: Partial<ScriptProject> = {}): ScriptProject {
@@ -63,37 +67,5 @@ describe('nextScriptName', () => {
   it('自定义 base', async () => {
     await writeProject(makeProject({ name: '备份 1' }))
     await expect(nextScriptName('备份')).resolves.toBe('备份 2')
-  })
-})
-
-describe('validateMatchPatterns（zip 导入与启用路径共用）', () => {
-  const config = (matches: string[], excludeMatches?: string[]) => ({
-    matches,
-    ...(excludeMatches ? { excludeMatches } : {}),
-    allFrames: true,
-    runAt: 'document_end' as const,
-  })
-
-  it('合法 pattern：通配 / 具体 host / file 无 host / 带端口 / <all_urls>', () => {
-    expect(() => validateMatchPatterns(config(['*://*/*']))).not.toThrow()
-    expect(() => validateMatchPatterns(config(['https://example.com/foo/*bar']))).not.toThrow()
-    expect(() => validateMatchPatterns(config(['file:///foo*']))).not.toThrow()
-    expect(() => validateMatchPatterns(config(['http://127.0.0.1:8080/*']))).not.toThrow()
-    expect(() => validateMatchPatterns(config(['<all_urls>']))).not.toThrow()
-    expect(() => validateMatchPatterns(config(['*://*/*'], ['*://evil.example/*']))).not.toThrow()
-  })
-
-  it('非法 pattern：缺 scheme / 缺 path / host 中段通配 / 空', () => {
-    for (const bad of ['example.com/*', 'https://example.com', 'http://foo.*.bar/baz', 'javascript:alert(1)', '']) {
-      expect(() => validateMatchPatterns(config([bad]))).toThrow(/匹配规则不合法/)
-    }
-    // 报错列出具体规则
-    expect(() => validateMatchPatterns(config(['*://*/*', 'bad-rule']))).toThrow(/bad-rule/)
-  })
-
-  it('excludeMatches 同样受校验', () => {
-    expect(() => validateMatchPatterns(config(['*://*/*'], ['not-a-pattern']))).toThrow(
-      /not-a-pattern/,
-    )
   })
 })

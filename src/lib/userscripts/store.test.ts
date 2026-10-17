@@ -27,7 +27,7 @@ import {
   mintTabSession,
 } from './runtime-db'
 import type { NetCaptureRecord } from '@duoling/shared'
-import { RUN_EVENT_MAX, RUN_LOG_MAX, type ScriptProject } from './types'
+import { RUN_EVENT_MAX, RUN_LOG_MAX, type ScriptProject } from '@duoling/shared'
 
 beforeEach(async () => {
   await clearRuntime()

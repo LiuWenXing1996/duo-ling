@@ -42,7 +42,7 @@ import {
   startChat,
   startOffscreenHost,
 } from '@duoling/offscreen-document'
-import { createConversation, renameConversation } from '@/lib/conversation-store'
+import { createConversation, renameConversation } from '@duoling/shared'
 
 /**
  * offscreen 应答的命令面前缀（与 SW 的 SW_KIND_PREFIXES 互补，两者并集须恰好覆盖

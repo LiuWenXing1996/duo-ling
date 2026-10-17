@@ -12,6 +12,7 @@
 //
 // 「一切观测只在开着活动记录的页上产生」这条口径的判据落在 recordRunStart（没有
 // tabSessionId 直接不写）；错误侧由 runtime-db 从所属运行条继承页归属，存储层保证一致。
+import { broadcastDataChange } from '@duoling/shared'
 import {
   type RunEndReason,
   type ScriptProject,
@@ -21,8 +22,7 @@ import {
   type UserScriptRunEvent,
   type UserScriptRunLogEntry,
   type UserScriptRunLogRow,
-} from './types'
-import { broadcastDataChange } from '../data-broadcast'
+} from '@duoling/shared'
 import * as runtime from './runtime-db'
 
 /**

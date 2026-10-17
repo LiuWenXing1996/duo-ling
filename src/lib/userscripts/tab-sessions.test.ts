@@ -16,7 +16,7 @@ import {
   setTabRecording,
   splitTabSessionsAtBrowserStart,
 } from './tab-sessions'
-import { TAB_SESSION_MAX } from './types'
+import { TAB_SESSION_MAX } from '@duoling/shared'
 
 beforeEach(async () => {
   // 导航印记是内存态：不清它，上一个用例在同一 tabId 上留的印会把本用例的刷新判成「导航的后续」

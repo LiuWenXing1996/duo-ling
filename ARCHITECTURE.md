@@ -148,7 +148,7 @@ DevTools 里按库名过滤：`duoling-fs` / `duoling-state` / `duoling-usdata` 
 
 ## 数据变更广播（跨页面同步）
 
-IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 `src/lib/data-broadcast.ts` 补：写侧落盘成功后 `broadcastDataChange(域, uuid?)` 发一条**只含域+uuid、不带数据**的通知（BroadcastChannel 同源多播，不唤醒休眠 SW；无 BC 降级 `runtime.sendMessage`），读侧组件用 `useDataSync(域, reload)` 订阅后自行回拉权威存储（同 `domain+uuid` 100ms 合并防风暴）。频道名 / 合并窗口 / 推送形状（`DataChangedPush` / `DataDomain`）的真相源在 `@duoling/shared`（data-broadcast.ts）：运行时包（dl-bridge / cookie-gate）与宿主两侧同频道互通是硬要求，实现体两侧各留一份，共享的只有契约。
+IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 `@duoling/shared` 的 `data-broadcast-runtime.ts` 补：写侧落盘成功后 `broadcastDataChange(域, uuid?)` 发一条**只含域+uuid、不带数据**的通知（BroadcastChannel 同源多播，不唤醒休眠 SW；无 BC 降级 `runtime.sendMessage`），读侧组件用 `useDataSync(域, reload)` 订阅后自行回拉权威存储（同 `domain+uuid` 100ms 合并防风暴）。频道名 / 合并窗口 / 推送形状（`DataChangedPush` / `DataDomain`）的真相源在 `@duoling/shared`（data-broadcast.ts）：运行时包（dl-bridge / cookie-gate）与宿主两侧同频道互通是硬要求，实现体两侧各留一份，共享的只有契约。
 
 - 广播埋在写出口：offscreen 的 OffscreenService 写方法（`script` / `group` 域）、`conversation-store` 写函数（`conversation`）、`userscripts/store.ts`（`error`）、`userscripts/usdata-db` 写出口经 store.ts（gm 变更事件）与 `model-store.ts` 写出口（`model`）。
 - **`tabActivity`（标签页活动记录）是唯一按形态分流的域**：存续行的增减（建行 / 关页 / 开关记录 / 划断对账）与删除清空都由 `userscripts/tab-sessions.ts`、`store.ts` 发**不带 uuid**（=结构性变化），入站采样在最热的那条路上由 `dl-bridge.ingestTabRecord` 发**带 uuid**（=那一页的轴长了新行）。读侧据此分开：不带 uuid 两个视图一起整根重读，带 uuid 只对正在看的那一页按行号游标增量续拉（`tabTimeline` 的 `sinceId` / `maxId`）—— 采样每秒可达几十条且轴无上限，整根重读的代价会随轴长线性上涨，增量只与新增条数有关。

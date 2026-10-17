@@ -37,7 +37,7 @@ import {
   DialogTitle as UiDialogTitle
 } from '@/components/ui/dialog'
 import { useDataSync } from '@/composables/use-data-sync'
-import { toUiMessage } from '@/lib/conversation-message'
+import { toUiMessage } from '@duoling/shared'
 import {
   findTabsUsingConversation,
   getActiveTabBindings,

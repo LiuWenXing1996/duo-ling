@@ -85,7 +85,7 @@ import type {
   ScriptGroup,
   ScriptSummary,
   UserScriptsAvailability
-} from '@/lib/userscripts/types'
+} from '@duoling/shared'
 
 const props = defineProps<{
   /** 编辑器里有未保存改动的脚本 uuid（宿主注入）：删除前据此示警草稿会一起没 */

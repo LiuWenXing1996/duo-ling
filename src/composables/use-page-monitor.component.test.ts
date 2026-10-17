@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { defineComponent } from 'vue'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import type { PageErrorItem, PageRunItem, PanelMonitorPush } from '@/shared/extension-ipc'
-import type { ScriptSummary } from '@/lib/userscripts/types'
+import type { ScriptSummary } from '@duoling/shared'
 
 const listMock = vi.hoisted(() => vi.fn())
 const owningTabIdMock = vi.hoisted(() => vi.fn())
@@ -28,7 +28,9 @@ vi.mock('@/lib/owning-tab', () => ({
   resolveOwningTabId: () => owningTabIdMock(),
 }))
 
-vi.mock('@/lib/data-broadcast', () => ({
+// mock 落在包根：shared 是单包，spread 保其余符号真身
+vi.mock('@duoling/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@duoling/shared')>()),
   subscribeDataChange: (listener: (push: unknown) => void) => subscribeMock(listener),
   broadcastDataChange: () => {},
   broadcastBuildPhase: () => {},

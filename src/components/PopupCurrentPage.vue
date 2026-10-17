@@ -28,7 +28,7 @@ import {
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger,
 } from '@/components/ui/tooltip'
-import { EXTENSION_NAME } from '@/lib/extension-identity'
+import { EXTENSION_NAME } from '@duoling/shared'
 import { type PageOverviewTab } from '@/shared/extension-ipc'
 import { ipcRequest } from '@/shared/ipc-bus'
 import { errorText } from '@/lib/format'

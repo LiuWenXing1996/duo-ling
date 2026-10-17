@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
-import type { ChatAssetRef } from '@/lib/chat-assets'
+import type { ChatAssetRef } from '@duoling/shared'
 import {
   ATTACHMENT_ACCEPT,
   MAX_IMAGE_BYTES,

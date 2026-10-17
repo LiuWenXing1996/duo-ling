@@ -16,7 +16,7 @@
 //   · 内置页（chrome:// 等）与扩展页（chrome-extension://）不可注入；
 //   · 件不在位 / 页面关掉 / 导航 → 由 bridge 那一层即时失败或超时兜底。
 
-import { EXTENSION_NAME } from '@/lib/extension-identity'
+import { EXTENSION_NAME } from '@duoling/shared'
 import { ipcRequest } from '@/shared/ipc-bus'
 import type { ElementPickContext, PageEnvContext, PageSnapshotContext } from '@duoling/shared'
 import { runInspectorCommand } from '@/lib/userscripts/page-inspector-bridge'

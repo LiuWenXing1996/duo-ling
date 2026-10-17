@@ -10,8 +10,8 @@ import { fakeBrowser } from 'wxt/testing/fake-browser'
 
 // 会话写侧会真碰 IndexedDB，把写函数换成假身以造确定性的成功 / 失败两路。
 // 其余导出（TASKS / chatDb…）必须保留真身：chat-host 的任务存储顶层就取 TASKS，全量替换会在 import 期炸。
-vi.mock('@/lib/conversation-store', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/conversation-store')>()),
+vi.mock('@duoling/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@duoling/shared')>()),
   createConversation: vi.fn(),
   renameConversation: vi.fn(),
   deleteConversation: vi.fn(),
@@ -25,7 +25,7 @@ vi.mock('@duoling/offscreen-document', async (importOriginal) => ({
   startOffscreenHost: vi.fn(),
 }))
 
-import { createConversation, renameConversation } from '@/lib/conversation-store'
+import { createConversation, renameConversation } from '@duoling/shared'
 
 describe('offscreen 应答信封 { ok, data | error }', () => {
   // 走真实入口（offscreen-main.ts）注册的 onMessage 监听器：它内部经总线 serveIpc 统一包信封。

@@ -11,7 +11,7 @@
 // 旧数据写在后面。故这里串行执行，并把期间的重复通知合并成**最后一次**补跑一次。
 
 import { onScopeDispose } from 'vue'
-import { subscribeDataChange } from '@/lib/data-broadcast'
+import { subscribeDataChange } from '@duoling/shared'
 import type { DataChangedPush, DataDomain } from '@duoling/shared'
 
 /**

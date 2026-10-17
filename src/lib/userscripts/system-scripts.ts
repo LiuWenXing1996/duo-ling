@@ -5,7 +5,7 @@
 // 不可被用户编辑 / 删除，也没有 duoling-fs 侧的工作区。注册本身与用户脚本同一条
 // registerScript 路径（GM 包装 + 脚本桥一并内联，中继件并集须把系统脚本算上，
 // 见 engine.ts 的调用处）。
-import type { ScriptProject } from './types'
+import type { ScriptProject } from '@duoling/shared'
 import {
   FLOAT_HOST_FILE,
   FLOAT_HOST_ID,

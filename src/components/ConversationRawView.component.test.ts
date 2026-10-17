@@ -8,7 +8,9 @@ import type { AssistantMessage, Conversation, UserMessage } from '@/shared/types
 
 const listMessages = vi.fn()
 
-vi.mock('@/lib/conversation-store', () => ({
+// mock 落在包根：shared 是单包，spread 保其余符号真身
+vi.mock('@duoling/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@duoling/shared')>()),
   listMessages: (...args: unknown[]) => listMessages(...args),
 }))
 

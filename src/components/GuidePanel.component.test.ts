@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import GuidePanel from './GuidePanel.vue'
-import type { UserScriptsAvailability } from '@/lib/userscripts/types'
+import type { UserScriptsAvailability } from '@duoling/shared'
 
 const availability = vi.hoisted(() => vi.fn())
 const subscribeAvailability = vi.hoisted(() =>

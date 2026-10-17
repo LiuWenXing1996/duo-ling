@@ -24,7 +24,7 @@ import {
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger
 } from '@/components/ui/tooltip'
-import { getProject } from '@/lib/userscripts/project-store'
+import { getProject } from '@duoling/shared'
 
 // 左侧导航栏「设置」「脚本列表」等：调用工作区的对应方法
 const workspaceRef = ref<InstanceType<typeof WorkspaceHost> | null>(null)

@@ -2,7 +2,7 @@
 // 不 mock chrome：noteRunStart / resetPageRuns 在无端口（monitorPorts 空）时推送为 no-op，
 // 登记表是纯内存 Map，可直接断言；listUserScriptErrors 只在 snapshotFor 调用，本文件不触达。
 import { describe, expect, it } from 'vitest'
-import type { UserScriptErrorRecord } from './types'
+import type { UserScriptErrorRecord } from '@duoling/shared'
 import {
   forgetPageTab,
   noteRunStart,

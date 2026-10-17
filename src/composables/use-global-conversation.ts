@@ -24,8 +24,7 @@ import { useDataSync } from '@/composables/use-data-sync'
 import type { UseChatHelpers } from '@ai-sdk/vue'
 import type { ChatInit, ChatStatus, UIMessage } from 'ai'
 import { ExtensionChatTransport } from '@/lib/extension-chat-transport'
-import { toUiMessage, withMessageTime } from '@/lib/conversation-message'
-import { assetPartOf, type ChatAssetRef } from '@/lib/chat-assets'
+import { assetPartOf, toUiMessage, withMessageTime, type ChatAssetRef } from '@duoling/shared'
 import { getPickedElement } from '@/lib/page-context-store'
 import {
   bindTabToConversation,

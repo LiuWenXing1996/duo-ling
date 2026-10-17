@@ -37,7 +37,7 @@ import {
   TooltipTrigger as UiTooltipTrigger
 } from '@/components/ui/tooltip'
 import { useGlobalConversation } from '@/composables/use-global-conversation'
-import { EXTENSION_NAME } from '@/lib/extension-identity'
+import { EXTENSION_NAME } from '@duoling/shared'
 import { readPinnedTabId } from '@/lib/owning-tab'
 import { ipcNotify } from '@/shared/ipc-bus'
 

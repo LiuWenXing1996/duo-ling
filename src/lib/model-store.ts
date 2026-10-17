@@ -19,7 +19,7 @@ import type { ModelProfile, ModelProfileInput, ModelTestChatConfig } from '../sh
 import type { ModelProfileState } from '../shared/extension-ipc'
 import { decryptApiKey, encryptApiKey, type EncPayload } from './key-cipher'
 import * as appDb from './app-db'
-import { broadcastDataChange } from './data-broadcast'
+import { broadcastDataChange } from '@duoling/shared'
 
 const KEY = 'modelProfiles'
 

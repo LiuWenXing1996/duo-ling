@@ -10,13 +10,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import AgentToolsPanel from './AgentToolsPanel.vue'
-import { toolDescriptions } from '@/lib/agent-tools-catalog'
+import { toolDescriptions } from '@duoling/shared'
 import type { Conversation, Message } from '@/shared/types'
 
 const listConversations = vi.hoisted(() => vi.fn())
 const listMessages = vi.hoisted(() => vi.fn())
 
-vi.mock('@/lib/conversation-store', () => ({ listConversations, listMessages }))
+// mock 落在包根：shared 是单包，spread 保其余符号真身
+vi.mock('@duoling/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@duoling/shared')>()),
+  listConversations,
+  listMessages,
+}))
 vi.mock('@/composables/use-data-sync', () => ({ useDataSync: vi.fn() }))
 
 const conversation: Conversation = {

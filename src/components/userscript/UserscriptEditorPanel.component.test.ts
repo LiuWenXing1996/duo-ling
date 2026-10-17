@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import UserscriptEditorPanel from './UserscriptEditorPanel.vue'
 import { EditorView } from '@codemirror/view'
-import type { ScriptProject } from '@/lib/userscripts/types'
+import type { ScriptProject } from '@duoling/shared'
 import type { Source } from '@duoling/shared'
 
 const getProject = vi.hoisted(() => vi.fn())

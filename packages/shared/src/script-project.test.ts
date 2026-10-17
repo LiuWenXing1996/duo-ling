@@ -1,21 +1,15 @@
-// types.ts 单测：默认值约定（存储键拼接函数已随 chrome.storage 迁移删除或移入各库模块）。
+// 单测：脚本落盘形状的常量与新建模板。
 import { describe, expect, it } from 'vitest'
-import { SCRIPT_EXT, defaultConfig, defaultSource } from './types'
+import { SCRIPT_EXT, defaultSource } from './script-project'
 
-describe('默认值', () => {
-  it('SCRIPT_EXT 为 .user.js（zip 内源码文件的唯一后缀，名字本身任意）', () => {
+describe('SCRIPT_EXT', () => {
+  it('为 .user.js（zip 内源码文件的唯一后缀，名字本身任意）', () => {
     expect(SCRIPT_EXT).toBe('.user.js')
   })
+})
 
-  it('defaultConfig：allFrames true / runAt document_idle（对齐 TM 的默认值），matches 原样带入', () => {
-    expect(defaultConfig(['*://*/*'])).toEqual({
-      matches: ['*://*/*'],
-      allFrames: true,
-      runAt: 'document_idle',
-    })
-  })
-
-  it('defaultSource：一个现成的 metadata 块（配置与能力都在这里声明）', () => {
+describe('defaultSource', () => {
+  it('一个现成的 metadata 块（配置与能力都在这里声明）', () => {
     const src = defaultSource()
     expect(src).toContain('==UserScript==')
     // 匹配规则与能力是块里的两行主角（编辑器没有配置表单，这是唯一的配置入口）
@@ -24,7 +18,7 @@ describe('默认值', () => {
     expect(src).not.toContain('DL.')
   })
 
-  it('defaultSource：只留 metadata 注释，不铺散文说明', () => {
+  it('只留 metadata 注释，不铺散文说明', () => {
     const src = defaultSource()
     const commentLines = src.split('\n').filter((line) => line.trim().startsWith('//'))
     const metadataLines = commentLines.filter((line) => /^\/\/\s*(@|==)/.test(line.trim()))
@@ -34,7 +28,7 @@ describe('默认值', () => {
     expect(src).not.toContain('@name')
   })
 
-  it('defaultSource：极简纯 JS（不含 import/export，也不含脚本名）', () => {
+  it('极简纯 JS（不含 import/export，也不含脚本名）', () => {
     const src = defaultSource()
     expect(src).not.toMatch(/^\s*(import|export)\s/m)
     // 名字由状态库决定、不进模板
