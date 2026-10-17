@@ -15,10 +15,10 @@
   "pointer": false,
   "aliases": {
     "components": "@/components",
+    "composables": "@/composables",
     "utils": "@/lib/utils",
     "ui": "@/components/ui",
-    "lib": "@/lib",
-    "composables": "@/composables"
+    "lib": "@/lib"
   },
   "registries": {}
 }

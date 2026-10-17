@@ -3,21 +3,21 @@
 // 预设服务商的地址随服务商固定；末尾的「自定义」项则开放地址栏，接任意 OpenAI 兼容端点
 // （自建网关 / 代理 / 本地模型）。地址一律是**完整的 Chat Completions 端点**，原样发出。
 import { computed, nextTick, reactive, ref, watch } from 'vue'
-import { Button as UiButton } from '@duoling/ui/components/ui/button'
-import { Input as UiInput } from '@duoling/ui/components/ui/input'
+import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
+import { Input as UiInput } from '@duoling/shadcn-registry/components/ui/input'
 import {
   Dialog as UiDialog,
   DialogContent as UiDialogContent,
   DialogFooter as UiDialogFooter,
   DialogTitle as UiDialogTitle
-} from '@duoling/ui/components/ui/dialog'
+} from '@duoling/shadcn-registry/components/ui/dialog'
 import {
   Select as UiSelect,
   SelectContent as UiSelectContent,
   SelectItem as UiSelectItem,
   SelectTrigger as UiSelectTrigger,
   SelectValue as UiSelectValue
-} from '@duoling/ui/components/ui/select'
+} from '@duoling/shadcn-registry/components/ui/select'
 import { Eye as UiEye, EyeOff as UiEyeOff, X as UiX } from '@lucide/vue'
 import type { ModelProfile, ModelProvider } from '@duoling/shared'
 import { errorText } from '@duoling/ui/lib/format'

@@ -11,13 +11,13 @@
 // 是要跟它对上话（要对话，切过去再点「打开会话」，或者直接在那儿用页面右键菜单）。内容区刻意
 // 不可点 —— 整卡都是点击目标容易误触切走。
 import { ExternalLink as UiExternalLink } from '@lucide/vue'
-import { Button as UiButton } from '@duoling/ui/components/ui/button'
+import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger,
-} from '@duoling/ui/components/ui/tooltip'
+} from '@duoling/shadcn-registry/components/ui/tooltip'
 import { webHostname } from '@duoling/shared'
 import type { PageOverviewTab } from '@duoling/shared'
 

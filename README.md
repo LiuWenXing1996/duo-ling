@@ -33,14 +33,14 @@
 ├─ src/
 │  ├─ entrypoints/                # 四个载体入口 + 两个运行时宿主：background（SW 能力运行时）/ offscreen（AI 生成宿主）
 │  ├─ shared/ipc-bus.ts           # 总线**接收侧**（serveIpc + 三个 matcher）：要 chrome.runtime.MessageSender 的类型面，故留应用侧
-│  ├─ assets/                     # Tailwind 主题变量与全局样式（含指向四个页面包 dist 的 @source）
+│  ├─ assets/                     # Tailwind 主题变量与全局样式（含指向 shadcn-registry dist 的 @source）
 │  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（只剩 help/ 帮助页配图）
-├─ packages/ui/                   # 页面包 · 通用层：三页中 ≥2 页可达的全部 UI（ChatPanel / ai-elements / shadcn 原语）+ 前端数据客户端（会话、模型、脚本、主题）+ composables（lib + preserveModules）
+├─ packages/ui/                   # 页面包 · 通用层：三页中 ≥2 页可达的业务 UI（ChatPanel 等；shadcn 原语与 ai-elements 在 packages/shadcn-registry）+ 前端数据客户端（会话、模型、脚本、主题）+ composables（源码直出，由主包构建）
 ├─ packages/workbench/            # 页面包 · 工作台：WorkbenchApp 与只此一处的界面（脚本编辑 / 设置分区 / GM API / 帮助 / 会话历史）
 ├─ packages/floatpanel/           # 页面包 · 浮层：ChatApp（对话载体本体）+ 页面脚本监控
 ├─ packages/popup/                # 页面包 · popup：工具栏弹窗三件（当前页面 / 其他页面 / 面板）
-├─ packages/shared/               # 跨世界契约 + 共享实现：信封 / 常量 / 形状（bridge / tab-record / inspector / page-context）+ 脚本落盘形状（script-config / script-project）+ GM 语义与目录（api-contract / gm-grants / gm-api-catalog / metadata / match-pattern / match-union）+ 状态库（state-db）+ 会话与消息形状（conversation / chat-assets）+ 会话库（conversation-store）+ 会话投影（conversation-message / ui-message-parts）+ 对话载荷（chat-ipc / model）+ 工具目录（agent-tools-catalog）+ 项目读侧（project-store）+ 脚本形状（userscript-runtime / userscript-shapes）+ 总线原语（runtime-send）+ 构建注入（build-info）+ 数据变更广播（data-broadcast 契约 + data-broadcast-runtime 实现）+ 跨进程服务契约与代理工厂（service/）（Vite lib 构建 dist 两件套：mjs + d.ts，消费走 exports）
-├─ packages/service-worker/       # 运行时 · SW 进程包：注册引擎 registration / 命令分发 dl-bridge / 事件底座 dl-port / cookie 域名门 cookie-gate / require+resource 缓存 / 管理面 handler pack / 宿主注入点 host-config / 服务实体 SWService / offscreen 容器能力约定 / GM 侧实现件（gm-wrapper / script-bridge / usdata-db / gm-values）（Vite lib；依赖 shared；构建前置 node build-relay.mjs 生成中继件）
+├─ packages/shared/               # 跨世界契约 + 共享实现：信封 / 常量 / 形状（bridge / tab-record / inspector / page-context）+ 脚本落盘形状（script-config / script-project）+ GM 语义与目录（api-contract / gm-grants / gm-api-catalog / metadata / match-pattern / match-union）+ 状态库（state-db）+ 会话与消息形状（conversation / chat-assets）+ 会话库（conversation-store）+ 会话投影（conversation-message / ui-message-parts）+ 对话载荷（chat-ipc / model）+ 工具目录（agent-tools-catalog）+ 项目读侧（project-store）+ 脚本形状（userscript-runtime / userscript-shapes）+ 总线原语（runtime-send）+ 构建注入（build-info）+ 数据变更广播（data-broadcast 契约 + data-broadcast-runtime 实现）+ 跨进程服务契约与代理工厂（service/）（源码直出，由消费方构建）
+├─ packages/service-worker/       # 运行时 · SW 进程包：注册引擎 registration / 命令分发 dl-bridge / 事件底座 dl-port / cookie 域名门 cookie-gate / require+resource 缓存 / 管理面 handler pack / 宿主注入点 host-config / 服务实体 SWService / offscreen 容器能力约定 / GM 侧实现件（gm-wrapper / script-bridge / usdata-db / gm-values）（源码直出，由主包构建；build 仅前置 node build-relay.mjs 生成中继件源码模块；依赖 shared）
 ├─ packages/offscreen-document/   # 运行时 · offscreen 进程包：服务实体 OffscreenService（fs 组 / GM 桥面 / 状态库写侧 / 剪贴板写入）+ 对话编排（chat/：agent loop / 工具面 / 事件缓冲 / 任务快照 / 环境快照 / 模型缓存 / SW 代办桥）+ 启动装配（bootstrap：服务实体注册 / 保活 / 就绪握手 / 首拉配置 / 对账）（Vite lib；依赖 shared）
 ├─ packages/builtin-scripts/      # 内置注入件子包：TS 源码 + esbuild 打成 IIFE 产物（recorder / page-inspector / float-host；中继件 relay 已随 service-worker 包内化，录制件走系统脚本链；注册面见 AGENTS.md）
 ├─ packages/uscript-samples/      # 用户脚本样例子包：TS 模块化源码 + esbuild 打成单文件 .user.js（metadata 由各样例 meta.json 生成；raw/ 放不参与构建的坏源码；dist 不入库，pnpm -r build 产出，pack:uscripts 打 zip 分发）

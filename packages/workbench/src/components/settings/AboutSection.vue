@@ -4,7 +4,7 @@
 // 构建信息的取数语义（define 注入 vs sw:buildInfo 命令、dev / build 差异）见 `@duoling/shared` 的 app/build-info；
 // 检查更新的时机与能力边界（为什么只到「提示」为止）见同处的 app/update-check。
 import { computed, onMounted, ref } from 'vue'
-import { Button as UiButton } from '@duoling/ui/components/ui/button'
+import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
 import {
   fetchSwBuildStamp,
   fmtBuildTime,

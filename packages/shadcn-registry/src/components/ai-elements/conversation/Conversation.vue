@@ -3,8 +3,6 @@ import type { HTMLAttributes } from 'vue'
 import { cn } from '@/lib/utils'
 import { reactiveOmit } from '@vueuse/core'
 import { StickToBottom } from 'vue-stick-to-bottom'
-import { MarkdownProvider } from 'vue-stream-markdown'
-import { useMarkdownExtensions } from '../message/useMarkdownExtensions'
 
 interface Props {
   ariaLabel?: string
@@ -26,7 +24,6 @@ const props = withDefaults(defineProps<Props>(), {
   anchor: 'none',
 })
 const delegatedProps = reactiveOmit(props, 'class')
-const { provider, extensions } = useMarkdownExtensions()
 </script>
 
 <template>
@@ -35,9 +32,6 @@ const { provider, extensions } = useMarkdownExtensions()
     :class="cn('relative flex-1 overflow-y-hidden', props.class)"
     role="log"
   >
-    <MarkdownProvider v-if="!provider" :extensions="extensions">
-      <slot />
-    </MarkdownProvider>
-    <slot v-else />
+    <slot />
   </StickToBottom>
 </template>

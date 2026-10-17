@@ -8,7 +8,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@duoling/ui/components/ui/dialog'
+} from '@duoling/shadcn-registry/components/ui/dialog'
 
 const props = defineProps<{
   open: boolean

@@ -47,7 +47,10 @@ const componentStyle = computed((): CSSProperties => ({
 }))
 
 const MotionComponent = computed(() => {
-  return (motion[props.as as keyof typeof motion] || motion.p) as Component
+  // motion-v 的类型定义（re-export 自 framer-motion/dom）对 `motion[tag]` 的推断结果
+  // 不符合 <component :is> 期望的组件类型，故在此按「组件」语义收敛。
+  const component = motion[props.as as keyof typeof motion] ?? motion.p
+  return component as unknown as Component
 })
 </script>
 

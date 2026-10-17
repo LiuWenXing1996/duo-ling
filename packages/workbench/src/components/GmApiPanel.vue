@@ -6,13 +6,13 @@
 // 不靠人工对照。面板本身零请求、零存储：纯静态渲染，故不接 useDataSync。
 import { computed, ref } from 'vue'
 import { Code as UiCode, Search as UiSearch } from '@lucide/vue'
-import { Badge } from '@duoling/ui/components/ui/badge'
-import { Input as UiInput } from '@duoling/ui/components/ui/input'
+import { Badge } from '@duoling/shadcn-registry/components/ui/badge'
+import { Input as UiInput } from '@duoling/shadcn-registry/components/ui/input'
 import {
   Collapsible as UiCollapsible,
   CollapsibleContent as UiCollapsibleContent,
   CollapsibleTrigger as UiCollapsibleTrigger,
-} from '@duoling/ui/components/ui/collapsible'
+} from '@duoling/shadcn-registry/components/ui/collapsible'
 import {
   GM_API_GROUPS,
   GM_BRIDGE_LABELS,

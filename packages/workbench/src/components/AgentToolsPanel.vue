@@ -12,17 +12,17 @@
 import { computed, onMounted, ref } from 'vue'
 import type { ToolUIPart } from 'ai'
 import { ChevronDown as UiChevronDown, RefreshCw as UiRefreshCw, Wrench as UiWrench } from '@lucide/vue'
-import { Badge } from '@duoling/ui/components/ui/badge'
+import { Badge } from '@duoling/shadcn-registry/components/ui/badge'
 import {
   Collapsible as UiCollapsible,
   CollapsibleContent as UiCollapsibleContent,
   CollapsibleTrigger as UiCollapsibleTrigger,
-} from '@duoling/ui/components/ui/collapsible'
+} from '@duoling/shadcn-registry/components/ui/collapsible'
 import {
   Tool as UiTool,
   ToolContent as UiToolContent,
   ToolHeader as UiToolHeader,
-} from '@duoling/ui/components/ai-elements/tool'
+} from '@duoling/shadcn-registry/components/ai-elements/tool'
 import { getToolName, isToolUIPart, listConversations, listMessages } from '@duoling/shared'
 import { useDataSync } from '@duoling/ui/composables/use-data-sync'
 import {

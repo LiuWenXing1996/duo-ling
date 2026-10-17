@@ -32,37 +32,37 @@ import {
   ChevronRight as UiChevronRight,
   ChevronUp as UiChevronUp
 } from '@lucide/vue'
-import { Button as UiButton } from '@duoling/ui/components/ui/button'
+import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
 import {
   Dialog as UiDialog,
   DialogContent as UiDialogContent,
   DialogDescription as UiDialogDescription,
   DialogFooter as UiDialogFooter,
   DialogTitle as UiDialogTitle
-} from '@duoling/ui/components/ui/dialog'
+} from '@duoling/shadcn-registry/components/ui/dialog'
 import {
   DropdownMenu as UiDropdownMenu,
   DropdownMenuContent as UiDropdownMenuContent,
   DropdownMenuItem as UiDropdownMenuItem,
   DropdownMenuSeparator as UiDropdownMenuSeparator,
   DropdownMenuTrigger as UiDropdownMenuTrigger
-} from '@duoling/ui/components/ui/dropdown-menu'
-import { Input as UiInput } from '@duoling/ui/components/ui/input'
+} from '@duoling/shadcn-registry/components/ui/dropdown-menu'
+import { Input as UiInput } from '@duoling/shadcn-registry/components/ui/input'
 import {
   Select as UiSelect,
   SelectContent as UiSelectContent,
   SelectItem as UiSelectItem,
   SelectTrigger as UiSelectTrigger,
   SelectValue as UiSelectValue
-} from '@duoling/ui/components/ui/select'
-import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@duoling/ui/components/ui/switch'
-import { Textarea as UiTextarea } from '@duoling/ui/components/ui/textarea'
+} from '@duoling/shadcn-registry/components/ui/select'
+import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@duoling/shadcn-registry/components/ui/switch'
+import { Textarea as UiTextarea } from '@duoling/shadcn-registry/components/ui/textarea'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger
-} from '@duoling/ui/components/ui/tooltip'
+} from '@duoling/shadcn-registry/components/ui/tooltip'
 import { errorText, formatTimestamp } from '@duoling/ui/lib/format'
 import { isFileSchemeAccessAllowed } from '../../lib/extension-page'
 import { useDataSync } from '@duoling/ui/composables/use-data-sync'

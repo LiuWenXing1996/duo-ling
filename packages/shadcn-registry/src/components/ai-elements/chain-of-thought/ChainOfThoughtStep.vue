@@ -40,7 +40,7 @@ const statusStyles = {
         class="-mx-px absolute top-7 bottom-0 left-1/2 w-px bg-border"
       />
     </div>
-    <div class="flex-1 space-y-2">
+    <div class="min-w-0 flex-1 space-y-2">
       <div>{{ props.label }}</div>
       <div
         v-if="props.description"

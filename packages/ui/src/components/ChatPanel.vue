@@ -32,48 +32,48 @@ import {
   Trash2 as UiTrash2,
   X as UiX
 } from '@lucide/vue'
-import { Button as UiButton } from './ui/button'
+import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
 import {
   Popover as UiPopover,
   PopoverContent as UiPopoverContent,
   PopoverTrigger as UiPopoverTrigger
-} from './ui/popover'
+} from '@duoling/shadcn-registry/components/ui/popover'
 import {
   Dialog as UiDialog,
   DialogContent as UiDialogContent,
   DialogTitle as UiDialogTitle
-} from './ui/dialog'
+} from '@duoling/shadcn-registry/components/ui/dialog'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger
-} from './ui/tooltip'
+} from '@duoling/shadcn-registry/components/ui/tooltip'
 import {
   Message as UiMessage,
   MessageContent as UiMessageContent,
   MessageResponse as UiMessageResponse
-} from './ai-elements/message'
-import { Shimmer as UiShimmer } from './ai-elements/shimmer'
+} from '@duoling/shadcn-registry/components/ai-elements/message'
+import { Shimmer as UiShimmer } from '@duoling/shadcn-registry/components/ai-elements/shimmer'
 import {
   ChainOfThought as UiChainOfThought,
   ChainOfThoughtContent as UiChainOfThoughtContent,
   ChainOfThoughtHeader as UiChainOfThoughtHeader,
   ChainOfThoughtStep as UiChainOfThoughtStep
-} from './ai-elements/chain-of-thought'
+} from '@duoling/shadcn-registry/components/ai-elements/chain-of-thought'
 import {
   Tool as UiTool,
   ToolContent as UiToolContent,
   ToolHeader as UiToolHeader,
   ToolInput as UiToolInput,
   ToolOutput as UiToolOutput
-} from './ai-elements/tool'
+} from '@duoling/shadcn-registry/components/ai-elements/tool'
 import {
   Conversation as UiConversation,
   ConversationContent as UiConversationContent,
   ConversationEmptyState as UiConversationEmptyState,
   ConversationScrollButton as UiConversationScrollButton
-} from './ai-elements/conversation'
+} from '@duoling/shadcn-registry/components/ai-elements/conversation'
 import {
   PromptInput as UiPromptInput,
   PromptInputFooter as UiPromptInputFooter,
@@ -81,8 +81,8 @@ import {
   PromptInputTextarea as UiPromptInputTextarea,
   PromptInputTools as UiPromptInputTools,
   usePromptInputProvider
-} from './ai-elements/prompt-input'
-import type { PromptInputMessage } from './ai-elements/prompt-input'
+} from '@duoling/shadcn-registry/components/ai-elements/prompt-input'
+import type { PromptInputMessage } from '@duoling/shadcn-registry/components/ai-elements/prompt-input'
 import type { TokenUsage } from '@duoling/shared'
 import type { ChatMessageMetadata, MessagePageContext } from '@duoling/shared'
 import type { ElementPickContext } from '@duoling/shared'

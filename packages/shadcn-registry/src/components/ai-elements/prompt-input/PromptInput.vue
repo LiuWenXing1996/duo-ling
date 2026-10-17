@@ -73,7 +73,11 @@ if (!context) {
   throw new Error('PromptInput context is missing.')
 }
 
-const { addFiles, submitForm } = context
+const { fileInputRef, addFiles, submitForm } = context
+
+const setFileInputRef = (el: unknown) => {
+  fileInputRef.value = el as HTMLInputElement | null
+}
 
 function handleDragOver(e: DragEvent) {
   if (e.dataTransfer?.types?.includes('Files')) {
@@ -121,7 +125,7 @@ function onSubmit(e: Event) {
 <template>
   <div>
     <input
-      ref="fileInputRef"
+      :ref="setFileInputRef"
       type="file"
       class="hidden"
       :accept="accept"
@@ -129,7 +133,6 @@ function onSubmit(e: Event) {
       @change="onFileChange"
     >
     <form
-      ref="formRef"
       :class="cn('w-full', props.class)"
       @submit="onSubmit"
       @dragover.prevent="handleDragOver"

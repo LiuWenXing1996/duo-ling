@@ -10,14 +10,14 @@ import { ChatPanel } from '@duoling/ui'
 import ConversationRawView from './ConversationRawView.vue'
 import SessionHistoryPanel from './SessionHistoryPanel.vue'
 import { useChatRunning } from '../composables/use-chat-running'
-import { Button as UiButton } from '@duoling/ui/components/ui/button'
+import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
 import {
   Dialog as UiDialog,
   DialogContent as UiDialogContent,
   DialogDescription as UiDialogDescription,
   DialogFooter as UiDialogFooter,
   DialogTitle as UiDialogTitle
-} from '@duoling/ui/components/ui/dialog'
+} from '@duoling/shadcn-registry/components/ui/dialog'
 import { useDataSync } from '@duoling/ui/composables/use-data-sync'
 import { toUiMessage } from '@duoling/shared'
 import {

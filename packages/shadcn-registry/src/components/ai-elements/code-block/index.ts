@@ -11,4 +11,4 @@ export { default as CodeBlockLanguageSelectorItem } from './CodeBlockLanguageSel
 export { default as CodeBlockLanguageSelectorTrigger } from './CodeBlockLanguageSelectorTrigger.vue'
 export { default as CodeBlockLanguageSelectorValue } from './CodeBlockLanguageSelectorValue.vue'
 export { default as CodeBlockTitle } from './CodeBlockTitle.vue'
-export { highlightCode } from './utils'
+export { highlightCode, type CodeLanguage } from './utils'

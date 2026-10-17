@@ -19,9 +19,9 @@ import {
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger
-} from '@duoling/ui/components/ui/tooltip'
-import { Button as UiButton } from '@duoling/ui/components/ui/button'
-import { Input as UiInput } from '@duoling/ui/components/ui/input'
+} from '@duoling/shadcn-registry/components/ui/tooltip'
+import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
+import { Input as UiInput } from '@duoling/shadcn-registry/components/ui/input'
 import ConfirmDialog from '../ConfirmDialog.vue'
 // CodeMirror 6：顶层只装 codemirror + @codemirror/lang-javascript 两个包，
 // 下面按需引用的都是 codemirror 的直接依赖（官方分包），不新增 package.json 条目。

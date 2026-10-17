@@ -6,8 +6,8 @@
 // 这两种情况下他都没有「回到那条会话的浮层去按停止」的机会，任务就会在后台静默消耗 token。
 // 所以状态与停止入口都摆到会话列表上。
 import { Square as UiSquare } from '@lucide/vue'
-import { Badge as UiBadge } from '@duoling/ui/components/ui/badge'
-import { Button as UiButton } from '@duoling/ui/components/ui/button'
+import { Badge as UiBadge } from '@duoling/shadcn-registry/components/ui/badge'
+import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
 
 defineEmits<{ stop: [] }>()
 </script>

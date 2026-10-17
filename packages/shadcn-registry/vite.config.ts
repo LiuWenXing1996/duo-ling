@@ -1,11 +1,16 @@
 import { readdirSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import vue from '@vitejs/plugin-vue'
+import dts from 'vite-plugin-dts'
 import { defineConfig } from 'vite'
 
-const externalDeps = (id: string): boolean =>
-  !id.startsWith('\0') && !id.startsWith('.') && !isAbsolute(id)
-
+const externalDeps = (id: string): boolean => {
+  // 放行 @/ 别名路径，让 Rolldown 去解析它，让产物不使用别名路径
+  if (id.startsWith('@/')) {
+    return false
+  }
+  return !id.startsWith('\0') && !id.startsWith('.') && !isAbsolute(id)
+}
 const barrels = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = join(dir, e.name)
@@ -21,7 +26,14 @@ const tsFiles = (dir: string): string[] =>
   })
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    dts({
+      tsconfigPath: './tsconfig.json',
+      cleanVueFileName: true,
+      include: ['src'],
+    }),
+  ],
   resolve: {
     alias: {
       '@': join(process.cwd(), 'src'),

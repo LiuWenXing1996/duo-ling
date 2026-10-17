@@ -22,9 +22,9 @@
       // 内置件包：直指源码。构建（Vite / WXT 的 tsconfigPaths）与类型检查（vue-tsc）都走这条，
       // 于是包没被装上也不会在解析上翻车 —— 装不装只影响 node_modules 里的符号链接。
       "@duoling/builtin-scripts": ["./packages/builtin-scripts/src/index.ts"]
-      // shared 与两个进程包（service-worker / offscreen-document）
-      // 已 Vite lib 化：走标准 exports → dist，不再 paths 直指源码。
-      // builtin-scripts 的产物是「扩展内路径的文件」而非被 import 的模块，故仍 paths 直指源码。
+      // shared / service-worker 与页面包源码直出（exports 指 src）；offscreen-document
+      // 仍 Vite lib 化，走标准 exports → dist。
+      // builtin-scripts 的产物是「扩展内路径的文件」而非被 import 的模块，故 paths 直指源码。
     },
     "noUncheckedIndexedAccess": false,
     "noUnusedLocals": true
@@ -38,5 +38,7 @@
   // 不吃根的严格档；它对根的类型面只暴露 covers.ts（纯类型化数据，经 coverage 测试的
   // import 仍会被 vue-tsc 以根档检查）。
   "include": ["src/**/*", "e2e/**/*", "packages/**/*", "scripts/**/*", ".wxt/wxt.d.ts"],
-  "exclude": ["node_modules", ".output", "tmp", "packages/uscript-samples", "packages/*/dist"]
+  // shadcn-registry 与 uscript-samples 同待遇：源码不吃根的 paths（它的 @/ 是包内视角，
+  // 根程序里解析不了），由包级 typecheck（自带 @/ 映射）自管；根侧消费一律走 exports → dist。
+  "exclude": ["node_modules", ".output", "tmp", "packages/uscript-samples", "packages/shadcn-registry/src", "packages/*/dist"]
 }

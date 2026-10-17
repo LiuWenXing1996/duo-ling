@@ -4,8 +4,8 @@
 // 脚本仓目录（/uscripts/<uuid>）用徽标显示脚本名、uuid 退成次要文字 —— 光看 uuid 认不出是哪个脚本。
 import { computed } from 'vue'
 import { FileIcon } from '@lucide/vue'
-import { Badge } from '@duoling/ui/components/ui/badge'
-import { FileTreeFile, FileTreeFolder, FileTreeIcon, FileTreeName } from '../ai-elements/file-tree'
+import { Badge } from '@duoling/shadcn-registry/components/ui/badge'
+import { FileTreeFile, FileTreeFolder, FileTreeIcon, FileTreeName } from '@duoling/shadcn-registry/components/ai-elements/file-tree'
 import type { LfsNode } from '@duoling/shared'
 
 const props = defineProps<{ node: LfsNode; scriptNames?: Map<string, string> }>()

@@ -23,7 +23,7 @@ import {
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger
-} from '@duoling/ui/components/ui/tooltip'
+} from '@duoling/shadcn-registry/components/ui/tooltip'
 import { getProject } from '@duoling/shared'
 
 // 左侧导航栏「设置」「脚本列表」等：调用工作区的对应方法

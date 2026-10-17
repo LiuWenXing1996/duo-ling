@@ -20,7 +20,7 @@ vi.mock('@duoling/ui/lib/userscripts/ui-client', () => ({
   userscriptClient: { list },
 }))
 
-vi.mock('../ai-elements/file-tree', () => ({
+vi.mock('@duoling/shadcn-registry/components/ai-elements/file-tree', () => ({
   FileTree: {
     name: 'FileTree',
     emits: ['update:selectedPath'],
@@ -41,7 +41,7 @@ vi.mock('../ai-elements/file-tree', () => ({
   FileTreeName: { name: 'FileTreeName', template: '<span><slot /></span>' },
 }))
 
-vi.mock('@duoling/ui/components/ai-elements/code-block', () => ({
+vi.mock('@duoling/shadcn-registry/components/ai-elements/code-block', () => ({
   CodeBlockContent: { name: 'CodeBlockContent', props: ['code', 'language'], template: '<pre />' },
 }))
 
