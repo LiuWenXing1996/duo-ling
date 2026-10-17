@@ -4,10 +4,10 @@
 // 但「每个 kind 恰被一端处理」是**类型盲区**：
 //   · SW 端按 SW_KIND_PREFIXES（background.ts）前缀过滤 + `[K in SwRequest['kind']]` 映射表，
 //     typecheck 已保证 handlers 全覆盖；
-//   · offscreen 端按 OFFSCREEN_KIND_PREFIXES（offscreen-main.ts）前缀路由 + as 断言；
-//   · host 自管面（GM 运行时 createOffscreenHost 的自有监听器）不走前缀表，按 kind 白名单。
-// 三端应答面的**并集**是否恰好覆盖 kind 全集、有没有 kind「多端都接」或「无人接」，
-// 编译器查不出来——由这里的表驱动断言兜住。
+//   · offscreen 端按 OFFSCREEN_KIND_PREFIXES（offscreen-main.ts）前缀路由 + as 断言。
+// 两端应答面的**并集**是否恰好覆盖 kind 全集、有没有 kind「多端都接」或「无人接」，
+// 编译器查不出来——由这里的表驱动断言兜住。服务代理（fs 组 / 注册态写侧 / 剪贴板）
+// 报文无 kind，不在这套前缀归属里。
 import { describe, expect, it, vi } from 'vitest'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
 // 前缀常量从两端入口直接 import（已 export），避免在测试里复写第二份真相源。
@@ -25,11 +25,7 @@ vi.mock('@duoling/offscreen-document', async (importOriginal) => ({
 }))
 
 /** 期望的 kind 归属（side 取值 = 应答端）。真相源：extension-ipc.ts 的联合 + 各端入口的路由注释 */
-type OwnershipRow = { kind: RuntimeRequest['kind']; side: 'sw' | 'offscreen' | 'host' }
-
-// host 自管命令面：GM 运行时 offscreen 包（@duoling/userscript-offscreen）应答，
-// 不走 offscreen 前缀表（kind 真相源：@duoling/shared 的 ipc.ts）
-const HOST_OWNED_KINDS = ['clipboard:write'] as const
+type OwnershipRow = { kind: RuntimeRequest['kind']; side: 'sw' | 'offscreen' }
 
 const ALL_KINDS = [
   // —— userscript:*（SW 语境）——
@@ -67,15 +63,13 @@ const ALL_KINDS = [
   { kind: 'userscript:group-remove', side: 'sw' },
   { kind: 'userscript:group-reorder', side: 'sw' },
   // —— fs:ping（offscreen：容器就绪探测，SW 静默让路）——
-  // 源码库 / 资源库的读写已走 OffscreenService 代理（报文无 kind，不占总线），不在本表
+  // 源码库 / 资源库读写与剪贴板写入已走 OffscreenService 代理（报文无 kind，不占总线），不在本表
   { kind: 'fs:ping', side: 'offscreen' },
   // —— offscreen:*（SW：容器管理）——
   { kind: 'offscreen:ensure', side: 'sw' },
   { kind: 'offscreen:close', side: 'sw' },
   { kind: 'offscreen:status', side: 'sw' },
   { kind: 'offscreen:ready', side: 'sw' },
-  // —— clipboard:*（host：GM 运行时 createOffscreenHost 自管，免手势 + 富文本）——
-  { kind: 'clipboard:write', side: 'host' },
   // —— model:*（SW：配置中转）——
   { kind: 'model:getActiveProfile', side: 'sw' },
   // —— page:*（SW：AI 工具支路 page_snapshot / page_env_read 经 SW 向页面里的页面检查器下发指令；
@@ -130,11 +124,10 @@ describe('(a) RuntimeRequest kind 归属唯一性', () => {
   it.each(ALL_KINDS)('$kind → $side', ({ kind, side }) => {
     const swHandled = SW_KIND_PREFIXES.some((p) => kind.startsWith(p))
     const offHandled = OFFSCREEN_KIND_PREFIXES.some((p) => kind.startsWith(p))
-    const hostHandled = (HOST_OWNED_KINDS as readonly string[]).includes(kind)
-    // 核心：恰被一端接——「多端都接」会抢答（sendResponse 只有一次机会），
+    // 核心：恰被一端接——「两端都接」会抢答（sendResponse 只有一次机会），
     // 「无人接」则静默无响应，调用方拿到 port closed
-    expect([swHandled, offHandled, hostHandled].filter(Boolean)).toHaveLength(1)
-    expect(side === 'sw' ? swHandled : side === 'offscreen' ? offHandled : hostHandled).toBe(true)
+    expect([swHandled, offHandled].filter(Boolean)).toHaveLength(1)
+    expect(side === 'sw' ? swHandled : offHandled).toBe(true)
   })
 
   it('两端前缀表互不沾边（无共同前缀、互不为对方前缀）', () => {
@@ -150,8 +143,7 @@ describe('(a) RuntimeRequest kind 归属唯一性', () => {
     for (const { kind } of ALL_KINDS) {
       const covered =
         SW_KIND_PREFIXES.some((p) => kind.startsWith(p)) ||
-        OFFSCREEN_KIND_PREFIXES.some((p) => kind.startsWith(p)) ||
-        (HOST_OWNED_KINDS as readonly string[]).includes(kind)
+        OFFSCREEN_KIND_PREFIXES.some((p) => kind.startsWith(p))
       expect(covered, kind).toBe(true)
     }
   })

@@ -1,5 +1,5 @@
 // cookie 域名门组：从「GM.cookie 探针」并过来。门判定 = 命中本脚本 matches **且**不命中
-// excludeMatches（见 @duoling/userscript-sw 的 cookie-gate）——所以越域用例靠元数据里
+// excludeMatches（见 @duoling/service-worker 的 cookie-gate）——所以越域用例靠元数据里
 // 那条 @exclude 造出「门外」的域。
 import { add, code, errCode, fail, msg, pass } from '../harness'
 

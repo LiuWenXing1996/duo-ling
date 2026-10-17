@@ -2,7 +2,7 @@
 // （运行日志 / 错误落盘 / 页面监控 / 标签页录制 / 检查器结算）。
 // 由 background 调 createServiceWorkerHost 时显式传入（见 entrypoints/background.ts）；
 // 包内不自带观测面 —— 不注入 = 相应观测不发生，脚本行为不受损。
-import type { UserscriptTelemetry } from '@duoling/userscript-sw'
+import type { UserscriptTelemetry } from '@duoling/service-worker'
 import * as runtime from './runtime-db'
 import { notePageError, noteRunStart } from './page-monitor'
 import { recordingTabSessionId } from './tab-sessions'

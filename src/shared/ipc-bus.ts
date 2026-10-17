@@ -8,8 +8,8 @@
 //     基础设施库自带的 listener（如 SWService 的代理调用）与它并列，报文形状互斥。
 //
 // 接收侧的问询顺序：matcher 数组依次问询，第一个认领的应答（sendResponse 一条消息只有
-// 一次机会，多端都接会抢答）。包自管的 kind（剪贴板 / 管理面只读四条）以 pack
-// matcher 形式插在最前，归各包应答 —— 宿主前缀路由不得抢答；其余 kind 归宿主前缀表
+// 一次机会，多端都接会抢答）。包自管的 kind（管理面只读四条）以 pack matcher 形式插在
+// 最前，归各包应答 —— 宿主前缀路由不得抢答；其余 kind 归宿主前缀表
 // （SW_KIND_PREFIXES / OFFSCREEN_KIND_PREFIXES）。
 import type { OffscreenPush, RuntimeRequest, SwPush } from './extension-ipc'
 import type { DataChangedPush } from '@duoling/shared'

@@ -47,7 +47,7 @@ export const SYSTEM_FLOAT_MATCHES = ALWAYS_ON_MATCHES
  * 消费方两处：engine 的 listBuiltinRegistrations 把它并进 BUILTIN_META（popup 的页面概览与
  * 工作台「脚本列表」底部分区两处 UI 只读透出），以及本文件三个 project 构建器的 `name`
  * —— 展示名单一来源，件「自己声明自己」。中继件（脚本桥）不在：它已随
- * `@duoling/userscript-sw` 包内化，不是系统脚本，展示条目由 engine 自行补。
+ * `@duoling/service-worker` 包内化，不是系统脚本，展示条目由 engine 自行补。
  */
 export const SYSTEM_SCRIPT_DISPLAY: Readonly<
   Record<string, { name: string; world: string; note: string }>

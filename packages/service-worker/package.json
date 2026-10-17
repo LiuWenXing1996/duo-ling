@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "description": "SW 进程包：GM 运行时的 SW 侧宿主（注册引擎 / 命令分发 dl-bridge / 事件底座 dl-port / cookie 域名门 / require+resource 缓存 / 管理面 handler pack / 宿主注入点）+ 本扩展的 SW 侧服务实体与 offscreen 容器能力约定（Vite lib 模式构建）",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -16,13 +17,19 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "vite build",
-    "dev": "vite build --watch",
-    "test": "vitest run"
+    "build": "node build-relay.mjs && vite build",
+    "dev": "node build-relay.mjs && vite build --watch",
+    "test": "node build-relay.mjs && vitest run"
+  },
+  "dependencies": {
+    "@duoling/proxy-service-list": "workspace:*",
+    "@duoling/shared": "workspace:*",
+    "@duoling/userscript-core": "workspace:*"
   },
   "devDependencies": {
-    "@duoling/proxy-service-list": "workspace:*",
     "@types/chrome": "^0.2.9",
+    "esbuild": "^0.28.2",
+    "fake-indexeddb": "^6.2.5",
     "typescript": "^5.6.0",
     "vite": "^8.3.0",
     "vite-plugin-dts": "^5.1.1",

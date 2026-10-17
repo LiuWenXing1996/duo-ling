@@ -1,8 +1,13 @@
-// 包边界单测：守住「零应用依赖 + 不依赖件包」这条线。
+// 包边界单测：守住「进程包互不依赖」这条线。
 //
-// 判据：import 源不得指向应用侧（`@/…` / `~/…`）或件包（`@duoling/builtin-scripts`）。
-// 允许的依赖只有 @duoling/shared（契约）与 @duoling/userscript-core（语义与存储），
-// 兄弟包 userscript-offscreen 不是本包的依赖（两侧经 shared 契约互通，互不 import）。
+// 判据：import 源不得指向应用侧（`@/…` / `~/…`）、件包（`@duoling/builtin-scripts`）
+// 或 offscreen 进程包（`@duoling/offscreen-document`）。允许的依赖只有 @duoling/shared
+// （契约）/ @duoling/userscript-core（语义与存储）/ @duoling/proxy-service-list
+// （服务契约与代理工厂）。
+//
+// 跨进程互不依赖这条由两侧各守一半：合并成「一进程一包」后，两个进程包互相 import 会
+// 变成**合法的包引用**，而错进程加载当场就炸（SW 里没有 document / chrome.offscreen）。
+// 反向那侧见 @duoling/offscreen-document 的 boundary.test.ts。
 //
 // 全部文件都是宿主层：IndexedDB 与 chrome.*（SW 环境）名正言顺。chrome 由扩展环境提供，
 // 单测整体 stub（vi.stubGlobal）—— 应用耦合只准走 host-config 注入，import 判据之外的
@@ -39,7 +44,7 @@ function importSources(src: string): string[] {
 }
 
 describe('包边界', () => {
-  it('import 源不指向应用侧、件包与兄弟包', () => {
+  it('import 源不指向应用侧、件包与 offscreen 进程包', () => {
     const bad = FILES.flatMap((file) =>
       importSources(read(file))
         .filter(
@@ -48,7 +53,7 @@ describe('包边界', () => {
             s.startsWith('~/') ||
             s === '@duoling/builtin-scripts' ||
             s.startsWith('@duoling/builtin-scripts/') ||
-            s === '@duoling/userscript-offscreen',
+            s === '@duoling/offscreen-document',
         )
         .map((s) => `${file} → ${s}`),
     )

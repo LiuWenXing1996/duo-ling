@@ -175,18 +175,20 @@ describe('packMatcher —— 包自管命令面的问询式转发', () => {
   it('owns / handle 原样透传给包', async () => {
     const handled: string[] = []
     const matcher = packMatcher({
-      owns: (kind) => kind === 'clipboard:write',
+      owns: (kind) => kind === 'userscript:availability',
       handle: async (msg) => {
         handled.push(String(msg.kind))
         return 'pong'
       },
     })
 
-    expect(matcher.owns('clipboard:write')).toBe(true)
-    expect(matcher.owns('userscript:list')).toBe(false)
+    expect(matcher.owns('userscript:availability')).toBe(true)
+    expect(matcher.owns('userscript:save')).toBe(false)
     // 包自管的 kind 不进宿主前缀表 —— pack matcher 排在问询首位代为认领
-    expect(await matcher.handle({ kind: 'clipboard:write' } as never, {} as chrome.runtime.MessageSender)).toBe('pong')
-    expect(handled).toEqual(['clipboard:write'])
+    expect(
+      await matcher.handle({ kind: 'userscript:availability' } as never, {} as chrome.runtime.MessageSender),
+    ).toBe('pong')
+    expect(handled).toEqual(['userscript:availability'])
   })
 })
 

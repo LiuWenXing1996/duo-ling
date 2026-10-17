@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { listProjects, nextScriptName } from './project-store'
-import { validateMatchPatterns } from '@duoling/userscript-sw'
+import { validateMatchPatterns } from '@duoling/service-worker'
 import { readAllProjects, removeProjects, writeProject } from '@duoling/userscript-core'
 import type { ScriptProject } from './types'
 

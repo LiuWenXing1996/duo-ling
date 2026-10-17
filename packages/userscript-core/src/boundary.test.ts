@@ -1,8 +1,8 @@
-// 包边界单测：守住「零应用依赖 + 不依赖件包 + 不依赖兄弟包」这条线。
+// 包边界单测：守住「零应用依赖 + 不依赖件包 + 不依赖进程包」这条线。
 //
 // 判据只取不会误报的形态：
 //   ① import 源不得指向应用侧（`@/…` / `~/…`）、件包（`@duoling/builtin-scripts`）
-//      或兄弟包（userscript-sw / userscript-offscreen）—— 本包是最底层实现包，
+//      或进程包（service-worker / offscreen-document）—— 本包是最底层语义与存储包，
 //      依赖方向只允许指向 @duoling/shared；
 //   ② 源码里不得出现 `indexedDB` —— 只对**语义层**（L1）：索引库属宿主能力，
 //      存储层（state-db / usdata-db 等）名正言顺地用 IndexedDB。
@@ -57,7 +57,7 @@ function stripComments(src: string): string {
 }
 
 describe('包边界', () => {
-  it('import 源不指向应用侧、件包与兄弟包', () => {
+  it('import 源不指向应用侧、件包与进程包', () => {
     const bad = FILES.flatMap((file) =>
       importSources(read(file))
         .filter(
@@ -66,8 +66,8 @@ describe('包边界', () => {
             s.startsWith('~/') ||
             s === '@duoling/builtin-scripts' ||
             s.startsWith('@duoling/builtin-scripts/') ||
-            s === '@duoling/userscript-sw' ||
-            s === '@duoling/userscript-offscreen',
+            s === '@duoling/service-worker' ||
+            s === '@duoling/offscreen-document',
         )
         .map((s) => `${file} → ${s}`),
     )

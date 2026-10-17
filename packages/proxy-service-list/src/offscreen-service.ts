@@ -135,6 +135,12 @@ export interface ImportReport {
   ignored: ImportItemIgnored[]
 }
 
+/** 剪贴板写入的载荷（GM_setClipboard 的下游；至少 text / html 之一，消费侧校验） */
+export interface ClipboardWritePayload {
+  text: string | null
+  html: string | null
+}
+
 /** fs 组契约：调用面与实现面同一形状，由它钉死 */
 export interface IOffscreenService extends PromiseService<{
   /** 读源码（工作树）。无源码返回 null */
@@ -155,6 +161,11 @@ export interface IOffscreenService extends PromiseService<{
   fsAssetPut(dataUrl: string, filename: string): Promise<AssetWriteResult>
   /** 读回资源；不在（被清理过 / id 写错）返回 null */
   fsAssetRead(id: string): Promise<ChatAssetData | null>
+
+  // —— GM 运行时桥面（offscreen 独占能力；SW 侧同一个进程内调，无总线报文） ——
+
+  /** 写剪贴板：offscreen 内免用户手势直写（execCommand('copy')），富文本走 html */
+  clipboardWrite(payload: ClipboardWritePayload): Promise<void>
 
   // —— 用户脚本状态库写侧（单写方 = offscreen；SW 只经此转发，不直写） ——
   // 每个方法写成功后广播一次（script / group 域），前端据此回拉：IndexedDB 没有变更通知。

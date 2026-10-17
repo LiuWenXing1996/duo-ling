@@ -1,7 +1,8 @@
-# @duoling/userscript-sw
+# @duoling/service-worker
 
-GM 运行时的 **SW 侧宿主**。一个 Chrome 扩展接上本包，就能用 `chrome.userScripts` 跑用户脚本（GM API），
-不必自己实现任何 GM 语义。机制的来龙去脉见 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
+本项目的 **SW 进程包**：既是 GM 运行时的 SW 侧宿主（一个 Chrome 扩展接上它就能用 `chrome.userScripts`
+跑用户脚本，不必自己实现任何 GM 语义），也承载本扩展的 SW 侧服务实体 `SWService` 与
+offscreen 容器能力约定。机制的来龙去脉见 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 
 | 职责 | 件 |
 | --- | --- |
@@ -13,10 +14,13 @@ GM 运行时的 **SW 侧宿主**。一个 Chrome 扩展接上本包，就能用 
 | `@require` / `@resource` 的抓取与落库 | `require-cache` / `resource-cache` |
 | 运行时命令面 —— 管理面只读四条 | `management` |
 | 宿主注入点 —— 扩展身份 / offscreen 就绪 / 遥测 / 密钥存储 / 内置件 | `host-config` |
+| 服务实体 —— `SWService`（`ISWService` 实现：保活探针） | `sw-service` |
+| offscreen 容器能力约定 —— 建文档用的 reason 集 | `offscreen-reasons` |
 
-依赖方向：本包 → `@duoling/userscript-core`（语义与存储）→ `@duoling/shared`（契约），无环。
-offscreen 侧是同层的另一个包，与本包互不依赖 —— 接线见
-[`@duoling/userscript-offscreen`](../userscript-offscreen/README.md)。
+依赖方向：本包 → `@duoling/userscript-core`（语义与存储）→ `@duoling/shared`（契约），
+并经 `@duoling/proxy-service-list` 取 offscreen 服务代理，无环。
+offscreen 侧是同层的另一个**进程包** `@duoling/offscreen-document`，与本包**互不 import**
+（两侧各有一条 boundary 单测守这条线）。
 
 ## manifest.json
 
@@ -31,8 +35,7 @@ offscreen 侧是同层的另一个包，与本包互不依赖 —— 接线见
 ## background.ts（SW 入口）
 
 ```ts
-import { createServiceWorkerHost } from '@duoling/userscript-sw'
-import { GM_OFFSCREEN_REASONS } from '@duoling/userscript-offscreen'
+import { createServiceWorkerHost, GM_OFFSCREEN_REASONS } from '@duoling/service-worker'
 
 // 顶层第一帧同步调用（不 await）：注入配置 + 桥与 Port 监听注册同点完成（幂等）。
 // 各 port 全部可选：不注入 = 相应观测不发生，脚本行为不受损；
@@ -83,7 +86,7 @@ Chrome 对「允许运行用户脚本」开关**没有事件**，轮询是唯一
 翻转时按需自愈：
 
 ```ts
-import { onAvailabilityChange, registerAllEnabled, startAvailabilityWatch } from '@duoling/userscript-sw'
+import { onAvailabilityChange, registerAllEnabled, startAvailabilityWatch } from '@duoling/service-worker'
 
 startAvailabilityWatch() // 幂等；首个读数只建基线，不广播
 onAvailabilityChange(({ previous, current }) => {

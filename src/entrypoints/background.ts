@@ -34,7 +34,7 @@ import {
   unregisterScripts,
   collectCspWarnings,
   resolveInjectCode,
-} from '@duoling/userscript-sw'
+} from '@duoling/service-worker'
 // 本扩展自己的注入件注册同步（系统脚本 + 中继件并集）与内置件对账
 import {
   refreshBuiltinScripts,
@@ -50,13 +50,17 @@ import { resolveConfigFromSource } from '@duoling/userscript-core'
 // offscreen 与扩展页都不直连）。录制的开关跟着活动记录走，判据落在存续表上 —— 见 tab-sessions。
 import { describeCaptureDigest, describeCaptureRecords } from '@/lib/userscripts/net-digest'
 // 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
-import { onAvailabilityChange, startAvailabilityWatch } from '@duoling/userscript-sw'
+import { onAvailabilityChange, startAvailabilityWatch } from '@duoling/service-worker'
 // 新版本检查：SW 在浏览器启动 / 安装更新时各查一次，结果落 duoling-app 库供 popup 与设置页读
 import { runUpdateCheck } from '@/lib/update-check'
 // GM 运行时接线：SW 侧工厂（配置注入 + 桥与 Port 监听注册同点完成，见 initUserScripts）
-import { createServiceWorkerHost, swIpcHandlers, SW_IPC_OWNED_KINDS } from '@duoling/userscript-sw'
-// SWService 注册侧：代理调用经库 listener 直达，不占总线 matcher 位
-import { SWService } from '@duoling/service-worker'
+// + SW 侧服务实体（代理调用经库 listener 直达，不占总线 matcher 位）
+import {
+  createServiceWorkerHost,
+  swIpcHandlers,
+  SW_IPC_OWNED_KINDS,
+  SWService,
+} from '@duoling/service-worker'
 // OffscreenService 消费侧：项目数据的写路径（见下方 offscreenService）
 import { createOffscreenService, registerSWService, type SaveOutcome } from '@duoling/proxy-service-list'
 // 标准化总线：本语境命令面唯一的 onMessage 收口（serveIpc）+ 路由 matcher（前缀表 / 包命令面）
@@ -175,7 +179,7 @@ export const SW_KIND_PREFIXES = [
  * handlers 表只登记这些 kind：`fs:*` / `conv:*` / `chat:*`（offscreen 管辖）都归 offscreen
  * 应答——它们不是 SW 的职责，不该为凑齐类型而塞进 handlers 表补死桩。
  *
- * 再减去包自管的 kind（SW_IPC_OWNED_KINDS）：管理面只读四条由 @duoling/userscript-sw 的
+ * 再减去包自管的 kind（SW_IPC_OWNED_KINDS）：管理面只读四条由 @duoling/service-worker 的
  * handler pack 应答，而 pack matcher 排在总线的问询首位——前缀表里不该出现它们的 handler。
  * 四条虽落在 `userscript:` 前缀内，归属由 matcher 顺序定，不靠前缀互斥；重复登记会被这张
  * 映射类型拒（编译期暴露，不会静默变成永不执行的分支）。
@@ -453,7 +457,7 @@ const handlers: {
 
   // —— 用户脚本管理器（IPC 命令名沿用既有，载荷为项目形态）——
   // list / getProject / groups / availability 四条只读命令归运行时包的 handler pack
-  // （@duoling/userscript-sw 的 swIpcHandlers，总线问询面在本监听器之前应答）——
+  // （@duoling/service-worker 的 swIpcHandlers，总线问询面在本监听器之前应答）——
   // 它们只依赖包内能力，宿主不重复实现。
 
   // 扩展内置注入件此刻的注册状态（只读透出，供工作台脚本列表底部的分区展示）

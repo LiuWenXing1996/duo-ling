@@ -6,7 +6,9 @@ import { defineConfig } from 'wxt'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 import { providerOrigins } from './src/lib/providers'
-import { EXTENSION_NAME } from './src/lib/extension-identity'
+// 直读包源码，不走 exports → dist：config 在 prepare / build / dev 的加载期就被求值，
+// 是构建的输入而非输出，不该押在包产物上。真相源仍是 packages/shared/src/extension-identity.ts。
+import { EXTENSION_NAME } from './packages/shared/src/extension-identity'
 
 // 浏览器扩展版：不依赖已下架的 @wxt/vue，直接用 vite 的 vue 插件编译 .vue 组件。
 //
@@ -32,7 +34,7 @@ mkdirSync(chromiumProfileDir, { recursive: true })
 // 内置件包的产物目录：件源码在 packages/builtin-scripts/，构建出来的是**独立 IIFE 文件**
 // （chrome.userScripts 的 js:[{ file }] 只认扩展内路径，件必须落进扩展产物）。产物留在包内，
 // 扩展侧只负责把它取进来 —— 见下面 build:publicAssets 钩子。
-// 注意：脚本桥中继件不在此列 —— 它已随 @duoling/userscript-sw 包内化（{ code } 注册），
+// 注意：脚本桥中继件不在此列 —— 它已随 @duoling/service-worker 包内化（{ code } 注册），
 // dist 里只有其余四件。
 const builtinScriptsDist = resolve(process.cwd(), 'packages/builtin-scripts/dist')
 

@@ -1,12 +1,14 @@
 // offscreen 侧服务实体：契约（IOffscreenService）在 @duoling/proxy-service-list，本包出实现。
 //
-// 两组能力：
+// 三组能力：
 //   · fs 组 —— 源码唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库 + git 版本化），
 //     SW 与扩展页读不到 lfs，源码的一切读取都经本服务取；
+//   · GM 桥面 —— 剪贴板写入：offscreen 才有页面焦点，SW 只能请它代写；
 //   · 用户脚本状态库写侧 —— 单写方就是本上下文：落盘与 git 提交在同一函数同一上下文里完成
 //     （userstate/project-write），故「写了状态但没 commit」的缝隙不存在。
 // 就绪探测（fs:ping）不走这里 —— 它不触碰文件系统，留在总线。
 import type {
+  ClipboardWritePayload,
   CommitActor,
   IOffscreenService,
   ImportReport,
@@ -15,6 +17,7 @@ import type {
 import type { ScriptConfig, ScriptGroup, ScriptProject } from '@duoling/userscript-core'
 import { broadcastDataChange, defaultConfig, resolveConfigFromSource } from '@duoling/userscript-core'
 import { base64ToBytes, bytesToBase64, parseDataUrl } from '@duoling/shared'
+import { writeClipboard } from './clipboard'
 import { putAsset, readAsset } from './fs/assets'
 import { listHistory, readSnapshotAt, readSource, restoreToCommit } from './fs/git'
 import { readLfsFile, readLfsTree } from './fs/lfs'
@@ -104,6 +107,12 @@ export class OffscreenService implements IOffscreenService {
       size: asset.size,
       base64: bytesToBase64(asset.bytes),
     }
+  }
+
+  // 写剪贴板：GM_setClipboard 的下游。offscreen 拿得到 document 而 SW 拿不到，
+  // 故每次写入都得过桥 —— 写本体在 clipboard.ts（execCommand + copy 事件注入）。
+  clipboardWrite(payload: ClipboardWritePayload) {
+    return writeClipboard(payload)
   }
 
   // —— 用户脚本状态库写侧 ——

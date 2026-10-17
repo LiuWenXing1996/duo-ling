@@ -40,4 +40,4 @@ writeFileSync(
     `/** 中继件 IIFE 产物（自包含，无 import/export 残留；chrome.userScripts.js[].code 直接可注入） */\n` +
     `export const RELAY_IIFE = ${JSON.stringify(code)}\n`,
 )
-console.log(`[userscript-sw] 中继件 IIFE 已生成 → ${OUT}（${code.length} 字节）`)
+console.log(`[service-worker] 中继件 IIFE 已生成 → ${OUT}（${code.length} 字节）`)

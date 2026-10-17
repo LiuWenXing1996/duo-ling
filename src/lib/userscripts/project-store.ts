@@ -32,6 +32,6 @@ export function listGroups(): Promise<ScriptGroup[]> {
 
 // —— match pattern 校验 ——
 // 校验器不住在本模块：语法校验器是 `@duoling/userscript-core` 的 isValidMatchPattern
-// （match-pattern.ts），语义校验器是 `@duoling/userscript-sw` 的 validateMatchPatterns
+// （match-pattern.ts），语义校验器是 `@duoling/service-worker` 的 validateMatchPatterns
 // （registration.ts）。导入路径（offscreen 的写侧）与启用路径（registration.registerScript）
 // 共用它们：非法值在导入 / 启用当场拦下并指明哪条不合法，不拖到注册时才以 Chrome 的英文异常冒出。

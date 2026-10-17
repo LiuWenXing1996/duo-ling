@@ -7,6 +7,9 @@ import type { IOffscreenService } from '@duoling/proxy-service-list'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 
+vi.mock('./clipboard', () => ({
+  writeClipboard: vi.fn(),
+}))
 vi.mock('./fs/lfs', () => ({
   readLfsFile: vi.fn(),
   readLfsTree: vi.fn(),
@@ -44,6 +47,7 @@ vi.mock('@duoling/userscript-core', async (importOriginal) => ({
 }))
 
 import { broadcastDataChange } from '@duoling/userscript-core'
+import * as clipboard from './clipboard'
 import * as fsAssets from './fs/assets'
 import * as fsGit from './fs/git'
 import * as fsLfs from './fs/lfs'
@@ -65,6 +69,7 @@ const METHODS = [
   'fsLfsReadFile',
   'fsAssetPut',
   'fsAssetRead',
+  'clipboardWrite',
   'userscriptCreate',
   'userscriptCreateGenerated',
   'userscriptSave',
@@ -147,6 +152,13 @@ const CASES: Record<(typeof METHODS)[number], Case> = {
     // 资源不在 → 原样回 null（面板据此显示占位而不是报错）
     setup: () => vi.mocked(fsAssets.readAsset).mockResolvedValue(null),
     result: null,
+  },
+
+  // —— GM 桥面：载荷原样交给写本体（校验与 DOM 接线在 clipboard.ts 及其单测）——
+  clipboardWrite: {
+    run: () => service.clipboardWrite({ text: 'x', html: null }),
+    backend: vi.mocked(clipboard.writeClipboard),
+    args: [{ text: 'x', html: null }],
   },
 
   // —— 状态库写侧：转发 + 广播（不带 uuid = 整体变化，读侧全量重拉）——

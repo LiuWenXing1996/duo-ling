@@ -11,7 +11,8 @@
 //
 // 说明：Chrome 不会自动启动 offscreen，必须显式 createDocument。策略是常驻：offscreen 不自关，
 // 仅在 `offscreen:close` 调试命令下主动关。
-import { GM_OFFSCREEN_REASONS } from '@duoling/userscript-offscreen'
+// offscreen 容器的 reason 集：与 GM 运行时、对话链路实际用到的能力同源收敛
+import { GM_OFFSCREEN_REASONS } from '@duoling/service-worker'
 import { ipcRequest } from '@/shared/ipc-bus'
 
 /** 与 src/entrypoints/offscreen.html 对应 */
@@ -32,12 +33,9 @@ async function hasOffscreen(): Promise<boolean> {
 /**
  * 确保 offscreen document 已就绪（幂等；并发调用共享同一在途 promise）。
  *
- * reasons 走包导出 GM_OFFSCREEN_REASONS（BLOBS + WORKERS + CLIPBOARD，与 GM 运行时实际
- * 用到的能力同源收敛）：
- *   · BLOBS   —— 拿 URL.createObjectURL（agent loop 的流式数据通道依赖 blob，而 SW 里没有）
- *   · WORKERS —— 派生子 worker（ai SDK 的分词 / 嵌入等子任务用）
- *   · CLIPBOARD —— GM_setClipboard 在 offscreen 内写剪贴板（免用户手势 + 富文本）
- * 三者均不带自动关闭（只有 AUDIO_PLAYBACK 有 30s 无声自关），故容器可长活。
+ * reasons 取 @duoling/service-worker 的 GM_OFFSCREEN_REASONS（BLOBS + WORKERS + CLIPBOARD，
+ * 三项都不带自动关闭，故容器可长活）—— 逐项含义与「为什么住 SW 进程包」见该包
+ * offscreen-reasons.ts 的文件头。
  */
 export async function ensureOffscreen(): Promise<void> {
   if (await hasOffscreen()) return

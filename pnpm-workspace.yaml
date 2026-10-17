@@ -9,11 +9,15 @@
 #     grants 真相源 / metadata 解析与脚本配置形状 / match-pattern / script-bridge；存储：
 #     内置默认存储 state-db+usdata-db+gm-values；数据变更广播），
 #     Vite lib 自构建（@duoling/shared 外部化，依赖走 workspace 链接），向上依赖 shared。
-#   · userscript-sw —— 运行时·SW 宿主层（注册引擎 registration / 命令分发 dl-bridge /
+#   · proxy-service-list —— 跨进程服务契约层（代理服务的 key 与契约 / 形状；对外只出
+#     registerSWService / createSWService / createOffscreenService），Vite lib 自构建，零子包依赖。
+#   · service-worker —— 运行时·SW 进程包（注册引擎 registration / 命令分发 dl-bridge /
 #     事件底座 dl-port / cookie 域名门 cookie-gate / require+resource 缓存 / 管理面 handler pack /
-#     宿主注入点 host-config），Vite lib 自构建，依赖 shared + userscript-core。
-#   · userscript-offscreen —— 运行时·offscreen 宿主层（剪贴板命令应答），
-#     Vite lib 自构建，依赖 shared。
+#     宿主注入点 host-config / 服务实体 SWService / offscreen 容器能力约定），
+#     Vite lib 自构建，依赖 shared + userscript-core + proxy-service-list。
+#   · offscreen-document —— 运行时·offscreen 进程包（服务实体 OffscreenService：fs 组 /
+#     GM 桥面 / 状态库写侧 / 剪贴板写入），Vite lib 自构建，
+#     依赖 shared + userscript-core + proxy-service-list。
 #   · uscript-samples —— 用户脚本样例（手测 / 端测的真机脚本）：TS 模块化源码 + esbuild 打成
 #     单文件 .user.js（metadata 头由各样例 meta.json 生成；raw/ 是不参与构建的坏源码样本），
 #     产物 dist/ 不入库、由 pnpm -r build 重建；被 scripts/pack-uscripts.mjs 打 zip 分发。
@@ -23,7 +27,7 @@ packages:
 
 # 依赖构建脚本白名单：pnpm 默认拦截依赖的 install / postinstall，未列出的包脚本不执行。
 # vue-demi 的 postinstall 按装到的 Vue major 覆盖 lib 变体（本项目为 Vue 3），放行。
-# esbuild 的 postinstall 校验并落位**平台二进制**（打进内置件包的构建依赖）；不放行则
+# esbuild 的 postinstall 校验并落位**平台二进制**（内置件包与 SW 进程包 build-relay 的构建依赖）；不放行则
 # pnpm 报 ERR_PNPM_IGNORED_BUILDS，构建时拿不到可执行的 esbuild。
 allowBuilds:
   esbuild: true

@@ -33,7 +33,7 @@ export const BRIDGE_CALL_TIMEOUT = 30000
 
 /**
  * 中继件的两段式装配口：运行器代码把它挂在 window 上，同批的装配段
- * （`@duoling/userscript-sw` relay/sync.ts 的 buildRelayInit）
+ * （`@duoling/service-worker` relay/sync.ts 的 buildRelayInit）
  * 按键名取出来调用，把运行期密钥递进去。两处同源本常量，改名一处即同步。
  */
 export const BRIDGE_RELAY_BOOT_KEY = '__dlScriptRelayBoot'

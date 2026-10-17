@@ -15,9 +15,9 @@
 //
 // 模块归属（硬约束）：本入口只允许 import extension-chat-transport.ts、ai SDK、
 // offscreen-bridge.ts、offscreen-chat/（对话编排，内部只引裸 IndexedDB 模块）、
-// @duoling/userscript-offscreen / @duoling/userscript-core / @duoling/offscreen-document
-// （纯函数 + offscreen 环境代码，import 期零副作用；文件库 duoling-fs 与注册态库的写侧
-// 也在其中，经 OffscreenService 暴露）。
+// @duoling/userscript-core / @duoling/offscreen-document（纯函数 + offscreen 环境代码，
+// import 期零副作用；文件库 duoling-fs、注册态库写侧与剪贴板写入都在其中，分别经 fs
+// 原语与 OffscreenService 暴露）。
 // 一旦 import store.ts / fs-store.ts / model-store.ts 这类 SW 专属模块，就会在运行时报
 // chrome.storage is undefined —— 这条规则的价值正是把「能不能在这里跑」变成编译器可查的问题。
 //
@@ -25,19 +25,15 @@
 // 三者它一个都挡不住**，故「任务可恢复」的简化兜底不能省（→ offscreen-chat/task-store.ts）。
 //
 // 命令面：fs:ping（就绪探测，留总线）/ conv:*（会话写侧，唯一写方）/ chat:*（对话编排）；
-// fs 组读写、资源库与**注册态库写侧**（userscript*）都走 OffscreenService 代理（不占总线）；
-// clipboard: 归 GM 运行时的 offscreen 包（createOffscreenHost 的 handle，由本入口总线代挂监听）。
+// fs 组读写、资源库、**注册态库写侧**（userscript*）与剪贴板写入都走 OffscreenService 代理
+// （报文无 kind，不占总线）。
 
 import '@/polyfills'
 import type { RuntimeRequest } from '@/shared/extension-ipc'
-import { IPC_CLIPBOARD_WRITE } from '@duoling/shared'
 // 标准化总线：本语境唯一的 onMessage 收口（serveIpc）+ 前缀路由 matcher；
 // ipcNotify 为单向推送入口（就绪握手 / 配置回拉触发）
 import { serveIpc, prefixMatcher, ipcNotify } from '@/shared/ipc-bus'
-// GM 运行时的 offscreen 命令面（clipboard:write 应答）：包工厂不管生命周期与监听，
-// 监听由本入口的总线代挂（`{ listen: false }` + matcher 问询）—— 每语境只有一个监听器。
-import { createOffscreenHost } from '@duoling/userscript-offscreen'
-// SW 保活轮询 + 本容器的服务实体 + 启动对账：都出自包，启动 / 注册归宿主
+// SW 保活轮询 + 本容器的服务实体（含剪贴板写入）+ 启动对账：都出自包，启动 / 注册归宿主
 import { OffscreenService, reconcileFs, startSwKeepalive } from '@duoling/offscreen-document'
 import { registerOffscreenService } from '@duoling/proxy-service-list'
 import {
@@ -72,7 +68,7 @@ function announceReady(): void {
 /**
  * offscreen 应答的命令面前缀（与 SW 的 SW_KIND_PREFIXES 互补，两者并集须恰好覆盖
  * RuntimeRequest 的 kind 全集——归属一致性由 extension-ipc.test.ts 表驱动断言）。
- * clipboard: 例外：不在本表 —— 它归 GM 运行时的 createOffscreenHost() 自管（自有监听器应答）。
+ * 剪贴板写入既不进本表也不进命令面：它收在 OffscreenService（服务代理报文，无 kind）。
  */
 export const OFFSCREEN_KIND_PREFIXES = ['fs:', 'conv:', 'chat:'] as const
 
@@ -84,9 +80,6 @@ const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: Runt
   'chat:': (msg) => handleChatCommand(msg),
 }
 
-// GM 运行时的 offscreen 命令面实例：`listen: false` = 不自挂监听（本入口的总线代挂）。
-const offscreenHost = createOffscreenHost({ listen: false })
-
 // 服务实体：顶层同步注册，迟了会漏掉早到的调用（容器重建会重跑本入口，故无需去重）。
 registerOffscreenService(new OffscreenService())
 
@@ -94,15 +87,11 @@ registerOffscreenService(new OffscreenService())
 startSwKeepalive()
 
 // 命令面：UI / SW 经共享总线发来，offscreen 在此处理并回传。
-// 本语境**唯一**的 onMessage 监听器（标准化信道）：问询顺序 =
-//   ① 宿主前缀表（fs: / conv: / chat:）；
-//   ② GM 运行时 offscreen 包自管的命令面（clipboard:write，见文件尾的 createOffscreenHost）。
-// 功能代码只写 handler 与 matcher，不再各自 addListener。
+// 本语境**唯一**的 onMessage 监听器（标准化信道）：问询顺序 = 宿主前缀表（fs: / conv: / chat:）。
+// 功能代码只写 handler 与 matcher，不再各自 addListener；服务代理（fs 组 / 注册态写侧 /
+// 剪贴板）走库自带 listener，报文形状与命令面互斥、不占问询位。
 serveIpc({
-  matchers: [
-    prefixMatcher(OFFSCREEN_KIND_PREFIXES, FS_HANDLERS),
-    { owns: (kind) => kind === IPC_CLIPBOARD_WRITE, handle: (msg) => offscreenHost.handle(msg) },
-  ],
+  matchers: [prefixMatcher(OFFSCREEN_KIND_PREFIXES, FS_HANDLERS)],
   observe: (msg) => {
     if (msg.kind === 'offscreen:configChanged') void refreshActiveProfile()
   },

@@ -41,7 +41,7 @@ import {
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
 // 标签页录制：转发件送来的采集载荷在 SW 侧按**种类**白名单化；落库走遥测 port（宿主注入）
-import { normalizeNetCapture, NET_TAB_KIND, IPC_CLIPBOARD_WRITE, type ClipboardWriteMessage } from '@duoling/shared'
+import { normalizeNetCapture, NET_TAB_KIND } from '@duoling/shared'
 import { broadcastDataChange } from '@duoling/userscript-core'
 // GM 值写出口（duoling-usdata 库；store.change 变更事件从这里直发）
 import {
@@ -66,6 +66,8 @@ import {
   handleObservation,
 } from './dl-fetch-priv'
 import { errorText } from './util'
+// offscreen 侧服务代理：剪贴板写入是 offscreen 独占能力（SW 拿不到 document），须请容器代写
+import { createOffscreenService } from '@duoling/proxy-service-list'
 // 宿主注入点：扩展身份 / offscreen 就绪 / 遥测（运行日志与错误落盘是宿主的产品面）
 import { extensionName, notificationIcon, offscreenPort, telemetryPort } from './host-config'
 
@@ -657,32 +659,37 @@ async function ingestTabRecord(kindRaw: unknown, record: unknown, tabId: number 
   }
 }
 
-/** 经 offscreen 写剪贴板（免用户手势；writeText / ClipboardItem 双轨）。超时即报，不挂死 */
+/** offscreen 侧服务代理（裸代理：唤起容器这一步由下面的 ensureReady 负责，不重复判据） */
+const offscreenService = createOffscreenService()
+
+/** 写入超时（ms）：容器在但不应答时别把脚本挂死 */
+const CLIPBOARD_TIMEOUT_MS = 2000
+
+/** 经 offscreen 写剪贴板（免用户手势；纯文本 / 富文本同一条路）。超时即报，不挂死 */
 async function writeClipboardViaOffscreen(text?: string, html?: string): Promise<void> {
   if (!text && !html) throw new ApiError('INVALID_ARG', 'GM_setClipboard：text 与 html 至少给一个')
+  // 容器可能刚被回收（扩展重载 / 崩溃）：先唤起并等到它能应答，再发调用
   const ready = await offscreenPort()?.ensureReady?.()
   if (!ready) throw new ApiError('NOT_AVAILABLE', 'GM_setClipboard：剪贴板服务不可用')
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new ApiError('BRIDGE_TIMEOUT', 'GM_setClipboard 写入超时（2s 无响应）')),
-      2000,
-    )
-    try {
-      // 载荷形状取自 shared 的契约（应答侧 = offscreen 包按同一份声明校验）
-      const request: ClipboardWriteMessage = { kind: IPC_CLIPBOARD_WRITE, text: text ?? null, html: html ?? null }
-      chrome.runtime.sendMessage(request, (resp: unknown) => {
-        clearTimeout(timer)
-        const err = chrome.runtime.lastError
-        if (err) return reject(new ApiError('NOT_AVAILABLE', 'GM_setClipboard：' + err.message))
-        const r = resp as { ok?: boolean; error?: string } | undefined
-        if (!r || !r.ok) return reject(new ApiError('INTERNAL', r?.error || 'GM_setClipboard 写入失败'))
-        resolve()
-      })
-    } catch (e) {
-      clearTimeout(timer)
-      reject(e instanceof Error ? e : new Error(String(e)))
-    }
-  })
+
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      offscreenService.clipboardWrite({ text: text ?? null, html: html ?? null }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new ApiError('BRIDGE_TIMEOUT', 'GM_setClipboard 写入超时（2s 无响应）')),
+          CLIPBOARD_TIMEOUT_MS,
+        )
+      }),
+    ])
+  } catch (e) {
+    // 自家错误码原样上抛（INVALID_ARG / NOT_AVAILABLE / BRIDGE_TIMEOUT）；其余归 INTERNAL
+    if (e instanceof ApiError) throw e
+    throw new ApiError('INTERNAL', 'GM_setClipboard：' + errorText(e))
+  } finally {
+    clearTimeout(timer)
+  }
 }
 /** 事件摘要里 url / 文本的展示上限（超出截断：一行被超长 URL 撑爆就没法看了） */
 const EVENT_TEXT_MAX = 120
