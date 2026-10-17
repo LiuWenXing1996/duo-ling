@@ -47,7 +47,7 @@
 ├─ packages/uscript-samples/      # 用户脚本样例子包：TS 模块化源码 + esbuild 打成单文件 .user.js（metadata 由各样例 meta.json 生成；raw/ 放不参与构建的坏源码；dist 不入库，pnpm -r build 产出，pack:uscripts 打 zip 分发）
 ├─ scripts/                       # 仓库维护脚本：verify-skills / check-todo / pack-uscripts / probe-target（本机测试靶站）/ model-stub（本机假模型，e2e 与 dev 共用）/ help-screenshots（帮助页配图生成器，浅暗两版六张落 src/public/help/）/ dev（dev 与靶站、假模型一起起）
 ├─ e2e/                           # Playwright 端测（extension fixture + smoke 冒烟）
-└─ .github/workflows/             # ci / e2e / release / sync-release-notes（作用见 GIT_WORKFLOW.md 与 VERSIONING.md）
+└─ .github/workflows/             # ci / release / sync-release-notes（作用见 GIT_WORKFLOW.md 与 VERSIONING.md）
 ```
 
 ## 后续接入

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 中继件的包内构建：src/relay/entry.ts（IIFE bundle）→ 生成 src/relay/relay-code.gen.ts。
+// 中继件的包内构建：src/relay/entry.ts（IIFE bundle）→ 生成同目录的 relay-code.gen.ts。
 //
 // 为什么生成 .ts 而不是 dist 产物文件：中继件不再以「公共资产文件 + { file } 注册」分发，
 // 而是**字符串内嵌**进包产物（js: [{ code: RELAY_IIFE }, { code: buildRelayInit(secret) }]）

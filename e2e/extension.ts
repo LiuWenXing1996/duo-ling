@@ -40,7 +40,10 @@ export interface UserScriptsBootstrap {
   hasDeveloperPrivate: boolean
   /** updateProfileConfiguration({ inDeveloperMode: true }) 是否成功（<138 的门槛 / 迁移前提） */
   devModeSet: boolean | string
-  /** updateExtensionConfiguration({ userScriptsEnabled: true }) 的调用结果（字段不存在的版本会报 Unexpected property） */
+  /**
+   * updateExtensionConfiguration({ userScriptsEnabled: true }) 的调用结果
+   * （字段不存在的版本会报 Unexpected property）
+   */
   userScriptsToggleCall: string
   /** 详情页「Allow user scripts」cr-toggle 的 DOM 点击结果（≥138 开关的人肉等价操作） */
   userScriptsToggleDom: string

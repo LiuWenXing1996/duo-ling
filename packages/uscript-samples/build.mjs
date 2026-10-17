@@ -10,7 +10,7 @@
 //   node build.mjs            构建一次（根的 build / typecheck / test 经 pnpm -r build 前置）
 //   node build.mjs --watch    监听重建（改样例源码时用）
 //
-// dist 布局与 pack-uscripts（scripts/pack-uscripts.mjs）的素材目录约定对齐：
+// dist 布局与 pack-uscripts（scripts/pack-uscripts.mts）的素材目录约定对齐：
 //     dist/<样例名>/<样例名>.user.js   每目录一份源码
 // raw/ 里的坏源码样本（语法错 / 运行时错）不参与构建（编不过是特性），构建时原样拷进 dist。
 //
