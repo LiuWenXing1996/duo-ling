@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 // 注释卫生门禁：扫描源码注释行，命中黑名单即失败。规则见 AGENTS.md「注释与文案」。
-// 另：注释里「见 xxx.md」引用的仓库文档必须真实存在，不存在即失败（死指针）。
+// 另有三类「引用与形态」检查，都是注释腐化的常见形态：
+//   - 注释里「见 xxx.md」引用的仓库文档必须真实存在（死指针）；
+//   - 注释里写的仓库路径（src/… 、packages/… 等）必须真实存在（挪目录 / 改扩展名后就烂在原地）；
+//   - 注释里 `pnpm run xxx` 的脚本名必须在 package.json 里（改脚本名同理）。
+// 注释行超过 120 显示列（CJK 记 2 列）也算失败：prettier 不折注释，长段落只能靠这道门拦。
 //
 // 豁免：在被豁免行的**前一行**写一条注释 `allow:comments`（可附一句原因），同
 // ESLint 的 `eslint-disable-next-line` 约定：
@@ -39,6 +43,11 @@ const RULES: Array<[string, RegExp]> = [
 const MARKER_RE = /^\*?\s*allow:comments/
 // 「见 xxx.md」引用的文件必须真实存在：编号会随文档重构消失，留下查不出来的死指针。
 const DOC_REF_RE = /(?:见|参见|详见|参考)\s*([\w./-]+\.mdx?)/g
+// 路径引用同理：前一个字符不能是路径字符，否则 `userscripts/page-monitor.ts` 会被截成 `scripts/page-monitor.ts`。
+const PATH_REF_RE =
+  /(?<![\w/-])((?:src|packages|scripts|e2e|\.agents)\/[\w./-]+\.(?:ts|mts|vue|js|mjs|md|json|css|less|yml|yaml))/g
+const RUN_REF_RE = /\bpnpm run ([\w:-]+)/g
+const WIDTH_LIMIT = 120
 
 /** 注释里引用的仓库文档不存在时报错（相对仓库根或引用所在目录解析）。 */
 function missingDocRefs(text: string, file: string): string[] {
@@ -49,6 +58,53 @@ function missingDocRefs(text: string, file: string): string[] {
     if (!existsSync(join(root, ref)) && !existsSync(join(dirname(file), ref))) {
       out.push(`引用不存在文档:${ref}`)
     }
+  }
+  return out
+}
+
+/** 显示宽度：CJK 与全角标点占两列，与终端观感一致。 */
+function width(s: string): number {
+  let w = 0
+  for (const ch of s) w += /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60]/.test(ch) ? 2 : 1
+  return w
+}
+
+/** 最近的包根：workspace 各包有独立 package.json，注释里的路径相对包根写也算数。 */
+function packageRootOf(file: string): string {
+  let dir = dirname(file)
+  for (;;) {
+    if (existsSync(join(dir, 'package.json'))) return dir
+    const up = dirname(dir)
+    if (up === dir) return root
+    dir = up
+  }
+}
+
+/** 注释里写的仓库路径不存在时报错（按仓库根、引用所在目录、所属包根三处解析）。 */
+function missingPathRefs(text: string, file: string): string[] {
+  const out: string[] = []
+  PATH_REF_RE.lastIndex = 0
+  for (const m of text.matchAll(PATH_REF_RE)) {
+    const ref = m[1]
+    const found =
+      existsSync(join(root, ref)) ||
+      existsSync(join(dirname(file), ref)) ||
+      existsSync(join(packageRootOf(file), ref))
+    if (!found) out.push(`引用不存在路径:${ref}`)
+  }
+  return out
+}
+
+const packageScripts = new Set(
+  Object.keys(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).scripts ?? {}),
+)
+
+/** 注释里 `pnpm run xxx` 的脚本名不在 package.json 时报错。 */
+function missingScriptRefs(text: string): string[] {
+  const out: string[] = []
+  RUN_REF_RE.lastIndex = 0
+  for (const m of text.matchAll(RUN_REF_RE)) {
+    if (!packageScripts.has(m[1])) out.push(`引用不存在脚本:${m[1]}`)
   }
   return out
 }
@@ -164,6 +220,7 @@ for (const file of files) {
   if (rel === selfRel) continue
   const code = readFileSync(file, 'utf8')
   const comments = commentLines(code)
+  const rawLines = code.split('\n')
 
   // 标记行 → 豁免其物理下一行
   const exemptLines = new Set<number>()
@@ -183,7 +240,14 @@ for (const file of files) {
       if (marker !== undefined) suppressed.set(c.line - 1, marker + 1)
       continue
     }
-    const names = [...matchRules(c.text), ...missingDocRefs(c.text, file)]
+    const names = [
+      ...matchRules(c.text),
+      ...missingDocRefs(c.text, file),
+      ...missingPathRefs(c.text, file),
+      ...missingScriptRefs(c.text),
+    ]
+    const cols = width(rawLines[c.line - 1] ?? '')
+    if (cols > WIDTH_LIMIT) names.push(`超宽注释行:${cols}列`)
     if (names.length) hits.push({ line: c.line, text: c.text, names })
   }
 

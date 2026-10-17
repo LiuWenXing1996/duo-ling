@@ -13,6 +13,8 @@
 //   - 块长分布：把「独占整行的注释」按极大连续段切块，看密度是成片写成还是零散点写。
 //     行尾注释（代码行上跟一句）不参与切块 —— 它不构成独立的段；空行会切断段（块注释内部的空行同样），
 //     所以块长是「严格连续」的下界，中间隔一行空行的两段算两个块。
+//   - 覆盖（该有的注释有没有）：文件头（前 3 行内有注释）与导出声明（上一非空行是注释），都按来源分行。
+//     前者对应本仓库「文件头交代职责与判据」的写法；后者只看有没有紧邻注释，不判内容质量。
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { extname, join, relative, sep } from 'node:path'
@@ -23,6 +25,8 @@ const extRe = /\.(mts|ts|vue|js|mjs|css|less)$/
 const declRe = /\.d\.(ts|mts)$/
 /** 组件库原样件所在目录（shadcn 的 ui、ai-elements）；其余一律算自研。 */
 const vendoredPrefixes = [join('src', 'components', 'ui'), join('src', 'components', 'ai-elements')].map((p) => p + sep)
+/** 导出声明：`export function|const|class|interface|type|enum`（含 default / async 变体）。 */
+const EXPORT_RE = /^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|class|interface|type|enum)\b/
 
 interface Stats {
   files: number
@@ -143,6 +147,14 @@ let silent = 0
 /** 连续注释段（块）：整行注释按行号连续性切出的极大段。 */
 const blocks: Array<{ len: number; file: string; line: number }> = []
 let commentOnly = 0
+/** 「该有的注释有没有」两类覆盖：文件头（前 3 行）与导出声明（上一非空行）。 */
+interface Coverage {
+  headYes: number
+  headNo: number
+  expDoc: number
+  expAll: number
+}
+const coverage = new Map<string, Coverage>()
 
 for (const file of files) {
   let code: string
@@ -167,6 +179,21 @@ for (const file of files) {
   const top = scanDirs.find((d) => rel.startsWith(d + sep)) ?? 'root'
   const ext = extname(file)
   const source = vendoredPrefixes.some((p) => rel.startsWith(p)) ? '引入件' : '自研'
+  const cov = coverage.get(source) ?? { headYes: 0, headNo: 0, expDoc: 0, expAll: 0 }
+  if ([...commentLines].some((l) => l <= 3)) cov.headYes++
+  else cov.headNo++
+  if (/\.(ts|mts)$/.test(file)) {
+    const lines = code.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      if (!EXPORT_RE.test(lines[i])) continue
+      cov.expAll++
+      let j = i - 1
+      while (j >= 0 && lines[j].trim() === '') j--
+      const prev = (lines[j] ?? '').trim()
+      if (prev.endsWith('*/') || prev.startsWith('//')) cov.expDoc++
+    }
+  }
+  coverage.set(source, cov)
   for (const [map, key] of [
     [byDir, top],
     [byExt, ext],
@@ -241,5 +268,22 @@ if (longest.length) {
   console.log('最长 5 个块')
   for (const b of longest) console.log(`  ${padStart(String(b.len), 2)} 行  ${b.file}:${b.line}`)
 }
+
+const ratio = (a: number, b: number) => (b ? `${((a / b) * 100).toFixed(1)}%` : '—')
+/** 该有的注释有没有：按来源分行，标题行给合计。 */
+function coverageSection(title: string, pick: (c: Coverage) => [number, number]) {
+  const rows = [...coverage.entries()].map(([name, c]) => ({ name, pair: pick(c) }))
+  const yes = rows.reduce((s, r) => s + r.pair[0], 0)
+  const all = rows.reduce((s, r) => s + r.pair[1], 0)
+  console.log(`\n${title}：${yes} / ${all} = ${ratio(yes, all)}`)
+  for (const r of rows.sort((a, b) => b.pair[1] - a.pair[1])) {
+    console.log(
+      `  ${pad(r.name, 6)}${padStart(`${r.pair[0]} / ${r.pair[1]}`, 12)}${padStart(ratio(r.pair[0], r.pair[1]), 9)}`,
+    )
+  }
+}
+
+coverageSection('文件头覆盖（前 3 行有注释）', (c) => [c.headYes, c.headYes + c.headNo])
+coverageSection('导出声明注释覆盖（仅 .ts / .mts，上一非空行是注释）', (c) => [c.expDoc, c.expAll])
 
 console.log(`\n零注释文件 ${silent} 个（密度按 0 计入总计）。`)

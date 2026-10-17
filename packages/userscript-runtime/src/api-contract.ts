@@ -135,7 +135,10 @@ export interface FetchInit {
    * 特权请求互斥排队（规则没有「只作用于某一次请求」的粒度，防规则污染并发请求）。
    */
   headers?: Record<string, string>
-  /** 文本体直接传字符串；二进制体（ArrayBuffer / TypedArray / DataView / Blob / File）由包装层转成 FetchBinaryBody 信封；FormData 转成 FetchFormBody 信封 */
+  /**
+   * 文本体直接传字符串；二进制体（ArrayBuffer / TypedArray / DataView / Blob / File）
+   * 由包装层转成 FetchBinaryBody 信封；FormData 转成 FetchFormBody 信封
+   */
   body?: string | FetchBinaryBody | FetchFormBody
   /** 'arraybuffer' 时响应 body 为 base64 字符串（二进制无法跨桥） */
   responseType?: 'text' | 'arraybuffer'

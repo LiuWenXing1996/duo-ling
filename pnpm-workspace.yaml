@@ -12,7 +12,7 @@
 #     同为 Vite lib 自构建包（@duoling/shared 外部化，依赖走 workspace 链接），向上依赖 shared。
 #   · uscript-samples —— 用户脚本样例（手测 / 端测的真机脚本）：TS 模块化源码 + esbuild 打成
 #     单文件 .user.js（metadata 头由各样例 meta.json 生成；raw/ 是不参与构建的坏源码样本），
-#     产物 dist/ 不入库、由 pnpm -r build 重建；被 scripts/pack-uscripts.mjs 打 zip 分发。
+#     产物 dist/ 不入库、由 pnpm -r build 重建；被 scripts/pack-uscripts.mts 打 zip 分发。
 #     类型面自持（宽松 globals.d.ts），不吃根的严格档。
 packages:
   - packages/*

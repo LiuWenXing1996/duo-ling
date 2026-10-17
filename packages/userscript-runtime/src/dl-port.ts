@@ -8,7 +8,8 @@
 //       dlPorts    Map<Port, {uuid, connId, tabId}>   连接寻址（menu.click 路由主键 = tabId）
 //       watches    Map<Port, Set<key>>                订阅跟随 Port 生命周期，断开自动清理
 //       notifyMap  Map<notificationId, uuid>          通知点击归属（内存，SW 重启窗口内点击丢失——已接受的取舍）
-//   · 三个事件来源：contextMenus.onClicked / GM 值存储 写出口（gm-values.ts 的 onGmValueChange 直发）/ notifications.onClicked。
+//   · 三个事件来源：contextMenus.onClicked / GM 值存储 写出口
+//     （gm-values.ts 的 onGmValueChange 直发）/ notifications.onClicked。
 //   · 控制面（注册 / 注销 / 订阅）走 sendMessage 请求-响应（dl-bridge dispatch 调本文件导出的
 //     函数），Port 只承载下行推送帧 —— 控制面/数据面分离。
 //
