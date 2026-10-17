@@ -13,9 +13,8 @@
 // （SW_KIND_PREFIXES / OFFSCREEN_KIND_PREFIXES）。
 import type { OffscreenPush, RuntimeRequest, SwPush } from './extension-ipc'
 import type { DataChangedPush } from '@duoling/shared'
-// 收发原语住契约包：offscreen 进程包也要发（对话编排经 SW 代办），而包不能引应用源码
-import { notifyRuntime, sendRuntime } from '@duoling/shared'
-import { errorText } from '@/lib/format'
+// 收发原语与 errorText 都住契约包：offscreen 进程包也要发（对话编排经 SW 代办），而包不能引应用源码
+import { errorText, notifyRuntime, sendRuntime } from '@duoling/shared'
 
 /** 接收侧的单条路由：owns 认领 → handle 执行（应答值由总线包进统一信封） */
 export interface IpcMatcher {
