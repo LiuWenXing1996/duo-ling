@@ -15,37 +15,19 @@
  * 可靠的自证方式。
  */
 
+import { readInjectedBuildInfo, type InjectedBuildInfo } from '@duoling/shared'
 import { ipcRequest } from '@/shared/ipc-bus'
 
-/** 构建期由 vite.define 注入的结构（声明见 src/types/shims.d.ts） */
-export interface InjectedBuildInfo {
-  /** ISO 时间戳：dev = dev server 启动时刻，build = 构建时刻 */
-  time: string
-  /** 构建所在分支 */
-  branch: string
-  /** package.json 完整版本（含预发布标签） */
-  version: string
-  /**
-   * 仓库标识 `owner/repo`（构建期从 git remote 推导，见 wxt.config.ts）。
-   * 供检查更新调 GitHub Releases；推导不到时为 `unknown`，检查更新会自行跳过。
-   */
-  repo: string
-}
+// 注入结构的形状与「读全局」那一半已归 @duoling/shared：offscreen 的环境快照直接消费它，
+// 而进程包不能引应用源码。本文件保留展示格式化与 `sw:buildInfo` 命令面（那两条要总线）。
+export { readInjectedBuildInfo }
+export type { InjectedBuildInfo }
 
 /** 展示用的构建标记：分支 + 已格式化的时间 */
 export interface BuildStamp {
   branch: string
   /** `MM-DD HH:mm:ss`（本地时区） */
   time: string
-}
-
-/**
- * 读构建期注入的构建信息。未应用该 define 的环境（如 vitest）里标识符不存在，返回 null。
- * typeof 守卫必需：直接读不存在的裸标识符会抛 ReferenceError，typeof 不会。
- */
-export function readInjectedBuildInfo(): InjectedBuildInfo | null {
-  const info = typeof __BUILD_INFO__ !== 'undefined' ? __BUILD_INFO__ : undefined
-  return info ?? null
 }
 
 /** ISO 时间 → `MM-DD HH:mm:ss`（本地时区） */

@@ -11,8 +11,10 @@
 // 服务端会报错，这里把错误原文原样交回模型（让它如实告诉用户「这个模型看不了图」，
 // 而不是编一段「图上好像有…」）。
 import { generateText, type LanguageModel } from 'ai'
-import { AGENT_RUNTIME_LIMITS } from '@/lib/agent-tools-catalog'
-import { readAsset } from '@duoling/offscreen-document'
+import {
+  AGENT_RUNTIME_LIMITS,
+} from '@duoling/shared'
+import { readAsset } from '../fs/assets'
 
 /**
  * 识图子 Agent 的身份。三条约束都是针对「主 Agent 拿到回答后会当真」这件事：

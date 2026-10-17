@@ -48,16 +48,16 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
   - **popup 页面概览的「正在生成」**（`page:overview` 命令一次取全：进行中集合 + 会话归属 + 运行登记表，见「脚本注入」的运行登记表）。
   工具栏角标**不报会话**（它只报脚本运行数，见「脚本注入」的运行登记表）。
 
-- **流式静默超时（防限流）**：`runLoop` 泵流期间挂 `createIdleGuard`（`src/lib/offscreen-chat/idle-guard.ts`），两次 chunk 间隔超 `STREAM_IDLE_TIMEOUT_MS`（默认 60s，可在模型高级配置里按 provider 调整 `streamIdleTimeoutSec` 秒）即判定 provider 卡死（有连接但不吐 token），主动 `abort` 并推 error 块「请求超时…已自动中止」。避免静默卡死的请求长期占用网关连接/并发配额、累积触发限流；用户手动停止走 `abortChat`，与此计时无关。模型配置探活 `testChat` 另有 15s 超时。
+- **流式静默超时（防限流）**：`runLoop` 泵流期间挂 `createIdleGuard`（`@duoling/offscreen-document` 的 `chat/idle-guard.ts`），两次 chunk 间隔超 `STREAM_IDLE_TIMEOUT_MS`（默认 60s，可在模型高级配置里按 provider 调整 `streamIdleTimeoutSec` 秒）即判定 provider 卡死（有连接但不吐 token），主动 `abort` 并推 error 块「请求超时…已自动中止」。避免静默卡死的请求长期占用网关连接/并发配额、累积触发限流；用户手动停止走 `abortChat`，与此计时无关。模型配置探活 `testChat` 另有 15s 超时。
 - **对话流内的卡片走 `data-*` part**（`data-generation` 生成卡片、`data-tab-record` 录制同意卡、`data-asset` 图片资源引用）。两条硬约束：① 历史消息送模型前 `messagesForModel`（`lib/chat-assets.ts`）会处理全部 `data-*` —— 卡片类整条剥掉（UI 专用，不进上下文），`data-asset` 换成一行文字引用（见下「图片」）；② 卡片若由**工具执行中途**推送（同意卡的 `requestConsent` 回调即此例），必须在 `runLoop` 里收集（`midStreamParts`）并在收尾插进落盘序列——`allChunks` 只收 `streamText` 的输出流，中途手工推的 part 不在其中，不收集就只在流里闪一下、重开面板即消失（而卡片往往是用户唯一的操作入口）。
 
-- **附件（图片 / 文本文件）**：转换全部在**发出前**完成，链路下游（transport / offscreen / provider）不需要知道「附件」这个概念。处理逻辑集中在 `src/lib/chat-attachments.ts`；引用形状与三个消费点的读法集中在 `src/lib/chat-assets.ts`。**转换只能在发出前做**：附件一旦随 user 消息落盘就是历史的一部分，事后再想换掉已经改不动。
+- **附件（图片 / 文本文件）**：转换全部在**发出前**完成，链路下游（transport / offscreen / provider）不需要知道「附件」这个概念。处理逻辑集中在 `src/lib/chat-attachments.ts`；引用形状与三个消费点的读法集中在契约包的 `chat-assets.ts`。**转换只能在发出前做**：附件一旦随 user 消息落盘就是历史的一部分，事后再想换掉已经改不动。
   - **文本文件读成正文**：OpenAI 兼容接口不支持任意文件上传，只能拼进提示词（带文件名围栏，超长截断并留标记）。
   - **图片不进消息，只落库 + 留引用**：重编码成 JPEG 后写到 `duoling-fs` 的 `/assets/<内容hash>/<文件名>`（`@duoling/offscreen-document` 的 `fs/assets`，与 `/uscripts` 平级 —— 源码库按「状态库 uuid ↔ 目录」清理孤儿，资源没有对应记录，塞进去会被当孤儿清掉），消息里只留一份 `data-asset`（`{ id, filename, mediaType, size }`）。**id 由内容 hash 定，唯一产地是 `fs/assets` 的 `contentId`**：同一张图重复附加（同会话重发 / 多条会话引用）命中同一份字节，写入天然幂等；调用方不参与定 id，否则「同图同 id」就得靠各处自觉遵守。落盘文件名按真实 MIME 归一扩展名（重编码后截图常是 `.png` 名字 + JPEG 字节），否则读回时会推出错 MIME。
-  - **模型永远看不到图片字节**：送模型前 `messagesForModel` 把 `data-asset` 换成一行文字（`assetPlaceholderText`：assetId + 「内容未随消息发送，要看图请调 image_ask」）。看图只有一条路 —— `image_ask` 工具 → 识图子 Agent（`offscreen-chat/vision-agent.ts`）：读库原图 → 一次独立、无工具的模型调用 → 只把**文字**答案交回主对话。于是「一次识图只烧一次图 token，而不是此后每轮都重发」成立（旧做法最贵的地方正在这里：图片随每条历史消息整段重发）。识图**用当前激活的模型**（它必须自己支持读图；不支持时服务端报错原样交回模型，由它向用户说明 —— 不在客户端预判模型能力，拦错了会挡掉本可用的组合）。
+  - **模型永远看不到图片字节**：送模型前 `messagesForModel` 把 `data-asset` 换成一行文字（`assetPlaceholderText`：assetId + 「内容未随消息发送，要看图请调 image_ask」）。看图只有一条路 —— `image_ask` 工具 → 识图子 Agent（包内 `chat/vision-agent.ts`）：读库原图 → 一次独立、无工具的模型调用 → 只把**文字**答案交回主对话。于是「一次识图只烧一次图 token，而不是此后每轮都重发」成立（旧做法最贵的地方正在这里：图片随每条历史消息整段重发）。识图**用当前激活的模型**（它必须自己支持读图；不支持时服务端报错原样交回模型，由它向用户说明 —— 不在客户端预判模型能力，拦错了会挡掉本可用的组合）。
   - **图片统一转 JPEG**（长边 ≤1568、先铺白底）：JPEG 是各家视觉接口的接受交集 —— PNG 压不动体积、WebP 有一批服务不认。代价是丢透明通道，对截图 / 设计稿无影响。
   - **面板按需 hydrate**：消息里只有引用，缩略图首次渲染时经 `fsAssetRead` 取回 data URL 并缓存（缓存键即内容 hash，同一条消息的多个缩略图只取一次）；取不到的（资源被清过 / id 写错）留空占位且不反复重试。
-  - **资源随会话删除回收**：删会话**先取候选 id、再删会话、最后回收**（`offscreen-chat/asset-lifecycle.ts`）—— 判据是「删完之后全库还剩谁在引用」（`conversation-store.referencedAssetIds`），而不是「这条会话带过什么」：图片可被多条会话共用，按后者删会把别人还在用的图删掉。清空全部会话时引用面必然为空，整库删。
+  - **资源随会话删除回收**：删会话**先取候选 id、再删会话、最后回收**（包内 `chat/asset-lifecycle.ts`）—— 判据是「删完之后全库还剩谁在引用」（`conversation-store.referencedAssetIds`），而不是「这条会话带过什么」：图片可被多条会话共用，按后者删会把别人还在用的图删掉。清空全部会话时引用面必然为空，整库删。
   - 输入区的附件状态由 `ChatPanel` 自持：它在自己的 setup 里创建 prompt-input 的上下文，`PromptInput` 会继承外层的那个（组件的双模式）—— 于是附件 chip、入口按钮、提交分流都留在对话面板内，通用组件不用装对话特有的逻辑。
 
 ## 脚本注入
@@ -99,7 +99,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 ## 页面上下文
 
 - **点选元素**：走**常驻件** —— 页面检查器以**系统脚本**形态随页面加载注入待命（`dl-page-inspector`，MAIN 世界，全站匹配；平时零 UI、不动作，启动即经脚本桥建常驻 Port），用户点按钮时 SW 取**当前聚焦窗口的活动标签页**（那一刻浮层必然在用户看着的那一页上，判据见 `background.ts` 的 `resolvePickTargetTab`）经 DL Port 事件帧下发指令（`pushCommandTo`，按系统脚本 uuid + tabId 寻址），件执行后经 `__dlEvent` 信封（`inspector.result`）上报、SW 按 `reqId` 配对（`page-inspector-bridge.ts`）。产物暂存后随下一条消息发出。
-- **页面快照 / 页面环境读数**：AI 侧 `page_snapshot`（渲染后 DOM）与 `page_env_read`（视口尺寸 / 设备像素比 / 页面里读到的 UA）两个工具经 SW 采集，各是页面检查器的一个模式（包内 `inspector/install.ts` 的 `snapshot` / `env`），与拾取走同一条指令线（下发 → 件执行 → 结果上行）。目标 = **这条会话所属的标签页**（不是「当前激活页」：这类读取是 AI 在生成中途自己决定发起的，那时用户可能已经切到别处），统一走 `background.ts` 的 `resolveAiTargetTab`（`findTabsUsingConversation` 反查，自带 tab 存活校验；会话没绑标签页时才退回最后聚焦窗口的激活页）。另有一个不经页面的 `env_read`（本机 OS / 芯片架构 / 浏览器与扩展版本等）—— 那是 offscreen 就地读 `navigator` 与构建注入值，不涉注入通道，见 `lib/env-snapshot.ts`。
+- **页面快照 / 页面环境读数**：AI 侧 `page_snapshot`（渲染后 DOM）与 `page_env_read`（视口尺寸 / 设备像素比 / 页面里读到的 UA）两个工具经 SW 采集，各是页面检查器的一个模式（包内 `inspector/install.ts` 的 `snapshot` / `env`），与拾取走同一条指令线（下发 → 件执行 → 结果上行）。目标 = **这条会话所属的标签页**（不是「当前激活页」：这类读取是 AI 在生成中途自己决定发起的，那时用户可能已经切到别处），统一走 `background.ts` 的 `resolveAiTargetTab`（`findTabsUsingConversation` 反查，自带 tab 存活校验；会话没绑标签页时才退回最后聚焦窗口的激活页）。另有一个不经页面的 `env_read`（本机 OS / 芯片架构 / 浏览器与扩展版本等）—— 那是 offscreen 就地读 `navigator` 与构建注入值，不涉注入通道，见包内 `chat/env-snapshot.ts`。
 - **注入前先按 scheme 拦**：`<all_urls>` **不覆盖 `chrome-extension://`**（连本扩展自己的页面也一样），未授权的 `file://` 也报同一句 —— 往上注入必失败，加 host 权限解决不了。判据在 `element-picker-client.ts` 的 `pageInjectionBlockReason`（三条注入支路共用：拾取拦在 `background.ts` 的 `resolvePickTargetTab`；两条 SW 侧读取拦在 `resolveAiTargetTab`）。
 
 ## 存储（IndexedDB 分库：源码 / 注册态 / 脚本数据 / 观测数据 / 应用配置 / 会话，2026-09-19 重构）
@@ -189,6 +189,6 @@ IDB 没有变更通知，「别处改了数据、这个页面还是旧的」靠 
 
 入口 HTML 的 `modulepreload` 链就是首帧要执行的代码，其体积 ≈ 首开白屏时长。两条硬约束：
 
-- **重依赖一律按需加载**：markdown 渲染链路（micromark/mdast + shiki + katex）约 600KB、AI SDK（`ai` 核心 + zod）约 360KB —— 打开对话框那一刻两者都用不上（历史消息走 IndexedDB 直读），静态引入会把首屏从约 530KB 抬到约 1420KB。落点：`MessageResponse.vue` 用 `defineAsyncComponent` + `<Suspense>` 拉 `vue-stream-markdown`（组件与 CSS 一起 await）；shiki 在 `code-block/utils.ts` 首次高亮时动态 import；`useChat` 收进 `use-global-conversation.ts` 的 `ensureChat()`。`ai` 的 part 判定 helper 另有本地实现，理由见 `src/lib/ui-message-parts.ts` 顶部注释。
+- **重依赖一律按需加载**：markdown 渲染链路（micromark/mdast + shiki + katex）约 600KB、AI SDK（`ai` 核心 + zod）约 360KB —— 打开对话框那一刻两者都用不上（历史消息走 IndexedDB 直读），静态引入会把首屏从约 530KB 抬到约 1420KB。落点：`MessageResponse.vue` 用 `defineAsyncComponent` + `<Suspense>` 拉 `vue-stream-markdown`（组件与 CSS 一起 await）；shiki 在 `code-block/utils.ts` 首次高亮时动态 import；`useChat` 收进 `use-global-conversation.ts` 的 `ensureChat()`。`ai` 的 part 判定 helper 另有本地实现，理由见契约包 `ui-message-parts.ts` 顶部注释。
 - **首帧底色不能靠 JS，加载态必须是内联静态 DOM**：`body` 背景取 `--background`，而 `.dark` 由 `theme.ts` 在 JS 执行时才挂上（CSP 禁内联 `<script>`），故「CSS 已到、JS 未执行完」这一档 `body` 实测为纯白、深色系统下反差明显。做法是三个入口 HTML 的 `<head>` 内联 `.dl-boot` 加载层 + `<meta name="color-scheme">`：底色用 CSS 系统色 `Canvas` / `CanvasText`（不依赖 `prefers-color-scheme` —— Chrome 在部分环境下该媒体查询不可靠），转圈只能用纯 CSS 画，Vue mount 清空 `#app` 时自动消失。**三个入口的样式块刻意重复，改一处须同步其余两处**；逐条改造要点就地记在 `floatpanel.html` 的注释里。
 - **dev 冷启动的白屏不属此列**：`pnpm run dev` 首次自动打开浏览器时白屏数秒 —— 那几秒里 HTML 文档本身尚未送达（Vite/WXT 现场编译 entrypoint + 预构建依赖），任何前端手段都渲染不出加载态。生产产物是静态文件、没有这段窗口，验真实首屏体感须用 `pnpm run build` 的产物；dev 同样不适合验 CSP。

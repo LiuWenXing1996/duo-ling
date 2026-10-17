@@ -10,8 +10,8 @@
 //   · 会话历史唯一写入方：用户消息在 start 时落盘、assistant 消息在收尾时落盘（onFinish 的
 //     职责从对话界面收归这里，防双写）。
 //
-// 边界：本模块只 import project-store（读侧）/ conversation-store（offscreen 可跑）/
-// ai SDK / offscreen-bridge；不碰 chrome.storage / chrome.userScripts。
+// 边界：依赖只有契约包（形状与纯函数）、ai SDK 与包内模块；不碰 chrome.storage /
+// chrome.userScripts —— 要它们经 chat/sw-bridge 请 SW 代办。
 
 import {
   convertToModelMessages,
@@ -23,21 +23,27 @@ import {
   type UIMessageChunk,
 } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
-import { AGENT_RUNTIME_LIMITS } from '@/lib/agent-tools-catalog'
-import { isAssetPart, messagesForModel } from '@/lib/chat-assets'
-import { appendMessage, listMessages } from '@/lib/conversation-store'
-import { toPersistedMessage, toUiMessage } from '@/lib/conversation-message'
-import { isPendingToolUIPart, textOfMessage } from '@/lib/ui-message-parts'
-import { offscreenBridge } from '@/lib/offscreen-bridge'
-import { getProject } from '@/lib/userscripts/project-store'
+import {
+  AGENT_RUNTIME_LIMITS,
+  isAssetPart,
+  messagesForModel,
+  appendMessage,
+  listMessages,
+  toPersistedMessage,
+  toUiMessage,
+  isPendingToolUIPart,
+  textOfMessage,
+  getProject,
+  errorText,
+} from '@duoling/shared'
 import type {
   ChatOrphanRecord,
   ChatResumeResult,
   MessagePageContext,
   PageContextInfo,
-  RuntimeRequest,
-} from '@/shared/extension-ipc'
-import type { MessageModelRef } from '@/shared/types'
+  MessageModelRef,
+} from '@duoling/shared'
+import { offscreenBridge } from './sw-bridge'
 import {
   dropBuffer,
   notifyChatFinished,
@@ -58,7 +64,6 @@ import {
 import { buildScriptTools, type TaskWorkspace } from './script-tools'
 import { getTask, listRunningTasks, putTask, removeTask, type ChatTaskRecord } from './task-store'
 import { askImageAboutAsset } from './vision-agent'
-import { errorText } from '@/lib/format'
 
 /** maxSteps 上限：沿用桌面版 agent-orchestrator 的 8。
  *  阈值取自 agent-tools-catalog（工作台「AI 工具」面板展示同一份，不再各写一份）。 */
@@ -661,33 +666,41 @@ async function runLoop(opts: {
   }
 }
 
-// —— 命令面（chat-commands 调用）——
+// —— 对外 API（宿主入口的命令面调用）——
 
-/** chat:start：持久化用户消息（submit-message）→ 建任务记录 → 异步起循环 */
-export async function startChat(msg: Extract<RuntimeRequest, { kind: 'chat:start' }>): Promise<{ taskId: string }> {
-  if (runningByConversation.has(msg.conversationId)) {
+/** 起一轮对话的入参：命令面在宿主入口，这里只认自己要的四个字段 */
+export interface ChatStartInput {
+  conversationId: string
+  messages: UIMessage[]
+  trigger: 'submit-message' | 'regenerate-message'
+  pageContext?: PageContextInfo
+}
+
+/** 起一轮对话：持久化用户消息（submit-message）→ 建任务记录 → 异步起循环 */
+export async function startChat(input: ChatStartInput): Promise<{ taskId: string }> {
+  if (runningByConversation.has(input.conversationId)) {
     throw new Error('当前会话已有生成任务进行中，请等待完成或停止后再发送')
   }
   const profile = getActiveProfile()
   if (!profile) throw new Error('尚未配置可用的在线模型，请先在「设置」中添加')
 
-  const lastMessage = msg.messages[msg.messages.length - 1]
+  const lastMessage = input.messages[input.messages.length - 1]
   // 新用户消息落盘（唯一写方=offscreen；自动命名逻辑在 store 的 appendMessage 里）。
   // 拾取/快照随消息落盘成 pageContext 元数据（档 0 URL/标题不落库，每轮实时取）——
   // 历史气泡 chip 与后续轮次「最近一次拾取」prompt 注入都以这条记录为数据源。
   // 落盘一律经 toPersistedMessage：content 与 parts 由同一处投影派生，不会再出现
   // "只写了 content、parts 漏掉"（那会让用户气泡在重开会话后变空，见该文件头注释）。
-  if (msg.trigger === 'submit-message' && lastMessage?.role === 'user') {
+  if (input.trigger === 'submit-message' && lastMessage?.role === 'user') {
     const attached: MessagePageContext | undefined =
-      msg.pageContext?.element || msg.pageContext?.snapshot
+      input.pageContext?.element || input.pageContext?.snapshot
         ? {
-            ...(msg.pageContext.element ? { element: msg.pageContext.element } : {}),
-            ...(msg.pageContext.snapshot ? { snapshot: msg.pageContext.snapshot } : {}),
+            ...(input.pageContext.element ? { element: input.pageContext.element } : {}),
+            ...(input.pageContext.snapshot ? { snapshot: input.pageContext.snapshot } : {}),
           }
         : undefined
     await appendMessage(
       toPersistedMessage(lastMessage, {
-        conversationId: msg.conversationId,
+        conversationId: input.conversationId,
         ...(attached ? { pageContext: attached } : {}),
       }),
     )
@@ -701,13 +714,13 @@ export async function startChat(msg: Extract<RuntimeRequest, { kind: 'chat:start
   const prompt = promptText.trim() || (lastMessage?.parts.some(isAssetPart) ? '（见消息中的图片）' : '')
   await putTask({
     taskId,
-    conversationId: msg.conversationId,
+    conversationId: input.conversationId,
     status: 'running',
     step: 0,
     applyFailures: 0,
     code: null,
     prompt,
-    ...(msg.pageContext ? { pageContext: msg.pageContext } : {}),
+    ...(input.pageContext ? { pageContext: input.pageContext } : {}),
     createdAt: Date.now(),
     updatedAt: Date.now(),
     heartbeat: Date.now(),
@@ -715,12 +728,12 @@ export async function startChat(msg: Extract<RuntimeRequest, { kind: 'chat:start
 
   // 不 await：循环在后台跑（观察者可关面板，任务照跑完）
   void runLoop({
-    conversationId: msg.conversationId,
+    conversationId: input.conversationId,
     taskId,
-    messages: msg.messages,
+    messages: input.messages,
     prompt,
-    pageContext: msg.pageContext,
-    workspace: newWorkspace(taskId, msg.conversationId),
+    pageContext: input.pageContext,
+    workspace: newWorkspace(taskId, input.conversationId),
     continuing: false,
   }).catch((e) => console.error('[duoling:chat] runLoop 启动失败', e))
 

@@ -18,7 +18,9 @@
 // 动态执行字符串代码被禁。理由：AI 生成的脚本不可控，不额外给「执行任意字符串」的能力。
 // 注入链路自身零 eval —— GM 包装不含，脚本源码注入前也静态检查 eval / new Function
 // （collectCspWarnings 在保存时提前提示）。
-import type { ScriptProject, ScriptConfig, GmInfo, Json } from '@duoling/shared'
+import type { ScriptProject, ScriptConfig, GmInfo, Json, UserScriptsAvailability } from '@duoling/shared'
+// 可用性形状归契约包（应用侧状态横幅与 offscreen 都认），此处 re-export 维持包内路径不变。
+export type { UserScriptsAvailability }
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
 import {
   parseUserScriptMetadata,
@@ -51,18 +53,6 @@ export async function isUserScriptsAvailable(): Promise<boolean> {
   } catch {
     return false
   }
-}
-
-/** 引擎可用性状态（供管理页状态横幅展示） */
-export interface UserScriptsAvailability {
-  /** userScripts API 当前是否可用（getScripts 不抛错） */
-  available: boolean
-  /** 是否 Firefox（引导文案不同：Firefox 走 optional_permissions 授权） */
-  isFirefox: boolean
-  /** Chrome 大版本号（0 表示非 Chrome / 解析失败） */
-  chromeMajor: number
-  /** 不可用时的引导文案（按浏览器 / 版本分支） */
-  guideText: string
 }
 
 /**

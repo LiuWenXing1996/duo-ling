@@ -1,4 +1,6 @@
-// Agent 工具目录（lib/agent-tools-catalog.ts）的**防漂移**测试。
+// Agent 工具目录（@duoling/shared 的 agent-tools-catalog）的**防漂移**测试。
+//
+// 为什么用例住在进程包：比对对象是真身 buildScriptTools，只能落在依赖方向的下游。
 //
 // catalog 是工作台「AI 工具」面板展示工具契约的单一来源，而真身是 script-tools 的
 // buildScriptTools —— 两处一旦分叉，面板就会对着用户说谎（还看不出错）。故这里从**运行时**
@@ -8,11 +10,11 @@
 //   ③ 每个工具的参数名集合一致（catalog 用点号表达嵌套，只比顶层键）。
 // 改了 tools 忘了改 catalog → 本文件红。
 import { describe, expect, it, vi } from 'vitest'
-import { AGENT_RUNTIME_LIMITS, AGENT_TOOL_VIEWS, TOOL_DESCRIPTIONS } from './agent-tools-catalog'
-import { buildScriptTools, MAX_APPLY_FAILURES, type TaskWorkspace } from './offscreen-chat/script-tools'
+import { AGENT_RUNTIME_LIMITS, AGENT_TOOL_VIEWS, TOOL_DESCRIPTIONS } from '@duoling/shared'
+import { buildScriptTools, MAX_APPLY_FAILURES, type TaskWorkspace } from './script-tools'
 
 // 与 script-tools.test.ts 同因由：源码库真身在 lightning-fs 上（Node 无 indexedDB）。
-vi.mock('@duoling/offscreen-document', () => ({
+vi.mock('../fs/git', () => ({
   readSource: vi.fn(async () => null),
 }))
 

@@ -18,8 +18,8 @@ import {
   ALWAYS_NS,
   ALWAYS_WINDOW_MEMBERS,
   GRANT_NAMES,
+  EXTENSION_NAME,
 } from '@duoling/shared'
-import { EXTENSION_NAME } from '@/lib/extension-identity'
 
 /** 能力清单段：按速查页的分组顺序，一条一行（签名 + 一句话作用） */
 function renderCapabilities(): string {

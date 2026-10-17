@@ -10,12 +10,13 @@
 //   · ⚠️ 缓冲**不用于落盘还原**：4000 条上限会被长回复（万级 text delta）截断，
 //     落盘走 chat-host 泵流时自收的完整 chunk 序列（buildFinalMessageFromChunks）。
 //
-// 推送通道：标准总线 ipcNotify（offscreen → 对话界面 + SW）。SW 不消费 chat: 前缀
+// 推送通道：契约包的 notifyRuntime（offscreen → 对话界面 + SW，与总线同一原语）。
+// SW 不消费 chat: 前缀
 // （不在其路由白名单）；面板未开时无人接收，尽力而为、不阻断任务。
 
 import type { UIMessageChunk } from 'ai'
-import type { OffscreenPush } from '@/shared/extension-ipc'
-import { ipcNotify } from '@/shared/ipc-bus'
+import { notifyRuntime } from '@duoling/shared'
+import type { OffscreenPush } from '@duoling/shared'
 
 /** 单会话缓冲上限（条）。长回复按 ~1 delta/token 计，2.3 万 token ≈ 2.3 万条——
  * 上限须按最坏 token 量论证（4000 条曾被 23013 token 的回复冲穿）。被截断时
@@ -60,7 +61,7 @@ export function pushChunk(conversationId: string, chunk: UIMessageChunk): number
   }
   const push: OffscreenPush = { kind: 'chat:chunk', conversationId, seq: event.seq, chunk }
   // 尽力而为：面板未开 / SW 未起都会 reject，任务照跑
-  ipcNotify(push)
+  notifyRuntime(push)
   return event.seq
 }
 
@@ -83,7 +84,7 @@ export function replaySince(
  */
 export function notifyChatRunning(conversationId: string): void {
   const push: OffscreenPush = { kind: 'chat:running', conversationId }
-  ipcNotify(push)
+  notifyRuntime(push)
 }
 
 /**
@@ -93,5 +94,5 @@ export function notifyChatRunning(conversationId: string): void {
  */
 export function notifyChatFinished(conversationId: string, ok: boolean): void {
   const push: OffscreenPush = { kind: 'chat:finished', conversationId, ok }
-  ipcNotify(push)
+  notifyRuntime(push)
 }

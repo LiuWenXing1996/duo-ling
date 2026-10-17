@@ -7,7 +7,9 @@
 // 真模型不在单测里（要 key、也要钱），故 mock generateText 只看**递给它的参数**对不对。
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LanguageModel } from 'ai'
-import { AGENT_RUNTIME_LIMITS } from '@/lib/agent-tools-catalog'
+import {
+  AGENT_RUNTIME_LIMITS,
+} from '@duoling/shared'
 
 const mocks = vi.hoisted(() => ({
   generateText: vi.fn(),
@@ -15,7 +17,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('ai', () => ({ generateText: mocks.generateText }))
-vi.mock('@duoling/offscreen-document', () => ({ readAsset: mocks.readAsset }))
+vi.mock('../fs/assets', () => ({ readAsset: mocks.readAsset }))
 
 import { askImageAboutAsset } from './vision-agent'
 

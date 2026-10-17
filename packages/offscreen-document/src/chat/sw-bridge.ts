@@ -1,26 +1,28 @@
-// offscreen 侧的能力调用桥：凡 offscreen 自己拿不到的（chrome.storage / chrome.userScripts /
-// chrome.tabs），一律经 runtime 消息请 SW 代办。
+// 能力调用桥：凡本进程自己拿不到的（chrome.storage / chrome.userScripts / chrome.tabs），
+// 一律经 runtime 消息请 SW 代办。
 //
-// 为什么需要它（模块归属规则）：offscreen 只允许 import @duoling/offscreen-document
-//（纯 JS 的 git 栈 + lightning-fs）、extension-chat-transport.ts、ai SDK 与本文件。
-// 若直接 import store.ts / model-store.ts /
-// fs-store.ts，会在运行时报 `chrome.storage is undefined` —— 本文件就是那条规则的正门：
-// 把「需要 SW 的东西」收敛成一组显式调用，让违规 import 变成编译器/运行时都能抓住的错误。
+// 为什么需要它（模块归属规则）：offscreen document 只有 chrome.runtime 可用，引入应用侧的
+// 存储模块（model-store / store 等）会在运行时报 `chrome.storage is undefined` —— 本文件就是
+// 那条规则的正门：把「需要 SW 的东西」收敛成一组显式调用，让违规 import 变成编译期能看见的错误。
 //
-// 与 UI 侧的 userscriptClient（src/lib/userscripts/ui-client.ts）同构：同一个 send 信封、
+// 与 UI 侧的 userscriptClient（应用侧 lib/userscripts/ui-client.ts）同构：同一个应答信封、
 // 同一条命令面。差别只在调用方是谁（那边是扩展页，这边是 offscreen document）。
 //
-// 注意：这里只用 `import type` 引类型（编译后消失，零运行时依赖）—— 引的 ScriptProject
-// 来自 userscripts/types.ts，那是纯类型 + 纯函数模块，不碰任何 chrome API。
-import type { ModelProfileState, RuntimeRequest } from '@/shared/extension-ipc'
-import type { PageEnvContext, PageSnapshotContext } from '@duoling/shared'
-import { ipcRequest } from '@/shared/ipc-bus'
-import type { ScriptConfig, UserScriptRunEvent, UserScriptRunLogRow } from '@/lib/userscripts/types'
-import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
+// 注意：这里只用 `import type` 引类型（编译后消失，零运行时依赖），形状全取契约包。
+import { sendRuntime } from '@duoling/shared'
+import type {
+  ModelProfileState,
+  PageEnvContext,
+  PageSnapshotContext,
+  ScriptConfig,
+  UserScriptRunEvent,
+  UserScriptRunLogRow,
+  UserScriptErrorLookup,
+} from '@duoling/shared'
 
-/** 向 SW 发一次请求，统一解包 { ok, data | error } */
-function send<T>(request: RuntimeRequest): Promise<T> {
-  return ipcRequest<T>(request)
+/** 向 SW 发一次请求，统一解包 { ok, data | error }（原语在契约包，包内不认命令面联合） */
+function send<T>(request: unknown): Promise<T> {
+  return sendRuntime<T>(request)
 }
 
 /**

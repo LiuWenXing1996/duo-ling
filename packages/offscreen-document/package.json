@@ -21,10 +21,14 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.48",
     "@duoling/shared": "workspace:*",
     "@isomorphic-git/lightning-fs": "4.7.0",
+    "acorn": "^8.18.0",
+    "ai": "^7.0.99",
     "fflate": "^0.8.3",
-    "isomorphic-git": "1.42.2"
+    "isomorphic-git": "1.42.2",
+    "zod": "^4.6.4"
   },
   "devDependencies": {
     "@types/chrome": "^0.2.9",

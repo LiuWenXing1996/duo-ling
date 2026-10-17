@@ -12,7 +12,8 @@
 #     宿主注入点 host-config / 服务实体 SWService / offscreen 容器能力约定 / GM 侧实现件
 #     gm-wrapper + script-bridge + usdata-db + gm-values），Vite lib 自构建，依赖 shared。
 #   · offscreen-document —— 运行时·offscreen 进程包（服务实体 OffscreenService：fs 组 /
-#     GM 桥面 / 状态库写侧 / 剪贴板写入），Vite lib 自构建，依赖 shared。
+#     GM 桥面 / 状态库写侧 / 剪贴板写入 + 对话编排 chat/：agent loop / 工具集 / 事件缓冲 /
+#     任务快照 / 环境快照 / SW 代办桥），Vite lib 自构建，依赖 shared。
 #   · uscript-samples —— 用户脚本样例（手测 / 端测的真机脚本）：TS 模块化源码 + esbuild 打成
 #     单文件 .user.js（metadata 头由各样例 meta.json 生成；raw/ 是不参与构建的坏源码样本），
 #     产物 dist/ 不入库、由 pnpm -r build 重建；被 scripts/pack-uscripts.mjs 打 zip 分发。

@@ -389,18 +389,30 @@ importers:
 
   packages/offscreen-document:
     dependencies:
+      '@ai-sdk/openai-compatible':
+        specifier: ^3.0.48
+        version: 3.0.48(zod@4.6.4)
       '@duoling/shared':
         specifier: workspace:*
         version: link:../shared
       '@isomorphic-git/lightning-fs':
         specifier: 4.7.0
         version: 4.7.0
+      acorn:
+        specifier: ^8.18.0
+        version: 8.18.0
+      ai:
+        specifier: ^7.0.99
+        version: 7.0.99(zod@4.6.4)
       fflate:
         specifier: ^0.8.3
         version: 0.8.3
       isomorphic-git:
         specifier: 1.42.2
         version: 1.42.2
+      zod:
+        specifier: ^4.6.4
+        version: 4.6.4
     devDependencies:
       '@types/chrome':
         specifier: ^0.2.9

@@ -7,45 +7,36 @@
 //                      消息面，以及扩展存储层的内部状态形状。
 // 两者职责不同，混在一起会让「平移来的契约」被扩展实现细节污染。
 
-import type { ModelProfile } from './types'
-
 // —— 页面上下文档位 ——
 // 页面检查器（件本体见 @duoling/builtin-scripts 的 inspector/install.ts，MAIN 世界系统脚本
 // `dl-page-inspector`）的载荷形状**定义在契约包里**：件按这些形状造数据，而件不能
 // 依赖应用源码，故真相源落在 @duoling/shared —— 消费方从那里自取，本文件不再转发。
 import type {
-  ElementPickContext,
+  ChatMessageMetadata,
+  ChatOrphanRecord,
+  ChatResumeResult,
   IpcEnvelope,
   MessagePageContext,
-  PageSnapshotContext,
+  ModelProfileState,
+  OffscreenPush,
+  PageContextInfo,
 } from '@duoling/shared'
+
+// 对话载荷的形状已归契约包（offscreen 编排产出、SW 与面板消费），此处 re-export 维持既有路径。
+export type {
+  ChatMessageMetadata,
+  ChatOrphanRecord,
+  ChatResumeResult,
+  ModelProfileState,
+  OffscreenPush,
+  PageContextInfo,
+}
 
 // 浮层指令的 kind 字面量已随脚本桥协议（api-contract 的 float.cmd）收编 —— 命令面
 // `float:*` 的 kind 在下面的 RuntimeRequest 联合里声明，件侧不再认 tabs.sendMessage。
 
-/** chat:start 的页面上下文：档 0（URL/标题）+ 可选的档 2 元素拾取 / 页面快照 */
-export interface PageContextInfo {
-  url?: string
-  title?: string
-  element?: ElementPickContext
-  snapshot?: PageSnapshotContext
-}
-
 /** 随用户消息持久化的页面上下文：归 @duoling/shared（会话库要引它），此处仅转发 */
 export type { MessagePageContext }
-
-/** UIMessage.metadata 的约定形状（AI SDK 的 metadata 字段是 unknown，此处是全应用唯一合法形状） */
-export interface ChatMessageMetadata {
-  pageContext?: MessagePageContext
-  /**
-   * 气泡下方展示的消息时间（ISO 8601）。
-   *
-   * 存在的理由：UIMessage 本身没有时间字段，而落盘时间（Message.createdAt）只活在会话库里 —
-   * 面板不读库、也拿不到 offscreen 落盘的那一刻，本地视图（刚发出 / 刚回完）需要有个地方放时间。
-   * 历史消息由 toUiMessage 从库里带上，实时消息由面板在发出 / 收尾时就地取（见 lib/conversation-message.ts）。
-   */
-  createdAt?: string
-}
 
 /** 渲染页 → service worker 的请求（kind 可辨识联合，background 按 kind 分发） */
 export type RuntimeRequest =
@@ -262,11 +253,7 @@ export type RuntimeRequest =
  * 进行中登记表里撤下（无其它副作用）。
  * 注意 `chat:` 前缀对 RuntimeRequest 是 offscreen 保留前缀；OffscreenPush 不进命令面，不受此限。
  */
-export type OffscreenPush =
-  | { kind: 'offscreen:configChanged' }
-  | { kind: 'chat:chunk'; conversationId: string; seq: number; chunk: import('ai').UIMessageChunk }
-  | { kind: 'chat:running'; conversationId: string }
-  | { kind: 'chat:finished'; conversationId: string; /** true = 正常收敛；false = 停止 / 异常 */ ok: boolean }
+// 形状见 @duoling/shared 的 chat-ipc.ts（含 offscreen:configChanged 与三条 chat 推送）
 
 // —— 数据变更广播（写侧 → 全部前端实例）——
 //
@@ -390,30 +377,3 @@ export type SwPush =
  *  形状真相源在 @duoling/shared 的 IpcEnvelope —— 运行时包两半（sw / offscreen）与全应用
  *  共用同一信封，两处各写一份必漂移。 */
 export type RuntimeResponse<T> = IpcEnvelope<T>
-
-/** chat:resume 的应答：idle = 无进行中任务（调用方以会话历史为准即可） */
-export type ChatResumeResult =
-  | { status: 'idle' }
-  | {
-      status: 'running'
-      taskId: string
-      /** 该任务缓冲的完整事件序列（按 seq 升序），连同后续 chat:chunk 推送一起消费 */
-      events: Array<{ seq: number; chunk: import('ai').UIMessageChunk }>
-    }
-
-/** chat:orphans 的条目：宿主被杀后遗留的进行中任务（心跳过期） */
-export interface ChatOrphanRecord {
-  taskId: string
-  conversationId: string
-  /** 中断时的循环步数（提示「中断在第 N 步」用） */
-  step: number
-  /** 最后心跳（ms 时间戳），供 UI 展示中断发生时间 */
-  heartbeat: number
-}
-
-/**
- * 模型配置的内部完整态（含 apiKey 明文）。
- * 只在本扩展的存储层与请求发起方之间流转，不出存储边界；
- * 交给 UI 前一律经 `model-store.toPublic` 剔除 apiKey、换成 hasApiKey。
- */
-export type ModelProfileState = ModelProfile & { apiKey: string }

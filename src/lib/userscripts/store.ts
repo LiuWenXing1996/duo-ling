@@ -15,6 +15,7 @@
 import {
   type RunEndReason,
   type ScriptProject,
+  type UserScriptErrorLookup,
   type ScriptSummary,
   type UserScriptErrorRecord,
   type UserScriptRunEvent,
@@ -100,9 +101,8 @@ export async function clearUserScriptErrors(uuid?: string | null): Promise<void>
  * 前缀下限 8 位：工作台展示的就是前 8 位（复制的是完整 id），前缀太短碰撞概率失控。
  * 多命中 = 前缀不唯一（ambiguous），调用方让用户复制完整 ID，绝不猜。
  */
-export type UserScriptErrorLookup =
-  | { found: true; record: UserScriptErrorRecord }
-  | { found: false; reason: 'not-found' | 'ambiguous' }
+// 查询结果的形状归契约包（AI 工具与前缀检索共用），此处 re-export 维持既有路径。
+export type { UserScriptErrorLookup }
 
 export async function findUserScriptError(id: string): Promise<UserScriptErrorLookup> {
   // 走 by_errId 索引按前缀取，不扫全表：合表后表里还躺着接口采样（条数无上限），

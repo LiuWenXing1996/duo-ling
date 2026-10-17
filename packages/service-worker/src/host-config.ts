@@ -10,30 +10,10 @@
 // 配置时机：必须在 initDlBridge / initDlPort 之前调 configureUserscriptRuntime
 // （SW 入口的顶层同步段里，与 listener 注册同一条「第一帧」纪律）。
 
-import type { ScriptProject } from '@duoling/shared'
-
-/** 错误记录（观测面）。形状真相源在此（错误由包内产生：dl-bridge / registration 等）；
- *  应用侧落库形态经继承收窄（见 src/lib/userscripts/types.ts 的 UserScriptErrorRecord）。
- *  不注入遥测则无处落盘 */
-export interface UserscriptErrorRecord {
-  id?: string
-  uuid?: string | null
-  name?: string
-  phase: 'runtime' | 'register' | 'bridge' | 'require' | 'resource'
-  message: string
-  stack?: string
-  url?: string
-  time?: number
-  runId?: string | null
-  tabSessionId?: string
-}
-
-/** 一次运行期间脚本做过的关键动作摘要（只记轮廓、不记值本体） */
-export interface UserscriptRunEvent {
-  kind: string
-  detail: string
-  time: number
-}
+// 错误 / 动作的形状归契约包（件包产生、应用侧落库与展示、offscreen 的工具集也认），
+// 此处 re-export 维持包内与包外的既有 import 路径不变。
+import type { ScriptProject, UserscriptErrorRecord, UserscriptRunEvent } from '@duoling/shared'
+export type { UserscriptErrorRecord, UserscriptRunEvent }
 
 /**
  * 遥测 port（全部可选；不注入的钩子 = 该观测不发生）。

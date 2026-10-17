@@ -13,7 +13,8 @@
 // （SW_KIND_PREFIXES / OFFSCREEN_KIND_PREFIXES）。
 import type { OffscreenPush, RuntimeRequest, SwPush } from './extension-ipc'
 import type { DataChangedPush } from '@duoling/shared'
-import { runtimeSend } from './runtime-send'
+// 收发原语住契约包：offscreen 进程包也要发（对话编排经 SW 代办），而包不能引应用源码
+import { notifyRuntime, sendRuntime } from '@duoling/shared'
 import { errorText } from '@/lib/format'
 
 /** 接收侧的单条路由：owns 认领 → handle 执行（应答值由总线包进统一信封） */
@@ -27,9 +28,9 @@ export type IpcPush = OffscreenPush | SwPush | DataChangedPush
 
 /** 发送一条请求并统一解包 { ok, data | error } 信封；失败 reject Error */
 export function ipcRequest<T>(request: RuntimeRequest, opts?: { timeoutMs?: number }): Promise<T> {
-  // 现由 runtimeSend 承担（回调形态 + lastError 同步读取的样板收拢）；函数别名保持
+  // 现由 sendRuntime 承担（回调形态 + lastError 同步读取的样板收拢）；函数别名保持
   // 「发送口只有 ipc* 一个入口」的叙事，实现共用一份。
-  const base = runtimeSend<T>(request)
+  const base = sendRuntime<T>(request)
   if (!opts?.timeoutMs) return base
   // 超时兜底：应答方（容器刚被销毁等）永不回调时不能把 promise 挂死
   return new Promise<T>((resolve, reject) => {
@@ -49,11 +50,7 @@ export function ipcRequest<T>(request: RuntimeRequest, opts?: { timeoutMs?: numb
 
 /** 单向推送（尽力而为）：无人接收不是错误，静默吞掉（offscreen:ready / chat:chunk 这类） */
 export function ipcNotify(message: RuntimeRequest | IpcPush): void {
-  try {
-    void chrome.runtime.sendMessage(message).catch(() => {})
-  } catch {
-    // chrome.runtime 不在（纯 Node 测试环境等）：推送本就尽力而为
-  }
+  notifyRuntime(message)
 }
 
 /** 订阅推送（按 kind 前缀匹配，如 'chat:' / 'data:'）；返回退订函数 */

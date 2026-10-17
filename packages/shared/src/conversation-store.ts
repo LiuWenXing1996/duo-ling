@@ -24,7 +24,7 @@ import { broadcastDataChange } from './data-broadcast-runtime'
 import { createIdbOpener, idbRequest, idbRunTx } from './idb-core'
 
 const DB_NAME = 'duoling-chat'
-/** v3：tasks store 并入（原独立库 duoling-chat-tasks，见 offscreen-chat/task-store.ts） */
+/** v3：tasks store 并入（原独立库 duoling-chat-tasks，见 @duoling/offscreen-document 的 chat/task-store.ts） */
 const DB_VERSION = 3
 const CONVERSATIONS = 'conversations'
 const MESSAGES = 'messages'

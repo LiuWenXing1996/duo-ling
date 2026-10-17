@@ -1,6 +1,6 @@
 // 网络录制语料：把落库的采集记录压成 AI 能读的两档文本。
 //
-// 两档分工（与元素拾取同款分层，见 offscreen-chat/system-prompt.ts）：
+// 两档分工（与元素拾取同款分层，见 @duoling/offscreen-document 的 chat/system-prompt.ts）：
 //   · describeCaptureDigest  —— 常驻 system prompt 的摘要档：接口清单 + 响应结构（≤2KB）；
 //   · describeCaptureRecords —— tab_record_read 的全量档：逐条含采样体。
 //

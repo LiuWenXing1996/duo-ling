@@ -28,5 +28,12 @@ export {
 export { deleteAllAssets, deleteAssets, putAsset, readAsset } from './fs/assets'
 export { buildScriptZip, parseScriptsZip, sourceFingerprint } from './fs/zip'
 
+// —— 对话编排（agent loop / 工具集 / 环境快照 / 任务快照 / 事件缓冲）——
+// 整条链路只在本进程跑：面板经命令面驱动，SW 只旁听收尾信号。
+export { abortChat, listOrphans, resolveOrphan, resumeChat, startChat } from './chat/chat-host'
+export type { ChatStartInput } from './chat/chat-host'
+export { assetIdsOf, releaseAllAssets, releaseUnreferencedAssets } from './chat/asset-lifecycle'
+export { refreshActiveProfile } from './chat/profile-cache'
+
 export type { AssetContent, AssetWriteInput } from './fs/assets'
 export type { ParsedIgnored, ParsedScript, ScriptsZipParse, ZipScriptPayload } from './fs/zip'

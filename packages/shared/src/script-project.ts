@@ -1,5 +1,4 @@
-// 脚本项目与分组的落盘形状（自 src/lib/userscripts/types.ts 上移，与 script-config 同住
-// 本包：SW / offscreen / 面板都要这一份）。
+// 脚本项目与分组的落盘形状（SW / offscreen / 面板都要这一份，故与 script-config 同住契约包）。
 //
 // 一个脚本 = 一个单文件源码 + 一份配置，直接映射 chrome.userScripts 原生字段。
 // 无构建流程：保存即注入（源码原文进注册态），对齐油猴单文件形态。

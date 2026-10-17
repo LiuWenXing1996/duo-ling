@@ -1,6 +1,6 @@
 // GM 能力 API 目录：**工作台「GM API」面板的展示侧单一来源**（纯数据、零依赖）。
 //
-// 同时是**脚本规范文本的「能力清单」段来源**：`offscreen-chat/spec-text.ts` 用 `specEntries()` 生成
+// 同时是**脚本规范文本的「能力清单」段来源**：`@duoling/offscreen-document` 的 `chat/spec-text.ts` 用 `specEntries()` 生成
 // 那段清单，故改名 / 新增 API 只要改这里，不必再人工同步一份散文。
 //
 // 为什么单独一份、而不是直接读 api-contract：
@@ -16,7 +16,7 @@
 //   ② **源码层**：单测从 gm-wrapper.ts 的**装配块**反射真实挂载的键集合，与本目录双向比对
 //      （用例在 service-worker 包，见该包的 gm-api-catalog.test.ts）；
 //   ③ **规范层**：单测断言规范文本里提到的成员全在本目录、`@grant` 名全在 gm-grants
-//      （见 src/lib/offscreen-chat/spec-text.test.ts）；本文件说明里提到的 `@grant` 名同样受检
+//      （见该包的 chat/spec-text.test.ts）；本文件说明里提到的 `@grant` 名同样受检
 //      （见本目录的单测）。
 //   三条都不靠人工对照。
 import type {

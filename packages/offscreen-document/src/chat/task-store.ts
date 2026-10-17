@@ -10,7 +10,12 @@
 // （都归 offscreen），纯粹少开一个库。写只发生在 offscreen（对话链路的宿主），SW 与扩展页
 // 没有写入路径；连接、库版本与建表统一由 shared 的 conversation-store 持有 chatDb —— 本模块
 // 不再自开连接（同一库挂两条连接时，升级与死连接处理会各管一半）。
-import { TASKS, chatDb, idbRequest, idbRunTx } from '@duoling/shared'
+import {
+  TASKS,
+  chatDb,
+  idbRequest,
+  idbRunTx,
+} from '@duoling/shared'
 
 /** 任务状态：running = 循环进行中（唯一参与孤儿判定的状态） */
 export type ChatTaskStatus = 'running'
@@ -29,7 +34,7 @@ export interface ChatTaskRecord {
   /** 首条需求摘要（用户消息），「继续」时回给模型 */
   prompt: string
   /** 页面上下文（档 0 + 可选档 2，chat:start 随指令带来；形状见 extension-ipc.PageContextInfo） */
-  pageContext?: import('@/shared/extension-ipc').PageContextInfo
+  pageContext?: import('@duoling/shared').PageContextInfo
   createdAt: number
   updatedAt: number
   /** 心跳（ms 时间戳），chat-host 每 5s 刷新；过期 = 孤儿 */

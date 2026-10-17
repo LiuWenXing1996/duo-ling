@@ -9,39 +9,43 @@
 //     userscript:createProject 完成（不由 AI 显式保存，避免「AI 忘了存」）。
 //   · 连续失败超阈值就停手：返回明确文案让模型把诊断抛给用户（防无限自修循环）。
 //
-// 模块归属：本文件只 import acorn（纯 JS parse）、project-store（裸 IndexedDB 读侧）与
-// @duoling/offscreen-document（duoling-fs 源码库读侧，offscreen-only），可安全跑在
-// offscreen；不碰 chrome.storage / chrome.userScripts。
+// 模块归属：只 import acorn（纯 JS parse）、契约包的裸 IndexedDB 读侧与本包的 fs 层
+// （源码库读侧）；不碰 chrome.storage / chrome.userScripts。
 import { Parser } from 'acorn'
 import { tool } from 'ai'
+import type { Tool } from 'ai'
 import { z } from 'zod'
-import { readEnvSnapshot } from '@/lib/env-snapshot'
+import { readEnvSnapshot } from './env-snapshot'
 import {
   AGENT_RUNTIME_LIMITS,
   TOOL_DESCRIPTIONS,
   TOOL_PARAM_DESCRIPTIONS,
-} from '@/lib/agent-tools-catalog'
-import { getProject, listProjects } from '@/lib/userscripts/project-store'
-import { readSource } from '@duoling/offscreen-document'
-import { resolveConfigFromSource } from '@duoling/shared'
-import { defaultConfig } from '@/lib/userscripts/types'
+  getProject,
+  listProjects,
+  resolveConfigFromSource,
+  defaultConfig,
+  errorText,
+} from '@duoling/shared'
 import type {
+  AgentToolName,
   ScriptConfig,
   UserScriptErrorRecord,
   UserScriptRunEvent,
   UserScriptRunLogRow,
-} from '@/lib/userscripts/types'
-import type { UserScriptErrorLookup } from '@/lib/userscripts/store'
-import type { ElementPickContext, PageEnvContext, PageSnapshotContext } from '@duoling/shared'
+  UserScriptErrorLookup,
+  ElementPickContext,
+  PageEnvContext,
+  PageSnapshotContext,
+} from '@duoling/shared'
+import { readSource } from '../fs/git'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
-import { errorText } from '@/lib/format'
 
 /** 连续 apply 失败上限：达到即让模型停手、把诊断交给用户。
  *  阈值取自 agent-tools-catalog（工作台「AI 工具」面板展示同一份，不再各写一份）。 */
 export const MAX_APPLY_FAILURES = AGENT_RUNTIME_LIMITS.maxApplyFailures
 
 /**
- * 识图回调（由 chat-host 注入，真身在 offscreen-chat/vision-agent）。
+ * 识图回调（由 chat-host 注入，真身在 chat/vision-agent）。
  *
  * 为什么不在这里直接调模型：本模块的依赖边界是「acorn + project-store + 源码库 + 纯数据模块」，
  * 模型/provider 属编排层的能力面（chat-host 才持有 profile 与 provider）。注入后
@@ -121,6 +125,18 @@ function checkSyntax(code: string): string | null {
 }
 
 /**
+ * 工具集形状：键与 catalog 的工具名一一对应，execute 恒在（运行时全部填满）。
+ *
+ * 只承诺到这一层是必要的：精确到每个工具的入参 / 出参，声明文件就得引用 `Tool` 的原站
+ * @ai-sdk/provider-utils —— 那是 ai 的内部包、本包不直接依赖，声明生成会以「类型无法命名」失败。
+ * 入参约束由各工具的 zod schema 自证。
+ */
+export type ScriptToolSet = Record<
+  AgentToolName,
+  Tool<any, any> & { execute: NonNullable<Tool<any, any>['execute']> }
+>
+
+/**
  * 构建 Agent 工具（script 三件套 + element_read + page_snapshot）。snapshot 回调由 chat-host 提供（每步 apply 成功后把工作区
  * 快照进 IndexedDB 任务记录——覆盖写，宿主被杀后「继续」才有东西可继续）。
  * onFatal：硬停手回调——失败超阈值后模型仍再次 apply（无视 stop 提示）时中止整个
@@ -145,7 +161,7 @@ export function buildScriptTools(
   readRunLog?: () => Promise<UserScriptRunLogRow[]>,
   readRunEvents?: (runId: string) => Promise<UserScriptRunEvent[]>,
   askImage?: AskImage,
-) {
+): ScriptToolSet {
   const tools = {
     script_spec: tool({
       description: TOOL_DESCRIPTIONS.script_spec,
@@ -510,7 +526,7 @@ export function buildScriptTools(
         }
       },
     }),
-  }
+  } satisfies ScriptToolSet
   return tools
 }
 

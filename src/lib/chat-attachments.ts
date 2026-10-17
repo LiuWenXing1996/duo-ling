@@ -3,7 +3,7 @@
 // 两条路：
 //   · 图片 → 画布重编码成 JPEG，再**落到资源库**（`/assets/<内容hash>/`，见 offscreen-document 的 fs/assets），
 //     消息里只留一份 `data-asset` 引用（形状见 lib/chat-assets）。
-//     为什么要压：这张图会被送去**识图调用**（见 offscreen-chat/vision-agent），
+//     为什么要压：这张图会被送去**识图调用**（见 @duoling/offscreen-document 的 chat/vision-agent），
 //     原始截图动辄 1~3MB，不压就是白烧识图 token、白占库。
 //     为什么不进消息：消息 parts 会原样存进会话库、且每轮对话都整段重发 ——
 //     图片一旦作为字节躺在 parts 里，就是存储与 token 的双份开销（见 chat-assets 文件头）。

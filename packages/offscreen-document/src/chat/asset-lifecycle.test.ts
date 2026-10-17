@@ -8,17 +8,17 @@
 // 见 fs/assets）—— 本用例只验「该删哪些 id」这一层判断，删字节那步由资源库自己负责。
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssistantMessage } from '@/shared/types'
-import { deleteAllAssets, deleteAssets } from '@duoling/offscreen-document'
 import {
   appendMessage,
   createConversation,
   deleteAllConversations,
   deleteConversation,
-} from '@/lib/conversation-store'
+} from '@duoling/shared'
+import type { AssistantMessage } from '@duoling/shared'
+import { deleteAllAssets, deleteAssets } from '../fs/assets'
 import { assetIdsOf, releaseAllAssets, releaseUnreferencedAssets } from './asset-lifecycle'
 
-vi.mock('@duoling/offscreen-document', () => ({
+vi.mock('../fs/assets', () => ({
   deleteAssets: vi.fn(async () => 0),
   deleteAllAssets: vi.fn(async () => 0),
 }))

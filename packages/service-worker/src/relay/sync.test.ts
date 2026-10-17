@@ -108,6 +108,9 @@ describe('RELAY_IIFE（中继件 IIFE 产物）', () => {
     const { RELAY_IIFE } = await import('./relay-code.gen')
     expect(() => new Function(RELAY_IIFE)).not.toThrow()
     expect(RELAY_IIFE).toContain(BRIDGE_RELAY_BOOT_KEY)
-    expect(RELAY_IIFE).not.toMatch(/\bimport\s|\bexport\s/)
+    // 只认语法位，不按关键词扫全文：描述文案里出现「import / export」这类字样是正常的。
+    // 动态 import 是合法语法、解析不报错，但在页面里加载不了，故单独拦。
+    expect(RELAY_IIFE).not.toMatch(/^\s*(?:import|export)\b/m)
+    expect(RELAY_IIFE).not.toMatch(/\bimport\s*\(/)
   })
 })

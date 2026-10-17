@@ -26,7 +26,7 @@
   - **图片字节永不进模型**：图片只进资源库（`/assets`）、消息里只留 `data-asset` 引用，送模型前由 `messagesForModel` 换成一行文字；主 Agent 想看内容必须调 `image_ask`。别在任何环节把图片「顺手」塞回消息 parts —— 那会让它随每轮历史重发，正是这条设计要避免的开销。
 - **主题**：**跟随系统**（`src/lib/theme.ts` 按 `prefers-color-scheme` 切 `html.dark`）—— html 上不硬写 `class="dark"`，组件里不硬编码色值（一律用主题变量如 `--background`）。
 - **工作台标签页（面板）**：新增 / 改动按 [workbench-panel](.agents/skills/workbench-panel/SKILL.md) 走 —— **接线固定 5 处（清单只在该 SKILL 罗列）**。
-  - **面板数据源不得 import offscreen 专属模块**（`@duoling/offscreen-document` 的文件库读写 / `builder` / `offscreen-chat/script-tools`）：要么新增 IPC，要么抽一份运行时与 UI 共用的纯数据模块（纯函数不算越界），并配「从运行时反射比对」的防漂移单测。
+  - **面板数据源不得 import offscreen 专属模块**（`@duoling/offscreen-document` 的文件库读写 / `builder` / `@duoling/offscreen-document` 的 `chat/script-tools`）：要么新增 IPC，要么抽一份运行时与 UI 共用的纯数据模块（纯函数不算越界），并配「从运行时反射比对」的防漂移单测。
 - **依赖与权限**：**不自行升级 WXT 版本、不增删 manifest 权限**（需先与用户确认）—— 见 [wxt](.agents/skills/wxt/SKILL.md)「范围上限」与下方硬性底线。
 
 ## 常用命令

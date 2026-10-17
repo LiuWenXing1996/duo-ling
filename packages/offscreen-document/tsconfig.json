@@ -6,7 +6,7 @@
     "strict": true,
     "skipLibCheck": true,
     "lib": ["ES2022", "DOM"],
-    "types": ["chrome"]
+    "types": ["chrome", "vite/client"]
   },
   "include": ["src"]
 }

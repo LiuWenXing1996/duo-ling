@@ -13,11 +13,11 @@ import type {
   UserScriptErrorRecord,
   UserScriptRunEvent,
   UserScriptRunLogRow,
-} from '@/lib/userscripts/types'
-import type { ElementPickContext } from '@duoling/shared'
+  ElementPickContext,
+} from '@duoling/shared'
 
 // 源码库真身在 lightning-fs 上（Node 无 indexedDB）→ 读源码这一步换成假身
-vi.mock('@duoling/offscreen-document', () => ({
+vi.mock('../fs/git', () => ({
   readSource: vi.fn(async () => null),
 }))
 
@@ -25,7 +25,7 @@ vi.mock('@duoling/offscreen-document', () => ({
 const listProjectsMock = vi.hoisted(
   () => vi.fn(async (): Promise<{ uuid: string; name: string; enabled: boolean }[]> => []),
 )
-vi.mock('@/lib/userscripts/project-store', async (importOriginal) => ({
+vi.mock('@duoling/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   listProjects: listProjectsMock,
 }))
@@ -68,7 +68,7 @@ function makeElement(): ElementPickContext {
 function makeTools(
   element?: ElementPickContext,
   captureSnapshot?: () => Promise<import('@duoling/shared').PageSnapshotContext>,
-  readError?: (id: string) => Promise<import('@/lib/userscripts/store').UserScriptErrorLookup>,
+  readError?: (id: string) => Promise<import('@duoling/shared').UserScriptErrorLookup>,
   tabRecord?: TabRecordHooks,
   capturePageEnv?: () => Promise<import('@duoling/shared').PageEnvContext>,
 ) {

@@ -17,7 +17,7 @@
 // 为什么依赖注入：单测跑在 Node 下，没有 userAgentData / screen / matchMedia。把宿主对象当参数
 // 传进来，取数本身就成了纯函数，可以逐项造值验证降级路径。
 
-import { readInjectedBuildInfo } from '@/lib/build-info'
+import { readInjectedBuildInfo } from '@duoling/shared'
 
 /** UA Client Hints 面（TS 的 DOM lib 未收录该 API，故就地声明；字段全可选，缺失即当不可用） */
 interface UaDataLike {

@@ -5,8 +5,8 @@
 // apiKey 属同扩展内上下文之间的传递（offscreen 与 SW 信任级别等同），边界要求：
 // **取一次、缓存、不写日志、不落盘**。
 
-import { offscreenBridge } from '@/lib/offscreen-bridge'
-import type { ModelProfileState } from '@/shared/extension-ipc'
+import { offscreenBridge } from './sw-bridge'
+import type { ModelProfileState } from '@duoling/shared'
 
 let activeProfile: ModelProfileState | undefined
 

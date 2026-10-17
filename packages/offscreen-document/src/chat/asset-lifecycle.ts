@@ -11,9 +11,12 @@
 // 不是错误；下次删会话时它若仍无人引用会被再收一遍。
 //
 // 归属：offscreen-only（要读 lfs）。
-import { isAssetPart } from '@/lib/chat-assets'
-import { listMessages, referencedAssetIds } from '@/lib/conversation-store'
-import { deleteAllAssets, deleteAssets } from '@duoling/offscreen-document'
+import {
+  isAssetPart,
+  listMessages,
+  referencedAssetIds,
+} from '@duoling/shared'
+import { deleteAllAssets, deleteAssets } from '../fs/assets'
 
 /** 一条会话用到过的资源 id（删会话**之前**取，因为删完就再也读不到这些消息了） */
 export async function assetIdsOf(conversationId: string): Promise<string[]> {

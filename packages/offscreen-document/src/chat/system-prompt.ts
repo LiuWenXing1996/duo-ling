@@ -8,13 +8,13 @@
 // 页面整体结构走 page_snapshot 工具（AI 按需采集，不再常驻 / 回注 prompt）。
 
 import type { UIMessage } from 'ai'
+import { EXTENSION_NAME } from '@duoling/shared'
 import type {
   ChatMessageMetadata,
   MessagePageContext,
   PageContextInfo,
-} from '@/shared/extension-ipc'
-import type { ElementPickContext } from '@duoling/shared'
-import { EXTENSION_NAME } from '@/lib/extension-identity'
+  ElementPickContext,
+} from '@duoling/shared'
 
 /** 档 2 摘要层：用户点选元素的摘要（选择器候选 × 命中数 / 关键属性 / 截断样本） */
 export function describePickedElement(el: ElementPickContext): string[] {
