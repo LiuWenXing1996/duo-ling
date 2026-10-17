@@ -26,10 +26,12 @@
     "test": "pnpm -r build && wxt prepare && pnpm -r test && vitest run",
     "test:coverage": "pnpm -r build && wxt prepare && vitest run --coverage",
     "test:e2e": "pnpm run build && playwright test",
-    "verify": "pnpm run check:comments && pnpm run check:secrets && pnpm run typecheck && pnpm run test",
+    "verify": "pnpm run check:comments && pnpm run check:secrets && pnpm run check:packages && pnpm run typecheck && pnpm run test",
     "ci": "pnpm run verify && pnpm run build && playwright test",
     "verify:skills": "node scripts/verify-skills.mts",
     "check:todo": "node scripts/check-todo.mts",
+    "check:branch": "node scripts/check-branch-name.mts",
+    "check:packages": "node scripts/check-packages.mts",
     "check:comments": "node scripts/check-comments.mts",
     "check:comment-coverage": "node scripts/check-comment-coverage.mts",
     "check:secrets": "secretlint \"**/*\"",
@@ -78,6 +80,8 @@
     "zod": "^4.6.4"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
     "@playwright/test": "^1.63.0",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.7",
     "@tailwindcss/typography": "^0.5.20",

@@ -8,6 +8,8 @@
 
 ## 提交信息格式
 
+> 钩子已强制：commit-msg 跑 commitlint（`commitlint.config.mjs`），type 白名单、scope 形态、subject 非空与标点不合即拦，见 [GIT_HOOKS.md](GIT_HOOKS.md)。subject 中文、body / footer 语义等描述性要求仍属约定，钩子不管内容写得好不好。
+
 遵循 [Conventional Commits](https://www.conventionalcommits.org/)：
 
 ```
@@ -75,6 +77,8 @@
 - **建分支 / 改分支名**：同样**必须先经人类同意**。AI 不得自行 `git switch -c` / `git branch <新名>` / `git branch -m` —— 分支名会进 PR 链接、CI 日志与他人本地的 `git branch -r`，属协作面而非本地动作。需要时先给出建议名（按上「分支命名」）与改动范围，同意后再执行。
 
 ## 分支命名（强制，push 前自查）
+
+> 钩子已强制：pre-push 第一道跑 `pnpm run check:branch`，名字不合规直接拦下（规则同本节，见 [GIT_HOOKS.md](GIT_HOOKS.md)）。
 
 功能分支一律 `<type>/<kebab-case 描述>`，type 取自上面的白名单（常用 `feat` / `fix` / `refactor` / `docs` / `chore` / `test` / `ci` / `build`）：
 

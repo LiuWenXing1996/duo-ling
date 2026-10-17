@@ -1,8 +1,15 @@
 # Git hooks 配置（lefthook）——挂了什么、怎么跳过，见 GIT_HOOKS.md
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: pnpm exec commitlint --edit {1}
+
 pre-commit:
   jobs:
     - name: check:comments
       run: pnpm run check:comments
+    - name: check:packages
+      run: pnpm run check:packages
     - name: secretlint
       # 不列扩展名白名单：漏一个类型就是静默放行（env 文件、pem 证书、无扩展名配置都曾不在名单里）。
       # 四组都要写：`**` 至少吞一层目录，只写 `**/*` 会漏掉仓库根文件；且默认不匹配 dotfiles。
@@ -18,6 +25,9 @@ pre-commit:
 pre-push:
   parallel: false
   jobs:
+    # 分支名检查放最前：秒级 fail fast，名字不合规就别白跑后面的全量 typecheck 与 test。
+    - name: check:branch
+      run: pnpm run check:branch
     - name: typecheck
       run: pnpm run typecheck
     - name: test
