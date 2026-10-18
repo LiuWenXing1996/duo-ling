@@ -7,21 +7,20 @@
 //   · 页面检查器 / 浮层宿主常驻件 —— 恒注册（拾取 / 打开浮层都是「页面早已打开、用户刚点
 //     按钮」的场景，见 system-scripts.ts）；
 //   · 标签页录制 —— 已转**系统脚本**（见 system-scripts.ts），注册跟随「有没有页在录」。
-// 三件的注册 id 在 @duoling/builtin-scripts（registry.ts 是声明真相源），展示信息
+// 三件的注册 id 在 @duoling/user-scripts（registry.ts 是声明真相源），展示信息
 // （名字 / 世界 / 一句话作用）由 system-scripts.ts 的 SYSTEM_SCRIPT_DISPLAY 投影
 // （本文件并入中继件一条，见 BUILTIN_META）；
 // 件与 SW 的协议对端（page-inspector-bridge / float-bridge / dl-port）都在本包 —— 纯产品面。
 import type { BuiltinRegistration, ScriptProject } from '@duoling/shared'
 // 检查器 / 浮层 / 录制的注册面（注册 id / 产物文件名）由包声明：件在那儿源码化并构建成
-// 独立 IIFE 文件，扩展侧按 id 取其内容作系统脚本源码（真相源见
-// packages/builtin-scripts/src/registry.ts）。
-// 中继件（relay）例外：已随本包内化（id / 装配段 / 注册同步都在包内，
-// IIFE 以 `{ code }` 注册，无公共资产文件）。
+// 独立 IIFE 文件，扩展侧按 id 取其内容作系统脚本源码（真相源见 user-scripts/builtin 的 registry.ts）。
+// 中继件（relay）例外：本体在 user-scripts/builtin/relay，宿主侧注册面随本包内化（id / 装配段 /
+// 注册同步都在包内，IIFE 以 `{ code }` 注册，无公共资产文件）。
 import {
   FLOAT_HOST_ID,
   INSPECTOR_HOST_ID,
   TAB_RECORDER_ID,
-} from '@duoling/builtin-scripts'
+} from '@duoling/user-scripts/builtin'
 import { EXTENSION_NAME } from '@duoling/shared'
 // 项目读自状态库（IndexedDB，SW 与 offscreen 共用）：注册链路不能在 offscreen 存活上下注
 import { listProjects } from '@duoling/shared'

@@ -38,11 +38,11 @@ popup / floatpanel / workbench ──▶ ui ──▶ shared ◀── service-w
 
 **两种包形态并存，判据是「谁消费」**：
 
-| | 源码直出（shared / service-worker / offscreen-document / ui / workbench / floatpanel / popup） | 预构建（builtin-scripts） |
+| | 源码直出（shared / service-worker / offscreen-document / ui / workbench / floatpanel / popup） | 预构建（user-scripts） |
 | --- | --- | --- |
-| `exports` | **全部直指 `src` 源码**（含 types 与 import） | 指向 `dist` 产物（builtin-scripts 例外：直指源码，见根 tsconfig paths 注释） |
-| 构建 | **不自建**（SW 例外：`build` 只跑 `build-relay.mjs` 生成中继件源码模块，随源码一起被消费方编译）—— 编译收敛到消费方：扩展页由 WXT 主包的 Vite 直取源码编译，进程包自建时由 rolldown 把 shared 打进产物 | `esbuild` 出 IIFE |
-| 为什么 | 只有一个构建终点（WXT），类型与运行时同一份真相，`SwitchThumb` 这类「类型看 src、运行时看 dist」的 API 漂移从根上消失 | builtin-scripts 的产物是「扩展内路径的文件」必须自持 |
+| `exports` | **全部直指 `src` 源码**（含 types 与 import） | 指向 `dist` 产物（user-scripts 例外：`./builtin` 直指源码，见根 tsconfig paths 注释） |
+| 构建 | **不自建** —— 编译收敛到消费方：扩展页由 WXT 主包的 Vite 直取源码编译，进程包自建时由 rolldown 把 shared 打进产物 | `esbuild`（user-scripts 的 build.mjs：builtin 件 + 中继件 IIFE 的 gen 模块 + samples 单文件 .user.js） |
+| 为什么 | 只有一个构建终点（WXT），类型与运行时同一份真相，`SwitchThumb` 这类「类型看 src、运行时看 dist」的 API 漂移从根上消失 | user-scripts 的产物是「扩展内路径的文件 / 可分发 .user.js」必须自持 |
 
 源码直出下摇树天然按文件粒度生效（Vite 按需编译入口可达的模块），此前为 dist 单文件产物配置的 `preserveModules` 与「子路径导出桶必须列为构建入口」整套机制随构建一起删除 —— `exports` 指向的源码文件永远存在，不存在「产物指向空气」。
 
@@ -63,9 +63,9 @@ popup / floatpanel / workbench ──▶ ui ──▶ shared ◀── service-w
 | 注入世界 | MAIN（第三方页面内，系统脚本 `duoling-float-host.js`，全站注册、`document_start`） | 网页浮层的宿主件：**平时不往页面里放任何 DOM**，收到 `float.cmd` 的 open 指令才挂出 iframe 并展开（`?tab=` 由 SW 随指令带下的 tabId 拼出），收到 collapse 收起（只加 `display:none`，iframe 与草稿都留着），收到 busy 按「这条会话正在生成」开关页面遮罩（盖住视口挡指针交互，**只看生成中、与浮层开合无关** —— 收起浮层遮罩照留着；对话框本体在遮罩之上 —— 点得到停止）；在岗探针是 `float:ping` 命令 → SW 下发 ping、件回 `float.pong`（reqId 配对，e2e 用来确认件已注入本页，见 [`e2e/float-task-state.spec.ts`](e2e/float-task-state.spec.ts) 的 `openFloatPage`）；位置钉在视口右下角，拾取期间整块让位。件已转**系统脚本**（走统一 `registerScript` 注册链，浮层页地址与扩展名由源码占位符替换递入，见 `packages/service-worker/src/userscripts/system-scripts.ts` 的 `floatHostProject`） |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 + 网页浮层的右键菜单入口 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
-| 注入世界 | MAIN（第三方页面内） | 用户脚本自身逻辑；GM 包装层（`gm-wrapper.ts`）在同一函数作用域里声明 `GM_*` / `GM.*`，能力调用经同帧 USER_SCRIPT 中继件（包内 `relay/install.ts`）转 SW |
+| 注入世界 | MAIN（第三方页面内） | 用户脚本自身逻辑；GM 包装层（`gm-wrapper.ts`）在同一函数作用域里声明 `GM_*` / `GM.*`，能力调用经同帧 USER_SCRIPT 中继件（`@duoling/user-scripts` 包内 `relay/install.ts`）转 SW |
 
-各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的挂载细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级、收起语义）见 [packages/builtin-scripts/src/float-host/install.ts](packages/builtin-scripts/src/float-host/install.ts) 顶部注释。**打开入口都在页面之外**：工具栏 popup 的「打开会话」按钮，与页面右键菜单（SW 注册，`documentUrlPatterns` 限 http/https）—— 对话框平时不在页面里，页面上没有任何可点的地方。两条都收敛到同一条命令（`float:open`，RuntimeRequest → SW 经 `float-bridge` 下发 DL Port 事件帧 `float.cmd`，见 `packages/service-worker/src/userscripts/float-bridge.ts`），SW 推不到（该页上没有宿主件的在岗连接）就报错，发起方据此提示。**收起走反向的另一条命令**（`float:collapse`）：对话框顶栏那颗按钮在 iframe 里（跨源，父页拿不到它的事件），只能发命令叫父页把容器藏起来；刻意不用 `postMessage` —— 宿主网页的脚本挂在父 window 上，既能监听也能用 `iframe.contentWindow.postMessage` 伪造来源，那等于把「关掉扩展界面」开放给被注入的页面（扩展自己的命令通道只有扩展上下文发得出来）。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
+各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的挂载细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级、收起语义）见 [packages/user-scripts/src/builtin/float-host/install.ts](packages/user-scripts/src/builtin/float-host/install.ts) 顶部注释。**打开入口都在页面之外**：工具栏 popup 的「打开会话」按钮，与页面右键菜单（SW 注册，`documentUrlPatterns` 限 http/https）—— 对话框平时不在页面里，页面上没有任何可点的地方。两条都收敛到同一条命令（`float:open`，RuntimeRequest → SW 经 `float-bridge` 下发 DL Port 事件帧 `float.cmd`，见 `packages/service-worker/src/userscripts/float-bridge.ts`），SW 推不到（该页上没有宿主件的在岗连接）就报错，发起方据此提示。**收起走反向的另一条命令**（`float:collapse`）：对话框顶栏那颗按钮在 iframe 里（跨源，父页拿不到它的事件），只能发命令叫父页把容器藏起来；刻意不用 `postMessage` —— 宿主网页的脚本挂在父 window 上，既能监听也能用 `iframe.contentWindow.postMessage` 伪造来源，那等于把「关掉扩展界面」开放给被注入的页面（扩展自己的命令通道只有扩展上下文发得出来）。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
 
 ## 对话链路
 
@@ -115,7 +115,7 @@ agent loop 要求宿主「不会在任务中途被回收」，三种宿主的寿
 
 ## 脚本注入
 
-`chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`gm-wrapper.ts`）与 **USER_SCRIPT 中继件**（`@duoling/service-worker` 包内：relay 源码 + IIFE 以 `{ code }` 注册，注册同步在全量链内置维护）桥接。
+`chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`gm-wrapper.ts`）与 **USER_SCRIPT 中继件**（`@duoling/user-scripts` 包内：relay 源码，IIFE 字符串内嵌以 `{ code }` 注册，宿主侧注册面在 SW 的 relay/sync.ts，注册同步在全量链内置维护）桥接。
 
 标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`@duoling/shared` 的 `metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`；grant 名 → 它开启的成员这张对应表在 `gm-grants.ts`，注入侧、速查页与 AI 规范三处共用这一份）；能力表 `gm-api-catalog.ts` 生成速查页与**给 AI 的能力清单**两形态（三防漂移：类型层 `satisfies` + 从注入源码反射 + 规范文本对齐单测）。内部仍走 `__dl` 信封协议（协议稳定、与 DL 时代一致；桥的真身与接线工厂都在 `@duoling/service-worker`——background 调 `createServiceWorkerHost` 注入遥测 / 扩展身份 / offscreen 就绪并同步注册全部监听（应用侧不再有 re-export 桶，直接从 `@duoling/service-worker` 取用），遥测对象在 `userscripts/telemetry.ts`）。
 

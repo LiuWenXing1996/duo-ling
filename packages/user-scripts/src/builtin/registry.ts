@@ -17,7 +17,7 @@
 
 /** 注册 id（一个扩展一份；同时是系统脚本的固定 uuid） */
 export const TAB_RECORDER_ID = 'dl-tab-recorder'
-/** 产物文件名（构建自包内 src/recorder/entry.ts；应用侧取其内容作系统脚本源码） */
+/** 产物文件名（构建自包内 src/builtin/recorder/entry.ts；应用侧取其内容作系统脚本源码） */
 export const TAB_RECORDER_FILE = 'duoling-recorder.js'
 
 // —— 页面检查器 · 常驻件（系统脚本，走统一注册链） ——
@@ -25,7 +25,7 @@ export const TAB_RECORDER_FILE = 'duoling-recorder.js'
 /** 注册 id（一个扩展一份；同时是系统脚本的固定 uuid —— 指令下发的寻址键） */
 export const INSPECTOR_HOST_ID = 'dl-page-inspector'
 /**
- * 产物文件名（构建自包内 src/inspector/entry.ts）。应用侧取其内容作系统脚本源码。
+ * 产物文件名（构建自包内 src/builtin/inspector/entry.ts）。应用侧取其内容作系统脚本源码。
  * 件没有运行期参数，注入即装通道；指令信封的字面量随脚本桥协议（api-contract），
  * 不再有独立世界（MAIN 世界只读观察，DOM 本就共享）。
  */
@@ -36,7 +36,7 @@ export const INSPECTOR_HOST_FILE = 'duoling-page-inspector.js'
 /** 注册 id（一个扩展一份；同时是系统脚本的固定 uuid —— 指令下发的寻址键） */
 export const FLOAT_HOST_ID = 'dl-float-host'
 /**
- * 产物文件名（构建自包内 src/float-host/entry.ts）。应用侧取其内容作系统脚本源码，
+ * 产物文件名（构建自包内 src/builtin/float-host/entry.ts）。应用侧取其内容作系统脚本源码，
  * 并替换其中的 `__DL_FLOAT_PANEL_URL__` / `__DL_FLOAT_EXT_NAME__` 占位符
  * （浮层页地址与扩展显示名只有扩展侧取得到，而注册项是静态字符串）。
  * 历史形态是「独立 USER_SCRIPT 世界 + 两段注册（件文件 + 装配段递参）」，已随统一脚本链退役。

@@ -8,7 +8,7 @@
 // 文件（IIFE 以 `{ code }` 注册），不在本表的比对范围里（它的装配段契约测试在包内
 // relay/sync.test.ts）。
 import { describe, expect, it } from 'vitest'
-import { ENTRY_POINTS } from '../esbuild.config.mjs'
+import { BUILTIN_ENTRY_POINTS as ENTRY_POINTS } from '../../build.mjs'
 import { FLOAT_HOST_FILE, INSPECTOR_HOST_FILE, TAB_RECORDER_FILE } from './registry'
 
 describe('产物文件名与构建入口表一致', () => {

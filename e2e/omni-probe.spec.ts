@@ -1,6 +1,6 @@
 // GM 全能探针的端测（L3 · 真机自动化）。
 //
-// 把手测探针搬进无头 CI：源码从样例包的**构建产物**（packages/uscript-samples/dist/omni-probe/
+// 把手测探针搬进无头 CI：源码从样例包的**构建产物**（packages/user-scripts/dist/samples/omni-probe/
 // omni-probe.user.js）**读盘**——真身与手测导入的是同一份（TS 模块源码经 `pnpm -r build` 打成
 // 单文件，不另写一套），经命令面存成脚本注入，打开本机靶站的探针页跑一遍，断言行里没有 ✗。
 //
@@ -30,7 +30,7 @@ import {
 } from './extension'
 
 /** 探针源码（与手测导入同一份构建产物；test:e2e 脚本先 `pnpm run build`，dist 必已生成） */
-const PROBE_SRC = readFileSync(fileURLToPath(new URL('../packages/uscript-samples/dist/omni-probe/omni-probe.user.js', import.meta.url)), 'utf8')
+const PROBE_SRC = readFileSync(fileURLToPath(new URL('../packages/user-scripts/dist/samples/omni-probe/omni-probe.user.js', import.meta.url)), 'utf8')
 /** 探针面板根节点 id */
 const PANEL = '#omni-probe'
 /** 自动化开关：人工档直接记「?」，不干等（见探针里的 AUTO 注释） */

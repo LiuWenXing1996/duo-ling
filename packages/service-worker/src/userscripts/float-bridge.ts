@@ -12,7 +12,7 @@
 // 超时只设在探活这一条（用户与右键菜单不等的那个「点了没反应」要能被判出来）：
 // 件可能因页面卸载 / 导航而永不回话，留一条兜底。
 
-import { FLOAT_HOST_ID } from '@duoling/builtin-scripts'
+import { FLOAT_HOST_ID } from '@duoling/user-scripts/builtin'
 import { pushCommandTo } from '../dl-port'
 
 /** 探活的超时：件在位时回话是毫秒级，到点没回就是不在位（页面在导航 / 件没注入） */

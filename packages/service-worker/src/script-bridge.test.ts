@@ -1,16 +1,17 @@
 // 脚本主世界桥 · 协议全链路测试。
 //
 // 跨两个包的两侧：MAIN 侧的脚本桥模板在 @duoling/service-worker（script-bridge.ts，要被拼进
-// GM 包装的字符串），USER_SCRIPT 侧的中继件在本包（relay/install.ts，构建成独立件文件）。本用例
+// GM 包装的字符串），USER_SCRIPT 侧的中继件在 @duoling/user-scripts（src/builtin/relay/，构建
+// 成字符串内嵌的 IIFE）。本用例
 // 用最小假 frame 把两端接在同一个"窗口"上跑真实现，验证握手、请求-应答、防伪校验与下行事件转发。
 // chrome.runtime 用最小桩替代（sendMessage 同步回调、connect 给可手动触发 onMessage 的 Port）。
 //
-// 用例住在 sw 包：它同时需要 core 的模板与本包的中继件，而依赖方向只允许向下（sw → core，
-// core 不得反向依赖 sw）。
+// 用例住在 sw 包：它同时需要本包的模板与 user-scripts 的中继件，而依赖方向只允许向下
+// （sw → user-scripts，反向不得）。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildScriptBridgeSource } from './script-bridge'
-import { installRelay } from './relay/install'
+import { installRelay } from '@duoling/user-scripts/builtin/relay'
 
 const SECRET = 'test-secret-0123456789abcdef'
 const UUID = 'uuid-1111-2222'

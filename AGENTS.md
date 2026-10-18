@@ -43,7 +43,7 @@
 | `pnpm run model:serve` | 起本机假模型（`scripts/model-stub.mts`，默认端口 5199，可用 `DL_MODEL_STUB_PORT` 覆盖）：一个 OpenAI 兼容的假服务，开发/手测对话链路时顶替真模型（不花真 Key、回复确定）。地址填进「设置 → 添加模型 → 服务商选自定义 → 接口地址」，密钥留空即可；**内置调试触发** —— 消息整句发「快照」或「页面环境」即回对应的工具调用，并把采集结果摘要成一句人话（含失败原因），手测 `page_snapshot` / `page_env_read` 这类要页面侧真跑一遍的工具链时不必写 plan（e2e 显式传 `plan` 时它不生效）。e2e 直接 import 本 `.mts` 源码取类型 |
 | `pnpm run build` | 构建，产出 `.output/chrome-mv3` |
 | `pnpm run build:firefox` | 跨端构建（Firefox；`sidebar_action` 适配待三期） |
-| `pnpm run typecheck` | 类型检查：`pnpm -r build` → `wxt prepare` → 逐包 `typecheck`（进程包 `tsc --noEmit`，四个页面包 `vue-tsc --noEmit`，共九个包）→ 根 `vue-tsc --noEmit`（`src` / `e2e` / `scripts` 与包源码）；当前全仓零错误。`wxt prepare` 不能提前：builtin-scripts 仍走 exports → dist，包未构建时 resolve 必失败（其余全部源码直出，不依赖构建）。单包自检 `pnpm --filter @duoling/<包> run typecheck`，跨包 import 的类型面全部直指源码（见 ARCHITECTURE.md「依赖方向与包边界」）。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有根那道门禁拦得住 |
+| `pnpm run typecheck` | 类型检查：`pnpm -r build` → `wxt prepare` → 逐包 `typecheck`（进程包与 user-scripts `tsc --noEmit`，四个页面包 `vue-tsc --noEmit`，共八个包）→ 根 `vue-tsc --noEmit`（`src` / `e2e` / `scripts` 与包源码）；当前全仓零错误。`wxt prepare` 不能提前：user-scripts 仍需 build 出 dist，包未构建时 resolve 必失败（其余全部源码直出，不依赖构建）。单包自检 `pnpm --filter @duoling/<包> run typecheck`，跨包 import 的类型面全部直指源码（见 ARCHITECTURE.md「依赖方向与包边界」）。Playwright 走 esbuild 只转译、不查类型，spec 的类型错误只有根那道门禁拦得住 |
 | `pnpm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
 | `pnpm run test:coverage` | 单测覆盖率（v8 provider，终端 `text-summary` + HTML 报表落 `coverage/`）。**只作本地看数，不进 CI**；统计口径与 exclude 见 `vitest.config.ts` 的 `coverage` 段 |
 | `pnpm run test:e2e` | Playwright 端测（全程无头、跑 build 产物）。**脚本内先 `pnpm run build`**，不必手动先构建；也别绕开脚本直接调 playwright——端测读的是产物而非源码，产物陈旧时会静默跑旧代码（改了 `src/` 尤其注意） |
@@ -57,7 +57,7 @@
 | `pnpm run check:secrets` | 密钥门禁（Secretlint + 推荐规则预设，29 条规则）：扫全仓文本文件里的凭据 / 私钥 / 连接串，命中即非 0 退出。pre-commit 只扫暂存文件（`pnpm exec secretlint {staged_files}`），CI 的 `Gate` job（跑 `pnpm run ci`）扫全仓兜底，误报用 `// secretlint-disable` 豁免 —— 见 [GIT_HOOKS.md](GIT_HOOKS.md) |
 | `pnpm run check:comment-coverage` | 注释密度报告：注释行 / 非空行，按来源（自研 / 引入件）、目录与扩展名汇总，另附块长分布（整行注释的连续段按 1 / 2 / 3-4 / 5-9 / 10-19 / 20-49 / 50+ 分档，列出最长的 5 个块）、文件头覆盖与导出声明覆盖。**不设理想值，但接 ratchet 基线** —— 卡绝对阈值会诱导为凑数写注释，基线只拦「明显上涨」（高于基线 0.5pp 退 1，见 `check:comment-baseline`；另有目标基线：到达前密度降了自动降基线）；口径与 `check:comments` 共用字符级状态机抠注释（字符串与模板串里的 `//`、`/*` 不算），排除类型声明 `.d.ts` / `.d.mts` 与各级 `dist`（产物注释已被打包器剥掉，计进来只会按产物体积稀释密度，并让构建过的机器与干净 clone 数字不一致）。`src/components` 下的 `ui` / `ai-elements` 是从组件库原样拉取的，单列一行 —— 它们几乎不带注释，混进总计会把自研代码的密度压低约 1.5 个百分点 |
 | `pnpm run check:comment-baseline` | 注释密度 ratchet 门禁（跑的是同一脚本加 `--check`，已挂进 `verify` 与 pre-commit）：当前总密度高于 `comment-baseline.json` 的基线超过 0.5 个百分点即退 1 —— 防大段注释在代码里越积越多。基线文件另带 `target`（目标基线）：到达之前密度每降一截，check 会**自动**降基线兑现治理成果（涨回去即被新低位拦住，基线文件的改动要随本次提交入库），到达 target 后锁定；确属合理增注跑 `pnpm run check:comment-baseline --update` 抬基线（diff 进 PR 评审）。基线文件不存在时校验直接退 1 |
-| `pnpm run pack:uscripts` | 生成用户脚本测试包：把 `packages/uscript-samples/dist/`（先 `pnpm -r build` 生成）打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例 TS 源码再 build 再打） |
+| `pnpm run pack:uscripts` | 生成用户脚本测试包：把 `packages/user-scripts/dist/samples/`（先 `pnpm -r build` 生成）打成扩展可直接导入的 zip → `tmp/`（零依赖，含写后自检；覆盖脚本行为无需手写，改样例 TS 源码再 build 再打） |
 
 > **交付前验证**：`pnpm run typecheck` + `pnpm run build` 均须通过再交付。typecheck 是纯静态检查、比 build 快，优先用它兜住类型层问题。本地 lefthook 钩子（pre-commit / pre-push）自动跑其中两项，见 [GIT_HOOKS.md](GIT_HOOKS.md)。
 

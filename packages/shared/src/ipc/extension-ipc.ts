@@ -8,7 +8,7 @@
 // 两者职责不同，混在一起会让「平移来的契约」被扩展实现细节污染。
 
 // —— 页面上下文档位 ——
-// 页面检查器（件本体见 @duoling/builtin-scripts 的 inspector/install.ts，MAIN 世界系统脚本
+// 页面检查器（件本体见 @duoling/user-scripts/builtin 的 inspector/install.ts，MAIN 世界系统脚本
 // `dl-page-inspector`）的载荷形状**定义在契约包里**：件按这些形状造数据，而件不能
 // 依赖应用源码，故真相源落在 @duoling/shared —— 消费方从那里自取，本文件不再转发。
 import type { PageContextInfo } from '../chat-ipc'
@@ -180,7 +180,7 @@ export type RuntimeRequest =
   // 浮层宿主件已转 MAIN 世界系统脚本（走统一脚本链），那里没有 chrome.runtime，
   // tabs.sendMessage 到不了 —— 四条动作全改走「RuntimeRequest → SW → DL Port 事件帧
   // （float.cmd，见包内 userscripts/float-bridge.ts）」的链路；件的接收面见
-  // packages/builtin-scripts/src/float-host/install.ts。
+  // packages/user-scripts/src/builtin/float-host/install.ts。
   //
   // open：popup 的「对话浮层」按钮与页面右键菜单发起。tabId 是目标标签页（发起方都握有它；
   // 右键菜单由 SW 代发，SW 自己握有 tab）—— 件把它拼进浮层 iframe 的 URL（`?tab=<id>`，

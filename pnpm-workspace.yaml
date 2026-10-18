@@ -1,23 +1,26 @@
 # workspace 成员。各包形态不同：
-#   · builtin-scripts —— 源码是扩展的一部分（TS 模块），产物却是**独立的 IIFE 文件**
-#     （chrome.userScripts 的 js[] 只认扩展内路径的文件），故单独成包、单独构建。
+#   · user-scripts —— 用户脚本源码包（一个包两摊，共用根部一个 build.mjs）：
+#     src/builtin/ 内置注入件 —— 源码是扩展的一部分（TS 模块），产物却是**独立的 IIFE 文件**
+#     （chrome.userScripts 的 js[] 只认扩展内路径的文件），产物 dist/builtin/ 由
+#     wxt.config.ts 的 build:publicAssets 取进扩展产物；
+#     src/samples/ 用户脚本样例（手测 / 端测的真机脚本）—— TS 模块化源码打成单文件
+#     .user.js（metadata 头由各样例 meta.json 生成；raw/ 是不参与构建的坏源码样本，原样
+#     拷进 dist），产物 dist/samples/ 不入库、由 pnpm -r build 重建，被
+#     scripts/pack-uscripts.mts 打 zip 分发。builtin 侧依赖 shared（SW 经
+#     @duoling/user-scripts/builtin 取注册 id）。
 #   · shared —— 跨世界契约（件与应用两侧同取的信封 / 常量 / 形状）+ 共享实现面
 #     （脚本落盘形状 / GM 语义与目录 / 元数据解析 / 状态库 / 数据变更广播）+ 跨进程服务契约
-#     （接口 / key / 代理工厂），Vite lib 模式自构建
-#     （dist：mjs + d.ts，vite.config 一份配置喂 build 与 vitest），消费方走标准
-#     exports 解析；改源码后须先 build（根 build / typecheck / test 均已前置），dev 长跑
-#     期间用包内 `dev` watch。唯一第三方依赖是 @webext-core/proxy-service（服务代理工厂）。
+#     （接口 / key / 代理工厂），源码直出（exports 指 src，由消费方编译）；vite.config 只喂
+#     单测。唯一第三方依赖是 @webext-core/proxy-service（服务代理工厂）。
 #   · service-worker —— 运行时·SW 进程包（注册引擎 registration / 命令分发 dl-bridge /
 #     事件底座 dl-port / cookie 域名门 cookie-gate / require+resource 缓存 / 管理面 handler pack /
 #     宿主注入点 host-config / 服务实体 SWService / offscreen 容器能力约定 / GM 侧实现件
-#     gm-wrapper + script-bridge + usdata-db + gm-values），Vite lib 自构建，依赖 shared。
+#     gm-wrapper + script-bridge + usdata-db + gm-values），源码直出，依赖 shared +
+#     user-scripts（中继件本体与 IIFE 生成都在那边，本包只留宿主侧注册面 relay/sync.ts）。
 #   · offscreen-document —— 运行时·offscreen 进程包（服务实体 OffscreenService：fs 组 /
 #     GM 桥面 / 状态库写侧 / 剪贴板写入 + 对话编排 chat/：agent loop / 工具集 / 事件缓冲 /
 #     任务快照 / 环境快照 / SW 代办桥 + 启动装配 bootstrap：注册 / 保活 / 就绪握手 / 对账），
-#     Vite lib 自构建，依赖 shared。
-#   · uscript-samples —— 用户脚本样例（手测 / 端测的真机脚本）：TS 模块化源码 + esbuild 打成
-#     单文件 .user.js（metadata 头由各样例 meta.json 生成；raw/ 是不参与构建的坏源码样本），
-#     产物 dist/ 不入库、由 pnpm -r build 重建；被 scripts/pack-uscripts.mts 打 zip 分发。
+#     源码直出，依赖 shared。
 #     类型面自持（宽松 globals.d.ts），不吃根的严格档。
 #   · shadcn 原语与 ai-elements 并在 packages/ui（components/ui/ 与 components/ai-elements/）：
 #     vendored 组件代码所在地（拆包前主包的原味拷贝）；components.json 也在包内（CLI add
@@ -28,7 +31,7 @@ packages:
 
 # 依赖构建脚本白名单：pnpm 默认拦截依赖的 install / postinstall，未列出的包脚本不执行。
 # vue-demi 的 postinstall 按装到的 Vue major 覆盖 lib 变体（本项目为 Vue 3），放行。
-# esbuild 的 postinstall 校验并落位**平台二进制**（内置件包与 SW 进程包 build-relay 的构建依赖）；不放行则
+# esbuild 的 postinstall 校验并落位**平台二进制**（内置件包的构建依赖，中继件 IIFE 生成同用它）；不放行则
 # pnpm 报 ERR_PNPM_IGNORED_BUILDS，构建时拿不到可执行的 esbuild。
 # lefthook 的 postinstall 落位平台二进制并把钩子写进 .git/hooks（lefthook install），放行。
 allowBuilds:

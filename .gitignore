@@ -32,5 +32,5 @@ coverage/
 # dist 一律不入库防 drift，由 pnpm -r build 重建）
 packages/*/dist/
 
-# 中继件 IIFE 的生成物（build-relay.mjs 从 relay 源码生成，build / test 前置重建，不入库防 drift）
-packages/service-worker/src/relay/relay-code.gen.ts
+# 中继件 IIFE 的生成物（user-scripts 的 build.mjs 从 relay 源码生成，build / test 前置重建，不入库防 drift）
+packages/user-scripts/src/builtin/relay/relay-code.gen.ts

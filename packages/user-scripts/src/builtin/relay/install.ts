@@ -1,6 +1,7 @@
 // 脚本主世界桥 · USER_SCRIPT 世界侧中继件本体。
 //
-// 注入形态是**两段**（见 relay/sync.ts 的 buildRelayInit）：
+// 注入形态是**两段**（装配段由 SW 侧生成，见 service-worker 包的 relay/sync.ts 的
+// buildRelayInit）：
 //   ① 本模块打成的 IIFE 文件 —— 把 installRelay 挂到 window[BRIDGE_RELAY_BOOT_KEY]，不自行安装；
 //   ② 装配段字符串 —— 由 SW 在注册时生成，把运行期密钥（每扩展一把）递进来调用它。
 // 密钥只存在于运行期，进不了文件，故必须两段。
@@ -12,6 +13,10 @@
 //
 // 世界要求：注册到独立世界（worldId: 'us-dl-bridge'）且必须 configureWorld({ messaging: true })，
 // 否则世界内没有 chrome.runtime，「世界未开 messaging」这条报错就是为它准备的。
+
+// 全 builtin 只有本件碰 chrome（USER_SCRIPT 世界开 messaging 后的 runtime 面）：
+// 包 tsconfig 是 types:[] 纪律档，chrome 类型用文件级三斜线引用自取，不污染其余内置件。
+/// <reference types="chrome" />
 
 import {
   BRIDGE_MSG_TAG,

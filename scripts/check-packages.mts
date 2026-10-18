@@ -10,8 +10,8 @@ import { join, relative, resolve, dirname, posix } from 'node:path'
 // 依赖矩阵：包 → 允许 import 的 @duoling 包。根 src/ 是装配层，放行全部。
 const MATRIX: Record<string, string[]> = {
   shared: [],
-  'builtin-scripts': ['shared'],
-  'service-worker': ['shared', 'builtin-scripts'],
+  'user-scripts': ['shared'],
+  'service-worker': ['shared', 'user-scripts'],
   'offscreen-document': ['shared'],
   ui: ['shared'],
   workbench: ['ui', 'shared'],
@@ -122,4 +122,4 @@ if (violations.length > 0) {
   console.error('  矩阵真相源在 scripts/check-packages.mts 的 MATRIX；开新边须同步 ARCHITECTURE.md「依赖方向与包边界」。')
   process.exit(1)
 }
-console.log(`✓ 包边界合规：9 包 @duoling 边 ${edgeCount} 条全在矩阵内，相对 import 无越界`)
+console.log(`✓ 包边界合规：${Object.keys(MATRIX).length} 包 @duoling 边 ${edgeCount} 条全在矩阵内，相对 import 无越界`)

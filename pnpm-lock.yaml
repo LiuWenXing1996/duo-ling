@@ -234,9 +234,6 @@ importers:
       '@codemirror/view':
         specifier: ^6.43.11
         version: 6.43.11
-      '@duoling/builtin-scripts':
-        specifier: workspace:*
-        version: link:packages/builtin-scripts
       '@duoling/floatpanel':
         specifier: workspace:*
         version: link:packages/floatpanel
@@ -255,6 +252,9 @@ importers:
       '@duoling/ui':
         specifier: workspace:*
         version: link:packages/ui
+      '@duoling/user-scripts':
+        specifier: workspace:*
+        version: link:packages/user-scripts
       '@duoling/workbench':
         specifier: workspace:*
         version: link:packages/workbench
@@ -404,16 +404,6 @@ importers:
         specifier: 0.21.4
         version: 0.21.4(esbuild@0.28.2)(eslint@9.39.4(jiti@2.7.0))(rolldown@1.2.8)(typescript@5.9.3)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(less@4.9.1))(web-ext@10.6.0(jiti@2.7.0))
 
-  packages/builtin-scripts:
-    dependencies:
-      '@duoling/shared':
-        specifier: workspace:*
-        version: link:../shared
-    devDependencies:
-      esbuild:
-        specifier: ^0.28.2
-        version: 0.28.2
-
   packages/floatpanel:
     dependencies:
       '@duoling/shared':
@@ -494,12 +484,12 @@ importers:
 
   packages/service-worker:
     dependencies:
-      '@duoling/builtin-scripts':
-        specifier: workspace:*
-        version: link:../builtin-scripts
       '@duoling/shared':
         specifier: workspace:*
         version: link:../shared
+      '@duoling/user-scripts':
+        specifier: workspace:*
+        version: link:../user-scripts
     devDependencies:
       '@types/chrome':
         specifier: ^0.2.9
@@ -588,8 +578,15 @@ importers:
         specifier: ^3.3.11
         version: 3.3.11(typescript@5.9.3)
 
-  packages/uscript-samples:
+  packages/user-scripts:
+    dependencies:
+      '@duoling/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
+      '@types/chrome':
+        specifier: ^0.2.9
+        version: 0.2.9
       '@types/tampermonkey':
         specifier: ^5.5.0
         version: 5.5.0
