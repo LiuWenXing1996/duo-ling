@@ -6,7 +6,7 @@
 //
 // 消息分流（契约定义；信封名保持 __dl 前缀）：
 //   { __dl: true, uuid, runId?, req: ApiRequest } —— 请求-响应，按 req.c 强类型分发（穷尽性检查）。
-//       runId = 发起这次调用的运行（包装层注入时 mint，见 gm-wrapper 的 __gmRunId）。老包装层不带它，
+//       runId = 发起这次调用的运行（包装层注入时 mint，见 gm-main 的 __gmRunId）。老包装层不带它，
 //       那时这条请求产生的观测数据（运行事件 / 桥调用失败）就挂不到具体运行上，只能落进孤儿行
 //   { __dlEvent: true, uuid, name, event: DlEvent } —— 单向上行：错误上报收进错误日志（runtime 库），
 //       录制系统脚本的页面采样（t: 'tab.record'）交 ingestTabRecord 归一化落库

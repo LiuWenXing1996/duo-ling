@@ -38,7 +38,7 @@ const PICKER_BOX_SELECTOR = `.${INSPECTOR_PICKER_NS}-box`
 
 /**
  * 脚本桥（GM 包装内联进同一作用域的 `__dlBridge`，恒注入）。
- * 形状真相源是 service-worker 的 script-bridge.ts；这里只声明本件用到的方法。
+ * 形状真相源是同包 bridge-main 的 script-bridge.ts；这里只声明本件用到的方法。
  */
 declare const __dlBridge: {
   connect(connId: string): Promise<void>

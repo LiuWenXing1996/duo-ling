@@ -1,6 +1,6 @@
 // 桥命令面**防漂移**测试：契约登记表（`API_COMMANDS`）↔ 注入侧真实发出的命令。
 //
-// 为什么需要它：注入的 GM 包装是 gm-wrapper.ts 里的**源码字符串**，包装层发出的命令名
+// 为什么需要它：注入的 GM 包装由本目录（gm-main/src/）真源码构建而来，包装层发出的命令名
 // （`__gmSend({ c: 'store.get' … })`）对 typecheck 完全不可见 —— 名字拼错、或改了 dispatch
 // 漏改包装层，编译与分层单测都不报，只有真机跑到那条 API 才炸（且报的是「未实现的 DL 命令」，
 // 离现场很远）。故从**真实注入源码**反射发送侧命令集合，与登记表双向比对。
@@ -11,7 +11,7 @@
 // 本文件只管**发送侧**那一条缝。
 import { describe, expect, it } from 'vitest'
 import { API_COMMANDS, type GmInfo } from '@duoling/shared'
-import { buildGmWrapperPrefix } from './gm-wrapper'
+import { buildGmWrapperPrefix } from './index'
 
 /** 造一份最小 GM_info（userAgent / isIncognito 由包装运行时就地补，故不传） */
 function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
@@ -38,11 +38,12 @@ function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
 /**
  * 反射注入侧发出的命令名。
  *
- * 反射对象是 `buildGmWrapperPrefix()` 的**产出**（真身字节），不是 ts 源文本 —— 这样注释里的
- * 「`c: 'xxx'`」不会误入（产出里只留注入体自身的注释），改包装也不会绕开这条检查。
+ * 反射对象是 `buildGmWrapperPrefix()` 的**产出**（真身字节），不是 ts 源文本 —— 这样源码注释里的
+ * 「`c: 'xxx'`」不会误入（esbuild 产物连注释都已剥除），改包装也不会绕开这条检查。
  *
- * 匹配 `c: '<字面量>'`：包装层全部命令名都是字面量（无拼接、无 `.c =` 赋值；新增时也别拼接，
- * 否则本反射会静默漏掉 —— 真出现拼接，比对会以「登记表里的命令没有生产者」的形式红出来）。
+ * 匹配 `c: '<字面量>'`（单双引号都认 —— esbuild 统一输出双引号）：包装层全部命令名都是字面量
+ * （无拼接、无 `.c =` 赋值；新增时也别拼接，否则本反射会静默漏掉 —— 真出现拼接，比对会以
+ * 「登记表里的命令没有生产者」的形式红出来）。
  */
 function producers(grant?: string[]): string[] {
   const src = buildGmWrapperPrefix({
@@ -54,7 +55,7 @@ function producers(grant?: string[]): string[] {
     ...(grant ? { grant } : {}),
   })
   const out = new Set<string>()
-  for (const m of src.matchAll(/\bc:\s*'([A-Za-z][\w.]*)'/g)) out.add(m[1]!)
+  for (const m of src.matchAll(/\bc:\s*["']([A-Za-z][\w.]*)["']/g)) out.add(m[1]!)
   return [...out].sort()
 }
 

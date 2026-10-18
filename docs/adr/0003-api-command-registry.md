@@ -6,7 +6,7 @@
 
 ## 背景
 
-命令的**发送侧**是 gm-wrapper.ts 里那段注入源码**字符串**（`__gmSend({ c: 'store.get' … })`），命令名对 typecheck 完全不可见——拼错、或改了 dispatch 漏改包装层，编译与分层单测都不报。
+命令的**发送侧**是 gm-wrapper.ts 里那段注入源码**字符串**（`__gmSend({ c: 'store.get' … })`，现落点 `packages/user-scripts/src/gm-main/src/`），命令名对 typecheck 完全不可见——拼错、或改了 dispatch 漏改包装层，编译与分层单测都不报。
 
 ## 决策
 

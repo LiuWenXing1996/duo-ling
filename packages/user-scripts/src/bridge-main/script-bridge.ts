@@ -1,7 +1,7 @@
 // 脚本主世界桥 · MAIN 世界侧客户端源码模板。
 //
-// buildScriptBridgeSource(secret, uuid) 返回的字符串由 gm-wrapper.ts 以
-// `var __dlBridge = <源码>` 内联进 GM 包装，运行在**页面 MAIN 世界**。
+// buildScriptBridgeSource(secret, uuid) 返回的字符串由 gm-main（同包 gm-main/src/header）
+// 以 `var __dlBridge = <源码>` 内联进 GM 包装，运行在**页面 MAIN 世界**。
 //
 // 职责：给同一份包装里的 GM 能力实现当「`chrome.runtime` 的替身」——
 //   · `call(req)` 请求-应答，对应 `chrome.runtime.sendMessage` 的回调式调用语义；
@@ -25,7 +25,7 @@ import {
 } from '@duoling/shared'
 
 export function buildScriptBridgeSource(secret: string, uuid: string): string {
-  // 注意：本源码由 buildGmWrapperSource 以 `var __dlBridge = <源码>` 形式内联，
+  // 注意：本源码由 buildGmWrapperPrefix（gm-main/index.ts）以 `var __dlBridge = <源码>` 形式内联，
   // 开头不能带分号（`var x = ;` 是语法错误）。
   return `
 (function () {
@@ -112,7 +112,7 @@ export function buildScriptBridgeSource(secret: string, uuid: string): string {
   }
 
   return {
-    // runId = 该请求所属的运行（包装层注入时 mint，见 gm-wrapper 的 __gmRunId）。
+    // runId = 该请求所属的运行（包装层注入时 mint，见 gm-main 的 __gmRunId）。
     // 传输层不解释它，只随帧带到 SW —— SW 据此把这条请求产生的观测数据（运行事件 / 桥调用失败）
     // 归属到具体某一次运行，否则它们只能落在「挂不上任何运行」的孤儿行里。
     call: function (payload, runId) {

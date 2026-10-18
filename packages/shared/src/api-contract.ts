@@ -433,7 +433,7 @@ export const API_COMMANDS: Record<ApiRequest['c'], true> = {
  * notifications.onClicked → notify.click；tabs.onUpdated → audio.change；请求 / 下载的进度与结局
  * （xhr.progress / download.change）由各自发起方在 SW 侧推。`port.ready` 是内部握手帧。
  *
- * （**没有 URL 变化事件**：URL 变化在页面本地检测——见 gm-wrapper 的 history hook——
+ * （**没有 URL 变化事件**：URL 变化在页面本地检测——见 gm-main 的 history hook——
  * 不经 SW 推，故这里没有对应的事件类型。）
  */
 export type ApiEvent =

@@ -15,7 +15,7 @@ import type {
 } from '@duoling/shared'
 // 可用性形状归契约包（应用侧状态横幅与 offscreen 都认），此处 re-export 维持包内路径不变。
 export type { UserScriptsAvailability }
-import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
+import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from '@duoling/user-scripts/gm-main'
 import {
   parseUserScriptMetadata,
   resolveConfigFromSource,
@@ -166,9 +166,9 @@ export function validateMatchPatterns(config: ScriptConfig): void {
 
 // —— GM 包装（js 首条目，先于项目代码）——
 //
-// 包装源码在 gm-wrapper.ts（独立模块：便于审阅，且速查页的防漂移单测要从它的装配块反射真实键集合）。
+// 包装源码在 @duoling/user-scripts/gm-main（独立模块：便于审阅，且速查页的防漂移单测要从它的装配块反射真实键集合）。
 // 本文件只负责组装：① GM_info（metadata 视图 + 扩展版本 + uuid）；② 该脚本的**值快照**
-// （同步 GM_getValue 的底座，见 gm-wrapper 的 `GM_VALUES` 快照块）；③ 按 @grant 算出的成员裁剪。
+// （同步 GM_getValue 的底座，见 gm-main 的 `GM_VALUES` 快照块）；③ 按 @grant 算出的成员裁剪。
 // 注入顺序：包装 → @require 依赖（按序前置）→ 脚本源码。
 
 /** config.runAt（下划线写法）→ metadata 视图里的油猴写法（连字符） */
@@ -180,7 +180,7 @@ function toTmRunAt(runAt: ScriptConfig['runAt']): string {
  * 组装注入体内的 `GM_info`。
  *
  * `userAgent` / `isIncognito` 刻意不入参：它们只能在页面里取到（页面 UA 未必等于 SW 的 UA），
- * 由包装运行时就地补齐（见 gm-wrapper 里的 `GM_INFO.userAgent = …`）。
+ * 由包装运行时就地补齐（见 gm-main 里的 `GM_INFO.userAgent = …`）。
  */
 function buildGmInfo(
   project: ScriptProject,
@@ -356,7 +356,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   // 密钥取自持久层（与中继件同源）：单脚本注册路径也可能在 SW 刚唤醒、尚未跑过
   // registerAllEnabled 时发生，必须能独立取到当前密钥。
   const pageSecret = await getOrCreatePageSecret()
-  // **值快照**：同步 GM_getValue 的底座（见 gm-wrapper 的 `GM_VALUES` 快照块）。读不到不阻断注册——
+  // **值快照**：同步 GM_getValue 的底座（见 gm-main 的 `GM_VALUES` 快照块）。读不到不阻断注册——
   // 退化为空快照（首读拿默认值），包装层 connect 后的全量校准会补齐。
   let values: Record<string, Json> = {}
   try {
@@ -401,14 +401,14 @@ export async function registerScript(project: ScriptProject): Promise<void> {
       resources[r.name] = { text: r.text, url: r.dataUrl }
   }
   // 注入 code **必须拼成一条**：包装前缀、@require、脚本源码、闭合后缀要在同一个函数作用域里，
-  // 脚本才能按词法拿到 `GM_*`（见 gm-wrapper.ts 文件头）。拆成多条 js 会各自独立求值 ——
+  // 脚本才能按词法拿到 `GM_*`（见 gm-main 文件头）。拆成多条 js 会各自独立求值 ——
   // 未闭合的 IIFE 前缀单独求值直接是语法错误。
   // @run-at document-body：注入仍用 document_start（Chrome 的 runAt 只认三种），正文则由包装层的
   // 闸门推到 body 出现之后再跑 —— TM 的语义是 body 元素存在时才注入。
   const runAtBody = project.config.runAt === 'document_body'
   // @require 之间、@require 与脚本正文之间插一条空语句（;）：库源码结尾若缺分号、
   // 下一段又以 ( 开头，换行拼接会被 ASI 并成一条表达式（与包装前缀收尾同款坑，
-  // 见 gm-wrapper.ts 末尾的注释）。
+  // 见 gm-main 末尾的注释）。
   const bodySource = [...requireCodes, rawCode].join('\n;\n')
   const code = [
     buildGmWrapperPrefix({
@@ -431,7 +431,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
     id: project.uuid,
     // 注入页面主世界：`unsafeWindow` 即页面 window、站点自身的 JS 全局可见（与 TM 默认一致）。
     // MAIN 不支持 worldId，故不再有「每脚本独立世界」——同帧多脚本共享一个 window，
-    // GM 成员由包装声明为局部变量来避免互相覆盖（见 gm-wrapper.ts 文件头）。
+    // GM 成员由包装声明为局部变量来避免互相覆盖（见 gm-main 文件头）。
     world: 'MAIN',
     js: [{ code }],
     matches: project.config.matches,

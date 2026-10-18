@@ -51,14 +51,14 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 | 面 | 位置 | 兜它的测试 |
 | --- | --- | --- |
 | 契约：命令名 + 类型 | `api-contract.ts` 的 `ApiRequest` + `API_COMMANDS` | 类型层：`Record<ApiRequest['c'], true>` 两向约束（少一条 / 多一条都编译红） |
-| 注入侧：包装真身 | `gm-wrapper.ts` 的装配块与命令发送 | `api-commands.test.ts`（反射**生成的注入源码** ↔ 登记表双向） |
+| 注入侧：包装真身 | `gm-main/src/` 的装配段与命令发送 | `api-commands.test.ts`（反射**生成的注入源码** ↔ 登记表双向） |
 | 展示侧：工作台面板 | `gm-api-catalog.ts` | `gm-api-catalog.test.ts`（反射装配块 ↔ 目录双向） |
 | 真机侧：手测探针 | `packages/uscript-samples/src/omni-probe/covers.ts` 的 `COVERS` 登记表（结构化导出） | `gm-api-coverage.test.ts`（目录 ↔ 登记表双向）；同一份探针（构建产物 `dist/omni-probe/omni-probe.user.js`）另由 `e2e/omni-probe.spec.ts` 在无头 CI 上自动跑（读同一份产物，人工档 4 项在 AUTO 下记 `?`） |
 
 **要验「需要 AI 回一句」的项**（会话归属 / 生成结果 / 修订…）：端测里用 `scripts/model-stub.mjs` 的本地假模型服务顶替真模型 —— 经设置页表单（`e2e/model-config.ts` 的 `saveStubModel`）存进去，`chat:start` 即可跑完且回复内容由测试写死（见 `e2e/chat-stub.spec.ts`）。CI 里没有也不该有真 key。
 
 新增一条 API 的完整动作：① `ApiRequest` 加一项 + `API_COMMANDS` 加一行（类型层盯着这里，忘加就编译红）；
-② `gm-wrapper.ts` 挂成员并发命令；③ `gm-api-catalog.ts` 加条目（标题 / 签名 / 说明 / 返回）；
+② `gm-main`（挂成员发命令，注入源在 `gm-main/src/`）；③ `gm-api-catalog.ts` 加条目（标题 / 签名 / 说明 / 返回）；
 ④ 探针加一条用例 + `@covers` 认领一行。四处齐了 `pnpm run test` 才绿。
 
 **反射的写法**（三处同一套）：读源码文本 → 按锚点注释切片 → 正则提取 → 与另一侧双向比对。

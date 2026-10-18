@@ -40,7 +40,7 @@ export class DlPortRegistry {
   /**
    * 全量值订阅（`store.watchAll`）：Port 级布尔。
    * 存在理由：只读值的脚本从不键级订阅，若不给它一条全量通道，别的标签页改的值它永远收不到，
-   * 同步快照会整个页面生命周期陈旧（见 gm-wrapper.ts 的 `__gmEnsureChannel`）。
+   * 同步快照会整个页面生命周期陈旧（见 @duoling/user-scripts gm-main 的 `__gmEnsureChannel`）。
    */
   private valueWatchers = new Set<chrome.runtime.Port>()
   /** 登记过音频订阅（`GM_audio.addStateChangeListener`）的 Port —— 见 portsForAudioWatch */

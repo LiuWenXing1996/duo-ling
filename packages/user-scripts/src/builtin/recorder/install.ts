@@ -20,7 +20,7 @@ declare global {
 
 /**
  * 脚本桥的上行口（GM 包装内联进同一作用域的 `__dlBridge`，恒注入）。
- * 形状真相源是 service-worker 的 script-bridge.ts；这里只声明本件用到的那一个方法。
+ * 形状真相源是同包 bridge-main 的 script-bridge.ts；这里只声明本件用到的那一个方法。
  */
 declare const __dlBridge: {
   emit(envelope: Record<string, unknown>): void

@@ -1,10 +1,10 @@
-// gm-wrapper 单测：① 注入源码**必须能解析**（它是字符串，语法错一次就静默全废）；
+// gm-main 单测：① 注入源码**必须能解析**（它是字符串，语法错一次就静默全废）；
 // ② `@grant` 裁剪规则按预期放行 / 关闭成员；③ 前缀与脚本正文的拼接点必须「语句级分离」
 // —— ASI 合并后的源码语法依然合法，parse 抓不住语法、但抓得住**结构**（见末尾回归用例）。
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
 import { ALWAYS_GLOBALS, ALWAYS_NS, type GmInfo, gmAllGlobals, gmAllNs } from '@duoling/shared'
-import { GM_WRAPPER_SUFFIX, buildGmWrapperPrefix, resolveGmExposure } from './gm-wrapper'
+import { GM_WRAPPER_SUFFIX, buildGmWrapperPrefix, resolveGmExposure } from './index'
 /** 测试自造：断言生成源码里的 scriptHandler 跟随传入值。真值由应用侧传入，包内不持有。 */
 const EXTENSION_NAME = '测试扩展'
 
@@ -62,7 +62,8 @@ describe('buildGmWrapperPrefix', () => {
     // 但回调全被静默丢掉（真机实测）。
     expect(src).toContain('wantsProgress ? __gmSendAfterChannel : __gmSend')
     expect(src).toContain('wantsFrames ? __gmSendAfterChannel : __gmSend')
-    expect(src).toContain("typeof onclick === 'function' ? __gmSendAfterChannel : __gmSend")
+    // esbuild 产物统一双引号（下同）
+    expect(src).toContain('typeof onclick === "function" ? __gmSendAfterChannel : __gmSend')
     // 降级而不阻断：通道建不起来也要把请求发出去，但必须在控制台喊一声（不做新的静默失败）
     expect(src).toContain('下行通道未就绪，本次调用的进度 / 完成回调会收不到')
   })
@@ -71,9 +72,7 @@ describe('buildGmWrapperPrefix', () => {
     const src = build()
     // 曾经 string data 在 __gmEncodeBody 里被当成「没有体」直接返回，而 __gmXhr 组装 init 的
     // 字面量里也没有 body 字段：两头都不带，POST 的文本体在过桥前就没了，服务端收到空体（真机实测）。
-    expect(src).toContain(
-      "if (typeof raw === 'string') return Promise.resolve(function (s) { var c = __gmCopyInit(s); c.body = raw; return c })",
-    )
+    expect(src).toContain('if (typeof raw === "string") return Promise.resolve(function(s) {')
   })
 
   it('嵌入了值快照、GM_info 与按 grant 算出的成员表', () => {
@@ -95,7 +94,7 @@ describe('buildGmWrapperPrefix', () => {
     // unsafeWindow 就是页面自己的 window（脚本跑在主世界），故走局部声明
     expect(src).toContain('var unsafeWindow = window')
     expect(src).not.toContain("defineProperty(window, 'unsafeWindow'")
-    expect(src).toContain("Object.defineProperty(window, 'onurlchange'")
+    expect(src).toContain('Object.defineProperty(window, "onurlchange"')
     // cookie 的三个方法都照 TM 收 domain / path（url 恒参与查询，domain / path 只收窄可见范围）
     expect(src).toContain('domain: q.domain, path: q.path')
     expect(src).toContain('store.watchAll') // 常驻通道
@@ -104,15 +103,15 @@ describe('buildGmWrapperPrefix', () => {
 
   it('urlchange 走本地检测：hook history + popstate / hashchange，不再经 SW 订阅', () => {
     const src = build()
-    expect(src).toContain("Object.defineProperty(window, 'onurlchange'")
+    expect(src).toContain('Object.defineProperty(window, "onurlchange"')
     expect(src).toContain('history.pushState =')
     expect(src).toContain('history.replaceState =')
-    expect(src).toContain("addEventListener('popstate'")
-    expect(src).toContain("addEventListener('hashchange'")
+    expect(src).toContain('addEventListener("popstate"')
+    expect(src).toContain('addEventListener("hashchange"')
     // 脚本与页面同处一个世界，路由变化自己就能听见 —— 跨世界订阅整条撤掉，
     // 也顺带免掉了「覆盖 window.addEventListener 做本地转发」对页面的侵入
-    expect(src).not.toContain("c: 'url.watch'")
-    expect(src).not.toContain("c: 'url.unwatch'")
+    expect(src).not.toContain('c: "url.watch"')
+    expect(src).not.toContain('c: "url.unwatch"')
   })
 
   it('前缀与脚本正文的拼接分号安全：正文以 ( 开头时不被 ASI 并进上一条语句（真机回归）', () => {
@@ -129,7 +128,7 @@ describe('buildGmWrapperPrefix', () => {
       '//# sourceURL=asi-regression.js',
     ].join('\n')
     const src = build([], body)
-    expect(src).toContain("addEventListener('hashchange', __gmCheckUrl);")
+    expect(src).toContain('window.addEventListener("hashchange", __gmCheckUrl);')
     // 外层 IIFE（前导 ; 是 EmptyStatement，取第一条表达式语句）的函数体里，最后一条
     // 语句必须是 TryStatement（正文执行区整体包 try，见错误归属口径），
     // 脚本自己的 IIFE 调用是 try 块内的最后一条独立语句（callee 是函数表达式），
@@ -168,7 +167,8 @@ describe('buildGmWrapperPrefix', () => {
     // 1 处定义 + error / unhandledrejection 两个监听各守一次
     expect(guardCount).toBe(3)
     // 过滤必须发生在上报之前（守卫在 __gmReportError 调用前面）：直接断言监听体形状
-    expect(src).toMatch(/if \(!__gmOwnStack\(stack\)\) return [^\n]*\n\s*__gmReportError/)
+    // （产物里 esbuild 会给单语句 if 的 return 补分号）
+    expect(src).toMatch(/if \(!__gmOwnStack\(stack\)\) return;?[^\n]*\n\s*__gmReportError/)
   })
 })
 

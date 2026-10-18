@@ -1,0 +1,17 @@
+{
+  // gm-main（MAIN 世界 GM 内核）与 bridge-main（MAIN 侧桥客户端源码）。
+  // 两个世界混编：
+  //   · index.ts / exposure.ts 是 SW 侧组装层（普通 TS，strict 口径同 base）；
+  //   · src/ 是页面世界**真源码**（esbuild 构建成注入片段，gen 常量交给 SW 拼装）——
+  //     函数的「使用方」在同作用域的其他段与装配段，模块内看不到，故关闭 noUnusedLocals；
+  //     跨段引用以 declare const 标注（编译期类型、运行期自由标识符，见 src/store.ts 文件头）。
+  // 注入体内不得出现 chrome.*，故 types 留空（node 类型由测试文件级三斜线自取，与 SW 包同款约定）。
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "types": [],
+    "noUnusedLocals": false,
+    "noImplicitAny": true,
+    "useUnknownInCatchVariables": false
+  },
+  "include": ["src/gm-main", "src/bridge-main"]
+}

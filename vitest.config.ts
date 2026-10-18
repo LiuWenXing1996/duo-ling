@@ -54,8 +54,8 @@ export default defineConfig({
           include: [
             'src/**/*.test.ts',
             'packages/{ui,workbench,floatpanel,popup}/src/**/*.test.ts',
-            // 内置件的单测（registry / install）：与逻辑测试同档，node 环境直跑
-            'packages/user-scripts/src/builtin/**/*.test.ts',
+            // user-scripts 包内用例（builtin 内置件 / gm-main 包装 / bridge-main 桥）：与逻辑测试同档，node 环境直跑
+            'packages/user-scripts/src/**/*.test.ts',
           ],
           exclude: ['**/*.component.test.ts', ...defaultExclude],
         },
