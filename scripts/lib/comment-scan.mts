@@ -64,7 +64,8 @@ function cssSpans(code: string, less: boolean): Span[] {
   root.walkComments((node) => {
     const start = node.source?.start?.offset
     if (start === undefined) return
-    const begin = node.raws.begin ?? '/*'
+    // raws 是 Record<string, unknown> 加几个具名键，begin 只会是 string 或没定义
+    const begin = typeof node.raws.begin === 'string' ? node.raws.begin : '/*'
     const closer = begin === '//' ? '' : '*/'
     const length =
       begin.length + (node.raws.left?.length ?? 0) + node.text.length + (node.raws.right?.length ?? 0) + closer.length
