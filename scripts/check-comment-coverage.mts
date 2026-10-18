@@ -9,9 +9,11 @@
 // 口径：
 //   - 注释行：含注释的行（行注释、块注释逐行、HTML 注释）。行尾注释所在行只算注释行。
 //   - 分母：非空行（有代码或有注释的行）。空行与纯空白行不参与 —— 否则格式化程度会直接左右数字。
-//   - 字符级状态机抠注释：字符串与模板串里的 // 、/* 不算注释，与 check-comments 同一套判定。
-//   - 排除 .d.ts / .d.mts：类型声明不是实现，计入会稀释密度。
-//   - 扫描面与 check-comments 一致：src / packages / e2e / scripts + 仓库根的散装源码。
+//   - 字符级状态机抠注释：字符串与模板串里的 // 、/* 不算注释。
+//   - 扩展名：ts / mts / vue / js / mjs / css / less / yml / yaml / html，含 .d.ts / .d.mts。
+//     yml 的 # 注释按「行首或空白之后」识别，避免把 #fff 这类值当成注释。
+//   - 排除 lock：pnpm-lock.yaml 由工具生成、近万行，计进来密度只反映依赖数量。
+//   - 扫描面：src / packages / e2e / scripts + 仓库根散装源码 + .github/workflows 的 yml。
 //   - 跳过 dist：构建产物不入库，注释已被 esbuild / vite 剥掉，计进来只是把密度按产物体积稀释，
 //     且会让「构建过的机器」与干净 clone 跑出不同数字。
 //   - 来源：从组件库原样拉取的件（src/components 下的 ui / ai-elements）单列 —— 它们几乎不带注释，
@@ -27,9 +29,10 @@ import { extname, join, relative, sep } from 'node:path'
 import { scan } from './lib/comment-scan.mts'
 
 const root = new URL('..', import.meta.url).pathname
-const scanDirs = ['src', 'packages', 'e2e', 'scripts']
-const extRe = /\.(mts|ts|vue|js|mjs|css|less)$/
-const declRe = /\.d\.(ts|mts)$/
+const scanDirs = ['src', 'packages', 'e2e', 'scripts', '.github']
+const extRe = /\.(mts|ts|vue|js|mjs|css|less|ya?ml|html)$/
+/** 工具生成的锁文件：行数与依赖数量挂钩，不参与密度。 */
+const lockRe = /^pnpm-lock\.ya?ml$/
 /** 组件库原样件所在目录（shadcn 的 ui、ai-elements）；其余一律算自研。 */
 const vendoredPrefixes = [
   join('packages', 'ui', 'src', 'components', 'ui'),
@@ -53,16 +56,18 @@ function listFiles(dir: string): string[] {
     return out
   }
   for (const entry of entries) {
-    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) continue
+    // .github 要进来：workflows 是手写的 yml，属于源码；其余点开头目录仍是生成物或工具缓存
+    const hidden = entry.name.startsWith('.') && entry.name !== '.github'
+    if (entry.name === 'node_modules' || entry.name === 'dist' || hidden) continue
     const full = join(dir, entry.name)
     if (entry.isDirectory()) out.push(...listFiles(full))
-    else if (extRe.test(entry.name) && !declRe.test(entry.name)) out.push(full)
+    else if (extRe.test(entry.name) && !lockRe.test(entry.name)) out.push(full)
   }
   return out
 }
 
 const rootFiles = readdirSync(root, { withFileTypes: true })
-  .filter((e) => e.isFile() && extRe.test(e.name) && !declRe.test(e.name))
+  .filter((e) => e.isFile() && extRe.test(e.name) && !lockRe.test(e.name))
   .map((e) => join(root, e.name))
 
 const files = [...new Set([...scanDirs.flatMap((dir) => listFiles(join(root, dir))), ...rootFiles])]
@@ -92,7 +97,7 @@ for (const file of files) {
   } catch {
     continue
   }
-  const { nonEmpty, comment, codeLines, commentLines } = scan(code)
+  const { nonEmpty, comment, codeLines, commentLines } = scan(code, { hash: /\.ya?ml$/.test(file) })
   if (nonEmpty === 0) continue
   if (comment === 0) silent++
 

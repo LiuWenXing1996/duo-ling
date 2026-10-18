@@ -6,7 +6,7 @@ export interface ScanResult {
   commentLines: Set<number>
 }
 
-export function scan(code: string): ScanResult {
+export function scan(code: string, options: { hash?: boolean } = {}): ScanResult {
   const codeLines = new Set<number>()
   const commentLines = new Set<number>()
   type State = 'code' | 'line' | 'block' | 'html' | 'q1' | 'q2' | 'q3'
@@ -24,6 +24,10 @@ export function scan(code: string): ScanResult {
     if (state === 'code') {
       if (c === '\n') {
         line++
+      } else if (options.hash && c === '#' && (i === 0 || /\s/.test(code[i - 1]))) {
+        // YAML 的 # 注释：须在行首或空白之后，避免把 #fff 这类值当成注释
+        commentLines.add(line)
+        state = 'line'
       } else if (c2 === '//') {
         commentLines.add(line)
         state = 'line'
@@ -32,10 +36,10 @@ export function scan(code: string): ScanResult {
         commentLines.add(line)
         state = 'block'
         i++
-      } else if (c3 === '<!--') {
+      } else if (code.slice(i, i + 4) === '<!--') {
         commentLines.add(line)
         state = 'html'
-        i += 2
+        i += 3
       } else if (c === "'" || c === '"' || c === '`') {
         codeLines.add(line)
         state = c === "'" ? 'q1' : c === '"' ? 'q2' : 'q3'

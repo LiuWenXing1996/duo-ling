@@ -154,10 +154,10 @@ function commentLines(code: string): Array<{ line: number; text: string }> {
         state = 'block'
         buf = ''
         i++
-      } else if (c3 === '<!--') {
+      } else if (code.slice(i, i + 4) === '<!--') {
         state = 'html'
         buf = ''
-        i += 2
+        i += 3
       } else if (c === "'" || c === '"' || c === '`') {
         state = c === "'" ? 'q1' : c === '"' ? 'q2' : 'q3'
       }

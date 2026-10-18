@@ -220,7 +220,7 @@ async function save(): Promise<void> {
 
       <div class="min-h-0 flex-1 overflow-y-auto p-5">
         <div class="space-y-4">
-          <!-- 第一步：选择服务商 -->
+          <!-- 选择服务商 -->
           <div class="space-y-1">
             <label class="text-xs font-medium">服务商</label>
             <!-- 编辑态禁用切换：服务商决定接口地址与模型清单，改动等于换一个模型配置 -->
@@ -256,7 +256,7 @@ async function save(): Promise<void> {
             </p>
           </div>
 
-          <!-- 第二步：输入 API Key -->
+          <!-- 输入 API Key -->
           <div class="space-y-1">
             <label class="text-xs font-medium">API 密钥</label>
             <div class="relative">
@@ -282,7 +282,7 @@ async function save(): Promise<void> {
             </p>
           </div>
 
-          <!-- 第三步：模型 ID —— 手输，下方预置模型快速填入 -->
+          <!-- 模型 ID —— 手输，下方预置模型快速填入 -->
           <div class="space-y-1">
             <label class="text-xs font-medium">模型 ID</label>
             <ui-input

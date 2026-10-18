@@ -11,8 +11,8 @@ const MIN_PCT = 1
 // 阈值按千分比整数算：新增行每满 10 行降 0.5 个百分点，到 1% 封底
 const limitPermil = (added: number) =>
   Math.max(MIN_PCT * 10, BASE_PCT * 10 - 5 * Math.floor((added - MIN_ADDED) / 10))
-const extRe = /\.(mts|ts|vue|js|mjs|css|less)$/
-const declRe = /\.d\.(ts|mts)$/
+const extRe = /\.(mts|ts|vue|js|mjs|css|less|ya?ml|html)$/
+const lockRe = /(?:^|\/)pnpm-lock\.ya?ml$/
 const HUNK_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
 
 function git(args: string[]): string {
@@ -33,7 +33,7 @@ function addedRanges(file: string): Array<[number, number]> {
 
 const targets = git(['diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z'])
   .split('\0')
-  .filter((f) => f && extRe.test(f) && !declRe.test(f))
+  .filter((f) => f && extRe.test(f) && !lockRe.test(f))
   .map((file) => ({ file, ranges: addedRanges(file) }))
   .filter((t) => t.ranges.length > 0)
 
@@ -52,7 +52,7 @@ interface Row {
 
 const rows: Row[] = []
 for (const { file, ranges } of targets) {
-  const { codeLines, commentLines } = scan(git(['show', `:${file}`]))
+  const { codeLines, commentLines } = scan(git(['show', `:${file}`]), { hash: /\.ya?ml$/.test(file) })
   let added = 0
   let comment = 0
   for (const [from, to] of ranges) {

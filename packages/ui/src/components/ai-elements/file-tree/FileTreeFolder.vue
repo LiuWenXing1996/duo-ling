@@ -68,7 +68,7 @@ provide(FileTreeFolderKey, {
             <FolderIcon v-else class="size-4 text-blue-500" />
           </FileTreeIcon>
           <!-- name 插槽：调用方可整块替换目录名的渲染（如给目录名配徽标）；
-               不传插槽时行为与原先一致（纯文本 props.name） -->
+               不传插槽时按纯文本 props.name 渲染 -->
           <FileTreeName><slot name="name">{{ props.name }}</slot></FileTreeName>
         </button>
       </CollapsibleTrigger>
