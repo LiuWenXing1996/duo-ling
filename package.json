@@ -35,6 +35,7 @@
     "check:comments": "node scripts/check-comments.mts",
     "check:comment-coverage": "node scripts/check-comment-coverage.mts",
     "check:comment-baseline": "node scripts/check-comment-coverage.mts --check",
+    "check:comment-diff": "node scripts/check-comment-diff.mts",
     "check:secrets": "secretlint \"**/*\"",
     "pack:uscripts": "node scripts/pack-uscripts.mts",
     "release": "node scripts/release.mts"
