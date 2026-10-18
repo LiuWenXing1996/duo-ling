@@ -38,11 +38,11 @@ popup / floatpanel / workbench ──▶ ui ──▶ shared ◀── service-w
 
 **两种包形态并存，判据是「谁消费」**：
 
-| | 源码直出（shared / service-worker / ui / workbench / floatpanel / popup） | 预构建（offscreen-document / shadcn-registry / builtin-scripts） |
+| | 源码直出（shared / service-worker / offscreen-document / ui / workbench / floatpanel / popup） | 预构建（shadcn-registry / builtin-scripts） |
 | --- | --- | --- |
 | `exports` | **全部直指 `src` 源码**（含 types 与 import） | 指向 `dist` 产物（builtin-scripts 例外：直指源码，见根 tsconfig paths 注释） |
-| 构建 | **不自建**（SW 例外：`build` 只跑 `build-relay.mjs` 生成中继件源码模块，随源码一起被消费方编译）—— 编译收敛到消费方：扩展页由 WXT 主包的 Vite 直取源码编译，offscreen 自建时由 rolldown 把 shared 打进产物 | `vite build`（offscreen 单文件 lib + dts；registry 加 preserveModules）/ `esbuild`（builtin-scripts 出 IIFE） |
-| 为什么 | 只有一个构建终点（WXT），类型与运行时同一份真相，`SwitchThumb` 这类「类型看 src、运行时看 dist」的 API 漂移从根上消失 | offscreen 暂维持 lib 单文件；registry 内部 `@/` 别名需构建期消解成相对路径；builtin-scripts 的产物是「扩展内路径的文件」必须自持 |
+| 构建 | **不自建**（SW 例外：`build` 只跑 `build-relay.mjs` 生成中继件源码模块，随源码一起被消费方编译）—— 编译收敛到消费方：扩展页由 WXT 主包的 Vite 直取源码编译，进程包自建时由 rolldown 把 shared 打进产物 | `vite build`（registry 单文件 lib + dts + preserveModules）/ `esbuild`（builtin-scripts 出 IIFE） |
+| 为什么 | 只有一个构建终点（WXT），类型与运行时同一份真相，`SwitchThumb` 这类「类型看 src、运行时看 dist」的 API 漂移从根上消失 | registry 内部 `@/` 别名需构建期消解成相对路径；builtin-scripts 的产物是「扩展内路径的文件」必须自持 |
 
 源码直出下摇树天然按文件粒度生效（Vite 按需编译入口可达的模块），此前为 dist 单文件产物配置的 `preserveModules` 与「子路径导出桶必须列为构建入口」整套机制随构建一起删除 —— `exports` 指向的源码文件永远存在，不存在「产物指向空气」。
 
