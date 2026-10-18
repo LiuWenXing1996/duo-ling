@@ -36,12 +36,16 @@
   // user-scripts/samples 例外：样例有自己的宽松 tsconfig（strict:false + 自持 GM 类型面），
   // 不吃根的严格档；它对根的类型面只暴露 covers.ts（纯类型化数据，经 coverage 测试的
   // import 仍会被 vue-tsc 以根档检查）。
+  // user-scripts/gm-main/src 例外：那几段是**注入片段**，按声明顺序拼进同一个函数作用域
+  // （使用方在别的段），单文件视角下「声明了没读」全是假阳性；它的类型门禁在
+  // user-scripts 的 tsconfig.main.json（noUnusedLocals off / useUnknownInCatchVariables off）。
   "include": ["src/**/*", "e2e/**/*", "packages/**/*", "scripts/**/*", ".wxt/wxt.d.ts"],
   "exclude": [
     "node_modules",
     ".output",
     "tmp",
     "packages/user-scripts/src/samples",
+    "packages/user-scripts/src/gm-main/src",
     "packages/*/dist"
   ]
 }

@@ -2,7 +2,9 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     // node 不进 types：要读源码的测试用文件级三斜线引用，包内仍看不见 node 全局
-    "types": ["chrome"]
+    // vite/client：`?raw` 的模块声明 —— 本包源码不用 ?raw，但程序里带进了 dl-core 的
+    // 装配件导入（@duoling/dl-core 源码直出，那一行在内核包里）
+    "types": ["chrome", "vite/client"]
   },
   "include": ["src"]
 }

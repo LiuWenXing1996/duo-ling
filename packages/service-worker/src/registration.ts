@@ -1,5 +1,6 @@
 // 用户脚本注册引擎（通用部分）。
 //
+<<<<<<< HEAD
 // 职责：chrome.userScripts 的世界配置 + 单脚本注册（GM 包装拼装）+ 全量重注册串行链 +
 // 可用性检测 + 握手密钥。对任何接入扩展都成立；中继件（GM 桥 MAIN 世界侧）属「跑全量 GM」
 // 的组成部分，注册同步由本包内置维护（relay/sync.ts，全量链自动带上）；产品内置件
@@ -13,9 +14,19 @@ import type {
   Json,
   UserScriptsAvailability,
 } from '@duoling/shared'
+=======
+// 职责：chrome.userScripts 的世界配置 + 单脚本注册（注入 code 交给 dl-core 拼装）+
+// 全量重注册串行链 + 可用性检测 + 握手密钥。对任何接入扩展都成立；中继件（GM 桥 MAIN
+// 世界侧）属「跑全量 GM」的组成部分，注册同步由本包内置维护（relay/sync.ts，全量链自动
+// 带上）；产品内置件（检查器 / 浮层 / 录制件）经 host-config 的 builtins 注入点挂进全量链。
+// 主走 MAIN 世界注入、注入代码与 @require 拼一条 code、不给脚本世界配 csp（不放开 eval）
+// —— 机制与理由见 ARCHITECTURE.md「脚本注入」节。
+import type { ScriptProject, ScriptConfig, GmInfo, Json, UserScriptsAvailability } from '@duoling/shared'
+>>>>>>> 0d47bbec (feat(dl-core): 新增脚本内核包与 SW 桥链路（DL.getTab/saveTab 端到端）)
 // 可用性形状归契约包（应用侧状态横幅与 offscreen 都认），此处 re-export 维持包内路径不变。
 export type { UserScriptsAvailability }
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from '@duoling/user-scripts/gm-main'
+import { installCustomUserScript, installedCustomScriptIds } from '@duoling/dl-core'
 import {
   parseUserScriptMetadata,
   resolveConfigFromSource,
@@ -336,23 +347,43 @@ async function listProjectsSorted(): Promise<ScriptProject[]> {
 }
 
 /**
- * 单条注册（仅 enabled 项目才注入；matches 缺失直接抛错）。
- * js 顺序：GM 包装 → 源码原文（resolveInjectCode，缺源码即抛错）。
+ * `@require` 抓取：按声明顺序取源码，抓取失败的依赖记一笔错误后跳过。
+ * 失败不阻断脚本整体注入（记错误不静默）。
  */
+<<<<<<< HEAD
 export async function registerScript(project: ScriptProject): Promise<void> {
   if (!project.enabled) return
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') {
     throw new Error(
       '用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限',
     )
+=======
+async function resolveRequireCodes(project: ScriptProject): Promise<string[]> {
+  const results = project.config.requires?.length
+    ? await fetchRequireSources(project.config.requires)
+    : []
+  for (const r of results) {
+    if (!r.ok) {
+      noteRegisterError({
+        uuid: project.uuid,
+        name: project.name,
+        phase: 'require',
+        message: `@require 抓取失败：${r.url}（${r.error ?? '未知错误'}），已跳过该依赖，脚本将以缺失它的状态注入`,
+      })
+    }
+>>>>>>> 0d47bbec (feat(dl-core): 新增脚本内核包与 SW 桥链路（DL.getTab/saveTab 端到端）)
   }
-  if (!project.config.matches?.length) {
-    throw new Error('脚本缺少匹配规则（matches），不会在任何页面运行')
-  }
-  // match pattern 合法性：与导入路径共用同一校验器，
-  // 非法值在此以中文报错拦下，不再拖到 chrome.userScripts.register 才以英文异常冒出
-  validateMatchPatterns(project.config)
-  const rawCode = resolveInjectCode(project)
+  return results.filter((r) => r.ok && r.code != null).map((r) => r.code!)
+}
+
+/**
+ * GM 包装路径的注入 code：动态头（GM_info / 值快照 / @grant 裁剪 / @resource / 桥客户端）
+ * ＋ 静态内核 ＋ `@require` ＋ 脚本正文 ＋ 闭合后缀，拼成一条。
+ *
+ * 密钥 / 值快照 / `@resource` 在这里备齐，包装拼装交给 @duoling/user-scripts/gm-main。
+ * 它与 dl-core 的拼装并存，作为 GM 面的对照实现。
+ */
+export async function buildGmInjectionCode(project: ScriptProject, rawCode: string): Promise<string> {
   // 密钥取自持久层（与中继件同源）：单脚本注册路径也可能在 SW 刚唤醒、尚未跑过
   // registerAllEnabled 时发生，必须能独立取到当前密钥。
   const pageSecret = await getOrCreatePageSecret()
@@ -364,22 +395,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   } catch {
     // 存储暂时不可用：按空快照继续
   }
-  // @require：注册时由 SW 抓取源码、按序前置注入（见 require-cache.ts）。
-  // 抓取失败只记错误、跳过该依赖，不阻断脚本整体注入（记错误不静默）。
-  const requireResults = project.config.requires?.length
-    ? await fetchRequireSources(project.config.requires)
-    : []
-  for (const r of requireResults) {
-    if (!r.ok) {
-      noteRegisterError({
-        uuid: project.uuid,
-        name: project.name,
-        phase: 'require',
-        message: `@require 抓取失败：${r.url}（${r.error ?? '未知错误'}），已跳过该依赖，脚本将以缺失它的状态注入`,
-      })
-    }
-  }
-  const requireCodes = requireResults.filter((r) => r.ok && r.code != null).map((r) => r.code!)
+  const requireCodes = await resolveRequireCodes(project)
   // @resource（命名资源）：与 @require 同款「这里抓、注入时用」，但它不是代码而是**素材**，
   // 故不进 code 拼接，而是内联成包装层里的常量表（GM_getResourceText / GM_getResourceURL 都是
   // **同步** API，内容必须注入前就绪）。抓取失败同样只记错误、不阻断注入。
@@ -410,7 +426,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   // 下一段又以 ( 开头，换行拼接会被 ASI 并成一条表达式（与包装前缀收尾同款坑，
   // 见 gm-main 末尾的注释）。
   const bodySource = [...requireCodes, rawCode].join('\n;\n')
-  const code = [
+  return [
     buildGmWrapperPrefix({
       uuid: project.uuid,
       name: project.name,
@@ -427,25 +443,38 @@ export async function registerScript(project: ScriptProject): Promise<void> {
     GM_WRAPPER_SUFFIX,
     sourceURLSuffix(project),
   ].join('\n')
-  const userScript: chrome.userScripts.RegisteredUserScript = {
+}
+
+/**
+ * 单条注册（仅 enabled 项目才注入；matches 缺失直接抛错）。
+ * 注册动作交给 dl-core 的 installCustomUserScript：它在 GM 包装层包好的源码外面再套一层
+ * 内核 IIFE，并负责幂等（先注销再注册）。本函数只管校验与配置映射。
+ */
+export async function registerScript(project: ScriptProject): Promise<void> {
+  if (!project.enabled) return
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') {
+    throw new Error('用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限')
+  }
+  if (!project.config.matches?.length) {
+    throw new Error('脚本缺少匹配规则（matches），不会在任何页面运行')
+  }
+  // match pattern 合法性：与导入路径共用同一校验器，
+  // 非法值在此以中文报错拦下，不再拖到 chrome.userScripts.register 才以英文异常冒出
+  validateMatchPatterns(project.config)
+  await installCustomUserScript(resolveInjectCode(project), {
     id: project.uuid,
-    // 注入页面主世界：`unsafeWindow` 即页面 window、站点自身的 JS 全局可见（与 TM 默认一致）。
-    // MAIN 不支持 worldId，故不再有「每脚本独立世界」——同帧多脚本共享一个 window，
-    // GM 成员由包装声明为局部变量来避免互相覆盖（见 gm-main 文件头）。
-    world: 'MAIN',
-    js: [{ code }],
+    name: project.name,
+    requires: await resolveRequireCodes(project),
     matches: project.config.matches,
     excludeMatches: project.config.excludeMatches,
     includeGlobs: project.config.includeGlobs,
     excludeGlobs: project.config.excludeGlobs,
-    // document_body 不是 Chrome 的合法取值：映射成 document_start，正文由闸门推迟到 body 出现
+    // document_body 不是 Chrome 的合法取值：映射成 document_start（Chrome 只认三种）
     runAt: project.config.runAt === 'document_body' ? 'document_start' : project.config.runAt,
     allFrames: project.config.allFrames,
-  }
-  // 幂等保护：dev 重载 / SW 顶层 init 与 onInstalled(update) 并发时，同 ID 可能已注册，
-  // 直接 register 会抛 Duplicate script ID。先清旧再注册（不存在时 unregister 静默成功）。
-  await chrome.userScripts.unregister({ ids: [project.uuid] }).catch(() => {})
-  await chrome.userScripts.register([userScript])
+    // 脚本库的 id 由引擎自己管：删除 / 关停靠全量同步的残留清扫兜底，不能进保留名单
+    protectFromSync: false,
+  })
 }
 
 /**
@@ -499,8 +528,9 @@ async function runRegisterAllEnabled(): Promise<void> {
   try {
     const existing = await chrome.userScripts.getScripts()
     // 全量重注册只清用户脚本——中继件（上一段刚同步）与内置注册（同上）不能被这把误清
-    // （内置排除名单由 builtins.ids 注入；中继件 id 由包自行保留）
-    const reserved = [...(builtins?.ids ?? []), SCRIPT_RELAY_ID]
+    // （内置排除名单由 builtins.ids 注入；中继件 id 由包自行保留；自定义安装由 dl-core
+    // 报上它本进程装过的 id，否则装完会在下一次同步里被当残留扫掉）
+    const reserved = [...(builtins?.ids ?? []), SCRIPT_RELAY_ID, ...installedCustomScriptIds()]
     const stale = existing.filter((s) => !reserved.includes(s.id))
     if (stale.length) await unregisterScripts(stale.map((s) => s.id))
   } catch {

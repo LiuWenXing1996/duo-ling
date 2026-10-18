@@ -12,6 +12,11 @@
 #     （脚本落盘形状 / GM 语义与目录 / 元数据解析 / 状态库 / 数据变更广播）+ 跨进程服务契约
 #     （接口 / key / 代理工厂），源码直出（exports 指 src，由消费方编译）；vite.config 只喂
 #     单测。唯一第三方依赖是 @webext-core/proxy-service（服务代理工厂）。
+#   · dl-core —— 脚本内核：注入体的实现体与能力面（DL.* 恒注入、覆盖 GM API 的超集，
+#     外加 unsafeWindow 与 window.onurlchange / close / focus）；除浏览器与扩展平台原生 API
+#     外不复用现有任何能力（不引用 gm-main / bridge-main / dl-bridge 的实现）；与 shared
+#     的分界是「行为 vs 形状」，只依赖 shared 的类型与常量，源码直出、types 只放
+#     vite/client 与 chrome（后者仅宿主侧注册模块需要，注入体不许碰 chrome，构建期有守卫）。
 #   · service-worker —— 运行时·SW 进程包（注册引擎 registration / 命令分发 dl-bridge /
 #     事件底座 dl-port / cookie 域名门 cookie-gate / require+resource 缓存 / 管理面 handler pack /
 #     宿主注入点 host-config / 服务实体 SWService / offscreen 容器能力约定 / GM 侧实现件

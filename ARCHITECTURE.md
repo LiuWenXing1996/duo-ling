@@ -20,14 +20,17 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 打底只有 `shared`：跨世界契约 + 共享实现（含 `app/` 那批**两个进程都要用的应用侧实现** —— 模型配置、归属映射、新版本检查、构建信息、小数据 kv、抓包摘要）。
 
+`dl-core` 是**脚本内核**：注入体的实现体与能力面，只依赖 `shared`。能力面恒注入、不读 grant —— `DL.*`（GM API 的超集）、`unsafeWindow`、`window.onurlchange` / `close` / `focus`；`GM_*` / `GM.*` 则继续按 `@grant` 裁剪，作为对齐 Tampermonkey 的兼容面（契约见 [packages/dl-core/README.md](packages/dl-core/README.md)）。**内核只依赖浏览器与扩展平台的原生 API 从零写出**，不复用现有注入体与桥的实现。另有一个宿主侧注册面（`installCustomUserScript`）：只在扩展进程里可用，装进去的代码同样经内核拼装，因此能直接拿到 `DL`。与 `shared` 的分界不是「代码量」而是「形状还是行为」—— 信封、常量、类型、纯数据处理进 `shared`，带运行期依赖或需要被拼进注入体的逻辑进 `dl-core`（`shared` 仍是 `types: []`；`dl-core` 只放 vite/client 与 chrome，后者仅宿主侧注册模块需要，注入体不许碰）。
+
 shadcn-vue 原语与 ai-elements 是唯一一处 **vendored 组件代码**，落在 `ui` 包内（`src/components/ui/` 与 `src/components/ai-elements/`，拆包前主包的原味拷贝）：`shadcn-vue` CLI 从 `registry.ai-elements-vue.com` 与官方 registry 拉源码，`components.json` 也在 `ui` 包内（CLI add 在该包目录下跑）。CLI 拉进来写的是 `@/` 别名，而源码直出后 `@/` 会撞主包自己的别名 —— 装完跑 `pnpm --filter @duoling/ui convert-paths` 一键转成包内相对路径。样式 token 由主包 `main.css` 注入。其它子包不得自持此类源码。
 
 **依赖严格单向，反向即错**：
 
 ```
 popup / floatpanel / workbench ──▶ ui ──▶ shared ◀── service-worker / offscreen-document
-        │                    ▲
-        └──────▶ ui 的 shadcn 组件层（components/ui/ · components/ai-elements/，随 ui 依赖）
+        │                    ▲              ▲
+        └──────▶ ui 的 shadcn 组件层        └── dl-core / user-scripts
+                （components/ui/ · components/ai-elements/，随 ui 依赖）
 ```
 
 - **进程侧不得 import 任何页面包**。一个模块只要 SW 也要用，它的家就在 `shared`（判据同 `src/lib` 时代：被两个进程同时消费 + 零 chrome 类型）—— 放 UI 包会让 SW 把前端依赖（Vue、组件树）拖进 `background.js`，而这类错误只在跑起来之后才现形。
@@ -38,10 +41,10 @@ popup / floatpanel / workbench ──▶ ui ──▶ shared ◀── service-w
 
 **两种包形态并存，判据是「谁消费」**：
 
-| | 源码直出（shared / service-worker / offscreen-document / ui / workbench / floatpanel / popup） | 预构建（user-scripts） |
+| | 源码直出（shared / dl-core / service-worker / offscreen-document / ui / workbench / floatpanel / popup） | 预构建（user-scripts） |
 | --- | --- | --- |
 | `exports` | **全部直指 `src` 源码**（含 types 与 import） | 指向 `dist` 产物（user-scripts 例外：`./builtin` 直指源码，见根 tsconfig paths 注释） |
-| 构建 | **不自建** —— 编译收敛到消费方：扩展页由 WXT 主包的 Vite 直取源码编译，进程包自建时由 rolldown 把 shared 打进产物 | `esbuild`（user-scripts 的 build.mjs：builtin 件 + 中继件 IIFE 的 gen 模块 + samples 单文件 .user.js） |
+| 构建 | **不自建** —— 编译收敛到消费方：扩展页由 WXT 主包的 Vite 直取源码编译，进程包自建时由 rolldown 把 shared 打进产物。**dl-core 例外**：`build.mts` 用 esbuild 把内核装配件打成 `dist/mount-dl-iife.js`（一段 IIFE 文本；注入体要与脚本正文同作用域，必须内联，故 `build-user-script.ts` 以 `?raw` 取原文 —— `exports` 仍直指 `src`，但该包的消费方必须是认 `?raw` 的 Vite） | `esbuild`（user-scripts 的 build.mjs：builtin 件 + 中继件 IIFE 的 gen 模块 + samples 单文件 .user.js） |
 | 为什么 | 只有一个构建终点（WXT），类型与运行时同一份真相，`SwitchThumb` 这类「类型看 src、运行时看 dist」的 API 漂移从根上消失 | user-scripts 的产物是「扩展内路径的文件 / 可分发 .user.js」必须自持 |
 
 源码直出下摇树天然按文件粒度生效（Vite 按需编译入口可达的模块），此前为 dist 单文件产物配置的 `preserveModules` 与「子路径导出桶必须列为构建入口」整套机制随构建一起删除 —— `exports` 指向的源码文件永远存在，不存在「产物指向空气」。
@@ -116,6 +119,8 @@ agent loop 要求宿主「不会在任务中途被回收」，三种宿主的寿
 ## 脚本注入
 
 `chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`@duoling/user-scripts` 包内 `gm-main/`）与 **USER_SCRIPT 中继件**（同包：relay 源码，IIFE 字符串内嵌以 `{ code }` 注册，宿主侧注册面在 SW 的 relay/sync.ts，注册同步在全量链内置维护）桥接。
+
+注入体的拼装归 `@duoling/dl-core` 的 `buildUserScript`：按「`var DL` 挂载点 → 内核 IIFE（`build.mts` 产出 `dist/mount-dl-iife.js`，本包以 `?raw` 取原文）→ `@require` + 正文」拼成**一条** code，三段同处一个函数作用域，正文因此能按词法拿到内核建好的 `DL`；注册统一走同包的 `installCustomUserScript`（脚本库那条只做校验与配置映射），GM 包装层那套保留为 GM 面的对照实现。
 
 标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`@duoling/shared` 的 `metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`；grant 名 → 它开启的成员这张对应表在 `gm-grants.ts`，注入侧、速查页与 AI 规范三处共用这一份）；能力表 `gm-api-catalog.ts` 生成速查页与**给 AI 的能力清单**两形态（三防漂移：类型层 `satisfies` + 从注入源码反射 + 规范文本对齐单测）。内部仍走 `__dl` 信封协议（协议稳定、与 DL 时代一致；桥的真身与接线工厂都在 `@duoling/service-worker`——background 调 `createServiceWorkerHost` 注入遥测 / 扩展身份 / offscreen 就绪并同步注册全部监听（应用侧不再有 re-export 桶，直接从 `@duoling/service-worker` 取用），遥测对象在 `userscripts/telemetry.ts`）。
 

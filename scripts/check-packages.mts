@@ -10,8 +10,9 @@ import { join, relative, resolve, dirname, posix } from 'node:path'
 // 依赖矩阵：包 → 允许 import 的 @duoling 包。根 src/ 是装配层，放行全部。
 const MATRIX: Record<string, string[]> = {
   shared: [],
+  'dl-core': ['shared'],
   'user-scripts': ['shared'],
-  'service-worker': ['shared', 'user-scripts'],
+  'service-worker': ['shared', 'user-scripts', 'dl-core'],
   'offscreen-document': ['shared'],
   ui: ['shared'],
   workbench: ['ui', 'shared'],
