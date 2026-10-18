@@ -1,85 +1,161 @@
-// 注释判定的字符级状态机：字符串与模板串里的 `//`、`/*` 不算注释；全仓与增量两道门禁共用。
+// 注释区间由各语言解析器产出（typescript / parse5 / postcss / yaml / compiler-sfc），本模块只把区间换算成行。
+import { parse as parseSfc } from '@vue/compiler-sfc'
+import { parse as parseHtml } from 'parse5'
+import postcss from 'postcss'
+import lessSyntax from 'postcss-less'
+import ts from 'typescript'
+import { Parser } from 'yaml'
+
 export interface ScanResult {
   nonEmpty: number
   comment: number
   codeLines: Set<number>
   commentLines: Set<number>
+  comments: Array<{ line: number; text: string }>
 }
 
-export function scan(code: string, options: { hash?: boolean } = {}): ScanResult {
-  const codeLines = new Set<number>()
-  const commentLines = new Set<number>()
-  type State = 'code' | 'line' | 'block' | 'html' | 'q1' | 'q2' | 'q3'
-  let state: State = 'code'
-  let line = 1
-  let i = 0
-  const n = code.length
-  const markCode = (c: string) => {
-    if (!/\s/.test(c)) codeLines.add(line)
-  }
-  while (i < n) {
-    const c = code[i]
-    const c2 = code.slice(i, i + 2)
-    const c3 = code.slice(i, i + 3)
-    if (state === 'code') {
-      if (c === '\n') {
-        line++
-      } else if (options.hash && c === '#' && (i === 0 || /\s/.test(code[i - 1]))) {
-        // YAML 的 # 注释：须在行首或空白之后，避免把 #fff 这类值当成注释
-        commentLines.add(line)
-        state = 'line'
-      } else if (c2 === '//') {
-        commentLines.add(line)
-        state = 'line'
-        i++
-      } else if (c2 === '/*') {
-        commentLines.add(line)
-        state = 'block'
-        i++
-      } else if (code.slice(i, i + 4) === '<!--') {
-        commentLines.add(line)
-        state = 'html'
-        i += 3
-      } else if (c === "'" || c === '"' || c === '`') {
-        codeLines.add(line)
-        state = c === "'" ? 'q1' : c === '"' ? 'q2' : 'q3'
-      } else {
-        markCode(c)
-      }
-    } else if (state === 'line') {
-      if (c === '\n') {
-        state = 'code'
-        line++
-      } else {
-        commentLines.add(line)
-      }
-    } else if (state === 'block') {
-      if (c2 === '*/') {
-        state = 'code'
-        i++
-      } else if (c === '\n') {
-        line++
-      } else {
-        commentLines.add(line)
-      }
-    } else if (state === 'html') {
-      if (c3 === '-->') {
-        state = 'code'
-        i += 2
-      } else if (c === '\n') {
-        line++
-      } else {
-        commentLines.add(line)
-      }
-    } else {
-      if (c === '\\') i++
-      else if ((state === 'q1' && c === "'") || (state === 'q2' && c === '"') || (state === 'q3' && c === '`')) state = 'code'
-      else if (c === '\n') line++
-      else markCode(c)
+type Span = [number, number]
+
+interface HtmlNode {
+  nodeName?: string
+  childNodes?: HtmlNode[]
+  content?: HtmlNode
+  sourceCodeLocation?: { startOffset: number; endOffset: number }
+}
+
+function tsSpans(code: string): Span[] {
+  const sf = ts.createSourceFile('probe.ts', code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const out: Span[] = []
+  const seen = new Set<string>()
+  const push = (ranges: readonly ts.CommentRange[] | undefined) => {
+    for (const range of ranges ?? []) {
+      const key = `${range.pos}:${range.end}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push([range.pos, range.end])
     }
-    i++
+  }
+  // 必须走到每个 token：只在 AST 节点上取 leading 会漏掉不属于任何节点的注释段
+  const visit = (node: ts.Node) => {
+    push(ts.getLeadingCommentRanges(code, node.getFullStart()))
+    push(ts.getTrailingCommentRanges(code, node.end))
+    for (const child of node.getChildren(sf)) visit(child)
+  }
+  visit(sf)
+  return out
+}
+
+function htmlSpans(code: string): Span[] {
+  const out: Span[] = []
+  const walk = (node: HtmlNode) => {
+    if (node.nodeName === '#comment' && node.sourceCodeLocation) {
+      out.push([node.sourceCodeLocation.startOffset, node.sourceCodeLocation.endOffset])
+    }
+    for (const child of node.childNodes ?? []) walk(child)
+    if (node.content) walk(node.content)
+  }
+  walk(parseHtml(code, { sourceCodeLocationInfo: true }) as HtmlNode)
+  return out
+}
+
+function cssSpans(code: string, less: boolean): Span[] {
+  const root = less ? lessSyntax.parse(code) : postcss.parse(code)
+  const out: Span[] = []
+  root.walkComments((node) => {
+    const start = node.source?.start?.offset
+    if (start === undefined) return
+    const begin = node.raws.begin ?? '/*'
+    const closer = begin === '//' ? '' : '*/'
+    const length =
+      begin.length + (node.raws.left?.length ?? 0) + node.text.length + (node.raws.right?.length ?? 0) + closer.length
+    out.push([start, start + length])
+  })
+  return out
+}
+
+function yamlSpans(code: string): Span[] {
+  const out: Span[] = []
+  const walk = (node: unknown) => {
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item)
+      return
+    }
+    if (!node || typeof node !== 'object') return
+    const token = node as { type?: string; offset?: number; source?: string }
+    if (token.type === 'comment' && typeof token.offset === 'number' && typeof token.source === 'string') {
+      out.push([token.offset, token.offset + token.source.length])
+    }
+    for (const value of Object.values(node)) walk(value)
+  }
+  walk(Array.from(new Parser().parse(code) as Iterable<unknown>))
+  return out
+}
+
+function vueSpans(code: string): Span[] {
+  const out = htmlSpans(code)
+  const { descriptor } = parseSfc(code, { filename: 'probe.vue' })
+  for (const block of [descriptor.script, descriptor.scriptSetup]) {
+    if (!block) continue
+    const base = block.loc.start.offset
+    for (const [start, end] of tsSpans(block.content)) out.push([start + base, end + base])
+  }
+  for (const style of descriptor.styles) {
+    const base = style.loc.start.offset
+    for (const [start, end] of cssSpans(style.content, style.lang === 'less')) out.push([start + base, end + base])
+  }
+  return out
+}
+
+function toScan(code: string, spans: Span[]): ScanResult {
+  const chars = code.split('')
+  for (const [start, end] of spans) {
+    for (let i = Math.max(0, start); i < Math.min(end, chars.length); i++) {
+      if (chars[i] !== '\n') chars[i] = ' '
+    }
+  }
+  const codeLines = new Set<number>()
+  chars.join('').split('\n').forEach((line, index) => {
+    if (line.trim()) codeLines.add(index + 1)
+  })
+  const starts = [0]
+  for (let i = 0; i < code.length; i++) if (code[i] === '\n') starts.push(i + 1)
+  const lineOf = (offset: number) => {
+    let low = 0
+    let high = starts.length - 1
+    while (low < high) {
+      const mid = (low + high + 1) >> 1
+      if (starts[mid] <= offset) low = mid
+      else high = mid - 1
+    }
+    return low + 1
+  }
+  const commentLines = new Set<number>()
+  const comments: Array<{ line: number; text: string }> = []
+  for (const [start, end] of spans) {
+    const first = lineOf(start)
+    const last = lineOf(Math.max(start, end - 1))
+    for (let line = first; line <= last; line++) commentLines.add(line)
+    const raw = code.slice(start, end)
+    const opener = raw.startsWith('<!--') ? 4 : raw.startsWith('//') || raw.startsWith('/*') ? 2 : 1
+    const closer = raw.endsWith('-->') ? 3 : raw.endsWith('*/') ? 2 : 0
+    raw
+      .slice(opener, raw.length - closer)
+      .split('\n')
+      .forEach((text, index) => {
+        const trimmed = text.trim()
+        if (trimmed) comments.push({ line: first + index, text: trimmed })
+      })
   }
   let nonEmpty = codeLines.size
-  for (const l of commentLines) if (!codeLines.has(l)) nonEmpty++
-  return { nonEmpty, comment: commentLines.size, codeLines, commentLines }
+  for (const line of commentLines) if (!codeLines.has(line)) nonEmpty++
+  return { nonEmpty, comment: commentLines.size, codeLines, commentLines, comments }
+}
+
+export function scan(code: string, file: string): ScanResult {
+  if (/\.vue$/.test(file)) return toScan(code, vueSpans(code))
+  if (/\.(mts|ts|js|mjs)$/.test(file)) return toScan(code, tsSpans(code))
+  if (/\.(css|less)$/.test(file)) return toScan(code, cssSpans(code, file.endsWith('.less')))
+  if (/\.ya?ml$/.test(file)) return toScan(code, yamlSpans(code))
+  if (/\.html$/.test(file)) return toScan(code, htmlSpans(code))
+  return toScan(code, [])
 }

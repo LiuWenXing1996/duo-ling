@@ -52,7 +52,7 @@ interface Row {
 
 const rows: Row[] = []
 for (const { file, ranges } of targets) {
-  const { codeLines, commentLines } = scan(git(['show', `:${file}`]), { hash: /\.ya?ml$/.test(file) })
+  const { codeLines, commentLines } = scan(git(['show', `:${file}`]), file)
   let added = 0
   let comment = 0
   for (const [from, to] of ranges) {

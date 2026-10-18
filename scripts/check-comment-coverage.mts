@@ -97,7 +97,7 @@ for (const file of files) {
   } catch {
     continue
   }
-  const { nonEmpty, comment, codeLines, commentLines } = scan(code, { hash: /\.ya?ml$/.test(file) })
+  const { nonEmpty, comment, codeLines, commentLines } = scan(code, file)
   if (nonEmpty === 0) continue
   if (comment === 0) silent++
 
