@@ -15,7 +15,7 @@
 // 文案按模式区分 —— 用户要能判断是「自己没点」还是「页面没了」。
 
 import type { PageEnvContext, PageSnapshotContext } from '@duoling/shared'
-import { INSPECTOR_HOST_ID } from '@duoling/builtin-scripts'
+import { INSPECTOR_HOST_ID } from '@duoling/user-scripts/builtin'
 import { pushCommandTo } from '../dl-port'
 
 /** 单次调用的超时：用户点选可能很久不结算，但页面关掉 / 导航会让它永不结算，必须有兜底 */

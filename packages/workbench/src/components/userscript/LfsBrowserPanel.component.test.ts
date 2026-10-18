@@ -20,7 +20,7 @@ vi.mock('@duoling/ui/lib/userscripts/ui-client', () => ({
   userscriptClient: { list },
 }))
 
-vi.mock('../ai-elements/file-tree', () => ({
+vi.mock('@duoling/ui/components/ai-elements/file-tree', () => ({
   FileTree: {
     name: 'FileTree',
     emits: ['update:selectedPath'],

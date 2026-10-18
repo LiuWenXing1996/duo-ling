@@ -11,7 +11,7 @@
 //     页面脚本监控（page-monitor）、系统件注册同步（system-scripts / engine）、
 //     两类指令桥（page-inspector-bridge / float-bridge）与遥测 port（telemetry）。
 //
-// 依赖方向：本包 → shared（跨世界契约 / GM 语义 / 存储 / 服务契约）+ builtin-scripts
+// 依赖方向：本包 → shared（跨世界契约 / GM 语义 / 存储 / 服务契约）+ user-scripts/builtin
 // （系统件的注册 id 与产物文件名，只有常量、不带件本体），无环。
 // offscreen 进程侧的包是 @duoling/offscreen-document，与本包**互不 import**：跨进程只有
 // chrome.runtime 消息一条路（服务代理报文 / 总线命令）。

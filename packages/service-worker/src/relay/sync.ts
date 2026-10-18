@@ -1,19 +1,22 @@
-// 脚本桥中继件 · 宿主侧注册面（自 builtin-scripts registry.ts + 应用 engine.ts 收编进包）。
+// 脚本桥中继件 · 宿主侧注册面（自 user-scripts/builtin registry.ts + 应用 engine.ts 收编进包）。
 //
-// 中继件（relay/entry.ts + install.ts）打成 IIFE 后以**字符串内嵌**进包产物：
+// 中继件本体在 @duoling/user-scripts（src/builtin/relay/{entry,install}.ts），由该包的
+// build.mjs 打成 IIFE 并生成 relay-code.gen.ts（RELAY_IIFE 字符串常量，不入库），本侧以
+// **字符串内嵌**进包产物：
 //   js: [{ code: RELAY_IIFE }, { code: buildRelayInit(secret) }]
 // 两段按数组顺序在同一世界执行 —— ①把安装函数挂到 window，②把运行期密钥递进去调它。
 // 密钥每扩展一把、运行期才生成，塞不进代码串，故必须两段。
 //
-// 为什么中继件归包而其余内置件（检查器 / 浮层 / 录制件）归应用：脚本切到 MAIN 世界后没有
-// `chrome.*`，GM 能力全靠本件转给 SW —— 它是「跑全量 GM」的组成部分而非产品功能，
-// 任何接入扩展都需要它，registerAllEnabled 内置维护（第三方零接线）。
+// 为什么中继件归 user-scripts 而其余内置件（检查器 / 浮层 / 录制件）也同源同构建：脚本切到
+// MAIN 世界后没有 `chrome.*`，GM 能力全靠本件转给 SW —— 它是「跑全量 GM」的组成部分而非
+// 产品功能，任何接入扩展都需要它，registerAllEnabled 内置维护（第三方零接线）。本文件是它
+// 唯一的宿主侧注册面，留在 SW。
 //
 // 世界要求：注册到独立世界（worldId: SCRIPT_RELAY_WORLD_ID）且必须
 // configureWorld({ messaging: true })，否则世界内没有 chrome.runtime，整条桥静默失效。
 import type { ScriptProject } from '@duoling/shared'
 import { BRIDGE_RELAY_BOOT_KEY, enabledMatchUnion, sameMatchSet } from '@duoling/shared'
-import { RELAY_IIFE } from './relay-code.gen'
+import { RELAY_IIFE } from '@duoling/user-scripts/builtin/relay-code.gen'
 import { configureWorld, getOrCreatePageSecret } from '../registration'
 
 /** 注册 id（一个扩展一份） */

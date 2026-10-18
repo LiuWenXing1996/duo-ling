@@ -3,7 +3,7 @@
 //
 // 为什么要有它：手测 / 端测经常需要「有具体行为的脚本」——注入页面写标记、跑 DL 桥、故意报错……
 // 在扩展里新建再手粘代码太慢，写好的内容也没法进 git 复用。于是：脚本源码以 TS 模块形式躺在
-// packages/uscript-samples/src/（真相源，跟 git），经 `pnpm -r build` 构建成 dist/ 下的单文件
+// packages/user-scripts/src/samples/（真相源，跟 git），经 `pnpm -r build` 构建成 dist/ 下的单文件
 // .user.js（raw/ 里的坏源码样本原样拷入），本工具负责把 dist 打成 zip，扩展的
 // 「工作台 → 脚本列表 → 导入 zip」直接吃。脚本 = 单文件纯 JS 源码（保存即注入），打的是**产物**。
 //
@@ -35,8 +35,8 @@ const DOS_TIME = 0
 const DOS_DATE = (40 << 9) | (1 << 5) | 1
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-/** 默认源目录（样例包的构建产物：packages/uscript-samples/dist，由 `pnpm -r build` 生成） */
-const SAMPLES_DIR = join(REPO_ROOT, 'packages', 'uscript-samples', 'dist')
+/** 默认源目录（样例包的构建产物：packages/user-scripts/dist/samples，由 `pnpm -r build` 生成） */
+const SAMPLES_DIR = join(REPO_ROOT, 'packages', 'user-scripts', 'dist', 'samples')
 
 // ————————————————————————— zip 写入（STORE，零依赖）—————————————————————————
 
@@ -247,7 +247,7 @@ function toZipEntries(scripts: Array<{ name: string; code: string }>): ZipEntry[
 
 // ————————————————————————— CLI —————————————————————————
 
-const HELP = `用户脚本包生成器：把样例构建产物（packages/uscript-samples/dist）打成扩展可导入的 zip
+const HELP = `用户脚本包生成器：把样例构建产物（packages/user-scripts/dist/samples）打成扩展可导入的 zip
 
 用法：
   pnpm run pack:uscripts                   # 打包全部样例产物 → tmp/（先 pnpm -r build 生成 dist）
@@ -262,7 +262,7 @@ const HELP = `用户脚本包生成器：把样例构建产物（packages/uscrip
       --no-verify         跳过写后回读自检
   -h, --help              显示本帮助
 
-产物目录摆法（单文件形态，由 packages/uscript-samples 的 build.mjs 生成）：
+产物目录摆法（单文件形态，由 packages/user-scripts 的 build.mjs 生成）：
   <目录>/<名字>.user.js   # 配置写在产物头部的 // ==UserScript== 块；与导出 zip 解开的形态一致
 `
 
@@ -326,7 +326,7 @@ function main(): void {
   }
 
   const dirs = opts.dirs.length ? opts.dirs : listSamples().map((n) => join(SAMPLES_DIR, n))
-  if (!dirs.length) throw new Error('没有可打包的目录：packages/uscript-samples/dist 是空的 —— 先跑 pnpm -r build 生成产物，或手动指定目录')
+  if (!dirs.length) throw new Error('没有可打包的目录：packages/user-scripts/dist/samples 是空的 —— 先跑 pnpm -r build 生成产物，或手动指定目录')
 
   const single = dirs.length === 1
   if (!single && opts.name) {

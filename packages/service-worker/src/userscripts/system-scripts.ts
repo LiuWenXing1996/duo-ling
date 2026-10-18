@@ -13,7 +13,7 @@ import {
   INSPECTOR_HOST_ID,
   TAB_RECORDER_FILE,
   TAB_RECORDER_ID,
-} from '@duoling/builtin-scripts'
+} from '@duoling/user-scripts/builtin'
 import { defaultConfig } from '@duoling/shared'
 
 /** 件文件内容缓存（同一扩展版本内产物不可变，读一次就够） */

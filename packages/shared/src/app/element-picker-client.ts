@@ -1,7 +1,7 @@
 // 拾取元素的**发起侧**封装：本文件只经命令面（`picker:pick` / `picker:cancel`）请 SW 下发。
 //
 // 下发与配对不在这一侧 —— SW 的 handler 交给包内 page-inspector-bridge，件源码见
-// @duoling/builtin-scripts 的 inspector/install.ts。分两层是因为发起方在扩展页、件在页面里，
+// @duoling/user-scripts/builtin 的 inspector/install.ts。分两层是因为发起方在扩展页、件在页面里，
 // 中间必须过 SW；不是为了两处各写一份判据。
 //
 // 快照 / 环境读数两条支路只在 SW 上下文里发起（AI 工具触发），下发封装随同一层进了包

@@ -1,9 +1,0 @@
-{
-  // 件源码跑在页面主世界（IIFE）：零 chrome.*、零 node，types 留空是纪律不是遗漏。
-  // tsc 来自根 devDependencies（本包只装了 esbuild）。
-  "extends": "../tsconfig.base.json",
-  "compilerOptions": {
-    "types": []
-  },
-  "include": ["src"]
-}

@@ -16,7 +16,7 @@ import { EXTENSION_NAME } from './packages/shared/src/extension-identity'
 //
 // 载体分工：
 //   网页浮层    → 对话界面 = 浮层宿主件（dl-float-host，注册用户脚本，件源码见
-//                 packages/builtin-scripts/src/float-host/）按需挂出的 iframe，加载
+//                 packages/user-scripts/src/builtin/float-host/）按需挂出的 iframe，加载
 //                 floatpanel.html，显示**它所在标签页**的会话；页面加载时不建任何 DOM，
 //                 从工具栏 popup 的按钮或页面右键菜单打开
 //   标签页      → 脚本工作区 = 脚本列表 / 编辑器 / 设置 / 会话历史（entrypoints/workbench.html）
@@ -33,12 +33,12 @@ import { EXTENSION_NAME } from './packages/shared/src/extension-identity'
 const chromiumProfileDir = resolve(process.cwd(), '.chrome-dev-profile')
 mkdirSync(chromiumProfileDir, { recursive: true })
 
-// 内置件包的产物目录：件源码在 packages/builtin-scripts/，构建出来的是**独立 IIFE 文件**
+// 内置件包的产物目录：件源码在 packages/user-scripts/src/builtin/，构建出来的是**独立 IIFE 文件**
 // （chrome.userScripts 的 js:[{ file }] 只认扩展内路径，件必须落进扩展产物）。产物留在包内，
 // 扩展侧只负责把它取进来 —— 见下面 build:publicAssets 钩子。
-// 注意：脚本桥中继件不在此列 —— 它已随 @duoling/service-worker 包内化（{ code } 注册），
-// dist 里只有其余四件。
-const builtinScriptsDist = resolve(process.cwd(), 'packages/builtin-scripts/dist')
+// 注意：脚本桥中继件不在此列 —— 它不落 dist，以字符串内嵌进 SW（{ code } 注册，gen 模块由
+// 本包 build.mjs 生成），dist 里只有其余三件。
+const builtinScriptsDist = resolve(process.cwd(), 'packages/user-scripts/dist/builtin')
 
 /**
  * 构建信息注入（分支名 + 时间戳 + 版本号），单一通道：
@@ -130,7 +130,7 @@ export default defineConfig({
       if (!existsSync(builtinScriptsDist)) {
         throw new Error(
           `内置件产物不存在：${builtinScriptsDist}\n` +
-            '先跑 pnpm --filter @duoling/builtin-scripts build（pnpm run build / pnpm run dev 已内置这一步）',
+            '先跑 pnpm --filter @duoling/user-scripts build（pnpm run build / pnpm run dev 已内置这一步）',
         )
       }
       for (const name of readdirSync(builtinScriptsDist)) {

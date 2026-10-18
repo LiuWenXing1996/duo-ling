@@ -2,12 +2,7 @@
 @import 'tw-animate-css';
 @plugin '@tailwindcss/typography';
 
-/* 四个页面包的 class 在各自 dist 里。Tailwind v4 的自动探测会跳过 gitignore 掉的目录，
-   dist 正在其中 —— 不显式指路就是一个 class 都提取不到，而构建照样成功、页面裸奔。 */
-@source '../../packages/ui/dist';
-@source '../../packages/workbench/dist';
-@source '../../packages/floatpanel/dist';
-@source '../../packages/popup/dist';
+/* 页面包（含并入的 shadcn 原语与 ai-elements）源码直出，自动进本侧构建的探测面。 */
 
 @custom-variant dark (&:is(.dark *));
 

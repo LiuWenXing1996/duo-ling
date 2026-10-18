@@ -20,7 +20,7 @@ import type { WorkspaceTabKind } from '../types/tab'
 import {
   Tabs as UiTabs,
   TabsContent as UiTabsContent
-} from './ui/tabs'
+} from '@duoling/ui/components/ui/tabs'
 
 // 默认标签页：脚本列表（脚本管理唯一入口）。该基础标签不可关闭，保证工作台始终有落点。
 const LIST_TAB_ID = 'userscript-list'

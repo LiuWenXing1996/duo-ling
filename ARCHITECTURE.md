@@ -20,37 +20,38 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 打底只有 `shared`：跨世界契约 + 共享实现（含 `app/` 那批**两个进程都要用的应用侧实现** —— 模型配置、归属映射、新版本检查、构建信息、小数据 kv、抓包摘要）。
 
+shadcn-vue 原语与 ai-elements 是唯一一处 **vendored 组件代码**，落在 `ui` 包内（`src/components/ui/` 与 `src/components/ai-elements/`，拆包前主包的原味拷贝）：`shadcn-vue` CLI 从 `registry.ai-elements-vue.com` 与官方 registry 拉源码，`components.json` 也在 `ui` 包内（CLI add 在该包目录下跑）。CLI 拉进来写的是 `@/` 别名，而源码直出后 `@/` 会撞主包自己的别名 —— 装完跑 `pnpm --filter @duoling/ui convert-paths` 一键转成包内相对路径。样式 token 由主包 `main.css` 注入。其它子包不得自持此类源码。
+
 **依赖严格单向，反向即错**：
 
 ```
 popup / floatpanel / workbench ──▶ ui ──▶ shared ◀── service-worker / offscreen-document
+        │                    ▲
+        └──────▶ ui 的 shadcn 组件层（components/ui/ · components/ai-elements/，随 ui 依赖）
 ```
 
 - **进程侧不得 import 任何页面包**。一个模块只要 SW 也要用，它的家就在 `shared`（判据同 `src/lib` 时代：被两个进程同时消费 + 零 chrome 类型）—— 放 UI 包会让 SW 把前端依赖（Vue、组件树）拖进 `background.js`，而这类错误只在跑起来之后才现形。
-- **页面包之间只许 `→ ui`**：三页互不 import。`ui` 的入口桶只出 `ChatPanel`（浮层与工作台共用它），其余走子路径，避免一个桶把整棵对话树塞进 popup。
+- **页面包之间只许 `→ ui`**：三页互不 import；`ui` 是 vendored 组件（shadcn 原语 + ai-elements）的唯一家，页面包的组件引用一律走它的 `./components/*` 子路径导出。`ui` 的入口桶只出 `ChatPanel`（浮层与工作台共用它），其余走子路径，避免一个桶把整棵对话树塞进 popup。
 - **总线的两半分居两处**：发送/订阅（`ipcRequest` / `ipcNotify` / `ipcSubscribe`）在 `shared`，接收口（`serveIpc` + 三个 matcher）在 `src/shared/ipc-bus.ts` —— 后者要 `chrome.runtime.MessageSender` 的类型面，而 `shared` 是 `types: []`（零 chrome 类型是铁律，参见「共享层」的边界说明）。
 
 > 上面的方向约束由 `pnpm run check:packages` 机械强制（pre-commit 与 `verify` 都挂）：静态扫 `@duoling/*` import 与相对路径越界，对照 `scripts/check-packages.mts` 顶部 MATRIX 矩阵。矩阵与本文同源 —— 开新边两处一起改。
 
 **两种包形态并存，判据是「谁消费」**：
 
-| | 进程包（shared / sw / offscreen / builtin） | 页面包（ui / workbench / floatpanel / popup） |
+| | 源码直出（shared / service-worker / offscreen-document / ui / workbench / floatpanel / popup） | 预构建（user-scripts） |
 | --- | --- | --- |
-| 产物 | Vite lib 单文件 `dist/index.mjs` + `.d.ts` | lib + **`preserveModules`**：一个源文件对一个 `.mjs` |
-| `exports.import` | `./dist/index.mjs` | 通配映射同源路径（`./lib/*` → `./dist/lib/*.mjs`），见下方「子路径导出的桶」 |
-| `exports.types` | `./dist/...d.ts` | **指向 `src` 源码**（`vue-tsc` 对 SFC 产 d.ts 不稳，且根门禁本来就查包源码） |
-| 为什么要预构建 | WXT 在 Node 下按 exports 解析（`.ts` 源码 Node 读不了） | 只为九包一套口径 |
+| `exports` | **全部直指 `src` 源码**（含 types 与 import） | 指向 `dist` 产物（user-scripts 例外：`./builtin` 直指源码，见根 tsconfig paths 注释） |
+| 构建 | **不自建** —— 编译收敛到消费方：扩展页由 WXT 主包的 Vite 直取源码编译，进程包自建时由 rolldown 把 shared 打进产物 | `esbuild`（user-scripts 的 build.mjs：builtin 件 + 中继件 IIFE 的 gen 模块 + samples 单文件 .user.js） |
+| 为什么 | 只有一个构建终点（WXT），类型与运行时同一份真相，`SwitchThumb` 这类「类型看 src、运行时看 dist」的 API 漂移从根上消失 | user-scripts 的产物是「扩展内路径的文件 / 可分发 .user.js」必须自持 |
 
-`preserveModules` 不是可选项：单文件产物下 `sideEffects: false` 只在文件粒度生效，整包就是一个文件 —— popup 只借三个原语，也会把 `ChatPanel` 那棵树全量求值进来。
-
-**子路径导出的桶必须显式列为入口**：`preserveModules` 只输出入口可达的模块，纯重导出的 `index.ts` 会被折叠进引用方 —— `@duoling/ui/components/ui/dialog` 这类子路径就会指向不存在的 `dist` 文件。故 `packages/ui/vite.config.ts` 按 exports 的形状扫描 `src/lib/**`、`src/composables/**`、`src/components/**/index.ts` 一并作为入口；加新的子路径导出时，只要文件落在这三处就自动进产物，落在别处则要同步扩扫描面。
+源码直出下摇树天然按文件粒度生效（Vite 按需编译入口可达的模块），此前为 dist 单文件产物配置的 `preserveModules` 与「子路径导出桶必须列为构建入口」整套机制随构建一起删除 —— `exports` 指向的源码文件永远存在，不存在「产物指向空气」。
 
 **两处配套改动容易漏**：
 
-- Tailwind v4 的自动探测跳过 gitignore 掉的目录，`packages/*/dist` 正在其中 → `src/assets/main.css` 里逐条 `@source`。漏了不会构建失败，只是页面样式全裸。
-- 页面包的用例由根 `vitest.config.ts` 的两个 project 一并收（`packages/{ui,workbench,floatpanel,popup}/src/**`）；包内不设 `test` 脚本，`pnpm -r test` 因此跳过它们。工作台包那 4 个带 `<style lang="less">` 的 SFC 会被抽成 `dist/style.css`，入口显式引入（`@duoling/workbench/style.css`）；其余三包无 `<style>` 块，不出 CSS。
+- Tailwind v4 的自动探测：页面包源码（含并入 ui 的 shadcn 组件）不 gitignore，自动进探测面，`main.css` 无需 `@source`。漏了不会构建失败，只是页面样式全裸。
+- 页面包的用例由根 `vitest.config.ts` 的两个 project 一并收（`packages/{ui,workbench,floatpanel,popup}/src/**`）；包内不设 `test` 脚本，`pnpm -r test` 因此跳过它们。工作台包那 4 个带 `<style lang="less">` 的 SFC 的样式随组件模块经主包 Vite 编译进产物（基础样式 import 在前，层序天然成立），不再有独立的 `dist/style.css`；其余三包无 `<style>` 块，不出 CSS。
 
-页面包只在自己的 `package.json` 里声明 `vue` 与同级包，第三方库一律不重复声明：构建时它们被 external 掉、运行时从根 `node_modules` 解析（单点安装，避免四份版本号各自漂）。
+页面包只在自己的 `package.json` 里声明 `vue` 与同级包，第三方库一律不重复声明：编译时源码里的 bare import 从根 `node_modules` 解析（单点安装，避免四份版本号各自漂）。
 
 ## 载体与运行时
 
@@ -62,9 +63,9 @@ popup / floatpanel / workbench ──▶ ui ──▶ shared ◀── service-w
 | 注入世界 | MAIN（第三方页面内，系统脚本 `duoling-float-host.js`，全站注册、`document_start`） | 网页浮层的宿主件：**平时不往页面里放任何 DOM**，收到 `float.cmd` 的 open 指令才挂出 iframe 并展开（`?tab=` 由 SW 随指令带下的 tabId 拼出），收到 collapse 收起（只加 `display:none`，iframe 与草稿都留着），收到 busy 按「这条会话正在生成」开关页面遮罩（盖住视口挡指针交互，**只看生成中、与浮层开合无关** —— 收起浮层遮罩照留着；对话框本体在遮罩之上 —— 点得到停止）；在岗探针是 `float:ping` 命令 → SW 下发 ping、件回 `float.pong`（reqId 配对，e2e 用来确认件已注入本页，见 [`e2e/float-task-state.spec.ts`](e2e/float-task-state.spec.ts) 的 `openFloatPage`）；位置钉在视口右下角，拾取期间整块让位。件已转**系统脚本**（走统一 `registerScript` 注册链，浮层页地址与扩展名由源码占位符替换递入，见 `packages/service-worker/src/userscripts/system-scripts.ts` 的 `floatHostProject`） |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 + 网页浮层的右键菜单入口 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
-| 注入世界 | MAIN（第三方页面内） | 用户脚本自身逻辑；GM 包装层（`gm-wrapper.ts`）在同一函数作用域里声明 `GM_*` / `GM.*`，能力调用经同帧 USER_SCRIPT 中继件（包内 `relay/install.ts`）转 SW |
+| 注入世界 | MAIN（第三方页面内） | 用户脚本自身逻辑；GM 包装层（`gm-wrapper.ts`）在同一函数作用域里声明 `GM_*` / `GM.*`，能力调用经同帧 USER_SCRIPT 中继件（`@duoling/user-scripts` 包内 `relay/install.ts`）转 SW |
 
-各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的挂载细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级、收起语义）见 [packages/builtin-scripts/src/float-host/install.ts](packages/builtin-scripts/src/float-host/install.ts) 顶部注释。**打开入口都在页面之外**：工具栏 popup 的「打开会话」按钮，与页面右键菜单（SW 注册，`documentUrlPatterns` 限 http/https）—— 对话框平时不在页面里，页面上没有任何可点的地方。两条都收敛到同一条命令（`float:open`，RuntimeRequest → SW 经 `float-bridge` 下发 DL Port 事件帧 `float.cmd`，见 `packages/service-worker/src/userscripts/float-bridge.ts`），SW 推不到（该页上没有宿主件的在岗连接）就报错，发起方据此提示。**收起走反向的另一条命令**（`float:collapse`）：对话框顶栏那颗按钮在 iframe 里（跨源，父页拿不到它的事件），只能发命令叫父页把容器藏起来；刻意不用 `postMessage` —— 宿主网页的脚本挂在父 window 上，既能监听也能用 `iframe.contentWindow.postMessage` 伪造来源，那等于把「关掉扩展界面」开放给被注入的页面（扩展自己的命令通道只有扩展上下文发得出来）。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
+各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」；网页浮层的挂载细节（shadow DOM 隔离、iframe 懒加载、拾取期间让位、CSP 降级、收起语义）见 [packages/user-scripts/src/builtin/float-host/install.ts](packages/user-scripts/src/builtin/float-host/install.ts) 顶部注释。**打开入口都在页面之外**：工具栏 popup 的「打开会话」按钮，与页面右键菜单（SW 注册，`documentUrlPatterns` 限 http/https）—— 对话框平时不在页面里，页面上没有任何可点的地方。两条都收敛到同一条命令（`float:open`，RuntimeRequest → SW 经 `float-bridge` 下发 DL Port 事件帧 `float.cmd`，见 `packages/service-worker/src/userscripts/float-bridge.ts`），SW 推不到（该页上没有宿主件的在岗连接）就报错，发起方据此提示。**收起走反向的另一条命令**（`float:collapse`）：对话框顶栏那颗按钮在 iframe 里（跨源，父页拿不到它的事件），只能发命令叫父页把容器藏起来；刻意不用 `postMessage` —— 宿主网页的脚本挂在父 window 上，既能监听也能用 `iframe.contentWindow.postMessage` 伪造来源，那等于把「关掉扩展界面」开放给被注入的页面（扩展自己的命令通道只有扩展上下文发得出来）。浮层本身是页面里的 `<iframe>`，因此受第三方页面 `frame-src` 约束（严格 CSP 的站点会拦掉；换 `chrome.userScripts` 注入绕不过 —— 那条 CSP 只管脚本，不管页面 DOM 能嵌入什么）；`floatpanel.html` 必须进 `web_accessible_resources`，被拦时要降级成文字提示、不静默失败。
 
 ## 对话链路
 
@@ -114,7 +115,7 @@ agent loop 要求宿主「不会在任务中途被回收」，三种宿主的寿
 
 ## 脚本注入
 
-`chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`gm-wrapper.ts`）与 **USER_SCRIPT 中继件**（`@duoling/service-worker` 包内：relay 源码 + IIFE 以 `{ code }` 注册，注册同步在全量链内置维护）桥接。
+`chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`gm-wrapper.ts`）与 **USER_SCRIPT 中继件**（`@duoling/user-scripts` 包内：relay 源码，IIFE 字符串内嵌以 `{ code }` 注册，宿主侧注册面在 SW 的 relay/sync.ts，注册同步在全量链内置维护）桥接。
 
 标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`@duoling/shared` 的 `metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`；grant 名 → 它开启的成员这张对应表在 `gm-grants.ts`，注入侧、速查页与 AI 规范三处共用这一份）；能力表 `gm-api-catalog.ts` 生成速查页与**给 AI 的能力清单**两形态（三防漂移：类型层 `satisfies` + 从注入源码反射 + 规范文本对齐单测）。内部仍走 `__dl` 信封协议（协议稳定、与 DL 时代一致；桥的真身与接线工厂都在 `@duoling/service-worker`——background 调 `createServiceWorkerHost` 注入遥测 / 扩展身份 / offscreen 就绪并同步注册全部监听（应用侧不再有 re-export 桶，直接从 `@duoling/service-worker` 取用），遥测对象在 `userscripts/telemetry.ts`）。
 

@@ -30,7 +30,10 @@ const scanDirs = ['src', 'packages', 'e2e', 'scripts']
 const extRe = /\.(mts|ts|vue|js|mjs|css|less)$/
 const declRe = /\.d\.(ts|mts)$/
 /** 组件库原样件所在目录（shadcn 的 ui、ai-elements）；其余一律算自研。 */
-const vendoredPrefixes = [join('src', 'components', 'ui'), join('src', 'components', 'ai-elements')].map((p) => p + sep)
+const vendoredPrefixes = [
+  join('packages', 'ui', 'src', 'components', 'ui'),
+  join('packages', 'ui', 'src', 'components', 'ai-elements'),
+].map((p) => p + sep)
 /** 导出声明：`export function|const|class|interface|type|enum`（含 default / async 变体）。 */
 const EXPORT_RE = /^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|class|interface|type|enum)\b/
 

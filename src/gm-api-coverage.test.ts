@@ -1,6 +1,6 @@
 // 「GM 全能探针」用例 ↔ 目录（gm-api-catalog）的**覆盖对齐**测试。
 //
-// 目录是「有哪些 GM API」的唯一清单源；探针（packages/uscript-samples 的 omni-probe）是
+// 目录是「有哪些 GM API」的唯一清单源；探针（packages/user-scripts/src/samples 的 omni-probe）是
 // **真机那一层**的唯一验收入口。两边一分叉就会出现「目录里新加了 API，但没人手测过它」——
 // 这正是已定位的缺口。故探针带一张覆盖登记表（covers.ts，结构化导出）：
 //
@@ -19,19 +19,19 @@ import { fileURLToPath } from 'node:url'
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
 import { gmApiEntries } from '@duoling/shared'
-import { COVERS } from '../packages/uscript-samples/src/omni-probe/covers'
+import { COVERS } from '../packages/user-scripts/src/samples/omni-probe/covers'
 
 /** 探针构建产物（test 脚本先 `pnpm -r build`；单跑 vitest 前需先 build 一次） */
-const PROBE_DIST_URL = new URL('../packages/uscript-samples/dist/omni-probe/omni-probe.user.js', import.meta.url)
+const PROBE_DIST_URL = new URL('../packages/user-scripts/dist/samples/omni-probe/omni-probe.user.js', import.meta.url)
 function probeDist(): string {
   if (!existsSync(PROBE_DIST_URL)) {
-    throw new Error('探针产物不存在：先跑 pnpm -r build 生成 packages/uscript-samples/dist/')
+    throw new Error('探针产物不存在：先跑 pnpm -r build 生成 packages/user-scripts/dist/samples/')
   }
   return readFileSync(PROBE_DIST_URL, 'utf8')
 }
 
 /** 用例源码目录（登记表 probe 字段的对齐面） */
-const CASES_DIR = fileURLToPath(new URL('../packages/uscript-samples/src/omni-probe/cases/', import.meta.url))
+const CASES_DIR = fileURLToPath(new URL('../packages/user-scripts/src/samples/omni-probe/cases/', import.meta.url))
 
 /** 目录路径（收窄成 string：登记表那侧是自由文本，两边才好比） */
 const CATALOG: string[] = gmApiEntries().map((e) => e.path).sort()

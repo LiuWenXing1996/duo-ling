@@ -1,0 +1,11 @@
+{
+  // 内置件源码跑在页面主世界（IIFE）：零 chrome.*、零 node，types 留空是纪律不是遗漏。
+  // 例外是 relay/install.ts：USER_SCRIPT 世界开 messaging 后的 chrome.runtime 是它的运行时
+  // 面板，靠文件级三斜线引用自取 @types/chrome，不在此放行 —— 其余件写了 chrome 照样报错。
+  // 与样例分档：builtin 走严格档（tsconfig.base），samples 自持宽松档（GM 类型面自持）。
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "types": []
+  },
+  "include": ["src/builtin"]
+}

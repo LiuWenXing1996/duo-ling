@@ -6,7 +6,7 @@
 // 上行结算走 handleInspectorEvent（uuid 旁证 + reqId 配对）。真机上「DL Port 能否推进 MAIN 世界
 // 系统脚本」靠实测，不在本文件的覆盖范围。
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { INSPECTOR_HOST_ID as INSPECTOR_ID } from '@duoling/builtin-scripts'
+import { INSPECTOR_HOST_ID as INSPECTOR_ID } from '@duoling/user-scripts/builtin'
 
 type Sent = { tabId: number; ev: Record<string, unknown> }
 type Bridge = typeof import('./page-inspector-bridge')

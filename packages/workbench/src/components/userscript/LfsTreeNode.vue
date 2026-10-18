@@ -5,7 +5,7 @@
 import { computed } from 'vue'
 import { FileIcon } from '@lucide/vue'
 import { Badge } from '@duoling/ui/components/ui/badge'
-import { FileTreeFile, FileTreeFolder, FileTreeIcon, FileTreeName } from '../ai-elements/file-tree'
+import { FileTreeFile, FileTreeFolder, FileTreeIcon, FileTreeName } from '@duoling/ui/components/ai-elements/file-tree'
 import type { LfsNode } from '@duoling/shared'
 
 const props = defineProps<{ node: LfsNode; scriptNames?: Map<string, string> }>()

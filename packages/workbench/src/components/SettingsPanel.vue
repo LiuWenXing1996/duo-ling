@@ -15,7 +15,7 @@ import {
   TabsContent as UiTabsContent,
   TabsList as UiTabsList,
   TabsTrigger as UiTabsTrigger
-} from './ui/tabs'
+} from '@duoling/ui/components/ui/tabs'
 import { SETTINGS_SECTIONS } from './settings/sections'
 import type { WorkspaceTabKind } from '../types/tab'
 

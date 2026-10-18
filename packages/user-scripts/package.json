@@ -1,0 +1,26 @@
+{
+  "name": "@duoling/user-scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "用户脚本源码包：src/builtin/ 内置注入件（esbuild 打 IIFE 产物，供扩展的 userScripts 注册消费；relay/ 中继件以字符串内嵌形式供 SW 两段式注册）+ src/samples/ 样例（TS 模块化源码 + esbuild 打单文件 .user.js，metadata 头由各样例 meta.json 生成；raw/ 是不参与构建的坏源码样本，原样拷进 dist）。两侧共用根部的 build.mjs",
+  "exports": {
+    "./builtin": "./src/builtin/index.ts",
+    "./builtin/relay": "./src/builtin/relay/index.ts",
+    "./builtin/relay-code.gen": "./src/builtin/relay/relay-code.gen.ts"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
+    "typecheck": "tsc -p tsconfig.builtin.json --noEmit && tsc -p tsconfig.samples.json --noEmit"
+  },
+  "dependencies": {
+    "@duoling/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.2.9",
+    "@types/tampermonkey": "^5.5.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.6.0"
+  }
+}

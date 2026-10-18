@@ -1,6 +1,7 @@
 // GM 后台桥（协议契约 @duoling/shared 的 api-contract.ts）。
 //
-// 脚本桥中继件（包内 relay/install.ts，USER_SCRIPT 世界）经 chrome.runtime.sendMessage 发来的消息，
+// 脚本桥中继件（user-scripts 包 builtin/relay 的 install.ts，USER_SCRIPT 世界）
+// 经 chrome.runtime.sendMessage 发来的消息，
 // 因世界已 configureWorld({messaging:true})，被路由到本文件的 runtime.onUserScriptMessage（而非通用 onMessage）。
 //
 // 消息分流（契约定义；信封名保持 __dl 前缀）：

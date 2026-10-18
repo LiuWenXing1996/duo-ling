@@ -9,7 +9,7 @@ import { useDataSync } from '@duoling/ui/composables/use-data-sync'
 import { Check as UiCheck, Copy as UiCopy, FileText as UiFileText, FolderTree as UiFolderTree, RefreshCw as UiRefreshCw } from '@lucide/vue'
 import { CodeBlockContent } from '@duoling/ui/components/ai-elements/code-block'
 import { inferLanguage } from '../../lib/code-view'
-import { FileTree } from '../ai-elements/file-tree'
+import { FileTree } from '@duoling/ui/components/ai-elements/file-tree'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
