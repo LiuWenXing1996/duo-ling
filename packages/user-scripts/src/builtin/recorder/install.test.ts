@@ -183,7 +183,9 @@ describe('dl-tab-recorder（MAIN 捕获件：机制框架 + net 种类）', () =
     const origFetch = vi.fn(async () => new Response('ok', { status: 200 }))
     const win = createFakeWindow(origFetch)
     const emitted = runRecorder(win)
-    runRecorder(win) // 第二次应被 window.__dlTabRecorder 挡下（幂等守卫在，不发也不报错）
+    // 第二次不走 runRecorder —— 它会再桩一份新桥（新 emitted 数组），记录会落进被丢弃的那份；
+    // 直接调安装函数：应被 window.__dlTabRecorder 挡下（幂等守卫在，不发也不报错）
+    installTabRecorder()
     await (win.fetch as (u: string) => Promise<Response>)('https://api.test/x')
     await waitFor(() => emitted.length > 0)
     await new Promise((r) => setTimeout(r, 20))

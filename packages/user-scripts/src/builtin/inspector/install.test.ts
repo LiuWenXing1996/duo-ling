@@ -72,7 +72,7 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
   it('装通道：安装即 connect（常驻 Port 由中继件代建）', () => {
     const bridge = stubBridge()
     installPageInspector()
-    expect(bridge.connects).toBe(1)
+    expect(bridge.connects).toHaveLength(1)
   })
 
   it('snapshot 指令：回一条 ok 信封，reqId 原样带上、载荷是渲染后 outerHTML', async () => {

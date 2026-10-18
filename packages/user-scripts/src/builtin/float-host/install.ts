@@ -435,7 +435,7 @@ export function installFloatHost(): void {
    * 通道形状真相源是 shared 的 api-contract.ts（float.cmd / float.pong）。
    */
   function handleCommand(ev: Record<string, unknown>): void {
-    if (ev.t !== 'float.cmd') return
+    if (!ev || ev.t !== 'float.cmd') return
     // 在岗探针：回一条带 reqId 的应答（结算认它 —— e2e 探活用来确认本件已注入本页；
     // 与检查器的 reqId 配对同款，而不是旧 tabs.sendMessage 那声同步应答）。
     if (ev.cmd === 'ping') {
