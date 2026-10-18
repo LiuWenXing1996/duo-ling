@@ -959,7 +959,8 @@ useDataSync('group', () => refreshGroups())
 
 <template>
   <section class="panel">
-    <!-- 固定区：单行工具栏不随列表滚动 —— 搜索 / 筛选 / 排序 / 批量操作 + 刷新 / 导入 / 新建，列表再长入口也始终可见 -->
+    <!-- 固定区：单行工具栏不随列表滚动 —— 搜索 / 筛选 / 排序 / 批量操作 + 刷新 / 导入 / 新建，
+         列表再长入口也始终可见 -->
     <div class="mx-auto w-full max-w-6xl shrink-0 px-5 pt-4">
       <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
         <!-- 搜索 / 筛选 / 排序 / 批量：管理工具，没有脚本时整段隐藏 -->
@@ -1338,7 +1339,9 @@ useDataSync('group', () => refreshGroups())
                 <p>更新时间：{{ timeLabel(item.s.savedAt) || '无' }}</p>
               </div>
 
-              <!-- 底部：启用开关 + 操作（编辑 / 移动 / 导出 / 删除）；mt-auto 把底行钉在卡片底（网格同排卡片等高），内容长短不齐时分隔线也对齐 -->
+              <!-- 底部：启用开关 + 操作（编辑 / 移动 / 导出 / 删除）；
+                   mt-auto 把底行钉在卡片底（网格同排卡片等高），
+                   内容长短不齐时分隔线也对齐 -->
               <div class="mt-auto flex items-center justify-between gap-2 border-t pt-2.5">
                 <ui-switch
                   :model-value="item.s.enabled"

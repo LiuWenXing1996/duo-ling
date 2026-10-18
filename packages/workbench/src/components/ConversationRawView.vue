@@ -80,7 +80,10 @@ function safeFileName(title: string): string {
   return title.replace(/[\\/:*?"<>|]/g, '_').trim().slice(0, 60) || 'session'
 }
 
-/** 导出选中会话的落盘原始 JSON（会话元数据 + 全部消息），经 blob + a[download] 在本页触发下载，无需新增 manifest 权限 */
+/**
+ * 导出选中会话的落盘原始 JSON（会话元数据 + 全部消息），
+ * 经 blob + a[download] 在本页触发下载，无需新增 manifest 权限
+ */
 function exportConversation(): void {
   const conv = props.conversation
   if (!conv) return

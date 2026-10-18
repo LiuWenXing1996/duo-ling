@@ -9,6 +9,7 @@
 | `commit-msg` | `pnpm exec commitlint --edit {1}` | 提交信息校验（`commitlint.config.mjs` 继承官方约定预设）：type 白名单、scope 形态、subject 非空与标点；Merge / Revert 开头的消息按默认规则放行。规则基线见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)「提交信息格式」 |
 | `pre-commit` | `pnpm run check:comments` | 快，挡注释卫生问题，不拖提交节奏 |
 | `pre-commit` | `pnpm run check:comment-baseline` | 注释密度 ratchet 基线，同为秒级静态扫描；高于基线 0.5pp 即拦，治理注释 / 合理增注需 `--update` 显式刷新基线后重提。未达目标基线（target）前密度降了会自动降基线，改动随本次提交入库 |
+| `pre-commit` | `pnpm run check:comment-diff` | 注释密度增量门禁：只统计本次暂存的新增行（读 `git show :file`，不读工作区），新增非空行超过 20 才判定，阈值 10% 起步、每满 10 行降 0.5 个百分点、1% 封底，超过即拦。与上一条分工 —— 基线管全仓总量趋势，这条管单次提交往里塞了多少注释。**CI 不跑**：CI 里没有暂存区，`git diff --cached` 为空，只会恒过 |
 | `pre-commit` | `pnpm run check:packages` | 包边界门禁，规则见 [AGENTS.md](AGENTS.md) 命令表对应行 |
 | `pre-commit` | `pnpm exec secretlint {staged_files}` | 扫全部暂存文件里的密钥/凭据，命中即拦；不按扩展名过滤（env 文件、证书、无扩展名配置都在范围内），无暂存文件时整条跳过 |
 | `pre-push` | `pnpm run check:branch` | 分支名合规检查，第一道（fail fast）；规则见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)「分支命名」 |

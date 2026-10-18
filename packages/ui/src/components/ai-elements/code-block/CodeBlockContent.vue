@@ -81,7 +81,7 @@ const lineNumberClasses = cn(
           'font-mono text-sm',
           showLineNumbers && '[counter-increment:line_0] [counter-reset:line]',
         )"
-      ><template v-for="line in keyedLines" :key="line.key"><!-- Line rendering component --><span :class="showLineNumbers ? lineNumberClasses : 'block'"><template v-if="line.tokens.length === 0">{{ '\n' }}</template><template v-else><!-- Token rendering component --><span
+      ><template v-for="line in keyedLines" :key="line.key"><span :class="showLineNumbers ? lineNumberClasses : 'block'"><template v-if="line.tokens.length === 0">{{ '\n' }}</template><template v-else><span
                 v-for="tokenObj in line.tokens"
                 :key="tokenObj.key"
                 class="dark:bg-(--shiki-dark-bg)! dark:text-(--shiki-dark)!"

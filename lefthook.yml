@@ -10,6 +10,9 @@ pre-commit:
       run: pnpm run check:comments
     - name: check:comment-baseline
       run: pnpm run check:comment-baseline
+    # 只看暂存区，故只在本地拼进 pre-commit；CI 里没有暂存区可读。
+    - name: check:comment-diff
+      run: pnpm run check:comment-diff
     - name: check:packages
       run: pnpm run check:packages
     - name: secretlint

@@ -17,6 +17,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
+import { scan } from './lib/comment-scan.mts'
 
 const root = new URL('..', import.meta.url).pathname
 // 递归扫的目录 + 仓库根的散装源码文件（配置类 *.ts 常驻根级，漏掉它们等于放过一整类）。
@@ -126,83 +127,6 @@ function listFiles(dir: string): string[] {
   return out
 }
 
-/** 从源码抠出注释行（// 行注释、块注释逐行、<!-- --> HTML 注释）；字符串与正则内容不算注释。 */
-function commentLines(code: string): Array<{ line: number; text: string }> {
-  const out: Array<{ line: number; text: string }> = []
-  type State = 'code' | 'line' | 'block' | 'html' | 'q1' | 'q2' | 'q3'
-  let state: State = 'code'
-  let line = 1
-  let buf = ''
-  const push = () => {
-    if (buf.trim()) out.push({ line, text: buf.trim() })
-    buf = ''
-  }
-  const n = code.length
-  let i = 0
-  while (i < n) {
-    const c = code[i]
-    const c2 = code.slice(i, i + 2)
-    const c3 = code.slice(i, i + 3)
-    if (state === 'code') {
-      if (c === '\n') {
-        line++
-      } else if (c2 === '//') {
-        state = 'line'
-        buf = ''
-        i++
-      } else if (c2 === '/*') {
-        state = 'block'
-        buf = ''
-        i++
-      } else if (c3 === '<!--') {
-        state = 'html'
-        buf = ''
-        i += 2
-      } else if (c === "'" || c === '"' || c === '`') {
-        state = c === "'" ? 'q1' : c === '"' ? 'q2' : 'q3'
-      }
-    } else if (state === 'line') {
-      if (c === '\n') {
-        push()
-        state = 'code'
-        line++
-      } else {
-        buf += c
-      }
-    } else if (state === 'block') {
-      if (c2 === '*/') {
-        push()
-        state = 'code'
-        i++
-      } else if (c === '\n') {
-        push()
-        line++
-      } else {
-        buf += c
-      }
-    } else if (state === 'html') {
-      if (c3 === '-->') {
-        push()
-        state = 'code'
-        i += 2
-      } else if (c === '\n') {
-        push()
-        line++
-      } else {
-        buf += c
-      }
-    } else {
-      // 字符串：q1 / q2 / q3
-      if (c === '\\') i++
-      else if ((state === 'q1' && c === "'") || (state === 'q2' && c === '"') || (state === 'q3' && c === '`')) state = 'code'
-      else if (c === '\n') line++
-    }
-    i++
-  }
-  push()
-  return out
-}
-
 function matchRules(text: string): string[] {
   return RULES.filter(([, re]) => re.test(text)).map(([name]) => name)
 }
@@ -219,7 +143,7 @@ for (const file of files) {
   const rel = relative(root, file)
   if (rel === selfRel) continue
   const code = readFileSync(file, 'utf8')
-  const comments = commentLines(code)
+  const comments = scan(code, file).comments
   const rawLines = code.split('\n')
 
   // 标记行 → 豁免其物理下一行
