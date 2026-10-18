@@ -1,6 +1,6 @@
 // 代码浏览的纯函数：按后缀推断语法高亮语言。
 // 消费者：LfsBrowserPanel（用户脚本源码浏览）。
-import type { CodeLanguage } from '@duoling/shadcn-registry/components/ai-elements/code-block'
+import type { CodeLanguage } from '@duoling/ui/components/ai-elements/code-block'
 
 /** 后缀 → shiki 语言映射（工具白名单内常见的 html / js / css / json / md 均已覆盖） */
 const LANGUAGE_MAP: Record<string, CodeLanguage> = {

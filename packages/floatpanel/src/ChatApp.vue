@@ -29,13 +29,13 @@ import {
 } from '@lucide/vue'
 import { ChatPanel } from '@duoling/ui'
 import PageScriptsMonitor from './components/PageScriptsMonitor.vue'
-import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
+import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger
-} from '@duoling/shadcn-registry/components/ui/tooltip'
+} from '@duoling/ui/components/ui/tooltip'
 import { useGlobalConversation } from '@duoling/ui/composables/use-global-conversation'
 import { EXTENSION_NAME } from '@duoling/shared'
 import { readPinnedTabId } from '@duoling/ui/lib/owning-tab'

@@ -14,28 +14,28 @@ import {
   Search as UiSearch,
   Trash2 as UiTrash2
 } from '@lucide/vue'
-import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
+import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import {
   Dialog as UiDialog,
   DialogContent as UiDialogContent,
   DialogDescription as UiDialogDescription,
   DialogFooter as UiDialogFooter,
   DialogTitle as UiDialogTitle
-} from '@duoling/shadcn-registry/components/ui/dialog'
+} from '@duoling/ui/components/ui/dialog'
 import {
   DropdownMenu as UiDropdownMenu,
   DropdownMenuContent as UiDropdownMenuContent,
   DropdownMenuItem as UiDropdownMenuItem,
   DropdownMenuSeparator as UiDropdownMenuSeparator,
   DropdownMenuTrigger as UiDropdownMenuTrigger
-} from '@duoling/shadcn-registry/components/ui/dropdown-menu'
+} from '@duoling/ui/components/ui/dropdown-menu'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger
-} from '@duoling/shadcn-registry/components/ui/tooltip'
-import { Input as UiInput } from '@duoling/shadcn-registry/components/ui/input'
+} from '@duoling/ui/components/ui/tooltip'
+import { Input as UiInput } from '@duoling/ui/components/ui/input'
 import SessionRunningBadge from './SessionRunningBadge.vue'
 import type { Conversation, ConversationSearchHit } from '@duoling/shared'
 import { formatSessionTime } from '@duoling/ui/composables/use-global-conversation'

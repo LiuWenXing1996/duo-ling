@@ -16,7 +16,7 @@ import {
   Sparkles as UiSparkles
 } from '@lucide/vue'
 import ConfirmDialog from '../ConfirmDialog.vue'
-import { CodeBlock } from '@duoling/shadcn-registry/components/ai-elements/code-block'
+import { CodeBlock } from '@duoling/ui/components/ai-elements/code-block'
 import { userscriptClient, offscreenService } from '@duoling/ui/lib/userscripts/ui-client'
 import { defaultConfig, resolveConfigFromSource } from '@duoling/shared'
 import type { CommitActor, UsCommit, UsSnapshot } from '@duoling/shared'

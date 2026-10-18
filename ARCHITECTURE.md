@@ -20,35 +20,35 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 打底只有 `shared`：跨世界契约 + 共享实现（含 `app/` 那批**两个进程都要用的应用侧实现** —— 模型配置、归属映射、新版本检查、构建信息、小数据 kv、抓包摘要）。
 
-另有一个**不占轴的资产包**：`shadcn-registry`（shadcn-vue 原语与 ai-elements 的唯一落点，`shadcn-vue` CLI 从 `registry.ai-elements-vue.com` 与官方 registry 拉源码自持；Vite lib + preserveModules，是全仓唯一保留页面包式预构建的包，exports 只出 `./components/ui/*` 与 `./components/ai-elements/*` 子路径，样式 token 由消费方注入）。四个页面包都直接消费它 —— 这是全仓唯一允许的「 vendored 组件代码」所在地，其它子包不得自持此类源码。
+shadcn-vue 原语与 ai-elements 是唯一一处 **vendored 组件代码**，落在 `ui` 包内（`src/components/ui/` 与 `src/components/ai-elements/`，拆包前主包的原味拷贝）：`shadcn-vue` CLI 从 `registry.ai-elements-vue.com` 与官方 registry 拉源码，`components.json` 也在 `ui` 包内（CLI add 在该包目录下跑）。CLI 拉进来写的是 `@/` 别名，而源码直出后 `@/` 会撞主包自己的别名 —— 装完跑 `pnpm --filter @duoling/ui convert-paths` 一键转成包内相对路径。样式 token 由主包 `main.css` 注入。其它子包不得自持此类源码。
 
 **依赖严格单向，反向即错**：
 
 ```
 popup / floatpanel / workbench ──▶ ui ──▶ shared ◀── service-worker / offscreen-document
         │                    ▲
-        └──────▶ shadcn-registry（shadcn 原语与 ai-elements，ui 也直接消费）
+        └──────▶ ui 的 shadcn 组件层（components/ui/ · components/ai-elements/，随 ui 依赖）
 ```
 
 - **进程侧不得 import 任何页面包**。一个模块只要 SW 也要用，它的家就在 `shared`（判据同 `src/lib` 时代：被两个进程同时消费 + 零 chrome 类型）—— 放 UI 包会让 SW 把前端依赖（Vue、组件树）拖进 `background.js`，而这类错误只在跑起来之后才现形。
-- **页面包之间只许 `→ ui` / `→ shadcn-registry`**：三页互不 import；`shadcn-registry` 是 vendored 组件（shadcn 原语 + ai-elements）的唯一家，页面包与 ui 的组件引用一律走它的子路径导出。`ui` 的入口桶只出 `ChatPanel`（浮层与工作台共用它），其余走子路径，避免一个桶把整棵对话树塞进 popup。
+- **页面包之间只许 `→ ui`**：三页互不 import；`ui` 是 vendored 组件（shadcn 原语 + ai-elements）的唯一家，页面包的组件引用一律走它的 `./components/*` 子路径导出。`ui` 的入口桶只出 `ChatPanel`（浮层与工作台共用它），其余走子路径，避免一个桶把整棵对话树塞进 popup。
 - **总线的两半分居两处**：发送/订阅（`ipcRequest` / `ipcNotify` / `ipcSubscribe`）在 `shared`，接收口（`serveIpc` + 三个 matcher）在 `src/shared/ipc-bus.ts` —— 后者要 `chrome.runtime.MessageSender` 的类型面，而 `shared` 是 `types: []`（零 chrome 类型是铁律，参见「共享层」的边界说明）。
 
 > 上面的方向约束由 `pnpm run check:packages` 机械强制（pre-commit 与 `verify` 都挂）：静态扫 `@duoling/*` import 与相对路径越界，对照 `scripts/check-packages.mts` 顶部 MATRIX 矩阵。矩阵与本文同源 —— 开新边两处一起改。
 
 **两种包形态并存，判据是「谁消费」**：
 
-| | 源码直出（shared / service-worker / offscreen-document / ui / workbench / floatpanel / popup） | 预构建（shadcn-registry / builtin-scripts） |
+| | 源码直出（shared / service-worker / offscreen-document / ui / workbench / floatpanel / popup） | 预构建（builtin-scripts） |
 | --- | --- | --- |
 | `exports` | **全部直指 `src` 源码**（含 types 与 import） | 指向 `dist` 产物（builtin-scripts 例外：直指源码，见根 tsconfig paths 注释） |
-| 构建 | **不自建**（SW 例外：`build` 只跑 `build-relay.mjs` 生成中继件源码模块，随源码一起被消费方编译）—— 编译收敛到消费方：扩展页由 WXT 主包的 Vite 直取源码编译，进程包自建时由 rolldown 把 shared 打进产物 | `vite build`（registry 单文件 lib + dts + preserveModules）/ `esbuild`（builtin-scripts 出 IIFE） |
-| 为什么 | 只有一个构建终点（WXT），类型与运行时同一份真相，`SwitchThumb` 这类「类型看 src、运行时看 dist」的 API 漂移从根上消失 | registry 内部 `@/` 别名需构建期消解成相对路径；builtin-scripts 的产物是「扩展内路径的文件」必须自持 |
+| 构建 | **不自建**（SW 例外：`build` 只跑 `build-relay.mjs` 生成中继件源码模块，随源码一起被消费方编译）—— 编译收敛到消费方：扩展页由 WXT 主包的 Vite 直取源码编译，进程包自建时由 rolldown 把 shared 打进产物 | `esbuild` 出 IIFE |
+| 为什么 | 只有一个构建终点（WXT），类型与运行时同一份真相，`SwitchThumb` 这类「类型看 src、运行时看 dist」的 API 漂移从根上消失 | builtin-scripts 的产物是「扩展内路径的文件」必须自持 |
 
 源码直出下摇树天然按文件粒度生效（Vite 按需编译入口可达的模块），此前为 dist 单文件产物配置的 `preserveModules` 与「子路径导出桶必须列为构建入口」整套机制随构建一起删除 —— `exports` 指向的源码文件永远存在，不存在「产物指向空气」。
 
 **两处配套改动容易漏**：
 
-- Tailwind v4 的自动探测跳过 gitignore 掉的目录：页面包源码不再 gitignore，自动进探测面；`shadcn-registry` 仍自建 `dist`（在其中）→ `src/assets/main.css` 里留有它一条 `@source`。漏了不会构建失败，只是页面样式全裸。
+- Tailwind v4 的自动探测：页面包源码（含并入 ui 的 shadcn 组件）不 gitignore，自动进探测面，`main.css` 无需 `@source`。漏了不会构建失败，只是页面样式全裸。
 - 页面包的用例由根 `vitest.config.ts` 的两个 project 一并收（`packages/{ui,workbench,floatpanel,popup}/src/**`）；包内不设 `test` 脚本，`pnpm -r test` 因此跳过它们。工作台包那 4 个带 `<style lang="less">` 的 SFC 的样式随组件模块经主包 Vite 编译进产物（基础样式 import 在前，层序天然成立），不再有独立的 `dist/style.css`；其余三包无 `<style>` 块，不出 CSS。
 
 页面包只在自己的 `package.json` 里声明 `vue` 与同级包，第三方库一律不重复声明：编译时源码里的 bare import 从根 `node_modules` 解析（单点安装，避免四份版本号各自漂）。

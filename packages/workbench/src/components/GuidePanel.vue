@@ -22,7 +22,7 @@ import {
   RefreshCw as UiRefreshCw,
   TriangleAlert as UiTriangleAlert
 } from '@lucide/vue'
-import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
+import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import {
   fileAccessGuideSteps,
   isFileSchemeAccessAllowed,

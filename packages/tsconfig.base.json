@@ -1,7 +1,7 @@
 {
   // 各子包的包级检查口径（与根 tsconfig 同档），各包只覆盖自己的 types / include。
-  // 跨包 import 的类型面：直出包（shared / service-worker / offscreen-document / 页面包）
-  // 直指源码；shadcn-registry 走 dist —— 单独跑它的 typecheck 前先 `pnpm -r build`。
+  // 跨包 import 的类型面全部直指源码（所有 @duoling 包源码直出，含并入 ui 的
+  // shadcn 原语与 ai-elements）。
   "compilerOptions": {
     "target": "ESNext",
     "module": "ESNext",

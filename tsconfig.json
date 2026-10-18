@@ -38,7 +38,5 @@
   // 不吃根的严格档；它对根的类型面只暴露 covers.ts（纯类型化数据，经 coverage 测试的
   // import 仍会被 vue-tsc 以根档检查）。
   "include": ["src/**/*", "e2e/**/*", "packages/**/*", "scripts/**/*", ".wxt/wxt.d.ts"],
-  // shadcn-registry 与 uscript-samples 同待遇：源码不吃根的 paths（它的 @/ 是包内视角，
-  // 根程序里解析不了），由包级 typecheck（自带 @/ 映射）自管；根侧消费一律走 exports → dist。
-  "exclude": ["node_modules", ".output", "tmp", "packages/uscript-samples", "packages/shadcn-registry/src", "packages/*/dist"]
+  "exclude": ["node_modules", ".output", "tmp", "packages/uscript-samples", "packages/*/dist"]
 }

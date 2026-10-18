@@ -34,7 +34,7 @@ import {
   RefreshCw as UiRefreshCw,
   Trash2 as UiTrash2
 } from '@lucide/vue'
-import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
+import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { webHostname } from '@duoling/shared'
 import { routeOf } from '@duoling/shared'

@@ -41,8 +41,8 @@ export default defineConfig({
         'src/**/*.d.ts',
         'packages/*/src/**/*.test.ts',
         // 上游生成 / 搬运的组件（shadcn-vue 与 ai-elements）：本仓只用不改，算进分母只稀释信号
-        'packages/shadcn-registry/src/components/ui/**',
-        'packages/shadcn-registry/src/components/ai-elements/**',
+        'packages/ui/src/components/ui/**',
+        'packages/ui/src/components/ai-elements/**',
       ],
     },
     projects: [

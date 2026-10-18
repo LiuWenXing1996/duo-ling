@@ -19,13 +19,13 @@ import {
   Settings as UiSettings,
   TriangleAlert as UiTriangleAlert,
 } from '@lucide/vue'
-import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
+import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger,
-} from '@duoling/shadcn-registry/components/ui/tooltip'
+} from '@duoling/ui/components/ui/tooltip'
 import PopupCurrentPage from './PopupCurrentPage.vue'
 import PopupOtherPages from './PopupOtherPages.vue'
 import { EXTENSION_NAME } from '@duoling/shared'

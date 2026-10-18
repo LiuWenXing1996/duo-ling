@@ -7,15 +7,15 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@duoling/ui/composables/use-data-sync'
 import { Check as UiCheck, Copy as UiCopy, FileText as UiFileText, FolderTree as UiFolderTree, RefreshCw as UiRefreshCw } from '@lucide/vue'
-import { CodeBlockContent } from '@duoling/shadcn-registry/components/ai-elements/code-block'
+import { CodeBlockContent } from '@duoling/ui/components/ai-elements/code-block'
 import { inferLanguage } from '../../lib/code-view'
-import { FileTree } from '@duoling/shadcn-registry/components/ai-elements/file-tree'
+import { FileTree } from '@duoling/ui/components/ai-elements/file-tree'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger
-} from '@duoling/shadcn-registry/components/ui/tooltip'
+} from '@duoling/ui/components/ui/tooltip'
 import LfsTreeNode from './LfsTreeNode.vue'
 import { offscreenService, userscriptClient } from '@duoling/ui/lib/userscripts/ui-client'
 // 换算表取自 shared 的叶子模块而非文件库：后者会带出 lightning-fs 单例，面板只要一张表

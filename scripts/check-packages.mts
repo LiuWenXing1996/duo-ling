@@ -13,11 +13,10 @@ const MATRIX: Record<string, string[]> = {
   'builtin-scripts': ['shared'],
   'service-worker': ['shared', 'builtin-scripts'],
   'offscreen-document': ['shared'],
-  ui: ['shared', 'shadcn-registry'],
-  workbench: ['ui', 'shared', 'shadcn-registry'],
-  floatpanel: ['ui', 'shared', 'shadcn-registry'],
-  popup: ['ui', 'shared', 'shadcn-registry'],
-  'shadcn-registry': [],
+  ui: ['shared'],
+  workbench: ['ui', 'shared'],
+  floatpanel: ['ui', 'shared'],
+  popup: ['ui', 'shared'],
 }
 
 const ROOT = process.cwd()

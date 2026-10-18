@@ -33,9 +33,9 @@
 ├─ src/
 │  ├─ entrypoints/                # 四个载体入口 + 两个运行时宿主：background（SW 能力运行时）/ offscreen（AI 生成宿主）
 │  ├─ shared/ipc-bus.ts           # 总线**接收侧**（serveIpc + 三个 matcher）：要 chrome.runtime.MessageSender 的类型面，故留应用侧
-│  ├─ assets/                     # Tailwind 主题变量与全局样式（含指向 shadcn-registry dist 的 @source）
+│  ├─ assets/                     # Tailwind 主题变量与全局样式（shadcn token 落点）
 │  ├─ types/ · polyfill*.ts · public/   # 类型 shim / SW 全局兜底（polyfill）/ 静态资源（只剩 help/ 帮助页配图）
-├─ packages/ui/                   # 页面包 · 通用层：三页中 ≥2 页可达的业务 UI（ChatPanel 等；shadcn 原语与 ai-elements 在 packages/shadcn-registry）+ 前端数据客户端（会话、模型、脚本、主题）+ composables（源码直出，由主包构建）
+├─ packages/ui/                   # 页面包 · 通用层：三页中 ≥2 页可达的业务 UI（ChatPanel 等）+ shadcn 原语与 ai-elements（vendored 组件，components.json 与 convert-paths 路径转换脚本在包内）+ 前端数据客户端（会话、模型、脚本、主题）+ composables（源码直出，由主包构建）
 ├─ packages/workbench/            # 页面包 · 工作台：WorkbenchApp 与只此一处的界面（脚本编辑 / 设置分区 / GM API / 帮助 / 会话历史）
 ├─ packages/floatpanel/           # 页面包 · 浮层：ChatApp（对话载体本体）+ 页面脚本监控
 ├─ packages/popup/                # 页面包 · popup：工具栏弹窗三件（当前页面 / 其他页面 / 面板）

@@ -34,11 +34,10 @@ console.log('[dev] 手测对话链路：设置 → 添加模型 → 服务商选
 
 // 参数原样转给 wxt（如 `pnpm run dev popup`），靶站只负责提供出网目标
 
-// 仍需自建的子包产物必须先进各自 dist/：shadcn-registry（页面包类型与运行时都吃它的
-// dist）与内置件包（wxt.config.ts 的 build:publicAssets 钩子取进扩展产物，缺了注册指向
-// 不存在的文件）。
-// shared / service-worker / offscreen-document 与页面包源码直出，不在此列 ——
-// WXT dev 编译时直取 src（SW 的 build 只生成中继件源码模块，不产 dist）。
+// 仍需自建的子包产物必须先进各自 dist/：内置件包（wxt.config.ts 的 build:publicAssets
+// 钩子取进扩展产物，缺了注册指向不存在的文件）。
+// shared / service-worker / offscreen-document 与页面包（含并入 ui 的 shadcn 组件）源码
+// 直出，不在此列 —— WXT dev 编译时直取 src（SW 的 build 只生成中继件源码模块，不产 dist）。
 // `pnpm -r build` 按 workspace 依赖拓扑保证先后；dev 下**只构建一次** —— 自建包的源码
 // 改动后重跑本命令生效，长跑用包内 `dev` watch。
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'

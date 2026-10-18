@@ -19,7 +19,7 @@ import {
 import {
   TabsList as UiTabsList,
   TabsTrigger as UiTabsTrigger
-} from '@duoling/shadcn-registry/components/ui/tabs'
+} from '@duoling/ui/components/ui/tabs'
 
 const props = defineProps<{
   tabs: WorkspaceTab[]

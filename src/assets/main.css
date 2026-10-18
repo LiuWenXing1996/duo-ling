@@ -2,10 +2,7 @@
 @import 'tw-animate-css';
 @plugin '@tailwindcss/typography';
 
-/* 页面包与 shadcn-registry 的 class：页面包源码直出后自动进本侧构建的探测面，
-   但 shadcn-registry 仍自建 dist（gitignore 掉的目录 Tailwind v4 探测跳过）——
-   不显式指路就是一个 class 都提取不到，而构建照样成功、页面裸奔。 */
-@source '../../packages/shadcn-registry/dist';
+/* 页面包（含并入的 shadcn 原语与 ai-elements）源码直出，自动进本侧构建的探测面。 */
 
 @custom-variant dark (&:is(.dark *));
 

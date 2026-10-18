@@ -16,7 +16,7 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "@duoling/shadcn-registry": "workspace:*",
+    "@duoling/ui": "workspace:*",
     "@duoling/shared": "workspace:*",
     "@duoling/ui": "workspace:*",
     "vue": "3.5.42"

@@ -12,7 +12,7 @@ import {
   Plus as UiPlus,
   Trash2 as UiTrash2
 } from '@lucide/vue'
-import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
+import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import {
   Dialog as UiDialog,
   DialogContent as UiDialogContent,
@@ -20,13 +20,13 @@ import {
   DialogFooter as UiDialogFooter,
   DialogHeader as UiDialogHeader,
   DialogTitle as UiDialogTitle
-} from '@duoling/shadcn-registry/components/ui/dialog'
+} from '@duoling/ui/components/ui/dialog'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger
-} from '@duoling/shadcn-registry/components/ui/tooltip'
+} from '@duoling/ui/components/ui/tooltip'
 import type { ModelProfile, ModelProvider } from '@duoling/shared'
 import ModelFormDialog from '../ModelFormDialog.vue'
 import ConfirmDialog from '../ConfirmDialog.vue'

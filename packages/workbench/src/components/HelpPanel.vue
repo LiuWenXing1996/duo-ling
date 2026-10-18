@@ -10,7 +10,7 @@
 // 两边不可能对不上。
 import { computed, ref } from 'vue'
 import { BookOpen as UiBookOpen, Search as UiSearch } from '@lucide/vue'
-import { Input as UiInput } from '@duoling/shadcn-registry/components/ui/input'
+import { Input as UiInput } from '@duoling/ui/components/ui/input'
 import HelpBody from './HelpBody.vue'
 import helpContent from '../lib/help/help-content.md?raw'
 import { filterHelpSections, parseHelpSections } from '../lib/help/help-sections'

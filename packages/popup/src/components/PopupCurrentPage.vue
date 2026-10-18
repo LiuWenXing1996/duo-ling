@@ -19,15 +19,15 @@
 // 布局：卡片套卡片 —— 外卡是「当前页面」（头部 + 站点名），两个开关 / 脚本 / 对话各是里面的一张子卡。
 import { computed, ref } from 'vue'
 import { List as UiList, MessageSquare as UiMessageSquare } from '@lucide/vue'
-import { Badge as UiBadge } from '@duoling/shadcn-registry/components/ui/badge'
-import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
-import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@duoling/shadcn-registry/components/ui/switch'
+import { Badge as UiBadge } from '@duoling/ui/components/ui/badge'
+import { Button as UiButton } from '@duoling/ui/components/ui/button'
+import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@duoling/ui/components/ui/switch'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger,
-} from '@duoling/shadcn-registry/components/ui/tooltip'
+} from '@duoling/ui/components/ui/tooltip'
 import { EXTENSION_NAME } from '@duoling/shared'
 import { type PageOverviewTab } from '@duoling/shared'
 import { ipcRequest } from '@duoling/shared'

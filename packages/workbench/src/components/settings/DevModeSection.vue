@@ -5,8 +5,8 @@
 // 由宿主接住（emit openTab → WorkspaceHost.openDevTab）。
 import { ref } from 'vue'
 import { ChevronRight as UiChevronRight } from '@lucide/vue'
-import { Button as UiButton } from '@duoling/shadcn-registry/components/ui/button'
-import { Input as UiInput } from '@duoling/shadcn-registry/components/ui/input'
+import { Button as UiButton } from '@duoling/ui/components/ui/button'
+import { Input as UiInput } from '@duoling/ui/components/ui/input'
 import { EXTENSION_NAME } from '@duoling/shared'
 import type { WorkspaceTabKind } from '../../types/tab'
 import { errorText } from '@duoling/ui/lib/format'
