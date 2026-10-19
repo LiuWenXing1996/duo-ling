@@ -1,0 +1,21 @@
+# 产物与依赖
+node_modules/
+.output/
+.wxt/
+coverage/
+tmp/
+**/dist/
+
+# 坏样本：故意不可解析（syntax-error / runtime-error），Prettier 读它会直接报错
+packages/user-scripts/src/samples/raw/
+
+# 文档与配置：Prettier 会重排表格、列表与行注释，改动全是噪音
+*.md
+*.yml
+*.yaml
+pnpm-lock.yaml
+
+# 工具自有目录，不是项目源码
+.agents/
+.codebuddy/
+.trae/
