@@ -56,16 +56,6 @@ function chromeMajorVersion(): number {
   return m ? parseInt(m[1], 10) : 0
 }
 
-/** 版本无关的可用性检测：getScripts 抛错即不可用（全 Chrome 版本适用） */
-export async function isUserScriptsAvailable(): Promise<boolean> {
-  try {
-    await chrome.userScripts.getScripts()
-    return true
-  } catch {
-    return false
-  }
-}
-
 /**
  * 引擎可用性状态：结合 isUserScriptsAvailable + UA 分支，返回结构化信息供管理页状态横幅展示。
  * - Chrome ≥138：需在扩展详情页开启「允许运行用户脚本」按扩展开关
@@ -78,7 +68,7 @@ export async function getUserScriptsStatus(): Promise<UserScriptsAvailability> {
   const chromeMajor = chromeMajorVersion()
   // 纯查询、无副作用：「开关被打开后补注册」的自愈在消费层（可用性监视 → 宿主接线），
   // 不藏在查询里——查询方（横幅 / 引导页 / 监视器）各自语义单一。
-  const available = await isUserScriptsAvailable()
+  const available = await dlRuntime().isUserScriptsAvailable()
   const name = extensionName()
   let guideText = ''
   if (!available) {

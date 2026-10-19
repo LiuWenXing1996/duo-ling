@@ -1,6 +1,6 @@
 // SW 进程包：本扩展在 service worker 里的全部代码，一个进程一个包。
 //
-//   · GM 运行时 SW 侧宿主 —— 注册引擎（registration）/ 可用性监视（availability-watch）/
+//   · GM 运行时 SW 侧宿主 —— 注册引擎（registration）/ 可用性探测（dl-core 的 DLRuntime）/
 //     命令分发（dl-bridge）/ 事件底座（dl-port）/ cookie 域名门（cookie-gate）/
 //     require+resource 缓存 / 管理面 handler pack（management）/ 宿主注入点（host-config）；
 //   · GM 侧实现件 —— GM 值存储（gm-values）、usdata 库（usdata-db）：只有 SW 会生成并注册脚本，
@@ -20,7 +20,6 @@ export * from './offscreen-reasons'
 export * from './sw-service'
 export * from './host-config'
 export * from './registration'
-export * from './availability-watch'
 export * from './cookie-gate'
 export * from './dl-fetch-priv'
 export * from './dl-port'

@@ -1,6 +1,6 @@
 # @duoling/dl-core
 
-duo-ling 的**脚本内核**：注入体的实现体与对脚本暴露的能力面都在这里。源码直出（`exports` 指 `src/index.ts`），由消费方编译；唯一自建的一步是内核装配件的 esbuild 打包（产物 `dist/mount-dl-iife.js` 是一段 IIFE 文本，由 `build-user-script.ts` 以 `?raw` 读进来，见下「现状」）。**根出口只有一个 `DLRuntime` 类**，它只在扩展进程可用：构造时挂内核服务与页面侧中继件，另暴露 `installCustomUserScript` / `installedCustomScriptIds` / `uninstallCustomUserScript` 三个脚本注册面方法。messenger、proxy-service、`SwService` 与全部消息类型都是内核内部实现，包外取不到 —— 它们由包内模块经相对路径互相引用，加能力时也不必扩出口。
+duo-ling 的**脚本内核**：注入体的实现体与对脚本暴露的能力面都在这里。源码直出（`exports` 指 `src/index.ts`），由消费方编译；唯一自建的一步是内核装配件的 esbuild 打包（产物 `dist/mount-dl-iife.js` 是一段 IIFE 文本，由 `build-user-script.ts` 以 `?raw` 读进来，见下「现状」）。**根出口只有一个 `DLRuntime` 类**，它只在扩展进程可用：构造时挂内核服务与页面侧中继件，另暴露 `installCustomUserScript` / `installedCustomScriptIds` / `uninstallCustomUserScript` 三个脚本注册面方法，以及 `isUserScriptsAvailable` / `onUserScriptsAvailableChange` 两个「允许运行用户脚本」开关的探测与订阅方法。messenger、proxy-service、`SwService` 与全部消息类型都是内核内部实现，包外取不到 —— 它们由包内模块经相对路径互相引用，加能力时也不必扩出口。
 
 ## 注入面契约
 
@@ -33,6 +33,7 @@ duo-ling 的**脚本内核**：注入体的实现体与对脚本暴露的能力�
 七块已落地，全部接线：
 
 - **宿主侧运行时**：`src/runtime.ts` 的 `DLRuntime` —— 根出口唯一的东西。构造时同步挂内核服务（`mountSwService`），随后装页面侧中继件并把那句 promise 留着（`whenReady()` 供启动链排序，`installMessagingRelay()` 供可用性翻转时重装，失败只记日志不抛）；脚本注册面的三个方法原样转出，包外要注册脚本必须经它。**类不是单例**：实例由宿主创建，再经 `createServiceWorkerHost({ dlRuntime })` 注入到 SW 包，包内按需取用。
+- **引擎可用性**：`src/availability.ts` —— `isUserScriptsAvailable()` 实探 `chrome.userScripts.getScripts()`（开关关着时命名空间不存在、调用必抛，这是唯一与版本无关的判据）；`UserScriptsAvailabilityWatch` 每 1s 轮询一次、只在翻转时回调（Chrome 对该开关没有变化事件），首个订阅者起表、退到空停表、首个读数只建基线。两个能力都经 `DLRuntime` 暴露，SW 侧不再自己养定时器。
 - **注入体拼装**：`src/build-user-script.ts` 的 `buildUserScript` —— 按「`var DL` 挂载点 → 内核 IIFE → `@require` + 脚本正文」拼成一条 IIFE，三段同处一个函数作用域。
 - **内核装配件**：`src/dl.ts` 是 `DL` 的实现类，`src/mount-dl.ts` 负责实例化并写到外层那个 `DL` 上。`build.mts` 把它 bundle 成 `dist/mount-dl-iife.js`（不入库，随 `pnpm -r build` 重建；产物先过四道形状守卫再落盘）。
 - **宿主侧注册**：`src/install-custom-user-script.ts` 的 `installCustomUserScript` —— 接一段代码（裸代码，或 GM 包装层包好的整段源码），经 `buildUserScript` 拼好后用 `chrome.userScripts.register` 装成 MAIN 世界脚本，`uninstallCustomUserScript` 反手注销。**注册动作抽成 `registerUserScript`**（可用性检查 + 同 id 先注销再注册），中继件那条世界注册同一个函数，两处不再各写一遍。只在本进程有效（注册不跨浏览器重启存活），缺省全站匹配、`document_start`、只注入顶层 frame。SW 的 `registerScript` 也走它：校验与配置映射留在 SW，注册动作收敛在这里。

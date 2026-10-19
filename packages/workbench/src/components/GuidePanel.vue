@@ -11,8 +11,6 @@
 // 的警告与错误日志在恰当时机给出。
 //
 // 数据通道：与脚本列表同走 userscriptClient（工作台是可信扩展页，直接 runtime.sendMessage）。
-// 可用性显示走订阅：SW 轮询发现「运行用户脚本」开关变化后广播 availabilityChanged（检测
-// 与广播都在 SW，见 availability-watch.ts），本页只消费——不用自己盯 visibilitychange。
 // 挂载查一次给初值；「重新检测」按钮保留，给想立即确认的场景。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { EXTENSION_NAME } from '@duoling/shared'

@@ -6,8 +6,7 @@ offscreen 容器能力约定。机制的来龙去脉见 [ARCHITECTURE.md](../../
 
 | 职责 | 件 |
 | --- | --- |
-| 注册引擎 —— 世界配置 / 单脚本与全量注册 / 可用性检测 | `registration` |
-| 可用性监视 —— SW 进程内轮询引擎可用性，只在翻转时通知消费层 | `availability-watch` |
+| 注册引擎 —— 世界配置 / 单脚本与全量注册 / 可用性状态（探测与轮询在 dl-core） | `registration` |
 | 命令分发 —— 中继件发来的 GM 请求（storage / xhr / download / menu…） | `dl-bridge` |
 | 事件底座 —— 脚本世界 ↔ SW 长连接的下行通道（菜单点击 / 值变更 / 下载进度） | `dl-port` |
 | cookie 域名门 —— GM_cookie 的安全边界（scheme + host） | `cookie-gate` |
@@ -85,20 +84,23 @@ chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
 
 ## 引擎可用性监视
 
-Chrome 对「允许运行用户脚本」开关**没有事件**，轮询是唯一检测手段。宿主在 SW 入口启一次监视，
+Chrome 对「允许运行用户脚本」开关**没有事件**，轮询是唯一检测手段。探测与轮询都在 dl-core：
+`DLRuntime.isUserScriptsAvailable()` 探一次（`getScripts` 抛错即不可用），
+`onUserScriptsAvailableChange(cb)` 订阅翻转（内部 1s 轮询，只在变化时回调）。宿主在 SW 入口订阅一次，
 翻转时按需自愈：
 
 ```ts
-import { onAvailabilityChange, registerAllEnabled, startAvailabilityWatch } from '@duoling/service-worker'
+import { DLRuntime, registerAllEnabled } from '@duoling/service-worker'
 
-startAvailabilityWatch() // 幂等；首个读数只建基线，不广播
-onAvailabilityChange(({ previous, current }) => {
+const dlRuntime = new DLRuntime()
+dlRuntime.onUserScriptsAvailableChange((available) => {
   // 开关后开：关闭期间启用的脚本只落库未注册，没人补注册就永远不生效
-  if (!previous && current.available) void registerAllEnabled()
+  if (available) void registerAllEnabled()
 })
 ```
 
-监视器**只报变化**，不做任何动作 —— 补注册 / 角标 / 广播都由消费方自己接。
+监视器**只报变化**，不做任何动作 —— 补注册 / 角标 / 广播都由消费方自己接。首个读数只建基线；
+退到没有订阅者时定时器自行停掉。
 
 **前提**：SW 活不过 30s 空闲，监视定时器随之消亡。要让它持续跑需 offscreen 心跳保活
 （发送端在 `@duoling/offscreen-document` 的 `keepalive`）；容器缺席时 SW 会睡，

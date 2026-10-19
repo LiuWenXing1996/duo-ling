@@ -6,9 +6,11 @@ import {
   type InstallCustomUserScriptOptions,
 } from './install-custom-user-script'
 import { mountSwService } from './service/sw-service'
+import { isUserScriptsAvailable as probeAvailability, UserScriptsAvailabilityWatch } from './availability'
 
 export class DLRuntime {
   #ready: Promise<void> = Promise.resolve()
+  #availability = new UserScriptsAvailabilityWatch()
 
   constructor() {
     mountSwService()
@@ -17,6 +19,14 @@ export class DLRuntime {
 
   whenReady(): Promise<void> {
     return this.#ready
+  }
+
+  isUserScriptsAvailable(): Promise<boolean> {
+    return probeAvailability()
+  }
+
+  onUserScriptsAvailableChange(listener: (available: boolean) => void): () => void {
+    return this.#availability.subscribe(listener)
   }
 
   installMessagingRelay(): Promise<void> {

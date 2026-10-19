@@ -126,7 +126,7 @@ agent loop 要求宿主「不会在任务中途被回收」，三种宿主的寿
 
 标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`@duoling/shared` 的 `metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`；grant 名 → 它开启的成员这张对应表在 `gm-grants.ts`，注入侧、速查页与 AI 规范三处共用这一份）；能力表 `gm-api-catalog.ts` 生成速查页与**给 AI 的能力清单**两形态（三防漂移：类型层 `satisfies` + 从注入源码反射 + 规范文本对齐单测）。内部仍走 `__dl` 信封协议（协议稳定、与 DL 时代一致；桥的真身与接线工厂都在 `@duoling/service-worker`——background 调 `createServiceWorkerHost` 注入遥测 / 扩展身份 / offscreen 就绪并同步注册全部监听（应用侧不再有 re-export 桶，直接从 `@duoling/service-worker` 取用），遥测对象在 `userscripts/telemetry.ts`）。
 
-- **可用性前置**：`chrome.userScripts` 在用户未开启「运行用户脚本」时**不存在**，直接调用会让 SW 初始化崩溃。引擎每条入口都先判存在性（`isUserScriptsAvailable()` / `typeof chrome.userScripts.register === 'function'`）再优雅跳过；开启引导统一交给工作台「引导」标签页（各处只给「查看开启引导」入口，不各写一套步骤）。
+- **可用性前置**：`chrome.userScripts` 在用户未开启「运行用户脚本」时**不存在**，直接调用会让 SW 初始化崩溃。引擎每条入口都先判存在性（`DLRuntime.isUserScriptsAvailable()` / `typeof chrome.userScripts.register === 'function'`）再优雅跳过；探测与轮询在 dl-core（`isUserScriptsAvailable` 实探 `getScripts`，`onUserScriptsAvailableChange` 每秒轮询、只在翻转时回调），SW 侧只订阅并转发；开启引导统一交给工作台「引导」标签页（各处只给「查看开启引导」入口，不各写一套步骤）。
 
 - **同步值快照**：注册时 SW 把 `duoling-usdata` 全量值快照嵌入注入体，`GM_getValue` / `GM_listValues` 纯内存读；写后 debounce `userScripts.update()` 刷新（阈值参照 VM `FLUSH_DELAY=100`）。`GM.getValue` 走实时桥读（永远新鲜）。
 - **只读脚本的下行通道**：读写值 / 订阅变更的脚本经 `store.watchAll` 常驻 Port 接收变更；connect 成功后主动全量校准一次，覆盖 Port 建立前的窗口。**两条订阅的退订语义不同，这是刻意的**：`store.watch` 配 `store.unwatch`（键级订阅与 `GM_addValueChangeListener` 的移除方法一一对应）；`store.watchAll` **不配退订**，因为「读过值」本身就意味着要一直收（退订会让同步读退回陈旧，是缺陷不是能力），它的清理只随 Port 断开发生。

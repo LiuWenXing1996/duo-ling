@@ -27,15 +27,13 @@ import { EXTENSION_NAME } from '@duoling/shared'
 import {
   configureUserScriptsWorld,
   ensureWorldsConfigured,
-  isUserScriptsAvailable,
+  getUserScriptsStatus,
   registerAllEnabled,
   recoverOnUpdate,
   registerScript,
   unregisterScripts,
   collectCspWarnings,
   resolveInjectCode,
-  onAvailabilityChange,
-  startAvailabilityWatch,
   createServiceWorkerHost,
   swIpcHandlers,
   SW_IPC_OWNED_KINDS,
@@ -65,7 +63,6 @@ import {
 // 标签页录制：录到的采样与语料压缩都归 SW（采样在 duoling-runtime 的 tab_events，
 // offscreen 与扩展页都不直连）。录制的开关跟着活动记录走，判据落在存续表上 —— 见 tab-sessions。
 import { describeCaptureDigest, describeCaptureRecords } from '@duoling/shared'
-// 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
 // 新版本检查：SW 在浏览器启动 / 安装更新时各查一次，结果落 duoling-app 库供 popup 与设置页读
 import { runUpdateCheck } from '@duoling/shared'
 // GM 运行时接线：SW 侧工厂（配置注入 + 桥与 Port 监听注册同点完成，见 initUserScripts）
@@ -129,7 +126,12 @@ import {
 import { listConversations } from '@duoling/shared'
 // 「这一页是不是普通网页」的判据（页面概览只收普通网页，与 popup 的按钮判据同源）
 import { webHostname } from '@duoling/shared'
-import type { ImportReport, RunEndReason, ScriptGroup, ScriptProject } from '@duoling/shared'
+import type {
+  ImportReport,
+  RunEndReason,
+  ScriptGroup,
+  ScriptProject,
+} from '@duoling/shared'
 
 // offscreen document 容器（AI 生成链路的执行宿主）
 import {
@@ -145,7 +147,10 @@ import { getActiveProfileState } from '@duoling/shared'
 import { broadcastBuildPhase } from '@duoling/shared'
 // AI 工具支路：page_snapshot / page_env_read 两条工具经 SW 向页面里的页面检查器下发指令
 // （offscreen 不可达该 API）—— 下发封装与配对都在包内 page-inspector-bridge
-import { capturePageEnvFromTab, capturePageSnapshotFromTab } from '@duoling/service-worker'
+import {
+  capturePageEnvFromTab,
+  capturePageSnapshotFromTab,
+} from '@duoling/service-worker'
 // 目标页可注入判据与「引擎不可用」文案：与对话界面发起侧同一处
 import {
   isUserScriptsApiAvailable,
@@ -205,8 +210,7 @@ type SwRequest = Exclude<
  * 写方法都是读改写，重复执行一次不会产生第二份数据。
  * （UI → SW 那条链路的同款判据见 lib/userscripts/ui-client.ts。）
  */
-const OFFSCREEN_GONE =
-  /port closed|Receiving end does not exist|Could not establish connection|无响应/
+const OFFSCREEN_GONE = /port closed|Receiving end does not exist|Could not establish connection|无响应/
 const offscreenService = createOffscreenService(async (error) => {
   if (!OFFSCREEN_GONE.test(errorText(error))) return false
   return await ensureOffscreenReady()
@@ -352,9 +356,7 @@ const handlers: {
 
   'offscreen:close': async (): Promise<void> => closeOffscreen(),
 
-  'offscreen:status': async (): Promise<{ ready: boolean }> => ({
-    ready: await isOffscreenReady(),
-  }),
+  'offscreen:status': async (): Promise<{ ready: boolean }> => ({ ready: await isOffscreenReady() }),
 
   /** offscreen 启动握手（offscreen → SW）：容器自己报告已就绪，便于排查启动问题 */
   'offscreen:ready': async (): Promise<void> => {
@@ -363,19 +365,22 @@ const handlers: {
 
   // 模型配置：offscreen 拉取当前生效配置（含 apiKey）。复用现成的 getActiveProfileState()，
   // SW 里本来就能调；offscreen 侧须「取一次、缓存、不写日志」。
-  'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> =>
-    getActiveProfileState(),
+  'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> => getActiveProfileState(),
 
   // —— AI 工具支路 ——
   // 两条都请 SW 代办：chrome.tabs 在 offscreen 不可达，而在 SW 与注册链路同源
   // （受 138+ 逐扩展开关管控）。page_snapshot 取页面 DOM，page_env_read 取页面侧环境读数。
   // 目标页判据见 resolveAiTargetTab —— 两条共用，别在这里另写一份。
-  'page:snapshot': async (msg): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
+  'page:snapshot': async (
+    msg,
+  ): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
     ensureInspectorAvailable()
     return capturePageSnapshotFromTab(await resolveAiTargetTab(msg.conversationId, '采集页面快照'))
   },
 
-  'page:env': async (msg): Promise<Awaited<ReturnType<typeof capturePageEnvFromTab>>> => {
+  'page:env': async (
+    msg,
+  ): Promise<Awaited<ReturnType<typeof capturePageEnvFromTab>>> => {
     ensureInspectorAvailable()
     return capturePageEnvFromTab(await resolveAiTargetTab(msg.conversationId, '读取页面环境'))
   },
@@ -484,7 +489,9 @@ const handlers: {
 
   // 保存源码（唯一保存入口）：转 offscreen 统一保存（写 fs + git 提交 + 落库），
   // 落库后启用中则重注册。**保存恒成功、保存即注入**（无构建流程，注入代码 = 源码原文）。
-  'userscript:save': async (msg): Promise<{ warnings?: string[]; registerError?: string }> => {
+  'userscript:save': async (
+    msg,
+  ): Promise<{ warnings?: string[]; registerError?: string }> => {
     // 转发前先广播「保存中」瞬态：列表行立即转圈（链路收尾的落库广播负责切终态
     // ——见 @duoling/shared 的 DataChangedPush.phase 说明）
     broadcastBuildPhase('script', msg.uuid, 'saving')
@@ -506,12 +513,7 @@ const handlers: {
   },
 
   // 新建脚本（零输入）：命名 / 初始模板 / 首次快照全在 offscreen 侧完成，SW 只负责注册。
-  'userscript:create': async (): Promise<{
-    uuid: string
-    name: string
-    warnings?: string[]
-    registerError?: string
-  }> => {
+  'userscript:create': async (): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
     const project = await offscreenService.userscriptCreate()
     const registerError = await registerOrLog(project)
     return {
@@ -525,9 +527,7 @@ const handlers: {
   // AI 生成脚本落盘：转发 offscreen 单写方
   // （写状态库 + git 快照，note = AI summary），enabled 为真才注册——生成与生效解耦，
   // AI 产物默认零影响；启用走现成的 userscript:toggle。
-  'userscript:createProject': async (
-    msg,
-  ): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
+  'userscript:createProject': async (msg): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
     const project = await offscreenService.userscriptCreateGenerated({
       name: msg.name,
       config: msg.config,
@@ -554,11 +554,7 @@ const handlers: {
     // 注销失败不能纯静默：状态库删掉后这条 uuid 不再出现在任何对账清单里，
     // 幽灵注册会一直注入到下次 SW 冷启动（registerAllEnabled 全量对账）才被清
     await unregisterScripts([msg.uuid]).catch((e) =>
-      console.warn(
-        '[duoling:sw] 删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：',
-        msg.uuid,
-        e,
-      ),
+      console.warn('[duoling:sw] 删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
     )
     await offscreenService.userscriptRemove(msg.uuid)
     // 该脚本对内置并集的贡献随状态库删除而消失，中继件可能需要注销。
@@ -582,11 +578,7 @@ const handlers: {
     // 页面刷新照样注入；且 SW 由 offscreen 心跳保活常驻（@duoling/offscreen-document 的 keepalive，无条件），
     // registerAllEnabled 的冷启动对账不会跑，幽灵能一路活到下次浏览器重启
     await unregisterScripts(uuids).catch((e) =>
-      console.warn(
-        '[duoling:sw] 全部删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：',
-        uuids,
-        e,
-      ),
+      console.warn('[duoling:sw] 全部删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', uuids, e),
     )
     try {
       const removed = await offscreenService.userscriptRemoveAll()
@@ -616,11 +608,7 @@ const handlers: {
     if (msg.enabled) return { registerError: await registerOrLog(next) }
     // 同 userscript:remove：关停注销失败别静默，否则开关显示已关、页面里还在注入
     await unregisterScripts([msg.uuid]).catch((e) =>
-      console.warn(
-        '[duoling:sw] 关停注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：',
-        msg.uuid,
-        e,
-      ),
+      console.warn('[duoling:sw] 关停注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
     )
     // 关停后内置并集可能缩小，中继件可能需要注销
     await refreshBuiltinScripts().catch(() => {})
@@ -668,8 +656,7 @@ const handlers: {
   'userscript:runlog': async (): Promise<ReturnType<typeof listRunTimeline>> => listRunTimeline(),
 
   // 标签页存续表全量：活动历史按标签页分组时取名字与时刻（分组键在运行条目上，表只补名字）
-  'userscript:tabSessions': async (): Promise<ReturnType<typeof listTabSessions>> =>
-    listTabSessions(),
+  'userscript:tabSessions': async (): Promise<ReturnType<typeof listTabSessions>> => listTabSessions(),
 
   // 某一页的整根活动轴：文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误（六类都在
   // tab_events 同表）一次查回、分五组返回。「活动历史」右栏用它铺这一页的时间线。
@@ -693,7 +680,7 @@ const handlers: {
   // 已有错误展示位，不必另加。只拦开、不拦关：把假状态关掉是合法操作。
   // 存量已开的行不在这里收 —— 引擎恢复时补注册那一遍会顺带重算录制件，它自然变成真的在录。
   'userscript:tabActivityEnable': async (msg): Promise<{ tabId: number; recording: boolean }> => {
-    if (!(await isUserScriptsAvailable())) throw new Error('用户脚本功能不可用，无法开始记录')
+    if (!(await getDLRuntime().isUserScriptsAvailable())) throw new Error('用户脚本功能不可用，无法开始记录')
     const tab = await chrome.tabs.get(msg.tabId).catch(() => null)
     await setTabRecording(msg.tabId, true, tab?.url)
     await refreshTabRecorder().catch(() => {})
@@ -782,7 +769,7 @@ async function initUserScripts(runtime: DLRuntime): Promise<void> {
     return
   }
   await configureUserScriptsWorld()
-  const ok = await isUserScriptsAvailable()
+  const ok = await runtime.isUserScriptsAvailable()
   if (!ok) {
     console.warn(
       '[duoling:userscript] 用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，' +
@@ -859,7 +846,7 @@ const UNAUTHORIZED_TITLE = '用户脚本未授权，工作台「引导」有开�
  *
  * 初值取**同步**的存在性检查 —— 开关关着时该命名空间整个不存在，所以冷启动那一刻它已经准了，
  * 不会「先亮一下感叹号、探明了再灭掉」。权威值随后由 initUserScripts 的一次实探、以及
- * availability-watch 的翻转事件定下来：命名空间在但 getScripts 抛错这类情形只有实探能抓到。
+ * `onUserScriptsAvailableChange` 的翻转事件定下来：命名空间在但 getScripts 抛错这类情形只有实探能抓到。
  */
 let engineAvailable = typeof chrome.userScripts !== 'undefined'
 
@@ -1122,40 +1109,43 @@ function mountFloatMenu(): void {
   })
 }
 
+// 惰性：构造里挂的监听会让 import 本文件的协议测试在 fakeBrowser 下炸；回调首句取值，仍在同步段内
+let dlRuntimeInstance: DLRuntime | undefined
+
+function getDLRuntime(): DLRuntime {
+  return (dlRuntimeInstance ??= new DLRuntime())
+}
+
 export default defineBackground(() => {
   // 启动自证：console 第一条就是构建信息，「SW 是不是新包」不用再靠猜
   console.log(`[duoling:sw] SW 启动 · 构建 ${__BUILD_INFO__.time} · 分支 ${__BUILD_INFO__.branch}`)
 
-  const dlRuntime = new DLRuntime()
+  const dlRuntime = getDLRuntime()
+
   // 点击工具栏图标打开 popup（action.default_popup 由 popup.html 入口自动写入 manifest）——
   // 这是 action 的唯一用途；对话入口是网页浮层（由浮层宿主件挂出），不占 action。
 
   // 用户脚本管理器：启动配置世界并恢复已启用脚本
   void initUserScripts(dlRuntime).catch((e) => console.error('[duoling:userscript] init failed', e))
 
-  // 引擎可用性监视（检测层）：SW 被保活的前提下自行轮询「运行用户脚本」开关（Chrome 对
-  // 开关变化无事件），状态变化时经订阅回调通知。这里挂三个消费方（事件消费层）：
-  //   ① 角标：翻转时重算（不可用 → 全局感叹号，可用 → 收回感叹号并正常报数）。放在最前，让角标
-  //      先跟上，后面那步补注册跑多久都不影响它；
-  //   ② 进程内自愈：不可用 → 可用（用户在扩展管理页开完开关）时补注册全部启用脚本——
-  //      开关关闭期间启用的脚本只落库未注册，无人补注册就永远不生效；
-  //   ③ 广播给扩展页：横幅 / 引导页订阅 availabilityChanged 更新显示（不再各自打补丁）。
-  startAvailabilityWatch()
-  onAvailabilityChange(({ previous, current }) => {
-    setEngineAvailable(current.available)
-    if (!previous && current.available) {
+  dlRuntime.onUserScriptsAvailableChange((available) => {
+    setEngineAvailable(available)
+    if (available) {
       void ensureWorldsConfigured()
         .then(() => dlRuntime.installMessagingRelay())
         .then(() => registerAllEnabled())
         .catch((e) => console.error('[duoling:userscript] 可用性翻转补注册失败', e))
     }
     // SW 收不到自己发的消息，广播只到扩展页；无接收方（没开任何页面）属常态，静默
-    const push = {
-      kind: 'userscript:availabilityChanged' as const,
-      availability: current,
-      changedAt: Date.now(),
-    }
-    ipcNotify(push)
+    void getUserScriptsStatus().then(
+      (availability) =>
+        ipcNotify({
+          kind: 'userscript:availabilityChanged' as const,
+          availability,
+          changedAt: Date.now(),
+        }),
+      () => {},
+    )
   })
 
   // 对话界面监控 / 面板端口 / 任务状态 / 深链跳转的监听器
@@ -1207,10 +1197,8 @@ export default defineBackground(() => {
     matchers: [packMatcher(swIpcHandlers()), prefixMatcher(SW_KIND_PREFIXES, handlers)],
     observe: (msg) => {
       const push = msg as { kind: string; conversationId?: string }
-      if (push.kind === 'chat:running' && push.conversationId)
-        handleChatRunningPush(push.conversationId)
-      if (push.kind === 'chat:finished' && push.conversationId)
-        handleChatFinishedPush(push.conversationId)
+      if (push.kind === 'chat:running' && push.conversationId) handleChatRunningPush(push.conversationId)
+      if (push.kind === 'chat:finished' && push.conversationId) handleChatFinishedPush(push.conversationId)
     },
   })
 })

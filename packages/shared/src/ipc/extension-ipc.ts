@@ -312,7 +312,7 @@ export interface PageOverviewScript {
 
 /**
  * SW → 扩展页的单向广播。SW 不会收到自己发出的 sendMessage，故 SW 侧自身的消费
- * （可用性翻转补注册）走进程内订阅（availability-watch.onAvailabilityChange），不经消息总线。
+ * （可用性翻转补注册）走进程内订阅（DLRuntime.onUserScriptsAvailableChange），不经消息总线。
  *
  * userscript:availabilityChanged —— 「运行用户脚本」开关状态变化（SW 轮询发现，Chrome 对
  * 开关变化无事件）。横幅 / 引导页订阅此广播更新显示；载荷带完整可用性（UI 无需回查）。
