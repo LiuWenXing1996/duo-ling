@@ -15,7 +15,13 @@
 // （扩展页的模型下拉 / 设置页回拉）并推送 offscreen:configChanged（offscreen 的
 // profile-cache 回拉，apiKey 只在它取用时过界）。原 chrome.storage.onChanged 钩子已随
 // 迁移删除。offscreen 不 import 本模块（SW 命令中转），故无循环依赖。
-import type { ModelProfile, ModelProfileInput, ModelProfileState, ModelTestChatConfig, TestChatResult } from '../model'
+import type {
+  ModelProfile,
+  ModelProfileInput,
+  ModelProfileState,
+  ModelTestChatConfig,
+  TestChatResult,
+} from '../model'
 import { decryptApiKey, encryptApiKey, type EncPayload } from './key-cipher'
 import * as appDb from './app-db'
 import { errorText } from '../error-text'
@@ -35,12 +41,11 @@ interface ModelState {
 }
 
 async function readState(): Promise<ModelState> {
-  const stored =
-    (await appDb.get<{
-      profiles: StoredProfile[]
-      activeProfileId: string
-      endpointMigrated?: boolean
-    }>(KEY)) ?? { profiles: [], activeProfileId: '' }
+  const stored = (await appDb.get<{
+    profiles: StoredProfile[]
+    activeProfileId: string
+    endpointMigrated?: boolean
+  }>(KEY)) ?? { profiles: [], activeProfileId: '' }
   // 解密为内部形态
   const profiles: ModelProfileState[] = await Promise.all(
     stored.profiles.map(async (p) => {
@@ -202,12 +207,12 @@ export async function saveProfile(input: ModelProfileInput): Promise<ModelProfil
     apiFormat: 'openai',
     hasApiKey: Boolean(apiKey) || Boolean(existing?.apiKey),
     apiKey: apiKey || existing?.apiKey || '',
-      contextOutputToken: input.contextOutputToken,
-      temperature: input.temperature,
-      topP: input.topP,
-      topK: input.topK,
-      streamIdleTimeoutSec: input.streamIdleTimeoutSec ?? existing?.streamIdleTimeoutSec
-    }
+    contextOutputToken: input.contextOutputToken,
+    temperature: input.temperature,
+    topP: input.topP,
+    topK: input.topK,
+    streamIdleTimeoutSec: input.streamIdleTimeoutSec ?? existing?.streamIdleTimeoutSec,
+  }
   state.profiles = existing
     ? state.profiles.map((p) => (p.id === id ? next : p))
     : [...state.profiles, next]

@@ -6,8 +6,18 @@ import type { UserScriptsAvailability } from './registration'
 const getUserScriptsStatus = vi.hoisted(() => vi.fn())
 vi.mock('./registration', () => ({ getUserScriptsStatus }))
 
-const OFF: UserScriptsAvailability = { available: false, isFirefox: false, chromeMajor: 140, guideText: '' }
-const ON: UserScriptsAvailability = { available: true, isFirefox: false, chromeMajor: 140, guideText: '' }
+const OFF: UserScriptsAvailability = {
+  available: false,
+  isFirefox: false,
+  chromeMajor: 140,
+  guideText: '',
+}
+const ON: UserScriptsAvailability = {
+  available: true,
+  isFirefox: false,
+  chromeMajor: 140,
+  guideText: '',
+}
 
 async function fresh(): Promise<typeof import('./availability-watch')> {
   vi.resetModules()

@@ -99,7 +99,11 @@ export async function tabRecorderProject(): Promise<ScriptProject> {
     uuid: TAB_RECORDER_ID,
     name: SYSTEM_SCRIPT_DISPLAY[TAB_RECORDER_ID].name,
     enabled: true,
-    config: { ...defaultConfig(SYSTEM_TAB_RECORD_MATCHES), runAt: 'document_start', allFrames: true },
+    config: {
+      ...defaultConfig(SYSTEM_TAB_RECORD_MATCHES),
+      runAt: 'document_start',
+      allFrames: true,
+    },
     source: { code, savedAt: now },
     createdAt: now,
   }
@@ -114,7 +118,10 @@ export async function tabRecorderProject(): Promise<ScriptProject> {
  * 件包因此不认识 chrome.* 与扩展身份）。按「引号包住的完整 token」替换 —— esbuild 的产物
  * 一律用双引号输出字符串字面量，这个匹配形态是稳定的；找不到 token 说明产物变了，宁可炸出声。
  */
-export async function floatHostProject(panelUrl: string, extensionName: string): Promise<ScriptProject> {
+export async function floatHostProject(
+  panelUrl: string,
+  extensionName: string,
+): Promise<ScriptProject> {
   const raw = await loadSystemScriptCode(FLOAT_HOST_FILE)
   const PANEL_TOKEN = '"__DL_FLOAT_PANEL_URL__"'
   const NAME_TOKEN = '"__DL_FLOAT_EXT_NAME__"'

@@ -30,7 +30,12 @@ import {
 } from './extension'
 
 /** 探针源码（与手测导入同一份构建产物；test:e2e 脚本先 `pnpm run build`，dist 必已生成） */
-const PROBE_SRC = readFileSync(fileURLToPath(new URL('../packages/user-scripts/dist/samples/omni-probe/omni-probe.user.js', import.meta.url)), 'utf8')
+const PROBE_SRC = readFileSync(
+  fileURLToPath(
+    new URL('../packages/user-scripts/dist/samples/omni-probe/omni-probe.user.js', import.meta.url),
+  ),
+  'utf8',
+)
 /** 探针面板根节点 id */
 const PANEL = '#omni-probe'
 /** 自动化开关：人工档直接记「?」，不干等（见探针里的 AUTO 注释） */
@@ -63,7 +68,9 @@ test.describe.serial('GM 全能探针（真机自动化）', () => {
     context = await launchExtensionContext(profileDir)
     const sw = await getServiceWorker(context)
     messenger = await openMessengerPage(context, extensionIdFromServiceWorker(sw))
-    const availability = await sendToSw<{ available: boolean }>(messenger, { kind: 'userscript:availability' })
+    const availability = await sendToSw<{ available: boolean }>(messenger, {
+      kind: 'userscript:availability',
+    })
     available = availability.ok === true && availability.data.available === true
     if (!available) return // 后面的 test.skip 兜住
 
@@ -96,9 +103,21 @@ test.describe.serial('GM 全能探针（真机自动化）', () => {
   test.afterAll(async () => {
     const withTimeout = (p: Promise<unknown> | undefined, ms: number) =>
       p ? Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]) : Promise.resolve()
-    try { await withTimeout(context?.close(), 30_000) } catch { /* 忽略 */ }
-    try { await withTimeout(target?.close(), 5_000) } catch { /* 忽略 */ }
-    try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    try {
+      await withTimeout(context?.close(), 30_000)
+    } catch {
+      /* 忽略 */
+    }
+    try {
+      await withTimeout(target?.close(), 5_000)
+    } catch {
+      /* 忽略 */
+    }
+    try {
+      rmSync(profileDir, { recursive: true, force: true })
+    } catch {
+      /* 忽略 */
+    }
   })
 
   test('全量 GM API 在真机上没有一条 ✗', async () => {
@@ -120,7 +139,10 @@ test.describe.serial('GM 全能探针（真机自动化）', () => {
       if (/—— ✓/.test(panelText)) break
       if (!clicked && Date.now() > deadline - 140_000) {
         clicked = true
-        await page.getByRole('button', { name: '跑全部' }).click().catch(() => undefined)
+        await page
+          .getByRole('button', { name: '跑全部' })
+          .click()
+          .catch(() => undefined)
       }
       await page.waitForTimeout(1000)
     }
@@ -141,10 +163,18 @@ test.describe.serial('GM 全能探针（真机自动化）', () => {
     expect(bad, `有 API 在真机上是 ✗：\n${panelText}`).toBe(0)
     expect(pending, `还有人工项没收尾（AUTO 下应直接记 ?）：\n${panelText}`).toBe(0)
     expect(total, '探针用例数变了（新增 / 删除了用例？）').toBe(TOTAL)
-    expect(unknownCount, `未判定的行多于预期（人工 4 项 + 环境性 3 项）：\n${panelText}`).toBeLessThanOrEqual(MAX_UNKNOWN)
+    expect(
+      unknownCount,
+      `未判定的行多于预期（人工 4 项 + 环境性 3 项）：\n${panelText}`,
+    ).toBeLessThanOrEqual(MAX_UNKNOWN)
     // 剪贴板那条在 AUTO 下走 clipboard.readText() 自动回读，不该落到「端测读不到剪贴板」
-    expect(panelText, '剪贴板回读没成（应走 clipboard.readText()）').not.toContain('端测读不到剪贴板')
-    expect(ok, `通过数偏少（总数 ${TOTAL} 减掉允许未判定的 ${MAX_UNKNOWN} 项）：\n${panelText}`).toBeGreaterThanOrEqual(TOTAL - MAX_UNKNOWN)
+    expect(panelText, '剪贴板回读没成（应走 clipboard.readText()）').not.toContain(
+      '端测读不到剪贴板',
+    )
+    expect(
+      ok,
+      `通过数偏少（总数 ${TOTAL} 减掉允许未判定的 ${MAX_UNKNOWN} 项）：\n${panelText}`,
+    ).toBeGreaterThanOrEqual(TOTAL - MAX_UNKNOWN)
     await page.close()
   })
 })

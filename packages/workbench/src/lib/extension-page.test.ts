@@ -6,7 +6,7 @@ import {
   getChromeMajorVersion,
   openOwnExtensionPage,
   ownExtensionPageUrl,
-  userScriptsGuideSteps
+  userScriptsGuideSteps,
 } from './extension-page'
 
 const ID = 'abcdefghijklmnopabcdefghijklmnop'
@@ -36,7 +36,8 @@ describe('getChromeMajorVersion（UA 解析）', () => {
 
   it('Firefox 等非 Chrome：返回 0（落到列表页分支，且 UI 侧据此不给入口）', () => {
     vi.stubGlobal('navigator', {
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:130.0) Gecko/20100101 Firefox/130.0',
+      userAgent:
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:130.0) Gecko/20100101 Firefox/130.0',
     })
     expect(getChromeMajorVersion()).toBe(0)
   })
@@ -90,7 +91,7 @@ describe('userScriptsGuideSteps（分步指引按浏览器 / 版本选分支）'
     for (const browser of [
       { isFirefox: true, chromeMajor: 0 },
       { isFirefox: false, chromeMajor: 142 },
-      { isFirefox: false, chromeMajor: 120 }
+      { isFirefox: false, chromeMajor: 120 },
     ]) {
       for (const step of userScriptsGuideSteps(browser)) {
         expect(step.title.trim()).not.toBe('')

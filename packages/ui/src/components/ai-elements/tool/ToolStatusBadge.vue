@@ -2,12 +2,7 @@
 <script setup lang="ts">
 import type { DynamicToolUIPart, ToolUIPart } from 'ai'
 import type { Component } from 'vue'
-import {
-  CheckCircleIcon,
-  CircleIcon,
-  ClockIcon,
-  XCircleIcon,
-} from '@lucide/vue'
+import { CheckCircleIcon, CircleIcon, ClockIcon, XCircleIcon } from '@lucide/vue'
 import { Badge } from '../../ui/badge'
 import { computed } from 'vue'
 

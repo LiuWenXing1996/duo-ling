@@ -31,8 +31,7 @@ const slotContent = computed<string | undefined>(() => {
   }
   let text = ''
   for (const node of nodes) {
-    if (typeof node.children === 'string')
-      text += node.children
+    if (typeof node.children === 'string') text += node.children
   }
   return text || undefined
 })
@@ -45,12 +44,7 @@ const md = computed(() => (slotContent.value ?? props.content ?? '') as string)
   <Suspense>
     <Markdown
       :content="md"
-      :class="
-        cn(
-          'size-full [&>*:first-child]:mt-0! [&>*:last-child]:mb-0!',
-          props.class,
-        )
-      "
+      :class="cn('size-full [&>*:first-child]:mt-0! [&>*:last-child]:mb-0!', props.class)"
       v-bind="$attrs"
     />
     <template #fallback>

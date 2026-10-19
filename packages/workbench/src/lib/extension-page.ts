@@ -60,7 +60,9 @@ export async function isFileSchemeAccessAllowed(): Promise<boolean | null> {
     ).extension?.isAllowedFileSchemeAccess
     if (typeof fn !== 'function') return null
     const r = fn()
-    return r && typeof (r as Promise<boolean>).then === 'function' ? await (r as Promise<boolean>) : r
+    return r && typeof (r as Promise<boolean>).then === 'function'
+      ? await (r as Promise<boolean>)
+      : r
   } catch {
     return null
   }
@@ -78,12 +80,15 @@ export interface GuideStep {
  * （Firefox / Chrome ≥138 / Chrome <138 三支），
  * 但那里是一句话、这里给结构化步骤供引导页逐条渲染。
  */
-export function userScriptsGuideSteps(browser: { isFirefox: boolean; chromeMajor: number }): GuideStep[] {
+export function userScriptsGuideSteps(browser: {
+  isFirefox: boolean
+  chromeMajor: number
+}): GuideStep[] {
   if (browser.isFirefox) {
     return [
       { title: '打开扩展管理页', detail: '地址栏输入 about:addons' },
       { title: `进入「${EXTENSION_NAME}」的偏好设置`, detail: '扩展卡片上的「偏好」标签' },
-      { title: '勾选「User Scripts」权限', detail: '改完回到本页点「重新检测」' }
+      { title: '勾选「User Scripts」权限', detail: '改完回到本页点「重新检测」' },
     ]
   }
   if (browser.chromeMajor >= 138) {
@@ -91,15 +96,15 @@ export function userScriptsGuideSteps(browser: { isFirefox: boolean; chromeMajor
       { title: '打开本扩展的详情页', detail: '下面按钮直接打开' },
       {
         title: '打开「允许运行用户脚本」开关',
-        detail: '开关在详情页；页面上找不到它时，先回扩展列表页右上角打开「开发者模式」'
+        detail: '开关在详情页；页面上找不到它时，先回扩展列表页右上角打开「开发者模式」',
       },
-      { title: '回到本页点「重新检测」' }
+      { title: '回到本页点「重新检测」' },
     ]
   }
   return [
     { title: '打开扩展管理页', detail: '下面按钮直接打开' },
     { title: '打开页面右上角的「开发者模式」', detail: '这是全局开关，扩展详情页里没有' },
-    { title: '回到本页点「重新检测」' }
+    { title: '回到本页点「重新检测」' },
   ]
 }
 
@@ -119,7 +124,7 @@ export function userScriptsGuideSteps(browser: { isFirefox: boolean; chromeMajor
 export function fileAccessGuideSteps(chromeMajor: number): GuideStep[] {
   const openSwitch = {
     title: '在「网站权限」一节打开「允许访问文件网址」',
-    detail: '同一节里也有「允许运行用户脚本」，别开错'
+    detail: '同一节里也有「允许运行用户脚本」，别开错',
   }
   const restart = { title: '重启浏览器', detail: '该项改动 Chrome 提示重启后才生效' }
   const redetect = { title: '回到本页点「重新检测」' }
@@ -128,7 +133,7 @@ export function fileAccessGuideSteps(chromeMajor: number): GuideStep[] {
       { title: '打开本扩展的详情页', detail: '下面按钮直接打开' },
       openSwitch,
       restart,
-      redetect
+      redetect,
     ]
   }
   return [
@@ -136,6 +141,6 @@ export function fileAccessGuideSteps(chromeMajor: number): GuideStep[] {
     { title: `进入「${EXTENSION_NAME}」的详情页`, detail: '卡片上的「详情」按钮' },
     openSwitch,
     restart,
-    redetect
+    redetect,
   ]
 }

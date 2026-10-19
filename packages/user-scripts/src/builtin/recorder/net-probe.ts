@@ -11,11 +11,7 @@
 //   - 请求 / 响应头里的鉴权字段一律剥离；
 //   - 请求体与响应体只留 ≤NET_BODY_LIMIT 的采样，二进制标 '[binary]'。
 
-import {
-  NET_AUTH_HEADER_NAMES,
-  NET_BODY_LIMIT,
-  NET_TAB_KIND,
-} from '@duoling/shared'
+import { NET_AUTH_HEADER_NAMES, NET_BODY_LIMIT, NET_TAB_KIND } from '@duoling/shared'
 import type { RecorderCtx } from './context'
 
 /** 一条采样记录：信封由机制层补，这里只产 record 本体 */
@@ -90,7 +86,8 @@ export function installNetProbe(ctx: RecorderCtx): void {
       if (typeof h === 'object') {
         const rec = h as Record<string, unknown>
         for (const k in rec) {
-          if (Object.prototype.hasOwnProperty.call(rec, k)) out[String(k).toLowerCase()] = String(rec[k])
+          if (Object.prototype.hasOwnProperty.call(rec, k))
+            out[String(k).toLowerCase()] = String(rec[k])
         }
       }
     } catch {
@@ -169,7 +166,10 @@ export function installNetProbe(ctx: RecorderCtx): void {
               let text = ''
               if (typeof chunk === 'string') {
                 text = chunk
-              } else if (chunk && typeof (chunk as { byteLength?: unknown }).byteLength === 'number') {
+              } else if (
+                chunk &&
+                typeof (chunk as { byteLength?: unknown }).byteLength === 'number'
+              ) {
                 const bytes = chunk as { subarray?: (start: number, end: number) => unknown }
                 let slice: unknown = chunk
                 if (
@@ -248,15 +248,13 @@ export function installNetProbe(ctx: RecorderCtx): void {
       try {
         const info = blank('fetch', '', 'GET')
         let bodyPromise: Promise<string> | null = null
-        const req = input as
-          | {
-              url?: unknown
-              method?: unknown
-              headers?: unknown
-              body?: unknown
-              clone?: () => Response
-            }
-          | null
+        const req = input as {
+          url?: unknown
+          method?: unknown
+          headers?: unknown
+          body?: unknown
+          clone?: () => Response
+        } | null
         if (req && typeof req === 'object' && typeof req.url === 'string') {
           info.url = req.url
           info.method = String(req.method || 'GET')

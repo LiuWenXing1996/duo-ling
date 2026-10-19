@@ -154,7 +154,9 @@ export function buildSystemPrompt(
     )
   }
   if (pageContext?.url) {
-    lines.push(`\n当前页面：${pageContext.title ? `「${pageContext.title}」` : ''}${pageContext.url}`)
+    lines.push(
+      `\n当前页面：${pageContext.title ? `「${pageContext.title}」` : ''}${pageContext.url}`,
+    )
     lines.push('用户很可能在说这个页面；选择器以此站点的真实结构为准，不要凭空猜。')
   }
   if (pageContext?.element) {
@@ -176,8 +178,10 @@ export function buildSystemPrompt(
     )
   }
   if (continuing) {
-    lines.push('\n注意：此前一次生成任务在浏览器中断了。任务的内存文件树已恢复，' +
-      '先 script_read（不带参数）查看已有文件，再决定继续修改还是重写。')
+    lines.push(
+      '\n注意：此前一次生成任务在浏览器中断了。任务的内存文件树已恢复，' +
+        '先 script_read（不带参数）查看已有文件，再决定继续修改还是重写。',
+    )
   }
   if (prevScript) {
     lines.push(

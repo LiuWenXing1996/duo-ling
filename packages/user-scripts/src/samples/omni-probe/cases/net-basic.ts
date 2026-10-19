@@ -10,10 +10,18 @@ export function register() {
         method: 'GET',
         timeout: 10000,
         onload: function (r) {
-          resolve(r.status === 200 && r.responseText ? pass('200，body ' + r.responseText.length + ' 字节') : fail('status=' + r.status))
+          resolve(
+            r.status === 200 && r.responseText
+              ? pass('200，body ' + r.responseText.length + ' 字节')
+              : fail('status=' + r.status),
+          )
         },
-        onerror: function (r) { resolve(unknown('请求失败：' + (r && r.error))) },
-        ontimeout: function () { resolve(unknown('请求超时（网络不可达？）')) }
+        onerror: function (r) {
+          resolve(unknown('请求失败：' + (r && r.error)))
+        },
+        ontimeout: function () {
+          resolve(unknown('请求超时（网络不可达？）'))
+        },
       })
     })
   })
@@ -21,15 +29,26 @@ export function register() {
   add('网络', 'GM_download（浏览器下载器）', function () {
     return new Promise(function (resolve) {
       let settled = false
-      const done = function (r: unknown) { if (!settled) { settled = true; resolve(r) } }
+      const done = function (r: unknown) {
+        if (!settled) {
+          settled = true
+          resolve(r)
+        }
+      }
       // 兜底：下载或事件链出问题时不把整轮卡死
-      setTimeout(function () { done(fail('10s 内没有回调（下载没完成 / 结局帧没回来）')) }, 10000)
+      setTimeout(function () {
+        done(fail('10s 内没有回调（下载没完成 / 结局帧没回来）'))
+      }, 10000)
       GM_download({
         url: NET_URL,
         name: PFX + 'probe.txt',
         // saveAs 刻意不开：无头 / 自动跑时弹「另存为」会卡住整轮
-        onload: function () { done(pass('完成回调触发（文件落在浏览器下载目录）')) },
-        onerror: function (e) { done(fail('下载失败：' + ((e && e.error) || '未知'))) },
+        onload: function () {
+          done(pass('完成回调触发（文件落在浏览器下载目录）'))
+        },
+        onerror: function (e) {
+          done(fail('下载失败：' + ((e && e.error) || '未知')))
+        },
       })
     })
   })
@@ -41,16 +60,29 @@ export function register() {
         url: PROGRESS_URL,
         method: 'GET',
         timeout: 10000,
-        onprogress: function (p) { frames.push(p) },
+        onprogress: function (p) {
+          frames.push(p)
+        },
         onload: function (r) {
           if (r.status !== 200) return resolve(fail('status=' + r.status))
           if (!frames.length) return resolve(fail('一帧进度都没收到'))
           const last = frames[frames.length - 1]!
-          return resolve(last.loaded > 0 && typeof last.lengthComputable === 'boolean'
-            ? pass('收到 ' + frames.length + ' 帧，末帧 loaded=' + last.loaded + ' / total=' + last.total)
-            : fail('进度对象形状不对：' + JSON.stringify(last)))
+          return resolve(
+            last.loaded > 0 && typeof last.lengthComputable === 'boolean'
+              ? pass(
+                  '收到 ' +
+                    frames.length +
+                    ' 帧，末帧 loaded=' +
+                    last.loaded +
+                    ' / total=' +
+                    last.total,
+                )
+              : fail('进度对象形状不对：' + JSON.stringify(last)),
+          )
         },
-        onerror: function () { resolve(fail('请求失败（未拿到响应）')) },
+        onerror: function () {
+          resolve(fail('请求失败（未拿到响应）'))
+        },
       })
     })
   })
@@ -59,7 +91,9 @@ export function register() {
     if (!GM || typeof GM.xmlHttpRequest !== 'function') throw new Error('GM.xmlHttpRequest 未挂载')
     try {
       const r = await GM.xmlHttpRequest({ url: NET_URL, method: 'GET', timeout: 10000 })
-      return r.status === 200 && r.responseText ? pass('200，body ' + r.responseText.length + ' 字节') : fail('status=' + r.status)
+      return r.status === 200 && r.responseText
+        ? pass('200，body ' + r.responseText.length + ' 字节')
+        : fail('status=' + r.status)
     } catch (e) {
       return netFail(e)
     }

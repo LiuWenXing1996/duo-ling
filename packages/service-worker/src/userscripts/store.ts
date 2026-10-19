@@ -145,7 +145,11 @@ export function recordRunStart(
  * （已被环形挤掉、或该次运行压根没登记）即 no-op —— 动作是观察数据，不值得为它补造一条
  * 运行记录。到 RUN_EVENT_MAX 后不再落盘动作本体，只涨计数（读侧据此说明「已省略」）。
  */
-export function recordRunEvent(uuid: string, runId: string, event: UserScriptRunEvent): Promise<void> {
+export function recordRunEvent(
+  uuid: string,
+  runId: string,
+  event: UserScriptRunEvent,
+): Promise<void> {
   return runtime.appendAct(runId, event).then((written) => {
     // 到上限后不再有新动作落盘，也就不必再让面板白回拉一次
     if (written) broadcastDataChange('runlog', uuid)
@@ -209,7 +213,10 @@ export async function listRunTimeline(): Promise<UserScriptRunLogRow[]> {
     })),
     ...loose.map((e) => ({ kind: 'error' as const, record: e })),
   ]
-  return rows.sort((a, b) => (b.kind === 'run' ? b.time : b.record.time) - (a.kind === 'run' ? a.time : a.record.time))
+  return rows.sort(
+    (a, b) =>
+      (b.kind === 'run' ? b.time : b.record.time) - (a.kind === 'run' ? a.time : a.record.time),
+  )
 }
 
 /**

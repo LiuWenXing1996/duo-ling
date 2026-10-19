@@ -21,7 +21,9 @@ function git(args: string[]): string {
 
 function addedRanges(file: string): Array<[number, number]> {
   const ranges: Array<[number, number]> = []
-  for (const line of git(['diff', '--cached', '--unified=0', '--no-color', '--', file]).split('\n')) {
+  for (const line of git(['diff', '--cached', '--unified=0', '--no-color', '--', file]).split(
+    '\n',
+  )) {
     const m = HUNK_RE.exec(line)
     if (!m) continue
     const start = Number(m[1])

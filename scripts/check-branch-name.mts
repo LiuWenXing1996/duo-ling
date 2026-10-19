@@ -37,7 +37,9 @@ if (branch === 'HEAD') {
   console.error('  当前处于 detached HEAD，不在命名分支上，无法判断去向。')
   console.error('  先落一个命名分支再 push：git switch -c <type>/<kebab-case>')
 } else {
-  console.error(`  允许的形态：main / release/<版本> / <type>/<kebab-case>（type ∈ ${types.join(' | ')}）`)
+  console.error(
+    `  允许的形态：main / release/<版本> / <type>/<kebab-case>（type ∈ ${types.join(' | ')}）`,
+  )
   console.error('  描述用小写 kebab-case，不写大驼峰 / 下划线 / 空格 / 中文，层级不超过两层。')
   console.error(`  就地改名后重推：git branch -m <新名> && git push -u origin <新名>`)
 }

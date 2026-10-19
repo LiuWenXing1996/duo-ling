@@ -16,7 +16,7 @@ import {
   DialogContent as UiDialogContent,
   DialogDescription as UiDialogDescription,
   DialogFooter as UiDialogFooter,
-  DialogTitle as UiDialogTitle
+  DialogTitle as UiDialogTitle,
 } from '@duoling/ui/components/ui/dialog'
 import { useDataSync } from '@duoling/ui/composables/use-data-sync'
 import { toUiMessage } from '@duoling/shared'
@@ -24,7 +24,7 @@ import {
   findTabsUsingConversation,
   getActiveTabBindings,
   unbindAll,
-  unbindConversation
+  unbindConversation,
 } from '@duoling/shared'
 import type { TabConversationMap } from '@duoling/shared'
 import { conversationClient } from '@duoling/ui/lib/conversation-client'
@@ -49,7 +49,7 @@ const view = ref<SessionView>('replay')
 
 /** 选中会话的元数据（原始数据视图导出文件名 / payload 用）；列表里没有就是 null */
 const selectedConversation = computed(
-  () => conversations.value.find((c) => c.id === selectedId.value) ?? null
+  () => conversations.value.find((c) => c.id === selectedId.value) ?? null,
 )
 
 /** 拉列表；选中的会话若已不存在（本页删的 / 别处删的）就清空右侧 */
@@ -289,14 +289,21 @@ onMounted(() => void loadList())
 
     <!-- 右栏：选中会话的两个视图。切到原始数据视图不换选中态 —— 对照排查时来回切，列表与选中都要留在原地 -->
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div v-if="selectedId" class="flex shrink-0 items-center justify-end border-b border-border px-3 py-1.5">
+      <div
+        v-if="selectedId"
+        class="flex shrink-0 items-center justify-end border-b border-border px-3 py-1.5"
+      >
         <div class="flex items-center rounded-md bg-muted p-0.5" data-testid="session-view-toggle">
           <button
             v-for="v in VIEW_OPTIONS"
             :key="v.value"
             type="button"
             class="rounded px-2 py-0.5 text-xs transition-colors"
-            :class="view === v.value ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+            :class="
+              view === v.value
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            "
             :data-testid="`session-view-${v.value}`"
             @click="view = v.value"
           >
@@ -319,7 +326,11 @@ onMounted(() => void loadList())
         @open-guide="() => {}"
       />
       <!-- 原始数据：落盘 Message 原始记录（只读调试视图） -->
-      <conversation-raw-view v-else-if="selectedId" class="min-h-0 flex-1" :conversation="selectedConversation" />
+      <conversation-raw-view
+        v-else-if="selectedId"
+        class="min-h-0 flex-1"
+        :conversation="selectedConversation"
+      />
 
       <div v-if="!selectedId" class="flex min-h-0 flex-1 items-center justify-center">
         <p class="text-sm text-muted-foreground">从左侧选一条会话查看</p>

@@ -16,10 +16,7 @@ export interface SwIpcHandlers {
   /** 是否认领该 kind（白名单命中 = 本包应答，宿主前缀路由不再参与） */
   owns(kind: string): boolean
   /** 执行（仅对 owns 的 kind 调用；应答值由宿主总线包进统一信封） */
-  handle(
-    msg: { kind?: string },
-    sender: chrome.runtime.MessageSender,
-  ): Promise<unknown>
+  handle(msg: { kind?: string }, sender: chrome.runtime.MessageSender): Promise<unknown>
 }
 
 /** 一次构造、反复问询（无状态：应答只读库与检测，不缓存） */

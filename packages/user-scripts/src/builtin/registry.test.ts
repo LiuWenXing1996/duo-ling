@@ -16,11 +16,7 @@ describe('产物文件名与构建入口表一致', () => {
     const built = Object.keys(ENTRY_POINTS)
       .map((key) => `${key}.js`)
       .sort()
-    const declared = [
-      TAB_RECORDER_FILE,
-      INSPECTOR_HOST_FILE,
-      FLOAT_HOST_FILE,
-    ].sort()
+    const declared = [TAB_RECORDER_FILE, INSPECTOR_HOST_FILE, FLOAT_HOST_FILE].sort()
     expect(declared).toEqual(built)
   })
 })

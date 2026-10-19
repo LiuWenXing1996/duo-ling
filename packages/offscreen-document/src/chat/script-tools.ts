@@ -89,7 +89,9 @@ const applyConfigSchema = z.object({
   includeGlobs: z.array(z.string()).optional(),
   excludeGlobs: z.array(z.string()).optional(),
   allFrames: z.boolean().default(true),
-  runAt: z.enum(['document_start', 'document_body', 'document_end', 'document_idle']).default('document_idle'),
+  runAt: z
+    .enum(['document_start', 'document_body', 'document_end', 'document_idle'])
+    .default('document_idle'),
 })
 
 /**
@@ -120,7 +122,11 @@ export interface TabRecordHooks {
  */
 function checkSyntax(code: string): string | null {
   try {
-    Parser.parse(code, { ecmaVersion: 'latest', sourceType: 'script', allowAwaitOutsideFunction: true })
+    Parser.parse(code, {
+      ecmaVersion: 'latest',
+      sourceType: 'script',
+      allowAwaitOutsideFunction: true,
+    })
     return null
   } catch (e: unknown) {
     const err = e as { message?: string; loc?: { line: number; column: number } }
@@ -193,7 +199,8 @@ export function buildScriptTools(
           ...(matches.length
             ? {}
             : {
-                hint: '没有名字含该关键词的脚本。可先调 script_list 看看已有哪些脚本，' +
+                hint:
+                  '没有名字含该关键词的脚本。可先调 script_list 看看已有哪些脚本，' +
                   '或与用户确认准确的脚本名；用户在编辑器头部可复制脚本 ID 直接粘给你。',
               }),
         }
@@ -255,10 +262,7 @@ export function buildScriptTools(
         summary: z.string().describe(TOOL_PARAM_DESCRIPTIONS.script_apply.summary),
         config: applyConfigSchema.describe(TOOL_PARAM_DESCRIPTIONS.script_apply.config),
         code: z.string().describe(TOOL_PARAM_DESCRIPTIONS.script_apply.code),
-        updateUuid: z
-          .string()
-          .optional()
-          .describe(TOOL_PARAM_DESCRIPTIONS.script_apply.updateUuid),
+        updateUuid: z.string().optional().describe(TOOL_PARAM_DESCRIPTIONS.script_apply.updateUuid),
       }),
       execute: async ({ summary, config, code, updateUuid }) => {
         // 硬停手：失败阈值已达后仍再次 apply = 模型无视了 stop 提示，直接中止任务

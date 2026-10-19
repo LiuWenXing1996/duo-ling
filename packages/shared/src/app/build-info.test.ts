@@ -13,7 +13,7 @@ const isoOf = (...args: [number, number, number, number, number, number]): strin
 
 function stubChrome(
   sendMessage: (msg: unknown, cb: (r: unknown) => void) => void,
-  lastError?: { message?: string }
+  lastError?: { message?: string },
 ): void {
   vi.stubGlobal('chrome', { runtime: { sendMessage, lastError } })
 }
@@ -35,8 +35,13 @@ describe('readInjectedBuildInfo / readPageBuildStamp', () => {
 
 describe('fetchSwBuildStamp', () => {
   it('一次成功：返回格式化好的标记', async () => {
-    stubChrome((_m, cb) => cb({ ok: true, data: { time: isoOf(2026, 8, 20, 5, 4, 3), branch: 'feat/x' } }))
-    await expect(fetchSwBuildStamp(3, 0)).resolves.toEqual({ branch: 'feat/x', time: '09-20 05:04:03' })
+    stubChrome((_m, cb) =>
+      cb({ ok: true, data: { time: isoOf(2026, 8, 20, 5, 4, 3), branch: 'feat/x' } }),
+    )
+    await expect(fetchSwBuildStamp(3, 0)).resolves.toEqual({
+      branch: 'feat/x',
+      time: '09-20 05:04:03',
+    })
   })
 
   it('首次无应答、次次成功：重试后返回标记（不因单次抖动判死）', async () => {
@@ -47,7 +52,10 @@ describe('fetchSwBuildStamp', () => {
       if (calls === 1) return cb(undefined)
       cb({ ok: true, data: { time: isoOf(2026, 8, 20, 5, 4, 3), branch: 'feat/x' } })
     })
-    await expect(fetchSwBuildStamp(3, 0)).resolves.toEqual({ branch: 'feat/x', time: '09-20 05:04:03' })
+    await expect(fetchSwBuildStamp(3, 0)).resolves.toEqual({
+      branch: 'feat/x',
+      time: '09-20 05:04:03',
+    })
     expect(calls).toBe(2)
   })
 
@@ -68,7 +76,7 @@ describe('fetchSwBuildStamp', () => {
         calls++
         cb(undefined)
       },
-      { message: 'Could not establish connection. Receiving end does not exist.' }
+      { message: 'Could not establish connection. Receiving end does not exist.' },
     )
     await expect(fetchSwBuildStamp(2, 0)).resolves.toBeNull()
     expect(calls).toBe(2)

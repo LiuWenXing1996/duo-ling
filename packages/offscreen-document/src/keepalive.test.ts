@@ -64,7 +64,9 @@ describe('startSwKeepalive', () => {
 
   it('ping 失败不外抛（SW 暂未就绪跳过本周期，下个周期再试）', async () => {
     runtime.sendMessage.mockImplementation((_msg: unknown, cb: SendCallback) => {
-      runtime.lastError = { message: 'Could not establish connection. Receiving end does not exist.' }
+      runtime.lastError = {
+        message: 'Could not establish connection. Receiving end does not exist.',
+      }
       cb(undefined)
     })
     const { startSwKeepalive, SW_KEEPALIVE_INTERVAL_MS } = await loadKeepalive()

@@ -14,16 +14,24 @@ const part = (p: Record<string, unknown>): UIPart => p as unknown as UIPart
 
 describe('isPendingToolUIPart', () => {
   it('没有结果的工具调用算「未完成」', () => {
-    expect(isPendingToolUIPart(part({ type: 'tool-script_spec', state: 'input-streaming' }))).toBe(true)
-    expect(isPendingToolUIPart(part({ type: 'tool-script_spec', state: 'input-available' }))).toBe(true)
+    expect(isPendingToolUIPart(part({ type: 'tool-script_spec', state: 'input-streaming' }))).toBe(
+      true,
+    )
+    expect(isPendingToolUIPart(part({ type: 'tool-script_spec', state: 'input-available' }))).toBe(
+      true,
+    )
     expect(
       isPendingToolUIPart(part({ type: 'dynamic-tool', toolName: 'x', state: 'input-available' })),
     ).toBe(true)
   })
 
   it('有结果的（成功或报错）都要留下', () => {
-    expect(isPendingToolUIPart(part({ type: 'tool-script_spec', state: 'output-available' }))).toBe(false)
-    expect(isPendingToolUIPart(part({ type: 'tool-script_spec', state: 'output-error' }))).toBe(false)
+    expect(isPendingToolUIPart(part({ type: 'tool-script_spec', state: 'output-available' }))).toBe(
+      false,
+    )
+    expect(isPendingToolUIPart(part({ type: 'tool-script_spec', state: 'output-error' }))).toBe(
+      false,
+    )
   })
 
   it('非工具 part 一律不管（正文 / 思考 / 数据块）', () => {

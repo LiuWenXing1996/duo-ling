@@ -52,9 +52,7 @@ const builtinScriptsDist = resolve(process.cwd(), 'packages/user-scripts/dist/bu
  */
 const buildInfoBranch = (() => {
   try {
-    return execSync('git rev-parse --abbrev-ref HEAD', { cwd: process.cwd() })
-      .toString()
-      .trim()
+    return execSync('git rev-parse --abbrev-ref HEAD', { cwd: process.cwd() }).toString().trim()
   } catch {
     // 不在 git 仓 / git 不可用：降级为 unknown，不阻塞构建
     return 'unknown'
@@ -216,7 +214,7 @@ export default defineConfig({
     // 135 = 本项目对内核的最低要求（自定义 USER_SCRIPT 世界的 worldId 需 133+，本项目取 135）：
     // 脚本桥 / 页面检查器 / 浮层宿主 / 录制转发各占一个自定义世界。
     // Chrome 规范字段是下划线 minimum_chrome_version；驼峰键会被 Chrome 忽略并报 Unrecognized。
-    'minimum_chrome_version': '135',
+    minimum_chrome_version: '135',
     // default_popup 不在此手写：WXT 按文件名把 entrypoints/popup.html 识别为 popup 入口
     // 并自动写入 manifest（workbench.html 等其余入口同一机制）。
     // action 标题的唯一来源：popup 入口刻意不写 <title>（否则 WXT 会拿它覆盖本字段，

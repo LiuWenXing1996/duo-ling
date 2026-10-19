@@ -60,7 +60,10 @@ export interface ParsedMetadata {
 
 /** 把一行注释剥成裸内容：去空白 → 去 `//` → 再 trim。兼容 `//==UserScript==` 与 `// ==UserScript==` */
 function bareLine(line: string): string {
-  return line.trim().replace(/^\/\/\s?/, '').trim()
+  return line
+    .trim()
+    .replace(/^\/\/\s?/, '')
+    .trim()
 }
 
 const START_MARK = '==UserScript=='
@@ -248,7 +251,10 @@ function mapRunAt(raw: string | undefined): ScriptConfig['runAt'] | null {
   return null
 }
 
-type Converted = { kind: 'match'; value: string } | { kind: 'glob'; value: string } | { kind: 'drop'; reason: string }
+type Converted =
+  | { kind: 'match'; value: string }
+  | { kind: 'glob'; value: string }
+  | { kind: 'drop'; reason: string }
 
 /** Chrome 认可的 host 段：`*`（任意）、`*.example.com`（域 + 子域）或裸主机名；**不含端口** */
 const CHROME_HOST_RE = /^(?:\*|(?:\*\.)?[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)$/
@@ -353,7 +359,8 @@ export function applyMetadataToConfig(
 
   const declaredMatches = matches.length > 0
   const declaredRunAt = mapRunAt(parsed.runAtRaw)
-  if (parsed.runAtRaw && !declaredRunAt) notes.push(`@run-at 取值不认识，已沿用原配置：${parsed.runAtRaw}`)
+  if (parsed.runAtRaw && !declaredRunAt)
+    notes.push(`@run-at 取值不认识，已沿用原配置：${parsed.runAtRaw}`)
 
   const config: ScriptConfig = {
     // 未声明匹配规则时沿用 fallback（导入路径的 fallback 是空数组 → 落「不匹配任何页面」，
@@ -363,7 +370,10 @@ export function applyMetadataToConfig(
     runAt: declaredRunAt ?? fallback.runAt ?? 'document_idle',
   }
 
-  const exclM = dedupe([...excludeMatches, ...(declaredMatches ? [] : (fallback.excludeMatches ?? []))])
+  const exclM = dedupe([
+    ...excludeMatches,
+    ...(declaredMatches ? [] : (fallback.excludeMatches ?? [])),
+  ])
   if (exclM.length) config.excludeMatches = exclM
   const exclG = dedupe([...excludeGlobs, ...(declaredMatches ? [] : (fallback.excludeGlobs ?? []))])
   if (exclG.length) config.excludeGlobs = exclG
@@ -401,10 +411,7 @@ export function applyMetadataToConfig(
  * 写入口用的便捷封装：无 metadata 块时原样返回 fallback（零 notes）。
  * 有块则解析 + 归一化，并把解析器自己的提示合并进来。
  */
-export function resolveConfigFromSource(
-  code: string,
-  fallback: ScriptConfig,
-): MetadataApplyResult {
+export function resolveConfigFromSource(code: string, fallback: ScriptConfig): MetadataApplyResult {
   const parsed = parseUserScriptMetadata(code)
   if (!parsed) return { config: fallback, notes: [] }
   return applyMetadataToConfig(parsed, fallback)

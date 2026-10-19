@@ -18,7 +18,7 @@ import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
-  TooltipTrigger as UiTooltipTrigger
+  TooltipTrigger as UiTooltipTrigger,
 } from '@duoling/ui/components/ui/tooltip'
 import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import { Input as UiInput } from '@duoling/ui/components/ui/input'
@@ -36,15 +36,30 @@ import {
   dropCursor,
   rectangularSelection,
   crosshairCursor,
-  type ViewUpdate
+  type ViewUpdate,
 } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
-import { HighlightStyle, syntaxHighlighting, indentOnInput, indentUnit, bracketMatching } from '@codemirror/language'
-import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete'
+import {
+  HighlightStyle,
+  syntaxHighlighting,
+  indentOnInput,
+  indentUnit,
+  bracketMatching,
+} from '@codemirror/language'
+import {
+  closeBrackets,
+  closeBracketsKeymap,
+  autocompletion,
+  completionKeymap,
+} from '@codemirror/autocomplete'
 import { searchKeymap } from '@codemirror/search'
 import { tags as t } from '@lezer/highlight'
 import { javascript } from '@codemirror/lang-javascript'
-import { userscriptClient, offscreenService, subscribeAvailability } from '@duoling/ui/lib/userscripts/ui-client'
+import {
+  userscriptClient,
+  offscreenService,
+  subscribeAvailability,
+} from '@duoling/ui/lib/userscripts/ui-client'
 import type { Source } from '@duoling/shared'
 import type { UserScriptsAvailability } from '@duoling/shared'
 import { errorText } from '@duoling/ui/lib/format'
@@ -148,42 +163,54 @@ const cmHighlight = HighlightStyle.define([
   { tag: [t.string, t.special(t.string), t.regexp], class: 'cm-tok-string' },
   { tag: [t.number, t.bool, t.null], class: 'cm-tok-number' },
   { tag: [t.comment, t.meta], class: 'cm-tok-comment' },
-  { tag: [t.definition(t.variableName), t.function(t.variableName), t.function(t.propertyName)], class: 'cm-tok-fn' },
+  {
+    tag: [t.definition(t.variableName), t.function(t.variableName), t.function(t.propertyName)],
+    class: 'cm-tok-fn',
+  },
   { tag: [t.typeName, t.className], class: 'cm-tok-type' },
   { tag: t.propertyName, class: 'cm-tok-property' },
-  { tag: [t.operator, t.punctuation, t.bracket], class: 'cm-tok-operator' }
+  { tag: [t.operator, t.punctuation, t.bracket], class: 'cm-tok-operator' },
 ])
 
 /** 编辑器 chrome 主题：只引用语义 token，深浅色跟随 html.dark 自动翻转，无 JS 参与切换 */
 const cmTheme = EditorView.theme({
-  '&': { height: '100%', fontSize: '12px', color: 'var(--foreground)', backgroundColor: 'var(--background)' },
+  '&': {
+    height: '100%',
+    fontSize: '12px',
+    color: 'var(--foreground)',
+    backgroundColor: 'var(--background)',
+  },
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': { fontFamily: CM_MONO_FONT, lineHeight: '1.65', overflow: 'auto' },
   '.cm-content': { caretColor: 'var(--foreground)', paddingBottom: '16px' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--foreground)' },
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, & ::selection': {
-    backgroundColor: 'color-mix(in srgb, var(--primary) 18%, transparent)'
+    backgroundColor: 'color-mix(in srgb, var(--primary) 18%, transparent)',
   },
   '.cm-gutters': {
     backgroundColor: 'transparent',
     color: 'var(--muted-foreground)',
     border: 'none',
-    borderRight: '1px solid var(--border)'
+    borderRight: '1px solid var(--border)',
   },
   '.cm-lineNumbers .cm-gutterElement': { padding: '0 8px 0 14px' },
   '.cm-activeLine': { backgroundColor: 'var(--accent)' },
   '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--foreground)' },
-  '.cm-panels': { backgroundColor: 'var(--background)', color: 'var(--foreground)', borderColor: 'var(--border)' },
+  '.cm-panels': {
+    backgroundColor: 'var(--background)',
+    color: 'var(--foreground)',
+    borderColor: 'var(--border)',
+  },
   '.cm-tooltip': {
     border: '1px solid var(--border)',
     backgroundColor: 'var(--background)',
-    color: 'var(--foreground)'
+    color: 'var(--foreground)',
   },
   '.cm-tooltip-autocomplete ul li[aria-selected]': {
     backgroundColor: 'var(--accent)',
-    color: 'var(--accent-foreground)'
+    color: 'var(--accent-foreground)',
   },
-  '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, var(--primary) 22%, transparent)' }
+  '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, var(--primary) 22%, transparent)' },
 })
 
 function cmUpdateListener(u: ViewUpdate): void {
@@ -216,20 +243,20 @@ function cmExtensions(): Extension[] {
         run: () => {
           openSaveDialog()
           return true
-        }
+        },
       },
       ...closeBracketsKeymap,
       ...defaultKeymap,
       ...searchKeymap,
       ...historyKeymap,
       ...completionKeymap,
-      indentWithTab
+      indentWithTab,
     ]),
     cmTheme,
     syntaxHighlighting(cmHighlight),
     javascript(),
     EditorView.updateListener.of(cmUpdateListener),
-    EditorView.lineWrapping
+    EditorView.lineWrapping,
   ]
 }
 
@@ -238,7 +265,7 @@ watch(cmHost, (el) => {
   if (el && !cmView) {
     cmView = new EditorView({
       state: EditorState.create({ doc: editCode.value, extensions: cmExtensions() }),
-      parent: el
+      parent: el,
     })
   }
 })
@@ -404,7 +431,9 @@ defineExpose({ save: saveEdit })
               <!-- 未保存用中性色加深：它不是错误（错误红留给下面那条真警告） -->
               <span v-if="editDirty" class="font-medium text-foreground">· 有未保存改动</span>
               <!-- 两个状态不互斥：本地有草稿时，「别处也改过、这次保存会盖掉那一次」同样必须看得见 -->
-              <span v-if="remoteChanged" class="text-destructive">· 已在别处修改，这次保存会覆盖那一次改动</span>
+              <span v-if="remoteChanged" class="text-destructive"
+                >· 已在别处修改，这次保存会覆盖那一次改动</span
+              >
             </span>
             <!-- 脚本 ID 短形态：AI 对话里定位脚本用（点击复制完整 uuid） -->
             <button

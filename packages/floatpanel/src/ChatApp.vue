@@ -25,7 +25,7 @@ import {
   History as UiHistory,
   LayoutDashboard as UiLayoutDashboard,
   Minus as UiMinus,
-  TriangleAlert as UiTriangleAlert
+  TriangleAlert as UiTriangleAlert,
 } from '@lucide/vue'
 import { ChatPanel } from '@duoling/ui'
 import PageScriptsMonitor from './components/PageScriptsMonitor.vue'
@@ -34,7 +34,7 @@ import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
-  TooltipTrigger as UiTooltipTrigger
+  TooltipTrigger as UiTooltipTrigger,
 } from '@duoling/ui/components/ui/tooltip'
 import { useGlobalConversation } from '@duoling/ui/composables/use-global-conversation'
 import { EXTENSION_NAME } from '@duoling/shared'
@@ -52,11 +52,12 @@ const {
   loadConversations,
   resolveOrphan,
   send,
-  stopGeneration
+  stopGeneration,
 } = useGlobalConversation()
 
 const activeTitle = computed(
-  () => conversations.value.find((c) => c.id === activeConversationId.value)?.title || EXTENSION_NAME
+  () =>
+    conversations.value.find((c) => c.id === activeConversationId.value)?.title || EXTENSION_NAME,
 )
 
 /** 工作台是独立标签页，用 hash 指定初始落点（#/sessions、#/settings、#/guide 等） */
@@ -164,11 +165,7 @@ onMounted(() => {
       class="shrink-0 border-b border-border bg-amber-500/10 px-3 py-2 text-xs text-foreground"
       data-testid="orphan-banner"
     >
-      <div
-        v-for="task in orphanTasks"
-        :key="task.taskId"
-        class="flex items-center gap-2 py-0.5"
-      >
+      <div v-for="task in orphanTasks" :key="task.taskId" class="flex items-center gap-2 py-0.5">
         <ui-triangle-alert class="size-3.5 shrink-0 text-amber-600" />
         <span class="min-w-0 flex-1 truncate">
           上次脚本生成中断在第 {{ task.step }} 步，产物尚未保存

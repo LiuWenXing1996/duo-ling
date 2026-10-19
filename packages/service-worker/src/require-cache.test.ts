@@ -1,6 +1,11 @@
 import 'fake-indexeddb/auto'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { getRequireCache, setRequireCache, clearRequireCache, fetchRequireSources } from './require-cache'
+import {
+  getRequireCache,
+  setRequireCache,
+  clearRequireCache,
+  fetchRequireSources,
+} from './require-cache'
 
 describe('require-cache', () => {
   beforeEach(async () => {

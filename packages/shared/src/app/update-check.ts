@@ -185,8 +185,10 @@ export async function runUpdateCheck(): Promise<UpdateCheckRecord> {
     return record
   }
 
-  if (!repo || repo === 'unknown') return settle({ kind: 'unavailable', reason: '构建信息里没有仓库地址' })
-  if (!isValidVersion(current)) return settle({ kind: 'unavailable', reason: `当前版本号无法解析：${current}` })
+  if (!repo || repo === 'unknown')
+    return settle({ kind: 'unavailable', reason: '构建信息里没有仓库地址' })
+  if (!isValidVersion(current))
+    return settle({ kind: 'unavailable', reason: `当前版本号无法解析：${current}` })
 
   try {
     const latest = pickLatestRelease(await fetchReleases(repo))

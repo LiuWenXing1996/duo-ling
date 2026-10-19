@@ -153,7 +153,10 @@ export interface IOffscreenService extends PromiseService<{
   /** 恢复到某提交：快照物化回工作区 + 提交一条回滚记录 */
   fsRestoreToCommit(uuid: string, oid: string): Promise<{ committed: boolean; source: Source }>
   /** 导出 zip：offscreen 侧打包，只回传 base64；单脚本时附带 name */
-  fsExportZip(uuids: string[], meta?: { exporter?: string }): Promise<{ zipBase64: string; name?: string }>
+  fsExportZip(
+    uuids: string[],
+    meta?: { exporter?: string },
+  ): Promise<{ zipBase64: string; name?: string }>
   /** 整库浏览：lfs 库的完整文件树（含 .git 内部） */
   fsLfsTree(): Promise<LfsNode>
   /** 单文件预览：按完整路径读 lfs 库内文件内容 */

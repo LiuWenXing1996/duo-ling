@@ -39,7 +39,8 @@ const vendoredPrefixes = [
   join('packages', 'ui', 'src', 'components', 'ai-elements'),
 ].map((p) => p + sep)
 /** 导出声明：`export function|const|class|interface|type|enum`（含 default / async 变体）。 */
-const EXPORT_RE = /^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|class|interface|type|enum)\b/
+const EXPORT_RE =
+  /^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|class|interface|type|enum)\b/
 
 interface Stats {
   files: number
@@ -104,7 +105,7 @@ for (const file of files) {
   const rel = relative(root, file)
   const only = [...commentLines].filter((l) => !codeLines.has(l)).sort((a, b) => a - b)
   commentOnly += only.length
-  for (let i = 0; i < only.length; ) {
+  for (let i = 0; i < only.length;) {
     let j = i
     while (j + 1 < only.length && only[j + 1] === only[j] + 1) j++
     blocks.push({ len: j - i + 1, file: rel, line: only[i] })
@@ -147,7 +148,10 @@ for (const file of files) {
 /** 终端对齐：CJK 与全角标点占两列。 */
 function width(s: string): number {
   let w = 0
-  for (const ch of s) w += /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60]/.test(ch) ? 2 : 1
+  for (const ch of s)
+    w += /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60]/.test(ch)
+      ? 2
+      : 1
   return w
 }
 const pad = (s: string, w: number) => s + ' '.repeat(Math.max(0, w - width(s)))
@@ -157,7 +161,9 @@ const pct = (s: Stats) => (s.nonEmpty ? `${((s.comment / s.nonEmpty) * 100).toFi
 function table(title: string, rows: Array<[string, Stats]>, label: string, withTotal = true) {
   const nameW = Math.max(width(label), ...rows.map(([k]) => width(k)))
   console.log(`\n${title}`)
-  console.log(`${pad(label, nameW)}${padStart('文件', 6)}${padStart('非空行', 10)}${padStart('注释行', 10)}${padStart('密度', 9)}`)
+  console.log(
+    `${pad(label, nameW)}${padStart('文件', 6)}${padStart('非空行', 10)}${padStart('注释行', 10)}${padStart('密度', 9)}`,
+  )
   for (const [name, s] of rows) {
     console.log(
       `${pad(name, nameW)}${padStart(String(s.files), 6)}${padStart(String(s.nonEmpty), 10)}${padStart(String(s.comment), 10)}${padStart(pct(s), 9)}`,
@@ -169,9 +175,20 @@ function table(title: string, rows: Array<[string, Stats]>, label: string, withT
   )
 }
 
-console.log(`注释密度 ${pct(total)}：注释 ${total.comment} 行 / 非空 ${total.nonEmpty} 行，${total.files} 个文件。`)
-table('按来源', [...bySource.entries()].sort((a, b) => b[1].nonEmpty - a[1].nonEmpty), '来源', false)
-table('按目录', [...byDir.entries()].sort((a, b) => b[1].nonEmpty - a[1].nonEmpty), '目录')
+console.log(
+  `注释密度 ${pct(total)}：注释 ${total.comment} 行 / 非空 ${total.nonEmpty} 行，${total.files} 个文件。`,
+)
+table(
+  '按来源',
+  [...bySource.entries()].sort((a, b) => b[1].nonEmpty - a[1].nonEmpty),
+  '来源',
+  false,
+)
+table(
+  '按目录',
+  [...byDir.entries()].sort((a, b) => b[1].nonEmpty - a[1].nonEmpty),
+  '目录',
+)
 table(
   '按扩展名',
   [...byExt.entries()].sort((a, b) => b[1].nonEmpty - a[1].nonEmpty),
@@ -189,13 +206,19 @@ const buckets: Array<[string, (n: number) => boolean]> = [
   ['50 行以上', (n) => n >= 50],
 ]
 const trailing = total.comment - commentOnly
-console.log(`\n块长分布（整行注释的连续段：${blocks.length} 个块覆盖 ${commentOnly} 行；另有 ${trailing} 行行尾注释不构成块）`)
-console.log(`${pad('块长', 10)}${padStart('块数', 8)}${padStart('注释行', 10)}${padStart('占比', 9)}`)
+console.log(
+  `\n块长分布（整行注释的连续段：${blocks.length} 个块覆盖 ${commentOnly} 行；另有 ${trailing} 行行尾注释不构成块）`,
+)
+console.log(
+  `${pad('块长', 10)}${padStart('块数', 8)}${padStart('注释行', 10)}${padStart('占比', 9)}`,
+)
 for (const [name, test] of buckets) {
   const sel = blocks.filter((b) => test(b.len))
   const lines = sel.reduce((s, b) => s + b.len, 0)
   const share = commentOnly ? `${((lines / commentOnly) * 100).toFixed(1)}%` : '—'
-  console.log(`${pad(name, 10)}${padStart(String(sel.length), 8)}${padStart(String(lines), 10)}${padStart(share, 9)}`)
+  console.log(
+    `${pad(name, 10)}${padStart(String(sel.length), 8)}${padStart(String(lines), 10)}${padStart(share, 9)}`,
+  )
 }
 const longest = [...blocks].sort((a, b) => b.len - a.len).slice(0, 5)
 if (longest.length) {
@@ -255,12 +278,16 @@ if (mode === 'update') {
     nonEmpty: total.nonEmpty,
   }
   writeFileSync(baselineFile, JSON.stringify(b, null, 2) + '\n')
-  console.log(`基线已更新：${b.density}%（注释 ${b.comment} 行 / 非空 ${b.nonEmpty} 行）→ comment-baseline.json`)
+  console.log(
+    `基线已更新：${b.density}%（注释 ${b.comment} 行 / 非空 ${b.nonEmpty} 行）→ comment-baseline.json`,
+  )
 } else {
   const base = readBaseline()
   if (!base) {
     if (mode === 'check') {
-      console.error('基线文件 comment-baseline.json 不存在：先跑 pnpm run check:comment-baseline --update 生成。')
+      console.error(
+        '基线文件 comment-baseline.json 不存在：先跑 pnpm run check:comment-baseline --update 生成。',
+      )
       process.exit(1)
     }
   } else {
@@ -270,7 +297,11 @@ if (mode === 'update') {
       const next = +Math.max(density, base.target).toFixed(2)
       writeFileSync(
         baselineFile,
-        JSON.stringify({ ...base, density: next, comment: total.comment, nonEmpty: total.nonEmpty }, null, 2) + '\n',
+        JSON.stringify(
+          { ...base, density: next, comment: total.comment, nonEmpty: total.nonEmpty },
+          null,
+          2,
+        ) + '\n',
       )
       if (next <= base.target) {
         console.log(`\n基线自动降至 ${next}%，已到达目标基线 ${base.target}%，此后不再自动更新。`)
@@ -292,9 +323,13 @@ if (mode === 'update') {
         )
         process.exit(1)
       }
-      console.log(`基线校验通过：${density.toFixed(2)}%（基线 ${baseDensity}%，容差 ${TOLERANCE}pp）。`)
+      console.log(
+        `基线校验通过：${density.toFixed(2)}%（基线 ${baseDensity}%，容差 ${TOLERANCE}pp）。`,
+      )
     } else {
-      console.log(`\n基线：${baseDensity}%（当前 ${density.toFixed(2)}%，${diff >= 0 ? '+' : ''}${diff.toFixed(2)}pp）。`)
+      console.log(
+        `\n基线：${baseDensity}%（当前 ${density.toFixed(2)}%，${diff >= 0 ? '+' : ''}${diff.toFixed(2)}pp）。`,
+      )
     }
   }
 }

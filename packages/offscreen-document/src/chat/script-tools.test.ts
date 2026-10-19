@@ -22,8 +22,8 @@ vi.mock('../fs/git', () => ({
 }))
 
 // script_find 走裸 IndexedDB 读侧（listProjects）：Node 无 indexedDB，mock 掉换测试数据
-const listProjectsMock = vi.hoisted(
-  () => vi.fn(async (): Promise<{ uuid: string; name: string; enabled: boolean }[]> => []),
+const listProjectsMock = vi.hoisted(() =>
+  vi.fn(async (): Promise<{ uuid: string; name: string; enabled: boolean }[]> => []),
 )
 vi.mock('@duoling/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -106,9 +106,11 @@ function makeToolsWithAsk(askImage: AskImage) {
 }
 
 /** tool.execute 的第二参数（ToolExecutionOptions）：单测里用最小桩 */
-const execOpts = { toolCallId: 'test-call', messages: [], context: undefined } as unknown as Parameters<
-  ReturnType<typeof buildScriptTools>['element_read']['execute']
->[1]
+const execOpts = {
+  toolCallId: 'test-call',
+  messages: [],
+  context: undefined,
+} as unknown as Parameters<ReturnType<typeof buildScriptTools>['element_read']['execute']>[1]
 
 async function readElement(
   tools: ReturnType<typeof buildScriptTools>,
@@ -183,9 +185,7 @@ describe('script_find（按名字反查脚本）', () => {
   })
 
   it('大小写不敏感（英文名）', async () => {
-    listProjectsMock.mockResolvedValue([
-      { uuid: 'u-9', name: 'Dark Mode Plus', enabled: true },
-    ])
+    listProjectsMock.mockResolvedValue([{ uuid: 'u-9', name: 'Dark Mode Plus', enabled: true }])
     const tools = makeTools(makeElement())
     const out = await find(tools, 'dark mode')
     expect(out.ok).toBe(true)
@@ -216,10 +216,10 @@ describe('script_list（列出全部脚本）', () => {
       { uuid: 'u-2', name: '夜间模式', enabled: false },
     ])
     const tools = makeTools(makeElement())
-    const out = (await tools.script_list.execute(
-      {},
-      execOpts,
-    )) as unknown as Record<string, unknown>
+    const out = (await tools.script_list.execute({}, execOpts)) as unknown as Record<
+      string,
+      unknown
+    >
     expect(out.ok).toBe(true)
     expect(out.total).toBe(2)
     expect(out.scripts).toEqual([
@@ -231,10 +231,10 @@ describe('script_list（列出全部脚本）', () => {
   it('一个脚本都没有：ok=true + 空数组 + 可读 hint', async () => {
     listProjectsMock.mockResolvedValue([])
     const tools = makeTools(makeElement())
-    const out = (await tools.script_list.execute(
-      {},
-      execOpts,
-    )) as unknown as Record<string, unknown>
+    const out = (await tools.script_list.execute({}, execOpts)) as unknown as Record<
+      string,
+      unknown
+    >
     expect(out.ok).toBe(true)
     expect(out.scripts).toEqual([])
     expect(out.total).toBe(0)
@@ -271,7 +271,10 @@ describe('image_ask（问图）', () => {
 
   it('接入通道：透出文件名与文字答案，问题原样转给识图侧', async () => {
     const id = 'a'.repeat(64)
-    const askImage = vi.fn(async () => ({ filename: 'shot.jpg', answer: '图上有一个「提交订单」按钮' }))
+    const askImage = vi.fn(async () => ({
+      filename: 'shot.jpg',
+      answer: '图上有一个「提交订单」按钮',
+    }))
     const tools = makeToolsWithAsk(askImage)
     const out = (await tools.image_ask.execute(
       { assetId: id, question: '图上有什么' },
@@ -290,17 +293,20 @@ describe('image_ask（问图）', () => {
     const id = 'b'.repeat(64)
     const askImage = vi.fn(async () => ({ filename: 'shot.jpg', answer: '（识图没有返回内容）' }))
     const tools = makeToolsWithAsk(askImage)
-    const out = (await tools.image_ask.execute({ assetId: id }, execOptsAsk)) as Record<string, unknown>
+    const out = (await tools.image_ask.execute({ assetId: id }, execOptsAsk)) as Record<
+      string,
+      unknown
+    >
     expect(out.ok).toBe(true)
     expect(askImage).toHaveBeenCalledWith(id, undefined)
   })
 
   it('未接通道：ok=false 带可读错误（不抛）', async () => {
     const tools = buildScriptTools(makeWorkspace(), async () => {})
-    const out = (await tools.image_ask.execute(
-      { assetId: 'a'.repeat(64) },
-      execOptsAsk,
-    )) as Record<string, unknown>
+    const out = (await tools.image_ask.execute({ assetId: 'a'.repeat(64) }, execOptsAsk)) as Record<
+      string,
+      unknown
+    >
     expect(out.ok).toBe(false)
     expect(String(out.error)).toContain('识图通道不可用')
   })
@@ -309,10 +315,10 @@ describe('image_ask（问图）', () => {
     const tools = makeToolsWithAsk(async () => {
       throw new Error('图片资源不存在（id：zzz）——可能已被清理，或 id 写错')
     })
-    const out = (await tools.image_ask.execute(
-      { assetId: 'z'.repeat(64) },
-      execOptsAsk,
-    )) as Record<string, unknown>
+    const out = (await tools.image_ask.execute({ assetId: 'z'.repeat(64) }, execOptsAsk)) as Record<
+      string,
+      unknown
+    >
     expect(out.ok).toBe(false)
     expect(String(out.error)).toContain('资源不存在')
   })
@@ -402,7 +408,11 @@ describe('tab_record_enable / tab_record_read（页面录制）', () => {
       undefined,
       undefined,
       makeHooks({
-        read: async () => ({ enabled: true, count: 3, text: '[1] GET https://x.test/api → 200（fetch）' }),
+        read: async () => ({
+          enabled: true,
+          count: 3,
+          text: '[1] GET https://x.test/api → 200（fetch）',
+        }),
       }).hooks,
     )
     const ok = await runRead(ready)
@@ -417,7 +427,11 @@ describe('tab_record_enable / tab_record_read（页面录制）', () => {
       undefined,
       undefined,
       makeHooks({
-        read: async () => ({ enabled: false, count: 2, text: '[1] GET https://x.test/old → 200（xhr）' }),
+        read: async () => ({
+          enabled: false,
+          count: 2,
+          text: '[1] GET https://x.test/old → 200（xhr）',
+        }),
       }).hooks,
     )
     const out = await runRead(tools)
@@ -459,25 +473,35 @@ describe('error_read（错误 ID 查询）', () => {
   })
 
   it('前缀多命中 / 不存在：ok=false 带指引文案', async () => {
-    const ambiguous = makeTools(undefined, undefined, async () => ({ found: false, reason: 'ambiguous' }))
+    const ambiguous = makeTools(undefined, undefined, async () => ({
+      found: false,
+      reason: 'ambiguous',
+    }))
     const outA = await execTool(ambiguous, rec.id.slice(0, 8))
     expect(outA.ok).toBe(false)
     expect(String(outA.error)).toContain('命中多条')
 
-    const missing = makeTools(undefined, undefined, async () => ({ found: false, reason: 'not-found' }))
+    const missing = makeTools(undefined, undefined, async () => ({
+      found: false,
+      reason: 'not-found',
+    }))
     const outB = await execTool(missing, rec.id)
     expect(outB.ok).toBe(false)
     expect(String(outB.error)).toContain('不存在')
   })
 
   function execTool(tools: ReturnType<typeof buildScriptTools>, id: string) {
-    return tools.error_read.execute({ id }, execOpts as never) as unknown as Promise<Record<string, unknown>>
+    return tools.error_read.execute({ id }, execOpts as never) as unknown as Promise<
+      Record<string, unknown>
+    >
   }
 })
 
 describe('run_log_read（运行日志查询）', () => {
   /** 造一行运行记录（默认无错误） */
-  function mkRun(over: Partial<Extract<UserScriptRunLogRow, { kind: 'run' }>> = {}): UserScriptRunLogRow {
+  function mkRun(
+    over: Partial<Extract<UserScriptRunLogRow, { kind: 'run' }>> = {},
+  ): UserScriptRunLogRow {
     return {
       kind: 'run',
       runId: 'r1',

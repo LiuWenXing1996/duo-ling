@@ -184,7 +184,10 @@ export function stripUrlSecrets(raw: string): string {
  * tabSessionId 由调用方（SW）给定而非载荷携带：它要按 sender.tab.id 查出来，
  * 载荷里那一段来自页面世界，认了就等于让页面自己声明归属。
  */
-export function normalizeNetCapture(recordRaw: unknown, tabSessionId?: string): NetCaptureRecord | null {
+export function normalizeNetCapture(
+  recordRaw: unknown,
+  tabSessionId?: string,
+): NetCaptureRecord | null {
   if (!recordRaw || typeof recordRaw !== 'object') return null
   const c = recordRaw as Record<string, unknown>
   const type = c.type === 'xhr' ? 'xhr' : c.type === 'fetch' ? 'fetch' : null

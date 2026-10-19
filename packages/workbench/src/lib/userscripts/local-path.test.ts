@@ -48,7 +48,11 @@ describe('toFileUrl 接受形态', () => {
 
   it('返回的 path 是未编码的原始文件系统路径（供展示）', () => {
     const r = toFileUrl('/Users/me/my scripts/a b.zip')
-    expect(r).toEqual({ ok: true, url: 'file:///Users/me/my%20scripts/a%20b.zip', path: '/Users/me/my scripts/a b.zip' })
+    expect(r).toEqual({
+      ok: true,
+      url: 'file:///Users/me/my%20scripts/a%20b.zip',
+      path: '/Users/me/my scripts/a b.zip',
+    })
   })
 
   it('Windows 盘符：反斜杠归一 + 补前导 /（盘符不能当 URL 主机）', () => {

@@ -44,8 +44,7 @@ function togglePath(path: string) {
   const newExpanded = new Set(internalExpanded.value)
   if (newExpanded.has(path)) {
     newExpanded.delete(path)
-  }
-  else {
+  } else {
     newExpanded.add(path)
   }
   internalExpanded.value = newExpanded

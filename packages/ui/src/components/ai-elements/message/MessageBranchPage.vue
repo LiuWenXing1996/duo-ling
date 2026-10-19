@@ -15,12 +15,7 @@ const { currentBranch, totalBranches } = useMessageBranchContext()
 
 <template>
   <ButtonGroupText
-    :class="
-      cn(
-        'border-none bg-transparent text-muted-foreground shadow-none',
-        props.class,
-      )
-    "
+    :class="cn('border-none bg-transparent text-muted-foreground shadow-none', props.class)"
     v-bind="$attrs"
   >
     {{ currentBranch + 1 }} of {{ totalBranches }}

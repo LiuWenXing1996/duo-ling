@@ -68,9 +68,24 @@ describe('listSummaries', () => {
 
   it('排序：启用在前，组内按源码保存时间倒序', () => {
     const projects = [
-      makeProject({ uuid: 'p-off', name: 'b停用', enabled: false, source: { code: '// x', savedAt: 100 } }),
-      makeProject({ uuid: 'p-z', name: 'z启用', enabled: true, source: { code: '// x', savedAt: 300 } }),
-      makeProject({ uuid: 'p-a', name: 'a启用', enabled: true, source: { code: '// x', savedAt: 400 } }),
+      makeProject({
+        uuid: 'p-off',
+        name: 'b停用',
+        enabled: false,
+        source: { code: '// x', savedAt: 100 },
+      }),
+      makeProject({
+        uuid: 'p-z',
+        name: 'z启用',
+        enabled: true,
+        source: { code: '// x', savedAt: 300 },
+      }),
+      makeProject({
+        uuid: 'p-a',
+        name: 'a启用',
+        enabled: true,
+        source: { code: '// x', savedAt: 400 },
+      }),
     ]
     // 启用组按 savedAt 降序：p-a(400) > p-z(300)，均排在未启用 p-off(100) 之前
     expect(listSummaries(projects).map((s) => s.name)).toEqual(['a启用', 'z启用', 'b停用'])

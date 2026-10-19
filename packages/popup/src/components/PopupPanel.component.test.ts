@@ -69,7 +69,10 @@ function answerCommand(cb: unknown, payload: unknown): Promise<unknown> {
 
 /** 默认命令面：page:overview 喂 overviewRows，其余回空载荷（用例可临时覆盖单发） */
 function replyCommand(msg: { kind: string }, cb?: unknown): Promise<unknown> {
-  return answerCommand(cb, msg.kind === 'page:overview' ? { ok: true, data: overviewRows } : { ok: true, data: {} })
+  return answerCommand(
+    cb,
+    msg.kind === 'page:overview' ? { ok: true, data: overviewRows } : { ok: true, data: {} },
+  )
 }
 
 /**
@@ -244,7 +247,10 @@ describe('popup 的「当前页面」区块', () => {
     await w.find('[data-testid="open-float-panel"]').trigger('click')
     await flushPromises()
 
-    expect(runtimeSendMessage).toHaveBeenCalledWith({ kind: 'float:open', tabId: TAB_ID }, expect.any(Function))
+    expect(runtimeSendMessage).toHaveBeenCalledWith(
+      { kind: 'float:open', tabId: TAB_ID },
+      expect.any(Function),
+    )
     expect(close).toHaveBeenCalled()
   })
 
@@ -464,7 +470,13 @@ describe('popup 的「其他页面」区块', () => {
 describe('popup 的标题行版本号', () => {
   it('标题旁显示当前构建版本（v 前缀）', async () => {
     // 版本来自构建期注入的 __BUILD_INFO__（vitest 环境没有该 define，须手动垫）
-    vi.stubGlobal('__BUILD_INFO__', { dev: true, time: 't', branch: 'b', version: '0.10.0', repo: 'o/r' })
+    vi.stubGlobal('__BUILD_INFO__', {
+      dev: true,
+      time: 't',
+      branch: 'b',
+      version: '0.10.0',
+      repo: 'o/r',
+    })
     stubChrome('https://example.com/page')
     const w = await mountPopup()
 
@@ -560,11 +572,15 @@ describe('popup 的引擎不可用引导卡', () => {
     expect(card.exists()).toBe(true)
     expect(card.text()).toContain('用户脚本功能不可用')
     // 文案原样透传：版本分支是 engine 拼的，这里只负责展示，不复制分支逻辑
-    expect(card.text()).toContain('Chrome ≥138：在扩展详情页开启「允许运行用户脚本」开关后即可使用。')
+    expect(card.text()).toContain(
+      'Chrome ≥138：在扩展详情页开启「允许运行用户脚本」开关后即可使用。',
+    )
 
     await card.find('button').trigger('click')
     await flushPromises()
-    expect(tabsCreate).toHaveBeenCalledWith({ url: 'chrome-extension://EXTID/workbench.html#/guide' })
+    expect(tabsCreate).toHaveBeenCalledWith({
+      url: 'chrome-extension://EXTID/workbench.html#/guide',
+    })
     expect(close).toHaveBeenCalled()
   })
 

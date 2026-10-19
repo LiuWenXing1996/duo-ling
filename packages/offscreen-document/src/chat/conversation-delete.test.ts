@@ -14,7 +14,10 @@ import {
 } from '@duoling/shared'
 import type { AssistantMessage } from '@duoling/shared'
 import { deleteAllAssets, deleteAssets } from '../fs/assets'
-import { clearAllConversationsWithAssets, deleteConversationWithAssets } from './conversation-delete'
+import {
+  clearAllConversationsWithAssets,
+  deleteConversationWithAssets,
+} from './conversation-delete'
 
 vi.mock('../fs/assets', () => ({
   deleteAssets: vi.fn(async () => 0),
@@ -36,7 +39,10 @@ function imageMsg(conversationId: string, assetId: string): AssistantMessage {
     role: 'assistant',
     content: '',
     parts: [
-      { type: 'data-asset', data: { id: assetId, filename: 'a.png', mediaType: 'image/png', size: 3 } },
+      {
+        type: 'data-asset',
+        data: { id: assetId, filename: 'a.png', mediaType: 'image/png', size: 3 },
+      },
     ],
     createdAt: new Date(Date.parse('2020-01-01T00:00:00.000Z') + msgSeq * 1000).toISOString(),
   }

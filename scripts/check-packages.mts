@@ -107,7 +107,12 @@ for (const file of rootFiles) {
     if (!relSpec) return
     const resolved = resolve(dirname(file), relSpec)
     if (!resolved.startsWith(ROOT)) {
-      violations.push({ file: rel, line: i + 1, text: raw.trim(), detail: '相对 import 跳出仓库根' })
+      violations.push({
+        file: rel,
+        line: i + 1,
+        text: raw.trim(),
+        detail: '相对 import 跳出仓库根',
+      })
     }
   })
 }
@@ -119,7 +124,11 @@ if (violations.length > 0) {
     console.error(`    ${v.text}`)
     console.error(`    → ${v.detail}`)
   }
-  console.error('  矩阵真相源在 scripts/check-packages.mts 的 MATRIX；开新边须同步 ARCHITECTURE.md「依赖方向与包边界」。')
+  console.error(
+    '  矩阵真相源在 scripts/check-packages.mts 的 MATRIX；开新边须同步 ARCHITECTURE.md「依赖方向与包边界」。',
+  )
   process.exit(1)
 }
-console.log(`✓ 包边界合规：${Object.keys(MATRIX).length} 包 @duoling 边 ${edgeCount} 条全在矩阵内，相对 import 无越界`)
+console.log(
+  `✓ 包边界合规：${Object.keys(MATRIX).length} 包 @duoling 边 ${edgeCount} 条全在矩阵内，相对 import 无越界`,
+)

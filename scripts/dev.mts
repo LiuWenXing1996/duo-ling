@@ -27,10 +27,14 @@ try {
   model = await startModelStub({ port: MODEL_STUB_PORT })
 } catch {
   model = await startModelStub({ port: 0 })
-  console.warn(`[dev] 端口 ${MODEL_STUB_PORT} 被占用，假模型改用随机端口；已保存的模型地址需重新填写`)
+  console.warn(
+    `[dev] 端口 ${MODEL_STUB_PORT} 被占用，假模型改用随机端口；已保存的模型地址需重新填写`,
+  )
 }
 console.log(`[dev] 假模型已就绪：${model.stub.baseUrl}`)
-console.log('[dev] 手测对话链路：设置 → 添加模型 → 服务商选「自定义」→ 填入上面的地址（密钥可留空）')
+console.log(
+  '[dev] 手测对话链路：设置 → 添加模型 → 服务商选「自定义」→ 填入上面的地址（密钥可留空）',
+)
 
 // 参数原样转给 wxt（如 `pnpm run dev popup`），靶站只负责提供出网目标
 

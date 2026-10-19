@@ -10,4 +10,8 @@
 //   · CLIPBOARD —— GM_setClipboard 在 offscreen 内写剪贴板（免用户手势 + 富文本）
 
 /** offscreen 文档的 reason 集（建文档时原样交给 chrome.offscreen.createDocument） */
-export const GM_OFFSCREEN_REASONS: `${chrome.offscreen.Reason}`[] = ['BLOBS', 'WORKERS', 'CLIPBOARD']
+export const GM_OFFSCREEN_REASONS: `${chrome.offscreen.Reason}`[] = [
+  'BLOBS',
+  'WORKERS',
+  'CLIPBOARD',
+]

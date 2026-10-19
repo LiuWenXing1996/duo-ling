@@ -48,7 +48,7 @@ watch(
     error.value = ''
     void loadMessages(id)
   },
-  { immediate: true }
+  { immediate: true },
 )
 
 // 别处增删改该会话的消息落盘：重拉当前会话（调试视图要照见最新落盘）；
@@ -77,7 +77,12 @@ function toggleAllRaw(): void {
 // —— 导出：把选中会话的落盘原始记录下载为 .json（与「原始 JSON」逐字一致） ——
 /** 文件名安全化：去掉文件系统非法字符、去首尾空白、截断到 60，避免标题带 / 或超长导致下载失败 */
 function safeFileName(title: string): string {
-  return title.replace(/[\\/:*?"<>|]/g, '_').trim().slice(0, 60) || 'session'
+  return (
+    title
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .trim()
+      .slice(0, 60) || 'session'
+  )
 }
 
 /**
@@ -124,7 +129,9 @@ function pageContextLabel(m: Message): string {
 
 <template>
   <section class="flex h-full min-h-0 min-w-0 flex-col" data-testid="conv-raw-view">
-    <header class="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2 text-sm">
+    <header
+      class="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2 text-sm"
+    >
       <span class="truncate text-muted-foreground">
         {{ conversation ? `共 ${messages.length} 条消息` : '未选中会话' }}
       </span>
@@ -160,7 +167,11 @@ function pageContextLabel(m: Message): string {
       </div>
     </header>
 
-    <p v-if="error" class="m-2 rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive" role="alert">
+    <p
+      v-if="error"
+      class="m-2 rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
+      role="alert"
+    >
       {{ error }}
     </p>
 
@@ -174,16 +185,26 @@ function pageContextLabel(m: Message): string {
           :data-testid="`conv-raw-msg-${m.id}`"
         >
           <!-- 头部：角色 / 时间 / token / 落盘块类型 -->
-          <div class="flex flex-wrap items-center gap-1.5 border-b border-border/60 px-2.5 py-1.5 text-xs text-muted-foreground">
+          <div
+            class="flex flex-wrap items-center gap-1.5 border-b border-border/60 px-2.5 py-1.5 text-xs text-muted-foreground"
+          >
             <span
               class="rounded-full px-2 py-0.5"
-              :class="m.role === 'user' ? 'bg-primary/10 text-foreground' : 'bg-muted text-muted-foreground'"
+              :class="
+                m.role === 'user'
+                  ? 'bg-primary/10 text-foreground'
+                  : 'bg-muted text-muted-foreground'
+              "
             >
               {{ m.role === 'user' ? '用户' : 'AI' }}
             </span>
             <span>{{ formatTimeWithSeconds(m.createdAt) }}</span>
             <span v-if="usageTokens(m)">· {{ usageTokens(m) }} tokens</span>
-            <span v-if="partTypes(m).length" class="min-w-0 truncate" :title="partTypes(m).join('，')">
+            <span
+              v-if="partTypes(m).length"
+              class="min-w-0 truncate"
+              :title="partTypes(m).join('，')"
+            >
               · {{ partTypes(m).join('，') }}
             </span>
             <!-- 拾取落盘标记（本视图的核心排查点，有则高亮） -->
@@ -196,7 +217,9 @@ function pageContextLabel(m: Message): string {
             </span>
           </div>
           <!-- 正文（reasoning 不重复展示，原始 JSON 里有） -->
-          <p class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-2.5 py-2 leading-relaxed">
+          <p
+            class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-2.5 py-2 leading-relaxed"
+          >
             {{ m.content || '（无正文）' }}
           </p>
           <div class="px-2.5 pb-2">
@@ -211,10 +234,12 @@ function pageContextLabel(m: Message): string {
             <pre
               v-if="expanded.has(m.id)"
               class="mt-1.5 max-h-96 overflow-auto rounded-md bg-muted p-2 text-xs leading-relaxed"
-            >{{ JSON.stringify(m, null, 2) }}</pre>
+              >{{ JSON.stringify(m, null, 2) }}</pre>
           </div>
         </article>
-        <p v-if="!messages.length && conversation" class="text-xs text-muted-foreground">该会话暂无消息</p>
+        <p v-if="!messages.length && conversation" class="text-xs text-muted-foreground">
+          该会话暂无消息
+        </p>
       </template>
     </div>
   </section>

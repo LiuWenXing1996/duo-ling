@@ -40,11 +40,7 @@ describe('资源引用的判定与提取', () => {
 
   it('一条消息里的全部引用按 parts 顺序取出', () => {
     const second: ChatAssetRef = { ...REF, id: 'b'.repeat(64), filename: 'two.png' }
-    const m = msg('user', [
-      assetPartOf(REF),
-      { type: 'text', text: '看看' },
-      assetPartOf(second),
-    ])
+    const m = msg('user', [assetPartOf(REF), { type: 'text', text: '看看' }, assetPartOf(second)])
     expect(assetsOfMessage(m)).toEqual([REF, second])
     expect(assetsOfMessage(msg('user', [{ type: 'text', text: '没图' }]))).toEqual([])
   })
@@ -59,7 +55,9 @@ describe('资源引用的判定与提取', () => {
 
 describe('messagesForModel：送模型前的收形', () => {
   it('引用换成一行文字 —— 消息里不该再有任何图片字节', () => {
-    const out = messagesForModel([msg('user', [assetPartOf(REF), { type: 'text', text: '这张图' }])])
+    const out = messagesForModel([
+      msg('user', [assetPartOf(REF), { type: 'text', text: '这张图' }]),
+    ])
     expect(out[0].parts).toEqual([
       { type: 'text', text: assetPlaceholderText(REF) },
       { type: 'text', text: '这张图' },

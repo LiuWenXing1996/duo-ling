@@ -30,7 +30,10 @@ let cookiesMocks: {
   set: ReturnType<typeof vi.fn>
   remove: ReturnType<typeof vi.fn>
 }
-let dnrMocks: { updateSessionRules: ReturnType<typeof vi.fn>; getSessionRules: ReturnType<typeof vi.fn> }
+let dnrMocks: {
+  updateSessionRules: ReturnType<typeof vi.fn>
+  getSessionRules: ReturnType<typeof vi.fn>
+}
 let webRequestListeners: Array<(details: unknown) => void>
 
 /** 完整 chrome.cookies.Cookie 样本（测试只关心字段透传，故给全字段） */
@@ -89,7 +92,9 @@ beforeEach(async () => {
   cookiesMocks = {
     get: vi.fn(async () => chromeCookie()),
     getAll: vi.fn(async () => [chromeCookie()]),
-    set: vi.fn(async (d: chrome.cookies.SetDetails) => chromeCookie({ name: d.name, value: d.value })),
+    set: vi.fn(async (d: chrome.cookies.SetDetails) =>
+      chromeCookie({ name: d.name, value: d.value }),
+    ),
     remove: vi.fn(async () => ({ name: 'sid', url: 'https://example.com/' })),
   }
   await removeProjects([COOKIE_UUID])
@@ -107,7 +112,11 @@ beforeEach(async () => {
     cookies: cookiesMocks,
     downloads: downloadsMocks,
     declarativeNetRequest: dnrMocks,
-    webRequest: { onHeadersReceived: { addListener: (fn: (d: unknown) => void) => webRequestListeners.push(fn) } },
+    webRequest: {
+      onHeadersReceived: {
+        addListener: (fn: (d: unknown) => void) => webRequestListeners.push(fn),
+      },
+    },
   })
   const mod = await import('./dl-bridge')
   mod.initDlBridge()
@@ -202,7 +211,14 @@ describe('GM_xmlhttpRequest forbidden header 覆写（DNR session 规则）', ()
     const resp = await sendToBridge({
       c: 'fetch',
       url: 'https://x.test/api',
-      init: { headers: { Cookie: 'a=1', Referer: 'https://r.test/', 'User-Agent': 'UA1', 'X-Custom': 'v' } },
+      init: {
+        headers: {
+          Cookie: 'a=1',
+          Referer: 'https://r.test/',
+          'User-Agent': 'UA1',
+          'X-Custom': 'v',
+        },
+      },
     })
     expect(resp.ok).toBe(true)
 
@@ -217,7 +233,10 @@ describe('GM_xmlhttpRequest forbidden header 覆写（DNR session 规则）', ()
       { header: 'referer', operation: 'set', value: 'https://r.test/' },
       { header: 'user-agent', operation: 'set', value: 'UA1' },
     ])
-    expect(rule.condition).toEqual({ requestDomains: ['x.test'], initiatorDomains: ['test-ext-id'] })
+    expect(rule.condition).toEqual({
+      requestDomains: ['x.test'],
+      initiatorDomains: ['test-ext-id'],
+    })
     expect(attach.removeRuleIds).toEqual([rule.id])
 
     // 原生路径：禁设头不进 Headers（fetch 会静默丢弃的路），普通头保留
@@ -327,9 +346,13 @@ describe("GM_xmlhttpRequest redirect:'manual'（webRequest 观测）", () => {
     if (!resp.ok) expect(resp.code).toBe('INTERNAL')
   })
 
-  it("非 3xx 的 manual 请求（直接 200）走正常响应路径", async () => {
+  it('非 3xx 的 manual 请求（直接 200）走正常响应路径', async () => {
     fetchMock.mockResolvedValue(new Response('plain'))
-    const resp = await sendToBridge({ c: 'fetch', url: 'https://x.test/', init: { redirect: 'manual' } })
+    const resp = await sendToBridge({
+      c: 'fetch',
+      url: 'https://x.test/',
+      init: { redirect: 'manual' },
+    })
     expect(resp.ok).toBe(true)
     if (resp.ok) expect(resp.data).toMatchObject({ status: 200, body: 'plain' })
   })
@@ -427,7 +450,10 @@ describe('download（浏览器下载器）', () => {
     const dlPort = await import('./dl-port')
     const registry = dlPort.getDlPortRegistry()
     const postMessage = vi.fn()
-    const port = { postMessage, onDisconnect: { addListener: vi.fn() } } as unknown as chrome.runtime.Port
+    const port = {
+      postMessage,
+      onDisconnect: { addListener: vi.fn() },
+    } as unknown as chrome.runtime.Port
     registry.addPort(port, { uuid: COOKIE_UUID, connId: 'c1', tabId: 1 })
     // 带 requestId + connId 发起：doDownload 才会把这次下载登记进 downloadWatch
     downloadsMocks.download.mockResolvedValueOnce(9)
@@ -439,12 +465,23 @@ describe('download（浏览器下载器）', () => {
     await sendToBridge({ c: 'download.cancel', id: 9 }, COOKIE_UUID)
     expect(downloadsMocks.cancel).toHaveBeenCalledWith(9)
     // 浏览器回报 interrupted（USER_CANCELED）：终帧必须还能寻到登记、带着 error 推出去
-    const onChangedCb = downloadsMocks.onChanged.addListener.mock.calls[0]![0] as (d: unknown) => void
-    onChangedCb({ id: 9, state: { previous: 'in_progress', current: 'interrupted' }, error: { current: 'USER_CANCELED' } })
+    const onChangedCb = downloadsMocks.onChanged.addListener.mock.calls[0]![0] as (
+      d: unknown,
+    ) => void
+    onChangedCb({
+      id: 9,
+      state: { previous: 'in_progress', current: 'interrupted' },
+      error: { current: 'USER_CANCELED' },
+    })
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         __dlApiEvent: true,
-        ev: expect.objectContaining({ t: 'download.change', requestId: 'dl1', state: 'interrupted', error: 'USER_CANCELED' }),
+        ev: expect.objectContaining({
+          t: 'download.change',
+          requestId: 'dl1',
+          state: 'interrupted',
+          error: 'USER_CANCELED',
+        }),
       }),
     )
   })
@@ -498,7 +535,10 @@ describe('GM_cookie（cookies 权限 + 域名门）', () => {
 
     // 未命中：getAll 给空数组 → 桥原样回空数组（不是 null）
     cookiesMocks.getAll.mockResolvedValueOnce([])
-    const miss = await sendToBridge({ c: 'cookie.get', url: 'https://a.test/', name: 'nope' }, COOKIE_UUID)
+    const miss = await sendToBridge(
+      { c: 'cookie.get', url: 'https://a.test/', name: 'nope' },
+      COOKIE_UUID,
+    )
     expect(miss).toEqual({ ok: true, data: [] })
   })
 
@@ -660,7 +700,9 @@ describe('summarizeRunEvent（运行事件摘要）', () => {
   }
 
   it('有副作用 / 外呼的动作进时间线，摘要为可读一行', async () => {
-    expect(await summarize({ c: 'fetch', url: 'https://x.test/a', init: { method: 'post' } })).toEqual({
+    expect(
+      await summarize({ c: 'fetch', url: 'https://x.test/a', init: { method: 'post' } }),
+    ).toEqual({
       kind: 'fetch',
       detail: 'POST https://x.test/a',
     })

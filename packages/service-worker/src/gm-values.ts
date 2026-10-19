@@ -82,7 +82,14 @@ export async function deleteGMValue(
   const prev = await usdata.getGmValue(uuid, key)
   if (prev === undefined) return // 键本就不存在：不写不发事件（同 storage.remove）
   await usdata.deleteGmValue(uuid, key)
-  emitGmChange({ uuid, key, deleted: true, value: null, oldValue: prev, ...(writerConnId ? { writerConnId } : {}) })
+  emitGmChange({
+    uuid,
+    key,
+    deleted: true,
+    value: null,
+    oldValue: prev,
+    ...(writerConnId ? { writerConnId } : {}),
+  })
 }
 
 /**
@@ -163,6 +170,12 @@ export async function clearGMValues(uuid: string, writerConnId?: string): Promis
   const deletedKeys = await usdata.clearGmValues(uuid)
   for (const key of deletedKeys) {
     // 逐个发删除事件（对齐 storage.onChanged 逐键语义）；被删的键必然有旧值
-    emitGmChange({ uuid, key, deleted: true, value: null, ...(writerConnId ? { writerConnId } : {}) })
+    emitGmChange({
+      uuid,
+      key,
+      deleted: true,
+      value: null,
+      ...(writerConnId ? { writerConnId } : {}),
+    })
   }
 }

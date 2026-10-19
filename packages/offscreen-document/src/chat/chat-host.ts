@@ -128,7 +128,10 @@ const CAPABILITY_PROBES: ReadonlyArray<readonly [string, RegExp]> = [
     'store',
     /GM_(get|set|delete|list)Value|GM\.(getValue|setValue|deleteValue|listValues)\b|GM_(add|remove)ValueChangeListener|GM\.(add|remove)ValueChangeListener\b/,
   ],
-  ['tabs', /GM_(getTab|saveTab|getTabs)|GM\.(getTab|saveTab|getTabs)\b|GM_openInTab|GM\.openInTab\b/],
+  [
+    'tabs',
+    /GM_(getTab|saveTab|getTabs)|GM\.(getTab|saveTab|getTabs)\b|GM_openInTab|GM\.openInTab\b/,
+  ],
   ['fetch', /GM_xmlhttpRequest|GM\.xmlHttpRequest\b/],
   ['notify', /GM_notification|GM\.notification\b/],
   ['download', /GM_download|GM\.download\b/],
@@ -180,7 +183,10 @@ function newWorkspace(taskId: string, conversationId: string): TaskWorkspace {
 }
 
 /** 把工作区快照进任务记录（覆盖写；script_apply 每次成功后调用） */
-async function snapshotWorkspace(ws: TaskWorkspace, extra?: Partial<ChatTaskRecord>): Promise<void> {
+async function snapshotWorkspace(
+  ws: TaskWorkspace,
+  extra?: Partial<ChatTaskRecord>,
+): Promise<void> {
   const rec = await getTask(ws.taskId)
   if (!rec) return // 任务已收尾 / 被丢弃，不再写
   await putTask({
@@ -302,7 +308,8 @@ async function persistInterruptedOutput(opts: {
   if (!message) {
     // 还原不出来是异常（正常半截总有 start + 若干 part），留日志但不再打扰用户 ——
     // 他刚按了停止，再弹一条错误只是噪音
-    if (errors.length) console.error('[duoling:chat] 中止落盘还原失败：', errors.slice(0, 3).join('；'))
+    if (errors.length)
+      console.error('[duoling:chat] 中止落盘还原失败：', errors.slice(0, 3).join('；'))
     return
   }
   const parts = message.parts.filter((p) => !isPendingToolUIPart(p))
@@ -361,7 +368,10 @@ async function runLoop(opts: {
 
     // 流式静默守卫：provider 卡死（有连接但不吐 token）时主动中止，释放网关连接/并发配额。
     // 时长优先取模型配置里的 streamIdleTimeoutSec（秒），缺省回退 STREAM_IDLE_TIMEOUT_MS（60s）。
-    const idleMs = profile.streamIdleTimeoutSec != null ? profile.streamIdleTimeoutSec * 1000 : STREAM_IDLE_TIMEOUT_MS
+    const idleMs =
+      profile.streamIdleTimeoutSec != null
+        ? profile.streamIdleTimeoutSec * 1000
+        : STREAM_IDLE_TIMEOUT_MS
     const idle = createIdleGuard({
       idleMs,
       onTimeout: () => {
@@ -378,8 +388,7 @@ async function runLoop(opts: {
     // 库记录 → UIMessage 走与面板同一个 toUiMessage（含 pageContext 挂回 metadata：
     // 气泡 chip 与「最近一次拾取」都认它）——这里以前手写过一份带"缺 parts 就用
     // reasoning+content 合成"的转换，是第二个转换点，已收敛（老数据不兼容是既定取舍）。
-    const uiMessages =
-      opts.messages ?? (await listMessages(conversationId)).map(toUiMessage)
+    const uiMessages = opts.messages ?? (await listMessages(conversationId)).map(toUiMessage)
     // 本对话里有没有图片附件（决定 system prompt 要不要加「怎么看图」那一段）。
     // 判据取消息里的资源引用 —— 与送模型时的替换口径同一个（见 messagesForModel）。
     const hasAttachedImages = uiMessages.some((m) => m.parts.some(isAssetPart))
@@ -425,7 +434,8 @@ async function runLoop(opts: {
       (id) => offscreenBridge.readError(id),
       {
         // 录制按标签页：目标恒是「本会话所属的那一页」，工具不接参数，指不了别处
-        isRecording: async () => (await offscreenBridge.tabRecordRead(conversationId, 'digest')).enabled,
+        isRecording: async () =>
+          (await offscreenBridge.tabRecordRead(conversationId, 'digest')).enabled,
         read: (mode) => offscreenBridge.tabRecordRead(conversationId, mode),
         requestConsent: async () => {
           // 卡片 id 固定：一条对话至多一张同意卡（同一页重复请求同意不该叠出两张）
@@ -446,7 +456,8 @@ async function runLoop(opts: {
       // 识图（AI 的 image_ask）：主对话里只有图片引用，看图整条走这次独立调用。
       // 用当前激活的模型 —— 它必须自己支持读图；不支持时错误原样回给模型，由它向用户说明。
       // abortSignal 随主任务：主任务被停 / 超时，识图不该继续烧 token。
-      (assetId, question) => askImageAboutAsset(assetId, question, { model: visionModel, abortSignal: abort.signal }),
+      (assetId, question) =>
+        askImageAboutAsset(assetId, question, { model: visionModel, abortSignal: abort.signal }),
     )
 
     const result = streamText({
@@ -455,11 +466,20 @@ async function runLoop(opts: {
       messages: await convertToModelMessages(messagesForModel(uiMessages)),
       tools,
       stopWhen: stepCountIs(MAX_STEPS),
-      system: buildSystemPrompt(prompt, promptContext, continuing, prevScript, tabRecord, hasAttachedImages),
+      system: buildSystemPrompt(
+        prompt,
+        promptContext,
+        continuing,
+        prevScript,
+        tabRecord,
+        hasAttachedImages,
+      ),
       abortSignal: abort.signal,
       ...(profile.temperature != null ? { temperature: profile.temperature } : {}),
       ...(profile.topP != null ? { topP: profile.topP } : {}),
-      ...(profile.contextOutputToken != null ? { maxOutputTokens: profile.contextOutputToken } : {}),
+      ...(profile.contextOutputToken != null
+        ? { maxOutputTokens: profile.contextOutputToken }
+        : {}),
     })
 
     const ui = toUIMessageStream({
@@ -703,7 +723,8 @@ export async function startChat(input: ChatStartInput): Promise<{ taskId: string
   // 给个占位说明。图片引用仍在消息 parts 里（送模型时换成一行 assetPlaceholderText），
   // 模型据此知道「这条消息带了图、要看就调 image_ask」。
   const promptText = lastMessage ? textOfMessage(lastMessage) : ''
-  const prompt = promptText.trim() || (lastMessage?.parts.some(isAssetPart) ? '（见消息中的图片）' : '')
+  const prompt =
+    promptText.trim() || (lastMessage?.parts.some(isAssetPart) ? '（见消息中的图片）' : '')
   await putTask({
     taskId,
     conversationId: input.conversationId,

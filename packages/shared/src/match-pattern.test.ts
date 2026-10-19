@@ -1,15 +1,17 @@
 // match-pattern.ts 单测：纯匹配逻辑（scheme + host 判定，**忽略 path**）—— 用户脚本面与浮层按站点开关共用。
 import { describe, expect, it } from 'vitest'
-import {
-  matchPatternCoversUrl,
-  parseMatchPattern,
-  urlInCookieScope,
-} from './match-pattern'
+import { matchPatternCoversUrl, parseMatchPattern, urlInCookieScope } from './match-pattern'
 
 describe('parseMatchPattern', () => {
   it('解析 scheme 与 host，丢掉 path', () => {
-    expect(parseMatchPattern('https://example.com/foo/*')).toEqual({ scheme: 'https', host: 'example.com' })
-    expect(parseMatchPattern('*://*.example.com/a/b/*')).toEqual({ scheme: '*', host: '*.example.com' })
+    expect(parseMatchPattern('https://example.com/foo/*')).toEqual({
+      scheme: 'https',
+      host: 'example.com',
+    })
+    expect(parseMatchPattern('*://*.example.com/a/b/*')).toEqual({
+      scheme: '*',
+      host: '*.example.com',
+    })
   })
 
   it('<all_urls> 等价于任意 scheme + 任意 host', () => {
@@ -27,8 +29,12 @@ describe('matchPatternCoversUrl · scheme + host', () => {
   it('**忽略 pattern 的 path 段**：只注入 /foo/ 的脚本也能覆盖站点根', () => {
     // 核心用例：cookie 是 host 级作用域，path 不得收窄判定
     expect(matchPatternCoversUrl('https://example.com/foo/*', 'https://example.com/')).toBe(true)
-    expect(matchPatternCoversUrl('https://example.com/foo/*', 'https://example.com/bar/baz?x=1')).toBe(true)
-    expect(matchPatternCoversUrl('https://example.com/*', 'https://example.com/deep/path')).toBe(true)
+    expect(
+      matchPatternCoversUrl('https://example.com/foo/*', 'https://example.com/bar/baz?x=1'),
+    ).toBe(true)
+    expect(matchPatternCoversUrl('https://example.com/*', 'https://example.com/deep/path')).toBe(
+      true,
+    )
   })
 
   it('scheme：* 覆盖 http 与 https，不覆盖其它', () => {
@@ -44,7 +50,9 @@ describe('matchPatternCoversUrl · scheme + host', () => {
     expect(matchPatternCoversUrl('*://*.example.com/*', 'https://a.example.com/')).toBe(true)
     expect(matchPatternCoversUrl('*://*.example.com/*', 'https://a.b.example.com/')).toBe(true)
     expect(matchPatternCoversUrl('*://*.example.com/*', 'https://notexample.com/')).toBe(false)
-    expect(matchPatternCoversUrl('*://*.example.com/*', 'https://example.com.evil.test/')).toBe(false)
+    expect(matchPatternCoversUrl('*://*.example.com/*', 'https://example.com.evil.test/')).toBe(
+      false,
+    )
   })
 
   it('host：字面量精确匹配、大小写不敏感', () => {
@@ -60,7 +68,12 @@ describe('matchPatternCoversUrl · scheme + host', () => {
   })
 
   it('非 http(s) 的 url 一律不匹配（cookie 只对 http(s) 有意义）', () => {
-    for (const url of ['chrome-extension://abc/x', 'data:text/html,x', 'about:blank', 'not a url']) {
+    for (const url of [
+      'chrome-extension://abc/x',
+      'data:text/html,x',
+      'about:blank',
+      'not a url',
+    ]) {
       expect(matchPatternCoversUrl('<all_urls>', url)).toBe(false)
     }
   })

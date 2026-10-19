@@ -157,7 +157,8 @@ function verifyZip(buf: Buffer, expected: ZipEntry[]): string[] {
     const localName = buf.toString('utf8', localOff + 30, localOff + 30 + localNameLen)
     if (localName !== name) problems.push(`${name}：本地头名字不一致（${localName}）`)
     if (buf.readUInt16LE(localOff + 8) !== 0) problems.push(`${name}：压缩方式不是 STORE`)
-    if (buf.readUInt32LE(localOff + 22) !== size) problems.push(`${name}：本地头与中央目录长度不一致`)
+    if (buf.readUInt32LE(localOff + 22) !== size)
+      problems.push(`${name}：本地头与中央目录长度不一致`)
     const dataStart = localOff + 30 + localNameLen
     const data = buf.subarray(dataStart, dataStart + size)
     if (crc32(data) !== crc) problems.push(`${name}：数据 CRC 校验失败`)
@@ -196,7 +197,9 @@ function findSourceFile(absDir: string, label: string): string {
     .sort()
   if (!candidates.length) throw new Error(`${label}：缺少 ${SCRIPT_EXT} 源码文件`)
   if (candidates.length > 1) {
-    throw new Error(`${label}：目录里有多个 ${SCRIPT_EXT} 文件（${candidates.join('、')}），只留一份`)
+    throw new Error(
+      `${label}：目录里有多个 ${SCRIPT_EXT} 文件（${candidates.join('、')}），只留一份`,
+    )
   }
   return join(absDir, candidates[0])
 }
@@ -207,7 +210,10 @@ function findSourceFile(absDir: string, label: string): string {
  * 单文件摆放：<dir>/<任意名>.user.js（目录里只此一份）。配置由文件头部的 // ==UserScript== 块决定；
  * name 优先取头部 @name，否则用目录名。
  */
-function readScriptDef(dir: string, overrides: { name?: string }): { label: string; name: string; code: string } {
+function readScriptDef(
+  dir: string,
+  overrides: { name?: string },
+): { label: string; name: string; code: string } {
   const absDir = resolve(dir)
   if (!existsSync(absDir) || !statSync(absDir).isDirectory()) {
     throw new Error(`不是目录或不存在：${dir}`)
@@ -326,7 +332,10 @@ function main(): void {
   }
 
   const dirs = opts.dirs.length ? opts.dirs : listSamples().map((n) => join(SAMPLES_DIR, n))
-  if (!dirs.length) throw new Error('没有可打包的目录：packages/user-scripts/dist/samples 是空的 —— 先跑 pnpm -r build 生成产物，或手动指定目录')
+  if (!dirs.length)
+    throw new Error(
+      '没有可打包的目录：packages/user-scripts/dist/samples 是空的 —— 先跑 pnpm -r build 生成产物，或手动指定目录',
+    )
 
   const single = dirs.length === 1
   if (!single && opts.name) {

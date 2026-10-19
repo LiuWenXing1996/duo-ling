@@ -52,7 +52,10 @@ describe('checkCookieUrl · 基本判定', () => {
 
   it('excludeMatches 命中 → PERMISSION_DENIED', async () => {
     await writeProject(
-      projectWith({ matches: ['*://*.example.com/*'], excludeMatches: ['*://admin.example.com/*'] }),
+      projectWith({
+        matches: ['*://*.example.com/*'],
+        excludeMatches: ['*://admin.example.com/*'],
+      }),
     )
     const r = await checkCookieUrl(UUID, 'https://admin.example.com/')
     expect(r.ok).toBe(false)

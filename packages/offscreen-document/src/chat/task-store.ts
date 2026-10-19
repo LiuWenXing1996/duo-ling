@@ -10,12 +10,7 @@
 // （都归 offscreen），纯粹少开一个库。写只发生在 offscreen（对话链路的宿主），SW 与扩展页
 // 没有写入路径；连接、库版本与建表统一由 shared 的 db/chat 持有 getChatDb —— 本模块
 // 不再自开连接（同一库挂两条连接时，升级与死连接处理会各管一半）。
-import {
-  TASKS,
-  getChatDb,
-  idbRequest,
-  idbRunTx,
-} from '@duoling/shared'
+import { TASKS, getChatDb, idbRequest, idbRunTx } from '@duoling/shared'
 
 /** 任务状态：running = 循环进行中（唯一参与孤儿判定的状态） */
 export type ChatTaskStatus = 'running'

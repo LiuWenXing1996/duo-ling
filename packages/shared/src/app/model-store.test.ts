@@ -99,7 +99,10 @@ describe('展示名回退', () => {
   })
 
   it('库里 name 为空的老数据：读取时同样按模型 ID 回退', async () => {
-    await appDb.set(KEY, { profiles: [rawProfile({ name: '', model: 'gpt-x' })], activeProfileId: 'p1' })
+    await appDb.set(KEY, {
+      profiles: [rawProfile({ name: '', model: 'gpt-x' })],
+      activeProfileId: 'p1',
+    })
 
     expect((await listProfiles())[0].name).toBe('gpt-x')
   })
@@ -451,6 +454,8 @@ describe('testChat（连通性测试）', () => {
   it('成功时正常返回', async () => {
     stubFetch(() => Promise.resolve(okResponse()))
 
-    await expect(testChat({ baseUrl: 'https://x', apiKey: 'k', model: 'm' })).resolves.toBeUndefined()
+    await expect(
+      testChat({ baseUrl: 'https://x', apiKey: 'k', model: 'm' }),
+    ).resolves.toBeUndefined()
   })
 })

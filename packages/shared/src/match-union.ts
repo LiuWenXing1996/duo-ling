@@ -33,8 +33,18 @@ export function enabledMatchUnion(projects: ScriptProject[]): MatchUnion | null 
 
 /** 两套匹配字段是否等价（顺序无关）——「并集未变则跳过重注册」的判据 */
 export function sameMatchSet(
-  a: { matches?: string[]; excludeMatches?: string[]; includeGlobs?: string[]; excludeGlobs?: string[] },
-  b: { matches?: string[]; excludeMatches?: string[]; includeGlobs?: string[]; excludeGlobs?: string[] },
+  a: {
+    matches?: string[]
+    excludeMatches?: string[]
+    includeGlobs?: string[]
+    excludeGlobs?: string[]
+  },
+  b: {
+    matches?: string[]
+    excludeMatches?: string[]
+    includeGlobs?: string[]
+    excludeGlobs?: string[]
+  },
 ): boolean {
   const norm = (v?: string[]) => JSON.stringify([...(v ?? [])].sort())
   return (

@@ -1,12 +1,7 @@
 // 规范文本（spec-text.ts）的**防漂移**测试 —— 三道防线的第三道（管「规范文案 ↔ 目录 / grant 名单」）。
 // 防线全貌与存在理由见 docs/adr/0007-spec-three-drift-guards.md。
 import { describe, expect, it } from 'vitest'
-import {
-  gmApiEntries,
-  specEntries,
-  ALWAYS_WINDOW_MEMBERS,
-  grantNames,
-} from '@duoling/shared'
+import { gmApiEntries, specEntries, ALWAYS_WINDOW_MEMBERS, grantNames } from '@duoling/shared'
 import { SCRIPT_SPEC_TEXT } from './spec-text'
 
 /** 规范文本里**故意**点名、但不在能力目录里的成员（目录 = 已实现的成员） */
@@ -55,7 +50,8 @@ describe('规范文本与能力目录一致', () => {
   it('文本里点到的成员都在能力目录里（除了明确登记的「不支持」例外）', () => {
     const stray = [...MENTIONED].filter(
       (name) =>
-        !ALL_PATHS.some((p) => p === name || p.startsWith(`${name}.`)) && !KNOWN_UNSUPPORTED.includes(name),
+        !ALL_PATHS.some((p) => p === name || p.startsWith(`${name}.`)) &&
+        !KNOWN_UNSUPPORTED.includes(name),
     )
     expect(stray, '规范里引用了能力目录之外的成员——要么是错名字，要么该进目录').toEqual([])
   })
@@ -73,7 +69,9 @@ describe('规范文本与能力目录一致', () => {
 describe('规范文本与 `@grant` 名单一致', () => {
   it('文本里点到的 `@grant` 名都在合法名单里', () => {
     const declared = [...SCRIPT_SPEC_TEXT.matchAll(/@grant\s+([A-Za-z_][\w.]*)/g)].map((m) => m[1]!)
-    const bad = declared.filter((n) => !grantNames().includes(n) && !GRANT_SPECIAL_VALUES.includes(n))
+    const bad = declared.filter(
+      (n) => !grantNames().includes(n) && !GRANT_SPECIAL_VALUES.includes(n),
+    )
     expect(bad, '规范教了一个本扩展不认识的 @grant 名（会被静默忽略）').toEqual([])
   })
 

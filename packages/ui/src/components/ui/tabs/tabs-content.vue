@@ -5,15 +5,12 @@ import { TabsContent, useForwardProps } from 'reka-ui'
 import { cn } from '../../../lib/utils'
 
 defineOptions({
-  inheritAttrs: false
+  inheritAttrs: false,
 })
 
-const props = withDefaults(
-  defineProps<TabsContentProps & { class?: HTMLAttributes['class'] }>(),
-  {
-    class: ''
-  }
-)
+const props = withDefaults(defineProps<TabsContentProps & { class?: HTMLAttributes['class'] }>(), {
+  class: '',
+})
 
 const forwarded = useForwardProps(props)
 </script>
@@ -24,7 +21,7 @@ const forwarded = useForwardProps(props)
     :class="
       cn(
         'mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-        props.class
+        props.class,
       )
     "
   >

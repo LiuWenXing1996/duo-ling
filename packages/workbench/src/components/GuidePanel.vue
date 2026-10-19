@@ -20,14 +20,14 @@ import {
   Check as UiCheck,
   ExternalLink as UiExternalLink,
   RefreshCw as UiRefreshCw,
-  TriangleAlert as UiTriangleAlert
+  TriangleAlert as UiTriangleAlert,
 } from '@lucide/vue'
 import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import {
   fileAccessGuideSteps,
   isFileSchemeAccessAllowed,
   openOwnExtensionPage,
-  userScriptsGuideSteps
+  userScriptsGuideSteps,
 } from '../lib/extension-page'
 import { subscribeAvailability, userscriptClient } from '@duoling/ui/lib/userscripts/ui-client'
 import type { UserScriptsAvailability } from '@duoling/shared'
@@ -43,12 +43,10 @@ const detectError = ref('')
 const openError = ref('')
 
 /** 分步指引：与 openOwnExtensionPage 同判据（都取 availability 里的浏览器/版本） */
-const steps = computed(() =>
-  availability.value ? userScriptsGuideSteps(availability.value) : []
-)
+const steps = computed(() => (availability.value ? userScriptsGuideSteps(availability.value) : []))
 /** 文件访问的分步指引：只做 Chrome（Firefox 的开启口径未验证，那张卡片也整块不渲染） */
 const fileSteps = computed(() =>
-  availability.value ? fileAccessGuideSteps(availability.value.chromeMajor) : []
+  availability.value ? fileAccessGuideSteps(availability.value.chromeMajor) : [],
 )
 
 async function detect(): Promise<void> {
@@ -120,7 +118,10 @@ onUnmounted(() => {
         >
           状态检测失败（可能是扩展服务未就绪）：{{ detectError }}
         </p>
-        <p v-else-if="loading && !availability" class="py-10 text-center text-xs text-muted-foreground">
+        <p
+          v-else-if="loading && !availability"
+          class="py-10 text-center text-xs text-muted-foreground"
+        >
           检测中…
         </p>
 
@@ -168,7 +169,9 @@ onUnmounted(() => {
                   </span>
                   <span>
                     <span class="text-foreground">{{ step.title }}</span>
-                    <span v-if="step.detail" class="text-muted-foreground"> —— {{ step.detail }}</span>
+                    <span v-if="step.detail" class="text-muted-foreground">
+                      —— {{ step.detail }}</span
+                    >
                   </span>
                 </li>
               </ol>
@@ -245,7 +248,9 @@ onUnmounted(() => {
                   </span>
                   <span>
                     <span class="text-foreground">{{ step.title }}</span>
-                    <span v-if="step.detail" class="text-muted-foreground"> —— {{ step.detail }}</span>
+                    <span v-if="step.detail" class="text-muted-foreground">
+                      —— {{ step.detail }}</span
+                    >
                   </span>
                 </li>
               </ol>

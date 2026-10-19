@@ -53,7 +53,7 @@ async function readAll(): Promise<{
  * Message 按 role 判别：usage 只属于 assistant 分支，读之前必须判角色。 */
 function sumTokens(messages: Message[] | undefined): number {
   return (messages ?? []).reduce(
-    (sum, m) => sum + (m.role === 'assistant' ? m.usage?.totalTokens ?? 0 : 0),
+    (sum, m) => sum + (m.role === 'assistant' ? (m.usage?.totalTokens ?? 0) : 0),
     0,
   )
 }
@@ -65,7 +65,7 @@ function deriveConversation(c: Conversation, messages: Message[] | undefined): C
   return {
     ...c,
     totalTokens: sumTokens(list),
-    lastMessagePreview: last ? previewOf(last) : ''
+    lastMessagePreview: last ? previewOf(last) : '',
   }
 }
 
@@ -150,7 +150,9 @@ export async function createConversation(): Promise<Conversation> {
 export async function renameConversation(id: string, title: string): Promise<Conversation | null> {
   const trimmed = title.trim()
   if (!trimmed) return null
-  const conversation = await tx<Conversation | undefined>(CONVERSATIONS, 'readonly', (s) => s.get(id))
+  const conversation = await tx<Conversation | undefined>(CONVERSATIONS, 'readonly', (s) =>
+    s.get(id),
+  )
   if (!conversation) return null
   const next = { ...conversation, title: trimmed }
   await tx(CONVERSATIONS, 'readwrite', (s) => s.put(next))
@@ -160,28 +162,36 @@ export async function renameConversation(id: string, title: string): Promise<Con
 
 export async function deleteConversation(id: string): Promise<void> {
   const messages = await listMessages(id)
-  await idbRunTx(getChatDb(), [CONVERSATIONS, MESSAGES], 'readwrite', (transaction) =>
-    new Promise<void>((resolve, reject) => {
-      transaction.objectStore(CONVERSATIONS).delete(id)
-      const messageStore = transaction.objectStore(MESSAGES)
-      for (const m of messages) messageStore.delete(m.id)
-      transaction.oncomplete = () => resolve()
-      transaction.onerror = () => reject(transaction.error ?? new Error('删除会话失败'))
-    }),
+  await idbRunTx(
+    getChatDb(),
+    [CONVERSATIONS, MESSAGES],
+    'readwrite',
+    (transaction) =>
+      new Promise<void>((resolve, reject) => {
+        transaction.objectStore(CONVERSATIONS).delete(id)
+        const messageStore = transaction.objectStore(MESSAGES)
+        for (const m of messages) messageStore.delete(m.id)
+        transaction.oncomplete = () => resolve()
+        transaction.onerror = () => reject(transaction.error ?? new Error('删除会话失败'))
+      }),
   )
   broadcastDataChange('conversation', id)
 }
 
 /** 清空全部会话与消息，并把序号重置回 1（下次新建从「新会话 1」开始） */
 export async function deleteAllConversations(): Promise<void> {
-  await idbRunTx(getChatDb(), [CONVERSATIONS, MESSAGES, META], 'readwrite', (transaction) =>
-    new Promise<void>((resolve, reject) => {
-      transaction.objectStore(CONVERSATIONS).clear()
-      transaction.objectStore(MESSAGES).clear()
-      transaction.objectStore(META).put(1, SEQ_META_KEY)
-      transaction.oncomplete = () => resolve()
-      transaction.onerror = () => reject(transaction.error ?? new Error('清空会话失败'))
-    }),
+  await idbRunTx(
+    getChatDb(),
+    [CONVERSATIONS, MESSAGES, META],
+    'readwrite',
+    (transaction) =>
+      new Promise<void>((resolve, reject) => {
+        transaction.objectStore(CONVERSATIONS).clear()
+        transaction.objectStore(MESSAGES).clear()
+        transaction.objectStore(META).put(1, SEQ_META_KEY)
+        transaction.oncomplete = () => resolve()
+        transaction.onerror = () => reject(transaction.error ?? new Error('清空会话失败'))
+      }),
   )
   broadcastDataChange('conversation') // 无 uuid = 全量变化
 }
@@ -209,37 +219,42 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
  * 异常收尾可能让 assistant 消息先落盘，按任意消息判断会让改名静默失效。
  */
 export async function appendMessage(message: Message): Promise<Message | null> {
-  return idbRunTx(getChatDb(), [CONVERSATIONS, MESSAGES], 'readwrite', (transaction) =>
-    new Promise<Message | null>((resolve, reject) => {
-      const messages = transaction.objectStore(MESSAGES)
-      const conversations = transaction.objectStore(CONVERSATIONS)
+  return idbRunTx(
+    getChatDb(),
+    [CONVERSATIONS, MESSAGES],
+    'readwrite',
+    (transaction) =>
+      new Promise<Message | null>((resolve, reject) => {
+        const messages = transaction.objectStore(MESSAGES)
+        const conversations = transaction.objectStore(CONVERSATIONS)
 
-      // 请求按发出顺序执行：先读会话与既有消息，回调里再做写入（同事务，不会提前提交）
-      const convReq = conversations.get(message.conversationId)
-      const listReq = messages.index('conversationId').getAll(message.conversationId)
-      listReq.onsuccess = () => {
-        const conversation = convReq.result as Conversation | undefined
-        if (!conversation) return // 会话不存在：不写任何东西，oncomplete 时 resolve null
+        // 请求按发出顺序执行：先读会话与既有消息，回调里再做写入（同事务，不会提前提交）
+        const convReq = conversations.get(message.conversationId)
+        const listReq = messages.index('conversationId').getAll(message.conversationId)
+        listReq.onsuccess = () => {
+          const conversation = convReq.result as Conversation | undefined
+          if (!conversation) return // 会话不存在：不写任何东西，oncomplete 时 resolve null
 
-        messages.put(message)
-        const prior = listReq.result as Message[]
-        const next: Conversation = { ...conversation, lastMessageAt: message.createdAt }
-        const isFirstUserMessage = message.role === 'user' && !prior.some((m) => m.role === 'user')
-        if (isFirstUserMessage && /^新会话 \d+$/.test(next.title)) {
-          const trimmed = message.content.trim()
-          if (trimmed) next.title = trimmed.length > 20 ? `${trimmed.slice(0, 20)}…` : trimmed
+          messages.put(message)
+          const prior = listReq.result as Message[]
+          const next: Conversation = { ...conversation, lastMessageAt: message.createdAt }
+          const isFirstUserMessage =
+            message.role === 'user' && !prior.some((m) => m.role === 'user')
+          if (isFirstUserMessage && /^新会话 \d+$/.test(next.title)) {
+            const trimmed = message.content.trim()
+            if (trimmed) next.title = trimmed.length > 20 ? `${trimmed.slice(0, 20)}…` : trimmed
+          }
+          conversations.put(next)
         }
-        conversations.put(next)
-      }
-      transaction.oncomplete = () => {
-        const existed = Boolean(convReq.result)
-        // 会话不存在时上面什么都没写，不该让前端白拉一次——只在真的落盘后才广播
-        if (existed) broadcastDataChange('conversation', message.conversationId)
-        resolve(existed ? message : null)
-      }
-      transaction.onerror = () => reject(transaction.error ?? new Error('写入消息失败'))
-      transaction.onabort = () => reject(transaction.error ?? new Error('写入消息被中止'))
-    }),
+        transaction.oncomplete = () => {
+          const existed = Boolean(convReq.result)
+          // 会话不存在时上面什么都没写，不该让前端白拉一次——只在真的落盘后才广播
+          if (existed) broadcastDataChange('conversation', message.conversationId)
+          resolve(existed ? message : null)
+        }
+        transaction.onerror = () => reject(transaction.error ?? new Error('写入消息失败'))
+        transaction.onabort = () => reject(transaction.error ?? new Error('写入消息被中止'))
+      }),
   )
 }
 

@@ -29,12 +29,16 @@ beforeEach(() => {
     runtime: {
       id: 'test-ext-id',
       onUserScriptMessage: { addListener: (fn: Listener) => messageListeners.push(fn) },
-      onUserScriptConnect: { addListener: (fn: (p: unknown) => void) => portConnectListeners.push(fn) },
+      onUserScriptConnect: {
+        addListener: (fn: (p: unknown) => void) => portConnectListeners.push(fn),
+      },
       onMessage: { addListener: (fn: Listener) => swMessageListeners.push(fn) },
     },
     tabs: { onRemoved: { addListener: vi.fn() }, onUpdated: { addListener: vi.fn() } },
     contextMenus: { onClicked: { addListener: (fn: never) => contextMenuListeners.push(fn) } },
-    notifications: { onClicked: { addListener: (fn: (id: string) => void) => notificationListeners.push(fn) } },
+    notifications: {
+      onClicked: { addListener: (fn: (id: string) => void) => notificationListeners.push(fn) },
+    },
     webRequest: { onHeadersReceived: { addListener: vi.fn() } },
     downloads: { onChanged: { addListener: vi.fn() } },
     declarativeNetRequest: {
@@ -133,10 +137,14 @@ describe('createServiceWorkerHost', () => {
     })
     const { createServiceWorkerHost } = await loadHost()
     const host = createServiceWorkerHost()
-    await host.addScript('// ==UserScript==\n// @match https://a.com/*\n// ==/UserScript==\nconsole.log(1)')
+    await host.addScript(
+      '// ==UserScript==\n// @match https://a.com/*\n// ==/UserScript==\nconsole.log(1)',
+    )
     expect(registered).toHaveLength(1)
     expect(registered[0]!.matches).toEqual(['https://a.com/*'])
     // 注入体是一条 code（GM 包装 + 源码拼一条，见 registration.registerScript）
-    expect(registered[0]!.js).toEqual([expect.objectContaining({ code: expect.stringContaining('console.log(1)') })])
+    expect(registered[0]!.js).toEqual([
+      expect.objectContaining({ code: expect.stringContaining('console.log(1)') }),
+    ])
   })
 })

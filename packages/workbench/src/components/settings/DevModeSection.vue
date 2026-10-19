@@ -113,9 +113,7 @@ async function clearBadge(): Promise<void> {
   <div class="mx-auto max-w-3xl p-6">
     <div>
       <h3 class="text-base font-semibold">开发者</h3>
-      <p class="mt-1 text-xs text-muted-foreground">
-        调试界面与扩展本身时用到的面板与自测工具。
-      </p>
+      <p class="mt-1 text-xs text-muted-foreground">调试界面与扩展本身时用到的面板与自测工具。</p>
     </div>
 
     <div class="mt-6 divide-y divide-border overflow-hidden rounded-md border">
@@ -137,12 +135,7 @@ async function clearBadge(): Promise<void> {
       <p class="mt-0.5 text-xs text-muted-foreground">
         发送一条系统通知。浏览器未获系统通知授权时，扩展同样无法发送通知。
       </p>
-      <UiButton
-        class="mt-3"
-        variant="outline"
-        data-testid="dev-notify-send"
-        @click="testNotify"
-      >
+      <UiButton class="mt-3" variant="outline" data-testid="dev-notify-send" @click="testNotify">
         发送测试通知
       </UiButton>
       <p

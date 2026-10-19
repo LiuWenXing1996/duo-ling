@@ -1,5 +1,18 @@
 // 站点与页面组（第一批）：cookie 读 / 写读删、onurlchange 置 null 退订、右键菜单。
-import { AUTO, PFX, add, cleanups, code, fail, isHttpPage, msg, pass, todoRow, unknown, waitUntil } from '../harness'
+import {
+  AUTO,
+  PFX,
+  add,
+  cleanups,
+  code,
+  fail,
+  isHttpPage,
+  msg,
+  pass,
+  todoRow,
+  unknown,
+  waitUntil,
+} from '../harness'
 
 export function register() {
   add('站点与页面', 'GM_cookie.list（读）', async function () {
@@ -19,23 +32,31 @@ export function register() {
       // 真机上若浏览器拒收，这一条会红 —— 正是想验的点）
       await GM_cookie.set({ name: name, value: 'v1', domain: location.hostname, path: '/' })
       const hit = await GM_cookie.list({ name: name })
-      if (!Array.isArray(hit) || hit.length !== 1 || hit[0]!.value !== 'v1') return fail('写后读回不对：' + JSON.stringify(hit))
+      if (!Array.isArray(hit) || hit.length !== 1 || hit[0]!.value !== 'v1')
+        return fail('写后读回不对：' + JSON.stringify(hit))
       // 判据容忍前导点：chrome 对 domain == host 的写法可能存成 ".example.com" 形态
       const gotDomain = String(hit[0]!.domain || '').replace(/^\./, '')
       if (gotDomain !== location.hostname) return fail('domain 没落上：' + hit[0]!.domain)
       await GM_cookie.delete({ name: name })
       const gone = await GM_cookie.list({ name: name })
-      return Array.isArray(gone) && gone.length === 0 ? pass('写 → 读回 → 删掉，页面 cookie 无残留') : fail('删后仍读得到')
+      return Array.isArray(gone) && gone.length === 0
+        ? pass('写 → 读回 → 删掉，页面 cookie 无残留')
+        : fail('删后仍读得到')
     } catch (e) {
       // 清理失败也要说清楚（别把探针 cookie 留在站点上）
-      try { await GM_cookie.delete({ name: name }) } catch (e2) { /* 已尽量 */ }
+      try {
+        await GM_cookie.delete({ name: name })
+      } catch (e2) {
+        /* 已尽量 */
+      }
       return fail(code(e) + msg(e))
     }
   })
 
   add('站点与页面', 'window.onurlchange（含置 null 退订）', function () {
     if (!isHttpPage()) return unknown('非 http(s) 页面（' + location.protocol + '）')
-    if (!('onurlchange' in window)) throw new Error('window.onurlchange 未挂载（defineProperty 失败？）')
+    if (!('onurlchange' in window))
+      throw new Error('window.onurlchange 未挂载（defineProperty 失败？）')
     const href = location.href
     const base = href.split('#')[0]
     return new Promise(function (resolve) {
@@ -46,7 +67,9 @@ export function register() {
         settled = true
         resolve(r)
       }
-      setTimeout(function () { done(fail('4s 内没收到 url 变化回调')) }, 4000)
+      setTimeout(function () {
+        done(fail('4s 内没收到 url 变化回调'))
+      }, 4000)
       window.onurlchange = function () {
         fired++
         if (fired > 1) return
@@ -56,12 +79,20 @@ export function register() {
         window.onurlchange = null
         go('#gm-matrix-2')
         setTimeout(function () {
-          done(fired === 1 ? pass('首跳收到；置 null 后不再回调') : fail('置 null 后仍收到 ' + fired + ' 次'))
+          done(
+            fired === 1
+              ? pass('首跳收到；置 null 后不再回调')
+              : fail('置 null 后仍收到 ' + fired + ' 次'),
+          )
         }, 1200)
       }
       cleanups.push(function () {
         window.onurlchange = null
-        try { history.replaceState(null, '', href) } catch (e) { /* 跨文档就放弃还原 */ }
+        try {
+          history.replaceState(null, '', href)
+        } catch (e) {
+          /* 跨文档就放弃还原 */
+        }
       })
       // 同文档导航（hash 变更）也照常触发 —— URL 变化由包装层在页面本地检测（history hook + popstate）
       function go(hash: string) {
@@ -75,35 +106,49 @@ export function register() {
     })
   })
 
-  add('站点与页面', 'GM_registerMenuCommand / GM_unregisterMenuCommand', async function () {
-    if (typeof GM_registerMenuCommand !== 'function' || typeof GM_unregisterMenuCommand !== 'function') {
-      throw new Error('GM_registerMenuCommand / GM_unregisterMenuCommand 未挂载')
-    }
-    if (typeof GM.registerMenuCommand !== 'function' || typeof GM.unregisterMenuCommand !== 'function') {
-      throw new Error('GM.registerMenuCommand / GM.unregisterMenuCommand 未挂载')
-    }
-    const CAPTION = '全能探针：点我试试'
-    let clicked = ''
-    const id = GM_registerMenuCommand(CAPTION, function () { clicked = '全局形态' })
-    if (typeof id !== 'number') throw new Error('全局形态没返回数字 id')
-    const nsId = await GM.registerMenuCommand(CAPTION + '（GM.*）', function () { clicked = 'GM.* 形态' })
-    if (typeof nsId !== 'number') throw new Error('GM.* 形态没 resolve 出数字 id')
-    // 四种调用成功只说明「登记没报错」。真正的验收是**点击链路**：contextMenus.onClicked →
-    // SW 按 tabId 路由 menu.click → 包装层按 id 查表调回调。全仓只这一条路能测到它。
-    // 端测（AUTO）：那一跳要点浏览器**原生右键菜单**，Playwright 碰不到 → 注销后记「?」。
-    if (AUTO) {
+  add(
+    '站点与页面',
+    'GM_registerMenuCommand / GM_unregisterMenuCommand',
+    async function () {
+      if (
+        typeof GM_registerMenuCommand !== 'function' ||
+        typeof GM_unregisterMenuCommand !== 'function'
+      ) {
+        throw new Error('GM_registerMenuCommand / GM_unregisterMenuCommand 未挂载')
+      }
+      if (
+        typeof GM.registerMenuCommand !== 'function' ||
+        typeof GM.unregisterMenuCommand !== 'function'
+      ) {
+        throw new Error('GM.registerMenuCommand / GM.unregisterMenuCommand 未挂载')
+      }
+      const CAPTION = '全能探针：点我试试'
+      let clicked = ''
+      const id = GM_registerMenuCommand(CAPTION, function () {
+        clicked = '全局形态'
+      })
+      if (typeof id !== 'number') throw new Error('全局形态没返回数字 id')
+      const nsId = await GM.registerMenuCommand(CAPTION + '（GM.*）', function () {
+        clicked = 'GM.* 形态'
+      })
+      if (typeof nsId !== 'number') throw new Error('GM.* 形态没 resolve 出数字 id')
+      if (AUTO) {
+        GM_unregisterMenuCommand(id)
+        GM_unregisterMenuCommand(CAPTION)
+        GM.unregisterMenuCommand(nsId)
+        return unknown('端测模式跳过点击（浏览器原生右键菜单不可点）；四种调用本身已完成')
+      }
+      const row = todoRow('在页面任意处右键 → 点「' + CAPTION + '」—— 验菜单点击链路')
+      const acted = await waitUntil(function () {
+        return !!clicked
+      })
+      row.done()
       GM_unregisterMenuCommand(id)
       GM_unregisterMenuCommand(CAPTION)
       GM.unregisterMenuCommand(nsId)
-      return unknown('端测模式跳过点击（浏览器原生右键菜单不可点）；四种调用本身已完成')
-    }
-    const row = todoRow('在页面任意处右键 → 点「' + CAPTION + '」—— 验菜单点击链路')
-    const acted = await waitUntil(function () { return !!clicked })
-    row.done()
-    GM_unregisterMenuCommand(id)
-    GM_unregisterMenuCommand(CAPTION)
-    GM.unregisterMenuCommand(nsId)
-    if (!acted) return unknown('10 分钟没点菜单项 → 菜单可见性与点击链路都未验')
-    return pass('点到菜单项后回调经 menu.click 推回（' + clicked + '）')
-  }, { pending: true })
+      if (!acted) return unknown('10 分钟没点菜单项 → 菜单可见性与点击链路都未验')
+      return pass('点到菜单项后回调经 menu.click 推回（' + clicked + '）')
+    },
+    { pending: true },
+  )
 }

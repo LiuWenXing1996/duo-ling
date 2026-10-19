@@ -13,12 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { defineComponent } from 'vue'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import type {
-  PageErrorItem,
-  PageRunItem,
-  PanelMonitorPush,
-  ScriptSummary,
-} from '@duoling/shared'
+import type { PageErrorItem, PageRunItem, PanelMonitorPush, ScriptSummary } from '@duoling/shared'
 
 const listMock = vi.hoisted(() => vi.fn())
 const owningTabIdMock = vi.hoisted(() => vi.fn())
@@ -99,7 +94,11 @@ function pushHandler(): (msg: PanelMonitorPush) => void {
   return port.onMessage.addListener.mock.calls[0][0] as (msg: PanelMonitorPush) => void
 }
 
-type TabUpdatedHandler = (tabId: number, changeInfo: { url?: string }, tab: { url?: string }) => void
+type TabUpdatedHandler = (
+  tabId: number,
+  changeInfo: { url?: string },
+  tab: { url?: string },
+) => void
 
 /** 面板注册的标签页导航监听（本 composable 跟随页内导航改地址） */
 function tabUpdatedHandler(): TabUpdatedHandler {
@@ -323,10 +322,13 @@ describe('展示名与错误归属', () => {
     push({ t: 'page:error', tabId: TAB_ID, error: pageError('b', { message: 'eb' }) })
     push({ t: 'page:error', tabId: TAB_ID, error: pageError(null, { message: '无名' }) })
 
-    expect(state().errorsOf('a').map((e) => e.message)).toEqual(['ea'])
+    expect(
+      state()
+        .errorsOf('a')
+        .map((e) => e.message),
+    ).toEqual(['ea'])
     expect(state().errorsOf('c')).toEqual([])
   })
-
 })
 
 describe('名字补齐（自愈）', () => {

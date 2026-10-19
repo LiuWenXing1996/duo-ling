@@ -17,10 +17,7 @@ import GmApiPanel from './GmApiPanel.vue'
 import TabActivityPanel from './TabActivityPanel.vue'
 import type { WorkspaceTab } from '../types/tab'
 import type { WorkspaceTabKind } from '../types/tab'
-import {
-  Tabs as UiTabs,
-  TabsContent as UiTabsContent
-} from '@duoling/ui/components/ui/tabs'
+import { Tabs as UiTabs, TabsContent as UiTabsContent } from '@duoling/ui/components/ui/tabs'
 
 // 默认标签页：脚本列表（脚本管理唯一入口）。该基础标签不可关闭，保证工作台始终有落点。
 const LIST_TAB_ID = 'userscript-list'
@@ -193,7 +190,7 @@ function openUserscriptHistoryTab(uuid: string, title: string): void {
       kind: 'script-history',
       id,
       title: `${title || '脚本'} 历史`,
-      userscriptId: uuid
+      userscriptId: uuid,
     })
   }
   activate(id)
@@ -227,7 +224,7 @@ function openUserscriptEditor(uuid: string, title: string): void {
       kind: 'userscript-edit',
       id,
       title: title || '脚本编辑',
-      userscriptId: uuid
+      userscriptId: uuid,
     })
   }
   activate(id)
@@ -246,7 +243,16 @@ function onUserscriptDeleted(uuid: string): void {
 
 // 暴露给根布局：左侧导航栏「设置 / 脚本列表 / 活动历史 / 文件管理 / 会话历史 / 帮助」与脚本管理器的「编辑」入口。
 // 其余调试面板不走这里 —— 它们的入口在设置分区里，经 @open-tab 到 openDevTab
-defineExpose({ openGuideTab, openHelpTab, openSettingsTab, openUserscriptListTab, openSessionHistoryTab, openTabActivityTab, openLfsTab, openUserscriptEditor })
+defineExpose({
+  openGuideTab,
+  openHelpTab,
+  openSettingsTab,
+  openUserscriptListTab,
+  openSessionHistoryTab,
+  openTabActivityTab,
+  openLfsTab,
+  openUserscriptEditor,
+})
 </script>
 
 <template>

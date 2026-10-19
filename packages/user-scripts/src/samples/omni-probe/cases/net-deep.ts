@@ -50,19 +50,30 @@ export function register() {
 
   add('网络·深语义', 'timeout=0 不限', function () {
     return gmFetch(BASE + '/get?probe=timeout0', { timeout: 0 }).then(
-      function (r) { return r.ok ? pass('status ' + r.status) : fail('status ' + r.status) },
-      function (e) { return netFail(e) },
+      function (r) {
+        return r.ok ? pass('status ' + r.status) : fail('status ' + r.status)
+      },
+      function (e) {
+        return netFail(e)
+      },
     )
   })
 
   add('网络·深语义', '二进制请求体（TypedArray）', function () {
     // 字节 [1,2,3,'A','B']：ASCII 段内（含控制字符），UTF-8 往返无损，靶站 /post 的 data 字段可精确比对
-    return gmFetch(BASE + '/post', { method: 'POST', body: new Uint8Array([1, 2, 3, 65, 66]) }).then(
+    return gmFetch(BASE + '/post', {
+      method: 'POST',
+      body: new Uint8Array([1, 2, 3, 65, 66]),
+    }).then(
       function (r) {
         const data = r.ok ? (r.json() as { data?: unknown }).data : null
-        return data === '\u0001\u0002\u0003AB' ? pass(JSON.stringify(data)) : fail(JSON.stringify(data))
+        return data === '\u0001\u0002\u0003AB'
+          ? pass(JSON.stringify(data))
+          : fail(JSON.stringify(data))
       },
-      function (e) { return netFail(e) },
+      function (e) {
+        return netFail(e)
+      },
     )
   })
 
@@ -83,7 +94,9 @@ export function register() {
         const detail = 'whole=' + JSON.stringify(whole) + ' part=' + JSON.stringify(part)
         return whole === 'ABC' && part === 'BC' ? pass(detail) : fail(detail)
       },
-      function (e) { return netFail(e) },
+      function (e) {
+        return netFail(e)
+      },
     )
   })
 
@@ -93,14 +106,20 @@ export function register() {
         const data = r.ok ? (r.json() as { data?: unknown }).data : null
         return data === 'probe=ok' ? pass(JSON.stringify(data)) : fail(JSON.stringify(data))
       },
-      function (e) { return netFail(e) },
+      function (e) {
+        return netFail(e)
+      },
     )
   })
 
   add('网络·深语义', '非法体拒绝', function () {
     return gmFetch(BASE + '/post', { method: 'POST', body: {} }).then(
-      function () { return fail('传了 {} 竟然没抛错') },
-      function (e) { return pass(code(e) + msg(e)) },
+      function () {
+        return fail('传了 {} 竟然没抛错')
+      },
+      function (e) {
+        return pass(code(e) + msg(e))
+      },
     )
   })
 
@@ -118,11 +137,16 @@ export function register() {
         if (!got) return unknown('回显不可辨认——未能判定（重跑即可）')
         const bad: string[] = []
         for (const k in want) {
-          if (got[k.toLowerCase()] !== want[k]) bad.push(k + '=' + JSON.stringify(got[k.toLowerCase()]))
+          if (got[k.toLowerCase()] !== want[k])
+            bad.push(k + '=' + JSON.stringify(got[k.toLowerCase()]))
         }
-        return bad.length === 0 ? pass('Cookie/Referer/UA 回显一致') : fail('回显不符：' + bad.join(' / '))
+        return bad.length === 0
+          ? pass('Cookie/Referer/UA 回显一致')
+          : fail('回显不符：' + bad.join(' / '))
       },
-      function (e) { return netFail(e) },
+      function (e) {
+        return netFail(e)
+      },
     )
   })
 
@@ -135,34 +159,51 @@ export function register() {
       headers: { Cookie: 'gm_probe=1', 'User-Agent': 'GMProbe/1.0' },
     }).then(
       function () {},
-      function () { writerFailed = true },
+      function () {
+        writerFailed = true
+      },
     )
     // 读者要的是「一份可辨认的回显」：非 2xx、或 2xx 但回显里没有任何已知真实头（空体 / 兜底页），
     // 都无从判断 header 干不干净 → 隔 500ms 重试一次；两次都拿不到才记「未能判定」。
     const readPlain = function (n: number) {
       return gmFetch(BASE + '/headers?plain=' + n).then(
-        function (r) { return { status: r.status as unknown, echo: r.ok ? readEcho(r) : null } },
-        function (e) { return { status: msg(e) as unknown, echo: null } },
+        function (r) {
+          return { status: r.status as unknown, echo: r.ok ? readEcho(r) : null }
+        },
+        function (e) {
+          return { status: msg(e) as unknown, echo: null }
+        },
       )
     }
     const reader = readPlain(1).then(function (a) {
       if (a.echo) return a
-      return sleep(500).then(function () { return readPlain(2) })
+      return sleep(500).then(function () {
+        return readPlain(2)
+      })
     })
     return Promise.all([writer, reader]).then(
       function (rs) {
         const taken = Date.now() - t0
         const a = rs[1]!
-        if (!a.echo) return unknown('读者两次都没拿到可辨认的回显（' + a.status + '）——未能判定，非锁的问题')
+        if (!a.echo)
+          return unknown('读者两次都没拿到可辨认的回显（' + a.status + '）——未能判定，非锁的问题')
         const got = a.echo as Record<string, unknown>
         const dirty: string[] = []
         if (got.cookie) dirty.push('Cookie=' + got.cookie)
         if (got['user-agent'] === 'GMProbe/1.0') dirty.push('User-Agent 被覆写')
         return dirty.length === 0
-          ? pass('读者干净，排在写者之后（' + taken + 'ms' + (writerFailed ? '，写者自身抖动' : '') + '）')
+          ? pass(
+              '读者干净，排在写者之后（' +
+                taken +
+                'ms' +
+                (writerFailed ? '，写者自身抖动' : '') +
+                '）',
+            )
           : fail('被套上：' + dirty.join(' / '))
       },
-      function (e) { return netFail(e) },
+      function (e) {
+        return netFail(e)
+      },
     )
   })
 
@@ -174,15 +215,21 @@ export function register() {
         const detail = 'status=' + r.status + ' location=' + JSON.stringify(loc)
         return r.status === 302 && !!loc ? pass(detail) : fail(detail)
       },
-      function (e) { return netFail(e) },
+      function (e) {
+        return netFail(e)
+      },
     )
   })
 
   add('网络·深语义', 'redirect:error 拒绝', function () {
     // 交 fetch 原生语义（遇 3xx 直接拒绝），与 manual 走的是两条路
     return gmFetch(REDIRECT_URL, { redirect: 'error' }).then(
-      function (r) { return fail('没抛错，status=' + r.status) },
-      function (e) { return pass(code(e) + msg(e)) },
+      function (r) {
+        return fail('没抛错，status=' + r.status)
+      },
+      function (e) {
+        return pass(code(e) + msg(e))
+      },
     )
   })
 
@@ -198,6 +245,8 @@ export function register() {
       handle.close()
       await sleep(400)
       return pass('GM_openInTab 句柄已 open 并 close')
-    })().catch(function (e) { return netFail(e) })
+    })().catch(function (e) {
+      return netFail(e)
+    })
   })
 }

@@ -1,15 +1,7 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue'
-import {
-  ChevronRightIcon,
-  FolderIcon,
-  FolderOpenIcon,
-} from '@lucide/vue'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '../../ui/collapsible'
+import { ChevronRightIcon, FolderIcon, FolderOpenIcon } from '@lucide/vue'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../../ui/collapsible'
 import { cn } from '../../../lib/utils'
 import { computed, provide } from 'vue'
 import { FileTreeFolderKey, useFileTreeContext } from './context'
@@ -38,12 +30,7 @@ provide(FileTreeFolderKey, {
 
 <template>
   <Collapsible :open="isExpanded" @update:open="() => togglePath(props.path)">
-    <div
-      :class="cn('', props.class)"
-      role="treeitem"
-      tabindex="0"
-      v-bind="$attrs"
-    >
+    <div :class="cn('', props.class)" role="treeitem" tabindex="0" v-bind="$attrs">
       <CollapsibleTrigger as-child>
         <button
           :class="
@@ -69,7 +56,9 @@ provide(FileTreeFolderKey, {
           </FileTreeIcon>
           <!-- name 插槽：调用方可整块替换目录名的渲染（如给目录名配徽标）；
                不传插槽时按纯文本 props.name 渲染 -->
-          <FileTreeName><slot name="name">{{ props.name }}</slot></FileTreeName>
+          <FileTreeName
+            ><slot name="name">{{ props.name }}</slot></FileTreeName
+          >
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent>

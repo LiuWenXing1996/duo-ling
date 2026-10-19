@@ -256,7 +256,8 @@ export function installFloatHost(): void {
       iframe.remove()
       const fb = document.createElement('div')
       fb.className = 'dl-float-fallback'
-      fb.textContent = '该网站限制了内嵌框架，浮层无法显示——' + extensionName + '在这个网站上用不了。'
+      fb.textContent =
+        '该网站限制了内嵌框架，浮层无法显示——' + extensionName + '在这个网站上用不了。'
       panel.appendChild(fb)
     }
 
@@ -294,7 +295,8 @@ export function installFloatHost(): void {
       const place = (next: FloatHostPoint) => {
         last = next
         // 位移只走 transform（相对基准位），松手才沉淀成 left/top —— 见上方说明
-        container.style.transform = 'translate(' + (next.x - base.left) + 'px, ' + (next.y - base.top) + 'px)'
+        container.style.transform =
+          'translate(' + (next.x - base.left) + 'px, ' + (next.y - base.top) + 'px)'
       }
       const onMove = (move: PointerEvent) => {
         place(clampTo(move))
@@ -503,10 +505,8 @@ export function installFloatHost(): void {
   if (document.documentElement) {
     watchPickMask(document.documentElement)
   } else {
-    document.addEventListener(
-      'DOMContentLoaded',
-      () => watchPickMask(document.documentElement),
-      { once: true },
-    )
+    document.addEventListener('DOMContentLoaded', () => watchPickMask(document.documentElement), {
+      once: true,
+    })
   }
 }

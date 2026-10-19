@@ -25,10 +25,26 @@ export type RuntimeRequest =
   | { kind: 'userscript:getProject'; uuid: string }
   // 保存源码（唯一保存入口）：传源码与元数据，offscreen 写 fs + git 提交 + 落库，保存恒成功。
   // 启用中脚本由 SW 落库后重注册（注入代码 = 源码原文）。
-  | { kind: 'userscript:save'; uuid: string; code: string; name?: string; config?: import('../script-config').ScriptConfig; note?: string; actor?: import('../service/offscreen-service').CommitActor }
+  | {
+      kind: 'userscript:save'
+      uuid: string
+      code: string
+      name?: string
+      config?: import('../script-config').ScriptConfig
+      note?: string
+      actor?: import('../service/offscreen-service').CommitActor
+    }
   | { kind: 'userscript:create' }
   // AI 生成脚本落盘（SW 命令面，转发 offscreen 单写方；enabled 默认 false = 先落盘不启用）
-  | { kind: 'userscript:createProject'; name: string; config: import('../script-config').ScriptConfig; code: string; enabled: boolean; note?: string; actor?: import('../service/offscreen-service').CommitActor }
+  | {
+      kind: 'userscript:createProject'
+      name: string
+      config: import('../script-config').ScriptConfig
+      code: string
+      enabled: boolean
+      note?: string
+      actor?: import('../service/offscreen-service').CommitActor
+    }
   | { kind: 'userscript:remove'; uuid: string }
   // 删除全部用户脚本：范围 = 用户脚本（状态库项目 + 各自 git 仓），
   // 不含内置件（随扩展包分发）。SW 注销全部 → 调服务写侧清空状态库 → 清各脚本 GM 值。
@@ -131,7 +147,13 @@ export type RuntimeRequest =
   // —— 对话链路（offscreen 执行宿主，定位 B「下完单就走」）——
   // 对话界面是「指令入口 + 观察者」：发起后可关面板，任务在 offscreen 照跑完；
   // 事件经 OffscreenPush（chat:chunk）逐条推送，重开面板按 lastEventId replay（chat:resume）。
-  | { kind: 'chat:start'; conversationId: string; messages: import('ai').UIMessage[]; trigger: 'submit-message' | 'regenerate-message'; pageContext?: PageContextInfo }
+  | {
+      kind: 'chat:start'
+      conversationId: string
+      messages: import('ai').UIMessage[]
+      trigger: 'submit-message' | 'regenerate-message'
+      pageContext?: PageContextInfo
+    }
   | { kind: 'chat:abort'; conversationId: string }
   // 重连：返回该会话进行中任务的完整事件缓冲（从头回放；观察方本地视图可能刚从历史重建）
   | { kind: 'chat:resume'; conversationId: string }
@@ -295,8 +317,11 @@ export interface PageOverviewScript {
  * userscript:availabilityChanged —— 「运行用户脚本」开关状态变化（SW 轮询发现，Chrome 对
  * 开关变化无事件）。横幅 / 引导页订阅此广播更新显示；载荷带完整可用性（UI 无需回查）。
  */
-export type SwPush =
-  | { kind: 'userscript:availabilityChanged'; availability: import('../userscript-runtime').UserScriptsAvailability; changedAt: number }
+export type SwPush = {
+  kind: 'userscript:availabilityChanged'
+  availability: import('../userscript-runtime').UserScriptsAvailability
+  changedAt: number
+}
 
 /** 渲染页 → service worker 的应答：统一信封，调用方据 ok 分支。
  *  形状真相源在 @duoling/shared 的 IpcEnvelope —— 运行时包两半（sw / offscreen）与全应用

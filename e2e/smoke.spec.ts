@@ -59,16 +59,22 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     sw = await getServiceWorker(context)
     extensionId = extensionIdFromServiceWorker(sw)
     messenger = await openMessengerPage(context, extensionId)
-    const availability = await sendToSw<{ available: boolean }>(messenger, { kind: 'userscript:availability' })
+    const availability = await sendToSw<{ available: boolean }>(messenger, {
+      kind: 'userscript:availability',
+    })
     userScriptsAvailable = availability.ok === true && availability.data.available === true
 
     // 探针页服务：127.0.0.1 随机端口，'*://*/*' 默认匹配规则覆盖 http://127.0.0.1
     probeServer = http.createServer((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-      res.end('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>DL 探针页</title></head><body><h1>probe</h1></body></html>')
+      res.end(
+        '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>DL 探针页</title></head><body><h1>probe</h1></body></html>',
+      )
     })
     probePort = await new Promise((resolvePort) => {
-      probeServer!.listen(0, '127.0.0.1', () => resolvePort((probeServer!.address() as { port: number }).port))
+      probeServer!.listen(0, '127.0.0.1', () =>
+        resolvePort((probeServer!.address() as { port: number }).port),
+      )
     })
   })
 
@@ -76,20 +82,39 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     // 各步独立兜底：任何一步挂住都不能拖垮整个收尾（close 在个别场景会卡住）
     const withTimeout = (p: Promise<unknown> | undefined, ms: number) =>
       p ? Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]) : Promise.resolve()
-    try { await withTimeout(messenger?.close(), 5_000) } catch { /* 忽略 */ }
-    try { await withTimeout(context?.close(), 30_000) } catch { /* 忽略 */ }
+    try {
+      await withTimeout(messenger?.close(), 5_000)
+    } catch {
+      /* 忽略 */
+    }
+    try {
+      await withTimeout(context?.close(), 30_000)
+    } catch {
+      /* 忽略 */
+    }
     try {
       probeServer?.closeAllConnections()
       await withTimeout(new Promise<void>((r) => probeServer?.close(() => r())), 5_000)
-    } catch { /* 忽略 */ }
-    try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    } catch {
+      /* 忽略 */
+    }
+    try {
+      rmSync(profileDir, { recursive: true, force: true })
+    } catch {
+      /* 忽略 */
+    }
   })
 
   // ———————————————————————————— SW 命令面 ————————————————————————————
 
   test('SW 自证构建信息 + userscript 命令面应答', async () => {
-    const buildInfo = await sendToSw<{ time: string; branch: string }>(messenger!, { kind: 'sw:buildInfo' })
-    expect(buildInfo, 'sw:buildInfo 应答信封').toEqual({ ok: true, data: expect.objectContaining({ time: expect.any(String), branch: expect.any(String) }) })
+    const buildInfo = await sendToSw<{ time: string; branch: string }>(messenger!, {
+      kind: 'sw:buildInfo',
+    })
+    expect(buildInfo, 'sw:buildInfo 应答信封').toEqual({
+      ok: true,
+      data: expect.objectContaining({ time: expect.any(String), branch: expect.any(String) }),
+    })
 
     const list = await sendToSw<unknown[]>(messenger!, { kind: 'userscript:list' })
     expect(list.ok, 'userscript:list 应成功（新 profile 状态库为空）').toBe(true)
@@ -102,12 +127,20 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
   })
 
   test('userScripts 可用性结论（无头 Chromium 引导结果）', async () => {
-    const res = await sendToSw<{ available: boolean; chromeMajor: number; guideText: string }>(messenger!, {
-      kind: 'userscript:availability',
-    })
+    const res = await sendToSw<{ available: boolean; chromeMajor: number; guideText: string }>(
+      messenger!,
+      {
+        kind: 'userscript:availability',
+      },
+    )
     expect(res.ok).toBe(true)
     if (!res.ok) return
-    console.log('[E2E 结论] userScripts 引导:', JSON.stringify(bootstrap), '→ available =', res.data.available)
+    console.log(
+      '[E2E 结论] userScripts 引导:',
+      JSON.stringify(bootstrap),
+      '→ available =',
+      res.data.available,
+    )
     // 引导已按官方语义打开两道开关并重启了扩展上下文；引导路径生效则这里必须可用
     expect(res.data.available, `userScripts 引导失败：${JSON.stringify(bootstrap)}`).toBe(true)
   })
@@ -135,7 +168,14 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     // 从设置里的开发者分区进入：面板挂载，左栏全部工具来自静态目录（与运行时同源，见单测防漂移）
     await openDevPanel(page, 'agent-tools')
     await expect(page.locator('[data-testid="agent-tools-panel"]')).toBeVisible()
-    for (const name of ['script_spec', 'script_read', 'script_apply', 'element_read', 'page_snapshot', 'error_read']) {
+    for (const name of [
+      'script_spec',
+      'script_read',
+      'script_apply',
+      'element_read',
+      'page_snapshot',
+      'error_read',
+    ]) {
       await expect(page.locator(`[data-testid="agent-tools-select-${name}"]`)).toBeVisible()
     }
 
@@ -190,12 +230,18 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
   // ———————————————————————————— 用户脚本注入 ————————————————————————————
 
   test('用户脚本注入探针页：脚本执行 + GM 桥往返', async () => {
-    test.skip(!userScriptsAvailable, 'chrome.userScripts 在无头 Chromium 下不可用（引导失败），注入面转手测')
+    test.skip(
+      !userScriptsAvailable,
+      'chrome.userScripts 在无头 Chromium 下不可用（引导失败），注入面转手测',
+    )
 
     // 1. 创建脚本：offscreen 侧自动命名 + 初始模板（单文件 script.js）+ 状态库落盘 + git 快照，SW 注册
-    const created = await sendToSw<{ uuid: string; name: string; registerError?: string }>(messenger!, {
-      kind: 'userscript:create',
-    })
+    const created = await sendToSw<{ uuid: string; name: string; registerError?: string }>(
+      messenger!,
+      {
+        kind: 'userscript:create',
+      },
+    )
     expect(created.ok, `userscript:create 失败：${created.ok ? '' : created.error}`).toBe(true)
     if (!created.ok) return
     expect(created.data.registerError, '注册不应报错').toBeUndefined()
@@ -255,24 +301,31 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
   // —————————————————————— 删除脚本的连带清理 ——————————————————————
 
   test('删除脚本连带清掉它的报错记录（时间线不留已删脚本的孤儿行）', async () => {
-    test.skip(!userScriptsAvailable, 'chrome.userScripts 在无头 Chromium 下不可用（引导失败），转手测')
+    test.skip(
+      !userScriptsAvailable,
+      'chrome.userScripts 在无头 Chromium 下不可用（引导失败），转手测',
+    )
 
     /** 运行日志时间线（userscript:runlog）里当前出现过的脚本 uuid（运行行取 uuid，错误行取 record.uuid；
      *  经 SW 读命令；信封异常时回空数组，由断言兜底） */
     const errorUuids = async (): Promise<string[]> => {
-      const res = await sendToSw<Array<{ kind: string; uuid?: string; record?: { uuid: string | null } }>>(
-        messenger!,
-        { kind: 'userscript:runlog' },
-      )
+      const res = await sendToSw<
+        Array<{ kind: string; uuid?: string; record?: { uuid: string | null } }>
+      >(messenger!, { kind: 'userscript:runlog' })
       if (!res.ok) return []
       return res.data
         .map((r) => (r.kind === 'run' ? r.uuid : (r.record?.uuid ?? null)))
         .filter((u): u is string => u !== null)
     }
-    expect((await sendToSw<unknown[]>(messenger!, { kind: 'userscript:runlog' })).ok, 'userscript:runlog 应可读').toBe(true)
+    expect(
+      (await sendToSw<unknown[]>(messenger!, { kind: 'userscript:runlog' })).ok,
+      'userscript:runlog 应可读',
+    ).toBe(true)
 
     // 1. 建脚本（create 默认 enabled）
-    const created = await sendToSw<{ uuid: string; name: string }>(messenger!, { kind: 'userscript:create' })
+    const created = await sendToSw<{ uuid: string; name: string }>(messenger!, {
+      kind: 'userscript:create',
+    })
     expect(created.ok, `userscript:create 失败：${created.ok ? '' : created.error}`).toBe(true)
     if (!created.ok) return
     const { uuid } = created.data

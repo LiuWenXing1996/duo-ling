@@ -29,7 +29,7 @@ const PROVIDERS: ModelProvider[] = [
     models: [
       'doubao-seed-2-1-pro-260915',
       'doubao-seed-2-1-lite-260915',
-      'doubao-seed-2-1-turbo-260628'
+      'doubao-seed-2-1-turbo-260628',
     ],
     supported: true,
   },

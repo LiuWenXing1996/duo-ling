@@ -23,7 +23,10 @@ function addPort(reg: DlPortRegistry, uuid: string, connId: string, tabId: numbe
 
 describe('parseDlPortName', () => {
   it('解析 uuid 与 connId', () => {
-    expect(parseDlPortName('duoling:dl:abc-123:c-xyz')).toEqual({ uuid: 'abc-123', connId: 'c-xyz' })
+    expect(parseDlPortName('duoling:dl:abc-123:c-xyz')).toEqual({
+      uuid: 'abc-123',
+      connId: 'c-xyz',
+    })
   })
   it('非 DL 前缀 / 缺段 / 空 connId 返回 null', () => {
     expect(parseDlPortName('duoling:panel')).toBeNull()
@@ -106,7 +109,6 @@ describe('DlPortRegistry', () => {
     addPort(reg, 'u9', 'c3', 33)
     expect(reg.portsByUuid('u1')).toHaveLength(2)
   })
-
 })
 
 describe('pushEvent', () => {

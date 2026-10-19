@@ -14,10 +14,7 @@ export async function countConversations(page: Page): Promise<number> {
       // 面板尚未读写过会话库时，这里打开的是新建的空库
       if (!db.objectStoreNames.contains('conversations')) return 0
       return await new Promise<number>((resolve, reject) => {
-        const req = db
-          .transaction('conversations', 'readonly')
-          .objectStore('conversations')
-          .count()
+        const req = db.transaction('conversations', 'readonly').objectStore('conversations').count()
         req.onsuccess = () => resolve(req.result)
         req.onerror = () => reject(req.error)
       })

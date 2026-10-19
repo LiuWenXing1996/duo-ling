@@ -19,19 +19,15 @@ const props = withDefaults(defineProps<Props>(), {
 const slots = useSlots()
 
 const computedSize = computed(() => {
-  if (props.size)
-    return props.size
+  if (props.size) return props.size
 
   const slotNodes = slots.default?.()
 
-  if (!slotNodes)
-    return 'icon-sm'
+  if (!slotNodes) return 'icon-sm'
 
   const validChildren = slotNodes.filter((node) => {
-    if (node.type === Comment)
-      return false
-    if (node.type === Text && !node.children?.toString().trim())
-      return false
+    if (node.type === Comment) return false
+    if (node.type === Text && !node.children?.toString().trim()) return false
     return true
   })
 

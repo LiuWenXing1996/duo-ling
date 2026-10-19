@@ -109,12 +109,22 @@ test.describe.serial('工具栏角标（按标签页报脚本运行数）', () =
   test.afterAll(async () => {
     const withTimeout = (p: Promise<unknown> | undefined, ms: number) =>
       p ? Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]) : Promise.resolve()
-    try { await withTimeout(context?.close(), 30_000) } catch { /* 忽略 */ }
+    try {
+      await withTimeout(context?.close(), 30_000)
+    } catch {
+      /* 忽略 */
+    }
     try {
       server?.closeAllConnections()
       await withTimeout(new Promise<void>((r) => server?.close(() => r())), 5_000)
-    } catch { /* 忽略 */ }
-    try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    } catch {
+      /* 忽略 */
+    }
+    try {
+      rmSync(profileDir, { recursive: true, force: true })
+    } catch {
+      /* 忽略 */
+    }
   })
 
   /** 某个标签页的角标文字（空串 = 没亮）。角标按标签页各设各的，故必须指明是哪一页 */
@@ -126,7 +136,8 @@ test.describe.serial('工具栏角标（按标签页报脚本运行数）', () =
     sw.evaluate(async (id) => await chrome.action.getTitle({ tabId: id }), tabId)
 
   /** 全局兜底值：引擎可用时角标一律按标签页设，它必须恒为空（留着的话每个标签页都会带上它） */
-  const globalBadge = (): Promise<string> => sw.evaluate(async () => await chrome.action.getBadgeText({}))
+  const globalBadge = (): Promise<string> =>
+    sw.evaluate(async () => await chrome.action.getBadgeText({}))
 
   /** 该地址当前开着的标签页 id（本 spec 每个地址只开一页） */
   async function tabIdOf(url: string): Promise<number> {
@@ -255,8 +266,16 @@ test.describe.serial('工具栏角标（引擎未授权 → 全局感叹号）',
   test.afterAll(async () => {
     const withTimeout = (p: Promise<unknown> | undefined, ms: number) =>
       p ? Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]) : Promise.resolve()
-    try { await withTimeout(context?.close(), 30_000) } catch { /* 忽略 */ }
-    try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    try {
+      await withTimeout(context?.close(), 30_000)
+    } catch {
+      /* 忽略 */
+    }
+    try {
+      rmSync(profileDir, { recursive: true, force: true })
+    } catch {
+      /* 忽略 */
+    }
   })
 
   test('开关没开 → 全局感叹号：不带 tabId，也不报任何数字', async () => {
@@ -279,7 +298,7 @@ test.describe.serial('工具栏角标（引擎未授权 → 全局感叹号）',
     // 「不分 tab」那层：感叹号设在**全局**、没有给任何标签页设专属值 —— 所以从标签页维度读回来不该是
     // 数字（未授权时压根不存在「这一页在跑几个脚本」这回事）
     const tabId = await sw.evaluate(
-      async () => ((await chrome.tabs.query({})).find((t) => t.id != null)?.id ?? -1),
+      async () => (await chrome.tabs.query({})).find((t) => t.id != null)?.id ?? -1,
     )
     expect(tabId, '应至少有一个标签页可读').toBeGreaterThan(0)
     expect(

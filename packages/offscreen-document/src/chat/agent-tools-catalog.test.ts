@@ -44,7 +44,9 @@ function shapeKeys(schema: unknown): string[] {
 describe('agent-tools-catalog 与运行时工具集一致', () => {
   it('工具名集合一致', () => {
     const runtime = Object.keys(runtimeTools()).sort()
-    const catalog = agentToolViews().map((t) => t.name).sort()
+    const catalog = agentToolViews()
+      .map((t) => t.name)
+      .sort()
     expect(catalog).toEqual(runtime)
   })
 

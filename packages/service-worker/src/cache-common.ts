@@ -41,14 +41,18 @@ export async function cachePutAll(
 ): Promise<void> {
   if (!records.length) return
   try {
-    await idbRunTx(opener, storeName, 'readwrite', (tx) =>
-      new Promise<void>((resolve) => {
-        const store = tx.objectStore(storeName)
-        for (const it of records) store.put(it)
-        tx.oncomplete = () => resolve()
-        tx.onerror = () => resolve() // 写失败不阻断，也别触发死连接重试
-        tx.onabort = () => resolve()
-      }),
+    await idbRunTx(
+      opener,
+      storeName,
+      'readwrite',
+      (tx) =>
+        new Promise<void>((resolve) => {
+          const store = tx.objectStore(storeName)
+          for (const it of records) store.put(it)
+          tx.oncomplete = () => resolve()
+          tx.onerror = () => resolve() // 写失败不阻断，也别触发死连接重试
+          tx.onabort = () => resolve()
+        }),
     )
   } catch {
     // 写不进就算了：下次抓取自然重写
@@ -61,12 +65,16 @@ export async function cacheClear(
   storeName: string,
   what: string,
 ): Promise<void> {
-  await idbRunTx(opener, storeName, 'readwrite', (tx) =>
-    new Promise<void>((resolve, reject) => {
-      tx.objectStore(storeName).clear()
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error ?? new Error(`${what}清除失败`))
-    }),
+  await idbRunTx(
+    opener,
+    storeName,
+    'readwrite',
+    (tx) =>
+      new Promise<void>((resolve, reject) => {
+        tx.objectStore(storeName).clear()
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error ?? new Error(`${what}清除失败`))
+      }),
   )
 }
 

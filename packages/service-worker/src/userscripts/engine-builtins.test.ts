@@ -115,4 +115,5 @@ describe('builtinsOnPage（某一页真正在用的内置件）', () => {
     expect(
       builtinsOnPage([floatHost, inspector], 'https://a.example/p', false).map((b) => b.id),
     ).toEqual(['dl-float-host', 'dl-page-inspector'])
-  })})
+  })
+})

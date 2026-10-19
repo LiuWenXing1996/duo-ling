@@ -47,7 +47,9 @@ class FakeXHR {
   }
 }
 
-function createFakeWindow(origFetch: (input: unknown, init?: unknown) => Promise<Response>): AnyWin {
+function createFakeWindow(
+  origFetch: (input: unknown, init?: unknown) => Promise<Response>,
+): AnyWin {
   const win: AnyWin = {
     location: { origin: 'https://page.test', href: 'https://page.test/app' },
     fetch: origFetch,
@@ -93,9 +95,12 @@ describe('dl-tab-recorder（MAIN 捕获件：机制框架 + net 种类）', () =
     const win = createFakeWindow(origFetch)
     const emitted = runRecorder(win)
 
-    const res = (await (win.fetch as (u: string, i?: unknown) => Promise<Response>)('https://api.test/users', {
-      headers: { Authorization: 'Bearer t', Accept: 'application/json' },
-    })) as Response
+    const res = (await (win.fetch as (u: string, i?: unknown) => Promise<Response>)(
+      'https://api.test/users',
+      {
+        headers: { Authorization: 'Bearer t', Accept: 'application/json' },
+      },
+    )) as Response
     // 页面拿到的响应必须原样（非阻塞采样）
     expect(await res.clone().text()).toContain('"code":0')
 
@@ -106,7 +111,12 @@ describe('dl-tab-recorder（MAIN 捕获件：机制框架 + net 种类）', () =
     expect(post.event.t).toBe('tab.record')
     expect(post.event.kind).toBe(NET_TAB_KIND)
     const c = post.event.record
-    expect(c).toMatchObject({ type: 'fetch', url: 'https://api.test/users', method: 'GET', status: 200 })
+    expect(c).toMatchObject({
+      type: 'fetch',
+      url: 'https://api.test/users',
+      method: 'GET',
+      status: 200,
+    })
     expect(c.reqHeaders).toEqual({ accept: 'application/json' }) // Authorization 被剥
     expect(c.respHeaders).toEqual({ 'content-type': 'application/json' }) // x-api-key 被剥
     expect(String(c.respBody)).toContain('data:') // 结构摘要（非原文）
@@ -150,7 +160,11 @@ describe('dl-tab-recorder（MAIN 捕获件：机制框架 + net 种类）', () =
     const win = createFakeWindow(async () => new Response('unused'))
     const emitted = runRecorder(win)
 
-    const XhrCtor = win.XMLHttpRequest as new () => FakeXHR & { open(m: string, u: string): void; setRequestHeader(n: string, v: string): void; send(b?: unknown): void }
+    const XhrCtor = win.XMLHttpRequest as new () => FakeXHR & {
+      open(m: string, u: string): void
+      setRequestHeader(n: string, v: string): void
+      send(b?: unknown): void
+    }
     const xhr = new XhrCtor()
     xhr.open('POST', 'https://api.test/login')
     xhr.setRequestHeader('Authorization', 'Bearer t')
@@ -161,7 +175,12 @@ describe('dl-tab-recorder（MAIN 捕获件：机制框架 + net 种类）', () =
     const post = emitted[0]
     expect(post.event.kind).toBe(NET_TAB_KIND)
     const c = post.event.record
-    expect(c).toMatchObject({ type: 'xhr', url: 'https://api.test/login', method: 'POST', status: 200 })
+    expect(c).toMatchObject({
+      type: 'xhr',
+      url: 'https://api.test/login',
+      method: 'POST',
+      status: 200,
+    })
     expect(c.reqHeaders).toEqual({ 'content-type': 'application/json' }) // 键归一为小写，Authorization 被剥
     expect(c.reqBody).toBe('{"u":1}')
     expect(c.respHeaders).toEqual({ 'content-type': 'application/json' }) // x-api-key 被剥
@@ -174,7 +193,9 @@ describe('dl-tab-recorder（MAIN 捕获件：机制框架 + net 种类）', () =
     })
     const win = createFakeWindow(origFetch)
     const emitted = runRecorder(win)
-    await expect((win.fetch as (u: string) => Promise<Response>)('https://api.test/x')).rejects.toThrow('network down')
+    await expect(
+      (win.fetch as (u: string) => Promise<Response>)('https://api.test/x'),
+    ).rejects.toThrow('network down')
     await waitFor(() => emitted.length > 0)
     expect(emitted[0].event.record.status).toBe(0)
   })
@@ -202,7 +223,9 @@ describe('dl-tab-recorder（MAIN 捕获件：机制框架 + net 种类）', () =
       },
     })
     installTabRecorder()
-    const res = (await (win.fetch as (u: string) => Promise<Response>)('https://api.test/x')) as Response
+    const res = (await (win.fetch as (u: string) => Promise<Response>)(
+      'https://api.test/x',
+    )) as Response
     expect(res.status).toBe(200) // 页面请求照常完成
   })
 })

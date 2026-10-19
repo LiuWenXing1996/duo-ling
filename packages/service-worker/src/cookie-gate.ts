@@ -9,8 +9,7 @@ import {
 
 /** 门判定结果：错误码与 ApiErrorCode 的同名项对齐，由调用方（dl-bridge）转成 ApiError */
 export type CookieGateResult =
-  | { ok: true }
-  | { ok: false; code: 'PERMISSION_DENIED' | 'INVALID_ARG'; message: string }
+  { ok: true } | { ok: false; code: 'PERMISSION_DENIED' | 'INVALID_ARG'; message: string }
 
 /** uuid → 该脚本的 cookie 作用域；null = 项目不存在 / 形态不对（拒绝） */
 const scopeCache = new Map<string, CookieScope | null>()
@@ -46,7 +45,9 @@ async function scopeOf(uuid: string): Promise<CookieScope | null> {
   let scope: CookieScope | null = null
   try {
     const project = await readProject(uuid)
-    scope = project ? { matches: project.config.matches, excludeMatches: project.config.excludeMatches } : null
+    scope = project
+      ? { matches: project.config.matches, excludeMatches: project.config.excludeMatches }
+      : null
   } catch {
     // 状态库读取失败：宁可拒绝也不放行（不缓存失败结果，下次重试）
     return null
@@ -72,11 +73,19 @@ function isCookieUsableUrl(url: string): boolean {
  */
 export async function checkCookieUrl(uuid: string, url: string): Promise<CookieGateResult> {
   if (typeof url !== 'string' || !url || !isCookieUsableUrl(url)) {
-    return { ok: false, code: 'INVALID_ARG', message: `GM_cookie：url 必须是 http(s) 地址（收到 ${JSON.stringify(url)}）` }
+    return {
+      ok: false,
+      code: 'INVALID_ARG',
+      message: `GM_cookie：url 必须是 http(s) 地址（收到 ${JSON.stringify(url)}）`,
+    }
   }
   const scope = await scopeOf(uuid)
   if (!scope || !urlInCookieScope(scope, url)) {
-    return { ok: false, code: 'PERMISSION_DENIED', message: `GM_cookie：${url} 不在本脚本的匹配域内` }
+    return {
+      ok: false,
+      code: 'PERMISSION_DENIED',
+      message: `GM_cookie：${url} 不在本脚本的匹配域内`,
+    }
   }
   return { ok: true }
 }

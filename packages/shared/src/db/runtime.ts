@@ -42,7 +42,10 @@ function createMergedStores(db: IDBDatabase): void {
   tabs.createIndex(RUNTIME_TABS_BY_SEEN, 'firstSeenAt') // 环形裁剪：按登记先后找最旧
   // 主键写进记录本身（keyPath）：读侧要拿 id 当行身份（面板的列表 key）。
   // 那种「主键只在表里、记录上读不到」的写法读回来的行没有 id —— 这张表不能用它。
-  const events = db.createObjectStore(RUNTIME_TAB_EVENTS_STORE, { keyPath: 'id', autoIncrement: true })
+  const events = db.createObjectStore(RUNTIME_TAB_EVENTS_STORE, {
+    keyPath: 'id',
+    autoIncrement: true,
+  })
   events.createIndex(RUNTIME_EV_BY_SESSION_SEQ, ['tabSessionId', 'id']) // 按页取整根轴 / 按页级联删除 / 按游标增量续拉
   events.createIndex(RUNTIME_EV_BY_KIND_RUN, ['kind', 'runId']) // 按运行精确取那一行 / 按运行拉动作（见 kindRunRange）
   events.createIndex(RUNTIME_EV_BY_ERR, 'errId') // 按错误 id 读（AI 的 error_read）
@@ -59,7 +62,11 @@ export function getRuntimeDb(): IdbOpener {
     upgrade: (db, tx, oldVersion) => {
       // 拆表时代的旧形状与合表后的形状不兼容：删表重建，旧数据丢弃
       if (oldVersion < MERGED_SCHEMA_VERSION) {
-        for (const name of [...LEGACY_STORES, RUNTIME_TAB_SESSIONS_STORE, RUNTIME_TAB_EVENTS_STORE]) {
+        for (const name of [
+          ...LEGACY_STORES,
+          RUNTIME_TAB_SESSIONS_STORE,
+          RUNTIME_TAB_EVENTS_STORE,
+        ]) {
           if (db.objectStoreNames.contains(name)) db.deleteObjectStore(name)
         }
         createMergedStores(db)
@@ -74,7 +81,8 @@ export function getRuntimeDb(): IdbOpener {
       // v8 → v9：面板按游标增量续拉，单键索引做不了「比某个 id 新」的裁剪，换成 [页, id]。
       // 同款处理：只摘旧的、补新的，一行数据都不碰。
       if (oldVersion < 9) {
-        if (events.indexNames.contains(LEGACY_EV_BY_SESSION)) events.deleteIndex(LEGACY_EV_BY_SESSION)
+        if (events.indexNames.contains(LEGACY_EV_BY_SESSION))
+          events.deleteIndex(LEGACY_EV_BY_SESSION)
         if (!events.indexNames.contains(RUNTIME_EV_BY_SESSION_SEQ)) {
           events.createIndex(RUNTIME_EV_BY_SESSION_SEQ, ['tabSessionId', 'id'])
         }

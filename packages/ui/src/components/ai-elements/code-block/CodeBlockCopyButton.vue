@@ -14,12 +14,9 @@ interface Props extends /* @vue-ignore */ CodeBlockCopyButtonProps {
   class?: HTMLAttributes['class']
 }
 
-const props = withDefaults(
-  defineProps<Props>(),
-  {
-    timeout: 2000,
-  },
-)
+const props = withDefaults(defineProps<Props>(), {
+  timeout: 2000,
+})
 
 const emit = defineEmits<{
   (event: 'copy'): void
@@ -54,8 +51,7 @@ async function copyToClipboard() {
     resetTimer = setTimeout(() => {
       isCopied.value = false
     }, props.timeout)
-  }
-  catch (error) {
+  } catch (error) {
     emit('error', error instanceof Error ? error : new Error('Copy failed'))
   }
 }

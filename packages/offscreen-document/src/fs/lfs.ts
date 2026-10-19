@@ -106,7 +106,15 @@ export async function readLfsFile(path: string): Promise<LfsFileContent> {
   const truncated = size > LFS_READ_MAX_BYTES
   const view = truncated ? raw.subarray(0, LFS_READ_MAX_BYTES) : raw
   if (isBinaryContent(view)) {
-    return { path, size, read: view.length, truncated, encoding: 'base64', binary: true, content: bytesToBase64(view) }
+    return {
+      path,
+      size,
+      read: view.length,
+      truncated,
+      encoding: 'base64',
+      binary: true,
+      content: bytesToBase64(view),
+    }
   }
   const content = new TextDecoder('utf-8', { fatal: false }).decode(view)
   return { path, size, read: view.length, truncated, encoding: 'utf8', binary: false, content }

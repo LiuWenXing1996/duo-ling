@@ -219,7 +219,9 @@ async function toggleTabActivity(next: boolean): Promise<void> {
               <span class="size-1.5 shrink-0 rounded-full bg-primary" />
               <span class="min-w-0 truncate text-xs">正在记录</span>
             </template>
-            <span v-else class="min-w-0 truncate text-xs text-muted-foreground">{{ idleLabel }}</span>
+            <span v-else class="min-w-0 truncate text-xs text-muted-foreground">{{
+              idleLabel
+            }}</span>
           </span>
           <ui-switch
             :model-value="tabRecording"
@@ -257,7 +259,10 @@ async function toggleTabActivity(next: boolean): Promise<void> {
       <div class="rounded-md border border-border">
         <div class="flex h-8 items-center gap-2 px-2.5">
           <span class="shrink-0 text-xs text-muted-foreground">脚本</span>
-          <span class="min-w-0 truncate text-xs tabular-nums" data-testid="popup-current-scripts-summary">
+          <span
+            class="min-w-0 truncate text-xs tabular-nums"
+            data-testid="popup-current-scripts-summary"
+          >
             {{ scriptSummary }}
           </span>
           <UiBadge
@@ -336,7 +341,10 @@ async function toggleTabActivity(next: boolean): Promise<void> {
       <div class="rounded-md border border-border">
         <div class="flex h-8 items-center gap-2 px-2.5">
           <span class="shrink-0 text-xs text-muted-foreground">对话</span>
-          <span class="flex min-w-0 flex-1 items-center gap-1.5" data-testid="popup-current-conversation">
+          <span
+            class="flex min-w-0 flex-1 items-center gap-1.5"
+            data-testid="popup-current-conversation"
+          >
             <template v-if="conversationLabel">
               <span class="size-1.5 shrink-0 rounded-full bg-primary" />
               <span class="min-w-0 truncate text-xs">{{ conversationLabel }}</span>

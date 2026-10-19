@@ -90,7 +90,9 @@ export async function fetchResourceSources(decls: ResourceDecl[]): Promise<Resou
         results.push({ name: decl.name, url: decl.url, ok: false, error: `HTTP ${resp.status}` })
         continue
       }
-      const mime = (resp.headers.get('content-type') ?? 'application/octet-stream').split(';')[0]!.trim()
+      const mime = (resp.headers.get('content-type') ?? 'application/octet-stream')
+        .split(';')[0]!
+        .trim()
       const buf = new Uint8Array(await resp.arrayBuffer())
       const base64 = bytesToBase64(buf)
       const text = new TextDecoder().decode(buf)

@@ -46,8 +46,7 @@ const inCard = (w: VueWrapper, card: string, testid: string) =>
   w.find(`[data-testid="${card}"] [data-testid="${testid}"]`)
 
 /** 单张卡片的文本（页面级 text() 已不适合断言「这张卡有没有给步骤」） */
-const cardText = (w: VueWrapper, card: string): string =>
-  w.find(`[data-testid="${card}"]`).text()
+const cardText = (w: VueWrapper, card: string): string => w.find(`[data-testid="${card}"]`).text()
 
 /** 带「允许访问文件网址」探测结果的 chrome 壳（null = 不提供 extension，模拟探测不到） */
 function stubChrome(fileAccess: boolean | null): void {
@@ -105,7 +104,9 @@ describe('GuidePanel 读取本地文件（允许访问文件网址）', () => {
     expect(w.find('[data-testid="guide-file-access-status"]').text()).toBe('未开启')
     // 步骤里点名要开的那道开关
     expect(text(w)).toContain('允许访问文件网址')
-    expect(inCard(w, 'guide-file-access', 'guide-file-access-open-extension-page').exists()).toBe(true)
+    expect(inCard(w, 'guide-file-access', 'guide-file-access-open-extension-page').exists()).toBe(
+      true,
+    )
   })
 
   it('已开启：标「已开启」，不再给步骤与直达', async () => {
@@ -114,14 +115,18 @@ describe('GuidePanel 读取本地文件（允许访问文件网址）', () => {
     expect(w.find('[data-testid="guide-file-access-status"]').text()).toBe('已开启')
     // 「允许访问文件网址」只出现在步骤里，步骤没了这句话就没了
     expect(text(w)).not.toContain('允许访问文件网址')
-    expect(inCard(w, 'guide-file-access', 'guide-file-access-open-extension-page').exists()).toBe(false)
+    expect(inCard(w, 'guide-file-access', 'guide-file-access-open-extension-page').exists()).toBe(
+      false,
+    )
   })
 
   it('探测不到（各版本 API 缺失）：标「未能检测」并照给步骤，不硬说「未开启」', async () => {
     stubChrome(null)
     const w = await mountPanel(base)
     expect(w.find('[data-testid="guide-file-access-status"]').text()).toBe('未能检测')
-    expect(inCard(w, 'guide-file-access', 'guide-file-access-open-extension-page').exists()).toBe(true)
+    expect(inCard(w, 'guide-file-access', 'guide-file-access-open-extension-page').exists()).toBe(
+      true,
+    )
   })
 })
 

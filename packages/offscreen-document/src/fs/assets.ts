@@ -41,7 +41,10 @@ function assertSafeAssetId(id: unknown): asserts id is string {
 export function safeFilename(name: string): string {
   const base = name.split(/[/\\]/).pop() ?? ''
   // eslint-disable-next-line no-control-regex -- 控制字符在文件名里只会惹祸，必须滤掉
-  const cleaned = base.replace(/[\u0000-\u001f\u007f]/g, '').replace(/^\.+$/, '').trim()
+  const cleaned = base
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/^\.+$/, '')
+    .trim()
   return cleaned || 'file'
 }
 

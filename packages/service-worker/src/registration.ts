@@ -6,7 +6,13 @@
 // （检查器 / 浮层 / 录制件）经 host-config 的 builtins 注入点挂进全量链。
 // 主走 MAIN 世界注入、GM 包装同函数作用域、注入代码与 @require 拼一条 code、
 // 不给脚本世界配 csp（不放开 eval）—— 机制与理由见 ARCHITECTURE.md「脚本注入」节。
-import type { ScriptProject, ScriptConfig, GmInfo, Json, UserScriptsAvailability } from '@duoling/shared'
+import type {
+  ScriptProject,
+  ScriptConfig,
+  GmInfo,
+  Json,
+  UserScriptsAvailability,
+} from '@duoling/shared'
 // 可用性形状归契约包（应用侧状态横幅与 offscreen 都认），此处 re-export 维持包内路径不变。
 export type { UserScriptsAvailability }
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
@@ -121,9 +127,7 @@ export async function ensureWorldsConfigured(): Promise<boolean> {
   if (!worldsConfigured) return false
   try {
     const registered = await chrome.userScripts.getScripts()
-    const worldIds = [
-      ...new Set(registered.map((s) => s.worldId).filter((v): v is string => !!v)),
-    ]
+    const worldIds = [...new Set(registered.map((s) => s.worldId).filter((v): v is string => !!v))]
     for (const wid of worldIds) {
       const ok = await configureWorld(wid)
       if (!ok) console.warn('[duoling:userscript] 脚本世界配置失败（messaging）', wid)
@@ -205,7 +209,9 @@ function buildGmInfo(
     scriptMetaStr: parsed?.raw ?? '',
     scriptHandler: extensionName(),
     // manifest 版本（真实 SW 恒有）；兜底空串 —— 测试环境 / 异形宿主不因 GM_info 组装而炸
-    version: (typeof chrome.runtime?.getManifest === 'function' && chrome.runtime.getManifest().version) || '',
+    version:
+      (typeof chrome.runtime?.getManifest === 'function' && chrome.runtime.getManifest().version) ||
+      '',
     uuid: project.uuid,
     sandboxMode: 'raw',
     // GM_download 走浏览器下载器（chrome.downloads）→ 档位如实报 browser，供脚本判「能不能弹另存为」
@@ -316,7 +322,9 @@ function noteRegisterError(rec: {
   phase: 'register' | 'require' | 'resource'
   message: string
 }): void {
-  void telemetryPort()?.appendError?.(rec).catch(() => {})
+  void telemetryPort()
+    ?.appendError?.(rec)
+    .catch(() => {})
 }
 
 /** 全量读侧：启用在前，组内按源码保存时间倒序（最近保存的排在最上面） */
@@ -334,7 +342,9 @@ async function listProjectsSorted(): Promise<ScriptProject[]> {
 export async function registerScript(project: ScriptProject): Promise<void> {
   if (!project.enabled) return
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') {
-    throw new Error('用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限')
+    throw new Error(
+      '用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限',
+    )
   }
   if (!project.config.matches?.length) {
     throw new Error('脚本缺少匹配规则（matches），不会在任何页面运行')
@@ -387,7 +397,8 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   }
   const resources: Record<string, { text: string; url: string }> = {}
   for (const r of resourceResults) {
-    if (r.ok && r.dataUrl != null && r.text != null) resources[r.name] = { text: r.text, url: r.dataUrl }
+    if (r.ok && r.dataUrl != null && r.text != null)
+      resources[r.name] = { text: r.text, url: r.dataUrl }
   }
   // 注入 code **必须拼成一条**：包装前缀、@require、脚本源码、闭合后缀要在同一个函数作用域里，
   // 脚本才能按词法拿到 `GM_*`（见 gm-wrapper.ts 文件头）。拆成多条 js 会各自独立求值 ——
@@ -503,7 +514,12 @@ async function runRegisterAllEnabled(): Promise<void> {
       await registerScript(project)
     } catch (e) {
       console.error('[duoling:userscript] 注册失败', project.uuid, e)
-      noteRegisterError({ uuid: project.uuid, name: project.name, phase: 'register', message: errorText(e) })
+      noteRegisterError({
+        uuid: project.uuid,
+        name: project.name,
+        phase: 'register',
+        message: errorText(e),
+      })
     }
   }
 }

@@ -6,7 +6,13 @@
 // 点文件经 fsLfsReadFile 拉内容，右栏预览（文本走 shiki 高亮、可复制；二进制里的图片直接显示，其余提示不可预览）。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useDataSync } from '@duoling/ui/composables/use-data-sync'
-import { Check as UiCheck, Copy as UiCopy, FileText as UiFileText, FolderTree as UiFolderTree, RefreshCw as UiRefreshCw } from '@lucide/vue'
+import {
+  Check as UiCheck,
+  Copy as UiCopy,
+  FileText as UiFileText,
+  FolderTree as UiFolderTree,
+  RefreshCw as UiRefreshCw,
+} from '@lucide/vue'
 import { CodeBlockContent } from '@duoling/ui/components/ai-elements/code-block'
 import { inferLanguage } from '../../lib/code-view'
 import { FileTree } from '@duoling/ui/components/ai-elements/file-tree'
@@ -14,7 +20,7 @@ import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
-  TooltipTrigger as UiTooltipTrigger
+  TooltipTrigger as UiTooltipTrigger,
 } from '@duoling/ui/components/ui/tooltip'
 import LfsTreeNode from './LfsTreeNode.vue'
 import { offscreenService, userscriptClient } from '@duoling/ui/lib/userscripts/ui-client'
@@ -190,9 +196,7 @@ useDataSync('script', () => load())
     <div class="flex items-center gap-2 border-b border-border px-4 py-2.5">
       <ui-folder-tree class="size-4 text-muted-foreground" />
       <span class="text-sm font-medium">文件管理</span>
-      <span v-if="tree" class="text-xs text-muted-foreground">
-        {{ fileCount }} 个文件 · 只读
-      </span>
+      <span v-if="tree" class="text-xs text-muted-foreground"> {{ fileCount }} 个文件 · 只读 </span>
       <span class="flex-1" />
       <button
         type="button"
@@ -211,10 +215,7 @@ useDataSync('script', () => load())
       读取失败：{{ error }}
     </p>
     <p v-else-if="loading && !tree" class="px-4 py-4 text-xs text-muted-foreground">读取中…</p>
-    <p
-      v-else-if="!tree"
-      class="px-4 py-4 text-xs leading-relaxed text-muted-foreground"
-    >
+    <p v-else-if="!tree" class="px-4 py-4 text-xs leading-relaxed text-muted-foreground">
       库为空或尚未创建。保存脚本或发过带图的消息后会建库，届时点「刷新」。
     </p>
 
@@ -236,7 +237,10 @@ useDataSync('script', () => load())
       <!-- 右：预览（仅选中文件时出现；点目录保持占位提示） -->
       <div class="flex min-w-0 flex-1 flex-col">
         <!-- 预览头：路径 + 大小 + 复制 -->
-        <div v-if="selectedPath && nodeType.get(selectedPath) === 'file'" class="flex items-center gap-2 border-b border-border px-3 py-1.5">
+        <div
+          v-if="selectedPath && nodeType.get(selectedPath) === 'file'"
+          class="flex items-center gap-2 border-b border-border px-3 py-1.5"
+        >
           <ui-file-text class="size-3.5 shrink-0 text-muted-foreground" />
           <span class="truncate font-mono text-xs text-muted-foreground">{{ selectedPath }}</span>
           <span v-if="preview" class="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">
@@ -263,9 +267,16 @@ useDataSync('script', () => load())
 
         <!-- 预览体 -->
         <div class="min-h-0 flex-1 overflow-auto">
-          <p v-if="!selectedPath || nodeType.get(selectedPath) !== 'file'" class="p-4 text-xs text-muted-foreground">点击左侧文件查看内容</p>
+          <p
+            v-if="!selectedPath || nodeType.get(selectedPath) !== 'file'"
+            class="p-4 text-xs text-muted-foreground"
+          >
+            点击左侧文件查看内容
+          </p>
           <p v-else-if="previewLoading" class="p-4 text-xs text-muted-foreground">读取中…</p>
-          <p v-else-if="previewError" class="p-4 text-xs text-destructive">读取失败：{{ previewError }}</p>
+          <p v-else-if="previewError" class="p-4 text-xs text-destructive">
+            读取失败：{{ previewError }}
+          </p>
           <!-- 二进制图片直接画出来（字节已在内存里，不必再取一次）；超上限截断时头部已标「预览前 X」 -->
           <div
             v-else-if="previewImageUrl && !imageUndecodable"
@@ -276,9 +287,12 @@ useDataSync('script', () => load())
               :alt="selectedPath"
               class="max-h-[70vh] max-w-full object-contain"
               @error="imageUndecodable = true"
-            >
+            />
           </div>
-          <p v-else-if="preview && preview.binary" class="p-4 text-xs leading-relaxed text-muted-foreground">
+          <p
+            v-else-if="preview && preview.binary"
+            class="p-4 text-xs leading-relaxed text-muted-foreground"
+          >
             {{ binaryHint }}
           </p>
           <CodeBlockContent

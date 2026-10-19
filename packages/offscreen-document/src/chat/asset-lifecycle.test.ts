@@ -38,7 +38,10 @@ function imageMsg(conversationId: string, assetId: string, seconds = 0): Assista
     role: 'assistant',
     content: '',
     parts: [
-      { type: 'data-asset', data: { id: assetId, filename: 'a.png', mediaType: 'image/png', size: 3 } },
+      {
+        type: 'data-asset',
+        data: { id: assetId, filename: 'a.png', mediaType: 'image/png', size: 3 },
+      },
     ],
     createdAt: new Date(Date.parse('2020-01-01T00:00:00.000Z') + seconds * 1000).toISOString(),
   }

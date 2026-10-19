@@ -14,7 +14,7 @@ import {
   Tabs as UiTabs,
   TabsContent as UiTabsContent,
   TabsList as UiTabsList,
-  TabsTrigger as UiTabsTrigger
+  TabsTrigger as UiTabsTrigger,
 } from '@duoling/ui/components/ui/tabs'
 import { SETTINGS_SECTIONS } from './settings/sections'
 import type { WorkspaceTabKind } from '../types/tab'
@@ -36,11 +36,7 @@ const activeSection = ref(SETTINGS_SECTIONS[0]?.id ?? '')
 
 <template>
   <section class="panel settings-panel">
-    <ui-tabs
-      v-model="activeSection"
-      orientation="vertical"
-      class="flex min-h-0 flex-1"
-    >
+    <ui-tabs v-model="activeSection" orientation="vertical" class="flex min-h-0 flex-1">
       <!-- 左栏：分区导航。纵向 TabsList，覆盖 base 的横排 pill 样式（与工作台标签栏同一做法）：
            flex-col 竖排、左对齐、铺满高度；激活项靠 data-[state=active]:bg-background 反衬 bg-muted 底 -->
       <ui-tabs-list
@@ -61,7 +57,10 @@ const activeSection = ref(SETTINGS_SECTIONS[0]?.id ?? '')
             <ui-compass class="size-4 shrink-0" />
             <span class="truncate">引导</span>
           </button>
-          <ui-tabs-trigger :value="section.id" class="w-full justify-start gap-2 px-3 py-1.5 text-[13px]">
+          <ui-tabs-trigger
+            :value="section.id"
+            class="w-full justify-start gap-2 px-3 py-1.5 text-[13px]"
+          >
             <component :is="section.icon" class="size-4 shrink-0" />
             <span class="truncate">{{ section.label }}</span>
           </ui-tabs-trigger>
@@ -79,10 +78,7 @@ const activeSection = ref(SETTINGS_SECTIONS[0]?.id ?? '')
         >
           <!-- 分区 emit openTab 时往上转（当前只有开发者分区会发）；其余分区没声明这个事件，
                Vue 会把监听器落到它们的根元素上：不触发，无副作用 -->
-          <component
-            :is="section.component"
-            @open-tab="forwardOpenTab"
-          />
+          <component :is="section.component" @open-tab="forwardOpenTab" />
         </ui-tabs-content>
       </div>
     </ui-tabs>

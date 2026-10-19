@@ -15,10 +15,12 @@ const style: CSSProperties = {
 
 <template>
   <div
-    :class="cn(
-      'group relative w-full overflow-hidden rounded-md border bg-background text-foreground',
-      props.class,
-    )"
+    :class="
+      cn(
+        'group relative w-full overflow-hidden rounded-md border bg-background text-foreground',
+        props.class,
+      )
+    "
     :data-language="props.language"
     :style="style"
     v-bind="$attrs"

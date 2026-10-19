@@ -170,7 +170,11 @@ export function initPageMonitorPorts(): void {
         void snapshotFor(msg.tabId)
           .then((snap) => {
             try {
-              port.postMessage({ t: 'page:snapshot', tabId: msg.tabId, ...snap } satisfies PanelMonitorPush)
+              port.postMessage({
+                t: 'page:snapshot',
+                tabId: msg.tabId,
+                ...snap,
+              } satisfies PanelMonitorPush)
             } catch {
               // 面板恰好在回包前关掉：丢弃
             }

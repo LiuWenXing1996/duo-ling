@@ -60,7 +60,9 @@ function loadShikiRuntime(): Promise<ShikiRuntime> {
   return shikiRuntime
 }
 
-function getHighlighter(language: CodeLanguage): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> {
+function getHighlighter(
+  language: CodeLanguage,
+): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> {
   const cached = highlighterCache.get(language)
   if (cached) {
     return cached
@@ -81,7 +83,7 @@ function getHighlighter(language: CodeLanguage): Promise<HighlighterGeneric<Bund
 // Create raw tokens for immediate display while highlighting loads
 export function createRawTokens(code: string): TokenizedCode {
   return {
-    tokens: code.split('\n').map(line =>
+    tokens: code.split('\n').map((line) =>
       line === ''
         ? []
         : [

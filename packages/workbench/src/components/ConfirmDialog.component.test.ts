@@ -13,14 +13,16 @@ const byText = (text: string): HTMLButtonElement | undefined =>
 const btn = (text: string): DOMWrapper<HTMLButtonElement> =>
   new DOMWrapper<HTMLButtonElement>(byText(text)!)
 
-async function mountDialog(props: {
-  open?: boolean
-  title?: string
-  description?: string
-  confirmText?: string
-  cancelText?: string
-  danger?: boolean
-} = {}) {
+async function mountDialog(
+  props: {
+    open?: boolean
+    title?: string
+    description?: string
+    confirmText?: string
+    cancelText?: string
+    danger?: boolean
+  } = {},
+) {
   const wrapper = mount(ConfirmDialog, {
     props: { open: true, title: '删除脚本？', ...props },
     attachTo: document.body,

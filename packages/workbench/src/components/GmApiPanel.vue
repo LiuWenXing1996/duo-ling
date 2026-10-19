@@ -38,7 +38,9 @@ const query = computed(() => keyword.value.trim().toLowerCase())
 const matched = computed<GmApiEntry[] | null>(() => {
   if (!query.value) return null
   return ALL_ENTRIES.filter((e) =>
-    `${e.path} ${e.title} ${e.signature} ${e.summary} ${e.detail}`.toLowerCase().includes(query.value),
+    `${e.path} ${e.title} ${e.signature} ${e.summary} ${e.detail}`
+      .toLowerCase()
+      .includes(query.value),
   )
 })
 
@@ -66,13 +68,17 @@ function setOpen(path: string, v: boolean): void {
   <section class="flex h-full min-h-0 min-w-0" data-testid="gm-api-panel">
     <!-- 左栏：搜索 + 分组导航 -->
     <aside class="flex min-h-0 w-72 shrink-0 flex-col border-r border-border">
-      <header class="flex items-center gap-1.5 border-b border-border px-3 py-2 text-sm font-medium">
+      <header
+        class="flex items-center gap-1.5 border-b border-border px-3 py-2 text-sm font-medium"
+      >
         <ui-code class="size-4 text-muted-foreground" />
         GM API（{{ ALL_ENTRIES.length }}）
       </header>
 
       <div class="relative border-b border-border p-2">
-        <ui-search class="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <ui-search
+          class="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+        />
         <ui-input
           v-model="keyword"
           class="h-8 pl-8 text-xs"
@@ -88,7 +94,10 @@ function setOpen(path: string, v: boolean): void {
           class="mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors"
           :class="group === ALL && !query ? 'bg-muted' : 'hover:bg-muted/60'"
           data-testid="gm-api-group-all"
-          @click="group = ALL; keyword = ''"
+          @click="
+            group = ALL
+            keyword = ''
+          "
         >
           <span class="min-w-0 flex-1 truncate text-sm">全部</span>
           <span class="shrink-0 text-xs text-muted-foreground">{{ ALL_ENTRIES.length }}</span>
@@ -101,7 +110,10 @@ function setOpen(path: string, v: boolean): void {
           class="mb-1 w-full rounded-md px-2 py-1.5 text-left transition-colors"
           :class="group === g.id && !query ? 'bg-muted' : 'hover:bg-muted/60'"
           :data-testid="`gm-api-group-${g.id}`"
-          @click="group = g.id; keyword = ''"
+          @click="
+            group = g.id
+            keyword = ''
+          "
         >
           <span class="flex items-center gap-2">
             <span class="min-w-0 flex-1 truncate text-sm">{{ g.title }}</span>
@@ -163,14 +175,24 @@ function setOpen(path: string, v: boolean): void {
 
           <ui-collapsible-content class="overflow-hidden">
             <div class="border-t border-border/60 p-3">
-              <pre class="overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">{{ e.signature }}</pre>
+              <pre
+                class="overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed"
+                >{{ e.signature }}</pre>
             </div>
             <div class="border-t border-border/60 p-3">
-              <h4 class="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">说明</h4>
+              <h4
+                class="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                说明
+              </h4>
               <p class="text-xs leading-relaxed text-muted-foreground">{{ e.detail }}</p>
             </div>
             <div class="border-t border-border/60 p-3">
-              <h4 class="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">返回</h4>
+              <h4
+                class="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                返回
+              </h4>
               <p class="break-words font-mono text-[11px] leading-relaxed">{{ e.returns }}</p>
             </div>
           </ui-collapsible-content>

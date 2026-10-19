@@ -34,4 +34,4 @@ export type PanelMonitorPush =
 /** 面板 → SW 的监控上行（同端口） */
 export type PanelMonitorUp =
   /** 按面板自己归属的那个 tab 拉快照（面板刚打开 / 挂载时；归属怎么定见 lib/owning-tab.ts） */
-  | { t: 'page:snapshot'; tabId: number }
+  { t: 'page:snapshot'; tabId: number }

@@ -10,7 +10,12 @@
 import { describe, expect, it } from 'vitest'
 import type { UIMessage } from 'ai'
 import type { Message } from './conversation'
-import { toPersistedMessage, toUiMessage, messageTime, withMessageTime } from './conversation-message'
+import {
+  toPersistedMessage,
+  toUiMessage,
+  messageTime,
+  withMessageTime,
+} from './conversation-message'
 
 const ui = (overrides?: Partial<UIMessage>): UIMessage => ({
   id: 'u1',
@@ -43,7 +48,12 @@ describe('toPersistedMessage', () => {
 
   it('user：多段 text part 按顺序拼接', () => {
     const m = toPersistedMessage(
-      ui({ parts: [{ type: 'text', text: '前段' }, { type: 'text', text: '后段' }] }),
+      ui({
+        parts: [
+          { type: 'text', text: '前段' },
+          { type: 'text', text: '后段' },
+        ],
+      }),
       { conversationId: 'c1' },
     )
     expect(m.content).toBe('前段后段')
@@ -86,7 +96,10 @@ describe('toPersistedMessage', () => {
     const full = toPersistedMessage(
       ui({
         role: 'assistant',
-        parts: [{ type: 'reasoning', text: '想想' }, { type: 'text', text: '答案' }],
+        parts: [
+          { type: 'reasoning', text: '想想' },
+          { type: 'text', text: '答案' },
+        ],
       }),
       {
         conversationId: 'c1',
@@ -158,7 +171,10 @@ describe('toUiMessage', () => {
 
 describe('messageTime / withMessageTime', () => {
   it('时间取落盘时间（历史消息一读就有，不必面板另补）', () => {
-    const stored = toPersistedMessage(ui(), { conversationId: 'c1', createdAt: '2026-09-19T04:08:44.000Z' })
+    const stored = toPersistedMessage(ui(), {
+      conversationId: 'c1',
+      createdAt: '2026-09-19T04:08:44.000Z',
+    })
     expect(messageTime(toUiMessage(stored))).toBe('2026-09-19T04:08:44.000Z')
   })
 

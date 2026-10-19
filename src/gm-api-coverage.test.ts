@@ -22,7 +22,10 @@ import { gmApiEntries } from '@duoling/shared'
 import { COVERS } from '../packages/user-scripts/src/samples/omni-probe/covers'
 
 /** 探针构建产物（test 脚本先 `pnpm -r build`；单跑 vitest 前需先 build 一次） */
-const PROBE_DIST_URL = new URL('../packages/user-scripts/dist/samples/omni-probe/omni-probe.user.js', import.meta.url)
+const PROBE_DIST_URL = new URL(
+  '../packages/user-scripts/dist/samples/omni-probe/omni-probe.user.js',
+  import.meta.url,
+)
 function probeDist(): string {
   if (!existsSync(PROBE_DIST_URL)) {
     throw new Error('探针产物不存在：先跑 pnpm -r build 生成 packages/user-scripts/dist/samples/')
@@ -31,10 +34,14 @@ function probeDist(): string {
 }
 
 /** 用例源码目录（登记表 probe 字段的对齐面） */
-const CASES_DIR = fileURLToPath(new URL('../packages/user-scripts/src/samples/omni-probe/cases/', import.meta.url))
+const CASES_DIR = fileURLToPath(
+  new URL('../packages/user-scripts/src/samples/omni-probe/cases/', import.meta.url),
+)
 
 /** 目录路径（收窄成 string：登记表那侧是自由文本，两边才好比） */
-const CATALOG: string[] = gmApiEntries().map((e) => e.path).sort()
+const CATALOG: string[] = gmApiEntries()
+  .map((e) => e.path)
+  .sort()
 /** 登记表里出现过的全部路径 */
 const DECLARED_PATHS = [...new Set(COVERS.flatMap((d) => d.paths))].sort()
 
@@ -61,7 +68,10 @@ describe('GM 全能探针覆盖目录', () => {
       // 允许「无路径」的登记（paths: []）：有些用例验的不是某个 API ——
       // 例如注入时机（run-at document-body），它们只需要证明「这条用例存在且已登记」，
       // 不认领目录里的任何路径。有路径时仍限制条数，好让报错能定位到是哪个 API。
-      expect(row.paths.length, `一条用例认领太多路径（报错定位不到是哪个 API）：${row.probe}`).toBeLessThanOrEqual(4)
+      expect(
+        row.paths.length,
+        `一条用例认领太多路径（报错定位不到是哪个 API）：${row.probe}`,
+      ).toBeLessThanOrEqual(4)
     }
   })
 
@@ -75,8 +85,14 @@ describe('GM 全能探针覆盖目录', () => {
     const cases = caseNames()
     expect(cases.length, '反射到的用例太少，锚点可能失效').toBeGreaterThan(20)
     const claimed = COVERS.map((d) => d.probe)
-    expect(claimed.filter((n) => !cases.includes(n)), '登记表里的用例名在探针里不存在（幽灵条目）').toEqual([])
-    expect(cases.filter((n) => !claimed.includes(n)), '探针里有没进登记表的用例（漏登记）').toEqual([])
+    expect(
+      claimed.filter((n) => !cases.includes(n)),
+      '登记表里的用例名在探针里不存在（幽灵条目）',
+    ).toEqual([])
+    expect(
+      cases.filter((n) => !claimed.includes(n)),
+      '探针里有没进登记表的用例（漏登记）',
+    ).toEqual([])
   })
 
   it('目录里的每条路径都被认领（探针不留空行）', () => {

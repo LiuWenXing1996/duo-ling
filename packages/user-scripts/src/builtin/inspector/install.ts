@@ -28,7 +28,18 @@ const SNAPSHOT_LIMIT = 32768
 /** 文本样本上限（字符） */
 const TEXT_LIMIT = 200
 /** 摘要层白名单关键属性（值一律截断） */
-const SUMMARY_ATTRS = ['name', 'type', 'placeholder', 'aria-label', 'role', 'href', 'title', 'alt', 'for', 'action']
+const SUMMARY_ATTRS = [
+  'name',
+  'type',
+  'placeholder',
+  'aria-label',
+  'role',
+  'href',
+  'title',
+  'alt',
+  'for',
+  'action',
+]
 /** 单属性值截断 */
 const ATTR_VALUE_LIMIT = 300
 /** 祖先链层数 */
@@ -74,7 +85,11 @@ function parentChain(el: Element): Array<{ tag: string; id?: string; classes: st
   const chain: Array<{ tag: string; id?: string; classes: string[] }> = []
   let node = el.parentElement
   while (node && chain.length < PARENT_DEPTH) {
-    chain.push({ tag: node.tagName.toLowerCase(), id: node.id || undefined, classes: classesOf(node) })
+    chain.push({
+      tag: node.tagName.toLowerCase(),
+      id: node.id || undefined,
+      classes: classesOf(node),
+    })
     node = node.parentElement
   }
   return chain
@@ -191,7 +206,11 @@ function runPick(): Promise<ElementPickContext | null> {
       tip.remove()
       resolve(payload || null)
     }
-    activePick = { cancel: function () { finish(null) } }
+    activePick = {
+      cancel: function () {
+        finish(null)
+      },
+    }
 
     function highlight(el: Element): void {
       const r = el.getBoundingClientRect()
@@ -297,7 +316,12 @@ export function installPageInspector(): void {
       __dlBridge.emit({
         __dlEvent: true,
         name: '页面检查器',
-        event: { t: 'inspector.result', reqId, ok, payload: payload === undefined ? null : payload },
+        event: {
+          t: 'inspector.result',
+          reqId,
+          ok,
+          payload: payload === undefined ? null : payload,
+        },
       })
     } catch {
       /* 桥不可用：丢弃，发起侧超时兜底 */

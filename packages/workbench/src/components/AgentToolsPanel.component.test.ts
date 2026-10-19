@@ -76,7 +76,14 @@ describe('AgentToolsPanel', () => {
     listMessages.mockResolvedValue([])
     wrapper = await mountPanel()
 
-    for (const name of ['script_spec', 'script_read', 'script_apply', 'element_read', 'page_snapshot', 'error_read']) {
+    for (const name of [
+      'script_spec',
+      'script_read',
+      'script_apply',
+      'element_read',
+      'page_snapshot',
+      'error_read',
+    ]) {
       expect(wrapper.find(`[data-testid="agent-tools-select-${name}"]`).exists()).toBe(true)
     }
 

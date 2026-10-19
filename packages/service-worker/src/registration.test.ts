@@ -52,7 +52,9 @@ describe('validateMatchPatterns', () => {
 
   it('excludeMatches 同样受校验', async () => {
     const { validateMatchPatterns } = await loadReg()
-    expect(() => validateMatchPatterns(config(['*://*/*'], ['not-a-pattern']))).toThrow(/not-a-pattern/)
+    expect(() => validateMatchPatterns(config(['*://*/*'], ['not-a-pattern']))).toThrow(
+      /not-a-pattern/,
+    )
   })
 })
 
@@ -72,7 +74,9 @@ describe('collectCspWarnings', () => {
 describe('projectFromSource', () => {
   it('源码声明 @name 时采纳（用户尚无命名意图，metadata 是输入）', async () => {
     const { projectFromSource } = await loadReg()
-    const p = projectFromSource('// ==UserScript==\n// @name 我的脚本\n// @match https://a.com/*\n// ==/UserScript==\nconsole.log(1)')
+    const p = projectFromSource(
+      '// ==UserScript==\n// @name 我的脚本\n// @match https://a.com/*\n// ==/UserScript==\nconsole.log(1)',
+    )
     expect(p.name).toBe('我的脚本')
     expect(p.config.matches).toEqual(['https://a.com/*'])
   })

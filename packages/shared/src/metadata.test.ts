@@ -94,7 +94,9 @@ describe('parseUserScriptMetadata', () => {
     expect(m1.name).toBe('英文名')
 
     // 只有本地化写法时，用它兜底（不丢名字）
-    const m2 = parseUserScriptMetadata('// ==UserScript==\n// @name:zh-CN 只有本地化\n// ==/UserScript==')!
+    const m2 = parseUserScriptMetadata(
+      '// ==UserScript==\n// @name:zh-CN 只有本地化\n// ==/UserScript==',
+    )!
     expect(m2.name).toBe('只有本地化')
 
     // 无后缀在前，后续本地化写法不覆盖
@@ -121,8 +123,12 @@ describe('parseUserScriptMetadata', () => {
   })
 
   it('@noframes 是无值键：有它即 true，没有即 false', () => {
-    expect(parseUserScriptMetadata('// ==UserScript==\n// @noframes\n// ==/UserScript==')!.noframes).toBe(true)
-    expect(parseUserScriptMetadata('// ==UserScript==\n// @name a\n// ==/UserScript==')!.noframes).toBe(false)
+    expect(
+      parseUserScriptMetadata('// ==UserScript==\n// @noframes\n// ==/UserScript==')!.noframes,
+    ).toBe(true)
+    expect(
+      parseUserScriptMetadata('// ==UserScript==\n// @name a\n// ==/UserScript==')!.noframes,
+    ).toBe(false)
   })
 })
 
@@ -175,7 +181,10 @@ describe('applyMetadataToConfig', () => {
 
   it('@exclude 走同一套转换：能转 match 的进 excludeMatches，纯路径进 excludeGlobs', () => {
     const r = applyMetadataToConfig(
-      mk({ matches: ['https://example.com/*'], excludes: ['https://example.com/private/*', '/admin/*'] }),
+      mk({
+        matches: ['https://example.com/*'],
+        excludes: ['https://example.com/private/*', '/admin/*'],
+      }),
       defaultConfig([]),
     )
     expect(r.config.excludeMatches).toEqual(['https://example.com/private/*'])
@@ -197,14 +206,20 @@ describe('applyMetadataToConfig', () => {
   })
 
   it('未声明匹配规则时沿用 fallback（导入路径 fallback 为空 → 落「不匹配任何页面」）', () => {
-    const keep = applyMetadataToConfig(mk({ name: '只有名字' }), defaultConfig(['https://a.example.com/*']))
+    const keep = applyMetadataToConfig(
+      mk({ name: '只有名字' }),
+      defaultConfig(['https://a.example.com/*']),
+    )
     expect(keep.config.matches).toEqual(['https://a.example.com/*'])
     const empty = applyMetadataToConfig(mk({ name: '只有名字' }), defaultConfig([]))
     expect(empty.config.matches).toEqual([])
   })
 
   it('源码声明优先于 fallback（逐字段：声明了就采用，没声明才沿用）', () => {
-    const r = applyMetadataToConfig(mk({ matches: ['https://x.example.com/*'] }), defaultConfig(['https://y.example.com/*']))
+    const r = applyMetadataToConfig(
+      mk({ matches: ['https://x.example.com/*'] }),
+      defaultConfig(['https://y.example.com/*']),
+    )
     expect(r.config.matches).toEqual(['https://x.example.com/*'])
     // 未声明的键仍沿用 fallback（defaultConfig 的默认值现在是 document_idle，对齐 TM）
     expect(r.config.runAt).toBe('document_idle')
@@ -212,13 +227,21 @@ describe('applyMetadataToConfig', () => {
   })
 
   it('@noframes 关掉 allFrames；没有它则沿用 fallback', () => {
-    expect(applyMetadataToConfig(mk({ noframes: true }), defaultConfig([])).config.allFrames).toBe(false)
-    expect(applyMetadataToConfig(mk({}), { ...defaultConfig([]), allFrames: false }).config.allFrames).toBe(false)
+    expect(applyMetadataToConfig(mk({ noframes: true }), defaultConfig([])).config.allFrames).toBe(
+      false,
+    )
+    expect(
+      applyMetadataToConfig(mk({}), { ...defaultConfig([]), allFrames: false }).config.allFrames,
+    ).toBe(false)
   })
 
   it('@run-at 映射（连字符与下划线两种写法都认）', () => {
-    expect(applyMetadataToConfig(mk({ runAtRaw: 'document-start' }), defaultConfig([])).config.runAt).toBe('document_start')
-    expect(applyMetadataToConfig(mk({ runAtRaw: 'document_idle' }), defaultConfig([])).config.runAt).toBe('document_idle')
+    expect(
+      applyMetadataToConfig(mk({ runAtRaw: 'document-start' }), defaultConfig([])).config.runAt,
+    ).toBe('document_start')
+    expect(
+      applyMetadataToConfig(mk({ runAtRaw: 'document_idle' }), defaultConfig([])).config.runAt,
+    ).toBe('document_idle')
   })
 
   it('@run-at 取值不认识时沿用原配置并不猜（写 notes）', () => {

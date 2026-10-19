@@ -61,12 +61,22 @@ test.describe.serial('会话归属按标签页', () => {
   test.afterAll(async () => {
     const withTimeout = (p: Promise<unknown> | undefined, ms: number) =>
       p ? Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]) : Promise.resolve()
-    try { await withTimeout(context?.close(), 30_000) } catch { /* 忽略 */ }
+    try {
+      await withTimeout(context?.close(), 30_000)
+    } catch {
+      /* 忽略 */
+    }
     try {
       stub.server.closeAllConnections()
       await withTimeout(new Promise<void>((r) => stub.server.close(() => r())), 5_000)
-    } catch { /* 忽略 */ }
-    try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    } catch {
+      /* 忽略 */
+    }
+    try {
+      rmSync(profileDir, { recursive: true, force: true })
+    } catch {
+      /* 忽略 */
+    }
   })
 
   test('打开面板不产生会话（没发消息就没有会话）', async () => {
