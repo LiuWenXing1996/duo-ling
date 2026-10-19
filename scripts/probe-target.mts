@@ -7,7 +7,7 @@
 //
 // 端点分两类：
 //   · 本项目自有 —— /probe.html（探针宿主页，把基址经 meta 下发给脚本）、/target.html、
-//     /favicon.ico、/bytes/:n
+//     /favicon.ico、/bytes/:n、/debug.html（调试入口页，dev 启动时自动打开）
 //   · httpbin 兼容子集 —— /get /post /headers /anything /delay/:s /absolute-redirect/:n
 //     响应形状对齐 httpbin，探针只换基址、用例里的断言判据不动
 //
@@ -37,6 +37,7 @@ export interface ProbeTarget {
   port: number
   base: string
   url: string
+  debugUrl: string
   close: () => Promise<void>
 }
 
@@ -226,9 +227,46 @@ const PROBE_RECORD_PANEL = `
 </script>
 `
 
+function debugPageHtml(base: string): string {
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>哆灵调试入口</title>
+<style>
+  body { margin: 0; padding: 40px 24px;
+    font: 14px/1.7 -apple-system, 'PingFang SC', sans-serif; color: #222; }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  .hint { margin: 0 0 24px; color: #666; font-size: 12px; }
+  ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  li { border: 1px solid #e4e4e4; border-radius: 8px; padding: 12px 14px; }
+  a { font-weight: 600; color: #1a5fd0; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  span { display: block; color: #666; font-size: 12px; }
+  code { font-size: 12px; }
+</style>
+</head><body><main>
+<h1>调试入口</h1>
+<p class="hint">靶站基址 <code>${base}</code></p>
+<ul>
+  <li>
+    <a href="/probe.html">探针页</a>
+    <span>脚本注入、GM API 与接口录制的手测宿主页</span>
+  </li>
+  <li>
+    <a href="/target.html">靶站页</a>
+    <span>普通页面，下载与资源类用例的落点</span>
+  </li>
+</ul>
+</main></body></html>`
+}
+
 function handle(req: IncomingMessage, res: ServerResponse, base: string) {
   const url = new URL(req.url || '/', base)
   const path = url.pathname
+
+  if (path === '/debug.html') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    return res.end(debugPageHtml(base))
+  }
 
   if (path === '/' || path === '/probe.html') {
     const html =
@@ -317,6 +355,7 @@ export function startProbeTarget({
         port: actual,
         base,
         url: `${base}/probe.html`,
+        debugUrl: `${base}/debug.html`,
         close: () =>
           new Promise<void>((done) => {
             server.closeAllConnections()
@@ -337,6 +376,7 @@ if (isCli) {
   )
   const target = await startProbeTarget({ port: Number.isFinite(port) ? port : DEFAULT_PORT })
   console.log(`[靶站] 已就绪：${target.base}`)
+  console.log(`[靶站] 调试入口页：${target.debugUrl}`)
   console.log(`[靶站] 探针页：${target.url}（脚本 @match 需覆盖该地址）`)
   console.log('[靶站] 保持本进程运行；Ctrl-C 结束')
 }

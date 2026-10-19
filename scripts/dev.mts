@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // `pnpm run dev` 的入口：先把靶站起在随机端口上，再起本机假模型，最后启动 WXT 开发模式。
 //
-// 为什么 dev 自带靶站：webExt.startUrls 打开的就是靶站探针页（地址由本脚本经环境变量注入，
+// 为什么 dev 自带靶站：webExt.startUrls 打开的是靶站的调试入口页（地址由本脚本经环境变量注入，
 // 见 wxt.config.ts），靶站不在跑那个地址就是死的。不跑 dev 的场景（加载已构建的 .output 产物
 // 做手测）用 `pnpm run probe:serve` 单起靶站。
 //
@@ -20,7 +20,8 @@ const MODEL_STUB_PORT = Number(process.env.DL_MODEL_STUB_PORT || DEFAULT_PORT)
 
 const target = await startProbeTarget({ port: 0 })
 console.log(`[dev] 靶站已就绪：${target.base}`)
-console.log(`[dev] 探针页（浏览器会自动打开）：${target.url}`)
+console.log(`[dev] 调试入口页（浏览器会自动打开）：${target.debugUrl}`)
+console.log(`[dev] 探针页：${target.url}`)
 
 let model
 try {
@@ -55,7 +56,7 @@ if (built.status !== 0) {
 const bin = process.platform === 'win32' ? 'wxt.cmd' : 'wxt'
 const child = spawn(bin, process.argv.slice(2), {
   stdio: 'inherit',
-  env: { ...process.env, DL_PROBE_URL: target.url },
+  env: { ...process.env, DL_DEBUG_URL: target.debugUrl },
 })
 
 const stop = () => child.kill('SIGINT')

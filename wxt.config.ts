@@ -239,9 +239,8 @@ export default defineConfig({
   webExt: {
     chromiumProfile: chromiumProfileDir,
     keepProfileChanges: true,
-    // 打开即本机靶站探针页（默认落在右下角一个可点的探针），省去每次手开页面验注入。
-    // 地址由 scripts/dev.mts 起靶站后经环境变量注入 —— 靶站端口是随机的，配置侧不写死端口；
-    // 不经 dev 跑（直接 `pnpm exec wxt`）时为空数组，即不自动开页。
-    startUrls: process.env.DL_PROBE_URL ? [process.env.DL_PROBE_URL] : [],
+    // 打开即靶站调试入口页（地址由 scripts/dev.mts 注入；端口随机，
+    // 直跑 wxt 时为空数组、不自动开页）
+    startUrls: process.env.DL_DEBUG_URL ? [process.env.DL_DEBUG_URL] : [],
   },
 })
