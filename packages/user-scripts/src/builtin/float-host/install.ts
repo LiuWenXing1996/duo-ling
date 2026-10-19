@@ -2,11 +2,6 @@
 // 运行位置：目标标签页的 MAIN 世界系统脚本（GM 包装注入，见应用侧 system-scripts.ts）；
 // 为什么常驻、注册面收敛与匹配面代价、占位符参数机制，见 docs/adr/0009-builtin-resident-scripts-registration.md。
 //
-// 指令（下行帧形状真相源是 shared 的 api-contract.ts 的 float.cmd）：
-//   open      挂上容器并展开，iframe 懒加载（首次展开才设 src）；tabId 随帧带（拼进 iframe
-//             的 `?tab=`，浮层据此认定会话归属）
-//   ping      在岗探针：回一条 float.pong（reqId 原样带上；结算认它 —— e2e 探活用）
-//
 // 位置只在本次页面内有效：不落库，刷新后回到右下角。
 // CSP 降级：iframe 加载失败（严格 frame-src 拦扩展 iframe）给可读提示 —— 可靠性靠 load 超时
 // 兜底（部分站点拦载不触发 error 事件），floatpanel.html 必须进 web_accessible_resources。
@@ -35,16 +30,6 @@ const ROOT_ID = 'duoling-float-root'
  */
 const PICKER_BOX_SELECTOR = `.${INSPECTOR_PICKER_NS}-box`
 
-/**
- * 脚本桥（GM 包装内联进同一作用域的 `__dlBridge`，恒注入）。
- * 形状真相源是同包 bridge-main 的 script-bridge.ts；这里只声明本件用到的方法。
- */
-declare const __dlBridge: {
-  connect(connId: string): Promise<void>
-  emit(envelope: Record<string, unknown>): void
-  onEvent(fn: (ev: Record<string, unknown>) => void): void
-}
-
 declare const DL: {
   registerBackgroundCommand(
     name: string,
@@ -52,11 +37,6 @@ declare const DL: {
     options?: { title?: string },
   ): () => void
 }
-
-/** 常驻通道的 connId（DL Port name 尾段；SW 寻址只认 uuid+tabId，connId 仅做连接身份） */
-const CHANNEL_CONN_ID = 'float'
-/** 断链自愈的重发间隔：SW 重启后中继件侧连接已清，重发 connect 帧重建 Port */
-const CHANNEL_RECONNECT_MS = 15_000
 
 const CSS = `
 .dl-float-container {
@@ -150,11 +130,11 @@ const CSS = `
 `
 
 /** 拖拽落点夹取用的两个尺寸形状 */
-export interface FloatHostPoint {
+interface FloatHostPoint {
   x: number
   y: number
 }
-export interface FloatHostSize {
+interface FloatHostSize {
   width: number
   height: number
 }
@@ -178,8 +158,6 @@ export function clampPoint(
 }
 
 /**
- * 安装本件：建常驻通道 + 装指令接收。装载本身不碰 DOM。
- *
  * 幂等：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态）。
  */
 export function installFloatHost(): void {
@@ -188,7 +166,6 @@ export function installFloatHost(): void {
 
   /**
    * 浮层页地址（构建期占位符，应用侧组系统脚本源码时替换成 JSON 字面量 —— 见文件头）。
-   * 替换没发生（空串）= 装不上，open 时按降级处理。
    */
   const panelUrl = '__DL_FLOAT_PANEL_URL__'
   /**
@@ -200,8 +177,6 @@ export function installFloatHost(): void {
   let ui: {
     root: HTMLElement
     open: (tabId?: unknown) => void
-    collapse: () => void
-    setBusy: (busy: boolean) => void
   } | null = null
   /** 是否已因「拾取进行中」而隐藏（避免与拾取的实时状态重复写样式） */
   let hiddenForPick = false
@@ -259,7 +234,13 @@ export function installFloatHost(): void {
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null
     let dragging = false
 
+    // error 与下面 2.5s 的超时会各来一次，只认第一次（否则面板里挂出两张降级卡）
     const showFallback = () => {
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer)
+        fallbackTimer = null
+      }
+      if (!iframe.isConnected) return
       iframe.remove()
       const fb = document.createElement('div')
       fb.className = 'dl-float-fallback'
@@ -337,21 +318,12 @@ export function installFloatHost(): void {
 
     /**
      * 展开。iframe src 懒加载：首次展开才设 —— 页面一开就加载扩展页会白占资源。
-     *
-     * src 里的 tab 参数来自 open 指令（浮层靠它认定会话归属，每 tab 一条会话）。指令没带
-     * （数值不可用）就退回不带参数：浮层侧归属退化为「不绑定」，好过错绑到别人的 tab。
      */
     const open = (tabId?: unknown) => {
       container.classList.add('open')
       if (srcAssigned) return
       srcAssigned = true
-      loaded = false
-      const url = panelUrl
-      if (!url) {
-        showFallback()
-        return
-      }
-      iframe.src = typeof tabId === 'number' ? url + '?tab=' + tabId : url
+      iframe.src = typeof tabId === 'number' ? panelUrl + '?tab=' + tabId : panelUrl
       fallbackTimer = setTimeout(() => {
         if (!loaded) showFallback()
       }, 2500)
@@ -399,7 +371,7 @@ export function installFloatHost(): void {
       else if (frame.cmd === 'busy') setBusy(frame.busy === true)
     })
 
-    return { root, open, collapse, setBusy }
+    return { root, open }
   }
 
   /**
@@ -448,29 +420,6 @@ export function installFloatHost(): void {
     document.addEventListener('DOMContentLoaded', () => attachRoot(tabId), { once: true })
   }
 
-  function handleCommand(ev: Record<string, unknown>): void {
-    if (!ev || ev.t !== 'float.cmd') return
-    // 在岗探针：回一条带 reqId 的应答（结算认它 —— e2e 探活用来确认本件已注入本页；
-    // 与检查器的 reqId 配对同款，而不是旧 tabs.sendMessage 那声同步应答）。
-    if (ev.cmd === 'ping') {
-      const reqId = String(ev.reqId || '')
-      if (!reqId) return
-      try {
-        __dlBridge.emit({
-          __dlEvent: true,
-          name: '浮层宿主',
-          event: { t: 'float.pong', reqId },
-        })
-      } catch {
-        /* 桥不可用：丢弃，发起侧按超时收场 */
-      }
-      return
-    }
-    if (ev.cmd === 'open') {
-      mountAndOpen(ev.tabId)
-    }
-  }
-
   function registerOpenCommand(): void {
     if (typeof DL === 'undefined') return
     try {
@@ -487,30 +436,6 @@ export function installFloatHost(): void {
     }
   }
   registerOpenCommand()
-
-  // 常驻通道：connect 幂等（中继件侧按 uuid 去重）；失败静默 —— 定时重发就是重试。
-  // 重发是**常备的**而非只在启动时：SW 重启 / Port 半死时靠它自愈（SW 端 addPort
-  // 对同 uuid+connId 替换旧 Port，重连不会产生双 Port 推两份指令）。
-  function keepChannel(): void {
-    try {
-      __dlBridge.connect(CHANNEL_CONN_ID).catch(function () {
-        /* 握手失败（中继件未就位）：等下一轮 */
-      })
-    } catch {
-      /* 桥未注入（异常注入时序）：等下一轮 */
-    }
-  }
-  keepChannel()
-  setInterval(keepChannel, CHANNEL_RECONNECT_MS)
-
-  // 下行接收面：SW 经 DL Port 推 float.cmd，中继件转回桥 onEvent。
-  try {
-    __dlBridge.onEvent(handleCommand)
-  } catch {
-    // 桥不可用（异常时序）：指令通道不可用。常驻通道的重发还会继续试，
-    // 但 onEvent 挂不上就收不到指令 —— 这里报明确错误比静默好排查。
-    console.warn('[duoling:float] 脚本桥不可用，浮层指令通道未挂载')
-  }
 
   // 页面检查器插/删遮罩 → 同步对话框显隐。只盯 documentElement 的**直接子节点**：遮罩挂在 <html>
   // 下，而对话框挂在 <body> 下，二者互不触发，不会自激（也不必开 subtree 去听整棵树的增删）。

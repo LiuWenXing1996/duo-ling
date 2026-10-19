@@ -14,9 +14,6 @@
 import type { PageContextInfo } from '../chat-ipc'
 import type { IpcEnvelope } from './envelope'
 
-// 浮层指令的 kind 字面量已随脚本桥协议（api-contract 的 float.cmd）收编 —— 命令面
-// `float:*` 的 kind 在下面的 RuntimeRequest 联合里声明，件侧不再认 tabs.sendMessage。
-
 /** 渲染页 → service worker 的请求（kind 可辨识联合，background 按 kind 分发） */
 export type RuntimeRequest =
   // 用户脚本管理器（单文件形态：无构建流程，保存即注入）
@@ -204,9 +201,7 @@ export type RuntimeRequest =
   // 右键菜单由 SW 代发，SW 自己握有 tab）—— 件把它拼进浮层 iframe 的 URL（`?tab=<id>`，
   // 浮层据此认定会话归属）。SW 推不到（该页上没有件的在岗连接）时命令报错，发起方据此提示。
   | { kind: 'float:open'; tabId: number }
-  // ping：在岗探活（e2e 用）。SW 下发 ping、件回 float.pong，reqId 配对结算 —— 判据是这声
-  // 应答，不是消息发得出去。返回 { pong: boolean }。
-  | { kind: 'float:ping'; tabId: number }
+  | { kind: 'float:probe'; tabId: number }
 
   // —— 浮层宿主件自证身份 ——
   // 网页浮层（扩展页 iframe）必须知道「自己属于哪个标签页」才能认定该 tab 的会话归属。

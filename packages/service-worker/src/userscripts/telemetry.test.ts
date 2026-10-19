@@ -50,7 +50,6 @@ vi.mock('./store', () => ({
 vi.mock('./tab-sessions', () => ({ recordingTabSessionId: vi.fn() }))
 vi.mock('./runtime-db', () => ({ appendTabCapture: vi.fn(() => Promise.resolve()) }))
 vi.mock('./page-inspector-bridge', () => ({ handleInspectorEvent: vi.fn() }))
-vi.mock('./float-bridge', () => ({ handleFloatEvent: vi.fn() }))
 
 import { duolingTelemetry } from './telemetry'
 

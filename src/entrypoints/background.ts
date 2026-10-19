@@ -159,7 +159,7 @@ import {
 } from '@duoling/shared'
 // 拾取指令的下发与配对（常驻件那半在页面里，件源码见包的 inspector/install.ts）
 import { cancelPicker, runInspectorCommand } from '@duoling/service-worker'
-import { openFloatPanel, pingFloatHost } from '@duoling/service-worker'
+import { isFloatHostReady, openFloatPanel } from '@duoling/service-worker'
 import type { ElementPickContext } from '@duoling/shared'
 import { errorText } from '@duoling/shared'
 
@@ -394,7 +394,6 @@ const handlers: {
 
   // —— 浮层宿主命令面 ——
   // 件已转 MAIN 世界系统脚本，tabs.sendMessage 到不了它：打开走件的后台命令 float.open
-  // （有回包，推不到 = 该页上没有件的在岗连接），探活走 float.cmd 的 ping 帧。
   // 收起 / 遮罩不在这里 —— 对话界面在 iframe 里直接 postMessage 给件，不经 SW。
   'float:open': async (msg): Promise<null> => {
     if (!(await openFloatPanel(msg.tabId))) {
@@ -403,8 +402,8 @@ const handlers: {
     return null
   },
 
-  'float:ping': async (msg): Promise<{ pong: boolean }> => ({
-    pong: await pingFloatHost(msg.tabId),
+  'float:probe': async (msg): Promise<{ ready: boolean }> => ({
+    ready: isFloatHostReady(msg.tabId),
   }),
 
   // —— popup 的页面概览（「当前页面 / 其他页面」两个区块的数据源）——

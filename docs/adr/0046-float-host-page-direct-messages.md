@@ -25,8 +25,8 @@ RuntimeRequest → SW → `float.cmd` 事件帧 → 件的链路，也就是绕�
   origin 字面量，也不受扩展 id 变化影响），且天然排除页面自己发的同标签 message。
 - **两条 RuntimeRequest（`float:collapse` / `float:busy`）与 SW 侧的两个下发函数一并删除**。
   留着就是双通道，迟早有人走错那条。
-- **`float.cmd` 只剩 open 与 ping**：open 的发送方是握有 tabId 的宿主，ping 的结算在 SW
-  （reqId 配对），二者都不具备「父页就在旁边」这个条件。
+- **`float.cmd` 当时只剩 open 与 ping**（本决策落地的同一天又整条拔除，见文末「变更」）：open 的
+  发送方是握有 tabId 的宿主，ping 的结算在 SW（reqId 配对），二者都不具备「父页就在旁边」这个条件。
 
 ## 为什么不防伪
 
@@ -59,3 +59,26 @@ RuntimeRequest → SW → `float.cmd` 事件帧 → 件的链路，也就是绕�
 | 用 `MessageChannel` 把 port 直传给 iframe | 首发仍要走 `postMessage`，而 `event.ports` 在父页的 message 事件里对页面脚本同样可见，不解决伪造 |
 | 件改 `attachShadow({ mode: 'closed' })` | 只能挡住 shadow 内部，宿主元素 `#duoling-float-root` 仍在 body 里，`remove()` 一样有效 |
 | 再叠一层 HMAC 校验 | 密钥必须能到 iframe（扩展页），也就必须经过页面可见的通道；页面拿得到一份就能伪造，纯属自欺 |
+
+## 变更（同日）：旧脚本桥整条拔除
+
+收起 / 遮罩改成直连之后，件与 SW 之间只剩两件事：打开浮层与在岗探活。前者早已迁到件的后台命令
+`float.open`，所以 `float.cmd` 的 open 分支**没有发送方**；后者是这条桥上最后一个用户，而它只服务
+e2e（产品代码零调用）。于是把桥整条拆了：
+
+- **探活换判据**：从「发 ping 等 `float.pong`」改成「查 `float.open` 在不在 SW 的命令表里」。
+  在册正是 `invokeBackgroundCommand` 能成功的前提，比「有回包」更贴需求，也顺带省掉 reqId 记账
+  与 5 秒超时。通道那条路本来也判不出：页面检查器同样全站注入这一页，「消息发得出去」分不出是谁。
+- **件侧**：不再建常驻 Port、不再每 15 秒重连、不再挂 `onEvent`。剩下的只有一条后台命令注册、
+  一个 `window` message 监听、一个 MutationObserver —— 件从此不依赖 `__dlBridge`。
+- **SW 侧**：`float-bridge` 只剩 `openFloatPanel` / `isFloatHostReady`；`float:ping` 改名
+  `float:probe`（`{ ready }`），返回的是「命令在册」而不是「收到了应答」。telemetry 的
+  `onFloatEvent` 口与 dl-bridge 的 `float.pong` 分流一并删除。
+- **api-contract**：`float.cmd` / `float.pong` 两个事件类型删除。
+- **`float.open` 的 arg 语义**：`{ tabId }` 决定 iframe 的 `?tab=`（浮层据此认定会话归属，每 tab
+  一条会话）；arg 里没有数值 tabId 就不带参数 —— 归属退化为「不绑定」，好过错绑到别人的 tab。
+- **顺带修一个降级重复**：`showFallback` 原来不清 2.5 秒兜底定时器，iframe 的 `error` 与超时会各
+  触发一次，严格 CSP 的站点上会挂出两张降级卡；现在清定时器 + 按 `iframe.isConnected` 幂等。
+
+代价：探活与打开共用同一份内存表，SW 被回收后表空 —— 探活会回 false，但那时打开本来也会
+`NO_HANDLER`，两者一致，不再有「探得通却打不开」的错位。

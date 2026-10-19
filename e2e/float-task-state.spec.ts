@@ -226,10 +226,6 @@ const FLOAT_HOST_ID = 'dl-float-host'
  * → 浮层宿主），每件之间还隔着几次 userScripts API 往返。页面若抢在这条链走完之前发起加载，那一页
  * 上就永远没有宿主件。
  *
- * 这个抢跑窗口真实存在、且**不能靠消息探活兜**：同一段链里页面检查器注册得更早（见
- * engine.ts 的 runRegisterAllEnabled），它也在这一页上收 `tabs.sendMessage` —— 于是「发消息没抛错」
- * 既可能来自浮层宿主，也可能只来自检查器，判不出来（这也是探活要看**应答**、不看通道的由来）。
- *
  * 过了这一道也还不等于「这一页上就能注入」：入册到 Chrome 侧生效之间另有一段窗口，那是
  * openFloatPage 重载兜底要处理的事。
  */
@@ -249,18 +245,13 @@ async function waitForFloatHostRegistered(sw: Worker): Promise<void> {
     .toBe(true)
 }
 
-/**
- * 浮层宿主件此刻在**这一页**上吗 —— 看应答（`float:ping` 要件回 float.pong 才算），不看通道。
- *
- * 命令走 RuntimeRequest（经 SW 下发 DL Port 事件帧），发送端必须是扩展页：
- * runtime 消息不回环到 SW 自身上下文（见 extension.ts 的说明）。
- */
-async function pingFloatHost(messenger: Page, tabId: number): Promise<boolean> {
+/** 件在**这一页**上吗 —— 看 `float.open` 在不在命令表里：在册正是 invoke 的前提（检查器也全站注入）。 */
+async function floatHostReady(messenger: Page, tabId: number): Promise<boolean> {
   try {
     const res = (await messenger.evaluate(async (id) => {
-      return await chrome.runtime.sendMessage({ kind: 'float:ping', tabId: id })
-    }, tabId)) as { ok: boolean; data?: { pong?: boolean } } | undefined
-    return res?.ok === true && res.data?.pong === true
+      return await chrome.runtime.sendMessage({ kind: 'float:probe', tabId: id })
+    }, tabId)) as { ok: boolean; data?: { ready?: boolean } } | undefined
+    return res?.ok === true && res.data?.ready === true
   } catch {
     return false
   }
@@ -292,7 +283,7 @@ async function openFloatPage(
   /** 探活到有应答为止；到点没应答就抛，由调用方决定要不要重载 */
   const pingUntilReady = async (message: string): Promise<void> => {
     await expect
-      .poll(() => pingFloatHost(messenger, tabId!), { timeout: 15_000, message })
+      .poll(() => floatHostReady(messenger, tabId!), { timeout: 15_000, message })
       .toBe(true)
   }
 
