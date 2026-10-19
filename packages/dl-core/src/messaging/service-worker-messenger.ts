@@ -17,6 +17,7 @@ type Handler = (message: SwMessage) => unknown | Promise<unknown>
 interface PendingRequest {
   resolve: (value: unknown) => void
   reject: (error: Error) => void
+  key: string
 }
 
 export class ServiceWorkerMessenger {
@@ -47,11 +48,20 @@ export class ServiceWorkerMessenger {
       })
       port.onDisconnect.addListener(() => {
         void chrome.runtime.lastError
-        for (const [key, known] of this.#ports) {
+        for (const [portKey, known] of this.#ports) {
           if (known !== port) continue
-          this.#ports.delete(key)
-          const cut = key.indexOf(':')
-          for (const listener of this.#onPortClosed) listener(Number(key.slice(0, cut)), key.slice(cut + 1))
+          this.#ports.delete(portKey)
+          const cut = portKey.indexOf(':')
+          const closedTabId = Number(portKey.slice(0, cut))
+          const closedScriptId = portKey.slice(cut + 1)
+          for (const [id, entry] of this.#pending) {
+            if (entry.key !== portKey) continue
+            this.#pending.delete(id)
+            entry.reject(
+              new MessagingError('TRANSPORT', `脚本 ${closedScriptId} 在 tab ${closedTabId} 的端口已断开`),
+            )
+          }
+          for (const listener of this.#onPortClosed) listener(closedTabId, closedScriptId)
         }
       })
     })
@@ -75,7 +85,8 @@ export class ServiceWorkerMessenger {
   }
 
   sendToScript(tabId: number, scriptId: string, type: string, data?: unknown): Promise<unknown> {
-    const port = this.#ports.get(`${tabId}:${scriptId}`)
+    const key = `${tabId}:${scriptId}`
+    const port = this.#ports.get(key)
     if (!port) {
       return Promise.reject(
         new MessagingError('TRANSPORT', `脚本 ${scriptId} 在 tab ${tabId} 上没有连接`),
@@ -93,7 +104,7 @@ export class ServiceWorkerMessenger {
     }
 
     return new Promise<unknown>((resolve, reject) => {
-      this.#pending.set(id, { resolve, reject })
+      this.#pending.set(id, { resolve, reject, key })
       try {
         port.postMessage(request)
       } catch {

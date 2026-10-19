@@ -1,6 +1,3 @@
-// 遥测接线的系统脚本过滤：三件系统脚本（录制 / 检查器 / 浮层宿主）带 GM 包装后注入即广播
-// runstart，若不拦会把角标 / 灵动岛 / 活动历史一并污染（普通网页角标凭空 +2）。
-// 过滤只认 uuid 集（真相源 @duoling/user-scripts/builtin 的 registry.ts）；用户脚本一切照旧。
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /** store.appendUserScriptError 的入参形状（Omit id/time 再补可选）—— mock 只关心 uuid 判定 */
@@ -58,8 +55,13 @@ describe('duolingTelemetry · 系统脚本不进用户脚本观测面', () => {
     vi.clearAllMocks()
   })
 
-  it('三件系统脚本的 runstart 不登记（角标 / 灵动岛 / popup 都吃这张表）', () => {
-    for (const uuid of ['dl-tab-recorder', 'dl-page-inspector', 'dl-float-host']) {
+  it('四件系统脚本的 runstart 不登记（角标 / 灵动岛 / popup 都吃这张表）', () => {
+    for (const uuid of [
+      'dl-tab-recorder',
+      'dl-page-inspector',
+      'dl-pick-page-element',
+      'dl-float-host',
+    ]) {
       duolingTelemetry.noteRunStart?.(1, uuid, 'r1')
       expect(noteRunStart, uuid).not.toHaveBeenCalled()
     }

@@ -10,8 +10,6 @@
 // 注意：脚本桥中继件（relay）**不在本文件** —— 它已随 `@duoling/service-worker` 包内化
 // （SCRIPT_RELAY_ID / buildRelayInit / syncScriptRelay 都在包的 relay/sync.ts，IIFE 以
 // `{ code }` 字符串注册，无公共资产文件）。
-// 三件内置件（录制 / 检查器 / 浮层宿主）都已转**系统脚本**（走统一注册链，见应用侧
-// system-scripts.ts）：本文件只声明各自的 id 与产物文件名，不再有独立世界与装配段。
 
 // —— 标签页录制 · MAIN 捕获件（系统脚本，走统一注册链） ——
 
@@ -30,6 +28,13 @@ export const INSPECTOR_HOST_ID = 'dl-page-inspector'
  * 不再有独立世界（MAIN 世界只读观察，DOM 本就共享）。
  */
 export const INSPECTOR_HOST_FILE = 'duoling-page-inspector.js'
+
+export {
+  PICK_ELEMENT_CANCEL_COMMAND,
+  PICK_ELEMENT_ID,
+  PICK_ELEMENT_PICK_COMMAND,
+} from '@duoling/shared'
+export const PICK_ELEMENT_FILE = 'duoling-pick-page-element.js'
 
 // —— 浮层宿主 · 常驻件（系统脚本，走统一注册链） ——
 

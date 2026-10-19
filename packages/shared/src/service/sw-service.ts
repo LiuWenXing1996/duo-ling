@@ -11,6 +11,13 @@ import type { PromiseService } from './promise-service'
 export interface ISWService extends PromiseService<{
   /** 保活探针：调用到达 SW 即重置其空闲计时；返回值仅供判断链路是否通 */
   isAlive(): Promise<boolean>
+  /** 通用隧道：按 (tabId, scriptId, name) 调某脚本的后台命令，返回值与抛错原样透传 */
+  dlRuntimeInvokeBackgroundCommand(
+    tabId: number,
+    scriptId: string,
+    name: string,
+    arg?: unknown,
+  ): Promise<unknown>
 }> {}
 
 const SW_SERVICE_KEY = 'sw-service' as ProxyServiceKey<ISWService>

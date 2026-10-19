@@ -7,7 +7,8 @@
 ## 背景
 
 脚本需要能对「后台」暴露一个**有名字的入口**，让宿主（侧栏 / popup / 命令面板 / AI 工具）在
-未来某个时刻按需调用它。现有的 `DL.onRequest(type, handler)` 做不到这件事：它只有 type 没有名字，
+未来某个时刻按需调用它。现有的 `onRequest(type, handler)`（当时经 `DL.onRequest` 暴露，现已收为
+内核内部）做不到这件事：它只有 type 没有名字，
 外部无从枚举；也不知道该 handler 挂在哪个 tab 的哪个脚本上，调用方拿不到寻址信息。
 
 `GM_registerMenuCommand` 那类「注册给 UI 的入口」是同一族需求，但入口是浏览器右键菜单，不是
@@ -26,7 +27,7 @@
   `command` 记账；第二步失败就撤掉 handler 再吞掉 —— 宁可命令不生效，也不留「页面能接、后台不知道」的半截状态。
 - **没有脚本侧调用面**：MAIN 世界拿不到自己的 `tabId`（没有 `chrome.tabs`），跨 tab 更是任何 tabId
   都无从得知。唯一能完整给出三元组的是宿主，所以 `runBackgroundCommand` 这类 API 不提供；脚本间
-  协调继续用 `DL.onRequest`。
+  协调也走命令面 —— `onRequest` 已收为 `DL` 内部实现，脚本侧接请求只有这一条路。
 - **宿主侧两个方法**（`DLRuntime`）：`listBackgroundCommands(tabId, scriptId)` 同步返回（表就在内存里），
   `invokeBackgroundCommand(tabId, scriptId, name, arg)` 走 `ServiceWorkerMessenger.sendToScript`。
   两者不进消息面，服务 handler 与 `DLRuntime` 调的是 `command-service.ts` 里同一份实现。

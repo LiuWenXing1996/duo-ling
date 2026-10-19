@@ -302,7 +302,8 @@ MAIN:  new MessageChannel()
 ## 变更（2026-10-20）：反向请求（SW → 脚本）与自荐 ping
 
 原来通道只有一个方向：脚本发请求、SW 应答。现在两端对称 —— **SW 也能主动找某个 tab 里的某个脚本**，
-脚本侧用 `DL.onRequest(type, handler)` 接，SW 侧 `DLRuntime.sendToScript(tabId, scriptId, type, data)`
+脚本侧用 `MainWorldMessenger.onRequest(type, handler)` 接（后收为内核内部，脚本侧的接请求入口只剩
+`DL.registerBackgroundCommand`），SW 侧 `DLRuntime.sendToScript(tabId, scriptId, type, data)`
 拿到同一个 `Promise`。实现上仍是「请求 / 回包」这一对帧，方向由谁读它决定，不由 `kind` 区分。
 
 **信封拍平**（上一节那三行带 `message: {…}` 的写法作废）：

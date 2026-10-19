@@ -7,16 +7,18 @@
 //   · 页面检查器 / 浮层宿主常驻件 —— 恒注册（拾取 / 打开浮层都是「页面早已打开、用户刚点
 //     按钮」的场景，见 system-scripts.ts）；
 //   · 标签页录制 —— 已转**系统脚本**（见 system-scripts.ts），注册跟随「有没有页在录」。
-// 三件的注册 id 在 @duoling/user-scripts（registry.ts 是声明真相源），展示信息
-// （名字 / 世界 / 一句话作用）由 system-scripts.ts 的 SYSTEM_SCRIPT_DISPLAY 投影
-// （本文件并入中继件一条，见 BUILTIN_META）；
 // 件与 SW 的协议对端（page-inspector-bridge / float-bridge / dl-port）都在本包 —— 纯产品面。
 import type { BuiltinRegistration, ScriptProject } from '@duoling/shared'
 // 检查器 / 浮层 / 录制的注册面（注册 id / 产物文件名）由包声明：件在那儿源码化并构建成
 // 独立 IIFE 文件，扩展侧按 id 取其内容作系统脚本源码（真相源见 user-scripts/builtin 的 registry.ts）。
 // 中继件（relay）例外：本体在 user-scripts/builtin/relay，宿主侧注册面随本包内化（id / 装配段 /
 // 注册同步都在包内，IIFE 以 `{ code }` 注册，无公共资产文件）。
-import { FLOAT_HOST_ID, INSPECTOR_HOST_ID, TAB_RECORDER_ID } from '@duoling/user-scripts/builtin'
+import {
+  FLOAT_HOST_ID,
+  INSPECTOR_HOST_ID,
+  PICK_ELEMENT_ID,
+  TAB_RECORDER_ID,
+} from '@duoling/user-scripts/builtin'
 import { EXTENSION_NAME } from '@duoling/shared'
 // 项目读自状态库（IndexedDB，SW 与 offscreen 共用）：注册链路不能在 offscreen 存活上下注
 import { listProjects } from '@duoling/shared'
@@ -24,10 +26,12 @@ import { listProjects } from '@duoling/shared'
 import {
   SYSTEM_FLOAT_MATCHES,
   SYSTEM_INSPECTOR_MATCHES,
+  SYSTEM_PICK_ELEMENT_MATCHES,
   SYSTEM_SCRIPT_DISPLAY,
   SYSTEM_TAB_RECORD_MATCHES,
   floatHostProject,
   pageInspectorProject,
+  pickElementProject,
   tabRecorderProject,
 } from './system-scripts'
 // 注册判据就一句「有没有页在录」—— 直接查存续表，录制不再有第二本账
@@ -35,7 +39,11 @@ import { hasRecordingTabSession } from './runtime-db'
 // 匹配并集比对（「未变则跳过」）：已上移包内，随 index 导出
 import { sameMatchSet, matchPatternCoversUrl } from '@duoling/shared'
 // 通用引擎件（包内 registration.ts）：世界配置 / 注册 / 注销 / 串行队列
-import { enqueueRegistration, registerScript, unregisterScripts } from '../registration'
+import {
+  enqueueRegistration,
+  registerScript,
+  unregisterScripts,
+} from '../registration'
 // 中继件（GM 桥 MAIN 世界侧）的注册同步（包内 relay/sync.ts）
 import { SCRIPT_RELAY_ID, syncScriptRelay } from '../relay/sync'
 // 匹配面判定（scheme + host）：内置件「这一页用不用得上」与 cookie 域名门同一套判据
@@ -52,6 +60,7 @@ import { SCRIPT_RELAY_ID, syncScriptRelay } from '../relay/sync'
 export const BUILTIN_SCRIPT_IDS = [
   SCRIPT_RELAY_ID,
   INSPECTOR_HOST_ID,
+  PICK_ELEMENT_ID,
   FLOAT_HOST_ID,
   TAB_RECORDER_ID,
 ]
@@ -61,7 +70,6 @@ export const BUILTIN_SCRIPT_IDS = [
  *
  * 它们不是用户脚本项目（没有源码 / 启停 / git 历史），只是扩展自己注进页面的能力管道 ——
  * 列表里给名字与世界，是让人看见「这一页上除了我的脚本还有扩展自己的东西在跑」。
- * 三件系统脚本的条目吃 system-scripts 的投影（SYSTEM_SCRIPT_DISPLAY，件「自己声明自己」），
  * 这里只补中继件一条 —— 它已随本包内化，不属件包声明面。
  */
 const BUILTIN_META: Record<string, { name: string; world: string; note: string }> = {
@@ -144,6 +152,25 @@ async function syncPageInspector(): Promise<ScriptProject | null> {
   }
   await registerScript(project)
   console.log('[duoling:sw] 页面检查器系统脚本注册成功：', JSON.stringify(SYSTEM_INSPECTOR_MATCHES))
+  return project
+}
+
+async function syncPickElement(): Promise<ScriptProject | null> {
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return null
+  let existing: chrome.userScripts.RegisteredUserScript | undefined
+  try {
+    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === PICK_ELEMENT_ID)
+  } catch {
+    return null
+  }
+  const project = await pickElementProject()
+  const jsSegs = existing?.js
+  const shapeOk = !!jsSegs && jsSegs.length === 1 && typeof jsSegs[0].code === 'string'
+  if (existing && shapeOk && sameMatchSet(existing, { matches: SYSTEM_PICK_ELEMENT_MATCHES })) {
+    return project
+  }
+  await registerScript(project)
+  console.log('[duoling:sw] 页面拾取器系统脚本注册成功：', JSON.stringify(SYSTEM_PICK_ELEMENT_MATCHES))
   return project
 }
 
@@ -249,9 +276,10 @@ export async function syncAllBuiltins(projects: ScriptProject[]): Promise<void> 
   // 页面检查器 / 浮层宿主系统脚本同样与脚本集合无关：冷启动 / 扩展更新后必须补回
   // （扩展更新会清空全部注册）
   const inspector = await syncPageInspector().catch(() => null)
+  const pick = await syncPickElement().catch(() => null)
   const float = await syncFloatHost().catch(() => null)
   // 中继件并集把在册系统脚本算上（录制 / 检查器 / 浮层宿主都走桥，页面里没有中继件就是断流）
-  const system = [recorder, inspector, float].filter((p): p is ScriptProject => p != null)
+  const system = [recorder, inspector, pick, float].filter((p): p is ScriptProject => p != null)
   if (system.length) await syncScriptRelay([...projects, ...system])
 }
 
@@ -264,9 +292,10 @@ export function refreshTabRecorder(): Promise<void> {
   return enqueueRegistration(async () => {
     const recorder = await syncTabRecorder()
     const inspector = await syncPageInspector()
+    const pick = await syncPickElement().catch(() => null)
     const float = await syncFloatHost().catch(() => null)
     const projects = await listProjects()
-    const system = [recorder, inspector, float].filter((p): p is ScriptProject => p != null)
+    const system = [recorder, inspector, pick, float].filter((p): p is ScriptProject => p != null)
     await syncScriptRelay(system.length ? [...projects, ...system] : projects)
   })
 }
@@ -284,12 +313,14 @@ export function refreshTabRecorder(): Promise<void> {
 export function refreshBuiltinScripts(): Promise<void> {
   return enqueueRegistration(async () => {
     const inspector = await syncPageInspector()
+    const pick = await syncPickElement().catch(() => null)
     const float = await syncFloatHost().catch(() => null)
     const projects = await listProjects()
     const recorder = (await hasRecordingTabSession())
       ? await tabRecorderProject().catch(() => null)
       : null
-    const system = [recorder, inspector, float].filter((p): p is ScriptProject => p != null)
+    const system = [recorder, inspector, pick, float].filter((p): p is ScriptProject => p != null)
     await syncScriptRelay(system.length ? [...projects, ...system] : projects)
   })
 }
+

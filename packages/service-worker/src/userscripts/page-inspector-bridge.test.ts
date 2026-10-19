@@ -27,11 +27,7 @@ async function stubPush(ports = 1): Promise<{ sent: Sent[]; bridge: Bridge }> {
 }
 
 /** 件侧那条上行（dl-bridge 分流后交 handleInspectorEvent 的形状） */
-function result(
-  reqId: string,
-  payload: unknown,
-  ok = true,
-): { reqId: string; ok: boolean; payload: unknown } {
+function result(reqId: string, payload: unknown, ok = true): { reqId: string; ok: boolean; payload: unknown } {
   return { reqId, ok, payload }
 }
 
@@ -44,37 +40,33 @@ afterEach(() => {
 describe('runInspectorCommand · 下发与结算', () => {
   it('件上报成功：resolve 件给的载荷，且下发带着本次 reqId', async () => {
     const { sent, bridge } = await stubPush()
-    const p = bridge.runInspectorCommand<{ tag: string }>(7, 'pick')
+    const p = bridge.runInspectorCommand<{ html: string }>(7, 'snapshot')
     expect(sent).toHaveLength(1)
     expect(sent[0].tabId).toBe(7)
     expect(sent[0].ev.t).toBe('inspector.cmd')
-    expect(sent[0].ev.cmd).toBe('pick')
+    expect(sent[0].ev.cmd).toBe('snapshot')
 
-    bridge.handleInspectorEvent(INSPECTOR_ID, 7, result(String(sent[0].ev.reqId), { tag: 'h1' }))
-    await expect(p).resolves.toEqual({ tag: 'h1' })
+    bridge.handleInspectorEvent(INSPECTOR_ID, 7, result(String(sent[0].ev.reqId), { html: '<h1>' }))
+    await expect(p).resolves.toEqual({ html: '<h1>' })
   })
 
   it('件报错：把件给的原因透出来（不换成笼统失败文案）', async () => {
     const { sent, bridge } = await stubPush()
-    const p = bridge.runInspectorCommand(7, 'pick')
-    bridge.handleInspectorEvent(
-      INSPECTOR_ID,
-      7,
-      result(String(sent[0].ev.reqId), '页面检查器未就绪', false),
-    )
-    await expect(p).rejects.toThrow('页面检查器未就绪')
+    const p = bridge.runInspectorCommand(7, 'snapshot')
+    bridge.handleInspectorEvent(INSPECTOR_ID, 7, result(String(sent[0].ev.reqId), '读取被拦截', false))
+    await expect(p).rejects.toThrow('读取被拦截')
   })
 
   it('下发无人接收（件不在位）：当场失败，不等满 60 秒', async () => {
     const { bridge } = await stubPush(0)
-    await expect(bridge.runInspectorCommand(7, 'pick')).rejects.toThrow('页面检查器未就绪')
+    await expect(bridge.runInspectorCommand(7, 'snapshot')).rejects.toThrow('页面检查器未就绪')
   })
 
-  it('件永不上报：按模式文案超时兜底（用户能分辨「自己没点」与「页面没了」）', async () => {
+  it('件永不上报：按模式文案超时兜底', async () => {
     const { bridge } = await stubPush()
     vi.useFakeTimers()
-    const p = bridge.runInspectorCommand(7, 'pick')
-    const assertion = expect(p).rejects.toThrow('60 秒内未完成点选')
+    const p = bridge.runInspectorCommand(7, 'env')
+    const assertion = expect(p).rejects.toThrow('60 秒内未完成')
     await vi.advanceTimersByTimeAsync(60_000)
     await assertion
   })
@@ -101,33 +93,11 @@ describe('runInspectorCommand · 下发与结算', () => {
 
   it('同一 reqId 结算两次（重复投递）：按 reqId 幂等，第二次只出声不炸', async () => {
     const { sent, bridge } = await stubPush()
-    const p = bridge.runInspectorCommand<{ n: number }>(7, 'pick')
+    const p = bridge.runInspectorCommand<{ n: number }>(7, 'snapshot')
     bridge.handleInspectorEvent(INSPECTOR_ID, 7, result(String(sent[0].ev.reqId), { n: 1 }))
     await expect(p).resolves.toEqual({ n: 1 })
     expect(() =>
       bridge.handleInspectorEvent(INSPECTOR_ID, 7, result(String(sent[0].ev.reqId), { n: 2 })),
     ).not.toThrow()
-  })
-})
-
-describe('cancelPicker · 与「开始」走同一根线', () => {
-  it('没有进行中的拾取：静默（不下发也不抛）', async () => {
-    const { sent, bridge } = await stubPush()
-    await expect(bridge.cancelPicker()).resolves.toBeUndefined()
-    expect(sent).toHaveLength(0)
-  })
-
-  it('有进行中的拾取：收工指令发往那一页，不额外等回执（那次调用由件自行 resolve null 收场）', async () => {
-    const { sent, bridge } = await stubPush()
-    const p = bridge.runInspectorCommand<unknown>(42, 'pick')
-    await bridge.cancelPicker()
-    expect(sent.map((s) => [s.tabId, s.ev.cmd])).toEqual([
-      [42, 'pick'],
-      [42, 'cancel'],
-    ])
-
-    // 件把「被取消」表现为 resolve null：这是本次调用唯一的收场方式，收掉它不留跨用例状态
-    bridge.handleInspectorEvent(INSPECTOR_ID, 42, result(String(sent[0].ev.reqId), null))
-    await expect(p).resolves.toBeNull()
   })
 })

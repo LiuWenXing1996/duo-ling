@@ -8,7 +8,7 @@
 
 ## 决策 1：pick 的主取消路径经对话界面下发
 
-Esc 取消挂在页面 document 上，只在页面恰好持有焦点时生效——拾取由对话界面发起时焦点在对话界面，页面的 Esc 根本收不到。主取消路径是：对话界面监听 Esc → 经 `cancelPicker()` 请 SW 下发 cancel 指令（见 element-picker-client.ts）。页面 document 的 Esc 只是页面恰好持焦点时的快捷路径。
+Esc 取消挂在页面 document 上，只在页面恰好持有焦点时生效——拾取由对话界面发起时焦点在对话界面，页面的 Esc 根本收不到。主取消路径是：对话界面监听 Esc → 直接经 SW 服务隧道发 `cancel` 后台命令（在 ChatPanel.vue 里；件的来历见 0047）。页面 document 的 Esc 只是页面恰好持焦点时的快捷路径。
 
 ## 决策 2：env 与 offscreen 侧 env_read 是两个源，别统一
 

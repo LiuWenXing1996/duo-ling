@@ -75,3 +75,8 @@ export interface PageEnvContext {
   /** 页面里读到的 UA（可能已被页面脚本改写，未必等于浏览器真身） */
   ua: string
 }
+
+// 拾取件的寻址面：浮层按这三个键经 SW 隧道直呼件（三方公共依赖，故落在本包；registry.ts re-export）
+export const PICK_ELEMENT_ID = 'dl-pick-page-element'
+export const PICK_ELEMENT_PICK_COMMAND = 'pick'
+export const PICK_ELEMENT_CANCEL_COMMAND = 'cancel'

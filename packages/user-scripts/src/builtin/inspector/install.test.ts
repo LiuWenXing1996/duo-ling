@@ -129,14 +129,17 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
     expect((bridge.sent[0].event as Record<string, unknown>).reqId).toBe('r3')
   })
 
-  it('cancel 指令：没有进行中的拾取时静默（不产生任何上报）', async () => {
+  it('pick 指令：本件不认识（拾取归独立件），回一条错误而不是静默', async () => {
     const bridge = stubBridge()
     installPageInspector()
 
-    bridge.fire({ t: 'inspector.cmd', cmd: 'cancel', reqId: 'r4' })
+    bridge.fire({ t: 'inspector.cmd', cmd: 'pick', reqId: 'r4' })
     await flush()
 
-    expect(bridge.sent).toHaveLength(0)
+    expect(bridge.sent).toHaveLength(1)
+    const ev = bridge.sent[0].event as Record<string, unknown>
+    expect(ev.ok).toBe(false)
+    expect(String(ev.payload)).toContain('不支持')
   })
 
   it('桥不可用（装接收即抛）：记一条 warn 兜底，不让安装炸掉页面', () => {

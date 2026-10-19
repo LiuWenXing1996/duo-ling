@@ -22,8 +22,9 @@ offscreen 服务都经由 `chrome.runtime` 发消息。脚本跑在页面 MAIN �
 
 - **一个服务一个 type**：`proxy-service.<key>`，载荷是 `{ path: string[], args: unknown[] }`。
   `path` 是方法路径，`args` 原样透传；SW 侧按路径逐层取值，`this` 绑到方法所在的父对象。
-- **MAIN 侧深代理**：`DL.getService<T>(key)` 返回 Proxy，读属性长出新的一层、调用发一次请求，
-  `path` 在读取过程中累积。
+- **MAIN 侧深代理**：`DL` 的私有 `#service<T>(key)` 返回 Proxy，读属性长出新的一层、调用发一次请求，
+  `path` 在读取过程中累积。脚本侧不直接拿它 —— 对外只露 `getTab` / `saveTab` / `registerBackgroundCommand`
+  （2026-10-20 收窄：公开代理等于让每个脚本各封一套 path 约定）。
 - **messenger 自建、单实例**：`createProxyService(key)` 只收 key（与参照实现同形），通道由
   `messaging/main-messenger.ts` 的 `MainWorldMessenger.instance` 提供单例（`static` 字段挂类上、
   `private constructor` 封死），`scriptId` 由 `DL` 构造时
@@ -69,8 +70,8 @@ export interface MathService {
 // SW
 registerService<MathService>('math', () => mathService)
 
-// MAIN
-const math = DL.getService<MathService>('math')
+// MAIN（内核内部：`#service` 是私有的，脚本侧不出现这一行）
+const math = this.#service<MathService>('math')
 const sum = await math.add(1, 2) // Promise<number>
 ```
 

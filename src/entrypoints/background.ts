@@ -151,16 +151,7 @@ import {
   capturePageEnvFromTab,
   capturePageSnapshotFromTab,
 } from '@duoling/service-worker'
-// 目标页可注入判据与「引擎不可用」文案：与对话界面发起侧同一处
-import {
-  isUserScriptsApiAvailable,
-  pageInjectionBlockReason,
-  userScriptsUnavailableMessage,
-} from '@duoling/shared'
-// 拾取指令的下发与配对（常驻件那半在页面里，件源码见包的 inspector/install.ts）
-import { cancelPicker, runInspectorCommand } from '@duoling/service-worker'
 import { isFloatHostReady, openFloatPanel } from '@duoling/service-worker'
-import type { ElementPickContext } from '@duoling/shared'
 import { errorText } from '@duoling/shared'
 
 /**
@@ -274,19 +265,7 @@ async function conversationBindings(): Promise<Record<string, string>> {
   }
 }
 
-/**
- * 定位「这条会话所属的标签页」并在注入前拦掉不可注入的页。
- *
- * 两条 AI 支路共用（页面快照 / 页面环境读数）：判据必须一致 —— 会话按标签页归属，而这类读取
- * 都是 AI 在生成中途自己决定发起的，那时用户完全可能已经切走；查「当前激活页」会把别人那一页
- * 的数据喂给模型。反查走归属映射，自带 tab 存活校验（tab 已关的残留项会被判掉）。
- *
- * what 只进报错文案，让两条支路各自说清「读不到的是什么」。
- */
-async function resolveAiTargetTab(
-  conversationId: string | undefined,
-  what: string,
-): Promise<number> {
+async function resolveAiTargetTab(conversationId: string | undefined): Promise<number> {
   if (!chrome.tabs?.query) throw new Error('无法定位目标标签页')
   const owned = conversationId ? await findTabsUsingConversation(conversationId) : []
   let tabId: number | undefined = owned[0]
@@ -297,40 +276,7 @@ async function resolveAiTargetTab(
     tabId = tab?.id
   }
   if (tabId == null) throw new Error('未找到目标标签页')
-  // 内置页 / 扩展页拦在注入前（判据与页面检查器共用，见 pageInjectionBlockReason——扩展页连自己
-  // 的也不行，<all_urls> 不覆盖 chrome-extension scheme）
-  const tab = await chrome.tabs.get(tabId).catch(() => null)
-  const blocked = pageInjectionBlockReason(tab?.url)
-  if (blocked) throw new Error(`${blocked}，无法${what}`)
   return tabId
-}
-
-/**
- * 定位「用户此刻看着的标签页」并在下发前拦掉不可注入的页（拾取专用）。
- *
- * 与 resolveAiTargetTab 的口径刻意不同：那条认**会话归属**（AI 在生成中途自己决定要读，
- * 那时用户可能已经切走）；这条认**激活页** —— 拾取由用户在看得见的面板上点按钮发起，
- * 浮层只在自己那个 tab 可见，那一刻它必然在激活页上，不必也不该去查归属。SW 无窗口上下文，
- * lastFocusedWindow 即用户最后聚焦的那个窗口。
- *
- * 名字避开 owning-tab 的 resolveActiveTabId：那个是「扩展页认自己属于哪个标签页」，
- * 这条是「SW 替一次用户动作找目标页」，别混。
- */
-async function resolvePickTargetTab(what: string): Promise<number> {
-  if (!chrome.tabs?.query) throw new Error('无法定位目标标签页')
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-  if (tab?.id == null) throw new Error('未找到活动标签页')
-  const blocked = pageInjectionBlockReason(tab.url)
-  if (blocked) throw new Error(`${blocked}，无法${what}，请切到要操作的网页后重试`)
-  return tab.id
-}
-
-/**
- * 引擎不可用就不必白跑一趟下发。判据与文案都取发起侧那一份（element-picker-client）——
- * 在这里另写一遍，两处说法迟早分叉。
- */
-function ensureInspectorAvailable(): void {
-  if (!isUserScriptsApiAvailable()) throw new Error(userScriptsUnavailableMessage())
 }
 
 // 第二个参数是 chrome 的消息发送方：只有需要「回 sender 自己的东西」的命令才用得上
@@ -365,31 +311,16 @@ const handlers: {
   // —— AI 工具支路 ——
   // 两条都请 SW 代办：chrome.tabs 在 offscreen 不可达，而在 SW 与注册链路同源
   // （受 138+ 逐扩展开关管控）。page_snapshot 取页面 DOM，page_env_read 取页面侧环境读数。
-  // 目标页判据见 resolveAiTargetTab —— 两条共用，别在这里另写一份。
   'page:snapshot': async (
     msg,
   ): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
-    ensureInspectorAvailable()
-    return capturePageSnapshotFromTab(await resolveAiTargetTab(msg.conversationId, '采集页面快照'))
+    return capturePageSnapshotFromTab(await resolveAiTargetTab(msg.conversationId))
   },
 
   'page:env': async (
     msg,
   ): Promise<Awaited<ReturnType<typeof capturePageEnvFromTab>>> => {
-    ensureInspectorAvailable()
-    return capturePageEnvFromTab(await resolveAiTargetTab(msg.conversationId, '读取页面环境'))
-  },
-
-  // —— 拾取（浮层发起的用户动作）——
-  // 目标页判据见 resolvePickTargetTab —— 与上面两条 AI 支路刻意不同，别在这里另写一份。
-  // 下发与结果配对都在 page-inspector-bridge：件在页面里常驻待命，指令经 DL Port 事件帧下去，
-  // 结果由件经脚本桥 __dlEvent 信封上来（dl-bridge 分流后交 handleInspectorEvent）。
-  'picker:pick': async (): Promise<ElementPickContext | null> =>
-    runInspectorCommand<ElementPickContext>(await resolvePickTargetTab('点选元素'), 'pick'),
-
-  'picker:cancel': async (): Promise<null> => {
-    await cancelPicker()
-    return null
+    return capturePageEnvFromTab(await resolveAiTargetTab(msg.conversationId))
   },
 
   // —— 浮层宿主命令面 ——
@@ -706,7 +637,7 @@ const handlers: {
   'userscript:tabRecordRead': async (
     msg,
   ): Promise<{ enabled: boolean; count: number; text: string }> => {
-    const tabId = await resolveAiTargetTab(msg.conversationId, '读取页面录制')
+    const tabId = await resolveAiTargetTab(msg.conversationId)
     const row = await findOpenTabSession(tabId)
     const records = row ? (await listTabTimeline(row.tabSessionId)).captures : []
     const text =

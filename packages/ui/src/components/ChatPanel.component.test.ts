@@ -17,9 +17,6 @@ const fsMocks = vi.hoisted(() => ({
 const modelMocks = vi.hoisted(() => ({ listModelState: vi.fn(), setActiveProfile: vi.fn() }))
 vi.mock('@duoling/shared', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@duoling/shared')>()),
-  isUserScriptsApiAvailable: () => true,
-  pickElement: vi.fn(),
-  cancelPick: vi.fn(),
   listModelState: modelMocks.listModelState,
   setActiveProfile: modelMocks.setActiveProfile,
 }))

@@ -11,6 +11,8 @@ import {
   FLOAT_HOST_ID,
   INSPECTOR_HOST_FILE,
   INSPECTOR_HOST_ID,
+  PICK_ELEMENT_FILE,
+  PICK_ELEMENT_ID,
   TAB_RECORDER_FILE,
   TAB_RECORDER_ID,
 } from '@duoling/user-scripts/builtin'
@@ -38,12 +40,12 @@ export const SYSTEM_TAB_RECORD_MATCHES = ALWAYS_ON_MATCHES
 /** 页面检查器系统脚本的匹配面（engine 的「在册没变就跳过」比对面也用它） */
 export const SYSTEM_INSPECTOR_MATCHES = ALWAYS_ON_MATCHES
 
+export const SYSTEM_PICK_ELEMENT_MATCHES = ALWAYS_ON_MATCHES
+
 /** 浮层宿主系统脚本的匹配面（engine 的「在册没变就跳过」比对面也用它） */
 export const SYSTEM_FLOAT_MATCHES = ALWAYS_ON_MATCHES
 
 /**
- * 三件系统脚本的展示信息（名字 / 注入世界 / 一句话作用）。
- *
  * 消费方两处：engine 的 listBuiltinRegistrations 把它并进 BUILTIN_META（popup 的页面概览与
  * 工作台「脚本列表」底部分区两处 UI 只读透出），以及本文件三个 project 构建器的 `name`
  * —— 展示名单一来源，件「自己声明自己」。中继件（脚本桥）不在：它已在包内
@@ -55,7 +57,12 @@ export const SYSTEM_SCRIPT_DISPLAY: Readonly<
   [INSPECTOR_HOST_ID]: {
     name: '页面检查器',
     world: '页面主世界',
-    note: '在页面里待命：收到指令才点选元素 / 抓快照 / 读环境，平时不亮任何 UI',
+    note: '在页面里待命：收到指令才抓快照 / 读环境，平时不亮任何 UI',
+  },
+  [PICK_ELEMENT_ID]: {
+    name: '页面拾取',
+    world: '页面主世界',
+    note: '在页面里待命：收到拾取请求才亮高亮框，用户点选后把元素载荷交回，平时不亮任何 UI',
   },
   [FLOAT_HOST_ID]: {
     name: '浮层宿主',
@@ -82,6 +89,20 @@ export async function pageInspectorProject(): Promise<ScriptProject> {
     name: SYSTEM_SCRIPT_DISPLAY[INSPECTOR_HOST_ID].name,
     enabled: true,
     config: { ...defaultConfig(SYSTEM_INSPECTOR_MATCHES), runAt: 'document_start' },
+    source: { code, savedAt: now },
+    createdAt: now,
+  }
+}
+
+export async function pickElementProject(): Promise<ScriptProject> {
+  const code = await loadSystemScriptCode(PICK_ELEMENT_FILE)
+  const now = Date.now()
+  return {
+    v: 2,
+    uuid: PICK_ELEMENT_ID,
+    name: SYSTEM_SCRIPT_DISPLAY[PICK_ELEMENT_ID].name,
+    enabled: true,
+    config: { ...defaultConfig(SYSTEM_PICK_ELEMENT_MATCHES), runAt: 'document_start' },
     source: { code, savedAt: now },
     createdAt: now,
   }

@@ -188,13 +188,6 @@ export type RuntimeRequest =
   // 会话归属映射与 SW 内存里的进行中集合，popup 自己拼会拼出三份时间点不同的快照（还各要一次 IPC）。
   | { kind: 'page:overview' }
 
-  // —— 拾取（浮层 → SW）：用户显式点按钮发起 ——
-  // SW 取**激活标签页**（拾取那一刻浮层必然在用户看着的那一页上），再向该页的页面检查器常驻件
-  // 下发指令；结果由件上报、SW 按 reqId 配对（见包内 userscripts/page-inspector-bridge.ts）。
-  | { kind: 'picker:pick' }
-  // 收工：与「开始」同一根线，SW 只负责转发到那一页
-  | { kind: 'picker:cancel' }
-
   // —— 浮层宿主的命令面：只有打开与探活；收起 / 遮罩由对话界面 postMessage 直连件（ADR 0046）——
   //
   // open：popup 的「对话浮层」按钮与页面右键菜单发起。tabId 是目标标签页（发起方都握有它；

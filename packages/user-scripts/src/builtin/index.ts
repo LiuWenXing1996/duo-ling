@@ -6,9 +6,6 @@
 // 中继件（relay/）同理只从自己的子路径出口（./builtin/relay 供 SW 测试取源码本体、
 // ./builtin/relay-code.gen 供 SW 取 IIFE 字符串），不进这个桶。
 //
-// 跨世界的协议契约不在这里 —— 那是 @duoling/shared（api-contract）的职责：
-// 三件内置件的指令信封随脚本桥协议走，不再各有各的 kind 常量。
-//
 // 于是消费面是两组：
 //   · 应用侧（SW / UI / 测试）—— import 本模块，拿注册面；
 //   · 件侧（件自己的单测）—— 直接以相对路径 import 件模块。

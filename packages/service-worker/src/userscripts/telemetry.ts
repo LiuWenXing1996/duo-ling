@@ -8,19 +8,14 @@ import { notePageError, noteRunStart } from './page-monitor'
 import { recordingTabSessionId } from './tab-sessions'
 import { handleInspectorEvent } from './page-inspector-bridge'
 import { appendUserScriptError, recordRunEvent, recordRunStart } from './store'
-import { FLOAT_HOST_ID, INSPECTOR_HOST_ID, TAB_RECORDER_ID } from '@duoling/user-scripts/builtin'
+import { FLOAT_HOST_ID, INSPECTOR_HOST_ID, PICK_ELEMENT_ID, TAB_RECORDER_ID } from '@duoling/user-scripts/builtin'
 
-/**
- * 系统脚本的 uuid 集。三件都走统一 registerScript 链注入（带 GM 包装，注入即广播 runstart），
- * 但它们是扩展自己的机制件，**不该进用户脚本观测面**：观测面的规则是「非用户脚本不算命中」，
- * 系统脚本作为机制件若不滤掉，普通网页的角标会凭空 +2（检查器 / 浮层宿主全站匹配），
- * 活动历史也会混进不是用户发起的运行条。
- *
- * 过滤在遥测接线这一处做（四个口一起拦）：包内 dl-bridge 不知道「谁是系统脚本」—— 那是
- * 应用侧的概念（id 真相源在 @duoling/user-scripts/builtin 的 registry.ts）；而观测的消费面
- * （page-monitor / store）也不该各自维护一份黑名单。
- */
-const SYSTEM_SCRIPT_UUIDS = new Set([TAB_RECORDER_ID, INSPECTOR_HOST_ID, FLOAT_HOST_ID])
+const SYSTEM_SCRIPT_UUIDS = new Set([
+  TAB_RECORDER_ID,
+  INSPECTOR_HOST_ID,
+  PICK_ELEMENT_ID,
+  FLOAT_HOST_ID,
+])
 
 export const duolingTelemetry: UserscriptTelemetry = {
   recordingTabSessionId,

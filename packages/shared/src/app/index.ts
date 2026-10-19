@@ -7,7 +7,6 @@
 export * from './app-db'
 export * from './build-info'
 export * from './conversation-tab-map'
-export * from './element-picker-client'
 export * from './key-cipher'
 export * from './model-store'
 export * from './net-digest'

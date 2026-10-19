@@ -43,16 +43,6 @@ export class DL {
     return this.#swService().saveTab(value)
   }
 
-  getService<T extends object>(key: string): DeepAsync<T> {
-    return createProxyService<T>(key)
-  }
-
-  /** 接 SW 打来的请求；返回退订函数 */
-  onRequest(type: string, handler: (data: unknown) => unknown | Promise<unknown>): () => void {
-    return MainWorldMessenger.instance.onRequest(type, handler)
-  }
-
-  /** 向后台登记一条命名命令，宿主可按 (tabId, scriptId, name) 调用；返回注销函数 */
   registerBackgroundCommand(
     name: string,
     handler: (arg: unknown) => unknown | Promise<unknown>,
@@ -69,11 +59,15 @@ export class DL {
     }
   }
 
+  #service<T extends object>(key: string): DeepAsync<T> {
+    return createProxyService<T>(key)
+  }
+
   #swService(): DeepAsync<SwService> {
-    return (this.#sw ??= this.getService<SwService>(SW_SERVICE_KEY))
+    return (this.#sw ??= this.#service<SwService>(SW_SERVICE_KEY))
   }
 
   #commandService(): DeepAsync<CommandRegistrar> {
-    return (this.#commands ??= this.getService<CommandRegistrar>(COMMAND_SERVICE_KEY))
+    return (this.#commands ??= this.#service<CommandRegistrar>(COMMAND_SERVICE_KEY))
   }
 }
