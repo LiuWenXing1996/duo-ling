@@ -447,8 +447,9 @@ export type ApiEvent =
   | { t: 'inspector.cmd'; cmd: string; reqId: string }
   /**
    * 浮层宿主指令（SW → 浮层宿主系统脚本，经 Port 下行由中继件转回 MAIN 桥 onEvent）。
-   * `cmd`：open（tabId 随帧带，件拼进浮层 iframe 的 `?tab=`）/ collapse / busy（busy 定显隐）/
-   * ping（在岗探针，件回一条 float.pong）。脚本作者不感知：宿主件是系统脚本，不走 GM 能力面。
+   * `cmd`：open（tabId 随帧带，件拼进浮层 iframe 的 `?tab=`）/ ping（在岗探针，件回一条
+   * float.pong）。收起 / 遮罩不走这里 —— 对话界面在 iframe 里直接 postMessage 给件，
+   * 见 shared 的 float-host.ts。脚本作者不感知：宿主件是系统脚本，不走 GM 能力面。
    */
   | { t: 'float.cmd'; cmd: string; reqId?: string; tabId?: number; busy?: boolean }
   /** 扩展菜单点击。id = 包装层 mint 的菜单标识 */

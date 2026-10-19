@@ -198,24 +198,12 @@ export type RuntimeRequest =
   // 收工：与「开始」同一根线，SW 只负责转发到那一页
   | { kind: 'picker:cancel' }
 
-  // —— 浮层宿主的命令面 ——
-  // 浮层宿主件已转 MAIN 世界系统脚本（走统一脚本链），那里没有 chrome.runtime，
-  // tabs.sendMessage 到不了 —— 四条动作全改走「RuntimeRequest → SW → DL Port 事件帧
-  // （float.cmd，见包内 userscripts/float-bridge.ts）」的链路；件的接收面见
-  // packages/user-scripts/src/builtin/float-host/install.ts。
+  // —— 浮层宿主的命令面：只有打开与探活；收起 / 遮罩由对话界面 postMessage 直连件（ADR 0046）——
   //
   // open：popup 的「对话浮层」按钮与页面右键菜单发起。tabId 是目标标签页（发起方都握有它；
   // 右键菜单由 SW 代发，SW 自己握有 tab）—— 件把它拼进浮层 iframe 的 URL（`?tab=<id>`，
   // 浮层据此认定会话归属）。SW 推不到（该页上没有件的在岗连接）时命令报错，发起方据此提示。
   | { kind: 'float:open'; tabId: number }
-  // collapse：对话界面顶栏那颗「收起」。按钮在 iframe 里（对话界面本体），而容器的显隐握在
-  // 父页的宿主件手里，跨源拿不到对方，只能发一条命令叫它收。tabId 由对话界面从 iframe URL
-  // 的 `?tab=` 读出（见 lib/owning-tab 的 readPinnedTabId）。单向动作，失败静默。
-  | { kind: 'float:collapse'; tabId: number }
-  // busy：对话界面报「这条会话是否正在生成」，宿主件据此开关页面遮罩（挡指针交互 + 一句提示）。
-  // 生成状态只有 offscreen 知道，宿主既不知道哪条会话属于自己这个标签页，也不该为此多接一条
-  // 广播线。生成开始与结束各报一次，busy 定显隐。单向动作，失败静默。
-  | { kind: 'float:busy'; tabId: number; busy: boolean }
   // ping：在岗探活（e2e 用）。SW 下发 ping、件回 float.pong，reqId 配对结算 —— 判据是这声
   // 应答，不是消息发得出去。返回 { pong: boolean }。
   | { kind: 'float:ping'; tabId: number }
