@@ -2,9 +2,11 @@ import {
   MESSAGING_CHANNEL,
   MESSAGING_PORT,
   MessagingError,
-  assertSerializable,
-  isRequestDetail,
+  PING_TYPE,
+  deserializeError,
+  frameKind,
   wireError,
+  type RequestDetail,
   type ResponseDetail,
   type SwMessage,
   type WireResult,
@@ -12,10 +14,24 @@ import {
 
 type Handler = (message: SwMessage) => unknown | Promise<unknown>
 
-export class ServiceWorkerMessenger {
-  readonly #handlers = new Map<string, Handler>()
+interface PendingRequest {
+  resolve: (value: unknown) => void
+  reject: (error: Error) => void
+}
 
-  constructor() {
+export class ServiceWorkerMessenger {
+  static #instance: ServiceWorkerMessenger | undefined
+
+  static get instance(): ServiceWorkerMessenger {
+    return (ServiceWorkerMessenger.#instance ??= new ServiceWorkerMessenger())
+  }
+
+  readonly #handlers = new Map<string, Handler>()
+  readonly #pending = new Map<number, PendingRequest>()
+  readonly #ports = new Map<string, chrome.runtime.Port>()
+  #seq = Math.floor(Math.random() * 1_000_000) + 1
+
+  private constructor() {
     const onConnect = chrome.runtime.onUserScriptConnect
     if (typeof onConnect?.addListener !== 'function') {
       console.warn('[dl-messaging] runtime.onUserScriptConnect 不可用，SW 侧消息通道未挂载')
@@ -27,6 +43,10 @@ export class ServiceWorkerMessenger {
       const sender = port.sender
       port.onMessage.addListener((raw: unknown) => {
         void this.#serve(raw, port, sender)
+      })
+      port.onDisconnect.addListener(() => {
+        void chrome.runtime.lastError
+        for (const [key, known] of this.#ports) if (known === port) this.#ports.delete(key)
       })
     })
   }
@@ -41,41 +61,93 @@ export class ServiceWorkerMessenger {
     }
   }
 
+  sendToScript(tabId: number, scriptId: string, type: string, data?: unknown): Promise<unknown> {
+    const port = this.#ports.get(`${tabId}:${scriptId}`)
+    if (!port) {
+      return Promise.reject(
+        new MessagingError('TRANSPORT', `脚本 ${scriptId} 在 tab ${tabId} 上没有连接`),
+      )
+    }
+
+    const id = ++this.#seq
+    const request: RequestDetail = {
+      channel: MESSAGING_CHANNEL,
+      kind: 'request',
+      id,
+      type,
+      scriptId,
+      data,
+    }
+
+    return new Promise<unknown>((resolve, reject) => {
+      this.#pending.set(id, { resolve, reject })
+      try {
+        port.postMessage(request)
+      } catch {
+        this.#pending.delete(id)
+        reject(new MessagingError('TRANSPORT', `向脚本 ${scriptId} 发送失败，端口已断开`))
+      }
+    })
+  }
+
   async #serve(
     raw: unknown,
     port: chrome.runtime.Port,
     sender: chrome.runtime.MessageSender | undefined,
   ): Promise<void> {
-    if (!isRequestDetail(raw)) return
+    const kind = frameKind(raw)
+    if (kind === 'response') {
+      const frame = raw as ResponseDetail
+      const pending = this.#pending.get(frame.id)
+      if (!pending) return
+      this.#pending.delete(frame.id)
+      if (frame.ok) {
+        pending.resolve(frame.res)
+      } else {
+        pending.reject(
+          frame.err ? deserializeError(frame.err) : new Error(`消息 ${frame.type} 没有回包内容`),
+        )
+      }
+      return
+    }
+    if (kind !== 'request') return
 
-    const { instanceId, message } = raw
+    const frame = raw as RequestDetail
+    const tabId = sender?.tab?.id
+    if (tabId !== undefined) this.#ports.set(`${tabId}:${frame.scriptId}`, port)
+
     const reply = (result: WireResult): void => {
-      const frame: ResponseDetail = {
+      const response: ResponseDetail = {
         channel: MESSAGING_CHANNEL,
-        instanceId,
-        id: message.id,
-        type: message.type,
+        kind: 'response',
+        id: frame.id,
+        type: frame.type,
+        scriptId: frame.scriptId,
         ...result,
       }
       try {
-        port.postMessage(frame)
+        port.postMessage(response)
       } catch {
         // 页面已卸载 / 端口已断：没人等这个回包了
       }
     }
 
-    const handler = this.#handlers.get(message.type)
+    if (frame.type === PING_TYPE) {
+      reply({ ok: true })
+      return
+    }
+
+    const handler = this.#handlers.get(frame.type)
     if (!handler) {
-      reply(wireError(new MessagingError('NO_HANDLER', `SW 侧没有注册处理器：${message.type}`)))
+      reply(wireError(new MessagingError('NO_HANDLER', `SW 侧没有注册处理器：${frame.type}`)))
       return
     }
 
     try {
       const res = await handler({
-        ...message,
+        ...frame,
         sender: sender ?? ({} as chrome.runtime.MessageSender),
       })
-      assertSerializable(res, 'result')
       reply({ ok: true, res })
     } catch (error) {
       reply(wireError(error))

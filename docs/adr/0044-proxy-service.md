@@ -25,9 +25,13 @@ offscreen 服务都经由 `chrome.runtime` 发消息。脚本跑在页面 MAIN �
 - **MAIN 侧深代理**：`DL.getService<T>(key)` 返回 Proxy，读属性长出新的一层、调用发一次请求，
   `path` 在读取过程中累积。
 - **messenger 自建、单实例**：`createProxyService(key)` 只收 key（与参照实现同形），通道由
-  `proxy-service` 内部按模块级单例懒建，`scriptId` 由 `DL` 构造时 `setProxyScriptId` 注入。
+  `messaging/main-messenger.ts` 的 `MainWorldMessenger.instance` 提供单例（`static` 字段挂类上、
+  `private constructor` 封死），`scriptId` 由 `DL` 构造时
+  `MainWorldMessenger.setScriptId` 注入、`sendMessage` 时现读（不在构造时定死，晚注入也不会丢）；
+  `setScriptId` 只做**首次占位** —— 槽位空则写入，值相同则什么都不做，已占位且值不同就抛
+  `MessagingError('PROTOCOL')`，挡住同一注入体里两个 `DL` 抢同一个 key。
   每个脚本的注入体各有一份模块作用域，所以「模块级单例」正好等于「每脚本 × 每文档一条」，
-  不会跨脚本串号，也不会按 `getService` 次数累积 `window` 监听。
+  不会跨脚本串号；私线 `#link` 也归这个单例所有，一条线对应一个脚本。
 - **key 就是一个 `string`**：曾照参照实现加过 `ProxyServiceKey<T> = string & ProxyServiceConstraint<T>`，
   想给 key 标上服务类型 —— 但 `ProxyServiceConstraint<_>` 是空接口，不约束任何东西，参数位置
   还保留着 `| string`，实际零作用；2026-10-19 连同与 `DeepAsync<T>` 等价的 `ProxyService<T>` 一并删除，
@@ -82,7 +86,7 @@ const sum = await math.add(1, 2) // Promise<number>
 | 方法不存在 / 载荷形状不对 | `MessagingError`，`code: 'PROTOCOL'` |
 | 消息里凑不出 `scriptId` / `tabId` | `MessagingError`，`code: 'PROTOCOL'`（服务层不接无身份调用） |
 | 方法抛错 | 同 `name` + `message` + `stack` + `code` 的 `Error` |
-| 入参或返回值不可序列化 | `MessagingError`，`code: 'SERIALIZATION'`，附字段路径 |
+| 入参或返回值不可序列化 | 不做预检，由平台抛：过不了结构化克隆的当场 `DataCloneError`，其余在中继件 → SW 的 JSON 那段静默降级（见 ADR 0043 的「序列化」段） |
 
 调用方只需要 `try / catch`：链路层每种失败都有明确回包，不会静默等到超时。
 

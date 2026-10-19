@@ -1,3 +1,3 @@
-import { mountMessagingRelay } from './messaging/relay'
+import { MessagingRelay } from './messaging/relay'
 
-mountMessagingRelay()
+MessagingRelay.instance.mount()

@@ -1,4 +1,5 @@
-import { createProxyService, setProxyScriptId, type DeepAsync } from './proxy-service'
+import { MainWorldMessenger } from './messaging/main-messenger'
+import { createProxyService, type DeepAsync } from './proxy-service'
 import { SW_SERVICE_KEY } from './service/keys'
 import type { SwService } from './service/sw-service'
 
@@ -15,7 +16,7 @@ export class DL {
   constructor(config: DLConfig) {
     this.#config = { logPrefix: config.logPrefix || 'DL', registerId: config.registerId }
     this.#log = (message) => console.log(`[${this.#config.logPrefix}]`, message)
-    setProxyScriptId(config.registerId)
+    MainWorldMessenger.setScriptId(config.registerId)
   }
 
   get config(): Required<DLConfig> {
@@ -37,6 +38,11 @@ export class DL {
 
   getService<T extends object>(key: string): DeepAsync<T> {
     return createProxyService<T>(key)
+  }
+
+  /** 接 SW 打来的请求；返回退订函数 */
+  onRequest(type: string, handler: (data: unknown) => unknown | Promise<unknown>): () => void {
+    return MainWorldMessenger.instance.onRequest(type, handler)
   }
 
   #swService(): DeepAsync<SwService> {

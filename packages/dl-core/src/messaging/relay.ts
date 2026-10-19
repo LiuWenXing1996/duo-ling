@@ -1,92 +1,93 @@
 import {
-  MESSAGING_DISCONNECT_EVENT,
+  MESSAGING_CHANNEL,
   MESSAGING_PORT,
-  MESSAGING_REQUEST_EVENT,
-  MESSAGING_RESPONSE_EVENT,
-  isRequestDetail,
-  isResponseDetail,
+  frameKind,
+  type DisconnectDetail,
   type RequestDetail,
-  type ResponseDetail,
 } from './protocol'
 
-declare global {
-  interface Window {
-    __dlMessagingRelay?: boolean
-  }
-}
+export class MessagingRelay {
+  static readonly instance = new MessagingRelay()
 
-const RECONNECT_MIN_MS = 1_000
-const RECONNECT_MAX_MS = 15_000
+  static readonly #RECONNECT_MIN_MS = 1_000
+  static readonly #RECONNECT_MAX_MS = 15_000
 
-const getRuntime = (): typeof chrome.runtime | null => {
-  try {
-    const api = (globalThis as { chrome?: typeof chrome }).chrome
-    return api?.runtime && typeof api.runtime.connect === 'function' ? api.runtime : null
-  } catch {
-    return null
-  }
-}
+  #port: chrome.runtime.Port | null = null
+  #links = new Map<string, MessagePort>()
+  #attempt = 0
+  #queue: RequestDetail[] = []
 
-export function mountMessagingRelay(): void {
-  if (window.__dlMessagingRelay) return
-  window.__dlMessagingRelay = true
+  private constructor() {}
 
-  let port: chrome.runtime.Port | null = null
-  let attempt = 0
-  const queue: RequestDetail[] = []
-
-  const schedule = (): void => {
-    setTimeout(open, Math.min(RECONNECT_MIN_MS * 2 ** attempt++, RECONNECT_MAX_MS))
+  mount(): void {
+    window.addEventListener('message', (event: MessageEvent) => this.#onWindowMessage(event))
+    this.#open()
   }
 
-  const flush = (): void => {
-    while (port && queue.length > 0) {
+  #open(): void {
+    if (this.#port) return
+    let next: chrome.runtime.Port
+    try {
+      next = chrome.runtime.connect({ name: MESSAGING_PORT })
+    } catch {
+      this.#schedule()
+      return
+    }
+    this.#port = next
+    next.onMessage.addListener((raw: unknown) => {
+      const kind = frameKind(raw)
+      if (kind !== 'response' && kind !== 'request' && kind !== 'disconnect') return
+      this.#attempt = 0
+      if (kind === 'disconnect') {
+        for (const link of this.#links.values()) link.postMessage(raw)
+        return
+      }
+      this.#links.get((raw as { scriptId: string }).scriptId)?.postMessage(raw)
+    })
+    next.onDisconnect.addListener(() => {
+      void chrome.runtime.lastError
+      if (this.#port !== next) return
+      this.#port = null
+      const detail: DisconnectDetail = { channel: MESSAGING_CHANNEL, kind: 'disconnect' }
+      for (const link of this.#links.values()) link.postMessage(detail)
+      this.#schedule()
+    })
+    this.#flush()
+  }
+
+  #schedule(): void {
+    const backoff = MessagingRelay.#RECONNECT_MIN_MS * 2 ** this.#attempt++
+    setTimeout(() => this.#open(), Math.min(backoff, MessagingRelay.#RECONNECT_MAX_MS))
+  }
+
+  #flush(): void {
+    while (this.#queue.length > 0) {
+      const port = this.#port
+      if (!port) return
       try {
-        port.postMessage(queue[0])
+        port.postMessage(this.#queue[0])
       } catch {
         return
       }
-      queue.shift()
+      this.#queue.shift()
     }
   }
 
-  function open(): void {
-    if (port) return
-    const runtime = getRuntime()
-    if (!runtime) {
-      schedule()
-      return
-    }
-    let next: chrome.runtime.Port
-    try {
-      next = runtime.connect({ name: MESSAGING_PORT })
-    } catch {
-      schedule()
-      return
-    }
-    port = next
-    next.onMessage.addListener((raw: unknown) => {
-      if (!isResponseDetail(raw)) return
-      attempt = 0
-      window.dispatchEvent(new CustomEvent<ResponseDetail>(MESSAGING_RESPONSE_EVENT, { detail: raw }))
-    })
-    next.onDisconnect.addListener(() => {
-      void runtime.lastError
-      if (port !== next) return
-      port = null
-      window.dispatchEvent(new CustomEvent(MESSAGING_DISCONNECT_EVENT))
-      schedule()
-    })
-    flush()
+  #accept(detail: RequestDetail): void {
+    this.#queue.push(detail)
+    this.#open()
+    this.#flush()
   }
 
-  window.addEventListener(MESSAGING_REQUEST_EVENT, (event: Event) => {
-    const detail = (event as CustomEvent<unknown>).detail
-    if (!isRequestDetail(detail)) return
-    queue.push(detail)
-    open()
-    flush()
-  })
-
-  open()
+  #onWindowMessage(event: MessageEvent): void {
+    if (frameKind(event.data) !== 'request') return
+    const [next] = event.ports
+    if (!next) return
+    const detail = event.data as RequestDetail
+    const key = detail.scriptId
+    this.#links.get(key)?.close()
+    this.#links.set(key, next)
+    next.onmessage = (messageEvent: MessageEvent) => this.#accept(messageEvent.data as RequestDetail)
+    this.#accept(detail)
+  }
 }

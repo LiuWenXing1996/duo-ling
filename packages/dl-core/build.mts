@@ -64,13 +64,23 @@ const TARGETS: Target[] = [
         re: /(?<![\w.$])DL\s*=/,
         why: '没有给 DL 赋值 —— 装配件没跑起来，或入口不再写这个自由变量',
       },
+      {
+        re: /\bMessageChannel\b/,
+        why: '没有建 MessageChannel —— 跨 world 那条私线由主世界建、转移一端给中继件',
+      },
     ],
   },
   {
     entry: 'src/mount-messaging-relay.ts',
     out: 'dist/mount-messaging-relay-iife.js',
     label: '消息中继装配件',
-    forbidden: [MODULE_STMT],
+    forbidden: [
+      MODULE_STMT,
+      {
+        re: /\bMessageChannel\b/,
+        why: '自己建了 MessageChannel —— 这条线归主世界建，中继件只接收转移过来的那端',
+      },
+    ],
     required: [
       {
         re: /\bconnect\s*\(/,
