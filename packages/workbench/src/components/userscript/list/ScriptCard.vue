@@ -126,7 +126,9 @@ function timeLabel(ts: number): string {
       <p>更新时间：{{ timeLabel(s.savedAt) || '无' }}</p>
     </div>
 
-    <!-- 底部：启用开关 + 操作（编辑 / 移动 / 导出 / 删除）；mt-auto 把底行钉在卡片底（网格同排卡片等高），内容长短不齐时分隔线也对齐 -->
+    <!-- 底部：启用开关 + 操作（编辑 / 移动 / 导出 / 删除）；
+         mt-auto 把底行钉在卡片底（网格同排卡片等高），
+         内容长短不齐时分隔线也对齐 -->
     <div class="mt-auto flex items-center justify-between gap-2 border-t pt-2.5">
       <ui-switch
         :model-value="s.enabled"

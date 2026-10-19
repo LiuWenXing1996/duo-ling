@@ -99,7 +99,8 @@ onUnmounted(() => {
 
 <template>
   <section class="panel">
-    <!-- 固定区：单行工具栏不随列表滚动 —— 搜索 / 筛选 / 排序 / 批量操作 + 刷新 / 导入 / 新建，列表再长入口也始终可见 -->
+    <!-- 固定区：单行工具栏不随列表滚动 —— 搜索 / 筛选 / 排序 / 批量操作 + 刷新 / 导入 / 新建，
+         列表再长入口也始终可见 -->
     <div class="mx-auto w-full max-w-6xl shrink-0 px-5 pt-4">
       <ListToolbar
         :scripts-count="sl.scripts.length"
