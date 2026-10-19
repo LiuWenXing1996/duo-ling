@@ -44,9 +44,4 @@ export * from './userscripts/page-inspector-bridge'
 export * from './userscripts/float-bridge'
 export * from './userscripts/telemetry'
 
-export {
-  installMessagingRelay,
-  MESSAGING_RELAY_SCRIPT_ID,
-  mountServiceWorkerMessaging,
-  mountTabStore,
-} from '@duoling/dl-core'
+export { DLRuntime } from '@duoling/dl-core'

@@ -29,16 +29,12 @@ beforeEach(() => {
     runtime: {
       id: 'test-ext-id',
       onUserScriptMessage: { addListener: (fn: Listener) => messageListeners.push(fn) },
-      onUserScriptConnect: {
-        addListener: (fn: (p: unknown) => void) => portConnectListeners.push(fn),
-      },
+      onUserScriptConnect: { addListener: (fn: (p: unknown) => void) => portConnectListeners.push(fn) },
       onMessage: { addListener: (fn: Listener) => swMessageListeners.push(fn) },
     },
     tabs: { onRemoved: { addListener: vi.fn() }, onUpdated: { addListener: vi.fn() } },
     contextMenus: { onClicked: { addListener: (fn: never) => contextMenuListeners.push(fn) } },
-    notifications: {
-      onClicked: { addListener: (fn: (id: string) => void) => notificationListeners.push(fn) },
-    },
+    notifications: { onClicked: { addListener: (fn: (id: string) => void) => notificationListeners.push(fn) } },
     webRequest: { onHeadersReceived: { addListener: vi.fn() } },
     downloads: { onChanged: { addListener: vi.fn() } },
     declarativeNetRequest: {
@@ -62,6 +58,38 @@ function loadHost(): Promise<typeof import('./host')> {
 function loadManagement(): Promise<typeof import('./management')> {
   vi.resetModules()
   return import('./management')
+}
+
+type RegisteredArg = { id: string; js: unknown[]; matches?: string[] }
+
+const SOURCE = '// ==UserScript==\n// @match https://a.com/*\n// ==/UserScript==\nconsole.log(1)'
+
+function stubUserScriptsChrome(): RegisteredArg[] {
+  const registered: RegisteredArg[] = []
+  vi.stubGlobal('chrome', {
+    runtime: {
+      id: 'test-ext-id',
+      onUserScriptMessage: { addListener: vi.fn() },
+      onUserScriptConnect: { addListener: vi.fn() },
+      onMessage: { addListener: vi.fn() },
+    },
+    tabs: { onRemoved: { addListener: vi.fn() }, onUpdated: { addListener: vi.fn() } },
+    contextMenus: { onClicked: { addListener: vi.fn() } },
+    notifications: { onClicked: { addListener: vi.fn() } },
+    webRequest: { onHeadersReceived: { addListener: vi.fn() } },
+    downloads: { onChanged: { addListener: vi.fn() } },
+    declarativeNetRequest: {
+      getSessionRules: vi.fn(async () => []),
+      updateSessionRules: vi.fn(async () => {}),
+    },
+    userScripts: {
+      getScripts: vi.fn(async () => []),
+      configureWorld: vi.fn(async () => {}),
+      register: vi.fn(async (scripts: RegisteredArg[]) => void registered.push(...scripts)),
+      unregister: vi.fn(async () => {}),
+    },
+  })
+  return registered
 }
 
 describe('createServiceWorkerHost', () => {
@@ -111,40 +139,24 @@ describe('createServiceWorkerHost', () => {
   })
 
   it('addScript：传源码串自动建项目并注册（先自愈世界配置再走注册链）', async () => {
-    const registered: Array<{ id: string; js: unknown[]; matches?: string[] }> = []
-    vi.stubGlobal('chrome', {
-      runtime: {
-        id: 'test-ext-id',
-        onUserScriptMessage: { addListener: vi.fn() },
-        onUserScriptConnect: { addListener: vi.fn() },
-        onMessage: { addListener: vi.fn() },
-      },
-      tabs: { onRemoved: { addListener: vi.fn() }, onUpdated: { addListener: vi.fn() } },
-      contextMenus: { onClicked: { addListener: vi.fn() } },
-      notifications: { onClicked: { addListener: vi.fn() } },
-      webRequest: { onHeadersReceived: { addListener: vi.fn() } },
-      downloads: { onChanged: { addListener: vi.fn() } },
-      declarativeNetRequest: {
-        getSessionRules: vi.fn(async () => []),
-        updateSessionRules: vi.fn(async () => {}),
-      },
-      userScripts: {
-        getScripts: vi.fn(async () => []),
-        configureWorld: vi.fn(async () => {}),
-        register: vi.fn(async (scripts: typeof registered) => void registered.push(...scripts)),
-        unregister: vi.fn(async () => {}),
-      },
-    })
+    const registered = stubUserScriptsChrome()
+    const { DLRuntime } = await import('@duoling/dl-core')
+    const runtime = new DLRuntime()
+    await runtime.whenReady()
+    registered.length = 0
     const { createServiceWorkerHost } = await loadHost()
-    const host = createServiceWorkerHost()
-    await host.addScript(
-      '// ==UserScript==\n// @match https://a.com/*\n// ==/UserScript==\nconsole.log(1)',
-    )
+    const host = createServiceWorkerHost({ dlRuntime: runtime })
+    await host.addScript(SOURCE)
     expect(registered).toHaveLength(1)
     expect(registered[0]!.matches).toEqual(['https://a.com/*'])
     // 注入体是一条 code（GM 包装 + 源码拼一条，见 registration.registerScript）
-    expect(registered[0]!.js).toEqual([
-      expect.objectContaining({ code: expect.stringContaining('console.log(1)') }),
-    ])
+    expect(registered[0]!.js).toEqual([expect.objectContaining({ code: expect.stringContaining('console.log(1)') })])
+  })
+
+  it('addScript：没注入 DLRuntime 就明确报错（注册面缺失不许静默丢注册）', async () => {
+    stubUserScriptsChrome()
+    const { createServiceWorkerHost } = await loadHost()
+    const host = createServiceWorkerHost()
+    await expect(host.addScript(SOURCE)).rejects.toThrow('未注入 DLRuntime')
   })
 })

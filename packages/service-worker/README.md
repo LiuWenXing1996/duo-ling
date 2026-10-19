@@ -36,10 +36,10 @@ offscreen 侧是同层的另一个**进程包** `@duoling/offscreen-document`，
 ## background.ts（SW 入口）
 
 ```ts
-import { createServiceWorkerHost, GM_OFFSCREEN_REASONS } from '@duoling/service-worker'
+import { createServiceWorkerHost, DLRuntime, GM_OFFSCREEN_REASONS } from '@duoling/service-worker'
 
 // 顶层第一帧同步调用（不 await）：注入配置 + 桥与 Port 监听注册同点完成（幂等）。
-// 各 port 全部可选：不注入 = 相应观测不发生，脚本行为不受损；
+// 除 dlRuntime 外各 port 全部可选：不注入 = 相应观测不发生，脚本行为不受损；
 // secretStore 不注入则握手密钥只在 SW 存活期内有效。
 const host = createServiceWorkerHost({
   extensionName: 'My Extension',
@@ -47,6 +47,8 @@ const host = createServiceWorkerHost({
   secretStore: myKvStore,
   // 宿主自己的常驻注册件（可选）：registerAllEnabled 会先同步它们、stale 清扫排除这些 id
   builtins: { ids: ['my-host-piece'], syncAll: syncMyPieces },
+  // 脚本注册面（必填）：dl-core 的运行时实例，注入码拼装与幂等注册都在它里面
+  dlRuntime: new DLRuntime(),
 })
 
 // offscreen 文档由扩展自建（包不碰生命周期）：每次唤醒直建一次，已存在则 reject 被吞

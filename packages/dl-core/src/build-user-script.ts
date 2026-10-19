@@ -24,7 +24,6 @@ export interface BuildUserScriptInput {
   readonly source: string
   /** `@require` 已抓取的源码，按声明顺序前置 */
   readonly requires?: readonly string[]
-  
 }
 
 /** 拼出注入主世界的最终 userscript 源码（一条 code：挂载点 + 内核 + 正文） */

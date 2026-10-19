@@ -1,44 +1,12 @@
-export type MaybePromise<T> = T | Promise<T>
-
-export type ProtocolMap = Record<string, any>
-
-export type ProtocolWithReturn<TData, TReturn> = (data: TData) => TReturn
-
-export type GetDataType<T> = T extends (...args: infer TArgs) => unknown
-  ? TArgs extends []
-    ? undefined
-    : TArgs[0]
-  : T
-
-export type GetReturnType<T> = T extends (...args: any[]) => infer TReturn ? Awaited<TReturn> : void
-
-export interface Message<TProtocolMap extends ProtocolMap, TType extends keyof TProtocolMap> {
-  id: number
-  type: TType
-  data: GetDataType<TProtocolMap[TType]>
-  timestamp: number
-  namespace: string
-  scriptId?: string
-}
-
-export interface ServiceWorkerMessage<
-  TProtocolMap extends ProtocolMap,
-  TType extends keyof TProtocolMap,
-> extends Message<TProtocolMap, TType> {
-  sender: chrome.runtime.MessageSender
-}
-
-export const MESSAGING_CHANNEL = 'dl-messaging'
-export const MESSAGING_REQUEST_EVENT = `${MESSAGING_CHANNEL}:request`
-export const MESSAGING_RESPONSE_EVENT = `${MESSAGING_CHANNEL}:response`
-export const DEFAULT_NAMESPACE = 'dl'
-
 export interface WireMessage {
   id: number
   type: string
   data: unknown
-  timestamp: number
   scriptId?: string
+}
+
+export interface SwMessage extends WireMessage {
+  sender: chrome.runtime.MessageSender
 }
 
 export interface SerializedError {
@@ -54,27 +22,25 @@ export interface WireResult {
   err?: SerializedError
 }
 
+export const MESSAGING_CHANNEL = 'dl-messaging'
+export const MESSAGING_REQUEST_EVENT = `${MESSAGING_CHANNEL}:request`
+export const MESSAGING_RESPONSE_EVENT = `${MESSAGING_CHANNEL}:response`
+
 export interface RequestDetail {
   channel: typeof MESSAGING_CHANNEL
-  namespace: string
   instanceId: string
   message: WireMessage
 }
 
-export interface ResponseDetail {
+export interface ResponseDetail extends WireResult {
   channel: typeof MESSAGING_CHANNEL
-  namespace: string
   instanceId: string
   id: number
   type: string
-  ok: boolean
-  res?: unknown
-  err?: SerializedError
 }
 
 export interface RuntimeRequest {
   channel: typeof MESSAGING_CHANNEL
-  namespace: string
   message: WireMessage
 }
 
@@ -90,7 +56,7 @@ export class MessagingError extends Error {
   }
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
 
 const isPlainObject = (value: object): boolean => {
@@ -103,12 +69,7 @@ export function isSerializedError(value: unknown): value is SerializedError {
 }
 
 export function isWireMessage(value: unknown): value is WireMessage {
-  return (
-    isRecord(value) &&
-    typeof value.id === 'number' &&
-    typeof value.type === 'string' &&
-    typeof value.timestamp === 'number'
-  )
+  return isRecord(value) && typeof value.id === 'number' && typeof value.type === 'string'
 }
 
 export function isWireResult(value: unknown): value is WireResult {
@@ -120,7 +81,6 @@ export function isRequestDetail(value: unknown): value is RequestDetail {
   return (
     isRecord(value) &&
     value.channel === MESSAGING_CHANNEL &&
-    typeof value.namespace === 'string' &&
     typeof value.instanceId === 'string' &&
     isWireMessage(value.message)
   )
@@ -130,7 +90,6 @@ export function isResponseDetail(value: unknown): value is ResponseDetail {
   return (
     isRecord(value) &&
     value.channel === MESSAGING_CHANNEL &&
-    typeof value.namespace === 'string' &&
     typeof value.instanceId === 'string' &&
     typeof value.id === 'number' &&
     typeof value.type === 'string' &&
@@ -139,12 +98,7 @@ export function isResponseDetail(value: unknown): value is ResponseDetail {
 }
 
 export function isRuntimeRequest(value: unknown): value is RuntimeRequest {
-  return (
-    isRecord(value) &&
-    value.channel === MESSAGING_CHANNEL &&
-    typeof value.namespace === 'string' &&
-    isWireMessage(value.message)
-  )
+  return isRecord(value) && value.channel === MESSAGING_CHANNEL && isWireMessage(value.message)
 }
 
 export function serializeError(error: unknown): SerializedError {
@@ -166,6 +120,8 @@ export function deserializeError(serialized: SerializedError): Error {
   if (serialized.code) (error as Error & { code?: string }).code = serialized.code
   return error
 }
+
+export const wireError = (error: unknown): WireResult => ({ ok: false, err: serializeError(error) })
 
 function safeStringify(value: unknown): string {
   try {

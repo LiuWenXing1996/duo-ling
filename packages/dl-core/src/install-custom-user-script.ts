@@ -52,6 +52,22 @@ export function protectCustomScriptId(id: string): void {
   installedIds.add(id)
 }
 
+function userScriptsApi(): typeof chrome.userScripts {
+  const api = chrome.userScripts
+  if (!api || typeof api.register !== 'function') {
+    throw new Error('用户脚本功能不可用：需在扩展详情页开启「允许运行用户脚本」')
+  }
+  return api
+}
+
+export async function registerUserScript(
+  script: chrome.userScripts.RegisteredUserScript,
+): Promise<void> {
+  const api = userScriptsApi()
+  await api.unregister({ ids: [script.id] }).catch(() => {})
+  await api.register([script])
+}
+
 /**
  * 把一段代码装成 MAIN 世界的用户脚本，返回注册 id。
  *
@@ -62,14 +78,9 @@ export async function installCustomUserScript(
   options: InstallCustomUserScriptOptions = {},
 ): Promise<{ id: string }> {
   if (!code.trim()) throw new Error('installCustomUserScript：脚本代码为空，拒绝注册')
-  const api = chrome.userScripts
-  if (!api || typeof api.register !== 'function') {
-    // 逐版本的环境指引由 SW 的可用性检测生成（它才认得出 Chrome 版本与 Firefox）
-    throw new Error('用户脚本功能不可用：需在扩展详情页开启「允许运行用户脚本」')
-  }
   const id = options.id ?? `dl-custom-${crypto.randomUUID()}`
   const name = options.name ?? id
-  const script: chrome.userScripts.RegisteredUserScript = {
+  await registerUserScript({
     id,
     // 注入页面主世界：`unsafeWindow` 即页面 window、站点自身的 JS 全局可见（与 TM 默认一致）。
     // MAIN 不支持 worldId，同帧多脚本共用一个 window —— 各自的 `var` 靠 buildUserScript 的
@@ -82,10 +93,7 @@ export async function installCustomUserScript(
     excludeGlobs: options.excludeGlobs,
     runAt: options.runAt ?? DEFAULT_RUN_AT,
     allFrames: options.allFrames ?? false,
-  }
-  // 幂等：同 id 已在册时 register 会抛 Duplicate script ID，先清再注册
-  await api.unregister({ ids: [id] }).catch(() => {})
-  await api.register([script])
+  })
   if (options.protectFromSync !== false) installedIds.add(id)
   return { id }
 }

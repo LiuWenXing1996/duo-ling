@@ -20,7 +20,7 @@ Chrome MV3 扩展（background service worker + 工作台标签页；对话界�
 
 打底只有 `shared`：跨世界契约 + 共享实现（含 `app/` 那批**两个进程都要用的应用侧实现** —— 模型配置、归属映射、新版本检查、构建信息、小数据 kv、抓包摘要）。
 
-`dl-core` 是**脚本内核**：注入体的实现体与能力面，只依赖 `shared`。能力面恒注入、不读 grant —— `DL.*`（GM API 的超集）、`unsafeWindow`、`window.onurlchange` / `close` / `focus`；`GM_*` / `GM.*` 则继续按 `@grant` 裁剪，作为对齐 Tampermonkey 的兼容面（契约见 [packages/dl-core/README.md](packages/dl-core/README.md)）。**内核只依赖浏览器与扩展平台的原生 API 从零写出**，不复用现有注入体与桥的实现。另有一个宿主侧注册面（`installCustomUserScript`）：只在扩展进程里可用，装进去的代码同样经内核拼装，因此能直接拿到 `DL`。与 `shared` 的分界不是「代码量」而是「形状还是行为」—— 信封、常量、类型、纯数据处理进 `shared`，带运行期依赖或需要被拼进注入体的逻辑进 `dl-core`（`shared` 仍是 `types: []`；`dl-core` 只放 vite/client 与 chrome，后者仅宿主侧注册模块需要，注入体不许碰）。
+`dl-core` 是**脚本内核**：注入体的实现体与能力面，只依赖 `shared`。能力面恒注入、不读 grant —— `DL.*`（GM API 的超集）、`unsafeWindow`、`window.onurlchange` / `close` / `focus`；`GM_*` / `GM.*` 则继续按 `@grant` 裁剪，作为对齐 Tampermonkey 的兼容面（契约见 [packages/dl-core/README.md](packages/dl-core/README.md)）。**内核只依赖浏览器与扩展平台的原生 API 从零写出**，不复用现有注入体与桥的实现。另有一个宿主侧入口 `DLRuntime`（进程内单类，根出口只此一个）：构造时挂内核服务与中继件，并转出脚本注册的三个方法；只在扩展进程里可用，装进去的代码同样经内核拼装，因此能直接拿到 `DL`。与 `shared` 的分界不是「代码量」而是「形状还是行为」—— 信封、常量、类型、纯数据处理进 `shared`，带运行期依赖或需要被拼进注入体的逻辑进 `dl-core`（`shared` 仍是 `types: []`；`dl-core` 只放 vite/client 与 chrome，后者仅宿主侧注册模块需要，注入体不许碰）。
 
 shadcn-vue 原语与 ai-elements 是唯一一处 **vendored 组件代码**，落在 `ui` 包内（`src/components/ui/` 与 `src/components/ai-elements/`，拆包前主包的原味拷贝）：`shadcn-vue` CLI 从 `registry.ai-elements-vue.com` 与官方 registry 拉源码，`components.json` 也在 `ui` 包内（CLI add 在该包目录下跑）。CLI 拉进来写的是 `@/` 别名，而源码直出后 `@/` 会撞主包自己的别名 —— 装完跑 `pnpm --filter @duoling/ui convert-paths` 一键转成包内相对路径。样式 token 由主包 `main.css` 注入。其它子包不得自持此类源码。
 
@@ -120,9 +120,9 @@ agent loop 要求宿主「不会在任务中途被回收」，三种宿主的寿
 
 `chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`@duoling/user-scripts` 包内 `gm-main/`）与 **USER_SCRIPT 中继件**（同包：relay 源码，IIFE 字符串内嵌以 `{ code }` 注册，宿主侧注册面在 SW 的 relay/sync.ts，注册同步在全量链内置维护）桥接。
 
-注入体的拼装归 `@duoling/dl-core` 的 `buildUserScript`：按「`var DL` 挂载点 → 内核 IIFE（`build.mts` 产出 `dist/mount-dl-iife.js`，本包以 `?raw` 取原文）→ `@require` + 正文」拼成**一条** code，三段同处一个函数作用域，正文因此能按词法拿到内核建好的 `DL`；注册统一走同包的 `installCustomUserScript`（脚本库那条只做校验与配置映射），GM 包装层那套保留为 GM 面的对照实现。
+注入体的拼装归 `@duoling/dl-core` 的 `buildUserScript`：按「`var DL` 挂载点 → 内核 IIFE（`build.mts` 产出 `dist/mount-dl-iife.js`，本包以 `?raw` 取原文）→ `@require` + 正文」拼成**一条** code，三段同处一个函数作用域，正文因此能按词法拿到内核建好的 `DL`；注册统一走同包 `DLRuntime` 的 `installCustomUserScript`（脚本库那条只做校验与配置映射），GM 包装层那套保留为 GM 面的对照实现。
 
-脚本要主动命令 SW 时走**消息通道**（`docs/adr/0043-script-messaging-channel.md`）：`DL` 内部的 messenger 在 MAIN 世界发带 namespace 的 `CustomEvent`，独立 world 里的中继件（`dist/mount-messaging-relay-iife.js`）转成 `runtime.sendMessage`，SW 侧 `mountServiceWorkerMessaging()` 经 `runtime.onUserScriptMessage` 按 type 派发给 handler，回包沿原路返回。信封只有一种形状（`channel` 哨兵 + `{ id, type, data }`），配对状态只在发起端，错误与不可序列化的值都在边界上显式报错。`DL.getTab/saveTab` 也在这条通道上（`tab.get` / `tab.save`，SW 落点是 `mountTabStore` 的内存 Map）—— 此前的 MessagePort 三跳桥已整条下线。
+脚本要主动命令 SW 时走**消息通道**（`docs/adr/0043-script-messaging-channel.md`）：`DL` 内部的 messenger 在 MAIN 世界派发 `CustomEvent`，独立 world 里的中继件（`dist/mount-messaging-relay-iife.js`）转成 `runtime.sendMessage`，SW 侧 `ServiceWorkerMessenger` 经 `runtime.onUserScriptMessage` 按 type 派发给 handler，回包沿原路返回。信封只有一种形状（`channel` 哨兵 + `{ id, type, data }`），配对状态只在发起端，错误与不可序列化的值都在边界上显式报错。`DL.getTab/saveTab` 也在这条通道上（内核服务 `sw` 的两个方法，SW 落点是 `mountSwService` 的内存 Map）—— 此前的 MessagePort 三跳桥已整条下线。能力不必逐个写进协议表：SW 侧 `registerService(key, factory)` 把工厂注册成服务（每次调用按 `ServiceContext` 现建实例，`scriptId` / `tabId` 必填），脚本侧 `DL.getService<T>(key)` 拿到深代理，`service.a.b(x)` 就是一次请求（`proxy-service.<key>`，路径在载荷里，`@webext-core/proxy-service` 的形状，见 `docs/adr/0044-proxy-service.md`）。
 
 标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`@duoling/shared` 的 `metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`；grant 名 → 它开启的成员这张对应表在 `gm-grants.ts`，注入侧、速查页与 AI 规范三处共用这一份）；能力表 `gm-api-catalog.ts` 生成速查页与**给 AI 的能力清单**两形态（三防漂移：类型层 `satisfies` + 从注入源码反射 + 规范文本对齐单测）。内部仍走 `__dl` 信封协议（协议稳定、与 DL 时代一致；桥的真身与接线工厂都在 `@duoling/service-worker`——background 调 `createServiceWorkerHost` 注入遥测 / 扩展身份 / offscreen 就绪并同步注册全部监听（应用侧不再有 re-export 桶，直接从 `@duoling/service-worker` 取用），遥测对象在 `userscripts/telemetry.ts`）。
 

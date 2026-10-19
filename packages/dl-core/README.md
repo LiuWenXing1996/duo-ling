@@ -1,6 +1,6 @@
 # @duoling/dl-core
 
-duo-ling 的**脚本内核**：注入体的实现体与对脚本暴露的能力面都在这里。源码直出（`exports` 指 `src/index.ts`），由消费方编译；唯一自建的一步是内核装配件的 esbuild 打包（产物 `dist/mount-dl-iife.js` 是一段 IIFE 文本，由 `build-user-script.ts` 以 `?raw` 读进来，见下「现状」）。另有两个宿主侧注册面（`installCustomUserScript` 与 `installMessagingRelay`），只在扩展进程里可用。
+duo-ling 的**脚本内核**：注入体的实现体与对脚本暴露的能力面都在这里。源码直出（`exports` 指 `src/index.ts`），由消费方编译；唯一自建的一步是内核装配件的 esbuild 打包（产物 `dist/mount-dl-iife.js` 是一段 IIFE 文本，由 `build-user-script.ts` 以 `?raw` 读进来，见下「现状」）。**根出口只有一个 `DLRuntime` 类**，它只在扩展进程可用：构造时挂内核服务与页面侧中继件，另暴露 `installCustomUserScript` / `installedCustomScriptIds` / `uninstallCustomUserScript` 三个脚本注册面方法。messenger、proxy-service、`SwService` 与全部消息类型都是内核内部实现，包外取不到 —— 它们由包内模块经相对路径互相引用，加能力时也不必扩出口。
 
 ## 注入面契约
 
@@ -30,14 +30,17 @@ duo-ling 的**脚本内核**：注入体的实现体与对脚本暴露的能力�
 
 ## 现状
 
-五块已落地，全部接线：
+七块已落地，全部接线：
 
+- **宿主侧运行时**：`src/runtime.ts` 的 `DLRuntime` —— 根出口唯一的东西。构造时同步挂内核服务（`mountSwService`），随后装页面侧中继件并把那句 promise 留着（`whenReady()` 供启动链排序，`installMessagingRelay()` 供可用性翻转时重装，失败只记日志不抛）；脚本注册面的三个方法原样转出，包外要注册脚本必须经它。**类不是单例**：实例由宿主创建，再经 `createServiceWorkerHost({ dlRuntime })` 注入到 SW 包，包内按需取用。
 - **注入体拼装**：`src/build-user-script.ts` 的 `buildUserScript` —— 按「`var DL` 挂载点 → 内核 IIFE → `@require` + 脚本正文」拼成一条 IIFE，三段同处一个函数作用域。
 - **内核装配件**：`src/dl.ts` 是 `DL` 的实现类，`src/mount-dl.ts` 负责实例化并写到外层那个 `DL` 上。`build.mts` 把它 bundle 成 `dist/mount-dl-iife.js`（不入库，随 `pnpm -r build` 重建；产物先过四道形状守卫再落盘）。
-- **宿主侧注册**：`src/install-custom-user-script.ts` 的 `installCustomUserScript` —— 接一段代码（裸代码，或 GM 包装层包好的整段源码），经 `buildUserScript` 拼好后用 `chrome.userScripts.register` 装成 MAIN 世界脚本，`uninstallCustomUserScript` 反手注销。只在本进程有效（注册不跨浏览器重启存活），缺省全站匹配、`document_start`、只注入顶层 frame。SW 的 `registerScript` 也走它：校验与配置映射留在 SW，注册动作收敛在这里。
-- **tab 存取**：`DL.getTab/saveTab` 走消息通道的 `tab.get` / `tab.save`，协议表在 `src/dl-protocol.ts`（MAIN 与 SW 共用一张）。SW 侧落点是 `src/tab-store.ts` 的 `mountTabStore`：内存 Map 按 `${scriptId}:${tabId}` 存取，tabId 取 `sender.tab.id`（浏览器盖章，页面改不了）；SW 回收即蒸发，一期不做持久化，`tabs.onRemoved` 清关 tab 的记录。它必须在 `defineBackground` 回调里**同步**调用 —— MV3 的事件投递按同步注册表决定，SW 休眠后中继件的 `sendMessage` 就是唤醒动作，handler 等异步注册链跑完才挂的话那次投递已丢失。
+- **宿主侧注册**：`src/install-custom-user-script.ts` 的 `installCustomUserScript` —— 接一段代码（裸代码，或 GM 包装层包好的整段源码），经 `buildUserScript` 拼好后用 `chrome.userScripts.register` 装成 MAIN 世界脚本，`uninstallCustomUserScript` 反手注销。**注册动作抽成 `registerUserScript`**（可用性检查 + 同 id 先注销再注册），中继件那条世界注册同一个函数，两处不再各写一遍。只在本进程有效（注册不跨浏览器重启存活），缺省全站匹配、`document_start`、只注入顶层 frame。SW 的 `registerScript` 也走它：校验与配置映射留在 SW，注册动作收敛在这里。
+- **内核服务**：`src/service/sw-service.ts` 的 `mountSwService` —— tab 存取包成服务 `sw`（`getTab` / `saveTab`），经 `registerService` 注册，`DL.getTab/saveTab` 就是 `DL.getService('sw')` 的两个方法。服务以工厂形式注册，每次调用按 `ServiceContext` 现建实例，`ServiceContext` 的 `scriptId` / `tabId` 都必填（缺了直接按 `PROTOCOL` 拒掉）；key 是 `${scriptId}:${tabId}`，tabId 取 `sender.tab.id`，浏览器盖章、页面改不了，只在服务内部可见。状态是内存 Map，SW 回收即蒸发，一期不做持久化，`tabs.onRemoved` 清关 tab 的记录。它必须在 `defineBackground` 的回调里随 `DLRuntime` **同步**建出来 —— MV3 的事件投递按同步注册表决定，SW 休眠后中继件的 `sendMessage` 就是唤醒动作，handler 等异步注册链跑完才挂的话那次投递已丢失。
 
-- **脚本消息通道**（设计见 `docs/adr/0043-script-messaging-channel.md`）：`src/messaging/` 一套 messenger 实现 —— `defineMainWorldMessaging`（MAIN 世界，带 namespace 的 `CustomEvent`，由 `DL` 内部持有、不对外暴露）、`mountServiceWorkerMessaging`（SW 侧，`runtime.onUserScriptMessage` + 按 type 的 handler 表，按 namespace 单例）、`mountMessagingRelay`（USER_SCRIPT 中继件，`CustomEvent` ⇄ `runtime.sendMessage`）。`ProtocolMap` 支持函数式与 `ProtocolWithReturn` 两种声明，发送端与处理端共用一张表；错误序列化成 `{ name, message, stack }` 在对端重建，数据在发送前与 handler 返回后各过一次 `assertSerializable`（只放行 JSON 能表达的值）。中继件由 `installMessagingRelay` 注册成独立 world（`dl-messaging-relay`）并 `configureWorld({ messaging: true })`，启动链里排在脚本库注册之前。`DL.getTab/saveTab` 也走这条通道（见上一条），`DL` 对脚本只暴露这两个能力：messenger 是内部实现，按单实例缓存（每个实例都会在 `window` 上挂一个常驻监听且永不摘除，每次新建就等于按调用次数泄漏监听），namespace 固定为默认分区，不暴露命名空间与日志开关。
+- **脚本消息通道**（设计见 `docs/adr/0043-script-messaging-channel.md`）：`src/messaging/` 一套 messenger 实现 —— `MainWorldMessenger`（MAIN 世界，`CustomEvent`，由 `DL` 内部持有、不对外暴露）、`ServiceWorkerMessenger`（SW 侧，`runtime.onUserScriptMessage` + 按 type 的 handler 表，模块级单实例）、`mountMessagingRelay`（USER_SCRIPT 中继件，`CustomEvent` ⇄ `runtime.sendMessage`）。通道只有两段具体签名（`sendMessage(type, data?)` / `onMessage(type, handler)`），没有协议映射表的泛型：类型面在上一层（服务的 `DeepAsync<T>`），通道这层再写一遍只会推导成 `unknown`。错误序列化成 `{ name, message, stack }` 在对端重建，失败回包统一走 `wireError`；数据在发送前与 handler 返回后各过一次 `assertSerializable`（只放行 JSON 能表达的值）。中继件由 `installMessagingRelay` 注册成独立 world（`dl-messaging-relay`）并 `configureWorld({ messaging: true })`，启动链里排在脚本库注册之前。`DL.getTab/saveTab` 也走这条通道（见上一条），`DL` 对脚本只暴露具体能力、不暴露 messenger：messenger 是内部实现，按单实例缓存（每个实例都会在 `window` 上挂一个常驻监听且永不摘除，每次新建就等于按调用次数泄漏监听）。
+
+- **服务代理**（设计见 `docs/adr/0044-proxy-service.md`）：`src/proxy-service/` —— SW 侧 `registerService(key, factory)` 把一个工厂注册成服务，一个服务只占一个消息 type（`proxy-service.<key>`）；MAIN 侧的 `DL.getService<T>(key)` 拿到深代理，`service.a.b(x)` 就是一次请求：路径在读取时累积，SW 侧按路径反射取值并把 `this` 绑到父对象。注册参数固定是工厂 `(context: ServiceContext) => T`，handler 每次调用现建一个实例；`ServiceContext` 的 `scriptId` / `tabId` / `sender` 都必填（`scriptId` 优先取 `sender.userScript.scriptId`，缺省才回退消息里的，后者页面可伪造；`tabId` 只有 `sender.tab.id` 一个来源），凑不出来就回 `PROTOCOL` 而不是给半个身份；内核的 `sw` 服务就是这么写的。入参与返回值仍是 JSON 面；方法抛错按通道既有语义序列化回对端，服务没注册回 `NO_HANDLER`，方法不存在回 `PROTOCOL`。只能调方法，读数据字段拿到的是代理而不是值。`createProxyService(key)` 只收 key：通道由 `src/proxy-service/index.ts` 内部按模块级单例懒建（每脚本的注入体各一份模块作用域，正好等于「每脚本 × 每文档一条」），`scriptId` 由 `DL` 构造时经 `setProxyScriptId` 注入。key 就是普通字符串 —— 曾经那层 `ProxyServiceKey<T>` 是空接口交叉类型，不约束任何东西，已随 `ProxyService<T>` 一并删除。
 
 `installCustomUserScript` 与 SW 的注册引擎有一处必须对齐：全量同步会把不在保留名单里的注册当残留清掉。本包用 `installedCustomScriptIds()` 把本进程装过的 id 报给 SW，由它并进那份名单 —— 少了这步，装上的脚本会在下一次同步里静默消失。走脚本库的那条注册则要传 `protectFromSync: false`：它的 id 归引擎管，删除 / 关停靠同一次清扫兜底。
 

@@ -14,6 +14,7 @@
 // 此处 re-export 维持包内与包外的既有 import 路径不变。
 import type { ScriptProject, UserscriptErrorRecord, UserscriptRunEvent } from '@duoling/shared'
 export type { UserscriptErrorRecord, UserscriptRunEvent }
+import type { DLRuntime } from '@duoling/dl-core'
 
 /**
  * 遥测 port（全部可选；不注入的钩子 = 该观测不发生）。
@@ -88,6 +89,7 @@ export interface UserscriptHostConfig {
     /** 全量同步（幂等可重入；调用方已串行化，实现内不必再加锁） */
     syncAll(projects: ScriptProject[]): Promise<void>
   }
+  dlRuntime?: DLRuntime
 }
 
 const DEFAULT_EXTENSION_NAME = 'UserScripts'
@@ -133,4 +135,8 @@ export function secretStorePort(): UserscriptHostConfig['secretStore'] {
 /** 读内置件注入（未注入为 undefined） */
 export function builtinsPort(): UserscriptHostConfig['builtins'] {
   return config.builtins
+}
+
+export function dlRuntimePort(): DLRuntime | undefined {
+  return config.dlRuntime
 }

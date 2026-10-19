@@ -26,7 +26,7 @@ import type { ScriptProject, ScriptConfig, GmInfo, Json, UserScriptsAvailability
 // 可用性形状归契约包（应用侧状态横幅与 offscreen 都认），此处 re-export 维持包内路径不变。
 export type { UserScriptsAvailability }
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from '@duoling/user-scripts/gm-main'
-import { installCustomUserScript, installedCustomScriptIds } from '@duoling/dl-core'
+import type { DLRuntime } from '@duoling/dl-core'
 import {
   parseUserScriptMetadata,
   resolveConfigFromSource,
@@ -39,9 +39,15 @@ import {
 import { getAllGMValues } from './gm-values'
 import { fetchRequireSources } from './require-cache'
 import { fetchResourceSources } from './resource-cache'
-import { extensionName, secretStorePort, telemetryPort, builtinsPort } from './host-config'
+import { extensionName, secretStorePort, telemetryPort, builtinsPort, dlRuntimePort } from './host-config'
 // 中继件（GM 桥的 MAIN 世界侧）注册面：包内置维护，registerAllEnabled 全量链自动带上
 import { SCRIPT_RELAY_ID, syncScriptRelay } from './relay/sync'
+
+function dlRuntime(): DLRuntime {
+  const runtime = dlRuntimePort()
+  if (!runtime) throw new Error('未注入 DLRuntime：脚本注册面不可用（createServiceWorkerHost 需带 dlRuntime）')
+  return runtime
+}
 
 // —— 可用性检测 / 版本分支 ——
 
@@ -461,7 +467,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   // match pattern 合法性：与导入路径共用同一校验器，
   // 非法值在此以中文报错拦下，不再拖到 chrome.userScripts.register 才以英文异常冒出
   validateMatchPatterns(project.config)
-  await installCustomUserScript(resolveInjectCode(project), {
+  await dlRuntime().installCustomUserScript(resolveInjectCode(project), {
     id: project.uuid,
     name: project.name,
     requires: await resolveRequireCodes(project),
@@ -517,6 +523,7 @@ export function registerAllEnabled(): Promise<void> {
 }
 
 async function runRegisterAllEnabled(): Promise<void> {
+  const runtime = dlRuntime()
   const projects = await listProjectsSorted()
   // 先同步中继件（GM 桥的 MAIN 世界侧，包内置维护）：启用脚本集合变了，匹配并集跟着变。
   // 失败不阻断后续（中继件缺失只是 GM 桥不可用，USER_SCRIPT 世界脚本仍在）
@@ -530,7 +537,7 @@ async function runRegisterAllEnabled(): Promise<void> {
     // 全量重注册只清用户脚本——中继件（上一段刚同步）与内置注册（同上）不能被这把误清
     // （内置排除名单由 builtins.ids 注入；中继件 id 由包自行保留；自定义安装由 dl-core
     // 报上它本进程装过的 id，否则装完会在下一次同步里被当残留扫掉）
-    const reserved = [...(builtins?.ids ?? []), SCRIPT_RELAY_ID, ...installedCustomScriptIds()]
+    const reserved = [...(builtins?.ids ?? []), SCRIPT_RELAY_ID, ...runtime.installedCustomScriptIds()]
     const stale = existing.filter((s) => !reserved.includes(s.id))
     if (stale.length) await unregisterScripts(stale.map((s) => s.id))
   } catch {

@@ -24,9 +24,8 @@ MAIN（DL.getTab/saveTab）──CustomEvent──▶ USER_SCRIPT 中继件 ─�
         ◀──CustomEvent──                          ◀──sendResponse──
 ```
 
-- **MAIN ↔ 中继件**：`CustomEvent`，事件名固定（`dl-messaging:request` / `dl-messaging:response`），
-  namespace 在 `detail` 里。用固定事件名而不是把 namespace 编进事件名，是因为 `addEventListener`
-  没有通配，中继件只能监听确定的名字。
+- **MAIN ↔ 中继件**：`CustomEvent`，事件名固定（`dl-messaging:request` / `dl-messaging:response`）。
+  事件名不做参数化：`addEventListener` 没有通配，中继件只能监听确定的名字。
 - **中继件 ↔ SW**：`runtime.sendMessage`。中继件注册在独立 world 并 `configureWorld({ messaging: true })`，
   否则世界内没有 `chrome.runtime`，这条腿直接断。SW 侧收端是 `runtime.onUserScriptMessage`
   —— userScripts 世界发出的消息走专用事件，不走通用 `onMessage`（与 `onUserScriptConnect` 同理，
@@ -36,7 +35,7 @@ MAIN（DL.getTab/saveTab）──CustomEvent──▶ USER_SCRIPT 中继件 ─�
 
 ```ts
 // 请求（两跳共用 message 部分）
-{ channel: 'dl-messaging', namespace, instanceId?, message: { id, type, data, timestamp, scriptId? } }
+{ channel: 'dl-messaging', instanceId, message: { id, type, data, scriptId? } }
 // 回包
 { ok: true, res } | { ok: false, err: { name, message, stack? } }
 ```
@@ -52,18 +51,14 @@ MAIN（DL.getTab/saveTab）──CustomEvent──▶ USER_SCRIPT 中继件 ─�
 
 ### 类型面
 
-`ProtocolMap` 支持两种写法（与 webext-core 对齐）：
+通道只有两段具体签名：`sendMessage(type: string, data?: unknown): Promise<unknown>`、
+`onMessage(type: string, handler: (message: SwMessage) => unknown | Promise<unknown>)`。
 
-```ts
-interface ProtocolMap {
-  'tab.get': (data: { tabId: number }) => TabInfo     // 函数式：入参 = data，返回值 = res
-  'tab.save': ProtocolWithReturn<{ value: unknown }, void>
-}
-```
-
-- `GetDataType<Entry>` 取入参（零参函数 = 无 data），`GetReturnType<Entry>` 取 `Awaited<返回值>`。
-- 发送端 `sendMessage(type, data)` 与处理端 `onMessage(type, handler)` 共用同一张表，
-  写错类型在编译期就挂；`data` 为 `undefined` 时该参数可省略。
+- 曾按 webext-core 铺过一层 `ProtocolMap` / `ProtocolWithReturn` / `GetDataType` / `GetReturnType` /
+  `SendArgs`，2026-10-19 整层删除：全仓所有实例化都是 `Record<string, any>`，`ProtocolWithReturn`
+  零引用，推导结果与 `unknown` 等价。
+- 类型面已经上移一层 —— 脚本侧拿到的是服务代理的 `DeepAsync<T>`（见 ADR 0044）。通道这层再写一遍
+  协议表，等于在下面挂一层永远推导不到具体形状的装置。
 - MAIN 侧只提供 `sendMessage`、SW 侧只提供 `onMessage`：方向是契约的一部分，不提供用不上的半边。
 
 ### 错误传播
@@ -95,15 +90,13 @@ interface ProtocolMap {
 
 | 文件 | 职责 |
 | --- | --- |
-| `messaging/protocol.ts` | 类型面 + 线格式与守卫 + 错误序列化 + 可序列化校验 |
-| `messaging/main-messenger.ts` | MAIN 侧 messenger：CustomEvent 传输、id 配对 |
-| `messaging/service-worker-messenger.ts` | SW 侧 messenger：`onUserScriptMessage` 根监听、handler 表、按 namespace 的单例挂载 |
+| `messaging/protocol.ts` | 信封类型 + 线格式与守卫 + 错误序列化 + 可序列化校验 |
+| `messaging/main-messenger.ts` | MAIN 侧 messenger：`MainWorldMessenger` 类，CustomEvent 传输、id 配对 |
+| `messaging/service-worker-messenger.ts` | SW 侧 messenger：`ServiceWorkerMessenger` 类，`onUserScriptMessage` 根监听、handler 表 |
 | `messaging/relay.ts` | USER_SCRIPT 中继件：转发两跳 + 失败兜底 |
-| `messaging/index.ts` | 对外出口（类型 + 三个工厂 + 常量） |
 | `mount-messaging-relay.ts` | 中继件 IIFE 入口 |
 | `install-messaging-relay.ts` | 宿主侧注册面：独立 world + messaging + 保留名单 + 幂等注册 |
-| `dl-protocol.ts` | DL 自己的协议表（`tab.get` / `tab.save`），MAIN 与 SW 共用 |
-| `tab-store.ts` | tab 存取的 SW 侧落点：handler 注册 + 内存 Map + `tabs.onRemoved` 清理 |
+| `service/sw-service.ts` | 内核服务 `sw`：`getTab` / `saveTab`，工厂形式注册（见下一条 ADR） |
 
 `build.mts` 多一个目标 `mount-messaging-relay-iife.js`，正向守卫要求产物里真的出现
 `sendMessage(` —— 中继件不转发就没有存在意义。
@@ -111,8 +104,10 @@ interface ProtocolMap {
 ## 与既有 SW 桥的关系
 
 初版写的是「并存，不替代」。**2026-10-19 追加：并存结束，MessagePort 桥整条下线。**
-`DL.getTab/saveTab` 改走本通道的 `tab.get` / `tab.save`，SW 侧落点从 `mountSWBridgeManager`
-换成 `mountTabStore`；`SWBridgeManager`、`sw-bridge.ts`、`mount-sw-bridge.ts`、
+`DL.getTab/saveTab` 改走本通道，SW 侧落点从 `mountSWBridgeManager` 换成 `mountTabStore`
+（2026-10-19 第二轮：`mountTabStore` 与 `dl-protocol.ts` 又被 `service/sw-service.ts` 的内核服务
+`sw` 取代，见 ADR 0044 —— 能力面统一成「服务代理」，协议表不再逐个能力登记）；
+`SWBridgeManager`、`sw-bridge.ts`、`mount-sw-bridge.ts`、
 `install-sw-bridge-script.ts` 与构建目标 `mount-sw-bridge-iife.js` 一并删除。
 
 删它的理由不是「新通道更时髦」，而是它带的三样东西在这里都不需要：每脚本一条常连 port、
@@ -131,13 +126,14 @@ interface ProtocolMap {
 MAIN 世界就是页面，任何站点脚本都能伪造同形状的 CustomEvent，中继件无法分辨来源。
 一期**不做** proof / 页面密钥校验（旧桥有），因为：
 
-- 通道目前只暴露 `tab.get` / `tab.save`，落点是 SW 内存 Map，不落库、不外发、随 tab 关闭即焚；
-- 伪造者能做的上限是「以别的 scriptId 读写本 tab 的内存值」，与迁移前 MessagePort 链路的
-  攻击面**完全相同**（旧桥同样没有鉴权，scriptId 同样来自页面可写的字段）。
+- 通道目前只暴露内核服务 `sw`（`getTab` / `saveTab`），落点是 SW 内存 Map，不落库、不外发、随 tab 关闭即焚；
+- 伪造者能做的上限是「读写本 tab 的内存值」，与迁移前 MessagePort 链路的攻击面**完全相同**
+  （旧桥同样没有鉴权）。2026-10-19 起 `scriptId` 改以 `sender.userScript.scriptId` 为准，
+  页面伪造消息里的 `scriptId` 不再能跨脚本读写；但页面仍可直接以**自己**的身份调用这些方法。
 
 规则不变：**在挂上第一个真正有副作用（落库 / 发请求 / 改配置）的 handler 之前，必须先补鉴权** ——
 落点是「SW 生成每扩展一把密钥 → 注册中继件时注入 → MAIN 内核拿到同一把」，形状与旧桥的
-`bridgeDigest` 一致。`tab.save` 目前只写内存，尚不触发这条。
+`bridgeDigest` 一致。`sw.saveTab` 目前只写内存，尚不触发这条。
 
 ## 其它约束与代价
 
@@ -148,21 +144,21 @@ MAIN 世界就是页面，任何站点脚本都能伪造同形状的 CustomEvent
 - **每脚本一个实例**：`DL` 内部首次用到时建实例，之后 `getTab/saveTab` 复用同一个。实例会在
   `window` 上挂一个常驻 `response` 监听且从不摘除，若每次调用都新建，监听数随调用次数增长，
   每条回包都要被所有实例各过滤一遍（O(n²)）。
-- **`DL` 不暴露 messenger**：对外只有 `getTab` / `saveTab` 两个具体能力，messenger 与
-  `ProtocolMap` 都是内部实现。理由是通道的另一半（handler）在 SW，`mountTabStore` 只注册了
-  `tab.get` / `tab.save`；把 MAIN 半边公开，脚本就能用自造的 `ProtocolMap` 声明任意 type，
-  编译期全过、运行期一律 `NO_HANDLER`。真要开放第三方 type，需要的是「SW 侧 handler 注册面 +
-  鉴权」，届时再把入口提到 `DL` 上。
-- **不暴露 namespace 与 logger**：`namespace` 固定默认分区（`dl`），没有日志开关。两者都是按
-  「库给第三方用」设计的参数，本仓一处也没传过；`Logger` 更是从未被注入，`#logger?.debug` 的
-  7 处打点全在空转，2026-10-19 连同类型一起删除。底层 `mountServiceWorkerMessaging({ namespace })`
-  与 `mountMessagingRelay({ namespaces })` 仍保留分区能力，要开第二个分区时一并往上提。
+- **`DL` 不暴露 messenger**：对外只有 `getTab` / `saveTab` / `getService` 三个具体能力，
+  messenger 与信封都是内部实现。理由是通道的另一半（handler）在 SW：把 MAIN 半边公开，
+  脚本就能自己造 type 发请求，编译期全过、运行期一律 `NO_HANDLER`。
+  `getService` 是这条约束下的正解 —— SW 侧先有 `registerService` 这个 handler 注册面
+  （`docs/adr/0044-proxy-service.md`），MAIN 侧才多一个按方法名寻址的入口；鉴权仍缺。
+- **不暴露 logger，也不留 namespace**：`Logger` 从未被注入（`#logger?.debug` 那 7 处打点全在空转），
+  2026-10-19 连同类型一起删除。`namespace` 走得更远 —— 同一天整条删除：它是按「库给第三方用」
+  设计的参数，本仓一处也没传过，`DEFAULT_NAMESPACE`、两个 options 字段、SW 侧按 namespace 的单例表、
+  中继件的白名单过滤全在空转。真要开第二条通道，改 `channel` 哨兵比加一个只在内部流转的分区维度更直接。
 - **dl-bridge 需放行异通道信封**：它的 `onUserScriptMessage` 监听会对所有陌生消息回
   「非 DL 消息」。新通道的信封带 `channel` 字段，dl-bridge 见到非空 `channel` 直接放行，
   避免「谁先注册谁应答」的隐式依赖。
-- **SW 侧监听必须同步**：`mountServiceWorkerMessaging()`（当前入口是 `mountTabStore()`）要在
-  `defineBackground` 回调里、任何 `await` 之前调用 —— SW 休眠后中继件的 `sendMessage` 是唤醒
-  动作，监听不在同步注册表里就收不到这次投递。
+- **SW 侧监听必须同步**：SW messenger 在第一次 `registerService` 时构造（当前入口是 `DLRuntime`
+  构造函数里的 `mountSwService`），必须落在 `defineBackground` 的回调里、任何 `await` 之前 —— SW 休眠后
+  中继件的 `sendMessage` 是唤醒动作，监听不在同步注册表里就收不到这次投递。
 
 ## 备选与否决
 

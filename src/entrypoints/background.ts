@@ -41,8 +41,7 @@ import {
   SW_IPC_OWNED_KINDS,
   SWService,
   clearGMValues,
-  installMessagingRelay,
-  mountTabStore,
+  DLRuntime,
 } from '@duoling/service-worker'
 // 本扩展自己的注入件注册同步（系统脚本 + 中继件并集）与内置件对账
 import {
@@ -755,16 +754,8 @@ const handlers: {
   'sw:buildInfo': async (): Promise<{ time: string; branch: string }> => __BUILD_INFO__,
 }
 
-async function ensureMessagingRelay(): Promise<void> {
-  try {
-    await installMessagingRelay()
-  } catch (e) {
-    console.error('[duoling:dl-core] 消息中继件安装失败', e)
-  }
-}
-
 /** 用户脚本管理器启动：挂载 GM 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用项目 */
-async function initUserScripts(): Promise<void> {
+async function initUserScripts(runtime: DLRuntime): Promise<void> {
   // GM 运行时接线（包工厂）：遥测 / 扩展身份 / offscreen 就绪在此注入，桥与 Port 的全部
   // 监听在本调用内同步段挂上（第一帧纪律）。幂等：重复调用返回首例，不二次注册。
   createServiceWorkerHost({
@@ -777,6 +768,7 @@ async function initUserScripts(): Promise<void> {
     // 产品内置件（中继件 / 检查器 / 浮层 / 录制件）挂进包侧全量链：
     // registerAllEnabled 先同步这批件、stale 清扫排除这些 id
     builtins: { ids: BUILTIN_SCRIPT_IDS, syncAll: syncAllBuiltins },
+    dlRuntime: runtime,
   })
   // chrome.userScripts 仅在已开启「Allow User Scripts」（Chrome ≥138）或全局开发者模式
   // （Chrome <138）/ 已授权 userScripts 权限（Firefox）时存在；否则为 undefined，
@@ -800,7 +792,7 @@ async function initUserScripts(): Promise<void> {
     return
   }
   setEngineAvailable(true)
-  await ensureMessagingRelay()
+  await runtime.whenReady()
   // 先对账存续行（把指向已关标签页的行盖章结束），再重注册 —— 否则这一步注册的是过期集合
   await reconcileTabSessions()
   await registerAllEnabled()
@@ -1134,12 +1126,12 @@ export default defineBackground(() => {
   // 启动自证：console 第一条就是构建信息，「SW 是不是新包」不用再靠猜
   console.log(`[duoling:sw] SW 启动 · 构建 ${__BUILD_INFO__.time} · 分支 ${__BUILD_INFO__.branch}`)
 
-  mountTabStore()
+  const dlRuntime = new DLRuntime()
   // 点击工具栏图标打开 popup（action.default_popup 由 popup.html 入口自动写入 manifest）——
   // 这是 action 的唯一用途；对话入口是网页浮层（由浮层宿主件挂出），不占 action。
 
   // 用户脚本管理器：启动配置世界并恢复已启用脚本
-  void initUserScripts().catch((e) => console.error('[duoling:userscript] init failed', e))
+  void initUserScripts(dlRuntime).catch((e) => console.error('[duoling:userscript] init failed', e))
 
   // 引擎可用性监视（检测层）：SW 被保活的前提下自行轮询「运行用户脚本」开关（Chrome 对
   // 开关变化无事件），状态变化时经订阅回调通知。这里挂三个消费方（事件消费层）：
@@ -1153,7 +1145,7 @@ export default defineBackground(() => {
     setEngineAvailable(current.available)
     if (!previous && current.available) {
       void ensureWorldsConfigured()
-        .then(() => ensureMessagingRelay())
+        .then(() => dlRuntime.installMessagingRelay())
         .then(() => registerAllEnabled())
         .catch((e) => console.error('[duoling:userscript] 可用性翻转补注册失败', e))
     }
