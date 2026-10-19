@@ -4,7 +4,7 @@
 // 与 page-inspector-bridge 的分工同款：那边管检查器的 reqId 结算，这边管浮层宿主的四条指令。
 //
 // 件已是 MAIN 世界系统脚本（走统一脚本链，见 system-scripts.ts），通道全走脚本桥：
-//   · 下行 —— DL Port 事件帧 `float.cmd`（按系统脚本 uuid + tabId 寻址，pushCommandTo）；
+//   · 下行 —— open 走后台命令 `float.open`（有回包）；其余是 DL Port 事件帧 `float.cmd`（pushCommandTo）；
 //   · 上行 —— 仅 ping 一条有回程：`__dlEvent` 信封 `float.pong`，dl-bridge 分流后交
 //     handleFloatEvent（telemetry port 注入，见 telemetry.ts）。开 / 收 / 遮罩是单向动作，
 //     没有回程 —— 与旧 tabs.sendMessage 的 fire-and-forget 语义一致。
@@ -12,8 +12,9 @@
 // 超时只设在探活这一条（用户与右键菜单不等的那个「点了没反应」要能被判出来）：
 // 件可能因页面卸载 / 导航而永不回话，留一条兜底。
 
-import { FLOAT_HOST_ID } from '@duoling/user-scripts/builtin'
+import { FLOAT_HOST_ID, FLOAT_HOST_OPEN_COMMAND } from '@duoling/user-scripts/builtin'
 import { pushCommandTo } from '../dl-port'
+import { dlRuntimePort } from '../host-config'
 
 /** 探活的超时：件在位时回话是毫秒级，到点没回就是不在位（页面在导航 / 件没注入） */
 const PING_TIMEOUT_MS = 5_000
@@ -32,13 +33,16 @@ function mintReqId(): string {
     : `dlfloat-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-/**
- * 展开浮层。fire-and-forget：旧通道（tabs.sendMessage）发不出去就静默吞掉，这里同语义 ——
- * 返回是否推到了（0 = 该页上没有件的在岗连接：没注册 / 没到位 / 页面在导航），
- * 调用方（popup / 右键菜单）据它决定要不要把「刷新页面后再试」说出口。
- */
-export function openFloatPanel(tabId: number): boolean {
-  return pushCommandTo(FLOAT_HOST_ID, tabId, { t: 'float.cmd', cmd: 'open', tabId }) > 0
+/** 展开浮层：走件的后台命令 `float.open`；false = 该页没有件的在岗连接（件没到位 / 页面在导航） */
+export async function openFloatPanel(tabId: number): Promise<boolean> {
+  const runtime = dlRuntimePort()
+  if (!runtime) return false
+  try {
+    await runtime.invokeBackgroundCommand(tabId, FLOAT_HOST_ID, FLOAT_HOST_OPEN_COMMAND, { tabId })
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** 收起浮层：单向动作，失败静默（按钮的用途只是「让开页面」，没什么可失败的） */

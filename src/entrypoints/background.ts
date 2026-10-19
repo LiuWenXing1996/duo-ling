@@ -399,10 +399,10 @@ const handlers: {
 
   // —— 浮层宿主命令面 ——
   // 件已转 MAIN 世界系统脚本，tabs.sendMessage 到不了它：四条动作都在 SW 经
-  // float-bridge 下发（DL Port 事件帧 float.cmd，按系统脚本 uuid + tabId 寻址）。
+  // float-bridge 下发 —— open 走件的后台命令 float.open（有回包），其余是 float.cmd 帧。
   // open 报错（推不到 = 该页上没有件的在岗连接），其余单向动作静默。
   'float:open': async (msg): Promise<null> => {
-    if (!openFloatPanel(msg.tabId)) {
+    if (!(await openFloatPanel(msg.tabId))) {
       throw new Error('浮层没接上：页面可能还没加载完，刷新页面后再试')
     }
     return null
@@ -1092,7 +1092,7 @@ function ensureFloatMenuItem(): void {
 async function openFloatPanelInTab(tab: chrome.tabs.Tab): Promise<void> {
   const tabId = tab.id
   if (tabId == null) return
-  if (openFloatPanel(tabId)) return
+  if (await openFloatPanel(tabId)) return
   await chrome.notifications.create('duoling:float-open-failed', {
     type: 'basic',
     iconUrl: NOTIFY_ICON,

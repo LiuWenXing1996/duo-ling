@@ -15,6 +15,7 @@
 // 拾取让位：页面元素拾取期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
 
 import { INSPECTOR_PICKER_NS } from '@duoling/shared'
+import { FLOAT_HOST_OPEN_COMMAND } from '../registry'
 
 declare global {
   interface Window {
@@ -44,6 +45,14 @@ declare const __dlBridge: {
   connect(connId: string): Promise<void>
   emit(envelope: Record<string, unknown>): void
   onEvent(fn: (ev: Record<string, unknown>) => void): void
+}
+
+declare const DL: {
+  registerBackgroundCommand(
+    name: string,
+    handler: (arg: unknown) => unknown,
+    options?: { title?: string },
+  ): () => void
 }
 
 /** 常驻通道的 connId（DL Port name 尾段；SW 寻址只认 uuid+tabId，connId 仅做连接身份） */
@@ -469,6 +478,23 @@ export function installFloatHost(): void {
       if (ui) ui.setBusy(ev.busy === true)
     }
   }
+
+  function registerOpenCommand(): void {
+    if (typeof DL === 'undefined') return
+    try {
+      DL.registerBackgroundCommand(
+        FLOAT_HOST_OPEN_COMMAND,
+        (arg) => {
+          mountAndOpen((arg as { tabId?: unknown } | null)?.tabId)
+          return { opened: true }
+        },
+        { title: '打开浮窗' },
+      )
+    } catch {
+      return
+    }
+  }
+  registerOpenCommand()
 
   // 常驻通道：connect 幂等（中继件侧按 uuid 去重）；失败静默 —— 定时重发就是重试。
   // 重发是**常备的**而非只在启动时：SW 重启 / Port 半死时靠它自愈（SW 端 addPort

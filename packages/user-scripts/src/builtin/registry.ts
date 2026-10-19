@@ -42,3 +42,4 @@ export const FLOAT_HOST_ID = 'dl-float-host'
  * 历史形态是「独立 USER_SCRIPT 世界 + 两段注册（件文件 + 装配段递参）」，已随统一脚本链退役。
  */
 export const FLOAT_HOST_FILE = 'duoling-float-host.js'
+export const FLOAT_HOST_OPEN_COMMAND = 'float.open'
