@@ -26,14 +26,12 @@ function fakeFile(name: string, type: string, size = 16): File {
  * 与真身同口径（同内容 = 同 id），于是「同一张图重复附加」在测试里也可断言。
  */
 function fakeUploader(): { upload: AssetUploader; mock: Mock } {
-  const mock = vi.fn(
-    async (dataUrl: string, filename: string): Promise<ChatAssetRef> => ({
-      id: `id-${dataUrl.length}`,
-      filename,
-      mediaType: 'image/jpeg',
-      size: dataUrl.length,
-    }),
-  )
+  const mock = vi.fn(async (dataUrl: string, filename: string): Promise<ChatAssetRef> => ({
+    id: `id-${dataUrl.length}`,
+    filename,
+    mediaType: 'image/jpeg',
+    size: dataUrl.length,
+  }))
   return { upload: mock, mock }
 }
 
@@ -89,7 +87,9 @@ describe('文本截断与拼接', () => {
   })
 
   it('附件块带文件名围栏，截断时留可见标记', () => {
-    expect(buildTextAttachmentBlock('a.txt', 'hello', false)).toBe('【附件：a.txt】\nhello\n【附件结束】')
+    expect(buildTextAttachmentBlock('a.txt', 'hello', false)).toBe(
+      '【附件：a.txt】\nhello\n【附件结束】',
+    )
     expect(buildTextAttachmentBlock('a.txt', 'hello', true)).toContain('已截断')
   })
 
@@ -101,7 +101,9 @@ describe('文本截断与拼接', () => {
   })
 
   it('拼接正文：只有附件没有文字时不留前导空行', () => {
-    expect(composeMessageText('', ['【附件：a.txt】\nx\n【附件结束】'])).toBe('【附件：a.txt】\nx\n【附件结束】')
+    expect(composeMessageText('', ['【附件：a.txt】\nx\n【附件结束】'])).toBe(
+      '【附件：a.txt】\nx\n【附件结束】',
+    )
     expect(composeMessageText('   ', ['块'])).toBe('块')
   })
 })
@@ -216,7 +218,11 @@ describe('prepareAttachments', () => {
 
   it('空输入不产生任何副作用', async () => {
     const { upload, mock } = fakeUploader()
-    expect(await prepareAttachments([], upload)).toEqual({ assets: [], textBlocks: [], skipped: [] })
+    expect(await prepareAttachments([], upload)).toEqual({
+      assets: [],
+      textBlocks: [],
+      skipped: [],
+    })
     expect(mock).not.toHaveBeenCalled()
   })
 })

@@ -55,7 +55,7 @@ function cap(url: string, tabSessionId: string): NetCaptureRecord {
   }
 }
 
-describe('错误记录（runtime 库 tab_events，判据键 kind = \'error\'，环形保留）', () => {
+describe("错误记录（runtime 库 tab_events，判据键 kind = 'error'，环形保留）", () => {
   it('追加后可读，缺省 id / time 自动补', async () => {
     await appendUserScriptError({
       uuid: 'u1',
@@ -114,9 +114,27 @@ describe('错误记录（runtime 库 tab_events，判据键 kind = \'error\'，�
   })
 
   it('clearUserScriptErrors(uuid) 只清该脚本，其余保留', async () => {
-    await appendUserScriptError({ uuid: 'u1', name: 'a', phase: 'runtime', message: 'u1-1', time: 1 })
-    await appendUserScriptError({ uuid: 'u2', name: 'b', phase: 'runtime', message: 'u2-1', time: 2 })
-    await appendUserScriptError({ uuid: 'u1', name: 'a', phase: 'register', message: 'u1-2', time: 3 })
+    await appendUserScriptError({
+      uuid: 'u1',
+      name: 'a',
+      phase: 'runtime',
+      message: 'u1-1',
+      time: 1,
+    })
+    await appendUserScriptError({
+      uuid: 'u2',
+      name: 'b',
+      phase: 'runtime',
+      message: 'u2-1',
+      time: 2,
+    })
+    await appendUserScriptError({
+      uuid: 'u1',
+      name: 'a',
+      phase: 'register',
+      message: 'u1-2',
+      time: 3,
+    })
     await clearUserScriptErrors('u1')
     await expect(listUserScriptErrors()).resolves.toEqual([
       expect.objectContaining({ message: 'u2-1' }),
@@ -124,9 +142,27 @@ describe('错误记录（runtime 库 tab_events，判据键 kind = \'error\'，�
   })
 
   it('clearUserScriptErrors(null) 只清「无脚本上下文」记录（不清 string uuid 的）', async () => {
-    await appendUserScriptError({ uuid: null, name: 's', phase: 'register', message: 'orphan-1', time: 1 })
-    await appendUserScriptError({ uuid: 'u1', name: 'a', phase: 'runtime', message: 'u1-1', time: 2 })
-    await appendUserScriptError({ uuid: null, name: 's', phase: 'bridge', message: 'orphan-2', time: 3 })
+    await appendUserScriptError({
+      uuid: null,
+      name: 's',
+      phase: 'register',
+      message: 'orphan-1',
+      time: 1,
+    })
+    await appendUserScriptError({
+      uuid: 'u1',
+      name: 'a',
+      phase: 'runtime',
+      message: 'u1-1',
+      time: 2,
+    })
+    await appendUserScriptError({
+      uuid: null,
+      name: 's',
+      phase: 'bridge',
+      message: 'orphan-2',
+      time: 3,
+    })
     await clearUserScriptErrors(null)
     await expect(listUserScriptErrors()).resolves.toEqual([
       expect.objectContaining({ message: 'u1-1' }),
@@ -134,7 +170,13 @@ describe('错误记录（runtime 库 tab_events，判据键 kind = \'error\'，�
   })
 
   it('按脚本清空：无该脚本记录时不误伤其他脚本', async () => {
-    await appendUserScriptError({ uuid: 'u2', name: 'b', phase: 'runtime', message: 'u2-1', time: 1 })
+    await appendUserScriptError({
+      uuid: 'u2',
+      name: 'b',
+      phase: 'runtime',
+      message: 'u2-1',
+      time: 1,
+    })
     await clearUserScriptErrors('不存在')
     await expect(listUserScriptErrors()).resolves.toHaveLength(1)
   })
@@ -148,7 +190,13 @@ describe('错误记录（runtime 库 tab_events，判据键 kind = \'error\'，�
   it('页归属由写侧从所属运行条继承：运行期错误不必调用方自己带 tabSessionId', async () => {
     const t = await newRecordingTab()
     await recordRunStart('u1', 'r1', '甲', { tabSessionId: t })
-    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'boom', runId: 'r1' })
+    await appendUserScriptError({
+      uuid: 'u1',
+      name: '甲',
+      phase: 'runtime',
+      message: 'boom',
+      runId: 'r1',
+    })
     expect((await listUserScriptErrors())[0]!.tabSessionId).toBe(t)
   })
 
@@ -175,15 +223,39 @@ describe('错误记录（runtime 库 tab_events，判据键 kind = \'error\'，�
     })
 
     it('唯一 8 位前缀命中', async () => {
-      await appendUserScriptError({ id: '11111111aaaa', uuid: 'u1', name: 's', phase: 'runtime', message: 'm1' })
-      await appendUserScriptError({ id: '22222222bbbb', uuid: 'u2', name: 's', phase: 'runtime', message: 'm2' })
+      await appendUserScriptError({
+        id: '11111111aaaa',
+        uuid: 'u1',
+        name: 's',
+        phase: 'runtime',
+        message: 'm1',
+      })
+      await appendUserScriptError({
+        id: '22222222bbbb',
+        uuid: 'u2',
+        name: 's',
+        phase: 'runtime',
+        message: 'm2',
+      })
       const r = await findUserScriptError('11111111')
       expect(r).toEqual({ found: true, record: expect.objectContaining({ message: 'm1' }) })
     })
 
     it('前缀多命中 → ambiguous（绝不猜）', async () => {
-      await appendUserScriptError({ id: '33333333aaaa', uuid: 'u1', name: 's', phase: 'runtime', message: 'm1' })
-      await appendUserScriptError({ id: '33333333bbbb', uuid: 'u2', name: 's', phase: 'runtime', message: 'm2' })
+      await appendUserScriptError({
+        id: '33333333aaaa',
+        uuid: 'u1',
+        name: 's',
+        phase: 'runtime',
+        message: 'm1',
+      })
+      await appendUserScriptError({
+        id: '33333333bbbb',
+        uuid: 'u2',
+        name: 's',
+        phase: 'runtime',
+        message: 'm2',
+      })
       expect(await findUserScriptError('33333333')).toEqual({ found: false, reason: 'ambiguous' })
       expect(await findUserScriptError('33333333a')).toEqual({
         found: true,
@@ -192,14 +264,20 @@ describe('错误记录（runtime 库 tab_events，判据键 kind = \'error\'，�
     })
 
     it('短于 8 位的前缀直接 not-found；不存在的 id → not-found', async () => {
-      await appendUserScriptError({ id: '44444444aaaa', uuid: 'u1', name: 's', phase: 'runtime', message: 'm1' })
+      await appendUserScriptError({
+        id: '44444444aaaa',
+        uuid: 'u1',
+        name: 's',
+        phase: 'runtime',
+        message: 'm1',
+      })
       expect(await findUserScriptError('4444')).toEqual({ found: false, reason: 'not-found' })
       expect(await findUserScriptError('99999999')).toEqual({ found: false, reason: 'not-found' })
     })
   })
 })
 
-describe('运行条目（tab_events 里 kind = \'run\'：一次运行一行）', () => {
+describe("运行条目（tab_events 里 kind = 'run'：一次运行一行）", () => {
   it('没有所在页的存续 id 就不记 —— 一切观测只在开着活动记录的页上产生', async () => {
     await recordRunStart('u1', 'r1', '甲')
     expect(await listRunTimeline()).toEqual([])
@@ -221,7 +299,13 @@ describe('运行条目（tab_events 里 kind = \'run\'：一次运行一行）',
     const t = await newRecordingTab()
     await recordRunStart('u1', 'r1', '甲', { tabSessionId: t })
     nowSpy.mockReturnValue(1001)
-    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'boom', runId: 'r1' })
+    await appendUserScriptError({
+      uuid: 'u1',
+      name: '甲',
+      phase: 'runtime',
+      message: 'boom',
+      runId: 'r1',
+    })
     nowSpy.mockReturnValue(1002)
     await recordRunStart('u1', 'r2', '甲', { tabSessionId: t })
     nowSpy.mockRestore()
@@ -235,8 +319,21 @@ describe('运行条目（tab_events 里 kind = \'run\'：一次运行一行）',
   it('无 runId 的错误（注册 / 依赖抓取）单独成行；runId 对不上任何运行条的错误也单独成行', async () => {
     const t = await newRecordingTab()
     await recordRunStart('u1', 'r1', '甲', { tabSessionId: t })
-    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'register', message: 'reg', time: 2001 })
-    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'late', runId: 'gone', time: 2002 })
+    await appendUserScriptError({
+      uuid: 'u1',
+      name: '甲',
+      phase: 'register',
+      message: 'reg',
+      time: 2001,
+    })
+    await appendUserScriptError({
+      uuid: 'u1',
+      name: '甲',
+      phase: 'runtime',
+      message: 'late',
+      runId: 'gone',
+      time: 2002,
+    })
     const rows = await listRunTimeline()
     const loose = rows.filter((r) => r.kind === 'error')
     expect(loose).toHaveLength(2)
@@ -247,7 +344,8 @@ describe('运行条目（tab_events 里 kind = \'run\'：一次运行一行）',
     const t = await newRecordingTab()
     await recordRunStart('u1', 'oldest', '甲', { tabSessionId: t })
     await recordRunEvent('u1', 'oldest', { kind: 'fetch', detail: 'x', time: 1 })
-    for (let i = 0; i < RUN_LOG_MAX; i++) await recordRunStart('u1', `r${i}`, '甲', { tabSessionId: t })
+    for (let i = 0; i < RUN_LOG_MAX; i++)
+      await recordRunStart('u1', `r${i}`, '甲', { tabSessionId: t })
 
     const rows = await listRunTimeline()
     expect(rows).toHaveLength(RUN_LOG_MAX)
@@ -304,7 +402,7 @@ describe('运行条目（tab_events 里 kind = \'run\'：一次运行一行）',
   })
 })
 
-describe('运行动作（tab_events 里 kind = \'act\'：一条动作一行，按 runId 索引）', () => {
+describe("运行动作（tab_events 里 kind = 'act'：一条动作一行，按 runId 索引）", () => {
   it('动作落在轴上、运行条只带计数；归属不到的运行条不补造记录', async () => {
     const t = await newRecordingTab()
     await recordRunStart('u1', 'r1', '甲', { tabSessionId: t })
@@ -353,8 +451,20 @@ describe('活动历史（存续表 + 整根活动轴的删除 / 清空）', () =
     const t2 = await mintTabSession({ tabId: 2, url: 'https://2.test/', recording: true })
     await recordRunStart('u1', 'r1', '甲', { tabSessionId: t1 })
     await recordRunStart('u1', 'r2', '甲', { tabSessionId: t2 })
-    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'boom1', runId: 'r1' })
-    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'boom2', runId: 'r2' })
+    await appendUserScriptError({
+      uuid: 'u1',
+      name: '甲',
+      phase: 'runtime',
+      message: 'boom1',
+      runId: 'r1',
+    })
+    await appendUserScriptError({
+      uuid: 'u1',
+      name: '甲',
+      phase: 'runtime',
+      message: 'boom2',
+      runId: 'r2',
+    })
 
     await deleteTabActivity(t1)
 
@@ -380,7 +490,13 @@ describe('活动历史（存续表 + 整根活动轴的删除 / 清空）', () =
   it('清空全部：存续行、运行条、错误（含无归属的）一并清掉', async () => {
     const t1 = await newRecordingTab()
     await recordRunStart('u1', 'r1', '甲', { tabSessionId: t1 })
-    await appendUserScriptError({ uuid: 'u1', name: '甲', phase: 'runtime', message: 'x', runId: 'r1' })
+    await appendUserScriptError({
+      uuid: 'u1',
+      name: '甲',
+      phase: 'runtime',
+      message: 'x',
+      runId: 'r1',
+    })
     await appendUserScriptError({ uuid: null, name: '甲', phase: 'register', message: '无归属' })
 
     await clearAllTabActivity()

@@ -106,24 +106,40 @@ describe('putAsset', () => {
   })
 
   it('落盘扩展名按真实 MIME 归一（截图叫 .png、字节其实是 jpeg）', async () => {
-    const { ref } = await putAsset({ filename: 'shot.png', mediaType: 'image/jpeg', bytes: bytesOf('x') })
+    const { ref } = await putAsset({
+      filename: 'shot.png',
+      mediaType: 'image/jpeg',
+      bytes: bytesOf('x'),
+    })
     expect(ref.filename).toBe('shot.jpg')
   })
 
   it('认不出的 MIME 不动扩展名（宁可不改，也不瞎猜）', async () => {
-    const { ref } = await putAsset({ filename: 'notes.zip', mediaType: 'application/zip', bytes: bytesOf('x') })
+    const { ref } = await putAsset({
+      filename: 'notes.zip',
+      mediaType: 'application/zip',
+      bytes: bytesOf('x'),
+    })
     expect(ref.filename).toBe('notes.zip')
   })
 
   it('文件名只取末段，路径分隔符不会把字节写到别的目录去', async () => {
-    const { ref } = await putAsset({ filename: '../../etc/evil.png', mediaType: 'image/png', bytes: bytesOf('x') })
+    const { ref } = await putAsset({
+      filename: '../../etc/evil.png',
+      mediaType: 'image/png',
+      bytes: bytesOf('x'),
+    })
     expect(ref.filename).toBe('evil.png')
     expect(fake.files.has(`${ASSET_ROOT}/${ref.id}/evil.png`)).toBe(true)
   })
 
   it('文件名退化成空（或纯点号）时兜底成 file', async () => {
-    expect((await putAsset({ filename: '', mediaType: 'image/png', bytes: bytesOf('x') })).ref.filename).toBe('file.png')
-    expect((await putAsset({ filename: '.', mediaType: 'image/png', bytes: bytesOf('y') })).ref.filename).toBe('file.png')
+    expect(
+      (await putAsset({ filename: '', mediaType: 'image/png', bytes: bytesOf('x') })).ref.filename,
+    ).toBe('file.png')
+    expect(
+      (await putAsset({ filename: '.', mediaType: 'image/png', bytes: bytesOf('y') })).ref.filename,
+    ).toBe('file.png')
   })
 
   it('同内容再写一次：不写盘、回 stored=false，引用与第一次一致', async () => {
@@ -182,8 +198,10 @@ describe('readAsset', () => {
 
 describe('deleteAssets / deleteAllAssets', () => {
   it('连目录一起递归删掉，回真正删掉的个数', async () => {
-    const a = (await putAsset({ filename: 'a.png', mediaType: 'image/png', bytes: bytesOf('a') })).ref
-    const b = (await putAsset({ filename: 'b.png', mediaType: 'image/png', bytes: bytesOf('b') })).ref
+    const a = (await putAsset({ filename: 'a.png', mediaType: 'image/png', bytes: bytesOf('a') }))
+      .ref
+    const b = (await putAsset({ filename: 'b.png', mediaType: 'image/png', bytes: bytesOf('b') }))
+      .ref
 
     expect(await deleteAssets([a.id])).toBe(1)
     expect(await readAsset(b.id), '别人的资源不该被牵连').not.toBeNull()
@@ -197,7 +215,11 @@ describe('deleteAssets / deleteAllAssets', () => {
   })
 
   it('非法 id 单独跳过，不连累同一批里合法的那些', async () => {
-    const { ref } = await putAsset({ filename: 'a.png', mediaType: 'image/png', bytes: bytesOf('a') })
+    const { ref } = await putAsset({
+      filename: 'a.png',
+      mediaType: 'image/png',
+      bytes: bytesOf('a'),
+    })
     expect(await deleteAssets(['../escape', ref.id])).toBe(1)
   })
 

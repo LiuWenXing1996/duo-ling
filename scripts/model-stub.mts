@@ -100,7 +100,11 @@ function flattenText(v: unknown): string {
   if (typeof v === 'string') return v
   if (Array.isArray(v)) {
     return v
-      .map((p) => (p && typeof p === 'object' && 'text' in p ? String((p as { text?: unknown }).text ?? '') : ''))
+      .map((p) =>
+        p && typeof p === 'object' && 'text' in p
+          ? String((p as { text?: unknown }).text ?? '')
+          : '',
+      )
       .join('')
   }
   return ''
@@ -119,7 +123,9 @@ const BUILTIN_TRIGGERS: Record<string, string[]> = {
 
 /** 一句话该怎么触发：命中返回工具名，未命中返回 null */
 function builtinTriggerFor(message: unknown): string | null {
-  const text = String(message ?? '').trim().toLowerCase()
+  const text = String(message ?? '')
+    .trim()
+    .toLowerCase()
   if (!text) return null
   for (const [name, words] of Object.entries(BUILTIN_TRIGGERS)) {
     if (words.some((w) => w.toLowerCase() === text)) return name
@@ -247,14 +253,20 @@ export async function startModelStub(opts: ModelStubOptions = {}): Promise<{
             object: 'chat.completion',
             created: 1,
             model: modelId,
-            choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }],
+            choices: [
+              { index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' },
+            ],
             usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
           }),
         )
         return
       }
 
-      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', ...CORS })
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        ...CORS,
+      })
       const chunk = (delta: Record<string, unknown>, finish: string | null) =>
         'data: ' +
         JSON.stringify({
@@ -306,7 +318,14 @@ export async function startModelStub(opts: ModelStubOptions = {}): Promise<{
           ),
         )
         toolCalls.forEach((tc, i) => {
-          res.write(chunk({ tool_calls: [{ index: i, function: { arguments: JSON.stringify(tc.args ?? {}) } }] }, null))
+          res.write(
+            chunk(
+              {
+                tool_calls: [{ index: i, function: { arguments: JSON.stringify(tc.args ?? {}) } }],
+              },
+              null,
+            ),
+          )
         })
         res.write(chunk({}, 'tool_calls'))
         res.write(usageFrame)
@@ -331,7 +350,9 @@ export async function startModelStub(opts: ModelStubOptions = {}): Promise<{
 
   const port = await new Promise<number>((resolve, reject) => {
     server.once('error', reject)
-    server.listen(opts.port ?? 0, '127.0.0.1', () => resolve((server.address() as AddressInfo).port))
+    server.listen(opts.port ?? 0, '127.0.0.1', () =>
+      resolve((server.address() as AddressInfo).port),
+    )
   })
   return {
     // 完整端点地址：链路侧原样请求，所以这里必须带上 /chat/completions（不再由调用方拼）
@@ -348,7 +369,9 @@ const argv1 = process.argv[1]
 const isCli = !!argv1 && fileURLToPath(import.meta.url) === resolve(argv1)
 if (isCli) {
   const argPort = process.argv.indexOf('--port')
-  const port = Number(argPort >= 0 ? process.argv[argPort + 1] : process.env.DL_MODEL_STUB_PORT || DEFAULT_PORT)
+  const port = Number(
+    argPort >= 0 ? process.argv[argPort + 1] : process.env.DL_MODEL_STUB_PORT || DEFAULT_PORT,
+  )
   const model = await startModelStub({ port: Number.isFinite(port) ? port : DEFAULT_PORT })
   console.log(`[假模型] 已就绪：${model.stub.baseUrl}`)
   console.log('[假模型] 填进「设置 → 添加模型 → 服务商选自定义 → 接口地址」（密钥可留空）')

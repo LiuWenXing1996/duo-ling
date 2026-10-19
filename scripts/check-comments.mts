@@ -66,7 +66,10 @@ function missingDocRefs(text: string, file: string): string[] {
 /** 显示宽度：CJK 与全角标点占两列，与终端观感一致。 */
 function width(s: string): number {
   let w = 0
-  for (const ch of s) w += /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60]/.test(ch) ? 2 : 1
+  for (const ch of s)
+    w += /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60]/.test(ch)
+      ? 2
+      : 1
   return w
 }
 
@@ -119,7 +122,8 @@ function listFiles(dir: string): string[] {
     return out
   }
   for (const entry of entries) {
-    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) continue
+    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.'))
+      continue
     const full = join(dir, entry.name)
     if (entry.isDirectory()) out.push(...listFiles(full))
     else if (extRe.test(entry.name)) out.push(full)

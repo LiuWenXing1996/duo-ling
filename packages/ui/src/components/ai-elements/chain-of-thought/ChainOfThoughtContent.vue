@@ -1,9 +1,6 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue'
-import {
-  Collapsible,
-  CollapsibleContent,
-} from '../../ui/collapsible'
+import { Collapsible, CollapsibleContent } from '../../ui/collapsible'
 import { cn } from '../../../lib/utils'
 import { useChainOfThought } from './context'
 

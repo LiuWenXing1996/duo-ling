@@ -71,7 +71,11 @@ function onAlternative(): void {
         <button
           type="button"
           class="rounded-md px-3 py-1.5 text-sm font-medium text-primary-foreground"
-          :class="props.danger ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'"
+          :class="
+            props.danger
+              ? 'bg-destructive hover:bg-destructive/90'
+              : 'bg-primary hover:bg-primary/90'
+          "
           @click="onConfirm"
         >
           {{ props.confirmText ?? '确定' }}

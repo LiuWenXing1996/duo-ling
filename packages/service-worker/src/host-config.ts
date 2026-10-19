@@ -47,7 +47,11 @@ export interface UserscriptTelemetry {
    * 旁证（uuid 必须是检查器系统脚本自己的）与页归属（tabId）都由宿主侧定；
    * reqId 由 SW 现造随指令下发，结算认它（幂等，重复投递无害）。
    */
-  onInspectorEvent?(uuid: string, tabId: number | null, rec: { reqId: string; ok: boolean; payload: unknown }): void
+  onInspectorEvent?(
+    uuid: string,
+    tabId: number | null,
+    rec: { reqId: string; ok: boolean; payload: unknown },
+  ): void
   /**
    * 浮层宿主的在岗应答结算（宿主系统脚本经 __dlEvent 信封上行）。与 onInspectorEvent 同款：
    * 旁证（uuid）与页归属（tabId）由宿主侧定，结算认 SW 现造的 reqId（幂等）。

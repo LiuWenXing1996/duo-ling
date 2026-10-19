@@ -32,7 +32,7 @@ import {
   Clock as UiClock,
   Copy as UiCopy,
   RefreshCw as UiRefreshCw,
-  Trash2 as UiTrash2
+  Trash2 as UiTrash2,
 } from '@lucide/vue'
 import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -45,7 +45,7 @@ import {
   type TabSessionRecord,
   type UserScriptErrorRecord,
   type UserScriptRunEvent,
-  type UserScriptRunLogRow
+  type UserScriptRunLogRow,
 } from '@duoling/shared'
 import { errorText } from '@duoling/ui/lib/format'
 
@@ -144,14 +144,14 @@ const tabItems = computed<TabItem[]>(() => {
         errors: agg?.errors ?? 0,
         createdAt: s.createdAt,
         closedAt: s.closedAt,
-        sortAt: agg?.last ?? s.createdAt ?? s.closedAt ?? 0
+        sortAt: agg?.last ?? s.createdAt ?? s.closedAt ?? 0,
       }
     })
     .sort((a, b) => b.sortAt - a.sortAt)
 })
 
 const selected = computed<TabItem | null>(
-  () => tabItems.value.find((i) => i.id === selectedId.value) ?? null
+  () => tabItems.value.find((i) => i.id === selectedId.value) ?? null,
 )
 
 /** 有活动（跑过脚本或出过错）的页数：头部概览用 */
@@ -182,7 +182,7 @@ const timelineNodes = computed<TimelineNode[]>(() => {
       key: `act:${act.runId}:${i}`,
       runId: act.runId,
       name: runMetaById.value.get(act.runId)?.name ?? '',
-      event: act.event
+      event: act.event,
     })
   })
   for (const record of pageErrors.value) nodes.push({ kind: 'error', record })
@@ -219,8 +219,14 @@ const scrollRef = ref<HTMLElement | null>(null)
  * 时间线的窗口化渲染：录到的采样全平铺后，单页行数可能上千，故只渲染视口内的行。
  * 行高不等（运行卡展开会变高、错误卡带 stack），交给 composable 实测 —— 见它的文件头。
  */
-const { onScroll, totalHeight, offsetTop, visibleRows, setRowRef, reset: resetVirtual } =
-  useVirtualList<TimelineNode>(timelineNodes, scrollRef)
+const {
+  onScroll,
+  totalHeight,
+  offsetTop,
+  visibleRows,
+  setRowRef,
+  reset: resetVirtual,
+} = useVirtualList<TimelineNode>(timelineNodes, scrollRef)
 
 /** 选中项消失（被裁掉 / 数据重拉）时回落第一项：停在空视图上会像页面坏了 */
 function fallbackSelection(): void {
@@ -235,7 +241,7 @@ async function load(): Promise<void> {
   try {
     const [sessionList, logRows] = await Promise.all([
       userscriptClient.tabSessions(),
-      userscriptClient.runlog()
+      userscriptClient.runlog(),
     ])
     sessions.value = sessionList
     rows.value = logRows
@@ -338,14 +344,14 @@ const recordingTabSessionIds = computed(
     new Set(
       sessions.value
         .filter((s) => s.recording === true && s.ended !== true)
-        .map((s) => s.tabSessionId)
-    )
+        .map((s) => s.tabSessionId),
+    ),
 )
 
 /** 某个 tabSessionId 此刻对应的实时 tabId（停记录要用它发命令）；没在录返回 null */
 function liveTabIdOf(tabSessionId: string): number | null {
   const row = sessions.value.find(
-    (s) => s.tabSessionId === tabSessionId && s.recording === true && s.ended !== true
+    (s) => s.tabSessionId === tabSessionId && s.recording === true && s.ended !== true,
   )
   return row?.tabId ?? null
 }
@@ -432,7 +438,7 @@ const PHASE_LABEL: Record<UserScriptErrorRecord['phase'], string> = {
   register: '未生效',
   bridge: 'GM 桥',
   require: '@require 抓取',
-  resource: '@resource 抓取'
+  resource: '@resource 抓取',
 }
 /** 阶段配色走语义 token（不硬编码色值、不手写 dark: 覆盖）：运行期最需要关注 → destructive */
 const PHASE_BADGE: Record<UserScriptErrorRecord['phase'], string> = {
@@ -440,7 +446,7 @@ const PHASE_BADGE: Record<UserScriptErrorRecord['phase'], string> = {
   register: 'bg-muted text-muted-foreground',
   bridge: 'bg-primary/10 text-primary',
   require: 'bg-muted text-muted-foreground',
-  resource: 'bg-muted text-muted-foreground'
+  resource: 'bg-muted text-muted-foreground',
 }
 function phaseLabel(p: UserScriptErrorRecord['phase']): string {
   return PHASE_LABEL[p]
@@ -451,7 +457,7 @@ function phaseBadgeClass(p: UserScriptErrorRecord['phase']): string {
 
 const STATUS_LABEL: Record<TabItem['status'], string> = {
   open: '活动中',
-  closed: '已关闭'
+  closed: '已关闭',
 }
 /**
  * 行尾状态词：只写**非默认态**。
@@ -488,7 +494,7 @@ const TAB_EVENT_LABEL: Record<TabEventRecord['kind'], string> = {
   reload: '页面刷新',
   url: '地址变更',
   recordOn: '开始记录',
-  recordOff: '结束记录'
+  recordOff: '结束记录',
 }
 function tabEventLabel(event: TabEventRecord): string {
   return TAB_EVENT_LABEL[event.kind]
@@ -537,7 +543,7 @@ const confirmKind = ref<'clear' | 'delete'>('clear')
 const canDeleteSelected = computed(() => !!selected.value)
 
 const confirmTitle = computed(() =>
-  confirmKind.value === 'clear' ? '清空活动历史' : '删除这一页的活动记录'
+  confirmKind.value === 'clear' ? '清空活动历史' : '删除这一页的活动记录',
 )
 const confirmDescription = computed(() => {
   const tail = '删除后无法恢复。'
@@ -596,7 +602,9 @@ function onConfirmedAction(): void {
       <ui-clock class="size-4 text-muted-foreground" />
       <span class="text-sm font-medium">活动历史</span>
       <span class="text-xs text-muted-foreground">
-        共 {{ tabItems.length }} 个标签页<template v-if="activeCount"> · {{ activeCount }} 个有活动</template>
+        共 {{ tabItems.length }} 个标签页<template v-if="activeCount">
+          · {{ activeCount }} 个有活动</template
+        >
       </span>
       <span class="flex-1" />
       <ui-button
@@ -639,14 +647,22 @@ function onConfirmedAction(): void {
       <div class="flex w-64 shrink-0 flex-col border-r border-border">
         <nav class="min-h-0 flex-1 overflow-y-auto py-2" aria-label="标签页列表">
           <p v-if="!tabItems.length" class="px-3 py-2 text-xs text-muted-foreground">
-            {{ loading ? '加载中…' : '还没有标签页记录。在 popup 里给页面打开「活动记录」后，这里会列出来。' }}
+            {{
+              loading
+                ? '加载中…'
+                : '还没有标签页记录。在 popup 里给页面打开「活动记录」后，这里会列出来。'
+            }}
           </p>
           <button
             v-for="item in tabItems"
             :key="item.id"
             type="button"
             class="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs hover:bg-muted"
-            :class="item.id === selectedId ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground'"
+            :class="
+              item.id === selectedId
+                ? 'bg-muted font-medium text-foreground'
+                : 'text-muted-foreground'
+            "
             :title="item.url ?? item.label"
             @click="selectedId = item.id"
           >
@@ -655,7 +671,8 @@ function onConfirmedAction(): void {
               v-if="statusText(item)"
               class="shrink-0 text-[10px]"
               :class="recordingTabSessionIds.has(item.id) ? 'text-foreground' : ''"
-            >{{ statusText(item) }}</span>
+              >{{ statusText(item) }}</span
+            >
           </button>
         </nav>
       </div>
@@ -664,17 +681,23 @@ function onConfirmedAction(): void {
       <div class="flex min-w-0 flex-1 flex-col" data-testid="tab-activity-detail">
         <div class="shrink-0 px-4 pt-4">
           <div class="mx-auto max-w-3xl">
-            <p v-if="!selected" class="text-xs text-muted-foreground">从左边选一个标签页看它的活动。</p>
+            <p v-if="!selected" class="text-xs text-muted-foreground">
+              从左边选一个标签页看它的活动。
+            </p>
 
             <header v-else class="border-b border-border pb-3">
               <div class="flex flex-wrap items-center gap-2">
                 <span class="min-w-0 truncate text-sm font-medium">{{ selected.label }}</span>
-                <span class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <span
+                  class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                >
                   {{ STATUS_LABEL[selected.status] }}
                 </span>
                 <span class="flex-1" />
                 <span class="shrink-0 text-xs text-muted-foreground">
-                  运行 {{ selected.runs }} 次<template v-if="selected.errors"> · 错误 {{ selected.errors }} 条</template>
+                  运行 {{ selected.runs }} 次<template v-if="selected.errors">
+                    · 错误 {{ selected.errors }} 条</template
+                  >
                 </span>
                 <ui-button
                   v-if="selectedLiveTabId != null"
@@ -702,7 +725,11 @@ function onConfirmedAction(): void {
                   删除
                 </ui-button>
               </div>
-              <p v-if="selected.url" class="mt-1 truncate text-xs text-muted-foreground" :title="selected.url">
+              <p
+                v-if="selected.url"
+                class="mt-1 truncate text-xs text-muted-foreground"
+                :title="selected.url"
+              >
                 {{ selected.url }}
               </p>
               <p v-if="momentsText" class="mt-1 text-[11px] text-muted-foreground">
@@ -767,14 +794,22 @@ function onConfirmedAction(): void {
                   </p>
 
                   <!-- 录到的一条请求：与刷新、运行同级平铺，按自己的发生时刻落位 -->
-                  <div v-else-if="r.item.kind === 'netRequest'" class="rounded-md border border-border bg-card">
+                  <div
+                    v-else-if="r.item.kind === 'netRequest'"
+                    class="rounded-md border border-border bg-card"
+                  >
                     <button
                       type="button"
                       class="flex w-full items-center gap-1.5 px-1.5 py-1 text-left hover:bg-muted/50"
                       @click="toggleNetRow(netRowKey(r.item.rec))"
                     >
-                      <span class="shrink-0 font-mono text-[10px] font-medium">{{ r.item.rec.method }}</span>
-                      <span class="min-w-0 flex-1 truncate font-mono text-[10px]" :title="r.item.rec.url">
+                      <span class="shrink-0 font-mono text-[10px] font-medium">{{
+                        r.item.rec.method
+                      }}</span>
+                      <span
+                        class="min-w-0 flex-1 truncate font-mono text-[10px]"
+                        :title="r.item.rec.url"
+                      >
                         {{ routeOf(r.item.rec.url) }}
                       </span>
                       <span class="shrink-0 tabular-nums text-[10px] text-muted-foreground">
@@ -799,28 +834,44 @@ function onConfirmedAction(): void {
                         {{ r.item.rec.url }}（{{ r.item.rec.type }}）
                       </p>
                       <template v-if="Object.keys(r.item.rec.reqHeaders).length">
-                        <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <h4
+                          class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                        >
                           请求头
                         </h4>
-                        <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ headerText(r.item.rec.reqHeaders) }}</pre>
+                        <pre
+                          class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed"
+                          >{{ headerText(r.item.rec.reqHeaders) }}</pre>
                       </template>
                       <template v-if="r.item.rec.reqBody">
-                        <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <h4
+                          class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                        >
                           请求体
                         </h4>
-                        <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ r.item.rec.reqBody }}</pre>
+                        <pre
+                          class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed"
+                          >{{ r.item.rec.reqBody }}</pre>
                       </template>
                       <template v-if="Object.keys(r.item.rec.respHeaders).length">
-                        <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <h4
+                          class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                        >
                           响应头
                         </h4>
-                        <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ headerText(r.item.rec.respHeaders) }}</pre>
+                        <pre
+                          class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed"
+                          >{{ headerText(r.item.rec.respHeaders) }}</pre>
                       </template>
                       <template v-if="r.item.rec.respBody">
-                        <h4 class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <h4
+                          class="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                        >
                           响应结构
                         </h4>
-                        <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed">{{ r.item.rec.respBody }}</pre>
+                        <pre
+                          class="mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-1 font-mono text-[10px] leading-relaxed"
+                          >{{ r.item.rec.respBody }}</pre>
                       </template>
                     </div>
                   </div>
@@ -843,30 +894,42 @@ function onConfirmedAction(): void {
                   <!-- 报的一条错：与动作同轴平铺（阶段徽标 + 脚本名 + 消息；栈按需看） -->
                   <div v-else class="rounded-md border bg-card p-2.5 text-xs">
                     <div class="flex flex-wrap items-center gap-1.5">
-                      <span :class="phaseBadgeClass(r.item.record.phase)" class="rounded px-1.5 py-0.5 text-[10px] font-medium">
+                      <span
+                        :class="phaseBadgeClass(r.item.record.phase)"
+                        class="rounded px-1.5 py-0.5 text-[10px] font-medium"
+                      >
                         {{ phaseLabel(r.item.record.phase) }}
                       </span>
                       <span class="min-w-0 truncate font-medium">{{ r.item.record.name }}</span>
-                      <span class="text-muted-foreground">{{ formatClock(r.item.record.time) }}</span>
+                      <span class="text-muted-foreground">{{
+                        formatClock(r.item.record.time)
+                      }}</span>
                       <button
                         type="button"
                         class="ml-auto flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted"
                         :title="`复制完整错误 ID（发给 AI 可自动查询修复）：${r.item.record.id}`"
                         @click="copyErrorId(r.item.record.id)"
                       >
-                        <ui-check v-if="copiedErrorId === r.item.record.id" class="size-3 text-green-600" />
+                        <ui-check
+                          v-if="copiedErrorId === r.item.record.id"
+                          class="size-3 text-green-600"
+                        />
                         <ui-copy v-else class="size-3" />
                         {{ shortErrorId(r.item.record.id) }}
                       </button>
                     </div>
                     <p class="mt-1 break-all text-destructive">{{ r.item.record.message }}</p>
-                    <p v-if="r.item.record.url" class="mt-0.5 truncate text-muted-foreground" :title="r.item.record.url">
+                    <p
+                      v-if="r.item.record.url"
+                      class="mt-0.5 truncate text-muted-foreground"
+                      :title="r.item.record.url"
+                    >
                       {{ r.item.record.url }}
                     </p>
                     <pre
                       v-if="r.item.record.stack"
                       class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-[11px] leading-relaxed"
-                    >{{ r.item.record.stack }}</pre>
+                      >{{ r.item.record.stack }}</pre>
                   </div>
                 </div>
               </div>

@@ -141,9 +141,7 @@ export async function sweepOrphanRules(): Promise<void> {
   const dnr = chrome.declarativeNetRequest
   if (!dnr?.getSessionRules) return
   const rules = await dnr.getSessionRules()
-  const orphans = rules
-    .map((r) => r.id)
-    .filter((id) => id >= RULE_ID_MIN && id < RULE_ID_MAX)
+  const orphans = rules.map((r) => r.id).filter((id) => id >= RULE_ID_MIN && id < RULE_ID_MAX)
   if (orphans.length > 0) {
     await dnr.updateSessionRules({ removeRuleIds: orphans })
   }

@@ -1,10 +1,6 @@
 // 对话资源的**回收**：会话删掉之后，把它独占的那些图片从 /assets 里也删掉（offscreen-only）。
 // 先删会话再算引用面的时序与失败语义见 docs/adr/0022-asset-lifecycle-delete-order.md。
-import {
-  isAssetPart,
-  listMessages,
-  referencedAssetIds,
-} from '@duoling/shared'
+import { isAssetPart, listMessages, referencedAssetIds } from '@duoling/shared'
 import { deleteAllAssets, deleteAssets } from '../fs/assets'
 
 /** 一条会话用到过的资源 id（删会话**之前**取，因为删完就再也读不到这些消息了） */

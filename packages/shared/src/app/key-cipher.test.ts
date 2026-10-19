@@ -40,7 +40,9 @@ describe('encryptApiKey / decryptApiKey 往返', () => {
   it('密文被篡改后解密必须失败（不静默返回垃圾）', async () => {
     const payload = await encryptApiKey('secret')
     // base64 尾字节翻转一个字符，构造无效密文
-    const flipped = payload.ct.endsWith('A') ? payload.ct.slice(0, -1) + 'B' : payload.ct.slice(0, -1) + 'A'
+    const flipped = payload.ct.endsWith('A')
+      ? payload.ct.slice(0, -1) + 'B'
+      : payload.ct.slice(0, -1) + 'A'
     await expect(decryptApiKey({ ...payload, ct: flipped })).rejects.toThrow()
   })
 })

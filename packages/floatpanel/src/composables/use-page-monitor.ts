@@ -7,12 +7,7 @@
 // 口径：显示「这个文档里实际启动过哪些脚本」（runstart 广播）+ 其 runtime 错误，
 // 不是按 matches 计算的静态注入口径。登记表语义与已知边界见 ARCHITECTURE.md「脚本注入」节。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import type {
-  PageErrorItem,
-  PageRunItem,
-  PanelMonitorPush,
-  ScriptSummary,
-} from '@duoling/shared'
+import type { PageErrorItem, PageRunItem, PanelMonitorPush, ScriptSummary } from '@duoling/shared'
 import { PANEL_MONITOR_PORT } from '@duoling/shared'
 import { userscriptClient } from '@duoling/ui/lib/userscripts/ui-client'
 import { resolveOwningTabId } from '@duoling/ui/lib/owning-tab'
@@ -155,7 +150,11 @@ export function usePageMonitor() {
 
   // 只跟「本载体所属的那个标签页」的导航：它在页内跳转（含 SPA 软导航改 URL）时同步地址。
   // 与归属无关 —— 归属认的是 tabId，页内导航既不换 tab 也不换会话（见 lib/owning-tab.ts）。
-  const onTabUpdated = (tabId: number, changeInfo: { url?: string }, tab: { url?: string }): void => {
+  const onTabUpdated = (
+    tabId: number,
+    changeInfo: { url?: string },
+    tab: { url?: string },
+  ): void => {
     if (tabId !== owningTabId.value) return
     if (changeInfo.url || tab.url) pageUrl.value = changeInfo.url ?? tab.url ?? ''
   }

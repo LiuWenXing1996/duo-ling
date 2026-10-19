@@ -12,7 +12,7 @@ import {
   MoreHorizontal as UiMoreHorizontal,
   Pencil as UiPencil,
   Search as UiSearch,
-  Trash2 as UiTrash2
+  Trash2 as UiTrash2,
 } from '@lucide/vue'
 import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import {
@@ -20,20 +20,20 @@ import {
   DialogContent as UiDialogContent,
   DialogDescription as UiDialogDescription,
   DialogFooter as UiDialogFooter,
-  DialogTitle as UiDialogTitle
+  DialogTitle as UiDialogTitle,
 } from '@duoling/ui/components/ui/dialog'
 import {
   DropdownMenu as UiDropdownMenu,
   DropdownMenuContent as UiDropdownMenuContent,
   DropdownMenuItem as UiDropdownMenuItem,
   DropdownMenuSeparator as UiDropdownMenuSeparator,
-  DropdownMenuTrigger as UiDropdownMenuTrigger
+  DropdownMenuTrigger as UiDropdownMenuTrigger,
 } from '@duoling/ui/components/ui/dropdown-menu'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
-  TooltipTrigger as UiTooltipTrigger
+  TooltipTrigger as UiTooltipTrigger,
 } from '@duoling/ui/components/ui/tooltip'
 import { Input as UiInput } from '@duoling/ui/components/ui/input'
 import SessionRunningBadge from './SessionRunningBadge.vue'
@@ -98,7 +98,7 @@ function toDisplayItem(c: Conversation, preview: string): DisplayItem {
     time: formatSessionTime(c.lastMessageAt),
     tokens: c.totalTokens,
     preview,
-    isActive: c.id === props.activeConversationId
+    isActive: c.id === props.activeConversationId,
   }
 }
 
@@ -107,7 +107,8 @@ function dateGroup(iso: string): { dayIndex: number; label: string } {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return { dayIndex: 9999, label: '更早' }
   const now = new Date()
-  const startOfDay = (x: Date): number => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const startOfDay = (x: Date): number =>
+    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
   const diffDays = Math.floor((startOfDay(now) - startOfDay(d)) / 86_400_000)
   if (diffDays <= 0) return { dayIndex: 0, label: '今天' }
   if (diffDays === 1) return { dayIndex: 1, label: '昨天' }
@@ -130,13 +131,13 @@ const groups = computed<{ label: string; items: DisplayItem[] }[]>(() => {
     }
     bucket.items.push(toDisplayItem(c, c.lastMessagePreview ?? ''))
   }
-  return [...byIndex.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([, v]) => v)
+  return [...byIndex.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v)
 })
 
 const searchItems = computed<DisplayItem[]>(() =>
-  searchHits.value.map((h) => toDisplayItem(h.conversation, h.snippet || h.conversation.lastMessagePreview || ''))
+  searchHits.value.map((h) =>
+    toDisplayItem(h.conversation, h.snippet || h.conversation.lastMessagePreview || ''),
+  ),
 )
 
 const totalCount = computed(() => props.conversations.length)
@@ -243,9 +244,7 @@ function confirmRename(): void {
             :key="s.id"
             class="group relative flex cursor-pointer items-start gap-2 border-l-2 px-4 py-2.5 transition-colors"
             :class="
-              s.isActive
-                ? 'border-l-primary bg-accent'
-                : 'border-l-transparent hover:bg-accent'
+              s.isActive ? 'border-l-primary bg-accent' : 'border-l-transparent hover:bg-accent'
             "
             @click="emit('activate', s.id)"
           >
@@ -315,9 +314,7 @@ function confirmRename(): void {
               :key="s.id"
               class="group relative flex cursor-pointer items-start gap-2 border-l-2 px-4 py-2.5 transition-colors"
               :class="
-                s.isActive
-                  ? 'border-l-primary bg-accent'
-                  : 'border-l-transparent hover:bg-accent'
+                s.isActive ? 'border-l-primary bg-accent' : 'border-l-transparent hover:bg-accent'
               "
               @click="emit('activate', s.id)"
             >

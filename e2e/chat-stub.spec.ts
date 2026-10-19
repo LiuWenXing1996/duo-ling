@@ -37,12 +37,22 @@ test.describe.serial('对话链路（本地模型 stub）', () => {
   test.afterAll(async () => {
     const withTimeout = (p: Promise<unknown> | undefined, ms: number) =>
       p ? Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]) : Promise.resolve()
-    try { await withTimeout(context?.close(), 30_000) } catch { /* 忽略 */ }
+    try {
+      await withTimeout(context?.close(), 30_000)
+    } catch {
+      /* 忽略 */
+    }
     try {
       stub.server.closeAllConnections()
       await withTimeout(new Promise<void>((r) => stub.server.close(() => r())), 5_000)
-    } catch { /* 忽略 */ }
-    try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    } catch {
+      /* 忽略 */
+    }
+    try {
+      rmSync(profileDir, { recursive: true, force: true })
+    } catch {
+      /* 忽略 */
+    }
   })
 
   test('连通性测试（设置页「测试连接」，非流式）打到 stub 通过', async () => {
@@ -69,7 +79,10 @@ test.describe.serial('对话链路（本地模型 stub）', () => {
     await box.fill('你好')
     await box.press('Enter')
 
-    await expect(page.getByText(/stub 回复：你好/), 'UI 应显示 stub 写死的回复（说明整条流式链路通了）').toBeVisible({
+    await expect(
+      page.getByText(/stub 回复：你好/),
+      'UI 应显示 stub 写死的回复（说明整条流式链路通了）',
+    ).toBeVisible({
       timeout: 25_000,
     })
     const streamed = stub.stub.hits.filter((h) => h.stream)
@@ -77,14 +90,17 @@ test.describe.serial('对话链路（本地模型 stub）', () => {
     expect(streamed[streamed.length - 1]?.lastUser, 'stub 收到了我们发的那句话').toContain('你好')
     // baseUrl 就是完整端点地址、原样发出。SDK 默认会把 baseURL 与固定的 /chat/completions 拼起来，
     // 若那层拼接没被 fetch 覆盖挡住，这里会看到 /chat/completions/chat/completions。
-    expect(streamed[streamed.length - 1]?.url, '地址原样发出，没有被二次拼接').toBe('/chat/completions')
+    expect(streamed[streamed.length - 1]?.url, '地址原样发出，没有被二次拼接').toBe(
+      '/chat/completions',
+    )
 
     // 用量看门：stub 在流末发一片「choices 空数组 + usage」，SDK 取走它写进 finish 事件，
     // chat-host 再推成 data-usage part 并落盘到 message.usage。三环断掉任一环，这里都读不到正数。
     await expect
       .poll(() => readAssistantTotalTokens(page), {
         timeout: 10_000,
-        message: '用量应随 assistant 消息落盘（stub 末片的 usage 被 SDK 取到、再由 chat-host 写进 data-usage）',
+        message:
+          '用量应随 assistant 消息落盘（stub 末片的 usage 被 SDK 取到、再由 chat-host 写进 data-usage）',
       })
       .toBeGreaterThan(0)
     await page.close()

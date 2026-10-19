@@ -11,13 +11,10 @@ interface ChainOfThoughtProps {
   class?: HTMLAttributes['class']
 }
 
-const props = withDefaults(
-  defineProps<ChainOfThoughtProps>(),
-  {
-    defaultOpen: false,
-    modelValue: undefined,
-  },
-)
+const props = withDefaults(defineProps<ChainOfThoughtProps>(), {
+  defaultOpen: false,
+  modelValue: undefined,
+})
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
@@ -32,10 +29,7 @@ provide(ChainOfThoughtContextKey, isOpen as Ref<boolean>)
 </script>
 
 <template>
-  <div
-    :class="cn('not-prose max-w-prose space-y-4', props.class)"
-    v-bind="$attrs"
-  >
+  <div :class="cn('not-prose max-w-prose space-y-4', props.class)" v-bind="$attrs">
     <slot />
   </div>
 </template>

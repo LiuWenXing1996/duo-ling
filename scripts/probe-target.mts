@@ -295,7 +295,10 @@ function handle(req: IncomingMessage, res: ServerResponse, base: string) {
 }
 
 /** 起靶站。port 传 0 用随机端口（端测用，避免与本地已占端口相撞）。 */
-export function startProbeTarget({ port = DEFAULT_PORT, host = '127.0.0.1' }: { port?: number; host?: string } = {}): Promise<ProbeTarget> {
+export function startProbeTarget({
+  port = DEFAULT_PORT,
+  host = '127.0.0.1',
+}: { port?: number; host?: string } = {}): Promise<ProbeTarget> {
   const server = createServer((req, res) => {
     try {
       handle(req, res, base)
@@ -329,7 +332,9 @@ const argv1 = process.argv[1]
 const isCli = !!argv1 && fileURLToPath(import.meta.url) === resolve(argv1)
 if (isCli) {
   const argPort = process.argv.indexOf('--port')
-  const port = Number(argPort >= 0 ? process.argv[argPort + 1] : process.env.DL_PROBE_PORT || DEFAULT_PORT)
+  const port = Number(
+    argPort >= 0 ? process.argv[argPort + 1] : process.env.DL_PROBE_PORT || DEFAULT_PORT,
+  )
   const target = await startProbeTarget({ port: Number.isFinite(port) ? port : DEFAULT_PORT })
   console.log(`[靶站] 已就绪：${target.base}`)
   console.log(`[靶站] 探针页：${target.url}（脚本 @match 需覆盖该地址）`)

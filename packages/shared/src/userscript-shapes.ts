@@ -9,7 +9,10 @@
 // 为什么不带脚本形状的 re-export：ScriptConfig / ScriptProject / ScriptGroup 各有自己的模块，
 // 在这里再导一遍会让出口出现重名（`export *` 下同名符号会被双双丢弃，且不报错）。
 
-import type { UserscriptErrorRecord, UserscriptRunEvent as RuntimeRunEvent } from './userscript-runtime'
+import type {
+  UserscriptErrorRecord,
+  UserscriptRunEvent as RuntimeRunEvent,
+} from './userscript-runtime'
 // 接口采样的记录形状归 tab-record（写侧件与读侧 SW 同取）
 import type { NetCaptureRecord } from './tab-record'
 

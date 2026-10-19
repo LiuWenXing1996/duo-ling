@@ -12,7 +12,8 @@
 // 两个反射锚点的取材面：
 //   · 登记表 —— 直接 import covers.ts（类型化数据，登记表与测试不再隔一层注释解析）；
 //   · 用例名 —— 正则扫 cases/*.ts 源码里 `add('<组>', '<名>'` 的第二参（登记表 probe 字段
-//     须与它一字不差；用例只在构建产物里跑，源码反射是唯一的对齐面）。
+//     须与它一字不差；用例只在构建产物里跑，源码反射是唯一的对齐面）。实参可能被格式化器
+//     折成多行（长用例名超行宽时），故匹配允许实参之间换行。
 // 另对**构建产物**做 acorn 语法检查 —— 端测注入与手测导入的都是它，语法错一次就静默全废。
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -22,7 +23,10 @@ import { gmApiEntries } from '@duoling/shared'
 import { COVERS } from '../packages/user-scripts/src/samples/omni-probe/covers'
 
 /** 探针构建产物（test 脚本先 `pnpm -r build`；单跑 vitest 前需先 build 一次） */
-const PROBE_DIST_URL = new URL('../packages/user-scripts/dist/samples/omni-probe/omni-probe.user.js', import.meta.url)
+const PROBE_DIST_URL = new URL(
+  '../packages/user-scripts/dist/samples/omni-probe/omni-probe.user.js',
+  import.meta.url,
+)
 function probeDist(): string {
   if (!existsSync(PROBE_DIST_URL)) {
     throw new Error('探针产物不存在：先跑 pnpm -r build 生成 packages/user-scripts/dist/samples/')
@@ -31,10 +35,14 @@ function probeDist(): string {
 }
 
 /** 用例源码目录（登记表 probe 字段的对齐面） */
-const CASES_DIR = fileURLToPath(new URL('../packages/user-scripts/src/samples/omni-probe/cases/', import.meta.url))
+const CASES_DIR = fileURLToPath(
+  new URL('../packages/user-scripts/src/samples/omni-probe/cases/', import.meta.url),
+)
 
 /** 目录路径（收窄成 string：登记表那侧是自由文本，两边才好比） */
-const CATALOG: string[] = gmApiEntries().map((e) => e.path).sort()
+const CATALOG: string[] = gmApiEntries()
+  .map((e) => e.path)
+  .sort()
 /** 登记表里出现过的全部路径 */
 const DECLARED_PATHS = [...new Set(COVERS.flatMap((d) => d.paths))].sort()
 
@@ -44,7 +52,7 @@ function caseNames(): string[] {
   for (const f of readdirSync(CASES_DIR).sort()) {
     if (!f.endsWith('.ts')) continue
     const src = readFileSync(CASES_DIR + f, 'utf8')
-    for (const m of src.matchAll(/^[ \t]*add\('[^']*',[\t ]*'([^']+)'/gm)) names.push(m[1]!)
+    for (const m of src.matchAll(/^[ \t]*add\(\s*'[^']*',\s*'([^']+)'/gm)) names.push(m[1]!)
   }
   return names
 }
@@ -61,7 +69,10 @@ describe('GM 全能探针覆盖目录', () => {
       // 允许「无路径」的登记（paths: []）：有些用例验的不是某个 API ——
       // 例如注入时机（run-at document-body），它们只需要证明「这条用例存在且已登记」，
       // 不认领目录里的任何路径。有路径时仍限制条数，好让报错能定位到是哪个 API。
-      expect(row.paths.length, `一条用例认领太多路径（报错定位不到是哪个 API）：${row.probe}`).toBeLessThanOrEqual(4)
+      expect(
+        row.paths.length,
+        `一条用例认领太多路径（报错定位不到是哪个 API）：${row.probe}`,
+      ).toBeLessThanOrEqual(4)
     }
   })
 
@@ -75,8 +86,14 @@ describe('GM 全能探针覆盖目录', () => {
     const cases = caseNames()
     expect(cases.length, '反射到的用例太少，锚点可能失效').toBeGreaterThan(20)
     const claimed = COVERS.map((d) => d.probe)
-    expect(claimed.filter((n) => !cases.includes(n)), '登记表里的用例名在探针里不存在（幽灵条目）').toEqual([])
-    expect(cases.filter((n) => !claimed.includes(n)), '探针里有没进登记表的用例（漏登记）').toEqual([])
+    expect(
+      claimed.filter((n) => !cases.includes(n)),
+      '登记表里的用例名在探针里不存在（幽灵条目）',
+    ).toEqual([])
+    expect(
+      cases.filter((n) => !claimed.includes(n)),
+      '探针里有没进登记表的用例（漏登记）',
+    ).toEqual([])
   })
 
   it('目录里的每条路径都被认领（探针不留空行）', () => {

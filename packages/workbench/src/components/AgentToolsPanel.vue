@@ -11,7 +11,11 @@
 // （写仍唯一归 offscreen）。变更经 useDataSync('conversation') 自动回拉。
 import { computed, onMounted, ref } from 'vue'
 import type { ToolUIPart } from 'ai'
-import { ChevronDown as UiChevronDown, RefreshCw as UiRefreshCw, Wrench as UiWrench } from '@lucide/vue'
+import {
+  ChevronDown as UiChevronDown,
+  RefreshCw as UiRefreshCw,
+  Wrench as UiWrench,
+} from '@lucide/vue'
 import { Badge } from '@duoling/ui/components/ui/badge'
 import {
   Collapsible as UiCollapsible,
@@ -25,11 +29,7 @@ import {
 } from '@duoling/ui/components/ai-elements/tool'
 import { getToolName, isToolUIPart, listConversations, listMessages } from '@duoling/shared'
 import { useDataSync } from '@duoling/ui/composables/use-data-sync'
-import {
-  agentToolTitle,
-  agentToolViews,
-  type AgentToolView,
-} from '@duoling/shared'
+import { agentToolTitle, agentToolViews, type AgentToolView } from '@duoling/shared'
 import { errorText, formatTimeWithSeconds } from '@duoling/ui/lib/format'
 
 /** 左栏「全部工具」哨兵值 */
@@ -228,14 +228,22 @@ function block(value: unknown): string {
     <!-- 右栏：选中工具的契约 + 调用轨迹 -->
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <header class="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-        <span class="text-sm font-medium">{{ selectedView ? selectedView.title : '全部工具' }}</span>
-        <code v-if="selectedView" class="font-mono text-xs text-muted-foreground">{{ selectedView.name }}</code>
+        <span class="text-sm font-medium">{{
+          selectedView ? selectedView.title : '全部工具'
+        }}</span>
+        <code v-if="selectedView" class="font-mono text-xs text-muted-foreground">{{
+          selectedView.name
+        }}</code>
         <span class="ml-auto text-xs text-muted-foreground">
           轨迹来自最近 {{ scanned }} 个会话的记录
         </span>
       </header>
 
-      <p v-if="error" class="m-2 rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive" role="alert">
+      <p
+        v-if="error"
+        class="m-2 rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
+        role="alert"
+      >
         {{ error }}
       </p>
 
@@ -252,7 +260,9 @@ function block(value: unknown): string {
                   <span class="truncate text-sm font-medium">{{ selectedView.summary }}</span>
                   <span class="text-[11px] text-muted-foreground">
                     契约详情 ·
-                    {{ selectedView.params.length ? `${selectedView.params.length} 个入参` : '无入参' }}
+                    {{
+                      selectedView.params.length ? `${selectedView.params.length} 个入参` : '无入参'
+                    }}
                     · 描述原文 / 返回 / 何时不可用
                   </span>
                 </span>
@@ -265,14 +275,20 @@ function block(value: unknown): string {
                 class="overflow-hidden data-[state=closed]:animate-out data-[state=open]:animate-in"
               >
                 <div class="border-t border-border/60 p-3">
-                  <p class="text-xs leading-relaxed text-muted-foreground">{{ selectedView.description }}</p>
+                  <p class="text-xs leading-relaxed text-muted-foreground">
+                    {{ selectedView.description }}
+                  </p>
                 </div>
 
                 <div class="border-t border-border/60 p-3">
-                  <h4 class="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <h4
+                    class="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                  >
                     入参
                   </h4>
-                  <p v-if="!selectedView.params.length" class="text-xs text-muted-foreground">无入参</p>
+                  <p v-if="!selectedView.params.length" class="text-xs text-muted-foreground">
+                    无入参
+                  </p>
                   <div
                     v-for="p in selectedView.params"
                     :key="p.name"
@@ -284,13 +300,19 @@ function block(value: unknown): string {
                     <span v-else class="text-[11px] text-muted-foreground">
                       选填<template v-if="p.default"> · 默认 {{ p.default }}</template>
                     </span>
-                    <span class="w-full text-xs leading-relaxed text-muted-foreground">{{ p.desc }}</span>
+                    <span class="w-full text-xs leading-relaxed text-muted-foreground">{{
+                      p.desc
+                    }}</span>
                   </div>
                 </div>
 
                 <div class="flex flex-col gap-1 border-t border-border/60 p-3 text-xs">
-                  <h4 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">返回</h4>
-                  <p class="break-words font-mono text-[11px] leading-relaxed">{{ selectedView.returns }}</p>
+                  <h4 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    返回
+                  </h4>
+                  <p class="break-words font-mono text-[11px] leading-relaxed">
+                    {{ selectedView.returns }}
+                  </p>
                 </div>
 
                 <div class="flex flex-col gap-1 border-t border-border/60 p-3 text-xs">
@@ -318,17 +340,26 @@ function block(value: unknown): string {
               @click="selected = tool.name"
             >
               <code class="shrink-0 font-mono text-xs">{{ tool.name }}</code>
-              <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{{ tool.summary }}</span>
-              <span class="shrink-0 text-xs text-muted-foreground">{{ countOf(tool.name) }} 次</span>
+              <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{{
+                tool.summary
+              }}</span>
+              <span class="shrink-0 text-xs text-muted-foreground"
+                >{{ countOf(tool.name) }} 次</span
+              >
             </div>
           </template>
         </article>
 
         <!-- 轨迹区 -->
-        <h3 class="mb-2 mt-4 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <h3
+          class="mb-2 mt-4 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+        >
           调用轨迹
           <span v-if="tracesOfSelected.length" class="normal-case">
-            {{ tracesOfSelected.length }} 次<template v-if="tracesOfSelected.length > visibleTraces.length">（仅显示最近 {{ TRACE_LIMIT }} 次）</template>
+            {{ tracesOfSelected.length }} 次<template
+              v-if="tracesOfSelected.length > visibleTraces.length"
+              >（仅显示最近 {{ TRACE_LIMIT }} 次）</template
+            >
           </span>
         </h3>
         <p v-if="loading" class="text-xs text-muted-foreground">读取中…</p>
@@ -336,7 +367,9 @@ function block(value: unknown): string {
           v-else-if="!tracesOfSelected.length"
           class="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground"
         >
-          {{ scanned ? '还没有这条工具的调用记录' : '暂无会话记录——对话产生工具调用后这里才有记录' }}
+          {{
+            scanned ? '还没有这条工具的调用记录' : '暂无会话记录——对话产生工具调用后这里才有记录'
+          }}
         </p>
 
         <ui-tool
@@ -357,22 +390,34 @@ function block(value: unknown): string {
                 <span class="truncate">{{ t.conversationTitle }}</span>
               </div>
               <div>
-                <h4 class="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <h4
+                  class="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                >
                   入参
                 </h4>
-                <pre class="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">{{ block(t.input) }}</pre>
+                <pre
+                  class="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed"
+                  >{{ block(t.input) }}</pre>
               </div>
               <div v-if="t.errorText">
-                <h4 class="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <h4
+                  class="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                >
                   错误
                 </h4>
-                <pre class="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-destructive/10 p-2 font-mono text-[11px] leading-relaxed text-destructive">{{ block(t.errorText) }}</pre>
+                <pre
+                  class="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-destructive/10 p-2 font-mono text-[11px] leading-relaxed text-destructive"
+                  >{{ block(t.errorText) }}</pre>
               </div>
               <div v-else-if="t.output !== undefined">
-                <h4 class="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <h4
+                  class="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                >
                   结果
                 </h4>
-                <pre class="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">{{ block(t.output) }}</pre>
+                <pre
+                  class="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed"
+                  >{{ block(t.output) }}</pre>
               </div>
             </div>
           </ui-tool-content>

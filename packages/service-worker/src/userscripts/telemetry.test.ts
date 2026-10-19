@@ -18,23 +18,25 @@ type RunStartArgs = [
   name?: string,
   extra?: { url?: string; savedAt?: number; tabSessionId?: string },
 ]
-type RunEventArgs = [uuid: string, runId: string, event: { kind: string; detail: string; time: number }]
-type PageErrorArgs = [tabId: number, info: { uuid: string | null; name: string; message: string; runId: string | null }]
+type RunEventArgs = [
+  uuid: string,
+  runId: string,
+  event: { kind: string; detail: string; time: number },
+]
+type PageErrorArgs = [
+  tabId: number,
+  info: { uuid: string | null; name: string; message: string; runId: string | null },
+]
 
 /** mock 须经 vi.hoisted（工厂被 vi.mock 提升到顶层 const 之前执行，直接引用会撞 TDZ） */
-const {
-  noteRunStart,
-  notePageError,
-  recordRunStart,
-  recordRunEvent,
-  appendUserScriptError,
-} = vi.hoisted(() => ({
-  noteRunStart: vi.fn<(tabId: number, uuid: string, runId: string) => void>(),
-  notePageError: vi.fn<(...args: PageErrorArgs) => void>(),
-  recordRunStart: vi.fn<(...args: RunStartArgs) => Promise<void>>(),
-  recordRunEvent: vi.fn<(...args: RunEventArgs) => Promise<void>>(),
-  appendUserScriptError: vi.fn<(rec: ErrRec) => Promise<void>>(),
-}))
+const { noteRunStart, notePageError, recordRunStart, recordRunEvent, appendUserScriptError } =
+  vi.hoisted(() => ({
+    noteRunStart: vi.fn<(tabId: number, uuid: string, runId: string) => void>(),
+    notePageError: vi.fn<(...args: PageErrorArgs) => void>(),
+    recordRunStart: vi.fn<(...args: RunStartArgs) => Promise<void>>(),
+    recordRunEvent: vi.fn<(...args: RunEventArgs) => Promise<void>>(),
+    appendUserScriptError: vi.fn<(rec: ErrRec) => Promise<void>>(),
+  }))
 
 vi.mock('./page-monitor', () => ({
   noteRunStart: (...args: [tabId: number, uuid: string, runId: string]) => noteRunStart(...args),
@@ -70,7 +72,12 @@ describe('duolingTelemetry · 系统脚本不进用户脚本观测面', () => {
   })
 
   it('系统脚本的错误不实时推送（快照侧按 runId 对不上本就不显示）；用户脚本的照推', () => {
-    duolingTelemetry.notePageError?.(1, { uuid: 'dl-float-host', name: 'x', message: 'm', runId: null })
+    duolingTelemetry.notePageError?.(1, {
+      uuid: 'dl-float-host',
+      name: 'x',
+      message: 'm',
+      runId: null,
+    })
     expect(notePageError).not.toHaveBeenCalled()
     duolingTelemetry.notePageError?.(1, { uuid: 'u1', name: 'x', message: 'm', runId: null })
     expect(notePageError).toHaveBeenCalledTimes(1)
@@ -78,7 +85,11 @@ describe('duolingTelemetry · 系统脚本不进用户脚本观测面', () => {
 
   it('系统脚本的运行日志（runstart / act）不落盘', async () => {
     await duolingTelemetry.recordRunStart?.('dl-page-inspector', 'r1')
-    await duolingTelemetry.recordRunEvent?.('dl-float-host', 'r1', { kind: 'a', detail: 'd', time: 1 })
+    await duolingTelemetry.recordRunEvent?.('dl-float-host', 'r1', {
+      kind: 'a',
+      detail: 'd',
+      time: 1,
+    })
     expect(recordRunStart).not.toHaveBeenCalled()
     expect(recordRunEvent).not.toHaveBeenCalled()
   })
@@ -92,7 +103,11 @@ describe('duolingTelemetry · 系统脚本不进用户脚本观测面', () => {
   })
 
   it('系统脚本的错误不进用户脚本错误日志；无 uuid（注册期错误）与用户脚本的照落', async () => {
-    await duolingTelemetry.appendError?.({ phase: 'runtime', message: 'x', uuid: 'dl-tab-recorder' })
+    await duolingTelemetry.appendError?.({
+      phase: 'runtime',
+      message: 'x',
+      uuid: 'dl-tab-recorder',
+    })
     expect(appendUserScriptError).not.toHaveBeenCalled()
 
     await duolingTelemetry.appendError?.({ phase: 'register', message: 'y' })

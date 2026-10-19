@@ -121,7 +121,11 @@ describe('规则发号与孤儿对账', () => {
     const update = vi.fn(async () => {})
     vi.stubGlobal('chrome', {
       declarativeNetRequest: {
-        getSessionRules: vi.fn(async () => [{ id: RULE_ID_MIN + 5 }, { id: 42 }, { id: RULE_ID_MAX }]),
+        getSessionRules: vi.fn(async () => [
+          { id: RULE_ID_MIN + 5 },
+          { id: 42 },
+          { id: RULE_ID_MAX },
+        ]),
         updateSessionRules: update,
       },
     })
@@ -136,7 +140,7 @@ describe('规则发号与孤儿对账', () => {
   })
 })
 
-describe("manual 观测分发（handleObservation）", () => {
+describe('manual 观测分发（handleObservation）', () => {
   it('按 URL 精确命中等待者，响应头转小写合并；无等待者时廉价空转', () => {
     const w1 = registerManualWaiter('https://x.test/r')
     expect(handleObservation({ url: 'https://other.test/', statusCode: 200 })).toBeUndefined()

@@ -149,16 +149,16 @@ async function seedConversation(page: Page, demo: Demo) {
   const box = page.getByRole('textbox').first()
   await box.fill(DEMO_QUESTION)
   await box.press('Enter')
-  await page.waitForFunction(
-    (tail) => document.body.innerText.includes(tail),
-    DEMO_REPLY_TAIL,
-    { timeout: 60_000 },
-  )
+  await page.waitForFunction((tail) => document.body.innerText.includes(tail), DEMO_REPLY_TAIL, {
+    timeout: 60_000,
+  })
   // 生成卡片落定后启用，徽标翻成「已启用」（与工作台图里脚本已启用的状态一致）
   const card = page.locator('[data-testid="generation-card"]')
   await card.waitFor({ timeout: 30_000 })
   await card.getByRole('button', { name: /启用并生效/ }).click()
-  await page.waitForFunction(() => document.body.innerText.includes('已启用'), undefined, { timeout: 15_000 })
+  await page.waitForFunction(() => document.body.innerText.includes('已启用'), undefined, {
+    timeout: 15_000,
+  })
   await page.waitForTimeout(800)
 }
 
@@ -178,7 +178,19 @@ async function enableUserScripts(context: BrowserContext, extensionId: string) {
   const page = await context.newPage()
   await page.goto('chrome://extensions/')
   await page.evaluate(async (id) => {
-    const dp = (window as unknown as { chrome?: { developerPrivate?: { updateProfileConfiguration: (o: { inDeveloperMode: boolean }) => Promise<void>; updateExtensionConfiguration: (o: { extensionId: string; userScriptsEnabled: boolean }) => Promise<void> } } }).chrome?.developerPrivate
+    const dp = (
+      window as unknown as {
+        chrome?: {
+          developerPrivate?: {
+            updateProfileConfiguration: (o: { inDeveloperMode: boolean }) => Promise<void>
+            updateExtensionConfiguration: (o: {
+              extensionId: string
+              userScriptsEnabled: boolean
+            }) => Promise<void>
+          }
+        }
+      }
+    ).chrome?.developerPrivate
     if (!dp) return
     try {
       await dp.updateProfileConfiguration({ inDeveloperMode: true })
@@ -188,14 +200,21 @@ async function enableUserScripts(context: BrowserContext, extensionId: string) {
     } catch {}
   }, extensionId)
   // ≥138 的每扩展开关在详情页 WebUI 里（直接 goto 不触发 SPA 路由，要像真人一样点「详情」）
-  await page.getByRole('button', { name: /详情|Details/ }).first().click()
+  await page
+    .getByRole('button', { name: /详情|Details/ })
+    .first()
+    .click()
   await page.waitForSelector('extensions-detail-view', { timeout: 15_000 })
   await page.evaluate(() => {
     const walk = (root: Document | ShadowRoot) => {
       for (const el of Array.from(root.querySelectorAll('*'))) {
-        if (el.tagName === 'EXTENSIONS-TOGGLE-ROW' && /用户脚本|user script/i.test(el.textContent ?? '')) {
+        if (
+          el.tagName === 'EXTENSIONS-TOGGLE-ROW' &&
+          /用户脚本|user script/i.test(el.textContent ?? '')
+        ) {
           const toggle = el.shadowRoot?.querySelector('cr-toggle')
-          const checked = toggle?.hasAttribute('checked') || (toggle as HTMLInputElement | null)?.checked === true
+          const checked =
+            toggle?.hasAttribute('checked') || (toggle as HTMLInputElement | null)?.checked === true
           if (toggle && !checked) (toggle as HTMLElement).click()
         }
         if (el.shadowRoot) walk(el.shadowRoot)
@@ -231,7 +250,8 @@ const profileDir = mkdtempSync(join(tmpdir(), 'duoling-shots-'))
     ],
   })
   const [bootstrapSw0] = bootstrapCtx.serviceWorkers()
-  const bootstrapSw = bootstrapSw0 ?? (await bootstrapCtx.waitForEvent('serviceworker', { timeout: 30_000 }))
+  const bootstrapSw =
+    bootstrapSw0 ?? (await bootstrapCtx.waitForEvent('serviceworker', { timeout: 30_000 }))
   await enableUserScripts(bootstrapCtx, new URL(bootstrapSw.url()).host)
   await bootstrapCtx.close()
 }
@@ -297,16 +317,13 @@ try {
   const available = availability?.ok === true && availability.data?.available === true
   if (available) {
     for (const script of SAMPLE_SCRIPTS) {
-      const res = await messenger.evaluate(
-        (req) => chrome.runtime.sendMessage(req),
-        {
-          kind: 'userscript:createProject',
-          name: script.name,
-          config: { matches: script.matches, allFrames: true, runAt: 'document_idle' },
-          code: script.code,
-          enabled: script.enabled,
-        },
-      )
+      const res = await messenger.evaluate((req) => chrome.runtime.sendMessage(req), {
+        kind: 'userscript:createProject',
+        name: script.name,
+        config: { matches: script.matches, allFrames: true, runAt: 'document_idle' },
+        code: script.code,
+        enabled: script.enabled,
+      })
       console.log(
         `${res?.ok === true ? '✓' : '✗'} 示例脚本「${script.name}」${res?.ok === true ? '' : `：${res?.error}`}`,
       )
@@ -387,7 +404,10 @@ try {
   // 选择器才有内容，工作台 / popup 的图不该受它影响
   await seedModel(context, extensionId, demo.stub.baseUrl)
   for (const theme of themes) {
-    await shoot(theme, SHOTS.find((s) => s.name === 'floatpanel')!)
+    await shoot(
+      theme,
+      SHOTS.find((s) => s.name === 'floatpanel')!,
+    )
   }
   await messenger.close()
 } finally {

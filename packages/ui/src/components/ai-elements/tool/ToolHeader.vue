@@ -11,27 +11,20 @@ type ToolHeaderProps = {
   title?: string
   class?: HTMLAttributes['class']
 } & (
-  | { type: ToolUIPart['type'], state: ToolUIPart['state'], toolName?: never }
-  | { type: DynamicToolUIPart['type'], state: DynamicToolUIPart['state'], toolName: string }
+  | { type: ToolUIPart['type']; state: ToolUIPart['state']; toolName?: never }
+  | { type: DynamicToolUIPart['type']; state: DynamicToolUIPart['state']; toolName: string }
 )
 
 const props = defineProps<ToolHeaderProps>()
 
 const derivedName = computed(() =>
-  props.type === 'dynamic-tool'
-    ? props.toolName
-    : props.type.split('-').slice(1).join('-'),
+  props.type === 'dynamic-tool' ? props.toolName : props.type.split('-').slice(1).join('-'),
 )
 </script>
 
 <template>
   <CollapsibleTrigger
-    :class="
-      cn(
-        'flex w-full items-center justify-between gap-4 p-3',
-        props.class,
-      )
-    "
+    :class="cn('flex w-full items-center justify-between gap-4 p-3', props.class)"
     v-bind="$attrs"
   >
     <div class="flex items-center gap-2">

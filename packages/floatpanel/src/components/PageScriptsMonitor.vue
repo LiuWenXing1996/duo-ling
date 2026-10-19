@@ -89,9 +89,7 @@ const HEADER_H = 28
                  green-600 在黑/白两种岛面上对比度都够 -->
             <span v-else class="shrink-0 text-[10px] text-green-600">运行中</span>
           </div>
-          <div v-if="!runs.length" class="py-1.5 text-xs opacity-70">
-            本页没有运行中的脚本
-          </div>
+          <div v-if="!runs.length" class="py-1.5 text-xs opacity-70">本页没有运行中的脚本</div>
         </div>
       </motion.div>
     </MotionConfig>

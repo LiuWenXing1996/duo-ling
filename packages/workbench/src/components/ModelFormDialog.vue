@@ -9,14 +9,14 @@ import {
   Dialog as UiDialog,
   DialogContent as UiDialogContent,
   DialogFooter as UiDialogFooter,
-  DialogTitle as UiDialogTitle
+  DialogTitle as UiDialogTitle,
 } from '@duoling/ui/components/ui/dialog'
 import {
   Select as UiSelect,
   SelectContent as UiSelectContent,
   SelectItem as UiSelectItem,
   SelectTrigger as UiSelectTrigger,
-  SelectValue as UiSelectValue
+  SelectValue as UiSelectValue,
 } from '@duoling/ui/components/ui/select'
 import { Eye as UiEye, EyeOff as UiEyeOff, X as UiX } from '@lucide/vue'
 import type { ModelProfile, ModelProvider } from '@duoling/shared'
@@ -42,7 +42,7 @@ const CUSTOM_PROVIDER: ModelProvider = {
   baseUrl: '',
   keyUrl: '',
   models: [],
-  supported: true
+  supported: true,
 }
 
 const saving = ref(false)
@@ -55,7 +55,7 @@ const form = reactive({
   providerId: '',
   baseUrl: '',
   apiKey: '',
-  model: ''
+  model: '',
 })
 
 const editingId = computed(() => props.editing?.id ?? null)
@@ -64,11 +64,11 @@ const isEditing = computed(() => Boolean(props.editing))
 // 可选服务商：仅支持 Bearer 鉴权直接使用的预设 + 末尾的自定义项
 const providerOptions = computed(() => [
   ...props.providers.filter((p) => p.supported),
-  CUSTOM_PROVIDER
+  CUSTOM_PROVIDER,
 ])
 
 const selectedProvider = computed(
-  () => providerOptions.value.find((p) => p.id === form.providerId) ?? null
+  () => providerOptions.value.find((p) => p.id === form.providerId) ?? null,
 )
 
 /** 自定义端点：地址由用户手填；预设服务商的地址随服务商固定 */
@@ -117,7 +117,7 @@ watch(
       restoring = false
     })
   },
-  { immediate: true }
+  { immediate: true },
 )
 
 // 用户切换服务商后原模型 ID 不再适用，清空待重选；地址随服务商换（自定义项留空待填）
@@ -127,7 +127,7 @@ watch(
     if (restoring) return
     form.model = ''
     form.baseUrl = selectedProvider.value?.baseUrl ?? ''
-  }
+  },
 )
 
 // 模型 ID：输入框自由手输，下方「快速填入」芯片列出所选服务商的预置模型，点一下填入
@@ -158,7 +158,7 @@ async function runTest(): Promise<void> {
       apiKey: form.apiKey,
       model: form.model,
       // 编辑态 Key 未回显：传 profileId 由主进程回退已保存的 Key
-      profileId: editingId.value ?? undefined
+      profileId: editingId.value ?? undefined,
     })
     testResult.value = res.ok
       ? { ok: true, message: '连接成功，地址与密钥可用' }
@@ -166,7 +166,7 @@ async function runTest(): Promise<void> {
   } catch (error) {
     testResult.value = {
       ok: false,
-      message: errorText(error)
+      message: errorText(error),
     }
   } finally {
     testing.value = false
@@ -188,7 +188,7 @@ async function save(): Promise<void> {
       providerId: form.providerId,
       baseUrl: form.baseUrl,
       apiKey: form.apiKey,
-      model: form.model
+      model: form.model,
     })
     emit('saved')
     close()
@@ -202,7 +202,10 @@ async function save(): Promise<void> {
   <ui-dialog :open="open" @update:open="emit('update:open', $event)">
     <!-- 不加 relative：cn/tailwind-merge 会用它覆盖基础组件的 fixed，弹窗将掉出视口；
          fixed 本身即绝对定位的参照 -->
-    <ui-dialog-content class="flex max-w-md max-h-[85vh] flex-col p-0 gap-0" :show-close-button="false">
+    <ui-dialog-content
+      class="flex max-w-md max-h-[85vh] flex-col p-0 gap-0"
+      :show-close-button="false"
+    >
       <!-- 统一 header -->
       <div class="flex shrink-0 items-center justify-between border-b px-5 py-3">
         <ui-dialog-title class="text-base font-semibold">
@@ -314,12 +317,7 @@ async function save(): Promise<void> {
       <!-- 底部操作栏 -->
       <div class="shrink-0 border-t px-5 py-3">
         <div class="flex items-center justify-between gap-3">
-          <ui-button
-            variant="outline"
-            size="sm"
-            :disabled="testing || saving"
-            @click="runTest"
-          >
+          <ui-button variant="outline" size="sm" :disabled="testing || saving" @click="runTest">
             {{ testing ? '测试中…' : '测试连接' }}
           </ui-button>
           <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
@@ -351,23 +349,22 @@ async function save(): Promise<void> {
         >
           <template v-if="testing">
             <p class="text-sm font-medium">正在测试连接…</p>
-            <p class="mt-1 text-xs text-muted-foreground">
-              将向接口发起一次最小请求，请稍候。
-            </p>
+            <p class="mt-1 text-xs text-muted-foreground">将向接口发起一次最小请求，请稍候。</p>
           </template>
           <template v-else-if="testResult">
             <div class="flex items-center gap-2">
               <span
                 class="flex size-5 shrink-0 items-center justify-center rounded-full text-xs"
                 :class="
-                  testResult.ok
-                    ? 'bg-emerald-100 text-emerald-600'
-                    : 'bg-red-100 text-red-600'
+                  testResult.ok ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'
                 "
               >
                 {{ testResult.ok ? '✓' : '✕' }}
               </span>
-              <p class="text-sm font-medium" :class="testResult.ok ? 'text-foreground' : 'text-destructive'">
+              <p
+                class="text-sm font-medium"
+                :class="testResult.ok ? 'text-foreground' : 'text-destructive'"
+              >
                 {{ testResult.ok ? '连接成功' : '连接失败' }}
               </p>
             </div>

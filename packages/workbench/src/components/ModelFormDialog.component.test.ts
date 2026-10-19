@@ -81,9 +81,11 @@ function inputByPlaceholder(placeholder: string): DOMWrapper<HTMLInputElement> {
 }
 
 function addressInput(): HTMLInputElement | null {
-  return ([...document.body.querySelectorAll('input')] as HTMLInputElement[]).find(
-    (i) => i.placeholder === ADDRESS_PLACEHOLDER,
-  ) ?? null
+  return (
+    ([...document.body.querySelectorAll('input')] as HTMLInputElement[]).find(
+      (i) => i.placeholder === ADDRESS_PLACEHOLDER,
+    ) ?? null
+  )
 }
 
 function buttonByText(text: string): DOMWrapper<HTMLButtonElement> {
@@ -167,7 +169,9 @@ describe('ModelFormDialog · 自定义端点', () => {
   it('本地回环地址合法（本地模型端点）', async () => {
     await mountDialog({ editing: customProfile })
 
-    await inputByPlaceholder(ADDRESS_PLACEHOLDER).setValue('http://127.0.0.1:8000/v1/chat/completions')
+    await inputByPlaceholder(ADDRESS_PLACEHOLDER).setValue(
+      'http://127.0.0.1:8000/v1/chat/completions',
+    )
     await flushPromises()
 
     expect(buttonByText('保存').attributes('disabled')).toBeUndefined()
@@ -176,7 +180,9 @@ describe('ModelFormDialog · 自定义端点', () => {
   it('保存：地址原样传出（不做拼接/剥离）、无 useFullUrl、密钥留空也放行', async () => {
     const wrapper = await mountDialog({ editing: customProfile })
 
-    await inputByPlaceholder(ADDRESS_PLACEHOLDER).setValue('http://127.0.0.1:5199/v1/chat/completions/')
+    await inputByPlaceholder(ADDRESS_PLACEHOLDER).setValue(
+      'http://127.0.0.1:5199/v1/chat/completions/',
+    )
     await flushPromises()
     await buttonByText('保存').trigger('click')
     await flushPromises()

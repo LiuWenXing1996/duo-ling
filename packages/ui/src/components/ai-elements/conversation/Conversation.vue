@@ -7,8 +7,8 @@ import { StickToBottom } from 'vue-stick-to-bottom'
 interface Props {
   ariaLabel?: string
   class?: HTMLAttributes['class']
-  initial?: boolean | 'instant' | { damping?: number, stiffness?: number, mass?: number }
-  resize?: 'instant' | { damping?: number, stiffness?: number, mass?: number }
+  initial?: boolean | 'instant' | { damping?: number; stiffness?: number; mass?: number }
+  resize?: 'instant' | { damping?: number; stiffness?: number; mass?: number }
   damping?: number
   stiffness?: number
   mass?: number

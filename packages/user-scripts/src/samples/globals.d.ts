@@ -17,7 +17,10 @@ declare function GM_listValues(): string[]
 declare function GM_getValues(details?: any): Record<string, any>
 declare function GM_setValues(details: Record<string, any>): void
 declare function GM_deleteValues(names: string[]): void
-declare function GM_addValueChangeListener(name: string, listener: (key: string, oldV: any, newV: any, remote: boolean) => void): number
+declare function GM_addValueChangeListener(
+  name: string,
+  listener: (key: string, oldV: any, newV: any, remote: boolean) => void,
+): number
 declare function GM_removeValueChangeListener(id: number): void
 
 // —— 网络 / 下载 ——
@@ -26,7 +29,11 @@ declare function GM_download(details: any): { abort: () => void }
 
 // —— 元素 / 日志 / 剪贴板 / 通知 / 标签页 / 菜单 / 资源 ——
 declare function GM_addStyle(css: string): HTMLStyleElement
-declare function GM_addElement(parent: Element, tagName: string, attrs?: Record<string, string>): HTMLElement
+declare function GM_addElement(
+  parent: Element,
+  tagName: string,
+  attrs?: Record<string, string>,
+): HTMLElement
 declare function GM_log(message: string): void
 declare function GM_notification(details: any): void
 declare function GM_setClipboard(data: string, info?: string): void

@@ -21,7 +21,10 @@ interface MessagePort {
 }
 
 function messagePort(): MessagePort | null {
-  return (globalThis as { chrome?: { runtime?: { onMessage?: MessagePort } } }).chrome?.runtime?.onMessage ?? null
+  return (
+    (globalThis as { chrome?: { runtime?: { onMessage?: MessagePort } } }).chrome?.runtime
+      ?.onMessage ?? null
+  )
 }
 
 /** 发送一条请求并统一解包 { ok, data | error } 信封；失败 reject Error */
@@ -32,7 +35,10 @@ export function ipcRequest<T>(request: RuntimeRequest, opts?: { timeoutMs?: numb
   if (!opts?.timeoutMs) return base
   // 超时兜底：应答方（容器刚被销毁等）永不回调时不能把 promise 挂死
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`IPC 超时（${opts.timeoutMs}ms 无应答）：${request.kind}`)), opts.timeoutMs)
+    const timer = setTimeout(
+      () => reject(new Error(`IPC 超时（${opts.timeoutMs}ms 无应答）：${request.kind}`)),
+      opts.timeoutMs,
+    )
     base.then(
       (v) => {
         clearTimeout(timer)
@@ -52,7 +58,10 @@ export function ipcNotify(message: RuntimeRequest | IpcPush): void {
 }
 
 /** 订阅推送（按 kind 前缀匹配，如 'chat:' / 'data:'）；返回退订函数 */
-export function ipcSubscribe(prefix: string, callback: (msg: { kind: string }) => void): () => void {
+export function ipcSubscribe(
+  prefix: string,
+  callback: (msg: { kind: string }) => void,
+): () => void {
   const port = messagePort()
   if (!port) return () => {}
   const listener = (raw: unknown): void => {

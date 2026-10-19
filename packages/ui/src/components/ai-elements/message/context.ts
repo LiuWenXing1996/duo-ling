@@ -10,8 +10,7 @@ export interface MessageBranchContextType<T = VNode[]> {
   setBranches: (count: number) => void
 }
 
-export const MessageBranchKey: InjectionKey<MessageBranchContextType>
-  = Symbol('MessageBranch')
+export const MessageBranchKey: InjectionKey<MessageBranchContextType> = Symbol('MessageBranch')
 
 export function useMessageBranchContext(): MessageBranchContextType {
   const ctx = inject(MessageBranchKey)

@@ -16,10 +16,9 @@ const props = withDefaults(defineProps<Props>(), {
 
 <template>
   <div
-    :class="cn(
-      'flex size-full flex-col items-center justify-center gap-3 p-8 text-center',
-      props.class,
-    )"
+    :class="
+      cn('flex size-full flex-col items-center justify-center gap-3 p-8 text-center', props.class)
+    "
     v-bind="$attrs"
   >
     <slot>

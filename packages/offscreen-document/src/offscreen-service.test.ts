@@ -276,7 +276,9 @@ describe('OffscreenService 方法齐备且转发正确', () => {
   })
 
   it('fsExportZip 单脚本命中源码时回 name（打包布局由 fs/zip 的单测守）', async () => {
-    vi.mocked(fsGit.readSource).mockResolvedValue({ code: '// ==UserScript==\n// @name 导出示例\n// ==/UserScript==\n' })
+    vi.mocked(fsGit.readSource).mockResolvedValue({
+      code: '// ==UserScript==\n// @name 导出示例\n// ==/UserScript==\n',
+    })
     const out = (await service.fsExportZip(['u1'])) as { zipBase64: string; name?: string }
     expect(out.name).toBe('导出示例')
     expect(typeof out.zipBase64).toBe('string')

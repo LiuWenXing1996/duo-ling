@@ -13,7 +13,7 @@ import {
   Cog as UiCog,
   RefreshCw as UiRefreshCw,
   RotateCcw as UiRotateCcw,
-  Sparkles as UiSparkles
+  Sparkles as UiSparkles,
 } from '@lucide/vue'
 import ConfirmDialog from '../ConfirmDialog.vue'
 import { CodeBlock } from '@duoling/ui/components/ai-elements/code-block'
@@ -171,9 +171,7 @@ useDataSync('script', (push) => {
     <div class="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
       <div class="min-w-0">
         <h3 class="truncate text-sm font-semibold">{{ scriptName || '脚本' }} · 历史</h3>
-        <p class="text-xs text-muted-foreground">
-          {{ commits.length }} 个版本 · 只读浏览
-        </p>
+        <p class="text-xs text-muted-foreground">{{ commits.length }} 个版本 · 只读浏览</p>
       </div>
       <button
         type="button"

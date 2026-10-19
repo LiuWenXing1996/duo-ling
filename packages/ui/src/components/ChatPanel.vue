@@ -30,49 +30,49 @@ import {
   Sparkle as UiSparkle,
   Square as UiSquare,
   Trash2 as UiTrash2,
-  X as UiX
+  X as UiX,
 } from '@lucide/vue'
 import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import {
   Popover as UiPopover,
   PopoverContent as UiPopoverContent,
-  PopoverTrigger as UiPopoverTrigger
+  PopoverTrigger as UiPopoverTrigger,
 } from '@duoling/ui/components/ui/popover'
 import {
   Dialog as UiDialog,
   DialogContent as UiDialogContent,
-  DialogTitle as UiDialogTitle
+  DialogTitle as UiDialogTitle,
 } from '@duoling/ui/components/ui/dialog'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
-  TooltipTrigger as UiTooltipTrigger
+  TooltipTrigger as UiTooltipTrigger,
 } from '@duoling/ui/components/ui/tooltip'
 import {
   Message as UiMessage,
   MessageContent as UiMessageContent,
-  MessageResponse as UiMessageResponse
+  MessageResponse as UiMessageResponse,
 } from '@duoling/ui/components/ai-elements/message'
 import { Shimmer as UiShimmer } from '@duoling/ui/components/ai-elements/shimmer'
 import {
   ChainOfThought as UiChainOfThought,
   ChainOfThoughtContent as UiChainOfThoughtContent,
   ChainOfThoughtHeader as UiChainOfThoughtHeader,
-  ChainOfThoughtStep as UiChainOfThoughtStep
+  ChainOfThoughtStep as UiChainOfThoughtStep,
 } from '@duoling/ui/components/ai-elements/chain-of-thought'
 import {
   Tool as UiTool,
   ToolContent as UiToolContent,
   ToolHeader as UiToolHeader,
   ToolInput as UiToolInput,
-  ToolOutput as UiToolOutput
+  ToolOutput as UiToolOutput,
 } from '@duoling/ui/components/ai-elements/tool'
 import {
   Conversation as UiConversation,
   ConversationContent as UiConversationContent,
   ConversationEmptyState as UiConversationEmptyState,
-  ConversationScrollButton as UiConversationScrollButton
+  ConversationScrollButton as UiConversationScrollButton,
 } from '@duoling/ui/components/ai-elements/conversation'
 import {
   PromptInput as UiPromptInput,
@@ -80,22 +80,18 @@ import {
   PromptInputSubmit as UiPromptInputSubmit,
   PromptInputTextarea as UiPromptInputTextarea,
   PromptInputTools as UiPromptInputTools,
-  usePromptInputProvider
+  usePromptInputProvider,
 } from '@duoling/ui/components/ai-elements/prompt-input'
 import type { PromptInputMessage } from '@duoling/ui/components/ai-elements/prompt-input'
 import type { TokenUsage } from '@duoling/shared'
 import type { ChatMessageMetadata, MessagePageContext } from '@duoling/shared'
 import type { ElementPickContext } from '@duoling/shared'
-import {
-  cancelPick,
-  isUserScriptsApiAvailable,
-  pickElement
-} from '@duoling/shared'
+import { cancelPick, isUserScriptsApiAvailable, pickElement } from '@duoling/shared'
 import {
   clearPickedElement,
   getPickedElement,
   setPickedElement,
-  subscribePageContext
+  subscribePageContext,
 } from '../lib/page-context-store'
 import { offscreenService, userscriptClient } from '../lib/userscripts/ui-client'
 import { readPinnedTabId } from '../lib/owning-tab'
@@ -103,7 +99,13 @@ import { errorText, formatMessageTime, formatTokens } from '../lib/format'
 import type { DynamicToolUIPart, TextUIPart, ToolUIPart, UIMessage } from 'ai'
 // 这几个 part 判定 helper 走本地实现：静态 import 'ai' 会把整块 ~360KB 的核心
 // （含 gateway / zod）钉进对话界面首屏静态图。详见该文件头部说明。
-import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, textOfMessage } from '@duoling/shared'
+import {
+  getToolName,
+  isReasoningUIPart,
+  isTextUIPart,
+  isToolUIPart,
+  textOfMessage,
+} from '@duoling/shared'
 // 只取 messageTime 一个纯函数：该模块不含运行时代码（'ai' 与 模型形状都是类型导入），
 // 不会破坏上面那条「静态 import 'ai' 会钉进首屏」的约束。
 import { messageTime } from '@duoling/shared'
@@ -117,7 +119,7 @@ import {
   composeMessageText,
   isImageAttachment,
   prepareAttachments,
-  type AssetUploader
+  type AssetUploader,
 } from '../lib/chat-attachments'
 
 const props = defineProps<{
@@ -154,7 +156,7 @@ const profiles = ref<ModelOption[]>([])
 const activeModelId = ref('')
 const modelMenuOpen = ref(false)
 const activeModelName = computed(
-  () => profiles.value.find((p) => p.id === activeModelId.value)?.name ?? '未选中模型'
+  () => profiles.value.find((p) => p.id === activeModelId.value)?.name ?? '未选中模型',
 )
 
 /** 「缺 Key」只对预设服务商是异常：自定义端点（自建网关 / 本地模型）本来就可以不带 Key */
@@ -258,7 +260,7 @@ function openPreview(ref: ChatAssetRef): void {
  * `<a href>` / `window.open` / `chrome.tabs.create` 一律拦），而 `<img src>` 是子资源、合法。
  * 顺带好处是不离开当前对话上下文，看完关掉就回到原处。
  */
-const previewImage = ref<{ url: string, filename: string } | null>(null)
+const previewImage = ref<{ url: string; filename: string } | null>(null)
 
 /** 随本条消息附上的页面上下文（气泡 chip 渲染源；只认元素拾取，快照不进元数据） */
 function messagePageContext(m: UIMessage): MessagePageContext | undefined {
@@ -289,7 +291,9 @@ function finalTextPart(m: UIMessage): TextUIPart | undefined {
   // 它不再是最终答案候选（避免中间正文在气泡中闪现）
   const hasContentAfter = m.parts
     .slice(lastIndex + 1)
-    .some((p) => isReasoningUIPart(p) || isToolUIPart(p) || isTextUIPart(p) || p.type === 'step-start')
+    .some(
+      (p) => isReasoningUIPart(p) || isToolUIPart(p) || isTextUIPart(p) || p.type === 'step-start',
+    )
   return hasContentAfter ? undefined : last
 }
 
@@ -376,7 +380,7 @@ function buildToolNode(part: ToolUIPart | DynamicToolUIPart, key: string): ToolN
     title: part.title ?? name,
     input: part.input,
     output: part.output,
-    errorText: part.errorText ?? extractToolError(part.output)
+    errorText: part.errorText ?? extractToolError(part.output),
   }
 }
 
@@ -571,7 +575,7 @@ async function loadTabRecording(): Promise<void> {
   try {
     const list = await userscriptClient.tabSessions()
     tabRecording.value = list.some(
-      (s) => s.tabId === ownerTabId && s.recording === true && s.ended !== true
+      (s) => s.tabId === ownerTabId && s.recording === true && s.ended !== true,
     )
   } catch {
     // 读不到就按未开启渲染（用户点开启时会看到真实错误）
@@ -645,9 +649,11 @@ async function copyMessage(m: UIMessage): Promise<void> {
 const attachmentError = ref('')
 
 /** 附件被拒 / 处理失败时给用户的说明 */
-function attachmentErrorMessage(err: { code: string, message: string }): string {
-  if (err.code === 'accept') return '这类文件不能发：可以发图片，或 txt / md / json / csv 等文本文件'
-  if (err.code === 'max_file_size') return `文件超过 ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)}MB 上限`
+function attachmentErrorMessage(err: { code: string; message: string }): string {
+  if (err.code === 'accept')
+    return '这类文件不能发：可以发图片，或 txt / md / json / csv 等文本文件'
+  if (err.code === 'max_file_size')
+    return `文件超过 ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)}MB 上限`
   if (err.code === 'max_files') return `最多添加 ${MAX_ATTACHMENTS} 个附件`
   return err.message
 }
@@ -679,7 +685,7 @@ const promptInput = usePromptInputProvider({
   onSubmit: prepareAndSend,
   onError: (err) => {
     attachmentError.value = attachmentErrorMessage(err)
-  }
+  },
 })
 
 /** 移除一个附件；顺手清掉上一条与附件相关的提示（附件都换了，旧提示已过期） */
@@ -818,9 +824,7 @@ function userScriptsUnavailableMessageSafe(): string {
                       <div
                         :class="[
                           'relative w-fit min-w-0 max-w-full',
-                          thinkCollapsed(m, node)
-                            ? 'max-h-40 overflow-hidden'
-                            : 'overflow-x-auto',
+                          thinkCollapsed(m, node) ? 'max-h-40 overflow-hidden' : 'overflow-x-auto',
                         ]"
                       >
                         <ui-message-response
@@ -873,20 +877,14 @@ function userScriptsUnavailableMessageSafe(): string {
                       </ui-tool>
                     </ui-chain-of-thought-step>
                     <!-- 说明节点（中间轮正文）：与思考一致，弱化灰 + 超长截断折叠 -->
-                    <ui-chain-of-thought-step
-                      v-else
-                      label="说明"
-                      class="w-full min-w-0"
-                    >
+                    <ui-chain-of-thought-step v-else label="说明" class="w-full min-w-0">
                       <template #icon>
                         <ui-file-text class="size-4 shrink-0 text-muted-foreground" />
                       </template>
                       <div
                         :class="[
                           'relative w-fit min-w-0 max-w-full',
-                          textCollapsed(m, node)
-                            ? 'max-h-40 overflow-hidden'
-                            : 'overflow-x-auto',
+                          textCollapsed(m, node) ? 'max-h-40 overflow-hidden' : 'overflow-x-auto',
                         ]"
                       >
                         <ui-message-response
@@ -957,7 +955,7 @@ function userScriptsUnavailableMessageSafe(): string {
                           :src="assetUrl(img)"
                           :alt="img.filename"
                           class="h-6 w-9 shrink-0 rounded-sm object-cover"
-                        >
+                        />
                         <span
                           v-else
                           class="h-6 w-9 shrink-0 rounded-sm bg-muted"
@@ -972,10 +970,7 @@ function userScriptsUnavailableMessageSafe(): string {
                 <template v-else>
                   <ui-message-content class="w-full min-w-0">
                     <!-- 流式中：Shimmer 占位，不展示可能还会变化的正文（避免中间正文闪现） -->
-                    <ui-shimmer
-                      v-if="m.id === lastMessageId && props.streaming"
-                      class="text-sm"
-                    >
+                    <ui-shimmer v-if="m.id === lastMessageId && props.streaming" class="text-sm">
                       正在思考…
                     </ui-shimmer>
                     <ui-message-response
@@ -1044,7 +1039,9 @@ function userScriptsUnavailableMessageSafe(): string {
                 <dl class="mt-2 space-y-1 text-xs text-muted-foreground">
                   <div class="flex min-w-0 gap-1.5">
                     <dt class="shrink-0">记录内容</dt>
-                    <dd class="min-w-0 break-all">页面发出的请求：地址 · 方法 · 请求体 · 响应结构</dd>
+                    <dd class="min-w-0 break-all">
+                      页面发出的请求：地址 · 方法 · 请求体 · 响应结构
+                    </dd>
                   </div>
                   <div class="flex min-w-0 gap-1.5">
                     <dt class="shrink-0">存放位置</dt>
@@ -1108,10 +1105,16 @@ function userScriptsUnavailableMessageSafe(): string {
                 data-testid="generation-card"
               >
                 <div class="flex items-center gap-2">
-                  <span class="min-w-0 truncate font-medium" :title="card.name">{{ card.name }}</span>
+                  <span class="min-w-0 truncate font-medium" :title="card.name">{{
+                    card.name
+                  }}</span>
                   <span
                     class="shrink-0 rounded-full px-2 py-0.5 text-xs"
-                    :class="cardIsEnabled(card) ? 'bg-green-600/15 text-green-600' : 'bg-amber-500/15 text-amber-600'"
+                    :class="
+                      cardIsEnabled(card)
+                        ? 'bg-green-600/15 text-green-600'
+                        : 'bg-amber-500/15 text-amber-600'
+                    "
                   >
                     {{ cardIsEnabled(card) ? '已启用' : '尚未启用' }}
                   </span>
@@ -1126,7 +1129,11 @@ function userScriptsUnavailableMessageSafe(): string {
                   <div class="flex min-w-0 gap-1.5">
                     <dt class="shrink-0">会做什么</dt>
                     <dd class="min-w-0">
-                      {{ card.capabilities.length ? card.capabilities.map(capabilityLabel).join(' · ') : '页面 DOM 操作' }}
+                      {{
+                        card.capabilities.length
+                          ? card.capabilities.map(capabilityLabel).join(' · ')
+                          : '页面 DOM 操作'
+                      }}
                     </dd>
                   </div>
                   <div v-if="card.summary" class="flex min-w-0 gap-1.5">
@@ -1244,7 +1251,7 @@ function userScriptsUnavailableMessageSafe(): string {
               :src="file.url"
               :alt="file.filename ?? '图片附件'"
               class="h-6 w-9 shrink-0 rounded-sm object-cover"
-            >
+            />
             <ui-file-text v-else class="ml-1.5 size-3.5 shrink-0 text-muted-foreground" />
             <span class="truncate" :title="file.filename">{{ file.filename }}</span>
             <button
@@ -1314,10 +1321,7 @@ function userScriptsUnavailableMessageSafe(): string {
         </div>
         <!-- accept / multiple 传给隐藏的 file input（校验那一侧走上面 provider 的 accept） -->
         <ui-prompt-input :accept="ATTACHMENT_ACCEPT" multiple>
-          <ui-prompt-input-textarea
-            placeholder="输入消息…"
-            :disabled="props.streaming"
-          />
+          <ui-prompt-input-textarea placeholder="输入消息…" :disabled="props.streaming" />
           <ui-prompt-input-footer>
             <!-- 工具区：附件 + 页面拾取 + 模型选择（页面快照已改 AI 工具采集，无用户面入口） -->
             <ui-prompt-input-tools>
@@ -1339,9 +1343,7 @@ function userScriptsUnavailableMessageSafe(): string {
                       </ui-button>
                     </span>
                   </ui-tooltip-trigger>
-                  <ui-tooltip-content>
-                    添加图片或文本文件
-                  </ui-tooltip-content>
+                  <ui-tooltip-content> 添加图片或文本文件 </ui-tooltip-content>
                 </ui-tooltip>
               </ui-tooltip-provider>
               <ui-button
@@ -1358,51 +1360,51 @@ function userScriptsUnavailableMessageSafe(): string {
                 <ui-mouse-pointer-click v-else class="size-3" />
                 点选元素
               </ui-button>
-            <ui-popover v-model:open="modelMenuOpen">
-              <ui-popover-trigger as-child>
-                <ui-button
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  class="max-w-[150px]"
-                  title="切换对话使用的模型"
-                  aria-label="切换模型"
-                >
-                  <span class="truncate">{{ activeModelName }}</span>
-                  <ui-chevrons-up-down class="size-3 shrink-0 text-muted-foreground" />
-                </ui-button>
-              </ui-popover-trigger>
-              <ui-popover-content class="w-60 p-1.5" align="start">
-                <!-- 模型列表：有配置时逐条展示并支持勾选当前默认项 -->
-                <div v-if="profiles.length" class="flex flex-col gap-0.5">
-                  <button
-                    v-for="p in profiles"
-                    :key="p.id"
+              <ui-popover v-model:open="modelMenuOpen">
+                <ui-popover-trigger as-child>
+                  <ui-button
                     type="button"
-                    class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60"
-                    @click="switchModel(p.id)"
+                    variant="outline"
+                    size="xs"
+                    class="max-w-[150px]"
+                    title="切换对话使用的模型"
+                    aria-label="切换模型"
                   >
-                    <span class="truncate">
-                      {{ p.name }}{{ needsKeyHint(p) ? '（缺 Key）' : '' }}
-                    </span>
-                    <ui-check v-if="p.id === activeModelId" class="size-3.5 shrink-0 text-primary" />
-                  </button>
-                </div>
-                <!-- 无可用模型时：列表为空，仅显示空态提示 -->
-                <p v-else class="px-2 py-1.5 text-xs text-muted-foreground">模型列表为空</p>
-                <!-- 底部「去添加模型」：跳转到设置页自行添加 -->
-                <div class="mt-1 border-t border-muted pt-1">
-                  <button
-                    type="button"
-                    class="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60"
-                    @click="goToSettings"
-                  >
-                    <ui-plus class="size-3.5 shrink-0" />
-                    去添加模型
-                  </button>
-                </div>
-              </ui-popover-content>
-            </ui-popover>
+                    <span class="truncate">{{ activeModelName }}</span>
+                    <ui-chevrons-up-down class="size-3 shrink-0 text-muted-foreground" />
+                  </ui-button>
+                </ui-popover-trigger>
+                <ui-popover-content class="w-60 p-1.5" align="start">
+                  <div v-if="profiles.length" class="flex flex-col gap-0.5">
+                    <button
+                      v-for="p in profiles"
+                      :key="p.id"
+                      type="button"
+                      class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60"
+                      @click="switchModel(p.id)"
+                    >
+                      <span class="truncate">
+                        {{ p.name }}{{ needsKeyHint(p) ? '（缺 Key）' : '' }}
+                      </span>
+                      <ui-check
+                        v-if="p.id === activeModelId"
+                        class="size-3.5 shrink-0 text-primary"
+                      />
+                    </button>
+                  </div>
+                  <p v-else class="px-2 py-1.5 text-xs text-muted-foreground">模型列表为空</p>
+                  <div class="mt-1 border-t border-muted pt-1">
+                    <button
+                      type="button"
+                      class="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60"
+                      @click="goToSettings"
+                    >
+                      <ui-plus class="size-3.5 shrink-0" />
+                      去添加模型
+                    </button>
+                  </div>
+                </ui-popover-content>
+              </ui-popover>
             </ui-prompt-input-tools>
             <!-- 发送/停止：单个提交按钮，流式时依据 status 自动切换为停止图标 -->
             <ui-prompt-input-submit :status="props.streaming ? 'streaming' : undefined" />
@@ -1415,7 +1417,11 @@ function userScriptsUnavailableMessageSafe(): string {
          长图靠容器纵向滚动看细节，不硬缩（缩了反而看不清）。 -->
     <ui-dialog
       :open="previewImage !== null"
-      @update:open="(open) => { if (!open) previewImage = null }"
+      @update:open="
+        (open) => {
+          if (!open) previewImage = null
+        }
+      "
     >
       <ui-dialog-content
         class="max-w-[92vw] gap-0 overflow-hidden p-0"
@@ -1431,7 +1437,7 @@ function userScriptsUnavailableMessageSafe(): string {
             :src="previewImage.url"
             :alt="previewImage.filename"
             class="w-full"
-          >
+          />
         </div>
         <div class="flex items-center justify-end gap-2 border-t px-3 py-2">
           <!-- 下载不算导航，data: URL 在这里是合法用法 -->

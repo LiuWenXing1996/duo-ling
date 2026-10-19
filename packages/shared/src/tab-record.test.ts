@@ -128,7 +128,13 @@ describe('normalizeNetCapture', () => {
   it('缺省字段兜底：method 默认 GET、status 默认 0、t 默认当前时刻、无体为 null', () => {
     const before = Date.now()
     const r = normalizeNetCapture({ type: 'xhr', url: 'u' }, SID)
-    expect(r).toMatchObject({ type: 'xhr', method: 'GET', status: 0, reqBody: null, respBody: null })
+    expect(r).toMatchObject({
+      type: 'xhr',
+      method: 'GET',
+      status: 0,
+      reqBody: null,
+      respBody: null,
+    })
     expect(r!.t).toBeGreaterThanOrEqual(before)
   })
 

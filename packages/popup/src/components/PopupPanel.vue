@@ -53,7 +53,9 @@ const version = readInjectedBuildInfo()?.version ?? ''
 const overview = ref<PageOverviewTab[]>([])
 
 /** 当前页的概览；不在概览里（内部页 / 扩展页）时为 null，区块按空态渲染 */
-const currentTab = computed(() => overview.value.find((t) => t.tabId === currentTabId.value) ?? null)
+const currentTab = computed(
+  () => overview.value.find((t) => t.tabId === currentTabId.value) ?? null,
+)
 /** 其他页面（概览按标签页顺序给出，这里只摘掉自己那一行） */
 const otherTabs = computed(() => overview.value.filter((t) => t.tabId !== currentTabId.value))
 

@@ -10,12 +10,7 @@ const props = defineProps<{
 
 <template>
   <Badge
-    :class="
-      cn(
-        'gap-1 px-2 py-0.5 font-normal text-xs',
-        props.class,
-      )
-    "
+    :class="cn('gap-1 px-2 py-0.5 font-normal text-xs', props.class)"
     variant="secondary"
     v-bind="$attrs"
   >

@@ -90,9 +90,9 @@ describe('pickLatestRelease', () => {
   })
 
   it('保留 prerelease —— 版本线长期是预发布，排除掉就永远查不到新版', () => {
-    expect(pickLatestRelease([rel('v0.2.0-alpha.2', { prerelease: true }), rel('v0.1.0')])?.tag).toBe(
-      'v0.2.0-alpha.2',
-    )
+    expect(
+      pickLatestRelease([rel('v0.2.0-alpha.2', { prerelease: true }), rel('v0.1.0')])?.tag,
+    ).toBe('v0.2.0-alpha.2')
   })
 
   it('跳过版本串无法解析的 tag', () => {

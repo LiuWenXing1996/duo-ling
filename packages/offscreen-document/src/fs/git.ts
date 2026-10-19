@@ -102,7 +102,11 @@ async function headOid(uuid: string): Promise<string | undefined> {
   }
 }
 
-async function readBlobText(uuid: string, oid: string, filepath: string): Promise<string | undefined> {
+async function readBlobText(
+  uuid: string,
+  oid: string,
+  filepath: string,
+): Promise<string | undefined> {
   try {
     const { blob } = await git.readBlob({ fs: getFs(), dir: usDir(uuid), oid, filepath })
     return new TextDecoder().decode(blob)

@@ -37,7 +37,11 @@ function renderCapabilities(): string {
 
 /** `@grant` 段：合法名字与恒注入集都取自 gm-grants，规范里不留第二份名单 */
 function renderGrantSection(): string {
-  const always: string[] = [...ALWAYS_GLOBALS, ...ALWAYS_NS.map((n) => `GM.${n}`), ...ALWAYS_WINDOW_MEMBERS]
+  const always: string[] = [
+    ...ALWAYS_GLOBALS,
+    ...ALWAYS_NS.map((n) => `GM.${n}`),
+    ...ALWAYS_WINDOW_MEMBERS,
+  ]
   const grants = grantNames()
   const quote = (names: readonly string[]) => names.map((n) => `\`${n}\``).join('、')
   return [

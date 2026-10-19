@@ -38,7 +38,9 @@ function jumpTo(id: string): void {
   <section class="flex h-full min-h-0 min-w-0" data-testid="help-panel">
     <!-- 左栏：目录（从正文标题派生）+ 关键词过滤 -->
     <aside class="flex min-h-0 w-72 shrink-0 flex-col border-r border-border">
-      <header class="flex items-center gap-1.5 border-b border-border px-3 py-2 text-sm font-medium">
+      <header
+        class="flex items-center gap-1.5 border-b border-border px-3 py-2 text-sm font-medium"
+      >
         <ui-book-open class="size-4 text-muted-foreground" />
         使用说明
       </header>

@@ -22,7 +22,15 @@
 // 本文件同时是**构建入口表的真相源**（registry.test.ts 比对注册面与入口表）——它被测试
 // import 时靠底部的 main 守卫不触发构建。
 import { build, context } from 'esbuild'
-import { cpSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -91,7 +99,9 @@ const relayGenPlugin = {
           `/** 中继件 IIFE 产物（自包含，无 import/export 残留；随 SW 以 { code } 注册注入） */\n` +
           `export const RELAY_IIFE = ${JSON.stringify(code)}\n`,
       )
-      console.log(`[user-scripts] 中继件 IIFE 已生成 → ${RELAY_GEN.slice(here.length + 1)}（${code.length} 字节）`)
+      console.log(
+        `[user-scripts] 中继件 IIFE 已生成 → ${RELAY_GEN.slice(here.length + 1)}（${code.length} 字节）`,
+      )
     })
   },
 }
@@ -142,8 +152,11 @@ async function buildOnce() {
     const opts = sampleOptions(name, entry)
     await build(opts)
     const out = readFileSync(opts.outfile, 'utf8')
-    if (!out.startsWith('// ==UserScript==')) throw new Error(`${name}：产物缺元数据头（banner 未生效？）`)
-    console.log(`[user-scripts] ${name} → ${opts.outfile.slice(here.length + 1)}（${out.length} 字节）`)
+    if (!out.startsWith('// ==UserScript=='))
+      throw new Error(`${name}：产物缺元数据头（banner 未生效？）`)
+    console.log(
+      `[user-scripts] ${name} → ${opts.outfile.slice(here.length + 1)}（${out.length} 字节）`,
+    )
   }
   for (const name of RAW_DIRS) {
     const src = resolve(here, 'src/samples/raw', name)

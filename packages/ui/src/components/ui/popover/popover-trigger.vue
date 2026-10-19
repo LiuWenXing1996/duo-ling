@@ -3,7 +3,7 @@ import type { PopoverTriggerProps } from 'reka-ui'
 import { PopoverTrigger } from 'reka-ui'
 
 const props = withDefaults(defineProps<PopoverTriggerProps>(), {
-  asChild: true
+  asChild: true,
 })
 </script>
 

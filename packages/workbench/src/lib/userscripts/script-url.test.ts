@@ -42,9 +42,11 @@ describe('toScriptUrl', () => {
 
 describe('inspectFetchedText', () => {
   it('普通脚本源码放行（有块、没块都行）', () => {
-    expect(inspectFetchedText('// ==UserScript==\n// @name x\n// ==/UserScript==\nvoid 0')).toEqual({
-      ok: true,
-    })
+    expect(inspectFetchedText('// ==UserScript==\n// @name x\n// ==/UserScript==\nvoid 0')).toEqual(
+      {
+        ok: true,
+      },
+    )
     expect(inspectFetchedText('console.log(1)')).toEqual({ ok: true })
   })
 
@@ -54,7 +56,11 @@ describe('inspectFetchedText', () => {
   })
 
   it('HTML 页面：指到 raw / 直链（这条最常撞：从脚本页复制的地址）', () => {
-    for (const html of ['<!DOCTYPE html><html></html>', '<html><body>x</body>', '<?xml version="1.0"?>']) {
+    for (const html of [
+      '<!DOCTYPE html><html></html>',
+      '<html><body>x</body>',
+      '<?xml version="1.0"?>',
+    ]) {
       const r = inspectFetchedText(html)
       expect(r.ok === false && r.reason).toContain('raw')
     }

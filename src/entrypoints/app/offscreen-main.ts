@@ -29,7 +29,9 @@ import { createConversation, renameConversation } from '@duoling/shared'
 export const OFFSCREEN_KIND_PREFIXES = ['fs:', 'conv:', 'chat:'] as const
 
 /** 前缀 → 处理器（与 OFFSCREEN_KIND_PREFIXES 一一对应） */
-const FS_HANDLERS: { [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: RuntimeRequest) => Promise<unknown> } = {
+const FS_HANDLERS: {
+  [K in (typeof OFFSCREEN_KIND_PREFIXES)[number]]: (msg: RuntimeRequest) => Promise<unknown>
+} = {
   // fs: 只剩就绪探测 —— 其余 fs 命令与注册态库写侧（userscript*）走 OffscreenService 代理
   'fs:': async () => ({ ready: true }),
   'conv:': (msg) => handleConvCommand(msg),

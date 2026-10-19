@@ -11,12 +11,7 @@ const props = defineProps<Props>()
 
 <template>
   <div
-    :class="
-      cn(
-        'mt-4 flex w-full items-center justify-between gap-4',
-        props.class,
-      )
-    "
+    :class="cn('mt-4 flex w-full items-center justify-between gap-4', props.class)"
     v-bind="$attrs"
   >
     <slot />

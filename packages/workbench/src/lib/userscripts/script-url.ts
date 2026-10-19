@@ -27,7 +27,10 @@ export function toScriptUrl(input: string): ScriptUrlResult {
 
   if (url.protocol === 'http:' || url.protocol === 'https:') return { ok: true, url: url.href }
   if (url.protocol === 'file:') {
-    return { ok: false, reason: '本地文件用「输入文件路径」或「粘贴脚本代码」导入，这里只收网络地址' }
+    return {
+      ok: false,
+      reason: '本地文件用「输入文件路径」或「粘贴脚本代码」导入，这里只收网络地址',
+    }
   }
   return { ok: false, reason: `只支持 http / https 地址（收到的是 ${url.protocol}）` }
 }

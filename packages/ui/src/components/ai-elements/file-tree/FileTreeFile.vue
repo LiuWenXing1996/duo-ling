@@ -43,7 +43,7 @@ provide(FileTreeFileKey, {
     @keydown.space="() => onSelect(props.path)"
   >
     <slot>
-      <span class="size-4" /> <!-- Spacer for alignment -->
+      <span class="size-4" />
       <FileTreeIcon>
         <component :is="props.icon" v-if="props.icon" />
         <FileIcon v-else class="size-4 text-muted-foreground" />

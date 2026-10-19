@@ -16,11 +16,7 @@ import type { BuiltinRegistration, ScriptProject } from '@duoling/shared'
 // 独立 IIFE 文件，扩展侧按 id 取其内容作系统脚本源码（真相源见 user-scripts/builtin 的 registry.ts）。
 // 中继件（relay）例外：本体在 user-scripts/builtin/relay，宿主侧注册面随本包内化（id / 装配段 /
 // 注册同步都在包内，IIFE 以 `{ code }` 注册，无公共资产文件）。
-import {
-  FLOAT_HOST_ID,
-  INSPECTOR_HOST_ID,
-  TAB_RECORDER_ID,
-} from '@duoling/user-scripts/builtin'
+import { FLOAT_HOST_ID, INSPECTOR_HOST_ID, TAB_RECORDER_ID } from '@duoling/user-scripts/builtin'
 import { EXTENSION_NAME } from '@duoling/shared'
 // 项目读自状态库（IndexedDB，SW 与 offscreen 共用）：注册链路不能在 offscreen 存活上下注
 import { listProjects } from '@duoling/shared'
@@ -39,11 +35,7 @@ import { hasRecordingTabSession } from './runtime-db'
 // 匹配并集比对（「未变则跳过」）：已上移包内，随 index 导出
 import { sameMatchSet, matchPatternCoversUrl } from '@duoling/shared'
 // 通用引擎件（包内 registration.ts）：世界配置 / 注册 / 注销 / 串行队列
-import {
-  enqueueRegistration,
-  registerScript,
-  unregisterScripts,
-} from '../registration'
+import { enqueueRegistration, registerScript, unregisterScripts } from '../registration'
 // 中继件（GM 桥 MAIN 世界侧）的注册同步（包内 relay/sync.ts）
 import { SCRIPT_RELAY_ID, syncScriptRelay } from '../relay/sync'
 // 匹配面判定（scheme + host）：内置件「这一页用不用得上」与 cookie 域名门同一套判据
@@ -301,4 +293,3 @@ export function refreshBuiltinScripts(): Promise<void> {
     await syncScriptRelay(system.length ? [...projects, ...system] : projects)
   })
 }
-

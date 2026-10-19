@@ -137,7 +137,7 @@ const CAPABILITIES = {
   GM_addElement: {
     ns: 'addElement',
     title: '创建并插入元素',
-    sigGlobal: "GM_addElement(tag, attrs) / GM_addElement(parent, tag, attrs)",
+    sigGlobal: 'GM_addElement(tag, attrs) / GM_addElement(parent, tag, attrs)',
     summary: '创建元素、设属性、插入 DOM，返回该元素',
     detail:
       '两式入参：首参是字符串 = 标签名（插到 head），首参是元素 = 父节点。attrs 逐项走 setAttribute。' +
@@ -227,8 +227,7 @@ const CAPABILITIES = {
     sigGlobal: 'GM_deleteValues(keys)',
     sigNs: 'GM.deleteValues(keys)',
     summary: '一次删多个键（收键名数组）',
-    detail:
-      '一个事务落盘，只对**真存在**的键发删除事件（不存在的键静默跳过，同单键版）。',
+    detail: '一个事务落盘，只对**真存在**的键发删除事件（不存在的键静默跳过，同单键版）。',
     returns: 'void / Promise<void>',
     bridge: 'bridge',
     group: 'storage',
@@ -263,7 +262,8 @@ const CAPABILITIES = {
     sigGlobal: 'GM_getTab(cb)',
     sigNs: 'GM.getTab()',
     summary: '取当前标签页的持久对象（对齐 GM_getTab）',
-    detail: '随标签页生命周期，关 tab 即清；跨同源导航保留。标签页标识由扩展自动对应，脚本不必自己传。**回调式**（TM 语义）。',
+    detail:
+      '随标签页生命周期，关 tab 即清；跨同源导航保留。标签页标识由扩展自动对应，脚本不必自己传。**回调式**（TM 语义）。',
     returns: 'void（回调收对象）/ Promise<Json | undefined>',
     bridge: 'bridge',
     group: 'storage',
@@ -318,7 +318,7 @@ const CAPABILITIES = {
   GM_setClipboard: {
     ns: 'setClipboard',
     title: '写剪贴板',
-    sigGlobal: "GM_setClipboard(data, info?)",
+    sigGlobal: 'GM_setClipboard(data, info?)',
     summary: '写剪贴板；info 传 text/html 走富文本',
     detail: '在扩展侧执行（**免用户手势**）。失败只进错误日志，不静默也阻塞不了页面。',
     returns: 'void / Promise<void>',
@@ -372,7 +372,8 @@ const CAPABILITIES = {
     sigGlobal: 'GM_unregisterMenuCommand(idOrCaption)',
     sigNs: 'GM.unregisterMenuCommand(idOrCaption)',
     summary: '注销菜单项；**id 与 caption 两种入参都收**',
-    detail: 'TM 只收 register 返回的 id，VM 收 caption —— 本扩展两种都认（成本近零）。同步返回，登记在后台异步完成。',
+    detail:
+      'TM 只收 register 返回的 id，VM 收 caption —— 本扩展两种都认（成本近零）。同步返回，登记在后台异步完成。',
     returns: 'void',
     bridge: 'local',
     group: 'page',
@@ -490,7 +491,8 @@ const OBJECT_ENTRIES = {
     title: '静音 / 取消静音',
     signature: 'GM_audio.setMute({ isMuted }, cb?)',
     summary: '设置**当前标签页**的静音状态',
-    detail: 'cb 收 error（失败才带值），省掉回调就用返回的 Promise。只影响当前标签页，不动其它标签。',
+    detail:
+      'cb 收 error（失败才带值），省掉回调就用返回的 Promise。只影响当前标签页，不动其它标签。',
     returns: 'Promise<void>（回调同收 error）',
     bridge: 'bridge',
     group: 'system',
@@ -501,7 +503,7 @@ const OBJECT_ENTRIES = {
     summary: '读当前标签页的 `{ isMuted, muteReason, isAudible }`',
     detail:
       'muteReason 是 `user`（用户点的）/ `capture`（标签捕获）/ `extension`（扩展所为）。' +
-      '取不到的字段**省略**（不是 false）—— 用 `\'x\' in state` 判断，别当布尔用。',
+      "取不到的字段**省略**（不是 false）—— 用 `'x' in state` 判断，别当布尔用。",
     returns: 'Promise<GmAudioState>（回调同收）',
     bridge: 'bridge',
     group: 'system',
@@ -512,7 +514,7 @@ const OBJECT_ENTRIES = {
     summary: '注册静音 / 发声变化监听（**传函数本身**，TM 没有 id）',
     detail:
       '回调收 `{ muted?, audible? }`：**muted 是静音原因字符串或 false**（不是布尔），' +
-      '字段可能缺 —— 脚本常用 `\'muted\' in e` 区分「静音变化」与「发声变化」。' +
+      "字段可能缺 —— 脚本常用 `'muted' in e` 区分「静音变化」与「发声变化」。" +
       '只在真有监听时订阅（没监听就不收帧），注销传**同一个函数引用**。',
     returns: 'Promise<void>（回调同收 error）',
     bridge: 'bridge',
@@ -595,15 +597,19 @@ function nsEntry(cap: Capability, ns: GmNsName): GmApiEntry {
 
 /** 能力表 → 全局形态条目（每能力一条，不含 `GM.*` 镜像） */
 function globalEntries(): GmApiEntry[] {
-  return (Object.entries(CAPABILITIES) as [GmGlobalName, Capability][]).map(([name, cap]) => globalEntry(name, cap))
+  return (Object.entries(CAPABILITIES) as [GmGlobalName, Capability][]).map(([name, cap]) =>
+    globalEntry(name, cap),
+  )
 }
 
 /** 对象型 / 变量型条目（`GM_cookie.*` / `GM_audio.*` / `unsafeWindow` / `window.onurlchange`） */
 function objectEntries(): GmApiEntry[] {
-  return (Object.entries(OBJECT_ENTRIES) as [GmObjectPath, Omit<GmApiEntry, 'path'>][]).map(([path, entry]) => ({
-    path,
-    ...entry,
-  }))
+  return (Object.entries(OBJECT_ENTRIES) as [GmObjectPath, Omit<GmApiEntry, 'path'>][]).map(
+    ([path, entry]) => ({
+      path,
+      ...entry,
+    }),
+  )
 }
 
 let cachedEntries: GmApiEntry[] | null = null

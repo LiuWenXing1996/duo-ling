@@ -30,7 +30,7 @@ import {
   Upload as UiUpload,
   X as UiX,
   ChevronRight as UiChevronRight,
-  ChevronUp as UiChevronUp
+  ChevronUp as UiChevronUp,
 } from '@lucide/vue'
 import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import {
@@ -38,14 +38,14 @@ import {
   DialogContent as UiDialogContent,
   DialogDescription as UiDialogDescription,
   DialogFooter as UiDialogFooter,
-  DialogTitle as UiDialogTitle
+  DialogTitle as UiDialogTitle,
 } from '@duoling/ui/components/ui/dialog'
 import {
   DropdownMenu as UiDropdownMenu,
   DropdownMenuContent as UiDropdownMenuContent,
   DropdownMenuItem as UiDropdownMenuItem,
   DropdownMenuSeparator as UiDropdownMenuSeparator,
-  DropdownMenuTrigger as UiDropdownMenuTrigger
+  DropdownMenuTrigger as UiDropdownMenuTrigger,
 } from '@duoling/ui/components/ui/dropdown-menu'
 import { Input as UiInput } from '@duoling/ui/components/ui/input'
 import {
@@ -53,7 +53,7 @@ import {
   SelectContent as UiSelectContent,
   SelectItem as UiSelectItem,
   SelectTrigger as UiSelectTrigger,
-  SelectValue as UiSelectValue
+  SelectValue as UiSelectValue,
 } from '@duoling/ui/components/ui/select'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@duoling/ui/components/ui/switch'
 import { Textarea as UiTextarea } from '@duoling/ui/components/ui/textarea'
@@ -61,7 +61,7 @@ import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
-  TooltipTrigger as UiTooltipTrigger
+  TooltipTrigger as UiTooltipTrigger,
 } from '@duoling/ui/components/ui/tooltip'
 import { errorText, formatTimestamp } from '@duoling/ui/lib/format'
 import { isFileSchemeAccessAllowed } from '../../lib/extension-page'
@@ -84,7 +84,7 @@ import type {
   ImportReport,
   ScriptGroup,
   ScriptSummary,
-  UserScriptsAvailability
+  UserScriptsAvailability,
 } from '@duoling/shared'
 
 const props = defineProps<{
@@ -223,7 +223,11 @@ const sortKey = ref<SortKey>('savedAt')
 const statusFilters = computed(() => [
   { key: 'all' as StatusFilter, label: '全部', count: scripts.value.length },
   { key: 'enabled' as StatusFilter, label: '已启用', count: enabledCount.value },
-  { key: 'disabled' as StatusFilter, label: '已停用', count: scripts.value.length - enabledCount.value }
+  {
+    key: 'disabled' as StatusFilter,
+    label: '已停用',
+    count: scripts.value.length - enabledCount.value,
+  },
 ])
 
 /** 列表实际渲染的脚本：搜索 + 状态过滤后排序（不 mutating 原数组） */
@@ -232,9 +236,7 @@ const visibleScripts = computed(() => {
   let list = scripts.value
   if (q) {
     list = list.filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.matches.some((m) => m.toLowerCase().includes(q))
+      (s) => s.name.toLowerCase().includes(q) || s.matches.some((m) => m.toLowerCase().includes(q)),
     )
   }
   if (statusFilter.value === 'enabled') list = list.filter((s) => s.enabled)
@@ -587,7 +589,9 @@ const linkFetching = ref(false)
 /** 已取回的源码：非 null 即弹窗进「已取回」态（主按钮从「获取」变「安装」） */
 const fetchedCode = ref<string | null>(null)
 /** 已取回源码的 metadata 摘要（复述「装的是什么」；无块时为 null） */
-const fetchedMeta = computed(() => (fetchedCode.value ? parseUserScriptMetadata(fetchedCode.value) : null))
+const fetchedMeta = computed(() =>
+  fetchedCode.value ? parseUserScriptMetadata(fetchedCode.value) : null,
+)
 
 function askExportSingle(s: ScriptSummary): void {
   pendingExport.value = { kind: 'single', summary: s }
@@ -1039,7 +1043,10 @@ useDataSync('group', () => refreshGroups())
               <ui-dropdown-menu-item :disabled="!enabledCount" @click="onToggleAll(false)">
                 全部停用
               </ui-dropdown-menu-item>
-              <ui-dropdown-menu-item :disabled="enabledCount === scripts.length" @click="onToggleAll(true)">
+              <ui-dropdown-menu-item
+                :disabled="enabledCount === scripts.length"
+                @click="onToggleAll(true)"
+              >
                 全部启用
               </ui-dropdown-menu-item>
               <ui-dropdown-menu-separator />
@@ -1119,7 +1126,7 @@ useDataSync('group', () => refreshGroups())
             accept=".zip,application/zip"
             class="hidden"
             @change="onImportFile"
-          >
+          />
           <!-- 新建分组：打开命名弹窗（空字符串 = 未分组，永不删） -->
           <ui-button
             size="sm"
@@ -1149,14 +1156,15 @@ useDataSync('group', () => refreshGroups())
     <!-- 滚动区：横幅 / 提示 / 脚本列表，只有这里滚 -->
     <div class="min-h-0 flex-1 overflow-y-auto scroll-gap px-5 pb-5">
       <div class="mx-auto max-w-6xl space-y-3 pt-1">
-
         <!-- 可用性横幅：仅在引擎不可用时显示（有需要用户行动的信息才占位）；单行紧凑排版 -->
         <div
           v-if="availability && !availability.available"
           class="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs"
         >
           <ui-alert-triangle class="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-          <span class="shrink-0 font-medium text-amber-600 dark:text-amber-400">用户脚本功能不可用</span>
+          <span class="shrink-0 font-medium text-amber-600 dark:text-amber-400"
+            >用户脚本功能不可用</span
+          >
           <p class="min-w-0 flex-1 truncate text-muted-foreground" :title="availability.guideText">
             {{ availability.guideText }}
           </p>
@@ -1203,10 +1211,7 @@ useDataSync('group', () => refreshGroups())
             :key="item.kind === 'header' ? 'h-' + item.id : item.s.uuid"
           >
             <!-- 分组头：点击折叠 / 展开；真实分组带重排与操作菜单，未分组只有折叠 -->
-            <div
-              v-if="item.kind === 'header'"
-              class="col-span-full flex items-center gap-1 pt-2"
-            >
+            <div v-if="item.kind === 'header'" class="col-span-full flex items-center gap-1 pt-2">
               <button
                 type="button"
                 class="flex min-w-0 flex-1 items-center gap-1.5 text-left"
@@ -1214,10 +1219,15 @@ useDataSync('group', () => refreshGroups())
                 :aria-expanded="!collapsed[item.id]"
                 @click="toggleCollapse(item.id)"
               >
-                <ui-chevron-right v-if="collapsed[item.id]" class="size-3.5 shrink-0 text-muted-foreground" />
+                <ui-chevron-right
+                  v-if="collapsed[item.id]"
+                  class="size-3.5 shrink-0 text-muted-foreground"
+                />
                 <ui-chevron-down v-else class="size-3.5 shrink-0 text-muted-foreground" />
                 <span class="truncate text-xs font-medium">{{ item.name }}</span>
-                <span class="shrink-0 text-[10px] tabular-nums text-muted-foreground">{{ item.count }}</span>
+                <span class="shrink-0 text-[10px] tabular-nums text-muted-foreground">{{
+                  item.count
+                }}</span>
               </button>
               <template v-if="item.id !== UNGROUPED_KEY">
                 <ui-button
@@ -1242,12 +1252,7 @@ useDataSync('group', () => refreshGroups())
                 </ui-button>
                 <ui-dropdown-menu>
                   <ui-dropdown-menu-trigger as-child>
-                    <ui-button
-                      variant="ghost"
-                      size="icon"
-                      class="size-6"
-                      title="分组操作"
-                    >
+                    <ui-button variant="ghost" size="icon" class="size-6" title="分组操作">
                       <ui-pencil class="size-3.5" />
                     </ui-button>
                   </ui-dropdown-menu-trigger>
@@ -1267,10 +1272,7 @@ useDataSync('group', () => refreshGroups())
             </div>
 
             <!-- 脚本卡片（网格单元；s = item.s）：图标 + 名称 + 状态标 → 匹配规则 → 元信息 → 底部开关 + 操作 -->
-            <div
-              v-else
-              class="flex flex-col rounded-md border bg-card p-3"
-            >
+            <div v-else class="flex flex-col rounded-md border bg-card p-3">
               <!-- 顶部：图标 + 名称（独占一行）+ 状态标（统一另起一行） -->
               <div class="flex items-start gap-2">
                 <span
@@ -1487,7 +1489,11 @@ useDataSync('group', () => refreshGroups())
     <!-- 全部删除确认弹窗：破坏性操作，明示条数与「不可撤销」，并说清不受影响的范围 -->
     <ui-dialog
       :open="removeAllOpen"
-      @update:open="(v: boolean) => { if (!v) removeAllOpen = false }"
+      @update:open="
+        (v: boolean) => {
+          if (!v) removeAllOpen = false
+        }
+      "
     >
       <ui-dialog-content class="max-w-md">
         <ui-dialog-title class="text-base font-semibold">删除全部脚本</ui-dialog-title>
@@ -1512,7 +1518,11 @@ useDataSync('group', () => refreshGroups())
     <!-- 重命名弹窗：名字是管理面标识，改它不动源码、不产生版本 -->
     <ui-dialog
       :open="!!renameTarget"
-      @update:open="(v: boolean) => { if (!v) renameTarget = null }"
+      @update:open="
+        (v: boolean) => {
+          if (!v) renameTarget = null
+        }
+      "
     >
       <ui-dialog-content class="max-w-md">
         <ui-dialog-title class="text-base font-semibold">重命名脚本</ui-dialog-title>
@@ -1532,11 +1542,7 @@ useDataSync('group', () => refreshGroups())
         </div>
         <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
           <ui-button variant="ghost" size="sm" @click="renameTarget = null">取消</ui-button>
-          <ui-button
-            size="sm"
-            :disabled="renaming || !renameName.trim()"
-            @click="confirmRename"
-          >
+          <ui-button size="sm" :disabled="renaming || !renameName.trim()" @click="confirmRename">
             {{ renaming ? '重命名中…' : '重命名' }}
           </ui-button>
         </ui-dialog-footer>
@@ -1546,7 +1552,11 @@ useDataSync('group', () => refreshGroups())
     <!-- 删除确认弹窗：用 UI 弹窗替代原生 confirm（原生 confirm / prompt 是同步阻塞的，会冻结渲染） -->
     <ui-dialog
       :open="!!pendingRemove"
-      @update:open="(v: boolean) => { if (!v) pendingRemove = null }"
+      @update:open="
+        (v: boolean) => {
+          if (!v) pendingRemove = null
+        }
+      "
     >
       <ui-dialog-content class="max-w-md">
         <ui-dialog-title class="text-base font-semibold">删除脚本</ui-dialog-title>
@@ -1576,7 +1586,11 @@ useDataSync('group', () => refreshGroups())
     <!-- 导出确认弹窗：每行导出与全部导出共用；隐私提示固定在此（文案只写一处） -->
     <ui-dialog
       :open="!!pendingExport"
-      @update:open="(v: boolean) => { if (!v) pendingExport = null }"
+      @update:open="
+        (v: boolean) => {
+          if (!v) pendingExport = null
+        }
+      "
     >
       <ui-dialog-content class="max-w-md">
         <ui-dialog-title class="text-base font-semibold">
@@ -1595,9 +1609,7 @@ useDataSync('group', () => refreshGroups())
         </ui-dialog-description>
         <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
           <ui-button variant="ghost" size="sm" @click="pendingExport = null">取消</ui-button>
-          <ui-button size="sm" :disabled="exporting" @click="confirmExport">
-            导出
-          </ui-button>
+          <ui-button size="sm" :disabled="exporting" @click="confirmExport"> 导出 </ui-button>
         </ui-dialog-footer>
       </ui-dialog-content>
     </ui-dialog>
@@ -1606,7 +1618,11 @@ useDataSync('group', () => refreshGroups())
          之后与文件选择器共用同一条导入动线（见 confirmPathImport） -->
     <ui-dialog
       :open="pathImportOpen"
-      @update:open="(v: boolean) => { if (!v) pathImportOpen = false }"
+      @update:open="
+        (v: boolean) => {
+          if (!v) pathImportOpen = false
+        }
+      "
     >
       <ui-dialog-content class="max-w-lg">
         <ui-dialog-title class="text-base font-semibold">从路径导入</ui-dialog-title>
@@ -1626,10 +1642,9 @@ useDataSync('group', () => refreshGroups())
             :disabled="importing"
             @keydown.enter="confirmPathImport"
           />
-          <p
-            v-if="pathError"
-            class="mt-2 whitespace-pre-wrap break-all text-xs text-destructive"
-          >{{ pathError }}</p>
+          <p v-if="pathError" class="mt-2 whitespace-pre-wrap break-all text-xs text-destructive">
+            {{ pathError }}
+          </p>
           <!-- 开关未开：常驻提示 + 引导入口。文案与点「导入」后的报错**是同一句**
                （共用 FILE_ACCESS_OFF_HINT），两处不一致会让人以为是两个问题 -->
           <div
@@ -1654,7 +1669,12 @@ useDataSync('group', () => refreshGroups())
           </div>
         </div>
         <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
-          <ui-button variant="ghost" size="sm" :disabled="importing" @click="pathImportOpen = false">
+          <ui-button
+            variant="ghost"
+            size="sm"
+            :disabled="importing"
+            @click="pathImportOpen = false"
+          >
             取消
           </ui-button>
           <ui-button
@@ -1673,7 +1693,11 @@ useDataSync('group', () => refreshGroups())
          成功后与 zip 导入共用同一份汇总报告与「刚导入 · 未启用」标（见 confirmPasteImport） -->
     <ui-dialog
       :open="pasteImportOpen"
-      @update:open="(v: boolean) => { if (!v) pasteImportOpen = false }"
+      @update:open="
+        (v: boolean) => {
+          if (!v) pasteImportOpen = false
+        }
+      "
     >
       <!-- 高度上限：DialogContent 是「视口居中 + 固定定位」，自身不封顶 ——
            窗口矮的时候光靠上面的固定高粘贴框仍可能顶出视口，这里再兜一层（超高则在弹窗内滚动） -->
@@ -1695,13 +1719,17 @@ useDataSync('group', () => refreshGroups())
             spellcheck="false"
             :disabled="importing"
           />
-          <p
-            v-if="pasteError"
-            class="mt-2 whitespace-pre-wrap break-all text-xs text-destructive"
-          >{{ pasteError }}</p>
+          <p v-if="pasteError" class="mt-2 whitespace-pre-wrap break-all text-xs text-destructive">
+            {{ pasteError }}
+          </p>
         </div>
         <ui-dialog-footer class="flex-none">
-          <ui-button variant="ghost" size="sm" :disabled="importing" @click="pasteImportOpen = false">
+          <ui-button
+            variant="ghost"
+            size="sm"
+            :disabled="importing"
+            @click="pasteImportOpen = false"
+          >
             取消
           </ui-button>
           <ui-button
@@ -1721,7 +1749,11 @@ useDataSync('group', () => refreshGroups())
          —— 外部来源先审后启（见 fetchFromLink / confirmLinkImport） -->
     <ui-dialog
       :open="linkImportOpen"
-      @update:open="(v: boolean) => { if (!v) linkImportOpen = false }"
+      @update:open="
+        (v: boolean) => {
+          if (!v) linkImportOpen = false
+        }
+      "
     >
       <ui-dialog-content class="max-h-[calc(100vh-2rem)] max-w-lg overflow-y-auto">
         <ui-dialog-title class="text-base font-semibold">从链接导入</ui-dialog-title>
@@ -1741,22 +1773,29 @@ useDataSync('group', () => refreshGroups())
             :disabled="importing || linkFetching || !!fetchedCode"
             @keydown.enter="fetchedCode ? confirmLinkImport() : fetchFromLink()"
           />
-          <p
-            v-if="linkError"
-            class="mt-2 whitespace-pre-wrap break-all text-xs text-destructive"
-          >{{ linkError }}</p>
+          <p v-if="linkError" class="mt-2 whitespace-pre-wrap break-all text-xs text-destructive">
+            {{ linkError }}
+          </p>
 
           <!-- 已取回：先说清装的是什么（元数据摘要）；取回态下地址框锁住，
                要换地址得先「重新填写」 -->
           <div v-if="fetchedCode" class="mt-3 rounded-md border p-2">
             <p class="text-xs font-medium">
               {{ fetchedMeta?.name ?? '（源码未声明脚本名，导入后按自动编号取名）' }}
-              <span v-if="fetchedMeta?.version" class="text-muted-foreground">· {{ fetchedMeta.version }}</span>
-              <span v-if="fetchedMeta?.author" class="text-muted-foreground">· {{ fetchedMeta.author }}</span>
+              <span v-if="fetchedMeta?.version" class="text-muted-foreground"
+                >· {{ fetchedMeta.version }}</span
+              >
+              <span v-if="fetchedMeta?.author" class="text-muted-foreground"
+                >· {{ fetchedMeta.author }}</span
+              >
             </p>
             <p class="mt-0.5 text-xs text-muted-foreground">
-              <template v-if="fetchedMeta?.matches.length">匹配 {{ fetchedMeta.matches.length }} 条规则</template>
-              <template v-else-if="fetchedMeta?.includes.length">未写 @match，导入后按 @include 转换</template>
+              <template v-if="fetchedMeta?.matches.length"
+                >匹配 {{ fetchedMeta.matches.length }} 条规则</template
+              >
+              <template v-else-if="fetchedMeta?.includes.length"
+                >未写 @match，导入后按 @include 转换</template
+              >
               <template v-else>未声明匹配规则：装上也不会注入任何页面</template>
             </p>
           </div>
@@ -1807,17 +1846,25 @@ useDataSync('group', () => refreshGroups())
     <!-- 导入汇总报告：导入后统一展示（成功 / 失败 + 提示，以及未导入的文件） -->
     <ui-dialog
       :open="!!importReport"
-      @update:open="(v: boolean) => { if (!v) importReport = null }"
+      @update:open="
+        (v: boolean) => {
+          if (!v) importReport = null
+        }
+      "
     >
       <ui-dialog-content class="max-w-lg">
         <ui-dialog-title class="text-base font-semibold">
           导入完成：成功 {{ importReport?.succeeded }} 个，失败 {{ importReport?.failed }} 个
-          <template v-if="importReport?.ignored.length">，未导入 {{ importReport?.ignored.length }} 个文件</template>
+          <template v-if="importReport?.ignored.length"
+            >，未导入 {{ importReport?.ignored.length }} 个文件</template
+          >
         </ui-dialog-title>
         <ui-dialog-description class="text-sm text-muted-foreground">
           新导入的脚本默认停用——审过源码后再手动启用。
           <!-- 路径导入复述一下来源：文件选择器那条给不了真路径，就不显示 -->
-          <span v-if="importedFrom" class="mt-1 block break-all text-xs">来源：{{ importedFrom }}</span>
+          <span v-if="importedFrom" class="mt-1 block break-all text-xs"
+            >来源：{{ importedFrom }}</span
+          >
         </ui-dialog-description>
         <ul class="mt-3 flex max-h-64 flex-col gap-2 overflow-y-auto">
           <li
@@ -1840,10 +1887,7 @@ useDataSync('group', () => refreshGroups())
               </p>
               <p v-else class="mt-0.5 break-all text-destructive">{{ r.reason }}</p>
               <!-- 导入期提示：非阻塞警告（不阻断导入） -->
-              <ul
-                v-if="r.status === 'ok' && r.notes?.length"
-                class="mt-1 flex flex-col gap-1"
-              >
+              <ul v-if="r.status === 'ok' && r.notes?.length" class="mt-1 flex flex-col gap-1">
                 <li
                   v-for="(n, ni) in r.notes"
                   :key="ni"
@@ -1857,9 +1901,7 @@ useDataSync('group', () => refreshGroups())
           </li>
         </ul>
         <template v-if="importReport?.ignored.length">
-          <p class="mt-3 border-t pt-3 text-xs font-medium text-muted-foreground">
-            以下文件未导入
-          </p>
+          <p class="mt-3 border-t pt-3 text-xs font-medium text-muted-foreground">以下文件未导入</p>
           <ul class="mt-2 flex max-h-40 flex-col gap-2 overflow-y-auto">
             <li
               v-for="(f, i) in importReport?.ignored"
@@ -1885,14 +1927,22 @@ useDataSync('group', () => refreshGroups())
     <!-- 新建 / 重命名分组：双用途（groupDialogTarget 为空 = 新建） -->
     <ui-dialog
       :open="groupDialogOpen"
-      @update:open="(v: boolean) => { if (!v) groupDialogOpen = false }"
+      @update:open="
+        (v: boolean) => {
+          if (!v) groupDialogOpen = false
+        }
+      "
     >
       <ui-dialog-content class="max-w-md">
         <ui-dialog-title class="text-base font-semibold">
           {{ groupDialogTarget ? '重命名分组' : '新建分组' }}
         </ui-dialog-title>
         <ui-dialog-description class="text-sm text-muted-foreground">
-          {{ groupDialogTarget ? '修改该分组的显示名称，不影响其下脚本。' : '给一组脚本起个名字，方便在列表里归类。' }}
+          {{
+            groupDialogTarget
+              ? '修改该分组的显示名称，不影响其下脚本。'
+              : '给一组脚本起个名字，方便在列表里归类。'
+          }}
         </ui-dialog-description>
         <div class="mt-3">
           <ui-input
@@ -1905,14 +1955,8 @@ useDataSync('group', () => refreshGroups())
           />
         </div>
         <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
-          <ui-button variant="ghost" size="sm" @click="groupDialogOpen = false">
-            取消
-          </ui-button>
-          <ui-button
-            size="sm"
-            :disabled="!groupDialogName.trim()"
-            @click="confirmGroupDialog"
-          >
+          <ui-button variant="ghost" size="sm" @click="groupDialogOpen = false"> 取消 </ui-button>
+          <ui-button size="sm" :disabled="!groupDialogName.trim()" @click="confirmGroupDialog">
             {{ groupDialogTarget ? '保存' : '创建' }}
           </ui-button>
         </ui-dialog-footer>
@@ -1922,24 +1966,22 @@ useDataSync('group', () => refreshGroups())
     <!-- 删除分组确认：成员自动退回未分组 -->
     <ui-dialog
       :open="!!removeGroupTarget"
-      @update:open="(v: boolean) => { if (!v) removeGroupTarget = null }"
+      @update:open="
+        (v: boolean) => {
+          if (!v) removeGroupTarget = null
+        }
+      "
     >
       <ui-dialog-content class="max-w-md">
         <ui-dialog-title class="text-base font-semibold">删除分组</ui-dialog-title>
         <ui-dialog-description class="text-sm text-muted-foreground">
-          删除分组「{{ groupById.get(removeGroupTarget ?? '')?.name ?? '' }}」后，其下脚本将退回「未分组」。此操作不可撤销。
+          删除分组「{{
+            groupById.get(removeGroupTarget ?? '')?.name ?? ''
+          }}」后，其下脚本将退回「未分组」。此操作不可撤销。
         </ui-dialog-description>
         <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
-          <ui-button variant="ghost" size="sm" @click="removeGroupTarget = null">
-            取消
-          </ui-button>
-          <ui-button
-            size="sm"
-            variant="destructive"
-            @click="confirmRemoveGroup"
-          >
-            删除
-          </ui-button>
+          <ui-button variant="ghost" size="sm" @click="removeGroupTarget = null"> 取消 </ui-button>
+          <ui-button size="sm" variant="destructive" @click="confirmRemoveGroup"> 删除 </ui-button>
         </ui-dialog-footer>
       </ui-dialog-content>
     </ui-dialog>
@@ -1947,7 +1989,11 @@ useDataSync('group', () => refreshGroups())
     <!-- 移动到分组弹窗：列出未分组 + 全部分组，点一项即落定 -->
     <ui-dialog
       :open="!!moveTarget"
-      @update:open="(v: boolean) => { if (!v) moveTarget = null }"
+      @update:open="
+        (v: boolean) => {
+          if (!v) moveTarget = null
+        }
+      "
     >
       <ui-dialog-content class="max-w-md">
         <ui-dialog-title class="text-base font-semibold">移动到分组</ui-dialog-title>

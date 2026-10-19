@@ -20,7 +20,7 @@ const LANGUAGE_MAP: Record<string, CodeLanguage> = {
   markdown: 'markdown',
   vue: 'vue',
   py: 'python',
-  txt: 'text'
+  txt: 'text',
 }
 
 /** 按文件后缀推断 shiki 语言；无法识别时回退为 text（纯文本无高亮） */

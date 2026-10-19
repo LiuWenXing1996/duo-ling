@@ -29,7 +29,13 @@ vi.mock('../lib/userscripts/ui-client', () => ({ userscriptClient: {}, offscreen
 function setModelProfile(): void {
   modelMocks.listModelState.mockResolvedValue({
     profiles: [
-      { id: 'm1', name: '测试模型', baseUrl: 'https://example.test/v1', model: 'test', hasApiKey: true },
+      {
+        id: 'm1',
+        name: '测试模型',
+        baseUrl: 'https://example.test/v1',
+        model: 'test',
+        hasApiKey: true,
+      },
     ],
     activeId: 'm1',
   })

@@ -68,7 +68,11 @@ function cssSpans(code: string, less: boolean): Span[] {
     const begin = typeof node.raws.begin === 'string' ? node.raws.begin : '/*'
     const closer = begin === '//' ? '' : '*/'
     const length =
-      begin.length + (node.raws.left?.length ?? 0) + node.text.length + (node.raws.right?.length ?? 0) + closer.length
+      begin.length +
+      (node.raws.left?.length ?? 0) +
+      node.text.length +
+      (node.raws.right?.length ?? 0) +
+      closer.length
     out.push([start, start + length])
   })
   return out
@@ -83,7 +87,11 @@ function yamlSpans(code: string): Span[] {
     }
     if (!node || typeof node !== 'object') return
     const token = node as { type?: string; offset?: number; source?: string }
-    if (token.type === 'comment' && typeof token.offset === 'number' && typeof token.source === 'string') {
+    if (
+      token.type === 'comment' &&
+      typeof token.offset === 'number' &&
+      typeof token.source === 'string'
+    ) {
       out.push([token.offset, token.offset + token.source.length])
     }
     for (const value of Object.values(node)) walk(value)
@@ -102,7 +110,8 @@ function vueSpans(code: string): Span[] {
   }
   for (const style of descriptor.styles) {
     const base = style.loc.start.offset
-    for (const [start, end] of cssSpans(style.content, style.lang === 'less')) out.push([start + base, end + base])
+    for (const [start, end] of cssSpans(style.content, style.lang === 'less'))
+      out.push([start + base, end + base])
   }
   return out
 }
@@ -115,9 +124,12 @@ function toScan(code: string, spans: Span[]): ScanResult {
     }
   }
   const codeLines = new Set<number>()
-  chars.join('').split('\n').forEach((line, index) => {
-    if (line.trim()) codeLines.add(index + 1)
-  })
+  chars
+    .join('')
+    .split('\n')
+    .forEach((line, index) => {
+      if (line.trim()) codeLines.add(index + 1)
+    })
   const starts = [0]
   for (let i = 0; i < code.length; i++) if (code[i] === '\n') starts.push(i + 1)
   const lineOf = (offset: number) => {

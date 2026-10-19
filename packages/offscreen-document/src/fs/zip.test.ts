@@ -123,7 +123,11 @@ describe('parseScriptsZip 解析（扫全包：后缀 .user.js 即源码）', ()
   it('metadata 块声明字段：matches 保留，未声明字段用默认（allFrames/runAt）', () => {
     const code = withMeta('a', 'console.log(1)', ['*://a.com/*'])
     const { scripts } = parseScriptsZip(makeZip({ 'x/x.user.js': code }))
-    expect(scripts[0].config).toEqual({ matches: ['*://a.com/*'], allFrames: true, runAt: 'document_idle' })
+    expect(scripts[0].config).toEqual({
+      matches: ['*://a.com/*'],
+      allFrames: true,
+      runAt: 'document_idle',
+    })
     expect(scripts[0].notes).toBeUndefined() // 合法 metadata，无 notes
   })
 

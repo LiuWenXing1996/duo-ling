@@ -1,9 +1,7 @@
 // 识图子 Agent：主 Agent 想「看图」时唯一的入口 —— 一次独立的、无工具的模型调用。
 // 为什么是子 Agent 而不是塞回主对话、计费与模型口径见 docs/adr/0018-vision-subagent.md。
 import { generateText, type LanguageModel } from 'ai'
-import {
-  AGENT_RUNTIME_LIMITS,
-} from '@duoling/shared'
+import { AGENT_RUNTIME_LIMITS } from '@duoling/shared'
 import { readAsset } from '../fs/assets'
 
 /**

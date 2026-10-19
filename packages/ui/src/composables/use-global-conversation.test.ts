@@ -15,13 +15,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { isRef, ref, toRaw, type Ref } from 'vue'
 import type { ChatStatus, UIMessage } from 'ai'
-import type {
-  ChatMessageMetadata,
-  ChatOrphanRecord,
-  RuntimeRequest,
-} from '@duoling/shared'
+import type { ChatMessageMetadata, ChatOrphanRecord, RuntimeRequest } from '@duoling/shared'
 import type { ElementPickContext } from '@duoling/shared'
-import type { AssistantMessage, Conversation, Message, TokenUsage, UserMessage } from '@duoling/shared'
+import type {
+  AssistantMessage,
+  Conversation,
+  Message,
+  TokenUsage,
+  UserMessage,
+} from '@duoling/shared'
 import { messageTime } from '@duoling/shared'
 import type { ChatAssetRef } from '@duoling/shared'
 import { clearPickedElement, setPickedElement } from '../lib/page-context-store'
@@ -98,7 +100,15 @@ function conversation(id: string, over: Partial<Conversation> = {}): Conversatio
 }
 
 function assistantMessage(id: string, over: Partial<AssistantMessage> = {}): AssistantMessage {
-  return { id, conversationId: 'c1', content: '', parts: [], createdAt: T0, role: 'assistant', ...over }
+  return {
+    id,
+    conversationId: 'c1',
+    content: '',
+    parts: [],
+    createdAt: T0,
+    role: 'assistant',
+    ...over,
+  }
 }
 
 function userMessage(id: string, over: Partial<UserMessage> = {}): UserMessage {
@@ -134,12 +144,13 @@ interface SentMessage {
   metadata: ChatMessageMetadata
 }
 
-
-const chatAt = (index = -1): FakeChat => h.chatInstances[index < 0 ? h.chatInstances.length + index : index] as FakeChat
+const chatAt = (index = -1): FakeChat =>
+  h.chatInstances[index < 0 ? h.chatInstances.length + index : index] as FakeChat
 const lastChat = (): FakeChat => chatAt()
 const firstChat = (): FakeChat => chatAt(0)
 /** 自持的流式通道替身（每个 composable 实例一个，取 0 号） */
-const transport = (): Record<string, ReturnType<typeof vi.fn>> => h.transports[0] as Record<string, ReturnType<typeof vi.fn>>
+const transport = (): Record<string, ReturnType<typeof vi.fn>> =>
+  h.transports[0] as Record<string, ReturnType<typeof vi.fn>>
 /** useChat 收到的初始化对象（携带 onFinish / onError / transport）。
  *  源码传的是承载它的 ref（`useChat(chatInit)`），故取用时解包 */
 const lastInit = (): FakeInit => {
@@ -148,7 +159,10 @@ const lastInit = (): FakeInit => {
 }
 /** 会话域变更订阅（用例里手动触发回拉） */
 const conversationSync = (): { domains: string[]; reload: (push: { domain: string }) => unknown } =>
-  h.dataSync[h.dataSync.length - 1] as { domains: string[]; reload: (push: { domain: string }) => unknown }
+  h.dataSync[h.dataSync.length - 1] as {
+    domains: string[]
+    reload: (push: { domain: string }) => unknown
+  }
 /** 客户端最后一次发出的消息参数 */
 const lastSent = (chat: FakeChat = lastChat()): SentMessage => {
   const calls = chat.sendMessage.mock.calls
@@ -184,7 +198,9 @@ async function stateWithChat(): Promise<ReturnType<typeof useGlobalConversation>
 }
 
 /** 建实例、激活 c1（含给定消息）、并确保对话客户端已加载 */
-async function stateOnC1(messages: Message[] = []): Promise<ReturnType<typeof useGlobalConversation>> {
+async function stateOnC1(
+  messages: Message[] = [],
+): Promise<ReturnType<typeof useGlobalConversation>> {
   conversationApi.messages.mockResolvedValue(messages)
   const state = await stateLoaded({ list: [conversation('c1')], owningTab: 7, bound: 'c1' })
   await state.send('热身')
@@ -309,9 +325,7 @@ describe('惰性新建（发送入口）', () => {
 
     await state.send('', assets)
 
-    expect(lastSent().parts).toEqual([
-      { type: 'data-asset', data: assets[0] },
-    ])
+    expect(lastSent().parts).toEqual([{ type: 'data-asset', data: assets[0] }])
   })
 
   it('正文与附件都有：附件在前、正文在后（与 SDK 内部顺序一致）', async () => {
@@ -353,7 +367,10 @@ describe('惰性新建（发送入口）', () => {
 
 describe('初次加载与切标签页', () => {
   it('初次加载拉会话列表，但不自动激活最新那条（归属由标签页决定）', async () => {
-    const state = await stateLoaded({ list: [conversation('c1'), conversation('c2')], owningTab: null })
+    const state = await stateLoaded({
+      list: [conversation('c1'), conversation('c2')],
+      owningTab: null,
+    })
 
     expect(state.conversations.value.map((c) => c.id)).toEqual(['c1', 'c2'])
     expect(state.activeConversationId.value).toBe('')
@@ -476,7 +493,10 @@ describe('收尾回调', () => {
     const state = await stateWithChat()
     lastChat().messages.value = [uiMessage('a1', 'assistant', [{ type: 'text', text: '答' }])]
 
-    await lastInit().onFinish({ message: uiMessage('a1', 'assistant', [usagePart(usage)]), isAbort: false })
+    await lastInit().onFinish({
+      message: uiMessage('a1', 'assistant', [usagePart(usage)]),
+      isAbort: false,
+    })
 
     expect(state.usageByMessageId.value).toEqual({ a1: usage })
   })

@@ -20,10 +20,7 @@ interface KvRecord {
   value: unknown
 }
 
-function runTx<T>(
-  mode: IDBTransactionMode,
-  run: (tx: IDBTransaction) => Promise<T>,
-): Promise<T> {
+function runTx<T>(mode: IDBTransactionMode, run: (tx: IDBTransaction) => Promise<T>): Promise<T> {
   return idbRunTx(getAppDb(), KV_STORE, mode, run)
 }
 

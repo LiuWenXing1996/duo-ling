@@ -40,7 +40,8 @@ const explicit = bumpArg && semverRe.test(bumpArg) ? bumpArg : null
 const bump = bumpArg === 'patch' || bumpArg === 'minor' || bumpArg === 'major' ? bumpArg : null
 const preIdx = args.indexOf('--pre')
 const stageArg = (preIdx >= 0 ? args[preIdx + 1] : undefined) ?? process.env.npm_config_pre
-const dryRun = args.includes('--dry-run') || /^(1|true|yes)$/i.test(process.env.npm_config_dry_run || '')
+const dryRun =
+  args.includes('--dry-run') || /^(1|true|yes)$/i.test(process.env.npm_config_dry_run || '')
 
 // 2. 读当前版本
 let pkg: { version: string }
@@ -50,7 +51,8 @@ try {
   fail(`读不到 package.json：${(e as Error).message}`)
 }
 const current = pkg.version
-if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(current)) fail(`当前 version "${current}" 不是合法 semver`)
+if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(current))
+  fail(`当前 version "${current}" 不是合法 semver`)
 
 // 3. 计算 next
 function splitBase(v: string): { base: string; pre: string | null } {
@@ -60,7 +62,9 @@ function splitBase(v: string): { base: string; pre: string | null } {
 function splitPre(pre: string | null): { stage: string; n: number } | null {
   if (!pre) return null
   const dot = pre.indexOf('.')
-  return dot === -1 ? { stage: pre, n: 0 } : { stage: pre.slice(0, dot), n: Number(pre.slice(dot + 1)) || 0 }
+  return dot === -1
+    ? { stage: pre, n: 0 }
+    : { stage: pre.slice(0, dot), n: Number(pre.slice(dot + 1)) || 0 }
 }
 function bumpBase(base: string, b: 'patch' | 'minor' | 'major'): string {
   const [maj, min, pat] = base.split('.').map(Number)
@@ -96,7 +100,9 @@ if (stageArg) {
   else if (bump === 'major') next = bumpBase(curBase, 'major')
   else next = curBase
 } else {
-  fail('用法：pnpm run release <patch|minor|major|x.y.z> [--pre <alpha|beta|rc>] [--push] [--dry-run]')
+  fail(
+    '用法：pnpm run release <patch|minor|major|x.y.z> [--pre <alpha|beta|rc>] [--push] [--dry-run]',
+  )
 }
 
 if (next === current) fail(`新版本 ${next} 与当前 ${current} 相同，无需发版`)
@@ -110,7 +116,9 @@ if (!dryRun) {
   // 依赖不随仓库走（新 worktree / 新 clone 都没有 node_modules），此时 pnpm run typecheck
   // 只会报 command not found，看着像代码坏了。先查要用的那个命令在不在，给出真正的处置。
   const binDir = resolve(cwd, 'node_modules', '.bin')
-  const hasVueTsc = ['vue-tsc', 'vue-tsc.cmd', 'vue-tsc.ps1'].some((b) => existsSync(resolve(binDir, b)))
+  const hasVueTsc = ['vue-tsc', 'vue-tsc.cmd', 'vue-tsc.ps1'].some((b) =>
+    existsSync(resolve(binDir, b)),
+  )
   if (!hasVueTsc) {
     fail('node_modules 里没有 vue-tsc，先跑 pnpm install 装依赖再发版（新 worktree 不共享依赖）')
   }
@@ -133,8 +141,7 @@ if (dryRun) {
 
 // 6. CHANGELOG 起段
 const today = new Date().toISOString().slice(0, 10)
-const section =
-  `\n## [${next}] - ${today}\n\n` + '### 新增\n- \n\n### 变更\n- \n\n### 修复\n- \n'
+const section = `\n## [${next}] - ${today}\n\n` + '### 新增\n- \n\n### 变更\n- \n\n### 修复\n- \n'
 let changelogText: string
 let changelogChanged = false
 if (existsSync(changelogPath)) {
@@ -151,8 +158,7 @@ if (existsSync(changelogPath)) {
     changelogChanged = true
   }
 } else {
-  changelogText =
-    `# 更新日志\n\n本文件记录哆灵扩展每个发布版本的变更。格式参考 Keep a Changelog，手动维护。${section}`
+  changelogText = `# 更新日志\n\n本文件记录哆灵扩展每个发布版本的变更。格式参考 Keep a Changelog，手动维护。${section}`
   changelogChanged = true
 }
 if (dryRun) {
@@ -165,15 +171,23 @@ if (dryRun) {
 // 7. git 提交（本地；不打 tag、不推送——tag 由 CI 在 release PR 合入 main 后补推）
 const tag = `v${next}`
 if (dryRun) {
-  console.log(`  (dry) 将执行：git add package.json CHANGELOG.md && git commit -m "chore: release ${tag}"`)
+  console.log(
+    `  (dry) 将执行：git add package.json CHANGELOG.md && git commit -m "chore: release ${tag}"`,
+  )
 } else {
   try {
     run(`git add package.json CHANGELOG.md`)
     run(`git commit -m "chore: release ${tag}"`)
-    console.log(`✓ 已提交 release（${tag}）。下一步：推分支并开 release PR，合入 main 后由 CI 打 tag。`)
+    console.log(
+      `✓ 已提交 release（${tag}）。下一步：推分支并开 release PR，合入 main 后由 CI 打 tag。`,
+    )
   } catch (e) {
-    fail(`git 提交失败：${(e as Error).message}。package.json / CHANGELOG 可能已改，请检查后手动收尾。`)
+    fail(
+      `git 提交失败：${(e as Error).message}。package.json / CHANGELOG 可能已改，请检查后手动收尾。`,
+    )
   }
 }
 
-console.log(`\n下一步：git push -u origin HEAD 推分支 → 开 release PR → 合入 main 后 CI 自动打 tag ${tag}。`)
+console.log(
+  `\n下一步：git push -u origin HEAD 推分支 → 开 release PR → 合入 main 后 CI 自动打 tag ${tag}。`,
+)

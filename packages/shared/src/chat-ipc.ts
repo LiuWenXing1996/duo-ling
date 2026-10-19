@@ -58,4 +58,8 @@ export type OffscreenPush =
   | { kind: 'offscreen:configChanged' }
   | { kind: 'chat:chunk'; conversationId: string; seq: number; chunk: UIMessageChunk }
   | { kind: 'chat:running'; conversationId: string }
-  | { kind: 'chat:finished'; conversationId: string; /** true = 正常收敛；false = 停止 / 异常 */ ok: boolean }
+  | {
+      kind: 'chat:finished'
+      conversationId: string
+      /** true = 正常收敛；false = 停止 / 异常 */ ok: boolean
+    }

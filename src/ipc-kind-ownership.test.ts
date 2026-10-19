@@ -111,7 +111,9 @@ const _allKindsCovered: Expect<
   Exclude<RuntimeRequest['kind'], (typeof ALL_KINDS)[number]['kind']> extends never ? true : false
 > = true
 // OffscreenPush 是 SW→offscreen 的单向推送，不进请求命令面（不属于任何一端的 handlers）
-const _pushIsNotRequest: Expect<'offscreen:configChanged' extends RuntimeRequest['kind'] ? false : true> = true
+const _pushIsNotRequest: Expect<
+  'offscreen:configChanged' extends RuntimeRequest['kind'] ? false : true
+> = true
 
 // 上面两个是编译期断言（右侧类型非 true 即 typecheck 失败），这里用真断言消费掉，
 // 避免被 noUnusedLocals 判死；顺带在运行时也留一道护栏

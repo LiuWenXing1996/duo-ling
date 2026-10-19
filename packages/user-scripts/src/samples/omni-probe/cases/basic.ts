@@ -16,7 +16,8 @@ export function register() {
     if (GM_info.scriptHandler !== '哆灵') return fail('scriptHandler=' + GM_info.scriptHandler)
     if (!GM_info.uuid || !GM_info.version) return fail('缺 uuid / version')
     // 降级项：userAgent / isIncognito 由运行时就地补
-    if (!GM_info.userAgent || typeof GM_info.isIncognito !== 'boolean') return fail('userAgent / isIncognito 没补齐')
+    if (!GM_info.userAgent || typeof GM_info.isIncognito !== 'boolean')
+      return fail('userAgent / isIncognito 没补齐')
     return pass('script=' + s.name + ' sandboxMode=' + GM_info.sandboxMode)
   })
 
@@ -62,14 +63,17 @@ export function register() {
     document.documentElement.appendChild(host)
     const a = GM_addElement(host, 'span', { 'data-probe': 'a' })
     const b = GM.addElement(host, 'span', { 'data-probe': 'b' })
-    cleanups.push(function () { host.remove() })
+    cleanups.push(function () {
+      host.remove()
+    })
     const okA = !!a && a.getAttribute('data-probe') === 'a' && host.contains(a)
     const okB = !!b && b.getAttribute('data-probe') === 'b' && host.contains(b)
     return okA && okB ? pass('两形态都插入到指定父节点') : fail('全局=' + okA + ' GM.*=' + okB)
   })
 
   add('基础', 'GM_log / GM.log', function () {
-    if (typeof GM_log !== 'function' || typeof GM.log !== 'function') throw new Error('GM_log / GM.log 未挂载')
+    if (typeof GM_log !== 'function' || typeof GM.log !== 'function')
+      throw new Error('GM_log / GM.log 未挂载')
     GM_log('GM 全能探针：GM_log 探针')
     GM.log('GM 全能探针：GM.log 探针')
     return pass('两形态调用不抛（输出见 Console）')

@@ -65,7 +65,10 @@ export default defineConfig({
         test: {
           name: 'component',
           environment: 'happy-dom',
-          include: ['src/**/*.component.test.ts', 'packages/{ui,workbench,floatpanel,popup}/src/**/*.component.test.ts'],
+          include: [
+            'src/**/*.component.test.ts',
+            'packages/{ui,workbench,floatpanel,popup}/src/**/*.component.test.ts',
+          ],
           exclude: [...defaultExclude],
         },
       },

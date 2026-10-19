@@ -539,15 +539,10 @@ export type DlEvent =
 
 /** 桥响应信封 */
 export type ApiResponse =
-  | { ok: true; data: Json | void }
-  | { ok: false; error: string; code?: ApiErrorCode }
+  { ok: true; data: Json | void } | { ok: false; error: string; code?: ApiErrorCode }
 
 export type ApiErrorCode =
-  | 'BRIDGE_TIMEOUT'
-  | 'NOT_AVAILABLE'
-  | 'PERMISSION_DENIED'
-  | 'INVALID_ARG'
-  | 'INTERNAL'
+  'BRIDGE_TIMEOUT' | 'NOT_AVAILABLE' | 'PERMISSION_DENIED' | 'INVALID_ARG' | 'INTERNAL'
 
 // ————————————————————— 脚本作者看到的 API 形态 —————————————————————
 
@@ -764,7 +759,11 @@ export interface GmApiNamespace {
     attributes?: Record<string, string>,
   ): HTMLElement
   log(...args: unknown[]): void
-  notification(details: GmNotificationDetails | string, title?: string, image?: string): Promise<void>
+  notification(
+    details: GmNotificationDetails | string,
+    title?: string,
+    image?: string,
+  ): Promise<void>
   setClipboard(data: string, info?: 'text/plain' | 'text/html'): Promise<void>
   xmlHttpRequest(details: GmXhrDetails): Promise<GmXhrResponse>
   download(details: GmDownloadDetails | string, name?: string): Promise<void>

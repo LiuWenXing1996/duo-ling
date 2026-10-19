@@ -361,7 +361,9 @@ describe('UserscriptListPanel 批量操作菜单', () => {
     wrapper = await mountPanel()
 
     // reka-ui 的菜单在 happy-dom 里只认键盘开（trigger 上发 ArrowDown），内容 portal 到 body —— 去 document 上找菜单项
-    await wrapper.find('button[title="批量操作（作用于全部脚本）"]').trigger('keydown', { key: 'ArrowDown' })
+    await wrapper
+      .find('button[title="批量操作（作用于全部脚本）"]')
+      .trigger('keydown', { key: 'ArrowDown' })
     await flushPromises()
     const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) =>
       el.textContent?.includes('全部停用'),
@@ -439,7 +441,11 @@ describe('UserscriptListPanel 新建脚本', () => {
   it('注册失败仍标「刚新建」，但不在列表页报错（归活动历史面板）', async () => {
     wrapper = await mountPanel()
     list.mockResolvedValue([summary('u2', '新建的脚本 1'), summary('u1', '已有脚本')])
-    create.mockResolvedValue({ uuid: 'u2', name: '新建的脚本 1', registerError: '未开启 Allow User Scripts' })
+    create.mockResolvedValue({
+      uuid: 'u2',
+      name: '新建的脚本 1',
+      registerError: '未开启 Allow User Scripts',
+    })
     await buttonByText('添加脚本').trigger('click')
     await flushPromises()
 
@@ -617,10 +623,7 @@ describe('UserscriptListPanel 分组', () => {
 
   it('groups() 返回分组时按分组头分块，未分组脚本进「未分组」节', async () => {
     groups.mockResolvedValue([{ id: 'g1', name: '购物助手', order: 0 }])
-    list.mockResolvedValue([
-      { ...summary('u1', '脚本A'), group: 'g1' },
-      summary('u2', '脚本B'),
-    ])
+    list.mockResolvedValue([{ ...summary('u1', '脚本A'), group: 'g1' }, summary('u2', '脚本B')])
     wrapper = await mountPanel()
 
     expect(wrapper.text()).toContain('购物助手')
@@ -633,10 +636,7 @@ describe('UserscriptListPanel 分组', () => {
       { id: 'g1', name: '购物助手', order: 0 },
       { id: 'g2', name: '效率工具', order: 1 },
     ])
-    list.mockResolvedValue([
-      { ...summary('u1', '脚本A'), group: 'g1' },
-      summary('u2', '脚本B'),
-    ])
+    list.mockResolvedValue([{ ...summary('u1', '脚本A'), group: 'g1' }, summary('u2', '脚本B')])
     wrapper = await mountPanel()
 
     const headers = groupHeaders().map((b) => b.text())

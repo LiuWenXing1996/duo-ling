@@ -165,7 +165,12 @@ function toRunEntry({ kind: _discriminator, id: _rowId, ...entry }: RunRow): Use
 }
 
 /** 剥掉判别键与主键，并把存储层的 errId 换回公开的 id */
-function toErrorRecord({ kind: _discriminator, id: _rowId, errId, ...rest }: ErrRow): UserScriptErrorRecord {
+function toErrorRecord({
+  kind: _discriminator,
+  id: _rowId,
+  errId,
+  ...rest
+}: ErrRow): UserScriptErrorRecord {
   return { ...rest, id: errId }
 }
 
@@ -183,7 +188,10 @@ function toCapture({ kind: _discriminator, ...rec }: TabCaptureRow): NetCaptureR
 /** 文档事件与记录开关的判别（这四类没有额外载荷，读侧当纯文本行渲染） */
 function isSessionEventRow(row: TabTimelineRow): row is TabEventRecord {
   return (
-    row.kind === 'reload' || row.kind === 'url' || row.kind === 'recordOn' || row.kind === 'recordOff'
+    row.kind === 'reload' ||
+    row.kind === 'url' ||
+    row.kind === 'recordOn' ||
+    row.kind === 'recordOff'
   )
 }
 
@@ -345,7 +353,10 @@ export async function appendAct(runId: string, event: UserScriptRunEvent): Promi
 export async function listRunEvents(runId: string): Promise<UserScriptRunEvent[]> {
   const rows = await runTx(TAB_EVENTS_STORE, 'readonly', async (tx) =>
     request<TabTimelineRow[]>(
-      tx.objectStore(TAB_EVENTS_STORE).index(EV_BY_KIND_RUN).getAll(kindRunRange(ACT_TAB_KIND, runId)),
+      tx
+        .objectStore(TAB_EVENTS_STORE)
+        .index(EV_BY_KIND_RUN)
+        .getAll(kindRunRange(ACT_TAB_KIND, runId)),
     ),
   )
   const out: UserScriptRunEvent[] = []
@@ -453,7 +464,8 @@ export async function deleteErrors(
 export async function findErrorsByIdPrefix(idOrPrefix: string): Promise<UserScriptErrorRecord[]> {
   const rows = await runTx(TAB_EVENTS_STORE, 'readonly', async (tx) =>
     request<ErrRow[]>(
-      tx.objectStore(TAB_EVENTS_STORE)
+      tx
+        .objectStore(TAB_EVENTS_STORE)
         .index(EV_BY_ERR)
         .getAll(IDBKeyRange.bound(idOrPrefix, `${idOrPrefix}\uffff`)),
     ),
@@ -783,7 +795,10 @@ export async function appendTabCapture(rec: NetCaptureRecord): Promise<void> {
 export async function listTabTimeline(tabSessionId: string, sinceId = 0): Promise<TabTimeline> {
   const rows = await runTx(TAB_EVENTS_STORE, 'readonly', async (tx) =>
     request<TabTimelineRow[]>(
-      tx.objectStore(TAB_EVENTS_STORE).index(EV_BY_SESSION_SEQ).getAll(sessionRange(tabSessionId, sinceId)),
+      tx
+        .objectStore(TAB_EVENTS_STORE)
+        .index(EV_BY_SESSION_SEQ)
+        .getAll(sessionRange(tabSessionId, sinceId)),
     ),
   )
   const out: TabTimeline = {

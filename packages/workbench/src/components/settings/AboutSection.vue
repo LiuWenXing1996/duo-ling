@@ -91,9 +91,7 @@ onMounted(async () => {
       <div class="flex items-center gap-4 px-4 py-3">
         <div class="min-w-0 flex-1">
           <p class="text-sm font-medium">版本号</p>
-          <p class="mt-0.5 text-xs text-muted-foreground">
-            当前安装的扩展版本
-          </p>
+          <p class="mt-0.5 text-xs text-muted-foreground">当前安装的扩展版本</p>
         </div>
         <span class="shrink-0 font-mono text-sm">v{{ version }}</span>
       </div>
@@ -136,19 +134,24 @@ onMounted(async () => {
         <div class="min-w-0 flex-1">
           <p class="text-sm font-medium">Service Worker</p>
           <p v-if="!sw && !swPending" class="mt-0.5 text-xs text-amber-600 dark:text-amber-400">
-            sw:buildInfo 重试 3 次均无应答 —— 浏览器里的 SW 多半是旧包（没有该命令）或已挂。
-            去 chrome://extensions 重载扩展（或重启 pnpm run dev），再刷新本页
+            sw:buildInfo 重试 3 次均无应答 —— 浏览器里的 SW 多半是旧包（没有该命令）或已挂。 去
+            chrome://extensions 重载扩展（或重启 pnpm run dev），再刷新本页
           </p>
           <p v-else class="mt-0.5 text-xs text-muted-foreground">
-            SW 上下文跑的是哪次构建：dev 下为 dev server 启动时刻，早于页面属常态，用于判断两者是否同一次会话
+            SW 上下文跑的是哪次构建：dev 下为 dev server
+            启动时刻，早于页面属常态，用于判断两者是否同一次会话
           </p>
         </div>
         <div v-if="sw" class="shrink-0 text-right font-mono">
           <div class="text-sm">{{ sw.branch }}</div>
           <div class="mt-0.5 text-xs text-muted-foreground">{{ sw.time }}</div>
         </div>
-        <span v-else-if="swPending" class="shrink-0 font-mono text-sm text-muted-foreground">读取中…</span>
-        <span v-else class="shrink-0 font-mono text-sm text-amber-600 dark:text-amber-400">未响应</span>
+        <span v-else-if="swPending" class="shrink-0 font-mono text-sm text-muted-foreground"
+          >读取中…</span
+        >
+        <span v-else class="shrink-0 font-mono text-sm text-amber-600 dark:text-amber-400"
+          >未响应</span
+        >
       </div>
     </div>
   </div>

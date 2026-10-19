@@ -70,12 +70,16 @@ describe('writeProject / readProject 往返', () => {
     await removeProject(p.uuid)
     // 手动写一条 v:1 旧形状
     const bad = { ...p, v: 1 as unknown as 2 }
-    await idbRunTx(getStateDb(), STATE_PROJECTS_STORE, 'readwrite', (tx) =>
-      new Promise<void>((resolve, reject) => {
-        tx.objectStore(STATE_PROJECTS_STORE).put(bad)
-        tx.oncomplete = () => resolve()
-        tx.onerror = () => reject(tx.error ?? new Error('写入失败'))
-      }),
+    await idbRunTx(
+      getStateDb(),
+      STATE_PROJECTS_STORE,
+      'readwrite',
+      (tx) =>
+        new Promise<void>((resolve, reject) => {
+          tx.objectStore(STATE_PROJECTS_STORE).put(bad)
+          tx.oncomplete = () => resolve()
+          tx.onerror = () => reject(tx.error ?? new Error('写入失败'))
+        }),
     )
     await expect(readProject(p.uuid)).resolves.toBeUndefined()
     await expect(readAllProjects()).resolves.toStrictEqual([])

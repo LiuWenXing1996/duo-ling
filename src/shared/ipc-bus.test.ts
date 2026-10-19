@@ -12,7 +12,11 @@ import { packMatcher, prefixMatcher, serveIpc } from './ipc-bus'
 import type { RuntimeRequest } from '@duoling/shared'
 
 type SendResponse = (response: unknown) => void
-type Listener = (msg: unknown, sender: chrome.runtime.MessageSender, sendResponse: SendResponse) => unknown
+type Listener = (
+  msg: unknown,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: SendResponse,
+) => unknown
 type Responder = (msg: { kind: string }, cb?: SendResponse) => void
 
 /** 手写 chrome 壳：登记监听器 + 记下每一发（responder = 应答端那侧的桩，缺省无人应答） */
@@ -187,7 +191,10 @@ describe('packMatcher —— 包自管命令面的问询式转发', () => {
     expect(matcher.owns('userscript:save')).toBe(false)
     // 包自管的 kind 不进宿主前缀表 —— pack matcher 排在问询首位代为认领
     expect(
-      await matcher.handle({ kind: 'userscript:availability' } as never, {} as chrome.runtime.MessageSender),
+      await matcher.handle(
+        { kind: 'userscript:availability' } as never,
+        {} as chrome.runtime.MessageSender,
+      ),
     ).toBe('pong')
     expect(handled).toEqual(['userscript:availability'])
   })
@@ -198,7 +205,10 @@ describe('发送原语 —— 信封解包与尽力而为', () => {
     const c = stubChrome()
     c.setResponder((_msg, cb) => cb?.(ack({ time: 't', branch: 'main' })))
 
-    await expect(ipcRequest({ kind: 'sw:buildInfo' })).resolves.toEqual({ time: 't', branch: 'main' })
+    await expect(ipcRequest({ kind: 'sw:buildInfo' })).resolves.toEqual({
+      time: 't',
+      branch: 'main',
+    })
   })
 
   it('ipcRequest：业务失败按 error 文本 reject', async () => {

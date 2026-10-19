@@ -121,9 +121,9 @@ describe('saveExisting', () => {
 
   it('非字符串源码抛错', async () => {
     const p = await createProject()
-    await expect(
-      saveExisting(p.uuid, undefined as unknown as string),
-    ).rejects.toThrow('脚本源码必须是字符串')
+    await expect(saveExisting(p.uuid, undefined as unknown as string)).rejects.toThrow(
+      '脚本源码必须是字符串',
+    )
   })
 
   it('名称全空白抛错', async () => {
@@ -177,7 +177,12 @@ describe('createGeneratedProject', () => {
       }),
     ).rejects.toThrow('匹配规则（matches）至少一条')
     await expect(
-      createGeneratedProject({ name: 'x', config, code: undefined as unknown as string, enabled: false }),
+      createGeneratedProject({
+        name: 'x',
+        config,
+        code: undefined as unknown as string,
+        enabled: false,
+      }),
     ).rejects.toThrow('脚本源码必须是字符串')
   })
 })
@@ -240,7 +245,8 @@ describe('改动来源透传到提交', () => {
   })
 })
 
-describe('removeProjectAndRepo', () => {  it('状态记录与 git 仓一起清', async () => {
+describe('removeProjectAndRepo', () => {
+  it('状态记录与 git 仓一起清', async () => {
     const p = await createProject()
     await removeProjectAndRepo(p.uuid)
     await expect(readAllProjects()).resolves.toEqual([])
@@ -316,7 +322,9 @@ function makeZipBase64(scripts: Array<{ dir: string; code?: string }>): string {
 
 describe('importScriptsZip', () => {
   it('单脚本导入：enabled 恒 false / 保留 @name / 源码原文进注册态（含 metadata 块）/ 提交 note「从 zip 导入」', async () => {
-    const report = await importScriptsZip(makeZipBase64([{ dir: 'demo', code: withMeta('演示脚本') }]))
+    const report = await importScriptsZip(
+      makeZipBase64([{ dir: 'demo', code: withMeta('演示脚本') }]),
+    )
     expect(report.succeeded).toBe(1)
     expect(report.failed).toBe(0)
     const item = report.results[0]!
@@ -420,7 +428,9 @@ describe('importScriptsZip', () => {
 
 describe('importScriptFromText（粘贴导入）', () => {
   it('落一个未启用脚本：@name / @match 取自源码，提交 note「粘贴导入」', async () => {
-    const report = await importScriptFromText(withMeta('粘贴来的脚本', 'console.log(1)', ['https://example.com/*']))
+    const report = await importScriptFromText(
+      withMeta('粘贴来的脚本', 'console.log(1)', ['https://example.com/*']),
+    )
     expect(report.succeeded).toBe(1)
     expect(report.failed).toBe(0)
     expect(report.ignored).toEqual([])

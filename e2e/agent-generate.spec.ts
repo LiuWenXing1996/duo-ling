@@ -8,7 +8,13 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { extensionIdFromServiceWorker, getServiceWorker, launchExtensionContext, openMessengerPage, sendToSw } from './extension'
+import {
+  extensionIdFromServiceWorker,
+  getServiceWorker,
+  launchExtensionContext,
+  openMessengerPage,
+  sendToSw,
+} from './extension'
 import { saveStubModel } from './model-config'
 import { startModelStub } from '../scripts/model-stub.mts'
 
@@ -53,7 +59,11 @@ test.describe.serial('AI 生成脚本（本地模型 stub 发工具调用）', (
             toolCalls: [
               {
                 name: 'script_apply',
-                args: { summary: '端测生成的小脚本', config: { matches: ['https://example.com/*'] }, code: GEN_CODE },
+                args: {
+                  summary: '端测生成的小脚本',
+                  config: { matches: ['https://example.com/*'] },
+                  code: GEN_CODE,
+                },
               },
             ],
           }
@@ -75,12 +85,22 @@ test.describe.serial('AI 生成脚本（本地模型 stub 发工具调用）', (
   test.afterAll(async () => {
     const withTimeout = (p: Promise<unknown> | undefined, ms: number) =>
       p ? Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]) : Promise.resolve()
-    try { await withTimeout(context?.close(), 30_000) } catch { /* 忽略 */ }
+    try {
+      await withTimeout(context?.close(), 30_000)
+    } catch {
+      /* 忽略 */
+    }
     try {
       stub.server.closeAllConnections()
       await withTimeout(new Promise<void>((r) => stub.server.close(() => r())), 5_000)
-    } catch { /* 忽略 */ }
-    try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    } catch {
+      /* 忽略 */
+    }
+    try {
+      rmSync(profileDir, { recursive: true, force: true })
+    } catch {
+      /* 忽略 */
+    }
   })
 
   test('模型发 script_spec → script_apply：源码落进项目，收尾文本上屏', async () => {
@@ -90,13 +110,16 @@ test.describe.serial('AI 生成脚本（本地模型 stub 发工具调用）', (
     const box = page.getByRole('textbox').first()
     await box.fill('帮我做一个 example.com 上的小脚本')
     await box.press('Enter')
-    await expect(page.getByText(/已经生成好了/), '多步工具循环收尾后的文本应上屏').toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText(/已经生成好了/), '多步工具循环收尾后的文本应上屏').toBeVisible({
+      timeout: 30_000,
+    })
 
     // ① 工具声明到了模型（app 把 script_* 三件套发给模型）
     const firstHit = stub.stub.hits[0]
-    expect(firstHit?.toolNames, '模型应收到 script_spec / script_read / script_apply 的声明').toEqual(
-      expect.arrayContaining(['script_spec', 'script_read', 'script_apply']),
-    )
+    expect(
+      firstHit?.toolNames,
+      '模型应收到 script_spec / script_read / script_apply 的声明',
+    ).toEqual(expect.arrayContaining(['script_spec', 'script_read', 'script_apply']))
 
     // ② 工具结果回流了（第二次请求里带 role=tool 的消息 ⇒ script_spec 真被执行过）
     const secondHit = stub.stub.hits[1]
@@ -121,7 +144,10 @@ test.describe.serial('AI 生成脚本（本地模型 stub 发工具调用）', (
           if (!list.data.length) return '项目库里一个脚本都没有'
           const seen: string[] = []
           for (const s of list.data) {
-            const proj = await sendToSw<ScriptProject>(messenger!, { kind: 'userscript:getProject', uuid: s.uuid })
+            const proj = await sendToSw<ScriptProject>(messenger!, {
+              kind: 'userscript:getProject',
+              uuid: s.uuid,
+            })
             if (!proj.ok) {
               seen.push(`${s.name}: getProject 失败 ${proj.error}`)
               continue

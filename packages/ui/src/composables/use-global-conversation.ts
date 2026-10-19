@@ -26,11 +26,7 @@ import type { ChatInit, ChatStatus, UIMessage } from 'ai'
 import { ExtensionChatTransport } from '../lib/extension-chat-transport'
 import { assetPartOf, toUiMessage, withMessageTime, type ChatAssetRef } from '@duoling/shared'
 import { getPickedElement } from '../lib/page-context-store'
-import {
-  bindTabToConversation,
-  getConversationIdForTab,
-  unbindTab,
-} from '@duoling/shared'
+import { bindTabToConversation, getConversationIdForTab, unbindTab } from '@duoling/shared'
 import { resolveOwningTabId } from '../lib/owning-tab'
 import type { ChatMessageMetadata, ChatOrphanRecord, RuntimeRequest } from '@duoling/shared'
 import { ipcRequest } from '@duoling/shared'
@@ -49,8 +45,7 @@ export function formatSessionTime(iso: string): string {
 /** 从消息 parts 里取 offscreen 推送的 token 用量（data-usage data part） */
 function usageOfParts(parts: UIMessage['parts']): TokenUsage | undefined {
   const part = parts.find((p) => p.type === 'data-usage') as
-    | { type: 'data-usage'; data: TokenUsage }
-    | undefined
+    { type: 'data-usage'; data: TokenUsage } | undefined
   return part?.data
 }
 
@@ -91,7 +86,7 @@ export function useGlobalConversation() {
   const chatInit = ref<ChatInit<UIMessage>>({
     transport,
     onError: handleChatError,
-    onFinish: handleChatFinish
+    onFinish: handleChatFinish,
   })
   const chat = shallowRef<ChatInstance | null>(null)
   let chatLoading: Promise<ChatInstance> | undefined
@@ -309,7 +304,7 @@ export function useGlobalConversation() {
    */
   async function handleChatFinish({
     message,
-    isAbort
+    isAbort,
   }: {
     message: UIMessage
     isAbort: boolean
@@ -376,18 +371,15 @@ export function useGlobalConversation() {
     // 与 offscreen 落盘时的 createdAt 相差毫秒级——展示到分钟，看不出差别，故不为此多开一条回传。
     const metadata: ChatMessageMetadata = {
       createdAt: new Date().toISOString(),
-      ...(element ? { pageContext: { element } } : {})
+      ...(element ? { pageContext: { element } } : {}),
     }
     const instance = await ensureChat()
     // 自己拼 parts 而不走 { text, files } 那条捷径：SDK 只认「text/files 二选一」的形状，
     // 塞不进自定义的 data-asset part（见 ai 的 sendMessage 重载）。
     // 顺序与它内部一致：附件在前、正文在后。
     await instance.sendMessage({
-      parts: [
-        ...assets.map(assetPartOf),
-        ...(text ? [{ type: 'text' as const, text }] : [])
-      ],
-      metadata
+      parts: [...assets.map(assetPartOf), ...(text ? [{ type: 'text' as const, text }] : [])],
+      metadata,
     })
   }
 
@@ -421,7 +413,7 @@ export function useGlobalConversation() {
     send,
     stopGeneration,
     /** 会话历史项展示用：lastMessageAt → 本地时间字符串 */
-    formatSessionTime
+    formatSessionTime,
   }
 }
 
@@ -435,6 +427,9 @@ function sendChatCommand<T>(request: RuntimeRequest): Promise<T> {
 /** 孤儿任务的命令面（供本 composable 使用） */
 const chatClient = {
   orphans: (): Promise<ChatOrphanRecord[]> => sendChatCommand({ kind: 'chat:orphans' }),
-  orphanAction: (taskId: string, action: 'continue' | 'discard'): Promise<{ conversationId: string }> =>
+  orphanAction: (
+    taskId: string,
+    action: 'continue' | 'discard',
+  ): Promise<{ conversationId: string }> =>
     sendChatCommand({ kind: 'chat:orphanAction', taskId, action }),
 }

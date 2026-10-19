@@ -23,7 +23,9 @@ export function register() {
     const asyncKeys = await GM.listValues()
     const inSync = syncKeys.indexOf(K) >= 0
     const inAsync = asyncKeys.indexOf(K) >= 0
-    return inSync && inAsync ? pass('两形态都含探针键（共 ' + asyncKeys.length + ' 键）') : fail('同步含=' + inSync + ' 异步含=' + inAsync)
+    return inSync && inAsync
+      ? pass('两形态都含探针键（共 ' + asyncKeys.length + ' 键）')
+      : fail('同步含=' + inSync + ' 异步含=' + inAsync)
   })
 
   add('存储', 'GM_deleteValue / GM.deleteValue', async function () {
@@ -47,7 +49,8 @@ export function register() {
   add('存储', '批量读写删（同步形态）', function () {
     // 同步形态是 fire-and-forget（本地缓存先改、桥不等应答），故这里只验**本地快照**是否立刻正确
     // ——落盘正确性归下面那条 Promise 形态的用例验（同 deleteValue 用例的坑，见那里的长注释）。
-    const ka = PFX + 'ba', kb = PFX + 'bb'
+    const ka = PFX + 'ba',
+      kb = PFX + 'bb'
     const batch: Record<string, unknown> = {}
     batch[ka] = 1
     batch[kb] = 2
@@ -60,15 +63,28 @@ export function register() {
     const filled = GM_getValues(defaults)
     GM_deleteValues([ka, kb])
     const after = GM_getValues()
-    return picked[ka] === 1 && !(PFX + 'missing' in picked) && whole[kb] === 2 &&
-      filled[ka] === 1 && filled[PFX + 'missing'] === 9 && !(ka in after) && !(kb in after)
+    return picked[ka] === 1 &&
+      !(PFX + 'missing' in picked) &&
+      whole[kb] === 2 &&
+      filled[ka] === 1 &&
+      filled[PFX + 'missing'] === 9 &&
+      !(ka in after) &&
+      !(kb in after)
       ? pass('数组只回存在的键 / 默认值对象补缺 / 无参取全量 / 批量删本地立即可见')
-      : fail('picked=' + JSON.stringify(picked) + ' filled=' + JSON.stringify(filled) + ' after=' + JSON.stringify(after))
+      : fail(
+          'picked=' +
+            JSON.stringify(picked) +
+            ' filled=' +
+            JSON.stringify(filled) +
+            ' after=' +
+            JSON.stringify(after),
+        )
   })
 
   add('存储', '批量读写删（Promise 形态）', async function () {
     // 异步形态读的是后台真值，能证明批量写真的落了盘（且是一个事务）
-    const ka = PFX + 'p1', kb = PFX + 'p2'
+    const ka = PFX + 'p1',
+      kb = PFX + 'p2'
     const batch: Record<string, unknown> = {}
     batch[ka] = 'a'
     batch[kb] = 'b'
@@ -81,11 +97,22 @@ export function register() {
     const whole = await GM.getValues()
     await GM.deleteValues([ka, kb])
     const after = await GM.getValues([ka, kb])
-    return byKeys[ka] === 'a' && byKeys[kb] === 'b' && !(PFX + 'pMissing' in byKeys) &&
-      filled[ka] === 'a' && filled[PFX + 'pMissing'] === 9 && whole[ka] === 'a' &&
+    return byKeys[ka] === 'a' &&
+      byKeys[kb] === 'b' &&
+      !(PFX + 'pMissing' in byKeys) &&
+      filled[ka] === 'a' &&
+      filled[PFX + 'pMissing'] === 9 &&
+      whole[ka] === 'a' &&
       Object.keys(after).length === 0
       ? pass('过桥读写：数组 / 默认值对象 / 无参 / 批量删都正确')
-      : fail('byKeys=' + JSON.stringify(byKeys) + ' filled=' + JSON.stringify(filled) + ' after=' + JSON.stringify(after))
+      : fail(
+          'byKeys=' +
+            JSON.stringify(byKeys) +
+            ' filled=' +
+            JSON.stringify(filled) +
+            ' after=' +
+            JSON.stringify(after),
+        )
   })
 
   add('存储', 'GM_addValueChangeListener / GM_removeValueChangeListener', async function () {
@@ -108,7 +135,9 @@ export function register() {
 
   add('存储', 'GM.addValueChangeListener / GM.removeValueChangeListener', async function () {
     let got: unknown = null
-    const id = await GM.addValueChangeListener(K, function (_key, _oldV, newV) { got = newV })
+    const id = await GM.addValueChangeListener(K, function (_key, _oldV, newV) {
+      got = newV
+    })
     if (typeof id !== 'number') throw new Error('GM.addValueChangeListener 没 resolve 出数字 id')
     await GM.setValue(K, 'w3')
     await sleep(300)

@@ -118,10 +118,7 @@ describe('buildSystemPrompt 档位组合', () => {
 // —— 拾取上下文随消息落盘 ——
 
 /** 构造一条带/不带 pageContext 元数据的 user/assistant 消息 */
-function makeMsg(
-  role: 'user' | 'assistant',
-  pageContext?: MessagePageContext,
-): UIMessage {
+function makeMsg(role: 'user' | 'assistant', pageContext?: MessagePageContext): UIMessage {
   return {
     id: crypto.randomUUID(),
     role,
@@ -164,7 +161,9 @@ describe('mostRecentPageContext（历史最近一次拾取）', () => {
 
   it('只有快照的旧元数据不再命中（快照已改 AI 工具采集）', () => {
     const msgs = [
-      makeMsg('user', { snapshot: { capturedAt: 1, pageUrl: 'https://example.com', html: '<html>old</html>' } }),
+      makeMsg('user', {
+        snapshot: { capturedAt: 1, pageUrl: 'https://example.com', html: '<html>old</html>' },
+      }),
     ]
     expect(mostRecentPageContext(msgs)).toBeUndefined()
   })
@@ -200,10 +199,7 @@ describe('mergePageContext（新鲜上下文 × 历史最近一次）', () => {
 
   it('快照不再回注 prompt（改 AI 工具采集后，新鲜/历史快照一律剥掉）', () => {
     const freshSnap = { capturedAt: 2, pageUrl: 'https://example.com', html: '<html>new</html>' }
-    const merged = mergePageContext(
-      { url: 'https://example.com', snapshot: freshSnap },
-      history,
-    )
+    const merged = mergePageContext({ url: 'https://example.com', snapshot: freshSnap }, history)
     expect(merged?.snapshot).toBeUndefined()
     // 档 0 是新鲜的，element 缺位仍回退历史
     expect(merged?.element?.pickedAt).toBe(1)

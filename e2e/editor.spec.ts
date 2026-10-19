@@ -46,8 +46,18 @@ test.describe.serial('脚本编辑器交互（真机）', () => {
     if (!created.ok) throw new Error('铺数据失败（创建脚本）：' + created.error)
     uuid = created.data.uuid
     scriptName = created.data.name
-    await sendToSw(messenger, { kind: 'userscript:save', uuid, code: 'console.log(1)\n', note: '第一版' })
-    await sendToSw(messenger, { kind: 'userscript:save', uuid, code: 'console.log(2)\n', note: '第二版' })
+    await sendToSw(messenger, {
+      kind: 'userscript:save',
+      uuid,
+      code: 'console.log(1)\n',
+      note: '第一版',
+    })
+    await sendToSw(messenger, {
+      kind: 'userscript:save',
+      uuid,
+      code: 'console.log(2)\n',
+      note: '第二版',
+    })
   })
 
   test.afterAll(async () => {
@@ -398,7 +408,9 @@ test.describe.serial('注册失败时的引导入口（真机 · 未开权限）
   })
 
   test('引擎不可用时保存：提示「没能生效」并给出「查看开启引导」', async () => {
-    const avail = await sendToSw<{ available: boolean }>(messenger, { kind: 'userscript:availability' })
+    const avail = await sendToSw<{ available: boolean }>(messenger, {
+      kind: 'userscript:availability',
+    })
     expect(avail.ok).toBe(true)
     if (avail.ok) expect(avail.data.available, '这个 profile 应当未开权限').toBe(false)
 
@@ -412,10 +424,7 @@ test.describe.serial('注册失败时的引导入口（真机 · 未开权限）
     await page.keyboard.press('ControlOrMeta+End')
     await page.keyboard.type('// 没开权限\n')
     await page.getByRole('button', { name: '保存', exact: true }).click()
-    await page
-      .getByRole('dialog')
-      .getByRole('button', { name: '保存', exact: true })
-      .click()
+    await page.getByRole('dialog').getByRole('button', { name: '保存', exact: true }).click()
 
     await expect(page.getByText('已保存，但脚本没能生效：')).toBeVisible()
     const guideBtn = page.getByRole('button', { name: '查看开启引导' })

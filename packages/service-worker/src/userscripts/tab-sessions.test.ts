@@ -6,7 +6,12 @@
 // 记得到就必须有值，记不到就必须缺省（不许拿别的时刻顶上）。
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { clearRuntimeDbForTests, listTabEvents, listTabSessions, seedTabSessionsForTests } from './runtime-db'
+import {
+  clearRuntimeDbForTests,
+  listTabEvents,
+  listTabSessions,
+  seedTabSessionsForTests,
+} from './runtime-db'
 import {
   noteTabClosed,
   noteTabReloaded,

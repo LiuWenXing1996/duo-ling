@@ -62,8 +62,7 @@ let cachedDescriptions: Record<AgentToolName, string> | null = null
 /** 工具 description 原文：**模型实际收到的就是这些字**，面板也展示这一份 */
 export function toolDescriptions(): Record<AgentToolName, string> {
   return (cachedDescriptions ??= {
-    script_spec:
-      `获取${EXTENSION_NAME}用户脚本的完整规范（GM 能力 API、硬性约束、禁止事项）。写或改任何脚本前必须先调用它。`,
+    script_spec: `获取${EXTENSION_NAME}用户脚本的完整规范（GM 能力 API、硬性约束、禁止事项）。写或改任何脚本前必须先调用它。`,
     script_find:
       '按名字搜索已保存的脚本（大小写不敏感的子串匹配），返回 uuid 清单。' +
       '用户提到某个脚本（如「改一下 XX 脚本」）但没给 uuid 时先调它拿 uuid，再 script_read 读源码、' +
@@ -219,9 +218,7 @@ export function agentToolViews(): AgentToolView[] {
       title: '找脚本',
       summary: '按名字模糊搜索已保存的脚本，拿 uuid',
       description: D.script_find,
-      params: [
-        { name: 'name', type: 'string', required: true, desc: T.script_find.name },
-      ],
+      params: [{ name: 'name', type: 'string', required: true, desc: T.script_find.name }],
       returns: '{ ok:true, matches:[{uuid, name, enabled}] }（空数组 = 没有命中，附 hint）',
       unavailable: 'name 为空 → { ok:false, error }',
     },
@@ -339,7 +336,8 @@ export function agentToolViews(): AgentToolView[] {
       description: D.page_snapshot,
       params: [],
       returns: '{ ok:true, pageUrl, capturedAt, html }',
-      unavailable: '未接采集通道 / 内置页（chrome://）/ 找不到会话所属的标签页 → { ok:false, error }',
+      unavailable:
+        '未接采集通道 / 内置页（chrome://）/ 找不到会话所属的标签页 → { ok:false, error }',
     },
     {
       name: 'env_read',
@@ -389,12 +387,11 @@ export function agentToolViews(): AgentToolView[] {
       title: '查错误记录',
       summary: '按错误 ID 反查错误详情 + 脚本 uuid（用于「修这个报错」）',
       description: D.error_read,
-      params: [
-        { name: 'id', type: 'string', required: true, desc: T.error_read.id },
-      ],
+      params: [{ name: 'id', type: 'string', required: true, desc: T.error_read.id }],
       returns:
         '{ ok:true, errorId, scriptUuid, scriptName, phase, message, stack?, pageUrl?, time }',
-      unavailable: '未接查询通道 / 前缀多命中 / 记录已被环形日志（最近 50 条）挤掉 → { ok:false, error }',
+      unavailable:
+        '未接查询通道 / 前缀多命中 / 记录已被环形日志（最近 50 条）挤掉 → { ok:false, error }',
     },
     {
       name: 'run_log_read',

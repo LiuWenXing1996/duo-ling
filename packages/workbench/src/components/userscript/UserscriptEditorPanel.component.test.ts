@@ -235,9 +235,7 @@ describe('UserscriptEditorPanel 统一保存链路', () => {
     await typeCode('console.log(7)')
     save.mockResolvedValue({ registerError: '未开启 Allow User Scripts' })
     await saveViaDialog()
-    expect(wrapper.text()).toContain(
-      '已保存，但脚本没能生效：未开启 Allow User Scripts',
-    )
+    expect(wrapper.text()).toContain('已保存，但脚本没能生效：未开启 Allow User Scripts')
   })
 
   it('保存中禁用保存按钮（防双击重复提交）', async () => {

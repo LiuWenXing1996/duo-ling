@@ -163,7 +163,11 @@ function findSections(lines: string[], flags: boolean[]): Map<string, [number, n
 }
 
 /** 取分区下的顶层条目，返回 [(行号, 条目全文)]——缩进续写已并入。 */
-function collectItems(lines: string[], flags: boolean[], span: [number, number]): Array<[number, string]> {
+function collectItems(
+  lines: string[],
+  flags: boolean[],
+  span: [number, number],
+): Array<[number, string]> {
   const items: Array<{ no: number; parts: string[] }> = []
   let cur: { no: number; parts: string[] } | null = null
   for (let i = span[0]; i < span[1]; i++) {
@@ -213,7 +217,10 @@ function main(): 0 | 1 {
   const spans = findSections(lines, flags)
   const total = countWords(lines.join('\n'))
   const sections = new Map<string, Array<[number, string]>>(
-    SECTIONS.filter((name) => spans.has(name)).map((name) => [name, collectItems(lines, flags, spans.get(name)!)]),
+    SECTIONS.filter((name) => spans.has(name)).map((name) => [
+      name,
+      collectItems(lines, flags, spans.get(name)!),
+    ]),
   )
 
   console.log(`待办清单体检（${display}）`)

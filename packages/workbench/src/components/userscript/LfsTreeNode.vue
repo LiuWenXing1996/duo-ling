@@ -5,7 +5,12 @@
 import { computed } from 'vue'
 import { FileIcon } from '@lucide/vue'
 import { Badge } from '@duoling/ui/components/ui/badge'
-import { FileTreeFile, FileTreeFolder, FileTreeIcon, FileTreeName } from '@duoling/ui/components/ai-elements/file-tree'
+import {
+  FileTreeFile,
+  FileTreeFolder,
+  FileTreeIcon,
+  FileTreeName,
+} from '@duoling/ui/components/ai-elements/file-tree'
 import type { LfsNode } from '@duoling/shared'
 
 const props = defineProps<{ node: LfsNode; scriptNames?: Map<string, string> }>()
@@ -38,7 +43,9 @@ function formatSize(n?: number): string {
          用 default 变体（实心 primary）：secondary 是中性灰，在深色底上几乎看不出是徽标 -->
     <template v-if="scriptName" #name>
       <Badge as="span" variant="default" class="shrink-0">{{ scriptName }}</Badge>
-      <FileTreeName class="ml-1.5 min-w-0 text-muted-foreground">{{ props.node.name }}</FileTreeName>
+      <FileTreeName class="ml-1.5 min-w-0 text-muted-foreground">{{
+        props.node.name
+      }}</FileTreeName>
     </template>
     <LfsTreeNode
       v-for="child in props.node.children"

@@ -30,15 +30,18 @@ const APP_PAGE = 'floatpanel.html'
  * 看起来像实现坏了。素材由同一个浏览器现产现用，编码差异不存在。
  */
 async function makePngBuffer(page: Page, width = 2, height = 2): Promise<Buffer> {
-  const base64 = await page.evaluate(([w, h]) => {
-    const canvas = document.createElement('canvas')
-    canvas.width = w
-    canvas.height = h
-    const ctx = canvas.getContext('2d')!
-    ctx.fillStyle = '#ff0000'
-    ctx.fillRect(0, 0, w, h)
-    return canvas.toDataURL('image/png').split(',')[1] ?? ''
-  }, [width, height] as const)
+  const base64 = await page.evaluate(
+    ([w, h]) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d')!
+      ctx.fillStyle = '#ff0000'
+      ctx.fillRect(0, 0, w, h)
+      return canvas.toDataURL('image/png').split(',')[1] ?? ''
+    },
+    [width, height] as const,
+  )
   return Buffer.from(base64, 'base64')
 }
 
@@ -55,7 +58,9 @@ async function pasteImage(page: Page, png: Buffer, name = 'pasted.png'): Promise
       dt.items.add(new File([bytes], fileName, { type: 'image/png' }))
       document
         .querySelector('textarea')
-        ?.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+        ?.dispatchEvent(
+          new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }),
+        )
     },
     { name, base64: png.toString('base64') },
   )
@@ -71,7 +76,9 @@ async function dropImage(page: Page, png: Buffer, name = 'dropped.png'): Promise
       document
         .querySelector('textarea')
         ?.closest('form')
-        ?.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
+        ?.dispatchEvent(
+          new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }),
+        )
     },
     { name, base64: png.toString('base64') },
   )
@@ -147,12 +154,22 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
   test.afterAll(async () => {
     const withTimeout = (p: Promise<unknown> | undefined, ms: number) =>
       p ? Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]) : Promise.resolve()
-    try { await withTimeout(context?.close(), 30_000) } catch { /* 忽略 */ }
+    try {
+      await withTimeout(context?.close(), 30_000)
+    } catch {
+      /* 忽略 */
+    }
     try {
       stub.server.closeAllConnections()
       await withTimeout(new Promise<void>((r) => stub.server.close(() => r())), 5_000)
-    } catch { /* 忽略 */ }
-    try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    } catch {
+      /* 忽略 */
+    }
+    try {
+      rmSync(profileDir, { recursive: true, force: true })
+    } catch {
+      /* 忽略 */
+    }
   })
 
   /** 开一个浮层页（模型已在 beforeAll 配好，同源共享） */
@@ -176,7 +193,10 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
       mimeType: 'image/png',
       buffer: await makePngBuffer(page),
     })
-    await expect(page.locator('[data-testid="attachment-chips"]'), '选中后应出现附件 chip').toContainText('shot.png')
+    await expect(
+      page.locator('[data-testid="attachment-chips"]'),
+      '选中后应出现附件 chip',
+    ).toContainText('shot.png')
 
     const box = page.getByRole('textbox').first()
     await box.fill('看看这张图')
@@ -214,7 +234,9 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     await page.reload()
     // 等 AI 那轮回复重新渲染出来。锚点不能取用户原话 —— 那句话同时出现在会话标题栏
     // 与假模型的回显里（stub 会复述最后一条 user 文本），getByText 会撞 strict mode。
-    await expect(page.getByText(/stub 回复：/), '刷新后历史消息还在').toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText(/stub 回复：/), '刷新后历史消息还在').toBeVisible({
+      timeout: 20_000,
+    })
     await thumbDataUrl(page)
     await page.close()
   })
@@ -247,7 +269,11 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
 
     await page.setInputFiles('input[type="file"]', [
       { name: 'shot.png', mimeType: 'image/png', buffer: await makePngBuffer(page, 4, 4) },
-      { name: 'err.log', mimeType: 'text/plain', buffer: Buffer.from('ERROR 第一行\n第二行', 'utf8') },
+      {
+        name: 'err.log',
+        mimeType: 'text/plain',
+        buffer: Buffer.from('ERROR 第一行\n第二行', 'utf8'),
+      },
     ])
 
     const chips = page.locator('[data-testid="attachment-chips"]')
@@ -280,7 +306,10 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     // 不填任何文字，直接回车 —— 系统提示里的「用户需求」会空着，offscreen 侧有占位兜底
     await page.getByRole('textbox').first().press('Enter')
 
-    await expect(page.getByText(/stub 回复：/), '纯图消息应照常跑完（链路不要求正文非空）').toBeVisible({
+    await expect(
+      page.getByText(/stub 回复：/),
+      '纯图消息应照常跑完（链路不要求正文非空）',
+    ).toBeVisible({
       timeout: 25_000,
     })
     const text = lastUserText()
@@ -296,13 +325,19 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
 
     // ① 粘贴
     await pasteImage(page, png)
-    await expect(page.locator('[data-testid="attachment-chips"]'), '粘贴后应出现附件 chip').toContainText('pasted.png')
+    await expect(
+      page.locator('[data-testid="attachment-chips"]'),
+      '粘贴后应出现附件 chip',
+    ).toContainText('pasted.png')
     await page.locator('[data-testid="remove-attachment"]').click()
     await expect(page.locator('[data-testid="attachment-chips"]')).toHaveCount(0)
 
     // ② 拖拽
     await dropImage(page, png)
-    await expect(page.locator('[data-testid="attachment-chips"]'), '拖拽进表单后应出现附件 chip').toContainText('dropped.png')
+    await expect(
+      page.locator('[data-testid="attachment-chips"]'),
+      '拖拽进表单后应出现附件 chip',
+    ).toContainText('dropped.png')
 
     const box = page.getByRole('textbox').first()
     await box.fill('两条路各来一张')
@@ -366,7 +401,10 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     await expect(dialog, '应在面板内弹出预览').toBeVisible()
     await expect(dialog.locator('img')).toHaveAttribute('src', /^data:image\/jpeg/)
     // 下载名取自引用（落库时扩展名已按真实 MIME 归一），不是用户原始文件名
-    await expect(dialog.locator('[data-testid="download-image"]')).toHaveAttribute('download', 'shot.jpg')
+    await expect(dialog.locator('[data-testid="download-image"]')).toHaveAttribute(
+      'download',
+      'shot.jpg',
+    )
 
     // 关键：没有新标签被打开 —— data: 不允许顶层导航，这正是走面板内弹窗的原因
     await page.waitForTimeout(400)

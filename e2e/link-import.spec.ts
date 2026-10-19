@@ -89,7 +89,9 @@ test.describe.serial('从链接导入（真机抓取与注入）', () => {
         return
       }
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-      res.end('<!doctype html><html><head><title>脚本页</title></head><body><h1>这是个网页</h1></body></html>')
+      res.end(
+        '<!doctype html><html><head><title>脚本页</title></head><body><h1>这是个网页</h1></body></html>',
+      )
     })
     port = await new Promise((r) => {
       server.listen(0, '127.0.0.1', () => r((server.address() as { port: number }).port))
@@ -104,14 +106,32 @@ test.describe.serial('从链接导入（真机抓取与注入）', () => {
   test.afterAll(async () => {
     const withTimeout = (p: Promise<unknown> | undefined, ms: number) =>
       p ? Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]) : Promise.resolve()
-    try { await withTimeout(messenger?.close(), 5_000) } catch { /* 忽略 */ }
-    try { await withTimeout(page?.close(), 5_000) } catch { /* 忽略 */ }
-    try { await withTimeout(context?.close(), 30_000) } catch { /* 忽略 */ }
+    try {
+      await withTimeout(messenger?.close(), 5_000)
+    } catch {
+      /* 忽略 */
+    }
+    try {
+      await withTimeout(page?.close(), 5_000)
+    } catch {
+      /* 忽略 */
+    }
+    try {
+      await withTimeout(context?.close(), 30_000)
+    } catch {
+      /* 忽略 */
+    }
     try {
       server?.closeAllConnections()
       await withTimeout(new Promise<void>((r) => server?.close(() => r())), 5_000)
-    } catch { /* 忽略 */ }
-    try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    } catch {
+      /* 忽略 */
+    }
+    try {
+      rmSync(profileDir, { recursive: true, force: true })
+    } catch {
+      /* 忽略 */
+    }
   })
 
   /** 打开「从链接导入」弹窗（真实浏览器里菜单可以正常点开） */
@@ -214,7 +234,11 @@ test.describe.serial('从链接导入（真机抓取与注入）', () => {
     expect(script).toBeTruthy()
 
     // 启用 = 真的注册进 chrome.userScripts（这一步没走 UI 的开关，只是为了不让本用例依赖列表 DOM）
-    const toggled = await sendToSw(messenger, { kind: 'userscript:toggle', uuid: script!.uuid, enabled: true })
+    const toggled = await sendToSw(messenger, {
+      kind: 'userscript:toggle',
+      uuid: script!.uuid,
+      enabled: true,
+    })
     expect(toggled.ok).toBe(true)
 
     // 新开探针页（matches 是 http://127.0.0.1/*），读脚本写下的标记

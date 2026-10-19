@@ -27,15 +27,13 @@ function handleBranchChange(index: number) {
 }
 
 function goToPrevious() {
-  if (totalBranches.value === 0)
-    return
+  if (totalBranches.value === 0) return
   const next = currentBranch.value > 0 ? currentBranch.value - 1 : totalBranches.value - 1
   handleBranchChange(next)
 }
 
 function goToNext() {
-  if (totalBranches.value === 0)
-    return
+  if (totalBranches.value === 0) return
   const next = currentBranch.value < totalBranches.value - 1 ? currentBranch.value + 1 : 0
   handleBranchChange(next)
 }
@@ -57,10 +55,7 @@ provide(MessageBranchKey, contextValue)
 </script>
 
 <template>
-  <div
-    :class="cn('grid w-full gap-2 [&>div]:pb-0', props.class)"
-    v-bind="$attrs"
-  >
+  <div :class="cn('grid w-full gap-2 [&>div]:pb-0', props.class)" v-bind="$attrs">
     <slot />
   </div>
 </template>

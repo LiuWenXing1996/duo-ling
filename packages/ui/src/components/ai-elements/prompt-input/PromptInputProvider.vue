@@ -12,7 +12,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'submit', payload: PromptInputMessage): void
-  (e: 'error', payload: { code: string, message: string }): void
+  (e: 'error', payload: { code: string; message: string }): void
 }>()
 
 const instance = getCurrentInstance()
@@ -23,7 +23,7 @@ function getListener(name: 'onSubmit' | 'onError') {
 
 function callListener<T>(listener: unknown, payload: T) {
   if (Array.isArray(listener)) {
-    return Promise.all(listener.map(fn => typeof fn === 'function' ? fn(payload) : undefined))
+    return Promise.all(listener.map((fn) => (typeof fn === 'function' ? fn(payload) : undefined)))
   }
 
   if (typeof listener === 'function') {
@@ -38,8 +38,7 @@ usePromptInputProvider({
   accept: props.accept,
   onSubmit: (msg) => {
     const listener = getListener('onSubmit')
-    if (listener)
-      return callListener(listener, msg)
+    if (listener) return callListener(listener, msg)
 
     emit('submit', msg)
   },

@@ -14,11 +14,13 @@ const props = defineProps<Props>()
 
 <template>
   <SelectTrigger
-    :class="cn(
-      'border-none bg-transparent font-medium text-muted-foreground shadow-none transition-colors',
-      'hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground',
-      props.class,
-    )"
+    :class="
+      cn(
+        'border-none bg-transparent font-medium text-muted-foreground shadow-none transition-colors',
+        'hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground',
+        props.class,
+      )
+    "
     v-bind="props"
   >
     <slot />

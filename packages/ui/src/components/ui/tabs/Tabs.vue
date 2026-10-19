@@ -5,15 +5,12 @@ import { TabsRoot, useForwardPropsEmits } from 'reka-ui'
 import { cn } from '../../../lib/utils'
 
 defineOptions({
-  inheritAttrs: false
+  inheritAttrs: false,
 })
 
-const props = withDefaults(
-  defineProps<TabsRootProps & { class?: HTMLAttributes['class'] }>(),
-  {
-    class: ''
-  }
-)
+const props = withDefaults(defineProps<TabsRootProps & { class?: HTMLAttributes['class'] }>(), {
+  class: '',
+})
 
 const emits = defineEmits<TabsRootEmits>()
 

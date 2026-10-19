@@ -52,9 +52,15 @@ export const AUTO = /(^|[#&])omni-probe-auto\b/.test(location.hash)
 function mark(ok: unknown, detail?: string) {
   return { mark: ok === true ? '✓' : ok === false ? '✗' : '?', detail: detail || '' }
 }
-export function pass(d?: string) { return mark(true, d) }
-export function fail(d?: string) { return mark(false, d) }
-export function unknown(d?: string) { return mark('?', d) }
+export function pass(d?: string) {
+  return mark(true, d)
+}
+export function fail(d?: string) {
+  return mark(false, d)
+}
+export function unknown(d?: string) {
+  return mark('?', d)
+}
 
 /** 面板内的节点（ensurePanel 建一次，render 只改文本） */
 let statusEl: HTMLDivElement | null = null
@@ -109,7 +115,9 @@ function ensurePanel() {
 function flash(text: string) {
   const prev = statusEl!.textContent
   statusEl!.textContent = text
-  setTimeout(function () { statusEl!.textContent = prev }, 1500)
+  setTimeout(function () {
+    statusEl!.textContent = prev
+  }, 1500)
 }
 
 // —— 「待你完成」盒子（左下）——
@@ -153,7 +161,9 @@ export function todoRow(label: string) {
       row.style.opacity = '.45'
       dropTodoIfIdle()
     },
-    append: function (el: HTMLElement) { row.appendChild(el) },
+    append: function (el: HTMLElement) {
+      row.appendChild(el)
+    },
   }
 }
 
@@ -177,7 +187,7 @@ async function copyResult() {
       flash('已复制 ✓')
       return
     }
-  } catch (e) { /* 落回下面 */ }
+  } catch (e) {}
   try {
     await navigator.clipboard.writeText(text)
     flash('已复制 ✓')
@@ -202,7 +212,9 @@ function render(head?: string) {
     lines.push(r.mark + ' [' + r.group + '] ' + r.name + (r.detail ? ' — ' + r.detail : ''))
   }
   if (rows.length && !running) {
-    lines.push('—— ✓' + ok + ' ✗' + bad + ' ?' + q + (pend ? ' ⋯' + pend : '') + ' / 共 ' + rows.length)
+    lines.push(
+      '—— ✓' + ok + ' ✗' + bad + ' ?' + q + (pend ? ' ⋯' + pend : '') + ' / 共 ' + rows.length,
+    )
     lines.push(
       pend
         ? '（剩下 ' + pend + ' 项在左下角「待你完成」盒子里，做完它们会自动翻 ✓，不限时）'
@@ -226,18 +238,24 @@ export function msg(e: unknown) {
   return (e instanceof Error && e.message) || String(e)
 }
 export function code(e: unknown) {
-  return (e as { code?: string }) && (e as { code?: string }).code ? (e as { code?: string }).code + ' ' : ''
+  return (e as { code?: string }) && (e as { code?: string }).code
+    ? (e as { code?: string }).code + ' '
+    : ''
 }
 
 /** 错误码原值（**只用于比较**）：code() 是显示形态、尾部拼了个空格，拿它做 === 判断恒为 false */
 export function errCode(e: unknown) {
-  return (e as { code?: string }) && (e as { code?: string }).code ? (e as { code?: string }).code : ''
+  return (e as { code?: string }) && (e as { code?: string }).code
+    ? (e as { code?: string }).code
+    : ''
 }
 
 // ————————————————————————— 小工具 —————————————————————————
 
 export function sleep(ms: number) {
-  return new Promise<void>(function (r) { setTimeout(r, ms) })
+  return new Promise<void>(function (r) {
+    setTimeout(r, ms)
+  })
 }
 
 /**
@@ -318,13 +336,15 @@ function pendingTotal() {
 /** `GM_xmlhttpRequest` 的响应头文本 → 小写键对象 */
 function parseHeaders(s: string) {
   const out: Record<string, string> = {}
-  String(s || '').split(/\r?\n/).forEach(function (line) {
-    const i = line.indexOf(':')
-    if (i < 0) return
-    const k = line.slice(0, i).trim().toLowerCase()
-    const v = line.slice(i + 1).trim()
-    if (k) out[k] = v
-  })
+  String(s || '')
+    .split(/\r?\n/)
+    .forEach(function (line) {
+      const i = line.indexOf(':')
+      if (i < 0) return
+      const k = line.slice(0, i).trim().toLowerCase()
+      const v = line.slice(i + 1).trim()
+      if (k) out[k] = v
+    })
   return out
 }
 
@@ -332,14 +352,17 @@ function parseHeaders(s: string) {
  * 把 `GM_xmlhttpRequest`（回调式）包成返回 Response 形态（ok/status/json()/text()/blob()/headers）
  * 的 Promise —— 标准油猴脚本常这么包一层，深语义用例直接写在 .then 链里。
  */
-export function gmFetch(url: string, opts?: {
-  method?: string
-  headers?: Record<string, string>
-  body?: unknown
-  responseType?: string
-  timeout?: number
-  redirect?: string
-}) {
+export function gmFetch(
+  url: string,
+  opts?: {
+    method?: string
+    headers?: Record<string, string>
+    body?: unknown
+    responseType?: string
+    timeout?: number
+    redirect?: string
+  },
+) {
   const o = opts || ({} as NonNullable<typeof opts>)
   const rt = o.responseType || 'text'
   return new Promise<{
@@ -361,11 +384,16 @@ export function gmFetch(url: string, opts?: {
       timeout: o.timeout,
       redirect: o.redirect as never,
       onload: function (r) {
-        const body = rt === 'json'
-          ? (r.response == null ? r.responseText : r.response)
-          : rt === 'arraybuffer' || rt === 'blob'
-            ? r.response
-            : (typeof r.response === 'string' ? r.response : r.responseText)
+        const body =
+          rt === 'json'
+            ? r.response == null
+              ? r.responseText
+              : r.response
+            : rt === 'arraybuffer' || rt === 'blob'
+              ? r.response
+              : typeof r.response === 'string'
+                ? r.response
+                : r.responseText
         resolve({
           ok: r.status >= 200 && r.status < 300,
           status: r.status,
@@ -377,18 +405,31 @@ export function gmFetch(url: string, opts?: {
             if (typeof body !== 'string') return body
             return JSON.parse(body)
           },
-          text: function () { return typeof body === 'string' ? body : (body == null ? '' : String(body)) },
+          text: function () {
+            return typeof body === 'string' ? body : body == null ? '' : String(body)
+          },
           blob: function () {
             if (body instanceof Blob) return body
             if (body instanceof ArrayBuffer) return new Blob([body])
-            if (typeof body === 'string' && (rt === 'arraybuffer' || rt === 'blob')) return new Blob([body])
+            if (typeof body === 'string' && (rt === 'arraybuffer' || rt === 'blob'))
+              return new Blob([body])
             throw new Error('responseType 非 arraybuffer/blob，无法取 blob（需先设 responseType）')
           },
         })
       },
-      onerror: function (r) { reject(new Error((r && r.error) || '请求失败')) },
-      ontimeout: function () { const e = new Error('GM_xmlhttpRequest 请求超时'); (e as { code?: string }).code = 'BRIDGE_TIMEOUT'; reject(e) },
-      onabort: function () { const e = new Error('请求已中止'); (e as { code?: string }).code = 'ABORTED'; reject(e) },
+      onerror: function (r) {
+        reject(new Error((r && r.error) || '请求失败'))
+      },
+      ontimeout: function () {
+        const e = new Error('GM_xmlhttpRequest 请求超时')
+        ;(e as { code?: string }).code = 'BRIDGE_TIMEOUT'
+        reject(e)
+      },
+      onabort: function () {
+        const e = new Error('请求已中止')
+        ;(e as { code?: string }).code = 'ABORTED'
+        reject(e)
+      },
     })
   })
 }
@@ -413,7 +454,10 @@ function armPending(group: string, name: string, promise: unknown) {
   return Promise.resolve(promise).then(
     function (res) {
       if (seq !== runSeq) return // 上一轮的残留：监听与菜单由它自己的超时收尾
-      const r = (res as { mark?: string }) && (res as { mark?: string }).mark ? res as { mark: string; detail: string } : fail('用例没返回结果') as unknown as { mark: string; detail: string }
+      const r =
+        (res as { mark?: string }) && (res as { mark?: string }).mark
+          ? (res as { mark: string; detail: string })
+          : (fail('用例没返回结果') as unknown as { mark: string; detail: string })
       rows[idx!] = { mark: r.mark, group: group, name: name, detail: r.detail }
       pendingCount--
       dropTodoIfIdle()
@@ -479,11 +523,15 @@ export async function runAll() {
   // 收尾：摘监听 / 卸样式 / 还原 URL（人工项自己收尾），再清掉本包自己写的存储键
   // —— 只动前缀 PFX 的键，逐键删
   try {
-    const mine = ((await GM.listValues()) as string[]).filter(function (k) { return k.indexOf(PFX) === 0 })
+    const mine = ((await GM.listValues()) as string[]).filter(function (k) {
+      return k.indexOf(PFX) === 0
+    })
     if (mine.length) await GM.deleteValues(mine)
-  } catch (e) { /* 清不掉不改变矩阵结论 */ }
+  } catch (e) {}
   for (let j = 0; j < cleanups.length; j++) {
-    try { cleanups[j]!() } catch (e) { /* 收尾失败不改变矩阵结论 */ }
+    try {
+      cleanups[j]!()
+    } catch (e) {}
   }
   cleanups.length = 0
   running = false
@@ -505,8 +553,18 @@ function probeText() {
     return r.mark + ' [' + r.group + '] ' + r.name + (r.detail ? ' — ' + r.detail : '')
   })
   lines.push(
-    '—— ✓' + ok + ' ✗' + bad + ' ?' + q + (pend ? ' ⋯' + pend + '（待完成）' : '') +
-      ' / 共 ' + rows.length + '（' + location.href + '）',
+    '—— ✓' +
+      ok +
+      ' ✗' +
+      bad +
+      ' ?' +
+      q +
+      (pend ? ' ⋯' + pend + '（待完成）' : '') +
+      ' / 共 ' +
+      rows.length +
+      '（' +
+      location.href +
+      '）',
   )
   return lines.join('\n')
 }
@@ -519,16 +577,26 @@ export function boot() {
     return
   }
   // 存一个 tab 值：顺带覆盖 tab 存储
-  try { GM.saveTab({ probe: 'boot' }) } catch (e) { /* 未连接时会被忽略 */ }
+  try {
+    GM.saveTab({ probe: 'boot' })
+  } catch (e) {}
   // 载入即跑**只在端测模式**（hash `omni-probe-auto`）：无头下没人点按钮。
   // 人肉手测一律等点「跑全部」—— `@match` 是 *://*/*，逢页跑会到处落文件、弹通知、覆盖剪贴板。
   // `omni-probe-skip`（tabs 用例开出来的那个靶站页）在端测模式下也要压住，否则滚雪球。
   const onProbeHost = !!document.querySelector('meta[name="dl-probe-target"]')
   if (onProbeHost && AUTO && !/omni-probe-skip/.test(location.hash)) {
-    render('端测模式：载入即跑（' + CASES.length + ' 项；人工档 ' + pendingTotal() + ' 项见左下角盒子）')
+    render(
+      '端测模式：载入即跑（' + CASES.length + ' 项；人工档 ' + pendingTotal() + ' 项见左下角盒子）',
+    )
     runAll()
     return
   }
   // 结果只在内存里：刷新页面即清空，不跨载入保留（每次跑批从零开始，读到的永远是本次结果）
-  render('就绪 · 点「跑全部」开始（' + CASES.length + ' 项；其中 ' + pendingTotal() + ' 项要你动手，跑完在左下角盒子里做）')
+  render(
+    '就绪 · 点「跑全部」开始（' +
+      CASES.length +
+      ' 项；其中 ' +
+      pendingTotal() +
+      ' 项要你动手，跑完在左下角盒子里做）',
+  )
 }

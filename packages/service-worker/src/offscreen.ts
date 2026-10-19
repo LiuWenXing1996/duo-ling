@@ -45,7 +45,8 @@ export async function ensureOffscreen(): Promise<void> {
   creating = chrome.offscreen.createDocument({
     url: OFFSCREEN_PATH,
     reasons: GM_OFFSCREEN_REASONS,
-    justification: '运行 AI 生成脚本的编排循环、在 offscreen 内写剪贴板；需在扩展页面关闭后继续执行。',
+    justification:
+      '运行 AI 生成脚本的编排循环、在 offscreen 内写剪贴板；需在扩展页面关闭后继续执行。',
   })
   try {
     await creating

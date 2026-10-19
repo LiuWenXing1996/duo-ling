@@ -26,8 +26,7 @@ const branchVNodes = computed(() => {
   const allNodes = nodes.flatMap(extractChildren)
 
   return allNodes.filter((node) => {
-    if (!isVNode(node))
-      return false
+    if (!isVNode(node)) return false
     return node.type && typeof node.type === 'object'
   })
 })
@@ -41,10 +40,7 @@ const baseClasses = computed(() => cn('grid gap-2 overflow-hidden [&>div]:pb-0',
 
 <template>
   <template v-for="(node, index) in branchVNodes" :key="(node.key as any) ?? index">
-    <div
-      :class="cn(baseClasses, index === currentBranch ? 'block' : 'hidden')"
-      v-bind="$attrs"
-    >
+    <div :class="cn(baseClasses, index === currentBranch ? 'block' : 'hidden')" v-bind="$attrs">
       <component :is="node" />
     </div>
   </template>

@@ -31,7 +31,7 @@ function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
     version: '0.0.0-test',
     uuid: 'u-cmd',
     sandboxMode: 'raw',
-  downloadMode: 'browser',
+    downloadMode: 'browser',
   }
 }
 

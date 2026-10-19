@@ -27,7 +27,11 @@ async function stubPush(ports = 1): Promise<{ sent: Sent[]; bridge: Bridge }> {
 }
 
 /** 件侧那条上行（dl-bridge 分流后交 handleInspectorEvent 的形状） */
-function result(reqId: string, payload: unknown, ok = true): { reqId: string; ok: boolean; payload: unknown } {
+function result(
+  reqId: string,
+  payload: unknown,
+  ok = true,
+): { reqId: string; ok: boolean; payload: unknown } {
   return { reqId, ok, payload }
 }
 
@@ -53,7 +57,11 @@ describe('runInspectorCommand · 下发与结算', () => {
   it('件报错：把件给的原因透出来（不换成笼统失败文案）', async () => {
     const { sent, bridge } = await stubPush()
     const p = bridge.runInspectorCommand(7, 'pick')
-    bridge.handleInspectorEvent(INSPECTOR_ID, 7, result(String(sent[0].ev.reqId), '页面检查器未就绪', false))
+    bridge.handleInspectorEvent(
+      INSPECTOR_ID,
+      7,
+      result(String(sent[0].ev.reqId), '页面检查器未就绪', false),
+    )
     await expect(p).rejects.toThrow('页面检查器未就绪')
   })
 

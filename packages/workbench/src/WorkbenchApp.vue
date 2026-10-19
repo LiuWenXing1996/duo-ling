@@ -15,14 +15,14 @@ import {
   FolderTree as UiFolderTree,
   List as UiList,
   MessagesSquare as UiMessagesSquare,
-  Settings as UiSettings
+  Settings as UiSettings,
 } from '@lucide/vue'
 import WorkspaceHost from './components/WorkspaceHost.vue'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
-  TooltipTrigger as UiTooltipTrigger
+  TooltipTrigger as UiTooltipTrigger,
 } from '@duoling/ui/components/ui/tooltip'
 import { getProject } from '@duoling/shared'
 

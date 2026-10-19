@@ -4,8 +4,7 @@
 
 /** 归一结果：成功给可直接 fetch 的 URL；失败给人话原因（直接展示给用户） */
 export type LocalPathResult =
-  | { ok: true; url: string; path: string }
-  | { ok: false; reason: string }
+  { ok: true; url: string; path: string } | { ok: false; reason: string }
 
 /**
  * 本地路径文本 → `file:` URL。接受三种写法：
@@ -24,7 +23,10 @@ export function toFileUrl(input: string): LocalPathResult {
     // 带主机名的形态（http/https/ws…）：本入口只管本地路径。网上的**脚本源码**有自己的入口
     // （「从链接导入」），zip 包仍得先落到本地 —— 不在这里顺手当 http 下载，
     // 否则同一个入口的产物一半是脚本、一半是 zip，后面每条上报文案都要分叉。
-    return { ok: false, reason: '只支持本地文件路径（.zip）；网上的脚本用「从链接导入」，zip 包需先下载到本地' }
+    return {
+      ok: false,
+      reason: '只支持本地文件路径（.zip）；网上的脚本用「从链接导入」，zip 包需先下载到本地',
+    }
   }
   if (p.startsWith('~')) {
     return { ok: false, reason: '~ 无法展开，请填绝对路径（以 / 开头）' }

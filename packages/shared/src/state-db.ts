@@ -3,11 +3,7 @@
 // 见 docs/adr/0013-state-db-single-writer.md。
 import type { ScriptGroup, ScriptProject } from './script-project'
 import { idbRequest as request, idbRunTx } from './idb-core'
-import {
-  getStateDb,
-  STATE_GROUPS_STORE as GROUPS_STORE,
-  STATE_PROJECTS_STORE as STORE,
-} from './db'
+import { getStateDb, STATE_GROUPS_STORE as GROUPS_STORE, STATE_PROJECTS_STORE as STORE } from './db'
 
 async function runTx<T>(
   store: string,

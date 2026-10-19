@@ -63,7 +63,7 @@ export interface UseVirtualList<T> {
 export function useVirtualList<T>(
   items: Ref<T[]> | ComputedRef<T[]>,
   scrollRef: Readonly<Ref<HTMLElement | null>>,
-  options: { estimateHeight?: number; overscan?: number } = {}
+  options: { estimateHeight?: number; overscan?: number } = {},
 ): UseVirtualList<T> {
   const estimate = options.estimateHeight ?? DEFAULT_ESTIMATE
   const overscan = options.overscan ?? DEFAULT_OVERSCAN
@@ -170,7 +170,7 @@ export function useVirtualList<T>(
       scrollTop.value = el.scrollTop
       observer?.observe(el)
     },
-    { immediate: true }
+    { immediate: true },
   )
 
   // 数据变短（删 / 清）：砍掉多出来的旧高度，免得偏移算到不存在的行上
@@ -178,7 +178,7 @@ export function useVirtualList<T>(
     () => items.value.length,
     (n) => {
       if (heights.value.length > n) heights.value = heights.value.slice(0, n)
-    }
+    },
   )
 
   onBeforeUnmount(() => observer?.disconnect())

@@ -19,10 +19,19 @@ export const GRANT_MEMBERS: Record<string, { globals: string[]; ns: string[] }> 
   GM_getValues: { globals: ['GM_getValues'], ns: ['getValues'] },
   GM_setValues: { globals: ['GM_setValues'], ns: ['setValues'] },
   GM_deleteValues: { globals: ['GM_deleteValues'], ns: ['deleteValues'] },
-  GM_addValueChangeListener: { globals: ['GM_addValueChangeListener'], ns: ['addValueChangeListener'] },
-  GM_removeValueChangeListener: { globals: ['GM_removeValueChangeListener'], ns: ['removeValueChangeListener'] },
+  GM_addValueChangeListener: {
+    globals: ['GM_addValueChangeListener'],
+    ns: ['addValueChangeListener'],
+  },
+  GM_removeValueChangeListener: {
+    globals: ['GM_removeValueChangeListener'],
+    ns: ['removeValueChangeListener'],
+  },
   GM_registerMenuCommand: { globals: ['GM_registerMenuCommand'], ns: ['registerMenuCommand'] },
-  GM_unregisterMenuCommand: { globals: ['GM_unregisterMenuCommand'], ns: ['unregisterMenuCommand'] },
+  GM_unregisterMenuCommand: {
+    globals: ['GM_unregisterMenuCommand'],
+    ns: ['unregisterMenuCommand'],
+  },
   GM_addStyle: { globals: ['GM_addStyle'], ns: ['addStyle'] },
   GM_addElement: { globals: ['GM_addElement'], ns: ['addElement'] },
   GM_log: { globals: ['GM_log'], ns: ['log'] },

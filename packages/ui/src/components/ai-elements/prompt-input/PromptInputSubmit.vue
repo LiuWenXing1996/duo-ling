@@ -24,11 +24,9 @@ const props = withDefaults(defineProps<Props>(), {
 const icon = computed(() => {
   if (props.status === 'submitted') {
     return Loader2Icon
-  }
-  else if (props.status === 'streaming') {
+  } else if (props.status === 'streaming') {
     return SquareIcon
-  }
-  else if (props.status === 'error') {
+  } else if (props.status === 'error') {
     return XIcon
   }
   return CornerDownLeftIcon

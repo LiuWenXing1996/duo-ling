@@ -42,7 +42,8 @@ function openChannel(slot: 'rx' | 'tx'): BroadcastChannel | null {
   if (cached !== undefined) return cached
   let created: BroadcastChannel | null = null
   try {
-    created = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(DATA_BROADCAST_CHANNEL)
+    created =
+      typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(DATA_BROADCAST_CHANNEL)
   } catch {
     created = null // 环境不支持：走 sendMessage 降级
   }

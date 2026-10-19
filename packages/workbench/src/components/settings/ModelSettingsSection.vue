@@ -10,7 +10,7 @@ import {
   Pencil as UiPencil,
   PlugZap as UiPlugZap,
   Plus as UiPlus,
-  Trash2 as UiTrash2
+  Trash2 as UiTrash2,
 } from '@lucide/vue'
 import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import {
@@ -19,13 +19,13 @@ import {
   DialogDescription as UiDialogDescription,
   DialogFooter as UiDialogFooter,
   DialogHeader as UiDialogHeader,
-  DialogTitle as UiDialogTitle
+  DialogTitle as UiDialogTitle,
 } from '@duoling/ui/components/ui/dialog'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
-  TooltipTrigger as UiTooltipTrigger
+  TooltipTrigger as UiTooltipTrigger,
 } from '@duoling/ui/components/ui/tooltip'
 import type { ModelProfile, ModelProvider } from '@duoling/shared'
 import ModelFormDialog from '../ModelFormDialog.vue'
@@ -45,10 +45,7 @@ const editing = ref<ModelProfile | null>(null)
 
 async function loadData(): Promise<void> {
   try {
-    const [modelData, providerData] = await Promise.all([
-      listModelState(),
-      getProviders()
-    ])
+    const [modelData, providerData] = await Promise.all([listModelState(), getProviders()])
     profiles.value = modelData.profiles
     providers.value = providerData
     activeId.value = modelData.activeId
@@ -89,7 +86,7 @@ async function testConnection(profile: ModelProfile): Promise<void> {
       baseUrl: profile.baseUrl,
       apiKey: '',
       model: profile.model,
-      profileId: profile.id
+      profileId: profile.id,
     })
     if (res.ok) {
       testState.value = 'ok'
@@ -144,7 +141,11 @@ onMounted(() => {
     </div>
 
     <!-- 添加模型 -->
-    <ui-button class="mt-4" :class="['bg-foreground text-background hover:bg-foreground/90']" @click="openAdd">
+    <ui-button
+      class="mt-4"
+      :class="['bg-foreground text-background hover:bg-foreground/90']"
+      @click="openAdd"
+    >
       <ui-plus class="size-4" />
       添加模型
     </ui-button>
@@ -152,7 +153,9 @@ onMounted(() => {
     <!-- 模型表格 -->
     <div class="mt-6 overflow-hidden rounded-md border">
       <!-- 表头 -->
-      <div class="grid grid-cols-[1fr_auto] gap-4 border-b bg-muted/40 px-4 py-2.5 text-xs text-muted-foreground sm:grid-cols-[1fr_200px_150px]">
+      <div
+        class="grid grid-cols-[1fr_auto] gap-4 border-b bg-muted/40 px-4 py-2.5 text-xs text-muted-foreground sm:grid-cols-[1fr_200px_150px]"
+      >
         <span>模型</span>
         <span class="hidden sm:block">服务商</span>
         <span class="text-right">操作</span>
@@ -167,7 +170,9 @@ onMounted(() => {
         >
           <!-- 模型名 -->
           <div class="flex min-w-0 items-center gap-2.5">
-            <span class="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+            <span
+              class="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+            >
               <ui-box class="size-4" />
             </span>
             <span class="truncate text-sm">{{ profile.name || profile.model }}</span>
@@ -238,10 +243,7 @@ onMounted(() => {
         </div>
 
         <!-- 空状态 -->
-        <p
-          v-if="!profiles.length"
-          class="px-4 py-8 text-center text-xs text-muted-foreground"
-        >
+        <p v-if="!profiles.length" class="px-4 py-8 text-center text-xs text-muted-foreground">
           还没有模型配置，点击上方「添加模型」开始
         </p>
       </div>
@@ -276,7 +278,9 @@ onMounted(() => {
           <div class="flex items-center gap-2">
             <span
               class="flex size-5 shrink-0 items-center justify-center rounded-full text-xs"
-              :class="testState === 'ok' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'"
+              :class="
+                testState === 'ok' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'
+              "
             >
               {{ testState === 'ok' ? '✓' : '✕' }}
             </span>
@@ -306,7 +310,9 @@ onMounted(() => {
     <ConfirmDialog
       v-model:open="removeConfirmOpen"
       title="删除模型？"
-      :description="pendingRemove ? `确定删除模型「${pendingRemove.name || pendingRemove.model}」吗？` : ''"
+      :description="
+        pendingRemove ? `确定删除模型「${pendingRemove.name || pendingRemove.model}」吗？` : ''
+      "
       confirm-text="删除"
       danger
       @confirm="confirmRemoveModel"

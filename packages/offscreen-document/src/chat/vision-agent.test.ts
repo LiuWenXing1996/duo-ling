@@ -7,9 +7,7 @@
 // 真模型不在单测里（要 key、也要钱），故 mock generateText 只看**递给它的参数**对不对。
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LanguageModel } from 'ai'
-import {
-  AGENT_RUNTIME_LIMITS,
-} from '@duoling/shared'
+import { AGENT_RUNTIME_LIMITS } from '@duoling/shared'
 
 const mocks = vi.hoisted(() => ({
   generateText: vi.fn(),
@@ -105,7 +103,9 @@ describe('askImageAboutAsset', () => {
 
   it('模型调用失败（含当前模型读不了图）原样抛出去', async () => {
     mocks.generateText.mockRejectedValue(new Error('该模型不支持图片输入'))
-    await expect(askImageAboutAsset(ASSET_ID, 'q', { model })).rejects.toThrow('该模型不支持图片输入')
+    await expect(askImageAboutAsset(ASSET_ID, 'q', { model })).rejects.toThrow(
+      '该模型不支持图片输入',
+    )
   })
 
   it('主任务被停时识图一起取消：abortSignal 透传；没给就一个字段都不带', async () => {

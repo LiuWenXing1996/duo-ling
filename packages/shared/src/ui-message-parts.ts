@@ -13,13 +13,7 @@
 //   getStaticToolName   = part.type.split('-').slice(1).join('-')
 // 上游若调整这些判定，这里要跟着改。
 
-import type {
-  DynamicToolUIPart,
-  ReasoningUIPart,
-  TextUIPart,
-  ToolUIPart,
-  UIMessage
-} from 'ai'
+import type { DynamicToolUIPart, ReasoningUIPart, TextUIPart, ToolUIPart, UIMessage } from 'ai'
 
 /** 消息里的单个 part（UIMessage 的 part 联合类型） */
 type UIPart = UIMessage['parts'][number]
@@ -60,10 +54,16 @@ export function getToolName(part: ToolUIPart | DynamicToolUIPart): string {
  * 「只认 text part」这个口径**只在这里定义**：将来若用户消息支持附件等非文本 part，
  * 正文口径（要不要把附件名/类型也并进可检索文本）只改这一处，别在调用点各写一份。 */
 export function textOfMessage(m: UIMessage): string {
-  return m.parts.filter(isTextUIPart).map((p) => p.text).join('')
+  return m.parts
+    .filter(isTextUIPart)
+    .map((p) => p.text)
+    .join('')
 }
 
 /** 思考过程 = 所有 reasoning part 顺序拼接（落盘时存成 content 之外的独立字段） */
 export function reasoningOfMessage(m: UIMessage): string {
-  return m.parts.filter(isReasoningUIPart).map((p) => p.text).join('')
+  return m.parts
+    .filter(isReasoningUIPart)
+    .map((p) => p.text)
+    .join('')
 }

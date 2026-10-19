@@ -61,7 +61,10 @@ function mintReqId(): string {
  * 失败路径：下发时该页上没有件的在岗连接 → 立刻抛（不等超时）；件报错 → 抛件给的原因；
  * 永不结算 → 超时抛。
  */
-export async function runInspectorCommand<T>(tabId: number, mode: InspectorMode): Promise<T | null> {
+export async function runInspectorCommand<T>(
+  tabId: number,
+  mode: InspectorMode,
+): Promise<T | null> {
   const reqId = mintReqId()
   const wait = new Promise<unknown>((resolve, reject) => {
     const timer = setTimeout(() => {

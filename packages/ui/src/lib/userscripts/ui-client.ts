@@ -7,7 +7,17 @@
 import type { RuntimeRequest } from '@duoling/shared'
 import { ipcRequest, ipcSubscribe } from '@duoling/shared'
 import { createOffscreenService } from '@duoling/shared'
-import type { ImportReport, ScriptConfig, ScriptGroup, ScriptProject, ScriptSummary, TabSessionRecord, UserScriptRunEvent, UserScriptsAvailability, UserScriptRunLogRow } from '@duoling/shared'
+import type {
+  ImportReport,
+  ScriptConfig,
+  ScriptGroup,
+  ScriptProject,
+  ScriptSummary,
+  TabSessionRecord,
+  UserScriptRunEvent,
+  UserScriptsAvailability,
+  UserScriptRunLogRow,
+} from '@duoling/shared'
 // 按页的整根活动轴（六类行分五组）。**type-only**：UI 侧只要形状，
 // 不把存储层（idb-core）拖进扩展页 bundle。
 import type { TabTimeline } from '@duoling/shared'
@@ -59,8 +69,12 @@ export const userscriptClient = {
 
   /** 新建（零输入）：自动命名 + 初始模板 + 建 git 仓 + 注册。返回 uuid / name + 非阻塞警告
    *  与 registerError（数据已创建、仅注册失败时的警告文案，如未开 Allow User Scripts） */
-  create: (): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> =>
-    send({ kind: 'userscript:create' }),
+  create: (): Promise<{
+    uuid: string
+    name: string
+    warnings?: string[]
+    registerError?: string
+  }> => send({ kind: 'userscript:create' }),
 
   /** 删除：注销 + 删存储（新/旧形态通用） */
   remove: (uuid: string): Promise<void> => send({ kind: 'userscript:remove', uuid }),
@@ -104,8 +118,7 @@ export const userscriptClient = {
     send({ kind: 'userscript:group-rename', id, name }),
 
   /** 删除分组（其成员自动退回未分组） */
-  removeGroup: (id: string): Promise<void> =>
-    send({ kind: 'userscript:group-remove', id }),
+  removeGroup: (id: string): Promise<void> => send({ kind: 'userscript:group-remove', id }),
 
   /** 重排分组顺序：orderedIds 为目标顺序的 id 列表 */
   reorderGroups: (orderedIds: string[]): Promise<void> =>
@@ -164,7 +177,11 @@ export const userscriptClient = {
  */
 export const offscreenService = createOffscreenService(async (error) => {
   // 仅「容器未响应」类错误才唤起重试；业务异常 / 报文非法直接透出去
-  if (!/port closed|Receiving end does not exist|Could not establish connection/.test(errorText(error))) {
+  if (
+    !/port closed|Receiving end does not exist|Could not establish connection/.test(
+      errorText(error),
+    )
+  ) {
     return false
   }
   await ipcRequest({ kind: 'offscreen:ensure' }).catch(() => {})

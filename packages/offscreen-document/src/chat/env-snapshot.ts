@@ -159,10 +159,7 @@ function versionFromBrands(list: unknown): string {
 }
 
 /** 媒体查询求值；没有 matchMedia（或它抛错）时返回 null = 未知 */
-function queryMatches(
-  mq: EnvSnapshotDeps['matchMedia'],
-  query: string,
-): boolean | null {
+function queryMatches(mq: EnvSnapshotDeps['matchMedia'], query: string): boolean | null {
   if (!mq) return null
   try {
     return mq(query)?.matches ?? null

@@ -378,8 +378,7 @@ export async function createGroup(name: string): Promise<ScriptGroup> {
   const trimmed = name.trim()
   if (!trimmed) throw new Error('分组名不能为空')
   const existing = await readAllGroups()
-  const order =
-    existing.length === 0 ? 0 : Math.max(...existing.map((g) => g.order)) + 1
+  const order = existing.length === 0 ? 0 : Math.max(...existing.map((g) => g.order)) + 1
   const group: ScriptGroup = { id: crypto.randomUUID(), name: trimmed, order }
   await writeGroup(group)
   return group
@@ -438,7 +437,10 @@ export async function setProjectGroup(uuid: string, groupId: string): Promise<Sc
 }
 
 /** 读分组，不存在则抛错（silent=true 时返回 undefined） */
-async function readGroupSafe(id: string, opts?: { silent?: boolean }): Promise<ScriptGroup | undefined> {
+async function readGroupSafe(
+  id: string,
+  opts?: { silent?: boolean },
+): Promise<ScriptGroup | undefined> {
   const group = await readGroup(id)
   if (!group) {
     if (opts?.silent) return undefined

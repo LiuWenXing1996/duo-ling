@@ -14,11 +14,11 @@ import {
   Pencil as UiPencil,
   Settings as UiSettings,
   Wrench as UiWrench,
-  X as UiX
+  X as UiX,
 } from '@lucide/vue'
 import {
   TabsList as UiTabsList,
-  TabsTrigger as UiTabsTrigger
+  TabsTrigger as UiTabsTrigger,
 } from '@duoling/ui/components/ui/tabs'
 
 const props = defineProps<{
@@ -47,17 +47,57 @@ const emit = defineEmits<{
         as="div"
         class="gap-1.5 text-[12.5px]"
       >
-        <ui-list v-if="tab.kind === 'userscript-list'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
-        <ui-pencil v-else-if="tab.kind === 'userscript-edit'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
-        <ui-compass v-else-if="tab.kind === 'guide'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
-        <ui-wrench v-else-if="tab.kind === 'agent-tools'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
-        <ui-code v-else-if="tab.kind === 'gm-api'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
-        <ui-messages-square v-else-if="tab.kind === 'session-history'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
-        <ui-clock v-else-if="tab.kind === 'tab-activity'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <ui-list
+          v-if="tab.kind === 'userscript-list'"
+          class="size-3.5 shrink-0"
+          :class="tab.id === props.activeId ? 'text-primary' : ''"
+        />
+        <ui-pencil
+          v-else-if="tab.kind === 'userscript-edit'"
+          class="size-3.5 shrink-0"
+          :class="tab.id === props.activeId ? 'text-primary' : ''"
+        />
+        <ui-compass
+          v-else-if="tab.kind === 'guide'"
+          class="size-3.5 shrink-0"
+          :class="tab.id === props.activeId ? 'text-primary' : ''"
+        />
+        <ui-wrench
+          v-else-if="tab.kind === 'agent-tools'"
+          class="size-3.5 shrink-0"
+          :class="tab.id === props.activeId ? 'text-primary' : ''"
+        />
+        <ui-code
+          v-else-if="tab.kind === 'gm-api'"
+          class="size-3.5 shrink-0"
+          :class="tab.id === props.activeId ? 'text-primary' : ''"
+        />
+        <ui-messages-square
+          v-else-if="tab.kind === 'session-history'"
+          class="size-3.5 shrink-0"
+          :class="tab.id === props.activeId ? 'text-primary' : ''"
+        />
+        <ui-clock
+          v-else-if="tab.kind === 'tab-activity'"
+          class="size-3.5 shrink-0"
+          :class="tab.id === props.activeId ? 'text-primary' : ''"
+        />
         <!-- 文件管理：整库文件树，用目录树图标；不给它的话会落到兜底的齿轮，看着像「设置」 -->
-        <ui-folder-tree v-else-if="tab.kind === 'lfs-browser'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
-        <ui-book-open v-else-if="tab.kind === 'help'" class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
-        <ui-settings v-else class="size-3.5 shrink-0" :class="tab.id === props.activeId ? 'text-primary' : ''" />
+        <ui-folder-tree
+          v-else-if="tab.kind === 'lfs-browser'"
+          class="size-3.5 shrink-0"
+          :class="tab.id === props.activeId ? 'text-primary' : ''"
+        />
+        <ui-book-open
+          v-else-if="tab.kind === 'help'"
+          class="size-3.5 shrink-0"
+          :class="tab.id === props.activeId ? 'text-primary' : ''"
+        />
+        <ui-settings
+          v-else
+          class="size-3.5 shrink-0"
+          :class="tab.id === props.activeId ? 'text-primary' : ''"
+        />
         <!--
           未保存标记：夹在图标与标题之间，**不紧贴标题** —— 紧贴时不管什么颜色都会被读成名字的一部分
           （像名字里混进了个字符）；颜色用 --unsaved（专用语义色，见 main.css）：整套 token 都是无彩色

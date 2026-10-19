@@ -12,7 +12,9 @@ describe('webHostname（只认 http / https）', () => {
   })
 
   it('扩展页：返回空串，绝不把扩展 id 当站点', () => {
-    expect(webHostname('chrome-extension://abcdefghijklmnopabcdefghijklmnop/workbench.html')).toBe('')
+    expect(webHostname('chrome-extension://abcdefghijklmnopabcdefghijklmnop/workbench.html')).toBe(
+      '',
+    )
   })
 
   it('浏览器内部页 / 本地文件：一律空串', () => {
