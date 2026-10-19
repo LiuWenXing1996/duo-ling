@@ -106,6 +106,7 @@ for (const r of rows.sort((a, b) => b.added - a.added)) {
 if (totalComment * 1000 > limit * totalAdded) {
   console.error(`\n注释密度 ${density}% 超过阈值 ${limitText}%（本次新增 ${totalAdded} 行）。`)
   console.error('大段设计说明收进 docs/，代码里只留「为什么这么写」的那几句。')
+  console.error('不要尝试分批提交绕过门禁：拆刀只把每刀压到 20 行豁免线以下，注释一行没少，问题一点没解决。')
   process.exit(1)
 }
 console.log('未超过阈值。')
