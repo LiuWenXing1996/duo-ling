@@ -37,7 +37,7 @@ import {
   TooltipTrigger as UiTooltipTrigger,
 } from '@duoling/ui/components/ui/tooltip'
 import { useGlobalConversation } from '@duoling/ui/composables/use-global-conversation'
-import { EXTENSION_NAME, FLOAT_HOST_MSG_TAG, type FloatHostMessage } from '@duoling/shared'
+import { EXTENSION_NAME, type FloatHostMessage } from '@duoling/shared'
 
 const {
   conversations,
@@ -66,7 +66,7 @@ function openWorkbench(hash = ''): void {
 /** 自控指令发给父页的件（跨源 postMessage 直连，见 ADR 0046） */
 function postToHost(cmd: FloatHostMessage['cmd'], busy = false): void {
   try {
-    window.parent.postMessage({ [FLOAT_HOST_MSG_TAG]: true, cmd, busy }, '*')
+    window.parent.postMessage({ cmd, busy } satisfies FloatHostMessage, '*')
   } catch {
     /* 父页已走 */
   }

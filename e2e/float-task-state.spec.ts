@@ -457,7 +457,8 @@ test.describe.skip('真实浮层链路（模型 stub + 页面内 iframe）', () 
 
     const { page, tabId } = await openFloatPage(context!, sw, liveMessenger, probeUrl)
     await sendFloat(liveMessenger, tabId, 'float:open')
-    const box = (await waitForPanelFrame(page)).getByRole('textbox').first()
+    const panel = await waitForPanelFrame(page)
+    const box = panel.getByRole('textbox').first()
     await box.fill('你好')
     await box.press('Enter')
 
@@ -471,7 +472,7 @@ test.describe.skip('真实浮层链路（模型 stub + 页面内 iframe）', () 
     expect(conversationId, '生成中应能在进行中登记里看到').toBeTruthy()
 
     // 收起浮层不影响遮罩：判据只有「在不在生成」，收起只是收起对话界面，页面照样在被读
-    await waitForPanelFrame(page).getByRole('button', { name: '收起' }).click()
+    await panel.getByRole('button', { name: '收起' }).click()
     await expect(page.locator('#duoling-float-root .dl-page-mask')).toBeVisible()
 
     // 关掉这个标签页 = 那条会话的现场没了 → 任务应当被就地中止（否则它在 offscreen 里跑完，

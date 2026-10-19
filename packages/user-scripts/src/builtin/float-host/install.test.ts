@@ -6,11 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clampPoint, installFloatHost } from './install'
 
 function stubGlobals() {
-  const addEventListener = vi.fn()
   vi.stubGlobal('window', {})
   // documentElement 为 null：观察器走「等文档就绪再装」那条分支，一并覆盖到
-  vi.stubGlobal('document', { documentElement: null, addEventListener })
-  return { addEventListener }
+  vi.stubGlobal('document', { documentElement: null, addEventListener: vi.fn() })
 }
 
 afterEach(() => {
@@ -19,13 +17,6 @@ afterEach(() => {
 })
 
 describe('dl-float-host（MAIN 世界系统脚本）· 安装', () => {
-  it('同一 realm 重复注入只装一遍（重注册 / 导航竞态）', () => {
-    const { addEventListener } = stubGlobals()
-    installFloatHost()
-    installFloatHost() // 第二次应被 window.__dlFloatHost 挡下
-    expect(addEventListener).toHaveBeenCalledTimes(1)
-  })
-
   it('内核不在（typeof DL 未定义）：不抛，只是没注册打开命令', () => {
     stubGlobals()
     expect(() => installFloatHost()).not.toThrow()

@@ -19,10 +19,12 @@ RuntimeRequest → SW → `float.cmd` 事件帧 → 件的链路，也就是绕�
 ## 决策
 
 - **`collapse` / `busy` 改由 iframe 直接 `postMessage` 给父页的件**，不经过 SW。
-  信封 `{ __dlFloatHost: true, cmd, busy? }`，形状与标记的唯一真相源是
-  `packages/shared/src/float-host.ts`。
-- **来源校验只认 `event.source === iframe.contentWindow`**：比 origin 字符串更硬（不依赖扩展
+  帧是 `{ cmd, busy? }`，形状的唯一真相源是 `packages/shared/src/float-host.ts`。
+- **判别只认 `event.source === iframe.contentWindow`**：比 origin 字符串更硬（不依赖扩展
   origin 字面量，也不受扩展 id 变化影响），且天然排除页面自己发的同标签 message。
+  不加信封哨兵（曾有 `__dlFloatHost` 标记位，已删）：来源校验已经把「谁发的」答完，
+  再叠一个标记位只是在同一件事上说第二遍；跨进程通道需要它（那里没有 window 引用可比），
+  这里不需要。
 - **两条 RuntimeRequest（`float:collapse` / `float:busy`）与 SW 侧的两个下发函数一并删除**。
   留着就是双通道，迟早有人走错那条。
 - **`float.cmd` 当时只剩 open 与 ping**（本决策落地的同一天又整条拔除，见文末「变更」）：open 的

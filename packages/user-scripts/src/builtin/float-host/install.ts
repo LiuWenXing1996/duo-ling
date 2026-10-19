@@ -7,17 +7,10 @@
 // 兜底（部分站点拦载不触发 error 事件），floatpanel.html 必须进 web_accessible_resources。
 // 拾取让位：页面元素拾取期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
 
-import { FLOAT_HOST_MSG_TAG, INSPECTOR_PICKER_NS } from '@duoling/shared'
+import { INSPECTOR_PICKER_NS } from '@duoling/shared'
 import { FLOAT_HOST_OPEN_COMMAND } from '../registry'
 
-declare global {
-  interface Window {
-    /** 幂等守卫：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态） */
-    __dlFloatHost?: boolean
-  }
-}
-
-/** 注入根 id（全局唯一，防止重复注入） */
+/** 注入根 id：页面里唯一的浮层宿主节点，e2e 也按它定位 */
 const ROOT_ID = 'duoling-float-root'
 
 /**
@@ -158,12 +151,10 @@ export function clampPoint(
 }
 
 /**
- * 幂等：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态）。
+ * 安装本件。不做幂等标记：window 上的标记页面一置 true 就能让件永不装上，而重复注入的代价
+ * 只是多一个空转的观察器（第二份闭包拿不到命令，`ui` 恒为 null）。
  */
 export function installFloatHost(): void {
-  if (window.__dlFloatHost) return
-  window.__dlFloatHost = true
-
   /**
    * 浮层页地址（构建期占位符，应用侧组系统脚本源码时替换成 JSON 字面量 —— 见文件头）。
    */
@@ -366,7 +357,7 @@ export function installFloatHost(): void {
     window.addEventListener('message', (event) => {
       const frame = event.data as Record<string, unknown> | null
       if (event.source !== iframe.contentWindow) return
-      if (!frame || frame[FLOAT_HOST_MSG_TAG] !== true) return
+      if (!frame) return
       if (frame.cmd === 'collapse') collapse()
       else if (frame.cmd === 'busy') setBusy(frame.busy === true)
     })
