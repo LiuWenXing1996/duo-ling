@@ -14,6 +14,9 @@ export interface WireResult {
 export const MESSAGING_CHANNEL = 'dl-messaging'
 export const MESSAGING_PORT = `${MESSAGING_CHANNEL}:port`
 export const PING_TYPE = 'dl.ping'
+export const BACKGROUND_COMMAND_PREFIX = 'command.'
+
+export const backgroundCommandType = (name: string): string => `${BACKGROUND_COMMAND_PREFIX}${name}`
 
 export interface RequestDetail {
   channel: typeof MESSAGING_CHANNEL

@@ -30,7 +30,7 @@ duo-ling 的**脚本内核**：注入体的实现体与对脚本暴露的能力�
 
 ## 现状
 
-七块已落地，全部接线：
+八块已落地，全部接线：
 
 - **宿主侧运行时**：`src/runtime.ts` 的 `DLRuntime` —— 根出口唯一的东西。构造时同步挂内核服务（`mountSwService`），随后装页面侧中继件并把那句 promise 留着（`whenReady()` 供启动链排序，`installMessagingRelay()` 供可用性翻转时重装，失败只记日志不抛）；脚本注册面的三个方法原样转出，包外要注册脚本必须经它。**类不是单例**：实例由宿主创建，再经 `createServiceWorkerHost({ dlRuntime })` 注入到 SW 包，包内按需取用。
 - **引擎可用性**：`src/availability.ts` —— `isUserScriptsAvailable()` 实探 `chrome.userScripts.getScripts()`（开关关着时命名空间不存在、调用必抛，这是唯一与版本无关的判据）；`UserScriptsAvailabilityWatch` 每 1s 轮询一次、只在翻转时回调（Chrome 对该开关没有变化事件），首个订阅者起表、退到空停表、首个读数只建基线。两个能力都经 `DLRuntime` 暴露，SW 侧不再自己养定时器。
@@ -43,8 +43,9 @@ duo-ling 的**脚本内核**：注入体的实现体与对脚本暴露的能力�
 
 - **服务代理**（设计见 `docs/adr/0044-proxy-service.md`）：`src/proxy-service/` —— SW 侧 `registerService(key, factory)` 把一个工厂注册成服务，一个服务只占一个消息 type（`proxy-service.<key>`）；MAIN 侧的 `DL.getService<T>(key)` 拿到深代理，`service.a.b(x)` 就是一次请求：路径在读取时累积，SW 侧按路径反射取值并把 `this` 绑到父对象。注册参数固定是工厂 `(context: ServiceContext) => T`，handler 每次调用现建一个实例；`ServiceContext` 的 `scriptId` / `tabId` / `sender` 都必填（`scriptId` 以帧内声明的为准：Port 由共享中继件建立，`sender.userScript.scriptId` 只能是中继件自己的 id，不是调用方；`tabId` 只有 `sender.tab.id` 一个来源），凑不出来就回 `PROTOCOL` 而不是给半个身份；内核的 `sw` 服务就是这么写的。入参与返回值仍是 JSON 面；方法抛错按通道既有语义序列化回对端，服务没注册回 `NO_HANDLER`，方法不存在回 `PROTOCOL`。只能调方法，读数据字段拿到的是代理而不是值。`createProxyService(key)` 只收 key：通道由 `src/messaging/main-messenger.ts` 的 `MainWorldMessenger.instance` 提供（`static` 字段挂类上、构造器私有，每个注入体一份模块作用域，正好等于「每脚本 × 每文档一条」），`scriptId` 由 `DL` 构造时经 `MainWorldMessenger.setScriptId` 注入、发消息时现读，不在构造时定死。key 就是普通字符串 —— 曾经那层 `ProxyServiceKey<T>` 是空接口交叉类型，不约束任何东西，已随 `ProxyService<T>` 一并删除。
 
-`installCustomUserScript` 与 SW 的注册引擎有一处必须对齐：全量同步会把不在保留名单里的注册当残留清掉。本包用 `installedCustomScriptIds()` 把本进程装过的 id 报给 SW，由它并进那份名单 —— 少了这步，装上的脚本会在下一次同步里静默消失。走脚本库的那条注册则要传 `protectFromSync: false`：它的 id 归引擎管，删除 / 关停靠同一次清扫兜底。
+- **后台命令**（设计见 `docs/adr/0045-background-command.md`）：`src/service/command-service.ts` —— 脚本用 `DL.registerBackgroundCommand(name, handler, { title? })` 向 SW 登记一条命名命令，表键是 `${tabId}:${scriptId}`（与 messenger 的 `#ports` 同一约定）；宿主用 `DLRuntime.listBackgroundCommands(tabId, scriptId)` 枚举、`invokeBackgroundCommand(tabId, scriptId, name, arg)` 调用，投递复用 `sendToScript`，命令类型 `command.<name>`（前缀常量与拼接函数在 `messaging/protocol.ts`，留在 command-service 会把 SW 侧模块带进注入产物）。脚本侧不提供调用面：MAIN 拿不到自己的 `tabId`，三元组只有宿主给得全；`exported` / `PERMISSION` 因此也不存在。表是纯内存的唯一真相源，`invoke` 查不到即 `NO_HANDLER`，不降级不落盘。条目寿命跟着消息线：`ServiceWorkerMessenger.onPortClosed` 在 Port 断开（导航 / 关 tab / 崩溃）时回调，整键删掉，所以不需要 `tabs.onRemoved`。SW 空闲回收即失表，是这一轮接受的代价。
 
+`installCustomUserScript` 与 SW 的注册引擎有一处必须对齐：全量同步会把不在保留名单里的注册当残留清掉。本包用 `installedCustomScriptIds()` 把本进程装过的 id 报给 SW，由它并进那份名单 —— 少了这步，装上的脚本会在下一次同步里静默消失。走脚本库的那条注册则要传 `protectFromSync: false`：它的 id 归引擎管，删除 / 关停靠同一次清扫兜底。
 内核原文由本包自己取：`build-user-script.ts` 里 `import DL_KERNEL_IIFE from '../dist/mount-dl-iife.js?raw'`，拼装接口对外只有 `{ uuid, name, source, requires }`，调用方不需要知道产物的存在，也无从传错。代价写在明处：`?raw` 是 Vite 方言，这条 import 让本包不再是「任何构建器都能直接编译的纯 TS」，消费方的构建必须认这个后缀（当前唯一消费方 `@duoling/service-worker` 走 Vite，成立）。
 
 内核必须与外层 `var DL` **同处一个函数作用域**，所以 dist 里那份的消费方式是**取文本内联**，不是另起一条注册。

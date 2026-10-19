@@ -29,6 +29,7 @@ export class ServiceWorkerMessenger {
   readonly #handlers = new Map<string, Handler>()
   readonly #pending = new Map<number, PendingRequest>()
   readonly #ports = new Map<string, chrome.runtime.Port>()
+  readonly #onPortClosed = new Set<(tabId: number, scriptId: string) => void>()
   #seq = Math.floor(Math.random() * 1_000_000) + 1
 
   private constructor() {
@@ -46,7 +47,12 @@ export class ServiceWorkerMessenger {
       })
       port.onDisconnect.addListener(() => {
         void chrome.runtime.lastError
-        for (const [key, known] of this.#ports) if (known === port) this.#ports.delete(key)
+        for (const [key, known] of this.#ports) {
+          if (known !== port) continue
+          this.#ports.delete(key)
+          const cut = key.indexOf(':')
+          for (const listener of this.#onPortClosed) listener(Number(key.slice(0, cut)), key.slice(cut + 1))
+        }
       })
     })
   }
@@ -58,6 +64,13 @@ export class ServiceWorkerMessenger {
     this.#handlers.set(type, handler)
     return () => {
       this.#handlers.delete(type)
+    }
+  }
+
+  onPortClosed(listener: (tabId: number, scriptId: string) => void): () => void {
+    this.#onPortClosed.add(listener)
+    return () => {
+      this.#onPortClosed.delete(listener)
     }
   }
 

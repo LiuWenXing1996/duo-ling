@@ -6,6 +6,12 @@ import {
   type InstallCustomUserScriptOptions,
 } from './install-custom-user-script'
 import { ServiceWorkerMessenger } from './messaging/service-worker-messenger'
+import {
+  invokeBackgroundCommand as invokeCommand,
+  listBackgroundCommands as listCommands,
+  mountCommandService,
+  type BackgroundCommandInfo,
+} from './service/command-service'
 import { mountSwService } from './service/sw-service'
 import { isUserScriptsAvailable as probeAvailability, UserScriptsAvailabilityWatch } from './availability'
 
@@ -15,6 +21,7 @@ export class DLRuntime {
 
   constructor() {
     mountSwService()
+    mountCommandService()
     if (typeof chrome.userScripts?.register === 'function') void this.installMessagingRelay()
   }
 
@@ -29,6 +36,21 @@ export class DLRuntime {
   /** 反向请求：SW 主动找某个 tab 里的某个脚本，等它 onRequest 的 handler 应答 */
   sendToScript(tabId: number, scriptId: string, type: string, data?: unknown): Promise<unknown> {
     return ServiceWorkerMessenger.instance.sendToScript(tabId, scriptId, type, data)
+  }
+
+  /** 列某 tab 某脚本注册的后台命令 */
+  listBackgroundCommands(tabId: number, scriptId: string): BackgroundCommandInfo[] {
+    return listCommands(tabId, scriptId)
+  }
+
+  /** 按 (tabId, scriptId, name) 调某脚本注册的后台命令 */
+  invokeBackgroundCommand(
+    tabId: number,
+    scriptId: string,
+    name: string,
+    arg?: unknown,
+  ): Promise<unknown> {
+    return invokeCommand(tabId, scriptId, name, arg)
   }
 
   onUserScriptsAvailableChange(listener: (available: boolean) => void): () => void {
