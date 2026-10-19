@@ -115,7 +115,6 @@ describe('dl-float-host · 指令接收', () => {
     installFloatHost()
 
     bridge.fire({ t: 'store.change', key: 'k' }) // 别的桥事件：静默忽略
-    bridge.fire({ t: 'float.cmd', cmd: 'collapse' }) // collapse 等动作不产生上行
     await new Promise((r) => setTimeout(r, 0))
     expect(bridge.sent).toHaveLength(0)
   })

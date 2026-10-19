@@ -37,9 +37,7 @@ import {
   TooltipTrigger as UiTooltipTrigger,
 } from '@duoling/ui/components/ui/tooltip'
 import { useGlobalConversation } from '@duoling/ui/composables/use-global-conversation'
-import { EXTENSION_NAME } from '@duoling/shared'
-import { readPinnedTabId } from '@duoling/ui/lib/owning-tab'
-import { ipcNotify } from '@duoling/shared'
+import { EXTENSION_NAME, FLOAT_HOST_MSG_TAG, type FloatHostMessage } from '@duoling/shared'
 
 const {
   conversations,
@@ -65,31 +63,21 @@ function openWorkbench(hash = ''): void {
   void chrome.tabs.create({ url: chrome.runtime.getURL('workbench.html') + hash })
 }
 
-/**
- * 收起对话框（顶栏最右那颗按钮）。
- *
- * 容器的显隐握在父页的浮层宿主件手里，而本组件在 iframe 里（跨源），只能发一条命令叫它收 ——
- * tabId 从 iframe URL 的 `?tab=` 读出（见 lib/owning-tab），命令经 SW 转 DL Port 事件帧下去
- * （宿主件在 MAIN 世界没有 chrome.runtime，tabs.sendMessage 到不了它）。
- *
- * 发不出去时静默（页面已导航走 / 扩展刚更新）：这颗按钮的用途只是「让开页面」，没什么可失败的。
- */
-function collapse(): void {
-  const tabId = readPinnedTabId()
-  if (tabId == null) return
-  ipcNotify({ kind: 'float:collapse', tabId })
+/** 自控指令发给父页的件（跨源 postMessage 直连，见 ADR 0046） */
+function postToHost(cmd: FloatHostMessage['cmd'], busy = false): void {
+  try {
+    window.parent.postMessage({ [FLOAT_HOST_MSG_TAG]: true, cmd, busy }, '*')
+  } catch {
+    /* 父页已走 */
+  }
 }
 
-/**
- * 报「这条会话是否正在生成」给父页的浮层宿主件（遮罩开关，见文件头）。
- *
- * 与 collapse 同一条命令通道、同样的静默失败：页面已导航走 / 扩展刚更新时推不到，而这只是
- * 提示层，不值得为此报错。immediate 是为了覆盖「挂载时就在生成中」（浮层在别的载体里被重开）。
- */
+function collapse(): void {
+  postToHost('collapse')
+}
+
 function setPageMask(busy: boolean): void {
-  const tabId = readPinnedTabId()
-  if (tabId == null) return
-  ipcNotify({ kind: 'float:busy', tabId, busy })
+  postToHost('busy', busy)
 }
 
 watch(streaming, (busy) => setPageMask(busy), { immediate: true })

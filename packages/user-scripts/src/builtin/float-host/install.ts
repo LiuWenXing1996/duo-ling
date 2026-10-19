@@ -5,8 +5,6 @@
 // 指令（下行帧形状真相源是 shared 的 api-contract.ts 的 float.cmd）：
 //   open      挂上容器并展开，iframe 懒加载（首次展开才设 src）；tabId 随帧带（拼进 iframe
 //             的 `?tab=`，浮层据此认定会话归属）
-//   collapse  收起：容器 display:none，iframe 与面板文档都留着 —— 再打开就是原状态
-//   busy      生成遮罩显隐，与浮层开合无关（理由见 setBusy）
 //   ping      在岗探针：回一条 float.pong（reqId 原样带上；结算认它 —— e2e 探活用）
 //
 // 位置只在本次页面内有效：不落库，刷新后回到右下角。
@@ -14,7 +12,7 @@
 // 兜底（部分站点拦载不触发 error 事件），floatpanel.html 必须进 web_accessible_resources。
 // 拾取让位：页面元素拾取期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
 
-import { INSPECTOR_PICKER_NS } from '@duoling/shared'
+import { FLOAT_HOST_MSG_TAG, INSPECTOR_PICKER_NS } from '@duoling/shared'
 import { FLOAT_HOST_OPEN_COMMAND } from '../registry'
 
 declare global {
@@ -392,6 +390,15 @@ export function installFloatHost(): void {
       if (!loaded) showFallback()
     })
 
+    // 浮层页自发的收起 / 遮罩指令：认来源窗口（比 origin 硬，且不必知道扩展的 origin 字面量）
+    window.addEventListener('message', (event) => {
+      const frame = event.data as Record<string, unknown> | null
+      if (event.source !== iframe.contentWindow) return
+      if (!frame || frame[FLOAT_HOST_MSG_TAG] !== true) return
+      if (frame.cmd === 'collapse') collapse()
+      else if (frame.cmd === 'busy') setBusy(frame.busy === true)
+    })
+
     return { root, open, collapse, setBusy }
   }
 
@@ -441,10 +448,6 @@ export function installFloatHost(): void {
     document.addEventListener('DOMContentLoaded', () => attachRoot(tabId), { once: true })
   }
 
-  /**
-   * 指令入口：四个 cmd 各自对应上面的动作，未知帧静默忽略。
-   * 通道形状真相源是 shared 的 api-contract.ts（float.cmd / float.pong）。
-   */
   function handleCommand(ev: Record<string, unknown>): void {
     if (!ev || ev.t !== 'float.cmd') return
     // 在岗探针：回一条带 reqId 的应答（结算认它 —— e2e 探活用来确认本件已注入本页；
@@ -465,17 +468,6 @@ export function installFloatHost(): void {
     }
     if (ev.cmd === 'open') {
       mountAndOpen(ev.tabId)
-      return
-    }
-    // 收起：只给容器加 display:none，UI 与 iframe 留着（见 collapse 的说明）
-    if (ev.cmd === 'collapse') {
-      if (ui) ui.collapse()
-      return
-    }
-    // 生成遮罩开关：页面里还没有浮层时收到（浮层尚未挂出 / 已被页面导航带走）静默忽略 ——
-    // 没有对话界面就没有「AI 在读这个页面」这回事。
-    if (ev.cmd === 'busy') {
-      if (ui) ui.setBusy(ev.busy === true)
     }
   }
 
