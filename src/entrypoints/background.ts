@@ -159,12 +159,7 @@ import {
 } from '@duoling/shared'
 // 拾取指令的下发与配对（常驻件那半在页面里，件源码见包的 inspector/install.ts）
 import { cancelPicker, runInspectorCommand } from '@duoling/service-worker'
-import {
-  collapseFloatPanel,
-  openFloatPanel,
-  pingFloatHost,
-  setFloatPanelBusy,
-} from '@duoling/service-worker'
+import { openFloatPanel, pingFloatHost } from '@duoling/service-worker'
 import type { ElementPickContext } from '@duoling/shared'
 import { errorText } from '@duoling/shared'
 
@@ -398,23 +393,13 @@ const handlers: {
   },
 
   // —— 浮层宿主命令面 ——
-  // 件已转 MAIN 世界系统脚本，tabs.sendMessage 到不了它：四条动作都在 SW 经
-  // float-bridge 下发 —— open 走件的后台命令 float.open（有回包），其余是 float.cmd 帧。
-  // open 报错（推不到 = 该页上没有件的在岗连接），其余单向动作静默。
+  // 件已转 MAIN 世界系统脚本，tabs.sendMessage 到不了它：打开走件的后台命令 float.open
+  // （有回包，推不到 = 该页上没有件的在岗连接），探活走 float.cmd 的 ping 帧。
+  // 收起 / 遮罩不在这里 —— 对话界面在 iframe 里直接 postMessage 给件，不经 SW。
   'float:open': async (msg): Promise<null> => {
     if (!(await openFloatPanel(msg.tabId))) {
       throw new Error('浮层没接上：页面可能还没加载完，刷新页面后再试')
     }
-    return null
-  },
-
-  'float:collapse': async (msg): Promise<null> => {
-    collapseFloatPanel(msg.tabId)
-    return null
-  },
-
-  'float:busy': async (msg): Promise<null> => {
-    setFloatPanelBusy(msg.tabId, msg.busy)
     return null
   },
 

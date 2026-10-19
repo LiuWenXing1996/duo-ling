@@ -1,13 +1,4 @@
-// 浮层宿主指令桥（SW 侧）：把「打开 / 收起 / 生成遮罩 / 在岗探活」下发到常驻件。
-//
-// 只在 SW 侧引用（发起方是 popup / 右键菜单 / 对话界面，全部经 RuntimeRequest 命令面进来）。
-// 与 page-inspector-bridge 的分工同款：那边管检查器的 reqId 结算，这边管浮层宿主的四条指令。
-//
-// 件已是 MAIN 世界系统脚本（走统一脚本链，见 system-scripts.ts），通道全走脚本桥：
-//   · 下行 —— open 走后台命令 `float.open`（有回包）；其余是 DL Port 事件帧 `float.cmd`（pushCommandTo）；
-//   · 上行 —— 仅 ping 一条有回程：`__dlEvent` 信封 `float.pong`，dl-bridge 分流后交
-//     handleFloatEvent（telemetry port 注入，见 telemetry.ts）。开 / 收 / 遮罩是单向动作，
-//     没有回程 —— 与旧 tabs.sendMessage 的 fire-and-forget 语义一致。
+// 浮层宿主指令桥（SW 侧）：打开浮层与在岗探活两条。
 //
 // 超时只设在探活这一条（用户与右键菜单不等的那个「点了没反应」要能被判出来）：
 // 件可能因页面卸载 / 导航而永不回话，留一条兜底。
@@ -43,16 +34,6 @@ export async function openFloatPanel(tabId: number): Promise<boolean> {
   } catch {
     return false
   }
-}
-
-/** 收起浮层：单向动作，失败静默（按钮的用途只是「让开页面」，没什么可失败的） */
-export function collapseFloatPanel(tabId: number): void {
-  pushCommandTo(FLOAT_HOST_ID, tabId, { t: 'float.cmd', cmd: 'collapse' })
-}
-
-/** 生成遮罩开关：同上，单向动作（对话界面在生成起止时各报一次） */
-export function setFloatPanelBusy(tabId: number, busy: boolean): void {
-  pushCommandTo(FLOAT_HOST_ID, tabId, { t: 'float.cmd', cmd: 'busy', busy })
 }
 
 /**

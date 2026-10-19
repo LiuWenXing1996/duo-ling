@@ -21,14 +21,7 @@
 // 头注释。
 //
 // 推假会话的几条不需要真会话存在：SW 只登记会话 id（站点名 / 标签页都不再拼给它），故不必代写归属。
-import {
-  test,
-  expect,
-  type BrowserContext,
-  type Frame,
-  type Page,
-  type Worker,
-} from '@playwright/test'
+import { test, expect, type BrowserContext, type Frame, type Page, type Worker } from '@playwright/test'
 import { saveStubModel } from './model-config'
 import * as http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -77,22 +70,12 @@ test.describe.serial('任务状态外显（进行中登记 + 对话框显隐）'
   test.afterAll(async () => {
     const withTimeout = (p: Promise<unknown> | undefined, ms: number) =>
       p ? Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]) : Promise.resolve()
-    try {
-      await withTimeout(context?.close(), 30_000)
-    } catch {
-      /* 忽略 */
-    }
+    try { await withTimeout(context?.close(), 30_000) } catch { /* 忽略 */ }
     try {
       probe?.closeAllConnections()
       await withTimeout(new Promise<void>((r) => probe?.close(() => r())), 5_000)
-    } catch {
-      /* 忽略 */
-    }
-    try {
-      rmSync(profileDir, { recursive: true, force: true })
-    } catch {
-      /* 忽略 */
-    }
+    } catch { /* 忽略 */ }
+    try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
   })
 
   /**
@@ -134,7 +117,9 @@ test.describe.serial('任务状态外显（进行中登记 + 对话框显隐）'
 
     // 收尾 → 从进行中撤下（没人在看的那些事不再有别的落点，见文件头注释）
     await pushOffscreen({ kind: 'chat:finished', conversationId: c1 })
-    await expect.poll(() => runningOf(messenger), { message: '收尾后不该还挂在进行中' }).toEqual([])
+    await expect
+      .poll(() => runningOf(messenger), { message: '收尾后不该还挂在进行中' })
+      .toEqual([])
     await expectNoScriptBadge(sw, otherTabId!)
 
     // 另一页同样：会话状态与它自己的角标无关
@@ -321,18 +306,15 @@ async function openFloatPage(
 }
 
 /**
- * 给某标签页发一条浮层命令（`float:open` / `float:collapse`）。
+ * 给某标签页发一条 `float:open`（打开浮层）。
  *
- * 页面里没有可点的入口（对话框平时不在页面里），这两条命令就是它的开关 —— 与 popup 的按钮、
- * 页面右键菜单、对话框顶栏那颗「收起」是同一套契约（SW 经 DL Port 事件帧下发给宿主件）。
+ * 页面里没有可点的入口（对话框平时不在页面里），这条命令就是它的开 —— 与 popup 的按钮、
+ * 页面右键菜单是同一套契约（SW 调用件的后台命令）。收起不在这里：那一条由对话界面在 iframe
+ * 里直接 postMessage 给件，验它得点浮层顶栏那颗按钮（见下面「关掉标签页」用例）。
  * 发送方那侧的行为由 PopupPanel 的组件测试覆盖，这里只借扩展页代发一下。
  * 不吞错：宿主件已由 openFloatPage 探通，SW 推不到（回 { ok: false }）就是真失败。
  */
-async function sendFloat(
-  messenger: Page,
-  tabId: number,
-  kind: 'float:open' | 'float:collapse',
-): Promise<void> {
+async function sendFloat(messenger: Page, tabId: number, kind: 'float:open'): Promise<void> {
   const res = (await messenger.evaluate(
     async ({ id, k }) => {
       // tabId 随命令带上：真发送方（popup / 右键菜单）都握有它，宿主件靠它拼 iframe URL 的 `?tab=`
@@ -402,22 +384,12 @@ test.describe.skip('真实浮层链路（模型 stub + 页面内 iframe）', () 
   test.afterAll(async () => {
     const withTimeout = (p: Promise<unknown> | undefined, ms: number) =>
       p ? Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]) : Promise.resolve()
-    try {
-      await withTimeout(context?.close(), 30_000)
-    } catch {
-      /* 忽略 */
-    }
+    try { await withTimeout(context?.close(), 30_000) } catch { /* 忽略 */ }
     try {
       stub?.server.closeAllConnections()
       await withTimeout(new Promise<void>((r) => stub?.server.close(() => r())), 5_000)
-    } catch {
-      /* 忽略 */
-    }
-    try {
-      rmSync(profileDir, { recursive: true, force: true })
-    } catch {
-      /* 忽略 */
-    }
+    } catch { /* 忽略 */ }
+    try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
   })
 
   test('点浮层里的停止：任务就地中止，半截照样落盘（带「已中断」）', async () => {
@@ -435,7 +407,7 @@ test.describe.skip('真实浮层链路（模型 stub + 页面内 iframe）', () 
     // 首片文本到了 = 已生成一点内容，而 stub 正按住第二片 —— 此刻点停止。
     // 浮层里流式中的那个提交按钮就是停止按钮（见 ChatPanel.onPromptSubmit）。
     await expect(panel.getByText(/stub/).first()).toBeVisible({ timeout: 20_000 })
-    // 生成中：页面盖着遮罩（对话界面经 float:busy 报的）—— 面板本体在遮罩之上，故这颗按钮点得到
+    // 生成中：页面盖着遮罩（对话界面 postMessage 报给件的）—— 面板本体在遮罩之上，故这颗按钮点得到
     await expect(page.locator('#duoling-float-root .dl-page-mask')).toBeVisible()
     await panel.getByLabel('Submit').click()
     // 停止 = 不再生成 → 遮罩撤掉
@@ -501,12 +473,14 @@ test.describe.skip('真实浮层链路（模型 stub + 页面内 iframe）', () 
     // 生成已开始（stub 收到请求，此刻正卡在它的延时里）→ 进行中登记里有它
     const before = stub.stub.hits.length
     await expect.poll(() => stub.stub.hits.length, { timeout: 30_000 }).toBeGreaterThan(before)
-    await expect.poll(async () => (await runningOf(sender)).length, { timeout: 10_000 }).toBe(1)
+    await expect
+      .poll(async () => (await runningOf(sender)).length, { timeout: 10_000 })
+      .toBe(1)
     const conversationId = (await runningOf(sender))[0]
     expect(conversationId, '生成中应能在进行中登记里看到').toBeTruthy()
 
     // 收起浮层不影响遮罩：判据只有「在不在生成」，收起只是收起对话界面，页面照样在被读
-    await sendFloat(liveMessenger, tabId, 'float:collapse')
+    await waitForPanelFrame(page).getByRole('button', { name: '收起' }).click()
     await expect(page.locator('#duoling-float-root .dl-page-mask')).toBeVisible()
 
     // 关掉这个标签页 = 那条会话的现场没了 → 任务应当被就地中止（否则它在 offscreen 里跑完，
@@ -573,11 +547,7 @@ async function waitForPanelFrame(page: Page): Promise<Frame> {
   })
   throw new Error(
     `浮层 iframe 未出现：宿主根节点${seen.root ? '在' : '不在'}、iframe src=${String(seen.src)}；` +
-      `本页的帧 = ${
-        page
-          .frames()
-          .map((f) => f.url())
-          .join(' | ') || '(无)'
-      }`,
+      `本页的帧 = ${page.frames().map((f) => f.url()).join(' | ') || '(无)'}`,
   )
 }
+
