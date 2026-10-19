@@ -47,7 +47,9 @@
 | `pnpm run test` | Vitest 单测（logic=node + component=happy-dom 双 project，见 `vitest.config.ts`） |
 | `pnpm run test:coverage` | 单测覆盖率（v8 provider，终端 `text-summary` + HTML 报表落 `coverage/`）。**只作本地看数，不进 CI**；统计口径与 exclude 见 `vitest.config.ts` 的 `coverage` 段 |
 | `pnpm run test:e2e` | Playwright 端测（全程无头、跑 build 产物）。**脚本内先 `pnpm run build`**，不必手动先构建；也别绕开脚本直接调 playwright——端测读的是产物而非源码，产物陈旧时会静默跑旧代码（改了 `src/` 尤其注意） |
-| `pnpm run verify` | 交付前快检：两道门禁 + typecheck + 全部单测。typecheck / test 各自自带 `pnpm -r build` 与 `wxt prepare` 前置，但不跑 `pnpm run build`（wxt 产物）与端测。本地改完先跑它 |
+| `pnpm run format` | Prettier 全量重排（配置见 `prettier.config.mjs`，忽略面见 `.prettierignore`：文档、YAML、lock 与坏样本不动）。改完代码跑它 |
+| `pnpm run format:check` | 格式门禁：`prettier --check .`，`verify` 与 pre-commit 都挂；钩子只查暂存文件并加 `--ignore-unknown`（图片等二进制会随暂存列进来） |
+| `pnpm run verify` | 交付前快检：格式 / 注释（含密度基线）/ 密钥 / 包边界五道门禁 + typecheck + 全部单测。typecheck / test 各自自带 `pnpm -r build` 与 `wxt prepare` 前置，但不跑 `pnpm run build`（wxt 产物）与端测。本地改完先跑它 |
 | `pnpm run ci` | CI 同款全量：`verify` → `build` → 端测。**CI 的 `Gate` job 跑的就是这一条**，本地想复现 CI 结果跑它即可（需先装好 Chromium） |
 | `pnpm run verify:skills` | 校验 `.agents/skills/` 合规（结构错误退出码 1；含「AGENTS.md 是否就地挂载」检查） |
 | `pnpm run check:todo` | 待办条目体检：单条 >100 字、总字数 >6000、疑似重复（**整理待办时跑**，提醒级不进 CI） |

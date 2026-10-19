@@ -6,6 +6,9 @@ commit-msg:
 
 pre-commit:
   jobs:
+    # 格式放最前：秒级、且是最常见的失败原因，先报省得后面几道白跑。
+    - name: prettier
+      run: pnpm exec prettier --check --ignore-unknown {staged_files}
     - name: check:comments
       run: pnpm run check:comments
     - name: check:comment-baseline
