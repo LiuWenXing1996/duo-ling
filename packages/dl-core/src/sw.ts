@@ -1,12 +1,17 @@
 import { SW_BRIDGE_WITH_SW_PORT_NAME, type SWBridgeMssage } from "./sw-bridge";
 
 export type SWBridgeManagerListener = (msg: unknown, tabId: number, cb: (data: unknown) => void) => void;
-
 export class SWBridgeManager {
     #swBridgePorts: Map<number, chrome.runtime.Port> = new Map();
     listeners: SWBridgeManagerListener[] = [];
     constructor() {
-        chrome.runtime.onConnect.addListener((port) => {
+        // userScripts 世界的 connect 只触发 runtime.onUserScriptConnect，挂通用 onConnect 收不到
+        const onScriptConnect = chrome.runtime.onUserScriptConnect
+        if (typeof onScriptConnect?.addListener !== 'function') {
+            console.warn('[dl-core] runtime.onUserScriptConnect 不可用，SW 桥未挂载（DL 命令通道全失效）')
+            return
+        }
+        onScriptConnect.addListener((port) => {
             const protName = port.name;
             if (!protName) {
                 return;

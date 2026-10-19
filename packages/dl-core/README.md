@@ -30,12 +30,12 @@ duo-ling 的**脚本内核**：注入体的实现体与对脚本暴露的能力�
 
 ## 现状
 
-三块已落地，前两块已接线：
+四块已落地，全部接线：
 
 - **注入体拼装**：`src/build-user-script.ts` 的 `buildUserScript` —— 按「`var DL` 挂载点 → 内核 IIFE → `@require` + 脚本正文」拼成一条 IIFE，三段同处一个函数作用域。
 - **内核装配件**：`src/dl.ts` 是 `DL` 的实现类，`src/mount-dl.ts` 负责实例化并写到外层那个 `DL` 上。`build.mts` 把它 bundle 成 `dist/mount-dl-iife.js`（不入库，随 `pnpm -r build` 重建；产物先过四道形状守卫再落盘）。
 - **宿主侧注册**：`src/install-custom-user-script.ts` 的 `installCustomUserScript` —— 接一段代码（裸代码，或 GM 包装层包好的整段源码），经 `buildUserScript` 拼好后用 `chrome.userScripts.register` 装成 MAIN 世界脚本，`uninstallCustomUserScript` 反手注销。只在本进程有效（注册不跨浏览器重启存活），缺省全站匹配、`document_start`、只注入顶层 frame。SW 的 `registerScript` 也走它：校验与配置映射留在 SW，注册动作收敛在这里。
-- **SW 桥安装**：`src/install-sw-bridge-script.ts` 的 `installSWBridgeScript` —— 把桥中继件（`dist/mount-sw-bridge-iife.js`，页面侧 ISOLATED 语义的常连件）原样注册成默认 USER_SCRIPT 世界脚本（固定 id `dl-sw-bridge`、全站、`document_start`、顶层 frame、进保留名单），顺手 `configureWorld({ messaging: true })`，并实例化 `SWBridgeManager` 返回给 SW。桥的两段链路：MAIN 世界的 `DL` 经 MessageChannel 把 port 递给中继件，中继件经 `chrome.runtime.connect` 常连 SW，三方互转。桥 IIFE 不经 `buildUserScript`：包装层是 MAIN 世界语义，桥必须留在有 chrome 的世界。`DL.getTab/saveTab` 的 SW 侧落点也在这里（`mountTabStore`）：内存 Map 按 `${scriptId}:${tabId}` 存取（SW 回收即蒸发，一期不做持久化），`tabs.onRemoved` 清关 tab 的记录 —— 请求-应答走 seq 配对（状态只在 MAIN 侧，SW 无状态回声）。
+- **SW 桥安装**：`src/install-sw-bridge-script.ts` 的 `installSWBridgeScript` —— 把桥中继件（`dist/mount-sw-bridge-iife.js`，页面侧 ISOLATED 语义的常连件）原样注册成默认 USER_SCRIPT 世界脚本（固定 id `dl-sw-bridge`、全站、`document_start`、顶层 frame；保留名单在注册**之前**登记，装上的那一刻就已受保护），顺手 `configureWorld({ messaging: true })`，并实例化 `SWBridgeManager` 返回给 SW。桥的两段链路：MAIN 世界的 `DL` 经 MessageChannel 把 port 递给中继件，中继件经 `chrome.runtime.connect` 常连 SW，三方互转。SW 侧的接收端必须监听 `runtime.onUserScriptConnect` 而不是通用的 `runtime.onConnect` —— userScripts 世界的 connect 只走专用事件，挂错事件名的症状是页面侧 port 建好了、SW 侧一条日志都没有。桥 IIFE 不经 `buildUserScript`：包装层是 MAIN 世界语义，桥必须留在有 chrome 的世界。`DL.getTab/saveTab` 的 SW 侧落点也在这里（`mountTabStore`）：内存 Map 按 `${scriptId}:${tabId}` 存取（SW 回收即蒸发，一期不做持久化），`tabs.onRemoved` 清关 tab 的记录 —— 请求-应答走 seq 配对（状态只在 MAIN 侧，SW 无状态回声）。启动链在宿主的 `initUserScripts` 里调它，位置在引擎可用判定的 `setEngineAvailable(true)` 之后、`registerAllEnabled()` 之前（保留名单要先就位，否则桥会被当残留清掉）；引擎由不可用翻回可用时补调一次。安装失败降级为日志，不阻断脚本注册。SW 侧收口由 `mountSWBridgeManager` 单独提供（同一文件导出）：它必须在 `defineBackground` 回调里**同步**调用 —— MV3 的事件投递按同步注册表决定，SW 休眠后页面中继件的 `connect` 是唤醒 SW 的动作，监听等异步注册链跑完才挂的话那次 connect 已丢失，port 变成无接收方的黑洞。
 
 `installCustomUserScript` 与 SW 的注册引擎有一处必须对齐：全量同步会把不在保留名单里的注册当残留清掉。本包用 `installedCustomScriptIds()` 把本进程装过的 id 报给 SW，由它并进那份名单 —— 少了这步，装上的脚本会在下一次同步里静默消失。走脚本库的那条注册则要传 `protectFromSync: false`：它的 id 归引擎管，删除 / 关停靠同一次清扫兜底。
 

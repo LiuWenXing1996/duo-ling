@@ -16,5 +16,5 @@ export {
   type InstallCustomUserScriptOptions,
 } from './install-custom-user-script'
 // SW 桥一站式安装面（只在扩展进程可用）：注册桥中继件（mount-sw-bridge-iife）+ 初始化收口
-export { installSWBridgeScript, SW_BRIDGE_SCRIPT_ID } from './install-sw-bridge-script'
+export { installSWBridgeScript, mountSWBridgeManager, SW_BRIDGE_SCRIPT_ID } from './install-sw-bridge-script'
 export type { SWBridgeManager } from './sw'

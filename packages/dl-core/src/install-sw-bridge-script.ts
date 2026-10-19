@@ -44,6 +44,15 @@ function mountTabStore(mgr: SWBridgeManager): void {
   })
 }
 
+/** 同步挂 SW 侧收口（连接监听 + tab 存取），须早于任何 await：唤醒投递只认同步注册表里的监听 */
+export function mountSWBridgeManager(): SWBridgeManager {
+  if (!manager) {
+    manager = new SWBridgeManager()
+    mountTabStore(manager)
+  }
+  return manager
+}
+
 /**
  * 注册 SW 桥中继件并初始化 SWBridgeManager，返回管理器（SW 用它按 tabId 收发）。
  *
@@ -55,8 +64,10 @@ export async function installSWBridgeScript(): Promise<SWBridgeManager> {
     // 逐版本的环境指引由 SW 的可用性检测生成（它才认得出 Chrome 版本与 Firefox）
     throw new Error('用户脚本功能不可用：需在扩展详情页开启「允许运行用户脚本」')
   }
+
+  protectCustomScriptId(SW_BRIDGE_SCRIPT_ID)
   if (typeof api.configureWorld === 'function') {
-    await api.configureWorld({ messaging: true }).catch((e) => {
+    await api.configureWorld({ worldId: SW_BRIDGE_SCRIPT_ID, messaging: true }).catch((e) => {
       console.warn('[dl-core] SW 桥世界配置失败（messaging 未开，桥不可用）', e)
     })
   }
@@ -72,12 +83,5 @@ export async function installSWBridgeScript(): Promise<SWBridgeManager> {
       allFrames: false,
     },
   ])
-  // 内置件性质：id 必须进 SW 全量同步的保留名单，否则会被 stale 清扫当残留清掉
-  protectCustomScriptId(SW_BRIDGE_SCRIPT_ID)
-  if (!manager) {
-    manager = new SWBridgeManager()
-    // DL.getTab/saveTab 的 SW 侧落点跟着管理器走：一个调用把桥两头 + 存取都立起来
-    mountTabStore(manager)
-  }
-  return manager
+  return mountSWBridgeManager()
 }

@@ -41,6 +41,8 @@ import {
   SW_IPC_OWNED_KINDS,
   SWService,
   clearGMValues,
+  installSWBridgeScript,
+  mountSWBridgeManager,
 } from '@duoling/service-worker'
 // 本扩展自己的注入件注册同步（系统脚本 + 中继件并集）与内置件对账
 import {
@@ -753,6 +755,14 @@ const handlers: {
   'sw:buildInfo': async (): Promise<{ time: string; branch: string }> => __BUILD_INFO__,
 }
 
+async function ensureSWBridge(): Promise<void> {
+  try {
+    await installSWBridgeScript()
+  } catch (e) {
+    console.error('[duoling:dl-core] SW 桥安装失败', e)
+  }
+}
+
 /** 用户脚本管理器启动：挂载 GM 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用项目 */
 async function initUserScripts(): Promise<void> {
   // GM 运行时接线（包工厂）：遥测 / 扩展身份 / offscreen 就绪在此注入，桥与 Port 的全部
@@ -790,6 +800,7 @@ async function initUserScripts(): Promise<void> {
     return
   }
   setEngineAvailable(true)
+  await ensureSWBridge()
   // 先对账存续行（把指向已关标签页的行盖章结束），再重注册 —— 否则这一步注册的是过期集合
   await reconcileTabSessions()
   await registerAllEnabled()
@@ -1123,6 +1134,8 @@ export default defineBackground(() => {
   // 启动自证：console 第一条就是构建信息，「SW 是不是新包」不用再靠猜
   console.log(`[duoling:sw] SW 启动 · 构建 ${__BUILD_INFO__.time} · 分支 ${__BUILD_INFO__.branch}`)
 
+  // SW 收口监听必须同步挂：SW 休眠唤醒时，只有同步注册表里的监听收得到那次 connect
+  mountSWBridgeManager()
   // 点击工具栏图标打开 popup（action.default_popup 由 popup.html 入口自动写入 manifest）——
   // 这是 action 的唯一用途；对话入口是网页浮层（由浮层宿主件挂出），不占 action。
 
@@ -1141,6 +1154,7 @@ export default defineBackground(() => {
     setEngineAvailable(current.available)
     if (!previous && current.available) {
       void ensureWorldsConfigured()
+        .then(() => ensureSWBridge())
         .then(() => registerAllEnabled())
         .catch((e) => console.error('[duoling:userscript] 可用性翻转补注册失败', e))
     }
