@@ -1,9 +1,13 @@
 import {
+  MESSAGING_CHANNEL,
+  MESSAGING_PORT,
   MessagingError,
   assertSerializable,
-  isRuntimeRequest,
+  isRequestDetail,
   wireError,
+  type ResponseDetail,
   type SwMessage,
+  type WireResult,
 } from './protocol'
 
 type Handler = (message: SwMessage) => unknown | Promise<unknown>
@@ -12,36 +16,18 @@ export class ServiceWorkerMessenger {
   readonly #handlers = new Map<string, Handler>()
 
   constructor() {
-    // userScripts 世界发出的消息只进 onUserScriptMessage，通用 onMessage 收不到
-    const onScriptMessage = chrome.runtime.onUserScriptMessage
-    if (typeof onScriptMessage?.addListener !== 'function') {
-      console.warn('[dl-messaging] runtime.onUserScriptMessage 不可用，SW 侧消息通道未挂载')
+    const onConnect = chrome.runtime.onUserScriptConnect
+    if (typeof onConnect?.addListener !== 'function') {
+      console.warn('[dl-messaging] runtime.onUserScriptConnect 不可用，SW 侧消息通道未挂载')
       return
     }
 
-    onScriptMessage.addListener((raw, sender, sendResponse) => {
-      if (!isRuntimeRequest(raw)) return undefined
-
-      const message = raw.message
-      const handler = this.#handlers.get(message.type)
-      if (!handler) {
-        sendResponse(wireError(new MessagingError('NO_HANDLER', `SW 侧没有注册处理器：${message.type}`)))
-        return undefined
-      }
-
-      void Promise.resolve()
-        .then(() => handler({ ...message, sender }))
-        .then((res) => {
-          try {
-            assertSerializable(res, 'result')
-          } catch (error) {
-            sendResponse(wireError(error))
-            return
-          }
-          sendResponse({ ok: true, res })
-        })
-        .catch((error: unknown) => sendResponse(wireError(error)))
-      return true
+    onConnect.addListener((port) => {
+      if (port.name !== MESSAGING_PORT) return
+      const sender = port.sender
+      port.onMessage.addListener((raw: unknown) => {
+        void this.#serve(raw, port, sender)
+      })
     })
   }
 
@@ -52,6 +38,47 @@ export class ServiceWorkerMessenger {
     this.#handlers.set(type, handler)
     return () => {
       this.#handlers.delete(type)
+    }
+  }
+
+  async #serve(
+    raw: unknown,
+    port: chrome.runtime.Port,
+    sender: chrome.runtime.MessageSender | undefined,
+  ): Promise<void> {
+    if (!isRequestDetail(raw)) return
+
+    const { instanceId, message } = raw
+    const reply = (result: WireResult): void => {
+      const frame: ResponseDetail = {
+        channel: MESSAGING_CHANNEL,
+        instanceId,
+        id: message.id,
+        type: message.type,
+        ...result,
+      }
+      try {
+        port.postMessage(frame)
+      } catch {
+        // 页面已卸载 / 端口已断：没人等这个回包了
+      }
+    }
+
+    const handler = this.#handlers.get(message.type)
+    if (!handler) {
+      reply(wireError(new MessagingError('NO_HANDLER', `SW 侧没有注册处理器：${message.type}`)))
+      return
+    }
+
+    try {
+      const res = await handler({
+        ...message,
+        sender: sender ?? ({} as chrome.runtime.MessageSender),
+      })
+      assertSerializable(res, 'result')
+      reply({ ok: true, res })
+    } catch (error) {
+      reply(wireError(error))
     }
   }
 }

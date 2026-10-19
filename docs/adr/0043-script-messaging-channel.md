@@ -1,7 +1,7 @@
 # 0043. 脚本消息通道：MAIN ↔ 中继件 ↔ SW 两跳
 
 日期: 2026-10-19
-状态: 已接受
+状态: 已接受（2026-10-20 中继件 ↔ SW 一段由 `runtime.sendMessage` 改为常驻 Port，见「变更」）
 代码落点: packages/dl-core/src/messaging/（protocol / main-messenger / service-worker-messenger / relay）、
 packages/dl-core/src/{mount-messaging-relay,install-messaging-relay}.ts
 
@@ -20,16 +20,19 @@ packages/dl-core/src/{mount-messaging-relay,install-messaging-relay}.ts
 ### 三段两跳
 
 ```
-MAIN（DL.getTab/saveTab）──CustomEvent──▶ USER_SCRIPT 中继件 ──runtime.sendMessage──▶ SW
-        ◀──CustomEvent──                          ◀──sendResponse──
+MAIN（DL.getTab/saveTab）──CustomEvent──▶ USER_SCRIPT 中继件 ──常驻 Port──▶ SW
+        ◀──CustomEvent──                          ◀──port.postMessage──
 ```
 
 - **MAIN ↔ 中继件**：`CustomEvent`，事件名固定（`dl-messaging:request` / `dl-messaging:response`）。
   事件名不做参数化：`addEventListener` 没有通配，中继件只能监听确定的名字。
-- **中继件 ↔ SW**：`runtime.sendMessage`。中继件注册在独立 world 并 `configureWorld({ messaging: true })`，
-  否则世界内没有 `chrome.runtime`，这条腿直接断。SW 侧收端是 `runtime.onUserScriptMessage`
-  —— userScripts 世界发出的消息走专用事件，不走通用 `onMessage`（与 `onUserScriptConnect` 同理，
-  仓里已踩过两次）。
+- **中继件 ↔ SW**：`runtime.connect` 建一条名为 `dl-messaging:port` 的常驻 Port，请求与回包共用它；
+  SW 侧收端是 `runtime.onUserScriptConnect` —— userScripts 世界的连接走专用事件，不走通用 `onConnect`
+  （与 `onUserScriptMessage` 同理，仓里已踩过三次）。中继件仍需 `configureWorld({ messaging: true })`，
+  否则世界内没有 `chrome.runtime`，这条腿直接断。
+- **改 Port 的收益**：SW 手里有了可长期持有的句柄，后续「SW 主动下发」不必再另开一条通道；
+  代价是断线要自己接（`onDisconnect` → 退避重连），且 `sender.userScript.scriptId` 从此是
+  中继件自己的 id —— 调用方身份只能取帧内声明的 `scriptId`。
 
 ### 信封
 
@@ -92,14 +95,14 @@ MAIN（DL.getTab/saveTab）──CustomEvent──▶ USER_SCRIPT 中继件 ─�
 | --- | --- |
 | `messaging/protocol.ts` | 信封类型 + 线格式与守卫 + 错误序列化 + 可序列化校验 |
 | `messaging/main-messenger.ts` | MAIN 侧 messenger：`MainWorldMessenger` 类，CustomEvent 传输、id 配对 |
-| `messaging/service-worker-messenger.ts` | SW 侧 messenger：`ServiceWorkerMessenger` 类，`onUserScriptMessage` 根监听、handler 表 |
+| `messaging/service-worker-messenger.ts` | SW 侧 messenger：`ServiceWorkerMessenger` 类，`onUserScriptConnect` 收 Port、handler 表，回包按 `instanceId` 投回 |
 | `messaging/relay.ts` | USER_SCRIPT 中继件：转发两跳 + 失败兜底 |
 | `mount-messaging-relay.ts` | 中继件 IIFE 入口 |
 | `install-messaging-relay.ts` | 宿主侧注册面：独立 world + messaging + 保留名单 + 幂等注册 |
 | `service/sw-service.ts` | 内核服务 `sw`：`getTab` / `saveTab`，工厂形式注册（见下一条 ADR） |
 
 `build.mts` 多一个目标 `mount-messaging-relay-iife.js`，正向守卫要求产物里真的出现
-`sendMessage(` —— 中继件不转发就没有存在意义。
+`connect(` —— 中继件不建这条连接，通道就不存在。
 
 ## 与既有 SW 桥的关系
 
@@ -170,3 +173,18 @@ MAIN 世界就是页面，任何站点脚本都能伪造同形状的 CustomEvent
   页面侧要等 handshake；请求-应答场景不需要常连。
 - **给 `DL` 加 `postMessage/onMessage` 裸通道**：没有类型面，也没有错误/序列化约束，
   脚本侧会各写一套信封 —— 正是本 ADR 要收掉的分叉。
+
+## 变更（2026-10-20）：中继件 ↔ SW 改走常驻 Port
+
+**改因**：请求-应答确实不需要常连，但「SW 主动下发」需要。`sendMessage` 是一次性通道，
+SW 收到的只是事件 + 一次性的 `sendResponse`，拿不到任何可长期持有的句柄；`tabs.sendMessage`
+到不了 userScripts 世界。要句柄只有 `runtime.connect` 一条路，而两条腿并存又多一套协议，
+故整段替换而非新增。
+
+**代价与取舍**：
+
+- 断线要自己接：`onDisconnect` → 1s 起翻倍、封顶 15s 重连；在途请求按 `TRANSPORT` 结算，
+  不再有「Promise 永远悬着」这种静默失败。
+- `sender.userScript.scriptId` 从此恒为**中继件自己**的 id，调用方身份只能取帧内声明的
+  `scriptId`（`contextOf` 的取值顺序随之反转）。这是本次唯一的能力降级。
+- 「每脚本一条常连 port」的旧问题不复现：连接仍是**每帧一条**（中继件共享，`allFrames: false`）。

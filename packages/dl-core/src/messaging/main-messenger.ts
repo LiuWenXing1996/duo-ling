@@ -1,7 +1,9 @@
 import {
   MESSAGING_CHANNEL,
+  MESSAGING_DISCONNECT_EVENT,
   MESSAGING_REQUEST_EVENT,
   MESSAGING_RESPONSE_EVENT,
+  MessagingError,
   assertSerializable,
   deserializeError,
   isResponseDetail,
@@ -55,6 +57,13 @@ export class MainWorldMessenger {
   #ensureResponseListener(): void {
     if (this.#listening) return
     this.#listening = true
+    window.addEventListener(MESSAGING_DISCONNECT_EVENT, () => {
+      const pending = [...this.#pending.values()]
+      this.#pending.clear()
+      for (const entry of pending) {
+        entry.reject(new MessagingError('TRANSPORT', '与后台的连接已断开（正在重连）'))
+      }
+    })
     window.addEventListener(MESSAGING_RESPONSE_EVENT, (event: Event) => {
       const detail = (event as CustomEvent<unknown>).detail
       if (!isResponseDetail(detail)) return

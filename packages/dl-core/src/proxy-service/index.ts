@@ -71,7 +71,8 @@ const resolve = (root: unknown, path: string[]): unknown =>
 const contextOf = (message: SwMessage): ServiceContext => {
   const { sender } = message
   const stamped = (sender as { userScript?: { scriptId?: string } } | undefined)?.userScript
-  const scriptId = stamped?.scriptId ?? message.scriptId
+  // 连接由共享中继件建立，sender.userScript.scriptId 只能是中继件自己的 —— 调用方身份以帧内声明的为准
+  const scriptId = message.scriptId ?? stamped?.scriptId
   const tabId = sender?.tab?.id
   if (!scriptId || tabId === undefined) {
     throw new MessagingError(

@@ -25,6 +25,8 @@ export interface WireResult {
 export const MESSAGING_CHANNEL = 'dl-messaging'
 export const MESSAGING_REQUEST_EVENT = `${MESSAGING_CHANNEL}:request`
 export const MESSAGING_RESPONSE_EVENT = `${MESSAGING_CHANNEL}:response`
+export const MESSAGING_DISCONNECT_EVENT = `${MESSAGING_CHANNEL}:disconnect`
+export const MESSAGING_PORT = `${MESSAGING_CHANNEL}:port`
 
 export interface RequestDetail {
   channel: typeof MESSAGING_CHANNEL
@@ -37,11 +39,6 @@ export interface ResponseDetail extends WireResult {
   instanceId: string
   id: number
   type: string
-}
-
-export interface RuntimeRequest {
-  channel: typeof MESSAGING_CHANNEL
-  message: WireMessage
 }
 
 export type MessagingErrorCode = 'SERIALIZATION' | 'TRANSPORT' | 'NO_HANDLER' | 'PROTOCOL'
@@ -93,12 +90,8 @@ export function isResponseDetail(value: unknown): value is ResponseDetail {
     typeof value.instanceId === 'string' &&
     typeof value.id === 'number' &&
     typeof value.type === 'string' &&
-    typeof value.ok === 'boolean'
+    isWireResult(value)
   )
-}
-
-export function isRuntimeRequest(value: unknown): value is RuntimeRequest {
-  return isRecord(value) && value.channel === MESSAGING_CHANNEL && isWireMessage(value.message)
 }
 
 export function serializeError(error: unknown): SerializedError {
