@@ -12,7 +12,8 @@
 // 两个反射锚点的取材面：
 //   · 登记表 —— 直接 import covers.ts（类型化数据，登记表与测试不再隔一层注释解析）；
 //   · 用例名 —— 正则扫 cases/*.ts 源码里 `add('<组>', '<名>'` 的第二参（登记表 probe 字段
-//     须与它一字不差；用例只在构建产物里跑，源码反射是唯一的对齐面）。
+//     须与它一字不差；用例只在构建产物里跑，源码反射是唯一的对齐面）。实参可能被格式化器
+//     折成多行（长用例名超行宽时），故匹配允许实参之间换行。
 // 另对**构建产物**做 acorn 语法检查 —— 端测注入与手测导入的都是它，语法错一次就静默全废。
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -51,7 +52,7 @@ function caseNames(): string[] {
   for (const f of readdirSync(CASES_DIR).sort()) {
     if (!f.endsWith('.ts')) continue
     const src = readFileSync(CASES_DIR + f, 'utf8')
-    for (const m of src.matchAll(/^[ \t]*add\('[^']*',[\t ]*'([^']+)'/gm)) names.push(m[1]!)
+    for (const m of src.matchAll(/^[ \t]*add\(\s*'[^']*',\s*'([^']+)'/gm)) names.push(m[1]!)
   }
   return names
 }

@@ -55,6 +55,12 @@ function countOf(id: GmApiGroupId): number {
   return entriesOfGroup(id).length
 }
 
+/** 切分组并清空搜索（两条状态一起改，写成方法而非模板内联语句：内联多语句会被格式化拆行） */
+function pickGroup(id: GmApiGroupId | typeof ALL): void {
+  group.value = id
+  keyword.value = ''
+}
+
 function isOpen(path: string): boolean {
   return openMap.value[path] ?? false
 }
@@ -94,10 +100,7 @@ function setOpen(path: string, v: boolean): void {
           class="mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors"
           :class="group === ALL && !query ? 'bg-muted' : 'hover:bg-muted/60'"
           data-testid="gm-api-group-all"
-          @click="
-            group = ALL
-            keyword = ''
-          "
+          @click="pickGroup(ALL)"
         >
           <span class="min-w-0 flex-1 truncate text-sm">全部</span>
           <span class="shrink-0 text-xs text-muted-foreground">{{ ALL_ENTRIES.length }}</span>
@@ -110,10 +113,7 @@ function setOpen(path: string, v: boolean): void {
           class="mb-1 w-full rounded-md px-2 py-1.5 text-left transition-colors"
           :class="group === g.id && !query ? 'bg-muted' : 'hover:bg-muted/60'"
           :data-testid="`gm-api-group-${g.id}`"
-          @click="
-            group = g.id
-            keyword = ''
-          "
+          @click="pickGroup(g.id)"
         >
           <span class="flex items-center gap-2">
             <span class="min-w-0 flex-1 truncate text-sm">{{ g.title }}</span>
