@@ -122,6 +122,8 @@ agent loop 要求宿主「不会在任务中途被回收」，三种宿主的寿
 
 注入体的拼装归 `@duoling/dl-core` 的 `buildUserScript`：按「`var DL` 挂载点 → 内核 IIFE（`build.mts` 产出 `dist/mount-dl-iife.js`，本包以 `?raw` 取原文）→ `@require` + 正文」拼成**一条** code，三段同处一个函数作用域，正文因此能按词法拿到内核建好的 `DL`；注册统一走同包的 `installCustomUserScript`（脚本库那条只做校验与配置映射），GM 包装层那套保留为 GM 面的对照实现。
 
+脚本要主动命令 SW 时走**消息通道**（`docs/adr/0043-script-messaging-channel.md`）：`DL` 内部的 messenger 在 MAIN 世界发带 namespace 的 `CustomEvent`，独立 world 里的中继件（`dist/mount-messaging-relay-iife.js`）转成 `runtime.sendMessage`，SW 侧 `mountServiceWorkerMessaging()` 经 `runtime.onUserScriptMessage` 按 type 派发给 handler，回包沿原路返回。信封只有一种形状（`channel` 哨兵 + `{ id, type, data }`），配对状态只在发起端，错误与不可序列化的值都在边界上显式报错。`DL.getTab/saveTab` 也在这条通道上（`tab.get` / `tab.save`，SW 落点是 `mountTabStore` 的内存 Map）—— 此前的 MessagePort 三跳桥已整条下线。
+
 标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`@duoling/shared` 的 `metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`；grant 名 → 它开启的成员这张对应表在 `gm-grants.ts`，注入侧、速查页与 AI 规范三处共用这一份）；能力表 `gm-api-catalog.ts` 生成速查页与**给 AI 的能力清单**两形态（三防漂移：类型层 `satisfies` + 从注入源码反射 + 规范文本对齐单测）。内部仍走 `__dl` 信封协议（协议稳定、与 DL 时代一致；桥的真身与接线工厂都在 `@duoling/service-worker`——background 调 `createServiceWorkerHost` 注入遥测 / 扩展身份 / offscreen 就绪并同步注册全部监听（应用侧不再有 re-export 桶，直接从 `@duoling/service-worker` 取用），遥测对象在 `userscripts/telemetry.ts`）。
 
 - **可用性前置**：`chrome.userScripts` 在用户未开启「运行用户脚本」时**不存在**，直接调用会让 SW 初始化崩溃。引擎每条入口都先判存在性（`isUserScriptsAvailable()` / `typeof chrome.userScripts.register === 'function'`）再优雅跳过；开启引导统一交给工作台「引导」标签页（各处只给「查看开启引导」入口，不各写一套步骤）。

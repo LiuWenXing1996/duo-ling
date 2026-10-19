@@ -6,8 +6,7 @@
 // - mount-dl：内核。注入体被硬约束成一条 code（见 `src/build-user-script.ts` 文件头），内核必须
 //   与外层那个 `var DL = undefined` 处于同一个函数作用域，脚本正文才能按词法拿到 `DL`。
 //   落成另一条注册，作用域随之断开 —— 那时 `DL` 要么挂在 window 上、要么脚本根本看不见。
-// - mount-sw-bridge：SW 桥（页面侧中继件）。跑在 ISOLATED 世界，有 chrome.*，与 DL 无关 ——
-//   守卫集因此不同：不查 DL、允许 chrome，但必须真的发起 `chrome.runtime.connect`。
+// - mount-messaging-relay：消息中继件。跑在独立 USER_SCRIPT 世界，有 chrome.*，不查 DL、须发 sendMessage。
 //
 // 消费方用 `?raw` 把产物读成字符串常量再拼进注入体。也就是说产物文件名与内容是包内契约，
 // 改格式（加 banner、换 ESM）会直接改掉注入体。
@@ -68,15 +67,14 @@ const TARGETS: Target[] = [
     ],
   },
   {
-    entry: 'src/mount-sw-bridge.ts',
-    out: 'dist/mount-sw-bridge-iife.js',
-    label: 'SW 桥装配件',
+    entry: 'src/mount-messaging-relay.ts',
+    out: 'dist/mount-messaging-relay-iife.js',
+    label: '消息中继装配件',
     forbidden: [MODULE_STMT],
     required: [
       {
-        // 桥的全部意义就是连上 SW：产物里必须有这条连接
-        re: /\bchrome\s*\.\s*runtime\s*\.\s*connect\b/,
-        why: '没有发起 chrome.runtime.connect —— 桥装配件的入口必须连上 SW',
+        re: /\bsendMessage\s*\(/,
+        why: '没有发起 runtime.sendMessage —— 中继件必须把消息转发给 SW',
       },
     ],
   },

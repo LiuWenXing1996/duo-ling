@@ -403,6 +403,8 @@ export function initDlBridge(): void {
   // 响应机制：onUserScriptMessage 不支持「返回 Promise 作为响应」，必须调 sendResponse
   // 并返回 true 保持通道打开（沿用旧 GM 桥已验证的写法）。
   chrome.runtime.onUserScriptMessage.addListener((raw, sender, sendResponse) => {
+    // 带 channel 的是别的通道的信封（如 dl-messaging）：不抢答，交给它自己的监听者
+    if ((raw as { channel?: unknown } | null)?.channel != null) return undefined
     // 运行标识广播（GM 包装注入即发）：交对话界面监控按 tab 登记。
     const run = raw as {
       __dlRunStart?: true

@@ -48,7 +48,6 @@ export function installedCustomScriptIds(): readonly string[] {
   return [...installedIds]
 }
 
-/** 把一个 id 记进保留名单：不经 installCustomUserScript 注册的内置件用（如 SW 桥中继件） */
 export function protectCustomScriptId(id: string): void {
   installedIds.add(id)
 }

@@ -44,4 +44,9 @@ export * from './userscripts/page-inspector-bridge'
 export * from './userscripts/float-bridge'
 export * from './userscripts/telemetry'
 
-export { installSWBridgeScript, mountSWBridgeManager, SW_BRIDGE_SCRIPT_ID } from '@duoling/dl-core'
+export {
+  installMessagingRelay,
+  MESSAGING_RELAY_SCRIPT_ID,
+  mountServiceWorkerMessaging,
+  mountTabStore,
+} from '@duoling/dl-core'

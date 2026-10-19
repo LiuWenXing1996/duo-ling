@@ -1,1 +1,0 @@
-export const SW_BRIDGE_PORT_TAG = 'SW_BRIDGE_PORT_TAG'
