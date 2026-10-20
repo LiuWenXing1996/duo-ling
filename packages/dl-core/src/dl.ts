@@ -46,6 +46,17 @@ export class DLSystem {
     return this.#swService().saveTab(value)
   }
 
+  /** 读本脚本的持久键值（键不存在 → `def`） */
+  async getValue<T = unknown>(key: string, def?: T): Promise<T | undefined> {
+    const value = (await this.#swService().getValue(key)) as T | undefined
+    return value === undefined ? def : value
+  }
+
+  /** 写本脚本的持久键值；`undefined` / `null` 都删键（通道是 JSON，两者不可分） */
+  setValue(key: string, value: unknown): Promise<void> {
+    return this.#swService().setValue(key, value)
+  }
+
   reportNetLog(record: unknown): void {
     MainWorldMessenger.instance.emit(NET_LOG_TYPE, record)
   }
@@ -100,6 +111,14 @@ export class DLClient {
 
   saveTab(value?: unknown): Promise<void> {
     return this.#sys.saveTab(value)
+  }
+
+  getValue<T = unknown>(key: string, def?: T): Promise<T | undefined> {
+    return this.#sys.getValue<T>(key, def)
+  }
+
+  setValue(key: string, value: unknown): Promise<void> {
+    return this.#sys.setValue(key, value)
   }
 
   registerBackgroundCommand(

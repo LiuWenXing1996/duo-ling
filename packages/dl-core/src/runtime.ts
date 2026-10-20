@@ -22,12 +22,17 @@ export interface NetLogReport {
   record: unknown
 }
 
+export interface DLRuntimeConfig {
+  /** 脚本键值库的库名：只认第一次挂载，缺省 `duoling-dl` */
+  storeDatabase?: string
+}
+
 export class DLRuntime {
   #ready: Promise<void> = Promise.resolve()
   #availability = new UserScriptsAvailabilityWatch()
 
-  constructor() {
-    mountSwService()
+  constructor(config: DLRuntimeConfig = {}) {
+    mountSwService(config.storeDatabase ?? 'duoling-dl')
     mountCommandService()
     if (typeof chrome.userScripts?.register === 'function') void this.installMessagingRelay()
   }

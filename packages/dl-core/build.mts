@@ -57,6 +57,11 @@ const TARGETS: Target[] = [
         re: /\bchrome\s*\./,
         why: '引用了 chrome.* —— 内核注入体跑在页面主世界，那里没有扩展 API',
       },
+      {
+        // idb 不碰 chrome，上一道拦不住；真被打进来就会拿页面的 indexedDB 开库
+        re: /\bopenDB\b/,
+        why: '把 idb 打进了注入产物 —— 存储只在 SW 侧，主世界不许开库',
+      },
     ],
     required: [
       {

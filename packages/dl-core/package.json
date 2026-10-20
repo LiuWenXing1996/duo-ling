@@ -19,6 +19,9 @@
     "dev": "node build.mts --watch",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "idb": "^8.0.3"
+  },
   "devDependencies": {
     "esbuild": "^0.28.2",
     "typescript": "^5.6.0"
