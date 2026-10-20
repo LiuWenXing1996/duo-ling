@@ -432,7 +432,10 @@ async function runLoop(opts: {
         tabId == null
           ? Promise.reject(new Error('本次生成没有绑定标签页，无法采集页面快照'))
           : offscreenBridge.capturePageSnapshot(tabId),
-      () => offscreenBridge.capturePageEnv(conversationId),
+      () =>
+        tabId == null
+          ? Promise.reject(new Error('本次生成没有绑定标签页，无法读取页面环境'))
+          : offscreenBridge.capturePageEnv(tabId),
       (id) => offscreenBridge.readError(id),
       {
         // 录制按标签页：目标恒是「本会话所属的那一页」，工具不接参数，指不了别处

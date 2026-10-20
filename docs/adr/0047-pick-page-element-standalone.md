@@ -2,7 +2,7 @@
 
 日期: 2026-10-20
 状态: 已接受
-代码落点: packages/user-scripts/src/builtin/{pick-page-element,page-snapshot}/（件：采样 / 超时 / 抓 DOM）、packages/shared/src/page-context.ts（寻址常量）、packages/shared/src/service/sw-service.ts 与 packages/service-worker/src/sw-service.ts（隧道契约与实现）、packages/ui/src/components/ChatPanel.vue（拾取的发起侧）、packages/ui/src/lib/extension-chat-transport.ts 与 packages/offscreen-document/src/chat/{chat-host,task-store,sw-bridge}.ts（快照的发起侧）、packages/dl-core/src/messaging/service-worker-messenger.ts（端口断开时的挂起请求清理）
+代码落点: packages/user-scripts/src/builtin/{pick-page-element,page-snapshot,page-env}/（件：采样 / 超时 / 抓 DOM / 读环境）、packages/shared/src/page-context.ts（寻址常量）、packages/shared/src/service/sw-service.ts 与 packages/service-worker/src/sw-service.ts（隧道契约与实现）、packages/ui/src/components/ChatPanel.vue（拾取的发起侧）、packages/ui/src/lib/extension-chat-transport.ts 与 packages/offscreen-document/src/chat/{chat-host,task-store,sw-bridge}.ts（快照与环境读数的发起侧）、packages/dl-core/src/messaging/service-worker-messenger.ts（端口断开时的挂起请求清理）
 
 ## 背景
 
@@ -49,7 +49,23 @@ snapshot 与 pick 一样从检查器件搬出，注册 id `dl-page-snapshot`、�
 
 **没有 tabId 就报错，不兜底**：浮层被当普通标签页打开、或扩展页拿不到 `?tab=` 时，工具返回「本次生成没有绑定标签页，无法采集页面快照」。不退回「查当前激活页」—— AI 决定读页面时用户可能已经切走，查激活页会把别人的 DOM 喂给模型。
 
-**留下的不对称是刻意的**：snapshot 认 `tabId`、env 与录制认 `conversationId` 反查。等 env 也搬走，`resolveAiTargetTab` 就只剩录制一条。
+**当时留下的不对称**：snapshot 认 `tabId`、env 与录制认 `conversationId` 反查。其中 env 那一半已在第三刀统一（见下节），现在只剩录制仍走反查。
+
+## 后续：env 也独立成件（2026-10-20，同一天的第三刀）
+
+env 从检查器件搬出，注册 id `dl-page-env`、产物 `duoling-page-env.js`、一条后台命令 `env`。链路与 snapshot 完全同形（同一个 `tabId`、同一条 ISWService 隧道、同一份 `ChatTaskRecord.tabId`）。
+
+**为什么不留检查器件**：搬走 pick / snapshot / env 之后它一个模式都不剩，留着就是一份每页待命、什么都不做的 IIFE。这一刀把整条 DL Port 指令线一起拔掉 —— 件、`page-inspector-bridge`（含 `pending` 表与 reqId 配对）、`dl-port.pushCommandTo`、`api-contract` 的 `inspector.cmd` / `inspector.result`、`host-config.onInspectorEvent`、`dl-bridge` 的结算分支、`shared` 的 `InspectorMode` 全部删除。脚本桥从此只有上行（GM 调用 / 错误 / 录制采样），下行指令一律走后台命令。
+
+**为什么是独立件而不是并进快照件**（考虑过两种并法）：
+
+- 并进 `dl-page-snapshot`（件名不动）：代码最少（加三行），但工作台里显示「页面快照」却在读视口和 UA，名与能力对不上。
+- 合并改名 `dl-page-reader`（`snapshot` + `env` 两条命令）：名字准，件数还净减一，代价是刚定下的 id 再改一次，且 ARCHITECTURE 里「五件 / 角标 +4」几个数字要跟着动。
+- 选独立件：与 pick / snapshot 一件一能一致，件数、系统脚本数、普通页在册数（6 / 5 / 4）**与上一刀完全一致** —— 检查器出、环境入，文档里只需换名字，不动数字。
+
+**代价：多一份全站待命件**。每页每帧多一个 IIFE 与一次 `document_start` 执行；换来的是「一个通道 = 一个件」的可读性，以及件之间的失败面互不影响。已接受。
+
+**`resolveAiTargetTab` 只剩一条调用者**（录制读取 `tab_record_read`）：不再有「AI 读取三兄弟」，它现在只服务录制。本刀不动它（改名 / 内联会牵动 ARCHITECTURE 的支路表述），留作后续。
 
 ## 代码里不写、落在这里的
 
@@ -75,10 +91,12 @@ snapshot 与 pick 一样从检查器件搬出，注册 id `dl-page-snapshot`、�
 | 给拾取单独建一条常驻 Port（像旧 relay） | dl-core 已有「按 tabId + scriptId 寻址」的命令面，再建一条是把同一件事做两遍 |
 | 在件上挂 `window.__dlPickPageElement` 幂等标记 | dl-core 面下重复注入是两条独立消息线，标记挡不住真实情形；站点置位反而能让件永不安装（与删除 `__dlFloatHost` 同一条理由） |
 | snapshot 走 `ISWService` 上新增的语义化 `capturePageSnapshot(conversationId)` | 那要求 SW 侧把 conversationId 反查成 tabId，而 `resolveAiTargetTab` 在应用入口（`background.ts`）、包内 import 不到，只能从构造函数注入委托；tabId 浮层本来就有，直接带下来就没有这一跳 |
-| snapshot 沿用 `dl-page-inspector` 这个 id | 检查器件还留着 env（下一刀才搬），两件不能共用一个 id；而「一个件一个语义」正是 pick 那刀立下的规矩 |
+| snapshot 沿用 `dl-page-inspector` 这个 id | 检查器件当时还留着 env（下一刀才搬），两件不能共用一个 id；而「一个件一个语义」正是 pick 那刀立下的规矩 |
+| env 并进快照件（件名不动）或合并改名 `dl-page-reader` | 前者让「页面快照」这个件名去回环境读数，名实不符；后者名字最准但要再改一次 id 并动「五件 / 角标 +4」那组数字。独立件的件数与角标口径与上一刀完全一致，只换名字 |
 
 ## 遗留
 
 - `INSPECTOR_PICKER_NS` 里的 inspector 是历史：现在造遮罩的是拾取件。改名会牵动浮层宿主的让位判据、e2e 选择器与三处文档，单独一刀做。
-- 拾取件与检查器件现在是两个件、两条线：真机上要分别确认「点选能用」与「环境读数能用」，不能拿一个的通过推断另一个。
-- 快照件是这一刀之后第一条真正能用的读页面通道（此前 snapshot / env 都断在桥上）：真机需确认 `page_snapshot` 工具拿到 html、孤儿续跑后仍能拿到。
+- `resolveAiTargetTab` 只剩 `tab_record_read` 一条调用者，且名字里的「AI 目标页」已不准确：改名或内联留给后续一刀。
+- 三条读页面通道（快照 / 环境 / 拾取）现在都直呼件，真机上要分别确认；不能拿一条的通过推断另一条。
+- 件数没变（六件注册件、五件系统脚本、普通页在册四件），但 **id 换了一个**：`dl-page-inspector` 的残留注册由 `BUILTIN_SCRIPT_IDS` 的陈旧清扫自动注销，不需要额外迁移。

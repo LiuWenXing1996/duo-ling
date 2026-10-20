@@ -9,8 +9,8 @@ import type { ScriptProject } from '@duoling/shared'
 import {
   FLOAT_HOST_FILE,
   FLOAT_HOST_ID,
-  INSPECTOR_HOST_FILE,
-  INSPECTOR_HOST_ID,
+  PAGE_ENV_FILE,
+  PAGE_ENV_ID,
   PAGE_SNAPSHOT_FILE,
   PAGE_SNAPSHOT_ID,
   PICK_ELEMENT_FILE,
@@ -39,29 +39,22 @@ const ALWAYS_ON_MATCHES = ['*://*/*']
 /** 录制系统脚本的匹配面（engine 的「在册没变就跳过」比对面也用它） */
 export const SYSTEM_TAB_RECORD_MATCHES = ALWAYS_ON_MATCHES
 
-/** 页面检查器系统脚本的匹配面（engine 的「在册没变就跳过」比对面也用它） */
-export const SYSTEM_INSPECTOR_MATCHES = ALWAYS_ON_MATCHES
+export const SYSTEM_PAGE_SNAPSHOT_MATCHES = ALWAYS_ON_MATCHES
+
+export const SYSTEM_PAGE_ENV_MATCHES = ALWAYS_ON_MATCHES
 
 export const SYSTEM_PICK_ELEMENT_MATCHES = ALWAYS_ON_MATCHES
-
-export const SYSTEM_PAGE_SNAPSHOT_MATCHES = ALWAYS_ON_MATCHES
 
 /** 浮层宿主系统脚本的匹配面（engine 的「在册没变就跳过」比对面也用它） */
 export const SYSTEM_FLOAT_MATCHES = ALWAYS_ON_MATCHES
 
-/**
- * 消费方两处：engine 的 listBuiltinRegistrations 把它并进 BUILTIN_META（popup 的页面概览与
- * 工作台「脚本列表」底部分区两处 UI 只读透出），以及本文件三个 project 构建器的 `name`
- * —— 展示名单一来源，件「自己声明自己」。中继件（脚本桥）不在：它已在包内
- * （relay/sync），不是系统脚本，展示条目由 engine 自行补。
- */
 export const SYSTEM_SCRIPT_DISPLAY: Readonly<
   Record<string, { name: string; world: string; note: string }>
 > = {
-  [INSPECTOR_HOST_ID]: {
-    name: '页面检查器',
+  [PAGE_ENV_ID]: {
+    name: '页面环境',
     world: '页面主世界',
-    note: '在页面里待命：收到指令才读环境，平时不亮任何 UI',
+    note: '在页面里待命：收到请求才读视口 / 像素比 / 页面 UA，平时不亮任何 UI',
   },
   [PAGE_SNAPSHOT_ID]: {
     name: '页面快照',
@@ -86,18 +79,18 @@ export const SYSTEM_SCRIPT_DISPLAY: Readonly<
 }
 
 /**
- * 页面检查器系统脚本的注册态（每次调用现取：源码有缓存，项目对象是廉价派生）。
+ * 页面环境系统脚本的注册态（每次调用现取：源码有缓存，项目对象是廉价派生）。
  * enabled 恒真 —— 它没有用户开关，与录制件同为「扩展托管、恒注册」。
  */
-export async function pageInspectorProject(): Promise<ScriptProject> {
-  const code = await loadSystemScriptCode(INSPECTOR_HOST_FILE)
+export async function pageEnvProject(): Promise<ScriptProject> {
+  const code = await loadSystemScriptCode(PAGE_ENV_FILE)
   const now = Date.now()
   return {
     v: 2,
-    uuid: INSPECTOR_HOST_ID,
-    name: SYSTEM_SCRIPT_DISPLAY[INSPECTOR_HOST_ID].name,
+    uuid: PAGE_ENV_ID,
+    name: SYSTEM_SCRIPT_DISPLAY[PAGE_ENV_ID].name,
     enabled: true,
-    config: { ...defaultConfig(SYSTEM_INSPECTOR_MATCHES), runAt: 'document_start' },
+    config: { ...defaultConfig(SYSTEM_PAGE_ENV_MATCHES), runAt: 'document_start' },
     source: { code, savedAt: now },
     createdAt: now,
   }
@@ -155,7 +148,6 @@ export async function tabRecorderProject(): Promise<ScriptProject> {
 
 /**
  * 浮层宿主系统脚本的注册态（每次调用现取：源码有缓存，项目对象是廉价派生）。
- * enabled 恒真 —— 它没有用户开关，与检查器同为「扩展托管、恒注册」。
  *
  * **占位符替换**：件源码里的 `__DL_FLOAT_PANEL_URL__` / `__DL_FLOAT_EXT_NAME__`
  * 在这里替换成 JSON 字面量（浮层页地址与扩展显示名只有扩展侧取得到，而注册项是静态字符串；

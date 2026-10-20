@@ -458,16 +458,6 @@ export function initDlBridge(): void {
         void ingestTabRecord(event.kind, event.record, sender.tab?.id)
         return undefined
       }
-      // 页面检查器指令结果：交宿主侧按 reqId 结算挂起的那次调用（uuid / tabId 一并带去，
-      // 旁证与页归属都在宿主侧定）。
-      if (event && event.t === 'inspector.result') {
-        telemetryPort()?.onInspectorEvent?.(
-          evt.uuid ?? '',
-          sender.tab?.id ?? null,
-          { reqId: event.reqId, ok: event.ok, payload: event.payload },
-        )
-        return undefined // 结算是宿主侧的事，桥只递送
-      }
       // sender.tab 定位出错页面（userScript 世界消息 sender 带 tab）；拿不到就无从判归属
       const tabId = sender.tab?.id
       if (tabId == null) return undefined

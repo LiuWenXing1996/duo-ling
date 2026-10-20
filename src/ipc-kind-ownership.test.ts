@@ -72,7 +72,6 @@ const ALL_KINDS = [
   { kind: 'offscreen:ready', side: 'sw' },
   // —— model:*（SW：配置中转）——
   { kind: 'model:getActiveProfile', side: 'sw' },
-  { kind: 'page:env', side: 'sw' },
   { kind: 'page:overview', side: 'sw' },
   { kind: 'float:open', side: 'sw' },
   { kind: 'float:probe', side: 'sw' },

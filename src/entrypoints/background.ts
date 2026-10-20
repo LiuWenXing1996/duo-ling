@@ -144,7 +144,6 @@ import {
 import { getActiveProfileState } from '@duoling/shared'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
 import { broadcastBuildPhase } from '@duoling/shared'
-import { capturePageEnvFromTab } from '@duoling/service-worker'
 import { isFloatHostReady, openFloatPanel } from '@duoling/service-worker'
 import { errorText } from '@duoling/shared'
 
@@ -300,12 +299,6 @@ const handlers: {
   // 模型配置：offscreen 拉取当前生效配置（含 apiKey）。复用现成的 getActiveProfileState()，
   // SW 里本来就能调；offscreen 侧须「取一次、缓存、不写日志」。
   'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> => getActiveProfileState(),
-
-  'page:env': async (
-    msg,
-  ): Promise<Awaited<ReturnType<typeof capturePageEnvFromTab>>> => {
-    return capturePageEnvFromTab(await resolveAiTargetTab(msg.conversationId))
-  },
 
   // —— 浮层宿主命令面 ——
   // 件已转 MAIN 世界系统脚本，tabs.sendMessage 到不了它：打开走件的后台命令 float.open

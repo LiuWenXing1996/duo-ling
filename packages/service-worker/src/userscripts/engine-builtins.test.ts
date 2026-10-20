@@ -33,10 +33,10 @@ describe('listBuiltinRegistrations（内置件注册状态）', () => {
     expect(all.every((b) => !b.registered)).toBe(true)
   })
 
-  it('浮层宿主与页面检查器同属注册件：在册时带全匹配面（注册面之外已无件）', async () => {
+  it('浮层宿主与页面环境同属注册件：在册时带全匹配面（注册面之外已无件）', async () => {
     stubUserScripts([
       { id: 'dl-float-host', matches: ['*://*/*'] },
-      { id: 'dl-page-inspector', matches: ['*://*/*'] },
+      { id: 'dl-page-env', matches: ['*://*/*'] },
     ])
     const all = await listBuiltinRegistrations()
     const host = all.find((b) => b.id === 'dl-float-host')!
@@ -80,10 +80,10 @@ describe('builtinsOnPage（某一页真正在用的内置件）', () => {
     name: '浮层宿主',
     matches: ['*://*/*'],
   }
-  const inspector = {
+  const pageEnv = {
     ...relay,
-    id: 'dl-page-inspector',
-    name: '页面检查器',
+    id: 'dl-page-env',
+    name: '页面环境',
     matches: ['*://*/*'],
   }
 
@@ -111,9 +111,8 @@ describe('builtinsOnPage（某一页真正在用的内置件）', () => {
     ])
   })
 
-  it('全匹配的浮层宿主与页面检查器按匹配面判：普通网页上都在用', () => {
+  it('全匹配的浮层宿主与页面环境按匹配面判：普通网页上都在用', () => {
     expect(
-      builtinsOnPage([floatHost, inspector], 'https://a.example/p', false).map((b) => b.id),
-    ).toEqual(['dl-float-host', 'dl-page-inspector'])
-  })
-})
+      builtinsOnPage([floatHost, pageEnv], 'https://a.example/p', false).map((b) => b.id),
+    ).toEqual(['dl-float-host', 'dl-page-env'])
+  })})

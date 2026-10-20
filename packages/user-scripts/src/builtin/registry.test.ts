@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { BUILTIN_ENTRY_POINTS as ENTRY_POINTS } from '../../build.mjs'
 import {
   FLOAT_HOST_FILE,
-  INSPECTOR_HOST_FILE,
+  PAGE_ENV_FILE,
   PAGE_SNAPSHOT_FILE,
   PICK_ELEMENT_FILE,
   TAB_RECORDER_FILE,
@@ -24,7 +24,7 @@ describe('产物文件名与构建入口表一致', () => {
       .sort()
     const declared = [
       TAB_RECORDER_FILE,
-      INSPECTOR_HOST_FILE,
+      PAGE_ENV_FILE,
       PAGE_SNAPSHOT_FILE,
       PICK_ELEMENT_FILE,
       FLOAT_HOST_FILE,

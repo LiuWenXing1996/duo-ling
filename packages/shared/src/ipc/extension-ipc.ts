@@ -8,9 +8,6 @@
 // 两者职责不同，混在一起会让「平移来的契约」被扩展实现细节污染。
 
 // —— 页面上下文档位 ——
-// 页面检查器（件本体见 @duoling/user-scripts/builtin 的 inspector/install.ts，MAIN 世界系统脚本
-// `dl-page-inspector`）的载荷形状**定义在契约包里**：件按这些形状造数据，而件不能
-// 依赖应用源码，故真相源落在 @duoling/shared —— 消费方从那里自取，本文件不再转发。
 import type { PageContextInfo } from '../chat-ipc'
 import type { IpcEnvelope } from './envelope'
 
@@ -150,9 +147,6 @@ export type RuntimeRequest =
   // 返回值含 apiKey 明文：属同扩展内上下文之间的传递（offscreen 与 SW 信任级别等同），
   // 不是新增对外暴露面；但仍须「取一次、缓存、不写日志」。
   | { kind: 'model:getActiveProfile' }
-
-  // 注意前缀：`chat:` 是「SW 静默让路给 offscreen」的保留前缀，SW 自答的命令不能用
-  | { kind: 'page:env'; conversationId?: string }
 
   // —— popup 的页面概览（「当前页面 / 其他页面」两个区块的数据源）——
   // 一次取回全部标签页的「跑着哪些脚本 / 归属哪条会话 / 是不是正在生成」：这三份数分属运行登记表、

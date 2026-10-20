@@ -10,6 +10,8 @@
 //
 // 注意：形状一律 `import type` 引（编译后消失）；运行时只取契约包里的常量与 SW 服务代理。
 import {
+  PAGE_ENV_COMMAND,
+  PAGE_ENV_ID,
   PAGE_SNAPSHOT_COMMAND,
   PAGE_SNAPSHOT_ID,
   createSWService,
@@ -78,13 +80,12 @@ export const offscreenBridge = {
       PAGE_SNAPSHOT_COMMAND,
     ) as Promise<PageSnapshotContext>,
 
-  /**
-   * 页面环境读数（AI 的 page_env_read 工具用）：SW 代为请本会话所属标签页上的页面检查器
-   * 读一次环境。与快照同一条执行通道、同一个目标页判据（会话归属），conversationId 由
-   * chat-host 注入 —— 理由同上一行：AI 决定要读时用户可能已经切走。
-   */
-  capturePageEnv: (conversationId?: string): Promise<PageEnvContext> =>
-    send({ kind: 'page:env', conversationId }),
+  capturePageEnv: (tabId: number): Promise<PageEnvContext> =>
+    createSWService().dlRuntimeInvokeBackgroundCommand(
+      tabId,
+      PAGE_ENV_ID,
+      PAGE_ENV_COMMAND,
+    ) as Promise<PageEnvContext>,
 
   /**
    * 按错误 ID 查一条错误记录：错误日志在 duoling-runtime 库（SW 侧 IDB），

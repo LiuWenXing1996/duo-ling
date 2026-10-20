@@ -43,12 +43,6 @@ export interface UserscriptTelemetry {
   ): void
   /** 标签页录制载荷落库 */
   appendTabCapture?(rec: unknown): Promise<void>
-  /**
-   * 页面检查器指令结果结算（检查器系统脚本经 __dlEvent 信封上行）。
-   * 旁证（uuid 必须是检查器系统脚本自己的）与页归属（tabId）都由宿主侧定；
-   * reqId 由 SW 现造随指令下发，结算认它（幂等，重复投递无害）。
-   */
-  onInspectorEvent?(uuid: string, tabId: number | null, rec: { reqId: string; ok: boolean; payload: unknown }): void
 }
 
 /** 宿主配置（全部可选） */

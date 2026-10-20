@@ -307,18 +307,6 @@ export function pushFetchProgress(
   }
 }
 
-/**
- * 向**指定脚本在指定标签页**的全部 Port 推一帧事件（页面检查器指令下发走它：
- * uuid 是系统脚本自己的 id，tabId 锁定目标页）。返回推到的 Port 数 —— 0 = 该页上
- * 没有它的在岗连接（件未注入 / Port 未建 / 页面在导航），调用方据此即时失败。
- */
-export function pushCommandTo(uuid: string, tabId: number, ev: ApiEvent): number {
-  const registry = getDlPortRegistry()
-  const ports = registry.portsForMenuClick(uuid, tabId)
-  for (const port of ports) pushEvent(registry, port, ev)
-  return ports.length
-}
-
 /** 推下载进度 / 结局（`GM_download`）给发起它的连接；寻址与 pushFetchProgress 同款 */
 export function pushDownloadChange(
   uuid: string,

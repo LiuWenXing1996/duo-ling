@@ -2,20 +2,11 @@
 //
 // 通用注册引擎（世界配置 / 单脚本注册 / 全量重注册串行链 / 可用性检测 / 握手密钥）与
 // **脚本桥中继件**（GM 桥 MAIN 世界侧，「跑全量 GM」的组成部分）在同包的
-// registration.ts / relay/sync.ts；本文件只管本扩展自己的注入件的注册同步，
-// 并经 host-config 的 builtins 注入点挂进包的全量链：
-//   · 页面检查器 / 浮层宿主常驻件 —— 恒注册（拾取 / 打开浮层都是「页面早已打开、用户刚点
-//     按钮」的场景，见 system-scripts.ts）；
-//   · 标签页录制 —— 已转**系统脚本**（见 system-scripts.ts），注册跟随「有没有页在录」。
-// 件与 SW 的协议对端（page-inspector-bridge / float-bridge / dl-port）都在本包 —— 纯产品面。
+// registration.ts / relay/sync.ts；本文件只管本扩展自己的注入件的注册同步。
 import type { BuiltinRegistration, ScriptProject } from '@duoling/shared'
-// 检查器 / 浮层 / 录制的注册面（注册 id / 产物文件名）由包声明：件在那儿源码化并构建成
-// 独立 IIFE 文件，扩展侧按 id 取其内容作系统脚本源码（真相源见 user-scripts/builtin 的 registry.ts）。
-// 中继件（relay）例外：本体在 user-scripts/builtin/relay，宿主侧注册面随本包内化（id / 装配段 /
-// 注册同步都在包内，IIFE 以 `{ code }` 注册，无公共资产文件）。
 import {
   FLOAT_HOST_ID,
-  INSPECTOR_HOST_ID,
+  PAGE_ENV_ID,
   PAGE_SNAPSHOT_ID,
   PICK_ELEMENT_ID,
   TAB_RECORDER_ID,
@@ -26,13 +17,13 @@ import { listProjects } from '@duoling/shared'
 // 系统脚本（原内置件）：扩展随包分发、uuid 固定，与用户脚本走同一条 registerScript 注册链
 import {
   SYSTEM_FLOAT_MATCHES,
-  SYSTEM_INSPECTOR_MATCHES,
+  SYSTEM_PAGE_ENV_MATCHES,
   SYSTEM_PAGE_SNAPSHOT_MATCHES,
   SYSTEM_PICK_ELEMENT_MATCHES,
   SYSTEM_SCRIPT_DISPLAY,
   SYSTEM_TAB_RECORD_MATCHES,
   floatHostProject,
-  pageInspectorProject,
+  pageEnvProject,
   pageSnapshotProject,
   pickElementProject,
   tabRecorderProject,
@@ -62,7 +53,7 @@ import { SCRIPT_RELAY_ID, syncScriptRelay } from '../relay/sync'
  */
 export const BUILTIN_SCRIPT_IDS = [
   SCRIPT_RELAY_ID,
-  INSPECTOR_HOST_ID,
+  PAGE_ENV_ID,
   PAGE_SNAPSHOT_ID,
   PICK_ELEMENT_ID,
   FLOAT_HOST_ID,
@@ -133,29 +124,22 @@ export function builtinsOnPage(
   })
 }
 
-/**
- * 维护页面检查器系统脚本的注册（幂等可重入；调用方负责串行化）。返回在册时的项目对象
- * （调用方把它算进中继件并集 —— 件上行走桥，MAIN 世界没有它的注册就没有中继件）。
- * 为什么常驻、匹配面全站的代价见 docs/adr/0009-builtin-resident-scripts-registration.md。
- */
-async function syncPageInspector(): Promise<ScriptProject | null> {
+async function syncPageEnv(): Promise<ScriptProject | null> {
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return null
   let existing: chrome.userScripts.RegisteredUserScript | undefined
   try {
-    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === INSPECTOR_HOST_ID)
+    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === PAGE_ENV_ID)
   } catch {
     return null // 引擎不可用时静默跳过（上层已有状态横幅兜底）
   }
-  const project = await pageInspectorProject()
-  // 「没变就跳过」看**匹配面与注册形态**：旧形态是独立世界 `{ file }` 注册，形态不符即重注册
-  // （registerScript 会先注销同 id 旧注册，旧的独立世界残留由此清掉）。
+  const project = await pageEnvProject()
   const jsSegs = existing?.js
   const shapeOk = !!jsSegs && jsSegs.length === 1 && typeof jsSegs[0].code === 'string'
-  if (existing && shapeOk && sameMatchSet(existing, { matches: SYSTEM_INSPECTOR_MATCHES })) {
+  if (existing && shapeOk && sameMatchSet(existing, { matches: SYSTEM_PAGE_ENV_MATCHES })) {
     return project
   }
   await registerScript(project)
-  console.log('[duoling:sw] 页面检查器系统脚本注册成功：', JSON.stringify(SYSTEM_INSPECTOR_MATCHES))
+  console.log('[duoling:sw] 页面环境系统脚本注册成功：', JSON.stringify(SYSTEM_PAGE_ENV_MATCHES))
   return project
 }
 
@@ -296,48 +280,33 @@ export async function syncAllBuiltins(projects: ScriptProject[]): Promise<void> 
   // 录制系统脚本跟随「有没有标签页在记活动」（与脚本集合无关）：SW 冷启动 / 扩展更新恢复时
   // 一并同步，保证「正在录的那一页」在重注册后依然生效
   const recorder = await syncTabRecorder().catch(() => null)
-  // 页面检查器 / 浮层宿主系统脚本同样与脚本集合无关：冷启动 / 扩展更新后必须补回
-  // （扩展更新会清空全部注册）
-  const inspector = await syncPageInspector().catch(() => null)
+  const env = await syncPageEnv().catch(() => null)
   const snapshot = await syncPageSnapshot().catch(() => null)
   const pick = await syncPickElement().catch(() => null)
   const float = await syncFloatHost().catch(() => null)
-  // 中继件并集把在册系统脚本算上（录制 / 检查器 / 浮层宿主都走桥，页面里没有中继件就是断流）
-  const system = [recorder, inspector, snapshot, pick, float].filter((p): p is ScriptProject => p != null)
+  const system = [recorder, env, snapshot, pick, float].filter((p): p is ScriptProject => p != null)
   if (system.length) await syncScriptRelay([...projects, ...system])
 }
 
 /**
  * 重算录制系统脚本的注册（挂包侧注册串行队列）。录制开关变更后（开启 / 关闭 / 标签页关闭）
- * 由调用方触发。注册态变化后都要重汇中继件并集：在册系统脚本（录制 / 检查器 / 浮层宿主）必须
- * 覆盖，不在册时并集回落为纯用户脚本。
  */
 export function refreshTabRecorder(): Promise<void> {
   return enqueueRegistration(async () => {
     const recorder = await syncTabRecorder()
-    const inspector = await syncPageInspector()
+    const env = await syncPageEnv()
     const snapshot = await syncPageSnapshot().catch(() => null)
     const pick = await syncPickElement().catch(() => null)
     const float = await syncFloatHost().catch(() => null)
     const projects = await listProjects()
-    const system = [recorder, inspector, snapshot, pick, float].filter((p): p is ScriptProject => p != null)
+    const system = [recorder, env, snapshot, pick, float].filter((p): p is ScriptProject => p != null)
     await syncScriptRelay(system.length ? [...projects, ...system] : projects)
   })
 }
 
-/**
- * 重算**内置注入脚本**的注册（挂包侧注册串行队列）：脚本增删改 / 启停 / 删除，以及启动与
- * 扩展更新恢复时由 background 调用。汇合三路：
- *   · 页面检查器系统脚本 —— 与脚本集合无关、恒注册；
- *   · 中继件 —— 跟随「启用脚本的匹配并集」（包内 relay/sync.ts 的 syncScriptRelay），
- *     在册系统脚本（录制 / 检查器 / 浮层宿主）必须算上 —— 否则录制期间改一次脚本，中继件缩回
- *     用户脚本并集，录制断流、检查器瞎掉、浮层收不到指令；
- *   · 浮层宿主系统脚本 —— 恒注册，搭这条队列只为少一处接线（幂等，注册面未变即跳过）。
- * 录制系统脚本有自己的入口（`refreshTabRecorder`）。
- */
 export function refreshBuiltinScripts(): Promise<void> {
   return enqueueRegistration(async () => {
-    const inspector = await syncPageInspector()
+    const env = await syncPageEnv()
     const snapshot = await syncPageSnapshot().catch(() => null)
     const pick = await syncPickElement().catch(() => null)
     const float = await syncFloatHost().catch(() => null)
@@ -345,7 +314,7 @@ export function refreshBuiltinScripts(): Promise<void> {
     const recorder = (await hasRecordingTabSession())
       ? await tabRecorderProject().catch(() => null)
       : null
-    const system = [recorder, inspector, snapshot, pick, float].filter((p): p is ScriptProject => p != null)
+    const system = [recorder, env, snapshot, pick, float].filter((p): p is ScriptProject => p != null)
     await syncScriptRelay(system.length ? [...projects, ...system] : projects)
   })
 }
