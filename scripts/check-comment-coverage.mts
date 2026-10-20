@@ -2,7 +2,7 @@
 // 注释密度报告：注释行占非空行的比例，按目录、扩展名与来源汇总。
 // 不设理想值 —— 密度是描述指标，卡绝对阈值会诱导为凑数写注释；注释该不该写由 check-comments 管。
 // 但接 ratchet 基线（comment-baseline.json，--update 生成 / --check 校验）：只拦明显上涨，
-// 防大段注释在代码里越积越多；治理注释把密度降下来后要显式刷新基线固化成果，否则一直顶着旧高位。
+// 防大段注释在代码里越积越多。降低由 --check 自动下调固化、report 只读，抬基线才需显式 --update。
 // 另设目标基线（target）：到达之前密度每降一截，check 自动降基线兑现治理成果（涨回去即被新低位拦），
 // 到达 target 后锁定，不再自动更新。
 //
@@ -292,9 +292,10 @@ if (mode === 'update') {
     }
   } else {
     let baseDensity = base.density
-    // 未达目标前，密度降了就自动降基线：治理成果即时兑现，涨回去立刻被新低位拦住；到 target 锁定
-    if (base.target !== undefined && baseDensity > base.target && density < baseDensity - 0.01) {
-      const next = +Math.max(density, base.target).toFixed(2)
+    const lower =
+      base.target !== undefined && baseDensity > base.target && density < baseDensity - 0.01
+    if (lower && mode === 'check') {
+      const next = +Math.max(density, base.target as number).toFixed(2)
       writeFileSync(
         baselineFile,
         JSON.stringify(
@@ -303,11 +304,11 @@ if (mode === 'update') {
           2,
         ) + '\n',
       )
-      if (next <= base.target) {
+      if (next <= (base.target as number)) {
         console.log(`\n基线自动降至 ${next}%，已到达目标基线 ${base.target}%，此后不再自动更新。`)
       } else {
         console.log(
-          `\n基线自动降至 ${next}%（目标 ${base.target}%，还差 ${(next - base.target).toFixed(2)}pp）。基线文件的改动请随本次提交入库。`,
+          `\n基线自动降至 ${next}%（目标 ${base.target}%，还差 ${(next - (base.target as number)).toFixed(2)}pp）。基线文件的改动请随本次提交入库。`,
         )
       }
       baseDensity = next
@@ -330,6 +331,11 @@ if (mode === 'update') {
       console.log(
         `\n基线：${baseDensity}%（当前 ${density.toFixed(2)}%，${diff >= 0 ? '+' : ''}${diff.toFixed(2)}pp）。`,
       )
+      if (lower) {
+        console.log(
+          '密度低于基线，report 模式不写回；要固化这一降幅跑 pnpm run check:comment-baseline。',
+        )
+      }
     }
   }
 }
