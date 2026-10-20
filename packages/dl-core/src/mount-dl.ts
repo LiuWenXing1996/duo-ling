@@ -1,7 +1,13 @@
-// `DL` 是注入体外层的挂载点（`build-user-script.ts` 里那句 `var DL = undefined`），这里只做类型声明。
-import { DL as DLInner } from './dl'
+// `DL` 与 `tier` 都由注入体外层给定（见 `build-user-script.ts` 的挂载点段），这里只做类型声明。
+import { DLClient, DLSystem, type KernelTier } from './dl'
 
-declare var DL: DLInner | undefined
+declare var DL: DLClient | DLSystem | undefined
 declare var registerId: string
+declare var tier: KernelTier
 
-DL = new DLInner({ registerId })
+if (tier === 'system') {
+    DL = new DLSystem({ registerId })
+}
+if (tier === 'client') {
+    DL = new DLClient({ registerId })
+}

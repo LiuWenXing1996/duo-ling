@@ -8,7 +8,7 @@ duo-ling 的**脚本内核**：注入体的实现体与对脚本暴露的能力�
 
 | 能力面                                                    | 形态   | 说明                                                                          |
 | ------------------------------------------------------ | ---- | --------------------------------------------------------------------------- |
-| `DL.*`                                                 | 恒注入  | 脚本 API 的原生面，覆盖面是 **GM API 的超集** —— 现有 `GM_*` / `GM.*` 能做的事都有对应能力，另外收内核新增的能力 |
+| `DL.*`                                                 | 恒注入  | 脚本 API 的原生面，覆盖面是 **GM API 的超集** —— 现有 `GM_*` / `GM.*` 能做的事都有对应能力，另外收内核新增的能力。普通脚本挂的是子集面（`DLClient`，只转发本表列出的成员）；dl-core 自带件的注入体挂全量面（`DLSystem`），多出的能力不进本契约 |
 | `unsafeWindow`                                         | 恒注入  | 页面真实 window（脚本本来就在主世界，拿到的就是它本身）                                             |
 | `window.onurlchange` / `window.close` / `window.focus` | 内核提供 | 不依赖 grant 声明                                                                |
 
@@ -35,7 +35,7 @@ duo-ling 的**脚本内核**：注入体的实现体与对脚本暴露的能力�
 - **宿主侧运行时**：`src/runtime.ts` 的 `DLRuntime` —— 根出口唯一的东西。构造时同步挂内核服务（`mountSwService`），随后装页面侧中继件并把那句 promise 留着（`whenReady()` 供启动链排序，`installMessagingRelay()` 供可用性翻转时重装，失败只记日志不抛）；脚本注册面的三个方法原样转出，包外要注册脚本必须经它。**类不是单例**：实例由宿主创建，再经 `createServiceWorkerHost({ dlRuntime })` 注入到 SW 包，包内按需取用。
 - **引擎可用性**：`src/availability.ts` —— `isUserScriptsAvailable()` 实探 `chrome.userScripts.getScripts()`（开关关着时命名空间不存在、调用必抛，这是唯一与版本无关的判据）；`UserScriptsAvailabilityWatch` 每 1s 轮询一次、只在翻转时回调（Chrome 对该开关没有变化事件），首个订阅者起表、退到空停表、首个读数只建基线。两个能力都经 `DLRuntime` 暴露，SW 侧不再自己养定时器。
 - **注入体拼装**：`src/build-user-script.ts` 的 `buildUserScript` —— 按「`var DL` 挂载点 → 内核 IIFE → `@require` + 脚本正文」拼成一条 IIFE，三段同处一个函数作用域。
-- **内核装配件**：`src/dl.ts` 是 `DL` 的实现类，`src/mount-dl.ts` 负责实例化并写到外层那个 `DL` 上。`build.mts` 把它 bundle 成 `dist/mount-dl-iife.js`（不入库，随 `pnpm -r build` 重建；产物先过五道形状守卫再落盘）。
+- **内核装配件（两层，一份产物）**：`src/dl.ts` 两个类 —— `DLSystem` 是全量面，`DLClient` 组合它（`#sys` 私有字段）并只转发通用成员，页面上摸不到没转发的成员。`src/mount-dl.ts` 按注入体给的 `var tier` 分流：缺省挂 `DLClient`（普通脚本），`system` 挂 `DLSystem`（dl-core 自带件）。`build.mts` 只 bundle 这一份 `dist/mount-dl-iife.js`（不入库，随 `pnpm -r build` 重建；产物先过形状守卫再落盘）—— 分层是挂载面的差异，不进产物。
 - **宿主侧注册**：`src/install-custom-user-script.ts` 的 `installCustomUserScript` —— 接一段代码（裸代码，或 GM 包装层包好的整段源码），经 `buildUserScript` 拼好后用 `chrome.userScripts.register` 装成 MAIN 世界脚本，`uninstallCustomUserScript` 反手注销。**注册动作抽成 `registerUserScript`**（可用性检查 + 同 id 先注销再注册），中继件那条世界注册同一个函数，两处不再各写一遍。只在本进程有效（注册不跨浏览器重启存活），缺省全站匹配、`document_start`、只注入顶层 frame。SW 的 `registerScript` 也走它：校验与配置映射留在 SW，注册动作收敛在这里。
 - **内核服务**：`src/service/sw-service.ts` 的 `mountSwService` —— tab 存取包成服务 `sw`（`getTab` / `saveTab`），经 `registerService` 注册，`DL.getTab/saveTab` 就是 `DL` 私有取用的 `#service('sw')` 的两个方法。服务以工厂形式注册，每次调用按 `ServiceContext` 现建实例，`ServiceContext` 的 `scriptId` / `tabId` 都必填（缺了直接按 `PROTOCOL` 拒掉）；key 是 `${scriptId}:${tabId}`，tabId 取 `sender.tab.id`，浏览器盖章、页面改不了，只在服务内部可见。状态是内存 Map，SW 回收即蒸发，一期不做持久化，`tabs.onRemoved` 清关 tab 的记录。它必须在 `defineBackground` 的回调里随 `DLRuntime` **同步**建出来 —— MV3 的事件投递按同步注册表决定，SW 休眠后中继件的 `sendMessage` 就是唤醒动作，handler 等异步注册链跑完才挂的话那次投递已丢失。
 
@@ -46,6 +46,6 @@ duo-ling 的**脚本内核**：注入体的实现体与对脚本暴露的能力�
 - **后台命令**（设计见 `docs/adr/0045-background-command.md`）：`src/service/command-service.ts` —— 脚本用 `DL.registerBackgroundCommand(name, handler, { title? })` 向 SW 登记一条命名命令，表键是 `${tabId}:${scriptId}`（与 messenger 的 `#ports` 同一约定）；宿主用 `DLRuntime.listBackgroundCommands(tabId, scriptId)` 枚举、`invokeBackgroundCommand(tabId, scriptId, name, arg)` 调用，投递复用 `sendToScript`，命令类型 `command.<name>`（前缀常量与拼接函数在 `messaging/protocol.ts`，留在 command-service 会把 SW 侧模块带进注入产物）。脚本侧不提供调用面：MAIN 拿不到自己的 `tabId`，三元组只有宿主给得全；`exported` / `PERMISSION` 因此也不存在。表是纯内存的唯一真相源，`invoke` 查不到即 `NO_HANDLER`，不降级不落盘。条目寿命跟着消息线：`ServiceWorkerMessenger.onPortClosed` 在 Port 断开（导航 / 关 tab / 崩溃）时回调，整键删掉，所以不需要 `tabs.onRemoved`。SW 空闲回收即失表，是这一轮接受的代价。
 
 `installCustomUserScript` 与 SW 的注册引擎有一处必须对齐：全量同步会把不在保留名单里的注册当残留清掉。本包用 `installedCustomScriptIds()` 把本进程装过的 id 报给 SW，由它并进那份名单 —— 少了这步，装上的脚本会在下一次同步里静默消失。走脚本库的那条注册则要传 `protectFromSync: false`：它的 id 归引擎管，删除 / 关停靠同一次清扫兜底。
-内核原文由本包自己取：`build-user-script.ts` 里 `import DL_KERNEL_IIFE from '../dist/mount-dl-iife.js?raw'`，拼装接口对外只有 `{ uuid, name, source, requires }`，调用方不需要知道产物的存在，也无从传错。代价写在明处：`?raw` 是 Vite 方言，这条 import 让本包不再是「任何构建器都能直接编译的纯 TS」，消费方的构建必须认这个后缀（当前唯一消费方 `@duoling/service-worker` 走 Vite，成立）。
+内核原文由本包自己取：`build-user-script.ts` 里 `import KERNEL_IIFE from '../dist/mount-dl-iife.js?raw'`，拼装接口对外只有 `{ uuid, name, source, requires, tier? }`，调用方不需要知道产物的存在，也无从传错。`tier` 会被拼成注入体里的一行 `var tier = ...`（缺省 `client`），内核读它分流挂载 —— 漏了这行内核会当场 `ReferenceError`。代价写在明处：`?raw` 是 Vite 方言，这条 import 让本包不再是「任何构建器都能直接编译的纯 TS」，消费方的构建必须认这个后缀（当前唯一消费方 `@duoling/service-worker` 走 Vite，成立）。
 
 内核必须与外层 `var DL` **同处一个函数作用域**，所以 dist 里那份的消费方式是**取文本内联**，不是另起一条注册。

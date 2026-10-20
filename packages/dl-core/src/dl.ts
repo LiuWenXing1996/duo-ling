@@ -4,6 +4,9 @@ import { createProxyService, type DeepAsync } from './proxy-service'
 import { COMMAND_SERVICE_KEY, SW_SERVICE_KEY } from './service/keys'
 import type { SwService } from './service/sw-service'
 
+/** 分层档位：`system` 是全量面（dl-core 自带件），`client` 是普通脚本拿到的子集面 */
+export type KernelTier = 'client' | 'system'
+
 export interface DLConfig {
   logPrefix?: string
   registerId: string
@@ -14,7 +17,7 @@ interface CommandRegistrar {
   unregister(name: string): void
 }
 
-export class DL {
+export class DLSystem {
   readonly #config: Required<DLConfig>
   readonly #log: (message: string) => void
   #sw?: DeepAsync<SwService>
@@ -69,5 +72,37 @@ export class DL {
 
   #commandService(): DeepAsync<CommandRegistrar> {
     return (this.#commands ??= this.#service<CommandRegistrar>(COMMAND_SERVICE_KEY))
+  }
+}
+
+export class DLClient {
+  readonly #sys: DLSystem
+
+  constructor(config: DLConfig) {
+    this.#sys = new DLSystem(config)
+  }
+
+  get config(): Required<DLConfig> {
+    return this.#sys.config
+  }
+
+  get log(): (message: string) => void {
+    return this.#sys.log
+  }
+
+  getTab<T = unknown>(): Promise<T | undefined> {
+    return this.#sys.getTab<T>()
+  }
+
+  saveTab(value?: unknown): Promise<void> {
+    return this.#sys.saveTab(value)
+  }
+
+  registerBackgroundCommand(
+    name: string,
+    handler: (arg: unknown) => unknown | Promise<unknown>,
+    options: { title?: string } = {},
+  ): () => void {
+    return this.#sys.registerBackgroundCommand(name, handler, options)
   }
 }

@@ -7,6 +7,7 @@
 // 本文件只在扩展进程里跑（chrome.* 在那儿）。内核注入体那条链路（mount-dl.ts）不许碰
 // chrome —— build.mts 有一道产物守卫盯着，越界会在构建期炸。
 import { buildUserScript } from './build-user-script'
+import type { KernelTier } from './dl'
 
 /** 装一条自定义脚本时可覆盖的注册参数（缺省值见下面的常量） */
 export interface InstallCustomUserScriptOptions {
@@ -26,6 +27,7 @@ export interface InstallCustomUserScriptOptions {
   runAt?: 'document_start' | 'document_end' | 'document_idle'
   /** 缺省只注入顶层 frame（与脚本库默认一致） */
   allFrames?: boolean
+  tier?: KernelTier
   /**
    * 是否把 id 记进全量同步的保留名单，缺省 true。
    *
@@ -86,7 +88,9 @@ export async function installCustomUserScript(
     // MAIN 不支持 worldId，同帧多脚本共用一个 window —— 各自的 `var` 靠 buildUserScript 的
     // IIFE 关住，互不覆盖。
     world: 'MAIN',
-    js: [{ code: buildUserScript({ uuid: id, name, source: code, requires: options.requires }) }],
+    js: [
+      { code: buildUserScript({ uuid: id, name, source: code, requires: options.requires, tier: options.tier }) },
+    ],
     matches: options.matches?.length ? options.matches : DEFAULT_MATCHES,
     excludeMatches: options.excludeMatches,
     includeGlobs: options.includeGlobs,
