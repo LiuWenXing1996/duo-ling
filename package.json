@@ -35,7 +35,7 @@
     "check:branch": "node scripts/check-branch-name.mts",
     "check:packages": "node scripts/check-packages.mts",
     "check:comments": "node scripts/check-comments.mts",
-    "check:comment-coverage": "node scripts/check-comment-coverage.mts",
+    "report:comment-coverage": "node scripts/check-comment-coverage.mts",
     "check:comment-baseline": "node scripts/check-comment-coverage.mts --check",
     "check:comment-diff": "node scripts/check-comment-diff.mts",
     "check:secrets": "secretlint \"**/*\"",
