@@ -36,6 +36,9 @@ export {
 } from '@duoling/shared'
 export const PICK_ELEMENT_FILE = 'duoling-pick-page-element.js'
 
+export { PAGE_SNAPSHOT_COMMAND, PAGE_SNAPSHOT_ID } from '@duoling/shared'
+export const PAGE_SNAPSHOT_FILE = 'duoling-page-snapshot.js'
+
 // —— 浮层宿主 · 常驻件（系统脚本，走统一注册链） ——
 
 /** 注册 id（一个扩展一份；同时是系统脚本的固定 uuid —— 指令下发的寻址键） */

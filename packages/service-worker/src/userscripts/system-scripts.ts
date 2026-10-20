@@ -11,6 +11,8 @@ import {
   FLOAT_HOST_ID,
   INSPECTOR_HOST_FILE,
   INSPECTOR_HOST_ID,
+  PAGE_SNAPSHOT_FILE,
+  PAGE_SNAPSHOT_ID,
   PICK_ELEMENT_FILE,
   PICK_ELEMENT_ID,
   TAB_RECORDER_FILE,
@@ -42,6 +44,8 @@ export const SYSTEM_INSPECTOR_MATCHES = ALWAYS_ON_MATCHES
 
 export const SYSTEM_PICK_ELEMENT_MATCHES = ALWAYS_ON_MATCHES
 
+export const SYSTEM_PAGE_SNAPSHOT_MATCHES = ALWAYS_ON_MATCHES
+
 /** 浮层宿主系统脚本的匹配面（engine 的「在册没变就跳过」比对面也用它） */
 export const SYSTEM_FLOAT_MATCHES = ALWAYS_ON_MATCHES
 
@@ -57,7 +61,12 @@ export const SYSTEM_SCRIPT_DISPLAY: Readonly<
   [INSPECTOR_HOST_ID]: {
     name: '页面检查器',
     world: '页面主世界',
-    note: '在页面里待命：收到指令才抓快照 / 读环境，平时不亮任何 UI',
+    note: '在页面里待命：收到指令才读环境，平时不亮任何 UI',
+  },
+  [PAGE_SNAPSHOT_ID]: {
+    name: '页面快照',
+    world: '页面主世界',
+    note: '在页面里待命：收到请求才抓一次渲染后的 DOM，平时不亮任何 UI',
   },
   [PICK_ELEMENT_ID]: {
     name: '页面拾取',
@@ -103,6 +112,20 @@ export async function pickElementProject(): Promise<ScriptProject> {
     name: SYSTEM_SCRIPT_DISPLAY[PICK_ELEMENT_ID].name,
     enabled: true,
     config: { ...defaultConfig(SYSTEM_PICK_ELEMENT_MATCHES), runAt: 'document_start' },
+    source: { code, savedAt: now },
+    createdAt: now,
+  }
+}
+
+export async function pageSnapshotProject(): Promise<ScriptProject> {
+  const code = await loadSystemScriptCode(PAGE_SNAPSHOT_FILE)
+  const now = Date.now()
+  return {
+    v: 2,
+    uuid: PAGE_SNAPSHOT_ID,
+    name: SYSTEM_SCRIPT_DISPLAY[PAGE_SNAPSHOT_ID].name,
+    enabled: true,
+    config: { ...defaultConfig(SYSTEM_PAGE_SNAPSHOT_MATCHES), runAt: 'document_start' },
     source: { code, savedAt: now },
     createdAt: now,
   }

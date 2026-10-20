@@ -114,7 +114,6 @@ import {
   snapshotForTabs,
 } from '@duoling/service-worker'
 // 会话的标签页归属映射（duoling-app 库）：标签页关闭时在这里清（见 tabs.onRemoved 处说明）；
-// page:snapshot 也用它反查「这条会话在哪个标签页上」（会话按 tab 归属）；
 // popup 的页面概览靠它回答「这个页面归属哪条会话」
 import {
   findTabsUsingConversation,
@@ -145,12 +144,7 @@ import {
 import { getActiveProfileState } from '@duoling/shared'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
 import { broadcastBuildPhase } from '@duoling/shared'
-// AI 工具支路：page_snapshot / page_env_read 两条工具经 SW 向页面里的页面检查器下发指令
-// （offscreen 不可达该 API）—— 下发封装与配对都在包内 page-inspector-bridge
-import {
-  capturePageEnvFromTab,
-  capturePageSnapshotFromTab,
-} from '@duoling/service-worker'
+import { capturePageEnvFromTab } from '@duoling/service-worker'
 import { isFloatHostReady, openFloatPanel } from '@duoling/service-worker'
 import { errorText } from '@duoling/shared'
 
@@ -166,7 +160,6 @@ export const SW_KIND_PREFIXES = [
   'offscreen:',
   'sw:',
   'page:',
-  'picker:',
   'float:',
   'tab:',
 ] as const
@@ -307,15 +300,6 @@ const handlers: {
   // 模型配置：offscreen 拉取当前生效配置（含 apiKey）。复用现成的 getActiveProfileState()，
   // SW 里本来就能调；offscreen 侧须「取一次、缓存、不写日志」。
   'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> => getActiveProfileState(),
-
-  // —— AI 工具支路 ——
-  // 两条都请 SW 代办：chrome.tabs 在 offscreen 不可达，而在 SW 与注册链路同源
-  // （受 138+ 逐扩展开关管控）。page_snapshot 取页面 DOM，page_env_read 取页面侧环境读数。
-  'page:snapshot': async (
-    msg,
-  ): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
-    return capturePageSnapshotFromTab(await resolveAiTargetTab(msg.conversationId))
-  },
 
   'page:env': async (
     msg,

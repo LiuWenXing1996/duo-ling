@@ -39,7 +39,7 @@ export interface ElementPickContext {
   full: ElementPickFull
 }
 
-/** 页面快照（渲染后 DOM，页面检查器快照模式静默采集；采集方 = AI 的 page_snapshot 工具经 SW 向该页下发指令） */
+/** 页面快照（渲染后 DOM，页面快照件静默采集；采集方 = AI 的 page_snapshot 工具经 SW 隧道直呼该页的件） */
 export interface PageSnapshotContext {
   capturedAt: number
   pageUrl: string
@@ -76,7 +76,8 @@ export interface PageEnvContext {
   ua: string
 }
 
-// 拾取件的寻址面：浮层按这三个键经 SW 隧道直呼件（三方公共依赖，故落在本包；registry.ts re-export）
 export const PICK_ELEMENT_ID = 'dl-pick-page-element'
 export const PICK_ELEMENT_PICK_COMMAND = 'pick'
 export const PICK_ELEMENT_CANCEL_COMMAND = 'cancel'
+export const PAGE_SNAPSHOT_ID = 'dl-page-snapshot'
+export const PAGE_SNAPSHOT_COMMAND = 'snapshot'

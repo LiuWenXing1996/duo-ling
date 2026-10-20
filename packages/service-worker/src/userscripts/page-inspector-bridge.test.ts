@@ -40,11 +40,11 @@ afterEach(() => {
 describe('runInspectorCommand · 下发与结算', () => {
   it('件上报成功：resolve 件给的载荷，且下发带着本次 reqId', async () => {
     const { sent, bridge } = await stubPush()
-    const p = bridge.runInspectorCommand<{ html: string }>(7, 'snapshot')
+    const p = bridge.runInspectorCommand<{ html: string }>(7, 'env')
     expect(sent).toHaveLength(1)
     expect(sent[0].tabId).toBe(7)
     expect(sent[0].ev.t).toBe('inspector.cmd')
-    expect(sent[0].ev.cmd).toBe('snapshot')
+    expect(sent[0].ev.cmd).toBe('env')
 
     bridge.handleInspectorEvent(INSPECTOR_ID, 7, result(String(sent[0].ev.reqId), { html: '<h1>' }))
     await expect(p).resolves.toEqual({ html: '<h1>' })
@@ -52,14 +52,14 @@ describe('runInspectorCommand · 下发与结算', () => {
 
   it('件报错：把件给的原因透出来（不换成笼统失败文案）', async () => {
     const { sent, bridge } = await stubPush()
-    const p = bridge.runInspectorCommand(7, 'snapshot')
+    const p = bridge.runInspectorCommand(7, 'env')
     bridge.handleInspectorEvent(INSPECTOR_ID, 7, result(String(sent[0].ev.reqId), '读取被拦截', false))
     await expect(p).rejects.toThrow('读取被拦截')
   })
 
   it('下发无人接收（件不在位）：当场失败，不等满 60 秒', async () => {
     const { bridge } = await stubPush(0)
-    await expect(bridge.runInspectorCommand(7, 'snapshot')).rejects.toThrow('页面检查器未就绪')
+    await expect(bridge.runInspectorCommand(7, 'env')).rejects.toThrow('页面检查器未就绪')
   })
 
   it('件永不上报：按模式文案超时兜底', async () => {
@@ -74,7 +74,7 @@ describe('runInspectorCommand · 下发与结算', () => {
   it('上行信封的 uuid 不是检查器自己的：不结算挂起的调用，最终按超时收场', async () => {
     const { sent, bridge } = await stubPush()
     vi.useFakeTimers()
-    const p = bridge.runInspectorCommand(7, 'snapshot')
+    const p = bridge.runInspectorCommand(7, 'env')
     const assertion = expect(p).rejects.toThrow('60 秒内未完成')
     bridge.handleInspectorEvent('some-other-script', 7, result(String(sent[0].ev.reqId), { x: 1 }))
     await vi.advanceTimersByTimeAsync(60_000)
@@ -84,7 +84,7 @@ describe('runInspectorCommand · 下发与结算', () => {
   it('uuid 对上但 reqId 没挂起的调用：只出声不炸（SW 重启过 / 迟到结果），挂起的照常等超时', async () => {
     const { bridge } = await stubPush()
     vi.useFakeTimers()
-    const p = bridge.runInspectorCommand(7, 'snapshot')
+    const p = bridge.runInspectorCommand(7, 'env')
     const assertion = expect(p).rejects.toThrow('60 秒内未完成')
     bridge.handleInspectorEvent(INSPECTOR_ID, 7, result('no-such-reqId', { x: 1 }))
     await vi.advanceTimersByTimeAsync(60_000)
@@ -93,7 +93,7 @@ describe('runInspectorCommand · 下发与结算', () => {
 
   it('同一 reqId 结算两次（重复投递）：按 reqId 幂等，第二次只出声不炸', async () => {
     const { sent, bridge } = await stubPush()
-    const p = bridge.runInspectorCommand<{ n: number }>(7, 'snapshot')
+    const p = bridge.runInspectorCommand<{ n: number }>(7, 'env')
     bridge.handleInspectorEvent(INSPECTOR_ID, 7, result(String(sent[0].ev.reqId), { n: 1 }))
     await expect(p).resolves.toEqual({ n: 1 })
     expect(() =>

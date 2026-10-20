@@ -8,11 +8,12 @@ import { notePageError, noteRunStart } from './page-monitor'
 import { recordingTabSessionId } from './tab-sessions'
 import { handleInspectorEvent } from './page-inspector-bridge'
 import { appendUserScriptError, recordRunEvent, recordRunStart } from './store'
-import { FLOAT_HOST_ID, INSPECTOR_HOST_ID, PICK_ELEMENT_ID, TAB_RECORDER_ID } from '@duoling/user-scripts/builtin'
+import { FLOAT_HOST_ID, INSPECTOR_HOST_ID, PAGE_SNAPSHOT_ID, PICK_ELEMENT_ID, TAB_RECORDER_ID } from '@duoling/user-scripts/builtin'
 
 const SYSTEM_SCRIPT_UUIDS = new Set([
   TAB_RECORDER_ID,
   INSPECTOR_HOST_ID,
+  PAGE_SNAPSHOT_ID,
   PICK_ELEMENT_ID,
   FLOAT_HOST_ID,
 ])

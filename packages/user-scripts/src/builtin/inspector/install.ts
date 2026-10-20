@@ -1,31 +1,10 @@
-import {
-  type InspectorMode,
-  type PageEnvContext,
-  type PageSnapshotContext,
-} from '@duoling/shared'
+import { type InspectorMode, type PageEnvContext } from '@duoling/shared'
 
 declare global {
   interface Window {
     /** 幂等守卫：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态） */
     __dlInspectorHost?: boolean
   }
-}
-
-/** 快照 HTML 上限（字符） */
-const SNAPSHOT_LIMIT = 32768
-
-function truncate(s: unknown, n: number): string {
-  const str = String(s == null ? '' : s)
-  return str.length > n ? str.slice(0, n) : str
-}
-
-/** 快照模式：无 UI，静默抓渲染后 outerHTML（截断） */
-function runSnapshot(): Promise<PageSnapshotContext> {
-  return Promise.resolve({
-    capturedAt: Date.now(),
-    pageUrl: location.href,
-    html: truncate(document.documentElement.outerHTML, SNAPSHOT_LIMIT),
-  })
 }
 
 /** 环境模式：无 UI，静默读页面侧环境（视口 / 像素比 / 页面里读到的 UA） */
@@ -41,7 +20,6 @@ function runEnv(): Promise<PageEnvContext> {
 
 function run(mode: InspectorMode): Promise<unknown> {
   try {
-    if (mode === 'snapshot') return runSnapshot()
     if (mode === 'env') return runEnv()
     return Promise.reject(new Error(`页面检查器不支持该模式：${mode}`))
   } catch (e) {

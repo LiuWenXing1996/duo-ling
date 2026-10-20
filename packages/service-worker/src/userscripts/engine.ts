@@ -16,6 +16,7 @@ import type { BuiltinRegistration, ScriptProject } from '@duoling/shared'
 import {
   FLOAT_HOST_ID,
   INSPECTOR_HOST_ID,
+  PAGE_SNAPSHOT_ID,
   PICK_ELEMENT_ID,
   TAB_RECORDER_ID,
 } from '@duoling/user-scripts/builtin'
@@ -26,11 +27,13 @@ import { listProjects } from '@duoling/shared'
 import {
   SYSTEM_FLOAT_MATCHES,
   SYSTEM_INSPECTOR_MATCHES,
+  SYSTEM_PAGE_SNAPSHOT_MATCHES,
   SYSTEM_PICK_ELEMENT_MATCHES,
   SYSTEM_SCRIPT_DISPLAY,
   SYSTEM_TAB_RECORD_MATCHES,
   floatHostProject,
   pageInspectorProject,
+  pageSnapshotProject,
   pickElementProject,
   tabRecorderProject,
 } from './system-scripts'
@@ -60,6 +63,7 @@ import { SCRIPT_RELAY_ID, syncScriptRelay } from '../relay/sync'
 export const BUILTIN_SCRIPT_IDS = [
   SCRIPT_RELAY_ID,
   INSPECTOR_HOST_ID,
+  PAGE_SNAPSHOT_ID,
   PICK_ELEMENT_ID,
   FLOAT_HOST_ID,
   TAB_RECORDER_ID,
@@ -174,6 +178,25 @@ async function syncPickElement(): Promise<ScriptProject | null> {
   return project
 }
 
+async function syncPageSnapshot(): Promise<ScriptProject | null> {
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return null
+  let existing: chrome.userScripts.RegisteredUserScript | undefined
+  try {
+    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === PAGE_SNAPSHOT_ID)
+  } catch {
+    return null
+  }
+  const project = await pageSnapshotProject()
+  const jsSegs = existing?.js
+  const shapeOk = !!jsSegs && jsSegs.length === 1 && typeof jsSegs[0].code === 'string'
+  if (existing && shapeOk && sameMatchSet(existing, { matches: SYSTEM_PAGE_SNAPSHOT_MATCHES })) {
+    return project
+  }
+  await registerScript(project)
+  console.log('[duoling:sw] 页面快照系统脚本注册成功：', JSON.stringify(SYSTEM_PAGE_SNAPSHOT_MATCHES))
+  return project
+}
+
 /**
  * 浮层页文件（`?tab=` 由件按指令里的 tabId 自行补，见 float:open 命令）。
  *
@@ -276,10 +299,11 @@ export async function syncAllBuiltins(projects: ScriptProject[]): Promise<void> 
   // 页面检查器 / 浮层宿主系统脚本同样与脚本集合无关：冷启动 / 扩展更新后必须补回
   // （扩展更新会清空全部注册）
   const inspector = await syncPageInspector().catch(() => null)
+  const snapshot = await syncPageSnapshot().catch(() => null)
   const pick = await syncPickElement().catch(() => null)
   const float = await syncFloatHost().catch(() => null)
   // 中继件并集把在册系统脚本算上（录制 / 检查器 / 浮层宿主都走桥，页面里没有中继件就是断流）
-  const system = [recorder, inspector, pick, float].filter((p): p is ScriptProject => p != null)
+  const system = [recorder, inspector, snapshot, pick, float].filter((p): p is ScriptProject => p != null)
   if (system.length) await syncScriptRelay([...projects, ...system])
 }
 
@@ -292,10 +316,11 @@ export function refreshTabRecorder(): Promise<void> {
   return enqueueRegistration(async () => {
     const recorder = await syncTabRecorder()
     const inspector = await syncPageInspector()
+    const snapshot = await syncPageSnapshot().catch(() => null)
     const pick = await syncPickElement().catch(() => null)
     const float = await syncFloatHost().catch(() => null)
     const projects = await listProjects()
-    const system = [recorder, inspector, pick, float].filter((p): p is ScriptProject => p != null)
+    const system = [recorder, inspector, snapshot, pick, float].filter((p): p is ScriptProject => p != null)
     await syncScriptRelay(system.length ? [...projects, ...system] : projects)
   })
 }
@@ -313,13 +338,14 @@ export function refreshTabRecorder(): Promise<void> {
 export function refreshBuiltinScripts(): Promise<void> {
   return enqueueRegistration(async () => {
     const inspector = await syncPageInspector()
+    const snapshot = await syncPageSnapshot().catch(() => null)
     const pick = await syncPickElement().catch(() => null)
     const float = await syncFloatHost().catch(() => null)
     const projects = await listProjects()
     const recorder = (await hasRecordingTabSession())
       ? await tabRecorderProject().catch(() => null)
       : null
-    const system = [recorder, inspector, pick, float].filter((p): p is ScriptProject => p != null)
+    const system = [recorder, inspector, snapshot, pick, float].filter((p): p is ScriptProject => p != null)
     await syncScriptRelay(system.length ? [...projects, ...system] : projects)
   })
 }

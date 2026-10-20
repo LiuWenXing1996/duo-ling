@@ -47,6 +47,7 @@ const SAMPLES_OUT = resolve(here, 'dist/samples')
 export const BUILTIN_ENTRY_POINTS = {
   'duoling-recorder': resolve(here, 'src/builtin/recorder/entry.ts'),
   'duoling-page-inspector': resolve(here, 'src/builtin/inspector/entry.ts'),
+  'duoling-page-snapshot': resolve(here, 'src/builtin/page-snapshot/entry.ts'),
   'duoling-pick-page-element': resolve(here, 'src/builtin/pick-page-element/entry.ts'),
   'duoling-float-host': resolve(here, 'src/builtin/float-host/entry.ts'),
 }

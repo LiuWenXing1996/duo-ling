@@ -1,11 +1,10 @@
-import type { PageEnvContext, PageSnapshotContext } from '@duoling/shared'
+import type { PageEnvContext } from '@duoling/shared'
 import { INSPECTOR_HOST_ID } from '@duoling/user-scripts/builtin'
 import { pushCommandTo } from '../dl-port'
 
 const COMMAND_TIMEOUT_MS = 60_000
 
 const TIMEOUT_MESSAGE = {
-  snapshot: '页面快照采集失败：60 秒内未完成（页面可能已关闭或刷新）',
   env: '页面环境读取失败：60 秒内未完成（页面可能已关闭或刷新）',
 } as const
 
@@ -97,20 +96,7 @@ export function handleInspectorEvent(
 }
 
 /**
- * 页面快照：静默抓渲染后 outerHTML（件内截断 ~32KB），不亮任何 UI。
- * 调用方 = SW 的 'page:snapshot' 命令（AI 的 page_snapshot 工具触发）；tabId 由调用方定位
- * （按会话归属反查，兜底最后聚焦窗口的激活页），本函数只管下发与取载荷。
- * 引擎可用性由调用方先判 —— 文案留应用侧一处，别在这里再写一句。
- */
-export async function capturePageSnapshotFromTab(tabId: number): Promise<PageSnapshotContext> {
-  const ctx = await runInspectorCommand<PageSnapshotContext>(tabId, 'snapshot')
-  if (!ctx) throw new Error('页面快照采集失败：件未返回数据')
-  return ctx
-}
-
-/**
  * 页面环境读数：静默读视口尺寸 / 设备像素比 / 页面里读到的 UA，不亮任何 UI。
- * 调用方 = SW 的 'page:env' 命令（AI 的 page_env_read 工具触发）；tabId 口径与快照一致。
  */
 export async function capturePageEnvFromTab(tabId: number): Promise<PageEnvContext> {
   const ctx = await runInspectorCommand<PageEnvContext>(tabId, 'env')

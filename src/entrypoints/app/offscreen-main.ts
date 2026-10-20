@@ -75,12 +75,12 @@ async function handleConvCommand(msg: RuntimeRequest): Promise<unknown> {
 async function handleChatCommand(msg: RuntimeRequest): Promise<unknown> {
   switch (msg.kind) {
     case 'chat:start':
-      // 显式挑四个字段：包只认 ChatStartInput，命令面的 kind 等细节不进包
       return startChat({
         conversationId: msg.conversationId,
         messages: msg.messages,
         trigger: msg.trigger,
         pageContext: msg.pageContext,
+        tabId: msg.tabId,
       })
     case 'chat:abort':
       return abortChat(msg.conversationId)

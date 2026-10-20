@@ -335,10 +335,11 @@ async function runLoop(opts: {
   messages: UIMessage[] | null
   prompt: string
   pageContext?: PageContextInfo
+  tabId?: number
   workspace: TaskWorkspace
   continuing: boolean
 }): Promise<void> {
-  const { conversationId, taskId, prompt, pageContext, workspace, continuing } = opts
+  const { conversationId, taskId, prompt, pageContext, tabId, workspace, continuing } = opts
   const abort = new AbortController()
   const task: RunningTask = {
     taskId,
@@ -426,10 +427,11 @@ async function runLoop(opts: {
       (ws) => snapshotWorkspace(ws),
       () => abort.abort(),
       promptContext?.element,
-      // 快照目标 = 本会话所属标签页：把 conversationId 带过去让 SW 反查（AI 决定采快照时
-      // 用户可能已经切走，按「当前激活页」采会把别人的 DOM 喂给模型）
-      () => offscreenBridge.capturePageSnapshot(conversationId),
-      // 页面环境读数走同一条通道、同一个目标页判据（同样带 conversationId 反查）
+      // 快照目标 = 发起这一轮的标签页；没有就明说读不了，不退回「当前激活页」
+      () =>
+        tabId == null
+          ? Promise.reject(new Error('本次生成没有绑定标签页，无法采集页面快照'))
+          : offscreenBridge.capturePageSnapshot(tabId),
       () => offscreenBridge.capturePageEnv(conversationId),
       (id) => offscreenBridge.readError(id),
       {
@@ -680,12 +682,12 @@ async function runLoop(opts: {
 
 // —— 对外 API（宿主入口的命令面调用）——
 
-/** 起一轮对话的入参：命令面在宿主入口，这里只认自己要的四个字段 */
 export interface ChatStartInput {
   conversationId: string
   messages: UIMessage[]
   trigger: 'submit-message' | 'regenerate-message'
   pageContext?: PageContextInfo
+  tabId?: number
 }
 
 /** 起一轮对话：持久化用户消息（submit-message）→ 建任务记录 → 异步起循环 */
@@ -734,6 +736,7 @@ export async function startChat(input: ChatStartInput): Promise<{ taskId: string
     code: null,
     prompt,
     ...(input.pageContext ? { pageContext: input.pageContext } : {}),
+    ...(input.tabId != null ? { tabId: input.tabId } : {}),
     createdAt: Date.now(),
     updatedAt: Date.now(),
     heartbeat: Date.now(),
@@ -746,6 +749,7 @@ export async function startChat(input: ChatStartInput): Promise<{ taskId: string
     messages: input.messages,
     prompt,
     pageContext: input.pageContext,
+    tabId: input.tabId,
     workspace: newWorkspace(taskId, input.conversationId),
     continuing: false,
   }).catch((e) => console.error('[duoling:chat] runLoop 启动失败', e))
@@ -815,6 +819,7 @@ export async function resolveOrphan(
     messages: null, // 历史从会话库现取
     prompt: rec.prompt,
     pageContext: rec.pageContext,
+    tabId: rec.tabId,
     workspace,
     continuing: true,
   }).catch((e) => console.error('[duoling:chat] 续跑失败', e))

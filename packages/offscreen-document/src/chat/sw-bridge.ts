@@ -8,8 +8,13 @@
 // 与 UI 侧的 userscriptClient（应用侧 lib/userscripts/ui-client.ts）同构：同一个应答信封、
 // 同一条命令面。差别只在调用方是谁（那边是扩展页，这边是 offscreen document）。
 //
-// 注意：这里只用 `import type` 引类型（编译后消失，零运行时依赖），形状全取契约包。
-import { sendRuntime } from '@duoling/shared'
+// 注意：形状一律 `import type` 引（编译后消失）；运行时只取契约包里的常量与 SW 服务代理。
+import {
+  PAGE_SNAPSHOT_COMMAND,
+  PAGE_SNAPSHOT_ID,
+  createSWService,
+  sendRuntime,
+} from '@duoling/shared'
 import type {
   ModelProfileState,
   PageEnvContext,
@@ -66,14 +71,12 @@ export const offscreenBridge = {
     // 同 createProject：本条通道只服务 AI 改脚本，actor 在桥这一层声明
     send({ kind: 'userscript:save', ...payload, actor: 'ai' }),
 
-  /**
-   * 页面快照（AI 的 page_snapshot 工具用）：SW 代为请本会话所属标签页上的页面检查器采一次快照。
-   * chrome.tabs 在 offscreen 不可达，必须经 SW。
-   * conversationId 由 chat-host 注入（它手里才有当前会话 id）——SW 靠它反查目标标签页，
-   * 免得 AI 在用户已切走时采到别的页面。
-   */
-  capturePageSnapshot: (conversationId?: string): Promise<PageSnapshotContext> =>
-    send({ kind: 'page:snapshot', conversationId }),
+  capturePageSnapshot: (tabId: number): Promise<PageSnapshotContext> =>
+    createSWService().dlRuntimeInvokeBackgroundCommand(
+      tabId,
+      PAGE_SNAPSHOT_ID,
+      PAGE_SNAPSHOT_COMMAND,
+    ) as Promise<PageSnapshotContext>,
 
   /**
    * 页面环境读数（AI 的 page_env_read 工具用）：SW 代为请本会话所属标签页上的页面检查器

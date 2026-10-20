@@ -101,21 +101,22 @@ function installPushListener(): void {
  *
  *  取的是**所属标签页**而不是「当前激活标签页」：浮层可能挂在用户已经切走的标签页上，
  *  查激活项会把别人的 URL / 标题当上下文发出去（见 lib/owning-tab.ts）。 */
-async function collectPageContext(): Promise<PageContextInfo | undefined> {
+async function collectPageContext(): Promise<{ ctx?: PageContextInfo; tabId?: number }> {
+  const tabId = await resolveOwningTabId()
+  if (tabId == null) return {}
   try {
-    const tabId = await resolveOwningTabId()
-    if (tabId == null || !chrome.tabs?.get) return undefined
+    if (!chrome.tabs?.get) return { tabId }
     const tab = await chrome.tabs.get(tabId)
-    if (!tab.url) return undefined
+    if (!tab.url) return { tabId }
     const pending = consumePendingPageContext()
     const ctx: PageContextInfo = {
       url: tab.url,
       ...(tab.title ? { title: tab.title } : {}),
       ...(pending.element ? { element: pending.element } : {}),
     }
-    return ctx
+    return { ctx, tabId }
   } catch {
-    return undefined
+    return { tabId }
   }
 }
 
@@ -145,13 +146,14 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
         lastSeq.delete(conversationId)
         consumers.set(conversationId, { controller })
         try {
-          const pageContext = await collectPageContext()
+          const { ctx: pageContext, tabId } = await collectPageContext()
           await sendChat({
             kind: 'chat:start',
             conversationId,
             messages: JSON.parse(JSON.stringify(options.messages)) as UIMessage[],
             trigger: options.trigger,
             ...(pageContext ? { pageContext } : {}),
+            ...(tabId != null ? { tabId } : {}),
           })
           // 发送成功即清空暂存：上下文已随消息发出，chip 不应残留
           clearSentPageContext()

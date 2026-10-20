@@ -30,6 +30,7 @@ export interface ChatTaskRecord {
   prompt: string
   /** 页面上下文（档 0 + 可选档 2，chat:start 随指令带来；形状见 extension-ipc.PageContextInfo） */
   pageContext?: import('@duoling/shared').PageContextInfo
+  tabId?: number
   createdAt: number
   updatedAt: number
   /** 心跳（ms 时间戳），chat-host 每 5s 刷新；过期 = 孤儿 */

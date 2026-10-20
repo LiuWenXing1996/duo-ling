@@ -75,27 +75,6 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
     expect(bridge.connects).toHaveLength(1)
   })
 
-  it('snapshot 指令：回一条 ok 信封，reqId 原样带上、载荷是渲染后 outerHTML', async () => {
-    const bridge = stubBridge()
-    installPageInspector()
-
-    bridge.fire({ t: 'inspector.cmd', cmd: 'snapshot', reqId: 'r1' })
-    await flush()
-
-    expect(bridge.sent).toHaveLength(1)
-    const out = bridge.sent[0]
-    expect(out.__dlEvent).toBe(true)
-    expect(out.name).toBe('页面检查器')
-    const ev = out.event as Record<string, unknown>
-    expect(ev.t).toBe('inspector.result')
-    expect(ev.reqId).toBe('r1')
-    expect(ev.ok).toBe(true)
-    expect(ev.payload).toMatchObject({
-      pageUrl: 'https://page.test/app',
-      html: '<html><body>hello</body></html>',
-    })
-  })
-
   it('env 指令：回视口 / 像素比 / 页面里读到的 UA（读的是页面事实，非机器真值）', async () => {
     const bridge = stubBridge()
     installPageInspector()
@@ -120,8 +99,8 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
     installPageInspector() // 第二次应被 window.__dlInspectorHost 挡下
 
     bridge.fire({ t: 'store.change', key: 'k' }) // 别的桥事件：静默忽略
-    bridge.fire({ t: 'inspector.cmd', cmd: 'snapshot' }) // 没有 reqId：静默忽略（无从配对）
-    bridge.fire({ t: 'inspector.cmd', cmd: 'snapshot', reqId: 'r3' })
+    bridge.fire({ t: 'inspector.cmd', cmd: 'env' })
+    bridge.fire({ t: 'inspector.cmd', cmd: 'env', reqId: 'r3' })
     await flush()
 
     // 只回一条 = 既没重复装接收，也没把无效帧算成一次调用
