@@ -6,6 +6,7 @@ import {
   deserializeError,
   frameKind,
   wireError,
+  type EventDetail,
   type RequestDetail,
   type ResponseDetail,
   type SwMessage,
@@ -13,6 +14,8 @@ import {
 } from './protocol'
 
 type Handler = (message: SwMessage) => unknown | Promise<unknown>
+
+type EventSubscriber = (tabId: number, scriptId: string, type: string, data: unknown) => void
 
 interface PendingRequest {
   resolve: (value: unknown) => void
@@ -31,6 +34,7 @@ export class ServiceWorkerMessenger {
   readonly #pending = new Map<number, PendingRequest>()
   readonly #ports = new Map<string, chrome.runtime.Port>()
   readonly #onPortClosed = new Set<(tabId: number, scriptId: string) => void>()
+  readonly #onEvent = new Set<EventSubscriber>()
   #seq = Math.floor(Math.random() * 1_000_000) + 1
 
   private constructor() {
@@ -84,6 +88,13 @@ export class ServiceWorkerMessenger {
     }
   }
 
+  onEvent(listener: EventSubscriber): () => void {
+    this.#onEvent.add(listener)
+    return () => {
+      this.#onEvent.delete(listener)
+    }
+  }
+
   sendToScript(tabId: number, scriptId: string, type: string, data?: unknown): Promise<unknown> {
     const key = `${tabId}:${scriptId}`
     const port = this.#ports.get(key)
@@ -132,6 +143,13 @@ export class ServiceWorkerMessenger {
           frame.err ? deserializeError(frame.err) : new Error(`消息 ${frame.type} 没有回包内容`),
         )
       }
+      return
+    }
+    if (kind === 'event') {
+      const frame = raw as EventDetail
+      const eventTabId = sender?.tab?.id
+      if (eventTabId === undefined) return
+      for (const listener of this.#onEvent) listener(eventTabId, frame.scriptId, frame.type, frame.data)
       return
     }
     if (kind !== 'request') return

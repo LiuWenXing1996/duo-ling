@@ -483,9 +483,7 @@ export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
 
 /**
  * 脚本世界 → 后台 的单向事件（不等待响应，区别于 ApiRequest 的请求-响应）。两种信封：
- *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报与系统脚本上行：
- *     包装层把错误收进错误记录（runtime 库 tab_events，kind = 'error'）；录制系统脚本
- *     把页面采样（`t: 'tab.record'`）经同一条信封上行，归属判据在 SW 侧（见 dl-bridge）。
+ *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报：包装层把错误收进错误记录（runtime 库）。
  *     归属口径两层：正文同步错误由包装内 try/catch 直报；
  *     异步错误经 window.onerror / unhandledrejection，只收栈帧带本脚本 sourceURL
  *     标记（`duoling://script/<uuid>/`）的，页面自身的报错不归属（无标记不收）。
@@ -507,12 +505,6 @@ export type DlEvent =
       /** 本次运行的标识（一次页面加载 mint 一个）；对话界面监控据此把错误归属到对应运行 */
       runId?: string
     }
-  /**
-   * 标签页录制采样（录制系统脚本上行）。`kind` 是种类判别键（当前只有 NET_TAB_KIND 一类），
-   * `record` 的形状由各类自己约定 —— SW 侧按 kind 分流到各自的归一化函数（消息源不可信，
-   * 归一化即信任边界）。
-   */
-  | { t: 'tab.record'; kind: string; record: Json }
 
 /** 桥响应信封 */
 export type ApiResponse =

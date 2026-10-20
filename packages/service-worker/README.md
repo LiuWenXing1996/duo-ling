@@ -9,10 +9,12 @@ offscreen 容器能力约定。机制的来龙去脉见 [ARCHITECTURE.md](../../
 | 注册引擎 —— 世界配置 / 单脚本与全量注册 / 可用性状态（探测与轮询在 dl-core） | `registration` |
 | 命令分发 —— 中继件发来的 GM 请求（storage / xhr / download / menu…） | `dl-bridge` |
 | 事件底座 —— 脚本世界 ↔ SW 长连接的下行通道（菜单点击 / 值变更 / 下载进度） | `dl-port` |
+| 录制入站 —— 内核推上来的网络采样按页判归属 → 归一化 → 落库 | `tab-record-ingest` |
 | cookie 域名门 —— GM_cookie 的安全边界（scheme + host） | `cookie-gate` |
 | `@require` / `@resource` 的抓取与落库 | `require-cache` / `resource-cache` |
 | 运行时命令面 —— 管理面只读四条 | `management` |
-| 宿主注入点 —— 扩展身份 / offscreen 就绪 / 遥测 / 密钥存储 / 内置件 | `host-config` |
+| 宿主注入点 —— 扩展身份 / offscreen 就绪 / 密钥存储 / 内置件 | `host-config` |
+| 观测面 —— 运行日志 / 错误落盘 / 页面监控 / 录制落库（包内自用，不经注入） | `userscripts/telemetry` |
 | 服务实体 —— `SWService`（`ISWService` 实现：保活探针） | `sw-service` |
 | offscreen 容器能力约定 —— 建文档用的 reason 集 | `offscreen-reasons` |
 | GM 值存储 —— `GM_setValue` 一族与 usdata 库（`GM_getTab` 等） | `gm-values` / `usdata-db` |
@@ -38,7 +40,7 @@ offscreen 侧是同层的另一个**进程包** `@duoling/offscreen-document`，
 import { createServiceWorkerHost, DLRuntime, GM_OFFSCREEN_REASONS } from '@duoling/service-worker'
 
 // 顶层第一帧同步调用（不 await）：注入配置 + 桥与 Port 监听注册同点完成（幂等）。
-// 除 dlRuntime 外各 port 全部可选：不注入 = 相应观测不发生，脚本行为不受损；
+// 除 dlRuntime 外各 port 全部可选：不注入 = 相应能力不发生，脚本行为不受损；
 // secretStore 不注入则握手密钥只在 SW 存活期内有效。
 const host = createServiceWorkerHost({
   extensionName: 'My Extension',

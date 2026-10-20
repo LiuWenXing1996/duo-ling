@@ -8,8 +8,6 @@
 //   { __dl: true, uuid, runId?, req: ApiRequest } —— 请求-响应，按 req.c 强类型分发（穷尽性检查）。
 //       runId = 发起这次调用的运行（包装层注入时 mint，见 gm-main 的 __gmRunId）。老包装层不带它，
 //       那时这条请求产生的观测数据（运行事件 / 桥调用失败）就挂不到具体运行上，只能落进孤儿行
-//   { __dlEvent: true, uuid, name, event: DlEvent } —— 单向上行：错误上报收进错误日志（runtime 库），
-//       录制系统脚本的页面采样（t: 'tab.record'）交 ingestTabRecord 归一化落库
 //   { __dlRunStart: true, uuid, name, runId }    —— 运行标识广播：交对话界面监控按 tab 登记
 //
 // 安全性：消息来源天然是「不可信用户脚本」，故校验 sender.userScript.scriptId 与消息里的 uuid 一致，
@@ -33,8 +31,7 @@ import {
   pushFetchProgress,
   mintNotification,
 } from '../dl-port'
-// 标签页录制：转发件送来的采集载荷在 SW 侧按**种类**白名单化；落库走遥测 port（宿主注入）
-import { NET_TAB_KIND, broadcastDataChange, errorText, normalizeNetCapture } from '@duoling/shared'
+import { errorText } from '@duoling/shared'
 // GM 值写出口（duoling-usdata 库；store.change 变更事件从这里直发）
 import {
   getGMValue,
@@ -46,8 +43,8 @@ import {
   listGMKeys,
   getAllGMValues,
 } from '../gm-values'
-// 宿主注入点：扩展身份 / 遥测（运行日志与错误落盘是宿主的产品面）
-import { extensionName, notificationIcon, telemetryPort } from '../host-config'
+import { extensionName, notificationIcon } from '../host-config'
+import { telemetry } from '../userscripts/telemetry'
 // 命令域实现体（同目录支撑模块；模块分工见文件头）
 import { ApiError } from './api-error'
 import { abortFetch, doFetch, mountFetchObservation } from './fetch'
@@ -55,39 +52,6 @@ import { cancelDownload, doDownload } from './download'
 import { assertCookieScope, cookiesApi, toGmCookie } from './cookie'
 import { getAllTabValues, getTabValue, mountTabStoreCleanup, saveTabValue } from './tab-store'
 import { writeClipboardViaOffscreen } from './clipboard'
-
-/**
- * 录制入站：把转发件送来的载荷归到「发消息的那个标签页」再落库。
- *
- * 这里是录制门禁真正生效的地方。注册是**全匹配**的（一页录着，它接下来可能导航到任何
- * host，钩子就必须处处在位），所以每个站点的每一帧页面里都有录制件；它们的数据到这里
- * 按 tabId 判归属 —— 那一页没在录，整条丢掉。
- *
- * 判据取 sender.tab.id 而不是载荷里的字段：载荷途径页面可伪造的 postMessage，
- * 让它自己声明归属等于没有门禁。
- *
- * 种类分流也在这一层：载荷的 kind 说它是哪一类信号；未知种类静默丢弃（版本错配 ——
- * 比如页面里还挂着上一版注入的旧件）。
- */
-async function ingestTabRecord(kindRaw: unknown, record: unknown, tabId: number | undefined): Promise<void> {
-  try {
-    if (tabId == null) return
-    // 只认已知种类。将来种类多了，这里是分发点：未知一律丢弃，不猜。
-    if (kindRaw !== NET_TAB_KIND) return
-    // 归属：那一页此刻在录才收。取号与「要不要注册录制件」用的是同一条判据。
-    const tabSessionId = await telemetryPort()?.recordingTabSessionId?.(tabId)
-    if (!tabSessionId) return
-    const rec = normalizeNetCapture(record, tabSessionId)
-    if (rec) {
-      await telemetryPort()?.appendTabCapture?.(rec)
-      // 这是最热的一条路（录制中每秒可达几十条），**这里不攒批**：广播侧已按「域 + 页」合并
-      // 到一个 100ms 窗口，再攒一次只会让面板慢一拍。带页号 = 正在看这一页的面板增量续拉。
-      broadcastDataChange('tabActivity', tabSessionId)
-    }
-  } catch {
-    // 录制不该影响页面网络层：任何一步失败都静默丢弃这条
-  }
-}
 
 /** 事件摘要里 url / 文本的展示上限（超出截断：一行被超长 URL 撑爆就没法看了） */
 const EVENT_TEXT_MAX = 120
@@ -417,8 +381,7 @@ export function initDlBridge(): void {
     if (run && run.__dlRunStart === true) {
       const tabId = sender.tab?.id
       if (tabId != null && run.uuid && run.runId) {
-        // 页面监控（遥测 port）：SW 侧按 tab 登记运行集，浮层挂载时靠它出快照
-        telemetryPort()?.noteRunStart?.(tabId, run.uuid, run.runId)
+        telemetry.noteRunStart(tabId, run.uuid, run.runId)
       }
       // 记下脚本名，供桥调用失败那类「自身不带脚本上下文」的记录复用
       if (run.uuid && run.name) scriptNameByUuid.set(run.uuid, run.name)
@@ -437,36 +400,29 @@ export function initDlBridge(): void {
         // 只有用户在 popup 里给这一页打开了活动记录才有号（见 tab-sessions），没号就**不记**：
         // 一切观测只在开着活动记录的页上产生（判据统一，见 store.recordRunStart）。
         // 取号失败（存储不可用）同样不记 —— 此页是观测盲区，不因存储故障给它补一份无归属的记录。
-        void Promise.resolve(telemetryPort()?.recordingTabSessionId?.(tabId))
+        void telemetry
+          .recordingTabSessionId(tabId)
           .then((tabSessionId) =>
-            tabSessionId
-              ? telemetryPort()?.recordRunStart?.(uuid, runId, run.name, { ...extra, tabSessionId })
-              : undefined,
+            tabSessionId ? telemetry.recordRunStart(uuid, runId, run.name, { ...extra, tabSessionId }) : undefined,
           )
           .catch(() => {})
       }
       return undefined // 仅登记，无需响应
     }
 
-    // 单向上行（GM 包装的错误收集 / 录制系统脚本的采样）
     const evt = raw as { __dlEvent?: true; uuid?: string; name?: string; event?: DlEvent }
     if (evt && evt.__dlEvent === true) {
       const event = evt.event
-      // 标签页录制采样：录制系统脚本经桥上行。归属判据（那一页此刻在不在录）在
-      // ingestTabRecord 内，与错误路径「活动记录开着才收」是同一本账。
-      if (event && event.t === 'tab.record') {
-        void ingestTabRecord(event.kind, event.record, sender.tab?.id)
-        return undefined
-      }
       // sender.tab 定位出错页面（userScript 世界消息 sender 带 tab）；拿不到就无从判归属
       const tabId = sender.tab?.id
       if (tabId == null) return undefined
       // 归属判据与运行条目同源：只有这一页开着活动记录才记。没开 = 观测盲区 ——
       // 不落盘、不广播、也不推给浮层 / 角标（判据前移，appendUserScriptError 本身不设判据）。
-      void Promise.resolve(telemetryPort()?.recordingTabSessionId?.(tabId))
+      void telemetry
+        .recordingTabSessionId(tabId)
         .then((tabSessionId) => {
           if (!tabSessionId) return
-          return telemetryPort()?.appendError?.({
+          return telemetry.appendError({
             uuid: evt.uuid ?? null,
             name: evt.name || '未知脚本',
             phase: 'runtime',
@@ -478,8 +434,7 @@ export function initDlBridge(): void {
             // 页归属直接带上（不必等写侧从运行条继承）：这一页此刻确实开着记录
             tabSessionId,
           }).then(() => {
-            // 页面监控（遥测 port）：错误行随推送走（面板只要「当前这次运行」，实时通道一条推送就到）
-            telemetryPort()?.notePageError?.(tabId, {
+            telemetry.notePageError(tabId, {
               uuid: evt.uuid ?? null,
               name: evt.name || '未知脚本',
               message: event?.message || '',
@@ -516,7 +471,7 @@ export function initDlBridge(): void {
     // 的错误行兜底。落盘失败静默：观察数据不该反过来影响脚本的调用。
     if (msg.runId) {
       const ev = summarizeRunEvent(msg.req)
-      if (ev) void telemetryPort()?.recordRunEvent?.(uuid, msg.runId, { ...ev, time: Date.now() }).catch(() => {})
+      if (ev) void telemetry.recordRunEvent(uuid, msg.runId, { ...ev, time: Date.now() }).catch(() => {})
     }
 
     void dispatch(uuid, msg.req, sender)
@@ -530,7 +485,7 @@ export function initDlBridge(): void {
         // 桥调用失败也进错误日志（活动历史里可见）。它发生在某次运行**之中**，故带上信封里的 runId
         // 挂到那次运行下 —— 否则只能单列成孤儿行，看不出「脚本跑到哪一步挂的」。
         // 脚本名取自运行广播登记的表（尽力而为：表空时回退 uuid）。
-        void telemetryPort()?.appendError?.({
+        void telemetry.appendError({
           uuid,
           name: scriptNameByUuid.get(uuid) ?? uuid,
           phase: 'bridge',

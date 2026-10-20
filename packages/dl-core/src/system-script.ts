@@ -1,20 +1,23 @@
-// 标签页录制 · 种类件：网络请求（fetch / XMLHttpRequest）。
-//
-// **这是「种类层」，不是机制层** —— 它只回答「怎么把网络请求采下来」：
-// 包哪些方法、怎么剥鉴权头、怎么把响应体压成结构摘要。
-// 通道（上行信封、幂等守卫）由机制层 install.ts 提供，本件通过 ctx 用它。
-//
-// ctx 契约（机制层给的三件，本件不得自行再实现一份）：见 recorder/context.ts。
-//
-// 采样边界（均为硬约束）：
-//   - 不阻塞页面网络层：所有采样都在响应返回之后异步做，绝不 await 在请求路径上；
-//   - 请求 / 响应头里的鉴权字段一律剥离；
-//   - 请求体与响应体只留 ≤NET_BODY_LIMIT 的采样，二进制标 '[binary]'。
+// 系统脚本正文：采样 fetch / XMLHttpRequest，经 DL.reportNetLog 单向送 SW。
+// 采样边界（硬约束）：响应返回后才读，不 await 在请求路径上；鉴权头一律剥离；响应体只留采样长度。
 
-import { NET_AUTH_HEADER_NAMES, NET_BODY_LIMIT, NET_TAB_KIND } from '@duoling/shared'
-import type { RecorderCtx } from './context'
+import type { DLSystem } from './dl'
 
-/** 一条采样记录：信封由机制层补，这里只产 record 本体 */
+declare var DL: DLSystem | undefined
+
+const NET_BODY_LIMIT = 2048
+
+const AUTH_HEADER_NAMES = [
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'set-cookie',
+  'x-api-key',
+  'x-auth-token',
+  'x-csrf-token',
+  'x-xsrf-token',
+]
+
 interface Capture {
   type: 'fetch' | 'xhr'
   url: string
@@ -27,28 +30,23 @@ interface Capture {
   t: number
 }
 
-/**
- * 原生方法的重载签名（fetch / XHR.open 都有多个）不适合逐一对齐，
- * 件对它们只做**原样透传、不解释参数**，故统一收到这一型上转发。
- */
 type NativeFn = (...args: unknown[]) => unknown
 
-/** 流读取器：只用到 read / cancel 两件 */
 interface ReaderLike {
   read(): Promise<{ done: boolean; value?: unknown }>
   cancel(): void
 }
 
-export function installNetProbe(ctx: RecorderCtx): void {
+function installNetRecorder(): void {
   const LIMIT = NET_BODY_LIMIT
-  const AUTH = [...NET_AUTH_HEADER_NAMES] as string[]
+  const AUTH = AUTH_HEADER_NAMES
   const AUTH_SET: Record<string, boolean> = {}
   for (const name of AUTH) AUTH_SET[name] = true
 
-  const emit = (info: Capture): void => ctx.emit(NET_TAB_KIND, info)
-  const now = (): number => ctx.now()
-
-  // —— 采样工具 ——
+  const emit = (info: Capture): void => {
+    DL?.reportNetLog(info)
+  }
+  const now = (): number => Date.now()
 
   const truncate = (s: unknown): string | null => {
     if (typeof s !== 'string') return null
@@ -65,7 +63,6 @@ export function installNetProbe(ctx: RecorderCtx): void {
     return out
   }
 
-  // headers 可能是 Headers / [[k,v]] / 普通对象；键统一小写（全链路唯一规范形式）
   const headerList = (h: unknown): Record<string, string> => {
     const out: Record<string, string> = {}
     try {
@@ -86,17 +83,13 @@ export function installNetProbe(ctx: RecorderCtx): void {
       if (typeof h === 'object') {
         const rec = h as Record<string, unknown>
         for (const k in rec) {
-          if (Object.prototype.hasOwnProperty.call(rec, k))
-            out[String(k).toLowerCase()] = String(rec[k])
+          if (Object.prototype.hasOwnProperty.call(rec, k)) out[String(k).toLowerCase()] = String(rec[k])
         }
       }
-    } catch {
-      /* 摘要失败按空头处理 */
-    }
+    } catch {}
     return out
   }
 
-  // XHR 的 getAllResponseHeaders() 返回 CRLF 分隔的原始文本，需单独解析
   const parseRawHeaders = (text: unknown): Record<string, string> => {
     const out: Record<string, string> = {}
     try {
@@ -108,9 +101,7 @@ export function installNetProbe(ctx: RecorderCtx): void {
         const value = line.slice(idx + 1).trim()
         if (name) out[name] = value
       }
-    } catch {
-      /* 同上 */
-    }
+    } catch {}
     return out
   }
 
@@ -134,7 +125,6 @@ export function installNetProbe(ctx: RecorderCtx): void {
     t: 0,
   })
 
-  // 限量读流（≤ LIMIT 字符即取消），避免为大响应体把内存读爆
   const readCapped = (stream: unknown, limit: number): Promise<string> =>
     new Promise<string>((resolve) => {
       const chunks: string[] = []
@@ -166,10 +156,7 @@ export function installNetProbe(ctx: RecorderCtx): void {
               let text = ''
               if (typeof chunk === 'string') {
                 text = chunk
-              } else if (
-                chunk &&
-                typeof (chunk as { byteLength?: unknown }).byteLength === 'number'
-              ) {
+              } else if (chunk && typeof (chunk as { byteLength?: unknown }).byteLength === 'number') {
                 const bytes = chunk as { subarray?: (start: number, end: number) => unknown }
                 let slice: unknown = chunk
                 if (
@@ -190,9 +177,7 @@ export function installNetProbe(ctx: RecorderCtx): void {
               if (total >= limit) {
                 try {
                   reader.cancel()
-                } catch {
-                  /* 已读完 */
-                }
+                } catch {}
                 finish()
                 return
               }
@@ -201,13 +186,12 @@ export function installNetProbe(ctx: RecorderCtx): void {
             .catch(() => finish())
         }
         pump()
-        setTimeout(finish, 5000) // 流半天不结束也别挂着
+        setTimeout(finish, 5000)
       } catch {
         finish()
       }
     })
 
-  // 响应体的「结构摘要」：能解析成 JSON 就出形状（键 + 小样本值），否则退回截断原文
   const shapeOf = (v: unknown, depth: number): string => {
     if (v === null) return 'null'
     if (Array.isArray(v)) {
@@ -239,7 +223,6 @@ export function installNetProbe(ctx: RecorderCtx): void {
     }
   }
 
-  // —— fetch 钩子（只包一层；保留原 fetch 的 this 与参数）——
   const origFetch = window.fetch
   if (typeof origFetch === 'function') {
     window.fetch = function (this: unknown, ...args: Parameters<typeof fetch>): Promise<Response> {
@@ -248,13 +231,15 @@ export function installNetProbe(ctx: RecorderCtx): void {
       try {
         const info = blank('fetch', '', 'GET')
         let bodyPromise: Promise<string> | null = null
-        const req = input as {
-          url?: unknown
-          method?: unknown
-          headers?: unknown
-          body?: unknown
-          clone?: () => Response
-        } | null
+        const req = input as
+          | {
+              url?: unknown
+              method?: unknown
+              headers?: unknown
+              body?: unknown
+              clone?: () => Response
+            }
+          | null
         if (req && typeof req === 'object' && typeof req.url === 'string') {
           info.url = req.url
           info.method = String(req.method || 'GET')
@@ -299,9 +284,7 @@ export function installNetProbe(ctx: RecorderCtx): void {
                 info.respBody = summarizeBody(arr[0])
                 try {
                   info.respHeaders = stripAuth(headerList(resp.headers))
-                } catch {
-                  /* 摘要失败按空头处理 */
-                }
+                } catch {}
                 info.status = typeof resp.status === 'number' ? resp.status : 0
                 info.t = now()
                 emit(info)
@@ -310,25 +293,20 @@ export function installNetProbe(ctx: RecorderCtx): void {
                 info.t = now()
                 emit(info)
               })
-          } catch {
-            /* 采样失败不影响页面 */
-          }
+          } catch {}
           return resp
         },
         (err) => {
           try {
             started.info.t = now()
             emit(started.info)
-          } catch {
-            /* 采样失败不影响页面 */
-          }
+          } catch {}
           throw err
         },
       )
     }
   }
 
-  // —— XHR 钩子（构造器透明替换：实例仍是原 XHR 类型，instanceof 不破）——
   const OrigXHR = window.XMLHttpRequest
   if (typeof OrigXHR === 'function') {
     const WrappedXHR = function (this: unknown) {
@@ -344,9 +322,7 @@ export function installNetProbe(ctx: RecorderCtx): void {
           try {
             info.method = String(args[0] || 'GET')
             info.url = resolveUrl(args[1])
-          } catch {
-            /* 参数异常不影响页面 */
-          }
+          } catch {}
           origOpen.call(xhr, ...args)
         },
         send(...args: unknown[]) {
@@ -355,9 +331,7 @@ export function installNetProbe(ctx: RecorderCtx): void {
             if (body == null) info.reqBody = null
             else if (typeof body === 'string') info.reqBody = truncate(body)
             else info.reqBody = '[binary]'
-          } catch {
-            /* 同上 */
-          }
+          } catch {}
           try {
             xhr.addEventListener('load', () => {
               try {
@@ -374,9 +348,7 @@ export function installNetProbe(ctx: RecorderCtx): void {
                   }
                 } else text = '[binary]'
                 info.respBody = summarizeBody(text)
-              } catch {
-                /* 采样失败不影响页面 */
-              }
+              } catch {}
               info.t = now()
               emit(info)
             })
@@ -388,9 +360,7 @@ export function installNetProbe(ctx: RecorderCtx): void {
               info.t = now()
               emit(info)
             })
-          } catch {
-            /* 同上 */
-          }
+          } catch {}
           origSend.call(xhr, ...args)
         },
       }
@@ -402,9 +372,7 @@ export function installNetProbe(ctx: RecorderCtx): void {
             if (!AUTH_SET[String(name).toLowerCase()]) {
               info.reqHeaders[String(name).toLowerCase()] = String(value)
             }
-          } catch {
-            /* 同上 */
-          }
+          } catch {}
           origSetHeader.call(xhr, ...args)
         }
       }
@@ -412,7 +380,9 @@ export function installNetProbe(ctx: RecorderCtx): void {
       Object.assign(xhr, patches)
       return xhr
     }
-    WrappedXHR.prototype = OrigXHR.prototype // 保持 instanceof 语义
+    WrappedXHR.prototype = OrigXHR.prototype
     window.XMLHttpRequest = WrappedXHR as unknown as typeof XMLHttpRequest
   }
 }
+
+installNetRecorder()

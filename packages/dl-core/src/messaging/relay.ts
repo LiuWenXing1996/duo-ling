@@ -87,7 +87,17 @@ export class MessagingRelay {
     const key = detail.scriptId
     this.#links.get(key)?.close()
     this.#links.set(key, next)
-    next.onmessage = (messageEvent: MessageEvent) => this.#accept(messageEvent.data as RequestDetail)
+    next.onmessage = (messageEvent: MessageEvent) => {
+      if (frameKind(messageEvent.data) !== 'event') {
+        this.#accept(messageEvent.data as RequestDetail)
+        return
+      }
+      try {
+        this.#port?.postMessage(messageEvent.data)
+      } catch {
+        return
+      }
+    }
     this.#accept(detail)
   }
 }

@@ -6,6 +6,7 @@
 // registerScript 路径（GM 包装 + 脚本桥一并内联，中继件并集须把系统脚本算上，
 // 见 engine.ts 的调用处）。
 import type { ScriptProject } from '@duoling/shared'
+import { SYSTEM_SCRIPT_CODE } from '@duoling/dl-core/system-script'
 import {
   FLOAT_HOST_FILE,
   FLOAT_HOST_ID,
@@ -15,7 +16,6 @@ import {
   PAGE_SNAPSHOT_ID,
   PICK_ELEMENT_FILE,
   PICK_ELEMENT_ID,
-  TAB_RECORDER_FILE,
   TAB_RECORDER_ID,
 } from '@duoling/user-scripts/builtin'
 import { defaultConfig } from '@duoling/shared'
@@ -74,7 +74,7 @@ export const SYSTEM_SCRIPT_DISPLAY: Readonly<
   [TAB_RECORDER_ID]: {
     name: '页面录制',
     world: '页面主世界',
-    note: '在页面真实世界里捕获网络请求（录制开关打开时才工作，经脚本桥上报）',
+    note: '在页面真实世界里捕获网络请求（录制开关打开时才工作，经内核私线上报）',
   },
 }
 
@@ -125,11 +125,10 @@ export async function pageSnapshotProject(): Promise<ScriptProject> {
 }
 
 /**
- * 录制系统脚本的注册态（每次调用现取：源码有缓存，项目对象是廉价派生）。
  * enabled 恒真 —— 录制的启停在注册面（注册 / 注销），不在项目开关上。
  */
 export async function tabRecorderProject(): Promise<ScriptProject> {
-  const code = await loadSystemScriptCode(TAB_RECORDER_FILE)
+  const code = SYSTEM_SCRIPT_CODE
   const now = Date.now()
   return {
     v: 2,

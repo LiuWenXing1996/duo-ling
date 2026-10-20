@@ -5,6 +5,7 @@ import {
   deserializeError,
   frameKind,
   wireError,
+  type EventDetail,
   type RequestDetail,
   type ResponseDetail,
   type WireResult,
@@ -69,6 +70,18 @@ export class MainWorldMessenger {
       this.#link.start()
       window.postMessage(request, '*', [channel.port2])
     })
+  }
+
+  emit(type: string, data?: unknown): void {
+    const scriptId = MainWorldMessenger.#scriptId
+    const link = this.#link
+    if (!scriptId || !link) return
+    const detail: EventDetail = { channel: MESSAGING_CHANNEL, kind: 'event', type, scriptId, data }
+    try {
+      link.postMessage(detail)
+    } catch {
+      return
+    }
   }
 
   onRequest(type: string, handler: Handler): () => void {

@@ -225,13 +225,6 @@ async function syncFloatHost(): Promise<ScriptProject | null> {
 
 // —— 标签页录制（tab-record）：系统脚本，注册跟随「有没有页在录」——
 //
-// 与用户脚本同一条 registerScript 注册链（GM 包装内联脚本桥），上行经中继件转 SW ——
-// 旧的「MAIN 件 + USER_SCRIPT 转发件」两件形态已退役：转发件的搬运职责由中继件承担，
-// 跳数不变（旧：MAIN 件 postMessage → 转发件 sendMessage → SW；新：MAIN 桥 → 中继件 → SW）。
-//
-// 中继件与录制件有耦合：中继件跟随「启用用户脚本并集」，录制件跟随「有没有标签页在记
-// 活动」；而录制件上行走桥，**它在册时中继件并集必须把它算上**（否则没启用任何用户脚本的
-// 页上，中继件缺席、录制件在页里但没有桥）——两处 sync 的调用方都汇了这条并集。
 // 默认无页在录 = 不注册，页面里没有任何录制代码（空闲零注入）。
 //
 // **为什么「有页在录就全匹配」**：录制的判据是标签页而非站点 —— 用户点的是「这一页在录」，
@@ -270,7 +263,7 @@ async function syncTabRecorder(): Promise<ScriptProject | null> {
   if (existing && shapeOk && sameMatchSet(existing, { matches: SYSTEM_TAB_RECORD_MATCHES })) {
     return project
   }
-  await registerScript(project)
+  await registerScript(project, 'system')
   console.log('[duoling:sw] 页面录制系统脚本注册成功：', JSON.stringify(SYSTEM_TAB_RECORD_MATCHES))
   return project
 }

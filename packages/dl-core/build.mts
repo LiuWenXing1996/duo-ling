@@ -2,7 +2,7 @@
 // dl-core 装配件的构建：把各入口（连同它 import 的模块）各 bundle 成一段 IIFE，
 // 产出 dist/ 下的同名产物（不入库，每次从源码重建）。
 //
-// 产物形态是「一段可内联的 JS 文本」，不是独立注册、也不是 `{ file }` 注册。两个装配件：
+// 产物形态是「一段可内联的 JS 文本」，不是独立注册、也不是 `{ file }` 注册。TARGETS 表里每个入口一份：
 // - mount-dl：内核。注入体被硬约束成一条 code（见 `src/build-user-script.ts` 文件头），内核必须
 //   与外层那个 `var DL = undefined` 处于同一个函数作用域，脚本正文才能按词法拿到 `DL`。
 //   落成另一条注册，作用域随之断开 —— 那时 `DL` 要么挂在 window 上、要么脚本根本看不见。
@@ -67,6 +67,24 @@ const TARGETS: Target[] = [
       {
         re: /\bMessageChannel\b/,
         why: '没有建 MessageChannel —— 跨 world 那条私线由主世界建、转移一端给中继件',
+      },
+    ],
+  },
+  {
+    entry: 'src/system-script.ts',
+    out: 'dist/system-script-iife.js',
+    label: '自带件正文',
+    forbidden: [
+      MODULE_STMT,
+      {
+        re: /\bchrome\s*\./,
+        why: '引用了 chrome.* —— 自带件正文跑在页面主世界，那里没有扩展 API',
+      },
+    ],
+    required: [
+      {
+        re: /\breportNetLog\b/,
+        why: '没有调用 DL.reportNetLog —— 采集结果没有出口',
       },
     ],
   },

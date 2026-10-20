@@ -45,9 +45,9 @@ vi.mock('./store', () => ({
 vi.mock('./tab-sessions', () => ({ recordingTabSessionId: vi.fn() }))
 vi.mock('./runtime-db', () => ({ appendTabCapture: vi.fn(() => Promise.resolve()) }))
 
-import { duolingTelemetry } from './telemetry'
+import { telemetry } from './telemetry'
 
-describe('duolingTelemetry · 系统脚本不进用户脚本观测面', () => {
+describe('telemetry · 系统脚本不进用户脚本观测面', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -60,44 +60,44 @@ describe('duolingTelemetry · 系统脚本不进用户脚本观测面', () => {
       'dl-pick-page-element',
       'dl-float-host',
     ]) {
-      duolingTelemetry.noteRunStart?.(1, uuid, 'r1')
+      telemetry.noteRunStart(1, uuid, 'r1')
       expect(noteRunStart, uuid).not.toHaveBeenCalled()
     }
   })
 
   it('用户脚本的 runstart 照常登记', () => {
-    duolingTelemetry.noteRunStart?.(1, 'u1', 'r1')
+    telemetry.noteRunStart(1, 'u1', 'r1')
     expect(noteRunStart).toHaveBeenCalledWith(1, 'u1', 'r1')
   })
 
   it('系统脚本的错误不实时推送（快照侧按 runId 对不上本就不显示）；用户脚本的照推', () => {
-    duolingTelemetry.notePageError?.(1, { uuid: 'dl-float-host', name: 'x', message: 'm', runId: null })
+    telemetry.notePageError(1, { uuid: 'dl-float-host', name: 'x', message: 'm', runId: null })
     expect(notePageError).not.toHaveBeenCalled()
-    duolingTelemetry.notePageError?.(1, { uuid: 'u1', name: 'x', message: 'm', runId: null })
+    telemetry.notePageError(1, { uuid: 'u1', name: 'x', message: 'm', runId: null })
     expect(notePageError).toHaveBeenCalledTimes(1)
   })
 
   it('系统脚本的运行日志（runstart / act）不落盘', async () => {
-    await duolingTelemetry.recordRunStart?.('dl-page-env', 'r1')
-    await duolingTelemetry.recordRunEvent?.('dl-float-host', 'r1', { kind: 'a', detail: 'd', time: 1 })
+    await telemetry.recordRunStart('dl-page-env', 'r1')
+    await telemetry.recordRunEvent('dl-float-host', 'r1', { kind: 'a', detail: 'd', time: 1 })
     expect(recordRunStart).not.toHaveBeenCalled()
     expect(recordRunEvent).not.toHaveBeenCalled()
   })
 
   it('用户脚本的运行日志照常落盘', async () => {
-    await duolingTelemetry.recordRunStart?.('u1', 'r1')
-    await duolingTelemetry.recordRunEvent?.('u1', 'r1', { kind: 'a', detail: 'd', time: 1 })
+    await telemetry.recordRunStart('u1', 'r1')
+    await telemetry.recordRunEvent('u1', 'r1', { kind: 'a', detail: 'd', time: 1 })
     // 透传按剩余参数展开：调用方传几参就转发几参，不人为补 undefined
     expect(recordRunStart).toHaveBeenCalledWith('u1', 'r1')
     expect(recordRunEvent).toHaveBeenCalled()
   })
 
   it('系统脚本的错误不进用户脚本错误日志；无 uuid（注册期错误）与用户脚本的照落', async () => {
-    await duolingTelemetry.appendError?.({ phase: 'runtime', message: 'x', uuid: 'dl-tab-recorder' })
+    await telemetry.appendError({ phase: 'runtime', message: 'x', uuid: 'dl-tab-recorder' })
     expect(appendUserScriptError).not.toHaveBeenCalled()
 
-    await duolingTelemetry.appendError?.({ phase: 'register', message: 'y' })
-    await duolingTelemetry.appendError?.({ phase: 'runtime', message: 'z', uuid: 'u1' })
+    await telemetry.appendError({ phase: 'register', message: 'y' })
+    await telemetry.appendError({ phase: 'runtime', message: 'z', uuid: 'u1' })
     expect(appendUserScriptError).toHaveBeenCalledTimes(2)
   })
 })

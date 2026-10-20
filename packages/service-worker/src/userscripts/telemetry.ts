@@ -1,10 +1,7 @@
-// 本扩展的遥测 port：把包内 GM 运行时的观测面接到本仓产品面
-// 由 background 调 createServiceWorkerHost 时显式传入（见 entrypoints/background.ts）；
-// 包内不自带观测面 —— 不注入 = 相应观测不发生，脚本行为不受损。
-import type { UserscriptTelemetry } from '../host-config'
 import * as runtime from './runtime-db'
 import { notePageError, noteRunStart } from './page-monitor'
 import { recordingTabSessionId } from './tab-sessions'
+import type { UserscriptErrorRecord } from '@duoling/shared'
 import { appendUserScriptError, recordRunEvent, recordRunStart } from './store'
 import { FLOAT_HOST_ID, PAGE_ENV_ID, PAGE_SNAPSHOT_ID, PICK_ELEMENT_ID, TAB_RECORDER_ID } from '@duoling/user-scripts/builtin'
 
@@ -16,23 +13,23 @@ const SYSTEM_SCRIPT_UUIDS = new Set([
   FLOAT_HOST_ID,
 ])
 
-export const duolingTelemetry: UserscriptTelemetry = {
+type Rest<T extends unknown[]> = T extends [unknown, ...infer R] ? R : never
+
+export const telemetry = {
   recordingTabSessionId,
-  recordRunStart: (uuid, ...rest) =>
+  recordRunStart: (uuid: string, ...rest: Rest<Parameters<typeof recordRunStart>>) =>
     SYSTEM_SCRIPT_UUIDS.has(uuid) ? Promise.resolve() : recordRunStart(uuid, ...rest),
-  recordRunEvent: (uuid, ...rest) =>
+  recordRunEvent: (uuid: string, ...rest: Rest<Parameters<typeof recordRunEvent>>) =>
     SYSTEM_SCRIPT_UUIDS.has(uuid) ? Promise.resolve() : recordRunEvent(uuid, ...rest),
-  appendError: (rec) =>
+  appendError: (rec: UserscriptErrorRecord) =>
     rec.uuid != null && SYSTEM_SCRIPT_UUIDS.has(rec.uuid)
       ? Promise.resolve()
       : appendUserScriptError(rec as Parameters<typeof appendUserScriptError>[0]),
-  noteRunStart: (tabId, uuid, runId) => {
-    if (SYSTEM_SCRIPT_UUIDS.has(uuid)) return
-    noteRunStart(tabId, uuid, runId)
+  noteRunStart(tabId: number, uuid: string, runId: string) {
+    if (!SYSTEM_SCRIPT_UUIDS.has(uuid)) noteRunStart(tabId, uuid, runId)
   },
-  notePageError: (tabId, info) => {
-    if (info.uuid != null && SYSTEM_SCRIPT_UUIDS.has(info.uuid)) return
-    notePageError(tabId, info)
+  notePageError(tabId: number, info: Parameters<typeof notePageError>[1]) {
+    if (info.uuid == null || !SYSTEM_SCRIPT_UUIDS.has(info.uuid)) notePageError(tabId, info)
   },
-  appendTabCapture: (rec) => runtime.appendTabCapture(rec as Parameters<typeof runtime.appendTabCapture>[0]),
+  appendTabCapture: (rec: Parameters<typeof runtime.appendTabCapture>[0]) => runtime.appendTabCapture(rec),
 }

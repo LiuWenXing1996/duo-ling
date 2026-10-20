@@ -1,49 +1,14 @@
 // 宿主层注入点：应用耦合收敛成可配置的 port。
 //
-// 宿主层（dl-bridge / dl-port / cookie-gate）有三类事包内给不了默认实现或不应擅自决定：
 //   · 扩展身份 —— 通知标题、兜底图标是扩展的品牌面；
 //   · offscreen 后端 —— 剪贴板写入要经 offscreen 文档；文档由扩展自建（包不碰生命周期），
 //     就绪握手协议各扩展自定，故就绪探测注入；
-//   · 遥测与观测 —— 运行日志 / 错误落盘 / 页面监控是宿主的产品面（本仓的 duoling-runtime
-//     库 + 活动历史面板），包不自带；不注入 = 相应观测不发生，脚本行为不受损。
 //
 // 配置时机：必须在 initDlBridge / initDlPort 之前调 configureUserscriptRuntime
 // （SW 入口的顶层同步段里，与 listener 注册同一条「第一帧」纪律）。
 
-// 错误 / 动作的形状归契约包（件包产生、应用侧落库与展示、offscreen 的工具集也认），
-// 此处 re-export 维持包内与包外的既有 import 路径不变。
-import type { ScriptProject, UserscriptErrorRecord, UserscriptRunEvent } from '@duoling/shared'
-export type { UserscriptErrorRecord, UserscriptRunEvent }
+import type { ScriptProject } from '@duoling/shared'
 import type { DLRuntime } from '@duoling/dl-core'
-
-/**
- * 遥测 port（全部可选；不注入的钩子 = 该观测不发生）。
- * 各钩子的语义见宿主侧同名函数（store.ts / page-monitor.ts / tab-sessions.ts / runtime-db.ts）。
- */
-export interface UserscriptTelemetry {
-  /** 该 tab 此刻是否开着活动记录（开着才有号返回）；无号 = 观测盲区，运行/错误都不记 */
-  recordingTabSessionId?(tabId: number): Promise<string | undefined>
-  /** 登记一次运行开始（无 tabSessionId 的 extra 由宿主自行短路） */
-  recordRunStart?(
-    uuid: string,
-    runId: string,
-    name?: string,
-    extra?: { url?: string; savedAt?: number; tabSessionId?: string },
-  ): Promise<void>
-  /** 追加一条运行动作 */
-  recordRunEvent?(uuid: string, runId: string, event: UserscriptRunEvent): Promise<void>
-  /** 追加一条错误记录 */
-  appendError?(rec: UserscriptErrorRecord): Promise<void>
-  /** 运行广播（实时通道：按 tab 登记运行集，浮层快照用） */
-  noteRunStart?(tabId: number, uuid: string, runId: string): void
-  /** 运行期错误实时推送 */
-  notePageError?(
-    tabId: number,
-    info: { uuid: string | null; name: string; message: string; runId: string | null },
-  ): void
-  /** 标签页录制载荷落库 */
-  appendTabCapture?(rec: unknown): Promise<void>
-}
 
 /** 宿主配置（全部可选） */
 export interface UserscriptHostConfig {
@@ -53,8 +18,6 @@ export interface UserscriptHostConfig {
   notificationIcon?: string
   /** offscreen 就绪探测（剪贴板写入前调用）；不注入 = 剪贴板命令报 NOT_AVAILABLE */
   offscreen?: { ensureReady(): Promise<boolean> }
-  /** 遥测 port；不注入 = 无运行日志 / 错误落盘 / 页面监控，脚本行为不受损 */
-  telemetry?: UserscriptTelemetry
   /**
    * 握手密钥的持久化存储（推荐注入）：不注入 = 密钥只在 SW 存活期内有效，
    * SW 重启换钥后要等下一遍全量重注册中继件与脚本才重新对上。
@@ -105,11 +68,6 @@ export function notificationIcon(): string {
 /** 读 offscreen port（未注入为 undefined） */
 export function offscreenPort(): UserscriptHostConfig['offscreen'] {
   return config.offscreen
-}
-
-/** 读遥测 port（未注入为 undefined） */
-export function telemetryPort(): UserscriptTelemetry | undefined {
-  return config.telemetry
 }
 
 /** 读密钥持久化存储（未注入为 undefined） */

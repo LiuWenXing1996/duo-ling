@@ -14,7 +14,6 @@ import {
   PAGE_ENV_FILE,
   PAGE_SNAPSHOT_FILE,
   PICK_ELEMENT_FILE,
-  TAB_RECORDER_FILE,
 } from './registry'
 
 describe('产物文件名与构建入口表一致', () => {
@@ -23,7 +22,6 @@ describe('产物文件名与构建入口表一致', () => {
       .map((key) => `${key}.js`)
       .sort()
     const declared = [
-      TAB_RECORDER_FILE,
       PAGE_ENV_FILE,
       PAGE_SNAPSHOT_FILE,
       PICK_ELEMENT_FILE,

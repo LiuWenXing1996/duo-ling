@@ -6,6 +6,7 @@ import {
   type InstallCustomUserScriptOptions,
 } from './install-custom-user-script'
 import { ServiceWorkerMessenger } from './messaging/service-worker-messenger'
+import { NET_LOG_TYPE } from './messaging/protocol'
 import {
   invokeBackgroundCommand as invokeCommand,
   listBackgroundCommands as listCommands,
@@ -14,6 +15,12 @@ import {
 } from './service/command-service'
 import { mountSwService } from './service/sw-service'
 import { isUserScriptsAvailable as probeAvailability, UserScriptsAvailabilityWatch } from './availability'
+
+export interface NetLogReport {
+  tabId: number
+  scriptId: string
+  record: unknown
+}
 
 export class DLRuntime {
   #ready: Promise<void> = Promise.resolve()
@@ -55,6 +62,13 @@ export class DLRuntime {
 
   onUserScriptsAvailableChange(listener: (available: boolean) => void): () => void {
     return this.#availability.subscribe(listener)
+  }
+
+  onNetLogReport(listener: (report: NetLogReport) => void): () => void {
+    return ServiceWorkerMessenger.instance.onEvent((tabId, scriptId, type, data) => {
+      if (type !== NET_LOG_TYPE) return
+      listener({ tabId, scriptId, record: data })
+    })
   }
 
   installMessagingRelay(): Promise<void> {

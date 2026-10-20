@@ -71,7 +71,6 @@ import { runUpdateCheck } from '@duoling/shared'
 // 标准化总线：本语境命令面唯一的 onMessage 收口（serveIpc）+ 路由 matcher（前缀表 / 包命令面）
 import { ipcNotify, ipcRequest } from '@duoling/shared'
 import { packMatcher, prefixMatcher, serveIpc } from '@/shared/ipc-bus'
-import { duolingTelemetry } from '@duoling/service-worker'
 // 产品内置件注入面：内置注册 id 全集（stale 清扫排除）与四件全量同步（挂包侧注册串行链）
 // 标签页存续（tabId 的稳定替身）：开关（连同「开始 / 结束记录」两条标记）、事件（刷新、地址变更）、
 // 盖章与启动划断（都替当时还在记的行收个尾）都归 SW ——「这一页在不在记活动、经历了什么、
@@ -635,13 +634,10 @@ const handlers: {
 
 /** 用户脚本管理器启动：挂载 GM 桥 + 配置 USER_SCRIPT 世界 + 恢复已启用项目 */
 async function initUserScripts(runtime: DLRuntime): Promise<void> {
-  // GM 运行时接线（包工厂）：遥测 / 扩展身份 / offscreen 就绪在此注入，桥与 Port 的全部
-  // 监听在本调用内同步段挂上（第一帧纪律）。幂等：重复调用返回首例，不二次注册。
   createServiceWorkerHost({
     extensionName: EXTENSION_NAME,
     notificationIcon: 'icons/128.png',
     offscreen: { ensureReady: ensureOffscreenReady },
-    telemetry: duolingTelemetry,
     // 握手密钥落 duoling-app 库（沿用既有键 pageSecret，零迁移）
     secretStore: { get: (k) => appDb.get<string>(k), set: appDb.set },
     // 产品内置件（中继件 / 检查器 / 浮层 / 录制件）挂进包侧全量链：

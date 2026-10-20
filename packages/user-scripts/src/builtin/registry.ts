@@ -15,8 +15,6 @@
 
 /** 注册 id（一个扩展一份；同时是系统脚本的固定 uuid） */
 export const TAB_RECORDER_ID = 'dl-tab-recorder'
-/** 产物文件名（构建自包内 src/builtin/recorder/entry.ts；应用侧取其内容作系统脚本源码） */
-export const TAB_RECORDER_FILE = 'duoling-recorder.js'
 
 export {
   PICK_ELEMENT_CANCEL_COMMAND,

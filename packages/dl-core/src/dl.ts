@@ -1,5 +1,5 @@
 import { MainWorldMessenger } from './messaging/main-messenger'
-import { backgroundCommandType } from './messaging/protocol'
+import { backgroundCommandType, NET_LOG_TYPE } from './messaging/protocol'
 import { createProxyService, type DeepAsync } from './proxy-service'
 import { COMMAND_SERVICE_KEY, SW_SERVICE_KEY } from './service/keys'
 import type { SwService } from './service/sw-service'
@@ -44,6 +44,10 @@ export class DLSystem {
 
   saveTab(value?: unknown): Promise<void> {
     return this.#swService().saveTab(value)
+  }
+
+  reportNetLog(record: unknown): void {
+    MainWorldMessenger.instance.emit(NET_LOG_TYPE, record)
   }
 
   registerBackgroundCommand(

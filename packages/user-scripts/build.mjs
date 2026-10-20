@@ -45,7 +45,6 @@ const SAMPLES_OUT = resolve(here, 'dist/samples')
  * 落在扩展产物根，与扩展自身的产物同目录，前缀避免重名（与 icons / help 那类资产并列）。
  * `{ file }` 的字面量在 src/builtin/registry.ts 里声明，两边改名必须同步。 */
 export const BUILTIN_ENTRY_POINTS = {
-  'duoling-recorder': resolve(here, 'src/builtin/recorder/entry.ts'),
   'duoling-page-env': resolve(here, 'src/builtin/page-env/entry.ts'),
   'duoling-page-snapshot': resolve(here, 'src/builtin/page-snapshot/entry.ts'),
   'duoling-pick-page-element': resolve(here, 'src/builtin/pick-page-element/entry.ts'),
