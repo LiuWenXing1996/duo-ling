@@ -25,6 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # 版本不写在这里：本 action 会直接读 package.json 的 packageManager 字段，
       # 保持单一真相源（两处都写且不一致时它会直接报 Multiple versions 错）
@@ -37,6 +39,11 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # PR 级注释增量门禁：整分支合并增量算一次（上面的全量 checkout 即为此），堵分批提交绕过；只挂 PR 事件
+      - name: Comment diff gate
+        if: github.event_name == 'pull_request'
+        run: pnpm run check:comment-diff --base "origin/${{ github.base_ref }}"
 
       # 缓存 Playwright 浏览器二进制，避免每次重新下载。
       # GitHub 官方 runner 在海外，走 Playwright 官方 CDN 即可（稳定且快）；
