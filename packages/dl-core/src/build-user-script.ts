@@ -11,6 +11,7 @@
 
 // 内核装配件原文：构建产物（不入库，`pnpm -r build` 重建），`?raw` 由 Vite 处理成纯文本常量
 import KERNEL_IIFE from '../dist/mount-dl-iife.js?raw'
+import type { ScriptInfo } from './dl'
 
 /** 单脚本注入体的拼装输入 */
 export interface BuildUserScriptInput {
@@ -22,6 +23,7 @@ export interface BuildUserScriptInput {
   readonly source: string
   /** `@require` 已抓取的源码，按声明顺序前置 */
   readonly requires?: readonly string[]
+  readonly info?: ScriptInfo
 }
 
 export function buildUserScript(input: BuildUserScriptInput): string {
@@ -33,6 +35,8 @@ export function buildUserScript(input: BuildUserScriptInput): string {
     // `DL` 的挂载点：内核 IIFE 紧跟着给它赋值，正文里按词法读到同一个变量
     'var DL = undefined',
     `var registerId = "${input.uuid}"`,
+    // 元信息走 JSON 字面量（buildGmInfo 产出纯数据）：与 name 的 stringify 惯例同源，破坏不了语法
+    ...(input.info ? [`var dlInfo = ${JSON.stringify(input.info)}`] : []),
     KERNEL_IIFE,
     // 首尾两条日志用脚本名做标记：多脚本同帧时按名字区分谁进来了、谁跑完了。
     // 名字走 JSON.stringify，含引号 / 换行 / 反斜杠也不会破坏注入体的语法。

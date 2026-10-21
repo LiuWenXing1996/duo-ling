@@ -1,11 +1,20 @@
+import type { GmInfo } from '@duoling/shared'
 import { MainWorldMessenger } from './messaging/main-messenger'
 import { backgroundCommandType } from './messaging/protocol'
 import { createProxyService, type DeepAsync } from './proxy-service'
 import { COMMAND_SERVICE_KEY, SW_SERVICE_KEY } from './service/keys'
 import type { SwService } from './service/sw-service'
 
+export type ScriptInfo = Omit<GmInfo, 'userAgent' | 'isIncognito'>
+
 export interface DLConfig {
   logPrefix?: string
+  registerId: string
+  info?: ScriptInfo
+}
+
+interface ResolvedConfig {
+  logPrefix: string
   registerId: string
 }
 
@@ -15,19 +24,28 @@ interface CommandRegistrar {
 }
 
 export class DLClient {
-  readonly #config: Required<DLConfig>
+  readonly #config: ResolvedConfig
   readonly #log: (message: string) => void
+  readonly #info: Readonly<GmInfo> | undefined
   #sw?: DeepAsync<SwService>
   #commands?: DeepAsync<CommandRegistrar>
 
   constructor(config: DLConfig) {
     this.#config = { logPrefix: config.logPrefix || 'DL', registerId: config.registerId }
+    // 页面侧两字段在此补齐（SW 侧取不到：页面 UA 未必等于 SW 的 UA；隐身在脚本世界探不到，恒 false）
+    this.#info = config.info
+      ? Object.freeze({ ...config.info, userAgent: navigator.userAgent, isIncognito: false })
+      : undefined
     this.#log = (message) => console.log(`[${this.#config.logPrefix}]`, message)
     MainWorldMessenger.setScriptId(config.registerId)
   }
 
-  get config(): Required<DLConfig> {
+  get config(): ResolvedConfig {
     return { ...this.#config }
+  }
+
+  get info(): Readonly<GmInfo> | undefined {
+    return this.#info
   }
 
   get log(): (message: string) => void {

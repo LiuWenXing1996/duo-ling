@@ -2,6 +2,7 @@
 // 注册动作（拼装 → 先注销再注册）收敛在本函数。裸代码的程序化安装直接调本函数即可。
 // 装进去的代码一律过 buildUserScript 拼装，因此正文按词法就能拿到内核建好的 `DL`。
 import { buildUserScript } from './build-user-script'
+import type { ScriptInfo } from './dl'
 
 /** 装一条自定义脚本时可覆盖的注册参数（缺省值见下面的常量） */
 export interface InstallCustomUserScriptOptions {
@@ -9,6 +10,8 @@ export interface InstallCustomUserScriptOptions {
   id?: string
   /** 注入体里首尾日志与 sourceURL 用的名字。缺省取 id */
   name?: string
+  /** 脚本元信息（SW 侧组装；内核补页面侧字段后以 `DL.info` 暴露） */
+  info?: ScriptInfo
   /** 匹配规则（match pattern）；缺省全站 —— register 不接受空 matches */
   matches?: string[]
   /** 排除规则 / glob 三件，原样透传给 register（脚本库的注册要把它们带上） */
@@ -80,7 +83,17 @@ export async function installCustomUserScript(
   const name = options.name ?? id
   await registerUserScript({
     id,
-    js: [{ code: buildUserScript({ uuid: id, name, source: code, requires: options.requires }) }],
+    js: [
+      {
+        code: buildUserScript({
+          uuid: id,
+          name,
+          source: code,
+          requires: options.requires,
+          info: options.info,
+        }),
+      },
+    ],
     matches: options.matches?.length ? options.matches : DEFAULT_MATCHES,
     excludeMatches: options.excludeMatches,
     includeGlobs: options.includeGlobs,

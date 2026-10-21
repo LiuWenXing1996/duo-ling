@@ -440,10 +440,12 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   // match pattern 合法性：与导入路径共用同一校验器，
   // 非法值在此以中文报错拦下，不再拖到 chrome.userScripts.register 才以英文异常冒出
   validateMatchPatterns(project.config)
-  await dlRuntime().installCustomUserScript(resolveInjectCode(project), {
+  const code = resolveInjectCode(project)
+  await dlRuntime().installCustomUserScript(code, {
     id: project.uuid,
     name: project.name,
     requires: await resolveRequireCodes(project),
+    info: buildGmInfo(project, code),
     matches: project.config.matches,
     excludeMatches: project.config.excludeMatches,
     includeGlobs: project.config.includeGlobs,

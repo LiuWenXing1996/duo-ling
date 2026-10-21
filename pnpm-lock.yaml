@@ -428,6 +428,9 @@ importers:
         specifier: ^8.0.3
         version: 8.0.4
     devDependencies:
+      '@duoling/shared':
+        specifier: workspace:*
+        version: link:../shared
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2

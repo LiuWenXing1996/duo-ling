@@ -25,7 +25,7 @@ const show = (value: unknown): string => {
 const panel = document.createElement('div')
 panel.id = PANEL_ID
 panel.style.cssText = `
-  position:fixed;right:12px;bottom:12px;z-index:2147483647;width:360px;max-height:72vh;
+  position:fixed;right:12px;bottom:12px;z-index:2147483647;width:440px;max-height:72vh;
   overflow:auto;padding:10px 12px;border-radius:10px;background:#111;color:#ddd;
   font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:0 6px 24px rgba(0,0,0,.4)
 `
@@ -69,10 +69,14 @@ const render = (): void => {
     mark.style.cssText = `flex:0 0 10px;color:${row.ok ? '#4ade80' : '#f87171'}`
     const name = document.createElement('span')
     name.textContent = row.name
-    name.style.cssText = 'flex:0 0 auto;color:#ccc'
+    name.title = `${row.name} — ${row.detail}`
+    name.style.cssText =
+      'flex:0 1 auto;min-width:0;max-width:62%;color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
     const detail = document.createElement('span')
     detail.textContent = row.detail
-    detail.style.cssText = 'flex:1;min-width:0;color:#777;overflow-wrap:anywhere'
+    detail.title = row.detail
+    detail.style.cssText =
+      'flex:1;min-width:0;color:#777;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
     line.append(mark, name, detail)
     list.append(line)
   }
@@ -134,6 +138,56 @@ async function run(): Promise<void> {
     add('log 是函数', typeof DL.log === 'function', typeof DL.log)
     DL.log('探针日志：应出现在页面 console')
     add('client 面无 reportNetLog', typeof DL.reportNetLog === 'undefined', typeof DL.reportNetLog)
+
+    const info = DL.info
+    add(
+      'info.uuid 与 config 一致',
+      info?.uuid === cfg.registerId && typeof info?.script?.name === 'string',
+      info ? `${info.script.name} / sandbox=${info.sandboxMode}` : 'undefined',
+    )
+    if (info) {
+      add(
+        'info.script.name 是脚本名',
+        typeof info.script.name === 'string' && info.script.name.length > 0,
+        info.script.name,
+      )
+      add(
+        'info.script.version',
+        typeof info.script.version === 'string' || info.script.version === undefined,
+        show(info.script.version),
+      )
+      add(
+        'info.script.matches 是非空数组',
+        Array.isArray(info.script.matches) && info.script.matches.length > 0,
+        info.script.matches,
+      )
+      add('info.script.grant 是数组', Array.isArray(info.script.grant), show(info.script.grant))
+      add(
+        'info.scriptMetaStr 是字符串',
+        typeof info.scriptMetaStr === 'string',
+        `${info.scriptMetaStr.length} 字符`,
+      )
+      add(
+        'info.scriptHandler / version',
+        typeof info.scriptHandler === 'string' && typeof info.version === 'string',
+        `${info.scriptHandler} ${info.version}`,
+      )
+      add('info.userAgent = 页面 UA', info.userAgent === navigator.userAgent, info.userAgent)
+      add('info.isIncognito 是布尔', typeof info.isIncognito === 'boolean', info.isIncognito)
+      add(
+        'info.sandboxMode 恒 raw / downloadMode 恒 browser',
+        info.sandboxMode === 'raw' && info.downloadMode === 'browser',
+        `${info.sandboxMode} / ${info.downloadMode}`,
+      )
+      let frozenHolds = Object.isFrozen(info)
+      try {
+        ;(info as { uuid?: string }).uuid = 'x'
+      } catch {
+        /* 冻结对象在严格模式下抛错，也是「改不动」的表现 */
+      }
+      frozenHolds = frozenHolds && info.uuid !== 'x'
+      add('info 冻结不可改', frozenHolds, `frozen=${Object.isFrozen(info)}`)
+    }
 
     const obj = { n: 1, list: ['x'], nest: { on: true } }
     await DL.setValue(K('obj'), obj)

@@ -164,4 +164,26 @@ describe('createServiceWorkerHost', () => {
     const host = createServiceWorkerHost()
     await expect(host.addScript(SOURCE)).rejects.toThrow('未注入 DLRuntime')
   })
+
+  it('addScript：GM.info 同构的元信息随注入体带入（var dlInfo，页面侧两字段留给内核补）', async () => {
+    const registered = stubUserScriptsChrome()
+    const { DLRuntime } = await import('@duoling/dl-core')
+    registered.length = 0
+    const { createServiceWorkerHost } = await loadHost()
+    const host = createServiceWorkerHost({ dlRuntime: new DLRuntime() })
+    await host.addScript(SOURCE)
+    expect(registered).toHaveLength(1)
+    const code = (registered[0]!.js[0] as { code?: string } | undefined)?.code ?? ''
+    const match = /^var dlInfo = (.+)$/m.exec(code)
+    expect(match).not.toBeNull()
+    const info = JSON.parse(match![1]!) as Record<string, unknown>
+    expect(info.uuid).toBe(registered[0]!.id)
+    expect((info.script as Record<string, unknown>).matches).toEqual(['https://a.com/*'])
+    expect(info.scriptMetaStr).toContain('@match')
+    expect(info.sandboxMode).toBe('raw')
+    expect(info.downloadMode).toBe('browser')
+    // 页面侧两字段由内核补齐，不进注入参数
+    expect(info).not.toHaveProperty('userAgent')
+    expect(info).not.toHaveProperty('isIncognito')
+  })
 })
