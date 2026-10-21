@@ -5,7 +5,8 @@ import type { GmInfo } from '@duoling/shared'
 
 export interface GmMainOpts {
   /** GM_info（userAgent / isIncognito 由页面源码运行时就地补齐） */
-  info: Omit<GmInfo, 'userAgent' | 'isIncognito'> & Partial<Pick<GmInfo, 'userAgent' | 'isIncognito'>>
+  info: Omit<GmInfo, 'userAgent' | 'isIncognito'> &
+    Partial<Pick<GmInfo, 'userAgent' | 'isIncognito'>>
   /** @grant 裁剪表（resolveGmExposure 的产物） */
   has: Record<string, boolean>
   /** 值快照：注册时刻的全量值（同步读的底座） */

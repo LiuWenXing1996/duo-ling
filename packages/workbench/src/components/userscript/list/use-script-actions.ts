@@ -136,7 +136,8 @@ export function useScriptActions(deps: ScriptActionsDeps) {
     try {
       const res = await userscriptClient.rename(target.uuid, name)
       // 名字已落库；启用中的脚本会随之重注册，失败只提示、不回退改名
-      if (res.registerError) error.value = `已改名为「${name}」，但脚本没能生效：` + res.registerError
+      if (res.registerError)
+        error.value = `已改名为「${name}」，但脚本没能生效：` + res.registerError
       renameTarget.value = null
       await refresh()
     } catch (e) {

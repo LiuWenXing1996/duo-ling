@@ -17,7 +17,11 @@ var GM_INFO = __gmOpts.info
 GM_INFO.userAgent = navigator.userAgent
 // MAIN 世界没有 chrome.*，隐身上下文取不到 —— 恒 false（要拿真值需经桥回 SW 查，暂不做）
 try {
-  GM_INFO.isIncognito = !!(typeof chrome !== 'undefined' && chrome.extension && chrome.extension.inIncognitoContext)
+  GM_INFO.isIncognito = !!(
+    typeof chrome !== 'undefined' &&
+    chrome.extension &&
+    chrome.extension.inIncognitoContext
+  )
 } catch (e) {
   GM_INFO.isIncognito = false
 }
@@ -56,15 +60,22 @@ function __gmAnnounceRun() {
       url: location.href,
       savedAt: __gmSrcSavedAt,
     })
-    if (p && typeof p.catch === 'function') p.catch(function () { /* 中继件未就位：丢弃 */ })
-  } catch (e) { /* 同上 */ }
+    if (p && typeof p.catch === 'function')
+      p.catch(function () {
+        /* 中继件未就位：丢弃 */
+      })
+  } catch (e) {
+    /* 同上 */
+  }
 }
 __gmAnnounceRun()
 // load 时补播一次：脚本可能被配成 document_start，极早的广播会赶在 SW 唤醒前丢失
 if (document.readyState !== 'complete') window.addEventListener('load', __gmAnnounceRun)
 
 function __gmLog() {
-  try { console.log.apply(console, [NAME_PREFIX].concat([].slice.call(arguments))) } catch (e) {}
+  try {
+    console.log.apply(console, [NAME_PREFIX].concat([].slice.call(arguments)))
+  } catch (e) {}
 }
 
 // —— 运行期错误收集（写 errors 表，活动历史里可见）——
@@ -88,10 +99,20 @@ function __gmReportError(message: any, stack: any, url: any) {
     var p = __dlBridge.emit({
       __dlEvent: true,
       name: GM_INFO.script.name,
-      event: { t: 'error', phase: 'runtime', message: message, stack: stack, url: url, runId: __gmRunId },
+      event: {
+        t: 'error',
+        phase: 'runtime',
+        message: message,
+        stack: stack,
+        url: url,
+        runId: __gmRunId,
+      },
     })
     // 必须吞掉失败：reject 会触发 unhandledrejection，又回到本函数形成自触发循环
-    if (p && typeof p.catch === 'function') p.catch(function () { /* 桥不可用：丢弃 */ })
+    if (p && typeof p.catch === 'function')
+      p.catch(function () {
+        /* 桥不可用：丢弃 */
+      })
   } catch (e) {
     console.warn('[duoling:userscript] 上报异常：' + ((e && e.message) || e))
   }
@@ -110,5 +131,9 @@ window.addEventListener('unhandledrejection', function (e) {
   var r = e.reason || {}
   var stack = (r && r.stack) || ''
   if (!__gmOwnStack(stack)) return
-  __gmReportError('Unhandled rejection: ' + ((r && r.message) || String(e.reason)), stack, location.href)
+  __gmReportError(
+    'Unhandled rejection: ' + ((r && r.message) || String(e.reason)),
+    stack,
+    location.href,
+  )
 })

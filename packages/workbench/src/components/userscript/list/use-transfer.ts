@@ -6,10 +6,7 @@
 import { computed, reactive, ref } from 'vue'
 import type { Ref } from 'vue'
 import { errorText } from '@duoling/ui/lib/format'
-import {
-  offscreenService,
-  userscriptClient,
-} from '@duoling/ui/lib/userscripts/ui-client'
+import { offscreenService, userscriptClient } from '@duoling/ui/lib/userscripts/ui-client'
 import { isFileSchemeAccessAllowed } from '../../../lib/extension-page'
 import { looksLikeZip, toFileUrl } from '../../../lib/userscripts/local-path'
 import { inspectFetchedText, toScriptUrl } from '../../../lib/userscripts/script-url'
@@ -41,7 +38,9 @@ export function useTransfer(deps: TransferDeps) {
   const { refresh, justImported, error, onOpenGuide } = deps
 
   /** 导出确认弹窗的待办目标：非 null 即弹窗打开（每行导出与全部导出共用，隐私文案只写一处） */
-  const pendingExport = ref<null | { kind: 'single'; summary: ScriptSummary } | { kind: 'all' }>(null)
+  const pendingExport = ref<null | { kind: 'single'; summary: ScriptSummary } | { kind: 'all' }>(
+    null,
+  )
   /** 导出进行中（确认后的取数 + 打包 + 下载），防连点 */
   const exporting = ref(false)
   /** 导入进行中 */
@@ -87,7 +86,9 @@ export function useTransfer(deps: TransferDeps) {
   /** 已取回的源码：非 null 即弹窗进「已取回」态（主按钮从「获取」变「安装」） */
   const fetchedCode = ref<string | null>(null)
   /** 已取回源码的 metadata 摘要（复述「装的是什么」；无块时为 null） */
-  const fetchedMeta = computed(() => (fetchedCode.value ? parseUserScriptMetadata(fetchedCode.value) : null))
+  const fetchedMeta = computed(() =>
+    fetchedCode.value ? parseUserScriptMetadata(fetchedCode.value) : null,
+  )
 
   /** 点某行「导出」：开导出确认弹窗（单脚本） */
   function askExportSingle(s: ScriptSummary): void {

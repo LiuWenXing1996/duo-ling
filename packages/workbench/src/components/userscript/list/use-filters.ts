@@ -37,7 +37,11 @@ export function useScriptFilters(scripts: Ref<ScriptSummary[]>) {
   const statusFilters = computed<StatusFilterEntry[]>(() => [
     { key: 'all' as StatusFilter, label: '全部', count: scripts.value.length },
     { key: 'enabled' as StatusFilter, label: '已启用', count: enabledCount.value },
-    { key: 'disabled' as StatusFilter, label: '已停用', count: scripts.value.length - enabledCount.value }
+    {
+      key: 'disabled' as StatusFilter,
+      label: '已停用',
+      count: scripts.value.length - enabledCount.value,
+    },
   ])
 
   /** 列表实际渲染的脚本：搜索 + 状态过滤后排序（不 mutating 原数组） */
@@ -47,8 +51,7 @@ export function useScriptFilters(scripts: Ref<ScriptSummary[]>) {
     if (q) {
       list = list.filter(
         (s) =>
-          s.name.toLowerCase().includes(q) ||
-          s.matches.some((m) => m.toLowerCase().includes(q))
+          s.name.toLowerCase().includes(q) || s.matches.some((m) => m.toLowerCase().includes(q)),
       )
     }
     if (statusFilter.value === 'enabled') list = list.filter((s) => s.enabled)

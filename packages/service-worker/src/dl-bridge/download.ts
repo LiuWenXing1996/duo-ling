@@ -132,7 +132,12 @@ export async function doDownload(
   }
   if (opts.requestId && opts.connId) {
     mountDownloadWatch()
-    const entry: DownloadEntry = { uuid, connId: opts.connId, requestId: opts.requestId, total: null }
+    const entry: DownloadEntry = {
+      uuid,
+      connId: opts.connId,
+      requestId: opts.requestId,
+      total: null,
+    }
     // 先登记再查：下面有一个 await，终帧若落在这个窗口里，onChanged 会因为查不到登记而丢掉
     downloadWatch.set(id, entry)
     try {

@@ -8,7 +8,7 @@ import {
   DialogContent as UiDialogContent,
   DialogDescription as UiDialogDescription,
   DialogFooter as UiDialogFooter,
-  DialogTitle as UiDialogTitle
+  DialogTitle as UiDialogTitle,
 } from '@duoling/ui/components/ui/dialog'
 import { Input as UiInput } from '@duoling/ui/components/ui/input'
 import type { GroupsState } from './use-groups'
@@ -23,14 +23,22 @@ defineProps<{
   <!-- 新建 / 重命名分组：双用途（groupDialogTarget 为空 = 新建） -->
   <ui-dialog
     :open="g.groupDialogOpen"
-    @update:open="(v: boolean) => { if (!v) g.groupDialogOpen = false }"
+    @update:open="
+      (v: boolean) => {
+        if (!v) g.groupDialogOpen = false
+      }
+    "
   >
     <ui-dialog-content class="max-w-md">
       <ui-dialog-title class="text-base font-semibold">
         {{ g.groupDialogTarget ? '重命名分组' : '新建分组' }}
       </ui-dialog-title>
       <ui-dialog-description class="text-sm text-muted-foreground">
-        {{ g.groupDialogTarget ? '修改该分组的显示名称，不影响其下脚本。' : '给一组脚本起个名字，方便在列表里归类。' }}
+        {{
+          g.groupDialogTarget
+            ? '修改该分组的显示名称，不影响其下脚本。'
+            : '给一组脚本起个名字，方便在列表里归类。'
+        }}
       </ui-dialog-description>
       <div class="mt-3">
         <ui-input
@@ -43,14 +51,8 @@ defineProps<{
         />
       </div>
       <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
-        <ui-button variant="ghost" size="sm" @click="g.groupDialogOpen = false">
-          取消
-        </ui-button>
-        <ui-button
-          size="sm"
-          :disabled="!g.groupDialogName.trim()"
-          @click="g.confirmGroupDialog"
-        >
+        <ui-button variant="ghost" size="sm" @click="g.groupDialogOpen = false"> 取消 </ui-button>
+        <ui-button size="sm" :disabled="!g.groupDialogName.trim()" @click="g.confirmGroupDialog">
           {{ g.groupDialogTarget ? '保存' : '创建' }}
         </ui-button>
       </ui-dialog-footer>
@@ -60,24 +62,22 @@ defineProps<{
   <!-- 删除分组确认：成员自动退回未分组 -->
   <ui-dialog
     :open="!!g.removeGroupTarget"
-    @update:open="(v: boolean) => { if (!v) g.removeGroupTarget = null }"
+    @update:open="
+      (v: boolean) => {
+        if (!v) g.removeGroupTarget = null
+      }
+    "
   >
     <ui-dialog-content class="max-w-md">
       <ui-dialog-title class="text-base font-semibold">删除分组</ui-dialog-title>
       <ui-dialog-description class="text-sm text-muted-foreground">
-        删除分组「{{ g.groupById.get(g.removeGroupTarget ?? '')?.name ?? '' }}」后，其下脚本将退回「未分组」。此操作不可撤销。
+        删除分组「{{
+          g.groupById.get(g.removeGroupTarget ?? '')?.name ?? ''
+        }}」后，其下脚本将退回「未分组」。此操作不可撤销。
       </ui-dialog-description>
       <ui-dialog-footer class="flex-none sm:justify-end sm:space-x-2">
-        <ui-button variant="ghost" size="sm" @click="g.removeGroupTarget = null">
-          取消
-        </ui-button>
-        <ui-button
-          size="sm"
-          variant="destructive"
-          @click="g.confirmRemoveGroup"
-        >
-          删除
-        </ui-button>
+        <ui-button variant="ghost" size="sm" @click="g.removeGroupTarget = null"> 取消 </ui-button>
+        <ui-button size="sm" variant="destructive" @click="g.confirmRemoveGroup"> 删除 </ui-button>
       </ui-dialog-footer>
     </ui-dialog-content>
   </ui-dialog>
@@ -85,7 +85,11 @@ defineProps<{
   <!-- 移动到分组弹窗：列出未分组 + 全部分组，点一项即落定 -->
   <ui-dialog
     :open="!!g.moveTarget"
-    @update:open="(v: boolean) => { if (!v) g.moveTarget = null }"
+    @update:open="
+      (v: boolean) => {
+        if (!v) g.moveTarget = null
+      }
+    "
   >
     <ui-dialog-content class="max-w-md">
       <ui-dialog-title class="text-base font-semibold">移动到分组</ui-dialog-title>

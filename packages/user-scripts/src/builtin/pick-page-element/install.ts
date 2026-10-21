@@ -6,7 +6,18 @@ import { PICK_ELEMENT_CANCEL_COMMAND, PICK_ELEMENT_PICK_COMMAND } from '../regis
 const HTML_SAMPLE_LIMIT = 500
 const HTML_FULL_LIMIT = 32768
 const TEXT_LIMIT = 200
-const SUMMARY_ATTRS = ['name', 'type', 'placeholder', 'aria-label', 'role', 'href', 'title', 'alt', 'for', 'action']
+const SUMMARY_ATTRS = [
+  'name',
+  'type',
+  'placeholder',
+  'aria-label',
+  'role',
+  'href',
+  'title',
+  'alt',
+  'for',
+  'action',
+]
 const ATTR_VALUE_LIMIT = 300
 const PARENT_DEPTH = 6
 const PATH_DEPTH = 4
@@ -56,7 +67,11 @@ function parentChain(el: Element): Array<{ tag: string; id?: string; classes: st
   const chain: Array<{ tag: string; id?: string; classes: string[] }> = []
   let node = el.parentElement
   while (node && chain.length < PARENT_DEPTH) {
-    chain.push({ tag: node.tagName.toLowerCase(), id: node.id || undefined, classes: classesOf(node) })
+    chain.push({
+      tag: node.tagName.toLowerCase(),
+      id: node.id || undefined,
+      classes: classesOf(node),
+    })
     node = node.parentElement
   }
   return chain
@@ -176,8 +191,14 @@ function runPick(): Promise<ElementPickContext | null> {
       cleanup()
       reject(error)
     }
-    activePick = { cancel: function () { finish(null) } }
-    timer = setTimeout(function () { fail(new Error(PICK_TIMEOUT_MESSAGE)) }, PICK_TIMEOUT_MS)
+    activePick = {
+      cancel: function () {
+        finish(null)
+      },
+    }
+    timer = setTimeout(function () {
+      fail(new Error(PICK_TIMEOUT_MESSAGE))
+    }, PICK_TIMEOUT_MS)
 
     function highlight(el: Element): void {
       const r = el.getBoundingClientRect()

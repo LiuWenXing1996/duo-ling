@@ -9,24 +9,14 @@
 // relay/sync.test.ts）。
 import { describe, expect, it } from 'vitest'
 import { BUILTIN_ENTRY_POINTS as ENTRY_POINTS } from '../../build.mjs'
-import {
-  FLOAT_HOST_FILE,
-  PAGE_ENV_FILE,
-  PAGE_SNAPSHOT_FILE,
-  PICK_ELEMENT_FILE,
-} from './registry'
+import { FLOAT_HOST_FILE, PAGE_ENV_FILE, PAGE_SNAPSHOT_FILE, PICK_ELEMENT_FILE } from './registry'
 
 describe('产物文件名与构建入口表一致', () => {
   it('注册面声明的文件名，正好是构建产物名的全集', () => {
     const built = Object.keys(ENTRY_POINTS)
       .map((key) => `${key}.js`)
       .sort()
-    const declared = [
-      PAGE_ENV_FILE,
-      PAGE_SNAPSHOT_FILE,
-      PICK_ELEMENT_FILE,
-      FLOAT_HOST_FILE,
-    ].sort()
+    const declared = [PAGE_ENV_FILE, PAGE_SNAPSHOT_FILE, PICK_ELEMENT_FILE, FLOAT_HOST_FILE].sort()
     expect(declared).toEqual(built)
   })
 })

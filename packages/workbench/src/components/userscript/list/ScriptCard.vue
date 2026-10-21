@@ -1,14 +1,24 @@
 <script setup lang="ts">
 // 脚本卡片（列表网格的单个单元）：图标 + 名称 + 状态标 → 匹配规则 → 元信息 → 底部开关 + 操作。
 // 本组件只负责展示与发起动作，所有写操作回传给父级（列表壳）执行 —— 状态与命令面不在这里。
-import { Braces as UiBraces, Check as UiCheck, Copy as UiCopy, Download as UiDownload, FolderSymlink as UiFolderSymlink, LoaderCircle as UiLoaderCircle, Pencil as UiPencil, Tag as UiTag, Trash2 as UiTrash2 } from '@lucide/vue'
+import {
+  Braces as UiBraces,
+  Check as UiCheck,
+  Copy as UiCopy,
+  Download as UiDownload,
+  FolderSymlink as UiFolderSymlink,
+  LoaderCircle as UiLoaderCircle,
+  Pencil as UiPencil,
+  Tag as UiTag,
+  Trash2 as UiTrash2,
+} from '@lucide/vue'
 import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@duoling/ui/components/ui/switch'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
-  TooltipTrigger as UiTooltipTrigger
+  TooltipTrigger as UiTooltipTrigger,
 } from '@duoling/ui/components/ui/tooltip'
 import { formatTimestamp } from '@duoling/ui/lib/format'
 import type { ScriptSummary } from '@duoling/shared'

@@ -33,8 +33,12 @@ function gmDynamicHead(opts: GmWrapperOptions): string {
   }
   return (
     ';(function () {\n' +
-    'var __gmOpts = ' + jsonLiteral(gm) + '\n' +
-    'var __dlBridge = ' + buildScriptBridgeSource(opts.pageSecret, opts.uuid) + '\n'
+    'var __gmOpts = ' +
+    jsonLiteral(gm) +
+    '\n' +
+    'var __dlBridge = ' +
+    buildScriptBridgeSource(opts.pageSecret, opts.uuid) +
+    '\n'
   )
 }
 

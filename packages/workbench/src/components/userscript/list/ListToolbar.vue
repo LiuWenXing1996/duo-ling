@@ -15,7 +15,7 @@ import {
   RefreshCw as UiRefreshCw,
   Search as UiSearch,
   Upload as UiUpload,
-  X as UiX
+  X as UiX,
 } from '@lucide/vue'
 import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import {
@@ -23,7 +23,7 @@ import {
   DropdownMenuContent as UiDropdownMenuContent,
   DropdownMenuItem as UiDropdownMenuItem,
   DropdownMenuSeparator as UiDropdownMenuSeparator,
-  DropdownMenuTrigger as UiDropdownMenuTrigger
+  DropdownMenuTrigger as UiDropdownMenuTrigger,
 } from '@duoling/ui/components/ui/dropdown-menu'
 import { Input as UiInput } from '@duoling/ui/components/ui/input'
 import {
@@ -31,13 +31,13 @@ import {
   SelectContent as UiSelectContent,
   SelectItem as UiSelectItem,
   SelectTrigger as UiSelectTrigger,
-  SelectValue as UiSelectValue
+  SelectValue as UiSelectValue,
 } from '@duoling/ui/components/ui/select'
 import {
   Tooltip as UiTooltip,
   TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider,
-  TooltipTrigger as UiTooltipTrigger
+  TooltipTrigger as UiTooltipTrigger,
 } from '@duoling/ui/components/ui/tooltip'
 import type { SortKey, StatusFilter, StatusFilterEntry } from './use-filters'
 
@@ -96,7 +96,10 @@ const emit = defineEmits<{
 
 // 双向绑定经 computed 中转：prop 只读，setter 转发 update 事件（类型一并收口）。
 const queryModel = computed({ get: () => props.query, set: (v) => emit('update:query', v) })
-const statusModel = computed({ get: () => props.statusFilter, set: (v) => emit('update:statusFilter', v) })
+const statusModel = computed({
+  get: () => props.statusFilter,
+  set: (v) => emit('update:statusFilter', v),
+})
 const sortModel = computed({ get: () => props.sortKey, set: (v) => emit('update:sortKey', v) })
 </script>
 

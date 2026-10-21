@@ -45,12 +45,20 @@ function __gmEnsureChannel(): Promise<void> {
         // 全量校准：跳过本实例还在飞行中的写（否则会用旧值覆盖本地刚写的）
         return __gmSend({ c: 'store.all' }).then(function (all) {
           var fresh = all || {}
-          for (var k in fresh) if (Object.prototype.hasOwnProperty.call(fresh, k) && !__gmPendingWrites[k]) GM_VALUES[k] = fresh[k]
-          for (var old in GM_VALUES) if (!Object.prototype.hasOwnProperty.call(fresh, old) && !__gmPendingWrites[old]) delete GM_VALUES[old]
+          for (var k in fresh)
+            if (Object.prototype.hasOwnProperty.call(fresh, k) && !__gmPendingWrites[k])
+              GM_VALUES[k] = fresh[k]
+          for (var old in GM_VALUES)
+            if (!Object.prototype.hasOwnProperty.call(fresh, old) && !__gmPendingWrites[old])
+              delete GM_VALUES[old]
         })
       })
       .then(resolve, function (e) {
-        console.warn(NAME_PREFIX + ' 值通道未就绪（跨标签页变更暂不可见，同步读仍可用快照）：' + ((e && e.message) || e))
+        console.warn(
+          NAME_PREFIX +
+            ' 值通道未就绪（跨标签页变更暂不可见，同步读仍可用快照）：' +
+            ((e && e.message) || e),
+        )
         resolve()
       })
   })
@@ -70,7 +78,9 @@ function __gmSetSync(key: string, value: any, isDelete: boolean): Promise<any> {
     },
     function (e: any) {
       delete __gmPendingWrites[key]
-      __gmLog((isDelete ? 'GM_deleteValue' : 'GM_setValue') + ' 落盘失败：' + ((e && e.message) || e))
+      __gmLog(
+        (isDelete ? 'GM_deleteValue' : 'GM_setValue') + ' 落盘失败：' + ((e && e.message) || e),
+      )
       throw e
     },
   )
@@ -101,7 +111,9 @@ function __gmSetManySync(input: any, isDelete: boolean): Promise<any> {
     },
     function (e: any) {
       for (var j = 0; j < keys.length; j++) delete __gmPendingWrites[keys[j]]
-      __gmLog((isDelete ? 'GM_deleteValues' : 'GM_setValues') + ' 落盘失败：' + ((e && e.message) || e))
+      __gmLog(
+        (isDelete ? 'GM_deleteValues' : 'GM_setValues') + ' 落盘失败：' + ((e && e.message) || e),
+      )
       throw e
     },
   )
@@ -127,8 +139,9 @@ function __gmPickValues(source: any, keysOrDefaults: any): Record<string, any> {
     }
     return out
   }
-  for (var d in keysOrDefaults) if (Object.prototype.hasOwnProperty.call(keysOrDefaults, d)) {
-    out[d] = Object.prototype.hasOwnProperty.call(source, d) ? source[d] : keysOrDefaults[d]
-  }
+  for (var d in keysOrDefaults)
+    if (Object.prototype.hasOwnProperty.call(keysOrDefaults, d)) {
+      out[d] = Object.prototype.hasOwnProperty.call(source, d) ? source[d] : keysOrDefaults[d]
+    }
   return out
 }

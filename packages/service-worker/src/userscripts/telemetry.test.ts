@@ -15,23 +15,25 @@ type RunStartArgs = [
   name?: string,
   extra?: { url?: string; savedAt?: number; tabSessionId?: string },
 ]
-type RunEventArgs = [uuid: string, runId: string, event: { kind: string; detail: string; time: number }]
-type PageErrorArgs = [tabId: number, info: { uuid: string | null; name: string; message: string; runId: string | null }]
+type RunEventArgs = [
+  uuid: string,
+  runId: string,
+  event: { kind: string; detail: string; time: number },
+]
+type PageErrorArgs = [
+  tabId: number,
+  info: { uuid: string | null; name: string; message: string; runId: string | null },
+]
 
 /** mock 须经 vi.hoisted（工厂被 vi.mock 提升到顶层 const 之前执行，直接引用会撞 TDZ） */
-const {
-  noteRunStart,
-  notePageError,
-  recordRunStart,
-  recordRunEvent,
-  appendUserScriptError,
-} = vi.hoisted(() => ({
-  noteRunStart: vi.fn<(tabId: number, uuid: string, runId: string) => void>(),
-  notePageError: vi.fn<(...args: PageErrorArgs) => void>(),
-  recordRunStart: vi.fn<(...args: RunStartArgs) => Promise<void>>(),
-  recordRunEvent: vi.fn<(...args: RunEventArgs) => Promise<void>>(),
-  appendUserScriptError: vi.fn<(rec: ErrRec) => Promise<void>>(),
-}))
+const { noteRunStart, notePageError, recordRunStart, recordRunEvent, appendUserScriptError } =
+  vi.hoisted(() => ({
+    noteRunStart: vi.fn<(tabId: number, uuid: string, runId: string) => void>(),
+    notePageError: vi.fn<(...args: PageErrorArgs) => void>(),
+    recordRunStart: vi.fn<(...args: RunStartArgs) => Promise<void>>(),
+    recordRunEvent: vi.fn<(...args: RunEventArgs) => Promise<void>>(),
+    appendUserScriptError: vi.fn<(rec: ErrRec) => Promise<void>>(),
+  }))
 
 vi.mock('./page-monitor', () => ({
   noteRunStart: (...args: [tabId: number, uuid: string, runId: string]) => noteRunStart(...args),

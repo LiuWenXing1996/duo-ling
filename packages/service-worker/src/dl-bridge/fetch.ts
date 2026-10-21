@@ -39,7 +39,10 @@ function isBinaryBody(v: unknown): v is { __dlBinaryBody: true; base64: string }
 }
 
 /** 判定请求体是否为包装侧生成的 FormData 信封 */
-function isFormBody(v: unknown): v is { __dlFormData: true; fields: Array<{ name: string; value?: string; base64?: string; type?: string; filename?: string }> } {
+function isFormBody(v: unknown): v is {
+  __dlFormData: true
+  fields: Array<{ name: string; value?: string; base64?: string; type?: string; filename?: string }>
+} {
   return (
     typeof v === 'object' &&
     v !== null &&
@@ -129,7 +132,10 @@ export async function doFetch(
 ): Promise<FetchPayload> {
   const redirect = init?.redirect ?? 'follow'
   if (redirect !== 'follow' && redirect !== 'manual' && redirect !== 'error') {
-    throw new ApiError('INVALID_ARG', `GM_xmlhttpRequest：redirect 仅支持 follow / manual / error，收到「${String(redirect)}」`)
+    throw new ApiError(
+      'INVALID_ARG',
+      `GM_xmlhttpRequest：redirect 仅支持 follow / manual / error，收到「${String(redirect)}」`,
+    )
   }
   let host: string
   let hostname: string
@@ -155,12 +161,17 @@ export async function doFetch(
     } else if (isFormBody(init.body)) {
       // FormData：重建后让浏览器自动设 multipart boundary——手写 content-type 会破坏它
       if (headers.has('content-type')) {
-        console.warn('[duoling:dl] fetch FormData 请求含手写 content-type，已强制剔除（boundary 由浏览器生成）')
+        console.warn(
+          '[duoling:dl] fetch FormData 请求含手写 content-type，已强制剔除（boundary 由浏览器生成）',
+        )
         headers.delete('content-type')
       }
       req.body = rebuildFormData(init.body)
     } else {
-      throw new ApiError('INVALID_ARG', 'GM_xmlhttpRequest：body 仅支持字符串 / Blob / FormData / ArrayBuffer / TypedArray / DataView')
+      throw new ApiError(
+        'INVALID_ARG',
+        'GM_xmlhttpRequest：body 仅支持字符串 / Blob / FormData / ArrayBuffer / TypedArray / DataView',
+      )
     }
   }
 
@@ -181,7 +192,10 @@ export async function doFetch(
   let timer: ReturnType<typeof setTimeout> | undefined
   if (timeout && timeout > 0) {
     timer = setTimeout(
-      () => controller.abort(new ApiError('BRIDGE_TIMEOUT', `GM_xmlhttpRequest 请求超时（${timeout}ms）：${url}`)),
+      () =>
+        controller.abort(
+          new ApiError('BRIDGE_TIMEOUT', `GM_xmlhttpRequest 请求超时（${timeout}ms）：${url}`),
+        ),
       timeout,
     )
   }
@@ -238,7 +252,10 @@ export async function doFetch(
       const grace = new Promise<null>((r) => setTimeout(() => r(null), 5000))
       const obs = await Promise.race([manualWaiter.promise, grace, aborted])
       if (!obs) {
-        throw new ApiError('INTERNAL', `GM_xmlhttpRequest：未能观测到 3xx 响应（webRequest 未见该请求）：${url}`)
+        throw new ApiError(
+          'INTERNAL',
+          `GM_xmlhttpRequest：未能观测到 3xx 响应（webRequest 未见该请求）：${url}`,
+        )
       }
       const responseType = init?.responseType === 'arraybuffer' ? 'arraybuffer' : 'text'
       return {
@@ -319,10 +336,9 @@ export function abortFetch(requestId: string): void {
  * 对账是「用后即撤」的第二层：清掉上次崩溃残留的自有区间 session 规则。
  */
 export function mountFetchObservation(): void {
-  chrome.webRequest?.onHeadersReceived?.addListener(
-    handleObservation,
-    { urls: ['*://*/*'] },
-    ['responseHeaders', 'extraHeaders'],
-  )
+  chrome.webRequest?.onHeadersReceived?.addListener(handleObservation, { urls: ['*://*/*'] }, [
+    'responseHeaders',
+    'extraHeaders',
+  ])
   void sweepOrphanRules().catch(() => {})
 }

@@ -62,10 +62,16 @@ export class DLClient {
     return this.#swService().listValues()
   }
 
-  async getValues<T = unknown>(keysOrDefaults?: string[] | Record<string, T>): Promise<Record<string, T>> {
+  async getValues<T = unknown>(
+    keysOrDefaults?: string[] | Record<string, T>,
+  ): Promise<Record<string, T>> {
     if (!keysOrDefaults) return (await this.#swService().getValues()) as Record<string, T>
-    if (Array.isArray(keysOrDefaults)) return (await this.#swService().getValues(keysOrDefaults)) as Record<string, T>
-    const found = (await this.#swService().getValues(Object.keys(keysOrDefaults))) as Record<string, T>
+    if (Array.isArray(keysOrDefaults))
+      return (await this.#swService().getValues(keysOrDefaults)) as Record<string, T>
+    const found = (await this.#swService().getValues(Object.keys(keysOrDefaults))) as Record<
+      string,
+      T
+    >
     const entries: [string, T][] = []
     for (const [key, fallback] of Object.entries(keysOrDefaults)) {
       const value = found[key]

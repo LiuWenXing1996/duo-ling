@@ -16,7 +16,7 @@ import {
   ChevronDown as UiChevronDown,
   ChevronRight as UiChevronRight,
   ChevronUp as UiChevronUp,
-  Pencil as UiPencil
+  Pencil as UiPencil,
 } from '@lucide/vue'
 import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import {
@@ -24,13 +24,13 @@ import {
   DialogContent as UiDialogContent,
   DialogDescription as UiDialogDescription,
   DialogFooter as UiDialogFooter,
-  DialogTitle as UiDialogTitle
+  DialogTitle as UiDialogTitle,
 } from '@duoling/ui/components/ui/dialog'
 import {
   DropdownMenu as UiDropdownMenu,
   DropdownMenuContent as UiDropdownMenuContent,
   DropdownMenuItem as UiDropdownMenuItem,
-  DropdownMenuTrigger as UiDropdownMenuTrigger
+  DropdownMenuTrigger as UiDropdownMenuTrigger,
 } from '@duoling/ui/components/ui/dropdown-menu'
 import { Input as UiInput } from '@duoling/ui/components/ui/input'
 import { subscribeAvailability } from '@duoling/ui/lib/userscripts/ui-client'
@@ -134,15 +134,19 @@ onUnmounted(() => {
     <!-- 滚动区：横幅 / 提示 / 脚本列表，只有这里滚 -->
     <div class="min-h-0 flex-1 overflow-y-auto scroll-gap px-5 pb-5">
       <div class="mx-auto max-w-6xl space-y-3 pt-1">
-
         <!-- 可用性横幅：仅在引擎不可用时显示（有需要用户行动的信息才占位）；单行紧凑排版 -->
         <div
           v-if="sl.availability && !sl.availability.available"
           class="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs"
         >
           <ui-alert-triangle class="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-          <span class="shrink-0 font-medium text-amber-600 dark:text-amber-400">用户脚本功能不可用</span>
-          <p class="min-w-0 flex-1 truncate text-muted-foreground" :title="sl.availability.guideText">
+          <span class="shrink-0 font-medium text-amber-600 dark:text-amber-400"
+            >用户脚本功能不可用</span
+          >
+          <p
+            class="min-w-0 flex-1 truncate text-muted-foreground"
+            :title="sl.availability.guideText"
+          >
             {{ sl.availability.guideText }}
           </p>
           <!-- 引导入口：完整步骤与「打开扩展管理页」按钮都在引导标签页，本页只留一句提示 -->
@@ -188,10 +192,7 @@ onUnmounted(() => {
             :key="item.kind === 'header' ? 'h-' + item.id : item.s.uuid"
           >
             <!-- 分组头：点击折叠 / 展开；真实分组带重排与操作菜单，未分组只有折叠 -->
-            <div
-              v-if="item.kind === 'header'"
-              class="col-span-full flex items-center gap-1 pt-2"
-            >
+            <div v-if="item.kind === 'header'" class="col-span-full flex items-center gap-1 pt-2">
               <button
                 type="button"
                 class="flex min-w-0 flex-1 items-center gap-1.5 text-left"
@@ -199,10 +200,15 @@ onUnmounted(() => {
                 :aria-expanded="!g.collapsed[item.id]"
                 @click="g.toggleCollapse(item.id)"
               >
-                <ui-chevron-right v-if="g.collapsed[item.id]" class="size-3.5 shrink-0 text-muted-foreground" />
+                <ui-chevron-right
+                  v-if="g.collapsed[item.id]"
+                  class="size-3.5 shrink-0 text-muted-foreground"
+                />
                 <ui-chevron-down v-else class="size-3.5 shrink-0 text-muted-foreground" />
                 <span class="truncate text-xs font-medium">{{ item.name }}</span>
-                <span class="shrink-0 text-[10px] tabular-nums text-muted-foreground">{{ item.count }}</span>
+                <span class="shrink-0 text-[10px] tabular-nums text-muted-foreground">{{
+                  item.count
+                }}</span>
               </button>
               <template v-if="item.id !== g.UNGROUPED_KEY">
                 <ui-button
@@ -227,12 +233,7 @@ onUnmounted(() => {
                 </ui-button>
                 <ui-dropdown-menu>
                   <ui-dropdown-menu-trigger as-child>
-                    <ui-button
-                      variant="ghost"
-                      size="icon"
-                      class="size-6"
-                      title="分组操作"
-                    >
+                    <ui-button variant="ghost" size="icon" class="size-6" title="分组操作">
                       <ui-pencil class="size-3.5" />
                     </ui-button>
                   </ui-dropdown-menu-trigger>
@@ -318,7 +319,11 @@ onUnmounted(() => {
     <!-- 全部删除确认弹窗：破坏性操作，明示条数与「不可撤销」，并说清不受影响的范围 -->
     <ui-dialog
       :open="a.removeAllOpen"
-      @update:open="(v: boolean) => { if (!v) a.removeAllOpen = false }"
+      @update:open="
+        (v: boolean) => {
+          if (!v) a.removeAllOpen = false
+        }
+      "
     >
       <ui-dialog-content class="max-w-md">
         <ui-dialog-title class="text-base font-semibold">删除全部脚本</ui-dialog-title>
@@ -343,7 +348,11 @@ onUnmounted(() => {
     <!-- 重命名弹窗：名字是管理面标识，改它不动源码、不产生版本 -->
     <ui-dialog
       :open="!!a.renameTarget"
-      @update:open="(v: boolean) => { if (!v) a.renameTarget = null }"
+      @update:open="
+        (v: boolean) => {
+          if (!v) a.renameTarget = null
+        }
+      "
     >
       <ui-dialog-content class="max-w-md">
         <ui-dialog-title class="text-base font-semibold">重命名脚本</ui-dialog-title>
@@ -377,7 +386,11 @@ onUnmounted(() => {
     <!-- 删除确认弹窗：用 UI 弹窗替代原生 confirm（原生 confirm / prompt 是同步阻塞的，会冻结渲染） -->
     <ui-dialog
       :open="!!a.pendingRemove"
-      @update:open="(v: boolean) => { if (!v) a.pendingRemove = null }"
+      @update:open="
+        (v: boolean) => {
+          if (!v) a.pendingRemove = null
+        }
+      "
     >
       <ui-dialog-content class="max-w-md">
         <ui-dialog-title class="text-base font-semibold">删除脚本</ui-dialog-title>
@@ -415,6 +428,6 @@ onUnmounted(() => {
       accept=".zip,application/zip"
       class="hidden"
       @change="tr.onImportFile"
-    >
+    />
   </section>
 </template>

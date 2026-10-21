@@ -26,11 +26,14 @@ declare const GM_RESOURCES: Record<string, { text: string; url: string }>
 //    Blob / ArrayBuffer 入参仍在本地走锚点（二进制没必要往返一趟扩展）。
 var __gmDownloadHandlers: Record<string, any> = {}
 var __gmDownloadSeq = 0
-function __gmUnregisterDownload(id: any) { delete __gmDownloadHandlers[id] }
+function __gmUnregisterDownload(id: any) {
+  delete __gmDownloadHandlers[id]
+}
 
 function __gmDownloadUrl(d: any) {
   var wantsProgress = typeof d.onprogress === 'function'
-  var wantsFrames = wantsProgress || typeof d.onload === 'function' || typeof d.onerror === 'function'
+  var wantsFrames =
+    wantsProgress || typeof d.onload === 'function' || typeof d.onerror === 'function'
   var requestId = '__gmDl' + ++__gmDownloadSeq
   if (wantsFrames) __gmDownloadHandlers[requestId] = d
   // abort：id 到手前调用就记为「待中止」，id 一到立刻 cancel（不放过这个竞态窗口）
@@ -48,7 +51,10 @@ function __gmDownloadUrl(d: any) {
   // 要帧（progress / load / error）→ 先等通道，否则 SW 侧找不到连接、帧全丢
   var sendReq = wantsFrames ? __gmSendAfterChannel : __gmSend
   var p: any = sendReq({
-    c: 'download', url: d.url, name: d.name, saveAs: d.saveAs === true,
+    c: 'download',
+    url: d.url,
+    name: d.name,
+    saveAs: d.saveAs === true,
     conflictAction: d.conflictAction,
     requestId: wantsFrames ? requestId : undefined,
     connId: wantsFrames ? __gmConnId : undefined,
@@ -62,7 +68,11 @@ function __gmDownloadUrl(d: any) {
     function (e: any) {
       // 起不来（扩展没 downloads 权限 / URL 非法 / 文件名非法）：立即回报并清掉登记
       __gmUnregisterDownload(requestId)
-      if (typeof d.onerror === 'function') { try { d.onerror({ error: (e && e.message) || 'not_succeeded' }) } catch (_) {} }
+      if (typeof d.onerror === 'function') {
+        try {
+          d.onerror({ error: (e && e.message) || 'not_succeeded' })
+        } catch (_) {}
+      }
       throw e
     },
   )
@@ -73,17 +83,26 @@ function __gmDownloadUrl(d: any) {
 
 function __gmDownload(input: any, name?: any): Promise<any> {
   if (typeof input === 'string') return __gmDownloadUrl({ url: input, name: name })
-  if (input && typeof input === 'object' && typeof input.url === 'string') return __gmDownloadUrl(input)
+  if (input && typeof input === 'object' && typeof input.url === 'string')
+    return __gmDownloadUrl(input)
   var blob: Blob | null = null
   if (typeof Blob !== 'undefined' && input instanceof Blob) blob = input
   else if (input instanceof ArrayBuffer) blob = new Blob([input])
-  else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(input)) blob = new Blob([new Uint8Array((input as any).buffer, input.byteOffset, input.byteLength)])
-  if (!blob) return Promise.reject(new Error('GM_download：首参仅支持 URL 字符串 / details 对象 / Blob / ArrayBuffer / TypedArray'))
+  else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(input))
+    blob = new Blob([new Uint8Array((input as any).buffer, input.byteOffset, input.byteLength)])
+  if (!blob)
+    return Promise.reject(
+      new Error(
+        'GM_download：首参仅支持 URL 字符串 / details 对象 / Blob / ArrayBuffer / TypedArray',
+      ),
+    )
   var url = URL.createObjectURL(blob)
   try {
     __gmTriggerAnchor(url, name)
   } finally {
-    setTimeout(function () { URL.revokeObjectURL(url) }, 1000)
+    setTimeout(function () {
+      URL.revokeObjectURL(url)
+    }, 1000)
   }
   return Promise.resolve()
 }
@@ -91,7 +110,8 @@ function __gmDownload(input: any, name?: any): Promise<any> {
 function __gmOpenInTab(url: string, options?: any) {
   var active = true
   if (typeof options === 'boolean') active = options
-  else if (options && typeof options === 'object' && typeof options.active === 'boolean') active = options.active
+  else if (options && typeof options === 'object' && typeof options.active === 'boolean')
+    active = options.active
   var tabId: any = null
   var pendingClose = false
   var handle = {
@@ -99,7 +119,10 @@ function __gmOpenInTab(url: string, options?: any) {
     close: function () {
       if (handle.closed) return
       handle.closed = true
-      if (tabId == null) { pendingClose = true; return }
+      if (tabId == null) {
+        pendingClose = true
+        return
+      }
       __gmSend({ c: 'tabs.close', tabId: tabId }).catch(function () {})
     },
   }
@@ -108,17 +131,34 @@ function __gmOpenInTab(url: string, options?: any) {
       tabId = id
       if (pendingClose) handle.close()
     },
-    function (e: any) { __gmLog('GM_openInTab 失败：' + ((e && e.message) || e)) },
+    function (e: any) {
+      __gmLog('GM_openInTab 失败：' + ((e && e.message) || e))
+    },
   )
   return handle
 }
 
 function __gmNotify(a?: any, b?: any, c?: any, d?: any): Promise<any> {
   var msg: any, title: any, icon: any, onclick: any
-  if (a && typeof a === 'object') { msg = a.text; title = a.title; icon = a.image; onclick = a.onclick } else { msg = a; title = b; icon = c; onclick = d }
+  if (a && typeof a === 'object') {
+    msg = a.text
+    title = a.title
+    icon = a.image
+    onclick = a.onclick
+  } else {
+    msg = a
+    title = b
+    icon = c
+    onclick = d
+  }
   // 带 onclick 的通知：点击回调靠 Port 推帧（SW 按 uuid 找连接），同样要先等通道
   var sendReq = typeof onclick === 'function' ? __gmSendAfterChannel : __gmSend
-  return sendReq({ c: 'notify', message: String(msg == null ? '' : msg), title: title, icon: icon }).then(function (r: any) {
+  return sendReq({
+    c: 'notify',
+    message: String(msg == null ? '' : msg),
+    title: title,
+    icon: icon,
+  }).then(function (r: any) {
     if (typeof onclick === 'function' && r && r.id) __gmNotifyHandlers[r.id] = onclick
   })
 }
@@ -130,7 +170,10 @@ function __gmSetClipboard(data: any, info?: any): Promise<any> {
 }
 
 function __gmRegisterMenu(caption: string, onClick: any, options?: any): number {
-  var title = typeof options === 'object' && options && typeof options.title === 'string' ? options.title : caption
+  var title =
+    typeof options === 'object' && options && typeof options.title === 'string'
+      ? options.title
+      : caption
   var id = __gmMenuKey(caption)
   __gmMenuHandlers[id] = onClick
   __gmEnsureChannel()
@@ -140,7 +183,10 @@ function __gmRegisterMenu(caption: string, onClick: any, options?: any): number 
   return __gmMenuId(caption)
 }
 function __gmUnregisterMenu(idOrCaption: any) {
-  var id = typeof idOrCaption === 'number' ? 'm-' + (idOrCaption >>> 0).toString(36) : __gmMenuKey(idOrCaption)
+  var id =
+    typeof idOrCaption === 'number'
+      ? 'm-' + (idOrCaption >>> 0).toString(36)
+      : __gmMenuKey(idOrCaption)
   delete __gmMenuHandlers[id]
   __gmRegSend({ c: 'menu.unregister', id: id }).catch(function () {})
 }
@@ -150,8 +196,12 @@ var __gmListenerSeq = 0
 // 进度帧按 requestId 回来，这张表记住"哪个 requestId 要回调哪个函数"。请求结束（成功 / 失败 /
 // 中止）都要清 —— 否则脚本跑久了表只增不减。
 var __gmXhrProgress: Record<string, any> = {}
-function __gmRegisterXhrProgress(requestId: string, fn: any) { __gmXhrProgress[requestId] = fn }
-function __gmUnregisterXhrProgress(requestId: string) { delete __gmXhrProgress[requestId] }
+function __gmRegisterXhrProgress(requestId: string, fn: any) {
+  __gmXhrProgress[requestId] = fn
+}
+function __gmUnregisterXhrProgress(requestId: string) {
+  delete __gmXhrProgress[requestId]
+}
 
 // —— 音频状态监听（GM_audio.addStateChangeListener）——
 // TM 用**函数引用**标识监听器（没有 id 机制）：本地就是一张函数数组，由空变非空时订阅、
@@ -163,7 +213,9 @@ function __gmAudioSetWatch(want: boolean) {
   __gmAudioWatching = want
   // 命令名写成两个字面量（不要用三元拼字符串）—— 契约一致性单测按**字面量**反射
   // 「哪条命令由谁发出」，拼出来的名字它看不见，会被判成「没人发的死命令」。
-  var req = want ? { c: 'audio.watch', connId: __gmConnId } : { c: 'audio.unwatch', connId: __gmConnId }
+  var req = want
+    ? { c: 'audio.watch', connId: __gmConnId }
+    : { c: 'audio.unwatch', connId: __gmConnId }
   __gmRegSend(req).catch(function (e: any) {
     __gmLog('GM_audio 订阅失败：' + ((e && e.message) || e))
   })
@@ -181,7 +233,11 @@ function __gmRemoveAudioListener(fn: any) {
 function __gmFireAudioChange(ev: any) {
   var list = __gmAudioHandlers.slice()
   for (var i = 0; i < list.length; i++) {
-    try { list[i](ev) } catch (e) { __gmLog('GM_audio 监听回调异常', e) }
+    try {
+      list[i](ev)
+    } catch (e) {
+      __gmLog('GM_audio 监听回调异常', e)
+    }
   }
 }
 
@@ -216,23 +272,41 @@ function __gmRemoveValueChangeListener(listenerId: number) {
 var __gmCookie = {
   list: function (details: any, cb?: any) {
     var q = details || {}
-    var p = __gmSend({ c: 'cookie.get', url: q.url || location.href, name: q.name, domain: q.domain, path: q.path })
+    var p = __gmSend({
+      c: 'cookie.get',
+      url: q.url || location.href,
+      name: q.name,
+      domain: q.domain,
+      path: q.path,
+    })
     __gmWithCb(p, cb)
     return p
   },
   set: function (details: any, cb?: any) {
     var d = details || {}
     var p = __gmSend({
-      c: 'cookie.set', url: d.url || location.href, name: d.name, value: d.value,
-      secure: d.secure, httpOnly: d.httpOnly, expirationDate: d.expirationDate,
-      domain: d.domain, path: d.path,
+      c: 'cookie.set',
+      url: d.url || location.href,
+      name: d.name,
+      value: d.value,
+      secure: d.secure,
+      httpOnly: d.httpOnly,
+      expirationDate: d.expirationDate,
+      domain: d.domain,
+      path: d.path,
     })
     __gmWithErrCb(p, cb)
     return p
   },
   delete: function (details: any, cb?: any) {
     var d = details || {}
-    var p = __gmSend({ c: 'cookie.remove', url: d.url || location.href, name: d.name, domain: d.domain, path: d.path })
+    var p = __gmSend({
+      c: 'cookie.remove',
+      url: d.url || location.href,
+      name: d.name,
+      domain: d.domain,
+      path: d.path,
+    })
     __gmWithErrCb(p, cb)
     return p
   },
@@ -244,7 +318,12 @@ var __gmCookie = {
 function __gmResource(name: string, wantUrl: any) {
   var r = GM_RESOURCES[name]
   if (!r) {
-    __gmLog((wantUrl ? 'GM_getResourceURL' : 'GM_getResourceText') + '：资源 ' + name + ' 不存在（未声明或抓取失败）')
+    __gmLog(
+      (wantUrl ? 'GM_getResourceURL' : 'GM_getResourceText') +
+        '：资源 ' +
+        name +
+        ' 不存在（未声明或抓取失败）',
+    )
     return undefined
   }
   return wantUrl ? r.url : r.text
@@ -256,19 +335,28 @@ function __gmResource(name: string, wantUrl: any) {
 //    早跑没有副作用，而等它会白白推迟脚本能调 GM API 的时点。
 //    两条触发路径都挂上并各自幂等：MutationObserver 抓 body 插入，DOMContentLoaded 兜底。
 function __gmRunAtBody(fn: () => void) {
-  if (document.body) { fn(); return }
+  if (document.body) {
+    fn()
+    return
+  }
   var done = false
   var fire = function () {
     if (done || !document.body) return
     done = true
-    if (mo) { try { mo.disconnect() } catch (e) {} }
+    if (mo) {
+      try {
+        mo.disconnect()
+      } catch (e) {}
+    }
     fn()
   }
   var mo: MutationObserver | null = null
   try {
     mo = new MutationObserver(fire)
     mo.observe(document, { childList: true, subtree: true })
-  } catch (e) { mo = null }
+  } catch (e) {
+    mo = null
+  }
   document.addEventListener('DOMContentLoaded', fire, { once: true })
 }
 
@@ -277,23 +365,61 @@ function __gmRunAtBody(fn: () => void) {
 var __gmAudioApi = {
   setMute: function (details: any, cb?: any) {
     var p = __gmSend({ c: 'audio.setMute', isMuted: !!(details && details.isMuted) })
-    if (typeof cb === 'function') p.then(function () { cb() }, function (e: any) { cb((e && e.message) || String(e)) })
+    if (typeof cb === 'function')
+      p.then(
+        function () {
+          cb()
+        },
+        function (e: any) {
+          cb((e && e.message) || String(e))
+        },
+      )
     return p
   },
   getState: function (cb?: any) {
-    var p = __gmSend({ c: 'audio.getState' }).then(function (s: any) { return s || {} })
-    if (typeof cb === 'function') p.then(function (s: any) { cb(s) }, function (e: any) { __gmLog('GM_audio.getState 失败：' + ((e && e.message) || e)) })
+    var p = __gmSend({ c: 'audio.getState' }).then(function (s: any) {
+      return s || {}
+    })
+    if (typeof cb === 'function')
+      p.then(
+        function (s: any) {
+          cb(s)
+        },
+        function (e: any) {
+          __gmLog('GM_audio.getState 失败：' + ((e && e.message) || e))
+        },
+      )
     return p
   },
   // 订阅登记交给 __gmAddAudioListener：它管「表由空变非空才订阅」的那层节流
   addStateChangeListener: function (fn: any, cb?: any) {
-    var p = __gmWaitReady().then(function () { __gmAddAudioListener(fn) })
-    if (typeof cb === 'function') p.then(function () { cb() }, function (e: any) { cb((e && e.message) || String(e)) })
+    var p = __gmWaitReady().then(function () {
+      __gmAddAudioListener(fn)
+    })
+    if (typeof cb === 'function')
+      p.then(
+        function () {
+          cb()
+        },
+        function (e: any) {
+          cb((e && e.message) || String(e))
+        },
+      )
     return p
   },
   removeStateChangeListener: function (fn: any, cb?: any) {
-    var p = __gmWaitReady().then(function () { __gmRemoveAudioListener(fn) })
-    if (typeof cb === 'function') p.then(function () { cb() }, function (e: any) { cb((e && e.message) || String(e)) })
+    var p = __gmWaitReady().then(function () {
+      __gmRemoveAudioListener(fn)
+    })
+    if (typeof cb === 'function')
+      p.then(
+        function () {
+          cb()
+        },
+        function (e: any) {
+          cb((e && e.message) || String(e))
+        },
+      )
     return p
   },
 }

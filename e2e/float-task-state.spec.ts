@@ -21,7 +21,14 @@
 // 头注释。
 //
 // 推假会话的几条不需要真会话存在：SW 只登记会话 id（站点名 / 标签页都不再拼给它），故不必代写归属。
-import { test, expect, type BrowserContext, type Frame, type Page, type Worker } from '@playwright/test'
+import {
+  test,
+  expect,
+  type BrowserContext,
+  type Frame,
+  type Page,
+  type Worker,
+} from '@playwright/test'
 import { saveStubModel } from './model-config'
 import * as http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -70,12 +77,16 @@ test.describe.serial('任务状态外显（进行中登记 + 对话框显隐）'
   test.afterAll(async () => {
     const withTimeout = (p: Promise<unknown> | undefined, ms: number) =>
       p ? Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]) : Promise.resolve()
-    try { await withTimeout(context?.close(), 30_000) } catch { /* 忽略 */ }
+    try {
+      await withTimeout(context?.close(), 30_000)
+    } catch {}
     try {
       probe?.closeAllConnections()
       await withTimeout(new Promise<void>((r) => probe?.close(() => r())), 5_000)
-    } catch { /* 忽略 */ }
-    try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    } catch {}
+    try {
+      rmSync(profileDir, { recursive: true, force: true })
+    } catch {}
   })
 
   /**
@@ -117,9 +128,7 @@ test.describe.serial('任务状态外显（进行中登记 + 对话框显隐）'
 
     // 收尾 → 从进行中撤下（没人在看的那些事不再有别的落点，见文件头注释）
     await pushOffscreen({ kind: 'chat:finished', conversationId: c1 })
-    await expect
-      .poll(() => runningOf(messenger), { message: '收尾后不该还挂在进行中' })
-      .toEqual([])
+    await expect.poll(() => runningOf(messenger), { message: '收尾后不该还挂在进行中' }).toEqual([])
     await expectNoScriptBadge(sw, otherTabId!)
 
     // 另一页同样：会话状态与它自己的角标无关
@@ -375,12 +384,16 @@ test.describe.skip('真实浮层链路（模型 stub + 页面内 iframe）', () 
   test.afterAll(async () => {
     const withTimeout = (p: Promise<unknown> | undefined, ms: number) =>
       p ? Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]) : Promise.resolve()
-    try { await withTimeout(context?.close(), 30_000) } catch { /* 忽略 */ }
+    try {
+      await withTimeout(context?.close(), 30_000)
+    } catch {}
     try {
       stub?.server.closeAllConnections()
       await withTimeout(new Promise<void>((r) => stub?.server.close(() => r())), 5_000)
-    } catch { /* 忽略 */ }
-    try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    } catch {}
+    try {
+      rmSync(profileDir, { recursive: true, force: true })
+    } catch {}
   })
 
   test('点浮层里的停止：任务就地中止，半截照样落盘（带「已中断」）', async () => {
@@ -465,9 +478,7 @@ test.describe.skip('真实浮层链路（模型 stub + 页面内 iframe）', () 
     // 生成已开始（stub 收到请求，此刻正卡在它的延时里）→ 进行中登记里有它
     const before = stub.stub.hits.length
     await expect.poll(() => stub.stub.hits.length, { timeout: 30_000 }).toBeGreaterThan(before)
-    await expect
-      .poll(async () => (await runningOf(sender)).length, { timeout: 10_000 })
-      .toBe(1)
+    await expect.poll(async () => (await runningOf(sender)).length, { timeout: 10_000 }).toBe(1)
     const conversationId = (await runningOf(sender))[0]
     expect(conversationId, '生成中应能在进行中登记里看到').toBeTruthy()
 
@@ -539,7 +550,11 @@ async function waitForPanelFrame(page: Page): Promise<Frame> {
   })
   throw new Error(
     `浮层 iframe 未出现：宿主根节点${seen.root ? '在' : '不在'}、iframe src=${String(seen.src)}；` +
-      `本页的帧 = ${page.frames().map((f) => f.url()).join(' | ') || '(无)'}`,
+      `本页的帧 = ${
+        page
+          .frames()
+          .map((f) => f.url())
+          .join(' | ') || '(无)'
+      }`,
   )
 }
-

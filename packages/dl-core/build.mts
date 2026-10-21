@@ -84,7 +84,10 @@ const emitPlugin = (target: Target): Plugin => ({
       if (result.errors.length) return
       const code = result.outputFiles?.[0]?.text
       // `write: false` 才会有 outputFiles；拿不到就是配置被人改了，当场报而不是写出空文件
-      if (!code) throw new Error(`dl-core ${target.label}产物为空 —— 需要 write: false 才能从 outputFiles 取文本`)
+      if (!code)
+        throw new Error(
+          `dl-core ${target.label}产物为空 —— 需要 write: false 才能从 outputFiles 取文本`,
+        )
       for (const { re, why } of target.forbidden) {
         if (re.test(code)) throw new Error(`dl-core ${target.label}产物${why} —— 脏产物不落盘`)
       }

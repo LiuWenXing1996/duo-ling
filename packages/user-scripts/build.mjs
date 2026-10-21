@@ -127,7 +127,10 @@ const relayOptions = {
 // 每段产物就是纯语句序列，拼起来即注入体前缀片段。
 // 段顺序 = 注入体内声明顺序，不可重排
 const GM_MAIN_SEGMENTS = ['header', 'channel', 'store', 'net', 'misc', 'assemble']
-const GM_MAIN_ENTRY_POINTS = GM_MAIN_SEGMENTS.map((s) => ({ in: resolve(here, `src/gm-main/src/${s}.ts`), out: s }))
+const GM_MAIN_ENTRY_POINTS = GM_MAIN_SEGMENTS.map((s) => ({
+  in: resolve(here, `src/gm-main/src/${s}.ts`),
+  out: s,
+}))
 const GM_MAIN_GEN = resolve(here, 'src/gm-main/gm-main.gen.ts')
 
 const gmMainGenPlugin = {
@@ -136,18 +139,24 @@ const gmMainGenPlugin = {
     builder.onEnd((result) => {
       if (result.errors.length) return
       const byName = new Map(
-        result.outputFiles.map((f) => [f.path.slice(f.path.lastIndexOf('/') + 1).replace(/\.js$/, ''), f.text]),
+        result.outputFiles.map((f) => [
+          f.path.slice(f.path.lastIndexOf('/') + 1).replace(/\.js$/, ''),
+          f.text,
+        ]),
       )
       const missing = GM_MAIN_SEGMENTS.filter((s) => !byName.has(s))
       if (missing.length) throw new Error(`gm-main 段产物缺失：${missing.join(', ')}`)
       const raw = GM_MAIN_SEGMENTS.map((s) => byName.get(s)).join('\n')
       if (/^\s*(?:import|export)[\s{('"]/m.test(raw)) {
-        throw new Error('gm-main 产物残留 import / export 语句 —— 注入体必须是裸语句序列（见 build.mjs 本段注释）')
+        throw new Error(
+          'gm-main 产物残留 import / export 语句 —— 注入体必须是裸语句序列（见 build.mjs 本段注释）',
+        )
       }
       // 正文闸门：esbuild 吐不出未闭合的 try 块，assemble 段源码以哨兵调用占位，
       // 此处替换成真正的 `try {`（闭合在后缀 GM_WRAPPER_SUFFIX）
       const SENTINEL = '__gmBodyOpen();'
-      if (raw.split(SENTINEL).length !== 2) throw new Error('gm-main 产物缺正文闸门哨兵 __gmBodyOpen();（应恰好一处）')
+      if (raw.split(SENTINEL).length !== 2)
+        throw new Error('gm-main 产物缺正文闸门哨兵 __gmBodyOpen();（应恰好一处）')
       const code = raw.replace(SENTINEL, 'try {')
       writeFileSync(
         GM_MAIN_GEN,
@@ -156,7 +165,9 @@ const gmMainGenPlugin = {
           `/** GM 内核注入源（裸顶层语句序列；与脚本正文同函数作用域，消费方见 src/gm-main/index.ts） */\n` +
           `export const GM_MAIN_SRC = ${JSON.stringify(code)}\n`,
       )
-      console.log(`[user-scripts] GM 内核注入源已生成 → ${GM_MAIN_GEN.slice(here.length + 1)}（${code.length} 字节）`)
+      console.log(
+        `[user-scripts] GM 内核注入源已生成 → ${GM_MAIN_GEN.slice(here.length + 1)}（${code.length} 字节）`,
+      )
     })
   },
 }

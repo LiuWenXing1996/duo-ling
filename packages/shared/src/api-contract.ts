@@ -495,16 +495,15 @@ export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
  *
  * 信封名保持 `dl` 前缀（内部协议面不改名，改它是纯 churn）。
  */
-export type DlEvent =
-  | {
-      t: 'error'
-      phase: 'runtime'
-      message: string
-      stack?: string
-      url?: string
-      /** 本次运行的标识（一次页面加载 mint 一个）；对话界面监控据此把错误归属到对应运行 */
-      runId?: string
-    }
+export type DlEvent = {
+  t: 'error'
+  phase: 'runtime'
+  message: string
+  stack?: string
+  url?: string
+  /** 本次运行的标识（一次页面加载 mint 一个）；对话界面监控据此把错误归属到对应运行 */
+  runId?: string
+}
 
 /** 桥响应信封 */
 export type ApiResponse =

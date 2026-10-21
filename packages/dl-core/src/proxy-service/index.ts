@@ -24,7 +24,9 @@ export function registerService<T extends object>(
     const instance = factory(contextOf(message))
     const target = resolve(instance, path.slice(0, -1))
     const method =
-      path.length === 0 ? target : (target as Record<string, unknown> | undefined)?.[path[path.length - 1]]
+      path.length === 0
+        ? target
+        : (target as Record<string, unknown> | undefined)?.[path[path.length - 1]]
     if (typeof method !== 'function') {
       throw new MessagingError('PROTOCOL', `服务 ${key} 上没有方法 ${path.join('.') || '(自身)'}`)
     }

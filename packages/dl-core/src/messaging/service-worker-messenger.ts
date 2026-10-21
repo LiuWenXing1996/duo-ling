@@ -64,7 +64,10 @@ export class ServiceWorkerMessenger {
             if (entry.key !== portKey) continue
             this.#pending.delete(id)
             entry.reject(
-              new MessagingError('TRANSPORT', `脚本 ${closedScriptId} 在 tab ${closedTabId} 的端口已断开`),
+              new MessagingError(
+                'TRANSPORT',
+                `脚本 ${closedScriptId} 在 tab ${closedTabId} 的端口已断开`,
+              ),
             )
           }
           for (const listener of this.#onPortClosed) listener(closedTabId, closedScriptId)
@@ -172,7 +175,8 @@ export class ServiceWorkerMessenger {
       const frame = raw as EventDetail
       const eventTabId = sender?.tab?.id
       if (eventTabId === undefined) return
-      for (const listener of this.#onEvent) listener(eventTabId, frame.scriptId, frame.type, frame.data)
+      for (const listener of this.#onEvent)
+        listener(eventTabId, frame.scriptId, frame.type, frame.data)
       return
     }
     if (kind !== 'request') return

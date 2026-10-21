@@ -6,7 +6,13 @@
 // 带上）；产品内置件经 host-config 的 builtins 注入点挂进全量链。主走默认 USER_SCRIPT 世界注入、
 // 注入代码与 @require 拼一条 code、不给脚本世界配 csp
 // —— 机制与理由见 ARCHITECTURE.md「脚本注入」节。
-import type { ScriptProject, ScriptConfig, GmInfo, Json, UserScriptsAvailability } from '@duoling/shared'
+import type {
+  ScriptProject,
+  ScriptConfig,
+  GmInfo,
+  Json,
+  UserScriptsAvailability,
+} from '@duoling/shared'
 // 可用性形状归契约包（应用侧状态横幅与 offscreen 都认），此处 re-export 维持包内路径不变。
 export type { UserScriptsAvailability }
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from '@duoling/user-scripts/gm-main'
@@ -30,7 +36,8 @@ import { SCRIPT_RELAY_ID, syncScriptRelay } from './relay/sync'
 
 function dlRuntime(): DLRuntime {
   const runtime = dlRuntimePort()
-  if (!runtime) throw new Error('未注入 DLRuntime：脚本注册面不可用（createServiceWorkerHost 需带 dlRuntime）')
+  if (!runtime)
+    throw new Error('未注入 DLRuntime：脚本注册面不可用（createServiceWorkerHost 需带 dlRuntime）')
   return runtime
 }
 
@@ -119,9 +126,7 @@ export async function ensureWorldsConfigured(): Promise<boolean> {
   if (!worldsConfigured) return false
   try {
     const registered = await chrome.userScripts.getScripts()
-    const worldIds = [
-      ...new Set(registered.map((s) => s.worldId).filter((v): v is string => !!v)),
-    ]
+    const worldIds = [...new Set(registered.map((s) => s.worldId).filter((v): v is string => !!v))]
     for (const wid of worldIds) {
       const ok = await configureWorld(wid)
       if (!ok) console.warn('[duoling:userscript] 脚本世界配置失败（messaging）', wid)
@@ -203,7 +208,9 @@ function buildGmInfo(
     scriptMetaStr: parsed?.raw ?? '',
     scriptHandler: extensionName(),
     // manifest 版本（真实 SW 恒有）；兜底空串 —— 测试环境 / 异形宿主不因 GM_info 组装而炸
-    version: (typeof chrome.runtime?.getManifest === 'function' && chrome.runtime.getManifest().version) || '',
+    version:
+      (typeof chrome.runtime?.getManifest === 'function' && chrome.runtime.getManifest().version) ||
+      '',
     uuid: project.uuid,
     sandboxMode: 'raw',
     // GM_download 走浏览器下载器（chrome.downloads）→ 档位如实报 browser，供脚本判「能不能弹另存为」
@@ -352,7 +359,10 @@ async function resolveRequireCodes(project: ScriptProject): Promise<string[]> {
  * 密钥 / 值快照 / `@resource` 在这里备齐，包装拼装交给 @duoling/user-scripts/gm-main。
  * 它与 dl-core 的拼装并存，作为 GM 面的对照实现。
  */
-export async function buildGmInjectionCode(project: ScriptProject, rawCode: string): Promise<string> {
+export async function buildGmInjectionCode(
+  project: ScriptProject,
+  rawCode: string,
+): Promise<string> {
   // 密钥取自持久层（与中继件同源）：单脚本注册路径也可能在 SW 刚唤醒、尚未跑过
   // registerAllEnabled 时发生，必须能独立取到当前密钥。
   const pageSecret = await getOrCreatePageSecret()
@@ -382,7 +392,8 @@ export async function buildGmInjectionCode(project: ScriptProject, rawCode: stri
   }
   const resources: Record<string, { text: string; url: string }> = {}
   for (const r of resourceResults) {
-    if (r.ok && r.dataUrl != null && r.text != null) resources[r.name] = { text: r.text, url: r.dataUrl }
+    if (r.ok && r.dataUrl != null && r.text != null)
+      resources[r.name] = { text: r.text, url: r.dataUrl }
   }
   // 注入 code **必须拼成一条**：包装前缀、@require、脚本源码、闭合后缀要在同一个函数作用域里，
   // 脚本才能按词法拿到 `GM_*`（见 gm-main 文件头）。拆成多条 js 会各自独立求值 ——
@@ -416,12 +427,12 @@ export async function buildGmInjectionCode(project: ScriptProject, rawCode: stri
 /**
  * 单条注册（仅 enabled 项目才注入；matches 缺失直接抛错）。
  */
-export async function registerScript(
-  project: ScriptProject,
-): Promise<void> {
+export async function registerScript(project: ScriptProject): Promise<void> {
   if (!project.enabled) return
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') {
-    throw new Error('用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限')
+    throw new Error(
+      '用户脚本功能不可用：Chrome ≥138 需在扩展详情页开启「Allow User Scripts」，Chrome <138 需开启全局「开发者模式」，Firefox 需授权 userScripts 权限',
+    )
   }
   if (!project.config.matches?.length) {
     throw new Error('脚本缺少匹配规则（matches），不会在任何页面运行')
@@ -499,7 +510,11 @@ async function runRegisterAllEnabled(): Promise<void> {
     // 全量重注册只清用户脚本——中继件（上一段刚同步）与内置注册（同上）不能被这把误清
     // （内置排除名单由 builtins.ids 注入；中继件 id 由包自行保留；自定义安装由 dl-core
     // 报上它本进程装过的 id，否则装完会在下一次同步里被当残留扫掉）
-    const reserved = [...(builtins?.ids ?? []), SCRIPT_RELAY_ID, ...runtime.installedCustomScriptIds()]
+    const reserved = [
+      ...(builtins?.ids ?? []),
+      SCRIPT_RELAY_ID,
+      ...runtime.installedCustomScriptIds(),
+    ]
     const stale = existing.filter((s) => !reserved.includes(s.id))
     if (stale.length) await unregisterScripts(stale.map((s) => s.id))
   } catch {
@@ -513,7 +528,12 @@ async function runRegisterAllEnabled(): Promise<void> {
       await registerScript(project)
     } catch (e) {
       console.error('[duoling:userscript] 注册失败', project.uuid, e)
-      noteRegisterError({ uuid: project.uuid, name: project.name, phase: 'register', message: errorText(e) })
+      noteRegisterError({
+        uuid: project.uuid,
+        name: project.name,
+        phase: 'register',
+        message: errorText(e),
+      })
     }
   }
 }

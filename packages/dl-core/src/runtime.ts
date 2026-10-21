@@ -12,7 +12,10 @@ import {
   type BackgroundCommandInfo,
 } from './service/command-service'
 import { mountSwService } from './service/sw-service'
-import { isUserScriptsAvailable as probeAvailability, UserScriptsAvailabilityWatch } from './availability'
+import {
+  isUserScriptsAvailable as probeAvailability,
+  UserScriptsAvailabilityWatch,
+} from './availability'
 
 export interface DLRuntimeConfig {
   /** 脚本键值库的库名：只认第一次挂载，缺省 `duoling-dl` */

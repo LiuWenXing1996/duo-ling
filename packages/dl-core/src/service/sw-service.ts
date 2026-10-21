@@ -93,7 +93,9 @@ export class SwService {
     const db = await openKv()
     const tx = db.transaction(VALUES_STORE, 'readwrite')
     const requests = Object.entries(values).map(([key, value]) =>
-      value == null ? tx.store.delete(this.#recordKey(key)) : tx.store.put(value, this.#recordKey(key)),
+      value == null
+        ? tx.store.delete(this.#recordKey(key))
+        : tx.store.put(value, this.#recordKey(key)),
     )
     await Promise.all(requests)
     await tx.done

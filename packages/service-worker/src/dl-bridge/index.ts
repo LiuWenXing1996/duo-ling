@@ -75,7 +75,10 @@ function clipText(s: string): string {
 export function summarizeRunEvent(req: ApiRequest): { kind: string; detail: string } | null {
   switch (req.c) {
     case 'fetch':
-      return { kind: 'fetch', detail: clipText(`${(req.init?.method ?? 'GET').toUpperCase()} ${req.url}`) }
+      return {
+        kind: 'fetch',
+        detail: clipText(`${(req.init?.method ?? 'GET').toUpperCase()} ${req.url}`),
+      }
     case 'download':
       return { kind: 'download', detail: clipText(req.url) }
     case 'notify':
@@ -104,7 +107,11 @@ export function summarizeRunEvent(req: ApiRequest): { kind: string; detail: stri
 }
 
 /** 按命令分发（已确认 __dl 标记与身份）。参数见 ApiRequest 契约注释 */
-async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.MessageSender): Promise<unknown> {
+async function dispatch(
+  uuid: string,
+  req: ApiRequest,
+  sender: chrome.runtime.MessageSender,
+): Promise<unknown> {
   const tabId = sender.tab?.id
   switch (req.c) {
     // 存储（键空间按脚本隔离）
@@ -140,11 +147,14 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
       const cid = req.init?.connId
       const progress =
         req.init?.wantProgress && rid && cid
-          ? (loaded: number, total: number | null) => pushFetchProgress(uuid, cid, { requestId: rid, loaded, total })
+          ? (loaded: number, total: number | null) =>
+              pushFetchProgress(uuid, cid, { requestId: rid, loaded, total })
           : undefined
       // 诊断（debug 级）：脚本要了进度却收不到帧时，先看这条在不在（只对要进度的请求打，别的请求不刷）
       if (req.init?.wantProgress) {
-        console.debug(`[duoling:dl] fetch 要进度：rid=${String(rid)} cid=${String(cid)} → 流式=${progress ? '是' : '否'}`)
+        console.debug(
+          `[duoling:dl] fetch 要进度：rid=${String(rid)} cid=${String(cid)} → 流式=${progress ? '是' : '否'}`,
+        )
       }
       return doFetch(req.url, req.init, progress)
     }
@@ -275,7 +285,10 @@ async function dispatch(uuid: string, req: ApiRequest, sender: chrome.runtime.Me
         })
         for (const c of found) {
           const scheme = c.secure ? 'https' : 'http'
-          await api.remove({ url: `${scheme}://${c.domain.replace(/^\./, '')}${c.path}`, name: c.name })
+          await api.remove({
+            url: `${scheme}://${c.domain.replace(/^\./, '')}${c.path}`,
+            name: c.name,
+          })
         }
         return undefined
       }
@@ -403,7 +416,9 @@ export function initDlBridge(): void {
         void telemetry
           .recordingTabSessionId(tabId)
           .then((tabSessionId) =>
-            tabSessionId ? telemetry.recordRunStart(uuid, runId, run.name, { ...extra, tabSessionId }) : undefined,
+            tabSessionId
+              ? telemetry.recordRunStart(uuid, runId, run.name, { ...extra, tabSessionId })
+              : undefined,
           )
           .catch(() => {})
       }
@@ -422,25 +437,27 @@ export function initDlBridge(): void {
         .recordingTabSessionId(tabId)
         .then((tabSessionId) => {
           if (!tabSessionId) return
-          return telemetry.appendError({
-            uuid: evt.uuid ?? null,
-            name: evt.name || '未知脚本',
-            phase: 'runtime',
-            message: event?.message || '',
-            stack: event?.stack,
-            url: event?.url,
-            // 本次运行标识：对话界面监控据此把错误归属到对应 tab 的运行（缺省视作非本次）
-            runId: typeof event?.runId === 'string' ? event.runId : null,
-            // 页归属直接带上（不必等写侧从运行条继承）：这一页此刻确实开着记录
-            tabSessionId,
-          }).then(() => {
-            telemetry.notePageError(tabId, {
+          return telemetry
+            .appendError({
               uuid: evt.uuid ?? null,
               name: evt.name || '未知脚本',
+              phase: 'runtime',
               message: event?.message || '',
+              stack: event?.stack,
+              url: event?.url,
+              // 本次运行标识：对话界面监控据此把错误归属到对应 tab 的运行（缺省视作非本次）
               runId: typeof event?.runId === 'string' ? event.runId : null,
+              // 页归属直接带上（不必等写侧从运行条继承）：这一页此刻确实开着记录
+              tabSessionId,
             })
-          })
+            .then(() => {
+              telemetry.notePageError(tabId, {
+                uuid: evt.uuid ?? null,
+                name: evt.name || '未知脚本',
+                message: event?.message || '',
+                runId: typeof event?.runId === 'string' ? event.runId : null,
+              })
+            })
         })
         .catch(() => {})
       return undefined // 仅记录，无需响应
@@ -457,7 +474,11 @@ export function initDlBridge(): void {
     // （sender.userScript 可能缺省，缺省时跳过校验——沿用旧 GM 桥的实测结论）
     const scriptId = (sender as { userScript?: { scriptId?: string } }).userScript?.scriptId
     if (scriptId && msg.uuid && scriptId !== msg.uuid) {
-      sendResponse({ ok: false, error: '脚本身份不匹配', code: 'PERMISSION_DENIED' } satisfies ApiResponse)
+      sendResponse({
+        ok: false,
+        error: '脚本身份不匹配',
+        code: 'PERMISSION_DENIED',
+      } satisfies ApiResponse)
       return undefined
     }
     const uuid = msg.uuid || scriptId
@@ -471,7 +492,8 @@ export function initDlBridge(): void {
     // 的错误行兜底。落盘失败静默：观察数据不该反过来影响脚本的调用。
     if (msg.runId) {
       const ev = summarizeRunEvent(msg.req)
-      if (ev) void telemetry.recordRunEvent(uuid, msg.runId, { ...ev, time: Date.now() }).catch(() => {})
+      if (ev)
+        void telemetry.recordRunEvent(uuid, msg.runId, { ...ev, time: Date.now() }).catch(() => {})
     }
 
     void dispatch(uuid, msg.req, sender)
@@ -485,13 +507,15 @@ export function initDlBridge(): void {
         // 桥调用失败也进错误日志（活动历史里可见）。它发生在某次运行**之中**，故带上信封里的 runId
         // 挂到那次运行下 —— 否则只能单列成孤儿行，看不出「脚本跑到哪一步挂的」。
         // 脚本名取自运行广播登记的表（尽力而为：表空时回退 uuid）。
-        void telemetry.appendError({
-          uuid,
-          name: scriptNameByUuid.get(uuid) ?? uuid,
-          phase: 'bridge',
-          message,
-          ...(msg.runId ? { runId: msg.runId } : {}),
-        }).catch(() => {})
+        void telemetry
+          .appendError({
+            uuid,
+            name: scriptNameByUuid.get(uuid) ?? uuid,
+            phase: 'bridge',
+            message,
+            ...(msg.runId ? { runId: msg.runId } : {}),
+          })
+          .catch(() => {})
         sendResponse({ ok: false, error: message, code } satisfies ApiResponse)
       })
     return true // 保持消息通道打开，dispatch 完成后经 sendResponse 回传

@@ -28,10 +28,7 @@ import {
 // 匹配并集比对（「未变则跳过」）：已上移包内，随 index 导出
 import { sameMatchSet, matchPatternCoversUrl } from '@duoling/shared'
 // 通用引擎件（包内 registration.ts）：世界配置 / 注册 / 注销 / 串行队列
-import {
-  enqueueRegistration,
-  registerScript,
-} from '../registration'
+import { enqueueRegistration, registerScript } from '../registration'
 // 中继件（GM 桥 MAIN 世界侧）的注册同步（包内 relay/sync.ts）
 import { SCRIPT_RELAY_ID, syncScriptRelay } from '../relay/sync'
 // 匹配面判定（scheme + host）：内置件「这一页用不用得上」与 cookie 域名门同一套判据
@@ -141,7 +138,10 @@ async function syncPickElement(): Promise<ScriptProject | null> {
     return project
   }
   await registerScript(project)
-  console.log('[duoling:sw] 页面拾取器系统脚本注册成功：', JSON.stringify(SYSTEM_PICK_ELEMENT_MATCHES))
+  console.log(
+    '[duoling:sw] 页面拾取器系统脚本注册成功：',
+    JSON.stringify(SYSTEM_PICK_ELEMENT_MATCHES),
+  )
   return project
 }
 
@@ -160,7 +160,10 @@ async function syncPageSnapshot(): Promise<ScriptProject | null> {
     return project
   }
   await registerScript(project)
-  console.log('[duoling:sw] 页面快照系统脚本注册成功：', JSON.stringify(SYSTEM_PAGE_SNAPSHOT_MATCHES))
+  console.log(
+    '[duoling:sw] 页面快照系统脚本注册成功：',
+    JSON.stringify(SYSTEM_PAGE_SNAPSHOT_MATCHES),
+  )
   return project
 }
 
@@ -227,4 +230,3 @@ export function refreshBuiltinScripts(): Promise<void> {
     await syncScriptRelay(system.length ? [...projects, ...system] : projects)
   })
 }
-

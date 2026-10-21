@@ -6,7 +6,12 @@ import { reactive, ref } from 'vue'
 import { errorText } from '@duoling/ui/lib/format'
 import { useDataSync } from '@duoling/ui/composables/use-data-sync'
 import { userscriptClient } from '@duoling/ui/lib/userscripts/ui-client'
-import type { BuiltinRegistration, BuildPhase, ScriptSummary, UserScriptsAvailability } from '@duoling/shared'
+import type {
+  BuiltinRegistration,
+  BuildPhase,
+  ScriptSummary,
+  UserScriptsAvailability,
+} from '@duoling/shared'
 
 /**
  * 列表数据面。返回 reactive 束：模板与子组件经属性访问取值（ref 自动解包），

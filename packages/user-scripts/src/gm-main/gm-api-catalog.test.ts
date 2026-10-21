@@ -34,7 +34,9 @@ function assembly(): string {
  */
 function reflectGlobals(): string[] {
   const out = new Set<string>()
-  for (const m of assembly().matchAll(/(?:^|\n)\s*(?:if \(GM_HAS\.\w+\) )?(GM_(?!VALUES)[A-Za-z]+)\s*=/g)) {
+  for (const m of assembly().matchAll(
+    /(?:^|\n)\s*(?:if \(GM_HAS\.\w+\) )?(GM_(?!VALUES)[A-Za-z]+)\s*=/g,
+  )) {
     out.add(m[1]!)
   }
   return [...out].sort()
@@ -43,7 +45,8 @@ function reflectGlobals(): string[] {
 /** `GM.*` 成员：`if (GM_HAS.x) GM.x = …` 与无条件的 `GM.y = …` */
 function reflectNs(): string[] {
   const out = new Set<string>()
-  for (const m of assembly().matchAll(/(?:^|\n)\s*(?:if \(GM_HAS\.\w+\) )?GM\.(\w+)\s*=/g)) out.add(m[1]!)
+  for (const m of assembly().matchAll(/(?:^|\n)\s*(?:if \(GM_HAS\.\w+\) )?GM\.(\w+)\s*=/g))
+    out.add(m[1]!)
   return [...out].sort()
 }
 
@@ -72,7 +75,9 @@ function reflectObjectMethods(): string[] {
     const to = k + 1 < blocks.length ? blocks[k + 1]!.i : assemblyAt
     const block = WRAPPER_SRC.slice(from, to)
     // 产物里对象字面量在顶层（esbuild 2 空格/层），属性缩进 2 空格；`function(` 无空格
-    out.push(...[...block.matchAll(/^\s{2}(\w+): function/gm)].map((m) => `${blocks[k]!.prefix}.${m[1]!}`))
+    out.push(
+      ...[...block.matchAll(/^\s{2}(\w+): function/gm)].map((m) => `${blocks[k]!.prefix}.${m[1]!}`),
+    )
   }
   return out.sort()
 }
@@ -89,7 +94,9 @@ describe('gm-api-catalog 与真实注入的 GM 面一致', () => {
       'window.close',
       'window.focus',
     ].sort()
-    const catalog = gmApiEntries().map((e) => e.path).sort()
+    const catalog = gmApiEntries()
+      .map((e) => e.path)
+      .sort()
     expect(runtime.length).toBeGreaterThan(40)
     expect(catalog).toEqual(runtime)
   })
@@ -120,7 +127,10 @@ describe('gm-api-catalog 与真实注入的 GM 面一致', () => {
     const ids = GM_API_GROUPS.map((g) => g.id)
     for (const e of gmApiEntries()) expect(ids).toContain(e.group)
     for (const g of GM_API_GROUPS) {
-      expect(gmApiEntries().filter((e) => e.group === g.id).length, `分组 ${g.id} 为空`).toBeGreaterThan(0)
+      expect(
+        gmApiEntries().filter((e) => e.group === g.id).length,
+        `分组 ${g.id} 为空`,
+      ).toBeGreaterThan(0)
     }
   })
 

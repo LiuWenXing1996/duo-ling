@@ -80,9 +80,7 @@ export async function installCustomUserScript(
   const name = options.name ?? id
   await registerUserScript({
     id,
-    js: [
-      { code: buildUserScript({ uuid: id, name, source: code, requires: options.requires }) },
-    ],
+    js: [{ code: buildUserScript({ uuid: id, name, source: code, requires: options.requires }) }],
     matches: options.matches?.length ? options.matches : DEFAULT_MATCHES,
     excludeMatches: options.excludeMatches,
     includeGlobs: options.includeGlobs,

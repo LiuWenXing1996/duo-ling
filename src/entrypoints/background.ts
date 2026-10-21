@@ -123,12 +123,7 @@ import {
 import { listConversations } from '@duoling/shared'
 // 「这一页是不是普通网页」的判据（页面概览只收普通网页，与 popup 的按钮判据同源）
 import { webHostname } from '@duoling/shared'
-import type {
-  ImportReport,
-  RunEndReason,
-  ScriptGroup,
-  ScriptProject,
-} from '@duoling/shared'
+import type { ImportReport, RunEndReason, ScriptGroup, ScriptProject } from '@duoling/shared'
 
 // offscreen document 容器（AI 生成链路的执行宿主）
 import {
@@ -186,7 +181,8 @@ type SwRequest = Exclude<
  * 写方法都是读改写，重复执行一次不会产生第二份数据。
  * （UI → SW 那条链路的同款判据见 lib/userscripts/ui-client.ts。）
  */
-const OFFSCREEN_GONE = /port closed|Receiving end does not exist|Could not establish connection|无响应/
+const OFFSCREEN_GONE =
+  /port closed|Receiving end does not exist|Could not establish connection|无响应/
 const offscreenService = createOffscreenService(async (error) => {
   if (!OFFSCREEN_GONE.test(errorText(error))) return false
   return await ensureOffscreenReady()
@@ -287,7 +283,9 @@ const handlers: {
 
   'offscreen:close': async (): Promise<void> => closeOffscreen(),
 
-  'offscreen:status': async (): Promise<{ ready: boolean }> => ({ ready: await isOffscreenReady() }),
+  'offscreen:status': async (): Promise<{ ready: boolean }> => ({
+    ready: await isOffscreenReady(),
+  }),
 
   /** offscreen 启动握手（offscreen → SW）：容器自己报告已就绪，便于排查启动问题 */
   'offscreen:ready': async (): Promise<void> => {
@@ -296,7 +294,8 @@ const handlers: {
 
   // 模型配置：offscreen 拉取当前生效配置（含 apiKey）。复用现成的 getActiveProfileState()，
   // SW 里本来就能调；offscreen 侧须「取一次、缓存、不写日志」。
-  'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> => getActiveProfileState(),
+  'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> =>
+    getActiveProfileState(),
 
   // —— 浮层宿主命令面 ——
   // 件已转 MAIN 世界系统脚本，tabs.sendMessage 到不了它：打开走件的后台命令 float.open
@@ -378,9 +377,7 @@ const handlers: {
 
   // 保存源码（唯一保存入口）：转 offscreen 统一保存（写 fs + git 提交 + 落库），
   // 落库后启用中则重注册。**保存恒成功、保存即注入**（无构建流程，注入代码 = 源码原文）。
-  'userscript:save': async (
-    msg,
-  ): Promise<{ warnings?: string[]; registerError?: string }> => {
+  'userscript:save': async (msg): Promise<{ warnings?: string[]; registerError?: string }> => {
     // 转发前先广播「保存中」瞬态：列表行立即转圈（链路收尾的落库广播负责切终态
     // ——见 @duoling/shared 的 DataChangedPush.phase 说明）
     broadcastBuildPhase('script', msg.uuid, 'saving')
@@ -402,7 +399,12 @@ const handlers: {
   },
 
   // 新建脚本（零输入）：命名 / 初始模板 / 首次快照全在 offscreen 侧完成，SW 只负责注册。
-  'userscript:create': async (): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
+  'userscript:create': async (): Promise<{
+    uuid: string
+    name: string
+    warnings?: string[]
+    registerError?: string
+  }> => {
     const project = await offscreenService.userscriptCreate()
     const registerError = await registerOrLog(project)
     return {
@@ -416,7 +418,9 @@ const handlers: {
   // AI 生成脚本落盘：转发 offscreen 单写方
   // （写状态库 + git 快照，note = AI summary），enabled 为真才注册——生成与生效解耦，
   // AI 产物默认零影响；启用走现成的 userscript:toggle。
-  'userscript:createProject': async (msg): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
+  'userscript:createProject': async (
+    msg,
+  ): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
     const project = await offscreenService.userscriptCreateGenerated({
       name: msg.name,
       config: msg.config,
@@ -443,7 +447,11 @@ const handlers: {
     // 注销失败不能纯静默：状态库删掉后这条 uuid 不再出现在任何对账清单里，
     // 幽灵注册会一直注入到下次 SW 冷启动（registerAllEnabled 全量对账）才被清
     await unregisterScripts([msg.uuid]).catch((e) =>
-      console.warn('[duoling:sw] 删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
+      console.warn(
+        '[duoling:sw] 删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：',
+        msg.uuid,
+        e,
+      ),
     )
     await offscreenService.userscriptRemove(msg.uuid)
     // 该脚本对内置并集的贡献随状态库删除而消失，中继件可能需要注销。
@@ -467,7 +475,11 @@ const handlers: {
     // 页面刷新照样注入；且 SW 由 offscreen 心跳保活常驻（@duoling/offscreen-document 的 keepalive，无条件），
     // registerAllEnabled 的冷启动对账不会跑，幽灵能一路活到下次浏览器重启
     await unregisterScripts(uuids).catch((e) =>
-      console.warn('[duoling:sw] 全部删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', uuids, e),
+      console.warn(
+        '[duoling:sw] 全部删除前注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：',
+        uuids,
+        e,
+      ),
     )
     try {
       const removed = await offscreenService.userscriptRemoveAll()
@@ -497,7 +509,11 @@ const handlers: {
     if (msg.enabled) return { registerError: await registerOrLog(next) }
     // 同 userscript:remove：关停注销失败别静默，否则开关显示已关、页面里还在注入
     await unregisterScripts([msg.uuid]).catch((e) =>
-      console.warn('[duoling:sw] 关停注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：', msg.uuid, e),
+      console.warn(
+        '[duoling:sw] 关停注销失败（SW 冷启动对账会清，但期间页面刷新仍会注入）：',
+        msg.uuid,
+        e,
+      ),
     )
     // 关停后内置并集可能缩小，中继件可能需要注销
     await refreshBuiltinScripts().catch(() => {})
@@ -545,7 +561,8 @@ const handlers: {
   'userscript:runlog': async (): Promise<ReturnType<typeof listRunTimeline>> => listRunTimeline(),
 
   // 标签页存续表全量：活动历史按标签页分组时取名字与时刻（分组键在运行条目上，表只补名字）
-  'userscript:tabSessions': async (): Promise<ReturnType<typeof listTabSessions>> => listTabSessions(),
+  'userscript:tabSessions': async (): Promise<ReturnType<typeof listTabSessions>> =>
+    listTabSessions(),
 
   // 某一页的整根活动轴：文档事件 / 记录开关 / 接口采样 / 运行条目 / 动作 / 错误（六类都在
   // tab_events 同表）一次查回、分五组返回。「活动历史」右栏用它铺这一页的时间线。
@@ -562,7 +579,8 @@ const handlers: {
   // 纯假状态。拦在这条唯一入口上即可覆盖全部调用方（popup 的开关、浮层同意卡），两处 UI 各自
   // 已有错误展示位，不必另加。只拦开、不拦关：把假状态关掉是合法操作。
   'userscript:tabActivityEnable': async (msg): Promise<{ tabId: number; recording: boolean }> => {
-    if (!(await getDLRuntime().isUserScriptsAvailable())) throw new Error('用户脚本功能不可用，无法开始记录')
+    if (!(await getDLRuntime().isUserScriptsAvailable()))
+      throw new Error('用户脚本功能不可用，无法开始记录')
     const tab = await chrome.tabs.get(msg.tabId).catch(() => null)
     await setTabRecording(msg.tabId, true, tab?.url)
     return { tabId: msg.tabId, recording: true }
@@ -1069,8 +1087,10 @@ export default defineBackground(() => {
     matchers: [packMatcher(swIpcHandlers()), prefixMatcher(SW_KIND_PREFIXES, handlers)],
     observe: (msg) => {
       const push = msg as { kind: string; conversationId?: string }
-      if (push.kind === 'chat:running' && push.conversationId) handleChatRunningPush(push.conversationId)
-      if (push.kind === 'chat:finished' && push.conversationId) handleChatFinishedPush(push.conversationId)
+      if (push.kind === 'chat:running' && push.conversationId)
+        handleChatRunningPush(push.conversationId)
+      if (push.kind === 'chat:finished' && push.conversationId)
+        handleChatFinishedPush(push.conversationId)
     },
   })
 })

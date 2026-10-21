@@ -42,7 +42,11 @@ function __gmSend(req: any): Promise<any> {
 //    而那条路在首连时只会把在飞的注册重复发一遍。
 //    菜单是浏览器级资源，其 id 由标题确定性派生（djb2）——随机 id 会让每次刷新都堆一条菜单。
 var __gmConnId = (function () {
-  try { return crypto.randomUUID() } catch (e) { return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10) }
+  try {
+    return crypto.randomUUID()
+  } catch (e) {
+    return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10)
+  }
 })()
 // 下行通道由中继件代连 Port：本侧只记「是否已请求过连接」与「SW 是否已推 port.ready」
 var __gmConnectStarted = false
@@ -56,19 +60,29 @@ var __gmUrlChangeHandler: ((url: any) => void) | null = null
 function __gmMenuId(caption: any): number {
   var h = 5381
   var s = String(caption || 'menu')
-  for (var i = 0; i < s.length; i++) h = (((h << 5) + h) + s.charCodeAt(i)) | 0
+  for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0
   return h >>> 0
 }
 /** 桥侧菜单 id（字符串）：由与 GM_registerMenuCommand 返回值相同的确定性数字派生 */
-function __gmMenuKey(caption: any): string { return 'm-' + __gmMenuId(caption).toString(36) }
+function __gmMenuKey(caption: any): string {
+  return 'm-' + __gmMenuId(caption).toString(36)
+}
 
 function __gmFireUrlChange(url: string) {
   var obj = { url: url }
-  if (__gmUrlChangeHandler) { try { __gmUrlChangeHandler(obj) } catch (e) { __gmLog('onurlchange 回调异常', e) } }
+  if (__gmUrlChangeHandler) {
+    try {
+      __gmUrlChangeHandler(obj)
+    } catch (e) {
+      __gmLog('onurlchange 回调异常', e)
+    }
+  }
   // addEventListener('urlchange') 形态：MAIN 世界可以直接派发真实事件——同帧所有脚本都收得到。
   // （隔离世界做不到，那时只能拦 window.addEventListener 做本地转发；那套会覆盖页面的
   //  addEventListener，在 MAIN 世界属于对页面的侵入，故不再用。）
-  try { window.dispatchEvent(new CustomEvent('urlchange', { detail: obj })) } catch (e) {}
+  try {
+    window.dispatchEvent(new CustomEvent('urlchange', { detail: obj }))
+  } catch (e) {}
 }
 
 function __gmHandleEvent(ev: any) {
@@ -82,7 +96,13 @@ function __gmHandleEvent(ev: any) {
   }
   if (ev.t === 'menu.click') {
     var mh = __gmMenuHandlers[ev.id]
-    if (mh) { try { mh() } catch (e) { __gmLog('菜单回调异常', e) } }
+    if (mh) {
+      try {
+        mh()
+      } catch (e) {
+        __gmLog('菜单回调异常', e)
+      }
+    }
   } else if (ev.t === 'store.change') {
     // 远端/本实例写入统一走同一条：先更本地缓存（同步读的下一次调用即拿到新值），再通知监听器
     if (ev.value === null) delete GM_VALUES[ev.key]
@@ -92,12 +112,27 @@ function __gmHandleEvent(ev: any) {
     if (cbs) {
       for (var i = 0; i < cbs.length; i++) {
         var entry = cbs[i]
-        try { entry.fn(ev.key, ev.oldValue == null ? undefined : ev.oldValue, ev.value == null ? undefined : ev.value, !!ev.remote) } catch (e) { __gmLog('GM_addValueChangeListener 回调异常', e) }
+        try {
+          entry.fn(
+            ev.key,
+            ev.oldValue == null ? undefined : ev.oldValue,
+            ev.value == null ? undefined : ev.value,
+            !!ev.remote,
+          )
+        } catch (e) {
+          __gmLog('GM_addValueChangeListener 回调异常', e)
+        }
       }
     }
   } else if (ev.t === 'notify.click') {
     var nh = __gmNotifyHandlers[ev.id]
-    if (nh) { try { nh() } catch (e) { __gmLog('通知点击回调异常', e) } }
+    if (nh) {
+      try {
+        nh()
+      } catch (e) {
+        __gmLog('通知点击回调异常', e)
+      }
+    }
   } else if (ev.t === 'audio.change') {
     // 只把**帧上真有的键**交给脚本：TM 的监听器靠 'muted' in e / 'audible' in e 区分
     // 是静音变化还是发声变化，多塞一个 undefined 键就会破坏这个判据。
@@ -108,22 +143,44 @@ function __gmHandleEvent(ev: any) {
   } else if (ev.t === 'xhr.progress') {
     var ph = __gmXhrProgress[ev.requestId]
     if (ph) {
-      try { ph({ loaded: ev.loaded, total: ev.total, lengthComputable: ev.total != null }) } catch (e) { __gmLog('onprogress 回调异常', e) }
+      try {
+        ph({ loaded: ev.loaded, total: ev.total, lengthComputable: ev.total != null })
+      } catch (e) {
+        __gmLog('onprogress 回调异常', e)
+      }
     }
   } else if (ev.t === 'download.change') {
     var dh = __gmDownloadHandlers[ev.requestId]
     if (dh) {
       if (ev.state === 'progress') {
         if (typeof dh.onprogress === 'function') {
-          try { dh.onprogress({ loaded: ev.loaded, total: ev.total, lengthComputable: ev.total != null }) } catch (e) { __gmLog('GM_download onprogress 异常', e) }
+          try {
+            dh.onprogress({
+              loaded: ev.loaded,
+              total: ev.total,
+              lengthComputable: ev.total != null,
+            })
+          } catch (e) {
+            __gmLog('GM_download onprogress 异常', e)
+          }
         }
       } else {
         // 终帧：先注销再回调（回调里若又发起一次下载，不会被这次的事件污染）
         __gmUnregisterDownload(ev.requestId)
         if (ev.state === 'complete') {
-          if (typeof dh.onload === 'function') { try { dh.onload() } catch (e) { __gmLog('GM_download onload 异常', e) } }
+          if (typeof dh.onload === 'function') {
+            try {
+              dh.onload()
+            } catch (e) {
+              __gmLog('GM_download onload 异常', e)
+            }
+          }
         } else if (typeof dh.onerror === 'function') {
-          try { dh.onerror({ error: ev.error || 'not_succeeded' }) } catch (e) { __gmLog('GM_download onerror 异常', e) }
+          try {
+            dh.onerror({ error: ev.error || 'not_succeeded' })
+          } catch (e) {
+            __gmLog('GM_download onerror 异常', e)
+          }
         }
       }
     }
@@ -166,7 +223,9 @@ function __gmWaitReady(): Promise<void> {
 
 function __gmRegSend(req: any): Promise<any> {
   if (__gmPortReady) return __gmSend(req)
-  return __gmWaitReady().then(function () { return __gmSend(req) })
+  return __gmWaitReady().then(function () {
+    return __gmSend(req)
+  })
 }
 
 /**
@@ -181,7 +240,13 @@ function __gmSendAfterChannel(req: any): Promise<any> {
   if (__gmPortReady) return __gmSend(req)
   return __gmWaitReady()
     .catch(function (e) {
-      console.warn(NAME_PREFIX + ' 下行通道未就绪，本次调用的进度 / 完成回调会收不到：' + ((e && e.message) || e))
+      console.warn(
+        NAME_PREFIX +
+          ' 下行通道未就绪，本次调用的进度 / 完成回调会收不到：' +
+          ((e && e.message) || e),
+      )
     })
-    .then(function () { return __gmSend(req) })
+    .then(function () {
+      return __gmSend(req)
+    })
 }

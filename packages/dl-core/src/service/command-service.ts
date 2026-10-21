@@ -17,10 +17,7 @@ const table = new Map<string, Map<string, BackgroundCommandMeta>>()
 
 const keyOf = (tabId: number, scriptId: string): string => `${tabId}:${scriptId}`
 
-export function listBackgroundCommands(
-  tabId: number,
-  scriptId: string,
-): BackgroundCommandInfo[] {
+export function listBackgroundCommands(tabId: number, scriptId: string): BackgroundCommandInfo[] {
   const entries = table.get(keyOf(tabId, scriptId))
   if (!entries) return []
   return [...entries].map(([name, meta]) => ({ name, ...meta }))
@@ -37,7 +34,12 @@ export function invokeBackgroundCommand(
       new MessagingError('NO_HANDLER', `脚本 ${scriptId} 在 tab ${tabId} 上没有注册命令 ${name}`),
     )
   }
-  return ServiceWorkerMessenger.instance.sendToScript(tabId, scriptId, backgroundCommandType(name), arg)
+  return ServiceWorkerMessenger.instance.sendToScript(
+    tabId,
+    scriptId,
+    backgroundCommandType(name),
+    arg,
+  )
 }
 
 class CommandService {
