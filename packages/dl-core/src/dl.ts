@@ -1,11 +1,8 @@
 import { MainWorldMessenger } from './messaging/main-messenger'
-import { backgroundCommandType, NET_LOG_TYPE } from './messaging/protocol'
+import { backgroundCommandType } from './messaging/protocol'
 import { createProxyService, type DeepAsync } from './proxy-service'
 import { COMMAND_SERVICE_KEY, SW_SERVICE_KEY } from './service/keys'
 import type { SwService } from './service/sw-service'
-
-/** 分层档位：`system` 是全量面（dl-core 自带件），`client` 是普通脚本拿到的子集面 */
-export type KernelTier = 'client' | 'system'
 
 export interface DLConfig {
   logPrefix?: string
@@ -17,7 +14,7 @@ interface CommandRegistrar {
   unregister(name: string): void
 }
 
-export class DLSystem {
+export class DLClient {
   readonly #config: Required<DLConfig>
   readonly #log: (message: string) => void
   #sw?: DeepAsync<SwService>
@@ -85,10 +82,6 @@ export class DLSystem {
     return this.#swService().deleteValues(keys)
   }
 
-  reportNetLog(record: unknown): void {
-    MainWorldMessenger.instance.emit(NET_LOG_TYPE, record)
-  }
-
   registerBackgroundCommand(
     name: string,
     handler: (arg: unknown) => unknown | Promise<unknown>,
@@ -115,65 +108,5 @@ export class DLSystem {
 
   #commandService(): DeepAsync<CommandRegistrar> {
     return (this.#commands ??= this.#service<CommandRegistrar>(COMMAND_SERVICE_KEY))
-  }
-}
-
-export class DLClient {
-  readonly #sys: DLSystem
-
-  constructor(config: DLConfig) {
-    this.#sys = new DLSystem(config)
-  }
-
-  get config(): Required<DLConfig> {
-    return this.#sys.config
-  }
-
-  get log(): (message: string) => void {
-    return this.#sys.log
-  }
-
-  getTab<T = unknown>(): Promise<T | undefined> {
-    return this.#sys.getTab<T>()
-  }
-
-  saveTab(value?: unknown): Promise<void> {
-    return this.#sys.saveTab(value)
-  }
-
-  getValue<T = unknown>(key: string, def?: T): Promise<T | undefined> {
-    return this.#sys.getValue<T>(key, def)
-  }
-
-  setValue(key: string, value: unknown): Promise<void> {
-    return this.#sys.setValue(key, value)
-  }
-
-  deleteValue(key: string): Promise<void> {
-    return this.#sys.deleteValue(key)
-  }
-
-  listValues(): Promise<string[]> {
-    return this.#sys.listValues()
-  }
-
-  getValues<T = unknown>(keysOrDefaults?: string[] | Record<string, T>): Promise<Record<string, T>> {
-    return this.#sys.getValues<T>(keysOrDefaults)
-  }
-
-  setValues(values: Record<string, unknown>): Promise<void> {
-    return this.#sys.setValues(values)
-  }
-
-  deleteValues(keys: string[]): Promise<void> {
-    return this.#sys.deleteValues(keys)
-  }
-
-  registerBackgroundCommand(
-    name: string,
-    handler: (arg: unknown) => unknown | Promise<unknown>,
-    options: { title?: string } = {},
-  ): () => void {
-    return this.#sys.registerBackgroundCommand(name, handler, options)
   }
 }

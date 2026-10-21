@@ -2,7 +2,6 @@ import {
   MESSAGING_CHANNEL,
   MESSAGING_PORT,
   MessagingError,
-  PING_TYPE,
   deserializeError,
   frameKind,
   wireError,
@@ -47,6 +46,9 @@ export class ServiceWorkerMessenger {
     onConnect.addListener((port) => {
       if (port.name !== MESSAGING_PORT) return
       const sender = port.sender
+      const tabId = sender?.tab?.id
+      const scriptId = (sender as { userScript?: { scriptId?: string } }).userScript?.scriptId
+      if (tabId !== undefined && scriptId) this.#ports.set(`${tabId}:${scriptId}`, port)
       port.onMessage.addListener((raw: unknown) => {
         void this.#serve(raw, port, sender)
       })
@@ -195,17 +197,11 @@ export class ServiceWorkerMessenger {
       }
     }
 
-    if (frame.type === PING_TYPE) {
-      reply({ ok: true })
-      return
-    }
-
     const handler = this.#handlers.get(frame.type)
     if (!handler) {
       reply(wireError(new MessagingError('NO_HANDLER', `SW 侧没有注册处理器：${frame.type}`)))
       return
     }
-
     try {
       const res = await handler({
         ...frame,

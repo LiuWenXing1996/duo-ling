@@ -1,7 +1,5 @@
 // 内置件的注册查询与「这一页用不用得上」的推导（两处 UI 只读透出的数据源）。
-//
-// 三条语义各守一处：引擎不可用时全员按未注册回退（不是件本身的错）、未注册的不算在用、
-// 录制件只在该页正在记录时才算在用；地址为空直接不给结论。
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { builtinsOnPage, listBuiltinRegistrations } from './engine'
 
@@ -17,12 +15,11 @@ afterEach(() => {
 })
 
 describe('listBuiltinRegistrations（内置件注册状态）', () => {
-  it('引擎不可用（getScripts 抛错）：六件全部按未注册返回，不抛', async () => {
+  it('引擎不可用（getScripts 抛错）：全员按未注册返回，不抛', async () => {
     vi.stubGlobal('chrome', {
       userScripts: { getScripts: async () => Promise.reject(new Error('不可用')) },
     })
     const all = await listBuiltinRegistrations()
-    expect(all).toHaveLength(6)
     expect(all.every((b) => b.registered === false)).toBe(true)
     expect(all.every((b) => b.matches.length === 0)).toBe(true)
   })
@@ -43,7 +40,7 @@ describe('listBuiltinRegistrations（内置件注册状态）', () => {
     expect(host.registered).toBe(true)
     expect(host.matches).toEqual(['*://*/*'])
     expect(host.name).not.toBe(host.id) // 展示名不是注册 id
-    expect(host.world).toBe('页面主世界')
+    expect(host.world).toBe('用户脚本世界')
   })
 
   it('在册的件带回匹配面，不在册的 matches 为空', async () => {
@@ -53,9 +50,6 @@ describe('listBuiltinRegistrations（内置件注册状态）', () => {
     expect(relay.registered).toBe(true)
     expect(relay.matches).toEqual(['https://a.example/*'])
     expect(relay.name).not.toBe(relay.id) // 展示名不是注册 id
-    const recorder = all.find((b) => b.id === 'dl-tab-recorder')!
-    expect(recorder.registered).toBe(false)
-    expect(recorder.matches).toEqual([])
   })
 })
 
@@ -67,12 +61,6 @@ describe('builtinsOnPage（某一页真正在用的内置件）', () => {
     note: 'x',
     matches: ['https://a.example/*'],
     registered: true,
-  }
-  const recorder = {
-    ...relay,
-    id: 'dl-tab-recorder',
-    name: '页面录制',
-    matches: ['*://*/*'],
   }
   const floatHost = {
     ...relay,
@@ -88,31 +76,24 @@ describe('builtinsOnPage（某一页真正在用的内置件）', () => {
   }
 
   it('地址为空：直接不给结论（内部页 / 读不到 url 的页不在概览里）', () => {
-    expect(builtinsOnPage([relay, floatHost], '', false)).toEqual([])
+    expect(builtinsOnPage([relay, floatHost], '')).toEqual([])
   })
 
   it('未注册的件不算在用（引擎没开时页面上没有它）', () => {
-    expect(builtinsOnPage([{ ...relay, registered: false }], 'https://a.example/p', false)).toEqual(
-      [],
-    )
+    expect(builtinsOnPage([{ ...relay, registered: false }], 'https://a.example/p')).toEqual([])
   })
 
   it('中继件按匹配面判：命中站点才算在这一页上', () => {
-    expect(builtinsOnPage([relay], 'https://a.example/p', false).map((b) => b.id)).toEqual([
+    expect(builtinsOnPage([relay], 'https://a.example/p').map((b) => b.id)).toEqual([
       'dl-script-relay',
     ])
-    expect(builtinsOnPage([relay], 'https://b.example/p', false)).toEqual([])
-  })
-
-  it('录制件只看记录开关：它是全匹配注册，没开记录的页上列出来是噪音', () => {
-    expect(builtinsOnPage([recorder], 'https://a.example/p', false)).toEqual([])
-    expect(builtinsOnPage([recorder], 'https://a.example/p', true).map((b) => b.id)).toEqual([
-      'dl-tab-recorder',
-    ])
+    expect(builtinsOnPage([relay], 'https://b.example/p')).toEqual([])
   })
 
   it('全匹配的浮层宿主与页面环境按匹配面判：普通网页上都在用', () => {
-    expect(
-      builtinsOnPage([floatHost, pageEnv], 'https://a.example/p', false).map((b) => b.id),
-    ).toEqual(['dl-float-host', 'dl-page-env'])
-  })})
+    expect(builtinsOnPage([floatHost, pageEnv], 'https://a.example/p').map((b) => b.id)).toEqual([
+      'dl-float-host',
+      'dl-page-env',
+    ])
+  })
+})

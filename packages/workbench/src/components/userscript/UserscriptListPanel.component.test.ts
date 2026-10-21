@@ -758,10 +758,10 @@ describe('UserscriptListPanel 扩展内置件（只读透出）', () => {
         registered: true,
       },
       {
-        id: 'dl-tab-recorder',
-        name: '页面录制',
-        world: '页面主世界',
-        note: '捕获接口与控制台',
+        id: 'dl-page-snapshot',
+        name: '页面快照',
+        world: '用户脚本世界',
+        note: '收到请求才抓一次渲染后的 DOM',
         matches: [],
         registered: false,
       },
@@ -772,7 +772,7 @@ describe('UserscriptListPanel 扩展内置件（只读透出）', () => {
     expect(rows).toHaveLength(2)
     expect(rows[0]!.text()).toContain('脚本桥')
     expect(rows[0]!.text()).toContain('已注册')
-    expect(rows[1]!.text()).toContain('页面录制')
+    expect(rows[1]!.text()).toContain('页面快照')
     expect(rows[1]!.text()).toContain('未注册')
     // 内置件不是用户脚本：网格里仍然只有那一张脚本卡
     expect(wrapper.findAll('button[aria-label="编辑脚本"]')).toHaveLength(1)

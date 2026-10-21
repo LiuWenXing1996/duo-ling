@@ -11,7 +11,6 @@ import type { UserscriptHostConfig } from './host-config'
 import type { ScriptProject } from '@duoling/shared'
 import { configureUserscriptRuntime } from './host-config'
 import { initDlBridge } from './dl-bridge'
-import { mountTabRecordIngest } from './tab-record-ingest'
 import { initDlPort } from './dl-port'
 import { ensureWorldsConfigured, registerScript, projectFromSource } from './registration'
 
@@ -31,7 +30,6 @@ export function createServiceWorkerHost(cfg: UserscriptHostConfig = {}): Service
   if (swHostSingleton) return swHostSingleton
   configureUserscriptRuntime(cfg)
   initDlBridge()
-  mountTabRecordIngest()
   initDlPort()
   swHostSingleton = {
     // 注册入口：先自愈补配世界（权限后开 / SW 重启归零的场景），再排注册串行链

@@ -1,4 +1,3 @@
-import { installMessagingRelay as installRelayScript } from './install-messaging-relay'
 import {
   installCustomUserScript as installScript,
   installedCustomScriptIds as listInstalledIds,
@@ -6,7 +5,6 @@ import {
   type InstallCustomUserScriptOptions,
 } from './install-custom-user-script'
 import { ServiceWorkerMessenger } from './messaging/service-worker-messenger'
-import { NET_LOG_TYPE } from './messaging/protocol'
 import {
   invokeBackgroundCommand as invokeCommand,
   listBackgroundCommands as listCommands,
@@ -16,29 +14,17 @@ import {
 import { mountSwService } from './service/sw-service'
 import { isUserScriptsAvailable as probeAvailability, UserScriptsAvailabilityWatch } from './availability'
 
-export interface NetLogReport {
-  tabId: number
-  scriptId: string
-  record: unknown
-}
-
 export interface DLRuntimeConfig {
   /** 脚本键值库的库名：只认第一次挂载，缺省 `duoling-dl` */
   storeDatabase?: string
 }
 
 export class DLRuntime {
-  #ready: Promise<void> = Promise.resolve()
   #availability = new UserScriptsAvailabilityWatch()
 
   constructor(config: DLRuntimeConfig = {}) {
     mountSwService(config.storeDatabase ?? 'duoling-dl')
     mountCommandService()
-    if (typeof chrome.userScripts?.register === 'function') void this.installMessagingRelay()
-  }
-
-  whenReady(): Promise<void> {
-    return this.#ready
   }
 
   isUserScriptsAvailable(): Promise<boolean> {
@@ -67,20 +53,6 @@ export class DLRuntime {
 
   onUserScriptsAvailableChange(listener: (available: boolean) => void): () => void {
     return this.#availability.subscribe(listener)
-  }
-
-  onNetLogReport(listener: (report: NetLogReport) => void): () => void {
-    return ServiceWorkerMessenger.instance.onEvent((tabId, scriptId, type, data) => {
-      if (type !== NET_LOG_TYPE) return
-      listener({ tabId, scriptId, record: data })
-    })
-  }
-
-  installMessagingRelay(): Promise<void> {
-    this.#ready = installRelayScript().catch((e) => {
-      console.error('[duoling:dl-core] 消息中继件安装失败', e)
-    })
-    return this.#ready
   }
 
   installCustomUserScript(

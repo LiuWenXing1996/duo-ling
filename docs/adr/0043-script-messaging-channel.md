@@ -346,3 +346,15 @@ SW 的 `#pending` 只由脚本发来的 `response` 结算 —— 方向不同表
   挂上之前，那条私线就是死的（后续请求全投进没有对端的 port，且没有超时兜底）。
 - `scriptId` 仍是页面可伪造的：页面脚本能冒充别的 id 抢登记，甚至顶掉别人那条线，
   与之前的信任模型一致（见「安全边界」）。
+
+## 变更（2026-10-21 · 直连取代中继）
+
+脚本从 MAIN 世界迁到默认 USER_SCRIPT 世界后，脚本世界拿得到 `chrome.runtime`，跨世界那段整体退役：
+
+- **中继件三件全删**（`messaging/relay.ts` / `install-messaging-relay.ts` / `mount-messaging-relay.ts`），
+  `MessageChannel` + `window.postMessage` 的首帧建线不再存在 —— `MainWorldMessenger.#post` 直接
+  `chrome.runtime.connect({ name: MESSAGING_PORT })`，一条 Port 一条线，`onDisconnect` 置空自愈。
+- **连接即声明身份**：`port.sender.userScript.scriptId` + `sender.tab.id` 在 onConnect 时直接登记，
+  自荐 ping（`PING_TYPE`）与孤儿线窗口（上节「让出的确定性」第二条）随之消失；
+  `disconnect` 帧与 `FrameKind` 里的该项一并删除，断线语义归 `Port.onDisconnect`。
+- 上文的「每脚本一条 MessageChannel / 中继件按 scriptId 存表 / 私线」等描述按本段为准。

@@ -9,7 +9,6 @@ import {
   PAGE_ENV_ID,
   PAGE_SNAPSHOT_ID,
   PICK_ELEMENT_ID,
-  TAB_RECORDER_ID,
 } from '@duoling/user-scripts/builtin'
 import { EXTENSION_NAME } from '@duoling/shared'
 // 项目读自状态库（IndexedDB，SW 与 offscreen 共用）：注册链路不能在 offscreen 存活上下注
@@ -21,22 +20,17 @@ import {
   SYSTEM_PAGE_SNAPSHOT_MATCHES,
   SYSTEM_PICK_ELEMENT_MATCHES,
   SYSTEM_SCRIPT_DISPLAY,
-  SYSTEM_TAB_RECORD_MATCHES,
   floatHostProject,
   pageEnvProject,
   pageSnapshotProject,
   pickElementProject,
-  tabRecorderProject,
 } from './system-scripts'
-// 注册判据就一句「有没有页在录」—— 直接查存续表，录制不再有第二本账
-import { hasRecordingTabSession } from './runtime-db'
 // 匹配并集比对（「未变则跳过」）：已上移包内，随 index 导出
 import { sameMatchSet, matchPatternCoversUrl } from '@duoling/shared'
 // 通用引擎件（包内 registration.ts）：世界配置 / 注册 / 注销 / 串行队列
 import {
   enqueueRegistration,
   registerScript,
-  unregisterScripts,
 } from '../registration'
 // 中继件（GM 桥 MAIN 世界侧）的注册同步（包内 relay/sync.ts）
 import { SCRIPT_RELAY_ID, syncScriptRelay } from '../relay/sync'
@@ -46,10 +40,6 @@ import { SCRIPT_RELAY_ID, syncScriptRelay } from '../relay/sync'
 
 /**
  * 内置注册的 id 全集：全量重注册清「陈旧脚本」时必须排除它们（否则把自己刚同步的注册清掉）。
- *
- * 它同时是**旧 id 的自动回收面**：改名后（`dl-net-recorder` → `dl-tab-recorder`），
- * 残留的旧注册不在本名单里，于是下一遍 registerAllEnabled 的 stale 清扫会顺手注销它 ——
- * 不必为改名专门写一段清理。经 host-config 的 builtins.ids 注入包侧全量链。
  */
 export const BUILTIN_SCRIPT_IDS = [
   SCRIPT_RELAY_ID,
@@ -57,7 +47,6 @@ export const BUILTIN_SCRIPT_IDS = [
   PAGE_SNAPSHOT_ID,
   PICK_ELEMENT_ID,
   FLOAT_HOST_ID,
-  TAB_RECORDER_ID,
 ]
 
 /**
@@ -106,20 +95,14 @@ export async function listBuiltinRegistrations(): Promise<BuiltinRegistration[]>
 
 /**
  * 某一页上此刻真正在用的内置件（popup 的页面概览用）。
- *
- * 不能只看匹配面：录制两件是**全匹配注册**（判据是「有没有页在录」而非站点），没开记录的页上它们
- * 虽然在册却不工作，列出来是噪音。判据因此多一道：录制件只在该页正在记录时才算在用。
- * 其余件（含全匹配的页面检查器 / 浮层宿主）确实每页都在，按匹配面判即可。
  */
 export function builtinsOnPage(
   all: readonly BuiltinRegistration[],
   url: string,
-  recording: boolean,
 ): BuiltinRegistration[] {
   if (!url) return []
   return all.filter((r) => {
     if (!r.registered) return false
-    if (r.id === TAB_RECORDER_ID) return recording
     return r.matches.some((p) => matchPatternCoversUrl(p, url))
   })
 }
@@ -223,78 +206,14 @@ async function syncFloatHost(): Promise<ScriptProject | null> {
   return project
 }
 
-// —— 标签页录制（tab-record）：系统脚本，注册跟随「有没有页在录」——
-//
-// 默认无页在录 = 不注册，页面里没有任何录制代码（空闲零注入）。
-//
-// **为什么「有页在录就全匹配」**：录制的判据是标签页而非站点 —— 用户点的是「这一页在录」，
-// 此后这一页导航到哪个 host 都该继续录。而声明式注册没有 tab 维度（RegisteredUserScript
-// 的匹配字段全是 URL），「这一页接下来会去哪」无从枚举，只能覆盖全部（匹配面见
-// system-scripts.ts 的 SYSTEM_TAB_RECORD_MATCHES）。全匹配只保证钩子在位，不代表谁的
-// 请求都收：真正的裁剪在入站处（dl-bridge 按 sender.tab.id 查那一页的 recording）。
-
-/**
- * 维护录制系统脚本的注册（幂等可重入；调用方已串行化），返回此刻该件的注册态项目
- * （调用方拿它汇中继件并集；无页在录时为 null —— 已顺带注销）。
- *
- * 「没变就跳过」看匹配面与注册形态：注册形态是「单条 code 段」（GM 包装 + 源码拼成一条，
- * 见 registerScript），在册还是旧「件文件」形态就重注册 —— 旧的 postMessage 件留在册上
- * 只会静默无效（没有桥，也没有转发件了）。
- */
-async function syncTabRecorder(): Promise<ScriptProject | null> {
-  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return null
-  const active = await hasRecordingTabSession()
-  let existing: chrome.userScripts.RegisteredUserScript | undefined
-  try {
-    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === TAB_RECORDER_ID)
-  } catch {
-    return null // 引擎不可用时静默跳过（上层已有状态横幅兜底）
-  }
-  if (!active) {
-    if (existing) {
-      await unregisterScripts([TAB_RECORDER_ID])
-      console.log('[duoling:sw] 没有标签页在录，已注销页面录制系统脚本')
-    }
-    return null
-  }
-  const project = await tabRecorderProject()
-  const jsSegs = existing?.js
-  const shapeOk = !!jsSegs && jsSegs.length === 1 && typeof jsSegs[0].code === 'string'
-  if (existing && shapeOk && sameMatchSet(existing, { matches: SYSTEM_TAB_RECORD_MATCHES })) {
-    return project
-  }
-  await registerScript(project, 'system')
-  console.log('[duoling:sw] 页面录制系统脚本注册成功：', JSON.stringify(SYSTEM_TAB_RECORD_MATCHES))
-  return project
-}
-
 /** 全量同步内置件（host-config.builtins.syncAll 的注入实现；调用方已串行化）。 */
 export async function syncAllBuiltins(projects: ScriptProject[]): Promise<void> {
-  // 录制系统脚本跟随「有没有标签页在记活动」（与脚本集合无关）：SW 冷启动 / 扩展更新恢复时
-  // 一并同步，保证「正在录的那一页」在重注册后依然生效
-  const recorder = await syncTabRecorder().catch(() => null)
   const env = await syncPageEnv().catch(() => null)
   const snapshot = await syncPageSnapshot().catch(() => null)
   const pick = await syncPickElement().catch(() => null)
   const float = await syncFloatHost().catch(() => null)
-  const system = [recorder, env, snapshot, pick, float].filter((p): p is ScriptProject => p != null)
+  const system = [env, snapshot, pick, float].filter((p): p is ScriptProject => p != null)
   if (system.length) await syncScriptRelay([...projects, ...system])
-}
-
-/**
- * 重算录制系统脚本的注册（挂包侧注册串行队列）。录制开关变更后（开启 / 关闭 / 标签页关闭）
- */
-export function refreshTabRecorder(): Promise<void> {
-  return enqueueRegistration(async () => {
-    const recorder = await syncTabRecorder()
-    const env = await syncPageEnv()
-    const snapshot = await syncPageSnapshot().catch(() => null)
-    const pick = await syncPickElement().catch(() => null)
-    const float = await syncFloatHost().catch(() => null)
-    const projects = await listProjects()
-    const system = [recorder, env, snapshot, pick, float].filter((p): p is ScriptProject => p != null)
-    await syncScriptRelay(system.length ? [...projects, ...system] : projects)
-  })
 }
 
 export function refreshBuiltinScripts(): Promise<void> {
@@ -304,10 +223,7 @@ export function refreshBuiltinScripts(): Promise<void> {
     const pick = await syncPickElement().catch(() => null)
     const float = await syncFloatHost().catch(() => null)
     const projects = await listProjects()
-    const recorder = (await hasRecordingTabSession())
-      ? await tabRecorderProject().catch(() => null)
-      : null
-    const system = [recorder, env, snapshot, pick, float].filter((p): p is ScriptProject => p != null)
+    const system = [env, snapshot, pick, float].filter((p): p is ScriptProject => p != null)
     await syncScriptRelay(system.length ? [...projects, ...system] : projects)
   })
 }

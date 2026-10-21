@@ -44,7 +44,6 @@ import {
 // 本扩展自己的注入件注册同步（系统脚本 + 中继件并集）与内置件对账
 import {
   refreshBuiltinScripts,
-  refreshTabRecorder,
   listBuiltinRegistrations,
   builtinsOnPage,
   BUILTIN_SCRIPT_IDS,
@@ -339,7 +338,6 @@ const handlers: {
       const runs = [...(snap?.runs ?? [])].sort((a, b) => b.startedAt - a.startedAt)
       const errors = snap?.errors ?? []
       const conversationId = bindings[String(tabId)] ?? null
-      const recording = recordingTabs.has(tabId)
       return {
         tabId,
         url: t.url ?? '',
@@ -349,7 +347,7 @@ const handlers: {
           name: names.get(r.uuid) ?? r.uuid.slice(0, 8),
           errorCount: errors.filter((e) => e.uuid === r.uuid).length,
         })),
-        builtins: builtinsOnPage(builtins, t.url ?? '', recording).map((b) => ({
+        builtins: builtinsOnPage(builtins, t.url ?? '').map((b) => ({
           id: b.id,
           name: b.name,
         })),
@@ -559,30 +557,20 @@ const handlers: {
   // 各的。地址由 SW 现取，不由 popup 带过来。
   // 打开时会顺手建行，好让这一页立刻出现在「活动历史」里（此后跑不跑脚本都无所谓）。
   //
-  // **这一个开关就是录制开关**：存续行上那一枚 `recording` 布尔同时驱动两条写链 ——
-  // 活动记录（事件与运行记账）与页面录制（这一页录到的请求）。录制没有第二本账，
-  // 归属就是这一行；故这里只需建行 + 重算注册，没有额外的「开启录制」动作。
-  //
-  // 录制件是声明式注册、钩子挂在文档开头，故本条影响的是**下次导航**：当前页面要用户刷新才挂得上。
-  //
-  // **引擎不可用就拒绝**：录制件靠 chrome.userScripts 注册，引擎不可用时 refreshTabRecorder 静默
+  // **引擎不可用就拒绝**：引擎不可用时注册链静默
   // 空转，而库里已写下 recording: true —— 界面亮「正在记录」，实际脚本跑不了、请求也拦不到，是个
   // 纯假状态。拦在这条唯一入口上即可覆盖全部调用方（popup 的开关、浮层同意卡），两处 UI 各自
   // 已有错误展示位，不必另加。只拦开、不拦关：把假状态关掉是合法操作。
-  // 存量已开的行不在这里收 —— 引擎恢复时补注册那一遍会顺带重算录制件，它自然变成真的在录。
   'userscript:tabActivityEnable': async (msg): Promise<{ tabId: number; recording: boolean }> => {
     if (!(await getDLRuntime().isUserScriptsAvailable())) throw new Error('用户脚本功能不可用，无法开始记录')
     const tab = await chrome.tabs.get(msg.tabId).catch(() => null)
     await setTabRecording(msg.tabId, true, tab?.url)
-    await refreshTabRecorder().catch(() => {})
     return { tabId: msg.tabId, recording: true }
   },
 
   // 关掉只撤开关、不删记录：这一页的历史与已录内容都留着，只是不再长新的。
-  // 撤销 recording 可能让注册集合变空（关的若是最后一页在录的），故重算一次。
   'userscript:tabActivityDisable': async (msg): Promise<{ tabId: number; recording: boolean }> => {
     await setTabRecording(msg.tabId, false)
-    await refreshTabRecorder().catch(() => {})
     return { tabId: msg.tabId, recording: false }
   },
 
@@ -667,7 +655,6 @@ async function initUserScripts(runtime: DLRuntime): Promise<void> {
     return
   }
   setEngineAvailable(true)
-  await runtime.whenReady()
   // 先对账存续行（把指向已关标签页的行盖章结束），再重注册 —— 否则这一步注册的是过期集合
   await reconcileTabSessions()
   await registerAllEnabled()
@@ -822,12 +809,10 @@ async function abortConversationOfClosedTab(tabId: number): Promise<void> {
 }
 
 /**
- * 标签页被关掉时的记录收尾：先盖关闭时刻、再重算录制件注册（顺序不能反），已录采样一条不动。
  * 见 docs/adr/0031-tab-close-record-finalize-order.md。
  */
 async function settleRecordingOfClosedTab(tabId: number): Promise<void> {
   await noteTabClosed(tabId)
-  await refreshTabRecorder().catch(() => {})
 }
 
 /**
@@ -1020,7 +1005,6 @@ export default defineBackground(() => {
     setEngineAvailable(available)
     if (available) {
       void ensureWorldsConfigured()
-        .then(() => dlRuntime.installMessagingRelay())
         .then(() => registerAllEnabled())
         .catch((e) => console.error('[duoling:userscript] 可用性翻转补注册失败', e))
     }

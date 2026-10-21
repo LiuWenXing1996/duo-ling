@@ -13,9 +13,7 @@ export interface WireResult {
 
 export const MESSAGING_CHANNEL = 'dl-messaging'
 export const MESSAGING_PORT = `${MESSAGING_CHANNEL}:port`
-export const PING_TYPE = 'dl.ping'
 export const BACKGROUND_COMMAND_PREFIX = 'command.'
-export const NET_LOG_TYPE = 'net.log'
 
 export const backgroundCommandType = (name: string): string => `${BACKGROUND_COMMAND_PREFIX}${name}`
 
@@ -36,11 +34,6 @@ export interface ResponseDetail extends WireResult {
   scriptId: string
 }
 
-export interface DisconnectDetail {
-  channel: typeof MESSAGING_CHANNEL
-  kind: 'disconnect'
-}
-
 export interface EventDetail {
   channel: typeof MESSAGING_CHANNEL
   kind: 'event'
@@ -53,7 +46,7 @@ export interface SwMessage extends RequestDetail {
   sender: chrome.runtime.MessageSender
 }
 
-export type FrameKind = 'request' | 'response' | 'event' | 'disconnect'
+export type FrameKind = 'request' | 'response' | 'event'
 
 export type MessagingErrorCode = 'TRANSPORT' | 'NO_HANDLER' | 'PROTOCOL'
 

@@ -3,14 +3,14 @@
 // 职责：chrome.userScripts 的世界配置 + 单脚本注册（注入 code 交给 dl-core 拼装）+
 // 全量重注册串行链 + 可用性检测 + 握手密钥。对任何接入扩展都成立；中继件（GM 桥 MAIN
 // 世界侧）属「跑全量 GM」的组成部分，注册同步由本包内置维护（relay/sync.ts，全量链自动
-// 带上）；产品内置件（检查器 / 浮层 / 录制件）经 host-config 的 builtins 注入点挂进全量链。
-// 主走 MAIN 世界注入、注入代码与 @require 拼一条 code、不给脚本世界配 csp（不放开 eval）
+// 带上）；产品内置件经 host-config 的 builtins 注入点挂进全量链。主走默认 USER_SCRIPT 世界注入、
+// 注入代码与 @require 拼一条 code、不给脚本世界配 csp
 // —— 机制与理由见 ARCHITECTURE.md「脚本注入」节。
 import type { ScriptProject, ScriptConfig, GmInfo, Json, UserScriptsAvailability } from '@duoling/shared'
 // 可用性形状归契约包（应用侧状态横幅与 offscreen 都认），此处 re-export 维持包内路径不变。
 export type { UserScriptsAvailability }
 import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from '@duoling/user-scripts/gm-main'
-import type { DLRuntime, KernelTier } from '@duoling/dl-core'
+import type { DLRuntime } from '@duoling/dl-core'
 import {
   parseUserScriptMetadata,
   resolveConfigFromSource,
@@ -415,12 +415,9 @@ export async function buildGmInjectionCode(project: ScriptProject, rawCode: stri
 
 /**
  * 单条注册（仅 enabled 项目才注入；matches 缺失直接抛错）。
- * 注册动作交给 dl-core 的 installCustomUserScript：它在 GM 包装层包好的源码外面再套一层
- * 内核 IIFE，并负责幂等（先注销再注册）。本函数只管校验与配置映射。
  */
 export async function registerScript(
   project: ScriptProject,
-  tier: KernelTier = 'client',
 ): Promise<void> {
   if (!project.enabled) return
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') {
@@ -445,7 +442,6 @@ export async function registerScript(
     allFrames: project.config.allFrames,
     // 脚本库的 id 由引擎自己管：删除 / 关停靠全量同步的残留清扫兜底，不能进保留名单
     protectFromSync: false,
-    tier,
   })
 }
 

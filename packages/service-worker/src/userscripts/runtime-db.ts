@@ -635,9 +635,7 @@ export async function endOpenTabSessions(): Promise<number> {
  * 对账：把「还开着、但它那个 tabId 已经不在」的行盖章结束。
  *
  * 为什么需要：标签页可能趁 SW 睡着时被关掉，`tabs.onRemoved` 的收尾要等 SW 下次醒来才补上；
- * 若它再没醒（用户就此收工），库里就留着一条 `recording: true` 且未结束的行 ——
- * 而 `hasRecordingTabSession()` 只看「未结束 + recording」，于是会一直为真：
- * 明明没人录了，录制件却全匹配地挂在每个站点上。故 SW 每次启动对一遍账。
+ * 若它再没醒（用户就此收工），库里就留着一条未结束的行，活动历史会一直显示这页开着 —— 故 SW 每次启动对一遍账。
  *
  * 与 `endOpenTabSessions` 的分工：那个在**浏览器启动**时把全部未结束行盖章（那时它们确实都死了，
  * 因为 tabId 是本次运行的流水号）；这个在 **SW 冷启动**时只盖「tabId 已不存在」的那些 ——
@@ -681,17 +679,6 @@ export async function listTabSessions(): Promise<TabSessionRecord[]> {
 /** 剥掉内部字段：裁剪排序键不该出现在任何读侧结果里（它不是用户能理解的时刻） */
 function toPublic({ firstSeenAt: _trimKey, ...row }: TabSessionRow): TabSessionRecord {
   return row
-}
-
-/**
- * 有没有任何一页正在记活动。注册链路据此决定装不装录制件 ——
- * 录制按标签页，而「一页录着」意味着它接下来可能导航到任何 host，故有则全匹配注册、无则一件不装。
- *
- * 判据与取号（`recordingTabSessionId`）同源：未结束 + `recording === true`。
- * 两处必须一致 —— 不一致就会出现「注册了但入站全丢」或「该录却没装」这类静默空转。
- */
-export async function hasRecordingTabSession(): Promise<boolean> {
-  return (await listTabSessions()).some((r) => r.recording === true && r.ended !== true)
 }
 
 // —— 标签页存续轴（tab_events store：六类行同表，除运行条目与错误外不设上限）——

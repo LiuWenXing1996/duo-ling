@@ -13,16 +13,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 type Listener = (raw: unknown, sender: unknown, sendResponse: (r: unknown) => void) => unknown
 
-const { appendTabCapture, recordingTabSessionId } = vi.hoisted(() => ({
-  appendTabCapture: vi.fn(async (_rec: unknown) => {}),
-  recordingTabSessionId: vi.fn(async (tabId: number) => (tabId === 7 ? 'sess-7' : undefined)),
-}))
-
-vi.mock('./userscripts/telemetry', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./userscripts/telemetry')>()
-  return { telemetry: { ...actual.telemetry, appendTabCapture, recordingTabSessionId } }
-})
-
 let messageListeners: Listener[]
 let swMessageListeners: Listener[]
 let portConnectListeners: Array<(port: unknown) => void>
@@ -148,28 +138,10 @@ describe('createServiceWorkerHost', () => {
     expect(extensionName()).toBe('测试扩展')
   })
 
-  it('录制入站随工厂挂载：只有那一页在录才落库，其余整条丢弃', async () => {
-    type Report = { tabId: number; scriptId: string; record: unknown }
-    let listener: ((report: Report) => void) | undefined
-    const onNetLogReport = vi.fn((fn: (report: Report) => void) => {
-      listener = fn
-      return () => {}
-    })
-    const { createServiceWorkerHost } = await loadHost()
-    createServiceWorkerHost({ dlRuntime: { onNetLogReport } as unknown as import('@duoling/dl-core').DLRuntime })
-    appendTabCapture.mockClear()
-    listener!({ tabId: 7, scriptId: 'x', record: { type: 'fetch', url: 'https://a.com/' } })
-    listener!({ tabId: 8, scriptId: 'x', record: { type: 'fetch', url: 'https://a.com/' } })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(appendTabCapture).toHaveBeenCalledTimes(1)
-    expect(appendTabCapture.mock.calls[0]![0]).toMatchObject({ tabSessionId: 'sess-7' })
-  })
-
   it('addScript：传源码串自动建项目并注册（先自愈世界配置再走注册链）', async () => {
     const registered = stubUserScriptsChrome()
     const { DLRuntime } = await import('@duoling/dl-core')
     const runtime = new DLRuntime()
-    await runtime.whenReady()
     registered.length = 0
     const { createServiceWorkerHost } = await loadHost()
     const host = createServiceWorkerHost({ dlRuntime: runtime })

@@ -6,7 +6,6 @@
 // - mount-dl：内核。注入体被硬约束成一条 code（见 `src/build-user-script.ts` 文件头），内核必须
 //   与外层那个 `var DL = undefined` 处于同一个函数作用域，脚本正文才能按词法拿到 `DL`。
 //   落成另一条注册，作用域随之断开 —— 那时 `DL` 要么挂在 window 上、要么脚本根本看不见。
-// - mount-messaging-relay：消息中继件。跑在独立 USER_SCRIPT 世界，有 chrome.*，不查 DL、须建 Port。
 //
 // 消费方用 `?raw` 把产物读成字符串常量再拼进注入体。也就是说产物文件名与内容是包内契约，
 // 改格式（加 banner、换 ESM）会直接改掉注入体。
@@ -53,9 +52,8 @@ const TARGETS: Target[] = [
         why: '出现本地 DL 声明 —— 会遮住外层挂载点，内核必须写入自由变量 DL',
       },
       {
-        // 注入体跑在页面主世界，那里没有扩展 API（包级 types 放行了 chrome，靠这道拦）
-        re: /\bchrome\s*\./,
-        why: '引用了 chrome.* —— 内核注入体跑在页面主世界，那里没有扩展 API',
+        re: /\bchrome\s*\.(?!runtime\b)/,
+        why: '引用了 chrome.runtime 之外的扩展 API —— 内核注入体只许直连传输',
       },
       {
         // idb 不碰 chrome，上一道拦不住；真被打进来就会拿页面的 indexedDB 开库
@@ -70,44 +68,8 @@ const TARGETS: Target[] = [
         why: '没有给 DL 赋值 —— 装配件没跑起来，或入口不再写这个自由变量',
       },
       {
-        re: /\bMessageChannel\b/,
-        why: '没有建 MessageChannel —— 跨 world 那条私线由主世界建、转移一端给中继件',
-      },
-    ],
-  },
-  {
-    entry: 'src/system-script.ts',
-    out: 'dist/system-script-iife.js',
-    label: '自带件正文',
-    forbidden: [
-      MODULE_STMT,
-      {
-        re: /\bchrome\s*\./,
-        why: '引用了 chrome.* —— 自带件正文跑在页面主世界，那里没有扩展 API',
-      },
-    ],
-    required: [
-      {
-        re: /\breportNetLog\b/,
-        why: '没有调用 DL.reportNetLog —— 采集结果没有出口',
-      },
-    ],
-  },
-  {
-    entry: 'src/mount-messaging-relay.ts',
-    out: 'dist/mount-messaging-relay-iife.js',
-    label: '消息中继装配件',
-    forbidden: [
-      MODULE_STMT,
-      {
-        re: /\bMessageChannel\b/,
-        why: '自己建了 MessageChannel —— 这条线归主世界建，中继件只接收转移过来的那端',
-      },
-    ],
-    required: [
-      {
         re: /\bconnect\s*\(/,
-        why: '没有发起 runtime.connect —— 中继件必须建一条到 SW 的常驻 Port',
+        why: '没有发起 runtime.connect —— 内核的传输是脚本世界直连 SW 的 Port',
       },
     ],
   },

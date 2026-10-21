@@ -11,11 +11,6 @@
 // （SCRIPT_RELAY_ID / buildRelayInit / syncScriptRelay 都在包的 relay/sync.ts，IIFE 以
 // `{ code }` 字符串注册，无公共资产文件）。
 
-// —— 标签页录制 · MAIN 捕获件（系统脚本，走统一注册链） ——
-
-/** 注册 id（一个扩展一份；同时是系统脚本的固定 uuid） */
-export const TAB_RECORDER_ID = 'dl-tab-recorder'
-
 export {
   PICK_ELEMENT_CANCEL_COMMAND,
   PICK_ELEMENT_ID,

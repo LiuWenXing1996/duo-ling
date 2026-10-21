@@ -1,7 +1,7 @@
 import {
   MESSAGING_CHANNEL,
+  MESSAGING_PORT,
   MessagingError,
-  PING_TYPE,
   deserializeError,
   frameKind,
   wireError,
@@ -34,14 +34,13 @@ export class MainWorldMessenger {
       )
     }
     MainWorldMessenger.#scriptId = next
-    void MainWorldMessenger.instance.sendMessage(PING_TYPE).catch(() => {})
   }
 
   readonly #pending = new Map<number, PendingRequest>()
   readonly #handlers = new Map<string, Handler>()
   readonly #eventHandlers = new Map<string, Set<(data: unknown) => void>>()
   #seq = Math.floor(Math.random() * 1_000_000) + 1
-  #link: MessagePort | null = null
+  #link: chrome.runtime.Port | null = null
 
   private constructor() {}
 
@@ -61,15 +60,12 @@ export class MainWorldMessenger {
 
     return new Promise<unknown>((resolve, reject) => {
       this.#pending.set(id, { resolve, reject })
-      if (this.#link) {
-        this.#link.postMessage(request)
-        return
+      try {
+        this.#post(request)
+      } catch (error) {
+        this.#pending.delete(id)
+        reject(error instanceof Error ? error : new Error(String(error)))
       }
-      const channel = new MessageChannel()
-      this.#link = channel.port1
-      this.#link.addEventListener('message', (event: MessageEvent) => this.#dispatch(event.data))
-      this.#link.start()
-      window.postMessage(request, '*', [channel.port2])
     })
   }
 
@@ -106,6 +102,27 @@ export class MainWorldMessenger {
     }
   }
 
+  #post(frame: RequestDetail): void {
+    if (this.#link) {
+      this.#link.postMessage(frame)
+      return
+    }
+    const port = chrome.runtime.connect({ name: MESSAGING_PORT })
+    this.#link = port
+    port.onMessage.addListener((raw: unknown) => this.#dispatch(raw))
+    port.onDisconnect.addListener(() => {
+      void chrome.runtime.lastError
+      if (this.#link !== port) return
+      this.#link = null
+      const pending = [...this.#pending.values()]
+      this.#pending.clear()
+      for (const entry of pending) {
+        entry.reject(new MessagingError('TRANSPORT', '与后台的连接已断开，请重试'))
+      }
+    })
+    port.postMessage(frame)
+  }
+
   #dispatch(raw: unknown): void {
     const kind = frameKind(raw)
     if (kind === 'request') {
@@ -120,14 +137,6 @@ export class MainWorldMessenger {
         } catch (error) {
           console.error(`[dl-messaging] 事件 ${frame.type} 的处理器抛错`, error)
         }
-      }
-      return
-    }
-    if (kind === 'disconnect') {
-      const pending = [...this.#pending.values()]
-      this.#pending.clear()
-      for (const entry of pending) {
-        entry.reject(new MessagingError('TRANSPORT', '与后台的连接已断开（正在重连）'))
       }
       return
     }

@@ -6,8 +6,7 @@
   "description": "duo-ling 脚本内核：DL.* / unsafeWindow / window 成员恒注入（源码直出，由消费方编译）",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./system-script": "./src/system-script-code.ts"
+    ".": "./src/index.ts"
   },
   "files": [
     "src",

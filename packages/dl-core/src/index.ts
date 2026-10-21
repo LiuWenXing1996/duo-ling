@@ -6,4 +6,3 @@
 // 实现体只依赖浏览器与扩展平台的原生 API，在本包内从零写出，不引用现有注入体与桥的实现。
 
 export { DLRuntime } from './runtime'
-export type { KernelTier } from './dl'

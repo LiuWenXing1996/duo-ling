@@ -1,13 +1,7 @@
-// 宿主侧注册面：把一段脚本代码装成 MAIN 世界的用户脚本（进程内有效，不落库）。
-//
 // SW 的 registerScript 也走这里：它负责校验、解析源码与 @require、把脚本配置映射成注册参数，
 // 注册动作（拼装 → 先注销再注册）收敛在本函数。裸代码的程序化安装直接调本函数即可。
 // 装进去的代码一律过 buildUserScript 拼装，因此正文按词法就能拿到内核建好的 `DL`。
-//
-// 本文件只在扩展进程里跑（chrome.* 在那儿）。内核注入体那条链路（mount-dl.ts）不许碰
-// chrome —— build.mts 有一道产物守卫盯着，越界会在构建期炸。
 import { buildUserScript } from './build-user-script'
-import type { KernelTier } from './dl'
 
 /** 装一条自定义脚本时可覆盖的注册参数（缺省值见下面的常量） */
 export interface InstallCustomUserScriptOptions {
@@ -27,7 +21,6 @@ export interface InstallCustomUserScriptOptions {
   runAt?: 'document_start' | 'document_end' | 'document_idle'
   /** 缺省只注入顶层 frame（与脚本库默认一致） */
   allFrames?: boolean
-  tier?: KernelTier
   /**
    * 是否把 id 记进全量同步的保留名单，缺省 true。
    *
@@ -62,19 +55,22 @@ function userScriptsApi(): typeof chrome.userScripts {
   return api
 }
 
+async function ensureWorldMessaging(): Promise<void> {
+  const api = chrome.userScripts
+  if (typeof api?.configureWorld === 'function') {
+    await api.configureWorld({ messaging: true })
+  }
+}
+
 export async function registerUserScript(
   script: chrome.userScripts.RegisteredUserScript,
 ): Promise<void> {
   const api = userScriptsApi()
+  await ensureWorldMessaging()
   await api.unregister({ ids: [script.id] }).catch(() => {})
   await api.register([script])
 }
 
-/**
- * 把一段代码装成 MAIN 世界的用户脚本，返回注册 id。
- *
- * 失败一律抛出：装不上与「装上了但不生效」必须能区分 —— 后者只能靠脚本自己观测。
- */
 export async function installCustomUserScript(
   code: string,
   options: InstallCustomUserScriptOptions = {},
@@ -84,12 +80,8 @@ export async function installCustomUserScript(
   const name = options.name ?? id
   await registerUserScript({
     id,
-    // 注入页面主世界：`unsafeWindow` 即页面 window、站点自身的 JS 全局可见（与 TM 默认一致）。
-    // MAIN 不支持 worldId，同帧多脚本共用一个 window —— 各自的 `var` 靠 buildUserScript 的
-    // IIFE 关住，互不覆盖。
-    world: 'MAIN',
     js: [
-      { code: buildUserScript({ uuid: id, name, source: code, requires: options.requires, tier: options.tier }) },
+      { code: buildUserScript({ uuid: id, name, source: code, requires: options.requires }) },
     ],
     matches: options.matches?.length ? options.matches : DEFAULT_MATCHES,
     excludeMatches: options.excludeMatches,

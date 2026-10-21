@@ -52,9 +52,8 @@ describe('telemetry · 系统脚本不进用户脚本观测面', () => {
     vi.clearAllMocks()
   })
 
-  it('五件系统脚本的 runstart 不登记（角标 / 灵动岛 / popup 都吃这张表）', () => {
+  it('四件系统脚本的 runstart 不登记（角标 / 灵动岛 / popup 都吃这张表）', () => {
     for (const uuid of [
-      'dl-tab-recorder',
       'dl-page-env',
       'dl-page-snapshot',
       'dl-pick-page-element',
@@ -93,7 +92,7 @@ describe('telemetry · 系统脚本不进用户脚本观测面', () => {
   })
 
   it('系统脚本的错误不进用户脚本错误日志；无 uuid（注册期错误）与用户脚本的照落', async () => {
-    await telemetry.appendError({ phase: 'runtime', message: 'x', uuid: 'dl-tab-recorder' })
+    await telemetry.appendError({ phase: 'runtime', message: 'x', uuid: 'dl-page-env' })
     expect(appendUserScriptError).not.toHaveBeenCalled()
 
     await telemetry.appendError({ phase: 'register', message: 'y' })

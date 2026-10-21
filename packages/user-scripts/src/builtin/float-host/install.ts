@@ -1,5 +1,4 @@
 // 浮层宿主常驻件本体：页面里的对话挂载点（常驻，零 UI，收到指令才建 DOM）。
-// 运行位置：目标标签页的 MAIN 世界系统脚本（GM 包装注入，见应用侧 system-scripts.ts）；
 // 为什么常驻、注册面收敛与匹配面代价、占位符参数机制，见 docs/adr/0009-builtin-resident-scripts-registration.md。
 //
 // 位置只在本次页面内有效：不落库，刷新后回到右下角。

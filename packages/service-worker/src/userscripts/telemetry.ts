@@ -3,10 +3,9 @@ import { notePageError, noteRunStart } from './page-monitor'
 import { recordingTabSessionId } from './tab-sessions'
 import type { UserscriptErrorRecord } from '@duoling/shared'
 import { appendUserScriptError, recordRunEvent, recordRunStart } from './store'
-import { FLOAT_HOST_ID, PAGE_ENV_ID, PAGE_SNAPSHOT_ID, PICK_ELEMENT_ID, TAB_RECORDER_ID } from '@duoling/user-scripts/builtin'
+import { FLOAT_HOST_ID, PAGE_ENV_ID, PAGE_SNAPSHOT_ID, PICK_ELEMENT_ID } from '@duoling/user-scripts/builtin'
 
 const SYSTEM_SCRIPT_UUIDS = new Set([
-  TAB_RECORDER_ID,
   PAGE_ENV_ID,
   PAGE_SNAPSHOT_ID,
   PICK_ELEMENT_ID,
