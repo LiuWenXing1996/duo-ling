@@ -34,19 +34,76 @@ export class SwService {
   }
 
   async saveTab(value?: unknown): Promise<void> {
-    if (value === undefined) tabStore.delete(this.#key)
+    if (value == null) tabStore.delete(this.#key)
     else tabStore.set(this.#key, value)
   }
 
+  #recordKey(key: string): [string, string] {
+    return [this.#scriptId, key]
+  }
+
+  #range(): IDBKeyRange {
+    return IDBKeyRange.bound([this.#scriptId], [this.#scriptId, []])
+  }
+
   async getValue(key: string): Promise<unknown> {
-    return (await openKv()).get(VALUES_STORE, [this.#scriptId, key])
+    return (await openKv()).get(VALUES_STORE, this.#recordKey(key))
   }
 
   async setValue(key: string, value: unknown): Promise<void> {
     const db = await openKv()
-    const recordKey = [this.#scriptId, key]
-    if (value == null) await db.delete(VALUES_STORE, recordKey)
-    else await db.put(VALUES_STORE, value, recordKey)
+    if (value == null) await db.delete(VALUES_STORE, this.#recordKey(key))
+    else await db.put(VALUES_STORE, value, this.#recordKey(key))
+  }
+
+  async deleteValue(key: string): Promise<void> {
+    await (await openKv()).delete(VALUES_STORE, this.#recordKey(key))
+  }
+
+  async listValues(): Promise<string[]> {
+    const keys = await (await openKv()).getAllKeys(VALUES_STORE, this.#range())
+    return keys.map((key) => String((key as [string, string])[1]))
+  }
+
+  async getValues(keys?: string[]): Promise<Record<string, unknown>> {
+    const db = await openKv()
+    if (Array.isArray(keys)) {
+      const tx = db.transaction(VALUES_STORE)
+      const values = await Promise.all(keys.map((key) => tx.store.get(this.#recordKey(key))))
+      await tx.done
+      const entries: [string, unknown][] = []
+      for (const [i, key] of keys.entries()) {
+        const value = values[i]
+        if (value !== undefined) entries.push([key, value])
+      }
+      return Object.fromEntries(entries)
+    }
+    const tx = db.transaction(VALUES_STORE)
+    const entries: [string, unknown][] = []
+    let cursor = await tx.store.openCursor(this.#range())
+    while (cursor) {
+      entries.push([String((cursor.key as [string, string])[1]), cursor.value])
+      cursor = await cursor.continue()
+    }
+    await tx.done
+    return Object.fromEntries(entries)
+  }
+
+  async setValues(values: Record<string, unknown>): Promise<void> {
+    const db = await openKv()
+    const tx = db.transaction(VALUES_STORE, 'readwrite')
+    const requests = Object.entries(values).map(([key, value]) =>
+      value == null ? tx.store.delete(this.#recordKey(key)) : tx.store.put(value, this.#recordKey(key)),
+    )
+    await Promise.all(requests)
+    await tx.done
+  }
+
+  async deleteValues(keys: string[]): Promise<void> {
+    const db = await openKv()
+    const tx = db.transaction(VALUES_STORE, 'readwrite')
+    await Promise.all(keys.map((key) => tx.store.delete(this.#recordKey(key))))
+    await tx.done
   }
 }
 

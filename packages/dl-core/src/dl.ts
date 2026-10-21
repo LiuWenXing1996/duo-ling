@@ -57,6 +57,34 @@ export class DLSystem {
     return this.#swService().setValue(key, value)
   }
 
+  deleteValue(key: string): Promise<void> {
+    return this.#swService().deleteValue(key)
+  }
+
+  listValues(): Promise<string[]> {
+    return this.#swService().listValues()
+  }
+
+  async getValues<T = unknown>(keysOrDefaults?: string[] | Record<string, T>): Promise<Record<string, T>> {
+    if (!keysOrDefaults) return (await this.#swService().getValues()) as Record<string, T>
+    if (Array.isArray(keysOrDefaults)) return (await this.#swService().getValues(keysOrDefaults)) as Record<string, T>
+    const found = (await this.#swService().getValues(Object.keys(keysOrDefaults))) as Record<string, T>
+    const entries: [string, T][] = []
+    for (const [key, fallback] of Object.entries(keysOrDefaults)) {
+      const value = found[key]
+      entries.push([key, value === undefined ? fallback : value])
+    }
+    return Object.fromEntries(entries)
+  }
+
+  setValues(values: Record<string, unknown>): Promise<void> {
+    return this.#swService().setValues(values)
+  }
+
+  deleteValues(keys: string[]): Promise<void> {
+    return this.#swService().deleteValues(keys)
+  }
+
   reportNetLog(record: unknown): void {
     MainWorldMessenger.instance.emit(NET_LOG_TYPE, record)
   }
@@ -119,6 +147,26 @@ export class DLClient {
 
   setValue(key: string, value: unknown): Promise<void> {
     return this.#sys.setValue(key, value)
+  }
+
+  deleteValue(key: string): Promise<void> {
+    return this.#sys.deleteValue(key)
+  }
+
+  listValues(): Promise<string[]> {
+    return this.#sys.listValues()
+  }
+
+  getValues<T = unknown>(keysOrDefaults?: string[] | Record<string, T>): Promise<Record<string, T>> {
+    return this.#sys.getValues<T>(keysOrDefaults)
+  }
+
+  setValues(values: Record<string, unknown>): Promise<void> {
+    return this.#sys.setValues(values)
+  }
+
+  deleteValues(keys: string[]): Promise<void> {
+    return this.#sys.deleteValues(keys)
   }
 
   registerBackgroundCommand(
