@@ -1,0 +1,9 @@
+{
+  "name": "DL 客户端 API 探针",
+  "namespace": "duoling",
+  "version": "1.0.0",
+  "description": "点一次页面右下角的「运行」，逐条验证 DLClient 的每个成员（配置 / 日志 / 标签页存取 / 键值七件 / 后台命令），结果就地列出",
+  "match": "*://*/*",
+  "grant": "none",
+  "run-at": "document-idle"
+}

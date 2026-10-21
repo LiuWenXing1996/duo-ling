@@ -9,6 +9,8 @@ declare const GM: any
 /** 页面主世界 window（主世界注入时 === window） */
 declare const unsafeWindow: any
 
+declare const DL: any
+
 // —— 值存储（同步形态）——
 declare function GM_getValue(name: string, defaultValue?: any): any
 declare function GM_setValue(name: string, value: any): void

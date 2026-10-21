@@ -54,6 +54,7 @@ export const BUILTIN_ENTRY_POINTS = {
 /** 样例入口表：键 = 样例目录名（产物 dist/samples/<键>/<键>.user.js）。元数据取入口同目录
  * 的 meta.json；键改名时 raw 目录、e2e / coverage 的路径引用一并同步。 */
 const SAMPLE_ENTRIES = {
+  'dl-client-api': 'src/samples/dl-client-api/main.ts',
   'omni-probe': 'src/samples/omni-probe/main.ts',
   'run-log-demo': 'src/samples/run-log-demo/main.ts',
 }
