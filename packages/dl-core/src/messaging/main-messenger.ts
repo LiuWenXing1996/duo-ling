@@ -39,6 +39,7 @@ export class MainWorldMessenger {
 
   readonly #pending = new Map<number, PendingRequest>()
   readonly #handlers = new Map<string, Handler>()
+  readonly #eventHandlers = new Map<string, Set<(data: unknown) => void>>()
   #seq = Math.floor(Math.random() * 1_000_000) + 1
   #link: MessagePort | null = null
 
@@ -94,10 +95,32 @@ export class MainWorldMessenger {
     }
   }
 
+  /** 订阅 SW 下发的事件；同类型可挂多个，取消时按函数引用删 */
+  onEvent(type: string, handler: (data: unknown) => void): () => void {
+    const handlers = this.#eventHandlers.get(type) ?? new Set<(data: unknown) => void>()
+    this.#eventHandlers.set(type, handlers)
+    handlers.add(handler)
+    return () => {
+      handlers.delete(handler)
+      if (handlers.size === 0) this.#eventHandlers.delete(type)
+    }
+  }
+
   #dispatch(raw: unknown): void {
     const kind = frameKind(raw)
     if (kind === 'request') {
       void this.#serve(raw as RequestDetail)
+      return
+    }
+    if (kind === 'event') {
+      const frame = raw as EventDetail
+      for (const handler of this.#eventHandlers.get(frame.type) ?? []) {
+        try {
+          handler(frame.data)
+        } catch (error) {
+          console.error(`[dl-messaging] 事件 ${frame.type} 的处理器抛错`, error)
+        }
+      }
       return
     }
     if (kind === 'disconnect') {

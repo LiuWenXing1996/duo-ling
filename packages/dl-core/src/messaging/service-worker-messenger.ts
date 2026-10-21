@@ -125,6 +125,27 @@ export class ServiceWorkerMessenger {
     })
   }
 
+  tabIdsOf(scriptId: string): number[] {
+    const tabIds: number[] = []
+    for (const key of this.#ports.keys()) {
+      const cut = key.indexOf(':')
+      if (key.slice(cut + 1) === scriptId) tabIds.push(Number(key.slice(0, cut)))
+    }
+    return tabIds
+  }
+
+  /** 向某 tab 的某脚本推一条事件：无回包、不进 pending 表 */
+  emit(tabId: number, scriptId: string, type: string, data?: unknown): void {
+    const port = this.#ports.get(`${tabId}:${scriptId}`)
+    if (!port) return
+    const detail: EventDetail = { channel: MESSAGING_CHANNEL, kind: 'event', type, scriptId, data }
+    try {
+      port.postMessage(detail)
+    } catch {
+      return
+    }
+  }
+
   async #serve(
     raw: unknown,
     port: chrome.runtime.Port,

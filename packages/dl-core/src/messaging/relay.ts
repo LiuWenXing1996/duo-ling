@@ -36,7 +36,10 @@ export class MessagingRelay {
     this.#port = next
     next.onMessage.addListener((raw: unknown) => {
       const kind = frameKind(raw)
-      if (kind !== 'response' && kind !== 'request' && kind !== 'disconnect') return
+      // event 与 request/response 同路：按 scriptId 找 link，帧本身不改
+      if (kind !== 'response' && kind !== 'request' && kind !== 'disconnect' && kind !== 'event') {
+        return
+      }
       this.#attempt = 0
       if (kind === 'disconnect') {
         for (const link of this.#links.values()) link.postMessage(raw)
