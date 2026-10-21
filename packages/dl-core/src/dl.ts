@@ -1,12 +1,24 @@
 import type { GmInfo } from '@duoling/shared'
 import { addElement, addStyle } from './dom'
 import { MainWorldMessenger } from './messaging/main-messenger'
-import { backgroundCommandType } from './messaging/protocol'
+import {
+  backgroundCommandType,
+  VALUE_CHANGE_TYPE,
+  type ValueChangeDetail,
+} from './messaging/protocol'
 import { createProxyService, type DeepAsync } from './proxy-service'
 import { COMMAND_SERVICE_KEY, SW_SERVICE_KEY } from './service/keys'
 import type { SwService } from './service/sw-service'
 
 export type ScriptInfo = Omit<GmInfo, 'userAgent' | 'isIncognito'>
+
+/** 值变更回调，TM 口径：`(key, oldValue, newValue, remote)`——remote=false 表示本 tab 自己写的 */
+export type ValueChangeListener = (
+  key: string,
+  oldValue: unknown,
+  newValue: unknown,
+  remote: boolean,
+) => void
 
 export interface DLConfig {
   logPrefix?: string
@@ -28,6 +40,8 @@ export class DLClient {
   readonly #config: ResolvedConfig
   readonly #log: (message: string) => void
   readonly #info: Readonly<GmInfo> | undefined
+  readonly #valueWatchers = new Map<number, { key: string; stop: () => void }>()
+  #valueWatcherSeq = 0
   #sw?: DeepAsync<SwService>
   #commands?: DeepAsync<CommandRegistrar>
 
@@ -119,6 +133,27 @@ export class DLClient {
 
   deleteValues(keys: string[]): Promise<void> {
     return this.#swService().deleteValues(keys)
+  }
+
+  /** TM 口径：本 tab 自己写也触发（remote:false），其他 tab 写 remote:true；值域按脚本隔离 */
+  addValueChangeListener(key: string, callback: ValueChangeListener): number {
+    if (typeof callback !== 'function') throw new Error('DL.addValueChangeListener：回调必须是函数')
+    const id = ++this.#valueWatcherSeq
+    const handler = (data: unknown): void => {
+      const detail = data as ValueChangeDetail | undefined
+      if (!detail || detail.key !== key) return
+      callback(detail.key, detail.oldValue, detail.newValue, detail.remote === true)
+    }
+    const stop = MainWorldMessenger.instance.onEvent(VALUE_CHANGE_TYPE, handler)
+    this.#valueWatchers.set(id, { key, stop })
+    return id
+  }
+
+  removeValueChangeListener(listenerId: number): void {
+    const entry = this.#valueWatchers.get(listenerId)
+    if (!entry) return
+    this.#valueWatchers.delete(listenerId)
+    entry.stop()
   }
 
   registerBackgroundCommand(

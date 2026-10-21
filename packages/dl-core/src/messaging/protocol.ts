@@ -14,8 +14,17 @@ export interface WireResult {
 export const MESSAGING_CHANNEL = 'dl-messaging'
 export const MESSAGING_PORT = `${MESSAGING_CHANNEL}:port`
 export const BACKGROUND_COMMAND_PREFIX = 'command.'
+export const VALUE_CHANGE_TYPE = 'value.change'
 
 export const backgroundCommandType = (name: string): string => `${BACKGROUND_COMMAND_PREFIX}${name}`
+
+/** 脚本键值变更事件载荷（SW 写侧发出；remote 由 SW 按写方 tabId 判定，脚本拿不到自己的 tabId） */
+export interface ValueChangeDetail {
+  key: string
+  oldValue: unknown
+  newValue: unknown
+  remote: boolean
+}
 
 export interface RequestDetail {
   channel: typeof MESSAGING_CHANNEL

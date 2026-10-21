@@ -264,6 +264,43 @@ async function run(): Promise<void> {
     const mixed = [await DL.getValue(K('n')), await DL.getValue(K('z'))]
     add('setValues 里的 null 即删键', mixed[0] === 'y' && mixed[1] === undefined, mixed)
 
+    type Change = { key: string; oldValue: unknown; newValue: unknown; remote: boolean }
+    const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 80))
+    let seen: Change | null = null
+    const watchId = DL.addValueChangeListener(K('watch'), (key, oldValue, newValue, remote) => {
+      seen = { key, oldValue, newValue, remote }
+    })
+    await DL.setValue(K('watch'), 'v1')
+    await tick()
+    add(
+      '值变更监听：本 tab 写触发 remote=false',
+      seen !== null &&
+        seen.key === K('watch') &&
+        seen.oldValue === undefined &&
+        seen.newValue === 'v1' &&
+        seen.remote === false,
+      show(seen),
+    )
+
+    seen = null
+    DL.removeValueChangeListener(watchId)
+    await DL.setValue(K('watch'), 'v2')
+    await tick()
+    add('退订后不再收变更', seen === null, show(seen))
+
+    let delSeen: Change | null = null
+    const delId = DL.addValueChangeListener(K('watch'), (key, oldValue, newValue, remote) => {
+      delSeen = { key, oldValue, newValue, remote }
+    })
+    await DL.deleteValue(K('watch'))
+    await tick()
+    add(
+      'deleteValue 也触发（newValue undefined）',
+      delSeen !== null && delSeen.newValue === undefined && delSeen.remote === false,
+      show(delSeen),
+    )
+    DL.removeValueChangeListener(delId)
+
     await DL.saveTab({ probe: 1 })
     const tab = await DL.getTab()
     add('saveTab → getTab', tab?.probe === 1, tab)

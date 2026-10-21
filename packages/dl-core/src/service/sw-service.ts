@@ -1,4 +1,6 @@
 import { openDB, type IDBPDatabase } from 'idb'
+import { ServiceWorkerMessenger } from '../messaging/service-worker-messenger'
+import { VALUE_CHANGE_TYPE } from '../messaging/protocol'
 import { registerService, type ServiceContext } from '../proxy-service'
 import { SW_SERVICE_KEY } from './keys'
 
@@ -23,10 +25,12 @@ const openKv = (): Promise<IDBPDatabase> =>
 export class SwService {
   readonly #key: string
   readonly #scriptId: string
+  readonly #tabId: number
 
   constructor(context: ServiceContext) {
     this.#key = `${context.scriptId}:${context.tabId}`
     this.#scriptId = context.scriptId
+    this.#tabId = context.tabId
   }
 
   async getTab(): Promise<unknown> {
@@ -52,12 +56,17 @@ export class SwService {
 
   async setValue(key: string, value: unknown): Promise<void> {
     const db = await openKv()
+    const oldValue = await db.get(VALUES_STORE, this.#recordKey(key))
     if (value == null) await db.delete(VALUES_STORE, this.#recordKey(key))
     else await db.put(VALUES_STORE, value, this.#recordKey(key))
+    this.#emitChange(key, oldValue, value ?? undefined)
   }
 
   async deleteValue(key: string): Promise<void> {
-    await (await openKv()).delete(VALUES_STORE, this.#recordKey(key))
+    const db = await openKv()
+    const oldValue = await db.get(VALUES_STORE, this.#recordKey(key))
+    await db.delete(VALUES_STORE, this.#recordKey(key))
+    this.#emitChange(key, oldValue, undefined)
   }
 
   async listValues(): Promise<string[]> {
@@ -91,6 +100,9 @@ export class SwService {
 
   async setValues(values: Record<string, unknown>): Promise<void> {
     const db = await openKv()
+    const olds = await Promise.all(
+      Object.keys(values).map((key) => db.get(VALUES_STORE, this.#recordKey(key))),
+    )
     const tx = db.transaction(VALUES_STORE, 'readwrite')
     const requests = Object.entries(values).map(([key, value]) =>
       value == null
@@ -99,13 +111,31 @@ export class SwService {
     )
     await Promise.all(requests)
     await tx.done
+    for (const [i, key] of Object.keys(values).entries()) {
+      this.#emitChange(key, olds[i], values[key] ?? undefined)
+    }
   }
 
   async deleteValues(keys: string[]): Promise<void> {
     const db = await openKv()
+    const olds = await Promise.all(keys.map((key) => db.get(VALUES_STORE, this.#recordKey(key))))
     const tx = db.transaction(VALUES_STORE, 'readwrite')
     await Promise.all(keys.map((key) => tx.store.delete(this.#recordKey(key))))
     await tx.done
+    for (const [i, key] of keys.entries()) this.#emitChange(key, olds[i], undefined)
+  }
+
+  /** 写侧广播：值域只属于本脚本，收到者都是同脚本的其他实例；remote 由写方 tabId 判定 */
+  #emitChange(key: string, oldValue: unknown, newValue: unknown): void {
+    const messenger = ServiceWorkerMessenger.instance
+    for (const tabId of messenger.tabIdsOf(this.#scriptId)) {
+      messenger.emit(tabId, this.#scriptId, VALUE_CHANGE_TYPE, {
+        key,
+        oldValue,
+        newValue,
+        remote: tabId !== this.#tabId,
+      })
+    }
   }
 }
 
