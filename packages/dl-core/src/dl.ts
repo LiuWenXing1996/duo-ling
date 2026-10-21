@@ -90,6 +90,11 @@ export class DLClient {
     return this.#swService().saveTab(value)
   }
 
+  /** 全量版 getTab：本脚本所有 tab 实例存的标签页对象，键是 tabId（内存即焚，与 getTab 同寿命） */
+  getTabs<T = unknown>(): Promise<Record<string, T>> {
+    return this.#swService().getTabs() as Promise<Record<string, T>>
+  }
+
   /** 读本脚本的持久键值（键不存在 → `def`） */
   async getValue<T = unknown>(key: string, def?: T): Promise<T | undefined> {
     const value = (await this.#swService().getValue(key)) as T | undefined

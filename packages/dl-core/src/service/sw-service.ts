@@ -42,6 +42,16 @@ export class SwService {
     else tabStore.set(this.#key, value)
   }
 
+  /** 全量版 getTab：本脚本所有 tab 实例存的标签页对象，键是 tabId（内存即焚，与 getTab 同寿命） */
+  getTabs(): Record<string, unknown> {
+    const out: Record<string, unknown> = {}
+    const prefix = `${this.#scriptId}:`
+    for (const [key, value] of tabStore) {
+      if (key.startsWith(prefix)) out[key.slice(prefix.length)] = value
+    }
+    return out
+  }
+
   #recordKey(key: string): [string, string] {
     return [this.#scriptId, key]
   }

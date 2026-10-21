@@ -304,6 +304,12 @@ async function run(): Promise<void> {
     await DL.saveTab({ probe: 1 })
     const tab = await DL.getTab()
     add('saveTab → getTab', tab?.probe === 1, tab)
+    const tabs = (await DL.getTabs()) as Record<string, { probe?: number }>
+    add(
+      'getTabs 含本 tab 存档',
+      Object.values(tabs).some((v) => v?.probe === 1),
+      show(Object.keys(tabs)),
+    )
     await DL.saveTab()
     const afterClear = await DL.getTab()
     add('saveTab() 无参清空', afterClear === undefined, afterClear)
