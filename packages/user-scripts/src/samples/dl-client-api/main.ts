@@ -189,6 +189,38 @@ async function run(): Promise<void> {
       add('info 冻结不可改', frozenHolds, `frozen=${Object.isFrozen(info)}`)
     }
 
+    const style = DL.addStyle(`#${PANEL_ID}{outline:2px solid #4ade80}`)
+    add(
+      'addStyle 返回已挂树的 style',
+      style instanceof HTMLStyleElement && style.isConnected,
+      `${style.tagName} / connected=${style.isConnected}`,
+    )
+    style.remove()
+
+    const span = DL.addElement('span', { 'data-dlprobe': '1', textContent: '探针文本' })
+    add(
+      'addElement(tag, attrs)：textContent 走 property',
+      span instanceof HTMLElement &&
+        span.textContent === '探针文本' &&
+        !span.hasAttribute('textContent'),
+      span.outerHTML,
+    )
+    span.remove()
+
+    const host = DL.addElement(document.body, 'div', { style: 'display:none' })
+    add(
+      'addElement(parent, tag, attrs) 返回已挂树元素',
+      host instanceof HTMLElement && host.parentElement === document.body,
+      host.tagName,
+    )
+    const btn = DL.addElement(host, 'button', { onclick: () => {}, title: 'x' })
+    add(
+      'addElement 函数值走 property（onclick）',
+      typeof (btn as HTMLButtonElement).onclick === 'function',
+      typeof (btn as HTMLButtonElement).onclick,
+    )
+    host.remove()
+
     const obj = { n: 1, list: ['x'], nest: { on: true } }
     await DL.setValue(K('obj'), obj)
     const back = await DL.getValue(K('obj'))

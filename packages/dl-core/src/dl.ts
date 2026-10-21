@@ -1,4 +1,5 @@
 import type { GmInfo } from '@duoling/shared'
+import { addElement, addStyle } from './dom'
 import { MainWorldMessenger } from './messaging/main-messenger'
 import { backgroundCommandType } from './messaging/protocol'
 import { createProxyService, type DeepAsync } from './proxy-service'
@@ -50,6 +51,20 @@ export class DLClient {
 
   get log(): (message: string) => void {
     return this.#log
+  }
+
+  /** 插入一段样式（`<style>` 挂 `head`，缺了落 `documentElement`），返回元素 */
+  addStyle(css: string): HTMLStyleElement {
+    return addStyle(css)
+  }
+
+  /** 双签名照 TM；属性语义（函数值 / textContent 走 property）见 dom.ts 与 README */
+  addElement(
+    a: Element | string,
+    b?: string | Record<string, unknown>,
+    c?: Record<string, unknown>,
+  ): HTMLElement {
+    return addElement(a, b as string | Record<string, unknown> | undefined, c)
   }
 
   /** 取本脚本在本 tab 的标签页对象（没存过 → undefined；跨导航存活，关 tab 即焚） */
