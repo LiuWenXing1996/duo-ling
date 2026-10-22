@@ -52,7 +52,6 @@ export function ipcRequest<T>(request: RuntimeRequest, opts?: { timeoutMs?: numb
   })
 }
 
-/** 单向推送（尽力而为）：无人接收不是错误，静默吞掉（offscreen:ready / chat:chunk 这类） */
 export function ipcNotify(message: RuntimeRequest | IpcPush): void {
   notifyRuntime(message)
 }

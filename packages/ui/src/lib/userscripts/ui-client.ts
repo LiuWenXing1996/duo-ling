@@ -14,7 +14,6 @@ import type {
   ScriptProject,
   ScriptSummary,
   TabSessionRecord,
-  UserScriptRunEvent,
   UserScriptsAvailability,
   UserScriptRunLogRow,
 } from '@duoling/shared'
@@ -146,10 +145,6 @@ export const userscriptClient = {
   /** 清空「活动历史」的全部记录（存续行 + tab_events 整根轴，含无归属错误行） */
   tabActivityClear: (): Promise<void> => send({ kind: 'userscript:tabActivityClear' }),
 
-  /** 某次运行的动作（按需拉；时间线列表不带动作） */
-  runEvents: (runId: string): Promise<UserScriptRunEvent[]> =>
-    send({ kind: 'userscript:runEvents', runId }),
-
   // —— 页面录制（tab-record）——
   // 录制件归 SW：UI 只扳开关，不直连 duoling-runtime。「本页在不在录」由 tabSessions 的
   // `recording` 字段回答（录制与活动记录本就是同一枚开关的两半），故这里不再有单独的状态命令。
@@ -167,14 +162,6 @@ export const userscriptClient = {
     send({ kind: 'userscript:tabActivityDisable', tabId }),
 }
 
-/**
- * 源码库 / 资源库的服务代理（执行宿主 = offscreen）。
- * 形状来自 @duoling/shared 的 IOffscreenService，消费侧不必引实现包。
- *
- * retry：offscreen 常驻，但扩展重载 / 崩溃 / 关窗会销毁容器，那之后首次调用会报
- * 「port closed / Receiving end does not exist」。此时经 SW 唤起容器再试一次 —— ensure 内部
- * 等到容器真能应答才返回（SW 侧轮询 fs:ping），故不靠固定 sleep 猜时间。
- */
 export const offscreenService = createOffscreenService(async (error) => {
   // 仅「容器未响应」类错误才唤起重试；业务异常 / 报文非法直接透出去
   if (

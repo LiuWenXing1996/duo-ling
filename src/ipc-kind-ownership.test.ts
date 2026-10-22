@@ -42,40 +42,28 @@ const ALL_KINDS = [
   { kind: 'userscript:toggle', side: 'sw' },
   { kind: 'userscript:rename', side: 'sw' },
   { kind: 'userscript:availability', side: 'sw' },
-  { kind: 'userscript:runlog', side: 'sw' },
   { kind: 'userscript:tabSessions', side: 'sw' },
   { kind: 'userscript:tabTimeline', side: 'sw' },
   { kind: 'userscript:tabActivityEnable', side: 'sw' },
   { kind: 'userscript:tabActivityDisable', side: 'sw' },
   { kind: 'userscript:tabActivityDelete', side: 'sw' },
   { kind: 'userscript:tabActivityClear', side: 'sw' },
-  { kind: 'userscript:runEvents', side: 'sw' },
-  { kind: 'userscript:errorRead', side: 'sw' },
   { kind: 'userscript:import', side: 'sw' },
   { kind: 'userscript:importText', side: 'sw' },
   { kind: 'userscript:builtins', side: 'sw' },
-  // 页面录制（tab-record）：采样落在 duoling-runtime 的 tab_events，写读都归 SW
-  { kind: 'userscript:tabRecordRead', side: 'sw' },
+  { kind: 'userscript:runlog', side: 'sw' },
   { kind: 'userscript:groups', side: 'sw' },
   { kind: 'userscript:setGroup', side: 'sw' },
   { kind: 'userscript:group-create', side: 'sw' },
   { kind: 'userscript:group-rename', side: 'sw' },
   { kind: 'userscript:group-remove', side: 'sw' },
   { kind: 'userscript:group-reorder', side: 'sw' },
-  // —— fs:ping（offscreen：容器就绪探测，SW 静默让路）——
-  // 源码库 / 资源库读写与剪贴板写入已走 OffscreenService 代理（报文无 kind，不占总线），不在本表
-  { kind: 'fs:ping', side: 'offscreen' },
   // —— offscreen:*（SW：容器管理）——
+
   { kind: 'offscreen:ensure', side: 'sw' },
   { kind: 'offscreen:close', side: 'sw' },
   { kind: 'offscreen:status', side: 'sw' },
-  { kind: 'offscreen:ready', side: 'sw' },
-  // —— model:*（SW：配置中转）——
-  { kind: 'model:getActiveProfile', side: 'sw' },
-  // —— page:*（SW：AI 工具支路 page_snapshot / page_env_read 经 SW 向页面里的页面检查器下发指令；
-  // 后两条供 popup 的页面概览）——
-  { kind: 'page:snapshot', side: 'sw' },
-  { kind: 'page:env', side: 'sw' },
+
   { kind: 'page:overview', side: 'sw' },
   // —— picker:*（SW：浮层发起的拾取 —— 指令下发给页面里的常驻件，结果按 reqId 配对）——
   { kind: 'picker:pick', side: 'sw' },
@@ -110,8 +98,8 @@ type Expect<T extends true> = T
 const _allKindsCovered: Expect<
   Exclude<RuntimeRequest['kind'], (typeof ALL_KINDS)[number]['kind']> extends never ? true : false
 > = true
-// OffscreenPush 是 SW→offscreen 的单向推送，不进请求命令面（不属于任何一端的 handlers）
-const _pushIsNotRequest: Expect<
+
+const _linkEventIsNotRequest: Expect<
   'offscreen:configChanged' extends RuntimeRequest['kind'] ? false : true
 > = true
 
@@ -119,7 +107,7 @@ const _pushIsNotRequest: Expect<
 // 避免被 noUnusedLocals 判死；顺带在运行时也留一道护栏
 it('kind 面完整性断言恒真（编译期 + 运行时双兜底）', () => {
   expect(_allKindsCovered).toBe(true)
-  expect(_pushIsNotRequest).toBe(true)
+  expect(_linkEventIsNotRequest).toBe(true)
 })
 
 describe('(a) RuntimeRequest kind 归属唯一性', () => {

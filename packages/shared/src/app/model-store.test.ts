@@ -11,8 +11,7 @@
 //   · 老数据存的是「基址」，读取时一次性迁移为完整端点地址（见 migrateEndpointBaseUrls）。
 //
 // 手法：fake-indexeddb 提供全局 indexedDB；真跑 key-cipher 的 AES-GCM 往返，
-// 因此能直接断言「落盘里搜不到明文」。整体 mock 掉 data-broadcast，并把
-// chrome.runtime.sendMessage 换成哨兵，用于断言哪些操作会发通知。
+
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ModelProfileInput } from '../model'
@@ -26,6 +25,7 @@ import {
   removeProfile,
   saveProfile,
   setActiveProfile,
+  setConfigChangedNotifier,
   testChat,
 } from './model-store'
 
@@ -33,7 +33,8 @@ import {
 vi.mock('../data-broadcast-runtime', () => ({ broadcastDataChange: vi.fn() }))
 
 const broadcast = vi.mocked(broadcastDataChange)
-const sendMessage = vi.fn((): Promise<void> => Promise.resolve())
+
+const configNotify = vi.fn()
 
 /** 落盘键名（模块内私有常量，这里硬编码以锁住存储契约） */
 const KEY = 'modelProfiles'
@@ -76,9 +77,8 @@ const okResponse = (): Response => new Response(null, { status: 200 })
 beforeEach(async () => {
   await appDb.clearAllForTests()
   broadcast.mockClear()
-  sendMessage.mockClear()
-  sendMessage.mockImplementation(() => Promise.resolve())
-  vi.stubGlobal('chrome', { runtime: { sendMessage } })
+  configNotify.mockReset()
+  setConfigChangedNotifier(configNotify)
 })
 
 afterEach(() => {
@@ -134,13 +134,13 @@ describe('默认模型（activeProfileId 收敛）', () => {
   it('setActiveProfile：id 不存在则整个忽略（不写、不通知）', async () => {
     const a = await saveProfile(input({ name: 'A', model: 'ma' }))
     broadcast.mockClear()
-    sendMessage.mockClear()
+    configNotify.mockClear()
 
     await setActiveProfile('ghost')
 
     expect(await getActiveProfileId()).toBe(a.id)
     expect(broadcast).not.toHaveBeenCalled()
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(configNotify).not.toHaveBeenCalled()
   })
 
   it('删掉当前默认：收敛到剩余第一条', async () => {
@@ -345,26 +345,28 @@ describe('saveProfile 的 id 语义', () => {
 })
 
 describe('写出口通知', () => {
-  it('saveProfile：广播 model 域并推送 offscreen:configChanged', async () => {
+  it('saveProfile：广播 model 域并通知 offscreen 回拉', async () => {
     await saveProfile(input())
 
     expect(broadcast).toHaveBeenCalledWith('model')
-    expect(sendMessage).toHaveBeenCalledWith({ kind: 'offscreen:configChanged' })
+    expect(configNotify).toHaveBeenCalledTimes(1)
   })
 
   it('removeProfile：同样经写出口通知', async () => {
     const p = await saveProfile(input())
     broadcast.mockClear()
-    sendMessage.mockClear()
+    configNotify.mockClear()
 
     await removeProfile(p.id)
 
     expect(broadcast).toHaveBeenCalledWith('model')
-    expect(sendMessage).toHaveBeenCalledWith({ kind: 'offscreen:configChanged' })
+    expect(configNotify).toHaveBeenCalledTimes(1)
   })
 
-  it('offscreen 不在场（sendMessage 被拒）不阻断写操作', async () => {
-    sendMessage.mockImplementation(() => Promise.reject(new Error('no receiving end')))
+  it('通知器抛错不阻断写操作（链路断了也不该让落盘失败）', async () => {
+    configNotify.mockImplementation(() => {
+      throw new Error('link closed')
+    })
 
     await expect(saveProfile(input({ name: 'A' }))).resolves.toMatchObject({ name: 'A' })
   })

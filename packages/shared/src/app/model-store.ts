@@ -12,9 +12,7 @@
 // 真实降损靠引导用户使用子 Key + 额度上限 + 定期轮换。
 //
 // 变更通知：IDB 没有跨上下文通知，写出口（writeState，唯一落盘点）负责广播 `model` 域
-// （扩展页的模型下拉 / 设置页回拉）并推送 offscreen:configChanged（offscreen 的
-// profile-cache 回拉，apiKey 只在它取用时过界）。原 chrome.storage.onChanged 钩子已随
-// 迁移删除。offscreen 不 import 本模块（SW 命令中转），故无循环依赖。
+
 import type {
   ModelProfile,
   ModelProfileInput,
@@ -26,9 +24,14 @@ import { decryptApiKey, encryptApiKey, type EncPayload } from './key-cipher'
 import * as appDb from './app-db'
 import { errorText } from '../error-text'
 import { broadcastDataChange } from '../data-broadcast-runtime'
-import { notifyRuntime } from '../runtime-send'
 
 const KEY = 'modelProfiles'
+
+let configChangedNotifier: (() => void) | null = null
+
+export function setConfigChangedNotifier(notify: (() => void) | null): void {
+  configChangedNotifier = notify
+}
 
 /** 落盘形态：apiKey 不落明文，只存密文载荷（老数据的明文字段在读取时迁移） */
 type StoredProfile = Omit<ModelProfileState, 'apiKey'> & { apiKeyEnc?: EncPayload }
@@ -74,7 +77,7 @@ async function readState(): Promise<ModelState> {
   const before = state.activeProfileId
   syncActiveProfileId(state)
   if (state.activeProfileId !== before) dirty = true
-  if (dirty) await writeState(state)
+  if (dirty) await writeState(state, { silent: true })
   return state
 }
 
@@ -99,7 +102,7 @@ function migrateEndpointBaseUrls(state: ModelState): boolean {
   return true
 }
 
-async function writeState(state: ModelState): Promise<void> {
+async function writeState(state: ModelState, opts?: { silent?: boolean }): Promise<void> {
   const profiles: StoredProfile[] = await Promise.all(
     state.profiles.map(async (p) => {
       const { apiKey, ...rest } = p
@@ -111,10 +114,11 @@ async function writeState(state: ModelState): Promise<void> {
     activeProfileId: state.activeProfileId,
     endpointMigrated: state.endpointMigrated,
   })
-  // 写出口广播（见文件头）：扩展页回拉 + offscreen 的 profile-cache 回拉。
-  // 后者尽力而为：offscreen 不在场就不为一条通知唤醒它。
+  if (opts?.silent) return
   broadcastDataChange('model')
-  notifyRuntime({ kind: 'offscreen:configChanged' })
+  try {
+    configChangedNotifier?.()
+  } catch {}
 }
 
 /**

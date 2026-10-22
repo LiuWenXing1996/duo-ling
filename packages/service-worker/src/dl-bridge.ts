@@ -42,11 +42,12 @@ import {
 // GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
 import { checkCookieUrl } from './cookie-gate'
 // 标签页录制：转发件送来的采集载荷在 SW 侧按**种类**白名单化；落库走遥测 port（宿主注入）
-// 同包的 createOffscreenService 替 SW 写剪贴板 —— document 只在 offscreen 里
+
 import {
   normalizeNetCapture,
   NET_TAB_KIND,
-  createOffscreenService,
+  LinkError,
+  SERVICE_TYPE,
   broadcastDataChange,
   base64ToBytes,
   bytesToBase64,
@@ -76,6 +77,8 @@ import {
 } from './dl-fetch-priv'
 // 宿主注入点：扩展身份 / offscreen 就绪 / 遥测（运行日志与错误落盘是宿主的产品面）
 import { extensionName, notificationIcon, offscreenPort, telemetryPort } from './host-config'
+
+import { serviceWorkerLink } from './sw-link'
 
 /**
  * 在飞行的特权请求：`requestId` → AbortController。
@@ -426,8 +429,7 @@ const downloadWatch = new Map<number, DownloadEntry>()
 
 /**
  * 进度轮询间隔。浏览器下载器**不发**字节数（`onChanged` 只有 state / totalBytes），只能主动查
- * `chrome.downloads.search()`；而 SW 由 offscreen 心跳保活常驻（5s 一跳，见
- * @duoling/offscreen-document 的 keepalive），下载期间不会休眠 —— 所以轮询在 SW 里是可靠手段。
+ * `chrome.downloads.search()`；SW 由链路心跳保活常驻（5s 一跳，见 sw-link），下载期间不休眠 —— 轮询可靠。
  */
 const DOWNLOAD_PROGRESS_MS = 500
 
@@ -665,9 +667,6 @@ async function ingestTabRecord(
   }
 }
 
-/** offscreen 侧服务代理（裸代理：唤起容器这一步由下面的 ensureReady 负责，不重复判据） */
-const offscreenService = createOffscreenService()
-
 /** 写入超时（ms）：容器在但不应答时别把脚本挂死 */
 const CLIPBOARD_TIMEOUT_MS = 2000
 
@@ -677,24 +676,22 @@ async function writeClipboardViaOffscreen(text?: string, html?: string): Promise
   // 容器可能刚被回收（扩展重载 / 崩溃）：先唤起并等到它能应答，再发调用
   const ready = await offscreenPort()?.ensureReady?.()
   if (!ready) throw new ApiError('NOT_AVAILABLE', 'GM_setClipboard：剪贴板服务不可用')
+  const link = serviceWorkerLink()
+  if (!link) throw new ApiError('NOT_AVAILABLE', 'GM_setClipboard：链路未建立')
 
-  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    await Promise.race([
-      offscreenService.clipboardWrite({ text: text ?? null, html: html ?? null }),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new ApiError('BRIDGE_TIMEOUT', 'GM_setClipboard 写入超时（2s 无响应）')),
-          CLIPBOARD_TIMEOUT_MS,
-        )
-      }),
-    ])
+    await link.request(
+      SERVICE_TYPE,
+      { method: 'clipboardWrite', args: [{ text: text ?? null, html: html ?? null }] },
+      { timeoutMs: CLIPBOARD_TIMEOUT_MS },
+    )
   } catch (e) {
-    // 自家错误码原样上抛（INVALID_ARG / NOT_AVAILABLE / BRIDGE_TIMEOUT）；其余归 INTERNAL
+    if (e instanceof LinkError && e.code === 'TIMEOUT') {
+      throw new ApiError('BRIDGE_TIMEOUT', 'GM_setClipboard 写入超时（2s 无响应）')
+    }
+
     if (e instanceof ApiError) throw e
     throw new ApiError('INTERNAL', 'GM_setClipboard：' + errorText(e))
-  } finally {
-    clearTimeout(timer)
   }
 }
 /** 事件摘要里 url / 文本的展示上限（超出截断：一行被超长 URL 撑爆就没法看了） */

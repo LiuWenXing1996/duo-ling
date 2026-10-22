@@ -25,7 +25,7 @@ async function sendOffscreen<T>(request: RuntimeRequest): Promise<T> {
     return await sendOnce()
   } catch (e) {
     if (!/port closed|Receiving end does not exist|无响应/.test(errorText(e))) throw e
-    // SW 侧处理 offscreen:ensure：内部轮询 fs:ping 到容器真能应答才返回，故不靠 sleep 猜
+
     await ipcRequest({ kind: 'offscreen:ensure' }).catch(() => {})
     return await sendOnce()
   }

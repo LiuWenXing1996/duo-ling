@@ -47,19 +47,9 @@ export interface ChatOrphanRecord {
   heartbeat: number
 }
 
-/**
- * offscreen 侧的推送面（单向，无应答方）。
- *
- * chat:chunk —— 流式事件（观察者按 seq 去重；无人接收是常态，尽力而为）
- * chat:running / chat:finished —— 进行中登记表的进与出（SW 旁听，驱动徽标）
- * offscreen:configChanged —— 配置变更，容器回拉
- */
-export type OffscreenPush =
-  | { kind: 'offscreen:configChanged' }
-  | { kind: 'chat:chunk'; conversationId: string; seq: number; chunk: UIMessageChunk }
-  | { kind: 'chat:running'; conversationId: string }
-  | {
-      kind: 'chat:finished'
-      conversationId: string
-      /** true = 正常收敛；false = 停止 / 异常 */ ok: boolean
-    }
+export type OffscreenPush = {
+  kind: 'chat:chunk'
+  conversationId: string
+  seq: number
+  chunk: UIMessageChunk
+}

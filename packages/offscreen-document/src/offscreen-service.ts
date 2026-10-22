@@ -6,7 +6,7 @@
 //   · GM 桥面 —— 剪贴板写入：offscreen 才有页面焦点，SW 只能请它代写；
 //   · 用户脚本状态库写侧 —— 单写方就是本上下文：落盘与 git 提交在同一函数同一上下文里完成
 //     （userstate/project-write），故「写了状态但没 commit」的缝隙不存在。
-// 就绪探测（fs:ping）不走这里 —— 它不触碰文件系统，留在总线。
+
 import type {
   ClipboardWritePayload,
   CommitActor,

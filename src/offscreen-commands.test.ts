@@ -18,7 +18,7 @@ vi.mock('@duoling/shared', async (importOriginal) => ({
   deleteAllConversations: vi.fn(),
 }))
 
-// 启动装配（服务实体 / 保活 / 首拉配置 / 对账）与本测试无关：入口顶层那一步换成空实现，
+// 启动装配（服务实体 / 链路 / 首拉配置 / 对账）与本测试无关：入口顶层那一步换成空实现，
 // 其余导出保留真身（命令面还要用）
 vi.mock('@duoling/offscreen-document', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@duoling/offscreen-document')>()),
@@ -53,10 +53,8 @@ describe('offscreen 应答信封 { ok, data | error }', () => {
     }
   }
 
-  // offscreen 管辖的全部 kind 前缀各取一条（与 extension-ipc.test.ts 的归属表互为印证），
   // 经真实监听器走一遍：任何一路信封走样（漏 data / 裸抛错误对象 / 多余字段）都会被抓住
   const OFFSCREEN_MSGS: RuntimeRequest[] = [
-    { kind: 'fs:ping' },
     { kind: 'conv:create' },
     { kind: 'conv:rename', id: 'c1', title: '新标题' },
     { kind: 'conv:delete', id: 'c1' },
@@ -71,10 +69,6 @@ describe('offscreen 应答信封 { ok, data | error }', () => {
       expectEnvelope(await reply(msg))
     },
   )
-
-  it('成功路径：data 承载后端返回值（fs:ping 的就绪判据）', async () => {
-    expect(await reply({ kind: 'fs:ping' })).toEqual({ ok: true, data: { ready: true } })
-  })
 
   it('成功路径：conv:create 的 data 就是写侧返回的会话记录', async () => {
     const created = { id: 'c1', title: '新对话' }
@@ -94,12 +88,7 @@ describe('offscreen 应答信封 { ok, data | error }', () => {
     await expect(reply({ kind: 'sw:buildInfo' })).resolves.toBeUndefined()
   })
 
-  it('OffscreenPush（offscreen:configChanged）是单向推送：触发回拉但不回包', async () => {
-    await expect(reply({ kind: 'offscreen:configChanged' })).resolves.toBeUndefined()
-  })
-
   it('未知 kind：不回包也不崩（静默比假错误诚实）', async () => {
-    // 注意不能拿 chat:/conv:/fs: 当未知样本——它们都是 offscreen 前缀（会得 error 信封）
     await expect(reply({ kind: 'bogus:whatever' })).resolves.toBeUndefined()
   })
 })

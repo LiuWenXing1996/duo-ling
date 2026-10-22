@@ -19,7 +19,7 @@ export interface IpcMatcher {
  */
 export function serveIpc(opts: {
   matchers: IpcMatcher[]
-  /** 旁听推送（SW 旁听 chat:running/finished；offscreen 收 offscreen:configChanged 回拉） */
+
   observe?: (msg: { kind: string }) => void
 }): void {
   chrome.runtime.onMessage.addListener((raw, sender, sendResponse): boolean => {
