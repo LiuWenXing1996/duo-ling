@@ -25,6 +25,10 @@ vi.mock('@duoling/shared', async (importOriginal) => ({
   saveProfile: vi.fn(),
   testChatResult: vi.fn(),
 }))
+vi.mock('@duoling/ui/composables/use-data-sync', () => ({
+  useDataSync: vi.fn(),
+  useDbSignal: vi.fn(),
+}))
 vi.mock('../lib/providers', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/providers')>()),
   getProviders: providerList,

@@ -13,6 +13,10 @@ vi.mock('@duoling/shared', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@duoling/shared')>()),
   listMessages: (...args: unknown[]) => listMessages(...args),
 }))
+vi.mock('@duoling/ui/composables/use-data-sync', () => ({
+  useDataSync: vi.fn(),
+  useDbSignal: vi.fn(),
+}))
 
 import ConversationRawView from './ConversationRawView.vue'
 

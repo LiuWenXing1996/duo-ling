@@ -11,7 +11,6 @@
 // （`key-cipher.ts`，随机密钥同存本机扩展存储）——属防扫描级，非保密级；
 // 真实降损靠引导用户使用子 Key + 额度上限 + 定期轮换。
 //
-// 变更通知：IDB 没有跨上下文通知，写出口（writeState，唯一落盘点）负责广播 `model` 域
 
 import type {
   ModelProfile,
@@ -23,9 +22,12 @@ import type {
 import { decryptApiKey, encryptApiKey, type EncPayload } from './key-cipher'
 import * as appDb from './app-db'
 import { errorText } from '../error-text'
-import { broadcastDataChange } from '../data-broadcast-runtime'
 
 const KEY = 'modelProfiles'
+
+export function readModelProfilesRaw(): Promise<unknown> {
+  return appDb.get(KEY)
+}
 
 /** 落盘形态：apiKey 不落明文，只存密文载荷（老数据的明文字段在读取时迁移） */
 type StoredProfile = Omit<ModelProfileState, 'apiKey'> & { apiKeyEnc?: EncPayload }
@@ -71,7 +73,7 @@ async function readState(): Promise<ModelState> {
   const before = state.activeProfileId
   syncActiveProfileId(state)
   if (state.activeProfileId !== before) dirty = true
-  if (dirty) await writeState(state, { silent: true })
+  if (dirty) await writeState(state)
   return state
 }
 
@@ -96,7 +98,7 @@ function migrateEndpointBaseUrls(state: ModelState): boolean {
   return true
 }
 
-async function writeState(state: ModelState, opts?: { silent?: boolean }): Promise<void> {
+async function writeState(state: ModelState): Promise<void> {
   const profiles: StoredProfile[] = await Promise.all(
     state.profiles.map(async (p) => {
       const { apiKey, ...rest } = p
@@ -108,8 +110,6 @@ async function writeState(state: ModelState, opts?: { silent?: boolean }): Promi
     activeProfileId: state.activeProfileId,
     endpointMigrated: state.endpointMigrated,
   })
-  if (opts?.silent) return
-  broadcastDataChange('model')
 }
 
 /**

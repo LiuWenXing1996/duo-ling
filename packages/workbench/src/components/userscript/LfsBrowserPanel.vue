@@ -5,7 +5,7 @@
 // 数据经 fsLfsTree（offscreen 应答，含 .git 内部）；容器不在时先唤起再取。
 // 点文件经 fsLfsReadFile 拉内容，右栏预览（文本走 shiki 高亮、可复制；二进制里的图片直接显示，其余提示不可预览）。
 import { computed, onMounted, ref, watch } from 'vue'
-import { useDataSync } from '@duoling/ui/composables/use-data-sync'
+import { useDbSignal } from '@duoling/ui/composables/use-data-sync'
 import {
   Check as UiCheck,
   Copy as UiCopy,
@@ -25,7 +25,7 @@ import {
 import LfsTreeNode from './LfsTreeNode.vue'
 import { offscreenService, userscriptClient } from '@duoling/ui/lib/userscripts/ui-client'
 // 换算表取自 shared 的叶子模块而非文件库：后者会带出 lightning-fs 单例，面板只要一张表
-import { isImageMediaType, mediaTypeOf } from '@duoling/shared'
+import { isImageMediaType, mediaTypeOf, readAllProjects } from '@duoling/shared'
 import type { LfsFileContent, LfsNode } from '@duoling/shared'
 import { errorText } from '@duoling/ui/lib/format'
 
@@ -186,7 +186,10 @@ async function copyPreview(): Promise<void> {
 onMounted(load)
 
 // lfs 浏览列的是全部脚本仓：任一脚本在别处保存 / 构建（写工作树 + 提交）都回拉整棵树与名称
-useDataSync('script', () => load())
+useDbSignal(
+  () => readAllProjects(),
+  () => load(),
+)
 </script>
 
 <template>

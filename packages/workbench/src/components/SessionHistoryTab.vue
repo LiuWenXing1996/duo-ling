@@ -18,7 +18,8 @@ import {
   DialogFooter as UiDialogFooter,
   DialogTitle as UiDialogTitle,
 } from '@duoling/ui/components/ui/dialog'
-import { useDataSync } from '@duoling/ui/composables/use-data-sync'
+import { useDbSignal } from '@duoling/ui/composables/use-data-sync'
+import { getChatDexie } from '@duoling/shared'
 import { toUiMessage } from '@duoling/shared'
 import {
   findTabsUsingConversation,
@@ -250,7 +251,10 @@ async function onDelete(payload: {
 
 // 别处（对话界面所在标签页之外）增删改会话 → 回拉列表。
 // 本页自己的删除已在 onDelete 里就地更新，重复回拉无副作用。
-useDataSync('conversation', () => void loadList())
+useDbSignal(
+  () => getChatDexie().conversations.toArray(),
+  () => void loadList(),
+)
 
 /** 正在生成的会话：列表上给状态标与就地停止入口（数据源见 useChatRunning） */
 const { runningIds } = useChatRunning()

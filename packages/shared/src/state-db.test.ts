@@ -1,4 +1,3 @@
-// state-db.ts 单测：裸 IndexedDB 读写（fake-indexeddb 提供全局 indexedDB）。
 // 注：测试直调写 API（writeProject 等）仅为播种/清理数据；「单写方约定」是运行期规则，
 // 不约束测试环境。
 import 'fake-indexeddb/auto'
@@ -14,8 +13,7 @@ import {
   writeGroup,
   writeProject,
 } from './state-db'
-import { idbRunTx } from './idb-core'
-import { STATE_PROJECTS_STORE, getStateDb } from './db/state'
+import { getStateDexie, STATE_PROJECTS_STORE } from './db/state'
 import type { ScriptProject } from './script-project'
 
 let seq = 0
@@ -70,17 +68,7 @@ describe('writeProject / readProject 往返', () => {
     await removeProject(p.uuid)
     // 手动写一条 v:1 旧形状
     const bad = { ...p, v: 1 as unknown as 2 }
-    await idbRunTx(
-      getStateDb(),
-      STATE_PROJECTS_STORE,
-      'readwrite',
-      (tx) =>
-        new Promise<void>((resolve, reject) => {
-          tx.objectStore(STATE_PROJECTS_STORE).put(bad)
-          tx.oncomplete = () => resolve()
-          tx.onerror = () => reject(tx.error ?? new Error('写入失败'))
-        }),
-    )
+    await getStateDexie().table(STATE_PROJECTS_STORE).put(bad)
     await expect(readProject(p.uuid)).resolves.toBeUndefined()
     await expect(readAllProjects()).resolves.toStrictEqual([])
     await removeProject(p.uuid) // 清理

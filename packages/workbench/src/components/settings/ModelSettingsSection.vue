@@ -3,7 +3,7 @@
 // 由原 SettingsPanel 抽出（内容未改，仅去掉面板外壳与「关于」页脚），
 // 现在作为设置页的一个分区被 SettingsPanel 渲染。
 import { onMounted, ref } from 'vue'
-import { useDataSync } from '@duoling/ui/composables/use-data-sync'
+import { useDbSignal } from '@duoling/ui/composables/use-data-sync'
 import {
   Box as UiBox,
   LoaderCircle as UiLoaderCircle,
@@ -32,7 +32,12 @@ import ModelFormDialog from '../ModelFormDialog.vue'
 import ConfirmDialog from '../ConfirmDialog.vue'
 import { errorText } from '@duoling/ui/lib/format'
 import { getProviders } from '../../lib/providers'
-import { listModelState, removeProfile, testChatResult } from '@duoling/shared'
+import {
+  listModelState,
+  readModelProfilesRaw,
+  removeProfile,
+  testChatResult,
+} from '@duoling/shared'
 
 const profiles = ref<ModelProfile[]>([])
 const providers = ref<ModelProvider[]>([])
@@ -125,7 +130,7 @@ async function onSaved(): Promise<void> {
   await loadData()
 }
 
-useDataSync('model', () => loadData())
+useDbSignal(readModelProfilesRaw, () => loadData())
 
 onMounted(() => {
   void loadData()

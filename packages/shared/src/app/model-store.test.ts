@@ -338,19 +338,19 @@ describe('saveProfile 的 id 语义', () => {
 })
 
 describe('写出口通知', () => {
-  it('saveProfile：广播 model 域（offscreen 与各扩展页据此回拉）', async () => {
+  it('saveProfile：不再广播，变更通知归 Dexie liveQuery（ADR 0046）', async () => {
     await saveProfile(input())
 
-    expect(broadcast).toHaveBeenCalledWith('model')
+    expect(broadcast).not.toHaveBeenCalled()
   })
 
-  it('removeProfile：同样经写出口广播', async () => {
+  it('removeProfile：同样不广播', async () => {
     const p = await saveProfile(input())
     broadcast.mockClear()
 
     await removeProfile(p.id)
 
-    expect(broadcast).toHaveBeenCalledWith('model')
+    expect(broadcast).not.toHaveBeenCalled()
   })
 })
 

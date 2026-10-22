@@ -170,14 +170,14 @@ describe('入参守卫', () => {
     await expect(renameConversation('ghost', 'x')).resolves.toBeNull()
   })
 
-  it('renameConversation：写回 trim 后的标题并广播', async () => {
+  it('renameConversation：写回 trim 后的标题，不再广播（通知归 liveQuery）', async () => {
     const c = await createConversation()
     broadcast.mockClear()
 
     const next = await renameConversation(c.id, '  新名字  ')
 
     expect(next?.title).toBe('新名字')
-    expect(broadcast).toHaveBeenCalledWith('conversation', c.id)
+    expect(broadcast).not.toHaveBeenCalled()
   })
 
   it('renameConversation：被拒绝时没有任何广播', async () => {
@@ -356,39 +356,37 @@ describe('删除', () => {
   })
 })
 
-describe('变更广播（写函数的唯一出口）', () => {
-  it('createConversation：广播 domain + 新会话 id', async () => {
-    const c = await createConversation()
+describe('写出口不再广播（通知归 Dexie liveQuery，ADR 0046）', () => {
+  it('createConversation：不广播', async () => {
+    await createConversation()
 
-    expect(broadcast).toHaveBeenCalledTimes(1)
-    expect(broadcast).toHaveBeenCalledWith('conversation', c.id)
+    expect(broadcast).not.toHaveBeenCalled()
   })
 
-  it('appendMessage：会话存在时广播该 id', async () => {
+  it('appendMessage：不广播', async () => {
     const c = await createConversation()
     broadcast.mockClear()
 
     await appendMessage(userMsg(c.id, 'hello', 1))
 
-    expect(broadcast).toHaveBeenCalledWith('conversation', c.id)
+    expect(broadcast).not.toHaveBeenCalled()
   })
 
-  it('deleteConversation：广播被删的会话 id', async () => {
+  it('deleteConversation：不广播', async () => {
     const c = await createConversation()
     broadcast.mockClear()
 
     await deleteConversation(c.id)
 
-    expect(broadcast).toHaveBeenCalledWith('conversation', c.id)
+    expect(broadcast).not.toHaveBeenCalled()
   })
 
-  it('deleteAllConversations：不带 uuid（表示全量变化）', async () => {
+  it('deleteAllConversations：不广播', async () => {
     await createConversation()
     broadcast.mockClear()
 
     await deleteAllConversations()
 
-    expect(broadcast).toHaveBeenCalledTimes(1)
-    expect(broadcast).toHaveBeenCalledWith('conversation')
+    expect(broadcast).not.toHaveBeenCalled()
   })
 })

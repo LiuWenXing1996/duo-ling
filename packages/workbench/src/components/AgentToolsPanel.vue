@@ -8,7 +8,6 @@
 //      （入参 / 结果 / 状态 / 时间 / 来自哪个会话），用于回答「这一步它到底调了什么、成没成」。
 //
 // 数据来源都是扩展页同源可读的库：契约 = 静态目录，轨迹 = conversation-store 直连 IndexedDB
-// （写仍唯一归 offscreen）。变更经 useDataSync('conversation') 自动回拉。
 import { computed, onMounted, ref } from 'vue'
 import type { ToolUIPart } from 'ai'
 import {
@@ -28,7 +27,8 @@ import {
   ToolHeader as UiToolHeader,
 } from '@duoling/ui/components/ai-elements/tool'
 import { getToolName, isToolUIPart, listConversations, listMessages } from '@duoling/shared'
-import { useDataSync } from '@duoling/ui/composables/use-data-sync'
+import { useDbSignal } from '@duoling/ui/composables/use-data-sync'
+import { getChatDexie } from '@duoling/shared'
 import { agentToolTitle, agentToolViews, type AgentToolView } from '@duoling/shared'
 import { errorText, formatTimeWithSeconds } from '@duoling/ui/lib/format'
 
@@ -109,7 +109,10 @@ async function load(): Promise<void> {
 
 onMounted(() => void load())
 // 别处落盘了新对话 / 新工具调用（offscreen 是唯一写方）：回拉一次
-useDataSync('conversation', () => void load())
+useDbSignal(
+  () => getChatDexie().conversations.toArray(),
+  () => void load(),
+)
 
 // —— 派生 ——
 

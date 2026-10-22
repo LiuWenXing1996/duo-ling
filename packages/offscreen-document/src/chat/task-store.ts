@@ -8,61 +8,27 @@
 //
 // 宿主差异说明：与会话同库——同域同写方
 // （都归 offscreen），纯粹少开一个库。写只发生在 offscreen（对话链路的宿主），SW 与扩展页
-// 没有写入路径；连接、库版本与建表统一由 shared 的 db/chat 持有 getChatDb —— 本模块
-// 不再自开连接（同一库挂两条连接时，升级与死连接处理会各管一半）。
-import { TASKS, getChatDb, idbRequest, idbRunTx } from '@duoling/shared'
+import { getChatDexie, type ChatTaskRecord, type ChatTaskStatus } from '@duoling/shared'
 
-/** 任务状态：running = 循环进行中（唯一参与孤儿判定的状态） */
-export type ChatTaskStatus = 'running'
-
-/** 一条生成任务记录（覆盖写：每步保留最新一份） */
-export interface ChatTaskRecord {
-  taskId: string
-  conversationId: string
-  status: ChatTaskStatus
-  /** 已完成的循环步数（提示「中断在第 N 步」） */
-  step: number
-  /** 连续 apply 失败次数（script_apply 维护） */
-  applyFailures: number
-  /** 内存源码快照（最近一次 script_apply 成功后的内容；null = 尚未写过） */
-  code: string | null
-  /** 首条需求摘要（用户消息），「继续」时回给模型 */
-  prompt: string
-  /** 页面上下文（档 0 + 可选档 2，chat:start 随指令带来；形状见 extension-ipc.PageContextInfo） */
-  pageContext?: import('@duoling/shared').PageContextInfo
-  createdAt: number
-  updatedAt: number
-  /** 心跳（ms 时间戳），chat-host 每 5s 刷新；过期 = 孤儿 */
-  heartbeat: number
-}
-
-const STORE = TASKS
+export type { ChatTaskRecord, ChatTaskStatus }
 
 /** 读一条任务记录；不存在返回 undefined */
 export async function getTask(taskId: string): Promise<ChatTaskRecord | undefined> {
-  return idbRunTx(getChatDb(), STORE, 'readonly', (transaction) =>
-    idbRequest(transaction.objectStore(STORE).get(taskId)),
-  )
+  return getChatDexie().tasks.get(taskId)
 }
 
 /** 写入 / 覆盖一条任务记录（覆盖写，只留最新一份） */
 export async function putTask(record: ChatTaskRecord): Promise<void> {
-  await idbRunTx(getChatDb(), STORE, 'readwrite', (transaction) =>
-    idbRequest(transaction.objectStore(STORE).put(record)),
-  )
+  await getChatDexie().tasks.put(record)
 }
 
 /** 删除一条任务记录（任务收尾 / 用户丢弃时） */
 export async function removeTask(taskId: string): Promise<void> {
-  await idbRunTx(getChatDb(), STORE, 'readwrite', (transaction) =>
-    idbRequest(transaction.objectStore(STORE).delete(taskId)),
-  )
+  await getChatDexie().tasks.delete(taskId)
 }
 
 /** 全部 running 任务记录（孤儿判定由调用方按心跳过滤） */
 export async function listRunningTasks(): Promise<ChatTaskRecord[]> {
-  const all = await idbRunTx(getChatDb(), STORE, 'readonly', (transaction) =>
-    idbRequest<ChatTaskRecord[]>(transaction.objectStore(STORE).getAll()),
-  )
-  return (all ?? []).filter((r) => r.status === 'running')
+  const all = await getChatDexie().tasks.toArray()
+  return all.filter((r) => r.status === 'running')
 }

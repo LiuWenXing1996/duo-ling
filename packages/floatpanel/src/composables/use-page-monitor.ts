@@ -11,7 +11,8 @@ import type { PageErrorItem, PageRunItem, PanelMonitorPush, ScriptSummary } from
 import { PANEL_MONITOR_PORT } from '@duoling/shared'
 import { userscriptClient } from '@duoling/ui/lib/userscripts/ui-client'
 import { resolveOwningTabId } from '@duoling/ui/lib/owning-tab'
-import { useDataSync } from '@duoling/ui/composables/use-data-sync'
+import { useDbSignal } from '@duoling/ui/composables/use-data-sync'
+import { readAllProjects } from '@duoling/shared'
 
 /** 面板保留的错误行上限（环形日志本身 50 条，这里再兜一层） */
 const MAX_ERRORS = 50
@@ -160,8 +161,10 @@ export function usePageMonitor() {
   }
 
   // 脚本增删改（导入 / 启停 / 改名 / 删除）→ 重拉名字表：改名即时生效，
-  // 导入的新脚本名字也能跟上（useDataSync 自带在途合并，重拉失败不断链）
-  useDataSync('script', () => refreshNames())
+  useDbSignal(
+    () => readAllProjects(),
+    () => refreshNames(),
+  )
 
   onMounted(() => {
     void trackTab()

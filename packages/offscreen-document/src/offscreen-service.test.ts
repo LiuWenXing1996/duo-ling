@@ -40,13 +40,13 @@ vi.mock('./userstate/project-write', () => ({
   setProjectEnabled: vi.fn(),
   setProjectGroup: vi.fn(),
 }))
-// 广播只换实现：断言「写完广播了 / 写失败不广播」要能数调用，其余导出取真身
 vi.mock('@duoling/shared', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@duoling/shared')>()),
   broadcastDataChange: vi.fn(),
+  broadcastBuildPhase: vi.fn(),
 }))
 
-import { broadcastDataChange } from '@duoling/shared'
+import { broadcastBuildPhase } from '@duoling/shared'
 import * as clipboard from './clipboard'
 import * as fsAssets from './fs/assets'
 import * as fsGit from './fs/git'
@@ -89,15 +89,13 @@ const _exhaustive: Expect<
   Exclude<keyof IOffscreenService, (typeof METHODS)[number]> extends never ? true : false
 > = true
 
-/** 每条用例：调谁、转发到哪个后端、后端该收到什么、应广播哪几域（顺序也钉） */
 interface Case {
   run: () => Promise<unknown>
   backend?: Mock
   args?: unknown[]
   result?: unknown
   setup?: () => void
-  /** 期望的广播调用序列（[域, uuid?]）；缺省 = 不该广播 */
-  broadcast?: unknown[][]
+  phase?: unknown[]
 }
 
 const GEN_PAYLOAD = {
@@ -161,91 +159,76 @@ const CASES: Record<(typeof METHODS)[number], Case> = {
     args: [{ text: 'x', html: null }],
   },
 
-  // —— 状态库写侧：转发 + 广播（不带 uuid = 整体变化，读侧全量重拉）——
   userscriptCreate: {
     run: () => service.userscriptCreate(),
     backend: vi.mocked(pw.createProject),
     args: [],
-    broadcast: [['script']],
   },
   userscriptCreateGenerated: {
     run: () => service.userscriptCreateGenerated(GEN_PAYLOAD),
     backend: vi.mocked(pw.createGeneratedProject),
     args: [GEN_PAYLOAD],
-    broadcast: [['script']],
   },
   userscriptSave: {
     run: () => service.userscriptSave('u1', 'code', { name: '新名', note: '备注' }),
     backend: vi.mocked(pw.saveExisting),
     args: ['u1', 'code', { name: '新名', note: '备注' }],
-    broadcast: [['script', 'u1']],
+    phase: ['script', 'u1', 'saved'],
   },
   userscriptRemove: {
     run: () => service.userscriptRemove('u1'),
     backend: vi.mocked(pw.removeProjectAndRepo),
     args: ['u1'],
-    broadcast: [['script', 'u1']],
   },
   userscriptRemoveAll: {
     run: () => service.userscriptRemoveAll(),
     backend: vi.mocked(pw.removeAllProjects),
     args: [],
-    broadcast: [['script']],
   },
   userscriptToggle: {
     run: () => service.userscriptToggle('u1', true),
     backend: vi.mocked(pw.setProjectEnabled),
     args: ['u1', true],
-    broadcast: [['script', 'u1']],
   },
   userscriptRename: {
     run: () => service.userscriptRename('u1', '新名'),
     backend: vi.mocked(pw.renameProject),
     args: ['u1', '新名'],
-    broadcast: [['script', 'u1']],
   },
   userscriptSetGroup: {
     run: () => service.userscriptSetGroup('u1', 'g1'),
     backend: vi.mocked(pw.setProjectGroup),
     args: ['u1', 'g1'],
-    broadcast: [['script', 'u1']],
   },
   userscriptImportZip: {
     run: () => service.userscriptImportZip('emlwLWJ5dGVz'),
     backend: vi.mocked(pw.importScriptsZip),
     args: ['emlwLWJ5dGVz'],
-    broadcast: [['script']],
   },
   userscriptImportText: {
     run: () => service.userscriptImportText('console.log(1)'),
     backend: vi.mocked(pw.importScriptFromText),
     args: ['console.log(1)'],
-    broadcast: [['script']],
   },
-  // 分组写双域：定义变了 + 成员的归属引用可能变了（删分组会把成员退回未分组）
   userscriptGroupCreate: {
     run: () => service.userscriptGroupCreate('购物助手'),
     backend: vi.mocked(pw.createGroup),
     args: ['购物助手'],
-    broadcast: [['group'], ['script']],
   },
   userscriptGroupRename: {
     run: () => service.userscriptGroupRename('g1', '新名'),
     backend: vi.mocked(pw.renameGroup),
     args: ['g1', '新名'],
-    broadcast: [['group'], ['script']],
   },
   userscriptGroupRemove: {
     run: () => service.userscriptGroupRemove('g1'),
     backend: vi.mocked(pw.removeGroupAndReassign),
     args: ['g1'],
-    broadcast: [['group'], ['script']],
   },
   userscriptGroupReorder: {
     run: () => service.userscriptGroupReorder(['g2', 'g1']),
     backend: vi.mocked(pw.reorderGroups),
     args: [['g2', 'g1']],
-    broadcast: [['group'], ['script']],
   },
 }
 
@@ -264,10 +247,9 @@ describe('OffscreenService 方法齐备且转发正确', () => {
     if (c.result !== undefined) expect(result).toEqual(c.result)
   })
 
-  it.each(Object.entries(CASES))('%s → 广播域正确（顺序也钉）', async (name, c) => {
+  it.each(Object.entries(CASES))('%s → 不发广播，保存链只补 saved 瞬态信号', async (name, c) => {
     await c.run()
-    const calls = vi.mocked(broadcastDataChange).mock.calls
-    expect(calls, name).toEqual(c.broadcast ?? [])
+    expect(vi.mocked(broadcastBuildPhase).mock.calls, name).toEqual(c.phase ? [c.phase] : [])
   })
 
   it('fsRestoreToCommit 后端 throw → 原样向上抛（由库侧包成 error）', async () => {
@@ -291,9 +273,9 @@ describe('OffscreenService 方法齐备且转发正确', () => {
     await expect(service.userscriptSave('u1', 'code')).resolves.toBe(outcome)
   })
 
-  it('写失败不广播：写抛错 → 原样向上抛，且一条通知都不发', async () => {
+  it('写失败不发任何通知：写抛错 → 原样向上抛，广播与 saved 信号都没有', async () => {
     vi.mocked(pw.createProject).mockRejectedValueOnce(new Error('IDB 打不开'))
     await expect(service.userscriptCreate()).rejects.toThrow('IDB 打不开')
-    expect(broadcastDataChange).not.toHaveBeenCalled()
+    expect(broadcastBuildPhase).not.toHaveBeenCalled()
   })
 })

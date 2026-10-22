@@ -20,6 +20,11 @@ vi.mock('@duoling/ui/lib/userscripts/ui-client', () => ({
   userscriptClient: { list },
 }))
 
+vi.mock('@duoling/ui/composables/use-data-sync', () => ({
+  useDataSync: vi.fn(),
+  useDbSignal: vi.fn(),
+}))
+
 vi.mock('@duoling/ui/components/ai-elements/file-tree', () => ({
   FileTree: {
     name: 'FileTree',

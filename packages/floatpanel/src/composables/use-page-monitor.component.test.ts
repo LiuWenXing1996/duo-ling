@@ -7,8 +7,6 @@
 // 依赖替身（它依赖面宽，除 vue 与纯类型外一律换替身）：
 //   · lib/owning-tab —— 归属解析另有专项测试，这里只控「解析出哪个 tab」；
 //   · lib/userscripts/ui-client —— 名字表的唯一来源，用可手控的 deferred 造在途与失败；
-//   · lib/data-broadcast —— 接住 subscribeDataChange 的监听器，用来模拟「脚本域数据变了」；
-//     use-data-sync 走真实实现，顺带验到「订阅的是 script 域」这条；
 //   · chrome.* —— 整体 stub：假 Port（登记 onMessage 监听、接住上行）+ tabs.get + tabs.onUpdated。
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { defineComponent } from 'vue'
@@ -17,7 +15,8 @@ import type { PageErrorItem, PageRunItem, PanelMonitorPush, ScriptSummary } from
 
 const listMock = vi.hoisted(() => vi.fn())
 const owningTabIdMock = vi.hoisted(() => vi.fn())
-const subscribeMock = vi.hoisted(() => vi.fn())
+const readProjectsMock = vi.hoisted(() => vi.fn())
+const dbSignalMock = vi.hoisted(() => vi.fn())
 
 vi.mock('@duoling/ui/lib/userscripts/ui-client', () => ({
   userscriptClient: { list: () => listMock() },
@@ -27,10 +26,14 @@ vi.mock('@duoling/ui/lib/owning-tab', () => ({
   resolveOwningTabId: () => owningTabIdMock(),
 }))
 
+vi.mock('@duoling/ui/composables/use-data-sync', () => ({
+  useDbSignal: (_querier: unknown, onChange: () => void) => dbSignalMock(onChange),
+}))
+
 // mock 落在包根：shared 是单包，spread 保其余符号真身
 vi.mock('@duoling/shared', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@duoling/shared')>()),
-  subscribeDataChange: (listener: (push: unknown) => void) => subscribeMock(listener),
+  readAllProjects: () => readProjectsMock(),
   broadcastDataChange: () => {},
   broadcastBuildPhase: () => {},
 }))
@@ -105,9 +108,8 @@ function tabUpdatedHandler(): TabUpdatedHandler {
   return tabUpdatedAdd.mock.calls[0][0] as TabUpdatedHandler
 }
 
-/** 脚本域数据变更的监听器（由 use-data-sync 订阅） */
-function dataChangeListener(): (push: unknown) => void {
-  return subscribeMock.mock.calls[0][0] as (push: unknown) => void
+function dataChangeListener(): () => void {
+  return dbSignalMock.mock.calls[0][0] as () => void
 }
 
 function runItem(uuid: string, runId: string, startedAt = 1): PageRunItem {
@@ -139,7 +141,7 @@ beforeEach(() => {
 
   owningTabIdMock.mockResolvedValue(TAB_ID)
   listMock.mockResolvedValue([])
-  subscribeMock.mockReturnValue(() => {})
+  readProjectsMock.mockResolvedValue([])
   monitor = null
 })
 
@@ -392,17 +394,12 @@ describe('名字补齐（自愈）', () => {
     expect(state().displayName('abcdefgh-1')).toBe('abcdefgh')
   })
 
-  it('脚本域数据变更触发重拉；别的域不动', async () => {
+  it('脚本数据变更（liveQuery 触达）触发重拉', async () => {
     listMock.mockResolvedValue([])
     await mountMonitor()
     expect(listMock).toHaveBeenCalledTimes(1)
 
-    const onDataChanged = dataChangeListener()
-    onDataChanged({ kind: 'data:changed', domain: 'conversation', uuid: 'c1', at: 1 })
-    await flushPromises()
-    expect(listMock).toHaveBeenCalledTimes(1)
-
-    onDataChanged({ kind: 'data:changed', domain: 'script', uuid: 's1', at: 2 })
+    dataChangeListener()()
     await flushPromises()
     expect(listMock).toHaveBeenCalledTimes(2)
   })

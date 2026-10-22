@@ -1,47 +1,27 @@
-// 扩展「自己的配置 / 基础设施键」的底层存储：独立 IndexedDB 库 duoling-app。
 //
 // 装三类（从 chrome.storage.local 迁入，storage 侧自此清零）：
 //   · modelProfiles —— 模型配置（密文载荷 + activeProfileId，见 model-store.ts）
 //   · apiKeyDek     —— API Key 落盘加密的 DEK（见 key-cipher.ts）
 //   · pageSecret    —— 脚本桥的共享密钥（见 userscripts/engine.ts）
 //
-// 与脚本数据（duoling-usdata）、观测数据（duoling-runtime）分库：这些都是**扩展自己的
-// 小数据**——有固定键、写频极低（保存配置 / 首次生成），跟「脚本不可信数据」「高频观测
-// 数据」的演进节奏都不同，一个泛用 kv store 即可，不必为它们各建 schema。
-//
 // 读写方：扩展页 / SW 都可用（同源 IndexedDB）；offscreen 不 import 本模块
-// （模型配置经 SW 命令 / 推送获取，见包内 bootstrap.ts）。node 单测 fake-indexeddb/auto 直测。
 
-import { APP_KV_STORE as KV_STORE, getAppDb } from '../db/app'
-import { idbRequest as request, idbRunTx } from '../idb-core'
+import { APP_KV_STORE as KV_STORE, getAppDexie } from '../db/app'
 
 interface KvRecord {
   key: string
   value: unknown
 }
 
-function runTx<T>(mode: IDBTransactionMode, run: (tx: IDBTransaction) => Promise<T>): Promise<T> {
-  return idbRunTx(getAppDb(), KV_STORE, mode, run)
-}
-
 /** 读一个键（不存在返回 undefined） */
 export async function get<T>(key: string): Promise<T | undefined> {
-  return runTx('readonly', async (tx) => {
-    const rec = await request<KvRecord | undefined>(tx.objectStore(KV_STORE).get(key))
-    return rec?.value as T | undefined
-  })
+  const rec = await getAppDexie().kv.get(key)
+  return rec?.value as T | undefined
 }
 
 /** 写一个键（整体覆盖） */
 export async function set(key: string, value: unknown): Promise<void> {
-  await runTx('readwrite', async (tx) => {
-    tx.objectStore(KV_STORE).put({ key, value } satisfies KvRecord)
-    return new Promise<void>((resolve, reject) => {
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error ?? new Error('保存设置失败'))
-      tx.onabort = () => reject(tx.error ?? new Error('保存设置被中止'))
-    })
-  })
+  await getAppDexie().kv.put({ key, value } satisfies KvRecord)
 }
 
 /**
@@ -56,41 +36,22 @@ export async function set(key: string, value: unknown): Promise<void> {
  * 返回 mutate 产出的新值（调用方通常要接着用它）。
  */
 export async function update<T>(key: string, mutate: (prev: T | undefined) => T): Promise<T> {
-  return runTx('readwrite', async (tx) => {
-    const store = tx.objectStore(KV_STORE)
-    const prev = (await request<KvRecord | undefined>(store.get(key)))?.value as T | undefined
+  return getAppDexie().transaction('rw', KV_STORE, async (tx) => {
+    const table = tx.table<KvRecord, string>(KV_STORE)
+    const prev = (await table.get(key))?.value as T | undefined
     const next = mutate(prev)
-    store.put({ key, value: next } satisfies KvRecord)
-    await new Promise<void>((resolve, reject) => {
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error ?? new Error('保存设置失败'))
-      tx.onabort = () => reject(tx.error ?? new Error('保存设置被中止'))
-    })
+    await table.put({ key, value: next } satisfies KvRecord)
     return next
   })
 }
 
 /** 删除一个键（键不存在是 no-op） */
 export async function remove(key: string): Promise<void> {
-  await runTx('readwrite', async (tx) => {
-    tx.objectStore(KV_STORE).delete(key)
-    return new Promise<void>((resolve, reject) => {
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error ?? new Error('删除设置失败'))
-      tx.onabort = () => reject(tx.error ?? new Error('删除设置被中止'))
-    })
-  })
+  await getAppDexie().kv.delete(key)
 }
 
 // —— 测试辅助（仅单测使用；清空全部记录保证用例隔离）——
 
 export async function clearAllForTests(): Promise<void> {
-  await runTx('readwrite', async (tx) => {
-    tx.objectStore(KV_STORE).clear()
-    return new Promise<void>((resolve, reject) => {
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error ?? new Error('清空设置失败'))
-      tx.onabort = () => reject(tx.error ?? new Error('清空设置被中止'))
-    })
-  })
+  await getAppDexie().kv.clear()
 }

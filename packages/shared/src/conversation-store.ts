@@ -1,32 +1,16 @@
-// 会话与消息持久化（IndexedDB）。为什么不用 chrome.storage.local：消息写入频繁且体积增长快，
-// 且 side panel / workbench / offscreen 同源可直连该库，无需经 background 中转。
 // **唯一写入方 = offscreen**（对话界面只读 + 订阅，防双写）；序号取号在本库 meta store 的
 // 一个 readwrite 事务内原子自增。语义要点（自增序号 / 首条自动命名 / 空标题拒绝 /
-// totalTokens 派生）与广播埋点理由，见 ARCHITECTURE.md「存储」节的会话库。
 import type { Conversation, ConversationSearchHit, Message } from './conversation'
 import { isAssetPart } from './chat-assets'
-import { broadcastDataChange } from './data-broadcast-runtime'
-import { idbRequest, idbRunTx } from './idb-core'
 import {
   CHAT_CONVERSATIONS_STORE as CONVERSATIONS,
   CHAT_MESSAGES_STORE as MESSAGES,
   CHAT_META_STORE as META,
-  getChatDb,
+  getChatDexie,
 } from './db'
 
 /** 新会话序号（meta store 键）：保证「新会话 N」不重号，清空会话时重置 */
 const SEQ_META_KEY = 'conversationSeq'
-
-/** 单 store 上的一次请求读写（事务级错误与死连接重试由 idbRunTx 兜） */
-function tx<T>(
-  storeName: string,
-  mode: IDBTransactionMode,
-  run: (store: IDBObjectStore) => IDBRequest<T>,
-): Promise<T> {
-  return idbRunTx(getChatDb(), storeName, mode, (transaction) =>
-    idbRequest(run(transaction.objectStore(storeName))),
-  )
-}
 
 /** 一次读出全部会话与消息（消息按会话分组），供列表与检索共用，避免 N 次往返 */
 async function readAll(): Promise<{
@@ -34,8 +18,8 @@ async function readAll(): Promise<{
   byConversation: Map<string, Message[]>
 }> {
   const [conversations, messages] = await Promise.all([
-    tx<Conversation[]>(CONVERSATIONS, 'readonly', (s) => s.getAll()),
-    tx<Message[]>(MESSAGES, 'readonly', (s) => s.getAll()),
+    getChatDexie().conversations.toArray(),
+    getChatDexie().messages.toArray(),
   ])
   const byConversation = new Map<string, Message[]>()
   for (const m of messages) {
@@ -107,17 +91,12 @@ export async function referencedAssetIds(): Promise<Set<string>> {
  * 唯一写方是 offscreen（对话链路宿主）。
  */
 async function takeNextSeq(): Promise<number> {
-  return idbRunTx(getChatDb(), META, 'readwrite', (transaction) => {
-    const store = transaction.objectStore(META)
-    return new Promise<number>((resolve, reject) => {
-      const req = store.get(SEQ_META_KEY)
-      req.onsuccess = () => {
-        const seq = typeof req.result === 'number' && req.result > 0 ? req.result : 1
-        store.put(seq + 1, SEQ_META_KEY)
-        resolve(seq)
-      }
-      req.onerror = () => reject(req.error ?? new Error('会话序号读取失败'))
-    })
+  return getChatDexie().transaction('rw', META, async (tx) => {
+    const table = tx.table(META)
+    const seq = await table.get(SEQ_META_KEY)
+    const next = typeof seq === 'number' && seq > 0 ? seq : 1
+    await table.put(next + 1, SEQ_META_KEY)
+    return next
   })
 }
 
@@ -141,8 +120,7 @@ export async function createConversation(): Promise<Conversation> {
     createdAt: now,
     lastMessageAt: now,
   }
-  await tx(CONVERSATIONS, 'readwrite', (s) => s.put(conversation))
-  broadcastDataChange('conversation', conversation.id)
+  await getChatDexie().conversations.put(conversation)
   return conversation
 }
 
@@ -150,65 +128,38 @@ export async function createConversation(): Promise<Conversation> {
 export async function renameConversation(id: string, title: string): Promise<Conversation | null> {
   const trimmed = title.trim()
   if (!trimmed) return null
-  const conversation = await tx<Conversation | undefined>(CONVERSATIONS, 'readonly', (s) =>
-    s.get(id),
-  )
+  const conversation = await getChatDexie().conversations.get(id)
   if (!conversation) return null
   const next = { ...conversation, title: trimmed }
-  await tx(CONVERSATIONS, 'readwrite', (s) => s.put(next))
-  broadcastDataChange('conversation', id)
+  await getChatDexie().conversations.put(next)
   return next
 }
 
 export async function deleteConversation(id: string): Promise<void> {
   const messages = await listMessages(id)
-  await idbRunTx(
-    getChatDb(),
-    [CONVERSATIONS, MESSAGES],
-    'readwrite',
-    (transaction) =>
-      new Promise<void>((resolve, reject) => {
-        transaction.objectStore(CONVERSATIONS).delete(id)
-        const messageStore = transaction.objectStore(MESSAGES)
-        for (const m of messages) messageStore.delete(m.id)
-        transaction.oncomplete = () => resolve()
-        transaction.onerror = () => reject(transaction.error ?? new Error('删除会话失败'))
-      }),
-  )
-  broadcastDataChange('conversation', id)
+  await getChatDexie().transaction('rw', CONVERSATIONS, MESSAGES, async (tx) => {
+    await tx.table(CONVERSATIONS).delete(id)
+    await tx.table(MESSAGES).bulkDelete(messages.map((m) => m.id))
+  })
 }
 
 /** 清空全部会话与消息，并把序号重置回 1（下次新建从「新会话 1」开始） */
 export async function deleteAllConversations(): Promise<void> {
-  await idbRunTx(
-    getChatDb(),
-    [CONVERSATIONS, MESSAGES, META],
-    'readwrite',
-    (transaction) =>
-      new Promise<void>((resolve, reject) => {
-        transaction.objectStore(CONVERSATIONS).clear()
-        transaction.objectStore(MESSAGES).clear()
-        transaction.objectStore(META).put(1, SEQ_META_KEY)
-        transaction.oncomplete = () => resolve()
-        transaction.onerror = () => reject(transaction.error ?? new Error('清空会话失败'))
-      }),
-  )
-  broadcastDataChange('conversation') // 无 uuid = 全量变化
+  await getChatDexie().transaction('rw', CONVERSATIONS, MESSAGES, META, async (tx) => {
+    await tx.table(CONVERSATIONS).clear()
+    await tx.table(MESSAGES).clear()
+    await tx.table(META).put(1, SEQ_META_KEY)
+  })
 }
 
 // —— 消息 ——
 
 export async function listMessages(conversationId: string): Promise<Message[]> {
-  const all = await idbRunTx(getChatDb(), MESSAGES, 'readonly', (transaction) =>
-    idbRequest<Message[]>(
-      transaction.objectStore(MESSAGES).index('conversationId').getAll(conversationId),
-    ),
-  )
+  const all = await getChatDexie().messages.where('conversationId').equals(conversationId).toArray()
   return all.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 }
 
 /**
- * 追加一条消息并刷新会话 lastMessageAt；会话不存在时返回 null（与桌面版一致）。
  * 顺带处理**首条用户消息自动命名**——桌面版把这段逻辑放在同一处，是唯一的触发点，
  * 拆出去（例如做成独立的 autoTitle 供外部调用）会因无人调用而静默失效。
  *
@@ -219,43 +170,22 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
  * 异常收尾可能让 assistant 消息先落盘，按任意消息判断会让改名静默失效。
  */
 export async function appendMessage(message: Message): Promise<Message | null> {
-  return idbRunTx(
-    getChatDb(),
-    [CONVERSATIONS, MESSAGES],
-    'readwrite',
-    (transaction) =>
-      new Promise<Message | null>((resolve, reject) => {
-        const messages = transaction.objectStore(MESSAGES)
-        const conversations = transaction.objectStore(CONVERSATIONS)
-
-        // 请求按发出顺序执行：先读会话与既有消息，回调里再做写入（同事务，不会提前提交）
-        const convReq = conversations.get(message.conversationId)
-        const listReq = messages.index('conversationId').getAll(message.conversationId)
-        listReq.onsuccess = () => {
-          const conversation = convReq.result as Conversation | undefined
-          if (!conversation) return // 会话不存在：不写任何东西，oncomplete 时 resolve null
-
-          messages.put(message)
-          const prior = listReq.result as Message[]
-          const next: Conversation = { ...conversation, lastMessageAt: message.createdAt }
-          const isFirstUserMessage =
-            message.role === 'user' && !prior.some((m) => m.role === 'user')
-          if (isFirstUserMessage && /^新会话 \d+$/.test(next.title)) {
-            const trimmed = message.content.trim()
-            if (trimmed) next.title = trimmed.length > 20 ? `${trimmed.slice(0, 20)}…` : trimmed
-          }
-          conversations.put(next)
-        }
-        transaction.oncomplete = () => {
-          const existed = Boolean(convReq.result)
-          // 会话不存在时上面什么都没写，不该让前端白拉一次——只在真的落盘后才广播
-          if (existed) broadcastDataChange('conversation', message.conversationId)
-          resolve(existed ? message : null)
-        }
-        transaction.onerror = () => reject(transaction.error ?? new Error('写入消息失败'))
-        transaction.onabort = () => reject(transaction.error ?? new Error('写入消息被中止'))
-      }),
-  )
+  return getChatDexie().transaction('rw', CONVERSATIONS, MESSAGES, async (tx) => {
+    const conversations = tx.table<Conversation, string>(CONVERSATIONS)
+    const messages = tx.table<Message, string>(MESSAGES)
+    const conversation = await conversations.get(message.conversationId)
+    if (!conversation) return null
+    const prior = await messages.where('conversationId').equals(message.conversationId).toArray()
+    await messages.put(message)
+    const next: Conversation = { ...conversation, lastMessageAt: message.createdAt }
+    const isFirstUserMessage = message.role === 'user' && !prior.some((m) => m.role === 'user')
+    if (isFirstUserMessage && /^新会话 \d+$/.test(next.title)) {
+      const trimmed = message.content.trim()
+      if (trimmed) next.title = trimmed.length > 20 ? `${trimmed.slice(0, 20)}…` : trimmed
+    }
+    await conversations.put(next)
+    return message
+  })
 }
 
 /** 会话检索：空查询返回最近 limit 条；非空匹配标题或任意消息正文（大小写不敏感） */

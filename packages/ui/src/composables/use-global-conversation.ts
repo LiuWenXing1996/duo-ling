@@ -20,11 +20,17 @@
 //   · 孤儿任务 —— offscreen 宿主被杀后 status=running 的记录（心跳过期）在此提示「继续 / 丢弃」。
 
 import { computed, ref, shallowRef, watchEffect } from 'vue'
-import { useDataSync } from './use-data-sync'
+import { useDbSignal } from './use-data-sync'
 import type { UseChatHelpers } from '@ai-sdk/vue'
 import type { ChatInit, ChatStatus, UIMessage } from 'ai'
 import { ExtensionChatTransport } from '../lib/extension-chat-transport'
-import { assetPartOf, toUiMessage, withMessageTime, type ChatAssetRef } from '@duoling/shared'
+import {
+  assetPartOf,
+  getChatDexie,
+  toUiMessage,
+  withMessageTime,
+  type ChatAssetRef,
+} from '@duoling/shared'
 import { getPickedElement } from '../lib/page-context-store'
 import { bindTabToConversation, getConversationIdForTab, unbindTab } from '@duoling/shared'
 import { resolveOwningTabId } from '../lib/owning-tab'
@@ -259,21 +265,21 @@ export function useGlobalConversation() {
     setInterval(() => void refreshOrphans(), 15_000)
   }
 
-  // 会话域广播（别处新建 / 重命名 / 删除）到达：回拉列表、不动激活会话；
   // 唯一例外「当前会话被删」落到未绑定态。判据与理由
   // 见 docs/adr/0033-broadcast-pull-keeps-active-session.md。
-  useDataSync('conversation', async () => {
-    try {
-      const list = await conversationClient.list()
-      conversations.value = list
-      if (activeConversationId.value && !list.some((c) => c.id === activeConversationId.value)) {
-        if (currentTabId.value != null) void unbindTab(currentTabId.value).catch(() => {})
-        enterUnbound()
-      }
-    } catch {
-      // 列表刷新失败不影响主流程
-    }
-  })
+  useDbSignal(
+    () => getChatDexie().conversations.toArray(),
+    async () => {
+      try {
+        const list = await conversationClient.list()
+        conversations.value = list
+        if (activeConversationId.value && !list.some((c) => c.id === activeConversationId.value)) {
+          if (currentTabId.value != null) void unbindTab(currentTabId.value).catch(() => {})
+          enterUnbound()
+        }
+      } catch {}
+    },
+  )
 
   /** 孤儿处理：继续（播种内存文件树后重跑循环）或丢弃（删任务记录）。失败须可见——
    *  调用方是 void，异常不接住就全静默（横幅消失但任务还在，用户不知情） */

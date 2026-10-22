@@ -1,7 +1,8 @@
 // GM_cookie 的**域名门**（安全边界，SW 侧唯一执行点）。
 // 规则（url ⊆ 自身注入面、只比 scheme+host、缓存失效口径）见 docs/adr/0005-gm-cookie-domain-gate.md。
 import {
-  subscribeDataChange,
+  liveQuery,
+  readAllProjects,
   readProject,
   urlInCookieScope,
   type CookieScope,
@@ -14,24 +15,19 @@ export type CookieGateResult =
 /** uuid → 该脚本的 cookie 作用域；null = 项目不存在 / 形态不对（拒绝） */
 const scopeCache = new Map<string, CookieScope | null>()
 
-/** 广播订阅是否已挂（懒挂：首次用门时才订阅，避免模块副作用） */
 let subscribed = false
 
 function ensureSubscribed(): void {
   if (subscribed) return
   subscribed = true
   try {
-    subscribeDataChange((push) => {
-      // 任何脚本变更（配置 / 启停 / 删除）都可能改到作用域：整表清空，下次判定回源
-      if (push.domain === 'script') scopeCache.clear()
-    })
+    liveQuery(() => readAllProjects()).subscribe(() => scopeCache.clear())
   } catch {
     // 订阅不可用（极端环境）：不缓存即等于恒回源，安全性不受影响 —— 只是没了缓存收益
     subscribed = false
   }
 }
 
-/** 清空作用域缓存（测试与显式失效用；生产路径靠 script 域广播自动清） */
 export function invalidateCookieScope(uuid?: string): void {
   if (uuid) scopeCache.delete(uuid)
   else scopeCache.clear()
