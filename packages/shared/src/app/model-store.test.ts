@@ -25,7 +25,6 @@ import {
   removeProfile,
   saveProfile,
   setActiveProfile,
-  setConfigChangedNotifier,
   testChat,
 } from './model-store'
 
@@ -33,8 +32,6 @@ import {
 vi.mock('../data-broadcast-runtime', () => ({ broadcastDataChange: vi.fn() }))
 
 const broadcast = vi.mocked(broadcastDataChange)
-
-const configNotify = vi.fn()
 
 /** 落盘键名（模块内私有常量，这里硬编码以锁住存储契约） */
 const KEY = 'modelProfiles'
@@ -77,8 +74,6 @@ const okResponse = (): Response => new Response(null, { status: 200 })
 beforeEach(async () => {
   await appDb.clearAllForTests()
   broadcast.mockClear()
-  configNotify.mockReset()
-  setConfigChangedNotifier(configNotify)
 })
 
 afterEach(() => {
@@ -134,13 +129,11 @@ describe('默认模型（activeProfileId 收敛）', () => {
   it('setActiveProfile：id 不存在则整个忽略（不写、不通知）', async () => {
     const a = await saveProfile(input({ name: 'A', model: 'ma' }))
     broadcast.mockClear()
-    configNotify.mockClear()
 
     await setActiveProfile('ghost')
 
     expect(await getActiveProfileId()).toBe(a.id)
     expect(broadcast).not.toHaveBeenCalled()
-    expect(configNotify).not.toHaveBeenCalled()
   })
 
   it('删掉当前默认：收敛到剩余第一条', async () => {
@@ -345,30 +338,19 @@ describe('saveProfile 的 id 语义', () => {
 })
 
 describe('写出口通知', () => {
-  it('saveProfile：广播 model 域并通知 offscreen 回拉', async () => {
+  it('saveProfile：广播 model 域（offscreen 与各扩展页据此回拉）', async () => {
     await saveProfile(input())
 
     expect(broadcast).toHaveBeenCalledWith('model')
-    expect(configNotify).toHaveBeenCalledTimes(1)
   })
 
-  it('removeProfile：同样经写出口通知', async () => {
+  it('removeProfile：同样经写出口广播', async () => {
     const p = await saveProfile(input())
     broadcast.mockClear()
-    configNotify.mockClear()
 
     await removeProfile(p.id)
 
     expect(broadcast).toHaveBeenCalledWith('model')
-    expect(configNotify).toHaveBeenCalledTimes(1)
-  })
-
-  it('通知器抛错不阻断写操作（链路断了也不该让落盘失败）', async () => {
-    configNotify.mockImplementation(() => {
-      throw new Error('link closed')
-    })
-
-    await expect(saveProfile(input({ name: 'A' }))).resolves.toMatchObject({ name: 'A' })
   })
 })
 

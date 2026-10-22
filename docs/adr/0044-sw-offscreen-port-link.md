@@ -149,7 +149,7 @@ SW 收到新 hello 时先 `old.disconnect()` 再登记（防扩展重载后残�
 现状（三层各自的落点）：
 
 - 契约与实现：`shared/src/ipc/link-frame.ts`（帧 / 错误码 / 判别）、`link.ts`（连接、pending、超时、退避重连、心跳）、`link-service.ts`（`svc` 寻址）。零 chrome 类型。
-- offscreen 侧：`offscreen-document/src/link-host.ts` 发起连接并把 `OffscreenService` 挂成 `svc`；`bootstrap.ts` 订阅 `offscreen:configChanged` 与 `onOpen`（重连后补拉配置）；`chat/sw-bridge.ts` 的九条能力调用、`chat/event-bus.ts` 的两条任务事件都改走它。
+- offscreen 侧：`offscreen-document/src/link-host.ts` 发起连接并把 `OffscreenService` 挂成 `svc`；`bootstrap.ts` 订阅 `data:changed` 的 `model` 域回拉配置（重连后由 `onOpen` 补拉）；`chat/sw-bridge.ts` 的九条能力调用、`chat/event-bus.ts` 的两条任务事件都改走它。
 - SW 侧：`service-worker/src/sw-link.ts` 接收连接、给出带重试的 `offscreenService` 代理与 `ensureLinkReady`；`background.ts` 在顶层挂链路，`linkHandlers` 承接原先只有 offscreen 会发的九条能力（`model:getActiveProfile` / `page:{snapshot,env}` / `userscript:{save,createProject,errorRead,runlog,runEvents,tabRecordRead}`）。
 - 拆掉的旧面：`offscreen:ready`、`fs:ping`、`model:*` 等八条 kind 从 `RuntimeRequest` 联合与两端 handlers 表移除；`SWService` 两份、`keepalive` 一份删除；`SW_KIND_PREFIXES` 只保留 UI 广播那几条。
 
@@ -157,7 +157,7 @@ SW 收到新 hello 时先 `old.disconnect()` 再登记（防扩展重载后残�
 
 **配置变更回拉走广播、不走链路**（e2e 抓出来的修正）：写方可能在任何上下文（设置页直写 IDB，不经过 SW），而链路推送只能覆盖 SW 自己那份 model-store 实例的写 —— offscreen 的回拉触发最终挂回 `subscribeDataChange` 的 `model` 域广播；链路推送保留，只当 SW 侧写的补充。
 
-剩下两处有意保留：`chat:chunk` 仍走广播（对端是可能多开的对话界面）、`@webext-core/proxy-service` 仍给扩展页用（UI 无法 connect 到 offscreen）。
+剩下两处当时有意保留，均已在 [ADR 0045](0045-ui-to-offscreen-via-sw.md) 处理：`chat:chunk` 改走 BroadcastChannel（`duoling:chat-chunk`，不再唤醒 SW）、`@webext-core/proxy-service` 下线（UI 侧改发 `offscreen:call`，由 SW 转发）。`offscreen:configChanged` 这条链路事件也已删除 —— 它与 `data:changed` 的 `model` 域重复，只保留后者。
 
 ## 后果
 
@@ -177,6 +177,6 @@ SW 收到新 hello 时先 `old.disconnect()` 再登记（防扩展重载后残�
 
 ## 后续
 
-**P6（未做）**：SW 成为唯一入口，UI → off 的命令经 SW 转发，offscreen 撤 `serveIpc`，两张白名单合成一张路由表。代价是每条 UI → off 命令多一次 SW 转发（不增加唤醒成本：现在就是广播，SW 已经醒了）。做不做取决于「少一张白名单」值不值这条转发。
+**P6（已落地）**：SW 成为唯一入口，UI → off 的命令经 SW 转发，offscreen 撤 `serveIpc`，两张白名单合成一张路由表 —— 见 [0045](0045-ui-to-offscreen-via-sw.md)。
 
 **`chat:chunk` 的下一站**：仍是广播，SW 仍会被每条 chunk 唤醒。改 BroadcastChannel 是独立的机会，不在本 ADR 内。

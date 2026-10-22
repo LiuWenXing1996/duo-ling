@@ -249,14 +249,14 @@ describe('ipcSubscribe —— 按 kind 前缀收推送', () => {
   it('只收前缀命中的推送；退订后不再收', async () => {
     const c = stubChrome()
     const got: string[] = []
-    const off = ipcSubscribe('chat:', (msg) => got.push(msg.kind))
+    const off = ipcSubscribe('sw:', (msg) => got.push(msg.kind))
 
-    await c.deliver({ kind: 'chat:chunk' })
+    await c.deliver({ kind: 'sw:runningChanged' })
     await c.deliver({ kind: 'data:changed' })
     off()
-    await c.deliver({ kind: 'chat:chunk' })
+    await c.deliver({ kind: 'sw:runningChanged' })
 
-    expect(got).toEqual(['chat:chunk'])
+    expect(got).toEqual(['sw:runningChanged'])
     expect(c.listeners).toHaveLength(0)
   })
 })

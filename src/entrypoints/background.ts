@@ -17,7 +17,7 @@
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
-import type { PageOverviewTab, RuntimeRequest } from '@duoling/shared'
+import type { PageOverviewTab } from '@duoling/shared'
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
 import type { InjectedBuildInfo } from '@duoling/shared'
 import { EXTENSION_NAME } from '@duoling/shared'
@@ -127,6 +127,7 @@ import type {
   ImportReport,
   LinkHandlers,
   RunEndReason,
+  RuntimeRequest,
   ScriptConfig,
   ScriptGroup,
   ScriptProject,
@@ -144,7 +145,7 @@ import {
 } from '@duoling/service-worker'
 // 模型配置：offscreen 既不直连存储、也不 import model-store（SW 专属模块），一律由
 // SW 经命令中转；变更推送由 model-store 写出口直发（offscreen 侧见包内 bootstrap.ts）。
-import { getActiveProfileState, setConfigChangedNotifier } from '@duoling/shared'
+import { getActiveProfileState } from '@duoling/shared'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
 import { broadcastBuildPhase } from '@duoling/shared'
 // AI 工具支路：page_snapshot / page_env_read 两条工具经 SW 向页面里的页面检查器下发指令
@@ -165,7 +166,7 @@ import {
   setFloatPanelBusy,
 } from '@duoling/service-worker'
 import type { ElementPickContext } from '@duoling/shared'
-import { errorText } from '@duoling/shared'
+import { errorText, isTransportError } from '@duoling/shared'
 
 export const SW_KIND_PREFIXES = [
   'userscript:',
@@ -175,6 +176,8 @@ export const SW_KIND_PREFIXES = [
   'picker:',
   'float:',
   'tab:',
+  'conv:',
+  'chat:',
 ] as const
 
 type SwRequest = Exclude<
@@ -404,6 +407,20 @@ const linkHandlers: LinkHandlers = {
   },
 }
 
+async function forwardToOffscreen(msg: RuntimeRequest): Promise<unknown> {
+  const { kind, ...payload } = msg as { kind: string } & Record<string, unknown>
+  const notReady = (): Error => new Error('offscreen 容器未就绪，请重试')
+  if (!(await ensureLinkReady())) throw notReady()
+  const link = serviceWorkerLink()
+  if (!link) throw notReady()
+  try {
+    return await link.request(kind, payload)
+  } catch (e) {
+    if (!isTransportError(e) || !(await ensureLinkReady())) throw e
+    return await link.request(kind, payload)
+  }
+}
+
 // 第二个参数是 chrome 的消息发送方：只有需要「回 sender 自己的东西」的命令才用得上
 // （现仅 tab:identify 取 sender.tab.id）；其余 handler 少写一个参数即可，TS 允许。
 const handlers: {
@@ -425,6 +442,23 @@ const handlers: {
   'offscreen:status': async (): Promise<{ ready: boolean }> => ({
     ready: await isOffscreenReady(),
   }),
+
+  'offscreen:call': (msg) => {
+    const service = offscreenService as unknown as Record<string, unknown>
+    const call = service[msg.method]
+    if (typeof call !== 'function') throw new Error(`未知 offscreen 服务方法：${msg.method}`)
+    return (call as (...args: unknown[]) => Promise<unknown>).apply(offscreenService, msg.args)
+  },
+
+  'conv:create': (msg) => forwardToOffscreen(msg),
+  'conv:rename': (msg) => forwardToOffscreen(msg),
+  'conv:delete': (msg) => forwardToOffscreen(msg),
+  'conv:deleteAll': (msg) => forwardToOffscreen(msg),
+  'chat:start': (msg) => forwardToOffscreen(msg),
+  'chat:abort': (msg) => forwardToOffscreen(msg),
+  'chat:resume': (msg) => forwardToOffscreen(msg),
+  'chat:orphans': (msg) => forwardToOffscreen(msg),
+  'chat:orphanAction': (msg) => forwardToOffscreen(msg),
 
   // —— 拾取（浮层发起的用户动作）——
   // 目标页判据见 resolvePickTargetTab —— 与上面两条 AI 支路刻意不同，别在这里另写一份。
@@ -1159,10 +1193,6 @@ export default defineBackground(() => {
   void ensureOffscreen().catch((e) => console.error('[duoling:offscreen] ensure failed', e))
 
   const link = startServiceWorkerLink(linkHandlers)
-
-  setConfigChangedNotifier(() => {
-    link.emit('offscreen:configChanged')
-  })
 
   link.onEvent((type, payload) => {
     const push = (payload ?? {}) as { conversationId?: string }

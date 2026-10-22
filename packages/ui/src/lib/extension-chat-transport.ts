@@ -10,13 +10,8 @@
 // use-global-conversation 在激活会话时设置），chat:* 命令一律以它为准。
 
 import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai'
-import type {
-  ChatResumeResult,
-  OffscreenPush,
-  PageContextInfo,
-  RuntimeRequest,
-} from '@duoling/shared'
-import { ipcRequest, ipcSubscribe } from '@duoling/shared'
+import type { ChatResumeResult, PageContextInfo, RuntimeRequest } from '@duoling/shared'
+import { ipcRequest, subscribeChatChunk } from '@duoling/shared'
 import { consumePendingPageContext, clearSentPageContext } from './page-context-store'
 import { resolveOwningTabId } from './owning-tab'
 import { errorText } from './format'
@@ -75,14 +70,11 @@ function closeConsumer(conversationId: string): void {
   }
 }
 
-// 模块级订阅：只注册一次。offscreen → 对话界面的事件推送都从这里进流（走标准总线订阅面）。
 let pushListenerInstalled = false
 function installPushListener(): void {
   if (pushListenerInstalled) return
   pushListenerInstalled = true
-  ipcSubscribe('chat:chunk', (msg) => {
-    const push = msg as OffscreenPush
-    if (push.kind !== 'chat:chunk') return
+  subscribeChatChunk((push) => {
     if (consumeChunk(push.conversationId, push.seq, push.chunk)) {
       closeConsumer(push.conversationId)
     }

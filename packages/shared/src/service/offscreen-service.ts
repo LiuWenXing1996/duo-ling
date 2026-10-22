@@ -1,10 +1,4 @@
 // 契约与 key 同处：接口只用本包的记录形状（script-project），实现在两个进程包（依赖单向）。
-import {
-  createProxyService,
-  registerService,
-  type ProxyService,
-  type ProxyServiceKey,
-} from '@webext-core/proxy-service'
 import type { ScriptConfig } from '../script-config'
 import type { ScriptGroup, ScriptProject } from '../script-project'
 import type { PromiseService } from './promise-service'
@@ -215,37 +209,3 @@ export interface IOffscreenService extends PromiseService<{
   /** 把脚本归入某分组（空字符串 = 未分组） */
   userscriptSetGroup(uuid: string, group: string): Promise<ScriptProject>
 }> {}
-
-const OFFSCREEN_SERVICE_KEY = 'offscreen-service' as ProxyServiceKey<IOffscreenService>
-
-/** offscreen 侧：容器入口顶层同步调，迟了会漏早到的调用 */
-export function registerOffscreenService(service: IOffscreenService): void {
-  registerService(OFFSCREEN_SERVICE_KEY, service)
-}
-
-/**
- * 消费侧：取代理，调用转发到容器里注册的实现。
- * retry 由调用方给判据：容器被销毁（扩展重载 / 崩溃）后首次调用会失败，
- * 返回 true 即已恢复、本包再试一次。不传就是裸代理。
- */
-export function createOffscreenService(
-  retry?: (error: unknown) => Promise<boolean>,
-): ProxyService<IOffscreenService> {
-  const proxy = createProxyService(OFFSCREEN_SERVICE_KEY)
-  if (!retry) return proxy
-  return new Proxy(proxy, {
-    get(target, prop, receiver) {
-      const value = Reflect.get(target, prop, receiver)
-      if (typeof value !== 'function') return value
-      const call = value as (...args: unknown[]) => Promise<unknown>
-      return async (...args: unknown[]) => {
-        try {
-          return await call.apply(target, args)
-        } catch (error) {
-          if (!(await retry(error))) throw error
-          return await call.apply(target, args)
-        }
-      }
-    },
-  })
-}

@@ -1,8 +1,6 @@
 // offscreen 侧的模型配置缓存。
 //
 // offscreen 不 import model-store（SW 专属模块），配置只能从 SW 经 model:getActiveProfile
-// 取一次并缓存；变更由模型配置写侧（model-store 写出口）推 offscreen:configChanged、
-// 经 bootstrap 的 onConfigChanged 回拉。
 // apiKey 属同扩展内上下文之间的传递（offscreen 与 SW 信任级别等同），边界要求：
 // **取一次、缓存、不写日志、不落盘**。
 

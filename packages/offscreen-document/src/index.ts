@@ -8,7 +8,7 @@ export { offscreenLink, startOffscreenLink, stopOffscreenLink } from './link-hos
 // 启动对账（清孤儿仓）：宿主入口顶层调一次，不是跨上下文能力，故不进服务
 export { reconcileFs } from './userstate/reconcile'
 
-export { onConfigChanged, startOffscreenHost } from './bootstrap'
+export { startOffscreenHost } from './bootstrap'
 
 // —— fs 层原语（offscreen 内部直用；对外读写走 OffscreenService） ——
 // base64 编解码与名字安全化在 @duoling/shared（下载侧同源，见其 archive-transfer）

@@ -16,8 +16,6 @@
 // 求值期纪律：模块顶层不做任何调用，派生值一律惰性 + 缓存。单文件产物下，
 // 一句顶层调用就让打包器整块保留本模块 —— package.json 的 `sideEffects: false`
 // 只在模块粒度生效，救不了文件内的语句。中继件的体积直接吃这条。
-// 运行依赖只有 @webext-core/proxy-service（契约的代理工厂）；ai 只作类型来源
-// （消息 parts 的形状），产物里不出现它的 import。
 //
 // 与 src/shared/ 的分工：那边是**应用内部**几个载体（SW / UI / offscreen）之间的信封，
 // 自身依赖件包；这里是**跨世界 + 跨进程**共享面，被件包、进程包与应用共同消费。
@@ -31,6 +29,7 @@ export * from './idb-core'
 export * from './db'
 export * from './data-broadcast'
 export * from './data-broadcast-runtime'
+export * from './chat-chunk-broadcast'
 export * from './ipc'
 export * from './app'
 export * from './media-types'

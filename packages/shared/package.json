@@ -16,9 +16,6 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
-  "dependencies": {
-    "@webext-core/proxy-service": "^3.0.2"
-  },
   "devDependencies": {
     "ai": "^7.0.99",
     "fake-indexeddb": "^6.2.5",

@@ -27,12 +27,6 @@ import { broadcastDataChange } from '../data-broadcast-runtime'
 
 const KEY = 'modelProfiles'
 
-let configChangedNotifier: (() => void) | null = null
-
-export function setConfigChangedNotifier(notify: (() => void) | null): void {
-  configChangedNotifier = notify
-}
-
 /** 落盘形态：apiKey 不落明文，只存密文载荷（老数据的明文字段在读取时迁移） */
 type StoredProfile = Omit<ModelProfileState, 'apiKey'> & { apiKeyEnc?: EncPayload }
 
@@ -116,9 +110,6 @@ async function writeState(state: ModelState, opts?: { silent?: boolean }): Promi
   })
   if (opts?.silent) return
   broadcastDataChange('model')
-  try {
-    configChangedNotifier?.()
-  } catch {}
 }
 
 /**

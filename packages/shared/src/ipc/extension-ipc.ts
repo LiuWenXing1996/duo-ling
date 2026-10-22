@@ -12,6 +12,7 @@
 // `dl-page-inspector`）的载荷形状**定义在契约包里**：件按这些形状造数据，而件不能
 // 依赖应用源码，故真相源落在 @duoling/shared —— 消费方从那里自取，本文件不再转发。
 import type { PageContextInfo } from '../chat-ipc'
+import type { IOffscreenService } from '../service/offscreen-service'
 import type { IpcEnvelope } from './envelope'
 
 // 浮层指令的 kind 字面量已随脚本桥协议（api-contract 的 float.cmd）收编 —— 命令面
@@ -103,15 +104,13 @@ export type RuntimeRequest =
   | { kind: 'userscript:group-remove'; id: string }
   | { kind: 'userscript:group-reorder'; orderedIds: string[] }
 
-  // —— 项目状态库的**写**已并入 OffscreenService 代理（不在这张联合里）——
   // 项目数据（源码搬运副本 / 配置 / enabled）落在独立 IndexedDB 库 duoling-state，
   // **写只归 offscreen**（单写方）：服务方法 userscript* 在同一个上下文的同一个函数里
   // 完成落盘与 commit，没有跨上下文缝隙（写与 commit 分离、两个写方时，任一步失败即产生偏差）。
-  // 报文无 kind、不占总线（同 fs 组的其余命令）；读同样不进协议：SW 与扩展页直连 IDB
-  // （project-store），不经容器——注册链路不能押在容器存活上。
+  // 读不进协议：SW 与扩展页直连 IDB（project-store），不经容器——注册链路不能押在容器存活上。
 
   // —— 会话写侧（整条对话链路搬进 offscreen 后，会话历史唯一写入方 = offscreen）——
-  // UI（对话界面 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 对 conv: 前缀静默让路。
+  // UI（对话界面 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 只转发。
   // 注意：**消息落盘不走这里**——它只发生在 chat:start（用户消息）与收尾（AI 消息），
   // 且都经 lib/conversation-message.ts 的 toPersistedMessage（见该文件头注释）。
   | { kind: 'conv:create' }
@@ -141,6 +140,11 @@ export type RuntimeRequest =
   | { kind: 'offscreen:ensure' }
   | { kind: 'offscreen:close' }
   | { kind: 'offscreen:status' }
+  | {
+      kind: 'offscreen:call'
+      method: keyof IOffscreenService
+      args: unknown[]
+    }
 
   // 返回值含 apiKey 明文：属同扩展内上下文之间的传递（offscreen 与 SW 信任级别等同），
   // 不是新增对外暴露面；但仍须「取一次、缓存、不写日志」。

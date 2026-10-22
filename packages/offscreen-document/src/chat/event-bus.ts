@@ -11,8 +11,7 @@
 //     落盘走 chat-host 泵流时自收的完整 chunk 序列（buildFinalMessageFromChunks）。
 
 import type { UIMessageChunk } from 'ai'
-import { notifyRuntime } from '@duoling/shared'
-import type { OffscreenPush } from '@duoling/shared'
+import { publishChatChunk, type OffscreenPush } from '@duoling/shared'
 import { offscreenLink } from '../link-host'
 
 /** 单会话缓冲上限（条）。长回复按 ~1 delta/token 计，2.3 万 token ≈ 2.3 万条——
@@ -57,8 +56,7 @@ export function pushChunk(conversationId: string, chunk: UIMessageChunk): number
     b.events.splice(0, b.events.length - MAX_EVENTS_PER_CHAT)
   }
   const push: OffscreenPush = { kind: 'chat:chunk', conversationId, seq: event.seq, chunk }
-  // 尽力而为：面板未开 / SW 未起都会 reject，任务照跑
-  notifyRuntime(push)
+  publishChatChunk(push)
   return event.seq
 }
 

@@ -4,9 +4,8 @@
 // 因此不依赖任何全局中间层，直接发 runtime 消息。
 // send 信封统一走共享总线（shared/ipc-bus，与 lib/conversation-client.ts 等处同源），
 // 直接发 userscript:* 命令组（v2 方案）。
-import type { RuntimeRequest } from '@duoling/shared'
-import { ipcRequest, ipcSubscribe } from '@duoling/shared'
-import { createOffscreenService } from '@duoling/shared'
+import type { IOffscreenService, RuntimeRequest, ServiceCallPayload } from '@duoling/shared'
+import { createServiceClient, ipcRequest, ipcSubscribe } from '@duoling/shared'
 import type {
   ImportReport,
   ScriptConfig,
@@ -162,15 +161,21 @@ export const userscriptClient = {
     send({ kind: 'userscript:tabActivityDisable', tabId }),
 }
 
-export const offscreenService = createOffscreenService(async (error) => {
-  // 仅「容器未响应」类错误才唤起重试；业务异常 / 报文非法直接透出去
-  if (
-    !/port closed|Receiving end does not exist|Could not establish connection/.test(
-      errorText(error),
-    )
-  ) {
-    return false
-  }
-  await ipcRequest({ kind: 'offscreen:ensure' }).catch(() => {})
-  return true
+export const offscreenService: IOffscreenService = createServiceClient<IOffscreenService>({
+  request: <T>(_type: string, payload?: unknown) => {
+    const call = payload as ServiceCallPayload
+    return callOffscreen<T>(call.method as keyof IOffscreenService, call.args)
+  },
 })
+
+async function callOffscreen<T>(method: keyof IOffscreenService, args: unknown[]): Promise<T> {
+  const send = (): Promise<T> =>
+    ipcRequest<T>({ kind: 'offscreen:call', method, args }, { timeoutMs: 120_000 })
+  try {
+    return await send()
+  } catch (e) {
+    if (!/port closed|Receiving end does not exist|扩展服务未响应/.test(errorText(e))) throw e
+    await ipcRequest({ kind: 'offscreen:ensure' }).catch(() => {})
+    return await send()
+  }
+}
