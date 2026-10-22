@@ -61,6 +61,11 @@ vi.mock('@duoling/ui/lib/userscripts/ui-client', () => ({
   subscribeAvailability,
 }))
 
+vi.mock('@duoling/ui/composables/use-data-sync', () => ({
+  useDataSync: vi.fn(),
+  useDbSignal: vi.fn(),
+}))
+
 const summary = (uuid: string, name: string): ScriptSummary => ({
   uuid,
   name,

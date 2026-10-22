@@ -9,9 +9,9 @@
 // 本视图**只读**，写入仍唯一归 offscreen。选中会话由父层给定（不自带列表），列表管理与
 // 删除前置门都归父层。
 import { ref, watch } from 'vue'
-import { useDataSync } from '@duoling/ui/composables/use-data-sync'
+import { useDbSignal } from '@duoling/ui/composables/use-data-sync'
 import { RefreshCw as UiRefreshCw } from '@lucide/vue'
-import { listMessages } from '@duoling/shared'
+import { getChatDexie, listMessages } from '@duoling/shared'
 import type { Conversation, Message } from '@duoling/shared'
 import { errorText, formatTimeWithSeconds } from '@duoling/ui/lib/format'
 
@@ -53,10 +53,17 @@ watch(
 
 // 别处增删改该会话的消息落盘：重拉当前会话（调试视图要照见最新落盘）；
 // 父层（SessionHistoryTab）另有自己的订阅管列表，两边互不代劳
-useDataSync('conversation', () => {
-  const id = props.conversation?.id
-  if (id) void loadMessages(id)
-})
+useDbSignal(
+  () =>
+    getChatDexie()
+      .messages.where('conversationId')
+      .equals(props.conversation?.id ?? '')
+      .toArray(),
+  () => {
+    const id = props.conversation?.id
+    if (id) void loadMessages(id)
+  },
+)
 
 async function refresh(): Promise<void> {
   const id = props.conversation?.id

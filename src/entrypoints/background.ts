@@ -1,6 +1,6 @@
 // background = 桌面版 main 进程的能力运行时。
 // 职责：用户脚本的**注册与运行时**（chrome.userScripts）+ 项目状态库写命令的转发方
-// + offscreen 容器管理 + 模型配置中转。
+// + offscreen 容器管理与 SW ⇄ offscreen 链路（sw-link）。
 // 对话、模型配置不走这里（各自直连 IndexedDB：duoling-chat / duoling-app）。
 //
 // 存储分工：
@@ -17,7 +17,7 @@
 
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
-import type { ModelProfileState, PageOverviewTab, RuntimeRequest } from '@duoling/shared'
+import type { PageOverviewTab } from '@duoling/shared'
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
 import type { InjectedBuildInfo } from '@duoling/shared'
 import { EXTENSION_NAME } from '@duoling/shared'
@@ -39,7 +39,6 @@ import {
   createServiceWorkerHost,
   swIpcHandlers,
   SW_IPC_OWNED_KINDS,
-  SWService,
   clearGMValues,
 } from '@duoling/service-worker'
 // 本扩展自己的注入件注册同步（系统脚本 + 中继件并集）与内置件对账
@@ -55,12 +54,7 @@ import {
 import type { BuiltinRegistration } from '@duoling/shared'
 // metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
 // 真正的归一化在写入口一处（offscreen 写侧的 saveSource），此处不写回任何东西
-import {
-  resolveConfigFromSource,
-  createOffscreenService,
-  registerSWService,
-  type SaveOutcome,
-} from '@duoling/shared'
+import { resolveConfigFromSource, type SaveOutcome } from '@duoling/shared'
 // 标签页录制：录到的采样与语料压缩都归 SW（采样在 duoling-runtime 的 tab_events，
 // offscreen 与扩展页都不直连）。录制的开关跟着活动记录走，判据落在存续表上 —— 见 tab-sessions。
 import { describeCaptureDigest, describeCaptureRecords } from '@duoling/shared'
@@ -71,7 +65,7 @@ import { runUpdateCheck } from '@duoling/shared'
 // + SW 侧服务实体（代理调用经库 listener 直达，不占总线 matcher 位）
 // OffscreenService 消费侧：项目数据的写路径（见下方 offscreenService）
 // 标准化总线：本语境命令面唯一的 onMessage 收口（serveIpc）+ 路由 matcher（前缀表 / 包命令面）
-import { ipcNotify, ipcRequest } from '@duoling/shared'
+import { ipcNotify } from '@duoling/shared'
 import { packMatcher, prefixMatcher, serveIpc } from '@/shared/ipc-bus'
 import { duolingTelemetry } from '@duoling/service-worker'
 // 产品内置件注入面：内置注册 id 全集（stale 清扫排除）与四件全量同步（挂包侧注册串行链）
@@ -128,14 +122,26 @@ import {
 import { listConversations } from '@duoling/shared'
 // 「这一页是不是普通网页」的判据（页面概览只收普通网页，与 popup 的按钮判据同源）
 import { webHostname } from '@duoling/shared'
-import type { ImportReport, RunEndReason, ScriptGroup, ScriptProject } from '@duoling/shared'
+import type {
+  CommitActor,
+  ImportReport,
+  LinkHandlers,
+  RunEndReason,
+  RuntimeRequest,
+  ScriptConfig,
+  ScriptGroup,
+  ScriptProject,
+} from '@duoling/shared'
 
-// offscreen document 容器（AI 生成链路的执行宿主）
 import {
   ensureOffscreen,
   closeOffscreen,
   isOffscreenReady,
-  ensureOffscreenReady,
+  startServiceWorkerLink,
+  serviceWorkerLink,
+  whenLinkReady,
+  offscreenService,
+  ensureLinkReady,
 } from '@duoling/service-worker'
 // 模型配置：offscreen 既不直连存储、也不 import model-store（SW 专属模块），一律由
 // SW 经命令中转；变更推送由 model-store 写出口直发（offscreen 侧见包内 bootstrap.ts）。
@@ -160,56 +166,24 @@ import {
   setFloatPanelBusy,
 } from '@duoling/service-worker'
 import type { ElementPickContext } from '@duoling/shared'
-import { errorText } from '@duoling/shared'
+import { errorText, isTransportError } from '@duoling/shared'
 
-/**
- * SW 管辖的 kind 前缀（路由白名单）：只应答这里登记的，其余让路给 offscreen。
- * 为什么（sendResponse 单次机会 / 静默无响应的取舍）见 docs/adr/0027-sw-message-route-whitelist.md。
- *
- * export 仅供协议一致性测试（extension-ipc.test.ts）做 kind 归属断言。
- */
 export const SW_KIND_PREFIXES = [
   'userscript:',
-  'model:',
   'offscreen:',
   'sw:',
   'page:',
   'picker:',
   'float:',
   'tab:',
+  'conv:',
+  'chat:',
 ] as const
 
-/**
- * SW 管辖的请求（由上面的前缀推导，两者必须同源）。
- *
- * handlers 表只登记这些 kind：`fs:*` / `conv:*` / `chat:*`（offscreen 管辖）都归 offscreen
- * 应答——它们不是 SW 的职责，不该为凑齐类型而塞进 handlers 表补死桩。
- *
- * 再减去包自管的 kind（SW_IPC_OWNED_KINDS）：管理面只读四条由 @duoling/service-worker 的
- * handler pack 应答，而 pack matcher 排在总线的问询首位——前缀表里不该出现它们的 handler。
- * 四条虽落在 `userscript:` 前缀内，归属由 matcher 顺序定，不靠前缀互斥；重复登记会被这张
- * 映射类型拒（编译期暴露，不会静默变成永不执行的分支）。
- */
 type SwRequest = Exclude<
   Extract<RuntimeRequest, { kind: `${(typeof SW_KIND_PREFIXES)[number]}${string}` }>,
   { kind: (typeof SW_IPC_OWNED_KINDS)[number] }
 >
-
-/**
- * 项目数据的写路径：写只归 offscreen（单写方），本处经服务代理调容器里的 OffscreenService。
- *
- * 容器刚被回收 / 扩展重载后首次调用会失败（报文发不到监听方），故按**错误文案**判据重试一次：
- * 命中即把容器拉起来（就绪判据是「能应答 fs:ping」而不是「文档已存在」），起来了才重试。
- * 业务异常（脚本不存在、源码不是字符串…）不重试 —— 重试一次也是同样的错，只让用户白等。
- * 写方法都是读改写，重复执行一次不会产生第二份数据。
- * （UI → SW 那条链路的同款判据见 lib/userscripts/ui-client.ts。）
- */
-const OFFSCREEN_GONE =
-  /port closed|Receiving end does not exist|Could not establish connection|无响应/
-const offscreenService = createOffscreenService(async (error) => {
-  if (!OFFSCREEN_GONE.test(errorText(error))) return false
-  return await ensureOffscreenReady()
-})
 
 /**
  * 注册失败：记入错误日志（在活动历史的「未知标签页」档里看），并返回错误文案给 UI 展示。
@@ -333,6 +307,120 @@ function ensureInspectorAvailable(): void {
   if (!isUserScriptsApiAvailable()) throw new Error(userScriptsUnavailableMessage())
 }
 
+interface SaveScriptPayload {
+  uuid: string
+  code: string
+  name?: string
+  config?: ScriptConfig
+  note?: string
+  actor?: CommitActor
+}
+
+async function saveUserScript(msg: SaveScriptPayload): Promise<{
+  warnings?: string[]
+  registerError?: string
+}> {
+  broadcastBuildPhase('script', msg.uuid, 'saving')
+  const outcome: SaveOutcome = await offscreenService.userscriptSave(msg.uuid, msg.code, {
+    name: msg.name,
+    config: msg.config,
+    note: msg.note,
+    actor: msg.actor,
+  })
+  const next = outcome.project
+  await unregisterScripts([next.uuid]).catch(() => {})
+  const registerError = next.enabled ? await registerOrLog(next) : undefined
+  return {
+    warnings: [...collectCspWarnings(resolveInjectCode(next)), ...outcome.notes],
+    registerError,
+  }
+}
+
+interface CreateGeneratedPayload {
+  name: string
+  config: ScriptConfig
+  code: string
+  enabled: boolean
+  note?: string
+}
+
+async function createGeneratedScript(msg: CreateGeneratedPayload): Promise<{
+  uuid: string
+  name: string
+  warnings?: string[]
+  registerError?: string
+}> {
+  const project = await offscreenService.userscriptCreateGenerated({
+    name: msg.name,
+    config: msg.config,
+    code: msg.code,
+    enabled: msg.enabled,
+    note: msg.note,
+  })
+  const registerError = project.enabled ? await registerOrLog(project) : undefined
+  return {
+    uuid: project.uuid,
+    name: project.name,
+    warnings: [
+      ...collectCspWarnings(resolveInjectCode(project)),
+      ...resolveConfigFromSource(resolveInjectCode(project), msg.config).notes,
+    ],
+    registerError,
+  }
+}
+
+async function readTabRecord(
+  conversationId: string | undefined,
+  mode: 'digest' | 'full',
+): Promise<{ enabled: boolean; count: number; text: string }> {
+  const tabId = await resolveAiTargetTab(conversationId, '读取页面录制')
+  const row = await findOpenTabSession(tabId)
+  const records = row ? (await listTabTimeline(row.tabSessionId)).captures : []
+  const text =
+    mode === 'digest' ? describeCaptureDigest(records).join('\n') : describeCaptureRecords(records)
+  return { enabled: row?.recording === true, count: records.length, text }
+}
+
+const linkHandlers: LinkHandlers = {
+  'model:getActiveProfile': () => getActiveProfileState(),
+
+  'page:snapshot': async (payload) => {
+    ensureInspectorAvailable()
+    const { conversationId } = (payload ?? {}) as { conversationId?: string }
+    return capturePageSnapshotFromTab(await resolveAiTargetTab(conversationId, '采集页面快照'))
+  },
+
+  'page:env': async (payload) => {
+    ensureInspectorAvailable()
+    const { conversationId } = (payload ?? {}) as { conversationId?: string }
+    return capturePageEnvFromTab(await resolveAiTargetTab(conversationId, '读取页面环境'))
+  },
+
+  'userscript:save': (payload) => saveUserScript(payload as SaveScriptPayload),
+  'userscript:createProject': (payload) => createGeneratedScript(payload as CreateGeneratedPayload),
+  'userscript:runlog': () => listRunTimeline(),
+  'userscript:runEvents': (payload) => listRunEvents((payload as { runId: string }).runId),
+  'userscript:errorRead': (payload) => findUserScriptError((payload as { id: string }).id),
+  'userscript:tabRecordRead': (payload) => {
+    const call = (payload ?? {}) as { conversationId?: string; mode?: 'digest' | 'full' }
+    return readTabRecord(call.conversationId, call.mode === 'full' ? 'full' : 'digest')
+  },
+}
+
+async function forwardToOffscreen(msg: RuntimeRequest): Promise<unknown> {
+  const { kind, ...payload } = msg as { kind: string } & Record<string, unknown>
+  const notReady = (): Error => new Error('offscreen 容器未就绪，请重试')
+  if (!(await ensureLinkReady())) throw notReady()
+  const link = serviceWorkerLink()
+  if (!link) throw notReady()
+  try {
+    return await link.request(kind, payload)
+  } catch (e) {
+    if (!isTransportError(e) || !(await ensureLinkReady())) throw e
+    return await link.request(kind, payload)
+  }
+}
+
 // 第二个参数是 chrome 的消息发送方：只有需要「回 sender 自己的东西」的命令才用得上
 // （现仅 tab:identify 取 sender.tab.id）；其余 handler 少写一个参数即可，TS 允许。
 const handlers: {
@@ -346,7 +434,7 @@ const handlers: {
   // 唤醒容器并**等到它真的能应答**才返回——调用方（offscreenService 等）无须再 sleep 猜监听器是否注册好。
   // 常见路径几乎不等待：容器已在时第一次探测即成功。ready=false 表示超时未就绪，由调用方重试。
   'offscreen:ensure': async (): Promise<{ ready: boolean }> => ({
-    ready: await ensureOffscreenReady(),
+    ready: await ensureLinkReady(),
   }),
 
   'offscreen:close': async (): Promise<void> => closeOffscreen(),
@@ -355,29 +443,22 @@ const handlers: {
     ready: await isOffscreenReady(),
   }),
 
-  /** offscreen 启动握手（offscreen → SW）：容器自己报告已就绪，便于排查启动问题 */
-  'offscreen:ready': async (): Promise<void> => {
-    console.log('[duoling:offscreen] 容器已就绪')
+  'offscreen:call': (msg) => {
+    const service = offscreenService as unknown as Record<string, unknown>
+    const call = service[msg.method]
+    if (typeof call !== 'function') throw new Error(`未知 offscreen 服务方法：${msg.method}`)
+    return (call as (...args: unknown[]) => Promise<unknown>).apply(offscreenService, msg.args)
   },
 
-  // 模型配置：offscreen 拉取当前生效配置（含 apiKey）。复用现成的 getActiveProfileState()，
-  // SW 里本来就能调；offscreen 侧须「取一次、缓存、不写日志」。
-  'model:getActiveProfile': async (): Promise<ModelProfileState | undefined> =>
-    getActiveProfileState(),
-
-  // —— AI 工具支路 ——
-  // 两条都请 SW 代办：chrome.tabs 在 offscreen 不可达，而在 SW 与注册链路同源
-  // （受 138+ 逐扩展开关管控）。page_snapshot 取页面 DOM，page_env_read 取页面侧环境读数。
-  // 目标页判据见 resolveAiTargetTab —— 两条共用，别在这里另写一份。
-  'page:snapshot': async (msg): Promise<Awaited<ReturnType<typeof capturePageSnapshotFromTab>>> => {
-    ensureInspectorAvailable()
-    return capturePageSnapshotFromTab(await resolveAiTargetTab(msg.conversationId, '采集页面快照'))
-  },
-
-  'page:env': async (msg): Promise<Awaited<ReturnType<typeof capturePageEnvFromTab>>> => {
-    ensureInspectorAvailable()
-    return capturePageEnvFromTab(await resolveAiTargetTab(msg.conversationId, '读取页面环境'))
-  },
+  'conv:create': (msg) => forwardToOffscreen(msg),
+  'conv:rename': (msg) => forwardToOffscreen(msg),
+  'conv:delete': (msg) => forwardToOffscreen(msg),
+  'conv:deleteAll': (msg) => forwardToOffscreen(msg),
+  'chat:start': (msg) => forwardToOffscreen(msg),
+  'chat:abort': (msg) => forwardToOffscreen(msg),
+  'chat:resume': (msg) => forwardToOffscreen(msg),
+  'chat:orphans': (msg) => forwardToOffscreen(msg),
+  'chat:orphanAction': (msg) => forwardToOffscreen(msg),
 
   // —— 拾取（浮层发起的用户动作）——
   // 目标页判据见 resolvePickTargetTab —— 与上面两条 AI 支路刻意不同，别在这里另写一份。
@@ -481,28 +562,8 @@ const handlers: {
   // 扩展内置注入件此刻的注册状态（只读透出，供工作台脚本列表底部的分区展示）
   'userscript:builtins': async (): Promise<BuiltinRegistration[]> => listBuiltinRegistrations(),
 
-  // 保存源码（唯一保存入口）：转 offscreen 统一保存（写 fs + git 提交 + 落库），
-  // 落库后启用中则重注册。**保存恒成功、保存即注入**（无构建流程，注入代码 = 源码原文）。
-  'userscript:save': async (msg): Promise<{ warnings?: string[]; registerError?: string }> => {
-    // 转发前先广播「保存中」瞬态：列表行立即转圈（链路收尾的落库广播负责切终态
-    // ——见 @duoling/shared 的 DataChangedPush.phase 说明）
-    broadcastBuildPhase('script', msg.uuid, 'saving')
-    const outcome: SaveOutcome = await offscreenService.userscriptSave(msg.uuid, msg.code, {
-      name: msg.name,
-      config: msg.config,
-      note: msg.note,
-      actor: msg.actor,
-    })
-    const next = outcome.project
-    await unregisterScripts([next.uuid]).catch(() => {})
-    const registerError = next.enabled ? await registerOrLog(next) : undefined
-    return {
-      // metadata 解析提示（@include 放宽 / 正则被丢弃 / @match 不合法…）与 CSP 警告同一通道到编辑器，
-      // 提示由写侧一处产出（SaveOutcome.notes）——避免 SW 再解析一遍、拿不到当时那个 fallback 而误报
-      warnings: [...collectCspWarnings(resolveInjectCode(next)), ...outcome.notes],
-      registerError,
-    }
-  },
+  'userscript:save': async (msg): Promise<{ warnings?: string[]; registerError?: string }> =>
+    saveUserScript(msg),
 
   // 新建脚本（零输入）：命名 / 初始模板 / 首次快照全在 offscreen 侧完成，SW 只负责注册。
   'userscript:create': async (): Promise<{
@@ -521,31 +582,10 @@ const handlers: {
     }
   },
 
-  // AI 生成脚本落盘：转发 offscreen 单写方
-  // （写状态库 + git 快照，note = AI summary），enabled 为真才注册——生成与生效解耦，
-  // AI 产物默认零影响；启用走现成的 userscript:toggle。
   'userscript:createProject': async (
     msg,
-  ): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> => {
-    const project = await offscreenService.userscriptCreateGenerated({
-      name: msg.name,
-      config: msg.config,
-      code: msg.code,
-      enabled: msg.enabled,
-      note: msg.note,
-    })
-    const registerError = project.enabled ? await registerOrLog(project) : undefined
-    return {
-      uuid: project.uuid,
-      name: project.name,
-      warnings: [
-        ...collectCspWarnings(resolveInjectCode(project)),
-        // AI 产物可能自带 metadata 块：SW 手上有当时的 fallback（msg.config），可精确算出提示
-        ...resolveConfigFromSource(resolveInjectCode(project), msg.config).notes,
-      ],
-      registerError,
-    }
-  },
+  ): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> =>
+    createGeneratedScript(msg),
 
   // 删除：注销 → offscreen 清状态库记录 + git 仓 → 清该脚本的 GM 值 + 报错记录。
   // 仓的删除与状态库同在 offscreen 写侧，一步清干净（不靠启动对账兜滞留）。
@@ -578,7 +618,7 @@ const handlers: {
   'userscript:removeAll': async (): Promise<{ removed: number }> => {
     const uuids = (await listProjects()).map((p) => p.uuid)
     // 注销失败不能纯静默（与单删/关停同语义）：吞掉后这批 uuid 成幽灵注册——
-    // 页面刷新照样注入；且 SW 由 offscreen 心跳保活常驻（@duoling/offscreen-document 的 keepalive，无条件），
+    // 页面刷新照样注入；且 SW 由链路心跳保活常驻（sw-link 的 link:ping，无条件），
     // registerAllEnabled 的冷启动对账不会跑，幽灵能一路活到下次浏览器重启
     await unregisterScripts(uuids).catch((e) =>
       console.warn(
@@ -662,9 +702,7 @@ const handlers: {
   'userscript:group-reorder': async (msg): Promise<void> =>
     offscreenService.userscriptGroupReorder(msg.orderedIds),
 
-  // 运行时间线：运行条 + 对不上运行集的错误行混排（消费方是 AI 的 run_log_read；
-  // 活动历史面板按页读整根轴，不走这条）
-  'userscript:runlog': async (): Promise<ReturnType<typeof listRunTimeline>> => listRunTimeline(),
+  'userscript:runlog': (): ReturnType<typeof listRunTimeline> => listRunTimeline(),
 
   // 标签页存续表全量：活动历史按标签页分组时取名字与时刻（分组键在运行条目上，表只补名字）
   'userscript:tabSessions': async (): Promise<ReturnType<typeof listTabSessions>> =>
@@ -718,32 +756,6 @@ const handlers: {
     await clearAllTabActivity()
   },
 
-  // 某次运行的动作（面板按需拉；AI 的 run_log_read 带 runId 时同路）
-  'userscript:runEvents': async (msg): Promise<ReturnType<typeof listRunEvents>> =>
-    listRunEvents(msg.runId),
-
-  // 错误 ID 修复闭环：AI 的 error_read 工具经 offscreenBridge 到此代查。
-  // 精确 id 或唯一 8 位前缀；多命中 / 不存在由信封里的 reason 区分（调用方给可读文案）
-  'userscript:errorRead': async (msg): Promise<ReturnType<typeof findUserScriptError>> =>
-    findUserScriptError(msg.id),
-
-  // —— 页面录制（tab-record）——
-  // 录到的采样在 duoling-runtime 的 tab_events，offscreen 拿不到那个库，故 AI 工具经此代读。
-  // 按会话 id 定位（不按当前激活页）、enabled 不约束读、未开录制的返回形状
-  // 见 docs/adr/0032-ai-reads-recording-by-session.md。
-  'userscript:tabRecordRead': async (
-    msg,
-  ): Promise<{ enabled: boolean; count: number; text: string }> => {
-    const tabId = await resolveAiTargetTab(msg.conversationId, '读取页面录制')
-    const row = await findOpenTabSession(tabId)
-    const records = row ? (await listTabTimeline(row.tabSessionId)).captures : []
-    const text =
-      msg.mode === 'digest'
-        ? describeCaptureDigest(records).join('\n')
-        : describeCaptureRecords(records)
-    return { enabled: row?.recording === true, count: records.length, text }
-  },
-
   // 进行中的会话（工作台「会话历史」的「生成中」标与停止入口）。只回 id：那张表就是 id 集合，
   // 站点名 / 标签页这类展示信息 UI 侧自己按 id 取，不在这里多拼一份会过期的。
   'sw:runningChats': async (): Promise<string[]> => [...runningConversations],
@@ -760,7 +772,7 @@ async function initUserScripts(): Promise<void> {
   createServiceWorkerHost({
     extensionName: EXTENSION_NAME,
     notificationIcon: 'icons/128.png',
-    offscreen: { ensureReady: ensureOffscreenReady },
+    offscreen: { ensureReady: ensureLinkReady },
     telemetry: duolingTelemetry,
     // 握手密钥落 duoling-app 库（沿用既有键 pageSecret，零迁移）
     secretStore: { get: (k) => appDb.get<string>(k), set: appDb.set },
@@ -934,10 +946,10 @@ async function abortConversationOfClosedTab(tabId: number): Promise<void> {
   await unbindTab(tabId).catch(() => {})
   if (!conversationId) return
   if (!runningConversations.has(conversationId)) return // 没在跑就不必惊动 offscreen
-  // 命令面归 offscreen（chat: 前缀）：由 SW 发出去，offscreen 收到后中止任务。
-  // 送不到就没法中止（offscreen 同时不可用），登记留着也不误导谁 —— 它下次收尾时照样会被撤下。
+
   try {
-    await ipcRequest<void>({ kind: 'chat:abort', conversationId })
+    await whenLinkReady(2000)
+    await serviceWorkerLink()?.request('chat:abort', { conversationId })
   } catch {
     // 忽略：这里没有可做的补救
   }
@@ -971,17 +983,14 @@ async function reconcileTabSessions(): Promise<void> {
   }
 }
 
-/**
- * chat:running 观察（offscreen 推送，chat: 前缀按约定不进命令路由，这里只旁听）：任务开始。
- * **不碰角标** —— 角标只报脚本运行数，会话与它无关。
- */
 function handleChatRunningPush(conversationId: string): void {
   runningConversations.add(conversationId)
+  ipcNotify({ kind: 'sw:runningChanged' })
 }
 
-/** chat:finished 观察：任务收尾（正常 / 异常同处理）：从进行中撤下，无其它副作用 */
 function handleChatFinishedPush(conversationId: string): void {
   runningConversations.delete(conversationId)
+  ipcNotify({ kind: 'sw:runningChanged' })
 }
 
 // —— 对话界面监控 + 任务状态的事件挂载 ——
@@ -995,8 +1004,7 @@ function mountProposal2Listeners(): void {
   // —— 这轮重算不是 no-op：引擎不可用时那枚全局感叹号正是由它设上的（全局值刚被上面清掉），该显示
   // 什么一律由同一个出口决定，冷启动这条路上也不例外。
   // 之后浏览器启动会重载页面、runstart 自己回来；扩展重载后的既有页面要等下一次导航。
-  // 至于「SW 空闲被回收」这条不必担心：它由 offscreen 心跳保活（@duoling/offscreen-document
-  // 的 keepalive，见 page-monitor 头注释）。
+  // 至于「SW 空闲被回收」这条不必担心：它由链路心跳保活（sw-link 的 link:ping，见 page-monitor 头注释）。
   void clearAllBadges()
     .then(() => refreshBadge())
     .catch(() => {})
@@ -1184,28 +1192,20 @@ export default defineBackground(() => {
   // SW 冷启动即确保 offscreen 在场（与上面监听器互补：SW 被终止后重启时，首条事件会触发本回调）
   void ensureOffscreen().catch((e) => console.error('[duoling:offscreen] ensure failed', e))
 
-  // 模型配置变更通知已随存储迁移（chrome.storage → duoling-app 库）挪到 model-store 写出口：
-  // 它落盘成功后自己广播 `model` 域（扩展页回拉）并推送 offscreen:configChanged（offscreen
-  // 的 profile-cache 回拉）。SW 这里不再需要 storage.onChanged 兜底。
+  const link = startServiceWorkerLink(linkHandlers)
 
-  // SWService 注册：库自带 listener，首次注册即同步挂上，认的是无 kind 报文，
-  // 总线对其静默让路；offscreen 保活轮询就靠这条调用到达 SW。
-  registerSWService(new SWService())
+  link.onEvent((type, payload) => {
+    const push = (payload ?? {}) as { conversationId?: string }
+    if (type === 'chat:running' && push.conversationId) handleChatRunningPush(push.conversationId)
+    if (type === 'chat:finished' && push.conversationId) handleChatFinishedPush(push.conversationId)
+  })
 
   // 本语境命令面唯一的 onMessage 监听器（标准化信道）：问询顺序 =
   //   ① 运行时包命令面（swIpcHandlers：管理面只读四条）—— 包自管 kind 归包，
   //      宿主前缀路由不得抢答（sendResponse 一条消息只有一次机会）；
   //   ② 宿主前缀表（SW_KIND_PREFIXES + handlers）—— 其余归 SW 的 kind。
-  // 旁听 offscreen 推送（chat:running / chat:finished：任务起止）：chat: 前缀对命令面是
-  // offscreen 保留前缀，SW 静默让路，这里只观察不响应（推送方对响应本就尽力而为）。
+
   serveIpc({
     matchers: [packMatcher(swIpcHandlers()), prefixMatcher(SW_KIND_PREFIXES, handlers)],
-    observe: (msg) => {
-      const push = msg as { kind: string; conversationId?: string }
-      if (push.kind === 'chat:running' && push.conversationId)
-        handleChatRunningPush(push.conversationId)
-      if (push.kind === 'chat:finished' && push.conversationId)
-        handleChatFinishedPush(push.conversationId)
-    },
   })
 })

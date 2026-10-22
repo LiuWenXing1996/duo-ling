@@ -22,7 +22,10 @@ vi.mock('@duoling/shared', async (importOriginal) => ({
   listConversations,
   listMessages,
 }))
-vi.mock('@duoling/ui/composables/use-data-sync', () => ({ useDataSync: vi.fn() }))
+vi.mock('@duoling/ui/composables/use-data-sync', () => ({
+  useDataSync: vi.fn(),
+  useDbSignal: vi.fn(),
+}))
 
 const conversation: Conversation = {
   id: 'c-1',

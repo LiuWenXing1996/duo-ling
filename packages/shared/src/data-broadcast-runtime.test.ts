@@ -74,7 +74,7 @@ describe('BroadcastChannel 通道', () => {
     const off = subscribeDataChange((p) => got.push(p))
     off()
 
-    broadcastDataChange('model')
+    broadcastDataChange('runlog')
 
     expect(got).toHaveLength(0)
   })
@@ -104,9 +104,9 @@ describe('合并节流', () => {
     const got: DataChangedPush[] = []
     subscribeDataChange((p) => got.push(p))
 
-    broadcastDataChange('conversation')
-    broadcastDataChange('conversation')
-    broadcastDataChange('conversation')
+    broadcastDataChange('error')
+    broadcastDataChange('error')
+    broadcastDataChange('error')
     expect(got).toHaveLength(1) // 只有首条立即发出
 
     vi.advanceTimersByTime(150)
@@ -139,11 +139,11 @@ describe('降级：没有 BroadcastChannel', () => {
     })
     const { broadcastDataChange } = await fresh()
 
-    broadcastDataChange('model')
+    broadcastDataChange('tabActivity')
 
     expect(sendMessage).toHaveBeenCalledTimes(1)
     expect(sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'data:changed', domain: 'model' }),
+      expect.objectContaining({ kind: 'data:changed', domain: 'tabActivity' }),
     )
   })
 

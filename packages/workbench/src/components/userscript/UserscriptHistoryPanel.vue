@@ -7,7 +7,7 @@
 // 复用链路：offscreenService 的 fsHistory / fsReadAt / fsRestoreToCommit + userscriptClient.save
 // 快照 = 单文件源码（配置由源码里的 // ==UserScript== 块派生，脚本无构建流程，恢复即恢复源码本身）。
 import { computed, onMounted, ref } from 'vue'
-import { useDataSync } from '@duoling/ui/composables/use-data-sync'
+import { useDbSignal } from '@duoling/ui/composables/use-data-sync'
 import {
   AlertTriangle as UiAlertTriangle,
   Cog as UiCog,
@@ -18,7 +18,7 @@ import {
 import ConfirmDialog from '../ConfirmDialog.vue'
 import { CodeBlock } from '@duoling/ui/components/ai-elements/code-block'
 import { userscriptClient, offscreenService } from '@duoling/ui/lib/userscripts/ui-client'
-import { defaultConfig, resolveConfigFromSource } from '@duoling/shared'
+import { defaultConfig, readProject, resolveConfigFromSource } from '@duoling/shared'
 import type { CommitActor, UsCommit, UsSnapshot } from '@duoling/shared'
 import { errorText } from '@duoling/ui/lib/format'
 
@@ -158,11 +158,10 @@ onMounted(() => {
   void load()
 })
 
-// 别处保存 / 恢复该脚本：git 时间线变了，按 uuid 回拉（其它脚本的变更不理）
-useDataSync('script', (push) => {
-  if (push.uuid && push.uuid !== props.uuid) return
-  void load()
-})
+useDbSignal(
+  () => readProject(props.uuid),
+  () => void load(),
+)
 </script>
 
 <template>

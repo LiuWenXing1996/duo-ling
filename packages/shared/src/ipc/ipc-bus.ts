@@ -6,13 +6,11 @@
 //
 // `ipcRequest` / `ipcNotify` 直接压到底层收发原语（runtime-send 已做结构形状抽取），
 // 订阅要 onMessage 的 listener 面，同款就地取结构形状。
-import type { OffscreenPush } from '../chat-ipc'
 import type { RuntimeRequest, SwPush } from './extension-ipc'
 import type { DataChangedPush } from '../data-broadcast'
 import { notifyRuntime, sendRuntime } from '../runtime-send'
 
-/** 单向推送的载荷：命令面之外的三种（offcreen 推送 / SW 广播 / 数据变更广播） */
-export type IpcPush = OffscreenPush | SwPush | DataChangedPush
+export type IpcPush = SwPush | DataChangedPush
 
 /** chrome.runtime.onMessage 的订阅面（本包不吃 chrome 类型，只取用得上的两个方法） */
 interface MessagePort {
@@ -52,7 +50,6 @@ export function ipcRequest<T>(request: RuntimeRequest, opts?: { timeoutMs?: numb
   })
 }
 
-/** 单向推送（尽力而为）：无人接收不是错误，静默吞掉（offscreen:ready / chat:chunk 这类） */
 export function ipcNotify(message: RuntimeRequest | IpcPush): void {
   notifyRuntime(message)
 }

@@ -5,3 +5,7 @@
 export * from './envelope'
 export * from './extension-ipc'
 export * from './ipc-bus'
+
+export * from './link-frame'
+export * from './link'
+export * from './link-service'

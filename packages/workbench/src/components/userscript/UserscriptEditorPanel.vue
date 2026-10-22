@@ -12,7 +12,8 @@
 //
 // 配色一律用语义 token（AGENTS.md：颜色一律用语义 token）。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useDataSync } from '@duoling/ui/composables/use-data-sync'
+import { useDbSignal } from '@duoling/ui/composables/use-data-sync'
+import { readProject } from '@duoling/shared'
 import { Check as UiCheck, Copy as UiCopy, History as UiHistory, X as UiX } from '@lucide/vue'
 import {
   Tooltip as UiTooltip,
@@ -359,8 +360,6 @@ async function saveEdit(): Promise<boolean> {
     })
     editDirty.value = false
     baseCode.value = editCode.value
-    // 自己的保存同样会广播 `script` 域；广播先于本应答到达时会被 useDataSync 当成「别处修改」，
-    // 故成功路径顺手复位（广播侧的守卫见下方 useDataSync）
     remoteChanged.value = false
     saveNote.value = ''
     const notes: string[] = []
@@ -397,20 +396,21 @@ onMounted(() => {
   unsubscribeAvailability = subscribeAvailability((av) => (engineAvailable.value = av))
 })
 
-// 别处保存 / 启停 / 改名了「我正在编辑的这个脚本」会广播 `script` 域：
 //   · 自己发起的保存（saving 中）→ 忽略：否则刚保存就被当成「已在别处修改」挂上提示；
 //   · 本地无未保存改动 → 直接重载，照见别处的最新内容；
 //   · 本地有未保存改动 → 不抢加载（否则会吃掉正在写的草稿），仅提示用户手动处理。
-useDataSync('script', (push) => {
-  if (push.uuid && push.uuid !== props.uuid) return
-  if (saving.value) return
-  if (editDirty.value) {
-    remoteChanged.value = true
-    return
-  }
-  remoteChanged.value = false
-  void load()
-})
+useDbSignal(
+  () => readProject(props.uuid),
+  () => {
+    if (saving.value) return
+    if (editDirty.value) {
+      remoteChanged.value = true
+      return
+    }
+    remoteChanged.value = false
+    void load()
+  },
+)
 
 /** 暴露保存给宿主：标签栏的关闭确认要能「保存并关闭」（返回 false = 没落盘，宿主持续拦截） */
 defineExpose({ save: saveEdit })

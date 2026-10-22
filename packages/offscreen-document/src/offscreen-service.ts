@@ -6,7 +6,7 @@
 //   · GM 桥面 —— 剪贴板写入：offscreen 才有页面焦点，SW 只能请它代写；
 //   · 用户脚本状态库写侧 —— 单写方就是本上下文：落盘与 git 提交在同一函数同一上下文里完成
 //     （userstate/project-write），故「写了状态但没 commit」的缝隙不存在。
-// 就绪探测（fs:ping）不走这里 —— 它不触碰文件系统，留在总线。
+
 import type {
   ClipboardWritePayload,
   CommitActor,
@@ -18,7 +18,7 @@ import type {
   ScriptProject,
 } from '@duoling/shared'
 import {
-  broadcastDataChange,
+  broadcastBuildPhase,
   resolveConfigFromSource,
   defaultConfig,
   base64ToBytes,
@@ -123,18 +123,11 @@ export class OffscreenService implements IOffscreenService {
     return writeClipboard(payload)
   }
 
-  // —— 用户脚本状态库写侧 ——
-  // 每条写成功后广播：IDB 没有变更通知，别处的列表 / 对话框靠这条线回拉。
-  // 广播一律在**写成功之后**——写失败不通知，免得前端拿着旧数据重拉还以为是最新的。
-  // 带 uuid = 只有这一条变了（读侧可跳过无关重拉）；不带 = 整体变化（新建 / 删除 / 批量）。
-
   async userscriptCreate(): Promise<ScriptProject> {
     const project = await createProject()
-    broadcastDataChange('script')
     return project
   }
 
-  // 只广播域、不带 uuid：新建的 uuid 由写侧现生成，读侧一律全量重拉
   async userscriptCreateGenerated(payload: {
     name: string
     config: ScriptConfig
@@ -143,7 +136,6 @@ export class OffscreenService implements IOffscreenService {
     note?: string
   }): Promise<ScriptProject> {
     const project = await createGeneratedProject(payload)
-    broadcastDataChange('script')
     return project
   }
 
@@ -153,78 +145,59 @@ export class OffscreenService implements IOffscreenService {
     opts?: { name?: string; config?: ScriptConfig; note?: string; actor?: CommitActor },
   ): Promise<SaveOutcome> {
     const outcome = await saveExisting(uuid, code, opts)
-    broadcastDataChange('script', uuid)
+    broadcastBuildPhase('script', uuid, 'saved')
     return outcome
   }
 
   async userscriptRemove(uuid: string): Promise<void> {
     await removeProjectAndRepo(uuid)
-    broadcastDataChange('script', uuid)
   }
 
   async userscriptRemoveAll(): Promise<number> {
     const removed = await removeAllProjects()
-    broadcastDataChange('script')
     return removed
   }
 
-  // 启停 / 改名 / 归组都只改状态库（不产生提交），但仍要广播：列表与注册面都得跟着变
   async userscriptToggle(uuid: string, enabled: boolean): Promise<ScriptProject> {
     const project = await setProjectEnabled(uuid, enabled)
-    broadcastDataChange('script', uuid)
     return project
   }
 
   async userscriptRename(uuid: string, name: string): Promise<ScriptProject> {
     const project = await renameProject(uuid, name)
-    broadcastDataChange('script', uuid)
     return project
   }
 
   async userscriptSetGroup(uuid: string, group: string): Promise<ScriptProject> {
     const project = await setProjectGroup(uuid, group)
-    broadcastDataChange('script', uuid)
     return project
   }
 
-  // 导入恒不改既有脚本，只增：广播不带 uuid（列表全量重拉）
   async userscriptImportZip(zipBase64: string): Promise<ImportReport> {
     const report = await importScriptsZip(zipBase64)
-    broadcastDataChange('script')
     return report
   }
 
   async userscriptImportText(code: string): Promise<ImportReport> {
     const report = await importScriptFromText(code)
-    broadcastDataChange('script')
     return report
   }
 
-  // 分组写：先广播 group（定义变了），再广播 script —— 删分组会把成员退回未分组，
-  // 脚本侧的归属引用也跟着变了，故列表端要按两个域回拉。
   async userscriptGroupCreate(name: string): Promise<ScriptGroup> {
     const group = await createGroup(name)
-    broadcastDataChange('group')
-    broadcastDataChange('script')
     return group
   }
 
   async userscriptGroupRename(id: string, name: string): Promise<ScriptGroup> {
     const group = await renameGroup(id, name)
-    broadcastDataChange('group')
-    broadcastDataChange('script')
     return group
   }
 
   async userscriptGroupRemove(id: string): Promise<void> {
     await removeGroupAndReassign(id)
-    broadcastDataChange('group')
-    broadcastDataChange('script')
   }
 
   async userscriptGroupReorder(orderedIds: string[]): Promise<void> {
     await reorderGroups(orderedIds)
-    broadcastDataChange('group')
-    broadcastDataChange('script')
   }
 }

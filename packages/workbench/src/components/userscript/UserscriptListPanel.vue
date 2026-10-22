@@ -65,7 +65,7 @@ import {
 } from '@duoling/ui/components/ui/tooltip'
 import { errorText, formatTimestamp } from '@duoling/ui/lib/format'
 import { isFileSchemeAccessAllowed } from '../../lib/extension-page'
-import { useDataSync } from '@duoling/ui/composables/use-data-sync'
+import { useDataSync, useDbSignal } from '@duoling/ui/composables/use-data-sync'
 import {
   offscreenService,
   subscribeAvailability,
@@ -78,6 +78,8 @@ import {
   base64ToBytes,
   bytesToBase64,
   sanitizeDirName,
+  readAllGroups,
+  readAllProjects,
 } from '@duoling/shared'
 import type { BuildPhase } from '@duoling/shared'
 import type {
@@ -937,28 +939,27 @@ onUnmounted(() => {
 })
 
 // —— 保存状态标 ——
-// 「保存中」瞬态由保存链广播驱动：SW 转发 userscript:save 时广播 saving，
-// 收尾的落库广播（无 phase）切回。瞬态只改转圈、不回拉——链路还没落库，拉了也是旧数据。
 const buildPhase = ref<Record<string, BuildPhase>>({})
 
-// 别处的脚本写操作（保存 / 启停 / 新建 / 删除 / 导入）落盘后已广播 `script` 域，
-// 这里接住并自动回拉列表——多窗口、多标签、对话界面之间不必各自手动刷新
+useDbSignal(
+  () => readAllProjects(),
+  () => refresh(),
+)
+
+useDbSignal(
+  () => readAllGroups(),
+  () => refreshGroups(),
+)
+
 useDataSync('script', (push) => {
-  if (push.phase && push.uuid) {
-    buildPhase.value = { ...buildPhase.value, [push.uuid]: push.phase }
-    return
-  }
-  if (push.uuid) {
+  if (!push.phase || !push.uuid) return
+  if (push.phase === 'saved') {
     const { [push.uuid]: _done, ...rest } = buildPhase.value
     buildPhase.value = rest
   } else {
-    buildPhase.value = {} // uuid 缺省 = 全量变化（导入 / 全部删除等），瞬态一并清空
+    buildPhase.value = { ...buildPhase.value, [push.uuid]: push.phase }
   }
-  return refresh()
 })
-
-// 分组定义变化（新建 / 重命名 / 删除 / 重排）由 offscreen 广播 `group` 域，这里回拉分组列表
-useDataSync('group', () => refreshGroups())
 </script>
 
 <template>

@@ -10,8 +10,8 @@
 // 并发保护：重拉是异步的，若上一次还没回来又来一条通知，直接并发会把「后发先到」的
 // 旧数据写在后面。故这里串行执行，并把期间的重复通知合并成**最后一次**补跑一次。
 
-import { onScopeDispose } from 'vue'
-import { subscribeDataChange } from '@duoling/shared'
+import { onScopeDispose, watchEffect } from 'vue'
+import { liveQuery, subscribeDataChange } from '@duoling/shared'
 import type { DataChangedPush, DataDomain } from '@duoling/shared'
 
 /**
@@ -56,4 +56,42 @@ export function useDataSync(
     if (wanted.has(push.domain)) void run(push)
   })
   onScopeDispose(unsubscribe)
+}
+
+export function useDbSignal<T>(
+  querier: () => T | Promise<T>,
+  reload: () => void | Promise<void>,
+): void {
+  let running = false
+  let queued = false
+
+  const run = async (): Promise<void> => {
+    if (running) {
+      queued = true
+      return
+    }
+    running = true
+    try {
+      await reload()
+    } catch {
+    } finally {
+      running = false
+    }
+    if (queued) {
+      queued = false
+      void run()
+    }
+  }
+
+  watchEffect((onCleanup) => {
+    let first = true
+    const subscription = liveQuery(querier).subscribe(() => {
+      if (first) {
+        first = false
+        return
+      }
+      void run()
+    })
+    onCleanup(() => subscription.unsubscribe())
+  })
 }

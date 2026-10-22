@@ -7,7 +7,10 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import type { UIMessage } from 'ai'
 import ChatPanel from './ChatPanel.vue'
 
-vi.mock('../composables/use-data-sync', () => ({ useDataSync: () => {} }))
+vi.mock('../composables/use-data-sync', () => ({
+  useDataSync: () => {},
+  useDbSignal: () => {},
+}))
 // 元素拾取与模型列表都住在 @duoling/shared 一个包根上，故合并成一处替身
 // （spread 保其余符号真身：不 spread 会让 ChatPanel 里其它 shared 符号变 undefined）
 const fsMocks = vi.hoisted(() => ({

@@ -1,15 +1,11 @@
-// 能力调用桥：凡本进程自己拿不到的（chrome.storage / chrome.userScripts / chrome.tabs），
-// 一律经 runtime 消息请 SW 代办。
-//
 // 为什么需要它（模块归属规则）：offscreen document 只有 chrome.runtime 可用，引入应用侧的
 // 存储模块（model-store / store 等）会在运行时报 `chrome.storage is undefined` —— 本文件就是
 // 那条规则的正门：把「需要 SW 的东西」收敛成一组显式调用，让违规 import 变成编译期能看见的错误。
 //
-// 与 UI 侧的 userscriptClient（应用侧 lib/userscripts/ui-client.ts）同构：同一个应答信封、
-// 同一条命令面。差别只在调用方是谁（那边是扩展页，这边是 offscreen document）。
+
 //
 // 注意：这里只用 `import type` 引类型（编译后消失，零运行时依赖），形状全取契约包。
-import { sendRuntime } from '@duoling/shared'
+import { LinkError } from '@duoling/shared'
 import type {
   ModelProfileState,
   PageEnvContext,
@@ -19,10 +15,12 @@ import type {
   UserScriptRunLogRow,
   UserScriptErrorLookup,
 } from '@duoling/shared'
+import { offscreenLink } from '../link-host'
 
-/** 向 SW 发一次请求，统一解包 { ok, data | error }（原语在契约包，包内不认命令面联合） */
-function send<T>(request: unknown): Promise<T> {
-  return sendRuntime<T>(request)
+function send<T>(type: string, payload?: unknown): Promise<T> {
+  const link = offscreenLink()
+  if (!link) return Promise.reject(new LinkError('TRANSPORT', `链路未启动，无法发送 ${type}`))
+  return link.request<T>(type, payload)
 }
 
 /**
@@ -35,14 +33,8 @@ export const offscreenBridge = {
    * 当前生效的模型配置（含 apiKey 明文）。
    * ⚠️ 调用方必须「取一次、缓存、不写日志」。
    */
-  getActiveProfile: (): Promise<ModelProfileState | undefined> =>
-    send({ kind: 'model:getActiveProfile' }),
+  getActiveProfile: (): Promise<ModelProfileState | undefined> => send('model:getActiveProfile'),
 
-  /**
-   * AI 生成脚本落盘（经 SW：userscript:createProject → OffscreenService.userscriptCreateGenerated）。
-   * 统一保存：写 fs + git 提交（note = AI summary）+ 落库都在 offscreen 单写方完成，
-   * SW 负责注册（enabled 时）。虽然写侧就在本上下文，仍走 SW 命令面——保持「落盘入口唯一」。
-   */
   createProject: (payload: {
     name: string
     config: ScriptConfig
@@ -51,20 +43,15 @@ export const offscreenBridge = {
     note?: string
   }): Promise<{ uuid: string; name: string; warnings?: string[]; registerError?: string }> =>
     // actor 固定 'ai'：本条通道是 AI 专用的，来源在桥这一层一次性声明，免得调用方漏传就丢了来源
-    send({ kind: 'userscript:createProject', ...payload, actor: 'ai' }),
+    send('userscript:createProject', { ...payload, actor: 'ai' }),
 
-  /**
-   * AI 改既有脚本落盘（经 SW：userscript:save → OffscreenService.userscriptSave）。
-   * 与编辑器保存同一条命令：统一保存（fs + git 提交 + 落库）在 offscreen 单写方完成，
-   * SW 负责启用中脚本的注销重注册（AI 产物 enabled:false，通常为 no-op）。
-   */
   updateProjectFiles: (payload: {
     uuid: string
     code: string
     note?: string
   }): Promise<{ warnings?: string[]; registerError?: string }> =>
     // 同 createProject：本条通道只服务 AI 改脚本，actor 在桥这一层声明
-    send({ kind: 'userscript:save', ...payload, actor: 'ai' }),
+    send('userscript:save', { ...payload, actor: 'ai' }),
 
   /**
    * 页面快照（AI 的 page_snapshot 工具用）：SW 代为请本会话所属标签页上的页面检查器采一次快照。
@@ -73,7 +60,7 @@ export const offscreenBridge = {
    * 免得 AI 在用户已切走时采到别的页面。
    */
   capturePageSnapshot: (conversationId?: string): Promise<PageSnapshotContext> =>
-    send({ kind: 'page:snapshot', conversationId }),
+    send('page:snapshot', { conversationId }),
 
   /**
    * 页面环境读数（AI 的 page_env_read 工具用）：SW 代为请本会话所属标签页上的页面检查器
@@ -81,22 +68,16 @@ export const offscreenBridge = {
    * chat-host 注入 —— 理由同上一行：AI 决定要读时用户可能已经切走。
    */
   capturePageEnv: (conversationId?: string): Promise<PageEnvContext> =>
-    send({ kind: 'page:env', conversationId }),
+    send('page:env', { conversationId }),
 
-  /**
-   * 按错误 ID 查一条错误记录：错误日志在 duoling-runtime 库（SW 侧 IDB），
-   * offscreen 拿不到，SW 代查。id = 完整记录 id 或唯一 8 位前缀（多命中返回 ambiguous）。
-   */
-  readError: (id: string): Promise<UserScriptErrorLookup> =>
-    send({ kind: 'userscript:errorRead', id }),
+  readError: (id: string): Promise<UserScriptErrorLookup> => send('userscript:errorRead', { id }),
 
   /**
    * 读运行时间线（AI 的 run_log_read 工具用）：运行条 + 挂载其上的运行期错误 +
    * 对不上运行集的错误行，全部按时间倒序混排（listRunTimeline）。
-   * 与错误日志同因由走 SW —— duoling-runtime 库 offscreen 拿不到（写侧也归 SW）。
    * 裁剪交给调用方：SW 一侧只认「全量时间线」这一个语义。
    */
-  readRunLog: (): Promise<UserScriptRunLogRow[]> => send({ kind: 'userscript:runlog' }),
+  readRunLog: (): Promise<UserScriptRunLogRow[]> => send('userscript:runlog'),
 
   /**
    * 读某次运行的动作（AI 的 run_log_read 带 runId 时用）。
@@ -104,19 +85,11 @@ export const offscreenBridge = {
    * 看哪一次才拉哪一次。
    */
   readRunEvents: (runId: string): Promise<UserScriptRunEvent[]> =>
-    send({ kind: 'userscript:runEvents', runId }),
+    send('userscript:runEvents', { runId }),
 
-  /**
-   * 页面录制 · 读回本会话所属标签页已录的请求语料
-   * （tab_record_read 工具 + 常驻 prompt 摘要档）。
-   * 采样在 duoling-runtime 库（SW 独占写），offscreen 不直连，经 SW 代读。
-   * conversationId 由 chat-host 注入 —— SW 靠它反查目标标签页（与页面快照 / 环境读数同一个判据），
-   * 免得 AI 在用户已切走时读到别的页面。
-   * mode：digest = 接口清单（常驻用）；full = 逐条采样（工具读回用）。
-   */
   tabRecordRead: (
     conversationId: string | undefined,
     mode: 'digest' | 'full',
   ): Promise<{ enabled: boolean; count: number; text: string }> =>
-    send({ kind: 'userscript:tabRecordRead', conversationId, mode }),
+    send('userscript:tabRecordRead', { conversationId, mode }),
 }

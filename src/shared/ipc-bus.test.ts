@@ -145,15 +145,15 @@ describe('prefixMatcher —— 表键收完整 kind 与 kind 前缀两种写法'
     ({ kind, ...extra }) as RuntimeRequest
 
   it('前缀键 = 按域分发：该域的全部 kind 落到同一格', async () => {
-    const matcher = prefixMatcher(['fs:', 'conv:'], {
-      'fs:': async () => 'fs 域',
+    const matcher = prefixMatcher(['demo:', 'conv:'], {
+      'demo:': async () => 'demo 域',
       'conv:': async () => 'conv 域',
     })
 
-    expect(matcher.owns('fs:ping')).toBe(true)
+    expect(matcher.owns('demo:ping')).toBe(true)
     expect(matcher.owns('conv:create')).toBe(true)
     expect(matcher.owns('chat:start')).toBe(false)
-    expect(await matcher.handle(req('fs:ping'), senderOf())).toBe('fs 域')
+    expect(await matcher.handle(req('demo:ping'), senderOf())).toBe('demo 域')
     expect(await matcher.handle(req('conv:create', { id: 'c1' }), senderOf())).toBe('conv 域')
   })
 
@@ -222,26 +222,26 @@ describe('发送原语 —— 信封解包与尽力而为', () => {
     const c = stubChrome()
     c.setResponder((_msg, cb) => cb?.(undefined))
 
-    await expect(ipcRequest({ kind: 'fs:ping' })).rejects.toThrow('扩展服务未响应')
+    await expect(ipcRequest({ kind: 'sw:buildInfo' })).rejects.toThrow('扩展服务未响应')
   })
 
   it('ipcRequest：应答方永不回调时由 timeoutMs 兜底', async () => {
     stubChrome()
 
-    await expect(ipcRequest({ kind: 'fs:ping' }, { timeoutMs: 5 })).rejects.toThrow(/超时/)
+    await expect(ipcRequest({ kind: 'sw:buildInfo' }, { timeoutMs: 5 })).rejects.toThrow(/超时/)
   })
 
   it('ipcNotify：单向推送不带回调（不占应答通道）', () => {
     const c = stubChrome()
 
-    ipcNotify({ kind: 'offscreen:ready' })
-    expect(c.sent).toEqual([{ msg: { kind: 'offscreen:ready' } }])
+    ipcNotify({ kind: 'data:changed', domain: 'script', at: 1 })
+    expect(c.sent).toEqual([{ msg: { kind: 'data:changed', domain: 'script', at: 1 } }])
   })
 
   it('ipcNotify：发送口不在或无人接收都不抛（尽力而为）', () => {
     vi.stubGlobal('chrome', { runtime: {} })
 
-    expect(() => ipcNotify({ kind: 'offscreen:ready' })).not.toThrow()
+    expect(() => ipcNotify({ kind: 'data:changed', domain: 'script', at: 1 })).not.toThrow()
   })
 })
 
@@ -249,14 +249,14 @@ describe('ipcSubscribe —— 按 kind 前缀收推送', () => {
   it('只收前缀命中的推送；退订后不再收', async () => {
     const c = stubChrome()
     const got: string[] = []
-    const off = ipcSubscribe('chat:', (msg) => got.push(msg.kind))
+    const off = ipcSubscribe('sw:', (msg) => got.push(msg.kind))
 
-    await c.deliver({ kind: 'chat:chunk' })
+    await c.deliver({ kind: 'sw:runningChanged' })
     await c.deliver({ kind: 'data:changed' })
     off()
-    await c.deliver({ kind: 'chat:chunk' })
+    await c.deliver({ kind: 'sw:runningChanged' })
 
-    expect(got).toEqual(['chat:chunk'])
+    expect(got).toEqual(['sw:runningChanged'])
     expect(c.listeners).toHaveLength(0)
   })
 })

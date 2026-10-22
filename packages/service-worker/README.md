@@ -1,7 +1,7 @@
 # @duoling/service-worker
 
 本项目的 **SW 进程包**：既是 GM 运行时的 SW 侧宿主（一个 Chrome 扩展接上它就能用 `chrome.userScripts`
-跑用户脚本，不必自己实现任何 GM 语义），也承载本扩展的 SW 侧服务实体 `SWService` 与
+跑用户脚本，不必自己实现任何 GM 语义），也承载本扩展与 offscreen 的直连链路（`sw-link`）与
 offscreen 容器能力约定。机制的来龙去脉见 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 
 | 职责 | 件 |
@@ -14,7 +14,7 @@ offscreen 容器能力约定。机制的来龙去脉见 [ARCHITECTURE.md](../../
 | `@require` / `@resource` 的抓取与落库 | `require-cache` / `resource-cache` |
 | 运行时命令面 —— 管理面只读四条 | `management` |
 | 宿主注入点 —— 扩展身份 / offscreen 就绪 / 遥测 / 密钥存储 / 内置件 | `host-config` |
-| 服务实体 —— `SWService`（`ISWService` 实现：保活探针） | `sw-service` |
+| 与 offscreen 的直连链路 —— 服务代理 / 事件 / 保活心跳（ADR 0044） | `sw-link` |
 | offscreen 容器能力约定 —— 建文档用的 reason 集 | `offscreen-reasons` |
 | 注入源码生成 —— GM 包装前缀 / MAIN 世界脚本桥模板 | `gm-wrapper` / `script-bridge` |
 | GM 值存储 —— `GM_setValue` 一族与 usdata 库（`GM_getTab` 等） | `gm-values` / `usdata-db` |
@@ -97,8 +97,8 @@ onAvailabilityChange(({ previous, current }) => {
 
 监视器**只报变化**，不做任何动作 —— 补注册 / 角标 / 广播都由消费方自己接。
 
-**前提**：SW 活不过 30s 空闲，监视定时器随之消亡。要让它持续跑需 offscreen 心跳保活
-（发送端在 `@duoling/offscreen-document` 的 `keepalive`）；容器缺席时 SW 会睡，
+**前提**：SW 活不过 30s 空闲，监视定时器随之消亡。要让它持续跑需 offscreen 的心跳保活
+（即 `sw-link` 链路上的 `link:ping`，每 5s 一帧）；容器缺席时 SW 会睡，
 被唤醒（UI 消息 / 导航事件）时入口重跑、监视重启、首个读数重建基线 —— 这不是缺陷。
 
 ## 装脚本

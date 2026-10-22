@@ -5,7 +5,7 @@
 //     require+resource 缓存 / 管理面 handler pack（management）/ 宿主注入点（host-config）；
 //   · GM 侧实现件 —— 注入源码生成（gm-wrapper / script-bridge）、GM 值存储（gm-values）、
 //     usdata 库（usdata-db）：只有 SW 会生成并注册脚本，故贴在这里而不是共享层；
-//   · 本扩展的 SW 侧进程内服务实体（SWService）—— 保活探针，契约在 @duoling/shared；
+
 //   · offscreen 容器的生命周期管理（offscreen）与能力约定（GM_OFFSCREEN_REASONS）；
 //   · 本扩展的产品面（userscripts/）—— 观测数据写出口（store / runtime-db / tab-sessions）、
 //     页面脚本监控（page-monitor）、系统件注册同步（system-scripts / engine）、
@@ -13,11 +13,9 @@
 //
 // 依赖方向：本包 → shared（跨世界契约 / GM 语义 / 存储 / 服务契约）+ user-scripts/builtin
 // （系统件的注册 id 与产物文件名，只有常量、不带件本体），无环。
-// offscreen 进程侧的包是 @duoling/offscreen-document，与本包**互不 import**：跨进程只有
-// chrome.runtime 消息一条路（服务代理报文 / 总线命令）。
 
 export * from './offscreen-reasons'
-export * from './sw-service'
+export * from './sw-link'
 export * from './host-config'
 export * from './registration'
 export * from './availability-watch'

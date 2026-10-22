@@ -9,14 +9,10 @@
 //   · offscreen 被杀则缓冲随之消失——那份兜底是 IndexedDB 任务快照 + 会话历史，不是这里。
 //   · ⚠️ 缓冲**不用于落盘还原**：4000 条上限会被长回复（万级 text delta）截断，
 //     落盘走 chat-host 泵流时自收的完整 chunk 序列（buildFinalMessageFromChunks）。
-//
-// 推送通道：契约包的 notifyRuntime（offscreen → 对话界面 + SW，与总线同一原语）。
-// SW 不消费 chat: 前缀
-// （不在其路由白名单）；面板未开时无人接收，尽力而为、不阻断任务。
 
 import type { UIMessageChunk } from 'ai'
-import { notifyRuntime } from '@duoling/shared'
-import type { OffscreenPush } from '@duoling/shared'
+import { publishChatChunk, type OffscreenPush } from '@duoling/shared'
+import { offscreenLink } from '../link-host'
 
 /** 单会话缓冲上限（条）。长回复按 ~1 delta/token 计，2.3 万 token ≈ 2.3 万条——
  * 上限须按最坏 token 量论证（4000 条曾被 23013 token 的回复冲穿）。被截断时
@@ -60,8 +56,7 @@ export function pushChunk(conversationId: string, chunk: UIMessageChunk): number
     b.events.splice(0, b.events.length - MAX_EVENTS_PER_CHAT)
   }
   const push: OffscreenPush = { kind: 'chat:chunk', conversationId, seq: event.seq, chunk }
-  // 尽力而为：面板未开 / SW 未起都会 reject，任务照跑
-  notifyRuntime(push)
+  publishChatChunk(push)
   return event.seq
 }
 
@@ -77,22 +72,10 @@ export function replaySince(
   return { complete: true, events: b.events.filter((e) => e.seq > since) }
 }
 
-/**
- * 任务开始推送（chat:running）：SW 旁听登记「进行中」（popup 的进行中组 + 「标签页被关要中止
- * 任务」的判据）。每个任务推一次（细节进度在 chat:chunk 里，SW 不必逐条消费）。
- * 尽力而为：SW 未起 / 无接收方都会 reject，任务照跑。
- */
 export function notifyChatRunning(conversationId: string): void {
-  const push: OffscreenPush = { kind: 'chat:running', conversationId }
-  notifyRuntime(push)
+  offscreenLink()?.emit('chat:running', { conversationId })
 }
 
-/**
- * 任务收尾推送（chat:finished）：SW 旁听后把该会话从「进行中」登记表里撤下。
- * ok = 是否正常收敛（停止 / 异常为 false；登记表不看这个）。
- * 尽力而为：SW 未起 / 无接收方都会 reject，任务收尾不受影响。
- */
 export function notifyChatFinished(conversationId: string, ok: boolean): void {
-  const push: OffscreenPush = { kind: 'chat:finished', conversationId, ok }
-  notifyRuntime(push)
+  offscreenLink()?.emit('chat:finished', { conversationId, ok })
 }

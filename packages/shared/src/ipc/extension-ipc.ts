@@ -12,6 +12,7 @@
 // `dl-page-inspector`）的载荷形状**定义在契约包里**：件按这些形状造数据，而件不能
 // 依赖应用源码，故真相源落在 @duoling/shared —— 消费方从那里自取，本文件不再转发。
 import type { PageContextInfo } from '../chat-ipc'
+import type { IOffscreenService } from '../service/offscreen-service'
 import type { IpcEnvelope } from './envelope'
 
 // 浮层指令的 kind 字面量已随脚本桥协议（api-contract 的 float.cmd）收编 —— 命令面
@@ -55,11 +56,10 @@ export type RuntimeRequest =
   // 启用中的脚本改名后由 SW 重注册——已注入的脚本否则仍顶旧名。
   | { kind: 'userscript:rename'; uuid: string; name: string }
   | { kind: 'userscript:availability' }
-  // 运行时间线：运行条（tab_events 里 kind = 'run'）+ 与本次读取对不上的错误行按时间倒序混排
-  // （listRunTimeline）。消费方是 AI 的 run_log_read —— 活动历史面板按页读整根轴，不走这条。
-  // **不含动作**：动作随运行数全量读会线性膨胀（运行数 × 动作上限），要看某次运行干了什么
-  // 再走下面的 runEvents 按 runId 拉那一组。
+
+  // 运行时间线（活动历史按运行分组的底表）；AI 面板同名能力走 SW ⇄ offscreen 链路
   | { kind: 'userscript:runlog' }
+
   // 标签页存续表全量（见 TabSessionRecord）：活动历史按标签页分组时用它取名字与时刻
   //（分组键是运行条目上的 tabSessionId；表里查不到的旧组回落到运行自己的 url）。
   | { kind: 'userscript:tabSessions' }
@@ -82,22 +82,8 @@ export type RuntimeRequest =
   | { kind: 'userscript:tabActivityDisable'; tabId: number }
   | { kind: 'userscript:tabActivityDelete'; tabSessionId: string }
   | { kind: 'userscript:tabActivityClear' }
-  // 某次运行的动作（按 runId；消费方：AI 的 run_log_read 带 runId 时拉那一组）
-  | { kind: 'userscript:runEvents'; runId: string }
-  // 错误 ID 修复闭环：AI 的 error_read 工具经 SW 代查
-  // 错误日志（runtime 库，offscreen 拿不到）。id = 完整记录 id 或唯一 8 位前缀
-  | { kind: 'userscript:errorRead'; id: string }
+
   // —— 页面录制（tab-record）——
-  // 录到的采样落在 duoling-runtime 的 tab_events，归 SW 管辖；offscreen 与扩展页都不直连库。
-  //
-  // **开关不在这组里**：录制与活动记录由同一枚开关触发（见 userscript:tabActivityEnable），
-  // 而开启必须由用户手势发起 —— AI 工具只出卡 + 等用户点（见 agent-tools-catalog 的
-  // tab_record_enable）。这里只剩「读」这一条。
-  //
-  // 参数是**会话 id 而不是站点**：录制按标签页，读也就按标签页 —— SW 反查这条会话所属的那一页
-  // 再取它存续行里的采样。mode：digest = 摘要档（接口清单，常驻 prompt 用）；
-  // full = 逐条采样（工具读回用）。
-  | { kind: 'userscript:tabRecordRead'; conversationId?: string; mode: 'digest' | 'full' }
 
   // zip 导入：UI 读 zip 文件转 base64，SW 纯转发 offscreen
   // 单写方（解码 + 落盘同处）。enabled 恒 false——先审后启，故无注册动作。
@@ -118,25 +104,13 @@ export type RuntimeRequest =
   | { kind: 'userscript:group-remove'; id: string }
   | { kind: 'userscript:group-reorder'; orderedIds: string[] }
 
-  // —— 用户脚本源码库 / 对话资源库：就绪探测（执行宿主 = offscreen）——
-  // 源码唯一来源在 duoling-fs（offscreen 独占的 lightning-fs 库，带 git 版本化，见
-  // @duoling/offscreen-document 的 fs/lfs 与 fs/git），SW 与扩展页读不到 lfs。
-  // 读写的其余命令已走 OffscreenService 代理（经 @duoling/shared 的服务契约 key），
-  // 报文无 kind、不占总线 —— 故不在这张联合里。留下的只有这条就绪探测：
-  // SW 用它确认容器**真的在应答**（而不仅是「文档已存在」）。判据必须是「应答」而非
-  // 「存在」——createDocument 返回时 offscreen 的 onMessage 未必已注册完，
-  // 此时发命令会得到「port closed / Receiving end does not exist」。
-  | { kind: 'fs:ping' }
-
-  // —— 项目状态库的**写**已并入 OffscreenService 代理（不在这张联合里）——
   // 项目数据（源码搬运副本 / 配置 / enabled）落在独立 IndexedDB 库 duoling-state，
   // **写只归 offscreen**（单写方）：服务方法 userscript* 在同一个上下文的同一个函数里
   // 完成落盘与 commit，没有跨上下文缝隙（写与 commit 分离、两个写方时，任一步失败即产生偏差）。
-  // 报文无 kind、不占总线（同 fs 组的其余命令）；读同样不进协议：SW 与扩展页直连 IDB
-  // （project-store），不经容器——注册链路不能押在容器存活上。
+  // 读不进协议：SW 与扩展页直连 IDB（project-store），不经容器——注册链路不能押在容器存活上。
 
   // —— 会话写侧（整条对话链路搬进 offscreen 后，会话历史唯一写入方 = offscreen）——
-  // UI（对话界面 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 对 conv: 前缀静默让路。
+  // UI（对话界面 / 工作台）只读 IndexedDB + 经这组命令触发写；SW 只转发。
   // 注意：**消息落盘不走这里**——它只发生在 chat:start（用户消息）与收尾（AI 消息），
   // 且都经 lib/conversation-message.ts 的 toPersistedMessage（见该文件头注释）。
   | { kind: 'conv:create' }
@@ -163,28 +137,17 @@ export type RuntimeRequest =
 
   // —— offscreen document（AI 生成链路的执行宿主）——
   // 容器**按需创建**（刻意不在 SW 启动时自动建，否则一启动就常驻，与退出条件相悖），
-  // 故用显式命令控制；`offscreen:ready` 是 offscreen 侧启动后的握手通知。
   | { kind: 'offscreen:ensure' }
   | { kind: 'offscreen:close' }
   | { kind: 'offscreen:status' }
-  | { kind: 'offscreen:ready' }
+  | {
+      kind: 'offscreen:call'
+      method: keyof IOffscreenService
+      args: unknown[]
+    }
 
-  // —— 模型配置（offscreen 侧向 SW 拉取）——
-  // offscreen 不 import model-store（SW 专属模块），故在启动 / 收到变更推送时经此命令取一次并缓存。
   // 返回值含 apiKey 明文：属同扩展内上下文之间的传递（offscreen 与 SW 信任级别等同），
   // 不是新增对外暴露面；但仍须「取一次、缓存、不写日志」。
-  | { kind: 'model:getActiveProfile' }
-
-  // —— AI 工具支路（offscreen 的 agent 工具经 SW 调 SW/扩展页才有的 chrome 能力）——
-  // page_snapshot 工具：SW 代为请**本会话所属的标签页**上的页面检查器采一次快照
-  // （chrome.tabs 在 offscreen 不可达）。为什么必须带 conversationId：
-  // 会话按标签页归属，而快照是 AI 在生成中途决定要采的 —— 那时用户可能已经切到别的
-  // 标签页，「当前激活页」不再等于「这条会话在聊的那个页」。不带 / 反查不到才退回激活页。
-  // 注意前缀：`chat:` 是「SW 静默让路给 offscreen」的保留前缀，SW 自答的命令不能用
-  | { kind: 'page:snapshot'; conversationId?: string }
-  // page_env_read 工具：同一条执行通道取页面侧环境读数（视口 / 设备像素比 / 页面里读到的 UA）。
-  // 与快照同因由带 conversationId —— 会话按标签页归属，AI 决定要读时用户可能已经切走。
-  | { kind: 'page:env'; conversationId?: string }
 
   // —— popup 的页面概览（「当前页面 / 其他页面」两个区块的数据源）——
   // 一次取回全部标签页的「跑着哪些脚本 / 归属哪条会话 / 是不是正在生成」：这三份数分属运行登记表、
@@ -236,25 +199,6 @@ export type RuntimeRequest =
   // SW 的 define 注入构建信息（wxt.config.ts）不是 HTML，页面看不见；UI 经此命令取回并展示。
   // 发消息本身会把休眠的 SW 唤醒，故返回的总是「此刻 SW 上下文」的构建信息——正是想要的语义。
   | { kind: 'sw:buildInfo' }
-
-/**
- * SW → offscreen 的单向推送（**不经 handlers 表** —— SW 不会收到自己发出的消息）。
- * offscreen 监听后自行决定是否回拉，例如收到 configChanged 就重新调 model:getActiveProfile。
- *
- * chat:chunk —— offscreen → 对话界面（观察者）的事件流：每条带会话 id 与自增 seq，
- * 对话界面按 seq 去重（重连回放与实时推送短暂重叠时防重）。SW 不消费（前缀不在白名单）。
- *
- * chat:running —— offscreen → SW（观察者）：任务**开始**（新任务 / 孤儿续跑）通知。
- * 与 chat:finished 配对，构成 SW 侧的任务生命周期信号：**进行中那份**供工作台「会话历史」的
- * 「生成中」标（经 `sw:runningChats` 取）与「标签页被关要中止任务」判断用
- * （角标只报脚本运行数，不看这里）。
- * 每个任务只推一次：**细节进度仍在 chat:chunk 流里，SW 不消费**（逐 token 唤醒 SW 不划算）。
- *
- * chat:finished —— offscreen → SW（观察者）：任务收尾（正常 / 异常）通知，SW 据此把该会话从
- * 进行中登记表里撤下（无其它副作用）。
- * 注意 `chat:` 前缀对 RuntimeRequest 是 offscreen 保留前缀；OffscreenPush 不进命令面，不受此限。
- */
-// 形状见 @duoling/shared 的 chat-ipc.ts（含 offscreen:configChanged 与三条 chat 推送）
 
 // —— 数据变更广播（写侧 → 全部前端实例）——
 // 为什么要有这条（IDB 无变更通知）、与 OffscreenPush / RuntimeRequest 的分工
@@ -310,18 +254,13 @@ export interface PageOverviewScript {
   errorCount: number
 }
 
-/**
- * SW → 扩展页的单向广播。SW 不会收到自己发出的 sendMessage，故 SW 侧自身的消费
- * （可用性翻转补注册）走进程内订阅（availability-watch.onAvailabilityChange），不经消息总线。
- *
- * userscript:availabilityChanged —— 「运行用户脚本」开关状态变化（SW 轮询发现，Chrome 对
- * 开关变化无事件）。横幅 / 引导页订阅此广播更新显示；载荷带完整可用性（UI 无需回查）。
- */
-export type SwPush = {
-  kind: 'userscript:availabilityChanged'
-  availability: import('../userscript-runtime').UserScriptsAvailability
-  changedAt: number
-}
+export type SwPush =
+  | {
+      kind: 'userscript:availabilityChanged'
+      availability: import('../userscript-runtime').UserScriptsAvailability
+      changedAt: number
+    }
+  | { kind: 'sw:runningChanged' }
 
 /** 渲染页 → service worker 的应答：统一信封，调用方据 ok 分支。
  *  形状真相源在 @duoling/shared 的 IpcEnvelope —— 运行时包两半（sw / offscreen）与全应用

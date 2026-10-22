@@ -37,7 +37,11 @@ const h = vi.hoisted(() => ({
   transports: [] as Array<Record<string, ReturnType<typeof vi.fn>>>,
   chatInits: [] as unknown[],
   chatInstances: [] as unknown[],
-  dataSync: [] as Array<{ domains: string[]; reload: (push: { domain: string }) => unknown }>,
+  dbSignal: [] as Array<{ querier: () => unknown; reload: () => unknown }>,
+}))
+
+const chatDb = vi.hoisted(() => ({
+  conversations: { toArray: vi.fn(async () => []) },
 }))
 
 /** 会话库读面替身：composable 直接 import 该模块，故在模块级替身（默认值在 beforeEach 给） */
@@ -77,8 +81,9 @@ vi.mock('@ai-sdk/vue', () => ({
 }))
 
 vi.mock('./use-data-sync', () => ({
-  useDataSync: (domains: string | string[], reload: (push: { domain: string }) => unknown) => {
-    h.dataSync.push({ domains: Array.isArray(domains) ? domains : [domains], reload })
+  useDataSync: vi.fn(),
+  useDbSignal: (querier: () => unknown, reload: () => unknown) => {
+    h.dbSignal.push({ querier, reload })
   },
 }))
 
@@ -90,6 +95,7 @@ vi.mock('@duoling/shared', async (importOriginal) => ({
   getConversationIdForTab: vi.fn(),
   bindTabToConversation: vi.fn(),
   unbindTab: vi.fn(),
+  getChatDexie: () => chatDb,
 }))
 
 /** 会话列表项与消息的固定基准时刻 */
@@ -157,12 +163,8 @@ const lastInit = (): FakeInit => {
   const raw = h.chatInits[h.chatInits.length - 1]
   return (isRef(raw) ? raw.value : raw) as FakeInit
 }
-/** 会话域变更订阅（用例里手动触发回拉） */
-const conversationSync = (): { domains: string[]; reload: (push: { domain: string }) => unknown } =>
-  h.dataSync[h.dataSync.length - 1] as {
-    domains: string[]
-    reload: (push: { domain: string }) => unknown
-  }
+const conversationSync = (): { querier: () => unknown; reload: () => unknown } =>
+  h.dbSignal[h.dbSignal.length - 1] as { querier: () => unknown; reload: () => unknown }
 /** 客户端最后一次发出的消息参数 */
 const lastSent = (chat: FakeChat = lastChat()): SentMessage => {
   const calls = chat.sendMessage.mock.calls
@@ -209,10 +211,11 @@ async function stateOnC1(
 
 beforeEach(() => {
   vi.clearAllMocks()
+  chatDb.conversations.toArray.mockClear()
   h.transports.length = 0
   h.chatInits.length = 0
   h.chatInstances.length = 0
-  h.dataSync.length = 0
+  h.dbSignal.length = 0
   vi.mocked(resolveOwningTabId).mockResolvedValue(null)
   vi.mocked(getConversationIdForTab).mockResolvedValue(null)
   vi.mocked(bindTabToConversation).mockResolvedValue(undefined)
@@ -663,10 +666,11 @@ describe('停止生成', () => {
   })
 })
 
-describe('会话域变更订阅', () => {
-  it('订阅的是会话域', () => {
+describe('会话库数据信号（liveQuery 回拉）', () => {
+  it('订阅源是会话库的 conversations 表', async () => {
     createState()
-    expect(conversationSync().domains).toEqual(['conversation'])
+    await conversationSync().querier()
+    expect(chatDb.conversations.toArray).toHaveBeenCalledTimes(1)
   })
 
   it('当前会话仍在列表里：刷新列表，不动激活会话', async () => {
@@ -674,7 +678,7 @@ describe('会话域变更订阅', () => {
     const renamed = [conversation('c1', { title: '改过名' })]
     conversationApi.list.mockResolvedValue(renamed)
 
-    await conversationSync().reload({ domain: 'conversation' })
+    await conversationSync().reload()
 
     expect(state.conversations.value).toEqual(renamed)
     expect(state.activeConversationId.value).toBe('c1')
@@ -684,7 +688,7 @@ describe('会话域变更订阅', () => {
     const state = await stateLoaded({ list: [conversation('c1')], owningTab: 7, bound: 'c1' })
     conversationApi.list.mockResolvedValue([conversation('c2')])
 
-    await conversationSync().reload({ domain: 'conversation' })
+    await conversationSync().reload()
 
     expect(vi.mocked(unbindTab)).toHaveBeenCalledWith(7)
     expect(state.activeConversationId.value).toBe('')
@@ -694,7 +698,7 @@ describe('会话域变更订阅', () => {
     const state = await stateLoaded({ list: [conversation('c1')], owningTab: 7, bound: 'c1' })
     conversationApi.list.mockRejectedValue(new Error('读库失败'))
 
-    await expect(conversationSync().reload({ domain: 'conversation' })).resolves.toBeUndefined()
+    await expect(conversationSync().reload()).resolves.toBeUndefined()
 
     expect(state.activeConversationId.value).toBe('c1')
   })
