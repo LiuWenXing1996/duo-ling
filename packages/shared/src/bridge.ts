@@ -42,25 +42,6 @@ export function bridgeDigest(secret: string, challenge: string): string {
 }
 
 /**
- * 同一哈希的**源码片段版**：给仍以字符串拼装的件用（脚本桥被内联进脚本源码，整条 code 里
- * 由 bridge.test.ts 对跑同一批输入比对。
- */
-export const BRIDGE_DIGEST_SNIPPET = `
-var __gmBridgeDigest = (function () {
-  var charCodeAt = String.prototype.charCodeAt
-  var imul = Math.imul
-  var numToString = Number.prototype.toString
-  return function (secret, challenge) {
-    var input = secret + ':' + challenge
-    var h = 0x811c9dc5
-    for (var i = 0; i < input.length; i++) {
-      h = imul(h ^ charCodeAt.call(input, i), 0x01000193) >>> 0
-    }
-    return ('0000000' + numToString.call(h, 16)).slice(-8)
-  }
-})()`
-
-/**
  * 生成共享密钥（SW 侧调用；不在件内，走 `crypto.getRandomValues`）。
  * 同一把写进 MAIN 侧的脚本桥与 USER_SCRIPT 侧的中继件 —— 中继件靠它验 proof。
  */

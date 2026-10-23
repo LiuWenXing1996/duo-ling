@@ -1,10 +1,10 @@
-// gm-wrapper 单测：① 注入源码**必须能解析**（它是字符串，语法错一次就静默全废）；
-// ② `@grant` 裁剪规则按预期放行 / 关闭成员；③ 前缀与脚本正文的拼接点必须「语句级分离」
-// —— ASI 合并后的源码语法依然合法，parse 抓不住语法、但抓得住**结构**（见末尾回归用例）。
+// gm-wrapper 单测：防漂移断言反射运行时源码（?raw 直取）；产物字节只做 parse 冒烟（引号统一成双引号，不做文本断言）。
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
 import { ALWAYS_GLOBALS, ALWAYS_NS, type GmInfo, gmAllGlobals, gmAllNs } from '@duoling/shared'
-import { GM_WRAPPER_SUFFIX, buildGmWrapperPrefix, resolveGmExposure } from './gm-wrapper'
+import { GM_WRAPPER_IIFE, buildGmWrapperInit, resolveGmExposure } from './gm-wrapper'
+import runtimeSrc from './gm-wrapper-runtime.ts?raw'
+
 /** 测试自造：断言生成源码里的 scriptHandler 跟随传入值。真值由应用侧传入，包内不持有。 */
 const EXTENSION_NAME = '测试扩展'
 
@@ -30,53 +30,49 @@ function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
   }
 }
 
-/** 产出**完整**的注入 code：engine 那边由「包装前缀 ＋ @require ＋ 脚本源码 ＋ 闭合后缀」拼成 */
 function build(grant?: string[], body?: string): string {
   return (
-    buildGmWrapperPrefix({
-      uuid: 'u-test',
-      name: '测试脚本',
-      values: { k: 'v', n: 1 },
-      info: info(),
-      pageSecret: 'secret',
-      ...(grant ? { grant } : {}),
-    }) +
-    (body ? '\n' + body + '\n' : '') +
-    GM_WRAPPER_SUFFIX
+    GM_WRAPPER_IIFE +
+    '\n' +
+    buildGmWrapperInit(
+      {
+        uuid: 'u-test',
+        name: '测试脚本',
+        values: { k: 'v', n: 1 },
+        info: info(),
+        pageSecret: 'secret',
+        ...(grant ? { grant } : {}),
+      },
+      body ?? '',
+    )
   )
 }
 
-describe('buildGmWrapperPrefix', () => {
-  it('产出的注入源码语法合法（acorn 解析；含内联的桥客户端）', () => {
+describe('GM 包装注入体', () => {
+  it('产出的注入源码语法合法（acorn 解析；产物含内联的桥客户端与共享 digest）', () => {
     const src = build()
     expect(() => parse(src, { ecmaVersion: 'latest' })).not.toThrow()
-    // 模板体里绝不能残留未闭合的模板痕迹（反引号一旦漏进注入体，整份源码就废了）
-    expect(src).not.toContain('${')
-    expect(src).not.toContain('\\`')
+    expect(src).toContain('__duolingGmInstall')
   })
 
   it('靠下行帧的命令都先等通道（否则帧无处可推，回调静默永不触发）', () => {
-    const src = build()
     // fetch 的 onprogress、download 的三个回调、notify 的 onclick —— 都靠 Port 推帧，而
     // __gmSend 只管请求-应答、不建通道。曾经三处都用 __gmSend 直发：请求 / 下载本身成功，
     // 但回调全被静默丢掉（真机实测）。
-    expect(src).toContain('wantsProgress ? __gmSendAfterChannel : __gmSend')
-    expect(src).toContain('wantsFrames ? __gmSendAfterChannel : __gmSend')
-    expect(src).toContain("typeof onclick === 'function' ? __gmSendAfterChannel : __gmSend")
+    expect(runtimeSrc).toContain('wantsProgress ? __gmSendAfterChannel : __gmSend')
+    expect(runtimeSrc).toContain('wantsFrames ? __gmSendAfterChannel : __gmSend')
+    expect(runtimeSrc).toContain("typeof onclick === 'function' ? __gmSendAfterChannel : __gmSend")
     // 降级而不阻断：通道建不起来也要把请求发出去，但必须在控制台喊一声（不做新的静默失败）
-    expect(src).toContain('下行通道未就绪，本次调用的进度 / 完成回调会收不到')
+    expect(runtimeSrc).toContain('下行通道未就绪，本次调用的进度 / 完成回调会收不到')
   })
 
-  it('文本体也在这里挂上 body（init 字面量不含 body 字段，漏了就整段丢）', () => {
-    const src = build()
-    // 曾经 string data 在 __gmEncodeBody 里被当成「没有体」直接返回，而 __gmXhr 组装 init 的
-    // 字面量里也没有 body 字段：两头都不带，POST 的文本体在过桥前就没了，服务端收到空体（真机实测）。
-    expect(src).toContain(
+  it('文本体也在 __gmEncodeBody 挂上 body（曾经 string data 被当「没有体」直接返回、init 字面量也无 body 字段，两头都不带，POST 文本体在过桥前就没了）', () => {
+    expect(runtimeSrc).toContain(
       "if (typeof raw === 'string') return Promise.resolve(function (s) { var c = __gmCopyInit(s); c.body = raw; return c })",
     )
   })
 
-  it('嵌入了值快照、GM_info 与按 grant 算出的成员表', () => {
+  it('装配段内联了值快照、GM_info 与按 grant 算出的成员表', () => {
     const src = build(['GM_getValue'])
     expect(src).toContain('"k":"v"') // 值快照
     expect(src).toContain(`"scriptHandler":"${EXTENSION_NAME}"`)
@@ -85,42 +81,34 @@ describe('buildGmWrapperPrefix', () => {
   })
 
   it('userAgent / isIncognito 由运行时就地补齐（注册侧拿不到页面 UA）', () => {
-    const src = build()
-    expect(src).toContain('GM_INFO.userAgent = navigator.userAgent')
-    expect(src).toContain('inIncognitoContext')
+    expect(runtimeSrc).toContain('GM_INFO.userAgent = navigator.userAgent')
+    expect(runtimeSrc).toContain('inIncognitoContext')
   })
 
-  it('MAIN 世界的成员都显式实现（unsafeWindow 即页面 window / onurlchange / cookie 字段校验收窄）', () => {
-    const src = build()
-    // unsafeWindow 就是页面自己的 window（脚本跑在主世界），故走局部声明
-    expect(src).toContain('var unsafeWindow = window')
-    expect(src).not.toContain("defineProperty(window, 'unsafeWindow'")
-    expect(src).toContain("Object.defineProperty(window, 'onurlchange'")
+  it('MAIN 世界的成员都显式实现（unsafeWindow 即页面 window，经装配段解构成局部变量）', () => {
+    expect(runtimeSrc).toContain('members.unsafeWindow = window')
+    expect(runtimeSrc).not.toContain("defineProperty(window, 'unsafeWindow'")
+    expect(runtimeSrc).toContain("Object.defineProperty(window, 'onurlchange'")
     // cookie 的三个方法都照 TM 收 domain / path（url 恒参与查询，domain / path 只收窄可见范围）
-    expect(src).toContain('domain: q.domain, path: q.path')
-    expect(src).toContain('store.watchAll') // 常驻通道
-    expect(src).toContain('store.all') // connect 后全量校准
+    expect(runtimeSrc).toContain('domain: q.domain, path: q.path')
+    expect(runtimeSrc).toContain('store.watchAll')
+    expect(runtimeSrc).toContain('store.all')
   })
 
   it('urlchange 走本地检测：hook history + popstate / hashchange，不再经 SW 订阅', () => {
-    const src = build()
-    expect(src).toContain("Object.defineProperty(window, 'onurlchange'")
-    expect(src).toContain('history.pushState =')
-    expect(src).toContain('history.replaceState =')
-    expect(src).toContain("addEventListener('popstate'")
-    expect(src).toContain("addEventListener('hashchange'")
+    expect(runtimeSrc).toContain("Object.defineProperty(window, 'onurlchange'")
+    expect(runtimeSrc).toContain('history.pushState =')
+    expect(runtimeSrc).toContain('history.replaceState =')
+    expect(runtimeSrc).toContain("addEventListener('popstate'")
+    expect(runtimeSrc).toContain("addEventListener('hashchange'")
     // 脚本与页面同处一个世界，路由变化自己就能听见 —— 跨世界订阅整条撤掉，
     // 也顺带免掉了「覆盖 window.addEventListener 做本地转发」对页面的侵入
-    expect(src).not.toContain("c: 'url.watch'")
-    expect(src).not.toContain("c: 'url.unwatch'")
+    expect(runtimeSrc).not.toContain("c: 'url.watch'")
+    expect(runtimeSrc).not.toContain("c: 'url.unwatch'")
   })
 
-  it('前缀与脚本正文的拼接分号安全：正文以 ( 开头时不被 ASI 并进上一条语句（真机回归）', () => {
-    // 真机事故复现：模板收尾的 addEventListener('hashchange', …) 曾缺分号，
-    // 脚本正文（含 ==UserScript== 注释头）以 IIFE 开头 → ASI 把两句并成一条调用表达式
-    // addEventListener(...)(function(){…})()，正文从未执行，报
-    // window.addEventListener(...) is not a function。合并后的源码语法合法、parse 不报错，
-    // 但 AST 结构变了：脚本的 IIFE 调用不再是独立语句，而是挂在 addEventListener 调用上。
+  it('装配段与正文的拼接分号安全：正文以 ( 开头时不被 ASI 并进上一条语句（真机回归：合并后语法合法、parse 不报错，但正文 IIFE 不再是独立语句，正文从未执行）', () => {
+    expect(runtimeSrc).toContain("addEventListener('hashchange', __gmCheckUrl);")
     const body = [
       '// ==UserScript==',
       '// @name 分号回归',
@@ -129,46 +117,31 @@ describe('buildGmWrapperPrefix', () => {
       '//# sourceURL=asi-regression.js',
     ].join('\n')
     const src = build([], body)
-    expect(src).toContain("addEventListener('hashchange', __gmCheckUrl);")
-    // 外层 IIFE（前导 ; 是 EmptyStatement，取第一条表达式语句）的函数体里，最后一条
-    // 语句必须是 TryStatement（正文执行区整体包 try，见错误归属口径），
-    // 脚本自己的 IIFE 调用是 try 块内的最后一条独立语句（callee 是函数表达式），
-    // 而不是「addEventListener(...) 被继续调用」的合并体
     const program = parse(src, { ecmaVersion: 'latest' }) as unknown as {
-      body: Array<{
-        type: string
-        expression?: { callee: { body: { body: unknown[] } } }
-      }>
+      body: Array<{ type: string; expression?: any }>
     }
-    const iife = program.body.filter((s) => s.type === 'ExpressionStatement')[0]!
-    const inner = iife.expression!.callee.body.body
-    const tryStmt = inner[inner.length - 1] as {
-      type: string
-      block?: { body: unknown[] }
-      handler?: { type: string }
-    }
-    expect(tryStmt.type).toBe('TryStatement')
-    expect(tryStmt.handler!.type).toBe('CatchClause')
-    const tryBody = tryStmt.block!.body as Array<{
-      expression?: { callee?: { type: string } }
-      type: string
-    }>
-    const last = tryBody[tryBody.length - 1]
+    const stmts = program.body.filter((s) => s.type === 'ExpressionStatement')
+    const assembly = stmts[stmts.length - 1]!.expression
+    expect(assembly.callee.type).toBe('FunctionExpression')
+    const asmBody = assembly.callee.body.body
+    const runCall = asmBody[asmBody.length - 1].expression
+    expect(runCall.callee.property.name).toBe('runBody')
+    const bodyFn = runCall.arguments[0]
+    expect(bodyFn.type).toBe('FunctionExpression')
+    const last = bodyFn.body.body[bodyFn.body.body.length - 1]
     expect(last.type).toBe('ExpressionStatement')
-    expect(last.expression!.callee!.type).toBe('FunctionExpression')
+    expect(last.expression.callee.type).toBe('FunctionExpression')
   })
 
   it('错误归属口径：正文包 try（catch 直报）、异步监听按本脚本 sourceURL 标记过滤', () => {
-    const src = build()
-    // 同步层：后缀的 catch 直调 __gmReportCaught（被 catch 即归属，无需判栈）
-    expect(GM_WRAPPER_SUFFIX).toContain('__gmReportCaught(e)')
+    expect(runtimeSrc).toContain('__gmReportCaught(e)')
     // 异步层：两个全局监听都先判栈，标记含本脚本 uuid（多脚本同页互不冒领）
-    expect(src).toContain('duoling://script/u-test/')
-    const guardCount = src.split('__gmOwnStack(').length - 1
+    expect(runtimeSrc).toContain('duoling://script/')
+    const guardCount = runtimeSrc.split('__gmOwnStack(').length - 1
     // 1 处定义 + error / unhandledrejection 两个监听各守一次
     expect(guardCount).toBe(3)
     // 过滤必须发生在上报之前（守卫在 __gmReportError 调用前面）：直接断言监听体形状
-    expect(src).toMatch(/if \(!__gmOwnStack\(stack\)\) return [^\n]*\n\s*__gmReportError/)
+    expect(runtimeSrc).toMatch(/if \(!__gmOwnStack\(stack\)\) return [^\n]*\n\s*__gmReportError/)
   })
 })
 

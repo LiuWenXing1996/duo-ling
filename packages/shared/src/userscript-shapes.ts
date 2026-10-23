@@ -40,7 +40,7 @@ export interface UserScriptErrorRecord extends UserscriptErrorRecord {
   phase: UserscriptErrorRecord['phase']
   time: number // 时间戳
   /**
-   * 运行标识：**一次页面加载 = 一个 runId**（GM 包装注入即 mint，见 gm-wrapper 的 buildGmWrapperSource）。
+   * 运行标识：**一次页面加载 = 一个 runId**（GM 包装注入即 mint，见 gm-wrapper-runtime）。
    * 归属口径两层：`register` / `require` / `resource` 发生在任何一次运行之前，恒为 null / 缺省；
    * `runtime` 与 `bridge` 由触发它的那次运行带上 —— 对话界面页面监控只显「本次运行」的错误，
    * 就是按当前 tab 登记的运行集里有没有该 runId 来判的。

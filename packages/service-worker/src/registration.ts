@@ -15,7 +15,7 @@ import type {
 } from '@duoling/shared'
 // 可用性形状归契约包（应用侧状态横幅与 offscreen 都认），此处 re-export 维持包内路径不变。
 export type { UserScriptsAvailability }
-import { buildGmWrapperPrefix, GM_WRAPPER_SUFFIX } from './gm-wrapper'
+import { buildGmWrapperInit, GM_WRAPPER_IIFE } from './gm-wrapper'
 import {
   parseUserScriptMetadata,
   resolveConfigFromSource,
@@ -400,31 +400,25 @@ export async function registerScript(project: ScriptProject): Promise<void> {
     if (r.ok && r.dataUrl != null && r.text != null)
       resources[r.name] = { text: r.text, url: r.dataUrl }
   }
-  // 注入 code **必须拼成一条**：包装前缀、@require、脚本源码、闭合后缀要在同一个函数作用域里，
-  // 脚本才能按词法拿到 `GM_*`（见 gm-wrapper.ts 文件头）。拆成多条 js 会各自独立求值 ——
-  // 未闭合的 IIFE 前缀单独求值直接是语法错误。
-  // @run-at document-body：注入仍用 document_start（Chrome 的 runAt 只认三种），正文则由包装层的
-  // 闸门推到 body 出现之后再跑 —— TM 的语义是 body 元素存在时才注入。
+  // 注入体 = IIFE 产物 + 装配段（递配置、解构成员、正文包进 runBody）；@require 间插空语句（;）防 ASI 合并。
   const runAtBody = project.config.runAt === 'document_body'
-  // @require 之间、@require 与脚本正文之间插一条空语句（;）：库源码结尾若缺分号、
-  // 下一段又以 ( 开头，换行拼接会被 ASI 并成一条表达式（与包装前缀收尾同款坑，
-  // 见 gm-wrapper.ts 末尾的注释）。
   const bodySource = [...requireCodes, rawCode].join('\n;\n')
   const code = [
-    buildGmWrapperPrefix({
-      uuid: project.uuid,
-      name: project.name,
-      values,
-      info: buildGmInfo(project, rawCode),
-      pageSecret,
-      grant: project.config.grant,
-      resources,
-      runAtBody,
-      // 注入的就是这一版源码：随运行标识广播，运行日志据此与 AI 读到的源码版本对齐
-      savedAt: project.source.savedAt,
-    }),
-    runAtBody ? '__gmRunAtBody(function () {\n' + bodySource + '\n})' : bodySource,
-    GM_WRAPPER_SUFFIX,
+    GM_WRAPPER_IIFE,
+    buildGmWrapperInit(
+      {
+        uuid: project.uuid,
+        name: project.name,
+        values,
+        info: buildGmInfo(project, rawCode),
+        pageSecret,
+        grant: project.config.grant,
+        resources,
+        runAtBody,
+        savedAt: project.source.savedAt,
+      },
+      bodySource,
+    ),
     sourceURLSuffix(project),
   ].join('\n')
   const userScript: chrome.userScripts.RegisteredUserScript = {

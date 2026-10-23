@@ -2,7 +2,7 @@
 
 日期: 2026-10-18
 状态: 已接受
-代码落点: packages/service-worker/src/gm-wrapper.ts（文件头指针指回本文件）
+代码落点: packages/service-worker/src/gm-wrapper.ts / gm-wrapper-runtime.ts（文件头指针指回本文件）
 
 ## 背景
 
@@ -30,3 +30,7 @@ GM 成员必须注入到页面 MAIN 世界（与 Tampermonkey 默认一致），
 - 脚本顶层 `var` 不再进页面全局（要挂页面请用 `unsafeWindow`）——与独立世界形态的可见差异。
 - 快照会陈旧，靠常驻通道 + watchAll + 校准兜底，不能只靠快照。
 - 已知降级项（速查页与 spec 必须标注）：`GM_xmlhttpRequest` 的 `responseType` 不支持 `stream`；`onprogress` 只给进度字段（不带完整 response）。
+
+## 附注（2026-10-23，机制升级语义不变）
+
+「同作用域局部注入」的实现方式从**手写模板字符串**（未闭合 IIFE 前缀 + 闭合后缀，正文拼进包装作用域）升级为**真实 TS 源码 → esbuild IIFE 产物**（`gm-wrapper-runtime.ts` → `dist/gm-wrapper.iife.js`，不入库）：包装源码从字符串变成被 typecheck/lint 覆盖的真代码，注入体是数据、以产物文件存在（经 `?raw` 进注册拼接）。语义等价：装配段把每脚本配置（值快照 / 密钥 / exposure / 资源表）以 JSON 递给 `window.__duolingGmInstall`，再把 `members` 解构成脚本可见的局部 `var`——正文仍在 `runBody` 的 try 里执行（同步错误归属不变），`runAtBody` 闸门挪进 `runBody`。桥客户端（原 script-bridge.ts 模板）一并迁为真实 TS（`gm-bridge-client.ts`），digest 直接 import 共享实现（字符串片段版作废，防漂移对拍改为金标值）。
