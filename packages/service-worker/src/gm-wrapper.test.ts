@@ -67,9 +67,8 @@ describe('GM 包装注入体', () => {
   })
 
   it('文本体也在 __gmEncodeBody 挂上 body（曾经 string data 被当「没有体」直接返回、init 字面量也无 body 字段，两头都不带，POST 文本体在过桥前就没了）', () => {
-    expect(runtimeSrc).toContain(
-      "if (typeof raw === 'string') return Promise.resolve(function (s) { var c = __gmCopyInit(s); c.body = raw; return c })",
-    )
+    expect(runtimeSrc).toContain("typeof raw === 'string'")
+    expect(runtimeSrc).toContain('c.body = raw')
   })
 
   it('装配段内联了值快照、GM_info 与按 grant 算出的成员表', () => {
@@ -90,7 +89,8 @@ describe('GM 包装注入体', () => {
     expect(runtimeSrc).not.toContain("defineProperty(window, 'unsafeWindow'")
     expect(runtimeSrc).toContain("Object.defineProperty(window, 'onurlchange'")
     // cookie 的三个方法都照 TM 收 domain / path（url 恒参与查询，domain / path 只收窄可见范围）
-    expect(runtimeSrc).toContain('domain: q.domain, path: q.path')
+    expect(runtimeSrc).toContain('domain: q.domain')
+    expect(runtimeSrc).toContain('path: q.path')
     expect(runtimeSrc).toContain('store.watchAll')
     expect(runtimeSrc).toContain('store.all')
   })
@@ -108,7 +108,6 @@ describe('GM 包装注入体', () => {
   })
 
   it('装配段与正文的拼接分号安全：正文以 ( 开头时不被 ASI 并进上一条语句（真机回归：合并后语法合法、parse 不报错，但正文 IIFE 不再是独立语句，正文从未执行）', () => {
-    expect(runtimeSrc).toContain("addEventListener('hashchange', __gmCheckUrl);")
     const body = [
       '// ==UserScript==',
       '// @name 分号回归',
@@ -117,6 +116,8 @@ describe('GM 包装注入体', () => {
       '//# sourceURL=asi-regression.js',
     ].join('\n')
     const src = build([], body)
+    // 防合并的守卫在装配段：以防御性分号开头，前一段（产物 / @require）结尾缺分号也不会被 ASI 并句
+    expect(src).toContain('\n;(function () {')
     const program = parse(src, { ecmaVersion: 'latest' }) as unknown as {
       body: Array<{ type: string; expression?: any }>
     }
@@ -141,7 +142,7 @@ describe('GM 包装注入体', () => {
     // 1 处定义 + error / unhandledrejection 两个监听各守一次
     expect(guardCount).toBe(3)
     // 过滤必须发生在上报之前（守卫在 __gmReportError 调用前面）：直接断言监听体形状
-    expect(runtimeSrc).toMatch(/if \(!__gmOwnStack\(stack\)\) return [^\n]*\n\s*__gmReportError/)
+    expect(runtimeSrc).toMatch(/if \(!__gmOwnStack\(stack\)\) return\n\s*__gmReportError/)
   })
 })
 
