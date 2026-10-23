@@ -93,7 +93,7 @@ describe('dl-float-host · 指令接收', () => {
 
     expect(bridge.sent).toHaveLength(1)
     const out = bridge.sent[0]
-    expect(out.kind).toBe('ev')
+    expect(out.kind).toBe('notice')
     expect(out.name).toBe('浮层宿主')
     expect(out.event).toEqual({ t: 'float.pong', reqId: 'r1' })
   })

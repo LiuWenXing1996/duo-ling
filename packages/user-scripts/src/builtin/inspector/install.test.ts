@@ -81,7 +81,7 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
 
     expect(bridge.sent).toHaveLength(1)
     const out = bridge.sent[0]
-    expect(out.kind).toBe('ev')
+    expect(out.kind).toBe('notice')
     expect(out.name).toBe('页面检查器')
     const ev = out.event as Record<string, unknown>
     expect(ev.t).toBe('inspector.result')
