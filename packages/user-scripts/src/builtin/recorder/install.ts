@@ -18,7 +18,7 @@ declare global {
 }
 
 /**
- * 形状真相源是 service-worker 的 script-bridge.ts；这里只声明本件用到的那一个方法。
+ * 形状真相源是 service-worker 的 gm-bridge-client.ts；这里只声明本件用到的那一个方法。
  */
 declare const __gmBridge: {
   emit(envelope: Record<string, unknown>): void

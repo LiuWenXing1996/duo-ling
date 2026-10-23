@@ -37,7 +37,7 @@ const ROOT_ID = 'duoling-float-root'
 const PICKER_BOX_SELECTOR = `.${INSPECTOR_PICKER_NS}-box`
 
 /**
- * 形状真相源是 service-worker 的 script-bridge.ts；这里只声明本件用到的方法。
+ * 形状真相源是 service-worker 的 gm-bridge-client.ts；这里只声明本件用到的方法。
  */
 declare const __gmBridge: {
   connect(connId: string): Promise<void>

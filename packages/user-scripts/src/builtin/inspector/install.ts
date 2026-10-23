@@ -289,7 +289,7 @@ function run(mode: InspectorMode): Promise<unknown> {
 }
 
 /**
- * 形状真相源是 service-worker 的 script-bridge.ts；这里只声明本件用到的方法。
+ * 形状真相源是 service-worker 的 gm-bridge-client.ts；这里只声明本件用到的方法。
  */
 declare const __gmBridge: {
   connect(connId: string): Promise<void>
