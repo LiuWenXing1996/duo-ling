@@ -77,6 +77,11 @@ describe('GM 包装注入体', () => {
     expect(src).toContain(`"scriptHandler":"${EXTENSION_NAME}"`)
     expect(src).toContain('"GM_getValue":true')
     expect(src).toContain('"GM_setValue":false')
+    // 解构取自 install 返回的 members（不是 g 本身——真机回归：写成 g.GM_info 时成员全 undefined，
+    // 脚本能跑但 GM_* 全「未挂载」，parse 与结构断言都抓不住）
+    expect(src).toContain('GM_getValue = g.members.GM_getValue')
+    expect(src).toContain('GM = g.members.GM')
+    expect(src).not.toMatch(/\bg\.GM_getValue\b/)
   })
 
   it('userAgent / isIncognito 由运行时就地补齐（注册侧拿不到页面 UA）', () => {

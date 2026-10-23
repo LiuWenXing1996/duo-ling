@@ -80,7 +80,7 @@ export function buildGmWrapperInit(opts: GmWrapperOptions, bodySource: string): 
     runAtBody: opts.runAtBody === true,
   }
   const destructure = [...gmAllGlobals().filter((n) => !n.includes('.')), 'GM']
-    .map((n) => `${n} = g.${n}`)
+    .map((n) => `${n} = g.members.${n}`)
     .join(', ')
   return [
     ';(function () {',
