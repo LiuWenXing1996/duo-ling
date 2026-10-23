@@ -93,6 +93,8 @@ describe('GM 包装注入体', () => {
     expect(runtimeSrc).toContain('members.unsafeWindow = window')
     expect(runtimeSrc).not.toContain("defineProperty(window, 'unsafeWindow'")
     expect(runtimeSrc).toContain("Object.defineProperty(window, 'onurlchange'")
+    // GM 命名空间对象要挂回 members（真机回归：组装完没挂回，GM.* 全 undefined 而 GM_* 全活）
+    expect(runtimeSrc).toContain('members.GM = GM')
     // cookie 的三个方法都照 TM 收 domain / path（url 恒参与查询，domain / path 只收窄可见范围）
     expect(runtimeSrc).toContain('domain: q.domain')
     expect(runtimeSrc).toContain('path: q.path')

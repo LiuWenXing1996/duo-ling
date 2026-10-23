@@ -1337,6 +1337,7 @@ export function installGmWrapper(env: GmWrapperEnv): GmWrapperHandle {
       return Promise.resolve(__gmResource(name, true))
     }
   if (GM_HAS.audio) GM.audio = __gmAudioApi
+  members.GM = GM
 
   try {
     Object.defineProperty(window, 'onurlchange', {
