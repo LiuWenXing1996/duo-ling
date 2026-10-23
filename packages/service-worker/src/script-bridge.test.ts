@@ -16,7 +16,7 @@ type MsgListener = (ev: { source: unknown; data: unknown }) => void
 interface BridgeApi {
   call: (req: unknown, runId?: string) => Promise<unknown>
   connect: (connId: string) => Promise<void>
-  emit: (payload: unknown) => void
+  emit: (payload: any) => any
   onEvent: (fn: (ev: unknown) => void) => void
 }
 

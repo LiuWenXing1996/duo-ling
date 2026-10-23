@@ -18,7 +18,7 @@ export interface GmBridgeResp {
 export interface GmBridgeApi {
   call: (payload: unknown, runId?: string) => Promise<GmBridgeResp | null>
   connect: (connId: string) => Promise<void>
-  emit: (payload: Record<string, unknown>) => unknown
+  emit: (payload: Record<string, unknown>) => any
   onEvent: (fn: (ev: any) => void) => void
 }
 

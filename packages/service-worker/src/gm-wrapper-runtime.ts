@@ -64,9 +64,9 @@ export function installGmWrapper(env: GmWrapperEnv): GmWrapperHandle {
   __gmAnnounceRun()
   if (document.readyState !== 'complete') window.addEventListener('load', __gmAnnounceRun)
 
-  function __gmLog(): void {
+  function __gmLog(...parts: unknown[]): void {
     try {
-      console.log.apply(console, [NAME_PREFIX].concat([].slice.call(arguments) as any))
+      console.log.apply(console, [NAME_PREFIX].concat(parts as any))
     } catch {}
   }
 
@@ -786,7 +786,9 @@ export function installGmWrapper(env: GmWrapperEnv): GmWrapperHandle {
     if (typeof Blob !== 'undefined' && input instanceof Blob) blob = input
     else if (input instanceof ArrayBuffer) blob = new Blob([input])
     else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(input))
-      blob = new Blob([new Uint8Array(input.buffer, input.byteOffset, input.byteLength)])
+      blob = new Blob([
+        new Uint8Array(input.buffer as ArrayBuffer, input.byteOffset, input.byteLength),
+      ])
     if (!blob)
       return Promise.reject(
         new Error(
