@@ -134,7 +134,8 @@ describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
     })
     expect(stub.sent).toHaveLength(1)
     expect(stub.sent[0]).toMatchObject({
-      __dl: true,
+      __gm: 1,
+      kind: 'req',
       uuid: UUID,
       req: { c: 'store.get', key: 'k' },
     })
@@ -144,7 +145,7 @@ describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
     const { api, stub } = setup({ handler: () => ({ ok: true }) })
 
     await api.call({ c: 'store.get', key: 'k' }, 'run-42')
-    expect(stub.sent[0]).toMatchObject({ __dl: true, uuid: UUID, runId: 'run-42' })
+    expect(stub.sent[0]).toMatchObject({ __gm: 1, kind: 'req', uuid: UUID, runId: 'run-42' })
 
     // 不带 runId 的帧：字段为 undefined，SW 侧按「无归属」处理，不崩
     await api.call({ c: 'store.get', key: 'k' })
@@ -182,7 +183,7 @@ describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
     const { win, stub } = setup()
 
     win.postMessage({
-      __dlBridge: 1,
+      __gm: 1,
       kind: 'req',
       uuid: UUID,
       seq: 1,
@@ -219,36 +220,38 @@ describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
 
     await api.connect('conn-1')
     expect(stub.ports).toHaveLength(1)
-    expect(stub.ports[0]!.name).toBe(`duoling:dl:${UUID}:conn-1`)
+    expect(stub.ports[0]!.name).toBe(`duoling:gm:${UUID}:conn-1`)
 
-    stub.ports[0]!.emit({ __dlApiEvent: true, ev: { t: 'port.ready' } })
+    stub.ports[0]!.emit({ __gm: 1, kind: 'api', ev: { t: 'port.ready' } })
     expect(seen).toEqual([{ t: 'port.ready' }])
   })
 
   it('emit 单向上行：运行广播不经握手原样转给扩展侧（fire-and-forget）', () => {
     const { api, stub } = setup({ handler: () => undefined })
 
-    expect(api.emit({ __dlRunStart: true, name: '探针', runId: 'r-1' })).toBeUndefined()
+    expect(api.emit({ kind: 'runstart', name: '探针', runId: 'r-1' })).toBeUndefined()
     expect(stub.sent).toHaveLength(1)
     expect(stub.sent[0]).toMatchObject({
-      __dlRunStart: true,
+      __gm: 1,
+      kind: 'runstart',
       uuid: UUID,
       name: '探针',
       runId: 'r-1',
     })
   })
 
-  it('emit 的错误上报帧（__dlEvent）同样原样转发', () => {
+  it('emit 的错误上报帧（MAIN 腿 kind: notice）转发成 SW 腿的 kind: ev', () => {
     const { api, stub } = setup({ handler: () => undefined })
 
     api.emit({
-      __dlEvent: true,
+      kind: 'notice',
       name: '探针',
       event: { t: 'error', phase: 'runtime', message: '炸了', url: 'https://page.test/' },
     })
     expect(stub.sent).toHaveLength(1)
     expect(stub.sent[0]).toMatchObject({
-      __dlEvent: true,
+      __gm: 1,
+      kind: 'ev',
       uuid: UUID,
       event: { t: 'error', message: '炸了' },
     })
@@ -258,8 +261,8 @@ describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
     const { win, stub } = setup({ handler: () => undefined })
 
     win.postMessage({
-      __dlBridge: 1,
-      __dlEvent: true,
+      __gm: 1,
+      kind: 'notice',
       uuid: UUID,
       seq: 7,
       proof: 'deadbeef',

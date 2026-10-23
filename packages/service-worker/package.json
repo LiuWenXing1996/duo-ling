@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "SW 进程包：GM 运行时的 SW 侧宿主（注册引擎 / 命令分发 dl-bridge / 事件底座 dl-port / cookie 域名门 / require+resource 缓存 / 管理面 handler pack / 宿主注入点 / 中继件宿主侧注册面）+ 本扩展的 SW 侧服务实体与 offscreen 容器能力约定（源码直出，由主包构建）",
+  "description": "SW 进程包：GM 运行时的 SW 侧宿主（注册引擎 / 命令分发 gm-bridge / 事件底座 gm-port / cookie 域名门 / require+resource 缓存 / 管理面 handler pack / 宿主注入点 / 中继件宿主侧注册面）+ 本扩展的 SW 侧服务实体与 offscreen 容器能力约定（源码直出，由主包构建）",
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts"

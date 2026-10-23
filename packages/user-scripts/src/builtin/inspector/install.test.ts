@@ -5,7 +5,6 @@
 // 拾取模式（pick）**不在覆盖范围**：它要真实 hit-testing、事件流与渲染，最小桩测不出行为
 // （e2e 里也没有检查器用例），只能靠真机点选验证。这里测的是另外两个模式与通道本身。
 //
-// 注入方式：件读裸全局（window / document / location / navigator）与同作用域的 `__dlBridge`
 // （GM 包装恒注入），故把它们都装成全局再调安装函数 —— 与真注入同一条路径。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { installPageInspector } from './install'
@@ -16,9 +15,7 @@ function flush(): Promise<void> {
 }
 
 interface FakeBridge {
-  /** 件 emit 出去的信封（__dlEvent 上行） */
   sent: Array<Record<string, unknown>>
-  /** 从 SW 下发一帧事件进件（模拟 DL Port → 中继件 → 桥 onEvent） */
   fire: (ev: unknown) => void
   /** 装接收时是否抛（桥不可用的形态） */
   breakListener: () => void
@@ -37,7 +34,7 @@ function stubBridge(): FakeBridge {
   vi.stubGlobal('location', { href: 'https://page.test/app' })
   vi.stubGlobal('navigator', { userAgent: 'test-ua/1.0' })
   vi.stubGlobal('setInterval', () => 0) // 重发自愈的定时器：测试里不真跑
-  vi.stubGlobal('__dlBridge', {
+  vi.stubGlobal('__gmBridge', {
     connect: () => {
       connects.push(1)
       return Promise.resolve()
@@ -84,7 +81,7 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
 
     expect(bridge.sent).toHaveLength(1)
     const out = bridge.sent[0]
-    expect(out.__dlEvent).toBe(true)
+    expect(out.kind).toBe('ev')
     expect(out.name).toBe('页面检查器')
     const ev = out.event as Record<string, unknown>
     expect(ev.t).toBe('inspector.result')
@@ -117,7 +114,7 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
   it('非指令帧不响应；重复安装只装一条接收（幂等守卫）', async () => {
     const bridge = stubBridge()
     installPageInspector()
-    installPageInspector() // 第二次应被 window.__dlInspectorHost 挡下
+    installPageInspector()
 
     bridge.fire({ t: 'store.change', key: 'k' }) // 别的桥事件：静默忽略
     bridge.fire({ t: 'inspector.cmd', cmd: 'snapshot' }) // 没有 reqId：静默忽略（无从配对）

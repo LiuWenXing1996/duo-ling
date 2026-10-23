@@ -11,7 +11,6 @@
 // 双向并维持请求配对，所以带 proof 校验与 seq 单调检查（见 @duoling/shared 的 bridge.ts）。
 // 同帧里可能有多个脚本共用本件，故一切按 uuid 路由。
 //
-// 世界要求：注册到独立世界（worldId: 'us-dl-bridge'）且必须 configureWorld({ messaging: true })，
 // 否则世界内没有 chrome.runtime，「世界未开 messaging」这条报错就是为它准备的。
 
 // 全 builtin 只有本件碰 chrome（USER_SCRIPT 世界开 messaging 后的 runtime 面）：
@@ -28,16 +27,13 @@ import {
 declare global {
   interface Window {
     /** 幂等守卫：同一 realm 被注入两次也只装一遍（防重复注册 / 导航竞态） */
-    __dlScriptRelay?: boolean
+    __gmScriptRelay?: boolean
   }
 }
 
-/** 下行事件的信封标记（SW 经 Port 推来，件原样转给页面） */
-const API_EVENT_TAG = '__dlApiEvent'
-
 export function installRelay(secret: string): void {
-  if (window.__dlScriptRelay) return
-  window.__dlScriptRelay = true
+  if (window.__gmScriptRelay) return
+  window.__gmScriptRelay = true
 
   // 每脚本 × 每帧：一个 Port（下行通道）＋ 一个已接受序号水位（防重放）
   const lastSeq: Record<string, number> = {}
@@ -77,16 +73,16 @@ export function installRelay(secret: string): void {
     if (!rt || typeof rt.connect !== 'function') return
     let p: chrome.runtime.Port
     try {
-      p = rt.connect({ name: 'duoling:dl:' + uuid + ':' + connId })
+      p = rt.connect({ name: 'duoling:gm:' + uuid + ':' + connId })
     } catch {
       return
     }
     ports[uuid] = p
     try {
       p.onMessage.addListener((m: unknown) => {
-        const ev = m as Record<string, unknown> | null
-        if (!ev || ev[API_EVENT_TAG] !== true || !ev.ev) return
-        send(uuid, { kind: 'ev', ev: ev.ev })
+        const frame = m as Record<string, unknown> | null
+        if (!frame || frame[BRIDGE_MSG_TAG] !== BRIDGE_MSG_TAG_VALUE || frame.kind !== 'api') return
+        send(uuid, { kind: 'ev', ev: frame.ev })
       })
       if (p.onDisconnect && typeof p.onDisconnect.addListener === 'function') {
         p.onDisconnect.addListener(() => {
@@ -108,25 +104,36 @@ export function installRelay(secret: string): void {
       return
     }
     try {
-      rt.sendMessage({ __dl: true, uuid, req, runId }, (resp: unknown) => {
-        void rt.lastError // 后台未就绪 / SW 冷启动窗口：按「无响应」回传，脚本侧报明确错误
-        reply(uuid, seq, resp || null)
-      })
+      rt.sendMessage(
+        {
+          [BRIDGE_MSG_TAG]: BRIDGE_MSG_TAG_VALUE,
+          v: BRIDGE_PROTOCOL_VERSION,
+          kind: 'req',
+          uuid,
+          req,
+          runId,
+        },
+        (resp: unknown) => {
+          void rt.lastError
+          reply(uuid, seq, resp || null)
+        },
+      )
     } catch (e) {
       unavailable(uuid, seq, String((e as Error | undefined)?.message ?? e))
     }
   }
 
-  // 单向上行（fire-and-forget）：运行广播（__dlRunStart）/ 错误上报（__dlEvent），
-  // 原样转给 SW（dl-bridge 的 onUserScriptMessage 收，读 uuid / name / event 等字段），
-  // 无应答，失败静默 —— 监控与日志不该反向打扰脚本。
   function forwardOneWay(frame: Record<string, unknown>): void {
     const rt = runtimeOf()
     if (!rt || typeof rt.sendMessage !== 'function') return
+    const kind = frame.kind === 'notice' ? 'ev' : frame.kind
     try {
-      rt.sendMessage(frame, () => {
-        void rt.lastError /* SW 未就绪：丢弃 */
-      })
+      rt.sendMessage(
+        { ...frame, kind, [BRIDGE_MSG_TAG]: BRIDGE_MSG_TAG_VALUE, v: BRIDGE_PROTOCOL_VERSION },
+        () => {
+          void rt.lastError
+        },
+      )
     } catch {
       /* 同上 */
     }
@@ -157,7 +164,7 @@ export function installRelay(secret: string): void {
       forward(uuid, seq, d.req, d.runId)
       return
     }
-    if (d.__dlRunStart === true || d.__dlEvent === true) {
+    if (d.kind === 'runstart' || d.kind === 'notice') {
       forwardOneWay(d)
       return
     }

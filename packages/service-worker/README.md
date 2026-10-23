@@ -8,8 +8,8 @@ offscreen 容器能力约定。机制的来龙去脉见 [ARCHITECTURE.md](../../
 | --- | --- |
 | 注册引擎 —— 世界配置 / 单脚本与全量注册 / 可用性检测 | `registration` |
 | 可用性监视 —— SW 进程内轮询引擎可用性，只在翻转时通知消费层 | `availability-watch` |
-| 命令分发 —— 中继件发来的 GM 请求（storage / xhr / download / menu…） | `dl-bridge` |
-| 事件底座 —— 脚本世界 ↔ SW 长连接的下行通道（菜单点击 / 值变更 / 下载进度） | `dl-port` |
+| 命令分发 —— 中继件发来的 GM 请求（storage / xhr / download / menu…） | `gm-bridge` |
+| 事件底座 —— 脚本世界 ↔ SW 长连接的下行通道（菜单点击 / 值变更 / 下载进度） | `gm-port` |
 | cookie 域名门 —— GM_cookie 的安全边界（scheme + host） | `cookie-gate` |
 | `@require` / `@resource` 的抓取与落库 | `require-cache` / `resource-cache` |
 | 运行时命令面 —— 管理面只读四条 | `management` |

@@ -1,6 +1,3 @@
-// dl-bridge.ts 单测：走真实监听器链路（initDlBridge 注册 → 捕获监听函数 → 手工投递消息）。
-// chrome 由 vi.stubGlobal 整体替换（fakeBrowser 无 onUserScriptMessage），fetch 用 vi.fn 接管。
-// cookie 段的域名门与 GM tab 后端走真实 IndexedDB（fake-indexeddb 播种/断言），不 mock 存储层。
 import 'fake-indexeddb/auto'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiRequest, ApiResponse, ScriptProject } from '@duoling/shared'
@@ -9,7 +6,7 @@ import {
   getTabValue as getTabRecord,
   putTabValue as putTabRecord,
 } from './usdata-db'
-import { removeProjects, writeProject } from '@duoling/shared'
+import { removeProjects, writeProject, BRIDGE_PROTOCOL_VERSION } from '@duoling/shared'
 
 type Listener = (raw: unknown, sender: unknown, sendResponse: (r: ApiResponse) => void) => unknown
 
@@ -36,7 +33,6 @@ let dnrMocks: {
 }
 let webRequestListeners: Array<(details: unknown) => void>
 
-/** 完整 chrome.cookies.Cookie 样本（测试只关心字段透传，故给全字段） */
 function chromeCookie(over: Partial<chrome.cookies.Cookie> = {}): chrome.cookies.Cookie {
   return {
     name: 'sid',
@@ -53,7 +49,6 @@ function chromeCookie(over: Partial<chrome.cookies.Cookie> = {}): chrome.cookies
   }
 }
 
-/** 播种一个脚本项目（cookie 域名门的配置来源） */
 function seedScript(uuid: string, matches: string[], excludeMatches?: string[]): Promise<void> {
   const project: ScriptProject = {
     v: 2,
@@ -78,7 +73,7 @@ let downloadsMocks: {
 }
 
 beforeEach(async () => {
-  vi.resetModules() // initDlBridge 有模块级 initialized 幂等标志，重置后每次都能重新注册
+  vi.resetModules()
   listeners = []
   downloadsMocks = {
     download: vi.fn(async () => 1),
@@ -118,17 +113,19 @@ beforeEach(async () => {
       },
     },
   })
-  const mod = await import('./dl-bridge')
-  mod.initDlBridge()
+  const mod = await import('./gm-bridge')
+  mod.initGmBridge()
   sendToBridge = (req, uuid = 'u1') =>
     new Promise((resolve) => {
-      listeners[0]!({ __dl: true, uuid, req }, { tab: { id: 1 } }, resolve)
+      listeners[0]!(
+        { __gm: 1, v: BRIDGE_PROTOCOL_VERSION, kind: 'req', uuid, req },
+        { tab: { id: 1 } },
+        resolve,
+      )
     })
 })
 
 afterEach(async () => {
-  // 顺序要紧：fake-indexeddb 内部靠定时器调度请求队列，fake timers 未还原时
-  // 任何 IDB 调用都会永久挂起（表现为 hook 10s 超时，不是报错）
   vi.useRealTimers()
   await removeProjects([COOKIE_UUID])
   vi.unstubAllGlobals()
@@ -137,7 +134,6 @@ afterEach(async () => {
 describe('GM_xmlhttpRequest timeout', () => {
   it('到点中止请求，报 BRIDGE_TIMEOUT，fetch 收到 abort signal', async () => {
     vi.useFakeTimers()
-    // 挂死不返回的请求：只在被 abort 时 reject
     fetchMock.mockImplementation((_url: string, init: RequestInit) => {
       expect(init.signal).toBeInstanceOf(AbortSignal)
       return new Promise((_resolve, reject) => {
@@ -172,12 +168,11 @@ describe('GM_xmlhttpRequest timeout', () => {
 describe('GM_xmlhttpRequest 二进制请求体', () => {
   it('信封解码为 Uint8Array 传给 fetch（字节逐个还原，0x00 / 0xff 不被 UTF-8 破坏）', async () => {
     fetchMock.mockResolvedValue(new Response('ok'))
-    // [0x00, 0xff, 0x10, 0x41]——含 UTF-8 编码会破坏的字节
     const b64 = btoa(String.fromCharCode(0x00, 0xff, 0x10, 0x41))
     await sendToBridge({
       c: 'fetch',
       url: 'https://x.test/',
-      init: { method: 'POST', body: { __dlBinaryBody: true, base64: b64 } },
+      init: { method: 'POST', body: { __gmBinaryBody: true, base64: b64 } },
     })
     const body = fetchMock.mock.calls[0]![1].body as Uint8Array
     expect(body).toBeInstanceOf(Uint8Array)
@@ -222,7 +217,6 @@ describe('GM_xmlhttpRequest forbidden header 覆写（DNR session 规则）', ()
     })
     expect(resp.ok).toBe(true)
 
-    // 挂载：set 操作 + host 级作用域 + 自家 initiator
     expect(dnrMocks.updateSessionRules).toHaveBeenCalledTimes(2)
     const attach = dnrMocks.updateSessionRules.mock.calls[0]![0]
     expect(attach.addRules).toHaveLength(1)
@@ -239,13 +233,11 @@ describe('GM_xmlhttpRequest forbidden header 覆写（DNR session 规则）', ()
     })
     expect(attach.removeRuleIds).toEqual([rule.id])
 
-    // 原生路径：禁设头不进 Headers（fetch 会静默丢弃的路），普通头保留
     const init = fetchMock.mock.calls[0]![1]
     expect(init.headers.get('cookie')).toBeNull()
     expect(init.headers.get('referer')).toBeNull()
     expect(init.headers.get('x-custom')).toBe('v')
 
-    // 用后即撤
     const detach = dnrMocks.updateSessionRules.mock.calls[1]![0]
     expect(detach.removeRuleIds).toEqual([rule.id])
     expect(detach.addRules).toBeUndefined()
@@ -303,11 +295,10 @@ describe('GM_xmlhttpRequest forbidden header 覆写（DNR session 规则）', ()
 describe("GM_xmlhttpRequest redirect:'manual'（webRequest 观测）", () => {
   it('opaqueredirect 配观测合成 3xx 响应：status/headers/location、body 空、url 为请求 URL', async () => {
     fetchMock.mockImplementation(async () => {
-      await new Promise((r) => setTimeout(r, 10)) // 留出观测窗口
+      await new Promise((r) => setTimeout(r, 10))
       return { type: 'opaqueredirect', status: 0 } as unknown as Response
     })
     const p = sendToBridge({ c: 'fetch', url: 'https://x.test/r', init: { redirect: 'manual' } })
-    // fetch 收到 manual 语义；等待者先于 fetch 登记
     await new Promise((r) => setTimeout(r, 5))
     expect(fetchMock.mock.calls[0]![1].redirect).toBe('manual')
     webRequestListeners[0]!({
@@ -378,7 +369,6 @@ describe('GM tabs', () => {
   })
 
   it('tabs.close 调 chrome.tabs.remove（非最后一个标签页）', async () => {
-    // window.close 的落点：先取 tab 拿 windowId、再数同窗口兄弟 —— 最后一个不许关（对齐 TM）
     tabsMocks.get.mockResolvedValue({ id: 7, windowId: 3 })
     tabsMocks.query.mockResolvedValue([{ id: 7 }, { id: 8 }])
     tabsMocks.remove.mockResolvedValue(undefined)
@@ -445,17 +435,14 @@ describe('download（浏览器下载器）', () => {
   })
 
   it('download.cancel 后 interrupted 终帧仍会推给脚本（onerror 回路；登记提前删 = 终帧被丢 = 调用方挂死）', async () => {
-    // 桥已上移进包（此处测的是 dist bundle，bundle 内部调用不走导出命名空间，
-    // spyOn 推帧函数截不到）—— 改走行为面：往注册表挂一条假连接，断言 Port 真收到终帧。
-    const dlPort = await import('./dl-port')
-    const registry = dlPort.getDlPortRegistry()
+    const dlPort = await import('./gm-port')
+    const registry = dlPort.getGmPortRegistry()
     const postMessage = vi.fn()
     const port = {
       postMessage,
       onDisconnect: { addListener: vi.fn() },
     } as unknown as chrome.runtime.Port
     registry.addPort(port, { uuid: COOKIE_UUID, connId: 'c1', tabId: 1 })
-    // 带 requestId + connId 发起：doDownload 才会把这次下载登记进 downloadWatch
     downloadsMocks.download.mockResolvedValueOnce(9)
     downloadsMocks.search.mockResolvedValueOnce([{ id: 9, totalBytes: 100, bytesReceived: 0 }])
     await sendToBridge(
@@ -464,7 +451,6 @@ describe('download（浏览器下载器）', () => {
     )
     await sendToBridge({ c: 'download.cancel', id: 9 }, COOKIE_UUID)
     expect(downloadsMocks.cancel).toHaveBeenCalledWith(9)
-    // 浏览器回报 interrupted（USER_CANCELED）：终帧必须还能寻到登记、带着 error 推出去
     const onChangedCb = downloadsMocks.onChanged.addListener.mock.calls[0]![0] as (
       d: unknown,
     ) => void
@@ -475,7 +461,8 @@ describe('download（浏览器下载器）', () => {
     })
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        __dlApiEvent: true,
+        __gm: 1,
+        kind: 'api',
         ev: expect.objectContaining({
           t: 'download.change',
           requestId: 'dl1',
@@ -498,7 +485,7 @@ describe('GM_cookie（cookies 权限 + 域名门）', () => {
   })
 
   it('命中脚本自身匹配域：恒返回数组，字段原样透传（httpOnly 照给）', async () => {
-    await seedScript(COOKIE_UUID, ['https://example.com/foo/*']) // path 收窄不影响 cookie 作用域
+    await seedScript(COOKIE_UUID, ['https://example.com/foo/*'])
     const resp = await sendToBridge({ c: 'cookie.get', url: 'https://example.com/' }, COOKIE_UUID)
     expect(resp.ok).toBe(true)
     if (resp.ok) {
@@ -525,7 +512,6 @@ describe('GM_cookie（cookies 权限 + 域名门）', () => {
       COOKIE_UUID,
     )
     expect(hit.ok).toBe(true)
-    // 三个条件都进查询：url 恒在（域名门的落点），domain / path 只是收窄 —— chrome 的查询是 AND 语义
     expect(cookiesMocks.getAll).toHaveBeenCalledWith({
       url: 'https://a.test/',
       name: 'sid',
@@ -533,7 +519,6 @@ describe('GM_cookie（cookies 权限 + 域名门）', () => {
       path: '/',
     })
 
-    // 未命中：getAll 给空数组 → 桥原样回空数组（不是 null）
     cookiesMocks.getAll.mockResolvedValueOnce([])
     const miss = await sendToBridge(
       { c: 'cookie.get', url: 'https://a.test/', name: 'nope' },
@@ -564,7 +549,6 @@ describe('GM_cookie（cookies 权限 + 域名门）', () => {
       domain: '.a.test',
       path: '/x',
     })
-    // chrome.cookies.remove 只吃 { url, name }：url 由 cookie 自己的域（去前导点）+ 路径 + secure 拼出
     expect(cookiesMocks.remove).toHaveBeenCalledWith({ url: 'https://a.test/x', name: 'sid' })
   })
 
@@ -668,7 +652,6 @@ describe('GM tab', () => {
   it('tab.save 落 duoling-usdata 库，tab.get 原样读回', async () => {
     const saveResp = await sendToBridge({ c: 'tab.save', value: { n: 1, s: 'x' } })
     expect(saveResp).toEqual({ ok: true, data: undefined })
-    // 落库事实：复合主键 [uuid, tabId] 直读
     const rec = await getTabRecord('u1', 1)
     expect(rec).toEqual({ n: 1, s: 'x' })
     const getResp = await sendToBridge({ c: 'tab.get' })
@@ -678,24 +661,26 @@ describe('GM tab', () => {
   it('tab.all 只聚合本脚本的 tab 记录，键为 tabId 字符串', async () => {
     await putTabRecord('u1', 11, { a: 1 })
     await putTabRecord('u1', 22, { a: 2 })
-    await putTabRecord('other', 11, { leak: true }) // 别的脚本，不应混入
+    await putTabRecord('other', 11, { leak: true })
     const resp = await sendToBridge({ c: 'tab.all' })
     expect(resp).toEqual({ ok: true, data: { '11': { a: 1 }, '22': { a: 2 } } })
   })
 
   it('无标签页上下文（sender.tab 缺失）报 INVALID_ARG', async () => {
-    // sendToBridge 固定带 { tab: { id: 1 } }，这里用裸监听器投递一个无 tab 的 sender
     const resp = await new Promise((resolve) => {
-      listeners[0]!({ __dl: true, uuid: 'u1', req: { c: 'tab.get' } }, {}, resolve)
+      listeners[0]!(
+        { __gm: 1, v: BRIDGE_PROTOCOL_VERSION, kind: 'req', uuid: 'u1', req: { c: 'tab.get' } },
+        {},
+        resolve,
+      )
     })
     expect(resp).toMatchObject({ ok: false, code: 'INVALID_ARG' })
   })
 })
 
 describe('summarizeRunEvent（运行事件摘要）', () => {
-  /** 取一份模块实例里的纯函数（沿用本文件 resetModules 的语义，不另建 import 面） */
   async function summarize(req: ApiRequest) {
-    const { summarizeRunEvent } = await import('./dl-bridge')
+    const { summarizeRunEvent } = await import('./gm-bridge')
     return summarizeRunEvent(req)
   }
 
@@ -706,7 +691,6 @@ describe('summarizeRunEvent（运行事件摘要）', () => {
       kind: 'fetch',
       detail: 'POST https://x.test/a',
     })
-    // method 缺省即 GET
     expect(await summarize({ c: 'fetch', url: 'https://x.test/a' })).toEqual({
       kind: 'fetch',
       detail: 'GET https://x.test/a',

@@ -179,7 +179,6 @@ export default defineConfig({
     // 对话 loop 与源码写侧（offscreen-document 的文件库 / userstate）都跑在 offscreen document 里，
     // 「用户发起生成后可收起浮层、任务照跑完」。没有该权限 chrome.offscreen 不存在
     // （Chrome 109+ / 仅 MV3）。
-    // contextMenus = GM_registerMenuCommand（用户脚本扩展菜单，事件回推见 dl-port.ts）的载体 API，
     // 未来项目自身菜单也走它。
     // cookies = GM_cookie（list / set / delete）的载体 API。**注意：host 已是 <all_urls>，
     // 故此权限等价于「SW 可读写全浏览器 cookie（含 HttpOnly）」**，是能力面最大的一项权限。
@@ -200,7 +199,6 @@ export default defineConfig({
       'cookies',
       'clipboardWrite',
       // 用户脚本的 GM_download 走**浏览器下载器**（chrome.downloads）：能弹「另存为」，
-      // 且大文件流式落盘（整份读进内存再走 data URL 会撑爆内存）。见 dl-bridge 的 doDownload。
       'downloads',
       'declarativeNetRequestWithHostAccess',
       'webRequest',

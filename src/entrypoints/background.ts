@@ -462,8 +462,6 @@ const handlers: {
 
   // —— 拾取（浮层发起的用户动作）——
   // 目标页判据见 resolvePickTargetTab —— 与上面两条 AI 支路刻意不同，别在这里另写一份。
-  // 下发与结果配对都在 page-inspector-bridge：件在页面里常驻待命，指令经 DL Port 事件帧下去，
-  // 结果由件经脚本桥 __dlEvent 信封上来（dl-bridge 分流后交 handleInspectorEvent）。
   'picker:pick': async (): Promise<ElementPickContext | null> =>
     runInspectorCommand<ElementPickContext>(await resolvePickTargetTab('点选元素'), 'pick'),
 
@@ -474,7 +472,6 @@ const handlers: {
 
   // —— 浮层宿主命令面 ——
   // 件已转 MAIN 世界系统脚本，tabs.sendMessage 到不了它：四条动作都在 SW 经
-  // float-bridge 下发（DL Port 事件帧 float.cmd，按系统脚本 uuid + tabId 寻址）。
   // open 报错（推不到 = 该页上没有件的在岗连接），其余单向动作静默。
   'float:open': async (msg): Promise<null> => {
     if (!openFloatPanel(msg.tabId)) {
@@ -1075,7 +1072,6 @@ function mountProposal2Listeners(): void {
 // 浏览器渲染，页面里的东西遮不住它，也不依赖浮层宿主件已经挂上 UI。
 //
 // id 带 `duoling:` 前缀：与用户脚本的 GM_registerMenuCommand 共用 contextMenus 命名空间，
-// 脚本侧是 `us:<uuid>:<menuId>`（见 dl-port.ts 的 parseMenuitemId —— 它只认那个前缀，本条会被放行）。
 const FLOAT_MENU_ID = 'duoling:open-float'
 
 /** 通知图标（复用 auto-icons 构建生成的 icons/128.png，与工具栏图标同源；与用户脚本通知的兜底图标同一个文件） */

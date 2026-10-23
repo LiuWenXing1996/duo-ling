@@ -69,7 +69,6 @@ function openWorkbench(hash = ''): void {
  * 收起对话框（顶栏最右那颗按钮）。
  *
  * 容器的显隐握在父页的浮层宿主件手里，而本组件在 iframe 里（跨源），只能发一条命令叫它收 ——
- * tabId 从 iframe URL 的 `?tab=` 读出（见 lib/owning-tab），命令经 SW 转 DL Port 事件帧下去
  * （宿主件在 MAIN 世界没有 chrome.runtime，tabs.sendMessage 到不了它）。
  *
  * 发不出去时静默（页面已导航走 / 扩展刚更新）：这颗按钮的用途只是「让开页面」，没什么可失败的。

@@ -17,7 +17,6 @@ import { FLOAT_HOST_ID, INSPECTOR_HOST_ID, TAB_RECORDER_ID } from '@duoling/user
  * 系统脚本作为机制件若不滤掉，普通网页的角标会凭空 +2（检查器 / 浮层宿主全站匹配），
  * 活动历史也会混进不是用户发起的运行条。
  *
- * 过滤在遥测接线这一处做（四个口一起拦）：包内 dl-bridge 不知道「谁是系统脚本」—— 那是
  * 应用侧的概念（id 真相源在 @duoling/user-scripts/builtin 的 registry.ts）；而观测的消费面
  * （page-monitor / store）也不该各自维护一份黑名单。
  *

@@ -7,8 +7,6 @@
 //   的下发封装（page:snapshot / page:env 的 handler 调 capturePage*FromTab）。
 //
 // 件已是 MAIN 世界系统脚本（走统一脚本链，见 system-scripts.ts），通道全走脚本桥：
-//   · 下行 —— DL Port 事件帧 `inspector.cmd`（按系统脚本 uuid + tabId 寻址，pushCommandTo）；
-//   · 上行 —— `__dlEvent` 信封 `inspector.result`，dl-bridge 分流后交 handleInspectorEvent
 //     （telemetry port 注入，见 telemetry.ts）。
 //
 // 超时放在这一层（不重复设在发起侧）：件可能因页面卸载 / 导航而永远不上报，留一条兜底，
@@ -16,7 +14,7 @@
 
 import type { PageEnvContext, PageSnapshotContext } from '@duoling/shared'
 import { INSPECTOR_HOST_ID } from '@duoling/user-scripts/builtin'
-import { pushCommandTo } from '../dl-port'
+import { pushCommandTo } from '../gm-port'
 
 /** 单次调用的超时：用户点选可能很久不结算，但页面关掉 / 导航会让它永不结算，必须有兜底 */
 const PICK_TIMEOUT_MS = 60_000
@@ -74,7 +72,6 @@ export async function runInspectorCommand<T>(
     pending.set(reqId, { resolve, reject, timer })
   })
   if (mode === 'pick') activePickTabId = tabId
-  // 下行走 DL Port 事件帧：0 = 该页上没有件的在岗连接（没注册 / 没到位 / 导航中）。
   // 即时失败并清记账 —— 这条 wait 不会再有人 await，留着只会得到一条
   // 「拒绝却无人处理」的 Promise（控制台噪音），而不是给用户任何信息。
   const sent = pushCommandTo(INSPECTOR_HOST_ID, tabId, { t: 'inspector.cmd', cmd: mode, reqId })
@@ -113,7 +110,6 @@ export async function cancelPicker(): Promise<void> {
 }
 
 /**
- * 件上报的指令结果（dl-bridge 的 `__dlEvent` 分流交来；telemetry port 注入，见 telemetry.ts）。
  *
  * 认领与结算分开看：
  *   · 旁证只认 **uuid** —— 信封上带着发件系统脚本的固定 uuid，不是检查器自己的就丢弃出声；

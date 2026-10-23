@@ -6,9 +6,8 @@
 import { describe, expect, it } from 'vitest'
 import { BRIDGE_DIGEST_SNIPPET, bridgeDigest } from './bridge'
 
-/** 在独立作用域里求值片段，取出它声明的 __dlBridgeDigest（片段用法就是插进另一段源码） */
 function snippetDigest(): (secret: string, challenge: string) => string {
-  return new Function(`${BRIDGE_DIGEST_SNIPPET}\nreturn __dlBridgeDigest`)() as (
+  return new Function(`${BRIDGE_DIGEST_SNIPPET}\nreturn __gmBridgeDigest`)() as (
     secret: string,
     challenge: string,
   ) => string

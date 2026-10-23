@@ -263,7 +263,6 @@ async function waitForFloatHostRegistered(sw: Worker): Promise<void> {
 /**
  * 浮层宿主件此刻在**这一页**上吗 —— 看应答（`float:ping` 要件回 float.pong 才算），不看通道。
  *
- * 命令走 RuntimeRequest（经 SW 下发 DL Port 事件帧），发送端必须是扩展页：
  * runtime 消息不回环到 SW 自身上下文（见 extension.ts 的说明）。
  */
 async function pingFloatHost(messenger: Page, tabId: number): Promise<boolean> {
@@ -320,7 +319,6 @@ async function openFloatPage(
  * 给某标签页发一条浮层命令（`float:open` / `float:collapse`）。
  *
  * 页面里没有可点的入口（对话框平时不在页面里），这两条命令就是它的开关 —— 与 popup 的按钮、
- * 页面右键菜单、对话框顶栏那颗「收起」是同一套契约（SW 经 DL Port 事件帧下发给宿主件）。
  * 发送方那侧的行为由 PopupPanel 的组件测试覆盖，这里只借扩展页代发一下。
  * 不吞错：宿主件已由 openFloatPage 探通，SW 推不到（回 { ok: false }）就是真失败。
  */

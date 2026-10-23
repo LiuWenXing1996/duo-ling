@@ -13,7 +13,7 @@ import {
 declare global {
   interface Window {
     /** 幂等守卫：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态） */
-    __dlInspectorHost?: boolean
+    __gmInspectorHost?: boolean
   }
 }
 
@@ -289,32 +289,30 @@ function run(mode: InspectorMode): Promise<unknown> {
 }
 
 /**
- * 脚本桥（GM 包装内联进同一作用域的 `__dlBridge`，恒注入）。
  * 形状真相源是 service-worker 的 script-bridge.ts；这里只声明本件用到的方法。
  */
-declare const __dlBridge: {
+declare const __gmBridge: {
   connect(connId: string): Promise<void>
   emit(envelope: Record<string, unknown>): void
   onEvent(fn: (ev: Record<string, unknown>) => void): void
 }
 
-/** 常驻通道的 connId（DL Port name 尾段；SW 寻址只认 uuid+tabId，connId 仅做连接身份） */
 const CHANNEL_CONN_ID = 'inspector'
 /** 断链自愈的重发间隔：SW 重启后中继件侧连接已清，重发 connect 帧重建 Port */
 const CHANNEL_RECONNECT_MS = 15_000
 
 /** 件本体：建常驻通道 + 装指令接收（幂等，重复注入只装一遍） */
 export function installPageInspector(): void {
-  if (window.__dlInspectorHost) return
-  window.__dlInspectorHost = true
+  if (window.__gmInspectorHost) return
+  window.__gmInspectorHost = true
 
   // 结果上行：每个 reqId 只回一条，把结果与发起侧那一次调用配对上。
   // emit 是 fire-and-forget：发不出去（中继件未就位等）本件无从得知，发起侧按超时收场 ——
   // 与旧 chrome.runtime.sendMessage 失败的结局一致，只是页面控制台不再有那句被拒的 warn。
   function report(reqId: string, ok: boolean, payload: unknown): void {
     try {
-      __dlBridge.emit({
-        __dlEvent: true,
+      __gmBridge.emit({
+        kind: 'notice',
         name: '页面检查器',
         event: {
           t: 'inspector.result',
@@ -333,7 +331,7 @@ export function installPageInspector(): void {
   // 对同 uuid+connId 替换旧 Port，重连不会产生双 Port 推两份指令）。
   function keepChannel(): void {
     try {
-      __dlBridge.connect(CHANNEL_CONN_ID).catch(function () {
+      __gmBridge.connect(CHANNEL_CONN_ID).catch(function () {
         /* 握手失败（中继件未就位）：等下一轮 */
       })
     } catch {
@@ -343,9 +341,8 @@ export function installPageInspector(): void {
   keepChannel()
   setInterval(keepChannel, CHANNEL_RECONNECT_MS)
 
-  // 下行接收面：SW 经 DL Port 推 `inspector.cmd`，中继件转回桥 onEvent。
   try {
-    __dlBridge.onEvent(function (ev) {
+    __gmBridge.onEvent(function (ev) {
       if (!ev || ev.t !== 'inspector.cmd') return
       const reqId = String(ev.reqId || '')
       if (!reqId) return

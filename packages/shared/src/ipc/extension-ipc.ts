@@ -163,7 +163,6 @@ export type RuntimeRequest =
 
   // —— 浮层宿主的命令面 ——
   // 浮层宿主件已转 MAIN 世界系统脚本（走统一脚本链），那里没有 chrome.runtime，
-  // tabs.sendMessage 到不了 —— 四条动作全改走「RuntimeRequest → SW → DL Port 事件帧
   // （float.cmd，见包内 userscripts/float-bridge.ts）」的链路；件的接收面见
   // packages/user-scripts/src/builtin/float-host/install.ts。
   //

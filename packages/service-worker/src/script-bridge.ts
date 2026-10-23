@@ -1,7 +1,6 @@
 // 脚本主世界桥 · MAIN 世界侧客户端源码模板。
 //
 // buildScriptBridgeSource(secret, uuid) 返回的字符串由 gm-wrapper.ts 以
-// `var __dlBridge = <源码>` 内联进 GM 包装，运行在**页面 MAIN 世界**。
 //
 // 职责：给同一份包装里的 GM 能力实现当「`chrome.runtime` 的替身」——
 //   · `call(req)` 请求-应答，对应 `chrome.runtime.sendMessage` 的回调式调用语义；
@@ -25,7 +24,6 @@ import {
 } from '@duoling/shared'
 
 export function buildScriptBridgeSource(secret: string, uuid: string): string {
-  // 注意：本源码由 buildGmWrapperSource 以 `var __dlBridge = <源码>` 形式内联，
   // 开头不能带分号（`var x = ;` 是语法错误）。
   return `
 (function () {
@@ -61,7 +59,7 @@ export function buildScriptBridgeSource(secret: string, uuid: string): string {
   function sign(msg) {
     var s = ++seq
     msg.seq = s
-    msg.proof = __dlBridgeDigest(SECRET, UUID + ':' + s)
+    msg.proof = __gmBridgeDigest(SECRET, UUID + ':' + s)
     return msg
   }
 

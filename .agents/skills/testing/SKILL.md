@@ -34,7 +34,7 @@ description: Use when writing, fixing, or debugging tests in this repo — choos
 
 ## happy-dom / Vitest 陷阱（实证）
 
-- **fake timers 与 fake-indexeddb 不能同时挂**：`vi.useFakeTimers()` 生效期间任何 IndexedDB 调用（`fake-indexeddb` 内部靠定时器调度请求队列）**永不 settle**，症状是 hook 超时（`Hook timed out in 10000ms`，指向 `beforeEach`/`afterEach` 行）而不是报错——极易误判成 IDB 或被测代码坏了。规避：任何碰状态库（`state-db` / `project-store` / 经它们到的桥逻辑）的测试，**先 `vi.useRealTimers()` 再做 IDB 操作**，`afterEach` 里也把还原放在清理之前（见 `dl-bridge.test.ts`）；`vi.resetModules()` 不影响这条（全局 `indexedDB` 不受模块重置影响）。
+- **fake timers 与 fake-indexeddb 不能同时挂**：`vi.useFakeTimers()` 生效期间任何 IndexedDB 调用（`fake-indexeddb` 内部靠定时器调度请求队列）**永不 settle**，症状是 hook 超时（`Hook timed out in 10000ms`，指向 `beforeEach`/`afterEach` 行）而不是报错——极易误判成 IDB 或被测代码坏了。规避：任何碰状态库（`state-db` / `project-store` / 经它们到的桥逻辑）的测试，**先 `vi.useRealTimers()` 再做 IDB 操作**，`afterEach` 里也把还原放在清理之前（见 `gm-bridge.test.ts`）；`vi.resetModules()` 不影响这条（全局 `indexedDB` 不受模块重置影响）。
 - **reka-ui 的 DropdownMenu 开不了**：happy-dom 下 `trigger('pointerdown')` / `trigger('click')` **都开不了菜单**（reka 的事件判定不认 VTU 合成的 pointer 事件），用键盘开：`trigger('keydown', { key: 'ArrowDown' })`。
 - **portal 内容不在 `wrapper` 里**：菜单 / Dialog 都 portal 到 `document.body`，`wrapper.findAll()` 找不到——去 `document.querySelectorAll('[role="menuitem"]')` 上找，选中用原生 `el.click()`（见 `UserscriptListPanel.component.test.ts` 批量启停用例）。Dialog 同理：弹窗内的输入框 / 按钮按「不在组件根节点内」筛出来（`portalButtons()` / `pathInput()`）。
 - **点弹窗按钮前必须先 flush**：确认按钮常带 `:disabled="!输入.trim()"` 这类条件，`setValue` / 原生 `input` 事件之后 Vue 是**下一轮**才重渲染出非 disabled 的按钮——不等就点，点的是个灰按钮，什么都不会发生，测试还会以「断言文案没出现」的形式失败（误导性极强，2026-09-19 踩过）。

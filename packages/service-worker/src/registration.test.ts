@@ -2,7 +2,6 @@
 //
 // 模块生命周期：registration 带模块级密钥缓存，每例经 loadReg（resetModules + 动态 import）
 // 重载 —— 与 host.test 同一条纪律。注册动作本身（chrome.userScripts.*）不在此测：
-// 那是宿主接线的行为面，由根侧 dl-bridge.test 与真机验证覆盖。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { UserscriptHostConfig } from './host-config'
 

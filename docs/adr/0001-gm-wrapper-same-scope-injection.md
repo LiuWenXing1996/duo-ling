@@ -18,7 +18,7 @@ GM 成员必须注入到页面 MAIN 世界（与 Tampermonkey 默认一致），
 - 同步读：注册时把该脚本的全量值作为**快照**（`GM_VALUES`）嵌进注入体，同步读走内存；写则「先更本地缓存、再异步过桥」（对齐 Violentmonkey `dumpValue()`：本地先落、`UpdateValue` 后发）。
 - 常驻通道：**读过值也触发 connect**，并补 `store.watchAll` 全量订阅与 connect 后的一次全量校准（覆盖就绪前的窗口）——否则别的标签页改了值，只读值的脚本（不 connect 也能工作）永远收不到，同步快照会长周期陈旧。
 - `@grant` 裁剪：只有写进清单的能力才注入；不写 `@grant` / `@grant none` → 只给恒注入集。
-- 包装**无 `chrome.*`**：MAIN 世界没有扩展 API，一切经同帧中继件转 SW（`__dlBridge`，见 script-bridge.ts）。
+- 包装**无 `chrome.*`**：MAIN 世界没有扩展 API，一切经同帧中继件转 SW（`__gmBridge`，见 script-bridge.ts）。
 
 ## 备选与否决
 

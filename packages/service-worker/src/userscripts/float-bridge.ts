@@ -4,8 +4,6 @@
 // 与 page-inspector-bridge 的分工同款：那边管检查器的 reqId 结算，这边管浮层宿主的四条指令。
 //
 // 件已是 MAIN 世界系统脚本（走统一脚本链，见 system-scripts.ts），通道全走脚本桥：
-//   · 下行 —— DL Port 事件帧 `float.cmd`（按系统脚本 uuid + tabId 寻址，pushCommandTo）；
-//   · 上行 —— 仅 ping 一条有回程：`__dlEvent` 信封 `float.pong`，dl-bridge 分流后交
 //     handleFloatEvent（telemetry port 注入，见 telemetry.ts）。开 / 收 / 遮罩是单向动作，
 //     没有回程 —— 与旧 tabs.sendMessage 的 fire-and-forget 语义一致。
 //
@@ -13,7 +11,7 @@
 // 件可能因页面卸载 / 导航而永不回话，留一条兜底。
 
 import { FLOAT_HOST_ID } from '@duoling/user-scripts/builtin'
-import { pushCommandTo } from '../dl-port'
+import { pushCommandTo } from '../gm-port'
 
 /** 探活的超时：件在位时回话是毫秒级，到点没回就是不在位（页面在导航 / 件没注入） */
 const PING_TIMEOUT_MS = 5_000
@@ -76,7 +74,6 @@ export async function pingFloatHost(tabId: number): Promise<boolean> {
 }
 
 /**
- * 件上报的在岗应答（dl-bridge 的 `__dlEvent` 分流交来；telemetry port 注入，见 telemetry.ts）。
  *
  * 旁证只认 **uuid**（信封上带着发件系统脚本的固定 uuid，不是浮层宿主自己的就丢弃出声）；
  * 结算认 **reqId**（SW 现造，页面与别的脚本都猜不到）。没对上挂起调用的：SW 重启过

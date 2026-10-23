@@ -10,7 +10,6 @@
 // 三件的注册 id 在 @duoling/user-scripts（registry.ts 是声明真相源），展示信息
 // （名字 / 世界 / 一句话作用）由 system-scripts.ts 的 SYSTEM_SCRIPT_DISPLAY 投影
 // （本文件并入中继件一条，见 BUILTIN_META）；
-// 件与 SW 的协议对端（page-inspector-bridge / float-bridge / dl-port）都在本包 —— 纯产品面。
 import type { BuiltinRegistration, ScriptProject } from '@duoling/shared'
 // 检查器 / 浮层 / 录制的注册面（注册 id / 产物文件名）由包声明：件在那儿源码化并构建成
 // 独立 IIFE 文件，扩展侧按 id 取其内容作系统脚本源码（真相源见 user-scripts/builtin 的 registry.ts）。
@@ -204,7 +203,6 @@ async function syncFloatHost(): Promise<ScriptProject | null> {
 // 此后这一页导航到哪个 host 都该继续录。而声明式注册没有 tab 维度（RegisteredUserScript
 // 的匹配字段全是 URL），「这一页接下来会去哪」无从枚举，只能覆盖全部（匹配面见
 // system-scripts.ts 的 SYSTEM_TAB_RECORD_MATCHES）。全匹配只保证钩子在位，不代表谁的
-// 请求都收：真正的裁剪在入站处（dl-bridge 按 sender.tab.id 查那一页的 recording）。
 
 /**
  * 维护录制系统脚本的注册（幂等可重入；调用方已串行化），返回此刻该件的注册态项目

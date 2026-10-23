@@ -1,17 +1,5 @@
 // GM 后台桥（协议契约 @duoling/shared 的 api-contract.ts）。
-//
-// 脚本桥中继件（user-scripts 包 builtin/relay 的 install.ts，USER_SCRIPT 世界）
-// 经 chrome.runtime.sendMessage 发来的消息，
-// 因世界已 configureWorld({messaging:true})，被路由到本文件的 runtime.onUserScriptMessage（而非通用 onMessage）。
-//
-// 消息分流（契约定义；信封名保持 __dl 前缀）：
-//   { __dl: true, uuid, runId?, req: ApiRequest } —— 请求-响应，按 req.c 强类型分发（穷尽性检查）。
-//       runId = 发起这次调用的运行（包装层注入时 mint，见 gm-wrapper 的 __gmRunId）。老包装层不带它，
-//       那时这条请求产生的观测数据（运行事件 / 桥调用失败）就挂不到具体运行上，只能落进孤儿行
-//   { __dlEvent: true, uuid, name, event: DlEvent } —— 单向上行：错误上报收进错误日志（runtime 库），
-//       录制系统脚本的页面采样（t: 'tab.record'）交 ingestTabRecord 归一化落库
-//   { __dlRunStart: true, uuid, name, runId }    —— 运行标识广播：交对话界面监控按 tab 登记
-//
+// 消息分流：信封 `{ __gm: 1, v, kind }` 三种 kind（req / ev / runstart），形状与版本见 api-contract.ts。
 // 安全性：消息来源天然是「不可信用户脚本」，故校验 sender.userScript.scriptId 与消息里的 uuid 一致，
 // 防止伪造身份读写其它脚本的私有存储。background 的 SW 内 fetch 受 <all_urls> host 权限豁免 CORS，
 // 这是 GM_xmlhttpRequest 免 CORS 的基础（Chrome 官方明文：内容脚本中的跨源请求始终按跨源处理）。
@@ -20,13 +8,12 @@ import type {
   ApiRequest,
   ApiResponse,
   GmCookie,
-  DlEvent,
+  ApiNotice,
   FetchFormBody,
   FetchInit,
   FetchPayload,
   Json,
 } from '@duoling/shared'
-// Port 事件底座：控制面实现（菜单登记 / 键级与全量值订阅 / 通知归属 / URL 订阅）
 import {
   registerScriptMenu,
   unregisterScriptMenu,
@@ -38,10 +25,8 @@ import {
   pushFetchProgress,
   pushDownloadChange,
   mintNotification,
-} from './dl-port'
-// GM_cookie 域名门（安全边界：url 须落在该脚本自身 matches 内，只比 scheme+host）
+} from './gm-port'
 import { checkCookieUrl } from './cookie-gate'
-// 标签页录制：转发件送来的采集载荷在 SW 侧按**种类**白名单化；落库走遥测 port（宿主注入）
 
 import {
   normalizeNetCapture,
@@ -52,8 +37,10 @@ import {
   base64ToBytes,
   bytesToBase64,
   errorText,
+  BRIDGE_MSG_TAG,
+  BRIDGE_MSG_TAG_VALUE,
+  BRIDGE_PROTOCOL_VERSION,
 } from '@duoling/shared'
-// GM 值写出口（duoling-usdata 库；store.change 变更事件从这里直发）
 import {
   getGMValue,
   setGMValue,
@@ -64,9 +51,7 @@ import {
   listGMKeys,
   getAllGMValues,
 } from './gm-values'
-// GM_getTab 标签页级存储后端（duoling-usdata 库，SW 独占写）
 import * as usdata from './usdata-db'
-// GM_xmlhttpRequest 特权增强：forbidden header 覆写（DNR session 规则）+ redirect:'manual'（webRequest 观测）
 import {
   splitHeaders,
   hostLock,
@@ -74,22 +59,13 @@ import {
   sweepOrphanRules,
   registerManualWaiter,
   handleObservation,
-} from './dl-fetch-priv'
-// 宿主注入点：扩展身份 / offscreen 就绪 / 遥测（运行日志与错误落盘是宿主的产品面）
+} from './gm-fetch-priv'
 import { extensionName, notificationIcon, offscreenPort, telemetryPort } from './host-config'
 
 import { serviceWorkerLink } from './sw-link'
 
-/**
- * 在飞行的特权请求：`requestId` → AbortController。
- *
- * 服务 `GM_xmlhttpRequest` 返回句柄的 `abort()`（`fetch.abort` 命令）——桥是请求-响应模型，
- * SW 无法反向控制一次已经发出的 fetch，故由本表把「包装层 mint 的 requestId」与 SW 侧控制器对上。
- * 请求结束（含超时 / 异常）即摘除，表只活在请求飞行期间。
- */
 const inFlightFetches = new Map<string, AbortController>()
 
-/** 带 ApiErrorCode 的错误：dispatch 抛出后由监听器写入响应信封的 code 字段 */
 class ApiError extends Error {
   code: ApiErrorCode
   constructor(code: ApiErrorCode, message: string) {
@@ -98,34 +74,27 @@ class ApiError extends Error {
   }
 }
 
-/** 判定请求体是否为包装侧生成的二进制信封（非此形状的对象一律拒绝，不静默吞） */
-function isBinaryBody(v: unknown): v is { __dlBinaryBody: true; base64: string } {
+function isBinaryBody(v: unknown): v is { __gmBinaryBody: true; base64: string } {
   return (
     typeof v === 'object' &&
     v !== null &&
-    (v as { __dlBinaryBody?: unknown }).__dlBinaryBody === true &&
+    (v as { __gmBinaryBody?: unknown }).__gmBinaryBody === true &&
     typeof (v as { base64?: unknown }).base64 === 'string'
   )
 }
 
-/** 判定请求体是否为包装侧生成的 FormData 信封 */
 function isFormBody(v: unknown): v is {
-  __dlFormData: true
+  __gmFormData: true
   fields: Array<{ name: string; value?: string; base64?: string; type?: string; filename?: string }>
 } {
   return (
     typeof v === 'object' &&
     v !== null &&
-    (v as { __dlFormData?: unknown }).__dlFormData === true &&
+    (v as { __gmFormData?: unknown }).__gmFormData === true &&
     Array.isArray((v as { fields?: unknown }).fields)
   )
 }
 
-/**
- * 把 FormData 信封重建为真正的 FormData：二进制字段（base64）还原为 Blob（带 type/filename），
- * 浏览器据此自动生成 multipart boundary。调用方务必不要手写 content-type——这里强制剔除并 warning，
- * 否则手设的 content-type 会覆盖 boundary，服务器必 400。
- */
 function rebuildFormData(body: FetchFormBody): FormData {
   const fd = new FormData()
   for (const f of body.fields) {
@@ -141,27 +110,12 @@ function rebuildFormData(body: FetchFormBody): FormData {
   return fd
 }
 
-/**
- * GM_xmlhttpRequest 的后台实现：SW 内特权请求，豁免 CORS。
- * 与旧 GM 版不同：非 2xx 不抛错——HTTP 状态属于正常响应内容，由 FetchPayload.ok 承载。
- *
- * forbidden header 覆写（DNR session 规则）、redirect / timeout / 流式进度的机制与口径
- * 见 ARCHITECTURE.md「脚本注入」节的 DNR 条目。覆写请求挂规则期间对该 host
- * 独占（写者），纯请求共享（读者），读写锁在 dl-fetch-priv.ts。
- */
-/**
- * 读响应体；`onProgress` 存在时改成**流式读 + 边读边推进度**（读完照样拼成完整字节，返回路径不变）。
- *
- * 只有显式要进度的请求走这条路（`FetchInit.wantProgress`），其余仍是 `resp.arrayBuffer()` /
- * `resp.text()` —— 零行为变化。节流按「≥64KB 或 ≥50ms」：响应块可能很密（大文件几千块），
- * 逐块推会把 Port 打满，而进度条不需要那个粒度。
- */
 async function readBodyStreaming(
   resp: Response,
   onProgress: (loaded: number, total: number | null) => void,
 ): Promise<ArrayBuffer> {
   const reader = resp.body?.getReader()
-  if (!reader) return await resp.arrayBuffer() // 无流（罕见）：退化，仍给完整体
+  if (!reader) return await resp.arrayBuffer()
   const header = resp.headers.get('content-length')
   const parsed = header == null ? Number.NaN : Number(header)
   const total = Number.isFinite(parsed) && parsed >= 0 ? parsed : null
@@ -185,11 +139,9 @@ async function readBodyStreaming(
       onProgress(loaded, total)
     }
   }
-  // 收尾一帧：让进度走到头（有 content-length 时脚本才算得出 100%）
   frames++
   onProgress(loaded, total)
-  // 诊断（debug 级）：这条**没出现**就说明压根没走流式那条路 —— 「收到 0 帧」的排查靠它分叉
-  console.debug(`[duoling:dl] 流式读完成：${frames} 帧 / ${loaded} 字节 / total=${total}`)
+  console.debug(`[duoling:gm] 流式读完成：${frames} 帧 / ${loaded} 字节 / total=${total}`)
 
   const out = new Uint8Array(loaded)
   let offset = 0
@@ -197,7 +149,7 @@ async function readBodyStreaming(
     out.set(c, offset)
     offset += c.byteLength
   }
-  return out.buffer // 新分配、offset 0、长度正好 —— 直接交出底层缓冲
+  return out.buffer
 }
 
 async function doFetch(
@@ -222,7 +174,6 @@ async function doFetch(
     throw new ApiError('INVALID_ARG', `GM_xmlhttpRequest：URL 无法解析：${url}`)
   }
 
-  // header 拆两路：禁设头走 DNR 规则，其余走原生 Headers
   const { native, dnrOps } = splitHeaders(init?.headers)
   const method = (init?.method || 'GET').toUpperCase()
   const headers = new Headers()
@@ -234,10 +185,9 @@ async function doFetch(
     } else if (isBinaryBody(init.body)) {
       req.body = base64ToBytes(init.body.base64)
     } else if (isFormBody(init.body)) {
-      // FormData：重建后让浏览器自动设 multipart boundary——手写 content-type 会破坏它
       if (headers.has('content-type')) {
         console.warn(
-          '[duoling:dl] fetch FormData 请求含手写 content-type，已强制剔除（boundary 由浏览器生成）',
+          '[duoling:gm] fetch FormData 请求含手写 content-type，已强制剔除（boundary 由浏览器生成）',
         )
         headers.delete('content-type')
       }
@@ -250,7 +200,6 @@ async function doFetch(
     }
   }
 
-  // host 级读写锁：覆写请求 = 写者（独占，规则挂起期间同 host 全部排队），纯请求 = 读者
   const lock = hostLock(host)
   const isWriter = dnrOps.length > 0
   if (isWriter) {
@@ -261,7 +210,6 @@ async function doFetch(
 
   const timeout = init?.timeout
   const controller = new AbortController()
-  // 登记在飞请求，供 `fetch.abort` 真中止（包装层 mint 的 requestId；不传即不可中止）
   const requestId = init?.requestId
   if (requestId) inFlightFetches.set(requestId, controller)
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -276,8 +224,6 @@ async function doFetch(
   }
 
   let ruleId: number | undefined
-  // manual：观测等待者必须先于 fetch 登记（观测事件在 fetch 进行中到达）；
-  // 声明在 try 外，finally 的 cancel 才够得着
   const manualWaiter = redirect === 'manual' ? registerManualWaiter(url) : undefined
   try {
     if (isWriter) {
@@ -294,10 +240,6 @@ async function doFetch(
               id: ruleId,
               priority: 1,
               action: { type: 'modifyHeaders', requestHeaders: dnrOps },
-              // resourceTypes 省略：默认匹配除 main_frame 外全部类型，覆盖 SW fetch 的
-              // xmlhttprequest（探针实测）且不引入对类型枚举的硬依赖
-              // 按域匹配用 hostname：DNR 的 requestDomains / initiatorDomains 只认主机名，
-              // 传带端口的 host 会静默失配（规则挂上但不命中任何请求）
               condition: { requestDomains: [hostname], initiatorDomains: [chrome.runtime.id] },
             },
           ],
@@ -308,7 +250,6 @@ async function doFetch(
       }
     }
 
-    // manual：等待者已登记（见 try 前），这里直接发请求
     const resp = await fetch(url, {
       credentials: 'omit',
       ...req,
@@ -317,8 +258,6 @@ async function doFetch(
     })
 
     if (manualWaiter && resp.type === 'opaqueredirect') {
-      // opaqueredirect 无任何可读信息，等 webRequest 观测补齐 3xx 状态与响应头。
-      // 防御两路：abort（超时）立即打断等待；观测迟迟不来（理论不应发生）兜底报错不挂死。
       const aborted = new Promise<never>((_resolve, reject) => {
         const onAbort = () => reject(controller.signal.reason)
         if (controller.signal.aborted) onAbort()
@@ -336,10 +275,10 @@ async function doFetch(
       return {
         ok: obs.statusCode >= 200 && obs.statusCode < 300,
         status: obs.statusCode,
-        statusText: '', // webRequest 不提供 statusText
+        statusText: '',
         headers: obs.headers,
-        url, // manual 语义：请求 URL，非 Location
-        body: '', // 3xx 无响应体语义
+        url,
+        body: '',
         responseType,
       }
     }
@@ -347,9 +286,7 @@ async function doFetch(
     const responseHeaders: Record<string, string> = {}
     resp.headers.forEach((v, k) => (responseHeaders[k] = v))
     const responseType = init?.responseType === 'arraybuffer' ? 'arraybuffer' : 'text'
-    // 要了进度 → 流式读（边读边推）；否则整体读。两条路拿到的都是**完整字节**，只是前者会推进度帧。
     const bytes = progress ? await readBodyStreaming(resp, progress) : undefined
-    // 二进制无法结构化克隆过桥，转 base64（包装侧 arrayBuffer() 解码）
     const body =
       responseType === 'arraybuffer'
         ? bytesToBase64(bytes ?? (await resp.arrayBuffer()))
@@ -361,12 +298,11 @@ async function doFetch(
       status: resp.status,
       statusText: resp.statusText,
       headers: responseHeaders,
-      url: resp.url, // 跟随重定向后的最终 URL
+      url: resp.url,
       body,
       responseType,
     }
   } catch (e: unknown) {
-    // 超时中止：若 abort 携带的 ApiError 原样抛出就直接用，否则兜一层（防御浏览器包装）
     if (controller.signal.aborted) {
       throw e instanceof ApiError
         ? e
@@ -377,23 +313,16 @@ async function doFetch(
     if (requestId) inFlightFetches.delete(requestId)
     if (timer) clearTimeout(timer)
     manualWaiter?.cancel()
-    // 用后即撤（主路径）：settle 即撤规则（先撤再放锁，避免下一条覆写规则与残留叠加），
-    // 幂等；撤失败由启动对账 + 浏览器重启兜底
     if (ruleId !== undefined) {
       try {
         await chrome.declarativeNetRequest?.updateSessionRules?.({ removeRuleIds: [ruleId] })
-      } catch {
-        // 静默：生命周期有第二、三层兜底
-      }
+      } catch {}
     }
     if (isWriter) lock.releaseWriter()
     else lock.releaseReader()
   }
 }
 
-// ————————————————————— 下载（downloads 权限）—————————————————————
-
-/** 取 chrome.downloads，缺失即明确报错（扩展未声明 downloads 权限 / 旧产物）；不静默降级 */
 function downloadsApi(): typeof chrome.downloads {
   const api = chrome.downloads
   if (!api || typeof api.download !== 'function') {
@@ -402,10 +331,6 @@ function downloadsApi(): typeof chrome.downloads {
   return api
 }
 
-/**
- * 下载文件名清洗：只取纯文件名（挡 `../` 越出下载目录）、去掉前导点、trim；空则交回 undefined
- * 让浏览器按 URL 推断。**不做扩展名白名单**（TM 有，那是它选项页的产品选择，我们不加）。
- */
 function sanitizeDownloadName(name?: string): string | undefined {
   if (!name) return undefined
   const base = name.split(/[\\/]/).pop() ?? ''
@@ -413,7 +338,6 @@ function sanitizeDownloadName(name?: string): string | undefined {
   return cleaned || undefined
 }
 
-/** 在飞下载的登记项（`total` 在登记时查一次；`timer` 只有脚本要进度时才起） */
 type DownloadEntry = {
   uuid: string
   connId: string
@@ -422,18 +346,10 @@ type DownloadEntry = {
   timer?: ReturnType<typeof setInterval>
 }
 
-/**
- * 在飞下载的登记：downloadId → 归属信息，供进度轮询与 `onChanged` 的心思把帧推回脚本。
- */
 const downloadWatch = new Map<number, DownloadEntry>()
 
-/**
- * 进度轮询间隔。浏览器下载器**不发**字节数（`onChanged` 只有 state / totalBytes），只能主动查
- * `chrome.downloads.search()`；SW 由链路心跳保活常驻（5s 一跳，见 sw-link），下载期间不休眠 —— 轮询可靠。
- */
 const DOWNLOAD_PROGRESS_MS = 500
 
-/** 查一次进度并推帧（轮询用）；下载已不在表里（终帧已处理）就直接返回 */
 async function pollDownloadProgress(id: number): Promise<void> {
   const entry = downloadWatch.get(id)
   if (!entry) return
@@ -441,7 +357,6 @@ async function pollDownloadProgress(id: number): Promise<void> {
     const items = await downloadsApi().search({ id })
     const item = items[0]
     if (!item) return
-    // 已结束：终帧交给 onChanged（那里会清 timer），这里不抢
     if (item.state === 'complete' || item.state === 'interrupted') return
     const totalBytes = item.totalBytes
     pushDownloadChange(entry.uuid, entry.connId, {
@@ -450,14 +365,11 @@ async function pollDownloadProgress(id: number): Promise<void> {
       loaded: item.bytesReceived ?? 0,
       total: entry.total ?? (typeof totalBytes === 'number' && totalBytes > 0 ? totalBytes : null),
     })
-  } catch {
-    // 轮询失败不致命：下一跳再试（下载本身不受影响）
-  }
+  } catch {}
 }
 
 let downloadWatchMounted = false
 
-/** 挂 onChanged（首次下载时懒挂）：delta 里既有 state 也有 bytesReceived */
 function mountDownloadWatch(): void {
   if (downloadWatchMounted) return
   downloadWatchMounted = true
@@ -478,14 +390,10 @@ function mountDownloadWatch(): void {
       })
     })
   } catch {
-    downloadWatchMounted = false // 权限缺失等：下次调用再试（doDownload 自己会先报错）
+    downloadWatchMounted = false
   }
 }
 
-/**
- * 发起下载：交给**浏览器下载器**（能弹另存为、大文件流式落盘）。
- * 返回 downloadId —— 下载器只承诺「已开始」，成败**稍后**经 `download.change` 帧回报。
- */
 async function doDownload(
   uuid: string,
   url: string,
@@ -524,13 +432,11 @@ async function doDownload(
       requestId: opts.requestId,
       total: null,
     }
-    // 先登记再查：下面有一个 await，终帧若落在这个窗口里，onChanged 会因为查不到登记而丢掉
     downloadWatch.set(id, entry)
     try {
       const item = (await api.search({ id }))[0]
       const bytes = item?.totalBytes
       entry.total = typeof bytes === 'number' && bytes > 0 ? bytes : null
-      // 先推一帧已知进度：很短的下载可能等不到第一次轮询
       if (opts.wantProgress && item && typeof item.bytesReceived === 'number') {
         pushDownloadChange(uuid, opts.connId, {
           requestId: opts.requestId,
@@ -539,14 +445,11 @@ async function doDownload(
           total: entry.total,
         })
       }
-    } catch {
-      // 查不到就不给 total（lengthComputable 为 false），不阻断下载
-    }
+    } catch {}
     if (opts.wantProgress) {
       const timer = setInterval(() => {
         void pollDownloadProgress(id)
       }, DOWNLOAD_PROGRESS_MS)
-      // 上面查 total 期间就可能已收到终帧（那一跳会把登记删掉）—— 删了就别留这个定时器
       if (downloadWatch.has(id)) entry.timer = timer
       else clearInterval(timer)
     }
@@ -554,11 +457,6 @@ async function doDownload(
   return { id }
 }
 
-// ————————————————————— cookie（cookies 权限）—————————————————————
-
-/**
- * 取 chrome.cookies，缺失即明确报错（扩展未声明 cookies 权限 / 旧产物）；不静默降级。
- */
 function cookiesApi(): typeof chrome.cookies {
   const api = chrome.cookies
   if (!api || typeof api.get !== 'function') {
@@ -567,16 +465,11 @@ function cookiesApi(): typeof chrome.cookies {
   return api
 }
 
-/**
- * 过域名门（越域即拒）。**所有** cookie 命令都必须先走这里 —— 门在 SW 侧是唯一执行点，
- * 包装层传什么 url 都不可信。
- */
 async function assertCookieScope(uuid: string, url: string): Promise<void> {
   const gate = await checkCookieUrl(uuid, url)
   if (!gate.ok) throw new ApiError(gate.code, gate.message)
 }
 
-/** chrome.cookies.Cookie → GmCookie（只取可跨桥 / 允许暴露的字段） */
 function toGmCookie(c: chrome.cookies.Cookie): GmCookie {
   const out: GmCookie = {
     name: c.name,
@@ -588,61 +481,36 @@ function toGmCookie(c: chrome.cookies.Cookie): GmCookie {
     session: c.session,
     hostOnly: c.hostOnly,
   }
-  // session cookie 无 expirationDate（chrome 侧为 undefined），不写空字段
   if (typeof c.expirationDate === 'number') out.expirationDate = c.expirationDate
   return out
 }
 
-// —— 标签页级存储（对齐 GM_getTab 系列）：duoling-usdata 库的 tab store，
-// 复合主键 [uuid, tabId]（原 chrome.storage 键空间 us:tab:<uuid>:<tabId>），
-// 每脚本每 tab 一记录，避免多 tab 并发互相覆盖 ——
-
-/** 读当前标签页对象 */
 async function getTabValue(uuid: string, tabId: number): Promise<Json | undefined> {
   const v = await usdata.getTabValue(uuid, tabId)
   return v === undefined ? undefined : (v as Json)
 }
 
-/** 覆盖写当前标签页对象 */
 async function saveTabValue(uuid: string, tabId: number, value: Json): Promise<void> {
   await usdata.putTabValue(uuid, tabId, value)
 }
 
-/** 全部标签页对象快照：键为 tabId 字符串（对齐 GM_getTabs）。仅本脚本自身 */
 async function getAllTabValues(uuid: string): Promise<Record<string, Json>> {
   const all = await usdata.listTabValues(uuid)
   return all as Record<string, Json>
 }
 
-/** 删除某 tab 的全部 tab 存储键（tab 关闭清理） */
 async function dropTabKeys(tabId: number): Promise<void> {
   await usdata.deleteTabsByTabId(tabId)
 }
 
-/** 启动时对账：清掉「记录存在但 tab 已不存在」的孤儿记录（兜浏览器崩溃 / SW 错过 onRemoved） */
 async function reconcileOrphanTabKeys(): Promise<void> {
   try {
     const tabs = await chrome.tabs.query({})
     const alive = new Set(tabs.map((t) => t.id).filter((id): id is number => id != null))
     await usdata.pruneTabsNotIn(alive)
-  } catch {
-    // 对账失败不阻断链路
-  }
+  } catch {}
 }
 
-/**
- * 录制入站：把转发件送来的载荷归到「发消息的那个标签页」再落库。
- *
- * 这里是录制门禁真正生效的地方。注册是**全匹配**的（一页录着，它接下来可能导航到任何
- * host，钩子就必须处处在位），所以每个站点的每一帧页面里都有录制件；它们的数据到这里
- * 按 tabId 判归属 —— 那一页没在录，整条丢掉。
- *
- * 判据取 sender.tab.id 而不是载荷里的字段：载荷途径页面可伪造的 postMessage，
- * 让它自己声明归属等于没有门禁。
- *
- * 种类分流也在这一层：载荷的 kind 说它是哪一类信号；未知种类静默丢弃（版本错配 ——
- * 比如页面里还挂着上一版注入的旧件）。
- */
 async function ingestTabRecord(
   kindRaw: unknown,
   record: unknown,
@@ -650,30 +518,21 @@ async function ingestTabRecord(
 ): Promise<void> {
   try {
     if (tabId == null) return
-    // 只认已知种类。将来种类多了，这里是分发点：未知一律丢弃，不猜。
     if (kindRaw !== NET_TAB_KIND) return
-    // 归属：那一页此刻在录才收。取号与「要不要注册录制件」用的是同一条判据。
     const tabSessionId = await telemetryPort()?.recordingTabSessionId?.(tabId)
     if (!tabSessionId) return
     const rec = normalizeNetCapture(record, tabSessionId)
     if (rec) {
       await telemetryPort()?.appendTabCapture?.(rec)
-      // 这是最热的一条路（录制中每秒可达几十条），**这里不攒批**：广播侧已按「域 + 页」合并
-      // 到一个 100ms 窗口，再攒一次只会让面板慢一拍。带页号 = 正在看这一页的面板增量续拉。
       broadcastDataChange('tabActivity', tabSessionId)
     }
-  } catch {
-    // 录制不该影响页面网络层：任何一步失败都静默丢弃这条
-  }
+  } catch {}
 }
 
-/** 写入超时（ms）：容器在但不应答时别把脚本挂死 */
 const CLIPBOARD_TIMEOUT_MS = 2000
 
-/** 经 offscreen 写剪贴板（免用户手势；纯文本 / 富文本同一条路）。超时即报，不挂死 */
 async function writeClipboardViaOffscreen(text?: string, html?: string): Promise<void> {
   if (!text && !html) throw new ApiError('INVALID_ARG', 'GM_setClipboard：text 与 html 至少给一个')
-  // 容器可能刚被回收（扩展重载 / 崩溃）：先唤起并等到它能应答，再发调用
   const ready = await offscreenPort()?.ensureReady?.()
   if (!ready) throw new ApiError('NOT_AVAILABLE', 'GM_setClipboard：剪贴板服务不可用')
   const link = serviceWorkerLink()
@@ -694,25 +553,12 @@ async function writeClipboardViaOffscreen(text?: string, html?: string): Promise
     throw new ApiError('INTERNAL', 'GM_setClipboard：' + errorText(e))
   }
 }
-/** 事件摘要里 url / 文本的展示上限（超出截断：一行被超长 URL 撑爆就没法看了） */
 const EVENT_TEXT_MAX = 120
 
-/** 截到展示上限，尾部加省略号 */
 function clipText(s: string): string {
   return s.length > EVENT_TEXT_MAX ? `${s.slice(0, EVENT_TEXT_MAX)}…` : s
 }
 
-/**
- * 把一条 GM 请求收窄成「时间线上的一行」；返回 null = 这类命令不进时间线。
- *
- * 只收**有副作用 / 有外呼**的动作：读类（store.get / cookie.get / audio.getState…）与订阅类
- * （watch / unwatch）高频且不改外部状态，采了只会把有信息量的埋掉。
- *
- * **摘要一律不含值本体**：GM 值的本体、剪贴板内容、请求体都可能是脚本私有数据或凭据 ——
- * 时间线是给人看的观察面、不是数据副本，故只留「做了什么」的轮廓（键名 / 方法 + URL）。
- *
- * 纯函数（只读 req），便于单测直接枚举各命令。
- */
 export function summarizeRunEvent(req: ApiRequest): { kind: string; detail: string } | null {
   switch (req.c) {
     case 'fetch':
@@ -747,7 +593,6 @@ export function summarizeRunEvent(req: ApiRequest): { kind: string; detail: stri
   }
 }
 
-/** 按命令分发（已确认 __dl 标记与身份）。参数见 ApiRequest 契约注释 */
 async function dispatch(
   uuid: string,
   req: ApiRequest,
@@ -755,19 +600,16 @@ async function dispatch(
 ): Promise<unknown> {
   const tabId = sender.tab?.id
   switch (req.c) {
-    // 存储（键空间按脚本隔离）
     case 'store.get': {
       const v = await getGMValue(uuid, req.key)
       return v === undefined ? req.fallback : v
     }
-    // connId 随写请求带上：推送侧据此把「本实例自己写的」帧标 remote=false（GM_addValueChangeListener 第 4 参）
     case 'store.set':
       await setGMValue(uuid, req.key, req.value, req.connId)
       return undefined
     case 'store.delete':
       await deleteGMValue(uuid, req.key, req.connId)
       return undefined
-    // 批量写 / 批量删（GM_setValues / GM_deleteValues）：事务粒度在 usdata，事件粒度仍在 store
     case 'store.setMany':
       await setGMValues(uuid, req.entries, req.connId)
       return undefined
@@ -778,12 +620,9 @@ async function dispatch(
       return getGMValues(uuid, req.keys)
     case 'store.keys':
       return listGMKeys(uuid)
-    // 全量快照：注入时的值预载（注册链路直接调 store.ts）与包装层 connect 后的校准共用
     case 'store.all':
       return getAllGMValues(uuid)
-    // 网络
     case 'fetch': {
-      // 要了进度才建回调（且得能寻址到发起它的连接，否则推给谁都不知道）
       const rid = req.init?.requestId
       const cid = req.init?.connId
       const progress =
@@ -791,26 +630,21 @@ async function dispatch(
           ? (loaded: number, total: number | null) =>
               pushFetchProgress(uuid, cid, { requestId: rid, loaded, total })
           : undefined
-      // 诊断（debug 级）：脚本要了进度却收不到帧时，先看这条在不在（只对要进度的请求打，别的请求不刷）
       if (req.init?.wantProgress) {
         console.debug(
-          `[duoling:dl] fetch 要进度：rid=${String(rid)} cid=${String(cid)} → 流式=${progress ? '是' : '否'}`,
+          `[duoling:gm] fetch 要进度：rid=${String(rid)} cid=${String(cid)} → 流式=${progress ? '是' : '否'}`,
         )
       }
       return doFetch(req.url, req.init, progress)
     }
     case 'fetch.abort': {
-      // 真中止：桥是请求-响应模型，SW 无法反向控制已发出的 fetch，故按 requestId 查表拿控制器。
-      // 查不到 = 请求已结束（或从未存在），幂等处理不报错（连续 abort 是合法调用）。
       const controller = inFlightFetches.get(req.requestId)
       if (controller && !controller.signal.aborted) {
         controller.abort(new ApiError('INTERNAL', 'GM_xmlhttpRequest：请求已被脚本中止'))
       }
       return undefined
     }
-    // 系统能力
     case 'notify': {
-      // mint 通知 id 并登记归属：点击事件经 DL Port 回推（包装层按 id 挂 onClick）
       const id = mintNotification(uuid)
       await chrome.notifications.create(id, {
         type: 'basic',
@@ -830,11 +664,6 @@ async function dispatch(
         wantProgress: req.wantProgress,
       })
     case 'download.cancel': {
-      // 中止：cancel 之后 onChanged 会报 interrupted（error: USER_CANCELED）→ 由 download.change 的
-      // 终帧回到脚本的 onerror（TM 语义：取消也算 onerror）。id 查不到就静默 —— 连续 abort 是合法调用。
-      // **登记必须留给终帧**：这里若提前删，onChanged 查不到登记、终帧被整个丢掉，脚本的
-      // onerror 永不触发（abort 调用方就此挂死 —— 全能探针 abort 用例整轮停在「运行中」即此因）。
-      // 终帧处理自带「删登记 + 清 timer」；cancel 抛错（下载已不存在等）才就地清 —— 那之后不会再有终帧。
       const entry = downloadWatch.get(req.id)
       try {
         await downloadsApi().cancel(req.id)
@@ -844,11 +673,9 @@ async function dispatch(
       }
       return undefined
     }
-    // 剪贴板：走 offscreen（免用户手势）+ 富文本（clipboardWrite 权限）
     case 'clipboard.write':
       await writeClipboardViaOffscreen(req.text, req.html)
       return undefined
-    // 标签页级存储（对齐 GM_getTab 系列）
     case 'tab.get': {
       if (tabId == null) throw new ApiError('INVALID_ARG', 'GM_getTab 需要标签页上下文')
       return getTabValue(uuid, tabId)
@@ -866,10 +693,8 @@ async function dispatch(
       return tab.id
     }
     case 'tabs.close': {
-      // tabId 缺省 = 发起命令的标签页（`window.close` 的落点；注入层不知道自己的 tabId）
       const target = req.tabId ?? tabId
       if (target == null) throw new ApiError('INTERNAL', 'tabs.close 缺 tabId')
-      // 对齐 TM：**不允许关掉窗口的最后一个标签页**（TM 文档把这条限制写在 window.close 下）
       const closing = await chrome.tabs.get(target).catch(() => undefined)
       if (closing?.windowId != null) {
         const siblings = await chrome.tabs.query({ windowId: closing.windowId })
@@ -883,19 +708,14 @@ async function dispatch(
     case 'tabs.focus': {
       const target = req.tabId ?? tabId
       if (target == null) throw new ApiError('INTERNAL', 'tabs.focus 缺 tabId')
-      // 激活标签页 + 聚焦其所在窗口（跨窗口 focus 语义才完整）；窗口聚焦失败不拖垮整体
       const tab = await chrome.tabs.update(target, { active: true })
       if (tab?.windowId != null) {
         await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {})
       }
       return undefined
     }
-    // cookie（cookies 权限）：先过域名门，再碰 chrome.cookies —— 顺序不可倒（门是唯一安全边界）
     case 'cookie.get': {
       await assertCookieScope(uuid, req.url)
-      // domain / path 只是**收窄**条件：chrome 的查询是 AND 语义、且 url 恒在 → 返回集 ⊆ 本页可见，
-      // 不会越权读到无关域的 cookie（这正是敢把它们透传下去的理由）。
-      // 统一走 getAll（它支持这四个条件；get 只吃 url + name），name 分支的语义与此等价。
       const filter: chrome.cookies.GetAllDetails = { url: req.url }
       if (req.name != null && req.name !== '') filter.name = req.name
       if (req.domain) filter.domain = req.domain
@@ -915,10 +735,6 @@ async function dispatch(
       if (typeof req.secure === 'boolean') details.secure = req.secure
       if (typeof req.httpOnly === 'boolean') details.httpOnly = req.httpOnly
       if (typeof req.expirationDate === 'number') details.expirationDate = req.expirationDate
-      // domain / path 照 TM 收下（不传则分别由 url 主机与 "/" 推导）。**门没被架空**：
-      // ① 上面的 assertCookieScope 已按 url 校验过脚本作用域，domain 不参与判定；
-      // ② chrome.cookies.set 自身要求 domain 与 url 同域或其父域 —— 真越域会被浏览器拒
-      //（写成父域 cookie 是 cookie 语义允许的，影响面从「本子域」扩到「整个父域」，这是 TM 同款行为）。
       if (typeof req.domain === 'string' && req.domain) details.domain = req.domain
       if (typeof req.path === 'string' && req.path) details.path = req.path
       const written = await cookiesApi().set(details)
@@ -933,8 +749,6 @@ async function dispatch(
         throw new ApiError('INVALID_ARG', 'GM_cookie.remove：name 必填')
       }
       const api = cookiesApi()
-      // 带 domain / path 时先按条件查、再用**每条 cookie 自己的域与路径**拼 url 删：
-      // chrome.cookies.remove 只吃 { url, name }，而查出来的必然落在 url 的可见范围内（AND 语义）。
       if (req.domain || req.path) {
         const found = await api.getAll({
           url: req.url,
@@ -954,7 +768,6 @@ async function dispatch(
       await api.remove({ url: req.url, name: req.name })
       return undefined
     }
-    // DL Port 事件底座：菜单登记 + store 订阅（控制面，经 Port 回推见 dl-port.ts）
     case 'menu.register':
       await registerScriptMenu(uuid, req.id, req.title)
       return undefined
@@ -962,7 +775,6 @@ async function dispatch(
       await unregisterScriptMenu(uuid, req.id)
       return undefined
     case 'store.watch': {
-      // Port 未就绪属竞态防御（正常流程包装层等 port.ready 后才发）
       if (!attachScriptWatch(uuid, req.connId, req.key)) {
         throw new ApiError('INTERNAL', '事件通道未就绪，订阅未生效（请重试）')
       }
@@ -971,17 +783,12 @@ async function dispatch(
     case 'store.unwatch':
       detachScriptWatch(uuid, req.connId, req.key)
       return undefined
-    // 全量值订阅：只读值的脚本从不做键级订阅，靠这条通道收跨标签页变更。
-    // **只有订阅、没有退订**：「读过值即常驻订阅」这个前提决定了退订会让同步读退回陈旧，
-    // 故契约里没有对应的 unwatchAll 命令（清理只发生在 Port 断开时的 removePort）。
     case 'store.watchAll': {
       if (!attachValueWatch(uuid, req.connId)) {
         throw new ApiError('INTERNAL', '事件通道未就绪，订阅未生效（请重试）')
       }
       return undefined
     }
-    // 音频（GM_audio）：一律作用于**脚本所在标签页** —— tabId 取 sender.tab.id，脚本给不了别的
-    // （对齐 TM：GM_audio 只操作「当前标签页」，没有 tabId 参数）
     case 'audio.setMute': {
       if (tabId == null) throw new ApiError('INTERNAL', 'audio.setMute 取不到当前标签页')
       await chrome.tabs.update(tabId, { muted: req.isMuted })
@@ -990,14 +797,12 @@ async function dispatch(
     case 'audio.getState': {
       if (tabId == null) throw new ApiError('INTERNAL', 'audio.getState 取不到当前标签页')
       const tab = await chrome.tabs.get(tabId)
-      // 字段形状照 TM：取不到就省略该键（脚本用 `'x' in state` 判断，给 false 是错的）
       return {
         ...(tab.mutedInfo ? { isMuted: tab.mutedInfo.muted } : {}),
         ...(tab.mutedInfo?.reason ? { muteReason: tab.mutedInfo.reason } : {}),
         ...(tab.audible !== undefined ? { isAudible: tab.audible } : {}),
       }
     }
-    // 订阅登记：没登记的连接不收 audio.change（音频变化可能很频繁，不做无差别广播）
     case 'audio.watch': {
       if (!attachAudioWatch(uuid, req.connId)) {
         throw new ApiError('INTERNAL', '事件通道未就绪，订阅未生效（请重试）')
@@ -1008,7 +813,6 @@ async function dispatch(
       detachAudioWatch(uuid, req.connId)
       return undefined
     default: {
-      // 穷尽性检查：ApiRequest 加新命令时这里会编译报错提醒补 dispatch
       const unreachable: never = req
       void unreachable
       throw new ApiError('INTERNAL', `未实现的命令`)
@@ -1018,61 +822,66 @@ async function dispatch(
 
 let initialized = false
 
-/**
- * uuid → 脚本名快照（运行广播时登记）。
- *
- * 服务于「自己不带可读脚本名」的观测记录：桥调用失败时手上只有 uuid，
- * 不查这张表就只能把 uuid 填进 name 位，面板「全部」视图里那行会显示一串 uuid 而非脚本名。
- * 尽力而为：广播即发即弃、扩展重载后表空，拿不到就由调用方回退 uuid。
- */
 const scriptNameByUuid = new Map<string, string>()
 
-/** 注册 GM 桥监听（幂等：SW 闲置重启后会再次 init，避免重复监听） */
-export function initDlBridge(): void {
+export function initGmBridge(): void {
   if (initialized) return
   initialized = true
 
-  // 标签页级存储清理：tab 关闭即删该 tab 在 duoling-usdata 的全部记录；SW 冷启动再对账一遍孤儿记录
   if (chrome.tabs?.onRemoved?.addListener) {
     chrome.tabs.onRemoved.addListener((tabId) => {
       void dropTabKeys(tabId).catch(() => {})
     })
   }
   void reconcileOrphanTabKeys().catch(() => {})
-  // 观察型 webRequest：redirect:'manual' 的 3xx 响应读取通道（SW fetch 只拿得到
-  // opaqueredirect，探针已证实 webRequest 能看到自家 SW fetch）。顶层注册（MV3 要求）；
-  // 无 manual 等待者时立即返回，浏览器全部流量都会路过这里，分发入口必须廉价。
   chrome.webRequest?.onHeadersReceived?.addListener(handleObservation, { urls: ['*://*/*'] }, [
     'responseHeaders',
     'extraHeaders',
   ])
-  // 规则孤儿对账（用后即撤第二层）：清掉上次崩溃残留的自有区间 session 规则
   void sweepOrphanRules().catch(() => {})
 
-  // 响应机制：onUserScriptMessage 不支持「返回 Promise 作为响应」，必须调 sendResponse
-  // 并返回 true 保持通道打开（沿用旧 GM 桥已验证的写法）。
   chrome.runtime.onUserScriptMessage.addListener((raw, sender, sendResponse) => {
-    // 运行标识广播（GM 包装注入即发）：交对话界面监控按 tab 登记。
-    const run = raw as {
-      __dlRunStart?: true
+    const frame = raw as Record<string, unknown> | null
+    const isCurrent = !!frame && frame[BRIDGE_MSG_TAG] === BRIDGE_MSG_TAG_VALUE
+    const isLegacy =
+      !!frame && (frame.__dl === true || frame.__dlEvent === true || frame.__dlRunStart === true)
+    if (!isCurrent) {
+      const req = (frame as { req?: unknown } | null)?.req
+      if (isLegacy && req) {
+        sendResponse({
+          ok: false,
+          error: '脚本桥协议已更新，请刷新页面后重试',
+          code: 'BRIDGE_VERSION_MISMATCH',
+        } satisfies ApiResponse)
+      }
+      return undefined
+    }
+    if (frame!.v !== BRIDGE_PROTOCOL_VERSION) {
+      const req = (frame as { req?: unknown }).req
+      if (req) {
+        sendResponse({
+          ok: false,
+          error: '脚本桥协议版本不符，请刷新页面后重试',
+          code: 'BRIDGE_VERSION_MISMATCH',
+        } satisfies ApiResponse)
+      }
+      return undefined
+    }
+
+    const run = frame as {
+      kind?: unknown
       uuid?: string
       name?: string
       runId?: string
       url?: string
       savedAt?: number
     }
-    if (run && run.__dlRunStart === true) {
+    if (run.kind === 'runstart') {
       const tabId = sender.tab?.id
       if (tabId != null && run.uuid && run.runId) {
-        // 页面监控（遥测 port）：SW 侧按 tab 登记运行集，浮层挂载时靠它出快照
         telemetryPort()?.noteRunStart?.(tabId, run.uuid, run.runId)
       }
-      // 记下脚本名，供桥调用失败那类「自身不带脚本上下文」的记录复用
       if (run.uuid && run.name) scriptNameByUuid.set(run.uuid, run.name)
-      // 运行条目（runtime 库 tab_events，kind = 'run'）：与脚本运行一一对应，落盘后活动历史
-      // 才有「这一页跑过什么」的锚。写侧按 runId 去重（同一 runId 的 load 补播是 no-op）。
-      // url / savedAt 是**载荷字段、非可信输入**（经页面可伪造的通道），故只做类型收窄：
-      // 形状不对就当没传——它们只是给日志多两条定位线索，不值得为它拦下这次记账。
       const uuid = run.uuid
       const runId = run.runId
       if (uuid && runId && tabId != null) {
@@ -1080,10 +889,6 @@ export function initDlBridge(): void {
           ...(typeof run.url === 'string' ? { url: run.url } : {}),
           ...(typeof run.savedAt === 'number' ? { savedAt: run.savedAt } : {}),
         }
-        // 标签页归属：活动历史按标签页分档的分组键（语义见 TabSessionRecord）。**被动取号** ——
-        // 只有用户在 popup 里给这一页打开了活动记录才有号（见 tab-sessions），没号就**不记**：
-        // 一切观测只在开着活动记录的页上产生（判据统一，见 store.recordRunStart）。
-        // 取号失败（存储不可用）同样不记 —— 此页是观测盲区，不因存储故障给它补一份无归属的记录。
         void Promise.resolve(telemetryPort()?.recordingTabSessionId?.(tabId))
           .then((tabSessionId) =>
             tabSessionId
@@ -1092,41 +897,32 @@ export function initDlBridge(): void {
           )
           .catch(() => {})
       }
-      return undefined // 仅登记，无需响应
+      return undefined
     }
 
-    // 单向上行（GM 包装的错误收集 / 录制系统脚本的采样）
-    const evt = raw as { __dlEvent?: true; uuid?: string; name?: string; event?: DlEvent }
-    if (evt && evt.__dlEvent === true) {
+    const evt = frame as { kind?: unknown; uuid?: string; name?: string; event?: ApiNotice }
+    if (evt.kind === 'ev') {
       const event = evt.event
-      // 标签页录制采样：录制系统脚本经桥上行。归属判据（那一页此刻在不在录）在
-      // ingestTabRecord 内，与错误路径「活动记录开着才收」是同一本账。
       if (event && event.t === 'tab.record') {
         void ingestTabRecord(event.kind, event.record, sender.tab?.id)
         return undefined
       }
-      // 页面检查器指令结果：交宿主侧按 reqId 结算挂起的那次调用（uuid / tabId 一并带去，
-      // 旁证与页归属都在宿主侧定）。
       if (event && event.t === 'inspector.result') {
         telemetryPort()?.onInspectorEvent?.(evt.uuid ?? '', sender.tab?.id ?? null, {
           reqId: event.reqId,
           ok: event.ok,
           payload: event.payload,
         })
-        return undefined // 结算是宿主侧的事，桥只递送
+        return undefined
       }
-      // 浮层宿主的在岗应答：交宿主侧按 reqId 结算挂起的那次探活（旁证同上）。
       if (event && event.t === 'float.pong') {
         telemetryPort()?.onFloatEvent?.(evt.uuid ?? '', sender.tab?.id ?? null, {
           reqId: event.reqId,
         })
-        return undefined // 结算是宿主侧的事，桥只递送
+        return undefined
       }
-      // sender.tab 定位出错页面（userScript 世界消息 sender 带 tab）；拿不到就无从判归属
       const tabId = sender.tab?.id
       if (tabId == null) return undefined
-      // 归属判据与运行条目同源：只有这一页开着活动记录才记。没开 = 观测盲区 ——
-      // 不落盘、不广播、也不推给浮层 / 角标（判据前移，appendUserScriptError 本身不设判据）。
       void Promise.resolve(telemetryPort()?.recordingTabSessionId?.(tabId))
         .then((tabSessionId) => {
           if (!tabSessionId) return
@@ -1138,13 +934,10 @@ export function initDlBridge(): void {
               message: event?.message || '',
               stack: event?.stack,
               url: event?.url,
-              // 本次运行标识：对话界面监控据此把错误归属到对应 tab 的运行（缺省视作非本次）
               runId: typeof event?.runId === 'string' ? event.runId : null,
-              // 页归属直接带上（不必等写侧从运行条继承）：这一页此刻确实开着记录
               tabSessionId,
             })
             .then(() => {
-              // 页面监控（遥测 port）：错误行随推送走（面板只要「当前这次运行」，实时通道一条推送就到）
               telemetryPort()?.notePageError?.(tabId, {
                 uuid: evt.uuid ?? null,
                 name: evt.name || '未知脚本',
@@ -1154,18 +947,15 @@ export function initDlBridge(): void {
             })
         })
         .catch(() => {})
-      return undefined // 仅记录，无需响应
-    }
-
-    // 请求-响应
-    const msg = raw as { __dl?: true; uuid?: string; runId?: string; req?: ApiRequest }
-    if (!msg || msg.__dl !== true || !msg.req) {
-      sendResponse({ ok: false, error: '非 DL 消息' } satisfies ApiResponse)
       return undefined
     }
 
-    // 身份校验：消息里的 uuid 必须与脚本运行世界的 scriptId 一致
-    // （sender.userScript 可能缺省，缺省时跳过校验——沿用旧 GM 桥的实测结论）
+    const msg = frame as { kind?: unknown; uuid?: string; runId?: string; req?: ApiRequest }
+    if (msg.kind !== 'req' || !msg.req) {
+      sendResponse({ ok: false, error: '非脚本桥消息' } satisfies ApiResponse)
+      return undefined
+    }
+
     const scriptId = (sender as { userScript?: { scriptId?: string } }).userScript?.scriptId
     if (scriptId && msg.uuid && scriptId !== msg.uuid) {
       sendResponse({
@@ -1181,9 +971,6 @@ export function initDlBridge(): void {
       return undefined
     }
 
-    // 运行事件采集：把这次调用收窄成时间线上的一行（读类 / 订阅类返回 null，不入线）。
-    // 采集点在 dispatch 之前、且不看结果 —— 记的是「脚本发起了什么」；失败另有 phase:'bridge'
-    // 的错误行兜底。落盘失败静默：观察数据不该反过来影响脚本的调用。
     if (msg.runId) {
       const ev = summarizeRunEvent(msg.req)
       if (ev)
@@ -1194,15 +981,11 @@ export function initDlBridge(): void {
 
     void dispatch(uuid, msg.req, sender)
       .then((data) => {
-        // 运行时值受契约约束（结构化克隆 + chrome.storage 兼容），这里收窄回 Json | void
         sendResponse({ ok: true, data: data as Json | void } satisfies ApiResponse)
       })
       .catch((e: unknown) => {
         const message = errorText(e)
         const code = e instanceof ApiError ? e.code : 'INTERNAL'
-        // 桥调用失败也进错误日志（活动历史里可见）。它发生在某次运行**之中**，故带上信封里的 runId
-        // 挂到那次运行下 —— 否则只能单列成孤儿行，看不出「脚本跑到哪一步挂的」。
-        // 脚本名取自运行广播登记的表（尽力而为：表空时回退 uuid）。
         void telemetryPort()
           ?.appendError?.({
             uuid,
@@ -1214,6 +997,6 @@ export function initDlBridge(): void {
           .catch(() => {})
         sendResponse({ ok: false, error: message, code } satisfies ApiResponse)
       })
-    return true // 保持消息通道打开，dispatch 完成后经 sendResponse 回传
+    return true
   })
 }

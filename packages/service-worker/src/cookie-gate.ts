@@ -8,7 +8,6 @@ import {
   type CookieScope,
 } from '@duoling/shared'
 
-/** 门判定结果：错误码与 ApiErrorCode 的同名项对齐，由调用方（dl-bridge）转成 ApiError */
 export type CookieGateResult =
   { ok: true } | { ok: false; code: 'PERMISSION_DENIED' | 'INVALID_ARG'; message: string }
 

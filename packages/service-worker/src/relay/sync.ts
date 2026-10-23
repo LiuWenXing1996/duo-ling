@@ -22,7 +22,7 @@ import { configureWorld, getOrCreatePageSecret } from '../registration'
 /** 注册 id（一个扩展一份） */
 export const SCRIPT_RELAY_ID = 'dl-script-relay'
 /** 独立世界 id：必须 configureWorld({ messaging: true })，否则世界内无 chrome.runtime */
-export const SCRIPT_RELAY_WORLD_ID = 'us-dl-bridge'
+export const SCRIPT_RELAY_WORLD_ID = 'us-gm-bridge'
 
 /**
  * 中继件的装配段：运行器代码注入后由本段把运行期密钥递进去。

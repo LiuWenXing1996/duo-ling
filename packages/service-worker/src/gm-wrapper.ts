@@ -82,7 +82,6 @@ function jsonLiteral(v: unknown): string {
  * 调用方（engine）负责把「本前缀 ＋ `@require` 源码 ＋ 脚本源码 ＋ 闭合的 `GM_WRAPPER_SUFFIX`」
  * 拼成**一条** code 注入 —— 三段必须在同一个函数作用域里，脚本才能按词法找到 `GM_*`（见文件头）。
  *
- * 注入体内部标识统一用 `__gm` 前缀（与桥的 `__dl` 信封区分：前者是包装层私有变量，可自由改名）。
  */
 export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   const exposure = resolveGmExposure(opts.grant)
@@ -104,9 +103,9 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
 
   // —— 扩展侧通道：MAIN 世界没有 chrome.*，一切经同帧中继件（bridge-protocol.ts）。
   //    必须先于任何调用到位 —— 下面的 __gmAnnounceRun() 是立即调用的。——
-  var __dlBridge = ${buildScriptBridgeSource(opts.pageSecret, opts.uuid)}
+  var __gmBridge = ${buildScriptBridgeSource(opts.pageSecret, opts.uuid)}
   // 下行推送统一入口：Port 就绪 / 值变更 / 菜单点击 / URL 变化 / 中继件通道重建都走它
-  __dlBridge.onEvent(function (ev) { __gmHandleEvent(ev) })
+  __gmBridge.onEvent(function (ev) { __gmHandleEvent(ev) })
 
   // —— 运行标识：**一次页面加载 = 一次运行**。注入即 mint，随错误记录上报并广播给 SW
   //    （对话界面页面监控据此按 tab 登记运行）——
@@ -118,8 +117,8 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   var __gmSrcSavedAt = ${jsonLiteral(opts.savedAt ?? null)}
   function __gmAnnounceRun() {
     try {
-      var p = __dlBridge.emit({
-        __dlRunStart: true,
+      var p = __gmBridge.emit({
+        kind: 'runstart',
         name: GM_INFO.script.name,
         runId: __gmRunId,
         // 广播时刻的地址：load 补播与首次广播同属一个文档，SPA 内导航改的是它，取当下值即可
@@ -157,8 +156,8 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
   }
   function __gmReportError(message, stack, url) {
     try {
-      var p = __dlBridge.emit({
-        __dlEvent: true,
+      var p = __gmBridge.emit({
+        kind: 'notice',
         name: GM_INFO.script.name,
         event: { t: 'error', phase: 'runtime', message: message, stack: stack, url: url, runId: __gmRunId },
       })
@@ -185,10 +184,10 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     __gmReportError('Unhandled rejection: ' + ((r && r.message) || String(e.reason)), stack, location.href)
   })
 
-  // —— 桥请求：超时与传输都归 __dlBridge 管（见 bridge-protocol），这里只解释响应语义 ——
+  // —— 桥请求：超时与传输都归 __gmBridge 管（见 bridge-protocol），这里只解释响应语义 ——
   function __gmSend(req) {
     // 随请求带上运行标识：SW 据此把这次调用产生的事件 / 桥错误归属到具体某次运行
-    return __dlBridge.call(req, __gmRunId).then(function (resp) {
+    return __gmBridge.call(req, __gmRunId).then(function (resp) {
       if (!resp) {
         var e = new Error('GM 调用无响应：' + (req && req.c))
         e.code = 'BRIDGE_NO_RESPONSE'
@@ -305,7 +304,7 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     if (__gmConnectStarted) return
     __gmConnectStarted = true
     // 中继件代连 Port；接通后 SW 推 port.ready，经桥回到 __gmHandleEvent
-    __dlBridge.connect(__gmConnId).catch(function (e) {
+    __gmBridge.connect(__gmConnId).catch(function (e) {
       __gmConnectStarted = false // 握手失败（中继件未就位）：允许后续调用重试
       console.warn(NAME_PREFIX + ' 事件通道连接失败：' + ((e && e.message) || e))
     })
@@ -495,7 +494,7 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
     if (typeof raw === 'string') return Promise.resolve(function (s) { var c = __gmCopyInit(s); c.body = raw; return c })
     if (typeof Blob !== 'undefined' && raw instanceof Blob) {
       return raw.arrayBuffer().then(function (buf) {
-        var env = { __dlBinaryBody: true, base64: __gmBytesToBase64(new Uint8Array(buf)) }
+        var env = { __gmBinaryBody: true, base64: __gmBytesToBase64(new Uint8Array(buf)) }
         return function (s) {
           var c = __gmCopyInit(s)
           c.body = env
@@ -524,7 +523,7 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
       return Promise.all(pending).then(function () {
         return function (s) {
           var c = __gmCopyInit(s)
-          c.body = { __dlFormData: true, fields: fields }
+          c.body = { __gmFormData: true, fields: fields }
           return c
         }
       })
@@ -534,7 +533,7 @@ export function buildGmWrapperPrefix(opts: GmWrapperOptions): string {
       if (raw instanceof ArrayBuffer) bytes = new Uint8Array(raw)
       else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(raw)) bytes = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)
       else return Promise.reject(new Error('GM_xmlhttpRequest：data 仅支持 string / Blob / FormData / ArrayBuffer / TypedArray / DataView'))
-      var env2 = { __dlBinaryBody: true, base64: __gmBytesToBase64(bytes) }
+      var env2 = { __gmBinaryBody: true, base64: __gmBytesToBase64(bytes) }
       return Promise.resolve(function (s) { var c = __gmCopyInit(s); c.body = env2; return c })
     }
     return Promise.reject(new Error('GM_xmlhttpRequest：data 仅支持 string / Blob / FormData / ArrayBuffer / TypedArray / DataView'))

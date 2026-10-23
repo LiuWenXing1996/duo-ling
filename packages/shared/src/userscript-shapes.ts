@@ -25,7 +25,6 @@ import type { NetCaptureRecord } from './tab-record'
  * 逐条 + 环形：保留最近 ERROR_LOG_MAX 条，裁剪在写侧（见 runtime-db 的 appendErrorRow）。
  * 合表后它与其它轴行同住 tab_events，故按页读整根轴时一次就能拿到它（见 listTabTimeline）。
  *
- * 运行时形态（userscript-runtime.ts 的 UserscriptErrorRecord）由件包产生 —— dl-bridge /
  * registration / 依赖与资源抓取。此处继承它并收窄成**落库形态**：id / uuid / time 在落盘时
  * 必已补齐（见 store.appendUserScriptError），读侧按必有字段处理。
  */
@@ -100,7 +99,6 @@ export const RUN_EVENT_MAX = 1000
  * 不内嵌在运行条目里，故列表读取不带它们 —— 按 runId 拉那一组时才读（见 listRunEvents）。
  * **只在「这一页开着活动记录」时产生**（与运行条目同一判据，见 store.recordRunEvent）。
  *
- * 运行时形态见 userscript-runtime.ts 的 UserscriptRunEvent（动作由 dl-bridge 的 dispatch 采集）。
  * 此处取别名维持既有名字不变。
  */
 export type UserScriptRunEvent = RuntimeRunEvent

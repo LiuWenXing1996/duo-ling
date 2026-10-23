@@ -1,5 +1,3 @@
-// dl-fetch-priv.ts 单测：header 拆分 / 读写锁（互斥语义）/ 规则发号 / 孤儿对账 / 观测分发。
-// chrome 仅 sweepOrphanRules 需要，vi.stubGlobal 按需给最小形状。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   splitHeaders,
@@ -10,7 +8,7 @@ import {
   sweepOrphanRules,
   registerManualWaiter,
   handleObservation,
-} from './dl-fetch-priv'
+} from './gm-fetch-priv'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -46,7 +44,7 @@ describe('RwLock（写者优先读写锁：覆写请求独占 host，纯请求�
   it('读者可并发进入（无写者时纯 fetch 互不排队）', async () => {
     const lock = new RwLock()
     await lock.acquireReader()
-    await lock.acquireReader() // 不排队，立即返回
+    await lock.acquireReader()
     expect(true).toBe(true)
     lock.releaseReader()
     lock.releaseReader()
@@ -58,7 +56,7 @@ describe('RwLock（写者优先读写锁：覆写请求独占 host，纯请求�
     let readerIn = false
     lock.acquireReader().then(() => (readerIn = true))
     await flush()
-    expect(readerIn).toBe(false) // 被写者挡住
+    expect(readerIn).toBe(false)
     lock.releaseWriter()
     await flush()
     expect(readerIn).toBe(true)
@@ -70,7 +68,7 @@ describe('RwLock（写者优先读写锁：覆写请求独占 host，纯请求�
     let writerIn = false
     lock.acquireWriter().then(() => (writerIn = true))
     await flush()
-    expect(writerIn).toBe(false) // 等读者排空（规则不能套到在飞请求上）
+    expect(writerIn).toBe(false)
     lock.releaseReader()
     await flush()
     expect(writerIn).toBe(true)
@@ -85,7 +83,6 @@ describe('RwLock（写者优先读写锁：覆写请求独占 host，纯请求�
     let readerBIn = false
     lock.acquireReader().then(() => (readerBIn = true))
     await flush()
-    // 排空第一个读者 → 写者接棒，读者 B 仍被挡（互斥语义不被新读者打破）
     lock.releaseReader()
     await flush()
     expect(writerIn).toBe(true)
@@ -130,7 +127,6 @@ describe('规则发号与孤儿对账', () => {
       },
     })
     await sweepOrphanRules()
-    // RULE_ID_MAX 是开区间上界，不属于自有区间；42 是他人规则
     expect(update).toHaveBeenCalledWith({ removeRuleIds: [RULE_ID_MIN + 5] })
   })
 
@@ -160,7 +156,6 @@ describe('manual 观测分发（handleObservation）', () => {
         location: 'https://y.test/',
         'x-dup': 'a, b',
       })
-      // 触发后登记表已清空，重复观测不再命中
       expect(handleObservation({ url: 'https://x.test/r', statusCode: 301 })).toBeUndefined()
     })
   })
