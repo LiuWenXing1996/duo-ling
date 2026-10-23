@@ -32,7 +32,6 @@ export const pageRunsByTab = new Map<number, Map<string, PageRunItem>>()
 /**
  * 登记表变化的订阅者（角标重算挂在它上面）。
  *
- * 为什么是订阅而不是让写方直接去设角标：写方在 dl-bridge（SW 与 dl-bridge 互相 import 会成环），
  * 而「登记表变了」这个事实只属于本模块。
  */
 const runsChangeListeners = new Set<() => void>()

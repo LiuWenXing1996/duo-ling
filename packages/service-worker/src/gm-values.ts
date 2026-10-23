@@ -3,9 +3,7 @@
 // 落盘在 duoling-usdata 库（usdata-db.ts，复合主键 [uuid, key]）；本文件管的是
 // 「写 + 发事件」的语义层：值未变化的 set、删除不存在的键都不发事件
 // （与 chrome.storage.onChanged 行为一致）。变更事件从写出口直发（IDB 无通知），
-// dl-port 订阅它把 store.change 帧推回脚本世界。
 //
-// 写出口 = 本文件这几个函数（dl-bridge dispatch 是唯一调用方）。
 import * as usdata from './usdata-db'
 
 export interface GmValueChange {
@@ -32,7 +30,6 @@ type GmValueListener = (change: GmValueChange) => void
 
 const gmValueListeners = new Set<GmValueListener>()
 
-/** 订阅 GM 值变更（dl-port 的 store.watch 下行推送经此接线；返回退订函数） */
 export function onGmValueChange(listener: GmValueListener): () => void {
   gmValueListeners.add(listener)
   return () => gmValueListeners.delete(listener)

@@ -10,7 +10,6 @@
 // 自己生成的，多数还有环形上限，两者信任级与演进节奏不同。「删脚本 = 清该脚本数据」在这库里
 // 就是一次 range delete。
 //
-// 单写方约定：写 API 只许 SW 调用（写侧全部经 dl-bridge / store.ts 汇入）；
 // 本模块不感知 chrome API，node 单测用 fake-indexeddb/auto 直测。
 //
 // 范围查询用 by_uuid 二级索引，不用 bound([uuid,''],[uuid,[]]) 的「array > string」键序覆盖

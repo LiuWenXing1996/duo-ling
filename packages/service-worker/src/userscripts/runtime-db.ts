@@ -768,7 +768,6 @@ export async function appendTabEvent(
  * 写侧不裁剪：采样一直留着，只在用户显式清（清某页 / 清全部）时消失 ——
  * 面板要铺出完整时间线，写侧截断会让「这一页到底发了哪些请求」看不全。
  *
- * 归属键（tabSessionId）由调用方带上（SW 按 sender.tab.id 查出后给定，见 dl-bridge 的入站分支）；
  * 缺省时照样落盘，只是不进 by_session_seq 索引，按页读不到它 —— 只有清全部时一并带走。
  */
 export async function appendTabCapture(rec: NetCaptureRecord): Promise<void> {

@@ -26,10 +26,3 @@
 | `pnpm run check:secrets` | 全仓（`secretlint "**/*"`，级联 `.gitignore`） | 钩子只扫暂存文件，全仓扫才能发现没装钩子 / 绕过钩子的提交，以及仓库里已经存在的凭据 |
 
 钩子可以用 `LEFTHOOK=0` 跳过，CI 不能 —— 这是这两层存在的分工。
-
-## 激活与跳过
-
-- 激活：`pnpm install` 时由 lefthook 的 postinstall 自动 `lefthook install`；手动激活跑 `pnpm exec lefthook install`
-- 单次跳过：`LEFTHOOK=0 git commit ...`（push 前的全量检查仍兜底）
-- 单测临时改坏一个提交时别养成 `LEFTHOOK=0` 习惯，CI 与本机真机验证才是放行门槛
-- 密钥误报：在命中区段前后加 `// secretlint-disable` / `// secretlint-enable` 注释豁免，别整条关掉钩子；查全量用 `pnpm run check:secrets`

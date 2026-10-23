@@ -13,4 +13,4 @@
 - 建一条**多播**通知线：同一工作台的其他标签页、另一个浏览器窗口的工作台、对话界面，全部收到。写侧落盘后发，读侧订阅回拉。
 - 与 OffscreenPush 的分工：那是「一个特定接收方」的点对点推送（SW→offscreen 等）；这条是多播。
 - **刻意不进 RuntimeRequest**：那里面全是「请求-应答」的命令，而广播没有应答方，塞进去会污染 extension-ipc.test.ts 的 kind 归属断言（每个 kind 恰被一端处理）。
-- 形状真相源在 `@duoling/shared`（data-broadcast.ts）：频道与推送形状被运行时包（dl-bridge / cookie-gate）同取。
+- 形状真相源在 `@duoling/shared`（data-broadcast.ts）：频道与推送形状被运行时包（gm-bridge / cookie-gate）同取。

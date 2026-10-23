@@ -8,15 +8,15 @@ offscreen 容器能力约定。机制的来龙去脉见 [ARCHITECTURE.md](../../
 | --- | --- |
 | 注册引擎 —— 世界配置 / 单脚本与全量注册 / 可用性检测 | `registration` |
 | 可用性监视 —— SW 进程内轮询引擎可用性，只在翻转时通知消费层 | `availability-watch` |
-| 命令分发 —— 中继件发来的 GM 请求（storage / xhr / download / menu…） | `dl-bridge` |
-| 事件底座 —— 脚本世界 ↔ SW 长连接的下行通道（菜单点击 / 值变更 / 下载进度） | `dl-port` |
+| 命令分发 —— 中继件发来的 GM 请求（storage / xhr / download / menu…） | `gm-bridge` |
+| 事件底座 —— 脚本世界 ↔ SW 长连接的下行通道（菜单点击 / 值变更 / 下载进度） | `gm-port` |
 | cookie 域名门 —— GM_cookie 的安全边界（scheme + host） | `cookie-gate` |
 | `@require` / `@resource` 的抓取与落库 | `require-cache` / `resource-cache` |
 | 运行时命令面 —— 管理面只读四条 | `management` |
 | 宿主注入点 —— 扩展身份 / offscreen 就绪 / 遥测 / 密钥存储 / 内置件 | `host-config` |
 | 与 offscreen 的直连链路 —— 服务代理 / 事件 / 保活心跳（ADR 0044） | `sw-link` |
 | offscreen 容器能力约定 —— 建文档用的 reason 集 | `offscreen-reasons` |
-| 注入源码生成 —— GM 包装前缀 / MAIN 世界脚本桥模板 | `gm-wrapper` / `script-bridge` |
+| 注入源码生成 —— GM 包装注入体拼装 / MAIN 世界脚本桥客户端 | `gm-wrapper` / `gm-bridge-client` |
 | GM 值存储 —— `GM_setValue` 一族与 usdata 库（`GM_getTab` 等） | `gm-values` / `usdata-db` |
 
 依赖方向：本包 → `@duoling/shared`（契约 / GM 语义 / 状态库 / 服务契约），无环。

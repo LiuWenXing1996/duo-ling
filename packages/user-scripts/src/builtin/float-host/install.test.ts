@@ -5,15 +5,12 @@
 // **件的 DOM 行为不在这里验** —— 挂容器、开合、拖拽、遮罩、拾取让位要真实渲染与事件流，最小桩
 // 测不出（也容易把桩的行为当件的行为），由 e2e/float-task-state.spec.ts 用真浏览器覆盖。
 //
-// 注入方式：件读裸全局（window / document）与同作用域的 `__dlBridge`（GM 包装恒注入），
 // 故把它们都装成全局再调安装函数 —— 与真注入同一条路径。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clampPoint, installFloatHost } from './install'
 
 interface FakeBridge {
-  /** 件 emit 出去的信封（__dlEvent 上行） */
   sent: Array<Record<string, unknown>>
-  /** 从 SW 下发一帧事件进件（模拟 DL Port → 中继件 → 桥 onEvent） */
   fire: (ev: unknown) => void
   /** 装接收时是否抛（桥不可用的形态） */
   breakListener: () => void
@@ -31,7 +28,7 @@ function stubBridge(): FakeBridge {
   // documentElement 为 null：观察器走「等文档就绪再装」那条分支，一并覆盖到
   vi.stubGlobal('document', { documentElement: null, addEventListener: vi.fn() })
   vi.stubGlobal('setInterval', () => 0) // 重发自愈的定时器：测试里不真跑
-  vi.stubGlobal('__dlBridge', {
+  vi.stubGlobal('__gmBridge', {
     connect: () => {
       connects.push(1)
       return Promise.resolve()
@@ -72,7 +69,7 @@ describe('dl-float-host（MAIN 世界系统脚本）· 常驻通道', () => {
   it('同一 realm 重复注入只装一遍（重注册 / 导航竞态）', () => {
     const first = stubBridge()
     installFloatHost()
-    installFloatHost() // 第二次应被 window.__dlFloatHost 挡下
+    installFloatHost()
     expect(first.connects).toHaveLength(1)
   })
 
@@ -96,7 +93,7 @@ describe('dl-float-host · 指令接收', () => {
 
     expect(bridge.sent).toHaveLength(1)
     const out = bridge.sent[0]
-    expect(out.__dlEvent).toBe(true)
+    expect(out.kind).toBe('notice')
     expect(out.name).toBe('浮层宿主')
     expect(out.event).toEqual({ t: 'float.pong', reqId: 'r1' })
   })

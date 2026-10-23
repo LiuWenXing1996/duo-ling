@@ -47,7 +47,6 @@ export async function appendUserScriptError(
     time: rec.time || Date.now(),
   })
   // 广播埋在这里而不是各个调用点：错误有 4 个上报入口（background 的注册兜底、
-  // engine 两处、dl-bridge 的脚本消息转发），这里是唯一汇合点。
   // 崩溃风暴的高频 append 由广播侧的合并窗口（100ms）兜住，前端不会被打爆。
   broadcastDataChange('error', rec.uuid ?? undefined)
 }
@@ -103,7 +102,6 @@ export async function findUserScriptError(id: string): Promise<UserScriptErrorLo
 // 「无变化不落盘」：补播去重 / 已结束条目重复回写都直接跳过，不写也不广播。
 
 /**
- * 登记一次运行开始（dl-bridge 收到 __dlRunStart 广播时调用）。
  *
  * **没有 tabSessionId 就不记**：一切观测只在「这一页开着活动记录」时产生，而运行条是动作与
  * 错误的归属锚，无归属的运行没有意义（判据统一见 ARCHITECTURE.md「存储」节）。判据落在这一层而不是
@@ -125,7 +123,6 @@ export function recordRunStart(
   const entry: UserScriptRunLogEntry = {
     runId,
     uuid,
-    // name 快照由调用方传（dl-bridge 手上有注册表）；没传就留空，UI 回退短 uuid
     name: name ?? '',
     time: Date.now(),
     tabSessionId,
@@ -139,7 +136,6 @@ export function recordRunStart(
 }
 
 /**
- * 追加一条动作（dl-bridge 的 dispatch 采集后调用，见 UserScriptRunEvent）。
  *
  * 落进所属运行条的同一页（tabSessionId 由 runtime-db 从运行条继承）；找不到所属运行条
  * （已被环形挤掉、或该次运行压根没登记）即 no-op —— 动作是观察数据，不值得为它补造一条

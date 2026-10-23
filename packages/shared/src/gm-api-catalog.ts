@@ -6,7 +6,7 @@
 //
 // 为什么单独一份、而不是直接读 api-contract：
 //   api-contract.ts 只有类型（编译后不留任何东西），面板要展示的是文本（签名 / 说明 / 坑）；
-//   而真身（注入脚本世界的 `GM_*` / `GM.*`）是 gm-wrapper.ts 里的一段**源码字符串**，
+//   而真身（注入脚本世界的 `GM_*` / `GM.*`）是 gm-wrapper-runtime.ts（esbuild 打成 IIFE 产物），
 //   工作台页面 import gm-wrapper 会把注入链路（含桥客户端）拖进首屏产物。故抽成这份纯数据。
 //
 // 一条能力 = 两种形态（`GM_getValue` 同步 + `GM.getValue` 异步），故**只写一张能力表**，
@@ -14,7 +14,7 @@
 //
 // 漂移防护（三道，方向互补）：
 //   ① **类型层**：能力表键必须恰好覆盖 `keyof GmGlobalFns`，缺一个 / 多一个 → typecheck 红；
-//   ② **源码层**：单测从 gm-wrapper.ts 的**装配块**反射真实挂载的键集合，与本目录双向比对
+//   ② **源码层**：单测从 gm-wrapper-runtime.ts 的**装配块**反射真实挂载的键集合，与本目录双向比对
 //      （用例在 service-worker 包，见该包的 gm-api-catalog.test.ts）；
 //   ③ **规范层**：单测断言规范文本里提到的成员全在本目录、`@grant` 名全在 gm-grants
 //      （见该包的 chat/spec-text.test.ts）；本文件说明里提到的 `@grant` 名同样受检

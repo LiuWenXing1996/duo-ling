@@ -1,13 +1,11 @@
 // 宿主层注入点：应用耦合收敛成可配置的 port。
 //
-// 宿主层（dl-bridge / dl-port / cookie-gate）有三类事包内给不了默认实现或不应擅自决定：
 //   · 扩展身份 —— 通知标题、兜底图标是扩展的品牌面；
 //   · offscreen 后端 —— 剪贴板写入要经 offscreen 文档；文档由扩展自建（包不碰生命周期），
 //     就绪握手协议各扩展自定，故就绪探测注入；
 //   · 遥测与观测 —— 运行日志 / 错误落盘 / 页面监控是宿主的产品面（本仓的 duoling-runtime
 //     库 + 活动历史面板），包不自带；不注入 = 相应观测不发生，脚本行为不受损。
 //
-// 配置时机：必须在 initDlBridge / initDlPort 之前调 configureUserscriptRuntime
 // （SW 入口的顶层同步段里，与 listener 注册同一条「第一帧」纪律）。
 
 // 错误 / 动作的形状归契约包（件包产生、应用侧落库与展示、offscreen 的工具集也认），
@@ -43,7 +41,6 @@ export interface UserscriptTelemetry {
   /** 标签页录制载荷落库 */
   appendTabCapture?(rec: unknown): Promise<void>
   /**
-   * 页面检查器指令结果结算（检查器系统脚本经 __dlEvent 信封上行）。
    * 旁证（uuid 必须是检查器系统脚本自己的）与页归属（tabId）都由宿主侧定；
    * reqId 由 SW 现造随指令下发，结算认它（幂等，重复投递无害）。
    */
@@ -53,7 +50,6 @@ export interface UserscriptTelemetry {
     rec: { reqId: string; ok: boolean; payload: unknown },
   ): void
   /**
-   * 浮层宿主的在岗应答结算（宿主系统脚本经 __dlEvent 信封上行）。与 onInspectorEvent 同款：
    * 旁证（uuid）与页归属（tabId）由宿主侧定，结算认 SW 现造的 reqId（幂等）。
    */
   onFloatEvent?(uuid: string, tabId: number | null, rec: { reqId: string }): void
@@ -95,7 +91,6 @@ const DEFAULT_NOTIFICATION_ICON = 'icons/128.png'
 
 let config: UserscriptHostConfig = {}
 
-/** 注入宿主配置（SW 顶层同步段调用，先于 initDlBridge / initDlPort） */
 export function configureUserscriptRuntime(c: UserscriptHostConfig): void {
   config = c
 }

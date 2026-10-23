@@ -19,7 +19,7 @@ import { INSPECTOR_PICKER_NS } from '@duoling/shared'
 declare global {
   interface Window {
     /** 幂等守卫：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态） */
-    __dlFloatHost?: boolean
+    __gmFloatHost?: boolean
   }
 }
 
@@ -37,16 +37,14 @@ const ROOT_ID = 'duoling-float-root'
 const PICKER_BOX_SELECTOR = `.${INSPECTOR_PICKER_NS}-box`
 
 /**
- * 脚本桥（GM 包装内联进同一作用域的 `__dlBridge`，恒注入）。
- * 形状真相源是 service-worker 的 script-bridge.ts；这里只声明本件用到的方法。
+ * 形状真相源是 service-worker 的 gm-bridge-client.ts；这里只声明本件用到的方法。
  */
-declare const __dlBridge: {
+declare const __gmBridge: {
   connect(connId: string): Promise<void>
   emit(envelope: Record<string, unknown>): void
   onEvent(fn: (ev: Record<string, unknown>) => void): void
 }
 
-/** 常驻通道的 connId（DL Port name 尾段；SW 寻址只认 uuid+tabId，connId 仅做连接身份） */
 const CHANNEL_CONN_ID = 'float'
 /** 断链自愈的重发间隔：SW 重启后中继件侧连接已清，重发 connect 帧重建 Port */
 const CHANNEL_RECONNECT_MS = 15_000
@@ -176,8 +174,8 @@ export function clampPoint(
  * 幂等：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态）。
  */
 export function installFloatHost(): void {
-  if (window.__dlFloatHost) return
-  window.__dlFloatHost = true
+  if (window.__gmFloatHost) return
+  window.__gmFloatHost = true
 
   /**
    * 浮层页地址（构建期占位符，应用侧组系统脚本源码时替换成 JSON 字面量 —— 见文件头）。
@@ -444,8 +442,8 @@ export function installFloatHost(): void {
       const reqId = String(ev.reqId || '')
       if (!reqId) return
       try {
-        __dlBridge.emit({
-          __dlEvent: true,
+        __gmBridge.emit({
+          kind: 'notice',
           name: '浮层宿主',
           event: { t: 'float.pong', reqId },
         })
@@ -475,7 +473,7 @@ export function installFloatHost(): void {
   // 对同 uuid+connId 替换旧 Port，重连不会产生双 Port 推两份指令）。
   function keepChannel(): void {
     try {
-      __dlBridge.connect(CHANNEL_CONN_ID).catch(function () {
+      __gmBridge.connect(CHANNEL_CONN_ID).catch(function () {
         /* 握手失败（中继件未就位）：等下一轮 */
       })
     } catch {
@@ -485,9 +483,8 @@ export function installFloatHost(): void {
   keepChannel()
   setInterval(keepChannel, CHANNEL_RECONNECT_MS)
 
-  // 下行接收面：SW 经 DL Port 推 float.cmd，中继件转回桥 onEvent。
   try {
-    __dlBridge.onEvent(handleCommand)
+    __gmBridge.onEvent(handleCommand)
   } catch {
     // 桥不可用（异常时序）：指令通道不可用。常驻通道的重发还会继续试，
     // 但 onEvent 挂不上就收不到指令 —— 这里报明确错误比静默好排查。

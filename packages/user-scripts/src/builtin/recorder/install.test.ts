@@ -5,7 +5,6 @@
 // 机制层与种类层一起测：net-probe 由机制层在安装时挂上，单独跑不起来 ——
 // 「机制 + 当前唯一一类」是一次安装的两半。
 //
-// 注入方式：件读全局 window 与全局 __dlBridge（GM 包装内联的桥），故这里把两者都装成
 // 全局再调安装函数（与真注入同一条路径）。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NET_BODY_LIMIT, NET_TAB_KIND } from '@duoling/shared'
@@ -15,7 +14,7 @@ type AnyWin = Record<string, unknown>
 
 /** 机制层的上行信封（经脚本桥 emit 出去的东西） */
 interface Emitted {
-  __dlEvent: true
+  kind: 'notice'
   name: string
   event: { t: 'tab.record'; kind: string; record: Record<string, unknown> }
 }
@@ -68,8 +67,8 @@ async function waitFor(fn: () => boolean, tries = 100): Promise<void> {
 function runRecorder(win: AnyWin): Emitted[] {
   const emitted: Emitted[] = []
   vi.stubGlobal('window', win)
-  // 假脚本桥：只实现件用到的 emit；真形状见 service-worker 的 script-bridge.ts
-  vi.stubGlobal('__dlBridge', {
+  // 假脚本桥：只实现件用到的 emit；真形状见 service-worker 的 gm-bridge-client.ts
+  vi.stubGlobal('__gmBridge', {
     emit: (envelope: Emitted) => {
       emitted.push(envelope)
     },
@@ -106,8 +105,7 @@ describe('dl-tab-recorder（MAIN 捕获件：机制框架 + net 种类）', () =
 
     await waitFor(() => emitted.length > 0)
     const post = emitted[0]
-    // 上行信封：机制层拼 __dlEvent + tab.record，种类件只给 record
-    expect(post.__dlEvent).toBe(true)
+    expect(post.kind).toBe('notice')
     expect(post.event.t).toBe('tab.record')
     expect(post.event.kind).toBe(NET_TAB_KIND)
     const c = post.event.record
@@ -205,7 +203,6 @@ describe('dl-tab-recorder（MAIN 捕获件：机制框架 + net 种类）', () =
     const win = createFakeWindow(origFetch)
     const emitted = runRecorder(win)
     // 第二次不走 runRecorder —— 它会再桩一份新桥（新 emitted 数组），记录会落进被丢弃的那份；
-    // 直接调安装函数：应被 window.__dlTabRecorder 挡下（幂等守卫在，不发也不报错）
     installTabRecorder()
     await (win.fetch as (u: string) => Promise<Response>)('https://api.test/x')
     await waitFor(() => emitted.length > 0)
@@ -217,7 +214,7 @@ describe('dl-tab-recorder（MAIN 捕获件：机制框架 + net 种类）', () =
     const origFetch = vi.fn(async () => new Response('ok', { status: 200 }))
     const win = createFakeWindow(origFetch)
     vi.stubGlobal('window', win)
-    vi.stubGlobal('__dlBridge', {
+    vi.stubGlobal('__gmBridge', {
       emit: () => {
         throw new Error('bridge down')
       },

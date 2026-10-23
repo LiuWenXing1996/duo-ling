@@ -5,7 +5,6 @@
 // 管理面命令面由 swIpcHandlers() 导出、宿主总线收口注册（见 management.ts），
 // 故这里 onMessage 面断言为 0 —— 多一条就说明包又自己造了通信（违背标准化信道）。
 //
-// 模块生命周期：host.ts / host-config.ts / dl-bridge / dl-port 全带单例或 initialized
 // 标志，跨用例必须全新 —— 每例经 loadHost()（resetModules + 动态 import）重载模块图。
 // 不能静态 import + beforeEach 里 resetModules：静态绑定永远指向首个模块实例，
 // 单例在旧实例里跨用例残留，resetModules 反而让动态重取的 host-config 分裂成新实例。
@@ -92,7 +91,7 @@ describe('createServiceWorkerHost', () => {
     expect(pack.owns('other:kind')).toBe(false)
   })
 
-  it('重复调用幂等：返回同一实例，监听不二次注册（initDlPort 无幂等保护，靠工厂兜住）', async () => {
+  it('重复调用幂等：返回同一实例，监听不二次注册（initGmPort 无幂等保护，靠工厂兜住）', async () => {
     const { createServiceWorkerHost } = await loadHost()
     const first = createServiceWorkerHost()
     const second = createServiceWorkerHost()

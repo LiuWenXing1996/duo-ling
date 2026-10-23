@@ -1,16 +1,11 @@
 // 脚本主世界桥 · 协议全链路测试。
 //
-// 跨两个包的两侧：MAIN 侧的脚本桥模板在 @duoling/service-worker（script-bridge.ts，要被拼进
-// GM 包装的字符串），USER_SCRIPT 侧的中继件在 @duoling/user-scripts（src/builtin/relay/，构建
-// 成字符串内嵌的 IIFE）。本用例
-// 用最小假 frame 把两端接在同一个"窗口"上跑真实现，验证握手、请求-应答、防伪校验与下行事件转发。
+// MAIN 侧客户端（gm-bridge-client.ts）与 USER_SCRIPT 侧中继件（builtin/relay/）用最小假 frame 接在同一窗口跑真实现
 // chrome.runtime 用最小桩替代（sendMessage 同步回调、connect 给可手动触发 onMessage 的 Port）。
 //
-// 用例住在 sw 包：它同时需要本包的模板与 user-scripts 的中继件，而依赖方向只允许向下
-// （sw → user-scripts，反向不得）。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildScriptBridgeSource } from './script-bridge'
+import { createGmBridgeClient } from './gm-bridge-client'
 import { installRelay } from '@duoling/user-scripts/builtin/relay'
 
 const SECRET = 'test-secret-0123456789abcdef'
@@ -21,7 +16,7 @@ type MsgListener = (ev: { source: unknown; data: unknown }) => void
 interface BridgeApi {
   call: (req: unknown, runId?: string) => Promise<unknown>
   connect: (connId: string) => Promise<void>
-  emit: (payload: unknown) => void
+  emit: (payload: any) => any
   onEvent: (fn: (ev: unknown) => void) => void
 }
 
@@ -97,11 +92,6 @@ function runRelay(win: any, chromeStub: unknown, secret: string): void {
   installRelay(secret)
 }
 
-// 客户端源码是表达式（IIFE），以 `var x = <源码>` 形式求值后取出返回的 API 对象
-function runBridge(src: string, win: any): BridgeApi {
-  return new Function('window', `var __api = ${src}; return __api`)(win)
-}
-
 function setup(opts?: {
   handler?: (msg: any) => unknown
   relaySecret?: string
@@ -112,7 +102,7 @@ function setup(opts?: {
   if (opts?.withRelay !== false) {
     runRelay(win, stub.chrome, opts?.relaySecret ?? SECRET)
   }
-  const api = runBridge(buildScriptBridgeSource(SECRET, UUID), win)
+  const api: BridgeApi = createGmBridgeClient(win, SECRET, UUID)
   return { win, posted, api, stub }
 }
 
@@ -134,7 +124,8 @@ describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
     })
     expect(stub.sent).toHaveLength(1)
     expect(stub.sent[0]).toMatchObject({
-      __dl: true,
+      __gm: 1,
+      kind: 'req',
       uuid: UUID,
       req: { c: 'store.get', key: 'k' },
     })
@@ -144,7 +135,7 @@ describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
     const { api, stub } = setup({ handler: () => ({ ok: true }) })
 
     await api.call({ c: 'store.get', key: 'k' }, 'run-42')
-    expect(stub.sent[0]).toMatchObject({ __dl: true, uuid: UUID, runId: 'run-42' })
+    expect(stub.sent[0]).toMatchObject({ __gm: 1, kind: 'req', uuid: UUID, runId: 'run-42' })
 
     // 不带 runId 的帧：字段为 undefined，SW 侧按「无归属」处理，不崩
     await api.call({ c: 'store.get', key: 'k' })
@@ -182,7 +173,7 @@ describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
     const { win, stub } = setup()
 
     win.postMessage({
-      __dlBridge: 1,
+      __gm: 1,
       kind: 'req',
       uuid: UUID,
       seq: 1,
@@ -219,36 +210,38 @@ describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
 
     await api.connect('conn-1')
     expect(stub.ports).toHaveLength(1)
-    expect(stub.ports[0]!.name).toBe(`duoling:dl:${UUID}:conn-1`)
+    expect(stub.ports[0]!.name).toBe(`duoling:gm:${UUID}:conn-1`)
 
-    stub.ports[0]!.emit({ __dlApiEvent: true, ev: { t: 'port.ready' } })
+    stub.ports[0]!.emit({ __gm: 1, kind: 'api', ev: { t: 'port.ready' } })
     expect(seen).toEqual([{ t: 'port.ready' }])
   })
 
   it('emit 单向上行：运行广播不经握手原样转给扩展侧（fire-and-forget）', () => {
     const { api, stub } = setup({ handler: () => undefined })
 
-    expect(api.emit({ __dlRunStart: true, name: '探针', runId: 'r-1' })).toBeUndefined()
+    expect(api.emit({ kind: 'runstart', name: '探针', runId: 'r-1' })).toBeUndefined()
     expect(stub.sent).toHaveLength(1)
     expect(stub.sent[0]).toMatchObject({
-      __dlRunStart: true,
+      __gm: 1,
+      kind: 'runstart',
       uuid: UUID,
       name: '探针',
       runId: 'r-1',
     })
   })
 
-  it('emit 的错误上报帧（__dlEvent）同样原样转发', () => {
+  it('emit 的错误上报帧（MAIN 腿 kind: notice）转发成 SW 腿的 kind: ev', () => {
     const { api, stub } = setup({ handler: () => undefined })
 
     api.emit({
-      __dlEvent: true,
+      kind: 'notice',
       name: '探针',
       event: { t: 'error', phase: 'runtime', message: '炸了', url: 'https://page.test/' },
     })
     expect(stub.sent).toHaveLength(1)
     expect(stub.sent[0]).toMatchObject({
-      __dlEvent: true,
+      __gm: 1,
+      kind: 'ev',
       uuid: UUID,
       event: { t: 'error', message: '炸了' },
     })
@@ -258,8 +251,8 @@ describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
     const { win, stub } = setup({ handler: () => undefined })
 
     win.postMessage({
-      __dlBridge: 1,
-      __dlEvent: true,
+      __gm: 1,
+      kind: 'notice',
       uuid: UUID,
       seq: 7,
       proof: 'deadbeef',
@@ -273,7 +266,7 @@ describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
     const { win } = createFakeWindow()
     // runtime 在、sendMessage 不在 —— 对应「世界没开 messaging」的配置缺失
     runRelay(win, { runtime: { lastError: undefined } }, SECRET)
-    const api = runBridge(buildScriptBridgeSource(SECRET, UUID), win)
+    const api: BridgeApi = createGmBridgeClient(win, SECRET, UUID)
 
     await expect(api.call({ c: 'store.get' })).resolves.toMatchObject({
       ok: false,

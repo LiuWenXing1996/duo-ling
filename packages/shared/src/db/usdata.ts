@@ -1,6 +1,5 @@
 // duoling-usdata：脚本自己写的数据（GM 值 + GM tab 值），SW 独占写。
 //
-// 库实例住契约包：schema 只该有一份，读写两侧（usdata-db / dl-bridge）按名字查即可。
 import { createIdbOpener, type IdbOpener } from '../idb-core'
 
 export const USDATA_DB_NAME = 'duoling-usdata'

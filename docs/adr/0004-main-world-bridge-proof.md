@@ -19,7 +19,7 @@
 
 - 通道形状约定收敛在 bridge.ts 单文件，两个实现各取所需：
   - 中继件本体（builtin-scripts 的 relay/install.ts）——真 TS 模块，直接 import；
-  - MAIN 侧脚本桥（script-bridge.ts）——要被拼进 GM 包装的源码字符串（不能有 import），另给一份**源码片段版**常量供插值。
+  - MAIN 侧脚本桥（gm-bridge-client.ts）——真实 TS，esbuild 打进 GM 包装 IIFE 产物（digest 直接 import 共享实现）。
 - 两处 digest 必须逐字节同源，由 bridge.test.ts 用同一批输入对跑比对把守。
 - **每条请求带 proof**：`digest(secret, uuid:seq)`，中继件验 proof 且强制 seq 单调递增——页面不知 secret，伪造需 2^32 量级猜测；重放已用过的帧被序号挡住。
 

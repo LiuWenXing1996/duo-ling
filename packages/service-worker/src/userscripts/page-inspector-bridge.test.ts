@@ -2,8 +2,6 @@
 //
 // 为什么这几条必须有：件是常驻的、发起侧每次都在等一条结果 —— 配对错一次就是「等满 60 秒拿到别人的
 // 结果」这类难查的错；而「件不在位」必须当场失败（用户没开开关时不该看 60 秒转圈）。
-// 下行走 DL Port 事件帧（stub pushCommandTo 后动态导入被测模块，让 mock 落进它的 import），
-// 上行结算走 handleInspectorEvent（uuid 旁证 + reqId 配对）。真机上「DL Port 能否推进 MAIN 世界
 // 系统脚本」靠实测，不在本文件的覆盖范围。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { INSPECTOR_HOST_ID as INSPECTOR_ID } from '@duoling/user-scripts/builtin'
@@ -14,7 +12,7 @@ type Bridge = typeof import('./page-inspector-bridge')
 /** pushCommandTo 桩：记录每次下发；ports = 0 表示该页没有件的在岗连接（件不在位） */
 async function stubPush(ports = 1): Promise<{ sent: Sent[]; bridge: Bridge }> {
   const sent: Sent[] = []
-  vi.doMock('../dl-port', () => ({
+  vi.doMock('../gm-port', () => ({
     pushCommandTo: (_uuid: string, tabId: number, ev: Record<string, unknown>) => {
       if (ports === 0) return 0
       sent.push({ tabId, ev })
@@ -26,7 +24,6 @@ async function stubPush(ports = 1): Promise<{ sent: Sent[]; bridge: Bridge }> {
   return { sent, bridge }
 }
 
-/** 件侧那条上行（dl-bridge 分流后交 handleInspectorEvent 的形状） */
 function result(
   reqId: string,
   payload: unknown,
@@ -37,7 +34,7 @@ function result(
 
 afterEach(() => {
   vi.useRealTimers()
-  vi.doUnmock('../dl-port')
+  vi.doUnmock('../gm-port')
   vi.resetModules()
 })
 

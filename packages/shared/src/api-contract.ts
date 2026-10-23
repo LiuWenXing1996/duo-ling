@@ -2,6 +2,8 @@
 // 对外面 = 油猴标准、内部面 = 自有桥协议（只增命令不改形状）、已知差异与克隆约束
 // 见 docs/adr/0002-gm-api-contract-dual-surface.md。
 
+import { BRIDGE_MSG_TAG_VALUE } from './bridge'
+
 /** 允许跨桥 / 落盘的值类型 */
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json }
 
@@ -92,7 +94,7 @@ export interface GmCookie {
 
 /** 二进制请求体信封：包装侧把 ArrayBuffer / TypedArray 转 base64 打包，SW 侧解码后发请求 */
 export interface FetchBinaryBody {
-  __dlBinaryBody: true
+  __gmBinaryBody: true
   base64: string
 }
 
@@ -113,7 +115,7 @@ export interface FetchFormField {
   filename?: string
 }
 export interface FetchFormBody {
-  __dlFormData: true
+  __gmFormData: true
   fields: FetchFormField[]
 }
 
@@ -145,7 +147,6 @@ export interface FetchInit {
   requestId?: string
   /**
    * 要下载进度帧（`GM_xmlhttpRequest` 的 `onprogress`）。**缺省不推** —— 进度帧有成本，
-   * 只有脚本真给了 onprogress 才走流式读那条路（见 dl-bridge 的 readBodyStreaming）。
    */
   wantProgress?: boolean
   /** 进度帧的推送目标（包装层的 connId）；wantProgress 为真时必填 */
@@ -490,26 +491,14 @@ export type ApiEvent =
       error?: string
     }
 
-/** DL Port 下行帧信封：Port 上只走这一种帧，防未来混入其他帧类型时判别冲突 */
-export type ApiEventFrame = { __dlApiEvent: true; ev: ApiEvent }
+export type ApiEventFrame = {
+  __gm: typeof BRIDGE_MSG_TAG_VALUE
+  kind: 'api'
+  ev: ApiEvent
+}
 
-/**
- * 脚本世界 → 后台 的单向事件（不等待响应，区别于 ApiRequest 的请求-响应）。两种信封：
- *   · `{ __dlEvent: true, uuid, name, event: DlEvent }` —— 错误上报与系统脚本上行：
- *     包装层把错误收进错误记录（runtime 库 tab_events，kind = 'error'）；录制系统脚本
- *     把页面采样（`t: 'tab.record'`）经同一条信封上行，归属判据在 SW 侧（见 dl-bridge）。
- *     归属口径两层：正文同步错误由包装内 try/catch 直报；
- *     异步错误经 window.onerror / unhandledrejection，只收栈帧带本脚本 sourceURL
- *     标记（`duoling://script/<uuid>/`）的，页面自身的报错不归属（无标记不收）。
- *     **写侧另有页判据**：只有这一页开着活动记录时才落盘 + 推送（见 dl-bridge），没开就是观测盲区。
- *   · `{ __dlRunStart: true, uuid, name, runId }` —— 运行标识广播：包装注入即 mint 一次
- *     「一次页面加载 = 一次运行」的 runId。SW 交对话界面页面监控按 tab 登记，并落运行条目
- *     （runtime 库 tab_events，kind = 'run'，name 快照）——同样只在开着活动记录的页上；
- *     同一 runId 的补播按 runId 去重。
- *
- * 信封名保持 `dl` 前缀（内部协议面不改名，改它是纯 churn）。
- */
-export type DlEvent =
+/** 上行帧信封（sendMessage 腿）：`{ __gm: 1, v, kind }`；三种 kind 与 MAIN 腿 'notice' 差异见 ADR-0002。 */
+export type ApiNotice =
   | {
       t: 'error'
       phase: 'runtime'
@@ -542,7 +531,12 @@ export type ApiResponse =
   { ok: true; data: Json | void } | { ok: false; error: string; code?: ApiErrorCode }
 
 export type ApiErrorCode =
-  'BRIDGE_TIMEOUT' | 'NOT_AVAILABLE' | 'PERMISSION_DENIED' | 'INVALID_ARG' | 'INTERNAL'
+  | 'BRIDGE_TIMEOUT'
+  | 'BRIDGE_VERSION_MISMATCH'
+  | 'NOT_AVAILABLE'
+  | 'PERMISSION_DENIED'
+  | 'INVALID_ARG'
+  | 'INTERNAL'
 
 // ————————————————————— 脚本作者看到的 API 形态 —————————————————————
 
