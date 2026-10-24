@@ -3,7 +3,6 @@
 // 职责：chrome.userScripts 的世界配置 + 单脚本注册（GM 包装拼装）+ 全量重注册串行链 +
 // 可用性检测 + 握手密钥。对任何接入扩展都成立；中继件（GM 桥 MAIN 世界侧）属「跑全量 GM」
 // 的组成部分，注册同步由本包内置维护（relay/sync.ts，全量链自动带上）；产品内置件
-// （检查器 / 浮层 / 录制件）经 host-config 的 builtins 注入点挂进全量链。
 // 主走 MAIN 世界注入、GM 包装同函数作用域、注入代码与 @require 拼一条 code、
 // 不给脚本世界配 csp（不放开 eval）—— 机制与理由见 ARCHITECTURE.md「脚本注入」节。
 import type {
@@ -13,6 +12,7 @@ import type {
   Json,
   UserScriptsAvailability,
 } from '@duoling/shared'
+
 // 可用性形状归契约包（应用侧状态横幅与 offscreen 都认），此处 re-export 维持包内路径不变。
 export type { UserScriptsAvailability }
 import { GM_WRAPPER_SUFFIX, buildGmWrapperPrefix } from '@duoling/user-scripts/gm-main'
@@ -29,10 +29,25 @@ import {
 import { getAllGMValues } from './gm-values'
 import { fetchRequireSources } from './require-cache'
 import { fetchResourceSources } from './resource-cache'
-import { extensionName, secretStorePort, telemetryPort, builtinsPort } from './host-config'
+import {
+  extensionName,
+  secretStorePort,
+  telemetryPort,
+  builtinsPort,
+  dlRuntimePort,
+} from './host-config'
+
 // 中继件（GM 桥的 MAIN 世界侧）注册面：包内置维护，registerAllEnabled 全量链自动带上
 import { SCRIPT_RELAY_ID, syncScriptRelay } from './relay/sync'
 
+function dlRuntime(): DLRuntime {
+  const runtime = dlRuntimePort()
+  if (!runtime)
+    throw new Error(
+      '未注入 DLRuntime：内置件注册面不可用（createServiceWorkerHost 需带 dlRuntime）',
+    )
+  return runtime
+}
 // —— 可用性检测 / 版本分支 ——
 
 function chromeMajorVersion(): number {
@@ -441,6 +456,27 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   await chrome.userScripts.register([userScript])
 }
 
+export async function registerDlScript(project: ScriptProject): Promise<void> {
+  if (!project.enabled) return
+  if (!project.config.matches?.length) {
+    throw new Error('脚本缺少匹配规则（matches），不会在任何页面运行')
+  }
+  validateMatchPatterns(project.config)
+  const rawCode = resolveInjectCode(project)
+  await dlRuntime().installCustomUserScript(rawCode, {
+    id: project.uuid,
+    name: project.name,
+    requires: await resolveRequireCodes(project),
+    info: buildGmInfo(project, rawCode),
+    matches: project.config.matches,
+    excludeMatches: project.config.excludeMatches,
+    includeGlobs: project.config.includeGlobs,
+    excludeGlobs: project.config.excludeGlobs,
+    runAt: project.config.runAt === 'document_body' ? 'document_start' : project.config.runAt,
+    allFrames: project.config.allFrames,
+    protectFromSync: false,
+  })
+}
 /**
  * 注销指定 id（ids 为空直接跳过）：逐个注销、逐个吞错。
  *
@@ -466,7 +502,6 @@ export async function unregisterScripts(ids: string[]): Promise<void> {
 let registerChain: Promise<void> = Promise.resolve()
 
 /**
- * 挂注册串行队列（导出给宿主内置件的同步复用同一队列：录制件 / 检查器 / 浮层的
  * refresh 与脚本全量重注册必须排同一条队，否则互相踩踏）。
  */
 export function enqueueRegistration(run: () => Promise<void>): Promise<void> {

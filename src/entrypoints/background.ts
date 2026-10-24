@@ -18,6 +18,7 @@
 import '@/polyfills' // 必须在最前：补全 SW 的 global/Buffer/process 全局，早于 isomorphic-git 引用
 import { defineBackground } from '#imports'
 import type { PageOverviewTab } from '@duoling/shared'
+
 // 注入物的形状取自同一处，本文件不再各写一份（加字段时只改一处才不会漏）
 import type { InjectedBuildInfo } from '@duoling/shared'
 import { EXTENSION_NAME } from '@duoling/shared'
@@ -42,6 +43,7 @@ import {
   clearGMValues,
   DLRuntime,
 } from '@duoling/service-worker'
+
 // 本扩展自己的注入件注册同步（系统脚本 + 中继件并集）与内置件对账
 import {
   refreshBuiltinScripts,
@@ -51,17 +53,22 @@ import {
   BUILTIN_SCRIPT_IDS,
   syncAllBuiltins,
 } from '@duoling/service-worker'
+
 // BuiltinRegistration 是跨世界契约形状，真相源在 shared（engine 只是产生方）
 import type { BuiltinRegistration } from '@duoling/shared'
+
 // metadata 解析（纯函数）：仅用于把「源码声明与界面配置的差异」当提示回给编辑器；
 // 真正的归一化在写入口一处（offscreen 写侧的 saveSource），此处不写回任何东西
 import { resolveConfigFromSource, type SaveOutcome } from '@duoling/shared'
+
 // 标签页录制：录到的采样与语料压缩都归 SW（采样在 duoling-runtime 的 tab_events，
 // offscreen 与扩展页都不直连）。录制的开关跟着活动记录走，判据落在存续表上 —— 见 tab-sessions。
 import { describeCaptureDigest, describeCaptureRecords } from '@duoling/shared'
+
 // 引擎可用性监视（检测层）：SW 保活后自行轮询，变化时经 onAvailabilityChange 通知消费层
 // 新版本检查：SW 在浏览器启动 / 安装更新时各查一次，结果落 duoling-app 库供 popup 与设置页读
 import { runUpdateCheck } from '@duoling/shared'
+
 // GM 运行时接线：SW 侧工厂（配置注入 + 桥与 Port 监听注册同点完成，见 initUserScripts）
 // + SW 侧服务实体（代理调用经库 listener 直达，不占总线 matcher 位）
 // OffscreenService 消费侧：项目数据的写路径（见下方 offscreenService）
@@ -69,6 +76,7 @@ import { runUpdateCheck } from '@duoling/shared'
 import { ipcNotify } from '@duoling/shared'
 import { packMatcher, prefixMatcher, serveIpc } from '@/shared/ipc-bus'
 import { duolingTelemetry } from '@duoling/service-worker'
+
 // 产品内置件注入面：内置注册 id 全集（stale 清扫排除）与四件全量同步（挂包侧注册串行链）
 // 标签页存续（tabId 的稳定替身）：开关（连同「开始 / 结束记录」两条标记）、事件（刷新、地址变更）、
 // 盖章与启动划断（都替当时还在记的行收个尾）都归 SW ——「这一页在不在记活动、经历了什么、
@@ -81,10 +89,13 @@ import {
   setTabRecording,
   splitTabSessionsAtBrowserStart,
 } from '@duoling/service-worker'
+
 // 项目数据：读侧（直连 IndexedDB，SW 与扩展页共用）+ 写命令面（转发 offscreen）
 import { getProject, listProjects, listSummaries } from '@duoling/shared'
+
 // 握手密钥的持久化（经 secretStore 注入包侧）：duoling-app 库的 kv 读写
 import * as appDb from '@duoling/shared'
+
 // 观测数据的写出口：错误日志、运行条目与动作
 import {
   clearRunLog,
@@ -97,10 +108,12 @@ import {
   clearAllTabActivity,
   deleteTabActivity,
 } from '@duoling/service-worker'
+
 // GM 值存储（duoling-usdata 库）：脚本删除 / 清库时清各自的值
 // 观测数据的底层表（duoling-runtime 库）：存续表全量给「活动历史」按标签页分档用；
 // 某一页的整根活动轴（存续轴事件 + 接口采样）一次读回 —— 录制按标签页，读也就按标签页。
 import { findOpenTabSession, listTabSessions, listTabTimeline } from '@duoling/service-worker'
+
 // 对话界面页面脚本监控（运行时口径）：按 tab 的运行登记 + 面板端口 —— 工具栏角标的数字就是它
 import {
   forgetPageTab,
@@ -110,6 +123,7 @@ import {
   resetPageRuns,
   snapshotForTabs,
 } from '@duoling/service-worker'
+
 // 会话的标签页归属映射（duoling-app 库）：标签页关闭时在这里清（见 tabs.onRemoved 处说明）；
 // page:snapshot 也用它反查「这条会话在哪个标签页上」（会话按 tab 归属）；
 // popup 的页面概览靠它回答「这个页面归属哪条会话」
@@ -119,8 +133,10 @@ import {
   getTabConversationMap,
   unbindTab,
 } from '@duoling/shared'
+
 // 会话库（duoling-chat，**写只归 offscreen**）：页面概览里显示会话标题，这里只读
 import { listConversations } from '@duoling/shared'
+
 // 「这一页是不是普通网页」的判据（页面概览只收普通网页，与 popup 的按钮判据同源）
 import { webHostname } from '@duoling/shared'
 import type {
@@ -144,29 +160,25 @@ import {
   offscreenService,
   ensureLinkReady,
 } from '@duoling/service-worker'
+
 // 模型配置：offscreen 既不直连存储、也不 import model-store（SW 专属模块），一律由
 // SW 经命令中转；变更推送由 model-store 写出口直发（offscreen 侧见包内 bootstrap.ts）。
 import { getActiveProfileState } from '@duoling/shared'
+
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
 import { broadcastBuildPhase } from '@duoling/shared'
-// AI 工具支路：page_snapshot / page_env_read 两条工具经 SW 向页面里的页面检查器下发指令
-// （offscreen 不可达该 API）—— 下发封装与配对都在包内 page-inspector-bridge
-import { capturePageEnvFromTab, capturePageSnapshotFromTab } from '@duoling/service-worker'
+
 // 目标页可注入判据与「引擎不可用」文案：与对话界面发起侧同一处
 import {
   isUserScriptsApiAvailable,
   pageInjectionBlockReason,
   userScriptsUnavailableMessage,
+  PAGE_ENV_COMMAND,
+  PAGE_ENV_ID,
+  PAGE_SNAPSHOT_COMMAND,
+  PAGE_SNAPSHOT_ID,
 } from '@duoling/shared'
-// 拾取指令的下发与配对（常驻件那半在页面里，件源码见包的 inspector/install.ts）
-import { cancelPicker, runInspectorCommand } from '@duoling/service-worker'
-import {
-  collapseFloatPanel,
-  openFloatPanel,
-  pingFloatHost,
-  setFloatPanelBusy,
-} from '@duoling/service-worker'
-import type { ElementPickContext } from '@duoling/shared'
+import { dlRuntimePort, isFloatHostReady, openFloatPanel } from '@duoling/service-worker'
 import { errorText, isTransportError } from '@duoling/shared'
 
 export const SW_KIND_PREFIXES = [
@@ -272,7 +284,6 @@ async function resolveAiTargetTab(
     tabId = tab?.id
   }
   if (tabId == null) throw new Error('未找到目标标签页')
-  // 内置页 / 扩展页拦在注入前（判据与页面检查器共用，见 pageInjectionBlockReason——扩展页连自己
   // 的也不行，<all_urls> 不覆盖 chrome-extension scheme）
   const tab = await chrome.tabs.get(tabId).catch(() => null)
   const blocked = pageInjectionBlockReason(tab?.url)
@@ -281,30 +292,9 @@ async function resolveAiTargetTab(
 }
 
 /**
- * 定位「用户此刻看着的标签页」并在下发前拦掉不可注入的页（拾取专用）。
- *
- * 与 resolveAiTargetTab 的口径刻意不同：那条认**会话归属**（AI 在生成中途自己决定要读，
- * 那时用户可能已经切走）；这条认**激活页** —— 拾取由用户在看得见的面板上点按钮发起，
- * 浮层只在自己那个 tab 可见，那一刻它必然在激活页上，不必也不该去查归属。SW 无窗口上下文，
- * lastFocusedWindow 即用户最后聚焦的那个窗口。
- *
- * 名字避开 owning-tab 的 resolveActiveTabId：那个是「扩展页认自己属于哪个标签页」，
- * 这条是「SW 替一次用户动作找目标页」，别混。
- */
-async function resolvePickTargetTab(what: string): Promise<number> {
-  if (!chrome.tabs?.query) throw new Error('无法定位目标标签页')
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-  if (tab?.id == null) throw new Error('未找到活动标签页')
-  const blocked = pageInjectionBlockReason(tab.url)
-  if (blocked) throw new Error(`${blocked}，无法${what}，请切到要操作的网页后重试`)
-  return tab.id
-}
-
-/**
- * 引擎不可用就不必白跑一趟下发。判据与文案都取发起侧那一份（element-picker-client）——
  * 在这里另写一遍，两处说法迟早分叉。
  */
-function ensureInspectorAvailable(): void {
+function ensurePageRuntimeAvailable(): void {
   if (!isUserScriptsApiAvailable()) throw new Error(userScriptsUnavailableMessage())
 }
 
@@ -382,19 +372,32 @@ async function readTabRecord(
   return { enabled: row?.recording === true, count: records.length, text }
 }
 
+function invokeDlCommand(
+  tabId: number,
+  scriptId: string,
+  name: string,
+  arg?: unknown,
+): Promise<unknown> {
+  const runtime = dlRuntimePort()
+  if (!runtime) throw new Error('用户脚本运行时未就绪')
+  return runtime.invokeBackgroundCommand(tabId, scriptId, name, arg)
+}
+
 const linkHandlers: LinkHandlers = {
   'model:getActiveProfile': () => getActiveProfileState(),
 
   'page:snapshot': async (payload) => {
-    ensureInspectorAvailable()
+    ensurePageRuntimeAvailable()
     const { conversationId } = (payload ?? {}) as { conversationId?: string }
-    return capturePageSnapshotFromTab(await resolveAiTargetTab(conversationId, '采集页面快照'))
+    const tabId = await resolveAiTargetTab(conversationId, '采集页面快照')
+    return invokeDlCommand(tabId, PAGE_SNAPSHOT_ID, PAGE_SNAPSHOT_COMMAND)
   },
 
   'page:env': async (payload) => {
-    ensureInspectorAvailable()
+    ensurePageRuntimeAvailable()
     const { conversationId } = (payload ?? {}) as { conversationId?: string }
-    return capturePageEnvFromTab(await resolveAiTargetTab(conversationId, '读取页面环境'))
+    const tabId = await resolveAiTargetTab(conversationId, '读取页面环境')
+    return invokeDlCommand(tabId, PAGE_ENV_ID, PAGE_ENV_COMMAND)
   },
 
   'userscript:save': (payload) => saveUserScript(payload as SaveScriptPayload),
@@ -461,38 +464,19 @@ const handlers: {
   'chat:orphans': (msg) => forwardToOffscreen(msg),
   'chat:orphanAction': (msg) => forwardToOffscreen(msg),
 
-  // —— 拾取（浮层发起的用户动作）——
-  // 目标页判据见 resolvePickTargetTab —— 与上面两条 AI 支路刻意不同，别在这里另写一份。
-  'picker:pick': async (): Promise<ElementPickContext | null> =>
-    runInspectorCommand<ElementPickContext>(await resolvePickTargetTab('点选元素'), 'pick'),
-
-  'picker:cancel': async (): Promise<null> => {
-    await cancelPicker()
-    return null
-  },
+  'dl:invokeCommand': async (msg): Promise<unknown> =>
+    invokeDlCommand(msg.tabId, msg.scriptId, msg.name, msg.arg),
 
   // —— 浮层宿主命令面 ——
-  // 件已转 MAIN 世界系统脚本，tabs.sendMessage 到不了它：四条动作都在 SW 经
-  // open 报错（推不到 = 该页上没有件的在岗连接），其余单向动作静默。
   'float:open': async (msg): Promise<null> => {
-    if (!openFloatPanel(msg.tabId)) {
+    if (!(await openFloatPanel(msg.tabId))) {
       throw new Error('浮层没接上：页面可能还没加载完，刷新页面后再试')
     }
     return null
   },
 
-  'float:collapse': async (msg): Promise<null> => {
-    collapseFloatPanel(msg.tabId)
-    return null
-  },
-
-  'float:busy': async (msg): Promise<null> => {
-    setFloatPanelBusy(msg.tabId, msg.busy)
-    return null
-  },
-
-  'float:ping': async (msg): Promise<{ pong: boolean }> => ({
-    pong: await pingFloatHost(msg.tabId),
+  'float:probe': async (msg): Promise<{ ready: boolean }> => ({
+    ready: isFloatHostReady(msg.tabId),
   }),
 
   // —— popup 的页面概览（「当前页面 / 其他页面」两个区块的数据源）——
@@ -1108,7 +1092,7 @@ function ensureFloatMenuItem(): void {
 async function openFloatPanelInTab(tab: chrome.tabs.Tab): Promise<void> {
   const tabId = tab.id
   if (tabId == null) return
-  if (openFloatPanel(tabId)) return
+  if (await openFloatPanel(tabId)) return
   await chrome.notifications.create('duoling:float-open-failed', {
     type: 'basic',
     iconUrl: NOTIFY_ICON,

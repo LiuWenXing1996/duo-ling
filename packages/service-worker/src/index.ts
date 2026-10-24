@@ -7,33 +7,55 @@
 //   · offscreen 容器的生命周期管理（offscreen）与能力约定（GM_OFFSCREEN_REASONS）；
 //   · 本扩展的产品面（userscripts/）—— 观测数据写出口（store / runtime-db / tab-sessions）、
 //     页面脚本监控（page-monitor）、系统件注册同步（system-scripts / engine）、
-//     两类指令桥（page-inspector-bridge / float-bridge）与遥测 port（telemetry）。
 
 export * from './offscreen-reasons'
+
 export * from './sw-link'
+
 export * from './host-config'
+
 export * from './registration'
+
 export * from './availability-watch'
+
 export * from './cookie-gate'
+
 export * from './gm-fetch-priv'
+
 export * from './gm-port'
+
 export * from './gm-bridge'
+
 export * from './require-cache'
+
 export * from './resource-cache'
+
 export * from './host'
+
 export * from './management'
+
 export * from './relay/sync'
+
 export * from './usdata-db'
+
 export * from './gm-values'
+
 export * from './offscreen'
 // 产品面：观测 → 监控 → 系统件 → 注册同步 → 指令桥 → 遥测（按依赖方向排）
 export * from './userscripts/runtime-db'
+
 export * from './userscripts/store'
+
 export * from './userscripts/tab-sessions'
+
 export * from './userscripts/page-monitor'
+
 export * from './userscripts/system-scripts'
+
 export * from './userscripts/engine'
-export * from './userscripts/page-inspector-bridge'
+
 export * from './userscripts/float-bridge'
+
 export * from './userscripts/telemetry'
+
 export { DLRuntime } from '@duoling/dl-core'

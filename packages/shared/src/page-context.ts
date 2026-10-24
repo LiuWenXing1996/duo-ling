@@ -1,4 +1,3 @@
-// 页面检查器的载荷形状：件（inspector/install.ts）按它造数据，应用侧按它消费。
 //
 // 定义为什么落在契约包里：件不能依赖应用源码，而形状只能有一处真相源 ——
 // 件与应用同取这一处，消费方一律直接从这里取。
@@ -39,7 +38,6 @@ export interface ElementPickContext {
   full: ElementPickFull
 }
 
-/** 页面快照（渲染后 DOM，页面检查器快照模式静默采集；采集方 = AI 的 page_snapshot 工具经 SW 向该页下发指令） */
 export interface PageSnapshotContext {
   capturedAt: number
   pageUrl: string
@@ -59,8 +57,6 @@ export interface MessagePageContext {
 }
 
 /**
- * 页面环境读数（页面检查器 env 模式静默采集；采集方 = AI 的 page_env_read 工具经 SW 向该页下发指令）。
- *
  * 与 env_read 报的机器真值刻意分家：这几个值**随页面而变** —— 设备模拟会改掉视口与像素比，
  * 页面上的脚本可能改写 navigator.userAgent。想知道「脚本实际看到的运行环境」读这份，
  * 想知道「这台机器是什么」读机器那份。
@@ -75,3 +71,17 @@ export interface PageEnvContext {
   /** 页面里读到的 UA（可能已被页面脚本改写，未必等于浏览器真身） */
   ua: string
 }
+
+export const PICK_ELEMENT_ID = 'dl-pick-page-element'
+
+export const PICK_ELEMENT_PICK_COMMAND = 'pick'
+
+export const PICK_ELEMENT_CANCEL_COMMAND = 'cancel'
+
+export const PAGE_SNAPSHOT_ID = 'dl-page-snapshot'
+
+export const PAGE_SNAPSHOT_COMMAND = 'snapshot'
+
+export const PAGE_ENV_ID = 'dl-page-env'
+
+export const PAGE_ENV_COMMAND = 'env'

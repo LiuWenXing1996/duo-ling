@@ -21,44 +21,87 @@
 // 自身依赖件包；这里是**跨世界 + 跨进程**共享面，被件包、进程包与应用共同消费。
 
 export * from './bridge'
+
 export * from './tab-record'
+
 export * from './panel-monitor'
+
 export * from './inspector'
+
+export * from './float-host'
+
 export * from './page-context'
+
 export * from './idb-core'
+
 export * from './db'
+
 export * from './data-broadcast'
+
 export * from './data-broadcast-runtime'
+
 export * from './chat-chunk-broadcast'
+
 export * from './chat-task'
+
 export { liveQuery } from 'dexie'
+
 export * from './ipc'
+
 export * from './app'
+
 export * from './media-types'
+
 export * from './data-url'
+
 export * from './archive-transfer'
+
 export * from './extension-identity'
+
 export * from './error-text'
+
 export * from './script-config'
+
 export * from './script-project'
+
 export * from './api-contract'
+
 export * from './gm-grants'
+
 export * from './gm-api-catalog'
+
 export * from './match-pattern'
+
 export * from './match-union'
+
 export * from './metadata'
+
 export * from './state-db'
+
 export * from './conversation'
+
 export * from './chat-assets'
+
 export * from './conversation-store'
+
 export * from './model'
+
 export * from './chat-ipc'
+
 export * from './build-info'
+
 export * from './runtime-send'
+
 export * from './agent-tools-catalog'
+
 export * from './ui-message-parts'
+
 export * from './conversation-message'
+
 export * from './project-store'
+
 export * from './userscript-runtime'
+
 export * from './userscript-shapes'
+
 export * from './service'

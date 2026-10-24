@@ -553,6 +553,7 @@ async function writeClipboardViaOffscreen(text?: string, html?: string): Promise
     throw new ApiError('INTERNAL', 'GM_setClipboard：' + errorText(e))
   }
 }
+
 const EVENT_TEXT_MAX = 120
 
 function clipText(s: string): string {
@@ -905,20 +906,6 @@ export function initGmBridge(): void {
       const event = evt.event
       if (event && event.t === 'tab.record') {
         void ingestTabRecord(event.kind, event.record, sender.tab?.id)
-        return undefined
-      }
-      if (event && event.t === 'inspector.result') {
-        telemetryPort()?.onInspectorEvent?.(evt.uuid ?? '', sender.tab?.id ?? null, {
-          reqId: event.reqId,
-          ok: event.ok,
-          payload: event.payload,
-        })
-        return undefined
-      }
-      if (event && event.t === 'float.pong') {
-        telemetryPort()?.onFloatEvent?.(evt.uuid ?? '', sender.tab?.id ?? null, {
-          reqId: event.reqId,
-        })
         return undefined
       }
       const tabId = sender.tab?.id

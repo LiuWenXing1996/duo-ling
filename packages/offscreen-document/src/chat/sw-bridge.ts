@@ -54,7 +54,6 @@ export const offscreenBridge = {
     send('userscript:save', { ...payload, actor: 'ai' }),
 
   /**
-   * 页面快照（AI 的 page_snapshot 工具用）：SW 代为请本会话所属标签页上的页面检查器采一次快照。
    * chrome.tabs 在 offscreen 不可达，必须经 SW。
    * conversationId 由 chat-host 注入（它手里才有当前会话 id）——SW 靠它反查目标标签页，
    * 免得 AI 在用户已切走时采到别的页面。

@@ -238,13 +238,6 @@ export function pushFetchProgress(
   }
 }
 
-export function pushCommandTo(uuid: string, tabId: number, ev: ApiEvent): number {
-  const registry = getGmPortRegistry()
-  const ports = registry.portsForTab(uuid, tabId)
-  for (const port of ports) pushEvent(registry, port, ev)
-  return ports.length
-}
-
 export function pushDownloadChange(
   uuid: string,
   connId: string,

@@ -71,7 +71,6 @@ export interface TaskWorkspace {
   applyFailures: number
   /**
    * 本次任务要更新的既有脚本 uuid（script_apply 带 updateUuid 时设置；不带则清空 = 生成新脚本）。
-   * 落盘时据此走更新或新建
    */
   targetUuid?: string
   /** 最近一次成功 apply 的完整快照（收敛后由编排层落盘） */
@@ -153,7 +152,6 @@ export type ScriptToolSet = Record<
  * onFatal：硬停手回调——失败超阈值后模型仍再次 apply（无视 stop 提示）时中止整个
  * 任务（stop 提示只是文案，模型会无视继续烧步数）。
  * elementContext：本请求携带的拾取元素快照（用户显式点选；undefined = 本次没有）。
- * captureSnapshot：页面快照采集（经 SW 向页面里的页面检查器下发指令，AI 判断需要时调用；未提供 = 工具返回不可用）。
  * capturePageEnv：页面侧环境读数（同一通道取视口 / 像素比 / 页面 UA；未提供 = 工具返回不可用）。
  * tabRecord：页面录制（requestConsent 出同意卡 / read 读回语料；未提供 = 工具返回不可用）。
  * readRunLog：运行日志读取（SW 侧 duoling-runtime 库，offscreen 拿不到；未提供 = 工具返回不可用）。

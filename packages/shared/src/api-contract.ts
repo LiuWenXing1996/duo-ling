@@ -114,6 +114,7 @@ export interface FetchFormField {
   /** 二进制字段文件名（File 才有，仅影响 multipart 的 filename 段） */
   filename?: string
 }
+
 export interface FetchFormBody {
   __gmFormData: true
   fields: FetchFormField[]
@@ -439,18 +440,6 @@ export const API_COMMANDS: Record<ApiRequest['c'], true> = {
 export type ApiEvent =
   /** 内部帧（脚本作者不感知）：SW 建立 Port 后立即下发，包装层据此 flush 待注册队列 */
   | { t: 'port.ready' }
-  /**
-   * 页面检查器指令（SW → 检查器系统脚本，经 Port 下行由中继件转回 MAIN 桥 onEvent）。
-   * `cmd` 是模式名（pick / snapshot / env）或 'cancel'；`reqId` 由 SW 现造，结算认它。
-   * 脚本作者不感知：检查器是系统脚本，不走 GM 能力面。
-   */
-  | { t: 'inspector.cmd'; cmd: string; reqId: string }
-  /**
-   * 浮层宿主指令（SW → 浮层宿主系统脚本，经 Port 下行由中继件转回 MAIN 桥 onEvent）。
-   * `cmd`：open（tabId 随帧带，件拼进浮层 iframe 的 `?tab=`）/ collapse / busy（busy 定显隐）/
-   * ping（在岗探针，件回一条 float.pong）。脚本作者不感知：宿主件是系统脚本，不走 GM 能力面。
-   */
-  | { t: 'float.cmd'; cmd: string; reqId?: string; tabId?: number; busy?: boolean }
   /** 扩展菜单点击。id = 包装层 mint 的菜单标识 */
   | { t: 'menu.click'; id: string }
   /**
@@ -513,17 +502,6 @@ export type ApiNotice =
    * 归一化即信任边界）。
    */
   | { t: 'tab.record'; kind: string; record: Json }
-  /**
-   * 页面检查器指令结果（检查器系统脚本上行）。`reqId` 由 SW 现造随指令下发，结算认它；
-   * 来源旁证（uuid 必须是检查器系统脚本自己的）在宿主侧结算处校验 —— 信号本身不敏感
-   * （页面 DOM 摘要，住在页面里的脚本本来就能读），但旁证便宜，留着防串扰。
-   */
-  | { t: 'inspector.result'; reqId: string; ok: boolean; payload: unknown }
-  /**
-   * 浮层宿主的在岗应答（宿主系统脚本上行）。`reqId` 由 SW 现造随 ping 指令下发，结算认它；
-   * 旁证（uuid 必须是宿主件自己的）在宿主侧结算处校验（与 inspector.result 同款）。
-   */
-  | { t: 'float.pong'; reqId: string }
 
 /** 桥响应信封 */
 export type ApiResponse =

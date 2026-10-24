@@ -12,6 +12,7 @@ type ErrRec = {
   time?: number
   id?: string
 }
+
 type RunStartArgs = [
   uuid: string,
   runId: string,
@@ -49,8 +50,6 @@ vi.mock('./store', () => ({
 }))
 vi.mock('./tab-sessions', () => ({ recordingTabSessionId: vi.fn() }))
 vi.mock('./runtime-db', () => ({ appendTabCapture: vi.fn(() => Promise.resolve()) }))
-vi.mock('./page-inspector-bridge', () => ({ handleInspectorEvent: vi.fn() }))
-vi.mock('./float-bridge', () => ({ handleFloatEvent: vi.fn() }))
 
 import { duolingTelemetry } from './telemetry'
 
@@ -60,7 +59,7 @@ describe('duolingTelemetry · 系统脚本不进用户脚本观测面', () => {
   })
 
   it('三件系统脚本的 runstart 不登记（角标 / 灵动岛 / popup 都吃这张表）', () => {
-    for (const uuid of ['dl-tab-recorder', 'dl-page-inspector', 'dl-float-host']) {
+    for (const uuid of ['dl-tab-recorder', 'dl-pick-page-element', 'dl-float-host']) {
       duolingTelemetry.noteRunStart?.(1, uuid, 'r1')
       expect(noteRunStart, uuid).not.toHaveBeenCalled()
     }
@@ -84,7 +83,7 @@ describe('duolingTelemetry · 系统脚本不进用户脚本观测面', () => {
   })
 
   it('系统脚本的运行日志（runstart / act）不落盘', async () => {
-    await duolingTelemetry.recordRunStart?.('dl-page-inspector', 'r1')
+    await duolingTelemetry.recordRunStart?.('dl-pick-page-element', 'r1')
     await duolingTelemetry.recordRunEvent?.('dl-float-host', 'r1', {
       kind: 'a',
       detail: 'd',

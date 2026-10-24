@@ -1,33 +1,12 @@
-// 页面检查器常驻件本体：按指令读页面（pick / snapshot / env 三模式），把结果交回去。
-// 运行位置与通道形状见 ARCHITECTURE.md「脚本注入」「页面上下文」节；三个行为决策
-// （Esc 主取消路径 / env 与机器真值双源 / 单次上报契约）见 docs/adr/0012-page-inspector-cancel-and-env-duality.md。
+import { INSPECTOR_PICKER_NS, type ElementPickContext } from '@duoling/shared'
+import { PICK_ELEMENT_CANCEL_COMMAND, PICK_ELEMENT_PICK_COMMAND } from '../registry'
 
-import {
-  INSPECTOR_PICKER_NS,
-  type ElementPickContext,
-  type InspectorMode,
-  type PageEnvContext,
-  type PageSnapshotContext,
-} from '@duoling/shared'
-
-declare global {
-  interface Window {
-    /** 幂等守卫：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态） */
-    __gmInspectorHost?: boolean
-  }
-}
-
-// —— 采样上限（都是「防极端页面」的兜底，不是精度选择）——
-
-/** 摘要层 HTML 截断（字符） */
 const HTML_SAMPLE_LIMIT = 500
-/** 全量层 outerHTML 宽松上限（字符，防极端节点） */
+
 const HTML_FULL_LIMIT = 32768
-/** 快照 HTML 上限（字符） */
-const SNAPSHOT_LIMIT = 32768
-/** 文本样本上限（字符） */
+
 const TEXT_LIMIT = 200
-/** 摘要层白名单关键属性（值一律截断） */
+
 const SUMMARY_ATTRS = [
   'name',
   'type',
@@ -40,15 +19,24 @@ const SUMMARY_ATTRS = [
   'for',
   'action',
 ]
-/** 单属性值截断 */
 const ATTR_VALUE_LIMIT = 300
-/** 祖先链层数 */
+
 const PARENT_DEPTH = 6
-/** 选择器路径爬升层数 */
+
 const PATH_DEPTH = 4
 
-/** 进行中的拾取（同一时刻至多一个，与 UI 的单一入口一致）：cancel 指令调它让这次拾取收场 */
 let activePick: { cancel: () => void } | null = null
+const PICK_TIMEOUT_MS = 60_000
+
+const PICK_TIMEOUT_MESSAGE = '拾取超时：60 秒内没有点选'
+
+declare const DL: {
+  registerBackgroundCommand(
+    name: string,
+    handler: (arg: unknown) => unknown | Promise<unknown>,
+    options?: { title?: string },
+  ): () => void
+}
 
 function truncate(s: unknown, n: number): string {
   const str = String(s == null ? '' : s)
@@ -59,7 +47,6 @@ function classesOf(el: Element): string[] {
   return Array.prototype.slice.call(el.classList || [])
 }
 
-/** 全部属性（值截断） */
 function allAttrs(el: Element): Record<string, string> {
   const attrs: Record<string, string> = {}
   for (let i = 0; i < el.attributes.length; i++) {
@@ -69,7 +56,6 @@ function allAttrs(el: Element): Record<string, string> {
   return attrs
 }
 
-/** 摘要层白名单关键属性 */
 function summaryAttrs(el: Element): Record<string, string> {
   const attrs: Record<string, string> = {}
   for (let i = 0; i < SUMMARY_ATTRS.length; i++) {
@@ -80,7 +66,6 @@ function summaryAttrs(el: Element): Record<string, string> {
   return attrs
 }
 
-/** 祖先链（不含自身）：tag/id/classes，最近 PARENT_DEPTH 层 */
 function parentChain(el: Element): Array<{ tag: string; id?: string; classes: string[] }> {
   const chain: Array<{ tag: string; id?: string; classes: string[] }> = []
   let node = el.parentElement
@@ -95,7 +80,6 @@ function parentChain(el: Element): Array<{ tag: string; id?: string; classes: st
   return chain
 }
 
-/** nth-of-type 路径选择器（限深 PATH_DEPTH） */
 function pathSelector(el: Element): string {
   const parts: string[] = []
   let node: Element | null = el
@@ -116,7 +100,6 @@ function pathSelector(el: Element): string {
   return parts.join(' > ')
 }
 
-/** 生成候选选择器（≤3 条），每条附当前 document 的命中数 */
 function candidateSelectors(el: Element): Array<{ selector: string; hitCount: number }> {
   const candidates: Array<{ selector: string; hitCount: number }> = []
   const seen: Record<string, boolean> = {}
@@ -127,13 +110,11 @@ function candidateSelectors(el: Element): Array<{ selector: string; hitCount: nu
     try {
       hitCount = document.querySelectorAll(sel).length
     } catch {
-      return // 非法选择器直接丢弃
+      return
     }
     candidates.push({ selector: sel, hitCount })
   }
-  // 1) id 优先
   if (el.id) push('#' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id))
-  // 2) tag + 全部 class 组合
   const classes = classesOf(el)
   if (classes.length)
     push(
@@ -145,12 +126,10 @@ function candidateSelectors(el: Element): Array<{ selector: string; hitCount: nu
           })
           .join('.'),
     )
-  // 3) nth-of-type 路径（限深）
   push(pathSelector(el))
   return candidates.slice(0, 3)
 }
 
-/** 元素载荷（结构 = ElementPickContext，见 @duoling/shared 的 page-context.ts） */
 function buildPayload(el: Element): ElementPickContext {
   const text = truncate((el.textContent || '').replace(/\s+/g, ' ').trim(), TEXT_LIMIT)
   return {
@@ -173,12 +152,9 @@ function buildPayload(el: Element): ElementPickContext {
   }
 }
 
-/** 拾取模式：亮高亮框，返回「点选时才 resolve」的 Promise（取消 resolve null） */
 function runPick(): Promise<ElementPickContext | null> {
-  return new Promise<ElementPickContext | null>(function (resolve) {
-    // 上一次拾取还没结束时又发起一次：先收掉旧的
+  return new Promise<ElementPickContext | null>(function (resolve, reject) {
     if (activePick) activePick.cancel()
-
     const box = document.createElement('div')
     box.className = INSPECTOR_PICKER_NS + '-box'
     box.style.cssText =
@@ -192,26 +168,38 @@ function runPick(): Promise<ElementPickContext | null> {
       'padding:2px 8px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
     document.documentElement.appendChild(box)
     document.documentElement.appendChild(tip)
-
     let done = false
-    function finish(payload: ElementPickContext | null): void {
-      if (done) return
-      done = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    function cleanup(): void {
       activePick = null
+      if (timer) clearTimeout(timer)
       document.removeEventListener('mousemove', onMove, true)
       document.removeEventListener('click', onClick, true)
       document.removeEventListener('keydown', onKey, true)
       document.removeEventListener('contextmenu', onContext, true)
       box.remove()
       tip.remove()
+    }
+    function finish(payload: ElementPickContext | null): void {
+      if (done) return
+      done = true
+      cleanup()
       resolve(payload || null)
+    }
+    function fail(error: Error): void {
+      if (done) return
+      done = true
+      cleanup()
+      reject(error)
     }
     activePick = {
       cancel: function () {
         finish(null)
       },
     }
-
+    timer = setTimeout(function () {
+      fail(new Error(PICK_TIMEOUT_MESSAGE))
+    }, PICK_TIMEOUT_MS)
     function highlight(el: Element): void {
       const r = el.getBoundingClientRect()
       box.style.display = 'block'
@@ -225,13 +213,11 @@ function runPick(): Promise<ElementPickContext | null> {
       tip.style.left = Math.max(4, tx) + 'px'
       tip.style.top = Math.max(4, r.top - 22 < 4 ? r.bottom + 4 : r.top - 22) + 'px'
     }
-
     function onMove(e: MouseEvent): void {
       const el = document.elementFromPoint(e.clientX, e.clientY)
       if (el && el !== box && el !== tip) highlight(el)
     }
     function onClick(e: MouseEvent): void {
-      // 拾取期间页面自身不响应点击：capture 阶段拦下
       e.preventDefault()
       e.stopPropagation()
       const el = document.elementFromPoint(e.clientX, e.clientY)
@@ -249,7 +235,6 @@ function runPick(): Promise<ElementPickContext | null> {
       e.stopPropagation()
       finish(null)
     }
-
     document.addEventListener('mousemove', onMove, true)
     document.addEventListener('click', onClick, true)
     document.addEventListener('keydown', onKey, true)
@@ -257,114 +242,22 @@ function runPick(): Promise<ElementPickContext | null> {
   })
 }
 
-/** 快照模式：无 UI，静默抓渲染后 outerHTML（截断） */
-function runSnapshot(): Promise<PageSnapshotContext> {
-  return Promise.resolve({
-    capturedAt: Date.now(),
-    pageUrl: location.href,
-    html: truncate(document.documentElement.outerHTML, SNAPSHOT_LIMIT),
-  })
-}
-
-/** 环境模式：无 UI，静默读页面侧环境（视口 / 像素比 / 页面里读到的 UA） */
-function runEnv(): Promise<PageEnvContext> {
-  return Promise.resolve({
-    capturedAt: Date.now(),
-    pageUrl: location.href,
-    viewport: { width: window.innerWidth, height: window.innerHeight },
-    dpr: window.devicePixelRatio,
-    ua: navigator.userAgent,
-  })
-}
-
-/** 按模式分派（cancel 不是模式，在下行监听里就截掉了） */
-function run(mode: InspectorMode): Promise<unknown> {
+export function installPickPageElement(): void {
+  if (typeof DL === 'undefined') {
+    console.warn('[duoling:pick] 消息内核未注入，拾取件未挂载')
+    return
+  }
   try {
-    if (mode === 'snapshot') return runSnapshot()
-    if (mode === 'env') return runEnv()
-    return runPick()
-  } catch (e) {
-    return Promise.reject(e instanceof Error ? e : new Error(String(e)))
-  }
-}
-
-declare const __gmBridge: {
-  connect(connId: string): Promise<void>
-  emit(envelope: Record<string, unknown>): void
-  onEvent(fn: (ev: Record<string, unknown>) => void): void
-}
-
-const CHANNEL_CONN_ID = 'inspector'
-/** 断链自愈的重发间隔：SW 重启后中继件侧连接已清，重发 connect 帧重建 Port */
-const CHANNEL_RECONNECT_MS = 15_000
-
-/** 件本体：建常驻通道 + 装指令接收（幂等，重复注入只装一遍） */
-export function installPageInspector(): void {
-  if (window.__gmInspectorHost) return
-  window.__gmInspectorHost = true
-
-  // 结果上行：每个 reqId 只回一条，把结果与发起侧那一次调用配对上。
-  // emit 是 fire-and-forget：发不出去（中继件未就位等）本件无从得知，发起侧按超时收场 ——
-  // 与旧 chrome.runtime.sendMessage 失败的结局一致，只是页面控制台不再有那句被拒的 warn。
-  function report(reqId: string, ok: boolean, payload: unknown): void {
-    try {
-      __gmBridge.emit({
-        kind: 'notice',
-        name: '页面检查器',
-        event: {
-          t: 'inspector.result',
-          reqId,
-          ok,
-          payload: payload === undefined ? null : payload,
-        },
-      })
-    } catch {
-      /* 桥不可用：丢弃，发起侧超时兜底 */
-    }
-  }
-
-  // 常驻通道：connect 幂等（中继件侧按 uuid 去重）；失败静默 —— 定时重发就是重试。
-  // 重发是**常备的**而非只在启动时：SW 重启 / Port 半死时靠它自愈（SW 端 addPort
-  // 对同 uuid+connId 替换旧 Port，重连不会产生双 Port 推两份指令）。
-  function keepChannel(): void {
-    try {
-      __gmBridge.connect(CHANNEL_CONN_ID).catch(function () {
-        /* 握手失败（中继件未就位）：等下一轮 */
-      })
-    } catch {
-      /* 桥未注入（异常注入时序）：等下一轮 */
-    }
-  }
-  keepChannel()
-  setInterval(keepChannel, CHANNEL_RECONNECT_MS)
-
-  try {
-    __gmBridge.onEvent(function (ev) {
-      if (!ev || ev.t !== 'inspector.cmd') return
-      const reqId = String(ev.reqId || '')
-      if (!reqId) return
-
-      if (ev.cmd === 'cancel') {
+    DL.registerBackgroundCommand(PICK_ELEMENT_PICK_COMMAND, runPick, { title: '拾取页面元素' })
+    DL.registerBackgroundCommand(
+      PICK_ELEMENT_CANCEL_COMMAND,
+      function () {
         if (activePick) activePick.cancel()
-        return
-      }
-
-      try {
-        Promise.resolve(run(ev.cmd as InspectorMode)).then(
-          function (payload) {
-            report(reqId, true, payload)
-          },
-          function (e: unknown) {
-            report(reqId, false, String((e as Error | undefined)?.message ?? e))
-          },
-        )
-      } catch (e) {
-        report(reqId, false, String((e as Error | undefined)?.message ?? e))
-      }
-    })
-  } catch {
-    // 桥不可用（异常时序）：指令通道不可用。常驻通道的重发还会继续试，
-    // 但 onEvent 挂不上就收不到指令 —— 这里报明确错误比静默好排查。
-    console.warn('[duoling:inspector] 脚本桥不可用，指令通道未挂载')
+        return null
+      },
+      { title: '取消拾取' },
+    )
+  } catch (error) {
+    console.warn('[duoling:pick] 拾取指令未挂上：', error)
   }
 }

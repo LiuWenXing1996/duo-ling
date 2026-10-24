@@ -17,7 +17,6 @@
 //
 // 内置调试触发（**不给 `plan` 时**生效）：用户消息恰好是下面几个词之一 → 回对应的工具调用；本轮工具结果
 // 已回流（按最后一条用户消息划界）→ 收尾，并把结果摘要成一句人话（含失败原因）。用途：dev 手测跑通「要扩展
-// 侧真跑一遍」的工具链（`page_snapshot` / `page_env_read` 这类：假模型只负责发起，采集真身是页面检查器件），
 // 不必手写 plan。连续多轮各打各的触发词也各跑各的 —— 历史里上一轮的工具结果不算本轮。
 // 精确整句匹配（trim + 大小写不敏感）是刻意的：自然语句一律不触发，免得误伤手测里的日常对话。
 import * as http from 'node:http'
@@ -366,6 +365,7 @@ export async function startModelStub(opts: ModelStubOptions = {}): Promise<{
 // —— CLI：pnpm run model:serve / node scripts/model-stub.mts ——
 // 用途：不跑 dev 的手测（加载已构建的 .output 产物）也要有个假模型可接，与 `probe:serve` 对称。
 const argv1 = process.argv[1]
+
 const isCli = !!argv1 && fileURLToPath(import.meta.url) === resolve(argv1)
 if (isCli) {
   const argPort = process.argv.indexOf('--port')

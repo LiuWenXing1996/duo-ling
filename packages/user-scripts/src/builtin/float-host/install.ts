@@ -1,13 +1,5 @@
 // 浮层宿主常驻件本体：页面里的对话挂载点（常驻，零 UI，收到指令才建 DOM）。
-// 运行位置：目标标签页的 MAIN 世界系统脚本（GM 包装注入，见应用侧 system-scripts.ts）；
 // 为什么常驻、注册面收敛与匹配面代价、占位符参数机制，见 docs/adr/0009-builtin-resident-scripts-registration.md。
-//
-// 指令（下行帧形状真相源是 shared 的 api-contract.ts 的 float.cmd）：
-//   open      挂上容器并展开，iframe 懒加载（首次展开才设 src）；tabId 随帧带（拼进 iframe
-//             的 `?tab=`，浮层据此认定会话归属）
-//   collapse  收起：容器 display:none，iframe 与面板文档都留着 —— 再打开就是原状态
-//   busy      生成遮罩显隐，与浮层开合无关（理由见 setBusy）
-//   ping      在岗探针：回一条 float.pong（reqId 原样带上；结算认它 —— e2e 探活用）
 //
 // 位置只在本次页面内有效：不落库，刷新后回到右下角。
 // CSP 降级：iframe 加载失败（严格 frame-src 拦扩展 iframe）给可读提示 —— 可靠性靠 load 超时
@@ -15,20 +7,11 @@
 // 拾取让位：页面元素拾取期间整块隐藏，见 PICKER_BOX_SELECTOR 处说明。
 
 import { INSPECTOR_PICKER_NS } from '@duoling/shared'
+import { FLOAT_HOST_OPEN_COMMAND } from '../registry'
 
-declare global {
-  interface Window {
-    /** 幂等守卫：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态） */
-    __gmFloatHost?: boolean
-  }
-}
-
-/** 注入根 id（全局唯一，防止重复注入） */
 const ROOT_ID = 'duoling-float-root'
 
 /**
- * 「点选元素正在页面里进行」的信号：页面检查器亮拾取态时往 documentElement 插的遮罩类名。
- *
  * 类名来自 @duoling/shared 的 INSPECTOR_PICKER_NS。为什么用 DOM 而不是桥广播：拾取遮罩的
  * 生死恰好就是「拾取区间」本身 —— 遮罩插上即拾取开始、移除即收场，盯 DOM 不必为此新增任何
  * 下行指令。副作用还有一个好处：判定天然按 document 隔离 —— 只有真正发起拾取的那个标签页
@@ -36,15 +19,13 @@ const ROOT_ID = 'duoling-float-root'
  */
 const PICKER_BOX_SELECTOR = `.${INSPECTOR_PICKER_NS}-box`
 
-declare const __gmBridge: {
-  connect(connId: string): Promise<void>
-  emit(envelope: Record<string, unknown>): void
-  onEvent(fn: (ev: Record<string, unknown>) => void): void
+declare const DL: {
+  registerBackgroundCommand(
+    name: string,
+    handler: (arg: unknown) => unknown,
+    options?: { title?: string },
+  ): () => void
 }
-
-const CHANNEL_CONN_ID = 'float'
-/** 断链自愈的重发间隔：SW 重启后中继件侧连接已清，重发 connect 帧重建 Port */
-const CHANNEL_RECONNECT_MS = 15_000
 
 const CSS = `
 .dl-float-container {
@@ -138,15 +119,15 @@ const CSS = `
 `
 
 /** 拖拽落点夹取用的两个尺寸形状 */
-export interface FloatHostPoint {
+interface FloatHostPoint {
   x: number
   y: number
 }
-export interface FloatHostSize {
+
+interface FloatHostSize {
   width: number
   height: number
 }
-
 /**
  * 把浮层落点夹进视口。
  *
@@ -165,18 +146,9 @@ export function clampPoint(
   }
 }
 
-/**
- * 安装本件：建常驻通道 + 装指令接收。装载本身不碰 DOM。
- *
- * 幂等：同一 realm 被注入两次也只装一遍（重注册 / 导航竞态）。
- */
 export function installFloatHost(): void {
-  if (window.__gmFloatHost) return
-  window.__gmFloatHost = true
-
   /**
    * 浮层页地址（构建期占位符，应用侧组系统脚本源码时替换成 JSON 字面量 —— 见文件头）。
-   * 替换没发生（空串）= 装不上，open 时按降级处理。
    */
   const panelUrl = '__DL_FLOAT_PANEL_URL__'
   /**
@@ -188,8 +160,6 @@ export function installFloatHost(): void {
   let ui: {
     root: HTMLElement
     open: (tabId?: unknown) => void
-    collapse: () => void
-    setBusy: (busy: boolean) => void
   } | null = null
   /** 是否已因「拾取进行中」而隐藏（避免与拾取的实时状态重复写样式） */
   let hiddenForPick = false
@@ -248,6 +218,11 @@ export function installFloatHost(): void {
     let dragging = false
 
     const showFallback = () => {
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer)
+        fallbackTimer = null
+      }
+      if (!iframe.isConnected) return
       iframe.remove()
       const fb = document.createElement('div')
       fb.className = 'dl-float-fallback'
@@ -255,7 +230,6 @@ export function installFloatHost(): void {
         '该网站限制了内嵌框架，浮层无法显示——' + extensionName + '在这个网站上用不了。'
       panel.appendChild(fb)
     }
-
     /**
      * 拖动把手（.dl-float-drag-strip，盖在 iframe 顶栏上的一条）按下：整个手势从这里开始，
      * 全程在本页完成，零跨进程消息。
@@ -325,21 +299,12 @@ export function installFloatHost(): void {
 
     /**
      * 展开。iframe src 懒加载：首次展开才设 —— 页面一开就加载扩展页会白占资源。
-     *
-     * src 里的 tab 参数来自 open 指令（浮层靠它认定会话归属，每 tab 一条会话）。指令没带
-     * （数值不可用）就退回不带参数：浮层侧归属退化为「不绑定」，好过错绑到别人的 tab。
      */
     const open = (tabId?: unknown) => {
       container.classList.add('open')
       if (srcAssigned) return
       srcAssigned = true
-      loaded = false
-      const url = panelUrl
-      if (!url) {
-        showFallback()
-        return
-      }
-      iframe.src = typeof tabId === 'number' ? url + '?tab=' + tabId : url
+      iframe.src = typeof tabId === 'number' ? panelUrl + '?tab=' + tabId : panelUrl
       fallbackTimer = setTimeout(() => {
         if (!loaded) showFallback()
       }, 2500)
@@ -348,7 +313,6 @@ export function installFloatHost(): void {
     /**
      * 收起：容器回到 display:none，iframe 与面板文档原封不动留着。
      *
-     * 再打开就是原状态（草稿、滚动位置、正在生成的那条消息的实时视图），也不必重新加载整个浮层页。
      * 页面卸载时随文档一起消失 —— 没有需要额外收尾的东西。
      */
     const collapse = () => {
@@ -378,13 +342,17 @@ export function installFloatHost(): void {
       if (!loaded) showFallback()
     })
 
-    return { root, open, collapse, setBusy }
-  }
+    // 浮层页自发的收起 / 遮罩指令：认来源窗口（比 origin 硬，且不必知道扩展的 origin 字面量）
+    window.addEventListener('message', (event) => {
+      const frame = event.data as Record<string, unknown> | null
+      if (event.source !== iframe.contentWindow) return
+      if (!frame) return
+      if (frame.cmd === 'collapse') collapse()
+      else if (frame.cmd === 'busy') setBusy(frame.busy === true)
+    })
 
-  /**
-   * 拾取期间整块让位：为什么必须隐藏、判据为什么取「遮罩在不在」这个 DOM 事实，
-   * 见 docs/adr/0011-picker-yields-float-panel.md。
-   */
+    return { root, open }
+  }
   function syncFloatVisibilityForPick(): void {
     if (!ui) return
     const picking = !!document.querySelector(PICKER_BOX_SELECTOR)
@@ -427,70 +395,22 @@ export function installFloatHost(): void {
     document.addEventListener('DOMContentLoaded', () => attachRoot(tabId), { once: true })
   }
 
-  /**
-   * 指令入口：四个 cmd 各自对应上面的动作，未知帧静默忽略。
-   * 通道形状真相源是 shared 的 api-contract.ts（float.cmd / float.pong）。
-   */
-  function handleCommand(ev: Record<string, unknown>): void {
-    if (!ev || ev.t !== 'float.cmd') return
-    // 在岗探针：回一条带 reqId 的应答（结算认它 —— e2e 探活用来确认本件已注入本页；
-    // 与检查器的 reqId 配对同款，而不是旧 tabs.sendMessage 那声同步应答）。
-    if (ev.cmd === 'ping') {
-      const reqId = String(ev.reqId || '')
-      if (!reqId) return
-      try {
-        __gmBridge.emit({
-          kind: 'notice',
-          name: '浮层宿主',
-          event: { t: 'float.pong', reqId },
-        })
-      } catch {
-        /* 桥不可用：丢弃，发起侧按超时收场 */
-      }
-      return
-    }
-    if (ev.cmd === 'open') {
-      mountAndOpen(ev.tabId)
-      return
-    }
-    // 收起：只给容器加 display:none，UI 与 iframe 留着（见 collapse 的说明）
-    if (ev.cmd === 'collapse') {
-      if (ui) ui.collapse()
-      return
-    }
-    // 生成遮罩开关：页面里还没有浮层时收到（浮层尚未挂出 / 已被页面导航带走）静默忽略 ——
-    // 没有对话界面就没有「AI 在读这个页面」这回事。
-    if (ev.cmd === 'busy') {
-      if (ui) ui.setBusy(ev.busy === true)
-    }
-  }
-
-  // 常驻通道：connect 幂等（中继件侧按 uuid 去重）；失败静默 —— 定时重发就是重试。
-  // 重发是**常备的**而非只在启动时：SW 重启 / Port 半死时靠它自愈（SW 端 addPort
-  // 对同 uuid+connId 替换旧 Port，重连不会产生双 Port 推两份指令）。
-  function keepChannel(): void {
+  function registerOpenCommand(): void {
+    if (typeof DL === 'undefined') return
     try {
-      __gmBridge.connect(CHANNEL_CONN_ID).catch(function () {
-        /* 握手失败（中继件未就位）：等下一轮 */
-      })
+      DL.registerBackgroundCommand(
+        FLOAT_HOST_OPEN_COMMAND,
+        (arg) => {
+          mountAndOpen((arg as { tabId?: unknown } | null)?.tabId)
+          return { opened: true }
+        },
+        { title: '打开浮窗' },
+      )
     } catch {
-      /* 桥未注入（异常注入时序）：等下一轮 */
+      return
     }
   }
-  keepChannel()
-  setInterval(keepChannel, CHANNEL_RECONNECT_MS)
-
-  try {
-    __gmBridge.onEvent(handleCommand)
-  } catch {
-    // 桥不可用（异常时序）：指令通道不可用。常驻通道的重发还会继续试，
-    // 但 onEvent 挂不上就收不到指令 —— 这里报明确错误比静默好排查。
-    console.warn('[duoling:float] 脚本桥不可用，浮层指令通道未挂载')
-  }
-
-  // 页面检查器插/删遮罩 → 同步对话框显隐。只盯 documentElement 的**直接子节点**：遮罩挂在 <html>
-  // 下，而对话框挂在 <body> 下，二者互不触发，不会自激（也不必开 subtree 去听整棵树的增删）。
-  // 骨架未建（document_start 极早期）就等文档就绪再装 —— 那个窗口里还没有对话框要隐藏。
+  registerOpenCommand()
   const watchPickMask = (target: Node): void => {
     new MutationObserver(() => {
       syncFloatVisibilityForPick()

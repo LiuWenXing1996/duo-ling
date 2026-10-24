@@ -5,9 +5,11 @@ import type { Plugin } from 'vite'
 import { defineConfig } from 'wxt'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
+
 // 服务商预设表：host_permissions 由它推导。config 期读的是**包内源码**（不走 exports → dist），
 // 与下一行 EXTENSION_NAME 同理：config 是构建的输入，不该押在构建产物上。
 import { providerOrigins } from './packages/workbench/src/lib/providers'
+
 // 直读包源码，不走 exports → dist：config 在 prepare / build / dev 的加载期就被求值，
 // 是构建的输入而非输出，不该押在包产物上。真相源仍是 packages/shared/src/extension-identity.ts。
 import { EXTENSION_NAME } from './packages/shared/src/extension-identity'
@@ -209,7 +211,6 @@ export default defineConfig({
     // （Chrome 文档明确要求），同时覆盖 GM_xmlhttpRequest 的跨域可达范围。
     host_permissions: [...providerOrigins(), '<all_urls>'],
     // 135 = 本项目对内核的最低要求（自定义 USER_SCRIPT 世界的 worldId 需 133+，本项目取 135）：
-    // 脚本桥 / 页面检查器 / 浮层宿主 / 录制转发各占一个自定义世界。
     // Chrome 规范字段是下划线 minimum_chrome_version；驼峰键会被 Chrome 忽略并报 Unrecognized。
     minimum_chrome_version: '135',
     // default_popup 不在此手写：WXT 按文件名把 entrypoints/popup.html 识别为 popup 入口

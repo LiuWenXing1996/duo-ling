@@ -12,6 +12,7 @@
 // 此处 re-export 维持包内与包外的既有 import 路径不变。
 import type { ScriptProject, UserscriptErrorRecord, UserscriptRunEvent } from '@duoling/shared'
 import type { DLRuntime } from '@duoling/dl-core'
+
 export type { UserscriptErrorRecord, UserscriptRunEvent }
 
 /**
@@ -41,19 +42,6 @@ export interface UserscriptTelemetry {
   ): void
   /** 标签页录制载荷落库 */
   appendTabCapture?(rec: unknown): Promise<void>
-  /**
-   * 旁证（uuid 必须是检查器系统脚本自己的）与页归属（tabId）都由宿主侧定；
-   * reqId 由 SW 现造随指令下发，结算认它（幂等，重复投递无害）。
-   */
-  onInspectorEvent?(
-    uuid: string,
-    tabId: number | null,
-    rec: { reqId: string; ok: boolean; payload: unknown },
-  ): void
-  /**
-   * 旁证（uuid）与页归属（tabId）由宿主侧定，结算认 SW 现造的 reqId（幂等）。
-   */
-  onFloatEvent?(uuid: string, tabId: number | null, rec: { reqId: string }): void
 }
 
 /** 宿主配置（全部可选） */
@@ -90,6 +78,7 @@ export interface UserscriptHostConfig {
 }
 
 const DEFAULT_EXTENSION_NAME = 'UserScripts'
+
 const DEFAULT_NOTIFICATION_ICON = 'icons/128.png'
 
 let config: UserscriptHostConfig = {}

@@ -8,15 +8,11 @@
 // 两者职责不同，混在一起会让「平移来的契约」被扩展实现细节污染。
 
 // —— 页面上下文档位 ——
-// 页面检查器（件本体见 @duoling/user-scripts/builtin 的 inspector/install.ts，MAIN 世界系统脚本
-// `dl-page-inspector`）的载荷形状**定义在契约包里**：件按这些形状造数据，而件不能
-// 依赖应用源码，故真相源落在 @duoling/shared —— 消费方从那里自取，本文件不再转发。
+// 拾取 / 快照 / 环境三件的载荷形状定义在契约包里（件不能依赖应用源码），消费方一律从
+// @duoling/shared 自取，本文件不再转发。
 import type { PageContextInfo } from '../chat-ipc'
 import type { IOffscreenService } from '../service/offscreen-service'
 import type { IpcEnvelope } from './envelope'
-
-// 浮层指令的 kind 字面量已随脚本桥协议（api-contract 的 float.cmd）收编 —— 命令面
-// `float:*` 的 kind 在下面的 RuntimeRequest 联合里声明，件侧不再认 tabs.sendMessage。
 
 /** 渲染页 → service worker 的请求（kind 可辨识联合，background 按 kind 分发） */
 export type RuntimeRequest =
@@ -154,33 +150,13 @@ export type RuntimeRequest =
   // 会话归属映射与 SW 内存里的进行中集合，popup 自己拼会拼出三份时间点不同的快照（还各要一次 IPC）。
   | { kind: 'page:overview' }
 
-  // —— 拾取（浮层 → SW）：用户显式点按钮发起 ——
-  // SW 取**激活标签页**（拾取那一刻浮层必然在用户看着的那一页上），再向该页的页面检查器常驻件
-  // 下发指令；结果由件上报、SW 按 reqId 配对（见包内 userscripts/page-inspector-bridge.ts）。
-  | { kind: 'picker:pick' }
-  // 收工：与「开始」同一根线，SW 只负责转发到那一页
-  | { kind: 'picker:cancel' }
+  // 调页里某件注册的后台命令（tabId + scriptId + name）：返回值与抛错原样透传。
+  | { kind: 'dl:invokeCommand'; tabId: number; scriptId: string; name: string; arg?: unknown }
 
-  // —— 浮层宿主的命令面 ——
-  // 浮层宿主件已转 MAIN 世界系统脚本（走统一脚本链），那里没有 chrome.runtime，
-  // （float.cmd，见包内 userscripts/float-bridge.ts）」的链路；件的接收面见
-  // packages/user-scripts/src/builtin/float-host/install.ts。
-  //
-  // open：popup 的「对话浮层」按钮与页面右键菜单发起。tabId 是目标标签页（发起方都握有它；
-  // 右键菜单由 SW 代发，SW 自己握有 tab）—— 件把它拼进浮层 iframe 的 URL（`?tab=<id>`，
-  // 浮层据此认定会话归属）。SW 推不到（该页上没有件的在岗连接）时命令报错，发起方据此提示。
+  // 浮层只留打开与探活：收起 / 遮罩由对话界面 postMessage 直连件，不经 SW。
+  // open 的 tabId 由件拼进 iframe URL 的 `?tab=`（浮层据此认定会话归属）。
   | { kind: 'float:open'; tabId: number }
-  // collapse：对话界面顶栏那颗「收起」。按钮在 iframe 里（对话界面本体），而容器的显隐握在
-  // 父页的宿主件手里，跨源拿不到对方，只能发一条命令叫它收。tabId 由对话界面从 iframe URL
-  // 的 `?tab=` 读出（见 lib/owning-tab 的 readPinnedTabId）。单向动作，失败静默。
-  | { kind: 'float:collapse'; tabId: number }
-  // busy：对话界面报「这条会话是否正在生成」，宿主件据此开关页面遮罩（挡指针交互 + 一句提示）。
-  // 生成状态只有 offscreen 知道，宿主既不知道哪条会话属于自己这个标签页，也不该为此多接一条
-  // 广播线。生成开始与结束各报一次，busy 定显隐。单向动作，失败静默。
-  | { kind: 'float:busy'; tabId: number; busy: boolean }
-  // ping：在岗探活（e2e 用）。SW 下发 ping、件回 float.pong，reqId 配对结算 —— 判据是这声
-  // 应答，不是消息发得出去。返回 { pong: boolean }。
-  | { kind: 'float:ping'; tabId: number }
+  | { kind: 'float:probe'; tabId: number }
 
   // —— 浮层宿主件自证身份 ——
   // 网页浮层（扩展页 iframe）必须知道「自己属于哪个标签页」才能认定该 tab 的会话归属。
@@ -226,7 +202,6 @@ export interface PageOverviewTab {
   title: string
   /** 当前文档里跑着的脚本（运行时口径，启动时间新的在前） */
   scripts: PageOverviewScript[]
-  /** 这一页上在用的扩展内置件（含全站常驻的页面检查器与浮层宿主：它们在每页都真的在跑） */
   builtins: PageOverviewBuiltin[]
   /** 该标签页归属的会话；未绑定为 null */
   conversationId: string | null

@@ -86,7 +86,13 @@ import type { PromptInputMessage } from '@duoling/ui/components/ai-elements/prom
 import type { TokenUsage } from '@duoling/shared'
 import type { ChatMessageMetadata, MessagePageContext } from '@duoling/shared'
 import type { ElementPickContext } from '@duoling/shared'
-import { cancelPick, isUserScriptsApiAvailable, pickElement } from '@duoling/shared'
+import {
+  ipcRequest,
+  isUserScriptsApiAvailable,
+  PICK_ELEMENT_CANCEL_COMMAND,
+  PICK_ELEMENT_ID,
+  PICK_ELEMENT_PICK_COMMAND,
+} from '@duoling/shared'
 import {
   clearPickedElement,
   getPickedElement,
@@ -695,7 +701,6 @@ function removeAttachment(id: string): void {
 // —— 元素拾取 ——
 // 产物暂存 page-context-store（模块级，transport 的 collectPageContext 组装进下一条消息），
 // 发送成功后 transport 清空，chip 经订阅自动消失。显式点击才采集，页面内容不自动附带。
-// 页面快照走 AI 工具采集（见 element-picker-client.ts），无用户面入口。
 const pickedElement = ref<ElementPickContext | null>(getPickedElement())
 let unsubscribeContext: (() => void) | null = null
 
@@ -725,6 +730,14 @@ function elementChipLabel(ctx: ElementPickContext): string {
   return `<${s.tag}${s.id ? '#' + s.id : ''}>${text}`
 }
 
+function invokePickCommand(tabId: number, name: string): Promise<unknown> {
+  return ipcRequest({
+    kind: 'dl:invokeCommand',
+    tabId,
+    scriptId: PICK_ELEMENT_ID,
+    name,
+  })
+}
 async function onPickElement(): Promise<void> {
   if (contextBusy.value) return
   contextError.value = ''
@@ -735,9 +748,17 @@ async function onPickElement(): Promise<void> {
     contextErrorNeedsGuide.value = true
     return
   }
+  const tabId = readPinnedTabId()
+  if (tabId == null) {
+    contextError.value = '当前页面没有绑定标签页，无法拾取元素'
+    return
+  }
   contextBusy.value = 'pick'
   try {
-    const ctx = await pickElement()
+    const ctx = (await invokePickCommand(
+      tabId,
+      PICK_ELEMENT_PICK_COMMAND,
+    )) as ElementPickContext | null
     if (ctx) {
       setPickedElement(ctx)
     }
@@ -750,13 +771,13 @@ async function onPickElement(): Promise<void> {
 }
 
 /**
- * 拾取期间对话界面里的 Esc 取消（cancelPick 补注入指令）。
  * 拾取时键盘焦点在对话界面，页面 document 收不到 keydown——页面内 Esc 监听只在
  * 页面恰好持有焦点时兜底，主取消路径在这边。监听器全程挂载、回调里按状态放行。
  */
 function onPanelKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape' && contextBusy.value === 'pick') {
-    void cancelPick()
+    const tabId = readPinnedTabId()
+    if (tabId != null) void invokePickCommand(tabId, PICK_ELEMENT_CANCEL_COMMAND).catch(() => {})
   }
 }
 
