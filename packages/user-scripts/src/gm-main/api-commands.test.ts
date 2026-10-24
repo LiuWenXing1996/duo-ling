@@ -1,24 +1,42 @@
-// 桥命令面**防漂移**测试：契约登记表（`API_COMMANDS`）↔ 注入侧真实发出的命令。
-//
-// 命令面共三条缝，另两条不需要反射（别在这里重复造）：
-//   · 登记表 ↔ `ApiRequest['c']`：`Record<ApiRequest['c'], true>` 两向约束（编译期）；
-//   · `ApiRequest['c']` ↔ dispatch 的 switch：`default` 里的 `never` 穷尽性检查已覆盖。
-// 本文件只管**发送侧**那一条缝。
 import { describe, expect, it } from 'vitest'
-import { API_COMMANDS } from '@duoling/shared'
-import { GM_WRAPPER_IIFE } from './gm-wrapper'
+import { API_COMMANDS, type GmInfo } from '@duoling/shared'
+import { buildGmWrapperPrefix } from './index'
 
-/**
- * 反射注入侧发出的命令名。产物里命令名全是字面量（无拼接、无 `.c =` 赋值；新增时也别拼接，
- * 否则本反射会静默漏掉 —— 真出现拼接，比对会以「登记表里的命令没有生产者」的形式红出来）。
- */
-function producers(): string[] {
+function info(): Omit<GmInfo, 'userAgent' | 'isIncognito'> {
+  return {
+    script: {
+      name: '命令面反射',
+      matches: ['https://example.com/*'],
+      includes: [],
+      excludes: [],
+      runAt: 'document-end',
+      grant: [],
+      requires: [],
+      resources: {},
+    },
+    scriptMetaStr: '',
+    scriptHandler: 'reflection-test',
+    version: '0.0.0-test',
+    uuid: 'u-cmd',
+    sandboxMode: 'raw',
+    downloadMode: 'browser',
+  }
+}
+
+function producers(grant?: string[]): string[] {
+  const src = buildGmWrapperPrefix({
+    uuid: 'u-cmd',
+    name: '命令面反射',
+    values: { k: 'v' },
+    info: info(),
+    pageSecret: 'secret',
+    ...(grant ? { grant } : {}),
+  })
   const out = new Set<string>()
-  for (const m of GM_WRAPPER_IIFE.matchAll(/\bc:\s*["']([A-Za-z][\w.]*)["']/g)) out.add(m[1]!)
+  for (const m of src.matchAll(/\bc:\s*["']([A-Za-z][\w.]*)["']/g)) out.add(m[1]!)
   return [...out].sort()
 }
 
-/** 契约登记表里的全部命令（键即命令名） */
 const CONTRACT = Object.keys(API_COMMANDS).sort()
 
 describe('桥命令面：登记表 ↔ 注入侧发送', () => {
@@ -43,5 +61,9 @@ describe('桥命令面：登记表 ↔ 注入侧发送', () => {
       `契约里有、注入侧从不发的命令：${orphans.join(', ')}` +
         '（要么是死命令该删，要么它的生产者在别的上下文 —— 那就在本文件里加一张带理由的白名单）',
     ).toEqual([])
+  })
+
+  it('@grant 裁剪不影响命令面（命令名恒在注入体里，与开哪些成员无关）', () => {
+    expect(producers(['GM_getValue'])).toEqual(producers())
   })
 })

@@ -31,3 +31,6 @@ coverage/
 # 子包的构建产物（内置件 IIFE / 中继件 IIFE / GM 包装 IIFE / Vite lib / preserveModules / esbuild
 # 单文件——形态各异，dist 一律不入库防 drift，由 pnpm -r build 重建）
 packages/*/dist/
+
+# user-scripts 的构建期生成物（形式是 .ts 常量，落在 src 内，故不能靠 packages/*/dist 兜住）
+packages/user-scripts/src/gm-main/gm-main.gen.ts

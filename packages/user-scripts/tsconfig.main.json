@@ -1,0 +1,11 @@
+{
+  // gm-main / bridge-main：页面世界真源码；跨段引用为自由标识符（关 noUnusedLocals），types 留空。
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "types": [],
+    "noUnusedLocals": false,
+    "noImplicitAny": true,
+    "useUnknownInCatchVariables": false
+  },
+  "include": ["src/gm-main", "src/bridge-main"]
+}

@@ -13,9 +13,8 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm --filter @duoling/user-scripts run build && node build.mjs && vitest run"
+    "test": "pnpm --filter @duoling/user-scripts run build && vitest run"
   },
   "dependencies": {
     "@duoling/user-scripts": "workspace:*",
