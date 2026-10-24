@@ -28,9 +28,6 @@ coverage/
 # AI SDK DevTools 本地调试数据（明文交互内容，不入库）
 .devtools/
 
-# 子包的构建产物（内置件 IIFE / Vite lib / preserveModules / esbuild 单文件——形态各异，
-# dist 一律不入库防 drift，由 pnpm -r build 重建）
+# 子包的构建产物（内置件 IIFE / 中继件 IIFE / GM 包装 IIFE / Vite lib / preserveModules / esbuild
+# 单文件——形态各异，dist 一律不入库防 drift，由 pnpm -r build 重建）
 packages/*/dist/
-
-# 中继件 IIFE 的生成物（user-scripts 的 build.mjs 从 relay 源码生成，build / test 前置重建，不入库防 drift）
-packages/user-scripts/src/builtin/relay/relay-code.gen.ts

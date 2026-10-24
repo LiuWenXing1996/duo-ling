@@ -1,10 +1,11 @@
 // 中继件宿主侧注册面单测：并集驱动 / 幂等跳过 / 空并集注销 / 装配段契约。
 //
 // chrome 整体 stub（vi.stubGlobal）：userScripts 记录注册与注销调用，world 配置返回成功。
-// gen 产物（relay-code.gen.ts）由 user-scripts 包的 build.mjs 生成（SW 的 test 脚本前置）后再跑测试。
+// IIFE 产物（dist/relay.iife.js）由 user-scripts 包的 build.mjs 生成（SW 的 test 脚本前置）后再跑测试。
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BRIDGE_RELAY_BOOT_KEY } from '@duoling/shared'
 import type { ScriptProject } from '@duoling/shared'
+import RELAY_IIFE from '@duoling/user-scripts/dist/relay.iife.js?raw'
 import { SCRIPT_RELAY_ID, SCRIPT_RELAY_WORLD_ID, buildRelayInit, syncScriptRelay } from './sync'
 
 /** 构造一个启用中的最小项目（matches 来自参数） */
@@ -105,7 +106,6 @@ describe('buildRelayInit（中继件装配段）', () => {
 
 describe('RELAY_IIFE（中继件 IIFE 产物）', () => {
   it('自包含成一条可解析的 IIFE：含运行器安装逻辑，无 import/export 残留', async () => {
-    const { RELAY_IIFE } = await import('@duoling/user-scripts/builtin/relay-code.gen')
     expect(() => new Function(RELAY_IIFE)).not.toThrow()
     expect(RELAY_IIFE).toContain(BRIDGE_RELAY_BOOT_KEY)
     // 只认语法位，不按关键词扫全文：描述文案里出现「import / export」这类字样是正常的。
@@ -115,7 +115,6 @@ describe('RELAY_IIFE（中继件 IIFE 产物）', () => {
   })
 
   it('体积守住：超阈值即 shared 长出顶层副作用锚点，无用簇整片被拖进来', async () => {
-    const { RELAY_IIFE } = await import('@duoling/user-scripts/builtin/relay-code.gen')
     // 当前 3.6KB（装运行器 + 桥常量）；超 5KB 必是有别的东西混入
     expect(RELAY_IIFE.length).toBeLessThan(5000)
   })

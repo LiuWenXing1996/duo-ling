@@ -36,8 +36,8 @@ mkdirSync(chromiumProfileDir, { recursive: true })
 // 内置件包的产物目录：件源码在 packages/user-scripts/src/builtin/，构建出来的是**独立 IIFE 文件**
 // （chrome.userScripts 的 js:[{ file }] 只认扩展内路径，件必须落进扩展产物）。产物留在包内，
 // 扩展侧只负责把它取进来 —— 见下面 build:publicAssets 钩子。
-// 注意：脚本桥中继件不在此列 —— 它不落 dist，以字符串内嵌进 SW（{ code } 注册，gen 模块由
-// 本包 build.mjs 生成），dist 里只有其余三件。
+// 注意：脚本桥中继件不在此列 —— 它以字符串内嵌进 SW（{ code } 注册，本包 build.mjs 产
+// dist/relay.iife.js、SW 经 `?raw` 消费），本目录只有其余三件。
 const builtinScriptsDist = resolve(process.cwd(), 'packages/user-scripts/dist/builtin')
 
 /**
