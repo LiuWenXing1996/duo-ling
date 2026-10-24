@@ -42,6 +42,9 @@
     ".output",
     "tmp",
     "packages/user-scripts/src/samples",
+    // GM 内核的注入片段（自由标识符 + 跨段引用）：逐文件按严格档查必然报「未使用变量」，
+    // 由包级 tsconfig.main.json 以宽松档单独查（noUnusedLocals off）。
+    "packages/user-scripts/src/gm-main/src",
     "packages/*/dist"
   ]
 }

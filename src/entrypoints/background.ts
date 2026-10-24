@@ -187,6 +187,7 @@ export const SW_KIND_PREFIXES = [
   'sw:',
   'page:',
   'picker:',
+  'dl:',
   'float:',
   'tab:',
   'conv:',
