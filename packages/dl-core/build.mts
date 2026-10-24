@@ -52,6 +52,10 @@ const TARGETS: Target[] = [
         re: /\bpostMessage\s*\(/,
         why: '没有把私线端口交出去 —— 中继件收不到线，整条通道静默失效',
       },
+      {
+        re: /\btier\b/,
+        why: '产物里没有 tier 分流 —— 两层退化成同一层，而类型与单测都看不出来',
+      },
     ],
   },
   {

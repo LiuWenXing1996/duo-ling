@@ -1,5 +1,5 @@
 import { buildUserScript } from './build-user-script'
-import type { ScriptInfo } from './dl'
+import type { KernelTier, ScriptInfo } from './dl'
 
 export interface InstallCustomUserScriptOptions {
   id?: string
@@ -14,6 +14,7 @@ export interface InstallCustomUserScriptOptions {
   allFrames?: boolean
   protectFromSync?: boolean
   world?: 'MAIN' | 'USER_SCRIPT'
+  tier?: KernelTier
 }
 
 const DEFAULT_MATCHES: string[] = ['*://*/*']
@@ -85,6 +86,7 @@ export async function installCustomUserScript(
           source: code,
           requires: options.requires,
           info: options.info,
+          tier: options.tier,
         }),
       },
     ],

@@ -1,5 +1,5 @@
 import KERNEL_IIFE from '../dist/mount-dl-iife.js?raw'
-import type { ScriptInfo } from './dl'
+import type { KernelTier, ScriptInfo } from './dl'
 
 export interface BuildUserScriptInput {
   readonly uuid: string
@@ -7,6 +7,23 @@ export interface BuildUserScriptInput {
   readonly source: string
   readonly requires?: readonly string[]
   readonly info?: ScriptInfo
+  readonly tier?: KernelTier
+}
+
+export interface KernelPreludeInput {
+  readonly uuid: string
+  readonly info?: ScriptInfo
+  readonly tier?: KernelTier
+}
+
+export function buildKernelPrelude(input: KernelPreludeInput): string {
+  return [
+    'var DL = undefined',
+    `var registerId = ${JSON.stringify(input.uuid)}`,
+    `var tier = ${JSON.stringify(input.tier ?? 'client')}`,
+    ...(input.info ? [`var dlInfo = ${JSON.stringify(input.info)}`] : []),
+    KERNEL_IIFE,
+  ].join('\n')
 }
 
 export function buildUserScript(input: BuildUserScriptInput): string {
@@ -14,10 +31,8 @@ export function buildUserScript(input: BuildUserScriptInput): string {
   if (!body.trim()) throw new Error('buildUserScript：脚本正文为空，拒绝产出空注入体')
   return [
     ';(function () {',
-    'var DL = undefined',
-    `var registerId = "${input.uuid}"`,
-    ...(input.info ? [`var dlInfo = ${JSON.stringify(input.info)}`] : []),
-    KERNEL_IIFE,
+    'var unsafeWindow = window',
+    buildKernelPrelude({ uuid: input.uuid, info: input.info, tier: input.tier }),
     'console.log(' + JSON.stringify(input.name + ' 开始执行') + ')',
     body,
     'console.log(' + JSON.stringify(input.name + ' 执行完成') + ')',

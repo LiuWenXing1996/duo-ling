@@ -51,6 +51,30 @@ export class SwService {
     return out
   }
 
+  async openInTab(url: string, active: boolean): Promise<number> {
+    const tab = await chrome.tabs.create({ url, active })
+    if (tab?.id == null) throw new Error('openInTab：chrome.tabs.create 没有返回标签页 id')
+    return tab.id
+  }
+
+  async closeTab(tabId?: number): Promise<void> {
+    const target = tabId ?? this.#tabId
+    const closing = await chrome.tabs.get(target).catch(() => undefined)
+    if (closing?.windowId != null) {
+      const siblings = await chrome.tabs.query({ windowId: closing.windowId })
+      if (siblings.length <= 1) throw new Error('closeTab：不允许关闭窗口的最后一个标签页')
+    }
+    await chrome.tabs.remove(target)
+  }
+
+  async focusTab(tabId?: number): Promise<void> {
+    const target = tabId ?? this.#tabId
+    const tab = await chrome.tabs.update(target, { active: true })
+    if (tab?.windowId != null) {
+      await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {})
+    }
+  }
+
   #recordKey(key: string): [string, string] {
     return [this.#scriptId, key]
   }

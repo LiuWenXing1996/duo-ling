@@ -35,7 +35,37 @@ interface CommandRegistrar {
   unregister(name: string): void
 }
 
-export class DLClient {
+/** 档位：`system` 全量面（自带件）/ `client` 给普通脚本；由注册面给定，脚本改不了 */
+export type KernelTier = 'client' | 'system'
+
+// client 面成员清单 = 脚本可见面的唯一真相源（`implements Pick<...>` 做编译期对账：列了没实现 → tsc 报）
+export const CLIENT_SURFACE = [
+  'config',
+  'info',
+  'log',
+  'addStyle',
+  'addElement',
+  'getTab',
+  'saveTab',
+  'getTabs',
+  'getValue',
+  'setValue',
+  'deleteValue',
+  'listValues',
+  'getValues',
+  'setValues',
+  'deleteValues',
+  'addValueChangeListener',
+  'removeValueChangeListener',
+  'registerBackgroundCommand',
+  'openInTab',
+  'closeTab',
+  'focusTab',
+] as const
+
+type ClientSurface = Pick<DLSystem, (typeof CLIENT_SURFACE)[number]>
+
+export class DLSystem {
   readonly #config: ResolvedConfig
   readonly #log: (message: string) => void
   readonly #info: Readonly<GmInfo> | undefined
@@ -168,6 +198,19 @@ export class DLClient {
     }
   }
 
+  async openInTab(url: string, options?: boolean | { active?: boolean }): Promise<number> {
+    const active = typeof options === 'boolean' ? options : (options?.active ?? true)
+    return this.#swService().openInTab(url, active)
+  }
+
+  closeTab(tabId?: number): Promise<void> {
+    return this.#swService().closeTab(tabId)
+  }
+
+  focusTab(tabId?: number): Promise<void> {
+    return this.#swService().focusTab(tabId)
+  }
+
   #service<T extends object>(key: string): DeepAsync<T> {
     return createProxyService<T>(key)
   }
@@ -178,5 +221,107 @@ export class DLClient {
 
   #commandService(): DeepAsync<CommandRegistrar> {
     return (this.#commands ??= this.#service<CommandRegistrar>(COMMAND_SERVICE_KEY))
+  }
+}
+
+export class DLClient implements ClientSurface {
+  readonly #sys: DLSystem
+
+  constructor(config: DLConfig) {
+    this.#sys = new DLSystem(config)
+  }
+
+  get config(): ResolvedConfig {
+    return this.#sys.config
+  }
+
+  get info(): Readonly<GmInfo> | undefined {
+    return this.#sys.info
+  }
+
+  get log(): (message: string) => void {
+    return this.#sys.log
+  }
+
+  addStyle(css: string): HTMLStyleElement {
+    return this.#sys.addStyle(css)
+  }
+
+  addElement(
+    a: Element | string,
+    b?: string | Record<string, unknown>,
+    c?: Record<string, unknown>,
+  ): HTMLElement {
+    return this.#sys.addElement(a, b, c)
+  }
+
+  getTab<T = unknown>(): Promise<T | undefined> {
+    return this.#sys.getTab<T>()
+  }
+
+  saveTab(value?: unknown): Promise<void> {
+    return this.#sys.saveTab(value)
+  }
+
+  getTabs<T = unknown>(): Promise<Record<string, T>> {
+    return this.#sys.getTabs<T>()
+  }
+
+  getValue<T = unknown>(key: string, def?: T): Promise<T | undefined> {
+    return this.#sys.getValue<T>(key, def)
+  }
+
+  setValue(key: string, value: unknown): Promise<void> {
+    return this.#sys.setValue(key, value)
+  }
+
+  deleteValue(key: string): Promise<void> {
+    return this.#sys.deleteValue(key)
+  }
+
+  listValues(): Promise<string[]> {
+    return this.#sys.listValues()
+  }
+
+  getValues<T = unknown>(
+    keysOrDefaults?: string[] | Record<string, T>,
+  ): Promise<Record<string, T>> {
+    return this.#sys.getValues<T>(keysOrDefaults)
+  }
+
+  setValues(values: Record<string, unknown>): Promise<void> {
+    return this.#sys.setValues(values)
+  }
+
+  deleteValues(keys: string[]): Promise<void> {
+    return this.#sys.deleteValues(keys)
+  }
+
+  addValueChangeListener(key: string, callback: ValueChangeListener): number {
+    return this.#sys.addValueChangeListener(key, callback)
+  }
+
+  removeValueChangeListener(listenerId: number): void {
+    this.#sys.removeValueChangeListener(listenerId)
+  }
+
+  registerBackgroundCommand(
+    name: string,
+    handler: (arg: unknown) => unknown | Promise<unknown>,
+    options: { title?: string } = {},
+  ): () => void {
+    return this.#sys.registerBackgroundCommand(name, handler, options)
+  }
+
+  openInTab(url: string, options?: boolean | { active?: boolean }): Promise<number> {
+    return this.#sys.openInTab(url, options)
+  }
+
+  closeTab(tabId?: number): Promise<void> {
+    return this.#sys.closeTab(tabId)
+  }
+
+  focusTab(tabId?: number): Promise<void> {
+    return this.#sys.focusTab(tabId)
   }
 }

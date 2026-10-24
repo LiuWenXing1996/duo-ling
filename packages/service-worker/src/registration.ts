@@ -475,6 +475,8 @@ export async function registerDlScript(project: ScriptProject, world?: 'MAIN'): 
     runAt: project.config.runAt === 'document_body' ? 'document_start' : project.config.runAt,
     allFrames: project.config.allFrames,
     protectFromSync: false,
+    // 自带件拿全量面；普通脚本不传 tier，缺省 client
+    tier: 'system',
     ...(world ? { world } : {}),
   })
 }
