@@ -201,7 +201,7 @@ describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
     expect(stub.ports).toHaveLength(1)
     expect(stub.ports[0]!.name).toBe(`duoling:gm:${UUID}:conn-1`)
 
-    stub.ports[0]!.emit({ kind: 'ev', ev: { t: 'port.ready' } })
+    stub.ports[0]!.emit({ __gm: 1, kind: 'api', ev: { t: 'port.ready' } })
     expect(seen).toEqual([{ t: 'port.ready' }])
   })
 
@@ -218,7 +218,7 @@ describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
     })
   })
 
-  it('emit 的错误上报帧（kind: notice）同样原样转发', () => {
+  it('emit 的错误上报帧（kind: notice）在桥口归一成 ev 再上行', () => {
     const { api, stub } = setup({ handler: () => undefined })
 
     api.emit({
@@ -228,7 +228,7 @@ describe('脚本主世界桥（bridge + relay 真实现对跑）', () => {
     })
     expect(stub.sent).toHaveLength(1)
     expect(stub.sent[0]).toMatchObject({
-      kind: 'notice',
+      kind: 'ev',
       uuid: UUID,
       event: { t: 'error', message: '炸了' },
     })

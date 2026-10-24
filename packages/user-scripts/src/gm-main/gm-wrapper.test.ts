@@ -58,7 +58,9 @@ describe('buildGmWrapperPrefix', () => {
 
   it('文本体也在这里挂上 body（init 字面量不含 body 字段，漏了就整段丢）', () => {
     const src = build()
-    expect(src).toContain('if (typeof raw === "string") return Promise.resolve(function(s) {')
+    expect(src).toMatch(
+      /if \(typeof raw === "string"\)\s*return Promise\.resolve\(function\(s\) \{/,
+    )
   })
 
   it('嵌入了值快照、GM_info 与按 grant 算出的成员表', () => {
@@ -79,7 +81,7 @@ describe('buildGmWrapperPrefix', () => {
     expect(src).toContain('var unsafeWindow = window')
     expect(src).not.toContain("defineProperty(window, 'unsafeWindow'")
     expect(src).toContain('Object.defineProperty(window, "onurlchange"')
-    expect(src).toContain('domain: q.domain, path: q.path')
+    expect(src).toMatch(/domain: q\.domain,\s*path: q\.path/)
   })
 
   it('urlchange 走本地检测：hook history + popstate / hashchange，不再经 SW 订阅', () => {
