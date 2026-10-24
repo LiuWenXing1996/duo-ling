@@ -246,7 +246,7 @@ async function syncTabRecorder(): Promise<ScriptProject | null> {
 }
 
 async function syncResidentSystemScripts(): Promise<void> {
-  await syncMessagingRelay().catch(() => {})
+  await syncMessagingRelay().catch((e) => console.warn('[duoling:sw] 消息中继件注册失败：', e))
   await syncDlScript(PICK_ELEMENT_ID, SYSTEM_PICK_ELEMENT_MATCHES, pickElementProject).catch(
     () => null,
   )
