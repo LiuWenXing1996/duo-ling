@@ -26,7 +26,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
-describe('dl-pick-page-element（MAIN 世界系统脚本）', () => {
+describe('dl-pick-page-element（USER_SCRIPT 世界系统脚本）', () => {
   it('装两条后台命令：拾取 + 取消', () => {
     const handlers = stubKernel()
     installPickPageElement()

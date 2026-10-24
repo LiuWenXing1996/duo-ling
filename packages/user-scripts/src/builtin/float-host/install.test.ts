@@ -1,4 +1,4 @@
-// float-host/install.ts 单测：件在 MAIN 世界系统脚本（GM 包装）里跑，这里用最小假全局把它跑起来，
+// float-host/install.ts 单测：件在 USER_SCRIPT 世界（dl-core 内核）里跑，这里用最小假全局把它跑起来，
 //
 // **件的 DOM 行为不在这里验** —— 挂容器、开合、拖拽、遮罩、拾取让位要真实渲染与事件流，最小桩
 // 测不出（也容易把桩的行为当件的行为），由 e2e/float-task-state.spec.ts 用真浏览器覆盖。
@@ -16,7 +16,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('dl-float-host（MAIN 世界系统脚本）· 安装', () => {
+describe('dl-float-host（USER_SCRIPT 世界系统脚本）· 安装', () => {
   it('内核不在（typeof DL 未定义）：不抛，只是没注册打开命令', () => {
     stubGlobals()
     expect(() => installFloatHost()).not.toThrow()
