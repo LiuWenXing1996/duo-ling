@@ -51,6 +51,7 @@ export const BUILTIN_ENTRY_POINTS = {
  * 的 meta.json；键改名时 raw 目录、e2e / coverage 的路径引用一并同步。 */
 const SAMPLE_ENTRIES = {
   'omni-probe': 'src/samples/omni-probe/main.ts',
+  'dl-probe': 'src/samples/dl-probe/main.ts',
   'run-log-demo': 'src/samples/run-log-demo/main.ts',
 }
 

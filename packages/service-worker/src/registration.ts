@@ -16,7 +16,7 @@ import type {
 // 可用性形状归契约包（应用侧状态横幅与 offscreen 都认），此处 re-export 维持包内路径不变。
 export type { UserScriptsAvailability }
 import { GM_WRAPPER_SUFFIX, buildGmWrapperPrefix } from '@duoling/user-scripts/gm-main'
-import type { DLRuntime } from '@duoling/dl-core'
+import { buildKernelPrelude, type DLRuntime } from '@duoling/dl-core'
 import {
   parseUserScriptMetadata,
   resolveConfigFromSource,
@@ -407,18 +407,24 @@ export async function buildGmInjectionCode(
   }
   const runAtBody = project.config.runAt === 'document_body'
   const bodySource = [...requireCodes, rawCode].join('\n;\n')
+  const info = buildGmInfo(project, rawCode)
+  // DL 面（非标）：声明 `@grant DL` 才拼内核、档位恒 client；TM 侧只是条被忽略的未知 grant
+  const dlPrelude = (project.config.grant ?? []).includes('DL')
+    ? buildKernelPrelude({ uuid: project.uuid, info })
+    : ''
   return [
     buildGmWrapperPrefix({
       uuid: project.uuid,
       name: project.name,
       values,
-      info: buildGmInfo(project, rawCode),
+      info,
       pageSecret,
       grant: project.config.grant,
       resources,
       runAtBody,
       savedAt: project.source.savedAt,
     }),
+    ...(dlPrelude ? [dlPrelude] : []),
     runAtBody ? '__gmRunAtBody(function () {\n' + bodySource + '\n})' : bodySource,
     GM_WRAPPER_SUFFIX,
     sourceURLSuffix(project),
