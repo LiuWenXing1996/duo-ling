@@ -422,6 +422,22 @@ importers:
         specifier: ^2.8.1
         version: 2.9.1
 
+  packages/dl-core:
+    dependencies:
+      idb:
+        specifier: ^8.0.3
+        version: 8.0.4
+    devDependencies:
+      '@duoling/shared':
+        specifier: workspace:*
+        version: link:../shared
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
   packages/floatpanel:
     dependencies:
       '@duoling/shared':
@@ -502,6 +518,9 @@ importers:
 
   packages/service-worker:
     dependencies:
+      '@duoling/dl-core':
+        specifier: workspace:*
+        version: link:../dl-core
       '@duoling/shared':
         specifier: workspace:*
         version: link:../shared
@@ -3123,6 +3142,9 @@ packages:
   iconv-lite@0.6.3:
     resolution: {integrity: sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==}
     engines: {node: '>=0.10.0'}
+
+  idb@8.0.4:
+    resolution: {integrity: sha512-jd0ITCrN+Zah4J7R/Z2jnR3W7A4BXDAjmo62MwWuSjxCiueUAf7X5rbodEdidWzeknwXHmLpdZkoiiCppNi30Q==}
 
   ieee754@1.2.1:
     resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
@@ -7622,6 +7644,8 @@ snapshots:
   iconv-lite@0.6.3:
     dependencies:
       safer-buffer: 2.1.2
+
+  idb@8.0.4: {}
 
   ieee754@1.2.1: {}
 

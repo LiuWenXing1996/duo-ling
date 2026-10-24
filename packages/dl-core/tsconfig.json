@@ -1,0 +1,13 @@
+{
+  // 包内类型门禁：检查项统一在 ../tsconfig.base.json（与根口径同档），这里只声明类型面。
+  // types 两项各有归属：
+  //   vite/client —— `?raw` 的模块声明（内核装配件原文走它）
+  //   chrome      —— 宿主侧注册模块（install-custom-user-script）要 chrome.userScripts
+  // 内核注入体那条链路仍不许引用 chrome（页面主世界没有扩展 API）：build.mts 有一道
+  // 产物守卫盯着，类型面放行不会把这条约束放掉。
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["chrome", "vite/client"]
+  },
+  "include": ["src"]
+}

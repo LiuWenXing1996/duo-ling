@@ -11,7 +11,8 @@ import { join, relative, resolve, dirname, posix } from 'node:path'
 const MATRIX: Record<string, string[]> = {
   shared: [],
   'user-scripts': ['shared'],
-  'service-worker': ['shared', 'user-scripts'],
+  'dl-core': ['shared'],
+  'service-worker': ['shared', 'user-scripts', 'dl-core'],
   'offscreen-document': ['shared'],
   ui: ['shared'],
   workbench: ['ui', 'shared'],

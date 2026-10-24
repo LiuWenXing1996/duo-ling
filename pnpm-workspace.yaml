@@ -1,4 +1,6 @@
 # workspace 成员。各包形态不同：
+#   · dl-core —— 脚本内核（DL.* 恒注入面 + 内核服务 + 与 SW 的直连通道）：源码直出，
+#     只 bundle 一份 dist/mount-dl-iife.js，注入体拼装时以 `?raw` 读成字符串；只取 shared 的形状。
 #   · user-scripts —— 用户脚本源码包（一个包两摊，共用根部一个 build.mjs）：
 #     src/builtin/ 内置注入件 —— 源码是扩展的一部分（TS 模块），产物却是**独立的 IIFE 文件**
 #     （chrome.userScripts 的 js[] 只认扩展内路径的文件），产物 dist/builtin/ 由

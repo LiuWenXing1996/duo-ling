@@ -40,6 +40,7 @@ import {
   swIpcHandlers,
   SW_IPC_OWNED_KINDS,
   clearGMValues,
+  DLRuntime,
 } from '@duoling/service-worker'
 // 本扩展自己的注入件注册同步（系统脚本 + 中继件并集）与内置件对账
 import {
@@ -776,6 +777,7 @@ async function initUserScripts(): Promise<void> {
     // 产品内置件（中继件 / 检查器 / 浮层 / 录制件）挂进包侧全量链：
     // registerAllEnabled 先同步这批件、stale 清扫排除这些 id
     builtins: { ids: BUILTIN_SCRIPT_IDS, syncAll: syncAllBuiltins },
+    dlRuntime: getDLRuntime(),
   })
   // chrome.userScripts 仅在已开启「Allow User Scripts」（Chrome ≥138）或全局开发者模式
   // （Chrome <138）/ 已授权 userScripts 权限（Firefox）时存在；否则为 undefined，
@@ -1121,6 +1123,13 @@ function mountFloatMenu(): void {
     if (info.menuItemId !== FLOAT_MENU_ID || !tab) return
     void openFloatPanelInTab(tab)
   })
+}
+
+// 惰性构造：构造里就挂内核监听，import 即构造会让协议测试炸；取值仍在 defineBackground 同步段内
+let dlRuntimeInstance: DLRuntime | undefined
+
+function getDLRuntime(): DLRuntime {
+  return (dlRuntimeInstance ??= new DLRuntime())
 }
 
 export default defineBackground(() => {

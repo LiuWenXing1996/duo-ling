@@ -11,6 +11,7 @@
 // 错误 / 动作的形状归契约包（件包产生、应用侧落库与展示、offscreen 的工具集也认），
 // 此处 re-export 维持包内与包外的既有 import 路径不变。
 import type { ScriptProject, UserscriptErrorRecord, UserscriptRunEvent } from '@duoling/shared'
+import type { DLRuntime } from '@duoling/dl-core'
 export type { UserscriptErrorRecord, UserscriptRunEvent }
 
 /**
@@ -84,6 +85,8 @@ export interface UserscriptHostConfig {
     /** 全量同步（幂等可重入；调用方已串行化，实现内不必再加锁） */
     syncAll(projects: ScriptProject[]): Promise<void>
   }
+  /** 脚本内核运行时（dl-core 的 DLRuntime）；不注入 = 注册路径不可用（registerScript 抛错） */
+  dlRuntime?: DLRuntime
 }
 
 const DEFAULT_EXTENSION_NAME = 'UserScripts'
@@ -128,4 +131,9 @@ export function secretStorePort(): UserscriptHostConfig['secretStore'] {
 /** 读内置件注入（未注入为 undefined） */
 export function builtinsPort(): UserscriptHostConfig['builtins'] {
   return config.builtins
+}
+
+/** 读脚本内核运行时（未注入为 undefined） */
+export function dlRuntimePort(): DLRuntime | undefined {
+  return config.dlRuntime
 }

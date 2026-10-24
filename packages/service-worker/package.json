@@ -17,6 +17,7 @@
     "test": "pnpm --filter @duoling/user-scripts run build && vitest run"
   },
   "dependencies": {
+    "@duoling/dl-core": "workspace:*",
     "@duoling/user-scripts": "workspace:*",
     "@duoling/shared": "workspace:*"
   },
