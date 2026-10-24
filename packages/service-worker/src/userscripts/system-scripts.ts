@@ -1,4 +1,3 @@
-//
 import type { ScriptProject } from '@duoling/shared'
 import { MESSAGING_RELAY_ID } from '@duoling/dl-core'
 import {
@@ -114,8 +113,6 @@ export async function tabRecorderProject(): Promise<ScriptProject> {
   })
 }
 
-/**
- */
 export async function floatHostProject(
   panelUrl: string,
   extensionName: string,

@@ -128,8 +128,6 @@ export function builtinsOnPage(
   })
 }
 
-/**
- */
 async function syncDlScript(
   id: string,
   matches: string[],
@@ -210,6 +208,7 @@ function syncFloatHost(): Promise<ScriptProject | null> {
 // 此后这一页导航到哪个 host 都该继续录。而声明式注册没有 tab 维度（RegisteredUserScript
 // 的匹配字段全是 URL），「这一页接下来会去哪」无从枚举，只能覆盖全部（匹配面见
 // system-scripts.ts 的 SYSTEM_TAB_RECORD_MATCHES）。全匹配只保证钩子在位，不代表谁的
+// 页上都在录 —— 「在不在录」由页面概览按存续表另判（见 builtinsOnPage）。
 
 /**
  * 维护录制系统脚本的注册（幂等可重入；调用方已串行化），返回此刻该件的注册态项目

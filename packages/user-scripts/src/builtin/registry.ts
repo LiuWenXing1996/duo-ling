@@ -19,3 +19,7 @@ export const FLOAT_HOST_ID = 'dl-float-host'
 export const FLOAT_HOST_OPEN_COMMAND = 'float.open'
 
 export const FLOAT_HOST_FILE = 'duoling-float-host.js'
+
+export const TAB_RECORDER_ID = 'dl-tab-recorder'
+
+export const TAB_RECORDER_FILE = 'duoling-recorder.js'
