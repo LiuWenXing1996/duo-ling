@@ -29,23 +29,9 @@ import {
 import { getAllGMValues } from './gm-values'
 import { fetchRequireSources } from './require-cache'
 import { fetchResourceSources } from './resource-cache'
-import {
-  extensionName,
-  secretStorePort,
-  telemetryPort,
-  builtinsPort,
-  dlRuntimePort,
-} from './host-config'
+import { extensionName, secretStorePort, telemetryPort, builtinsPort } from './host-config'
 // 中继件（GM 桥的 MAIN 世界侧）注册面：包内置维护，registerAllEnabled 全量链自动带上
 import { SCRIPT_RELAY_ID, syncScriptRelay } from './relay/sync'
-
-/** 取脚本内核运行时：未注入即注册面不可用（宿主必须经 createServiceWorkerHost 带 dlRuntime） */
-function dlRuntime(): DLRuntime {
-  const runtime = dlRuntimePort()
-  if (!runtime)
-    throw new Error('未注入 DLRuntime：脚本注册面不可用（createServiceWorkerHost 需带 dlRuntime）')
-  return runtime
-}
 
 // —— 可用性检测 / 版本分支 ——
 
@@ -366,7 +352,7 @@ async function resolveRequireCodes(project: ScriptProject): Promise<string[]> {
   return results.filter((r) => r.ok && r.code != null).map((r) => r.code!)
 }
 
-/** GM 面包装路径的注入 code；注册已改走 dl-core，本函数留作对照实现（勿删）。 */
+/** GM 面包装路径的注入 code：动态头 + `@require` + 正文 + 闭合后缀拼成一条。 */
 export async function buildGmInjectionCode(
   project: ScriptProject,
   rawCode: string,
@@ -424,7 +410,7 @@ export async function buildGmInjectionCode(
   ].join('\n')
 }
 
-/** 单条注册（仅 enabled 项目才注入；matches 缺失直接抛错）。注册动作收敛在 dl-core。 */
+/** 单条注册（仅 enabled 项目才注入；matches 缺失直接抛错）。 */
 export async function registerScript(project: ScriptProject): Promise<void> {
   if (!project.enabled) return
   if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') {
@@ -437,22 +423,22 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   }
   // match pattern 合法性：与导入路径共用同一校验器（非法值在此以中文报错拦下）
   validateMatchPatterns(project.config)
-  const code = resolveInjectCode(project)
-  await dlRuntime().installCustomUserScript(code, {
+  const code = await buildGmInjectionCode(project, resolveInjectCode(project))
+  const userScript: chrome.userScripts.RegisteredUserScript = {
     id: project.uuid,
-    name: project.name,
-    requires: await resolveRequireCodes(project),
-    info: buildGmInfo(project, code),
+    world: 'MAIN',
+    js: [{ code }],
     matches: project.config.matches,
     excludeMatches: project.config.excludeMatches,
     includeGlobs: project.config.includeGlobs,
     excludeGlobs: project.config.excludeGlobs,
-    // document_body 不是 Chrome 的合法取值：映射成 document_start（Chrome 只认三种）
+    // document_body 不是 Chrome 的合法取值：映射成 document_start，正文由闸门推迟到 body 出现
     runAt: project.config.runAt === 'document_body' ? 'document_start' : project.config.runAt,
     allFrames: project.config.allFrames,
-    // 脚本库的 id 由引擎自己管：删除 / 关停靠全量同步的残留清扫兜底，不能进保留名单
-    protectFromSync: false,
-  })
+  }
+  // 幂等保护：同 ID 可能已注册（dev 重载 / 顶层 init 与 onInstalled 并发），先清旧再注册
+  await chrome.userScripts.unregister({ ids: [project.uuid] }).catch(() => {})
+  await chrome.userScripts.register([userScript])
 }
 
 /**

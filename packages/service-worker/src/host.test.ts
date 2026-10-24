@@ -134,27 +134,16 @@ describe('createServiceWorkerHost', () => {
         unregister: vi.fn(async () => {}),
       },
     })
-    const { DLRuntime } = await import('@duoling/dl-core')
     const { createServiceWorkerHost } = await loadHost()
-    const host = createServiceWorkerHost({ dlRuntime: new DLRuntime() })
+    const host = createServiceWorkerHost()
     await host.addScript(
       '// ==UserScript==\n// @match https://a.com/*\n// ==/UserScript==\nconsole.log(1)',
     )
     expect(registered).toHaveLength(1)
     expect(registered[0]!.matches).toEqual(['https://a.com/*'])
-    // 注入体是一条 code（内核 IIFE + @require + 源码拼一条，装配在 dl-core）
+    // 注入体是一条 code（GM 包装 + 源码拼一条，见 registration.registerScript）
     expect(registered[0]!.js).toEqual([
       expect.objectContaining({ code: expect.stringContaining('console.log(1)') }),
     ])
-  })
-
-  it('addScript：没注入 DLRuntime 就明确报错（注册面缺失不许静默丢注册）', async () => {
-    const { createServiceWorkerHost } = await loadHost()
-    const host = createServiceWorkerHost()
-    await expect(
-      host.addScript(
-        '// ==UserScript==\n// @match https://a.com/*\n// ==/UserScript==\nconsole.log(1)',
-      ),
-    ).rejects.toThrow('未注入 DLRuntime')
   })
 })
