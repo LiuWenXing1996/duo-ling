@@ -1,9 +1,9 @@
 {
   // 内置件源码按 IIFE 打进页面：零 chrome.*、零 node，types 留空是纪律不是遗漏。
-  // 世界分两种：录制件在页面主世界（要拦页面自己的请求），其余四件在 USER_SCRIPT 世界
-  // （靠 DL 面收后台命令，不碰 chrome）。relay/install.ts 例外 —— 该世界开 messaging 后的
-  // chrome.runtime 是它的运行时面板，靠文件级三斜线引用自取 @types/chrome；其余件写了 chrome
-  // 照样报错。与样例分档：builtin 走严格档（tsconfig.base），samples 自持宽松档。
+  // 产品件都在页面主世界（拾取 / 快照 / 环境 / 浮层宿主靠 DL 面收后台命令，录制件要拦页面
+  // 自己的请求）：主世界没有扩展 API，故件里写 chrome 一律报错。relay/install.ts 例外 ——
+  // 它在 USER_SCRIPT 世界，开 messaging 后的 chrome.runtime 是它的运行时面板，靠文件级三斜线
+  // 引用自取 @types/chrome。与样例分档：builtin 走严格档（tsconfig.base），samples 自持宽松档。
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "types": []

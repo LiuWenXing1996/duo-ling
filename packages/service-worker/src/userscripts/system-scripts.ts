@@ -1,5 +1,6 @@
 //
 import type { ScriptProject } from '@duoling/shared'
+import { MESSAGING_RELAY_ID } from '@duoling/dl-core'
 import {
   FLOAT_HOST_FILE,
   FLOAT_HOST_ID,
@@ -35,34 +36,42 @@ export const SYSTEM_PICK_ELEMENT_MATCHES = ALWAYS_ON_MATCHES
 export const SYSTEM_PAGE_SNAPSHOT_MATCHES = ALWAYS_ON_MATCHES
 export const SYSTEM_PAGE_ENV_MATCHES = ALWAYS_ON_MATCHES
 export const SYSTEM_FLOAT_MATCHES = ALWAYS_ON_MATCHES
+export const SYSTEM_MESSAGING_RELAY_MATCHES = ALWAYS_ON_MATCHES
+
+export const MESSAGING_RELAY_FILE = 'duoling-messaging-relay.js'
 
 export const SYSTEM_SCRIPT_DISPLAY: Readonly<
   Record<string, { name: string; world: string; note: string }>
 > = {
   [PICK_ELEMENT_ID]: {
     name: '页面拾取',
-    world: '用户脚本世界',
+    world: '页面主世界',
     note: '在页面里待命：收到拾取请求才亮高亮框，用户点选后把元素载荷交回，平时不亮任何 UI',
   },
   [PAGE_SNAPSHOT_ID]: {
     name: '页面快照',
-    world: '用户脚本世界',
+    world: '页面主世界',
     note: '在页面里待命：收到请求才抓一次渲染后的 DOM，平时不亮任何 UI',
   },
   [PAGE_ENV_ID]: {
     name: '页面环境',
-    world: '用户脚本世界',
+    world: '页面主世界',
     note: '在页面里待命：收到请求才读视口 / 像素比 / 页面 UA，平时不亮任何 UI',
   },
   [FLOAT_HOST_ID]: {
     name: '浮层宿主',
-    world: '用户脚本世界',
+    world: '页面主世界',
     note: '对话浮层的挂载点：收到「打开会话」才建 DOM 并展开 iframe，平时页面里什么都没有',
   },
   [TAB_RECORDER_ID]: {
     name: '页面录制',
     world: '页面主世界',
     note: '在页面真实世界里捕获网络请求（录制开关打开时才工作，经脚本桥上报）',
+  },
+  [MESSAGING_RELAY_ID]: {
+    name: '消息中继',
+    world: '用户脚本世界',
+    note: '主世界件的回程通道：把页面里交来的帧汇到 SW 并按脚本分发（没有它，主世界的件收不到指令）',
   },
 }
 
@@ -81,6 +90,10 @@ function alwaysOnProject(
     source: { code, savedAt: now },
     createdAt: now,
   }
+}
+
+export async function messagingRelayCode(): Promise<string> {
+  return loadSystemScriptCode(MESSAGING_RELAY_FILE)
 }
 
 export async function pickElementProject(): Promise<ScriptProject> {

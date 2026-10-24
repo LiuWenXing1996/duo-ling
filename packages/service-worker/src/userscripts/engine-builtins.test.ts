@@ -17,12 +17,12 @@ afterEach(() => {
 })
 
 describe('listBuiltinRegistrations（内置件注册状态）', () => {
-  it('引擎不可用（getScripts 抛错）：六件全部按未注册返回，不抛', async () => {
+  it('引擎不可用（getScripts 抛错）：七件全部按未注册返回，不抛', async () => {
     vi.stubGlobal('chrome', {
       userScripts: { getScripts: async () => Promise.reject(new Error('不可用')) },
     })
     const all = await listBuiltinRegistrations()
-    expect(all).toHaveLength(6)
+    expect(all).toHaveLength(7)
     expect(all.every((b) => b.registered === false)).toBe(true)
     expect(all.every((b) => b.matches.length === 0)).toBe(true)
   })
@@ -43,7 +43,7 @@ describe('listBuiltinRegistrations（内置件注册状态）', () => {
     expect(host.registered).toBe(true)
     expect(host.matches).toEqual(['*://*/*'])
     expect(host.name).not.toBe(host.id) // 展示名不是注册 id
-    expect(host.world).toBe('用户脚本世界')
+    expect(host.world).toBe('页面主世界')
   })
 
   it('在册的件带回匹配面，不在册的 matches 为空', async () => {

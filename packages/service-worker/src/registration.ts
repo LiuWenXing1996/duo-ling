@@ -456,7 +456,7 @@ export async function registerScript(project: ScriptProject): Promise<void> {
   await chrome.userScripts.register([userScript])
 }
 
-export async function registerDlScript(project: ScriptProject): Promise<void> {
+export async function registerDlScript(project: ScriptProject, world?: 'MAIN'): Promise<void> {
   if (!project.enabled) return
   if (!project.config.matches?.length) {
     throw new Error('脚本缺少匹配规则（matches），不会在任何页面运行')
@@ -475,7 +475,12 @@ export async function registerDlScript(project: ScriptProject): Promise<void> {
     runAt: project.config.runAt === 'document_body' ? 'document_start' : project.config.runAt,
     allFrames: project.config.allFrames,
     protectFromSync: false,
+    ...(world ? { world } : {}),
   })
+}
+
+export async function registerDlRelay(code: string, matches: readonly string[]): Promise<void> {
+  await dlRuntime().registerRelay(code, matches)
 }
 /**
  * 注销指定 id（ids 为空直接跳过）：逐个注销、逐个吞错。

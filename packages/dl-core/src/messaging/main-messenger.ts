@@ -1,6 +1,6 @@
 import {
   MESSAGING_CHANNEL,
-  MESSAGING_PORT,
+  MESSAGING_RELAY_READY_ATTR,
   MessagingError,
   deserializeError,
   frameKind,
@@ -10,6 +10,17 @@ import {
   type ResponseDetail,
   type WireResult,
 } from './protocol'
+
+const RELAY_WAIT_MS = 10_000
+const RELAY_POLL_MS = 50
+
+function relayReady(): boolean {
+  try {
+    return document.documentElement?.hasAttribute(MESSAGING_RELAY_READY_ATTR) === true
+  } catch {
+    return false
+  }
+}
 
 interface PendingRequest {
   resolve: (value: unknown) => void
@@ -40,7 +51,9 @@ export class MainWorldMessenger {
   readonly #handlers = new Map<string, Handler>()
   readonly #eventHandlers = new Map<string, Set<(data: unknown) => void>>()
   #seq = Math.floor(Math.random() * 1_000_000) + 1
-  #link: chrome.runtime.Port | null = null
+  #link: MessagePort | null = null
+  readonly #queue: RequestDetail[] = []
+  #relayTimer: ReturnType<typeof setTimeout> | null = null
 
   private constructor() {}
 
@@ -101,29 +114,94 @@ export class MainWorldMessenger {
     }
   }
 
+  // 中继件没就位时先攒着：同为 document_start，谁先跑不归我们管，此刻发出去的首帧会连端口一起落空
   #post(frame: RequestDetail): void {
     if (this.#link) {
       this.#link.postMessage(frame)
       return
     }
-    const port = chrome.runtime.connect({ name: MESSAGING_PORT })
-    this.#link = port
-    port.onMessage.addListener((raw: unknown) => this.#dispatch(raw))
-    port.onDisconnect.addListener(() => {
-      void chrome.runtime.lastError
-      if (this.#link !== port) return
-      this.#link = null
-      const pending = [...this.#pending.values()]
-      this.#pending.clear()
-      for (const entry of pending) {
-        entry.reject(new MessagingError('TRANSPORT', '与后台的连接已断开，请重试'))
+    if (!relayReady()) {
+      this.#queue.push(frame)
+      this.#watchRelay()
+      return
+    }
+    this.#openLink([frame])
+  }
+
+  #openLink(frames: RequestDetail[]): void {
+    const [first, ...rest] = frames
+    if (!first) return
+    if (this.#link) {
+      this.#drain(this.#link, frames)
+      return
+    }
+    const channel = new MessageChannel()
+    const link = channel.port1
+    this.#link = link
+    link.addEventListener('message', (event: MessageEvent) => this.#dispatch(event.data))
+    link.start()
+    window.postMessage(first, '*', [channel.port2])
+    this.#drain(link, rest)
+  }
+
+  #drain(link: MessagePort, frames: RequestDetail[]): void {
+    for (const queued of frames) {
+      try {
+        link.postMessage(queued)
+      } catch {}
+    }
+  }
+
+  #watchRelay(): void {
+    if (this.#relayTimer !== null) return
+    const deadline = Date.now() + RELAY_WAIT_MS
+    const tick = (): void => {
+      this.#relayTimer = null
+      if (this.#link) {
+        this.#openLink(this.#queue.splice(0))
+        return
       }
-    })
-    port.postMessage(frame)
+      if (relayReady()) {
+        this.#openLink(this.#queue.splice(0))
+        return
+      }
+      if (Date.now() >= deadline) {
+        this.#rejectQueue('中继件没有在本页就位：主世界的脚本连不上后台')
+        return
+      }
+      this.#relayTimer = setTimeout(tick, RELAY_POLL_MS)
+    }
+    this.#relayTimer = setTimeout(tick, RELAY_POLL_MS)
+  }
+
+  #rejectQueue(reason: string): void {
+    for (const frame of this.#queue.splice(0)) {
+      const entry = this.#pending.get(frame.id)
+      if (!entry) continue
+      this.#pending.delete(frame.id)
+      entry.reject(new MessagingError('TRANSPORT', reason))
+    }
+  }
+
+  #dropLink(reason: string): void {
+    const link = this.#link
+    if (!link) return
+    this.#link = null
+    this.#queue.length = 0
+    try {
+      link.close()
+    } catch {}
+    const pending = [...this.#pending.values()]
+    this.#pending.clear()
+    for (const entry of pending) entry.reject(new MessagingError('TRANSPORT', reason))
   }
 
   #dispatch(raw: unknown): void {
     const kind = frameKind(raw)
+    if (kind === 'disconnect') {
+      this.#dropLink('与后台的连接已断开，请重试')
+      return
+    }
     if (kind === 'request') {
       void this.#serve(raw as RequestDetail)
       return

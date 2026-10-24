@@ -13,6 +13,9 @@ export interface WireResult {
 
 export const MESSAGING_CHANNEL = 'dl-messaging'
 export const MESSAGING_PORT = `${MESSAGING_CHANNEL}:port`
+export const MESSAGING_RELAY_PORT = `${MESSAGING_CHANNEL}:relay`
+export const MESSAGING_RELAY_ID = 'dl-messaging-relay'
+export const MESSAGING_RELAY_READY_ATTR = 'data-dl-messaging-relay'
 export const BACKGROUND_COMMAND_PREFIX = 'command.'
 export const VALUE_CHANGE_TYPE = 'value.change'
 
@@ -50,11 +53,16 @@ export interface EventDetail {
   data?: unknown
 }
 
+export interface DisconnectDetail {
+  channel: typeof MESSAGING_CHANNEL
+  kind: 'disconnect'
+}
+
 export interface SwMessage extends RequestDetail {
   sender: chrome.runtime.MessageSender
 }
 
-export type FrameKind = 'request' | 'response' | 'event'
+export type FrameKind = 'request' | 'response' | 'event' | 'disconnect'
 
 export type MessagingErrorCode = 'TRANSPORT' | 'NO_HANDLER' | 'PROTOCOL'
 

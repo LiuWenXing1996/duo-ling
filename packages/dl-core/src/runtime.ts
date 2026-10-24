@@ -1,9 +1,11 @@
 import {
   installCustomUserScript as installScript,
   installedCustomScriptIds as listInstalledIds,
+  registerRelayScript,
   uninstallCustomUserScript as uninstallScript,
   type InstallCustomUserScriptOptions,
 } from './install-custom-user-script'
+import { MESSAGING_RELAY_ID } from './messaging/protocol'
 import { ServiceWorkerMessenger } from './messaging/service-worker-messenger'
 import {
   invokeBackgroundCommand as invokeCommand,
@@ -59,6 +61,10 @@ export class DLRuntime {
     options: InstallCustomUserScriptOptions = {},
   ): Promise<{ id: string }> {
     return installScript(code, options)
+  }
+
+  registerRelay(code: string, matches: readonly string[]): Promise<void> {
+    return registerRelayScript(MESSAGING_RELAY_ID, code, matches)
   }
 
   installedCustomScriptIds(): readonly string[] {

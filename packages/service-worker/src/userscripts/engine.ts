@@ -1,5 +1,6 @@
 import type { BuiltinRegistration, ScriptProject } from '@duoling/shared'
 
+import { MESSAGING_RELAY_ID } from '@duoling/dl-core'
 import {
   FLOAT_HOST_ID,
   PAGE_ENV_ID,
@@ -13,12 +14,14 @@ import { EXTENSION_NAME } from '@duoling/shared'
 import { listProjects } from '@duoling/shared'
 import {
   SYSTEM_FLOAT_MATCHES,
+  SYSTEM_MESSAGING_RELAY_MATCHES,
   SYSTEM_PAGE_ENV_MATCHES,
   SYSTEM_PAGE_SNAPSHOT_MATCHES,
   SYSTEM_PICK_ELEMENT_MATCHES,
   SYSTEM_SCRIPT_DISPLAY,
   SYSTEM_TAB_RECORD_MATCHES,
   floatHostProject,
+  messagingRelayCode,
   pageEnvProject,
   pageSnapshotProject,
   pickElementProject,
@@ -34,6 +37,7 @@ import { sameMatchSet, matchPatternCoversUrl } from '@duoling/shared'
 // 通用引擎件（包内 registration.ts）：世界配置 / 注册 / 注销 / 串行队列
 import {
   enqueueRegistration,
+  registerDlRelay,
   registerDlScript,
   registerScript,
   unregisterScripts,
@@ -53,6 +57,7 @@ import { SCRIPT_RELAY_ID, syncScriptRelay } from '../relay/sync'
  */
 export const BUILTIN_SCRIPT_IDS = [
   SCRIPT_RELAY_ID,
+  MESSAGING_RELAY_ID,
   PICK_ELEMENT_ID,
   PAGE_SNAPSHOT_ID,
   PAGE_ENV_ID,
@@ -140,11 +145,34 @@ async function syncDlScript(
   const project = await build()
   const jsSegs = existing?.js
   const shapeOk = !!jsSegs && jsSegs.length === 1 && typeof jsSegs[0].code === 'string'
-  const worldOk = existing?.world !== 'MAIN'
+  const worldOk = existing?.world === 'MAIN'
   if (existing && shapeOk && worldOk && sameMatchSet(existing, { matches })) return project
-  await registerDlScript(project)
+  await registerDlScript(project, 'MAIN')
   console.log('[duoling:sw] 系统脚本注册成功：', id, JSON.stringify(matches))
   return project
+}
+
+async function syncMessagingRelay(): Promise<void> {
+  if (!chrome.userScripts || typeof chrome.userScripts.register !== 'function') return
+  let existing: chrome.userScripts.RegisteredUserScript | undefined
+  try {
+    existing = (await chrome.userScripts.getScripts()).find((s) => s.id === MESSAGING_RELAY_ID)
+  } catch {
+    return
+  }
+  const jsSegs = existing?.js
+  const shapeOk = !!jsSegs && jsSegs.length === 1 && typeof jsSegs[0].code === 'string'
+  const framesOk = existing?.allFrames === true
+  if (
+    existing &&
+    shapeOk &&
+    framesOk &&
+    sameMatchSet(existing, { matches: SYSTEM_MESSAGING_RELAY_MATCHES })
+  ) {
+    return
+  }
+  await registerDlRelay(await messagingRelayCode(), SYSTEM_MESSAGING_RELAY_MATCHES)
+  console.log('[duoling:sw] 消息中继件注册成功：', JSON.stringify(SYSTEM_MESSAGING_RELAY_MATCHES))
 }
 
 /**
@@ -219,6 +247,7 @@ async function syncTabRecorder(): Promise<ScriptProject | null> {
 }
 
 async function syncResidentSystemScripts(): Promise<void> {
+  await syncMessagingRelay().catch(() => {})
   await syncDlScript(PICK_ELEMENT_ID, SYSTEM_PICK_ELEMENT_MATCHES, pickElementProject).catch(
     () => null,
   )

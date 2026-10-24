@@ -41,6 +41,9 @@ mkdirSync(chromiumProfileDir, { recursive: true })
 // 注意：脚本桥中继件不在此列 —— 它以字符串内嵌进 SW（由 user-scripts 的 build.mjs 产 dist/relay.iife.js）。
 const builtinScriptsDist = resolve(process.cwd(), 'packages/user-scripts/dist/builtin')
 
+const messagingRelaySrc = resolve(process.cwd(), 'packages/dl-core/dist/messaging-relay-iife.js')
+const messagingRelayName = 'duoling-messaging-relay.js'
+
 /**
  * 构建信息注入（分支名 + 时间戳 + 版本号），单一通道：
  *   通过下面的 vite.define 把裸标识符 `__BUILD_INFO__` 替换成一份 JSON，编译进所有 JS bundle
@@ -137,6 +140,13 @@ export default defineConfig({
         if (!name.endsWith('.js')) continue
         files.push({ absoluteSrc: resolve(builtinScriptsDist, name), relativeDest: name })
       }
+      if (!existsSync(messagingRelaySrc)) {
+        throw new Error(
+          `消息中继件产物不存在：${messagingRelaySrc}\n` +
+            '先跑 pnpm --filter @duoling/dl-core build（pnpm run build / pnpm run dev 已内置这一步）',
+        )
+      }
+      files.push({ absoluteSrc: messagingRelaySrc, relativeDest: messagingRelayName })
     },
   },
   vite: ({ mode }) => ({

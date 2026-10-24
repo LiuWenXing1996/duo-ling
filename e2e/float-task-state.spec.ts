@@ -229,28 +229,24 @@ async function runningOf(sender: Page): Promise<string[]> {
 
 /** 浮层宿主常驻件的注册 id（探针页只关心这一件，见 waitForFloatHostRegistered） */
 const FLOAT_HOST_ID = 'dl-float-host'
+const MESSAGING_RELAY_ID = 'dl-messaging-relay'
 
-/**
- * 等浮层宿主**进注册表** —— 开探针页之前必须过这一道。
- *
- * 上就永远没有宿主件。
- *
- *
- * 过了这一道也还不等于「这一页上就能注入」：入册到 Chrome 侧生效之间另有一段窗口，那是
- * openFloatPage 重载兜底要处理的事。
- */
 async function waitForFloatHostRegistered(sw: Worker): Promise<void> {
   await expect
     .poll(
       async () =>
-        await sw.evaluate(async (id) => {
-          try {
-            return (await chrome.userScripts.getScripts()).some((s) => s.id === id)
-          } catch {
-            return false
-          }
-        }, FLOAT_HOST_ID),
-      { timeout: 15_000, message: '浮层宿主没进注册表：SW 启动链没走完，或引擎引导失败' },
+        await sw.evaluate(
+          async (ids) => {
+            try {
+              const registered = await chrome.userScripts.getScripts()
+              return ids.every((id) => registered.some((s) => s.id === id))
+            } catch {
+              return false
+            }
+          },
+          [MESSAGING_RELAY_ID, FLOAT_HOST_ID],
+        ),
+      { timeout: 20_000, message: '宿主件或中继件没进注册表：SW 启动链没走完，或引擎引导失败' },
     )
     .toBe(true)
 }

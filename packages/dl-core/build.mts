@@ -45,8 +45,34 @@ const TARGETS: Target[] = [
         why: '没有给 DL 赋值 —— 装配件没跑起来，或入口不再写这个自由变量',
       },
       {
+        re: /\bMessageChannel\b/,
+        why: '没有建 MessageChannel —— MAIN 世界没有扩展 API，传输必须走跨世界私线',
+      },
+      {
+        re: /\bpostMessage\s*\(/,
+        why: '没有把私线端口交出去 —— 中继件收不到线，整条通道静默失效',
+      },
+    ],
+  },
+  {
+    entry: 'src/messaging/relay-entry.ts',
+    out: 'dist/messaging-relay-iife.js',
+    label: '消息中继件',
+    forbidden: [
+      MODULE_STMT,
+      {
+        re: /\bopenDB\b/,
+        why: '把 idb 打进了中继产物 —— 中继只搬帧，不碰存储',
+      },
+    ],
+    required: [
+      {
         re: /\bconnect\s*\(/,
-        why: '没有发起 runtime.connect —— 内核的传输是脚本世界直连 SW 的 Port',
+        why: '没有 connect SW —— 中继件的唯一出口就是那条 Port',
+      },
+      {
+        re: /\baddEventListener\s*\(\s*['"]message['"]/,
+        why: '没有监听 window message —— 收不到 MAIN 世界交来的私线',
       },
     ],
   },

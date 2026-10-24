@@ -1,6 +1,7 @@
 import {
   MESSAGING_CHANNEL,
   MESSAGING_PORT,
+  MESSAGING_RELAY_PORT,
   MessagingError,
   deserializeError,
   frameKind,
@@ -44,11 +45,12 @@ export class ServiceWorkerMessenger {
     }
 
     onConnect.addListener((port) => {
-      if (port.name !== MESSAGING_PORT) return
+      const isRelay = port.name === MESSAGING_RELAY_PORT
+      if (!isRelay && port.name !== MESSAGING_PORT) return
       const sender = port.sender
       const tabId = sender?.tab?.id
       const scriptId = (sender as { userScript?: { scriptId?: string } }).userScript?.scriptId
-      if (tabId !== undefined && scriptId) this.#ports.set(`${tabId}:${scriptId}`, port)
+      if (!isRelay && tabId !== undefined && scriptId) this.#ports.set(`${tabId}:${scriptId}`, port)
       port.onMessage.addListener((raw: unknown) => {
         void this.#serve(raw, port, sender)
       })

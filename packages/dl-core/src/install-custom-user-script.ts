@@ -13,6 +13,7 @@ export interface InstallCustomUserScriptOptions {
   runAt?: 'document_start' | 'document_end' | 'document_idle'
   allFrames?: boolean
   protectFromSync?: boolean
+  world?: 'MAIN' | 'USER_SCRIPT'
 }
 
 const DEFAULT_MATCHES: string[] = ['*://*/*']
@@ -47,9 +48,24 @@ export async function registerUserScript(
   script: chrome.userScripts.RegisteredUserScript,
 ): Promise<void> {
   const api = userScriptsApi()
-  await ensureWorldMessaging()
+  if (script.world !== 'MAIN') await ensureWorldMessaging()
   await api.unregister({ ids: [script.id] }).catch(() => {})
   await api.register([script])
+}
+
+export async function registerRelayScript(
+  id: string,
+  code: string,
+  matches: readonly string[],
+): Promise<void> {
+  if (!code.trim()) throw new Error('registerRelayScript：中继件源码为空，拒绝注册')
+  await registerUserScript({
+    id,
+    js: [{ code }],
+    matches: [...matches],
+    runAt: 'document_start',
+    allFrames: true,
+  })
 }
 
 export async function installCustomUserScript(
@@ -78,6 +94,7 @@ export async function installCustomUserScript(
     excludeGlobs: options.excludeGlobs,
     runAt: options.runAt ?? DEFAULT_RUN_AT,
     allFrames: options.allFrames ?? false,
+    ...(options.world ? { world: options.world } : {}),
   })
   if (options.protectFromSync !== false) installedIds.add(id)
   return { id }
