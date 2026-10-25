@@ -1114,7 +1114,9 @@ function mountFloatMenu(): void {
 let dlRuntimeInstance: DLRuntime | undefined
 
 function getDLRuntime(): DLRuntime {
-  return (dlRuntimeInstance ??= new DLRuntime())
+  return (dlRuntimeInstance ??= new DLRuntime({
+    clipboard: (payload) => offscreenService.clipboardWrite(payload),
+  }))
 }
 
 export default defineBackground(() => {

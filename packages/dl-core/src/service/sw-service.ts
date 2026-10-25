@@ -75,6 +75,12 @@ export class SwService {
     }
   }
 
+  async setClipboard(text: string | null, html: string | null): Promise<void> {
+    if (!clipboardWrite) throw new Error('setClipboard：宿主没有注入剪贴板写入能力')
+    if (!text && !html) throw new Error('setClipboard：text 与 html 至少给一个')
+    await clipboardWrite({ text, html })
+  }
+
   #recordKey(key: string): [string, string] {
     return [this.#scriptId, key]
   }
@@ -171,9 +177,18 @@ export class SwService {
   }
 }
 
-let mounted = false
+export type ClipboardWrite = (payload: {
+  text: string | null
+  html: string | null
+}) => Promise<void>
 
-export function mountSwService(databaseName: string): void {
+let mounted = false
+let clipboardWrite: ClipboardWrite | undefined
+
+export function mountSwService(
+  databaseName: string,
+  options: { clipboard?: ClipboardWrite } = {},
+): void {
   if (mounted) {
     if (databaseName !== database) {
       throw new Error(`脚本存储库名只能定一次：已是 ${database}，又传 ${databaseName}`)
@@ -182,6 +197,7 @@ export function mountSwService(databaseName: string): void {
   }
   mounted = true
   database = databaseName
+  clipboardWrite = options.clipboard
   registerService(SW_SERVICE_KEY, (context) => new SwService(context))
   chrome.tabs.onRemoved.addListener(clearTab)
 }

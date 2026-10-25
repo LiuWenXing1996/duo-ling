@@ -61,6 +61,7 @@ export const CLIENT_SURFACE = [
   'openInTab',
   'closeTab',
   'focusTab',
+  'setClipboard',
 ] as const
 
 type ClientSurface = Pick<DLSystem, (typeof CLIENT_SURFACE)[number]>
@@ -211,6 +212,11 @@ export class DLSystem {
     return this.#swService().focusTab(tabId)
   }
 
+  setClipboard(data: string, info?: 'text/plain' | 'text/html'): Promise<void> {
+    const html = info === 'text/html'
+    return this.#swService().setClipboard(html ? null : String(data), html ? String(data) : null)
+  }
+
   #service<T extends object>(key: string): DeepAsync<T> {
     return createProxyService<T>(key)
   }
@@ -323,5 +329,9 @@ export class DLClient implements ClientSurface {
 
   focusTab(tabId?: number): Promise<void> {
     return this.#sys.focusTab(tabId)
+  }
+
+  setClipboard(data: string, info?: 'text/plain' | 'text/html'): Promise<void> {
+    return this.#sys.setClipboard(data, info)
   }
 }
