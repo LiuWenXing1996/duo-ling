@@ -2,7 +2,7 @@
   "name": "DL 客户端探针",
   "namespace": "https://duoling.example",
   "version": "1.0.0",
-  "description": "DLClient 面真机验收（除 registerBackgroundCommand 的 20 条）：任一页面 URL 加 #dl-probe 触发，点「跑全部」",
+  "description": "DLClient 面真机验收（除 registerBackgroundCommand 的 32 条）：任一页面 URL 加 #dl-probe 触发，点「跑全部」",
   "match": "*://*/*",
   "run-at": "document-body",
   "noframes": "",

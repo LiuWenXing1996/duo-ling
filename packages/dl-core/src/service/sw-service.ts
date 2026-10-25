@@ -1,6 +1,6 @@
 import { openDB, type IDBPDatabase } from 'idb'
 import { ServiceWorkerMessenger } from '../messaging/service-worker-messenger'
-import { VALUE_CHANGE_TYPE } from '../messaging/protocol'
+import { NOTIFICATION_CLICK_TYPE, VALUE_CHANGE_TYPE } from '../messaging/protocol'
 import { registerService, type ServiceContext } from '../proxy-service'
 import { SW_SERVICE_KEY } from './keys'
 
@@ -79,6 +79,21 @@ export class SwService {
     if (!clipboardWrite) throw new Error('setClipboard：宿主没有注入剪贴板写入能力')
     if (!text && !html) throw new Error('setClipboard：text 与 html 至少给一个')
     await clipboardWrite({ text, html })
+  }
+
+  async notify(details: NotificationRequest): Promise<string> {
+    const icon = details.icon || notificationHost?.icon
+    if (!icon) throw new Error('notify：没有可用的通知图标（宿主没注入 notification.icon）')
+    const title = details.title || notificationHost?.appName
+    if (!title) throw new Error('notify：没有可用的通知标题（宿主没注入 notification.appName）')
+    const id = `${NOTIFICATION_ID_PREFIX}${this.#scriptId}:${++notificationSeq}`
+    await chrome.notifications.create(id, {
+      type: 'basic',
+      iconUrl: icon,
+      title,
+      message: details.text,
+    })
+    return id
   }
 
   #recordKey(key: string): [string, string] {
@@ -182,12 +197,27 @@ export type ClipboardWrite = (payload: {
   html: string | null
 }) => Promise<void>
 
+export interface NotificationRequest {
+  text: string
+  title?: string
+  icon?: string
+}
+
+export interface NotificationHost {
+  icon?: string
+  appName?: string
+}
+
+const NOTIFICATION_ID_PREFIX = 'dl:notify:'
+let notificationSeq = 0
+
 let mounted = false
 let clipboardWrite: ClipboardWrite | undefined
+let notificationHost: NotificationHost | undefined
 
 export function mountSwService(
   databaseName: string,
-  options: { clipboard?: ClipboardWrite } = {},
+  options: { clipboard?: ClipboardWrite; notification?: NotificationHost } = {},
 ): void {
   if (mounted) {
     if (databaseName !== database) {
@@ -198,8 +228,32 @@ export function mountSwService(
   mounted = true
   database = databaseName
   clipboardWrite = options.clipboard
+  notificationHost = options.notification
   registerService(SW_SERVICE_KEY, (context) => new SwService(context))
   chrome.tabs.onRemoved.addListener(clearTab)
+  watchNotificationClicks()
+}
+
+// 通知 id 里带 scriptId，点击唤醒的 SW 靠解析拿归属 —— 内存表在回收后是空的
+function scriptIdOfNotification(id: string): string | null {
+  if (!id.startsWith(NOTIFICATION_ID_PREFIX)) return null
+  const rest = id.slice(NOTIFICATION_ID_PREFIX.length)
+  const cut = rest.lastIndexOf(':')
+  return cut > 0 ? rest.slice(0, cut) : null
+}
+
+function watchNotificationClicks(): void {
+  const api = chrome.notifications
+  if (typeof api?.onClicked?.addListener !== 'function') return
+  api.onClicked.addListener((notificationId) => {
+    const scriptId = scriptIdOfNotification(notificationId)
+    if (!scriptId) return
+    void api.clear(notificationId).catch(() => {})
+    const messenger = ServiceWorkerMessenger.instance
+    for (const tabId of messenger.tabIdsOf(scriptId)) {
+      messenger.emit(tabId, scriptId, NOTIFICATION_CLICK_TYPE, { id: notificationId })
+    }
+  })
 }
 
 function clearTab(tabId: number): void {

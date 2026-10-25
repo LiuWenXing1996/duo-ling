@@ -1116,6 +1116,7 @@ let dlRuntimeInstance: DLRuntime | undefined
 function getDLRuntime(): DLRuntime {
   return (dlRuntimeInstance ??= new DLRuntime({
     clipboard: (payload) => offscreenService.clipboardWrite(payload),
+    notification: { icon: 'icons/128.png', appName: EXTENSION_NAME },
   }))
 }
 

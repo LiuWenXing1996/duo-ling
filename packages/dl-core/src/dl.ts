@@ -3,6 +3,7 @@ import { addElement, addStyle } from './dom'
 import { MainWorldMessenger } from './messaging/main-messenger'
 import {
   backgroundCommandType,
+  NOTIFICATION_CLICK_TYPE,
   VALUE_CHANGE_TYPE,
   type ValueChangeDetail,
 } from './messaging/protocol'
@@ -18,6 +19,13 @@ export type ValueChangeListener = (
   newValue: unknown,
   remote: boolean,
 ) => void
+
+export interface NotificationDetails {
+  text: string
+  title?: string
+  icon?: string
+  onclick?: () => void
+}
 
 export interface DLConfig {
   logPrefix?: string
@@ -62,6 +70,7 @@ export const CLIENT_SURFACE = [
   'closeTab',
   'focusTab',
   'setClipboard',
+  'notify',
 ] as const
 
 type ClientSurface = Pick<DLSystem, (typeof CLIENT_SURFACE)[number]>
@@ -71,7 +80,9 @@ export class DLSystem {
   readonly #log: (message: string) => void
   readonly #info: Readonly<GmInfo> | undefined
   readonly #valueWatchers = new Map<number, { key: string; stop: () => void }>()
+  readonly #notificationClicks = new Map<string, () => void>()
   #valueWatcherSeq = 0
+  #clickWatcher?: () => void
   #sw?: DeepAsync<SwService>
   #commands?: DeepAsync<CommandRegistrar>
 
@@ -217,6 +228,36 @@ export class DLSystem {
     return this.#swService().setClipboard(html ? null : String(data), html ? String(data) : null)
   }
 
+  async notify(details: NotificationDetails): Promise<string> {
+    if (!details || typeof details.text !== 'string')
+      throw new Error('DL.notify：details.text 必须是字符串')
+    const id = await this.#swService().notify({
+      text: details.text,
+      title: details.title,
+      icon: details.icon,
+    })
+    if (typeof details.onclick === 'function') {
+      this.#watchNotificationClicks()
+      this.#notificationClicks.set(id, details.onclick)
+    }
+    return id
+  }
+
+  #watchNotificationClicks(): void {
+    this.#clickWatcher ??= MainWorldMessenger.instance.onEvent(NOTIFICATION_CLICK_TYPE, (data) => {
+      const id = (data as { id?: unknown } | undefined)?.id
+      if (typeof id !== 'string') return
+      const handler = this.#notificationClicks.get(id)
+      if (!handler) return
+      this.#notificationClicks.delete(id)
+      try {
+        handler()
+      } catch (error) {
+        console.error('[DL] 通知点击回调抛错', error)
+      }
+    })
+  }
+
   #service<T extends object>(key: string): DeepAsync<T> {
     return createProxyService<T>(key)
   }
@@ -333,5 +374,9 @@ export class DLClient implements ClientSurface {
 
   setClipboard(data: string, info?: 'text/plain' | 'text/html'): Promise<void> {
     return this.#sys.setClipboard(data, info)
+  }
+
+  notify(details: NotificationDetails): Promise<string> {
+    return this.#sys.notify(details)
   }
 }

@@ -18,6 +18,7 @@ export const MESSAGING_RELAY_ID = 'dl-messaging-relay'
 export const MESSAGING_RELAY_READY_ATTR = 'data-dl-messaging-relay'
 export const BACKGROUND_COMMAND_PREFIX = 'command.'
 export const VALUE_CHANGE_TYPE = 'value.change'
+export const NOTIFICATION_CLICK_TYPE = 'notification.click'
 
 export const backgroundCommandType = (name: string): string => `${BACKGROUND_COMMAND_PREFIX}${name}`
 

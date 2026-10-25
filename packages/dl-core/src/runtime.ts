@@ -13,7 +13,7 @@ import {
   mountCommandService,
   type BackgroundCommandInfo,
 } from './service/command-service'
-import { mountSwService, type ClipboardWrite } from './service/sw-service'
+import { mountSwService, type ClipboardWrite, type NotificationHost } from './service/sw-service'
 import {
   isUserScriptsAvailable as probeAvailability,
   UserScriptsAvailabilityWatch,
@@ -22,13 +22,17 @@ import {
 export interface DLRuntimeConfig {
   storeDatabase?: string
   clipboard?: ClipboardWrite
+  notification?: NotificationHost
 }
 
 export class DLRuntime {
   #availability = new UserScriptsAvailabilityWatch()
 
   constructor(config: DLRuntimeConfig = {}) {
-    mountSwService(config.storeDatabase ?? 'duoling-dl', { clipboard: config.clipboard })
+    mountSwService(config.storeDatabase ?? 'duoling-dl', {
+      clipboard: config.clipboard,
+      notification: config.notification,
+    })
     mountCommandService()
   }
 
