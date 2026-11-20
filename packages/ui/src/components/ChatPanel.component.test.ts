@@ -358,7 +358,7 @@ describe('输入草稿', () => {
 
   it('挂载时把该标签页的草稿回填进输入框', async () => {
     const { bag } = stubSession()
-    bag.set('dl-chat-draft:1', '上次没发出去的半句')
+    bag.set('dl-chat-draft:1', { text: '上次没发出去的半句' })
 
     const w = await mountPanel([], false, 1)
 
@@ -373,7 +373,7 @@ describe('输入草稿', () => {
     await w.find('textarea').setValue('敲一半')
     await flushPromises()
 
-    expect(bag.get('dl-chat-draft:1')).toBe('敲一半')
+    expect(bag.get('dl-chat-draft:1')).toEqual({ text: '敲一半' })
     w.unmount()
   })
 
@@ -386,7 +386,7 @@ describe('输入草稿', () => {
     await w.find('textarea').setValue('一二三')
     await flushPromises()
 
-    expect(bag.get('dl-chat-draft:1')).toBe('一二三')
+    expect(bag.get('dl-chat-draft:1')).toEqual({ text: '一二三' })
     w.unmount()
   })
 

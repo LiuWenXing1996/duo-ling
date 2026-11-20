@@ -82,7 +82,10 @@ import {
   PromptInputTools as UiPromptInputTools,
   usePromptInputProvider,
 } from '@duoling/ui/components/ai-elements/prompt-input'
-import type { PromptInputMessage } from '@duoling/ui/components/ai-elements/prompt-input'
+import type {
+  AttachmentFile,
+  PromptInputMessage,
+} from '@duoling/ui/components/ai-elements/prompt-input'
 import type { TokenUsage } from '@duoling/shared'
 import type { ChatMessageMetadata, MessagePageContext } from '@duoling/shared'
 import type { ElementPickContext } from '@duoling/shared'
@@ -123,11 +126,14 @@ import {
   MAX_ATTACHMENTS,
   MAX_IMAGE_BYTES,
   composeMessageText,
+  draftAttachmentsOf,
+  encodeDraftImage,
   isImageAttachment,
   prepareAttachments,
+  restoreDraftAttachments,
   type AssetUploader,
 } from '../lib/chat-attachments'
-import { readChatDraft, writeChatDraft } from '../lib/chat-draft'
+import { readChatDraft, writeChatDraft, writeDraftAttachments } from '../lib/chat-draft'
 
 const props = defineProps<{
   messages: UIMessage[]
@@ -670,14 +676,22 @@ async function prepareAndSend(payload: PromptInputMessage): Promise<void> {
     emit('stop')
     return
   }
-  const prepared = await prepareAttachments(payload.files, uploadAsset)
+  const assets: ChatAssetRef[] = []
+  const fresh: AttachmentFile[] = []
+  for (const file of payload.files) {
+    const ref = draftAssetRefs.get(file.id)
+    if (ref) assets.push(ref)
+    else fresh.push(file)
+  }
+  const prepared = await prepareAttachments(fresh, uploadAsset)
+  assets.push(...prepared.assets)
   const text = composeMessageText(payload.text.trim(), prepared.textBlocks)
-  if (!text && !prepared.assets.length) return
+  if (!text && !assets.length) return
 
   attachmentError.value = prepared.skipped.length
     ? `这些附件没能随消息发出：${prepared.skipped.join('；')}`
     : ''
-  emit('send', text, prepared.assets)
+  emit('send', text, assets)
 }
 
 const promptInput = usePromptInputProvider({
@@ -690,29 +704,80 @@ const promptInput = usePromptInputProvider({
   },
 })
 
-async function restoreDraft(): Promise<void> {
-  if (props.pageTabId == null) return
-  const text = await readChatDraft(props.pageTabId)
-  if (text && !promptInput.textInput.value) promptInput.setTextInput(text)
+const draftAssetRefs = new Map<string, ChatAssetRef>()
+const draftEncodedIds = new Set<string>()
+
+async function syncDraftFiles(files: AttachmentFile[]): Promise<void> {
+  const live = new Set(files.map((f) => f.id))
+  for (const id of draftAssetRefs.keys()) if (!live.has(id)) draftAssetRefs.delete(id)
+  for (const id of [...draftEncodedIds]) if (!live.has(id)) draftEncodedIds.delete(id)
+
+  for (const file of files) {
+    if (draftEncodedIds.has(file.id)) continue
+    draftEncodedIds.add(file.id)
+    if (!isImageAttachment(file) || !file.file) continue
+    try {
+      const dataUrl = await encodeDraftImage(file.file)
+      const { ref } = await offscreenService.fsAssetPut(
+        dataUrl,
+        file.filename?.trim() || '未命名附件',
+      )
+      draftAssetRefs.set(file.id, ref)
+    } catch {
+      // 落库失败：chip 仍在、发送照常走原路，只是这条不随草稿恢复
+    }
+  }
+  const tabId = props.pageTabId
+  if (tabId != null) {
+    await writeDraftAttachments(tabId, await draftAttachmentsOf(files, draftAssetRefs))
+  }
 }
 
-// 每次输入直接落盘、不做防抖：popup 点外面是硬拆文档，pagehide 里那句异步写不保证跑完，
-// 任何延迟都等于「敲完就点页面 = 一个字都没存」。串行链保证后写的覆盖先写的。
+// 附件增删可能连续发生（连选几张 / 连点几个 ×）：串行链保证后到的快照覆盖先到的
+let fileSyncChain: Promise<void> = Promise.resolve()
+
+watch(promptInput.files, (files) => {
+  fileSyncChain = fileSyncChain.then(() => syncDraftFiles([...files])).catch(() => {})
+})
+
+async function restoreDraft(): Promise<void> {
+  if (props.pageTabId == null) return
+  const draft = await readChatDraft(props.pageTabId)
+  if (draft.text && !promptInput.textInput.value) promptInput.setTextInput(draft.text)
+  if (draft.element) setPickedElement(draft.element)
+  if (draft.attachments?.length && !promptInput.files.value.length) {
+    const { files, refByAttachmentId } = await restoreDraftAttachments(draft.attachments, (id) =>
+      offscreenService.fsAssetRead(id),
+    )
+    if (files.length) {
+      promptInput.files.value = files as AttachmentFile[]
+      for (const [id, ref] of refByAttachmentId) draftAssetRefs.set(id, ref)
+      for (const file of files) draftEncodedIds.add(file.id)
+    }
+  }
+}
+
+// 直接落盘不防抖：popup 点外面是硬拆文档，异步写不保证跑完；串行链保证后写覆盖先写
 let draftChain: Promise<void> = Promise.resolve()
 
-watch(promptInput.textInput, (text) => {
+function persistDraft(): void {
   const tabId = props.pageTabId
   if (tabId == null) return
-  draftChain = draftChain.then(() => writeChatDraft(tabId, text))
-})
+  draftChain = draftChain.then(() =>
+    writeChatDraft(tabId, promptInput.textInput.value, getPickedElement()),
+  )
+}
+
+watch(promptInput.textInput, () => persistDraft())
 
 onMounted(() => {
   void restoreDraft()
 })
 
-/** 移除一个附件；顺手清掉上一条与附件相关的提示（附件都换了，旧提示已过期） */
 function removeAttachment(id: string): void {
   promptInput.removeFile(id)
+  draftAssetRefs.delete(id)
+  draftEncodedIds.delete(id)
   attachmentError.value = ''
 }
 
@@ -738,6 +803,7 @@ onUnmounted(() => {
 })
 
 watch(pickedElement, (next, prev) => {
+  persistDraft()
   if (prev && !next && props.pageTabId != null) void clearPickResult(props.pageTabId)
 })
 
@@ -1398,7 +1464,7 @@ function userScriptsUnavailableMessageSafe(): string {
           <ui-prompt-input-textarea placeholder="输入消息…" :disabled="props.streaming" />
           <ui-prompt-input-footer>
             <!-- 工具区：附件 + 页面拾取 + 模型选择（页面快照已改 AI 工具采集，无用户面入口） -->
-            <ui-prompt-input-tools>
+            <ui-prompt-input-tools class="min-w-0 flex-1">
               <!-- 附件入口：收图片与文本文件两类，能收什么由 ATTACHMENT_ACCEPT 定 -->
               <ui-tooltip-provider>
                 <ui-tooltip>
@@ -1440,11 +1506,11 @@ function userScriptsUnavailableMessageSafe(): string {
                     type="button"
                     variant="outline"
                     size="xs"
-                    class="max-w-[150px]"
+                    class="max-w-[150px] min-w-0 shrink"
                     title="切换对话使用的模型"
                     aria-label="切换模型"
                   >
-                    <span class="truncate">{{ activeModelName }}</span>
+                    <span class="min-w-0 truncate">{{ activeModelName }}</span>
                     <ui-chevrons-up-down class="size-3 shrink-0 text-muted-foreground" />
                   </ui-button>
                 </ui-popover-trigger>

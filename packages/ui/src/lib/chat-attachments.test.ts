@@ -7,12 +7,15 @@ import {
   MAX_TEXT_CHARS,
   buildTextAttachmentBlock,
   composeMessageText,
+  draftAttachmentsOf,
   isImageAttachment,
   isTextAttachment,
   prepareAttachments,
+  restoreDraftAttachments,
   truncateText,
   type AssetUploader,
 } from './chat-attachments'
+import type { DraftAttachment } from './chat-draft'
 
 /** 造一个指定大小的 File，不真分配内存 */
 function fakeFile(name: string, type: string, size = 16): File {
@@ -224,5 +227,100 @@ describe('prepareAttachments', () => {
       skipped: [],
     })
     expect(mock).not.toHaveBeenCalled()
+  })
+})
+
+describe('草稿侧附件转换', () => {
+  const ref = { id: 'a'.repeat(64), filename: 'shot.jpg', mediaType: 'image/jpeg', size: 128 }
+
+  it('draftAttachmentsOf：有引用的图片存 ref，文本文件存截断内容', async () => {
+    const textFile = new File(['hello world'], 'notes.md', { type: 'text/markdown' })
+    const out = await draftAttachmentsOf(
+      [
+        {
+          id: 'i1',
+          filename: 'shot.png',
+          mediaType: 'image/png',
+          file: fakeFile('shot.png', 'image/png'),
+        },
+        { id: 't1', filename: 'notes.md', mediaType: 'text/markdown', file: textFile },
+      ],
+      new Map([['i1', ref]]),
+    )
+    expect(out).toEqual([
+      { kind: 'image', ref },
+      { kind: 'text', filename: 'notes.md', mediaType: 'text/markdown', content: 'hello world' },
+    ])
+  })
+
+  it('draftAttachmentsOf：落库失败的图片与读不了的文件不进草稿', async () => {
+    const out = await draftAttachmentsOf(
+      [
+        {
+          id: 'i2',
+          filename: 'lost.png',
+          mediaType: 'image/png',
+          file: fakeFile('lost.png', 'image/png'),
+        },
+        { id: 'n1', filename: 'no-file.txt' },
+      ],
+      new Map(),
+    )
+    expect(out).toEqual([])
+  })
+
+  it('restoreDraftAttachments：图片按引用读回 data URL，并回填 id → 引用的映射', async () => {
+    const readAsset = vi.fn(async (id: string) => ({
+      id,
+      filename: 'shot.jpg',
+      mediaType: 'image/jpeg',
+      size: 4,
+      base64: 'AAAA',
+    }))
+    const result = await restoreDraftAttachments([{ kind: 'image', ref }], readAsset)
+
+    expect(result.files).toHaveLength(1)
+    expect(result.files[0].url).toBe('data:image/jpeg;base64,AAAA')
+    expect(result.files[0].filename).toBe('shot.jpg')
+    expect(readAsset).toHaveBeenCalledWith(ref.id)
+    expect(result.refByAttachmentId.get(result.files[0].id)).toEqual(ref)
+  })
+
+  it('restoreDraftAttachments：文本用存下的内容重建 File，走原发送路径', async () => {
+    const draft: DraftAttachment = {
+      kind: 'text',
+      filename: 'notes.md',
+      mediaType: 'text/markdown',
+      content: '正文内容',
+    }
+    const result = await restoreDraftAttachments([draft], vi.fn())
+
+    const file = result.files[0]
+    expect(file.url).toBe('')
+    expect(file.file?.name).toBe('notes.md')
+    expect(await file.file?.text()).toBe('正文内容')
+    expect(result.refByAttachmentId.size).toBe(0)
+  })
+
+  it('restoreDraftAttachments：资源已被清（读不到）的条目跳过，chip 不挂坏引用', async () => {
+    const result = await restoreDraftAttachments(
+      [{ kind: 'image', ref }],
+      vi.fn(async () => null),
+    )
+
+    expect(result.files).toEqual([])
+    expect(result.refByAttachmentId.size).toBe(0)
+  })
+
+  it('restoreDraftAttachments：资源库读失败等同读不到，不抛', async () => {
+    const result = await restoreDraftAttachments(
+      [{ kind: 'image', ref }],
+      vi.fn(async () => {
+        throw new Error('boom')
+      }),
+    )
+
+    expect(result.files).toEqual([])
+    expect(result.refByAttachmentId.size).toBe(0)
   })
 })
