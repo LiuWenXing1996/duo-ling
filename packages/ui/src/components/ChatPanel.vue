@@ -692,19 +692,26 @@ const promptInput = usePromptInputProvider({
 
 async function restoreDraft(): Promise<void> {
   if (props.pageTabId == null) return
-  const text = await readChatDraft(props.pageTabId)
-  if (text && !promptInput.textInput.value) promptInput.setTextInput(text)
+  const draft = await readChatDraft(props.pageTabId)
+  if (draft.text && !promptInput.textInput.value) promptInput.setTextInput(draft.text)
+  // 点选元素与文本同属一份草稿：恢复时一起回填，chip 立即可见
+  if (draft.element) setPickedElement(draft.element)
 }
 
-// 每次输入直接落盘、不做防抖：popup 点外面是硬拆文档，pagehide 里那句异步写不保证跑完，
+// 每次草稿变化直接落盘、不做防抖：popup 点外面是硬拆文档，pagehide 里那句异步写不保证跑完，
 // 任何延迟都等于「敲完就点页面 = 一个字都没存」。串行链保证后写的覆盖先写的。
 let draftChain: Promise<void> = Promise.resolve()
 
-watch(promptInput.textInput, (text) => {
+/** 文本与点选元素同写一份草稿；两者皆空才删键（发送成功 / × 清除后） */
+function persistDraft(): void {
   const tabId = props.pageTabId
   if (tabId == null) return
-  draftChain = draftChain.then(() => writeChatDraft(tabId, text))
-})
+  draftChain = draftChain.then(() =>
+    writeChatDraft(tabId, promptInput.textInput.value, getPickedElement()),
+  )
+}
+
+watch(promptInput.textInput, () => persistDraft())
 
 onMounted(() => {
   void restoreDraft()
@@ -738,6 +745,7 @@ onUnmounted(() => {
 })
 
 watch(pickedElement, (next, prev) => {
+  persistDraft()
   if (prev && !next && props.pageTabId != null) void clearPickResult(props.pageTabId)
 })
 
@@ -1398,7 +1406,7 @@ function userScriptsUnavailableMessageSafe(): string {
           <ui-prompt-input-textarea placeholder="输入消息…" :disabled="props.streaming" />
           <ui-prompt-input-footer>
             <!-- 工具区：附件 + 页面拾取 + 模型选择（页面快照已改 AI 工具采集，无用户面入口） -->
-            <ui-prompt-input-tools>
+            <ui-prompt-input-tools class="min-w-0 flex-1">
               <!-- 附件入口：收图片与文本文件两类，能收什么由 ATTACHMENT_ACCEPT 定 -->
               <ui-tooltip-provider>
                 <ui-tooltip>
@@ -1440,11 +1448,11 @@ function userScriptsUnavailableMessageSafe(): string {
                     type="button"
                     variant="outline"
                     size="xs"
-                    class="max-w-[150px]"
+                    class="max-w-[150px] min-w-0 shrink"
                     title="切换对话使用的模型"
                     aria-label="切换模型"
                   >
-                    <span class="truncate">{{ activeModelName }}</span>
+                    <span class="min-w-0 truncate">{{ activeModelName }}</span>
                     <ui-chevrons-up-down class="size-3 shrink-0 text-muted-foreground" />
                   </ui-button>
                 </ui-popover-trigger>
