@@ -148,7 +148,6 @@ const emit = defineEmits<{
   openSettings: []
   /** 需要开权限（页面读取不可用 / 启用脚本失败）：请宿主打开工作台引导标签页 */
   openGuide: []
-  /** 拾取已下发：载体若会挡住页面（popup），据此先撤走自己 */
   pickStarted: []
 }>()
 

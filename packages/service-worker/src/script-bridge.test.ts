@@ -1,7 +1,5 @@
 // 脚本主世界桥 · 协议全链路测试。
 //
-// MAIN 侧客户端（gm-bridge-client.ts）与 USER_SCRIPT 侧中继件（user-scripts 的 src/relay/）
-// 用最小假 frame 接在同一窗口跑真实现
 // chrome.runtime 用最小桩替代（sendMessage 同步回调、connect 给可手动触发 onMessage 的 Port）。
 //
 
