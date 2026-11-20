@@ -35,7 +35,7 @@ import {
 } from '@duoling/ui/components/ui/tooltip'
 import { readPinnedTabId } from '@duoling/ui/lib/owning-tab'
 import { ipcNotify } from '@duoling/shared'
-import PageScriptsMonitor from './components/PageScriptsMonitor.vue'
+import { PageScriptsMonitor } from '@duoling/ui/components/page-scripts-monitor'
 
 /** 工作台是独立标签页，用 hash 指定初始落点（#/sessions、#/settings、#/guide 等） */
 function openWorkbench(hash = ''): void {

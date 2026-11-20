@@ -53,3 +53,19 @@ popup 与浮层的差别只有一条，但它是结构性的：**popup 一失焦
   盖」，见 P2）。
 - 浮层下线（P2）时删 float-host 件、float-bridge、四个 `float:*` 命令、floatpanel 入口，
   e2e 的对话用例全部切到 `popup.html?tab=`。
+
+## P2 顺序：灵动岛先搬（已落地）
+
+浮层里值得留的部分先挪到新载体，剩下的才谈拆 —— 反过来做会先拆掉还要用的东西。
+
+- `PageScriptsMonitor` 与 `usePageMonitor` 从 `packages/floatpanel` 移到 `packages/ui`
+  （`components/page-scripts-monitor` + `composables/use-page-monitor`）。两个载体共用同一份
+  实现：浮层照旧渲染，popup 的对话卡把它挂在 `ChatHost` 的 `overlay` 插槽里。
+- **位置随头行走**：岛距聊天区顶端由 `topOffset` 给（浮层 52、popup 38），不写死类名 ——
+  两个载体的头行高度本来就不同（44 / 30），同一个偏移量会一个贴住、一个飘着。
+- **归属由载体注入**：popup 传自己认领的 `tabId`（`usePageMonitor({ tabId })`），不靠
+  「查当前激活页」猜 —— pin 了别的标签页时，猜出来的那一页与用户正在看的对话不是同一页，
+  正是草稿 / 拾取都踩过的同一个坑。
+- 岛与 popup 的「脚本」子卡是两份不同口径的数据：岛走 `duoling:panel` 实时推送，子卡是
+  `page:overview` 的一次快照。浮层下线后两者的定位仍按现状保留（子卡常驻、岛只在这一页
+  有脚本跑时出现）。

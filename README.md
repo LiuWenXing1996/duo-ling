@@ -20,7 +20,7 @@
 
 > **会话归属按标签页**：一个 tab 一条会话，切 tab 即切会话 —— 所以对话界面里没有会话列表、也没有「新建会话」（要开新对话就开个新标签页，要回看旧对话去工作台「会话历史」）；没发过消息的 tab 不建会话，正被开着的标签页使用的会话不可删。归属机制与删除前置门见 [ARCHITECTURE.md](ARCHITECTURE.md)「对话链路」。
 
-> **三个载体的界面均为现成实现，别照着界面重写**：对话界面 `ChatApp` + `ChatPanel`，工作台 `WorkbenchApp` + `WorkspaceHost`，popup 是独立的 `PopupPanel`（纯配置面板），其中「当前页面」区块（`PopupCurrentPage.vue`）与「其他页面」区块（`PopupOtherPages.vue`）都用 SW 的 `page:overview` 命令取数 —— 页面监控的实时链路（`use-page-monitor` + `duoling:panel` 端口）只服务对话界面灵动岛。复用铁律与客户端模块归属见 [AGENTS.md](AGENTS.md)「UI 复用」；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`。
+> **三个载体的界面均为现成实现，别照着界面重写**：对话界面 `ChatApp` + `ChatPanel`，工作台 `WorkbenchApp` + `WorkspaceHost`，popup 是独立的 `PopupPanel`（纯配置面板），其中「当前页面」区块（`PopupCurrentPage.vue`）与「其他页面」区块（`PopupOtherPages.vue`）都用 SW 的 `page:overview` 命令取数 —— 页面监控的实时链路（`use-page-monitor` + `duoling:panel` 端口）只服务对话灵动岛（浮层与 popup 对话卡）。复用铁律与客户端模块归属见 [AGENTS.md](AGENTS.md)「UI 复用」；脚本链路（workbench 是可信扩展页）直接走 `chrome.runtime.sendMessage`。
 
 ## 目录结构
 

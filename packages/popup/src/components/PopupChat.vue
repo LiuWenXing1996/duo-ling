@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { History as UiHistory } from '@lucide/vue'
 import { ChatHost } from '@duoling/ui'
+import { PageScriptsMonitor } from '@duoling/ui/components/page-scripts-monitor'
 import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import {
   Tooltip as UiTooltip,
@@ -26,7 +27,7 @@ function closeForPick(): void {
 
 <template>
   <div
-    class="flex h-[350px] min-h-0 flex-col overflow-hidden rounded-md border border-border"
+    class="relative flex h-[350px] min-h-0 flex-col overflow-hidden rounded-md border border-border"
     data-testid="popup-chat"
   >
     <chat-host
@@ -68,6 +69,10 @@ function closeForPick(): void {
             </ui-tooltip>
           </ui-tooltip-provider>
         </div>
+      </template>
+
+      <template #overlay>
+        <page-scripts-monitor :tab-id="tabId" :top-offset="38" />
       </template>
     </chat-host>
   </div>

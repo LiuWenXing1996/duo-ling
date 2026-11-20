@@ -1,4 +1,4 @@
-// 「页面脚本监控」·面板侧（运行时口径）——对话界面浮层的灵动岛在用。
+// 「页面脚本监控」·面板侧（运行时口径）——对话灵动岛在用（浮层与 popup 对话卡共用）。
 //
 // 职责三件：① 认定本载体该看哪个标签页（归属认**浮层所属的 tab**，resolveOwningTabId——
 // 不能跟「当前激活标签页」走，判据见 lib/owning-tab.ts）；② 经 'duoling:panel' 端口收 SW
@@ -17,7 +17,7 @@ import { readAllProjects } from '@duoling/shared'
 /** 面板保留的错误行上限（环形日志本身 50 条，这里再兜一层） */
 const MAX_ERRORS = 50
 
-export function usePageMonitor() {
+export function usePageMonitor(options: { tabId?: number | null } = {}) {
   /** 本载体该看的标签页（浮层 = pinned tab，兜底查激活页）；null = 取不到归属（极端态，UI 自隐藏） */
   const owningTabId = ref<number | null>(null)
   const pageUrl = ref('')
@@ -83,7 +83,7 @@ export function usePageMonitor() {
 
   /** 认定本载体该看的标签页并取它的地址（挂载时一次；之后靠 onTabUpdated 跟随页内导航） */
   async function trackTab(): Promise<void> {
-    const tabId = await resolveOwningTabId()
+    const tabId = options.tabId ?? (await resolveOwningTabId())
     if (tabId == null) {
       setTab(null, '')
       return

@@ -52,6 +52,15 @@ const Shell = defineComponent({
   },
 })
 
+/** 带显式归属的空壳（popup 这类自己认领标签页的载体走这条） */
+const TabbedShell = defineComponent({
+  props: { tabId: { type: Number, default: null } },
+  setup(p) {
+    monitor = usePageMonitor({ tabId: p.tabId })
+    return () => null
+  },
+})
+
 /** 取出当前挂载实例的返回值（未挂载时调用即用例写错，直接抛） */
 function state(): Monitor {
   if (monitor == null) throw new Error('尚未挂载空壳组件')
@@ -87,6 +96,15 @@ function makePort(): FakePort {
 async function mountMonitor(): Promise<VueWrapper> {
   monitor = null
   const w = mount(Shell, { attachTo: document.body })
+  wrappers.push(w)
+  await flushPromises()
+  return w
+}
+
+/** 挂载带显式归属的空壳（同上，只是归属由调用方给定） */
+async function mountMonitorFor(tabId: number): Promise<VueWrapper> {
+  monitor = null
+  const w = mount(TabbedShell, { props: { tabId }, attachTo: document.body })
   wrappers.push(w)
   await flushPromises()
   return w
@@ -161,6 +179,16 @@ describe('归属认定与页面地址', () => {
 
     expect(tabsGet).toHaveBeenCalledWith(TAB_ID)
     expect(state().host.value).toBe('sub.a.test:8443')
+  })
+
+  it('显式给出归属（popup 认领的标签页）：不查激活页，直接看那一页', async () => {
+    tabsGet.mockResolvedValue({ id: 9, url: 'https://b.test/' })
+
+    await mountMonitorFor(9)
+
+    expect(owningTabIdMock).not.toHaveBeenCalled()
+    expect(tabsGet).toHaveBeenCalledWith(9)
+    expect(port.postMessage).toHaveBeenCalledWith({ t: 'page:snapshot', tabId: 9 })
   })
 
   it('归属取不到：不查标签页、不发快照请求、host 空', async () => {
