@@ -82,7 +82,10 @@ import {
   PromptInputTools as UiPromptInputTools,
   usePromptInputProvider,
 } from '@duoling/ui/components/ai-elements/prompt-input'
-import type { PromptInputMessage } from '@duoling/ui/components/ai-elements/prompt-input'
+import type {
+  AttachmentFile,
+  PromptInputMessage,
+} from '@duoling/ui/components/ai-elements/prompt-input'
 import type { TokenUsage } from '@duoling/shared'
 import type { ChatMessageMetadata, MessagePageContext } from '@duoling/shared'
 import type { ElementPickContext } from '@duoling/shared'
@@ -123,11 +126,14 @@ import {
   MAX_ATTACHMENTS,
   MAX_IMAGE_BYTES,
   composeMessageText,
+  draftAttachmentsOf,
+  encodeDraftImage,
   isImageAttachment,
   prepareAttachments,
+  restoreDraftAttachments,
   type AssetUploader,
 } from '../lib/chat-attachments'
-import { readChatDraft, writeChatDraft } from '../lib/chat-draft'
+import { readChatDraft, writeChatDraft, writeDraftAttachments } from '../lib/chat-draft'
 
 const props = defineProps<{
   messages: UIMessage[]
@@ -670,14 +676,22 @@ async function prepareAndSend(payload: PromptInputMessage): Promise<void> {
     emit('stop')
     return
   }
-  const prepared = await prepareAttachments(payload.files, uploadAsset)
+  const assets: ChatAssetRef[] = []
+  const fresh: AttachmentFile[] = []
+  for (const file of payload.files) {
+    const ref = draftAssetRefs.get(file.id)
+    if (ref) assets.push(ref)
+    else fresh.push(file)
+  }
+  const prepared = await prepareAttachments(fresh, uploadAsset)
+  assets.push(...prepared.assets)
   const text = composeMessageText(payload.text.trim(), prepared.textBlocks)
-  if (!text && !prepared.assets.length) return
+  if (!text && !assets.length) return
 
   attachmentError.value = prepared.skipped.length
     ? `这些附件没能随消息发出：${prepared.skipped.join('；')}`
     : ''
-  emit('send', text, prepared.assets)
+  emit('send', text, assets)
 }
 
 const promptInput = usePromptInputProvider({
@@ -690,19 +704,62 @@ const promptInput = usePromptInputProvider({
   },
 })
 
+const draftAssetRefs = new Map<string, ChatAssetRef>()
+const draftEncodedIds = new Set<string>()
+
+async function syncDraftFiles(files: AttachmentFile[]): Promise<void> {
+  const live = new Set(files.map((f) => f.id))
+  for (const id of draftAssetRefs.keys()) if (!live.has(id)) draftAssetRefs.delete(id)
+  for (const id of [...draftEncodedIds]) if (!live.has(id)) draftEncodedIds.delete(id)
+
+  for (const file of files) {
+    if (draftEncodedIds.has(file.id)) continue
+    draftEncodedIds.add(file.id)
+    if (!isImageAttachment(file) || !file.file) continue
+    try {
+      const dataUrl = await encodeDraftImage(file.file)
+      const { ref } = await offscreenService.fsAssetPut(
+        dataUrl,
+        file.filename?.trim() || '未命名附件',
+      )
+      draftAssetRefs.set(file.id, ref)
+    } catch {
+      // 落库失败：chip 仍在、发送照常走原路，只是这条不随草稿恢复
+    }
+  }
+  const tabId = props.pageTabId
+  if (tabId != null) {
+    await writeDraftAttachments(tabId, await draftAttachmentsOf(files, draftAssetRefs))
+  }
+}
+
+// 附件增删可能连续发生（连选几张 / 连点几个 ×）：串行链保证后到的快照覆盖先到的
+let fileSyncChain: Promise<void> = Promise.resolve()
+
+watch(promptInput.files, (files) => {
+  fileSyncChain = fileSyncChain.then(() => syncDraftFiles([...files])).catch(() => {})
+})
+
 async function restoreDraft(): Promise<void> {
   if (props.pageTabId == null) return
   const draft = await readChatDraft(props.pageTabId)
   if (draft.text && !promptInput.textInput.value) promptInput.setTextInput(draft.text)
-  // 点选元素与文本同属一份草稿：恢复时一起回填，chip 立即可见
   if (draft.element) setPickedElement(draft.element)
+  if (draft.attachments?.length && !promptInput.files.value.length) {
+    const { files, refByAttachmentId } = await restoreDraftAttachments(draft.attachments, (id) =>
+      offscreenService.fsAssetRead(id),
+    )
+    if (files.length) {
+      promptInput.files.value = files as AttachmentFile[]
+      for (const [id, ref] of refByAttachmentId) draftAssetRefs.set(id, ref)
+      for (const file of files) draftEncodedIds.add(file.id)
+    }
+  }
 }
 
-// 每次草稿变化直接落盘、不做防抖：popup 点外面是硬拆文档，pagehide 里那句异步写不保证跑完，
-// 任何延迟都等于「敲完就点页面 = 一个字都没存」。串行链保证后写的覆盖先写的。
+// 直接落盘不防抖：popup 点外面是硬拆文档，异步写不保证跑完；串行链保证后写覆盖先写
 let draftChain: Promise<void> = Promise.resolve()
 
-/** 文本与点选元素同写一份草稿；两者皆空才删键（发送成功 / × 清除后） */
 function persistDraft(): void {
   const tabId = props.pageTabId
   if (tabId == null) return
@@ -717,9 +774,10 @@ onMounted(() => {
   void restoreDraft()
 })
 
-/** 移除一个附件；顺手清掉上一条与附件相关的提示（附件都换了，旧提示已过期） */
 function removeAttachment(id: string): void {
   promptInput.removeFile(id)
+  draftAssetRefs.delete(id)
+  draftEncodedIds.delete(id)
   attachmentError.value = ''
 }
 
