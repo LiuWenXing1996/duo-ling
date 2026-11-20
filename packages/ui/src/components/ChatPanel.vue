@@ -688,44 +688,24 @@ const promptInput = usePromptInputProvider({
   },
 })
 
-const DRAFT_WRITE_MS = 500
-let draftTimer: ReturnType<typeof setTimeout> | null = null
-
 async function restoreDraft(): Promise<void> {
   if (props.draftTabId == null) return
   const text = await readChatDraft(props.draftTabId)
   if (text && !promptInput.textInput.value) promptInput.setTextInput(text)
 }
 
-function flushDraft(): void {
-  if (draftTimer) {
-    clearTimeout(draftTimer)
-    draftTimer = null
-  }
-  if (props.draftTabId == null) return
-  void writeChatDraft(props.draftTabId, promptInput.textInput.value)
-}
+// 每次输入直接落盘、不做防抖：popup 点外面是硬拆文档，pagehide 里那句异步写不保证跑完，
+// 任何延迟都等于「敲完就点页面 = 一个字都没存」。串行链保证后写的覆盖先写的。
+let draftChain: Promise<void> = Promise.resolve()
 
 watch(promptInput.textInput, (text) => {
-  if (props.draftTabId == null) return
-  if (draftTimer) clearTimeout(draftTimer)
-  draftTimer = setTimeout(() => {
-    draftTimer = null
-    void writeChatDraft(props.draftTabId, text)
-  }, DRAFT_WRITE_MS)
+  const tabId = props.draftTabId
+  if (tabId == null) return
+  draftChain = draftChain.then(() => writeChatDraft(tabId, text))
 })
 
 onMounted(() => {
   void restoreDraft()
-  window.addEventListener('pagehide', flushDraft)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('pagehide', flushDraft)
-  if (draftTimer) {
-    clearTimeout(draftTimer)
-    draftTimer = null
-  }
 })
 
 /** 移除一个附件；顺手清掉上一条与附件相关的提示（附件都换了，旧提示已过期） */

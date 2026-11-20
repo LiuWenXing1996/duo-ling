@@ -44,9 +44,15 @@ function setModelProfile(): void {
   })
 }
 
-async function mountPanel(messages: UIMessage[] = [], streaming = false): Promise<VueWrapper> {
+async function mountPanel(
+  messages: UIMessage[] = [],
+  streaming = false,
+  draftTabId?: number | null,
+): Promise<VueWrapper> {
   setModelProfile()
-  const w = mount(ChatPanel, { props: { messages, usageByMessageId: {}, streaming } })
+  const w = mount(ChatPanel, {
+    props: { messages, usageByMessageId: {}, streaming, draftTabId },
+  })
   await flushPromises() // onMounted 里拉模型列表
   return w
 }
@@ -316,6 +322,90 @@ describe('图片预览', () => {
     // 不设 href 指向别处：必须还是那条 data URL，否则点了会跳走
     expect(download!.getAttribute('href')).toBe('data:image/jpeg;base64,AAAA')
 
+    w.unmount()
+  })
+})
+
+describe('输入草稿', () => {
+  function stubSession() {
+    const bag = new Map<string, unknown>()
+    const area = {
+      get: vi.fn(async (key: string) => (bag.has(key) ? { [key]: bag.get(key) } : {})),
+      set: vi.fn(async (items: Record<string, unknown>) => {
+        for (const [key, value] of Object.entries(items)) bag.set(key, value)
+      }),
+      remove: vi.fn(async (key: string) => {
+        bag.delete(key)
+      }),
+    }
+    ;(chrome as unknown as { storage: unknown }).storage = { session: area }
+    return { bag, area }
+  }
+
+  const textareaValue = (w: VueWrapper): string =>
+    (w.find('textarea').element as HTMLTextAreaElement).value
+
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('挂载时把该标签页的草稿回填进输入框', async () => {
+    const { bag } = stubSession()
+    bag.set('dl-chat-draft:1', '上次没发出去的半句')
+
+    const w = await mountPanel([], false, 1)
+
+    expect(textareaValue(w)).toBe('上次没发出去的半句')
+    w.unmount()
+  })
+
+  it('输入即落盘：不等关窗事件（打完就点页面也不丢）', async () => {
+    const { bag } = stubSession()
+    const w = await mountPanel([], false, 1)
+
+    await w.find('textarea').setValue('敲一半')
+    await flushPromises()
+
+    expect(bag.get('dl-chat-draft:1')).toBe('敲一半')
+    w.unmount()
+  })
+
+  it('连续输入只留最后一句（后写覆盖先写）', async () => {
+    const { bag } = stubSession()
+    const w = await mountPanel([], false, 1)
+
+    await w.find('textarea').setValue('一')
+    await w.find('textarea').setValue('一二')
+    await w.find('textarea').setValue('一二三')
+    await flushPromises()
+
+    expect(bag.get('dl-chat-draft:1')).toBe('一二三')
+    w.unmount()
+  })
+
+  it('发送成功即清：草稿键删掉，下次开窗不再回填', async () => {
+    const { bag } = stubSession()
+    const w = await mountPanel([], false, 1)
+    await w.find('textarea').setValue('要发的话')
+    await flushPromises()
+
+    await w.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(w.emitted('send')).toEqual([['要发的话', []]])
+    expect(bag.has('dl-chat-draft:1')).toBe(false)
+    w.unmount()
+  })
+
+  it('没有归属标签页（浮层 / 只读回放）：一次都不碰存储', async () => {
+    const { area } = stubSession()
+    const w = await mountPanel()
+
+    await w.find('textarea').setValue('随便写')
+    await flushPromises()
+
+    expect(area.get).not.toHaveBeenCalled()
+    expect(area.set).not.toHaveBeenCalled()
     w.unmount()
   })
 })
