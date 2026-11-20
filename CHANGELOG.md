@@ -15,6 +15,32 @@
 
 
 
+## [0.13.0] - 2026-11-20
+
+### 新增
+- 拾取改为「发起 / 取回」两段，结论按标签页暂存在 SW；popup 关窗后仍可取回（#212）
+- 内置拾取器的快照 / 环境读数两条支路，供 AI 侧页面上下文工具取数（#212）
+- 新增 shadcn 组件自定义构建资产包（shadcn-registry）
+
+### 变更
+- 对话载体从网页浮层搬进工具栏 popup，对话卡挂在 popup 的「当前页面」卡内（#212）
+- 网页浮层整套下线：页面里不再有扩展 DOM，灵动岛搬进 ui 包供 popup 复用，帮助页配图按新界面重出（#212）
+- 对话草稿改为输入即落盘（按标签页存 session），不再依赖关闭时那次异步写；点「点选元素」后 popup 自己关窗（#212）
+- 脚本桥协议 v2：统一信封、清除 DL 前缀、加版本字段；拾取与快照 / 环境读数分流（#212）
+- GM 包装运行时与桥客户端迁到 user-scripts 包，SW 只留装配薄壳；最终注入 code 仍是「包装 IIFE + 装配段 + sourceURL」三段
+- 中继件从 builtin/relay 迁到 src/relay，导出改为 @duoling/user-scripts/relay，两段式注册与产物路径不变
+- 包边界重划：builtin-scripts 与 uscript-samples 合并为 user-scripts，shadcn-registry 并入 ui；页面包 / shared / SW / offscreen 陆续转源码直出，构建收敛到主包
+- 数据变更触达改 Dexie liveQuery；UI 触达 offscreen 统一经 SW、通信换 Port 长链路，广播只留瞬态与观测
+- 工程门禁补齐：注释密度 ratchet 与 PR 增量双口径、prettier、commitlint、pre-push 分支名检查、check-packages 包边界
+
+### 移除
+- float-host / float-bridge / floatpanel 整套浮层载体、浮层宿主件与右键入口，以及对应的 float:* 命令与 IPC kind（#212）
+
+### 修复
+- 系统件正文取不到 __gmBridge，检查器 / 录制的通道一直没挂上（#212）
+- GM 命名空间对象漏进 members、装配段解构少一层，导致真机上的 GM.* 不可用
+- 脚本桥的三个健壮性修复；休眠测试翻出的 3 处失败、.vue import 大小写与格式化引入的两处破坏
+
 ## [0.12.0] - 2026-10-18
 
 ### 新增
