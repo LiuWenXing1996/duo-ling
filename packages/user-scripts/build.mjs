@@ -4,7 +4,7 @@
 //
 //   · src/builtin/  内置注入件 → dist/builtin/ 下的 IIFE 文件（chrome.userScripts 以
 //     `{ file }` 注册，件必须自包含、无 import/export 残留）
-//   · src/builtin/relay/  中继件 → dist/relay.iife.js（不入库），SW 经 `?raw` 内嵌做两段式注册
+//   · src/relay/  中继件 → dist/relay.iife.js（不入库），SW 经 `?raw` 内嵌做两段式注册
 //   · src/gm-wrapper/  GM 包装运行时 → dist/gm-wrapper.iife.js（不入库），SW 经 `?raw` 内嵌拼进每个脚本的注入体
 //   · src/samples/  用户脚本样例 → dist/samples/<名>/<名>.user.js 单文件（esbuild 会剥
 //     注释，metadata 头由各样例的 meta.json 生成 banner）；src/samples/raw/ 的坏源码样本
@@ -73,7 +73,7 @@ const builtinOptions = {
 // 中继件装配是两段式（装配段由 SW 侧生成，见 SW 包 relay/sync.ts 的 buildRelayInit）：①本件把安装函数挂到
 // window，②装配段把运行期密钥递进去。密钥进不了代码串，故件以字符串内嵌而非 { file } 注册
 // —— 产物落 dist/relay.iife.js（不入库，防 drift），SW 经 `?raw` 取其字符串内嵌（同 gm-wrapper 形态）。
-const RELAY_ENTRY = resolve(here, 'src/builtin/relay/entry.ts')
+const RELAY_ENTRY = resolve(here, 'src/relay/entry.ts')
 const RELAY_OUTFILE = resolve(here, 'dist/relay.iife.js')
 
 const relayOptions = {

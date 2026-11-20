@@ -61,7 +61,7 @@ popup / workbench ──▶ ui ──▶ shared ◀── service-worker / offsc
 | 扩展页 | `popup.html`（工具栏 popup） | **对话的唯一载体**，兼按**标签页**看现状与去处：①「当前页面」= 本页的对话卡（会话 = **这一页**的会话；消息流 / 输入区含附件与拾取 chip / 模型选择，上方是页面脚本灵动岛；载体壳 `PopupChat`，tab 身份由 `?tab=<id>` 深链带入，见「会话归属按标签页」）+ 本页活动记录开关（一枚开关两条写链：记活动时间线 + 录接口流量，常显、可就地开关；录制要刷新页面后才生效）+ 本页在跑的脚本与报错（只读，右侧「管理脚本」按钮开工作台标签页，落默认的脚本列表面板）+ 这一页上在用的扩展内置件（弱化行组，不进脚本计数）；②「其他页面」（`PopupOtherPages`）= 其他打开的普通网页各自的脚本与会话，点一行切过去；③ 标题行右侧的「设置（`#/settings`）/ 打开工作台」两个图标入口（说明挂在悬停提示上）与当前版本号（构建期注入的构建信息，缺失时隐藏）。两块共用一条 `page:overview` 命令（SW 侧一处聚合运行登记 / 会话归属 / 进行中，见「脚本注入」的运行登记表）—— popup 只活几秒，取一次快照即可，不维持推送通道。拿不到网址的页面（浏览器内部页 / 扩展页）上对话卡不渲染、原因就地说在对话行中间；引擎开关没开时另有「查看开启引导」卡（与角标 `!` 同一判据、同走 `userscript:availability`） |
 | SW | `background.ts` | **能力运行时**：用户脚本注册（`chrome.userScripts`）+ 状态库写命令转发 + offscreen 容器管理 + 模型配置中转 |
 | 离屏文档 | `offscreen.html`（按需创建） | AI 生成链路的执行宿主 + `duoling-fs` 源码的唯一写入方 |
-| 注入世界 | MAIN（第三方页面内） | 用户脚本自身逻辑；GM 包装运行时（`gm-wrapper-runtime.ts` → IIFE 产物）经装配段把 `GM_*` / `GM.*` 解构成局部 var，能力调用经同帧 USER_SCRIPT 中继件（`@duoling/user-scripts` 包内 `relay/install.ts`）转 SW |
+| 注入世界 | MAIN（第三方页面内） | 用户脚本自身逻辑；GM 包装运行时（`gm-wrapper-runtime.ts` → IIFE 产物）经装配段把 `GM_*` / `GM.*` 解构成局部 var，能力调用经同帧 USER_SCRIPT 中继件（`@duoling/user-scripts` 的 `src/relay/install.ts`）转 SW |
 
 各载体承载什么、标签页有哪些，见 [README.md](README.md)「载体分工」。**页面上不再有任何扩展 DOM**：对话框就是工具栏 popup 本身，点开即用、点外即关 —— 于是也没有「打开入口」这一层（原先进页面挂 iframe 的宿主件、右键菜单、「推不到就报错」的回执链、跨源 `frame-src` 拦截与降级，全部随浮层一起删了）。代价是「边看页面边聊」不再成立：要拿页面内容只能走 popup 输入区的拾取 chip 与 AI 侧的页面快照工具（见「页面上下文」）。popup 的寿命很短（失焦即销毁、切标签页即换会话），故草稿按标签页落 `storage.session`（敲一个字存一个字，不做防抖 —— 防抖会丢掉最后那一两个字符）、拾取结论按 tab 暂存、生成跑在 offscreen；回到 popup 时从这三处取回现场。
 
@@ -113,7 +113,7 @@ agent loop 要求宿主「不会在任务中途被回收」，三种宿主的寿
 
 ## 脚本注入
 
-`chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`gm-wrapper.ts`）与 **USER_SCRIPT 中继件**（`@duoling/user-scripts` 包内：relay 源码，IIFE 字符串内嵌以 `{ code }` 注册，宿主侧注册面在 SW 的 relay/sync.ts，注册同步在全量链内置维护）桥接。
+`chrome.userScripts` + **页面 MAIN 世界**注入 + **GM 包装层**（`gm-wrapper.ts`）与 **USER_SCRIPT 中继件**（`@duoling/user-scripts` 的 `src/relay/` 源码，IIFE 字符串内嵌以 `{ code }` 注册，宿主侧注册面在 SW 的 relay/sync.ts，注册同步在全量链内置维护）桥接。
 
 标准 `==UserScript==` 脚本可直跑：`@grant` 驱动能力注入（`@duoling/shared` 的 `metadata.ts` 解析 metadata → 归一化进 `ScriptConfig`；grant 名 → 它开启的成员这张对应表在 `gm-grants.ts`，注入侧、速查页与 AI 规范三处共用这一份）；能力表 `gm-api-catalog.ts` 生成速查页与**给 AI 的能力清单**两形态（三防漂移：类型层 `satisfies` + 从注入源码反射 + 规范文本对齐单测）。内部仍走 `__gm` 信封协议（v2 统一信封：`__gm: 1` 标记 + `kind` 判别 + `v` 版本字段；桥的真身与接线工厂都在 `@duoling/service-worker`——background 调 `createServiceWorkerHost` 注入遥测 / 扩展身份 / offscreen 就绪并同步注册全部监听（应用侧不再有 re-export 桶，直接从 `@duoling/service-worker` 取用），遥测对象在 `userscripts/telemetry.ts`）。
 

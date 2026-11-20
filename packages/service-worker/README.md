@@ -113,6 +113,6 @@ await host.addScript(project)
 ## 中继件
 
 页面 MAIN 世界脚本的 GM 调用经同帧 USER_SCRIPT **中继件**转给 SW。中继件本体在
-`@duoling/user-scripts`（src/builtin/relay/，那边 build.mjs 生成 IIFE 源码串 gen 模块，不入库），
+`@duoling/user-scripts`（src/relay/，那边 build.mjs 生成 IIFE 源码串，不入库），
 宿主侧注册面随本包内置：`registerAllEnabled` 按「启用脚本的匹配
 并集」自动维护它的注册，IIFE 以 `{ code }` 注入、无公共资产文件，接入方零接线。
