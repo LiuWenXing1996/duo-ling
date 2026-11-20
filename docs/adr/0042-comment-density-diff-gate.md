@@ -35,6 +35,7 @@
 ## 代价与后果
 
 - 新增文件的长文件头会直接计入分子，所以长说明落 ADR，代码里只留一两行指针 —— 与 ADR 的既有分工一致。
+- **移动 / 重命名按 rename 配对**：只给目标路径做 diff，源路径不在场时 git 配不上对，整篇文件都会算成新增 —— 门禁于是成了「不许搬运文件」。故先取 `--name-status -M` 的 R 条目，配对成功的那几条连源路径一起 diff，只算真正改动的行。判定的分母因此仍只反映本次编辑量。
 - 「删注释、留代码」这类动作在增量口径里看不到（只有一个删除 hunk，分子分母都空），仍由全仓基线兜。
 - **分不清「给代码补注释」与「修整既有注释」**：折行超宽注释、去掉小节号这类提交新增行全是注释，比例必超上限。这类提交只能带 `LEFTHOOK=0` 提交并在 PR 说明，全仓基线仍兜总量。
 - 全仓基线有 `--update` 这个合法出口，增量门禁没有：被拦只能改注释或精简，绕行手段是 `LEFTHOOK=0`，与其它 pre-commit 钩子相同。
@@ -47,7 +48,7 @@ pre-commit 按单次暂存判定，把一次大提交拆成每批 ≤20 行的�
 | | 暂存模式（pre-commit） | PR 模式（`--base`） |
 | --- | --- | --- |
 | 文件清单 | `git diff --cached --name-only` | `git diff --name-only <base>...HEAD` |
-| 新增行区间 | `git diff --cached --unified=0` | `git diff --unified=0 <base>...HEAD` |
+| 新增行区间 | `git diff --cached -M --unified=0` | `git diff -M --unified=0 <base>...HEAD` |
 | 文件内容 | `git show :<file>`（暂存区） | `git show HEAD:<file>`（提交树） |
 
 - **三点语法取 merge-base**：PR 存续期间 main 前进不影响判定；`checkout` 相应要 `fetch-depth: 0`，浅 clone（默认 depth=1）算不出 merge-base。
