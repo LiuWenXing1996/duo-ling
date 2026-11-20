@@ -93,9 +93,6 @@ export function extensionIdFromServiceWorker(sw: Worker): string {
  * 不能从 SW 自发 chrome.runtime.sendMessage —— runtime 消息不回环到发送者自身上下文
  * （实测报 "Receiving end does not exist"），必须从另一个扩展上下文发出，
  * 这也正好复现真实链路（扩展页 → background onMessage）。
- *
- * 选 popup 而不是对话页（floatpanel）：它最轻（不跑 ChatApp），
- * 而加载对话页会顺带连上 `duoling:panel` 端口、干扰「浮层开着没」的判定。
  */
 export async function openMessengerPage(
   context: BrowserContext,
@@ -103,6 +100,25 @@ export async function openMessengerPage(
 ): Promise<Page> {
   const page = await context.newPage()
   await page.goto(`chrome-extension://${extensionId}/popup.html`)
+  return page
+}
+
+export async function ownTabId(page: Page): Promise<number> {
+  const id = await page.evaluate(async () => (await chrome.tabs.getCurrent())?.id ?? null)
+  if (id == null) {
+    throw new Error('取不到当前标签页 id：ownTabId 只能在扩展页（chrome-extension://）里调用')
+  }
+  return id
+}
+
+export function chatPageUrl(extensionId: string, tabId: number): string {
+  return `chrome-extension://${extensionId}/popup.html?tab=${tabId}`
+}
+
+export async function openChatPage(context: BrowserContext, extensionId: string): Promise<Page> {
+  const page = await context.newPage()
+  await page.goto(`chrome-extension://${extensionId}/popup.html`)
+  await page.goto(chatPageUrl(extensionId, await ownTabId(page)))
   return page
 }
 

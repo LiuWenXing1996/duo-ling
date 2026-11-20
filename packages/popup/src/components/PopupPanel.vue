@@ -1,10 +1,4 @@
 <script setup lang="ts">
-// popup = 点工具栏图标弹出的面板（**纯配置面板，不承载对话**）。
-//
-// 主体是两个区块，数据来自同一条 page:overview 命令（SW 侧一处聚合，见 shared/extension-ipc）：
-//   · 「当前页面」（PopupCurrentPage）：本标签页的两个按页开关（常显的子卡，可就地开与关）——
-//     接口录制、活动记录 —— + 本页在跑哪些脚本 + 这条页面的对话浮层入口与回话状态；
-//   · 「其他页面」（PopupOtherPages）：其他打开的页面各自的脚本与会话，点一行切过去。
 // popup 只活几秒，故取一次快照即可，不维持推送通道 —— 页面上的脚本在 popup 打开前就已经登记好了。
 //
 // 标题行右侧两个图标入口（说明挂在悬停提示上）：设置（工作台「设置」页）、打开工作台 —— 都是
@@ -33,6 +27,7 @@ import { readInjectedBuildInfo } from '@duoling/shared'
 import { webHostname } from '@duoling/shared'
 import { readUpdateCheck, type UpdateCheckRecord } from '@duoling/shared'
 import { userscriptClient } from '@duoling/ui/lib/userscripts/ui-client'
+import { readPinnedTabId } from '@duoling/ui/lib/owning-tab'
 import type { UserScriptsAvailability } from '@duoling/shared'
 import type { PageOverviewTab, RuntimeRequest } from '@duoling/shared'
 import { ipcRequest } from '@duoling/shared'
@@ -42,10 +37,14 @@ const currentTabId = ref<number | null>(null)
 const currentUrl = ref('')
 /**
  * 当前页的站点名（拿不到 url 的内部页 / 扩展页上是空串，判据见 lib/web-hostname.ts）。
- *
- * 它同时是「这一页能不能挂浮层」的判据 —— 下面几处子组件都按「有站点名 = 普通网页」用。
  */
 const currentHost = computed(() => webHostname(currentUrl.value))
+
+const pinnedTabId = readPinnedTabId()
+
+const chatTabId = computed(() => pinnedTabId ?? currentTabId.value)
+
+const canChat = computed(() => pinnedTabId != null || currentHost.value !== '')
 
 /** 当前构建版本（含预发布标签）：构建期注入，源码里没有第二处版本真相源；缺失（如测试环境）时隐藏 */
 const version = readInjectedBuildInfo()?.version ?? ''
@@ -162,7 +161,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex w-full flex-col gap-3 px-4 py-3">
+  <div class="flex w-full flex-col gap-2 px-4 py-2">
     <!--
       两个去处按图标排在标题右侧：popup 的版面留给「这一页在跑什么」，设置与工作台都是点一下
       就关窗走人的门，一句话的说明挂在各自悬停提示上即可，不必占行。
@@ -255,6 +254,8 @@ onMounted(() => {
     <PopupCurrentPage
       :host="currentHost"
       :tab="currentTab"
+      :chat-tab-id="chatTabId"
+      :can-chat="canChat"
       @tab-recording-changed="onTabRecordingChanged"
     />
 

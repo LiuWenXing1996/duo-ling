@@ -17,11 +17,14 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { extensionIdFromServiceWorker, getServiceWorker, launchExtensionContext } from './extension'
+import {
+  extensionIdFromServiceWorker,
+  getServiceWorker,
+  launchExtensionContext,
+  openChatPage,
+} from './extension'
 import { saveStubModel } from './model-config'
 import { startModelStub, type ModelStubHit } from '../scripts/model-stub.mts'
-
-const APP_PAGE = 'floatpanel.html'
 
 /**
  * 生成一份**真能被解码**的 PNG 素材（纯色）。
@@ -172,12 +175,9 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     }
   })
 
-  /** 开一个浮层页（模型已在 beforeAll 配好，同源共享） */
   async function openPanel(): Promise<Page> {
     const id = extensionIdFromServiceWorker(await getServiceWorker(context!))
-    const page = await context!.newPage()
-    await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
-    return page
+    return openChatPage(context!, id)
   }
 
   test('图片：选图 → 压缩成 jpeg 落资源库 → 消息里只留引用，模型拿到一行文字', async () => {

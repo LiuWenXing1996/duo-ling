@@ -7,10 +7,12 @@
 // 只列普通网页（http/https）：内部页 / 扩展页里既跑不了脚本也挂不了浮层，列出来只是噪音 ——
 // 过滤在 SW 侧完成（见 shared/extension-ipc 的 PageOverviewTab），这里不再判一次。
 //
-// 切换**只走「去这里」按钮**（不顺手把那一页的浮层调出来）：用户点它多半是去那个页面干活，未必
-// 是要跟它对上话（要对话，切过去再点「打开会话」，或者直接在那儿用页面右键菜单）。内容区刻意
-// 不可点 —— 整卡都是点击目标容易误触切走。
-import { ExternalLink as UiExternalLink } from '@lucide/vue'
+import { ref } from 'vue'
+import {
+  ChevronDown as UiChevronDown,
+  ChevronRight as UiChevronRight,
+  ExternalLink as UiExternalLink,
+} from '@lucide/vue'
 import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import {
   Tooltip as UiTooltip,
@@ -25,6 +27,8 @@ defineProps<{
   /** 其他标签页的概览（不含当前页；顺序 = SW 给出的标签页顺序） */
   tabs: readonly PageOverviewTab[]
 }>()
+
+const open = ref(false)
 
 /** 切到某个标签页并关窗；标签页刚好没了就静默退场（这是 popup 与页面失联的异常态，报错只是噪音） */
 async function switchTo(tabId: number): Promise<void> {
@@ -55,22 +59,36 @@ function metaOf(tab: PageOverviewTab): string {
 
 <template>
   <div class="rounded-lg border border-border" data-testid="popup-other-pages">
-    <div class="flex items-center gap-2 border-b border-border px-3 py-2">
+    <button
+      v-if="tabs.length"
+      type="button"
+      class="flex w-full items-center gap-1.5 px-3 py-2 text-left"
+      :aria-expanded="open"
+      aria-label="展开或收起其他页面"
+      data-testid="popup-other-pages-toggle"
+      @click="open = !open"
+    >
+      <ui-chevron-down v-if="open" class="size-3 shrink-0 text-muted-foreground" />
+      <ui-chevron-right v-else class="size-3 shrink-0 text-muted-foreground" />
       <span class="text-sm font-medium">其他页面</span>
-      <span v-if="tabs.length" class="text-xs text-muted-foreground tabular-nums">
-        {{ tabs.length }} 个
-      </span>
+      <span class="text-xs text-muted-foreground tabular-nums">{{ tabs.length }} 个</span>
+    </button>
+    <div v-else class="flex items-center gap-2 px-3 py-2">
+      <span class="text-sm font-medium">其他页面</span>
     </div>
 
     <p
       v-if="!tabs.length"
-      class="px-3 py-2 text-xs text-muted-foreground"
+      class="px-3 pb-2 text-xs text-muted-foreground"
       data-testid="popup-other-pages-empty"
     >
       没有其他打开的页面
     </p>
 
-    <div v-else class="flex max-h-56 flex-col gap-2 overflow-y-auto p-2">
+    <div
+      v-else-if="open"
+      class="flex max-h-56 flex-col gap-2 overflow-y-auto border-t border-border p-2"
+    >
       <!-- 切换只归「去这里」按钮：内容区不可点（整卡都是点击目标容易误触切走），也不给 hover 反馈 -->
       <div
         v-for="tab in tabs"

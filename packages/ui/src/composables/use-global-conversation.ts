@@ -1,5 +1,3 @@
-// 会话状态源：对话界面（网页浮层）的当前会话视图。
-//
 // **会话归属按标签页**：一个 tab 一条会话，切 tab 即切会话（归属映射见
 // lib/conversation-tab-map.ts）。因此本 composable 不再有「手动新建 / 手动切换」——
 // 用户让某个 tab 产生对话的方式就是直接发消息：
@@ -7,9 +5,6 @@
 //   · tab 还没有 → 进入「未绑定」态（视图清空、不落库、不进历史列表），
 //     直到用户在这个 tab 发出第一条消息才 create 并登记归属（惰性新建）。
 //
-// 本载体属于哪个标签页由 `lib/owning-tab.ts` 解析：浮层认浮层宿主件经 iframe URL 传来的
-// `?tab=<id>`，是**固定归属** —— 用户切走别的标签页后浮层仍挂在原 tab 上，
-// 跟着「当前激活标签页」现查就会串到别人那里。
 //
 // 定位是「指令入口 + 观察者」（对话链路的执行宿主是 offscreen）：
 //   · 落盘归 offscreen —— 用户消息在 chat:start 时落盘、assistant 消息在收尾时落盘
@@ -61,10 +56,14 @@ type ChatInstance = UseChatHelpers<UIMessage>
 /** 孤儿横幅轮询的启动哨兵（composable 可能被多处调用，定时器只起一个） */
 let orphanPollStarted = false
 
+export interface GlobalConversationOptions {
+  tabId?: number | null
+}
+
 /**
  * 会话状态源。应在载体根组件（ChatApp）顶层调用一次，再把 state 下发给消息区。
  */
-export function useGlobalConversation() {
+export function useGlobalConversation(options: GlobalConversationOptions = {}) {
   // —— 会话列表（IndexedDB 直读，按 lastMessageAt 倒序由 store 保证）——
   const conversations = ref<Conversation[]>([])
   /** 当前激活会话；空串 = 未绑定态（本 tab 还没产生过对话，会话尚未落库、不进历史列表） */
@@ -244,7 +243,7 @@ export function useGlobalConversation() {
   async function loadConversations(): Promise<void> {
     const list = await conversationClient.list()
     conversations.value = list
-    await syncToTab(await resolveOwningTabId())
+    await syncToTab(options.tabId === undefined ? await resolveOwningTabId() : options.tabId)
     void refreshOrphans()
   }
 

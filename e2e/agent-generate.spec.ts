@@ -12,13 +12,13 @@ import {
   extensionIdFromServiceWorker,
   getServiceWorker,
   launchExtensionContext,
+  openChatPage,
   openMessengerPage,
   sendToSw,
 } from './extension'
 import { saveStubModel } from './model-config'
 import { startModelStub } from '../scripts/model-stub.mts'
 
-const APP_PAGE = 'floatpanel.html'
 /** 生成脚本里埋的标记：从项目库里捞它，证明「AI 给的源码」原样落了盘 */
 const MARKER = 'DL_E2E_GENERATED_MARKER'
 const GEN_CODE = [
@@ -104,8 +104,7 @@ test.describe.serial('AI 生成脚本（本地模型 stub 发工具调用）', (
   })
 
   test('模型发 script_spec → script_apply：源码落进项目，收尾文本上屏', async () => {
-    const page = await context!.newPage()
-    await page.goto(`chrome-extension://${extensionId}/${APP_PAGE}`)
+    const page = await openChatPage(context!, extensionId)
 
     const box = page.getByRole('textbox').first()
     await box.fill('帮我做一个 example.com 上的小脚本')

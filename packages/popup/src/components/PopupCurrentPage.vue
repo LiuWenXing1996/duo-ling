@@ -1,24 +1,13 @@
 <script setup lang="ts">
-// 「当前页面」区块：本标签页的按页开关（**只有一枚**，常显）—— 活动记录，它同时管着接口录制；
-// 另有本页在跑哪些脚本、这条页面的对话浮层（快捷入口与「是否正在回话」）。
-//
 // 判据都不在这里现算：PopupPanel 挂载时经一条 page:overview 命令取回，再传进来 —— popup 是纯
 // 展示面板（不直连会话库），聚合口径统一在 SW 侧一处（见 shared/extension-ipc
 // 的 PageOverviewTab）。popup 只活几秒，故取一次快照即可，不维持推送通道。
-//
-// 浮层入口：对话框平时不在页面里（浮层宿主件不建任何 DOM，见 packages/user-scripts/src/builtin/float-host/），
-// 这颗按钮是它的常规打开方式（另一条是页面右键菜单）。**禁用只留给拿不到网址的页面**（浏览器内部页 /
-// 扩展页）：那里连站点名都读不出来，「刷新页面后再试」会变成误导。普通网页一律让点 —— 能不能挂得上
-// 由点了之后的回执说话（见 openFloatPanel），不预先探活（理由见 lib/web-hostname.ts）。
-// 不可用的原因就地说在对话行中间（与「活动记录 / 脚本」两行对不可用状态的说法同款），不单独占一行。
-//
-// 脚本卡头部与列表常显（不做折叠）：这一卡本就是「这页在跑什么」的全部答案，藏起来还得再点一下；
-// 脚本多时列表自己滚，卡高不跟着涨。没脚本时头部给空态说法，按「能不能注入」分 —— 藏起整卡会让
-// 用户以为没有这个功能。
-//
-// 布局：卡片套卡片 —— 外卡是「当前页面」（头部 + 站点名），两个开关 / 脚本 / 对话各是里面的一张子卡。
 import { computed, ref } from 'vue'
-import { List as UiList, MessageSquare as UiMessageSquare } from '@lucide/vue'
+import {
+  ChevronDown as UiChevronDown,
+  ChevronRight as UiChevronRight,
+  List as UiList,
+} from '@lucide/vue'
 import { Badge as UiBadge } from '@duoling/ui/components/ui/badge'
 import { Button as UiButton } from '@duoling/ui/components/ui/button'
 import { Switch as UiSwitch, SwitchThumb as UiSwitchThumb } from '@duoling/ui/components/ui/switch'
@@ -28,16 +17,18 @@ import {
   TooltipProvider as UiTooltipProvider,
   TooltipTrigger as UiTooltipTrigger,
 } from '@duoling/ui/components/ui/tooltip'
-import { EXTENSION_NAME } from '@duoling/shared'
 import { type PageOverviewTab } from '@duoling/shared'
 import { ipcRequest } from '@duoling/shared'
 import { errorText } from '@duoling/ui/lib/format'
+import PopupChat from './PopupChat.vue'
 
 const props = defineProps<{
   /** 当前页的站点名（拿不到 url 的内部页上是空串，见 lib/web-hostname.ts） */
   host: string
   /** 当前标签页的概览；null = 这一页不在概览里（内部页 / 扩展页 / 读不到标签页） */
   tab: PageOverviewTab | null
+  chatTabId: number | null
+  canChat: boolean
 }>()
 
 /** 开关切换成功后上抛给父组件（popup 不维持推送通道，由父组件就地更新这一行的状态位） */
@@ -45,15 +36,10 @@ const emit = defineEmits<{
   tabRecordingChanged: [tabId: number, recording: boolean]
 }>()
 
-/** 「打开会话」没打通时的说明（成功就直接关窗了） */
-const openError = ref('')
+const scriptsOpen = ref(false)
 
-/**
- * 这一页是不是普通网页（http / https）—— 判据就是「有没有站点名」：内部页 / 扩展页上扩展读不到
- * url，那份空串既是站点名缺失，也是「这一页跑不了脚本、挂不了浮层」的同一条事实（见
- * lib/web-hostname.ts）。故不再单独传一个「能不能挂浮层」的布尔进来 —— 同一个事实两处进，
- * 迟早对不上。
- */
+const chatDisabledHint = '当前页面不能显示对话'
+
 const isWebPage = computed(() => props.host !== '')
 
 const scripts = computed(() => props.tab?.scripts ?? [])
@@ -104,48 +90,6 @@ const scriptSummary = computed(() => {
   if (scripts.value.length) return `${scripts.value.length} 个在运行`
   return isWebPage.value ? '本页没有运行中的脚本' : '当前页面不能运行脚本'
 })
-
-/**
- * 对话行只报一件事：**此刻 AI 在不在回话**。
- *
- * 不报会话标题、也不报「有会话 / 尚无会话」—— 那是状态栏文案，浮层与工作台里都看得到，
- * 摆在只活几秒的 popup 里只是噪音；这一行要的就是那个「在回话」的信号（配一颗圆点）。
- */
-const conversationLabel = computed(() => (props.tab?.generating ? 'AI 正在回话' : ''))
-
-/** 浮层入口是纯图标按钮，悬停提示兼作它的名字（按钮本身没有文字，提示常弹） */
-const openFloatHint = '打开会话'
-/**
- * 「打开会话」禁用时的原因，就地说在对话行中间 —— 与「活动记录 / 脚本」两行对不可用状态的
- * 说法同款（原因摆在它归属的那一行），tooltip 只管按钮名字，不背原因。它只会在拿不到网址的
- * 页面（浏览器内部页 / 扩展页）上出现，普通网页一律让点。
- */
-const openFloatDisabledHint = '当前页面不能显示对话浮层'
-
-/**
- * 把当前页面的对话浮层调出来。
- *
- * **这就是判成败的全部依据**：不预先探活（探活答的是「此刻」，答「不在」不等于真挂不上，见
- * lib/web-hostname.ts），命令下去了件接得到就开、推不到就地给提示。
- *
- * 推不到（页面在扩展更新前就打开、或在扩展管理页里单独禁掉了本站点的访问权）只能让用户刷新；
- * 这两种情况 popup 判不出来，所以文案不指向具体原因。失败时留在面板里把话说出来 —— 关了就没
- * 地方说了。
- */
-async function openFloatPanel(): Promise<void> {
-  openError.value = ''
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  // 读不到标签页时静默退场：这是 popup 与页面失联的异常态，给技术性报错只是噪音
-  if (tab?.id == null) return
-  try {
-    // SW 侧对推不到（该页上没有宿主件的在岗连接）会回 { ok: false }，ipcRequest 据此抛错
-    await ipcRequest<null>({ kind: 'float:open', tabId: tab.id })
-  } catch {
-    openError.value = `页面还没接上${EXTENSION_NAME}，刷新页面后再试。`
-    return
-  }
-  window.close()
-}
 
 /**
  * 打开工作台的脚本列表：workbench.html 不带 hash 时落默认面板（脚本列表），
@@ -255,30 +199,40 @@ async function toggleTabActivity(next: boolean): Promise<void> {
         </p>
       </div>
 
-      <!-- 脚本卡：头部给计数与错误徽标，列表常显（脚本多时自己滚，见 max-h） -->
       <div class="rounded-md border border-border">
-        <div class="flex h-8 items-center gap-2 px-2.5">
-          <span class="shrink-0 text-xs text-muted-foreground">脚本</span>
-          <span
-            class="min-w-0 truncate text-xs tabular-nums"
-            data-testid="popup-current-scripts-summary"
+        <div class="flex h-8 items-center gap-1.5 px-2.5">
+          <button
+            type="button"
+            class="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+            :aria-expanded="scriptsOpen"
+            aria-label="展开或收起脚本列表"
+            data-testid="popup-current-scripts-toggle"
+            @click="scriptsOpen = !scriptsOpen"
           >
-            {{ scriptSummary }}
-          </span>
-          <UiBadge
-            v-if="errorCount"
-            variant="destructive"
-            data-testid="popup-current-scripts-error-count"
-          >
-            {{ errorCount }}
-          </UiBadge>
+            <ui-chevron-down v-if="scriptsOpen" class="size-3 shrink-0 text-muted-foreground" />
+            <ui-chevron-right v-else class="size-3 shrink-0 text-muted-foreground" />
+            <span class="shrink-0 text-xs text-muted-foreground">脚本</span>
+            <span
+              class="min-w-0 truncate text-xs tabular-nums"
+              data-testid="popup-current-scripts-summary"
+            >
+              {{ scriptSummary }}
+            </span>
+            <UiBadge
+              v-if="errorCount"
+              variant="destructive"
+              data-testid="popup-current-scripts-error-count"
+            >
+              {{ errorCount }}
+            </UiBadge>
+          </button>
           <ui-tooltip-provider>
             <ui-tooltip>
               <ui-tooltip-trigger as-child>
                 <ui-button
                   variant="ghost"
                   size="icon"
-                  class="ml-auto size-7 shrink-0"
+                  class="size-7 shrink-0"
                   aria-label="管理脚本"
                   data-testid="open-script-manager"
                   @click="openScriptManager"
@@ -293,7 +247,7 @@ async function toggleTabActivity(next: boolean): Promise<void> {
         </div>
 
         <div
-          v-if="scripts.length"
+          v-if="scriptsOpen && scripts.length"
           class="max-h-40 overflow-y-auto border-t border-border px-2.5 py-0.5"
         >
           <div
@@ -318,7 +272,7 @@ async function toggleTabActivity(next: boolean): Promise<void> {
           内置件行（只读）：扩展自己注进这一页的能力管道 —— 不是用户脚本，没有源码 / 启停 /
           报错，故尾标说「内置」而不说「运行中」。
         -->
-        <div v-if="builtins.length" class="border-t border-border px-2.5 py-0.5">
+        <div v-if="scriptsOpen && builtins.length" class="border-t border-border px-2.5 py-0.5">
           <div
             v-for="builtin in builtins"
             :key="builtin.id"
@@ -333,59 +287,17 @@ async function toggleTabActivity(next: boolean): Promise<void> {
         </div>
       </div>
 
-      <!--
-        对话卡：状态 + 浮层入口（纯图标按钮）。禁用原因就地说在行中间（见 openFloatDisabledHint），
-        不占独立一行。按钮外套 span 是必需的 —— Tooltip 的触发器只能落在 span 上，禁用按钮不收
-        指针事件，直接套在按钮上会让整枚提示哑掉（reka-ui 的 as-child 只认最外层那个元素）。
-      -->
-      <div class="rounded-md border border-border">
+      <popup-chat v-if="canChat && chatTabId != null" :tab-id="chatTabId" />
+      <div v-else class="rounded-md border border-border">
         <div class="flex h-8 items-center gap-2 px-2.5">
           <span class="shrink-0 text-xs text-muted-foreground">对话</span>
           <span
-            class="flex min-w-0 flex-1 items-center gap-1.5"
-            data-testid="popup-current-conversation"
+            class="min-w-0 truncate text-xs text-muted-foreground"
+            data-testid="popup-chat-disabled"
           >
-            <template v-if="conversationLabel">
-              <span class="size-1.5 shrink-0 rounded-full bg-primary" />
-              <span class="min-w-0 truncate text-xs">{{ conversationLabel }}</span>
-            </template>
-            <span
-              v-else-if="!isWebPage"
-              class="min-w-0 truncate text-xs text-muted-foreground"
-              data-testid="popup-current-float-disabled"
-            >
-              {{ openFloatDisabledHint }}
-            </span>
+            {{ chatDisabledHint }}
           </span>
-          <ui-tooltip-provider>
-            <ui-tooltip>
-              <ui-tooltip-trigger as-child>
-                <span class="inline-flex shrink-0">
-                  <ui-button
-                    variant="ghost"
-                    size="icon"
-                    class="size-7"
-                    :disabled="!isWebPage"
-                    aria-label="打开会话"
-                    data-testid="open-float-panel"
-                    @click="openFloatPanel"
-                  >
-                    <ui-message-square class="size-3.5" />
-                  </ui-button>
-                </span>
-              </ui-tooltip-trigger>
-              <ui-tooltip-content side="top">{{ openFloatHint }}</ui-tooltip-content>
-            </ui-tooltip>
-          </ui-tooltip-provider>
         </div>
-
-        <p
-          v-if="openError"
-          class="border-t border-border px-2.5 py-1.5 text-xs text-destructive"
-          data-testid="open-float-error"
-        >
-          {{ openError }}
-        </p>
       </div>
     </div>
   </div>

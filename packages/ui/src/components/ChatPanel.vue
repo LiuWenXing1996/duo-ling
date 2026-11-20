@@ -10,7 +10,7 @@
 // 按 parts 出现顺序交错成「思考与执行过程」链。
 //
 // 附件的加入 / 压缩 / 提交都在本组件：输入区的 prompt-input 上下文由这里创建（见下方「附件」）。
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useDbSignal } from '../composables/use-data-sync'
 import { listModelState, readModelProfilesRaw, setActiveProfile } from '@duoling/shared'
 import {
@@ -121,6 +121,7 @@ import {
   prepareAttachments,
   type AssetUploader,
 } from '../lib/chat-attachments'
+import { readChatDraft, writeChatDraft } from '../lib/chat-draft'
 
 const props = defineProps<{
   messages: UIMessage[]
@@ -132,6 +133,7 @@ const props = defineProps<{
   /** 只读回放：不渲染输入区（含拾取与模型切换）—— 工作台「会话历史」看历史用。
    *  消息区、思考链、工具卡、复制、生成卡片都照常，只是不能再发消息。 */
   readonly?: boolean
+  draftTabId?: number | null
 }>()
 const emit = defineEmits<{
   /** 发送一条消息：text 可以为空（纯图提问），assets 是随消息附上的资源引用（图片落库后的那份） */
@@ -684,6 +686,46 @@ const promptInput = usePromptInputProvider({
   onError: (err) => {
     attachmentError.value = attachmentErrorMessage(err)
   },
+})
+
+const DRAFT_WRITE_MS = 500
+let draftTimer: ReturnType<typeof setTimeout> | null = null
+
+async function restoreDraft(): Promise<void> {
+  if (props.draftTabId == null) return
+  const text = await readChatDraft(props.draftTabId)
+  if (text && !promptInput.textInput.value) promptInput.setTextInput(text)
+}
+
+function flushDraft(): void {
+  if (draftTimer) {
+    clearTimeout(draftTimer)
+    draftTimer = null
+  }
+  if (props.draftTabId == null) return
+  void writeChatDraft(props.draftTabId, promptInput.textInput.value)
+}
+
+watch(promptInput.textInput, (text) => {
+  if (props.draftTabId == null) return
+  if (draftTimer) clearTimeout(draftTimer)
+  draftTimer = setTimeout(() => {
+    draftTimer = null
+    void writeChatDraft(props.draftTabId, text)
+  }, DRAFT_WRITE_MS)
+})
+
+onMounted(() => {
+  void restoreDraft()
+  window.addEventListener('pagehide', flushDraft)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('pagehide', flushDraft)
+  if (draftTimer) {
+    clearTimeout(draftTimer)
+    draftTimer = null
+  }
 })
 
 /** 移除一个附件；顺手清掉上一条与附件相关的提示（附件都换了，旧提示已过期） */

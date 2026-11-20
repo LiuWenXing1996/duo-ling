@@ -11,13 +11,15 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { extensionIdFromServiceWorker, getServiceWorker, launchExtensionContext } from './extension'
+import {
+  extensionIdFromServiceWorker,
+  getServiceWorker,
+  launchExtensionContext,
+  openChatPage,
+} from './extension'
 import { saveStubModel } from './model-config'
 import { startModelStub } from '../scripts/model-stub.mts'
 import { countConversations } from './chat-db'
-
-/** 浮层对话页（对话界面本体） */
-const APP_PAGE = 'floatpanel.html'
 
 /** 页面内取会话数：直接读会话库（读侧本来就是裸 IndexedDB） */
 const convCount = (page: Page): Promise<number> => countConversations(page)
@@ -30,11 +32,8 @@ test.describe.serial('会话归属按标签页', () => {
   /** A 页留着不关：删除门那条需要「那个标签页还开着」 */
   let pageA: Page | undefined
 
-  /** 开一个浮层页（= 一个标签页） */
   async function openApp(): Promise<Page> {
-    const page = await context!.newPage()
-    await page.goto(`chrome-extension://${extensionId}/${APP_PAGE}`)
-    return page
+    return openChatPage(context!, extensionId)
   }
 
   /** 在浮层里发一句、等 stub 的回复出现 */
@@ -105,18 +104,6 @@ test.describe.serial('会话归属按标签页', () => {
     expect(await convCount(a), '刷新不该新建会话').toBe(1)
   })
 
-  // —— 删除门：**当前 harness 测不到，留了原因的 skip** ——
-  //
-  // 试过并定位到根因：拦截判据是「归属映射里有这条会话 + 那个标签页还开着」
-  // （`conversation-tab-map.getActiveTabBindings`），而归属只在 `currentTabId != null` 时才写
-  // （`use-global-conversation.ensureActiveConversation`）；`tab:identify` 的实现是
-  // `sender.tab?.id ?? null`，源码注释明确写了「**扩展页发的消息本就没有 tab**」。
-  // ⇒ 本 spec 里独立打开的 `floatpanel.html` 标签页拿不到 tabId、不写归属，门自然不触发
-  //   （实测弹的是普通确认框「删除会话「甲」」而不是拦截框）。
-  // 要自动验它，得让浮层跑在**页面内的 iframe** 里（真实产品的路径：浮层宿主件挂 iframe，
-  // 消息经它转发 → 有 sender.tab）—— 这条路在 harness 里已经走得通（向页面发一条 float:open
-  // 就能把 iframe 挂出来，见 float-task-state.spec.ts），这条 skip 待填。
-  test.skip('删除门：正被开着的标签页占用的会话删不掉（需要页面内 iframe 路径，见上方注释）', async () => {
-    /* 保留位置与理由；等 harness 支持页面内浮层后再填 */
-  })
+  // 归属已能由 `?tab=` 注入（门已具备触发条件），待补的是工作台「会话历史」里点删除那几步。
+  test.skip('删除门：正被开着的标签页占用的会话删不掉（待补工作台的删除交互）', () => {})
 })

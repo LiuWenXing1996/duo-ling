@@ -13,13 +13,17 @@ import { test, expect, type BrowserContext } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { extensionIdFromServiceWorker, getServiceWorker, launchExtensionContext } from './extension'
+import {
+  chatPageUrl,
+  extensionIdFromServiceWorker,
+  getServiceWorker,
+  launchExtensionContext,
+  ownTabId,
+} from './extension'
 import { startModelStub } from '../scripts/model-stub.mts'
 import { saveStubModel } from './model-config'
 import { readAssistantTotalTokens } from './chat-db'
 
-/** 浮层页：对话界面本体（配置模型要去工作台的设置页，两者同源共享存储） */
-const APP_PAGE = 'floatpanel.html'
 const WORKBENCH_PAGE = 'workbench.html'
 
 test.describe.serial('对话链路（本地模型 stub）', () => {
@@ -71,8 +75,7 @@ test.describe.serial('对话链路（本地模型 stub）', () => {
     // 存配置：设置页表单，首条配置自动成为当前模型
     await page.goto(`chrome-extension://${id}/${WORKBENCH_PAGE}`)
     await saveStubModel(page, { baseUrl: stub.stub.baseUrl })
-    // 回到浮层，走真人路径
-    await page.goto(`chrome-extension://${id}/${APP_PAGE}`)
+    await page.goto(chatPageUrl(id, await ownTabId(page)))
 
     // 填字 + 回车
     const box = page.getByRole('textbox').first()
