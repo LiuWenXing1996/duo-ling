@@ -84,6 +84,11 @@ describe('GM 包装注入体', () => {
     expect(src).not.toMatch(/\bg\.GM_getValue\b/)
   })
 
+  it('系统件的 __gmBridge 由装配段从 handle 接出来（正文在装配段那层，够不到 install 的闭包）', () => {
+    expect(build()).toContain('var __gmBridge = g.bridge')
+    expect(runtimeSrc).toContain('return { members, bridge: __gmBridge, runBody }')
+  })
+
   it('userAgent / isIncognito 由运行时就地补齐（注册侧拿不到页面 UA）', () => {
     expect(runtimeSrc).toContain('GM_INFO.userAgent = navigator.userAgent')
     expect(runtimeSrc).toContain('inIncognitoContext')
