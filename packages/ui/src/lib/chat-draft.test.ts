@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ElementPickContext } from '@duoling/shared'
-import { readChatDraft, writeChatDraft } from './chat-draft'
+import { readChatDraft, writeChatDraft, writeDraftAttachments } from './chat-draft'
+import type { DraftAttachment } from './chat-draft'
 
 function fakeSession() {
   const bag = new Map<string, unknown>()
@@ -146,5 +147,101 @@ describe('输入草稿存储', () => {
     bag.set('dl-chat-draft:7', 42)
 
     expect(await readChatDraft(7)).toEqual({ text: '' })
+  })
+})
+
+describe('附件草稿存储', () => {
+  const ref = { id: 'a'.repeat(64), filename: 'shot.jpg', mediaType: 'image/jpeg', size: 128 }
+  const imageDraft: DraftAttachment = { kind: 'image', ref }
+  const textDraft: DraftAttachment = {
+    kind: 'text',
+    filename: 'notes.md',
+    mediaType: 'text/markdown',
+    content: '内容',
+  }
+
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('附件写进独立键（dl-chat-draft-files:<tabId>），读回时与小键合并成整份草稿', async () => {
+    const { bag, area } = fakeSession()
+    stubStorage(area)
+
+    await writeChatDraft(7, '半句话')
+    await writeDraftAttachments(7, [imageDraft, textDraft])
+
+    expect(bag.get('dl-chat-draft-files:7')).toEqual([imageDraft, textDraft])
+    expect(await readChatDraft(7)).toEqual({ text: '半句话', attachments: [imageDraft, textDraft] })
+  })
+
+  it('只有附件没有文本：小键为空也照常合并读回', async () => {
+    const { area } = fakeSession()
+    stubStorage(area)
+
+    await writeDraftAttachments(7, [imageDraft])
+
+    expect(await readChatDraft(7)).toEqual({ text: '', attachments: [imageDraft] })
+  })
+
+  it('空数组即删附件键，读回不再带 attachments 字段', async () => {
+    const { bag, area } = fakeSession()
+    stubStorage(area)
+    await writeDraftAttachments(7, [textDraft])
+
+    await writeDraftAttachments(7, [])
+
+    expect(bag.has('dl-chat-draft-files:7')).toBe(false)
+    expect(await readChatDraft(7)).toEqual({ text: '' })
+  })
+
+  it('发送后整份清空：小键与大键各自删干净', async () => {
+    const { bag, area } = fakeSession()
+    stubStorage(area)
+    await writeChatDraft(7, '半句话', element)
+    await writeDraftAttachments(7, [imageDraft])
+
+    await writeChatDraft(7, '', null)
+    await writeDraftAttachments(7, [])
+
+    expect(bag.has('dl-chat-draft:7')).toBe(false)
+    expect(bag.has('dl-chat-draft-files:7')).toBe(false)
+    expect(await readChatDraft(7)).toEqual({ text: '' })
+  })
+
+  it('附件键按标签页隔离：A 页的附件不串到 B 页', async () => {
+    const { area } = fakeSession()
+    stubStorage(area)
+
+    await writeDraftAttachments(7, [imageDraft])
+
+    expect(await readChatDraft(8)).toEqual({ text: '' })
+    expect(await readChatDraft(7)).toEqual({ text: '', attachments: [imageDraft] })
+  })
+
+  it('附件键写坏（非数组 / 条目缺字段）：只收合法条目，不让坏数据毒化恢复', async () => {
+    const { bag, area } = fakeSession()
+    stubStorage(area)
+    bag.set('dl-chat-draft-files:7', [{ kind: 'image' }, 'junk', textDraft])
+
+    expect(await readChatDraft(7)).toEqual({ text: '', attachments: [textDraft] })
+  })
+
+  it('没有归属标签页：一次存储命令都不发', async () => {
+    const { area } = fakeSession()
+    stubStorage(area)
+
+    await writeDraftAttachments(null, [textDraft])
+    await writeDraftAttachments(undefined, [textDraft])
+
+    expect(area.get).not.toHaveBeenCalled()
+    expect(area.set).not.toHaveBeenCalled()
+    expect(area.remove).not.toHaveBeenCalled()
+  })
+
+  it('环境里没有 storage.session：写不抛', async () => {
+    vi.stubGlobal('chrome', {})
+
+    await expect(writeDraftAttachments(7, [textDraft])).resolves.toBeUndefined()
   })
 })

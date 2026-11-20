@@ -1,7 +1,9 @@
 // 对话附件落地的唯一处理点：图片压码落资源库留引用，文本文件读成文本进正文。
 // 两条路的理由与「发送前完成」硬约束见 docs/adr/0020-chat-attachments-encode-before-send.md。
-import { isImageMediaType } from '@duoling/shared'
-import type { ChatAssetRef } from '@duoling/shared'
+import { dataUrlOf, isImageMediaType } from '@duoling/shared'
+import type { ChatAssetData, ChatAssetRef } from '@duoling/shared'
+import { nanoid } from 'nanoid'
+import type { DraftAttachment } from './chat-draft'
 
 /** 单张图片的原始大小上限（压缩前）；超出直接拒收并提示 */
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -193,4 +195,92 @@ export async function prepareAttachments(
   }
 
   return { assets, textBlocks, skipped }
+}
+
+export interface DraftSourceFile {
+  id: string
+  filename?: string
+  mediaType?: string
+  file?: File
+}
+
+export interface RestoredAttachmentFile {
+  id: string
+  type: 'file'
+  url: string
+  filename?: string
+  mediaType?: string
+  file?: File
+}
+
+export function encodeDraftImage(file: File): Promise<string> {
+  return reencodeImage(file).then((r) => r.dataUrl)
+}
+
+export async function draftAttachmentsOf(
+  files: DraftSourceFile[],
+  refs: ReadonlyMap<string, ChatAssetRef>,
+): Promise<DraftAttachment[]> {
+  const out: DraftAttachment[] = []
+  for (const file of files) {
+    const ref = refs.get(file.id)
+    if (ref) {
+      out.push({ kind: 'image', ref })
+      continue
+    }
+    if (!file.file || !isTextAttachment(file)) continue
+    try {
+      const { text } = truncateText(await file.file.text())
+      out.push({
+        kind: 'text',
+        filename: file.filename?.trim() || '未命名附件',
+        mediaType: file.mediaType || 'text/plain',
+        content: text,
+      })
+    } catch {}
+  }
+  return out
+}
+
+export interface DraftRestoreResult {
+  files: RestoredAttachmentFile[]
+  refByAttachmentId: Map<string, ChatAssetRef>
+}
+
+export async function restoreDraftAttachments(
+  drafts: DraftAttachment[],
+  readAsset: (id: string) => Promise<ChatAssetData | null>,
+): Promise<DraftRestoreResult> {
+  const files: RestoredAttachmentFile[] = []
+  const refByAttachmentId = new Map<string, ChatAssetRef>()
+  for (const draft of drafts) {
+    if (draft.kind === 'text') {
+      files.push({
+        id: nanoid(),
+        type: 'file',
+        url: '',
+        filename: draft.filename,
+        mediaType: draft.mediaType,
+        file: new File([draft.content], draft.filename, { type: draft.mediaType }),
+      })
+      continue
+    }
+    let asset: ChatAssetData | null = null
+    try {
+      asset = await readAsset(draft.ref.id)
+    } catch {
+      asset = null
+    }
+    if (!asset) continue
+    const file: RestoredAttachmentFile = {
+      id: nanoid(),
+      type: 'file',
+      filename: draft.ref.filename,
+      mediaType: asset.mediaType,
+      url: dataUrlOf({ mediaType: asset.mediaType, base64: asset.base64 }),
+    }
+    files.push(file)
+    refByAttachmentId.set(file.id, draft.ref)
+  }
+  return { files, refByAttachmentId }
 }
