@@ -5,7 +5,7 @@
 //
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createGmBridgeClient } from './gm-bridge-client'
+import { createGmBridgeClient } from '@duoling/user-scripts/gm-wrapper/gm-bridge-client'
 import { installRelay } from '@duoling/user-scripts/builtin/relay'
 
 const SECRET = 'test-secret-0123456789abcdef'

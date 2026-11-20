@@ -5,6 +5,7 @@
 //   · src/builtin/  内置注入件 → dist/builtin/ 下的 IIFE 文件（chrome.userScripts 以
 //     `{ file }` 注册，件必须自包含、无 import/export 残留）
 //   · src/builtin/relay/  中继件 → dist/relay.iife.js（不入库），SW 经 `?raw` 内嵌做两段式注册
+//   · src/gm-wrapper/  GM 包装运行时 → dist/gm-wrapper.iife.js（不入库），SW 经 `?raw` 内嵌拼进每个脚本的注入体
 //   · src/samples/  用户脚本样例 → dist/samples/<名>/<名>.user.js 单文件（esbuild 会剥
 //     注释，metadata 头由各样例的 meta.json 生成 banner）；src/samples/raw/ 的坏源码样本
 //     不参与构建（编不过是特性），原样拷进 dist/samples
@@ -81,6 +82,15 @@ const relayOptions = {
   outfile: RELAY_OUTFILE,
 }
 
+const GM_WRAPPER_ENTRY = resolve(here, 'src/gm-wrapper/gm-wrapper-entry.ts')
+const GM_WRAPPER_OUTFILE = resolve(here, 'dist/gm-wrapper.iife.js')
+
+const gmWrapperOptions = {
+  ...baseOptions,
+  entryPoints: [GM_WRAPPER_ENTRY],
+  outfile: GM_WRAPPER_OUTFILE,
+}
+
 /** meta.json → `// ==UserScript==` 块文本。键序即行序（JSON 对象序保留），空值渲染成裸 `@key` */
 function renderMeta(meta) {
   const lines = ['// ==UserScript==']
@@ -103,8 +113,8 @@ function sampleOptions(name, entry) {
 }
 
 async function buildOnce() {
-  // 中继件排最前：SW 侧测试 / SW bundle 都经 ?raw 吃它，先于其余产物落位
   await build(relayOptions)
+  await build(gmWrapperOptions)
   rmSync(BUILTIN_OUT, { recursive: true, force: true })
   rmSync(SAMPLES_OUT, { recursive: true, force: true })
 
@@ -140,11 +150,14 @@ async function buildOnce() {
 async function watchAll() {
   const contexts = [
     await context(relayOptions),
+    await context(gmWrapperOptions),
     await context(builtinOptions),
     ...Object.entries(SAMPLE_ENTRIES).map(([name, entry]) => context(sampleOptions(name, entry))),
   ]
   for (const ctx of await Promise.all(contexts)) await ctx.watch()
-  console.log(`[user-scripts] 监听中（Ctrl+C 退出）→ dist/relay.iife.js 与 dist/{builtin,samples}`)
+  console.log(
+    `[user-scripts] 监听中（Ctrl+C 退出）→ dist/{relay,gm-wrapper}.iife.js 与 dist/{builtin,samples}`,
+  )
 }
 
 // main 守卫：被 registry.test.ts 等 import 时只取入口表、不触发构建

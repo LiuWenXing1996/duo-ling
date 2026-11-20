@@ -1,4 +1,3 @@
-// GM 包装注入体拼装（薄壳）：@grant 裁剪 + 「IIFE 产物 + 装配段」拼成注入体；运行时真身在 gm-wrapper-runtime.ts。
 import {
   ALWAYS_GLOBALS,
   ALWAYS_NS,
@@ -8,7 +7,7 @@ import {
   gmAllNs,
   resolveGrant,
 } from '@duoling/shared'
-import GM_WRAPPER_IIFE from '../dist/gm-wrapper.iife.js?raw'
+import GM_WRAPPER_IIFE from '@duoling/user-scripts/dist/gm-wrapper.iife.js?raw'
 
 export { GM_WRAPPER_IIFE }
 

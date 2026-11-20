@@ -1,9 +1,14 @@
-// gm-wrapper 单测：防漂移断言反射运行时源码（?raw 直取）；产物字节只做 parse 冒烟（引号统一成双引号，不做文本断言）。
+/// <reference types="node" />
+import { readFileSync } from 'node:fs'
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
 import { ALWAYS_GLOBALS, ALWAYS_NS, type GmInfo, gmAllGlobals, gmAllNs } from '@duoling/shared'
 import { GM_WRAPPER_IIFE, buildGmWrapperInit, resolveGmExposure } from './gm-wrapper'
-import runtimeSrc from './gm-wrapper-runtime.ts?raw'
+
+const runtimeSrc = readFileSync(
+  new URL('../../user-scripts/src/gm-wrapper/gm-wrapper-runtime.ts', import.meta.url),
+  'utf8',
+)
 
 /** 测试自造：断言生成源码里的 scriptHandler 跟随传入值。真值由应用侧传入，包内不持有。 */
 const EXTENSION_NAME = '测试扩展'

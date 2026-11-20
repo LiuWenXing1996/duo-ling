@@ -10,7 +10,10 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { GM_API_GROUPS, gmApiEntries, grantNames } from '@duoling/shared'
 
-const WRAPPER_SRC = readFileSync(new URL('./gm-wrapper-runtime.ts', import.meta.url), 'utf8')
+const WRAPPER_SRC = readFileSync(
+  new URL('../../user-scripts/src/gm-wrapper/gm-wrapper-runtime.ts', import.meta.url),
+  'utf8',
+)
 
 const ASSEMBLY_MARK = 'const members: Record<string, unknown> = {}'
 
