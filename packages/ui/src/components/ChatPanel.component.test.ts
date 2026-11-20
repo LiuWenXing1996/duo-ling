@@ -416,3 +416,34 @@ describe('输入草稿', () => {
     w.unmount()
   })
 })
+
+describe('元素拾取', () => {
+  beforeEach(() => {
+    pickMocks.startPick.mockReset()
+    pickMocks.startPick.mockResolvedValue({ started: true })
+    pickMocks.readPickState.mockResolvedValue({ status: 'idle' })
+  })
+
+  it('下发成功后通知载体撤走自己（popup 不撤就一直挡在页面前面）', async () => {
+    const w = await mountPanel([], false, 7)
+
+    await w.find('[data-testid="pick-element-button"]').trigger('click')
+    await flushPromises()
+
+    expect(pickMocks.startPick).toHaveBeenCalledWith(7)
+    expect(w.emitted('pickStarted')).toHaveLength(1)
+    w.unmount()
+  })
+
+  it('下发失败（检查器不在位）不关载体：留在原地才能看见原因', async () => {
+    pickMocks.startPick.mockRejectedValue(new Error('页面检查器未就绪'))
+    const w = await mountPanel([], false, 7)
+
+    await w.find('[data-testid="pick-element-button"]').trigger('click')
+    await flushPromises()
+
+    expect(w.emitted('pickStarted')).toBeUndefined()
+    expect(w.text()).toContain('页面检查器未就绪')
+    w.unmount()
+  })
+})

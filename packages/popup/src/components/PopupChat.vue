@@ -17,6 +17,11 @@ function openWorkbench(hash = ''): void {
   void chrome.tabs.create({ url: chrome.runtime.getURL('workbench.html') + hash })
   window.close()
 }
+
+/** 拾取要用户去点页面，popup 不关就一直挡在原地（它失焦也会被浏览器收走，但那是点下去之后的事） */
+function closeForPick(): void {
+  window.close()
+}
 </script>
 
 <template>
@@ -29,6 +34,7 @@ function openWorkbench(hash = ''): void {
       class="min-h-0 flex-1"
       @open-settings="openWorkbench('#/settings')"
       @open-guide="openWorkbench('#/guide')"
+      @pick-started="closeForPick"
     >
       <template #header="{ title, streaming }">
         <div class="flex h-[30px] shrink-0 items-center gap-2 border-b border-border px-2.5">

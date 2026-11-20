@@ -15,6 +15,7 @@ const emit = defineEmits<{
   streamingChange: [busy: boolean]
   openSettings: []
   openGuide: []
+  pickStarted: []
 }>()
 
 const {
@@ -89,6 +90,7 @@ onMounted(() => {
       @stop="stopGeneration"
       @open-settings="emit('openSettings')"
       @open-guide="emit('openGuide')"
+      @pick-started="emit('pickStarted')"
     />
   </div>
 </template>
