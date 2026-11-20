@@ -68,10 +68,6 @@ import { runUpdateCheck } from '@duoling/shared'
 import { ipcNotify } from '@duoling/shared'
 import { packMatcher, prefixMatcher, serveIpc } from '@/shared/ipc-bus'
 import { duolingTelemetry } from '@duoling/service-worker'
-// 产品内置件注入面：内置注册 id 全集（stale 清扫排除）与四件全量同步（挂包侧注册串行链）
-// 标签页存续（tabId 的稳定替身）：开关（连同「开始 / 结束记录」两条标记）、事件（刷新、地址变更）、
-// 盖章与启动划断（都替当时还在记的行收个尾）都归 SW ——「这一页在不在记活动、经历了什么、
-// 什么时候关的」只有常驻 SW 看得见，扩展页与 offscreen 都不该各记一份。
 import {
   noteTabClosed,
   noteTabReloaded,
@@ -158,14 +154,8 @@ import {
   userScriptsUnavailableMessage,
 } from '@duoling/shared'
 // 拾取指令的下发与配对（常驻件那半在页面里，件源码见包的 inspector/install.ts）
-import { cancelPicker, runInspectorCommand } from '@duoling/service-worker'
-import {
-  collapseFloatPanel,
-  openFloatPanel,
-  pingFloatHost,
-  setFloatPanelBusy,
-} from '@duoling/service-worker'
-import type { ElementPickContext } from '@duoling/shared'
+import { cancelPicker, dropPickState, readPickState, startPick } from '@duoling/service-worker'
+import type { PickState } from '@duoling/shared'
 import { errorText, isTransportError } from '@duoling/shared'
 
 export const SW_KIND_PREFIXES = [
@@ -174,8 +164,6 @@ export const SW_KIND_PREFIXES = [
   'sw:',
   'page:',
   'picker:',
-  'float:',
-  'tab:',
   'conv:',
   'chat:',
 ] as const
@@ -279,24 +267,13 @@ async function resolveAiTargetTab(
   return tabId
 }
 
-/**
- * 定位「用户此刻看着的标签页」并在下发前拦掉不可注入的页（拾取专用）。
- *
- * 与 resolveAiTargetTab 的口径刻意不同：那条认**会话归属**（AI 在生成中途自己决定要读，
- * 那时用户可能已经切走）；这条认**激活页** —— 拾取由用户在看得见的面板上点按钮发起，
- * 浮层只在自己那个 tab 可见，那一刻它必然在激活页上，不必也不该去查归属。SW 无窗口上下文，
- * lastFocusedWindow 即用户最后聚焦的那个窗口。
- *
- * 名字避开 owning-tab 的 resolveActiveTabId：那个是「扩展页认自己属于哪个标签页」，
- * 这条是「SW 替一次用户动作找目标页」，别混。
- */
-async function resolvePickTargetTab(what: string): Promise<number> {
-  if (!chrome.tabs?.query) throw new Error('无法定位目标标签页')
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-  if (tab?.id == null) throw new Error('未找到活动标签页')
+async function ensurePickTab(tabId: number, what: string): Promise<number> {
+  if (!chrome.tabs?.get) throw new Error('无法定位目标标签页')
+  const tab = await chrome.tabs.get(tabId).catch(() => null)
+  if (!tab) throw new Error(`目标标签页已关闭，无法${what}`)
   const blocked = pageInjectionBlockReason(tab.url)
   if (blocked) throw new Error(`${blocked}，无法${what}，请切到要操作的网页后重试`)
-  return tab.id
+  return tabId
 }
 
 /**
@@ -421,8 +398,6 @@ async function forwardToOffscreen(msg: RuntimeRequest): Promise<unknown> {
   }
 }
 
-// 第二个参数是 chrome 的消息发送方：只有需要「回 sender 自己的东西」的命令才用得上
-// （现仅 tab:identify 取 sender.tab.id）；其余 handler 少写一个参数即可，TS 允许。
 const handlers: {
   [K in SwRequest['kind']]: (
     msg: Extract<SwRequest, { kind: K }>,
@@ -460,46 +435,29 @@ const handlers: {
   'chat:orphans': (msg) => forwardToOffscreen(msg),
   'chat:orphanAction': (msg) => forwardToOffscreen(msg),
 
-  // —— 拾取（浮层发起的用户动作）——
-  // 目标页判据见 resolvePickTargetTab —— 与上面两条 AI 支路刻意不同，别在这里另写一份。
-  'picker:pick': async (): Promise<ElementPickContext | null> =>
-    runInspectorCommand<ElementPickContext>(await resolvePickTargetTab('点选元素'), 'pick'),
+  'picker:start': async (msg): Promise<{ started: boolean }> => {
+    ensureInspectorAvailable()
+    await ensurePickTab(msg.tabId, '点选元素')
+    return startPick(msg.tabId)
+  },
 
-  'picker:cancel': async (): Promise<null> => {
-    await cancelPicker()
+  'picker:state': async (msg): Promise<PickState> => readPickState(msg.tabId),
+
+  'picker:clear': async (msg): Promise<null> => {
+    await dropPickState(msg.tabId)
     return null
   },
 
-  // —— 浮层宿主命令面 ——
-  // 件已转 MAIN 世界系统脚本，tabs.sendMessage 到不了它：四条动作都在 SW 经
-  // open 报错（推不到 = 该页上没有件的在岗连接），其余单向动作静默。
-  'float:open': async (msg): Promise<null> => {
-    if (!openFloatPanel(msg.tabId)) {
-      throw new Error('浮层没接上：页面可能还没加载完，刷新页面后再试')
-    }
+  'picker:cancel': async (msg): Promise<null> => {
+    await cancelPicker(msg.tabId)
     return null
   },
-
-  'float:collapse': async (msg): Promise<null> => {
-    collapseFloatPanel(msg.tabId)
-    return null
-  },
-
-  'float:busy': async (msg): Promise<null> => {
-    setFloatPanelBusy(msg.tabId, msg.busy)
-    return null
-  },
-
-  'float:ping': async (msg): Promise<{ pong: boolean }> => ({
-    pong: await pingFloatHost(msg.tabId),
-  }),
 
   // —— popup 的页面概览（「当前页面 / 其他页面」两个区块的数据源）——
   // 为什么在 SW 一处聚齐：运行登记表（pageRunsByTab）、进行中会话（runningConversations）、
   // 会话归属（duoling-app 的 convByTab）分属三方，popup 自己拼会拼出三份时间点不同的快照。
   'page:overview': async (): Promise<PageOverviewTab[]> => {
     const tabs = await chrome.tabs.query({}).catch(() => [])
-    // 只收普通网页：内部页 / 扩展页上既跑不了脚本也挂不了浮层（读不到 url 的页正是这两类）
     const web = tabs.filter((t) => t.id != null && webHostname(t.url) !== '')
     const [snapshots, bindings, names, titles, tabSessions, builtins] = await Promise.all([
       snapshotForTabs(web.map((t) => t.id as number)),
@@ -541,15 +499,6 @@ const handlers: {
       }
     })
   },
-
-  // —— 浮层宿主件自证身份 ——
-  // 回 sender 自己的 tab id：宿主件跑在用户脚本世界，那里拿不到 chrome.tabs，而网页浮层（扩展页
-  // iframe）必须知道「自己属于哪个 tab」才能认定会话归属（每 tab 一条会话）。
-  // 取不到时回 null（扩展页发的消息本就没有 tab），由调用方降级——浮层拿不到 tabId 的
-  // 情况下会话归属退化为「不绑定」，而不是错绑到别的 tab。
-  'tab:identify': async (_msg, sender): Promise<{ tabId: number | null }> => ({
-    tabId: sender.tab?.id ?? null,
-  }),
 
   // —— 用户脚本管理器（IPC 命令名沿用既有，载荷为项目形态）——
   // list / getProject / groups / availability 四条只读命令归运行时包的 handler pack
@@ -711,21 +660,6 @@ const handlers: {
   'userscript:tabTimeline': async (msg): Promise<ReturnType<typeof listTabTimeline>> =>
     listTabTimeline(msg.tabSessionId, msg.sinceId),
 
-  // 打开 / 关掉**这一页**的活动记录（popup 的开关）。判据落在标签页上：同一站点的其他页各开
-  // 各的。地址由 SW 现取，不由 popup 带过来。
-  // 打开时会顺手建行，好让这一页立刻出现在「活动历史」里（此后跑不跑脚本都无所谓）。
-  //
-  // **这一个开关就是录制开关**：存续行上那一枚 `recording` 布尔同时驱动两条写链 ——
-  // 活动记录（事件与运行记账）与页面录制（这一页录到的请求）。录制没有第二本账，
-  // 归属就是这一行；故这里只需建行 + 重算注册，没有额外的「开启录制」动作。
-  //
-  // 录制件是声明式注册、钩子挂在文档开头，故本条影响的是**下次导航**：当前页面要用户刷新才挂得上。
-  //
-  // **引擎不可用就拒绝**：录制件靠 chrome.userScripts 注册，引擎不可用时 refreshTabRecorder 静默
-  // 空转，而库里已写下 recording: true —— 界面亮「正在记录」，实际脚本跑不了、请求也拦不到，是个
-  // 纯假状态。拦在这条唯一入口上即可覆盖全部调用方（popup 的开关、浮层同意卡），两处 UI 各自
-  // 已有错误展示位，不必另加。只拦开、不拦关：把假状态关掉是合法操作。
-  // 存量已开的行不在这里收 —— 引擎恢复时补注册那一遍会顺带重算录制件，它自然变成真的在录。
   'userscript:tabActivityEnable': async (msg): Promise<{ tabId: number; recording: boolean }> => {
     if (!(await isUserScriptsAvailable())) throw new Error('用户脚本功能不可用，无法开始记录')
     const tab = await chrome.tabs.get(msg.tabId).catch(() => null)
@@ -773,8 +707,6 @@ async function initUserScripts(): Promise<void> {
     telemetry: duolingTelemetry,
     // 握手密钥落 duoling-app 库（沿用既有键 pageSecret，零迁移）
     secretStore: { get: (k) => appDb.get<string>(k), set: appDb.set },
-    // 产品内置件（中继件 / 检查器 / 浮层 / 录制件）挂进包侧全量链：
-    // registerAllEnabled 先同步这批件、stale 清扫排除这些 id
     builtins: { ids: BUILTIN_SCRIPT_IDS, syncAll: syncAllBuiltins },
   })
   // chrome.userScripts 仅在已开启「Allow User Scripts」（Chrome ≥138）或全局开发者模式
@@ -810,14 +742,6 @@ async function initUserScripts(): Promise<void> {
 // 这里只做「非 undefined」的收窄（SW 侧该标识符必然存在），形状引自 @duoling/shared 的 app/build-info。
 declare const __BUILD_INFO__: InjectedBuildInfo
 
-// —— 工具栏角标：这个标签页在跑几个脚本 ——
-//
-// 数字 = page-monitor 运行登记表里**该标签页**的运行集大小，与浮层灵动岛、popup 的页面概览是
-// **同一个数**。只报数、不分类（具体是哪些脚本去灵动岛 / popup 看，悬停文案与灵动岛同一句）；
-// 引擎未授权时全局亮一个感叹号（**刻意不带 tabId** —— 说的不是某一页的状态）。三处共用一份
-// 登记表、数字由 refreshBadge **整体重算**而非逐事件加一、为什么不报会话 ——
-// 全部见 ARCHITECTURE.md「脚本注入」节的运行登记表。
-
 /**
  * 角标数字：超过 9 显示 9+（角标最多 4 字符，两位数在工具栏尺寸下已经看不清）。
  * 一个页面上的脚本数没有上限（命中同一条 matches 的脚本可以有很多个），这条分支是真会走到的。
@@ -832,11 +756,6 @@ function badgeCount(n: number): string {
  */
 const runningConversations = new Set<string>()
 
-/**
- * 悬停文案。与浮层灵动岛**同一个句式**（`N 个脚本在运行`）—— 两处说的是同一个数，措辞也要一致，
- * 否则用户会以为它们各说各的。**只给主动悬停的人看**（不占角标、不需要用户记任何约定）。
- * 空串 = 恢复默认（扩展名）。
- */
 function titleOf(scriptCount: number): string {
   return scriptCount > 0 ? `${scriptCount} 个脚本在运行` : ''
 }
@@ -1030,6 +949,7 @@ function mountProposal2Listeners(): void {
     if (changeInfo.status === 'loading') {
       endRunsOfTab(tabId, 'navigated')
       resetPageRuns(tabId)
+      void dropPickState(tabId).catch(() => {})
       // 存续轴：文档重开了，记一条「刷新」—— 但若这其实是一次导航（url 回调还没到），
       // 由 tab-sessions 拿此刻的真实地址比出来、改记「地址变更」。地址只有 SW 现取得到。
       void chrome.tabs
@@ -1053,6 +973,7 @@ function mountProposal2Listeners(): void {
   chrome.tabs.onRemoved.addListener((tabId) => {
     endRunsOfTab(tabId, 'closed')
     forgetPageTab(tabId)
+    void dropPickState(tabId).catch(() => {})
     // 归属收尾：按映射找到那条会话并**中止它的任务**，再解绑。
     // 面板没开的时候标签页照样会被关，只有常驻的 SW 不漏，所以这一步必须在这里做
     // （漏了它会留在 offscreen 里跑完 —— 没人看结果、也没处按停止，纯粹烧 token）。
@@ -1066,69 +987,9 @@ function mountProposal2Listeners(): void {
   initPageMonitorPorts()
 }
 
-// —— 浮层的右键菜单入口 ——
-//
-// 对话框的入口全在页面之外：工具栏 popup 里的「对话浮层」按钮，以及这个右键菜单。菜单这条由
-// 浏览器渲染，页面里的东西遮不住它，也不依赖浮层宿主件已经挂上 UI。
-//
-// id 带 `duoling:` 前缀：与用户脚本的 GM_registerMenuCommand 共用 contextMenus 命名空间，
-const FLOAT_MENU_ID = 'duoling:open-float'
-
-/** 通知图标（复用 auto-icons 构建生成的 icons/128.png，与工具栏图标同源；与用户脚本通知的兜底图标同一个文件） */
-const NOTIFY_ICON = 'icons/128.png'
-
-/**
- * 注册本扩展自己的菜单项（幂等）。
- *
- * 先摘再建，而不是 create 撞上 duplicate id 就吞掉：那样虽不影响既有项，但菜单文案 / 作用域
- * 改过之后旧项会一直留着 —— 卸载重建才能让改动生效，而本函数在每次 SW 冷启动时都会跑一遍。
- * 首次安装时该 id 不存在，remove 报的 lastError 属正常路径，读一下就消掉。
- */
-function ensureFloatMenuItem(): void {
-  chrome.contextMenus.remove(FLOAT_MENU_ID, () => {
-    void chrome.runtime.lastError
-    chrome.contextMenus.create({
-      id: FLOAT_MENU_ID,
-      title: `打开${EXTENSION_NAME}对话`,
-      contexts: ['page'],
-      // 与 popup 的判据一致：只对普通网页出现（内部页 / 扩展页 / file:// 上浮层挂不了）
-      documentUrlPatterns: ['*://*/*'],
-    })
-  })
-}
-
-/**
- * 在当前标签页把对话浮层调出来（右键菜单用；动作与 popup 那颗按钮同一套）。
- *
- * 与 popup 的差别只有失败反馈的渠道：那里能留在面板里写字，这里没有面板，只能弹一条系统通知
- * —— 菜单点了毫无动静是最糟的结果，用户会以为功能坏了。
- */
-async function openFloatPanelInTab(tab: chrome.tabs.Tab): Promise<void> {
-  const tabId = tab.id
-  if (tabId == null) return
-  if (openFloatPanel(tabId)) return
-  await chrome.notifications.create('duoling:float-open-failed', {
-    type: 'basic',
-    iconUrl: NOTIFY_ICON,
-    title: EXTENSION_NAME,
-    message: `这个页面还没接上${EXTENSION_NAME}，刷新页面后再试。`,
-  })
-}
-
-function mountFloatMenu(): void {
-  ensureFloatMenuItem()
-  chrome.contextMenus.onClicked.addListener((info, tab) => {
-    if (info.menuItemId !== FLOAT_MENU_ID || !tab) return
-    void openFloatPanelInTab(tab)
-  })
-}
-
 export default defineBackground(() => {
   // 启动自证：console 第一条就是构建信息，「SW 是不是新包」不用再靠猜
   console.log(`[duoling:sw] SW 启动 · 构建 ${__BUILD_INFO__.time} · 分支 ${__BUILD_INFO__.branch}`)
-
-  // 点击工具栏图标打开 popup（action.default_popup 由 popup.html 入口自动写入 manifest）——
-  // 这是 action 的唯一用途；对话入口是网页浮层（由浮层宿主件挂出），不占 action。
 
   // 用户脚本管理器：启动配置世界并恢复已启用脚本
   void initUserScripts().catch((e) => console.error('[duoling:userscript] init failed', e))
@@ -1159,9 +1020,6 @@ export default defineBackground(() => {
 
   // 对话界面监控 / 面板端口 / 任务状态 / 深链跳转的监听器
   mountProposal2Listeners()
-
-  // 浮层的右键菜单入口（与 popup 的按钮同一条路：对话框平时不在页面里）
-  mountFloatMenu()
 
   // offscreen 需「随时可用」：安装 / 更新 / 浏览器启动都立即确保容器在场。
   // Chrome 不会自动启动 offscreen，且 idle 自关未实现，故改为常驻策略（退出条件见 offscreen.ts）。

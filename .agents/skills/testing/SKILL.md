@@ -8,7 +8,7 @@ description: Use when writing, fixing, or debugging tests in this repo — choos
 本 skill 管**测试怎么写**。命令与 CI 组成见 [AGENTS.md](../../../AGENTS.md)「常用命令」与 [GIT_WORKFLOW.md](../../../GIT_WORKFLOW.md)。
 
 - `pnpm run test` → Vitest **双 project**（配置见 `vitest.config.ts`）：
-  - **logic**（node 环境）：`src/**/*.test.ts` 与四个页面包 `packages/{ui,workbench,floatpanel,popup}/src/**/*.test.ts`
+  - **logic**（node 环境）：`src/**/*.test.ts` 与三个页面包 `packages/{ui,workbench,popup}/src/**/*.test.ts`
     （页面包的用例也由根 `vitest.config.ts` 收，包内不另设 test 脚本，避免跑两遍）；
   - **component**（happy-dom 环境）：`*.component.test.ts` 组件测试。
 - `pnpm run test:e2e` → Playwright 端测（`e2e/*.spec.ts`，无头、单 worker 串行）：**脚本内先 `pnpm run build`**，再跑 **`.output/chrome-mv3` 产物**、Playwright 捆绑 Chromium。绕开脚本直接调 playwright 会跑上轮遗留的旧产物，须自己先构建。除冒烟 `smoke.spec.ts` 外，按面拆分的还有编辑器交互 `editor.spec.ts`、GM 全能探针 `omni-probe.spec.ts`、假模型对话 `chat-stub.spec.ts`、会话归属 `conversation-scope.spec.ts`、AI 生成 `agent-generate.spec.ts`。
@@ -42,7 +42,7 @@ description: Use when writing, fixing, or debugging tests in this repo — choos
 - **改 UI 文案时，断言里的字面量要照 fixture 实际值写**：凭印象写子串会红。`UserscriptListPanel.component.test.ts` 的 `summary()` fixture 里 matches 是 `https://a.example/*`（不是 `a.example`）——「补标签」时写 `toContain('匹配规则：a.example')` 直接失败（2026-10-04 踩过）。改断言前先读 fixture，或干脆让断言只锁标签部分。
 - **页面级 `text()` 断言会跨卡互相污染**：页面里出现第二张状态卡（引导页的「读取本地文件」）后，「引擎已开启不给步骤」这类断言必须收窄到卡内（`cardText(w, 'guide-userscripts')`），否则另一张卡的文案会把断言顶掉（2026-09-19 踩过）。
 - **无头驱动工作台（E2E / 探针）用 hash 深链切标签页，不按文字点左侧导航**：导航项是**只有 `aria-label` 的图标按钮**（`WorkbenchApp.vue`），`getByText('引导')` 定位不到（文字在 tooltip 内容里，要 hover 才 portal 出来）；`workbench.html#/guide` 就是对话界面「查看开启引导」走的那条路。
-- **e2e 环境里会话库很可能是空的**：把 `floatpanel.html` 当普通页打开时，对话界面**不会**自动建会话（惰性新建 —— 只有真发消息才建，见 `use-global-conversation.ts`）。所以断言历史列表类 UI 前得自己造数据，或者让断言同时接受空 / 非空两态。
+- **e2e 环境里会话库很可能是空的**：把 `popup.html?tab=<id>` 当普通页打开时，对话卡**不会**自动建会话（惰性新建 —— 只有真发消息才建，见 `use-global-conversation.ts`）。所以断言历史列表类 UI 前得自己造数据，或者让断言同时接受空 / 非空两态。
 
 ## 防漂移四处（新增 / 改动 GM API 时）
 
@@ -72,10 +72,10 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 - **规避**：新增跨层链路时自查「写侧函数是否有对应读侧消费」，条件允许时手测走一遍端到端。
 - 反过来，删组件里某块模板后剩的**未使用 import** 会报 `TS6133`（`noUnusedLocals` 生效）—— 那时不必怀疑类型推断，回去删 import。
 
-**「测替身」也是盲区：动作跨真实边界时，必须点真控件。** 用发消息 / 直调 API 模拟入口，会把链路里真正难的那一跳（跨 iframe、跨进程、跨网络）换成替身 —— 测出来是绿的，但绿的不是那条路。2026-09-22 实测：网页浮层的「收起」在 e2e 里原是发一条 `float:collapse` 消息模拟的，而那颗按钮**恰是整条链路里唯一跨源的一步**（按钮在 iframe 里、容器在父页）。改成在面板 frame 里按 `aria-label` 点它，才同时验到「按钮真的在」+「跨源消息通」+「父页收起」三件事。
+**「测替身」也是盲区：动作跨真实边界时，必须点真控件。** 用发消息 / 直调 API 模拟入口，会把链路里真正难的那一跳（跨进程、跨网络、跨存储）换成替身 —— 测出来是绿的，但绿的不是那条路。
 
-- 判据：动作路径上凡有一道**真实边界**（iframe / 进程 / 网络 / 存储），测试就该真穿过去；模拟只留给边界之外 —— 比如打开浮层的发起方是 popup，那一侧由组件测试兜，e2e 里用消息代过没问题。
-- 消息契约本身仍值得单独验（`float:open` / `float:collapse` 两端都要有覆盖），但它替代不了点真控件那一跳。
+- 判据：动作路径上凡有一道**真实边界**（iframe / 进程 / 网络 / 存储），测试就该真穿过去；模拟只留给边界之外 —— 比如发起拾取的入口是 popup，那一侧由组件测试兜，e2e 里用消息代过没问题。
+- 消息契约本身仍值得单独验（每条命令的收发两端都要有覆盖），但它替代不了点真控件那一跳。
 
 **端测 spec 曾被类型检查漏在外面**（2026-09-22 已补）：Playwright 走 esbuild **只转译、不检查类型**，而根 `tsconfig.json` 的 `include` 原先只有 `src/**` —— spec 里写错类型不会被任何门禁拦住，只有真跑才暴露（当时的实例：一条用例假定上一条留下了某个弹窗状态，实际没有，白等了一次 120s 超时）。现在 `include` 已含 `e2e/**/*`，`pnpm run typecheck` 一并检查；往 `e2e/` 加代码时不必另配 tsconfig。
 
@@ -86,7 +86,7 @@ GM API 的真身散在四处，任一处漏改都不会编译报错，故各有�
 - **读不到 url 的标签页，不能「按 url 找出它再激活」**：扩展没有 `tabs` 权限，`chrome://` / `chrome-extension://` 页的 `tab.url` 是 `undefined`（`<all_urls>` 不含这两个 scheme）。要拿不可读 url 的标签页，由 **SW `chrome.tabs.create()`** 建并拿返回的 id。
 - **验扩展页的渲染分支**：先在工作窗口里激活目标标签页（`tabs.update({active:true})`），再 **reload 那个扩展页**（reload 不会把它变成激活页），它 mount 时读到的才是目标标签页。顺手打印一句「切换是否真生效」—— 否则断言可能在测一个根本没切过去的状态。
 - 判据不要依赖 url 可读：验「当前页能不能注入」应按 **scheme**。
-- **测 content script 的交互就凭空造个站点**：`page.route('https://<假域名>/**', r => r.fulfill({ body: '<!doctype html>…' }))` 之后再 `goto`，不必起本地 server、也不碰真实站点；之后读几何一律走 `evaluate`（`getBoundingClientRect` 比 locator 断言直观，也不受 shadow DOM 选择器能力限制）。**注入根不常驻**：网页浮层是**按需挂载**的（见 `src/entrypoints/content.ts`），页面加载后先断言它不存在，再发触发消息（e2e 里借扩展页代发 `float:open`）才等得到。
+- **测 content script 的交互就凭空造个站点**：`page.route('https://<假域名>/**', r => r.fulfill({ body: '<!doctype html>…' }))` 之后再 `goto`，不必起本地 server、也不碰真实站点；之后读几何一律走 `evaluate`（`getBoundingClientRect` 比 locator 断言直观，也不受 shadow DOM 选择器能力限制）。
 - **要驱动真实指针序列就别用合成事件**：`mouse.move(起点) → down() → move(终点, { steps: 8 }) → up()`。断言优先抓**不变量**（「开合状态没被误切换」）而不是绝对坐标—— 绝对坐标只能证明「数值等于我以为的公式」，不变量才能抓住行为回归。（本仓当前没有拖拽类交互，这条留作手势类测试的写法。）
 - **屏幕坐标与「距视口边距」差一个视口宽**：样式里定位写 `right` / `bottom`（距视口右 / 下）时，断言里 `rect.right` 得换算成 `视口宽 − right`，别拿指针落点直接比（2026-09-22 连栽两次，两次都长得像"实现坏了"）。真怀疑时加一条**故意失败的断言**把实际值回显出来（`expect({ 实际 }).toEqual({ 标记: 'debug' })`）——比 `console.log` 可靠：vitest 会把普通输出折叠掉，而 diff 一定显示。
 

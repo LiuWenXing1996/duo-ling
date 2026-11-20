@@ -24,6 +24,50 @@ export async function countConversations(page: Page): Promise<number> {
   })
 }
 
+export interface StoredMessage {
+  role: string
+  content: string
+  parts: Array<{ type: string }>
+}
+
+/** 某会话的全部消息（按 createdAt 升序）；不给 id 时取 lastMessageAt 最新的那条会话 */
+export async function readStoredMessages(
+  page: Page,
+  conversationId?: string,
+): Promise<StoredMessage[]> {
+  return await page.evaluate(async (cid) => {
+    interface Row extends StoredMessage {
+      createdAt: string
+    }
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open('duoling-chat')
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+    try {
+      if (!db.objectStoreNames.contains('messages')) return []
+      const read = async <T>(store: string, run: (s: IDBObjectStore) => IDBRequest): Promise<T> =>
+        await new Promise<T>((resolve, reject) => {
+          const req = run(db.transaction(store, 'readonly').objectStore(store))
+          req.onsuccess = () => resolve(req.result as T)
+          req.onerror = () => reject(req.error)
+        })
+      const target =
+        cid ??
+        (
+          await read<Array<{ id: string; lastMessageAt: string }>>('conversations', (s) =>
+            s.getAll(),
+          )
+        ).sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt))[0]?.id
+      if (!target) return []
+      const list = await read<Row[]>('messages', (s) => s.index('conversationId').getAll(target))
+      return list.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    } finally {
+      db.close()
+    }
+  }, conversationId)
+}
+
 /** 最近一条会话里 assistant 消息的 totalTokens（没有则 0） */
 export async function readAssistantTotalTokens(page: Page): Promise<number> {
   return await page.evaluate(async () => {

@@ -12,32 +12,9 @@ import { providerOrigins } from './packages/workbench/src/lib/providers'
 // 是构建的输入而非输出，不该押在包产物上。真相源仍是 packages/shared/src/extension-identity.ts。
 import { EXTENSION_NAME } from './packages/shared/src/extension-identity'
 
-// 浏览器扩展版：不依赖已下架的 @wxt/vue，直接用 vite 的 vue 插件编译 .vue 组件。
-//
-// 载体分工：
-//   网页浮层    → 对话界面 = 浮层宿主件（dl-float-host，注册用户脚本，件源码见
-//                 packages/user-scripts/src/builtin/float-host/）按需挂出的 iframe，加载
-//                 floatpanel.html，显示**它所在标签页**的会话；页面加载时不建任何 DOM，
-//                 从工具栏 popup 的按钮或页面右键菜单打开
-//   标签页      → 脚本工作区 = 脚本列表 / 编辑器 / 设置 / 会话历史（entrypoints/workbench.html）
-//   popup       → 会话与页面的快捷面板 = 点工具栏图标弹出（当前页面 / 其他页面两块，entrypoints/popup.html）
-// 三个载体的界面复用关系见 README.md「载体分工」。
-// 开发期 Chrome profile 目录：必须用绝对路径 —— web-ext 对相对路径按 cwd 解析，
-// 换个目录启动 dev 就会拿到不同 profile，「Allow User Scripts」这类每扩展开关会被重置。
-//
-// 这里还得保证它存在：web-ext 在 keepProfileChanges 分支下只校验 userDataDir、不创建它
-// （见 web-ext/lib/extension-runners/chromium.js 的 getProfilePaths 之后那段），
-// 而 chrome-launcher 也只在自己造临时目录时才 mkdir：外部传入的路径它会直接
-// openSync 写 <profile>/chrome-out.log，目录不在就 ENOENT 启动失败。
-// 该目录是 gitignore 的本地产物，新 clone / 新建 git worktree 后必然缺失，故就近创建。
 const chromiumProfileDir = resolve(process.cwd(), '.chrome-dev-profile')
 mkdirSync(chromiumProfileDir, { recursive: true })
 
-// 内置件包的产物目录：件源码在 packages/user-scripts/src/builtin/，构建出来的是**独立 IIFE 文件**
-// （chrome.userScripts 的 js:[{ file }] 只认扩展内路径，件必须落进扩展产物）。产物留在包内，
-// 扩展侧只负责把它取进来 —— 见下面 build:publicAssets 钩子。
-// 注意：脚本桥中继件不在此列 —— 它以字符串内嵌进 SW（{ code } 注册，本包 build.mjs 产
-// dist/relay.iife.js、SW 经 `?raw` 消费），本目录只有其余三件。
 const builtinScriptsDist = resolve(process.cwd(), 'packages/user-scripts/dist/builtin')
 
 /**
@@ -84,14 +61,6 @@ const buildInfoRepo = (() => {
   }
 })()
 
-/**
- * 四个 html 入口的 `<title>` 里写占位符 `%EXT_NAME%`，由这里在构建期替换成扩展显示名。
- *
- * 为什么要插件而不直接在 html 里写名字：html 是静态文件、拿不到 TS 常量，改名时漏改
- * 一处就是「工作台页签还叫旧名」。四个入口由 WXT 以 multi-page 模式交给 Vite 构建，
- * transformIndexHtml 钩子会跑到（WXT 自己的 dev-html-prerender 插件就挂在这个钩子上）。
- * 不走 Vite 内置的 `%VITE_*%` 替换：那条要求值出现在 env 里、依赖注入时序，不如插件可控。
- */
 const htmlExtensionName = (): Plugin => ({
   name: 'duoling:html-extension-name',
   transformIndexHtml: (html) => html.replaceAll('%EXT_NAME%', EXTENSION_NAME),
@@ -140,10 +109,8 @@ export default defineConfig({
   },
   vite: ({ mode }) => ({
     plugins: [vue(), tailwindcss(), htmlExtensionName()],
-    // 四个页面包是 workspace 包：不预打包，改完组件等包 rebuild 出来即被 dev 重新取到，
-    // 预打包会把旧产物钉在缓存里（表现为「改了没反应」）。
     optimizeDeps: {
-      exclude: ['@duoling/ui', '@duoling/workbench', '@duoling/floatpanel', '@duoling/popup'],
+      exclude: ['@duoling/ui', '@duoling/workbench', '@duoling/popup'],
     },
     // service worker 里没有 Node 的 `global`，而 isomorphic-git/lightning-fs 的
     // 打包代码写的是 `global.TextEncoder`。构建期把 `global` 别名成原生 globalThis
@@ -166,30 +133,13 @@ export default defineConfig({
   }),
   manifest: {
     name: EXTENSION_NAME,
-    description: `${EXTENSION_NAME} AI 用户脚本工坊 · 扩展版（网页浮层对话 + 标签页工作台）`,
+    description: `${EXTENSION_NAME} AI 用户脚本工坊 · 扩展版（popup 对话 + 标签页工作台）`,
     // 扩展 ID 固定：manifest 带 key 时 Chrome 用 SHA256(公钥) 派生 ID，不再按扩展目录的
     // 绝对路径算 —— 换 worktree、换解压目录、换机器都是同一个 ID，本地数据（storage /
     // IndexedDB / userScripts 授权）不再随安装位置重置。
     // 公钥非敏感（公开仓库可见、上架后商店也公开此值）；私钥单独保管、不入库，仅打包
     // CRX 自托管时才需要。生成方式与 ID 换算见 VERSIONING.md。
     key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAn48Pdu5rZ8jaljtXTNwFjwDOfj4b0phMH50lb6jhE4VGV2SRVbnWcoi34IOJw/Vlp8wVwM8Dpn6ZpRsmIdUWzx5lrjO8vc9DXI+5ORtH/2vl0jCxlmALDh3Wi/6wYnjb5QkXsPFzobhypeD+Aseaf1nREgo0Vp/W90awxDx7blBTuhVVdKVDNs6Mt8HluvDTMgUAWq0e1MDxhOkWvTjEMT5Q7pkLaBrapg1eA/FlBie5Hd3qj/uT2ykPHEKsZBZNd3ZHDizxtTM1c0LXAFX+7k5E6IS4B27uJhIoCxrv3GXOuo2BdVce5pLjNbwRa+JoHgSVJ1ZEsVQFWaUuGTBTCQIDAQAB',
-    // action 的默认行为由 popup 承担：点工具栏图标弹 popup（entrypoints/popup.html 自动写入
-    // default_popup）。对话入口是网页浮层，由浮层宿主件挂出，不占 action。
-    // offscreen 是 AI 生成链路的执行宿主（定位 B）：
-    // 对话 loop 与源码写侧（offscreen-document 的文件库 / userstate）都跑在 offscreen document 里，
-    // 「用户发起生成后可收起浮层、任务照跑完」。没有该权限 chrome.offscreen 不存在
-    // （Chrome 109+ / 仅 MV3）。
-    // 未来项目自身菜单也走它。
-    // cookies = GM_cookie（list / set / delete）的载体 API。**注意：host 已是 <all_urls>，
-    // 故此权限等价于「SW 可读写全浏览器 cookie（含 HttpOnly）」**，是能力面最大的一项权限。
-    // 补偿措施是与权限绑定的域名门（cookie-gate.ts）：url 必须落在脚本自身 matches 内、
-    // 只比 scheme+host（cookie 是 host 级作用域，忽略 pattern 的 path 段）。
-    // clipboardWrite：GM_setClipboard 走 offscreen 免手势写剪贴板（含富文本 ClipboardItem），需此权限。
-    // declarativeNetRequestWithHostAccess = GM_xmlhttpRequest forbidden header 覆写的载体
-    // （SW fetch 改不了 Cookie/Referer 等，DNR session 规则按请求挂/撤在发头前套上）。
-    // 选 WithHostAccess 变体：不进安装权限提示，且 modifyHeaders/重定向要求 host 权限——
-    // 已有 <all_urls> 覆盖。webRequest（观察型，非 blocking）= redirect:'manual' 的
-    // 3xx 响应读取通道（SW fetch 只拿得到 opaqueredirect）。均不新增用户可见权限。
     permissions: [
       'storage',
       'userScripts',
@@ -209,9 +159,6 @@ export default defineConfig({
     // 用户脚本管理器（userscript-manager）：userScripts 注入目标网页需全域 host 权限
     // （Chrome 文档明确要求），同时覆盖 GM_xmlhttpRequest 的跨域可达范围。
     host_permissions: [...providerOrigins(), '<all_urls>'],
-    // 135 = 本项目对内核的最低要求（自定义 USER_SCRIPT 世界的 worldId 需 133+，本项目取 135）：
-    // 脚本桥 / 页面检查器 / 浮层宿主 / 录制转发各占一个自定义世界。
-    // Chrome 规范字段是下划线 minimum_chrome_version；驼峰键会被 Chrome 忽略并报 Unrecognized。
     minimum_chrome_version: '135',
     // default_popup 不在此手写：WXT 按文件名把 entrypoints/popup.html 识别为 popup 入口
     // 并自动写入 manifest（workbench.html 等其余入口同一机制）。
@@ -220,14 +167,6 @@ export default defineConfig({
     action: {
       default_title: EXTENSION_NAME,
     },
-    // 网页浮层：浮层宿主件在第三方页面里用 iframe 加载 floatpanel.html，
-    // 该扩展页必须对目标站点可访问，否则 Chrome 会拦截 iframe 加载。
-    web_accessible_resources: [
-      {
-        resources: ['floatpanel.html'],
-        matches: ['<all_urls>'],
-      },
-    ],
   },
   // —— 开发期热重载（WXT dev server）——
   // 固定 profile + keepProfileChanges：像「Allow User Scripts」这类必须手动开启的开关

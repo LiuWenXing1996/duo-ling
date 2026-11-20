@@ -31,7 +31,6 @@ export interface UserscriptTelemetry {
   recordRunEvent?(uuid: string, runId: string, event: UserscriptRunEvent): Promise<void>
   /** 追加一条错误记录 */
   appendError?(rec: UserscriptErrorRecord): Promise<void>
-  /** 运行广播（实时通道：按 tab 登记运行集，浮层快照用） */
   noteRunStart?(tabId: number, uuid: string, runId: string): void
   /** 运行期错误实时推送 */
   notePageError?(
@@ -49,10 +48,6 @@ export interface UserscriptTelemetry {
     tabId: number | null,
     rec: { reqId: string; ok: boolean; payload: unknown },
   ): void
-  /**
-   * 旁证（uuid）与页归属（tabId）由宿主侧定，结算认 SW 现造的 reqId（幂等）。
-   */
-  onFloatEvent?(uuid: string, tabId: number | null, rec: { reqId: string }): void
 }
 
 /** 宿主配置（全部可选） */
@@ -73,11 +68,6 @@ export interface UserscriptHostConfig {
     get(key: string): Promise<string | undefined>
     set(key: string, value: string): Promise<void>
   }
-  /**
-   * 宿主内置件（中继件 / 检查器 / 浮层 / 录制件等注册件）：
-   * registerAllEnabled 在重注册脚本前先调 syncAll（内置件跟随启用脚本的匹配并集 / 门禁走），
-   * stale 清扫排除 ids 里的注册。不注入 = 包只管脚本本身的注册与清扫。
-   */
   builtins?: {
     /** 内置注册 id 全集（stale 清扫排除面；也是旧 id 的自动回收面 —— 不在名单即被清） */
     ids: string[]

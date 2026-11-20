@@ -1,8 +1,8 @@
 # 0011. 页面拾取期间浮层整块让位
 
 日期: 2026-10-18
-状态: 已接受
-代码落点: packages/builtin-scripts/src/float-host/install.ts（PICKER_BOX_SELECTOR / hideForPicker 处指回本文件）
+状态: 已被 0047 取代（浮层载体下线；拾取改由 popup 发起 + 关窗，见 0047 的 P1）
+代码落点: 原 packages/builtin-scripts/src/float-host/install.ts（已删）
 
 ## 背景
 

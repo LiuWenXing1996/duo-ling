@@ -7,5 +7,5 @@
   "compilerOptions": {
     "types": []
   },
-  "include": ["src/builtin"]
+  "include": ["src/builtin", "src/relay"]
 }

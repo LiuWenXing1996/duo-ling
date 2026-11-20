@@ -1,16 +1,3 @@
-// 工具栏角标的端测：**数字 = 这个标签页在跑几个脚本**（与浮层灵动岛、popup 的页面概览同源，
-// 见 packages/service-worker/src/userscripts/page-monitor.ts 的运行登记表）。
-//
-// 这里不造假信号：脚本经命令面存进库、由 `chrome.userScripts` 真注入探针页，runstart 是真的从 GM
-// 包装广播出来的 —— 整条链路（注入 → 登记 → 重算 → `chrome.action`）都在被测范围内。伪造一条
-// runstart 只能证明「重算函数会跑」，证明不了「页面里跑着的脚本会不会被数上」。
-//
-// 引导姿势与 omni-probe.spec.ts 共用：Phase A 程序化开 userScripts 开关 → 同 profile 重启 →
-// `chrome.userScripts` 由 undefined 变可用（开关状态随 profile 持久化）。
-//
-// 覆盖：命中即亮 + 悬停文案与灵动岛同句；**按标签页各算各的**（一个页命中两个脚本、另一页只命中
-// 一个，且互不串页）；换文档后重新登记；禁用脚本后重载不再算它；扩展自己的页面不在任何脚本的
-// 注入面内 → 不亮，也不留全局兜底值。另有一组前提**相反**的用例（不引导）：引擎未授权 → 全局感叹号。
 import { test, expect, type BrowserContext, type Page, type Worker } from '@playwright/test'
 import * as http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'

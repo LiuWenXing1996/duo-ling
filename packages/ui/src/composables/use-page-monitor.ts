@@ -1,11 +1,3 @@
-// 「页面脚本监控」·面板侧（运行时口径）——对话界面浮层的灵动岛在用。
-//
-// 职责三件：① 认定本载体该看哪个标签页（归属认**浮层所属的 tab**，resolveOwningTabId——
-// 不能跟「当前激活标签页」走，判据见 lib/owning-tab.ts）；② 经 'duoling:panel' 端口收 SW
-// 推送（runstart / 错误 / 新文档清零 / 快照），只留本 tab 切片，挂载时拉一次快照补齐；
-// ③ 补齐运行项的脚本名（runstart 只带 uuid，名字表是快照，必须自愈）。
-// 口径：显示「这个文档里实际启动过哪些脚本」（runstart 广播）+ 其 runtime 错误，
-// 不是按 matches 计算的静态注入口径。登记表语义与已知边界见 ARCHITECTURE.md「脚本注入」节。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { PageErrorItem, PageRunItem, PanelMonitorPush, ScriptSummary } from '@duoling/shared'
 import { PANEL_MONITOR_PORT } from '@duoling/shared'
@@ -17,8 +9,7 @@ import { readAllProjects } from '@duoling/shared'
 /** 面板保留的错误行上限（环形日志本身 50 条，这里再兜一层） */
 const MAX_ERRORS = 50
 
-export function usePageMonitor() {
-  /** 本载体该看的标签页（浮层 = pinned tab，兜底查激活页）；null = 取不到归属（极端态，UI 自隐藏） */
+export function usePageMonitor(options: { tabId?: number | null } = {}) {
   const owningTabId = ref<number | null>(null)
   const pageUrl = ref('')
   /** 当前 tab 当前文档的运行集（uuid → 运行项；展示按启动时间倒序） */
@@ -83,7 +74,7 @@ export function usePageMonitor() {
 
   /** 认定本载体该看的标签页并取它的地址（挂载时一次；之后靠 onTabUpdated 跟随页内导航） */
   async function trackTab(): Promise<void> {
-    const tabId = await resolveOwningTabId()
+    const tabId = options.tabId ?? (await resolveOwningTabId())
     if (tabId == null) {
       setTab(null, '')
       return
@@ -92,7 +83,6 @@ export function usePageMonitor() {
       const tab = await chrome.tabs.get(tabId)
       setTab(tabId, tab.url ?? '')
     } catch {
-      // 标签页刚好没了（浮层所在 tab 正在关闭）：只留 id、地址留空
       setTab(tabId, '')
     }
   }

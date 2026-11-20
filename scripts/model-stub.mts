@@ -80,11 +80,6 @@ export interface ModelStubOptions {
    * 端测要在这段时间里中止任务，验「半截照样落盘」（与 delayMs 的区别：那个是吐字节之前）。
    */
   holdAfterFirstChunkMs?: number
-  /**
-   * 响应前的延时（ms）：把「生成中」的窗口拉长 —— 端测要在这段时间里做断言
-   * （例如收起浮层后按钮是否已在转圈）。此刻既没吐字节也没收尾，正是「任务在跑」的形态。
-   * 不设则立即响应。注意别越过 offscreen 的流式静默守卫（默认 60s）。
-   */
   delayMs?: number
   /** 监听端口；缺省 0（随机端口，e2e 并行不撞） */
   port?: number

@@ -1,9 +1,14 @@
-// gm-wrapper 单测：防漂移断言反射运行时源码（?raw 直取）；产物字节只做 parse 冒烟（引号统一成双引号，不做文本断言）。
+/// <reference types="node" />
+import { readFileSync } from 'node:fs'
 import { parse } from 'acorn'
 import { describe, expect, it } from 'vitest'
 import { ALWAYS_GLOBALS, ALWAYS_NS, type GmInfo, gmAllGlobals, gmAllNs } from '@duoling/shared'
 import { GM_WRAPPER_IIFE, buildGmWrapperInit, resolveGmExposure } from './gm-wrapper'
-import runtimeSrc from './gm-wrapper-runtime.ts?raw'
+
+const runtimeSrc = readFileSync(
+  new URL('../../user-scripts/src/gm-wrapper/gm-wrapper-runtime.ts', import.meta.url),
+  'utf8',
+)
 
 /** 测试自造：断言生成源码里的 scriptHandler 跟随传入值。真值由应用侧传入，包内不持有。 */
 const EXTENSION_NAME = '测试扩展'
@@ -82,6 +87,11 @@ describe('GM 包装注入体', () => {
     expect(src).toContain('GM_getValue = g.members.GM_getValue')
     expect(src).toContain('GM = g.members.GM')
     expect(src).not.toMatch(/\bg\.GM_getValue\b/)
+  })
+
+  it('系统件的 __gmBridge 由装配段从 handle 接出来（正文在装配段那层，够不到 install 的闭包）', () => {
+    expect(build()).toContain('var __gmBridge = g.bridge')
+    expect(runtimeSrc).toContain('return { members, bridge: __gmBridge, runBody }')
   })
 
   it('userAgent / isIncognito 由运行时就地补齐（注册侧拿不到页面 UA）', () => {

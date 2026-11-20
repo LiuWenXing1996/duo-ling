@@ -1,4 +1,3 @@
-// match-pattern.ts 单测：纯匹配逻辑（scheme + host 判定，**忽略 path**）—— 用户脚本面与浮层按站点开关共用。
 import { describe, expect, it } from 'vitest'
 import { matchPatternCoversUrl, parseMatchPattern, urlInCookieScope } from './match-pattern'
 

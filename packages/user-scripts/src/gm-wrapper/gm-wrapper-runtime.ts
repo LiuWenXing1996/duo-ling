@@ -16,6 +16,7 @@ export interface GmWrapperEnv {
 
 export interface GmWrapperHandle {
   members: Record<string, unknown>
+  bridge: unknown
   runBody: (fn: () => void) => void
 }
 
@@ -1418,5 +1419,5 @@ export function installGmWrapper(env: GmWrapperEnv): GmWrapperHandle {
     else exec()
   }
 
-  return { members, runBody }
+  return { members, bridge: __gmBridge, runBody }
 }

@@ -14,9 +14,15 @@
 import { ref } from 'vue'
 import { ChevronDown as UiChevronDown, FlaskConical as UiFlaskConical } from '@lucide/vue'
 import { motion, MotionConfig } from 'motion-v'
-import { usePageMonitor } from '../composables/use-page-monitor'
+import { usePageMonitor } from '../../composables/use-page-monitor'
 
-const { host, visible, runs, errors, displayName, errorsOf } = usePageMonitor()
+const props = withDefaults(defineProps<{ tabId?: number | null; topOffset?: number }>(), {
+  topOffset: 52,
+})
+
+const { host, visible, runs, errors, displayName, errorsOf } = usePageMonitor({
+  tabId: props.tabId,
+})
 const expanded = ref(false)
 
 // 收起/展开两态的目标尺寸（px）：收起宽度按「含错误徽标的最坏文案」定，
@@ -31,7 +37,8 @@ const HEADER_H = 28
 <template>
   <div
     v-if="visible"
-    class="pointer-events-none absolute left-1/2 top-13 z-10 flex -translate-x-1/2 justify-center"
+    class="pointer-events-none absolute left-1/2 z-10 flex -translate-x-1/2 justify-center"
+    :style="{ top: `${topOffset}px` }"
     data-testid="page-monitor"
   >
     <MotionConfig :transition="{ type: 'spring', bounce: 0.35, duration: 0.55 }">

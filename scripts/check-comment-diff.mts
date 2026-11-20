@@ -28,11 +28,11 @@ function git(args: string[]): string {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
 }
 
-function addedRanges(file: string): Array<[number, number]> {
+function addedRanges(paths: string[]): Array<[number, number]> {
   const ranges: Array<[number, number]> = []
   const diffArgs = base
-    ? ['diff', '--unified=0', '--no-color', rangeSpec, '--', file]
-    : ['diff', '--cached', '--unified=0', '--no-color', '--', file]
+    ? ['diff', '-M', '--unified=0', '--no-color', rangeSpec, '--', ...paths]
+    : ['diff', '--cached', '-M', '--unified=0', '--no-color', '--', ...paths]
   for (const line of git(diffArgs).split('\n')) {
     const m = HUNK_RE.exec(line)
     if (!m) continue
@@ -43,13 +43,26 @@ function addedRanges(file: string): Array<[number, number]> {
   return ranges
 }
 
+// 移动的文件只该算改动行：源路径不在 diff 里时 git 配不上对，整篇都会算成新增（规则见 ADR 0042）
+const oldPathOf = new Map<string, string>()
+const renameArgs = base
+  ? ['diff', '-M', '--name-status', '-z', '--diff-filter=R', rangeSpec]
+  : ['diff', '--cached', '-M', '--name-status', '-z', '--diff-filter=R']
+const renamed = git(renameArgs).split('\0')
+for (let i = 0; i + 2 < renamed.length; i += 3) {
+  if (renamed[i].startsWith('R')) oldPathOf.set(renamed[i + 2], renamed[i + 1])
+}
+
 const nameArgs = base
   ? ['diff', '--name-only', '--diff-filter=ACMR', '-z', rangeSpec]
   : ['diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z']
 const targets = git(nameArgs)
   .split('\0')
   .filter((f) => f && extRe.test(f) && !lockRe.test(f))
-  .map((file) => ({ file, ranges: addedRanges(file) }))
+  .map((file) => ({
+    file,
+    ranges: addedRanges(oldPathOf.has(file) ? [oldPathOf.get(file)!, file] : [file]),
+  }))
   .filter((t) => t.ranges.length > 0)
 
 // 跨度已不够门槛时非空行只会更少，省掉逐个读全文

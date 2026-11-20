@@ -16,7 +16,7 @@ offscreen 容器能力约定。机制的来龙去脉见 [ARCHITECTURE.md](../../
 | 宿主注入点 —— 扩展身份 / offscreen 就绪 / 遥测 / 密钥存储 / 内置件 | `host-config` |
 | 与 offscreen 的直连链路 —— 服务代理 / 事件 / 保活心跳（ADR 0044） | `sw-link` |
 | offscreen 容器能力约定 —— 建文档用的 reason 集 | `offscreen-reasons` |
-| 注入源码生成 —— GM 包装注入体拼装 / MAIN 世界脚本桥客户端 | `gm-wrapper` / `gm-bridge-client` |
+| 注入源码生成 —— GM 包装注入体拼装（运行时真身与桥客户端在 user-scripts 包） | `gm-wrapper` |
 | GM 值存储 —— `GM_setValue` 一族与 usdata 库（`GM_getTab` 等） | `gm-values` / `usdata-db` |
 
 依赖方向：本包 → `@duoling/shared`（契约 / GM 语义 / 状态库 / 服务契约），无环。
@@ -113,6 +113,6 @@ await host.addScript(project)
 ## 中继件
 
 页面 MAIN 世界脚本的 GM 调用经同帧 USER_SCRIPT **中继件**转给 SW。中继件本体在
-`@duoling/user-scripts`（src/builtin/relay/，那边 build.mjs 生成 IIFE 源码串 gen 模块，不入库），
+`@duoling/user-scripts`（src/relay/，那边 build.mjs 生成 IIFE 源码串，不入库），
 宿主侧注册面随本包内置：`registerAllEnabled` 按「启用脚本的匹配
 并集」自动维护它的注册，IIFE 以 `{ code }` 注入、无公共资产文件，接入方零接线。

@@ -1,8 +1,8 @@
 # 0010. 浮层拖动：把手在父页、拖动只写 transform
 
 日期: 2026-10-18
-状态: 已接受
-代码落点: packages/builtin-scripts/src/float-host/install.ts（拖动把手 JSDoc 指回本文件）
+状态: 已被 0047 取代（浮层载体下线，拖动需求一起消失）
+代码落点: 原 packages/builtin-scripts/src/float-host/install.ts（已删）
 
 ## 背景
 

@@ -10,7 +10,7 @@
 // 按 parts 出现顺序交错成「思考与执行过程」链。
 //
 // 附件的加入 / 压缩 / 提交都在本组件：输入区的 prompt-input 上下文由这里创建（见下方「附件」）。
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useDbSignal } from '../composables/use-data-sync'
 import { listModelState, readModelProfilesRaw, setActiveProfile } from '@duoling/shared'
 import {
@@ -86,7 +86,13 @@ import type { PromptInputMessage } from '@duoling/ui/components/ai-elements/prom
 import type { TokenUsage } from '@duoling/shared'
 import type { ChatMessageMetadata, MessagePageContext } from '@duoling/shared'
 import type { ElementPickContext } from '@duoling/shared'
-import { cancelPick, isUserScriptsApiAvailable, pickElement } from '@duoling/shared'
+import {
+  cancelPick,
+  clearPickResult,
+  isUserScriptsApiAvailable,
+  readPickState,
+  startPick,
+} from '@duoling/shared'
 import {
   clearPickedElement,
   getPickedElement,
@@ -121,6 +127,7 @@ import {
   prepareAttachments,
   type AssetUploader,
 } from '../lib/chat-attachments'
+import { readChatDraft, writeChatDraft } from '../lib/chat-draft'
 
 const props = defineProps<{
   messages: UIMessage[]
@@ -132,6 +139,7 @@ const props = defineProps<{
   /** 只读回放：不渲染输入区（含拾取与模型切换）—— 工作台「会话历史」看历史用。
    *  消息区、思考链、工具卡、复制、生成卡片都照常，只是不能再发消息。 */
   readonly?: boolean
+  pageTabId?: number | null
 }>()
 const emit = defineEmits<{
   /** 发送一条消息：text 可以为空（纯图提问），assets 是随消息附上的资源引用（图片落库后的那份） */
@@ -140,6 +148,7 @@ const emit = defineEmits<{
   openSettings: []
   /** 需要开权限（页面读取不可用 / 启用脚本失败）：请宿主打开工作台引导标签页 */
   openGuide: []
+  pickStarted: []
 }>()
 
 // —— 对话模型选择：仅切换后续发送所用的模型 ——
@@ -556,11 +565,6 @@ async function removeCard(card: GenerationCardData): Promise<void> {
 //
 // 卡面上不写站点名：录制认的是标签页，这一页此后导航到哪都在录，标一个会过期的站点名反而误导。
 
-/**
- * 本载体所属的标签页 —— 录制锚在它上面。浮层在页面内嵌的 iframe 里，归属由浮层宿主件
- * 经 iframe URL 传入（与它的会话归属同一处解析，见 lib/owning-tab.ts）；在工作台里只读回看历史
- * 会话时读不到，此时卡片不给操作（录制无标签页可锚）。
- */
 const ownerTabId = readPinnedTabId()
 
 /** 本标签页此刻在不在录（SW 为权威；这里是渲染用的本地视图，点击后即时更新） */
@@ -686,6 +690,26 @@ const promptInput = usePromptInputProvider({
   },
 })
 
+async function restoreDraft(): Promise<void> {
+  if (props.pageTabId == null) return
+  const text = await readChatDraft(props.pageTabId)
+  if (text && !promptInput.textInput.value) promptInput.setTextInput(text)
+}
+
+// 每次输入直接落盘、不做防抖：popup 点外面是硬拆文档，pagehide 里那句异步写不保证跑完，
+// 任何延迟都等于「敲完就点页面 = 一个字都没存」。串行链保证后写的覆盖先写的。
+let draftChain: Promise<void> = Promise.resolve()
+
+watch(promptInput.textInput, (text) => {
+  const tabId = props.pageTabId
+  if (tabId == null) return
+  draftChain = draftChain.then(() => writeChatDraft(tabId, text))
+})
+
+onMounted(() => {
+  void restoreDraft()
+})
+
 /** 移除一个附件；顺手清掉上一条与附件相关的提示（附件都换了，旧提示已过期） */
 function removeAttachment(id: string): void {
   promptInput.removeFile(id)
@@ -704,12 +728,20 @@ onMounted(() => {
     pickedElement.value = getPickedElement()
   })
   window.addEventListener('keydown', onPanelKeydown)
+  void refreshPickState()
 })
 onUnmounted(() => {
   unsubscribeContext?.()
   unsubscribeContext = null
+  stopPickPoll()
   window.removeEventListener('keydown', onPanelKeydown)
 })
+
+watch(pickedElement, (next, prev) => {
+  if (prev && !next && props.pageTabId != null) void clearPickResult(props.pageTabId)
+})
+
+let pickPoll: ReturnType<typeof setInterval> | null = null
 
 /** 正在拾取中（按钮转圈 + 防连点） */
 const contextBusy = ref<'pick' | null>(null)
@@ -717,6 +749,45 @@ const contextBusy = ref<'pick' | null>(null)
 const contextError = ref('')
 /** 该错误是否属「去工作台引导页开权限」类（决定错误条里是否给引导入口） */
 const contextErrorNeedsGuide = ref(false)
+
+function stopPickPoll(): void {
+  if (!pickPoll) return
+  clearInterval(pickPoll)
+  pickPoll = null
+}
+
+function startPickPoll(): void {
+  if (pickPoll) return
+  pickPoll = setInterval(() => void refreshPickState(), 1500)
+}
+
+async function refreshPickState(): Promise<void> {
+  const tabId = props.pageTabId
+  if (tabId == null) return
+  const state = await readPickState(tabId).catch(() => null)
+  if (!state) return
+  if (state.status === 'done') {
+    setPickedElement(state.element)
+    contextError.value = ''
+    contextBusy.value = null
+    stopPickPoll()
+    return
+  }
+  if (state.status === 'error') {
+    contextError.value = state.message
+    contextErrorNeedsGuide.value = false
+    contextBusy.value = null
+    stopPickPoll()
+    return
+  }
+  if (state.status === 'picking') {
+    contextBusy.value = 'pick'
+    startPickPoll()
+    return
+  }
+  contextBusy.value = null
+  stopPickPoll()
+}
 
 /** chip 上的元素简述：tag#id（文本摘要取前 12 字） */
 function elementChipLabel(ctx: ElementPickContext): string {
@@ -727,8 +798,13 @@ function elementChipLabel(ctx: ElementPickContext): string {
 
 async function onPickElement(): Promise<void> {
   if (contextBusy.value) return
+  const tabId = props.pageTabId
   contextError.value = ''
   contextErrorNeedsGuide.value = false
+  if (tabId == null) {
+    contextError.value = '这一页没能认出来，暂时无法点选元素'
+    return
+  }
   if (!isUserScriptsApiAvailable()) {
     // 开关没开：不发起下达，直接给引导文案（探针结论：命名空间不存在时注册与下发都无从谈起）
     contextError.value = userScriptsUnavailableMessageSafe()
@@ -737,14 +813,11 @@ async function onPickElement(): Promise<void> {
   }
   contextBusy.value = 'pick'
   try {
-    const ctx = await pickElement()
-    if (ctx) {
-      setPickedElement(ctx)
-    }
-    // null = 用户取消（Esc / 右键）：静默
+    await startPick(tabId)
+    startPickPoll()
+    emit('pickStarted')
   } catch (e) {
     contextError.value = errorText(e)
-  } finally {
     contextBusy.value = null
   }
 }
@@ -755,9 +828,12 @@ async function onPickElement(): Promise<void> {
  * 页面恰好持有焦点时兜底，主取消路径在这边。监听器全程挂载、回调里按状态放行。
  */
 function onPanelKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape' && contextBusy.value === 'pick') {
-    void cancelPick()
-  }
+  if (e.key !== 'Escape' || contextBusy.value !== 'pick') return
+  const tabId = props.pageTabId
+  if (tabId == null) return
+  void cancelPick(tabId)
+  contextBusy.value = null
+  stopPickPoll()
 }
 
 /** 可用性检测失败时统一给引导文案（client 的 pick 也会抛同文案，此处是免注入的前置短路） */
@@ -787,7 +863,7 @@ function userScriptsUnavailableMessageSafe(): string {
               :class="m.role === 'user' ? 'items-end' : 'items-start'"
             >
               <!-- 思考过程：思考/说明/工具卡按 parts 顺序交错成链，默认折叠。
-                   max-w-full 覆盖组件自带的 max-w-prose（65ch）—— 浮层里面板窄看不出，
+                   max-w-full 覆盖组件自带的 max-w-prose（65ch）—— popup 里板窄看不出，
                    工作台右栏宽就会缩在半截（twMerge 同组后者胜，不用改组件本体） -->
               <ui-chain-of-thought
                 v-if="m.role === 'assistant' && hasProcess(m)"
@@ -1079,7 +1155,7 @@ function userScriptsUnavailableMessageSafe(): string {
                   v-if="ownerTabId == null"
                   class="mt-2 text-xs leading-relaxed text-muted-foreground"
                 >
-                  录制按标签页进行，请到目标页面的 popup 或对话浮层里开启。
+                  录制按标签页进行，请到目标页面的 popup 里开启。
                 </p>
                 <p
                   v-else-if="tabRecording"

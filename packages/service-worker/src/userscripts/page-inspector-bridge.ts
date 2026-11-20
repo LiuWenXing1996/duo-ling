@@ -1,10 +1,6 @@
 // 页面检查器指令桥（SW 侧）：把「拾取 / 采集快照 / 读环境 / 收工」下发到常驻件，
 // 并在件上报结果时按 reqId 配对回发起方那次调用。
-//
-// 只在 SW 侧引用。与 element-picker-client（应用侧的发起薄客户端）的分工：
-//   那里 —— 只发命令面请求（picker:pick / picker:cancel），失败文案交给 UI；
-//   本文件 —— SW 侧那半：下发、配对、超时兜底、进行中拾取的记账，外加两条 AI 支路
-//   的下发封装（page:snapshot / page:env 的 handler 调 capturePage*FromTab）。
+// 两条支路：快照 / 环境读数由本层等结果（调用方是 AI 工具）；拾取下发即返回，结论交给 pending-pick。
 //
 // 件已是 MAIN 世界系统脚本（走统一脚本链，见 system-scripts.ts），通道全走脚本桥：
 //     （telemetry port 注入，见 telemetry.ts）。
@@ -12,16 +8,15 @@
 // 超时放在这一层（不重复设在发起侧）：件可能因页面卸载 / 导航而永远不上报，留一条兜底，
 // 文案按模式区分 —— 用户要能判断是「自己没点」还是「页面没了」。
 
-import type { PageEnvContext, PageSnapshotContext } from '@duoling/shared'
+import type { ElementPickContext, PageEnvContext, PageSnapshotContext } from '@duoling/shared'
 import { INSPECTOR_HOST_ID } from '@duoling/user-scripts/builtin'
 import { pushCommandTo } from '../gm-port'
+import { clearFlight, findFlightTab, readPickState, recordFlight, settlePick } from './pending-pick'
 
-/** 单次调用的超时：用户点选可能很久不结算，但页面关掉 / 导航会让它永不结算，必须有兜底 */
-const PICK_TIMEOUT_MS = 60_000
+const INSPECTOR_TIMEOUT_MS = 60_000
 
 /** 各模式的超时文案（超时 = 这次调用失败，文案要能让用户判断是「没点」还是「页面没了」） */
 const TIMEOUT_MESSAGE = {
-  pick: '拾取已取消：60 秒内未完成点选（页面可能已关闭或刷新）',
   snapshot: '页面快照采集失败：60 秒内未完成（页面可能已关闭或刷新）',
   env: '页面环境读取失败：60 秒内未完成（页面可能已关闭或刷新）',
 } as const
@@ -45,9 +40,6 @@ interface PendingInspector {
 /** 在进行中的指令：reqId → 结算器。SW 重启即丢（发起侧那条连接也一并断） */
 const pending = new Map<string, PendingInspector>()
 
-/** 进行中拾取的目标标签页（收工要往那一页发）。同一时刻至多一个拾取，与 UI 的单一入口一致 */
-let activePickTabId: number | null = null
-
 function mintReqId(): string {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -55,23 +47,18 @@ function mintReqId(): string {
 }
 
 /**
- * 下发一条指令并等件上报结果。pick 模式结算值可为 null（用户取消），其余模式结算值必为对象。
  * 失败路径：下发时该页上没有件的在岗连接 → 立刻抛（不等超时）；件报错 → 抛件给的原因；
  * 永不结算 → 超时抛。
  */
-export async function runInspectorCommand<T>(
-  tabId: number,
-  mode: InspectorMode,
-): Promise<T | null> {
+export async function runInspectorCommand<T>(tabId: number, mode: InspectorMode): Promise<T> {
   const reqId = mintReqId()
   const wait = new Promise<unknown>((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(reqId)
       reject(new Error(TIMEOUT_MESSAGE[mode]))
-    }, PICK_TIMEOUT_MS)
+    }, INSPECTOR_TIMEOUT_MS)
     pending.set(reqId, { resolve, reject, timer })
   })
-  if (mode === 'pick') activePickTabId = tabId
   // 即时失败并清记账 —— 这条 wait 不会再有人 await，留着只会得到一条
   // 「拒绝却无人处理」的 Promise（控制台噪音），而不是给用户任何信息。
   const sent = pushCommandTo(INSPECTOR_HOST_ID, tabId, { t: 'inspector.cmd', cmd: mode, reqId })
@@ -81,23 +68,25 @@ export async function runInspectorCommand<T>(
       pending.delete(reqId)
       clearTimeout(entry.timer)
     }
-    if (mode === 'pick') activePickTabId = null
     throw new Error(NOT_READY)
   }
-  try {
-    return (await wait) as T | null
-  } finally {
-    if (mode === 'pick') activePickTabId = null
-  }
+  return (await wait) as T
 }
 
-/**
- * 请件收工。不单独等回执：取消会让那条 pick 的 Promise resolve null，结果照常由它上报。
- * 该页上没有件的在岗连接时下发不了 —— 那条 pick 由超时兜底，这里静默。
- */
-export async function cancelPicker(): Promise<void> {
-  const tabId = activePickTabId
-  if (tabId == null) return
+export async function startPick(tabId: number): Promise<{ started: boolean }> {
+  const { status } = await readPickState(tabId)
+  if (status === 'picking') return { started: false }
+  const reqId = mintReqId()
+  await recordFlight(tabId, reqId, Date.now())
+  const sent = pushCommandTo(INSPECTOR_HOST_ID, tabId, { t: 'inspector.cmd', cmd: 'pick', reqId })
+  if (!sent) {
+    await clearFlight(tabId, reqId)
+    throw new Error(NOT_READY)
+  }
+  return { started: true }
+}
+
+export async function cancelPicker(tabId: number): Promise<void> {
   try {
     pushCommandTo(INSPECTOR_HOST_ID, tabId, {
       t: 'inspector.cmd',
@@ -105,17 +94,14 @@ export async function cancelPicker(): Promise<void> {
       reqId: mintReqId(),
     })
   } catch {
-    // 同上：静默，交给超时
+    return
   }
 }
 
 /**
- *
  * 认领与结算分开看：
  *   · 旁证只认 **uuid** —— 信封上带着发件系统脚本的固定 uuid，不是检查器自己的就丢弃出声；
- *   · 结算认 **reqId** —— 它由 SW 现造（UUID），页面与别的脚本都猜不到，配上了就是当次
- *     调用的回执。有信封却没挂起的调用：SW 重启过（记账丢了）。结算按 reqId 幂等，
- *     真丢了的调用由超时兜底。
+ *   · 结算认 **reqId** —— 它由 SW 现造（UUID），页面与别的脚本都猜不到，配上了就是当次调用。
  */
 export function handleInspectorEvent(
   uuid: string,
@@ -128,18 +114,39 @@ export function handleInspectorEvent(
   }
   const reqId = String(rec.reqId ?? '')
   const entry = pending.get(reqId)
-  if (!entry) {
-    // 有信封却没挂起的调用：SW 重启过（记账丢了）。真丢了的调用由超时兜底。
+  if (entry) {
+    pending.delete(reqId)
+    clearTimeout(entry.timer)
+    if (rec.ok === true) {
+      entry.resolve(rec.payload ?? null)
+    } else {
+      entry.reject(new Error(typeof rec.payload === 'string' ? rec.payload : '页面读取失败'))
+    }
+    return
+  }
+  void settlePickFromEvent(reqId, rec)
+}
+
+async function settlePickFromEvent(
+  reqId: string,
+  rec: { ok: boolean; payload: unknown },
+): Promise<void> {
+  const tabId = await findFlightTab(reqId)
+  if (tabId == null) {
     console.warn('[duoling:inspector] 指令结果没对上挂起的调用（SW 重启过）：', reqId)
     return
   }
-  pending.delete(reqId)
-  clearTimeout(entry.timer)
-  if (rec.ok === true) {
-    entry.resolve(rec.payload ?? null)
-  } else {
-    entry.reject(new Error(typeof rec.payload === 'string' ? rec.payload : '页面读取失败'))
+  if (rec.ok === true && rec.payload == null) {
+    await clearFlight(tabId, reqId)
+    return
   }
+  if (rec.ok === true) {
+    await settlePick(tabId, reqId, { element: rec.payload as ElementPickContext })
+    return
+  }
+  await settlePick(tabId, reqId, {
+    message: typeof rec.payload === 'string' ? rec.payload : '页面读取失败',
+  })
 }
 
 /**
@@ -149,9 +156,7 @@ export function handleInspectorEvent(
  * 引擎可用性由调用方先判 —— 文案留应用侧一处，别在这里再写一句。
  */
 export async function capturePageSnapshotFromTab(tabId: number): Promise<PageSnapshotContext> {
-  const ctx = await runInspectorCommand<PageSnapshotContext>(tabId, 'snapshot')
-  if (!ctx) throw new Error('页面快照采集失败：件未返回数据')
-  return ctx
+  return runInspectorCommand<PageSnapshotContext>(tabId, 'snapshot')
 }
 
 /**
@@ -159,7 +164,5 @@ export async function capturePageSnapshotFromTab(tabId: number): Promise<PageSna
  * 调用方 = SW 的 'page:env' 命令（AI 的 page_env_read 工具触发）；tabId 口径与快照一致。
  */
 export async function capturePageEnvFromTab(tabId: number): Promise<PageEnvContext> {
-  const ctx = await runInspectorCommand<PageEnvContext>(tabId, 'env')
-  if (!ctx) throw new Error('页面环境读取失败：件未返回数据')
-  return ctx
+  return runInspectorCommand<PageEnvContext>(tabId, 'env')
 }
