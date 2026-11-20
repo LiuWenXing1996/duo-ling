@@ -158,14 +158,14 @@ import {
   userScriptsUnavailableMessage,
 } from '@duoling/shared'
 // 拾取指令的下发与配对（常驻件那半在页面里，件源码见包的 inspector/install.ts）
-import { cancelPicker, runInspectorCommand } from '@duoling/service-worker'
+import { cancelPicker, dropPickState, readPickState, startPick } from '@duoling/service-worker'
 import {
   collapseFloatPanel,
   openFloatPanel,
   pingFloatHost,
   setFloatPanelBusy,
 } from '@duoling/service-worker'
-import type { ElementPickContext } from '@duoling/shared'
+import type { PickState } from '@duoling/shared'
 import { errorText, isTransportError } from '@duoling/shared'
 
 export const SW_KIND_PREFIXES = [
@@ -279,24 +279,13 @@ async function resolveAiTargetTab(
   return tabId
 }
 
-/**
- * 定位「用户此刻看着的标签页」并在下发前拦掉不可注入的页（拾取专用）。
- *
- * 与 resolveAiTargetTab 的口径刻意不同：那条认**会话归属**（AI 在生成中途自己决定要读，
- * 那时用户可能已经切走）；这条认**激活页** —— 拾取由用户在看得见的面板上点按钮发起，
- * 浮层只在自己那个 tab 可见，那一刻它必然在激活页上，不必也不该去查归属。SW 无窗口上下文，
- * lastFocusedWindow 即用户最后聚焦的那个窗口。
- *
- * 名字避开 owning-tab 的 resolveActiveTabId：那个是「扩展页认自己属于哪个标签页」，
- * 这条是「SW 替一次用户动作找目标页」，别混。
- */
-async function resolvePickTargetTab(what: string): Promise<number> {
-  if (!chrome.tabs?.query) throw new Error('无法定位目标标签页')
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-  if (tab?.id == null) throw new Error('未找到活动标签页')
+async function ensurePickTab(tabId: number, what: string): Promise<number> {
+  if (!chrome.tabs?.get) throw new Error('无法定位目标标签页')
+  const tab = await chrome.tabs.get(tabId).catch(() => null)
+  if (!tab) throw new Error(`目标标签页已关闭，无法${what}`)
   const blocked = pageInjectionBlockReason(tab.url)
   if (blocked) throw new Error(`${blocked}，无法${what}，请切到要操作的网页后重试`)
-  return tab.id
+  return tabId
 }
 
 /**
@@ -460,13 +449,21 @@ const handlers: {
   'chat:orphans': (msg) => forwardToOffscreen(msg),
   'chat:orphanAction': (msg) => forwardToOffscreen(msg),
 
-  // —— 拾取（浮层发起的用户动作）——
-  // 目标页判据见 resolvePickTargetTab —— 与上面两条 AI 支路刻意不同，别在这里另写一份。
-  'picker:pick': async (): Promise<ElementPickContext | null> =>
-    runInspectorCommand<ElementPickContext>(await resolvePickTargetTab('点选元素'), 'pick'),
+  'picker:start': async (msg): Promise<{ started: boolean }> => {
+    ensureInspectorAvailable()
+    await ensurePickTab(msg.tabId, '点选元素')
+    return startPick(msg.tabId)
+  },
 
-  'picker:cancel': async (): Promise<null> => {
-    await cancelPicker()
+  'picker:state': async (msg): Promise<PickState> => readPickState(msg.tabId),
+
+  'picker:clear': async (msg): Promise<null> => {
+    await dropPickState(msg.tabId)
+    return null
+  },
+
+  'picker:cancel': async (msg): Promise<null> => {
+    await cancelPicker(msg.tabId)
     return null
   },
 
@@ -1030,6 +1027,7 @@ function mountProposal2Listeners(): void {
     if (changeInfo.status === 'loading') {
       endRunsOfTab(tabId, 'navigated')
       resetPageRuns(tabId)
+      void dropPickState(tabId).catch(() => {})
       // 存续轴：文档重开了，记一条「刷新」—— 但若这其实是一次导航（url 回调还没到），
       // 由 tab-sessions 拿此刻的真实地址比出来、改记「地址变更」。地址只有 SW 现取得到。
       void chrome.tabs
@@ -1053,6 +1051,7 @@ function mountProposal2Listeners(): void {
   chrome.tabs.onRemoved.addListener((tabId) => {
     endRunsOfTab(tabId, 'closed')
     forgetPageTab(tabId)
+    void dropPickState(tabId).catch(() => {})
     // 归属收尾：按映射找到那条会话并**中止它的任务**，再解绑。
     // 面板没开的时候标签页照样会被关，只有常驻的 SW 不漏，所以这一步必须在这里做
     // （漏了它会留在 offscreen 里跑完 —— 没人看结果、也没处按停止，纯粹烧 token）。

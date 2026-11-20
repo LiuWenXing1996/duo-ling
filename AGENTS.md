@@ -21,7 +21,7 @@
   - **会话归属按标签页（2026-09-21）**：一个 tab 一条会话（映射见 `packages/shared/src/app/conversation-tab-map.ts`）。对话界面（`ChatApp`）里**不得**加回会话列表或「新建会话」—— 历史会话的入口在工作台「会话历史」标签页。归属解析与惰性新建**只在 `use-global-conversation.ts` 一处**；「本载体属于哪个 tab」**只在 `packages/ui/src/lib/owning-tab.ts` 一处**（乱查 `tabs.query({active})` 会串到别人的标签页），面板组件不做这类判断。
     **删除会话必须先过「是否正被标签页使用」这道门**（`conversation-tab-map` 的 `getActiveTabBindings`：映射里有 **且** 该标签页还开着）—— 新增任何删除入口都要走它，别只查映射。
     **标签页关闭时，它那条会话正在跑的任务要一并中止**（`background` 的 `tabs.onRemoved` → `abortConversationOfClosedTab`：先按归属映射找到会话、再解绑，然后发 `chat:abort`）。任务跑在 offscreen、与页面无关是刻意的，但会话按标签页归属 —— 页面没了就没人看结果、也没处按停止，不喊停它会一路跑完烧 token。用户侧的就地停止入口在工作台「会话历史」的「生成中」标上。
-    **凡是「对这个标签页做点什么」的新入口，判据必须是会话归属，不是 `tabs.query({active})`**：命中页只可能是「用户此刻正看着的那页」（拾取 —— 用户点按钮时面板必然在激活页上），其余一律认归属（页面侧读取统一走 `background.ts` 的 `resolveAiTargetTab`，用 `findTabsUsingConversation` 反查）—— 生成期间用户随时可能切走。
+    **凡是「对这个标签页做点什么」的新入口，判据必须是会话归属或发起方手里那一页，不是 `tabs.query({active})`**：popup 认领自己所属的标签页（`chatTabId`）并带进命令（拾取即此例，`ensurePickTab` 只拦不可注入的页），页面侧读取统一走 `background.ts` 的 `resolveAiTargetTab`（用 `findTabsUsingConversation` 反查）—— 生成期间用户随时可能切走，而 popup 被当普通标签页打开时 active 是扩展页自己。
 - **对话附件（图片 / 文本文件）**：转换全在**发出前**完成，集中一处（`packages/ui/src/lib/chat-attachments.ts`），下游 transport / offscreen / provider 不感知附件的存在 —— 机制见 [ARCHITECTURE.md](ARCHITECTURE.md)「对话链路」。两条不得改坏：
   - **任何新的附件入口都必须过那份类型白名单**：将来加拖拽 / 选择器 / 导入之类的入口时，别绕开 `prepareAttachments` 自己处理文件，否则会把 zip / pdf 当文本读进提示词。
   - **图片字节永不进模型**：图片只进资源库（`/assets`）、消息里只留 `data-asset` 引用，送模型前由 `messagesForModel` 换成一行文字；主 Agent 想看内容必须调 `image_ask`。别在任何环节把图片「顺手」塞回消息 parts —— 那会让它随每轮历史重发，正是这条设计要避免的开销。

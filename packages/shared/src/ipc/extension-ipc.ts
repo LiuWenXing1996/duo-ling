@@ -12,6 +12,7 @@
 // `dl-page-inspector`）的载荷形状**定义在契约包里**：件按这些形状造数据，而件不能
 // 依赖应用源码，故真相源落在 @duoling/shared —— 消费方从那里自取，本文件不再转发。
 import type { PageContextInfo } from '../chat-ipc'
+import type { ElementPickContext } from '../page-context'
 import type { IOffscreenService } from '../service/offscreen-service'
 import type { IpcEnvelope } from './envelope'
 
@@ -154,12 +155,11 @@ export type RuntimeRequest =
   // 会话归属映射与 SW 内存里的进行中集合，popup 自己拼会拼出三份时间点不同的快照（还各要一次 IPC）。
   | { kind: 'page:overview' }
 
-  // —— 拾取（浮层 → SW）：用户显式点按钮发起 ——
-  // SW 取**激活标签页**（拾取那一刻浮层必然在用户看着的那一页上），再向该页的页面检查器常驻件
-  // 下发指令；结果由件上报、SW 按 reqId 配对（见包内 userscripts/page-inspector-bridge.ts）。
-  | { kind: 'picker:pick' }
-  // 收工：与「开始」同一根线，SW 只负责转发到那一页
-  | { kind: 'picker:cancel' }
+  // —— 拾取（popup 发起；结论按标签页暂存、读过不删，由 clear 收走，见 pending-pick）——
+  | { kind: 'picker:start'; tabId: number }
+  | { kind: 'picker:state'; tabId: number }
+  | { kind: 'picker:clear'; tabId: number }
+  | { kind: 'picker:cancel'; tabId: number }
 
   // —— 浮层宿主的命令面 ——
   // 浮层宿主件已转 MAIN 世界系统脚本（走统一脚本链），那里没有 chrome.runtime，
@@ -198,6 +198,12 @@ export type RuntimeRequest =
   // SW 的 define 注入构建信息（wxt.config.ts）不是 HTML，页面看不见；UI 经此命令取回并展示。
   // 发消息本身会把休眠的 SW 唤醒，故返回的总是「此刻 SW 上下文」的构建信息——正是想要的语义。
   | { kind: 'sw:buildInfo' }
+
+export type PickState =
+  | { status: 'idle' }
+  | { status: 'picking' }
+  | { status: 'done'; element: ElementPickContext }
+  | { status: 'error'; message: string }
 
 // —— 数据变更广播（写侧 → 全部前端实例）——
 // 为什么要有这条（IDB 无变更通知）、与 OffscreenPush / RuntimeRequest 的分工

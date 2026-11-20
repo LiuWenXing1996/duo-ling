@@ -18,10 +18,17 @@ const fsMocks = vi.hoisted(() => ({
   fsAssetPut: vi.fn(),
 }))
 const modelMocks = vi.hoisted(() => ({ listModelState: vi.fn(), setActiveProfile: vi.fn() }))
+const pickMocks = vi.hoisted(() => ({
+  startPick: vi.fn(),
+  readPickState: vi.fn(async () => ({ status: 'idle' })),
+  clearPickResult: vi.fn(),
+}))
 vi.mock('@duoling/shared', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@duoling/shared')>()),
   isUserScriptsApiAvailable: () => true,
-  pickElement: vi.fn(),
+  startPick: pickMocks.startPick,
+  readPickState: pickMocks.readPickState,
+  clearPickResult: pickMocks.clearPickResult,
   cancelPick: vi.fn(),
   listModelState: modelMocks.listModelState,
   setActiveProfile: modelMocks.setActiveProfile,
@@ -47,11 +54,11 @@ function setModelProfile(): void {
 async function mountPanel(
   messages: UIMessage[] = [],
   streaming = false,
-  draftTabId?: number | null,
+  pageTabId?: number | null,
 ): Promise<VueWrapper> {
   setModelProfile()
   const w = mount(ChatPanel, {
-    props: { messages, usageByMessageId: {}, streaming, draftTabId },
+    props: { messages, usageByMessageId: {}, streaming, pageTabId },
   })
   await flushPromises() // onMounted 里拉模型列表
   return w

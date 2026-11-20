@@ -1,8 +1,8 @@
 # 0047. 对话载体从网页浮层搬进 popup 的「当前页面」卡
 
 日期: 2026-11-20
-状态: 已接受（P0 已落地；浮层下线在 P2，届时取代 0010 / 0011）
-代码落点: packages/ui/src/components/ChatHost.vue、packages/popup/src/components/PopupChat.vue、packages/ui/src/lib/chat-draft.ts
+状态: 已接受（P0 / P1 已落地；浮层下线在 P2，届时取代 0010 / 0011）
+代码落点: packages/ui/src/components/ChatHost.vue、packages/popup/src/components/PopupChat.vue、packages/ui/src/lib/chat-draft.ts、packages/service-worker/src/userscripts/pending-pick.ts
 
 ## 背景
 
@@ -45,9 +45,10 @@ popup 与浮层的差别只有一条，但它是结构性的：**popup 一失焦
 
 ## 代价与后果
 
-- **拾取不再能在 popup 内闭环**：`picker:pick` 仍等结果、结果仍住在 popup 文档里，点页面
-  必关窗 → 结果丢。P1 把发起与结果挪进 SW（`picker:pick` 立即返回 `{started}`，结果按 tab
-  暂存并在 popup 重开时取回），拾取才算真正保住。
+- **拾取不在 popup 文档内闭环**（P1 已落地）：`picker:start` 只下发、立即返回，结论按标签页
+  暂存在 `chrome.storage.session`（`pending-pick.ts`），popup 重开时 `picker:state` 取回，
+  chip 消失（× / 发送后）才 `picker:clear`。SW 侧**不挂**等待中的 Promise —— popup 关掉是常态，
+  SW 自己也会空闲回收，两头都不适合「有人等着」；超时改成读取时按 `startedAt` 判，不设定时器。
 - **生成期页面遮罩只剩浮层有**：popup 不报 busy。浮层下线后需另定方案（当前默认是「什么都不
   盖」，见 P2）。
 - 浮层下线（P2）时删 float-host 件、float-bridge、四个 `float:*` 命令、floatpanel 入口，

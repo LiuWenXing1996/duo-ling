@@ -1,4 +1,4 @@
-// 拾取元素的**发起侧**封装：本文件只经命令面（`picker:pick` / `picker:cancel`）请 SW 下发。
+// 拾取元素的**发起侧**封装：本文件只经命令面（`picker:start` / `picker:state` / `picker:cancel`）请 SW 干活。
 //
 // 下发与配对不在这一侧 —— SW 的 handler 交给包内 page-inspector-bridge，件源码见
 // @duoling/user-scripts/builtin 的 inspector/install.ts。分两层是因为发起方在扩展页、件在页面里，
@@ -16,7 +16,7 @@
 import { EXTENSION_NAME } from '../extension-identity'
 import { extensionBaseUrl, hasUserScriptsApi } from './host'
 import { ipcRequest } from '../ipc/ipc-bus'
-import type { ElementPickContext } from '../page-context'
+import type { PickState } from '../ipc/extension-ipc'
 
 /** chrome.userScripts（含 register）是否可用；不可用 = 138+ 逐扩展开关未开或开发者模式未开 */
 export function isUserScriptsApiAvailable(): boolean {
@@ -62,14 +62,19 @@ export function pageInjectionBlockReason(url: string | undefined): string | null
 }
 
 /**
- * 点选元素：请 SW 向那一页的常驻件下发指令，用户点选后返回元素载荷（对话界面调用，用户显式动作）。
- * 用户取消（右键 / 对话界面 Esc / 页面 Esc）返回 null（静默，不是错误）；超时 / 件不在位抛错。
- *
  * 可用性前置判断留在发起侧：开关没开时该命名空间在所有上下文都不存在，没必要白跑一趟 IPC。
  */
-export async function pickElement(): Promise<ElementPickContext | null> {
+export async function startPick(tabId: number): Promise<{ started: boolean }> {
   ensureAvailable()
-  return ipcRequest<ElementPickContext | null>({ kind: 'picker:pick' })
+  return ipcRequest<{ started: boolean }>({ kind: 'picker:start', tabId })
+}
+
+export async function readPickState(tabId: number): Promise<PickState> {
+  return ipcRequest<PickState>({ kind: 'picker:state', tabId })
+}
+
+export async function clearPickResult(tabId: number): Promise<void> {
+  await ipcRequest<null>({ kind: 'picker:clear', tabId }).catch(() => {})
 }
 
 /**
@@ -77,11 +82,8 @@ export async function pickElement(): Promise<ElementPickContext | null> {
  *
  * 为什么不能只靠页面里的 Esc 监听：拾取期间键盘焦点在对话界面（发起按钮所在文档），
  * keydown 不会到达页面 document——除非先点页面，而点击会被拾取拦截成「选中」。
- * 所以取消的主路径在发起侧，且走与「开始」同一根线（SW 下发收工指令，见 page-inspector-bridge）：
- * 件内的拾取句柄 activePick 收掉拾取，那条 pick 的 Promise resolve null，
- * 正在等待的 pickElement() 随之以「用户取消」收场。
  */
-export async function cancelPick(): Promise<void> {
+export async function cancelPick(tabId: number): Promise<void> {
   // 失败静默：没有进行中的拾取时本就没有可取消的东西，报错只会给用户一个无从处理的提示
-  await ipcRequest<null>({ kind: 'picker:cancel' }).catch(() => {})
+  await ipcRequest<null>({ kind: 'picker:cancel', tabId }).catch(() => {})
 }

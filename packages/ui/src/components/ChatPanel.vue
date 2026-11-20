@@ -86,7 +86,13 @@ import type { PromptInputMessage } from '@duoling/ui/components/ai-elements/prom
 import type { TokenUsage } from '@duoling/shared'
 import type { ChatMessageMetadata, MessagePageContext } from '@duoling/shared'
 import type { ElementPickContext } from '@duoling/shared'
-import { cancelPick, isUserScriptsApiAvailable, pickElement } from '@duoling/shared'
+import {
+  cancelPick,
+  clearPickResult,
+  isUserScriptsApiAvailable,
+  readPickState,
+  startPick,
+} from '@duoling/shared'
 import {
   clearPickedElement,
   getPickedElement,
@@ -133,7 +139,7 @@ const props = defineProps<{
   /** 只读回放：不渲染输入区（含拾取与模型切换）—— 工作台「会话历史」看历史用。
    *  消息区、思考链、工具卡、复制、生成卡片都照常，只是不能再发消息。 */
   readonly?: boolean
-  draftTabId?: number | null
+  pageTabId?: number | null
 }>()
 const emit = defineEmits<{
   /** 发送一条消息：text 可以为空（纯图提问），assets 是随消息附上的资源引用（图片落库后的那份） */
@@ -689,8 +695,8 @@ const promptInput = usePromptInputProvider({
 })
 
 async function restoreDraft(): Promise<void> {
-  if (props.draftTabId == null) return
-  const text = await readChatDraft(props.draftTabId)
+  if (props.pageTabId == null) return
+  const text = await readChatDraft(props.pageTabId)
   if (text && !promptInput.textInput.value) promptInput.setTextInput(text)
 }
 
@@ -699,7 +705,7 @@ async function restoreDraft(): Promise<void> {
 let draftChain: Promise<void> = Promise.resolve()
 
 watch(promptInput.textInput, (text) => {
-  const tabId = props.draftTabId
+  const tabId = props.pageTabId
   if (tabId == null) return
   draftChain = draftChain.then(() => writeChatDraft(tabId, text))
 })
@@ -726,12 +732,20 @@ onMounted(() => {
     pickedElement.value = getPickedElement()
   })
   window.addEventListener('keydown', onPanelKeydown)
+  void refreshPickState()
 })
 onUnmounted(() => {
   unsubscribeContext?.()
   unsubscribeContext = null
+  stopPickPoll()
   window.removeEventListener('keydown', onPanelKeydown)
 })
+
+watch(pickedElement, (next, prev) => {
+  if (prev && !next && props.pageTabId != null) void clearPickResult(props.pageTabId)
+})
+
+let pickPoll: ReturnType<typeof setInterval> | null = null
 
 /** 正在拾取中（按钮转圈 + 防连点） */
 const contextBusy = ref<'pick' | null>(null)
@@ -739,6 +753,45 @@ const contextBusy = ref<'pick' | null>(null)
 const contextError = ref('')
 /** 该错误是否属「去工作台引导页开权限」类（决定错误条里是否给引导入口） */
 const contextErrorNeedsGuide = ref(false)
+
+function stopPickPoll(): void {
+  if (!pickPoll) return
+  clearInterval(pickPoll)
+  pickPoll = null
+}
+
+function startPickPoll(): void {
+  if (pickPoll) return
+  pickPoll = setInterval(() => void refreshPickState(), 1500)
+}
+
+async function refreshPickState(): Promise<void> {
+  const tabId = props.pageTabId
+  if (tabId == null) return
+  const state = await readPickState(tabId).catch(() => null)
+  if (!state) return
+  if (state.status === 'done') {
+    setPickedElement(state.element)
+    contextError.value = ''
+    contextBusy.value = null
+    stopPickPoll()
+    return
+  }
+  if (state.status === 'error') {
+    contextError.value = state.message
+    contextErrorNeedsGuide.value = false
+    contextBusy.value = null
+    stopPickPoll()
+    return
+  }
+  if (state.status === 'picking') {
+    contextBusy.value = 'pick'
+    startPickPoll()
+    return
+  }
+  contextBusy.value = null
+  stopPickPoll()
+}
 
 /** chip 上的元素简述：tag#id（文本摘要取前 12 字） */
 function elementChipLabel(ctx: ElementPickContext): string {
@@ -749,8 +802,13 @@ function elementChipLabel(ctx: ElementPickContext): string {
 
 async function onPickElement(): Promise<void> {
   if (contextBusy.value) return
+  const tabId = props.pageTabId
   contextError.value = ''
   contextErrorNeedsGuide.value = false
+  if (tabId == null) {
+    contextError.value = '这一页没能认出来，暂时无法点选元素'
+    return
+  }
   if (!isUserScriptsApiAvailable()) {
     // 开关没开：不发起下达，直接给引导文案（探针结论：命名空间不存在时注册与下发都无从谈起）
     contextError.value = userScriptsUnavailableMessageSafe()
@@ -759,14 +817,10 @@ async function onPickElement(): Promise<void> {
   }
   contextBusy.value = 'pick'
   try {
-    const ctx = await pickElement()
-    if (ctx) {
-      setPickedElement(ctx)
-    }
-    // null = 用户取消（Esc / 右键）：静默
+    await startPick(tabId)
+    startPickPoll()
   } catch (e) {
     contextError.value = errorText(e)
-  } finally {
     contextBusy.value = null
   }
 }
@@ -777,9 +831,12 @@ async function onPickElement(): Promise<void> {
  * 页面恰好持有焦点时兜底，主取消路径在这边。监听器全程挂载、回调里按状态放行。
  */
 function onPanelKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape' && contextBusy.value === 'pick') {
-    void cancelPick()
-  }
+  if (e.key !== 'Escape' || contextBusy.value !== 'pick') return
+  const tabId = props.pageTabId
+  if (tabId == null) return
+  void cancelPick(tabId)
+  contextBusy.value = null
+  stopPickPoll()
 }
 
 /** 可用性检测失败时统一给引导文案（client 的 pick 也会抛同文案，此处是免注入的前置短路） */
