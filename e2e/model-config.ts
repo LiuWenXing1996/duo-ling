@@ -17,12 +17,6 @@ export interface SaveStubModelOptions {
   save?: boolean
 }
 
-/**
- * 在工作台设置页填好一条指向本地 stub 的模型配置。
- *
- * 服务商必须选「自定义」：预设服务商的地址随服务商固定，指不到 stub。
- * `page` 需已导航到 workbench.html（浮层页没有设置入口）。
- */
 export async function saveStubModel(
   page: Page,
   cfg: StubModelConfig,

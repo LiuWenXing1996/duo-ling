@@ -75,7 +75,6 @@ test.describe.serial('AI 生成脚本（本地模型 stub 发工具调用）', (
     extensionId = extensionIdFromServiceWorker(await getServiceWorker(context))
     messenger = await openMessengerPage(context, extensionId)
 
-    // 模型只能在设置页配（浮层没有设置入口）。工作台与浮层同源共享存储，用例里新开的面板直接可用。
     const setup = await context.newPage()
     await setup.goto(`chrome-extension://${extensionId}/workbench.html`)
     await saveStubModel(setup, { baseUrl: stub.stub.baseUrl })

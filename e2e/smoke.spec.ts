@@ -1,7 +1,3 @@
-// 端测冒烟。
-// 覆盖四条面：workbench 页 / SW 命令面 + offscreen 就绪 / 用户脚本注入（GM 桥）/ 网页浮层页。
-// 浮层页（floatpanel.html）在这里作为独立标签页打开；它在真实页面里怎么挂出来（浮层宿主件
-// 挂 iframe）由 float-task-state.spec.ts 覆盖，页面内的对话交互仍归手测。
 import { test, expect, type BrowserContext, type Page, type Worker } from '@playwright/test'
 import * as http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -214,16 +210,6 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
     // 搜不到的关键词：空态文案而不是留白
     await page.locator('[data-testid="gm-api-search"]').fill('zzz-not-exist')
     await expect(page.locator('[data-testid="gm-api-empty"]')).toBeVisible()
-    await page.close()
-  })
-
-  // ———————————————————————————— 网页浮层 ————————————————————————————
-
-  test('floatpanel.html 页面可加载（浮层对话页）', async () => {
-    const page = await context!.newPage()
-    await page.goto(`chrome-extension://${extensionId}/floatpanel.html`)
-    await expect(page).toHaveTitle('哆灵')
-    await expect(page.locator('#app')).toBeVisible()
     await page.close()
   })
 

@@ -318,7 +318,6 @@ describe('popup 的「当前页面」区块', () => {
       expect.any(Function),
     )
     expect(recordState(w).text()).toContain('未开启')
-    // 与「打开会话」不同：关完不关窗，popup 里还有脚本 / 会话可看
     expect(close).not.toHaveBeenCalled()
   })
 

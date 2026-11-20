@@ -86,8 +86,6 @@ export function buildGmWrapperInit(opts: GmWrapperOptions, bodySource: string): 
     ';(function () {',
     `  var g = window.__duolingGmInstall(${JSON.stringify(config)})`,
     `  var ${destructure}`,
-    // 系统件正文（runBody 的回调）在装配段这一层，够不到 installGmWrapper 闭包里的桥客户端；
-    // 正文按裸名 `__gmBridge` 取用的件（检查器 / 浮层宿主 / 录制）靠这行拿到同一个实例。
     '  var __gmBridge = g.bridge',
     '  g.runBody(function () {',
     bodySource,

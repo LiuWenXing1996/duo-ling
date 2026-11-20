@@ -154,8 +154,6 @@ function openUserscriptListTab(): void {
   activate('userscript-list')
 }
 
-// 打开会话历史标签页：回看/管理历史会话（列表 + 回放 / 原始数据双视图），全局仅一个。
-// 对话界面（网页浮层）的会话归属由标签页决定，历史会话的入口收在这里。
 function openSessionHistoryTab(): void {
   if (!openTabs.value.some((t) => t.kind === 'session-history')) {
     openTabs.value.push({ kind: 'session-history', id: 'session-history', title: '会话历史' })

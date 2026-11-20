@@ -915,12 +915,6 @@ export function initGmBridge(): void {
         })
         return undefined
       }
-      if (event && event.t === 'float.pong') {
-        telemetryPort()?.onFloatEvent?.(evt.uuid ?? '', sender.tab?.id ?? null, {
-          reqId: event.reqId,
-        })
-        return undefined
-      }
       const tabId = sender.tab?.id
       if (tabId == null) return undefined
       void Promise.resolve(telemetryPort()?.recordingTabSessionId?.(tabId))

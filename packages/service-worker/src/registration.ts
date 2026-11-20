@@ -1,11 +1,3 @@
-// 用户脚本注册引擎（通用部分）。
-//
-// 职责：chrome.userScripts 的世界配置 + 单脚本注册（GM 包装拼装）+ 全量重注册串行链 +
-// 可用性检测 + 握手密钥。对任何接入扩展都成立；中继件（GM 桥 MAIN 世界侧）属「跑全量 GM」
-// 的组成部分，注册同步由本包内置维护（relay/sync.ts，全量链自动带上）；产品内置件
-// （检查器 / 浮层 / 录制件）经 host-config 的 builtins 注入点挂进全量链。
-// 主走 MAIN 世界注入、GM 包装同函数作用域、注入代码与 @require 拼一条 code、
-// 不给脚本世界配 csp（不放开 eval）—— 机制与理由见 ARCHITECTURE.md「脚本注入」节。
 import type {
   ScriptProject,
   ScriptConfig,
@@ -466,10 +458,6 @@ export async function unregisterScripts(ids: string[]): Promise<void> {
 // 两次 registerAllEnabled 交叠（各自 getScripts→unregister→register）会互相踩踏。
 let registerChain: Promise<void> = Promise.resolve()
 
-/**
- * 挂注册串行队列（导出给宿主内置件的同步复用同一队列：录制件 / 检查器 / 浮层的
- * refresh 与脚本全量重注册必须排同一条队，否则互相踩踏）。
- */
 export function enqueueRegistration(run: () => Promise<void>): Promise<void> {
   const p = registerChain.then(run)
   registerChain = p.catch(() => {})

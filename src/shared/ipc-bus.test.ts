@@ -213,9 +213,9 @@ describe('发送原语 —— 信封解包与尽力而为', () => {
 
   it('ipcRequest：业务失败按 error 文本 reject', async () => {
     const c = stubChrome()
-    c.setResponder((_msg, cb) => cb?.({ ok: false, error: '浮层没接上' }))
+    c.setResponder((_msg, cb) => cb?.({ ok: false, error: '没接上这个页面' }))
 
-    await expect(ipcRequest({ kind: 'float:open', tabId: 7 })).rejects.toThrow('浮层没接上')
+    await expect(ipcRequest({ kind: 'page:overview' })).rejects.toThrow('没接上这个页面')
   })
 
   it('ipcRequest：无人应答（应答端不在场）时给可读错误，不悬着', async () => {

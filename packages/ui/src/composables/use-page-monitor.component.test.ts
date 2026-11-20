@@ -1,13 +1,3 @@
-// 单测：usePageMonitor（「页面脚本监控」面板侧状态源，对话界面浮层的灵动岛在用）。
-//
-// 这个 composable 的副作用全挂在 onMounted / onUnmounted 上：不进 setup 直接调用只会拿到几个
-// ref，既不建端口、也不注册监听、更不拉首帧。故这里**必须挂载一个空壳组件**才能触发 ——
-// 空壳的 setup 里调一次并把返回值接住，断言全走返回值。这是本仓第一例「挂载承载 composable」。
-//
-// 依赖替身（它依赖面宽，除 vue 与纯类型外一律换替身）：
-//   · lib/owning-tab —— 归属解析另有专项测试，这里只控「解析出哪个 tab」；
-//   · lib/userscripts/ui-client —— 名字表的唯一来源，用可手控的 deferred 造在途与失败；
-//   · chrome.* —— 整体 stub：假 Port（登记 onMessage 监听、接住上行）+ tabs.get + tabs.onUpdated。
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { defineComponent } from 'vue'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
@@ -44,7 +34,6 @@ type Monitor = ReturnType<typeof usePageMonitor>
 
 let monitor: Monitor | null = null
 
-/** 空壳：只承载 composable 的 setup 作用域，不渲染任何东西 */
 const Shell = defineComponent({
   setup() {
     monitor = usePageMonitor()
@@ -52,7 +41,6 @@ const Shell = defineComponent({
   },
 })
 
-/** 带显式归属的空壳（popup 这类自己认领标签页的载体走这条） */
 const TabbedShell = defineComponent({
   props: { tabId: { type: Number, default: null } },
   setup(p) {
@@ -61,7 +49,6 @@ const TabbedShell = defineComponent({
   },
 })
 
-/** 取出当前挂载实例的返回值（未挂载时调用即用例写错，直接抛） */
 function state(): Monitor {
   if (monitor == null) throw new Error('尚未挂载空壳组件')
   return monitor

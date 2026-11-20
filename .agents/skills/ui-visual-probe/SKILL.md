@@ -36,8 +36,11 @@ test('截图：<要看的那块>', async () => {
   const id = extensionIdFromServiceWorker(await getServiceWorker(context))
 
   const page = await context.newPage()
-  await page.setViewportSize({ width: 400, height: 780 }) // 按真实载体宽度设，见下
-  await page.goto(`chrome-extension://${id}/floatpanel.html`)
+  await page.setViewportSize({ width: 400, height: 900 }) // 按真实载体宽度设，见下
+  // 对话卡住在 popup 里（`tabId` 用 `sendToSw` 问 SW 要，见 `e2e/extension.ts`）：
+  // `?tab=` 指「这条会话归属哪个标签页」，缺了它归属解析会退回「当前激活页」——
+  // 探针自己那张扩展页，于是页面相关的 UI 全都是空态
+  await page.goto(`chrome-extension://${id}/popup.html?tab=${tabId}`)
 
   // …铺出你要看的状态（造数据 / 点按钮 / 直调命令面）…
 
@@ -52,7 +55,7 @@ test('截图：<要看的那块>', async () => {
 
 ## 四条要点
 
-1. **viewport 按真实载体设**：浮层（`floatpanel.html`）约 400×780，工作台宽得多。宽度不对，
+1. **viewport 按真实载体设**：对话卡（`popup.html`）约 400×900，工作台宽得多。宽度不对，
    换行 / 截断 / 挤压这些问题根本不会出现 —— 截出来是「看着没事」的假象。
 2. **素材必须由浏览器现产**：要一张真图片就用 `page.evaluate` 里的 canvas 画一张再 `toDataURL`
    取 base64。手写硬编码的 1×1 PNG 片段会让 `createImageBitmap` 报

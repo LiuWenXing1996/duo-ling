@@ -234,9 +234,6 @@ importers:
       '@codemirror/view':
         specifier: ^6.43.11
         version: 6.43.11
-      '@duoling/floatpanel':
-        specifier: workspace:*
-        version: link:packages/floatpanel
       '@duoling/offscreen-document':
         specifier: workspace:*
         version: link:packages/offscreen-document
@@ -421,25 +418,6 @@ importers:
       yaml:
         specifier: ^2.8.1
         version: 2.9.1
-
-  packages/floatpanel:
-    dependencies:
-      '@duoling/shared':
-        specifier: workspace:*
-        version: link:../shared
-      '@duoling/ui':
-        specifier: workspace:*
-        version: link:../ui
-      vue:
-        specifier: 3.5.42
-        version: 3.5.42(typescript@5.9.3)
-    devDependencies:
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-      vue-tsc:
-        specifier: ^3.3.11
-        version: 3.3.11(typescript@5.9.3)
 
   packages/offscreen-document:
     dependencies:

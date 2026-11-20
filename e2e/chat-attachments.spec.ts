@@ -147,7 +147,6 @@ test.describe.serial('对话附件（本地模型 stub）', () => {
     stub = await startModelStub()
     context = await launchExtensionContext(profileDir)
     const id = extensionIdFromServiceWorker(await getServiceWorker(context))
-    // 模型只能在设置页配（浮层没有设置入口）。工作台与浮层同源共享存储，后面新开的面板直接可用。
     const setup = await context.newPage()
     await setup.goto(`chrome-extension://${id}/workbench.html`)
     await saveStubModel(setup, { baseUrl: stub.stub.baseUrl })

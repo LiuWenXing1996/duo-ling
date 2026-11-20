@@ -148,11 +148,6 @@ export const userscriptClient = {
   // 录制件归 SW：UI 只扳开关，不直连 duoling-runtime。「本页在不在录」由 tabSessions 的
   // `recording` 字段回答（录制与活动记录本就是同一枚开关的两半），故这里不再有单独的状态命令。
 
-  /**
-   * 扳动某个标签页的记录开关（**唯一的开关**：存续行与页面录制都由它驱动）。
-   * 调用方都是**用户手势**（浮层同意卡上的按钮 / popup 当前页面里的开关）——
-   * AI 工具只出卡，不调这条。地址由 SW 从该标签页现取，不由 UI 带过来。
-   */
   tabActivityEnable: (tabId: number): Promise<{ tabId: number; recording: boolean }> =>
     send({ kind: 'userscript:tabActivityEnable', tabId }),
 

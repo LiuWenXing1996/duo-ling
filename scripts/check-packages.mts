@@ -15,7 +15,6 @@ const MATRIX: Record<string, string[]> = {
   'offscreen-document': ['shared'],
   ui: ['shared'],
   workbench: ['ui', 'shared'],
-  floatpanel: ['ui', 'shared'],
   popup: ['ui', 'shared'],
 }
 

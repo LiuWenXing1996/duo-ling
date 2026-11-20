@@ -566,11 +566,6 @@ async function removeCard(card: GenerationCardData): Promise<void> {
 //
 // 卡面上不写站点名：录制认的是标签页，这一页此后导航到哪都在录，标一个会过期的站点名反而误导。
 
-/**
- * 本载体所属的标签页 —— 录制锚在它上面。浮层在页面内嵌的 iframe 里，归属由浮层宿主件
- * 经 iframe URL 传入（与它的会话归属同一处解析，见 lib/owning-tab.ts）；在工作台里只读回看历史
- * 会话时读不到，此时卡片不给操作（录制无标签页可锚）。
- */
 const ownerTabId = readPinnedTabId()
 
 /** 本标签页此刻在不在录（SW 为权威；这里是渲染用的本地视图，点击后即时更新） */
@@ -869,7 +864,7 @@ function userScriptsUnavailableMessageSafe(): string {
               :class="m.role === 'user' ? 'items-end' : 'items-start'"
             >
               <!-- 思考过程：思考/说明/工具卡按 parts 顺序交错成链，默认折叠。
-                   max-w-full 覆盖组件自带的 max-w-prose（65ch）—— 浮层里面板窄看不出，
+                   max-w-full 覆盖组件自带的 max-w-prose（65ch）—— popup 里板窄看不出，
                    工作台右栏宽就会缩在半截（twMerge 同组后者胜，不用改组件本体） -->
               <ui-chain-of-thought
                 v-if="m.role === 'assistant' && hasProcess(m)"
@@ -1161,7 +1156,7 @@ function userScriptsUnavailableMessageSafe(): string {
                   v-if="ownerTabId == null"
                   class="mt-2 text-xs leading-relaxed text-muted-foreground"
                 >
-                  录制按标签页进行，请到目标页面的 popup 或对话浮层里开启。
+                  录制按标签页进行，请到目标页面的 popup 里开启。
                 </p>
                 <p
                   v-else-if="tabRecording"

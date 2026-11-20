@@ -1,10 +1,4 @@
 <script setup lang="ts">
-// 会话列表项上的「生成中」标 + 就地停止。
-//
-// 为什么需要它：会话按标签页归属，但任务跑在 offscreen、与页面无关 —— 标签页可能已经被关掉
-// （这时标签页关闭会主动中止任务，见 background），也可能用户正在工作台里翻历史。
-// 这两种情况下他都没有「回到那条会话的浮层去按停止」的机会，任务就会在后台静默消耗 token。
-// 所以状态与停止入口都摆到会话列表上。
 import { Square as UiSquare } from '@lucide/vue'
 import { Badge as UiBadge } from '@duoling/ui/components/ui/badge'
 import { Button as UiButton } from '@duoling/ui/components/ui/button'

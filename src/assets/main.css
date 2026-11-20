@@ -225,10 +225,6 @@
   content: url('/help/workbench-dark.webp');
 }
 
-.dark .help-prose img[src='/help/floatpanel.webp'] {
-  content: url('/help/floatpanel-dark.webp');
-}
-
 .dark .help-prose img[src='/help/popup.webp'] {
   content: url('/help/popup-dark.webp');
 }

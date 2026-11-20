@@ -6,7 +6,7 @@
 
 ## 背景
 
-页面脚本监控的一条长连接（`duoling:panel`）有两个进程里的端点：SW 侧是 userscripts/page-monitor.ts，另一端是对话界面浮层的 use-page-monitor.ts（应用侧）。端口名或载荷形状只在一端改，另一端不会报错，只会**静默收不到东西**。
+页面脚本监控的一条长连接（`duoling:panel`）有两个进程里的端点：SW 侧是 userscripts/page-monitor.ts，另一端是 popup 对话卡的 use-page-monitor.ts（应用侧，在 `packages/ui`）。端口名或载荷形状只在一端改，另一端不会报错，只会**静默收不到东西**。
 
 ## 决策
 

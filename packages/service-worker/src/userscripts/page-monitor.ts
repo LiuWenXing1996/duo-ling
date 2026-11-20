@@ -52,10 +52,6 @@ function notifyRunsChanged(): void {
   }
 }
 
-/**
- * 已登记的面板端口（寻址表：面板文档活着才有；断开即摘）。
- * 注意这条**不代表「浮层展开着」**——收起浮层只是 display:none，面板文档照活着。
- */
 const monitorPorts = new Set<chrome.runtime.Port>()
 
 /** 推一条给所有打开的对话界面；端口已断（SW 重启竞态）就静默摘除 */

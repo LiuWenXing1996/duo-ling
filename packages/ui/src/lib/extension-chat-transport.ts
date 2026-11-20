@@ -81,14 +81,6 @@ function installPushListener(): void {
   })
 }
 
-/** 档 0 页面上下文 + 档 2（拾取元素）：
- *  对话界面是扩展页，可直接读**本浮层所属标签页**的 URL / 标题（host_permissions <all_urls>
- *  已覆盖，无需 tabs 权限）；offscreen 没有 chrome.tabs。拾取由用户显式动作采集，
- *  暂存在 page-context-store，随**下一条消息**发出（不自动附带）。页面快照走 AI 工具采集，
- *  不走这条通道。
- *
- *  取的是**所属标签页**而不是「当前激活标签页」：浮层可能挂在用户已经切走的标签页上，
- *  查激活项会把别人的 URL / 标题当上下文发出去（见 lib/owning-tab.ts）。 */
 async function collectPageContext(): Promise<PageContextInfo | undefined> {
   try {
     const tabId = await resolveOwningTabId()

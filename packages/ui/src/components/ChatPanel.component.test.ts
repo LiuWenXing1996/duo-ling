@@ -404,7 +404,7 @@ describe('输入草稿', () => {
     w.unmount()
   })
 
-  it('没有归属标签页（浮层 / 只读回放）：一次都不碰存储', async () => {
+  it('没有归属标签页（无 ?tab= / 只读回放）：一次都不碰存储', async () => {
     const { area } = stubSession()
     const w = await mountPanel()
 

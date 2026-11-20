@@ -100,17 +100,6 @@ async function openScriptManager(): Promise<void> {
   window.close()
 }
 
-/**
- * 扳动这一页的开关（**唯一的一枚**）。
- *
- * 判据落在**这一个标签页**上，命令只带 tabId，地址由 SW 现取。它同时开两件事：给这页建 / 开
- * 存续行（「活动历史」里立刻就能看到它），以及这一页的接口录制。开启必须由人发起 —— AI 工具只能
- * 出同意卡，浮层那张卡与这里走同一条命令，只是挪到一个不必先打开浮层就能按到的地方。
- *
- * 开与关都会给这一页的时间线留一条（开始记录 / 结束记录），「哪一段在记」在那边看得见。
- * 关掉不清任何内容：已录接口、存续行与运行记录都留着（清理在「活动历史」面板里）。
- * 失败时留在面板里把话说出来（与「打开会话」同款：关了就没地方说了）；成功上抛给父组件。
- */
 async function toggleTabActivity(next: boolean): Promise<void> {
   const tabId = props.tab?.tabId
   if (toggleBusy.value || tabId == null) return

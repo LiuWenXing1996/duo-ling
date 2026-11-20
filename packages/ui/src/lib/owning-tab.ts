@@ -1,23 +1,3 @@
-// 「这个载体该看哪个标签页」的唯一解析处。
-//
-// 会话归属按标签页（一个 tab 一条会话），而载体有两类，答案不同：
-//   · 对话界面是**网页浮层**：它跑在页面内嵌的 iframe 里，「自己是哪个 tab」这件事不能靠
-//     `tabs.query({ active: true })` 现查 —— 用户切走之后浮层仍挂在原标签页上，查「当前激活」
-//     会拿到别人。权威值只能由知情的浮层宿主件提供（它经 SW 的 `sender.tab.id` 取到，
-//     见 `tab:identify`），拼进 iframe URL 的 `?tab=` 传进来 → 用 resolveOwningTabId。
-//   · 「点开才生成的扩展页」这一类：它弹出那一刻的激活页正是用户正看着的那页，查「当前激活」
-//     就是正确答案 → 用 resolveActiveTabId。工具栏 popup 属这一类，但它要的是一份跨标签页的
-//     概览，故归属不由它自己解析 —— SW 的 page:overview 命令在 SW 侧聚合（popup 只按 tabId 认领
-//     「哪一行是我」）。本函数仍是那条兜底路径的答案，也是「浮层没拿到 pinned 参数」时的退路。
-//
-// 兜底：pinned 参数缺失（宿主件没取到 / 浮层被当普通标签页直接打开）时退回查当前激活
-// 标签页 —— 打开浮层那一刻它必然是激活的。再取不到就返回 null，调用方按「不绑定」处理
-// （照样能对话，只是这条会话不归属任何标签页），好过错绑到别人的标签页。
-// popup 被**当普通标签页打开**（e2e / 深链）时 active 是它自己那个扩展页，那条路必须带 `?tab=`。
-//
-// 消费方：use-global-conversation、extension-chat-transport（会话归属）、use-page-monitor（灵动岛）。
-
-/** 浮层经 iframe URL 传入的固定归属；没有该参数（非浮层上下文）返回 null */
 export function readPinnedTabId(): number | null {
   try {
     const raw = new URLSearchParams(location.search).get('tab')
@@ -29,12 +9,6 @@ export function readPinnedTabId(): number | null {
   }
 }
 
-/**
- * 当前激活标签页 id；取不到返回 null。
- *
- * 与 resolveOwningTabId 的分工见文件头：浮层不能查 active（会拿到用户切过去的那页），
- * 「点开才生成的扩展页」没有 pinned 归属、也从不与某个标签页长驻绑定，只能查 active。
- */
 export async function resolveActiveTabId(): Promise<number | null> {
   try {
     if (!chrome.tabs?.query) return null

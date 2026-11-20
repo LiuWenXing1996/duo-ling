@@ -1,5 +1,3 @@
-// popup 载体的端测：草稿跨窗口、灵动岛按 ?tab= 取数、拾取关窗不丢结果。
-// 三条都按「关掉再重开」验（popup 一失焦就被硬拆）；@match 不带端口，match pattern 不支持端口。
 import { test, expect, type BrowserContext, type Page, type Worker } from '@playwright/test'
 import * as http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'

@@ -1,21 +1,3 @@
-// 帮助文档配图生成器：无头 Chromium 加载构建产物，截「工作台全貌 / 网页浮层 / popup」
-// 三张导览图（亮色一套；--dark 追加暗色一套），落 --out 目录（默认 tmp/help-shots）。
-//
-// 这是帮助配图的维护方式 —— UI 改版后重跑一次，全部图同步更新，不手工截图：
-//   pnpm run build && node scripts/help-screenshots.mts
-//
-// 截图前做两步铺垫，让画面是「用起来了」的状态而非首装空态：
-//   1. 引导 userScripts 开关（警告横幅由此而来）—— 逻辑与 e2e/extension.ts 的 enableUserScripts
-//      同源，走 chrome.developerPrivate + 详情页 cr-toggle，随 profile 持久化；开关生效需重启
-//      扩展上下文，故采用两段式启动（A 引导 → B 重启后截）。
-//   2. 经 SW 命令面造三个示例脚本（两个启用一个停用），列表与停用态都有内容可看。
-//   3. 浮层里走真对话链路造一段演示对话：起本地假模型（scripts/model-stub.mts，与 e2e 同源），
-//      在工作台设置页经真实表单存配置并激活（e2e/model-config.ts 的 saveStubModel，与端测同源），
-//      再真实发一句 —— 回复内容写死，对话气泡、模型选择、用量标记都是真渲染出来的，不是贴图。
-//
-// 加载姿势与 e2e/extension.ts 保持一致（launchPersistentContext + 捆绑 Chromium +
-// --load-extension，extensionId 从 SW URL 解析）；两边改动需互相检查。
-// 主题走 page.emulateMedia：theme.ts 用 matchMedia 订阅 prefers-color-scheme，模拟值实时生效。
 import { chromium } from '@playwright/test'
 import type { BrowserContext, Page } from '@playwright/test'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
@@ -36,13 +18,9 @@ const extPath =
   argValue('--ext') ?? resolve(fileURLToPath(new URL('../.output/chrome-mv3', import.meta.url)))
 const themes: Array<'light' | 'dark'> = args.includes('--dark') ? ['light', 'dark'] : ['light']
 
-// 截图清单：真实载体尺寸 —— 工作台是全页标签页（按常见笔记本视口），浮层是 384×600 的
-// iframe（content.ts 的 .dl-float-iframe）。popup 尺寸由内容决定（#app 固定 340 宽、高度随内容），
-// 视口只是兜底 —— 截图前会实测 #app 并把视口收到贴住内容，与真实弹窗窗口同形
 const SHOTS = [
   { name: 'workbench', path: 'workbench.html', viewport: { width: 1440, height: 900 } },
-  { name: 'floatpanel', path: 'floatpanel.html', viewport: { width: 384, height: 600 } },
-  { name: 'popup', path: 'popup.html', viewport: { width: 340, height: 620 } },
+  { name: 'popup', path: 'popup.html', viewport: { width: 400, height: 900 } },
 ]
 type Shot = (typeof SHOTS)[number]
 
@@ -92,9 +70,6 @@ const SAMPLE_SCRIPTS = [
   },
 ]
 
-// —— 演示对话：浮层图的内容。问句与工作台图里的「豆瓣评分悬浮」呼应，
-// 让三张图讲同一个故事：问 AI 要脚本 → 思考过程（含工具卡）→ 生成卡片 → 脚本进列表。
-// 浮层只有 560px 高，收尾正文压在两行内。 ——
 const DEMO_QUESTION = '帮我写个豆瓣评分悬浮脚本'
 const DEMO_SCRIPT_CODE = [
   '// ==UserScript==',
@@ -138,12 +113,6 @@ const popupTabOverride = (targetUrl: string) => `
 /** 起好的假模型实例（startModelStub 的返回，await 后的形状） */
 type Demo = Awaited<ReturnType<typeof startModelStub>>
 
-/**
- * 在浮层页里造一段演示对话：真实发一句 → stub 发 script_spec → script_apply（生成卡片出现）
- * → 收尾文本；等卡片就位后点「启用并生效」，让卡片翻到「已启用」态。走的是真人路径
- * （chat:start 全链路落库），思考过程 / 工具卡 / 生成卡片 / 用量标记都是真渲染。
- * 模型配置须先经 seedModel 配好；stub 的 hits 跨会话累计，plan 按请求次序出招 —— 每次造数前清零。
- */
 async function seedConversation(page: Page, demo: Demo) {
   demo.stub.hits.length = 0
   const box = page.getByRole('textbox').first()
@@ -162,10 +131,6 @@ async function seedConversation(page: Page, demo: Demo) {
   await page.waitForTimeout(800)
 }
 
-/**
- * 配一条指向假模型的配置并激活。浮层没有设置入口，故开一张工作台页走设置页表单 ——
- * 与浮层同源共享存储，配一次后面每张浮层图都可用。展示名取模型 ID（表单没有名称字段）。
- */
 async function seedModel(context: BrowserContext, extensionId: string, baseUrl: string) {
   const page = await context.newPage()
   await page.goto(`chrome-extension://${extensionId}/workbench.html`)
@@ -271,9 +236,6 @@ const context = await chromium.launchPersistentContext(profileDir, {
   ],
 })
 
-// 本地假模型：浮层演示对话的回复来源 —— 按请求次序脚本化：
-// 第 1 次发 script_spec，第 2 次发 script_apply（源码落盘、卡片推送），之后收尾正文；
-// 每步带 reasoning，思考过程的折叠条由此渲染出来（收尾时关闭）。
 const demo = await startModelStub({
   plan: (_hit, index) => {
     if (index === 0) {
@@ -350,11 +312,6 @@ try {
   // 等内容脚本与用户脚本注入、探活就位
   await targetPage.waitForTimeout(2000)
 
-  /**
-   * 截一张图的完整流程（开页 → 主题 → 载体特调 → 出图）。
-   * 浮层的造数会把 AI 生成的脚本真落进项目库（script_apply 收敛落盘），
-   * 必须等全部工作台 / popup 图截完再做 —— 否则后截的列表里会多出一个重复脚本。
-   */
   async function shoot(theme: 'light' | 'dark', shot: Shot) {
     const page = await context.newPage()
     await page.emulateMedia({ colorScheme: theme })
@@ -365,10 +322,12 @@ try {
       await page.addInitScript(popupTabOverride(DOUBAN_PAGE_URL))
     }
     await page.goto(`chrome-extension://${extensionId}/${shot.path}`)
+    if (shot.name === 'popup') {
+      await page.addStyleTag({ content: '[data-testid="page-monitor"]{display:none!important}' })
+    }
     // 等首屏渲染稳定（异步组件 / 首帧布局），固定延时比 networkidle 更可靠 —— 扩展页可能有心跳轮询
     await page.waitForTimeout(1200)
-    // 浮层走真链路造一段演示对话；每次开新页都是新标签页会话，逐页造
-    if (shot.name === 'floatpanel') {
+    if (shot.name === 'popup') {
       await seedConversation(page, demo)
       console.log(`✓ 演示对话已就位`)
     }
@@ -394,19 +353,16 @@ try {
     console.log(`✓ ${shot.name}${suffix}.webp`)
   }
 
-  // 先把各主题的工作台 / popup 都截完，再统一造对话截浮层 —— 顺序即隔离
   for (const theme of themes) {
-    for (const shot of SHOTS.filter((s) => s.name !== 'floatpanel')) {
+    for (const shot of SHOTS.filter((s) => s.name === 'workbench')) {
       await shoot(theme, shot)
     }
   }
-  // 浮层图要真应答：模型指向本地假模型。放在这里而非更早 —— 配置了模型后气泡区与
-  // 选择器才有内容，工作台 / popup 的图不该受它影响
   await seedModel(context, extensionId, demo.stub.baseUrl)
   for (const theme of themes) {
     await shoot(
       theme,
-      SHOTS.find((s) => s.name === 'floatpanel')!,
+      SHOTS.find((s) => s.name === 'popup')!,
     )
   }
   await messenger.close()

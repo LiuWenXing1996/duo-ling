@@ -47,7 +47,7 @@ export function isLinkFrame(v: unknown): v is LinkFrame {
 
 `type` 沿用现有 kind 字符串（`chat:abort`、`fs:ping`、`page:snapshot`…），handler 签名与类型收窄一行不改。`evt` 无 id、不应答，语义等同现在的 `ipcNotify`。
 
-两端各有**两个入口**：SW 同时挂 `serveIpc`（给 UI）与 Port（给 off），offscreen 同理。handler 表只维护一份、两个入口共用 —— 这是「不新增第二套真相」的关键。差异仅在 `serveIpc` 的表项签名带 `sender`，link 入口补一个空壳；只在 UI 方向出现的 kind（`tab:identify` 这类）不会从 link 进来。
+两端各有**两个入口**：SW 同时挂 `serveIpc`（给 UI）与 Port（给 off），offscreen 同理。handler 表只维护一份、两个入口共用 —— 这是「不新增第二套真相」的关键。差异仅在 `serveIpc` 的表项签名带 `sender`，link 入口补一个空壳；只在 UI 方向出现的 kind（`page:overview` 这类）不会从 link 进来。
 
 `req` 的 id 由发送方维护、只需在本端唯一，两端 id 空间互不干扰 —— 方向由「谁在读这一帧」决定，不由 type 区分。
 
@@ -165,7 +165,7 @@ SW 收到新 hello 时先 `old.disconnect()` 再登记（防扩展重载后残�
 
 - SW 与 off 之间从四条线收敛到一条，方向由「谁读它」决定，不再靠前缀让路
 - 两处 `OFFSCREEN_GONE` 正则删掉，重试判据变成 `code === 'TRANSPORT'`
-- `chat:running` / `chat:finished` 不再发广播：现在每一条都会到达所有扩展页与浮层 iframe，没有订阅方就丢弃
+- `chat:running` / `chat:finished` 不再发广播：现在每一条都会到达所有扩展页，没有订阅方就丢弃
 - `SWService` 整条服务消失
 - 跨线错误的 `name` / `stack` / `code` 保留，现在只剩一句 `errorText`
 

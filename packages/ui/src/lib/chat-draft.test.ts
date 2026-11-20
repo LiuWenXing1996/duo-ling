@@ -1,4 +1,3 @@
-// 输入框草稿的存取：键怎么算、空串怎么算、出错算不算炸。
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readChatDraft, writeChatDraft } from './chat-draft'
 

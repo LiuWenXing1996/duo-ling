@@ -36,7 +36,6 @@ test.describe.serial('会话归属按标签页', () => {
     return openChatPage(context!, extensionId)
   }
 
-  /** 在浮层里发一句、等 stub 的回复出现 */
   async function send(page: Page, text: string): Promise<void> {
     const box = page.getByRole('textbox').first()
     await box.fill(text)
@@ -50,7 +49,6 @@ test.describe.serial('会话归属按标签页', () => {
     context = await launchExtensionContext(profileDir)
     extensionId = extensionIdFromServiceWorker(await getServiceWorker(context))
 
-    // 模型只能在设置页配（浮层没有设置入口）。工作台与浮层同源共享存储，后面 openApp 开的面板直接可用。
     const setup = await context.newPage()
     await setup.goto(`chrome-extension://${extensionId}/workbench.html`)
     await saveStubModel(setup, { baseUrl: stub.stub.baseUrl })
@@ -104,6 +102,5 @@ test.describe.serial('会话归属按标签页', () => {
     expect(await convCount(a), '刷新不该新建会话').toBe(1)
   })
 
-  // 归属已能由 `?tab=` 注入（门已具备触发条件），待补的是工作台「会话历史」里点删除那几步。
   test.skip('删除门：正被开着的标签页占用的会话删不掉（待补工作台的删除交互）', () => {})
 })

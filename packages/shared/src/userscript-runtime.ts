@@ -37,12 +37,6 @@ export interface UserScriptsAvailability {
   guideText: string
 }
 
-/**
- * 一件内置注册的展示形态（两处 UI 共用）。
- *
- * 全部内置件都是 userScripts 注册件（浮层宿主切过来之后，「注册面之外的静态件」这一类就没有了），
- * 于是状态只有「已注册 / 未注册」一档 —— 件与引擎可用性同进退。
- */
 export interface BuiltinRegistration {
   /** 注册 id（稳定，UI 拿它当 key） */
   id: string

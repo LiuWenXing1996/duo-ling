@@ -165,7 +165,7 @@ onMounted(() => {
     <!--
       两个去处按图标排在标题右侧：popup 的版面留给「这一页在跑什么」，设置与工作台都是点一下
       就关窗走人的门，一句话的说明挂在各自悬停提示上即可，不必占行。
-      提示朝下弹：这一行贴着 popup 顶边，朝上的浮层没有落脚空间。
+      提示朝下弹：这一行贴着 popup 顶边，朝上弹出没有落脚空间。
     -->
     <header class="flex items-center justify-between gap-2">
       <div class="flex min-w-0 items-baseline gap-1.5">

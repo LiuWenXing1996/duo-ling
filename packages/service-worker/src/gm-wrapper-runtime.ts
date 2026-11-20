@@ -16,7 +16,6 @@ export interface GmWrapperEnv {
 
 export interface GmWrapperHandle {
   members: Record<string, unknown>
-  /** 脚本桥客户端：系统件（检查器 / 浮层宿主 / 录制）在正文里按裸名 `__gmBridge` 用的就是它 */
   bridge: unknown
   runBody: (fn: () => void) => void
 }

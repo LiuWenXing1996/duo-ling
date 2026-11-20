@@ -1,8 +1,8 @@
 # 0009. 内置常驻件：注册式常驻与全站匹配
 
 日期: 2026-10-18
-状态: 已接受
-代码落点: packages/service-worker/src/userscripts/engine.ts（syncFloatHost / 检查器注册 JSDoc 指回本文件；浮层宿主同决策）
+状态: 已接受（浮层宿主部分已被 0047 取代：该件已下线，仅页面检查器仍在用本决策）
+代码落点: packages/service-worker/src/userscripts/engine.ts（syncPageInspector 的 JSDoc 指回本文件）
 
 ## 背景
 

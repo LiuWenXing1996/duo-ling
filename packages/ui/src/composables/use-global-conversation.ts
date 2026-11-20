@@ -60,9 +60,6 @@ export interface GlobalConversationOptions {
   tabId?: number | null
 }
 
-/**
- * 会话状态源。应在载体根组件（ChatApp）顶层调用一次，再把 state 下发给消息区。
- */
 export function useGlobalConversation(options: GlobalConversationOptions = {}) {
   // —— 会话列表（IndexedDB 直读，按 lastMessageAt 倒序由 store 保证）——
   const conversations = ref<Conversation[]>([])
@@ -72,7 +69,6 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
   const currentTabId = ref<number | null>(null)
   // —— 各消息本次消耗的 token（按 UIMessage.id 索引，供 ChatPanel 单条展示）——
   const usageByMessageId = ref<Record<string, TokenUsage>>({})
-  // —— 孤儿任务（offscreen 宿主被杀后遗留；供 ChatApp 横幅提示「继续 / 丢弃」）——
   const orphanTasks = ref<ChatOrphanRecord[]>([])
   // —— 最近一次生成失败的错误文案（供 ChatPanel 展示；发新消息 / 切会话时清除）——
   // 流中途报错（模型网络错误 / API 失败）必须在此留文案：只摘空气泡而不显示错误的话，
@@ -247,7 +243,6 @@ export function useGlobalConversation(options: GlobalConversationOptions = {}) {
     void refreshOrphans()
   }
 
-  /** 孤儿任务：offscreen 宿主被杀后遗留；供 ChatApp 横幅提示「继续 / 丢弃」 */
   async function refreshOrphans(): Promise<void> {
     try {
       orphanTasks.value = await chatClient.orphans()

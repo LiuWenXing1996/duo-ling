@@ -17,12 +17,12 @@ afterEach(() => {
 })
 
 describe('listBuiltinRegistrations（内置件注册状态）', () => {
-  it('引擎不可用（getScripts 抛错）：四件全部按未注册返回，不抛', async () => {
+  it('引擎不可用（getScripts 抛错）：三件全部按未注册返回，不抛', async () => {
     vi.stubGlobal('chrome', {
       userScripts: { getScripts: async () => Promise.reject(new Error('不可用')) },
     })
     const all = await listBuiltinRegistrations()
-    expect(all).toHaveLength(4)
+    expect(all).toHaveLength(3)
     expect(all.every((b) => b.registered === false)).toBe(true)
     expect(all.every((b) => b.matches.length === 0)).toBe(true)
   })
@@ -33,13 +33,10 @@ describe('listBuiltinRegistrations（内置件注册状态）', () => {
     expect(all.every((b) => !b.registered)).toBe(true)
   })
 
-  it('浮层宿主与页面检查器同属注册件：在册时带全匹配面（注册面之外已无件）', async () => {
-    stubUserScripts([
-      { id: 'dl-float-host', matches: ['*://*/*'] },
-      { id: 'dl-page-inspector', matches: ['*://*/*'] },
-    ])
+  it('页面检查器属注册件：在册时带全匹配面（注册面之外已无件）', async () => {
+    stubUserScripts([{ id: 'dl-page-inspector', matches: ['*://*/*'] }])
     const all = await listBuiltinRegistrations()
-    const host = all.find((b) => b.id === 'dl-float-host')!
+    const host = all.find((b) => b.id === 'dl-page-inspector')!
     expect(host.registered).toBe(true)
     expect(host.matches).toEqual(['*://*/*'])
     expect(host.name).not.toBe(host.id) // 展示名不是注册 id
@@ -74,12 +71,6 @@ describe('builtinsOnPage（某一页真正在用的内置件）', () => {
     name: '页面录制',
     matches: ['*://*/*'],
   }
-  const floatHost = {
-    ...relay,
-    id: 'dl-float-host',
-    name: '浮层宿主',
-    matches: ['*://*/*'],
-  }
   const inspector = {
     ...relay,
     id: 'dl-page-inspector',
@@ -88,7 +79,7 @@ describe('builtinsOnPage（某一页真正在用的内置件）', () => {
   }
 
   it('地址为空：直接不给结论（内部页 / 读不到 url 的页不在概览里）', () => {
-    expect(builtinsOnPage([relay, floatHost], '', false)).toEqual([])
+    expect(builtinsOnPage([relay, inspector], '', false)).toEqual([])
   })
 
   it('未注册的件不算在用（引擎没开时页面上没有它）', () => {
@@ -111,9 +102,9 @@ describe('builtinsOnPage（某一页真正在用的内置件）', () => {
     ])
   })
 
-  it('全匹配的浮层宿主与页面检查器按匹配面判：普通网页上都在用', () => {
-    expect(
-      builtinsOnPage([floatHost, inspector], 'https://a.example/p', false).map((b) => b.id),
-    ).toEqual(['dl-float-host', 'dl-page-inspector'])
+  it('全匹配的页面检查器按匹配面判：普通网页上都在用', () => {
+    expect(builtinsOnPage([inspector], 'https://a.example/p', false).map((b) => b.id)).toEqual([
+      'dl-page-inspector',
+    ])
   })
 })

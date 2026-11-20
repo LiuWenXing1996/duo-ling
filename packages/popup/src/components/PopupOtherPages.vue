@@ -1,12 +1,4 @@
 <script setup lang="ts">
-// 「其他页面」区块：其他打开的页面各自的脚本与会话，点「去这里」切过去。
-//
-// 布局与「当前页面」同款（大卡套小卡）：外卡是「其他页面」，每个页面一行各是里面的一张子卡
-// （子卡低一档圆角，与外卡的层次看得出来）。
-//
-// 只列普通网页（http/https）：内部页 / 扩展页里既跑不了脚本也挂不了浮层，列出来只是噪音 ——
-// 过滤在 SW 侧完成（见 shared/extension-ipc 的 PageOverviewTab），这里不再判一次。
-//
 import { ref } from 'vue'
 import {
   ChevronDown as UiChevronDown,

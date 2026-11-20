@@ -1,7 +1,7 @@
 # 0047. 对话载体从网页浮层搬进 popup 的「当前页面」卡
 
 日期: 2026-11-20
-状态: 已接受（P0 / P1 已落地；浮层下线在 P2，届时取代 0010 / 0011）
+状态: 已接受（P0 / P1 / P2 已落地，取代 0010 / 0011）
 代码落点: packages/ui/src/components/ChatHost.vue、packages/popup/src/components/PopupChat.vue、packages/ui/src/lib/chat-draft.ts、packages/service-worker/src/userscripts/pending-pick.ts
 
 ## 背景
@@ -49,23 +49,53 @@ popup 与浮层的差别只有一条，但它是结构性的：**popup 一失焦
   暂存在 `chrome.storage.session`（`pending-pick.ts`），popup 重开时 `picker:state` 取回，
   chip 消失（× / 发送后）才 `picker:clear`。SW 侧**不挂**等待中的 Promise —— popup 关掉是常态，
   SW 自己也会空闲回收，两头都不适合「有人等着」；超时改成读取时按 `startedAt` 判，不设定时器。
-- **生成期页面遮罩只剩浮层有**：popup 不报 busy。浮层下线后需另定方案（当前默认是「什么都不
-  盖」，见 P2）。
-- 浮层下线（P2）时删 float-host 件、float-bridge、四个 `float:*` 命令、floatpanel 入口，
-  e2e 的对话用例全部切到 `popup.html?tab=`。
+- **生成期页面遮罩随浮层一起下线**（P2 已落地，本次不补）：它本来就是「跟着 streaming 走、
+  与 AI 是否在读页面无关」的提示层，且只在浮层挂过之后才存在；浮层下线后它还失去了唯一出口
+  （停止按钮在遮罩之上），补它等于重造半个浮层。后续若要做，正路见本文末节。
+- 浮层下线（P2）已删 float-host 件、float-bridge、四条 `float:*` 命令、`tab:identify`、
+  floatpanel 入口与页面包、页面右键菜单入口；e2e 的对话用例全部切到 `popup.html?tab=`。
 
 ## P2 顺序：灵动岛先搬（已落地）
 
 浮层里值得留的部分先挪到新载体，剩下的才谈拆 —— 反过来做会先拆掉还要用的东西。
 
 - `PageScriptsMonitor` 与 `usePageMonitor` 从 `packages/floatpanel` 移到 `packages/ui`
-  （`components/page-scripts-monitor` + `composables/use-page-monitor`）。两个载体共用同一份
-  实现：浮层照旧渲染，popup 的对话卡把它挂在 `ChatHost` 的 `overlay` 插槽里。
-- **位置随头行走**：岛距聊天区顶端由 `topOffset` 给（浮层 52、popup 38），不写死类名 ——
-  两个载体的头行高度本来就不同（44 / 30），同一个偏移量会一个贴住、一个飘着。
+  （`components/page-scripts-monitor` + `composables/use-page-monitor`）。搬到 popup 的对话卡时
+  挂在 `ChatHost` 的 `overlay` 插槽里。
+- **位置随头行走**：岛距聊天区顶端由 `topOffset` 给，不写死类名 —— 头行高度换了，写死的偏移
+  就会飘。
 - **归属由载体注入**：popup 传自己认领的 `tabId`（`usePageMonitor({ tabId })`），不靠
   「查当前激活页」猜 —— pin 了别的标签页时，猜出来的那一页与用户正在看的对话不是同一页，
   正是草稿 / 拾取都踩过的同一个坑。
 - 岛与 popup 的「脚本」子卡是两份不同口径的数据：岛走 `duoling:panel` 实时推送，子卡是
-  `page:overview` 的一次快照。浮层下线后两者的定位仍按现状保留（子卡常驻、岛只在这一页
-  有脚本跑时出现）。
+  `page:overview` 的一次快照。两者定位仍按现状保留（子卡常驻、岛只在这一页有脚本跑时出现）。
+
+## P2 落地：浮层下线（已完成）
+
+- 删掉整条载体链：float-host 系统件、SW 侧的 float-bridge、「打开 / 收起 / 遮罩 / 探活」四条
+  命令、`float.cmd` / `float.pong` 两个协议帧、floatpanel 入口与页面包、`web_accessible_resources`。
+- `tab:identify` 一并删：浮层页是从 `?tab=` 读归属的，这条命令没有别的消费者。
+- 页面右键菜单「打开对话」删掉：菜单项唯一的作用就是调出浮层，没有载体它就没有对象；对话入口
+  只剩工具栏图标（点了就是 popup 本身）。
+- 内置件从四件变三件（脚本桥 / 检查器 / 录制）。剩下的两件系统脚本与浮层无关，常驻与全站匹配
+  的理由仍见 0009。
+- e2e：smoke 的浮层加载用例删；两条真链路（点停止 / 关标签页）改由 `popup.html?tab=` 驱动，
+  并顺带恢复运行 —— 它们原先整组 skip 的原因（浮层宿主探活偶发失败）随载体一起没了。
+
+## 生成期页面遮罩：本次不补
+
+结论：**删掉，不补**。理由按重要性排：
+
+1. **它一直是提示，不是安全边界**：判据是「这条会话在 streaming」，与 AI 是否在读页面无关；
+   而且只有浮层被挂过之后才存在 —— 从没开过浮层的页面上，AI 照样读，从来没有遮罩。
+2. **它挡不住真正要防的事**：全屏 `div` 拦的是指针，焦点里的键盘输入、页面自身的定时器与
+   重渲染都不受影响。「AI 读到的状态与用户看到的一致」靠盖一层保不住。
+3. **它失去了唯一的出口**：原先遮罩上唯一能点的东西是浮层里的停止按钮。popup 一失焦就销毁，
+   遮罩会变成一块盖住页面、几十秒内没有停止入口的板子 —— 那是把用户关在里面。
+
+如果以后仍然要一层保护，只有两条正路，都属独立议题：
+
+- **只盖读取窗口**：不盖整个生成期，只在 SW 真正发起 `page:snapshot` / `element_read` 时盖
+  零点几秒。不锁人，因此不需要停止出口；缺点是真会闪。
+- **改数据口径**：一轮生成内首次读页面即拍快照、后续复用同一份，并把「快照时刻」写进上下文。
+  一致性应该在这一层解决，而不是靠锁用户的鼠标。
