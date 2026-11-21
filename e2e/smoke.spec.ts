@@ -170,6 +170,7 @@ test.describe.serial('哆灵扩展端测冒烟', () => {
       'script_apply',
       'element_read',
       'page_snapshot',
+      'iframe_snapshot',
       'error_read',
     ]) {
       await expect(page.locator(`[data-testid="agent-tools-select-${name}"]`)).toBeVisible()

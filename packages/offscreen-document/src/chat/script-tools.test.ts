@@ -256,6 +256,7 @@ describe('script 三件套不受影响（回归）', () => {
       'element_read',
       'env_read',
       'error_read',
+      'iframe_snapshot',
       'image_ask',
       'page_env_read',
       'page_snapshot',
