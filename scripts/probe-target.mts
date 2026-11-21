@@ -6,8 +6,7 @@
 // 报的却不是产品问题。靶站在回环地址上给出同样的响应形状。
 //
 // 端点分两类：
-//   · 本项目自有 —— /probe.html（探针宿主页，把基址经 meta 下发给脚本）、/target.html、
-//     /favicon.ico、/bytes/:n
+//   · 本项目自有 —— /probe.html、/multi-iframe.html（多 frame 手测）、/target.html、/favicon.ico、/bytes/:n
 //   · httpbin 兼容子集 —— /get /post /headers /anything /delay/:s /absolute-redirect/:n
 //     响应形状对齐 httpbin，探针只换基址、用例里的断言判据不动
 //
@@ -226,6 +225,283 @@ const PROBE_RECORD_PANEL = `
 </script>
 `
 
+const MULTI_STYLE = `
+<style>
+  body { font: 14px/1.7 system-ui, sans-serif; margin: 20px 28px 80px; max-width: 1180px; color: #222; }
+  h1 { font-size: 19px; margin: 0 0 4px; }
+  h2 { font-size: 13px; font-weight: 600; margin: 26px 0 8px; }
+  .hint { color: #666; margin: 0 0 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .probe { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  #overlap { position: relative; height: 62px; width: 320px; border: 1px dashed #ccc; border-radius: 6px; }
+  #under-overlay, #over-overlay { position: absolute; border-radius: 6px; font-size: 12px; }
+  #under-overlay { inset: 6px; background: #eef2ff; display: flex; align-items: center; justify-content: center; }
+  #over-overlay { left: 38%; top: 24px; padding: 3px 10px; background: #fffbe6; border: 1px solid #e6dfc0; }
+  #grid, #dyn { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+  .cell { border: 1px solid #e2e2e2; border-radius: 8px; padding: 10px 12px; background: #fcfcfc; }
+  .cell h3 { font-size: 12px; margin: 0 0 2px; }
+  .cell p { font-size: 11px; color: #666; margin: 0 0 8px; }
+  .cell iframe { width: 100%; height: 148px; border: 1px solid #d8d8d8; border-radius: 6px; background: #fff; }
+  .cell.off { background: #f6f6f6; }
+  .cell.off iframe { display: none; }
+  .cell.tiny iframe { width: 0; height: 0; border: 0; }
+  button { font: inherit; padding: 4px 10px; border: 1px solid #d0d0d0; border-radius: 6px; background: #fafafa; cursor: pointer; }
+  button:hover { background: #f0f0f0; }
+  input { font: inherit; padding: 3px 8px; border: 1px solid #d0d0d0; border-radius: 6px; }
+  code { background: #f2f2f2; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  #stat { margin-top: 8px; padding: 8px 10px; border: 1px solid #e4e4e4; border-radius: 6px;
+          background: #fbfbfb; white-space: pre-wrap; font-size: 12px; line-height: 1.7; }
+</style>
+`
+
+interface MultiFrame {
+  key: string
+  title: string
+  note: string
+  src: string
+  cls?: 'off' | 'tiny'
+  attrs?: string
+}
+
+function multiFrames(base: string): MultiFrame[] {
+  const { hostname, port } = new URL(base)
+  const cross = `http://${hostname === '127.0.0.1' ? 'localhost' : '127.0.0.1'}:${port}`
+  return [
+    {
+      key: 'same',
+      title: '同源 · 可见',
+      note: '基线：顶层 + 一个同源子 frame',
+      src: '/multi-iframe.html?frame=same',
+    },
+    {
+      key: 'cross',
+      title: '跨域 · 可见',
+      note: '换 host（localhost）造异源，验件在跨源 frame 里是否照样在位',
+      src: `${cross}/multi-iframe.html?frame=cross`,
+    },
+    {
+      key: 'hidden',
+      title: '隐藏 · display:none',
+      note: 'B 站 leader-election 同款：件在，但永远收不到鼠标事件',
+      src: '/multi-iframe.html?frame=hidden',
+      cls: 'off',
+    },
+    {
+      key: 'zero',
+      title: '零尺寸 · 0×0',
+      note: '广告 / 埋点位：件在但不可见',
+      src: '/multi-iframe.html?frame=zero',
+      cls: 'tiny',
+    },
+    {
+      key: 'srcdoc',
+      title: 'srcdoc',
+      note: 'about:srcdoc，未开 matchAboutBlank → 这里没有件',
+      src: '',
+      attrs: `srcdoc='<h1>srcdoc</h1><p id="srcdoc-p">srcdoc 内的可点段落</p>'`,
+    },
+    {
+      key: 'blank',
+      title: 'about:blank',
+      note: '同上：不注入件',
+      src: 'about:blank',
+    },
+    {
+      key: 'data',
+      title: 'data: URL',
+      note: '不匹配 *://*/* → 不注入件',
+      src: '',
+      attrs: `src='data:text/html,<h1>data:</h1><p id="data-p">data: 内的可点段落</p>'`,
+    },
+    {
+      key: 'sandbox',
+      title: 'sandbox（allow-scripts）',
+      note: 'opaque origin：验件在沙箱 frame 里的注入与点击',
+      src: '/multi-iframe.html?frame=sandbox',
+      attrs: 'sandbox="allow-scripts"',
+    },
+    {
+      key: 'nested',
+      title: '嵌套（再套一层）',
+      note: 'frame 里再嵌 frame：验 frameId 层级 / 指令该发给哪一层',
+      src: '/multi-iframe.html?frame=nested&depth=1',
+    },
+    {
+      key: 'navigating',
+      title: '导航中',
+      note: '按钮让它反复换地址：验旧件卸载、新件加载时的 flight 与通道',
+      src: '/multi-iframe.html?frame=navigating&depth=0',
+    },
+  ]
+}
+
+const MULTI_HOST_SCRIPT = `
+  const dyn = document.getElementById('dyn')
+  const stat = document.getElementById('stat')
+  let added = 0
+  let navTimer = 0
+
+  function label(f) {
+    const s = f.getAttribute('src')
+    if (s) return s.length > 64 ? s.slice(0, 64) + '…' : s
+    return f.hasAttribute('srcdoc') ? 'srcdoc' : '无 src'
+  }
+
+  function refresh() {
+    const list = Array.prototype.slice.call(document.querySelectorAll('iframe'))
+    stat.textContent = 'iframe 总数 ' + list.length + '\\n' +
+      list.map(function (f, i) {
+        return String(i + 1).padStart(2, ' ') + '  ' + (f.title || '-') + '  ' + label(f)
+      }).join('\\n')
+  }
+
+  function addFrame(kind) {
+    added += 1
+    const cell = document.createElement('div')
+    cell.className = 'cell' + (kind === 'hidden' ? ' off' : kind === 'zero' ? ' tiny' : '')
+    const h = document.createElement('h3')
+    h.textContent = '动态 · ' + kind + ' #' + added
+    const p = document.createElement('p')
+    p.textContent = '运行时插入：验件对后插入的 frame 是否生效'
+    const f = document.createElement('iframe')
+    f.title = 'dyn-' + added
+    f.src = '/multi-iframe.html?frame=dyn-' + added
+    cell.appendChild(h)
+    cell.appendChild(p)
+    cell.appendChild(f)
+    dyn.appendChild(cell)
+    refresh()
+  }
+
+  function removeLast() {
+    const last = dyn.lastElementChild
+    if (last) last.remove()
+    refresh()
+  }
+
+  document.getElementById('add-hidden').onclick = function () {
+    addFrame('hidden'); addFrame('hidden'); addFrame('hidden')
+  }
+  document.getElementById('add-zero').onclick = function () { addFrame('zero') }
+  document.getElementById('add-visible').onclick = function () { addFrame('visible') }
+  document.getElementById('remove-last').onclick = removeLast
+  document.getElementById('remove-hidden').onclick = function () {
+    const f = document.querySelector('iframe[title="hidden"]')
+    const cell = f && f.parentElement
+    if (cell) cell.remove()
+    refresh()
+  }
+  document.getElementById('navigate').onclick = function () {
+    const f = document.querySelector('iframe[title="navigating"]')
+    if (!f) return
+    let n = 0
+    clearInterval(navTimer)
+    navTimer = setInterval(function () {
+      n += 1
+      f.src = '/multi-iframe.html?frame=navigating&depth=0&n=' + n
+      if (n >= 5) clearInterval(navTimer)
+    }, 500)
+  }
+  document.getElementById('reload-all').onclick = function () {
+    Array.prototype.slice.call(document.querySelectorAll('iframe[src]')).forEach(function (f) {
+      f.src = f.getAttribute('src')
+    })
+  }
+  refresh()
+`
+
+function multiIframeHostHtml(base: string): string {
+  const cells = multiFrames(base)
+    .map((f) => {
+      const cls = ['cell', f.cls].filter(Boolean).join(' ')
+      const src = f.src ? ` src="${f.src}"` : ''
+      const attrs = f.attrs ? ' ' + f.attrs : ''
+      return (
+        `<div class="${cls}"><h3>${f.title}</h3><p>${f.note}</p>` +
+        `<iframe${src}${attrs} title="${f.key}"></iframe></div>`
+      )
+    })
+    .join('')
+  return (
+    '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>哆灵多 frame 测试页</title>' +
+    `<meta name="${TARGET_META_NAME}" content="${base}">` +
+    MULTI_STYLE +
+    '</head><body>' +
+    '<h1>multi-iframe 测试页</h1>' +
+    `<p class="hint">多 frame 手测：点选元素 / 页面快照 / 环境读数 / 下行通道。基址 <code>${base}</code>。` +
+    '每个子 frame 里也有可点元素：<code>#p-&lt;名字&gt;</code> / 按钮 / 输入框。</p>' +
+    '<h2>顶层可点元素</h2>' +
+    '<div class="probe">' +
+    '<p id="top-p">顶层段落 <code>#top-p</code></p>' +
+    '<button id="top-btn">顶层按钮 <code>#top-btn</code></button>' +
+    '<input id="top-input" placeholder="顶层输入框 #top-input">' +
+    '<div id="overlap"><div id="under-overlay">#under-overlay（压在大块下面）</div>' +
+    '<div id="over-overlay">#over-overlay</div></div>' +
+    '</div>' +
+    '<h2>iframe 矩阵</h2>' +
+    '<p class="hint">隐藏与零尺寸那两个视觉上看不见，但它们里面有件 —— 多 frame 症状正出在这类 frame 上。</p>' +
+    `<div id="grid">${cells}</div>` +
+    '<h2>动态操作</h2>' +
+    '<div class="row">' +
+    '<button id="add-hidden">追加 3 个隐藏 iframe</button>' +
+    '<button id="add-zero">追加 1 个零尺寸</button>' +
+    '<button id="add-visible">追加 1 个可见</button>' +
+    '<button id="remove-last">移除最后追加的</button>' +
+    '<button id="remove-hidden">移除静态隐藏那个</button>' +
+    '<button id="navigate">让「导航中」换 5 次地址</button>' +
+    '<button id="reload-all">重载全部 iframe</button>' +
+    '</div>' +
+    '<div id="dyn"></div>' +
+    '<h2>当前帧</h2>' +
+    '<pre id="stat"></pre>' +
+    '<script>' +
+    MULTI_HOST_SCRIPT +
+    '</script>' +
+    '</body></html>'
+  )
+}
+
+function multiFrameDocHtml(name: string, depth: number): string {
+  const inner =
+    depth > 0
+      ? `<iframe src="/multi-iframe.html?frame=${name}-inner&depth=${depth - 1}" ` +
+        `title="${name}-inner" style="width:100%;height:104px;border:1px solid #d8d8d8;border-radius:6px"></iframe>`
+      : ''
+  return (
+    '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">' +
+    `<title>frame: ${name}</title>` +
+    `<style>
+  body { font: 12px/1.6 system-ui, sans-serif; margin: 10px 12px; color: #222; }
+  h1 { font-size: 13px; margin: 0 0 4px; }
+  .meta { color: #666; font-size: 11px; margin: 0 0 6px; word-break: break-all; }
+  p { margin: 5px 0; }
+  button { font: inherit; padding: 2px 8px; border: 1px solid #d0d0d0; border-radius: 5px; background: #fafafa; cursor: pointer; }
+  input { font: inherit; padding: 2px 6px; border: 1px solid #d0d0d0; border-radius: 5px; width: 92px; }
+  code { background: #f2f2f2; padding: 0 4px; border-radius: 3px; }
+</style></head><body>` +
+    `<h1>frame: ${name}</h1>` +
+    '<p class="meta" id="meta"></p>' +
+    `<p id="p-${name}">可点段落 <code>#p-${name}</code></p>` +
+    `<button id="btn-${name}">可点按钮</button> ` +
+    `<input id="input-${name}" placeholder="可点输入框">` +
+    `<p><button id="nav-${name}">换地址（测导航）</button></p>` +
+    inner +
+    '<script>' +
+    `function showMeta() {
+      document.getElementById('meta').textContent =
+        (window.top === window.self ? 'top' : 'child') + ' · ' + location.href +
+        ' · ' + innerWidth + '×' + innerHeight
+    }
+    showMeta()
+    requestAnimationFrame(showMeta)
+    document.getElementById('nav-${name}').onclick = function () {
+      location.href = location.pathname + '?frame=${name}&depth=${depth}&v=' + Date.now()
+    }
+` +
+    '</script></body></html>'
+  )
+}
+
 function handle(req: IncomingMessage, res: ServerResponse, base: string) {
   const url = new URL(req.url || '/', base)
   const path = url.pathname
@@ -240,6 +516,15 @@ function handle(req: IncomingMessage, res: ServerResponse, base: string) {
       '<p>要测的脚本 @match 需覆盖本页地址。</p>' +
       PROBE_RECORD_PANEL +
       '</body></html>'
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    return res.end(html)
+  }
+
+  if (path === '/multi-iframe.html') {
+    const name = url.searchParams.get('frame')
+    const html = name
+      ? multiFrameDocHtml(name, Number(url.searchParams.get('depth')) || 0)
+      : multiIframeHostHtml(base)
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
     return res.end(html)
   }

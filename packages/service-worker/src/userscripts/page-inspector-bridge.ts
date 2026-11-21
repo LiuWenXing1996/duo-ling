@@ -131,22 +131,28 @@ async function settlePickFromEvent(
   reqId: string,
   rec: { ok: boolean; payload: unknown },
 ): Promise<void> {
+  const cancelEcho = rec.ok === true && rec.payload == null
   const tabId = await findFlightTab(reqId)
   if (tabId == null) {
-    console.warn('[duoling:inspector] 指令结果没对上挂起的调用（SW 重启过）：', reqId)
+    if (!cancelEcho)
+      console.warn('[duoling:inspector] 指令结果没对上挂起的调用（SW 重启过）：', reqId)
     return
   }
-  if (rec.ok === true && rec.payload == null) {
-    await clearFlight(tabId, reqId)
-    return
+  try {
+    if (rec.ok === true && rec.payload == null) {
+      await clearFlight(tabId, reqId)
+      return
+    }
+    if (rec.ok === true) {
+      await settlePick(tabId, reqId, { element: rec.payload as ElementPickContext })
+      return
+    }
+    await settlePick(tabId, reqId, {
+      message: typeof rec.payload === 'string' ? rec.payload : '页面读取失败',
+    })
+  } finally {
+    void cancelPicker(tabId)
   }
-  if (rec.ok === true) {
-    await settlePick(tabId, reqId, { element: rec.payload as ElementPickContext })
-    return
-  }
-  await settlePick(tabId, reqId, {
-    message: typeof rec.payload === 'string' ? rec.payload : '页面读取失败',
-  })
 }
 
 /**

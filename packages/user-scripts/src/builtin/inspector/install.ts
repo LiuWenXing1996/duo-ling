@@ -50,6 +50,8 @@ const PATH_DEPTH = 4
 /** 进行中的拾取（同一时刻至多一个，与 UI 的单一入口一致）：cancel 指令调它让这次拾取收场 */
 let activePick: { cancel: () => void } | null = null
 
+const EMBED_TAGS = new Set(['IFRAME', 'FRAME'])
+
 function truncate(s: unknown, n: number): string {
   const str = String(s == null ? '' : s)
   return str.length > n ? str.slice(0, n) : str
@@ -190,20 +192,43 @@ function runPick(): Promise<ElementPickContext | null> {
       'position:fixed;z-index:2147483647;pointer-events:none;display:none;max-width:320px;' +
       'font:12px/1.6 system-ui,sans-serif;color:#fff;background:rgba(30,30,36,.92);' +
       'padding:2px 8px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+    const drillBtn = document.createElement('button')
+    drillBtn.type = 'button'
+    drillBtn.textContent = '下钻'
+    drillBtn.style.cssText =
+      'position:fixed;z-index:2147483647;pointer-events:auto;display:none;cursor:pointer;' +
+      'font:12px/1.5 system-ui,sans-serif;color:#fff;background:rgba(99,102,241,.95);' +
+      'padding:2px 8px;border:0;border-radius:4px;white-space:nowrap;'
     document.documentElement.appendChild(box)
     document.documentElement.appendChild(tip)
+    document.documentElement.appendChild(drillBtn)
+
+    // 默认穿透子文档：指针落在 iframe 上时事件仍归本文档，才画得出「整个 iframe」这个框
+    const hosts = Array.from(document.querySelectorAll<HTMLElement>('iframe, frame'))
+    const hostOrig = new Map<HTMLElement, string>()
+    for (const el of hosts) {
+      hostOrig.set(el, el.style.pointerEvents)
+      el.style.pointerEvents = 'none'
+    }
 
     let done = false
+    let away: ReturnType<typeof setInterval> | null = null
+    let drilled: HTMLElement | null = null
+    let frameHit: HTMLElement | null = null
     function finish(payload: ElementPickContext | null): void {
       if (done) return
       done = true
       activePick = null
+      if (away) clearInterval(away)
       document.removeEventListener('mousemove', onMove, true)
+      document.removeEventListener('mouseout', onOut, true)
       document.removeEventListener('click', onClick, true)
       document.removeEventListener('keydown', onKey, true)
       document.removeEventListener('contextmenu', onContext, true)
+      for (const el of hosts) setHostPE(el, true)
       box.remove()
       tip.remove()
+      drillBtn.remove()
       resolve(payload || null)
     }
     activePick = {
@@ -224,18 +249,97 @@ function runPick(): Promise<ElementPickContext | null> {
       const tx = Math.min(r.left, window.innerWidth - 340)
       tip.style.left = Math.max(4, tx) + 'px'
       tip.style.top = Math.max(4, r.top - 22 < 4 ? r.bottom + 4 : r.top - 22) + 'px'
+      frameHit = EMBED_TAGS.has(el.tagName) ? (el as HTMLElement) : null
+      if (!frameHit) {
+        drillBtn.style.display = 'none'
+        return
+      }
+      drillBtn.style.display = 'block'
+      const bw = drillBtn.offsetWidth
+      const bh = drillBtn.offsetHeight
+      drillBtn.style.left =
+        Math.min(Math.max(4, r.right - bw - 6), window.innerWidth - bw - 4) + 'px'
+      drillBtn.style.top = Math.min(Math.max(4, r.top + 6), window.innerHeight - bh - 4) + 'px'
+    }
+
+    function hide(): void {
+      box.style.display = 'none'
+      tip.style.display = 'none'
+      drillBtn.style.display = 'none'
+      frameHit = null
+    }
+
+    function setHostPE(el: HTMLElement, restore: boolean): void {
+      if (!restore) {
+        el.style.pointerEvents = 'none'
+        return
+      }
+      const prev = hostOrig.get(el) || ''
+      if (prev) el.style.pointerEvents = prev
+      else el.style.removeProperty('pointer-events')
+    }
+
+    function inRect(el: HTMLElement, x: number, y: number): boolean {
+      const r = el.getBoundingClientRect()
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+    }
+
+    function embedAt(x: number, y: number): HTMLElement | null {
+      let hit: HTMLElement | null = null
+      let min = Infinity
+      for (const el of hosts) {
+        const r = el.getBoundingClientRect()
+        if (!r.width || !r.height) continue
+        if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue
+        const area = r.width * r.height
+        if (area < min) {
+          min = area
+          hit = el
+        }
+      }
+      return hit
+    }
+
+    function hitTest(e: MouseEvent): Element | null {
+      return embedAt(e.clientX, e.clientY) || document.elementFromPoint(e.clientX, e.clientY)
+    }
+
+    function pickable(el: Element | null): el is Element {
+      return !!el && el !== box && el !== tip && el !== drillBtn
     }
 
     function onMove(e: MouseEvent): void {
-      const el = document.elementFromPoint(e.clientX, e.clientY)
-      if (el && el !== box && el !== tip) highlight(el)
+      if (drilled && !inRect(drilled, e.clientX, e.clientY)) {
+        setHostPE(drilled, false)
+        drilled = null
+      }
+      const el = hitTest(e)
+      if (el === box || el === tip || el === drillBtn) return
+      if (!el) {
+        hide()
+        return
+      }
+      highlight(el)
+    }
+    function onOut(e: MouseEvent): void {
+      const to = e.relatedTarget as Element | null
+      if (!to || EMBED_TAGS.has(to.tagName)) hide()
     }
     function onClick(e: MouseEvent): void {
       // 拾取期间页面自身不响应点击：capture 阶段拦下
       e.preventDefault()
       e.stopPropagation()
-      const el = document.elementFromPoint(e.clientX, e.clientY)
-      if (el && el !== box && el !== tip) finish(buildPayload(el))
+      if (drillBtn.contains(e.target as Node)) {
+        const host = frameHit || embedAt(e.clientX, e.clientY)
+        if (host) {
+          setHostPE(host, true)
+          drilled = host
+          hide()
+        }
+        return
+      }
+      const el = hitTest(e)
+      if (pickable(el)) finish(buildPayload(el))
     }
     function onKey(e: KeyboardEvent): void {
       if (e.key === 'Escape') {
@@ -251,9 +355,17 @@ function runPick(): Promise<ElementPickContext | null> {
     }
 
     document.addEventListener('mousemove', onMove, true)
+    document.addEventListener('mouseout', onOut, true)
     document.addEventListener('click', onClick, true)
     document.addEventListener('keydown', onKey, true)
     document.addEventListener('contextmenu', onContext, true)
+
+    // 进入子文档后本层未必还能收到 mouseout：按 hover 链兜底判断指针是否还在本文档
+    away = setInterval(function () {
+      const hovered = document.querySelectorAll(':hover')
+      const deepest = hovered[hovered.length - 1]
+      if (!deepest || EMBED_TAGS.has(deepest.tagName)) hide()
+    }, 150)
   })
 }
 
