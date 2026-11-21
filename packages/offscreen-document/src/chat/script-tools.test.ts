@@ -700,11 +700,13 @@ describe('page_snapshot（快照改 AI 工具采集）', () => {
     ReturnType<typeof buildScriptTools>['page_snapshot']['execute']
   >[1]
 
-  it('采集回调正常时返回 pageUrl / capturedAt / html，并透传帧目录', async () => {
+  it('采集回调正常时返回 pageUrl / capturedAt / html，并透传帧目录与截断标记', async () => {
     const tools = makeTools(makeElement(), async () => ({
       capturedAt: 1758000000000,
       pageUrl: 'https://example.com/page',
       html: '<html><body>hi</body></html>',
+      htmlLength: 40000,
+      htmlTruncated: true,
       frames: [
         {
           id: 'f0',
@@ -722,6 +724,8 @@ describe('page_snapshot（快照改 AI 工具采集）', () => {
     expect(out.pageUrl).toBe('https://example.com/page')
     expect(out.html).toContain('<body>hi</body>')
     expect(out.framesTotal).toBe(2)
+    expect(out.htmlLength).toBe(40000)
+    expect(out.htmlTruncated).toBe(true)
     expect(out.frames).toEqual([
       expect.objectContaining({ id: 'f0', src: 'https://example.com/embed' }),
     ])

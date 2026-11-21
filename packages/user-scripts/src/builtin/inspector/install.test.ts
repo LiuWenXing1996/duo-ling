@@ -54,7 +54,11 @@ function fakeEmbed(spec: FakeEmbed): Record<string, unknown> {
   }
 }
 
-function stubBridge(embeds: FakeEmbed[] = [], asChild = false): FakeBridge {
+function stubBridge(
+  embeds: FakeEmbed[] = [],
+  asChild = false,
+  pageHtml = '<html><body>hello</body></html>',
+): FakeBridge {
   const sent: Array<Record<string, unknown>> = []
   const posted: Array<Record<string, unknown>> = []
   const handlers: Array<(ev: unknown) => void> = []
@@ -79,7 +83,7 @@ function stubBridge(embeds: FakeEmbed[] = [], asChild = false): FakeBridge {
   vi.stubGlobal('window', win)
 
   vi.stubGlobal('document', {
-    documentElement: { outerHTML: '<html><body>hello</body></html>' },
+    documentElement: { outerHTML: pageHtml },
     querySelectorAll: () => nodes,
   })
   vi.stubGlobal('location', { href: 'https://page.test/app' })
@@ -152,7 +156,25 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
     expect(ev.payload).toMatchObject({
       pageUrl: 'https://page.test/app',
       html: '<html><body>hello</body></html>',
+      htmlLength: 31,
+      htmlTruncated: false,
     })
+  })
+
+  it('snapshot 超长：html 截到 32K，但如实报出原始长度与截断标记', async () => {
+    const bridge = stubBridge([], false, '<html><body>' + 'x'.repeat(40000) + '</body></html>')
+    installPageInspector()
+
+    bridge.fire({ t: 'inspector.cmd', cmd: 'snapshot', reqId: 'r10' })
+    await flush()
+
+    const payload = (bridge.sent[0].event as Record<string, unknown>).payload as Record<
+      string,
+      unknown
+    >
+    expect(payload.htmlLength).toBe(40026)
+    expect(payload.htmlTruncated).toBe(true)
+    expect(String(payload.html)).toHaveLength(32768)
   })
 
   it('snapshot 目录：按宿主属性列嵌入区域，selector 依次用 title / id / nth-of-type', async () => {

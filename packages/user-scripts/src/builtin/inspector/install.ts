@@ -67,6 +67,16 @@ function truncate(s: unknown, n: number): string {
   return str.length > n ? str.slice(0, n) : str
 }
 
+/** 本文档外层 HTML：截断的同时报出原始长度，模型才知道自己看全没有 */
+function capturedHtml(): { html: string; htmlLength: number; htmlTruncated: boolean } {
+  const full = String(document.documentElement.outerHTML)
+  return {
+    html: truncate(full, SNAPSHOT_LIMIT),
+    htmlLength: full.length,
+    htmlTruncated: full.length > SNAPSHOT_LIMIT,
+  }
+}
+
 function classesOf(el: Element): string[] {
   return Array.prototype.slice.call(el.classList || [])
 }
@@ -433,7 +443,7 @@ function runSnapshot(): Promise<PageSnapshotContext> {
   return Promise.resolve({
     capturedAt: Date.now(),
     pageUrl: location.href,
-    html: truncate(document.documentElement.outerHTML, SNAPSHOT_LIMIT),
+    ...capturedHtml(),
     frames,
     framesTotal: total,
   })
@@ -445,7 +455,7 @@ function runFrame(): Promise<PageFrameSnapshotContext> {
     capturedAt: Date.now(),
     frameUrl: location.href,
     isTop: window.top ? window.top === window.self : true,
-    html: truncate(document.documentElement.outerHTML, SNAPSHOT_LIMIT),
+    ...capturedHtml(),
     frames,
     framesTotal: total,
   })

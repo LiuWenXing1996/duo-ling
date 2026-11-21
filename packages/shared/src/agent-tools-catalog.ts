@@ -82,15 +82,17 @@ export function toolDescriptions(): Record<AgentToolName, string> {
       '摘要层有不确定处时调用：返回全部属性、完整 outerHTML（拾取时刻截断快照，非活页面）、祖先链。' +
       '本次请求没有点选元素时返回 ok:false。',
     page_snapshot:
-      '抓取当前页面的**渲染后 DOM** 快照（documentElement.outerHTML，截断 ~32KB，采集时刻快照非实时）。' +
+      '抓取当前页面的**渲染后 DOM** 快照（documentElement.outerHTML，超过 ~32KB 会截断，采集时刻快照非实时）。' +
       '需要了解页面整体结构、找脚本目标节点的上下文、或摘要信息不够用时调用。' +
+      'htmlTruncated:true 表示 html 被截断、htmlLength 是原始长度 —— 此时没看到的部分要用 element_read 或下钻补。' +
       '同时给出 frames 目录：每个 iframe/frame 的 src、位置尺寸、可见性，以及该层的 connId ——' +
       'html 里这些位置只有宿主标签，**不含**各 frame 的内部 DOM；' +
       '要看某一层的内容，把它的 connId 交给 iframe_snapshot。' +
       '采不到的情形（内置页 / 未开启「允许运行用户脚本」）返回 ok:false 带原因；' +
       '目标页是本会话所属的标签页，不必是当前激活页。',
     iframe_snapshot:
-      '按 connId 读取某一个 frame 自己的 DOM（那一层的 documentElement.outerHTML，截断 ~32KB）。' +
+      '按 connId 读取某一个 frame 自己的 DOM（那一层的 documentElement.outerHTML，超过 ~32KB 会截断）。' +
+      'htmlTruncated:true 表示这份 html 被截断、htmlLength 是原始长度，没看到的部分要另想办法补。' +
       'connId 来自 page_snapshot 返回的 frames[]；那层内部还嵌着 frame 时，返回值同样带 frames 目录，' +
       '可以继续按 connId 逐层下钻。跨域 frame 也读得到（指令定向发给那一层的件，不经过顶层）。' +
       'connId 只在当前这份文档里有效：页面刷新、iframe 重载后它就失效，此时返回 ok:false，' +
@@ -345,11 +347,11 @@ export function agentToolViews(): AgentToolView[] {
     {
       name: 'page_snapshot',
       title: '抓页面快照',
-      summary: '抓当前页渲染后 DOM（截断 ~32KB）',
+      summary: '抓当前页渲染后 DOM（超 ~32KB 截断并标记）',
       description: D.page_snapshot,
       params: [],
       returns:
-        '{ ok:true, pageUrl, capturedAt, html, frames:[{ id, src, rect, visible, selector, connId }] }',
+        '{ ok:true, pageUrl, capturedAt, html, htmlLength?, htmlTruncated?, frames:[{ id, src, rect, visible, selector, connId }] }',
       unavailable:
         '未接采集通道 / 内置页（chrome://）/ 找不到会话所属的标签页 → { ok:false, error }',
     },
@@ -359,7 +361,8 @@ export function agentToolViews(): AgentToolView[] {
       summary: '按 connId 读一个 iframe 内部的 DOM，可逐层下钻',
       description: D.iframe_snapshot,
       params: [{ name: 'connId', type: 'string', required: true, desc: T.iframe_snapshot.connId }],
-      returns: '{ ok:true, frameUrl, isTop, html, frames:[…] }（frames 是这一层自己的目录）',
+      returns:
+        '{ ok:true, frameUrl, isTop, html, htmlLength?, htmlTruncated?, frames:[…] }（frames 是这一层自己的目录）',
       unavailable: 'connId 已失效（frame 重载 / 被移除）/ 那层没有件 → { ok:false, error }',
     },
     {

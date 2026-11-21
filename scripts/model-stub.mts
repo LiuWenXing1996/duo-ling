@@ -148,7 +148,8 @@ function summarizeToolResult(raw: unknown): string {
     if (typeof o.html === 'string') {
       const url = String(o.frameUrl ?? o.pageUrl ?? '(无地址)')
       const n = Array.isArray(o.frames) ? ` · frames ${o.frames.length}` : ''
-      return `✅ 快照到手：${url} · HTML ${o.html.length} 字符${n}`
+      const cut = o.htmlTruncated ? `（已截断，原文 ${String(o.htmlLength)} 字符）` : ''
+      return `✅ 快照到手：${url} · HTML ${o.html.length} 字符${n}${cut}`
     }
     if (o.viewport) {
       const vp = o.viewport as { width: unknown; height: unknown }

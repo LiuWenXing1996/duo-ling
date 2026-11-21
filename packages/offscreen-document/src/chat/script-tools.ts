@@ -348,6 +348,8 @@ export function buildScriptTools(
             frames: snap.frames,
             framesTotal: snap.framesTotal,
             html: snap.html,
+            htmlLength: snap.htmlLength,
+            htmlTruncated: snap.htmlTruncated,
           }
         } catch (e) {
           return { ok: false, error: errorText(e) }
@@ -374,6 +376,8 @@ export function buildScriptTools(
             frames: snap.frames,
             framesTotal: snap.framesTotal,
             html: snap.html,
+            htmlLength: snap.htmlLength,
+            htmlTruncated: snap.htmlTruncated,
           }
         } catch (e) {
           return { ok: false, error: errorText(e) }
