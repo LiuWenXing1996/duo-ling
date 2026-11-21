@@ -256,6 +256,7 @@ async function resolveAiTargetTab(
   if (!chrome.tabs?.query) throw new Error('无法定位目标标签页')
   const owned = conversationId ? await findTabsUsingConversation(conversationId) : []
   let tabId: number | undefined = owned[0]
+  const source = tabId == null ? 'fallback' : 'bound'
   if (tabId == null) {
     // 兜底：会话没绑标签页（那条 tab 已关 / 映射缺项）→ 退回最后聚焦窗口的激活页，
     // 总比直接失败强；SW 无窗口上下文，lastFocusedWindow 语义 = 用户最后聚焦的窗口
@@ -266,6 +267,10 @@ async function resolveAiTargetTab(
   // 内置页 / 扩展页拦在注入前（判据与页面检查器共用，见 pageInjectionBlockReason——扩展页连自己
   // 的也不行，<all_urls> 不覆盖 chrome-extension scheme）
   const tab = await chrome.tabs.get(tabId).catch(() => null)
+  console.info(
+    `[duoling:inspector] ${what}：tabId=${tabId} 来源=${source} url=${tab?.url ?? '?'}` +
+      `（会话绑定 ${owned.join(',') || '无'}）`,
+  )
   const blocked = pageInjectionBlockReason(tab?.url)
   if (blocked) throw new Error(`${blocked}，无法${what}`)
   return tabId

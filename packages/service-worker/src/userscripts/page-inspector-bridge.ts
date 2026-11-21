@@ -45,6 +45,7 @@ interface PendingInspector {
   resolve: (v: unknown) => void
   reject: (e: Error) => void
   timer: ReturnType<typeof setTimeout>
+  tabId: number | null
 }
 
 /** 在进行中的指令：reqId → 结算器。SW 重启即丢（发起侧那条连接也一并断） */
@@ -56,13 +57,13 @@ function mintReqId(): string {
     : `dlinsp-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-function waitFor(reqId: string, timeoutMessage: string): Promise<unknown> {
+function waitFor(reqId: string, timeoutMessage: string, tabId: number | null): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(reqId)
       reject(new Error(timeoutMessage))
     }, INSPECTOR_TIMEOUT_MS)
-    pending.set(reqId, { resolve, reject, timer })
+    pending.set(reqId, { resolve, reject, timer, tabId })
   })
 }
 
@@ -79,7 +80,7 @@ function dropPending(reqId: string): void {
  */
 export async function runInspectorCommand<T>(tabId: number, mode: InspectorMode): Promise<T> {
   const reqId = mintReqId()
-  const wait = waitFor(reqId, TIMEOUT_MESSAGE[mode])
+  const wait = waitFor(reqId, TIMEOUT_MESSAGE[mode], tabId)
   const sent = pushCommandTo(INSPECTOR_HOST_ID, tabId, { t: 'inspector.cmd', cmd: mode, reqId })
   if (!sent) {
     dropPending(reqId)
@@ -120,7 +121,7 @@ export async function cancelPicker(tabId: number): Promise<void> {
  */
 export function handleInspectorEvent(
   uuid: string,
-  _tabId: number | null,
+  tabId: number | null,
   rec: { reqId: string; ok: boolean; payload: unknown },
 ): void {
   if (uuid !== INSPECTOR_HOST_ID) {
@@ -132,6 +133,13 @@ export function handleInspectorEvent(
   if (entry) {
     pending.delete(reqId)
     clearTimeout(entry.timer)
+    if (entry.tabId != null && tabId != null && tabId !== entry.tabId) {
+      console.warn(
+        `[duoling:inspector] 回执来自别的标签页，丢弃：期望 ${entry.tabId}，实际 ${tabId}`,
+      )
+      entry.reject(new Error('页面读取结果来自别的标签页，已丢弃（请重新读取目标页）'))
+      return
+    }
     if (rec.ok === true) {
       entry.resolve(rec.payload ?? null)
     } else {
@@ -196,7 +204,7 @@ export async function capturePageFrameFromTab(
   const target = framePort(tabId, connId)
   if (!target) throw new Error(FRAME_GONE)
   const reqId = mintReqId()
-  const wait = waitFor(reqId, TIMEOUT_MESSAGE.frame)
+  const wait = waitFor(reqId, TIMEOUT_MESSAGE.frame, tabId)
   pushEvent(getGmPortRegistry(), target, { t: 'inspector.cmd', cmd: 'frame', reqId })
   return (await wait) as PageFrameSnapshotContext
 }
