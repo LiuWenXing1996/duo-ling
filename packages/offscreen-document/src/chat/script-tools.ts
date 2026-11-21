@@ -342,6 +342,8 @@ export function buildScriptTools(
             ok: true,
             pageUrl: snap.pageUrl,
             capturedAt: snap.capturedAt,
+            frames: snap.frames,
+            framesTotal: snap.framesTotal,
             html: snap.html,
           }
         } catch (e) {

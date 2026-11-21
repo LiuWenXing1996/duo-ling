@@ -39,12 +39,26 @@ export interface ElementPickContext {
   full: ElementPickFull
 }
 
+/** 快照目录里的一个嵌入区域：只描述宿主元素；readable = 那层里有件（srcdoc / data: 等没有），内部 DOM 不在其中 */
+export interface PageSnapshotFrame {
+  id: string
+  tag: 'iframe' | 'frame'
+  src?: string
+  title?: string
+  rect: { x: number; y: number; width: number; height: number }
+  visible: boolean
+  readable: boolean
+  selector: string
+}
+
 /** 页面快照（渲染后 DOM，页面检查器快照模式静默采集；采集方 = AI 的 page_snapshot 工具经 SW 向该页下发指令） */
 export interface PageSnapshotContext {
   capturedAt: number
   pageUrl: string
   /** 渲染后 documentElement.outerHTML，截断 ~32KB */
   html: string
+  frames?: PageSnapshotFrame[]
+  framesTotal?: number
 }
 
 /**

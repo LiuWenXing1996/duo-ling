@@ -8,6 +8,7 @@ import {
   type InspectorMode,
   type PageEnvContext,
   type PageSnapshotContext,
+  type PageSnapshotFrame,
 } from '@duoling/shared'
 
 declare global {
@@ -44,6 +45,12 @@ const SUMMARY_ATTRS = [
 const ATTR_VALUE_LIMIT = 300
 /** 祖先链层数 */
 const PARENT_DEPTH = 6
+/** 快照目录条目上限（广告位多的页面可能几十个 iframe，只列前若干个） */
+const FRAME_INDEX_LIMIT = 20
+const FRAME_SRC_LIMIT = 200
+/** 件跑不起来的 scheme：这些 frame 里没有件，内部 DOM 拿不到 */
+const NO_PIECE_SCHEME =
+  /^(?:about|data|blob|filesystem|javascript|chrome|chrome-extension|moz-extension):/
 /** 选择器路径爬升层数 */
 const PATH_DEPTH = 4
 
@@ -369,12 +376,59 @@ function runPick(): Promise<ElementPickContext | null> {
   })
 }
 
-/** 快照模式：无 UI，静默抓渲染后 outerHTML（截断） */
+function frameSrc(el: Element): string | undefined {
+  const abs = (el as HTMLIFrameElement).src
+  const raw = typeof abs === 'string' && abs ? abs : el.getAttribute('src') || ''
+  return raw ? truncate(raw, FRAME_SRC_LIMIT) : undefined
+}
+
+function frameReadable(el: Element): boolean {
+  if (el.hasAttribute('srcdoc')) return false
+  const src = frameSrc(el)
+  return !!src && !NO_PIECE_SCHEME.test(src.toLowerCase())
+}
+
+function frameSelector(el: Element, index: number): string {
+  if (el.id) return '#' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id)
+  const title = el.getAttribute('title')
+  if (title) return el.tagName.toLowerCase() + '[title="' + title.replace(/"/g, '\\"') + '"]'
+  return pathSelector(el) || el.tagName.toLowerCase() + ':nth-of-type(' + (index + 1) + ')'
+}
+
+/** 快照模式：无 UI，静默抓渲染后 outerHTML（截断）+ 嵌入区域目录 */
 function runSnapshot(): Promise<PageSnapshotContext> {
+  const embeds = document.querySelectorAll('iframe, frame')
+  const frames: PageSnapshotFrame[] = []
+  for (let i = 0; i < embeds.length && i < FRAME_INDEX_LIMIT; i++) {
+    const el = embeds[i]
+    const rect = el.getBoundingClientRect()
+    const style = window.getComputedStyle(el)
+    frames.push({
+      id: 'f' + i,
+      tag: el.tagName === 'FRAME' ? 'frame' : 'iframe',
+      src: frameSrc(el),
+      title: el.getAttribute('title') || undefined,
+      rect: {
+        x: Math.round(rect.left),
+        y: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      },
+      visible:
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        rect.width > 0 &&
+        rect.height > 0,
+      readable: frameReadable(el),
+      selector: frameSelector(el, i),
+    })
+  }
   return Promise.resolve({
     capturedAt: Date.now(),
     pageUrl: location.href,
     html: truncate(document.documentElement.outerHTML, SNAPSHOT_LIMIT),
+    frames,
+    framesTotal: embeds.length,
   })
 }
 

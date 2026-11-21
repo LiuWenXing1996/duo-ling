@@ -81,8 +81,10 @@ export function toolDescriptions(): Record<AgentToolName, string> {
       '摘要层有不确定处时调用：返回全部属性、完整 outerHTML（拾取时刻截断快照，非活页面）、祖先链。' +
       '本次请求没有点选元素时返回 ok:false。',
     page_snapshot:
-      '抓取当前页面的**渲染后 DOM** 快照（documentElement.outerHTML，截断 ~32KB，拾取时刻快照非实时）。' +
+      '抓取当前页面的**渲染后 DOM** 快照（documentElement.outerHTML，截断 ~32KB，采集时刻快照非实时）。' +
       '需要了解页面整体结构、找脚本目标节点的上下文、或摘要信息不够用时调用。' +
+      '同时给出 frames 目录：每个 iframe/frame 的 src、位置尺寸、可见性、能否读取（srcdoc / data: 等无件的为 false）——' +
+      'html 里这些位置只有宿主标签，**不含**各 frame 的内部 DOM，要读内部得从那一层取（同源可走 contentDocument）。' +
       '采不到的情形（内置页 / 未开启「允许运行用户脚本」）返回 ok:false 带原因；' +
       '目标页是本会话所属的标签页，不必是当前激活页。',
     env_read:

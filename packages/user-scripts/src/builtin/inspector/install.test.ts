@@ -24,15 +24,51 @@ interface FakeBridge {
   connectArgs: Array<string | undefined>
 }
 
-function stubBridge(): FakeBridge {
+interface FakeEmbed {
+  tag?: string
+  attrs?: Record<string, string>
+  rect?: { left: number; top: number; width: number; height: number }
+  style?: { display?: string; visibility?: string }
+}
+
+function fakeEmbed(spec: FakeEmbed): Record<string, unknown> {
+  const attrs = spec.attrs || {}
+  const rect = spec.rect || { left: 0, top: 0, width: 0, height: 0 }
+  return {
+    tagName: spec.tag || 'IFRAME',
+    nodeType: 1,
+    id: attrs.id || '',
+    src: attrs.src || '',
+    parentElement: null,
+    getAttribute: (n: string) => (n in attrs ? attrs[n] : null),
+    hasAttribute: (n: string) => n in attrs,
+    getBoundingClientRect: () => ({
+      ...rect,
+      right: rect.left + rect.width,
+      bottom: rect.top + rect.height,
+    }),
+    __style: { display: 'block', visibility: 'visible', ...spec.style },
+  }
+}
+
+function stubBridge(embeds: FakeEmbed[] = []): FakeBridge {
   const sent: Array<Record<string, unknown>> = []
   const handlers: Array<(ev: unknown) => void> = []
   const connects: number[] = []
   const connectArgs: Array<string | undefined> = []
   let broken = false
+  const nodes = embeds.map(fakeEmbed)
 
-  vi.stubGlobal('window', { innerWidth: 1280, innerHeight: 720, devicePixelRatio: 2 })
-  vi.stubGlobal('document', { documentElement: { outerHTML: '<html><body>hello</body></html>' } })
+  vi.stubGlobal('window', {
+    innerWidth: 1280,
+    innerHeight: 720,
+    devicePixelRatio: 2,
+    getComputedStyle: (el: { __style?: unknown }) => el.__style,
+  })
+  vi.stubGlobal('document', {
+    documentElement: { outerHTML: '<html><body>hello</body></html>' },
+    querySelectorAll: () => nodes,
+  })
   vi.stubGlobal('location', { href: 'https://page.test/app' })
   vi.stubGlobal('navigator', { userAgent: 'test-ua/1.0' })
   vi.stubGlobal('setInterval', () => 0) // 重发自愈的定时器：测试里不真跑
@@ -96,6 +132,56 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
       pageUrl: 'https://page.test/app',
       html: '<html><body>hello</body></html>',
     })
+  })
+
+  it('snapshot 目录：按宿主属性列嵌入区域，无件的 scheme 标 readable:false', async () => {
+    const bridge = stubBridge([
+      {
+        attrs: { src: 'https://page.test/a.html', title: 'same' },
+        rect: { left: 10, top: 20, width: 320, height: 148 },
+      },
+      { attrs: { srcdoc: '<p>hi</p>' } },
+      { attrs: { id: 'ad', src: 'about:blank' }, style: { display: 'none' } },
+    ])
+    installPageInspector()
+
+    bridge.fire({ t: 'inspector.cmd', cmd: 'snapshot', reqId: 'r5' })
+    await flush()
+
+    const payload = (bridge.sent[0].event as Record<string, unknown>).payload as Record<
+      string,
+      unknown
+    >
+    expect(payload.framesTotal).toBe(3)
+    expect(payload.frames).toEqual([
+      {
+        id: 'f0',
+        tag: 'iframe',
+        src: 'https://page.test/a.html',
+        title: 'same',
+        rect: { x: 10, y: 20, width: 320, height: 148 },
+        visible: true,
+        readable: true,
+        selector: 'iframe[title="same"]',
+      },
+      {
+        id: 'f1',
+        tag: 'iframe',
+        rect: { x: 0, y: 0, width: 0, height: 0 },
+        visible: false,
+        readable: false,
+        selector: 'iframe:nth-of-type(2)',
+      },
+      {
+        id: 'f2',
+        tag: 'iframe',
+        src: 'about:blank',
+        rect: { x: 0, y: 0, width: 0, height: 0 },
+        visible: false,
+        readable: false,
+        selector: '#ad',
+      },
+    ])
   })
 
   it('env 指令：回视口 / 像素比 / 页面里读到的 UA（读的是页面事实，非机器真值）', async () => {

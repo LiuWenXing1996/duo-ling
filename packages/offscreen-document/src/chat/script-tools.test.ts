@@ -692,16 +692,32 @@ describe('page_snapshot（快照改 AI 工具采集）', () => {
     ReturnType<typeof buildScriptTools>['page_snapshot']['execute']
   >[1]
 
-  it('采集回调正常时返回 pageUrl / capturedAt / html', async () => {
+  it('采集回调正常时返回 pageUrl / capturedAt / html，并透传帧目录', async () => {
     const tools = makeTools(makeElement(), async () => ({
       capturedAt: 1758000000000,
       pageUrl: 'https://example.com/page',
       html: '<html><body>hi</body></html>',
+      frames: [
+        {
+          id: 'f0',
+          tag: 'iframe' as const,
+          src: 'https://example.com/embed',
+          rect: { x: 0, y: 0, width: 300, height: 150 },
+          visible: true,
+          readable: true,
+          selector: '#embed',
+        },
+      ],
+      framesTotal: 2,
     }))
     const out = (await tools.page_snapshot.execute({}, execOpts3)) as Record<string, unknown>
     expect(out.ok).toBe(true)
     expect(out.pageUrl).toBe('https://example.com/page')
     expect(out.html).toContain('<body>hi</body>')
+    expect(out.framesTotal).toBe(2)
+    expect(out.frames).toEqual([
+      expect.objectContaining({ id: 'f0', src: 'https://example.com/embed', readable: true }),
+    ])
   })
 
   it('采集失败 → ok:false 带可读错误', async () => {
