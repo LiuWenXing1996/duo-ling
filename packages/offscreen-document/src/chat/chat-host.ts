@@ -458,6 +458,7 @@ async function runLoop(opts: {
       // abortSignal 随主任务：主任务被停 / 超时，识图不该继续烧 token。
       (assetId, question) =>
         askImageAboutAsset(assetId, question, { model: visionModel, abortSignal: abort.signal }),
+      (connId) => offscreenBridge.capturePageFrame(conversationId, connId),
     )
 
     const result = streamText({

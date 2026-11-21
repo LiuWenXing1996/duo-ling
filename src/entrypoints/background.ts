@@ -144,9 +144,13 @@ import {
 import { getActiveProfileState } from '@duoling/shared'
 // 数据变更广播：落盘后通知全部前端实例回拉（IDB 没有变更通知，这条线由它补上）
 import { broadcastBuildPhase } from '@duoling/shared'
-// AI 工具支路：page_snapshot / page_env_read 两条工具经 SW 向页面里的页面检查器下发指令
+// AI 工具支路：page_snapshot / iframe_snapshot / page_env_read 三条工具经 SW 向页面里的页面检查器下发指令
 // （offscreen 不可达该 API）—— 下发封装与配对都在包内 page-inspector-bridge
-import { capturePageEnvFromTab, capturePageSnapshotFromTab } from '@duoling/service-worker'
+import {
+  capturePageEnvFromTab,
+  capturePageFrameFromTab,
+  capturePageSnapshotFromTab,
+} from '@duoling/service-worker'
 // 目标页可注入判据与「引擎不可用」文案：与对话界面发起侧同一处
 import {
   isUserScriptsApiAvailable,
@@ -252,6 +256,7 @@ async function resolveAiTargetTab(
   if (!chrome.tabs?.query) throw new Error('无法定位目标标签页')
   const owned = conversationId ? await findTabsUsingConversation(conversationId) : []
   let tabId: number | undefined = owned[0]
+  const source = tabId == null ? 'fallback' : 'bound'
   if (tabId == null) {
     // 兜底：会话没绑标签页（那条 tab 已关 / 映射缺项）→ 退回最后聚焦窗口的激活页，
     // 总比直接失败强；SW 无窗口上下文，lastFocusedWindow 语义 = 用户最后聚焦的窗口
@@ -262,6 +267,10 @@ async function resolveAiTargetTab(
   // 内置页 / 扩展页拦在注入前（判据与页面检查器共用，见 pageInjectionBlockReason——扩展页连自己
   // 的也不行，<all_urls> 不覆盖 chrome-extension scheme）
   const tab = await chrome.tabs.get(tabId).catch(() => null)
+  console.info(
+    `[duoling:inspector] ${what}：tabId=${tabId} 来源=${source} url=${tab?.url ?? '?'}` +
+      `（会话绑定 ${owned.join(',') || '无'}）`,
+  )
   const blocked = pageInjectionBlockReason(tab?.url)
   if (blocked) throw new Error(`${blocked}，无法${what}`)
   return tabId
@@ -371,6 +380,16 @@ const linkHandlers: LinkHandlers = {
     ensureInspectorAvailable()
     const { conversationId } = (payload ?? {}) as { conversationId?: string }
     return capturePageEnvFromTab(await resolveAiTargetTab(conversationId, '读取页面环境'))
+  },
+
+  'page:frame': async (payload) => {
+    ensureInspectorAvailable()
+    const { conversationId, connId } = (payload ?? {}) as {
+      conversationId?: string
+      connId?: string
+    }
+    if (!connId) throw new Error('读取 frame 失败：缺少 connId')
+    return capturePageFrameFromTab(await resolveAiTargetTab(conversationId, '读取 frame'), connId)
   },
 
   'userscript:save': (payload) => saveUserScript(payload as SaveScriptPayload),

@@ -1,4 +1,4 @@
-// 页面检查器常驻件本体：按指令读页面（pick / snapshot / env 三模式），把结果交回去。
+// 页面检查器常驻件本体：按指令读页面（pick / snapshot / env / frame 四模式），把结果交回去。
 // 运行位置与通道形状见 ARCHITECTURE.md「脚本注入」「页面上下文」节；三个行为决策
 // （Esc 主取消路径 / env 与机器真值双源 / 单次上报契约）见 docs/adr/0012-page-inspector-cancel-and-env-duality.md。
 
@@ -7,7 +7,9 @@ import {
   type ElementPickContext,
   type InspectorMode,
   type PageEnvContext,
+  type PageFrameSnapshotContext,
   type PageSnapshotContext,
+  type PageSnapshotFrame,
 } from '@duoling/shared'
 
 declare global {
@@ -44,15 +46,33 @@ const SUMMARY_ATTRS = [
 const ATTR_VALUE_LIMIT = 300
 /** 祖先链层数 */
 const PARENT_DEPTH = 6
+const FRAME_INDEX_LIMIT = 50
+const FRAME_SRC_LIMIT = 200
 /** 选择器路径爬升层数 */
 const PATH_DEPTH = 4
 
 /** 进行中的拾取（同一时刻至多一个，与 UI 的单一入口一致）：cancel 指令调它让这次拾取收场 */
 let activePick: { cancel: () => void } | null = null
 
+const EMBED_TAGS = new Set(['IFRAME', 'FRAME'])
+
+const ANY_FRAME_CMD = new Set(['pick', 'frame'])
+
+/** 宿主元素 → 该层件的 connId：子帧启动时向父帧报到，父帧按 contentWindow 引用认领（WeakMap 不留已卸文档） */
+const childConnId = new WeakMap<object, string>()
+
 function truncate(s: unknown, n: number): string {
   const str = String(s == null ? '' : s)
   return str.length > n ? str.slice(0, n) : str
+}
+
+function capturedHtml(): { html: string; htmlLength: number; htmlTruncated: boolean } {
+  const full = String(document.documentElement.outerHTML)
+  return {
+    html: truncate(full, SNAPSHOT_LIMIT),
+    htmlLength: full.length,
+    htmlTruncated: full.length > SNAPSHOT_LIMIT,
+  }
 }
 
 function classesOf(el: Element): string[] {
@@ -190,20 +210,43 @@ function runPick(): Promise<ElementPickContext | null> {
       'position:fixed;z-index:2147483647;pointer-events:none;display:none;max-width:320px;' +
       'font:12px/1.6 system-ui,sans-serif;color:#fff;background:rgba(30,30,36,.92);' +
       'padding:2px 8px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+    const drillBtn = document.createElement('button')
+    drillBtn.type = 'button'
+    drillBtn.textContent = '下钻'
+    drillBtn.style.cssText =
+      'position:fixed;z-index:2147483647;pointer-events:auto;display:none;cursor:pointer;' +
+      'font:12px/1.5 system-ui,sans-serif;color:#fff;background:rgba(99,102,241,.95);' +
+      'padding:2px 8px;border:0;border-radius:4px;white-space:nowrap;'
     document.documentElement.appendChild(box)
     document.documentElement.appendChild(tip)
+    document.documentElement.appendChild(drillBtn)
+
+    // 默认穿透子文档：指针落在 iframe 上时事件仍归本文档，才画得出「整个 iframe」这个框
+    const hosts = Array.from(document.querySelectorAll<HTMLElement>('iframe, frame'))
+    const hostOrig = new Map<HTMLElement, string>()
+    for (const el of hosts) {
+      hostOrig.set(el, el.style.pointerEvents)
+      el.style.pointerEvents = 'none'
+    }
 
     let done = false
+    let away: ReturnType<typeof setInterval> | null = null
+    let drilled: HTMLElement | null = null
+    let frameHit: HTMLElement | null = null
     function finish(payload: ElementPickContext | null): void {
       if (done) return
       done = true
       activePick = null
+      if (away) clearInterval(away)
       document.removeEventListener('mousemove', onMove, true)
+      document.removeEventListener('mouseout', onOut, true)
       document.removeEventListener('click', onClick, true)
       document.removeEventListener('keydown', onKey, true)
       document.removeEventListener('contextmenu', onContext, true)
+      for (const el of hosts) setHostPE(el, true)
       box.remove()
       tip.remove()
+      drillBtn.remove()
       resolve(payload || null)
     }
     activePick = {
@@ -224,18 +267,97 @@ function runPick(): Promise<ElementPickContext | null> {
       const tx = Math.min(r.left, window.innerWidth - 340)
       tip.style.left = Math.max(4, tx) + 'px'
       tip.style.top = Math.max(4, r.top - 22 < 4 ? r.bottom + 4 : r.top - 22) + 'px'
+      frameHit = EMBED_TAGS.has(el.tagName) ? (el as HTMLElement) : null
+      if (!frameHit) {
+        drillBtn.style.display = 'none'
+        return
+      }
+      drillBtn.style.display = 'block'
+      const bw = drillBtn.offsetWidth
+      const bh = drillBtn.offsetHeight
+      drillBtn.style.left =
+        Math.min(Math.max(4, r.right - bw - 6), window.innerWidth - bw - 4) + 'px'
+      drillBtn.style.top = Math.min(Math.max(4, r.top + 6), window.innerHeight - bh - 4) + 'px'
+    }
+
+    function hide(): void {
+      box.style.display = 'none'
+      tip.style.display = 'none'
+      drillBtn.style.display = 'none'
+      frameHit = null
+    }
+
+    function setHostPE(el: HTMLElement, restore: boolean): void {
+      if (!restore) {
+        el.style.pointerEvents = 'none'
+        return
+      }
+      const prev = hostOrig.get(el) || ''
+      if (prev) el.style.pointerEvents = prev
+      else el.style.removeProperty('pointer-events')
+    }
+
+    function inRect(el: HTMLElement, x: number, y: number): boolean {
+      const r = el.getBoundingClientRect()
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+    }
+
+    function embedAt(x: number, y: number): HTMLElement | null {
+      let hit: HTMLElement | null = null
+      let min = Infinity
+      for (const el of hosts) {
+        const r = el.getBoundingClientRect()
+        if (!r.width || !r.height) continue
+        if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue
+        const area = r.width * r.height
+        if (area < min) {
+          min = area
+          hit = el
+        }
+      }
+      return hit
+    }
+
+    function hitTest(e: MouseEvent): Element | null {
+      return embedAt(e.clientX, e.clientY) || document.elementFromPoint(e.clientX, e.clientY)
+    }
+
+    function pickable(el: Element | null): el is Element {
+      return !!el && el !== box && el !== tip && el !== drillBtn
     }
 
     function onMove(e: MouseEvent): void {
-      const el = document.elementFromPoint(e.clientX, e.clientY)
-      if (el && el !== box && el !== tip) highlight(el)
+      if (drilled && !inRect(drilled, e.clientX, e.clientY)) {
+        setHostPE(drilled, false)
+        drilled = null
+      }
+      const el = hitTest(e)
+      if (el === box || el === tip || el === drillBtn) return
+      if (!el) {
+        hide()
+        return
+      }
+      highlight(el)
+    }
+    function onOut(e: MouseEvent): void {
+      const to = e.relatedTarget as Element | null
+      if (!to || EMBED_TAGS.has(to.tagName)) hide()
     }
     function onClick(e: MouseEvent): void {
       // 拾取期间页面自身不响应点击：capture 阶段拦下
       e.preventDefault()
       e.stopPropagation()
-      const el = document.elementFromPoint(e.clientX, e.clientY)
-      if (el && el !== box && el !== tip) finish(buildPayload(el))
+      if (drillBtn.contains(e.target as Node)) {
+        const host = frameHit || embedAt(e.clientX, e.clientY)
+        if (host) {
+          setHostPE(host, true)
+          drilled = host
+          hide()
+        }
+        return
+      }
+      const el = hitTest(e)
+      if (pickable(el)) finish(buildPayload(el))
     }
     function onKey(e: KeyboardEvent): void {
       if (e.key === 'Escape') {
@@ -251,18 +373,89 @@ function runPick(): Promise<ElementPickContext | null> {
     }
 
     document.addEventListener('mousemove', onMove, true)
+    document.addEventListener('mouseout', onOut, true)
     document.addEventListener('click', onClick, true)
     document.addEventListener('keydown', onKey, true)
     document.addEventListener('contextmenu', onContext, true)
+
+    // 进入子文档后本层未必还能收到 mouseout：按 hover 链兜底判断指针是否还在本文档
+    away = setInterval(function () {
+      const hovered = document.querySelectorAll(':hover')
+      const deepest = hovered[hovered.length - 1]
+      if (!deepest || EMBED_TAGS.has(deepest.tagName)) hide()
+    }, 150)
   })
+}
+
+function frameSrc(el: Element): string | undefined {
+  const abs = (el as HTMLIFrameElement).src
+  const raw = typeof abs === 'string' && abs ? abs : el.getAttribute('src') || ''
+  return raw ? truncate(raw, FRAME_SRC_LIMIT) : undefined
+}
+
+function frameSelector(el: Element, index: number): string {
+  if (el.id) return '#' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id)
+  const title = el.getAttribute('title')
+  if (title) return el.tagName.toLowerCase() + '[title="' + title.replace(/"/g, '\\"') + '"]'
+  return pathSelector(el) || el.tagName.toLowerCase() + ':nth-of-type(' + (index + 1) + ')'
+}
+
+function connIdOf(el: Element): string | undefined {
+  const win = (el as HTMLIFrameElement).contentWindow
+  return win ? childConnId.get(win) : undefined
+}
+
+function buildFrameIndex(): { frames: PageSnapshotFrame[]; total: number } {
+  const embeds = document.querySelectorAll('iframe, frame')
+  const frames: PageSnapshotFrame[] = []
+  for (let i = 0; i < embeds.length && i < FRAME_INDEX_LIMIT; i++) {
+    const el = embeds[i]
+    const rect = el.getBoundingClientRect()
+    const style = window.getComputedStyle(el)
+    frames.push({
+      id: 'f' + i,
+      tag: el.tagName === 'FRAME' ? 'frame' : 'iframe',
+      src: frameSrc(el),
+      title: el.getAttribute('title') || undefined,
+      rect: {
+        x: Math.round(rect.left),
+        y: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      },
+      visible:
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        rect.width > 0 &&
+        rect.height > 0,
+      selector: frameSelector(el, i),
+      connId: connIdOf(el),
+    })
+  }
+  return { frames, total: embeds.length }
 }
 
 /** 快照模式：无 UI，静默抓渲染后 outerHTML（截断） */
 function runSnapshot(): Promise<PageSnapshotContext> {
+  const { frames, total } = buildFrameIndex()
   return Promise.resolve({
     capturedAt: Date.now(),
     pageUrl: location.href,
-    html: truncate(document.documentElement.outerHTML, SNAPSHOT_LIMIT),
+    ...capturedHtml(),
+    frames,
+    framesTotal: total,
+  })
+}
+
+function runFrame(): Promise<PageFrameSnapshotContext> {
+  const { frames, total } = buildFrameIndex()
+  return Promise.resolve({
+    capturedAt: Date.now(),
+    frameUrl: location.href,
+    isTop: window.top ? window.top === window.self : true,
+    ...capturedHtml(),
+    frames,
+    framesTotal: total,
   })
 }
 
@@ -282,6 +475,7 @@ function run(mode: InspectorMode): Promise<unknown> {
   try {
     if (mode === 'snapshot') return runSnapshot()
     if (mode === 'env') return runEnv()
+    if (mode === 'frame') return runFrame()
     return runPick()
   } catch (e) {
     return Promise.reject(e instanceof Error ? e : new Error(String(e)))
@@ -289,12 +483,12 @@ function run(mode: InspectorMode): Promise<unknown> {
 }
 
 declare const __gmBridge: {
-  connect(connId: string): Promise<void>
+  readonly connId: string
+  connect(connId?: string): Promise<void>
   emit(envelope: Record<string, unknown>): void
   onEvent(fn: (ev: Record<string, unknown>) => void): void
 }
 
-const CHANNEL_CONN_ID = 'inspector'
 /** 断链自愈的重发间隔：SW 重启后中继件侧连接已清，重发 connect 帧重建 Port */
 const CHANNEL_RECONNECT_MS = 15_000
 
@@ -302,6 +496,19 @@ const CHANNEL_RECONNECT_MS = 15_000
 export function installPageInspector(): void {
   if (window.__gmInspectorHost) return
   window.__gmInspectorHost = true
+
+  try {
+    if (typeof window.addEventListener === 'function') {
+      window.addEventListener('message', function (ev) {
+        const d = ev.data as { dl?: unknown; connId?: unknown } | null
+        if (!d || d.dl !== 'hi' || typeof d.connId !== 'string' || !ev.source) return
+        childConnId.set(ev.source as object, d.connId)
+      })
+    }
+    if (window.top && window.top !== window.self && __gmBridge.connId) {
+      window.parent.postMessage({ dl: 'hi', connId: __gmBridge.connId }, '*')
+    }
+  } catch {}
 
   // 结果上行：每个 reqId 只回一条，把结果与发起侧那一次调用配对上。
   // emit 是 fire-and-forget：发不出去（中继件未就位等）本件无从得知，发起侧按超时收场 ——
@@ -328,7 +535,7 @@ export function installPageInspector(): void {
   // 对同 uuid+connId 替换旧 Port，重连不会产生双 Port 推两份指令）。
   function keepChannel(): void {
     try {
-      __gmBridge.connect(CHANNEL_CONN_ID).catch(function () {
+      __gmBridge.connect().catch(function () {
         /* 握手失败（中继件未就位）：等下一轮 */
       })
     } catch {
@@ -348,6 +555,8 @@ export function installPageInspector(): void {
         if (activePick) activePick.cancel()
         return
       }
+
+      if (!ANY_FRAME_CMD.has(String(ev.cmd)) && window.top && window.top !== window.self) return
 
       try {
         Promise.resolve(run(ev.cmd as InspectorMode)).then(

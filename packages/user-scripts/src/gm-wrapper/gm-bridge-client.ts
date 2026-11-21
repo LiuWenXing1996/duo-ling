@@ -16,8 +16,9 @@ export interface GmBridgeResp {
 }
 
 export interface GmBridgeApi {
+  readonly connId: string
   call: (payload: unknown, runId?: string) => Promise<GmBridgeResp | null>
-  connect: (connId: string) => Promise<void>
+  connect: (connId?: string) => Promise<void>
   emit: (payload: Record<string, unknown>) => any
   onEvent: (fn: (ev: any) => void) => void
 }
@@ -34,6 +35,15 @@ export function createGmBridgeClient(win: any, secret: string, uuid: string): Gm
   const TAG = BRIDGE_MSG_TAG
   const TAG_VALUE = BRIDGE_MSG_TAG_VALUE
   const VERSION = BRIDGE_PROTOCOL_VERSION
+
+  // 实例身份由桥发：交给调用方命名过，同 uuid 的多个 frame 就共用一个 connId，被 SW 当成同实例重连互踢
+  const instanceId = (function () {
+    try {
+      return crypto.randomUUID()
+    } catch {
+      return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10)
+    }
+  })()
 
   let seq = 0
   const pending: Record<
@@ -120,6 +130,7 @@ export function createGmBridgeClient(win: any, secret: string, uuid: string): Gm
   }
 
   return {
+    connId: instanceId,
     call: function (payload, runId) {
       return handshake().then(function () {
         const m = sign({ kind: 'req', req: payload, runId: runId }) as Frame &
@@ -140,8 +151,9 @@ export function createGmBridgeClient(win: any, secret: string, uuid: string): Gm
       })
     },
     connect: function (connId) {
+      const cid = connId || instanceId
       return handshake().then(function () {
-        send(sign({ kind: 'connect', connId: connId }))
+        send(sign({ kind: 'connect', connId: cid }))
       })
     },
     emit: function (payload) {

@@ -18,8 +18,28 @@ async function stubPush(ports = 1): Promise<{ sent: Sent[]; bridge: Bridge }> {
       sent.push({ tabId, ev })
       return ports
     },
+    getGmPortRegistry: () => ({ meta: [] }),
+    pushEvent: () => {},
   }))
   // 每次重新导入被测模块：mock 落进去，pending 记账也是新的一份（用例间天然隔离）
+  const bridge = (await import('./page-inspector-bridge')) as Bridge
+  return { sent, bridge }
+}
+
+async function stubFramePort(meta: { connId: string; tabId: number }): Promise<{
+  sent: Array<{ ev: Record<string, unknown> }>
+  bridge: Bridge
+}> {
+  const sent: Array<{ ev: Record<string, unknown> }> = []
+  vi.doMock('../gm-port', () => ({
+    pushCommandTo: () => 0,
+    getGmPortRegistry: () => ({
+      meta: [[{} as chrome.runtime.Port, { uuid: INSPECTOR_ID, ...meta }]],
+    }),
+    pushEvent: (_reg: unknown, _port: unknown, ev: Record<string, unknown>) => {
+      sent.push({ ev })
+    },
+  }))
   const bridge = (await import('./page-inspector-bridge')) as Bridge
   return { sent, bridge }
 }
@@ -127,6 +147,28 @@ describe('runInspectorCommand · 下发与结算（快照 / 环境读数）', ()
     expect(() =>
       bridge.handleInspectorEvent(INSPECTOR_ID, 7, result(String(sent[0].ev.reqId), { n: 2 })),
     ).not.toThrow()
+  })
+})
+
+describe('capturePageFrameFromTab · 按 connId 定向', () => {
+  it('命中那层 Port：下发 cmd=frame 且带本次 reqId，回执按 reqId 配对', async () => {
+    const { sent, bridge } = await stubFramePort({ connId: 'c-1', tabId: 9 })
+    const p = bridge.capturePageFrameFromTab(9, 'c-1')
+    expect(sent).toHaveLength(1)
+    expect(sent[0].ev).toMatchObject({ t: 'inspector.cmd', cmd: 'frame' })
+
+    bridge.handleInspectorEvent(
+      INSPECTOR_ID,
+      9,
+      result(String(sent[0].ev.reqId), { frameUrl: 'https://x/', html: '<p>x</p>' }),
+    )
+    await expect(p).resolves.toEqual({ frameUrl: 'https://x/', html: '<p>x</p>' })
+  })
+
+  it('connId 对不上（另一层 / 已重载）或 tabId 不符：当场失败，不等满 60 秒', async () => {
+    const { bridge } = await stubFramePort({ connId: 'c-1', tabId: 9 })
+    await expect(bridge.capturePageFrameFromTab(9, 'c-2')).rejects.toThrow('重新 page_snapshot')
+    await expect(bridge.capturePageFrameFromTab(10, 'c-1')).rejects.toThrow('重新 page_snapshot')
   })
 })
 

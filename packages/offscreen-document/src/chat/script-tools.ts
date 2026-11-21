@@ -37,6 +37,7 @@ import type {
   UserScriptErrorLookup,
   ElementPickContext,
   PageEnvContext,
+  PageFrameSnapshotContext,
   PageSnapshotContext,
 } from '@duoling/shared'
 import { readSource } from '../fs/git'
@@ -172,6 +173,7 @@ export function buildScriptTools(
   readRunLog?: () => Promise<UserScriptRunLogRow[]>,
   readRunEvents?: (runId: string) => Promise<UserScriptRunEvent[]>,
   askImage?: AskImage,
+  captureFrameSnapshot?: (connId: string) => Promise<PageFrameSnapshotContext>,
 ): ScriptToolSet {
   const D = toolDescriptions()
   const tools = {
@@ -342,7 +344,39 @@ export function buildScriptTools(
             ok: true,
             pageUrl: snap.pageUrl,
             capturedAt: snap.capturedAt,
+            frames: snap.frames,
+            framesTotal: snap.framesTotal,
             html: snap.html,
+            htmlLength: snap.htmlLength,
+            htmlTruncated: snap.htmlTruncated,
+          }
+        } catch (e) {
+          return { ok: false, error: errorText(e) }
+        }
+      },
+    }),
+    iframe_snapshot: tool({
+      description: D.iframe_snapshot,
+      inputSchema: z.object({
+        connId: z.string().describe(TOOL_PARAM_DESCRIPTIONS.iframe_snapshot.connId),
+      }),
+      execute: async ({ connId }) => {
+        if (!captureFrameSnapshot) {
+          return { ok: false, error: '单帧快照采集不可用' }
+        }
+        const id = connId.trim()
+        if (!id) return { ok: false, error: 'connId 为空' }
+        try {
+          const snap = await captureFrameSnapshot(id)
+          return {
+            ok: true,
+            frameUrl: snap.frameUrl,
+            isTop: snap.isTop,
+            frames: snap.frames,
+            framesTotal: snap.framesTotal,
+            html: snap.html,
+            htmlLength: snap.htmlLength,
+            htmlTruncated: snap.htmlTruncated,
           }
         } catch (e) {
           return { ok: false, error: errorText(e) }

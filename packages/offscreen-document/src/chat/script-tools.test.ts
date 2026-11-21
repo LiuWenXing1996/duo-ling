@@ -71,6 +71,9 @@ function makeTools(
   readError?: (id: string) => Promise<import('@duoling/shared').UserScriptErrorLookup>,
   tabRecord?: TabRecordHooks,
   capturePageEnv?: () => Promise<import('@duoling/shared').PageEnvContext>,
+  captureFrameSnapshot?: (
+    connId: string,
+  ) => Promise<import('@duoling/shared').PageFrameSnapshotContext>,
 ) {
   const ws = makeWorkspace()
   return buildScriptTools(
@@ -82,6 +85,10 @@ function makeTools(
     capturePageEnv,
     readError,
     tabRecord,
+    undefined,
+    undefined,
+    undefined,
+    captureFrameSnapshot,
   )
 }
 
@@ -249,6 +256,7 @@ describe('script 三件套不受影响（回归）', () => {
       'element_read',
       'env_read',
       'error_read',
+      'iframe_snapshot',
       'image_ask',
       'page_env_read',
       'page_snapshot',
@@ -692,16 +700,81 @@ describe('page_snapshot（快照改 AI 工具采集）', () => {
     ReturnType<typeof buildScriptTools>['page_snapshot']['execute']
   >[1]
 
-  it('采集回调正常时返回 pageUrl / capturedAt / html', async () => {
+  it('采集回调正常时返回 pageUrl / capturedAt / html，并透传帧目录与截断标记', async () => {
     const tools = makeTools(makeElement(), async () => ({
       capturedAt: 1758000000000,
       pageUrl: 'https://example.com/page',
       html: '<html><body>hi</body></html>',
+      htmlLength: 40000,
+      htmlTruncated: true,
+      frames: [
+        {
+          id: 'f0',
+          tag: 'iframe' as const,
+          src: 'https://example.com/embed',
+          rect: { x: 0, y: 0, width: 300, height: 150 },
+          visible: true,
+          selector: '#embed',
+        },
+      ],
+      framesTotal: 2,
     }))
     const out = (await tools.page_snapshot.execute({}, execOpts3)) as Record<string, unknown>
     expect(out.ok).toBe(true)
     expect(out.pageUrl).toBe('https://example.com/page')
     expect(out.html).toContain('<body>hi</body>')
+    expect(out.framesTotal).toBe(2)
+    expect(out.htmlLength).toBe(40000)
+    expect(out.htmlTruncated).toBe(true)
+    expect(out.frames).toEqual([
+      expect.objectContaining({ id: 'f0', src: 'https://example.com/embed' }),
+    ])
+  })
+
+  it('iframe_snapshot：connId 原样交给采集通道，透传那一层的文档与目录', async () => {
+    const seen: string[] = []
+    const tools = makeTools(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (connId) => {
+        seen.push(connId)
+        return {
+          capturedAt: 1758000000000,
+          frameUrl: 'https://example.com/embed',
+          isTop: false,
+          html: '<html><body>inner</body></html>',
+          frames: [],
+          framesTotal: 0,
+        }
+      },
+    )
+    const out = (await tools.iframe_snapshot.execute({ connId: ' conn-1 ' }, execOpts3)) as Record<
+      string,
+      unknown
+    >
+    expect(seen).toEqual(['conn-1'])
+    expect(out).toMatchObject({
+      ok: true,
+      frameUrl: 'https://example.com/embed',
+      isTop: false,
+      html: '<html><body>inner</body></html>',
+    })
+  })
+
+  it('iframe_snapshot：没接通道或 connId 为空 → ok:false', async () => {
+    const noChannel = makeTools()
+    expect(await noChannel.iframe_snapshot.execute({ connId: 'x' }, execOpts3)).toMatchObject({
+      ok: false,
+    })
+    const blank = makeTools(undefined, undefined, undefined, undefined, undefined, async () => {
+      throw new Error('不该走到采集')
+    })
+    expect(await blank.iframe_snapshot.execute({ connId: '   ' }, execOpts3)).toMatchObject({
+      ok: false,
+    })
   })
 
   it('采集失败 → ok:false 带可读错误', async () => {
