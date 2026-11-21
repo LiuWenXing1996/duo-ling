@@ -147,7 +147,8 @@ function summarizeToolResult(raw: unknown): string {
     if (o.ok === false) return `❌ 没采到：${String(o.error ?? '工具返回 ok:false')}`
     if (typeof o.html === 'string') {
       const url = String(o.frameUrl ?? o.pageUrl ?? '(无地址)')
-      return `✅ 快照到手：${url} · HTML ${o.html.length} 字符`
+      const n = Array.isArray(o.frames) ? ` · frames ${o.frames.length}` : ''
+      return `✅ 快照到手：${url} · HTML ${o.html.length} 字符${n}`
     }
     if (o.viewport) {
       const vp = o.viewport as { width: unknown; height: unknown }
@@ -200,7 +201,16 @@ function builtinPlan(hit: ModelStubHit): StubReply | undefined {
   const name = builtinTriggerFor(hit.lastUser)
   if (!name) return undefined
   if (name === 'iframe_snapshot') {
-    const connId = latestFrameConnId(hit.messages) ?? ''
+    const connId = latestFrameConnId(hit.messages)
+    // 拿不到 connId 就说明白：发一条空参调用只会得到「connId 为空」，看不出是「页里没 iframe」
+    // 还是「忘了先快照」。真实模型是从目录里挑一个，这里没有可挑的就不该硬发。
+    if (!connId) {
+      return {
+        text:
+          '❌ 没有可下钻的帧：上一轮快照的 frames[] 里没有 connId —— ' +
+          '要么目标页没有 iframe，要么那几层没有件。先发「快照」看目录。',
+      }
+    }
     return { toolCalls: [{ name, args: { connId } }] }
   }
   return { toolCalls: [{ name, args: {} }] }
