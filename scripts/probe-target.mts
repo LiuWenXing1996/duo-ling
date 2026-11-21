@@ -6,7 +6,8 @@
 // 报的却不是产品问题。靶站在回环地址上给出同样的响应形状。
 //
 // 端点分两类：
-//   · 本项目自有 —— /probe.html、/multi-iframe.html（多 frame 手测）、/target.html、/favicon.ico、/bytes/:n
+//   · 本项目自有 —— /probe.html（探针宿主页，把基址经 meta 下发给脚本）、/target.html、
+//     /favicon.ico、/bytes/:n
 //   · httpbin 兼容子集 —— /get /post /headers /anything /delay/:s /absolute-redirect/:n
 //     响应形状对齐 httpbin，探针只换基址、用例里的断言判据不动
 //

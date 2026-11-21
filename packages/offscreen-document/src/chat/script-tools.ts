@@ -1,4 +1,4 @@
-// Agent 工具集：脚本读写（script_*）、页面上下文（element_read / page_snapshot / iframe_snapshot）、
+// Agent 工具集：脚本读写（script_*）、页面上下文（element_read / page_snapshot）、
 // 环境读取（env_read / page_env_read）、页面录制（tab_record_*）、
 // 诊断查询（error_read / run_log_read）、识图（image_ask）。
 //
@@ -160,7 +160,6 @@ export type ScriptToolSet = Record<
  * readRunLog：运行日志读取（SW 侧 duoling-runtime 库，offscreen 拿不到；未提供 = 工具返回不可用）。
  * readRunEvents：某次运行的动作明细（同一通道，按 runId 拉；未提供 = 工具返回不可用）。
  * askImage：识图（读资源库原图 → 一次独立模型调用；未提供 = 工具返回不可用）。
- * captureFrameSnapshot：单帧快照（按 connId 定向到那一层；未提供 = 工具返回不可用）。
  */
 export function buildScriptTools(
   ws: TaskWorkspace,

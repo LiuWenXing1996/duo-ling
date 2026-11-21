@@ -57,9 +57,7 @@ export interface PageFrameSnapshotContext {
   frameUrl: string
   isTop: boolean
   html: string
-  /** 截断前的原始字符数（html 短于它 = 后面的内容没给） */
   htmlLength?: number
-  /** html 是否被截断；缺省 = 没截 */
   htmlTruncated?: boolean
   frames?: PageSnapshotFrame[]
   framesTotal?: number
@@ -71,9 +69,7 @@ export interface PageSnapshotContext {
   pageUrl: string
   /** 渲染后 documentElement.outerHTML，截断 ~32KB */
   html: string
-  /** 截断前的原始字符数（html 短于它 = 后面的内容没给） */
   htmlLength?: number
-  /** html 是否被截断；缺省 = 没截 */
   htmlTruncated?: boolean
   frames?: PageSnapshotFrame[]
   framesTotal?: number

@@ -46,7 +46,6 @@ const SUMMARY_ATTRS = [
 const ATTR_VALUE_LIMIT = 300
 /** 祖先链层数 */
 const PARENT_DEPTH = 6
-/** 快照目录条目上限（广告位多的页面可能几十个 iframe，只列前若干个） */
 const FRAME_INDEX_LIMIT = 50
 const FRAME_SRC_LIMIT = 200
 /** 选择器路径爬升层数 */
@@ -67,7 +66,6 @@ function truncate(s: unknown, n: number): string {
   return str.length > n ? str.slice(0, n) : str
 }
 
-/** 本文档外层 HTML：截断的同时报出原始长度，模型才知道自己看全没有 */
 function capturedHtml(): { html: string; htmlLength: number; htmlTruncated: boolean } {
   const full = String(document.documentElement.outerHTML)
   return {
@@ -437,7 +435,7 @@ function buildFrameIndex(): { frames: PageSnapshotFrame[]; total: number } {
   return { frames, total: embeds.length }
 }
 
-/** 快照模式：无 UI，静默抓渲染后 outerHTML（截断）+ 嵌入区域目录 */
+/** 快照模式：无 UI，静默抓渲染后 outerHTML（截断） */
 function runSnapshot(): Promise<PageSnapshotContext> {
   const { frames, total } = buildFrameIndex()
   return Promise.resolve({
@@ -533,7 +531,6 @@ export function installPageInspector(): void {
   }
 
   // 常驻通道：connect 幂等（中继件侧按 uuid 去重）；失败静默 —— 定时重发就是重试。
-  // connId 由桥发放（每 realm 唯一），本件不命名：写死常量会让同 uuid 的多个 frame 互踢。
   // 重发是**常备的**而非只在启动时：SW 重启 / Port 半死时靠它自愈（SW 端 addPort
   // 对同 uuid+connId 替换旧 Port，重连不会产生双 Port 推两份指令）。
   function keepChannel(): void {
@@ -559,7 +556,6 @@ export function installPageInspector(): void {
         return
       }
 
-      // 指令按 tab 广播：快照 / 环境读数是整页的数据，只由顶层回答（各层都回就成了赛跑）
       if (!ANY_FRAME_CMD.has(String(ev.cmd)) && window.top && window.top !== window.self) return
 
       try {

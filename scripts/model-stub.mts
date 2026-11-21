@@ -68,8 +68,7 @@ export interface ModelStubOptions {
    * 返回 undefined 时退回 `reply` 的文本。
    *
    * **给了 plan 就完全按 plan**；不给时启用内置调试触发（消息整句是「快照」→ page_snapshot、
-   * 「页面环境」→ page_env_read、「读frame」→ iframe_snapshot，工具结果回流后自动收尾复述），
-   * 供 dev 手测走通工具链。
+   * 「页面环境」→ page_env_read，工具结果回流后自动收尾复述），供 dev 手测走通工具链。
    */
   plan?: (hit: ModelStubHit, index: number) => StubReply | undefined
   /** 模型 id（回包里的 model 字段，默认 stub-model） */
@@ -171,7 +170,6 @@ function currentTurnToolMessages(messages: ModelStubHit['messages']) {
   return messages.slice(lastUser + 1).filter((m) => m.role === 'tool')
 }
 
-/** 从历史工具结果里捞最近一个 frames[].connId：假模型编不出 connId，手测 iframe_snapshot 只能从上一轮快照里取 */
 function latestFrameConnId(messages: ModelStubHit['messages']): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i]!.role !== 'tool') continue
@@ -181,9 +179,7 @@ function latestFrameConnId(messages: ModelStubHit['messages']): string | null {
       }
       const hit = (o.frames ?? []).find((f) => typeof f?.connId === 'string')
       if (hit) return String(hit.connId)
-    } catch {
-      /* 不是 JSON 的工具结果：跳过 */
-    }
+    } catch {}
   }
   return null
 }
@@ -203,8 +199,6 @@ function builtinPlan(hit: ModelStubHit): StubReply | undefined {
   if (!name) return undefined
   if (name === 'iframe_snapshot') {
     const connId = latestFrameConnId(hit.messages)
-    // 拿不到 connId 就说明白：发一条空参调用只会得到「connId 为空」，看不出是「页里没 iframe」
-    // 还是「忘了先快照」。真实模型是从目录里挑一个，这里没有可挑的就不该硬发。
     if (!connId) {
       return {
         text:

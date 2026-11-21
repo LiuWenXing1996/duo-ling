@@ -1,4 +1,4 @@
-// 页面检查器指令桥（SW 侧）：把「拾取 / 采集快照 / 读环境 / 读单帧 / 收工」下发到常驻件，
+// 页面检查器指令桥（SW 侧）：把「拾取 / 采集快照 / 读环境 / 收工」下发到常驻件，
 // 并在件上报结果时按 reqId 配对回发起方那次调用。
 // 两条支路：快照 / 环境读数由本层等结果（调用方是 AI 工具）；拾取下发即返回，结论交给 pending-pick。
 //
@@ -27,10 +27,8 @@ const TIMEOUT_MESSAGE = {
   frame: '该 frame 读取失败：60 秒内未完成（它可能已重载、被移除，或页面已刷新）',
 } as const
 
-/** 按 tab 广播、只由顶层回答的两种模式（frame 按 connId 定向，见 capturePageFrameFromTab） */
 export type InspectorMode = Exclude<keyof typeof TIMEOUT_MESSAGE, 'frame'>
 
-/** connId 失效的文案：它来自上一份目录，文档一重载就换新的了 */
 const FRAME_GONE = '该 frame 已重载或已移除：请重新 page_snapshot 拿最新的 connId'
 
 /**
