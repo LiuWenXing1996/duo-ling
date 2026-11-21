@@ -130,13 +130,7 @@ export function installGmWrapper(env: GmWrapperEnv): GmWrapperHandle {
     })
   }
 
-  const __gmConnId = (function () {
-    try {
-      return crypto.randomUUID()
-    } catch {
-      return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10)
-    }
-  })()
+  const __gmConnId = __gmBridge.connId
   let __gmConnectStarted = false
   let __gmPortReady = false
   const __gmReadyWaiters: Array<{ resolve: () => void }> = []

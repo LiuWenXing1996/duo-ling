@@ -289,12 +289,11 @@ function run(mode: InspectorMode): Promise<unknown> {
 }
 
 declare const __gmBridge: {
-  connect(connId: string): Promise<void>
+  connect(connId?: string): Promise<void>
   emit(envelope: Record<string, unknown>): void
   onEvent(fn: (ev: Record<string, unknown>) => void): void
 }
 
-const CHANNEL_CONN_ID = 'inspector'
 /** 断链自愈的重发间隔：SW 重启后中继件侧连接已清，重发 connect 帧重建 Port */
 const CHANNEL_RECONNECT_MS = 15_000
 
@@ -324,11 +323,12 @@ export function installPageInspector(): void {
   }
 
   // 常驻通道：connect 幂等（中继件侧按 uuid 去重）；失败静默 —— 定时重发就是重试。
+  // connId 由桥发放（每 realm 唯一），本件不命名：写死常量会让同 uuid 的多个 frame 互踢。
   // 重发是**常备的**而非只在启动时：SW 重启 / Port 半死时靠它自愈（SW 端 addPort
   // 对同 uuid+connId 替换旧 Port，重连不会产生双 Port 推两份指令）。
   function keepChannel(): void {
     try {
-      __gmBridge.connect(CHANNEL_CONN_ID).catch(function () {
+      __gmBridge.connect().catch(function () {
         /* 握手失败（中继件未就位）：等下一轮 */
       })
     } catch {

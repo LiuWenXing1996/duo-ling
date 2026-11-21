@@ -21,12 +21,14 @@ interface FakeBridge {
   breakListener: () => void
   /** connect 被调用的次数（常驻通道 + 重发自愈的观测面） */
   connects: number[]
+  connectArgs: Array<string | undefined>
 }
 
 function stubBridge(): FakeBridge {
   const sent: Array<Record<string, unknown>> = []
   const handlers: Array<(ev: unknown) => void> = []
   const connects: number[] = []
+  const connectArgs: Array<string | undefined> = []
   let broken = false
 
   vi.stubGlobal('window', { innerWidth: 1280, innerHeight: 720, devicePixelRatio: 2 })
@@ -35,8 +37,9 @@ function stubBridge(): FakeBridge {
   vi.stubGlobal('navigator', { userAgent: 'test-ua/1.0' })
   vi.stubGlobal('setInterval', () => 0) // 重发自愈的定时器：测试里不真跑
   vi.stubGlobal('__gmBridge', {
-    connect: () => {
+    connect: (connId?: string) => {
       connects.push(1)
+      connectArgs.push(connId)
       return Promise.resolve()
     },
     emit: (envelope: Record<string, unknown>) => {
@@ -57,6 +60,7 @@ function stubBridge(): FakeBridge {
       broken = true
     },
     connects,
+    connectArgs,
   }
 }
 
@@ -70,6 +74,7 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
     const bridge = stubBridge()
     installPageInspector()
     expect(bridge.connects).toHaveLength(1)
+    expect(bridge.connectArgs).toEqual([undefined])
   })
 
   it('snapshot 指令：回一条 ok 信封，reqId 原样带上、载荷是渲染后 outerHTML', async () => {
