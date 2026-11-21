@@ -17,6 +17,8 @@ function flush(): Promise<void> {
 interface FakeBridge {
   sent: Array<Record<string, unknown>>
   fire: (ev: unknown) => void
+  hello: (index: number, connId: string) => void
+  posted: Array<Record<string, unknown>>
   /** 装接收时是否抛（桥不可用的形态） */
   breakListener: () => void
   /** connect 被调用的次数（常驻通道 + 重发自愈的观测面） */
@@ -40,6 +42,7 @@ function fakeEmbed(spec: FakeEmbed): Record<string, unknown> {
     id: attrs.id || '',
     src: attrs.src || '',
     parentElement: null,
+    contentWindow: {},
     getAttribute: (n: string) => (n in attrs ? attrs[n] : null),
     hasAttribute: (n: string) => n in attrs,
     getBoundingClientRect: () => ({
@@ -51,20 +54,30 @@ function fakeEmbed(spec: FakeEmbed): Record<string, unknown> {
   }
 }
 
-function stubBridge(embeds: FakeEmbed[] = []): FakeBridge {
+function stubBridge(embeds: FakeEmbed[] = [], asChild = false): FakeBridge {
   const sent: Array<Record<string, unknown>> = []
+  const posted: Array<Record<string, unknown>> = []
   const handlers: Array<(ev: unknown) => void> = []
+  const messageListeners: Array<(ev: unknown) => void> = []
   const connects: number[] = []
   const connectArgs: Array<string | undefined> = []
   let broken = false
   const nodes = embeds.map(fakeEmbed)
 
-  vi.stubGlobal('window', {
+  const win: Record<string, unknown> = {
     innerWidth: 1280,
     innerHeight: 720,
     devicePixelRatio: 2,
     getComputedStyle: (el: { __style?: unknown }) => el.__style,
-  })
+    addEventListener: (type: string, fn: (ev: unknown) => void) => {
+      if (type === 'message') messageListeners.push(fn)
+    },
+    parent: { postMessage: (data: Record<string, unknown>) => posted.push(data) },
+  }
+  win.self = win
+  win.top = asChild ? {} : win
+  vi.stubGlobal('window', win)
+
   vi.stubGlobal('document', {
     documentElement: { outerHTML: '<html><body>hello</body></html>' },
     querySelectorAll: () => nodes,
@@ -73,6 +86,7 @@ function stubBridge(embeds: FakeEmbed[] = []): FakeBridge {
   vi.stubGlobal('navigator', { userAgent: 'test-ua/1.0' })
   vi.stubGlobal('setInterval', () => 0) // 重发自愈的定时器：测试里不真跑
   vi.stubGlobal('__gmBridge', {
+    connId: 'conn-self',
     connect: (connId?: string) => {
       connects.push(1)
       connectArgs.push(connId)
@@ -89,8 +103,15 @@ function stubBridge(embeds: FakeEmbed[] = []): FakeBridge {
 
   return {
     sent,
+    posted,
     fire: (ev: unknown) => {
       for (const fn of handlers) fn(ev)
+    },
+    hello: (index: number, connId: string) => {
+      const node = nodes[index] as { contentWindow?: unknown }
+      for (const fn of messageListeners) {
+        fn({ data: { dl: 'hi', connId }, source: node.contentWindow })
+      }
     },
     breakListener: () => {
       broken = true
@@ -179,6 +200,53 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
         selector: '#ad',
       },
     ])
+  })
+
+  it('snapshot 目录：报到过的子帧带 connId，没报到的留空（查不到不等于猜一个）', async () => {
+    const bridge = stubBridge([
+      { attrs: { src: 'https://page.test/a.html' } },
+      { attrs: { src: 'https://page.test/b.html' } },
+    ])
+    installPageInspector()
+    bridge.hello(1, 'conn-b')
+
+    bridge.fire({ t: 'inspector.cmd', cmd: 'snapshot', reqId: 'r6' })
+    await flush()
+
+    const payload = (bridge.sent[0].event as Record<string, unknown>).payload as {
+      frames: Array<Record<string, unknown>>
+    }
+    expect(payload.frames[0]!.connId).toBeUndefined()
+    expect(payload.frames[1]!.connId).toBe('conn-b')
+  })
+
+  it('frame 指令：回本层文档与它自己的嵌入目录', async () => {
+    const bridge = stubBridge([{ attrs: { src: 'https://page.test/a.html', title: 'inner' } }])
+    installPageInspector()
+
+    bridge.fire({ t: 'inspector.cmd', cmd: 'frame', reqId: 'r7' })
+    await flush()
+
+    const payload = (bridge.sent[0].event as Record<string, unknown>).payload
+    expect(payload).toMatchObject({
+      frameUrl: 'https://page.test/app',
+      isTop: true,
+      html: '<html><body>hello</body></html>',
+      framesTotal: 1,
+    })
+  })
+
+  it('子帧：报到父帧；frame 指令应答，snapshot 仍只有顶层应答', async () => {
+    const bridge = stubBridge([{ attrs: { src: 'https://page.test/a.html' } }], true)
+    installPageInspector()
+    expect(bridge.posted).toEqual([{ dl: 'hi', connId: 'conn-self' }])
+
+    bridge.fire({ t: 'inspector.cmd', cmd: 'snapshot', reqId: 'r8' })
+    bridge.fire({ t: 'inspector.cmd', cmd: 'frame', reqId: 'r9' })
+    await flush()
+
+    expect(bridge.sent).toHaveLength(1)
+    expect((bridge.sent[0]!.event as Record<string, unknown>).reqId).toBe('r9')
   })
 
   it('env 指令：回视口 / 像素比 / 页面里读到的 UA（读的是页面事实，非机器真值）', async () => {

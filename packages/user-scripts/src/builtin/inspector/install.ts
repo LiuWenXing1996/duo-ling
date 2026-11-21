@@ -1,4 +1,4 @@
-// 页面检查器常驻件本体：按指令读页面（pick / snapshot / env 三模式），把结果交回去。
+// 页面检查器常驻件本体：按指令读页面（pick / snapshot / env / frame 四模式），把结果交回去。
 // 运行位置与通道形状见 ARCHITECTURE.md「脚本注入」「页面上下文」节；三个行为决策
 // （Esc 主取消路径 / env 与机器真值双源 / 单次上报契约）见 docs/adr/0012-page-inspector-cancel-and-env-duality.md。
 
@@ -7,6 +7,7 @@ import {
   type ElementPickContext,
   type InspectorMode,
   type PageEnvContext,
+  type PageFrameSnapshotContext,
   type PageSnapshotContext,
   type PageSnapshotFrame,
 } from '@duoling/shared'
@@ -46,7 +47,7 @@ const ATTR_VALUE_LIMIT = 300
 /** 祖先链层数 */
 const PARENT_DEPTH = 6
 /** 快照目录条目上限（广告位多的页面可能几十个 iframe，只列前若干个） */
-const FRAME_INDEX_LIMIT = 20
+const FRAME_INDEX_LIMIT = 50
 const FRAME_SRC_LIMIT = 200
 /** 选择器路径爬升层数 */
 const PATH_DEPTH = 4
@@ -55,6 +56,11 @@ const PATH_DEPTH = 4
 let activePick: { cancel: () => void } | null = null
 
 const EMBED_TAGS = new Set(['IFRAME', 'FRAME'])
+
+const ANY_FRAME_CMD = new Set(['pick', 'frame'])
+
+/** 宿主元素 → 该层件的 connId：子帧启动时向父帧报到，父帧按 contentWindow 引用认领（WeakMap 不留已卸文档） */
+const childConnId = new WeakMap<object, string>()
 
 function truncate(s: unknown, n: number): string {
   const str = String(s == null ? '' : s)
@@ -386,8 +392,12 @@ function frameSelector(el: Element, index: number): string {
   return pathSelector(el) || el.tagName.toLowerCase() + ':nth-of-type(' + (index + 1) + ')'
 }
 
-/** 快照模式：无 UI，静默抓渲染后 outerHTML（截断）+ 嵌入区域目录 */
-function runSnapshot(): Promise<PageSnapshotContext> {
+function connIdOf(el: Element): string | undefined {
+  const win = (el as HTMLIFrameElement).contentWindow
+  return win ? childConnId.get(win) : undefined
+}
+
+function buildFrameIndex(): { frames: PageSnapshotFrame[]; total: number } {
   const embeds = document.querySelectorAll('iframe, frame')
   const frames: PageSnapshotFrame[] = []
   for (let i = 0; i < embeds.length && i < FRAME_INDEX_LIMIT; i++) {
@@ -411,14 +421,33 @@ function runSnapshot(): Promise<PageSnapshotContext> {
         rect.width > 0 &&
         rect.height > 0,
       selector: frameSelector(el, i),
+      connId: connIdOf(el),
     })
   }
+  return { frames, total: embeds.length }
+}
+
+/** 快照模式：无 UI，静默抓渲染后 outerHTML（截断）+ 嵌入区域目录 */
+function runSnapshot(): Promise<PageSnapshotContext> {
+  const { frames, total } = buildFrameIndex()
   return Promise.resolve({
     capturedAt: Date.now(),
     pageUrl: location.href,
     html: truncate(document.documentElement.outerHTML, SNAPSHOT_LIMIT),
     frames,
-    framesTotal: embeds.length,
+    framesTotal: total,
+  })
+}
+
+function runFrame(): Promise<PageFrameSnapshotContext> {
+  const { frames, total } = buildFrameIndex()
+  return Promise.resolve({
+    capturedAt: Date.now(),
+    frameUrl: location.href,
+    isTop: window.top ? window.top === window.self : true,
+    html: truncate(document.documentElement.outerHTML, SNAPSHOT_LIMIT),
+    frames,
+    framesTotal: total,
   })
 }
 
@@ -438,6 +467,7 @@ function run(mode: InspectorMode): Promise<unknown> {
   try {
     if (mode === 'snapshot') return runSnapshot()
     if (mode === 'env') return runEnv()
+    if (mode === 'frame') return runFrame()
     return runPick()
   } catch (e) {
     return Promise.reject(e instanceof Error ? e : new Error(String(e)))
@@ -445,6 +475,7 @@ function run(mode: InspectorMode): Promise<unknown> {
 }
 
 declare const __gmBridge: {
+  readonly connId: string
   connect(connId?: string): Promise<void>
   emit(envelope: Record<string, unknown>): void
   onEvent(fn: (ev: Record<string, unknown>) => void): void
@@ -457,6 +488,19 @@ const CHANNEL_RECONNECT_MS = 15_000
 export function installPageInspector(): void {
   if (window.__gmInspectorHost) return
   window.__gmInspectorHost = true
+
+  try {
+    if (typeof window.addEventListener === 'function') {
+      window.addEventListener('message', function (ev) {
+        const d = ev.data as { dl?: unknown; connId?: unknown } | null
+        if (!d || d.dl !== 'hi' || typeof d.connId !== 'string' || !ev.source) return
+        childConnId.set(ev.source as object, d.connId)
+      })
+    }
+    if (window.top && window.top !== window.self && __gmBridge.connId) {
+      window.parent.postMessage({ dl: 'hi', connId: __gmBridge.connId }, '*')
+    }
+  } catch {}
 
   // 结果上行：每个 reqId 只回一条，把结果与发起侧那一次调用配对上。
   // emit 是 fire-and-forget：发不出去（中继件未就位等）本件无从得知，发起侧按超时收场 ——
@@ -506,7 +550,7 @@ export function installPageInspector(): void {
       }
 
       // 指令按 tab 广播：快照 / 环境读数是整页的数据，只由顶层回答（各层都回就成了赛跑）
-      if (ev.cmd !== 'pick' && window.top && window.top !== window.self) return
+      if (!ANY_FRAME_CMD.has(String(ev.cmd)) && window.top && window.top !== window.self) return
 
       try {
         Promise.resolve(run(ev.cmd as InspectorMode)).then(
