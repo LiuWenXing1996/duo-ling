@@ -21,6 +21,7 @@ export type AgentToolName =
   | 'script_apply'
   | 'element_read'
   | 'page_snapshot'
+  | 'iframe_snapshot'
   | 'env_read'
   | 'page_env_read'
   | 'tab_record_enable'
@@ -83,10 +84,17 @@ export function toolDescriptions(): Record<AgentToolName, string> {
     page_snapshot:
       '抓取当前页面的**渲染后 DOM** 快照（documentElement.outerHTML，截断 ~32KB，采集时刻快照非实时）。' +
       '需要了解页面整体结构、找脚本目标节点的上下文、或摘要信息不够用时调用。' +
-      '同时给出 frames 目录：每个 iframe/frame 的 src、位置尺寸、可见性 ——' +
-      'html 里这些位置只有宿主标签，**不含**各 frame 的内部 DOM，要读内部得从那一层取（同源可走 contentDocument）。' +
+      '同时给出 frames 目录：每个 iframe/frame 的 src、位置尺寸、可见性，以及该层的 connId ——' +
+      'html 里这些位置只有宿主标签，**不含**各 frame 的内部 DOM；' +
+      '要看某一层的内容，把它的 connId 交给 iframe_snapshot。' +
       '采不到的情形（内置页 / 未开启「允许运行用户脚本」）返回 ok:false 带原因；' +
       '目标页是本会话所属的标签页，不必是当前激活页。',
+    iframe_snapshot:
+      '按 connId 读取某一个 frame 自己的 DOM（那一层的 documentElement.outerHTML，截断 ~32KB）。' +
+      'connId 来自 page_snapshot 返回的 frames[]；那层内部还嵌着 frame 时，返回值同样带 frames 目录，' +
+      '可以继续按 connId 逐层下钻。跨域 frame 也读得到（指令定向发给那一层的件，不经过顶层）。' +
+      'connId 只在当前这份文档里有效：页面刷新、iframe 重载后它就失效，此时返回 ok:false，' +
+      '重新 page_snapshot 即可拿新的。srcdoc / about:blank / data: 那类没有件，目录里本来就不会有它们的 connId。',
     env_read:
       '读取这台机器的运行环境：操作系统与版本、芯片架构、CPU 核数、内存档次、浏览器与扩展版本、' +
       '屏幕尺寸与像素比、语言与时区、系统明暗与减弱动效偏好。' +
@@ -152,6 +160,9 @@ export const TOOL_PARAM_DESCRIPTIONS = {
   },
   element_read: {
     part: '只取一部分省 token；默认 all',
+  },
+  iframe_snapshot: {
+    connId: 'page_snapshot 的 frames[] 里那一条的 connId（原样照抄，别自己拼或猜）',
   },
   error_read: {
     id: '错误 ID：完整 id，或至少 8 位的前缀（多命中会报不唯一）',
@@ -337,9 +348,19 @@ export function agentToolViews(): AgentToolView[] {
       summary: '抓当前页渲染后 DOM（截断 ~32KB）',
       description: D.page_snapshot,
       params: [],
-      returns: '{ ok:true, pageUrl, capturedAt, html }',
+      returns:
+        '{ ok:true, pageUrl, capturedAt, html, frames:[{ id, src, rect, visible, selector, connId }] }',
       unavailable:
         '未接采集通道 / 内置页（chrome://）/ 找不到会话所属的标签页 → { ok:false, error }',
+    },
+    {
+      name: 'iframe_snapshot',
+      title: '读某个 frame',
+      summary: '按 connId 读一个 iframe 内部的 DOM，可逐层下钻',
+      description: D.iframe_snapshot,
+      params: [{ name: 'connId', type: 'string', required: true, desc: T.iframe_snapshot.connId }],
+      returns: '{ ok:true, frameUrl, isTop, html, frames:[…] }（frames 是这一层自己的目录）',
+      unavailable: 'connId 已失效（frame 重载 / 被移除）/ 那层没有件 → { ok:false, error }',
     },
     {
       name: 'env_read',

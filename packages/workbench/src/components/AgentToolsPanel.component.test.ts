@@ -85,6 +85,7 @@ describe('AgentToolsPanel', () => {
       'script_apply',
       'element_read',
       'page_snapshot',
+      'iframe_snapshot',
       'error_read',
     ]) {
       expect(wrapper.find(`[data-testid="agent-tools-select-${name}"]`).exists()).toBe(true)

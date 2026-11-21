@@ -1,4 +1,4 @@
-// Agent 工具集：脚本读写（script_*）、页面上下文（element_read / page_snapshot）、
+// Agent 工具集：脚本读写（script_*）、页面上下文（element_read / page_snapshot / iframe_snapshot）、
 // 环境读取（env_read / page_env_read）、页面录制（tab_record_*）、
 // 诊断查询（error_read / run_log_read）、识图（image_ask）。
 //
@@ -37,6 +37,7 @@ import type {
   UserScriptErrorLookup,
   ElementPickContext,
   PageEnvContext,
+  PageFrameSnapshotContext,
   PageSnapshotContext,
 } from '@duoling/shared'
 import { readSource } from '../fs/git'
@@ -159,6 +160,7 @@ export type ScriptToolSet = Record<
  * readRunLog：运行日志读取（SW 侧 duoling-runtime 库，offscreen 拿不到；未提供 = 工具返回不可用）。
  * readRunEvents：某次运行的动作明细（同一通道，按 runId 拉；未提供 = 工具返回不可用）。
  * askImage：识图（读资源库原图 → 一次独立模型调用；未提供 = 工具返回不可用）。
+ * captureFrameSnapshot：单帧快照（按 connId 定向到那一层；未提供 = 工具返回不可用）。
  */
 export function buildScriptTools(
   ws: TaskWorkspace,
@@ -172,6 +174,7 @@ export function buildScriptTools(
   readRunLog?: () => Promise<UserScriptRunLogRow[]>,
   readRunEvents?: (runId: string) => Promise<UserScriptRunEvent[]>,
   askImage?: AskImage,
+  captureFrameSnapshot?: (connId: string) => Promise<PageFrameSnapshotContext>,
 ): ScriptToolSet {
   const D = toolDescriptions()
   const tools = {
@@ -342,6 +345,32 @@ export function buildScriptTools(
             ok: true,
             pageUrl: snap.pageUrl,
             capturedAt: snap.capturedAt,
+            frames: snap.frames,
+            framesTotal: snap.framesTotal,
+            html: snap.html,
+          }
+        } catch (e) {
+          return { ok: false, error: errorText(e) }
+        }
+      },
+    }),
+    iframe_snapshot: tool({
+      description: D.iframe_snapshot,
+      inputSchema: z.object({
+        connId: z.string().describe(TOOL_PARAM_DESCRIPTIONS.iframe_snapshot.connId),
+      }),
+      execute: async ({ connId }) => {
+        if (!captureFrameSnapshot) {
+          return { ok: false, error: '单帧快照采集不可用' }
+        }
+        const id = connId.trim()
+        if (!id) return { ok: false, error: 'connId 为空' }
+        try {
+          const snap = await captureFrameSnapshot(id)
+          return {
+            ok: true,
+            frameUrl: snap.frameUrl,
+            isTop: snap.isTop,
             frames: snap.frames,
             framesTotal: snap.framesTotal,
             html: snap.html,

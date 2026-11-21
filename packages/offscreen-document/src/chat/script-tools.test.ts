@@ -71,6 +71,9 @@ function makeTools(
   readError?: (id: string) => Promise<import('@duoling/shared').UserScriptErrorLookup>,
   tabRecord?: TabRecordHooks,
   capturePageEnv?: () => Promise<import('@duoling/shared').PageEnvContext>,
+  captureFrameSnapshot?: (
+    connId: string,
+  ) => Promise<import('@duoling/shared').PageFrameSnapshotContext>,
 ) {
   const ws = makeWorkspace()
   return buildScriptTools(
@@ -82,6 +85,10 @@ function makeTools(
     capturePageEnv,
     readError,
     tabRecord,
+    undefined,
+    undefined,
+    undefined,
+    captureFrameSnapshot,
   )
 }
 
@@ -717,6 +724,52 @@ describe('page_snapshot（快照改 AI 工具采集）', () => {
     expect(out.frames).toEqual([
       expect.objectContaining({ id: 'f0', src: 'https://example.com/embed' }),
     ])
+  })
+
+  it('iframe_snapshot：connId 原样交给采集通道，透传那一层的文档与目录', async () => {
+    const seen: string[] = []
+    const tools = makeTools(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (connId) => {
+        seen.push(connId)
+        return {
+          capturedAt: 1758000000000,
+          frameUrl: 'https://example.com/embed',
+          isTop: false,
+          html: '<html><body>inner</body></html>',
+          frames: [],
+          framesTotal: 0,
+        }
+      },
+    )
+    const out = (await tools.iframe_snapshot.execute({ connId: ' conn-1 ' }, execOpts3)) as Record<
+      string,
+      unknown
+    >
+    expect(seen).toEqual(['conn-1'])
+    expect(out).toMatchObject({
+      ok: true,
+      frameUrl: 'https://example.com/embed',
+      isTop: false,
+      html: '<html><body>inner</body></html>',
+    })
+  })
+
+  it('iframe_snapshot：没接通道或 connId 为空 → ok:false', async () => {
+    const noChannel = makeTools()
+    expect(await noChannel.iframe_snapshot.execute({ connId: 'x' }, execOpts3)).toMatchObject({
+      ok: false,
+    })
+    const blank = makeTools(undefined, undefined, undefined, undefined, undefined, async () => {
+      throw new Error('不该走到采集')
+    })
+    expect(await blank.iframe_snapshot.execute({ connId: '   ' }, execOpts3)).toMatchObject({
+      ok: false,
+    })
   })
 
   it('采集失败 → ok:false 带可读错误', async () => {

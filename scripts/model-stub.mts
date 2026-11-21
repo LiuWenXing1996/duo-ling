@@ -68,7 +68,8 @@ export interface ModelStubOptions {
    * 返回 undefined 时退回 `reply` 的文本。
    *
    * **给了 plan 就完全按 plan**；不给时启用内置调试触发（消息整句是「快照」→ page_snapshot、
-   * 「页面环境」→ page_env_read，工具结果回流后自动收尾复述），供 dev 手测走通工具链。
+   * 「页面环境」→ page_env_read、「读frame」→ iframe_snapshot，工具结果回流后自动收尾复述），
+   * 供 dev 手测走通工具链。
    */
   plan?: (hit: ModelStubHit, index: number) => StubReply | undefined
   /** 模型 id（回包里的 model 字段，默认 stub-model） */
@@ -114,6 +115,7 @@ function estimateTokens(text: unknown): number {
 const BUILTIN_TRIGGERS: Record<string, string[]> = {
   page_snapshot: ['快照', '页面快照'],
   page_env_read: ['页面环境'],
+  iframe_snapshot: ['读frame', '读 frame', '读iframe'],
 }
 
 /** 一句话该怎么触发：命中返回工具名，未命中返回 null */
@@ -144,7 +146,8 @@ function summarizeToolResult(raw: unknown): string {
     const o = obj as Record<string, unknown>
     if (o.ok === false) return `❌ 没采到：${String(o.error ?? '工具返回 ok:false')}`
     if (typeof o.html === 'string') {
-      return `✅ 快照到手：${String(o.pageUrl ?? '(无 pageUrl)')} · HTML ${o.html.length} 字符`
+      const url = String(o.frameUrl ?? o.pageUrl ?? '(无地址)')
+      return `✅ 快照到手：${url} · HTML ${o.html.length} 字符`
     }
     if (o.viewport) {
       const vp = o.viewport as { width: unknown; height: unknown }
@@ -166,6 +169,23 @@ function currentTurnToolMessages(messages: ModelStubHit['messages']) {
   return messages.slice(lastUser + 1).filter((m) => m.role === 'tool')
 }
 
+/** 从历史工具结果里捞最近一个 frames[].connId：假模型编不出 connId，手测 iframe_snapshot 只能从上一轮快照里取 */
+function latestFrameConnId(messages: ModelStubHit['messages']): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]!.role !== 'tool') continue
+    try {
+      const o = JSON.parse(String(flattenText(messages[i]!.content))) as {
+        frames?: Array<{ connId?: unknown }>
+      }
+      const hit = (o.frames ?? []).find((f) => typeof f?.connId === 'string')
+      if (hit) return String(hit.connId)
+    } catch {
+      /* 不是 JSON 的工具结果：跳过 */
+    }
+  }
+  return null
+}
+
 /**
  * 没给 `plan` 时的默认脚本：① 命中触发词 → 发对应工具调用；② 本轮工具结果已回流 → 收尾复述。
  * 只看本轮，因此天然只走两步、不会自激，多轮对话也不会串轮。
@@ -178,7 +198,12 @@ function builtinPlan(hit: ModelStubHit): StubReply | undefined {
     return { text: `${lines.join('\n')}\n（假模型调试回执）` }
   }
   const name = builtinTriggerFor(hit.lastUser)
-  return name ? { toolCalls: [{ name, args: {} }] } : undefined
+  if (!name) return undefined
+  if (name === 'iframe_snapshot') {
+    const connId = latestFrameConnId(hit.messages) ?? ''
+    return { toolCalls: [{ name, args: { connId } }] }
+  }
+  return { toolCalls: [{ name, args: {} }] }
 }
 
 /** 请求体的形状按需取用：stub 只关心这几个字段，其余原样忽略 */
@@ -371,5 +396,7 @@ if (isCli) {
   console.log(`[假模型] 已就绪：${model.stub.baseUrl}`)
   console.log('[假模型] 填进「设置 → 添加模型 → 服务商选自定义 → 接口地址」（密钥可留空）')
   console.log('[假模型] 保持本进程运行；Ctrl-C 结束')
-  console.log('[假模型] 调试触发：消息整句发「快照」或「页面环境」，即可走通对应的工具链')
+  console.log(
+    '[假模型] 调试触发：消息整句发「快照」/「页面环境」/「读frame」，即可走通对应的工具链',
+  )
 }
