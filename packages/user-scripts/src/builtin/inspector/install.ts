@@ -48,9 +48,6 @@ const PARENT_DEPTH = 6
 /** 快照目录条目上限（广告位多的页面可能几十个 iframe，只列前若干个） */
 const FRAME_INDEX_LIMIT = 20
 const FRAME_SRC_LIMIT = 200
-/** 件跑不起来的 scheme：这些 frame 里没有件，内部 DOM 拿不到 */
-const NO_PIECE_SCHEME =
-  /^(?:about|data|blob|filesystem|javascript|chrome|chrome-extension|moz-extension):/
 /** 选择器路径爬升层数 */
 const PATH_DEPTH = 4
 
@@ -382,12 +379,6 @@ function frameSrc(el: Element): string | undefined {
   return raw ? truncate(raw, FRAME_SRC_LIMIT) : undefined
 }
 
-function frameReadable(el: Element): boolean {
-  if (el.hasAttribute('srcdoc')) return false
-  const src = frameSrc(el)
-  return !!src && !NO_PIECE_SCHEME.test(src.toLowerCase())
-}
-
 function frameSelector(el: Element, index: number): string {
   if (el.id) return '#' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id)
   const title = el.getAttribute('title')
@@ -419,7 +410,6 @@ function runSnapshot(): Promise<PageSnapshotContext> {
         style.visibility !== 'hidden' &&
         rect.width > 0 &&
         rect.height > 0,
-      readable: frameReadable(el),
       selector: frameSelector(el, i),
     })
   }

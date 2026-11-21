@@ -704,7 +704,6 @@ describe('page_snapshot（快照改 AI 工具采集）', () => {
           src: 'https://example.com/embed',
           rect: { x: 0, y: 0, width: 300, height: 150 },
           visible: true,
-          readable: true,
           selector: '#embed',
         },
       ],
@@ -716,7 +715,7 @@ describe('page_snapshot（快照改 AI 工具采集）', () => {
     expect(out.html).toContain('<body>hi</body>')
     expect(out.framesTotal).toBe(2)
     expect(out.frames).toEqual([
-      expect.objectContaining({ id: 'f0', src: 'https://example.com/embed', readable: true }),
+      expect.objectContaining({ id: 'f0', src: 'https://example.com/embed' }),
     ])
   })
 

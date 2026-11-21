@@ -134,7 +134,7 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
     })
   })
 
-  it('snapshot 目录：按宿主属性列嵌入区域，无件的 scheme 标 readable:false', async () => {
+  it('snapshot 目录：按宿主属性列嵌入区域，selector 依次用 title / id / nth-of-type', async () => {
     const bridge = stubBridge([
       {
         attrs: { src: 'https://page.test/a.html', title: 'same' },
@@ -161,7 +161,6 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
         title: 'same',
         rect: { x: 10, y: 20, width: 320, height: 148 },
         visible: true,
-        readable: true,
         selector: 'iframe[title="same"]',
       },
       {
@@ -169,7 +168,6 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
         tag: 'iframe',
         rect: { x: 0, y: 0, width: 0, height: 0 },
         visible: false,
-        readable: false,
         selector: 'iframe:nth-of-type(2)',
       },
       {
@@ -178,7 +176,6 @@ describe('dl-page-inspector（MAIN 世界系统脚本）', () => {
         src: 'about:blank',
         rect: { x: 0, y: 0, width: 0, height: 0 },
         visible: false,
-        readable: false,
         selector: '#ad',
       },
     ])
