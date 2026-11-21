@@ -8,9 +8,14 @@
 // 超时放在这一层（不重复设在发起侧）：件可能因页面卸载 / 导航而永远不上报，留一条兜底，
 // 文案按模式区分 —— 用户要能判断是「自己没点」还是「页面没了」。
 
-import type { ElementPickContext, PageEnvContext, PageSnapshotContext } from '@duoling/shared'
+import type {
+  ElementPickContext,
+  PageEnvContext,
+  PageFrameSnapshotContext,
+  PageSnapshotContext,
+} from '@duoling/shared'
 import { INSPECTOR_HOST_ID } from '@duoling/user-scripts/builtin'
-import { pushCommandTo } from '../gm-port'
+import { getGmPortRegistry, pushCommandTo, pushEvent } from '../gm-port'
 import { clearFlight, findFlightTab, readPickState, recordFlight, settlePick } from './pending-pick'
 
 const INSPECTOR_TIMEOUT_MS = 60_000
@@ -19,9 +24,14 @@ const INSPECTOR_TIMEOUT_MS = 60_000
 const TIMEOUT_MESSAGE = {
   snapshot: '页面快照采集失败：60 秒内未完成（页面可能已关闭或刷新）',
   env: '页面环境读取失败：60 秒内未完成（页面可能已关闭或刷新）',
+  frame: '该 frame 读取失败：60 秒内未完成（它可能已重载、被移除，或页面已刷新）',
 } as const
 
-export type InspectorMode = keyof typeof TIMEOUT_MESSAGE
+/** 按 tab 广播、只由顶层回答的两种模式（frame 按 connId 定向，见 capturePageFrameFromTab） */
+export type InspectorMode = Exclude<keyof typeof TIMEOUT_MESSAGE, 'frame'>
+
+/** connId 失效的文案：它来自上一份目录，文档一重载就换新的了 */
+const FRAME_GONE = '该 frame 已重载或已移除：请重新 page_snapshot 拿最新的 connId'
 
 /**
  * 件不在位时的文案。触发它的情形都长一个样（下发时该页上没有件的在岗连接）：扩展侧开关没开
@@ -46,28 +56,33 @@ function mintReqId(): string {
     : `dlinsp-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+function waitFor(reqId: string, timeoutMessage: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pending.delete(reqId)
+      reject(new Error(timeoutMessage))
+    }, INSPECTOR_TIMEOUT_MS)
+    pending.set(reqId, { resolve, reject, timer })
+  })
+}
+
+function dropPending(reqId: string): void {
+  const entry = pending.get(reqId)
+  if (!entry) return
+  pending.delete(reqId)
+  clearTimeout(entry.timer)
+}
+
 /**
  * 失败路径：下发时该页上没有件的在岗连接 → 立刻抛（不等超时）；件报错 → 抛件给的原因；
  * 永不结算 → 超时抛。
  */
 export async function runInspectorCommand<T>(tabId: number, mode: InspectorMode): Promise<T> {
   const reqId = mintReqId()
-  const wait = new Promise<unknown>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      pending.delete(reqId)
-      reject(new Error(TIMEOUT_MESSAGE[mode]))
-    }, INSPECTOR_TIMEOUT_MS)
-    pending.set(reqId, { resolve, reject, timer })
-  })
-  // 即时失败并清记账 —— 这条 wait 不会再有人 await，留着只会得到一条
-  // 「拒绝却无人处理」的 Promise（控制台噪音），而不是给用户任何信息。
+  const wait = waitFor(reqId, TIMEOUT_MESSAGE[mode])
   const sent = pushCommandTo(INSPECTOR_HOST_ID, tabId, { t: 'inspector.cmd', cmd: mode, reqId })
   if (!sent) {
-    const entry = pending.get(reqId)
-    if (entry) {
-      pending.delete(reqId)
-      clearTimeout(entry.timer)
-    }
+    dropPending(reqId)
     throw new Error(NOT_READY)
   }
   return (await wait) as T
@@ -163,6 +178,27 @@ async function settlePickFromEvent(
  */
 export async function capturePageSnapshotFromTab(tabId: number): Promise<PageSnapshotContext> {
   return runInspectorCommand<PageSnapshotContext>(tabId, 'snapshot')
+}
+
+function framePort(tabId: number, connId: string): chrome.runtime.Port | null {
+  for (const [port, meta] of getGmPortRegistry().meta) {
+    if (meta.uuid === INSPECTOR_HOST_ID && meta.connId === connId && meta.tabId === tabId) {
+      return port
+    }
+  }
+  return null
+}
+
+export async function capturePageFrameFromTab(
+  tabId: number,
+  connId: string,
+): Promise<PageFrameSnapshotContext> {
+  const target = framePort(tabId, connId)
+  if (!target) throw new Error(FRAME_GONE)
+  const reqId = mintReqId()
+  const wait = waitFor(reqId, TIMEOUT_MESSAGE.frame)
+  pushEvent(getGmPortRegistry(), target, { t: 'inspector.cmd', cmd: 'frame', reqId })
+  return (await wait) as PageFrameSnapshotContext
 }
 
 /**

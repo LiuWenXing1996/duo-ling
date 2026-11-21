@@ -9,6 +9,7 @@ import { LinkError } from '@duoling/shared'
 import type {
   ModelProfileState,
   PageEnvContext,
+  PageFrameSnapshotContext,
   PageSnapshotContext,
   ScriptConfig,
   UserScriptRunEvent,
@@ -69,6 +70,11 @@ export const offscreenBridge = {
    */
   capturePageEnv: (conversationId?: string): Promise<PageEnvContext> =>
     send('page:env', { conversationId }),
+
+  capturePageFrame: (
+    conversationId: string | undefined,
+    connId: string,
+  ): Promise<PageFrameSnapshotContext> => send('page:frame', { conversationId, connId }),
 
   readError: (id: string): Promise<UserScriptErrorLookup> => send('userscript:errorRead', { id }),
 
