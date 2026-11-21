@@ -461,6 +461,9 @@ export function installPageInspector(): void {
         return
       }
 
+      // 指令按 tab 广播：快照 / 环境读数是整页的数据，只由顶层回答（各层都回就成了赛跑）
+      if (ev.cmd !== 'pick' && window.top && window.top !== window.self) return
+
       try {
         Promise.resolve(run(ev.cmd as InspectorMode)).then(
           function (payload) {
